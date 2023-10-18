@@ -20,7 +20,7 @@ namespace library_loader
 #if UNICODE
 			std::wstring const& modulePath
 #else
-			std::string const& moduelPath
+			std::string const& modulePath
 #endif
 		)
 		{

@@ -7,7 +7,10 @@ add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 target_link_directories(${PROJECT_NAME} PRIVATE
     "$ENV{VK_SDK_PATH}/Lib"
+    "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}"
 )
+
+target_link_libraries(${PROJECT_NAME} PRIVATE "glfw3.lib" "vulkan-1.lib")
 
 target_include_directories(${PROJECT_NAME} PUBLIC "$ENV{VK_SDK_PATH}/Include")
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

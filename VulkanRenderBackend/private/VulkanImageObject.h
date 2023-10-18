@@ -1,5 +1,5 @@
 #pragma once
-#include <VulkanMemoryAllocator/include/vk_mem_alloc.h>
+#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
 #include <SharedTools/header/RAII.h>
 #include <RenderInterface/header/GPUTexture.h>
 #include "VulkanIncludes.h"

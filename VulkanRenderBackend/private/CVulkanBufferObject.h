@@ -1,6 +1,6 @@
 #pragma once
 #include "VulkanIncludes.h"
-#include <VulkanMemoryAllocator/include/vk_mem_alloc.h>
+#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
 #include "VulkanApplicationSubobjectBase.h"
 #include <RenderInterface/header/Common.h>
 

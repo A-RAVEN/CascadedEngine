@@ -2,7 +2,7 @@
 #include  <vulkan/vulkan.hpp>
 #include "RenderBackendSettings.h"
 #include "VulkanApplicationSubobjectBase.h"
-#include <VulkanMemoryAllocator/include/vk_mem_alloc.h>
+#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
 #include "CVulkanBufferObject.h"
 #include <deque>
 #include <mutex>

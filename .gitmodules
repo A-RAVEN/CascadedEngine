@@ -1,0 +1,6 @@
+[submodule "ExternalLib/glfw"]
+	path = ExternalLib/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "ExternalLib/VulkanMemoryAllocator"]
+	path = ExternalLib/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git

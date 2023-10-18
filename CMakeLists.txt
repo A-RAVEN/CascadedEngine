@@ -21,6 +21,7 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /MANIFEST:NO")
 
 
 # 包含子项目。
+add_subdirectory ("ExternalLib")
 add_subdirectory ("RenderInterface")
 add_subdirectory ("ShaderCompiler")
 add_subdirectory ("ThreadManager")

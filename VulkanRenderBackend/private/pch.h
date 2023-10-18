@@ -15,7 +15,7 @@
 #include "VulkanIncludes.h"
 #include "Utils.h"
 #define GLFW_INCLUDE_NONE
-#include <glfw/include/GLFW/glfw3.h>
+#include <ExternalLib/glfw/include/GLFW/glfw3.h>
 #include <SharedTools/header/LibraryExportCommon.h>
 
 #endif //PCH_H

@@ -1,4 +1,4 @@
-#include "private/include/pch.h"
+#include "pch.h"
 #include "IUploadingResource.h"
 #include "CVulkanApplication.h"
 
