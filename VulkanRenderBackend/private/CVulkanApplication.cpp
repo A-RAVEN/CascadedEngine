@@ -64,6 +64,12 @@ namespace graphics_backend
 				allocator->TickUploadResources(p_GPUAddressUploadingTaskGraph);
 			});
 
+		//Tick uploading shader bindings
+		m_ConstantSetAllocator.Foreach([this](ShaderConstantsBuilder const&, ShaderConstantSetAllocator* allocator)
+			{
+				allocator->TickUploadResources(p_MemoryResourceUploadingTaskGraph);
+			});
+
 	}
 
 	void CVulkanApplication::EndThisFrame()

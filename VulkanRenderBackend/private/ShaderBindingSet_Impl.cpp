@@ -30,7 +30,7 @@ namespace graphics_backend {
 	}
 
 	ShaderConstantSet_Impl::ShaderConstantSet_Impl(CVulkanApplication& owner) :
-		BaseUploadingResource(owner)
+		BaseTickingUpdateResource(owner)
 	{
 	}
 
@@ -52,6 +52,7 @@ namespace graphics_backend {
 		memcpy(&m_UploadData[sizeof(uint32_t) * found->second.first]
 			, pValue
 			, sizeof(uint32_t) * found->second.second);
+		MarkDirtyThisFrame();
 	}
 
 	void ShaderConstantSet_Impl::Initialize(ShaderConstantSetMetadata const* inMetaData)
@@ -59,22 +60,22 @@ namespace graphics_backend {
 		p_Metadata = inMetaData;
 	}
 
-	void ShaderConstantSet_Impl::UploadAsync()
-	{
-		BaseUploadingResource::UploadAsync(UploadingResourceType::eAddressDataThisFrame);
-	}
+	//void ShaderConstantSet_Impl::UploadAsync()
+	//{
+	//	BaseUploadingResource::UploadAsync(UploadingResourceType::eAddressDataThisFrame);
+	//}
 
-	bool ShaderConstantSet_Impl::UploadingDone() const
-	{
-		return BaseUploadingResource::UploadingDone();
-	}
+	//bool ShaderConstantSet_Impl::UploadingDone() const
+	//{
+	//	return BaseUploadingResource::UploadingDone();
+	//}
 
 	std::string const& ShaderConstantSet_Impl::GetName() const
 	{
 		return p_Metadata->GetBuilder()->GetName();
 	}
 
-	void ShaderConstantSet_Impl::DoUpload()
+	void ShaderConstantSet_Impl::TickUpload()
 	{
 		CVulkanMemoryManager& memoryManager = GetMemoryManager();
 		auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
@@ -178,6 +179,10 @@ namespace graphics_backend {
 	void ShaderConstantSetAllocator::Release()
 	{
 		m_ShaderConstantSetPool.ReleaseAll();
+	}
+	void ShaderConstantSetAllocator::TickUploadResources(CTaskGraph* pTaskGraph)
+	{
+		m_ShaderConstantSetPool.TickUpload(pTaskGraph);
 	}
 	ShaderBindingSet_Impl::ShaderBindingSet_Impl(CVulkanApplication& owner) : BaseTickingUpdateResource(owner)
 	{

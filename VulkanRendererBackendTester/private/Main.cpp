@@ -151,7 +151,6 @@ int main(int argc, char *argv[])
 	
 	vertexBuffer->UploadAsync();
 	indexBuffer->UploadAsync();
-	//shaderBindings->UploadAsync();
 	image->UploadAsync();
 	
 
@@ -161,8 +160,6 @@ int main(int argc, char *argv[])
 		auto perspective = glm::perspective(glm::radians(45.0f), 1024.0f / 512.0f, 0.1f, 1000.0f);
 		glm::mat4 data = perspective * lookat;
 		shaderConstants->SetValue("viewProjectionMatrix", data);
-		shaderConstants->UploadAsync();
-
 		shaderBindings->SetConstantSet(shaderConstants->GetName(), shaderConstants);
 
 		auto pRenderGraph = pRenderInterface->NewRenderGraph();
@@ -193,25 +190,6 @@ int main(int argc, char *argv[])
 						std::cout << "Not Finish Yet" << std::endl;
 					}
 				});
-			//.Subpass({ {0} }
-			//	, CPipelineStateObject{}
-			//	, vertexInputDesc
-			//	, shaderSet
-			//	, bindingSetList
-			//	, [indexBuffer, shaderBindings](CInlineCommandList& cmd)
-			//	{
-			//		if (vertexBuffer1->UploadingDone() && indexBuffer->UploadingDone() && shaderBindings->UploadingDone())
-			//		{
-			//			cmd.SetShaderBindings({ shaderBindings });
-			//			cmd.BindVertexBuffers({ vertexBuffer1.get() }, {});
-			//			cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
-			//			cmd.DrawIndexed(3);
-			//		}
-			//		else
-			//		{
-			//			std::cout << "Not Finish Yet" << std::endl;
-			//		}
-			//	});
 
 				pRenderGraph->PresentWindow(windowHandle);
 

@@ -14,19 +14,18 @@ namespace graphics_backend
 	class ShaderConstantSetMetadata;
 	class ShaderDescriptorSetAllocator;
 
-	class ShaderConstantSet_Impl : public BaseUploadingResource, public ShaderConstantSet
+	class ShaderConstantSet_Impl : public BaseTickingUpdateResource, public ShaderConstantSet
 	{
 	public:
 		ShaderConstantSet_Impl(CVulkanApplication& owner);
 		// 通过 ShaderBindingSet 继承
 		virtual void SetValue(std::string const& name, void* pValue) override;
 		void Initialize(ShaderConstantSetMetadata const* inMetaData);
-		virtual void UploadAsync() override;
-		virtual bool UploadingDone() const override;
+		//virtual void UploadAsync() override;
+		//virtual bool UploadingDone() const override;
 		virtual std::string const& GetName() const override;
 		std::shared_ptr<CVulkanBufferObject> GetBufferObject() const { return m_BufferObject; }
-	protected:
-		virtual void DoUpload() override;
+		virtual void TickUpload() override;
 	private:
 		ShaderConstantSetMetadata const* p_Metadata;
 		std::vector<uint8_t> m_UploadData;
@@ -53,9 +52,10 @@ namespace graphics_backend
 		void Create(ShaderConstantsBuilder const& builder);
 		std::shared_ptr<ShaderConstantSet> AllocateSet();
 		virtual void Release() override;
+		void TickUploadResources(CTaskGraph* pTaskGraph);
 	private:
 		ShaderConstantSetMetadata m_Metadata;
-		TVulkanApplicationPool<ShaderConstantSet_Impl> m_ShaderConstantSetPool;
+		TTickingUpdateResourcePool<ShaderConstantSet_Impl> m_ShaderConstantSetPool;
 	};
 
 	class ShaderBindingSetMetadata
@@ -133,7 +133,7 @@ namespace graphics_backend
 		void Create(ShaderBindingBuilder const& builder);
 		std::shared_ptr<ShaderBindingSet> AllocateSet();
 		virtual void Release() override;
-		virtual void TickUploadResources(CTaskGraph* pTaskGraph);
+		void TickUploadResources(CTaskGraph* pTaskGraph);
 	private:
 		ShaderBindingSetMetadata m_Metadata;
 		TTickingUpdateResourcePool<ShaderBindingSet_Impl> m_ShaderBindingSetPool;
