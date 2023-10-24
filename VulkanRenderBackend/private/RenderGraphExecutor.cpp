@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "RenderGraphExecutor.h"
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
 #include "CommandList_Impl.h"
 #include "VulkanPipelineObject.h"

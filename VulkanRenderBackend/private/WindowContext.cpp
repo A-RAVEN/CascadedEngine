@@ -1,7 +1,7 @@
 #include "pch.h"
 #include "WindowContext.h"
 #include <math.h>
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
 
 namespace graphics_backend

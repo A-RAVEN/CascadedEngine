@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
 #include "VulkanPipelineObject.h"
 

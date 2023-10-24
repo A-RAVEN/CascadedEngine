@@ -2,7 +2,7 @@
 #include "CVulkanBufferObject.h"
 #include "CVulkanThreadContext.h"
 
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 
 namespace graphics_backend
 {

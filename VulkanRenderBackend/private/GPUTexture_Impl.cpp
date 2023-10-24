@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "GPUTexture_Impl.h"
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "VulkanBarrierCollector.h"
 #include "InterfaceTranslator.h"
 

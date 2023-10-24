@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "VulkanApplicationSubobjectBase.h"
 
 namespace graphics_backend

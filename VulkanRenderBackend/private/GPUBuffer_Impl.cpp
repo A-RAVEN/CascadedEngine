@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "GPUBuffer_Impl.h"
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "CVulkanMemoryManager.h"
 #include "InterfaceTranslator.h"
 

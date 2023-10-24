@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "RenderBackendSettings.h"
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "CVulkanThreadContext.h"
 
 namespace graphics_backend

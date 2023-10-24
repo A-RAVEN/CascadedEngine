@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "TickUploadingResource.h"
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 
 namespace graphics_backend
 {

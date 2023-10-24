@@ -1,7 +1,7 @@
 #include "pch.h"
 #include "CVulkanMemoryManager.h"
 
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include "VulkanImageObject.h"
 #include <RenderInterface/header/GPUTexture.h>
 #include "InterfaceTranslator.h"

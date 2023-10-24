@@ -1,5 +1,5 @@
 #pragma once
-#include "CVulkanApplication.h"
+#include "VulkanApplication.h"
 #include <RenderInterface/header/CRenderBackend.h>
 #include <RenderInterface/header/ShaderBindingBuilder.h>
 
