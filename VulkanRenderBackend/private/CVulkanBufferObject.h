@@ -1,8 +1,9 @@
 #pragma once
 #include "VulkanIncludes.h"
-#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
 #include "VulkanApplicationSubobjectBase.h"
+#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
 #include <RenderInterface/header/Common.h>
+#include <SharedTools/header/RAII.h>
 
 namespace graphics_backend
 {
@@ -10,6 +11,11 @@ namespace graphics_backend
 	{
 	public:
 		CVulkanBufferObject(CVulkanApplication & owner);
+		CVulkanBufferObject(CVulkanBufferObject&& other) = default;
+		CVulkanBufferObject& operator=(CVulkanBufferObject&& other) = default;
+		CVulkanBufferObject(CVulkanBufferObject const& other) = default;
+		CVulkanBufferObject& operator=(CVulkanBufferObject const& other) = default;
+
 		void Initialize(vk::Buffer const& buffer, VmaAllocation const& allocation, VmaAllocationInfo const& allocationInfo);
 		virtual void Release() override;
 		vk::Buffer GetBuffer() const { return m_Buffer; }
@@ -26,4 +32,6 @@ namespace graphics_backend
 		friend class CGlobalMemoryPool;
 		friend class GPUBuffer_Impl;
 	};
+
+	using VulkanBufferHandle = raii_utils::TRAIIContainer<CVulkanBufferObject>;
 }

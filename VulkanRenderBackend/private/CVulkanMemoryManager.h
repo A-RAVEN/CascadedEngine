@@ -47,7 +47,6 @@ namespace graphics_backend
 	{
 	public:
 		CFrameBoundMemoryPool(uint32_t pool_id, CVulkanApplication& owner);
-		//CFrameBoundMemoryPool(CFrameBoundMemoryPool&& other) noexcept;
 		virtual CVulkanBufferObject* AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage) override;
 		virtual void ReleaseBuffer(CVulkanBufferObject* returnBuffer) override;
 		void ReleaseAllBuffers();

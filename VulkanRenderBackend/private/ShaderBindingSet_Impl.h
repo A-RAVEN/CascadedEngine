@@ -13,7 +13,31 @@
 
 namespace graphics_backend
 {
+	class ShaderBindingSetMetadata;
 	class ShaderDescriptorSetAllocator;
+	class ShaderBindingSet_Impl : public BaseTickingUpdateResource, public ShaderBindingSet
+	{
+	public:
+		ShaderBindingSet_Impl(CVulkanApplication& owner);
+		void Initialize(ShaderBindingSetMetadata const* inMetaData);
+		virtual void SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet) override;
+		virtual void SetTexture(std::string const& name
+			, std::shared_ptr<GPUTexture> const& pTexture) override;
+		virtual void SetSampler(std::string const& name
+			, std::shared_ptr<TextureSampler> const& pSampler) override;
+		virtual bool UploadingDone() const override;
+		vk::DescriptorSet GetDescriptorSet() const {
+			return m_DescriptorSetHandle->GetDescriptorSet();
+		}
+		virtual void TickUpload() override;
+		ShaderBindingSetMetadata const* GetMetadata() const { return p_Metadata; }
+	private:
+		ShaderBindingSetMetadata const* p_Metadata;
+		ShaderDescriptorSetHandle m_DescriptorSetHandle;
+		std::unordered_map<std::string, std::shared_ptr<ShaderConstantSet>> m_ConstantSets;
+		std::unordered_map<std::string, std::shared_ptr<GPUTexture_Impl>> m_Textures;
+		std::unordered_map<std::string, std::shared_ptr<TextureSampler_Impl>> m_Samplers;
+	};
 
 	class ShaderBindingSetMetadata
 	{
@@ -55,30 +79,6 @@ namespace graphics_backend
 		std::unordered_map<std::string, uint32_t> m_CBufferNameToBindingIndex;
 		std::unordered_map<std::string, uint32_t> m_TextureNameToBindingIndex;
 		std::unordered_map<std::string, uint32_t> m_SamplerNameToBindingIndex;
-	};
-
-	class ShaderBindingSet_Impl : public BaseTickingUpdateResource, public ShaderBindingSet
-	{
-	public:
-		ShaderBindingSet_Impl(CVulkanApplication& owner);
-		void Initialize(ShaderBindingSetMetadata const* inMetaData);
-		virtual void SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet) override;
-		virtual void SetTexture(std::string const& name
-			, std::shared_ptr<GPUTexture> const& pTexture) override;
-		virtual void SetSampler(std::string const& name
-			, std::shared_ptr<TextureSampler> const& pSampler) override;
-		virtual bool UploadingDone() const override;
-		vk::DescriptorSet GetDescriptorSet() const {
-			return m_DescriptorSetHandle->GetDescriptorSet();
-		}
-		virtual void TickUpload() override;
-		ShaderBindingSetMetadata const* GetMetadata() const { return p_Metadata; }
-	private:
-		ShaderBindingSetMetadata const* p_Metadata;
-		ShaderDescriptorSetHandle m_DescriptorSetHandle;
-		std::unordered_map<std::string, std::shared_ptr<ShaderConstantSet>> m_ConstantSets;
-		std::unordered_map<std::string, std::shared_ptr<GPUTexture_Impl>> m_Textures;
-		std::unordered_map<std::string, std::shared_ptr<TextureSampler_Impl>> m_Samplers;
 	};
 
 	class ShaderBindingSetAllocator : public BaseApplicationSubobject
