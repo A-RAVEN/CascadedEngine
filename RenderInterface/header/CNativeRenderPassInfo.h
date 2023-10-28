@@ -118,7 +118,7 @@ namespace graphics_backend
 			mRenderPassInfo.subpassInfos.push_back(inSubpassInfo);
 			m_SubpassData_MeshInterfaces.push_back(meshInterface);
 			m_SubpassDataReferences.emplace_back(ESubpassType::eMeshInterface
-				, static_cast<uint32_t>(m_SubpassData_SimpleDraws.size() - 1));
+				, static_cast<uint32_t>(m_SubpassData_MeshInterfaces.size() - 1));
 			return *this;
 		}
 

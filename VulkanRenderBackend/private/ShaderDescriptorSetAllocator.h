@@ -106,6 +106,7 @@ namespace graphics_backend
 
 		void ReleaseFrameboundResources() { m_DescriptorPool.ReleaseFrameboundResources(); }
 	private:
+		std::mutex m_Mutex;
 		ShaderDescriptorSetLayoutInfo const* m_LayoutInfo;
 		vk::DescriptorSetLayout m_DescriptorSetLayout;
 		ChunkedDescriptorPoolWrapper m_DescriptorPool;

@@ -28,6 +28,74 @@ struct VertexData
 	glm::vec3 color;
 };
 
+class TestMeshInterface : public IMeshInterface
+{
+public:
+	// 通过 IMeshInterface 继承
+	size_t GetGraphicsPipelineStatesCount() override
+	{
+		return 1;
+	}
+	GraphicsPipelineStatesData& GetGraphicsPipelineStatesData(size_t index) override
+	{
+		return m_Data;
+	}
+	size_t GetBatchCount() override
+	{
+		return 1;
+	}
+
+	void Update()
+	{
+		auto lookat = glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		auto perspective = glm::perspective(glm::radians(45.0f), 1024.0f / 512.0f, 0.1f, 1000.0f);
+		glm::mat4 data = perspective * lookat;
+		pShaderConstantSet->SetValue("viewProjectionMatrix", data);
+	}
+
+	void DrawBatch(size_t batchIndex, CInlineCommandList& commandList) override
+	{
+		commandList.BindPipelineState(0);
+		if (pVertexBuffer->UploadingDone() && pIndexBuffer->UploadingDone())
+		{
+			commandList.SetShaderBindings({ pShaderBindingSet });
+			commandList.BindVertexBuffers({ pVertexBuffer.get() }, {});
+			commandList.BindIndexBuffers(EIndexBufferType::e16, pIndexBuffer.get());
+			commandList.DrawIndexed(6);
+		}
+		else
+		{
+			std::cout << "Not Finish Yet" << std::endl;
+		}
+	}
+
+	void Initialize(std::shared_ptr<CRenderBackend> pBackend
+		, ShaderBindingBuilder const& bindingBuilder
+		, ShaderConstantsBuilder const& shaderConstantBuilder
+		, std::shared_ptr<GPUTexture> pTexture
+		, std::shared_ptr<GPUBuffer> vertexBuffer
+		, std::shared_ptr<GPUBuffer> indexBuffer
+		, GraphicsPipelineStatesData const& data)
+	{
+		m_Data = data;
+		pShaderConstantSet = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
+		pShaderBindingSet = pBackend->CreateShaderBindingSet(bindingBuilder);
+		pVertexBuffer = vertexBuffer;
+		pIndexBuffer = indexBuffer;
+
+		auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
+		pShaderBindingSet->SetConstantSet(pShaderConstantSet->GetName(), pShaderConstantSet);
+		pShaderBindingSet->SetTexture("TestTexture", pTexture);
+		pShaderBindingSet->SetSampler("TestSampler", sampler);
+	}
+private:
+	GraphicsPipelineStatesData m_Data;
+	std::shared_ptr<ShaderConstantSet> pShaderConstantSet;
+	std::shared_ptr<ShaderBindingSet> pShaderBindingSet;
+	std::shared_ptr<GPUBuffer> pVertexBuffer;
+	std::shared_ptr<GPUBuffer> pIndexBuffer;
+};
+
 int main(int argc, char *argv[])
 {
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
@@ -154,13 +222,23 @@ int main(int argc, char *argv[])
 	image->UploadAsync();
 	
 
+	GraphicsPipelineStatesData stateData{};
+	stateData.pipelineStateObject = CPipelineStateObject{};
+	stateData.shaderBindingDescriptors = { shaderBindingBuilder };
+	stateData.shaderSet = shaderSet;
+	stateData.vertexInputDescriptor = vertexInputDesc;
+
+	TestMeshInterface meshBatch{};
+	meshBatch.Initialize(pBackend, shaderBindingBuilder, shaderConstantBuilder, image, vertexBuffer, indexBuffer, stateData);
+
 	while (pBackend->AnyWindowRunning())
 	{
 		auto lookat = glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		auto perspective = glm::perspective(glm::radians(45.0f), 1024.0f / 512.0f, 0.1f, 1000.0f);
 		glm::mat4 data = perspective * lookat;
 		shaderConstants->SetValue("viewProjectionMatrix", data);
-		shaderBindings->SetConstantSet(shaderConstants->GetName(), shaderConstants);
+
+		meshBatch.Update();
 
 		auto pRenderGraph = pRenderInterface->NewRenderGraph();
 		auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
@@ -172,6 +250,9 @@ int main(int argc, char *argv[])
 		newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
 		newRenderPass
 			.Subpass({ {0} }
+				, &meshBatch
+			);
+	/*		.Subpass({ {0} }
 				, CPipelineStateObject{}
 				, vertexInputDesc
 				, shaderSet
@@ -189,7 +270,7 @@ int main(int argc, char *argv[])
 					{
 						std::cout << "Not Finish Yet" << std::endl;
 					}
-				});
+				});*/
 
 				pRenderGraph->PresentWindow(windowHandle);
 

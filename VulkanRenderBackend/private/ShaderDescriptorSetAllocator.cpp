@@ -60,6 +60,7 @@ namespace graphics_backend
 	}
 	ShaderDescriptorSetHandle ShaderDescriptorSetAllocator::AllocateSet()
 	{
+		std::lock_guard<std::mutex> guard(m_Mutex);
 		return m_DescriptorPool.AllocateSet();
 	}
 	ChunkedDescriptorPoolWrapper::ChunkedDescriptorPoolWrapper(ShaderDescriptorSetAllocator& owningAllocator

@@ -185,15 +185,15 @@ namespace graphics_backend
 	}
 	void RenderPassExecutor::Compile(CTaskGraph* taskGraph)
 	{
-		taskGraph->NewTask()
+		auto compileRenderPassTask = taskGraph->NewTask()
 			->Name("Compile RenderPass")
 			->Functor([this]()
 				{
 					CompileRenderPass();
-
 				});
 		taskGraph->NewTaskGraph()
 			->Name("Compile PSOs")
+			->DependsOn(compileRenderPassTask)
 			->SetupFunctor([this](CTaskGraph* thisGraph)
 				{
 					CompilePSOs(thisGraph);
@@ -354,30 +354,37 @@ namespace graphics_backend
 					vk::CommandBuffer cmd = commandListPool.AllocateOnetimeCommandBuffer("Render Pass Command Buffer");
 					ProcessAquireBarriers(cmd);
 					auto& renderpassInfo = m_RenderpassBuilder.GetRenderPassInfo();
-					cmd.beginRenderPass(
-						vk::RenderPassBeginInfo{
-						m_RenderPassObject->GetRenderPass()
-							, m_FrameBufferObject->GetFramebuffer()
-							, vk::Rect2D{{0, 0}
-						, { m_FrameBufferObject->GetWidth()
-							, m_FrameBufferObject->GetHeight() }}
-						, m_ClearValues }
-					, vk::SubpassContents::eInline);
+					
 
+					uint32_t meshIndexCommandListID = 0;
 					for (uint32_t subpassId = 0; subpassId < renderpassInfo.subpassInfos.size(); ++subpassId)
 					{
 						ESubpassType subpasType = m_RenderpassBuilder.GetSubpassType(subpassId);
-						if (subpassId > 0)
+						vk::SubpassContents subpassContents = vk::SubpassContents::eInline;
+						switch (subpasType)
 						{
-							switch (subpasType)
-							{
-							case ESubpassType::eSimpleDraw:
-								cmd.nextSubpass(vk::SubpassContents::eInline);
-								break;
-							case ESubpassType::eMeshInterface:
-								cmd.nextSubpass(vk::SubpassContents::eSecondaryCommandBuffers);
-								break;
-							}
+						case ESubpassType::eSimpleDraw:
+							subpassContents = vk::SubpassContents::eInline;
+							break;
+						case ESubpassType::eMeshInterface:
+							subpassContents = vk::SubpassContents::eSecondaryCommandBuffers;
+							break;
+						}
+						if (subpassId == 0)
+						{
+							cmd.beginRenderPass(
+								vk::RenderPassBeginInfo{
+								m_RenderPassObject->GetRenderPass()
+									, m_FrameBufferObject->GetFramebuffer()
+									, vk::Rect2D{{0, 0}
+								, { m_FrameBufferObject->GetWidth()
+									, m_FrameBufferObject->GetHeight() }}
+								, m_ClearValues }
+							, subpassContents);
+						}
+						else
+						{
+							cmd.nextSubpass(subpassContents);
 						}
 						switch (subpasType)
 						{
@@ -389,8 +396,12 @@ namespace graphics_backend
 								, cmd);
 							break;
 						case ESubpassType::eMeshInterface:
-
-							break;
+							{
+								auto& cmdList = m_PendingSecondaryCommandBuffers[meshIndexCommandListID];
+								++meshIndexCommandListID;
+								cmd.executeCommands(cmdList);
+								break;
+							}
 						}
 					}
 					cmd.endRenderPass();
