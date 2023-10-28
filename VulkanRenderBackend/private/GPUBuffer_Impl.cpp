@@ -6,13 +6,17 @@
 
 namespace graphics_backend
 {
+
+
 	GPUBuffer_Impl::GPUBuffer_Impl(CVulkanApplication& owner) : BaseUploadingResource(owner)
 	{
 	}
+
 	void GPUBuffer_Impl::Release()
 	{
-		m_BufferObject = nullptr;
+		m_BufferObject.RAIIRelease();
 	}
+
 	void GPUBuffer_Impl::Initialize(EBufferUsageFlags usages, uint64_t count, uint64_t stride)
 	{
         m_Usages = usages;
@@ -45,7 +49,7 @@ namespace graphics_backend
 
         std::atomic_thread_fence(std::memory_order_acquire);
 
-		if (m_BufferObject == nullptr)
+		if (!m_BufferObject.IsRAIIAquired())
 		{
 			m_BufferObject = memoryManager.AllocateBuffer(
 				EMemoryType::GPU

@@ -7,17 +7,16 @@
 
 namespace graphics_backend
 {
-	struct CVulkanBufferObject : public BaseApplicationSubobject
+	struct CVulkanBufferObject
 	{
 	public:
-		CVulkanBufferObject(CVulkanApplication & owner);
+		CVulkanBufferObject() = default;
 		CVulkanBufferObject(CVulkanBufferObject&& other) = default;
 		CVulkanBufferObject& operator=(CVulkanBufferObject&& other) = default;
 		CVulkanBufferObject(CVulkanBufferObject const& other) = default;
 		CVulkanBufferObject& operator=(CVulkanBufferObject const& other) = default;
-
-		void Initialize(vk::Buffer const& buffer, VmaAllocation const& allocation, VmaAllocationInfo const& allocationInfo);
-		virtual void Release() override;
+		CVulkanBufferObject(vk::Buffer const& buffer, VmaAllocation const& allocation, VmaAllocationInfo const& allocationInfo);
+		
 		vk::Buffer GetBuffer() const { return m_Buffer; }
 		VmaAllocationInfo const& GetAllocationInfo() const { return m_BufferAllocationInfo; }
 		void* GetMappedPointer() const;

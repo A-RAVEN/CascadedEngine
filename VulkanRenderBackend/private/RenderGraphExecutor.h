@@ -1,13 +1,14 @@
 #pragma once
 #include "VulkanApplicationSubobjectBase.h"
-#include <ThreadManager/header/ThreadManager.h>
-#include <RenderInterface/header/CRenderGraph.h>
-#include <memory>
 #include "RenderPassObject.h"
 #include "FramebufferObject.h"
 #include "VulkanPipelineObject.h"
 #include "RenderBackendSettings.h"
 #include "ResourceUsageInfo.h"
+#include "CVulkanThreadContext.h"
+#include <memory>
+#include <ThreadManager/header/ThreadManager.h>
+#include <RenderInterface/header/CRenderGraph.h>
 
 namespace graphics_backend
 {
@@ -19,16 +20,18 @@ namespace graphics_backend
 	{
 	public:
 		RenderPassExecutor(RenderGraphExecutor& owningExecutor, CRenderGraph const& renderGraph, CRenderpassBuilder const& renderpassBuilder);
-		void Compile();
+		void Compile(CTaskGraph* taskGraph);
 
 		void ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsage>& TextureHandleUsageStates);
 
-		void PrepareCommandBuffers(CVulkanThreadContext& threadContext);
+		void PrepareCommandBuffers(CTaskGraph* thisGraph);
 		void AppendCommandBuffers(std::vector<vk::CommandBuffer>& outCommandBuffers);
 		void SetupFrameBuffer();
 	private:
 		void CompileRenderPass();
-		void CompilePSOs();
+		void CompilePSOs(CTaskGraph* thisGraph);
+		void CompilePSOs_SubpassSimpleDrawCall(uint32_t subpassID, CTaskGraph* thisGraph);
+		void CompilePSOs_SubpassMeshInterface(uint32_t subpassID, CTaskGraph* thisGraph);
 
 		void ProcessAquireBarriers(vk::CommandBuffer cmd);
 
@@ -38,6 +41,20 @@ namespace graphics_backend
 			, uint32_t height
 			, vk::CommandBuffer cmd);
 
+		void PrepareDrawcallInterfaceSecondaryCommands(
+			CTaskGraph* thisGraph
+			, uint32_t subpassID
+			, uint32_t width
+			, uint32_t height
+			, std::vector<vk::CommandBuffer>& cmdList);
+
+		void ExecuteSubpass_MeshInterface(
+			uint32_t subpassID
+			, uint32_t width
+			, uint32_t height
+			, vk::CommandBuffer cmd
+			, CVulkanFrameBoundCommandBufferPool& cmdPool);
+
 		RenderGraphExecutor& m_OwningExecutor;
 		CRenderpassBuilder const& m_RenderpassBuilder;
 		CRenderGraph const& m_RenderGraph;
@@ -46,12 +63,14 @@ namespace graphics_backend
 		std::shared_ptr<RenderPassObject> m_RenderPassObject;
 		std::vector<vk::ClearValue> m_ClearValues;
 
+		std::vector<std::vector<vk::CommandBuffer>> m_PendingSecondaryCommandBuffers;
+
 		//Framebuffer
 		std::vector<vk::ImageView> m_FrameBufferImageViews;
 		std::shared_ptr<FramebufferObject> m_FrameBufferObject;
 
 		//Pipeline States
-		std::vector<std::shared_ptr<CPipelineObject>> m_GraphicsPipelineObjects;
+		std::vector<std::vector<std::shared_ptr<CPipelineObject>>> m_GraphicsPipelineObjects;
 
 		//TextureUsages
 		std::vector<std::tuple<TIndex, ResourceUsage, ResourceUsage>> m_UsageBarriers;

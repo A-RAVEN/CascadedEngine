@@ -18,12 +18,13 @@ namespace graphics_backend
 		virtual void SetValue(std::string const& name, void* pValue) override;
 		void Initialize(ShaderConstantSetMetadata const* inMetaData);
 		virtual std::string const& GetName() const override;
-		std::shared_ptr<CVulkanBufferObject> GetBufferObject() const { return m_BufferObject; }
+		VulkanBufferHandle const& GetBufferObject() const { return m_BufferObject; }
 		virtual void TickUpload() override;
+		virtual void Release() override;
 	private:
 		ShaderConstantSetMetadata const* p_Metadata;
 		std::vector<uint8_t> m_UploadData;
-		std::shared_ptr<CVulkanBufferObject> m_BufferObject;
+		VulkanBufferHandle m_BufferObject;
 	};
 
 	class ShaderConstantSetMetadata

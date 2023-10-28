@@ -58,7 +58,7 @@ namespace graphics_backend
 	public:
 		vk::CommandBuffer AllocateOnetimeCommandBuffer(const char* cmdName = "Default Cmd");
 		vk::CommandBuffer AllocateMiscCommandBuffer(const char* cmdName = "Default Cmd");
-		vk::CommandBuffer AllocateSecondaryCommandBuffer();
+		vk::CommandBuffer AllocateSecondaryCommandBuffer(const char* cmdName);
 		void ResetCommandBufferPool();
 		void CollectCommandBufferList(std::vector<vk::CommandBuffer>& inoutCommandBufferList);
 		uint32_t GetCommandFrame() const { return m_BoundingFrameID; }

@@ -16,11 +16,11 @@ namespace graphics_backend
 		virtual bool UploadingDone() const override;
 		// 通过 GPUBuffer 继承
 		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void* pData) override;
-		CVulkanBufferObject const& GetVulkanBufferObject() const { return *m_BufferObject.get(); }
+		VulkanBufferHandle const& GetVulkanBufferObject() const { return m_BufferObject; }
 	protected:
 		virtual void DoUpload() override;
 	private:
-		std::shared_ptr<CVulkanBufferObject> m_BufferObject;
+		VulkanBufferHandle m_BufferObject;
 		EBufferUsageFlags m_Usages;
 		uint64_t m_Count = 0;
 		uint64_t m_Stride = 0;

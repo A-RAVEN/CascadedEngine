@@ -31,9 +31,7 @@ namespace graphics_backend
 	class IVulkanBufferPool
 	{
 	public:
-		virtual CVulkanBufferObject* AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage) = 0;
-		virtual void ReleaseBuffer(CVulkanBufferObject* returnBuffer) = 0;
-		std::shared_ptr<CVulkanBufferObject> AllocateSharedBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage);
+		virtual VulkanBufferHandle AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage) = 0;
 	};
 
 	class IVulkanImagePool
@@ -47,8 +45,7 @@ namespace graphics_backend
 	{
 	public:
 		CFrameBoundMemoryPool(uint32_t pool_id, CVulkanApplication& owner);
-		virtual CVulkanBufferObject* AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage) override;
-		virtual void ReleaseBuffer(CVulkanBufferObject* returnBuffer) override;
+		virtual VulkanBufferHandle AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage) override;
 		void ReleaseAllBuffers();
 		void Initialize();
 		void Release() override;
@@ -57,7 +54,6 @@ namespace graphics_backend
 		VmaAllocator m_BufferAllocator = nullptr;
 		std::deque<std::tuple<vk::Buffer, VmaAllocation>> m_ActiveBuffers;
 		uint32_t m_PoolId;
-		TVulkanApplicationPool<CVulkanBufferObject> m_BufferObjectPool;
 	};
 
 
@@ -65,8 +61,8 @@ namespace graphics_backend
 	{
 	public:
 		CGlobalMemoryPool(CVulkanApplication& owner);
-		CVulkanBufferObject* AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage);
-		void ReleaseBuffer(CVulkanBufferObject* returnBuffer);
+		VulkanBufferHandle AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage);
+		void ReleaseBuffer(CVulkanBufferObject  const& returnBuffer);
 		void ReleaseResourcesBeforeFrame(FrameType frame);
 		void Initialize();
 		void Release() override;
@@ -77,7 +73,7 @@ namespace graphics_backend
 		std::mutex m_Mutex;
 		std::deque<std::tuple<vk::Buffer, VmaAllocation, FrameType>> m_PendingReleasingBuffers;
 		std::map<vk::Buffer, VmaAllocation> m_ActiveBuffers;
-		TVulkanApplicationPool<CVulkanBufferObject> m_BufferObjectPool;
+		TFrameboundReleaser<CVulkanBufferObject> m_BufferFrameboundReleaser;
 
 		void ScheduleReleaseImage(VulkanImageObject_Internal& releasingImage);
 		void ReleaseImage_Internal(std::deque<VulkanImageObject_Internal> const& releasingObjects);
@@ -88,8 +84,8 @@ namespace graphics_backend
 	{
 	public:
 		CVulkanMemoryManager(CVulkanApplication& owner);
-		std::shared_ptr<CVulkanBufferObject> AllocateBuffer(EMemoryType memoryType, EMemoryLifetime lifetime, size_t bufferSize, vk::BufferUsageFlags bufferUsage);
-		std::shared_ptr<CVulkanBufferObject> AllocateFrameBoundTransferStagingBuffer(size_t bufferSize);
+		VulkanBufferHandle AllocateBuffer(EMemoryType memoryType, EMemoryLifetime lifetime, size_t bufferSize, vk::BufferUsageFlags bufferUsage);
+		VulkanBufferHandle AllocateFrameBoundTransferStagingBuffer(size_t bufferSize);
 		VulkanImageObject AllocateImage(GPUTextureDescriptor const& textureDescriptor, EMemoryType memoryType, EMemoryLifetime lifetime);
 		void ReleaseCurrentFrameResource();
 		void Initialize();

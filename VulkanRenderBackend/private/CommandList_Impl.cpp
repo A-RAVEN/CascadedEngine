@@ -9,13 +9,19 @@ namespace graphics_backend
 	CCommandList_Impl::CCommandList_Impl(vk::CommandBuffer cmd
 		, std::shared_ptr<RenderPassObject> renderPassObj
 		, TIndex subpassIndex
-		, std::shared_ptr<CPipelineObject> pipelineObj
+		, std::vector<std::shared_ptr<CPipelineObject>> const& pipelineObjs
 	) :
 		m_CommandBuffer(cmd)
 		, m_RenderPassObject(renderPassObj)
 		, m_SubpassIndex(subpassIndex)
-		, m_PipelineObject(pipelineObj)
+		, m_PipelineObjects(pipelineObjs)
 	{
+	}
+	void CCommandList_Impl::BindPipelineState(uint32_t pipelineStateId)
+	{
+		CA_ASSERT(pipelineStateId < m_PipelineObjects.size(), "Invalid Pipeline State Index!");
+		m_PipelineObjectIndex = pipelineStateId;
+		m_CommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, GetBoundPipelineObject()->GetPipeline());
 	}
 	void CCommandList_Impl::BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> offsets)
 	{
@@ -26,7 +32,7 @@ namespace graphics_backend
 		for (uint32_t i = 0; i < pGPUBuffers.size(); ++i)
 		{
 			gpuBufferList[i] = static_cast<GPUBuffer_Impl const*>(pGPUBuffers[i])
-				->GetVulkanBufferObject().GetBuffer();
+				->GetVulkanBufferObject()->GetBuffer();
 		}
 		std::fill(offsetList.begin(), offsetList.end(), 0);
 		for (uint32_t i = 0; i < offsets.size(); ++i)
@@ -38,7 +44,7 @@ namespace graphics_backend
 	void CCommandList_Impl::BindIndexBuffers(EIndexBufferType indexBufferType, GPUBuffer const* pGPUBuffer, uint32_t offset)
 	{
 		m_CommandBuffer.bindIndexBuffer(static_cast<GPUBuffer_Impl const*>(pGPUBuffer)
-			->GetVulkanBufferObject().GetBuffer(), offset, EIndexBufferTypeTranslate(indexBufferType));
+			->GetVulkanBufferObject()->GetBuffer(), offset, EIndexBufferTypeTranslate(indexBufferType));
 	}
 	void CCommandList_Impl::SetShaderBindings(std::vector<std::shared_ptr<ShaderBindingSet>> bindings)
 	{
@@ -49,7 +55,7 @@ namespace graphics_backend
 			auto binding_set_impl = std::static_pointer_cast<ShaderBindingSet_Impl>(bindings[i]);
 			descriptorSets[i] = binding_set_impl->GetDescriptorSet();
 		};
-		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_PipelineObject->GetPipelineLayout()
+		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, GetBoundPipelineObject()->GetPipelineLayout()
 			, 0, descriptorSets, {});
 	}
 	void CCommandList_Impl::DrawIndexed(uint32_t indexCount, uint32_t instanceCount)
@@ -59,5 +65,10 @@ namespace graphics_backend
 	void CCommandList_Impl::Draw(uint32_t vertexCount, uint32_t instanceCount)
 	{
 		m_CommandBuffer.draw(vertexCount, instanceCount, 0, 0);
+	}
+	std::shared_ptr<CPipelineObject> CCommandList_Impl::GetBoundPipelineObject() const
+	{
+		CA_ASSERT(m_PipelineObjectIndex < m_PipelineObjects.size(), "Invalid Pipeline State Index!");
+		return m_PipelineObjects[m_PipelineObjectIndex];
 	}
 }

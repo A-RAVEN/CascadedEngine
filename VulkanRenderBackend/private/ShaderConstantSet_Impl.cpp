@@ -73,7 +73,7 @@ namespace graphics_backend
 		auto currentFrame = GetFrameCountContext().GetCurrentFrameID();
 
 		size_t bufferSize = p_Metadata->GetTotalSize() * sizeof(uint32_t);
-		if (m_BufferObject == nullptr)
+		if (!m_BufferObject.IsRAIIAquired())
 		{
 			m_BufferObject = memoryManager.AllocateBuffer(
 				EMemoryType::GPU
@@ -89,6 +89,11 @@ namespace graphics_backend
 		cmdBuffer.end();
 		std::atomic_thread_fence(std::memory_order_release);
 		MarkUploadingDoneThisFrame();
+	}
+
+	void ShaderConstantSet_Impl::Release()
+	{
+		m_BufferObject.RAIIRelease();
 	}
 
 	size_t AccumulateOnOffset(size_t& inoutOffset, std::pair<size_t, size_t> const& inAlign_Size)

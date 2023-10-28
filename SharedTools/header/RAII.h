@@ -33,7 +33,7 @@ namespace raii_utils
 			RAIIRelease();
 		}
 
-		TRAIIContainer(TRAIIContainer const& other) :
+		TRAIIContainer(TRAIIContainer& other) :
 			m_RAIIData(std::move(other.m_RAIIData))
 			, _Releaser(std::move(other._Releaser))
 			, _RAII_Aquired(other._RAII_Aquired)
@@ -41,7 +41,7 @@ namespace raii_utils
 			other._RAII_Aquired = false;
 		}
 
-		TRAIIContainer& operator=(TRAIIContainer const& other)
+		TRAIIContainer& operator=(TRAIIContainer& other)
 		{
 			RAIIRelease();
 			m_RAIIData = std::move<T&>(other.m_RAIIData);

@@ -92,11 +92,10 @@ namespace graphics_backend
 	CFrameBoundMemoryPool::CFrameBoundMemoryPool(uint32_t pool_id, CVulkanApplication& owner) :
 		BaseApplicationSubobject(owner)
 		, m_PoolId(pool_id)
-		, m_BufferObjectPool(owner)
 	{
 	}
 
-	CVulkanBufferObject* CFrameBoundMemoryPool::AllocateBuffer(
+	VulkanBufferHandle CFrameBoundMemoryPool::AllocateBuffer(
 		EMemoryType memoryType
 		, size_t bufferSize
 		, vk::BufferUsageFlags bufferUsage)
@@ -106,20 +105,18 @@ namespace graphics_backend
 		VmaAllocationInfo allocationInfo{};
 		AllocateBuffer_Common(m_BufferAllocator, memoryType, bufferSize, bufferUsage
 			, buffer, allocation, allocationInfo);
+
+		auto bufferObj = CVulkanBufferObject{ buffer, allocation, allocationInfo };
+		auto handle = VulkanBufferHandle(std::move(bufferObj), [this](CVulkanBufferObject& releasedObj)
+			{
+			});
 		std::lock_guard<std::mutex> guard(m_Mutex);
 		m_ActiveBuffers.emplace_back(std::make_tuple(buffer, allocation));
-		CVulkanBufferObject* result = m_BufferObjectPool.Alloc(buffer, allocation, allocationInfo);
-		return result;
-	}
-
-	void CFrameBoundMemoryPool::ReleaseBuffer(CVulkanBufferObject* returnBuffer)
-	{
-		m_BufferObjectPool.Release(returnBuffer);
+		return handle;
 	}
 
 	void CFrameBoundMemoryPool::ReleaseAllBuffers()
 	{
-		m_BufferObjectPool.ReleaseAll();
 		std::lock_guard<std::mutex> guard(m_Mutex);
 		for (auto pending_release_buffer : m_ActiveBuffers)
 		{
@@ -154,15 +151,21 @@ namespace graphics_backend
 	}
 
 	CGlobalMemoryPool::CGlobalMemoryPool(CVulkanApplication& owner) : BaseApplicationSubobject(owner)
-		, m_BufferObjectPool(owner)
 		, m_ImageFrameboundReleaser([this](std::deque<VulkanImageObject_Internal> const& releasingObjects)
 			{
 				ReleaseImage_Internal(releasingObjects);
 			})
+		, m_BufferFrameboundReleaser([this](std::deque<CVulkanBufferObject> const& releasingBuffers)
+			{
+				for (CVulkanBufferObject const& releasingBuffer : releasingBuffers)
+				{
+					ReleaseBuffer(releasingBuffer);
+				}
+			})
 	{
 	}
 
-	CVulkanBufferObject* CGlobalMemoryPool::AllocateBuffer(
+	VulkanBufferHandle CGlobalMemoryPool::AllocateBuffer(
 		EMemoryType memoryType
 		, size_t bufferSize
 		, vk::BufferUsageFlags bufferUsage)
@@ -175,21 +178,22 @@ namespace graphics_backend
 			, buffer, allocation, allocationInfo);
 		std::lock_guard<std::mutex> guard(m_Mutex);
 		m_ActiveBuffers.insert(std::make_pair(buffer, allocation));
-		CVulkanBufferObject* result = m_BufferObjectPool.Alloc(buffer, allocation, allocationInfo);
-		return result;
+
+		auto bufferObj = CVulkanBufferObject{ buffer, allocation, allocationInfo };
+		auto handle = VulkanBufferHandle(std::move(bufferObj), [this](CVulkanBufferObject& releasedObj)
+			{
+				FrameType releasingFrameID = GetFrameCountContext().GetCurrentFrameID();
+				m_BufferFrameboundReleaser.ScheduleRelease(releasingFrameID
+					, std::move(releasedObj));
+			});
+		return handle;
 	}
 
-	void CGlobalMemoryPool::ReleaseBuffer(CVulkanBufferObject* returnBuffer)
+	void CGlobalMemoryPool::ReleaseBuffer(CVulkanBufferObject const& releasingBuffer)
 	{
-		std::lock_guard<std::mutex> guard(m_Mutex);
-		FrameType frameId = GetFrameCountContext().GetCurrentFrameID();
-		auto found = m_ActiveBuffers.find(returnBuffer->m_Buffer);
-		if(found != m_ActiveBuffers.end())
-		{
-			m_PendingReleasingBuffers.emplace_back(std::make_tuple(found->first, found->second, frameId));
-			m_ActiveBuffers.erase(found);
-		}
-		m_BufferObjectPool.Release(returnBuffer);
+		vmaDestroyBuffer(m_GlobalAllocator
+			, releasingBuffer.m_Buffer
+			, releasingBuffer.m_BufferAllocation);
 	}
 
 	void CGlobalMemoryPool::ReleaseResourcesBeforeFrame(FrameType frame)
@@ -245,7 +249,7 @@ namespace graphics_backend
 	{
 	}
 
-	std::shared_ptr<CVulkanBufferObject> CVulkanMemoryManager::AllocateBuffer(EMemoryType memoryType, EMemoryLifetime lifetime,
+	VulkanBufferHandle CVulkanMemoryManager::AllocateBuffer(EMemoryType memoryType, EMemoryLifetime lifetime,
 	                                                         size_t bufferSize, vk::BufferUsageFlags bufferUsage)
 	{
 		switch(lifetime)
@@ -253,15 +257,15 @@ namespace graphics_backend
 		case EMemoryLifetime::FrameBound:
 			{
 				uint32_t poolIndex = GetFrameCountContext().GetCurrentFrameBufferIndex();
-				return m_FrameBoundPool[poolIndex].AllocateSharedBuffer(memoryType, bufferSize, bufferUsage);
+				return m_FrameBoundPool[poolIndex].AllocateBuffer(memoryType, bufferSize, bufferUsage);
 			}
 		case EMemoryLifetime::Persistent:
-			return m_GlobalMemoryPool.AllocateSharedBuffer(memoryType, bufferSize, bufferUsage);
+			return m_GlobalMemoryPool.AllocateBuffer(memoryType, bufferSize, bufferUsage);
 		}
-		return nullptr;
+		return VulkanBufferHandle{};
 	}
 
-	std::shared_ptr<CVulkanBufferObject> CVulkanMemoryManager::AllocateFrameBoundTransferStagingBuffer(size_t bufferSize)
+	VulkanBufferHandle CVulkanMemoryManager::AllocateFrameBoundTransferStagingBuffer(size_t bufferSize)
 	{
 		return AllocateBuffer(
 			EMemoryType::CPU_Sequential_Access
@@ -306,16 +310,7 @@ namespace graphics_backend
 		}
 		m_FrameBoundPool.clear();
 	}
-	std::shared_ptr<CVulkanBufferObject> IVulkanBufferPool::AllocateSharedBuffer(
-		EMemoryType memoryType
-		, size_t bufferSize
-		, vk::BufferUsageFlags bufferUsage)
-	{
-		return std::shared_ptr<CVulkanBufferObject>(AllocateBuffer(memoryType, bufferSize, bufferUsage), [this](CVulkanBufferObject* removingBuffer)
-			{
-				ReleaseBuffer(removingBuffer);
-			});
-	}
+
 
 	VulkanImageObject CGlobalMemoryPool::AllocateImage(GPUTextureDescriptor const& textureDescriptor, EMemoryType memoryType)
 	{

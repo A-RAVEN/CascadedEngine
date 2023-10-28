@@ -17,9 +17,9 @@ namespace graphics_backend
 		m_MiscCommandBufferList.push_back(result);
 		return result;
 	}
-	vk::CommandBuffer CVulkanFrameBoundCommandBufferPool::AllocateSecondaryCommandBuffer()
+	vk::CommandBuffer CVulkanFrameBoundCommandBufferPool::AllocateSecondaryCommandBuffer(const char* cmdName)
 	{
-		return m_SecondaryCommandBufferList.AllocCommandBuffer(*this, true);
+		return m_SecondaryCommandBufferList.AllocCommandBuffer(*this, true, cmdName);
 	}
 	void CVulkanFrameBoundCommandBufferPool::ResetCommandBufferPool()
 	{

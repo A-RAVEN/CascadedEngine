@@ -2,7 +2,6 @@
 #include <functional>
 #include <vector>
 #include <SharedTools/header/uhash.h>
-
 #include "Common.h"
 #include "CPipelineStateObject.h"
 #include "ShaderProvider.h"
@@ -10,6 +9,7 @@
 #include "TextureHandle.h"
 #include "ShaderBindingBuilder.h"
 #include "ShaderBindingSet.h"
+#include "IMeshInterface.h"
 
 namespace graphics_backend
 {
@@ -85,7 +85,7 @@ namespace graphics_backend
 	enum class ESubpassType
 	{
 		eSimpleDraw,
-		eMultiDrawInterface,
+		eMeshInterface,
 	};
 
 	struct SimpleDrawcallSubpassData
@@ -110,6 +110,16 @@ namespace graphics_backend
 		void SetAttachmentTarget(uint32_t attachmentIndex, TextureHandle const& textureHandle)
 		{
 			m_TextureHandles[attachmentIndex] = textureHandle.GetHandleIndex();
+		}
+
+		CRenderpassBuilder& Subpass(CSubpassInfo const& inSubpassInfo
+			, IMeshInterface* meshInterface)
+		{
+			mRenderPassInfo.subpassInfos.push_back(inSubpassInfo);
+			m_SubpassData_MeshInterfaces.push_back(meshInterface);
+			m_SubpassDataReferences.emplace_back(ESubpassType::eMeshInterface
+				, static_cast<uint32_t>(m_SubpassData_SimpleDraws.size() - 1));
+			return *this;
 		}
 
 		CRenderpassBuilder& Subpass(CSubpassInfo const& inSubpassInfo
@@ -148,6 +158,12 @@ namespace graphics_backend
 			return m_SubpassData_SimpleDraws[m_SubpassDataReferences[subpassIndex].second];
 		}
 
+		IMeshInterface* GetSubpassData_MeshInterface(uint32_t subpassIndex) const
+		{
+			CA_ASSERT(m_SubpassDataReferences[subpassIndex].first == ESubpassType::eMeshInterface, "Wrong Subpass Type");
+			return m_SubpassData_MeshInterfaces[m_SubpassDataReferences[subpassIndex].second];
+		}
+
 		std::vector<TIndex> const& GetTextureHandles() const
 		{
 			return m_TextureHandles;
@@ -157,6 +173,7 @@ namespace graphics_backend
 		CRenderPassInfo mRenderPassInfo{};
 		std::vector<TIndex> m_TextureHandles;
 		std::vector<SimpleDrawcallSubpassData> m_SubpassData_SimpleDraws{};
+		std::vector<IMeshInterface*> m_SubpassData_MeshInterfaces{};
 		std::vector<std::pair<ESubpassType, uint32_t>> m_SubpassDataReferences{};
 	};
 }

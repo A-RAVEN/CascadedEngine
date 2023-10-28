@@ -24,12 +24,9 @@ namespace graphics_backend
 			, std::shared_ptr<TextureSampler> const& pSampler);
 	private:
 		TIndex m_DescIndex = INVALID_INDEX;
-		//External Constant Sets(i.e. global constants shared between graphs)
 		std::unordered_map<std::string, std::shared_ptr<ShaderConstantSet>> m_ExternalConstantSets;
-		//External Textures(i.e. resource manager managed textures)
 		std::unordered_map<std::string, std::shared_ptr<GPUTexture>> m_ExternalTextures;
 		std::unordered_map<std::string, std::shared_ptr<TextureSampler>> m_ExternalSamplers;
-		//Internal Managed Or Registered Textures
 		std::unordered_map<std::string, TextureHandle> m_InternalTextures;
 	};
 
