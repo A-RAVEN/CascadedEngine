@@ -27,6 +27,20 @@ namespace graphics_backend
 			m_ExternalTextures.insert(std::make_pair(name, pTexture));
 		}
 	}
+
+	void ShaderBindingSetHandle_Impl::SetTexture(std::string const& name, TextureHandle const& textureHandle)
+	{
+		auto found = m_InternalTextures.find(name);
+		if (found != m_InternalTextures.end())
+		{
+			found->second = textureHandle;
+		}
+		else
+		{
+			m_InternalTextures.insert(std::make_pair(name, textureHandle));
+		}
+	}
+
 	void ShaderBindingSetHandle_Impl::SetSampler(std::string const& name, std::shared_ptr<TextureSampler> const& pSampler)
 	{
 		auto found = m_ExternalSamplers.find(name);

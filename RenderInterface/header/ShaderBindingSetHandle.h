@@ -20,6 +20,8 @@ namespace graphics_backend
 		void SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet);
 		void SetTexture(std::string const& name
 			, std::shared_ptr<GPUTexture> const& pTexture);
+		void SetTexture(std::string const& name
+					, TextureHandle const& textureHandle);
 		void SetSampler(std::string const& name
 			, std::shared_ptr<TextureSampler> const& pSampler);
 	private:

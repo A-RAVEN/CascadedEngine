@@ -18,6 +18,14 @@ namespace graphics_backend
 		{
 			return std::memcmp(this, &other, sizeof(GPUTextureDescriptor)) == 0;
 		}
+
+		GPUTextureDescriptor() = default;
+		GPUTextureDescriptor(uint32_t inWidth, uint32_t inHeight, ETextureFormat inFormat, ETextureAccessTypeFlags inAccessTypes) :
+			width(inWidth)
+			,height(inHeight)
+			,format(inFormat)
+			,accessType(inAccessTypes)
+		{}
 	};
 
 	class GPUTextureAccessDescriptor

@@ -63,7 +63,6 @@ namespace graphics_backend
 		std::shared_ptr<RenderPassObject> m_RenderPassObject;
 		std::vector<vk::ClearValue> m_ClearValues;
 
-		std::vector<std::vector<vk::CommandBuffer>> m_PendingSecondaryCommandBuffers;
 
 		//Framebuffer
 		std::vector<vk::ImageView> m_FrameBufferImageViews;
@@ -77,6 +76,8 @@ namespace graphics_backend
 
 		//CommandBuffers
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
+		//Secondary CommandBuffers
+		std::vector<std::vector<vk::CommandBuffer>> m_PendingSecondaryCommandBuffers;
 	};
 
 	//RenderGraph Executor

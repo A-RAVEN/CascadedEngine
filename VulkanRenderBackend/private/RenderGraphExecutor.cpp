@@ -38,7 +38,7 @@ namespace graphics_backend
 		});
 
 		
-		//编译每个RenderPass(FrameBuffer, RenderPass, PSO)
+		//编译每个RenderPass(RenderPass, PSO)
 		auto compileGraph = taskGraph->NewTaskGraph()
 			->Name("Compile RenderPasses Graph")
 			->DependsOn(creationTask);
@@ -53,19 +53,6 @@ namespace graphics_backend
 						});
 			}
 		}
-
-		//处理每个RenderPass的Barrier
-		auto resolvingTask = taskGraph->NewTask()
-			->Name("Resolve Resource Usages")
-			->DependsOn(compileGraph)
-			->Functor([this, nodeCount]()
-			{
-				m_TextureHandleUsageStates.clear();
-				for (uint32_t itr_node = 0; itr_node < nodeCount; ++itr_node)
-				{
-					m_RenderPasses[itr_node].ResolveTextureHandleUsages(m_TextureHandleUsageStates);
-				}
-			});
 	}
 
 	void RenderGraphExecutor::Run(CTaskGraph* taskGraph)
@@ -111,11 +98,26 @@ namespace graphics_backend
 		if (!CompileDone())
 			return;
 
+		uint32_t nodeCount = m_RenderGraph->GetRenderNodeCount();
+
+		//处理每个RenderPass的ResourceBarrier
+		auto resolvingResourcesTask = taskGraph->NewTask()
+			->Name("Resolve Resource Usages")
+			->Functor([this, nodeCount]()
+				{
+					m_TextureHandleUsageStates.clear();
+					for (uint32_t itr_node = 0; itr_node < nodeCount; ++itr_node)
+					{
+						m_RenderPasses[itr_node].ResolveTextureHandleUsages(m_TextureHandleUsageStates);
+					}
+				});
+
+		//Prepare Per-RenderPass Framebuffer Objects and CommandBuffers
 		auto recordCmdTaskGraph = taskGraph->NewTaskGraph()
 			->Name("Record RenderPass Cmds Graph")
-			->SetupFunctor([this](CTaskGraph* thisGraph)
+			->DependsOn(resolvingResourcesTask)
+			->SetupFunctor([this, nodeCount](CTaskGraph* thisGraph)
 			{
-				uint32_t nodeCount = m_RenderGraph->GetRenderNodeCount();
 				for (uint32_t passId = 0; passId < nodeCount; ++passId)
 				{
 					auto setupFrameBufferTask = thisGraph->NewTask()
@@ -133,6 +135,7 @@ namespace graphics_backend
 				}
 			});
 
+		//Collect All Generated Primary CommandBuffers Into A List
 		auto collectCommandsTask = taskGraph->NewTask()
 			->Name("Collect RenderPass Commands")
 			->DependsOn(recordCmdTaskGraph)
@@ -144,14 +147,22 @@ namespace graphics_backend
 				{
 					m_RenderPasses[i].AppendCommandBuffers(m_PendingGraphicsCommandBuffers);
 				}
-				auto windowTarget = m_RenderGraph->GetTargetWindow<CWindowContext>();
-				TIndex windowIndex = m_RenderGraph->WindowHandleToTextureIndex(windowTarget);
-				auto state = m_TextureHandleUsageStates.find(windowIndex);
-				if (state != m_TextureHandleUsageStates.end())
-				{
-					windowTarget->MarkUsages(state->second);
-				}
 			});
+
+		//Mark Final Usage Of Swapchain Images
+		auto markWindowsTargetTask = taskGraph->NewTask()
+			->Name("Mark Swapchain Target Usages")
+			->DependsOn(resolvingResourcesTask)
+			->Functor([this]()
+				{
+					auto windowTarget = m_RenderGraph->GetTargetWindow<CWindowContext>();
+					TIndex windowIndex = m_RenderGraph->WindowHandleToTextureIndex(windowTarget);
+					auto state = m_TextureHandleUsageStates.find(windowIndex);
+					if (state != m_TextureHandleUsageStates.end())
+					{
+						windowTarget->MarkUsages(state->second);
+					}
+				});
 	}
 
 
@@ -163,9 +174,41 @@ namespace graphics_backend
 	}
 	void RenderPassExecutor::ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsage>& textureHandleUsageStates)
 	{
-		auto& handles = m_RenderpassBuilder.GetTextureHandles();
-		for (auto handleID : handles)
+		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
+		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
+		m_UsageBarriers.reserve(handles.size());
+
+		std::vector<ResourceUsage> renderPassInitializeUsages;
+		renderPassInitializeUsages.resize(handles.size());
+		std::fill(renderPassInitializeUsages.begin(), renderPassInitializeUsages.end(), ResourceUsage::eDontCare);
+
+		auto checkSetInitializeUsage = [&renderPassInitializeUsages](uint32_t attachmentID, ResourceUsage newUsage)
+			{
+				if (attachmentID != INVALID_ATTACHMENT_INDEX
+					&& renderPassInitializeUsages[attachmentID] == ResourceUsage::eDontCare)
+				{
+					CA_ASSERT(attachmentID >= 0 && attachmentID < renderPassInitializeUsages.size(), "Invalid AttachmentID");
+					renderPassInitializeUsages[attachmentID] = newUsage;
+				}
+			};
+
+		for (auto& subpassInfo : renderPassInfo.subpassInfos)
 		{
+			for (uint32_t colorAttachmentID : subpassInfo.colorAttachmentIDs)
+			{
+				checkSetInitializeUsage(colorAttachmentID, ResourceUsage::eColorAttachmentOutput);
+			}
+			for (uint32_t colorAttachmentID : subpassInfo.pixelInputAttachmentIDs)
+			{
+				checkSetInitializeUsage(colorAttachmentID, ResourceUsage::eFragmentRead);
+			}
+			checkSetInitializeUsage(subpassInfo.depthAttachmentID
+				, subpassInfo.depthAttachmentReadOnly ? ResourceUsage::eDepthStencilReadonly : ResourceUsage::eDepthStencilAttachment);
+		}
+
+		for(uint32_t attachmentID = 0; attachmentID < handles.size(); ++attachmentID)
+		{
+			uint32_t handleID = handles[attachmentID];
 			if (handleID != INVALID_INDEX)
 			{
 				ResourceUsage srcUsage = ResourceUsage::eDontCare;
@@ -174,7 +217,7 @@ namespace graphics_backend
 				{
 					srcUsage = found->second;
 				}
-				ResourceUsage dstUsage = ResourceUsage::eColorAttachmentOutput;
+				ResourceUsage dstUsage = renderPassInitializeUsages[attachmentID];
 				textureHandleUsageStates[handleID] = dstUsage;
 				if (srcUsage != dstUsage)
 				{
@@ -417,7 +460,7 @@ namespace graphics_backend
 	void RenderPassExecutor::SetupFrameBuffer()
 	{
 		GPUObjectManager& gpuObjectManager = m_OwningExecutor.GetGPUObjectManager();
-		auto& handles = m_RenderpassBuilder.GetTextureHandles();
+		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
 		m_FrameBufferImageViews.clear();
 		m_FrameBufferImageViews.reserve(handles.size());
 

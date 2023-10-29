@@ -15,6 +15,7 @@
 #include <ExternalLib/glm/glm/mat4x4.hpp>
 #include <ExternalLib/glm/glm/gtc/matrix_transform.hpp>
 #include <ExternalLib/stb/stb_image.h>
+#include <chrono>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -231,35 +232,51 @@ int main(int argc, char *argv[])
 	TestMeshInterface meshBatch{};
 	meshBatch.Initialize(pBackend, shaderBindingBuilder, shaderConstantBuilder, image, vertexBuffer, indexBuffer, stateData);
 
+	std::chrono::high_resolution_clock timer;
+	auto lastTime = timer.now();
+	float deltaTime = 0.0f;
+	float rotation = 0.0f;
 	while (pBackend->AnyWindowRunning())
 	{
+		rotation += deltaTime * glm::radians(50.0f);
+		auto rotMat = glm::rotate(glm::mat4(1), rotation, glm::vec3(0.0f, 0.0f, 1.0f));
+		auto translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		auto lookat = glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		auto perspective = glm::perspective(glm::radians(45.0f), 1024.0f / 512.0f, 0.1f, 1000.0f);
-		glm::mat4 data = perspective * lookat;
+		glm::mat4 data = perspective * lookat * translation * rotMat;
 		shaderConstants->SetValue("viewProjectionMatrix", data);
 
 		meshBatch.Update();
 
 		auto pRenderGraph = pRenderInterface->NewRenderGraph();
 		auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
+		auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{ 1024, 512, ETextureFormat::E_D32_SFLOAT, ETextureAccessType::eRT | ETextureAccessType::eSampled});
+		
 		CAttachmentInfo attachmentInfo{};
 		attachmentInfo.format = windowBackBuffer.GetDescriptor().format;
 		attachmentInfo.loadOp = EAttachmentLoadOp::eClear;
 		attachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+
+		CAttachmentInfo depthAttachmentInfo{};
+		depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
+		depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+		depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(0.0f, 0x0);
+
 		CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo });
 		newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
+		//newRenderPass.SetAttachmentTarget(1, depthTextureHandle);
 		newRenderPass
 			.Subpass({ {0} }
 				, &meshBatch
-			);
-	/*		.Subpass({ {0} }
+			)
+			.Subpass({ {0} }
 				, CPipelineStateObject{}
 				, vertexInputDesc
 				, shaderSet
 				, { {shaderBindings}, {} }
 				, [vertexBuffer, indexBuffer, shaderBindings](CInlineCommandList& cmd)
 				{
-					if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone() && shaderBindings->UploadingDone())
+					if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
 					{
 						cmd.SetShaderBindings({ shaderBindings });
 						cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
@@ -270,7 +287,7 @@ int main(int argc, char *argv[])
 					{
 						std::cout << "Not Finish Yet" << std::endl;
 					}
-				});*/
+				});
 
 				pRenderGraph->PresentWindow(windowHandle);
 
@@ -278,6 +295,13 @@ int main(int argc, char *argv[])
 		pBackend->TickBackend();
 		pBackend->TickWindows();
 		++frame;
+		auto currentTime = timer.now();
+		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastTime).count();
+		lastTime = currentTime;
+		deltaTime = duration / 1000.0f;
+		deltaTime = std::max(deltaTime, 0.005f);
+		float frameRate = 1.0f / deltaTime;
+		//std::cout << frameRate << std::endl;
 	}
 	pBackend->Release();
 	pBackend.reset();

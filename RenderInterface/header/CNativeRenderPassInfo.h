@@ -42,9 +42,10 @@ namespace graphics_backend
 	struct CSubpassInfo
 	{
 		std::vector<uint32_t> colorAttachmentIDs{};
+		uint32_t depthAttachmentID = INVALID_ATTACHMENT_INDEX;
+		bool depthAttachmentReadOnly = false;
 		std::vector<uint32_t> pixelInputAttachmentIDs{};
 		std::vector<uint32_t> preserveAttachmentIDs{};
-		uint32_t depthAttachmentID = INVALID_ATTACHMENT_INDEX;
 
 		bool operator==(CSubpassInfo const& rhs) const
 		{
@@ -164,7 +165,7 @@ namespace graphics_backend
 			return m_SubpassData_MeshInterfaces[m_SubpassDataReferences[subpassIndex].second];
 		}
 
-		std::vector<TIndex> const& GetTextureHandles() const
+		std::vector<TIndex> const& GetAttachmentTextureHandles() const
 		{
 			return m_TextureHandles;
 		}
