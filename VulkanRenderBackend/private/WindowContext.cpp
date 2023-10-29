@@ -29,24 +29,25 @@ namespace graphics_backend
 	std::string CWindowContext::GetName() const
 	{ return m_WindowName; }
 
-	uint2 const& CWindowContext::GetSize()
+	uint2 const& CWindowContext::GetSizeSafe()
 	{
-		return uint2{ m_Width, m_Height, };
+		return uint2{ std::max(1u, m_Width), std::max(1u, m_Height), };
 	}
 
 	GPUTextureDescriptor const& CWindowContext::GetBackbufferDescriptor() const
 	{
-		return m_TextureDesc;
+		return m_SwapchainContext.m_TextureDesc;
 	}
 
 
-	CWindowContext::CWindowContext(CVulkanApplication& inOwner) : BaseApplicationSubobject(inOwner)
+	CWindowContext::CWindowContext(CVulkanApplication& inApp) : BaseApplicationSubobject(inApp)
+		, m_SwapchainContext(inApp)
 	{
 	}
 
 	bool CWindowContext::NeedClose() const
 	{
-		assert(ValidContext());
+		//assert(ValidContext());
 		if(m_Window != nullptr)
 		{
 			return glfwWindowShouldClose(m_Window);
@@ -54,22 +55,47 @@ namespace graphics_backend
 		return false;
 	}
 
+	bool CWindowContext::Resized() const
+	{
+		return m_Resized;
+	}
+
 	void CWindowContext::WaitCurrentFrameBufferIndex()
 	{
-		vk::ResultValue<uint32_t> currentBuffer = GetDevice().acquireNextImageKHR(
-			m_Swapchain
-			, std::numeric_limits<uint64_t>::max()
-			, m_WaitNextFrameSemaphore, nullptr);
-
-		if (currentBuffer.result == vk::Result::eSuccess)
-		{
-			m_CurrentBufferIndex = currentBuffer.value;
-		}
+		m_SwapchainContext.WaitCurrentFrameBufferIndex();
 	}
 
 	void CWindowContext::MarkUsages(ResourceUsageFlags usages)
 	{
-		m_CurrentFrameUsageFlags = usages;
+		m_SwapchainContext.MarkUsages(usages);
+	}
+
+	void CWindowContext::Resize()
+	{
+		if (m_Resized)
+		{
+			m_Resized = false;
+			if (ValidContext())
+			{
+				SwapchainContext newContext(GetVulkanApplication());
+				newContext.Init(m_Width, m_Height, m_Surface, m_SwapchainContext.GetSwapchain(), m_PresentQueue.first);
+				m_SwapchainContext.Release();
+				m_SwapchainContext.CopyFrom(newContext);
+			}
+		}
+	}
+
+	void CWindowContext::UpdateSize()
+	{
+		int extractedWidth = 0;
+		int extractedHeight = 0;
+		glfwGetFramebufferSize(m_Window, &extractedWidth, &extractedHeight);
+		if (extractedWidth != m_Width || extractedHeight != m_Height)
+		{
+			m_Width = extractedWidth;
+			m_Height = extractedHeight;
+			m_Resized = true;
+		}
 	}
 
 	void CWindowContext::Initialize(
@@ -80,16 +106,51 @@ namespace graphics_backend
 		m_WindowName = windowName;
 		m_Width = initialWidth;
 		m_Height = initialHeight;
-
 		assert(ValidContext());
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		m_Window = glfwCreateWindow(m_Width, m_Height, m_WindowName.c_str(), nullptr, nullptr);
 		VkSurfaceKHR surface;
 		glfwCreateWindowSurface(static_cast<VkInstance>(GetInstance()), m_Window, nullptr, &surface);
 		m_Surface = vk::SurfaceKHR(surface);
-
 		m_PresentQueue = GetVulkanApplication().GetSubmitCounterContext().FindPresentQueue(m_Surface);
 
+		m_SwapchainContext.Init(m_Width, m_Height, m_Surface, nullptr, m_PresentQueue.first);
+
+		//m_WindowCallback = [this](GLFWwindow* window, int width, int height)
+		//	{
+		//		int extractedWidth = 0;
+		//		int extractedHeight = 0;
+		//		glfwGetFramebufferSize(m_Window, &extractedWidth, &extractedHeight);
+		//		m_Width = extractedWidth;
+		//		m_Height = extractedHeight;
+		//		m_Resized = true;
+		//	};
+		//typedef void (windowsSizeFunc) (GLFWwindow*, int, int);
+		//glfwSetWindowSizeCallback(m_Window, m_WindowCallback.target<windowsSizeFunc>());
+	}
+
+	void CWindowContext::Release()
+	{
+		m_SwapchainContext.Release();
+		m_PresentQueue = std::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
+		if (m_Surface != vk::SurfaceKHR(nullptr))
+		{
+			GetInstance().destroySurfaceKHR(m_Surface);
+			m_Surface = nullptr;
+		}
+		if (m_Window != nullptr)
+		{
+			glfwDestroyWindow(m_Window);
+			m_Window = nullptr;
+		}
+	}
+
+	SwapchainContext::SwapchainContext(CVulkanApplication& app) : BaseApplicationSubobject(app)
+	{
+	}
+
+	void SwapchainContext::Init(uint32_t width, uint32_t height, vk::SurfaceKHR surface, vk::SwapchainKHR oldSwapchain, uint32_t presentQueueID)
+	{
 		std::vector<vk::SurfaceFormatKHR> formats = GetPhysicalDevice().getSurfaceFormatsKHR(surface);
 		assert(!formats.empty());
 		vk::Format format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eB8G8R8A8Unorm : formats[0].format;
@@ -98,8 +159,8 @@ namespace graphics_backend
 		if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max())
 		{
 			// If the surface size is undefined, the size is set to the size of the images requested.
-			swapchainExtent.width =  std::min(std::max(m_Width, surfaceCapabilities.minImageExtent.width), surfaceCapabilities.maxImageExtent.width);
-			swapchainExtent.height = std::min(std::max(m_Height, surfaceCapabilities.minImageExtent.height), surfaceCapabilities.maxImageExtent.height);
+			swapchainExtent.width = std::min(std::max(width, surfaceCapabilities.minImageExtent.width), surfaceCapabilities.maxImageExtent.width);
+			swapchainExtent.height = std::min(std::max(height, surfaceCapabilities.minImageExtent.height), surfaceCapabilities.maxImageExtent.height);
 		}
 		else
 		{
@@ -145,8 +206,8 @@ namespace graphics_backend
 
 		uint32_t graphicsFamily = GetVulkanApplication().GetSubmitCounterContext().GetGraphicsQueueRef().first;
 
-		uint32_t queueFamilyIndices[2] = { graphicsFamily, m_PresentQueue.first };
-		if (graphicsFamily != m_PresentQueue.first)
+		uint32_t queueFamilyIndices[2] = { graphicsFamily, presentQueueID };
+		if (graphicsFamily != presentQueueID)
 		{
 			// If the graphics and present queues are from different queue families, we either have to explicitly transfer
 			// ownership of images between the queues, or we have to create the swapchain with imageSharingMode as
@@ -155,6 +216,7 @@ namespace graphics_backend
 			swapChainCreateInfo.queueFamilyIndexCount = 2;
 			swapChainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
 		}
+		swapChainCreateInfo.oldSwapchain = oldSwapchain;
 
 		m_Swapchain = GetDevice().createSwapchainKHR(swapChainCreateInfo);
 		m_SwapchainImages = GetDevice().getSwapchainImagesKHR(m_Swapchain);
@@ -162,14 +224,13 @@ namespace graphics_backend
 		m_WaitNextFrameSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
 		m_CanPresentSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
 	}
-
-	void CWindowContext::Release()
+	void SwapchainContext::Release()
 	{
 		GetDevice().destroySemaphore(m_CanPresentSemaphore);
 		m_CanPresentSemaphore = nullptr;
 		GetDevice().destroySemaphore(m_WaitNextFrameSemaphore);
 		m_WaitNextFrameSemaphore = nullptr;
-		for(auto& imgView : m_SwapchainImageViews)
+		for (auto& imgView : m_SwapchainImageViews)
 		{
 			GetDevice().destroyImageView(imgView);
 		}
@@ -177,19 +238,36 @@ namespace graphics_backend
 		m_SwapchainImages.clear();
 		GetDevice().destroySwapchainKHR(m_Swapchain);
 		m_Swapchain = nullptr;
-		if(m_Surface != vk::SurfaceKHR(nullptr))
-		{
-			GetInstance().destroySurfaceKHR(m_Surface);
-			m_Surface = nullptr;
-		}
-		if(m_Window != nullptr)
-		{
-			glfwDestroyWindow(m_Window);
-			m_Window = nullptr;
-		}
-		m_PresentQueue = std::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
+	}
+	void SwapchainContext::WaitCurrentFrameBufferIndex()
+	{
+		vk::ResultValue<uint32_t> currentBuffer = GetDevice().acquireNextImageKHR(
+			m_Swapchain
+			, std::numeric_limits<uint64_t>::max()
+			, m_WaitNextFrameSemaphore, nullptr);
 
-		m_Swapchain = nullptr;
-		m_SwapchainImages.clear();
+		if (currentBuffer.result == vk::Result::eSuccess)
+		{
+			m_CurrentBufferIndex = currentBuffer.value;
+		}
+	}
+	void SwapchainContext::MarkUsages(ResourceUsageFlags usages)
+	{
+		m_CurrentFrameUsageFlags = usages;
+	}
+	void SwapchainContext::CopyFrom(SwapchainContext const& other)
+	{
+		//Swapchain
+		m_Swapchain = other.m_Swapchain;
+		m_SwapchainImages = other.m_SwapchainImages;
+		m_SwapchainImageViews = other.m_SwapchainImageViews;
+		//Semaphores
+		m_WaitNextFrameSemaphore = other.m_WaitNextFrameSemaphore;
+		m_CanPresentSemaphore = other.m_CanPresentSemaphore;
+		//Meta data
+		m_CurrentFrameUsageFlags = other.m_CurrentFrameUsageFlags;
+		m_TextureDesc = other.m_TextureDesc;
+		//Index
+		m_CurrentBufferIndex = other.m_CurrentBufferIndex;
 	}
 }

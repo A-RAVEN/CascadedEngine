@@ -91,41 +91,44 @@ namespace graphics_backend
 						executor.CollectCommands(waitingSubmitCommands);
 					}
 
+					bool anyPresent = false;
 					if (!m_WindowContexts.empty())
 					{
 						auto windowContext = m_WindowContexts[0];
-						TIndex currentBuffer = windowContext->GetCurrentFrameBufferIndex();
+						if (windowContext->ValidContext())
+						{
+							anyPresent = true;
+							TIndex currentBuffer = windowContext->GetCurrentFrameBufferIndex();
+							std::array<const vk::Semaphore, 1> semaphore = { windowContext->GetWaitDoneSemaphore() };
+							std::array<const vk::PipelineStageFlags, 1> waitStages = { vk::PipelineStageFlagBits::eTransfer };
+							std::array<const vk::Semaphore, 1> presentSemaphore = { windowContext->GetPresentWaitingSemaphore() };
 
-						std::array<const vk::Semaphore, 1> semaphore = { windowContext->m_WaitNextFrameSemaphore };
-						std::array<const vk::PipelineStageFlags, 1> waitStages = { vk::PipelineStageFlagBits::eTransfer };
-						std::array<const vk::Semaphore, 1> presentSemaphore = { windowContext->m_CanPresentSemaphore };
+							auto threadContext = AquireThreadContextPtr();
+							auto cmd = threadContext->GetCurrentFramePool().AllocateOnetimeCommandBuffer();
 
-						auto& threadContext = AquireThreadContext();
-						auto cmd = threadContext.GetCurrentFramePool().AllocateOnetimeCommandBuffer();
+							VulkanBarrierCollector presentBarrier{ GetSubmitCounterContext().GetGraphicsQueueFamily() };
+							presentBarrier.PushImageBarrier(windowContext->GetCurrentFrameImage()
+								, windowContext->GetCurrentFrameUsageFlags(), ResourceUsage::ePresent);
+							presentBarrier.ExecuteBarrier(cmd);
+							windowContext->MarkUsages(ResourceUsage::ePresent);
 
-						VulkanBarrierCollector presentBarrier{ GetSubmitCounterContext().GetGraphicsQueueFamily() };
-						presentBarrier.PushImageBarrier(windowContext->GetCurrentFrameImage()
-							, windowContext->m_CurrentFrameUsageFlags, ResourceUsage::ePresent);
-						presentBarrier.ExecuteBarrier(cmd);
+							cmd.end();
+							waitingSubmitCommands.push_back(cmd);
 
-						cmd.end();
-						waitingSubmitCommands.push_back(cmd);
+							m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands
+								, semaphore
+								, waitStages
+								, presentSemaphore);
 
-						m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands
-							, semaphore
-							, waitStages
-							, presentSemaphore);
-
-						vk::PresentInfoKHR presenttInfo(
-							presentSemaphore
-							, windowContext->m_Swapchain
-							, currentBuffer
-						);
-						windowContext->m_PresentQueue.second.presentKHR(presenttInfo);
-
-						ReturnThreadContext(threadContext);
+							vk::PresentInfoKHR presenttInfo(
+								presentSemaphore
+								, windowContext->GetSwapchain()
+								, currentBuffer
+							);
+							windowContext->m_PresentQueue.second.presentKHR(presenttInfo);
+						}
 					}
-					else
+					if(!anyPresent)
 					{
 						m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands);
 					}
@@ -547,13 +550,25 @@ namespace graphics_backend
 
 	void CVulkanApplication::TickWindowContexts()
 	{
+		glfwPollEvents();
+		for (auto& windowContext : m_WindowContexts)
+		{
+			windowContext->UpdateSize();
+		}
 		bool anyNeedClose = std::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
 			{
 				return wcontest->NeedClose();
 			});
-		if(anyNeedClose)
+		bool anyResized = std::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
+			{
+				return wcontest->Resized();
+			});
+		if (anyNeedClose || anyResized)
 		{
 			DeviceWaitIdle();
+		}
+		if(anyNeedClose)
+		{
 			size_t lastIndex = m_WindowContexts.size();
 			size_t currentIndex = 0;
 			while (currentIndex < m_WindowContexts.size())
@@ -570,7 +585,13 @@ namespace graphics_backend
 				}
 			}
 		}
-		glfwPollEvents();
+		if (anyResized)
+		{
+			for (auto& windowContext : m_WindowContexts)
+			{
+				windowContext->Resize();
+			}
+		}
 	}
 
 	void CVulkanApplication::ReleaseAllWindowContexts()

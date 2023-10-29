@@ -238,11 +238,13 @@ int main(int argc, char *argv[])
 	float rotation = 0.0f;
 	while (pBackend->AnyWindowRunning())
 	{
+		auto windowSize = windowHandle->GetSizeSafe();
+
 		rotation += deltaTime * glm::radians(50.0f);
 		auto rotMat = glm::rotate(glm::mat4(1), rotation, glm::vec3(0.0f, 0.0f, 1.0f));
 		auto translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		auto lookat = glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		auto perspective = glm::perspective(glm::radians(45.0f), 1024.0f / 512.0f, 0.1f, 1000.0f);
+		auto perspective = glm::perspective(glm::radians(45.0f), static_cast<float>(windowSize.x) / static_cast<float>(windowSize.y), 0.1f, 1000.0f);
 		glm::mat4 data = perspective * lookat * translation * rotMat;
 		shaderConstants->SetValue("viewProjectionMatrix", data);
 
