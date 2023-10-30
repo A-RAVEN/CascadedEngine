@@ -6,6 +6,7 @@
 #include <RenderInterface/header/WindowHandle.h>
 #include <ExternalLib/glfw/include/GLFW/glfw3.h>
 #include <functional>
+#include "VulkanBarrierCollector.h"
 
 namespace graphics_backend
 {
@@ -67,6 +68,12 @@ namespace graphics_backend
 		void UpdateSize();
 		void Initialize(std::string const& windowName, uint32_t initialWidth, uint32_t initialHeight);
 		void Release() override;
+		bool NeedPresent() const;
+		void PresentCurrentFrame();
+		void PrepareForPresent(VulkanBarrierCollector& inoutBarrierCollector
+			, std::vector<vk::Semaphore>& inoutWaitSemaphores
+			, std::vector<vk::PipelineStageFlags>& inoutWaitStages
+			, std::vector<vk::Semaphore>& inoutSignalSemaphores);
 	private:
 		std::string m_WindowName;
 		uint32_t m_Width = 0;

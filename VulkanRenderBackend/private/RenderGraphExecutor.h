@@ -6,6 +6,7 @@
 #include "RenderBackendSettings.h"
 #include "ResourceUsageInfo.h"
 #include "CVulkanThreadContext.h"
+#include "VulkanImageObject.h"
 #include <memory>
 #include <ThreadManager/header/ThreadManager.h>
 #include <RenderInterface/header/CRenderGraph.h>
@@ -14,6 +15,12 @@ namespace graphics_backend
 {
 	using namespace thread_management;
 	class RenderGraphExecutor;
+
+	class InternalGPUTextures
+	{
+		VulkanImageObject m_ImageObject;
+		vk::ImageView m_ImageView;
+	};
 
 	//RenderPass Executor
 	class RenderPassExecutor
@@ -102,6 +109,8 @@ namespace graphics_backend
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
 
 		FrameType m_CompiledFrame = INVALID_FRAMEID;
+
+		std::vector<InternalGPUTextures> m_Images;
 	};
 
 	using RenderGraphExecutorDic = HashPool<std::shared_ptr<CRenderGraph>, RenderGraphExecutor>;

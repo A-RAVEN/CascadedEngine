@@ -48,7 +48,7 @@ namespace graphics_backend
 		uint32_t currentIndex = GetCurrentFrameBufferIndex();
 		vk::Fence currentFrameFence = m_SubmitFrameFences[currentIndex];
 		std::vector<vk::Fence> fences = {
-			m_SubmitFrameFences[currentIndex]
+			currentFrameFence
 		};
 		GetDevice().resetFences(fences);
 		vk::SubmitInfo submitInfo(waitSemaphores, waitStages, commandbufferList, signalSemaphores);

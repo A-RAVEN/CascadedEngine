@@ -94,38 +94,45 @@ namespace graphics_backend
 					bool anyPresent = false;
 					if (!m_WindowContexts.empty())
 					{
-						auto windowContext = m_WindowContexts[0];
-						if (windowContext->ValidContext())
+						std::vector<vk::Semaphore> semaphores;
+						semaphores.reserve(m_WindowContexts.size());
+						std::vector<vk::PipelineStageFlags> waitStages;
+						waitStages.reserve(m_WindowContexts.size());
+						std::vector<vk::Semaphore> signalSemaphores;
+						signalSemaphores.reserve(m_WindowContexts.size());
+						auto threadContext = AquireThreadContextPtr();
+						VulkanBarrierCollector layoutBarrierCollector{ GetSubmitCounterContext().GetGraphicsQueueFamily() };
+						for (auto& windowContext : m_WindowContexts)
 						{
-							anyPresent = true;
-							TIndex currentBuffer = windowContext->GetCurrentFrameBufferIndex();
-							std::array<const vk::Semaphore, 1> semaphore = { windowContext->GetWaitDoneSemaphore() };
-							std::array<const vk::PipelineStageFlags, 1> waitStages = { vk::PipelineStageFlagBits::eTransfer };
-							std::array<const vk::Semaphore, 1> presentSemaphore = { windowContext->GetPresentWaitingSemaphore() };
-
-							auto threadContext = AquireThreadContextPtr();
-							auto cmd = threadContext->GetCurrentFramePool().AllocateOnetimeCommandBuffer();
-
-							VulkanBarrierCollector presentBarrier{ GetSubmitCounterContext().GetGraphicsQueueFamily() };
-							presentBarrier.PushImageBarrier(windowContext->GetCurrentFrameImage()
-								, windowContext->GetCurrentFrameUsageFlags(), ResourceUsage::ePresent);
-							presentBarrier.ExecuteBarrier(cmd);
-							windowContext->MarkUsages(ResourceUsage::ePresent);
-
-							cmd.end();
-							waitingSubmitCommands.push_back(cmd);
+							if (windowContext->NeedPresent())
+							{
+								anyPresent = true;
+								windowContext->PrepareForPresent(
+									layoutBarrierCollector
+									, semaphores
+									, waitStages
+									, signalSemaphores);
+							}
+						}
+						if (anyPresent)
+						{
+							auto finalizeLayoutCmd = threadContext->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Finalize Backbuffer Layouts");
+							layoutBarrierCollector.ExecuteBarrier(finalizeLayoutCmd);
+							finalizeLayoutCmd.end();
+							waitingSubmitCommands.push_back(finalizeLayoutCmd);
 
 							m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands
-								, semaphore
+								, semaphores
 								, waitStages
-								, presentSemaphore);
+								, signalSemaphores);
 
-							vk::PresentInfoKHR presenttInfo(
-								presentSemaphore
-								, windowContext->GetSwapchain()
-								, currentBuffer
-							);
-							windowContext->m_PresentQueue.second.presentKHR(presenttInfo);
+							for (auto& windowContext : m_WindowContexts)
+							{
+								if (windowContext->NeedPresent())
+								{
+									windowContext->PresentCurrentFrame();
+								}
+							}
 						}
 					}
 					if(!anyPresent)

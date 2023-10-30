@@ -46,10 +46,10 @@ public:
 		return 1;
 	}
 
-	void Update()
+	void Update(float width, float height)
 	{
 		auto lookat = glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		auto perspective = glm::perspective(glm::radians(45.0f), 1024.0f / 512.0f, 0.1f, 1000.0f);
+		auto perspective = glm::perspective(glm::radians(45.0f), width / height, 0.1f, 1000.0f);
 		glm::mat4 data = perspective * lookat;
 		pShaderConstantSet->SetValue("viewProjectionMatrix", data);
 	}
@@ -156,6 +156,7 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(pThreadManager.get(), 5);
 	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window");
+	auto windowHandle2 = pBackend->NewWindow(1024, 512, "Test Window2");
 
 	auto shaderConstants = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
 
@@ -248,52 +249,76 @@ int main(int argc, char *argv[])
 		glm::mat4 data = perspective * lookat * translation * rotMat;
 		shaderConstants->SetValue("viewProjectionMatrix", data);
 
-		meshBatch.Update();
 
-		auto pRenderGraph = pRenderInterface->NewRenderGraph();
-		auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
-		auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{ 1024, 512, ETextureFormat::E_D32_SFLOAT, ETextureAccessType::eRT | ETextureAccessType::eSampled});
+		{
+			auto pRenderGraph = pRenderInterface->NewRenderGraph();
+			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
+			auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
+				windowSize.x, windowSize.y
+				, ETextureFormat::E_D32_SFLOAT
+				, ETextureAccessType::eRT | ETextureAccessType::eSampled });
+
+			CAttachmentInfo attachmentInfo{};
+			attachmentInfo.format = windowBackBuffer.GetDescriptor().format;
+			attachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+			attachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+
+			CAttachmentInfo depthAttachmentInfo{};
+			depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
+			depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(0.0f, 0x0);
+
+			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo });
+			newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
+			//newRenderPass.SetAttachmentTarget(1, depthTextureHandle);
+			newRenderPass
+				.Subpass({ {0} }
+					, CPipelineStateObject{}
+					, vertexInputDesc
+					, shaderSet
+					, { {shaderBindings}, {} }
+					, [vertexBuffer, indexBuffer, shaderBindings](CInlineCommandList& cmd)
+					{
+						if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
+						{
+							cmd.SetShaderBindings({ shaderBindings });
+							cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
+							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
+							cmd.DrawIndexed(6);
+						}
+						else
+						{
+							std::cout << "Not Finish Yet" << std::endl;
+						}
+					});
+
+			pRenderGraph->PresentWindow(windowHandle);
+			pBackend->ExecuteRenderGraph(pRenderGraph);
+		}
 		
-		CAttachmentInfo attachmentInfo{};
-		attachmentInfo.format = windowBackBuffer.GetDescriptor().format;
-		attachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-		attachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+		{
+			auto windowSize1 = windowHandle2->GetSizeSafe();
+			meshBatch.Update(windowSize1.x, windowSize1.y);
+			auto pRenderGraph = pRenderInterface->NewRenderGraph();
+			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2);
 
-		CAttachmentInfo depthAttachmentInfo{};
-		depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
-		depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-		depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(0.0f, 0x0);
+			CAttachmentInfo attachmentInfo{};
+			attachmentInfo.format = windowBackBuffer.GetDescriptor().format;
+			attachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+			attachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
 
-		CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo });
-		newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
-		//newRenderPass.SetAttachmentTarget(1, depthTextureHandle);
-		newRenderPass
-			.Subpass({ {0} }
-				, &meshBatch
-			)
-			.Subpass({ {0} }
-				, CPipelineStateObject{}
-				, vertexInputDesc
-				, shaderSet
-				, { {shaderBindings}, {} }
-				, [vertexBuffer, indexBuffer, shaderBindings](CInlineCommandList& cmd)
-				{
-					if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
-					{
-						cmd.SetShaderBindings({ shaderBindings });
-						cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
-						cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
-						cmd.DrawIndexed(6);
-					}
-					else
-					{
-						std::cout << "Not Finish Yet" << std::endl;
-					}
-				});
+			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo });
+			newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
+			newRenderPass
+				.Subpass({ {0} }
+					, &meshBatch
+				);
 
-				pRenderGraph->PresentWindow(windowHandle);
+			pRenderGraph->PresentWindow(windowHandle2);
+			pBackend->ExecuteRenderGraph(pRenderGraph);
+		}
 
-		pBackend->ExecuteRenderGraph(pRenderGraph);
+
 		pBackend->TickBackend();
 		pBackend->TickWindows();
 		++frame;

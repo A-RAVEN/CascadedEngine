@@ -115,18 +115,6 @@ namespace graphics_backend
 		m_PresentQueue = GetVulkanApplication().GetSubmitCounterContext().FindPresentQueue(m_Surface);
 
 		m_SwapchainContext.Init(m_Width, m_Height, m_Surface, nullptr, m_PresentQueue.first);
-
-		//m_WindowCallback = [this](GLFWwindow* window, int width, int height)
-		//	{
-		//		int extractedWidth = 0;
-		//		int extractedHeight = 0;
-		//		glfwGetFramebufferSize(m_Window, &extractedWidth, &extractedHeight);
-		//		m_Width = extractedWidth;
-		//		m_Height = extractedHeight;
-		//		m_Resized = true;
-		//	};
-		//typedef void (windowsSizeFunc) (GLFWwindow*, int, int);
-		//glfwSetWindowSizeCallback(m_Window, m_WindowCallback.target<windowsSizeFunc>());
 	}
 
 	void CWindowContext::Release()
@@ -143,6 +131,41 @@ namespace graphics_backend
 			glfwDestroyWindow(m_Window);
 			m_Window = nullptr;
 		}
+	}
+
+	bool CWindowContext::NeedPresent() const
+	{
+		return ValidContext() && GetCurrentFrameUsageFlags() != ResourceUsage::eDontCare;
+	}
+
+	void CWindowContext::PresentCurrentFrame()
+	{
+		if (!NeedPresent())
+			return;
+		std::array<vk::Semaphore, 1> waitSemaphores = { m_SwapchainContext.GetPresentWaitingSemaphore() };
+		std::array<uint32_t, 1> swapchainIndices = { m_SwapchainContext.GetCurrentFrameBufferIndex() };
+		vk::PresentInfoKHR presenttInfo(
+			waitSemaphores
+			, GetSwapchain()
+			, swapchainIndices
+		);
+		m_PresentQueue.second.presentKHR(presenttInfo);
+		MarkUsages(ResourceUsage::ePresent);
+	}
+
+	void CWindowContext::PrepareForPresent(
+		VulkanBarrierCollector& inoutBarrierCollector
+		, std::vector<vk::Semaphore>& inoutWaitSemaphores
+		, std::vector<vk::PipelineStageFlags>& inoutWaitStages
+		, std::vector<vk::Semaphore>& inoutSignalSemaphores)
+	{
+		if (!NeedPresent())
+			return;
+		inoutWaitSemaphores.push_back(GetWaitDoneSemaphore());
+		inoutWaitStages.push_back(vk::PipelineStageFlagBits::eTransfer);
+		inoutSignalSemaphores.push_back(GetPresentWaitingSemaphore());
+		inoutBarrierCollector.PushImageBarrier(GetCurrentFrameImage()
+			, GetCurrentFrameUsageFlags(), ResourceUsage::ePresent);
 	}
 
 	SwapchainContext::SwapchainContext(CVulkanApplication& app) : BaseApplicationSubobject(app)
@@ -241,6 +264,9 @@ namespace graphics_backend
 	}
 	void SwapchainContext::WaitCurrentFrameBufferIndex()
 	{
+		//if frame image is not used, we don't need to wait
+		if (m_CurrentBufferIndex != INVALID_INDEX && m_CurrentFrameUsageFlags == ResourceUsage::eDontCare)
+			return;
 		vk::ResultValue<uint32_t> currentBuffer = GetDevice().acquireNextImageKHR(
 			m_Swapchain
 			, std::numeric_limits<uint64_t>::max()
@@ -249,6 +275,7 @@ namespace graphics_backend
 		if (currentBuffer.result == vk::Result::eSuccess)
 		{
 			m_CurrentBufferIndex = currentBuffer.value;
+			MarkUsages(ResourceUsage::eDontCare);
 		}
 	}
 	void SwapchainContext::MarkUsages(ResourceUsageFlags usages)
