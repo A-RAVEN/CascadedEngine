@@ -18,6 +18,8 @@ namespace graphics_backend
 		virtual TextureHandle TextureHandleByIndex(TIndex index) const override;
 
 		virtual TextureHandleInternalInfo const& GetTextureHandleInternalInfo(TIndex index) const override { return m_TextureHandleIdToInternalInfo[index]; }
+		virtual uint32_t GetTextureTypesDescriptorCount() const override { return m_TextureDescriptorList.size(); }
+		virtual GPUTextureDescriptor const& GetTextureDescriptor(TIndex descriptorIndex) const override { return m_TextureDescriptorList[descriptorIndex]; }
 
 		virtual std::shared_ptr<WindowHandle> GetTargetWindow() const override {
 			return m_TargetWindow;

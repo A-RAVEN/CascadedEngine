@@ -18,8 +18,27 @@ namespace graphics_backend
 
 	class InternalGPUTextures
 	{
+	public:
 		VulkanImageObject m_ImageObject;
 		vk::ImageView m_ImageView;
+	};
+
+	class TextureHandleLifetimeInfo
+	{
+	public:
+		uint32_t beginNodeID = INVALID_INDEX;
+		uint32_t endNodeID = INVALID_INDEX;
+		void Touch(uint32_t nodeID)
+		{
+			if (beginNodeID == INVALID_INDEX)
+			{
+				beginNodeID = nodeID;
+			}
+			if (endNodeID == INVALID_INDEX || endNodeID < nodeID)
+			{
+				endNodeID = nodeID;
+			}
+		}
 	};
 
 	//RenderPass Executor
@@ -30,6 +49,7 @@ namespace graphics_backend
 		void Compile(CTaskGraph* taskGraph);
 
 		void ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsage>& TextureHandleUsageStates);
+		void UpdateTextureLifetimes(uint32_t nodeIndex, std::unordered_map<TIndex, TextureHandleLifetimeInfo>& textureLifetimes);
 
 		void PrepareCommandBuffers(CTaskGraph* thisGraph);
 		void AppendCommandBuffers(std::vector<vk::CommandBuffer>& outCommandBuffers);
@@ -106,11 +126,13 @@ namespace graphics_backend
 		std::vector<RenderPassExecutor> m_RenderPasses;
 
 		std::unordered_map<TIndex, ResourceUsage> m_TextureHandleUsageStates;
+		std::unordered_map<TIndex, TextureHandleLifetimeInfo> m_TextureHandleLifetimes;
+
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
 
 		FrameType m_CompiledFrame = INVALID_FRAMEID;
 
-		std::vector<InternalGPUTextures> m_Images;
+		std::vector<std::vector<InternalGPUTextures>> m_Images;
 	};
 
 	using RenderGraphExecutorDic = HashPool<std::shared_ptr<CRenderGraph>, RenderGraphExecutor>;

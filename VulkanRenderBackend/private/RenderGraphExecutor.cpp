@@ -36,7 +36,6 @@ namespace graphics_backend
 				m_RenderPasses.emplace_back(*this, *m_RenderGraph, renderPass);
 			}
 		});
-
 		
 		//编译每个RenderPass(RenderPass, PSO)
 		auto compileGraph = taskGraph->NewTaskGraph()
@@ -101,14 +100,94 @@ namespace graphics_backend
 		uint32_t nodeCount = m_RenderGraph->GetRenderNodeCount();
 
 		//处理每个RenderPass的ResourceBarrier
+		//TODO 收集临时资源
 		auto resolvingResourcesTask = taskGraph->NewTask()
 			->Name("Resolve Resource Usages")
 			->Functor([this, nodeCount]()
 				{
 					m_TextureHandleUsageStates.clear();
+					m_TextureHandleLifetimes.clear();
 					for (uint32_t itr_node = 0; itr_node < nodeCount; ++itr_node)
 					{
 						m_RenderPasses[itr_node].ResolveTextureHandleUsages(m_TextureHandleUsageStates);
+						m_RenderPasses[itr_node].UpdateTextureLifetimes(itr_node, m_TextureHandleLifetimes);
+					}
+
+					uint32_t textureDescTypeCount = m_RenderGraph->GetTextureTypesDescriptorCount();
+
+					std::vector<std::pair<std::vector<TIndex>, std::vector<TIndex>>> textureAllocationRecorder;
+					//textures will be released at next node stage, so we have nodeCount + 1 stages
+					textureAllocationRecorder.resize(nodeCount + 1);
+
+					for (auto& itrLifeTime : m_TextureHandleLifetimes)
+					{
+						TIndex textureHandleID = itrLifeTime.first;
+						TextureHandleLifetimeInfo& lifetimeInfo = itrLifeTime.second;
+						TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(textureHandleID);
+						if (!handleInfo.IsExternalTexture())
+						{
+							textureAllocationRecorder[lifetimeInfo.beginNodeID].first.push_back(textureHandleID);
+							textureAllocationRecorder[lifetimeInfo.beginNodeID].second.push_back(textureHandleID);
+						}
+					}
+
+					std::vector<int32_t> textureAllocationIndex;
+					textureAllocationIndex.resize(m_TextureHandleLifetimes.size());
+					std::fill(textureAllocationIndex.begin(), textureAllocationIndex.end(), -1);
+
+					std::vector<std::pair<int32_t, std::deque<int32_t>>> textureAllocationQueue;
+					textureAllocationQueue.resize(textureDescTypeCount);
+
+					auto allocateIndexFunc = [&textureAllocationQueue](TIndex descIndex)
+						{
+							int32_t result = -1;
+							auto& allocationState = textureAllocationQueue[descIndex];
+							if (allocationState.second.empty())
+							{
+								result = allocationState.first;
+								++allocationState.first;
+							}
+							else
+							{
+								result = allocationState.second.front();
+								allocationState.second.pop_front();
+							}
+							return result;
+						};
+
+					auto releaseIndexFunc = [&textureAllocationQueue](TIndex descIndex, int32_t index)
+						{
+							auto& allocationState = textureAllocationQueue[descIndex];
+							allocationState.second.push_back(index);
+						};
+
+
+					for (auto& recorderPass : textureAllocationRecorder)
+					{
+						for (TIndex handleID : recorderPass.second)
+						{
+							TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(handleID);
+							releaseIndexFunc(handleInfo.m_DescriptorIndex, textureAllocationIndex[handleID]);
+						}
+
+						for (TIndex handleID : recorderPass.first)
+						{
+							TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(handleID);
+							textureAllocationIndex[handleID] = allocateIndexFunc(handleInfo.m_DescriptorIndex);
+						}
+					}
+
+					m_Images.resize(textureDescTypeCount);
+					for (uint32_t itr_type = 0; itr_type < textureDescTypeCount; ++itr_type)
+					{
+						auto& desc = m_RenderGraph->GetTextureDescriptor(itr_type);
+						auto& images = m_Images[itr_type];
+						images.resize(textureAllocationQueue[itr_type].first);
+
+						for (auto& image : images)
+						{
+							image.m_ImageObject = GetMemoryManager().AllocateImage(desc, EMemoryType::GPU, EMemoryLifetime::FrameBound);
+						}
 					}
 				});
 
@@ -223,6 +302,26 @@ namespace graphics_backend
 				{
 					m_UsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
 				}
+			}
+		}
+	}
+	void RenderPassExecutor::UpdateTextureLifetimes(uint32_t nodeIndex, std::unordered_map<TIndex, TextureHandleLifetimeInfo>& textureLifetimes)
+	{
+		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
+		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
+		for (uint32_t attachmentID = 0; attachmentID < handles.size(); ++attachmentID)
+		{
+			uint32_t handleID = handles[attachmentID];
+			if (handleID != INVALID_INDEX)
+			{
+				ResourceUsage srcUsage = ResourceUsage::eDontCare;
+				auto found = textureLifetimes.find(handleID);
+				if (found == textureLifetimes.end())
+				{
+					textureLifetimes.insert(std::make_pair(handleID, TextureHandleLifetimeInfo{}));
+					found = textureLifetimes.find(handleID);
+				}
+				found->second.Touch(nodeIndex);
 			}
 		}
 	}
