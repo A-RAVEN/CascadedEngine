@@ -55,7 +55,7 @@ namespace graphics_backend
 		auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload GPU Texture");
 
 		VulkanBarrierCollector imageBarrier{ GetFrameCountContext().GetGraphicsQueueFamily() };
-		imageBarrier.PushImageBarrier(m_ImageObject->GetImage()
+		imageBarrier.PushImageBarrier(m_ImageObject->GetImage(), m_Descriptor.format
 			, ResourceUsage::eDontCare, ResourceUsage::eTransferDest);
 		imageBarrier.ExecuteBarrier(cmdBuffer);
 
@@ -66,7 +66,7 @@ namespace graphics_backend
 			, bufferImageCopy);
 
 		VulkanBarrierCollector imageBarrier1{ GetFrameCountContext().GetGraphicsQueueFamily() };
-		imageBarrier1.PushImageBarrier(m_ImageObject->GetImage()
+		imageBarrier1.PushImageBarrier(m_ImageObject->GetImage(), m_Descriptor.format
 			, ResourceUsage::eTransferDest
 			, ResourceUsageFlags{ ResourceUsage::eVertexRead }
 			| ResourceUsage::eFragmentRead

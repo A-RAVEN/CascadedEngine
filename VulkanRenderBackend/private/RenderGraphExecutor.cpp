@@ -92,6 +92,13 @@ namespace graphics_backend
 			, inoutCommands.end() - m_PendingGraphicsCommandBuffers.size());
 	}
 
+	InternalGPUTextures const& RenderGraphExecutor::GetLocalTexture(TIndex textureHandle) const
+	{
+		auto& internalTexture = m_RenderGraph->GetTextureHandleInternalInfo(textureHandle);
+		int32_t allocationIndex = m_TextureAllocationIndex[textureHandle];
+		return m_Images[internalTexture.m_DescriptorIndex][allocationIndex];
+	}
+
 	void RenderGraphExecutor::Execute(CTaskGraph* taskGraph)
 	{
 		if (!CompileDone())
@@ -127,13 +134,13 @@ namespace graphics_backend
 						if (!handleInfo.IsExternalTexture())
 						{
 							textureAllocationRecorder[lifetimeInfo.beginNodeID].first.push_back(textureHandleID);
-							textureAllocationRecorder[lifetimeInfo.beginNodeID].second.push_back(textureHandleID);
+							textureAllocationRecorder[lifetimeInfo.endNodeID + 1].second.push_back(textureHandleID);
 						}
 					}
 
-					std::vector<int32_t> textureAllocationIndex;
-					textureAllocationIndex.resize(m_TextureHandleLifetimes.size());
-					std::fill(textureAllocationIndex.begin(), textureAllocationIndex.end(), -1);
+					m_TextureAllocationIndex.clear();
+					m_TextureAllocationIndex.resize(m_TextureHandleLifetimes.size());
+					std::fill(m_TextureAllocationIndex.begin(), m_TextureAllocationIndex.end(), -1);
 
 					std::vector<std::pair<int32_t, std::deque<int32_t>>> textureAllocationQueue;
 					textureAllocationQueue.resize(textureDescTypeCount);
@@ -167,13 +174,13 @@ namespace graphics_backend
 						for (TIndex handleID : recorderPass.second)
 						{
 							TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(handleID);
-							releaseIndexFunc(handleInfo.m_DescriptorIndex, textureAllocationIndex[handleID]);
+							releaseIndexFunc(handleInfo.m_DescriptorIndex, m_TextureAllocationIndex[handleID]);
 						}
 
 						for (TIndex handleID : recorderPass.first)
 						{
 							TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(handleID);
-							textureAllocationIndex[handleID] = allocateIndexFunc(handleInfo.m_DescriptorIndex);
+							m_TextureAllocationIndex[handleID] = allocateIndexFunc(handleInfo.m_DescriptorIndex);
 						}
 					}
 
@@ -183,10 +190,14 @@ namespace graphics_backend
 						auto& desc = m_RenderGraph->GetTextureDescriptor(itr_type);
 						auto& images = m_Images[itr_type];
 						images.resize(textureAllocationQueue[itr_type].first);
+						bool depthStencil = IsDepthStencilFormat(desc.format);
+						bool depthOnly = IsDepthOnlyFormat(desc.format);
+						bool hasStencil = depthStencil && !depthOnly;
 
 						for (auto& image : images)
 						{
 							image.m_ImageObject = GetMemoryManager().AllocateImage(desc, EMemoryType::GPU, EMemoryLifetime::FrameBound);
+							image.m_ImageView = GetVulkanApplication().CreateDefaultImageView(desc, image.m_ImageObject->GetImage(), depthOnly, hasStencil);
 						}
 					}
 				});
@@ -454,8 +465,22 @@ namespace graphics_backend
 		VulkanBarrierCollector textureBarrier{ m_OwningExecutor.GetFrameCountContext().GetGraphicsQueueFamily() };
 		for (auto& usageData : m_UsageBarriers)
 		{
-			auto& textureInfo = m_RenderGraph.GetTextureHandleInternalInfo(std::get<0>(usageData));
-			textureBarrier.PushImageBarrier(static_cast<CWindowContext*>(textureInfo.p_WindowsHandle.get())->GetCurrentFrameImage()
+			TIndex handleIDS = std::get<0>(usageData);
+			auto& textureInfo = m_RenderGraph.GetTextureHandleInternalInfo(handleIDS);
+			auto& descriptor = m_RenderGraph.GetTextureDescriptor(textureInfo.m_DescriptorIndex);
+
+			vk::Image image;
+			if (textureInfo.p_WindowsHandle != nullptr)
+			{
+				image = static_cast<CWindowContext*>(textureInfo.p_WindowsHandle.get())->GetCurrentFrameImage();
+			}
+			else
+			{
+				auto& textureHandleInternal = m_OwningExecutor.GetLocalTexture(handleIDS);
+				image = textureHandleInternal.m_ImageObject->GetImage();
+			}
+
+			textureBarrier.PushImageBarrier(image, descriptor.format
 				, std::get<1>(usageData)
 				, std::get<2>(usageData));
 		}
@@ -589,6 +614,11 @@ namespace graphics_backend
 			if (textureInfo.p_WindowsHandle != nullptr)
 			{
 				m_FrameBufferImageViews.push_back(static_cast<CWindowContext*>(textureInfo.p_WindowsHandle.get())->GetCurrentFrameImageView());
+			}
+			else
+			{
+				auto& textureHandleInternal = m_OwningExecutor.GetLocalTexture(handleIDS);
+				m_FrameBufferImageViews.push_back(textureHandleInternal.m_ImageView);
 			}
 		}
 

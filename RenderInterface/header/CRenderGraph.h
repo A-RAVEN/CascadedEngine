@@ -27,7 +27,6 @@ namespace graphics_backend
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
 		virtual void PresentWindow(std::shared_ptr<WindowHandle> window) = 0;
 		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
-		virtual uint32_t GetTextureTypesCount() const = 0;
 
 		//Used By Backend
 		virtual uint32_t GetRenderNodeCount() const = 0;

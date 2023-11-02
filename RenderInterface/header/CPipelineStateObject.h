@@ -83,6 +83,15 @@ struct DepthStencilStates
 			&& stencilStateFront == rhs.stencilStateFront
 			&& stencilStateBack == rhs.stencilStateBack;
 	}
+
+	static DepthStencilStates const& NormalOpaque()
+	{
+		DepthStencilStates states;
+		states.depthTestEnable = true;
+		states.depthWriteEnable = true;
+		states.depthCompareOp = ECompareOp::eLEqual;
+		return states;
+	}
 };
 
 template<>
@@ -140,10 +149,10 @@ struct is_contiguously_hashable<ColorAttachmentsBlendStates> : public std::true_
 class CPipelineStateObject
 {
 public:
-	RasterizerStates rasterizationStates = {};
-	MultiSampleStates multiSampleStates = {};
 	DepthStencilStates depthStencilStates = {};
+	RasterizerStates rasterizationStates = {};
 	ColorAttachmentsBlendStates colorAttachments = {};
+	MultiSampleStates multiSampleStates = {};
 
 	bool operator==(CPipelineStateObject const& rhs) const
 	{

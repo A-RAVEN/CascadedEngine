@@ -1,4 +1,5 @@
 #pragma once
+#include "VulkanIncludes.h"
 #include <RenderInterface/header/Common.h>
 #include <RenderInterface/header/TextureSampler.h>
 #include <RenderInterface/header/GPUTexture.h>
@@ -523,7 +524,8 @@ namespace graphics_backend
 		//标记深度，模板值
 		else if (IsDepthStencilFormat(inFormat))
 		{
-
+			result.depthStencil = vk::ClearDepthStencilValue(inClearValue.depthStencil.depth
+				, inClearValue.depthStencil.stencil);
 		}
 		return result;
 	}

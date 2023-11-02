@@ -266,14 +266,14 @@ int main(int argc, char *argv[])
 			CAttachmentInfo depthAttachmentInfo{};
 			depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
 			depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(0.0f, 0x0);
+			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(1.0f, 0x0);
 
-			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo });
+			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo, depthAttachmentInfo });
 			newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
-			//newRenderPass.SetAttachmentTarget(1, depthTextureHandle);
+			newRenderPass.SetAttachmentTarget(1, depthTextureHandle);
 			newRenderPass
-				.Subpass({ {0} }
-					, CPipelineStateObject{}
+				.Subpass({ {0}, 1 }
+				, CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
 					, vertexInputDesc
 					, shaderSet
 					, { {shaderBindings}, {} }

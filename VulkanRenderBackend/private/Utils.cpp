@@ -59,6 +59,46 @@ namespace vulkan_backend
 			return s_DefaultColorSubresourceRange;
 		}
 
+		vk::ImageSubresourceRange const& DefaultDepthSubresourceRange()
+		{
+			const static vk::ImageSubresourceRange s_DefaultColorSubresourceRange = {
+				vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil
+				, 0
+				, 1
+				, 0
+				, 1
+			};
+			return s_DefaultColorSubresourceRange;
+		}
+
+		vk::ImageSubresourceRange MakeSubresourceRange(ETextureFormat format
+			, uint32_t baseMip
+			, uint32_t mipCount
+			, uint32_t baseLayer
+			, uint32_t layerCount)
+		{
+			bool isDepthOnly = IsDepthOnlyFormat(format);
+			bool isDepthStencil = IsDepthStencilFormat(format);
+			bool hasStencil = isDepthStencil && !isDepthOnly;
+			vk::ImageAspectFlags aspectFlags = vk::ImageAspectFlagBits::eColor;
+			if (isDepthStencil)
+			{
+				aspectFlags = vk::ImageAspectFlagBits::eDepth;
+				if(hasStencil)
+				{
+					aspectFlags |= vk::ImageAspectFlagBits::eStencil;
+				}
+			}
+			vk::ImageSubresourceRange result = {
+				aspectFlags
+				, baseMip
+				, mipCount
+				, baseLayer
+				, layerCount
+			};
+			return result;
+		}
+
 		VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT       messageSeverity,
 	        VkDebugUtilsMessageTypeFlagsEXT              messageTypes,
 	        VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData,

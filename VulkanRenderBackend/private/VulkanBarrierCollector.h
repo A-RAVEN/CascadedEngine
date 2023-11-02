@@ -1,8 +1,9 @@
 #pragma once
 #include "VulkanIncludes.h"
+#include "ResourceUsageInfo.h"
 #include <map>
 #include <deque>
-#include "ResourceUsageInfo.h"
+#include <RenderInterface/header/Common.h>
 namespace graphics_backend
 {
 
@@ -13,6 +14,7 @@ namespace graphics_backend
 		VulkanBarrierCollector(uint32_t currentQueueFamilyIndex) : m_CurrentQueueFamilyIndex(currentQueueFamilyIndex){}
 
 		void PushImageBarrier(vk::Image image
+			, ETextureFormat format
 			, ResourceUsageFlags sourceUsage
 			, ResourceUsageFlags destUsage);
 
@@ -31,7 +33,7 @@ namespace graphics_backend
 
 		struct BarrierGroup
 		{
-			std::vector<std::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Image>> m_Images;
+			std::vector<std::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Image, ETextureFormat>> m_Images;
 		};
 
 	private:

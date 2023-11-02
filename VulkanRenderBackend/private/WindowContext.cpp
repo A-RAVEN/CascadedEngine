@@ -164,7 +164,7 @@ namespace graphics_backend
 		inoutWaitSemaphores.push_back(GetWaitDoneSemaphore());
 		inoutWaitStages.push_back(vk::PipelineStageFlagBits::eTransfer);
 		inoutSignalSemaphores.push_back(GetPresentWaitingSemaphore());
-		inoutBarrierCollector.PushImageBarrier(GetCurrentFrameImage()
+		inoutBarrierCollector.PushImageBarrier(GetCurrentFrameImage(), m_SwapchainContext.m_TextureDesc.format
 			, GetCurrentFrameUsageFlags(), ResourceUsage::ePresent);
 	}
 

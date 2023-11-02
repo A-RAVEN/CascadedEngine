@@ -107,13 +107,16 @@ namespace graphics_backend
 	vk::PipelineColorBlendStateCreateInfo PopulateColorBlendStateInfo(
 		CPipelineStateObject const& srcPSO
 		, RenderPassObject const* pRenderPassObj
+		, uint32_t subpassIndex
 		, std::vector<vk::PipelineColorBlendAttachmentState>& inoutBlendAttachmentStates)
 	{
 		auto& colorAttachments = srcPSO.colorAttachments;
 		vk::PipelineColorBlendStateCreateInfo result{};
-		uint32_t attachmentCount = std::min(
+
+		uint32_t attachmentCount = pRenderPassObj->GetDescriptor()->renderPassInfo.subpassInfos[subpassIndex].colorAttachmentIDs.size();
+		attachmentCount = std::min(
 			static_cast<uint32_t>(colorAttachments.attachmentBlendStates.size())
-			, pRenderPassObj->GetAttachmentCount());
+			, attachmentCount);
 		inoutBlendAttachmentStates.resize(attachmentCount);
 		for(uint32_t i = 0; i < attachmentCount; ++i)
 		{
@@ -181,6 +184,7 @@ namespace graphics_backend
 		vk::PipelineColorBlendStateCreateInfo colorBlendState = PopulateColorBlendStateInfo(
 			pipelineObjectDescriptor.pso
 			, pipelineObjectDescriptor.renderPassObject.get()
+			, pipelineObjectDescriptor.subpassIndex
 			, inoutBlendAttachmentStates);
 
 		//Shader Stages

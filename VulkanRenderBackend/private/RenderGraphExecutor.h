@@ -117,6 +117,7 @@ namespace graphics_backend
 		bool CompileDone() const;
 		bool CompileIssued() const;
 		void CollectCommands(std::vector<vk::CommandBuffer>& inoutCommands) const;
+		InternalGPUTextures const& GetLocalTexture(TIndex textureHandle) const;
 	private:
 		void Compile(CTaskGraph* taskGrap);
 		void Execute(CTaskGraph* taskGrap);
@@ -132,6 +133,7 @@ namespace graphics_backend
 
 		FrameType m_CompiledFrame = INVALID_FRAMEID;
 
+		std::vector<int32_t> m_TextureAllocationIndex;
 		std::vector<std::vector<InternalGPUTextures>> m_Images;
 	};
 

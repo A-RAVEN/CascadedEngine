@@ -3,7 +3,10 @@
 
 namespace graphics_backend
 {
-	void VulkanBarrierCollector::PushImageBarrier(vk::Image image, ResourceUsageFlags sourceUsage, ResourceUsageFlags destUsage)
+	void VulkanBarrierCollector::PushImageBarrier(vk::Image image
+		, ETextureFormat format
+		, ResourceUsageFlags sourceUsage
+		, ResourceUsageFlags destUsage)
 	{
 		ResourceUsageVulkanInfo sourceInfo = GetUsageInfo(sourceUsage);
 		ResourceUsageVulkanInfo destInfo = GetUsageInfo(destUsage);
@@ -16,7 +19,7 @@ namespace graphics_backend
 			found = m_BarrierGroups.find(key);
 		}
 
-		found->second.m_Images.push_back(std::make_tuple(sourceInfo, destInfo, image));
+		found->second.m_Images.push_back(std::make_tuple(sourceInfo, destInfo, image, format));
 	}
 	
 	void VulkanBarrierCollector::ExecuteBarrier(vk::CommandBuffer commandBuffer)
@@ -37,6 +40,7 @@ namespace graphics_backend
 				ResourceUsageVulkanInfo& sourceInfo = std::get<0>(imgInfo);
 				ResourceUsageVulkanInfo& destInfo = std::get<1>(imgInfo);
 				vk::Image image = std::get<2>(imgInfo);
+				ETextureFormat format = std::get<3>(imgInfo);
 
 				vk::ImageMemoryBarrier newBarrier(
 					sourceInfo.m_UsageAccessFlags
@@ -46,7 +50,7 @@ namespace graphics_backend
 					, m_CurrentQueueFamilyIndex
 					, m_CurrentQueueFamilyIndex
 					, image
-					, vulkan_backend::utils::DefaultColorSubresourceRange());
+					, vulkan_backend::utils::MakeSubresourceRange(format));
 				imageBarriers.push_back(newBarrier);
 			}
 			commandBuffer.pipelineBarrier(
