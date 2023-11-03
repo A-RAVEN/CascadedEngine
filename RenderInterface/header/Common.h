@@ -66,6 +66,14 @@ enum class EIndexBufferType : uint8_t
 	e32
 };
 
+enum class ETextureAspect : uint8_t
+{
+	//Color for non-depth format, depth for depth format
+	eDefault = 0,
+	eStencil,
+	eDepthStencil
+};
+
 enum class ETextureType : uint8_t
 {
 	e1D,

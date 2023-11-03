@@ -266,7 +266,7 @@ int main(int argc, char *argv[])
 			CAttachmentInfo depthAttachmentInfo{};
 			depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
 			depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(1.0f, 0x0);
+			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(0.0f, 0x0);
 
 			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo, depthAttachmentInfo });
 			newRenderPass.SetAttachmentTarget(0, windowBackBuffer);

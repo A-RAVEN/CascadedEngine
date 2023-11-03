@@ -30,7 +30,12 @@ namespace graphics_backend
 
 	class GPUTextureAccessDescriptor
 	{
-
+	public:
+		ETextureAspect aspect = ETextureAspect::eDefault;
+		uint32_t baseMip = 0;
+		uint32_t mipCount = 1;
+		uint32_t baseLayer = 0;
+		uint32_t layerCount = 1;
 	};
 
 	class GPUTexture
