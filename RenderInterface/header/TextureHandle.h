@@ -4,6 +4,7 @@
 
 namespace graphics_backend
 {
+	class WindowHandle;
 	class TextureHandle
 	{
 	public:
@@ -21,5 +22,14 @@ namespace graphics_backend
 	private:
 		GPUTextureDescriptor m_Descriptor;
 		TIndex m_HandleIndex;
+	};
+
+
+	struct TextureHandleInternalInfo
+	{
+	public:
+		TIndex m_DescriptorIndex = INVALID_INDEX;
+		std::shared_ptr<WindowHandle> p_WindowsHandle = nullptr;
+		bool IsExternalTexture() const { return p_WindowsHandle != nullptr; }
 	};
 }

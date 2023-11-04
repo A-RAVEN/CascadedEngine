@@ -3,15 +3,18 @@
 #include "GPUBuffer_Impl.h"
 #include "InterfaceTranslator.h"
 #include "ShaderBindingSet_Impl.h"
+#include "RenderGraphExecutor.h"
 
 namespace graphics_backend
 {
 	CCommandList_Impl::CCommandList_Impl(vk::CommandBuffer cmd
+		, RenderGraphExecutor* rendergraphExecutor
 		, std::shared_ptr<RenderPassObject> renderPassObj
 		, TIndex subpassIndex
 		, std::vector<std::shared_ptr<CPipelineObject>> const& pipelineObjs
 	) :
 		m_CommandBuffer(cmd)
+		, p_RenderGraphExecutor(rendergraphExecutor)
 		, m_RenderPassObject(renderPassObj)
 		, m_SubpassIndex(subpassIndex)
 		, m_PipelineObjects(pipelineObjs)
@@ -58,6 +61,19 @@ namespace graphics_backend
 		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, GetBoundPipelineObject()->GetPipelineLayout()
 			, 0, descriptorSets, {});
 	}
+	void CCommandList_Impl::SetShaderBindings(std::vector<ShaderBindingSetHandle> bindings)
+	{
+		std::vector<vk::DescriptorSet> descriptorSets;
+		descriptorSets.resize(bindings.size());
+		for (uint32_t i = 0; i < bindings.size(); ++i)
+		{
+			auto& descriptorSetObject = p_RenderGraphExecutor->GetLocalDescriptorSet(bindings[i].GetBindingSetIndex());
+			descriptorSets[i] = descriptorSetObject->GetDescriptorSet();
+		};
+		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, GetBoundPipelineObject()->GetPipelineLayout()
+			, 0, descriptorSets, {});
+	}
+
 	void CCommandList_Impl::DrawIndexed(uint32_t indexCount, uint32_t instanceCount)
 	{
 		m_CommandBuffer.drawIndexed(indexCount, instanceCount, 0, 0, 0);

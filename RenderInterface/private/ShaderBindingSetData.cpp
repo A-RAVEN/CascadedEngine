@@ -1,9 +1,10 @@
 #include "pch.h"
-#include "header/ShaderBindingSetHandle.h"
+#include "ShaderBindingSetData.h"
+#include <header/CRenderGraph.h>
 
 namespace graphics_backend
 {
-	void ShaderBindingSetHandle_Impl::SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet)
+	void ShaderBindingSetData_Internal::SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet)
 	{
 		auto found = m_ExternalConstantSets.find(name);
 		if (found != m_ExternalConstantSets.end())
@@ -15,7 +16,7 @@ namespace graphics_backend
 			m_ExternalConstantSets.insert(std::make_pair(name, pConstantSet));
 		}
 	}
-	void ShaderBindingSetHandle_Impl::SetTexture(std::string const& name, std::shared_ptr<GPUTexture> const& pTexture)
+	void ShaderBindingSetData_Internal::SetTexture(std::string const& name, std::shared_ptr<GPUTexture> const& pTexture)
 	{
 		auto found = m_ExternalTextures.find(name);
 		if (found != m_ExternalTextures.end())
@@ -28,7 +29,7 @@ namespace graphics_backend
 		}
 	}
 
-	void ShaderBindingSetHandle_Impl::SetTexture(std::string const& name, TextureHandle const& textureHandle)
+	void ShaderBindingSetData_Internal::SetTexture(std::string const& name, TextureHandle const& textureHandle)
 	{
 		auto found = m_InternalTextures.find(name);
 		if (found != m_InternalTextures.end())
@@ -41,7 +42,7 @@ namespace graphics_backend
 		}
 	}
 
-	void ShaderBindingSetHandle_Impl::SetSampler(std::string const& name, std::shared_ptr<TextureSampler> const& pSampler)
+	void ShaderBindingSetData_Internal::SetSampler(std::string const& name, std::shared_ptr<TextureSampler> const& pSampler)
 	{
 		auto found = m_ExternalSamplers.find(name);
 		if (found != m_ExternalSamplers.end())

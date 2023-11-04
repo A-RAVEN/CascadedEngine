@@ -1,8 +1,8 @@
 #pragma once
-#include <RenderInterface/header/GPUBuffer.h>
 #include "RenderBackendSettings.h"
 #include "IUploadingResource.h"
 #include "CVulkanBufferObject.h"
+#include <RenderInterface/header/GPUBuffer.h>
 
 namespace graphics_backend
 {

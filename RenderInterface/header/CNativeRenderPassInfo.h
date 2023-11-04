@@ -1,21 +1,22 @@
 #pragma once
-#include <functional>
-#include <vector>
-#include <SharedTools/header/uhash.h>
 #include "Common.h"
-#include "CPipelineStateObject.h"
 #include "ShaderProvider.h"
+#include "CPipelineStateObject.h"
 #include "CVertexInputDescriptor.h"
 #include "TextureHandle.h"
 #include "ShaderBindingBuilder.h"
 #include "ShaderBindingSet.h"
+#include "ShaderBindingSetHandle.h"
+#include "CCommandList.h"
 #include "IMeshInterface.h"
+#include <functional>
+#include <vector>
+#include <SharedTools/header/uhash.h>
 
 namespace graphics_backend
 {
 	constexpr uint32_t INVALID_ATTACHMENT_INDEX = 256;
 
-	class CInlineCommandList;
 
 	struct CAttachmentInfo
 	{

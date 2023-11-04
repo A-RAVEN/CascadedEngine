@@ -1,22 +1,20 @@
 #pragma once
+#include "TextureHandle.h"
+#include "WindowHandle.h"
+#include "ShaderBindingSetHandle.h"
+#include "CNativeRenderPassInfo.h"
 #include <functional>
 #include <string>
 #include <vector>
 #include <type_traits>
-#include "CNativeRenderPassInfo.h"
-#include "TextureHandle.h"
-#include "WindowHandle.h"
-#include "ShaderBindingSetHandle.h"
 
 namespace graphics_backend
 {
-	struct TextureHandleInternalInfo
-	{
-	public:
-		TIndex m_DescriptorIndex = INVALID_INDEX;
-		std::shared_ptr<graphics_backend::WindowHandle> p_WindowsHandle = nullptr;
-		bool IsExternalTexture() const { return p_WindowsHandle != nullptr; }
-	};
+	class CRenderpassBuilder;
+	class ShaderConstantSet;
+	class TextureSampler;
+	class CRenderGraph;
+
 
 	class CRenderGraph
 	{
@@ -26,7 +24,7 @@ namespace graphics_backend
 		virtual TextureHandle RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window) = 0;
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
 		virtual void PresentWindow(std::shared_ptr<WindowHandle> window) = 0;
-		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
+		virtual ShaderBindingSetHandle const& NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
 
 		//Used By Backend
 		virtual uint32_t GetRenderNodeCount() const = 0;
@@ -36,6 +34,10 @@ namespace graphics_backend
 		virtual TextureHandleInternalInfo const& GetTextureHandleInternalInfo(TIndex index) const = 0;
 		virtual uint32_t GetTextureTypesDescriptorCount() const = 0;
 		virtual GPUTextureDescriptor const& GetTextureDescriptor(TIndex descriptorIndex) const = 0;
+
+		virtual IShaderBindingSetData* GetBindingSetData(TIndex bindingSetIndex) = 0;
+		virtual uint32_t GetBindingSetDataCount() const = 0;
+		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex descID) const = 0;
 
 		virtual std::shared_ptr<WindowHandle> GetTargetWindow() const = 0;
 		virtual TIndex WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const = 0;
@@ -48,3 +50,5 @@ namespace graphics_backend
 		}
 	};
 }
+
+#include "ShaderBindingSetHandleInl.h"

@@ -3,8 +3,6 @@
 #include <string>
 #include <SharedTools/header/uhash.h>
 
-#include "HashCommon.h"
-
 using namespace hash_utils;
 class ShaderProvider
 {

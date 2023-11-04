@@ -36,11 +36,17 @@ namespace graphics_backend
 				m_RenderPasses.emplace_back(*this, *m_RenderGraph, renderPass);
 			}
 		});
+
+		//分配ShaderBindingSets
+		auto allocateShaderBindingSetsGraph = taskGraph->NewTaskGraph()
+			->Name("Allocate Shader Binding Sets");
+		AllocateShaderBindingSets(allocateShaderBindingSetsGraph);
 		
 		//编译每个RenderPass(RenderPass, PSO)
 		auto compileGraph = taskGraph->NewTaskGraph()
 			->Name("Compile RenderPasses Graph")
-			->DependsOn(creationTask);
+			->DependsOn(creationTask)
+			->DependsOn(allocateShaderBindingSetsGraph);
 		{
 			for (uint32_t passId = 0; passId < nodeCount; ++passId)
 			{
@@ -97,6 +103,11 @@ namespace graphics_backend
 		auto& internalTexture = m_RenderGraph->GetTextureHandleInternalInfo(textureHandle);
 		int32_t allocationIndex = m_TextureAllocationIndex[textureHandle];
 		return m_Images[internalTexture.m_DescriptorIndex][allocationIndex];
+	}
+
+	ShaderDescriptorSetHandle const& RenderGraphExecutor::GetLocalDescriptorSet(TIndex setHandle) const
+	{
+		return m_DescriptorSets[setHandle];
 	}
 
 	void RenderGraphExecutor::Execute(CTaskGraph* taskGraph)
@@ -202,10 +213,22 @@ namespace graphics_backend
 					}
 				});
 
+		////分配ShaderBindingSets
+		//auto allocateShaderBindingSetsGraph = taskGraph->NewTaskGraph()
+		//	->Name("Allocate Shader Binding Sets");
+		//AllocateShaderBindingSets(allocateShaderBindingSetsGraph);
+
+		auto writeShaderBindingSetsGraph = taskGraph->NewTaskGraph()
+			->Name("Write Shader Binding Sets")
+			//->DependsOn(allocateShaderBindingSetsGraph)
+			->DependsOn(resolvingResourcesTask);
+		WriteShaderBindingSets(writeShaderBindingSetsGraph);
+
 		//Prepare Per-RenderPass Framebuffer Objects and CommandBuffers
 		auto recordCmdTaskGraph = taskGraph->NewTaskGraph()
+			->DependsOn(writeShaderBindingSetsGraph)
 			->Name("Record RenderPass Cmds Graph")
-			->DependsOn(resolvingResourcesTask)
+
 			->SetupFunctor([this, nodeCount](CTaskGraph* thisGraph)
 			{
 				for (uint32_t passId = 0; passId < nodeCount; ++passId)
@@ -251,6 +274,166 @@ namespace graphics_backend
 					if (state != m_TextureHandleUsageStates.end())
 					{
 						windowTarget->MarkUsages(state->second);
+					}
+				});
+	}
+
+	void RenderGraphExecutor::AllocateShaderBindingSets(CTaskGraph* taskGrap)
+	{
+		uint32_t setCount = m_RenderGraph->GetBindingSetDataCount();
+		auto initializeTask = taskGrap->NewTask()
+			->Name("Initialize Descriptor Sets")
+			->Functor([this, setCount]()
+			{
+				m_DescriptorSets.resize(setCount);
+			});
+		taskGrap->NewTaskParallelFor()
+			->Name("Allocate Shader Binding Sets")
+			->DependsOn(initializeTask)
+			->JobCount(setCount)
+			->Functor([this](uint32_t setID)
+			{
+				IShaderBindingSetData* bindingSetData = m_RenderGraph->GetBindingSetData(setID);
+				TIndex bindingSetDescID = bindingSetData->GetBindingSetDescIndex();
+				auto& bindingSetDesc = m_RenderGraph->GetShaderBindingSetDesc(bindingSetDescID);
+
+				ShaderDescriptorSetLayoutInfo layoutInfo{ bindingSetDesc };
+				auto& descPoolCache = GetVulkanApplication().GetGPUObjectManager().GetShaderDescriptorPoolCache();
+				auto allocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+				m_DescriptorSets[setID] = std::move(allocator->AllocateSet());
+			});
+	}
+
+	void RenderGraphExecutor::WriteShaderBindingSets(CTaskGraph* taskGrap)
+	{
+		uint32_t setCount = m_RenderGraph->GetBindingSetDataCount();
+		taskGrap->NewTaskParallelFor()
+			->Name("Allocate Shader Binding Sets")
+			->JobCount(setCount)
+			->Functor([this](uint32_t setID)
+				{
+					IShaderBindingSetData* bindingSetData = m_RenderGraph->GetBindingSetData(setID);
+					TIndex bindingSetDescID = bindingSetData->GetBindingSetDescIndex();
+					auto& constantSets = bindingSetData->GetExternalConstantSets();
+					auto& externalTextures = bindingSetData->GetExternalTextures();
+					auto& internalTextures = bindingSetData->GetInternalTextures();
+					auto& externalSamplers = bindingSetData->GetExternalSamplers();
+					auto& bindingSetDesc = m_RenderGraph->GetShaderBindingSetDesc(bindingSetDescID);
+
+					auto& descriptorSetObject = m_DescriptorSets[setID];
+					//太绕了
+					auto pAllocator = GetVulkanApplication().GetShaderBindingSetAllocators().GetOrCreate(bindingSetDesc).lock();
+					auto& metaData = pAllocator->GetMetadata();
+
+					vk::DescriptorSet targetSet = descriptorSetObject->GetDescriptorSet();
+					uint32_t writeCount = constantSets.size() + externalTextures.size() + internalTextures.size() + externalSamplers.size();
+					std::vector<vk::WriteDescriptorSet> descriptorWrites;
+					if (writeCount > 0)
+					{
+						descriptorWrites.reserve(writeCount);
+						auto& nameToIndex = metaData.GetCBufferNameToBindingIndex();
+						for (auto itr = constantSets.begin(); itr != constantSets.end(); ++itr)
+						{
+							auto& name = itr->first;
+							auto set = std::static_pointer_cast<ShaderConstantSet_Impl>(itr->second);
+							uint32_t bindingIndex = metaData.CBufferNameToBindingIndex(name);
+							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							{
+								vk::DescriptorBufferInfo bufferInfo{ set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE };
+								vk::WriteDescriptorSet writeSet{ targetSet
+									, bindingIndex
+									, 0
+									, 1
+									, vk::DescriptorType::eUniformBuffer
+									, nullptr
+									, &bufferInfo
+									, nullptr
+								};
+								descriptorWrites.push_back(writeSet);
+							}
+						}
+
+						for (auto itr = externalTextures.begin(); itr != externalTextures.end(); ++itr)
+						{
+							auto& name = itr->first;
+							auto texture = std::static_pointer_cast<GPUTexture_Impl>(itr->second);
+							uint32_t bindingIndex = metaData.TextureNameToBindingIndex(name);
+							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							{
+								if (!texture->UploadingDone())
+									return;
+								vk::DescriptorImageInfo imageInfo{ {}
+									, texture->GetDefaultImageView()
+									, vk::ImageLayout::eShaderReadOnlyOptimal };
+
+								vk::WriteDescriptorSet writeSet{ targetSet
+									, bindingIndex
+									, 0
+									, 1
+									, vk::DescriptorType::eSampledImage
+									, &imageInfo
+									, nullptr
+									, nullptr
+								};
+								descriptorWrites.push_back(writeSet);
+							}
+						}
+
+						for (auto itr = internalTextures.begin(); itr != internalTextures.end(); ++itr)
+						{
+							auto& name = itr->first;
+							auto& textureHandle = itr->second;
+							TIndex handleIndex = textureHandle.GetHandleIndex();
+
+							auto& internalTexture = GetLocalTexture(handleIndex);
+							
+							uint32_t bindingIndex = metaData.TextureNameToBindingIndex(name);
+							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							{
+								vk::DescriptorImageInfo imageInfo{ {}
+									, internalTexture.m_ImageView
+									, vk::ImageLayout::eShaderReadOnlyOptimal };
+
+								vk::WriteDescriptorSet writeSet{ targetSet
+									, bindingIndex
+									, 0
+									, 1
+									, vk::DescriptorType::eSampledImage
+									, &imageInfo
+									, nullptr
+									, nullptr
+								};
+								descriptorWrites.push_back(writeSet);
+							}
+						}
+
+						for (auto itr = externalSamplers.begin(); itr != externalSamplers.end(); ++itr)
+						{
+							auto& name = itr->first;
+							auto sampler = std::static_pointer_cast<TextureSampler_Impl>(itr->second);
+							uint32_t bindingIndex = metaData.SamplerNameToBindingIndex(name);
+							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							{
+								vk::DescriptorImageInfo samplerInfo{ sampler->GetSampler()
+									, {}
+									, vk::ImageLayout::eShaderReadOnlyOptimal };
+
+								vk::WriteDescriptorSet writeSet{ targetSet
+									, bindingIndex
+									, 0
+									, 1
+									, vk::DescriptorType::eSampler
+									, &samplerInfo
+									, nullptr
+									, nullptr
+								};
+								descriptorWrites.push_back(writeSet);
+							}
+						}
+					}
+					if (descriptorWrites.size() > 0)
+					{
+						GetDevice().updateDescriptorSets(descriptorWrites, {});
 					}
 				});
 	}
@@ -380,7 +563,7 @@ namespace graphics_backend
 			}
 		);
 		auto& psoList = m_GraphicsPipelineObjects[subpassID];
-		CCommandList_Impl cmdListInterface{ cmd, m_RenderPassObject, subpassID, psoList };
+		CCommandList_Impl cmdListInterface{ cmd, &m_OwningExecutor, m_RenderPassObject, subpassID, psoList };
 		cmdListInterface.BindPipelineState(0);
 		subpassData.commandFunction(cmdListInterface);
 	}
@@ -435,7 +618,7 @@ namespace graphics_backend
 						}
 					);
 					auto& psoList = m_GraphicsPipelineObjects[subpassID];
-					CCommandList_Impl cmdListInterface{ cmd, m_RenderPassObject, subpassID, psoList };
+					CCommandList_Impl cmdListInterface{ cmd, &m_OwningExecutor, m_RenderPassObject, subpassID, psoList };
 					drawcallInterface->DrawBatch(batchID, cmdListInterface);
 					cmd.end();
 				});
@@ -456,7 +639,7 @@ namespace graphics_backend
 		auto& psoList = m_GraphicsPipelineObjects[subpassID];
 		for (uint32_t batchID = 0; batchID < batchCount; ++batchID)
 		{
-			CCommandList_Impl cmdListInterface{ cmd, pRenderPass, subpassID, psoList };
+			CCommandList_Impl cmdListInterface{ cmd, &m_OwningExecutor, pRenderPass, subpassID, psoList };
 		}
 	}
 
@@ -688,6 +871,15 @@ namespace graphics_backend
 				{
 					std::shared_ptr<ShaderBindingSet_Impl> pSet = std::static_pointer_cast<ShaderBindingSet_Impl>(itrSet);
 					auto& layoutInfo = pSet->GetMetadata()->GetLayoutInfo();
+					auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+					layoutSet.insert(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
+				}
+				auto& bindingSetHandle = subpassData.shaderBindingList.m_BindingSetHandles;
+				for (auto& itrHandle : bindingSetHandle)
+				{
+					auto& desc = m_RenderGraph.GetShaderBindingSetDesc(itrHandle.GetBindingSetDescIndex());
+					//太绕了
+					ShaderDescriptorSetLayoutInfo layoutInfo{ desc };
 					auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
 					layoutSet.insert(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
 				}

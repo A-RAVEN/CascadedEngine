@@ -15,7 +15,6 @@ namespace graphics_backend
 		eMirroredRepeat,
 		eClampToEdge,
 		eClampToBorder,
-		//eMirrorClampToEdge,
 	};
 
 	enum class ETextureSamplerBorderColor

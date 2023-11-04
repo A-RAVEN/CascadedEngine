@@ -7,6 +7,7 @@
 #include "ResourceUsageInfo.h"
 #include "CVulkanThreadContext.h"
 #include "VulkanImageObject.h"
+#include "ShaderDescriptorSetAllocator.h"
 #include <memory>
 #include <ThreadManager/header/ThreadManager.h>
 #include <RenderInterface/header/CRenderGraph.h>
@@ -118,9 +119,12 @@ namespace graphics_backend
 		bool CompileIssued() const;
 		void CollectCommands(std::vector<vk::CommandBuffer>& inoutCommands) const;
 		InternalGPUTextures const& GetLocalTexture(TIndex textureHandle) const;
+		ShaderDescriptorSetHandle const& GetLocalDescriptorSet(TIndex setHandle) const;
 	private:
 		void Compile(CTaskGraph* taskGrap);
 		void Execute(CTaskGraph* taskGrap);
+		void AllocateShaderBindingSets(CTaskGraph* taskGrap);
+		void WriteShaderBindingSets(CTaskGraph* taskGrap);
 		bool m_Compiled = false;
 
 		std::shared_ptr<CRenderGraph> m_RenderGraph = nullptr;
@@ -135,6 +139,8 @@ namespace graphics_backend
 
 		std::vector<int32_t> m_TextureAllocationIndex;
 		std::vector<std::vector<InternalGPUTextures>> m_Images;
+
+		std::vector<ShaderDescriptorSetHandle> m_DescriptorSets;
 	};
 
 	using RenderGraphExecutorDic = HashPool<std::shared_ptr<CRenderGraph>, RenderGraphExecutor>;

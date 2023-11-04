@@ -1,7 +1,9 @@
 #pragma once
-#include <SharedTools/header/DebugUtils.h>
+#include <SharedTools/header/Platform.h>
 #include <cstdint>
 #include <SharedTools/header/uenum.h>
+#include <SharedTools/header/DebugUtils.h>
+
 
 using TIndex = uint32_t;
 constexpr TIndex INVALID_INDEX = std::numeric_limits<TIndex>::max();

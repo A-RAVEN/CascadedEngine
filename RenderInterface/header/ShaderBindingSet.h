@@ -2,7 +2,6 @@
 #include "Common.h"
 #include "TextureSampler.h"
 #include "GPUTexture.h"
-#include "ShaderBindingSetHandle.h"
 
 namespace graphics_backend
 {
@@ -27,12 +26,5 @@ namespace graphics_backend
 		virtual void SetSampler(std::string const& name
 			, std::shared_ptr<TextureSampler> const& pSampler) = 0;
 		virtual bool UploadingDone() const = 0;
-	};
-
-	class ShaderBindingList
-	{
-	public:
-		std::vector<std::shared_ptr<ShaderBindingSet>> m_ShaderBindingSets;
-		std::vector<ShaderBindingSetHandle> m_BindingSetHandles;
 	};
 }

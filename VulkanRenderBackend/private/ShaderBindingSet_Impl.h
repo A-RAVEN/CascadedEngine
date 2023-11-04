@@ -86,6 +86,7 @@ namespace graphics_backend
 	public:
 		ShaderBindingSetAllocator(CVulkanApplication& owner);
 		void Create(ShaderBindingBuilder const& builder);
+		ShaderBindingSetMetadata const& GetMetadata() const { return m_Metadata; }
 		std::shared_ptr<ShaderBindingSet> AllocateSet();
 		virtual void Release() override;
 		void TickUploadResources(CTaskGraph* pTaskGraph);

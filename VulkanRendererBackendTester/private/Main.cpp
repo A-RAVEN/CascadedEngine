@@ -160,9 +160,6 @@ int main(int argc, char *argv[])
 
 	auto shaderConstants = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
 
-	auto shaderBindings = pBackend->CreateShaderBindingSet(shaderBindingBuilder);
-	shaderBindings->SetConstantSet(shaderConstants->GetName(), shaderConstants);
-
 	std::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-0.5f, -0.5f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
 		VertexData{glm::vec2(0.5f, -0.5f), glm::vec2(1.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -189,10 +186,6 @@ int main(int argc, char *argv[])
 	auto image = pBackend->CreateGPUTexture(desc);
 
 	auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
-
-	shaderBindings->SetTexture("TestTexture", image);
-	shaderBindings->SetSampler("TestSampler", sampler);
-
 
 	image->ScheduleTextureData(0, imgSize, data);
 
@@ -252,36 +245,53 @@ int main(int argc, char *argv[])
 
 		{
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
+
+			ShaderBindingSetHandle shaderBindingsHandle = pRenderGraph->NewShaderBindingSetHandle(shaderBindingBuilder);
+			shaderBindingsHandle.SetConstantSet(shaderConstants->GetName(), shaderConstants);
+			shaderBindingsHandle.SetTexture("TestTexture", image);
+			shaderBindingsHandle.SetSampler("TestSampler", sampler);
+
 			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
+
 			auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
 				windowSize.x, windowSize.y
 				, ETextureFormat::E_D32_SFLOAT
 				, ETextureAccessType::eRT | ETextureAccessType::eSampled });
 
-			CAttachmentInfo attachmentInfo{};
-			attachmentInfo.format = windowBackBuffer.GetDescriptor().format;
-			attachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			attachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+			auto colorTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
+				windowSize.x, windowSize.y
+				, ETextureFormat::E_R8G8B8A8_UNORM
+				, ETextureAccessType::eRT | ETextureAccessType::eSampled });
+
+			CAttachmentInfo colorAttachmentInfo{};
+			colorAttachmentInfo.format = ETextureFormat::E_R8G8B8A8_UNORM;
+			colorAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+			colorAttachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
 
 			CAttachmentInfo depthAttachmentInfo{};
 			depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
 			depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(0.0f, 0x0);
+			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(1.0f, 0x0);
 
-			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo, depthAttachmentInfo });
-			newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
+			CAttachmentInfo targetattachmentInfo{};
+			targetattachmentInfo.format = windowBackBuffer.GetDescriptor().format;
+			targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+
+			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ colorAttachmentInfo, depthAttachmentInfo });
+			newRenderPass.SetAttachmentTarget(0, colorTextureHandle);
 			newRenderPass.SetAttachmentTarget(1, depthTextureHandle);
 			newRenderPass
 				.Subpass({ {0}, 1 }
 				, CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
 					, vertexInputDesc
 					, shaderSet
-					, { {shaderBindings}, {} }
-					, [vertexBuffer, indexBuffer, shaderBindings](CInlineCommandList& cmd)
+					, { {}, {shaderBindingsHandle} }
+					, [vertexBuffer, indexBuffer, shaderBindingsHandle](CInlineCommandList& cmd)
 					{
 						if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
 						{
-							cmd.SetShaderBindings({ shaderBindings });
+							cmd.SetShaderBindings({ shaderBindingsHandle });
 							cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
 							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
 							cmd.DrawIndexed(6);

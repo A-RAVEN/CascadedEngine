@@ -25,7 +25,7 @@ namespace graphics_backend
 		m_TargetWindow = window;
 	}
 
-	ShaderBindingSetHandle CRenderGraph_Impl::NewShaderBindingSetHandle(ShaderBindingBuilder const& builder)
+	ShaderBindingSetHandle const& CRenderGraph_Impl::NewShaderBindingSetHandle(ShaderBindingBuilder const& builder)
 	{
 		auto found = m_ShaderBindingDescToIndex.find(builder);
 		TIndex foundIndex = INVALID_INDEX;
@@ -33,13 +33,16 @@ namespace graphics_backend
 		{
 			foundIndex = m_ShaderBindingDescToIndex.size();
 			m_ShaderBindingDescToIndex.insert(std::make_pair(builder, foundIndex));
+			CA_ASSERT(foundIndex == m_ShaderBindingDescList.size(), "ShaderBindingDescList and ShaderBindingDescToIndex are out of sync");
+			m_ShaderBindingDescList.push_back(builder);
 		}
 		else
 		{
 			foundIndex = found->second;
 		}
-
-		return ShaderBindingSetHandle(ShaderBindingSetHandle_Impl{ foundIndex }, nullptr);
+		TIndex setIndex = m_ShaderBindingSetDataList.size();
+		m_ShaderBindingSetDataList.emplace_back(foundIndex);
+		return ShaderBindingSetHandle(this, foundIndex, setIndex);
 	}
 
 	uint32_t CRenderGraph_Impl::GetRenderNodeCount() const

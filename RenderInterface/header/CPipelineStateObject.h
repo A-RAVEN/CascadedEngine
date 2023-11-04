@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <array>
 #include "Common.h"
-#include "HashCommon.h"
 #include <SharedTools/header/uhash.h>
 using namespace hash_utils;
 
