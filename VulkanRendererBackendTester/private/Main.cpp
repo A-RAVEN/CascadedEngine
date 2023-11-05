@@ -16,6 +16,7 @@
 #include <ExternalLib/glm/glm/gtc/matrix_transform.hpp>
 #include <ExternalLib/stb/stb_image.h>
 #include <chrono>
+#include <filesystem>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -99,6 +100,10 @@ private:
 
 int main(int argc, char *argv[])
 {
+	std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format};
+	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
+	std::string resourceString = rootPath.string() + "CAResources";
+
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
 	TModuleLoader<IShaderCompiler> shaderCompilerLoader("ShaderCompiler");
@@ -113,6 +118,10 @@ int main(int argc, char *argv[])
 	shaderBindingBuilder.Texture2D<float, 1>("TestTexture");
 	shaderBindingBuilder.SamplerState("TestSampler");
 
+	ShaderBindingBuilder finalBlitBindingBuilder{ "FinalBlitBinding" };
+	finalBlitBindingBuilder.Texture2D<float, 4>("SourceTexture");
+	finalBlitBindingBuilder.SamplerState("SourceSampler");
+
 	auto pThreadManager = threadManagerLoader.New();
 	pThreadManager->InitializeThreadCount(5);
 
@@ -121,16 +130,13 @@ int main(int argc, char *argv[])
 
 	auto pShaderCompiler = shaderCompilerLoader.New();
 
-	auto shaderSource = fileloading_utils::LoadStringFile("D:/Projects/Crimson/Build/x64/Debug/testShader.hlsl");
-
+	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
 	auto spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
 		, "testShader.hlsl"
 		, shaderSource
 		, "vert"
 		, ECompileShaderType::eVert
 		, false, true);
-
-
 	std::shared_ptr<TestShaderProvider> vertProvider = std::make_shared<TestShaderProvider>();
 	vertProvider->SetUniqueName("testShader.hlsl.vert");
 	vertProvider->SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
@@ -152,6 +158,33 @@ int main(int argc, char *argv[])
 	shaderSet.frag = fragProvider;
 
 
+	shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/finalBlitShader.hlsl");
+	spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
+		, "finalBlitShader.hlsl"
+		, shaderSource
+		, "vert"
+		, ECompileShaderType::eVert
+		, false, true);
+
+	std::shared_ptr<TestShaderProvider> finalBlitVertProvider = std::make_shared<TestShaderProvider>();
+	finalBlitVertProvider->SetUniqueName("finalBlitShader.hlsl.vert");
+	finalBlitVertProvider->SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+
+	spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
+		, "finalBlitShader.hlsl"
+		, shaderSource
+		, "frag"
+		, ECompileShaderType::eFrag
+		, false, true);
+
+	std::shared_ptr<TestShaderProvider> finalBlitFragProvider = std::make_shared<TestShaderProvider>();
+	finalBlitFragProvider->SetUniqueName("finalBlitShader.hlsl.frag");
+	finalBlitFragProvider->SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+
+	GraphicsShaderSet finalBlitShaderSet{};
+	finalBlitShaderSet.vert = finalBlitVertProvider;
+	finalBlitShaderSet.frag = finalBlitFragProvider;
+
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(pThreadManager.get(), 5);
@@ -161,10 +194,10 @@ int main(int argc, char *argv[])
 	auto shaderConstants = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
 
 	std::vector<VertexData> vertexDataList = {
-		VertexData{glm::vec2(-0.5f, -0.5f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
-		VertexData{glm::vec2(0.5f, -0.5f), glm::vec2(1.0f, 0.0f), glm::vec3(1, 1, 1)},
-		VertexData{glm::vec2(0.5f, 0.5f), glm::vec2(1.0f, 1.0f), glm::vec3(1, 1, 1)},
-		VertexData{glm::vec2(-0.5f, 0.5f), glm::vec2(0.0f, 1.0f), glm::vec3(1, 1, 1)},
+		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
+		VertexData{glm::vec2(1.0f, -1.0f), glm::vec2(1.0f, 0.0f), glm::vec3(1, 1, 1)},
+		VertexData{glm::vec2(1.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec3(1, 1, 1)},
+		VertexData{glm::vec2(-1.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec3(1, 1, 1)},
 	};
 
 	std::vector<uint16_t> indexDataList = {
@@ -172,7 +205,7 @@ int main(int argc, char *argv[])
 	};
 
 	int w, h, channel_num;
-	auto data = stbi_load("D:/Projects/Crimson/Build/x64/Debug/MonValley_A_LookoutPoint_2k.hdr", &w, &h, &channel_num, 4);
+	auto data = stbi_load((resourceString + "/Images/MonValley_A_LookoutPoint_2k.hdr").c_str(), &w, &h, &channel_num, 4);
 	size_t imgSize = w * h * sizeof(uint32_t);
 
 	GPUTextureDescriptor desc{};
@@ -251,6 +284,8 @@ int main(int argc, char *argv[])
 			shaderBindingsHandle.SetTexture("TestTexture", image);
 			shaderBindingsHandle.SetSampler("TestSampler", sampler);
 
+
+
 			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
 
 			auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
@@ -278,10 +313,9 @@ int main(int argc, char *argv[])
 			targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
 			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
 
-			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ colorAttachmentInfo, depthAttachmentInfo });
-			newRenderPass.SetAttachmentTarget(0, colorTextureHandle);
-			newRenderPass.SetAttachmentTarget(1, depthTextureHandle);
-			newRenderPass
+			pRenderGraph->NewRenderPass({ colorAttachmentInfo, depthAttachmentInfo })
+				.SetAttachmentTarget(0, colorTextureHandle)
+				.SetAttachmentTarget(1, depthTextureHandle)
 				.Subpass({ {0}, 1 }
 				, CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
 					, vertexInputDesc
@@ -302,6 +336,28 @@ int main(int argc, char *argv[])
 						}
 					});
 
+			ShaderBindingSetHandle shaderBindingsHandle1 = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder);
+			shaderBindingsHandle1.SetTexture("SourceTexture", colorTextureHandle);
+			shaderBindingsHandle1.SetSampler("SourceSampler", sampler);
+
+			pRenderGraph->NewRenderPass({ targetattachmentInfo })
+				.SetAttachmentTarget(0, windowBackBuffer)
+				.Subpass({ {0} }
+					, CPipelineStateObject{ }
+					, vertexInputDesc
+					, finalBlitShaderSet
+					, { {}, {shaderBindingsHandle1} }
+					, [vertexBuffer, indexBuffer, shaderBindingsHandle1](CInlineCommandList& cmd)
+					{
+						if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
+						{
+							cmd.SetShaderBindings({ shaderBindingsHandle1 });
+							cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
+							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
+							cmd.DrawIndexed(6);
+						}
+					});
+
 			pRenderGraph->PresentWindow(windowHandle);
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}
@@ -317,9 +373,8 @@ int main(int argc, char *argv[])
 			attachmentInfo.loadOp = EAttachmentLoadOp::eClear;
 			attachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
 
-			CRenderpassBuilder& newRenderPass = pRenderGraph->NewRenderPass({ attachmentInfo });
-			newRenderPass.SetAttachmentTarget(0, windowBackBuffer);
-			newRenderPass
+			pRenderGraph->NewRenderPass({ attachmentInfo })
+				.SetAttachmentTarget(0, windowBackBuffer)
 				.Subpass({ {0} }
 					, &meshBatch
 				);
@@ -338,7 +393,6 @@ int main(int argc, char *argv[])
 		deltaTime = duration / 1000.0f;
 		deltaTime = std::max(deltaTime, 0.005f);
 		float frameRate = 1.0f / deltaTime;
-		//std::cout << frameRate << std::endl;
 	}
 	pBackend->Release();
 	pBackend.reset();

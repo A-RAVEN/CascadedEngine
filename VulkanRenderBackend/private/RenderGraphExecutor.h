@@ -50,7 +50,7 @@ namespace graphics_backend
 		void Compile(CTaskGraph* taskGraph);
 
 		void ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsage>& TextureHandleUsageStates);
-		void UpdateTextureLifetimes(uint32_t nodeIndex, std::unordered_map<TIndex, TextureHandleLifetimeInfo>& textureLifetimes);
+		void UpdateTextureLifetimes(uint32_t nodeIndex, std::vector<TextureHandleLifetimeInfo>& textureLifetimes);
 
 		void PrepareCommandBuffers(CTaskGraph* thisGraph);
 		void AppendCommandBuffers(std::vector<vk::CommandBuffer>& outCommandBuffers);
@@ -131,7 +131,6 @@ namespace graphics_backend
 		std::vector<RenderPassExecutor> m_RenderPasses;
 
 		std::unordered_map<TIndex, ResourceUsage> m_TextureHandleUsageStates;
-		std::unordered_map<TIndex, TextureHandleLifetimeInfo> m_TextureHandleLifetimes;
 
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
 

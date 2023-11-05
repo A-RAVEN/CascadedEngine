@@ -146,9 +146,15 @@ namespace graphics_backend
 	void DescriptorSetPool::Initialize()
 	{
 		auto& layoutInfo = m_OwningAllocator.GetLayoutInfo();
-		std::vector<vk::DescriptorPoolSize> poolSizes = {
-			vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, layoutInfo.m_ConstantBufferCount * m_MaxSize}
-		};
+		std::vector<vk::DescriptorPoolSize> poolSizes{};
+		poolSizes.reserve(3);
+		if (layoutInfo.m_ConstantBufferCount > 0)
+		{
+			poolSizes.emplace_back(
+				vk::DescriptorType::eUniformBuffer
+				, layoutInfo.m_ConstantBufferCount * m_MaxSize
+			);
+		}
 		if (layoutInfo.m_TextureCount > 0)
 		{
 			poolSizes.emplace_back(

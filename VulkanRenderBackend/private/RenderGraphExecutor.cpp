@@ -124,11 +124,13 @@ namespace graphics_backend
 			->Functor([this, nodeCount]()
 				{
 					m_TextureHandleUsageStates.clear();
-					m_TextureHandleLifetimes.clear();
+					std::vector<TextureHandleLifetimeInfo> textureHandleLifetimes;
+					textureHandleLifetimes.resize(m_RenderGraph->GetTextureHandleCount());
+					std::fill(textureHandleLifetimes.begin(), textureHandleLifetimes.end(), TextureHandleLifetimeInfo{});
 					for (uint32_t itr_node = 0; itr_node < nodeCount; ++itr_node)
 					{
 						m_RenderPasses[itr_node].ResolveTextureHandleUsages(m_TextureHandleUsageStates);
-						m_RenderPasses[itr_node].UpdateTextureLifetimes(itr_node, m_TextureHandleLifetimes);
+						m_RenderPasses[itr_node].UpdateTextureLifetimes(itr_node, textureHandleLifetimes);
 					}
 
 					uint32_t textureDescTypeCount = m_RenderGraph->GetTextureTypesDescriptorCount();
@@ -137,10 +139,9 @@ namespace graphics_backend
 					//textures will be released at next node stage, so we have nodeCount + 1 stages
 					textureAllocationRecorder.resize(nodeCount + 1);
 
-					for (auto& itrLifeTime : m_TextureHandleLifetimes)
+					for (TIndex textureHandleID = 0; textureHandleID < textureHandleLifetimes.size(); ++textureHandleID)
 					{
-						TIndex textureHandleID = itrLifeTime.first;
-						TextureHandleLifetimeInfo& lifetimeInfo = itrLifeTime.second;
+						TextureHandleLifetimeInfo& lifetimeInfo = textureHandleLifetimes[textureHandleID];
 						TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(textureHandleID);
 						if (!handleInfo.IsExternalTexture())
 						{
@@ -150,7 +151,7 @@ namespace graphics_backend
 					}
 
 					m_TextureAllocationIndex.clear();
-					m_TextureAllocationIndex.resize(m_TextureHandleLifetimes.size());
+					m_TextureAllocationIndex.resize(textureHandleLifetimes.size());
 					std::fill(m_TextureAllocationIndex.begin(), m_TextureAllocationIndex.end(), -1);
 
 					std::vector<std::pair<int32_t, std::deque<int32_t>>> textureAllocationQueue;
@@ -499,7 +500,7 @@ namespace graphics_backend
 			}
 		}
 	}
-	void RenderPassExecutor::UpdateTextureLifetimes(uint32_t nodeIndex, std::unordered_map<TIndex, TextureHandleLifetimeInfo>& textureLifetimes)
+	void RenderPassExecutor::UpdateTextureLifetimes(uint32_t nodeIndex, std::vector<TextureHandleLifetimeInfo>& textureLifetimes)
 	{
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
@@ -509,13 +510,7 @@ namespace graphics_backend
 			if (handleID != INVALID_INDEX)
 			{
 				ResourceUsage srcUsage = ResourceUsage::eDontCare;
-				auto found = textureLifetimes.find(handleID);
-				if (found == textureLifetimes.end())
-				{
-					textureLifetimes.insert(std::make_pair(handleID, TextureHandleLifetimeInfo{}));
-					found = textureLifetimes.find(handleID);
-				}
-				found->second.Touch(nodeIndex);
+				textureLifetimes[handleID].Touch(nodeIndex);
 			}
 		}
 	}

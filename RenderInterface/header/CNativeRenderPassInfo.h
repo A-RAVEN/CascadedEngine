@@ -109,9 +109,10 @@ namespace graphics_backend
 			std::fill(m_TextureHandles.begin(), m_TextureHandles.end(), INVALID_INDEX);
 		}
 
-		void SetAttachmentTarget(uint32_t attachmentIndex, TextureHandle const& textureHandle)
+		CRenderpassBuilder& SetAttachmentTarget(uint32_t attachmentIndex, TextureHandle const& textureHandle)
 		{
 			m_TextureHandles[attachmentIndex] = textureHandle.GetHandleIndex();
+			return *this;
 		}
 
 		CRenderpassBuilder& Subpass(CSubpassInfo const& inSubpassInfo

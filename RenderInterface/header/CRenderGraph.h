@@ -32,6 +32,7 @@ namespace graphics_backend
 		virtual TextureHandle TextureHandleByIndex(TIndex index) const = 0;
 
 		virtual TextureHandleInternalInfo const& GetTextureHandleInternalInfo(TIndex index) const = 0;
+		virtual uint32_t GetTextureHandleCount() const = 0;
 		virtual uint32_t GetTextureTypesDescriptorCount() const = 0;
 		virtual GPUTextureDescriptor const& GetTextureDescriptor(TIndex descriptorIndex) const = 0;
 
