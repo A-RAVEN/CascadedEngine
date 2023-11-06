@@ -20,12 +20,7 @@ namespace graphics_backend
 		return m_RenderPasses.emplace_back(inAttachmentInfo);
 	}
 
-	void CRenderGraph_Impl::PresentWindow(std::shared_ptr<WindowHandle> window)
-	{
-		m_TargetWindow = window;
-	}
-
-	ShaderBindingSetHandle const& CRenderGraph_Impl::NewShaderBindingSetHandle(ShaderBindingBuilder const& builder)
+	ShaderBindingSetHandle CRenderGraph_Impl::NewShaderBindingSetHandle(ShaderBindingBuilder const& builder)
 	{
 		auto found = m_ShaderBindingDescToIndex.find(builder);
 		TIndex foundIndex = INVALID_INDEX;
@@ -64,8 +59,8 @@ namespace graphics_backend
 
 	TIndex CRenderGraph_Impl::WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const
 	{
-		auto found = m_RegisteredTextureHandleIDs.find(handle.get());
-		if (found != m_RegisteredTextureHandleIDs.end())
+		auto found = m_RegisteredWindowHandleIDs.find(handle.get());
+		if (found != m_RegisteredWindowHandleIDs.end())
 		{
 			return found->second;
 		}
@@ -76,8 +71,8 @@ namespace graphics_backend
 	{
 		if (window != nullptr)
 		{
-			auto found = m_RegisteredTextureHandleIDs.find(window.get());
-			if (found != m_RegisteredTextureHandleIDs.end())
+			auto found = m_RegisteredWindowHandleIDs.find(window.get());
+			if (found != m_RegisteredWindowHandleIDs.end())
 			{
 				return TextureHandleByIndex(found->second);
 			}
@@ -96,7 +91,11 @@ namespace graphics_backend
 		}
 		TIndex handleIndex = m_TextureHandleIdToInternalInfo.size();
 		m_TextureHandleIdToInternalInfo.push_back(TextureHandleInternalInfo{ dataIndex, window });
-		m_RegisteredTextureHandleIDs.insert(std::make_pair(static_cast<void*>(window.get()), dataIndex));
+
+		if (window != nullptr)
+		{
+			m_RegisteredWindowHandleIDs.insert(std::make_pair(window.get(), dataIndex));
+		}
 
 		return TextureHandle(textureDesc, handleIndex);
 	}

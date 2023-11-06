@@ -279,12 +279,10 @@ int main(int argc, char *argv[])
 		{
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
 
-			ShaderBindingSetHandle shaderBindingsHandle = pRenderGraph->NewShaderBindingSetHandle(shaderBindingBuilder);
-			shaderBindingsHandle.SetConstantSet(shaderConstants->GetName(), shaderConstants);
-			shaderBindingsHandle.SetTexture("TestTexture", image);
-			shaderBindingsHandle.SetSampler("TestSampler", sampler);
-
-
+			ShaderBindingSetHandle shaderBindingsHandle = pRenderGraph->NewShaderBindingSetHandle(shaderBindingBuilder)
+				.SetConstantSet(shaderConstants->GetName(), shaderConstants)
+				.SetTexture("TestTexture", image)
+				.SetSampler("TestSampler", sampler);
 
 			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
 
@@ -330,15 +328,11 @@ int main(int argc, char *argv[])
 							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
 							cmd.DrawIndexed(6);
 						}
-						else
-						{
-							std::cout << "Not Finish Yet" << std::endl;
-						}
 					});
 
-			ShaderBindingSetHandle shaderBindingsHandle1 = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder);
-			shaderBindingsHandle1.SetTexture("SourceTexture", colorTextureHandle);
-			shaderBindingsHandle1.SetSampler("SourceSampler", sampler);
+			ShaderBindingSetHandle shaderBindingsHandle1 = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder)
+				.SetTexture("SourceTexture", colorTextureHandle)
+				.SetSampler("SourceSampler", sampler);
 
 			pRenderGraph->NewRenderPass({ targetattachmentInfo })
 				.SetAttachmentTarget(0, windowBackBuffer)
@@ -358,7 +352,7 @@ int main(int argc, char *argv[])
 						}
 					});
 
-			pRenderGraph->PresentWindow(windowHandle);
+			//pRenderGraph->PresentWindow(windowHandle);
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}
 		
@@ -379,7 +373,6 @@ int main(int argc, char *argv[])
 					, &meshBatch
 				);
 
-			pRenderGraph->PresentWindow(windowHandle2);
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}
 

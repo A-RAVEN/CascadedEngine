@@ -23,8 +23,7 @@ namespace graphics_backend
 		virtual TextureHandle NewTextureHandle(GPUTextureDescriptor const& textureDesc) = 0;
 		virtual TextureHandle RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window) = 0;
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
-		virtual void PresentWindow(std::shared_ptr<WindowHandle> window) = 0;
-		virtual ShaderBindingSetHandle const& NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
+		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
 
 		//Used By Backend
 		virtual uint32_t GetRenderNodeCount() const = 0;
@@ -37,18 +36,13 @@ namespace graphics_backend
 		virtual GPUTextureDescriptor const& GetTextureDescriptor(TIndex descriptorIndex) const = 0;
 
 		virtual IShaderBindingSetData* GetBindingSetData(TIndex bindingSetIndex) = 0;
+		virtual IShaderBindingSetData const* GetBindingSetData(TIndex bindingSetIndex) const = 0;
 		virtual uint32_t GetBindingSetDataCount() const = 0;
 		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex descID) const = 0;
 
-		virtual std::shared_ptr<WindowHandle> GetTargetWindow() const = 0;
 		virtual TIndex WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const = 0;
 
-		template<typename TWIN>
-		std::shared_ptr<TWIN> GetTargetWindow() const
-		{
-			static_assert(std::is_base_of<WindowHandle, TWIN>::value, "Invalid WindowHandle Type");
-			return std::static_pointer_cast<TWIN>(GetTargetWindow());
-		}
+		virtual std::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const = 0;
 	};
 }
 

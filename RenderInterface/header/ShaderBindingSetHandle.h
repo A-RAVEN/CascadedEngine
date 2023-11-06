@@ -37,12 +37,12 @@ namespace graphics_backend
 			: m_DescIndex(descIndex)
 			, m_SetIndex(setIndex)
 			, p_RenderGraph(renderGraph) {}
-		inline void SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet);
-		inline void SetTexture(std::string const& name
+		inline ShaderBindingSetHandle& SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet);
+		inline ShaderBindingSetHandle& SetTexture(std::string const& name
 			, std::shared_ptr<GPUTexture> const& pTexture);
-		inline void SetTexture(std::string const& name
+		inline ShaderBindingSetHandle& SetTexture(std::string const& name
 			, TextureHandle const& textureHandle);
-		inline void SetSampler(std::string const& name
+		inline ShaderBindingSetHandle& SetSampler(std::string const& name
 			, std::shared_ptr<TextureSampler> const& pSampler);
 		inline TIndex GetBindingSetIndex() const {
 			return m_SetIndex;

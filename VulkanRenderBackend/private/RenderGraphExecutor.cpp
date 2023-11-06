@@ -269,12 +269,17 @@ namespace graphics_backend
 			->DependsOn(resolvingResourcesTask)
 			->Functor([this]()
 				{
-					auto windowTarget = m_RenderGraph->GetTargetWindow<CWindowContext>();
-					TIndex windowIndex = m_RenderGraph->WindowHandleToTextureIndex(windowTarget);
-					auto state = m_TextureHandleUsageStates.find(windowIndex);
-					if (state != m_TextureHandleUsageStates.end())
+					auto& windowToIDs = m_RenderGraph->WindowHandleToTextureIndexMap();
+
+					for (auto& pair : windowToIDs)
 					{
-						windowTarget->MarkUsages(state->second);
+						CWindowContext* windowTarget = static_cast<CWindowContext*>(pair.first);
+						TIndex windowIndex = pair.second;
+						auto state = m_TextureHandleUsageStates.find(windowIndex);
+						if (state != m_TextureHandleUsageStates.end())
+						{
+							windowTarget->MarkUsages(state->second);
+						}
 					}
 				});
 	}
@@ -446,17 +451,17 @@ namespace graphics_backend
 		, m_RenderpassBuilder(renderpassBuilder)
 	{
 	}
-	void RenderPassExecutor::ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsage>& textureHandleUsageStates)
+	void RenderPassExecutor::ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& textureHandleUsageStates)
 	{
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
 		m_UsageBarriers.reserve(handles.size());
 
-		std::vector<ResourceUsage> renderPassInitializeUsages;
+		std::vector<ResourceUsageFlags> renderPassInitializeUsages;
 		renderPassInitializeUsages.resize(handles.size());
 		std::fill(renderPassInitializeUsages.begin(), renderPassInitializeUsages.end(), ResourceUsage::eDontCare);
 
-		auto checkSetInitializeUsage = [&renderPassInitializeUsages](uint32_t attachmentID, ResourceUsage newUsage)
+		auto checkSetInitializeUsage = [&renderPassInitializeUsages](uint32_t attachmentID, ResourceUsageFlags newUsage)
 			{
 				if (attachmentID != INVALID_ATTACHMENT_INDEX
 					&& renderPassInitializeUsages[attachmentID] == ResourceUsage::eDontCare)
@@ -466,8 +471,9 @@ namespace graphics_backend
 				}
 			};
 
-		for (auto& subpassInfo : renderPassInfo.subpassInfos)
+		for (uint32_t subpassID = 0; subpassID < renderPassInfo.subpassInfos.size(); ++subpassID)
 		{
+			auto& subpassInfo = renderPassInfo.subpassInfos[subpassID];
 			for (uint32_t colorAttachmentID : subpassInfo.colorAttachmentIDs)
 			{
 				checkSetInitializeUsage(colorAttachmentID, ResourceUsage::eColorAttachmentOutput);
@@ -477,7 +483,7 @@ namespace graphics_backend
 				checkSetInitializeUsage(colorAttachmentID, ResourceUsage::eFragmentRead);
 			}
 			checkSetInitializeUsage(subpassInfo.depthAttachmentID
-				, subpassInfo.depthAttachmentReadOnly ? ResourceUsage::eDepthStencilReadonly : ResourceUsage::eDepthStencilAttachment);
+							, subpassInfo.depthAttachmentReadOnly ? ResourceUsage::eDepthStencilReadonly : ResourceUsage::eDepthStencilAttachment);
 		}
 
 		for(uint32_t attachmentID = 0; attachmentID < handles.size(); ++attachmentID)
@@ -485,18 +491,57 @@ namespace graphics_backend
 			uint32_t handleID = handles[attachmentID];
 			if (handleID != INVALID_INDEX)
 			{
-				ResourceUsage srcUsage = ResourceUsage::eDontCare;
+				ResourceUsageFlags srcUsage = ResourceUsage::eDontCare;
 				auto found = textureHandleUsageStates.find(handleID);
 				if (found != textureHandleUsageStates.end())
 				{
 					srcUsage = found->second;
 				}
-				ResourceUsage dstUsage = renderPassInitializeUsages[attachmentID];
+				ResourceUsageFlags dstUsage = renderPassInitializeUsages[attachmentID];
 				textureHandleUsageStates[handleID] = dstUsage;
 				if (srcUsage != dstUsage)
 				{
 					m_UsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
 				}
+			}
+		}
+
+		//Handle Texture Barriers In Descriptor Sets
+		for (uint32_t subpassID = 0; subpassID < renderPassInfo.subpassInfos.size(); ++subpassID)
+		{
+			switch (m_RenderpassBuilder.GetSubpassType(subpassID))
+			{
+			case ESubpassType::eSimpleDraw:
+			{
+				auto& subpassData = m_RenderpassBuilder.GetSubpassData_SimpleDrawcall(subpassID);
+				auto& shaderBindingSetHandles = subpassData.shaderBindingList.m_BindingSetHandles;
+				for (auto& bindingSetHandle : shaderBindingSetHandles)
+				{
+					TIndex bindingSetIndex = bindingSetHandle.GetBindingSetIndex();
+					IShaderBindingSetData const* data = m_RenderGraph.GetBindingSetData(bindingSetIndex);
+					auto& internalTextureHandles = data->GetInternalTextures();
+					for (auto itr = internalTextureHandles.begin(); itr != internalTextureHandles.end(); ++itr)
+					{
+
+						ResourceUsageFlags srcUsage = ResourceUsage::eDontCare;
+						TIndex handleID = itr->second.GetHandleIndex();
+						auto found = textureHandleUsageStates.find(handleID);
+						if (found != textureHandleUsageStates.end())
+						{
+							srcUsage = found->second;
+						}
+						ResourceUsageFlags dstUsage = ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead;
+						if (srcUsage != dstUsage)
+						{
+							textureHandleUsageStates[handleID] = dstUsage;
+							m_UsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
+						}
+					}
+				}
+				break;
+			}
+			case ESubpassType::eMeshInterface:
+				break;
 			}
 		}
 	}

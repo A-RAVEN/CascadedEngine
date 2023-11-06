@@ -49,7 +49,7 @@ namespace graphics_backend
 		RenderPassExecutor(RenderGraphExecutor& owningExecutor, CRenderGraph const& renderGraph, CRenderpassBuilder const& renderpassBuilder);
 		void Compile(CTaskGraph* taskGraph);
 
-		void ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsage>& TextureHandleUsageStates);
+		void ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& TextureHandleUsageStates);
 		void UpdateTextureLifetimes(uint32_t nodeIndex, std::vector<TextureHandleLifetimeInfo>& textureLifetimes);
 
 		void PrepareCommandBuffers(CTaskGraph* thisGraph);
@@ -100,7 +100,7 @@ namespace graphics_backend
 		std::vector<std::vector<std::shared_ptr<CPipelineObject>>> m_GraphicsPipelineObjects;
 
 		//TextureUsages
-		std::vector<std::tuple<TIndex, ResourceUsage, ResourceUsage>> m_UsageBarriers;
+		std::vector<std::tuple<TIndex, ResourceUsageFlags, ResourceUsageFlags>> m_UsageBarriers;
 
 		//CommandBuffers
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
@@ -130,7 +130,7 @@ namespace graphics_backend
 		std::shared_ptr<CRenderGraph> m_RenderGraph = nullptr;
 		std::vector<RenderPassExecutor> m_RenderPasses;
 
-		std::unordered_map<TIndex, ResourceUsage> m_TextureHandleUsageStates;
+		std::unordered_map<TIndex, ResourceUsageFlags> m_TextureHandleUsageStates;
 
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
 

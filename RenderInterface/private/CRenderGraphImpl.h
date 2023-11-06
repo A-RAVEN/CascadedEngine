@@ -12,8 +12,7 @@ namespace graphics_backend
 		virtual TextureHandle NewTextureHandle(GPUTextureDescriptor const& textureDesc) override;
 		virtual TextureHandle RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window) override;
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) override;
-		virtual void PresentWindow(std::shared_ptr<WindowHandle> window) override;
-		virtual ShaderBindingSetHandle const& NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) override;
+		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) override;
 
 		virtual uint32_t GetRenderNodeCount() const override;
 		virtual CRenderpassBuilder const& GetRenderPass(uint32_t nodeID) const override;
@@ -28,19 +27,24 @@ namespace graphics_backend
 		{
 			return &m_ShaderBindingSetDataList[bindingSetIndex];
 		}
+		virtual IShaderBindingSetData const* GetBindingSetData(TIndex bindingSetIndex) const override
+		{
+			return &m_ShaderBindingSetDataList[bindingSetIndex];
+		}
 
 		virtual uint32_t GetBindingSetDataCount() const override
 		{
 			return m_ShaderBindingSetDataList.size();
 		}
 
-		virtual std::shared_ptr<WindowHandle> GetTargetWindow() const override {
-			return m_TargetWindow;
-		}
-
 		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex descID) const override
 		{
 			return m_ShaderBindingDescList[descID];
+		}
+
+		virtual std::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const override
+		{
+			return m_RegisteredWindowHandleIDs;
 		}
 
 		virtual TIndex WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const override;
@@ -52,9 +56,7 @@ namespace graphics_backend
 		std::vector<GPUTextureDescriptor> m_TextureDescriptorList;
 		std::unordered_map<GPUTextureDescriptor, uint32_t, hash_utils::default_hashAlg> m_DescriptorToDataID;
 		std::vector<TextureHandleInternalInfo> m_TextureHandleIdToInternalInfo;
-		std::unordered_map<void*, TIndex> m_RegisteredTextureHandleIDs;
-
-		std::shared_ptr<WindowHandle> m_TargetWindow;
+		std::unordered_map<WindowHandle*, TIndex> m_RegisteredWindowHandleIDs;
 
 		std::unordered_map<ShaderBindingBuilder, TIndex, hash_utils::default_hashAlg> m_ShaderBindingDescToIndex;
 		std::vector<ShaderBindingBuilder> m_ShaderBindingDescList;
