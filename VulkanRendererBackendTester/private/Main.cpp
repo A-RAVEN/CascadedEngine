@@ -370,6 +370,7 @@ int main(int argc, char *argv[])
 			pRenderGraph->NewRenderPass({ attachmentInfo })
 				.SetAttachmentTarget(0, windowBackBuffer)
 				.Subpass({ {0} }
+					, {}
 					, &meshBatch
 				);
 

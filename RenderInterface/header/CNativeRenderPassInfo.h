@@ -99,6 +99,12 @@ namespace graphics_backend
 		std::function<void(CInlineCommandList&)> commandFunction;
 	};
 
+	struct DrawcallInterfaceSubpassData
+	{
+		ShaderBindingList shaderBindingList;
+		IMeshInterface* meshInterface;
+	};
+
 	class CRenderpassBuilder
 	{
 	public:
@@ -116,10 +122,13 @@ namespace graphics_backend
 		}
 
 		CRenderpassBuilder& Subpass(CSubpassInfo const& inSubpassInfo
+			, ShaderBindingList const& shaderBindingList
 			, IMeshInterface* meshInterface)
 		{
 			mRenderPassInfo.subpassInfos.push_back(inSubpassInfo);
-			m_SubpassData_MeshInterfaces.push_back(meshInterface);
+			m_SubpassData_MeshInterfaces.push_back(DrawcallInterfaceSubpassData{ 
+				shaderBindingList
+				, meshInterface });
 			m_SubpassDataReferences.emplace_back(ESubpassType::eMeshInterface
 				, static_cast<uint32_t>(m_SubpassData_MeshInterfaces.size() - 1));
 			return *this;
@@ -161,7 +170,7 @@ namespace graphics_backend
 			return m_SubpassData_SimpleDraws[m_SubpassDataReferences[subpassIndex].second];
 		}
 
-		IMeshInterface* GetSubpassData_MeshInterface(uint32_t subpassIndex) const
+		DrawcallInterfaceSubpassData const& GetSubpassData_MeshInterface(uint32_t subpassIndex) const
 		{
 			CA_ASSERT(m_SubpassDataReferences[subpassIndex].first == ESubpassType::eMeshInterface, "Wrong Subpass Type");
 			return m_SubpassData_MeshInterfaces[m_SubpassDataReferences[subpassIndex].second];
@@ -176,7 +185,7 @@ namespace graphics_backend
 		CRenderPassInfo mRenderPassInfo{};
 		std::vector<TIndex> m_TextureHandles;
 		std::vector<SimpleDrawcallSubpassData> m_SubpassData_SimpleDraws{};
-		std::vector<IMeshInterface*> m_SubpassData_MeshInterfaces{};
+		std::vector<DrawcallInterfaceSubpassData> m_SubpassData_MeshInterfaces{};
 		std::vector<std::pair<ESubpassType, uint32_t>> m_SubpassDataReferences{};
 	};
 }

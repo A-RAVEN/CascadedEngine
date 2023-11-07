@@ -616,7 +616,8 @@ namespace graphics_backend
 		, std::vector<vk::CommandBuffer>& cmdList
 	)
 	{
-		auto drawcallInterface = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
+		auto& subpassData = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
+		auto drawcallInterface = subpassData.meshInterface;
 		auto batchCount = drawcallInterface->GetBatchCount();
 		cmdList.resize(batchCount);
 
@@ -674,7 +675,8 @@ namespace graphics_backend
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		RenderPassDescriptor rpDesc{ renderPassInfo };
 		auto pRenderPass = gpuObjectManager.GetRenderPassCache().GetOrCreate(rpDesc).lock();
-		auto drawcallInterface = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
+		auto& subpassData = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
+		auto drawcallInterface = subpassData.meshInterface;
 		auto batchCount = drawcallInterface->GetBatchCount();
 		auto& psoList = m_GraphicsPipelineObjects[subpassID];
 		for (uint32_t batchID = 0; batchID < batchCount; ++batchID)
@@ -940,7 +942,8 @@ namespace graphics_backend
 	}
 	void RenderPassExecutor::CompilePSOs_SubpassMeshInterface(uint32_t subpassID, CTaskGraph* thisGraph)
 	{
-		auto drawcallInterface = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
+		auto& subpassData = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
+		auto drawcallInterface = subpassData.meshInterface;
 		size_t psoCount = drawcallInterface->GetGraphicsPipelineStatesCount();
 		m_GraphicsPipelineObjects[subpassID].resize(psoCount);
 		thisGraph->NewTaskParallelFor()
