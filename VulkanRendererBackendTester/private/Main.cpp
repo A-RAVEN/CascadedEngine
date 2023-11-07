@@ -352,7 +352,6 @@ int main(int argc, char *argv[])
 						}
 					});
 
-			//pRenderGraph->PresentWindow(windowHandle);
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}
 		

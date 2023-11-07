@@ -893,6 +893,39 @@ namespace graphics_backend
 			
 		}
 	}
+
+	void CollectDescriptorSetLayouts(
+		ShaderBindingList const& shaderBindingList
+		, ShaderDescriptorSetAllocatorPool& descPoolCache
+		, CRenderGraph const& renderGraph
+		, std::vector<vk::DescriptorSetLayout>& inoutLayouts)
+	{
+		//也许从shader中提取layout信息更好
+		std::set<vk::DescriptorSetLayout> layoutSet;
+		auto& bindingSets = shaderBindingList.m_ShaderBindingSets;
+		for (auto itrSet : bindingSets)
+		{
+			std::shared_ptr<ShaderBindingSet_Impl> pSet = std::static_pointer_cast<ShaderBindingSet_Impl>(itrSet);
+			auto& layoutInfo = pSet->GetMetadata()->GetLayoutInfo();
+			auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+			layoutSet.insert(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
+		}
+		auto& bindingSetHandle = shaderBindingList.m_BindingSetHandles;
+		for (auto& itrHandle : bindingSetHandle)
+		{
+			auto& desc = renderGraph.GetShaderBindingSetDesc(itrHandle.GetBindingSetDescIndex());
+			//太绕了
+			ShaderDescriptorSetLayoutInfo layoutInfo{ desc };
+			auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+			layoutSet.insert(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
+		}
+
+		size_t originalSize = inoutLayouts.size();
+		inoutLayouts.resize(originalSize + layoutSet.size());
+		std::copy(layoutSet.begin(), layoutSet.end(), inoutLayouts.begin() + originalSize);
+		layoutSet.clear();
+	}
+
 	void RenderPassExecutor::CompilePSOs_SubpassSimpleDrawCall(uint32_t subpassID, CTaskGraph* thisGraph)
 	{
 		thisGraph->NewTask()
@@ -905,30 +938,12 @@ namespace graphics_backend
 				auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.vert }).lock();
 				auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.frag }).lock();
 
-				//也许从shader中提取layout信息更好
-				std::set<vk::DescriptorSetLayout> layoutSet;
-				auto& bindingSets = subpassData.shaderBindingList.m_ShaderBindingSets;
-				auto& descPoolCache = gpuObjectManager.GetShaderDescriptorPoolCache();
-				for (auto itrSet : bindingSets)
-				{
-					std::shared_ptr<ShaderBindingSet_Impl> pSet = std::static_pointer_cast<ShaderBindingSet_Impl>(itrSet);
-					auto& layoutInfo = pSet->GetMetadata()->GetLayoutInfo();
-					auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
-					layoutSet.insert(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
-				}
-				auto& bindingSetHandle = subpassData.shaderBindingList.m_BindingSetHandles;
-				for (auto& itrHandle : bindingSetHandle)
-				{
-					auto& desc = m_RenderGraph.GetShaderBindingSetDesc(itrHandle.GetBindingSetDescIndex());
-					//太绕了
-					ShaderDescriptorSetLayoutInfo layoutInfo{ desc };
-					auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
-					layoutSet.insert(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
-				}
 				std::vector<vk::DescriptorSetLayout> layouts;
-				layouts.resize(layoutSet.size());
-				std::copy(layoutSet.begin(), layoutSet.end(), layouts.begin());
-				layoutSet.clear();
+				CollectDescriptorSetLayouts(
+					subpassData.shaderBindingList
+					, gpuObjectManager.GetShaderDescriptorPoolCache()
+					, m_RenderGraph
+					, layouts);
 
 				CPipelineObjectDescriptor pipelineDesc{
 				subpassData.pipelineStateObject
@@ -943,17 +958,16 @@ namespace graphics_backend
 	void RenderPassExecutor::CompilePSOs_SubpassMeshInterface(uint32_t subpassID, CTaskGraph* thisGraph)
 	{
 		auto& subpassData = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
-		auto drawcallInterface = subpassData.meshInterface;
-		size_t psoCount = drawcallInterface->GetGraphicsPipelineStatesCount();
+		size_t psoCount = subpassData.meshInterface->GetGraphicsPipelineStatesCount();
 		m_GraphicsPipelineObjects[subpassID].resize(psoCount);
 		thisGraph->NewTaskParallelFor()
 			->Name("Compile PSOs for Batch Interface Subpass " + std::to_string(subpassID))
 			->JobCount(psoCount)
-			->Functor([this, subpassID, drawcallInterface](uint32_t psoID)
+			->Functor([this, subpassID, &subpassData](uint32_t psoID)
 				{
 					GPUObjectManager& gpuObjectManager = m_OwningExecutor.GetGPUObjectManager();
 					auto& descPoolCache = gpuObjectManager.GetShaderDescriptorPoolCache();
-					auto& psoData = drawcallInterface->GetGraphicsPipelineStatesData(psoID);
+					auto& psoData = subpassData.meshInterface->GetGraphicsPipelineStatesData(psoID);
 					auto& pipelineStates = psoData.pipelineStateObject;
 					auto& vertexInputs = psoData.vertexInputDescriptor;
 					auto& shaderSet = psoData.shaderSet;
@@ -974,13 +988,21 @@ namespace graphics_backend
 						layouts.push_back(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
 					}
 
+					
+					CollectDescriptorSetLayouts(
+						subpassData.shaderBindingList
+						, gpuObjectManager.GetShaderDescriptorPoolCache()
+						, m_RenderGraph
+						, layouts);
+
 					CPipelineObjectDescriptor pipelineDesc{
 					pipelineStates
 					, vertexInputs
 					, ShaderStateDescriptor{vertModule, fragModule}
 					, layouts
 					, m_RenderPassObject
-					, subpassID };
+					, subpassID
+					};
 					m_GraphicsPipelineObjects[subpassID][psoID] = gpuObjectManager.GetPipelineCache().GetOrCreate(pipelineDesc).lock();
 				});
 	}
