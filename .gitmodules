@@ -10,6 +10,3 @@
 [submodule "ExternalLib/stb"]
 	path = ExternalLib/stb
 	url = https://github.com/nothings/stb.git
-[submodule "ExternalLib/llvm-project"]
-	path = ExternalLib/llvm-project
-	url = https://github.com/llvm/llvm-project.git
