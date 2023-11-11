@@ -25,18 +25,18 @@ include(${CMAKE_SOURCE_DIR}/CMake/ExternalProjects.cmake)
 #     MESSAGE(STATUS "${proj}")
 #endforeach()
 #add_subdirectory(${LLVM_DIR})
-#[[
 FetchContent_Declare(
-	llvm
-	GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-	GIT_TAG main
+  llvm-project
+  GIT_REPOSITORY https://github.com/llvm/llvm-project.git
+  GIT_TAG main
+  GIT_SHALLOW TRUE
+  GIT_PROGRESS TRUE
+  SOURCE_SUBDIR llvm
 )
+FetchContent_GetProperties(llvm-project)
+if(NOT llvm-project_POPULATED)
+  FetchContent_Populate(llvm-project)
+endif()
 
-FetchContent_Populate(
-    llvm                           # Recommendation: Stick close to the original name.
-    GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-	GIT_TAG main
-    SOURCE_DIR llvm              # (Relative) path within in the build directory.
-)]]
-
+#FetchContent_MakeAvailable(llvm-project)
 #FetchContent_MakeAvailable(llvm)
