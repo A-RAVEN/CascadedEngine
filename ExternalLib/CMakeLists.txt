@@ -1,4 +1,8 @@
 
+set(PROJECT_NAME ExternalProjects)
+project (${PROJECT_NAME})
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/CPM/cmake/CPM.cmake)
 #VMA
 set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator)
 add_subdirectory(${VMA_DIR})
@@ -11,32 +15,42 @@ set(GLFW_BUILD_DOCS OFF CACHE INTERNAL "Build the GLFW documentation")
 set(GLFW_INSTALL OFF CACHE INTERNAL "Generate installation target")
 add_subdirectory(${GLFW_DIR})
 
-message(${CMAKE_SOURCE_DIR}/CMake/ExternalProjects.cmake)
-include(${CMAKE_SOURCE_DIR}/CMake/ExternalProjects.cmake)
-#LLVM
-#set(LLVM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llvm-project/llvm)
-#unset(LLVM_ENABLE_PROJECTS CACHE)
-#unset(LLVM_ENABLE_RUNTIMES CACHE)
-#set(LLVM_ENABLE_PROJECTS "lld;clang" CACHE STRING INTERNAL)
-#set(LLVM_ENABLE_RUNTIMES "all" CACHE STRING INTERNAL)
-#set(LLVM_ENABLE_LLD ON CACHE INTERNAL "Link LLVM Using LLD")
-#message(STATUS "${LLVM_ENABLE_RUNTIMES}")
-#foreach(proj $CACHE{LLVM_ENABLE_PROJECTS})
-#     MESSAGE(STATUS "${proj}")
-#endforeach()
-#add_subdirectory(${LLVM_DIR})
-FetchContent_Declare(
-  llvm-project
-  GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-  GIT_TAG main
-  GIT_SHALLOW TRUE
-  GIT_PROGRESS TRUE
-  SOURCE_SUBDIR llvm
-)
-FetchContent_GetProperties(llvm-project)
-if(NOT llvm-project_POPULATED)
-  FetchContent_Populate(llvm-project)
-endif()
-
-#FetchContent_MakeAvailable(llvm-project)
-#FetchContent_MakeAvailable(llvm)
+#LLVM(Clang Only)
+#[[
+set(LLVM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llvm-project/llvm)
+set(LLVM_ENABLE_PROJECTS lld;clang)
+set(CMAKE_BUILD_TYPE MinSizeRel)
+set(LLVM_BUILD_TOOLS OFF)
+set(LLVM_ENABLE_LLD ON)
+set(LLVM_TARGETS_TO_BUILD X86)
+set(LLVM_PARALLEL_COMPILE_JOBS 2)
+set(LLVM_PARALLEL_LINK_JOBS 2)
+message("LLVM Build Type ${CMAKE_BUILD_TYPE}")
+add_subdirectory(${LLVM_DIR})
+]]
+set(LLVM_PARALLEL_COMPILE_JOBS 1)
+set(LLVM_PARALLEL_LINK_JOBS 1)
+set(LLVM_TARGETS_TO_BUILD "None")
+#set(DXC_COVERAGE ON)
+set(DXC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/DirectXShaderCompiler)
+include(${DXC_DIR}/cmake/caches/PredefinedParams.cmake)
+set(LLVM_INCLUDE_TESTS OFF)
+set(HLSL_INCLUDE_TESTS OFF)
+set(ENABLE_SPIRV_CODEGEN ON)
+add_subdirectory(${DXC_DIR})
+#[[
+Set(FETCHCONTENT_QUIET FALSE)
+Set(ENABLED_LLVM_PROJECTS "lld\\;clang")
+CPMAddPackage(
+    NAME llvm-project
+    GIT_REPOSITORY https://github.com/llvm/llvm-project.git
+    GIT_TAG main
+    GIT_PROGRESS TRUE
+    SOURCE_SUBDIR llvm
+    OPTIONS
+        "LLVM_ENABLE_PROJECTS ${ENABLED_LLVM_PROJECTS}"
+        "LLVM_ENABLE_LLD ON"
+        "LLVM_PARALLEL_COMPILE_JOBS 2"
+        "LLVM_PARALLEL_LINK_JOBS 2"
+    -DLLVM_ENABLE_PROJECTS="lld;clang"
+)]]

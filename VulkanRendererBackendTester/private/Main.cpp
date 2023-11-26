@@ -90,6 +90,17 @@ public:
 		pShaderBindingSet->SetTexture("TestTexture", pTexture);
 		pShaderBindingSet->SetSampler("TestSampler", sampler);
 	}
+
+	void InsertMeshDrawcall(
+		GraphicsPipelineStatesData const& data
+		, std::shared_ptr<ShaderConstantSet> pShaderConstantSet
+		, std::shared_ptr<ShaderBindingSet> pShaderBindingSet
+		, std::shared_ptr<GPUBuffer> pVertexBuffer
+		, std::shared_ptr<GPUBuffer> pIndexBuffer
+	)
+	{
+
+	}
 private:
 	GraphicsPipelineStatesData m_Data;
 	std::shared_ptr<ShaderConstantSet> pShaderConstantSet;

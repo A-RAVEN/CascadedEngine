@@ -1,4 +1,5 @@
 set(PROJECT_NAME ShaderCompiler)
+project(${PROJECT_NAME})
 
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
@@ -44,6 +45,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC "${ADDITIONAL_LIBRARY_DEPENDENCIES}
 target_include_directories(${PROJECT_NAME} PUBLIC "$ENV{VK_SDK_PATH}/Include")
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_SOURCE_DIR}")
+#include(${CMAKE_SOURCE_DIR}/CMake/ExternalProjects.cmake)
+#link_llvm(ShaderCompiler)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)

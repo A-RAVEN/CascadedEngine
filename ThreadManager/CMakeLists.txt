@@ -1,4 +1,5 @@
 set(PROJECT_NAME ThreadManager)
+project(${PROJECT_NAME})
 
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
