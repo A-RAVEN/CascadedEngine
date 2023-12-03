@@ -28,6 +28,32 @@ struct VertexData
 	glm::vec2 pos;
 	glm::vec2 uv;
 	glm::vec3 color;
+
+};
+
+
+
+class MeshInfo
+{
+public:
+	CVertexInputDescriptor vertexInputDescriptor;
+	std::shared_ptr<GPUBuffer> vertexBuffer;
+	std::shared_ptr<GPUBuffer> indexBuffer;
+	EIndexBufferType bufferType;
+	uint32_t indexCount;
+
+	MeshInfo(CVertexInputDescriptor const& vertexInputDescriptor
+		, std::shared_ptr<GPUBuffer> vertexBuffer
+		, std::shared_ptr<GPUBuffer> indexBuffer
+		, EIndexBufferType bufferType
+		, uint32_t indexCount)
+		: vertexInputDescriptor(vertexInputDescriptor)
+		, vertexBuffer(vertexBuffer)
+		, indexBuffer(indexBuffer)
+		, bufferType(bufferType)
+		, indexCount(indexCount)
+	{
+	}
 };
 
 class TestMeshInterface : public IMeshInterface
@@ -36,33 +62,33 @@ public:
 	// 通过 IMeshInterface 继承
 	size_t GetGraphicsPipelineStatesCount() override
 	{
-		return 1;
+		return m_Datas.size();
 	}
 	GraphicsPipelineStatesData& GetGraphicsPipelineStatesData(size_t index) override
 	{
-		return m_Data;
+		return m_Datas[index];
 	}
 	size_t GetBatchCount() override
 	{
-		return 1;
+		return m_Datas.size();
 	}
 
 	void Update(float width, float height)
 	{
-		auto lookat = glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		auto lookat = glm::lookAt(glm::vec3(4.75f, 4.75f, 10.0f), glm::vec3(4.75f, 4.75f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		auto perspective = glm::perspective(glm::radians(45.0f), width / height, 0.1f, 1000.0f);
-		glm::mat4 data = perspective * lookat;
-		pShaderConstantSet->SetValue("viewProjectionMatrix", data);
+		glm::mat4 vpMatrix = perspective * lookat;
+		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", vpMatrix);
 	}
 
 	void DrawBatch(size_t batchIndex, CInlineCommandList& commandList) override
 	{
-		commandList.BindPipelineState(0);
-		if (pVertexBuffer->UploadingDone() && pIndexBuffer->UploadingDone())
+		commandList.BindPipelineState(batchIndex);
+		if (m_VertexBuffers[batchIndex]->UploadingDone() && m_IndexBuffers[batchIndex]->UploadingDone())
 		{
-			commandList.SetShaderBindings({ pShaderBindingSet });
-			commandList.BindVertexBuffers({ pVertexBuffer.get() }, {});
-			commandList.BindIndexBuffers(EIndexBufferType::e16, pIndexBuffer.get());
+			commandList.SetShaderBindings({ m_PerViewShaderBindings, m_ShaderBindingSets[batchIndex]});
+			commandList.BindVertexBuffers({ m_VertexBuffers[batchIndex].get() }, {});
+			commandList.BindIndexBuffers(EIndexBufferType::e16, m_IndexBuffers[batchIndex].get());
 			commandList.DrawIndexed(6);
 		}
 		else
@@ -71,42 +97,44 @@ public:
 		}
 	}
 
-	void Initialize(std::shared_ptr<CRenderBackend> pBackend
-		, ShaderBindingBuilder const& bindingBuilder
-		, ShaderConstantsBuilder const& shaderConstantBuilder
-		, std::shared_ptr<GPUTexture> pTexture
-		, std::shared_ptr<GPUBuffer> vertexBuffer
-		, std::shared_ptr<GPUBuffer> indexBuffer
-		, GraphicsPipelineStatesData const& data)
+	void Initialize(std::shared_ptr<CRenderBackend> pBackend)
 	{
-		m_Data = data;
-		pShaderConstantSet = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
-		pShaderBindingSet = pBackend->CreateShaderBindingSet(bindingBuilder);
-		pVertexBuffer = vertexBuffer;
-		pIndexBuffer = indexBuffer;
-
-		auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
-		pShaderBindingSet->SetConstantSet(pShaderConstantSet->GetName(), pShaderConstantSet);
-		pShaderBindingSet->SetTexture("TestTexture", pTexture);
-		pShaderBindingSet->SetSampler("TestSampler", sampler);
+		ShaderConstantsBuilder perViewConstantsBuilder{ "PerViewConstants" };
+		perViewConstantsBuilder.Mat4<float>("ViewProjectionMatrix");
+		m_PerViewShaderConstants = pBackend->CreateShaderConstantSet(perViewConstantsBuilder);
+		ShaderBindingBuilder perViewBindingBuilder("PerViewBindings");
+		perViewBindingBuilder.ConstantBuffer(perViewConstantsBuilder);
+		m_PerViewShaderBindings = pBackend->CreateShaderBindingSet(perViewBindingBuilder);
+		m_PerViewShaderBindings->SetConstantSet(m_PerViewShaderConstants->GetName()
+			, m_PerViewShaderConstants);
 	}
 
 	void InsertMeshDrawcall(
-		GraphicsPipelineStatesData const& data
-		, std::shared_ptr<ShaderConstantSet> pShaderConstantSet
-		, std::shared_ptr<ShaderBindingSet> pShaderBindingSet
-		, std::shared_ptr<GPUBuffer> pVertexBuffer
-		, std::shared_ptr<GPUBuffer> pIndexBuffer
+		MeshInfo const& meshInfo
+		, CPipelineStateObject const& pipelineStates
+		, GraphicsShaderSet const& shaderSet
+		, std::shared_ptr<ShaderBindingSet> meshBoundShaderBindings
 	)
 	{
-
+		GraphicsPipelineStatesData data{};
+		data.pipelineStateObject = pipelineStates;
+		data.shaderSet = shaderSet;
+		data.shaderBindingDescriptors = {
+			m_PerViewShaderBindings->GetBindingSetDesc()
+		, meshBoundShaderBindings->GetBindingSetDesc() };
+		data.vertexInputDescriptor = meshInfo.vertexInputDescriptor;
+		m_Datas.push_back(data);
+		m_ShaderBindingSets.push_back(meshBoundShaderBindings);
+		m_VertexBuffers.push_back(meshInfo.vertexBuffer);
+		m_IndexBuffers.push_back(meshInfo.indexBuffer);
 	}
 private:
-	GraphicsPipelineStatesData m_Data;
-	std::shared_ptr<ShaderConstantSet> pShaderConstantSet;
-	std::shared_ptr<ShaderBindingSet> pShaderBindingSet;
-	std::shared_ptr<GPUBuffer> pVertexBuffer;
-	std::shared_ptr<GPUBuffer> pIndexBuffer;
+	std::shared_ptr<ShaderConstantSet> m_PerViewShaderConstants;
+	std::shared_ptr<ShaderBindingSet> m_PerViewShaderBindings;
+	std::vector<GraphicsPipelineStatesData> m_Datas;
+	std::vector<std::shared_ptr<ShaderBindingSet>> m_ShaderBindingSets;
+	std::vector<std::shared_ptr<GPUBuffer>> m_VertexBuffers;
+	std::vector<std::shared_ptr<GPUBuffer>> m_IndexBuffers;
 };
 
 int main(int argc, char *argv[])
@@ -120,9 +148,9 @@ int main(int argc, char *argv[])
 	TModuleLoader<IShaderCompiler> shaderCompilerLoader("ShaderCompiler");
 	TModuleLoader<RenderInterfaceManager> renderInterfaceLoader("RenderInterface");
 
-	ShaderConstantsBuilder shaderConstantBuilder{ "DefaultCameraConstants" };
+	ShaderConstantsBuilder shaderConstantBuilder{ "PerObjectConstants" };
 	shaderConstantBuilder
-		.Mat4<float>("viewProjectionMatrix");
+		.Mat4<float>("ObjectMatrix");
 
 	ShaderBindingBuilder shaderBindingBuilder{ "TestBinding" };
 	shaderBindingBuilder.ConstantBuffer(shaderConstantBuilder);
@@ -202,7 +230,7 @@ int main(int argc, char *argv[])
 	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window");
 	auto windowHandle2 = pBackend->NewWindow(1024, 512, "Test Window2");
 
-	auto shaderConstants = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
+	//auto shaderConstants = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
 
 	std::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -259,16 +287,42 @@ int main(int argc, char *argv[])
 	vertexBuffer->UploadAsync();
 	indexBuffer->UploadAsync();
 	image->UploadAsync();
-	
 
-	GraphicsPipelineStatesData stateData{};
-	stateData.pipelineStateObject = CPipelineStateObject{};
-	stateData.shaderBindingDescriptors = { shaderBindingBuilder };
-	stateData.shaderSet = shaderSet;
-	stateData.vertexInputDescriptor = vertexInputDesc;
+	MeshInfo meshInfo{ vertexInputDesc
+		, vertexBuffer
+		, indexBuffer
+		, EIndexBufferType::e16
+		, 6};
+
+	std::vector<std::shared_ptr<ShaderBindingSet>> meshShaderBindings;
+	std::vector<std::shared_ptr<ShaderConstantSet>> meshShaderConstants;
+
+	meshShaderBindings.resize(16);
+	meshShaderConstants.resize(16);
 
 	TestMeshInterface meshBatch{};
-	meshBatch.Initialize(pBackend, shaderBindingBuilder, shaderConstantBuilder, image, vertexBuffer, indexBuffer, stateData);
+	meshBatch.Initialize(pBackend);
+
+	for (uint16_t xx = 0; xx < 4; ++xx)
+	{
+		for (uint16_t yy = 0; yy < 4; ++yy)
+		{
+			uint32_t index = xx * 4 + yy;
+			meshShaderConstants[index] = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
+			meshShaderBindings[index] = pBackend->CreateShaderBindingSet(shaderBindingBuilder);
+			meshShaderBindings[index]->SetConstantSet(meshShaderConstants[index]->GetName()
+				, meshShaderConstants[index]);
+			meshShaderBindings[index]->SetTexture("TestTexture", image);
+			meshShaderBindings[index]->SetSampler("TestSampler", sampler);
+
+			auto translation = glm::translate(glm::mat4(1.0f), glm::vec3(xx, yy, 0.0f) * 2.5f + glm::vec3(1.0f, 1.0f, 0.0f));
+			meshShaderConstants[index]->SetValue("ObjectMatrix", translation);
+			meshBatch.InsertMeshDrawcall(meshInfo
+							, CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
+							, shaderSet
+							, meshShaderBindings[index]);
+		}
+	}
 
 	std::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();
@@ -280,22 +334,22 @@ int main(int argc, char *argv[])
 
 		rotation += deltaTime * glm::radians(50.0f);
 		auto rotMat = glm::rotate(glm::mat4(1), rotation, glm::vec3(0.0f, 0.0f, 1.0f));
-		auto translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		auto lookat = glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		auto perspective = glm::perspective(glm::radians(45.0f), static_cast<float>(windowSize.x) / static_cast<float>(windowSize.y), 0.1f, 1000.0f);
-		glm::mat4 data = perspective * lookat * translation * rotMat;
-		shaderConstants->SetValue("viewProjectionMatrix", data);
+		for (uint16_t xx = 0; xx < 4; ++xx)
+		{
+			for (uint16_t yy = 0; yy < 4; ++yy)
+			{
+				uint32_t index = xx * 4 + yy;
+				auto translation = glm::translate(glm::mat4(1.0f), glm::vec3(xx, yy, 0.0f) * 2.5f + glm::vec3(1.0f, 1.0f, 0.0f));
+				meshShaderConstants[index]->SetValue("ObjectMatrix", translation * rotMat);
+			}
+		}
 
 
 		{
+			auto windowSize1 = windowHandle2->GetSizeSafe();
+			meshBatch.Update(windowSize1.x, windowSize1.y);
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
-
-			ShaderBindingSetHandle shaderBindingsHandle = pRenderGraph->NewShaderBindingSetHandle(shaderBindingBuilder)
-				.SetConstantSet(shaderConstants->GetName(), shaderConstants)
-				.SetTexture("TestTexture", image)
-				.SetSampler("TestSampler", sampler);
-
-			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle);
+			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2);
 
 			auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
 				windowSize.x, windowSize.y
@@ -307,6 +361,11 @@ int main(int argc, char *argv[])
 				, ETextureFormat::E_R8G8B8A8_UNORM
 				, ETextureAccessType::eRT | ETextureAccessType::eSampled });
 
+			CAttachmentInfo targetattachmentInfo{};
+			targetattachmentInfo.format = windowBackBuffer.GetDescriptor().format;
+			targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+
 			CAttachmentInfo colorAttachmentInfo{};
 			colorAttachmentInfo.format = ETextureFormat::E_R8G8B8A8_UNORM;
 			colorAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
@@ -317,31 +376,15 @@ int main(int argc, char *argv[])
 			depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
 			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(1.0f, 0x0);
 
-			CAttachmentInfo targetattachmentInfo{};
-			targetattachmentInfo.format = windowBackBuffer.GetDescriptor().format;
-			targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
-
 			pRenderGraph->NewRenderPass({ colorAttachmentInfo, depthAttachmentInfo })
 				.SetAttachmentTarget(0, colorTextureHandle)
 				.SetAttachmentTarget(1, depthTextureHandle)
 				.Subpass({ {0}, 1 }
-				, CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
-					, vertexInputDesc
-					, shaderSet
-					, { {}, {shaderBindingsHandle} }
-					, [vertexBuffer, indexBuffer, shaderBindingsHandle](CInlineCommandList& cmd)
-					{
-						if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
-						{
-							cmd.SetShaderBindings({ shaderBindingsHandle });
-							cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
-							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
-							cmd.DrawIndexed(6);
-						}
-					});
+					, {}
+					, &meshBatch
+				);
 
-			ShaderBindingSetHandle shaderBindingsHandle1 = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder)
+			ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder)
 				.SetTexture("SourceTexture", colorTextureHandle)
 				.SetSampler("SourceSampler", sampler);
 
@@ -351,38 +394,17 @@ int main(int argc, char *argv[])
 					, CPipelineStateObject{ }
 					, vertexInputDesc
 					, finalBlitShaderSet
-					, { {}, {shaderBindingsHandle1} }
-					, [vertexBuffer, indexBuffer, shaderBindingsHandle1](CInlineCommandList& cmd)
+					, { {}, {blitBandingHandle} }
+					, [vertexBuffer, indexBuffer, blitBandingHandle](CInlineCommandList& cmd)
 					{
 						if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
 						{
-							cmd.SetShaderBindings({ shaderBindingsHandle1 });
+							cmd.SetShaderBindings({ blitBandingHandle });
 							cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
 							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
 							cmd.DrawIndexed(6);
 						}
 					});
-
-			pBackend->ExecuteRenderGraph(pRenderGraph);
-		}
-		
-		{
-			auto windowSize1 = windowHandle2->GetSizeSafe();
-			meshBatch.Update(windowSize1.x, windowSize1.y);
-			auto pRenderGraph = pRenderInterface->NewRenderGraph();
-			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2);
-
-			CAttachmentInfo attachmentInfo{};
-			attachmentInfo.format = windowBackBuffer.GetDescriptor().format;
-			attachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			attachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
-
-			pRenderGraph->NewRenderPass({ attachmentInfo })
-				.SetAttachmentTarget(0, windowBackBuffer)
-				.Subpass({ {0} }
-					, {}
-					, &meshBatch
-				);
 
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}

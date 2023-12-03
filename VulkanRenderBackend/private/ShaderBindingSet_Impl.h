@@ -26,6 +26,7 @@ namespace graphics_backend
 		virtual void SetSampler(std::string const& name
 			, std::shared_ptr<TextureSampler> const& pSampler) override;
 		virtual bool UploadingDone() const override;
+		virtual ShaderBindingBuilder const& GetBindingSetDesc() const override;
 		vk::DescriptorSet GetDescriptorSet() const {
 			return m_DescriptorSetHandle->GetDescriptorSet();
 		}
@@ -74,7 +75,9 @@ namespace graphics_backend
 			}
 			return it->second;
 		}
+		ShaderBindingBuilder const* GetBindingsDescriptor() const { return p_Builder; }
 	private:
+		ShaderBindingBuilder const* p_Builder = nullptr;
 		ShaderDescriptorSetLayoutInfo m_LayoutInfo;
 		std::unordered_map<std::string, uint32_t> m_CBufferNameToBindingIndex;
 		std::unordered_map<std::string, uint32_t> m_TextureNameToBindingIndex;

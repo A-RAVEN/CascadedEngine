@@ -52,6 +52,13 @@ public:
 		m_PrimitiveDescriptions.push_back(std::make_tuple(stride, attributes, perInstance));
 	}
 
+	inline void AddPrimitiveDescriptor(
+		std::tuple<uint32_t, std::vector<VertexAttribute>, bool> const& primitiveDescriptor
+	)
+	{
+		m_PrimitiveDescriptions.push_back(primitiveDescriptor);
+	}
+
 	bool operator==(CVertexInputDescriptor const& rhs) const
 	{
 		return assemblyStates == rhs.assemblyStates

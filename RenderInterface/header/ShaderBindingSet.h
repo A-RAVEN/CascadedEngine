@@ -2,6 +2,7 @@
 #include "Common.h"
 #include "TextureSampler.h"
 #include "GPUTexture.h"
+#include "ShaderBindingBuilder.h"
 
 namespace graphics_backend
 {
@@ -26,5 +27,6 @@ namespace graphics_backend
 		virtual void SetSampler(std::string const& name
 			, std::shared_ptr<TextureSampler> const& pSampler) = 0;
 		virtual bool UploadingDone() const = 0;
+		virtual ShaderBindingBuilder const& GetBindingSetDesc() const = 0;
 	};
 }

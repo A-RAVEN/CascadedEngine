@@ -37,6 +37,10 @@ namespace graphics_backend
 	{
 		return BaseTickingUpdateResource::UploadingDone();
 	}
+	ShaderBindingBuilder const& ShaderBindingSet_Impl::GetBindingSetDesc() const
+	{
+		return *p_Metadata->GetBindingsDescriptor();
+	}
 	void ShaderBindingSet_Impl::TickUpload()
 	{
 		m_DescriptorSetHandle.RAIIRelease();
@@ -134,6 +138,7 @@ namespace graphics_backend
 	}
 	void ShaderBindingSetMetadata::Initialize(ShaderBindingBuilder const& builder)
 	{
+		p_Builder = &builder;
 		auto& constantBufferDescriptors = builder.GetConstantBufferDescriptors();
 		auto& textureDescriptors = builder.GetTextureDescriptors();
 		auto& samplerDescriptors = builder.GetTextureSamplers();

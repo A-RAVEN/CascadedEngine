@@ -2,7 +2,7 @@
 set(PROJECT_NAME ExternalProjects)
 project (${PROJECT_NAME})
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/CPM/cmake/CPM.cmake)
+#include(${CMAKE_CURRENT_SOURCE_DIR}/CPM/cmake/CPM.cmake)
 #VMA
 set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator)
 add_subdirectory(${VMA_DIR})

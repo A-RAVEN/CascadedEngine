@@ -48,6 +48,7 @@ namespace graphics_backend
 		std::shared_ptr<ShaderConstantSet> AllocateSet();
 		virtual void Release() override;
 		void TickUploadResources(thread_management::CTaskGraph* pTaskGraph);
+		ShaderConstantSetMetadata const& GetMetadata() const { return m_Metadata; }
 	private:
 		ShaderConstantSetMetadata m_Metadata;
 		TTickingUpdateResourcePool<ShaderConstantSet_Impl> m_ShaderConstantSetPool;

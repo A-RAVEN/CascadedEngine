@@ -61,13 +61,17 @@ namespace graphics_backend
 		//Tick uploading shader bindings
 		m_ShaderBindingSetAllocator.Foreach([this](ShaderBindingBuilder const&, ShaderBindingSetAllocator* allocator)
 			{
-				allocator->TickUploadResources(p_GPUAddressUploadingTaskGraph);
+				auto addressUploadTask = p_GPUAddressUploadingTaskGraph->NewTaskGraph()
+					->Name("Upload Shader Bindings " + allocator->GetMetadata().GetBindingsDescriptor()->GetSpaceName());
+				allocator->TickUploadResources(addressUploadTask);
 			});
 
 		//Tick uploading shader bindings
 		m_ConstantSetAllocator.Foreach([this](ShaderConstantsBuilder const&, ShaderConstantSetAllocator* allocator)
 			{
-				allocator->TickUploadResources(p_MemoryResourceUploadingTaskGraph);
+				auto shaderConstantsUploadTask = p_MemoryResourceUploadingTaskGraph->NewTaskGraph()
+					->Name("Upload Shader Constants " + allocator->GetMetadata().GetBuilder()->GetName());
+				allocator->TickUploadResources(shaderConstantsUploadTask);
 			});
 
 	}
