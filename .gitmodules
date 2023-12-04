@@ -10,9 +10,6 @@
 [submodule "ExternalLib/stb"]
 	path = ExternalLib/stb
 	url = https://github.com/nothings/stb.git
-[submodule "ExternalLib/CPM.cmake"]
-	path = ExternalLib/CPM.cmake
-	url = https://github.com/cpm-cmake/CPM.cmake.git
 [submodule "ExternalLib/llvm-project"]
 	path = ExternalLib/llvm-project
 	url = https://github.com/llvm/llvm-project.git
