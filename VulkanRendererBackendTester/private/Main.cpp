@@ -372,22 +372,28 @@ int main(int argc, char *argv[])
 			glm::vec2 mousePos = { windowHandle2->GetMouseX(),windowHandle2->GetMouseY() };
 			if (windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
 			{
+				std::cout << "Mouse Down!" << std::endl;
+				if (!mouseDown)
+				{
+					lastMousePos = mousePos;
+					mouseDown = true;
+				}
+				mouseDelta = mousePos - lastMousePos;
 				lastMousePos = mousePos;
-				mouseDown = true;
 			}
-			else if(windowHandle2->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
+			else// if(windowHandle2->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
 			{
 				mouseDown = false;
 			}
 			if (mouseDown)
 			{
-				mouseDelta = mousePos - lastMousePos;
+
 			}
 
 			auto windowSize1 = windowHandle2->GetSizeSafe();
 			cam.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
 			//std::cout << "Forward : " << forwarding << " Left : " << lefting << std::endl;
-			//std::cout << "Mouse : " << lastMousePos.x << " " << lastMousePos.y << std::endl;
+			std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
 
 			meshBatch.Update(cam.GetViewProjMatrix());
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();

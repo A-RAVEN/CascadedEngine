@@ -19,6 +19,7 @@
 [submodule "ExternalLib/DirectXShaderCompiler"]
 	path = ExternalLib/DirectXShaderCompiler
 	url = https://github.com/microsoft/DirectXShaderCompiler.git
-[submodule "ExternalLib/SDL"]
-	path = ExternalLib/SDL
-	url = https://github.com/libsdl-org/SDL.git
+[submodule "ExternalLib/imgui"]
+	path = ExternalLib/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking
