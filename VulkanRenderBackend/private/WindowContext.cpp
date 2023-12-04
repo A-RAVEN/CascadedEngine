@@ -39,6 +39,37 @@ namespace graphics_backend
 		return m_SwapchainContext.m_TextureDesc;
 	}
 
+	float CWindowContext::GetMouseX() const
+	{
+		double x, y;
+		glfwGetCursorPos(m_Window, &x, &y);
+		return static_cast<float>(x);
+	}
+
+	float CWindowContext::GetMouseY() const
+	{
+		double x, y;
+		glfwGetCursorPos(m_Window, &x, &y);
+		return static_cast<float>(y);
+	}
+
+	bool CWindowContext::IsKeyDown(int keycode) const
+	{
+		auto state = glfwGetKey(m_Window, keycode);
+		return state == GLFW_PRESS || state == GLFW_REPEAT;
+	}
+
+	bool CWindowContext::IsMouseDown(int mousecode) const
+	{
+		auto state = glfwGetMouseButton(m_Window, mousecode);
+		return state == GLFW_PRESS;
+	}
+
+	bool CWindowContext::IsMouseUp(int mousecode) const
+	{
+		auto state = glfwGetMouseButton(m_Window, mousecode);
+		return state == GLFW_RELEASE;
+	}
 
 	CWindowContext::CWindowContext(CVulkanApplication& inApp) : BaseApplicationSubobject(inApp)
 		, m_SwapchainContext(inApp)
@@ -109,12 +140,18 @@ namespace graphics_backend
 		assert(ValidContext());
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		m_Window = glfwCreateWindow(m_Width, m_Height, m_WindowName.c_str(), nullptr, nullptr);
+		glfwSetWindowUserPointer(m_Window, this);
 		VkSurfaceKHR surface;
 		glfwCreateWindowSurface(static_cast<VkInstance>(GetInstance()), m_Window, nullptr, &surface);
 		m_Surface = vk::SurfaceKHR(surface);
 		m_PresentQueue = GetVulkanApplication().GetSubmitCounterContext().FindPresentQueue(m_Surface);
 
 		m_SwapchainContext.Init(m_Width, m_Height, m_Surface, nullptr, m_PresentQueue.first);
+
+		glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
+			{
+				CWindowContext* windowContext = static_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+			});
 	}
 
 	void CWindowContext::Release()

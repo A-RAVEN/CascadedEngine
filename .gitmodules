@@ -19,3 +19,6 @@
 [submodule "ExternalLib/DirectXShaderCompiler"]
 	path = ExternalLib/DirectXShaderCompiler
 	url = https://github.com/microsoft/DirectXShaderCompiler.git
+[submodule "ExternalLib/SDL"]
+	path = ExternalLib/SDL
+	url = https://github.com/libsdl-org/SDL.git

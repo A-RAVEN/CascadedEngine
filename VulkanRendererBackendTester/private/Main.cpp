@@ -17,6 +17,8 @@
 #include <ExternalLib/stb/stb_image.h>
 #include <chrono>
 #include <filesystem>
+#include "Camera.h"
+#include "KeyCodes.h"
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -73,12 +75,12 @@ public:
 		return m_Datas.size();
 	}
 
-	void Update(float width, float height)
+	void Update(glm::mat4 const& viewProjMatrix)
 	{
-		auto lookat = glm::lookAt(glm::vec3(4.75f, 4.75f, 10.0f), glm::vec3(4.75f, 4.75f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		auto perspective = glm::perspective(glm::radians(45.0f), width / height, 0.1f, 1000.0f);
-		glm::mat4 vpMatrix = perspective * lookat;
-		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", vpMatrix);
+		//auto lookat = glm::lookAt(glm::vec3(4.75f, 4.75f, 10.0f), glm::vec3(4.75f, 4.75f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		//auto perspective = glm::perspective(glm::radians(45.0f), width / height, 0.1f, 1000.0f);
+		//glm::mat4 vpMatrix = perspective * lookat;
+		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", viewProjMatrix);
 	}
 
 	void DrawBatch(size_t batchIndex, CInlineCommandList& commandList) override
@@ -328,6 +330,9 @@ int main(int argc, char *argv[])
 	auto lastTime = timer.now();
 	float deltaTime = 0.0f;
 	float rotation = 0.0f;
+	Camera cam;
+	bool mouseDown = false;
+	glm::vec2 lastMousePos = {0.0f, 0.0f};
 	while (pBackend->AnyWindowRunning())
 	{
 		auto windowSize = windowHandle->GetSizeSafe();
@@ -344,10 +349,47 @@ int main(int argc, char *argv[])
 			}
 		}
 
-
 		{
+			int forwarding = 0;
+			int lefting = 0;
+			if (windowHandle2->IsKeyDown(CA_KEY_W))
+			{
+				++forwarding;
+			}
+			if (windowHandle2->IsKeyDown(CA_KEY_S))
+			{
+				--forwarding;
+			}
+			if (windowHandle2->IsKeyDown(CA_KEY_A))
+			{
+				++lefting;
+			}
+			if (windowHandle2->IsKeyDown(CA_KEY_D))
+			{
+				--lefting;
+			}
+			glm::vec2 mouseDelta = { 0.0f, 0.0f };
+			glm::vec2 mousePos = { windowHandle2->GetMouseX(),windowHandle2->GetMouseY() };
+			if (windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+			{
+				lastMousePos = mousePos;
+				mouseDown = true;
+			}
+			else if(windowHandle2->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
+			{
+				mouseDown = false;
+			}
+			if (mouseDown)
+			{
+				mouseDelta = mousePos - lastMousePos;
+			}
+
 			auto windowSize1 = windowHandle2->GetSizeSafe();
-			meshBatch.Update(windowSize1.x, windowSize1.y);
+			cam.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
+			//std::cout << "Forward : " << forwarding << " Left : " << lefting << std::endl;
+			//std::cout << "Mouse : " << lastMousePos.x << " " << lastMousePos.y << std::endl;
+
+			meshBatch.Update(cam.GetViewProjMatrix());
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
 			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2);
 

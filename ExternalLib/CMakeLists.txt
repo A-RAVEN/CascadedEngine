@@ -2,7 +2,6 @@
 set(PROJECT_NAME ExternalProjects)
 project (${PROJECT_NAME})
 
-#include(${CMAKE_CURRENT_SOURCE_DIR}/CPM/cmake/CPM.cmake)
 #VMA
 set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator)
 add_subdirectory(${VMA_DIR})
@@ -28,29 +27,20 @@ set(LLVM_PARALLEL_LINK_JOBS 2)
 message("LLVM Build Type ${CMAKE_BUILD_TYPE}")
 add_subdirectory(${LLVM_DIR})
 ]]
+
+#DXC
 set(LLVM_PARALLEL_COMPILE_JOBS 1)
 set(LLVM_PARALLEL_LINK_JOBS 1)
 set(LLVM_TARGETS_TO_BUILD "None")
-#set(DXC_COVERAGE ON)
 set(DXC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/DirectXShaderCompiler)
 include(${DXC_DIR}/cmake/caches/PredefinedParams.cmake)
 set(LLVM_INCLUDE_TESTS OFF)
 set(HLSL_INCLUDE_TESTS OFF)
 set(ENABLE_SPIRV_CODEGEN ON)
 add_subdirectory(${DXC_DIR})
-#[[
-Set(FETCHCONTENT_QUIET FALSE)
-Set(ENABLED_LLVM_PROJECTS "lld\\;clang")
-CPMAddPackage(
-    NAME llvm-project
-    GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-    GIT_TAG main
-    GIT_PROGRESS TRUE
-    SOURCE_SUBDIR llvm
-    OPTIONS
-        "LLVM_ENABLE_PROJECTS ${ENABLED_LLVM_PROJECTS}"
-        "LLVM_ENABLE_LLD ON"
-        "LLVM_PARALLEL_COMPILE_JOBS 2"
-        "LLVM_PARALLEL_LINK_JOBS 2"
-    -DLLVM_ENABLE_PROJECTS="lld;clang"
-)]]
+
+#SDL3
+set(SDL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/SDL)
+set(SDL_STATIC ON)
+set(SDL_TEST_LIBRARY OFF)
+add_subdirectory(${SDL_DIR})

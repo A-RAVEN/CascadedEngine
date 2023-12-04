@@ -50,6 +50,11 @@ namespace graphics_backend
 		virtual std::string GetName() const override;
 		virtual uint2 const& GetSizeSafe() override;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const override;
+		virtual bool IsKeyDown(int keycode) const override;
+		virtual bool IsMouseDown(int mousecode) const override;
+		virtual bool IsMouseUp(int mousecode) const override;
+		virtual float GetMouseX() const override;
+		virtual float GetMouseY() const override;
 
 		inline bool ValidContext() const { return m_Width > 0 && m_Height > 0; }
 		CWindowContext(CVulkanApplication& inOwner);
