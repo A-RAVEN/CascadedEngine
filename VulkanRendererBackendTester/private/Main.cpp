@@ -385,10 +385,6 @@ int main(int argc, char *argv[])
 			{
 				mouseDown = false;
 			}
-			if (mouseDown)
-			{
-
-			}
 
 			auto windowSize1 = windowHandle2->GetSizeSafe();
 			cam.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);

@@ -3,13 +3,34 @@
 #include <header/CRenderGraph.h>
 #include <header/CNativeRenderPassInfo.h>
 #include <unordered_set>
+#include <type_traits>
 
 namespace graphics_backend
 {
+	class IGraphInternalData
+	{
+	private:
+		TIndex m_InternalDataIndex;
+	};
+
+	template<typename TDesc>
+	class InternalDataManager
+	{
+	public:
+
+	public:
+		std::vector<TDesc> m_DescList;
+		std::unordered_map<TDesc, uint32_t, hash_utils::default_hashAlg> m_DescriptorToDataID;
+		std::vector<TIndex> m_DataIndexList;
+	};
+
 	class CRenderGraph_Impl : public CRenderGraph
 	{
 	public:
 		virtual TextureHandle NewTextureHandle(GPUTextureDescriptor const& textureDesc) override;
+		virtual GPUBufferHandle NewGPUBufferHandle(EBufferUsageFlags usageFlags
+			, uint64_t count
+			, uint64_t stride) override;
 		virtual TextureHandle RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window) override;
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) override;
 		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) override;

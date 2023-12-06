@@ -10,6 +10,11 @@ namespace graphics_backend
 		return NewTextureHandle_Internal(textureDesc, nullptr);
 	}
 
+	GPUBufferHandle CRenderGraph_Impl::NewGPUBufferHandle(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
+	{
+		return GPUBufferHandle();
+	}
+
 	TextureHandle CRenderGraph_Impl::RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window)
 	{
 		return NewTextureHandle_Internal(window->GetBackbufferDescriptor(), window);

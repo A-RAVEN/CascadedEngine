@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <type_traits>
+#include "GPUBufferHandle.h"
 
 namespace graphics_backend
 {
@@ -21,6 +22,9 @@ namespace graphics_backend
 	public:
 		//Used By Client
 		virtual TextureHandle NewTextureHandle(GPUTextureDescriptor const& textureDesc) = 0;
+		virtual GPUBufferHandle NewGPUBufferHandle(EBufferUsageFlags usageFlags
+			, uint64_t count
+			, uint64_t stride) = 0;
 		virtual TextureHandle RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window) = 0;
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
 		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
