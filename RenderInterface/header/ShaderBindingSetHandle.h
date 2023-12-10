@@ -1,15 +1,11 @@
 #pragma once
 #include "ShaderBindingSet.h"
+#include "GPUBufferHandle.h"
 #include <unordered_map>
 
 namespace graphics_backend
 {
 	class CRenderGraph;
-	//class ShaderConstantSet;
-	//class GPUTexture;
-	//class TextureSampler;
-	//class TextureHandle;
-
 	class IShaderBindingSetData
 	{
 	public:
@@ -18,6 +14,8 @@ namespace graphics_backend
 			, std::shared_ptr<GPUTexture> const& pTexture) = 0;
 		virtual void SetTexture(std::string const& name
 			, TextureHandle const& textureHandle) = 0;
+		virtual void SetGPUBuffer(std::string const& name
+			, GPUBufferHandle const& bufferHandle) = 0;
 		virtual void SetSampler(std::string const& name
 			, std::shared_ptr<TextureSampler> const& pSampler) = 0;
 		virtual uint32_t GetBindingSetDescIndex() const = 0;
@@ -26,8 +24,8 @@ namespace graphics_backend
 		virtual std::unordered_map<std::string, std::shared_ptr<GPUTexture>> const& GetExternalTextures() const = 0;
 		virtual std::unordered_map<std::string, std::shared_ptr<TextureSampler>> const& GetExternalSamplers() const = 0;
 		virtual std::unordered_map<std::string, TextureHandle> const& GetInternalTextures() const = 0;
+		virtual std::unordered_map<std::string, GPUBufferHandle> const& GetInternalGPUBuffers() const = 0;
 	};
-
 
 	class ShaderBindingSetHandle
 	{

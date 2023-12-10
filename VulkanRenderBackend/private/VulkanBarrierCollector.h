@@ -18,28 +18,23 @@ namespace graphics_backend
 			, ResourceUsageFlags sourceUsage
 			, ResourceUsageFlags destUsage);
 
-		//void PushImageReleaseBarrier(vk::Image image
-		//	, ResourceUsageFlags sourceUsage
-		//	, ResourceUsageFlags destUsage
-		//	, uint32_t destQueueFamily);
-
-		//void PushImageAquireBarrier(vk::Image image
-		//	, ResourceUsageFlags sourceUsage
-		//	, ResourceUsageFlags destUsage
-		//	, uint32_t sourceQueueFamily);
+		void PushBufferBarrier(vk::Buffer buffer
+			, ResourceUsageFlags sourceUsage
+			, ResourceUsageFlags destUsage);
 
 		void ExecuteBarrier(vk::CommandBuffer commandBuffer);
 
+		void Clear();
 
 		struct BarrierGroup
 		{
 			std::vector<std::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Image, ETextureFormat>> m_Images;
+			std::vector<std::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Buffer>> m_Buffers;
 		};
 
 	private:
 
 		void ExecuteCurrentQueueBarriers(vk::CommandBuffer commandBuffer);
-
 
 		uint32_t m_CurrentQueueFamilyIndex;
 		std::map<std::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags>

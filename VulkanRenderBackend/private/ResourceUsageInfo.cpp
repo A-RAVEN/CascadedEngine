@@ -82,6 +82,12 @@ namespace graphics_backend
 			vk::AccessFlagBits::eNone,
 			vk::ImageLayout::ePresentSrcKHR,
 		},
+		//eVertexAttribute
+		ResourceUsageVulkanInfo{
+			vk::PipelineStageFlagBits::eVertexInput,
+			vk::AccessFlagBits::eVertexAttributeRead,
+			vk::ImageLayout::eGeneral,
+		},
 	};
 
 

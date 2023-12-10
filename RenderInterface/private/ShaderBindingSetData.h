@@ -13,6 +13,8 @@ namespace graphics_backend
 			, std::shared_ptr<GPUTexture> const& pTexture) override;
 		virtual void SetTexture(std::string const& name
 			, TextureHandle const& textureHandle) override;
+		virtual void SetGPUBuffer(std::string const& name
+			, GPUBufferHandle const& bufferHandle) override;
 		virtual void SetSampler(std::string const& name
 			, std::shared_ptr<TextureSampler> const& pSampler) override;
 		virtual uint32_t GetBindingSetDescIndex() const override {
@@ -34,11 +36,16 @@ namespace graphics_backend
 		virtual std::unordered_map<std::string, TextureHandle> const& GetInternalTextures() const override {
 			return m_InternalTextures;
 		}
+
+		virtual std::unordered_map<std::string, GPUBufferHandle> const& GetInternalGPUBuffers() const override {
+			return m_InternalBuffers;
+		}
 	private:
 		TIndex m_DescriptorIndex = INVALID_INDEX;
 		std::unordered_map<std::string, std::shared_ptr<ShaderConstantSet>> m_ExternalConstantSets;
 		std::unordered_map<std::string, std::shared_ptr<GPUTexture>> m_ExternalTextures;
 		std::unordered_map<std::string, std::shared_ptr<TextureSampler>> m_ExternalSamplers;
 		std::unordered_map<std::string, TextureHandle> m_InternalTextures;
+		std::unordered_map<std::string, GPUBufferHandle> m_InternalBuffers;
 	};
 }

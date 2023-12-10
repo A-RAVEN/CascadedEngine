@@ -50,6 +50,7 @@ namespace graphics_backend
 		void Compile(CTaskGraph* taskGraph);
 
 		void ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& TextureHandleUsageStates);
+		void ResolveBufferHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& BufferHandleUsageStates);
 		void UpdateTextureLifetimes(uint32_t nodeIndex, std::vector<TextureHandleLifetimeInfo>& textureLifetimes);
 
 		void PrepareCommandBuffers(CTaskGraph* thisGraph);
@@ -100,7 +101,9 @@ namespace graphics_backend
 		std::vector<std::vector<std::shared_ptr<CPipelineObject>>> m_GraphicsPipelineObjects;
 
 		//TextureUsages
-		std::vector<std::tuple<TIndex, ResourceUsageFlags, ResourceUsageFlags>> m_UsageBarriers;
+		std::vector<std::tuple<TIndex, ResourceUsageFlags, ResourceUsageFlags>> m_ImageUsageBarriers;
+		//BufferUsages
+		std::vector<std::tuple<GPUBufferHandle, ResourceUsageFlags, ResourceUsageFlags>> m_BufferUsageBarriers;
 
 		//CommandBuffers
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
@@ -123,6 +126,7 @@ namespace graphics_backend
 	private:
 		void Compile(CTaskGraph* taskGrap);
 		void Execute(CTaskGraph* taskGrap);
+		void AllocateGPUBuffers(CTaskGraph* taskGrap);
 		void AllocateShaderBindingSets(CTaskGraph* taskGrap);
 		void WriteShaderBindingSets(CTaskGraph* taskGrap);
 		bool m_Compiled = false;
@@ -139,6 +143,9 @@ namespace graphics_backend
 		std::vector<int32_t> m_TextureAllocationIndex;
 		std::vector<std::vector<InternalGPUTextures>> m_Images;
 
+		//Internal GPU Buffers
+		std::vector<VulkanBufferHandle> m_GPUBufferObjects;
+		//Internal DescriptorSets
 		std::vector<ShaderDescriptorSetHandle> m_DescriptorSets;
 	};
 

@@ -406,7 +406,7 @@ int main(int argc, char *argv[])
 				, ETextureAccessType::eRT | ETextureAccessType::eSampled });
 
 			CAttachmentInfo targetattachmentInfo{};
-			targetattachmentInfo.format = windowBackBuffer.GetDescriptor().format;
+			targetattachmentInfo.format = pRenderGraph->GetTextureDescriptor(windowBackBuffer).format;
 			targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
 			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
 

@@ -24,6 +24,8 @@ namespace graphics_backend
 
 		ePresentID,
 
+		eVertexAttributeID,
+
 		eMax,
 	};
 
@@ -46,6 +48,8 @@ namespace graphics_backend
 		eDepthStencilReadonly = 1 << eDepthStencilReadonlyID,
 
 		ePresent = 1 << ePresentID,
+
+		eVertexAttribute = 1 << eVertexAttributeID,
 	};
 
 	using ResourceUsageFlags = uenum::EnumFlags<ResourceUsage>;

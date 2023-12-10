@@ -214,22 +214,20 @@ namespace graphics_backend
 					}
 				});
 
-		////分配ShaderBindingSets
-		//auto allocateShaderBindingSetsGraph = taskGraph->NewTaskGraph()
-		//	->Name("Allocate Shader Binding Sets");
-		//AllocateShaderBindingSets(allocateShaderBindingSetsGraph);
+		auto prepareGPUBuffersGraph = taskGraph->NewTaskGraph()
+			->Name("Prepare GPU Buffers");
+		AllocateGPUBuffers(prepareGPUBuffersGraph);
 
 		auto writeShaderBindingSetsGraph = taskGraph->NewTaskGraph()
 			->Name("Write Shader Binding Sets")
-			//->DependsOn(allocateShaderBindingSetsGraph)
-			->DependsOn(resolvingResourcesTask);
+			->DependsOn(resolvingResourcesTask)
+			->DependsOn(prepareGPUBuffersGraph);
 		WriteShaderBindingSets(writeShaderBindingSetsGraph);
 
 		//Prepare Per-RenderPass Framebuffer Objects and CommandBuffers
 		auto recordCmdTaskGraph = taskGraph->NewTaskGraph()
 			->DependsOn(writeShaderBindingSetsGraph)
 			->Name("Record RenderPass Cmds Graph")
-
 			->SetupFunctor([this, nodeCount](CTaskGraph* thisGraph)
 			{
 				for (uint32_t passId = 0; passId < nodeCount; ++passId)
@@ -284,9 +282,44 @@ namespace graphics_backend
 				});
 	}
 
+	void RenderGraphExecutor::AllocateGPUBuffers(CTaskGraph* taskGrap)
+	{
+		uint32_t bufferCount = m_RenderGraph->GetGPUBufferHandleCount();
+		if(bufferCount == 0)
+			return;
+		auto initializeTask = taskGrap->NewTask()
+			->Name("Initialize Internal GPU Buffers")
+			->Functor([this, bufferCount]()
+				{
+					m_GPUBufferObjects.resize(bufferCount);
+				});
+		taskGrap->NewTaskParallelFor()
+			->Name("Allocate Shader Binding Sets")
+			->DependsOn(initializeTask)
+			->JobCount(bufferCount)
+			->Functor([this](TIndex handleID)
+			{
+				auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
+				IGPUBufferInternalData const& bufferData = m_RenderGraph->GetGPUBufferInternalData(handleID);
+				GPUBufferDescriptor const& bufferDesc = m_RenderGraph->GetGPUBufferDescriptor(handleID);
+				size_t bufferSize = std::min(bufferDesc.count * bufferDesc.stride, bufferData.GetSizeInBytes());
+				auto srcBufferHandle = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(bufferSize);
+				auto bufferHandle = GetVulkanApplication().GetMemoryManager().AllocateBuffer(EMemoryType::GPU
+					, EMemoryLifetime::FrameBound
+					, bufferSize
+					, EBufferUsageFlagsTranslate(bufferDesc.usageFlags));
+				memcpy(srcBufferHandle->GetMappedPointer(), bufferData.GetPointer(), bufferSize);
+				auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload Template GPU Buffer");
+				cmdBuffer.copyBuffer(srcBufferHandle->GetBuffer(), bufferHandle->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
+				cmdBuffer.end();
+			});
+	}
+
 	void RenderGraphExecutor::AllocateShaderBindingSets(CTaskGraph* taskGrap)
 	{
 		uint32_t setCount = m_RenderGraph->GetBindingSetDataCount();
+		if(setCount == 0)
+			return;
 		auto initializeTask = taskGrap->NewTask()
 			->Name("Initialize Descriptor Sets")
 			->Functor([this, setCount]()
@@ -455,7 +488,7 @@ namespace graphics_backend
 	{
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
-		m_UsageBarriers.reserve(handles.size());
+		m_ImageUsageBarriers.reserve(handles.size());
 
 		std::vector<ResourceUsageFlags> renderPassInitializeUsages;
 		renderPassInitializeUsages.resize(handles.size());
@@ -501,7 +534,7 @@ namespace graphics_backend
 				textureHandleUsageStates[handleID] = dstUsage;
 				if (srcUsage != dstUsage)
 				{
-					m_UsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
+					m_ImageUsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
 				}
 			}
 		}
@@ -534,7 +567,7 @@ namespace graphics_backend
 						if (srcUsage != dstUsage)
 						{
 							textureHandleUsageStates[handleID] = dstUsage;
-							m_UsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
+							m_ImageUsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
 						}
 					}
 				}
@@ -545,6 +578,49 @@ namespace graphics_backend
 			}
 		}
 	}
+
+	void RenderPassExecutor::ResolveBufferHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& bufferHandleUsageStates)
+	{
+		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
+		for (uint32_t subpassID = 0; subpassID < renderPassInfo.subpassInfos.size(); ++subpassID)
+		{
+			switch (m_RenderpassBuilder.GetSubpassType(subpassID))
+			{
+			case ESubpassType::eSimpleDraw:
+			{
+				auto& subpassData = m_RenderpassBuilder.GetSubpassData_SimpleDrawcall(subpassID);
+				auto& shaderBindingSetHandles = subpassData.shaderBindingList.m_BindingSetHandles;
+				for (auto& bindingSetHandle : shaderBindingSetHandles)
+				{
+					TIndex bindingSetIndex = bindingSetHandle.GetBindingSetIndex();
+					IShaderBindingSetData const* data = m_RenderGraph.GetBindingSetData(bindingSetIndex);
+					auto& internalBufferHandles = data->GetInternalGPUBuffers();
+					for (auto itr = internalBufferHandles.begin(); itr != internalBufferHandles.end(); ++itr)
+					{
+						//TODO: 初始化Resource Usage
+						ResourceUsageFlags srcUsage = ResourceUsage::eTransferDest;
+						TIndex handleID = itr->second.GetHandleIndex();
+						auto found = bufferHandleUsageStates.find(handleID);
+						if (found != bufferHandleUsageStates.end())
+						{
+							srcUsage = found->second;
+						}
+						ResourceUsageFlags dstUsage = ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead;
+						if (srcUsage != dstUsage)
+						{
+							bufferHandleUsageStates[handleID] = dstUsage;
+							m_BufferUsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
+						}
+					}
+				}
+				break;
+			}
+			case ESubpassType::eMeshInterface:
+				break;
+			}
+		}
+	}
+
 	void RenderPassExecutor::UpdateTextureLifetimes(uint32_t nodeIndex, std::vector<TextureHandleLifetimeInfo>& textureLifetimes)
 	{
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
@@ -688,7 +764,7 @@ namespace graphics_backend
 	void RenderPassExecutor::ProcessAquireBarriers(vk::CommandBuffer cmd)
 	{
 		VulkanBarrierCollector textureBarrier{ m_OwningExecutor.GetFrameCountContext().GetGraphicsQueueFamily() };
-		for (auto& usageData : m_UsageBarriers)
+		for (auto& usageData : m_ImageUsageBarriers)
 		{
 			TIndex handleIDS = std::get<0>(usageData);
 			auto& textureInfo = m_RenderGraph.GetTextureHandleInternalInfo(handleIDS);
@@ -821,7 +897,7 @@ namespace graphics_backend
 		{
 			TextureHandleInternalInfo const& textureInfo = m_RenderGraph.GetTextureHandleInternalInfo(handleIDS);
 			TextureHandle textureHandle = m_RenderGraph.TextureHandleByIndex(handleIDS);
-			GPUTextureDescriptor const& desc = textureHandle.GetDescriptor();
+			GPUTextureDescriptor const& desc = m_RenderGraph.GetTextureDescriptor(textureHandle);
 
 			if (firstHandle)
 			{

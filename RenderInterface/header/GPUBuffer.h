@@ -3,6 +3,18 @@
 
 namespace graphics_backend
 {
+	class GPUBufferDescriptor
+	{
+	public:
+		EBufferUsageFlags usageFlags;
+		uint64_t count;
+		uint64_t stride;
+		bool operator==(GPUBufferDescriptor const& other) const
+		{
+			return hash_utils::memory_equal(*this, other);
+		}
+	};
+
 	class GPUBuffer
 	{
 	public:
@@ -11,3 +23,6 @@ namespace graphics_backend
 		virtual bool UploadingDone() const = 0;
 	};
 }
+
+template<>
+struct hash_utils::is_contiguously_hashable<graphics_backend::GPUBufferDescriptor> : public std::true_type {};

@@ -12,7 +12,29 @@ namespace graphics_backend
 
 	GPUBufferHandle CRenderGraph_Impl::NewGPUBufferHandle(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
 	{
-		return GPUBufferHandle();
+		TIndex descID;
+		TIndex handleID = m_GPUBufferDescriptorIDPool.RegisterNewData(GPUBufferDescriptor{ usageFlags, count, stride }, descID);
+		CA_ASSERT(handleID == m_GPUBufferInternalInfo.size(), "invalid ID");
+		m_GPUBufferInternalInfo.emplace_back();
+		return GPUBufferHandle(handleID);
+	}
+
+	void CRenderGraph_Impl::ScheduleBufferData(GPUBufferHandle bufferHandle, uint64_t bufferOffset, uint64_t dataSize, void* pData)
+	{
+		TIndex handleID = bufferHandle.GetHandleIndex();
+		auto bufferData = m_GPUBufferInternalInfo[handleID];
+		bufferData.ScheduleBufferData(bufferOffset, dataSize, pData);
+	}
+
+	IGPUBufferInternalData const& CRenderGraph_Impl::GetGPUBufferInternalData(GPUBufferHandle const& bufferHandle) const
+	{
+		TIndex handleID = bufferHandle.GetHandleIndex();
+		return m_GPUBufferInternalInfo[handleID];
+	}
+
+	GPUBufferDescriptor const& CRenderGraph_Impl::GetGPUBufferDescriptor(GPUBufferHandle const& bufferHandle) const
+	{
+		return m_GPUBufferDescriptorIDPool.DataIDToDesc(bufferHandle.GetHandleIndex());
 	}
 
 	TextureHandle CRenderGraph_Impl::RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window)
@@ -27,22 +49,16 @@ namespace graphics_backend
 
 	ShaderBindingSetHandle CRenderGraph_Impl::NewShaderBindingSetHandle(ShaderBindingBuilder const& builder)
 	{
-		auto found = m_ShaderBindingDescToIndex.find(builder);
-		TIndex foundIndex = INVALID_INDEX;
-		if (found == m_ShaderBindingDescToIndex.end())
-		{
-			foundIndex = m_ShaderBindingDescToIndex.size();
-			m_ShaderBindingDescToIndex.insert(std::make_pair(builder, foundIndex));
-			CA_ASSERT(foundIndex == m_ShaderBindingDescList.size(), "ShaderBindingDescList and ShaderBindingDescToIndex are out of sync");
-			m_ShaderBindingDescList.push_back(builder);
-		}
-		else
-		{
-			foundIndex = found->second;
-		}
-		TIndex setIndex = m_ShaderBindingSetDataList.size();
-		m_ShaderBindingSetDataList.emplace_back(foundIndex);
-		return ShaderBindingSetHandle(this, foundIndex, setIndex);
+		uint32_t descID;
+		TIndex dataIndex = m_BindingDescriptorIDPool.RegisterNewData(builder, descID);
+		CA_ASSERT(dataIndex == m_ShaderBindingSetDataList.size(), "invalid ID");
+		m_ShaderBindingSetDataList.emplace_back(descID);
+		return ShaderBindingSetHandle(this, descID, dataIndex);
+	}
+
+	GPUTextureDescriptor const& CRenderGraph_Impl::GetTextureDescriptor(TextureHandle const& handle) const
+	{
+		return m_TextureDescriptorIDPool.DataIDToDesc(handle.GetHandleIndex());
 	}
 
 	uint32_t CRenderGraph_Impl::GetRenderNodeCount() const
@@ -57,9 +73,7 @@ namespace graphics_backend
 
 	TextureHandle CRenderGraph_Impl::TextureHandleByIndex(TIndex index) const
 	{
-		auto& handleInternalInfo = m_TextureHandleIdToInternalInfo[index];
-		auto& textureDescriptor = m_TextureDescriptorList[handleInternalInfo.m_DescriptorIndex];
-		return TextureHandle{ textureDescriptor, index };
+		return TextureHandle{ index };
 	}
 
 	TIndex CRenderGraph_Impl::WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const
@@ -79,29 +93,17 @@ namespace graphics_backend
 			auto found = m_RegisteredWindowHandleIDs.find(window.get());
 			if (found != m_RegisteredWindowHandleIDs.end())
 			{
-				return TextureHandleByIndex(found->second);
+				return TextureHandle(found->second);
 			}
 		}
-
-		TIndex dataIndex = 0;
-		auto found = m_DescriptorToDataID.find(textureDesc);
-		if (found == m_DescriptorToDataID.end())
-		{
-			dataIndex = m_TextureDescriptorList.size();
-			m_TextureDescriptorList.push_back(textureDesc);
-		}
-		else
-		{
-			dataIndex = found->second;
-		}
-		TIndex handleIndex = m_TextureHandleIdToInternalInfo.size();
-		m_TextureHandleIdToInternalInfo.push_back(TextureHandleInternalInfo{ dataIndex, window });
-
+		TIndex descID;
+		TIndex dataID = m_TextureDescriptorIDPool.RegisterNewData(textureDesc, descID);
+		CA_ASSERT(m_TextureHandleIdToInternalInfo.size() == dataID, "invalid ID");
+		m_TextureHandleIdToInternalInfo.push_back(TextureHandleInternalInfo{ dataID, window });
 		if (window != nullptr)
 		{
-			m_RegisteredWindowHandleIDs.insert(std::make_pair(window.get(), dataIndex));
+			m_RegisteredWindowHandleIDs.insert(std::make_pair(window.get(), dataID));
 		}
-
-		return TextureHandle(textureDesc, handleIndex);
+		return TextureHandle(dataID);
 	}
 }

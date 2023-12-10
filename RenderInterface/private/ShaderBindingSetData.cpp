@@ -42,6 +42,19 @@ namespace graphics_backend
 		}
 	}
 
+	void ShaderBindingSetData_Internal::SetGPUBuffer(std::string const& name, GPUBufferHandle const& bufferHandle)
+	{
+		auto found = m_InternalBuffers.find(name);
+		if (found != m_InternalBuffers.end())
+		{
+			found->second = bufferHandle;
+		}
+		else
+		{
+			m_InternalBuffers.insert(std::make_pair(name, bufferHandle));
+		}
+	}
+
 	void ShaderBindingSetData_Internal::SetSampler(std::string const& name, std::shared_ptr<TextureSampler> const& pSampler)
 	{
 		auto found = m_ExternalSamplers.find(name);

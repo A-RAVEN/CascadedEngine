@@ -11,6 +11,6 @@
 #include "framework.h"
 #include <cstdint>
 #include <SharedTools/header/LibraryExportCommon.h>
-
+#include <SharedTools/header/DebugUtils.h>
 
 #endif //PCH_H

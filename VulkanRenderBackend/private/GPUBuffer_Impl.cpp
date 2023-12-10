@@ -46,6 +46,7 @@ namespace graphics_backend
         auto& memoryManager = GetMemoryManager();
         auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
         auto currentFrame = GetFrameCountContext().GetCurrentFrameID();
+		
 
         std::atomic_thread_fence(std::memory_order_acquire);
 
@@ -61,9 +62,16 @@ namespace graphics_backend
 		uint64_t byteSize = std::min(m_Count * m_Stride, m_ScheduledData.size());
         auto tempBuffer = memoryManager.AllocateFrameBoundTransferStagingBuffer(byteSize);
         memcpy(tempBuffer->GetMappedPointer(), m_ScheduledData.data(), byteSize);
+		VulkanBarrierCollector barrierCollector{ GetFrameCountContext().GetGraphicsQueueFamily() };
         auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload GPU Buffer");
-        cmdBuffer.copyBuffer(tempBuffer->GetBuffer(), m_BufferObject->GetBuffer(), vk::BufferCopy(0, 0, byteSize));
-        cmdBuffer.end();
+		barrierCollector.PushBufferBarrier(m_BufferObject->GetBuffer(), ResourceUsage::eDontCare, ResourceUsage::eTransferDest);
+		barrierCollector.ExecuteBarrier(cmdBuffer);
+		barrierCollector.Clear();
+		cmdBuffer.copyBuffer(tempBuffer->GetBuffer(), m_BufferObject->GetBuffer(), vk::BufferCopy(0, 0, byteSize));
+		barrierCollector.PushBufferBarrier(m_BufferObject->GetBuffer(), ResourceUsage::eTransferDest, ResourceUsage::eVertexAttribute);
+		barrierCollector.ExecuteBarrier(cmdBuffer);
+		barrierCollector.Clear();
+		cmdBuffer.end();
 		MarkUploadingDoneThisFrame();
 	}
 }

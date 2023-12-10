@@ -14,11 +14,6 @@ namespace graphics_backend
 		uint32_t height = 0;
 		uint32_t layers = 1;
 		uint32_t mipLevels = 1;
-		bool operator==(GPUTextureDescriptor const& other) const
-		{
-			return std::memcmp(this, &other, sizeof(GPUTextureDescriptor)) == 0;
-		}
-
 		GPUTextureDescriptor() = default;
 		GPUTextureDescriptor(uint32_t inWidth, uint32_t inHeight, ETextureFormat inFormat, ETextureAccessTypeFlags inAccessTypes) :
 			width(inWidth)
@@ -26,6 +21,11 @@ namespace graphics_backend
 			,format(inFormat)
 			,accessType(inAccessTypes)
 		{}
+
+		bool operator==(GPUTextureDescriptor const& other) const
+		{
+			return hash_utils::memory_equal(*this, other);
+		}
 	};
 
 	class GPUTextureAccessDescriptor
