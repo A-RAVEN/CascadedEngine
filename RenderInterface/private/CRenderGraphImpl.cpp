@@ -22,7 +22,7 @@ namespace graphics_backend
 	void CRenderGraph_Impl::ScheduleBufferData(GPUBufferHandle bufferHandle, uint64_t bufferOffset, uint64_t dataSize, void* pData)
 	{
 		TIndex handleID = bufferHandle.GetHandleIndex();
-		auto bufferData = m_GPUBufferInternalInfo[handleID];
+		auto& bufferData = m_GPUBufferInternalInfo[handleID];
 		bufferData.ScheduleBufferData(bufferOffset, dataSize, pData);
 	}
 

@@ -105,6 +105,11 @@ namespace graphics_backend
 		return m_Images[internalTexture.m_DescriptorIndex][allocationIndex];
 	}
 
+	VulkanBufferHandle const& RenderGraphExecutor::GetLocalBuffer(TIndex bufferHandle) const
+	{
+		return m_GPUBufferObjects[bufferHandle];
+	}
+
 	ShaderDescriptorSetHandle const& RenderGraphExecutor::GetLocalDescriptorSet(TIndex setHandle) const
 	{
 		return m_DescriptorSets[setHandle];
@@ -124,12 +129,14 @@ namespace graphics_backend
 			->Functor([this, nodeCount]()
 				{
 					m_TextureHandleUsageStates.clear();
+					m_BufferHandleUsageStates.clear();
 					std::vector<TextureHandleLifetimeInfo> textureHandleLifetimes;
 					textureHandleLifetimes.resize(m_RenderGraph->GetTextureHandleCount());
 					std::fill(textureHandleLifetimes.begin(), textureHandleLifetimes.end(), TextureHandleLifetimeInfo{});
 					for (uint32_t itr_node = 0; itr_node < nodeCount; ++itr_node)
 					{
 						m_RenderPasses[itr_node].ResolveTextureHandleUsages(m_TextureHandleUsageStates);
+						m_RenderPasses[itr_node].ResolveBufferHandleUsages(m_BufferHandleUsageStates);
 						m_RenderPasses[itr_node].UpdateTextureLifetimes(itr_node, textureHandleLifetimes);
 					}
 
@@ -303,15 +310,22 @@ namespace graphics_backend
 				IGPUBufferInternalData const& bufferData = m_RenderGraph->GetGPUBufferInternalData(handleID);
 				GPUBufferDescriptor const& bufferDesc = m_RenderGraph->GetGPUBufferDescriptor(handleID);
 				size_t bufferSize = std::min(bufferDesc.count * bufferDesc.stride, bufferData.GetSizeInBytes());
+				if (bufferSize == 0)
+					return;
 				auto srcBufferHandle = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(bufferSize);
 				auto bufferHandle = GetVulkanApplication().GetMemoryManager().AllocateBuffer(EMemoryType::GPU
 					, EMemoryLifetime::FrameBound
 					, bufferSize
 					, EBufferUsageFlagsTranslate(bufferDesc.usageFlags));
 				memcpy(srcBufferHandle->GetMappedPointer(), bufferData.GetPointer(), bufferSize);
+				VulkanBarrierCollector barrierCollector{ GetFrameCountContext().GetGraphicsQueueFamily() };
+				//Do We Need A Sync Barrier Here?
+				barrierCollector.PushBufferBarrier(bufferHandle->GetBuffer(), ResourceUsage::eDontCare, ResourceUsage::eTransferDest);
 				auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload Template GPU Buffer");
+				barrierCollector.ExecuteBarrier(cmdBuffer);
 				cmdBuffer.copyBuffer(srcBufferHandle->GetBuffer(), bufferHandle->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
 				cmdBuffer.end();
+				m_GPUBufferObjects[handleID] = std::move(bufferHandle);
 			});
 	}
 
@@ -782,6 +796,18 @@ namespace graphics_backend
 			}
 
 			textureBarrier.PushImageBarrier(image, descriptor.format
+				, std::get<1>(usageData)
+				, std::get<2>(usageData));
+		}
+		for (auto& usageData : m_BufferUsageBarriers)
+		{
+			GPUBufferHandle handle = std::get<0>(usageData);
+			auto& bufferInfo = m_RenderGraph.GetGPUBufferInternalData(handle);
+			auto& descriptor = m_RenderGraph.GetGPUBufferDescriptor(handle);
+			
+			vk::Buffer buffer = m_OwningExecutor.GetLocalBuffer(handle.GetHandleIndex())->GetBuffer();
+
+			textureBarrier.PushBufferBarrier(buffer
 				, std::get<1>(usageData)
 				, std::get<2>(usageData));
 		}

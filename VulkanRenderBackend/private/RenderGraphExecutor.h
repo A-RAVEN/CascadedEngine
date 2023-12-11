@@ -122,6 +122,7 @@ namespace graphics_backend
 		bool CompileIssued() const;
 		void CollectCommands(std::vector<vk::CommandBuffer>& inoutCommands) const;
 		InternalGPUTextures const& GetLocalTexture(TIndex textureHandle) const;
+		VulkanBufferHandle const& GetLocalBuffer(TIndex bufferHandle) const;
 		ShaderDescriptorSetHandle const& GetLocalDescriptorSet(TIndex setHandle) const;
 	private:
 		void Compile(CTaskGraph* taskGrap);
@@ -135,6 +136,7 @@ namespace graphics_backend
 		std::vector<RenderPassExecutor> m_RenderPasses;
 
 		std::unordered_map<TIndex, ResourceUsageFlags> m_TextureHandleUsageStates;
+		std::unordered_map<TIndex, ResourceUsageFlags> m_BufferHandleUsageStates;
 
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
 

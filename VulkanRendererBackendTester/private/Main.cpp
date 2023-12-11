@@ -432,6 +432,10 @@ int main(int argc, char *argv[])
 				.SetTexture("SourceTexture", colorTextureHandle)
 				.SetSampler("SourceSampler", sampler);
 
+			auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, vertexDataList.size(), sizeof(VertexData));
+			pRenderGraph->ScheduleBufferData(vertexBufferHandle, 0, vertexDataList.size() * sizeof(VertexData), vertexDataList.data());
+			auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
+			pRenderGraph->ScheduleBufferData(indexBufferHandle, 0, indexDataList.size() * sizeof(uint16_t), indexDataList.data());
 			pRenderGraph->NewRenderPass({ targetattachmentInfo })
 				.SetAttachmentTarget(0, windowBackBuffer)
 				.Subpass({ {0} }
@@ -439,13 +443,13 @@ int main(int argc, char *argv[])
 					, vertexInputDesc
 					, finalBlitShaderSet
 					, { {}, {blitBandingHandle} }
-					, [vertexBuffer, indexBuffer, blitBandingHandle](CInlineCommandList& cmd)
+					, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
 					{
-						if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
+						//if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
 						{
 							cmd.SetShaderBindings({ blitBandingHandle });
-							cmd.BindVertexBuffers({ vertexBuffer.get() }, {});
-							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBuffer.get());
+							cmd.BindVertexBuffers({ vertexBufferHandle }, {});
+							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
 							cmd.DrawIndexed(6);
 						}
 					});

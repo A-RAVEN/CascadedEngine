@@ -44,10 +44,33 @@ namespace graphics_backend
 		}
 		m_CommandBuffer.bindVertexBuffers(0, gpuBufferList, offsetList);
 	}
+	void CCommandList_Impl::BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> offsets)
+	{
+		std::vector<vk::Buffer> gpuBufferList;
+		std::vector<vk::DeviceSize> offsetList;
+		gpuBufferList.resize(pGPUBuffers.size());
+		offsetList.resize(pGPUBuffers.size());
+		for (uint32_t i = 0; i < pGPUBuffers.size(); ++i)
+		{
+			gpuBufferList[i] = p_RenderGraphExecutor->GetLocalBuffer(pGPUBuffers[i].GetHandleIndex())->GetBuffer();
+		}
+		std::fill(offsetList.begin(), offsetList.end(), 0);
+		for (uint32_t i = 0; i < offsets.size(); ++i)
+		{
+			offsetList[i] = offsets[i];
+		}
+		m_CommandBuffer.bindVertexBuffers(0, gpuBufferList, offsetList);
+		
+	}
 	void CCommandList_Impl::BindIndexBuffers(EIndexBufferType indexBufferType, GPUBuffer const* pGPUBuffer, uint32_t offset)
 	{
 		m_CommandBuffer.bindIndexBuffer(static_cast<GPUBuffer_Impl const*>(pGPUBuffer)
 			->GetVulkanBufferObject()->GetBuffer(), offset, EIndexBufferTypeTranslate(indexBufferType));
+	}
+	void CCommandList_Impl::BindIndexBuffers(EIndexBufferType indexBufferType, GPUBufferHandle const& gpuBufferHandle, uint32_t offset)
+	{
+		vk::Buffer vkBuffer = p_RenderGraphExecutor->GetLocalBuffer(gpuBufferHandle.GetHandleIndex())->GetBuffer();
+		m_CommandBuffer.bindIndexBuffer(vkBuffer, offset, EIndexBufferTypeTranslate(indexBufferType));
 	}
 	void CCommandList_Impl::SetShaderBindings(std::vector<std::shared_ptr<ShaderBindingSet>> bindings)
 	{

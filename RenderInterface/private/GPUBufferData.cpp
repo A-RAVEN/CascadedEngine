@@ -17,6 +17,10 @@ namespace graphics_backend
 	}
 	void const* graphics_backend::GPUBufferData_Internal::GetPointer() const
 	{
+		if(m_ScheduledData.empty())
+		{
+			return nullptr;
+		}
 		return &m_ScheduledData[0];
 	}
 	size_t graphics_backend::GPUBufferData_Internal::GetSizeInBytes() const
