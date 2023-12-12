@@ -19,6 +19,7 @@
 #include <filesystem>
 #include "Camera.h"
 #include "KeyCodes.h"
+#include <ExternalLib/imgui/imgui.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -138,6 +139,69 @@ private:
 	std::vector<std::shared_ptr<GPUBuffer>> m_VertexBuffers;
 	std::vector<std::shared_ptr<GPUBuffer>> m_IndexBuffers;
 };
+
+void UpdateIMGUI(int width, int height)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	io.DisplaySize = ImVec2(width, height);
+	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+
+	ImGui::NewFrame();
+
+	// Init imGui windows and elements
+
+	// Debug window
+	ImGui::SetWindowPos(ImVec2(20 , 20 ), ImGuiCond_FirstUseEver);
+	ImGui::SetWindowSize(ImVec2(300 , 300 ), ImGuiCond_Always);
+	ImGui::TextUnformatted("HAHA");
+	ImGui::TextUnformatted("Device Name");
+
+	//SRS - Display Vulkan API version and device driver information if available (otherwise blank)
+	ImGui::Text("Vulkan API %i.%i.%i", 1, 2, 3);
+	ImGui::Text("%s %s", "AA", "BB");
+
+	// Update frame time display
+	//if (updateFrameGraph) {
+	//	std::rotate(uiSettings.frameTimes.begin(), uiSettings.frameTimes.begin() + 1, uiSettings.frameTimes.end());
+	//	float frameTime = 1000.0f / (example->frameTimer * 1000.0f);
+	//	uiSettings.frameTimes.back() = frameTime;
+	//	if (frameTime < uiSettings.frameTimeMin) {
+	//		uiSettings.frameTimeMin = frameTime;
+	//	}
+	//	if (frameTime > uiSettings.frameTimeMax) {
+	//		uiSettings.frameTimeMax = frameTime;
+	//	}
+	//}
+
+	//ImGui::PlotLines("Frame Times", &uiSettings.frameTimes[0], 50, 0, "", uiSettings.frameTimeMin, uiSettings.frameTimeMax, ImVec2(0, 80));
+
+	ImGui::Text("Camera");
+	//ImGui::InputFloat3("position", &example->camera.position.x, 2);
+	//ImGui::InputFloat3("rotation", &example->camera.rotation.x, 2);
+
+	// Example settings window
+	ImGui::SetNextWindowPos(ImVec2(20, 360), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
+	ImGui::Begin("Example settings");
+	//ImGui::Checkbox("Render models", &uiSettings.displayModels);
+	//ImGui::Checkbox("Display logos", &uiSettings.displayLogos);
+	//ImGui::Checkbox("Display background", &uiSettings.displayBackground);
+	//ImGui::Checkbox("Animate light", &uiSettings.animateLight);
+	//ImGui::SliderFloat("Light speed", &uiSettings.lightSpeed, 0.1f, 1.0f);
+	//ImGui::ShowStyleSelector("UI style");
+
+	//if (ImGui::Combo("UI style", &selectedStyle, "Vulkan\0Classic\0Dark\0Light\0")) {
+	//	setStyle(selectedStyle);
+	//}
+
+	ImGui::End();
+
+	//SRS - ShowDemoWindow() sets its own initial position and size, cannot override here
+	ImGui::ShowDemoWindow();
+
+	// Render to generate draw buffers
+	ImGui::Render();
+}
 
 int main(int argc, char *argv[])
 {
@@ -333,9 +397,17 @@ int main(int argc, char *argv[])
 	Camera cam;
 	bool mouseDown = false;
 	glm::vec2 lastMousePos = {0.0f, 0.0f};
+	ImGui::CreateContext();
+
+	ImGuiIO& io = ImGui::GetIO();
+	unsigned char* fontData;
+	int texWidth, texHeight;
+	io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
 	while (pBackend->AnyWindowRunning())
 	{
 		auto windowSize = windowHandle->GetSizeSafe();
+
+		UpdateIMGUI(windowSize.x, windowSize.y);
 
 		rotation += deltaTime * glm::radians(50.0f);
 		auto rotMat = glm::rotate(glm::mat4(1), rotation, glm::vec3(0.0f, 0.0f, 1.0f));
@@ -471,6 +543,6 @@ int main(int argc, char *argv[])
 	pBackend->Release();
 	pBackend.reset();
 	pThreadManager.reset();
-
+	ImGui::DestroyContext();
 	return EXIT_SUCCESS;
 }
