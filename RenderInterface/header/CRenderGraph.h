@@ -32,9 +32,9 @@ namespace graphics_backend
 		virtual IGPUBufferInternalData const& GetGPUBufferInternalData(GPUBufferHandle const& bufferHandle) const = 0;
 		virtual GPUBufferDescriptor const& GetGPUBufferDescriptor(GPUBufferHandle const& bufferHandle) const = 0;
 
-		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
 		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
 
+		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
 		//Used By Backend
 		virtual uint32_t GetRenderNodeCount() const = 0;
 		virtual CRenderpassBuilder const& GetRenderPass(uint32_t nodeID) const = 0;

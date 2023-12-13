@@ -148,59 +148,130 @@ void UpdateIMGUI(int width, int height)
 
 	ImGui::NewFrame();
 
-	// Init imGui windows and elements
+	//// Init imGui windows and elements
 
-	// Debug window
-	ImGui::SetWindowPos(ImVec2(20 , 20 ), ImGuiCond_FirstUseEver);
-	ImGui::SetWindowSize(ImVec2(300 , 300 ), ImGuiCond_Always);
-	ImGui::TextUnformatted("HAHA");
-	ImGui::TextUnformatted("Device Name");
+	//// Debug window
+	//ImGui::SetWindowPos(ImVec2(20 , 20 ), ImGuiCond_FirstUseEver);
+	//ImGui::SetWindowSize(ImVec2(300 , 300 ), ImGuiCond_Always);
+	//ImGui::TextUnformatted("HAHA");
+	//ImGui::TextUnformatted("Device Name");
 
-	//SRS - Display Vulkan API version and device driver information if available (otherwise blank)
-	ImGui::Text("Vulkan API %i.%i.%i", 1, 2, 3);
-	ImGui::Text("%s %s", "AA", "BB");
+	////SRS - Display Vulkan API version and device driver information if available (otherwise blank)
+	//ImGui::Text("Vulkan API %i.%i.%i", 1, 2, 3);
+	//ImGui::Text("%s %s", "AA", "BB");
 
-	// Update frame time display
-	//if (updateFrameGraph) {
-	//	std::rotate(uiSettings.frameTimes.begin(), uiSettings.frameTimes.begin() + 1, uiSettings.frameTimes.end());
-	//	float frameTime = 1000.0f / (example->frameTimer * 1000.0f);
-	//	uiSettings.frameTimes.back() = frameTime;
-	//	if (frameTime < uiSettings.frameTimeMin) {
-	//		uiSettings.frameTimeMin = frameTime;
-	//	}
-	//	if (frameTime > uiSettings.frameTimeMax) {
-	//		uiSettings.frameTimeMax = frameTime;
-	//	}
-	//}
+	//// Update frame time display
+	////if (updateFrameGraph) {
+	////	std::rotate(uiSettings.frameTimes.begin(), uiSettings.frameTimes.begin() + 1, uiSettings.frameTimes.end());
+	////	float frameTime = 1000.0f / (example->frameTimer * 1000.0f);
+	////	uiSettings.frameTimes.back() = frameTime;
+	////	if (frameTime < uiSettings.frameTimeMin) {
+	////		uiSettings.frameTimeMin = frameTime;
+	////	}
+	////	if (frameTime > uiSettings.frameTimeMax) {
+	////		uiSettings.frameTimeMax = frameTime;
+	////	}
+	////}
 
-	//ImGui::PlotLines("Frame Times", &uiSettings.frameTimes[0], 50, 0, "", uiSettings.frameTimeMin, uiSettings.frameTimeMax, ImVec2(0, 80));
+	////ImGui::PlotLines("Frame Times", &uiSettings.frameTimes[0], 50, 0, "", uiSettings.frameTimeMin, uiSettings.frameTimeMax, ImVec2(0, 80));
 
-	ImGui::Text("Camera");
-	//ImGui::InputFloat3("position", &example->camera.position.x, 2);
-	//ImGui::InputFloat3("rotation", &example->camera.rotation.x, 2);
+	//ImGui::Text("Camera");
+	////ImGui::InputFloat3("position", &example->camera.position.x, 2);
+	////ImGui::InputFloat3("rotation", &example->camera.rotation.x, 2);
 
-	// Example settings window
-	ImGui::SetNextWindowPos(ImVec2(20, 360), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
-	ImGui::Begin("Example settings");
-	//ImGui::Checkbox("Render models", &uiSettings.displayModels);
-	//ImGui::Checkbox("Display logos", &uiSettings.displayLogos);
-	//ImGui::Checkbox("Display background", &uiSettings.displayBackground);
-	//ImGui::Checkbox("Animate light", &uiSettings.animateLight);
-	//ImGui::SliderFloat("Light speed", &uiSettings.lightSpeed, 0.1f, 1.0f);
-	//ImGui::ShowStyleSelector("UI style");
+	//// Example settings window
+	//ImGui::SetNextWindowPos(ImVec2(20, 360), ImGuiCond_FirstUseEver);
+	//ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
+	//ImGui::Begin("Example settings");
+	////ImGui::Checkbox("Render models", &uiSettings.displayModels);
+	////ImGui::Checkbox("Display logos", &uiSettings.displayLogos);
+	////ImGui::Checkbox("Display background", &uiSettings.displayBackground);
+	////ImGui::Checkbox("Animate light", &uiSettings.animateLight);
+	////ImGui::SliderFloat("Light speed", &uiSettings.lightSpeed, 0.1f, 1.0f);
+	////ImGui::ShowStyleSelector("UI style");
 
-	//if (ImGui::Combo("UI style", &selectedStyle, "Vulkan\0Classic\0Dark\0Light\0")) {
-	//	setStyle(selectedStyle);
-	//}
+	////if (ImGui::Combo("UI style", &selectedStyle, "Vulkan\0Classic\0Dark\0Light\0")) {
+	////	setStyle(selectedStyle);
+	////}
 
-	ImGui::End();
+	//ImGui::End();
 
 	//SRS - ShowDemoWindow() sets its own initial position and size, cannot override here
 	ImGui::ShowDemoWindow();
 
 	// Render to generate draw buffers
 	ImGui::Render();
+}
+
+void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
+	, TextureHandle framebufferHandle
+	, GraphicsShaderSet shaderSet
+	, std::shared_ptr<ShaderConstantSet> imguiConstants
+	, ShaderBindingBuilder const& imguiShaderBindingBuilder
+	, std::shared_ptr<TextureSampler> sampler
+	, std::shared_ptr<GPUTexture> fontTexture)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	glm::vec2 meshScale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y);
+	imguiConstants->SetValue("IMGUIScale", meshScale);
+	ImDrawData* imDrawData = ImGui::GetDrawData();
+
+	size_t vertexBufferSize = imDrawData->TotalVtxCount * sizeof(ImDrawVert);
+	size_t indexBufferSize = imDrawData->TotalIdxCount * sizeof(ImDrawIdx);
+
+	if ((vertexBufferSize == 0) || (indexBufferSize == 0)) {
+		return;
+	}
+
+	auto vertexBufferHandle = renderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert));
+	auto indexBufferHandle =  renderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx));
+
+	CVertexInputDescriptor vertexInputDesc{};
+	vertexInputDesc.AddPrimitiveDescriptor(sizeof(ImDrawVert), {
+		VertexAttribute{0, offsetof(ImDrawVert, pos), VertexInputFormat::eR32G32_SFloat}
+		, VertexAttribute{1, offsetof(ImDrawVert, uv), VertexInputFormat::eR32G32_SFloat}
+		, VertexAttribute{2, offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm}
+		});
+
+	size_t vtxDst = 0;
+	size_t idxDst = 0;
+	std::vector<uint32_t> vertexDataOffsets;
+	std::vector<std::pair<uint32_t, uint32_t>> indexDataOffsets;
+	for (int n = 0; n < imDrawData->CmdListsCount; n++) {
+		const ImDrawList* cmd_list = imDrawData->CmdLists[n];
+		renderGraph->ScheduleBufferData(vertexBufferHandle, vtxDst, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
+		renderGraph->ScheduleBufferData(indexBufferHandle, idxDst, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Data);
+		vertexDataOffsets.push_back(vtxDst);
+		indexDataOffsets.push_back(std::make_pair(idxDst, cmd_list->IdxBuffer.Size));
+		vtxDst += cmd_list->VtxBuffer.Size;
+		idxDst += cmd_list->IdxBuffer.Size;
+	}
+
+	CAttachmentInfo targetattachmentInfo{};
+	targetattachmentInfo.format = renderGraph->GetTextureDescriptor(framebufferHandle).format;
+	auto shaderBinding = renderGraph->NewShaderBindingSetHandle(imguiShaderBindingBuilder);
+	shaderBinding.SetConstantSet(imguiConstants->GetName(), imguiConstants)
+		.SetSampler("FontSampler", sampler)
+		.SetTexture("FontTexture", fontTexture);
+	auto blendStates = ColorAttachmentsBlendStates::AlphaTransparent();
+	renderGraph->NewRenderPass({ targetattachmentInfo })
+		.SetAttachmentTarget(0, framebufferHandle)
+		.Subpass({ {0} }
+			, CPipelineStateObject{ {}, {}, blendStates }
+			, vertexInputDesc
+			, shaderSet
+			, { {}, {shaderBinding} }
+			, [shaderBinding, vertexBufferHandle, indexBufferHandle, vertexDataOffsets, indexDataOffsets](CInlineCommandList& cmd)
+			{
+				//if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
+				for(uint32_t i = 0; i < vertexDataOffsets.size(); ++i)
+				{
+					cmd.SetShaderBindings({ shaderBinding });
+					cmd.BindVertexBuffers({ vertexBufferHandle }, { vertexDataOffsets[i] });
+					cmd.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle, indexDataOffsets[i].first);
+					cmd.DrawIndexed(indexDataOffsets[i].second);
+				}
+			});
 }
 
 int main(int argc, char *argv[])
@@ -226,6 +297,15 @@ int main(int argc, char *argv[])
 	ShaderBindingBuilder finalBlitBindingBuilder{ "FinalBlitBinding" };
 	finalBlitBindingBuilder.Texture2D<float, 4>("SourceTexture");
 	finalBlitBindingBuilder.SamplerState("SourceSampler");
+
+	ShaderConstantsBuilder imguiConstantBuilder{ "IMGUIConstants" };
+	imguiConstantBuilder
+		.Vec2<float>("IMGUIScale");
+
+	ShaderBindingBuilder imguiBindingBuilder{ "IMGUIBinding" };
+	imguiBindingBuilder.ConstantBuffer(imguiConstantBuilder);
+	imguiBindingBuilder.Texture2D<float, 4>("FontTexture");
+	imguiBindingBuilder.SamplerState("FontSampler");
 
 	auto pThreadManager = threadManagerLoader.New();
 	pThreadManager->InitializeThreadCount(5);
@@ -290,10 +370,40 @@ int main(int argc, char *argv[])
 	finalBlitShaderSet.vert = finalBlitVertProvider;
 	finalBlitShaderSet.frag = finalBlitFragProvider;
 
+	GraphicsShaderSet imguiShaderSet{};
+	{
+		shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/imgui.hlsl");
+		spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
+			, "imgui.hlsl"
+			, shaderSource
+			, "vert"
+			, ECompileShaderType::eVert
+			, false, true);
+
+		std::shared_ptr<TestShaderProvider> imguiShaderProvider = std::make_shared<TestShaderProvider>();
+		imguiShaderProvider->SetUniqueName("imgui.hlsl.vert");
+		imguiShaderProvider->SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+		imguiShaderSet.vert = imguiShaderProvider;
+
+		spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
+			, "imgui.hlsl"
+			, shaderSource
+			, "frag"
+			, ECompileShaderType::eFrag
+			, false, true);
+
+		imguiShaderProvider = std::make_shared<TestShaderProvider>();
+		imguiShaderProvider->SetUniqueName("imgui.hlsl.frag");
+		imguiShaderProvider->SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+		imguiShaderSet.frag = imguiShaderProvider;
+	}
+
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(pThreadManager.get(), 5);
-	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window");
+
+	std::shared_ptr<ShaderConstantSet> imguiConstants = pBackend->CreateShaderConstantSet(imguiConstantBuilder);
+	//auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window");
 	auto windowHandle2 = pBackend->NewWindow(1024, 512, "Test Window2");
 
 	//auto shaderConstants = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
@@ -403,9 +513,22 @@ int main(int argc, char *argv[])
 	unsigned char* fontData;
 	int texWidth, texHeight;
 	io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
+
+	GPUTextureDescriptor fontDesc{};
+	fontDesc.accessType = ETextureAccessType::eSampled | ETextureAccessType::eTransferDst;
+	fontDesc.format = ETextureFormat::E_R8G8B8A8_UNORM;
+	fontDesc.width = texWidth;
+	fontDesc.height = texHeight;
+	fontDesc.layers = 1;
+	fontDesc.mipLevels = 1;
+	fontDesc.textureType = ETextureType::e2D;
+	auto fontImage = pBackend->CreateGPUTexture(fontDesc);
+	fontImage->ScheduleTextureData(0, texWidth * texHeight * 4, fontData);
+	fontImage->UploadAsync();
+
 	while (pBackend->AnyWindowRunning())
 	{
-		auto windowSize = windowHandle->GetSizeSafe();
+		auto windowSize = windowHandle2->GetSizeSafe();
 
 		UpdateIMGUI(windowSize.x, windowSize.y);
 
@@ -461,7 +584,7 @@ int main(int argc, char *argv[])
 			auto windowSize1 = windowHandle2->GetSizeSafe();
 			cam.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
 			//std::cout << "Forward : " << forwarding << " Left : " << lefting << std::endl;
-			std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
+			//std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
 
 			meshBatch.Update(cam.GetViewProjMatrix());
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
@@ -500,6 +623,7 @@ int main(int argc, char *argv[])
 					, &meshBatch
 				);
 
+
 			ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder)
 				.SetTexture("SourceTexture", colorTextureHandle)
 				.SetSampler("SourceSampler", sampler);
@@ -525,6 +649,8 @@ int main(int argc, char *argv[])
 							cmd.DrawIndexed(6);
 						}
 					});
+
+			DrawIMGUI(pRenderGraph, windowBackBuffer, imguiShaderSet, imguiConstants, imguiBindingBuilder, sampler, fontImage);
 
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}

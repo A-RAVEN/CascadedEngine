@@ -22,6 +22,7 @@ namespace graphics_backend
 		case VertexInputFormat::eR32G32_SFloat: return vk::Format::eR32G32Sfloat;
 		case VertexInputFormat::eR32G32B32_SFloat: return vk::Format::eR32G32B32Sfloat;
 		case VertexInputFormat::eR32G32B32A32_SFloat: return vk::Format::eR32G32B32A32Sfloat;
+		case VertexInputFormat::eR8G8B8A8_UNorm: return vk::Format::eR8G8B8A8Unorm;
 		case VertexInputFormat::eR32_UInt: return vk::Format::eR32Uint;
 		case VertexInputFormat::eR32_SInt: return vk::Format::eR32Sint;
 		default: return vk::Format::eR32Sfloat;

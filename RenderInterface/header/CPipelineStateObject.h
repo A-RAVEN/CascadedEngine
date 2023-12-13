@@ -118,6 +118,15 @@ struct SingleColorAttachmentBlendStates
 			&& colorBlendOp == rhs.colorBlendOp
 			&& alphaBlendOp == rhs.alphaBlendOp;
 	}
+
+	static SingleColorAttachmentBlendStates const& AlphaTransparent()
+	{
+		SingleColorAttachmentBlendStates states;
+		states.blendEnable = true;
+		states.sourceColorBlendFactor = EBlendFactor::eSrcAlpha;
+		states.destColorBlendFactor = EBlendFactor::eOneMinusSrcAlpha;
+		return states;
+	}
 };
 
 template<>
@@ -137,6 +146,16 @@ struct ColorAttachmentsBlendStates
 			}
 		}
 		return true;
+	}
+
+	static ColorAttachmentsBlendStates const& AlphaTransparent()
+	{
+		ColorAttachmentsBlendStates states;
+		for (uint32_t i = 0; i < 8; ++i)
+		{
+			states.attachmentBlendStates[i] = SingleColorAttachmentBlendStates::AlphaTransparent();
+		}
+		return states;
 	}
 };
 template<>

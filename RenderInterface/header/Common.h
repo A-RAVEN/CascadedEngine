@@ -310,6 +310,7 @@ enum class VertexInputFormat
 	eR32G32_SFloat,
 	eR32G32B32_SFloat,
 	eR32G32B32A32_SFloat,
+	eR8G8B8A8_UNorm,
 	eR32_UInt,
 	eR32_SInt,
 };
