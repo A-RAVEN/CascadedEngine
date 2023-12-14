@@ -97,9 +97,9 @@ namespace graphics_backend
 			, 0, descriptorSets, {});
 	}
 
-	void CCommandList_Impl::DrawIndexed(uint32_t indexCount, uint32_t instanceCount)
+	void CCommandList_Impl::DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t indexOffset, uint32_t vertexOffset)
 	{
-		m_CommandBuffer.drawIndexed(indexCount, instanceCount, 0, 0, 0);
+		m_CommandBuffer.drawIndexed(indexCount, instanceCount, indexOffset, vertexOffset, 0);
 	}
 	void CCommandList_Impl::Draw(uint32_t vertexCount, uint32_t instanceCount)
 	{

@@ -184,23 +184,24 @@ void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 		, VertexAttribute{2, offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm}
 		});
 
-	size_t vtxDst = 0;
-	size_t idxDst = 0;
+	size_t vtxOffset = 0;
+	size_t idxOffset = 0;
 	//std::vector<uint32_t> vertexDataOffsets;
 	std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> indexDataOffsets;
-	std::vector<glm::ivec4> sissors;
+	std::vector<glm::uvec4> sissors;
 	for (int n = 0; n < imDrawData->CmdListsCount; n++) {
 		const ImDrawList* cmd_list = imDrawData->CmdLists[n];
-		renderGraph->ScheduleBufferData(vertexBufferHandle, vtxDst, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
-		renderGraph->ScheduleBufferData(indexBufferHandle, idxDst, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Data);
+		renderGraph->ScheduleBufferData(vertexBufferHandle, vtxOffset * sizeof(ImDrawVert), cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
+		renderGraph->ScheduleBufferData(indexBufferHandle, idxOffset * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Data);
 		
-		//vertexDataOffsets.push_back(vtxDst);
-		indexDataOffsets.push_back(std::make_tuple(idxDst, vtxDst, cmd_list->IdxBuffer.Size));
-		const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
-		sissors.push_back(glm::ivec4(pcmd->ClipRect.x, pcmd->ClipRect.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
-		idxDst += cmd_list->IdxBuffer.Size;
-
-		vtxDst += cmd_list->VtxBuffer.Size;
+		for (int j = 0; j < cmd_list->CmdBuffer.Size; ++j)
+		{
+			const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
+			indexDataOffsets.push_back(std::make_tuple(idxOffset, vtxOffset, pcmd->ElemCount));
+			sissors.push_back(glm::ivec4(pcmd->ClipRect.x, pcmd->ClipRect.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
+			idxOffset += pcmd->ElemCount;
+		}
+		vtxOffset += cmd_list->VtxBuffer.Size;
 	}
 
 	CAttachmentInfo targetattachmentInfo{};
@@ -217,15 +218,15 @@ void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 			, vertexInputDesc
 			, shaderSet
 			, { {}, {shaderBinding} }
-			, [shaderBinding, vertexBufferHandle, indexBufferHandle, vertexDataOffsets, indexDataOffsets](CInlineCommandList& cmd)
+			, [shaderBinding, vertexBufferHandle, indexBufferHandle, indexDataOffsets, sissors](CInlineCommandList& cmd)
 			{
-				//if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
-				for(uint32_t i = 0; i < vertexDataOffsets.size(); ++i)
+				cmd.SetShaderBindings({ shaderBinding });
+				cmd.BindVertexBuffers({ vertexBufferHandle });
+				cmd.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
+				for(uint32_t i = 0; i < indexDataOffsets.size(); ++i)
 				{
-					cmd.SetShaderBindings({ shaderBinding });
-					cmd.BindVertexBuffers({ vertexBufferHandle }, { vertexDataOffsets[i] });
-					cmd.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle, indexDataOffsets[i].first);
-					cmd.DrawIndexed(indexDataOffsets[i].second);
+					cmd.SetSissor(sissors[i].x, sissors[i].y, sissors[i].z, sissors[i].w);
+					cmd.DrawIndexed(std::get<2>(indexDataOffsets[i]), 1, std::get<0>(indexDataOffsets[i]), std::get<1>(indexDataOffsets[i]));
 				}
 			});
 }
