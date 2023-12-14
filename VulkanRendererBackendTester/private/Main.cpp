@@ -147,55 +147,6 @@ void UpdateIMGUI(int width, int height)
 	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
 
 	ImGui::NewFrame();
-
-	//// Init imGui windows and elements
-
-	//// Debug window
-	//ImGui::SetWindowPos(ImVec2(20 , 20 ), ImGuiCond_FirstUseEver);
-	//ImGui::SetWindowSize(ImVec2(300 , 300 ), ImGuiCond_Always);
-	//ImGui::TextUnformatted("HAHA");
-	//ImGui::TextUnformatted("Device Name");
-
-	////SRS - Display Vulkan API version and device driver information if available (otherwise blank)
-	//ImGui::Text("Vulkan API %i.%i.%i", 1, 2, 3);
-	//ImGui::Text("%s %s", "AA", "BB");
-
-	//// Update frame time display
-	////if (updateFrameGraph) {
-	////	std::rotate(uiSettings.frameTimes.begin(), uiSettings.frameTimes.begin() + 1, uiSettings.frameTimes.end());
-	////	float frameTime = 1000.0f / (example->frameTimer * 1000.0f);
-	////	uiSettings.frameTimes.back() = frameTime;
-	////	if (frameTime < uiSettings.frameTimeMin) {
-	////		uiSettings.frameTimeMin = frameTime;
-	////	}
-	////	if (frameTime > uiSettings.frameTimeMax) {
-	////		uiSettings.frameTimeMax = frameTime;
-	////	}
-	////}
-
-	////ImGui::PlotLines("Frame Times", &uiSettings.frameTimes[0], 50, 0, "", uiSettings.frameTimeMin, uiSettings.frameTimeMax, ImVec2(0, 80));
-
-	//ImGui::Text("Camera");
-	////ImGui::InputFloat3("position", &example->camera.position.x, 2);
-	////ImGui::InputFloat3("rotation", &example->camera.rotation.x, 2);
-
-	//// Example settings window
-	//ImGui::SetNextWindowPos(ImVec2(20, 360), ImGuiCond_FirstUseEver);
-	//ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
-	//ImGui::Begin("Example settings");
-	////ImGui::Checkbox("Render models", &uiSettings.displayModels);
-	////ImGui::Checkbox("Display logos", &uiSettings.displayLogos);
-	////ImGui::Checkbox("Display background", &uiSettings.displayBackground);
-	////ImGui::Checkbox("Animate light", &uiSettings.animateLight);
-	////ImGui::SliderFloat("Light speed", &uiSettings.lightSpeed, 0.1f, 1.0f);
-	////ImGui::ShowStyleSelector("UI style");
-
-	////if (ImGui::Combo("UI style", &selectedStyle, "Vulkan\0Classic\0Dark\0Light\0")) {
-	////	setStyle(selectedStyle);
-	////}
-
-	//ImGui::End();
-
 	//SRS - ShowDemoWindow() sets its own initial position and size, cannot override here
 	ImGui::ShowDemoWindow();
 
@@ -235,16 +186,21 @@ void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 
 	size_t vtxDst = 0;
 	size_t idxDst = 0;
-	std::vector<uint32_t> vertexDataOffsets;
-	std::vector<std::pair<uint32_t, uint32_t>> indexDataOffsets;
+	//std::vector<uint32_t> vertexDataOffsets;
+	std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> indexDataOffsets;
+	std::vector<glm::ivec4> sissors;
 	for (int n = 0; n < imDrawData->CmdListsCount; n++) {
 		const ImDrawList* cmd_list = imDrawData->CmdLists[n];
 		renderGraph->ScheduleBufferData(vertexBufferHandle, vtxDst, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
 		renderGraph->ScheduleBufferData(indexBufferHandle, idxDst, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Data);
-		vertexDataOffsets.push_back(vtxDst);
-		indexDataOffsets.push_back(std::make_pair(idxDst, cmd_list->IdxBuffer.Size));
-		vtxDst += cmd_list->VtxBuffer.Size;
+		
+		//vertexDataOffsets.push_back(vtxDst);
+		indexDataOffsets.push_back(std::make_tuple(idxDst, vtxDst, cmd_list->IdxBuffer.Size));
+		const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
+		sissors.push_back(glm::ivec4(pcmd->ClipRect.x, pcmd->ClipRect.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
 		idxDst += cmd_list->IdxBuffer.Size;
+
+		vtxDst += cmd_list->VtxBuffer.Size;
 	}
 
 	CAttachmentInfo targetattachmentInfo{};
@@ -544,6 +500,12 @@ int main(int argc, char *argv[])
 			}
 		}
 
+
+		io.MousePos = ImVec2(windowHandle2->GetMouseX(), windowHandle2->GetMouseY());
+		io.MouseDown[0] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT);
+		io.MouseDown[1] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_RIGHT);
+		io.MouseDown[2] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_MIDDLE);
+
 		{
 			int forwarding = 0;
 			int lefting = 0;
@@ -567,7 +529,7 @@ int main(int argc, char *argv[])
 			glm::vec2 mousePos = { windowHandle2->GetMouseX(),windowHandle2->GetMouseY() };
 			if (windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
 			{
-				std::cout << "Mouse Down!" << std::endl;
+				//std::cout << "Mouse Down!" << std::endl;
 				if (!mouseDown)
 				{
 					lastMousePos = mousePos;

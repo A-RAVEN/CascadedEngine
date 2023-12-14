@@ -105,6 +105,10 @@ namespace graphics_backend
 	{
 		m_CommandBuffer.draw(vertexCount, instanceCount, 0, 0);
 	}
+	void CCommandList_Impl::SetSissor(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
+	{
+		m_CommandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(x, y), vk::Extent2D(width, height)));
+	}
 	std::shared_ptr<CPipelineObject> CCommandList_Impl::GetBoundPipelineObject() const
 	{
 		CA_ASSERT(m_PipelineObjectIndex < m_PipelineObjects.size(), "Invalid Pipeline State Index!");

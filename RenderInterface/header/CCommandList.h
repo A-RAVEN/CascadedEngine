@@ -20,6 +20,7 @@ namespace graphics_backend
 		virtual void SetShaderBindings(std::vector<ShaderBindingSetHandle> bindings) = 0;
 		virtual void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1) = 0;
 		virtual void Draw(uint32_t vertexCount, uint32_t instanceCount = 1) = 0;
+		virtual void SetSissor(uint32_t x, uint32_t y, uint32_t width, uint32_t height) = 0;
 	};
 }
 
