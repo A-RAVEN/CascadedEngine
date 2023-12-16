@@ -103,7 +103,7 @@ namespace graphics_backend
 		//TextureUsages
 		std::vector<std::tuple<TIndex, ResourceUsageFlags, ResourceUsageFlags>> m_ImageUsageBarriers;
 		//BufferUsages
-		std::vector<std::tuple<GPUBufferHandle, ResourceUsageFlags, ResourceUsageFlags>> m_BufferUsageBarriers;
+		std::vector<std::tuple<TIndex, ResourceUsageFlags, ResourceUsageFlags>> m_BufferUsageBarriers;
 
 		//CommandBuffers
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
@@ -123,6 +123,7 @@ namespace graphics_backend
 		void CollectCommands(std::vector<vk::CommandBuffer>& inoutCommands) const;
 		InternalGPUTextures const& GetLocalTexture(TIndex textureHandle) const;
 		VulkanBufferHandle const& GetLocalBuffer(TIndex bufferHandle) const;
+		VulkanBufferHandle const& GetLocalConstantSetBuffer(TIndex constantSetHandle) const;
 		ShaderDescriptorSetHandle const& GetLocalDescriptorSet(TIndex setHandle) const;
 	private:
 		void Compile(CTaskGraph* taskGrap);
@@ -147,6 +148,8 @@ namespace graphics_backend
 
 		//Internal GPU Buffers
 		std::vector<VulkanBufferHandle> m_GPUBufferObjects;
+		uint32_t m_GPUBufferOffset = 0;
+		uint32_t m_ConstantBufferOffset = 0;
 		//Internal DescriptorSets
 		std::vector<ShaderDescriptorSetHandle> m_DescriptorSets;
 	};

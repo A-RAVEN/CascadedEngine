@@ -157,16 +157,14 @@ void UpdateIMGUI(int width, int height)
 void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 	, TextureHandle framebufferHandle
 	, GraphicsShaderSet shaderSet
-	, std::shared_ptr<ShaderConstantSet> imguiConstants
+	, ShaderConstantsBuilder const& imguiConstantBuilder
 	, ShaderBindingBuilder const& imguiShaderBindingBuilder
 	, std::shared_ptr<TextureSampler> sampler
 	, std::shared_ptr<GPUTexture> fontTexture)
 {
 	ImGuiIO& io = ImGui::GetIO();
 	glm::vec2 meshScale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y);
-	imguiConstants->SetValue("IMGUIScale", meshScale);
 	ImDrawData* imDrawData = ImGui::GetDrawData();
-
 	size_t vertexBufferSize = imDrawData->TotalVtxCount * sizeof(ImDrawVert);
 	size_t indexBufferSize = imDrawData->TotalIdxCount * sizeof(ImDrawIdx);
 
@@ -186,7 +184,6 @@ void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 
 	size_t vtxOffset = 0;
 	size_t idxOffset = 0;
-	//std::vector<uint32_t> vertexDataOffsets;
 	std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> indexDataOffsets;
 	std::vector<glm::uvec4> sissors;
 	for (int n = 0; n < imDrawData->CmdListsCount; n++) {
@@ -206,8 +203,10 @@ void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 
 	CAttachmentInfo targetattachmentInfo{};
 	targetattachmentInfo.format = renderGraph->GetTextureDescriptor(framebufferHandle).format;
+	auto shaderConstants = renderGraph->NewShaderConstantSetHandle(imguiConstantBuilder);
 	auto shaderBinding = renderGraph->NewShaderBindingSetHandle(imguiShaderBindingBuilder);
-	shaderBinding.SetConstantSet(imguiConstants->GetName(), imguiConstants)
+	shaderConstants.SetValue("IMGUIScale", meshScale);
+	shaderBinding.SetConstantSet(imguiConstantBuilder.GetName(), shaderConstants)
 		.SetSampler("FontSampler", sampler)
 		.SetTexture("FontTexture", fontTexture);
 	auto blendStates = ColorAttachmentsBlendStates::AlphaTransparent();
@@ -220,13 +219,13 @@ void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 			, { {}, {shaderBinding} }
 			, [shaderBinding, vertexBufferHandle, indexBufferHandle, indexDataOffsets, sissors](CInlineCommandList& cmd)
 			{
-				cmd.SetShaderBindings({ shaderBinding });
-				cmd.BindVertexBuffers({ vertexBufferHandle });
-				cmd.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
+				cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ shaderBinding })
+					.BindVertexBuffers({ vertexBufferHandle })
+					.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
 				for(uint32_t i = 0; i < indexDataOffsets.size(); ++i)
 				{
-					cmd.SetSissor(sissors[i].x, sissors[i].y, sissors[i].z, sissors[i].w);
-					cmd.DrawIndexed(std::get<2>(indexDataOffsets[i]), 1, std::get<0>(indexDataOffsets[i]), std::get<1>(indexDataOffsets[i]));
+					cmd.SetSissor(sissors[i].x, sissors[i].y, sissors[i].z, sissors[i].w)
+						.DrawIndexed(std::get<2>(indexDataOffsets[i]), 1, std::get<0>(indexDataOffsets[i]), std::get<1>(indexDataOffsets[i]));
 				}
 			});
 }
@@ -299,7 +298,6 @@ int main(int argc, char *argv[])
 	shaderSet.vert = vertProvider;
 	shaderSet.frag = fragProvider;
 
-
 	shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/finalBlitShader.hlsl");
 	spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
 		, "finalBlitShader.hlsl"
@@ -359,11 +357,7 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(pThreadManager.get(), 5);
 
-	std::shared_ptr<ShaderConstantSet> imguiConstants = pBackend->CreateShaderConstantSet(imguiConstantBuilder);
-	//auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window");
 	auto windowHandle2 = pBackend->NewWindow(1024, 512, "Test Window2");
-
-	//auto shaderConstants = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
 
 	std::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -551,7 +545,7 @@ int main(int argc, char *argv[])
 
 			meshBatch.Update(cam.GetViewProjMatrix());
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
-			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2);
+			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2.get());
 
 			auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
 				windowSize.x, windowSize.y
@@ -591,10 +585,10 @@ int main(int argc, char *argv[])
 				.SetTexture("SourceTexture", colorTextureHandle)
 				.SetSampler("SourceSampler", sampler);
 
-			auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, vertexDataList.size(), sizeof(VertexData));
-			pRenderGraph->ScheduleBufferData(vertexBufferHandle, 0, vertexDataList.size() * sizeof(VertexData), vertexDataList.data());
-			auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
-			pRenderGraph->ScheduleBufferData(indexBufferHandle, 0, indexDataList.size() * sizeof(uint16_t), indexDataList.data());
+			auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, vertexDataList.size(), sizeof(VertexData))
+				.ScheduleBufferData(0, vertexDataList.size() * sizeof(VertexData), vertexDataList.data());
+			auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t))
+				.ScheduleBufferData(0, indexDataList.size() * sizeof(uint16_t), indexDataList.data());
 			pRenderGraph->NewRenderPass({ targetattachmentInfo })
 				.SetAttachmentTarget(0, windowBackBuffer)
 				.Subpass({ {0} }
@@ -604,20 +598,15 @@ int main(int argc, char *argv[])
 					, { {}, {blitBandingHandle} }
 					, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
 					{
-						//if (vertexBuffer->UploadingDone() && indexBuffer->UploadingDone())
-						{
-							cmd.SetShaderBindings({ blitBandingHandle });
-							cmd.BindVertexBuffers({ vertexBufferHandle }, {});
-							cmd.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
-							cmd.DrawIndexed(6);
-						}
+						cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ blitBandingHandle })
+							.BindVertexBuffers({ vertexBufferHandle }, {})
+							.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
+							.DrawIndexed(6);
 					});
 
-			DrawIMGUI(pRenderGraph, windowBackBuffer, imguiShaderSet, imguiConstants, imguiBindingBuilder, sampler, fontImage);
-
+			DrawIMGUI(pRenderGraph, windowBackBuffer, imguiShaderSet, imguiConstantBuilder, imguiBindingBuilder, sampler, fontImage);
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}
-
 
 		pBackend->TickBackend();
 		pBackend->TickWindows();

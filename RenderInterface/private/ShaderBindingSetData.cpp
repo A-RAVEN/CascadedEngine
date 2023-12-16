@@ -4,68 +4,43 @@
 
 namespace graphics_backend
 {
-	void ShaderBindingSetData_Internal::SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet)
+	template<typename T>
+	void TrySetValue(std::unordered_map<std::string, T>& inoutMap, std::string const& name, T const& inValue)
 	{
-		auto found = m_ExternalConstantSets.find(name);
-		if (found != m_ExternalConstantSets.end())
+		auto found = inoutMap.find(name);
+		if (found != inoutMap.end())
 		{
-			found->second = pConstantSet;
+			found->second = inValue;
 		}
 		else
 		{
-			m_ExternalConstantSets.insert(std::make_pair(name, pConstantSet));
+			inoutMap.insert(std::make_pair(name, inValue));
 		}
+	}
+
+	void ShaderBindingSetData_Internal::SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet)
+	{
+		TrySetValue(m_ExternalConstantSets, name, pConstantSet);
+	}
+	void ShaderBindingSetData_Internal::SetConstantSet(std::string const& name, ShaderConstantSetHandle const& constantSetHandle)
+	{
+		TrySetValue(m_InternalConstantSets, name, constantSetHandle);
 	}
 	void ShaderBindingSetData_Internal::SetTexture(std::string const& name, std::shared_ptr<GPUTexture> const& pTexture)
 	{
-		auto found = m_ExternalTextures.find(name);
-		if (found != m_ExternalTextures.end())
-		{
-			found->second = pTexture;
-		}
-		else
-		{
-			m_ExternalTextures.insert(std::make_pair(name, pTexture));
-		}
+		TrySetValue(m_ExternalTextures, name, pTexture);
 	}
-
 	void ShaderBindingSetData_Internal::SetTexture(std::string const& name, TextureHandle const& textureHandle)
 	{
-		auto found = m_InternalTextures.find(name);
-		if (found != m_InternalTextures.end())
-		{
-			found->second = textureHandle;
-		}
-		else
-		{
-			m_InternalTextures.insert(std::make_pair(name, textureHandle));
-		}
+		TrySetValue(m_InternalTextures, name, textureHandle);
 	}
-
 	void ShaderBindingSetData_Internal::SetGPUBuffer(std::string const& name, GPUBufferHandle const& bufferHandle)
 	{
-		auto found = m_InternalBuffers.find(name);
-		if (found != m_InternalBuffers.end())
-		{
-			found->second = bufferHandle;
-		}
-		else
-		{
-			m_InternalBuffers.insert(std::make_pair(name, bufferHandle));
-		}
+		TrySetValue(m_InternalBuffers, name, bufferHandle);
 	}
-
 	void ShaderBindingSetData_Internal::SetSampler(std::string const& name, std::shared_ptr<TextureSampler> const& pSampler)
 	{
-		auto found = m_ExternalSamplers.find(name);
-		if (found != m_ExternalSamplers.end())
-		{
-			found->second = pSampler;
-		}
-		else
-		{
-			m_ExternalSamplers.insert(std::make_pair(name, pSampler));
-		}
+		TrySetValue(m_ExternalSamplers, name, pSampler);
 	}
 }
 

@@ -1,11 +1,14 @@
 #pragma once
 #include "ShaderBindingSetData.h"
+#include "ShaderConstantSetData.h"
 #include <header/CRenderGraph.h>
 #include <header/CNativeRenderPassInfo.h>
 #include <unordered_set>
 #include <type_traits>
 #include <header/GPUBuffer.h>
 #include "GPUBufferData.h"
+#include "TextureInternalData.h"
+#include "ShaderConstantSetDataLayout.h"
 
 namespace graphics_backend
 {
@@ -87,28 +90,55 @@ namespace graphics_backend
 	class CRenderGraph_Impl : public CRenderGraph
 	{
 	public:
+		//GPUTextureHandle
 		virtual TextureHandle NewTextureHandle(GPUTextureDescriptor const& textureDesc) override;
-
+		virtual TextureHandle RegisterWindowBackbuffer(WindowHandle* window) override;
+		virtual GPUTextureDescriptor const& GetTextureDescriptor(TextureHandle const& handle) const override;
+		virtual GPUTextureDescriptor const& GetTextureDescriptor(TIndex descID) const override { return m_TextureDescriptorIDPool.DescIDToDesc(descID); }
+		//GPUBufferHandle
 		virtual GPUBufferHandle NewGPUBufferHandle(EBufferUsageFlags usageFlags
 			, uint64_t count
 			, uint64_t stride) override;
 		virtual void ScheduleBufferData(GPUBufferHandle bufferHandle, uint64_t bufferOffset, uint64_t dataSize, void* pData) override;
-		virtual IGPUBufferInternalData const& GetGPUBufferInternalData(GPUBufferHandle const& bufferHandle) const override;
-		virtual GPUBufferDescriptor const& GetGPUBufferDescriptor(GPUBufferHandle const& bufferHandle) const override;
-
-		virtual TextureHandle RegisterWindowBackbuffer(std::shared_ptr<WindowHandle> window) override;
-		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) override;
+		virtual GPUBufferDescriptor const& GetGPUBufferDescriptor(TIndex handleID) const override;
+		//ConstantSetHandle
+		virtual ShaderConstantSetHandle NewShaderConstantSetHandle(ShaderConstantsBuilder const& builder) override;
+		//ShaderBindingSetHandle
 		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) override;
-		virtual GPUTextureDescriptor const& GetTextureDescriptor(TextureHandle const& handle) const override;
+		//RenderPass
+		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) override;
 
 		virtual uint32_t GetRenderNodeCount() const override;
 		virtual CRenderpassBuilder const& GetRenderPass(uint32_t nodeID) const override;
-		virtual TextureHandle TextureHandleByIndex(TIndex index) const override;
 
-		virtual TextureHandleInternalInfo const& GetTextureHandleInternalInfo(TIndex index) const override { return m_TextureHandleIdToInternalInfo[index]; }
 		virtual uint32_t GetTextureHandleCount() const override { return m_TextureHandleIdToInternalInfo.size(); }
 		virtual uint32_t GetTextureTypesDescriptorCount() const override { return m_TextureDescriptorIDPool.DescCount(); }
-		virtual GPUTextureDescriptor const& GetTextureDescriptor(TIndex descID) const override { return m_TextureDescriptorIDPool.DescIDToDesc(descID); }
+
+#pragma region Internal Data
+		virtual ITextureHandleInternalInfo const& GetGPUTextureInternalData(TIndex handleID) const override
+		{
+			return m_TextureHandleIdToInternalInfo[handleID];
+		}
+
+		virtual ITextureHandleInternalInfo& GetGPUTextureInternalData(TIndex handleID) override
+		{
+			return m_TextureHandleIdToInternalInfo[handleID];
+		}
+
+		virtual IGPUBufferInternalData& GetGPUBufferInternalData(TIndex handleID) override
+		{
+			return m_GPUBufferInternalInfo[handleID];
+		}
+
+		virtual IGPUBufferInternalData const& GetGPUBufferInternalData(TIndex handleID) const override
+		{
+			return m_GPUBufferInternalInfo[handleID];
+		}
+
+		virtual IShaderConstantSetData& GetConstantSetData(TIndex constantSetIndex) override
+		{
+			return m_ShaderConstantSetDataList[constantSetIndex];
+		}
 
 		virtual IShaderBindingSetData* GetBindingSetData(TIndex bindingSetIndex) override
 		{
@@ -118,15 +148,16 @@ namespace graphics_backend
 		{
 			return &m_ShaderBindingSetDataList[bindingSetIndex];
 		}
+#pragma endregion
 
 		virtual uint32_t GetBindingSetDataCount() const override
 		{
 			return m_ShaderBindingSetDataList.size();
 		}
 
-		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex descID) const override
-		{
-			return m_BindingDescriptorIDPool.DescIDToDesc(descID);
+		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex descID) const override 
+		{ 
+			return m_BindingDescriptorIDPool.DescIDToDesc(descID); 
 		}
 
 		virtual std::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const override
@@ -136,12 +167,48 @@ namespace graphics_backend
 
 		virtual TIndex WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const override;
 
-		virtual uint32_t GetGPUBufferHandleCount() const override {
+		virtual uint32_t GetGPUBufferHandleCount() const override 
+		{
 			return m_GPUBufferDescriptorIDPool.DataIDCount();
 		}
 
+		virtual uint32_t GetConstantSetCount() const override 
+		{
+			return m_ConstantSetDescriptorIDPool.DataIDCount();
+		}
+
+		virtual ShaderConstantsBuilder const& GetShaderConstantDesc(TIndex descID) const override
+		{
+			return m_ConstantSetDescriptorIDPool.DescIDToDesc(descID);
+		}
+#pragma region Descriptor Getters
+		InternalDataManager<GPUTextureDescriptor> const& GetGPUTextureDescirptorPool() const
+		{
+			return m_TextureDescriptorIDPool;
+		}
+
+		InternalDataManager<GPUBufferDescriptor> const& GetGPUBufferDescirptorPool() const
+		{
+			return m_GPUBufferDescriptorIDPool;
+		}
+
+		InternalDataManager<ShaderConstantsBuilder> const& GetShaderConstantSetDescirptorPool() const
+		{
+			return m_ConstantSetDescriptorIDPool;
+		}
+		ShaderConstantSetDataLayout const& GetShaderConstantSetDataLayout(TIndex descID) const
+		{
+			return m_ShaderConstantSetDataLayouts[descID];
+		}
+
+		InternalDataManager<ShaderBindingBuilder> const& GetShaderBindingSetDescirptorPool() const
+		{
+			return m_BindingDescriptorIDPool;
+		}
+#pragma endregion
+
 	private:
-		TextureHandle NewTextureHandle_Internal(GPUTextureDescriptor const& textureDesc, std::shared_ptr<WindowHandle> window);
+		TextureHandle NewTextureHandle_Internal(GPUTextureDescriptor const& textureDesc, WindowHandle* window);
 	private:
 		std::deque<CRenderpassBuilder> m_RenderPasses;
 
@@ -154,5 +221,9 @@ namespace graphics_backend
 
 		std::vector<ShaderBindingSetData_Internal> m_ShaderBindingSetDataList;
 		InternalDataManager<ShaderBindingBuilder> m_BindingDescriptorIDPool;
+
+		std::vector<ShaderConstantSetData_Internal> m_ShaderConstantSetDataList;
+		std::vector<ShaderConstantSetDataLayout> m_ShaderConstantSetDataLayouts;
+		InternalDataManager<ShaderConstantsBuilder> m_ConstantSetDescriptorIDPool;
 	};
 }

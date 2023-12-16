@@ -1,5 +1,6 @@
 #pragma once
 #include "Common.h"
+#include "GPUGraphHandleBase.h"
 
 namespace graphics_backend
 {
@@ -11,14 +12,13 @@ namespace graphics_backend
 		virtual size_t GetSizeInBytes() const = 0;
 	};
 
-	class GPUBufferHandle
+	class GPUBufferHandle : public GPUGraphHandleBase
 	{
 	public:
 		GPUBufferHandle() = default;
-		GPUBufferHandle(TIndex handleIndex)
-			: m_HandleIndex(handleIndex) {}
-		TIndex GetHandleIndex() const { return m_HandleIndex; }
-	private:
-		TIndex m_HandleIndex = INVALID_INDEX;
+		GPUBufferHandle(CRenderGraph* renderGraph, TIndex handleID)
+			: GPUGraphHandleBase(renderGraph, handleID)
+		{}
+		inline GPUBufferHandle& ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void* pData);
 	};
 }

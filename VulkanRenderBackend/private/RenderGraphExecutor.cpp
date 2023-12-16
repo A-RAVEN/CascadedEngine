@@ -100,14 +100,19 @@ namespace graphics_backend
 
 	InternalGPUTextures const& RenderGraphExecutor::GetLocalTexture(TIndex textureHandle) const
 	{
-		auto& internalTexture = m_RenderGraph->GetTextureHandleInternalInfo(textureHandle);
+		auto& internalTexture = m_RenderGraph->GetGPUTextureInternalData(textureHandle);
 		int32_t allocationIndex = m_TextureAllocationIndex[textureHandle];
-		return m_Images[internalTexture.m_DescriptorIndex][allocationIndex];
+		return m_Images[internalTexture.GetDescID()][allocationIndex];
 	}
 
 	VulkanBufferHandle const& RenderGraphExecutor::GetLocalBuffer(TIndex bufferHandle) const
 	{
-		return m_GPUBufferObjects[bufferHandle];
+		return m_GPUBufferObjects[m_GPUBufferOffset + bufferHandle];
+	}
+
+	VulkanBufferHandle const& RenderGraphExecutor::GetLocalConstantSetBuffer(TIndex constantSetHandle) const
+	{
+		return m_GPUBufferObjects[m_ConstantBufferOffset + constantSetHandle];
 	}
 
 	ShaderDescriptorSetHandle const& RenderGraphExecutor::GetLocalDescriptorSet(TIndex setHandle) const
@@ -149,7 +154,7 @@ namespace graphics_backend
 					for (TIndex textureHandleID = 0; textureHandleID < textureHandleLifetimes.size(); ++textureHandleID)
 					{
 						TextureHandleLifetimeInfo& lifetimeInfo = textureHandleLifetimes[textureHandleID];
-						TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(textureHandleID);
+						auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(textureHandleID);
 						if (!handleInfo.IsExternalTexture())
 						{
 							textureAllocationRecorder[lifetimeInfo.beginNodeID].first.push_back(textureHandleID);
@@ -192,14 +197,14 @@ namespace graphics_backend
 					{
 						for (TIndex handleID : recorderPass.second)
 						{
-							TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(handleID);
-							releaseIndexFunc(handleInfo.m_DescriptorIndex, m_TextureAllocationIndex[handleID]);
+							auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(handleID);
+							releaseIndexFunc(handleInfo.GetDescID(), m_TextureAllocationIndex[handleID]);
 						}
 
 						for (TIndex handleID : recorderPass.first)
 						{
-							TextureHandleInternalInfo const& handleInfo = m_RenderGraph->GetTextureHandleInternalInfo(handleID);
-							m_TextureAllocationIndex[handleID] = allocateIndexFunc(handleInfo.m_DescriptorIndex);
+							auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(handleID);
+							m_TextureAllocationIndex[handleID] = allocateIndexFunc(handleInfo.GetDescID());
 						}
 					}
 
@@ -292,16 +297,67 @@ namespace graphics_backend
 	void RenderGraphExecutor::AllocateGPUBuffers(CTaskGraph* taskGrap)
 	{
 		uint32_t bufferCount = m_RenderGraph->GetGPUBufferHandleCount();
-		if(bufferCount == 0)
+		uint32_t constantBufferCount = m_RenderGraph->GetConstantSetCount();
+		uint32_t totalBufferCount = bufferCount + constantBufferCount;
+		m_ConstantBufferOffset = 0;
+		m_GPUBufferOffset = constantBufferCount;
+		if(totalBufferCount == 0)
 			return;
 		auto initializeTask = taskGrap->NewTask()
 			->Name("Initialize Internal GPU Buffers")
-			->Functor([this, bufferCount]()
+			->Functor([this, totalBufferCount]()
 				{
-					m_GPUBufferObjects.resize(bufferCount);
+					m_GPUBufferObjects.resize(totalBufferCount);
 				});
 		taskGrap->NewTaskParallelFor()
-			->Name("Allocate Shader Binding Sets")
+			->Name("Allocate Constant Buffers")
+			->DependsOn(initializeTask)
+			->JobCount(constantBufferCount)
+			->Functor([this](TIndex handleID)
+				{
+					auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
+					IShaderConstantSetData const& constantsData = m_RenderGraph->GetConstantSetData(handleID);
+					auto& shaderConstantDesc = m_RenderGraph->GetShaderConstantDesc(constantsData.GetDescID());
+					auto subAllocator = GetVulkanApplication().GetShaderConstantSetAllocators().GetOrCreate(shaderConstantDesc).lock();
+					auto& metaData = subAllocator->GetMetadata();
+
+					std::vector<uint32_t> arrangedData;
+					arrangedData.resize(metaData.GetTotalSize());
+					auto& positionsMap = metaData.GetArithmeticValuePositions();
+
+					std::vector<std::tuple<std::string, uint32_t, uint32_t>> cachedDataList;
+					constantsData.PopulateCachedData(cachedDataList);
+
+					size_t bufferSize = metaData.GetTotalSize() * sizeof(uint32_t);
+					auto srcBufferHandle = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(bufferSize);
+
+					for (auto& cachedData : cachedDataList)
+					{
+						auto targetPos = positionsMap.find(std::get<0>(cachedData));
+						if (targetPos != positionsMap.end())
+						{
+							memcpy(static_cast<uint8_t*>(srcBufferHandle->GetMappedPointer()) + targetPos->second.first * sizeof(uint32_t)
+								, static_cast<uint8_t const*>(constantsData.GetUploadingDataPtr()) + std::get<1>(cachedData), std::get<2>(cachedData));
+						}	
+					}
+
+					auto bufferHandle = GetMemoryManager().AllocateBuffer(
+						EMemoryType::GPU
+						, EMemoryLifetime::Persistent
+						, bufferSize
+						, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst);
+
+					VulkanBarrierCollector barrierCollector{ GetFrameCountContext().GetGraphicsQueueFamily() };
+					//Do We Need A Sync Barrier Here?
+					barrierCollector.PushBufferBarrier(bufferHandle->GetBuffer(), ResourceUsage::eDontCare, ResourceUsage::eTransferDest);
+					auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload Template Shader Constants Buffer");
+					barrierCollector.ExecuteBarrier(cmdBuffer);
+					cmdBuffer.copyBuffer(srcBufferHandle->GetBuffer(), bufferHandle->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
+					cmdBuffer.end();
+					m_GPUBufferObjects[m_ConstantBufferOffset + handleID] = std::move(bufferHandle);
+				});
+		taskGrap->NewTaskParallelFor()
+			->Name("Allocate GPU Buffers")
 			->DependsOn(initializeTask)
 			->JobCount(bufferCount)
 			->Functor([this](TIndex handleID)
@@ -325,7 +381,7 @@ namespace graphics_backend
 				barrierCollector.ExecuteBarrier(cmdBuffer);
 				cmdBuffer.copyBuffer(srcBufferHandle->GetBuffer(), bufferHandle->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
 				cmdBuffer.end();
-				m_GPUBufferObjects[handleID] = std::move(bufferHandle);
+				m_GPUBufferObjects[m_GPUBufferOffset + handleID] = std::move(bufferHandle);
 			});
 	}
 
@@ -349,7 +405,7 @@ namespace graphics_backend
 				IShaderBindingSetData* bindingSetData = m_RenderGraph->GetBindingSetData(setID);
 				TIndex bindingSetDescID = bindingSetData->GetBindingSetDescIndex();
 				auto& bindingSetDesc = m_RenderGraph->GetShaderBindingSetDesc(bindingSetDescID);
-
+				//TODO: Improve This
 				ShaderDescriptorSetLayoutInfo layoutInfo{ bindingSetDesc };
 				auto& descPoolCache = GetVulkanApplication().GetGPUObjectManager().GetShaderDescriptorPoolCache();
 				auto allocator = descPoolCache.GetOrCreate(layoutInfo).lock();
@@ -368,6 +424,7 @@ namespace graphics_backend
 					IShaderBindingSetData* bindingSetData = m_RenderGraph->GetBindingSetData(setID);
 					TIndex bindingSetDescID = bindingSetData->GetBindingSetDescIndex();
 					auto& constantSets = bindingSetData->GetExternalConstantSets();
+					auto& internalConstantSets = bindingSetData->GetInternalConstantSets();
 					auto& externalTextures = bindingSetData->GetExternalTextures();
 					auto& internalTextures = bindingSetData->GetInternalTextures();
 					auto& externalSamplers = bindingSetData->GetExternalSamplers();
@@ -393,6 +450,27 @@ namespace graphics_backend
 							if (bindingIndex != std::numeric_limits<uint32_t>::max())
 							{
 								vk::DescriptorBufferInfo bufferInfo{ set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE };
+								vk::WriteDescriptorSet writeSet{ targetSet
+									, bindingIndex
+									, 0
+									, 1
+									, vk::DescriptorType::eUniformBuffer
+									, nullptr
+									, &bufferInfo
+									, nullptr
+								};
+								descriptorWrites.push_back(writeSet);
+							}
+						}
+
+						for (auto itr = internalConstantSets.begin(); itr != internalConstantSets.end(); ++itr)
+						{
+							auto& name = itr->first;
+							auto& setHandle = itr->second;
+							uint32_t bindingIndex = metaData.CBufferNameToBindingIndex(name);
+							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							{
+								vk::DescriptorBufferInfo bufferInfo{ GetLocalConstantSetBuffer(setHandle.GetHandleIndex())->GetBuffer(), 0, VK_WHOLE_SIZE};
 								vk::WriteDescriptorSet writeSet{ targetSet
 									, bindingIndex
 									, 0
@@ -436,9 +514,7 @@ namespace graphics_backend
 						{
 							auto& name = itr->first;
 							auto& textureHandle = itr->second;
-							TIndex handleIndex = textureHandle.GetHandleIndex();
-
-							auto& internalTexture = GetLocalTexture(handleIndex);
+							auto& internalTexture = GetLocalTexture(textureHandle.GetHandleIndex());
 							
 							uint32_t bindingIndex = metaData.TextureNameToBindingIndex(name);
 							if (bindingIndex != std::numeric_limits<uint32_t>::max())
@@ -564,8 +640,8 @@ namespace graphics_backend
 				auto& shaderBindingSetHandles = subpassData.shaderBindingList.m_BindingSetHandles;
 				for (auto& bindingSetHandle : shaderBindingSetHandles)
 				{
-					TIndex bindingSetIndex = bindingSetHandle.GetBindingSetIndex();
-					IShaderBindingSetData const* data = m_RenderGraph.GetBindingSetData(bindingSetIndex);
+					//TIndex bindingSetIndex = bindingSetHandle.GetHandleIndex();
+					IShaderBindingSetData const* data = m_RenderGraph.GetBindingSetData(bindingSetHandle.GetHandleIndex());
 					auto& internalTextureHandles = data->GetInternalTextures();
 					for (auto itr = internalTextureHandles.begin(); itr != internalTextureHandles.end(); ++itr)
 					{
@@ -606,8 +682,7 @@ namespace graphics_backend
 				auto& shaderBindingSetHandles = subpassData.shaderBindingList.m_BindingSetHandles;
 				for (auto& bindingSetHandle : shaderBindingSetHandles)
 				{
-					TIndex bindingSetIndex = bindingSetHandle.GetBindingSetIndex();
-					IShaderBindingSetData const* data = m_RenderGraph.GetBindingSetData(bindingSetIndex);
+					IShaderBindingSetData const* data = m_RenderGraph.GetBindingSetData(bindingSetHandle.GetHandleIndex());
 					auto& internalBufferHandles = data->GetInternalGPUBuffers();
 					for (auto itr = internalBufferHandles.begin(); itr != internalBufferHandles.end(); ++itr)
 					{
@@ -781,13 +856,13 @@ namespace graphics_backend
 		for (auto& usageData : m_ImageUsageBarriers)
 		{
 			TIndex handleIDS = std::get<0>(usageData);
-			auto& textureInfo = m_RenderGraph.GetTextureHandleInternalInfo(handleIDS);
-			auto& descriptor = m_RenderGraph.GetTextureDescriptor(textureInfo.m_DescriptorIndex);
+			auto& textureInfo = m_RenderGraph.GetGPUTextureInternalData(handleIDS);
+			auto& descriptor = m_RenderGraph.GetTextureDescriptor(textureInfo.GetDescID());
 
 			vk::Image image;
-			if (textureInfo.p_WindowsHandle != nullptr)
+			if (textureInfo.GetWindowsHandle() != nullptr)
 			{
-				image = static_cast<CWindowContext*>(textureInfo.p_WindowsHandle.get())->GetCurrentFrameImage();
+				image = static_cast<CWindowContext*>(textureInfo.GetWindowsHandle())->GetCurrentFrameImage();
 			}
 			else
 			{
@@ -801,11 +876,10 @@ namespace graphics_backend
 		}
 		for (auto& usageData : m_BufferUsageBarriers)
 		{
-			GPUBufferHandle handle = std::get<0>(usageData);
-			auto& bufferInfo = m_RenderGraph.GetGPUBufferInternalData(handle);
-			auto& descriptor = m_RenderGraph.GetGPUBufferDescriptor(handle);
-			
-			vk::Buffer buffer = m_OwningExecutor.GetLocalBuffer(handle.GetHandleIndex())->GetBuffer();
+			TIndex gpuBufferHandleID = std::get<0>(usageData);
+			auto& bufferInfo = m_RenderGraph.GetGPUBufferInternalData(gpuBufferHandleID);
+			auto& descriptor = m_RenderGraph.GetGPUBufferDescriptor(gpuBufferHandleID);
+			vk::Buffer buffer = m_OwningExecutor.GetLocalBuffer(gpuBufferHandleID)->GetBuffer();
 
 			textureBarrier.PushBufferBarrier(buffer
 				, std::get<1>(usageData)
@@ -921,9 +995,8 @@ namespace graphics_backend
 		bool firstHandle = true;
 		for (TIndex handleIDS : handles)
 		{
-			TextureHandleInternalInfo const& textureInfo = m_RenderGraph.GetTextureHandleInternalInfo(handleIDS);
-			TextureHandle textureHandle = m_RenderGraph.TextureHandleByIndex(handleIDS);
-			GPUTextureDescriptor const& desc = m_RenderGraph.GetTextureDescriptor(textureHandle);
+			auto const& textureInfo = m_RenderGraph.GetGPUTextureInternalData(handleIDS);
+			GPUTextureDescriptor const& desc = m_RenderGraph.GetTextureDescriptor(handleIDS);
 
 			if (firstHandle)
 			{
@@ -938,9 +1011,9 @@ namespace graphics_backend
 					, "RenderPassExecutor::Compile() : All texture handles must have same width, height and layers");
 			}
 
-			if (textureInfo.p_WindowsHandle != nullptr)
+			if (textureInfo.GetWindowsHandle() != nullptr)
 			{
-				m_FrameBufferImageViews.push_back(static_cast<CWindowContext*>(textureInfo.p_WindowsHandle.get())->GetCurrentFrameImageView());
+				m_FrameBufferImageViews.push_back(static_cast<CWindowContext*>(textureInfo.GetWindowsHandle())->GetCurrentFrameImageView());
 			}
 			else
 			{
@@ -1015,7 +1088,7 @@ namespace graphics_backend
 		auto& bindingSetHandle = shaderBindingList.m_BindingSetHandles;
 		for (auto& itrHandle : bindingSetHandle)
 		{
-			auto& desc = renderGraph.GetShaderBindingSetDesc(itrHandle.GetBindingSetDescIndex());
+			auto& desc = renderGraph.GetShaderBindingSetDesc(itrHandle.GetHandleIndex());
 			//太绕了
 			ShaderDescriptorSetLayoutInfo layoutInfo{ desc };
 			auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();

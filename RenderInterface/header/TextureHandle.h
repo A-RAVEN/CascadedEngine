@@ -1,28 +1,26 @@
 #pragma once
 #include "Common.h"
 #include "GPUTexture.h"
+#include "GPUGraphHandleBase.h"
 
 namespace graphics_backend
 {
 	class WindowHandle;
-	class TextureHandle
+	class ITextureHandleInternalInfo
 	{
 	public:
-		TextureHandle(TIndex handleIndex) :
-			m_HandleIndex(handleIndex)
-		{
-		}
-		TIndex GetHandleIndex() const { return m_HandleIndex; }
-	private:
-		TIndex m_HandleIndex;
+		virtual TIndex GetDescID() const = 0;
+		virtual bool IsExternalTexture() const = 0;
+		virtual WindowHandle* GetWindowsHandle() const = 0;
+		virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void* pData) = 0;
 	};
 
-
-	struct TextureHandleInternalInfo
+	class TextureHandle : public GPUGraphHandleBase
 	{
 	public:
-		TIndex m_DescriptorIndex = INVALID_INDEX;
-		std::shared_ptr<WindowHandle> p_WindowsHandle = nullptr;
-		bool IsExternalTexture() const { return p_WindowsHandle != nullptr; }
+		TextureHandle(CRenderGraph* renderGraph, TIndex handleIndex) :
+			GPUGraphHandleBase(renderGraph, handleIndex)
+		{}
+		inline TextureHandle& ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void* pData);
 	};
 }

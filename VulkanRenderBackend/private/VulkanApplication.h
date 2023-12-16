@@ -128,6 +128,7 @@ namespace graphics_backend
 		std::shared_ptr<TextureSampler> GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor);
 
 		HashPool<ShaderBindingBuilder, ShaderBindingSetAllocator>& GetShaderBindingSetAllocators() { return m_ShaderBindingSetAllocator; }
+		HashPool<ShaderConstantsBuilder, ShaderConstantSetAllocator>& GetShaderConstantSetAllocators() { return m_ConstantSetAllocator; }
 	private:
 
 		void InitializeInstance(std::string const& name, std::string const& engineName);
