@@ -28,6 +28,7 @@ set(CXX_STANDARD 20)
 add_subdirectory ("ExternalLib")
 
 # 包含子项目。
+add_subdirectory ("GeneralResources")
 add_subdirectory ("RenderInterface")
 add_subdirectory ("ShaderCompiler")
 add_subdirectory ("ShaderProcessor")

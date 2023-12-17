@@ -20,11 +20,13 @@
 #include "Camera.h"
 #include "KeyCodes.h"
 #include <ExternalLib/imgui/imgui.h>
+#include <GeneralResources/header/ResourceImportingSystem.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
 using namespace ShaderCompiler;
 using namespace uenum;
+using namespace resource_management;
 
 struct VertexData
 {
@@ -240,6 +242,7 @@ int main(int argc, char *argv[])
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
 	TModuleLoader<IShaderCompiler> shaderCompilerLoader("ShaderCompiler");
 	TModuleLoader<RenderInterfaceManager> renderInterfaceLoader("RenderInterface");
+	TModuleLoader<ResourceImportingSystem> renderImportingSystemLoader("CAGeneralReourceSystem");
 
 	ShaderConstantsBuilder shaderConstantBuilder{ "PerObjectConstants" };
 	shaderConstantBuilder
@@ -270,6 +273,9 @@ int main(int argc, char *argv[])
 
 
 	auto pShaderCompiler = shaderCompilerLoader.New();
+
+	auto pResourceImportingSystem = renderImportingSystemLoader.New();
+	//pResourceImportingSystem->AddImporter()
 
 	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
 	auto spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
