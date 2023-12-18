@@ -21,6 +21,7 @@
 #include "KeyCodes.h"
 #include <ExternalLib/imgui/imgui.h>
 #include <GeneralResources/header/ResourceImportingSystem.h>
+#include "ShaderResource.h"
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -274,8 +275,10 @@ int main(int argc, char *argv[])
 
 	auto pShaderCompiler = shaderCompilerLoader.New();
 
+	ShaderResourceLoader shaderResourceLoader;
 	auto pResourceImportingSystem = renderImportingSystemLoader.New();
-	//pResourceImportingSystem->AddImporter()
+	pResourceImportingSystem->AddImporter(&shaderResourceLoader);
+	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
 	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
 	auto spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
