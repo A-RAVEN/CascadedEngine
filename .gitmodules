@@ -20,3 +20,6 @@
 	path = ExternalLib/imgui
 	url = https://github.com/ocornut/imgui.git
 	branch = docking
+[submodule "ExternalLib/flatbuffers"]
+	path = ExternalLib/flatbuffers
+	url = https://github.com/google/flatbuffers.git
