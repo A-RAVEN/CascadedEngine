@@ -20,7 +20,7 @@
 #include "Camera.h"
 #include "KeyCodes.h"
 #include <ExternalLib/imgui/imgui.h>
-#include <GeneralResources/header/ResourceImportingSystem.h>
+#include <GeneralResources/header/ResourceSystemFactory.h>
 #include "ShaderResource.h"
 using namespace thread_management;
 using namespace library_loader;
@@ -238,12 +238,14 @@ int main(int argc, char *argv[])
 	std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format};
 	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
 	std::string resourceString = rootPath.string() + "CAResources";
+	std::string assetString = rootPath.string() + "CAAssets";
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
 	TModuleLoader<IShaderCompiler> shaderCompilerLoader("ShaderCompiler");
 	TModuleLoader<RenderInterfaceManager> renderInterfaceLoader("RenderInterface");
-	TModuleLoader<ResourceImportingSystem> renderImportingSystemLoader("CAGeneralReourceSystem");
+	TModuleLoader<ResourceFactory> renderImportingSystemLoader("CAGeneralReourceSystem");
+	auto resourceSystemFactory = renderImportingSystemLoader.New();
 
 	ShaderConstantsBuilder shaderConstantBuilder{ "PerObjectConstants" };
 	shaderConstantBuilder
@@ -271,96 +273,46 @@ int main(int argc, char *argv[])
 	pThreadManager->InitializeThreadCount(5);
 
 	auto pRenderInterface = renderInterfaceLoader.New();
-
-
 	auto pShaderCompiler = shaderCompilerLoader.New();
 
 	ShaderResourceLoader shaderResourceLoader;
-	auto pResourceImportingSystem = renderImportingSystemLoader.New();
+
+	auto pResourceImportingSystem = resourceSystemFactory->NewImportingSystemShared();
+	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
+	pResourceManagingSystem->SetResourceRootPath(assetString);
+	pResourceImportingSystem->SetResourceManager(pResourceManagingSystem.get());
 	pResourceImportingSystem->AddImporter(&shaderResourceLoader);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
-	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
-	auto spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
-		, "testShader.hlsl"
-		, shaderSource
-		, "vert"
-		, ECompileShaderType::eVert
-		, false, true);
-	std::shared_ptr<TestShaderProvider> vertProvider = std::make_shared<TestShaderProvider>();
-	vertProvider->SetUniqueName("testShader.hlsl.vert");
-	vertProvider->SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+	ShaderResrouce* pTestShaderResource = nullptr;
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testShader.shaderbundle", [ppResource = &pTestShaderResource](ShaderResrouce* result)
+		{
+			*ppResource = result;
+		});
 
+	ShaderResrouce* pImguiShaderResource = nullptr;
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/imgui.shaderbundle", [ppResource = &pImguiShaderResource](ShaderResrouce* result)
+		{
+			*ppResource = result;
+		});
 
-	spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
-		, "testShader.hlsl"
-		, shaderSource
-		, "frag"
-		, ECompileShaderType::eFrag
-		, false, true);
-
-	std::shared_ptr<TestShaderProvider> fragProvider = std::make_shared<TestShaderProvider>();
-	fragProvider->SetUniqueName("testShader.hlsl.frag");
-	fragProvider->SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+	ShaderResrouce* pFinalBlitShaderResource = nullptr;
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/finalBlitShader.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
+		{
+			*ppResource = result;
+		});
 
 	GraphicsShaderSet shaderSet{};
-	shaderSet.vert = vertProvider;
-	shaderSet.frag = fragProvider;
-
-	shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/finalBlitShader.hlsl");
-	spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
-		, "finalBlitShader.hlsl"
-		, shaderSource
-		, "vert"
-		, ECompileShaderType::eVert
-		, false, true);
-
-	std::shared_ptr<TestShaderProvider> finalBlitVertProvider = std::make_shared<TestShaderProvider>();
-	finalBlitVertProvider->SetUniqueName("finalBlitShader.hlsl.vert");
-	finalBlitVertProvider->SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-
-	spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
-		, "finalBlitShader.hlsl"
-		, shaderSource
-		, "frag"
-		, ECompileShaderType::eFrag
-		, false, true);
-
-	std::shared_ptr<TestShaderProvider> finalBlitFragProvider = std::make_shared<TestShaderProvider>();
-	finalBlitFragProvider->SetUniqueName("finalBlitShader.hlsl.frag");
-	finalBlitFragProvider->SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+	shaderSet.vert = &pTestShaderResource->m_VertexShaderProvider;
+	shaderSet.frag = &pTestShaderResource->m_FragmentShaderProvider;
 
 	GraphicsShaderSet finalBlitShaderSet{};
-	finalBlitShaderSet.vert = finalBlitVertProvider;
-	finalBlitShaderSet.frag = finalBlitFragProvider;
+	finalBlitShaderSet.vert = &pFinalBlitShaderResource->m_VertexShaderProvider;
+	finalBlitShaderSet.frag = &pFinalBlitShaderResource->m_FragmentShaderProvider;
 
 	GraphicsShaderSet imguiShaderSet{};
-	{
-		shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/imgui.hlsl");
-		spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
-			, "imgui.hlsl"
-			, shaderSource
-			, "vert"
-			, ECompileShaderType::eVert
-			, false, true);
-
-		std::shared_ptr<TestShaderProvider> imguiShaderProvider = std::make_shared<TestShaderProvider>();
-		imguiShaderProvider->SetUniqueName("imgui.hlsl.vert");
-		imguiShaderProvider->SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-		imguiShaderSet.vert = imguiShaderProvider;
-
-		spirVResult = pShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
-			, "imgui.hlsl"
-			, shaderSource
-			, "frag"
-			, ECompileShaderType::eFrag
-			, false, true);
-
-		imguiShaderProvider = std::make_shared<TestShaderProvider>();
-		imguiShaderProvider->SetUniqueName("imgui.hlsl.frag");
-		imguiShaderProvider->SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-		imguiShaderSet.frag = imguiShaderProvider;
-	}
+	imguiShaderSet.vert = &pImguiShaderResource->m_VertexShaderProvider;
+	imguiShaderSet.frag = &pImguiShaderResource->m_FragmentShaderProvider;
 
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");

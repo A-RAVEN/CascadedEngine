@@ -14,20 +14,6 @@ set(GLFW_BUILD_DOCS OFF CACHE INTERNAL "Build the GLFW documentation")
 set(GLFW_INSTALL OFF CACHE INTERNAL "Generate installation target")
 add_subdirectory(${GLFW_DIR})
 
-#LLVM(Clang Only)
-#[[
-set(LLVM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llvm-project/llvm)
-set(LLVM_ENABLE_PROJECTS lld;clang)
-set(CMAKE_BUILD_TYPE MinSizeRel)
-set(LLVM_BUILD_TOOLS OFF)
-set(LLVM_ENABLE_LLD ON)
-set(LLVM_TARGETS_TO_BUILD X86)
-set(LLVM_PARALLEL_COMPILE_JOBS 2)
-set(LLVM_PARALLEL_LINK_JOBS 2)
-message("LLVM Build Type ${CMAKE_BUILD_TYPE}")
-add_subdirectory(${LLVM_DIR})
-]]
-
 #DXC
 set(LLVM_PARALLEL_COMPILE_JOBS 1)
 set(LLVM_PARALLEL_LINK_JOBS 1)
@@ -42,5 +28,4 @@ add_subdirectory(${DXC_DIR})
 #flatbuffers
 set(FLATBUFFER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/flatbuffers)
 add_subdirectory(${FLATBUFFER_DIR}
-                 ${CMAKE_CURRENT_BINARY_DIR}/flatbuffers-build
-                 EXCLUDE_FROM_ALL)
+                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/flatbufferscompiler)

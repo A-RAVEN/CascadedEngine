@@ -9,7 +9,7 @@ namespace graphics_backend
 {
 	struct ShaderModuleDescritor
 	{
-		std::shared_ptr<const ShaderProvider> provider;
+		ShaderProvider const* provider;
 
 		bool operator==(ShaderModuleDescritor const& other) const
 		{
@@ -24,7 +24,7 @@ namespace graphics_backend
 		template <class HashAlgorithm>
 		friend void hash_append(HashAlgorithm& h, ShaderModuleDescritor const& shadermodule_desc) noexcept
 		{
-			hash_append(h, shadermodule_desc.provider.get());
+			hash_append(h, shadermodule_desc.provider);
 		}
 	};
 

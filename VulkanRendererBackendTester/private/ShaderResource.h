@@ -1,9 +1,11 @@
 #pragma once
 #include <GeneralResources/header/IResource.h>
 #include <GeneralResources/header/ResourceImporter.h>
+#include <GeneralResources/header/ResourceManagingSystem.h>
 #include "TestShaderProvider.h"
 #include <ShaderCompiler/header/Compiler.h>
 #include <SharedTools/header/library_loader.h>
+#include <ExternalLib/zpp_bits/zpp_bits.h>
 
 namespace resource_management
 {
@@ -12,8 +14,10 @@ namespace resource_management
 	class ShaderResrouce : public IResource
 	{
 	public:
-
-	private:
+		friend zpp::bits::access;
+		using serialize = zpp::bits::members<2>;
+		virtual void Serialzie(std::vector<std::byte>& out) override;
+		virtual void Deserialzie(std::vector<std::byte>& in) override;
 		TestShaderProvider m_VertexShaderProvider;
 		TestShaderProvider m_FragmentShaderProvider;
 		friend class ShaderResourceLoader;
@@ -24,8 +28,10 @@ namespace resource_management
 	public:
 		ShaderResourceLoader();
 		virtual std::string GetSourceFilePostfix() const override { return ".hlsl"; }
+		virtual std::string GetDestFilePostfix() const override { return ".shaderbundle"; }
 		virtual std::string GetTags() const override { return "TargetAPI=Vulkan"; }
-		virtual void ImportResource(void* resourceOffset, std::string const& resourcePath) override;
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::string const& outPath) override;
+		//virtual void ImportResource(void* resourceOffset, std::string const& resourcePath, std::string const& outPath) override;
 	private:
 		TModuleLoader<IShaderCompiler> m_ShaderCompilerLoader;
 		std::shared_ptr<IShaderCompiler> m_ShaderCompiler;

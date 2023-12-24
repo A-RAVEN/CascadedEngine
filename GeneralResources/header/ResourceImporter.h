@@ -4,14 +4,17 @@
 
 namespace resource_management
 {
+	class ResourceManagingSystem;
 	//Generate Engine Ready Resource From Source File Created In DCC(i.e. fbx models) Or other Tools(i.e. shader source code)
 	class ResourceImporterBase
 	{
 	public:
+		virtual std::string GetResourceType() const = 0;
 		virtual std::string GetSourceFilePostfix() const = 0;
+		virtual std::string GetDestFilePostfix() const = 0;
 		virtual std::string GetTags() const = 0;
 		virtual uint64_t GetIResourceSizeInByte() const = 0;
-		virtual void ImportResource(void* resourceOffset, std::string const& resourcePath) = 0;
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::string const& outPath) = 0;
 	};
 
 	template<typename TRes>
@@ -37,6 +40,12 @@ namespace resource_management
 				pass->Process(resource);
 			}
 		}
+
+		virtual std::string GetResourceType() const override
+		{
+			return std::string{ typeid(TRes).name() };
+		}
+
 	protected:
 		std::vector<ResourceImporterPass<TRes> const*> m_Passes;
 	};

@@ -31,13 +31,13 @@ public:
 
 struct GraphicsShaderSet
 {
-	std::shared_ptr<ShaderProvider const> vert;
-	std::shared_ptr<ShaderProvider const> frag;
+	ShaderProvider const* vert;
+	ShaderProvider const* frag;
 
 	bool operator==(GraphicsShaderSet const& other) const
 	{
-		return (vert == other.vert || (vert != nullptr && other.vert != nullptr && (*vert.get() == *other.vert.get())))
-			&& (frag == other.frag || (frag != nullptr && other.frag != nullptr && (*frag.get() == *other.frag.get())));
+		return (vert == other.vert || (vert != nullptr && other.vert != nullptr && (*vert == *other.vert)))
+			&& (frag == other.frag || (frag != nullptr && other.frag != nullptr && (*frag == *other.frag)));
 	}
 
 	template <class HashAlgorithm>

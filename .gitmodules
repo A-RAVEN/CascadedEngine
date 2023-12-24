@@ -23,3 +23,6 @@
 [submodule "ExternalLib/flatbuffers"]
 	path = ExternalLib/flatbuffers
 	url = https://github.com/google/flatbuffers.git
+[submodule "ExternalLib/zpp_bits"]
+	path = ExternalLib/zpp_bits
+	url = https://github.com/eyalz800/zpp_bits.git
