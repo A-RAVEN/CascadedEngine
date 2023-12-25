@@ -26,3 +26,6 @@
 [submodule "ExternalLib/zpp_bits"]
 	path = ExternalLib/zpp_bits
 	url = https://github.com/eyalz800/zpp_bits.git
+[submodule "ExternalLib/assimp"]
+	path = ExternalLib/assimp
+	url = https://github.com/assimp/assimp.git

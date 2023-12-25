@@ -25,7 +25,11 @@ set(HLSL_INCLUDE_TESTS OFF)
 set(ENABLE_SPIRV_CODEGEN ON)
 add_subdirectory(${DXC_DIR})
 
+#ASSIMP
+set(ASSIMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assimp)
+add_subdirectory(${ASSIMP_DIR})
+
 #flatbuffers
-set(FLATBUFFER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/flatbuffers)
-add_subdirectory(${FLATBUFFER_DIR}
-                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/flatbufferscompiler)
+#set(FLATBUFFER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/flatbuffers)
+#add_subdirectory(${FLATBUFFER_DIR}
+#                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/flatbufferscompiler)
