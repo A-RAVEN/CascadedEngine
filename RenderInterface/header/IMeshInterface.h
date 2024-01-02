@@ -41,4 +41,17 @@ namespace graphics_backend
 		virtual size_t GetBatchCount() = 0;
 		virtual void DrawBatch(size_t batchIndex, CInlineCommandList& commandList) = 0;
 	};
+
+	class IBatchManager
+	{
+	public:
+		virtual TIndex RegisterGraphicsPipelineState(GraphicsPipelineStatesData const& pipelineStates);
+		virtual void AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc);
+	};
+
+	class IDrawBatchInterface
+	{
+	public:
+		virtual void OnRegisterGraphicsPipelineStates(IBatchManager& batchManager);
+	};
 }

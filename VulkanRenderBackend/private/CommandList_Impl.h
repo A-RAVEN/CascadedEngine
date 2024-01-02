@@ -17,8 +17,8 @@ namespace graphics_backend
 			, std::vector<std::shared_ptr<CPipelineObject>> const& pipelineObjs
 		);
 		virtual CInlineCommandList& BindPipelineState(uint32_t pipelineStateId) override;
-		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> offsets) override;
-		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> offsets) override;
+		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> offsets, uint32_t firstBinding) override;
+		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> offsets, uint32_t firstBinding) override;
 		virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBuffer const* pGPUBuffer, uint32_t offset) override;
 		virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBufferHandle const& gpuBufferHandle, uint32_t offset) override;
 		virtual CInlineCommandList& SetShaderBindings(std::vector<std::shared_ptr<ShaderBindingSet>> bindings) override;

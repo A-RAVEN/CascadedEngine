@@ -32,7 +32,7 @@ namespace graphics_backend
 	{
 		return BaseUploadingResource::UploadingDone();
 	}
-	void GPUBuffer_Impl::ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void* pData)
+	void GPUBuffer_Impl::ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData)
 	{
 		size_t scheduleSize = bufferOffset + dataSize;
 		if (scheduleSize > m_ScheduledData.size())

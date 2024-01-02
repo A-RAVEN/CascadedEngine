@@ -15,7 +15,7 @@ namespace graphics_backend
 		void UploadAsync() override;
 		virtual bool UploadingDone() const override;
 		// 通过 GPUBuffer 继承
-		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void* pData) override;
+		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData) override;
 		VulkanBufferHandle const& GetVulkanBufferObject() const { return m_BufferObject; }
 	protected:
 		virtual void DoUpload() override;

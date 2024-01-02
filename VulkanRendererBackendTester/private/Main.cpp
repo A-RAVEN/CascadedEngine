@@ -1,17 +1,17 @@
 #include <cstdlib>
 #define NOMINMAX
 #include <windows.h>
-#include <RenderInterface/header/CRenderBackend.h>
 #include <ThreadManager/header/ThreadManager.h>
 #include <ShaderCompiler/header/Compiler.h>
 #include <iostream>
 #include <SharedTools/header/library_loader.h>
+#include <RenderInterface/header/CRenderBackend.h>
 #include <RenderInterface/header/RenderInterfaceManager.h>
 #include <RenderInterface/header/CNativeRenderPassInfo.h>
 #include <RenderInterface/header/CCommandList.h>
+#include <RenderInterface/header/ShaderBindingBuilder.h>
 #include <SharedTools/header/FileLoader.h>
 #include "TestShaderProvider.h"
-#include <RenderInterface/header/ShaderBindingBuilder.h>
 #include <ExternalLib/glm/glm/mat4x4.hpp>
 #include <ExternalLib/glm/glm/gtc/matrix_transform.hpp>
 #include <ExternalLib/stb/stb_image.h>
@@ -22,6 +22,7 @@
 #include <ExternalLib/imgui/imgui.h>
 #include <GeneralResources/header/ResourceSystemFactory.h>
 #include "ShaderResource.h"
+#include "StaticMeshResource.h"
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -81,9 +82,6 @@ public:
 
 	void Update(glm::mat4 const& viewProjMatrix)
 	{
-		//auto lookat = glm::lookAt(glm::vec3(4.75f, 4.75f, 10.0f), glm::vec3(4.75f, 4.75f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		//auto perspective = glm::perspective(glm::radians(45.0f), width / height, 0.1f, 1000.0f);
-		//glm::mat4 vpMatrix = perspective * lookat;
 		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", viewProjMatrix);
 	}
 
@@ -276,12 +274,14 @@ int main(int argc, char *argv[])
 	auto pShaderCompiler = shaderCompilerLoader.New();
 
 	ShaderResourceLoader shaderResourceLoader;
+	StaticMeshImporter staticMeshImporter;
 
 	auto pResourceImportingSystem = resourceSystemFactory->NewImportingSystemShared();
 	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
 	pResourceManagingSystem->SetResourceRootPath(assetString);
 	pResourceImportingSystem->SetResourceManager(pResourceManagingSystem.get());
 	pResourceImportingSystem->AddImporter(&shaderResourceLoader);
+	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
 	ShaderResrouce* pTestShaderResource = nullptr;
@@ -298,6 +298,12 @@ int main(int argc, char *argv[])
 
 	ShaderResrouce* pFinalBlitShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/finalBlitShader.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
+		{
+			*ppResource = result;
+		});
+
+	StaticMeshResource* pTestMeshResource = nullptr;
+	pResourceManagingSystem->LoadResource<StaticMeshResource>("Models/VikingRoom.mesh", [ppResource = &pTestMeshResource](StaticMeshResource* result)
 		{
 			*ppResource = result;
 		});

@@ -185,27 +185,29 @@ hash_append(HashAlgorithm& h, std::basic_string<CharT, Traits, Alloc> const& s) 
 template <class HashAlgorithm, class T>
 void hash_append(HashAlgorithm& h, T* const pT) noexcept
 {
-    if(pT == nullptr)
-    {
-        hash_append(h, size_t{0});
-    }
-    else
-    {
-        hash_append(h, *pT);
-    }
+    hash_append(h, reinterpret_cast<size_t>(pT));
+
+    //if(pT == nullptr)
+    //{
+    //    hash_append(h, size_t{0});
+    //}
+    //else
+    //{
+    //}
 }
 
 template <class HashAlgorithm, class T>
 void hash_append(HashAlgorithm& h, std::shared_ptr<T> const pT) noexcept
 {
-    if (pT == nullptr)
-    {
-        hash_append(h, size_t{ 0 });
-    }
-    else
-    {
-        hash_append(h, reinterpret_cast<size_t>(pT.get()));
-    }
+    hash_append(h, reinterpret_cast<size_t>(pT.get()));
+
+    //if (pT == nullptr)
+    //{
+    //    hash_append(h, size_t{ 0 });
+    //}
+    //else
+    //{
+    //}
 }
 #pragma endregion
 

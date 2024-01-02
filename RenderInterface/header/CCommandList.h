@@ -12,8 +12,8 @@ namespace graphics_backend
 	{
 	public:
 		virtual CInlineCommandList& BindPipelineState(uint32_t pipelineStateId) = 0;
-		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> byteOffsets = {}) = 0;
-		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> byteOffsets = {}) = 0;
+		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> byteOffsets = {}, uint32_t firstBinding = 0) = 0;
+		virtual CInlineCommandList& BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> byteOffsets = {}, uint32_t firstBinding = 0) = 0;
 		virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBuffer const* pGPUBuffer, uint32_t byteOffset = 0) = 0;
 		virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBufferHandle const& gpuBufferHandle, uint32_t byteOffset = 0) = 0;
 		virtual CInlineCommandList& SetShaderBindings(std::vector<std::shared_ptr<ShaderBindingSet>> bindings) = 0;

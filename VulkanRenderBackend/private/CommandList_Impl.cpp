@@ -28,7 +28,7 @@ namespace graphics_backend
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> offsets)
+	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> offsets, uint32_t firstBinding)
 	{
 		std::vector<vk::Buffer> gpuBufferList;
 		std::vector<vk::DeviceSize> offsetList;
@@ -44,11 +44,11 @@ namespace graphics_backend
 		{
 			offsetList[i] = offsets[i];
 		}
-		m_CommandBuffer.bindVertexBuffers(0, gpuBufferList, offsetList);
+		m_CommandBuffer.bindVertexBuffers(firstBinding, gpuBufferList, offsetList);
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> offsets)
+	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> offsets, uint32_t firstBinding)
 	{
 		std::vector<vk::Buffer> gpuBufferList;
 		std::vector<vk::DeviceSize> offsetList;
@@ -63,7 +63,7 @@ namespace graphics_backend
 		{
 			offsetList[i] = offsets[i];
 		}
-		m_CommandBuffer.bindVertexBuffers(0, gpuBufferList, offsetList);
+		m_CommandBuffer.bindVertexBuffers(firstBinding, gpuBufferList, offsetList);
 		return *this;
 	}
 

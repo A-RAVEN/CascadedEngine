@@ -26,6 +26,7 @@ set(ENABLE_SPIRV_CODEGEN ON)
 add_subdirectory(${DXC_DIR})
 
 #ASSIMP
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE INTERNAL "Turn Off Warnings As Errors")
 set(ASSIMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assimp)
 add_subdirectory(${ASSIMP_DIR})
 
