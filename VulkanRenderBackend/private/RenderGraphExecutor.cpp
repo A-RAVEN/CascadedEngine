@@ -665,6 +665,8 @@ namespace graphics_backend
 			}
 			case ESubpassType::eMeshInterface:
 				break;
+			case ESubpassType::eBatchDrawInterface:
+				break;
 			}
 		}
 	}
@@ -705,6 +707,8 @@ namespace graphics_backend
 				break;
 			}
 			case ESubpassType::eMeshInterface:
+				break;
+			case ESubpassType::eBatchDrawInterface:
 				break;
 			}
 		}
@@ -771,6 +775,17 @@ namespace graphics_backend
 		CCommandList_Impl cmdListInterface{ cmd, &m_OwningExecutor, m_RenderPassObject, subpassID, psoList };
 		cmdListInterface.BindPipelineState(0);
 		subpassData.commandFunction(cmdListInterface);
+	}
+
+	void RenderPassExecutor::PrepareBatchDrawInterfaceSecondaryCommands(
+		CTaskGraph* thisGraph
+		, uint32_t subpassID
+		, uint32_t width
+		, uint32_t height
+		, std::vector<vk::CommandBuffer>& cmdList
+	)
+	{
+
 	}
 
 	void RenderPassExecutor::PrepareDrawcallInterfaceSecondaryCommands(
@@ -908,6 +923,17 @@ namespace graphics_backend
 								, m_FrameBufferObject->GetHeight()
 								, cmdBufferList);
 						}
+						else if (m_RenderpassBuilder.GetSubpassType(subpassId) == ESubpassType::eBatchDrawInterface)
+						{
+							m_PendingSecondaryCommandBuffers.push_back({});
+							auto& cmdBufferList = m_PendingSecondaryCommandBuffers.back();
+							PrepareBatchDrawInterfaceSecondaryCommands(
+								taskGraph
+								, subpassId
+								, m_FrameBufferObject->GetWidth()
+								, m_FrameBufferObject->GetHeight()
+								, cmdBufferList);
+						}
 					}
 				});
 
@@ -935,6 +961,7 @@ namespace graphics_backend
 							subpassContents = vk::SubpassContents::eInline;
 							break;
 						case ESubpassType::eMeshInterface:
+						case ESubpassType::eBatchDrawInterface:
 							subpassContents = vk::SubpassContents::eSecondaryCommandBuffers;
 							break;
 						}
@@ -964,6 +991,7 @@ namespace graphics_backend
 								, cmd);
 							break;
 						case ESubpassType::eMeshInterface:
+						case ESubpassType::eBatchDrawInterface:
 							{
 								auto& cmdList = m_PendingSecondaryCommandBuffers[meshIndexCommandListID];
 								++meshIndexCommandListID;
@@ -1063,6 +1091,9 @@ namespace graphics_backend
 				}
 				case ESubpassType::eMeshInterface:
 					CompilePSOs_SubpassMeshInterface(subpassID, thisGraph);
+					break;
+				case ESubpassType::eBatchDrawInterface:
+					CompilePSOs_BatchDrawInterface(subpassID, thisGraph);
 					break;
 			}
 			
@@ -1179,6 +1210,69 @@ namespace graphics_backend
 					, subpassID
 					};
 					m_GraphicsPipelineObjects[subpassID][psoID] = gpuObjectManager.GetPipelineCache().GetOrCreate(pipelineDesc).lock();
+				});
+	}
+	void RenderPassExecutor::CompilePSOs_BatchDrawInterface(uint32_t subpassID, CTaskGraph* thisGraph)
+	{
+		m_BatchManagers.emplace_back();
+		uint32_t batchID = m_BatchManagers.size() - 1;
+		CA_ASSERT(batchID == m_RenderpassBuilder.GetSubpassDataIndex(subpassID), "Batch ID Not Match!");
+		auto collectorTask = thisGraph->NewTaskGraph()
+			->Name("Prepare Batch")
+			->SetupFunctor([this, subpassID, batchID](auto pGraph)
+				{
+					auto& subpassData = m_RenderpassBuilder.GetSubpassData_BatchDrawInterface(subpassID);
+					auto& batchManager = m_BatchManagers[batchID];
+					subpassData.batchInterface->OnRegisterGraphicsPipelineStates(batchManager);
+					m_GraphicsPipelineObjects[subpassID].resize(batchManager.GetPSOCount());
+
+					pGraph->NewTaskParallelFor()
+						->Name("Prepare PSOs for Batch Interface Subpass " + std::to_string(subpassID))
+						->JobCount(batchManager.GetPSOCount())
+						->Functor([this, subpassID, batchID](uint32_t psoID)
+							{
+								auto& batchManager = m_BatchManagers[batchID];
+								auto& subpassData = m_RenderpassBuilder.GetSubpassData_BatchDrawInterface(subpassID);
+								GPUObjectManager& gpuObjectManager = m_OwningExecutor.GetGPUObjectManager();
+								auto& descPoolCache = gpuObjectManager.GetShaderDescriptorPoolCache();
+
+								auto& psoData = *batchManager.GetPSO(psoID);
+								auto& pipelineStates = psoData.pipelineStateObject;
+								auto& vertexInputs = psoData.vertexInputDescriptor;
+								auto& shaderSet = psoData.shaderSet;
+								auto& shaderBindings = psoData.shaderBindingDescriptors;
+
+								//shaders
+								auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert }).lock();
+								auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag }).lock();
+
+								//shaderBindings
+								std::vector<vk::DescriptorSetLayout> layouts;
+								layouts.reserve(shaderBindings.size());
+
+								for (auto& bindingDesc : shaderBindings)
+								{
+									auto layoutInfo = ShaderDescriptorSetLayoutInfo{ bindingDesc };
+									auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+									layouts.push_back(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
+								}
+
+								CollectDescriptorSetLayouts(
+									subpassData.shaderBindingList
+									, gpuObjectManager.GetShaderDescriptorPoolCache()
+									, m_RenderGraph
+									, layouts);
+
+								CPipelineObjectDescriptor pipelineDesc{
+								pipelineStates
+								, vertexInputs
+								, ShaderStateDescriptor{vertModule, fragModule}
+								, layouts
+								, m_RenderPassObject
+								, subpassID
+								};
+								m_GraphicsPipelineObjects[subpassID][psoID] = gpuObjectManager.GetPipelineCache().GetOrCreate(pipelineDesc).lock();
+							});
 				});
 	}
 }

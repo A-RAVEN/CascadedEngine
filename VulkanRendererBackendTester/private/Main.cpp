@@ -38,8 +38,6 @@ struct VertexData
 
 };
 
-
-
 class MeshInfo
 {
 public:

@@ -42,6 +42,22 @@ namespace graphics_backend
 		}
 	};
 
+	class BatchManager : public IBatchManager
+	{
+	public:
+		virtual TIndex RegisterGraphicsPipelineState(GraphicsPipelineStatesData const& pipelineStates) override;
+		virtual void AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc) override;
+		std::unordered_map<GraphicsPipelineStatesData, uint32_t, hash_utils::default_hashAlg> const& GetPipelineStates() const { return m_PipelineStates; }
+		std::vector<std::function<void(CInlineCommandList& commandList)>> const& GetDrawBatchFuncs() const { return m_DrawBatchFuncs; }
+		uint32_t GetPSOCount() const { return m_PipelineStateIndex; }
+		GraphicsPipelineStatesData const* GetPSO(uint32_t index) const { return p_PSOs[index]; }
+	private:
+		uint32_t m_PipelineStateIndex = 0;
+		std::unordered_map<GraphicsPipelineStatesData, uint32_t, hash_utils::default_hashAlg> m_PipelineStates;
+		std::vector<GraphicsPipelineStatesData const*> p_PSOs;
+		std::vector<std::function<void(CInlineCommandList& commandList)>> m_DrawBatchFuncs;
+	};
+
 	//RenderPass Executor
 	class RenderPassExecutor
 	{
@@ -61,6 +77,7 @@ namespace graphics_backend
 		void CompilePSOs(CTaskGraph* thisGraph);
 		void CompilePSOs_SubpassSimpleDrawCall(uint32_t subpassID, CTaskGraph* thisGraph);
 		void CompilePSOs_SubpassMeshInterface(uint32_t subpassID, CTaskGraph* thisGraph);
+		void CompilePSOs_BatchDrawInterface(uint32_t subpassID, CTaskGraph* thisGraph);
 
 		void ProcessAquireBarriers(vk::CommandBuffer cmd);
 
@@ -69,6 +86,14 @@ namespace graphics_backend
 			, uint32_t width
 			, uint32_t height
 			, vk::CommandBuffer cmd);
+
+		void PrepareBatchDrawInterfaceSecondaryCommands(
+			CTaskGraph* thisGraph
+			, uint32_t subpassID
+			, uint32_t width
+			, uint32_t height
+			, std::vector<vk::CommandBuffer>& cmdList);
+
 
 		void PrepareDrawcallInterfaceSecondaryCommands(
 			CTaskGraph* thisGraph
@@ -105,6 +130,8 @@ namespace graphics_backend
 		//BufferUsages
 		std::vector<std::tuple<TIndex, ResourceUsageFlags, ResourceUsageFlags>> m_BufferUsageBarriers;
 
+		//Batch Manager for drawbatch interfaces
+		std::vector<BatchManager> m_BatchManagers;
 		//CommandBuffers
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
 		//Secondary CommandBuffers

@@ -88,6 +88,7 @@ namespace graphics_backend
 	{
 		eSimpleDraw,
 		eMeshInterface,
+		eBatchDrawInterface,
 	};
 
 	struct SimpleDrawcallSubpassData
@@ -103,6 +104,12 @@ namespace graphics_backend
 	{
 		ShaderBindingList shaderBindingList;
 		IMeshInterface* meshInterface;
+	};
+
+	struct BatchDrawInterfaceSubpassData
+	{
+		ShaderBindingList shaderBindingList;
+		IDrawBatchInterface* batchInterface;
 	};
 
 	class CRenderpassBuilder
@@ -131,6 +138,19 @@ namespace graphics_backend
 				, meshInterface });
 			m_SubpassDataReferences.emplace_back(ESubpassType::eMeshInterface
 				, static_cast<uint32_t>(m_SubpassData_MeshInterfaces.size() - 1));
+			return *this;
+		}
+
+		CRenderpassBuilder& Subpass(CSubpassInfo const& inSubpassInfo
+			, ShaderBindingList const& shaderBindingList
+			, IDrawBatchInterface* batchInterface)
+		{
+			mRenderPassInfo.subpassInfos.push_back(inSubpassInfo);
+			m_SubpassData_BatchDrawInterfaces.push_back(BatchDrawInterfaceSubpassData{
+				shaderBindingList
+				, batchInterface });
+			m_SubpassDataReferences.emplace_back(ESubpassType::eMeshInterface
+				, static_cast<uint32_t>(m_SubpassData_BatchDrawInterfaces.size() - 1));
 			return *this;
 		}
 
@@ -164,6 +184,11 @@ namespace graphics_backend
 			return m_SubpassDataReferences[subpassIndex].first;
 		}
 
+		uint32_t GetSubpassDataIndex(uint32_t subpassIndex) const
+		{
+			return m_SubpassDataReferences[subpassIndex].second;
+		}
+
 		SimpleDrawcallSubpassData const& GetSubpassData_SimpleDrawcall(uint32_t subpassIndex) const
 		{
 			CA_ASSERT(m_SubpassDataReferences[subpassIndex].first == ESubpassType::eSimpleDraw, "Wrong Subpass Type");
@@ -176,6 +201,12 @@ namespace graphics_backend
 			return m_SubpassData_MeshInterfaces[m_SubpassDataReferences[subpassIndex].second];
 		}
 
+		BatchDrawInterfaceSubpassData const& GetSubpassData_BatchDrawInterface(uint32_t subpassIndex) const
+		{
+			CA_ASSERT(m_SubpassDataReferences[subpassIndex].first == ESubpassType::eBatchDrawInterface, "Wrong Subpass Type");
+			return m_SubpassData_BatchDrawInterfaces[m_SubpassDataReferences[subpassIndex].second];
+		}
+
 		std::vector<TIndex> const& GetAttachmentTextureHandles() const
 		{
 			return m_TextureHandles;
@@ -186,6 +217,7 @@ namespace graphics_backend
 		std::vector<TIndex> m_TextureHandles;
 		std::vector<SimpleDrawcallSubpassData> m_SubpassData_SimpleDraws{};
 		std::vector<DrawcallInterfaceSubpassData> m_SubpassData_MeshInterfaces{};
+		std::vector<BatchDrawInterfaceSubpassData> m_SubpassData_BatchDrawInterfaces{};
 		std::vector<std::pair<ESubpassType, uint32_t>> m_SubpassDataReferences{};
 	};
 }
