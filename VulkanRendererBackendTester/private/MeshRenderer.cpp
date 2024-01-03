@@ -1,5 +1,7 @@
 #include "MeshRenderer.h"
 
+std::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
+
 MeshGPUData::MeshGPUData(std::shared_ptr<graphics_backend::CRenderBackend> renderBackend)
 {
 	m_RenderBackend = renderBackend;
@@ -26,12 +28,12 @@ void MeshGPUData::UploadMeshResource(resource_management::StaticMeshResource* me
 	m_IndicesBuffer->UploadAsync();
 }
 
-void MeshGPUData::Draw(CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount)
+void MeshGPUData::Draw(CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset)
 {
 	if (m_VertexBuffer->UploadingDone() && m_IndicesBuffer->UploadingDone())
 	{
 		auto& submeshInfos = p_MeshResource->GetSubmeshInfos();
-		commandList.BindVertexBuffers({ m_VertexBuffer.get() });
+		commandList.BindVertexBuffers({ m_VertexBuffer.get() }, {}, bindingOffset);
 		commandList.BindIndexBuffers(EIndexBufferType::e16, m_IndicesBuffer.get());
 		auto& submeshInfo = submeshInfos[submeshID];
 		{

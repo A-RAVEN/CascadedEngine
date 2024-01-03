@@ -2,6 +2,7 @@
 #include "Common.h"
 #include "TextureSampler.h"
 #include "GPUTexture.h"
+#include "GPUBuffer.h"
 #include "ShaderBindingBuilder.h"
 
 namespace graphics_backend
@@ -22,6 +23,7 @@ namespace graphics_backend
 	{
 	public:
 		virtual void SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet) = 0;
+		virtual void SetStructBuffer(std::string const& name, std::shared_ptr<GPUBuffer> const& pBuffer) = 0;
 		virtual void SetTexture(std::string const& name
 			, std::shared_ptr<GPUTexture> const& pTexture) = 0;
 		virtual void SetSampler(std::string const& name

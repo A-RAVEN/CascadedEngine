@@ -23,12 +23,14 @@
 #include <GeneralResources/header/ResourceSystemFactory.h>
 #include "ShaderResource.h"
 #include "StaticMeshResource.h"
+#include "MeshRenderer.h"
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
 using namespace ShaderCompiler;
 using namespace uenum;
 using namespace resource_management;
+
 
 struct VertexData
 {
@@ -288,6 +290,12 @@ int main(int argc, char *argv[])
 			*ppResource = result;
 		});
 
+	ShaderResrouce* pGeneralShaderResource = nullptr;
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/generalVertexShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
+		{
+			*ppResource = result;
+		});
+
 	ShaderResrouce* pImguiShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/imgui.shaderbundle", [ppResource = &pImguiShaderResource](ShaderResrouce* result)
 		{
@@ -306,6 +314,7 @@ int main(int argc, char *argv[])
 			*ppResource = result;
 		});
 
+
 	GraphicsShaderSet shaderSet{};
 	shaderSet.vert = &pTestShaderResource->m_VertexShaderProvider;
 	shaderSet.frag = &pTestShaderResource->m_FragmentShaderProvider;
@@ -322,7 +331,29 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(pThreadManager.get(), 5);
 
+
+
 	auto windowHandle2 = pBackend->NewWindow(1024, 512, "Test Window2");
+
+	{
+		MeshGPUData newMeshGPUData{ pBackend };
+		newMeshGPUData.UploadMeshResource(pTestMeshResource);
+		g_MeshResourceToGPUData.insert(std::make_pair(pTestMeshResource, newMeshGPUData));
+	}
+
+	MeshBatchDrawInterface drawInterface{};
+	{
+		MeshRenderer meshRenderer{};
+		meshRenderer.p_MeshResource = pTestMeshResource;
+		meshRenderer.pipelineStateObject = CPipelineStateObject{ DepthStencilStates::NormalOpaque() };
+		meshRenderer.pipelineStateObject.rasterizationStates.frontFace = EFrontFace::eCounterClockWise;
+		meshRenderer.shaderBindingDescriptors = {};
+		meshRenderer.shaderSet = { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider };
+		drawInterface.AddMesh(meshRenderer, glm::mat4(1.0f));
+
+		drawInterface.MakeBatch(pBackend.get());
+	}
+
 
 	std::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -508,7 +539,9 @@ int main(int argc, char *argv[])
 			//std::cout << "Forward : " << forwarding << " Left : " << lefting << std::endl;
 			//std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
 
+			drawInterface.Update(cam.GetViewProjMatrix());
 			meshBatch.Update(cam.GetViewProjMatrix());
+
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
 			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2.get());
 
@@ -542,7 +575,7 @@ int main(int argc, char *argv[])
 				.SetAttachmentTarget(1, depthTextureHandle)
 				.Subpass({ {0}, 1 }
 					, {}
-					, &meshBatch
+					, &drawInterface
 				);
 
 

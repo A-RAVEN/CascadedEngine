@@ -15,7 +15,8 @@ namespace graphics_backend
 		uint32_t constantBufferCount = m_LayoutInfo->m_ConstantBufferCount;
 		uint32_t textureCount = m_LayoutInfo->m_TextureCount;
 		uint32_t samplerCount = m_LayoutInfo->m_SamplerCount;
-		uint32_t bindingCount = constantBufferCount + textureCount + samplerCount;
+		uint32_t structuredBufCount = m_LayoutInfo->m_StructuredBufferCount;
+		uint32_t bindingCount = constantBufferCount + textureCount + samplerCount + structuredBufCount;
 		std::vector<vk::DescriptorSetLayoutBinding> bindings;
 		bindings.resize(bindingCount);
 		uint32_t bindingIndex = 0;
@@ -45,6 +46,16 @@ namespace graphics_backend
 			binding.binding = bindingIndex;
 			binding.descriptorCount = 1;
 			binding.descriptorType = vk::DescriptorType::eSampler;
+			binding.stageFlags = vk::ShaderStageFlagBits::eAll;
+			++bindingIndex;
+		}
+
+		for (uint32_t itrBuf = 0; itrBuf < m_LayoutInfo->m_StructuredBufferCount; ++itrBuf)
+		{
+			auto& binding = bindings[bindingIndex];
+			binding.binding = bindingIndex;
+			binding.descriptorCount = 1;
+			binding.descriptorType = vk::DescriptorType::eStorageBuffer;
 			binding.stageFlags = vk::ShaderStageFlagBits::eAll;
 			++bindingIndex;
 		}
@@ -169,6 +180,13 @@ namespace graphics_backend
 				, layoutInfo.m_SamplerCount * m_MaxSize
 			);
 		}
+		if (layoutInfo.m_StructuredBufferCount > 0)
+		{
+			poolSizes.emplace_back(
+				vk::DescriptorType::eStorageBuffer
+				, layoutInfo.m_StructuredBufferCount * m_MaxSize
+			);
+		}
 		vk::DescriptorPoolCreateInfo poolInfo{{}, m_MaxSize, poolSizes};
 		m_Pool = GetDevice().createDescriptorPool(poolInfo);
 	}
@@ -214,6 +232,7 @@ namespace graphics_backend
 		m_ConstantBufferCount(bindingBuilder.GetConstantBufferDescriptors().size())
 		, m_TextureCount(bindingBuilder.GetTextureDescriptors().size())
 		, m_SamplerCount(bindingBuilder.GetTextureSamplers().size())
+		, m_StructuredBufferCount(bindingBuilder.GetStructuredBuffers().size())
 	{
 	}
 }

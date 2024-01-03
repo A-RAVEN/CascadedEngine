@@ -8,6 +8,7 @@
 #include "CVulkanBufferObject.h"
 #include "TickUploadingResource.h"
 #include "GPUTexture_Impl.h"
+#include "GPUBuffer_Impl.h"
 #include "TextureSampler_Impl.h"
 #include "ShaderConstantSet_Impl.h"
 
@@ -21,6 +22,8 @@ namespace graphics_backend
 		ShaderBindingSet_Impl(CVulkanApplication& owner);
 		void Initialize(ShaderBindingSetMetadata const* inMetaData);
 		virtual void SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet) override;
+		virtual void SetStructBuffer(std::string const& name
+			, std::shared_ptr<GPUBuffer> const& pBuffer) override;
 		virtual void SetTexture(std::string const& name
 			, std::shared_ptr<GPUTexture> const& pTexture) override;
 		virtual void SetSampler(std::string const& name
@@ -38,6 +41,7 @@ namespace graphics_backend
 		std::unordered_map<std::string, std::shared_ptr<ShaderConstantSet>> m_ConstantSets;
 		std::unordered_map<std::string, std::shared_ptr<GPUTexture_Impl>> m_Textures;
 		std::unordered_map<std::string, std::shared_ptr<TextureSampler_Impl>> m_Samplers;
+		std::unordered_map<std::string, std::shared_ptr<GPUBuffer_Impl>> m_StructuredBuffers;
 	};
 
 	class ShaderBindingSetMetadata
@@ -47,7 +51,9 @@ namespace graphics_backend
 		ShaderDescriptorSetLayoutInfo const& GetLayoutInfo() const { return m_LayoutInfo; }
 		std::unordered_map<std::string, uint32_t> const& GetCBufferNameToBindingIndex() const { return m_CBufferNameToBindingIndex; }
 		std::unordered_map<std::string, uint32_t> const& GetTextureNameToBindingIndex() const { return m_TextureNameToBindingIndex; }
-		
+		std::unordered_map<std::string, uint32_t> const& GetSamplerNameToBindingIndex() const { return m_SamplerNameToBindingIndex; }
+		std::unordered_map<std::string, uint32_t> const& GetStructBufferNameToBindingIndex() const { return m_StructBuffNameToBindingIndex; }
+
 		uint32_t CBufferNameToBindingIndex(std::string const& cbufferName) const
 		{
 			auto it = m_CBufferNameToBindingIndex.find(cbufferName);
@@ -75,6 +81,15 @@ namespace graphics_backend
 			}
 			return it->second;
 		}
+		uint32_t StructBufferNameToBindingIndex(std::string const& structBufferName) const
+		{
+			auto it = m_StructBuffNameToBindingIndex.find(structBufferName);
+			if (it == m_StructBuffNameToBindingIndex.end())
+			{
+				return std::numeric_limits<uint32_t>::max();
+			}
+			return it->second;
+		}
 		ShaderBindingBuilder const* GetBindingsDescriptor() const { return p_Builder; }
 	private:
 		ShaderBindingBuilder const* p_Builder = nullptr;
@@ -82,6 +97,7 @@ namespace graphics_backend
 		std::unordered_map<std::string, uint32_t> m_CBufferNameToBindingIndex;
 		std::unordered_map<std::string, uint32_t> m_TextureNameToBindingIndex;
 		std::unordered_map<std::string, uint32_t> m_SamplerNameToBindingIndex;
+		std::unordered_map<std::string, uint32_t> m_StructBuffNameToBindingIndex;
 	};
 
 	class ShaderBindingSetAllocator : public BaseApplicationSubobject

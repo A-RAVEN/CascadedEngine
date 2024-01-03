@@ -7,9 +7,10 @@ using namespace graphics_backend;
 class MeshGPUData
 {
 public:
+	MeshGPUData() = default;
 	MeshGPUData(std::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
 	void UploadMeshResource(resource_management::StaticMeshResource* meshResource);
-	void Draw(CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount);
+	void Draw(CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset);
 private:
 	std::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
 	resource_management::StaticMeshResource* p_MeshResource;
@@ -21,7 +22,9 @@ struct MeshRenderer
 {
 public:
 	resource_management::StaticMeshResource* p_MeshResource;
-	GraphicsPipelineStatesData m_GraphicsPipelineStatesData;
+	CPipelineStateObject pipelineStateObject;
+	GraphicsShaderSet shaderSet;
+	std::vector<ShaderBindingBuilder> shaderBindingDescriptors;
 };
 
 struct MeshDrawInfo
@@ -54,6 +57,16 @@ public:
 		TIndex psoID;
 		std::unordered_map<MeshDrawInfo, std::pair<std::shared_ptr<GPUBuffer>, std::vector<uint32_t>>, hash_utils::default_hashAlg> drawCalls;
 	};
+
+	static CVertexInputDescriptor GetDescriptor()
+	{
+		CVertexInputDescriptor descriptor;
+		descriptor.AddPrimitiveDescriptor(sizeof(uint32_t), { {0, 0, VertexInputFormat::eR32_UInt} }, true);
+		descriptor.AddPrimitiveDescriptor(sizeof(resource_management::CommonVertexData)
+			, resource_management::CommonVertexData::GetVertexInputDescs(1), false);
+		return descriptor;
+	}
+
 	virtual void OnRegisterGraphicsPipelineStates(IBatchManager& batchManager) override
 	{
 		for (auto& pipelineState : m_MeshBatchs)
@@ -68,10 +81,16 @@ public:
 						cmd.BindVertexBuffers({ drawCall.second.first.get() }, {}, 0);
 						g_MeshResourceToGPUData[drawCall.first.p_MeshResource].Draw(cmd
 						, drawCall.first.m_SubmeshIndex
-						, drawCall.second.second.size());
+						, drawCall.second.second.size()
+						, 1);
 					}
 				});
 		}
+	}
+
+	virtual std::vector<ShaderBindingBuilder> const& GetInterfaceLevelShaderBindingDescriptors() const override
+	{
+		return m_ShaderBindingDescriptors;
 	}
 
 	void AddMeshDrawcall(GraphicsPipelineStatesData const& pipelineStates
@@ -103,13 +122,18 @@ public:
 		uint32_t instanceIndex = m_Instances.size() - 1;
 
 		auto& submeshes = meshRenderer.p_MeshResource->GetSubmeshInfos();
+		GraphicsPipelineStatesData pipelineStatesData{
+			meshRenderer.pipelineStateObject
+			, GetDescriptor()
+			, meshRenderer.shaderSet
+			, meshRenderer.shaderBindingDescriptors };
 		for (int i = 0; i < submeshes.size(); ++i)
 		{
-			AddMeshDrawcall(meshRenderer.m_GraphicsPipelineStatesData, instanceIndex, meshRenderer.p_MeshResource, i);
+			AddMeshDrawcall(pipelineStatesData, instanceIndex, meshRenderer.p_MeshResource, i);
 		}
 	}
 
-	void MakeMesh(graphics_backend::CRenderBackend* pBackend)
+	void MakeBatch(graphics_backend::CRenderBackend* pBackend)
 	{
 		for (auto& meshBatch : m_MeshBatchs)
 		{
@@ -120,14 +144,48 @@ public:
 				drawcall.second.first->ScheduleBufferData(0
 					, drawcall.second.second.size() * sizeof(uint32_t)
 					, drawcall.second.second.data());
+				drawcall.second.first->UploadAsync();
 			}
 		}
+		m_InstanceBuffer = pBackend->CreateGPUBuffer(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst
+			, m_Instances.size(), sizeof(glm::mat4));
+		m_InstanceBuffer->ScheduleBufferData(0
+			, m_Instances.size() * sizeof(glm::mat4)
+			, m_Instances.data());
+		m_InstanceBuffer->UploadAsync();
+
+
+		ShaderConstantsBuilder shaderConstantDescs{ "PerViewConstants" };
+		shaderConstantDescs
+			.Mat4<float>("ViewProjectionMatrix");
+
+		ShaderBindingBuilder shaderBindingBuilder{ "TestBinding" };
+		shaderBindingBuilder.ConstantBuffer(shaderConstantDescs);
+		shaderBindingBuilder.StructuredBuffer("InstanceMatBuffer");
+
+		m_ShaderBindingDescriptors.push_back(shaderBindingBuilder);
+
+		m_PerViewShaderConstants = pBackend->CreateShaderConstantSet(shaderConstantDescs);
+		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", glm::mat4(1.0f));
+
+
+		m_PerViewShaderBindings = pBackend->CreateShaderBindingSet(shaderBindingBuilder);
+
+		m_PerViewShaderBindings->SetConstantSet(m_PerViewShaderConstants->GetName(), m_PerViewShaderConstants);
+		m_PerViewShaderBindings->SetStructBuffer("InstanceMatBuffer", m_InstanceBuffer);
+	}
+
+	void Update(glm::mat4 const& viewProjectionMatrix)
+	{
+		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", viewProjectionMatrix);
 	}
 private:
 	std::unordered_map<GraphicsPipelineStatesData
 		, MeshDrawListInternal
 		, hash_utils::default_hashAlg> m_MeshBatchs;
 	std::vector<glm::mat4> m_Instances;
+	std::vector<ShaderBindingBuilder> m_ShaderBindingDescriptors;
+	std::shared_ptr<GPUBuffer> m_InstanceBuffer;
 
 	std::shared_ptr<ShaderConstantSet> m_PerViewShaderConstants;
 	std::shared_ptr<ShaderBindingSet> m_PerViewShaderBindings;

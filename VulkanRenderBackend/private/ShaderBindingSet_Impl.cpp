@@ -17,6 +17,14 @@ namespace graphics_backend
 		MarkDirtyThisFrame();
 	}
 
+	void ShaderBindingSet_Impl::SetStructBuffer(std::string const& name
+		, std::shared_ptr<GPUBuffer> const& pBuffer)
+	{
+		std::shared_ptr<GPUBuffer_Impl> buffer = std::static_pointer_cast<GPUBuffer_Impl>(pBuffer);
+		m_StructuredBuffers.insert(std::make_pair(name, buffer));
+		MarkDirtyThisFrame();
+	}
+
 	void ShaderBindingSet_Impl::SetTexture(std::string const& name
 		, std::shared_ptr<GPUTexture> const& pTexture)
 	{
@@ -129,6 +137,27 @@ namespace graphics_backend
 					descriptorWrites.push_back(writeSet);
 				}
 			}
+
+			for (auto pair : m_StructuredBuffers)
+			{
+				auto& name = pair.first;
+				auto& buffer = pair.second;
+				uint32_t bindingIndex = p_Metadata->StructBufferNameToBindingIndex(name);
+				if (bindingIndex != std::numeric_limits<uint32_t>::max())
+				{
+					vk::DescriptorBufferInfo bufferInfo{buffer->GetVulkanBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE};
+					vk::WriteDescriptorSet writeSet{targetSet
+						, bindingIndex
+						, 0
+						, 1
+						, vk::DescriptorType::eStorageBuffer
+						, nullptr
+						, & bufferInfo
+						, nullptr
+					};
+					descriptorWrites.push_back(writeSet);
+				}
+			}
 		}
 		if (descriptorWrites.size() > 0)
 		{
@@ -142,6 +171,7 @@ namespace graphics_backend
 		auto& constantBufferDescriptors = builder.GetConstantBufferDescriptors();
 		auto& textureDescriptors = builder.GetTextureDescriptors();
 		auto& samplerDescriptors = builder.GetTextureSamplers();
+		auto& strucBuffs = builder.GetStructuredBuffers();
 		m_LayoutInfo = ShaderDescriptorSetLayoutInfo{ builder };
 
 		uint32_t bindingIndex = 0;
@@ -158,6 +188,11 @@ namespace graphics_backend
 		for (auto& sampler : samplerDescriptors)
 		{
 			m_SamplerNameToBindingIndex.emplace(sampler, bindingIndex++);
+		}
+
+		for (auto& structBuf : strucBuffs)
+		{
+			m_StructBuffNameToBindingIndex.emplace(structBuf, bindingIndex++);
 		}
 	}
 	ShaderBindingSetAllocator::ShaderBindingSetAllocator(CVulkanApplication& owner) : BaseApplicationSubobject(owner)

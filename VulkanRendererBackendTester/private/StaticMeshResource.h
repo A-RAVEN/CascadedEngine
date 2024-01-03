@@ -37,14 +37,14 @@ namespace resource_management
 		glm::vec3 tangent;
 		glm::vec3 bitangent;
 
-		constexpr static auto GetVertexInputDescs()
+		constexpr static auto GetVertexInputDescs(uint32_t baseOffset)
 		{
 			return std::vector{
-				VertexAttribute{ 0, offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat }
-				, VertexAttribute{ 1, offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat }
-				, VertexAttribute{ 2, offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat }
-				, VertexAttribute{ 3, offsetof(CommonVertexData, tangent), VertexInputFormat::eR32G32B32_SFloat }
-				, VertexAttribute{ 4, offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat }
+				VertexAttribute{ baseOffset, offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat }
+				, VertexAttribute{ baseOffset + 1, offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat }
+				, VertexAttribute{ baseOffset + 2, offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat }
+				, VertexAttribute{ baseOffset + 3, offsetof(CommonVertexData, tangent), VertexInputFormat::eR32G32B32_SFloat }
+				, VertexAttribute{ baseOffset + 4, offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat }
 			};
 		}
 	};

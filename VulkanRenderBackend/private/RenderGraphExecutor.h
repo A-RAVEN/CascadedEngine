@@ -49,10 +49,9 @@ namespace graphics_backend
 		virtual void AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc) override;
 		std::unordered_map<GraphicsPipelineStatesData, uint32_t, hash_utils::default_hashAlg> const& GetPipelineStates() const { return m_PipelineStates; }
 		std::vector<std::function<void(CInlineCommandList& commandList)>> const& GetDrawBatchFuncs() const { return m_DrawBatchFuncs; }
-		uint32_t GetPSOCount() const { return m_PipelineStateIndex; }
+		uint32_t GetPSOCount() const { return m_PipelineStates.size(); }
 		GraphicsPipelineStatesData const* GetPSO(uint32_t index) const { return p_PSOs[index]; }
 	private:
-		uint32_t m_PipelineStateIndex = 0;
 		std::unordered_map<GraphicsPipelineStatesData, uint32_t, hash_utils::default_hashAlg> m_PipelineStates;
 		std::vector<GraphicsPipelineStatesData const*> p_PSOs;
 		std::vector<std::function<void(CInlineCommandList& commandList)>> m_DrawBatchFuncs;

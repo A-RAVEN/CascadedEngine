@@ -785,7 +785,55 @@ namespace graphics_backend
 		, std::vector<vk::CommandBuffer>& cmdList
 	)
 	{
+		auto& subpassData = m_RenderpassBuilder.GetSubpassData_BatchDrawInterface(subpassID);
+		uint32_t batchID = m_RenderpassBuilder.GetSubpassDataIndex(subpassID);
+		uint32_t batchCount = m_BatchManagers[batchID].GetDrawBatchFuncs().size();
+		cmdList.resize(batchCount);
 
+		thisGraph->NewTaskParallelFor()
+			->Name("Prepare Secondary Cmds for Subpass " + std::to_string(subpassID))
+			->JobCount(batchCount)
+			->Functor([this, subpassID, width, height, &cmdList](uint32_t batchID)
+				{
+					auto& batchManager = m_BatchManagers[batchID];
+					auto& batchFuncs = batchManager.GetDrawBatchFuncs();
+					auto threadContext = m_OwningExecutor.GetVulkanApplication().AquireThreadContextPtr();
+
+					vk::CommandBufferInheritanceInfo commandBufferInheritanceInfo{
+						m_RenderPassObject->GetRenderPass()
+							, 0
+							, m_FrameBufferObject->GetFramebuffer() };
+
+					vk::CommandBufferBeginInfo secondaryBeginInfo(
+						vk::CommandBufferUsageFlagBits::eOneTimeSubmit
+						| vk::CommandBufferUsageFlagBits::eRenderPassContinue,
+						&commandBufferInheritanceInfo);
+
+					auto& commandListPool = threadContext->GetCurrentFramePool();
+					vk::CommandBuffer cmd = commandListPool.AllocateSecondaryCommandBuffer("Render Pass Secondary Command Buffer");
+					cmdList[batchID] = cmd;
+					cmd.begin(secondaryBeginInfo);
+					cmd.setViewport(0
+						, {
+							vk::Viewport{0.0f, 0.0f
+							, static_cast<float>(width)
+							, static_cast<float>(height)
+							, 0.0f, 1.0f}
+						}
+					);
+					cmd.setScissor(0
+						, {
+							vk::Rect2D{
+								{0, 0}
+								, { width, height }
+							}
+						}
+					);
+					auto& psoList = m_GraphicsPipelineObjects[subpassID];
+					CCommandList_Impl cmdListInterface{ cmd, &m_OwningExecutor, m_RenderPassObject, subpassID, psoList };
+					batchFuncs[batchID](cmdListInterface);
+					cmd.end();
+				});
 	}
 
 	void RenderPassExecutor::PrepareDrawcallInterfaceSecondaryCommands(
@@ -1240,7 +1288,7 @@ namespace graphics_backend
 								auto& pipelineStates = psoData.pipelineStateObject;
 								auto& vertexInputs = psoData.vertexInputDescriptor;
 								auto& shaderSet = psoData.shaderSet;
-								auto& shaderBindings = psoData.shaderBindingDescriptors;
+								auto& drawLevelShaderBindings = psoData.shaderBindingDescriptors;
 
 								//shaders
 								auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert }).lock();
@@ -1248,15 +1296,23 @@ namespace graphics_backend
 
 								//shaderBindings
 								std::vector<vk::DescriptorSetLayout> layouts;
-								layouts.reserve(shaderBindings.size());
-
-								for (auto& bindingDesc : shaderBindings)
+								layouts.reserve(drawLevelShaderBindings.size());
+								//Draw Level
+								for (auto& bindingDesc : drawLevelShaderBindings)
 								{
 									auto layoutInfo = ShaderDescriptorSetLayoutInfo{ bindingDesc };
 									auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
 									layouts.push_back(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
 								}
-
+								//Interface Level
+								auto& interfaceLevelShaderBindings = subpassData.batchInterface->GetInterfaceLevelShaderBindingDescriptors();
+								for (auto& desc : interfaceLevelShaderBindings)
+								{
+									auto layoutInfo = ShaderDescriptorSetLayoutInfo{ desc };
+									auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+									layouts.push_back(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
+								}
+								//Subpass Level
 								CollectDescriptorSetLayouts(
 									subpassData.shaderBindingList
 									, gpuObjectManager.GetShaderDescriptorPoolCache()
@@ -1274,5 +1330,21 @@ namespace graphics_backend
 								m_GraphicsPipelineObjects[subpassID][psoID] = gpuObjectManager.GetPipelineCache().GetOrCreate(pipelineDesc).lock();
 							});
 				});
+	}
+	TIndex BatchManager::RegisterGraphicsPipelineState(GraphicsPipelineStatesData const& pipelineStates)
+	{
+		auto found = m_PipelineStates.find(pipelineStates);
+		if (found == m_PipelineStates.end())
+		{
+			CA_ASSERT(p_PSOs.size() == m_PipelineStates.size(), "PSO Counts Does Not Meets");
+			uint32_t newID = m_PipelineStates.size();
+			found = m_PipelineStates.insert(std::make_pair(pipelineStates, newID)).first;
+			p_PSOs.push_back(&found->first);
+		}
+		return found->second;
+	}
+	void BatchManager::AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc)
+	{
+		m_DrawBatchFuncs.push_back(drawBatchFunc);
 	}
 }

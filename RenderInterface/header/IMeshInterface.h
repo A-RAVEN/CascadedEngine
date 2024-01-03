@@ -5,6 +5,7 @@
 #include "CVertexInputDescriptor.h"
 #include "ShaderProvider.h"
 #include "ShaderBindingBuilder.h"
+#include <functional>
 
 namespace graphics_backend
 {
@@ -45,13 +46,14 @@ namespace graphics_backend
 	class IBatchManager
 	{
 	public:
-		virtual TIndex RegisterGraphicsPipelineState(GraphicsPipelineStatesData const& pipelineStates);
-		virtual void AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc);
+		virtual TIndex RegisterGraphicsPipelineState(GraphicsPipelineStatesData const& pipelineStates) = 0;
+		virtual void AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc) = 0;
 	};
 
 	class IDrawBatchInterface
 	{
 	public:
-		virtual void OnRegisterGraphicsPipelineStates(IBatchManager& batchManager);
+		virtual void OnRegisterGraphicsPipelineStates(IBatchManager& batchManager) = 0;
+		virtual std::vector<ShaderBindingBuilder> const& GetInterfaceLevelShaderBindingDescriptors() const = 0;
 	};
 }

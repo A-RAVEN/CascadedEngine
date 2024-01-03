@@ -149,7 +149,7 @@ namespace graphics_backend
 			m_SubpassData_BatchDrawInterfaces.push_back(BatchDrawInterfaceSubpassData{
 				shaderBindingList
 				, batchInterface });
-			m_SubpassDataReferences.emplace_back(ESubpassType::eMeshInterface
+			m_SubpassDataReferences.emplace_back(ESubpassType::eBatchDrawInterface
 				, static_cast<uint32_t>(m_SubpassData_BatchDrawInterfaces.size() - 1));
 			return *this;
 		}
@@ -215,10 +215,10 @@ namespace graphics_backend
 	private:
 		CRenderPassInfo mRenderPassInfo{};
 		std::vector<TIndex> m_TextureHandles;
+		std::vector<std::pair<ESubpassType, uint32_t>> m_SubpassDataReferences{};
 		std::vector<SimpleDrawcallSubpassData> m_SubpassData_SimpleDraws{};
 		std::vector<DrawcallInterfaceSubpassData> m_SubpassData_MeshInterfaces{};
 		std::vector<BatchDrawInterfaceSubpassData> m_SubpassData_BatchDrawInterfaces{};
-		std::vector<std::pair<ESubpassType, uint32_t>> m_SubpassDataReferences{};
 	};
 }
 

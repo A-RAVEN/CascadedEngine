@@ -230,6 +230,12 @@ public:
 		return *this;
 	}
 
+	ShaderBindingBuilder& StructuredBuffer(std::string const& name)
+	{
+		m_StructuredBuffers.push_back(name);
+		return *this;
+	}
+
 	std::string const& GetSpaceName() const {
 		return m_SpaceName;
 	}
@@ -247,10 +253,18 @@ public:
 		return m_TextureSamplers;
 	}
 
+	std::vector<std::string> const& GetStructuredBuffers() const
+	{
+		return m_StructuredBuffers;
+	}
+
 	bool operator==(ShaderBindingBuilder const& rhs) const
 	{
 		return m_ConstantBufferDescriptors == rhs.m_ConstantBufferDescriptors
-			&& m_TextureDescriptors == rhs.m_TextureDescriptors;
+			&& m_TextureDescriptors == rhs.m_TextureDescriptors
+			&& m_TextureSamplers == rhs.m_TextureSamplers
+			&& m_StructuredBuffers == rhs.m_StructuredBuffers
+			;
 	}
 
 	template <class HashAlgorithm>
@@ -259,6 +273,7 @@ public:
 		hash_append(h, bindingBuilder.m_ConstantBufferDescriptors);
 		hash_append(h, bindingBuilder.m_TextureDescriptors);
 		hash_append(h, bindingBuilder.m_TextureSamplers);
+		hash_append(h, bindingBuilder.m_StructuredBuffers);
 	}
 
 protected:
@@ -266,6 +281,7 @@ protected:
 	std::vector<ShaderConstantsBuilder> m_ConstantBufferDescriptors;
 	std::vector<std::pair<std::string, ShaderTextureDescriptor>> m_TextureDescriptors;
 	std::vector<std::string> m_TextureSamplers;
+	std::vector<std::string> m_StructuredBuffers;
 };
 
 class ShaderBindingDescriptorList
