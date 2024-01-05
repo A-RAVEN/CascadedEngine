@@ -346,7 +346,7 @@ int main(int argc, char *argv[])
 		MeshRenderer meshRenderer{};
 		meshRenderer.p_MeshResource = pTestMeshResource;
 		meshRenderer.pipelineStateObject = CPipelineStateObject{ DepthStencilStates::NormalOpaque() };
-		meshRenderer.pipelineStateObject.rasterizationStates.frontFace = EFrontFace::eCounterClockWise;
+		meshRenderer.pipelineStateObject.rasterizationStates.frontFace = EFrontFace::eClockWise;
 		meshRenderer.shaderBindingDescriptors = {};
 		meshRenderer.shaderSet = { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider };
 		drawInterface.AddMesh(meshRenderer, glm::mat4(1.0f));
@@ -363,7 +363,7 @@ int main(int argc, char *argv[])
 	};
 
 	std::vector<uint16_t> indexDataList = {
-		0, 1, 2, 2, 3, 0
+		0, 3, 2, 2, 1, 0
 	};
 
 	int w, h, channel_num;
@@ -558,7 +558,7 @@ int main(int argc, char *argv[])
 			CAttachmentInfo targetattachmentInfo{};
 			targetattachmentInfo.format = pRenderGraph->GetTextureDescriptor(windowBackBuffer).format;
 			targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
 			CAttachmentInfo colorAttachmentInfo{};
 			colorAttachmentInfo.format = ETextureFormat::E_R8G8B8A8_UNORM;

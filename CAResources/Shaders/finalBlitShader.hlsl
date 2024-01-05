@@ -29,5 +29,5 @@ VertexToFragment vert(in VertexInput input)
 
 [[vk::location(0)]] float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    return SourceTexture.SampleLevel(SourceSampler, input.uv, 0).xyzw * float4(0, 1, 1, 1);
+    return SourceTexture.SampleLevel(SourceSampler, input.uv, 0).xyzw * float4(1, 0, 0, 1);
 }

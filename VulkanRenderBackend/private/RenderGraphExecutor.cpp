@@ -757,9 +757,9 @@ namespace graphics_backend
 		auto& subpassData = m_RenderpassBuilder.GetSubpassData_SimpleDrawcall(subpassID);
 		cmd.setViewport(0
 			, {
-				vk::Viewport{0.0f, 0.0f
+				vk::Viewport{0.0f, height - 0.0f
 				, static_cast<float>(width)
-				, static_cast<float>(height)
+				, -static_cast<float>(height)
 				, 0.0f, 1.0f}
 			}
 		);
@@ -815,9 +815,9 @@ namespace graphics_backend
 					cmd.begin(secondaryBeginInfo);
 					cmd.setViewport(0
 						, {
-							vk::Viewport{0.0f, 0.0f
+							vk::Viewport{0.0f, height - 0.0f
 							, static_cast<float>(width)
-							, static_cast<float>(height)
+							, -static_cast<float>(height)
 							, 0.0f, 1.0f}
 						}
 					);
@@ -872,9 +872,9 @@ namespace graphics_backend
 					cmd.begin(secondaryBeginInfo);
 					cmd.setViewport(0
 						, {
-							vk::Viewport{0.0f, 0.0f
+							vk::Viewport{0.0f, height - 0.0f
 							, static_cast<float>(width)
-							, static_cast<float>(height)
+							, -static_cast<float>(height)
 							, 0.0f, 1.0f}
 						}
 					);
