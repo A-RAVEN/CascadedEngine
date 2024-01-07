@@ -6,6 +6,7 @@
 #include <ShaderCompiler/header/Compiler.h>
 #include <SharedTools/header/library_loader.h>
 #include <ExternalLib/zpp_bits/zpp_bits.h>
+#include <filesystem>
 
 namespace resource_management
 {
@@ -30,7 +31,7 @@ namespace resource_management
 		virtual std::string GetSourceFilePostfix() const override { return ".hlsl"; }
 		virtual std::string GetDestFilePostfix() const override { return ".shaderbundle"; }
 		virtual std::string GetTags() const override { return "TargetAPI=Vulkan"; }
-		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::string const& outPath) override;
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) override;
 		//virtual void ImportResource(void* resourceOffset, std::string const& resourcePath, std::string const& outPath) override;
 	private:
 		TModuleLoader<IShaderCompiler> m_ShaderCompilerLoader;

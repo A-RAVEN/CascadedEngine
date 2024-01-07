@@ -24,6 +24,13 @@ public:
 			&& polygonMode == rhs.polygonMode
 			&& lineWidth == rhs.lineWidth;
 	}
+
+	static RasterizerStates CullOff()
+	{
+		RasterizerStates states;
+		states.cullMode = ECullMode::eNone;
+		return states;
+	}
 };
 template<>
 struct is_contiguously_hashable<RasterizerStates> : public std::true_type {};
@@ -83,7 +90,7 @@ struct DepthStencilStates
 			&& stencilStateBack == rhs.stencilStateBack;
 	}
 
-	static DepthStencilStates const& NormalOpaque()
+	static DepthStencilStates NormalOpaque()
 	{
 		DepthStencilStates states;
 		states.depthTestEnable = true;

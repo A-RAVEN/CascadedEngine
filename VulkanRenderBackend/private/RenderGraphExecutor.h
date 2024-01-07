@@ -40,6 +40,11 @@ namespace graphics_backend
 				endNodeID = nodeID;
 			}
 		}
+
+		bool Valid() const
+		{
+			return beginNodeID != INVALID_INDEX;
+		}
 	};
 
 	class BatchManager : public IBatchManager

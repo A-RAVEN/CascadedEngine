@@ -168,6 +168,8 @@ protected:
 class ShaderBindingBuilder
 {
 public:
+	ShaderBindingBuilder() = default;
+
 	ShaderBindingBuilder(std::string const& space_name) : m_SpaceName(space_name) {}
 
 	ShaderBindingBuilder& ConstantBuffer(ShaderConstantsBuilder const& constantDescs)

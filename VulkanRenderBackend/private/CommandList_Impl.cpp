@@ -81,7 +81,7 @@ namespace graphics_backend
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::SetShaderBindings(std::vector<std::shared_ptr<ShaderBindingSet>> bindings)
+	CInlineCommandList& CCommandList_Impl::SetShaderBindings(std::vector<std::shared_ptr<ShaderBindingSet>> bindings, uint32_t firstBinding)
 	{
 		std::vector<vk::DescriptorSet> descriptorSets;
 		descriptorSets.resize(bindings.size());
@@ -91,11 +91,11 @@ namespace graphics_backend
 			descriptorSets[i] = binding_set_impl->GetDescriptorSet();
 		};
 		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, GetBoundPipelineObject()->GetPipelineLayout()
-			, 0, descriptorSets, {});
+			, firstBinding, descriptorSets, {});
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::SetShaderBindings(std::vector<ShaderBindingSetHandle> bindings)
+	CInlineCommandList& CCommandList_Impl::SetShaderBindings(std::vector<ShaderBindingSetHandle> bindings, uint32_t firstBinding)
 	{
 		std::vector<vk::DescriptorSet> descriptorSets;
 		descriptorSets.resize(bindings.size());
@@ -105,7 +105,7 @@ namespace graphics_backend
 			descriptorSets[i] = descriptorSetObject->GetDescriptorSet();
 		};
 		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, GetBoundPipelineObject()->GetPipelineLayout()
-			, 0, descriptorSets, {});
+			, firstBinding, descriptorSets, {});
 		return *this;
 	}
 

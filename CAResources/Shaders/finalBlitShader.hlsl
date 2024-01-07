@@ -22,6 +22,7 @@ VertexToFragment vert(in VertexInput input)
 {
     VertexToFragment result = (VertexToFragment)0;
     result.position = float4(input.position, 0.5, 1);
+    result.position.y = -result.position.y;
     result.color = input.color;
     result.uv = input.uv;
     return result;
@@ -29,5 +30,5 @@ VertexToFragment vert(in VertexInput input)
 
 [[vk::location(0)]] float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    return SourceTexture.SampleLevel(SourceSampler, input.uv, 0).xyzw * float4(1, 0, 0, 1);
+    return SourceTexture.SampleLevel(SourceSampler, input.uv, 0).xyzw;
 }

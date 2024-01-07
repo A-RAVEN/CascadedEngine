@@ -41,7 +41,7 @@ namespace graphics_backend
 	class GPUTexture
 	{
 	public:
-		virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void* pData) = 0;
+		virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData) = 0;
 		virtual void UploadAsync() = 0;
 		virtual bool UploadingDone() const = 0;
 		virtual GPUTextureDescriptor const& GetDescriptor() const = 0;

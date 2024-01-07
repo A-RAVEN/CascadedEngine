@@ -57,13 +57,26 @@ namespace resource_management
 
 						auto relativePath = std::filesystem::relative(p.path(), rootPath);
 						relativePath.replace_extension(importer->GetDestFilePostfix());
+						//relativePath.replace_extension("");
 						auto destPath = targetRootPath / relativePath;
 
 						bool needImport = true;
 						if (std::filesystem::exists(destPath))
 						{
+							bool hasFile = true;
 							auto targetTime = std::filesystem::last_write_time(destPath);
-							needImport = targetTime < p.last_write_time();
+							if (!destPath.has_extension())
+							{
+								hasFile = false;
+								using Entry = std::filesystem::directory_entry;
+								for (Entry const& entry : std::filesystem::directory_iterator(destPath))
+								{
+									hasFile = true;
+									targetTime = targetTime < entry.last_write_time() ? targetTime : entry.last_write_time();
+								}
+							}
+
+							needImport = (!hasFile) || targetTime < p.last_write_time();
 						}
 						if (needImport)
 						{
@@ -79,7 +92,7 @@ namespace resource_management
 				{
 					m_Importers[i]->ImportResource(m_ResourceManagingSystem
 						, m_ImportingResources[i][itrResource].first.string()
-						, m_ImportingResources[i][itrResource].second.string());
+						, m_ImportingResources[i][itrResource].second);
 				}
 			}
 			m_ResourceManagingSystem->SerializeAllResources();

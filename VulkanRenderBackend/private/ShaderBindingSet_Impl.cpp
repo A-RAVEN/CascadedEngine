@@ -75,7 +75,9 @@ namespace graphics_backend
 				if (bindingIndex != std::numeric_limits<uint32_t>::max())
 				{
 					vk::DescriptorBufferInfo bufferInfo{set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE};
-					vk::WriteDescriptorSet writeSet{targetSet
+					vk::WriteDescriptorSet writeSet
+					{
+						targetSet
 						, bindingIndex
 						, 0
 						, 1

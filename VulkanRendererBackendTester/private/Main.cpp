@@ -24,6 +24,7 @@
 #include "ShaderResource.h"
 #include "StaticMeshResource.h"
 #include "MeshRenderer.h"
+#include "TextureResource.h"
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -37,108 +38,6 @@ struct VertexData
 	glm::vec2 pos;
 	glm::vec2 uv;
 	glm::vec3 color;
-
-};
-
-class MeshInfo
-{
-public:
-	CVertexInputDescriptor vertexInputDescriptor;
-	std::shared_ptr<GPUBuffer> vertexBuffer;
-	std::shared_ptr<GPUBuffer> indexBuffer;
-	EIndexBufferType bufferType;
-	uint32_t indexCount;
-
-	MeshInfo(CVertexInputDescriptor const& vertexInputDescriptor
-		, std::shared_ptr<GPUBuffer> vertexBuffer
-		, std::shared_ptr<GPUBuffer> indexBuffer
-		, EIndexBufferType bufferType
-		, uint32_t indexCount)
-		: vertexInputDescriptor(vertexInputDescriptor)
-		, vertexBuffer(vertexBuffer)
-		, indexBuffer(indexBuffer)
-		, bufferType(bufferType)
-		, indexCount(indexCount)
-	{
-	}
-};
-
-class TestMeshInterface : public IMeshInterface
-{
-public:
-	// 通过 IMeshInterface 继承
-	size_t GetGraphicsPipelineStatesCount() override
-	{
-		return m_Datas.size();
-	}
-	GraphicsPipelineStatesData& GetGraphicsPipelineStatesData(size_t index) override
-	{
-		return m_Datas[index];
-	}
-	size_t GetBatchCount() override
-	{
-		return m_Datas.size();
-	}
-
-	void Update(glm::mat4 const& viewProjMatrix)
-	{
-		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", viewProjMatrix);
-	}
-
-	void DrawBatch(size_t batchIndex, CInlineCommandList& commandList) override
-	{
-		commandList.BindPipelineState(batchIndex);
-		if (m_VertexBuffers[batchIndex]->UploadingDone() && m_IndexBuffers[batchIndex]->UploadingDone())
-		{
-			commandList.SetShaderBindings({ m_PerViewShaderBindings, m_ShaderBindingSets[batchIndex]});
-			commandList.BindVertexBuffers({ m_VertexBuffers[batchIndex].get() }, {});
-			commandList.BindIndexBuffers(EIndexBufferType::e16, m_IndexBuffers[batchIndex].get());
-			commandList.DrawIndexed(6);
-		}
-		else
-		{
-			std::cout << "Not Finish Yet" << std::endl;
-		}
-	}
-
-	void Initialize(std::shared_ptr<CRenderBackend> pBackend)
-	{
-		ShaderConstantsBuilder perViewConstantsBuilder{ "PerViewConstants" };
-		perViewConstantsBuilder.Mat4<float>("ViewProjectionMatrix");
-		m_PerViewShaderConstants = pBackend->CreateShaderConstantSet(perViewConstantsBuilder);
-		ShaderBindingBuilder perViewBindingBuilder("PerViewBindings");
-		perViewBindingBuilder.ConstantBuffer(perViewConstantsBuilder);
-		m_PerViewShaderBindings = pBackend->CreateShaderBindingSet(perViewBindingBuilder);
-		m_PerViewShaderBindings->SetConstantSet(m_PerViewShaderConstants->GetName()
-			, m_PerViewShaderConstants);
-	}
-
-	void InsertMeshDrawcall(
-		MeshInfo const& meshInfo
-		, CPipelineStateObject const& pipelineStates
-		, GraphicsShaderSet const& shaderSet
-		, std::shared_ptr<ShaderBindingSet> meshBoundShaderBindings
-	)
-	{
-		GraphicsPipelineStatesData data{};
-		data.pipelineStateObject = pipelineStates;
-		data.shaderSet = shaderSet;
-		data.shaderBindingDescriptors = {
-			m_PerViewShaderBindings->GetBindingSetDesc()
-		, meshBoundShaderBindings->GetBindingSetDesc() };
-		data.vertexInputDescriptor = meshInfo.vertexInputDescriptor;
-		m_Datas.push_back(data);
-		m_ShaderBindingSets.push_back(meshBoundShaderBindings);
-		m_VertexBuffers.push_back(meshInfo.vertexBuffer);
-		m_IndexBuffers.push_back(meshInfo.indexBuffer);
-	}
-private:
-	std::shared_ptr<ShaderConstantSet> m_PerViewShaderConstants;
-	std::shared_ptr<ShaderBindingSet> m_PerViewShaderBindings;
-	std::vector<GraphicsPipelineStatesData> m_Datas;
-	std::vector<std::shared_ptr<ShaderBindingSet>> m_ShaderBindingSets;
-	std::vector<std::shared_ptr<GPUBuffer>> m_VertexBuffers;
-	std::vector<std::shared_ptr<GPUBuffer>> m_IndexBuffers;
 };
 
 void UpdateIMGUI(int width, int height)
@@ -214,7 +113,7 @@ void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
 	renderGraph->NewRenderPass({ targetattachmentInfo })
 		.SetAttachmentTarget(0, framebufferHandle)
 		.Subpass({ {0} }
-			, CPipelineStateObject{ {}, {}, blendStates }
+			, CPipelineStateObject{ {}, RasterizerStates::CullOff(), blendStates}
 			, vertexInputDesc
 			, shaderSet
 			, { {}, {shaderBinding} }
@@ -309,7 +208,19 @@ int main(int argc, char *argv[])
 		});
 
 	StaticMeshResource* pTestMeshResource = nullptr;
-	pResourceManagingSystem->LoadResource<StaticMeshResource>("Models/VikingRoom.mesh", [ppResource = &pTestMeshResource](StaticMeshResource* result)
+	pResourceManagingSystem->LoadResource<StaticMeshResource>("Models/VikingRoom/mesh.scene", [ppResource = &pTestMeshResource](StaticMeshResource* result)
+		{
+			*ppResource = result;
+		});
+
+	TextureResource* pTextureResource0 = nullptr;
+	pResourceManagingSystem->LoadResource<TextureResource>("Models/VikingRoom/IMG_2348.texture", [ppResource = &pTextureResource0](TextureResource* result)
+		{
+			*ppResource = result;
+		});
+
+	TextureResource* pTextureResource1 = nullptr;
+	pResourceManagingSystem->LoadResource<TextureResource>("Models/VikingRoom/IMG_2349.texture", [ppResource = &pTextureResource1](TextureResource* result)
 		{
 			*ppResource = result;
 		});
@@ -331,7 +242,33 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(pThreadManager.get(), 5);
 
+	auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
 
+	auto texture0 = pBackend->CreateGPUTexture(GPUTextureDescriptor{
+		pTextureResource0->GetWidth()
+		, pTextureResource0->GetHeight()
+		, pTextureResource0->GetFormat()
+		, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst
+		});
+	texture0->ScheduleTextureData(0, pTextureResource0->GetDataSize(), pTextureResource0->GetData());
+	texture0->UploadAsync();
+
+	auto texture1 = pBackend->CreateGPUTexture(GPUTextureDescriptor{
+	pTextureResource1->GetWidth()
+	, pTextureResource1->GetHeight()
+	, pTextureResource1->GetFormat()
+	, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst
+		});
+	texture1->ScheduleTextureData(0, pTextureResource1->GetDataSize(), pTextureResource1->GetData());
+	texture1->UploadAsync();
+
+	auto samplingTextureBinding0 = pBackend->CreateShaderBindingSet(finalBlitBindingBuilder);
+	samplingTextureBinding0->SetTexture("SourceTexture", texture0);
+	samplingTextureBinding0->SetSampler("SourceSampler", sampler);
+
+	auto samplingTextureBinding1 = pBackend->CreateShaderBindingSet(finalBlitBindingBuilder);
+	samplingTextureBinding1->SetTexture("SourceTexture", texture1);
+	samplingTextureBinding1->SetSampler("SourceSampler", sampler);
 
 	auto windowHandle2 = pBackend->NewWindow(1024, 512, "Test Window2");
 
@@ -345,10 +282,20 @@ int main(int argc, char *argv[])
 	{
 		MeshRenderer meshRenderer{};
 		meshRenderer.p_MeshResource = pTestMeshResource;
-		meshRenderer.pipelineStateObject = CPipelineStateObject{ DepthStencilStates::NormalOpaque() };
-		meshRenderer.pipelineStateObject.rasterizationStates.frontFace = EFrontFace::eClockWise;
-		meshRenderer.shaderBindingDescriptors = {};
-		meshRenderer.shaderSet = { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider };
+		meshRenderer.materials = {
+			MeshMaterial 
+			{
+				CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
+				, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
+				, { samplingTextureBinding1 }
+			},
+			MeshMaterial 
+			{
+				CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
+				, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
+				, { samplingTextureBinding0 }
+			}
+		};
 		drawInterface.AddMesh(meshRenderer, glm::mat4(1.0f));
 
 		drawInterface.MakeBatch(pBackend.get());
@@ -366,25 +313,6 @@ int main(int argc, char *argv[])
 		0, 3, 2, 2, 1, 0
 	};
 
-	int w, h, channel_num;
-	auto data = stbi_load((resourceString + "/Images/MonValley_A_LookoutPoint_2k.hdr").c_str(), &w, &h, &channel_num, 4);
-	size_t imgSize = w * h * sizeof(uint32_t);
-
-	GPUTextureDescriptor desc{};
-	desc.accessType = ETextureAccessType::eSampled | ETextureAccessType::eTransferDst;
-	desc.format = ETextureFormat::E_R8G8B8A8_UNORM;
-	desc.width = w;
-	desc.height = h;
-	desc.layers = 1;
-	desc.mipLevels = 1;
-	desc.textureType = ETextureType::e2D;
-	auto image = pBackend->CreateGPUTexture(desc);
-
-	auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
-
-	image->ScheduleTextureData(0, imgSize, data);
-
-	stbi_image_free(data);
 
 	auto vertexBuffer = pBackend->CreateGPUBuffer(
 		EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, vertexDataList.size(), sizeof(VertexData));
@@ -405,25 +333,24 @@ int main(int argc, char *argv[])
 		});
 
 	ShaderBindingDescriptorList bindingSetList = { shaderBindingBuilder };
-
 	
 	vertexBuffer->UploadAsync();
 	indexBuffer->UploadAsync();
-	image->UploadAsync();
+	//image->UploadAsync();
 
-	MeshInfo meshInfo{ vertexInputDesc
-		, vertexBuffer
-		, indexBuffer
-		, EIndexBufferType::e16
-		, 6};
+	//MeshInfo meshInfo{ vertexInputDesc
+	//	, vertexBuffer
+	//	, indexBuffer
+	//	, EIndexBufferType::e16
+	//	, 6};
 
-	std::vector<std::shared_ptr<ShaderBindingSet>> meshShaderBindings;
-	std::vector<std::shared_ptr<ShaderConstantSet>> meshShaderConstants;
+	//std::vector<std::shared_ptr<ShaderBindingSet>> meshShaderBindings;
+	//std::vector<std::shared_ptr<ShaderConstantSet>> meshShaderConstants;
 
-	meshShaderBindings.resize(16);
-	meshShaderConstants.resize(16);
+	//meshShaderBindings.resize(16);
+	//meshShaderConstants.resize(16);
 
-	TestMeshInterface meshBatch{};
+	/*TestMeshInterface meshBatch{};
 	meshBatch.Initialize(pBackend);
 
 	for (uint16_t xx = 0; xx < 4; ++xx)
@@ -445,7 +372,7 @@ int main(int argc, char *argv[])
 							, shaderSet
 							, meshShaderBindings[index]);
 		}
-	}
+	}*/
 
 	std::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();
@@ -478,19 +405,6 @@ int main(int argc, char *argv[])
 		auto windowSize = windowHandle2->GetSizeSafe();
 
 		UpdateIMGUI(windowSize.x, windowSize.y);
-
-		rotation += deltaTime * glm::radians(50.0f);
-		auto rotMat = glm::rotate(glm::mat4(1), rotation, glm::vec3(0.0f, 0.0f, 1.0f));
-		for (uint16_t xx = 0; xx < 4; ++xx)
-		{
-			for (uint16_t yy = 0; yy < 4; ++yy)
-			{
-				uint32_t index = xx * 4 + yy;
-				auto translation = glm::translate(glm::mat4(1.0f), glm::vec3(xx, yy, 0.0f) * 2.5f + glm::vec3(1.0f, 1.0f, 0.0f));
-				meshShaderConstants[index]->SetValue("ObjectMatrix", translation * rotMat);
-			}
-		}
-
 
 		io.MousePos = ImVec2(windowHandle2->GetMouseX(), windowHandle2->GetMouseY());
 		io.MouseDown[0] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT);
@@ -540,7 +454,7 @@ int main(int argc, char *argv[])
 			//std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
 
 			drawInterface.Update(cam.GetViewProjMatrix());
-			meshBatch.Update(cam.GetViewProjMatrix());
+			//meshBatch.Update(cam.GetViewProjMatrix());
 
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
 			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2.get());
@@ -578,19 +492,19 @@ int main(int argc, char *argv[])
 					, &drawInterface
 				);
 
-
-			ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder)
-				.SetTexture("SourceTexture", colorTextureHandle)
-				.SetSampler("SourceSampler", sampler);
-
 			auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, vertexDataList.size(), sizeof(VertexData))
 				.ScheduleBufferData(0, vertexDataList.size() * sizeof(VertexData), vertexDataList.data());
 			auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t))
 				.ScheduleBufferData(0, indexDataList.size() * sizeof(uint16_t), indexDataList.data());
+			
+			ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder)
+				.SetTexture("SourceTexture", colorTextureHandle)
+				.SetSampler("SourceSampler", sampler);
+			
 			pRenderGraph->NewRenderPass({ targetattachmentInfo })
 				.SetAttachmentTarget(0, windowBackBuffer)
 				.Subpass({ {0} }
-					, CPipelineStateObject{ }
+					, CPipelineStateObject{ {}, {RasterizerStates::CullOff()}}
 					, vertexInputDesc
 					, finalBlitShaderSet
 					, { {}, {blitBandingHandle} }

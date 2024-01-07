@@ -12,11 +12,13 @@ namespace resource_management
 
 	void ShaderResourceLoader::ImportResource(ResourceManagingSystem* resourceManager
 		, std::string const& inPath
-		, std::string const& outPath)
+		, std::filesystem::path const& outPath)
 	{
+		auto outPathWithExt = outPath;
+		outPathWithExt.replace_extension(GetDestFilePostfix());
 		std::filesystem::path resourcePath(inPath);
 		auto fileName = resourcePath.filename();
-		ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(outPath);
+		ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(outPathWithExt.string());
 		auto shaderSource = fileloading_utils::LoadStringFile(inPath);
 		auto spirVResult = m_ShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
 			, fileName.string()

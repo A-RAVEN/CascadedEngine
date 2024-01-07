@@ -43,10 +43,19 @@ namespace resource_management
 		}
 
 		template<typename TRes, typename...TArgs>
-		TRes* AllocResource(std::string const& outPath, TArgs&&...Args) {
+		TRes* AllocResource(std::filesystem::path const& outPath, TArgs&&...Args) {
 			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
 			uint64_t allocSize = sizeof(TRes);
-			auto address = AllocResourceMemory(typeid(TRes).name(), outPath, allocSize);
+			auto address = AllocResourceMemory(typeid(TRes).name(), outPath.string(), allocSize);
+			TRes* result = new (address) TRes(std::forward<TArgs>(Args)...);
+			return result;
+		}
+
+		template<typename TRes, typename...TArgs>
+		TRes* AllocSubResource(std::filesystem::path const& outPath, std::string const& postfix, TArgs&&...Args) {
+			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
+			uint64_t allocSize = sizeof(TRes);
+			auto address = AllocResourceMemory(typeid(TRes).name(), (outPath / postfix).string(), allocSize);
 			TRes* result =  new (address) TRes(std::forward<TArgs>(Args)...);
 			return result;
 		}

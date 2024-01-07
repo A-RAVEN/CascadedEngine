@@ -155,7 +155,7 @@ namespace graphics_backend
 					{
 						TextureHandleLifetimeInfo& lifetimeInfo = textureHandleLifetimes[textureHandleID];
 						auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(textureHandleID);
-						if (!handleInfo.IsExternalTexture())
+						if (lifetimeInfo.Valid() && !handleInfo.IsExternalTexture())
 						{
 							textureAllocationRecorder[lifetimeInfo.beginNodeID].first.push_back(textureHandleID);
 							textureAllocationRecorder[lifetimeInfo.endNodeID + 1].second.push_back(textureHandleID);
@@ -757,9 +757,9 @@ namespace graphics_backend
 		auto& subpassData = m_RenderpassBuilder.GetSubpassData_SimpleDrawcall(subpassID);
 		cmd.setViewport(0
 			, {
-				vk::Viewport{0.0f, height - 0.0f
+				vk::Viewport{0.0f, 0.0f
 				, static_cast<float>(width)
-				, -static_cast<float>(height)
+				, static_cast<float>(height)
 				, 0.0f, 1.0f}
 			}
 		);
@@ -815,9 +815,9 @@ namespace graphics_backend
 					cmd.begin(secondaryBeginInfo);
 					cmd.setViewport(0
 						, {
-							vk::Viewport{0.0f, height - 0.0f
+							vk::Viewport{0.0f, 0.0f
 							, static_cast<float>(width)
-							, -static_cast<float>(height)
+							, static_cast<float>(height)
 							, 0.0f, 1.0f}
 						}
 					);
@@ -872,9 +872,9 @@ namespace graphics_backend
 					cmd.begin(secondaryBeginInfo);
 					cmd.setViewport(0
 						, {
-							vk::Viewport{0.0f, height - 0.0f
+							vk::Viewport{0.0f, 0.0f
 							, static_cast<float>(width)
-							, -static_cast<float>(height)
+							, static_cast<float>(height)
 							, 0.0f, 1.0f}
 						}
 					);
@@ -1297,13 +1297,12 @@ namespace graphics_backend
 								//shaderBindings
 								std::vector<vk::DescriptorSetLayout> layouts;
 								layouts.reserve(drawLevelShaderBindings.size());
-								//Draw Level
-								for (auto& bindingDesc : drawLevelShaderBindings)
-								{
-									auto layoutInfo = ShaderDescriptorSetLayoutInfo{ bindingDesc };
-									auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
-									layouts.push_back(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
-								}
+								//Subpass Level
+								CollectDescriptorSetLayouts(
+									subpassData.shaderBindingList
+									, gpuObjectManager.GetShaderDescriptorPoolCache()
+									, m_RenderGraph
+									, layouts);
 								//Interface Level
 								auto& interfaceLevelShaderBindings = subpassData.batchInterface->GetInterfaceLevelShaderBindingDescriptors();
 								for (auto& desc : interfaceLevelShaderBindings)
@@ -1312,12 +1311,13 @@ namespace graphics_backend
 									auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
 									layouts.push_back(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
 								}
-								//Subpass Level
-								CollectDescriptorSetLayouts(
-									subpassData.shaderBindingList
-									, gpuObjectManager.GetShaderDescriptorPoolCache()
-									, m_RenderGraph
-									, layouts);
+								//Draw Level
+								for (auto& bindingDesc : drawLevelShaderBindings)
+								{
+									auto layoutInfo = ShaderDescriptorSetLayoutInfo{ bindingDesc };
+									auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+									layouts.push_back(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
+								}
 
 								CPipelineObjectDescriptor pipelineDesc{
 								pipelineStates

@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <filesystem>
 
 namespace resource_management
 {
@@ -14,7 +15,7 @@ namespace resource_management
 		virtual std::string GetDestFilePostfix() const = 0;
 		virtual std::string GetTags() const = 0;
 		virtual uint64_t GetIResourceSizeInByte() const = 0;
-		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::string const& outPath) = 0;
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) = 0;
 	};
 
 	template<typename TRes>

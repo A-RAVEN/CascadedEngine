@@ -9,7 +9,7 @@ namespace graphics_backend
 	GPUTexture_Impl::GPUTexture_Impl(CVulkanApplication& app) : BaseUploadingResource(app)
 	{
 	}
-	void GPUTexture_Impl::ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void* pData)
+	void GPUTexture_Impl::ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData)
 	{
 		size_t scheduleSize = textureDataOffset + dataSize;
 		if (scheduleSize > m_ScheduledData.size())

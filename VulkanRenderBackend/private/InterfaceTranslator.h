@@ -346,13 +346,20 @@ namespace graphics_backend
 		}
 	}
 
+	/// <summary>
+	/// Vulkan Uses A Flip-Y Coordinate System, To Match Left-Bottom Rendering Convention, We Need To Flip The Front Face
+	/// </summary>
+	/// <param name="inFrontFace"></param>
+	/// <returns></returns>
 	constexpr vk::FrontFace EFrontFaceTranslate(EFrontFace inFrontFace)
 	{
 		switch (inFrontFace)
 		{
-		case EFrontFace::eClockWise: return vk::FrontFace::eClockwise;
-		case EFrontFace::eCounterClockWise: return vk::FrontFace::eCounterClockwise;
-		default: return vk::FrontFace::eClockwise;
+		case EFrontFace::eClockWise: 
+			return vk::FrontFace::eCounterClockwise;
+		case EFrontFace::eCounterClockWise: 
+			return vk::FrontFace::eClockwise;
+		default: return vk::FrontFace::eCounterClockwise;
 		}
 	}
 

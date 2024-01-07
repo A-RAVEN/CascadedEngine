@@ -25,6 +25,17 @@ namespace glm
 	{
 		return archive(invec.x, invec.y);
 	}
+
+	constexpr auto serialize(auto& archive, glm::vec4& invec)
+	{
+		return archive(invec.x, invec.y, invec.z, invec.w);
+	}
+
+
+	constexpr auto serialize(auto& archive, glm::mat4& inMat)
+	{
+		return archive(inMat[0], inMat[1], inMat[2], inMat[3]);
+	}
 }
 
 namespace resource_management
@@ -55,12 +66,19 @@ namespace resource_management
 	public:
 		struct SubmeshInfo
 		{
+			int m_MaterialID;
 			int m_IndicesCount;
 			int m_IndexArrayOffset;
 			int m_VertexArrayOffset;
 		};
+
+		struct InstanceInfo
+		{
+			uint32_t m_SubmeshID;
+			glm::mat4 m_InstanceTransform;
+		};
 		friend zpp::bits::access;
-		using serialize = zpp::bits::members<3>;
+		using serialize = zpp::bits::members<4>;
 		virtual void Serialzie(std::vector<std::byte>& out) override;
 		virtual void Deserialzie(std::vector<std::byte>& in) override;
 		constexpr uint32_t GetVertexCount() const { return m_Attributes.size(); }
@@ -68,11 +86,13 @@ namespace resource_management
 		constexpr void const* GetVertexData() const { return m_Attributes.data(); }
 		constexpr void const* GetIndicesData() const { return m_Indices16.data(); }
 		std::vector<SubmeshInfo> const& GetSubmeshInfos() const { return m_SubmeshInfos; }
+		std::vector<InstanceInfo> const& GetInstanceInfos() const { return m_Instance; }
 	private:
 		friend class StaticMeshImporter;
 		std::vector<CommonVertexData> m_Attributes;
 		std::vector<uint16_t> m_Indices16;
 		std::vector<SubmeshInfo> m_SubmeshInfos;
+		std::vector<InstanceInfo> m_Instance;
 	};
 
 	class StaticMeshImporter : public ResourceImporter<StaticMeshResource>
@@ -80,9 +100,9 @@ namespace resource_management
 	public:
 		StaticMeshImporter();
 		virtual std::string GetSourceFilePostfix() const override { return ".fbx"; }
-		virtual std::string GetDestFilePostfix() const override { return ".mesh"; }
+		virtual std::string GetDestFilePostfix() const override { return ""; }
 		virtual std::string GetTags() const override { return ""; }
-		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::string const& outPath) override;
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) override;
 	private:
 		Assimp::Importer m_Importer;
 	};

@@ -18,13 +18,18 @@ private:
 	std::shared_ptr<graphics_backend::GPUBuffer> m_IndicesBuffer;
 };
 
+struct MeshMaterial
+{
+	CPipelineStateObject pipelineStateObject;
+	GraphicsShaderSet shaderSet;
+	std::vector<std::shared_ptr<ShaderBindingSet>> materialShaderBindings;
+};
+
 struct MeshRenderer
 {
 public:
 	resource_management::StaticMeshResource* p_MeshResource;
-	CPipelineStateObject pipelineStateObject;
-	GraphicsShaderSet shaderSet;
-	std::vector<ShaderBindingBuilder> shaderBindingDescriptors;
+	std::vector<MeshMaterial> materials;
 };
 
 struct MeshDrawInfo
@@ -32,11 +37,13 @@ struct MeshDrawInfo
 public:
 	resource_management::StaticMeshResource* p_MeshResource;
 	uint32_t m_SubmeshIndex;
+	std::vector<std::shared_ptr<ShaderBindingSet>> p_ShaderBindings;
 
 	bool operator==(MeshDrawInfo const& rhs) const
 	{
 		return p_MeshResource == rhs.p_MeshResource
-			&& m_SubmeshIndex == rhs.m_SubmeshIndex;
+			&& m_SubmeshIndex == rhs.m_SubmeshIndex
+			&& p_ShaderBindings == rhs.p_ShaderBindings;
 	}
 
 	template <class HashAlgorithm>
@@ -44,6 +51,7 @@ public:
 	{
 		hash_append(h, rhs.p_MeshResource);
 		hash_append(h, rhs.m_SubmeshIndex);
+		hash_append(h, rhs.p_ShaderBindings);
 	}
 };
 
@@ -78,6 +86,7 @@ public:
 					cmd.SetShaderBindings({ m_PerViewShaderBindings });
 					for (auto drawCall : refData->drawCalls)
 					{
+						cmd.SetShaderBindings(drawCall.first.p_ShaderBindings, 1);
 						cmd.BindVertexBuffers({ drawCall.second.first.get() }, {}, 0);
 						g_MeshResourceToGPUData[drawCall.first.p_MeshResource].Draw(cmd
 						, drawCall.first.m_SubmeshIndex
@@ -94,6 +103,7 @@ public:
 	}
 
 	void AddMeshDrawcall(GraphicsPipelineStatesData const& pipelineStates
+		, std::vector<std::shared_ptr<ShaderBindingSet>> shaderBindings
 		, uint32_t instanceIndex
 		, resource_management::StaticMeshResource* pMeshResource
 		, uint32_t submeshID)
@@ -106,7 +116,7 @@ public:
 		auto& drawListInternal = find->second;
 		auto& submeshes = pMeshResource->GetSubmeshInfos();
 		{
-			MeshDrawInfo drawInfo{ pMeshResource, submeshID };
+			MeshDrawInfo drawInfo{ pMeshResource, submeshID, shaderBindings };
 			auto findDrawCall = drawListInternal.drawCalls.find(drawInfo);
 			if (findDrawCall == drawListInternal.drawCalls.end())
 			{
@@ -118,18 +128,32 @@ public:
 
 	void AddMesh(MeshRenderer const& meshRenderer, glm::mat4 const& transform)
 	{
-		m_Instances.push_back(transform);
-		uint32_t instanceIndex = m_Instances.size() - 1;
-
-		auto& submeshes = meshRenderer.p_MeshResource->GetSubmeshInfos();
-		GraphicsPipelineStatesData pipelineStatesData{
-			meshRenderer.pipelineStateObject
-			, GetDescriptor()
-			, meshRenderer.shaderSet
-			, meshRenderer.shaderBindingDescriptors };
-		for (int i = 0; i < submeshes.size(); ++i)
+		std::vector<GraphicsPipelineStatesData> materialPipelineStates;
+		materialPipelineStates.resize(meshRenderer.materials.size());
+		for (uint32_t i = 0; i < meshRenderer.materials.size(); ++i)
 		{
-			AddMeshDrawcall(pipelineStatesData, instanceIndex, meshRenderer.p_MeshResource, i);
+			materialPipelineStates[i] = GraphicsPipelineStatesData{
+			meshRenderer.materials[i].pipelineStateObject
+			, GetDescriptor() 
+			, meshRenderer.materials[i].shaderSet};
+			materialPipelineStates[i].shaderBindingDescriptors.resize(meshRenderer.materials[i].materialShaderBindings.size());
+			for (uint32_t mid = 0; mid < meshRenderer.materials[i].materialShaderBindings.size(); ++mid)
+			{
+				materialPipelineStates[i].shaderBindingDescriptors[mid] = meshRenderer.materials[i].materialShaderBindings[mid]->GetBindingSetDesc();
+			}
+		}
+
+		auto& instances = meshRenderer.p_MeshResource->GetInstanceInfos();
+		auto& submeshs = meshRenderer.p_MeshResource->GetSubmeshInfos();
+		for (int instanceID = 0; instanceID < instances.size(); ++instanceID)
+		{
+			auto& instance = instances[instanceID];
+			glm::mat4 instanceTrans = transform * instance.m_InstanceTransform;
+
+			m_Instances.push_back(instanceTrans);
+			uint32_t instanceIndex = m_Instances.size() - 1;
+			uint32_t matID = submeshs[instance.m_SubmeshID].m_MaterialID;
+			AddMeshDrawcall(materialPipelineStates[matID], meshRenderer.materials[matID].materialShaderBindings, instanceIndex, meshRenderer.p_MeshResource, instance.m_SubmeshID);
 		}
 	}
 
