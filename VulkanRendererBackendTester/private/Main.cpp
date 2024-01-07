@@ -336,43 +336,7 @@ int main(int argc, char *argv[])
 	
 	vertexBuffer->UploadAsync();
 	indexBuffer->UploadAsync();
-	//image->UploadAsync();
-
-	//MeshInfo meshInfo{ vertexInputDesc
-	//	, vertexBuffer
-	//	, indexBuffer
-	//	, EIndexBufferType::e16
-	//	, 6};
-
-	//std::vector<std::shared_ptr<ShaderBindingSet>> meshShaderBindings;
-	//std::vector<std::shared_ptr<ShaderConstantSet>> meshShaderConstants;
-
-	//meshShaderBindings.resize(16);
-	//meshShaderConstants.resize(16);
-
-	/*TestMeshInterface meshBatch{};
-	meshBatch.Initialize(pBackend);
-
-	for (uint16_t xx = 0; xx < 4; ++xx)
-	{
-		for (uint16_t yy = 0; yy < 4; ++yy)
-		{
-			uint32_t index = xx * 4 + yy;
-			meshShaderConstants[index] = pBackend->CreateShaderConstantSet(shaderConstantBuilder);
-			meshShaderBindings[index] = pBackend->CreateShaderBindingSet(shaderBindingBuilder);
-			meshShaderBindings[index]->SetConstantSet(meshShaderConstants[index]->GetName()
-				, meshShaderConstants[index]);
-			meshShaderBindings[index]->SetTexture("TestTexture", image);
-			meshShaderBindings[index]->SetSampler("TestSampler", sampler);
-
-			auto translation = glm::translate(glm::mat4(1.0f), glm::vec3(xx, yy, 0.0f) * 2.5f + glm::vec3(1.0f, 1.0f, 0.0f));
-			meshShaderConstants[index]->SetValue("ObjectMatrix", translation);
-			meshBatch.InsertMeshDrawcall(meshInfo
-							, CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
-							, shaderSet
-							, meshShaderBindings[index]);
-		}
-	}*/
+	
 
 	std::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();
