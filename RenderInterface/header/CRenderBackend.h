@@ -33,7 +33,6 @@ namespace graphics_backend
 		virtual std::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, std::string const& windowName) = 0;
 		virtual bool AnyWindowRunning() = 0;
 		virtual void TickWindows() = 0;
-		virtual void TickBackend() = 0;
 		virtual void ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph) = 0;
 		virtual std::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags usageFlags
 			, uint64_t count

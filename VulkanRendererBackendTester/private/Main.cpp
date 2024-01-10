@@ -343,7 +343,6 @@ int main(int argc, char *argv[])
 	std::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();
 	float deltaTime = 0.0f;
-	float rotation = 0.0f;
 	Camera cam;
 	bool mouseDown = false;
 	glm::vec2 lastMousePos = {0.0f, 0.0f};
@@ -373,131 +372,164 @@ int main(int argc, char *argv[])
 	{
 		auto baseTaskGraph = pThreadManager->NewTaskGraph()
 			->Name("BaseTaskGraph");
+		auto gamePlayGraph  = baseTaskGraph->NewTaskGraph()
+			->Name("GamePlayGraph");
 		pBackend->SetupGraphicsTaskGraph(baseTaskGraph->NewTaskGraph()
-			->Name("Graphics Task Graph"));
+			->Name("Graphics Task Graph")
+			->DependsOn(gamePlayGraph));
 
-		auto windowSize = windowHandle2->GetSizeSafe();
+		auto updateImGUIGraph = gamePlayGraph->NewTask()
+			->Name("Update Imgui")
+			->Functor([windowHandle2]()
+			{
+				auto& io = ImGui::GetIO();
+				auto windowSize = windowHandle2->GetSizeSafe();
+				UpdateIMGUI(windowSize.x, windowSize.y);
+				io.MousePos = ImVec2(windowHandle2->GetMouseX(), windowHandle2->GetMouseY());
+				io.MouseDown[0] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT);
+				io.MouseDown[1] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_RIGHT);
+				io.MouseDown[2] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_MIDDLE);
+			});
 
-		UpdateIMGUI(windowSize.x, windowSize.y);
-
-		io.MousePos = ImVec2(windowHandle2->GetMouseX(), windowHandle2->GetMouseY());
-		io.MouseDown[0] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT);
-		io.MouseDown[1] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_RIGHT);
-		io.MouseDown[2] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_MIDDLE);
-
-		{
-			int forwarding = 0;
-			int lefting = 0;
-			if (windowHandle2->IsKeyDown(CA_KEY_W))
-			{
-				++forwarding;
-			}
-			if (windowHandle2->IsKeyDown(CA_KEY_S))
-			{
-				--forwarding;
-			}
-			if (windowHandle2->IsKeyDown(CA_KEY_A))
-			{
-				++lefting;
-			}
-			if (windowHandle2->IsKeyDown(CA_KEY_D))
-			{
-				--lefting;
-			}
-			glm::vec2 mouseDelta = { 0.0f, 0.0f };
-			glm::vec2 mousePos = { windowHandle2->GetMouseX(),windowHandle2->GetMouseY() };
-			if (windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
-			{
-				//std::cout << "Mouse Down!" << std::endl;
-				if (!mouseDown)
+		auto updateCameraGraph = gamePlayGraph->NewTask()
+			->Name("Update Camera")
+			->Functor([plastMousePos = &lastMousePos
+				 , pCam = &cam
+				, pmouseDown = &mouseDown
+				, pdrawInterface = &drawInterface
+				, deltaTime
+				, windowHandle2]()
 				{
-					lastMousePos = mousePos;
-					mouseDown = true;
-				}
-				mouseDelta = mousePos - lastMousePos;
-				lastMousePos = mousePos;
-			}
-			else// if(windowHandle2->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
-			{
-				mouseDown = false;
-			}
-
-			auto windowSize1 = windowHandle2->GetSizeSafe();
-			cam.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
-			//std::cout << "Forward : " << forwarding << " Left : " << lefting << std::endl;
-			//std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
-
-			drawInterface.Update(cam.GetViewProjMatrix());
-
-			auto pRenderGraph = pRenderInterface->NewRenderGraph();
-			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2.get());
-
-			auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
-				windowSize.x, windowSize.y
-				, ETextureFormat::E_D32_SFLOAT
-				, ETextureAccessType::eRT | ETextureAccessType::eSampled });
-
-			auto colorTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
-				windowSize.x, windowSize.y
-				, ETextureFormat::E_R8G8B8A8_UNORM
-				, ETextureAccessType::eRT | ETextureAccessType::eSampled });
-
-			CAttachmentInfo targetattachmentInfo{};
-			targetattachmentInfo.format = pRenderGraph->GetTextureDescriptor(windowBackBuffer).format;
-			targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-
-			CAttachmentInfo colorAttachmentInfo{};
-			colorAttachmentInfo.format = ETextureFormat::E_R8G8B8A8_UNORM;
-			colorAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			colorAttachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
-
-			CAttachmentInfo depthAttachmentInfo{};
-			depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
-			depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-			depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(1.0f, 0x0);
-
-			pRenderGraph->NewRenderPass({ colorAttachmentInfo, depthAttachmentInfo })
-				.SetAttachmentTarget(0, colorTextureHandle)
-				.SetAttachmentTarget(1, depthTextureHandle)
-				.Subpass({ {0}, 1 }
-					, {}
-					, &drawInterface
-				);
-
-			auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, vertexDataList.size(), sizeof(VertexData))
-				.ScheduleBufferData(0, vertexDataList.size() * sizeof(VertexData), vertexDataList.data());
-			auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t))
-				.ScheduleBufferData(0, indexDataList.size() * sizeof(uint16_t), indexDataList.data());
-			
-			ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(finalBlitBindingBuilder)
-				.SetTexture("SourceTexture", colorTextureHandle)
-				.SetSampler("SourceSampler", sampler);
-			
-			pRenderGraph->NewRenderPass({ targetattachmentInfo })
-				.SetAttachmentTarget(0, windowBackBuffer)
-				.Subpass({ {0} }
-					, CPipelineStateObject{ {}, {RasterizerStates::CullOff()}}
-					, vertexInputDesc
-					, finalBlitShaderSet
-					, { {}, {blitBandingHandle} }
-					, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
+					int forwarding = 0;
+					int lefting = 0;
+					if (windowHandle2->IsKeyDown(CA_KEY_W))
 					{
-						cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ blitBandingHandle })
-							.BindVertexBuffers({ vertexBufferHandle }, {})
-							.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
-							.DrawIndexed(6);
-					});
+						++forwarding;
+					}
+					if (windowHandle2->IsKeyDown(CA_KEY_S))
+					{
+						--forwarding;
+					}
+					if (windowHandle2->IsKeyDown(CA_KEY_A))
+					{
+						++lefting;
+					}
+					if (windowHandle2->IsKeyDown(CA_KEY_D))
+					{
+						--lefting;
+					}
+					glm::vec2 mouseDelta = { 0.0f, 0.0f };
+					glm::vec2 mousePos = { windowHandle2->GetMouseX(),windowHandle2->GetMouseY() };
+					if (windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+					{
+						//std::cout << "Mouse Down!" << std::endl;
+						if (!*pmouseDown)
+						{
+							*plastMousePos = mousePos;
+							*pmouseDown = true;
+						}
+						mouseDelta = mousePos - *plastMousePos;
+						*plastMousePos = mousePos;
+					}
+					else// if(windowHandle2->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
+					{
+						*pmouseDown = false;
+					}
 
-			DrawIMGUI(pRenderGraph, windowBackBuffer, imguiShaderSet, imguiConstantBuilder, imguiBindingBuilder, sampler, fontImage);
-			pBackend->ExecuteRenderGraph(pRenderGraph);
-		}
+					auto windowSize1 = windowHandle2->GetSizeSafe();
+					pCam->Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
+					//std::cout << "Forward : " << forwarding << " Left : " << lefting << std::endl;
+					//std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
 
+					pdrawInterface->Update(pCam->GetViewProjMatrix());
+				});
+
+		gamePlayGraph->NewTask()
+			->Name("Setup Render Graph")
+			->DependsOn(updateImGUIGraph)
+			->DependsOn(updateCameraGraph)
+			->Functor([pBackend
+				, pRenderInterface
+				, windowHandle2
+				, pDrawInterface = &drawInterface
+				, pVertexList = &vertexDataList
+				, pIndexList = &indexDataList
+				, pFinalBlitShaderSet  = &finalBlitShaderSet
+				, pVertexInputDesc = &vertexInputDesc
+				, pFinalBlitBindingDesc = &finalBlitBindingBuilder
+				, sampler
+				, fontImage
+				, pimguiShaderSet = &imguiShaderSet
+				, pimguiConstantBuilder = &imguiConstantBuilder
+				, pimguiBindingBuilder = &imguiBindingBuilder]()
+				{
+					auto windowSize = windowHandle2->GetSizeSafe();
+
+					auto pRenderGraph = pRenderInterface->NewRenderGraph();
+					auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2.get());
+
+					auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
+						windowSize.x, windowSize.y
+						, ETextureFormat::E_D32_SFLOAT
+						, ETextureAccessType::eRT | ETextureAccessType::eSampled });
+
+					auto colorTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
+						windowSize.x, windowSize.y
+						, ETextureFormat::E_R8G8B8A8_UNORM
+						, ETextureAccessType::eRT | ETextureAccessType::eSampled });
+
+					CAttachmentInfo targetattachmentInfo{};
+					targetattachmentInfo.format = pRenderGraph->GetTextureDescriptor(windowBackBuffer).format;
+					targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+					targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+					CAttachmentInfo colorAttachmentInfo{};
+					colorAttachmentInfo.format = ETextureFormat::E_R8G8B8A8_UNORM;
+					colorAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+					colorAttachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+
+					CAttachmentInfo depthAttachmentInfo{};
+					depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
+					depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
+					depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(1.0f, 0x0);
+
+					pRenderGraph->NewRenderPass({ colorAttachmentInfo, depthAttachmentInfo })
+						.SetAttachmentTarget(0, colorTextureHandle)
+						.SetAttachmentTarget(1, depthTextureHandle)
+						.Subpass({ {0}, 1 }
+							, {}
+							, pDrawInterface
+						);
+
+					auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, pVertexList->size(), sizeof(VertexData))
+						.ScheduleBufferData(0, pVertexList->size() * sizeof(VertexData), pVertexList->data());
+					auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, pIndexList->size(), sizeof(uint16_t))
+						.ScheduleBufferData(0, pIndexList->size() * sizeof(uint16_t), pIndexList->data());
+
+					ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(*pFinalBlitBindingDesc)
+						.SetTexture("SourceTexture", colorTextureHandle)
+						.SetSampler("SourceSampler", sampler);
+
+					pRenderGraph->NewRenderPass({ targetattachmentInfo })
+						.SetAttachmentTarget(0, windowBackBuffer)
+						.Subpass({ {0} }
+							, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
+							, *pVertexInputDesc
+							, *pFinalBlitShaderSet
+							, { {}, {blitBandingHandle} }
+							, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
+							{
+								cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ blitBandingHandle })
+									.BindVertexBuffers({ vertexBufferHandle }, {})
+									.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
+									.DrawIndexed(6);
+							});
+					DrawIMGUI(pRenderGraph, windowBackBuffer, *pimguiShaderSet, *pimguiConstantBuilder, *pimguiBindingBuilder, sampler, fontImage);
+					pBackend->ExecuteRenderGraph(pRenderGraph);
+				});
 
 		m_TaskFuture = baseTaskGraph->Run();
 		m_TaskFuture.wait();
-
-		pBackend->TickBackend();
 		pBackend->TickWindows();
 		++frame;
 		auto currentTime = timer.now();

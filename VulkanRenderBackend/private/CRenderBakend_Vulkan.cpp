@@ -43,11 +43,6 @@ namespace graphics_backend
 	{
 		m_Application.TickWindowContexts();
 	}
-	void CRenderBackend_Vulkan::TickBackend()
-	{
-		//m_Application.EndThisFrame();
-		//m_Application.PrepareBeforeTick();
-	}
 
 	void CRenderBackend_Vulkan::ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
 	{

@@ -16,7 +16,6 @@ namespace graphics_backend
 		std::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, std::string const& windowName) override;
 		bool AnyWindowRunning() override;
 		void TickWindows() override;
-		virtual void TickBackend() override;
 		virtual void ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph) override;
 		virtual std::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags usageFlags
 			, uint64_t count
