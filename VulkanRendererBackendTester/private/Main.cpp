@@ -240,7 +240,9 @@ int main(int argc, char *argv[])
 
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
-	pBackend->InitializeThreadContextCount(pThreadManager.get(), 5);
+	pBackend->InitializeThreadContextCount(5);
+	pBackend->SetupGraphicsTaskGraph(pThreadManager->NewTaskGraph()
+		->Name("Graphics Task Graph"));
 
 	auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
 
@@ -364,8 +366,16 @@ int main(int argc, char *argv[])
 	fontImage->ScheduleTextureData(0, texWidth * texHeight * 4, fontData);
 	fontImage->UploadAsync();
 
+	std::shared_future<void> m_TaskFuture;
+	m_TaskFuture = pBackend->GetGraphicsTaskGraph()->Run();
+	m_TaskFuture.wait();
 	while (pBackend->AnyWindowRunning())
 	{
+		auto baseTaskGraph = pThreadManager->NewTaskGraph()
+			->Name("BaseTaskGraph");
+		pBackend->SetupGraphicsTaskGraph(baseTaskGraph->NewTaskGraph()
+			->Name("Graphics Task Graph"));
+
 		auto windowSize = windowHandle2->GetSizeSafe();
 
 		UpdateIMGUI(windowSize.x, windowSize.y);
@@ -418,7 +428,6 @@ int main(int argc, char *argv[])
 			//std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
 
 			drawInterface.Update(cam.GetViewProjMatrix());
-			//meshBatch.Update(cam.GetViewProjMatrix());
 
 			auto pRenderGraph = pRenderInterface->NewRenderGraph();
 			auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2.get());
@@ -484,6 +493,10 @@ int main(int argc, char *argv[])
 			pBackend->ExecuteRenderGraph(pRenderGraph);
 		}
 
+
+		m_TaskFuture = baseTaskGraph->Run();
+		m_TaskFuture.wait();
+
 		pBackend->TickBackend();
 		pBackend->TickWindows();
 		++frame;
@@ -493,6 +506,10 @@ int main(int argc, char *argv[])
 		deltaTime = duration / 1000.0f;
 		deltaTime = std::max(deltaTime, 0.005f);
 		float frameRate = 1.0f / deltaTime;
+	}
+	if (m_TaskFuture.valid())
+	{
+		m_TaskFuture.wait();
 	}
 	pBackend->Release();
 	pBackend.reset();

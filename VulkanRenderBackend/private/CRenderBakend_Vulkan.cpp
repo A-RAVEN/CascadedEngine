@@ -9,10 +9,19 @@ namespace graphics_backend
 		m_Application.InitApp(appName, engineName);
 	}
 
-	void CRenderBackend_Vulkan::InitializeThreadContextCount(CThreadManager* threadManager, uint32_t threadCount)
+	void CRenderBackend_Vulkan::InitializeThreadContextCount(uint32_t threadCount)
 	{
-		m_Application.InitializeThreadContext(threadManager, threadCount);
-		m_Application.PrepareBeforeTick();
+		m_Application.InitializeThreadContext(threadCount);
+	}
+
+	void CRenderBackend_Vulkan::SetupGraphicsTaskGraph(CTaskGraph* taskGraph)
+	{
+		m_Application.PrepareBeforeTick(taskGraph);
+	}
+
+	CTaskGraph* CRenderBackend_Vulkan::GetGraphicsTaskGraph() const
+	{
+		return m_Application.GetGraphicsTaskGraph();
 	}
 
 	void CRenderBackend_Vulkan::Release()
@@ -36,8 +45,8 @@ namespace graphics_backend
 	}
 	void CRenderBackend_Vulkan::TickBackend()
 	{
-		m_Application.EndThisFrame();
-		m_Application.PrepareBeforeTick();
+		//m_Application.EndThisFrame();
+		//m_Application.PrepareBeforeTick();
 	}
 
 	void CRenderBackend_Vulkan::ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)

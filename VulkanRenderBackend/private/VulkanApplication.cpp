@@ -15,11 +15,9 @@
 
 namespace graphics_backend
 {
-	void CVulkanApplication::PrepareBeforeTick()
+	void CVulkanApplication::PrepareBeforeTick(CTaskGraph* rootTaskGraph)
 	{
-		p_TaskGraph = p_ThreadManager->NewTaskGraph();
-		p_TaskGraph->Name("Base GPU Task Graph");
-
+		p_TaskGraph = rootTaskGraph;
 		auto initializeTask = p_TaskGraph->NewTask()
 			->Name("GPU Frame Initialize")
 			->Functor([this]()
@@ -57,31 +55,9 @@ namespace graphics_backend
 		p_FinalizeTaskGraph = p_TaskGraph->NewTaskGraph()
 			->Name("Finalize Task Graph")
 			->DependsOn(p_RenderingTaskGraph);
-
-		//Tick uploading shader bindings
-		m_ShaderBindingSetAllocator.Foreach([this](ShaderBindingBuilder const&, ShaderBindingSetAllocator* allocator)
-			{
-				auto addressUploadTask = p_GPUAddressUploadingTaskGraph->NewTaskGraph()
-					->Name("Upload Shader Bindings " + allocator->GetMetadata().GetBindingsDescriptor()->GetSpaceName());
-				allocator->TickUploadResources(addressUploadTask);
-			});
-
-		//Tick uploading shader bindings
-		m_ConstantSetAllocator.Foreach([this](ShaderConstantsBuilder const&, ShaderConstantSetAllocator* allocator)
-			{
-				auto shaderConstantsUploadTask = p_MemoryResourceUploadingTaskGraph->NewTaskGraph()
-					->Name("Upload Shader Constants " + allocator->GetMetadata().GetBuilder()->GetName());
-				allocator->TickUploadResources(shaderConstantsUploadTask);
-			});
-
-	}
-
-	void CVulkanApplication::EndThisFrame()
-	{
-		//auto executors = shared_tools::makeMoveWrapper(m_Executors);
 		p_FinalizeTaskGraph->NewTask()
 			->Name("Finalize")
-			->Functor([this, executors = shared_tools::makeMoveWrapper(m_Executors)]()
+			->Functor([this]()
 				{
 					//收集 Misc Commandbuffers
 					std::vector<vk::CommandBuffer> waitingSubmitCommands;
@@ -90,10 +66,11 @@ namespace graphics_backend
 						itrThreadContext->CollectSubmittingCommandBuffers(waitingSubmitCommands);
 					}
 
-					for (RenderGraphExecutor const& executor : *executors)
+					for (RenderGraphExecutor const& executor : m_Executors)
 					{
 						executor.CollectCommands(waitingSubmitCommands);
 					}
+					m_Executors.clear();
 
 					bool anyPresent = false;
 					if (!m_WindowContexts.empty())
@@ -139,20 +116,38 @@ namespace graphics_backend
 							}
 						}
 					}
-					if(!anyPresent)
+					if (!anyPresent)
 					{
 						m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands);
 					}
-				});
+				});;
 
-		m_Executors.clear();
+		//Tick uploading shader bindings
+		m_ShaderBindingSetAllocator.Foreach([this](ShaderBindingBuilder const&, ShaderBindingSetAllocator* allocator)
+			{
+				auto addressUploadTask = p_GPUAddressUploadingTaskGraph->NewTaskGraph()
+					->Name("Upload Shader Bindings " + allocator->GetMetadata().GetBindingsDescriptor()->GetSpaceName());
+				allocator->TickUploadResources(addressUploadTask);
+			});
 
-		if (m_TaskFuture.valid())
-		{
-			m_TaskFuture.wait();
-		}
+		//Tick uploading shader bindings
+		m_ConstantSetAllocator.Foreach([this](ShaderConstantsBuilder const&, ShaderConstantSetAllocator* allocator)
+			{
+				auto shaderConstantsUploadTask = p_MemoryResourceUploadingTaskGraph->NewTaskGraph()
+					->Name("Upload Shader Constants " + allocator->GetMetadata().GetBuilder()->GetName());
+				allocator->TickUploadResources(shaderConstantsUploadTask);
+			});
 
-		m_TaskFuture = p_TaskGraph->Run();
+	}
+
+	void CVulkanApplication::EndThisFrame()
+	{
+		//if (m_TaskFuture.valid())
+		//{
+		//	m_TaskFuture.wait();
+		//}
+
+		//m_TaskFuture = p_TaskGraph->Run();
 	}
 
 	void CVulkanApplication::ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
@@ -469,11 +464,10 @@ namespace graphics_backend
 		}
 	}
 
-	void CVulkanApplication::InitializeThreadContext(CThreadManager* threadManager, uint32_t threadCount)
+	void CVulkanApplication::InitializeThreadContext(uint32_t threadCount)
 	{
 		CA_ASSERT(threadCount > 0, "Thread Count Should Be Greater Than 0");
 		CA_ASSERT(m_ThreadContexts.size() == 0, "Thread Contexts Are Already Initialized");
-		p_ThreadManager = threadManager;
 		m_ThreadContexts.reserve(threadCount);
 		for (uint32_t threadContextId = 0; threadContextId < threadCount; ++threadContextId)
 		{
@@ -521,11 +515,6 @@ namespace graphics_backend
 			{
 				ReturnThreadContext(*releasingContext);
 			});
-	}
-
-	CThreadManager* CVulkanApplication::GetThreadManager() const
-	{
-		return p_ThreadManager;
 	}
 
 	CTask* CVulkanApplication::NewTask()
@@ -651,7 +640,7 @@ namespace graphics_backend
 
 	void CVulkanApplication::DeviceWaitIdle()
 	{
-		m_TaskFuture.wait();
+		//m_TaskFuture.wait();
 		if (m_Device != vk::Device(nullptr))
 		{
 			m_Device.waitIdle();

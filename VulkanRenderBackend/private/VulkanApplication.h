@@ -28,7 +28,7 @@ namespace graphics_backend
 		CVulkanApplication();
 		~CVulkanApplication();
 		void InitApp(std::string const& appName, std::string const& engineName);
-		void InitializeThreadContext(CThreadManager* threadManager, uint32_t threadCount);
+		void InitializeThreadContext(uint32_t threadCount);
 		void ReleaseApp();
 		void DeviceWaitIdle();
 		inline vk::Instance const& GetInstance() const
@@ -57,7 +57,8 @@ namespace graphics_backend
 		void ReturnThreadContext(CVulkanThreadContext& returningContext);
 		std::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
 
-		CThreadManager* GetThreadManager() const;
+		CTaskGraph* GetGraphicsTaskGraph() const { return p_TaskGraph; }
+
 		CTask* NewTask();
 		TaskParallelFor* NewTaskParallelFor();
 		CTask* NewUploadingTask(UploadingResourceType resourceType);
@@ -105,7 +106,7 @@ namespace graphics_backend
 			subobject.Release();
 		}
 
-		void PrepareBeforeTick();
+		void PrepareBeforeTick(CTaskGraph* rootTaskGraph);
 		void EndThisFrame();
 		void ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph);
 
@@ -157,7 +158,7 @@ namespace graphics_backend
 		mutable std::vector<CVulkanThreadContext> m_ThreadContexts;
 
 		//Thread Manager
-		CThreadManager* p_ThreadManager = nullptr;
+		//CThreadManager* p_ThreadManager = nullptr;
 		//Root Graph
 		CTaskGraph* p_TaskGraph = nullptr;
 		//Resource Loading Graph
@@ -168,7 +169,7 @@ namespace graphics_backend
 		//Finalize Graph
 		CTaskGraph* p_FinalizeTaskGraph = nullptr;
 		//Future
-		std::shared_future<void> m_TaskFuture;
+		//std::shared_future<void> m_TaskFuture;
 
 		TVulkanApplicationPool<GPUBuffer_Impl> m_GPUBufferPool;
 		TVulkanApplicationPool<GPUTexture_Impl> m_GPUTexturePool;
@@ -179,7 +180,6 @@ namespace graphics_backend
 
 		GPUObjectManager m_GPUObjectManager;
 		RenderGraphExecutorDic m_RenderGraphDic;
-		//std::vector<RenderGraphExecutor*> m_CurrentFrameRenderGraphExecutors;
 
 		std::deque<RenderGraphExecutor> m_Executors;
 
