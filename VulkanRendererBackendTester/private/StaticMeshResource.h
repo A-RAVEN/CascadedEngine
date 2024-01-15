@@ -4,7 +4,7 @@
 #include <GeneralResources/header/ResourceManagingSystem.h>
 #include "TestShaderProvider.h"
 #include <ShaderCompiler/header/Compiler.h>
-#include <SharedTools/header/library_loader.h>
+#include <CACore/header/library_loader.h>
 #include <ExternalLib/zpp_bits/zpp_bits.h>
 #include <assimp/Importer.hpp>      // C++ importer interface
 #include <assimp/scene.h>           // Output data structure

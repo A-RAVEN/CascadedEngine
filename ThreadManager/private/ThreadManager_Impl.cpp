@@ -43,25 +43,30 @@ namespace thread_management
 
     CTask* TaskGraph_Impl1::NewTask()
     {
-        return NewTask_Internal();
+        std::lock_guard<std::mutex> guard(m_Mutex);
+        auto result = m_Allocator->NewTask(this);
+        m_SubTasks.push_back(result);
+        return result;
     }
 
     TaskParallelFor* TaskGraph_Impl1::NewTaskParallelFor()
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
-        m_TaskParallelForPool.emplace_back(this, m_OwningManager);
-        TaskParallelFor_Impl* result = &m_TaskParallelForPool.back();
+        auto result = m_Allocator->NewTaskParallelFor(this);
         m_SubTasks.push_back(result);
         return result;
     }
 
     CTaskGraph* TaskGraph_Impl1::NewTaskGraph()
     {
-        return NewSubTaskGraph_Internal();
+        std::lock_guard<std::mutex> guard(m_Mutex);
+        auto result = m_Allocator->NewTaskGraph(this);
+        m_SubTasks.push_back(result);
+        return result;
     }
 
-    TaskGraph_Impl1::TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager) :
-        TaskNode(TaskObjectType::eGraph, owner, owningManager)
+    TaskGraph_Impl1::TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
+        TaskNode(TaskObjectType::eGraph, owner, owningManager, allocator)
     {
     }
 
@@ -70,37 +75,8 @@ namespace thread_management
         m_PendingSubnodeCount.store(0, std::memory_order_relaxed);
         m_RootTasks.clear();
         m_SubTasks.clear();
-        for (auto& ref_subtask : m_TaskPool)
-        {
-            ref_subtask.Release();
-        }
-        m_TaskPool.clear();
-        for (auto p_subtaskgraph : m_TaskGraphPool)
-        {
-            p_subtaskgraph->Release();
-            delete p_subtaskgraph;
-        }
-        m_TaskGraphPool.clear();
         m_Functor = nullptr;
         Release_Internal();
-    }
-
-    CTask_Impl1* TaskGraph_Impl1::NewTask_Internal()
-    {
-        std::lock_guard<std::mutex> guard(m_Mutex);
-        m_TaskPool.emplace_back(this, m_OwningManager);
-        CTask_Impl1* result = &m_TaskPool.back();
-        m_SubTasks.push_back(result);
-        return result;
-    }
-
-    TaskGraph_Impl1* TaskGraph_Impl1::NewSubTaskGraph_Internal()
-    {
-        std::lock_guard<std::mutex> guard(m_Mutex);
-        m_TaskGraphPool.emplace_back(new TaskGraph_Impl1{ this, m_OwningManager });
-        TaskGraph_Impl1* result = m_TaskGraphPool.back();
-        m_SubTasks.push_back(result);
-        return result;
     }
 
     void TaskGraph_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
@@ -172,8 +148,8 @@ namespace thread_management
         Functor_Internal(std::move(functor));
         return this;
     }
-    CTask_Impl1::CTask_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager) :
-        TaskNode(TaskObjectType::eNode, owner, owningManager)
+    CTask_Impl1::CTask_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
+        TaskNode(TaskObjectType::eNode, owner, owningManager, allocator)
     {
     }
 
@@ -199,9 +175,7 @@ namespace thread_management
 
     ThreadManager_Impl1::ThreadManager_Impl1() : 
         TaskBaseObject(TaskObjectType::eManager)
-        , m_TaskGraphPool(threadsafe_utils::DefaultInitializer<TaskGraph_Impl1>{})
-        , m_TaskPool(threadsafe_utils::DefaultInitializer<CTask_Impl1>{})
-        , m_TaskParallelForPool(threadsafe_utils::DefaultInitializer<TaskParallelFor_Impl>{})
+        , m_TaskNodeAllocator(this)
     {
     }
 
@@ -227,15 +201,20 @@ namespace thread_management
     }
     CTask* ThreadManager_Impl1::NewTask()
     {
-        return m_TaskPool.Alloc(this, this);
+        return m_TaskNodeAllocator.NewTask(this);
     }
     TaskParallelFor* ThreadManager_Impl1::NewTaskParallelFor()
     {
-        return m_TaskParallelForPool.Alloc(this, this);
+        return m_TaskNodeAllocator.NewTaskParallelFor(this);
     }
     CTaskGraph* ThreadManager_Impl1::NewTaskGraph()
     {
-        return m_TaskGraphPool.Alloc(this, this);
+        return m_TaskNodeAllocator.NewTaskGraph(this);
+    }
+
+    void ThreadManager_Impl1::LogStatus() const
+    {
+        m_TaskNodeAllocator.LogStatus();
     }
 
     void ThreadManager_Impl1::EnqueueTaskNode(TaskNode* enqueueNode)
@@ -248,7 +227,7 @@ namespace thread_management
             m_ConditinalVariable.notify_one();
         }
     }
-    void ThreadManager_Impl1::EnqueueTaskNodes(std::deque<TaskNode*> const& nodeDeque)
+    void ThreadManager_Impl1::EnqueueTaskNodes(std::vector<TaskNode*> const& nodeDeque)
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
         uint32_t enqueuedCounter = 0;
@@ -273,29 +252,41 @@ namespace thread_management
 			m_ConditinalVariable.notify_one();
 		}
     }
+    void ThreadManager_Impl1::SignalEvent(std::string const& eventName, uint64_t signalFrame)
+    {
+        std::lock_guard<std::mutex> guard(m_Mutex);
+        auto found = m_EventMap.find(eventName);
+        if(found == m_EventMap.end())
+		{
+            found = m_EventMap.insert(std::make_pair(eventName, m_EventWaitLists.size())).first;
+            m_EventWaitLists.emplace_back();
+		}
+        auto& waitList = m_EventWaitLists[found->second];
+        waitList.Signal(signalFrame);
+        uint32_t enqueuedCounter = 0;
+        while (waitList.m_WaitingFrames.front().first <= waitList.m_SignaledFrame)
+        {
+            for(uint32_t i = 0; i < waitList.m_WaitingFrames.front().second; ++i)
+			{
+                TaskNode* waitNode = waitList.m_WaitingTasks.front();
+                waitList.m_WaitingTasks.pop_front();
+                CA_ASSERT(!waitNode->m_Running, "Task is already running");
+                waitNode->m_Running.store(true, std::memory_order_relaxed);
+                m_TaskQueue.push_back(waitNode);
+                ++enqueuedCounter;
+			}
+        }
+        if (enqueuedCounter > 1)
+        {
+            m_ConditinalVariable.notify_all();
+        }
+        else if (enqueuedCounter == 1)
+        {
+            m_ConditinalVariable.notify_one();
+        }
+    }
     void ThreadManager_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
     {
-        switch (childNode->GetTaskObjectType())
-        {
-            case TaskObjectType::eGraph:
-			{
-                m_TaskGraphPool.Release(static_cast<TaskGraph_Impl1*>(childNode));
-				break;
-			}
-            case TaskObjectType::eNode:
-            {
-                m_TaskPool.Release(static_cast<CTask_Impl1*>(childNode));
-                break;
-            }
-            case TaskObjectType::eNodeParallel:
-            {
-                m_TaskParallelForPool.Release(static_cast<TaskParallelFor_Impl*>(childNode));
-                break;
-            }
-            default:
-				CA_LOG_ERR("Invalid TaskNode Type");
-				break;
-        }
     }
     void ThreadManager_Impl1::ProcessingWorks(uint32_t threadId)
     {
@@ -373,19 +364,15 @@ namespace thread_management
         return StartExecute();
     }
 
-    TaskParallelFor_Impl::TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager) :
-        TaskNode(TaskObjectType::eNodeParallel, owner, owningManager)
+    TaskParallelFor_Impl::TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
+        TaskNode(TaskObjectType::eNodeParallel, owner, owningManager, allocator)
     {
     }
 
     void TaskParallelFor_Impl::Release()
     {
         m_PendingSubnodeCount.store(0, std::memory_order_relaxed);
-        for (auto& ref_subtask : m_TaskPool)
-        {
-            ref_subtask.Release();
-        }
-        m_TaskPool.clear();
+        m_TaskList.clear();
         Release_Internal();
     }
 
@@ -405,19 +392,83 @@ namespace thread_management
             FinalizeExecution_Internal();
             return;
         };
-        std::deque<TaskNode*> p_nodes;
+        m_TaskList.clear();
+        m_TaskList.reserve(m_PendingSubnodeCount);
         for (uint32_t taskId = 0; taskId < m_PendingSubnodeCount; ++taskId)
         {
-            m_TaskPool.emplace_back(this, m_OwningManager);
-            CTask_Impl1* itrTask = &m_TaskPool.back();
-            itrTask->Name(m_Name + " Subtask:" + std::to_string(taskId));
-            itrTask->Functor([functor = m_Functor, taskId]()
-				{
-                    functor(taskId);
-				});
-		    p_nodes.push_back(itrTask);
+            auto pTask = m_Allocator->NewTask(this);
+            pTask->Name(m_Name + " Subtask:" + std::to_string(taskId))
+                ->Functor([functor = m_Functor, taskId]()
+                    {
+                        functor(taskId);
+                    });
+            m_TaskList.push_back(pTask);
         };
-        m_OwningManager->EnqueueTaskNodes(p_nodes);
+        m_OwningManager->EnqueueTaskNodes(m_TaskList);
+    }
+    TaskNodeAllocator::TaskNodeAllocator(ThreadManager_Impl1* owningManager) :  
+        m_OwningManager(owningManager)
+        , m_TaskGraphPool(threadsafe_utils::DefaultInitializer<TaskGraph_Impl1>{})
+        , m_TaskPool(threadsafe_utils::DefaultInitializer<CTask_Impl1>{})
+        , m_TaskParallelForPool(threadsafe_utils::DefaultInitializer<TaskParallelFor_Impl>{})
+    {
+    }
+    CTask_Impl1* TaskNodeAllocator::NewTask(TaskBaseObject* owner)
+    {
+        auto result = m_TaskPool.Alloc(owner, m_OwningManager, this);
+        result->SetOwner(owner);
+        return result;
+    }
+    TaskParallelFor_Impl* TaskNodeAllocator::NewTaskParallelFor(TaskBaseObject* owner)
+    {
+        auto result = m_TaskParallelForPool.Alloc(owner, m_OwningManager, this);
+        result->SetOwner(owner);
+        return result;
+    }
+    TaskGraph_Impl1* TaskNodeAllocator::NewTaskGraph(TaskBaseObject* owner)
+    {
+        auto result = m_TaskGraphPool.Alloc(owner, m_OwningManager, this);
+        result->SetOwner(owner);
+        return result;
+    }
+   
+    void TaskNodeAllocator::Release(TaskNode* childNode)
+    {
+        switch (childNode->GetTaskObjectType())
+        {
+        case TaskObjectType::eGraph:
+        {
+            m_TaskGraphPool.Release(static_cast<TaskGraph_Impl1*>(childNode));
+            break;
+        }
+        case TaskObjectType::eNode:
+        {
+            m_TaskPool.Release(static_cast<CTask_Impl1*>(childNode));
+            break;
+        }
+        case TaskObjectType::eNodeParallel:
+        {
+            m_TaskParallelForPool.Release(static_cast<TaskParallelFor_Impl*>(childNode));
+            break;
+        }
+        default:
+            CA_LOG_ERR("Invalid TaskNode Type");
+            break;
+        }
+    }
+
+    void TaskNodeAllocator::LogStatus() const
+    {
+        std::cout << "tasks: " << m_TaskGraphPool.GetPoolSize() << ";  " << m_TaskGraphPool.GetEmptySpaceSize() << std::endl;
+        std::cout << "parallelTasks: " << m_TaskParallelForPool.GetPoolSize() << ";  " << m_TaskParallelForPool.GetEmptySpaceSize() << std::endl;
+        std::cout << "taskGraphs: " << m_TaskGraphPool.GetPoolSize() << ";  " << m_TaskGraphPool.GetEmptySpaceSize() << std::endl;
+    }
+    void ThreadManager_Impl1::TaskWaitList::Signal(uint64_t signalFrame)
+    {
+        if (signalFrame > m_SignaledFrame)
+        {
+            m_SignaledFrame = signalFrame;
+        }
     }
 }
 

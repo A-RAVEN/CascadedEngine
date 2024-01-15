@@ -3,11 +3,13 @@
 #include <deque>
 #include <unordered_map>
 #include <header/ThreadManager.h>
-#include <SharedTools/header/ThreadSafePool.h>
+#include <CACore/header/ThreadSafePool.h>
 #include "TaskNode.h"
 
 namespace thread_management
 {
+	class TaskNodeAllocator;
+
 	class CTask_Impl1 : public TaskNode, public CTask
 	{
 	public:
@@ -19,7 +21,7 @@ namespace thread_management
 
 		virtual CTask* Functor(std::function<void()>&& functor) override;
 	public:
-		CTask_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager);
+		CTask_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		// 通过 CTask 继承
 		 void Functor_Internal(std::function<void()>&& functor);
 		 void Initialize() {}
@@ -42,7 +44,7 @@ namespace thread_management
 		virtual std::shared_future<void> Run() override;
 
 	public:
-		TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager);
+		TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 
 		void Initialize() {}
 		void Release();
@@ -53,7 +55,7 @@ namespace thread_management
 	private:
 		std::function<void(uint32_t)> m_Functor;
 		std::atomic<uint32_t>m_PendingSubnodeCount{0};
-		std::deque<CTask_Impl1> m_TaskPool;
+		std::vector<TaskNode*> m_TaskList;
 	};
 
 	class TaskGraph_Impl1 : public TaskNode, public CTaskGraph
@@ -71,27 +73,37 @@ namespace thread_management
 		virtual CTaskGraph* NewTaskGraph() override;
 
 	public:
-		TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager);
+		TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void Initialize() {}
 		void Release();
 	protected:
-		CTask_Impl1* NewTask_Internal();
-		TaskGraph_Impl1* NewSubTaskGraph_Internal();
 		// 通过 TaskNode 继承
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 		virtual void Execute_Internal() override;
 		virtual void SetupSubnodeDependencies() override;
 	private:
 		std::function<void(CTaskGraph* thisGraph)> m_Functor = nullptr;
-		std::deque<TaskNode*> m_RootTasks;
+		std::vector<TaskNode*> m_RootTasks;
 		std::atomic<uint32_t>m_PendingSubnodeCount{0};
 
 		std::mutex m_Mutex;
 		std::deque<TaskNode*> m_SubTasks;
-		std::deque<CTask_Impl1> m_TaskPool;
-		std::deque<TaskParallelFor_Impl> m_TaskParallelForPool;
-		//在类里面放自己的deque会不会有问题？
-		std::deque<TaskGraph_Impl1*> m_TaskGraphPool;
+	};
+
+	class TaskNodeAllocator
+	{
+	public:
+		TaskNodeAllocator(ThreadManager_Impl1* owningManager);
+		CTask_Impl1* NewTask(TaskBaseObject* owner);
+		TaskParallelFor_Impl* NewTaskParallelFor(TaskBaseObject* owner);
+		TaskGraph_Impl1* NewTaskGraph(TaskBaseObject* owner);
+		void Release(TaskNode* node);
+		void LogStatus() const;
+	private:
+		threadsafe_utils::TThreadSafePointerPool<CTask_Impl1> m_TaskPool;
+		threadsafe_utils::TThreadSafePointerPool<TaskParallelFor_Impl> m_TaskParallelForPool;
+		threadsafe_utils::TThreadSafePointerPool<TaskGraph_Impl1> m_TaskGraphPool;
+		ThreadManager_Impl1* m_OwningManager;
 	};
 
 	class ThreadManager_Impl1 : public TaskBaseObject, public CThreadManager
@@ -101,11 +113,13 @@ namespace thread_management
 		virtual CTask* NewTask() override;
 		virtual TaskParallelFor* NewTaskParallelFor() override;
 		virtual CTaskGraph* NewTaskGraph() override;
+		virtual void LogStatus() const override;
 	public:
 		ThreadManager_Impl1();
 		~ThreadManager_Impl1();
 		void EnqueueTaskNode(TaskNode* node);
-		void EnqueueTaskNodes(std::deque<TaskNode*> const& nodeDeque);
+		void EnqueueTaskNodes(std::vector<TaskNode*> const& nodeDeque);
+		void SignalEvent(std::string const& eventName, uint64_t signalFrame);
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
 		void ProcessingWorks(uint32_t threadId);
@@ -117,8 +131,16 @@ namespace thread_management
 		std::mutex m_Mutex;
 		std::condition_variable m_ConditinalVariable;
 
-		threadsafe_utils::TThreadSafePointerPool<CTask_Impl1> m_TaskPool;
-		threadsafe_utils::TThreadSafePointerPool<TaskParallelFor_Impl> m_TaskParallelForPool;
-		threadsafe_utils::TThreadSafePointerPool<TaskGraph_Impl1> m_TaskGraphPool;
+		TaskNodeAllocator m_TaskNodeAllocator;
+
+		std::unordered_map<std::string, uint32_t> m_EventMap;
+		struct TaskWaitList
+		{
+			std::deque<TaskNode*> m_WaitingTasks;
+			std::deque<std::pair<uint64_t, uint32_t>> m_WaitingFrames;
+			uint64_t m_SignaledFrame = 0;
+			void Signal(uint64_t signalFrame);
+		};
+		std::vector<TaskWaitList> m_EventWaitLists;
 	};
 }

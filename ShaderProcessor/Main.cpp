@@ -5,8 +5,8 @@
 #include <filesystem>
 #include <iostream>
 #include <vector>
-#include <SharedTools/header/FileLoader.h>
-#include <SharedTools/header/DebugUtils.h>
+#include <CACore/header/FileLoader.h>
+#include <CACore/header/DebugUtils.h>
 using namespace Microsoft::WRL;
 
 int main(int argc, char* argv[])

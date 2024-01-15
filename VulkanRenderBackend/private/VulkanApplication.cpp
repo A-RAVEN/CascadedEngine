@@ -9,9 +9,9 @@
 #include "InterfaceTranslator.h"
 #include "RenderGraphExecutor.h"
 #include <ShaderCompiler/header/Compiler.h>
-#include <SharedTools/header/library_loader.h>
-#include <SharedTools/header/FileLoader.h>
-#include <SharedTools/header/MoveWrapper.h>
+#include <CACore/header/library_loader.h>
+#include <CACore/header/FileLoader.h>
+#include <CACore/header/MoveWrapper.h>
 
 namespace graphics_backend
 {

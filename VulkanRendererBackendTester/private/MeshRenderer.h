@@ -1,7 +1,7 @@
 #pragma once
 #include "StaticMeshResource.h"
 #include <RenderInterface/header/CRenderBackend.h>
-#include <SharedTools/header/uhash.h>
+#include <CACore/header/uhash.h>
 
 using namespace graphics_backend;
 class MeshGPUData

@@ -3,7 +3,7 @@
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include "RenderPassObject.h"
-#include <SharedTools/header/uhash.h>
+#include <CACore/header/uhash.h>
 
 template<>
 struct hash_utils::is_contiguously_hashable<vk::ImageView> : public std::true_type {};

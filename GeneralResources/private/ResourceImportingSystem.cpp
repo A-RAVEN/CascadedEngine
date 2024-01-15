@@ -4,9 +4,9 @@
 #include <unordered_map>
 #include <filesystem>
 #include <deque>
-#include <SharedTools/header/LibraryExportCommon.h>
-#include <SharedTools/header/DebugUtils.h>
-#include <SharedTools/header/FileLoader.h>
+#include <CACore/header/LibraryExportCommon.h>
+#include <CACore/header/DebugUtils.h>
+#include <CACore/header/FileLoader.h>
 
 namespace resource_management
 {

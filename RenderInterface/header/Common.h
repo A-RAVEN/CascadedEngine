@@ -1,8 +1,8 @@
 #pragma once
-#include <SharedTools/header/Platform.h>
+#include <CACore/header/Platform.h>
 #include <cstdint>
-#include <SharedTools/header/uenum.h>
-#include <SharedTools/header/DebugUtils.h>
+#include <CACore/header/uenum.h>
+#include <CACore/header/DebugUtils.h>
 
 
 using TIndex = uint32_t;

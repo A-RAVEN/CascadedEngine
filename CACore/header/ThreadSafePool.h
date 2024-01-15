@@ -78,6 +78,16 @@ namespace threadsafe_utils
 			std::lock_guard<std::mutex> lockGuard(m_Mutex);
 			return m_EmptySpaces.size() == m_Pool.size();
 		}
+
+		uint32_t GetPoolSize() const
+		{
+			return static_cast<uint32_t>(m_Pool.size());
+		}
+
+		uint32_t GetEmptySpaceSize() const
+		{
+			return static_cast<uint32_t>(m_EmptySpaces.size());
+		}
 	protected:
 		std::mutex m_Mutex;
 		std::deque<T> m_Pool;

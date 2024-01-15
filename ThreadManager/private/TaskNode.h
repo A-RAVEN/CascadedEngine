@@ -4,6 +4,7 @@
 namespace thread_management
 {
 	class ThreadManager_Impl1;
+	class TaskNodeAllocator;
 	class TaskNode;
 	enum class TaskObjectType
 	{
@@ -27,7 +28,8 @@ namespace thread_management
 	class TaskNode : public TaskBaseObject
 	{
 	public:
-		TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager);
+		TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		void SetOwner(TaskBaseObject* owner) { m_Owner = owner; }
 		std::shared_future<void> StartExecute();
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override {}
 		virtual void Execute_Internal() = 0;
@@ -45,6 +47,7 @@ namespace thread_management
 	protected:
 		ThreadManager_Impl1* m_OwningManager;
 		TaskBaseObject* m_Owner;
+		TaskNodeAllocator* m_Allocator;
 		std::atomic_bool m_Running{ false };
 		std::string m_Name;
 		std::vector<TaskNode*>m_Dependents;

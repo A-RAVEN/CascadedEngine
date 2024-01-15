@@ -1,7 +1,7 @@
 #pragma once
 #include <mutex>
 #include <deque>
-#include <SharedTools/header/DebugUtils.h>
+#include <CACore/header/DebugUtils.h>
 #include <ThreadManager/header/ThreadManager.h>
 #include <unordered_set>
 #include "RenderBackendSettings.h"

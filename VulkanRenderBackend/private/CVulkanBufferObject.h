@@ -3,7 +3,7 @@
 #include "VulkanApplicationSubobjectBase.h"
 #include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
 #include <RenderInterface/header/Common.h>
-#include <SharedTools/header/RAII.h>
+#include <CACore/header/RAII.h>
 
 namespace graphics_backend
 {

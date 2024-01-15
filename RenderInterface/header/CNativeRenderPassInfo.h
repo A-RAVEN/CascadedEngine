@@ -11,7 +11,7 @@
 #include "IMeshInterface.h"
 #include <functional>
 #include <vector>
-#include <SharedTools/header/uhash.h>
+#include <CACore/header/uhash.h>
 
 namespace graphics_backend
 {

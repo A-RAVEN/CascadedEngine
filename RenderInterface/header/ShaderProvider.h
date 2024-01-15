@@ -1,7 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
-#include <SharedTools/header/uhash.h>
+#include <CACore/header/uhash.h>
 
 using namespace hash_utils;
 class ShaderProvider

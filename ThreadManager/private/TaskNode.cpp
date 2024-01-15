@@ -1,13 +1,15 @@
 #include "pch.h"
 #include "TaskNode.h"
-#include <SharedTools/header/DebugUtils.h>
+#include <CACore/header/DebugUtils.h>
 #include "ThreadManager_Impl.h"
 
 namespace thread_management
 {
-	TaskNode::TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager) : TaskBaseObject(type)
+	TaskNode::TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
+		: TaskBaseObject(type)
 		, m_Owner(owner)
 		, m_OwningManager(owningManager)
+		, m_Allocator(allocator)
 	{
 	}
 	std::shared_future<void> TaskNode::StartExecute()
@@ -80,6 +82,7 @@ namespace thread_management
 			(*itrSuccessor)->NotifyDependsOnFinish(this);
 		}
 		m_Owner->NotifyChildNodeFinish(this);
+		m_Allocator->Release(this);
 	}
 }
 

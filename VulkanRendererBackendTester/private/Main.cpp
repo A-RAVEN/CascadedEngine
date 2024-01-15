@@ -4,13 +4,13 @@
 #include <ThreadManager/header/ThreadManager.h>
 #include <ShaderCompiler/header/Compiler.h>
 #include <iostream>
-#include <SharedTools/header/library_loader.h>
+#include <CACore/header/library_loader.h>
 #include <RenderInterface/header/CRenderBackend.h>
 #include <RenderInterface/header/RenderInterfaceManager.h>
 #include <RenderInterface/header/CNativeRenderPassInfo.h>
 #include <RenderInterface/header/CCommandList.h>
 #include <RenderInterface/header/ShaderBindingBuilder.h>
-#include <SharedTools/header/FileLoader.h>
+#include <CACore/header/FileLoader.h>
 #include "TestShaderProvider.h"
 #include <ExternalLib/glm/glm/mat4x4.hpp>
 #include <ExternalLib/glm/glm/gtc/matrix_transform.hpp>
@@ -531,6 +531,7 @@ int main(int argc, char *argv[])
 		m_TaskFuture = baseTaskGraph->Run();
 		m_TaskFuture.wait();
 		pBackend->TickWindows();
+		pThreadManager->LogStatus();
 		++frame;
 		auto currentTime = timer.now();
 		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastTime).count();

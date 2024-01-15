@@ -1,9 +1,9 @@
 #pragma once
-#include <SharedTools/header/uhash.h>
+#include <CACore/header/uhash.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include <list>
-#include <SharedTools/header/RAII.h>
+#include <CACore/header/RAII.h>
 #include "HashPool.h"
 #include <RenderInterface/header/ShaderBindingBuilder.h>
 #include "Containers.h"

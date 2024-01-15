@@ -10,7 +10,7 @@
 // add headers that you want to pre-compile here
 #include "framework.h"
 #include <cstdint>
-#include <SharedTools/header/LibraryExportCommon.h>
-#include <SharedTools/header/DebugUtils.h>
+#include <CACore/header/LibraryExportCommon.h>
+#include <CACore/header/DebugUtils.h>
 
 #endif //PCH_H
