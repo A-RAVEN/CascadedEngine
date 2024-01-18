@@ -42,6 +42,8 @@ namespace thread_management
 	protected:
 		void NotifyDependsOnFinish(TaskNode* dependsOnNode);
 		void Name_Internal(const std::string& name);
+		void WaitEvent_Internal(const std::string& name, uint64_t waitingID);
+		void SignalEvent_Internal(const std::string& name, uint64_t signalID);
 		void DependsOn_Internal(TaskNode* dependsOnNode);
 		void FinalizeExecution_Internal();
 	protected:
@@ -50,6 +52,10 @@ namespace thread_management
 		TaskNodeAllocator* m_Allocator;
 		std::atomic_bool m_Running{ false };
 		std::string m_Name;
+		std::string m_EventName;
+		uint64_t m_EventWaitingID = 0;
+		std::string m_SignalEventName;
+		uint64_t m_EventSignalID = 0;
 		std::vector<TaskNode*>m_Dependents;
 		std::vector<TaskNode*>m_Successors;
 		std::atomic<uint32_t>m_PendingDependsOnTaskCount{0};

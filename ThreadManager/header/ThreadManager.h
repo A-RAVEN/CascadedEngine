@@ -21,6 +21,8 @@ namespace thread_management
 		virtual CTask* DependsOn(CTask* parentTask) = 0;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) = 0;
 		virtual CTask* DependsOn(CTaskGraph* parentTask) = 0;
+		virtual CTask* WaitOnEvent(std::string const& name, uint64_t waitingID) = 0;
+		virtual CTask* SignalEvent(std::string const& name, uint64_t signalID) = 0;
 		virtual std::shared_future<void> Run() = 0;
 
 		virtual CTask* Functor(std::function<void()>&& functor) = 0;
@@ -40,6 +42,8 @@ namespace thread_management
 		virtual TaskParallelFor* DependsOn(CTask* parentTask) = 0;
 		virtual TaskParallelFor* DependsOn(TaskParallelFor* parentTask) = 0;
 		virtual TaskParallelFor* DependsOn(CTaskGraph* parentTask) = 0;
+		virtual TaskParallelFor* WaitOnEvent(std::string const& name, uint64_t waitingID) = 0;
+		virtual TaskParallelFor* SignalEvent(std::string const& name, uint64_t signalID) = 0;
 
 		virtual TaskParallelFor* Functor(std::function<void(uint32_t)> functor) = 0;
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) = 0;
@@ -60,6 +64,9 @@ namespace thread_management
 		virtual CTaskGraph* DependsOn(CTask* parentTask) = 0;
 		virtual CTaskGraph* DependsOn(TaskParallelFor* parentTask) = 0;
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) = 0;
+		virtual CTaskGraph* WaitOnEvent(std::string const& name, uint64_t waitingID) = 0;
+		virtual CTaskGraph* SignalEvent(std::string const& name, uint64_t signalID) = 0;
+
 		//延迟初始化函数
 		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) = 0;
 		virtual std::shared_future<void> Run() = 0;

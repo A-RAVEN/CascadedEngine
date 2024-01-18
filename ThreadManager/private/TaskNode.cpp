@@ -37,6 +37,16 @@ namespace thread_management
 	{
 		m_Name = name;
 	}
+	void TaskNode::WaitEvent_Internal(const std::string& name, uint64_t waitingID)
+	{
+		m_EventName = name;
+		m_EventWaitingID = waitingID;
+	}
+	void TaskNode::SignalEvent_Internal(const std::string& name, uint64_t signalID)
+	{
+		m_SignalEventName = name;
+		m_EventSignalID = signalID;
+	}
 	void TaskNode::DependsOn_Internal(TaskNode* dependsOnNode)
 	{
 		CA_ASSERT(dependsOnNode->m_Owner == m_Owner, "Dependency Is Valid For Nodes Under Same Owner");
@@ -54,6 +64,10 @@ namespace thread_management
 		m_Running.store(false, std::memory_order_relaxed);
 		m_PendingDependsOnTaskCount.store(0, std::memory_order_relaxed);
 		m_Name = "";
+		m_EventName = "";
+		m_EventWaitingID = 0;
+		m_SignalEventName = "";
+		m_EventSignalID = 0;
 		m_Dependents.clear();
 		m_Successors.clear();
 		m_HasPromise = false;
@@ -80,6 +94,10 @@ namespace thread_management
 		for (auto itrSuccessor = m_Successors.begin(); itrSuccessor != m_Successors.end(); ++itrSuccessor)
 		{
 			(*itrSuccessor)->NotifyDependsOnFinish(this);
+		}
+		if (!m_SignalEventName.empty())
+		{
+			m_OwningManager->SignalEvent(m_SignalEventName, m_EventSignalID);
 		}
 		m_Owner->NotifyChildNodeFinish(this);
 		m_Allocator->Release(this);

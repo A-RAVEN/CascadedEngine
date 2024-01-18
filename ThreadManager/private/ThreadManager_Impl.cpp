@@ -30,6 +30,18 @@ namespace thread_management
         return this;
     }
 
+    CTaskGraph* TaskGraph_Impl1::WaitOnEvent(std::string const& name, uint64_t waitingID)
+    {
+        WaitEvent_Internal(name, waitingID);
+        return this;
+    }
+
+    CTaskGraph* TaskGraph_Impl1::SignalEvent(std::string const& name, uint64_t signalID)
+    {
+        SignalEvent_Internal(name, signalID);
+        return this;
+    }
+
     CTaskGraph* TaskGraph_Impl1::SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor)
     {
         m_Functor = functor;
@@ -139,6 +151,16 @@ namespace thread_management
         DependsOn_Internal(task);
         return this;
     }
+    CTask* CTask_Impl1::WaitOnEvent(std::string const& name, uint64_t waitingID)
+    {
+        WaitEvent_Internal(name, waitingID);
+        return this;
+    }
+    CTask* CTask_Impl1::SignalEvent(std::string const& name, uint64_t signalID)
+    {
+        SignalEvent_Internal(name, signalID);
+        return this;
+    }
     std::shared_future<void> CTask_Impl1::Run()
     {
         return StartExecute();
@@ -222,9 +244,12 @@ namespace thread_management
         std::lock_guard<std::mutex> guard(m_Mutex);
         if (!enqueueNode->m_Running)
         {
-            enqueueNode->m_Running.store(true, std::memory_order_relaxed);
-            m_TaskQueue.push_back(enqueueNode);
-            m_ConditinalVariable.notify_one();
+            if (!TryWaitOnEvent(enqueueNode))
+            {
+                enqueueNode->m_Running.store(true, std::memory_order_relaxed);
+                m_TaskQueue.push_back(enqueueNode);
+                m_ConditinalVariable.notify_one();
+            }
         }
     }
     void ThreadManager_Impl1::EnqueueTaskNodes(std::vector<TaskNode*> const& nodeDeque)
@@ -235,9 +260,12 @@ namespace thread_management
         {
             if (!itrNode->m_Running)
             {
-                itrNode->m_Running.store(true, std::memory_order_relaxed);
-                m_TaskQueue.push_back(itrNode);
-                ++enqueuedCounter;
+                if (!TryWaitOnEvent(itrNode))
+                {
+                    itrNode->m_Running.store(true, std::memory_order_relaxed);
+                    m_TaskQueue.push_back(itrNode);
+                    ++enqueuedCounter;
+                }
             }
         };
         if (enqueuedCounter == 0)
@@ -263,27 +291,56 @@ namespace thread_management
 		}
         auto& waitList = m_EventWaitLists[found->second];
         waitList.Signal(signalFrame);
-        uint32_t enqueuedCounter = 0;
-        while (waitList.m_WaitingFrames.front().first <= waitList.m_SignaledFrame)
+        if (!waitList.m_WaitingFrames.empty())
         {
-            for(uint32_t i = 0; i < waitList.m_WaitingFrames.front().second; ++i)
-			{
-                TaskNode* waitNode = waitList.m_WaitingTasks.front();
-                waitList.m_WaitingTasks.pop_front();
-                CA_ASSERT(!waitNode->m_Running, "Task is already running");
-                waitNode->m_Running.store(true, std::memory_order_relaxed);
-                m_TaskQueue.push_back(waitNode);
-                ++enqueuedCounter;
+            uint32_t enqueuedCounter = 0;
+            while (!waitList.m_WaitingFrames.empty() && waitList.m_WaitingFrames.front().first <= waitList.m_SignaledFrame)
+            {
+                for (uint32_t i = 0; i < waitList.m_WaitingFrames.front().second; ++i)
+                {
+                    TaskNode* waitNode = waitList.m_WaitingTasks.front();
+                    waitList.m_WaitingTasks.pop_front();
+                    CA_ASSERT(!waitNode->m_Running, "Task is already running");
+                    waitNode->m_Running.store(true, std::memory_order_relaxed);
+                    m_TaskQueue.push_back(waitNode);
+                    ++enqueuedCounter;
+                }
+                waitList.m_WaitingFrames.pop_front();
+            }
+            if (enqueuedCounter > 1)
+            {
+                m_ConditinalVariable.notify_all();
+            }
+            else if (enqueuedCounter == 1)
+            {
+                m_ConditinalVariable.notify_one();
+            }
+        }
+    }
+    bool ThreadManager_Impl1::TryWaitOnEvent(TaskNode* node)
+    {
+        if (!node->m_EventName.empty())
+        {
+            auto found = m_EventMap.find(node->m_EventName);
+            if (found != m_EventMap.end())
+            {
+				auto& waitList = m_EventWaitLists[found->second];
+                if (waitList.m_SignaledFrame < node->m_EventWaitingID)
+                {
+                    waitList.m_WaitingTasks.push_back(node);
+                    if (waitList.m_WaitingFrames.empty() || waitList.m_WaitingFrames.back().first < node->m_EventWaitingID)
+                    {
+                        waitList.m_WaitingFrames.push_back(std::make_pair(node->m_EventWaitingID, 1));
+                    }
+                    else
+                    {
+                        waitList.m_WaitingFrames.back().second++;
+                    }
+                    return true;
+                }
 			}
         }
-        if (enqueuedCounter > 1)
-        {
-            m_ConditinalVariable.notify_all();
-        }
-        else if (enqueuedCounter == 1)
-        {
-            m_ConditinalVariable.notify_one();
-        }
+        return false;
     }
     void ThreadManager_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
     {
@@ -344,6 +401,18 @@ namespace thread_management
     {
         TaskGraph_Impl1* task = static_cast<TaskGraph_Impl1*>(parentTask);
         DependsOn_Internal(task);
+        return this;
+    }
+
+    TaskParallelFor* TaskParallelFor_Impl::WaitOnEvent(std::string const& name, uint64_t waitingID)
+    {
+        WaitEvent_Internal(name, waitingID);
+        return this;
+    }
+
+    TaskParallelFor* TaskParallelFor_Impl::SignalEvent(std::string const& name, uint64_t signalID)
+    {
+        SignalEvent_Internal(name, signalID);
         return this;
     }
 

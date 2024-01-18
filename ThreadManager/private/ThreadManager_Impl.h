@@ -17,6 +17,8 @@ namespace thread_management
 		virtual CTask* DependsOn(CTask* parentTask) override;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) override;
 		virtual CTask* DependsOn(CTaskGraph* parentTask) override;
+		virtual CTask* WaitOnEvent(std::string const& name, uint64_t waitingID) override;
+		virtual CTask* SignalEvent(std::string const& name, uint64_t signalID) override;
 		virtual std::shared_future<void> Run() override;
 
 		virtual CTask* Functor(std::function<void()>&& functor) override;
@@ -39,6 +41,8 @@ namespace thread_management
 		virtual TaskParallelFor* DependsOn(CTask* parentTask) override;
 		virtual TaskParallelFor* DependsOn(TaskParallelFor* parentTask) override;
 		virtual TaskParallelFor* DependsOn(CTaskGraph* parentTask) override;
+		virtual TaskParallelFor* WaitOnEvent(std::string const& name, uint64_t waitingID) override;
+		virtual TaskParallelFor* SignalEvent(std::string const& name, uint64_t signalID) override;
 		virtual TaskParallelFor* Functor(std::function<void(uint32_t)> functor) override;
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) override;
 		virtual std::shared_future<void> Run() override;
@@ -65,6 +69,8 @@ namespace thread_management
 		virtual CTaskGraph* DependsOn(CTask* parentTask) override;
 		virtual CTaskGraph* DependsOn(TaskParallelFor* parentTask) override;
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) override;
+		virtual CTaskGraph* WaitOnEvent(std::string const& name, uint64_t waitingID) override;
+		virtual CTaskGraph* SignalEvent(std::string const& name, uint64_t signalID) override;
 		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) override;
 		virtual std::shared_future<void> Run() override;
 
@@ -120,11 +126,14 @@ namespace thread_management
 		void EnqueueTaskNode(TaskNode* node);
 		void EnqueueTaskNodes(std::vector<TaskNode*> const& nodeDeque);
 		void SignalEvent(std::string const& eventName, uint64_t signalFrame);
+		bool TryWaitOnEvent(TaskNode* node);
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
 		void ProcessingWorks(uint32_t threadId);
 	private:
 		//
+		std::function<void(CThreadManager*)> m_PrepareFunctor = nullptr;
+
 		std::deque<TaskNode*> m_TaskQueue;
 		std::vector<std::thread> m_WorkerThreads;
 		std::atomic_bool m_Stopped = false;

@@ -325,7 +325,7 @@ int main(int argc, char *argv[])
 		EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
 	indexBuffer->ScheduleBufferData(0, indexDataList.size() * sizeof(uint16_t), indexDataList.data());
 
-	int32_t frame = 0;
+	uint64_t frame = 0;
 
 	CVertexInputDescriptor vertexInputDesc{};
 	vertexInputDesc.AddPrimitiveDescriptor(sizeof(VertexData), {
@@ -370,13 +370,23 @@ int main(int argc, char *argv[])
 	m_TaskFuture.wait();
 	while (pBackend->AnyWindowRunning())
 	{
+		uint64_t lastFrame = frame == 0 ? 0 : (frame - 1);
+
 		auto baseTaskGraph = pThreadManager->NewTaskGraph()
-			->Name("BaseTaskGraph");
+			->Name("BaseTaskGraph")
+			->WaitOnEvent("FullGraph", lastFrame)
+			->SignalEvent("FullGraph", frame);
 		auto gamePlayGraph  = baseTaskGraph->NewTaskGraph()
-			->Name("GamePlayGraph");
+			->Name("GamePlayGraph")
+			//->WaitOnEvent("GamePlay", lastFrame)
+			//->SignalEvent("GamePlay", frame)
+			;
 		pBackend->SetupGraphicsTaskGraph(baseTaskGraph->NewTaskGraph()
 			->Name("Graphics Task Graph")
-			->DependsOn(gamePlayGraph));
+			->DependsOn(gamePlayGraph)
+			//->WaitOnEvent("Graphics", lastFrame)
+			//->SignalEvent("Graphics", frame)
+		);
 
 		auto updateImGUIGraph = gamePlayGraph->NewTask()
 			->Name("Update Imgui")
@@ -529,7 +539,7 @@ int main(int argc, char *argv[])
 				});
 
 		m_TaskFuture = baseTaskGraph->Run();
-		m_TaskFuture.wait();
+		//m_TaskFuture.wait();
 		pBackend->TickWindows();
 		pThreadManager->LogStatus();
 		++frame;
