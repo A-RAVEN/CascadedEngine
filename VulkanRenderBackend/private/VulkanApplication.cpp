@@ -15,10 +15,9 @@
 
 namespace graphics_backend
 {
-	void CVulkanApplication::PrepareBeforeTick(CTaskGraph* rootTaskGraph)
+	void CVulkanApplication::PrepareBeforeTick(CTaskGraph* rootTaskGraph, FrameType frameID)
 	{
-		p_TaskGraph = rootTaskGraph;
-		auto initializeTask = p_TaskGraph->NewTask()
+		auto initializeTask = rootTaskGraph->NewTask()
 			->Name("GPU Frame Initialize")
 			->Functor([this]()
 				{
@@ -26,9 +25,10 @@ namespace graphics_backend
 					if (m_SubmitCounterContext.AnyFrameFinished())
 					{
 						FrameType const releasedFrame = m_SubmitCounterContext.GetReleasedFrameID();
+						TIndex const releasedIndex = m_SubmitCounterContext.GetReleasedResourcePoolIndex();
 						for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
 						{
-							itrThreadContext->DoReleaseResourceBeforeFrame(releasedFrame);
+							itrThreadContext->DoReleaseContextResourceByIndex(releasedIndex);
 						}
 						GetGPUObjectManager().ReleaseFrameboundResources(releasedFrame);
 					}
@@ -38,24 +38,41 @@ namespace graphics_backend
 						windowContext->WaitCurrentFrameBufferIndex();
 						windowContext->MarkUsages(ResourceUsage::eDontCare);
 					}
-				});
+				})
+			->SignalEvent("PresentReady", frameID);
 
-		p_MemoryResourceUploadingTaskGraph = p_TaskGraph->NewTaskGraph()
+		auto memoryResourceUploadingTaskGraph = rootTaskGraph->NewTaskGraph()
 			->Name("Memory Resource Uploading Task Graph")
 			->DependsOn(initializeTask);
 
-		p_GPUAddressUploadingTaskGraph = p_TaskGraph->NewTaskGraph()
+		auto gpuAddressUploadingTaskGraph = rootTaskGraph->NewTaskGraph()
 			->Name("GPU Address Updating Task Graph")
-			->DependsOn(p_MemoryResourceUploadingTaskGraph);
+			->DependsOn(memoryResourceUploadingTaskGraph);
 
-		p_RenderingTaskGraph = p_TaskGraph->NewTaskGraph()
+		auto renderingTaskGraph = rootTaskGraph->NewTaskGraph()
 			->Name("Rendering Task Graph")
-			->DependsOn(p_GPUAddressUploadingTaskGraph);
+			->DependsOn(gpuAddressUploadingTaskGraph);
 
-		p_FinalizeTaskGraph = p_TaskGraph->NewTaskGraph()
+
+		for (auto& pendingGraph : m_PendingRenderGraphs)
+		{
+			auto taskGraph = renderingTaskGraph->NewTaskGraph()
+				->Name("Rendering Task Graph");
+			m_Executors.push_back(std::move(RenderGraphExecutor{ *this }));
+			size_t index = m_Executors.size() - 1;
+			taskGraph->SetupFunctor([this, pendingGraph, index](CTaskGraph* thisGraph)
+			{
+				RenderGraphExecutor& executor = m_Executors[index];
+				executor.Create(pendingGraph);
+				executor.Run(thisGraph);
+			});
+		}
+		m_PendingRenderGraphs.clear();
+
+		auto finalizeTaskGraph = rootTaskGraph->NewTaskGraph()
 			->Name("Finalize Task Graph")
-			->DependsOn(p_RenderingTaskGraph);
-		p_FinalizeTaskGraph->NewTask()
+			->DependsOn(renderingTaskGraph);
+		finalizeTaskGraph->NewTask()
 			->Name("Finalize")
 			->Functor([this]()
 				{
@@ -106,6 +123,7 @@ namespace graphics_backend
 								, semaphores
 								, waitStages
 								, signalSemaphores);
+							m_SubmitCounterContext.EndCurrentFrame();
 
 							for (auto& windowContext : m_WindowContexts)
 							{
@@ -120,46 +138,32 @@ namespace graphics_backend
 					{
 						m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands);
 					}
-				});;
+					m_SubmitCounterContext.EndCurrentFrame();
+				});
 
 		//Tick uploading shader bindings
-		m_ShaderBindingSetAllocator.Foreach([this](ShaderBindingBuilder const&, ShaderBindingSetAllocator* allocator)
+		m_ShaderBindingSetAllocator.Foreach([gpuAddressUploadingTaskGraph](ShaderBindingBuilder const&, ShaderBindingSetAllocator* allocator)
 			{
-				auto addressUploadTask = p_GPUAddressUploadingTaskGraph->NewTaskGraph()
+				auto addressUploadTask = gpuAddressUploadingTaskGraph->NewTaskGraph()
 					->Name("Upload Shader Bindings " + allocator->GetMetadata().GetBindingsDescriptor()->GetSpaceName());
 				allocator->TickUploadResources(addressUploadTask);
 			});
 
 		//Tick uploading shader bindings
-		m_ConstantSetAllocator.Foreach([this](ShaderConstantsBuilder const&, ShaderConstantSetAllocator* allocator)
+		m_ConstantSetAllocator.Foreach([memoryResourceUploadingTaskGraph](ShaderConstantsBuilder const&, ShaderConstantSetAllocator* allocator)
 			{
-				auto shaderConstantsUploadTask = p_MemoryResourceUploadingTaskGraph->NewTaskGraph()
+				auto shaderConstantsUploadTask = memoryResourceUploadingTaskGraph->NewTaskGraph()
 					->Name("Upload Shader Constants " + allocator->GetMetadata().GetBuilder()->GetName());
 				allocator->TickUploadResources(shaderConstantsUploadTask);
 			});
 
+		m_GPUBufferPool.TickUpload(memoryResourceUploadingTaskGraph->NewTaskGraph()->Name("Tick Upload  Buffers"));
+		m_GPUTexturePool.TickUpload(memoryResourceUploadingTaskGraph->NewTaskGraph()->Name("Tick Upload  Textures"));
 	}
 
-	void CVulkanApplication::EndThisFrame()
+	void CVulkanApplication::PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
 	{
-		//if (m_TaskFuture.valid())
-		//{
-		//	m_TaskFuture.wait();
-		//}
-
-		//m_TaskFuture = p_TaskGraph->Run();
-	}
-
-	void CVulkanApplication::ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
-	{
-		auto rendergraphExcutionTaskGraph = p_RenderingTaskGraph->NewTaskGraph();
-		m_Executors.push_back(std::move(RenderGraphExecutor{ *this }));
-		RenderGraphExecutor& newExecutor = m_Executors.back();
-		rendergraphExcutionTaskGraph->SetupFunctor([this, inRenderGraph, &newExecutor](CTaskGraph* thisGraph)
-			{
-				newExecutor.Create(inRenderGraph);
-				newExecutor.Run(thisGraph);
-			});
+		m_PendingRenderGraphs.push_back(inRenderGraph);
 	}
 
 	void CVulkanApplication::CreateImageViews2D(vk::Format format, std::vector<vk::Image> const& inImages,
@@ -515,29 +519,6 @@ namespace graphics_backend
 			{
 				ReturnThreadContext(*releasingContext);
 			});
-	}
-
-	CTask* CVulkanApplication::NewTask()
-	{
-		return p_RenderingTaskGraph->NewTask();
-	}
-
-	TaskParallelFor* CVulkanApplication::NewTaskParallelFor()
-	{
-		return p_RenderingTaskGraph->NewTaskParallelFor();
-	}
-
-	CTask* CVulkanApplication::NewUploadingTask(UploadingResourceType resourceType)
-	{
-		switch(resourceType)
-		{
-		case UploadingResourceType::eMemoryDataThisFrame:
-		case UploadingResourceType::eMemoryDataLowPriority:
-			return p_MemoryResourceUploadingTaskGraph->NewTask();
-		case UploadingResourceType::eAddressDataThisFrame:
-			return p_GPUAddressUploadingTaskGraph->NewTask();
-		}
-		return nullptr;
 	}
 
 	std::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(std::string windowName, uint32_t initialWidth, uint32_t initialHeight)

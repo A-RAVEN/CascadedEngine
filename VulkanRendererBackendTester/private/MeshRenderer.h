@@ -168,7 +168,6 @@ public:
 				drawcall.second.first->ScheduleBufferData(0
 					, drawcall.second.second.size() * sizeof(uint32_t)
 					, drawcall.second.second.data());
-				drawcall.second.first->UploadAsync();
 			}
 		}
 		m_InstanceBuffer = pBackend->CreateGPUBuffer(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst
@@ -176,8 +175,6 @@ public:
 		m_InstanceBuffer->ScheduleBufferData(0
 			, m_Instances.size() * sizeof(glm::mat4)
 			, m_Instances.data());
-		m_InstanceBuffer->UploadAsync();
-
 
 		ShaderConstantsBuilder shaderConstantDescs{ "PerViewConstants" };
 		shaderConstantDescs

@@ -90,10 +90,10 @@ namespace graphics_backend
 	public:
 		CVulkanThreadContext(uint32_t threadId);
 		CVulkanFrameBoundCommandBufferPool& GetCurrentFramePool();
-		CVulkanFrameBoundCommandBufferPool& GetPoolByFrame(uint32_t poolID);
+		CVulkanFrameBoundCommandBufferPool& GetPoolByIndex(TIndex poolIndex);
 		void CollectSubmittingCommandBuffers(std::vector<vk::CommandBuffer>& inoutCommandBufferList);
 		uint32_t GetThreadID() const { return m_ThreadID; }
-		void DoReleaseResourceBeforeFrame(uint32_t releasingFrame);
+		void DoReleaseContextResourceByIndex(TIndex releasingIndex);
 	private:
 		// 通过 ApplicationSubobjectBase 继承
 		virtual void Initialize_Internal(CVulkanApplication const* owningApplication) override;

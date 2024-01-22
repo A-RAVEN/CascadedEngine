@@ -203,14 +203,30 @@ namespace thread_management
 
     ThreadManager_Impl1::~ThreadManager_Impl1()
     {
-        {
-            m_Stopped = true;
-            m_ConditinalVariable.notify_all();
-        }
+        Stop();
         for (std::thread& itrThread : m_WorkerThreads)
         {
-			itrThread.join();
-		}
+            itrThread.join();
+        }
+    }
+
+    void ThreadManager_Impl1::EnqueueSetupTask_NoLock()
+    {
+        if (m_PrepareFunctor == nullptr)
+        {
+            Stop();
+            return;
+        }
+        auto setupTask = NewTask()
+            ->Name("Setup")
+            ->Functor([this]()
+                {
+                    if (!m_PrepareFunctor(this))
+                    {
+                        Stop();
+                    }
+                });
+        EnqueueTaskNode_NoLock(dynamic_cast<TaskNode*>(setupTask));
     }
 
     void ThreadManager_Impl1::InitializeThreadCount(uint32_t threadNum)
@@ -239,9 +255,42 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
+    void ThreadManager_Impl1::SetupFunction(std::function<bool(CThreadManager*)> functor, std::string const& waitingEvent)
+    {
+        m_PrepareFunctor = functor;
+        m_SetupEventName = waitingEvent;
+    }
+
+    void ThreadManager_Impl1::RunSetupFunction()
+    {
+        {
+            std::lock_guard<std::mutex> guard(m_Mutex);
+            EnqueueSetupTask_NoLock();
+        }
+        uint32_t mainThreadID = m_WorkerThreads.size();
+        ProcessingWorks(mainThreadID);
+        for (std::thread& itrThread : m_WorkerThreads)
+        {
+            itrThread.join();
+        }
+    }
+
+    void ThreadManager_Impl1::Stop()
+    {
+        {
+            m_Stopped = true;
+            m_ConditinalVariable.notify_all();
+        }
+
+    }
+
     void ThreadManager_Impl1::EnqueueTaskNode(TaskNode* enqueueNode)
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
+        EnqueueTaskNode_NoLock(enqueueNode);
+    }
+    void ThreadManager_Impl1::EnqueueTaskNode_NoLock(TaskNode* enqueueNode)
+    {
         if (!enqueueNode->m_Running)
         {
             if (!TryWaitOnEvent(enqueueNode))
@@ -291,9 +340,14 @@ namespace thread_management
 		}
         auto& waitList = m_EventWaitLists[found->second];
         waitList.Signal(signalFrame);
+        uint32_t enqueuedCounter = 0;
+        if (eventName == m_SetupEventName)
+        {
+            EnqueueSetupTask_NoLock();
+            ++enqueuedCounter;
+        }
         if (!waitList.m_WaitingFrames.empty())
         {
-            uint32_t enqueuedCounter = 0;
             while (!waitList.m_WaitingFrames.empty() && waitList.m_WaitingFrames.front().first <= waitList.m_SignaledFrame)
             {
                 for (uint32_t i = 0; i < waitList.m_WaitingFrames.front().second; ++i)
@@ -307,6 +361,9 @@ namespace thread_management
                 }
                 waitList.m_WaitingFrames.pop_front();
             }
+        }
+        if (enqueuedCounter > 0)
+        {
             if (enqueuedCounter > 1)
             {
                 m_ConditinalVariable.notify_all();

@@ -19,12 +19,12 @@
 #include <filesystem>
 #include "Camera.h"
 #include "KeyCodes.h"
-#include <ExternalLib/imgui/imgui.h>
 #include <GeneralResources/header/ResourceSystemFactory.h>
 #include "ShaderResource.h"
 #include "StaticMeshResource.h"
 #include "MeshRenderer.h"
 #include "TextureResource.h"
+#include "IMGUIContext.h"
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -39,96 +39,6 @@ struct VertexData
 	glm::vec2 uv;
 	glm::vec3 color;
 };
-
-void UpdateIMGUI(int width, int height)
-{
-	ImGuiIO& io = ImGui::GetIO();
-	io.DisplaySize = ImVec2(width, height);
-	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
-
-	ImGui::NewFrame();
-	//SRS - ShowDemoWindow() sets its own initial position and size, cannot override here
-	ImGui::ShowDemoWindow();
-
-	// Render to generate draw buffers
-	ImGui::Render();
-}
-
-void DrawIMGUI(std::shared_ptr<CRenderGraph> renderGraph
-	, TextureHandle framebufferHandle
-	, GraphicsShaderSet shaderSet
-	, ShaderConstantsBuilder const& imguiConstantBuilder
-	, ShaderBindingBuilder const& imguiShaderBindingBuilder
-	, std::shared_ptr<TextureSampler> sampler
-	, std::shared_ptr<GPUTexture> fontTexture)
-{
-	ImGuiIO& io = ImGui::GetIO();
-	glm::vec2 meshScale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y);
-	ImDrawData* imDrawData = ImGui::GetDrawData();
-	size_t vertexBufferSize = imDrawData->TotalVtxCount * sizeof(ImDrawVert);
-	size_t indexBufferSize = imDrawData->TotalIdxCount * sizeof(ImDrawIdx);
-
-	if ((vertexBufferSize == 0) || (indexBufferSize == 0)) {
-		return;
-	}
-
-	auto vertexBufferHandle = renderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert));
-	auto indexBufferHandle =  renderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx));
-
-	CVertexInputDescriptor vertexInputDesc{};
-	vertexInputDesc.AddPrimitiveDescriptor(sizeof(ImDrawVert), {
-		VertexAttribute{0, offsetof(ImDrawVert, pos), VertexInputFormat::eR32G32_SFloat}
-		, VertexAttribute{1, offsetof(ImDrawVert, uv), VertexInputFormat::eR32G32_SFloat}
-		, VertexAttribute{2, offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm}
-		});
-
-	size_t vtxOffset = 0;
-	size_t idxOffset = 0;
-	std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> indexDataOffsets;
-	std::vector<glm::uvec4> sissors;
-	for (int n = 0; n < imDrawData->CmdListsCount; n++) {
-		const ImDrawList* cmd_list = imDrawData->CmdLists[n];
-		renderGraph->ScheduleBufferData(vertexBufferHandle, vtxOffset * sizeof(ImDrawVert), cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
-		renderGraph->ScheduleBufferData(indexBufferHandle, idxOffset * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Data);
-		
-		for (int j = 0; j < cmd_list->CmdBuffer.Size; ++j)
-		{
-			const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
-			indexDataOffsets.push_back(std::make_tuple(idxOffset, vtxOffset, pcmd->ElemCount));
-			sissors.push_back(glm::ivec4(pcmd->ClipRect.x, pcmd->ClipRect.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
-			idxOffset += pcmd->ElemCount;
-		}
-		vtxOffset += cmd_list->VtxBuffer.Size;
-	}
-
-	CAttachmentInfo targetattachmentInfo{};
-	targetattachmentInfo.format = renderGraph->GetTextureDescriptor(framebufferHandle).format;
-	auto shaderConstants = renderGraph->NewShaderConstantSetHandle(imguiConstantBuilder);
-	auto shaderBinding = renderGraph->NewShaderBindingSetHandle(imguiShaderBindingBuilder);
-	shaderConstants.SetValue("IMGUIScale", meshScale);
-	shaderBinding.SetConstantSet(imguiConstantBuilder.GetName(), shaderConstants)
-		.SetSampler("FontSampler", sampler)
-		.SetTexture("FontTexture", fontTexture);
-	auto blendStates = ColorAttachmentsBlendStates::AlphaTransparent();
-	renderGraph->NewRenderPass({ targetattachmentInfo })
-		.SetAttachmentTarget(0, framebufferHandle)
-		.Subpass({ {0} }
-			, CPipelineStateObject{ {}, RasterizerStates::CullOff(), blendStates}
-			, vertexInputDesc
-			, shaderSet
-			, { {}, {shaderBinding} }
-			, [shaderBinding, vertexBufferHandle, indexBufferHandle, indexDataOffsets, sissors](CInlineCommandList& cmd)
-			{
-				cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ shaderBinding })
-					.BindVertexBuffers({ vertexBufferHandle })
-					.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
-				for(uint32_t i = 0; i < indexDataOffsets.size(); ++i)
-				{
-					cmd.SetSissor(sissors[i].x, sissors[i].y, sissors[i].z, sissors[i].w)
-						.DrawIndexed(std::get<2>(indexDataOffsets[i]), 1, std::get<0>(indexDataOffsets[i]), std::get<1>(indexDataOffsets[i]));
-				}
-			});
-}
 
 int main(int argc, char *argv[])
 {
@@ -156,15 +66,6 @@ int main(int argc, char *argv[])
 	ShaderBindingBuilder finalBlitBindingBuilder{ "FinalBlitBinding" };
 	finalBlitBindingBuilder.Texture2D<float, 4>("SourceTexture");
 	finalBlitBindingBuilder.SamplerState("SourceSampler");
-
-	ShaderConstantsBuilder imguiConstantBuilder{ "IMGUIConstants" };
-	imguiConstantBuilder
-		.Vec2<float>("IMGUIScale");
-
-	ShaderBindingBuilder imguiBindingBuilder{ "IMGUIBinding" };
-	imguiBindingBuilder.ConstantBuffer(imguiConstantBuilder);
-	imguiBindingBuilder.Texture2D<float, 4>("FontTexture");
-	imguiBindingBuilder.SamplerState("FontSampler");
 
 	auto pThreadManager = threadManagerLoader.New();
 	pThreadManager->InitializeThreadCount(5);
@@ -195,12 +96,6 @@ int main(int argc, char *argv[])
 			*ppResource = result;
 		});
 
-	ShaderResrouce* pImguiShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/imgui.shaderbundle", [ppResource = &pImguiShaderResource](ShaderResrouce* result)
-		{
-			*ppResource = result;
-		});
-
 	ShaderResrouce* pFinalBlitShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/finalBlitShader.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
 		{
@@ -226,6 +121,7 @@ int main(int argc, char *argv[])
 		});
 
 
+
 	GraphicsShaderSet shaderSet{};
 	shaderSet.vert = &pTestShaderResource->m_VertexShaderProvider;
 	shaderSet.frag = &pTestShaderResource->m_FragmentShaderProvider;
@@ -234,15 +130,14 @@ int main(int argc, char *argv[])
 	finalBlitShaderSet.vert = &pFinalBlitShaderResource->m_VertexShaderProvider;
 	finalBlitShaderSet.frag = &pFinalBlitShaderResource->m_FragmentShaderProvider;
 
-	GraphicsShaderSet imguiShaderSet{};
-	imguiShaderSet.vert = &pImguiShaderResource->m_VertexShaderProvider;
-	imguiShaderSet.frag = &pImguiShaderResource->m_FragmentShaderProvider;
+
 
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(5);
-	pBackend->SetupGraphicsTaskGraph(pThreadManager->NewTaskGraph()
-		->Name("Graphics Task Graph"));
+
+	IMGUIContext imguiContext{};
+	imguiContext.Initialize(pBackend.get(), pResourceManagingSystem.get());
 
 	auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
 
@@ -253,7 +148,6 @@ int main(int argc, char *argv[])
 		, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst
 		});
 	texture0->ScheduleTextureData(0, pTextureResource0->GetDataSize(), pTextureResource0->GetData());
-	texture0->UploadAsync();
 
 	auto texture1 = pBackend->CreateGPUTexture(GPUTextureDescriptor{
 	pTextureResource1->GetWidth()
@@ -262,7 +156,6 @@ int main(int argc, char *argv[])
 	, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst
 		});
 	texture1->ScheduleTextureData(0, pTextureResource1->GetDataSize(), pTextureResource1->GetData());
-	texture1->UploadAsync();
 
 	auto samplingTextureBinding0 = pBackend->CreateShaderBindingSet(finalBlitBindingBuilder);
 	samplingTextureBinding0->SetTexture("SourceTexture", texture0);
@@ -272,7 +165,7 @@ int main(int argc, char *argv[])
 	samplingTextureBinding1->SetTexture("SourceTexture", texture1);
 	samplingTextureBinding1->SetSampler("SourceSampler", sampler);
 
-	auto windowHandle2 = pBackend->NewWindow(1024, 512, "Test Window2");
+	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2");
 
 	{
 		MeshGPUData newMeshGPUData{ pBackend };
@@ -336,147 +229,135 @@ int main(int argc, char *argv[])
 
 	ShaderBindingDescriptorList bindingSetList = { shaderBindingBuilder };
 	
-	vertexBuffer->UploadAsync();
-	indexBuffer->UploadAsync();
-	
-
 	std::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();
 	float deltaTime = 0.0f;
 	Camera cam;
 	bool mouseDown = false;
 	glm::vec2 lastMousePos = {0.0f, 0.0f};
-	ImGui::CreateContext();
-
-	ImGuiIO& io = ImGui::GetIO();
-	unsigned char* fontData;
-	int texWidth, texHeight;
-	io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
-
-	GPUTextureDescriptor fontDesc{};
-	fontDesc.accessType = ETextureAccessType::eSampled | ETextureAccessType::eTransferDst;
-	fontDesc.format = ETextureFormat::E_R8G8B8A8_UNORM;
-	fontDesc.width = texWidth;
-	fontDesc.height = texHeight;
-	fontDesc.layers = 1;
-	fontDesc.mipLevels = 1;
-	fontDesc.textureType = ETextureType::e2D;
-	auto fontImage = pBackend->CreateGPUTexture(fontDesc);
-	fontImage->ScheduleTextureData(0, texWidth * texHeight * 4, fontData);
-	fontImage->UploadAsync();
 
 	std::shared_future<void> m_TaskFuture;
-	m_TaskFuture = pBackend->GetGraphicsTaskGraph()->Run();
+	auto graphicsTaskGraph = pThreadManager->NewTaskGraph()
+		->Name("Graphics Task Graph");
+	pBackend->SetupGraphicsTaskGraph(graphicsTaskGraph, frame);
+	m_TaskFuture = graphicsTaskGraph->Run();
 	m_TaskFuture.wait();
-	while (pBackend->AnyWindowRunning())
-	{
-		uint64_t lastFrame = frame == 0 ? 0 : (frame - 1);
-
-		auto baseTaskGraph = pThreadManager->NewTaskGraph()
-			->Name("BaseTaskGraph")
-			->WaitOnEvent("FullGraph", lastFrame)
-			->SignalEvent("FullGraph", frame);
-		auto gamePlayGraph  = baseTaskGraph->NewTaskGraph()
-			->Name("GamePlayGraph")
-			//->WaitOnEvent("GamePlay", lastFrame)
-			//->SignalEvent("GamePlay", frame)
-			;
-		pBackend->SetupGraphicsTaskGraph(baseTaskGraph->NewTaskGraph()
-			->Name("Graphics Task Graph")
-			->DependsOn(gamePlayGraph)
-			//->WaitOnEvent("Graphics", lastFrame)
-			//->SignalEvent("Graphics", frame)
-		);
-
-		auto updateImGUIGraph = gamePlayGraph->NewTask()
-			->Name("Update Imgui")
-			->Functor([windowHandle2]()
-			{
-				auto& io = ImGui::GetIO();
-				auto windowSize = windowHandle2->GetSizeSafe();
-				UpdateIMGUI(windowSize.x, windowSize.y);
-				io.MousePos = ImVec2(windowHandle2->GetMouseX(), windowHandle2->GetMouseY());
-				io.MouseDown[0] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT);
-				io.MouseDown[1] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_RIGHT);
-				io.MouseDown[2] = windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_MIDDLE);
-			});
-
-		auto updateCameraGraph = gamePlayGraph->NewTask()
-			->Name("Update Camera")
-			->Functor([plastMousePos = &lastMousePos
-				 , pCam = &cam
+	pThreadManager->SetupFunction([
+				pBackend
+				, pTimer = &timer
+				, pFrame = &frame
+				, pLastTime = &lastTime
+				, pThreadManager
+				, windowHandle
+				, pRenderInterface
+				, sampler
+				, pCam = &cam
 				, pmouseDown = &mouseDown
 				, pdrawInterface = &drawInterface
-				, deltaTime
-				, windowHandle2]()
-				{
-					int forwarding = 0;
-					int lefting = 0;
-					if (windowHandle2->IsKeyDown(CA_KEY_W))
-					{
-						++forwarding;
-					}
-					if (windowHandle2->IsKeyDown(CA_KEY_S))
-					{
-						--forwarding;
-					}
-					if (windowHandle2->IsKeyDown(CA_KEY_A))
-					{
-						++lefting;
-					}
-					if (windowHandle2->IsKeyDown(CA_KEY_D))
-					{
-						--lefting;
-					}
-					glm::vec2 mouseDelta = { 0.0f, 0.0f };
-					glm::vec2 mousePos = { windowHandle2->GetMouseX(),windowHandle2->GetMouseY() };
-					if (windowHandle2->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
-					{
-						//std::cout << "Mouse Down!" << std::endl;
-						if (!*pmouseDown)
-						{
-							*plastMousePos = mousePos;
-							*pmouseDown = true;
-						}
-						mouseDelta = mousePos - *plastMousePos;
-						*plastMousePos = mousePos;
-					}
-					else// if(windowHandle2->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
-					{
-						*pmouseDown = false;
-					}
-
-					auto windowSize1 = windowHandle2->GetSizeSafe();
-					pCam->Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
-					//std::cout << "Forward : " << forwarding << " Left : " << lefting << std::endl;
-					//std::cout << "Mouse : " << mouseDelta.x << " " << mouseDelta.y << std::endl;
-
-					pdrawInterface->Update(pCam->GetViewProjMatrix());
-				});
-
-		gamePlayGraph->NewTask()
-			->Name("Setup Render Graph")
-			->DependsOn(updateImGUIGraph)
-			->DependsOn(updateCameraGraph)
-			->Functor([pBackend
-				, pRenderInterface
-				, windowHandle2
-				, pDrawInterface = &drawInterface
+				, plastMousePos = &lastMousePos
+				, pDeltaTime = &deltaTime
 				, pVertexList = &vertexDataList
 				, pIndexList = &indexDataList
-				, pFinalBlitShaderSet  = &finalBlitShaderSet
+				, pFinalBlitShaderSet = &finalBlitShaderSet
 				, pVertexInputDesc = &vertexInputDesc
 				, pFinalBlitBindingDesc = &finalBlitBindingBuilder
-				, sampler
-				, fontImage
-				, pimguiShaderSet = &imguiShaderSet
-				, pimguiConstantBuilder = &imguiConstantBuilder
-				, pimguiBindingBuilder = &imguiBindingBuilder]()
+				, pImguiContext = &imguiContext
+		](CThreadManager* thisManager)
+		{
+			if (!pBackend->AnyWindowRunning())
+				return false;
+
+			{
+				uint64_t lastFrame = *pFrame == 0 ? 0 : (*pFrame - 1);
+
+				auto baseTaskGraph = pThreadManager->NewTaskGraph()
+					->Name("BaseTaskGraph");
+				auto gamePlayGraph = baseTaskGraph->NewTaskGraph()
+					->Name("GamePlayGraph");
+
+				auto updateImGUIGraph = gamePlayGraph->NewTask()
+					->Name("Update Imgui")
+					->Functor([windowHandle, pImguiContext]()
+						{
+							pImguiContext->UpdateIMGUI(windowHandle.get());
+						});
+
+				auto updateCameraGraph = gamePlayGraph->NewTask()
+					->Name("Update Camera")
+					->Functor([plastMousePos
+						, pCam
+						, pmouseDown
+						, pdrawInterface
+						, pDeltaTime
+						, windowHandle]()
+						{
+							int forwarding = 0;
+							int lefting = 0;
+							if (windowHandle->IsKeyDown(CA_KEY_W))
+							{
+								++forwarding;
+							}
+							if (windowHandle->IsKeyDown(CA_KEY_S))
+							{
+								--forwarding;
+							}
+							if (windowHandle->IsKeyDown(CA_KEY_A))
+							{
+								++lefting;
+							}
+							if (windowHandle->IsKeyDown(CA_KEY_D))
+							{
+								--lefting;
+							}
+							glm::vec2 mouseDelta = { 0.0f, 0.0f };
+							glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
+							if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+							{
+								//std::cout << "Mouse Down!" << std::endl;
+								if (!*pmouseDown)
+								{
+									*plastMousePos = mousePos;
+									*pmouseDown = true;
+								}
+								mouseDelta = mousePos - *plastMousePos;
+								*plastMousePos = mousePos;
+							}
+							else// if(windowHandle->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
+							{
+								*pmouseDown = false;
+							}
+
+							auto windowSize1 = windowHandle->GetSizeSafe();
+							pCam->Tick(*pDeltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
+							pdrawInterface->Update(pCam->GetViewProjMatrix());
+						});
+
+				auto grapicsTaskGraph = baseTaskGraph->NewTaskGraph()
+					->Name("Graphics Task Graph")
+					->DependsOn(gamePlayGraph)
+					->WaitOnEvent("Graphics", lastFrame)
+					->SignalEvent("Graphics", *pFrame);
+
+
+				auto setupRGTask = grapicsTaskGraph->NewTask()
+					->Name("Setup Render Graph")
+					->Functor([pBackend
+						, pRenderInterface
+						, windowHandle
+						, pdrawInterface
+						, pVertexList
+						, pIndexList
+						, pFinalBlitShaderSet
+						, pVertexInputDesc
+						, pFinalBlitBindingDesc
+						, pImguiContext
+						, sampler
+					]()
 				{
-					auto windowSize = windowHandle2->GetSizeSafe();
+					auto windowSize = windowHandle->GetSizeSafe();
 
 					auto pRenderGraph = pRenderInterface->NewRenderGraph();
-					auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle2.get());
+					auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle.get());
 
 					auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
 						windowSize.x, windowSize.y
@@ -508,7 +389,7 @@ int main(int argc, char *argv[])
 						.SetAttachmentTarget(1, depthTextureHandle)
 						.Subpass({ {0}, 1 }
 							, {}
-							, pDrawInterface
+							, pdrawInterface
 						);
 
 					auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, pVertexList->size(), sizeof(VertexData))
@@ -524,8 +405,8 @@ int main(int argc, char *argv[])
 						.SetAttachmentTarget(0, windowBackBuffer)
 						.Subpass({ {0} }
 							, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
-							, *pVertexInputDesc
-							, *pFinalBlitShaderSet
+							, * pVertexInputDesc
+							, * pFinalBlitShaderSet
 							, { {}, {blitBandingHandle} }
 							, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
 							{
@@ -534,29 +415,34 @@ int main(int argc, char *argv[])
 									.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
 									.DrawIndexed(6);
 							});
-					DrawIMGUI(pRenderGraph, windowBackBuffer, *pimguiShaderSet, *pimguiConstantBuilder, *pimguiBindingBuilder, sampler, fontImage);
-					pBackend->ExecuteRenderGraph(pRenderGraph);
+					//pImguiContext->DrawIMGUI(pRenderGraph.get(), windowBackBuffer);
+					pBackend->PushRenderGraph(pRenderGraph);
 				});
 
-		m_TaskFuture = baseTaskGraph->Run();
-		//m_TaskFuture.wait();
-		pBackend->TickWindows();
-		pThreadManager->LogStatus();
-		++frame;
-		auto currentTime = timer.now();
-		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastTime).count();
-		lastTime = currentTime;
-		deltaTime = duration / 1000.0f;
-		deltaTime = std::max(deltaTime, 0.005f);
-		float frameRate = 1.0f / deltaTime;
-	}
-	if (m_TaskFuture.valid())
-	{
-		m_TaskFuture.wait();
-	}
+				pBackend->SetupGraphicsTaskGraph(grapicsTaskGraph->NewTaskGraph()
+					->Name("Submit Backend Task Graph")
+					->DependsOn(setupRGTask)
+					, *pFrame);
+
+				baseTaskGraph->Run();
+
+				pBackend->TickWindows();
+				++*pFrame;
+				auto currentTime = pTimer->now();
+				auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - *pLastTime).count();
+				*pLastTime = currentTime;
+				*pDeltaTime = duration / 1000.0f;
+				*pDeltaTime = std::max(*pDeltaTime, 0.0001f);
+				float frameRate = 1.0f / *pDeltaTime;
+				std::cout << "Frame Rate: " << frameRate << std::endl;
+			}
+			return true;
+		}, "Graphics");
+	pThreadManager->RunSetupFunction();
+	pThreadManager->LogStatus();
+	imguiContext.Release();
 	pBackend->Release();
 	pBackend.reset();
 	pThreadManager.reset();
-	ImGui::DestroyContext();
 	return EXIT_SUCCESS;
 }

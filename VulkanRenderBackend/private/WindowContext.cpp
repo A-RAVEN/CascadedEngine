@@ -29,7 +29,7 @@ namespace graphics_backend
 	std::string CWindowContext::GetName() const
 	{ return m_WindowName; }
 
-	uint2 const& CWindowContext::GetSizeSafe()
+	uint2 const& CWindowContext::GetSizeSafe() const
 	{
 		return uint2{ std::max(1u, m_Width), std::max(1u, m_Height), };
 	}

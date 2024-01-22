@@ -70,7 +70,7 @@ namespace graphics_backend
 		return m_FrameBoundCommandBufferPools[currentFrameId];
 	}
 
-	CVulkanFrameBoundCommandBufferPool& CVulkanThreadContext::GetPoolByFrame(uint32_t poolID)
+	CVulkanFrameBoundCommandBufferPool& CVulkanThreadContext::GetPoolByIndex(TIndex poolID)
 	{
 		return m_FrameBoundCommandBufferPools[poolID];
 	}
@@ -80,9 +80,9 @@ namespace graphics_backend
 		GetCurrentFramePool().CollectCommandBufferList(inoutCommandBufferList);
 	}
 
-	void CVulkanThreadContext::DoReleaseResourceBeforeFrame(uint32_t releasingFrame)
+	void CVulkanThreadContext::DoReleaseContextResourceByIndex(TIndex releasingIndex)
 	{
-		GetPoolByFrame(releasingFrame).ResetCommandBufferPool();
+		GetPoolByIndex(releasingIndex).ResetCommandBufferPool();
 	}
 
 	void CVulkanThreadContext::Initialize_Internal(CVulkanApplication const* owningApplication)

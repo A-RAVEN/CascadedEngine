@@ -6,7 +6,7 @@
 
 namespace graphics_backend
 {
-	GPUTexture_Impl::GPUTexture_Impl(CVulkanApplication& app) : BaseUploadingResource(app)
+	GPUTexture_Impl::GPUTexture_Impl(CVulkanApplication& app) : BaseTickingUpdateResource(app)
 	{
 	}
 	void GPUTexture_Impl::ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData)
@@ -17,14 +17,11 @@ namespace graphics_backend
 			m_ScheduledData.resize(scheduleSize);
 		}
 		memcpy(m_ScheduledData.data() + textureDataOffset, pData, dataSize);
-	}
-	void GPUTexture_Impl::UploadAsync()
-	{
-		BaseUploadingResource::UploadAsync(UploadingResourceType::eMemoryDataLowPriority);
+		MarkDirtyThisFrame();
 	}
 	bool GPUTexture_Impl::UploadingDone() const
 	{
-		return BaseUploadingResource::UploadingDone();
+		return BaseTickingUpdateResource::UploadingDone();
 	}
 	void GPUTexture_Impl::Initialize(const GPUTextureDescriptor& descriptor)
 	{
@@ -36,7 +33,7 @@ namespace graphics_backend
 		m_ImageObject.RAIIRelease();
 		m_ScheduledData.clear();
 	}
-	void GPUTexture_Impl::DoUpload()
+	void GPUTexture_Impl::TickUpload()
 	{
 		auto& memoryManager = GetMemoryManager();
 		auto threadContext = GetVulkanApplication().AquireThreadContextPtr();

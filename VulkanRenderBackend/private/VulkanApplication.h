@@ -14,6 +14,7 @@
 #include "GPUBuffer_Impl.h"
 #include <RenderInterface/header/CRenderGraph.h>
 #include <RenderInterface/header/ShaderBindingBuilder.h>
+#include "IUploadingResource.h"
 #include "GPUObjectManager.h"
 #include "RenderGraphExecutor.h"
 #include "ShaderBindingSet_Impl.h"
@@ -57,11 +58,11 @@ namespace graphics_backend
 		void ReturnThreadContext(CVulkanThreadContext& returningContext);
 		std::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
 
-		CTaskGraph* GetGraphicsTaskGraph() const { return p_TaskGraph; }
+		//CTaskGraph* GetGraphicsTaskGraph() const { return p_TaskGraph; }
 
-		CTask* NewTask();
-		TaskParallelFor* NewTaskParallelFor();
-		CTask* NewUploadingTask(UploadingResourceType resourceType);
+		//CTask* NewTask();
+		//TaskParallelFor* NewTaskParallelFor();
+		//CTask* NewUploadingTask(UploadingResourceType resourceType);
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
 		std::shared_ptr<WindowHandle> CreateWindowContext(std::string windowName, uint32_t initialWidth, uint32_t initialHeight);
 		void TickWindowContexts();
@@ -106,9 +107,8 @@ namespace graphics_backend
 			subobject.Release();
 		}
 
-		void PrepareBeforeTick(CTaskGraph* rootTaskGraph);
-		void EndThisFrame();
-		void ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph);
+		void PrepareBeforeTick(CTaskGraph* rootTaskGraph, FrameType frameID);
+		void PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph);
 
 		void CreateImageViews2D(vk::Format format, std::vector<vk::Image> const& inImages, std::vector<vk::ImageView>& outImageViews) const;
 		vk::ImageView CreateDefaultImageView(
@@ -160,19 +160,19 @@ namespace graphics_backend
 		//Thread Manager
 		//CThreadManager* p_ThreadManager = nullptr;
 		//Root Graph
-		CTaskGraph* p_TaskGraph = nullptr;
-		//Resource Loading Graph
-		CTaskGraph* p_MemoryResourceUploadingTaskGraph = nullptr;
-		CTaskGraph* p_GPUAddressUploadingTaskGraph = nullptr;
-		//Rendergraph Execution Graph
-		CTaskGraph* p_RenderingTaskGraph = nullptr;
-		//Finalize Graph
-		CTaskGraph* p_FinalizeTaskGraph = nullptr;
+		//CTaskGraph* p_TaskGraph = nullptr;
+		////Resource Loading Graph
+		//CTaskGraph* p_MemoryResourceUploadingTaskGraph = nullptr;
+		//CTaskGraph* p_GPUAddressUploadingTaskGraph = nullptr;
+		////Rendergraph Execution Graph
+		//CTaskGraph* p_RenderingTaskGraph = nullptr;
+		////Finalize Graph
+		//CTaskGraph* p_FinalizeTaskGraph = nullptr;
 		//Future
 		//std::shared_future<void> m_TaskFuture;
 
-		TVulkanApplicationPool<GPUBuffer_Impl> m_GPUBufferPool;
-		TVulkanApplicationPool<GPUTexture_Impl> m_GPUTexturePool;
+		TTickingUpdateResourcePool<GPUBuffer_Impl> m_GPUBufferPool;
+		TTickingUpdateResourcePool<GPUTexture_Impl> m_GPUTexturePool;
 		//Uniform Buffer
 		HashPool<ShaderConstantsBuilder, ShaderConstantSetAllocator> m_ConstantSetAllocator;
 		//Shader Descriptor Set
@@ -182,6 +182,7 @@ namespace graphics_backend
 		RenderGraphExecutorDic m_RenderGraphDic;
 
 		std::deque<RenderGraphExecutor> m_Executors;
+		std::vector<std::shared_ptr<CRenderGraph>> m_PendingRenderGraphs;
 
 		CVulkanMemoryManager m_MemoryManager;
 	};

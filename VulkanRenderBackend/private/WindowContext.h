@@ -48,7 +48,7 @@ namespace graphics_backend
 	public:
 
 		virtual std::string GetName() const override;
-		virtual uint2 const& GetSizeSafe() override;
+		virtual uint2 const& GetSizeSafe() const override;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const override;
 		virtual bool IsKeyDown(int keycode) const override;
 		virtual bool IsMouseDown(int mousecode) const override;

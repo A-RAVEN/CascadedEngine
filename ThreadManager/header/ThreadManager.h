@@ -90,6 +90,8 @@ namespace thread_management
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;
 		virtual CTaskGraph* NewTaskGraph() = 0;
+		virtual void SetupFunction(std::function<bool(CThreadManager*)> functor, std::string const& waitingEvent) = 0;
+		virtual void RunSetupFunction() = 0;
 		virtual void LogStatus() const = 0;
 	};
 }

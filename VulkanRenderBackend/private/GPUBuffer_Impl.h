@@ -1,24 +1,23 @@
 #pragma once
 #include "RenderBackendSettings.h"
-#include "IUploadingResource.h"
+#include "TickUploadingResource.h"
 #include "CVulkanBufferObject.h"
 #include <RenderInterface/header/GPUBuffer.h>
 
 namespace graphics_backend
 {
-	class GPUBuffer_Impl : public BaseUploadingResource, public GPUBuffer
+	class GPUBuffer_Impl : public BaseTickingUpdateResource, public GPUBuffer
 	{
 	public:
 		GPUBuffer_Impl(CVulkanApplication& owner);
 		virtual void Release() override;
 		void Initialize(EBufferUsageFlags usages, uint64_t count, uint64_t stride);
-		void UploadAsync() override;
-		virtual bool UploadingDone() const override;
+		virtual void TickUpload() override;
 		// 通过 GPUBuffer 继承
+		virtual bool UploadingDone() const override;
 		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData) override;
 		VulkanBufferHandle const& GetVulkanBufferObject() const { return m_BufferObject; }
 	protected:
-		virtual void DoUpload() override;
 	private:
 		VulkanBufferHandle m_BufferObject;
 		EBufferUsageFlags m_Usages;

@@ -14,14 +14,9 @@ namespace graphics_backend
 		m_Application.InitializeThreadContext(threadCount);
 	}
 
-	void CRenderBackend_Vulkan::SetupGraphicsTaskGraph(CTaskGraph* taskGraph)
+	void CRenderBackend_Vulkan::SetupGraphicsTaskGraph(CTaskGraph* taskGraph, FrameType frameID)
 	{
-		m_Application.PrepareBeforeTick(taskGraph);
-	}
-
-	CTaskGraph* CRenderBackend_Vulkan::GetGraphicsTaskGraph() const
-	{
-		return m_Application.GetGraphicsTaskGraph();
+		m_Application.PrepareBeforeTick(taskGraph, frameID);
 	}
 
 	void CRenderBackend_Vulkan::Release()
@@ -44,9 +39,9 @@ namespace graphics_backend
 		m_Application.TickWindowContexts();
 	}
 
-	void CRenderBackend_Vulkan::ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
+	void CRenderBackend_Vulkan::PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
 	{
-		m_Application.ExecuteRenderGraph(inRenderGraph);
+		m_Application.PushRenderGraph(inRenderGraph);
 	}
 
 	std::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)

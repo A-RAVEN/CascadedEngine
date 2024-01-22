@@ -120,10 +120,15 @@ namespace thread_management
 		virtual TaskParallelFor* NewTaskParallelFor() override;
 		virtual CTaskGraph* NewTaskGraph() override;
 		virtual void LogStatus() const override;
+		void SetupFunction(std::function<bool(CThreadManager*)> functor, std::string const& waitingEvent) override;
+		void RunSetupFunction() override;
+		void Stop();
 	public:
 		ThreadManager_Impl1();
 		~ThreadManager_Impl1();
+		void EnqueueSetupTask_NoLock();
 		void EnqueueTaskNode(TaskNode* node);
+		void EnqueueTaskNode_NoLock(TaskNode* node);
 		void EnqueueTaskNodes(std::vector<TaskNode*> const& nodeDeque);
 		void SignalEvent(std::string const& eventName, uint64_t signalFrame);
 		bool TryWaitOnEvent(TaskNode* node);
@@ -132,7 +137,8 @@ namespace thread_management
 		void ProcessingWorks(uint32_t threadId);
 	private:
 		//
-		std::function<void(CThreadManager*)> m_PrepareFunctor = nullptr;
+		std::function<bool(CThreadManager*)> m_PrepareFunctor = nullptr;
+		std::string m_SetupEventName;
 
 		std::deque<TaskNode*> m_TaskQueue;
 		std::vector<std::thread> m_WorkerThreads;

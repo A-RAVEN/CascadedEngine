@@ -20,12 +20,10 @@ void MeshGPUData::UploadMeshResource(resource_management::StaticMeshResource* me
 	m_VertexBuffer->ScheduleBufferData(0
 		, vertexCount * sizeof(resource_management::CommonVertexData)
 		, meshResource->GetVertexData());
-	m_VertexBuffer->UploadAsync();
 
 	m_IndicesBuffer->ScheduleBufferData(0
 		, indexCount * sizeof(uint16_t)
 		, meshResource->GetIndicesData());
-	m_IndicesBuffer->UploadAsync();
 }
 
 void MeshGPUData::Draw(CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset)

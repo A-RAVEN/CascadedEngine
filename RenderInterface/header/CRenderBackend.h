@@ -27,13 +27,12 @@ namespace graphics_backend
 	public:
 		virtual void Initialize(std::string const& appName, std::string const& engineName) = 0;
 		virtual void InitializeThreadContextCount(uint32_t threadContextCount) = 0;
-		virtual void SetupGraphicsTaskGraph(thread_management::CTaskGraph* taskGraph) = 0;
-		virtual thread_management::CTaskGraph* GetGraphicsTaskGraph() const = 0;
+		virtual void SetupGraphicsTaskGraph(thread_management::CTaskGraph* taskGraph, uint64_t frameID) = 0;
 		virtual void Release() = 0;
 		virtual std::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, std::string const& windowName) = 0;
 		virtual bool AnyWindowRunning() = 0;
 		virtual void TickWindows() = 0;
-		virtual void ExecuteRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph) = 0;
+		virtual void PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph) = 0;
 		virtual std::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags usageFlags
 			, uint64_t count
 			, uint64_t stride) = 0;

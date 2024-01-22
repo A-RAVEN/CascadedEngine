@@ -8,7 +8,7 @@ namespace graphics_backend
 {
 
 
-	GPUBuffer_Impl::GPUBuffer_Impl(CVulkanApplication& owner) : BaseUploadingResource(owner)
+	GPUBuffer_Impl::GPUBuffer_Impl(CVulkanApplication& owner) : BaseTickingUpdateResource(owner)
 	{
 	}
 
@@ -24,13 +24,9 @@ namespace graphics_backend
 		m_Stride = stride;
 
 	}
-	void GPUBuffer_Impl::UploadAsync()
-	{
-		BaseUploadingResource::UploadAsync(UploadingResourceType::eMemoryDataLowPriority);
-	}
 	bool GPUBuffer_Impl::UploadingDone() const
 	{
-		return BaseUploadingResource::UploadingDone();
+		return BaseTickingUpdateResource::UploadingDone();
 	}
 	void GPUBuffer_Impl::ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData)
 	{
@@ -40,13 +36,13 @@ namespace graphics_backend
 			m_ScheduledData.resize(scheduleSize);
 		}
 		memcpy(m_ScheduledData.data() + bufferOffset, pData, dataSize);
+		MarkDirtyThisFrame();
 	}
-	void GPUBuffer_Impl::DoUpload()
+	void GPUBuffer_Impl::TickUpload()
 	{
         auto& memoryManager = GetMemoryManager();
         auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
         auto currentFrame = GetFrameCountContext().GetCurrentFrameID();
-		
 
         std::atomic_thread_fence(std::memory_order_acquire);
 

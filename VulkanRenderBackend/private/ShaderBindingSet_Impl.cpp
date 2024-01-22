@@ -4,6 +4,8 @@
 
 namespace graphics_backend 
 {
+	using namespace thread_management;
+
 	ShaderBindingSet_Impl::ShaderBindingSet_Impl(CVulkanApplication& owner) : BaseTickingUpdateResource(owner)
 	{
 	}

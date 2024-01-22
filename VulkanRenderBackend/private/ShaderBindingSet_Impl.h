@@ -2,6 +2,7 @@
 #include "framework.h"
 #include <RenderInterface/header/ShaderBindingSet.h>
 #include <RenderInterface/header/ShaderBindingBuilder.h>
+#include <ThreadManager/header/ThreadManager.h>
 #include "Containers.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include "ShaderDescriptorSetAllocator.h"
@@ -108,7 +109,7 @@ namespace graphics_backend
 		ShaderBindingSetMetadata const& GetMetadata() const { return m_Metadata; }
 		std::shared_ptr<ShaderBindingSet> AllocateSet();
 		virtual void Release() override;
-		void TickUploadResources(CTaskGraph* pTaskGraph);
+		void TickUploadResources(thread_management::CTaskGraph* pTaskGraph);
 	private:
 		ShaderBindingSetMetadata m_Metadata;
 		TTickingUpdateResourcePool<ShaderBindingSet_Impl> m_ShaderBindingSetPool;
