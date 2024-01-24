@@ -20,7 +20,7 @@ set(ADDITIONAL_LIBRARY_DEPENDENCIES
     "spirv-cross-cd"
     "spirv-cross-utild"
 )
-elseif("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
+else()#if("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
 set(ADDITIONAL_LIBRARY_DEPENDENCIES
     "shaderc_combined"
     "spirv-cross-core"

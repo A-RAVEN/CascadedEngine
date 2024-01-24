@@ -7,6 +7,7 @@
 #include <CACore/header/library_loader.h>
 #include <ExternalLib/zpp_bits/zpp_bits.h>
 #include <filesystem>
+#include <RenderInterface/header/ShaderBindingBuilder.h>
 
 namespace resource_management
 {

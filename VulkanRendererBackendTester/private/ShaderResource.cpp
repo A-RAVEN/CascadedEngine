@@ -25,20 +25,22 @@ namespace resource_management
 			, shaderSource
 			, "vert"
 			, ECompileShaderType::eVert
-			, true, false);
+			, true, true);
 		resource->m_VertexShaderProvider.SetUniqueName(resourcePath.stem().string() + ".vert");
 		resource->m_VertexShaderProvider.SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-		
+		ShaderCompiler::ShaderParams shaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
+
 		spirVResult = m_ShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
 			, fileName.string()
 			, shaderSource
 			, "frag"
 			, ECompileShaderType::eFrag
-			, true, false);
+			, true, true);
 
 		
 		resource->m_FragmentShaderProvider.SetUniqueName(resourcePath.stem().string() + ".frag");
 		resource->m_FragmentShaderProvider.SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
+		shaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
 	}
 	void ShaderResrouce::Serialzie(std::vector<std::byte>& data)
 	{

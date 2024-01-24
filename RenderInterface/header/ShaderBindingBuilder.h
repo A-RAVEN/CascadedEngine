@@ -178,6 +178,20 @@ public:
 		return *this;
 	}
 
+	inline ShaderBindingBuilder& TextureGeneral(std::string const& name
+		, EShaderBindingNumericType numericType, ETextureDimension dimension, bool unorderedAccess, uint32_t channels, uint32_t count)
+	{
+		CA_ASSERT(channels > 0 && channels <= 4, "texture binding supports 1-4 channels");
+		CA_ASSERT(count > 0, "shader binding count must be greater than 0");
+		m_TextureDescriptors.push_back(std::make_pair(name, ShaderTextureDescriptor{
+			numericType
+			, unorderedAccess
+			, dimension
+			, channels
+			, count }));
+		return *this;
+	}
+
 	template<typename T, uint32_t channels = 4, uint32_t count = 1>
 	ShaderBindingBuilder& Texture2D(std::string const& name)
 	{

@@ -262,11 +262,39 @@ namespace ShaderCompiler
 		}
 
 		BufferParam ExtractUniformBufferParams(spirv_cross::Resource const& buffer
-			, spirv_cross::Compiler& compiler)
+			, spirv_cross::Compiler& compiler
+		, spirv_cross::ShaderResources& resources)
 		{
 			BufferParam bufferParam{};
 			ExtractBufferParamShared(bufferParam, buffer, compiler);
 			bufferParam.type = EShaderBufferType::eConstantBuffer;
+
+			auto& type = compiler.get_type(buffer.base_type_id);
+			unsigned member_count = type.member_types.size();
+			for (unsigned i = 0; i < member_count; i++)
+			{
+				auto& member_type = compiler.get_type(type.member_types[i]);
+				size_t member_size = compiler.get_declared_struct_member_size(type, i);
+
+				// Get member offset within this struct.
+				size_t offset = compiler.type_struct_member_offset(type, i);
+
+				//Get Base Type
+				member_type.basetype;
+
+				if (!member_type.array.empty())
+				{
+					// Get array stride, e.g. float4 foo[]; Will have array stride of 16 bytes.
+					size_t array_stride = compiler.type_struct_member_array_stride(type, i);
+				}
+
+				if (member_type.columns > 1)
+				{
+					// Get bytes stride between columns (if column major), for float4x4 -> 16 bytes.
+					size_t matrix_stride = compiler.type_struct_member_matrix_stride(type, i);
+				}
+				const std::string& name = compiler.get_member_name(type.self, i);
+			}
 			return bufferParam;
 		}
 #pragma endregion

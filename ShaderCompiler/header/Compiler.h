@@ -5,6 +5,33 @@
 
 namespace ShaderCompiler
 {
+	enum class EShaderNumericType
+	{
+		eFloat = 0,
+		eInt32,
+		eUInt32,
+	};
+
+	struct ShaderNumericParam
+	{
+		std::string name;
+		EShaderNumericType numericType;
+		uint32_t count = 1;
+		uint32_t x = 1;
+		uint32_t y = 1;
+		ShaderNumericParam(EShaderNumericType inType
+			, uint32_t inX = 1, uint32_t inY = 1, uint32_t inCount = 1) :
+			numericType(inType)
+			, count(inCount)
+			, x(inX)
+			, y(inY)
+		{
+		}
+		bool operator==(ShaderNumericParam const& other) const
+		{
+			return (std::memcmp(this, &other, sizeof(ShaderNumericParam)) == 0);
+		}
+	};
 
 	class BaseShaderParam
 	{
@@ -26,6 +53,13 @@ namespace ShaderCompiler
 	public:
 		EShaderBufferType type;
 		size_t blockSize = 0;
+	};
+
+	class ConstantBufferParam : public BaseShaderParam
+	{
+	public:
+		size_t blockSize = 0;
+		std::vector<ShaderNumericParam> numericParams;
 	};
 
 	class SamplerParam : public BaseShaderParam
