@@ -43,6 +43,22 @@ namespace ShaderCompiler
 		shaderc_source_language_glsl
 	};
 
+	EShaderNumericType SpirvCrossNumericTypeConversion(spirv_cross::SPIRType::BaseType baseType)
+	{
+		switch (baseType)
+		{
+			case spirv_cross::SPIRType::BaseType::Float:
+				return EShaderNumericType::eFloat;
+			case spirv_cross::SPIRType::BaseType::Int:
+				return EShaderNumericType::eInt32;
+			case spirv_cross::SPIRType::BaseType::UInt:
+				return EShaderNumericType::eUInt32;
+			default:
+				CA_ASSERT(false, "Unsupported Spirv Cross Numeric Type");
+				return EShaderNumericType::eFloat;
+		}
+	}
+
 	class Compiler_Impl : public IShaderCompiler
 	{
 	public:
@@ -261,18 +277,18 @@ namespace ShaderCompiler
 			return bufferParam;
 		}
 
-		BufferParam ExtractUniformBufferParams(spirv_cross::Resource const& buffer
-			, spirv_cross::Compiler& compiler
-		, spirv_cross::ShaderResources& resources)
+		ConstantBufferParam ExtractUniformBufferParams(spirv_cross::Resource const& buffer
+			, spirv_cross::Compiler& compiler)
 		{
-			BufferParam bufferParam{};
-			ExtractBufferParamShared(bufferParam, buffer, compiler);
-			bufferParam.type = EShaderBufferType::eConstantBuffer;
+			ConstantBufferParam cbufferParam{};
+			ExtractBaseShaderParamInfo(cbufferParam, buffer, compiler);
 
 			auto& type = compiler.get_type(buffer.base_type_id);
+			cbufferParam.blockSize = compiler.get_declared_struct_size(type);
 			unsigned member_count = type.member_types.size();
 			for (unsigned i = 0; i < member_count; i++)
 			{
+				ShaderNumericParam numericParam{};
 				auto& member_type = compiler.get_type(type.member_types[i]);
 				size_t member_size = compiler.get_declared_struct_member_size(type, i);
 
@@ -281,21 +297,22 @@ namespace ShaderCompiler
 
 				//Get Base Type
 				member_type.basetype;
-
+				numericParam.numericType = SpirvCrossNumericTypeConversion(member_type.basetype);
+				//Vector type
+				numericParam.x = member_type.vecsize;
+				numericParam.y = member_type.columns;
+				numericParam.count = 1;
 				if (!member_type.array.empty())
 				{
-					// Get array stride, e.g. float4 foo[]; Will have array stride of 16 bytes.
-					size_t array_stride = compiler.type_struct_member_array_stride(type, i);
+					CA_ASSERT(member_type.array.size() == 1, "Cannot Rsolve Array Of Arrays");
+					CA_ASSERT(member_type.array_size_literal[0], "Array Size Must Be Known");
+					numericParam.count = member_type.array[0];
 				}
 
-				if (member_type.columns > 1)
-				{
-					// Get bytes stride between columns (if column major), for float4x4 -> 16 bytes.
-					size_t matrix_stride = compiler.type_struct_member_matrix_stride(type, i);
-				}
-				const std::string& name = compiler.get_member_name(type.self, i);
+				numericParam.name = compiler.get_member_name(type.self, i);
+				cbufferParam.numericParams.push_back(numericParam);
 			}
-			return bufferParam;
+			return cbufferParam;
 		}
 #pragma endregion
 
@@ -327,7 +344,7 @@ namespace ShaderCompiler
 			for (const spirv_cross::Resource& buffer : resources.uniform_buffers)
 			{
 				//UniformBuffer/ConstantBuffer
-				params.buffers.push_back(ExtractUniformBufferParams(buffer, compiler));
+				params.cbuffers.push_back(ExtractUniformBufferParams(buffer, compiler));
 			}
 			for (const spirv_cross::Resource& buffer : resources.storage_buffers)
 			{

@@ -9,6 +9,33 @@
 #include <filesystem>
 #include <RenderInterface/header/ShaderBindingBuilder.h>
 
+namespace ShaderCompiler
+{
+	constexpr auto serialize(auto& archive, TextureParam& param)
+	{
+		return archive(param.name, param.set, param.binding
+			, param.type, param.subpassInputAttachmentID);
+	}
+
+	constexpr auto serialize(auto& archive, BufferParam& param)
+	{
+		return archive(param.name, param.set, param.binding
+			, param.type, param.blockSize);
+	}
+
+	constexpr auto serialize(auto& archive, ConstantBufferParam& param)
+	{
+		return archive(param.name, param.set, param.binding
+			, param.blockSize, param.numericParams);
+	}
+
+	constexpr auto serialize(auto& archive, SamplerParam& param)
+	{
+		return archive(param.name, param.set, param.binding
+			, param.type);
+	}
+}
+
 namespace resource_management
 {
 	using namespace library_loader;
@@ -17,11 +44,17 @@ namespace resource_management
 	{
 	public:
 		friend zpp::bits::access;
-		using serialize = zpp::bits::members<2>;
+		using serialize = zpp::bits::members<4>;
 		virtual void Serialzie(std::vector<std::byte>& out) override;
 		virtual void Deserialzie(std::vector<std::byte>& in) override;
+		virtual void Load() override;
 		TestShaderProvider m_VertexShaderProvider;
+		ShaderParams m_VertexShaderParams;
 		TestShaderProvider m_FragmentShaderProvider;
+		ShaderParams m_FragmentShaderParams;
+
+		ShaderBindingBuilder m_VertexBindingBuilder;
+		ShaderBindingBuilder m_FragmentBindingBuilder;
 		friend class ShaderResourceLoader;
 	};
 

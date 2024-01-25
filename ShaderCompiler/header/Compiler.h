@@ -19,14 +19,6 @@ namespace ShaderCompiler
 		uint32_t count = 1;
 		uint32_t x = 1;
 		uint32_t y = 1;
-		ShaderNumericParam(EShaderNumericType inType
-			, uint32_t inX = 1, uint32_t inY = 1, uint32_t inCount = 1) :
-			numericType(inType)
-			, count(inCount)
-			, x(inX)
-			, y(inY)
-		{
-		}
 		bool operator==(ShaderNumericParam const& other) const
 		{
 			return (std::memcmp(this, &other, sizeof(ShaderNumericParam)) == 0);
@@ -68,10 +60,10 @@ namespace ShaderCompiler
 		EShaderSamplerType type;
 	};
 
-	class ShaderParams : public BaseShaderParam
+	struct ShaderParams
 	{
-	public:
 		std::vector<TextureParam> textures;
+		std::vector<ConstantBufferParam> cbuffers;
 		std::vector<BufferParam> buffers;
 		std::vector<SamplerParam> samplers;
 	};

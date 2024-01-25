@@ -5,6 +5,8 @@
 
 namespace resource_management
 {
+	
+
 	ShaderResourceLoader::ShaderResourceLoader() : m_ShaderCompilerLoader("ShaderCompiler")
 	{
 		m_ShaderCompiler = m_ShaderCompilerLoader.New();
@@ -28,7 +30,7 @@ namespace resource_management
 			, true, true);
 		resource->m_VertexShaderProvider.SetUniqueName(resourcePath.stem().string() + ".vert");
 		resource->m_VertexShaderProvider.SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-		ShaderCompiler::ShaderParams shaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
+		resource->m_VertexShaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
 
 		spirVResult = m_ShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
 			, fileName.string()
@@ -36,11 +38,10 @@ namespace resource_management
 			, "frag"
 			, ECompileShaderType::eFrag
 			, true, true);
-
 		
 		resource->m_FragmentShaderProvider.SetUniqueName(resourcePath.stem().string() + ".frag");
 		resource->m_FragmentShaderProvider.SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-		shaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
+		resource->m_FragmentShaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
 	}
 	void ShaderResrouce::Serialzie(std::vector<std::byte>& data)
 	{
@@ -57,5 +58,8 @@ namespace resource_management
 		if (failure(result)) {
 			LogZPPError("deserialize failed", result);
 		}
+	}
+	void ShaderResrouce::Load()
+	{
 	}
 }
