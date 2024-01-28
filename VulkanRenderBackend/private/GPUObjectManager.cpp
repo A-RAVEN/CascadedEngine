@@ -4,7 +4,7 @@
 namespace graphics_backend
 {
 	GPUObjectManager::GPUObjectManager(CVulkanApplication& application)
-		: BaseApplicationSubobject(application)
+		: VKAppSubObjectBaseNoCopy(application)
 		, m_ShaderModuleCache(application)
 		, m_RenderPassCache(application)
 		, m_FramebufferObjectCache(application)

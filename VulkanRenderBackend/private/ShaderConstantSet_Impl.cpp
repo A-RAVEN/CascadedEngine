@@ -84,7 +84,7 @@ namespace graphics_backend
 		auto tempBuffer = memoryManager.AllocateFrameBoundTransferStagingBuffer(bufferSize);
 		memcpy(tempBuffer->GetMappedPointer(), m_UploadData.data(), bufferSize);
 
-		auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload GPU Buffer");
+		auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload Shader Constant Buffer");
 		cmdBuffer.copyBuffer(tempBuffer->GetBuffer(), m_BufferObject->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
 		cmdBuffer.end();
 		std::atomic_thread_fence(std::memory_order_release);
@@ -156,7 +156,7 @@ namespace graphics_backend
 	}
 
 	ShaderConstantSetAllocator::ShaderConstantSetAllocator(CVulkanApplication& owner) :
-		BaseApplicationSubobject(owner)
+		VKAppSubObjectBaseNoCopy(owner)
 		, m_ShaderConstantSetPool(owner)
 	{
 	}

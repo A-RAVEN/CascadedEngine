@@ -15,7 +15,7 @@ public:
 	virtual void const* GetDataPtr(std::string const& codeType) const override;
 	virtual std::string GetUniqueName() const override;
 
-	virtual ShaderProvider::ShaderSourceInfo const& GetDataInfo(std::string const& codeType) const override;
+	virtual ShaderProvider::ShaderSourceInfo GetDataInfo(std::string const& codeType) const override;
 
 	void SetUniqueName(std::string const& uniqueName);
 

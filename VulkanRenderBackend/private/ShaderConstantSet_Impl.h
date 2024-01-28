@@ -40,7 +40,7 @@ namespace graphics_backend
 		std::unordered_map<std::string, std::pair<size_t, size_t>> m_ArithmeticValuePositions;
 	};
 
-	class ShaderConstantSetAllocator : public BaseApplicationSubobject
+	class ShaderConstantSetAllocator : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		ShaderConstantSetAllocator(CVulkanApplication& owner);

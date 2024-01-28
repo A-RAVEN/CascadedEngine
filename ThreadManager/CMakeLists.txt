@@ -9,6 +9,8 @@ add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_SOURCE_DIR}")
 
+target_link_libraries(${PROJECT_NAME} PRIVATE EASTL)
+
 target_precompile_headers(${PROJECT_NAME}
   PRIVATE
    "${CMAKE_CURRENT_SOURCE_DIR}/private/pch.h"

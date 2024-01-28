@@ -28,4 +28,5 @@ void Camera::Tick(float deltaTime
 	//OpenGL ndc is left-handed while vulkan is right-handed, so we need to flip y
 	//m_ProjectionMatrix[1][1] *= -1.0f;
 	m_ViewProjectionMatrix = m_ProjectionMatrix * m_ViewMatrix;
+	//std::cout << "Camera Rect: " << screenWidth <<" " << screenHeight << std::endl;
 }

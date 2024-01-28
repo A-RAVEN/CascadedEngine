@@ -1,6 +1,15 @@
 #include "pch.h"
 #include "ThreadManager_Impl.h"
 
+void* __cdecl operator new[](size_t size, const char* name, int flags, unsigned debugFlags, const char* file, int line)
+{
+    return new uint8_t[size];
+}
+void* operator new[](size_t size, size_t alignment, size_t alignmentOffset, const char* name, int flags, unsigned debugFlags, const char* file, int line)
+{
+    return new uint8_t[size];
+}
+
 namespace thread_management
 {
     CTaskGraph* TaskGraph_Impl1::Name(std::string name)
@@ -301,7 +310,7 @@ namespace thread_management
             }
         }
     }
-    void ThreadManager_Impl1::EnqueueTaskNodes(std::vector<TaskNode*> const& nodeDeque)
+    void ThreadManager_Impl1::EnqueueTaskNodes(eastl::vector<TaskNode*> const& nodeDeque)
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
         uint32_t enqueuedCounter = 0;
@@ -335,7 +344,7 @@ namespace thread_management
         auto found = m_EventMap.find(eventName);
         if(found == m_EventMap.end())
 		{
-            found = m_EventMap.insert(std::make_pair(eventName, m_EventWaitLists.size())).first;
+            found = m_EventMap.insert(eastl::make_pair(eventName, m_EventWaitLists.size())).first;
             m_EventWaitLists.emplace_back();
 		}
         auto& waitList = m_EventWaitLists[found->second];

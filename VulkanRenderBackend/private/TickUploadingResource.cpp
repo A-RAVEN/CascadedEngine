@@ -4,7 +4,7 @@
 
 namespace graphics_backend
 {
-	BaseTickingUpdateResource::BaseTickingUpdateResource(CVulkanApplication& app) : BaseApplicationSubobject(app)
+	BaseTickingUpdateResource::BaseTickingUpdateResource(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
 	{
 	}
 	void BaseTickingUpdateResource::SetOwningUpdator(ITickingResourceUpdator* owningUpdator)

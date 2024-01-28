@@ -10,7 +10,7 @@ namespace graphics_backend
 	public:
 		void Initialize(std::string const& appName, std::string const& engineName) override;
 		void InitializeThreadContextCount(uint32_t threadCount) override;
-		void SetupGraphicsTaskGraph(CTaskGraph* taskGraph, FrameType frameID) override;
+		void SetupGraphicsTaskGraph(CTaskGraph* taskGraph, std::vector<std::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID) override;
 		void Release() override;
 		std::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, std::string const& windowName) override;
 		bool AnyWindowRunning() override;

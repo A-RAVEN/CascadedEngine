@@ -37,8 +37,7 @@ namespace graphics_backend
 			std::copy(m_MiscCommandBufferList.begin()
 				, m_MiscCommandBufferList.end()
 				, inoutCommandBufferList.end() - commandCount);
-			//m_CommandBufferList.CollectCommandBufferList(inoutCommandBufferList);
-			//m_SecondaryCommandBufferList.CollectCommandBufferList(inoutCommandBufferList);
+			m_MiscCommandBufferList.clear();
 		}
 	}
 
@@ -75,10 +74,10 @@ namespace graphics_backend
 		return m_FrameBoundCommandBufferPools[poolID];
 	}
 
-	void CVulkanThreadContext::CollectSubmittingCommandBuffers(std::vector<vk::CommandBuffer>& inoutCommandBufferList)
-	{
-		GetCurrentFramePool().CollectCommandBufferList(inoutCommandBufferList);
-	}
+	//void CVulkanThreadContext::CollectSubmittingCommandBuffers(std::vector<vk::CommandBuffer>& inoutCommandBufferList)
+	//{
+	//	//GetCurrentFramePool().CollectCommandBufferList(inoutCommandBufferList);
+	//}
 
 	void CVulkanThreadContext::DoReleaseContextResourceByIndex(TIndex releasingIndex)
 	{

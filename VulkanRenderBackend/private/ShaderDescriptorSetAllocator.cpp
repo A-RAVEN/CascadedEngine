@@ -5,7 +5,7 @@
 
 namespace graphics_backend
 {
-	ShaderDescriptorSetAllocator::ShaderDescriptorSetAllocator(CVulkanApplication& owner) : BaseApplicationSubobject(owner)
+	ShaderDescriptorSetAllocator::ShaderDescriptorSetAllocator(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner)
 	, m_DescriptorPool(*this, owner, 4)
 	{
 	}
@@ -77,7 +77,7 @@ namespace graphics_backend
 	ChunkedDescriptorPoolWrapper::ChunkedDescriptorPoolWrapper(ShaderDescriptorSetAllocator& owningAllocator
 		, CVulkanApplication& application
 		, uint32_t chunkSize) :
-		BaseApplicationSubobject(application)
+		VKAppSubObjectBaseNoCopy(application)
 		, m_OwningAllocator(owningAllocator)
 		, m_ChunkSize(chunkSize)
 	{
@@ -141,7 +141,7 @@ namespace graphics_backend
 
 	DescriptorSetPool::DescriptorSetPool(CVulkanApplication& application
 		, ShaderDescriptorSetAllocator const& owningAllocator
-		, uint32_t maxSize) : BaseApplicationSubobject(application)
+		, uint32_t maxSize) : VKAppSubObjectBaseNoCopy(application)
 		, m_OwningAllocator(owningAllocator)
 		, m_MaxSize(maxSize)
 		, m_FrameboundReleaser([this](std::deque<ShaderDescriptorSetObject> const& released)

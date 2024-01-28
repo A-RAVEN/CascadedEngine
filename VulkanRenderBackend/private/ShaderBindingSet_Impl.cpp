@@ -58,7 +58,7 @@ namespace graphics_backend
 		//{
 			auto& descPoolCache = GetVulkanApplication().GetGPUObjectManager().GetShaderDescriptorPoolCache();
 			ShaderDescriptorSetLayoutInfo layoutInfo = p_Metadata->GetLayoutInfo();
-			auto allocator = descPoolCache.GetOrCreate(layoutInfo).lock();
+			auto allocator = descPoolCache.GetOrCreate(layoutInfo);
 			m_DescriptorSetHandle = std::move(allocator->AllocateSet());
 		//}
 		CA_ASSERT(m_DescriptorSetHandle.IsRAIIAquired(), "Descriptor Set Is Not Aquired!");
@@ -199,7 +199,7 @@ namespace graphics_backend
 			m_StructBuffNameToBindingIndex.emplace(structBuf, bindingIndex++);
 		}
 	}
-	ShaderBindingSetAllocator::ShaderBindingSetAllocator(CVulkanApplication& owner) : BaseApplicationSubobject(owner)
+	ShaderBindingSetAllocator::ShaderBindingSetAllocator(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner)
 		, m_ShaderBindingSetPool(owner)
 	{
 	}

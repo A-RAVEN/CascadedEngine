@@ -66,7 +66,11 @@ namespace graphics_backend
 	class RenderPassExecutor
 	{
 	public:
-		RenderPassExecutor(RenderGraphExecutor& owningExecutor, CRenderGraph const& renderGraph, CRenderpassBuilder const& renderpassBuilder);
+		RenderPassExecutor(
+			RenderGraphExecutor& owningExecutor
+			, CRenderGraph const& renderGraph
+			, CRenderpassBuilder const& renderpassBuilder);
+		RenderPassExecutor(RenderPassExecutor const& other) = default;
 		void Compile(CTaskGraph* taskGraph);
 
 		void ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& TextureHandleUsageStates);
@@ -116,11 +120,9 @@ namespace graphics_backend
 		RenderGraphExecutor& m_OwningExecutor;
 		CRenderpassBuilder const& m_RenderpassBuilder;
 		CRenderGraph const& m_RenderGraph;
-
 		//RenderPass and Framebuffer
 		std::shared_ptr<RenderPassObject> m_RenderPassObject;
 		std::vector<vk::ClearValue> m_ClearValues;
-
 
 		//Framebuffer
 		std::vector<vk::ImageView> m_FrameBufferImageViews;
@@ -143,15 +145,18 @@ namespace graphics_backend
 	};
 
 	//RenderGraph Executor
-	class RenderGraphExecutor : public BaseApplicationSubobject
+	class RenderGraphExecutor : public VKAppSubObjectBase
 	{
 	public:
-		RenderGraphExecutor(CVulkanApplication& owner);
+		RenderGraphExecutor(CVulkanApplication& owner, FrameType frameID);
 		void Create(std::shared_ptr<CRenderGraph> inRenderGraph);
 		void Run(CTaskGraph* taskGrap);
 		bool CompileDone() const;
 		bool CompileIssued() const;
 		void CollectCommands(std::vector<vk::CommandBuffer>& inoutCommands) const;
+		FrameType GetCurrentFrameID() const {
+			return m_CurrentFrameID;
+		}
 		InternalGPUTextures const& GetLocalTexture(TIndex textureHandle) const;
 		VulkanBufferHandle const& GetLocalBuffer(TIndex bufferHandle) const;
 		VulkanBufferHandle const& GetLocalConstantSetBuffer(TIndex constantSetHandle) const;
@@ -173,6 +178,7 @@ namespace graphics_backend
 		std::vector<vk::CommandBuffer> m_PendingGraphicsCommandBuffers;
 
 		FrameType m_CompiledFrame = INVALID_FRAMEID;
+		FrameType m_CurrentFrameID;
 
 		std::vector<int32_t> m_TextureAllocationIndex;
 		std::vector<std::vector<InternalGPUTextures>> m_Images;

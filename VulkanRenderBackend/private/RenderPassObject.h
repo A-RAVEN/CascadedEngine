@@ -24,7 +24,7 @@ namespace graphics_backend
 		}
 	};
 
-	class RenderPassObject : public BaseApplicationSubobject
+	class RenderPassObject : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		RenderPassObject(CVulkanApplication& application);

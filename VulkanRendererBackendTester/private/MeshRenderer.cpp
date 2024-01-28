@@ -7,15 +7,17 @@ MeshGPUData::MeshGPUData(std::shared_ptr<graphics_backend::CRenderBackend> rende
 	m_RenderBackend = renderBackend;
 }
 
-void MeshGPUData::UploadMeshResource(resource_management::StaticMeshResource* meshResource)
+void MeshGPUData::UploadMeshResource(resource_management::StaticMeshResource* meshResource, std::string const& name)
 {
 	p_MeshResource = meshResource;
 	uint32_t vertexCount = meshResource->GetVertexCount();
 	uint32_t indexCount = meshResource->GetIndicesCount();
 	m_VertexBuffer = m_RenderBackend->CreateGPUBuffer(EBufferUsage::eDataDst | EBufferUsage::eVertexBuffer
 		, vertexCount, sizeof(resource_management::CommonVertexData));
+	m_VertexBuffer->Name(name + "VertexBuffer");
 	m_IndicesBuffer = m_RenderBackend->CreateGPUBuffer(EBufferUsage::eDataDst | EBufferUsage::eIndexBuffer
 		, indexCount, sizeof(uint16_t));
+	m_IndicesBuffer->Name(name + "IndexBuffer");
 
 	m_VertexBuffer->ScheduleBufferData(0
 		, vertexCount * sizeof(resource_management::CommonVertexData)

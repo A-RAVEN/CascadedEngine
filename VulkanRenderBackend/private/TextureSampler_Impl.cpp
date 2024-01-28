@@ -4,7 +4,7 @@
 
 namespace graphics_backend
 {
-	TextureSampler_Impl::TextureSampler_Impl(CVulkanApplication& app) : BaseApplicationSubobject(app)
+	TextureSampler_Impl::TextureSampler_Impl(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
 	{
 	}
 

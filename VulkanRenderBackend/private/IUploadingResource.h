@@ -11,7 +11,7 @@ namespace graphics_backend
 	class BaseTickingUpdateResource;
 
 
-	class BaseUploadingResource : public BaseApplicationSubobject
+	class BaseUploadingResource : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		BaseUploadingResource(CVulkanApplication& owner);

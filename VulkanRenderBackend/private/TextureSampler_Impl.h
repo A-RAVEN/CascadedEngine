@@ -5,7 +5,7 @@
 
 namespace graphics_backend
 {
-	class TextureSampler_Impl : public TextureSampler, public BaseApplicationSubobject
+	class TextureSampler_Impl : public TextureSampler, public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		TextureSampler_Impl(CVulkanApplication& app);

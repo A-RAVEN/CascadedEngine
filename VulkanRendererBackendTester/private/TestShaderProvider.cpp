@@ -25,7 +25,7 @@ std::string TestShaderProvider::GetUniqueName() const
     return m_UniqueName;
 }
 
-ShaderProvider::ShaderSourceInfo const& TestShaderProvider::GetDataInfo(std::string const& codeType) const
+ShaderProvider::ShaderSourceInfo TestShaderProvider::GetDataInfo(std::string const& codeType) const
 {
     const static std::string invalidEntrypoint = "invalidEntryPoint";
     auto found = m_Data.find(codeType);

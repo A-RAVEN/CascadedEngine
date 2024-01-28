@@ -91,7 +91,7 @@ namespace graphics_backend
 		CVulkanThreadContext(uint32_t threadId);
 		CVulkanFrameBoundCommandBufferPool& GetCurrentFramePool();
 		CVulkanFrameBoundCommandBufferPool& GetPoolByIndex(TIndex poolIndex);
-		void CollectSubmittingCommandBuffers(std::vector<vk::CommandBuffer>& inoutCommandBufferList);
+		//void CollectSubmittingCommandBuffers(std::vector<vk::CommandBuffer>& inoutCommandBufferList);
 		uint32_t GetThreadID() const { return m_ThreadID; }
 		void DoReleaseContextResourceByIndex(TIndex releasingIndex);
 	private:

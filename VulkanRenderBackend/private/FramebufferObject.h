@@ -34,10 +34,10 @@ namespace graphics_backend
 		}
 	};
 
-	class FramebufferObject final : public BaseApplicationSubobject
+	class FramebufferObject final : public VKAppSubObjectBaseNoCopy
 	{
 	public:
-		FramebufferObject(CVulkanApplication& owner) : BaseApplicationSubobject(owner) {};
+		FramebufferObject(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner) {};
 		void Create(FramebufferDescriptor const& framebufferDescriptor);
 		vk::Framebuffer const& GetFramebuffer() const { return mFramebuffer; }
 		uint32_t GetWidth() const 

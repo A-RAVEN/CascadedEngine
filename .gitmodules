@@ -29,3 +29,6 @@
 [submodule "ExternalLib/assimp"]
 	path = ExternalLib/assimp
 	url = https://github.com/assimp/assimp.git
+[submodule "ExternalLib/EASTL"]
+	path = ExternalLib/EASTL
+	url = https://github.com/electronicarts/EASTL.git

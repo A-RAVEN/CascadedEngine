@@ -52,9 +52,6 @@ namespace resource_management
 		ShaderParams m_VertexShaderParams;
 		TestShaderProvider m_FragmentShaderProvider;
 		ShaderParams m_FragmentShaderParams;
-
-		ShaderBindingBuilder m_VertexBindingBuilder;
-		ShaderBindingBuilder m_FragmentBindingBuilder;
 		friend class ShaderResourceLoader;
 	};
 

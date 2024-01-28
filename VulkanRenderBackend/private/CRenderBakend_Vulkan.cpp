@@ -14,9 +14,11 @@ namespace graphics_backend
 		m_Application.InitializeThreadContext(threadCount);
 	}
 
-	void CRenderBackend_Vulkan::SetupGraphicsTaskGraph(CTaskGraph* taskGraph, FrameType frameID)
+	void CRenderBackend_Vulkan::SetupGraphicsTaskGraph(CTaskGraph* taskGraph
+		, std::vector<std::shared_ptr<CRenderGraph>> const& pendingRenderGraphs
+		, FrameType frameID)
 	{
-		m_Application.PrepareBeforeTick(taskGraph, frameID);
+		m_Application.ExecuteStates(taskGraph, pendingRenderGraphs, frameID);
 	}
 
 	void CRenderBackend_Vulkan::Release()
@@ -36,7 +38,7 @@ namespace graphics_backend
 
 	void CRenderBackend_Vulkan::TickWindows()
 	{
-		m_Application.TickWindowContexts();
+		//m_Application.TickWindowContexts();
 	}
 
 	void CRenderBackend_Vulkan::PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)

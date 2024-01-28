@@ -101,7 +101,7 @@ namespace graphics_backend
 		std::unordered_map<std::string, uint32_t> m_StructBuffNameToBindingIndex;
 	};
 
-	class ShaderBindingSetAllocator : public BaseApplicationSubobject
+	class ShaderBindingSetAllocator : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		ShaderBindingSetAllocator(CVulkanApplication& owner);

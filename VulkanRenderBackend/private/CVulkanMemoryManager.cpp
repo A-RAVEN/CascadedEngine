@@ -90,7 +90,7 @@ namespace graphics_backend
 	}
 
 	CFrameBoundMemoryPool::CFrameBoundMemoryPool(uint32_t pool_id, CVulkanApplication& owner) :
-		BaseApplicationSubobject(owner)
+		VKAppSubObjectBaseNoCopy(owner)
 		, m_PoolId(pool_id)
 	{
 	}
@@ -150,7 +150,7 @@ namespace graphics_backend
 		vmaDestroyAllocator(m_BufferAllocator);
 	}
 
-	CGlobalMemoryPool::CGlobalMemoryPool(CVulkanApplication& owner) : BaseApplicationSubobject(owner)
+	CGlobalMemoryPool::CGlobalMemoryPool(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner)
 		, m_ImageFrameboundReleaser([this](std::deque<VulkanImageObject_Internal> const& releasingObjects)
 			{
 				ReleaseImage_Internal(releasingObjects);
@@ -244,7 +244,7 @@ namespace graphics_backend
 	}
 
 	CVulkanMemoryManager::CVulkanMemoryManager(CVulkanApplication& owner) : 
-		BaseApplicationSubobject(owner)
+		VKAppSubObjectBaseNoCopy(owner)
 		, m_GlobalMemoryPool(owner)
 	{
 	}
@@ -279,14 +279,14 @@ namespace graphics_backend
 		return m_GlobalMemoryPool.AllocateImage(textureDescriptor, memoryType);
 	}
 
-	void CVulkanMemoryManager::ReleaseCurrentFrameResource()
+	void CVulkanMemoryManager::ReleaseCurrentFrameResource(FrameType releaseFrame, TIndex releasePoolIndex)
 	{
-		if (!GetFrameCountContext().AnyFrameFinished())
-			return;
-		TIndex const releasingPoolIndex = GetFrameCountContext().GetReleasedResourcePoolIndex();
-		FrameType const releasingFrame = GetFrameCountContext().GetReleasedFrameID();
-		m_GlobalMemoryPool.ReleaseResourcesBeforeFrame(releasingFrame);
-		m_FrameBoundPool[releasingPoolIndex].ReleaseAllBuffers();
+		//if (!GetFrameCountContext().AnyFrameFinished())
+		//	return;
+		//TIndex const releasingPoolIndex = GetFrameCountContext().GetReleasedResourcePoolIndex();
+		//FrameType const releasingFrame = GetFrameCountContext().GetReleasedFrameID();
+		m_GlobalMemoryPool.ReleaseResourcesBeforeFrame(releaseFrame);
+		m_FrameBoundPool[releasePoolIndex].ReleaseAllBuffers();
 	}
 
 	void CVulkanMemoryManager::Initialize()

@@ -59,7 +59,7 @@ namespace graphics_backend
         auto tempBuffer = memoryManager.AllocateFrameBoundTransferStagingBuffer(byteSize);
         memcpy(tempBuffer->GetMappedPointer(), m_ScheduledData.data(), byteSize);
 		VulkanBarrierCollector barrierCollector{ GetFrameCountContext().GetGraphicsQueueFamily() };
-        auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload GPU Buffer");
+        auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer((m_Name + " Upload GPU Buffer").c_str());
 		barrierCollector.PushBufferBarrier(m_BufferObject->GetBuffer(), ResourceUsage::eDontCare, ResourceUsage::eTransferDest);
 		barrierCollector.ExecuteBarrier(cmdBuffer);
 		barrierCollector.Clear();

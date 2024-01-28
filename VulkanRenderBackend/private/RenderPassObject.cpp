@@ -10,7 +10,7 @@ struct hash_utils::is_contiguously_hashable<vk::SubpassDependency> : public std:
 namespace graphics_backend
 {
 
-	RenderPassObject::RenderPassObject(CVulkanApplication& application) : BaseApplicationSubobject(application)
+	RenderPassObject::RenderPassObject(CVulkanApplication& application) : VKAppSubObjectBaseNoCopy(application)
 	{
 	}
 

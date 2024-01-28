@@ -7,7 +7,7 @@
 namespace graphics_backend
 {
 	CShaderModuleObject::CShaderModuleObject(CVulkanApplication& application)
-	: BaseApplicationSubobject(application)
+	: VKAppSubObjectBaseNoCopy(application)
 	{}
 
 	void CShaderModuleObject::Create(ShaderModuleDescritor const& descriptor)

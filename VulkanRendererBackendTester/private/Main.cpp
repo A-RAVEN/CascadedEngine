@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
 
 	{
 		MeshGPUData newMeshGPUData{ pBackend };
-		newMeshGPUData.UploadMeshResource(pTestMeshResource);
+		newMeshGPUData.UploadMeshResource(pTestMeshResource, "VikingScene");
 		g_MeshResourceToGPUData.insert(std::make_pair(pTestMeshResource, newMeshGPUData));
 	}
 
@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
 	std::shared_future<void> m_TaskFuture;
 	auto graphicsTaskGraph = pThreadManager->NewTaskGraph()
 		->Name("Graphics Task Graph");
-	pBackend->SetupGraphicsTaskGraph(graphicsTaskGraph, frame);
+	pBackend->SetupGraphicsTaskGraph(graphicsTaskGraph, {}, frame);
 	m_TaskFuture = graphicsTaskGraph->Run();
 	m_TaskFuture.wait();
 	pThreadManager->SetupFunction([
@@ -269,11 +269,14 @@ int main(int argc, char *argv[])
 
 			{
 				uint64_t lastFrame = *pFrame == 0 ? 0 : (*pFrame - 1);
+				uint64_t currentFrame = *pFrame;
 
 				auto baseTaskGraph = pThreadManager->NewTaskGraph()
 					->Name("BaseTaskGraph");
 				auto gamePlayGraph = baseTaskGraph->NewTaskGraph()
-					->Name("GamePlayGraph");
+					->Name("GamePlayGraph")
+					->WaitOnEvent("GamePlay", lastFrame)
+					->SignalEvent("GamePlay", currentFrame);
 
 				auto updateImGUIGraph = gamePlayGraph->NewTask()
 					->Name("Update Imgui")
@@ -309,6 +312,10 @@ int main(int argc, char *argv[])
 							{
 								--lefting;
 							}
+							if (windowHandle->IsKeyTriggered(CA_KEY_R))
+							{
+								windowHandle->RecreateContext();
+							}
 							glm::vec2 mouseDelta = { 0.0f, 0.0f };
 							glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
 							if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
@@ -336,8 +343,9 @@ int main(int argc, char *argv[])
 					->Name("Graphics Task Graph")
 					->DependsOn(gamePlayGraph)
 					->WaitOnEvent("Graphics", lastFrame)
-					->SignalEvent("Graphics", *pFrame);
+					->SignalEvent("Graphics", currentFrame);
 
+				std::shared_ptr<std::vector<std::shared_ptr<CRenderGraph>>> pGraphs = std::make_shared<std::vector<std::shared_ptr<CRenderGraph>>>();
 
 				auto setupRGTask = grapicsTaskGraph->NewTask()
 					->Name("Setup Render Graph")
@@ -352,9 +360,13 @@ int main(int argc, char *argv[])
 						, pFinalBlitBindingDesc
 						, pImguiContext
 						, sampler
+						, currentFrame
+						, pGraphs
 					]()
 				{
 					auto windowSize = windowHandle->GetSizeSafe();
+				/*	std::cout << "Setup Size " << currentFrame <<  ":" << windowSize.x << "x" << windowSize.y << std::endl;
+					std::cout << "RT Size " << currentFrame <<  ":" << windowHandle->GetBackbufferDescriptor().width << "x" << windowHandle->GetBackbufferDescriptor().height << std::endl;*/
 
 					auto pRenderGraph = pRenderInterface->NewRenderGraph();
 					auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle.get());
@@ -415,18 +427,21 @@ int main(int argc, char *argv[])
 									.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
 									.DrawIndexed(6);
 							});
-					//pImguiContext->DrawIMGUI(pRenderGraph.get(), windowBackBuffer);
-					pBackend->PushRenderGraph(pRenderGraph);
+
+					pGraphs->push_back(pRenderGraph);
 				});
 
-				pBackend->SetupGraphicsTaskGraph(grapicsTaskGraph->NewTaskGraph()
+				grapicsTaskGraph->NewTaskGraph()
 					->Name("Submit Backend Task Graph")
 					->DependsOn(setupRGTask)
-					, *pFrame);
+					->SetupFunctor([pBackend, pGraphs, currentFrame](CTaskGraph* thisGraph)
+						{
+							pBackend->SetupGraphicsTaskGraph(
+								thisGraph, *pGraphs, currentFrame);
+						});
 
 				baseTaskGraph->Run();
 
-				pBackend->TickWindows();
 				++*pFrame;
 				auto currentTime = pTimer->now();
 				auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - *pLastTime).count();

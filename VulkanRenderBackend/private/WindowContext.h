@@ -5,23 +5,27 @@
 #include <RenderInterface/header/Common.h>
 #include <RenderInterface/header/WindowHandle.h>
 #include <ExternalLib/glfw/include/GLFW/glfw3.h>
+#include <mutex>
 #include <functional>
+#include <deque>
 #include "VulkanBarrierCollector.h"
+#include "RenderBackendSettings.h"
 
 namespace graphics_backend
 {
 
-	class SwapchainContext : public BaseApplicationSubobject
+	class SwapchainContext : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		SwapchainContext(CVulkanApplication& app);
+		SwapchainContext(SwapchainContext const& other);
 		void Init(uint32_t width, uint32_t height, vk::SurfaceKHR surface, vk::SwapchainKHR oldSwapchain, uint32_t presentQueueID);
 		void Release();
 		vk::SwapchainKHR const& GetSwapchain() const { return m_Swapchain; }
 		TIndex GetCurrentFrameBufferIndex() const { return m_CurrentBufferIndex; }
 		vk::Image GetCurrentFrameImage() const { return m_SwapchainImages[m_CurrentBufferIndex]; }
 		vk::ImageView GetCurrentFrameImageView() const { return m_SwapchainImageViews[m_CurrentBufferIndex]; }
-		vk::Semaphore GetWaitDoneSemaphore() const { return m_WaitNextFrameSemaphore; }
+		vk::Semaphore GetWaitDoneSemaphore() const { return m_WaitFrameDoneSemaphore; }
 		vk::Semaphore GetPresentWaitingSemaphore() const { return m_CanPresentSemaphore; }
 		ResourceUsageFlags GetCurrentFrameUsageFlags() const { return m_CurrentFrameUsageFlags; }
 		void WaitCurrentFrameBufferIndex();
@@ -33,7 +37,7 @@ namespace graphics_backend
 		std::vector<vk::Image> m_SwapchainImages;
 		std::vector<vk::ImageView> m_SwapchainImageViews;
 		//Semaphores
-		vk::Semaphore m_WaitNextFrameSemaphore = nullptr;
+		vk::Semaphore m_WaitFrameDoneSemaphore = nullptr;
 		vk::Semaphore m_CanPresentSemaphore = nullptr;
 		//Meta data
 		ResourceUsageFlags m_CurrentFrameUsageFlags = ResourceUsage::eDontCare;
@@ -43,14 +47,16 @@ namespace graphics_backend
 		friend class CWindowContext;
 	};
 
-	class CWindowContext : public BaseApplicationSubobject, public WindowHandle
+	class CWindowContext : public VKAppSubObjectBaseNoCopy, public WindowHandle
 	{
 	public:
 
 		virtual std::string GetName() const override;
 		virtual uint2 const& GetSizeSafe() const override;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const override;
+		virtual void RecreateContext() override;
 		virtual bool IsKeyDown(int keycode) const override;
+		virtual bool IsKeyTriggered(int keycode) const override;
 		virtual bool IsMouseDown(int mousecode) const override;
 		virtual bool IsMouseUp(int mousecode) const override;
 		virtual float GetMouseX() const override;
@@ -69,7 +75,8 @@ namespace graphics_backend
 		vk::Semaphore GetPresentWaitingSemaphore() const { return m_SwapchainContext.GetPresentWaitingSemaphore(); }
 		ResourceUsageFlags GetCurrentFrameUsageFlags() const { return m_SwapchainContext.GetCurrentFrameUsageFlags(); }
 		void MarkUsages(ResourceUsageFlags usages);
-		void Resize();
+		void Resize(FrameType resizeFrame);
+		void TickReleaseResources(FrameType releasingFrame);
 		void UpdateSize();
 		void Initialize(std::string const& windowName, uint32_t initialWidth, uint32_t initialHeight);
 		void Release() override;
@@ -89,9 +96,12 @@ namespace graphics_backend
 		std::pair<uint32_t, vk::Queue> m_PresentQueue = std::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
 
 		SwapchainContext m_SwapchainContext;
+		std::deque<std::pair<FrameType, SwapchainContext>> m_PendingReleaseSwapchains;
 		friend class CVulkanApplication;
 
 		std::function<void(GLFWwindow* window, int width, int height)> m_WindowCallback;
 		bool m_Resized = false;
+
+		std::mutex m_Mutex;
 	};
 }

@@ -4,7 +4,7 @@
 
 namespace graphics_backend
 {
-	BaseUploadingResource::BaseUploadingResource(CVulkanApplication& owner) : BaseApplicationSubobject(owner)
+	BaseUploadingResource::BaseUploadingResource(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner)
 	{
 	}
 	void BaseUploadingResource::Upload()

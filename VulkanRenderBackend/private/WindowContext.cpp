@@ -31,12 +31,17 @@ namespace graphics_backend
 
 	uint2 const& CWindowContext::GetSizeSafe() const
 	{
-		return uint2{ std::max(1u, m_Width), std::max(1u, m_Height), };
+		return uint2{ std::max(1u, m_SwapchainContext.m_TextureDesc.width), std::max(1u, m_SwapchainContext.m_TextureDesc.height), };
 	}
 
 	GPUTextureDescriptor const& CWindowContext::GetBackbufferDescriptor() const
 	{
 		return m_SwapchainContext.m_TextureDesc;
+	}
+
+	void CWindowContext::RecreateContext()
+	{
+		m_Resized = true;
 	}
 
 	float CWindowContext::GetMouseX() const
@@ -59,6 +64,12 @@ namespace graphics_backend
 		return state == GLFW_PRESS || state == GLFW_REPEAT;
 	}
 
+	bool CWindowContext::IsKeyTriggered(int keycode) const
+	{
+		auto state = glfwGetKey(m_Window, keycode);
+		return state == GLFW_PRESS;
+	}
+
 	bool CWindowContext::IsMouseDown(int mousecode) const
 	{
 		auto state = glfwGetMouseButton(m_Window, mousecode);
@@ -71,7 +82,7 @@ namespace graphics_backend
 		return state == GLFW_RELEASE;
 	}
 
-	CWindowContext::CWindowContext(CVulkanApplication& inApp) : BaseApplicationSubobject(inApp)
+	CWindowContext::CWindowContext(CVulkanApplication& inApp) : VKAppSubObjectBaseNoCopy(inApp)
 		, m_SwapchainContext(inApp)
 	{
 	}
@@ -101,18 +112,32 @@ namespace graphics_backend
 		m_SwapchainContext.MarkUsages(usages);
 	}
 
-	void CWindowContext::Resize()
+	void CWindowContext::Resize(FrameType resizeFrame)
 	{
 		if (m_Resized)
 		{
 			m_Resized = false;
 			if (ValidContext())
 			{
+				std::cout << "Recreate Swapchain " << resizeFrame << ":" << m_Width << "x" << m_Height << std::endl;
 				SwapchainContext newContext(GetVulkanApplication());
 				newContext.Init(m_Width, m_Height, m_Surface, m_SwapchainContext.GetSwapchain(), m_PresentQueue.first);
-				m_SwapchainContext.Release();
+				m_PendingReleaseSwapchains.push_back(std::make_pair(resizeFrame, m_SwapchainContext));
 				m_SwapchainContext.CopyFrom(newContext);
 			}
+			else
+			{
+				CA_LOG_ERR("Invlaid Swapchain Context Default Creation");
+			}
+		}
+	}
+
+	void CWindowContext::TickReleaseResources(FrameType releasingFrame)
+	{
+		while (!m_PendingReleaseSwapchains.empty() && m_PendingReleaseSwapchains.front().first <= releasingFrame)
+		{
+			m_PendingReleaseSwapchains.front().second.Release();
+			m_PendingReleaseSwapchains.pop_front();
 		}
 	}
 
@@ -156,6 +181,11 @@ namespace graphics_backend
 
 	void CWindowContext::Release()
 	{
+		for(auto& pair : m_PendingReleaseSwapchains)
+		{
+			pair.second.Release();
+		}
+		m_PendingReleaseSwapchains.clear();
 		m_SwapchainContext.Release();
 		m_PresentQueue = std::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
 		if (m_Surface != vk::SurfaceKHR(nullptr))
@@ -179,6 +209,7 @@ namespace graphics_backend
 	{
 		if (!NeedPresent())
 			return;
+		//std::cout << "Present Frame: " << m_SwapchainContext.GetCurrentFrameBufferIndex() << std::endl;
 		std::array<vk::Semaphore, 1> waitSemaphores = { m_SwapchainContext.GetPresentWaitingSemaphore() };
 		std::array<uint32_t, 1> swapchainIndices = { m_SwapchainContext.GetCurrentFrameBufferIndex() };
 		vk::PresentInfoKHR presenttInfo(
@@ -186,7 +217,7 @@ namespace graphics_backend
 			, GetSwapchain()
 			, swapchainIndices
 		);
-		m_PresentQueue.second.presentKHR(presenttInfo);
+		auto result = m_PresentQueue.second.presentKHR(presenttInfo);
 		MarkUsages(ResourceUsage::ePresent);
 	}
 
@@ -205,8 +236,13 @@ namespace graphics_backend
 			, GetCurrentFrameUsageFlags(), ResourceUsage::ePresent);
 	}
 
-	SwapchainContext::SwapchainContext(CVulkanApplication& app) : BaseApplicationSubobject(app)
+	SwapchainContext::SwapchainContext(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
 	{
+	}
+
+	SwapchainContext::SwapchainContext(SwapchainContext const& other) : VKAppSubObjectBaseNoCopy(other.GetVulkanApplication())
+	{
+		CopyFrom(other);
 	}
 
 	void SwapchainContext::Init(uint32_t width, uint32_t height, vk::SurfaceKHR surface, vk::SwapchainKHR oldSwapchain, uint32_t presentQueueID)
@@ -227,6 +263,9 @@ namespace graphics_backend
 			// If the surface size is defined, the swap chain size must match
 			swapchainExtent = surfaceCapabilities.currentExtent;
 		}
+
+		std::cout << "Swapchain Extent: " << swapchainExtent.width << "x" << swapchainExtent.height << std::endl;
+		std::cout << "Window Extent: " << width << "x" << height << std::endl;
 
 		// The FIFO present mode is guaranteed by the spec to be supported
 		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
@@ -278,18 +317,22 @@ namespace graphics_backend
 		}
 		swapChainCreateInfo.oldSwapchain = oldSwapchain;
 
+		std::cout << "Create Swapchain" << std::endl;
 		m_Swapchain = GetDevice().createSwapchainKHR(swapChainCreateInfo);
+		std::cout << "Create Swapchain Done" << std::endl;
 		m_SwapchainImages = GetDevice().getSwapchainImagesKHR(m_Swapchain);
 		GetVulkanApplication().CreateImageViews2D(format, m_SwapchainImages, m_SwapchainImageViews);
-		m_WaitNextFrameSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
+		m_WaitFrameDoneSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
 		m_CanPresentSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
+		std::cout << "Wait Buffer Index" <<std::endl;
+		WaitCurrentFrameBufferIndex();
 	}
 	void SwapchainContext::Release()
 	{
 		GetDevice().destroySemaphore(m_CanPresentSemaphore);
 		m_CanPresentSemaphore = nullptr;
-		GetDevice().destroySemaphore(m_WaitNextFrameSemaphore);
-		m_WaitNextFrameSemaphore = nullptr;
+		GetDevice().destroySemaphore(m_WaitFrameDoneSemaphore);
+		m_WaitFrameDoneSemaphore = nullptr;
 		for (auto& imgView : m_SwapchainImageViews)
 		{
 			GetDevice().destroyImageView(imgView);
@@ -307,8 +350,9 @@ namespace graphics_backend
 		vk::ResultValue<uint32_t> currentBuffer = GetDevice().acquireNextImageKHR(
 			m_Swapchain
 			, std::numeric_limits<uint64_t>::max()
-			, m_WaitNextFrameSemaphore, nullptr);
+			, m_WaitFrameDoneSemaphore, nullptr);
 
+		CA_ASSERT(currentBuffer.result == vk::Result::eSuccess, "Aquire Next Swapchain Image Failed!");
 		if (currentBuffer.result == vk::Result::eSuccess)
 		{
 			m_CurrentBufferIndex = currentBuffer.value;
@@ -326,7 +370,7 @@ namespace graphics_backend
 		m_SwapchainImages = other.m_SwapchainImages;
 		m_SwapchainImageViews = other.m_SwapchainImageViews;
 		//Semaphores
-		m_WaitNextFrameSemaphore = other.m_WaitNextFrameSemaphore;
+		m_WaitFrameDoneSemaphore = other.m_WaitFrameDoneSemaphore;
 		m_CanPresentSemaphore = other.m_CanPresentSemaphore;
 		//Meta data
 		m_CurrentFrameUsageFlags = other.m_CurrentFrameUsageFlags;

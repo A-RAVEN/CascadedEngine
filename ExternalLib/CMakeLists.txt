@@ -33,7 +33,6 @@ set(ASSIMP_BUILD_TESTS OFF CACHE INTERNAL "Turn Off Tests")
 set(ASSIMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assimp)
 add_subdirectory(${ASSIMP_DIR})
 
-#flatbuffers
-#set(FLATBUFFER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/flatbuffers)
-#add_subdirectory(${FLATBUFFER_DIR}
-#                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/flatbufferscompiler)
+#EASTL
+set(EASTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EASTL)
+add_subdirectory(${EASTL_DIR})

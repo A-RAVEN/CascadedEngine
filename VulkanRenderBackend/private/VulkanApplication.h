@@ -65,7 +65,7 @@ namespace graphics_backend
 		//CTask* NewUploadingTask(UploadingResourceType resourceType);
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
 		std::shared_ptr<WindowHandle> CreateWindowContext(std::string windowName, uint32_t initialWidth, uint32_t initialHeight);
-		void TickWindowContexts();
+		void TickWindowContexts(FrameType currentFrameID);
 
 		CFrameCountContext const& GetSubmitCounterContext() const { return m_SubmitCounterContext; }
 
@@ -96,7 +96,7 @@ namespace graphics_backend
 
 		template<typename T, typename...TArgs>
 		T NewObject(TArgs&&...Args) const {
-			static_assert(std::is_base_of<BaseApplicationSubobject, T>::value, "Type T not derived from BaseApplicationSubobject");
+			static_assert(std::is_base_of<VKAppSubObjectBaseNoCopy, T>::value, "Type T not derived from VKAppSubObjectBaseNoCopy");
 			T newObject(*this);
 			newObject.Initialize(std::forward<TArgs>(Args)...);
 			return newObject;
@@ -107,7 +107,9 @@ namespace graphics_backend
 			subobject.Release();
 		}
 
-		void PrepareBeforeTick(CTaskGraph* rootTaskGraph, FrameType frameID);
+		void SyncPresentationFrame(FrameType frameID);
+		void ExecuteStates(CTaskGraph* rootTaskGraph, std::vector<std::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID);
+
 		void PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph);
 
 		void CreateImageViews2D(vk::Format format, std::vector<vk::Image> const& inImages, std::vector<vk::ImageView>& outImageViews) const;
@@ -181,8 +183,8 @@ namespace graphics_backend
 		GPUObjectManager m_GPUObjectManager;
 		RenderGraphExecutorDic m_RenderGraphDic;
 
-		std::deque<RenderGraphExecutor> m_Executors;
-		std::vector<std::shared_ptr<CRenderGraph>> m_PendingRenderGraphs;
+		//std::deque<RenderGraphExecutor> m_Executors;
+		//std::vector<std::shared_ptr<CRenderGraph>> m_PendingRenderGraphs;
 
 		CVulkanMemoryManager m_MemoryManager;
 	};

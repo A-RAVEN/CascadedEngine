@@ -9,7 +9,7 @@
 
 namespace graphics_backend
 {
-	class GPUObjectManager : public BaseApplicationSubobject
+	class GPUObjectManager : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		GPUObjectManager(CVulkanApplication& application);

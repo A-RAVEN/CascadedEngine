@@ -46,7 +46,7 @@ namespace graphics_backend
 
 	using ShaderDescriptorSetHandle = raii_utils::TRAIIContainer<ShaderDescriptorSetObject>;
 
-	class DescriptorSetPool : public BaseApplicationSubobject
+	class DescriptorSetPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		DescriptorSetPool(CVulkanApplication& application
@@ -74,7 +74,7 @@ namespace graphics_backend
 		TFrameboundReleaser<ShaderDescriptorSetObject> m_FrameboundReleaser;
 	};
 
-	class ChunkedDescriptorPoolWrapper : public BaseApplicationSubobject
+	class ChunkedDescriptorPoolWrapper : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		ChunkedDescriptorPoolWrapper(ShaderDescriptorSetAllocator& owningAllocator
@@ -93,7 +93,7 @@ namespace graphics_backend
 		std::deque<DescriptorSetPool*> m_AvailablePools;
 	};
 
-	class ShaderDescriptorSetAllocator : public BaseApplicationSubobject
+	class ShaderDescriptorSetAllocator : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		ShaderDescriptorSetAllocator(CVulkanApplication& owner);

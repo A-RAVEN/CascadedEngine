@@ -62,10 +62,10 @@ namespace graphics_backend
 		}
 	};
 
-	class CPipelineObject final : public BaseApplicationSubobject
+	class CPipelineObject final : public VKAppSubObjectBaseNoCopy
 	{
 	public:
-		CPipelineObject(CVulkanApplication& owner) : BaseApplicationSubobject(owner) {};
+		CPipelineObject(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner) {};
 		void Create(CPipelineObjectDescriptor const& pipelineObjectDescriptor);
 		vk::Pipeline const& GetPipeline() const { return m_GraphicsPipeline; }
 		vk::PipelineLayout const& GetPipelineLayout() const { return m_PipelineLayout; }

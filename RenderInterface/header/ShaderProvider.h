@@ -17,7 +17,7 @@ public:
 	virtual uint64_t GetDataLength(std::string const& codeType) const = 0;
 	virtual void const* GetDataPtr(std::string const& codeType) const = 0;
 	virtual std::string GetUniqueName() const = 0;
-	virtual ShaderSourceInfo const& GetDataInfo(std::string const& codeType) const = 0;
+	virtual ShaderSourceInfo GetDataInfo(std::string const& codeType) const = 0;
 	bool operator==(ShaderProvider const& other) const
 	{
 		return GetUniqueName() == other.GetUniqueName();

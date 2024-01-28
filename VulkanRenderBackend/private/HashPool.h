@@ -7,7 +7,7 @@
 namespace graphics_backend
 {
 	template<typename DescType, typename ValType>
-	class HashPool : public BaseApplicationSubobject
+	class HashPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 
@@ -17,34 +17,25 @@ namespace graphics_backend
 		HashPool(HashPool&& other) = delete;
 		HashPool& operator=(HashPool&&) = delete;
 
-		HashPool(CVulkanApplication& application) : BaseApplicationSubobject(application)
+		HashPool(CVulkanApplication& application) : VKAppSubObjectBaseNoCopy(application)
 		{}
 
-		std::weak_ptr<ValType> GetOrCreate(DescType desc)
+		std::shared_ptr<ValType> GetOrCreate(DescType const& desc)
 		{
 			std::shared_ptr<ValType> result;
-			bool newResult = false;
+			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			auto it = m_InternalMap.find(desc);
+			if (it == m_InternalMap.end())
 			{
-				std::lock_guard<std::mutex> lockGuard(m_Mutex);
-				auto it = m_InternalMap.find(desc);
-				newResult = it == m_InternalMap.end();
-				if (newResult)
-				{
-					result = std::shared_ptr<ValType>{ new ValType{ GetVulkanApplication() } };
-					m_InternalMap.insert(std::make_pair(desc, result));
-					it = m_InternalMap.find(desc);
-					result = it->second;
-				}
-				else
-				{
-					result = it->second;
-				}
-				if (newResult)
-				{
-					result->Create(it->first);
-				}
+				result = std::shared_ptr<ValType>{ new ValType{ GetVulkanApplication() } };
+				it = m_InternalMap.insert(std::make_pair(desc, result)).first;
+				result->Create(it->first);
 			}
-			return std::weak_ptr<ValType>(result);
+			else
+			{
+				result = it->second;
+			}
+			return result;
 		}
 
 		void Foreach(std::function<void(DescType const&, ValType*)> callbackFunc)

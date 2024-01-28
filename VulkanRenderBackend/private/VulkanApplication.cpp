@@ -15,35 +15,41 @@
 
 namespace graphics_backend
 {
-	void CVulkanApplication::PrepareBeforeTick(CTaskGraph* rootTaskGraph, FrameType frameID)
+	void CVulkanApplication::SyncPresentationFrame(FrameType frameID)
 	{
-		auto initializeTask = rootTaskGraph->NewTask()
-			->Name("GPU Frame Initialize")
-			->Functor([this]()
-				{
-					m_SubmitCounterContext.WaitingForCurrentFrame();
-					if (m_SubmitCounterContext.AnyFrameFinished())
-					{
-						FrameType const releasedFrame = m_SubmitCounterContext.GetReleasedFrameID();
-						TIndex const releasedIndex = m_SubmitCounterContext.GetReleasedResourcePoolIndex();
-						for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
-						{
-							itrThreadContext->DoReleaseContextResourceByIndex(releasedIndex);
-						}
-						GetGPUObjectManager().ReleaseFrameboundResources(releasedFrame);
-					}
-					m_MemoryManager.ReleaseCurrentFrameResource();
-					for (auto& windowContext : m_WindowContexts)
-					{
-						windowContext->WaitCurrentFrameBufferIndex();
-						windowContext->MarkUsages(ResourceUsage::eDontCare);
-					}
-				})
-			->SignalEvent("PresentReady", frameID);
+		//Update Frame, Release FrameBound Resources
+		m_SubmitCounterContext.WaitingForCurrentFrame();
+
+		TickWindowContexts(frameID);
+		for (auto& windowContext : m_WindowContexts)
+		{
+			windowContext->WaitCurrentFrameBufferIndex();
+			windowContext->MarkUsages(ResourceUsage::eDontCare);
+		}
+
+		if (m_SubmitCounterContext.AnyFrameFinished())
+		{
+			FrameType const releasedFrame = m_SubmitCounterContext.GetReleasedFrameID();
+			TIndex const releasedIndex = m_SubmitCounterContext.GetReleasedResourcePoolIndex();
+			for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
+			{
+				itrThreadContext->DoReleaseContextResourceByIndex(releasedIndex);
+			}
+			GetGPUObjectManager().ReleaseFrameboundResources(releasedFrame);
+			m_MemoryManager.ReleaseCurrentFrameResource(releasedFrame, releasedIndex);
+			for (auto& windowContext : m_WindowContexts)
+			{
+				windowContext->TickReleaseResources(releasedFrame);
+			}
+		}
+	}
+	void CVulkanApplication::ExecuteStates(CTaskGraph* rootTaskGraph, std::vector<std::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID)
+	{
+		FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
+		TIndex currentPoolID = m_SubmitCounterContext.GetCurrentFrameBufferIndex();
 
 		auto memoryResourceUploadingTaskGraph = rootTaskGraph->NewTaskGraph()
-			->Name("Memory Resource Uploading Task Graph")
-			->DependsOn(initializeTask);
+			->Name("Memory Resource Uploading Task Graph");
 
 		auto gpuAddressUploadingTaskGraph = rootTaskGraph->NewTaskGraph()
 			->Name("GPU Address Updating Task Graph")
@@ -53,41 +59,43 @@ namespace graphics_backend
 			->Name("Rendering Task Graph")
 			->DependsOn(gpuAddressUploadingTaskGraph);
 
+		std::shared_ptr<std::vector<RenderGraphExecutor>> pExecutors = std::make_shared<std::vector<RenderGraphExecutor>>();
+		pExecutors->reserve(pendingRenderGraphs.size());
 
-		for (auto& pendingGraph : m_PendingRenderGraphs)
+		for (auto& pendingGraph : pendingRenderGraphs)
 		{
 			auto taskGraph = renderingTaskGraph->NewTaskGraph()
 				->Name("Rendering Task Graph");
-			m_Executors.push_back(std::move(RenderGraphExecutor{ *this }));
-			size_t index = m_Executors.size() - 1;
-			taskGraph->SetupFunctor([this, pendingGraph, index](CTaskGraph* thisGraph)
+			pExecutors->push_back(std::move(RenderGraphExecutor{ *this, currentFrameID }));
+			size_t index = pExecutors->size() - 1;
+			taskGraph->SetupFunctor([this, pendingGraph, index, pExecutors](CTaskGraph* thisGraph)
 			{
-				RenderGraphExecutor& executor = m_Executors[index];
+				RenderGraphExecutor& executor = (*pExecutors)[index];
 				executor.Create(pendingGraph);
 				executor.Run(thisGraph);
 			});
 		}
-		m_PendingRenderGraphs.clear();
+		//m_PendingRenderGraphs.clear();
 
 		auto finalizeTaskGraph = rootTaskGraph->NewTaskGraph()
 			->Name("Finalize Task Graph")
 			->DependsOn(renderingTaskGraph);
 		finalizeTaskGraph->NewTask()
 			->Name("Finalize")
-			->Functor([this]()
+			->Functor([this, currentFrameID, currentPoolID, pExecutors]()
 				{
 					//收集 Misc Commandbuffers
 					std::vector<vk::CommandBuffer> waitingSubmitCommands;
 					for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
 					{
-						itrThreadContext->CollectSubmittingCommandBuffers(waitingSubmitCommands);
+						itrThreadContext->GetPoolByIndex(currentPoolID).CollectCommandBufferList(waitingSubmitCommands);
 					}
 
-					for (RenderGraphExecutor const& executor : m_Executors)
+					for (RenderGraphExecutor const& executor : (*pExecutors))
 					{
 						executor.CollectCommands(waitingSubmitCommands);
 					}
-					m_Executors.clear();
+					pExecutors->clear();
 
 					bool anyPresent = false;
 					if (!m_WindowContexts.empty())
@@ -119,16 +127,17 @@ namespace graphics_backend
 							finalizeLayoutCmd.end();
 							waitingSubmitCommands.push_back(finalizeLayoutCmd);
 
+							//std::cout << "Finalize: " << currentFrameID << std::endl;
 							m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands
 								, semaphores
 								, waitStages
 								, signalSemaphores);
-							m_SubmitCounterContext.EndCurrentFrame();
 
 							for (auto& windowContext : m_WindowContexts)
 							{
 								if (windowContext->NeedPresent())
 								{
+									//std::cout << "Present: " << currentFrameID << std::endl;
 									windowContext->PresentCurrentFrame();
 								}
 							}
@@ -138,7 +147,15 @@ namespace graphics_backend
 					{
 						m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands);
 					}
-					m_SubmitCounterContext.EndCurrentFrame();
+				});
+
+		auto tickSwapchainAndResourceTask = rootTaskGraph->NewTask()
+			->Name("GPU Frame Finalize")
+			->DependsOn(finalizeTaskGraph)
+			->SignalEvent("PresentReady", frameID)
+			->Functor([this, currentFrameID]()
+				{
+					SyncPresentationFrame(currentFrameID);
 				});
 
 		//Tick uploading shader bindings
@@ -163,7 +180,7 @@ namespace graphics_backend
 
 	void CVulkanApplication::PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
 	{
-		m_PendingRenderGraphs.push_back(inRenderGraph);
+		//m_PendingRenderGraphs.push_back(inRenderGraph);
 	}
 
 	void CVulkanApplication::CreateImageViews2D(vk::Format format, std::vector<vk::Image> const& inImages,
@@ -264,19 +281,19 @@ namespace graphics_backend
 
 	std::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)
 	{
-		auto subAllocator = m_ConstantSetAllocator.GetOrCreate(builder).lock();
+		auto subAllocator = m_ConstantSetAllocator.GetOrCreate(builder);
 		return subAllocator->AllocateSet();
 	}
 
 	std::shared_ptr<ShaderBindingSet> CVulkanApplication::NewShaderBindingSet(ShaderBindingBuilder const& builder)
 	{
-		auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder).lock();
+		auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder);
 		return subAllocator->AllocateSet();
 	}
 
 	std::shared_ptr<TextureSampler> CVulkanApplication::GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor)
 	{
-		return m_GPUObjectManager.GetTextureSamplerCache().GetOrCreate(descriptor).lock();
+		return m_GPUObjectManager.GetTextureSamplerCache().GetOrCreate(descriptor);
 	}
 
 	void CVulkanApplication::InitializeInstance(std::string const& name, std::string const& engineName)
@@ -330,6 +347,7 @@ namespace graphics_backend
 	void CVulkanApplication::EnumeratePhysicalDevices()
 	{
 		m_PhysicalDevice = m_Instance.enumeratePhysicalDevices().front();
+		std::cout << "Device Name: " << m_PhysicalDevice.getProperties().deviceName << std::endl;
 	}
 
 	void CVulkanApplication::CreateDevice()
@@ -529,7 +547,7 @@ namespace graphics_backend
 		return newContext;
 	}
 
-	void CVulkanApplication::TickWindowContexts()
+	void CVulkanApplication::TickWindowContexts(FrameType currentFrameID)
 	{
 		glfwPollEvents();
 		for (auto& windowContext : m_WindowContexts)
@@ -570,7 +588,7 @@ namespace graphics_backend
 		{
 			for (auto& windowContext : m_WindowContexts)
 			{
-				windowContext->Resize();
+				windowContext->Resize(currentFrameID);
 			}
 		}
 	}

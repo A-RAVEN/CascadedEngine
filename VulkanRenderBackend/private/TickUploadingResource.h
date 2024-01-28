@@ -11,7 +11,7 @@ namespace graphics_backend
 {
 	class ITickingResourceUpdator;
 
-	class BaseTickingUpdateResource : public BaseApplicationSubobject
+	class BaseTickingUpdateResource : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		BaseTickingUpdateResource(CVulkanApplication& app);
@@ -124,12 +124,10 @@ namespace graphics_backend
 
 		void TickUpload(thread_management::CTaskGraph* pWorkingGraph)
 		{
+			std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
 			pWorkingGraph->SetupFunctor
-			([this](thread_management::CTaskGraph* thisGraph) 
+			([this, dirtyResources = std::move(m_DirtyResources)](thread_management::CTaskGraph* thisGraph)
 			{
-				std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
-				auto dirtyResources = std::move(m_DirtyResources);
-				m_DirtyResources.clear();
 				thisGraph->NewTaskParallelFor()
 				->JobCount(dirtyResources.size())
 				->Functor
@@ -146,6 +144,7 @@ namespace graphics_backend
 					}
 				});
 			});
+			m_DirtyResources.clear();
 		}
 
 		virtual void EnqueueTickingResource(BaseTickingUpdateResource* resource) override

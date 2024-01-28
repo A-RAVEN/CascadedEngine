@@ -7,6 +7,7 @@ namespace graphics_backend
 {
 	void CFrameCountContext::WaitingForCurrentFrame()
 	{
+		++m_CurrentFrameID;
 		TIndex currentIndex = GetCurrentFrameBufferIndex();
 		FrameType waitingFrame = m_FenceSubmitFrameIDs[currentIndex];
 		std::atomic_thread_fence(std::memory_order_acquire);
@@ -19,12 +20,6 @@ namespace graphics_backend
 		std::atomic_thread_fence(std::memory_order_release);
 		m_LastFinshedFrameID = waitingFrame;
 		m_FenceSubmitFrameIDs[currentIndex] = m_CurrentFrameID;
-	}
-
-	void CFrameCountContext::EndCurrentFrame()
-	{
-		std::atomic_thread_fence(std::memory_order_release);
-		++m_CurrentFrameID;
 	}
 
 	void CFrameCountContext::SubmitGraphics(

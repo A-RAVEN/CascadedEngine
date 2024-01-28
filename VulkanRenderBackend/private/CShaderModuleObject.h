@@ -28,7 +28,7 @@ namespace graphics_backend
 		}
 	};
 
-	class CShaderModuleObject : public BaseApplicationSubobject
+	class CShaderModuleObject : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		CShaderModuleObject(CVulkanApplication& application);

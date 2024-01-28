@@ -41,7 +41,7 @@ namespace graphics_backend
 		virtual void ReleaseImage(VulkanImageObject& releasingImage) = 0;
 	};
 
-	class CFrameBoundMemoryPool : public BaseApplicationSubobject, public IVulkanBufferPool
+	class CFrameBoundMemoryPool : public VKAppSubObjectBaseNoCopy, public IVulkanBufferPool
 	{
 	public:
 		CFrameBoundMemoryPool(uint32_t pool_id, CVulkanApplication& owner);
@@ -57,7 +57,7 @@ namespace graphics_backend
 	};
 
 
-	class CGlobalMemoryPool : public BaseApplicationSubobject, public IVulkanBufferPool
+	class CGlobalMemoryPool : public VKAppSubObjectBaseNoCopy, public IVulkanBufferPool
 	{
 	public:
 		CGlobalMemoryPool(CVulkanApplication& owner);
@@ -80,14 +80,14 @@ namespace graphics_backend
 		TFrameboundReleaser<VulkanImageObject_Internal> m_ImageFrameboundReleaser;
 	};
 
-	class CVulkanMemoryManager : public BaseApplicationSubobject
+	class CVulkanMemoryManager : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		CVulkanMemoryManager(CVulkanApplication& owner);
 		VulkanBufferHandle AllocateBuffer(EMemoryType memoryType, EMemoryLifetime lifetime, size_t bufferSize, vk::BufferUsageFlags bufferUsage);
 		VulkanBufferHandle AllocateFrameBoundTransferStagingBuffer(size_t bufferSize);
 		VulkanImageObject AllocateImage(GPUTextureDescriptor const& textureDescriptor, EMemoryType memoryType, EMemoryLifetime lifetime);
-		void ReleaseCurrentFrameResource();
+		void ReleaseCurrentFrameResource(FrameType releaseFrame, TIndex releasePoolIndex);
 		void Initialize();
 		void Release() override;
 	private:

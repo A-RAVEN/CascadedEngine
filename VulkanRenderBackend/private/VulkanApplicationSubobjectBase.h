@@ -1,4 +1,6 @@
 #pragma once
+#include "VulkanIncludes.h"
+
 namespace graphics_backend
 {
 #pragma region Forward Declaration
@@ -39,16 +41,38 @@ namespace graphics_backend
 		}
 	};
 
-	class BaseApplicationSubobject
+	class VKAppSubObjectBase
 	{
 	public:
-		BaseApplicationSubobject() = delete;
-		BaseApplicationSubobject(CVulkanApplication& owner);
-		BaseApplicationSubobject(BaseApplicationSubobject const& other) = delete;
-		BaseApplicationSubobject& operator=(BaseApplicationSubobject const&) = delete;
-		BaseApplicationSubobject(BaseApplicationSubobject&& other) = default;
-		BaseApplicationSubobject& operator=(BaseApplicationSubobject&&) = default;
-		virtual ~BaseApplicationSubobject() {};
+		VKAppSubObjectBase(CVulkanApplication& app);
+		virtual ~VKAppSubObjectBase() {};
+		VKAppSubObjectBase(VKAppSubObjectBase const&) = default;
+		VKAppSubObjectBase& operator=(VKAppSubObjectBase const&) = default;
+		VKAppSubObjectBase(VKAppSubObjectBase&&) = default;
+		VKAppSubObjectBase& operator=(VKAppSubObjectBase&&) = default;
+		virtual void Release() {};
+		CVulkanApplication& GetVulkanApplication() const;
+		CFrameCountContext const& GetFrameCountContext() const;
+		vk::Instance const& GetInstance() const;
+		vk::Device const& GetDevice() const;
+		vk::PhysicalDevice const& GetPhysicalDevice() const;
+		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
+		GPUObjectManager& GetGPUObjectManager();
+		CVulkanMemoryManager& GetMemoryManager() const;
+	private:
+		CVulkanApplication& m_OwningApplication;
+	};
+
+	class VKAppSubObjectBaseNoCopy
+	{
+	public:
+		VKAppSubObjectBaseNoCopy() = delete;
+		VKAppSubObjectBaseNoCopy(CVulkanApplication& owner);
+		VKAppSubObjectBaseNoCopy(VKAppSubObjectBaseNoCopy const& other) = delete;
+		VKAppSubObjectBaseNoCopy& operator=(VKAppSubObjectBaseNoCopy const&) = delete;
+		VKAppSubObjectBaseNoCopy(VKAppSubObjectBaseNoCopy&& other) = default;
+		VKAppSubObjectBaseNoCopy& operator=(VKAppSubObjectBaseNoCopy&&) = default;
+		virtual ~VKAppSubObjectBaseNoCopy() {};
 		virtual void Release() {};
 		CVulkanApplication& GetVulkanApplication() const;
 		CFrameCountContext const& GetFrameCountContext() const;

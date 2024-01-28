@@ -9,7 +9,7 @@ class MeshGPUData
 public:
 	MeshGPUData() = default;
 	MeshGPUData(std::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
-	void UploadMeshResource(resource_management::StaticMeshResource* meshResource);
+	void UploadMeshResource(resource_management::StaticMeshResource* meshResource, std::string const& name);
 	void Draw(CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset);
 private:
 	std::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
