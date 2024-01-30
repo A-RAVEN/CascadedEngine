@@ -9,7 +9,7 @@
 #include <CACore/header/LibraryExportCommon.h>
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
-
+#include <slang.h>
 
 namespace ShaderCompiler
 {

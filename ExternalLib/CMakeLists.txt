@@ -15,6 +15,7 @@ set(GLFW_INSTALL OFF CACHE INTERNAL "Generate installation target")
 add_subdirectory(${GLFW_DIR})
 
 #DXC
+#[[
 set(LLVM_PARALLEL_COMPILE_JOBS 1)
 set(LLVM_PARALLEL_LINK_JOBS 1)
 set(LLVM_TARGETS_TO_BUILD "None")
@@ -24,6 +25,7 @@ set(LLVM_INCLUDE_TESTS OFF)
 set(HLSL_INCLUDE_TESTS OFF)
 set(ENABLE_SPIRV_CODEGEN ON)
 add_subdirectory(${DXC_DIR})
+]]
 
 #ASSIMP
 set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE INTERNAL "Turn Off Warnings As Errors")
@@ -36,3 +38,8 @@ add_subdirectory(${ASSIMP_DIR})
 #EASTL
 set(EASTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EASTL)
 add_subdirectory(${EASTL_DIR})
+
+#slang
+set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
+set(SLANG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/slang)
+add_subdirectory(${SLANG_DIR})
