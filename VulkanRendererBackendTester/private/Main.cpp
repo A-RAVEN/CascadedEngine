@@ -49,7 +49,6 @@ int main(int argc, char *argv[])
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
-	TModuleLoader<IShaderCompiler> shaderCompilerLoader("ShaderCompiler");
 	TModuleLoader<RenderInterfaceManager> renderInterfaceLoader("RenderInterface");
 	TModuleLoader<ResourceFactory> renderImportingSystemLoader("CAGeneralReourceSystem");
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
@@ -71,9 +70,9 @@ int main(int argc, char *argv[])
 	pThreadManager->InitializeThreadCount(5);
 
 	auto pRenderInterface = renderInterfaceLoader.New();
-	auto pShaderCompiler = shaderCompilerLoader.New();
 
 	ShaderResourceLoader shaderResourceLoader;
+	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
 
 	auto pResourceImportingSystem = resourceSystemFactory->NewImportingSystemShared();
@@ -81,6 +80,7 @@ int main(int argc, char *argv[])
 	pResourceManagingSystem->SetResourceRootPath(assetString);
 	pResourceImportingSystem->SetResourceManager(pResourceManagingSystem.get());
 	pResourceImportingSystem->AddImporter(&shaderResourceLoader);
+	pResourceImportingSystem->AddImporter(&slangShaderResourceLoader);
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 

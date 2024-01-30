@@ -30,6 +30,13 @@ namespace library_loader
 				pNewInstanceFunc = reinterpret_cast<FTP_NewModuleObject>(GetProcAddress(hModuleLib, "NewModuleInstance"));
 				pDeleteInstanceFunc = reinterpret_cast<FPT_DeleteModuleObject>(GetProcAddress(hModuleLib, "DeleteModuleInstance"));
 			}
+			else
+			{
+				int errCode = GetLastError();
+				std::string errStr = "Load Module Error: ";
+				errStr += std::to_string(errCode);
+				CA_LOG_ERR(errStr);
+			}
 		}
 
 		~TModuleLoader()

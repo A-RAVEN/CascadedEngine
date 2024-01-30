@@ -62,4 +62,24 @@ namespace resource_management
 	void ShaderResrouce::Load()
 	{
 	}
+	ShaderResourceLoaderSlang::ShaderResourceLoaderSlang()
+		: m_ShaderCompilerLoader("ShaderCompilerSlang")
+	{
+		m_ShaderCompilerManager = m_ShaderCompilerLoader.New();
+		m_ShaderCompilerManager->InitializePoolSize(1);
+	}
+	void ShaderResourceLoaderSlang::ImportResource(ResourceManagingSystem* resourceManager, std::string const& inPath, std::filesystem::path const& outPath)
+	{
+		auto outPathWithExt = outPath;
+		outPathWithExt.replace_extension(GetDestFilePostfix());
+		std::filesystem::path resourcePath(inPath);
+		ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(outPathWithExt.string());
+		auto pCompiler = m_ShaderCompilerManager->AquireShaderCompiler();
+		pCompiler->BeginCompileTask();
+		pCompiler->AddInlcudePath(resourcePath.remove_filename().string().c_str());
+		pCompiler->AddSourceFile(inPath.c_str());
+		pCompiler->AddEntryPoint("vert", ECompileShaderType::eVert);
+		pCompiler->AddEntryPoint("frag", ECompileShaderType::eFrag);
+		pCompiler->EndCompileTask();
+	}
 }

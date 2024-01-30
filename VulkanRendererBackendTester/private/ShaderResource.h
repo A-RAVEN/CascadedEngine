@@ -4,6 +4,7 @@
 #include <GeneralResources/header/ResourceManagingSystem.h>
 #include "TestShaderProvider.h"
 #include <ShaderCompiler/header/Compiler.h>
+#include <ShaderCompilerSlang/header/Compiler.h>
 #include <CACore/header/library_loader.h>
 #include <ExternalLib/zpp_bits/zpp_bits.h>
 #include <filesystem>
@@ -63,9 +64,21 @@ namespace resource_management
 		virtual std::string GetDestFilePostfix() const override { return ".shaderbundle"; }
 		virtual std::string GetTags() const override { return "TargetAPI=Vulkan"; }
 		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) override;
-		//virtual void ImportResource(void* resourceOffset, std::string const& resourcePath, std::string const& outPath) override;
 	private:
 		TModuleLoader<IShaderCompiler> m_ShaderCompilerLoader;
 		std::shared_ptr<IShaderCompiler> m_ShaderCompiler;
+	};
+
+	class ShaderResourceLoaderSlang : public ResourceImporter<ShaderResrouce>
+	{
+	public:
+		ShaderResourceLoaderSlang();
+		virtual std::string GetSourceFilePostfix() const override { return ".slang"; }
+		virtual std::string GetDestFilePostfix() const override { return ".shaderbundle"; }
+		virtual std::string GetTags() const override { return "TargetAPI=Vulkan"; }
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) override;
+	private:
+		TModuleLoader<ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerLoader;
+		std::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerManager;
 	};
 }
