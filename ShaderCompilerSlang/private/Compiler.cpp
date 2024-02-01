@@ -4,6 +4,7 @@
 #endif
 #define NV_EXTENSIONS
 #include <header/Compiler.h>
+#define SLANG_STATIC
 #include <slang.h>
 #include <map>
 #include <set>
@@ -134,6 +135,16 @@ namespace ShaderCompilerSlang
 			{
 				CA_LOG_ERR(m_CompileTask.m_ErrorsOrWarnings);
 			}
+		}
+
+		virtual void const* GetOutputData(int entryPointID, uint64_t& dataSize) const override
+		{
+			if (entryPointID < 0 || entryPointID >= m_CompileTask.m_OutputData.size())
+			{
+				return nullptr;
+			}
+			dataSize = m_CompileTask.m_OutputData[entryPointID].size();
+			return m_CompileTask.m_OutputData[entryPointID].data();
 		}
 
 		virtual bool HasError() const override

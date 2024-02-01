@@ -23,6 +23,7 @@ namespace ShaderCompilerSlang
 		virtual int AddEntryPoint(const char* name, ECompileShaderType shader_type) = 0;
 		virtual void Compile() = 0;
 		virtual bool HasError() const = 0;
+		virtual void const* GetOutputData(int entryPointID, uint64_t& dataSize) const = 0;
 	};
 
 	class IShaderCompilerManager

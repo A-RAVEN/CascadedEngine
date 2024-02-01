@@ -47,7 +47,7 @@ void TestShaderProvider::SetUniqueName(std::string const& uniqueName)
 }
 void TestShaderProvider::SetData(std::string const& codeType
     , std::string const& entryPoint
-    , void* dataPtr
+    , void const* dataPtr
     , uint64_t dataLength)
 {
     std::vector<char> data;

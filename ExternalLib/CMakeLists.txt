@@ -41,5 +41,6 @@ add_subdirectory(${EASTL_DIR})
 
 #slang
 set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
+set(SLANG_TARGET_TYPE STATIC)
 set(SLANG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/slang)
 add_subdirectory(${SLANG_DIR})

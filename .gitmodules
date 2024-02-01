@@ -32,3 +32,6 @@
 [submodule "ExternalLib/EASTL"]
 	path = ExternalLib/EASTL
 	url = https://github.com/electronicarts/EASTL.git
+[submodule "ExternalLib/slang"]
+	path = ExternalLib/slang
+	url = https://github.com/A-RAVEN/slang.git

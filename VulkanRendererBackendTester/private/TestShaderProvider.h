@@ -19,7 +19,7 @@ public:
 
 	void SetUniqueName(std::string const& uniqueName);
 
-	void SetData(std::string const& codeType, std::string const& entryPoint, void* dataPtr, uint64_t dataLength);
+	void SetData(std::string const& codeType, std::string const& entryPoint, void const* dataPtr, uint64_t dataLength);
 
 private:
 	std::string m_UniqueName;

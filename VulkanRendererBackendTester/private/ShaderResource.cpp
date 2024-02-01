@@ -73,13 +73,33 @@ namespace resource_management
 		auto outPathWithExt = outPath;
 		outPathWithExt.replace_extension(GetDestFilePostfix());
 		std::filesystem::path resourcePath(inPath);
-		ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(outPathWithExt.string());
+		std::filesystem::path folderPath = resourcePath;
+		folderPath.remove_filename();
 		auto pCompiler = m_ShaderCompilerManager->AquireShaderCompiler();
 		pCompiler->BeginCompileTask();
-		pCompiler->AddInlcudePath(resourcePath.remove_filename().string().c_str());
+		pCompiler->AddInlcudePath(folderPath.string().c_str());
 		pCompiler->AddSourceFile(inPath.c_str());
-		pCompiler->AddEntryPoint("vert", ECompileShaderType::eVert);
-		pCompiler->AddEntryPoint("frag", ECompileShaderType::eFrag);
+		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
+		int vertEntryPoint = pCompiler->AddEntryPoint("vert", ECompileShaderType::eVert);
+		int fragEntryPoint = pCompiler->AddEntryPoint("frag", ECompileShaderType::eFrag);
+		pCompiler->Compile();
+		if (pCompiler->HasError())
+		{
+			CA_LOG_ERR("Shader compile failed");
+		}
+		else
+		{
+			ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(outPathWithExt.string());
+
+			uint64_t dataSize = 0;
+			auto vertData = pCompiler->GetOutputData(vertEntryPoint, dataSize);
+			resource->m_VertexShaderProvider.SetUniqueName(resourcePath.stem().string() + ".vert");
+			resource->m_VertexShaderProvider.SetData("spirv", "vert", vertData, dataSize);
+
+			auto fragData = pCompiler->GetOutputData(fragEntryPoint, dataSize);
+			resource->m_FragmentShaderProvider.SetUniqueName(resourcePath.stem().string() + ".frag");
+			resource->m_FragmentShaderProvider.SetData("spirv", "frag", fragData, dataSize);
+		}
 		pCompiler->EndCompileTask();
 	}
 }
