@@ -97,7 +97,7 @@ int main(int argc, char *argv[])
 		});
 
 	ShaderResrouce* pFinalBlitShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/finalBlitShader.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testFinalBlit.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
 		{
 			*ppResource = result;
 		});

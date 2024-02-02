@@ -1,6 +1,5 @@
 #pragma once
-#include <string>
-#include <vector>
+#include <memory>
 #include <RenderInterface/header/Common.h>
 
 namespace ShaderCompilerSlang
@@ -32,6 +31,11 @@ namespace ShaderCompilerSlang
 		virtual IShaderCompiler* AquireShaderCompiler() = 0;
 		virtual void ReturnShaderCompiler(IShaderCompiler* compiler) = 0;
 		virtual void InitializePoolSize(uint32_t compiler_count) = 0;
+
+		inline std::shared_ptr<IShaderCompiler> AquireShaderCompilerShared()
+		{
+			return std::shared_ptr<IShaderCompiler>(AquireShaderCompiler(), [this](IShaderCompiler* compiler) {ReturnShaderCompiler(compiler); });
+		}
 	};
 
 }

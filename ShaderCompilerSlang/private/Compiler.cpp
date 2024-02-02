@@ -69,6 +69,7 @@ namespace ShaderCompilerSlang
 			{
 			case ShaderCompilerSlang::EShaderTargetType::eSpirV:
 				spSetCodeGenTarget(m_CompileTask.m_Request, SLANG_SPIRV);
+				spSetDebugInfoLevel(m_CompileTask.m_Request, SLANG_DEBUG_INFO_LEVEL_MAXIMAL);
 				break;
 			default:
 				break;
