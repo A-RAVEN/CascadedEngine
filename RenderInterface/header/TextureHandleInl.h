@@ -9,4 +9,9 @@ namespace graphics_backend
 		p_RenderGraph->GetGPUTextureInternalData(GetHandleIndex()).ScheduleTextureData(textureDataOffset, dataSize, pData);
 		return *this;
 	}
+
+	inline GPUTextureDescriptor const& TextureHandle::GetTextureDesc() const
+	{
+		return p_RenderGraph->GetTextureDescriptor(p_RenderGraph->GetGPUTextureInternalData(GetHandleIndex()).GetDescID());
+	}
 }

@@ -38,6 +38,59 @@ namespace graphics_backend
 				&& stencilStoreOp == rhs.stencilStoreOp
 				&& clearValue == rhs.clearValue;
 		}
+
+
+
+		static CAttachmentInfo Make(GPUTexture const* pTexture
+			, EAttachmentLoadOp loadOp
+			, EAttachmentStoreOp storeOp
+			, GraphicsClearValue clearValue)
+		{
+			CAttachmentInfo newAttachmentInfo{};
+			newAttachmentInfo.format = pTexture->GetDescriptor().format;
+			newAttachmentInfo.clearValue = clearValue;
+			newAttachmentInfo.loadOp = loadOp;
+			newAttachmentInfo.storeOp = storeOp;
+			return newAttachmentInfo;
+		}
+
+		static CAttachmentInfo Make(TextureHandle const& textureHandle
+			, EAttachmentLoadOp loadOp
+			, EAttachmentStoreOp storeOp
+			, GraphicsClearValue const& clearValue)
+		{
+			CAttachmentInfo newAttachmentInfo{};
+			newAttachmentInfo.format = textureHandle.GetTextureDesc().format;
+			newAttachmentInfo.clearValue = clearValue;
+			newAttachmentInfo.loadOp = loadOp;
+			newAttachmentInfo.storeOp = storeOp;
+			return newAttachmentInfo;
+		}
+
+		static CAttachmentInfo Make(GPUTexture const* pTexture)
+		{
+			return Make(pTexture, EAttachmentLoadOp::eLoad, EAttachmentStoreOp::eStore, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		}
+
+		static CAttachmentInfo Make(TextureHandle const& textureHandle)
+		{
+			return Make(textureHandle, EAttachmentLoadOp::eLoad, EAttachmentStoreOp::eStore, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		}
+
+		static CAttachmentInfo Make(GPUTexture const* pTexture, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp)
+		{
+			return Make(pTexture, loadOp, storeOp, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		}
+
+		static CAttachmentInfo Make(TextureHandle const& textureHandle, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp)
+		{
+			return Make(textureHandle, loadOp, storeOp, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		}
+
+		static CAttachmentInfo Make(TextureHandle const& textureHandle, GraphicsClearValue const& clearValue)
+		{
+			return Make(textureHandle, EAttachmentLoadOp::eClear, EAttachmentStoreOp::eStore, clearValue);
+		}
 	};
 
 	struct CSubpassInfo

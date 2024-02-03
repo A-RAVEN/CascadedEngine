@@ -69,7 +69,9 @@ namespace ShaderCompilerSlang
 			{
 			case ShaderCompilerSlang::EShaderTargetType::eSpirV:
 				spSetCodeGenTarget(m_CompileTask.m_Request, SLANG_SPIRV);
-				spSetDebugInfoLevel(m_CompileTask.m_Request, SLANG_DEBUG_INFO_LEVEL_MAXIMAL);
+				break;
+			case ShaderCompilerSlang::EShaderTargetType::eDXIL:
+				spSetCodeGenTarget(m_CompileTask.m_Request, SLANG_DXIL);
 				break;
 			default:
 				break;
@@ -85,6 +87,7 @@ namespace ShaderCompilerSlang
 		virtual void BeginCompileTask() override
 		{
 			m_CompileTask.m_Request = spCreateCompileRequest(m_Session);
+			spSetLineDirectiveMode(m_CompileTask.m_Request, SLANG_LINE_DIRECTIVE_MODE_NONE);
 			m_CompileTask.m_TranslationUnitIndex = spAddTranslationUnit(m_CompileTask.m_Request, SLANG_SOURCE_LANGUAGE_SLANG, "");
 		}
 
@@ -115,6 +118,11 @@ namespace ShaderCompilerSlang
 			}
 			return found->second;
 		};
+
+		virtual void EnableDebugInfo() override
+		{
+			spSetDebugInfoLevel(m_CompileTask.m_Request, SLANG_DEBUG_INFO_LEVEL_MAXIMAL);
+		}
 
 		virtual void Compile() override
 		{

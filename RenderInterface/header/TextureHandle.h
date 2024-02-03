@@ -22,5 +22,6 @@ namespace graphics_backend
 			GPUGraphHandleBase(renderGraph, handleIndex)
 		{}
 		inline TextureHandle& ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void* pData);
+		inline GPUTextureDescriptor const& GetTextureDesc() const;
 	};
 }

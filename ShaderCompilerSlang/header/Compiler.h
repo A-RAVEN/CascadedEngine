@@ -8,6 +8,7 @@ namespace ShaderCompilerSlang
 	enum class EShaderTargetType : uint8_t
 	{
 		eSpirV,
+		eDXIL,
 	};
 
 	class IShaderCompiler
@@ -20,6 +21,7 @@ namespace ShaderCompilerSlang
 		virtual void EndCompileTask() = 0;
 		virtual void AddSourceFile(const char* path) = 0;
 		virtual int AddEntryPoint(const char* name, ECompileShaderType shader_type) = 0;
+		virtual void EnableDebugInfo() = 0;
 		virtual void Compile() = 0;
 		virtual bool HasError() const = 0;
 		virtual void const* GetOutputData(int entryPointID, uint64_t& dataSize) const = 0;

@@ -91,7 +91,7 @@ int main(int argc, char *argv[])
 		});
 
 	ShaderResrouce* pGeneralShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/generalVertexShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
 		{
 			*ppResource = result;
 		});
@@ -381,22 +381,10 @@ int main(int argc, char *argv[])
 						, ETextureFormat::E_R8G8B8A8_UNORM
 						, ETextureAccessType::eRT | ETextureAccessType::eSampled });
 
-					CAttachmentInfo targetattachmentInfo{};
-					targetattachmentInfo.format = pRenderGraph->GetTextureDescriptor(windowBackBuffer).format;
-					targetattachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-					targetattachmentInfo.clearValue = GraphicsClearValue::ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-
-					CAttachmentInfo colorAttachmentInfo{};
-					colorAttachmentInfo.format = ETextureFormat::E_R8G8B8A8_UNORM;
-					colorAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-					colorAttachmentInfo.clearValue = GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f);
-
-					CAttachmentInfo depthAttachmentInfo{};
-					depthAttachmentInfo.format = ETextureFormat::E_D32_SFLOAT;
-					depthAttachmentInfo.loadOp = EAttachmentLoadOp::eClear;
-					depthAttachmentInfo.clearValue = GraphicsClearValue::ClearDepthStencil(1.0f, 0x0);
-
-					pRenderGraph->NewRenderPass({ colorAttachmentInfo, depthAttachmentInfo })
+					pRenderGraph->NewRenderPass({ 
+						CAttachmentInfo::Make(colorTextureHandle, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f))
+						, CAttachmentInfo::Make(depthTextureHandle, GraphicsClearValue::ClearDepthStencil(1.0f, 0x0))
+						})
 						.SetAttachmentTarget(0, colorTextureHandle)
 						.SetAttachmentTarget(1, depthTextureHandle)
 						.Subpass({ {0}, 1 }
@@ -413,7 +401,7 @@ int main(int argc, char *argv[])
 						.SetTexture("SourceTexture", colorTextureHandle)
 						.SetSampler("SourceSampler", sampler);
 
-					pRenderGraph->NewRenderPass({ targetattachmentInfo })
+					pRenderGraph->NewRenderPass({ CAttachmentInfo::Make(windowBackBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f))})
 						.SetAttachmentTarget(0, windowBackBuffer)
 						.Subpass({ {0} }
 							, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
@@ -449,7 +437,7 @@ int main(int argc, char *argv[])
 				*pDeltaTime = duration / 1000.0f;
 				*pDeltaTime = std::max(*pDeltaTime, 0.0001f);
 				float frameRate = 1.0f / *pDeltaTime;
-				std::cout << "Frame Rate: " << frameRate << std::endl;
+				//std::cout << "Frame Rate: " << frameRate << std::endl;
 			}
 			return true;
 		}, "Graphics");

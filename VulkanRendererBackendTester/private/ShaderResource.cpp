@@ -32,10 +32,10 @@ namespace resource_management
 		resource->m_VertexShaderProvider.SetData("spirv", "vert", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
 		resource->m_VertexShaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
 
-		std::string str;
+	/*	std::string str;
 		str.resize(spirVResult.size() * sizeof(uint32_t));
 		memcpy(str.data(), spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-		CA_LOG_ERR(str);
+		CA_LOG_ERR(str);*/
 
 		spirVResult = m_ShaderCompiler->CompileShaderSource(EShaderSourceType::eHLSL
 			, fileName.string()
@@ -48,9 +48,9 @@ namespace resource_management
 		resource->m_FragmentShaderProvider.SetData("spirv", "frag", spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
 		resource->m_FragmentShaderParams = m_ShaderCompiler->ExtractShaderParams(spirVResult);
 
-		str.resize(spirVResult.size() * sizeof(uint32_t));
+	/*	str.resize(spirVResult.size() * sizeof(uint32_t));
 		memcpy(str.data(), spirVResult.data(), spirVResult.size() * sizeof(uint32_t));
-		CA_LOG_ERR(str);
+		CA_LOG_ERR(str);*/
 	}
 	void ShaderResrouce::Serialzie(std::vector<std::byte>& data)
 	{
@@ -88,6 +88,7 @@ namespace resource_management
 		pCompiler->BeginCompileTask();
 		pCompiler->AddInlcudePath(folderPath.string().c_str());
 		pCompiler->AddSourceFile(inPath.c_str());
+		pCompiler->EnableDebugInfo();
 		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
 		int vertEntryPoint = pCompiler->AddEntryPoint("vert", ECompileShaderType::eVert);
 		int fragEntryPoint = pCompiler->AddEntryPoint("frag", ECompileShaderType::eFrag);
@@ -105,18 +106,18 @@ namespace resource_management
 			resource->m_VertexShaderProvider.SetUniqueName(resourcePath.stem().string() + ".vert");
 			resource->m_VertexShaderProvider.SetData("spirv", "main", vertData, dataSize);
 
-			std::string str;
-			str.resize(dataSize);
-			memcpy(str.data(), vertData, dataSize);
-			CA_LOG_ERR(str);
+			//std::string str;
+			//str.resize(dataSize);
+			//memcpy(str.data(), vertData, dataSize);
+			//CA_LOG_ERR(str);
 
 			auto fragData = pCompiler->GetOutputData(fragEntryPoint, dataSize);
 			resource->m_FragmentShaderProvider.SetUniqueName(resourcePath.stem().string() + ".frag");
 			resource->m_FragmentShaderProvider.SetData("spirv", "main", fragData, dataSize);
 
-			str.resize(dataSize);
-			memcpy(str.data(), fragData, dataSize);
-			CA_LOG_ERR(str);
+			//str.resize(dataSize);
+			//memcpy(str.data(), fragData, dataSize);
+			//CA_LOG_ERR(str);
 		}
 		pCompiler->EndCompileTask();
 	}
