@@ -1,7 +1,7 @@
 #pragma once
 #include "ResourceImporter.h"
 #include "IResource.h"
-#include <ThreadManager/header/ThreadManager.h>
+#include <ThreadManager.h>
 
 namespace resource_management
 {

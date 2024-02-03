@@ -108,6 +108,8 @@ namespace graphics_backend
 		//RenderPass
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) override;
 
+
+
 		virtual uint32_t GetRenderNodeCount() const override;
 		virtual CRenderpassBuilder const& GetRenderPass(uint32_t nodeID) const override;
 

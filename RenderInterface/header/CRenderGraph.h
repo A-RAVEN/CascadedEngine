@@ -38,6 +38,8 @@ namespace graphics_backend
 		//RenderPass
 		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
 
+
+
 		//Used By Backend
 		virtual uint32_t GetRenderNodeCount() const = 0;
 		virtual CRenderpassBuilder const& GetRenderPass(uint32_t nodeID) const = 0;
@@ -67,6 +69,162 @@ namespace graphics_backend
 		virtual uint32_t GetGPUBufferHandleCount() const = 0;
 
 		virtual std::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const = 0;
+
+		CRenderpassBuilder& NewRenderPass(
+			TextureHandle const& colorAttachment
+			, EAttachmentLoadOp colorLoadOp
+			, EAttachmentStoreOp colorStoreOp
+			, GraphicsClearValue const& clearColor
+			, TextureHandle const& depthStencilAttachment
+			, EAttachmentLoadOp depthStencilLoadOp
+			, EAttachmentStoreOp depthStencilStoreOp
+			, GraphicsClearValue const& clearDepthStencil
+
+			, CPipelineStateObject const& pipelineStates
+			, CVertexInputDescriptor const& vertexInputs
+			, GraphicsShaderSet const& shaderSet
+			, ShaderBindingList const& shaderBindingList
+			, std::function<void(CInlineCommandList&)> commandFunction)
+		{
+			CRenderpassBuilder& result = NewRenderPass({ 
+				CAttachmentInfo::Make(colorAttachment, colorLoadOp, colorStoreOp, clearColor)
+				, CAttachmentInfo::Make(depthStencilAttachment, depthStencilLoadOp, depthStencilStoreOp, clearDepthStencil) });
+			result.SetAttachmentTarget(0, colorAttachment);
+			result.SetAttachmentTarget(1, depthStencilAttachment);
+			result.Subpass({ {0}, 1 }
+				, pipelineStates
+				, vertexInputs
+				, shaderSet
+				, shaderBindingList
+				, commandFunction);
+			return result;
+		}
+
+		CRenderpassBuilder& NewRenderPass(
+			TextureHandle const& colorAttachment
+			, TextureHandle const& depthStencilAttachment
+
+			, CPipelineStateObject const& pipelineStates
+			, CVertexInputDescriptor const& vertexInputs
+			, GraphicsShaderSet const& shaderSet
+			, ShaderBindingList const& shaderBindingList
+			, std::function<void(CInlineCommandList&)> commandFunction)
+		{
+			CRenderpassBuilder& result = NewRenderPass({
+				CAttachmentInfo::Make(colorAttachment)
+				, CAttachmentInfo::Make(depthStencilAttachment) });
+			result.SetAttachmentTarget(0, colorAttachment);
+			result.SetAttachmentTarget(1, depthStencilAttachment);
+			result.Subpass({ {0}, 1 }
+				, pipelineStates
+				, vertexInputs
+				, shaderSet
+				, shaderBindingList
+				, commandFunction);
+			return result;
+		}
+
+		CRenderpassBuilder& NewRenderPass(
+			TextureHandle const& colorAttachment
+			, TextureHandle const& depthStencilAttachment
+			, GraphicsClearValue const& clearDepthStencil
+
+			, CPipelineStateObject const& pipelineStates
+			, CVertexInputDescriptor const& vertexInputs
+			, GraphicsShaderSet const& shaderSet
+			, ShaderBindingList const& shaderBindingList
+			, std::function<void(CInlineCommandList&)> commandFunction)
+		{
+			CRenderpassBuilder& result = NewRenderPass({
+				CAttachmentInfo::Make(colorAttachment)
+				, CAttachmentInfo::Make(depthStencilAttachment, clearDepthStencil) });
+			result.SetAttachmentTarget(0, colorAttachment);
+			result.SetAttachmentTarget(1, depthStencilAttachment);
+			result.Subpass({ {0}, 1 }
+				, pipelineStates
+				, vertexInputs
+				, shaderSet
+				, shaderBindingList
+				, commandFunction);
+			return result;
+		}
+
+		CRenderpassBuilder& NewRenderPass(
+			TextureHandle const& colorAttachment
+			, GraphicsClearValue const& clearColor
+			, TextureHandle const& depthStencilAttachment
+			, GraphicsClearValue const& clearDepthStencil
+
+			, CPipelineStateObject const& pipelineStates
+			, CVertexInputDescriptor const& vertexInputs
+			, GraphicsShaderSet const& shaderSet
+			, ShaderBindingList const& shaderBindingList
+			, std::function<void(CInlineCommandList&)> commandFunction)
+		{
+			CRenderpassBuilder& result = NewRenderPass({
+				CAttachmentInfo::Make(colorAttachment, clearColor)
+				, CAttachmentInfo::Make(depthStencilAttachment, clearDepthStencil) });
+			result.SetAttachmentTarget(0, colorAttachment);
+			result.SetAttachmentTarget(1, depthStencilAttachment);
+			result.Subpass({ {0}, 1 }
+				, pipelineStates
+				, vertexInputs
+				, shaderSet
+				, shaderBindingList
+				, commandFunction);
+			return result;
+		}
+
+		CRenderpassBuilder& NewRenderPass(
+			TextureHandle const& colorAttachment
+			, EAttachmentLoadOp colorLoadOp
+			, EAttachmentStoreOp colorStoreOp
+			, GraphicsClearValue const& clearColor
+
+			, CPipelineStateObject const& pipelineStates
+			, CVertexInputDescriptor const& vertexInputs
+			, GraphicsShaderSet const& shaderSet
+			, ShaderBindingList const& shaderBindingList
+			, std::function<void(CInlineCommandList&)> commandFunction)
+		{
+			CRenderpassBuilder& result = NewRenderPass({
+				CAttachmentInfo::Make(colorAttachment, colorLoadOp, colorStoreOp, clearColor) });
+			result.SetAttachmentTarget(0, colorAttachment);
+			result.Subpass({ {0} }
+				, pipelineStates
+				, vertexInputs
+				, shaderSet
+				, shaderBindingList
+				, commandFunction);
+			return result;
+		}
+
+		CRenderpassBuilder& NewRenderPass(
+			TextureHandle const& attachment
+			, GraphicsClearValue const& clearValue
+
+			, CPipelineStateObject const& pipelineStates
+			, CVertexInputDescriptor const& vertexInputs
+			, GraphicsShaderSet const& shaderSet
+			, ShaderBindingList const& shaderBindingList
+			, std::function<void(CInlineCommandList&)> commandFunction)
+		{
+			return NewRenderPass(attachment, EAttachmentLoadOp::eClear, EAttachmentStoreOp::eStore, clearValue,
+				pipelineStates, vertexInputs, shaderSet, shaderBindingList, commandFunction);
+		}
+
+		CRenderpassBuilder& NewRenderPass(
+			TextureHandle const& attachment
+
+			, CPipelineStateObject const& pipelineStates
+			, CVertexInputDescriptor const& vertexInputs
+			, GraphicsShaderSet const& shaderSet
+			, ShaderBindingList const& shaderBindingList
+			, std::function<void(CInlineCommandList&)> commandFunction)
+		{
+			return NewRenderPass(attachment, EAttachmentLoadOp::eLoad, EAttachmentStoreOp::eStore, GraphicsClearValue::ClearColor(),
+				pipelineStates, vertexInputs, shaderSet, shaderBindingList, commandFunction);
+		}
 	};
 }
 

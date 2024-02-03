@@ -1,12 +1,12 @@
-#include <header/ResourceImportingSystem.h>
-#include <header/ResourceManagingSystem.h>
-#include <header/ResourceSystemFactory.h>
+#include <CAResource/ResourceImportingSystem.h>
+#include <CAResource/ResourceManagingSystem.h>
+#include <CAResource/ResourceSystemFactory.h>
 #include <unordered_map>
 #include <filesystem>
 #include <deque>
-#include <CACore/header/LibraryExportCommon.h>
-#include <CACore/header/DebugUtils.h>
-#include <CACore/header/FileLoader.h>
+#include <LibraryExportCommon.h>
+#include <DebugUtils.h>
+#include <FileLoader.h>
 
 namespace resource_management
 {

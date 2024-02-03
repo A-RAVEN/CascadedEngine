@@ -338,6 +338,13 @@ public:
 		return result;
 	}
 
+	static constexpr GraphicsClearValue ClearColor()
+	{
+		GraphicsClearValue result{};
+		result.color = ClearColorValue{ 0, 0, 0, 0 };
+		return result;
+	}
+
 	static constexpr GraphicsClearValue ClearDepthStencil(float depth, uint32_t stencil)
 	{
 		GraphicsClearValue result{};

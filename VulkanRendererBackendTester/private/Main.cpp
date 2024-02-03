@@ -401,20 +401,18 @@ int main(int argc, char *argv[])
 						.SetTexture("SourceTexture", colorTextureHandle)
 						.SetSampler("SourceSampler", sampler);
 
-					pRenderGraph->NewRenderPass({ CAttachmentInfo::Make(windowBackBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f))})
-						.SetAttachmentTarget(0, windowBackBuffer)
-						.Subpass({ {0} }
-							, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
-							, * pVertexInputDesc
-							, * pFinalBlitShaderSet
-							, { {}, {blitBandingHandle} }
-							, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
-							{
-								cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ blitBandingHandle })
-									.BindVertexBuffers({ vertexBufferHandle }, {})
-									.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
-									.DrawIndexed(6);
-							});
+					pRenderGraph->NewRenderPass(windowBackBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f)
+						, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
+						, * pVertexInputDesc
+						, * pFinalBlitShaderSet
+						, { {}, {blitBandingHandle} }
+						, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
+						{
+							cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ blitBandingHandle })
+								.BindVertexBuffers({ vertexBufferHandle }, {})
+								.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
+								.DrawIndexed(6);
+						});
 
 					pGraphs->push_back(pRenderGraph);
 				});

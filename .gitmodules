@@ -35,3 +35,6 @@
 [submodule "ExternalLib/slang"]
 	path = ExternalLib/slang
 	url = https://github.com/A-RAVEN/slang.git
+[submodule "ExternalLib/rapidjson"]
+	path = ExternalLib/rapidjson
+	url = https://github.com/Tencent/rapidjson.git

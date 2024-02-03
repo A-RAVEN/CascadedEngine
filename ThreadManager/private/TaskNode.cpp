@@ -33,16 +33,16 @@ namespace thread_management
 			m_OwningManager->EnqueueTaskNode(this);
 		}
 	}
-	void TaskNode::Name_Internal(const std::string& name)
+	void TaskNode::Name_Internal(const castl::string& name)
 	{
 		m_Name = name;
 	}
-	void TaskNode::WaitEvent_Internal(const std::string& name, uint64_t waitingID)
+	void TaskNode::WaitEvent_Internal(const castl::string& name, uint64_t waitingID)
 	{
 		m_EventName = name;
 		m_EventWaitingID = waitingID;
 	}
-	void TaskNode::SignalEvent_Internal(const std::string& name, uint64_t signalID)
+	void TaskNode::SignalEvent_Internal(const castl::string& name, uint64_t signalID)
 	{
 		m_SignalEventName = name;
 		m_EventSignalID = signalID;
