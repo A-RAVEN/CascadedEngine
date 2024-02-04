@@ -1,6 +1,6 @@
 #pragma once
 #include "ResourceImporter.h"
-#include <ThreadManager/header/ThreadManager.h>
+#include <ThreadManager.h>
 
 namespace resource_management
 {

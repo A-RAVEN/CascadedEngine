@@ -1,4 +1,5 @@
 set(PROJECT_NAME ThreadManager)
+set(PROJECT_INTERFACE_NAME ${PROJECT_NAME}_Interface)
 project(${PROJECT_NAME})
 
 file(GLOB_RECURSE Source_List "*.cpp")
@@ -6,11 +7,12 @@ file(GLOB_RECURSE Header_List "*.h")
 
 add_library(${PROJECT_NAME} MODULE ${Source_List})
 
-target_link_libraries(${PROJECT_NAME} PUBLIC CACore)
-target_include_directories(${PROJECT_NAME} PUBLIC header)
+target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
+target_include_directories(${PROJECT_NAME} PRIVATE header)
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
-#target_link_libraries(${PROJECT_NAME} PRIVATE EASTL)
+add_library(${PROJECT_INTERFACE_NAME} INTERFACE)
+target_include_directories(${PROJECT_INTERFACE_NAME} INTERFACE header)
 
 target_precompile_headers(${PROJECT_NAME}
   PRIVATE
