@@ -1,16 +1,17 @@
 #include <CAResource/ResourceImportingSystem.h>
 #include <CAResource/ResourceManagingSystem.h>
 #include <CAResource/ResourceSystemFactory.h>
-#include <unordered_map>
+#include <CASTL/CAUnorderedMap.h>
+#include <CASTL/CADeque.h>
+#include <CASTL/CAString.h>
+#include <CASTL/CAVector.h>
 #include <filesystem>
-#include <deque>
 #include <LibraryExportCommon.h>
 #include <DebugUtils.h>
 #include <FileLoader.h>
 
 namespace resource_management
 {
-
 	using namespace std::filesystem;
 	class ResourceImportingSystemImpl : public ResourceImportingSystem
 	{
@@ -30,9 +31,9 @@ namespace resource_management
 			}
 		}
 
-		virtual void ScanSourceDirectory(const std::string& sourceDirectory) override
+		virtual void ScanSourceDirectory(const castl::string& sourceDirectory) override
 		{
-			path rootPath(sourceDirectory);
+			path rootPath(castl::to_std(sourceDirectory));
 			if(!exists(rootPath))
 			{
 				return;
@@ -44,7 +45,7 @@ namespace resource_management
 			{
 				strVec.clear();
 			}
-			std::filesystem::path targetRootPath = m_ResourceManagingSystem->SetResourceRootPath();
+			std::filesystem::path targetRootPath = m_ResourceManagingSystem->SetResourceRootPath().c_str();
 			for(auto& p : recursive_directory_iterator(rootPath))
 			{
 				if(p.is_regular_file())
@@ -98,10 +99,10 @@ namespace resource_management
 			m_ResourceManagingSystem->SerializeAllResources();
 		}
 	private:
-		std::unordered_map<std::string, uint32_t> m_PostfixToImporterIndex;
-		std::vector<ResourceImporterBase*> m_Importers;
-		std::vector<size_t> m_ReservedSpace;
-		std::vector<std::vector<std::pair<std::filesystem::path, std::filesystem::path>>> m_ImportingResources;
+		castl::unordered_map<std::string, uint32_t> m_PostfixToImporterIndex;
+		castl::vector<ResourceImporterBase*> m_Importers;
+		castl::vector<size_t> m_ReservedSpace;
+		castl::vector<castl::vector<castl::pair<std::filesystem::path, std::filesystem::path>>> m_ImportingResources;
 		ResourceManagingSystem* m_ResourceManagingSystem;
 	};
 
@@ -158,12 +159,12 @@ namespace resource_management
 			m_AssetRootPath = path;
 		}
 
-		virtual std::string SetResourceRootPath() const
+		virtual castl::string SetResourceRootPath() const
 		{
-			return m_AssetRootPath.string();
+			return m_AssetRootPath.string().c_str();
 		}
 
-		virtual IResource* TryGetResource(std::string const& path) override
+		virtual IResource* TryGetResource(castl::string const& path) override
 		{
 			std::lock_guard<std::mutex> lock(m_Mutex);
 			IResource* result = nullptr;
@@ -175,15 +176,15 @@ namespace resource_management
 			return nullptr;
 		}
 
-		virtual std::vector<std::byte> LoadBinaryFile(std::string const& path) override
+		virtual castl::vector<uint8_t> LoadBinaryFile(castl::string const& path) override
 		{
 			auto resourcePath = m_AssetRootPath / path;
 			return fileloading_utils::LoadBinaryFile(resourcePath.string());
 		}
 
 		virtual void* AllocResourceMemory(
-			std::string type_name
-			, std::string const& resource_path
+			castl::string type_name
+			, castl::string const& resource_path
 			, uint64_t size_in_bytes) override
 		{
 			std::lock_guard<std::mutex> lock(m_Mutex);

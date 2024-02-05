@@ -23,6 +23,9 @@ set(CMAKE_EXE_LINKER_FLAGS    "${CMAKE_EXE_LINKER_FLAGS} /MANIFEST:NO")
 set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} /MANIFEST:NO")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /MANIFEST:NO")
 set(CXX_STANDARD 20)
+if (CMAKE_VERSION VERSION_GREATER 3.12)
+	set(CMAKE_CXX_STANDARD 20)
+endif()
 
 # External Project Help
 add_subdirectory ("ExternalLib")
@@ -30,7 +33,7 @@ add_subdirectory ("ExternalLib")
 # 包含子项目。
 add_subdirectory ("CACore")
 add_subdirectory ("ThreadManager")
-#add_subdirectory ("GeneralResources")
+add_subdirectory ("GeneralResources")
 #add_subdirectory ("RenderInterface")
 #add_subdirectory ("ShaderCompilerSlang")
 #add_subdirectory ("VulkanRenderBackend")

@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <string>
+#include "DebugUtils.h"
 
 namespace library_loader
 {
@@ -18,13 +19,13 @@ namespace library_loader
 	public:
 		TModuleLoader(
 #if UNICODE
-			std::wstring const& modulePath
+			wchar_t const* modulePath
 #else
-			std::string const& modulePath
+			char const* modulePath
 #endif
 		)
 		{
-			hModuleLib = LoadLibrary(modulePath.c_str());
+			hModuleLib = LoadLibrary(modulePath);
 			if (hModuleLib != nullptr)
 			{
 				pNewInstanceFunc = reinterpret_cast<FTP_NewModuleObject>(GetProcAddress(hModuleLib, "NewModuleInstance"));

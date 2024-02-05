@@ -9,23 +9,23 @@ namespace resource_management
 	{
 	public:
 		virtual void* AllocResourceMemory(
-			std::string type_name
-			, std::string const& resource_path
+			castl::string type_name
+			, castl::string const& resource_path
 			, uint64_t size_in_bytes) = 0;
-		virtual void ReleaseResourceMemory(std::string type_name, void* pointer) = 0;
+		virtual void ReleaseResourceMemory(castl::string type_name, void* pointer) = 0;
 
 		virtual void SerializeAllResources() = 0;
 
-		virtual void SetResourceRootPath(std::string const& path) = 0;
+		virtual void SetResourceRootPath(castl::string const& path) = 0;
 
-		virtual std::string SetResourceRootPath() const = 0;
+		virtual castl::string SetResourceRootPath() const = 0;
 
-		virtual IResource* TryGetResource(std::string const& path) = 0;
+		virtual IResource* TryGetResource(castl::string const& path) = 0;
 
-		virtual std::vector<std::byte> LoadBinaryFile(std::string const& path) = 0;
+		virtual castl::vector<uint8_t> LoadBinaryFile(castl::string const& path) = 0;
 
 		template<typename TRes>
-		void LoadResource(std::string const& path, std::function<void(TRes*)> callback)
+		void LoadResource(castl::string const& path, std::function<void(TRes*)> callback)
 		{
 			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
 			IResource* result = TryGetResource(path);
@@ -43,19 +43,19 @@ namespace resource_management
 		}
 
 		template<typename TRes, typename...TArgs>
-		TRes* AllocResource(std::filesystem::path const& outPath, TArgs&&...Args) {
+		TRes* AllocResource(castl::string const& outPath, TArgs&&...Args) {
 			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
 			uint64_t allocSize = sizeof(TRes);
-			auto address = AllocResourceMemory(typeid(TRes).name(), outPath.string(), allocSize);
+			auto address = AllocResourceMemory(typeid(TRes).name(), outPath, allocSize);
 			TRes* result = new (address) TRes(std::forward<TArgs>(Args)...);
 			return result;
 		}
 
 		template<typename TRes, typename...TArgs>
-		TRes* AllocSubResource(std::filesystem::path const& outPath, std::string const& postfix, TArgs&&...Args) {
+		TRes* AllocSubResource(castl::string const& outPath, castl::string const& postfix, TArgs&&...Args) {
 			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
 			uint64_t allocSize = sizeof(TRes);
-			auto address = AllocResourceMemory(typeid(TRes).name(), (outPath / postfix).string(), allocSize);
+			auto address = AllocResourceMemory(typeid(TRes).name(), (outPath + "/" + postfix), allocSize);
 			TRes* result =  new (address) TRes(std::forward<TArgs>(Args)...);
 			return result;
 		}

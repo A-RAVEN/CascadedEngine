@@ -1,18 +1,10 @@
 #include "pch.h"
 #include "ThreadManager_Impl.h"
 
-void* __cdecl operator new[](size_t size, const char* name, int flags, unsigned debugFlags, const char* file, int line)
-{
-    return new uint8_t[size];
-}
-void* operator new[](size_t size, size_t alignment, size_t alignmentOffset, const char* name, int flags, unsigned debugFlags, const char* file, int line)
-{
-    return new uint8_t[size];
-}
 
 namespace thread_management
 {
-    CTaskGraph* TaskGraph_Impl1::Name(std::string name)
+    CTaskGraph* TaskGraph_Impl1::Name(castl::string name)
     {
         Name_Internal(name);
         return this;
@@ -39,13 +31,13 @@ namespace thread_management
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::WaitOnEvent(std::string const& name, uint64_t waitingID)
+    CTaskGraph* TaskGraph_Impl1::WaitOnEvent(castl::string const& name, uint64_t waitingID)
     {
         WaitEvent_Internal(name, waitingID);
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::SignalEvent(std::string const& name, uint64_t signalID)
+    CTaskGraph* TaskGraph_Impl1::SignalEvent(castl::string const& name, uint64_t signalID)
     {
         SignalEvent_Internal(name, signalID);
         return this;
@@ -137,7 +129,7 @@ namespace thread_management
         uint32_t pendingTaskCount = m_SubTasks.size();
         m_PendingSubnodeCount.store(pendingTaskCount, std::memory_order_release);
     }
-    CTask* CTask_Impl1::Name(std::string name)
+    CTask* CTask_Impl1::Name(castl::string name)
     {
         Name_Internal(name);
         return this;
@@ -160,12 +152,12 @@ namespace thread_management
         DependsOn_Internal(task);
         return this;
     }
-    CTask* CTask_Impl1::WaitOnEvent(std::string const& name, uint64_t waitingID)
+    CTask* CTask_Impl1::WaitOnEvent(castl::string const& name, uint64_t waitingID)
     {
         WaitEvent_Internal(name, waitingID);
         return this;
     }
-    CTask* CTask_Impl1::SignalEvent(std::string const& name, uint64_t signalID)
+    CTask* CTask_Impl1::SignalEvent(castl::string const& name, uint64_t signalID)
     {
         SignalEvent_Internal(name, signalID);
         return this;
@@ -264,7 +256,7 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
-    void ThreadManager_Impl1::SetupFunction(std::function<bool(CThreadManager*)> functor, std::string const& waitingEvent)
+    void ThreadManager_Impl1::SetupFunction(std::function<bool(CThreadManager*)> functor, castl::string const& waitingEvent)
     {
         m_PrepareFunctor = functor;
         m_SetupEventName = waitingEvent;
@@ -338,13 +330,13 @@ namespace thread_management
 			m_ConditinalVariable.notify_one();
 		}
     }
-    void ThreadManager_Impl1::SignalEvent(std::string const& eventName, uint64_t signalFrame)
+    void ThreadManager_Impl1::SignalEvent(castl::string const& eventName, uint64_t signalFrame)
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
         auto found = m_EventMap.find(eventName);
         if(found == m_EventMap.end())
 		{
-            found = m_EventMap.insert(eastl::make_pair(eventName, m_EventWaitLists.size())).first;
+            found = m_EventMap.insert(castl::make_pair(eventName, m_EventWaitLists.size())).first;
             m_EventWaitLists.emplace_back();
 		}
         auto& waitList = m_EventWaitLists[found->second];
@@ -396,7 +388,7 @@ namespace thread_management
                     waitList.m_WaitingTasks.push_back(node);
                     if (waitList.m_WaitingFrames.empty() || waitList.m_WaitingFrames.back().first < node->m_EventWaitingID)
                     {
-                        waitList.m_WaitingFrames.push_back(std::make_pair(node->m_EventWaitingID, 1));
+                        waitList.m_WaitingFrames.push_back(castl::make_pair(node->m_EventWaitingID, 1));
                     }
                     else
                     {
@@ -443,7 +435,7 @@ namespace thread_management
     CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CThreadManager, ThreadManager_Impl1)
 
 
-    TaskParallelFor* TaskParallelFor_Impl::Name(std::string name)
+    TaskParallelFor* TaskParallelFor_Impl::Name(castl::string name)
     {
         Name_Internal(name);
         return this;
@@ -470,13 +462,13 @@ namespace thread_management
         return this;
     }
 
-    TaskParallelFor* TaskParallelFor_Impl::WaitOnEvent(std::string const& name, uint64_t waitingID)
+    TaskParallelFor* TaskParallelFor_Impl::WaitOnEvent(castl::string const& name, uint64_t waitingID)
     {
         WaitEvent_Internal(name, waitingID);
         return this;
     }
 
-    TaskParallelFor* TaskParallelFor_Impl::SignalEvent(std::string const& name, uint64_t signalID)
+    TaskParallelFor* TaskParallelFor_Impl::SignalEvent(castl::string const& name, uint64_t signalID)
     {
         SignalEvent_Internal(name, signalID);
         return this;
@@ -532,7 +524,7 @@ namespace thread_management
         for (uint32_t taskId = 0; taskId < m_PendingSubnodeCount; ++taskId)
         {
             auto pTask = m_Allocator->NewTask(this);
-            pTask->Name(m_Name + " Subtask:" + std::to_string(taskId))
+            pTask->Name(m_Name + " Subtask:" + castl::to_string(taskId))
                 ->Functor([functor = m_Functor, taskId]()
                     {
                         functor(taskId);

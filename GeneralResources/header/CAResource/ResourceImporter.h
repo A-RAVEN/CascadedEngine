@@ -1,7 +1,6 @@
 #pragma once
-#include <string>
-#include <vector>
-#include <filesystem>
+#include <CASTL/CAString.h>
+#include <CASTL/CAVector.h>
 
 namespace resource_management
 {
@@ -10,12 +9,12 @@ namespace resource_management
 	class ResourceImporterBase
 	{
 	public:
-		virtual std::string GetResourceType() const = 0;
-		virtual std::string GetSourceFilePostfix() const = 0;
-		virtual std::string GetDestFilePostfix() const = 0;
-		virtual std::string GetTags() const = 0;
+		virtual castl::string GetResourceType() const = 0;
+		virtual castl::string GetSourceFilePostfix() const = 0;
+		virtual castl::string GetDestFilePostfix() const = 0;
+		virtual castl::string GetTags() const = 0;
 		virtual uint64_t GetIResourceSizeInByte() const = 0;
-		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) = 0;
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, castl::string const& resourcePath, castl::string const& outPath) = 0;
 	};
 
 	template<typename TRes>
@@ -42,12 +41,12 @@ namespace resource_management
 			}
 		}
 
-		virtual std::string GetResourceType() const override
+		virtual castl::string GetResourceType() const override
 		{
-			return std::string{ typeid(TRes).name() };
+			return castl::string{ typeid(TRes).name() };
 		}
 
 	protected:
-		std::vector<ResourceImporterPass<TRes> const*> m_Passes;
+		castl::vector<ResourceImporterPass<TRes> const*> m_Passes;
 	};
 }

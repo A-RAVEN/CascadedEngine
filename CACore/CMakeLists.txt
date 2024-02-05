@@ -1,7 +1,8 @@
 set(PROJECT_NAME CACore)
 #project (${PROJECT_NAME})
 #file(GLOB_RECURSE Header_List "*.h")
+file(GLOB_RECURSE Source_List "*.cpp")
 
-add_library(${PROJECT_NAME} INTERFACE)
-target_link_libraries(${PROJECT_NAME} INTERFACE EASTL)
-target_include_directories(${PROJECT_NAME} INTERFACE header)
+add_library(CACore STATIC private/EASTL_Implementations.cpp "header/CASTL/CASharedPtr.h")
+target_link_libraries(CACore PUBLIC EASTL)
+target_include_directories(CACore PUBLIC header)

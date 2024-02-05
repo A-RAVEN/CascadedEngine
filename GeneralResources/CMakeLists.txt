@@ -12,8 +12,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
 target_include_directories(${PROJECT_NAME} PRIVATE header)
 
 add_library(${PROJECT_INTERFACE_NAME} INTERFACE)
+target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE ThreadManager_Interface)
 target_include_directories(${PROJECT_INTERFACE_NAME} INTERFACE header)
-
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
-endif()
