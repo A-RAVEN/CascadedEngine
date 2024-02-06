@@ -43,7 +43,7 @@ namespace threadsafe_utils
 		}
 		virtual ~TThreadSafePointerPool()
 		{
-			CA_ASSERT(IsEmpty(), std::string{"ThreadSafe Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T));
+			CA_ASSERT(IsEmpty(), (std::string{"ThreadSafe Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T)).c_str());
 		}
 
 		template<typename...TArgs>

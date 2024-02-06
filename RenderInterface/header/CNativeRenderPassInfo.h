@@ -9,8 +9,8 @@
 #include "ShaderBindingSetHandle.h"
 #include "CCommandList.h"
 #include "IMeshInterface.h"
-#include <functional>
-#include <vector>
+#include <CASTL/CAFunctional.h>
+#include <CASTL/CAVector.h>
 #include <CACore/header/uhash.h>
 
 namespace graphics_backend
@@ -95,11 +95,11 @@ namespace graphics_backend
 
 	struct CSubpassInfo
 	{
-		std::vector<uint32_t> colorAttachmentIDs{};
+		castl::vector<uint32_t> colorAttachmentIDs{};
 		uint32_t depthAttachmentID = INVALID_ATTACHMENT_INDEX;
 		bool depthAttachmentReadOnly = false;
-		std::vector<uint32_t> pixelInputAttachmentIDs{};
-		std::vector<uint32_t> preserveAttachmentIDs{};
+		castl::vector<uint32_t> pixelInputAttachmentIDs{};
+		castl::vector<uint32_t> preserveAttachmentIDs{};
 
 		bool operator==(CSubpassInfo const& rhs) const
 		{
@@ -121,8 +121,8 @@ namespace graphics_backend
 
 	struct CRenderPassInfo
 	{
-		std::vector<CAttachmentInfo> attachmentInfos{};
-		std::vector<CSubpassInfo> subpassInfos{};
+		castl::vector<CAttachmentInfo> attachmentInfos{};
+		castl::vector<CSubpassInfo> subpassInfos{};
 
 		bool operator==(CRenderPassInfo const& rhs) const
 		{
@@ -150,7 +150,7 @@ namespace graphics_backend
 		CVertexInputDescriptor vertexInputDescriptor;
 		GraphicsShaderSet shaderSet;
 		ShaderBindingList shaderBindingList;
-		std::function<void(CInlineCommandList&)> commandFunction;
+		castl::function<void(CInlineCommandList&)> commandFunction;
 	};
 
 	struct DrawcallInterfaceSubpassData
@@ -168,11 +168,11 @@ namespace graphics_backend
 	class CRenderpassBuilder
 	{
 	public:
-		CRenderpassBuilder(std::vector<CAttachmentInfo> const& inAttachmentInfo)// : m_TextureHandles{ static_cast<uint32_t>(inAttachmentInfo.size()), INVALID_INDEX }
+		CRenderpassBuilder(castl::vector<CAttachmentInfo> const& inAttachmentInfo)// : m_TextureHandles{ static_cast<uint32_t>(inAttachmentInfo.size()), INVALID_INDEX }
 		{
 			mRenderPassInfo.attachmentInfos = inAttachmentInfo;
 			m_TextureHandles.resize(inAttachmentInfo.size());
-			std::fill(m_TextureHandles.begin(), m_TextureHandles.end(), INVALID_INDEX);
+			castl::fill(m_TextureHandles.begin(), m_TextureHandles.end(), INVALID_INDEX);
 		}
 
 		CRenderpassBuilder& SetAttachmentTarget(uint32_t attachmentIndex, TextureHandle const& textureHandle)
@@ -212,7 +212,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			mRenderPassInfo.subpassInfos.push_back(inSubpassInfo);
 			m_SubpassData_SimpleDraws.push_back(SimpleDrawcallSubpassData{
@@ -260,20 +260,20 @@ namespace graphics_backend
 			return m_SubpassData_BatchDrawInterfaces[m_SubpassDataReferences[subpassIndex].second];
 		}
 
-		std::vector<TIndex> const& GetAttachmentTextureHandles() const
+		castl::vector<TIndex> const& GetAttachmentTextureHandles() const
 		{
 			return m_TextureHandles;
 		}
 
 	private:
 		CRenderPassInfo mRenderPassInfo{};
-		std::vector<TIndex> m_TextureHandles;
-		std::vector<std::pair<ESubpassType, uint32_t>> m_SubpassDataReferences{};
-		std::vector<SimpleDrawcallSubpassData> m_SubpassData_SimpleDraws{};
-		std::vector<DrawcallInterfaceSubpassData> m_SubpassData_MeshInterfaces{};
-		std::vector<BatchDrawInterfaceSubpassData> m_SubpassData_BatchDrawInterfaces{};
+		castl::vector<TIndex> m_TextureHandles;
+		castl::vector<castl::pair<ESubpassType, uint32_t>> m_SubpassDataReferences{};
+		castl::vector<SimpleDrawcallSubpassData> m_SubpassData_SimpleDraws{};
+		castl::vector<DrawcallInterfaceSubpassData> m_SubpassData_MeshInterfaces{};
+		castl::vector<BatchDrawInterfaceSubpassData> m_SubpassData_BatchDrawInterfaces{};
 	};
 }
 
 template<>
-struct hash_utils::is_contiguously_hashable<graphics_backend::CAttachmentInfo> : public std::true_type {};
+struct hash_utils::is_contiguously_hashable<graphics_backend::CAttachmentInfo> : public castl::true_type {};

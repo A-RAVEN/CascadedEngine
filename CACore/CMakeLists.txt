@@ -3,6 +3,6 @@ set(PROJECT_NAME CACore)
 #file(GLOB_RECURSE Header_List "*.h")
 file(GLOB_RECURSE Source_List "*.cpp")
 
-add_library(CACore STATIC private/EASTL_Implementations.cpp "header/CASTL/CASharedPtr.h")
+add_library(CACore STATIC private/EASTL_Implementations.cpp "header/CASTL/CASharedPtr.h" "private/FileLoader.cpp" "header/CASTL/CAFunctional.h" "header/CASTL/CAAlgorithm.h")
 target_link_libraries(CACore PUBLIC EASTL)
 target_include_directories(CACore PUBLIC header)

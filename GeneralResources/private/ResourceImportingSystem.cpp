@@ -12,6 +12,7 @@
 
 namespace resource_management
 {
+	using namespace castl;
 	using namespace std::filesystem;
 	class ResourceImportingSystemImpl : public ResourceImportingSystem
 	{
@@ -50,14 +51,14 @@ namespace resource_management
 			{
 				if(p.is_regular_file())
 				{
-					auto postfix = p.path().extension().string();
+					auto postfix = castl::to_ca(p.path().extension().string());
 					auto found = m_PostfixToImporterIndex.find(postfix);
 					if(found != m_PostfixToImporterIndex.end())
 					{
 						auto importer = m_Importers[found->second];
 
 						auto relativePath = std::filesystem::relative(p.path(), rootPath);
-						relativePath.replace_extension(importer->GetDestFilePostfix());
+						relativePath.replace_extension(castl::to_std(importer->GetDestFilePostfix()));
 						//relativePath.replace_extension("");
 						auto destPath = targetRootPath / relativePath;
 
@@ -82,7 +83,7 @@ namespace resource_management
 						if (needImport)
 						{
 							++m_ReservedSpace[found->second];
-							m_ImportingResources[found->second].push_back(std::make_pair(p.path(), relativePath));
+							m_ImportingResources[found->second].push_back(castl::make_pair(p.path(), relativePath));
 						}
 					}
 				}
@@ -92,14 +93,14 @@ namespace resource_management
 				for(uint32_t itrResource = 0; itrResource < m_ReservedSpace[i]; ++itrResource)
 				{
 					m_Importers[i]->ImportResource(m_ResourceManagingSystem
-						, m_ImportingResources[i][itrResource].first.string()
-						, m_ImportingResources[i][itrResource].second);
+						, castl::to_ca(m_ImportingResources[i][itrResource].first.string())
+						, castl::to_ca(m_ImportingResources[i][itrResource].second.string()));
 				}
 			}
 			m_ResourceManagingSystem->SerializeAllResources();
 		}
 	private:
-		castl::unordered_map<std::string, uint32_t> m_PostfixToImporterIndex;
+		castl::unordered_map<castl::string, uint32_t> m_PostfixToImporterIndex;
 		castl::vector<ResourceImporterBase*> m_Importers;
 		castl::vector<size_t> m_ReservedSpace;
 		castl::vector<castl::vector<castl::pair<std::filesystem::path, std::filesystem::path>>> m_ImportingResources;
@@ -149,19 +150,19 @@ namespace resource_management
 		private:
 			size_t m_PageSize;
 			size_t m_ChunkSizeByte;
-			std::vector<std::vector<uint8_t>> m_MemoryPages;
+			castl::vector<castl::vector<uint8_t>> m_MemoryPages;
 			size_t m_LastPageUsedChunkCount;
-			std::deque<void*> m_AvailableChunks;
+			castl::deque<void*> m_AvailableChunks;
 		};
 
-		virtual void SetResourceRootPath(std::string const& path) override
+		virtual void SetResourceRootPath(castl::string const& path) override
 		{
-			m_AssetRootPath = path;
+			m_AssetRootPath = castl::to_std(path);
 		}
 
 		virtual castl::string SetResourceRootPath() const
 		{
-			return m_AssetRootPath.string().c_str();
+			return castl::to_ca(m_AssetRootPath.string());
 		}
 
 		virtual IResource* TryGetResource(castl::string const& path) override
@@ -178,8 +179,8 @@ namespace resource_management
 
 		virtual castl::vector<uint8_t> LoadBinaryFile(castl::string const& path) override
 		{
-			auto resourcePath = m_AssetRootPath / path;
-			return fileloading_utils::LoadBinaryFile(resourcePath.string());
+			auto resourcePath = m_AssetRootPath / to_std(path);
+			return cacore::LoadBinaryFile(to_ca(resourcePath.string()));
 		}
 
 		virtual void* AllocResourceMemory(
@@ -191,7 +192,7 @@ namespace resource_management
 			auto found = m_TypeNameToMemoryAllocator.find(type_name);
 			if (found == m_TypeNameToMemoryAllocator.end())
 			{
-				m_TypeNameToMemoryAllocator.insert(std::make_pair(type_name, ChunkedMemoryAllocator{ 16, size_in_bytes }));
+				m_TypeNameToMemoryAllocator.insert(castl::make_pair(type_name, ChunkedMemoryAllocator{ 16, size_in_bytes }));
 				found = m_TypeNameToMemoryAllocator.find(type_name);
 			}
 
@@ -206,11 +207,11 @@ namespace resource_management
 
 			return result;
 		}
-		virtual void ReleaseResourceMemory(std::string type_name, void* pointer) override
+		virtual void ReleaseResourceMemory(castl::string type_name, void* pointer) override
 		{
 			std::lock_guard<std::mutex> lock(m_Mutex);
 			auto found = m_TypeNameToMemoryAllocator.find(type_name);
-			CA_ASSERT(found != m_TypeNameToMemoryAllocator.end(), "try release memory to void: " + type_name);
+			CA_ASSERT(found != m_TypeNameToMemoryAllocator.end(), ("try release memory to void: " + type_name).c_str());
 			found->second.ReleaseChunk(pointer);
 
 			auto resourceToPath = m_ResourceAddressToAssetPath.find(pointer);
@@ -225,19 +226,19 @@ namespace resource_management
 		{
 			for (auto& pair : m_ResourceAddressToAssetPath)
 			{
-				std::filesystem::path destPath = m_AssetRootPath / pair.second;
+				std::filesystem::path destPath = m_AssetRootPath / to_std(pair.second);
 				std::filesystem::create_directories(destPath.parent_path());
 				IResource* resource = static_cast<IResource*>(pair.first);
-				std::vector<std::byte> serializedData;
+				castl::vector<uint8_t> serializedData;
 				resource->Serialzie(serializedData);
-				fileloading_utils::WriteBinaryFile(destPath.string(), serializedData.data(), serializedData.size());
+				cacore::WriteBinaryFile(castl::to_ca(destPath.string()), serializedData.data(), serializedData.size());
 			}
 		}
 	private:
 		std::mutex m_Mutex;
-		std::unordered_map<std::string, ChunkedMemoryAllocator> m_TypeNameToMemoryAllocator;
-		std::unordered_map<std::string, void*> m_AssetPathToResourceAddress;
-		std::unordered_map<void*, std::string> m_ResourceAddressToAssetPath;
+		castl::unordered_map<castl::string, ChunkedMemoryAllocator> m_TypeNameToMemoryAllocator;
+		castl::unordered_map<castl::string, void*> m_AssetPathToResourceAddress;
+		castl::unordered_map<void*, castl::string> m_ResourceAddressToAssetPath;
 
 		std::filesystem::path m_AssetRootPath;
 	};
