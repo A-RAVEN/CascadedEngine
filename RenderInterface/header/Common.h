@@ -1,8 +1,9 @@
 #pragma once
-#include <CACore/header/Platform.h>
+#include <Platform.h>
 #include <cstdint>
-#include <CACore/header/uenum.h>
-#include <CACore/header/DebugUtils.h>
+#include <uenum.h>
+#include <uhash.h>
+#include <DebugUtils.h>
 
 
 using TIndex = uint32_t;
@@ -354,9 +355,12 @@ public:
 
 	bool operator==(GraphicsClearValue const& rhs) const
 	{
-		return (std::memcmp(this, &rhs, sizeof(GraphicsClearValue)) == 0);
+		return hash_utils::memory_equal(this, &rhs);
 	}
 };
 
-template<>
-struct hash_utils::is_contiguously_hashable<GraphicsClearValue> : public std::true_type {};
+namespace hash_utils
+{
+	template<>
+	struct is_contiguously_hashable<GraphicsClearValue> : public std::true_type {};
+}

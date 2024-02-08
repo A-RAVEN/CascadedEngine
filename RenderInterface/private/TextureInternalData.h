@@ -1,5 +1,6 @@
 #pragma once
-#include <header/CRenderGraph.h>
+#include <CRenderGraph.h>
+#include <CASTL/CAVector.h>
 
 namespace graphics_backend
 {
@@ -23,7 +24,7 @@ namespace graphics_backend
 		virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void* pData) override;
 	private:
 		CRenderGraph_Impl* p_RenderGraph = nullptr;
-		std::vector<uint8_t> m_ScheduledData;
+		castl::vector<uint8_t> m_ScheduledData;
 		TIndex m_DescID = INVALID_INDEX;
 		WindowHandle* p_WindowsHandle = nullptr;
 	};

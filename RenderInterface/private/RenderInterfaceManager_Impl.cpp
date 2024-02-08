@@ -4,9 +4,9 @@
 
 namespace graphics_backend
 {
-    std::shared_ptr<CRenderGraph> RenderInterfaceManager_Impl::NewRenderGraph()
+    castl::shared_ptr<CRenderGraph> RenderInterfaceManager_Impl::NewRenderGraph()
     {
-        return std::shared_ptr<CRenderGraph>(NewRenderGraph_Internal(), [this](CRenderGraph* pDeleted)
+        return castl::shared_ptr<CRenderGraph>(NewRenderGraph_Internal(), [this](CRenderGraph* pDeleted)
             {
                 ReleaseRenderGraph_Internal(pDeleted);
             });

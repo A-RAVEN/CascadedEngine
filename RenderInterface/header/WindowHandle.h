@@ -1,5 +1,5 @@
 #pragma once
-#include <string>
+#include <CASTL/CAString.h>
 #include "GPUTexture.h"
 
 namespace graphics_backend
@@ -13,7 +13,7 @@ namespace graphics_backend
 	class WindowHandle
 	{
 	public:
-		virtual std::string GetName() const = 0;
+		virtual castl::string GetName() const = 0;
 		virtual uint2 const& GetSizeSafe() const = 0;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const = 0;
 		virtual void RecreateContext() = 0;

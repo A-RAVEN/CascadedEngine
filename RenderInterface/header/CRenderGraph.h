@@ -4,10 +4,11 @@
 #include "ShaderBindingSetHandle.h"
 #include "CNativeRenderPassInfo.h"
 #include "GPUBufferHandle.h"
-#include <functional>
-#include <string>
-#include <vector>
-#include <type_traits>
+#include <CASTL/CAFunctional.h>
+#include <CASTL/CAString.h>
+#include <CASTL/CAVector.h>
+#include <CASTL/CASharedPtr.h>
+#include <CASTL/CAUnorderedMap.h>
 
 namespace graphics_backend
 {
@@ -36,19 +37,15 @@ namespace graphics_backend
 		//ShaderBindingSetHandle
 		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) = 0;
 		//RenderPass
-		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
-
-
-
+		virtual CRenderpassBuilder& NewRenderPass(castl::vector<CAttachmentInfo> const& inAttachmentInfo) = 0;
 		//Used By Backend
 		virtual uint32_t GetRenderNodeCount() const = 0;
 		virtual CRenderpassBuilder const& GetRenderPass(uint32_t nodeID) const = 0;
-
 		//TextureHandle
 		virtual uint32_t GetTextureHandleCount() const = 0;
 		virtual uint32_t GetTextureTypesDescriptorCount() const = 0;
 		virtual GPUTextureDescriptor const& GetTextureDescriptor(TIndex descriptorIndex) const = 0;
-		virtual TIndex WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const = 0;
+		virtual TIndex WindowHandleToTextureIndex(castl::shared_ptr<WindowHandle> handle) const = 0;
 
 		virtual ITextureHandleInternalInfo const& GetGPUTextureInternalData(TIndex handleID) const = 0;
 		virtual ITextureHandleInternalInfo& GetGPUTextureInternalData(TIndex handleID) = 0;
@@ -68,7 +65,7 @@ namespace graphics_backend
 
 		virtual uint32_t GetGPUBufferHandleCount() const = 0;
 
-		virtual std::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const = 0;
+		virtual castl::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const = 0;
 
 		CRenderpassBuilder& NewRenderPass(
 			TextureHandle const& colorAttachment
@@ -84,7 +81,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			CRenderpassBuilder& result = NewRenderPass({ 
 				CAttachmentInfo::Make(colorAttachment, colorLoadOp, colorStoreOp, clearColor)
@@ -108,7 +105,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			CRenderpassBuilder& result = NewRenderPass({
 				CAttachmentInfo::Make(colorAttachment)
@@ -133,7 +130,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			CRenderpassBuilder& result = NewRenderPass({
 				CAttachmentInfo::Make(colorAttachment)
@@ -159,7 +156,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			CRenderpassBuilder& result = NewRenderPass({
 				CAttachmentInfo::Make(colorAttachment, clearColor)
@@ -185,7 +182,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			CRenderpassBuilder& result = NewRenderPass({
 				CAttachmentInfo::Make(colorAttachment, colorLoadOp, colorStoreOp, clearColor) });
@@ -207,7 +204,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			return NewRenderPass(attachment, EAttachmentLoadOp::eClear, EAttachmentStoreOp::eStore, clearValue,
 				pipelineStates, vertexInputs, shaderSet, shaderBindingList, commandFunction);
@@ -220,7 +217,7 @@ namespace graphics_backend
 			, CVertexInputDescriptor const& vertexInputs
 			, GraphicsShaderSet const& shaderSet
 			, ShaderBindingList const& shaderBindingList
-			, std::function<void(CInlineCommandList&)> commandFunction)
+			, castl::function<void(CInlineCommandList&)> commandFunction)
 		{
 			return NewRenderPass(attachment, EAttachmentLoadOp::eLoad, EAttachmentStoreOp::eStore, GraphicsClearValue::ClearColor(),
 				pipelineStates, vertexInputs, shaderSet, shaderBindingList, commandFunction);

@@ -1,5 +1,7 @@
 #pragma once
 #include <map>
+#include <CASTL/CAString.h>
+#include <CASTL/CAUnorderedMap.h>
 class ShaderConstantsBuilder;
 namespace graphics_backend
 {
@@ -7,9 +9,9 @@ namespace graphics_backend
 	{
 	public:
 		ShaderConstantSetDataLayout(ShaderConstantsBuilder const& inDesc);
-		std::map<std::string, std::pair<uint32_t, uint32_t>> const& GetNameToDataOffsetSize() const;
+		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> const& GetNameToDataOffsetSize() const;
 	private:
 		uint32_t m_ReservedDataSize = 0;
-		std::map<std::string, std::pair<uint32_t, uint32_t>> m_NameToDataOffsetSize;
+		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_NameToDataOffsetSize;
 	};
 }

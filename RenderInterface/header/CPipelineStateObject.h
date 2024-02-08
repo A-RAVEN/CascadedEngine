@@ -1,9 +1,7 @@
 #pragma once
-#include <cstdint>
-#include <array>
+#include <CASTL/CAArray.h>
+#include <uhash.h>
 #include "Common.h"
-#include <CACore/header/uhash.h>
-using namespace hash_utils;
 
 struct RasterizerStates
 {
@@ -32,21 +30,16 @@ public:
 		return states;
 	}
 };
-template<>
-struct is_contiguously_hashable<RasterizerStates> : public std::true_type {};
 
 struct MultiSampleStates
 {
 	EMultiSampleCount msCount = EMultiSampleCount::e1;
 
-bool operator==(MultiSampleStates const& rhs) const
+	bool operator==(MultiSampleStates const& rhs) const
 	{
 		return msCount == rhs.msCount;
 	}
 };
-
-template<>
-struct is_contiguously_hashable<MultiSampleStates> : public std::true_type {};
 
 struct DepthStencilStates
 {
@@ -100,8 +93,7 @@ struct DepthStencilStates
 	}
 };
 
-template<>
-struct is_contiguously_hashable<DepthStencilStates> : public std::true_type {};
+
 
 struct SingleColorAttachmentBlendStates
 {
@@ -136,12 +128,11 @@ struct SingleColorAttachmentBlendStates
 	}
 };
 
-template<>
-struct is_contiguously_hashable<SingleColorAttachmentBlendStates> : public std::true_type {};
+
 
 struct ColorAttachmentsBlendStates
 {
-	std::array<SingleColorAttachmentBlendStates, 8> attachmentBlendStates = {};
+	castl::array<SingleColorAttachmentBlendStates, 8> attachmentBlendStates = {};
 
 	bool operator==(ColorAttachmentsBlendStates const& rhs) const
 	{
@@ -165,8 +156,7 @@ struct ColorAttachmentsBlendStates
 		return states;
 	}
 };
-template<>
-struct is_contiguously_hashable<ColorAttachmentsBlendStates> : public std::true_type {};
+
 /// <summary>
 /// Pipeline States That May Share During One Pass
 /// Pure Data Struct, Not The Real One Used In Backend API
@@ -188,5 +178,21 @@ public:
 	}
 };
 
-template<>
-struct is_contiguously_hashable<CPipelineStateObject> : public std::true_type {};
+
+
+
+namespace hash_utils
+{
+	template<>
+	struct is_contiguously_hashable<RasterizerStates> : public std::true_type {};
+	template<>
+	struct is_contiguously_hashable<MultiSampleStates> : public std::true_type {};
+	template<>
+	struct is_contiguously_hashable<DepthStencilStates> : public std::true_type {};
+	template<>
+	struct is_contiguously_hashable<SingleColorAttachmentBlendStates> : public std::true_type {};
+	template<>
+	struct is_contiguously_hashable<ColorAttachmentsBlendStates> : public std::true_type {};
+	template<>
+	struct is_contiguously_hashable<CPipelineStateObject> : public std::true_type {};
+}

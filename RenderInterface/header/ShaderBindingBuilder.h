@@ -1,8 +1,8 @@
 #pragma once
-#include <string>
-#include <map>
-#include <vector>
-#include <CACore/header/uhash.h>
+#include <CASTL/CAString.h>
+#include <CASTL/CAVector.h>
+#include <DebugUtils.h>
+#include <uhash.h>
 
 enum class EShaderBindingNumericType
 {
@@ -92,56 +92,56 @@ struct hash_utils::is_contiguously_hashable<ShaderTextureDescriptor> : public st
 class ShaderConstantsBuilder
 {
 public:
-	ShaderConstantsBuilder(std::string const& name) : m_Name(name){}
+	ShaderConstantsBuilder(castl::string const& name) : m_Name(name){}
 
 	template<typename T>
-	ShaderConstantsBuilder& Scalar(std::string const& name)
+	ShaderConstantsBuilder& Scalar(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
-		m_NumericDescriptors.push_back(std::make_pair(name, ShaderBindingDescriptor{ 
+		m_NumericDescriptors.push_back(castl::make_pair(name, ShaderBindingDescriptor{ 
 			is_shaderbinding_arighmetic_type<T>::numericType, 1 }));
 		return *this;
 	}
 
 	template<typename T>
-	ShaderConstantsBuilder& Vec2(std::string const& name)
+	ShaderConstantsBuilder& Vec2(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
-		m_NumericDescriptors.push_back(std::make_pair(name, ShaderBindingDescriptor{
+		m_NumericDescriptors.push_back(castl::make_pair(name, ShaderBindingDescriptor{
 			is_shaderbinding_arighmetic_type<T>::numericType, 1, 2 }));
 		return *this;
 	}
 
 	template<typename T>
-	ShaderConstantsBuilder& Vec3(std::string const& name)
+	ShaderConstantsBuilder& Vec3(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
-		m_NumericDescriptors.push_back(std::make_pair(name, ShaderBindingDescriptor{
+		m_NumericDescriptors.push_back(castl::make_pair(name, ShaderBindingDescriptor{
 			is_shaderbinding_arighmetic_type<T>::numericType, 1, 3 }));
 		return *this;
 	}
 
 	template<typename T, uint32_t count = 1>
-	ShaderConstantsBuilder& Vec4(std::string const& name)
+	ShaderConstantsBuilder& Vec4(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
 		static_assert(count > 0, "shader binding count must be greater than 0");
-		m_NumericDescriptors.push_back(std::make_pair(name, ShaderBindingDescriptor{ 
+		m_NumericDescriptors.push_back(castl::make_pair(name, ShaderBindingDescriptor{ 
 			is_shaderbinding_arighmetic_type<T>::numericType, count, 4 }));
 		return *this;
 	}
 
 	template<typename T, uint32_t count = 1>
-	ShaderConstantsBuilder& Mat4(std::string const& name)
+	ShaderConstantsBuilder& Mat4(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
 		static_assert(count > 0, "shader binding count must be greater than 0");
-		m_NumericDescriptors.push_back(std::make_pair(name, ShaderBindingDescriptor{ 
+		m_NumericDescriptors.push_back(castl::make_pair(name, ShaderBindingDescriptor{ 
 			is_shaderbinding_arighmetic_type<T>::numericType, count, 4, 4 }));
 		return *this;
 	}
 
-	std::string const& GetName() const { return m_Name; }
+	castl::string const& GetName() const { return m_Name; }
 
 	bool operator==(ShaderConstantsBuilder const& rhs) const
 	{
@@ -156,12 +156,12 @@ public:
 		hash_append(h, bindingBuilder.m_NumericDescriptors);
 	}
 
-	std::vector<std::pair<std::string, ShaderBindingDescriptor>> const& GetNumericDescriptors() const{
+	castl::vector<castl::pair<castl::string, ShaderBindingDescriptor>> const& GetNumericDescriptors() const{
 		return m_NumericDescriptors;
 	}
 protected:
-	std::string m_Name;
-	std::vector<std::pair<std::string, ShaderBindingDescriptor>> m_NumericDescriptors;
+	castl::string m_Name;
+	castl::vector<castl::pair<castl::string, ShaderBindingDescriptor>> m_NumericDescriptors;
 };
 
 
@@ -170,7 +170,7 @@ class ShaderBindingBuilder
 public:
 	ShaderBindingBuilder() = default;
 
-	ShaderBindingBuilder(std::string const& space_name) : m_SpaceName(space_name) {}
+	ShaderBindingBuilder(castl::string const& space_name) : m_SpaceName(space_name) {}
 
 	ShaderBindingBuilder& ConstantBuffer(ShaderConstantsBuilder const& constantDescs)
 	{
@@ -178,12 +178,12 @@ public:
 		return *this;
 	}
 
-	inline ShaderBindingBuilder& TextureGeneral(std::string const& name
+	inline ShaderBindingBuilder& TextureGeneral(castl::string const& name
 		, EShaderBindingNumericType numericType, ETextureDimension dimension, bool unorderedAccess, uint32_t channels, uint32_t count)
 	{
 		CA_ASSERT(channels > 0 && channels <= 4, "texture binding supports 1-4 channels");
 		CA_ASSERT(count > 0, "shader binding count must be greater than 0");
-		m_TextureDescriptors.push_back(std::make_pair(name, ShaderTextureDescriptor{
+		m_TextureDescriptors.push_back(castl::make_pair(name, ShaderTextureDescriptor{
 			numericType
 			, unorderedAccess
 			, dimension
@@ -193,83 +193,83 @@ public:
 	}
 
 	template<typename T, uint32_t channels = 4, uint32_t count = 1>
-	ShaderBindingBuilder& Texture2D(std::string const& name)
+	ShaderBindingBuilder& Texture2D(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
 		static_assert(channels > 0 && channels <= 4, "texture binding supports 1-4 channels");
 		static_assert(count > 0, "shader binding count must be greater than 0");
-		m_TextureDescriptors.push_back(std::make_pair(name, ShaderTextureDescriptor{
+		m_TextureDescriptors.push_back(castl::make_pair(name, ShaderTextureDescriptor{
 		is_shaderbinding_arighmetic_type<T>::numericType
 		, false, ETextureDimension::e2D, channels, count }));
 		return *this;
 	}
 
 	template<typename T, uint32_t channels = 4, uint32_t count = 1>
-	ShaderBindingBuilder& Texture3D(std::string const& name)
+	ShaderBindingBuilder& Texture3D(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
 		static_assert(channels > 0 && channels <= 4, "texture binding supports 1-4 channels");
 		static_assert(count > 0, "shader binding count must be greater than 0");
-		m_TextureDescriptors.push_back(std::make_pair(name, ShaderTextureDescriptor{
+		m_TextureDescriptors.push_back(castl::make_pair(name, ShaderTextureDescriptor{
 		is_shaderbinding_arighmetic_type<T>::numericType
 		, false, ETextureDimension::e3D, channels, count }));
 		return *this;
 	}
 
 	template<typename T, uint32_t channels = 4, uint32_t count = 1>
-	ShaderBindingBuilder& RWTexture2D(std::string const& name)
+	ShaderBindingBuilder& RWTexture2D(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
 		static_assert(channels > 0 && channels <= 4, "texture binding supports 1-4 channels");
 		static_assert(count > 0, "shader binding count must be greater than 0");
-		m_TextureDescriptors.push_back(std::make_pair(name, ShaderTextureDescriptor{
+		m_TextureDescriptors.push_back(castl::make_pair(name, ShaderTextureDescriptor{
 		is_shaderbinding_arighmetic_type<T>::numericType
 		, true, ETextureDimension::e2D, channels, count }));
 		return *this;
 	}
 
 	template<typename T, uint32_t channels = 4, uint32_t count = 1>
-	ShaderBindingBuilder& RWTexture3D(std::string const& name)
+	ShaderBindingBuilder& RWTexture3D(castl::string const& name)
 	{
 		static_assert(is_shaderbinding_arighmetic_type<T>::value, "shader binding arighmetic type only support 32 bit arithmetic type");
 		static_assert(channels > 0 && channels <= 4, "texture binding supports 1-4 channels");
 		static_assert(count > 0, "shader binding count must be greater than 0");
-		m_TextureDescriptors.push_back(std::make_pair(name, ShaderTextureDescriptor{
+		m_TextureDescriptors.push_back(castl::make_pair(name, ShaderTextureDescriptor{
 		is_shaderbinding_arighmetic_type<T>::numericType
 		, true, ETextureDimension::e3D, channels, count }));
 		return *this;
 	}
 
-	ShaderBindingBuilder& SamplerState(std::string const& name)
+	ShaderBindingBuilder& SamplerState(castl::string const& name)
 	{
 		m_TextureSamplers.push_back(name);
 		return *this;
 	}
 
-	ShaderBindingBuilder& StructuredBuffer(std::string const& name)
+	ShaderBindingBuilder& StructuredBuffer(castl::string const& name)
 	{
 		m_StructuredBuffers.push_back(name);
 		return *this;
 	}
 
-	std::string const& GetSpaceName() const {
+	castl::string const& GetSpaceName() const {
 		return m_SpaceName;
 	}
 
-	std::vector<ShaderConstantsBuilder> const& GetConstantBufferDescriptors() const {
+	castl::vector<ShaderConstantsBuilder> const& GetConstantBufferDescriptors() const {
 		return m_ConstantBufferDescriptors;
 	}
 
-	std::vector<std::pair<std::string, ShaderTextureDescriptor>> const& GetTextureDescriptors() const {
+	castl::vector<castl::pair<castl::string, ShaderTextureDescriptor>> const& GetTextureDescriptors() const {
 		return m_TextureDescriptors;
 	}
 
-	std::vector<std::string> const& GetTextureSamplers() const
+	castl::vector<castl::string> const& GetTextureSamplers() const
 	{
 		return m_TextureSamplers;
 	}
 
-	std::vector<std::string> const& GetStructuredBuffers() const
+	castl::vector<castl::string> const& GetStructuredBuffers() const
 	{
 		return m_StructuredBuffers;
 	}
@@ -293,17 +293,17 @@ public:
 	}
 
 protected:
-	std::string m_SpaceName;
-	std::vector<ShaderConstantsBuilder> m_ConstantBufferDescriptors;
-	std::vector<std::pair<std::string, ShaderTextureDescriptor>> m_TextureDescriptors;
-	std::vector<std::string> m_TextureSamplers;
-	std::vector<std::string> m_StructuredBuffers;
+	castl::string m_SpaceName;
+	castl::vector<ShaderConstantsBuilder> m_ConstantBufferDescriptors;
+	castl::vector<castl::pair<castl::string, ShaderTextureDescriptor>> m_TextureDescriptors;
+	castl::vector<castl::string> m_TextureSamplers;
+	castl::vector<castl::string> m_StructuredBuffers;
 };
 
 class ShaderBindingDescriptorList
 {
 public:
 	ShaderBindingDescriptorList(std::initializer_list<ShaderBindingBuilder> binding_sets) : shaderBindingDescs(binding_sets) {}
-	std::vector<ShaderBindingBuilder> shaderBindingDescs;
+	castl::vector<ShaderBindingBuilder> shaderBindingDescs;
 };
 

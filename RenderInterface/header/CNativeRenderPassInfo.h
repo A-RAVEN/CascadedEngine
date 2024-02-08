@@ -1,4 +1,7 @@
 #pragma once
+#include <CASTL/CAFunctional.h>
+#include <CASTL/CAVector.h>
+#include <uhash.h>
 #include "Common.h"
 #include "ShaderProvider.h"
 #include "CPipelineStateObject.h"
@@ -9,9 +12,6 @@
 #include "ShaderBindingSetHandle.h"
 #include "CCommandList.h"
 #include "IMeshInterface.h"
-#include <CASTL/CAFunctional.h>
-#include <CASTL/CAVector.h>
-#include <CACore/header/uhash.h>
 
 namespace graphics_backend
 {

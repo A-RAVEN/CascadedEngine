@@ -36,7 +36,7 @@ namespace graphics_backend
 		return NewTextureHandle_Internal(window->GetBackbufferDescriptor(), window);
 	}
 
-	CRenderpassBuilder& CRenderGraph_Impl::NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo)
+	CRenderpassBuilder& CRenderGraph_Impl::NewRenderPass(castl::vector<CAttachmentInfo> const& inAttachmentInfo)
 	{
 		return m_RenderPasses.emplace_back(inAttachmentInfo);
 	}
@@ -78,7 +78,7 @@ namespace graphics_backend
 		return m_RenderPasses[nodeID];
 	}
 
-	TIndex CRenderGraph_Impl::WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const
+	TIndex CRenderGraph_Impl::WindowHandleToTextureIndex(castl ::shared_ptr<WindowHandle> handle) const
 	{
 		auto found = m_RegisteredWindowHandleIDs.find(handle.get());
 		if (found != m_RegisteredWindowHandleIDs.end())
@@ -104,7 +104,7 @@ namespace graphics_backend
 		m_TextureHandleIdToInternalInfo.push_back(TextureHandleInternalInfo{ this,  dataID, window});
 		if (window != nullptr)
 		{
-			m_RegisteredWindowHandleIDs.insert(std::make_pair(window, dataID));
+			m_RegisteredWindowHandleIDs.insert(castl::make_pair(window, dataID));
 		}
 		return TextureHandle(this, dataID);
 	}

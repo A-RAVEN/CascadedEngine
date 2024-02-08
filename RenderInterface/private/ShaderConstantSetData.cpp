@@ -4,14 +4,14 @@
 
 namespace graphics_backend
 {
-	void ShaderConstantSetData_Internal::SetValue(std::string const& name, void* pValue)
+	void ShaderConstantSetData_Internal::SetValue(castl::string const& name, void* pValue)
 	{
 		auto& layoutInfo = p_RenderGraph->GetShaderConstantSetDataLayout(m_DescriptorID).GetNameToDataOffsetSize();
 
 		auto found = layoutInfo.find(name);
 		if (found == layoutInfo.end())
 		{
-			CA_LOG_ERR("shader variable " + name + " not found in constant buffer");
+			CA_LOG_ERR(("shader variable " + name + " not found in constant buffer").c_str());
 			return;
 		}
 
@@ -37,13 +37,13 @@ namespace graphics_backend
 	{
 		return m_ScheduledData.size();
 	}
-	void ShaderConstantSetData_Internal::PopulateCachedData(std::vector<std::tuple<std::string, uint32_t, uint32_t>>& outData) const
+	void ShaderConstantSetData_Internal::PopulateCachedData(castl::vector<castl::tuple<castl::string, uint32_t, uint32_t>>& outData) const
 	{
 		outData.resize(m_NameToOffsetSize.size());
 		uint32_t id = 0;
 		for (auto& data : m_NameToOffsetSize)
 		{
-			outData[id] = std::make_tuple(data.first, data.second.first, data.second.second);
+			outData[id] = castl::make_tuple(data.first, data.second.first, data.second.second);
 			++id;
 		}
 	}

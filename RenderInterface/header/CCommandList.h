@@ -1,8 +1,9 @@
 #pragma once
-#include "Common.h"
 #include <stdint.h>
 #include <CASTL/CAVector.h>
 #include <CASTL/CASharedPtr.h>
+#include "Common.h"
+#include "GPUBufferHandle.h"
 
 namespace graphics_backend
 {

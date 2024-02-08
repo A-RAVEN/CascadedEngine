@@ -1,7 +1,6 @@
 #pragma once
-#include <memory>
-#include <string>
-#include <CACore/header/uhash.h>
+#include <CASTL/CAString.h>
+#include <uhash.h>
 
 using namespace hash_utils;
 class ShaderProvider
@@ -11,13 +10,13 @@ public:
 	{
 		uint64_t dataLength;
 		void const* dataPtr;
-		std::string const& entryPoint;
+		castl::string const& entryPoint;
 	};
 
-	virtual uint64_t GetDataLength(std::string const& codeType) const = 0;
-	virtual void const* GetDataPtr(std::string const& codeType) const = 0;
-	virtual std::string GetUniqueName() const = 0;
-	virtual ShaderSourceInfo GetDataInfo(std::string const& codeType) const = 0;
+	virtual uint64_t GetDataLength(castl::string const& codeType) const = 0;
+	virtual void const* GetDataPtr(castl::string const& codeType) const = 0;
+	virtual castl::string GetUniqueName() const = 0;
+	virtual ShaderSourceInfo GetDataInfo(castl::string const& codeType) const = 0;
 	bool operator==(ShaderProvider const& other) const
 	{
 		return GetUniqueName() == other.GetUniqueName();

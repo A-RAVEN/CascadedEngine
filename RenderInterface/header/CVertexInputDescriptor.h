@@ -2,8 +2,8 @@
 #include <cstdint>
 #include <vector>
 #include <tuple>
+#include <uhash.h>
 #include "Common.h"
-#include <CACore/header/uhash.h>
 
 struct InputAssemblyStates
 {

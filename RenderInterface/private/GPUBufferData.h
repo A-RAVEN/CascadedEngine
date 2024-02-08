@@ -1,5 +1,6 @@
 #pragma once
-#include "header/GPUBufferHandle.h"
+#include <CASTL/CAVector.h>
+#include <GPUBufferHandle.h>
 
 namespace graphics_backend
 {
@@ -10,6 +11,6 @@ namespace graphics_backend
 		void const* GetPointer() const override;
 		virtual size_t GetSizeInBytes() const override;
 	private:
-		std::vector<char> m_ScheduledData;
+		castl::vector<uint8_t> m_ScheduledData;
 	};
 }

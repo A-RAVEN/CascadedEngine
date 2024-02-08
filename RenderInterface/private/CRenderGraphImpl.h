@@ -1,11 +1,9 @@
 #pragma once
 #include "ShaderBindingSetData.h"
 #include "ShaderConstantSetData.h"
-#include <header/CRenderGraph.h>
-#include <header/CNativeRenderPassInfo.h>
-#include <unordered_set>
-#include <type_traits>
-#include <header/GPUBuffer.h>
+#include <CRenderGraph.h>
+#include <CNativeRenderPassInfo.h>
+#include <GPUBuffer.h>
 #include "GPUBufferData.h"
 #include "TextureInternalData.h"
 #include "ShaderConstantSetDataLayout.h"
@@ -23,7 +21,7 @@ namespace graphics_backend
 			{
 				outDescID = m_DescList.size();
 				m_DescList.push_back(inDesc);
-				m_DescToDescID.insert(std::make_pair(inDesc, outDescID));
+				m_DescToDescID.insert(castl::make_pair(inDesc, outDescID));
 			}
 			else
 			{
@@ -80,11 +78,11 @@ namespace graphics_backend
 		}
 	public:
 		//DescID to Desc
-		std::vector<TDesc> m_DescList;
+		castl::vector<TDesc> m_DescList;
 		//Desc to DescID
-		std::unordered_map<TDesc, uint32_t, hash_utils::default_hashAlg> m_DescToDescID;
+		castl::unordered_map<TDesc, uint32_t, hash_utils::default_hashAlg> m_DescToDescID;
 		//DataID to DescID
-		std::vector<TIndex> m_DataIndexToDescID;
+		castl::vector<TIndex> m_DataIndexToDescID;
 	};
 
 	class CRenderGraph_Impl : public CRenderGraph
@@ -106,7 +104,7 @@ namespace graphics_backend
 		//ShaderBindingSetHandle
 		virtual ShaderBindingSetHandle NewShaderBindingSetHandle(ShaderBindingBuilder const& builder) override;
 		//RenderPass
-		virtual CRenderpassBuilder& NewRenderPass(std::vector<CAttachmentInfo> const& inAttachmentInfo) override;
+		virtual CRenderpassBuilder& NewRenderPass(castl::vector<CAttachmentInfo> const& inAttachmentInfo) override;
 
 
 
@@ -162,12 +160,12 @@ namespace graphics_backend
 			return m_BindingDescriptorIDPool.DescIDToDesc(descID); 
 		}
 
-		virtual std::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const override
+		virtual castl::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const override
 		{
 			return m_RegisteredWindowHandleIDs;
 		}
 
-		virtual TIndex WindowHandleToTextureIndex(std::shared_ptr<WindowHandle> handle) const override;
+		virtual TIndex WindowHandleToTextureIndex(castl::shared_ptr<WindowHandle> handle) const override;
 
 		virtual uint32_t GetGPUBufferHandleCount() const override 
 		{
@@ -214,18 +212,18 @@ namespace graphics_backend
 	private:
 		std::deque<CRenderpassBuilder> m_RenderPasses;
 
-		std::vector<TextureHandleInternalInfo> m_TextureHandleIdToInternalInfo;
-		std::unordered_map<WindowHandle*, TIndex> m_RegisteredWindowHandleIDs;
+		castl::vector<TextureHandleInternalInfo> m_TextureHandleIdToInternalInfo;
+		castl::unordered_map<WindowHandle*, TIndex> m_RegisteredWindowHandleIDs;
 		InternalDataManager<GPUTextureDescriptor> m_TextureDescriptorIDPool;
 
-		std::vector<GPUBufferData_Internal> m_GPUBufferInternalInfo;
+		castl::vector<GPUBufferData_Internal> m_GPUBufferInternalInfo;
 		InternalDataManager<GPUBufferDescriptor> m_GPUBufferDescriptorIDPool;
 
-		std::vector<ShaderBindingSetData_Internal> m_ShaderBindingSetDataList;
+		castl::vector<ShaderBindingSetData_Internal> m_ShaderBindingSetDataList;
 		InternalDataManager<ShaderBindingBuilder> m_BindingDescriptorIDPool;
 
-		std::vector<ShaderConstantSetData_Internal> m_ShaderConstantSetDataList;
-		std::vector<ShaderConstantSetDataLayout> m_ShaderConstantSetDataLayouts;
+		castl::vector<ShaderConstantSetData_Internal> m_ShaderConstantSetDataList;
+		castl::vector<ShaderConstantSetDataLayout> m_ShaderConstantSetDataLayouts;
 		InternalDataManager<ShaderConstantsBuilder> m_ConstantSetDescriptorIDPool;
 	};
 }

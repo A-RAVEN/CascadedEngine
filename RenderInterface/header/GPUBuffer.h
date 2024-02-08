@@ -1,5 +1,7 @@
 #pragma once
-#include <RenderInterface/header/Common.h>
+#include <CASTL/CAString.h>
+#include <uhash.h>
+#include "Common.h"
 
 namespace graphics_backend
 {
@@ -20,9 +22,9 @@ namespace graphics_backend
 	public:
 		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData) = 0;
 		virtual bool UploadingDone() const = 0;
-		virtual void Name(std::string const& name) = 0;
+		virtual void Name(castl::string const& name) = 0;
 	};
 }
 
 template<>
-struct hash_utils::is_contiguously_hashable<graphics_backend::GPUBufferDescriptor> : public std::true_type {};
+struct hash_utils::is_contiguously_hashable<graphics_backend::GPUBufferDescriptor> : public castl::true_type {};

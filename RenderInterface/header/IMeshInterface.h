@@ -1,11 +1,12 @@
 #pragma once
+#include <CASTL/CAFunctional.h>
+#include <CASTL/CAVector.h>
 #include "CCommandList.h"
 #include "Common.h"
 #include "CPipelineStateObject.h"
 #include "CVertexInputDescriptor.h"
 #include "ShaderProvider.h"
 #include "ShaderBindingBuilder.h"
-#include <functional>
 
 namespace graphics_backend
 {
@@ -14,7 +15,7 @@ namespace graphics_backend
 		CPipelineStateObject pipelineStateObject;
 		CVertexInputDescriptor vertexInputDescriptor;
 		GraphicsShaderSet shaderSet;
-		std::vector<ShaderBindingBuilder> shaderBindingDescriptors;
+		castl::vector<ShaderBindingBuilder> shaderBindingDescriptors;
 
 		bool operator==(GraphicsPipelineStatesData const& rhs) const
 		{
@@ -34,6 +35,7 @@ namespace graphics_backend
 		}
 	};
 
+	//TODO: Obsolete
 	class IMeshInterface
 	{
 	public:
@@ -47,13 +49,13 @@ namespace graphics_backend
 	{
 	public:
 		virtual TIndex RegisterGraphicsPipelineState(GraphicsPipelineStatesData const& pipelineStates) = 0;
-		virtual void AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc) = 0;
+		virtual void AddBatch(castl::function<void(CInlineCommandList& commandList)> drawBatchFunc) = 0;
 	};
 
 	class IDrawBatchInterface
 	{
 	public:
 		virtual void OnRegisterGraphicsPipelineStates(IBatchManager& batchManager) = 0;
-		virtual std::vector<ShaderBindingBuilder> const& GetInterfaceLevelShaderBindingDescriptors() const = 0;
+		virtual castl::vector<ShaderBindingBuilder> const& GetInterfaceLevelShaderBindingDescriptors() const = 0;
 	};
 }

@@ -32,7 +32,12 @@ namespace uenum
 
         constexpr EnumFlags(EnumFlags<TEnumClass> const& rhs) noexcept = default;
 
-        constexpr explicit EnumFlags(MaskType flags) noexcept : m_mask(flags) {}
+        //constexpr explicit EnumFlags(MaskType flags) noexcept : m_mask(flags) {}
+        constexpr EnumFlags(MaskType flags) noexcept : m_mask(flags) {}
+
+        //constexpr operator std::enable_if_t<uenum::TEnumTraits<TEnumClass>::is_bitmask==false, TEnumClass>() const noexcept {
+        //    return static_cast<TEnumClass>(m_mask);
+        //}
 
         // relational operators
 #if defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )
@@ -131,7 +136,6 @@ namespace uenum
     public:
         MaskType m_mask;
     };
-
 
     template<typename TEnumClass>
     struct hash_utils::is_contiguously_hashable<EnumFlags<TEnumClass>> : public std::true_type {};

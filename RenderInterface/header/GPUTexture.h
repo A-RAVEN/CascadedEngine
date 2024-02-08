@@ -1,5 +1,5 @@
 #pragma once
-#include <CACore/header/uhash.h>
+#include <uhash.h>
 #include "Common.h"
 
 namespace graphics_backend
@@ -48,6 +48,8 @@ namespace graphics_backend
 	};
 }
 
-
-template<>
-struct hash_utils::is_contiguously_hashable<graphics_backend::GPUTextureDescriptor> : public std::true_type {};
+namespace hash_utils
+{
+	template<>
+	struct is_contiguously_hashable<graphics_backend::GPUTextureDescriptor> : public std::true_type {};
+}

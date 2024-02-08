@@ -8,9 +8,9 @@
 #define PCH_H
 
 // add headers that you want to pre-compile here
-#include "framework.h"
 #include <cstdint>
-#include <CACore/header/LibraryExportCommon.h>
-#include <CACore/header/DebugUtils.h>
+#include <Platform.h>
+#include <LibraryExportCommon.h>
+#include <DebugUtils.h>
 
 #endif //PCH_H

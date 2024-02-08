@@ -3,6 +3,11 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <CASTL/CASharedPtr.h>
+#include <CASTL/CADeque.h>
+#include <CASTL/CAArray.h>
+#include <CASTL/CAVector.h>
+#include <CASTL/CAString.h>
 
 //在需要hash的类或结构体中实现hash_append，在其中自行将需要计算hash的成员变量累加
 //template <class HashAlgorithm>
@@ -31,6 +36,15 @@ struct is_contiguously_hashable<std::pair<T, U>>
     sizeof(T) + sizeof(U) == sizeof(std::pair<T, U>)>
 {
 };
+
+template <class T, class U>
+struct is_contiguously_hashable<castl::pair<T, U>>
+    : public std::integral_constant<bool, is_contiguously_hashable<T>::value&&
+    is_contiguously_hashable<U>::value &&
+    sizeof(T) + sizeof(U) == sizeof(castl::pair<T, U>)>
+{
+};
+
 
 #pragma endregion
 
@@ -119,6 +133,33 @@ hash_append(HashAlgorithm& h, std::vector<T, Alloc> const& v) noexcept
 }
 #pragma endregion
 
+#pragma region CASTL Vector
+template <class HashAlgorithm, class T, class Alloc>
+inline
+std::enable_if_t
+<
+    !is_contiguously_hashable<T>::value
+>
+hash_append(HashAlgorithm& h, castl::vector<T, Alloc> const& v) noexcept
+{
+    for (auto const& t : v)
+        hash_append(h, t);
+    hash_append(h, v.size());
+}
+
+template <class HashAlgorithm, class T, class Alloc>
+inline
+std::enable_if_t
+<
+    is_contiguously_hashable<T>::value
+>
+hash_append(HashAlgorithm& h, castl::vector<T, Alloc> const& v) noexcept
+{
+    h(v.data(), v.size() * sizeof(T));
+    hash_append(h, v.size());
+}
+#pragma endregion
+
 #pragma region array hash_append
 template <class HashAlgorithm, class T, size_t Size>
 inline
@@ -144,12 +185,46 @@ hash_append(HashAlgorithm& h, std::array<T, Size> const& arr) noexcept
     h(arr.data(), arr.size() * sizeof(T));
     hash_append(h, arr.size());
 }
+
+template <class HashAlgorithm, class T, size_t Size>
+inline
+std::enable_if_t
+<
+    !is_contiguously_hashable<T>::value
+>
+hash_append(HashAlgorithm& h, castl::array<T, Size> const& arr) noexcept
+{
+    for (auto const& t : arr)
+        hash_append(h, t);
+    hash_append(h, arr.size());
+}
+
+template <class HashAlgorithm, class T, size_t Size>
+inline
+std::enable_if_t
+<
+    is_contiguously_hashable<T>::value
+>
+hash_append(HashAlgorithm& h, castl::array<T, Size> const& arr) noexcept
+{
+    h(arr.data(), arr.size() * sizeof(T));
+    hash_append(h, arr.size());
+}
 #pragma endregion
 
 #pragma region deque hash_append
 template <class HashAlgorithm, class T, class Alloc>
 void
 hash_append(HashAlgorithm& h, std::deque<T, Alloc> const& v) noexcept
+{
+    for (auto const& t : v)
+        hash_append(h, t);
+    hash_append(h, v.size());
+}
+
+template <class HashAlgorithm, class T, class Alloc>
+void
+hash_append(HashAlgorithm& h, castl::deque<T, Alloc> const& v) noexcept
 {
     for (auto const& t : v)
         hash_append(h, t);
@@ -179,6 +254,28 @@ hash_append(HashAlgorithm& h, std::basic_string<CharT, Traits, Alloc> const& s) 
 {
     h(s.data(), s.size() * sizeof(CharT));
 }
+
+template <class HashAlgorithm, typename CharT, typename Alloc>
+std::enable_if_t
+<
+    !is_contiguously_hashable<CharT>::value
+>
+hash_append(HashAlgorithm& h, castl::basic_string<CharT, Alloc> const& s) noexcept
+{
+    for (auto c : s)
+        hash_append(h, c);
+    hash_append(h, s.size());
+}
+
+template <class HashAlgorithm, typename CharT, typename Alloc>
+std::enable_if_t
+<
+    is_contiguously_hashable<CharT>::value
+>
+hash_append(HashAlgorithm& h, castl::basic_string<CharT, Alloc> const& s) noexcept
+{
+    h(s.data(), s.size() * sizeof(CharT));
+}
 #pragma endregion
 
 #pragma region pointer hash_append
@@ -186,28 +283,18 @@ template <class HashAlgorithm, class T>
 void hash_append(HashAlgorithm& h, T* const pT) noexcept
 {
     hash_append(h, reinterpret_cast<size_t>(pT));
-
-    //if(pT == nullptr)
-    //{
-    //    hash_append(h, size_t{0});
-    //}
-    //else
-    //{
-    //}
 }
 
 template <class HashAlgorithm, class T>
 void hash_append(HashAlgorithm& h, std::shared_ptr<T> const pT) noexcept
 {
     hash_append(h, reinterpret_cast<size_t>(pT.get()));
+}
 
-    //if (pT == nullptr)
-    //{
-    //    hash_append(h, size_t{ 0 });
-    //}
-    //else
-    //{
-    //}
+template <class HashAlgorithm, class T>
+void hash_append(HashAlgorithm& h, castl::shared_ptr<T> const pT) noexcept
+{
+    hash_append(h, reinterpret_cast<size_t>(pT.get()));
 }
 #pragma endregion
 
@@ -236,7 +323,26 @@ hash_append(HashAlgorithm& h, std::pair<T, U> const& p) noexcept
     hash_append(h, p.second);
 }
 
+template <class HashAlgorithm, class T, class U>
+std::enable_if_t
+<
+    !is_contiguously_hashable<castl::pair<T, U>>::value
+>
+hash_append(HashAlgorithm& h, castl::pair<T, U> const& p) noexcept
+{
+    hash_append(h, p.first, p.second);
+    hash_append(h, p.second);
+}
 
+#pragma endregion
+
+#pragma region recursive
+template<class HashAlgorithm, typename T, typename... TArgs>
+void hash_append(HashAlgorithm& h, T const& val, TArgs const&... args)
+{
+    hash_append(h, val);
+    hash_append(h, args...);
+}
 #pragma endregion
 
 #pragma region
@@ -245,6 +351,5 @@ bool memory_equal(T const& lhs, T const& rhs) noexcept
 {
 	return std::memcmp(&lhs, &rhs, sizeof(T)) == 0;
 };
-
 #pragma endregion
 }
