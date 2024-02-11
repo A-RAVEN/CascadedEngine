@@ -1,8 +1,8 @@
 #pragma once
-#include "VulkanApplicationSubobjectBase.h"
-#include "RenderInterface/header/ShaderProvider.h"
-#include <CACore/header/uhash.h>
+#include <ShaderProvider.h>
+#include <uhash.h>
 #include <unordered_map>
+#include "VulkanApplicationSubobjectBase.h"
 #include "HashPool.h"
 
 namespace graphics_backend
@@ -35,10 +35,10 @@ namespace graphics_backend
 		void Create(ShaderModuleDescritor const& descriptor);
 		virtual void Release() override;
 		vk::ShaderModule GetShaderModule() const { return m_ShaderModule; }
-		std::string const& GetEntryPointName() const { return m_EntryPointName; }
+		castl::string const& GetEntryPointName() const { return m_EntryPointName; }
 	private:
 		vk::ShaderModule m_ShaderModule = nullptr;
-		std::string m_EntryPointName;
+		castl::string m_EntryPointName;
 	};
 
 	using ShaderModuleObjectDic = HashPool<ShaderModuleDescritor, CShaderModuleObject>;

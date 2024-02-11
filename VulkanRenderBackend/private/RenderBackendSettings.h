@@ -1,6 +1,5 @@
 #pragma once
 #include "VulkanIncludes.h"
-#include <cstdint>
 
 namespace graphics_backend
 {
@@ -9,9 +8,9 @@ namespace graphics_backend
 	using FrameType = uint64_t;
 	constexpr FrameType INVALID_FRAMEID = std::numeric_limits<FrameType>::max();
 
-	static std::vector<const char*> GetInstanceExtensionNames()
+	static castl::vector<const char*> GetInstanceExtensionNames()
 	{
-		return std::vector<const char*>{
+		return castl::vector<const char*>{
 			VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
 			VK_KHR_SURFACE_EXTENSION_NAME,
 #if defined( VK_USE_PLATFORM_ANDROID_KHR )
@@ -38,9 +37,9 @@ namespace graphics_backend
 		};
 	}
 
-	static std::vector<const char*> GetDeviceExtensionNames()
+	static castl::vector<const char*> GetDeviceExtensionNames()
 	{
-		return std::vector<const char*>{
+		return castl::vector<const char*>{
 			VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
 			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		};

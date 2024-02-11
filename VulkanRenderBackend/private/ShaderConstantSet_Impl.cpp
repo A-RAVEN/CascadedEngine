@@ -6,26 +6,26 @@ namespace graphics_backend
 {
 	using namespace thread_management;
 	//align, size
-	std::pair<size_t, size_t> GetVectorAlignment(uint32_t vector_size)
+	castl::pair<size_t, size_t> GetVectorAlignment(uint32_t vector_size)
 	{
 		switch (vector_size)
 		{
 		case 1:
-			return std::pair<size_t, size_t>{ 1, 1 };
+			return castl::pair<size_t, size_t>{ 1, 1 };
 		case 2:
-			return std::pair<size_t, size_t>{ 2, 2 };
+			return castl::pair<size_t, size_t>{ 2, 2 };
 		case 3:
-			return std::pair<size_t, size_t>{ 4, 3 };
+			return castl::pair<size_t, size_t>{ 4, 3 };
 		case 4:
-			return std::pair<size_t, size_t>{ 4, 4 };
+			return castl::pair<size_t, size_t>{ 4, 4 };
 		default:
-			CA_LOG_ERR(std::string("UnSupported Vector Size: %d", vector_size));
+			CA_LOG_ERR(castl::string("UnSupported Vector Size: %d", vector_size));
 		}
 		return { 0, 0 };
 	}
 
 	//Column Major
-	std::pair<size_t, size_t> GetMatrixAlignment(uint32_t column, uint32_t row)
+	castl::pair<size_t, size_t> GetMatrixAlignment(uint32_t column, uint32_t row)
 	{
 		return { 4, 4 * row };
 	}
@@ -35,7 +35,7 @@ namespace graphics_backend
 	{
 	}
 
-	void ShaderConstantSet_Impl::SetValue(std::string const& name, void* pValue)
+	void ShaderConstantSet_Impl::SetValue(castl::string const& name, void* pValue)
 	{
 		auto& positions = p_Metadata->GetArithmeticValuePositions();
 		auto found = positions.find(name);
@@ -61,7 +61,7 @@ namespace graphics_backend
 		p_Metadata = inMetaData;
 	}
 
-	std::string const& ShaderConstantSet_Impl::GetName() const
+	castl::string const& ShaderConstantSet_Impl::GetName() const
 	{
 		return p_Metadata->GetBuilder()->GetName();
 	}
@@ -87,7 +87,7 @@ namespace graphics_backend
 		auto cmdBuffer = threadContext->GetCurrentFramePool().AllocateMiscCommandBuffer("Upload Shader Constant Buffer");
 		cmdBuffer.copyBuffer(tempBuffer->GetBuffer(), m_BufferObject->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
 		cmdBuffer.end();
-		std::atomic_thread_fence(std::memory_order_release);
+		castl::atomic_thread_fence(castl::memory_order_release);
 		MarkUploadingDoneThisFrame();
 	}
 
@@ -96,7 +96,7 @@ namespace graphics_backend
 		m_BufferObject.RAIIRelease();
 	}
 
-	size_t AccumulateOnOffset(size_t& inoutOffset, std::pair<size_t, size_t> const& inAlign_Size)
+	size_t AccumulateOnOffset(size_t& inoutOffset, castl::pair<size_t, size_t> const& inAlign_Size)
 	{
 		size_t next_offset = (inoutOffset + inAlign_Size.first - 1) / inAlign_Size.first * inAlign_Size.first;
 		inoutOffset = next_offset + inAlign_Size.second;
@@ -118,7 +118,7 @@ namespace graphics_backend
 				, "descriptor must have at least one element");
 			CA_ASSERT(m_ArithmeticValuePositions.find(descName) == m_ArithmeticValuePositions.end()
 				, "descriptor must have at least one element");
-			std::pair<size_t, size_t>align_size;
+			castl::pair<size_t, size_t>align_size;
 			if (desc.y == 1)
 			{
 				uint32_t vectorSize = desc.x * desc.y;
@@ -128,24 +128,24 @@ namespace graphics_backend
 				}
 				else
 				{
-					align_size = std::make_pair(4, 4 * count);
+					align_size = castl::make_pair(4, 4 * count);
 				}
 			}
 			else
 			{
 				//Matrix always align at 4
 				uint32_t vectorSize = desc.x;
-				align_size = std::make_pair(4, 4 * count * desc.y);
+				align_size = castl::make_pair(4, 4 * count * desc.y);
 			}
 
 			CA_ASSERT(align_size.first > 0 && align_size.second > 0
 				, "invalid align size");
 			size_t descOffset = AccumulateOnOffset(m_TotalSize, align_size);
-			m_ArithmeticValuePositions.emplace(descName, std::make_pair(descOffset, align_size.second));
+			m_ArithmeticValuePositions.emplace(descName, castl::make_pair(descOffset, align_size.second));
 		}
 	}
 
-	std::unordered_map<std::string, std::pair<size_t, size_t>> const& ShaderConstantSetMetadata::GetArithmeticValuePositions() const
+	castl::unordered_map<castl::string, castl::pair<size_t, size_t>> const& ShaderConstantSetMetadata::GetArithmeticValuePositions() const
 	{
 		return m_ArithmeticValuePositions;
 	}
@@ -167,7 +167,7 @@ namespace graphics_backend
 		m_Metadata.Initialize(builder);
 	}
 
-	std::shared_ptr<ShaderConstantSet> ShaderConstantSetAllocator::AllocateSet()
+	castl::shared_ptr<ShaderConstantSet> ShaderConstantSetAllocator::AllocateSet()
 	{
 		return m_ShaderConstantSetPool.AllocShared(&m_Metadata);
 	}

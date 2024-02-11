@@ -1,9 +1,12 @@
 #pragma once
 #include <mutex>
 #include <deque>
-#include <CACore/header/DebugUtils.h>
-#include <ThreadManager/header/ThreadManager.h>
-#include <unordered_set>
+#include <DebugUtils.h>
+#include <ThreadManager.h>
+#include <EASTL/atomic.h>
+#include <CASTL/CADeque.h>
+#include <CASTL/CAUnorderedSet.h>
+#include <CASTL/CAMutex.h>
 #include "RenderBackendSettings.h"
 #include "VulkanApplicationSubobjectBase.h"
 
@@ -54,13 +57,13 @@ namespace graphics_backend
 
 		virtual ~TTickingUpdateResourcePool()
 		{
-			CA_ASSERT(IsEmpty(), std::string{"Vulkan Application Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T));
+			CA_ASSERT(IsEmpty(), (castl::string{"Vulkan Application Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T)).c_str());
 		}
 
 		template<typename...TArgs>
 		T* Alloc(TArgs&&...Args)
 		{
-			std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::recursive_mutex> lockGuard(m_Mutex);
 			T* result = nullptr;
 			if (m_EmptySpaces.empty())
 			{
@@ -73,15 +76,15 @@ namespace graphics_backend
 				m_EmptySpaces.pop_front();
 			}
 			result->SetOwningUpdator(this);
-			result->Initialize(std::forward<TArgs>(Args)...);
+			result->Initialize(castl::forward<TArgs>(Args)...);
 			result->MarkDirtyThisFrame();
 			return result;
 		}
 
 		void Release(T* releaseObj)
 		{
-			CA_ASSERT(releaseObj != nullptr, std::string{"Try Release nullptr: "} + CA_CLASS_NAME(T));
-			std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
+			CA_ASSERT(releaseObj != nullptr, (castl::string{"Try Release nullptr: "} + CA_CLASS_NAME(T)).c_str());
+			castl::lock_guard<castl::recursive_mutex> lockGuard(m_Mutex);
 			releaseObj->Release();
 			releaseObj->ResetResource();
 			m_EmptySpaces.push_back(releaseObj);
@@ -89,9 +92,9 @@ namespace graphics_backend
 
 		void ReleaseAll()
 		{
-			std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::recursive_mutex> lockGuard(m_Mutex);
 
-			std::unordered_set<T*> emptySet;
+			castl::unordered_set<T*> emptySet;
 			for (T* emptyPtr : m_EmptySpaces)
 			{
 				emptySet.insert(emptyPtr);
@@ -111,22 +114,22 @@ namespace graphics_backend
 		}
 
 		template<typename...TArgs>
-		std::shared_ptr<T> AllocShared(TArgs&&...Args)
+		castl::shared_ptr<T> AllocShared(TArgs&&...Args)
 		{
-			return std::shared_ptr<T>(Alloc(std::forward<TArgs>(Args)...), [this](T* releaseObj) { Release(releaseObj); });
+			return castl::shared_ptr<T>(Alloc(castl::forward<TArgs>(Args)...), [this](T* releaseObj) { Release(releaseObj); });
 		}
 
 		bool IsEmpty()
 		{
-			std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::recursive_mutex> lockGuard(m_Mutex);
 			return m_EmptySpaces.size() == m_Pool.size();
 		}
 
 		void TickUpload(thread_management::CTaskGraph* pWorkingGraph)
 		{
-			std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::recursive_mutex> lockGuard(m_Mutex);
 			pWorkingGraph->SetupFunctor
-			([this, dirtyResources = std::move(m_DirtyResources)](thread_management::CTaskGraph* thisGraph)
+			([this, dirtyResources = castl::move(m_DirtyResources)](thread_management::CTaskGraph* thisGraph)
 			{
 				thisGraph->NewTaskParallelFor()
 				->JobCount(dirtyResources.size())
@@ -151,15 +154,15 @@ namespace graphics_backend
 		{
 			CA_ASSERT(resource != nullptr && resource->GetOwningUpdator() == this, "Invalid Ticking Resource Enqueue");
 			T* pResource = dynamic_cast<T*>(resource);
-			std::lock_guard<std::recursive_mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::recursive_mutex> lockGuard(m_Mutex);
 			m_DirtyResources.push_back(pResource);
 		}
 
 	private:
 		CVulkanApplication& m_Owner;
-		std::recursive_mutex m_Mutex;
-		std::deque<T> m_Pool;
-		std::deque<T*> m_EmptySpaces;
-		std::deque<T*> m_DirtyResources;
+		castl::recursive_mutex m_Mutex;
+		castl::deque<T> m_Pool;
+		castl::deque<T*> m_EmptySpaces;
+		castl::deque<T*> m_DirtyResources;
 	};
 }

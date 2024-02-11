@@ -1,9 +1,8 @@
 #pragma once
+#include <uhash.h>
+#include <CNativeRenderPassInfo.h>
 #include "VulkanIncludes.h"
-#include <RenderInterface/header/CNativeRenderPassInfo.h>
 #include "VulkanApplicationSubobjectBase.h"
-#include <CACore/header/uhash.h>
-#include <unordered_map>
 #include "HashPool.h"
 
 namespace graphics_backend
@@ -39,7 +38,7 @@ namespace graphics_backend
 		uint32_t m_AttachmentCounrt = 0;
 		uint32_t m_SubpassCount = 0;
 		vk::RenderPass m_RenderPass = nullptr;
-		std::vector<std::pair<vk::ImageLayout, vk::ImageLayout>> m_AttachmentExternalLayouts;
+		castl::vector<castl::pair<vk::ImageLayout, vk::ImageLayout>> m_AttachmentExternalLayouts;
 	};
 
 	using RenderPassObjectDic = HashPool<RenderPassDescriptor, RenderPassObject>;

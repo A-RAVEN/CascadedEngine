@@ -1,4 +1,8 @@
 #include "pch.h"
+#include <library_loader.h>
+#include <FileLoader.h>
+#include <MoveWrapper.h>
+#include <CASTL/CASet.h>
 #include "Utils.h"
 #include "RenderBackendSettings.h"
 #include "VulkanApplication.h"
@@ -8,10 +12,6 @@
 #include "CommandList_Impl.h"
 #include "InterfaceTranslator.h"
 #include "RenderGraphExecutor.h"
-#include <ShaderCompiler/header/Compiler.h>
-#include <CACore/header/library_loader.h>
-#include <CACore/header/FileLoader.h>
-#include <CACore/header/MoveWrapper.h>
 
 namespace graphics_backend
 {
@@ -43,7 +43,7 @@ namespace graphics_backend
 			}
 		}
 	}
-	void CVulkanApplication::ExecuteStates(CTaskGraph* rootTaskGraph, std::vector<std::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID)
+	void CVulkanApplication::ExecuteStates(CTaskGraph* rootTaskGraph, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID)
 	{
 		FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
 		TIndex currentPoolID = m_SubmitCounterContext.GetCurrentFrameBufferIndex();
@@ -59,14 +59,14 @@ namespace graphics_backend
 			->Name("Rendering Task Graph")
 			->DependsOn(gpuAddressUploadingTaskGraph);
 
-		std::shared_ptr<std::vector<RenderGraphExecutor>> pExecutors = std::make_shared<std::vector<RenderGraphExecutor>>();
+		castl::shared_ptr<castl::vector<RenderGraphExecutor>> pExecutors = castl::make_shared<castl::vector<RenderGraphExecutor>>();
 		pExecutors->reserve(pendingRenderGraphs.size());
 
 		for (auto& pendingGraph : pendingRenderGraphs)
 		{
 			auto taskGraph = renderingTaskGraph->NewTaskGraph()
 				->Name("Rendering Task Graph");
-			pExecutors->push_back(std::move(RenderGraphExecutor{ *this, currentFrameID }));
+			pExecutors->push_back(castl::move(RenderGraphExecutor{ *this, currentFrameID }));
 			size_t index = pExecutors->size() - 1;
 			taskGraph->SetupFunctor([this, pendingGraph, index, pExecutors](CTaskGraph* thisGraph)
 			{
@@ -85,7 +85,7 @@ namespace graphics_backend
 			->Functor([this, currentFrameID, currentPoolID, pExecutors]()
 				{
 					//收集 Misc Commandbuffers
-					std::vector<vk::CommandBuffer> waitingSubmitCommands;
+					castl::vector<vk::CommandBuffer> waitingSubmitCommands;
 					for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
 					{
 						itrThreadContext->GetPoolByIndex(currentPoolID).CollectCommandBufferList(waitingSubmitCommands);
@@ -100,11 +100,11 @@ namespace graphics_backend
 					bool anyPresent = false;
 					if (!m_WindowContexts.empty())
 					{
-						std::vector<vk::Semaphore> semaphores;
+						castl::vector<vk::Semaphore> semaphores;
 						semaphores.reserve(m_WindowContexts.size());
-						std::vector<vk::PipelineStageFlags> waitStages;
+						castl::vector<vk::PipelineStageFlags> waitStages;
 						waitStages.reserve(m_WindowContexts.size());
-						std::vector<vk::Semaphore> signalSemaphores;
+						castl::vector<vk::Semaphore> signalSemaphores;
 						signalSemaphores.reserve(m_WindowContexts.size());
 						auto threadContext = AquireThreadContextPtr();
 						VulkanBarrierCollector layoutBarrierCollector{ GetSubmitCounterContext().GetGraphicsQueueFamily() };
@@ -127,7 +127,7 @@ namespace graphics_backend
 							finalizeLayoutCmd.end();
 							waitingSubmitCommands.push_back(finalizeLayoutCmd);
 
-							//std::cout << "Finalize: " << currentFrameID << std::endl;
+							//castl::cout << "Finalize: " << currentFrameID << castl::endl;
 							m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands
 								, semaphores
 								, waitStages
@@ -137,7 +137,7 @@ namespace graphics_backend
 							{
 								if (windowContext->NeedPresent())
 								{
-									//std::cout << "Present: " << currentFrameID << std::endl;
+									//castl::cout << "Present: " << currentFrameID << castl::endl;
 									windowContext->PresentCurrentFrame();
 								}
 							}
@@ -178,13 +178,13 @@ namespace graphics_backend
 		m_GPUTexturePool.TickUpload(memoryResourceUploadingTaskGraph->NewTaskGraph()->Name("Tick Upload  Textures"));
 	}
 
-	void CVulkanApplication::PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph)
+	void CVulkanApplication::PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph)
 	{
 		//m_PendingRenderGraphs.push_back(inRenderGraph);
 	}
 
-	void CVulkanApplication::CreateImageViews2D(vk::Format format, std::vector<vk::Image> const& inImages,
-		std::vector<vk::ImageView>& outImageViews) const
+	void CVulkanApplication::CreateImageViews2D(vk::Format format, castl::vector<vk::Image> const& inImages,
+		castl::vector<vk::ImageView>& outImageViews) const
 	{
 		for(auto& img : inImages)
 		{
@@ -279,24 +279,24 @@ namespace graphics_backend
 		m_GPUTexturePool.Release(static_cast<GPUTexture_Impl*>(releaseGPUTexture));
 	}
 
-	std::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)
+	castl::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)
 	{
 		auto subAllocator = m_ConstantSetAllocator.GetOrCreate(builder);
 		return subAllocator->AllocateSet();
 	}
 
-	std::shared_ptr<ShaderBindingSet> CVulkanApplication::NewShaderBindingSet(ShaderBindingBuilder const& builder)
+	castl::shared_ptr<ShaderBindingSet> CVulkanApplication::NewShaderBindingSet(ShaderBindingBuilder const& builder)
 	{
 		auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder);
 		return subAllocator->AllocateSet();
 	}
 
-	std::shared_ptr<TextureSampler> CVulkanApplication::GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor)
+	castl::shared_ptr<TextureSampler> CVulkanApplication::GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor)
 	{
 		return m_GPUObjectManager.GetTextureSamplerCache().GetOrCreate(descriptor);
 	}
 
-	void CVulkanApplication::InitializeInstance(std::string const& name, std::string const& engineName)
+	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
 	{
 		vk::ApplicationInfo application_info(
 			name.c_str()
@@ -305,11 +305,11 @@ namespace graphics_backend
 			, 0
 			, VULKAN_API_VERSION_IN_USE);
 
-		std::array<const char*, 1> extensionNames = {
+		castl::array<const char*, 1> extensionNames = {
 			VK_EXT_DEBUG_UTILS_EXTENSION_NAME
 		};
 
-		const std::vector<const char*> g_validationLayers{
+		const castl::vector<const char*> g_validationLayers{
 			"VK_LAYER_KHRONOS_validation"
 		};
 
@@ -353,10 +353,9 @@ namespace graphics_backend
 	void CVulkanApplication::CreateDevice()
 	{
 		std::vector<vk::QueueFamilyProperties> queueFamilyProperties = m_PhysicalDevice.getQueueFamilyProperties();
-
-		std::vector<std::pair<uint32_t, uint32_t>> generalUsageQueues;
-		std::vector<std::pair<uint32_t, uint32_t>> computeDedicateQueues;
-		std::vector<std::pair<uint32_t, uint32_t>> transferDedicateQueues;
+		castl::vector<castl::pair<uint32_t, uint32_t>> generalUsageQueues;
+		castl::vector<castl::pair<uint32_t, uint32_t>> computeDedicateQueues;
+		castl::vector<castl::pair<uint32_t, uint32_t>> transferDedicateQueues;
 
 		vk::QueueFlags generalFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer;
 		for (uint32_t queueId = 0; queueId < queueFamilyProperties.size(); ++queueId)
@@ -364,17 +363,17 @@ namespace graphics_backend
 			vk::QueueFamilyProperties const& itrProp = queueFamilyProperties[queueId];
 			if ((itrProp.queueFlags & generalFlags) == generalFlags)
 			{
-				generalUsageQueues.push_back(std::make_pair(queueId, itrProp.queueCount));
+				generalUsageQueues.push_back(castl::make_pair(queueId, itrProp.queueCount));
 			}
 			else
 			{
 				if (itrProp.queueFlags & vk::QueueFlagBits::eCompute)
 				{
-					computeDedicateQueues.push_back(std::make_pair(queueId, itrProp.queueCount));
+					computeDedicateQueues.push_back(castl::make_pair(queueId, itrProp.queueCount));
 				}
 				else if (itrProp.queueFlags & vk::QueueFlagBits::eTransfer)
 				{
-					transferDedicateQueues.push_back(std::make_pair(queueId, itrProp.queueCount));
+					transferDedicateQueues.push_back(castl::make_pair(queueId, itrProp.queueCount));
 				}
 				else
 				{
@@ -392,17 +391,17 @@ namespace graphics_backend
 		{
 			transferDedicateQueues.push_back(generalUsageQueues[0]);
 		}
-		std::set<std::pair<uint32_t, uint32_t>> queueFamityIndices;
+		castl::set<castl::pair<uint32_t, uint32_t>> queueFamityIndices;
 		queueFamityIndices.insert(generalUsageQueues[0]);
 		queueFamityIndices.insert(computeDedicateQueues[0]);
 		queueFamityIndices.insert(transferDedicateQueues[0]);
 
-		std::vector<vk::DeviceQueueCreateInfo> deviceQueueCreateInfoList;
-		std::pair<uint32_t, uint32_t> generalQueueRef;
-		std::pair<uint32_t, uint32_t> computeQueueRef;
-		std::pair<uint32_t, uint32_t> transferQueueRef;
-		std::vector<std::vector<float>> queuePriorities;
-		for (std::pair<uint32_t, uint32_t> const& itrQueueInfo : queueFamityIndices)
+		castl::vector<vk::DeviceQueueCreateInfo> deviceQueueCreateInfoList;
+		castl::pair<uint32_t, uint32_t> generalQueueRef;
+		castl::pair<uint32_t, uint32_t> computeQueueRef;
+		castl::pair<uint32_t, uint32_t> transferQueueRef;
+		castl::vector<castl::vector<float>> queuePriorities;
+		for (castl::pair<uint32_t, uint32_t> const& itrQueueInfo : queueFamityIndices)
 		{
 			uint32_t queueFamilyId = itrQueueInfo.first;
 			uint32_t queueCount = itrQueueInfo.second;
@@ -411,35 +410,35 @@ namespace graphics_backend
 			uint32_t requiredQueueCount = 0;
 			if (queueFamilyId == generalUsageQueues[0].first)
 			{
-				generalQueueRef = std::make_pair(queueFamilyId, itrQueueId);
+				generalQueueRef = castl::make_pair(queueFamilyId, itrQueueId);
 				itrQueueId = (itrQueueId + 1) % queueCount;
-				requiredQueueCount = std::min(requiredQueueCount + 1, queueCount);
+				requiredQueueCount = castl::min(requiredQueueCount + 1, queueCount);
 			}
 			if (queueFamilyId == computeDedicateQueues[0].first)
 			{
-				computeQueueRef = std::make_pair(queueFamilyId, itrQueueId);
+				computeQueueRef = castl::make_pair(queueFamilyId, itrQueueId);
 				itrQueueId = (itrQueueId + 1) % queueCount;
-				requiredQueueCount = std::min(requiredQueueCount + 1, queueCount);
+				requiredQueueCount = castl::min(requiredQueueCount + 1, queueCount);
 			}
 
 			if (queueFamilyId == transferDedicateQueues[0].first)
 			{
-				transferQueueRef = std::make_pair(queueFamilyId, itrQueueId);
+				transferQueueRef = castl::make_pair(queueFamilyId, itrQueueId);
 				itrQueueId = (itrQueueId + 1) % queueCount;
-				requiredQueueCount = std::min(requiredQueueCount + 1, queueCount);
+				requiredQueueCount = castl::min(requiredQueueCount + 1, queueCount);
 			}
 
 			{
-				std::vector<float> tmp;
+				castl::vector<float> tmp;
 				tmp.resize(requiredQueueCount);
-				std::fill(tmp.begin(), tmp.end(), 0.0f);
+				castl::fill(tmp.begin(), tmp.end(), 0.0f);
 				queuePriorities.push_back(tmp);
 			}
 			auto& currentQueuePriorities = queuePriorities.back();
 			deviceQueueCreateInfoList.emplace_back(vk::DeviceQueueCreateFlags(), queueFamilyId, currentQueuePriorities);
 		}
 
-		std::vector<uint32_t> otherQueueFamilies;
+		castl::vector<uint32_t> otherQueueFamilies;
 		for(uint32_t familyId = 0; familyId < queueFamilyProperties.size(); ++familyId)
 		{
 			if(familyId != generalQueueRef.first && familyId != computeQueueRef.first && familyId != transferQueueRef.first)
@@ -461,7 +460,7 @@ namespace graphics_backend
 
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
 
-		std::vector<vk::Queue> defaultQueues;
+		castl::vector<vk::Queue> defaultQueues;
 		defaultQueues.reserve(queueFamilyProperties.size());
 		for(int itrFamily = 0; itrFamily < queueFamilyProperties.size(); ++itrFamily)
 		{
@@ -495,10 +494,10 @@ namespace graphics_backend
 		{
 			m_ThreadContexts.push_back(SubObject<CVulkanThreadContext>(threadContextId));
 		}
-		std::vector<uint32_t> threadInitializeValue;
+		castl::vector<uint32_t> threadInitializeValue;
 		threadInitializeValue.resize(threadCount);
 		uint32_t id = 0;
-		std::generate(threadInitializeValue.begin(), threadInitializeValue.end(), [&id]()
+		castl::generate(threadInitializeValue.begin(), threadInitializeValue.end(), [&id]()
 			{
 				return id++;
 			});
@@ -531,17 +530,17 @@ namespace graphics_backend
 		m_AvailableThreadQueue.Enqueue(id);
 	}
 
-	std::shared_ptr<CVulkanThreadContext> CVulkanApplication::AquireThreadContextPtr()
+	castl::shared_ptr<CVulkanThreadContext> CVulkanApplication::AquireThreadContextPtr()
 	{
-		return std::shared_ptr<CVulkanThreadContext>(&AquireThreadContext(), [this](CVulkanThreadContext* releasingContext)
+		return castl::shared_ptr<CVulkanThreadContext>(&AquireThreadContext(), [this](CVulkanThreadContext* releasingContext)
 			{
 				ReturnThreadContext(*releasingContext);
 			});
 	}
 
-	std::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(std::string windowName, uint32_t initialWidth, uint32_t initialHeight)
+	castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight)
 	{
-		m_WindowContexts.emplace_back(std::make_shared<CWindowContext>(*this));
+		m_WindowContexts.emplace_back(castl::make_shared<CWindowContext>(*this));
 		auto newContext = m_WindowContexts.back();
 		newContext->Initialize(windowName, initialWidth, initialHeight);
 		return newContext;
@@ -554,11 +553,11 @@ namespace graphics_backend
 		{
 			windowContext->UpdateSize();
 		}
-		bool anyNeedClose = std::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
+		bool anyNeedClose = castl::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
 			{
 				return wcontest->NeedClose();
 			});
-		bool anyResized = std::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
+		bool anyResized = castl::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
 			{
 				return wcontest->Resized();
 			});
@@ -575,7 +574,7 @@ namespace graphics_backend
 				if (m_WindowContexts[currentIndex]->NeedClose())
 				{
 					m_WindowContexts[currentIndex]->Release();
-					std::swap(m_WindowContexts[currentIndex], m_WindowContexts.back());
+					castl::swap(m_WindowContexts[currentIndex], m_WindowContexts.back());
 					m_WindowContexts.pop_back();
 				}
 				else
@@ -614,7 +613,7 @@ namespace graphics_backend
 		//ReleaseApp();
 	}
 
-	void CVulkanApplication::InitApp(std::string const& appName, std::string const& engineName)
+	void CVulkanApplication::InitApp(castl::string const& appName, castl::string const& engineName)
 	{
 		InitializeInstance(appName, engineName);
 		EnumeratePhysicalDevices();

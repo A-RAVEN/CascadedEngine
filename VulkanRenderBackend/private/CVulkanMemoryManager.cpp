@@ -1,9 +1,8 @@
 #include "pch.h"
+#include <GPUTexture.h>
 #include "CVulkanMemoryManager.h"
-
 #include "VulkanApplication.h"
 #include "VulkanImageObject.h"
-#include <RenderInterface/header/GPUTexture.h>
 #include "InterfaceTranslator.h"
 
 namespace graphics_backend
@@ -90,7 +89,7 @@ namespace graphics_backend
 	}
 
 	CFrameBoundMemoryPool::CFrameBoundMemoryPool(uint32_t pool_id, CVulkanApplication& owner) :
-		VKAppSubObjectBaseNoCopy(owner)
+		VKAppSubObjectBase(owner)
 		, m_PoolId(pool_id)
 	{
 	}
@@ -107,22 +106,22 @@ namespace graphics_backend
 			, buffer, allocation, allocationInfo);
 
 		auto bufferObj = CVulkanBufferObject{ buffer, allocation, allocationInfo };
-		auto handle = VulkanBufferHandle(std::move(bufferObj), [this](CVulkanBufferObject& releasedObj)
+		auto handle = VulkanBufferHandle(castl::move(bufferObj), [this](CVulkanBufferObject& releasedObj)
 			{
 			});
-		std::lock_guard<std::mutex> guard(m_Mutex);
-		m_ActiveBuffers.emplace_back(std::make_tuple(buffer, allocation));
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
+		m_ActiveBuffers.emplace_back(castl::make_tuple(buffer, allocation));
 		return handle;
 	}
 
 	void CFrameBoundMemoryPool::ReleaseAllBuffers()
 	{
-		std::lock_guard<std::mutex> guard(m_Mutex);
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		for (auto pending_release_buffer : m_ActiveBuffers)
 		{
 			vmaDestroyBuffer(m_BufferAllocator
-				, std::get<0>(pending_release_buffer)
-				, std::get<1>(pending_release_buffer));
+				, castl::get<0>(pending_release_buffer)
+				, castl::get<1>(pending_release_buffer));
 		}
 		m_ActiveBuffers.clear();
 	}
@@ -139,23 +138,23 @@ namespace graphics_backend
 
 	void CFrameBoundMemoryPool::Release()
 	{
-		std::lock_guard<std::mutex> guard(m_Mutex);
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		for (auto pending_release_buffer : m_ActiveBuffers)
 		{
 			vmaDestroyBuffer(m_BufferAllocator
-				, std::get<0>(pending_release_buffer)
-				, std::get<1>(pending_release_buffer));
+				, castl::get<0>(pending_release_buffer)
+				, castl::get<1>(pending_release_buffer));
 		}
 		m_ActiveBuffers.clear();
 		vmaDestroyAllocator(m_BufferAllocator);
 	}
 
 	CGlobalMemoryPool::CGlobalMemoryPool(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner)
-		, m_ImageFrameboundReleaser([this](std::deque<VulkanImageObject_Internal> const& releasingObjects)
+		, m_ImageFrameboundReleaser([this](castl::deque<VulkanImageObject_Internal> const& releasingObjects)
 			{
 				ReleaseImage_Internal(releasingObjects);
 			})
-		, m_BufferFrameboundReleaser([this](std::deque<CVulkanBufferObject> const& releasingBuffers)
+		, m_BufferFrameboundReleaser([this](castl::deque<CVulkanBufferObject> const& releasingBuffers)
 			{
 				for (CVulkanBufferObject const& releasingBuffer : releasingBuffers)
 				{
@@ -176,15 +175,15 @@ namespace graphics_backend
 		VmaAllocationInfo allocationInfo{};
 		AllocateBuffer_Common(m_GlobalAllocator, memoryType, bufferSize, bufferUsage
 			, buffer, allocation, allocationInfo);
-		std::lock_guard<std::mutex> guard(m_Mutex);
-		m_ActiveBuffers.insert(std::make_pair(buffer, allocation));
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
+		m_ActiveBuffers.insert(castl::make_pair(buffer, allocation));
 
 		auto bufferObj = CVulkanBufferObject{ buffer, allocation, allocationInfo };
-		auto handle = VulkanBufferHandle(std::move(bufferObj), [this](CVulkanBufferObject& releasedObj)
+		auto handle = VulkanBufferHandle(castl::move(bufferObj), [this](CVulkanBufferObject& releasedObj)
 			{
 				FrameType releasingFrameID = GetFrameCountContext().GetCurrentFrameID();
 				m_BufferFrameboundReleaser.ScheduleRelease(releasingFrameID
-					, std::move(releasedObj));
+					, castl::move(releasedObj));
 			});
 		return handle;
 	}
@@ -198,15 +197,15 @@ namespace graphics_backend
 
 	void CGlobalMemoryPool::ReleaseResourcesBeforeFrame(FrameType frame)
 	{
-		std::lock_guard<std::mutex> guard(m_Mutex);
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		while((!m_PendingReleasingBuffers.empty())
-			&& frame >= std::get<2>(m_PendingReleasingBuffers.front()))
+			&& frame >= castl::get<2>(m_PendingReleasingBuffers.front()))
 		{
 			auto frontBuffer = m_PendingReleasingBuffers.front();
 			m_PendingReleasingBuffers.pop_front();
 			vmaDestroyBuffer(m_GlobalAllocator
-				, std::get<0>(frontBuffer)
-				, std::get<1>(frontBuffer));
+				, castl::get<0>(frontBuffer)
+				, castl::get<1>(frontBuffer));
 		}
 		m_ImageFrameboundReleaser.ReleaseFrame(frame);
 	}
@@ -223,12 +222,12 @@ namespace graphics_backend
 
 	void CGlobalMemoryPool::Release()
 	{
-		std::lock_guard<std::mutex> guard(m_Mutex);
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		for(auto pending_release_buffer : m_PendingReleasingBuffers)
 		{
 			vmaDestroyBuffer(m_GlobalAllocator
-				, std::get<0>(pending_release_buffer)
-				, std::get<1>(pending_release_buffer));
+				, castl::get<0>(pending_release_buffer)
+				, castl::get<1>(pending_release_buffer));
 		}
 		m_PendingReleasingBuffers.clear();
 		for (auto pending_release_buffer : m_ActiveBuffers)
@@ -325,7 +324,7 @@ namespace graphics_backend
 			, resultImage
 			, allocation
 			, allocationInfo);
-		return VulkanImageObject(std::move(imgObjectInternal)
+		return VulkanImageObject(castl::move(imgObjectInternal)
 			, [this](VulkanImageObject_Internal& releasingImage)
 			{
 				ScheduleReleaseImage(releasingImage);
@@ -334,12 +333,12 @@ namespace graphics_backend
 
 	void CGlobalMemoryPool::ScheduleReleaseImage(VulkanImageObject_Internal& releasingImage)
 	{
-		std::lock_guard<std::mutex> guard(m_Mutex);
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		FrameType releasingFrameID = GetFrameCountContext().GetCurrentFrameID();
 		m_ImageFrameboundReleaser.ScheduleRelease(releasingFrameID
-			, std::move(releasingImage));
+			, castl::move(releasingImage));
 	}
-	void CGlobalMemoryPool::ReleaseImage_Internal(std::deque<VulkanImageObject_Internal> const& releasingObjects)
+	void CGlobalMemoryPool::ReleaseImage_Internal(castl::deque<VulkanImageObject_Internal> const& releasingObjects)
 	{
 		for (VulkanImageObject_Internal const& obj : releasingObjects)
 		{

@@ -7,7 +7,7 @@
 #ifndef PCH_H
 #define PCH_H
 // 添加要在此处预编译的标头
-#include "framework.h"
+#include <Platform.h>
 #include <iostream>
 #include <set>
 #include <atomic>
@@ -15,7 +15,7 @@
 #include "VulkanIncludes.h"
 #include "Utils.h"
 #define GLFW_INCLUDE_NONE
-#include <ExternalLib/glfw/include/GLFW/glfw3.h>
-#include <CACore/header/LibraryExportCommon.h>
+#include <GLFW/glfw3.h>
+#include <LibraryExportCommon.h>
 
 #endif //PCH_H

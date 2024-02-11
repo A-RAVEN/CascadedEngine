@@ -1,21 +1,17 @@
 #pragma once
-#include <vector>
+#include <uhash.h>
+#include <CASTL/CAVector.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include "RenderPassObject.h"
-#include <CACore/header/uhash.h>
-
-template<>
-struct hash_utils::is_contiguously_hashable<vk::ImageView> : public std::true_type {};
 
 namespace graphics_backend
 {
-
 	struct FramebufferDescriptor
 	{
 	public:
-		std::vector<vk::ImageView> renderImageViews;
-		std::shared_ptr<RenderPassObject> renderpassObject = nullptr;
+		castl::vector<vk::ImageView> renderImageViews;
+		castl::shared_ptr<RenderPassObject> renderpassObject = nullptr;
 		uint32_t width = 0;
 		uint32_t height = 0;
 		uint32_t layers = 0;

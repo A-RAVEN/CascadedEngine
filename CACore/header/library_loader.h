@@ -36,7 +36,7 @@ namespace library_loader
 				int errCode = GetLastError();
 				std::string errStr = "Load Module Error: ";
 				errStr += std::to_string(errCode);
-				CA_LOG_ERR(errStr);
+				CA_LOG_ERR(errStr.c_str());
 			}
 		}
 

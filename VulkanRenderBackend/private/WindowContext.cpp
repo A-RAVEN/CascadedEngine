@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "WindowContext.h"
-#include <math.h>
+//#include <math.h>
 #include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
 
@@ -26,12 +26,12 @@ namespace graphics_backend
 
 	static glfwContext s_GLFWContext = glfwContext();
 
-	std::string CWindowContext::GetName() const
+	castl::string CWindowContext::GetName() const
 	{ return m_WindowName; }
 
 	uint2 const& CWindowContext::GetSizeSafe() const
 	{
-		return uint2{ std::max(1u, m_SwapchainContext.m_TextureDesc.width), std::max(1u, m_SwapchainContext.m_TextureDesc.height), };
+		return uint2{ castl::max(1u, m_SwapchainContext.m_TextureDesc.width), castl::max(1u, m_SwapchainContext.m_TextureDesc.height), };
 	}
 
 	GPUTextureDescriptor const& CWindowContext::GetBackbufferDescriptor() const
@@ -122,7 +122,7 @@ namespace graphics_backend
 				std::cout << "Recreate Swapchain " << resizeFrame << ":" << m_Width << "x" << m_Height << std::endl;
 				SwapchainContext newContext(GetVulkanApplication());
 				newContext.Init(m_Width, m_Height, m_Surface, m_SwapchainContext.GetSwapchain(), m_PresentQueue.first);
-				m_PendingReleaseSwapchains.push_back(std::make_pair(resizeFrame, m_SwapchainContext));
+				m_PendingReleaseSwapchains.push_back(castl::make_pair(resizeFrame, m_SwapchainContext));
 				m_SwapchainContext.CopyFrom(newContext);
 			}
 			else
@@ -155,7 +155,7 @@ namespace graphics_backend
 	}
 
 	void CWindowContext::Initialize(
-		std::string const& windowName
+		castl::string const& windowName
 		, uint32_t initialWidth
 		, uint32_t initialHeight)
 	{
@@ -187,7 +187,7 @@ namespace graphics_backend
 		}
 		m_PendingReleaseSwapchains.clear();
 		m_SwapchainContext.Release();
-		m_PresentQueue = std::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
+		m_PresentQueue = castl::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
 		if (m_Surface != vk::SurfaceKHR(nullptr))
 		{
 			GetInstance().destroySurfaceKHR(m_Surface);
@@ -209,9 +209,9 @@ namespace graphics_backend
 	{
 		if (!NeedPresent())
 			return;
-		//std::cout << "Present Frame: " << m_SwapchainContext.GetCurrentFrameBufferIndex() << std::endl;
-		std::array<vk::Semaphore, 1> waitSemaphores = { m_SwapchainContext.GetPresentWaitingSemaphore() };
-		std::array<uint32_t, 1> swapchainIndices = { m_SwapchainContext.GetCurrentFrameBufferIndex() };
+		//castl::cout << "Present Frame: " << m_SwapchainContext.GetCurrentFrameBufferIndex() << castl::endl;
+		castl::array<vk::Semaphore, 1> waitSemaphores = { m_SwapchainContext.GetPresentWaitingSemaphore() };
+		castl::array<uint32_t, 1> swapchainIndices = { m_SwapchainContext.GetCurrentFrameBufferIndex() };
 		vk::PresentInfoKHR presenttInfo(
 			waitSemaphores
 			, GetSwapchain()
@@ -223,9 +223,9 @@ namespace graphics_backend
 
 	void CWindowContext::PrepareForPresent(
 		VulkanBarrierCollector& inoutBarrierCollector
-		, std::vector<vk::Semaphore>& inoutWaitSemaphores
-		, std::vector<vk::PipelineStageFlags>& inoutWaitStages
-		, std::vector<vk::Semaphore>& inoutSignalSemaphores)
+		, castl::vector<vk::Semaphore>& inoutWaitSemaphores
+		, castl::vector<vk::PipelineStageFlags>& inoutWaitStages
+		, castl::vector<vk::Semaphore>& inoutSignalSemaphores)
 	{
 		if (!NeedPresent())
 			return;
@@ -252,11 +252,11 @@ namespace graphics_backend
 		vk::Format format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eB8G8R8A8Unorm : formats[0].format;
 		vk::SurfaceCapabilitiesKHR surfaceCapabilities = GetPhysicalDevice().getSurfaceCapabilitiesKHR(surface);
 		vk::Extent2D               swapchainExtent;
-		if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max())
+		if (surfaceCapabilities.currentExtent.width == castl::numeric_limits<uint32_t>::max())
 		{
 			// If the surface size is undefined, the size is set to the size of the images requested.
-			swapchainExtent.width = std::min(std::max(width, surfaceCapabilities.minImageExtent.width), surfaceCapabilities.maxImageExtent.width);
-			swapchainExtent.height = std::min(std::max(height, surfaceCapabilities.minImageExtent.height), surfaceCapabilities.maxImageExtent.height);
+			swapchainExtent.width = castl::min(castl::max(width, surfaceCapabilities.minImageExtent.width), surfaceCapabilities.maxImageExtent.width);
+			swapchainExtent.height = castl::min(castl::max(height, surfaceCapabilities.minImageExtent.height), surfaceCapabilities.maxImageExtent.height);
 		}
 		else
 		{
@@ -320,11 +320,11 @@ namespace graphics_backend
 		std::cout << "Create Swapchain" << std::endl;
 		m_Swapchain = GetDevice().createSwapchainKHR(swapChainCreateInfo);
 		std::cout << "Create Swapchain Done" << std::endl;
-		m_SwapchainImages = GetDevice().getSwapchainImagesKHR(m_Swapchain);
+		m_SwapchainImages = castl::to_ca(GetDevice().getSwapchainImagesKHR(m_Swapchain));
 		GetVulkanApplication().CreateImageViews2D(format, m_SwapchainImages, m_SwapchainImageViews);
 		m_WaitFrameDoneSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
 		m_CanPresentSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
-		std::cout << "Wait Buffer Index" <<std::endl;
+		std::cout << "Wait Buffer Index" << std::endl;
 		WaitCurrentFrameBufferIndex();
 	}
 	void SwapchainContext::Release()
@@ -349,7 +349,7 @@ namespace graphics_backend
 			return;
 		vk::ResultValue<uint32_t> currentBuffer = GetDevice().acquireNextImageKHR(
 			m_Swapchain
-			, std::numeric_limits<uint64_t>::max()
+			, castl::numeric_limits<uint64_t>::max()
 			, m_WaitFrameDoneSemaphore, nullptr);
 
 		CA_ASSERT(currentBuffer.result == vk::Result::eSuccess, "Aquire Next Swapchain Image Failed!");

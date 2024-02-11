@@ -1,11 +1,12 @@
 #include "pch.h"
+#include <CASTL/CAUnorderedMap.h>
+#include <CASTL/CAUnorderedSet.h>
 #include "RenderPassObject.h"
 #include "InterfaceTranslator.h"
 #include "ResourceUsageInfo.h"
-#include <unordered_set>
 
 template<>
-struct hash_utils::is_contiguously_hashable<vk::SubpassDependency> : public std::true_type {};
+struct hash_utils::is_contiguously_hashable<vk::SubpassDependency> : public castl::true_type {};
 
 namespace graphics_backend
 {
@@ -19,8 +20,8 @@ namespace graphics_backend
 		auto& attachmentInfo = descriptor.renderPassInfo.attachmentInfos;
 		auto& subpassInfos = descriptor.renderPassInfo.subpassInfos;
 
-		std::vector<uint32_t> tracking_attachment_ref_subpass(attachmentInfo.size());
-		std::fill(tracking_attachment_ref_subpass.begin()
+		castl::vector<uint32_t> tracking_attachment_ref_subpass(attachmentInfo.size());
+		castl::fill(tracking_attachment_ref_subpass.begin()
 			, tracking_attachment_ref_subpass.end()
 			, INVALID_INDEX);
 
@@ -37,26 +38,26 @@ namespace graphics_backend
 
 
 	void ExtractAttachmentsInOutLayoutsAndSubpassDependencies(RenderPassDescriptor const& descriptor
-		, std::vector<std::pair<vk::ImageLayout, vk::ImageLayout>>& inoutLayouts
-		, std::vector<vk::SubpassDependency>& inoutSubpassDependencies)
+		, castl::vector<castl::pair<vk::ImageLayout, vk::ImageLayout>>& inoutLayouts
+		, castl::vector<vk::SubpassDependency>& inoutSubpassDependencies)
 	{
 		auto& attachmentInfo = descriptor.renderPassInfo.attachmentInfos;
 		auto& subpassInfos = descriptor.renderPassInfo.subpassInfos;
 
-		std::vector<ResourceUsageFlags> tracking_attachment_usages(attachmentInfo.size());
-		std::fill(tracking_attachment_usages.begin(), tracking_attachment_usages.end(), ResourceUsage::eDontCare);
+		castl::vector<ResourceUsageFlags> tracking_attachment_usages(attachmentInfo.size());
+		castl::fill(tracking_attachment_usages.begin(), tracking_attachment_usages.end(), ResourceUsage::eDontCare);
 
 		inoutLayouts.resize(attachmentInfo.size());
-		std::fill(inoutLayouts.begin(), inoutLayouts.end(), std::make_pair(vk::ImageLayout::eUndefined, vk::ImageLayout::eUndefined));
+		castl::fill(inoutLayouts.begin(), inoutLayouts.end(), castl::make_pair(vk::ImageLayout::eUndefined, vk::ImageLayout::eUndefined));
 
 
 		//正在被引用的subpassid
-		std::vector<uint32_t> tracking_attachment_ref_subpass(attachmentInfo.size());
-		std::fill(tracking_attachment_ref_subpass.begin()
+		castl::vector<uint32_t> tracking_attachment_ref_subpass(attachmentInfo.size());
+		castl::fill(tracking_attachment_ref_subpass.begin()
 			, tracking_attachment_ref_subpass.end()
 			, VK_SUBPASS_EXTERNAL);
 
-		std::unordered_set<vk::SubpassDependency, hash_utils::default_hashAlg> dependencies{};
+		castl::unordered_set<vk::SubpassDependency, hash_utils::default_hashAlg> dependencies{};
 
 		auto iterate_set_attachment_usage = [
 				&tracking_attachment_usages
@@ -111,7 +112,7 @@ namespace graphics_backend
 		}
 
 		inoutSubpassDependencies.resize(dependencies.size());
-		std::copy(dependencies.begin(), dependencies.end(), inoutSubpassDependencies.begin());
+		castl::copy(dependencies.begin(), dependencies.end(), inoutSubpassDependencies.begin());
 	}
 
 	void RenderPassObject::Create(RenderPassDescriptor const& descriptor)
@@ -123,13 +124,13 @@ namespace graphics_backend
 		m_AttachmentCounrt = attachmentInfo.size();
 		m_SubpassCount = subpassInfos.size();
 
-		std::vector<vk::SubpassDependency> subpassDependencies{};
+		castl::vector<vk::SubpassDependency> subpassDependencies{};
 		ExtractAttachmentsInOutLayoutsAndSubpassDependencies(
 			descriptor
 			, m_AttachmentExternalLayouts
 			, subpassDependencies);
 
-		std::vector<vk::AttachmentDescription> attachmentList{attachmentInfo.size()};
+		castl::vector<vk::AttachmentDescription> attachmentList{attachmentInfo.size()};
 		for (size_t attachmentId = 0; attachmentId < attachmentList.size(); ++attachmentId)
 		{
 			auto& attachmentDesc = attachmentList[attachmentId];
@@ -146,10 +147,10 @@ namespace graphics_backend
 			attachmentDesc.stencilStoreOp = EAttachmentStoreOpToVkStoreOp(srcInfo.stencilStoreOp);
 		}
 
-		std::vector<vk::SubpassDescription> subpassDescs{subpassInfos.size()};
-		std::vector<std::vector<vk::AttachmentReference>> subpassAttachmentRefs{};
-		std::vector<std::vector<uint32_t>> subpassPreserveAttachmentIDs{};
-		std::vector<vk::AttachmentReference> subpassDepthAttachmentRefs{};
+		castl::vector<vk::SubpassDescription> subpassDescs{subpassInfos.size()};
+		castl::vector<castl::vector<vk::AttachmentReference>> subpassAttachmentRefs{};
+		castl::vector<castl::vector<uint32_t>> subpassPreserveAttachmentIDs{};
+		castl::vector<vk::AttachmentReference> subpassDepthAttachmentRefs{};
 		for (size_t subpassId = 0; subpassId < subpassDescs.size(); ++subpassId)
 		{
 			auto& subpassDesc = subpassDescs[subpassId];

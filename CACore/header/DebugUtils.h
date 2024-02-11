@@ -1,6 +1,5 @@
 #pragma once
 #include <assert.h>
-#include <string>
 #include <CASTL/CAString.h>
 #include <iostream>
 #include <stdio.h>
@@ -14,28 +13,28 @@
 #define CA_LOG_ERR(_log) {CALogError(_log, __LINE__, __FILE__);}
 #define CA_CLASS_NAME(_class) (typeid(_class).name())
 
-//static inline void CALogError(std::string const& log, int line, std::string const& file)
-//{
-//#ifdef _WIN32
-//	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-//	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-//#endif
-//	std::string out = "\n" + log + "\nLine: " + std::to_string(line) + "\nFile: " + file + "\n";
-//	std::cerr << out << std::endl;
-//#ifdef _WIN32
-//	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN);
-//#endif
-//}
-
-static inline void CALogError(char const* log, int line, char const* file)
+static inline void CALogError(castl::string const& log, int line, castl::string const& file)
 {
 #ifdef _WIN32
 	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
 #endif
-	std::string out = "\n" + std::string(log) + "\nLine: " + std::to_string(line) + "\nFile: " + file + "\n";
-	std::cerr << out << std::endl;
+	castl::string out = "\n" + log + "\nLine: " + castl::to_string(line) + "\nFile: " + file + "\n";
+	std::cerr << castl::to_std(out) << std::endl;
 #ifdef _WIN32
 	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN);
 #endif
 }
+//
+//static inline void CALogError(char const* log, int line, char const* file)
+//{
+//#ifdef _WIN32
+//	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+//	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+//#endif
+//	std::string out = "\n" + std::string(log) + "\nLine: " + std::to_string(line) + "\nFile: " + file + "\n";
+//	std::cerr << out << std::endl;
+//#ifdef _WIN32
+//	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN);
+//#endif
+//}

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <ShaderBindingSetHandle.h>
 #include "CommandList_Impl.h"
 #include "GPUBuffer_Impl.h"
 #include "InterfaceTranslator.h"
@@ -9,9 +10,9 @@ namespace graphics_backend
 {
 	CCommandList_Impl::CCommandList_Impl(vk::CommandBuffer cmd
 		, RenderGraphExecutor* rendergraphExecutor
-		, std::shared_ptr<RenderPassObject> renderPassObj
+		, castl::shared_ptr<RenderPassObject> renderPassObj
 		, TIndex subpassIndex
-		, std::vector<std::shared_ptr<CPipelineObject>> const& pipelineObjs
+		, castl::vector<castl::shared_ptr<CPipelineObject>> const& pipelineObjs
 	) :
 		m_CommandBuffer(cmd)
 		, p_RenderGraphExecutor(rendergraphExecutor)
@@ -28,10 +29,10 @@ namespace graphics_backend
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(std::vector<GPUBuffer const*> pGPUBuffers, std::vector<uint32_t> offsets, uint32_t firstBinding)
+	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(castl::vector<GPUBuffer const*> pGPUBuffers, castl::vector<uint32_t> offsets, uint32_t firstBinding)
 	{
-		std::vector<vk::Buffer> gpuBufferList;
-		std::vector<vk::DeviceSize> offsetList;
+		castl::vector<vk::Buffer> gpuBufferList;
+		castl::vector<vk::DeviceSize> offsetList;
 		gpuBufferList.resize(pGPUBuffers.size());
 		offsetList.resize(pGPUBuffers.size());
 		for (uint32_t i = 0; i < pGPUBuffers.size(); ++i)
@@ -39,7 +40,7 @@ namespace graphics_backend
 			gpuBufferList[i] = static_cast<GPUBuffer_Impl const*>(pGPUBuffers[i])
 				->GetVulkanBufferObject()->GetBuffer();
 		}
-		std::fill(offsetList.begin(), offsetList.end(), 0);
+		castl::fill(offsetList.begin(), offsetList.end(), 0);
 		for (uint32_t i = 0; i < offsets.size(); ++i)
 		{
 			offsetList[i] = offsets[i];
@@ -48,17 +49,17 @@ namespace graphics_backend
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(std::vector<GPUBufferHandle> pGPUBuffers, std::vector<uint32_t> offsets, uint32_t firstBinding)
+	CInlineCommandList& CCommandList_Impl::BindVertexBuffers(castl::vector<GPUBufferHandle> pGPUBuffers, castl::vector<uint32_t> offsets, uint32_t firstBinding)
 	{
-		std::vector<vk::Buffer> gpuBufferList;
-		std::vector<vk::DeviceSize> offsetList;
+		castl::vector<vk::Buffer> gpuBufferList;
+		castl::vector<vk::DeviceSize> offsetList;
 		gpuBufferList.resize(pGPUBuffers.size());
 		offsetList.resize(pGPUBuffers.size());
 		for (uint32_t i = 0; i < pGPUBuffers.size(); ++i)
 		{
 			gpuBufferList[i] = p_RenderGraphExecutor->GetLocalBuffer(pGPUBuffers[i].GetHandleIndex())->GetBuffer();
 		}
-		std::fill(offsetList.begin(), offsetList.end(), 0);
+		castl::fill(offsetList.begin(), offsetList.end(), 0);
 		for (uint32_t i = 0; i < offsets.size(); ++i)
 		{
 			offsetList[i] = offsets[i];
@@ -81,13 +82,13 @@ namespace graphics_backend
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::SetShaderBindings(std::vector<std::shared_ptr<ShaderBindingSet>> bindings, uint32_t firstBinding)
+	CInlineCommandList& CCommandList_Impl::SetShaderBindings(castl::vector<castl::shared_ptr<ShaderBindingSet>> bindings, uint32_t firstBinding)
 	{
-		std::vector<vk::DescriptorSet> descriptorSets;
+		castl::vector<vk::DescriptorSet> descriptorSets;
 		descriptorSets.resize(bindings.size());
 		for (uint32_t i = 0; i < bindings.size(); ++i)
 		{
-			auto binding_set_impl = std::static_pointer_cast<ShaderBindingSet_Impl>(bindings[i]);
+			auto binding_set_impl = castl::static_pointer_cast<ShaderBindingSet_Impl>(bindings[i]);
 			descriptorSets[i] = binding_set_impl->GetDescriptorSet();
 		};
 		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, GetBoundPipelineObject()->GetPipelineLayout()
@@ -95,9 +96,9 @@ namespace graphics_backend
 		return *this;
 	}
 
-	CInlineCommandList& CCommandList_Impl::SetShaderBindings(std::vector<ShaderBindingSetHandle> bindings, uint32_t firstBinding)
+	CInlineCommandList& CCommandList_Impl::SetShaderBindings(castl::vector<ShaderBindingSetHandle> bindings, uint32_t firstBinding)
 	{
-		std::vector<vk::DescriptorSet> descriptorSets;
+		castl::vector<vk::DescriptorSet> descriptorSets;
 		descriptorSets.resize(bindings.size());
 		for (uint32_t i = 0; i < bindings.size(); ++i)
 		{
@@ -127,7 +128,7 @@ namespace graphics_backend
 		return *this;
 	}
 
-	std::shared_ptr<CPipelineObject> CCommandList_Impl::GetBoundPipelineObject() const
+	castl::shared_ptr<CPipelineObject> CCommandList_Impl::GetBoundPipelineObject() const
 	{
 		CA_ASSERT(m_PipelineObjectIndex < m_PipelineObjects.size(), "Invalid Pipeline State Index!");
 		return m_PipelineObjects[m_PipelineObjectIndex];

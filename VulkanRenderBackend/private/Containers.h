@@ -1,9 +1,9 @@
 #pragma once
 #include <mutex>
-#include <deque>
-#include <functional>
-#include <unordered_set>
-#include <CACore/header/DebugUtils.h>
+#include <CASTL/CADeque.h>
+#include <CASTL/CAFunctional.h>
+#include <CASTL/CAUnorderedSet.h>
+#include <DebugUtils.h>
 #include "RenderBackendSettings.h"
 #include "VulkanApplicationSubobjectBase.h"
 namespace graphics_backend
@@ -59,7 +59,7 @@ namespace graphics_backend
 		{
 			std::lock_guard<std::mutex> lockGuard(m_Mutex);
 
-			std::unordered_set<T*> emptySet;
+			castl::unordered_set<T*> emptySet;
 			for (T* emptyPtr : m_EmptySpaces)
 			{
 				emptySet.insert(emptyPtr);
@@ -78,9 +78,9 @@ namespace graphics_backend
 		}
 
 		template<typename...TArgs>
-		std::shared_ptr<T> AllocShared(TArgs&&...Args)
+		castl::shared_ptr<T> AllocShared(TArgs&&...Args)
 		{
-			return std::shared_ptr<T>(Alloc(std::forward<TArgs>(Args)...), [this](T* releaseObj) { Release(releaseObj); });
+			return castl::shared_ptr<T>(Alloc(std::forward<TArgs>(Args)...), [this](T* releaseObj) { Release(releaseObj); });
 		}
 
 		bool IsEmpty()
@@ -91,8 +91,8 @@ namespace graphics_backend
 	private:
 		CVulkanApplication& m_Owner;
 		std::mutex m_Mutex;
-		std::deque<T> m_Pool;
-		std::deque<T*> m_EmptySpaces;
+		castl::deque<T> m_Pool;
+		castl::deque<T*> m_EmptySpaces;
 	};
 
 	
@@ -101,7 +101,7 @@ namespace graphics_backend
 	class TFrameboundReleaser
 	{
 	public:
-		TFrameboundReleaser(std::function<void(std::deque<T> const&)> const& releasingFunc) :
+		TFrameboundReleaser(std::function<void(castl::deque<T> const&)> const& releasingFunc) :
 			m_ReleaseFunc(releasingFunc)
 		{
 		}
@@ -115,7 +115,7 @@ namespace graphics_backend
 				return;
 			}
 			CA_ASSERT((m_WaitForRelease.empty() || m_WaitForRelease.back().first < frameType), "Inconsistent FrameIndex");
-			std::deque<T> newVec;
+			castl::deque<T> newVec;
 			newVec.emplace_back(std::move(releaseObj));
 			m_WaitForRelease.emplace_back(std::make_pair(frameType, std::move(newVec)));
 		}
@@ -144,7 +144,7 @@ namespace graphics_backend
 		}
 	private:
 		std::mutex m_Mutex;
-		std::function<void(std::deque<T> const&)> m_ReleaseFunc;
-		std::deque<std::pair<FrameType, std::deque<T>>> m_WaitForRelease;
+		std::function<void(castl::deque<T> const&)> m_ReleaseFunc;
+		castl::deque<std::pair<FrameType, castl::deque<T>>> m_WaitForRelease;
 	};
 }

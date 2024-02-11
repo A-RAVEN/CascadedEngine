@@ -1,5 +1,5 @@
 #pragma once
-#include <RenderInterface/header/TextureSampler.h>
+#include <TextureSampler.h>
 #include "HashPool.h"
 #include "VulkanApplicationSubobjectBase.h"
 

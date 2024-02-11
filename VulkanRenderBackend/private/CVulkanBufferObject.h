@@ -1,9 +1,9 @@
 #pragma once
+#include <Common.h>
+#include <RAII.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
-#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
-#include <RenderInterface/header/Common.h>
-#include <CACore/header/RAII.h>
+#include "VMA.h"
 
 namespace graphics_backend
 {

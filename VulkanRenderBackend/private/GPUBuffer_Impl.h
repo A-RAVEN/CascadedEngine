@@ -1,8 +1,8 @@
 #pragma once
+#include <GPUBuffer.h>
 #include "RenderBackendSettings.h"
 #include "TickUploadingResource.h"
 #include "CVulkanBufferObject.h"
-#include <RenderInterface/header/GPUBuffer.h>
 
 namespace graphics_backend
 {
@@ -16,7 +16,7 @@ namespace graphics_backend
 		// 通过 GPUBuffer 继承
 		virtual bool UploadingDone() const override;
 		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData) override;
-		virtual void Name(std::string const& name) override { m_Name = name; }
+		virtual void Name(castl::string const& name) override { m_Name = name; }
 		VulkanBufferHandle const& GetVulkanBufferObject() const { return m_BufferObject; }
 	protected:
 	private:
@@ -24,8 +24,8 @@ namespace graphics_backend
 		EBufferUsageFlags m_Usages;
 		uint64_t m_Count = 0;
 		uint64_t m_Stride = 0;
-		std::string m_Name;
-		std::vector<char> m_ScheduledData;
+		castl::string m_Name;
+		castl::vector<char> m_ScheduledData;
 	};
 }
 

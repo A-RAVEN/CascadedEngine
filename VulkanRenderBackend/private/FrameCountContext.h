@@ -1,31 +1,31 @@
 #pragma once
+#include <Common.h>
 #include "VulkanApplicationSubobjectBase.h"
 #include "RenderBackendSettings.h"
-#include <RenderInterface/header/Common.h>
 namespace graphics_backend
 {
 	class CFrameCountContext : public ApplicationSubobjectBase
 	{
 	public:
 		void WaitingForCurrentFrame();
-		void SubmitGraphics(std::vector<vk::CommandBuffer> const& commandbufferList
+		void SubmitGraphics(castl::vector<vk::CommandBuffer> const& commandbufferList
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores = {}
 			, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages = {}
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores = {}) const;
 
-		void FinalizeCurrentFrameGraphics(std::vector<vk::CommandBuffer> const& commandbufferList
+		void FinalizeCurrentFrameGraphics(castl::vector<vk::CommandBuffer> const& commandbufferList
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores = {}
 			, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages = {}
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores = {});
 
-		void SubmitCurrentFrameCompute(std::vector<vk::CommandBuffer> const& commandbufferList);
-		void SubmitCurrentFrameTransfer(std::vector<vk::CommandBuffer> const& commandbufferList);
-		void InitializeSubmitQueues(std::pair<uint32_t, uint32_t> const& generalQueue
-			, std::pair<uint32_t, uint32_t> const& computeQueue
-			, std::pair<uint32_t, uint32_t> const& transferQueue);
-		void InitializeDefaultQueues(std::vector<vk::Queue> defaultQueues);
+		void SubmitCurrentFrameCompute(castl::vector<vk::CommandBuffer> const& commandbufferList);
+		void SubmitCurrentFrameTransfer(castl::vector<vk::CommandBuffer> const& commandbufferList);
+		void InitializeSubmitQueues(castl::pair<uint32_t, uint32_t> const& generalQueue
+			, castl::pair<uint32_t, uint32_t> const& computeQueue
+			, castl::pair<uint32_t, uint32_t> const& transferQueue);
+		void InitializeDefaultQueues(castl::vector<vk::Queue> defaultQueues);
 		TIndex FindPresentQueueFamily(vk::SurfaceKHR surface) const;
-		std::pair<uint32_t, vk::Queue> FindPresentQueue(vk::SurfaceKHR surface) const;
+		castl::pair<uint32_t, vk::Queue> FindPresentQueue(vk::SurfaceKHR surface) const;
 		TIndex GetCurrentFrameBufferIndex() const {
 			return m_CurrentFrameID % FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT;
 		}
@@ -44,7 +44,7 @@ namespace graphics_backend
 			return m_LastFinshedFrameID != INVALID_FRAMEID;
 		}
 
-		std::pair<uint32_t, uint32_t> const& GetGraphicsQueueRef() const
+		castl::pair<uint32_t, uint32_t> const& GetGraphicsQueueRef() const
 		{
 			return m_GraphicsQueueReference;
 		}
@@ -68,17 +68,16 @@ namespace graphics_backend
 		virtual void Initialize_Internal(CVulkanApplication const* owningApplication) override;
 		virtual void Release_Internal() override;
 	private:
-		std::atomic<FrameType> m_CurrentFrameID {0};
+		castl::atomic<FrameType> m_CurrentFrameID {0};
 		FrameType m_LastFinshedFrameID = INVALID_FRAMEID;
-		std::vector<vk::Fence> m_SubmitFrameFences;
-		std::vector<FrameType> m_FenceSubmitFrameIDs;
-		std::pair<uint32_t, uint32_t> m_GraphicsQueueReference;
+		castl::vector<vk::Fence> m_SubmitFrameFences;
+		castl::vector<FrameType> m_FenceSubmitFrameIDs;
+		castl::pair<uint32_t, uint32_t> m_GraphicsQueueReference;
 		vk::Queue m_GraphicsQueue = nullptr;
-		std::pair<uint32_t, uint32_t> m_ComputeQueueReference;
+		castl::pair<uint32_t, uint32_t> m_ComputeQueueReference;
 		vk::Queue m_ComputeQueue = nullptr;
-		std::pair<uint32_t, uint32_t> m_TransferQueueReference;
+		castl::pair<uint32_t, uint32_t> m_TransferQueueReference;
 		vk::Queue m_TransferQueue = nullptr;
-
-		std::vector<vk::Queue> m_QueueFamilyDefaultQueues;
+		castl::vector<vk::Queue> m_QueueFamilyDefaultQueues;
 	};
 }

@@ -1,7 +1,8 @@
 #include "pch.h"
+#include <CASTL/CAMutex.h>
+#include <DebugUtils.h>
 #include "ShaderDescriptorSetAllocator.h"
 #include "FrameCountContext.h"
-#include <CACore/header/DebugUtils.h>
 
 namespace graphics_backend
 {
@@ -17,7 +18,7 @@ namespace graphics_backend
 		uint32_t samplerCount = m_LayoutInfo->m_SamplerCount;
 		uint32_t structuredBufCount = m_LayoutInfo->m_StructuredBufferCount;
 		uint32_t bindingCount = constantBufferCount + textureCount + samplerCount + structuredBufCount;
-		std::vector<vk::DescriptorSetLayoutBinding> bindings;
+		castl::vector<vk::DescriptorSetLayoutBinding> bindings;
 		bindings.resize(bindingCount);
 		uint32_t bindingIndex = 0;
 		for (uint32_t itrConstant = 0; itrConstant < m_LayoutInfo->m_ConstantBufferCount; ++itrConstant)
@@ -71,7 +72,7 @@ namespace graphics_backend
 	}
 	ShaderDescriptorSetHandle ShaderDescriptorSetAllocator::AllocateSet()
 	{
-		std::lock_guard<std::mutex> guard(m_Mutex);
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		return m_DescriptorPool.AllocateSet();
 	}
 	ChunkedDescriptorPoolWrapper::ChunkedDescriptorPoolWrapper(ShaderDescriptorSetAllocator& owningAllocator
@@ -144,7 +145,7 @@ namespace graphics_backend
 		, uint32_t maxSize) : VKAppSubObjectBaseNoCopy(application)
 		, m_OwningAllocator(owningAllocator)
 		, m_MaxSize(maxSize)
-		, m_FrameboundReleaser([this](std::deque<ShaderDescriptorSetObject> const& released)
+		, m_FrameboundReleaser([this](castl::deque<ShaderDescriptorSetObject> const& released)
 			{
 				for (auto& releasedSet : released)
 				{
@@ -157,7 +158,7 @@ namespace graphics_backend
 	void DescriptorSetPool::Initialize()
 	{
 		auto& layoutInfo = m_OwningAllocator.GetLayoutInfo();
-		std::vector<vk::DescriptorPoolSize> poolSizes{};
+		castl::vector<vk::DescriptorPoolSize> poolSizes{};
 		poolSizes.reserve(3);
 		if (layoutInfo.m_ConstantBufferCount > 0)
 		{
@@ -210,14 +211,14 @@ namespace graphics_backend
 			++m_UsingSize;
 		}
 		ShaderDescriptorSetHandle result{ ShaderDescriptorSetObject(resultSet) , [this](ShaderDescriptorSetObject& released) {
-			ClientReleaseSet(std::move(released));
+			ClientReleaseSet(castl::move(released));
 		} };
 		return result;
 	}
 	void DescriptorSetPool::ClientReleaseSet(ShaderDescriptorSetObject&& releasedSet)
 	{
 		FrameType currentFrame = GetFrameCountContext().GetCurrentFrameID();
-		m_FrameboundReleaser.ScheduleRelease(currentFrame, std::move(releasedSet));
+		m_FrameboundReleaser.ScheduleRelease(currentFrame, castl::move(releasedSet));
 	}
 	void DescriptorSetPool::ReleaseFrameboundResources()
 	{

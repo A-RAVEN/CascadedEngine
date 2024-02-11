@@ -1,14 +1,15 @@
 #pragma once
-#include  <vulkan/vulkan.hpp>
+#include <CASTL/CADeque.h>
+#include <CASTL/CADeque.h>
+#include <CASTL/CAUnorderedMap.h>
+#include <GPUTexture.h>
+#include "VulkanIncludes.h"
 #include "RenderBackendSettings.h"
 #include "VulkanApplicationSubobjectBase.h"
-#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
-#include <deque>
-#include <map>
+#include "VMA.h"
 #include "CVulkanBufferObject.h"
 #include "Containers.h"
 #include "VulkanImageObject.h"
-#include <RenderInterface/header/GPUTexture.h>
 
 namespace graphics_backend
 {
@@ -41,10 +42,12 @@ namespace graphics_backend
 		virtual void ReleaseImage(VulkanImageObject& releasingImage) = 0;
 	};
 
-	class CFrameBoundMemoryPool : public VKAppSubObjectBaseNoCopy, public IVulkanBufferPool
+	class CFrameBoundMemoryPool : public VKAppSubObjectBase, public IVulkanBufferPool
 	{
 	public:
 		CFrameBoundMemoryPool(uint32_t pool_id, CVulkanApplication& owner);
+		CFrameBoundMemoryPool(CFrameBoundMemoryPool const& other) : VKAppSubObjectBase(other), m_PoolId(other.m_PoolId) 
+		, m_BufferAllocator(other.m_BufferAllocator), m_ActiveBuffers(other.m_ActiveBuffers){}
 		virtual VulkanBufferHandle AllocateBuffer(EMemoryType memoryType, size_t bufferSize, vk::BufferUsageFlags bufferUsage) override;
 		void ReleaseAllBuffers();
 		void Initialize();
@@ -52,7 +55,7 @@ namespace graphics_backend
 	private:
 		std::mutex m_Mutex;
 		VmaAllocator m_BufferAllocator = nullptr;
-		std::deque<std::tuple<vk::Buffer, VmaAllocation>> m_ActiveBuffers;
+		castl::deque<castl::tuple<vk::Buffer, VmaAllocation>> m_ActiveBuffers;
 		uint32_t m_PoolId;
 	};
 
@@ -71,12 +74,12 @@ namespace graphics_backend
 	private:
 		VmaAllocator m_GlobalAllocator = nullptr;
 		std::mutex m_Mutex;
-		std::deque<std::tuple<vk::Buffer, VmaAllocation, FrameType>> m_PendingReleasingBuffers;
-		std::map<vk::Buffer, VmaAllocation> m_ActiveBuffers;
+		castl::deque<castl::tuple<vk::Buffer, VmaAllocation, FrameType>> m_PendingReleasingBuffers;
+		castl::unordered_map<vk::Buffer, VmaAllocation, hash_utils::default_hashAlg> m_ActiveBuffers;
 		TFrameboundReleaser<CVulkanBufferObject> m_BufferFrameboundReleaser;
 
 		void ScheduleReleaseImage(VulkanImageObject_Internal& releasingImage);
-		void ReleaseImage_Internal(std::deque<VulkanImageObject_Internal> const& releasingObjects);
+		void ReleaseImage_Internal(castl::deque<VulkanImageObject_Internal> const& releasingObjects);
 		TFrameboundReleaser<VulkanImageObject_Internal> m_ImageFrameboundReleaser;
 	};
 
@@ -92,6 +95,6 @@ namespace graphics_backend
 		void Release() override;
 	private:
 		CGlobalMemoryPool m_GlobalMemoryPool;
-		std::deque<CFrameBoundMemoryPool> m_FrameBoundPool;
+		castl::vector<CFrameBoundMemoryPool> m_FrameBoundPool;
 	};
 }

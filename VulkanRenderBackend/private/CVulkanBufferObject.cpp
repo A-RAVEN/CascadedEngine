@@ -1,7 +1,6 @@
 #include "pch.h"
 #include "CVulkanBufferObject.h"
 #include "CVulkanThreadContext.h"
-
 #include "VulkanApplication.h"
 
 namespace graphics_backend

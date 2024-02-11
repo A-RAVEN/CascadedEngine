@@ -1,8 +1,9 @@
 #pragma once
-#include "framework.h"
-#include <RenderInterface/header/ShaderBindingSet.h>
-#include <RenderInterface/header/ShaderBindingBuilder.h>
-#include <ThreadManager/header/ThreadManager.h>
+#include <Platform.h>
+#include <ShaderBindingSet.h>
+#include <ShaderBindingBuilder.h>
+#include <ThreadManager.h>
+#include <CASTL/CAUnorderedMap.h>
 #include "Containers.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include "ShaderDescriptorSetAllocator.h"
@@ -22,13 +23,13 @@ namespace graphics_backend
 	public:
 		ShaderBindingSet_Impl(CVulkanApplication& owner);
 		void Initialize(ShaderBindingSetMetadata const* inMetaData);
-		virtual void SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet) override;
-		virtual void SetStructBuffer(std::string const& name
-			, std::shared_ptr<GPUBuffer> const& pBuffer) override;
-		virtual void SetTexture(std::string const& name
-			, std::shared_ptr<GPUTexture> const& pTexture) override;
-		virtual void SetSampler(std::string const& name
-			, std::shared_ptr<TextureSampler> const& pSampler) override;
+		virtual void SetConstantSet(castl::string const& name, castl::shared_ptr<ShaderConstantSet> const& pConstantSet) override;
+		virtual void SetStructBuffer(castl::string const& name
+			, castl::shared_ptr<GPUBuffer> const& pBuffer) override;
+		virtual void SetTexture(castl::string const& name
+			, castl::shared_ptr<GPUTexture> const& pTexture) override;
+		virtual void SetSampler(castl::string const& name
+			, castl::shared_ptr<TextureSampler> const& pSampler) override;
 		virtual bool UploadingDone() const override;
 		virtual ShaderBindingBuilder const& GetBindingSetDesc() const override;
 		vk::DescriptorSet GetDescriptorSet() const {
@@ -39,10 +40,10 @@ namespace graphics_backend
 	private:
 		ShaderBindingSetMetadata const* p_Metadata;
 		ShaderDescriptorSetHandle m_DescriptorSetHandle;
-		std::unordered_map<std::string, std::shared_ptr<ShaderConstantSet>> m_ConstantSets;
-		std::unordered_map<std::string, std::shared_ptr<GPUTexture_Impl>> m_Textures;
-		std::unordered_map<std::string, std::shared_ptr<TextureSampler_Impl>> m_Samplers;
-		std::unordered_map<std::string, std::shared_ptr<GPUBuffer_Impl>> m_StructuredBuffers;
+		castl::unordered_map<castl::string, castl::shared_ptr<ShaderConstantSet>> m_ConstantSets;
+		castl::unordered_map<castl::string, castl::shared_ptr<GPUTexture_Impl>> m_Textures;
+		castl::unordered_map<castl::string, castl::shared_ptr<TextureSampler_Impl>> m_Samplers;
+		castl::unordered_map<castl::string, castl::shared_ptr<GPUBuffer_Impl>> m_StructuredBuffers;
 	};
 
 	class ShaderBindingSetMetadata
@@ -50,44 +51,44 @@ namespace graphics_backend
 	public:
 		void Initialize(ShaderBindingBuilder const& builder);
 		ShaderDescriptorSetLayoutInfo const& GetLayoutInfo() const { return m_LayoutInfo; }
-		std::unordered_map<std::string, uint32_t> const& GetCBufferNameToBindingIndex() const { return m_CBufferNameToBindingIndex; }
-		std::unordered_map<std::string, uint32_t> const& GetTextureNameToBindingIndex() const { return m_TextureNameToBindingIndex; }
-		std::unordered_map<std::string, uint32_t> const& GetSamplerNameToBindingIndex() const { return m_SamplerNameToBindingIndex; }
-		std::unordered_map<std::string, uint32_t> const& GetStructBufferNameToBindingIndex() const { return m_StructBuffNameToBindingIndex; }
+		castl::unordered_map<castl::string, uint32_t> const& GetCBufferNameToBindingIndex() const { return m_CBufferNameToBindingIndex; }
+		castl::unordered_map<castl::string, uint32_t> const& GetTextureNameToBindingIndex() const { return m_TextureNameToBindingIndex; }
+		castl::unordered_map<castl::string, uint32_t> const& GetSamplerNameToBindingIndex() const { return m_SamplerNameToBindingIndex; }
+		castl::unordered_map<castl::string, uint32_t> const& GetStructBufferNameToBindingIndex() const { return m_StructBuffNameToBindingIndex; }
 
-		uint32_t CBufferNameToBindingIndex(std::string const& cbufferName) const
+		uint32_t CBufferNameToBindingIndex(castl::string const& cbufferName) const
 		{
 			auto it = m_CBufferNameToBindingIndex.find(cbufferName);
 			if (it == m_CBufferNameToBindingIndex.end())
 			{
-				return std::numeric_limits<uint32_t>::max();
+				return castl::numeric_limits<uint32_t>::max();
 			}
 			return it->second;
 		}
-		uint32_t TextureNameToBindingIndex(std::string const& textureName) const
+		uint32_t TextureNameToBindingIndex(castl::string const& textureName) const
 		{
 			auto it = m_TextureNameToBindingIndex.find(textureName);
 			if (it == m_TextureNameToBindingIndex.end())
 			{
-				return std::numeric_limits<uint32_t>::max();
+				return castl::numeric_limits<uint32_t>::max();
 			}
 			return it->second;
 		}
-		uint32_t SamplerNameToBindingIndex(std::string const& samplerName) const
+		uint32_t SamplerNameToBindingIndex(castl::string const& samplerName) const
 		{
 			auto it = m_SamplerNameToBindingIndex.find(samplerName);
 			if (it == m_SamplerNameToBindingIndex.end())
 			{
-				return std::numeric_limits<uint32_t>::max();
+				return castl::numeric_limits<uint32_t>::max();
 			}
 			return it->second;
 		}
-		uint32_t StructBufferNameToBindingIndex(std::string const& structBufferName) const
+		uint32_t StructBufferNameToBindingIndex(castl::string const& structBufferName) const
 		{
 			auto it = m_StructBuffNameToBindingIndex.find(structBufferName);
 			if (it == m_StructBuffNameToBindingIndex.end())
 			{
-				return std::numeric_limits<uint32_t>::max();
+				return castl::numeric_limits<uint32_t>::max();
 			}
 			return it->second;
 		}
@@ -95,10 +96,10 @@ namespace graphics_backend
 	private:
 		ShaderBindingBuilder const* p_Builder = nullptr;
 		ShaderDescriptorSetLayoutInfo m_LayoutInfo;
-		std::unordered_map<std::string, uint32_t> m_CBufferNameToBindingIndex;
-		std::unordered_map<std::string, uint32_t> m_TextureNameToBindingIndex;
-		std::unordered_map<std::string, uint32_t> m_SamplerNameToBindingIndex;
-		std::unordered_map<std::string, uint32_t> m_StructBuffNameToBindingIndex;
+		castl::unordered_map<castl::string, uint32_t> m_CBufferNameToBindingIndex;
+		castl::unordered_map<castl::string, uint32_t> m_TextureNameToBindingIndex;
+		castl::unordered_map<castl::string, uint32_t> m_SamplerNameToBindingIndex;
+		castl::unordered_map<castl::string, uint32_t> m_StructBuffNameToBindingIndex;
 	};
 
 	class ShaderBindingSetAllocator : public VKAppSubObjectBaseNoCopy
@@ -107,7 +108,7 @@ namespace graphics_backend
 		ShaderBindingSetAllocator(CVulkanApplication& owner);
 		void Create(ShaderBindingBuilder const& builder);
 		ShaderBindingSetMetadata const& GetMetadata() const { return m_Metadata; }
-		std::shared_ptr<ShaderBindingSet> AllocateSet();
+		castl::shared_ptr<ShaderBindingSet> AllocateSet();
 		virtual void Release() override;
 		void TickUploadResources(thread_management::CTaskGraph* pTaskGraph);
 	private:

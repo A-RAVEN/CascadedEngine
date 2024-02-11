@@ -1,8 +1,8 @@
 #pragma once
-#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
-#include <CACore/header/RAII.h>
-#include <RenderInterface/header/GPUTexture.h>
+#include <RAII.h>
+#include <GPUTexture.h>
 #include "VulkanIncludes.h"
+#include "VMA.h"
 
 using namespace raii_utils;
 namespace graphics_backend

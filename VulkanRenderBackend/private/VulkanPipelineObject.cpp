@@ -1,4 +1,6 @@
 #include "pch.h"
+#include <CASTL/CATuple.h>
+#include <CASTL/CAVector.h>
 #include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
 #include "VulkanPipelineObject.h"
@@ -6,14 +8,14 @@
 namespace graphics_backend
 {
 	
-	void PopulateVertexInputStates(std::vector<vk::VertexInputBindingDescription>& inoutVertexBindingDescs
-		, std::vector<vk::VertexInputAttributeDescription>& inoutVertexAttributeDescs
+	void PopulateVertexInputStates(castl::vector<vk::VertexInputBindingDescription>& inoutVertexBindingDescs
+		, castl::vector<vk::VertexInputAttributeDescription>& inoutVertexAttributeDescs
 		, CVertexInputDescriptor const& vertexInputs)
 	{
 		uint32_t attribute_count = 0;
 		for(auto& desc : vertexInputs.m_PrimitiveDescriptions)
 		{
-			attribute_count += static_cast<uint32_t>(std::get<1>(desc).size());
+			attribute_count += static_cast<uint32_t>(castl::get<1>(desc).size());
 		}
 		inoutVertexBindingDescs.clear();
 		inoutVertexAttributeDescs.clear();
@@ -25,11 +27,11 @@ namespace graphics_backend
 			auto& comp = vertexInputs.m_PrimitiveDescriptions[bindingId];
 			vk::VertexInputBindingDescription newInputBinding(
 				bindingId
-				, std::get<0>(comp)
-				, std::get<2>(comp) ? vk::VertexInputRate::eInstance : vk::VertexInputRate::eVertex);
+				, castl::get<0>(comp)
+				, castl::get<2>(comp) ? vk::VertexInputRate::eInstance : vk::VertexInputRate::eVertex);
 			inoutVertexBindingDescs.push_back(newInputBinding);
 
-			auto& attribArray = std::get<1>(comp);
+			auto& attribArray = castl::get<1>(comp);
 			for(uint32_t locationId = 0; locationId < attribArray.size(); ++locationId)
 			{
 				auto& attribData = attribArray[locationId];
@@ -108,13 +110,13 @@ namespace graphics_backend
 		CPipelineStateObject const& srcPSO
 		, RenderPassObject const* pRenderPassObj
 		, uint32_t subpassIndex
-		, std::vector<vk::PipelineColorBlendAttachmentState>& inoutBlendAttachmentStates)
+		, castl::vector<vk::PipelineColorBlendAttachmentState>& inoutBlendAttachmentStates)
 	{
 		auto& colorAttachments = srcPSO.colorAttachments;
 		vk::PipelineColorBlendStateCreateInfo result{};
 
 		uint32_t attachmentCount = pRenderPassObj->GetDescriptor()->renderPassInfo.subpassInfos[subpassIndex].colorAttachmentIDs.size();
-		attachmentCount = std::min(
+		attachmentCount = castl::min(
 			static_cast<uint32_t>(colorAttachments.attachmentBlendStates.size())
 			, attachmentCount);
 		inoutBlendAttachmentStates.resize(attachmentCount);
@@ -136,7 +138,7 @@ namespace graphics_backend
 	}
 
 	void PopulateShaderStages(ShaderStateDescriptor const& shaderStates
-		, std::vector<vk::PipelineShaderStageCreateInfo>& inoutShaderStages)
+		, castl::vector<vk::PipelineShaderStageCreateInfo>& inoutShaderStages)
 	{
 		auto vertexModdule = shaderStates.vertexShader->GetShaderModule();
 		auto fragmentModdule = shaderStates.fragmentShader->GetShaderModule();
@@ -158,8 +160,8 @@ namespace graphics_backend
 	void CPipelineObject::Create(CPipelineObjectDescriptor const& pipelineObjectDescriptor)
 	{
 		//Vertex States
-		std::vector<vk::VertexInputBindingDescription> vertexBindingDescriptions;
-		std::vector<vk::VertexInputAttributeDescription> vertexAttributeDescriptions;
+		castl::vector<vk::VertexInputBindingDescription> vertexBindingDescriptions;
+		castl::vector<vk::VertexInputAttributeDescription> vertexAttributeDescriptions;
 		PopulateVertexInputStates(
 			vertexBindingDescriptions
 			, vertexAttributeDescriptions
@@ -180,7 +182,7 @@ namespace graphics_backend
 		vk::PipelineDepthStencilStateCreateInfo depthStencilState = PopulateDepthStencilStateInfo(pipelineObjectDescriptor.pso);
 
 		//Color Attachment State
-		std::vector<vk::PipelineColorBlendAttachmentState> inoutBlendAttachmentStates;
+		castl::vector<vk::PipelineColorBlendAttachmentState> inoutBlendAttachmentStates;
 		vk::PipelineColorBlendStateCreateInfo colorBlendState = PopulateColorBlendStateInfo(
 			pipelineObjectDescriptor.pso
 			, pipelineObjectDescriptor.renderPassObject.get()
@@ -188,19 +190,19 @@ namespace graphics_backend
 			, inoutBlendAttachmentStates);
 
 		//Shader Stages
-		std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
+		castl::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 		PopulateShaderStages(pipelineObjectDescriptor.shaderState, shaderStages);
 
 		//TODO Populate Shader Binding Layout Info
 		vk::PipelineLayoutCreateInfo layoutCreateInfo{{}, pipelineObjectDescriptor.descriptorSetLayouts, {}};
 		m_PipelineLayout = GetDevice().createPipelineLayout(layoutCreateInfo);
 
-		std::array<vk::Viewport, 1> dummyViewports = { vk::Viewport{0, 0, 1, 1, 0, 1} };
-		std::array<vk::Rect2D, 1> dummySissors = { vk::Rect2D{{0, 0}, {1, 1}} };
+		castl::array<vk::Viewport, 1> dummyViewports = { vk::Viewport{0, 0, 1, 1, 0, 1} };
+		castl::array<vk::Rect2D, 1> dummySissors = { vk::Rect2D{{0, 0}, {1, 1}} };
 		vk::PipelineViewportStateCreateInfo viewportStateInfo{
 			{}, dummyViewports, dummySissors };
 
-		std::array<vk::DynamicState, 2> dynamicStates{
+		castl::array<vk::DynamicState, 2> dynamicStates{
 			vk::DynamicState::eViewport
 			, vk::DynamicState::eScissor
 		};

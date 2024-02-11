@@ -28,13 +28,13 @@ namespace graphics_backend
 		m_SecondaryCommandBufferList.ResetBufferList();
 		m_MiscCommandBufferList.clear();
 	}
-	void CVulkanFrameBoundCommandBufferPool::CollectCommandBufferList(std::vector<vk::CommandBuffer>& inoutCommandBufferList)
+	void CVulkanFrameBoundCommandBufferPool::CollectCommandBufferList(castl::vector<vk::CommandBuffer>& inoutCommandBufferList)
 	{
 		size_t commandCount = m_MiscCommandBufferList.size();
 		if (commandCount > 0)
 		{
 			inoutCommandBufferList.resize(inoutCommandBufferList.size() + commandCount);
-			std::copy(m_MiscCommandBufferList.begin()
+			castl::copy(m_MiscCommandBufferList.begin()
 				, m_MiscCommandBufferList.end()
 				, inoutCommandBufferList.end() - commandCount);
 			m_MiscCommandBufferList.clear();
@@ -74,7 +74,7 @@ namespace graphics_backend
 		return m_FrameBoundCommandBufferPools[poolID];
 	}
 
-	//void CVulkanThreadContext::CollectSubmittingCommandBuffers(std::vector<vk::CommandBuffer>& inoutCommandBufferList)
+	//void CVulkanThreadContext::CollectSubmittingCommandBuffers(castl::vector<vk::CommandBuffer>& inoutCommandBufferList)
 	//{
 	//	//GetCurrentFramePool().CollectCommandBufferList(inoutCommandBufferList);
 	//}
@@ -88,7 +88,7 @@ namespace graphics_backend
 	{
 		assert(m_FrameBoundCommandBufferPools.size() == 0);
 		m_FrameBoundCommandBufferPools.resize(FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT);
-		std::for_each(m_FrameBoundCommandBufferPools.begin(), m_FrameBoundCommandBufferPools.end()
+		castl::for_each(m_FrameBoundCommandBufferPools.begin(), m_FrameBoundCommandBufferPools.end()
 			, [owningApplication](CVulkanFrameBoundCommandBufferPool& itrPool)
 			{
 				itrPool.Initialize(owningApplication);
@@ -98,7 +98,7 @@ namespace graphics_backend
 	{
 		if (!m_FrameBoundCommandBufferPools.empty())
 		{
-			std::for_each(m_FrameBoundCommandBufferPools.begin(), m_FrameBoundCommandBufferPools.end()
+			castl::for_each(m_FrameBoundCommandBufferPools.begin(), m_FrameBoundCommandBufferPools.end()
 				, [](CVulkanFrameBoundCommandBufferPool& itrPool)
 				{
 					itrPool.Release();
@@ -135,7 +135,7 @@ namespace graphics_backend
 	}
 
 	//TODO Remove!!!
-	void CVulkanFrameBoundCommandBufferPool::CommandBufferList::CollectCommandBufferList(std::vector<vk::CommandBuffer>& inoutCommandBufferList)
+	void CVulkanFrameBoundCommandBufferPool::CommandBufferList::CollectCommandBufferList(castl::vector<vk::CommandBuffer>& inoutCommandBufferList)
 	{
 		for (int i = 0; i < m_AvailableCommandBufferIndex; ++i)
 		{

@@ -1,11 +1,10 @@
 #pragma once
-#include <CACore/header/uhash.h>
+#include <uhash.h>
+#include <RAII.h>
+#include <ShaderBindingBuilder.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
-#include <list>
-#include <CACore/header/RAII.h>
 #include "HashPool.h"
-#include <RenderInterface/header/ShaderBindingBuilder.h>
 #include "Containers.h"
 
 namespace graphics_backend

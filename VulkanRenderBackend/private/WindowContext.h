@@ -1,13 +1,13 @@
 #pragma once
+#include <Common.h>
+#include <WindowHandle.h>
+#include <GLFW/glfw3.h>
+#include <CASTL/CAMutex.h>
+#include <CASTL/CAFunctional.h>
+#include <CASTL/CADeque.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include "ResourceUsageInfo.h"
-#include <RenderInterface/header/Common.h>
-#include <RenderInterface/header/WindowHandle.h>
-#include <ExternalLib/glfw/include/GLFW/glfw3.h>
-#include <mutex>
-#include <functional>
-#include <deque>
 #include "VulkanBarrierCollector.h"
 #include "RenderBackendSettings.h"
 
@@ -34,8 +34,8 @@ namespace graphics_backend
 	private:
 		//Swapchain
 		vk::SwapchainKHR m_Swapchain = nullptr;
-		std::vector<vk::Image> m_SwapchainImages;
-		std::vector<vk::ImageView> m_SwapchainImageViews;
+		castl::vector<vk::Image> m_SwapchainImages;
+		castl::vector<vk::ImageView> m_SwapchainImageViews;
 		//Semaphores
 		vk::Semaphore m_WaitFrameDoneSemaphore = nullptr;
 		vk::Semaphore m_CanPresentSemaphore = nullptr;
@@ -51,7 +51,7 @@ namespace graphics_backend
 	{
 	public:
 
-		virtual std::string GetName() const override;
+		virtual castl::string GetName() const override;
 		virtual uint2 const& GetSizeSafe() const override;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const override;
 		virtual void RecreateContext() override;
@@ -78,30 +78,30 @@ namespace graphics_backend
 		void Resize(FrameType resizeFrame);
 		void TickReleaseResources(FrameType releasingFrame);
 		void UpdateSize();
-		void Initialize(std::string const& windowName, uint32_t initialWidth, uint32_t initialHeight);
+		void Initialize(castl::string const& windowName, uint32_t initialWidth, uint32_t initialHeight);
 		void Release() override;
 		bool NeedPresent() const;
 		void PresentCurrentFrame();
 		void PrepareForPresent(VulkanBarrierCollector& inoutBarrierCollector
-			, std::vector<vk::Semaphore>& inoutWaitSemaphores
-			, std::vector<vk::PipelineStageFlags>& inoutWaitStages
-			, std::vector<vk::Semaphore>& inoutSignalSemaphores);
+			, castl::vector<vk::Semaphore>& inoutWaitSemaphores
+			, castl::vector<vk::PipelineStageFlags>& inoutWaitStages
+			, castl::vector<vk::Semaphore>& inoutSignalSemaphores);
 	private:
-		std::string m_WindowName;
+		castl::string m_WindowName;
 		uint32_t m_Width = 0;
 		uint32_t m_Height = 0;
 
 		GLFWwindow* m_Window = nullptr;
 		vk::SurfaceKHR m_Surface = nullptr;
-		std::pair<uint32_t, vk::Queue> m_PresentQueue = std::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
+		castl::pair<uint32_t, vk::Queue> m_PresentQueue = castl::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
 
 		SwapchainContext m_SwapchainContext;
-		std::deque<std::pair<FrameType, SwapchainContext>> m_PendingReleaseSwapchains;
+		castl::deque<castl::pair<FrameType, SwapchainContext>> m_PendingReleaseSwapchains;
 		friend class CVulkanApplication;
 
-		std::function<void(GLFWwindow* window, int width, int height)> m_WindowCallback;
+		castl::function<void(GLFWwindow* window, int width, int height)> m_WindowCallback;
 		bool m_Resized = false;
 
-		std::mutex m_Mutex;
+		castl::mutex m_Mutex;
 	};
 }

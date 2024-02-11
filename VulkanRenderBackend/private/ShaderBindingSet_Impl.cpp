@@ -13,33 +13,33 @@ namespace graphics_backend
 	{
 		p_Metadata = inMetaData;
 	}
-	void ShaderBindingSet_Impl::SetConstantSet(std::string const& name, std::shared_ptr<ShaderConstantSet> const& pConstantSet)
+	void ShaderBindingSet_Impl::SetConstantSet(castl::string const& name, castl::shared_ptr<ShaderConstantSet> const& pConstantSet)
 	{
-		m_ConstantSets.insert(std::make_pair(name, pConstantSet));
+		m_ConstantSets.insert(castl::make_pair(name, pConstantSet));
 		MarkDirtyThisFrame();
 	}
 
-	void ShaderBindingSet_Impl::SetStructBuffer(std::string const& name
-		, std::shared_ptr<GPUBuffer> const& pBuffer)
+	void ShaderBindingSet_Impl::SetStructBuffer(castl::string const& name
+		, castl::shared_ptr<GPUBuffer> const& pBuffer)
 	{
-		std::shared_ptr<GPUBuffer_Impl> buffer = std::static_pointer_cast<GPUBuffer_Impl>(pBuffer);
-		m_StructuredBuffers.insert(std::make_pair(name, buffer));
+		castl::shared_ptr<GPUBuffer_Impl> buffer = castl::static_pointer_cast<GPUBuffer_Impl>(pBuffer);
+		m_StructuredBuffers.insert(castl::make_pair(name, buffer));
 		MarkDirtyThisFrame();
 	}
 
-	void ShaderBindingSet_Impl::SetTexture(std::string const& name
-		, std::shared_ptr<GPUTexture> const& pTexture)
+	void ShaderBindingSet_Impl::SetTexture(castl::string const& name
+		, castl::shared_ptr<GPUTexture> const& pTexture)
 	{
-		std::shared_ptr<GPUTexture_Impl> texture = std::static_pointer_cast<GPUTexture_Impl>(pTexture);
-		m_Textures.insert(std::make_pair(name, texture));
+		castl::shared_ptr<GPUTexture_Impl> texture = castl::static_pointer_cast<GPUTexture_Impl>(pTexture);
+		m_Textures.insert(castl::make_pair(name, texture));
 		MarkDirtyThisFrame();
 	}
 
-	void ShaderBindingSet_Impl::SetSampler(std::string const& name
-		, std::shared_ptr<TextureSampler> const& pSampler)
+	void ShaderBindingSet_Impl::SetSampler(castl::string const& name
+		, castl::shared_ptr<TextureSampler> const& pSampler)
 	{
-		std::shared_ptr<TextureSampler_Impl> sampler = std::static_pointer_cast<TextureSampler_Impl>(pSampler);
-		m_Samplers.insert(std::make_pair(name, sampler));
+		castl::shared_ptr<TextureSampler_Impl> sampler = castl::static_pointer_cast<TextureSampler_Impl>(pSampler);
+		m_Samplers.insert(castl::make_pair(name, sampler));
 		MarkDirtyThisFrame();
 	}
 
@@ -59,12 +59,12 @@ namespace graphics_backend
 			auto& descPoolCache = GetVulkanApplication().GetGPUObjectManager().GetShaderDescriptorPoolCache();
 			ShaderDescriptorSetLayoutInfo layoutInfo = p_Metadata->GetLayoutInfo();
 			auto allocator = descPoolCache.GetOrCreate(layoutInfo);
-			m_DescriptorSetHandle = std::move(allocator->AllocateSet());
+			m_DescriptorSetHandle = castl::move(allocator->AllocateSet());
 		//}
 		CA_ASSERT(m_DescriptorSetHandle.IsRAIIAquired(), "Descriptor Set Is Not Aquired!");
 		vk::DescriptorSet targetSet = m_DescriptorSetHandle->GetDescriptorSet();
 		uint32_t writeCount = m_ConstantSets.size() + m_Textures.size() + m_Samplers.size();
-		std::vector<vk::WriteDescriptorSet> descriptorWrites;
+		castl::vector<vk::WriteDescriptorSet> descriptorWrites;
 		if(writeCount > 0)
 		{
 			descriptorWrites.reserve(writeCount);
@@ -72,9 +72,9 @@ namespace graphics_backend
 			for (auto pair : m_ConstantSets)
 			{
 				auto& name = pair.first;
-				auto set = std::static_pointer_cast<ShaderConstantSet_Impl>(pair.second);
+				auto set = castl::static_pointer_cast<ShaderConstantSet_Impl>(pair.second);
 				uint32_t bindingIndex = p_Metadata->CBufferNameToBindingIndex(name);
-				if (bindingIndex != std::numeric_limits<uint32_t>::max())
+				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
 					vk::DescriptorBufferInfo bufferInfo{set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE};
 					vk::WriteDescriptorSet writeSet
@@ -97,7 +97,7 @@ namespace graphics_backend
 				auto& name = pair.first;
 				auto& texture = pair.second;
 				uint32_t bindingIndex = p_Metadata->TextureNameToBindingIndex(name);
-				if (bindingIndex != std::numeric_limits<uint32_t>::max())
+				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
 					if (!texture->UploadingDone())
 						return;
@@ -123,7 +123,7 @@ namespace graphics_backend
 				auto& name = pair.first;
 				auto& sampler = pair.second;
 				uint32_t bindingIndex = p_Metadata->SamplerNameToBindingIndex(name);
-				if (bindingIndex != std::numeric_limits<uint32_t>::max())
+				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
 					vk::DescriptorImageInfo samplerInfo{ sampler->GetSampler()
 						, {}
@@ -147,7 +147,7 @@ namespace graphics_backend
 				auto& name = pair.first;
 				auto& buffer = pair.second;
 				uint32_t bindingIndex = p_Metadata->StructBufferNameToBindingIndex(name);
-				if (bindingIndex != std::numeric_limits<uint32_t>::max())
+				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
 					vk::DescriptorBufferInfo bufferInfo{buffer->GetVulkanBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE};
 					vk::WriteDescriptorSet writeSet{targetSet
@@ -207,7 +207,7 @@ namespace graphics_backend
 	{
 		m_Metadata.Initialize(builder);
 	}
-	std::shared_ptr<ShaderBindingSet> ShaderBindingSetAllocator::AllocateSet()
+	castl::shared_ptr<ShaderBindingSet> ShaderBindingSetAllocator::AllocateSet()
 	{
 		return m_ShaderBindingSetPool.AllocShared(&m_Metadata);
 	}

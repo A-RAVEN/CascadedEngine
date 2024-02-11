@@ -1,8 +1,6 @@
 #pragma once
-#include <cstdint>
-#include <CACore/header/uenum.h>
-
-
+#include <uenum.h>
+#include "VulkanIncludes.h"
 
 namespace graphics_backend
 {

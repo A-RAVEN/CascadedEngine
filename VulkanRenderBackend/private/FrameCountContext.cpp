@@ -11,7 +11,7 @@ namespace graphics_backend
 		TIndex currentIndex = GetCurrentFrameBufferIndex();
 		FrameType waitingFrame = m_FenceSubmitFrameIDs[currentIndex];
 		std::atomic_thread_fence(std::memory_order_acquire);
-		std::vector<vk::Fence> fences = {
+		castl::vector<vk::Fence> fences = {
 			m_SubmitFrameFences[currentIndex]
 		};
 		GetVulkanApplication()->GetDevice().waitForFences(fences
@@ -23,7 +23,7 @@ namespace graphics_backend
 	}
 
 	void CFrameCountContext::SubmitGraphics(
-		std::vector<vk::CommandBuffer> const& commandbufferList,
+		castl::vector<vk::CommandBuffer> const& commandbufferList,
 		vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores
 		, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages
 		, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores) const
@@ -35,31 +35,32 @@ namespace graphics_backend
 	}
 
 	void CFrameCountContext::FinalizeCurrentFrameGraphics(
-		std::vector<vk::CommandBuffer> const& commandbufferList
+		castl::vector<vk::CommandBuffer> const& commandbufferList
 	    , vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores
 		, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages
 		, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores)
 	{
 		uint32_t currentIndex = GetCurrentFrameBufferIndex();
 		vk::Fence currentFrameFence = m_SubmitFrameFences[currentIndex];
-		std::vector<vk::Fence> fences = {
+		castl::vector<vk::Fence> fences = {
 			currentFrameFence
 		};
 		GetDevice().resetFences(fences);
 		vk::SubmitInfo submitInfo(waitSemaphores, waitStages, commandbufferList, signalSemaphores);
 		m_GraphicsQueue.submit(submitInfo, currentFrameFence);
 	}
-	void CFrameCountContext::SubmitCurrentFrameCompute(std::vector<vk::CommandBuffer> const& commandbufferList)
+	void CFrameCountContext::SubmitCurrentFrameCompute(castl::vector<vk::CommandBuffer> const& commandbufferList)
 	{
 
 	}
-	void CFrameCountContext::SubmitCurrentFrameTransfer(std::vector<vk::CommandBuffer> const& commandbufferList)
+	void CFrameCountContext::SubmitCurrentFrameTransfer(castl::vector<vk::CommandBuffer> const& commandbufferList)
 	{
 	}
+	//replace all castl::pair with castl::pair in this file
 	void CFrameCountContext::InitializeSubmitQueues(
-		std::pair<uint32_t, uint32_t> const& generalQueue
-		, std::pair<uint32_t, uint32_t> const& computeQueue
-		, std::pair<uint32_t, uint32_t> const& transferQueue)
+		castl::pair<uint32_t, uint32_t> const& generalQueue
+		, castl::pair<uint32_t, uint32_t> const& computeQueue
+		, castl::pair<uint32_t, uint32_t> const& transferQueue)
 	{
 		m_GraphicsQueueReference = generalQueue;
 		m_ComputeQueueReference = computeQueue;
@@ -69,7 +70,7 @@ namespace graphics_backend
 		m_TransferQueue = GetDevice().getQueue(m_TransferQueueReference.first, m_TransferQueueReference.second);
 	}
 
-	void CFrameCountContext::InitializeDefaultQueues(std::vector<vk::Queue> defaultQueues)
+	void CFrameCountContext::InitializeDefaultQueues(castl::vector<vk::Queue> defaultQueues)
 	{
 		m_QueueFamilyDefaultQueues = defaultQueues;
 	}
@@ -86,17 +87,17 @@ namespace graphics_backend
 		return std::numeric_limits<uint32_t>::max();
 	}
 
-	std::pair<uint32_t, vk::Queue> CFrameCountContext::FindPresentQueue(vk::SurfaceKHR surface) const
+	castl::pair<uint32_t, vk::Queue> CFrameCountContext::FindPresentQueue(vk::SurfaceKHR surface) const
 	{
 		for (uint32_t familyId = 0; familyId < m_QueueFamilyDefaultQueues.size(); ++familyId)
 		{
 			if (GetPhysicalDevice().getSurfaceSupportKHR(familyId, surface))
 			{
-				return std::make_pair(familyId, m_QueueFamilyDefaultQueues[familyId]);
+				return castl::make_pair(familyId, m_QueueFamilyDefaultQueues[familyId]);
 			}
 		}
 		assert(false);
-		return std::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
+		return castl::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
 	}
 
 	void CFrameCountContext::Initialize_Internal(CVulkanApplication const* owningApplication)
@@ -112,7 +113,7 @@ namespace graphics_backend
 			m_SubmitFrameFences.push_back(newFence);
 		}
 		m_FenceSubmitFrameIDs.resize(SWAPCHAIN_BUFFER_COUNT);
-		std::fill(m_FenceSubmitFrameIDs.begin(), m_FenceSubmitFrameIDs.end(), INVALID_FRAMEID);
+		castl::fill(m_FenceSubmitFrameIDs.begin(), m_FenceSubmitFrameIDs.end(), INVALID_FRAMEID);
 	}
 
 	void CFrameCountContext::Release_Internal()

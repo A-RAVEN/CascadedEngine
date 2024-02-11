@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <CASTL/CASet.h>
 #include "RenderGraphExecutor.h"
 #include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
@@ -14,7 +15,7 @@ namespace graphics_backend
 	{
 	}
 
-	void RenderGraphExecutor::Create(std::shared_ptr<CRenderGraph> inRenderGraph)
+	void RenderGraphExecutor::Create(castl::shared_ptr<CRenderGraph> inRenderGraph)
 	{
 		m_RenderGraph = inRenderGraph;
 	}
@@ -52,7 +53,7 @@ namespace graphics_backend
 			for (uint32_t passId = 0; passId < nodeCount; ++passId)
 			{
 				compileGraph->NewTaskGraph()
-					->Name("Compile RenderPass " + std::to_string(passId))
+					->Name("Compile RenderPass " + castl::to_string(passId))
 					->SetupFunctor([this, passId](CTaskGraph* thisGraph)
 						{
 							m_RenderPasses[passId].Compile(thisGraph);
@@ -91,10 +92,10 @@ namespace graphics_backend
 		return m_CompiledFrame != INVALID_FRAMEID;
 	}
 
-	void RenderGraphExecutor::CollectCommands(std::vector<vk::CommandBuffer>& inoutCommands) const
+	void RenderGraphExecutor::CollectCommands(castl::vector<vk::CommandBuffer>& inoutCommands) const
 	{
 		inoutCommands.resize(inoutCommands.size() + m_PendingGraphicsCommandBuffers.size());
-		std::copy(m_PendingGraphicsCommandBuffers.begin()
+		castl::copy(m_PendingGraphicsCommandBuffers.begin()
 			, m_PendingGraphicsCommandBuffers.end()
 			, inoutCommands.end() - m_PendingGraphicsCommandBuffers.size());
 	}
@@ -136,9 +137,9 @@ namespace graphics_backend
 				{
 					m_TextureHandleUsageStates.clear();
 					m_BufferHandleUsageStates.clear();
-					std::vector<TextureHandleLifetimeInfo> textureHandleLifetimes;
+					castl::vector<TextureHandleLifetimeInfo> textureHandleLifetimes;
 					textureHandleLifetimes.resize(m_RenderGraph->GetTextureHandleCount());
-					std::fill(textureHandleLifetimes.begin(), textureHandleLifetimes.end(), TextureHandleLifetimeInfo{});
+					castl::fill(textureHandleLifetimes.begin(), textureHandleLifetimes.end(), TextureHandleLifetimeInfo{});
 					for (uint32_t itr_node = 0; itr_node < nodeCount; ++itr_node)
 					{
 						m_RenderPasses[itr_node].ResolveTextureHandleUsages(m_TextureHandleUsageStates);
@@ -148,7 +149,7 @@ namespace graphics_backend
 
 					uint32_t textureDescTypeCount = m_RenderGraph->GetTextureTypesDescriptorCount();
 
-					std::vector<std::pair<std::vector<TIndex>, std::vector<TIndex>>> textureAllocationRecorder;
+					castl::vector<castl::pair<castl::vector<TIndex>, castl::vector<TIndex>>> textureAllocationRecorder;
 					//textures will be released at next node stage, so we have nodeCount + 1 stages
 					textureAllocationRecorder.resize(nodeCount + 1);
 
@@ -165,9 +166,9 @@ namespace graphics_backend
 
 					m_TextureAllocationIndex.clear();
 					m_TextureAllocationIndex.resize(textureHandleLifetimes.size());
-					std::fill(m_TextureAllocationIndex.begin(), m_TextureAllocationIndex.end(), -1);
+					castl::fill(m_TextureAllocationIndex.begin(), m_TextureAllocationIndex.end(), -1);
 
-					std::vector<std::pair<int32_t, std::deque<int32_t>>> textureAllocationQueue;
+					castl::vector<castl::pair<int32_t, castl::deque<int32_t>>> textureAllocationQueue;
 					textureAllocationQueue.resize(textureDescTypeCount);
 
 					auto allocateIndexFunc = [&textureAllocationQueue](TIndex descIndex)
@@ -251,7 +252,7 @@ namespace graphics_backend
 								m_RenderPasses[passId].SetupFrameBuffer();
 							});
 					auto recordCmdGraph = thisGraph->NewTaskGraph()
-						->Name("Record RenderPass " + std::to_string(passId) + " Cmds Graph")
+						->Name("Record RenderPass " + castl::to_string(passId) + " Cmds Graph")
 						->DependsOn(setupFrameBufferTask)
 						->SetupFunctor([this, passId](CTaskGraph* thisGraph)
 							{
@@ -322,11 +323,11 @@ namespace graphics_backend
 					auto subAllocator = GetVulkanApplication().GetShaderConstantSetAllocators().GetOrCreate(shaderConstantDesc);
 					auto& metaData = subAllocator->GetMetadata();
 
-					std::vector<uint32_t> arrangedData;
+					castl::vector<uint32_t> arrangedData;
 					arrangedData.resize(metaData.GetTotalSize());
 					auto& positionsMap = metaData.GetArithmeticValuePositions();
 
-					std::vector<std::tuple<std::string, uint32_t, uint32_t>> cachedDataList;
+					castl::vector<castl::tuple<castl::string, uint32_t, uint32_t>> cachedDataList;
 					constantsData.PopulateCachedData(cachedDataList);
 
 					size_t bufferSize = metaData.GetTotalSize() * sizeof(uint32_t);
@@ -334,11 +335,11 @@ namespace graphics_backend
 
 					for (auto& cachedData : cachedDataList)
 					{
-						auto targetPos = positionsMap.find(std::get<0>(cachedData));
+						auto targetPos = positionsMap.find(castl::get<0>(cachedData));
 						if (targetPos != positionsMap.end())
 						{
 							memcpy(static_cast<uint8_t*>(srcBufferHandle->GetMappedPointer()) + targetPos->second.first * sizeof(uint32_t)
-								, static_cast<uint8_t const*>(constantsData.GetUploadingDataPtr()) + std::get<1>(cachedData), std::get<2>(cachedData));
+								, static_cast<uint8_t const*>(constantsData.GetUploadingDataPtr()) + castl::get<1>(cachedData), castl::get<2>(cachedData));
 						}	
 					}
 
@@ -355,7 +356,7 @@ namespace graphics_backend
 					barrierCollector.ExecuteBarrier(cmdBuffer);
 					cmdBuffer.copyBuffer(srcBufferHandle->GetBuffer(), bufferHandle->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
 					cmdBuffer.end();
-					m_GPUBufferObjects[m_ConstantBufferOffset + handleID] = std::move(bufferHandle);
+					m_GPUBufferObjects[m_ConstantBufferOffset + handleID] = castl::move(bufferHandle);
 				});
 		taskGrap->NewTaskParallelFor()
 			->Name("Allocate GPU Buffers")
@@ -366,7 +367,7 @@ namespace graphics_backend
 				auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
 				IGPUBufferInternalData const& bufferData = m_RenderGraph->GetGPUBufferInternalData(handleID);
 				GPUBufferDescriptor const& bufferDesc = m_RenderGraph->GetGPUBufferDescriptor(handleID);
-				size_t bufferSize = std::min(bufferDesc.count * bufferDesc.stride, bufferData.GetSizeInBytes());
+				size_t bufferSize = castl::min(bufferDesc.count * bufferDesc.stride, bufferData.GetSizeInBytes());
 				if (bufferSize == 0)
 					return;
 				auto srcBufferHandle = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(bufferSize);
@@ -382,7 +383,7 @@ namespace graphics_backend
 				barrierCollector.ExecuteBarrier(cmdBuffer);
 				cmdBuffer.copyBuffer(srcBufferHandle->GetBuffer(), bufferHandle->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
 				cmdBuffer.end();
-				m_GPUBufferObjects[m_GPUBufferOffset + handleID] = std::move(bufferHandle);
+				m_GPUBufferObjects[m_GPUBufferOffset + handleID] = castl::move(bufferHandle);
 			});
 	}
 
@@ -410,7 +411,7 @@ namespace graphics_backend
 				ShaderDescriptorSetLayoutInfo layoutInfo{ bindingSetDesc };
 				auto& descPoolCache = GetVulkanApplication().GetGPUObjectManager().GetShaderDescriptorPoolCache();
 				auto allocator = descPoolCache.GetOrCreate(layoutInfo);
-				m_DescriptorSets[setID] = std::move(allocator->AllocateSet());
+				m_DescriptorSets[setID] = castl::move(allocator->AllocateSet());
 			});
 	}
 
@@ -438,7 +439,7 @@ namespace graphics_backend
 
 					vk::DescriptorSet targetSet = descriptorSetObject->GetDescriptorSet();
 					uint32_t writeCount = constantSets.size() + externalTextures.size() + internalTextures.size() + externalSamplers.size();
-					std::vector<vk::WriteDescriptorSet> descriptorWrites;
+					castl::vector<vk::WriteDescriptorSet> descriptorWrites;
 					if (writeCount > 0)
 					{
 						descriptorWrites.reserve(writeCount);
@@ -446,9 +447,9 @@ namespace graphics_backend
 						for (auto itr = constantSets.begin(); itr != constantSets.end(); ++itr)
 						{
 							auto& name = itr->first;
-							auto set = std::static_pointer_cast<ShaderConstantSet_Impl>(itr->second);
+							auto set = castl::static_pointer_cast<ShaderConstantSet_Impl>(itr->second);
 							uint32_t bindingIndex = metaData.CBufferNameToBindingIndex(name);
-							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
 								vk::DescriptorBufferInfo bufferInfo{ set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE };
 								vk::WriteDescriptorSet writeSet{ targetSet
@@ -469,7 +470,7 @@ namespace graphics_backend
 							auto& name = itr->first;
 							auto& setHandle = itr->second;
 							uint32_t bindingIndex = metaData.CBufferNameToBindingIndex(name);
-							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
 								vk::DescriptorBufferInfo bufferInfo{ GetLocalConstantSetBuffer(setHandle.GetHandleIndex())->GetBuffer(), 0, VK_WHOLE_SIZE};
 								vk::WriteDescriptorSet writeSet{ targetSet
@@ -488,9 +489,9 @@ namespace graphics_backend
 						for (auto itr = externalTextures.begin(); itr != externalTextures.end(); ++itr)
 						{
 							auto& name = itr->first;
-							auto texture = std::static_pointer_cast<GPUTexture_Impl>(itr->second);
+							auto texture = castl::static_pointer_cast<GPUTexture_Impl>(itr->second);
 							uint32_t bindingIndex = metaData.TextureNameToBindingIndex(name);
-							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
 								if (!texture->UploadingDone())
 									return;
@@ -518,7 +519,7 @@ namespace graphics_backend
 							auto& internalTexture = GetLocalTexture(textureHandle.GetHandleIndex());
 							
 							uint32_t bindingIndex = metaData.TextureNameToBindingIndex(name);
-							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
 								vk::DescriptorImageInfo imageInfo{ {}
 									, internalTexture.m_ImageView
@@ -540,9 +541,9 @@ namespace graphics_backend
 						for (auto itr = externalSamplers.begin(); itr != externalSamplers.end(); ++itr)
 						{
 							auto& name = itr->first;
-							auto sampler = std::static_pointer_cast<TextureSampler_Impl>(itr->second);
+							auto sampler = castl::static_pointer_cast<TextureSampler_Impl>(itr->second);
 							uint32_t bindingIndex = metaData.SamplerNameToBindingIndex(name);
-							if (bindingIndex != std::numeric_limits<uint32_t>::max())
+							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
 								vk::DescriptorImageInfo samplerInfo{ sampler->GetSampler()
 									, {}
@@ -577,15 +578,15 @@ namespace graphics_backend
 		, m_RenderpassBuilder(renderpassBuilder)
 	{
 	}
-	void RenderPassExecutor::ResolveTextureHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& textureHandleUsageStates)
+	void RenderPassExecutor::ResolveTextureHandleUsages(castl::unordered_map<TIndex, ResourceUsageFlags>& textureHandleUsageStates)
 	{
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
 		m_ImageUsageBarriers.reserve(handles.size());
 
-		std::vector<ResourceUsageFlags> renderPassInitializeUsages;
+		castl::vector<ResourceUsageFlags> renderPassInitializeUsages;
 		renderPassInitializeUsages.resize(handles.size());
-		std::fill(renderPassInitializeUsages.begin(), renderPassInitializeUsages.end(), ResourceUsage::eDontCare);
+		castl::fill(renderPassInitializeUsages.begin(), renderPassInitializeUsages.end(), ResourceUsage::eDontCare);
 
 		auto checkSetInitializeUsage = [&renderPassInitializeUsages](uint32_t attachmentID, ResourceUsageFlags newUsage)
 			{
@@ -627,7 +628,7 @@ namespace graphics_backend
 				textureHandleUsageStates[handleID] = dstUsage;
 				if (srcUsage != dstUsage)
 				{
-					m_ImageUsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
+					m_ImageUsageBarriers.push_back(castl::make_tuple(handleID, srcUsage, dstUsage));
 				}
 			}
 		}
@@ -660,7 +661,7 @@ namespace graphics_backend
 						if (srcUsage != dstUsage)
 						{
 							textureHandleUsageStates[handleID] = dstUsage;
-							m_ImageUsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
+							m_ImageUsageBarriers.push_back(castl::make_tuple(handleID, srcUsage, dstUsage));
 						}
 					}
 				}
@@ -674,7 +675,7 @@ namespace graphics_backend
 		}
 	}
 
-	void RenderPassExecutor::ResolveBufferHandleUsages(std::unordered_map<TIndex, ResourceUsageFlags>& bufferHandleUsageStates)
+	void RenderPassExecutor::ResolveBufferHandleUsages(castl::unordered_map<TIndex, ResourceUsageFlags>& bufferHandleUsageStates)
 	{
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		for (uint32_t subpassID = 0; subpassID < renderPassInfo.subpassInfos.size(); ++subpassID)
@@ -703,7 +704,7 @@ namespace graphics_backend
 						if (srcUsage != dstUsage)
 						{
 							bufferHandleUsageStates[handleID] = dstUsage;
-							m_BufferUsageBarriers.push_back(std::make_tuple(handleID, srcUsage, dstUsage));
+							m_BufferUsageBarriers.push_back(castl::make_tuple(handleID, srcUsage, dstUsage));
 						}
 					}
 				}
@@ -717,7 +718,7 @@ namespace graphics_backend
 		}
 	}
 
-	void RenderPassExecutor::UpdateTextureLifetimes(uint32_t nodeIndex, std::vector<TextureHandleLifetimeInfo>& textureLifetimes)
+	void RenderPassExecutor::UpdateTextureLifetimes(uint32_t nodeIndex, castl::vector<TextureHandleLifetimeInfo>& textureLifetimes)
 	{
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		auto& handles = m_RenderpassBuilder.GetAttachmentTextureHandles();
@@ -754,7 +755,7 @@ namespace graphics_backend
 		, uint32_t height
 		, vk::CommandBuffer cmd)
 	{
-		//std::cout << "View SimpleDraw " << m_OwningExecutor.GetCurrentFrameID() << ":" << width  << " " << height << std::endl;
+		//castl::cout << "View SimpleDraw " << m_OwningExecutor.GetCurrentFrameID() << ":" << width  << " " << height << castl::endl;
 		GPUObjectManager& gpuObjectManager = m_OwningExecutor.GetGPUObjectManager();
 		auto& renderPassInfo = m_RenderpassBuilder.GetRenderPassInfo();
 		RenderPassDescriptor rpDesc{ renderPassInfo };
@@ -786,17 +787,17 @@ namespace graphics_backend
 		, uint32_t subpassID
 		, uint32_t width
 		, uint32_t height
-		, std::vector<vk::CommandBuffer>& cmdList
+		, castl::vector<vk::CommandBuffer>& cmdList
 	)
 	{
-		//std::cout << "View Secondary Cmd " << m_OwningExecutor.GetCurrentFrameID() << ":" << width << "x" << height << std::endl;
+		//castl::cout << "View Secondary Cmd " << m_OwningExecutor.GetCurrentFrameID() << ":" << width << "x" << height << castl::endl;
 		auto& subpassData = m_RenderpassBuilder.GetSubpassData_BatchDrawInterface(subpassID);
 		uint32_t batchID = m_RenderpassBuilder.GetSubpassDataIndex(subpassID);
 		uint32_t batchCount = m_BatchManagers[batchID].GetDrawBatchFuncs().size();
 		cmdList.resize(batchCount);
 
 		thisGraph->NewTaskParallelFor()
-			->Name("Prepare Secondary Cmds for Subpass " + std::to_string(subpassID))
+			->Name("Prepare Secondary Cmds for Subpass " + castl::to_string(subpassID))
 			->JobCount(batchCount)
 			->Functor([this, subpassID, width, height, &cmdList](uint32_t batchID)
 				{
@@ -846,17 +847,17 @@ namespace graphics_backend
 		, uint32_t subpassID
 		, uint32_t width
 		, uint32_t height
-		, std::vector<vk::CommandBuffer>& cmdList
+		, castl::vector<vk::CommandBuffer>& cmdList
 	)
 	{
-		//std::cout << "View Interface Cmd " << width << " " << height << std::endl;
+		//castl::cout << "View Interface Cmd " << width << " " << height << castl::endl;
 		auto& subpassData = m_RenderpassBuilder.GetSubpassData_MeshInterface(subpassID);
 		auto drawcallInterface = subpassData.meshInterface;
 		auto batchCount = drawcallInterface->GetBatchCount();
 		cmdList.resize(batchCount);
 
 		thisGraph->NewTaskParallelFor()
-			->Name("Prepare Secondary Cmds for Subpass " + std::to_string(subpassID))
+			->Name("Prepare Secondary Cmds for Subpass " + castl::to_string(subpassID))
 			->JobCount(batchCount)
 			->Functor([this, drawcallInterface, subpassID, width, height, &cmdList](uint32_t batchID)
 				{
@@ -924,7 +925,7 @@ namespace graphics_backend
 		VulkanBarrierCollector textureBarrier{ m_OwningExecutor.GetFrameCountContext().GetGraphicsQueueFamily() };
 		for (auto& usageData : m_ImageUsageBarriers)
 		{
-			TIndex handleIDS = std::get<0>(usageData);
+			TIndex handleIDS = castl::get<0>(usageData);
 			auto& textureInfo = m_RenderGraph.GetGPUTextureInternalData(handleIDS);
 			auto& descriptor = m_RenderGraph.GetTextureDescriptor(textureInfo.GetDescID());
 
@@ -940,19 +941,19 @@ namespace graphics_backend
 			}
 
 			textureBarrier.PushImageBarrier(image, descriptor.format
-				, std::get<1>(usageData)
-				, std::get<2>(usageData));
+				, castl::get<1>(usageData)
+				, castl::get<2>(usageData));
 		}
 		for (auto& usageData : m_BufferUsageBarriers)
 		{
-			TIndex gpuBufferHandleID = std::get<0>(usageData);
+			TIndex gpuBufferHandleID = castl::get<0>(usageData);
 			auto& bufferInfo = m_RenderGraph.GetGPUBufferInternalData(gpuBufferHandleID);
 			auto& descriptor = m_RenderGraph.GetGPUBufferDescriptor(gpuBufferHandleID);
 			vk::Buffer buffer = m_OwningExecutor.GetLocalBuffer(gpuBufferHandleID)->GetBuffer();
 
 			textureBarrier.PushBufferBarrier(buffer
-				, std::get<1>(usageData)
-				, std::get<2>(usageData));
+				, castl::get<1>(usageData)
+				, castl::get<2>(usageData));
 		}
 		textureBarrier.ExecuteBarrier(cmd);
 	}
@@ -1059,10 +1060,10 @@ namespace graphics_backend
 					m_PendingGraphicsCommandBuffers.push_back(cmd);
 				});
 	}
-	void RenderPassExecutor::AppendCommandBuffers(std::vector<vk::CommandBuffer>& outCommandBuffers)
+	void RenderPassExecutor::AppendCommandBuffers(castl::vector<vk::CommandBuffer>& outCommandBuffers)
 	{
 		outCommandBuffers.resize(outCommandBuffers.size() + m_PendingGraphicsCommandBuffers.size());
-		std::copy(m_PendingGraphicsCommandBuffers.begin(), m_PendingGraphicsCommandBuffers.end(), outCommandBuffers.end() - m_PendingGraphicsCommandBuffers.size());
+		castl::copy(m_PendingGraphicsCommandBuffers.begin(), m_PendingGraphicsCommandBuffers.end(), outCommandBuffers.end() - m_PendingGraphicsCommandBuffers.size());
 	}
 	void RenderPassExecutor::SetupFrameBuffer()
 	{
@@ -1158,14 +1159,14 @@ namespace graphics_backend
 		ShaderBindingList const& shaderBindingList
 		, ShaderDescriptorSetAllocatorPool& descPoolCache
 		, CRenderGraph const& renderGraph
-		, std::vector<vk::DescriptorSetLayout>& inoutLayouts)
+		, castl::vector<vk::DescriptorSetLayout>& inoutLayouts)
 	{
 		//也许从shader中提取layout信息更好
-		std::set<vk::DescriptorSetLayout> layoutSet;
+		castl::set<vk::DescriptorSetLayout> layoutSet;
 		auto& bindingSets = shaderBindingList.m_ShaderBindingSets;
 		for (auto itrSet : bindingSets)
 		{
-			std::shared_ptr<ShaderBindingSet_Impl> pSet = std::static_pointer_cast<ShaderBindingSet_Impl>(itrSet);
+			castl::shared_ptr<ShaderBindingSet_Impl> pSet = castl::static_pointer_cast<ShaderBindingSet_Impl>(itrSet);
 			auto& layoutInfo = pSet->GetMetadata()->GetLayoutInfo();
 			auto shaderDescriptorSetAllocator = descPoolCache.GetOrCreate(layoutInfo);
 			layoutSet.insert(shaderDescriptorSetAllocator->GetDescriptorSetLayout());
@@ -1182,14 +1183,14 @@ namespace graphics_backend
 
 		size_t originalSize = inoutLayouts.size();
 		inoutLayouts.resize(originalSize + layoutSet.size());
-		std::copy(layoutSet.begin(), layoutSet.end(), inoutLayouts.begin() + originalSize);
+		castl::copy(layoutSet.begin(), layoutSet.end(), inoutLayouts.begin() + originalSize);
 		layoutSet.clear();
 	}
 
 	void RenderPassExecutor::CompilePSOs_SubpassSimpleDrawCall(uint32_t subpassID, CTaskGraph* thisGraph)
 	{
 		thisGraph->NewTask()
-			->Name("Compile PSO for SimpleDraw Subpass " + std::to_string(subpassID))
+			->Name("Compile PSO for SimpleDraw Subpass " + castl::to_string(subpassID))
 			->Functor([this, subpassID]()
 			{
 				GPUObjectManager& gpuObjectManager = m_OwningExecutor.GetGPUObjectManager();
@@ -1198,7 +1199,7 @@ namespace graphics_backend
 				auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.vert });
 				auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.frag });
 
-				std::vector<vk::DescriptorSetLayout> layouts;
+				castl::vector<vk::DescriptorSetLayout> layouts;
 				CollectDescriptorSetLayouts(
 					subpassData.shaderBindingList
 					, gpuObjectManager.GetShaderDescriptorPoolCache()
@@ -1221,7 +1222,7 @@ namespace graphics_backend
 		size_t psoCount = subpassData.meshInterface->GetGraphicsPipelineStatesCount();
 		m_GraphicsPipelineObjects[subpassID].resize(psoCount);
 		thisGraph->NewTaskParallelFor()
-			->Name("Compile PSOs for Batch Interface Subpass " + std::to_string(subpassID))
+			->Name("Compile PSOs for Batch Interface Subpass " + castl::to_string(subpassID))
 			->JobCount(psoCount)
 			->Functor([this, subpassID, &subpassData](uint32_t psoID)
 				{
@@ -1238,7 +1239,7 @@ namespace graphics_backend
 					auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag });
 
 					//shaderBindings
-					std::vector<vk::DescriptorSetLayout> layouts;
+					castl::vector<vk::DescriptorSetLayout> layouts;
 					layouts.reserve(shaderBindings.size());
 
 					for (auto& bindingDesc : shaderBindings)
@@ -1281,7 +1282,7 @@ namespace graphics_backend
 					m_GraphicsPipelineObjects[subpassID].resize(batchManager.GetPSOCount());
 
 					pGraph->NewTaskParallelFor()
-						->Name("Prepare PSOs for Batch Interface Subpass " + std::to_string(subpassID))
+						->Name("Prepare PSOs for Batch Interface Subpass " + castl::to_string(subpassID))
 						->JobCount(batchManager.GetPSOCount())
 						->Functor([this, subpassID, batchID](uint32_t psoID)
 							{
@@ -1301,7 +1302,7 @@ namespace graphics_backend
 								auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag });
 
 								//shaderBindings
-								std::vector<vk::DescriptorSetLayout> layouts;
+								castl::vector<vk::DescriptorSetLayout> layouts;
 								layouts.reserve(drawLevelShaderBindings.size());
 								//Subpass Level
 								CollectDescriptorSetLayouts(
@@ -1344,12 +1345,12 @@ namespace graphics_backend
 		{
 			CA_ASSERT(p_PSOs.size() == m_PipelineStates.size(), "PSO Counts Does Not Meets");
 			uint32_t newID = m_PipelineStates.size();
-			found = m_PipelineStates.insert(std::make_pair(pipelineStates, newID)).first;
+			found = m_PipelineStates.insert(castl::make_pair(pipelineStates, newID)).first;
 			p_PSOs.push_back(&found->first);
 		}
 		return found->second;
 	}
-	void BatchManager::AddBatch(std::function<void(CInlineCommandList& commandList)> drawBatchFunc)
+	void BatchManager::AddBatch(castl::function<void(CInlineCommandList& commandList)> drawBatchFunc)
 	{
 		m_DrawBatchFuncs.push_back(drawBatchFunc);
 	}

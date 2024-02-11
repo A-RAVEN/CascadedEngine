@@ -1,6 +1,7 @@
 #pragma once
 #include <CASTL/CAUnorderedMap.h>
 #include "ShaderBindingSet.h"
+#include "TextureHandle.h"
 #include "GPUBufferHandle.h"
 #include "GPUGraphHandleBase.h"
 

@@ -1,11 +1,12 @@
 #pragma once
-#include  <vulkan/vulkan.hpp>
+#include <CASTL/CAMutex.h>
+#include <CASTL/CADeque.h>
+//#include  <vulkan/vulkan.hpp>
+#include "VulkanIncludes.h"
+#include "VMA.h"
 #include "RenderBackendSettings.h"
 #include "VulkanApplicationSubobjectBase.h"
-#include <ExternalLib/VulkanMemoryAllocator/include/vk_mem_alloc.h>
 #include "CVulkanBufferObject.h"
-#include <deque>
-#include <mutex>
 
 namespace graphics_backend
 {
@@ -20,16 +21,16 @@ namespace graphics_backend
 		template<typename TContainer>
 		void Initialize(TContainer const& initializer)
 		{
-			std::unique_lock<std::mutex> lock(m_Mutex);
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			m_Queue.clear();
 			m_Queue.resize(initializer.size());
-			std::copy(initializer.begin(), initializer.end(), m_Queue.begin());
+			castl::copy(initializer.begin(), initializer.end(), m_Queue.begin());
 			m_Conditional.notify_one();
 		}
 
 		void Enqueue(T& newVar)
 		{
-			std::unique_lock<std::mutex> lock(m_Mutex);
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			m_Queue.push_back(newVar);
 			m_Conditional.notify_one();
 		}
@@ -37,7 +38,7 @@ namespace graphics_backend
 		{
 			T result;
 			{
-				std::unique_lock<std::mutex> lock(m_Mutex);
+				castl::unique_lock<castl::mutex> lock(m_Mutex);
 				if (m_Queue.empty())
 				{
 					m_Conditional.wait(lock);
@@ -48,9 +49,9 @@ namespace graphics_backend
 			return result;
 		}
 	private:
-		std::mutex m_Mutex;
-		std::condition_variable m_Conditional;
-		std::deque<T> m_Queue;
+		castl::mutex m_Mutex;
+		castl::condition_variable m_Conditional;
+		castl::deque<T> m_Queue;
 	};
 
 	class CVulkanFrameBoundCommandBufferPool : public ApplicationSubobjectBase
@@ -60,7 +61,7 @@ namespace graphics_backend
 		vk::CommandBuffer AllocateMiscCommandBuffer(const char* cmdName = "Default Cmd");
 		vk::CommandBuffer AllocateSecondaryCommandBuffer(const char* cmdName);
 		void ResetCommandBufferPool();
-		void CollectCommandBufferList(std::vector<vk::CommandBuffer>& inoutCommandBufferList);
+		void CollectCommandBufferList(castl::vector<vk::CommandBuffer>& inoutCommandBufferList);
 		uint32_t GetCommandFrame() const { return m_BoundingFrameID; }
 	private:
 		// 通过 ApplicationSubobjectBase 继承
@@ -71,9 +72,9 @@ namespace graphics_backend
 		{
 		public:
 			size_t m_AvailableCommandBufferIndex = 0;
-			std::vector<vk::CommandBuffer> m_CommandBufferList;
+			castl::vector<vk::CommandBuffer> m_CommandBufferList;
 			vk::CommandBuffer AllocCommandBuffer(CVulkanFrameBoundCommandBufferPool& owner, bool secondary, const char* cmdName = "Default Cmd");
-			void CollectCommandBufferList(std::vector<vk::CommandBuffer>& inoutCommandBufferList);
+			void CollectCommandBufferList(castl::vector<vk::CommandBuffer>& inoutCommandBufferList);
 			void ResetBufferList();
 			void ClearBufferList();
 		};
@@ -81,8 +82,7 @@ namespace graphics_backend
 		CommandBufferList m_CommandBufferList;
 		CommandBufferList m_SecondaryCommandBufferList;
 		uint32_t m_BoundingFrameID = 0;
-		//Miscellaneous CommandBuffers
-		std::vector<vk::CommandBuffer> m_MiscCommandBufferList;
+		castl::vector<vk::CommandBuffer> m_MiscCommandBufferList;
 	};
 
 	class CVulkanThreadContext : public ApplicationSubobjectBase
@@ -91,7 +91,6 @@ namespace graphics_backend
 		CVulkanThreadContext(uint32_t threadId);
 		CVulkanFrameBoundCommandBufferPool& GetCurrentFramePool();
 		CVulkanFrameBoundCommandBufferPool& GetPoolByIndex(TIndex poolIndex);
-		//void CollectSubmittingCommandBuffers(std::vector<vk::CommandBuffer>& inoutCommandBufferList);
 		uint32_t GetThreadID() const { return m_ThreadID; }
 		void DoReleaseContextResourceByIndex(TIndex releasingIndex);
 	private:
@@ -100,6 +99,6 @@ namespace graphics_backend
 		virtual void Release_Internal() override;
 	private:
 		uint32_t m_ThreadID;
-		std::vector<CVulkanFrameBoundCommandBufferPool> m_FrameBoundCommandBufferPools;
+		castl::vector<CVulkanFrameBoundCommandBufferPool> m_FrameBoundCommandBufferPools;
 	};
 }

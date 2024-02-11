@@ -1,13 +1,12 @@
 #pragma once
+#include <CASTL/CAMap.h>
+#include <CASTL/CADeque.h>
+#include <Common.h>
 #include "VulkanIncludes.h"
 #include "ResourceUsageInfo.h"
-#include <map>
-#include <deque>
-#include <RenderInterface/header/Common.h>
+
 namespace graphics_backend
 {
-
-
 	class VulkanBarrierCollector
 	{
 	public:
@@ -28,8 +27,8 @@ namespace graphics_backend
 
 		struct BarrierGroup
 		{
-			std::vector<std::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Image, ETextureFormat>> m_Images;
-			std::vector<std::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Buffer>> m_Buffers;
+			castl::vector<castl::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Image, ETextureFormat>> m_Images;
+			castl::vector<castl::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Buffer>> m_Buffers;
 		};
 
 	private:
@@ -37,13 +36,13 @@ namespace graphics_backend
 		void ExecuteCurrentQueueBarriers(vk::CommandBuffer commandBuffer);
 
 		uint32_t m_CurrentQueueFamilyIndex;
-		std::map<std::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags>
+		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags>
 			, BarrierGroup> m_BarrierGroups;
 
-		std::map<std::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags, uint32_t>
+		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags, uint32_t>
 			, BarrierGroup> m_ReleaseGroups;
 
-		std::map<std::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags, uint32_t>
+		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags, uint32_t>
 			, BarrierGroup> m_AquireGroups;
 	};
 }

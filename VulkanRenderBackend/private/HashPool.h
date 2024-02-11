@@ -1,7 +1,7 @@
 #pragma once
-#include <CACore/header/uhash.h>
-#include <unordered_map>
 #include "VulkanApplicationSubobjectBase.h"
+#include <uhash.h>
+#include <unordered_map>
 #include <functional>
 
 namespace graphics_backend
@@ -20,14 +20,14 @@ namespace graphics_backend
 		HashPool(CVulkanApplication& application) : VKAppSubObjectBaseNoCopy(application)
 		{}
 
-		std::shared_ptr<ValType> GetOrCreate(DescType const& desc)
+		castl::shared_ptr<ValType> GetOrCreate(DescType const& desc)
 		{
-			std::shared_ptr<ValType> result;
+			castl::shared_ptr<ValType> result;
 			std::lock_guard<std::mutex> lockGuard(m_Mutex);
 			auto it = m_InternalMap.find(desc);
 			if (it == m_InternalMap.end())
 			{
-				result = std::shared_ptr<ValType>{ new ValType{ GetVulkanApplication() } };
+				result = castl::shared_ptr<ValType>{ new ValType{ GetVulkanApplication() } };
 				it = m_InternalMap.insert(std::make_pair(desc, result)).first;
 				result->Create(it->first);
 			}
@@ -47,6 +47,6 @@ namespace graphics_backend
 		}
 	private:
 		std::mutex m_Mutex;
-		std::unordered_map<DescType, std::shared_ptr<ValType>, hash_utils::default_hashAlg> m_InternalMap;
+		std::unordered_map<DescType, castl::shared_ptr<ValType>, hash_utils::default_hashAlg> m_InternalMap;
 	};
 }

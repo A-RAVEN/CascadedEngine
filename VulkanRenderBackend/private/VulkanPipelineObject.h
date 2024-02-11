@@ -1,21 +1,21 @@
 #pragma once
+#include <CVertexInputDescriptor.h>
+#include <CPipelineStateObject.h>
 #include "VulkanApplicationSubobjectBase.h"
-#include <RenderInterface/header/CPipelineStateObject.h>
 #include "VulkanIncludes.h"
 #include "CShaderModuleObject.h"
-#include <RenderInterface/header/CVertexInputDescriptor.h>
 #include "RenderPassObject.h"
 
 template<>
-struct hash_utils::is_contiguously_hashable<vk::DescriptorSetLayout> : public std::true_type {};
+struct hash_utils::is_contiguously_hashable<vk::DescriptorSetLayout> : public castl::true_type {};
 
 namespace graphics_backend
 {
 	struct ShaderStateDescriptor
 	{
 	public:
-		std::shared_ptr<CShaderModuleObject> vertexShader = nullptr;
-		std::shared_ptr <CShaderModuleObject> fragmentShader = nullptr;
+		castl::shared_ptr<CShaderModuleObject> vertexShader = nullptr;
+		castl::shared_ptr <CShaderModuleObject> fragmentShader = nullptr;
 
 		bool operator==(ShaderStateDescriptor const& rhs) const
 		{
@@ -37,8 +37,8 @@ namespace graphics_backend
 		CVertexInputDescriptor vertexInputs{};
 		ShaderStateDescriptor shaderState{};
 		//TODO Wrap ME
-		std::vector<vk::DescriptorSetLayout> descriptorSetLayouts{};
-		std::shared_ptr<RenderPassObject> renderPassObject = nullptr;
+		castl::vector<vk::DescriptorSetLayout> descriptorSetLayouts{};
+		castl::shared_ptr<RenderPassObject> renderPassObject = nullptr;
 		uint32_t subpassIndex = 0;
 
 		bool operator==(CPipelineObjectDescriptor const& rhs) const
@@ -57,7 +57,7 @@ namespace graphics_backend
 			hash_append(h, pipeline_desc.vertexInputs);
 			hash_append(h, pipeline_desc.shaderState);
 			hash_append(h, pipeline_desc.descriptorSetLayouts);
-			hash_append(h, reinterpret_cast<size_t>(pipeline_desc.renderPassObject.get()));
+			hash_append(h, pipeline_desc.renderPassObject.get());
 			hash_append(h, pipeline_desc.subpassIndex);
 		}
 	};

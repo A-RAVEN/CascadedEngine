@@ -1,5 +1,5 @@
 #pragma once
-#include <RenderInterface/header/GPUTexture.h>
+#include <GPUTexture.h>
 #include "VulkanApplicationSubobjectBase.h"
 #include "VulkanImageObject.h"
 #include "TickUploadingResource.h"
@@ -24,7 +24,7 @@ namespace graphics_backend
 		vk::ImageView m_DefaultImageView;
 		vk::ImageView m_DepthImageView;
 		vk::ImageView m_StencilImageView;
-		std::vector<char> m_ScheduledData;
+		castl::vector<uint8_t> m_ScheduledData;
 	};
 }
 

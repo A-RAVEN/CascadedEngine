@@ -1,7 +1,6 @@
 #pragma once
-#include <cstdint>
-#include <vector>
-#include <tuple>
+#include <CASTL/CAVector.h>
+#include <CASTL/CATuple.h>
 #include <uhash.h>
 #include "Common.h"
 
@@ -17,7 +16,7 @@ public:
 };
 
 template<>
-struct hash_utils::is_contiguously_hashable<InputAssemblyStates> : public std::true_type {};
+struct hash_utils::is_contiguously_hashable<InputAssemblyStates> : public castl::true_type {};
 
 struct VertexAttribute
 {
@@ -35,25 +34,25 @@ public:
 };
 
 template<>
-struct hash_utils::is_contiguously_hashable<VertexAttribute> : public std::true_type {};
+struct hash_utils::is_contiguously_hashable<VertexAttribute> : public castl::true_type {};
 
 class CVertexInputDescriptor
 {
 public:
 	InputAssemblyStates assemblyStates;
-	std::vector<std::tuple<uint32_t, std::vector<VertexAttribute>, bool>> m_PrimitiveDescriptions;
+	castl::vector<castl::tuple<uint32_t, castl::vector<VertexAttribute>, bool>> m_PrimitiveDescriptions;
 
 	inline void AddPrimitiveDescriptor(
 		uint32_t stride
-		, std::vector<VertexAttribute> const& attributes
+		, castl::vector<VertexAttribute> const& attributes
 		, bool perInstance = false
 	)
 	{
-		m_PrimitiveDescriptions.push_back(std::make_tuple(stride, attributes, perInstance));
+		m_PrimitiveDescriptions.push_back(castl::make_tuple(stride, attributes, perInstance));
 	}
 
 	inline void AddPrimitiveDescriptor(
-		std::tuple<uint32_t, std::vector<VertexAttribute>, bool> const& primitiveDescriptor
+		castl::tuple<uint32_t, castl::vector<VertexAttribute>, bool> const& primitiveDescriptor
 	)
 	{
 		m_PrimitiveDescriptions.push_back(primitiveDescriptor);
@@ -71,9 +70,9 @@ public:
 		hash_append(h, vertex_input_desc.assemblyStates);
 		for (auto& tup : vertex_input_desc.m_PrimitiveDescriptions)
 		{
-			hash_append(h, std::get<0>(tup));
-			hash_append(h, std::get<1>(tup));
-			hash_append(h, std::get<2>(tup));
+			hash_append(h, castl::get<0>(tup));
+			hash_append(h, castl::get<1>(tup));
+			hash_append(h, castl::get<2>(tup));
 		}
 		hash_append(h, vertex_input_desc.m_PrimitiveDescriptions.size());
 	}

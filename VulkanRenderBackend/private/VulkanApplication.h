@@ -1,19 +1,19 @@
 #pragma once
+#include <ThreadManager.h>
+#include <CRenderGraph.h>
+#include <ShaderBindingBuilder.h>
+#include <CASTL/CAUnorderedMap.h>
 #include "WindowContext.h"
 #include "CVulkanThreadContext.h"
 #include "FrameCountContext.h"
 #include "CVulkanMemoryManager.h"
-#include <ThreadManager/header/ThreadManager.h>
 #include "Containers.h"
-#include <unordered_map>
-
 #include "CShaderModuleObject.h"
 #include "RenderPassObject.h"
 #include "VulkanPipelineObject.h"
 #include "FramebufferObject.h"
 #include "GPUBuffer_Impl.h"
-#include <RenderInterface/header/CRenderGraph.h>
-#include <RenderInterface/header/ShaderBindingBuilder.h>
+
 #include "IUploadingResource.h"
 #include "GPUObjectManager.h"
 #include "RenderGraphExecutor.h"
@@ -28,7 +28,7 @@ namespace graphics_backend
 	public:
 		CVulkanApplication();
 		~CVulkanApplication();
-		void InitApp(std::string const& appName, std::string const& engineName);
+		void InitApp(castl::string const& appName, castl::string const& engineName);
 		void InitializeThreadContext(uint32_t threadCount);
 		void ReleaseApp();
 		void DeviceWaitIdle();
@@ -56,7 +56,7 @@ namespace graphics_backend
 
 		CVulkanThreadContext& AquireThreadContext();
 		void ReturnThreadContext(CVulkanThreadContext& returningContext);
-		std::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
+		castl::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
 
 		//CTaskGraph* GetGraphicsTaskGraph() const { return p_TaskGraph; }
 
@@ -64,41 +64,41 @@ namespace graphics_backend
 		//TaskParallelFor* NewTaskParallelFor();
 		//CTask* NewUploadingTask(UploadingResourceType resourceType);
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
-		std::shared_ptr<WindowHandle> CreateWindowContext(std::string windowName, uint32_t initialWidth, uint32_t initialHeight);
+		castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight);
 		void TickWindowContexts(FrameType currentFrameID);
 
 		CFrameCountContext const& GetSubmitCounterContext() const { return m_SubmitCounterContext; }
 
 		template<typename T, typename...TArgs>
 		T SubObject(TArgs&&...Args) const {
-			static_assert(std::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
-			T newSubObject( std::forward<TArgs>(Args)... );
+			static_assert(castl::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
+			T newSubObject( castl::forward<TArgs>(Args)... );
 			newSubObject.Initialize(this);
 			return newSubObject;
 		}
 
 		template<typename T, typename...TArgs>
-		T& SubObject_EmplaceBack(std::vector<T>& container,TArgs&&...Args) const {
-			static_assert(std::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
-			container.emplace_back(std::forward<TArgs>(Args)...);
+		T& SubObject_EmplaceBack(castl::vector<T>& container,TArgs&&...Args) const {
+			static_assert(castl::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
+			container.emplace_back(castl::forward<TArgs>(Args)...);
 			T& newSubObject = container.back();
 			newSubObject.Initialize(this);
 			return newSubObject;
 		}
 
 		template<typename T, typename...TArgs>
-		std::shared_ptr<T> SubObject_Shared(TArgs&&...Args) const {
-			static_assert(std::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
-			std::shared_ptr<T> newSubObject = std::shared_ptr<T>(new T(std::forward<TArgs>(Args)...), ApplicationSubobjectBase_Deleter{});
+		castl::shared_ptr<T> SubObject_Shared(TArgs&&...Args) const {
+			static_assert(castl::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
+			castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>(new T(castl::forward<TArgs>(Args)...), ApplicationSubobjectBase_Deleter{});
 			newSubObject->Initialize(this);
 			return newSubObject;
 		}
 
 		template<typename T, typename...TArgs>
 		T NewObject(TArgs&&...Args) const {
-			static_assert(std::is_base_of<VKAppSubObjectBaseNoCopy, T>::value, "Type T not derived from VKAppSubObjectBaseNoCopy");
+			static_assert(castl::is_base_of<VKAppSubObjectBaseNoCopy, T>::value, "Type T not derived from VKAppSubObjectBaseNoCopy");
 			T newObject(*this);
-			newObject.Initialize(std::forward<TArgs>(Args)...);
+			newObject.Initialize(castl::forward<TArgs>(Args)...);
 			return newObject;
 		}
 
@@ -108,11 +108,11 @@ namespace graphics_backend
 		}
 
 		void SyncPresentationFrame(FrameType frameID);
-		void ExecuteStates(CTaskGraph* rootTaskGraph, std::vector<std::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID);
+		void ExecuteStates(CTaskGraph* rootTaskGraph, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID);
 
-		void PushRenderGraph(std::shared_ptr<CRenderGraph> inRenderGraph);
+		void PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph);
 
-		void CreateImageViews2D(vk::Format format, std::vector<vk::Image> const& inImages, std::vector<vk::ImageView>& outImageViews) const;
+		void CreateImageViews2D(vk::Format format, castl::vector<vk::Image> const& inImages, castl::vector<vk::ImageView>& outImageViews) const;
 		vk::ImageView CreateDefaultImageView(
 			GPUTextureDescriptor const& inDescriptor
 			, vk::Image inImage
@@ -126,15 +126,15 @@ namespace graphics_backend
 		GPUTexture* NewGPUTexture(GPUTextureDescriptor const& inDescriptor);
 		void ReleaseGPUTexture(GPUTexture* releaseGPUTexture);
 
-		std::shared_ptr<ShaderConstantSet> NewShaderConstantSet(ShaderConstantsBuilder const& builder);
-		std::shared_ptr<ShaderBindingSet> NewShaderBindingSet(ShaderBindingBuilder const& builder);
-		std::shared_ptr<TextureSampler> GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor);
+		castl::shared_ptr<ShaderConstantSet> NewShaderConstantSet(ShaderConstantsBuilder const& builder);
+		castl::shared_ptr<ShaderBindingSet> NewShaderBindingSet(ShaderBindingBuilder const& builder);
+		castl::shared_ptr<TextureSampler> GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor);
 
 		HashPool<ShaderBindingBuilder, ShaderBindingSetAllocator>& GetShaderBindingSetAllocators() { return m_ShaderBindingSetAllocator; }
 		HashPool<ShaderConstantsBuilder, ShaderConstantSetAllocator>& GetShaderConstantSetAllocators() { return m_ConstantSetAllocator; }
 	private:
 
-		void InitializeInstance(std::string const& name, std::string const& engineName);
+		void InitializeInstance(castl::string const& name, castl::string const& engineName);
 		void DestroyInstance();
 		void EnumeratePhysicalDevices();
 		void CreateDevice();
@@ -154,24 +154,10 @@ namespace graphics_backend
 	#endif
 
 		CFrameCountContext m_SubmitCounterContext;
-		std::vector<std::shared_ptr<CWindowContext>> m_WindowContexts;
+		castl::vector<castl::shared_ptr<CWindowContext>> m_WindowContexts;
 
 		Internal_InterlockedQueue<uint32_t> m_AvailableThreadQueue;
-		mutable std::vector<CVulkanThreadContext> m_ThreadContexts;
-
-		//Thread Manager
-		//CThreadManager* p_ThreadManager = nullptr;
-		//Root Graph
-		//CTaskGraph* p_TaskGraph = nullptr;
-		////Resource Loading Graph
-		//CTaskGraph* p_MemoryResourceUploadingTaskGraph = nullptr;
-		//CTaskGraph* p_GPUAddressUploadingTaskGraph = nullptr;
-		////Rendergraph Execution Graph
-		//CTaskGraph* p_RenderingTaskGraph = nullptr;
-		////Finalize Graph
-		//CTaskGraph* p_FinalizeTaskGraph = nullptr;
-		//Future
-		//std::shared_future<void> m_TaskFuture;
+		mutable castl::vector<CVulkanThreadContext> m_ThreadContexts;
 
 		TTickingUpdateResourcePool<GPUBuffer_Impl> m_GPUBufferPool;
 		TTickingUpdateResourcePool<GPUTexture_Impl> m_GPUTexturePool;
@@ -182,9 +168,6 @@ namespace graphics_backend
 
 		GPUObjectManager m_GPUObjectManager;
 		RenderGraphExecutorDic m_RenderGraphDic;
-
-		//std::deque<RenderGraphExecutor> m_Executors;
-		//std::vector<std::shared_ptr<CRenderGraph>> m_PendingRenderGraphs;
 
 		CVulkanMemoryManager m_MemoryManager;
 	};

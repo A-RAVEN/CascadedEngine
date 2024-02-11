@@ -22,5 +22,4 @@ namespace eastl
 namespace castl
 {
 	using namespace eastl;
-
 }

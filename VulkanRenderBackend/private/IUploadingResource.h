@@ -2,7 +2,7 @@
 #include "RenderBackendSettings.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include "TaskScheduling.h"
-#include <ThreadManager/header/ThreadManager.h>
+#include <ThreadManager.h>
 #include <deque>
 
 namespace graphics_backend

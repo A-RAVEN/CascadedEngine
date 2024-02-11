@@ -1,8 +1,8 @@
 #pragma once
 #include "VulkanIncludes.h"
-#include <RenderInterface/header/Common.h>
-#include <RenderInterface/header/TextureSampler.h>
-#include <RenderInterface/header/GPUTexture.h>
+#include <Common.h>
+#include <TextureSampler.h>
+#include <GPUTexture.h>
 
 namespace graphics_backend
 {
