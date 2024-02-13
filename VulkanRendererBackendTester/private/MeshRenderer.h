@@ -1,35 +1,34 @@
 #pragma once
+#include <uhash.h>
+#include <CRenderBackend.h>
 #include "StaticMeshResource.h"
-#include <RenderInterface/header/CRenderBackend.h>
-#include <CACore/header/uhash.h>
 
-using namespace graphics_backend;
 class MeshGPUData
 {
 public:
 	MeshGPUData() = default;
-	MeshGPUData(std::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
-	void UploadMeshResource(resource_management::StaticMeshResource* meshResource, std::string const& name);
-	void Draw(CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset);
+	MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
+	void UploadMeshResource(resource_management::StaticMeshResource* meshResource, castl::string const& name);
+	void Draw(graphics_backend::CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset);
 private:
-	std::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
+	castl::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
 	resource_management::StaticMeshResource* p_MeshResource;
-	std::shared_ptr<graphics_backend::GPUBuffer> m_VertexBuffer;
-	std::shared_ptr<graphics_backend::GPUBuffer> m_IndicesBuffer;
+	castl::shared_ptr<graphics_backend::GPUBuffer> m_VertexBuffer;
+	castl::shared_ptr<graphics_backend::GPUBuffer> m_IndicesBuffer;
 };
 
 struct MeshMaterial
 {
 	CPipelineStateObject pipelineStateObject;
 	GraphicsShaderSet shaderSet;
-	std::vector<std::shared_ptr<ShaderBindingSet>> materialShaderBindings;
+	castl::vector<castl::shared_ptr<graphics_backend::ShaderBindingSet>> materialShaderBindings;
 };
 
 struct MeshRenderer
 {
 public:
 	resource_management::StaticMeshResource* p_MeshResource;
-	std::vector<MeshMaterial> materials;
+	castl::vector<MeshMaterial> materials;
 };
 
 struct MeshDrawInfo
@@ -37,7 +36,7 @@ struct MeshDrawInfo
 public:
 	resource_management::StaticMeshResource* p_MeshResource;
 	uint32_t m_SubmeshIndex;
-	std::vector<std::shared_ptr<ShaderBindingSet>> p_ShaderBindings;
+	castl::vector<castl::shared_ptr<graphics_backend::ShaderBindingSet>> p_ShaderBindings;
 
 	bool operator==(MeshDrawInfo const& rhs) const
 	{
@@ -55,15 +54,15 @@ public:
 	}
 };
 
-extern std::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
+extern castl::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
 
-class MeshBatchDrawInterface : public IDrawBatchInterface
+class MeshBatchDrawInterface : public graphics_backend::IDrawBatchInterface
 {
 public:
 	struct MeshDrawListInternal
 	{
 		TIndex psoID;
-		std::unordered_map<MeshDrawInfo, std::pair<std::shared_ptr<GPUBuffer>, std::vector<uint32_t>>, hash_utils::default_hashAlg> drawCalls;
+		castl::unordered_map<MeshDrawInfo, castl::pair<castl::shared_ptr<graphics_backend::GPUBuffer>, castl::vector<uint32_t>>, hash_utils::default_hashAlg> drawCalls;
 	};
 
 	static CVertexInputDescriptor GetDescriptor()
@@ -75,12 +74,12 @@ public:
 		return descriptor;
 	}
 
-	virtual void OnRegisterGraphicsPipelineStates(IBatchManager& batchManager) override
+	virtual void OnRegisterGraphicsPipelineStates(graphics_backend::IBatchManager& batchManager) override
 	{
 		for (auto& pipelineState : m_MeshBatchs)
 		{
 			pipelineState.second.psoID = batchManager.RegisterGraphicsPipelineState(pipelineState.first);
-			batchManager.AddBatch([this, refData = &pipelineState.second](CInlineCommandList& cmd)
+			batchManager.AddBatch([this, refData = &pipelineState.second](graphics_backend::CInlineCommandList& cmd)
 				{
 					cmd.BindPipelineState(refData->psoID);
 					cmd.SetShaderBindings({ m_PerViewShaderBindings });
@@ -97,13 +96,13 @@ public:
 		}
 	}
 
-	virtual std::vector<ShaderBindingBuilder> const& GetInterfaceLevelShaderBindingDescriptors() const override
+	virtual castl::vector<ShaderBindingBuilder> const& GetInterfaceLevelShaderBindingDescriptors() const override
 	{
 		return m_ShaderBindingDescriptors;
 	}
 
-	void AddMeshDrawcall(GraphicsPipelineStatesData const& pipelineStates
-		, std::vector<std::shared_ptr<ShaderBindingSet>> shaderBindings
+	void AddMeshDrawcall(graphics_backend::GraphicsPipelineStatesData const& pipelineStates
+		, castl::vector<castl::shared_ptr<graphics_backend::ShaderBindingSet>> shaderBindings
 		, uint32_t instanceIndex
 		, resource_management::StaticMeshResource* pMeshResource
 		, uint32_t submeshID)
@@ -120,7 +119,7 @@ public:
 			auto findDrawCall = drawListInternal.drawCalls.find(drawInfo);
 			if (findDrawCall == drawListInternal.drawCalls.end())
 			{
-				findDrawCall = drawListInternal.drawCalls.insert(std::make_pair(drawInfo, std::make_pair(nullptr, std::vector<uint32_t>{}))).first;
+				findDrawCall = drawListInternal.drawCalls.insert(castl::make_pair(drawInfo, castl::make_pair(nullptr, castl::vector<uint32_t>{}))).first;
 			}
 			findDrawCall->second.second.push_back(instanceIndex);
 		}
@@ -128,11 +127,11 @@ public:
 
 	void AddMesh(MeshRenderer const& meshRenderer, glm::mat4 const& transform)
 	{
-		std::vector<GraphicsPipelineStatesData> materialPipelineStates;
+		castl::vector<graphics_backend::GraphicsPipelineStatesData> materialPipelineStates;
 		materialPipelineStates.resize(meshRenderer.materials.size());
 		for (uint32_t i = 0; i < meshRenderer.materials.size(); ++i)
 		{
-			materialPipelineStates[i] = GraphicsPipelineStatesData{
+			materialPipelineStates[i] = graphics_backend::GraphicsPipelineStatesData{
 			meshRenderer.materials[i].pipelineStateObject
 			, GetDescriptor() 
 			, meshRenderer.materials[i].shaderSet};
@@ -201,13 +200,13 @@ public:
 		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", viewProjectionMatrix);
 	}
 private:
-	std::unordered_map<GraphicsPipelineStatesData
+	castl::unordered_map<graphics_backend::GraphicsPipelineStatesData
 		, MeshDrawListInternal
 		, hash_utils::default_hashAlg> m_MeshBatchs;
-	std::vector<glm::mat4> m_Instances;
-	std::vector<ShaderBindingBuilder> m_ShaderBindingDescriptors;
-	std::shared_ptr<GPUBuffer> m_InstanceBuffer;
+	castl::vector<glm::mat4> m_Instances;
+	castl::vector<ShaderBindingBuilder> m_ShaderBindingDescriptors;
+	castl::shared_ptr<graphics_backend::GPUBuffer> m_InstanceBuffer;
 
-	std::shared_ptr<ShaderConstantSet> m_PerViewShaderConstants;
-	std::shared_ptr<ShaderBindingSet> m_PerViewShaderBindings;
+	castl::shared_ptr<graphics_backend::ShaderConstantSet> m_PerViewShaderConstants;
+	castl::shared_ptr<graphics_backend::ShaderBindingSet> m_PerViewShaderBindings;
 };

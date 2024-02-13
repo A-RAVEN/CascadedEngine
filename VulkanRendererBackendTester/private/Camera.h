@@ -1,8 +1,8 @@
 #pragma once
 #define GLM_FORCE_QUAT_DATA_XYZW 1
-#include <ExternalLib/glm/glm/mat4x4.hpp>
-#include <ExternalLib/glm/glm/gtc/matrix_transform.hpp>
-#include <ExternalLib/glm/glm/gtc/quaternion.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 class Camera
 {
 public:

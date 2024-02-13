@@ -1,11 +1,11 @@
+#include <stb_image.h>
 #include "StaticMeshResource.h"
 #include "SerializationLog.h"
 #include "TextureResource.h"
-#include <ExternalLib/stb/stb_image.h>
 
 namespace resource_management
 {
-	void StaticMeshResource::Serialzie(std::vector<std::byte>& data)
+	void StaticMeshResource::Serialzie(castl::vector<uint8_t>& data)
 	{
 		zpp::bits::out out(data);
 		auto result = out(*this);
@@ -13,7 +13,7 @@ namespace resource_management
 			LogZPPError("serialize failed", result);
 		}
 	}
-	void StaticMeshResource::Deserialzie(std::vector<std::byte>& data)
+	void StaticMeshResource::Deserialzie(castl::vector<uint8_t>& data)
 	{
 		zpp::bits::in in(data);
 		auto result = in(*this);
@@ -25,7 +25,7 @@ namespace resource_management
 	{
 
 	}
-	void StaticMeshImporter::ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath)
+	void StaticMeshImporter::ImportResource(ResourceManagingSystem* resourceManager, castl::string const& resourcePath, castl::string const& outPath)
 	{
 		const aiScene* scene = m_Importer.ReadFile(resourcePath,
 			aiProcess_GenNormals |
@@ -87,7 +87,7 @@ namespace resource_management
 				for (int textureID = 0; textureID < scene->mNumTextures; ++textureID)
 				{
 					aiTexture* pTexture = scene->mTextures[textureID];
-					std::filesystem::path texturePath = pTexture->mFilename.C_Str();
+					castl::filesystem::path texturePath = pTexture->mFilename.C_Str();
 					texturePath = texturePath.replace_extension(".texture");
 
 					if (pTexture->mHeight == 0)
@@ -119,7 +119,7 @@ namespace resource_management
 				}
 			}
 
-			std::deque<aiNode*> nodeQueue;
+			castl::deque<aiNode*> nodeQueue;
 
 			nodeQueue.push_back(scene->mRootNode);
 			while (!nodeQueue.empty())

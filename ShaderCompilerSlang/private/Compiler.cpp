@@ -3,15 +3,15 @@
 #include <Windows.h>
 #endif
 #define NV_EXTENSIONS
-#include <header/Compiler.h>
+#include <Compiler.h>
 #define SLANG_STATIC
 #include <slang.h>
-#include <map>
-#include <set>
-#include <string>
-#include <mutex>
-#include <CACore/header/LibraryExportCommon.h>
-#include <CACore/header/DebugUtils.h>
+#include <CASTL/CAMap.h>
+#include <CASTL/CASet.h>
+#include <CASTL/CAString.h>
+#include <CASTL/CAMutex.h>
+#include <LibraryExportCommon.h>
+#include <DebugUtils.h>
 
 namespace ShaderCompilerSlang
 {
@@ -99,7 +99,7 @@ namespace ShaderCompilerSlang
 
 		virtual void AddSourceFile(const char* path) override
 		{
-			std::string path_str = path;
+			castl::string path_str = path;
 			if (m_CompileTask.m_SourceFiles.find(path_str) == m_CompileTask.m_SourceFiles.end())
 			{
 				m_CompileTask.m_SourceFiles.insert(path_str);
@@ -109,12 +109,12 @@ namespace ShaderCompilerSlang
 
 		virtual int AddEntryPoint(const char* name, ECompileShaderType shader_type) override
 		{
-			std::string name_str = name;
+			castl::string name_str = name;
 			auto found = m_CompileTask.m_EntryPointToID.find(name_str);
 			if (found == m_CompileTask.m_EntryPointToID.end())
 			{
 				int id = spAddEntryPoint(m_CompileTask.m_Request, m_CompileTask.m_TranslationUnitIndex, name, SHADER_KIND_TABLE[static_cast<uint32_t>(shader_type)]);
-				found = m_CompileTask.m_EntryPointToID.insert(std::make_pair(name_str, id)).first;
+				found = m_CompileTask.m_EntryPointToID.insert(castl::make_pair(name_str, id)).first;
 			}
 			return found->second;
 		};
@@ -168,10 +168,10 @@ namespace ShaderCompilerSlang
 		{
 			SlangCompileRequest* m_Request = nullptr;
 			int m_TranslationUnitIndex = -1;
-			std::map<std::string, int> m_EntryPointToID;
-			std::set<std::string> m_SourceFiles;
-			std::vector<std::vector<uint8_t>> m_OutputData;
-			std::string m_ErrorsOrWarnings;
+			castl::map<castl::string, int> m_EntryPointToID;
+			castl::set<castl::string> m_SourceFiles;
+			castl::vector<castl::vector<uint8_t>> m_OutputData;
+			castl::string m_ErrorsOrWarnings;
 			bool m_HasError = false;
 
 			void Clear()
@@ -203,7 +203,7 @@ namespace ShaderCompilerSlang
 
 		virtual IShaderCompiler* AquireShaderCompiler() override
 		{
-			std::unique_lock<std::mutex> lock(m_Mutex);
+			castl::unique_lock<castl::mutex> lock(m_Mutex);
 			m_ConditinalVariable.wait(lock, [this]()
 				{
 					return !m_AvailableCompilers.empty();
@@ -215,7 +215,7 @@ namespace ShaderCompilerSlang
 		virtual void ReturnShaderCompiler(IShaderCompiler* compiler) override
 		{
 			{
-				std::lock_guard<std::mutex> lock(m_Mutex);
+				castl::lock_guard<castl::mutex> lock(m_Mutex);
 				m_AvailableCompilers.push_back(compiler);
 			}
 			m_ConditinalVariable.notify_one();
@@ -223,7 +223,7 @@ namespace ShaderCompilerSlang
 
 		virtual void InitializePoolSize(uint32_t compiler_count) override
 		{
-			std::lock_guard<std::mutex> lock(m_Mutex);
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			if (m_Compilers.empty())
 			{
 				m_Compilers.resize(compiler_count);
@@ -236,10 +236,10 @@ namespace ShaderCompilerSlang
 			}
 		}
 
-		std::condition_variable m_ConditinalVariable;
-		std::mutex m_Mutex;
-		std::vector<IShaderCompiler*> m_AvailableCompilers;
-		std::vector<Compiler_Impl> m_Compilers;
+		castl::condition_variable m_ConditinalVariable;
+		castl::mutex m_Mutex;
+		castl::vector<IShaderCompiler*> m_AvailableCompilers;
+		castl::vector<Compiler_Impl> m_Compilers;
 	};
 
 	CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(IShaderCompilerManager, ShaderCompilerManager);

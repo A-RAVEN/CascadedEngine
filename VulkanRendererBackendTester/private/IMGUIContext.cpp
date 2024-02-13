@@ -1,7 +1,7 @@
+#include <GPUTexture.h>
+#include <imgui.h>
+#include <glm/mat4x4.hpp>
 #include "IMGUIContext.h"
-#include <RenderInterface/header/GPUTexture.h>
-#include <ExternalLib/imgui/imgui.h>
-#include <ExternalLib/glm/glm/mat4x4.hpp>
 #include "ShaderResource.h"
 #include "KeyCodes.h"
 
@@ -98,8 +98,8 @@ void IMGUIContext::DrawIMGUI(graphics_backend::CRenderGraph* renderGraph, graphi
 
 	size_t vtxOffset = 0;
 	size_t idxOffset = 0;
-	std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> indexDataOffsets;
-	std::vector<glm::uvec4> sissors;
+	castl::vector<castl::tuple<uint32_t, uint32_t, uint32_t>> indexDataOffsets;
+	castl::vector<glm::uvec4> sissors;
 	for (int n = 0; n < imDrawData->CmdListsCount; n++) {
 		const ImDrawList* cmd_list = imDrawData->CmdLists[n];
 		renderGraph->ScheduleBufferData(vertexBufferHandle, vtxOffset * sizeof(ImDrawVert), cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
@@ -108,7 +108,7 @@ void IMGUIContext::DrawIMGUI(graphics_backend::CRenderGraph* renderGraph, graphi
 		for (int j = 0; j < cmd_list->CmdBuffer.Size; ++j)
 		{
 			const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
-			indexDataOffsets.push_back(std::make_tuple(idxOffset, vtxOffset, pcmd->ElemCount));
+			indexDataOffsets.push_back(castl::make_tuple(idxOffset, vtxOffset, pcmd->ElemCount));
 			sissors.push_back(glm::ivec4(pcmd->ClipRect.x, pcmd->ClipRect.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
 			idxOffset += pcmd->ElemCount;
 		}
@@ -133,13 +133,13 @@ void IMGUIContext::DrawIMGUI(graphics_backend::CRenderGraph* renderGraph, graphi
 			, { {}, {shaderBinding} }
 			, [shaderBinding, vertexBufferHandle, indexBufferHandle, indexDataOffsets, sissors](CInlineCommandList& cmd)
 			{
-				cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ shaderBinding })
+				cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ shaderBinding })
 					.BindVertexBuffers({ vertexBufferHandle })
 					.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
 				for (uint32_t i = 0; i < indexDataOffsets.size(); ++i)
 				{
 					cmd.SetSissor(sissors[i].x, sissors[i].y, sissors[i].z, sissors[i].w)
-						.DrawIndexed(std::get<2>(indexDataOffsets[i]), 1, std::get<0>(indexDataOffsets[i]), std::get<1>(indexDataOffsets[i]));
+						.DrawIndexed(castl::get<2>(indexDataOffsets[i]), 1, castl::get<0>(indexDataOffsets[i]), castl::get<1>(indexDataOffsets[i]));
 				}
 			});
 }

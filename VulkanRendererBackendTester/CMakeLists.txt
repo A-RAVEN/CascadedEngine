@@ -4,17 +4,26 @@ project (${PROJECT_NAME})
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 
-file(GLOB_RECURSE flatbuffers_schemas "*.fbs")
+#file(GLOB_RECURSE flatbuffers_schemas "*.fbs")
 
-include(${CMAKE_SOURCE_DIR}/CMake/ExternalProjects.cmake)
-link_imgui(Source_List)
-
-add_executable(${PROJECT_NAME} ${Header_List} ${Source_List} "private/KeyCodes.h")
-
-target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_SOURCE_DIR}")
+#include(${CMAKE_SOURCE_DIR}/CMake/ExternalProjects.cmake)
+#link_imgui(Source_List)
 
 
-target_link_libraries(${PROJECT_NAME} PRIVATE "assimp")
+add_executable(${PROJECT_NAME} ${Header_List} ${Source_List})
+
+#target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_SOURCE_DIR}")
+
+target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
+target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE Rendering_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompilerSlang_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE glm)
+target_link_libraries(${PROJECT_NAME} PRIVATE IMGUI)
+target_link_libraries(${PROJECT_NAME} PRIVATE assimp)
+target_link_libraries(${PROJECT_NAME} PRIVATE zpp_bits)
+target_link_libraries(${PROJECT_NAME} PRIVATE stb)
 #[[
 target_link_libraries(${PROJECT_NAME} PRIVATE flatbuffers)
 message("   flatbuffers_schemas: ${flatbuffers_schemas}")

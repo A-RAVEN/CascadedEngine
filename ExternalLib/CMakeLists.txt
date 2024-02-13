@@ -6,6 +6,9 @@ project (${PROJECT_NAME})
 set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator)
 add_subdirectory(${VMA_DIR})
 
+#GLM
+add_subdirectory(glm)
+
 #GLFW
 set(GLFW_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glfw)
 set(GLFW_BUILD_EXAMPLES OFF CACHE INTERNAL "Build the GLFW example programs")
@@ -13,6 +16,19 @@ set(GLFW_BUILD_TESTS OFF CACHE INTERNAL "Build the GLFW test programs")
 set(GLFW_BUILD_DOCS OFF CACHE INTERNAL "Build the GLFW documentation")
 set(GLFW_INSTALL OFF CACHE INTERNAL "Generate installation target")
 add_subdirectory(${GLFW_DIR})
+
+#IMGUI
+file(GLOB IMGUI_SourceList "${CMAKE_CURRENT_SOURCE_DIR}/imgui/*.cpp")
+add_library(IMGUI STATIC ${IMGUI_SourceList})
+target_include_directories(IMGUI PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+
+#ZPP_Bits
+add_library(zpp_bits INTERFACE)
+target_include_directories(zpp_bits INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/zpp_bits)
+
+#STB
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
 
 #DXC
 #[[

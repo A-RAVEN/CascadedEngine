@@ -1,9 +1,9 @@
 #pragma once
 #include <memory>
-#include <RenderInterface/header/CRenderBackend.h>
-#include <RenderInterface/header/ShaderProvider.h>
-#include <RenderInterface/header/GPUTexture.h>
-#include <GeneralResources/header/ResourceManagingSystem.h>
+#include <CRenderBackend.h>
+#include <ShaderProvider.h>
+#include <GPUTexture.h>
+#include <CAResource/ResourceManagingSystem.h>
 
 class IMGUIContext
 {
@@ -19,8 +19,8 @@ public:
 		graphics_backend::CRenderGraph* renderGraph
 		, graphics_backend::TextureHandle renderTargethandle);
 private:
-	std::shared_ptr<graphics_backend::GPUTexture> m_Fontimage;
-	std::shared_ptr<graphics_backend::TextureSampler> m_ImageSampler;
+	castl::shared_ptr<graphics_backend::GPUTexture> m_Fontimage;
+	castl::shared_ptr<graphics_backend::TextureSampler> m_ImageSampler;
 	GraphicsShaderSet m_ImguiShaderSet;
 	ShaderConstantsBuilder m_ImguiShaderConstantsBuilder;
 	ShaderBindingBuilder m_ImguiShaderBindingBuilder;

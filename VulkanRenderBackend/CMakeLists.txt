@@ -11,7 +11,7 @@ target_link_directories(${PROJECT_NAME} PRIVATE
     "$ENV{VK_SDK_PATH}/Lib"
     "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}"
 )
-target_link_libraries(${PROJECT_NAME} PRIVATE "glfw3.lib" "vulkan-1.lib")
+target_link_libraries(${PROJECT_NAME} PRIVATE "vulkan-1.lib")
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE Rendering_Interface)

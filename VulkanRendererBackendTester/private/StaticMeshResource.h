@@ -1,18 +1,17 @@
 #pragma once
-#include <GeneralResources/header/IResource.h>
-#include <GeneralResources/header/ResourceImporter.h>
-#include <GeneralResources/header/ResourceManagingSystem.h>
+#include <CAResource/IResource.h>
+#include <CAResource/ResourceImporter.h>
+#include <CAResource/ResourceManagingSystem.h>
 #include "TestShaderProvider.h"
-#include <ShaderCompiler/header/Compiler.h>
-#include <CACore/header/library_loader.h>
-#include <ExternalLib/zpp_bits/zpp_bits.h>
+#include <Compiler.h>
+#include <library_loader.h>
+#include <zpp_bits.h>
 #include <assimp/Importer.hpp>      // C++ importer interface
 #include <assimp/scene.h>           // Output data structure
 #include <assimp/postprocess.h>     // Post processing flags
-#include <ExternalLib/glm/glm/mat4x4.hpp>
-#include <ExternalLib/glm/glm/gtc/matrix_transform.hpp>
-#include <ExternalLib/zpp_bits/zpp_bits.h>
-#include <RenderInterface/header/CRenderBackend.h>
+#include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <CRenderBackend.h>
 
 namespace glm
 {
@@ -48,9 +47,9 @@ namespace resource_management
 		glm::vec3 tangent;
 		glm::vec3 bitangent;
 
-		constexpr static auto GetVertexInputDescs(uint32_t baseOffset)
+		static auto GetVertexInputDescs(uint32_t baseOffset)
 		{
-			return std::vector{
+			return castl::vector{
 				VertexAttribute{ baseOffset, offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat }
 				, VertexAttribute{ baseOffset + 1, offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat }
 				, VertexAttribute{ baseOffset + 2, offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat }
@@ -79,30 +78,30 @@ namespace resource_management
 		};
 		friend zpp::bits::access;
 		using serialize = zpp::bits::members<4>;
-		virtual void Serialzie(std::vector<std::byte>& out) override;
-		virtual void Deserialzie(std::vector<std::byte>& in) override;
+		virtual void Serialzie(castl::vector<uint8_t>& out) override;
+		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 		constexpr uint32_t GetVertexCount() const { return m_Attributes.size(); }
 		constexpr uint32_t GetIndicesCount() const { return m_Indices16.size(); }
 		constexpr void const* GetVertexData() const { return m_Attributes.data(); }
 		constexpr void const* GetIndicesData() const { return m_Indices16.data(); }
-		std::vector<SubmeshInfo> const& GetSubmeshInfos() const { return m_SubmeshInfos; }
-		std::vector<InstanceInfo> const& GetInstanceInfos() const { return m_Instance; }
+		castl::vector<SubmeshInfo> const& GetSubmeshInfos() const { return m_SubmeshInfos; }
+		castl::vector<InstanceInfo> const& GetInstanceInfos() const { return m_Instance; }
 	private:
 		friend class StaticMeshImporter;
-		std::vector<CommonVertexData> m_Attributes;
-		std::vector<uint16_t> m_Indices16;
-		std::vector<SubmeshInfo> m_SubmeshInfos;
-		std::vector<InstanceInfo> m_Instance;
+		castl::vector<CommonVertexData> m_Attributes;
+		castl::vector<uint16_t> m_Indices16;
+		castl::vector<SubmeshInfo> m_SubmeshInfos;
+		castl::vector<InstanceInfo> m_Instance;
 	};
 
 	class StaticMeshImporter : public ResourceImporter<StaticMeshResource>
 	{
 	public:
 		StaticMeshImporter();
-		virtual std::string GetSourceFilePostfix() const override { return ".fbx"; }
-		virtual std::string GetDestFilePostfix() const override { return ""; }
-		virtual std::string GetTags() const override { return ""; }
-		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) override;
+		virtual castl::string GetSourceFilePostfix() const override { return ".fbx"; }
+		virtual castl::string GetDestFilePostfix() const override { return ""; }
+		virtual castl::string GetTags() const override { return ""; }
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, castl::string const& resourcePath, castl::string const& outPath) override;
 	private:
 		Assimp::Importer m_Importer;
 	};

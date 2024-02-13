@@ -1,6 +1,6 @@
 #pragma once
-#include <memory>
-#include <RenderInterface/header/Common.h>
+#include <CASTL/CASharedPtr.h>
+#include <Common.h>
 
 namespace ShaderCompilerSlang
 {
@@ -34,9 +34,9 @@ namespace ShaderCompilerSlang
 		virtual void ReturnShaderCompiler(IShaderCompiler* compiler) = 0;
 		virtual void InitializePoolSize(uint32_t compiler_count) = 0;
 
-		inline std::shared_ptr<IShaderCompiler> AquireShaderCompilerShared()
+		inline castl::shared_ptr<IShaderCompiler> AquireShaderCompilerShared()
 		{
-			return std::shared_ptr<IShaderCompiler>(AquireShaderCompiler(), [this](IShaderCompiler* compiler) {ReturnShaderCompiler(compiler); });
+			return castl::shared_ptr<IShaderCompiler>(AquireShaderCompiler(), [this](IShaderCompiler* compiler) {ReturnShaderCompiler(compiler); });
 		}
 	};
 

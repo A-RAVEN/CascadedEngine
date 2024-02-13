@@ -1,13 +1,14 @@
 #include "MeshRenderer.h"
 
-std::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
+using namespace graphics_backend;
+castl::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
 
-MeshGPUData::MeshGPUData(std::shared_ptr<graphics_backend::CRenderBackend> renderBackend)
+MeshGPUData::MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend)
 {
 	m_RenderBackend = renderBackend;
 }
 
-void MeshGPUData::UploadMeshResource(resource_management::StaticMeshResource* meshResource, std::string const& name)
+void MeshGPUData::UploadMeshResource(resource_management::StaticMeshResource* meshResource, castl::string const& name)
 {
 	p_MeshResource = meshResource;
 	uint32_t vertexCount = meshResource->GetVertexCount();
