@@ -41,3 +41,6 @@
 [submodule "ExternalLib/cista"]
 	path = ExternalLib/cista
 	url = https://github.com/felixguendling/cista.git
+[submodule "ExternalLib/JoltPhysics"]
+	path = ExternalLib/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git
