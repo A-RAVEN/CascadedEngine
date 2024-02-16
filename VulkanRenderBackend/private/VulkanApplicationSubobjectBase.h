@@ -23,9 +23,9 @@ namespace graphics_backend
 		virtual void Release();
 		CVulkanApplication const* GetVulkanApplication() const;
 		CFrameCountContext const& GetFrameCountContext() const;
-		vk::Instance const& GetInstance() const;
-		vk::Device const& GetDevice() const;
-		vk::PhysicalDevice const& GetPhysicalDevice() const;
+		vk::Instance GetInstance() const;
+		vk::Device GetDevice() const;
+		vk::PhysicalDevice GetPhysicalDevice() const;
 		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
 		virtual ~ApplicationSubobjectBase();
 	protected:
@@ -53,9 +53,9 @@ namespace graphics_backend
 		virtual void Release() {};
 		CVulkanApplication& GetVulkanApplication() const;
 		CFrameCountContext const& GetFrameCountContext() const;
-		vk::Instance const& GetInstance() const;
-		vk::Device const& GetDevice() const;
-		vk::PhysicalDevice const& GetPhysicalDevice() const;
+		vk::Instance GetInstance() const;
+		vk::Device GetDevice() const;
+		vk::PhysicalDevice GetPhysicalDevice() const;
 		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
 		GPUObjectManager& GetGPUObjectManager();
 		CVulkanMemoryManager& GetMemoryManager() const;
@@ -76,9 +76,9 @@ namespace graphics_backend
 		virtual void Release() {};
 		CVulkanApplication& GetVulkanApplication() const;
 		CFrameCountContext const& GetFrameCountContext() const;
-		vk::Instance const& GetInstance() const;
-		vk::Device const& GetDevice() const;
-		vk::PhysicalDevice const& GetPhysicalDevice() const;
+		vk::Instance GetInstance() const;
+		vk::Device GetDevice() const;
+		vk::PhysicalDevice GetPhysicalDevice() const;
 		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
 		GPUObjectManager& GetGPUObjectManager();
 		CVulkanMemoryManager &GetMemoryManager() const;

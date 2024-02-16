@@ -52,7 +52,7 @@ namespace graphics_backend
 	public:
 
 		virtual castl::string GetName() const override;
-		virtual uint2 const& GetSizeSafe() const override;
+		virtual uint2 GetSizeSafe() const override;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const override;
 		virtual void RecreateContext() override;
 		virtual bool IsKeyDown(int keycode) const override;

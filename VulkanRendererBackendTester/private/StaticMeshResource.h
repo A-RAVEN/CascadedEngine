@@ -80,18 +80,18 @@ namespace resource_management
 		using serialize = zpp::bits::members<4>;
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
-		constexpr uint32_t GetVertexCount() const { return m_Attributes.size(); }
-		constexpr uint32_t GetIndicesCount() const { return m_Indices16.size(); }
-		constexpr void const* GetVertexData() const { return m_Attributes.data(); }
-		constexpr void const* GetIndicesData() const { return m_Indices16.data(); }
-		castl::vector<SubmeshInfo> const& GetSubmeshInfos() const { return m_SubmeshInfos; }
-		castl::vector<InstanceInfo> const& GetInstanceInfos() const { return m_Instance; }
+		uint32_t GetVertexCount() const { return m_Attributes.size(); }
+		uint32_t GetIndicesCount() const { return m_Indices16.size(); }
+		void const* GetVertexData() const { return m_Attributes.data(); }
+		void const* GetIndicesData() const { return m_Indices16.data(); }
+		std::vector<SubmeshInfo> const& GetSubmeshInfos() const { return m_SubmeshInfos; }
+		std::vector<InstanceInfo> const& GetInstanceInfos() const { return m_Instance; }
 	private:
 		friend class StaticMeshImporter;
-		castl::vector<CommonVertexData> m_Attributes;
-		castl::vector<uint16_t> m_Indices16;
-		castl::vector<SubmeshInfo> m_SubmeshInfos;
-		castl::vector<InstanceInfo> m_Instance;
+		std::vector<CommonVertexData> m_Attributes;
+		std::vector<uint16_t> m_Indices16;
+		std::vector<SubmeshInfo> m_SubmeshInfos;
+		std::vector<InstanceInfo> m_Instance;
 	};
 
 	class StaticMeshImporter : public ResourceImporter<StaticMeshResource>

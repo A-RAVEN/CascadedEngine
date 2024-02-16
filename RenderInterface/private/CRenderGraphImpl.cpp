@@ -99,6 +99,9 @@ namespace graphics_backend
 			}
 		}
 		TIndex descID;
+		CA_ASSERT(textureDesc.width <= 8192 && textureDesc.height <= 8192, "invalid texture size "
+			+ castl::to_ca(std::to_string(textureDesc.width)) + "x"
+				+ castl::to_ca(std::to_string(textureDesc.width)));
 		TIndex dataID = m_TextureDescriptorIDPool.RegisterNewData(textureDesc, descID);
 		CA_ASSERT(m_TextureHandleIdToInternalInfo.size() == dataID, "invalid ID");
 		m_TextureHandleIdToInternalInfo.push_back(TextureHandleInternalInfo{ this,  dataID, window});

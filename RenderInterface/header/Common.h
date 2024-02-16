@@ -355,7 +355,7 @@ public:
 
 	bool operator==(GraphicsClearValue const& rhs) const
 	{
-		return hash_utils::memory_equal(this, &rhs);
+		return hash_utils::memory_equal(*this, rhs);
 	}
 };
 

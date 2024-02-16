@@ -46,7 +46,7 @@ namespace resource_management
 			{
 				strVec.clear();
 			}
-			std::filesystem::path targetRootPath = m_ResourceManagingSystem->SetResourceRootPath().c_str();
+			std::filesystem::path targetRootPath = m_ResourceManagingSystem->GetResourceRootPath().c_str();
 			for(auto& p : recursive_directory_iterator(rootPath))
 			{
 				if(p.is_regular_file())
@@ -160,7 +160,7 @@ namespace resource_management
 			m_AssetRootPath = castl::to_std(path);
 		}
 
-		virtual castl::string SetResourceRootPath() const
+		virtual castl::string GetResourceRootPath() const override
 		{
 			return castl::to_ca(m_AssetRootPath.string());
 		}

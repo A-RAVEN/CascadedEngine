@@ -4,4 +4,6 @@
 // Windows Header Files
 #define NOMINMAX
 #include <windows.h>
+#pragma warning(disable: 4819)
+#pragma warning(disable: 4267)
 #endif

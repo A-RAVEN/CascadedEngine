@@ -439,10 +439,26 @@ namespace graphics_backend
 
 					vk::DescriptorSet targetSet = descriptorSetObject->GetDescriptorSet();
 					uint32_t writeCount = constantSets.size() + externalTextures.size() + internalTextures.size() + externalSamplers.size();
-					castl::vector<vk::WriteDescriptorSet> descriptorWrites;
 					if (writeCount > 0)
 					{
+						castl::vector<vk::WriteDescriptorSet> descriptorWrites;
+						castl::vector<vk::DescriptorImageInfo> imageInfoList;
+						castl::vector<vk::DescriptorBufferInfo> bufferInfoList;
 						descriptorWrites.reserve(writeCount);
+						imageInfoList.reserve(internalTextures.size() + externalTextures.size() + externalSamplers.size());
+						bufferInfoList.reserve(constantSets.size() + internalConstantSets.size());
+
+						auto newBufferInfo = [&bufferInfoList](vk::DescriptorBufferInfo const& bufferInfo) -> vk::DescriptorBufferInfo*
+							{
+								bufferInfoList.push_back(bufferInfo);
+								return &(*(bufferInfoList.rbegin()));
+							};
+						auto newImageInfo = [&imageInfoList](vk::DescriptorImageInfo const& imgInfo) -> vk::DescriptorImageInfo*
+							{
+								imageInfoList.push_back(imgInfo);
+								return &(*(imageInfoList.rbegin()));
+							};
+
 						auto& nameToIndex = metaData.GetCBufferNameToBindingIndex();
 						for (auto itr = constantSets.begin(); itr != constantSets.end(); ++itr)
 						{
@@ -451,14 +467,14 @@ namespace graphics_backend
 							uint32_t bindingIndex = metaData.CBufferNameToBindingIndex(name);
 							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
-								vk::DescriptorBufferInfo bufferInfo{ set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE };
+								vk::DescriptorBufferInfo* bufferInfo = newBufferInfo({ set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE });
 								vk::WriteDescriptorSet writeSet{ targetSet
 									, bindingIndex
 									, 0
 									, 1
 									, vk::DescriptorType::eUniformBuffer
 									, nullptr
-									, &bufferInfo
+									, bufferInfo
 									, nullptr
 								};
 								descriptorWrites.push_back(writeSet);
@@ -472,14 +488,14 @@ namespace graphics_backend
 							uint32_t bindingIndex = metaData.CBufferNameToBindingIndex(name);
 							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
-								vk::DescriptorBufferInfo bufferInfo{ GetLocalConstantSetBuffer(setHandle.GetHandleIndex())->GetBuffer(), 0, VK_WHOLE_SIZE};
+								vk::DescriptorBufferInfo* bufferInfo = newBufferInfo({ GetLocalConstantSetBuffer(setHandle.GetHandleIndex())->GetBuffer(), 0, VK_WHOLE_SIZE});
 								vk::WriteDescriptorSet writeSet{ targetSet
 									, bindingIndex
 									, 0
 									, 1
 									, vk::DescriptorType::eUniformBuffer
 									, nullptr
-									, &bufferInfo
+									, bufferInfo
 									, nullptr
 								};
 								descriptorWrites.push_back(writeSet);
@@ -495,16 +511,17 @@ namespace graphics_backend
 							{
 								if (!texture->UploadingDone())
 									return;
-								vk::DescriptorImageInfo imageInfo{ {}
+								CA_ASSERT(texture->GetDefaultImageView() != vk::ImageView{ nullptr }, "Image View Is Null");
+								vk::DescriptorImageInfo* imageInfo = newImageInfo({ {}
 									, texture->GetDefaultImageView()
-									, vk::ImageLayout::eShaderReadOnlyOptimal };
+									, vk::ImageLayout::eShaderReadOnlyOptimal });
 
 								vk::WriteDescriptorSet writeSet{ targetSet
 									, bindingIndex
 									, 0
 									, 1
 									, vk::DescriptorType::eSampledImage
-									, &imageInfo
+									, imageInfo
 									, nullptr
 									, nullptr
 								};
@@ -521,16 +538,17 @@ namespace graphics_backend
 							uint32_t bindingIndex = metaData.TextureNameToBindingIndex(name);
 							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
-								vk::DescriptorImageInfo imageInfo{ {}
+								CA_ASSERT(internalTexture.m_ImageView != vk::ImageView{nullptr}, "Internal Image View Is Null");
+								vk::DescriptorImageInfo* imageInfo = newImageInfo({ {}
 									, internalTexture.m_ImageView
-									, vk::ImageLayout::eShaderReadOnlyOptimal };
+									, vk::ImageLayout::eShaderReadOnlyOptimal });
 
 								vk::WriteDescriptorSet writeSet{ targetSet
 									, bindingIndex
 									, 0
 									, 1
 									, vk::DescriptorType::eSampledImage
-									, &imageInfo
+									, imageInfo
 									, nullptr
 									, nullptr
 								};
@@ -545,26 +563,27 @@ namespace graphics_backend
 							uint32_t bindingIndex = metaData.SamplerNameToBindingIndex(name);
 							if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 							{
-								vk::DescriptorImageInfo samplerInfo{ sampler->GetSampler()
+								vk::DescriptorImageInfo* samplerInfo = newImageInfo({ sampler->GetSampler()
 									, {}
-									, vk::ImageLayout::eShaderReadOnlyOptimal };
+									, vk::ImageLayout::eShaderReadOnlyOptimal });
 
 								vk::WriteDescriptorSet writeSet{ targetSet
 									, bindingIndex
 									, 0
 									, 1
 									, vk::DescriptorType::eSampler
-									, &samplerInfo
+									, samplerInfo
 									, nullptr
 									, nullptr
 								};
 								descriptorWrites.push_back(writeSet);
 							}
 						}
-					}
-					if (descriptorWrites.size() > 0)
-					{
-						GetDevice().updateDescriptorSets(descriptorWrites, {});
+
+						if (descriptorWrites.size() > 0)
+						{
+							GetDevice().updateDescriptorSets(descriptorWrites, {});
+						}
 					}
 				});
 	}
@@ -793,16 +812,17 @@ namespace graphics_backend
 		//castl::cout << "View Secondary Cmd " << m_OwningExecutor.GetCurrentFrameID() << ":" << width << "x" << height << castl::endl;
 		auto& subpassData = m_RenderpassBuilder.GetSubpassData_BatchDrawInterface(subpassID);
 		uint32_t batchID = m_RenderpassBuilder.GetSubpassDataIndex(subpassID);
-		uint32_t batchCount = m_BatchManagers[batchID].GetDrawBatchFuncs().size();
-		cmdList.resize(batchCount);
+		uint32_t drawCount = m_BatchManagers[batchID].GetDrawBatchFuncs().size();
+		cmdList.resize(drawCount);
 
 		thisGraph->NewTaskParallelFor()
 			->Name("Prepare Secondary Cmds for Subpass " + castl::to_string(subpassID))
-			->JobCount(batchCount)
-			->Functor([this, subpassID, width, height, &cmdList](uint32_t batchID)
+			->JobCount(drawCount)
+			->Functor([this, subpassID, width, height, batchID, &cmdList](uint32_t drawID)
 				{
 					auto& batchManager = m_BatchManagers[batchID];
 					auto& batchFuncs = batchManager.GetDrawBatchFuncs();
+					CA_ASSERT(drawID < batchFuncs.size(), "drawId exceeds draw count");
 					auto threadContext = m_OwningExecutor.GetVulkanApplication().AquireThreadContextPtr();
 
 					vk::CommandBufferInheritanceInfo commandBufferInheritanceInfo{
@@ -817,7 +837,7 @@ namespace graphics_backend
 
 					auto& commandListPool = threadContext->GetCurrentFramePool();
 					vk::CommandBuffer cmd = commandListPool.AllocateSecondaryCommandBuffer("Render Pass Secondary Command Buffer");
-					cmdList[batchID] = cmd;
+					cmdList[drawID] = cmd;
 					cmd.begin(secondaryBeginInfo);
 					cmd.setViewport(0
 						, {
@@ -837,7 +857,7 @@ namespace graphics_backend
 					);
 					auto& psoList = m_GraphicsPipelineObjects[subpassID];
 					CCommandList_Impl cmdListInterface{ cmd, &m_OwningExecutor, m_RenderPassObject, subpassID, psoList };
-					batchFuncs[batchID](cmdListInterface);
+					batchFuncs[drawID](cmdListInterface);
 					cmd.end();
 				});
 	}
@@ -1196,8 +1216,8 @@ namespace graphics_backend
 				GPUObjectManager& gpuObjectManager = m_OwningExecutor.GetGPUObjectManager();
 				auto& subpassData = m_RenderpassBuilder.GetSubpassData_SimpleDrawcall(subpassID);
 				//shaders
-				auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.vert });
-				auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.frag });
+				auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.vert }, subpassData.shaderSet.vert->GetUniqueName());
+				auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ subpassData.shaderSet.frag }, subpassData.shaderSet.frag->GetUniqueName());
 
 				castl::vector<vk::DescriptorSetLayout> layouts;
 				CollectDescriptorSetLayouts(
@@ -1298,8 +1318,8 @@ namespace graphics_backend
 								auto& drawLevelShaderBindings = psoData.shaderBindingDescriptors;
 
 								//shaders
-								auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert });
-								auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag });
+								auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert }, shaderSet.vert->GetUniqueName());
+								auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag }, shaderSet.frag->GetUniqueName());
 
 								//shaderBindings
 								castl::vector<vk::DescriptorSetLayout> layouts;

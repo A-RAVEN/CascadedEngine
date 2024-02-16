@@ -41,7 +41,7 @@ void IMGUIContext::Initialize(
 
 	m_ImageSampler = renderBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
 
-	resourceSystem->LoadResource<ShaderResrouce>("Shaders/imgui.shaderbundle", [this](ShaderResrouce* result)
+	resourceSystem->LoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle", [this](ShaderResrouce* result)
 		{
 			m_ImguiShaderSet.vert = &result->m_VertexShaderProvider;
 			m_ImguiShaderSet.frag = &result->m_FragmentShaderProvider;

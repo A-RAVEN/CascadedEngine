@@ -2,6 +2,7 @@
 #include <ShaderProvider.h>
 #include <uhash.h>
 #include <unordered_map>
+#include <DebugUtils.h>
 #include "VulkanApplicationSubobjectBase.h"
 #include "HashPool.h"
 
@@ -15,16 +16,27 @@ namespace graphics_backend
 		{
 			if(provider == nullptr || other.provider == nullptr)
 				return false;
-			else if(provider == other.provider)
+			else if (provider == other.provider)
+			{
+				//CA_LOG_ERR("Same Pointer");
 				return true;
+			}
 			else if(provider->GetUniqueName() == other.provider->GetUniqueName())
+			{
+				//CA_LOG_ERR("Same Name");
 				return true;
+			}
 		}
 
 		template <class HashAlgorithm>
 		friend void hash_append(HashAlgorithm& h, ShaderModuleDescritor const& shadermodule_desc) noexcept
 		{
 			hash_append(h, shadermodule_desc.provider);
+
+			auto shaderName = shadermodule_desc.provider->GetUniqueName();
+			//using result_type = typename HashAlgorithm::result_type;
+			//result_type hashCode = static_cast<result_type>(h);
+			//CA_LOG_ERR(shaderName + ": " + castl::to_ca(std::to_string(hashCode)));
 		}
 	};
 

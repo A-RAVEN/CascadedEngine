@@ -1,8 +1,8 @@
 #include "TestShaderProvider.h"
 
-uint64_t TestShaderProvider::GetDataLength(std::string const& codeType) const
+uint64_t TestShaderProvider::GetDataLength(castl::string const& codeType) const
 {
-    auto found = m_Data.find(codeType);
+    auto found = m_Data.find(castl::to_std(codeType));
     if (found != m_Data.end())
     {
         return found->second.second.size();
@@ -10,9 +10,9 @@ uint64_t TestShaderProvider::GetDataLength(std::string const& codeType) const
     return 0;
 }
 
-void const* TestShaderProvider::GetDataPtr(std::string const& codeType) const
+void const* TestShaderProvider::GetDataPtr(castl::string const& codeType) const
 {
-    auto found = m_Data.find(codeType);
+    auto found = m_Data.find(castl::to_std(codeType));
     if (found != m_Data.end())
     {
         return found->second.second.data();
@@ -20,21 +20,21 @@ void const* TestShaderProvider::GetDataPtr(std::string const& codeType) const
     return nullptr;
 }
 
-std::string TestShaderProvider::GetUniqueName() const
+castl::string TestShaderProvider::GetUniqueName() const
 {
-    return m_UniqueName;
+    return castl::to_ca(m_UniqueName);
 }
 
-ShaderProvider::ShaderSourceInfo TestShaderProvider::GetDataInfo(std::string const& codeType) const
+ShaderProvider::ShaderSourceInfo TestShaderProvider::GetDataInfo(castl::string const& codeType) const
 {
-    const static std::string invalidEntrypoint = "invalidEntryPoint";
-    auto found = m_Data.find(codeType);
+    const static castl::string invalidEntrypoint = "invalidEntryPoint";
+    auto found = m_Data.find(castl::to_std(codeType));
     if (found != m_Data.end())
     {
         return ShaderProvider::ShaderSourceInfo{
             found->second.second.size()
                 , found->second.second.data()
-                , found->second.first};
+                , castl::to_ca(found->second.first)};
     }
     return ShaderProvider::ShaderSourceInfo{
         0

@@ -1,18 +1,17 @@
 #pragma once
-#include <GeneralResources/header/IResource.h>
-#include <GeneralResources/header/ResourceImporter.h>
-#include <GeneralResources/header/ResourceManagingSystem.h>
+#include <CAResource/IResource.h>
+#include <CAResource/ResourceImporter.h>
+#include <CAResource/ResourceManagingSystem.h>
 #include "TestShaderProvider.h"
-#include <ShaderCompiler/header/Compiler.h>
-#include <ShaderCompilerSlang/header/Compiler.h>
-#include <CACore/header/library_loader.h>
-#include <ExternalLib/zpp_bits/zpp_bits.h>
+#include <Compiler.h>
+#include <library_loader.h>
+#include <zpp_bits.h>
 #include <filesystem>
-#include <RenderInterface/header/ShaderBindingBuilder.h>
+#include <ShaderBindingBuilder.h>
 
 namespace ShaderCompiler
 {
-	constexpr auto serialize(auto& archive, TextureParam& param)
+	/*constexpr auto serialize(auto& archive, TextureParam& param)
 	{
 		return archive(param.name, param.set, param.binding
 			, param.type, param.subpassInputAttachmentID);
@@ -34,7 +33,7 @@ namespace ShaderCompiler
 	{
 		return archive(param.name, param.set, param.binding
 			, param.type);
-	}
+	}*/
 }
 
 namespace resource_management
@@ -45,40 +44,27 @@ namespace resource_management
 	{
 	public:
 		friend zpp::bits::access;
-		using serialize = zpp::bits::members<4>;
-		virtual void Serialzie(std::vector<std::byte>& out) override;
-		virtual void Deserialzie(std::vector<std::byte>& in) override;
+		using serialize = zpp::bits::members<2>;
+		virtual void Serialzie(castl::vector<uint8_t>& out) override;
+		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 		virtual void Load() override;
 		TestShaderProvider m_VertexShaderProvider;
-		ShaderParams m_VertexShaderParams;
+		//ShaderParams m_VertexShaderParams;
 		TestShaderProvider m_FragmentShaderProvider;
-		ShaderParams m_FragmentShaderParams;
+		//ShaderParams m_FragmentShaderParams;
 		friend class ShaderResourceLoader;
-	};
-
-	class ShaderResourceLoader : public ResourceImporter<ShaderResrouce>
-	{
-	public:
-		ShaderResourceLoader();
-		virtual std::string GetSourceFilePostfix() const override { return ".hlsl"; }
-		virtual std::string GetDestFilePostfix() const override { return ".shaderbundle"; }
-		virtual std::string GetTags() const override { return "TargetAPI=Vulkan"; }
-		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) override;
-	private:
-		TModuleLoader<IShaderCompiler> m_ShaderCompilerLoader;
-		std::shared_ptr<IShaderCompiler> m_ShaderCompiler;
 	};
 
 	class ShaderResourceLoaderSlang : public ResourceImporter<ShaderResrouce>
 	{
 	public:
 		ShaderResourceLoaderSlang();
-		virtual std::string GetSourceFilePostfix() const override { return ".slang"; }
-		virtual std::string GetDestFilePostfix() const override { return ".shaderbundle"; }
-		virtual std::string GetTags() const override { return "TargetAPI=Vulkan"; }
-		virtual void ImportResource(ResourceManagingSystem* resourceManager, std::string const& resourcePath, std::filesystem::path const& outPath) override;
+		virtual castl::string GetSourceFilePostfix() const override { return ".slang"; }
+		virtual castl::string GetDestFilePostfix() const override { return ".shaderbundle"; }
+		virtual castl::string GetTags() const override { return "TargetAPI=Vulkan"; }
+		virtual void ImportResource(ResourceManagingSystem* resourceManager, castl::string const& resourcePath, castl::string const& outPath) override;
 	private:
 		TModuleLoader<ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerLoader;
-		std::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerManager;
+		castl::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerManager;
 	};
 }

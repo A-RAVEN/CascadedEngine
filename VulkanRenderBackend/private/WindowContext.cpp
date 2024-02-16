@@ -29,7 +29,7 @@ namespace graphics_backend
 	castl::string CWindowContext::GetName() const
 	{ return m_WindowName; }
 
-	uint2 const& CWindowContext::GetSizeSafe() const
+	uint2 CWindowContext::GetSizeSafe() const
 	{
 		return uint2{ castl::max(1u, m_SwapchainContext.m_TextureDesc.width), castl::max(1u, m_SwapchainContext.m_TextureDesc.height), };
 	}
@@ -172,6 +172,7 @@ namespace graphics_backend
 		m_PresentQueue = GetVulkanApplication().GetSubmitCounterContext().FindPresentQueue(m_Surface);
 
 		m_SwapchainContext.Init(m_Width, m_Height, m_Surface, nullptr, m_PresentQueue.first);
+		CA_LOG_ERR("Init Window");
 
 		glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
 			{

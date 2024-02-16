@@ -65,7 +65,7 @@ public:
     }
 
     explicit
-        operator result_type() noexcept
+        operator result_type() const noexcept
 	    {
 	        return state_;
 	    }
@@ -350,6 +350,35 @@ template<typename T>
 bool memory_equal(T const& lhs, T const& rhs) noexcept
 {
 	return std::memcmp(&lhs, &rhs, sizeof(T)) == 0;
+};
+#pragma endregion
+
+#pragma region
+template<typename T, class HashAlgorithm = default_hashAlg>
+class HashCache
+{
+public:
+    using result_type = HashAlgorithm::result_type;
+    HashCache(T const& value) : m_Value(value)
+	{
+        uhash<HashAlgorithm> hasher;
+		hash_append(hasher, m_Value);
+        m_HashCode = static_cast<result_type>(hasher);
+	}
+
+    template <class HashAlgorithm>
+    friend void hash_append(HashAlgorithm& h, HashCache const& cache) noexcept
+    {
+        hash_append(h, cache.m_HashCode);
+    }
+
+    bool operator==(HashCache const& other) const
+    {
+        return m_Value == other.m_Value;
+    }
+private:
+    T m_Value;
+    result_type m_HashCode;
 };
 #pragma endregion
 }

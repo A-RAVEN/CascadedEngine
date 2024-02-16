@@ -1,7 +1,7 @@
 #pragma once
-#define NOMINMAX
-#include <windows.h>
-#include <string>
+#include "Platform.h"
+#include "CASTL/CAString.h"
+#include "CASTL/CaSharedPtr.h"
 #include "DebugUtils.h"
 
 namespace library_loader
@@ -34,9 +34,9 @@ namespace library_loader
 			else
 			{
 				int errCode = GetLastError();
-				std::string errStr = "Load Module Error: ";
-				errStr += std::to_string(errCode);
-				CA_LOG_ERR(errStr.c_str());
+				castl::string errStr = "Load Module Error: ";
+				errStr += castl::to_string(errCode);
+				CA_LOG_ERR(errStr);
 			}
 		}
 
@@ -51,9 +51,9 @@ namespace library_loader
 			}
 		}
 
-		std::shared_ptr<TModInstance> New()
+		castl::shared_ptr<TModInstance> New()
 		{
-			return std::shared_ptr<TModInstance>(NewModuleInstance(), [this](TModInstance* removingInstance) { DeleteModuleInstance(removingInstance); });
+			return castl::shared_ptr<TModInstance>(NewModuleInstance(), [this](TModInstance* removingInstance) { DeleteModuleInstance(removingInstance); });
 		}
 
 		TModInstance* NewModuleInstance()

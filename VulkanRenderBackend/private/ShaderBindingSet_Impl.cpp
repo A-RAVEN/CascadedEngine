@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "VulkanApplication.h"
 #include "ShaderBindingSet_Impl.h"
+#include "VulkanDebug.h"
 
 namespace graphics_backend 
 {
@@ -60,13 +61,30 @@ namespace graphics_backend
 			ShaderDescriptorSetLayoutInfo layoutInfo = p_Metadata->GetLayoutInfo();
 			auto allocator = descPoolCache.GetOrCreate(layoutInfo);
 			m_DescriptorSetHandle = castl::move(allocator->AllocateSet());
+			vulkan_backend::SetVKObjectDebugName(GetDevice(), m_DescriptorSetHandle.Get().GetDescriptorSet(), m_Name.c_str());
 		//}
 		CA_ASSERT(m_DescriptorSetHandle.IsRAIIAquired(), "Descriptor Set Is Not Aquired!");
 		vk::DescriptorSet targetSet = m_DescriptorSetHandle->GetDescriptorSet();
 		uint32_t writeCount = m_ConstantSets.size() + m_Textures.size() + m_Samplers.size();
+
+		castl::vector<vk::DescriptorImageInfo> imageInfoList;
+		castl::vector<vk::DescriptorBufferInfo> bufferInfoList;
+
+		auto newBufferInfo = [&bufferInfoList](vk::DescriptorBufferInfo const& bufferInfo) -> vk::DescriptorBufferInfo*
+			{
+				bufferInfoList.push_back(bufferInfo);
+				return &(*(bufferInfoList.rbegin()));
+			};
+		auto newImageInfo = [&imageInfoList](vk::DescriptorImageInfo const& imgInfo) -> vk::DescriptorImageInfo*
+			{
+				imageInfoList.push_back(imgInfo);
+				return &(*(imageInfoList.rbegin()));
+			};
 		castl::vector<vk::WriteDescriptorSet> descriptorWrites;
 		if(writeCount > 0)
 		{
+			imageInfoList.reserve(m_Textures.size() + m_Samplers.size());
+			bufferInfoList.reserve(m_ConstantSets.size() + m_StructuredBuffers.size());
 			descriptorWrites.reserve(writeCount);
 			auto& nameToIndex = p_Metadata->GetCBufferNameToBindingIndex();
 			for (auto pair : m_ConstantSets)
@@ -76,7 +94,7 @@ namespace graphics_backend
 				uint32_t bindingIndex = p_Metadata->CBufferNameToBindingIndex(name);
 				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
-					vk::DescriptorBufferInfo bufferInfo{set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE};
+					vk::DescriptorBufferInfo* bufferInfo = newBufferInfo({set->GetBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE});
 					vk::WriteDescriptorSet writeSet
 					{
 						targetSet
@@ -85,7 +103,7 @@ namespace graphics_backend
 						, 1
 						, vk::DescriptorType::eUniformBuffer
 						, nullptr
-						, & bufferInfo
+						, bufferInfo
 						, nullptr
 					};
 					descriptorWrites.push_back(writeSet);
@@ -100,17 +118,21 @@ namespace graphics_backend
 				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
 					if (!texture->UploadingDone())
+					{
+						CA_LOG_ERR("Texture Uploading Not Done " + m_Name);
 						return;
-					vk::DescriptorImageInfo imageInfo{ {}
+					}
+					CA_ASSERT(texture->GetDefaultImageView() != vk::ImageView{ nullptr }, "Null Image View");
+					vk::DescriptorImageInfo* imageInfo = newImageInfo({ {}
 						, texture->GetDefaultImageView()
-						, vk::ImageLayout::eShaderReadOnlyOptimal };
+						, vk::ImageLayout::eShaderReadOnlyOptimal });
 
 					vk::WriteDescriptorSet writeSet{targetSet
 						, bindingIndex
 						, 0
 						, 1
 						, vk::DescriptorType::eSampledImage
-						, & imageInfo
+						, imageInfo
 						, nullptr
 						, nullptr
 					};
@@ -125,16 +147,16 @@ namespace graphics_backend
 				uint32_t bindingIndex = p_Metadata->SamplerNameToBindingIndex(name);
 				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
-					vk::DescriptorImageInfo samplerInfo{ sampler->GetSampler()
+					vk::DescriptorImageInfo* samplerInfo = newImageInfo({ sampler->GetSampler()
 						, {}
-						, vk::ImageLayout::eShaderReadOnlyOptimal };
+						, vk::ImageLayout::eShaderReadOnlyOptimal });
 
 					vk::WriteDescriptorSet writeSet{targetSet
 						, bindingIndex
 						, 0
 						, 1
 						, vk::DescriptorType::eSampler
-						, & samplerInfo
+						, samplerInfo
 						, nullptr
 						, nullptr
 					};
@@ -149,14 +171,14 @@ namespace graphics_backend
 				uint32_t bindingIndex = p_Metadata->StructBufferNameToBindingIndex(name);
 				if (bindingIndex != castl::numeric_limits<uint32_t>::max())
 				{
-					vk::DescriptorBufferInfo bufferInfo{buffer->GetVulkanBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE};
+					vk::DescriptorBufferInfo* bufferInfo = newBufferInfo({buffer->GetVulkanBufferObject()->GetBuffer(), 0, VK_WHOLE_SIZE});
 					vk::WriteDescriptorSet writeSet{targetSet
 						, bindingIndex
 						, 0
 						, 1
 						, vk::DescriptorType::eStorageBuffer
 						, nullptr
-						, & bufferInfo
+						, bufferInfo
 						, nullptr
 					};
 					descriptorWrites.push_back(writeSet);

@@ -126,7 +126,7 @@ namespace graphics_backend
 
 		bool operator==(CRenderPassInfo const& rhs) const
 		{
-			return attachmentInfos == rhs.attachmentInfos && subpassInfos == rhs.subpassInfos;
+			return attachmentInfos == rhs.attachmentInfos && (subpassInfos == rhs.subpassInfos);
 		}
 
 		template <class HashAlgorithm>

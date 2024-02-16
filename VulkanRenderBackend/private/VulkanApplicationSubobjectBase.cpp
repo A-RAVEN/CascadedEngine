@@ -31,19 +31,19 @@ namespace graphics_backend
 		return m_OwningApplication->GetSubmitCounterContext();
 	}
 
-	vk::Instance const& ApplicationSubobjectBase::GetInstance() const
+	vk::Instance ApplicationSubobjectBase::GetInstance() const
 	{
 		if (m_OwningApplication == nullptr)
 			return vk::Instance{nullptr};
 		return m_OwningApplication->GetInstance();
 	}
-	vk::Device const& ApplicationSubobjectBase::GetDevice() const
+	vk::Device ApplicationSubobjectBase::GetDevice() const
 	{
 		if (m_OwningApplication == nullptr)
 			return nullptr;
 		return m_OwningApplication->GetDevice();
 	}
-	vk::PhysicalDevice const& ApplicationSubobjectBase::GetPhysicalDevice() const
+	vk::PhysicalDevice ApplicationSubobjectBase::GetPhysicalDevice() const
 	{
 		if (m_OwningApplication == nullptr)
 			return nullptr;
@@ -68,15 +68,15 @@ namespace graphics_backend
 	{
 		return m_OwningApplication.GetSubmitCounterContext();
 	}
-	vk::Instance const& VKAppSubObjectBase::GetInstance() const
+	vk::Instance VKAppSubObjectBase::GetInstance() const
 	{
 		return m_OwningApplication.GetInstance();
 	}
-	vk::Device const& VKAppSubObjectBase::GetDevice() const
+	vk::Device VKAppSubObjectBase::GetDevice() const
 	{
 		return m_OwningApplication.GetDevice();
 	}
-	vk::PhysicalDevice const& VKAppSubObjectBase::GetPhysicalDevice() const
+	vk::PhysicalDevice VKAppSubObjectBase::GetPhysicalDevice() const
 	{
 		return m_OwningApplication.GetPhysicalDevice();
 	}
@@ -105,15 +105,15 @@ namespace graphics_backend
 	{
 		return m_OwningApplication.GetSubmitCounterContext();
 	}
-	vk::Instance const& VKAppSubObjectBaseNoCopy::GetInstance() const
+	vk::Instance VKAppSubObjectBaseNoCopy::GetInstance() const
 	{
 		return m_OwningApplication.GetInstance();
 	}
-	vk::Device const& VKAppSubObjectBaseNoCopy::GetDevice() const
+	vk::Device VKAppSubObjectBaseNoCopy::GetDevice() const
 	{
 		return m_OwningApplication.GetDevice();
 	}
-	vk::PhysicalDevice const& VKAppSubObjectBaseNoCopy::GetPhysicalDevice() const
+	vk::PhysicalDevice VKAppSubObjectBaseNoCopy::GetPhysicalDevice() const
 	{
 		return m_OwningApplication.GetPhysicalDevice();
 	}

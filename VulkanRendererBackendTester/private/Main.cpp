@@ -17,6 +17,8 @@
 #include <stb_image.h>
 #include <chrono>
 #include <filesystem>
+#include <CASTL/CAString.h>
+#include <CASTL/CAChrono.h>
 #include "Camera.h"
 #include "KeyCodes.h"
 #include <CAResource/ResourceSystemFactory.h>
@@ -44,12 +46,12 @@ int main(int argc, char *argv[])
 {
 	std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format};
 	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
-	std::string resourceString = rootPath.string() + "CAResources";
-	std::string assetString = rootPath.string() + "CAAssets";
+	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
+	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
-	TModuleLoader<RenderInterfaceManager> renderInterfaceLoader("RenderInterface");
+	TModuleLoader<RenderInterfaceManager> renderInterfaceLoader("Rendering");
 	TModuleLoader<ResourceFactory> renderImportingSystemLoader("CAGeneralReourceSystem");
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
 
@@ -71,7 +73,6 @@ int main(int argc, char *argv[])
 
 	auto pRenderInterface = renderInterfaceLoader.New();
 
-	ShaderResourceLoader shaderResourceLoader;
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
 
@@ -79,16 +80,15 @@ int main(int argc, char *argv[])
 	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
 	pResourceManagingSystem->SetResourceRootPath(assetString);
 	pResourceImportingSystem->SetResourceManager(pResourceManagingSystem.get());
-	pResourceImportingSystem->AddImporter(&shaderResourceLoader);
 	pResourceImportingSystem->AddImporter(&slangShaderResourceLoader);
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
-	ShaderResrouce* pTestShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testShader.shaderbundle", [ppResource = &pTestShaderResource](ShaderResrouce* result)
-		{
-			*ppResource = result;
-		});
+	//ShaderResrouce* pTestShaderResource = nullptr;
+	//pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testShader.shaderbundle", [ppResource = &pTestShaderResource](ShaderResrouce* result)
+	//	{
+	//		*ppResource = result;
+	//	});
 
 	ShaderResrouce* pGeneralShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
@@ -122,9 +122,9 @@ int main(int argc, char *argv[])
 
 
 
-	GraphicsShaderSet shaderSet{};
-	shaderSet.vert = &pTestShaderResource->m_VertexShaderProvider;
-	shaderSet.frag = &pTestShaderResource->m_FragmentShaderProvider;
+	//GraphicsShaderSet shaderSet{};
+	//shaderSet.vert = &pTestShaderResource->m_VertexShaderProvider;
+	//shaderSet.frag = &pTestShaderResource->m_FragmentShaderProvider;
 
 	GraphicsShaderSet finalBlitShaderSet{};
 	finalBlitShaderSet.vert = &pFinalBlitShaderResource->m_VertexShaderProvider;
@@ -158,10 +158,12 @@ int main(int argc, char *argv[])
 	texture1->ScheduleTextureData(0, pTextureResource1->GetDataSize(), pTextureResource1->GetData());
 
 	auto samplingTextureBinding0 = pBackend->CreateShaderBindingSet(finalBlitBindingBuilder);
+	samplingTextureBinding0->SetName("samplingTextureBinding0");
 	samplingTextureBinding0->SetTexture("SourceTexture", texture0);
 	samplingTextureBinding0->SetSampler("SourceSampler", sampler);
 
 	auto samplingTextureBinding1 = pBackend->CreateShaderBindingSet(finalBlitBindingBuilder);
+	samplingTextureBinding1->SetName("samplingTextureBinding1");
 	samplingTextureBinding1->SetTexture("SourceTexture", texture1);
 	samplingTextureBinding1->SetSampler("SourceSampler", sampler);
 
@@ -170,7 +172,7 @@ int main(int argc, char *argv[])
 	{
 		MeshGPUData newMeshGPUData{ pBackend };
 		newMeshGPUData.UploadMeshResource(pTestMeshResource, "VikingScene");
-		g_MeshResourceToGPUData.insert(std::make_pair(pTestMeshResource, newMeshGPUData));
+		g_MeshResourceToGPUData.insert(castl::make_pair(pTestMeshResource, newMeshGPUData));
 	}
 
 	MeshBatchDrawInterface drawInterface{};
@@ -197,14 +199,14 @@ int main(int argc, char *argv[])
 	}
 
 
-	std::vector<VertexData> vertexDataList = {
+	castl::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
 		VertexData{glm::vec2(1.0f, -1.0f), glm::vec2(1.0f, 0.0f), glm::vec3(1, 1, 1)},
 		VertexData{glm::vec2(1.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec3(1, 1, 1)},
 		VertexData{glm::vec2(-1.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec3(1, 1, 1)},
 	};
 
-	std::vector<uint16_t> indexDataList = {
+	castl::vector<uint16_t> indexDataList = {
 		0, 3, 2, 2, 1, 0
 	};
 
@@ -229,7 +231,7 @@ int main(int argc, char *argv[])
 
 	ShaderBindingDescriptorList bindingSetList = { shaderBindingBuilder };
 	
-	std::chrono::high_resolution_clock timer;
+	castl::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();
 	float deltaTime = 0.0f;
 	Camera cam;
@@ -320,7 +322,7 @@ int main(int argc, char *argv[])
 							glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
 							if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
 							{
-								//std::cout << "Mouse Down!" << std::endl;
+								//castl::cout << "Mouse Down!" << castl::endl;
 								if (!*pmouseDown)
 								{
 									*plastMousePos = mousePos;
@@ -345,7 +347,7 @@ int main(int argc, char *argv[])
 					->WaitOnEvent("Graphics", lastFrame)
 					->SignalEvent("Graphics", currentFrame);
 
-				std::shared_ptr<std::vector<std::shared_ptr<CRenderGraph>>> pGraphs = std::make_shared<std::vector<std::shared_ptr<CRenderGraph>>>();
+				castl::shared_ptr<castl::vector<castl::shared_ptr<CRenderGraph>>> pGraphs = castl::make_shared<castl::vector<castl::shared_ptr<CRenderGraph>>>();
 
 				auto setupRGTask = grapicsTaskGraph->NewTask()
 					->Name("Setup Render Graph")
@@ -365,8 +367,11 @@ int main(int argc, char *argv[])
 					]()
 				{
 					auto windowSize = windowHandle->GetSizeSafe();
-				/*	std::cout << "Setup Size " << currentFrame <<  ":" << windowSize.x << "x" << windowSize.y << std::endl;
-					std::cout << "RT Size " << currentFrame <<  ":" << windowHandle->GetBackbufferDescriptor().width << "x" << windowHandle->GetBackbufferDescriptor().height << std::endl;*/
+					CA_ASSERT(windowSize.x <= 8192 && windowSize.y <= 8192, "invalid window size "
+						+ castl::to_ca(std::to_string(windowSize.x)) + "x"
+						+ castl::to_ca(std::to_string(windowSize.y)));
+				/*	castl::cout << "Setup Size " << currentFrame <<  ":" << windowSize.x << "x" << windowSize.y << castl::endl;
+					castl::cout << "RT Size " << currentFrame <<  ":" << windowHandle->GetBackbufferDescriptor().width << "x" << windowHandle->GetBackbufferDescriptor().height << castl::endl;*/
 
 					auto pRenderGraph = pRenderInterface->NewRenderGraph();
 					auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle.get());
@@ -408,7 +413,7 @@ int main(int argc, char *argv[])
 						, { {}, {blitBandingHandle} }
 						, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
 						{
-							cmd.SetShaderBindings(std::vector<ShaderBindingSetHandle>{ blitBandingHandle })
+							cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ blitBandingHandle })
 								.BindVertexBuffers({ vertexBufferHandle }, {})
 								.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
 								.DrawIndexed(6);
@@ -430,12 +435,12 @@ int main(int argc, char *argv[])
 
 				++*pFrame;
 				auto currentTime = pTimer->now();
-				auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - *pLastTime).count();
+				auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - *pLastTime).count();
 				*pLastTime = currentTime;
 				*pDeltaTime = duration / 1000.0f;
-				*pDeltaTime = std::max(*pDeltaTime, 0.0001f);
+				*pDeltaTime = castl::max(*pDeltaTime, 0.0001f);
 				float frameRate = 1.0f / *pDeltaTime;
-				//std::cout << "Frame Rate: " << frameRate << std::endl;
+				//castl::cout << "Frame Rate: " << frameRate << castl::endl;
 			}
 			return true;
 		}, "Graphics");

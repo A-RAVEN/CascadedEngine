@@ -18,7 +18,7 @@ namespace resource_management
 
 		virtual void SetResourceRootPath(castl::string const& path) = 0;
 
-		virtual castl::string SetResourceRootPath() const = 0;
+		virtual castl::string GetResourceRootPath() const = 0;
 
 		virtual IResource* TryGetResource(castl::string const& path) = 0;
 

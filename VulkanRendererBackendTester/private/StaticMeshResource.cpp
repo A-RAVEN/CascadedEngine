@@ -2,6 +2,7 @@
 #include "StaticMeshResource.h"
 #include "SerializationLog.h"
 #include "TextureResource.h"
+#include <filesystem>
 
 namespace resource_management
 {
@@ -27,7 +28,7 @@ namespace resource_management
 	}
 	void StaticMeshImporter::ImportResource(ResourceManagingSystem* resourceManager, castl::string const& resourcePath, castl::string const& outPath)
 	{
-		const aiScene* scene = m_Importer.ReadFile(resourcePath,
+		const aiScene* scene = m_Importer.ReadFile(resourcePath.c_str(),
 			aiProcess_GenNormals |
 			aiProcess_CalcTangentSpace |
 			aiProcess_Triangulate |
@@ -87,12 +88,12 @@ namespace resource_management
 				for (int textureID = 0; textureID < scene->mNumTextures; ++textureID)
 				{
 					aiTexture* pTexture = scene->mTextures[textureID];
-					castl::filesystem::path texturePath = pTexture->mFilename.C_Str();
+					std::filesystem::path texturePath = pTexture->mFilename.C_Str();
 					texturePath = texturePath.replace_extension(".texture");
 
 					if (pTexture->mHeight == 0)
 					{
-						TextureResource* textureResource = resourceManager->AllocSubResource<TextureResource>(outPath, texturePath.string());
+						TextureResource* textureResource = resourceManager->AllocSubResource<TextureResource>(outPath, castl::to_ca(texturePath.string()));
 						int w, h, channel_num;
 						stbi_info_from_memory(reinterpret_cast<stbi_uc*>(pTexture->pcData), pTexture->mWidth, &w, &h, &channel_num);
 						int desiredChannel = channel_num;

@@ -3,7 +3,7 @@
 
 namespace resource_management
 {
-	void TextureResource::Serialzie(std::vector<std::byte>& data)
+	void TextureResource::Serialzie(castl::vector<uint8_t>& data)
 	{
 		zpp::bits::out out(data);
 		auto result = out(*this);
@@ -11,7 +11,7 @@ namespace resource_management
 			LogZPPError("serialize failed", result);
 		}
 	}
-	void TextureResource::Deserialzie(std::vector<std::byte>& data)
+	void TextureResource::Deserialzie(castl::vector<uint8_t>& data)
 	{
 		zpp::bits::in in(data);
 		auto result = in(*this);

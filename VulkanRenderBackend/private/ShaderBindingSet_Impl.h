@@ -23,6 +23,7 @@ namespace graphics_backend
 	public:
 		ShaderBindingSet_Impl(CVulkanApplication& owner);
 		void Initialize(ShaderBindingSetMetadata const* inMetaData);
+		virtual void SetName(castl::string const& name) override { m_Name = name; }
 		virtual void SetConstantSet(castl::string const& name, castl::shared_ptr<ShaderConstantSet> const& pConstantSet) override;
 		virtual void SetStructBuffer(castl::string const& name
 			, castl::shared_ptr<GPUBuffer> const& pBuffer) override;
@@ -40,6 +41,7 @@ namespace graphics_backend
 	private:
 		ShaderBindingSetMetadata const* p_Metadata;
 		ShaderDescriptorSetHandle m_DescriptorSetHandle;
+		castl::string m_Name = "";
 		castl::unordered_map<castl::string, castl::shared_ptr<ShaderConstantSet>> m_ConstantSets;
 		castl::unordered_map<castl::string, castl::shared_ptr<GPUTexture_Impl>> m_Textures;
 		castl::unordered_map<castl::string, castl::shared_ptr<TextureSampler_Impl>> m_Samplers;

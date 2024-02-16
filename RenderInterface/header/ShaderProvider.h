@@ -10,7 +10,7 @@ public:
 	{
 		uint64_t dataLength;
 		void const* dataPtr;
-		castl::string const& entryPoint;
+		castl::string entryPoint;
 	};
 
 	virtual uint64_t GetDataLength(castl::string const& codeType) const = 0;

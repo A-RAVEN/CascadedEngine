@@ -34,9 +34,9 @@ namespace graphics_backend
 		if (m_SubmitFrame == INVALID_FRAMEID)
 			return false;
 		auto& frameContext = GetFrameCountContext();
-		if (!frameContext.AnyFrameFinished())
-			return false;
-		return frameContext.GetReleasedFrameID() >= m_SubmitFrame;
+		//if (!frameContext.AnyFrameFinished())
+		//	return false;
+		return frameContext.GetCurrentFrameID() >= m_SubmitFrame;
 	}
 
 	void BaseTickingUpdateResource::MarkDirtyThisFrame()

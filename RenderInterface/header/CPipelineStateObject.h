@@ -118,7 +118,7 @@ struct SingleColorAttachmentBlendStates
 			&& alphaBlendOp == rhs.alphaBlendOp;
 	}
 
-	static SingleColorAttachmentBlendStates const& AlphaTransparent()
+	static SingleColorAttachmentBlendStates AlphaTransparent()
 	{
 		SingleColorAttachmentBlendStates states;
 		states.blendEnable = true;
@@ -146,7 +146,7 @@ struct ColorAttachmentsBlendStates
 		return true;
 	}
 
-	static ColorAttachmentsBlendStates const& AlphaTransparent()
+	static ColorAttachmentsBlendStates AlphaTransparent()
 	{
 		ColorAttachmentsBlendStates states;
 		for (uint32_t i = 0; i < 8; ++i)

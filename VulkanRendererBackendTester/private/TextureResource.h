@@ -1,9 +1,9 @@
 #pragma once
-#include <GeneralResources/header/IResource.h>
-#include <GeneralResources/header/ResourceImporter.h>
-#include <GeneralResources/header/ResourceManagingSystem.h>
-#include <ExternalLib/zpp_bits/zpp_bits.h>
-#include <RenderInterface/header/Common.h>
+#include <CAResource/IResource.h>
+#include <CAResource/ResourceImporter.h>
+#include <CAResource/ResourceManagingSystem.h>
+#include <zpp_bits.h>
+#include <Common.h>
 
 namespace resource_management
 {
@@ -12,8 +12,8 @@ namespace resource_management
 	public:
 		friend zpp::bits::access;
 		using serialize = zpp::bits::members<7>;
-		virtual void Serialzie(std::vector<std::byte>& out) override;
-		virtual void Deserialzie(std::vector<std::byte>& in) override;
+		virtual void Serialzie(castl::vector<uint8_t>& out) override;
+		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 		void SetData(void* data, uint64_t size);
 		void SetMetaData(uint32_t width, uint32_t height, uint32_t slices, uint32_t mipLevels, ETextureFormat format, ETextureType type);
 		uint32_t GetWidth() const { return m_Width; }

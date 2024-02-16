@@ -24,6 +24,7 @@ namespace graphics_backend
 	class ShaderBindingSet
 	{
 	public:
+		virtual void SetName(castl::string const& name) = 0;
 		virtual void SetConstantSet(castl::string const& name, castl::shared_ptr<ShaderConstantSet> const& pConstantSet) = 0;
 		virtual void SetStructBuffer(castl::string const& name, castl::shared_ptr<GPUBuffer> const& pBuffer) = 0;
 		virtual void SetTexture(castl::string const& name
