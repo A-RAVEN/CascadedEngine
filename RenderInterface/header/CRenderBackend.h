@@ -10,6 +10,7 @@
 #include "ShaderBindingBuilder.h"
 #include "ShaderBindingSet.h"
 #include "TextureSampler.h"
+#include "MonitorHandle.h"
 
 namespace thread_management
 {
@@ -40,6 +41,8 @@ namespace graphics_backend
 		virtual castl::shared_ptr<ShaderBindingSet> CreateShaderBindingSet(ShaderBindingBuilder const& inBuilder) = 0;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor) = 0;
 		virtual castl::shared_ptr<TextureSampler> GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor) = 0;
+		virtual uint32_t GetMonitorCount() const = 0;
+		virtual MonitorHandle GetMonitorHandleAt(uint32_t monitorID) const = 0;
 	};
 }
 

@@ -24,6 +24,8 @@ namespace graphics_backend
 		virtual castl::shared_ptr<ShaderConstantSet> CreateShaderConstantSet(ShaderConstantsBuilder const& inBuilder) override;
 		virtual castl::shared_ptr<ShaderBindingSet> CreateShaderBindingSet(ShaderBindingBuilder const& inBuilder) override;
 		virtual castl::shared_ptr<TextureSampler> GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor) override;
+		virtual uint32_t GetMonitorCount() const override;
+		virtual MonitorHandle GetMonitorHandleAt(uint32_t monitorID) const override;
 	private:
 		CVulkanApplication m_Application;
 	};

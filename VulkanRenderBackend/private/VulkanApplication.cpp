@@ -548,6 +548,7 @@ namespace graphics_backend
 
 	void CVulkanApplication::TickWindowContexts(FrameType currentFrameID)
 	{
+		CWindowContext::UpdateMonitors();
 		glfwPollEvents();
 		for (auto& windowContext : m_WindowContexts)
 		{

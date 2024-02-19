@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "CRenderBackend_Vulkan.h"
+#include "WindowContext.h"
 
 namespace graphics_backend
 {
@@ -73,5 +74,14 @@ namespace graphics_backend
 	castl::shared_ptr<TextureSampler> CRenderBackend_Vulkan::GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor)
 	{
 		return m_Application.GetOrCreateTextureSampler(descriptor);
+	}
+	uint32_t CRenderBackend_Vulkan::GetMonitorCount() const
+	{
+		CWindowContext::GetMonitors().size();
+	}
+	MonitorHandle CRenderBackend_Vulkan::GetMonitorHandleAt(uint32_t monitorID) const
+	{
+		CA_ASSERT(monitorID < CWindowContext::GetMonitors().size(), "Invalid Monitor ID");
+		return CWindowContext::GetMonitors()[monitorID];
 	}
 }

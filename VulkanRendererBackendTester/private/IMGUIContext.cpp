@@ -24,6 +24,10 @@ void IMGUIContext::Initialize(
 {
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
+	io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 	unsigned char* fontData;
 	int texWidth, texHeight;
 	io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
@@ -72,6 +76,12 @@ void IMGUIContext::UpdateIMGUI(graphics_backend::WindowHandle const* windowHandl
 	io.MouseDown[2] = windowHandle->IsMouseDown(CA_MOUSE_BUTTON_MIDDLE);
 	// Render to generate draw buffers
 	ImGui::Render();
+
+	//Multi-Viewport
+	if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+	{
+		ImGui::UpdatePlatformWindows();
+	}
 }
 
 void IMGUIContext::DrawIMGUI(graphics_backend::CRenderGraph* renderGraph, graphics_backend::TextureHandle renderTargethandle)

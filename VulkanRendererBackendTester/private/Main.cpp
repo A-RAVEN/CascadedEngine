@@ -84,11 +84,6 @@ int main(int argc, char *argv[])
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
-	//ShaderResrouce* pTestShaderResource = nullptr;
-	//pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testShader.shaderbundle", [ppResource = &pTestShaderResource](ShaderResrouce* result)
-	//	{
-	//		*ppResource = result;
-	//	});
 
 	ShaderResrouce* pGeneralShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
@@ -418,6 +413,8 @@ int main(int argc, char *argv[])
 								.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
 								.DrawIndexed(6);
 						});
+
+					pImguiContext->DrawIMGUI(pRenderGraph.get(), windowBackBuffer);
 
 					pGraphs->push_back(pRenderGraph);
 				});

@@ -1,6 +1,5 @@
 #include "pch.h"
 #include "WindowContext.h"
-//#include <math.h>
 #include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
 
@@ -22,6 +21,45 @@ namespace graphics_backend
 		{
 			glfwTerminate();
 		}
+
+		void UpdateMonitors()
+		{
+			int monitors_count = 0;
+			GLFWmonitor** glfw_monitors = glfwGetMonitors(&monitors_count);
+			m_Monitors.clear();
+			m_Monitors.reserve(monitors_count);
+
+			for (int n = 0; n < monitors_count; n++)
+			{
+				int x, y;
+				glfwGetMonitorPos(glfw_monitors[n], &x, &y);
+				const GLFWvidmode* vid_mode = glfwGetVideoMode(glfw_monitors[n]);
+				if (vid_mode == nullptr)
+					continue; // Failed to get Video mode (e.g. Emscripten does not support this function)
+				
+				MonitorHandle monitorHandle{};
+				monitorHandle.m_MonitorRect.x = x;
+				monitorHandle.m_MonitorRect.y = y;
+				monitorHandle.m_MonitorRect.width = vid_mode->width;
+				monitorHandle.m_MonitorRect.height = vid_mode->height;
+				int w, h;
+				glfwGetMonitorWorkarea(glfw_monitors[n], &x, &y, &w, &h);
+				if (w > 0 && h > 0) // Workaround a small GLFW issue reporting zero on monitor changes: https://github.com/glfw/glfw/pull/1761
+				{
+					monitorHandle.m_WorkAreaRect.x = x;
+					monitorHandle.m_WorkAreaRect.y = y;
+					monitorHandle.m_WorkAreaRect.width = w;
+					monitorHandle.m_WorkAreaRect.height = h;
+				}
+				// Warning: the validity of monitor DPI information on Windows depends on the application DPI awareness settings, which generally needs to be set in the manifest or at runtime.
+				float x_scale, y_scale;
+				glfwGetMonitorContentScale(glfw_monitors[n], &x_scale, &y_scale);
+				monitorHandle.m_DPIScale = x_scale;
+				m_Monitors.push_back(monitorHandle);
+			}
+		}
+
+		castl::vector<MonitorHandle> m_Monitors;
 	};
 
 	static glfwContext s_GLFWContext = glfwContext();
@@ -56,6 +94,61 @@ namespace graphics_backend
 		double x, y;
 		glfwGetCursorPos(m_Window, &x, &y);
 		return static_cast<float>(y);
+	}
+
+	void CWindowContext::SetWindowPos(uint32_t x, uint32_t y)
+	{
+	}
+
+	uint2 CWindowContext::GetWindowPos() const
+	{
+		return uint2();
+	}
+
+	void CWindowContext::SetWindowSize(uint32_t width, uint32_t height)
+	{
+	}
+
+	uint2 CWindowContext::GetWindowSize() const
+	{
+		return uint2();
+	}
+
+	void CWindowContext::SetWindowFocus(bool focus)
+	{
+	}
+
+	bool CWindowContext::GetWindowFocus() const
+	{
+		return false;
+	}
+
+	bool CWindowContext::GetWindowMinimized() const
+	{
+		return false;
+	}
+
+	void CWindowContext::SetWindowName(castl::string_view const& name)
+	{
+	}
+
+	void CWindowContext::SetWindowAlpha(float alpha)
+	{
+	}
+
+	float CWindowContext::GetDpiScale() const
+	{
+		return 0.0f;
+	}
+
+	void CWindowContext::UpdateMonitors()
+	{
+		s_GLFWContext.UpdateMonitors();
+	}
+
+	castl::vector<MonitorHandle> const& CWindowContext::GetMonitors()
+	{
+		return s_GLFWContext.m_Monitors;
 	}
 
 	bool CWindowContext::IsKeyDown(int keycode) const

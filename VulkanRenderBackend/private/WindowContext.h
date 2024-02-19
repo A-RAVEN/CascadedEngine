@@ -1,5 +1,6 @@
 #pragma once
 #include <Common.h>
+#include <MonitorHandle.h>
 #include <WindowHandle.h>
 #include <GLFW/glfw3.h>
 #include <CASTL/CAMutex.h>
@@ -13,6 +14,8 @@
 
 namespace graphics_backend
 {
+
+
 
 	class SwapchainContext : public VKAppSubObjectBaseNoCopy
 	{
@@ -62,6 +65,19 @@ namespace graphics_backend
 		virtual float GetMouseX() const override;
 		virtual float GetMouseY() const override;
 
+		virtual void SetWindowPos(uint32_t x, uint32_t y) override;
+		virtual uint2 GetWindowPos() const override;
+		virtual void SetWindowSize(uint32_t width, uint32_t height) override;
+		virtual uint2 GetWindowSize() const override;
+		virtual void SetWindowFocus(bool focus) override;
+		virtual bool GetWindowFocus() const override;
+		virtual bool GetWindowMinimized() const override;
+		virtual void SetWindowName(castl::string_view const& name) override;
+		virtual void SetWindowAlpha(float alpha) override;
+		virtual float GetDpiScale() const override;
+
+		static void UpdateMonitors();
+		static castl::vector<MonitorHandle> const& GetMonitors();
 		inline bool ValidContext() const { return m_Width > 0 && m_Height > 0; }
 		CWindowContext(CVulkanApplication& inOwner);
 		bool NeedClose() const;
