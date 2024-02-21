@@ -19,8 +19,6 @@ namespace graphics_backend
 	{
 		//Update Frame, Release FrameBound Resources
 		m_SubmitCounterContext.WaitingForCurrentFrame();
-
-		TickWindowContexts(frameID);
 		for (auto& windowContext : m_WindowContexts)
 		{
 			windowContext->WaitCurrentFrameBufferIndex();
@@ -546,8 +544,9 @@ namespace graphics_backend
 		return newContext;
 	}
 
-	void CVulkanApplication::TickWindowContexts(FrameType currentFrameID)
+	void CVulkanApplication::TickWindowContexts()
 	{
+		FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
 		CWindowContext::UpdateMonitors();
 		glfwPollEvents();
 		for (auto& windowContext : m_WindowContexts)

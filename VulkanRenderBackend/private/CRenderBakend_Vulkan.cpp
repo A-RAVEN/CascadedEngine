@@ -38,7 +38,7 @@ namespace graphics_backend
 
 	void CRenderBackend_Vulkan::TickWindows()
 	{
-		//m_Application.TickWindowContexts();
+		m_Application.TickWindowContexts();
 	}
 
 	void CRenderBackend_Vulkan::PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph)
@@ -77,7 +77,7 @@ namespace graphics_backend
 	}
 	uint32_t CRenderBackend_Vulkan::GetMonitorCount() const
 	{
-		CWindowContext::GetMonitors().size();
+		return CWindowContext::GetMonitors().size();
 	}
 	MonitorHandle CRenderBackend_Vulkan::GetMonitorHandleAt(uint32_t monitorID) const
 	{

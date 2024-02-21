@@ -15,6 +15,7 @@ public:
 	);
 	void Release();
 	void UpdateIMGUI(graphics_backend::WindowHandle const* windowHandle);
+	void NewFrame();
 	void DrawIMGUI(
 		graphics_backend::CRenderGraph* renderGraph
 		, graphics_backend::TextureHandle renderTargethandle);
@@ -24,4 +25,5 @@ private:
 	GraphicsShaderSet m_ImguiShaderSet;
 	ShaderConstantsBuilder m_ImguiShaderConstantsBuilder;
 	ShaderBindingBuilder m_ImguiShaderBindingBuilder;
+	graphics_backend::CRenderBackend* p_RenderBackend;
 };

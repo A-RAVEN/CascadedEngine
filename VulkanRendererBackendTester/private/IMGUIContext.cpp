@@ -22,12 +22,13 @@ void IMGUIContext::Initialize(
 	, ResourceManagingSystem* resourceSystem
 )
 {
+	p_RenderBackend = renderBackend;
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
-	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
-	io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+	//io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
+	//io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 	unsigned char* fontData;
 	int texWidth, texHeight;
 	io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
@@ -61,6 +62,7 @@ void IMGUIContext::Release()
 
 void IMGUIContext::UpdateIMGUI(graphics_backend::WindowHandle const* windowHandle)
 {
+	NewFrame();
 	auto& io = ImGui::GetIO();
 	auto windowSize = windowHandle->GetSizeSafe();
 
@@ -81,6 +83,26 @@ void IMGUIContext::UpdateIMGUI(graphics_backend::WindowHandle const* windowHandl
 	if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 	{
 		ImGui::UpdatePlatformWindows();
+	}
+}
+
+void IMGUIContext::NewFrame()
+{
+	ImGuiIO& io = ImGui::GetIO();
+	ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+	auto monitorCount = p_RenderBackend->GetMonitorCount();
+
+	platform_io.Monitors.resize(0);
+	for (uint32_t i = 0; i < monitorCount; ++i)
+	{
+		auto monitorHandle = p_RenderBackend->GetMonitorHandleAt(i);
+		ImGuiPlatformMonitor monitor;
+		monitor.MainPos = ImVec2(monitorHandle.m_MonitorRect.x, monitorHandle.m_MonitorRect.y);
+		monitor.MainSize = ImVec2(monitorHandle.m_MonitorRect.width, monitorHandle.m_MonitorRect.height);
+		monitor.WorkPos = ImVec2(monitorHandle.m_WorkAreaRect.x, monitorHandle.m_WorkAreaRect.y);
+		monitor.WorkSize = ImVec2(monitorHandle.m_WorkAreaRect.width, monitorHandle.m_WorkAreaRect.height);
+		monitor.DpiScale = monitorHandle.m_DPIScale;
+		platform_io.Monitors.push_back(monitor);
 	}
 }
 

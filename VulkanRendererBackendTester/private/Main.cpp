@@ -261,6 +261,7 @@ int main(int argc, char *argv[])
 				, pImguiContext = &imguiContext
 		](CThreadManager* thisManager)
 		{
+			pBackend->TickWindows();
 			if (!pBackend->AnyWindowRunning())
 				return false;
 
