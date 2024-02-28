@@ -19,6 +19,7 @@ public:
 	void DrawIMGUI(
 		graphics_backend::CRenderGraph* renderGraph
 		, graphics_backend::TextureHandle renderTargethandle);
+	graphics_backend::CRenderBackend* GetRenderBackend() const { return p_RenderBackend; }
 private:
 	castl::shared_ptr<graphics_backend::GPUTexture> m_Fontimage;
 	castl::shared_ptr<graphics_backend::TextureSampler> m_ImageSampler;

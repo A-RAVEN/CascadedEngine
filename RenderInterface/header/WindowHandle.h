@@ -24,11 +24,13 @@ namespace graphics_backend
 		virtual float GetMouseX() const = 0;
 		virtual float GetMouseY() const = 0;
 
+		virtual void CloseWindow() = 0;
+		virtual void ShowWindow() = 0;
 		virtual void SetWindowPos(uint32_t x, uint32_t y) = 0;
 		virtual uint2 GetWindowPos() const = 0;
 		virtual void SetWindowSize(uint32_t width, uint32_t height) = 0;
 		virtual uint2 GetWindowSize() const = 0;
-		virtual void SetWindowFocus(bool focus) = 0;
+		virtual void Focus() = 0;
 		virtual bool GetWindowFocus() const = 0;
 		virtual bool GetWindowMinimized() const = 0;
 		virtual void SetWindowName(castl::string_view const& name) = 0;

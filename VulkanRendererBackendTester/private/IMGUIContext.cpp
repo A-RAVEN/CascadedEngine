@@ -7,6 +7,7 @@
 
 using namespace graphics_backend;
 using namespace resource_management;
+void InitImGUIPlatformFunctors();
 IMGUIContext::IMGUIContext() : 
 	m_ImguiShaderConstantsBuilder("IMGUIConstants"),
 	m_ImguiShaderBindingBuilder("IMGUIBinding")
@@ -25,10 +26,10 @@ void IMGUIContext::Initialize(
 	p_RenderBackend = renderBackend;
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
-	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	//io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
-	//io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+	io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
+	io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 	unsigned char* fontData;
 	int texWidth, texHeight;
 	io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
@@ -51,6 +52,124 @@ void IMGUIContext::Initialize(
 			m_ImguiShaderSet.vert = &result->m_VertexShaderProvider;
 			m_ImguiShaderSet.frag = &result->m_FragmentShaderProvider;
 		});
+
+	InitImGUIPlatformFunctors();
+}
+
+struct ImguiUserData
+{
+	IMGUIContext* pContext;
+	WindowHandle* pWindowHandle;
+};
+
+void ImGui_Impl_CreateWindow(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = new ImguiUserData();//(ImguiUserData*)viewport->PlatformUserData;
+	viewport->PlatformUserData = pUserData;
+	auto pBackend = pUserData->pContext->GetRenderBackend();
+	pUserData->pWindowHandle = pBackend->NewWindow(viewport->Size.x, viewport->Size.y, "").get();
+	pUserData->pWindowHandle->SetWindowPos(viewport->Pos.x, viewport->Pos.y);
+
+	/*glfwSetWindowFocusCallback(vd->Window, ImGui_ImplGlfw_WindowFocusCallback);
+	glfwSetCursorEnterCallback(vd->Window, ImGui_ImplGlfw_CursorEnterCallback);
+	glfwSetCursorPosCallback(vd->Window, ImGui_ImplGlfw_CursorPosCallback);
+	glfwSetMouseButtonCallback(vd->Window, ImGui_ImplGlfw_MouseButtonCallback);
+	glfwSetScrollCallback(vd->Window, ImGui_ImplGlfw_ScrollCallback);
+	glfwSetKeyCallback(vd->Window, ImGui_ImplGlfw_KeyCallback);
+	glfwSetCharCallback(vd->Window, ImGui_ImplGlfw_CharCallback);
+	glfwSetWindowCloseCallback(vd->Window, ImGui_ImplGlfw_WindowCloseCallback);
+	glfwSetWindowPosCallback(vd->Window, ImGui_ImplGlfw_WindowPosCallback);
+	glfwSetWindowSizeCallback(vd->Window, ImGui_ImplGlfw_WindowSizeCallback);*/
+}
+
+void ImGui_Impl_DestroyWindow(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	viewport->PlatformUserData = nullptr;
+	pUserData->pWindowHandle->CloseWindow();
+	delete pUserData;
+}
+void ImGui_Impl_ShowWindow(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	pUserData->pWindowHandle->ShowWindow();
+}
+
+ImVec2 ImGui_Impl_GetWindowPos(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	graphics_backend::uint2 windowPos = pUserData->pWindowHandle->GetWindowPos();
+	return ImVec2((float)windowPos.x, (float)windowPos.y);
+}
+
+
+void ImGui_Impl_SetWindowPos(ImGuiViewport* viewport, ImVec2 pos)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	pUserData->pWindowHandle->SetWindowPos(pos.x, pos.y);
+}
+
+
+ImVec2 ImGui_Impl_GetWindowSize(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	graphics_backend::uint2 windowSize = pUserData->pWindowHandle->GetWindowSize();
+	return ImVec2((float)windowSize.x, (float)windowSize.y);
+}
+
+static void ImGui_Impl_SetWindowSize(ImGuiViewport* viewport, ImVec2 size)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	pUserData->pWindowHandle->SetWindowSize(size.x, size.y);
+}
+
+void ImGui_Impl_SetWindowFocus(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	pUserData->pWindowHandle->Focus();
+}
+
+bool ImGui_Impl_GetWindowFocus(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	return pUserData->pWindowHandle->GetWindowFocus();
+}
+
+static bool ImGui_Impl_GetWindowMinimized(ImGuiViewport* viewport)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	return pUserData->pWindowHandle->GetWindowMinimized();
+}
+
+static void ImGui_Impl_SetWindowTitle(ImGuiViewport* viewport, const char* title)
+{
+	ImguiUserData* pUserData = (ImguiUserData*)viewport->PlatformUserData;
+	pUserData->pWindowHandle->SetWindowName(title);
+}
+
+void InitImGUIPlatformFunctors()
+{
+	ImGuiIO& io = ImGui::GetIO();
+	auto& platform_io = ImGui::GetPlatformIO();
+	platform_io.Platform_CreateWindow = ImGui_Impl_CreateWindow;
+	platform_io.Platform_DestroyWindow = ImGui_Impl_DestroyWindow;
+	platform_io.Platform_ShowWindow = ImGui_Impl_ShowWindow;
+	platform_io.Platform_SetWindowPos = ImGui_Impl_SetWindowPos;
+	platform_io.Platform_GetWindowPos = ImGui_Impl_GetWindowPos;
+	platform_io.Platform_SetWindowSize = ImGui_Impl_SetWindowSize;
+	platform_io.Platform_GetWindowSize = ImGui_Impl_GetWindowSize;
+	platform_io.Platform_SetWindowFocus = ImGui_Impl_SetWindowFocus;
+	platform_io.Platform_GetWindowFocus = ImGui_Impl_GetWindowFocus;
+	platform_io.Platform_GetWindowMinimized = ImGui_Impl_GetWindowMinimized;
+	platform_io.Platform_SetWindowTitle = ImGui_Impl_SetWindowTitle;
+	//platform_io.Platform_RenderWindow = ImGui_ImplGlfw_RenderWindow;
+	//platform_io.Platform_SwapBuffers = ImGui_ImplGlfw_SwapBuffers;
+//#if GLFW_HAS_WINDOW_ALPHA
+//	platform_io.Platform_SetWindowAlpha = ImGui_ImplGlfw_SetWindowAlpha;
+//#endif
+//#if GLFW_HAS_VULKAN
+//	platform_io.Platform_CreateVkSurface = ImGui_ImplGlfw_CreateVkSurface;
+//#endif
 }
 
 void IMGUIContext::Release()

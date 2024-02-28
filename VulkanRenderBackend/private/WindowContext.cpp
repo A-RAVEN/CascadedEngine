@@ -96,44 +96,64 @@ namespace graphics_backend
 		return static_cast<float>(y);
 	}
 
+
+	void CWindowContext::CloseWindow()
+	{
+		glfwSetWindowShouldClose(m_Window, GLFW_TRUE);
+	}
+
+	void CWindowContext::ShowWindow()
+	{
+		glfwShowWindow(m_Window);
+	}
+
 	void CWindowContext::SetWindowPos(uint32_t x, uint32_t y)
 	{
+		glfwSetWindowPos(m_Window, x, y);
 	}
 
 	uint2 CWindowContext::GetWindowPos() const
 	{
-		return uint2();
+		int x = 0, y = 0;
+		glfwGetWindowPos(m_Window, &x, &y);
+		return uint2{ static_cast<uint32_t>(x), static_cast<uint32_t>(y) };
 	}
 
 	void CWindowContext::SetWindowSize(uint32_t width, uint32_t height)
 	{
+		glfwSetWindowSize(m_Window, width, height);
 	}
 
 	uint2 CWindowContext::GetWindowSize() const
 	{
-		return uint2();
+		int w = 0, h = 0;
+		glfwGetWindowSize(m_Window, &w, &h);
+		return uint2{ static_cast<uint32_t>(w), static_cast<uint32_t>(h) };
 	}
 
-	void CWindowContext::SetWindowFocus(bool focus)
+	void CWindowContext::Focus()
 	{
+		glfwFocusWindow(m_Window);
 	}
 
 	bool CWindowContext::GetWindowFocus() const
 	{
-		return false;
+		return glfwGetWindowAttrib(m_Window, GLFW_FOCUSED) != 0;
 	}
 
 	bool CWindowContext::GetWindowMinimized() const
 	{
-		return false;
+		return glfwGetWindowAttrib(m_Window, GLFW_ICONIFIED) != 0;
 	}
 
 	void CWindowContext::SetWindowName(castl::string_view const& name)
 	{
+		glfwSetWindowTitle(m_Window, name.data());
 	}
 
 	void CWindowContext::SetWindowAlpha(float alpha)
 	{
+		glfwSetWindowOpacity(m_Window, alpha);
 	}
 
 	float CWindowContext::GetDpiScale() const

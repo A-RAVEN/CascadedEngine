@@ -65,11 +65,13 @@ namespace graphics_backend
 		virtual float GetMouseX() const override;
 		virtual float GetMouseY() const override;
 
+		virtual void CloseWindow() override;
+		virtual void ShowWindow() override;
 		virtual void SetWindowPos(uint32_t x, uint32_t y) override;
 		virtual uint2 GetWindowPos() const override;
 		virtual void SetWindowSize(uint32_t width, uint32_t height) override;
 		virtual uint2 GetWindowSize() const override;
-		virtual void SetWindowFocus(bool focus) override;
+		virtual void Focus() override;
 		virtual bool GetWindowFocus() const override;
 		virtual bool GetWindowMinimized() const override;
 		virtual void SetWindowName(castl::string_view const& name) override;
