@@ -94,7 +94,10 @@ void ImGui_Impl_CreateWindow(ImGuiViewport* viewport)
 	//pUserData->pWindowHandle = pBackend->NewWindow(viewport->Size.x, viewport->Size.y, "").get();
 	//pUserData->pWindowHandle->SetWindowPos(viewport->Pos.x, viewport->Pos.y);
 	auto backend =GetIMGUIContext()->GetRenderBackend();
-	NewUserData(viewport, backend->NewWindow(viewport->Size.x, viewport->Size.y, "").get());
+	NewUserData(viewport, backend->NewWindow(viewport->Size.x, viewport->Size.y, ""
+		, false, false
+		, (viewport->Flags & ImGuiViewportFlags_NoDecoration) ? false : true
+		, (viewport->Flags & ImGuiViewportFlags_TopMost) ? true : false).get());
 
 	/*glfwSetWindowFocusCallback(vd->Window, ImGui_ImplGlfw_WindowFocusCallback);
 	glfwSetCursorEnterCallback(vd->Window, ImGui_ImplGlfw_CursorEnterCallback);

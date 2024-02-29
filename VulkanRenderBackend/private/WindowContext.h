@@ -96,7 +96,13 @@ namespace graphics_backend
 		void Resize(FrameType resizeFrame);
 		void TickReleaseResources(FrameType releasingFrame);
 		void UpdateSize();
-		void Initialize(castl::string const& windowName, uint32_t initialWidth, uint32_t initialHeight);
+		void Initialize(castl::string const& windowName
+			, uint32_t initialWidth
+			, uint32_t initialHeight
+			, bool visible
+			, bool focused
+			, bool decorate
+			, bool floating);
 		void Release() override;
 		bool NeedPresent() const;
 		void PresentCurrentFrame();

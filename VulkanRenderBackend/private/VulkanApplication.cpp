@@ -536,11 +536,19 @@ namespace graphics_backend
 			});
 	}
 
-	castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight)
+	castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
+		, bool visible
+		, bool focused
+		, bool decorate
+		, bool floating)
 	{
 		m_WindowContexts.emplace_back(castl::make_shared<CWindowContext>(*this));
 		auto newContext = m_WindowContexts.back();
-		newContext->Initialize(windowName, initialWidth, initialHeight);
+		newContext->Initialize(windowName, initialWidth, initialHeight
+			, visible
+			, focused
+			, decorate
+			, floating);
 		return newContext;
 	}
 

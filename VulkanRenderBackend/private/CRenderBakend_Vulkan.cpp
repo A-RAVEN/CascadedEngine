@@ -26,9 +26,17 @@ namespace graphics_backend
 		m_Application.ReleaseApp();
 	}
 
-	castl::shared_ptr<WindowHandle> CRenderBackend_Vulkan::NewWindow(uint32_t width, uint32_t height, castl::string const& windowName)
+	castl::shared_ptr<WindowHandle> CRenderBackend_Vulkan::NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
+		, bool visible
+		, bool focused
+		, bool decorate
+		, bool floating)
 	{
-		return m_Application.CreateWindowContext(windowName, width, height);
+		return m_Application.CreateWindowContext(windowName, width, height
+			, visible
+			, focused
+			, decorate
+			, floating);
 	}
 
 	bool CRenderBackend_Vulkan::AnyWindowRunning()

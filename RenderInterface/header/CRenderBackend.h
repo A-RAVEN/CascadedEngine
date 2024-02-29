@@ -30,7 +30,11 @@ namespace graphics_backend
 			, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs
 			, uint64_t frameID) = 0;
 		virtual void Release() = 0;
-		virtual castl::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, castl::string const& windowName) = 0;
+		virtual castl::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
+			, bool visible
+			, bool focused
+			, bool decorate
+			, bool floating) = 0;
 		virtual bool AnyWindowRunning() = 0;
 		virtual void TickWindows() = 0;
 		virtual void PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph) = 0;

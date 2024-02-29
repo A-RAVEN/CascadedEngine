@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(5);
 
-	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2");
+	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2", true, false, true, false);
 	IMGUIContext imguiContext{};
 	imguiContext.Initialize(pBackend.get(), windowHandle.get(), pResourceManagingSystem.get());
 

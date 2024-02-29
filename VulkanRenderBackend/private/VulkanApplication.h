@@ -64,7 +64,11 @@ namespace graphics_backend
 		//TaskParallelFor* NewTaskParallelFor();
 		//CTask* NewUploadingTask(UploadingResourceType resourceType);
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
-		castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight);
+		castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
+			, bool visible
+			, bool focused
+			, bool decorate
+			, bool floating);
 		void TickWindowContexts();
 
 		CFrameCountContext const& GetSubmitCounterContext() const { return m_SubmitCounterContext; }

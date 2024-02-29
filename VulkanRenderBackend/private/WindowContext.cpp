@@ -270,13 +270,23 @@ namespace graphics_backend
 	void CWindowContext::Initialize(
 		castl::string const& windowName
 		, uint32_t initialWidth
-		, uint32_t initialHeight)
+		, uint32_t initialHeight
+		, bool visible
+		, bool focused
+		, bool decorate
+		, bool floating)
 	{
 		m_WindowName = windowName;
 		m_Width = initialWidth;
 		m_Height = initialHeight;
 		assert(ValidContext());
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+		glfwWindowHint(GLFW_VISIBLE, visible);
+		glfwWindowHint(GLFW_FOCUSED, focused);
+		glfwWindowHint(GLFW_FOCUS_ON_SHOW, false);
+		glfwWindowHint(GLFW_DECORATED, decorate);
+		glfwWindowHint(GLFW_FLOATING, floating);
+		
 		m_Window = glfwCreateWindow(m_Width, m_Height, m_WindowName.c_str(), nullptr, nullptr);
 		glfwSetWindowUserPointer(m_Window, this);
 		VkSurfaceKHR surface;

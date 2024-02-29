@@ -13,7 +13,11 @@ namespace graphics_backend
 		void InitializeThreadContextCount(uint32_t threadCount) override;
 		void SetupGraphicsTaskGraph(thread_management::CTaskGraph* taskGraph, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID) override;
 		void Release() override;
-		castl::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, castl::string const& windowName) override;
+		castl::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
+			, bool visible
+			, bool focused
+			, bool decorate
+			, bool floating) override;
 		bool AnyWindowRunning() override;
 		void TickWindows() override;
 		virtual void PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph) override;
