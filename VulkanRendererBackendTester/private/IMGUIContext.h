@@ -11,6 +11,7 @@ public:
 	IMGUIContext();
 	void Initialize(
 		graphics_backend::CRenderBackend* renderBackend
+		, graphics_backend::WindowHandle* mainWindowHandle
 		, resource_management::ResourceManagingSystem* resourceSystem
 	);
 	void Release();

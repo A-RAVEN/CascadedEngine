@@ -8,6 +8,27 @@
 using namespace graphics_backend;
 using namespace resource_management;
 void InitImGUIPlatformFunctors();
+
+struct ImguiUserData
+{
+	IMGUIContext* pContext;
+	WindowHandle* pWindowHandle;
+};
+
+IMGUIContext* GetIMGUIContext()
+{
+	ImGuiIO& io = ImGui::GetIO();
+	return static_cast<IMGUIContext*>(io.BackendPlatformUserData);
+}
+
+void NewUserData(ImGuiViewport* viewport, graphics_backend::WindowHandle* pWindow)
+{
+	ImguiUserData* pUserData = new ImguiUserData();
+	pUserData->pWindowHandle = pWindow;
+	viewport->PlatformUserData = pUserData;
+	pUserData->pWindowHandle->SetWindowPos(viewport->Pos.x, viewport->Pos.y);
+}
+
 IMGUIContext::IMGUIContext() : 
 	m_ImguiShaderConstantsBuilder("IMGUIConstants"),
 	m_ImguiShaderBindingBuilder("IMGUIBinding")
@@ -20,12 +41,14 @@ IMGUIContext::IMGUIContext() :
 }
 void IMGUIContext::Initialize(
 	CRenderBackend* renderBackend
+	, graphics_backend::WindowHandle* mainWindowHandle
 	, ResourceManagingSystem* resourceSystem
 )
 {
 	p_RenderBackend = renderBackend;
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
+	io.BackendPlatformUserData = this;
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
@@ -54,21 +77,24 @@ void IMGUIContext::Initialize(
 		});
 
 	InitImGUIPlatformFunctors();
+
+	ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+	NewUserData(main_viewport, mainWindowHandle);
 }
 
-struct ImguiUserData
-{
-	IMGUIContext* pContext;
-	WindowHandle* pWindowHandle;
-};
+
+
+
 
 void ImGui_Impl_CreateWindow(ImGuiViewport* viewport)
 {
-	ImguiUserData* pUserData = new ImguiUserData();//(ImguiUserData*)viewport->PlatformUserData;
-	viewport->PlatformUserData = pUserData;
-	auto pBackend = pUserData->pContext->GetRenderBackend();
-	pUserData->pWindowHandle = pBackend->NewWindow(viewport->Size.x, viewport->Size.y, "").get();
-	pUserData->pWindowHandle->SetWindowPos(viewport->Pos.x, viewport->Pos.y);
+	//ImguiUserData* pUserData = new ImguiUserData();
+	//viewport->PlatformUserData = pUserData;
+	//auto pBackend = pUserData->pContext->GetRenderBackend();
+	//pUserData->pWindowHandle = pBackend->NewWindow(viewport->Size.x, viewport->Size.y, "").get();
+	//pUserData->pWindowHandle->SetWindowPos(viewport->Pos.x, viewport->Pos.y);
+	auto backend =GetIMGUIContext()->GetRenderBackend();
+	NewUserData(viewport, backend->NewWindow(viewport->Size.x, viewport->Size.y, "").get());
 
 	/*glfwSetWindowFocusCallback(vd->Window, ImGui_ImplGlfw_WindowFocusCallback);
 	glfwSetCursorEnterCallback(vd->Window, ImGui_ImplGlfw_CursorEnterCallback);

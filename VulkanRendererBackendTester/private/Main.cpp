@@ -131,8 +131,9 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(5);
 
+	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2");
 	IMGUIContext imguiContext{};
-	imguiContext.Initialize(pBackend.get(), pResourceManagingSystem.get());
+	imguiContext.Initialize(pBackend.get(), windowHandle.get(), pResourceManagingSystem.get());
 
 	auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
 
@@ -162,7 +163,6 @@ int main(int argc, char *argv[])
 	samplingTextureBinding1->SetTexture("SourceTexture", texture1);
 	samplingTextureBinding1->SetSampler("SourceSampler", sampler);
 
-	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2");
 
 	{
 		MeshGPUData newMeshGPUData{ pBackend };
