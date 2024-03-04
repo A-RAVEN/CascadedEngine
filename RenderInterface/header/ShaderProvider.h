@@ -30,8 +30,8 @@ public:
 
 struct GraphicsShaderSet
 {
-	ShaderProvider const* vert;
-	ShaderProvider const* frag;
+	ShaderProvider const* vert = nullptr;
+	ShaderProvider const* frag = nullptr;
 
 	bool operator==(GraphicsShaderSet const& other) const
 	{

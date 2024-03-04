@@ -1,7 +1,10 @@
 #pragma once
-#include <mutex>
-#include <deque>
-#include <functional>
+//#include <mutex>
+//#include <deque>
+//#include <functional>
+#include <CASTL/CAMutex.h>
+#include <CASTL/CADeque.h>
+#include <CASTL/CAFunctional.h>
 #include "DebugUtils.h"
 
 namespace threadsafe_utils
@@ -30,13 +33,17 @@ namespace threadsafe_utils
 	class TThreadSafePointerPool
 	{
 	public:
-		TThreadSafePointerPool() = delete;
+		TThreadSafePointerPool() :
+			m_Initializer(DefaultInitializer<T>{})
+			, m_Releaser(DefaultReleaser<T>{})
+		{
+		}
 		TThreadSafePointerPool(TThreadSafePointerPool const& other) = delete;
 		TThreadSafePointerPool& operator=(TThreadSafePointerPool const&) = delete;
 		TThreadSafePointerPool(TThreadSafePointerPool&& other) = delete;
 		TThreadSafePointerPool& operator=(TThreadSafePointerPool&&) = delete;
 
-		TThreadSafePointerPool(std::function<void(T*)> initializer = DefaultInitializer<T>{}, std::function<void(T*)> releaser = DefaultReleaser<T>{}) :
+		TThreadSafePointerPool(std::function<void(T*)> initializer, std::function<void(T*)> releaser) :
 			m_Initializer(initializer)
 			, m_Releaser(releaser)
 		{
@@ -89,10 +96,10 @@ namespace threadsafe_utils
 			return static_cast<uint32_t>(m_EmptySpaces.size());
 		}
 	protected:
-		std::mutex m_Mutex;
-		std::deque<T> m_Pool;
-		std::deque<T*> m_EmptySpaces;
-		std::function<void(T*)> m_Initializer;
-		std::function<void(T*)> m_Releaser;
+		castl::mutex m_Mutex;
+		castl::deque<T> m_Pool;
+		castl::deque<T*> m_EmptySpaces;
+		castl::function<void(T*)> m_Initializer;
+		castl::function<void(T*)> m_Releaser;
 	};
 }
