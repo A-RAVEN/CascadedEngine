@@ -315,9 +315,10 @@ void IMGUIContext::UpdateIMGUI(graphics_backend::WindowHandle const* windowHandl
 	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
 	ImGui::NewFrame();
 	//SRS - ShowDemoWindow() sets its own initial position and size, cannot override here
-	//ImGui::ShowDemoWindow();
+	ImGui::ShowDemoWindow();
 	bool show = true;
 	ShowExampleAppDockSpace(&show);
+	//ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 	io.MousePos = ImVec2(windowHandle->GetMouseX(), windowHandle->GetMouseY());
 	io.MouseDown[0] = windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT);
 	io.MouseDown[1] = windowHandle->IsMouseDown(CA_MOUSE_BUTTON_RIGHT);
@@ -332,6 +333,34 @@ void IMGUIContext::UpdateIMGUI(graphics_backend::WindowHandle const* windowHandl
 		ImGui::UpdatePlatformWindows();
 		//TODO: Update GPU Resources For Every Viewport
 		//ImGui::RenderPlatformWindowsDefault();
+	}
+}
+
+void IMGUIContext::PrepareDrawData(graphics_backend::CRenderGraph* pRenderGraph)
+{
+	auto& io = ImGui::GetIO();
+	if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+	{
+		ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+		for (int i = 0; i < platform_io.Viewports.Size; i++)
+		{
+			ImGuiViewport* viewport = platform_io.Viewports[i];
+			PrepareSingleViewGUIResources(viewport, pRenderGraph);
+		}
+	}
+}
+
+void IMGUIContext::Draw(graphics_backend::CRenderGraph* pRenderGraph)
+{
+	auto& io = ImGui::GetIO();
+	if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+	{
+		ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+		for (int i = 0; i < platform_io.Viewports.Size; i++)
+		{
+			ImGuiViewport* viewport = platform_io.Viewports[i];
+			DrawSingleView(viewport, pRenderGraph);
+		}
 	}
 }
 
@@ -361,23 +390,28 @@ void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphi
 	glm::vec2 meshScale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y);
 	ImDrawData* imDrawData = viewPort->DrawData;
 	IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
+	pUserData->Reset();
+
+	pUserData->m_Draw = !(viewPort->Flags & ImGuiViewportFlags_IsMinimized);
+	if (!pUserData->m_Draw)
+	{
+		return;
+	}
 
 	size_t vertexBufferSize = imDrawData->TotalVtxCount * sizeof(ImDrawVert);
 	size_t indexBufferSize = imDrawData->TotalIdxCount * sizeof(ImDrawIdx);
 
 	if ((vertexBufferSize == 0) || (indexBufferSize == 0)) {
+		pUserData->m_Draw = false;
+	}
+
+	if (!pUserData->m_Draw)
+	{
 		return;
 	}
 
 	pUserData->m_VertexBuffer = renderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert));
 	pUserData->m_IndexBuffer = renderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx));
-
-	CVertexInputDescriptor vertexInputDesc{};
-	vertexInputDesc.AddPrimitiveDescriptor(sizeof(ImDrawVert), {
-		VertexAttribute{0, offsetof(ImDrawVert, pos), VertexInputFormat::eR32G32_SFloat}
-		, VertexAttribute{1, offsetof(ImDrawVert, uv), VertexInputFormat::eR32G32_SFloat}
-		, VertexAttribute{2, offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm}
-		});
 
 	size_t vtxOffset = 0;
 	size_t idxOffset = 0;
@@ -401,6 +435,39 @@ void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphi
 	pUserData->m_ShaderBindings.SetConstantSet(m_ImguiShaderConstantsBuilder.GetName(), pUserData->m_ShaderConstants)
 		.SetSampler("FontSampler", m_ImageSampler)
 		.SetTexture("FontTexture", m_Fontimage);
+}
+
+void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph)
+{
+	IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
+	if (!pUserData->m_Draw)
+		return;
+	auto backBuffer = renderGraph->RegisterWindowBackbuffer(pUserData->pWindowHandle);
+	CVertexInputDescriptor vertexInputDesc{};
+	vertexInputDesc.AddPrimitiveDescriptor(sizeof(ImDrawVert), {
+		VertexAttribute{0, offsetof(ImDrawVert, pos), VertexInputFormat::eR32G32_SFloat}
+		, VertexAttribute{1, offsetof(ImDrawVert, uv), VertexInputFormat::eR32G32_SFloat}
+		, VertexAttribute{2, offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm}
+		});
+
+	renderGraph->NewRenderPass(backBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f)
+		, CPipelineStateObject{ {}, {RasterizerStates::CullOff()},  ColorAttachmentsBlendStates::AlphaTransparent() }
+		, vertexInputDesc
+		, m_ImguiShaderSet
+		, { {}, {pUserData->m_ShaderBindings} }
+		, [pUserData](CInlineCommandList& cmd)
+		{
+			cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ pUserData->m_ShaderBindings })
+				.BindVertexBuffers({ pUserData->m_VertexBuffer })
+				.BindIndexBuffers(EIndexBufferType::e16, pUserData->m_IndexBuffer);
+			for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
+			{
+				auto& sissors = pUserData->m_Sissors[i];
+				auto& indexDataOffset = pUserData->m_IndexDataOffsets[i];
+				cmd.SetSissor(sissors.x, sissors.y, sissors.z, sissors.w)
+					.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset));
+			}
+		});
 }
 
 void IMGUIContext::PrepareInitViewportContext(ImGuiViewport* viewport, graphics_backend::WindowHandle* pWindow)

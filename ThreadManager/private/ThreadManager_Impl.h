@@ -18,6 +18,8 @@ namespace thread_management
 	class CTask_Impl1 : public TaskNode, public CTask
 	{
 	public:
+		CTask_Impl1(CTask_Impl1 const& other) = default;
+
 		virtual CTask* Name(castl::string name) override;
 		virtual CTask* DependsOn(CTask* parentTask) override;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) override;
@@ -42,6 +44,8 @@ namespace thread_management
 	class TaskParallelFor_Impl : public TaskNode, public TaskParallelFor
 	{
 	public:
+		TaskParallelFor_Impl(TaskParallelFor_Impl const& other) = default;
+
 		virtual TaskParallelFor* Name(castl::string name) override;
 		virtual TaskParallelFor* DependsOn(CTask* parentTask) override;
 		virtual TaskParallelFor* DependsOn(TaskParallelFor* parentTask) override;
@@ -70,6 +74,8 @@ namespace thread_management
 	class TaskGraph_Impl1 : public TaskNode, public CTaskGraph
 	{
 	public:
+		TaskGraph_Impl1(TaskGraph_Impl1 const& other) = default;
+
 		virtual CTaskGraph* Name(castl::string name) override;
 		virtual CTaskGraph* DependsOn(CTask* parentTask) override;
 		virtual CTaskGraph* DependsOn(TaskParallelFor* parentTask) override;

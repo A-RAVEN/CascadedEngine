@@ -370,52 +370,55 @@ int main(int argc, char *argv[])
 					castl::cout << "RT Size " << currentFrame <<  ":" << windowHandle->GetBackbufferDescriptor().width << "x" << windowHandle->GetBackbufferDescriptor().height << castl::endl;*/
 
 					auto pRenderGraph = pRenderInterface->NewRenderGraph();
-					auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle.get());
 
-					auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
-						windowSize.x, windowSize.y
-						, ETextureFormat::E_D32_SFLOAT
-						, ETextureAccessType::eRT | ETextureAccessType::eSampled });
+					pImguiContext->PrepareDrawData(pRenderGraph.get());
+					pImguiContext->Draw(pRenderGraph.get());
 
-					auto colorTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
-						windowSize.x, windowSize.y
-						, ETextureFormat::E_R8G8B8A8_UNORM
-						, ETextureAccessType::eRT | ETextureAccessType::eSampled });
+					//auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle.get());
+					//auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
+					//	windowSize.x, windowSize.y
+					//	, ETextureFormat::E_D32_SFLOAT
+					//	, ETextureAccessType::eRT | ETextureAccessType::eSampled });
 
-					pRenderGraph->NewRenderPass({ 
-						CAttachmentInfo::Make(colorTextureHandle, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f))
-						, CAttachmentInfo::Make(depthTextureHandle, GraphicsClearValue::ClearDepthStencil(1.0f, 0x0))
-						})
-						.SetAttachmentTarget(0, colorTextureHandle)
-						.SetAttachmentTarget(1, depthTextureHandle)
-						.Subpass({ {0}, 1 }
-							, {}
-							, pdrawInterface
-						);
+					//auto colorTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
+					//	windowSize.x, windowSize.y
+					//	, ETextureFormat::E_R8G8B8A8_UNORM
+					//	, ETextureAccessType::eRT | ETextureAccessType::eSampled });
 
-					auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, pVertexList->size(), sizeof(VertexData))
-						.ScheduleBufferData(0, pVertexList->size() * sizeof(VertexData), pVertexList->data());
-					auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, pIndexList->size(), sizeof(uint16_t))
-						.ScheduleBufferData(0, pIndexList->size() * sizeof(uint16_t), pIndexList->data());
+					//pRenderGraph->NewRenderPass({ 
+					//	CAttachmentInfo::Make(colorTextureHandle, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f))
+					//	, CAttachmentInfo::Make(depthTextureHandle, GraphicsClearValue::ClearDepthStencil(1.0f, 0x0))
+					//	})
+					//	.SetAttachmentTarget(0, colorTextureHandle)
+					//	.SetAttachmentTarget(1, depthTextureHandle)
+					//	.Subpass({ {0}, 1 }
+					//		, {}
+					//		, pdrawInterface
+					//	);
 
-					ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(*pFinalBlitBindingDesc)
-						.SetTexture("SourceTexture", colorTextureHandle)
-						.SetSampler("SourceSampler", sampler);
+					//auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, pVertexList->size(), sizeof(VertexData))
+					//	.ScheduleBufferData(0, pVertexList->size() * sizeof(VertexData), pVertexList->data());
+					//auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, pIndexList->size(), sizeof(uint16_t))
+					//	.ScheduleBufferData(0, pIndexList->size() * sizeof(uint16_t), pIndexList->data());
 
-					pRenderGraph->NewRenderPass(windowBackBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f)
-						, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
-						, * pVertexInputDesc
-						, * pFinalBlitShaderSet
-						, { {}, {blitBandingHandle} }
-						, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
-						{
-							cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ blitBandingHandle })
-								.BindVertexBuffers({ vertexBufferHandle }, {})
-								.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
-								.DrawIndexed(6);
-						});
+					//ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(*pFinalBlitBindingDesc)
+					//	.SetTexture("SourceTexture", colorTextureHandle)
+					//	.SetSampler("SourceSampler", sampler);
 
-					pImguiContext->DrawIMGUI(pRenderGraph.get(), windowBackBuffer);
+					//pRenderGraph->NewRenderPass(windowBackBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f)
+					//	, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
+					//	, * pVertexInputDesc
+					//	, * pFinalBlitShaderSet
+					//	, { {}, {blitBandingHandle} }
+					//	, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
+					//	{
+					//		cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ blitBandingHandle })
+					//			.BindVertexBuffers({ vertexBufferHandle }, {})
+					//			.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
+					//			.DrawIndexed(6);
+					//	});
+
+					//pImguiContext->DrawIMGUI(pRenderGraph.get(), windowBackBuffer);
 
 					pGraphs->push_back(pRenderGraph);
 				});

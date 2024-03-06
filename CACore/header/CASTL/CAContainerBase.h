@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdarg>
 #define EASTL_EASTDC_VSNPRINTF 0
+#define EASTL_LIST_SIZE_CACHE 1
 extern int Vsnprintf8(char* p, size_t n, const char* pFormat, va_list arguments);
 extern int Vsnprintf8(char8_t* p, size_t n, const char8_t* pFormat, va_list arguments);
 extern int Vsnprintf16(char16_t* p, size_t n, const char16_t* pFormat, va_list arguments);

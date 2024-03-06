@@ -535,9 +535,9 @@ namespace thread_management
     }
     TaskNodeAllocator::TaskNodeAllocator(ThreadManager_Impl1* owningManager) :  
         m_OwningManager(owningManager)
-        , m_TaskGraphPool(threadsafe_utils::DefaultInitializer<TaskGraph_Impl1>{})
-        , m_TaskPool(threadsafe_utils::DefaultInitializer<CTask_Impl1>{})
-        , m_TaskParallelForPool(threadsafe_utils::DefaultInitializer<TaskParallelFor_Impl>{})
+        , m_TaskGraphPool()
+        , m_TaskPool()
+        , m_TaskParallelForPool()
     {
     }
     CTask_Impl1* TaskNodeAllocator::NewTask(TaskBaseObject* owner)

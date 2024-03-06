@@ -18,6 +18,17 @@ public:
 		pContext = nullptr;
 		pWindowHandle = nullptr;
 	};
+
+	void Reset()
+	{
+		m_ViewportTextureHandles.clear();
+		m_IndexDataOffsets.clear();
+		m_Sissors.clear();
+		m_VertexBuffer = {};
+		m_IndexBuffer = {};
+		m_ShaderConstants = {};
+		m_ShaderBindings = {};
+	}
 public:
 	friend class IMGUIContext;
 	castl::vector<graphics_backend::TextureHandle> m_ViewportTextureHandles;
@@ -30,6 +41,7 @@ public:
 	graphics_backend::ShaderBindingSetHandle m_ShaderBindings;
 	castl::vector<castl::tuple<uint32_t, uint32_t, uint32_t>> m_IndexDataOffsets;
 	castl::vector<glm::uvec4> m_Sissors;
+	bool m_Draw;
 };
 
 
@@ -44,16 +56,20 @@ public:
 	);
 	void Release();
 	void UpdateIMGUI(graphics_backend::WindowHandle const* windowHandle);
-	void NewFrame();
+	void PrepareDrawData(graphics_backend::CRenderGraph* pRenderGraph);
+	void Draw(graphics_backend::CRenderGraph* pRenderGraph);
 	void DrawIMGUI(
 		graphics_backend::CRenderGraph* renderGraph
 		, graphics_backend::TextureHandle renderTargethandle);
 	graphics_backend::CRenderBackend* GetRenderBackend() const { return p_RenderBackend; }
 public:
 	void PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph);
+	void DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph);
 	void PrepareInitViewportContext(ImGuiViewport* viewPort, graphics_backend::WindowHandle* pWindow);
 	void ReleaseViewportContext(ImGuiViewport* viewPort);
 private:
+	void NewFrame();
+
 	castl::shared_ptr<graphics_backend::GPUTexture> m_Fontimage;
 	castl::shared_ptr<graphics_backend::TextureSampler> m_ImageSampler;
 	GraphicsShaderSet m_ImguiShaderSet;

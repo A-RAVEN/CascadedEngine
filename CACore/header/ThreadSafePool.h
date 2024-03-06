@@ -4,6 +4,7 @@
 //#include <functional>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CADeque.h>
+#include <CASTL/CAList.h>
 #include <CASTL/CAFunctional.h>
 #include "DebugUtils.h"
 
@@ -43,24 +44,24 @@ namespace threadsafe_utils
 		TThreadSafePointerPool(TThreadSafePointerPool&& other) = delete;
 		TThreadSafePointerPool& operator=(TThreadSafePointerPool&&) = delete;
 
-		TThreadSafePointerPool(std::function<void(T*)> initializer, std::function<void(T*)> releaser) :
+		TThreadSafePointerPool(castl::function<void(T*)> initializer, castl::function<void(T*)> releaser) :
 			m_Initializer(initializer)
 			, m_Releaser(releaser)
 		{
 		}
 		virtual ~TThreadSafePointerPool()
 		{
-			CA_ASSERT(IsEmpty(), (std::string{"ThreadSafe Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T)).c_str());
+			CA_ASSERT(IsEmpty(), (castl::string{"ThreadSafe Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T)).c_str());
 		}
 
 		template<typename...TArgs>
 		T* Alloc(TArgs&&...Args)
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			T* result = nullptr;
 			if (m_EmptySpaces.empty())
 			{
-				m_Pool.emplace_back(std::forward<TArgs>(Args)...);
+				m_Pool.emplace_back(castl::forward<TArgs>(Args)...);
 				result = &m_Pool.back();
 			}
 			else
@@ -75,14 +76,14 @@ namespace threadsafe_utils
 		void Release(T* releaseObj)
 		{
 			assert(releaseObj != nullptr);
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			m_EmptySpaces.push_back(releaseObj);
 			m_Releaser(releaseObj);
 		}
 
 		bool IsEmpty()
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			return m_EmptySpaces.size() == m_Pool.size();
 		}
 
@@ -97,7 +98,7 @@ namespace threadsafe_utils
 		}
 	protected:
 		castl::mutex m_Mutex;
-		castl::deque<T> m_Pool;
+		castl::list<T> m_Pool;
 		castl::deque<T*> m_EmptySpaces;
 		castl::function<void(T*)> m_Initializer;
 		castl::function<void(T*)> m_Releaser;
