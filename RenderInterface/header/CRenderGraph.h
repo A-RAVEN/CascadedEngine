@@ -55,13 +55,13 @@ namespace graphics_backend
 
 		//Shader Constants
 		virtual IShaderConstantSetData& GetConstantSetData(TIndex constantSetIndex) = 0;
-		virtual ShaderConstantsBuilder const& GetShaderConstantDesc(TIndex descID) const = 0;
+		virtual ShaderConstantsBuilder const& GetShaderConstantDesc(TIndex handleID) const = 0;
 		virtual uint32_t GetConstantSetCount() const = 0;
 
 		virtual IShaderBindingSetData* GetBindingSetData(TIndex bindingSetIndex) = 0;
 		virtual IShaderBindingSetData const* GetBindingSetData(TIndex bindingSetIndex) const = 0;
 		virtual uint32_t GetBindingSetDataCount() const = 0;
-		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex descID) const = 0;
+		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex handleID) const = 0;
 
 		virtual uint32_t GetGPUBufferHandleCount() const = 0;
 

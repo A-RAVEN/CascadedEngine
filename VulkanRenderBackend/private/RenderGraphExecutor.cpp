@@ -319,7 +319,7 @@ namespace graphics_backend
 				{
 					auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
 					IShaderConstantSetData const& constantsData = m_RenderGraph->GetConstantSetData(handleID);
-					auto& shaderConstantDesc = m_RenderGraph->GetShaderConstantDesc(constantsData.GetDescID());
+					auto& shaderConstantDesc = m_RenderGraph->GetShaderConstantDesc(handleID);
 					auto subAllocator = GetVulkanApplication().GetShaderConstantSetAllocators().GetOrCreate(shaderConstantDesc);
 					auto& metaData = subAllocator->GetMetadata();
 

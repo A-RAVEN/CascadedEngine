@@ -66,6 +66,7 @@ namespace graphics_backend
 		ShaderBindingSetHandle(CRenderGraph* renderGraph, TIndex descIndex, TIndex handleID)
 			: GPUGraphHandleBase(renderGraph, handleID)
 		{}
+		castl::string m_Name = "";
 		inline ShaderBindingSetHandle& SetConstantSet(castl::string const& name, castl::shared_ptr<ShaderConstantSet> const& pConstantSet);
 		inline ShaderBindingSetHandle& SetConstantSet(castl::string const& name, ShaderConstantSetHandle const& constantSetHandle);
 		inline ShaderBindingSetHandle& SetTexture(castl::string const& name

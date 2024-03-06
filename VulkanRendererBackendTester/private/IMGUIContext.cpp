@@ -137,7 +137,7 @@ IMGUIContext::IMGUIContext() :
 	p_RenderBackend(nullptr)
 {
 	m_ImguiShaderConstantsBuilder
-		.Vec2<float>("IMGUIScale");
+		.Vec4<float>("IMGUIScale_Pos");
 	m_ImguiShaderBindingBuilder.ConstantBuffer(m_ImguiShaderConstantsBuilder)
 		.Texture2D<float, 4>("FontTexture")
 		.SamplerState("FontSampler");
@@ -387,7 +387,7 @@ void IMGUIContext::NewFrame()
 void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph)
 {
 	ImGuiIO& io = ImGui::GetIO();
-	glm::vec2 meshScale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y);
+	glm::vec4 meshScale_Pos = glm::vec4(2.0f / viewPort->Size.x, 2.0f / viewPort->Size.y, viewPort->Pos.x, viewPort->Pos.y);
 	ImDrawData* imDrawData = viewPort->DrawData;
 	IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
 	pUserData->Reset();
@@ -424,14 +424,16 @@ void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphi
 		{
 			const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
 			pUserData->m_IndexDataOffsets.push_back(castl::make_tuple(idxOffset, vtxOffset, pcmd->ElemCount));
-			pUserData->m_Sissors.push_back(glm::ivec4(pcmd->ClipRect.x, pcmd->ClipRect.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
+			pUserData->m_Sissors.push_back(glm::ivec4(pcmd->ClipRect.x - viewPort->Pos.x, pcmd->ClipRect.y - viewPort->Pos.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
 			idxOffset += pcmd->ElemCount;
 		}
 		vtxOffset += cmd_list->VtxBuffer.Size;
 	}
+	
 	pUserData->m_ShaderConstants = renderGraph->NewShaderConstantSetHandle(m_ImguiShaderConstantsBuilder);
 	pUserData->m_ShaderBindings = renderGraph->NewShaderBindingSetHandle(m_ImguiShaderBindingBuilder);
-	pUserData->m_ShaderConstants.SetValue("IMGUIScale", meshScale);
+	pUserData->m_ShaderBindings.m_Name = "IMGUI Bindings";
+	pUserData->m_ShaderConstants.SetValue("IMGUIScale_Pos", meshScale_Pos);
 	pUserData->m_ShaderBindings.SetConstantSet(m_ImguiShaderConstantsBuilder.GetName(), pUserData->m_ShaderConstants)
 		.SetSampler("FontSampler", m_ImageSampler)
 		.SetTexture("FontTexture", m_Fontimage);

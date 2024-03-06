@@ -155,9 +155,9 @@ namespace graphics_backend
 			return m_ShaderBindingSetDataList.size();
 		}
 
-		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex descID) const override 
+		virtual ShaderBindingBuilder const& GetShaderBindingSetDesc(TIndex dataID) const override 
 		{ 
-			return m_BindingDescriptorIDPool.DescIDToDesc(descID); 
+			return m_BindingDescriptorIDPool.DataIDToDesc(dataID);
 		}
 
 		virtual castl::unordered_map<WindowHandle*, TIndex> const& WindowHandleToTextureIndexMap() const override
@@ -177,9 +177,9 @@ namespace graphics_backend
 			return m_ConstantSetDescriptorIDPool.DataIDCount();
 		}
 
-		virtual ShaderConstantsBuilder const& GetShaderConstantDesc(TIndex descID) const override
+		virtual ShaderConstantsBuilder const& GetShaderConstantDesc(TIndex dataID) const override
 		{
-			return m_ConstantSetDescriptorIDPool.DescIDToDesc(descID);
+			return m_ConstantSetDescriptorIDPool.DataIDToDesc(dataID);
 		}
 #pragma region Descriptor Getters
 		InternalDataManager<GPUTextureDescriptor> const& GetGPUTextureDescirptorPool() const

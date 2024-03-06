@@ -1,12 +1,17 @@
 struct ImguiContext
 {
-    float2 IMGUIScale;
+    float4 IMGUIScale_Pos;
     Texture2D<float4> FontTexture;
     SamplerState FontSampler;
 
     float4 SampleFont(in float2 uv)
     {
         return FontTexture.SampleLevel(FontSampler, uv, 0).xyzw;
+    }
+
+    float2 TransformIMGUIVertex(in float2 inVert)
+    {
+        return (inVert - IMGUIScale_Pos.zw) * IMGUIScale_Pos.xy - 1.0f;
     }
 };
 ParameterBlock<ImguiContext> imgui;
@@ -30,7 +35,7 @@ VSOutput vert(VSInput input)
 	VSOutput output = (VSOutput)0;
 	output.UV = input.UV;
 	output.Color = input.Color;
-	output.Pos = float4(input.Pos.xy * imgui.IMGUIScale - 1.0, 0.0, 1.0);
+	output.Pos = float4(imgui.TransformIMGUIVertex(input.Pos), 0.0, 1.0);
 	return output;
 }
 
