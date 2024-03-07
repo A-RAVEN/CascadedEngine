@@ -37,15 +37,15 @@ namespace graphics_backend
 		virtual void SetWindowAlpha(float alpha) = 0;
 		virtual float GetDpiScale() const = 0;
 
-		virtual void SetWindowFocusCallback(castl::function<void()> callback);
-		virtual void SetCursorEnterCallback(castl::function<void()> callback);
-		virtual void SetCursorPosCallback(castl::function<void(float, float)> callback);
-		virtual void SetMouseButtonCallback(castl::function<void()> callback);
-		virtual void SetScrollCallback(castl::function<void()> callback);
-		virtual void SetKeyCallback(castl::function<void()> callback);
-		virtual void SetCharCallback(castl::function<void()> callback);
-		virtual void SetWindowCloseCallback(castl::function<void()> callback);
-		virtual void SetWindowPosCallback(castl::function<void(float, float)> callback);
-		virtual void SetWindowSizeCallback(castl::function<void(float,float)> callback);
+		virtual void SetWindowFocusCallback(castl::function<void(WindowHandle*, bool)> callback);
+		virtual void SetCursorEnterCallback(castl::function<void(WindowHandle*)> callback);
+		virtual void SetCursorPosCallback(castl::function<void(WindowHandle*, float, float)> callback);
+		virtual void SetMouseButtonCallback(castl::function<void(WindowHandle*, int, int, int)> callback);
+		virtual void SetScrollCallback(castl::function<void(WindowHandle*, float, float)> callback);
+		virtual void SetKeyCallback(castl::function<void(WindowHandle*, int, int, int, int)> callback);
+		virtual void SetCharCallback(castl::function<void(WindowHandle*, uint32_t)> callback);
+		virtual void SetWindowCloseCallback(castl::function<void(WindowHandle*)> callback);
+		virtual void SetWindowPosCallback(castl::function<void(WindowHandle*, float, float)> callback);
+		virtual void SetWindowSizeCallback(castl::function<void(WindowHandle*, float,float)> callback);
 	};
 }
