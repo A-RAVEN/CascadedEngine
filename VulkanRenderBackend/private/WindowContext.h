@@ -14,8 +14,81 @@
 
 namespace graphics_backend
 {
+	class glfwContext
+	{
+	public:
+		glfwContext()
+		{
+			glfwInit();
+			glfwSetErrorCallback([](int error, const char* msg)
+				{
+					std::cerr << "glfw Error: " << "(" << error << ")" << msg << std::endl;
+				});
+		}
 
+		~glfwContext()
+		{
+			glfwTerminate();
+		}
 
+		void UpdateMonitors()
+		{
+			int monitors_count = 0;
+			GLFWmonitor** glfw_monitors = glfwGetMonitors(&monitors_count);
+			m_Monitors.clear();
+			m_Monitors.reserve(monitors_count);
+
+			for (int n = 0; n < monitors_count; n++)
+			{
+				int x, y;
+				glfwGetMonitorPos(glfw_monitors[n], &x, &y);
+				const GLFWvidmode* vid_mode = glfwGetVideoMode(glfw_monitors[n]);
+				if (vid_mode == nullptr)
+					continue; // Failed to get Video mode (e.g. Emscripten does not support this function)
+
+				MonitorHandle monitorHandle{};
+				monitorHandle.m_MonitorRect.x = x;
+				monitorHandle.m_MonitorRect.y = y;
+				monitorHandle.m_MonitorRect.width = vid_mode->width;
+				monitorHandle.m_MonitorRect.height = vid_mode->height;
+				int w, h;
+				glfwGetMonitorWorkarea(glfw_monitors[n], &x, &y, &w, &h);
+				if (w > 0 && h > 0) // Workaround a small GLFW issue reporting zero on monitor changes: https://github.com/glfw/glfw/pull/1761
+				{
+					monitorHandle.m_WorkAreaRect.x = x;
+					monitorHandle.m_WorkAreaRect.y = y;
+					monitorHandle.m_WorkAreaRect.width = w;
+					monitorHandle.m_WorkAreaRect.height = h;
+				}
+				// Warning: the validity of monitor DPI information on Windows depends on the application DPI awareness settings, which generally needs to be set in the manifest or at runtime.
+				float x_scale, y_scale;
+				glfwGetMonitorContentScale(glfw_monitors[n], &x_scale, &y_scale);
+				monitorHandle.m_DPIScale = x_scale;
+				m_Monitors.push_back(monitorHandle);
+			}
+		}
+
+		void SetupWindowCallbacks(CWindowContext* windowHandle);
+		CWindowContext* ContextFromHandle(GLFWwindow* windowHandle)
+		{
+			return reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(windowHandle));
+		}
+
+		castl::vector<MonitorHandle> m_Monitors;
+
+		castl::function<void(WindowHandle*, bool)> 					m_WindowFocusCallback = nullptr;
+		castl::function<void(WindowHandle*, bool)> 					m_CursorEnterCallback = nullptr;
+		castl::function<void(WindowHandle*, float, float)> 			m_CursorPosCallback = nullptr;
+		castl::function<void(WindowHandle*, int, int, int)> 		m_MouseButtonCallback = nullptr;
+		castl::function<void(WindowHandle*, float, float)> 			m_ScrollCallback = nullptr;
+		castl::function<void(WindowHandle*, int, int, int, int)>	m_KeyCallback = nullptr;
+		castl::function<void(WindowHandle*, uint32_t)> 				m_CharCallback = nullptr;
+		castl::function<void(WindowHandle*)> 						m_WindowCloseCallback = nullptr;
+		castl::function<void(WindowHandle*, float, float)> 			m_WindowPosCallback = nullptr;
+		castl::function<void(WindowHandle*, float, float)> 			m_WindowSizeCallback = nullptr;
+
+		static glfwContext s_Instance;
+	};
 
 	class SwapchainContext : public VKAppSubObjectBaseNoCopy
 	{
@@ -111,6 +184,7 @@ namespace graphics_backend
 			, castl::vector<vk::PipelineStageFlags>& inoutWaitStages
 			, castl::vector<vk::Semaphore>& inoutSignalSemaphores);
 	private:
+		friend class glfwContext;
 		castl::string m_WindowName;
 		uint32_t m_Width = 0;
 		uint32_t m_Height = 0;
@@ -127,5 +201,8 @@ namespace graphics_backend
 		bool m_Resized = false;
 
 		castl::mutex m_Mutex;
+
+
+
 	};
 }

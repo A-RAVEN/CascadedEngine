@@ -136,7 +136,7 @@ namespace graphics_backend
 
 		HashPool<ShaderBindingBuilder, ShaderBindingSetAllocator>& GetShaderBindingSetAllocators() { return m_ShaderBindingSetAllocator; }
 		HashPool<ShaderConstantsBuilder, ShaderConstantSetAllocator>& GetShaderConstantSetAllocators() { return m_ConstantSetAllocator; }
-	private:
+private:
 
 		void InitializeInstance(castl::string const& name, castl::string const& engineName);
 		void DestroyInstance();

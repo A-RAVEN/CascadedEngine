@@ -183,6 +183,18 @@ void IMGUIContext::Initialize(
 
 	ImGuiViewport* main_viewport = ImGui::GetMainViewport();
 	PrepareInitViewportContext(main_viewport, mainWindowHandle);
+
+	//Register Callbacks
+	p_RenderBackend->SetWindowFocusCallback(ImGui_ImplGlfw_WindowFocusCallback);
+	p_RenderBackend->SetCursorEnterCallback(ImGui_ImplGlfw_CursorEnterCallback);
+	p_RenderBackend->SetCursorPosCallback(ImGui_ImplGlfw_CursorPosCallback);
+	p_RenderBackend->SetMouseButtonCallback(ImGui_ImplGlfw_MouseButtonCallback);
+	p_RenderBackend->SetScrollCallback(ImGui_ImplGlfw_ScrollCallback);
+	p_RenderBackend->SetKeyCallback(ImGui_ImplGlfw_KeyCallback);
+	p_RenderBackend->SetCharCallback(ImGui_ImplGlfw_CharCallback);
+	p_RenderBackend->SetWindowCloseCallback(ImGui_ImplGlfw_WindowCloseCallback);
+	p_RenderBackend->SetWindowPosCallback(ImGui_ImplGlfw_WindowPosCallback);
+	p_RenderBackend->SetWindowSizeCallback(ImGui_ImplGlfw_WindowSizeCallback);
 }
 
 
@@ -194,17 +206,6 @@ void ImGui_Impl_CreateWindow(ImGuiViewport* viewport)
 		, false, false
 		, (viewport->Flags & ImGuiViewportFlags_NoDecoration) ? false : true
 		, (viewport->Flags & ImGuiViewportFlags_TopMost) ? true : false).get());
-
-	/*glfwSetWindowFocusCallback(vd->Window, ImGui_ImplGlfw_WindowFocusCallback);
-	glfwSetCursorEnterCallback(vd->Window, ImGui_ImplGlfw_CursorEnterCallback);
-	glfwSetCursorPosCallback(vd->Window, ImGui_ImplGlfw_CursorPosCallback);
-	glfwSetMouseButtonCallback(vd->Window, ImGui_ImplGlfw_MouseButtonCallback);
-	glfwSetScrollCallback(vd->Window, ImGui_ImplGlfw_ScrollCallback);
-	glfwSetKeyCallback(vd->Window, ImGui_ImplGlfw_KeyCallback);
-	glfwSetCharCallback(vd->Window, ImGui_ImplGlfw_CharCallback);
-	glfwSetWindowCloseCallback(vd->Window, ImGui_ImplGlfw_WindowCloseCallback);
-	glfwSetWindowPosCallback(vd->Window, ImGui_ImplGlfw_WindowPosCallback);
-	glfwSetWindowSizeCallback(vd->Window, ImGui_ImplGlfw_WindowSizeCallback);*/
 }
 
 void ImGui_Impl_DestroyWindow(ImGuiViewport* viewport)
@@ -472,6 +473,217 @@ void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRe
 		});
 }
 
+
+using namespace graphics_backend;
+
+static ImGuiKey ImGui_ImplGlfw_KeyToImGuiKey(int key)
+{
+	switch (key)
+	{
+	case CA_KEY_TAB: return ImGuiKey_Tab;
+	case CA_KEY_LEFT: return ImGuiKey_LeftArrow;
+	case CA_KEY_RIGHT: return ImGuiKey_RightArrow;
+	case CA_KEY_UP: return ImGuiKey_UpArrow;
+	case CA_KEY_DOWN: return ImGuiKey_DownArrow;
+	case CA_KEY_PAGE_UP: return ImGuiKey_PageUp;
+	case CA_KEY_PAGE_DOWN: return ImGuiKey_PageDown;
+	case CA_KEY_HOME: return ImGuiKey_Home;
+	case CA_KEY_END: return ImGuiKey_End;
+	case CA_KEY_INSERT: return ImGuiKey_Insert;
+	case CA_KEY_DELETE: return ImGuiKey_Delete;
+	case CA_KEY_BACKSPACE: return ImGuiKey_Backspace;
+	case CA_KEY_SPACE: return ImGuiKey_Space;
+	case CA_KEY_ENTER: return ImGuiKey_Enter;
+	case CA_KEY_ESCAPE: return ImGuiKey_Escape;
+	case CA_KEY_APOSTROPHE: return ImGuiKey_Apostrophe;
+	case CA_KEY_COMMA: return ImGuiKey_Comma;
+	case CA_KEY_MINUS: return ImGuiKey_Minus;
+	case CA_KEY_PERIOD: return ImGuiKey_Period;
+	case CA_KEY_SLASH: return ImGuiKey_Slash;
+	case CA_KEY_SEMICOLON: return ImGuiKey_Semicolon;
+	case CA_KEY_EQUAL: return ImGuiKey_Equal;
+	case CA_KEY_LEFT_BRACKET: return ImGuiKey_LeftBracket;
+	case CA_KEY_BACKSLASH: return ImGuiKey_Backslash;
+	case CA_KEY_RIGHT_BRACKET: return ImGuiKey_RightBracket;
+	case CA_KEY_GRAVE_ACCENT: return ImGuiKey_GraveAccent;
+	case CA_KEY_CAPS_LOCK: return ImGuiKey_CapsLock;
+	case CA_KEY_SCROLL_LOCK: return ImGuiKey_ScrollLock;
+	case CA_KEY_NUM_LOCK: return ImGuiKey_NumLock;
+	case CA_KEY_PRINT_SCREEN: return ImGuiKey_PrintScreen;
+	case CA_KEY_PAUSE: return ImGuiKey_Pause;
+	case CA_KEY_KP_0: return ImGuiKey_Keypad0;
+	case CA_KEY_KP_1: return ImGuiKey_Keypad1;
+	case CA_KEY_KP_2: return ImGuiKey_Keypad2;
+	case CA_KEY_KP_3: return ImGuiKey_Keypad3;
+	case CA_KEY_KP_4: return ImGuiKey_Keypad4;
+	case CA_KEY_KP_5: return ImGuiKey_Keypad5;
+	case CA_KEY_KP_6: return ImGuiKey_Keypad6;
+	case CA_KEY_KP_7: return ImGuiKey_Keypad7;
+	case CA_KEY_KP_8: return ImGuiKey_Keypad8;
+	case CA_KEY_KP_9: return ImGuiKey_Keypad9;
+	case CA_KEY_KP_DECIMAL: return ImGuiKey_KeypadDecimal;
+	case CA_KEY_KP_DIVIDE: return ImGuiKey_KeypadDivide;
+	case CA_KEY_KP_MULTIPLY: return ImGuiKey_KeypadMultiply;
+	case CA_KEY_KP_SUBTRACT: return ImGuiKey_KeypadSubtract;
+	case CA_KEY_KP_ADD: return ImGuiKey_KeypadAdd;
+	case CA_KEY_KP_ENTER: return ImGuiKey_KeypadEnter;
+	case CA_KEY_KP_EQUAL: return ImGuiKey_KeypadEqual;
+	case CA_KEY_LEFT_SHIFT: return ImGuiKey_LeftShift;
+	case CA_KEY_LEFT_CONTROL: return ImGuiKey_LeftCtrl;
+	case CA_KEY_LEFT_ALT: return ImGuiKey_LeftAlt;
+	case CA_KEY_LEFT_SUPER: return ImGuiKey_LeftSuper;
+	case CA_KEY_RIGHT_SHIFT: return ImGuiKey_RightShift;
+	case CA_KEY_RIGHT_CONTROL: return ImGuiKey_RightCtrl;
+	case CA_KEY_RIGHT_ALT: return ImGuiKey_RightAlt;
+	case CA_KEY_RIGHT_SUPER: return ImGuiKey_RightSuper;
+	case CA_KEY_MENU: return ImGuiKey_Menu;
+	case CA_KEY_0: return ImGuiKey_0;
+	case CA_KEY_1: return ImGuiKey_1;
+	case CA_KEY_2: return ImGuiKey_2;
+	case CA_KEY_3: return ImGuiKey_3;
+	case CA_KEY_4: return ImGuiKey_4;
+	case CA_KEY_5: return ImGuiKey_5;
+	case CA_KEY_6: return ImGuiKey_6;
+	case CA_KEY_7: return ImGuiKey_7;
+	case CA_KEY_8: return ImGuiKey_8;
+	case CA_KEY_9: return ImGuiKey_9;
+	case CA_KEY_A: return ImGuiKey_A;
+	case CA_KEY_B: return ImGuiKey_B;
+	case CA_KEY_C: return ImGuiKey_C;
+	case CA_KEY_D: return ImGuiKey_D;
+	case CA_KEY_E: return ImGuiKey_E;
+	case CA_KEY_F: return ImGuiKey_F;
+	case CA_KEY_G: return ImGuiKey_G;
+	case CA_KEY_H: return ImGuiKey_H;
+	case CA_KEY_I: return ImGuiKey_I;
+	case CA_KEY_J: return ImGuiKey_J;
+	case CA_KEY_K: return ImGuiKey_K;
+	case CA_KEY_L: return ImGuiKey_L;
+	case CA_KEY_M: return ImGuiKey_M;
+	case CA_KEY_N: return ImGuiKey_N;
+	case CA_KEY_O: return ImGuiKey_O;
+	case CA_KEY_P: return ImGuiKey_P;
+	case CA_KEY_Q: return ImGuiKey_Q;
+	case CA_KEY_R: return ImGuiKey_R;
+	case CA_KEY_S: return ImGuiKey_S;
+	case CA_KEY_T: return ImGuiKey_T;
+	case CA_KEY_U: return ImGuiKey_U;
+	case CA_KEY_V: return ImGuiKey_V;
+	case CA_KEY_W: return ImGuiKey_W;
+	case CA_KEY_X: return ImGuiKey_X;
+	case CA_KEY_Y: return ImGuiKey_Y;
+	case CA_KEY_Z: return ImGuiKey_Z;
+	case CA_KEY_F1: return ImGuiKey_F1;
+	case CA_KEY_F2: return ImGuiKey_F2;
+	case CA_KEY_F3: return ImGuiKey_F3;
+	case CA_KEY_F4: return ImGuiKey_F4;
+	case CA_KEY_F5: return ImGuiKey_F5;
+	case CA_KEY_F6: return ImGuiKey_F6;
+	case CA_KEY_F7: return ImGuiKey_F7;
+	case CA_KEY_F8: return ImGuiKey_F8;
+	case CA_KEY_F9: return ImGuiKey_F9;
+	case CA_KEY_F10: return ImGuiKey_F10;
+	case CA_KEY_F11: return ImGuiKey_F11;
+	case CA_KEY_F12: return ImGuiKey_F12;
+	case CA_KEY_F13: return ImGuiKey_F13;
+	case CA_KEY_F14: return ImGuiKey_F14;
+	case CA_KEY_F15: return ImGuiKey_F15;
+	case CA_KEY_F16: return ImGuiKey_F16;
+	case CA_KEY_F17: return ImGuiKey_F17;
+	case CA_KEY_F18: return ImGuiKey_F18;
+	case CA_KEY_F19: return ImGuiKey_F19;
+	case CA_KEY_F20: return ImGuiKey_F20;
+	case CA_KEY_F21: return ImGuiKey_F21;
+	case CA_KEY_F22: return ImGuiKey_F22;
+	case CA_KEY_F23: return ImGuiKey_F23;
+	case CA_KEY_F24: return ImGuiKey_F24;
+	default: return ImGuiKey_None;
+	}
+}
+
+// X11 does not include current pressed/released modifier key in 'mods' flags submitted by GLFW
+// See https://github.com/ocornut/imgui/issues/6034 and https://github.com/glfw/glfw/issues/1630
+static void ImGui_ImplGlfw_UpdateKeyModifiers(WindowHandle* window)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddKeyEvent(ImGuiMod_Ctrl, (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS));
+	io.AddKeyEvent(ImGuiMod_Shift, (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS));
+	io.AddKeyEvent(ImGuiMod_Alt, (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS));
+	io.AddKeyEvent(ImGuiMod_Super, (glfwGetKey(window, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS));
+}
+
+void ImGui_ImplGlfw_KeyCallback(WindowHandle* window, int keycode, int scancode, int action, int mods)
+{
+	if (action != CA_PRESS && action != CA_RELEASE)
+		return;
+
+	//ImGui_ImplGlfw_UpdateKeyModifiers(window);
+
+	//if (keycode >= 0 && keycode < IM_ARRAYSIZE(bd->KeyOwnerWindows))
+	//	bd->KeyOwnerWindows[keycode] = (action == CA_PRESS) ? window : nullptr;
+
+
+	ImGuiIO& io = ImGui::GetIO();
+	ImGuiKey imgui_key = ImGui_ImplGlfw_KeyToImGuiKey(keycode);
+	io.AddKeyEvent(imgui_key, (action == CA_PRESS));
+	io.SetKeyEventNativeData(imgui_key, keycode, scancode); // To support legacy indexing (<1.87 user code)
+}
+
+void ImGui_ImplGlfw_WindowFocusCallback(WindowHandle* window, int focused)
+{
+
+}
+
+void ImGui_ImplGlfw_CursorPosCallback(WindowHandle* window, double x, double y)
+{
+
+}
+
+// Workaround: X11 seems to send spurious Leave/Enter events which would make us lose our position,
+// so we back it up and restore on Leave/Enter (see https://github.com/ocornut/imgui/issues/4984)
+void ImGui_ImplGlfw_CursorEnterCallback(WindowHandle* window, int entered)
+{
+
+}
+
+void ImGui_ImplGlfw_CharCallback(WindowHandle* window, unsigned int c)
+{
+
+}
+
+void ImGui_ImplGlfw_MouseButtonCallback(WindowHandle* window, int button, int action, int mods)
+{
+
+}
+
+void ImGui_ImplGlfw_ScrollCallback(WindowHandle* window, double xoffset, double yoffset)
+{
+
+}
+
+
+static void ImGui_ImplGlfw_WindowCloseCallback(WindowHandle* window)
+{
+
+}
+
+// GLFW may dispatch window pos/size events after calling glfwSetWindowPos()/glfwSetWindowSize().
+// However: depending on the platform the callback may be invoked at different time:
+// - on Windows it appears to be called within the glfwSetWindowPos()/glfwSetWindowSize() call
+// - on Linux it is queued and invoked during glfwPollEvents()
+// Because the event doesn't always fire on glfwSetWindowXXX() we use a frame counter tag to only
+// ignore recent glfwSetWindowXXX() calls.
+static void ImGui_ImplGlfw_WindowPosCallback(WindowHandle* window, int x, int y)
+{
+
+}
+
+static void ImGui_ImplGlfw_WindowSizeCallback(WindowHandle* window, int width, int height)
+{
+
+}
+
+
 void IMGUIContext::PrepareInitViewportContext(ImGuiViewport* viewport, graphics_backend::WindowHandle* pWindow)
 {
 	auto viewportContext = m_ViewportContextPool.Alloc();
@@ -479,6 +691,10 @@ void IMGUIContext::PrepareInitViewportContext(ImGuiViewport* viewport, graphics_
 	viewportContext->pContext = this;
 	viewportContext->pWindowHandle->SetWindowPos(viewport->Pos.x, viewport->Pos.y);
 	viewport->PlatformUserData = viewportContext;
+	viewport->PlatformHandle = viewportContext;
+	//p_RenderBackend->SetWindowFocusCallback()
+
+
 }
 
 void IMGUIContext::ReleaseViewportContext(ImGuiViewport* viewport)

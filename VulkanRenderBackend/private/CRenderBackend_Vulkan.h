@@ -30,7 +30,20 @@ namespace graphics_backend
 		virtual castl::shared_ptr<TextureSampler> GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor) override;
 		virtual uint32_t GetMonitorCount() const override;
 		virtual MonitorHandle GetMonitorHandleAt(uint32_t monitorID) const override;
+
+		virtual void SetWindowFocusCallback(castl::function<void(WindowHandle*, bool)> callback)			override;
+		virtual void SetCursorEnterCallback(castl::function<void(WindowHandle*, bool)> callback)					override;
+		virtual void SetCursorPosCallback(castl::function<void(WindowHandle*, float, float)> callback)		override;
+		virtual void SetMouseButtonCallback(castl::function<void(WindowHandle*, int, int, int)> callback)	override;
+		virtual void SetScrollCallback(castl::function<void(WindowHandle*, float, float)> callback)			override;
+		virtual void SetKeyCallback(castl::function<void(WindowHandle*, int, int, int, int)> callback)		override;
+		virtual void SetCharCallback(castl::function<void(WindowHandle*, uint32_t)> callback)				override;
+		virtual void SetWindowCloseCallback(castl::function<void(WindowHandle*)> callback)					override;
+		virtual void SetWindowPosCallback(castl::function<void(WindowHandle*, float, float)> callback)		override;
+		virtual void SetWindowSizeCallback(castl::function<void(WindowHandle*, float, float)> callback)		override;
 	private:
 		CVulkanApplication m_Application;
+
+
 	};
 }

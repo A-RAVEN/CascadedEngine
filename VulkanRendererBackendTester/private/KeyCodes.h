@@ -134,3 +134,7 @@
 #define CA_MOUSE_BUTTON_LEFT      CA_MOUSE_BUTTON_1
 #define CA_MOUSE_BUTTON_RIGHT     CA_MOUSE_BUTTON_2
 #define CA_MOUSE_BUTTON_MIDDLE    CA_MOUSE_BUTTON_3
+
+#define CA_RELEASE                0
+#define CA_PRESS                  1
+#define CA_REPEAT                 2

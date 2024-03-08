@@ -5,64 +5,7 @@
 
 namespace graphics_backend
 {
-	class glfwContext
-	{
-	public:
-		glfwContext()
-		{
-			glfwInit();
-			glfwSetErrorCallback([](int error, const char* msg)
-				{
-					std::cerr << "glfw Error: " << "(" << error << ")" << msg << std::endl;
-				});
-		}
-
-		~glfwContext()
-		{
-			glfwTerminate();
-		}
-
-		void UpdateMonitors()
-		{
-			int monitors_count = 0;
-			GLFWmonitor** glfw_monitors = glfwGetMonitors(&monitors_count);
-			m_Monitors.clear();
-			m_Monitors.reserve(monitors_count);
-
-			for (int n = 0; n < monitors_count; n++)
-			{
-				int x, y;
-				glfwGetMonitorPos(glfw_monitors[n], &x, &y);
-				const GLFWvidmode* vid_mode = glfwGetVideoMode(glfw_monitors[n]);
-				if (vid_mode == nullptr)
-					continue; // Failed to get Video mode (e.g. Emscripten does not support this function)
-				
-				MonitorHandle monitorHandle{};
-				monitorHandle.m_MonitorRect.x = x;
-				monitorHandle.m_MonitorRect.y = y;
-				monitorHandle.m_MonitorRect.width = vid_mode->width;
-				monitorHandle.m_MonitorRect.height = vid_mode->height;
-				int w, h;
-				glfwGetMonitorWorkarea(glfw_monitors[n], &x, &y, &w, &h);
-				if (w > 0 && h > 0) // Workaround a small GLFW issue reporting zero on monitor changes: https://github.com/glfw/glfw/pull/1761
-				{
-					monitorHandle.m_WorkAreaRect.x = x;
-					monitorHandle.m_WorkAreaRect.y = y;
-					monitorHandle.m_WorkAreaRect.width = w;
-					monitorHandle.m_WorkAreaRect.height = h;
-				}
-				// Warning: the validity of monitor DPI information on Windows depends on the application DPI awareness settings, which generally needs to be set in the manifest or at runtime.
-				float x_scale, y_scale;
-				glfwGetMonitorContentScale(glfw_monitors[n], &x_scale, &y_scale);
-				monitorHandle.m_DPIScale = x_scale;
-				m_Monitors.push_back(monitorHandle);
-			}
-		}
-
-		castl::vector<MonitorHandle> m_Monitors;
-	};
-
-	static glfwContext s_GLFWContext = glfwContext();
+	glfwContext glfwContext::s_Instance{};
 
 	castl::string CWindowContext::GetName() const
 	{ return m_WindowName; }
@@ -161,14 +104,16 @@ namespace graphics_backend
 		return 0.0f;
 	}
 
+	
+
 	void CWindowContext::UpdateMonitors()
 	{
-		s_GLFWContext.UpdateMonitors();
+		glfwContext::s_Instance.UpdateMonitors();
 	}
 
 	castl::vector<MonitorHandle> const& CWindowContext::GetMonitors()
 	{
-		return s_GLFWContext.m_Monitors;
+		return glfwContext::s_Instance.m_Monitors;
 	}
 
 	bool CWindowContext::IsKeyDown(int keycode) const
@@ -501,5 +446,158 @@ namespace graphics_backend
 		m_TextureDesc = other.m_TextureDesc;
 		//Index
 		m_CurrentBufferIndex = other.m_CurrentBufferIndex;
+	}
+
+#define GLFW_VERSION_COMBINED           (GLFW_VERSION_MAJOR * 1000 + GLFW_VERSION_MINOR * 100 + GLFW_VERSION_REVISION)
+#define GLFW_HAS_GETKEYNAME             (GLFW_VERSION_COMBINED >= 3200) // 3.2+ glfwGetKeyName()
+#define IM_ARRAYSIZE(_ARR)          ((int)(sizeof(_ARR) / sizeof(*(_ARR))))     // Size of a static C-style array. Don't use on pointers!
+
+	static int ImGui_ImplGlfw_TranslateUntranslatedKey(int key, int scancode)
+	{
+#if GLFW_HAS_GETKEYNAME && !defined(__EMSCRIPTEN__)
+		// GLFW 3.1+ attempts to "untranslate" keys, which goes the opposite of what every other framework does, making using lettered shortcuts difficult.
+		// (It had reasons to do so: namely GLFW is/was more likely to be used for WASD-type game controls rather than lettered shortcuts, but IHMO the 3.1 change could have been done differently)
+		// See https://github.com/glfw/glfw/issues/1502 for details.
+		// Adding a workaround to undo this (so our keys are translated->untranslated->translated, likely a lossy process).
+		// This won't cover edge cases but this is at least going to cover common cases.
+		if (key >= GLFW_KEY_KP_0 && key <= GLFW_KEY_KP_EQUAL)
+			return key;
+		GLFWerrorfun prev_error_callback = glfwSetErrorCallback(nullptr);
+		const char* key_name = glfwGetKeyName(key, scancode);
+		glfwSetErrorCallback(prev_error_callback);
+#if GLFW_HAS_GETERROR && !defined(__EMSCRIPTEN__) // Eat errors (see #5908)
+		(void)glfwGetError(nullptr);
+#endif
+		if (key_name && key_name[0] != 0 && key_name[1] == 0)
+		{
+			const char char_names[] = "`-=[]\\,;\'./";
+			const int char_keys[] = { GLFW_KEY_GRAVE_ACCENT, GLFW_KEY_MINUS, GLFW_KEY_EQUAL, GLFW_KEY_LEFT_BRACKET, GLFW_KEY_RIGHT_BRACKET, GLFW_KEY_BACKSLASH, GLFW_KEY_COMMA, GLFW_KEY_SEMICOLON, GLFW_KEY_APOSTROPHE, GLFW_KEY_PERIOD, GLFW_KEY_SLASH, 0 };
+			CA_ASSERT(IM_ARRAYSIZE(char_names) == IM_ARRAYSIZE(char_keys), "In Compatible Char Size");
+			if (key_name[0] >= '0' && key_name[0] <= '9') { key = GLFW_KEY_0 + (key_name[0] - '0'); }
+			else if (key_name[0] >= 'A' && key_name[0] <= 'Z') { key = GLFW_KEY_A + (key_name[0] - 'A'); }
+			else if (key_name[0] >= 'a' && key_name[0] <= 'z') { key = GLFW_KEY_A + (key_name[0] - 'a'); }
+			else if (const char* p = strchr(char_names, key_name[0])) { key = char_keys[p - char_names]; }
+		}
+		// if (action == GLFW_PRESS) printf("key %d scancode %d name '%s'\n", key, scancode, key_name);
+#else
+		IM_UNUSED(scancode);
+#endif
+		return key;
+	}
+
+
+	void ImGui_ImplGlfw_KeyCallback(GLFWwindow* window, int keycode, int scancode, int action, int mods)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_KeyCallback)
+		{
+			keycode = ImGui_ImplGlfw_TranslateUntranslatedKey(keycode, scancode);
+			glfwContext::s_Instance.m_KeyCallback(windowHandle, keycode, scancode, action, mods);
+		}
+	}
+
+	void ImGui_ImplGlfw_WindowFocusCallback(GLFWwindow* window, int focused)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_WindowFocusCallback)
+		{
+			glfwContext::s_Instance.m_WindowFocusCallback(windowHandle, focused);
+		}
+	}
+
+	void ImGui_ImplGlfw_CursorPosCallback(GLFWwindow* window, double x, double y)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_CursorPosCallback)
+		{
+			glfwContext::s_Instance.m_CursorPosCallback(windowHandle, x, y);
+		}
+	}
+
+	// Workaround: X11 seems to send spurious Leave/Enter events which would make us lose our position,
+	// so we back it up and restore on Leave/Enter (see https://github.com/ocornut/imgui/issues/4984)
+	void ImGui_ImplGlfw_CursorEnterCallback(GLFWwindow* window, int entered)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_CursorEnterCallback)
+		{
+			glfwContext::s_Instance.m_CursorEnterCallback(windowHandle, entered);
+		}
+	}
+
+	void ImGui_ImplGlfw_CharCallback(GLFWwindow* window, unsigned int c)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_CharCallback)
+		{
+			glfwContext::s_Instance.m_CharCallback(windowHandle, c);
+		}
+	}
+
+	void ImGui_ImplGlfw_MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_MouseButtonCallback)
+		{
+			glfwContext::s_Instance.m_MouseButtonCallback(windowHandle, button, action, mods);
+		}
+	}
+
+	void ImGui_ImplGlfw_ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_ScrollCallback)
+		{
+			glfwContext::s_Instance.m_ScrollCallback(windowHandle, xoffset, yoffset);
+		}
+	}
+
+
+	static void ImGui_ImplGlfw_WindowCloseCallback(GLFWwindow* window)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_WindowCloseCallback)
+		{
+			glfwContext::s_Instance.m_WindowCloseCallback(windowHandle);
+		}
+	}
+
+	// GLFW may dispatch window pos/size events after calling glfwSetWindowPos()/glfwSetWindowSize().
+	// However: depending on the platform the callback may be invoked at different time:
+	// - on Windows it appears to be called within the glfwSetWindowPos()/glfwSetWindowSize() call
+	// - on Linux it is queued and invoked during glfwPollEvents()
+	// Because the event doesn't always fire on glfwSetWindowXXX() we use a frame counter tag to only
+	// ignore recent glfwSetWindowXXX() calls.
+	static void ImGui_ImplGlfw_WindowPosCallback(GLFWwindow* window, int x, int y)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_WindowPosCallback)
+		{
+			glfwContext::s_Instance.m_WindowPosCallback(windowHandle, x, y);
+		}
+	}
+
+	static void ImGui_ImplGlfw_WindowSizeCallback(GLFWwindow* window, int width, int height)
+	{
+		CWindowContext* windowHandle = reinterpret_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		if (glfwContext::s_Instance.m_WindowSizeCallback)
+		{
+			glfwContext::s_Instance.m_WindowSizeCallback(windowHandle, width, height);
+		}
+	}
+
+
+	void glfwContext::SetupWindowCallbacks(CWindowContext* windowHandle)
+	{
+		glfwSetWindowFocusCallback(windowHandle->m_Window, ImGui_ImplGlfw_WindowFocusCallback);
+		glfwSetCursorEnterCallback(windowHandle->m_Window, ImGui_ImplGlfw_CursorEnterCallback);
+		glfwSetCursorPosCallback(windowHandle->m_Window, ImGui_ImplGlfw_CursorPosCallback);
+		glfwSetMouseButtonCallback(windowHandle->m_Window, ImGui_ImplGlfw_MouseButtonCallback);
+		glfwSetScrollCallback(windowHandle->m_Window, ImGui_ImplGlfw_ScrollCallback);
+		glfwSetKeyCallback(windowHandle->m_Window, ImGui_ImplGlfw_KeyCallback);
+		glfwSetCharCallback(windowHandle->m_Window, ImGui_ImplGlfw_CharCallback);
+		glfwSetWindowCloseCallback(windowHandle->m_Window, ImGui_ImplGlfw_WindowCloseCallback);
+		glfwSetWindowPosCallback(windowHandle->m_Window, ImGui_ImplGlfw_WindowPosCallback);
+		glfwSetWindowSizeCallback(windowHandle->m_Window, ImGui_ImplGlfw_WindowSizeCallback);
 	}
 }

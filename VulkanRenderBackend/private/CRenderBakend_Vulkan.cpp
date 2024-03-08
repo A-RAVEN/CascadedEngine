@@ -92,4 +92,54 @@ namespace graphics_backend
 		CA_ASSERT(monitorID < CWindowContext::GetMonitors().size(), "Invalid Monitor ID");
 		return CWindowContext::GetMonitors()[monitorID];
 	}
+
+	void CRenderBackend_Vulkan::SetWindowFocusCallback(castl::function<void(WindowHandle*, bool)> callback)
+	{
+		glfwContext::s_Instance.m_WindowFocusCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetCursorEnterCallback(castl::function<void(WindowHandle*, bool)> callback)
+	{
+		glfwContext::s_Instance.m_CursorEnterCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetCursorPosCallback(castl::function<void(WindowHandle*, float, float)> callback)
+	{
+		glfwContext::s_Instance.m_CursorPosCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetMouseButtonCallback(castl::function<void(WindowHandle*, int, int, int)> callback)
+	{
+		glfwContext::s_Instance.m_MouseButtonCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetScrollCallback(castl::function<void(WindowHandle*, float, float)> callback)
+	{
+		glfwContext::s_Instance.m_ScrollCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetKeyCallback(castl::function<void(WindowHandle*, int, int, int, int)> callback)
+	{
+		glfwContext::s_Instance.m_KeyCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetCharCallback(castl::function<void(WindowHandle*, uint32_t)> callback)
+	{
+		glfwContext::s_Instance.m_CharCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetWindowCloseCallback(castl::function<void(WindowHandle*)> callback)
+	{
+		glfwContext::s_Instance.m_WindowCloseCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetWindowPosCallback(castl::function<void(WindowHandle*, float, float)> callback)
+	{
+		glfwContext::s_Instance.m_WindowPosCallback = callback;
+	}
+
+	void CRenderBackend_Vulkan::SetWindowSizeCallback(castl::function<void(WindowHandle*, float, float)> callback)
+	{
+		glfwContext::s_Instance.m_WindowSizeCallback = callback;
+	}
 }
