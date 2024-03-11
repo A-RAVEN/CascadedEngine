@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "ThreadManager_Impl.h"
-
+#include <DebugUtils.h>
 
 namespace thread_management
 {
@@ -97,17 +97,20 @@ namespace thread_management
         uint32_t remainCounter = --m_PendingSubnodeCount;
         if (remainCounter == 0)
         {
+            //CA_LOG_ERR("Finalize " + m_Name);
             FinalizeExecution_Internal();
         }
     }
     void TaskGraph_Impl1::Execute_Internal()
     {
+        //CA_LOG_ERR("Execute " + m_Name);
         if (m_Functor != nullptr)
         {
             m_Functor(this);
         }
         if (m_SubTasks.empty())
         {
+            //CA_LOG_ERR("Finalize " + m_Name);
             FinalizeExecution_Internal();
             return;
         }
@@ -128,6 +131,11 @@ namespace thread_management
         }
         uint32_t pendingTaskCount = m_SubTasks.size();
         m_PendingSubnodeCount.store(pendingTaskCount, std::memory_order_release);
+    }
+    CTask* CTask_Impl1::ForceRunOnMainThread()
+    {
+        m_RunOnMainThread = true;
+        return this;
     }
     CTask* CTask_Impl1::Name(castl::string name)
     {
@@ -183,16 +191,19 @@ namespace thread_management
 
     void CTask_Impl1::Release()
     {
+        m_RunOnMainThread = false;
         m_Functor = nullptr;
         Release_Internal();
     }
 
     void CTask_Impl1::Execute_Internal()
     {
+        //CA_LOG_ERR("Execute " + m_Name);
         if (m_Functor != nullptr)
         {
             m_Functor();
         }
+        //CA_LOG_ERR("Finalize " + m_Name);
         FinalizeExecution_Internal();
     }
 
@@ -269,7 +280,7 @@ namespace thread_management
             EnqueueSetupTask_NoLock();
         }
         uint32_t mainThreadID = m_WorkerThreads.size();
-        ProcessingWorks(mainThreadID);
+        ProcessingWorksMainThread(mainThreadID);
         for (std::thread& itrThread : m_WorkerThreads)
         {
             itrThread.join();
@@ -281,6 +292,7 @@ namespace thread_management
         {
             m_Stopped = true;
             m_ConditinalVariable.notify_all();
+            m_MainthreadCV.notify_one();
         }
 
     }
@@ -297,15 +309,24 @@ namespace thread_management
             if (!TryWaitOnEvent(enqueueNode))
             {
                 enqueueNode->m_Running.store(true, std::memory_order_relaxed);
-                m_TaskQueue.push_back(enqueueNode);
-                m_ConditinalVariable.notify_one();
+                if (enqueueNode->RunOnMainThread())
+                {
+                    m_MainThreadQueue.push_back(enqueueNode);
+                    m_MainthreadCV.notify_one();
+                }
+                else
+                {
+                    m_TaskQueue.push_back(enqueueNode);
+                    m_ConditinalVariable.notify_one();
+                }
             }
         }
     }
     void ThreadManager_Impl1::EnqueueTaskNodes(eastl::vector<TaskNode*> const& nodeDeque)
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
-        uint32_t enqueuedCounter = 0;
+        uint32_t anythreadEnqueuedCounter = 0;
+        bool mainthreadEnqueued = false;
         for (TaskNode* itrNode : nodeDeque)
         {
             if (!itrNode->m_Running)
@@ -313,18 +334,31 @@ namespace thread_management
                 if (!TryWaitOnEvent(itrNode))
                 {
                     itrNode->m_Running.store(true, std::memory_order_relaxed);
-                    m_TaskQueue.push_back(itrNode);
-                    ++enqueuedCounter;
+                    if (itrNode->RunOnMainThread())
+                    {
+                        mainthreadEnqueued = true;
+                        m_MainThreadQueue.push_back(itrNode);
+                    }
+                    else
+                    {
+                        m_TaskQueue.push_back(itrNode);
+                        ++anythreadEnqueuedCounter;
+                    }
                 }
             }
         };
-        if (enqueuedCounter == 0)
-            return;
         std::atomic_thread_fence(std::memory_order_release);
-        if(enqueuedCounter > 1)
+        if (mainthreadEnqueued)
+        {
+            m_MainthreadCV.notify_one();
+        }
+        if (anythreadEnqueuedCounter == 0)
+            return;
+        if(anythreadEnqueuedCounter > 1)
 		{
 			m_ConditinalVariable.notify_all();
-		}
+            m_MainthreadCV.notify_one();
+        }
 		else
 		{
 			m_ConditinalVariable.notify_one();
@@ -333,6 +367,7 @@ namespace thread_management
     void ThreadManager_Impl1::SignalEvent(castl::string const& eventName, uint64_t signalFrame)
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
+        //CA_LOG_ERR(eventName);
         auto found = m_EventMap.find(eventName);
         if(found == m_EventMap.end())
 		{
@@ -341,11 +376,13 @@ namespace thread_management
 		}
         auto& waitList = m_EventWaitLists[found->second];
         waitList.Signal(signalFrame);
-        uint32_t enqueuedCounter = 0;
+        uint32_t anythreadEnqueuedCounter = 0;
+        bool mainthreadEnqueued = false;
         if (eventName == m_SetupEventName)
         {
+            //CA_LOG_ERR("Setup");
             EnqueueSetupTask_NoLock();
-            ++enqueuedCounter;
+            ++anythreadEnqueuedCounter;
         }
         if (!waitList.m_WaitingFrames.empty())
         {
@@ -357,19 +394,32 @@ namespace thread_management
                     waitList.m_WaitingTasks.pop_front();
                     CA_ASSERT(!waitNode->m_Running, "Task is already running");
                     waitNode->m_Running.store(true, std::memory_order_relaxed);
-                    m_TaskQueue.push_back(waitNode);
-                    ++enqueuedCounter;
+                    if (waitNode->RunOnMainThread())
+                    {
+                        m_MainThreadQueue.push_back(waitNode);
+                        mainthreadEnqueued = true;
+                    }
+                    else
+                    {
+                        m_TaskQueue.push_back(waitNode);
+                        ++anythreadEnqueuedCounter;
+                    }
                 }
                 waitList.m_WaitingFrames.pop_front();
             }
         }
-        if (enqueuedCounter > 0)
+        if (mainthreadEnqueued)
         {
-            if (enqueuedCounter > 1)
+            m_MainthreadCV.notify_one();
+        }
+        if (anythreadEnqueuedCounter > 0)
+        {
+            if (anythreadEnqueuedCounter > 1)
             {
                 m_ConditinalVariable.notify_all();
+                m_MainthreadCV.notify_one();
             }
-            else if (enqueuedCounter == 1)
+            else if (anythreadEnqueuedCounter == 1)
             {
                 m_ConditinalVariable.notify_one();
             }
@@ -421,6 +471,7 @@ namespace thread_management
             }
             if (m_Stopped)
             {
+                //CA_LOG_ERR("Stopped " + threadId);
                 lock.unlock();
                 return;
             }
@@ -429,6 +480,45 @@ namespace thread_management
             lock.unlock();
             //std::cout << task->m_Name << std::endl;
             task->Execute_Internal();
+        }
+    }
+
+    void ThreadManager_Impl1::ProcessingWorksMainThread(uint32_t threadId)
+    {
+        while (!m_Stopped)
+        {
+            std::unique_lock<std::mutex> lock(m_Mutex);
+            m_MainthreadCV.wait(lock, [this]()
+                {
+                    //TaskQueue不是空的，或者线程管理器已经停止，不再等待
+                    return m_Stopped || !(m_TaskQueue.empty() && m_MainThreadQueue.empty());
+                });
+
+            //if (m_TaskQueue.empty() && m_MainThreadQueue.empty())
+            //{
+            //    lock.unlock();
+            //    continue;
+            //}
+            if (m_Stopped)
+            {
+                //CA_LOG_ERR("Stopped " + threadId);
+                lock.unlock();
+                return;
+            }
+            if (!m_MainThreadQueue.empty())
+            {
+                auto task = m_MainThreadQueue.front();
+                m_MainThreadQueue.pop_front();
+                lock.unlock();
+                task->Execute_Internal();
+            }
+            else if (!m_TaskQueue.empty())
+            {
+                auto task = m_TaskQueue.front();
+                m_TaskQueue.pop_front();
+                lock.unlock();
+                task->Execute_Internal();
+            }
         }
     }
 
@@ -505,6 +595,7 @@ namespace thread_management
 
     void TaskParallelFor_Impl::NotifyChildNodeFinish(TaskNode* childNode)
     {
+        //CA_LOG_ERR("Finalize " + m_Name);
         uint32_t remainCounter = --m_PendingSubnodeCount;
         if (remainCounter == 0)
         {
@@ -519,6 +610,7 @@ namespace thread_management
             FinalizeExecution_Internal();
             return;
         };
+        //CA_LOG_ERR("Execute " + m_Name);
         m_TaskList.clear();
         m_TaskList.reserve(m_PendingSubnodeCount);
         for (uint32_t taskId = 0; taskId < m_PendingSubnodeCount; ++taskId)

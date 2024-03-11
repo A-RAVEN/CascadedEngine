@@ -25,6 +25,11 @@ namespace graphics_backend
 		m_Resized = true;
 	}
 
+	bool CWindowContext::GetKeyState(int keycode, int state) const
+	{
+		return glfwGetKey(m_Window, keycode) == state;
+	}
+
 	float CWindowContext::GetMouseX() const
 	{
 		double x, y;
@@ -42,6 +47,7 @@ namespace graphics_backend
 
 	void CWindowContext::CloseWindow()
 	{
+		glfwSetWindowTitle(m_Window, "Closing...");
 		glfwSetWindowShouldClose(m_Window, GLFW_TRUE);
 	}
 
@@ -50,16 +56,20 @@ namespace graphics_backend
 		glfwShowWindow(m_Window);
 	}
 
-	void CWindowContext::SetWindowPos(uint32_t x, uint32_t y)
+	void CWindowContext::SetWindowPos(int x, int y)
 	{
+		CA_LOG_ERR("Set Window Pos " + m_WindowName + " " + castl::to_string(x) + " " + castl::to_string(y));
+		//m_WindowPos = { x, y };
+		//m_WindowPosDirty = true;
 		glfwSetWindowPos(m_Window, x, y);
+		CA_LOG_ERR("Set Window Pos End" + m_WindowName);
 	}
 
-	uint2 CWindowContext::GetWindowPos() const
+	int2 CWindowContext::GetWindowPos() const
 	{
 		int x = 0, y = 0;
 		glfwGetWindowPos(m_Window, &x, &y);
-		return uint2{ static_cast<uint32_t>(x), static_cast<uint32_t>(y) };
+		return int2{ x, y };
 	}
 
 	void CWindowContext::SetWindowSize(uint32_t width, uint32_t height)
@@ -91,6 +101,7 @@ namespace graphics_backend
 
 	void CWindowContext::SetWindowName(castl::string_view const& name)
 	{
+		m_WindowName = name;
 		glfwSetWindowTitle(m_Window, name.data());
 	}
 
@@ -212,6 +223,15 @@ namespace graphics_backend
 		}
 	}
 
+	void CWindowContext::UpdatePos()
+	{
+		if (m_WindowPosDirty)
+		{
+			m_WindowPosDirty = false;
+			glfwSetWindowPos(m_Window, m_WindowPos.x, m_WindowPos.y);
+		}
+	}
+
 	void CWindowContext::Initialize(
 		castl::string const& windowName
 		, uint32_t initialWidth
@@ -242,10 +262,12 @@ namespace graphics_backend
 		m_SwapchainContext.Init(m_Width, m_Height, m_Surface, nullptr, m_PresentQueue.first);
 		CA_LOG_ERR("Init Window");
 
-		glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
-			{
-				CWindowContext* windowContext = static_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
-			});
+		//glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
+		//	{
+		//		CWindowContext* windowContext = static_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
+		//	});
+
+		glfwContext::s_Instance.SetupWindowCallbacks(this);
 	}
 
 	void CWindowContext::Release()

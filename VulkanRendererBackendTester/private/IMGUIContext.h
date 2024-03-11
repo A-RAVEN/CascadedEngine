@@ -5,6 +5,7 @@
 #include <GPUTexture.h>
 #include <CAResource/ResourceManagingSystem.h>
 #include <ThreadSafePool.h>
+#include <imgui.h>
 #include <glm/glm.hpp>
 
 struct ImGuiViewport;
@@ -17,6 +18,8 @@ public:
 		m_ViewportTextureHandles.clear();
 		pContext = nullptr;
 		pWindowHandle = nullptr;
+		IgnoreWindowPosEventFrame = -1;
+		IgnoreWindowSizeEventFrame = -1;
 	};
 
 	void Reset()
@@ -29,6 +32,9 @@ public:
 		m_ShaderConstants = {};
 		m_ShaderBindings = {};
 	}
+public:
+	int IgnoreWindowPosEventFrame = -1;
+	int IgnoreWindowSizeEventFrame = -1;
 public:
 	friend class IMGUIContext;
 	castl::vector<graphics_backend::TextureHandle> m_ViewportTextureHandles;
@@ -55,7 +61,7 @@ public:
 		, resource_management::ResourceManagingSystem* resourceSystem
 	);
 	void Release();
-	void UpdateIMGUI(graphics_backend::WindowHandle const* windowHandle);
+	void UpdateIMGUI();
 	void PrepareDrawData(graphics_backend::CRenderGraph* pRenderGraph);
 	void Draw(graphics_backend::CRenderGraph* pRenderGraph);
 	void DrawIMGUI(
@@ -65,8 +71,11 @@ public:
 public:
 	void PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph);
 	void DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph);
-	void PrepareInitViewportContext(ImGuiViewport* viewPort, graphics_backend::WindowHandle* pWindow);
+	void PrepareInitViewportContext(ImGuiViewport* viewPort, graphics_backend::WindowHandle* pWindow, bool mainWindow = false);
 	void ReleaseViewportContext(ImGuiViewport* viewPort);
+
+	graphics_backend::WindowHandle* m_MouseWindow = nullptr;
+	ImVec2 m_LastValidMousePos = ImVec2(-FLT_MAX, -FLT_MAX);
 private:
 	void NewFrame();
 

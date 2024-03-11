@@ -12,6 +12,6 @@ namespace graphics_backend
 
 	inline GPUTextureDescriptor const& TextureHandle::GetTextureDesc() const
 	{
-		return p_RenderGraph->GetTextureDescriptor(p_RenderGraph->GetGPUTextureInternalData(GetHandleIndex()).GetDescID());
+		return p_RenderGraph->GetTextureDescriptor(*this);
 	}
 }

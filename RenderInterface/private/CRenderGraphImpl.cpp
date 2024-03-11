@@ -104,7 +104,7 @@ namespace graphics_backend
 				+ castl::to_ca(std::to_string(textureDesc.width)));
 		TIndex dataID = m_TextureDescriptorIDPool.RegisterNewData(textureDesc, descID);
 		CA_ASSERT(m_TextureHandleIdToInternalInfo.size() == dataID, "invalid ID");
-		m_TextureHandleIdToInternalInfo.push_back(TextureHandleInternalInfo{ this,  dataID, window});
+		m_TextureHandleIdToInternalInfo.push_back(TextureHandleInternalInfo{ this,  descID, window});
 		if (window != nullptr)
 		{
 			m_RegisteredWindowHandleIDs.insert(castl::make_pair(window, dataID));

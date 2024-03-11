@@ -244,7 +244,6 @@ int main(int argc, char *argv[])
 				, pTimer = &timer
 				, pFrame = &frame
 				, pLastTime = &lastTime
-				, pThreadManager
 				, windowHandle
 				, pRenderInterface
 				, sampler
@@ -261,87 +260,91 @@ int main(int argc, char *argv[])
 				, pImguiContext = &imguiContext
 		](CThreadManager* thisManager)
 		{
-			pBackend->TickWindows();
-			if (!pBackend->AnyWindowRunning())
-				return false;
+			//if (!pBackend->AnyWindowRunning())
+			//	return false;
 
 			{
 				uint64_t lastFrame = *pFrame == 0 ? 0 : (*pFrame - 1);
 				uint64_t currentFrame = *pFrame;
 
-				auto baseTaskGraph = pThreadManager->NewTaskGraph()
-					->Name("BaseTaskGraph");
+				auto baseTaskGraph = thisManager->NewTaskGraph()
+					->Name("BaseTaskGraph")
+					->SignalEvent("FullGraph", currentFrame);
 				auto gamePlayGraph = baseTaskGraph->NewTaskGraph()
-					->Name("GamePlayGraph")
-					->WaitOnEvent("GamePlay", lastFrame)
-					->SignalEvent("GamePlay", currentFrame);
+					->Name("GamePlayGraph");
+					//->WaitOnEvent("GamePlay", lastFrame)
+					//->SignalEvent("GamePlay", currentFrame);
 
 				auto updateImGUIGraph = gamePlayGraph->NewTask()
 					->Name("Update Imgui")
-					->Functor([windowHandle, pImguiContext]()
+					->Functor([windowHandle, pImguiContext, pBackend]()
 						{
-							pImguiContext->UpdateIMGUI(windowHandle.get());
-						});
+							pImguiContext->UpdateIMGUI();
+							pBackend->TickWindows();
 
-				auto updateCameraGraph = gamePlayGraph->NewTask()
-					->Name("Update Camera")
-					->Functor([plastMousePos
-						, pCam
-						, pmouseDown
-						, pdrawInterface
-						, pDeltaTime
-						, windowHandle]()
-						{
-							int forwarding = 0;
-							int lefting = 0;
-							if (windowHandle->IsKeyDown(CA_KEY_W))
-							{
-								++forwarding;
-							}
-							if (windowHandle->IsKeyDown(CA_KEY_S))
-							{
-								--forwarding;
-							}
-							if (windowHandle->IsKeyDown(CA_KEY_A))
-							{
-								++lefting;
-							}
-							if (windowHandle->IsKeyDown(CA_KEY_D))
-							{
-								--lefting;
-							}
-							if (windowHandle->IsKeyTriggered(CA_KEY_R))
-							{
-								windowHandle->RecreateContext();
-							}
-							glm::vec2 mouseDelta = { 0.0f, 0.0f };
-							glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
-							if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
-							{
-								//castl::cout << "Mouse Down!" << castl::endl;
-								if (!*pmouseDown)
-								{
-									*plastMousePos = mousePos;
-									*pmouseDown = true;
-								}
-								mouseDelta = mousePos - *plastMousePos;
-								*plastMousePos = mousePos;
-							}
-							else// if(windowHandle->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
-							{
-								*pmouseDown = false;
-							}
+						})
+					->ForceRunOnMainThread()
+							;
 
-							auto windowSize1 = windowHandle->GetSizeSafe();
-							pCam->Tick(*pDeltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
-							pdrawInterface->Update(pCam->GetViewProjMatrix());
-						});
+				//auto updateCameraGraph = gamePlayGraph->NewTask()
+				//	->Name("Update Camera")
+				//	->Functor([plastMousePos
+				//		, pCam
+				//		, pmouseDown
+				//		, pdrawInterface
+				//		, pDeltaTime
+				//		, windowHandle]()
+				//		{
+				//			int forwarding = 0;
+				//			int lefting = 0;
+				//			if (windowHandle->IsKeyDown(CA_KEY_W))
+				//			{
+				//				++forwarding;
+				//			}
+				//			if (windowHandle->IsKeyDown(CA_KEY_S))
+				//			{
+				//				--forwarding;
+				//			}
+				//			if (windowHandle->IsKeyDown(CA_KEY_A))
+				//			{
+				//				++lefting;
+				//			}
+				//			if (windowHandle->IsKeyDown(CA_KEY_D))
+				//			{
+				//				--lefting;
+				//			}
+				//			if (windowHandle->IsKeyTriggered(CA_KEY_R))
+				//			{
+				//				windowHandle->RecreateContext();
+				//			}
+				//			glm::vec2 mouseDelta = { 0.0f, 0.0f };
+				//			glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
+				//			if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+				//			{
+				//				//castl::cout << "Mouse Down!" << castl::endl;
+				//				if (!*pmouseDown)
+				//				{
+				//					*plastMousePos = mousePos;
+				//					*pmouseDown = true;
+				//				}
+				//				mouseDelta = mousePos - *plastMousePos;
+				//				*plastMousePos = mousePos;
+				//			}
+				//			else// if(windowHandle->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
+				//			{
+				//				*pmouseDown = false;
+				//			}
 
-				auto grapicsTaskGraph = baseTaskGraph->NewTaskGraph()
-					->Name("Graphics Task Graph")
-					->DependsOn(gamePlayGraph)
-					->WaitOnEvent("Graphics", lastFrame)
-					->SignalEvent("Graphics", currentFrame);
+				//			auto windowSize1 = windowHandle->GetSizeSafe();
+				//			pCam->Tick(*pDeltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
+				//			pdrawInterface->Update(pCam->GetViewProjMatrix());
+				//		});
+
+						auto grapicsTaskGraph = baseTaskGraph->NewTaskGraph()
+							->Name("Graphics Task Graph")
+							->DependsOn(gamePlayGraph);
+	/*				->WaitOnEvent("Graphics", lastFrame)
+					->SignalEvent("Graphics", currentFrame);*/
 
 				castl::shared_ptr<castl::vector<castl::shared_ptr<CRenderGraph>>> pGraphs = castl::make_shared<castl::vector<castl::shared_ptr<CRenderGraph>>>();
 
@@ -362,63 +365,10 @@ int main(int argc, char *argv[])
 						, pGraphs
 					]()
 				{
-					auto windowSize = windowHandle->GetSizeSafe();
-					CA_ASSERT(windowSize.x <= 8192 && windowSize.y <= 8192, "invalid window size "
-						+ castl::to_ca(std::to_string(windowSize.x)) + "x"
-						+ castl::to_ca(std::to_string(windowSize.y)));
-				/*	castl::cout << "Setup Size " << currentFrame <<  ":" << windowSize.x << "x" << windowSize.y << castl::endl;
-					castl::cout << "RT Size " << currentFrame <<  ":" << windowHandle->GetBackbufferDescriptor().width << "x" << windowHandle->GetBackbufferDescriptor().height << castl::endl;*/
-
 					auto pRenderGraph = pRenderInterface->NewRenderGraph();
 
 					pImguiContext->PrepareDrawData(pRenderGraph.get());
 					pImguiContext->Draw(pRenderGraph.get());
-
-					//auto windowBackBuffer = pRenderGraph->RegisterWindowBackbuffer(windowHandle.get());
-					//auto depthTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
-					//	windowSize.x, windowSize.y
-					//	, ETextureFormat::E_D32_SFLOAT
-					//	, ETextureAccessType::eRT | ETextureAccessType::eSampled });
-
-					//auto colorTextureHandle = pRenderGraph->NewTextureHandle(GPUTextureDescriptor{
-					//	windowSize.x, windowSize.y
-					//	, ETextureFormat::E_R8G8B8A8_UNORM
-					//	, ETextureAccessType::eRT | ETextureAccessType::eSampled });
-
-					//pRenderGraph->NewRenderPass({ 
-					//	CAttachmentInfo::Make(colorTextureHandle, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f))
-					//	, CAttachmentInfo::Make(depthTextureHandle, GraphicsClearValue::ClearDepthStencil(1.0f, 0x0))
-					//	})
-					//	.SetAttachmentTarget(0, colorTextureHandle)
-					//	.SetAttachmentTarget(1, depthTextureHandle)
-					//	.Subpass({ {0}, 1 }
-					//		, {}
-					//		, pdrawInterface
-					//	);
-
-					//auto vertexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, pVertexList->size(), sizeof(VertexData))
-					//	.ScheduleBufferData(0, pVertexList->size() * sizeof(VertexData), pVertexList->data());
-					//auto indexBufferHandle = pRenderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, pIndexList->size(), sizeof(uint16_t))
-					//	.ScheduleBufferData(0, pIndexList->size() * sizeof(uint16_t), pIndexList->data());
-
-					//ShaderBindingSetHandle blitBandingHandle = pRenderGraph->NewShaderBindingSetHandle(*pFinalBlitBindingDesc)
-					//	.SetTexture("SourceTexture", colorTextureHandle)
-					//	.SetSampler("SourceSampler", sampler);
-
-					//pRenderGraph->NewRenderPass(windowBackBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f)
-					//	, CPipelineStateObject{ {}, {RasterizerStates::CullOff()} }
-					//	, * pVertexInputDesc
-					//	, * pFinalBlitShaderSet
-					//	, { {}, {blitBandingHandle} }
-					//	, [blitBandingHandle, vertexBufferHandle, indexBufferHandle](CInlineCommandList& cmd)
-					//	{
-					//		cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ blitBandingHandle })
-					//			.BindVertexBuffers({ vertexBufferHandle }, {})
-					//			.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle)
-					//			.DrawIndexed(6);
-					//	});
-
-					//pImguiContext->DrawIMGUI(pRenderGraph.get(), windowBackBuffer);
 
 					pGraphs->push_back(pRenderGraph);
 				});
@@ -444,7 +394,7 @@ int main(int argc, char *argv[])
 				//castl::cout << "Frame Rate: " << frameRate << castl::endl;
 			}
 			return true;
-		}, "Graphics");
+		}, "FullGraph");
 	pThreadManager->RunSetupFunction();
 	pThreadManager->LogStatus();
 	imguiContext.Release();

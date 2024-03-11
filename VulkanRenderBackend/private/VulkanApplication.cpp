@@ -556,9 +556,13 @@ namespace graphics_backend
 	{
 		FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
 		CWindowContext::UpdateMonitors();
+		//CA_LOG_ERR(castl::string("windows count ") + castl::to_string(m_WindowContexts.size()));
+		
 		glfwPollEvents();
+		//glfwWaitEvents();
 		for (auto& windowContext : m_WindowContexts)
 		{
+			windowContext->UpdatePos();
 			windowContext->UpdateSize();
 		}
 		bool anyNeedClose = castl::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)

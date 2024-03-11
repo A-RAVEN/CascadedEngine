@@ -14,6 +14,7 @@
 
 namespace graphics_backend
 {
+	class CWindowContext;
 	class glfwContext
 	{
 	public:
@@ -24,6 +25,7 @@ namespace graphics_backend
 				{
 					std::cerr << "glfw Error: " << "(" << error << ")" << msg << std::endl;
 				});
+			UpdateMonitors();
 		}
 
 		~glfwContext()
@@ -131,6 +133,7 @@ namespace graphics_backend
 		virtual uint2 GetSizeSafe() const override;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const override;
 		virtual void RecreateContext() override;
+		virtual bool GetKeyState(int keycode, int state) const override;
 		virtual bool IsKeyDown(int keycode) const override;
 		virtual bool IsKeyTriggered(int keycode) const override;
 		virtual bool IsMouseDown(int mousecode) const override;
@@ -140,8 +143,8 @@ namespace graphics_backend
 
 		virtual void CloseWindow() override;
 		virtual void ShowWindow() override;
-		virtual void SetWindowPos(uint32_t x, uint32_t y) override;
-		virtual uint2 GetWindowPos() const override;
+		virtual void SetWindowPos(int x, int y) override;
+		virtual int2 GetWindowPos() const override;
 		virtual void SetWindowSize(uint32_t width, uint32_t height) override;
 		virtual uint2 GetWindowSize() const override;
 		virtual void Focus() override;
@@ -169,6 +172,7 @@ namespace graphics_backend
 		void Resize(FrameType resizeFrame);
 		void TickReleaseResources(FrameType releasingFrame);
 		void UpdateSize();
+		void UpdatePos();
 		void Initialize(castl::string const& windowName
 			, uint32_t initialWidth
 			, uint32_t initialHeight
@@ -188,6 +192,9 @@ namespace graphics_backend
 		castl::string m_WindowName;
 		uint32_t m_Width = 0;
 		uint32_t m_Height = 0;
+
+		bool m_WindowPosDirty = false;
+		int2 m_WindowPos = { 0, 0 };
 
 		GLFWwindow* m_Window = nullptr;
 		vk::SurfaceKHR m_Surface = nullptr;

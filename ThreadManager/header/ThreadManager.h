@@ -17,6 +17,7 @@ namespace thread_management
 		CTask(CTask&& other) = delete;
 		CTask& operator=(CTask&& other) = delete;
 
+		virtual CTask* ForceRunOnMainThread() = 0;
 		virtual CTask* Name(castl::string name) = 0;
 		virtual CTask* DependsOn(CTask* parentTask) = 0;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) = 0;

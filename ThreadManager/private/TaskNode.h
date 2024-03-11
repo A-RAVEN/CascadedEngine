@@ -32,6 +32,7 @@ namespace thread_management
 		TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void SetOwner(TaskBaseObject* owner) { m_Owner = owner; }
 		std::shared_future<void> StartExecute();
+		virtual bool RunOnMainThread() const { return false; }
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override {}
 		virtual void Execute_Internal() = 0;
 		virtual void SetupSubnodeDependencies() {};

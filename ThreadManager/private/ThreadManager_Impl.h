@@ -20,6 +20,9 @@ namespace thread_management
 	public:
 		CTask_Impl1(CTask_Impl1 const& other) = default;
 
+		virtual bool RunOnMainThread() const override { return m_RunOnMainThread; }
+
+		virtual CTask* ForceRunOnMainThread() override;
 		virtual CTask* Name(castl::string name) override;
 		virtual CTask* DependsOn(CTask* parentTask) override;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) override;
@@ -36,6 +39,7 @@ namespace thread_management
 		 void Initialize() {}
 		 void Release();
 	private:
+		bool m_RunOnMainThread = false;
 		std::function<void()> m_Functor;
 		// 通过 TaskNode 继承
 		virtual void Execute_Internal() override;
@@ -146,16 +150,19 @@ namespace thread_management
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
 		void ProcessingWorks(uint32_t threadId);
+		void ProcessingWorksMainThread(uint32_t threadId);
 	private:
 		//
 		std::function<bool(CThreadManager*)> m_PrepareFunctor = nullptr;
 		castl::string m_SetupEventName;
 
 		eastl::deque<TaskNode*> m_TaskQueue;
+		eastl::deque<TaskNode*> m_MainThreadQueue;
 		castl::vector<std::thread> m_WorkerThreads;
 		std::atomic_bool m_Stopped = false;
 		std::mutex m_Mutex;
 		std::condition_variable m_ConditinalVariable;
+		std::condition_variable m_MainthreadCV;
 
 		TaskNodeAllocator m_TaskNodeAllocator;
 

@@ -41,8 +41,13 @@ namespace graphics_backend
 				castl::unique_lock<castl::mutex> lock(m_Mutex);
 				if (m_Queue.empty())
 				{
-					m_Conditional.wait(lock);
+					m_Conditional.wait(lock, [this]()
+					{
+						//TaskQueue不是空的，或者线程管理器已经停止，不再等待
+						return !m_Queue.empty();
+					});
 				}
+				CA_ASSERT(!m_Queue.empty(), "TaskQueue is empty");
 				result = m_Queue.front();
 				m_Queue.pop_front();
 			}

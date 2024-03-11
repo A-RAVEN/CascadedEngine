@@ -1099,7 +1099,7 @@ namespace graphics_backend
 		for (TIndex handleIDS : handles)
 		{
 			auto const& textureInfo = m_RenderGraph.GetGPUTextureInternalData(handleIDS);
-			GPUTextureDescriptor const& desc = m_RenderGraph.GetTextureDescriptor(handleIDS);
+			GPUTextureDescriptor const& desc = m_RenderGraph.GetTextureDescriptor(textureInfo.GetDescID());
 
 			if (firstHandle)
 			{
