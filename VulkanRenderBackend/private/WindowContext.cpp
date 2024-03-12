@@ -360,7 +360,7 @@ namespace graphics_backend
 
 		// The FIFO present mode is guaranteed by the spec to be supported
 		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
-
+		
 		vk::SurfaceTransformFlagBitsKHR preTransform = (surfaceCapabilities.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity)
 			? vk::SurfaceTransformFlagBitsKHR::eIdentity
 			: surfaceCapabilities.currentTransform;

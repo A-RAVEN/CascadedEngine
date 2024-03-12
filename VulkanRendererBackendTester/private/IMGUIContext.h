@@ -50,6 +50,13 @@ public:
 	bool m_Draw;
 };
 
+struct IMGUISceneViewContext
+{
+	graphics_backend::TextureHandle m_RenderTarget;
+	graphics_backend::FloatRect m_ViewportRect;
+	int m_SceneViewIndex;
+};
+
 
 class IMGUIContext
 {
@@ -86,4 +93,5 @@ private:
 	ShaderBindingBuilder m_ImguiShaderBindingBuilder;
 	graphics_backend::CRenderBackend* p_RenderBackend;
 	threadsafe_utils::TThreadSafePointerPool<IMGUIViewportContext> m_ViewportContextPool;
+	castl::vector<IMGUISceneViewContext> m_SceneViewContexts;
 };
