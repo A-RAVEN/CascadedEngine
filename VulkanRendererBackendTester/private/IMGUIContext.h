@@ -27,6 +27,7 @@ public:
 		m_ViewportTextureHandles.clear();
 		m_IndexDataOffsets.clear();
 		m_Sissors.clear();
+		m_TextureBindings.clear();
 		m_VertexBuffer = {};
 		m_IndexBuffer = {};
 		m_ShaderConstants = {};
@@ -47,10 +48,11 @@ public:
 	graphics_backend::ShaderBindingSetHandle m_ShaderBindings;
 	castl::vector<castl::tuple<uint32_t, uint32_t, uint32_t>> m_IndexDataOffsets;
 	castl::vector<glm::uvec4> m_Sissors;
+	castl::vector<graphics_backend::ShaderBindingSetHandle> m_TextureBindings;
 	bool m_Draw;
 };
 
-struct IMGUISceneViewContext
+struct IMGUITextureViewContext
 {
 	graphics_backend::TextureHandle m_RenderTarget;
 	graphics_backend::FloatRect m_ViewportRect;
@@ -74,6 +76,7 @@ public:
 	void DrawIMGUI(
 		graphics_backend::CRenderGraph* renderGraph
 		, graphics_backend::TextureHandle renderTargethandle);
+	void DrawView(int id = 0);
 	graphics_backend::CRenderBackend* GetRenderBackend() const { return p_RenderBackend; }
 public:
 	void PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph);
@@ -93,5 +96,5 @@ private:
 	ShaderBindingBuilder m_ImguiShaderBindingBuilder;
 	graphics_backend::CRenderBackend* p_RenderBackend;
 	threadsafe_utils::TThreadSafePointerPool<IMGUIViewportContext> m_ViewportContextPool;
-	castl::vector<IMGUISceneViewContext> m_SceneViewContexts;
+	castl::deque<IMGUITextureViewContext> m_TextureViewContexts;
 };

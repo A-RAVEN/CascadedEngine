@@ -18,6 +18,7 @@ namespace graphics_backend
 	class TextureHandle : public GPUGraphHandleBase
 	{
 	public:
+		TextureHandle() = default;
 		TextureHandle(CRenderGraph* renderGraph, TIndex handleIndex) :
 			GPUGraphHandleBase(renderGraph, handleIndex)
 		{}

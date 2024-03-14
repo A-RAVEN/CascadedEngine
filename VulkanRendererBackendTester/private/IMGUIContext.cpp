@@ -287,6 +287,27 @@ void DrawFrame(int id)
 	ImGui::End();
 }
 
+void IMGUIContext::DrawView(int id)
+{
+
+	ImGui::Begin("View");
+
+	ImVec2 vMin = ImGui::GetWindowContentRegionMin();
+	ImVec2 vMax = ImGui::GetWindowContentRegionMax();
+
+	vMin.x += ImGui::GetWindowPos().x;
+	vMin.y += ImGui::GetWindowPos().y;
+	vMax.x += ImGui::GetWindowPos().x;
+	vMax.y += ImGui::GetWindowPos().y;
+
+	//ImGui::GetForegroundDrawList()->AddRect(vMin, vMax, IM_COL32(255, 255, 0, 255));
+	m_TextureViewContexts.push_back(IMGUITextureViewContext{ {}, {vMin.x, vMin.y, vMax.x - vMin.x, vMax.y - vMin.y}, id });
+	ImTextureID texID = &m_TextureViewContexts.back();
+	ImGui::Image(texID, ImVec2(vMax.x - vMin.x, vMax.y - vMin.y), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+	ImGui::End();
+
+}
+
 void ShowExampleAppDockSpace(bool* p_open)
 {
 	// READ THIS !!!
@@ -573,6 +594,7 @@ void IMGUIContext::Release()
 
 void IMGUIContext::UpdateIMGUI()
 {
+	m_TextureViewContexts.clear();
 	NewFrame();
 	auto& io = ImGui::GetIO();
 
@@ -583,12 +605,12 @@ void IMGUIContext::UpdateIMGUI()
 	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
 
 
-
 	ImGui::NewFrame();
 	//SRS - ShowDemoWindow() sets its own initial position and size, cannot override here
 	bool show = true;
 	ShowExampleAppDockSpace(&show);
 	ImGui::ShowDemoWindow();
+	DrawView(0);
 
 	DrawFrame(0);
 	DrawFrame(1);
@@ -676,6 +698,14 @@ void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphi
 		return;
 	}
 
+	pUserData->m_ShaderConstants = renderGraph->NewShaderConstantSetHandle(m_ImguiShaderConstantsBuilder);
+	pUserData->m_ShaderConstants.SetValue("IMGUIScale_Pos", meshScale_Pos);
+	pUserData->m_ShaderBindings = renderGraph->NewShaderBindingSetHandle(m_ImguiShaderBindingBuilder);
+	pUserData->m_ShaderBindings.m_Name = "IMGUI Bindings";
+	pUserData->m_ShaderBindings.SetConstantSet(m_ImguiShaderConstantsBuilder.GetName(), pUserData->m_ShaderConstants)
+		.SetSampler("FontSampler", m_ImageSampler)
+		.SetTexture("FontTexture", m_Fontimage);
+
 	pUserData->m_VertexBuffer = renderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert));
 	pUserData->m_IndexBuffer = renderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx));
 
@@ -692,17 +722,34 @@ void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphi
 			pUserData->m_IndexDataOffsets.push_back(castl::make_tuple(idxOffset, vtxOffset, pcmd->ElemCount));
 			pUserData->m_Sissors.push_back(glm::ivec4(pcmd->ClipRect.x - viewPort->Pos.x, pcmd->ClipRect.y - viewPort->Pos.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
 			idxOffset += pcmd->ElemCount;
+			ImTextureID id = pcmd->GetTexID();
+			if (id != nullptr)
+			{
+				IMGUITextureViewContext* textureContext = (IMGUITextureViewContext*)id;
+				GPUTextureDescriptor desc{
+					(uint32_t)textureContext->m_ViewportRect.width
+					,(uint32_t)textureContext->m_ViewportRect.height
+					, ETextureFormat::E_R8G8B8A8_UNORM
+					, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst | ETextureAccessType::eRT
+				};
+				textureContext->m_RenderTarget = renderGraph->NewTextureHandle(desc);
+
+				auto specialBinding = renderGraph->NewShaderBindingSetHandle(m_ImguiShaderBindingBuilder);
+				specialBinding.m_Name = "IMGUI Bindings";
+				specialBinding.SetConstantSet(m_ImguiShaderConstantsBuilder.GetName(), pUserData->m_ShaderConstants)
+					.SetSampler("FontSampler", m_ImageSampler)
+					.SetTexture("FontTexture", textureContext->m_RenderTarget);
+				pUserData->m_TextureBindings.push_back(specialBinding);
+			}
+			else
+			{
+				pUserData->m_TextureBindings.push_back(pUserData->m_ShaderBindings);
+			}
 		}
 		vtxOffset += cmd_list->VtxBuffer.Size;
 	}
 	
-	pUserData->m_ShaderConstants = renderGraph->NewShaderConstantSetHandle(m_ImguiShaderConstantsBuilder);
-	pUserData->m_ShaderBindings = renderGraph->NewShaderBindingSetHandle(m_ImguiShaderBindingBuilder);
-	pUserData->m_ShaderBindings.m_Name = "IMGUI Bindings";
-	pUserData->m_ShaderConstants.SetValue("IMGUIScale_Pos", meshScale_Pos);
-	pUserData->m_ShaderBindings.SetConstantSet(m_ImguiShaderConstantsBuilder.GetName(), pUserData->m_ShaderConstants)
-		.SetSampler("FontSampler", m_ImageSampler)
-		.SetTexture("FontTexture", m_Fontimage);
+
 }
 
 void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph)
@@ -725,14 +772,15 @@ void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRe
 		, { {}, {pUserData->m_ShaderBindings} }
 		, [pUserData](CInlineCommandList& cmd)
 		{
-			cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ pUserData->m_ShaderBindings })
-				.BindVertexBuffers({ pUserData->m_VertexBuffer })
+			cmd.BindVertexBuffers({ pUserData->m_VertexBuffer })
 				.BindIndexBuffers(EIndexBufferType::e16, pUserData->m_IndexBuffer);
 			for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
 			{
 				auto& sissors = pUserData->m_Sissors[i];
 				auto& indexDataOffset = pUserData->m_IndexDataOffsets[i];
-				cmd.SetSissor(sissors.x, sissors.y, sissors.z, sissors.w)
+				auto bindings = pUserData->m_TextureBindings[i];
+				cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ bindings })
+					.SetSissor(sissors.x, sissors.y, sissors.z, sissors.w)
 					.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset));
 			}
 		});

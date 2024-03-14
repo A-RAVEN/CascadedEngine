@@ -104,6 +104,7 @@ namespace graphics_backend
 	{
 		auto& internalTexture = m_RenderGraph->GetGPUTextureInternalData(textureHandle);
 		int32_t allocationIndex = m_TextureAllocationIndex[textureHandle];
+		CA_ASSERT(allocationIndex != -1, "Texture Not Allocated");
 		return m_Images[internalTexture.GetDescID()][allocationIndex];
 	}
 
@@ -208,6 +209,8 @@ namespace graphics_backend
 							auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(handleID);
 							m_TextureAllocationIndex[handleID] = allocateIndexFunc(handleInfo.GetDescID());
 						}
+
+
 					}
 
 					m_Images.resize(textureDescTypeCount);
