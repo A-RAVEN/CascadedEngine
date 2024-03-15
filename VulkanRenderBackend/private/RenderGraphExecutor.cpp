@@ -172,10 +172,13 @@ namespace graphics_backend
 					castl::vector<castl::pair<int32_t, castl::deque<int32_t>>> textureAllocationQueue;
 					textureAllocationQueue.resize(textureDescTypeCount);
 
-					auto allocateIndexFunc = [&textureAllocationQueue](TIndex descIndex)
+					auto allocateIndexFunc = [this, &textureAllocationQueue](TIndex textureHandleIndex)
 						{
+							auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(textureHandleIndex);
+							if (m_TextureAllocationIndex[textureHandleIndex] != -1)
+								return;
 							int32_t result = -1;
-							auto& allocationState = textureAllocationQueue[descIndex];
+							auto& allocationState = textureAllocationQueue[handleInfo.GetDescID()];
 							if (allocationState.second.empty())
 							{
 								result = allocationState.first;
@@ -186,31 +189,46 @@ namespace graphics_backend
 								result = allocationState.second.front();
 								allocationState.second.pop_front();
 							}
-							return result;
+							m_TextureAllocationIndex[textureHandleIndex] = result;
+							//return result;
 						};
 
-					auto releaseIndexFunc = [&textureAllocationQueue](TIndex descIndex, int32_t index)
+					auto releaseIndexFunc = [this, &textureAllocationQueue](TIndex textureHandleIndex)
 						{
-							auto& allocationState = textureAllocationQueue[descIndex];
+							auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(textureHandleIndex);
+							int32_t index = m_TextureAllocationIndex[textureHandleIndex];
+							if (index == -1)
+								return;
+							auto& allocationState = textureAllocationQueue[handleInfo.GetDescID()];
 							allocationState.second.push_back(index);
 						};
 
 
 					for (auto& recorderPass : textureAllocationRecorder)
 					{
+						//还需要考虑到资源在之后被用作输入的情况，目前先不释放
+						/*
 						for (TIndex handleID : recorderPass.second)
 						{
-							auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(handleID);
-							releaseIndexFunc(handleInfo.GetDescID(), m_TextureAllocationIndex[handleID]);
+							releaseIndexFunc(handleID);
 						}
+						*/
 
 						for (TIndex handleID : recorderPass.first)
 						{
-							auto const& handleInfo = m_RenderGraph->GetGPUTextureInternalData(handleID);
-							m_TextureAllocationIndex[handleID] = allocateIndexFunc(handleInfo.GetDescID());
+							allocateIndexFunc(handleID);
 						}
+					}
 
-
+					uint32_t bindingSetCount = m_RenderGraph->GetBindingSetDataCount();
+					for (uint32_t bindingSetID = 0; bindingSetID < bindingSetCount; bindingSetID++)
+					{
+						auto bindingSet = m_RenderGraph->GetBindingSetData(bindingSetID);
+						auto& textureMap = bindingSet->GetInternalTextures();
+						for (auto& pair : textureMap)
+						{
+							allocateIndexFunc(pair.second.GetHandleIndex());
+						}
 					}
 
 					m_Images.resize(textureDescTypeCount);
