@@ -172,6 +172,24 @@ namespace ShaderCompilerSlang
 			m_ModuleNames.push_back(castl::string(moduleName));
 		}
 
+		void ReflectVariable(slang::VariableLayoutReflection* variable)
+		{
+			slang::TypeReflection* type = variable->getType();
+			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
+			slang::TypeReflection::Kind kind = variable->getTypeLayout()->getKind();
+			SlangResourceAccess resourceAccess = variable->getTypeLayout()->getResourceAccess();
+
+			//constant buffer size
+			size_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+			//register size
+			size_t tRegCount = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE);
+
+			size_t arrayElementCount = typeLayout->getElementCount();
+			slang::TypeLayoutReflection* elementTypeLayout = typeLayout->getElementTypeLayout();
+			//size_t arrayElementStride = typeLayout->getElementStride(category);
+			//if(kind)
+		}
+
 		void ReflectSlangVariable(SimpleBindingOffset parentOffset, Name parentName,
 			slang::VariableLayoutReflection* variable)
 		{
