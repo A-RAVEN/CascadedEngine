@@ -27,6 +27,7 @@
 #include "MeshRenderer.h"
 #include "TextureResource.h"
 #include "IMGUIContext.h"
+#include <GPUGraph.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -225,6 +226,19 @@ int main(int argc, char *argv[])
 		});
 
 	ShaderBindingDescriptorList bindingSetList = { shaderBindingBuilder };
+
+	ImageHandle windowImageHandle = windowHandle;
+	ShaderArgList argList;
+	argList.SetValue("IMGUI Scale Offset", texture0);
+	GPUGraph newGraph{};
+	auto renderPass = newGraph.NewRenderPass(windowImageHandle)
+		.SetPipelineState({})
+		.SetShaders(finalBlitShaderSet)
+		.SetShaderArguments({})
+		.Draw([](CInlineCommandList& commandList)
+		{
+
+		});
 	
 	castl::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();

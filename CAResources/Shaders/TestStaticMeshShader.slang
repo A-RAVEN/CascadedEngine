@@ -31,6 +31,7 @@ struct VertexInput
     float3 itangent : BITANGENT; 
 };
 
+[shader("vertex")]
 VertexToFragment vert(in VertexInput input)
 {
     VertexToFragment result = (VertexToFragment)0;
@@ -41,6 +42,7 @@ VertexToFragment vert(in VertexInput input)
     return result;
 }
 
+[shader("fragment")]
 float4 frag(in VertexToFragment input) : SV_TARGET0
 {
     float4 diffuse = textures.SampleMip0(input.uv).xyzw;

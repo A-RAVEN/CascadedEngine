@@ -43,8 +43,8 @@ namespace resource_management
 		pCompiler->AddSourceFile(inPath.c_str());
 		pCompiler->EnableDebugInfo();
 		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
-		int vertEntryPoint = pCompiler->AddEntryPoint("vert", ECompileShaderType::eVert);
-		int fragEntryPoint = pCompiler->AddEntryPoint("frag", ECompileShaderType::eFrag);
+		//int vertEntryPoint = pCompiler->AddEntryPoint("vert", ECompileShaderType::eVert);
+		//int fragEntryPoint = pCompiler->AddEntryPoint("frag", ECompileShaderType::eFrag);
 		pCompiler->Compile();
 		if (pCompiler->HasError())
 		{
@@ -54,14 +54,14 @@ namespace resource_management
 		{
 			ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(castl::to_ca(outPathWithExt.string()));
 
-			uint64_t dataSize = 0;
-			auto vertData = pCompiler->GetOutputData(vertEntryPoint, dataSize);
-			resource->m_VertexShaderProvider.SetUniqueName(resourcePath.stem().string() + ".vert");
-			resource->m_VertexShaderProvider.SetData("spirv", "main", vertData, dataSize);
+			//uint64_t dataSize = 0;
+			//auto vertData = pCompiler->GetOutputData(vertEntryPoint, dataSize);
+			//resource->m_VertexShaderProvider.SetUniqueName(resourcePath.stem().string() + ".vert");
+			//resource->m_VertexShaderProvider.SetData("spirv", "main", vertData, dataSize);
 
-			auto fragData = pCompiler->GetOutputData(fragEntryPoint, dataSize);
-			resource->m_FragmentShaderProvider.SetUniqueName(resourcePath.stem().string() + ".frag");
-			resource->m_FragmentShaderProvider.SetData("spirv", "main", fragData, dataSize);
+			//auto fragData = pCompiler->GetOutputData(fragEntryPoint, dataSize);
+			//resource->m_FragmentShaderProvider.SetUniqueName(resourcePath.stem().string() + ".frag");
+			//resource->m_FragmentShaderProvider.SetData("spirv", "main", fragData, dataSize);
 		}
 		pCompiler->EndCompileTask();
 	}

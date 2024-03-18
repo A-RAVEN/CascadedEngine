@@ -11,6 +11,23 @@ namespace ShaderCompilerSlang
 		eDXIL,
 	};
 
+	class ShaderProgramData
+	{
+	public:
+		ECompileShaderType shaderType;
+		castl::vector<uint8_t> data;
+		castl::string entryPointName;
+		
+		//TODO: Reflection Data
+	};
+
+	class ShaderCompileTargetResult
+	{
+	public:
+		EShaderTargetType targetType;
+		castl::vector<ShaderProgramData> programs;
+	};
+
 	class IShaderCompiler
 	{
 	public:
@@ -25,6 +42,7 @@ namespace ShaderCompilerSlang
 		virtual void Compile() = 0;
 		virtual bool HasError() const = 0;
 		virtual void const* GetOutputData(int entryPointID, uint64_t& dataSize) const = 0;
+		virtual castl::vector<ShaderCompileTargetResult> GetResults() const = 0;
 	};
 
 	class IShaderCompilerManager
