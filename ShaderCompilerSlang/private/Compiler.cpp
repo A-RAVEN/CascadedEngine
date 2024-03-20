@@ -178,7 +178,59 @@ namespace ShaderCompilerSlang
 			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
 			slang::TypeReflection::Kind kind = variable->getTypeLayout()->getKind();
 			SlangResourceAccess resourceAccess = variable->getTypeLayout()->getResourceAccess();
+			auto name = variable->getName();
+			ParameterCategory category = variable->getCategory();
+			uint32_t bindingIndex = variable->getBindingIndex();
+			uint32_t bindingSpace = variable->getBindingSpace() + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+			fprintf(stderr, "%s: bindingIndex: %d bindingSet %d\n", name, bindingIndex, bindingSpace);
+			auto layoutName = typeLayout->getName();
+			fprintf(stderr, "layoutName: %s\n", layoutName);
+			if (category == ParameterCategory::Mixed)
+			{
+				fprintf(stderr, "%s is mixed\n", name);
+			}
+			if (category == ParameterCategory::SubElementRegisterSpace)
+			{
+				fprintf(stderr, "%s is a register space\n", name);
 
+
+			}
+			if (kind == slang::TypeReflection::Kind::Struct)
+			{
+				fprintf(stderr, "%s is a struct\n", name);
+
+				unsigned fieldCount = typeLayout->getFieldCount();
+				for (unsigned ff = 0; ff < fieldCount; ff++)
+				{
+					VariableLayoutReflection* field = typeLayout->getFieldByIndex(ff);
+					ReflectVariable(field);
+				}
+			}
+			if (kind == slang::TypeReflection::Kind::Array)
+			{
+				int elementCount = typeLayout->getElementCount();
+				slang::TypeLayoutReflection* elementTypeLayout = typeLayout->getElementTypeLayout();
+				fprintf(stderr, "%s is an array with %d element\n", name, elementCount);
+			}
+			if (kind == slang::TypeReflection::Kind::ParameterBlock)
+			{
+				auto elementTypeLayout = typeLayout->getElementTypeLayout();
+				int sizeInBytes = elementTypeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+				fprintf(stderr, "%s is an parameter block with memory size %d\n", name, sizeInBytes);
+
+				for (uint32_t i = 0; i < elementTypeLayout->getFieldCount(); i++)
+				{
+					int fieldOffset = elementTypeLayout->getFieldBindingRangeOffset(i);
+					slang::VariableLayoutReflection* field = elementTypeLayout->getFieldByIndex(i);
+					ReflectVariable(field);
+				}
+			}
+			if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind == slang::TypeReflection::Kind::Matrix)
+			{
+				int sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+				int strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
+				fprintf(stderr, "%s size: %d, stride: %d\n", name, sizeInBytes, strideInBytes);
+			}
 			//constant buffer size
 			size_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
 			//register size
@@ -190,145 +242,7 @@ namespace ShaderCompilerSlang
 			//if(kind)
 		}
 
-		void ReflectSlangVariable(SimpleBindingOffset parentOffset, Name parentName,
-			slang::VariableLayoutReflection* variable)
-		{
-			slang::TypeReflection* type = variable->getType();
-			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
-			slang::TypeReflection::Kind kind = variable->getTypeLayout()->getKind();
-			SlangResourceAccess resourceAccess = variable->getTypeLayout()->getResourceAccess();
-
-			int descBindingOffset = variable->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM);
-			int descSetOffset = variable->getOffset(SLANG_PARAMETER_CATEGORY_REGISTER_SPACE);
-			SimpleBindingOffset offset(variable);
-			offset += parentOffset;
-
-			if (kind == slang::TypeReflection::Kind::ConstantBuffer)
-			{
-				slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
-
-				if (bindingType == slang::BindingType::PushConstant)
-				{
-					SPIRVShaderVariableReflectionDescription desc;
-					{
-						desc.name = ConcatenateName(parentName, Name(variable->getName()));
-						desc.type = ShaderResourceType::PUSH_CONSTANT;
-						desc.descriptorSet = offset.bindingSet + offset.childSet;
-						desc.binding = offset.binding;
-						desc.memoryAccess = ShaderResourceMemoryAccess::READ;
-						desc.arraySize = 1;
-					}
-
-					RefCounted<IShaderVariableReflection> variableReflection =
-						MAKE_RC_OBJECT(SPIRVShaderVariableReflection, m_slangSPIRVShaderVariableReflectionPool, desc);
-
-					m_shaderVariables.push_back(variableReflection);
-					return;
-				}
-
-				SPIRVShaderVariableReflectionDescription desc;
-				{
-					desc.name = ConcatenateName(parentName, Name(variable->getName()));
-					desc.type = ShaderResourceType::UNIFORM_BUFFER;
-					desc.descriptorSet = offset.bindingSet + offset.childSet;
-					desc.binding = offset.binding;
-					desc.memoryAccess = GetShaderMemoryAccess(resourceAccess);
-					desc.arraySize = 1;
-				}
-
-				//AddOrModifySPIRVResource(desc);
-			}
-			else if (kind == slang::TypeReflection::Kind::ParameterBlock)
-			{
-				typeLayout = UnwrapParameterGroups(typeLayout);
-
-				for (Uint32 i = 0; i < typeLayout->getFieldCount(); i++)
-				{
-					slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
-					ReflectSlangVariable(offset, Name(variable->getName()), field);
-				}
-			}
-			else if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind ==
-				slang::TypeReflection::Kind::Matrix)
-			{
-				SPIRVShaderVariableReflectionDescription desc;
-				{
-					desc.name = ConcatenateName(parentName, Name(variable->getName()));
-					desc.descriptorSet = offset.bindingSet + offset.childSet;
-					desc.binding = offset.binding;
-					desc.type = ShaderResourceType::UNIFORM_BUFFER;
-					desc.memoryAccess = GetShaderMemoryAccess(resourceAccess);
-					desc.arraySize = 1;
-				}
-
-				AddOrModifySPIRVResource(desc);
-			}
-			else if (kind == slang::TypeReflection::Kind::Struct)
-			{
-				auto temp = typeLayout->getFieldCount();
-				auto name = variable->getName();
-
-				if (IsStructOnlyComposedWithOrdinaryData(typeLayout))
-				{
-					SPIRVShaderVariableReflectionDescription desc;
-					{
-						desc.name = ConcatenateName(parentName, Name(variable->getName()));
-						desc.descriptorSet = offset.bindingSet + offset.childSet;
-						desc.binding = offset.binding;
-						desc.type = ShaderResourceType::UNIFORM_BUFFER;
-						desc.memoryAccess = GetShaderMemoryAccess(resourceAccess);
-						desc.arraySize = 1;
-					}
-
-					AddOrModifySPIRVResource(desc);
-				}
-				else
-				{
-					for (Uint32 i = 0; i < typeLayout->getFieldCount(); i++)
-					{
-						slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
-						ReflectSlangVariable(offset, Name(name), field);
-					}
-				}
-			}
-			else if (kind == slang::TypeReflection::Kind::Resource ||
-				kind == slang::TypeReflection::Kind::SamplerState ||
-				kind == slang::TypeReflection::Kind::TextureBuffer ||
-				kind == slang::TypeReflection::Kind::ShaderStorageBuffer)
-			{
-				LUMENGINE_ASSERT(typeLayout->getBindingRangeCount() == 1); // should be true for a leaf resource parameter
-				slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
-
-				SPIRVShaderVariableReflectionDescription desc;
-				{
-					desc.name = ConcatenateName(parentName, Name(variable->getName()));
-					desc.descriptorSet = offset.bindingSet + offset.childSet;
-					desc.binding = offset.binding;
-					desc.type = ConvertSlangType(bindingType);
-					desc.memoryAccess = GetShaderMemoryAccess(resourceAccess);
-					desc.arraySize = 1;
-				}
-
-				AddOrModifySPIRVResource(desc);
-			}
-			else if (kind == slang::TypeReflection::Kind::Array)
-			{
-				slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
-
-				SPIRVShaderVariableReflectionDescription desc;
-				{
-					desc.name = ConcatenateName(parentName, Name(variable->getName()));
-					desc.descriptorSet = offset.bindingSet + offset.childSet;
-					desc.binding = offset.binding;
-					desc.type = ConvertSlangType(bindingType);
-					desc.memoryAccess = GetShaderMemoryAccess(resourceAccess);
-					desc.arraySize = static_cast<Uint32>(typeLayout->getElementCount());
-				}
-
-				AddOrModifySPIRVResource(desc);
-			}
-		}
-
+	
 		void DoCompile()
 		{
 			std::vector<const char*> searchPaths;
@@ -493,32 +407,15 @@ namespace ShaderCompilerSlang
 					memcpy(outProgramData.data.data(), kernelBlob->getBufferPointer(), kernelBlob->getBufferSize());
 
 
-					uint32_t paramCount = layout->getParameterCount();
-					for (uint32_t paramID = 0; paramID < paramCount; ++paramID)
-					{
-						auto param = layout->getParameterByIndex(paramID);
-						auto paramCategory = param->getCategory();
-						slang::TypeReflection* paramType = param->getType();
-						auto paramName = param->getName();
-						fprintf(stderr, "field type %s: %s\n", paramName, paramType->getName());
-						//param->getPendingDataLayout
-						if (paramType->getKind() == slang::TypeReflection::Kind::ConstantBuffer
-							|| paramType->getKind() == slang::TypeReflection::Kind::Struct
-							|| paramType->getKind() == slang::TypeReflection::Kind::ParameterBlock
-							)
-						{
-							int fieldCount = paramType->getFieldCount();
-							fprintf(stderr, "ConstantBuffer %s: field count %d\n", paramName, fieldCount);
-							for (int fieldID = 0; fieldID < fieldCount; ++fieldID)
-							{
-								auto field = paramType->getFieldByIndex(fieldID);
-								auto fieldName = field->getName();
-								auto fieldType = field->getType();
-								fprintf(stderr, "Field %s: type %s\n", fieldName, fieldType->getName());
-							}
-						}
-					}
+					
 					outputTargetResult.programs.push_back(outProgramData);
+				}
+
+				uint32_t paramCount = layout->getParameterCount();
+				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)
+				{
+					auto param = layout->getParameterByIndex(paramID);
+					ReflectVariable(param);
 				}
 				m_CompileResults.push_back(outputTargetResult);
 			}
