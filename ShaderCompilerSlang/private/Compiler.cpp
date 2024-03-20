@@ -172,10 +172,29 @@ namespace ShaderCompilerSlang
 			m_ModuleNames.push_back(castl::string(moduleName));
 		}
 
-		void ReflectVariable(slang::VariableLayoutReflection* variable)
+		struct BiasInfo
 		{
-			slang::TypeReflection* type = variable->getType();
+			uint32_t offsetInBytes = 0;
+			uint32_t bindingSpaceOffset = 0;
+			uint32_t bindingIndexOffset = 0;
+		};
+
+		struct NumericData
+		{
+			castl::string name;
+
+		};
+
+		struct Container
+		{
+			castl::string name;
+
+		};
+
+		void ReflectVariable(BiasInfo const& parentBias, slang::VariableLayoutReflection* variable)
+		{
 			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
+			slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
 			slang::TypeReflection::Kind kind = variable->getTypeLayout()->getKind();
 			SlangResourceAccess resourceAccess = variable->getTypeLayout()->getResourceAccess();
 			auto name = variable->getName();
@@ -185,60 +204,58 @@ namespace ShaderCompilerSlang
 			fprintf(stderr, "%s: bindingIndex: %d bindingSet %d\n", name, bindingIndex, bindingSpace);
 			auto layoutName = typeLayout->getName();
 			fprintf(stderr, "layoutName: %s\n", layoutName);
-			if (category == ParameterCategory::Mixed)
-			{
-				fprintf(stderr, "%s is mixed\n", name);
-			}
-			if (category == ParameterCategory::SubElementRegisterSpace)
-			{
-				fprintf(stderr, "%s is a register space\n", name);
 
+			BiasInfo thisBias = parentBias;
 
-			}
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
 				fprintf(stderr, "%s is a struct\n", name);
-
+				int sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				unsigned fieldCount = typeLayout->getFieldCount();
 				for (unsigned ff = 0; ff < fieldCount; ff++)
 				{
 					VariableLayoutReflection* field = typeLayout->getFieldByIndex(ff);
-					ReflectVariable(field);
+					ReflectVariable(thisBias, field);
 				}
 			}
-			if (kind == slang::TypeReflection::Kind::Array)
+			else if (kind == slang::TypeReflection::Kind::Array)
 			{
 				int elementCount = typeLayout->getElementCount();
 				slang::TypeLayoutReflection* elementTypeLayout = typeLayout->getElementTypeLayout();
 				fprintf(stderr, "%s is an array with %d element\n", name, elementCount);
 			}
-			if (kind == slang::TypeReflection::Kind::ParameterBlock)
+			else if (kind == slang::TypeReflection::Kind::ParameterBlock)
 			{
+				fprintf(stderr, "%s is an parameter block\n", name);
 				auto elementTypeLayout = typeLayout->getElementTypeLayout();
 				int sizeInBytes = elementTypeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-				fprintf(stderr, "%s is an parameter block with memory size %d\n", name, sizeInBytes);
 
-				for (uint32_t i = 0; i < elementTypeLayout->getFieldCount(); i++)
+				unsigned fieldCount = elementTypeLayout->getFieldCount();
+				for (uint32_t i = 0; i < fieldCount; i++)
 				{
 					int fieldOffset = elementTypeLayout->getFieldBindingRangeOffset(i);
 					slang::VariableLayoutReflection* field = elementTypeLayout->getFieldByIndex(i);
 					ReflectVariable(field);
 				}
 			}
-			if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind == slang::TypeReflection::Kind::Matrix)
+			else if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind == slang::TypeReflection::Kind::Matrix)
 			{
 				int sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				int strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				fprintf(stderr, "%s size: %d, stride: %d\n", name, sizeInBytes, strideInBytes);
 			}
-			//constant buffer size
-			size_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-			//register size
-			size_t tRegCount = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE);
+			else if (kind == slang::TypeReflection::Kind::Resource)
+			{
 
-			size_t arrayElementCount = typeLayout->getElementCount();
-			slang::TypeLayoutReflection* elementTypeLayout = typeLayout->getElementTypeLayout();
-			//size_t arrayElementStride = typeLayout->getElementStride(category);
+			}
+			////constant buffer size
+			//size_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+			////register size
+			//size_t tRegCount = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE);
+
+			//size_t arrayElementCount = typeLayout->getElementCount();
+			//slang::TypeLayoutReflection* elementTypeLayout = typeLayout->getElementTypeLayout();
+			////size_t arrayElementStride = typeLayout->getElementStride(category);
 			//if(kind)
 		}
 
