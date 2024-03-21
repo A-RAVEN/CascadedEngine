@@ -172,12 +172,25 @@ namespace ShaderCompilerSlang
 			m_ModuleNames.push_back(castl::string(moduleName));
 		}
 
-		struct BiasInfo
+		struct BindingInfo
 		{
-			uint32_t offsetInBytes = 0;
-			uint32_t bindingSpaceOffset = 0;
-			uint32_t bindingIndexOffset = 0;
+			uint32_t memoryOffsetInBytes = 0;
+			uint32_t bindingIndex = 0;
+			uint32_t bindingSpace = 0;
+			castl::string name = "";
+
+			BindingInfo OffsetBiasInfo(char const* varName, uint32_t bindingIndexOffset, uint32_t byteOffset, uint32_t bindingSpaceOffset) const
+			{
+				BindingInfo result = *this;
+				result.name = result.name  + "." + castl::string(varName);
+				result.bindingSpace += bindingSpaceOffset;
+				result.memoryOffsetInBytes += byteOffset;
+				result.bindingIndex += bindingIndexOffset;
+				return result;
+			}
 		};
+
+
 
 		struct NumericData
 		{
@@ -191,21 +204,74 @@ namespace ShaderCompilerSlang
 
 		};
 
-		void ReflectVariable(BiasInfo const& parentBias, slang::VariableLayoutReflection* variable)
+		static char const* GetCategoryName(ParameterCategory category)
+		{
+			switch (category)
+			{
+				case SLANG_PARAMETER_CATEGORY_NONE:
+					return "SLANG_PARAMETER_CATEGORY_NONE";
+				case SLANG_PARAMETER_CATEGORY_MIXED:
+					return "SLANG_PARAMETER_CATEGORY_MIXED";
+				case SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER:
+					return "SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER";
+				case SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE:
+					return "SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE";
+				case SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS:
+					return "SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS";
+				case SLANG_PARAMETER_CATEGORY_VARYING_INPUT:
+					return "SLANG_PARAMETER_CATEGORY_VARYING_INPUT";
+				case SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT:
+					return "SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT";
+				case SLANG_PARAMETER_CATEGORY_SAMPLER_STATE:
+					return "SLANG_PARAMETER_CATEGORY_SAMPLER_STATE";
+				case SLANG_PARAMETER_CATEGORY_UNIFORM:
+					return "SLANG_PARAMETER_CATEGORY_UNIFORM";
+				case SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT:
+					return "SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT";
+				case SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT:
+					return "SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT";
+				case SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER:
+					return "SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER";
+				case SLANG_PARAMETER_CATEGORY_REGISTER_SPACE:
+					return "SLANG_PARAMETER_CATEGORY_REGISTER_SPACE";
+				case SLANG_PARAMETER_CATEGORY_GENERIC:
+					return "SLANG_PARAMETER_CATEGORY_GENERIC";
+				case SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD:
+					return "SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD";
+				case SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES:
+					return "SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES";
+				case SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD:
+					return "SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD";
+				case SLANG_PARAMETER_CATEGORY_SHADER_RECORD:
+					return "SLANG_PARAMETER_CATEGORY_SHADER_RECORD";
+				case SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM:
+					return "SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM";
+				case SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM:
+					return "SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM";
+				case SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE:
+					return "SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE";
+				case SLANG_PARAMETER_CATEGORY_COUNT:
+					return "SLANG_PARAMETER_CATEGORY_COUNT";
+			}
+		}
+
+
+		void ReflectVariable(BindingInfo const& parentBias, slang::VariableLayoutReflection* variable)
 		{
 			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
+			
 			slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
 			slang::TypeReflection::Kind kind = variable->getTypeLayout()->getKind();
 			SlangResourceAccess resourceAccess = variable->getTypeLayout()->getResourceAccess();
 			auto name = variable->getName();
 			ParameterCategory category = variable->getCategory();
-			uint32_t bindingIndex = variable->getBindingIndex();
-			uint32_t bindingSpace = variable->getBindingSpace() + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
-			fprintf(stderr, "%s: bindingIndex: %d bindingSet %d\n", name, bindingIndex, bindingSpace);
-			auto layoutName = typeLayout->getName();
-			fprintf(stderr, "layoutName: %s\n", layoutName);
+			uint32_t bindingIndex = variable->getOffset(SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
+			uint32_t byteOffset = variable->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM);
+			uint32_t bindingSpaceOffset = variable->getOffset(SLANG_PARAMETER_CATEGORY_REGISTER_SPACE) + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+			BindingInfo thisBias = parentBias.OffsetBiasInfo(name, bindingIndex, byteOffset, bindingSpaceOffset);
+			fprintf(stderr, "\n%s: type: %s category: %s bindingIndex: %d bindingSet %d memoryOffset: %d\n"
+				, thisBias.name.c_str(), typeLayout->getName(), GetCategoryName(category), thisBias.bindingIndex, thisBias.bindingSpace, thisBias.memoryOffsetInBytes);
 
-			BiasInfo thisBias = parentBias;
 
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
@@ -229,7 +295,6 @@ namespace ShaderCompilerSlang
 				fprintf(stderr, "%s is an parameter block\n", name);
 				auto elementTypeLayout = typeLayout->getElementTypeLayout();
 				int sizeInBytes = elementTypeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-
 				unsigned fieldCount = elementTypeLayout->getFieldCount();
 				for (uint32_t i = 0; i < fieldCount; i++)
 				{
@@ -242,7 +307,8 @@ namespace ShaderCompilerSlang
 			{
 				int sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				int strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
-				fprintf(stderr, "%s size: %d, stride: %d\n", name, sizeInBytes, strideInBytes);
+				int dataOffset = variable->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM);
+				fprintf(stderr, "%s size: %d, stride: %d, offset: %d\n", name, sizeInBytes, strideInBytes, dataOffset);
 			}
 			else if (kind == slang::TypeReflection::Kind::Resource)
 			{
@@ -429,7 +495,7 @@ namespace ShaderCompilerSlang
 				}
 
 				uint32_t paramCount = layout->getParameterCount();
-				BiasInfo baseBias;
+				BindingInfo baseBias;
 				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)
 				{
 					auto param = layout->getParameterByIndex(paramID);
