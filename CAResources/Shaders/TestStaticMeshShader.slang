@@ -1,20 +1,32 @@
 #include "InstancedStaticMesh.hslang"
 
+struct TestStruct2
+{
+    float AAA;
+}
+
+struct TestStruct3
+{
+    float BBB;
+}
+
 struct Textures
 {
     Texture2D<float4> SourceTexture;
     SamplerState SourceSampler;
 
-    Texture2D<float4> TestTextureArray[5];
-    float3 TestArray[5];
+    // Texture2D<float4> TestTextureArray[5];
+    // float3 TestArray[5];
     float4 Test0;
-    float2 Test1;
-    float3 Test2;
-    float Test4;
-    int Test5;
-    half3 Test6;
-    float4x4 Test7;
-    half4x4 Test8;
+    TestStruct2 TestStruct;
+    ParameterBlock<TestStruct3> TestInlineBlock;
+    // float2 Test1;
+    // float3 Test2;
+    // float Test4;
+    // int Test5;
+    // half3 Test6;
+    // float4x4 Test7;
+    // half4x4 Test8;
 
     float4 SampleMip0(in float2 uv)
     {

@@ -235,7 +235,7 @@ namespace ShaderCompilerSlang
 				{
 					int fieldOffset = elementTypeLayout->getFieldBindingRangeOffset(i);
 					slang::VariableLayoutReflection* field = elementTypeLayout->getFieldByIndex(i);
-					ReflectVariable(field);
+					ReflectVariable(thisBias, field);
 				}
 			}
 			else if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind == slang::TypeReflection::Kind::Matrix)
@@ -429,10 +429,11 @@ namespace ShaderCompilerSlang
 				}
 
 				uint32_t paramCount = layout->getParameterCount();
+				BiasInfo baseBias;
 				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)
 				{
 					auto param = layout->getParameterByIndex(paramID);
-					ReflectVariable(param);
+					ReflectVariable(baseBias, param);
 				}
 				m_CompileResults.push_back(outputTargetResult);
 			}
