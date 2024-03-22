@@ -255,14 +255,64 @@ namespace ShaderCompilerSlang
 			}
 		}
 
+		static char const* GetBindingTypeName(slang::BindingType type)
+		{
+			switch (type)
+			{
+				case slang::BindingType::Unknown						:
+					return "Unknown";
+				case slang::BindingType::Sampler						:			
+					return "Sampler";
+				case slang::BindingType::Texture						:
+					return "Texture";
+				case slang::BindingType::ConstantBuffer					:
+					return "ConstantBuffer";
+				case slang::BindingType::ParameterBlock					:
+					return "ParameterBlock";
+				case slang::BindingType::TypedBuffer					:
+					return "TypedBuffer";
+				case slang::BindingType::RawBuffer						:
+					return "RawBuffer";
+				case slang::BindingType::CombinedTextureSampler			:
+					return "CombinedTextureSampler";
+				case slang::BindingType::InputRenderTarget				:
+					return "InputRenderTarget";
+				case slang::BindingType::InlineUniformData				:
+					return "InlineUniformData";
+				case slang::BindingType::RayTracingAccelerationStructure:
+					return "RayTracingAccelerationStructure";
+				case slang::BindingType::VaryingInput					:
+					return "VaryingInput";
+				case slang::BindingType::VaryingOutput					:
+					return "VaryingOutput";
+				case slang::BindingType::ExistentialValue				:
+					return "ExistentialValue";
+				case slang::BindingType::PushConstant					:
+					return "PushConstant";
+				case slang::BindingType::MutableFlag					:
+					return "MutableFlag";
+				case slang::BindingType::MutableTexture					:
+					return "MutableTexture";
+				case slang::BindingType::MutableTypedBuffer				:
+					return "MutableTypedBuffer";
+				case slang::BindingType::MutableRawBuffer				:
+					return "MutableRawBuffer";
+				case slang::BindingType::BaseMask						:
+					return "BaseMask";
+				case slang::BindingType::ExtMask						:
+					return "ExtMask";
+			}
+		}
+
 
 		void ReflectVariable(BindingInfo const& parentBias, slang::VariableLayoutReflection* variable)
 		{
 			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
-			
+			int bindingRangeCount = typeLayout->getBindingRangeCount();
 			slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
-			slang::TypeReflection::Kind kind = variable->getTypeLayout()->getKind();
-			SlangResourceAccess resourceAccess = variable->getTypeLayout()->getResourceAccess();
+
+			slang::TypeReflection::Kind kind = typeLayout->getKind();
+			SlangResourceAccess resourceAccess = typeLayout->getResourceAccess();
 			auto name = variable->getName();
 			ParameterCategory category = variable->getCategory();
 			uint32_t bindingIndex = variable->getOffset(SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
@@ -271,6 +321,7 @@ namespace ShaderCompilerSlang
 			BindingInfo thisBias = parentBias.OffsetBiasInfo(name, bindingIndex, byteOffset, bindingSpaceOffset);
 			fprintf(stderr, "\n%s: type: %s category: %s bindingIndex: %d bindingSet %d memoryOffset: %d\n"
 				, thisBias.name.c_str(), typeLayout->getName(), GetCategoryName(category), thisBias.bindingIndex, thisBias.bindingSpace, thisBias.memoryOffsetInBytes);
+			fprintf(stderr, "%s has binding count %d, first bindingType is %s\n", name, bindingRangeCount, GetBindingTypeName(bindingType));
 
 
 			if (kind == slang::TypeReflection::Kind::Struct)
@@ -314,15 +365,6 @@ namespace ShaderCompilerSlang
 			{
 
 			}
-			////constant buffer size
-			//size_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-			////register size
-			//size_t tRegCount = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE);
-
-			//size_t arrayElementCount = typeLayout->getElementCount();
-			//slang::TypeLayoutReflection* elementTypeLayout = typeLayout->getElementTypeLayout();
-			////size_t arrayElementStride = typeLayout->getElementStride(category);
-			//if(kind)
 		}
 
 	

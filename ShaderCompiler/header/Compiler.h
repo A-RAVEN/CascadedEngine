@@ -1,6 +1,7 @@
 #pragma once
 #include <CASTL/CASharedPtr.h>
 #include <Common.h>
+#include <CASTL/CAUnorderedMap.h>
 
 namespace ShaderCompilerSlang
 {
@@ -26,6 +27,43 @@ namespace ShaderCompilerSlang
 	public:
 		EShaderTargetType targetType;
 		castl::vector<ShaderProgramData> programs;
+	};
+
+	struct ShaderStructElementData
+	{
+		uint32_t m_Offset;
+		uint32_t m_Size;
+		int32_t m_StructDataIndex;
+	};
+
+	//Struct Data Include Scalar, Vector, Matrix, Struct
+	class ShaderStructDataReflection
+	{
+		uint32_t m_BufferSize;
+		castl::unordered_map<castl::string, uint32_t> m_NameToData;
+		castl::vector<ShaderStructElementData> m_Data;
+	};
+
+	//Uniform Buffer Data, Pointing to a struct
+	class ShaderUniformBufferData
+	{
+		uint32_t m_BindingIndex;
+		uint32_t m_BindingSpace;
+		uint32_t m_BufferSize;
+		int32_t m_StructDataIndex;
+	};
+
+	class ShaderResourceBufferData
+	{
+		uint32_t m_BindingIndex;
+		uint32_t m_BindingSpace;
+	};
+
+	class ShaderReflectionData
+	{
+	public:
+		castl::vector<ShaderUniformBufferData> m_UniformBufferList;
+		castl::vector<ShaderStructDataReflection> m_StructDataList;
 	};
 
 	class IShaderCompiler

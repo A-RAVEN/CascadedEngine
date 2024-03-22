@@ -33,6 +33,8 @@ struct Textures
         return SourceTexture.SampleLevel(SourceSampler, uv, 0).xyzw;
     }
 }
+uniform float4 TestConstant0;
+uniform float4 TestConstant1;
 ParameterBlock<Textures> textures;
 ParameterBlock<MeshData> meshData;
 
