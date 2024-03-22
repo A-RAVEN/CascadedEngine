@@ -192,18 +192,6 @@ namespace ShaderCompilerSlang
 
 
 
-		struct NumericData
-		{
-			castl::string name;
-
-		};
-
-		struct Container
-		{
-			castl::string name;
-
-		};
-
 		static char const* GetCategoryName(ParameterCategory category)
 		{
 			switch (category)
