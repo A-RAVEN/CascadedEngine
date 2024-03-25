@@ -320,11 +320,20 @@ namespace ShaderCompilerSlang
 				for (uint32_t i = 0; i < fieldCount; i++)
 				{
 					slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
-					ReflectVariable(containerBindingInfo, reflectionData, newUniformGroupID, 1, field);
+					ParameterCategory fieldCategory = field->getCategory();
+
+					uint32_t bindingSpaceOffset = field->getBindingSpace((SlangParameterCategory)fieldCategory) + field->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+					uint32_t bindingIndexOffset = (fieldCategory == ParameterCategory::Uniform) ? 0u : field->getOffset((SlangParameterCategory)fieldCategory);
+					uint32_t byteOffset = (fieldCategory == ParameterCategory::Uniform) ? field->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM) : 0;
+					BindingInfo thisBindingInfo = containerBindingInfo.OffsetBiasInfo(containerName, bindingIndexOffset, byteOffset, bindingSpaceOffset);
+
+					ReflectVariable(thisBindingInfo, reflectionData, newUniformGroupID, 1, field);
 				}
 			}
 			else if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind == slang::TypeReflection::Kind::Matrix)
 			{
+				ParameterCategory elementCategory = typeLayout->getCategory();
+				CA_ASSERT(typeLayout)
 				int sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				int strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				UniformElement newElement = {};
@@ -378,61 +387,26 @@ namespace ShaderCompilerSlang
 				if (kind == slang::TypeReflection::Kind::ParameterBlock)
 				{
 					fprintf(stderr, "%s is an parameter block\n", name);
-					typeLayout = typeLayout->getElementTypeLayout();
-
-					uint32_t strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
-					uint32_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-					//有UniformBuffer
-					int newUniformGroupID = bindingSpace.InitUniformGroup(thisBias.bindingIndex
-						, uniformGroupID
-						, name, byteOffset, sizeInBytes, strideInBytes, arrayLength);
-					unsigned fieldCount = typeLayout->getFieldCount();
-					for (uint32_t i = 0; i < fieldCount; i++)
-					{
-						slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
-						ReflectVariable(thisBias, reflectionData, newUniformGroupID, 1, field);
-					}
+					auto elementStructTypeLayout = typeLayout->getElementTypeLayout();
+					ReflectElementType(reflectionData, name, byteOffset, 1, parentBias, uniformGroupID, elementStructTypeLayout);
 				}
-				else if (kind == slang::TypeReflection::Kind::Struct)
+				else if (kind == slang::TypeReflection::Kind::Struct
+					|| kind == slang::TypeReflection::Kind::Scalar
+					|| kind == slang::TypeReflection::Kind::Vector
+					|| kind == slang::TypeReflection::Kind::Matrix)
 				{
-					fprintf(stderr, "%s is a struct\n", name);
-
-					uint32_t strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
-					uint32_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-					//有UniformBuffer
-
-					int newUniformGroupID = bindingSpace.InitUniformGroup(thisBias.bindingIndex
-						, uniformGroupID
-						, name, byteOffset, sizeInBytes, strideInBytes, arrayLength);
-					unsigned fieldCount = typeLayout->getFieldCount();
-					for (uint32_t i = 0; i < fieldCount; i++)
-					{
-						slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
-						if (field->getCategory() == itrCategory)
-						{
-							ReflectVariable(thisBias, reflectionData, newUniformGroupID, 1, field);
-						}
-					}
-				}
-				else if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind == slang::TypeReflection::Kind::Matrix)
-				{
-					int sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-					int strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
-					UniformElement newElement = {};
-					newElement.Init(name, byteOffset, sizeInBytes, strideInBytes, arrayLength);
-					bindingSpace.AddElementToGroup(thisBias.bindingIndex, uniformGroupID, newElement);
-					fprintf(stderr, "%s size: %d, stride: %d, offset: %d\n", name, sizeInBytes, strideInBytes, byteOffset);
+					//Reflect Type
+					ReflectElementType(reflectionData, name, byteOffset, 1, parentBias, uniformGroupID, typeLayout);
 				}
 				else if (kind == slang::TypeReflection::Kind::Array)
 				{
-					uint32_t strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
 					uint32_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
 
 					if (sizeInBytes > 0)
 					{
 						int elementCount = typeLayout->getElementCount();
 						slang::TypeLayoutReflection* elementTypeLayout = typeLayout->getElementTypeLayout();
-						ReflectElementType(reflectionData, name, byteOffset, elementCount, thisBias, uniformGroupID, elementTypeLayout);
+						ReflectElementType(reflectionData, name, byteOffset, elementCount, parentBias, uniformGroupID, elementTypeLayout);
 					}
 				}
 				else if (kind == slang::TypeReflection::Kind::Resource)
