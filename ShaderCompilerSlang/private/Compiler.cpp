@@ -178,12 +178,67 @@ namespace ShaderCompilerSlang
 		{
 			uint32_t bindingIndex = 0;
 			uint32_t bindingSpace = 0;
+			uint32_t memoryPosition = 0;
 			castl::string name = "";
 
-			BindingInfo OffsetBiasInfo(char const* varName, uint32_t bindingIndexOffset, uint32_t bindingSpaceOffset) const
+			struct CategoryBindingInfo
+			{
+				uint32_t bindingSpace = 0;
+				uint32_t bindingPos = 0;
+			};
+			castl::map<slang::ParameterCategory, CategoryBindingInfo> categoryOffsets;
+
+			BindingInfo OffsetVariableInfo(slang::VariableLayoutReflection* variable)
+			{
+				auto pName = variable->getName();
+				if (pName != nullptr)
+				{
+					name += "." + castl::string(pName);
+				}
+
+				auto typeLayout = variable->getTypeLayout();
+				auto category = variable->getCategory();
+				castl::vector<slang::ParameterCategory> categories;
+				if (category == ParameterCategory::Mixed)
+				{
+					unsigned categoryCount = variable->getCategoryCount();
+					categories.reserve(categoryCount);
+					for (unsigned cc = 0; cc < categoryCount; cc++)
+					{
+						slang::ParameterCategory subCategory = variable->getCategoryByIndex(cc);
+						categories.push_back(subCategory);
+					}
+				}
+				else
+				{
+					categories.push_back(category);
+				}
+				for (auto itrCategory : categories)
+				{
+					uint32_t bindingSpaceOffset = variable->getBindingSpace((SlangParameterCategory)itrCategory) + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+					uint32_t bindingPositionOffset = variable->getOffset((SlangParameterCategory)itrCategory);
+					auto findItr = categoryOffsets.find(itrCategory);
+					if(findItr == categoryOffsets.end())
+					{
+						categoryOffsets[itrCategory] = CategoryBindingInfo{ bindingSpaceOffset, bindingPositionOffset };
+					}
+					else
+					{
+						CategoryBindingInfo& bindingInfo = categoryOffsets[itrCategory];
+						bindingInfo.bindingPos += bindingPositionOffset;
+						bindingInfo.bindingSpace += bindingSpaceOffset;
+					}
+				}
+			}
+
+			BindingInfo OffsetBiasInfo(char const* varName, uint32_t byteOffset, uint32_t bindingIndexOffset, uint32_t bindingSpaceOffset) const
 			{
 				BindingInfo result = *this;
-				result.name = result.name  + "." + castl::string(varName);
+				if (varName != nullptr)
+				{
+					result.name = result.name + "." + castl::string(varName);
+				}
+				result.memoryPosition += byteOffset;
 				result.bindingSpace += bindingSpaceOffset;
 				result.bindingIndex += bindingIndexOffset;
 				return result;
@@ -295,28 +350,24 @@ namespace ShaderCompilerSlang
 		//可能是ParameterBlock, ConstantBuffer, Array成员的类型
 		void ReflectElementType(ShaderReflectionData& reflectionData
 			, const char* containerName
-			, uint32_t containerMemOffset
 			, uint32_t arrayLength
 			, BindingInfo const& containerBindingInfo
 			, int parentGroupID
-			, slang::VariableLayoutReflection* containerVariable
+			, slang::VariableLayoutReflection* thisVariable
 			, slang::TypeLayoutReflection* typeLayout)
 		{
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
-			ParameterCategory elementCategory = containerVariable->getCategory();
-			ShaderBindingSpaceData& bindingSpace = reflectionData.EnsureBindingSpace(containerBindingInfo.bindingSpace);
+			ParameterCategory elementCategory = thisVariable->getCategory();
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
-	
-
 				castl::vector<ParameterCategory> categories;
 				if (elementCategory == ParameterCategory::Mixed)
 				{
-					unsigned categoryCount = containerVariable->getCategoryCount();
+					unsigned categoryCount = thisVariable->getCategoryCount();
 					categories.reserve(categoryCount);
 					for (unsigned cc = 0; cc < categoryCount; cc++)
 					{
-						slang::ParameterCategory subCategory = containerVariable->getCategoryByIndex(cc);
+						slang::ParameterCategory subCategory = thisVariable->getCategoryByIndex(cc);
 						categories.push_back(subCategory);
 					}
 				}
@@ -324,24 +375,29 @@ namespace ShaderCompilerSlang
 				{
 					categories.push_back(elementCategory);
 				}
-				//有UniformBuffer
-				//fprintf(stderr, "%s is a (an array of) struct with length %d, size %d, stride %d\n"
-				//	, containerName, (int)arrayLength, (int)sizeInBytes, (int)strideInBytes);
+				fprintf(stderr, "struct %s has category %s\n"
+					, containerName, GetCategoryName(elementCategory));
 				for(ParameterCategory itrCategory : categories)
 				{
 					uint32_t strideInBytes = typeLayout->getStride((SlangParameterCategory)itrCategory);
 					uint32_t sizeInBytes = typeLayout->getSize((SlangParameterCategory)itrCategory);
-					uint32_t bindingSpaceOffset = containerVariable->getBindingSpace((SlangParameterCategory)itrCategory) + containerVariable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
-					uint32_t bindingIndexOffset = (itrCategory == ParameterCategory::Uniform) ? 0u : containerVariable->getOffset((SlangParameterCategory)itrCategory);
-					BindingInfo thisBindingInfo = containerBindingInfo.OffsetBiasInfo(containerName, bindingIndexOffset, bindingSpaceOffset);
+					uint32_t bindingSpaceOffset = thisVariable->getBindingSpace((SlangParameterCategory)itrCategory) + thisVariable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+					uint32_t bindingIndexOffset = (itrCategory == ParameterCategory::Uniform) ? 0u : thisVariable->getOffset((SlangParameterCategory)itrCategory);
+					uint32_t byteOffset = (itrCategory == ParameterCategory::Uniform) ? thisVariable->getOffset((SlangParameterCategory)itrCategory) : 0u;
+					BindingInfo thisBindingInfo = containerBindingInfo.OffsetBiasInfo(containerName, byteOffset, bindingIndexOffset, bindingSpaceOffset);
+					ShaderBindingSpaceData& bindingSpace = reflectionData.EnsureBindingSpace(thisBindingInfo.bindingSpace);
 
 					int newUniformGroupID = -1;
+					//有UniformBuffer, 初始化UniformGroup
 					if (itrCategory == ParameterCategory::Uniform)
 					{
 						newUniformGroupID = bindingSpace.InitUniformGroup(thisBindingInfo.bindingIndex
 							, parentGroupID
-							, containerName, containerMemOffset, sizeInBytes, strideInBytes, arrayLength);
+							, containerName, thisBindingInfo.memoryPosition, sizeInBytes, strideInBytes, arrayLength);
+						fprintf(stderr, "%s size: %d, stride: %d, offset: %d, length: %d, bindingIndex: %d, bindingSpace: %d\n"
+							, thisBindingInfo.name.c_str(), (int)sizeInBytes, (int)strideInBytes, (int)thisBindingInfo.memoryPosition, (int)arrayLength, thisBindingInfo.bindingIndex, thisBindingInfo.bindingSpace);
 					}
+					//TODO:初始化Resource相关容器，类似UniformGroup
 
 					unsigned fieldCount = typeLayout->getFieldCount();
 					for (uint32_t i = 0; i < fieldCount; i++)
@@ -349,11 +405,9 @@ namespace ShaderCompilerSlang
 						slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
 						ParameterCategory fieldCategory = field->getCategory();
 
+						//只反射当前类别的成员
 						if (fieldCategory == itrCategory)
 						{
-							uint32_t bindingSpaceOffset = field->getBindingSpace((SlangParameterCategory)fieldCategory) + field->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
-							uint32_t bindingIndexOffset = (fieldCategory == ParameterCategory::Uniform) ? 0u : field->getOffset((SlangParameterCategory)fieldCategory);
-							BindingInfo thisBindingInfo = containerBindingInfo.OffsetBiasInfo(containerName, bindingIndexOffset, bindingSpaceOffset);
 							ReflectVariable(thisBindingInfo, reflectionData, newUniformGroupID, 1, field);
 						}
 					}
@@ -361,16 +415,28 @@ namespace ShaderCompilerSlang
 			}
 			else if (kind == slang::TypeReflection::Kind::Scalar || kind == slang::TypeReflection::Kind::Vector || kind == slang::TypeReflection::Kind::Matrix)
 			{
-				int sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-				int strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
+				uint32_t strideInBytes = typeLayout->getStride((SlangParameterCategory)elementCategory);
+				uint32_t sizeInBytes = typeLayout->getSize((SlangParameterCategory)elementCategory);
+				uint32_t bindingSpaceOffset = thisVariable->getBindingSpace((SlangParameterCategory)elementCategory) + thisVariable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+				uint32_t bindingIndexOffset = (elementCategory == ParameterCategory::Uniform) ? 0u : thisVariable->getOffset((SlangParameterCategory)elementCategory);
+				uint32_t byteOffset = (elementCategory == ParameterCategory::Uniform) ? thisVariable->getOffset((SlangParameterCategory)elementCategory) : 0u;
+				BindingInfo thisBindingInfo = containerBindingInfo.OffsetBiasInfo(containerName, byteOffset, bindingIndexOffset, bindingSpaceOffset);
+				ShaderBindingSpaceData& bindingSpace = reflectionData.EnsureBindingSpace(thisBindingInfo.bindingSpace);
+
+	
 				UniformElement newElement = {};
-				newElement.Init(containerName, containerMemOffset, sizeInBytes, strideInBytes, arrayLength);
-				bindingSpace.AddElementToGroup(containerBindingInfo.bindingIndex, parentGroupID, newElement);
-				fprintf(stderr, "array %s size: %d, stride: %d, offset: %d, length: %d\n", containerName, (int)sizeInBytes, (int)strideInBytes, (int)containerMemOffset, (int)arrayLength);
+				newElement.Init(containerName, thisBindingInfo.memoryPosition, sizeInBytes, strideInBytes, arrayLength);
+				bindingSpace.AddElementToGroup(thisBindingInfo.bindingIndex, parentGroupID, newElement);
+				fprintf(stderr, "%s size: %d, stride: %d, offset: %d, length: %d\n", thisBindingInfo.name.c_str(), (int)sizeInBytes, (int)strideInBytes, (int)thisBindingInfo.memoryPosition, (int)arrayLength);
 			}
 			else if (kind == slang::TypeReflection::Kind::Resource)
 			{
-
+				uint32_t bindingSpaceOffset = thisVariable->getBindingSpace((SlangParameterCategory)elementCategory) + thisVariable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+				uint32_t bindingIndexOffset = (elementCategory == ParameterCategory::Uniform) ? 0u : thisVariable->getOffset((SlangParameterCategory)elementCategory);
+				uint32_t byteOffset = (elementCategory == ParameterCategory::Uniform) ? thisVariable->getOffset((SlangParameterCategory)elementCategory) : 0u;
+				BindingInfo thisBindingInfo = containerBindingInfo.OffsetBiasInfo(containerName, byteOffset, bindingIndexOffset, bindingSpaceOffset);
+				ShaderBindingSpaceData& bindingSpace = reflectionData.EnsureBindingSpace(thisBindingInfo.bindingSpace);
+				fprintf(stderr, "%s bindingIndex: %d, bindingSpace: %d,  length: %d\n", thisBindingInfo.name.c_str(), (int)thisBindingInfo.bindingIndex, (int)thisBindingInfo.bindingSpace, (int)arrayLength);
 			}
 		}
 
@@ -378,55 +444,32 @@ namespace ShaderCompilerSlang
 		void ReflectVariable(BindingInfo const& parentBias, ShaderReflectionData& reflectionData, int uniformGroupID, int arrayLength, slang::VariableLayoutReflection* variable)
 		{
 			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
-			int bindingRangeCount = typeLayout->getBindingRangeCount();
-			slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
-			SlangResourceAccess resourceAccess = typeLayout->getResourceAccess();
-
 			auto name = variable->getName();
-			ParameterCategory rootCategory = variable->getCategory();
-
-			castl::vector<ParameterCategory> categories;
-			if (rootCategory == ParameterCategory::Mixed)
 			{
-				unsigned categoryCount = variable->getCategoryCount();
-				categories.reserve(categoryCount);
-				for (unsigned cc = 0; cc < categoryCount; cc++)
-				{
-					slang::ParameterCategory subCategory = variable->getCategoryByIndex(cc);
-					categories.push_back(subCategory);
-				}
-			}
-			else
-			{
-				categories.push_back(rootCategory);
-			}
-
-			//for (ParameterCategory itrCategory : categories)
-			{
-				//uint32_t bindingSpaceOffset = variable->getBindingSpace((SlangParameterCategory)itrCategory) + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
-				//uint32_t bindingIndexOffset = (itrCategory == ParameterCategory::Uniform) ? 0u : variable->getOffset((SlangParameterCategory)itrCategory);
-				uint32_t byteOffset = variable->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM);
-
+				//解包ParameterBlock,ConstantBuffer
 				if (kind == slang::TypeReflection::Kind::ParameterBlock
 					|| kind == slang::TypeReflection::Kind::ConstantBuffer)
 				{
-					fprintf(stderr, "%s is an parameter block\n", name);
+					ParameterCategory category = variable->getCategory();
+					uint32_t bindingSpaceOffset = variable->getBindingSpace((SlangParameterCategory)category) + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+					uint32_t bindingIndexOffset = variable->getOffset((SlangParameterCategory)category);
+					uint32_t byteOffset = variable->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM);
+					BindingInfo containerBinding = parentBias.OffsetBiasInfo(nullptr, byteOffset, bindingIndexOffset, bindingSpaceOffset);
 					auto elementTypeLayout = typeLayout->getElementTypeLayout();
 					auto elementVarLayout = typeLayout->getElementVarLayout();
-					auto category = elementVarLayout->getCategory();
-					fprintf(stderr, "parameterBlock/constant %s var layout: %s, category: %s\n", name, elementVarLayout->getName(), GetCategoryName(category));
-					ReflectElementType(reflectionData, name, byteOffset, 1, parentBias, uniformGroupID, elementVarLayout, elementTypeLayout);
+					fprintf(stderr, "%s parameterblock/constantbuffer category name: %s\n", (containerBinding.name + "." + castl::string(name)).c_str(), GetCategoryName(category));
+					ReflectElementType(reflectionData, name, 1, containerBinding, uniformGroupID, elementVarLayout, elementTypeLayout);
 				}
+				//解包Array
 				else if (kind == slang::TypeReflection::Kind::Array)
 				{
 					int elementCount = typeLayout->getElementCount();
 					auto elementTypeLayout = typeLayout->getElementTypeLayout();
-					//auto elementVarLayout = typeLayout->getElementVarLayout();
 					auto category = variable->getCategory();
-					fprintf(stderr, "array %s var layout: %s, category: %s\n", name, variable->getName(), GetCategoryName(category));
-					ReflectElementType(reflectionData, name, byteOffset, elementCount, parentBias, uniformGroupID, variable, elementTypeLayout);
+					ReflectElementType(reflectionData, name, elementCount, parentBias, uniformGroupID, variable, elementTypeLayout);
 				}
+				//其它类型直接传递
 				else if (kind == slang::TypeReflection::Kind::Struct
 					|| kind == slang::TypeReflection::Kind::Scalar
 					|| kind == slang::TypeReflection::Kind::Vector
@@ -434,7 +477,7 @@ namespace ShaderCompilerSlang
 					|| kind == slang::TypeReflection::Kind::Resource)
 				{
 					//Reflect Type
-					ReflectElementType(reflectionData, name, byteOffset, 1, parentBias, uniformGroupID, variable, typeLayout);
+					ReflectElementType(reflectionData, name, 1, parentBias, uniformGroupID, variable, typeLayout);
 				}
 			}
 		}

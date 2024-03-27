@@ -26,24 +26,18 @@ struct Textures
     TestStruct4 TestStructArray[5];
     float4 Test0;
     TestStruct2 TestStruct;
-    ConstantBuffer<TestStruct3> TestInlineBlock;
-    // float2 Test1;
-    // float3 Test2;
-    // float Test4;
-    // int Test5;
-    // half3 Test6;
-    // float4x4 Test7;
-    // half4x4 Test8;
+    ParameterBlock<TestStruct3> TestInlineBlock;
 
     float4 SampleMip0(in float2 uv)
     {
-        return SourceTexture.SampleLevel(SourceSampler, uv, 0).xyzw * Test0;
+        return SourceTexture.SampleLevel(SourceSampler, uv, 0).xyzw * Test0 * TestInlineBlock.BBB * TestStructArray[2].CCC;
     }
 }
 
+
 Texture2D<float4> TestTexture;
 ConstantBuffer<TestStruct3> TestConstantBuffer;
-ParameterBlock<Textures> textures;
+ConstantBuffer<Textures> textures;
 ParameterBlock<MeshData> meshData;
 uniform Textures TestConstantStruct;
 uniform float4 TestConstant0;
@@ -81,6 +75,6 @@ VertexToFragment vert(in VertexInput input)
 [shader("fragment")]
 float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    float4 diffuse = TestConstantStruct.SampleMip0(input.uv).xyzw;
+    float4 diffuse = textures.SampleMip0(input.uv).xyzw;
     return float4(input.color * diffuse.xyz * (saturate(dot(normalize(input.normal), 1.0)) * 0.5 + 0.5), 1.0);
 }
