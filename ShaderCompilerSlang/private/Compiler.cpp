@@ -469,12 +469,18 @@ namespace ShaderCompilerSlang
 			uint32_t bindingSpace = 0;
 			uint32_t bindingIndex = 0;
 			uint32_t memoryByteOffset = 0;
+			castl::string elementName = "";
+			castl::string path = "";
+			//
+			int uniformGroupID = -1;
+
 			BindingData1 OffsetSpace(uint32_t spaceOffset) const
 			{
 				BindingData1 newBinding = *this;
 				newBinding.bindingSpace += spaceOffset;
 				newBinding.bindingIndex = 0;
 				newBinding.memoryByteOffset = 0;
+				newBinding.uniformGroupID = -1;
 				return newBinding;
 			}
 			BindingData1 OffsetBindingIndex(uint32_t indexOffset) const
@@ -489,26 +495,40 @@ namespace ShaderCompilerSlang
 				newBinding.memoryByteOffset += bytesOffset;
 				return newBinding;
 			}
+			void OffsetName(const char* name)
+			{
+				if (name == nullptr)
+					return;
+				elementName = name;
+				path += "." + elementName;
+			}
 		};
 
-		void ReflectByKind(slang::VariableLayoutReflection* variable, slang::TypeLayoutReflection* typeLayout, ParameterCategory variableCategory, BindingData1 const& bindingData)
+		castl::vector<slang::ParameterCategory> UnwrapCategories(slang::VariableLayoutReflection* variable)
 		{
-			slang::TypeReflection::Kind kind = typeLayout->getKind();
-
-			if (kind == slang::TypeReflection::Kind::ParameterBlock || kind == slang::TypeReflection::Kind::ConstantBuffer)
+			castl::vector<slang::ParameterCategory> result;
+			auto variableCategory = variable->getCategory();
+			if (variableCategory == ParameterCategory::Mixed)
 			{
-				auto elementVarLayout = typeLayout->getElementVarLayout();
-				auto elementCategory = elementVarLayout->getCategory();
-				Reflect(elementVarLayout, elementCategory, bindingData);
+				unsigned categoryCount = variable->getCategoryCount();
+				result.reserve(categoryCount);
+				for (unsigned cc = 0; cc < categoryCount; cc++)
+				{
+					result.push_back(variable->getCategoryByIndex(cc));
+				}
 			}
-			else if (kind == slang::TypeReflection::Kind::Array)
+			else
 			{
-				auto elementTypeLayout = typeLayout->getElementTypeLayout();
-
+				result.push_back(variableCategory);
 			}
+			return result;
 		}
 
-		void Reflect(slang::VariableLayoutReflection* variable, ParameterCategory variableCategory, BindingData1 const& bindingData)
+		void Reflect(ShaderReflectionData& reflectionData
+			, slang::VariableLayoutReflection* variable
+			, slang::TypeLayoutReflection* typeLayout
+			, ParameterCategory variableCategory
+			, BindingData1 const& bindingData)
 		{
 			if(variableCategory == ParameterCategory::Mixed)
 			{
@@ -516,10 +536,11 @@ namespace ShaderCompilerSlang
 				for (unsigned cc = 0; cc < categoryCount; cc++)
 				{
 					slang::ParameterCategory subCategory = variable->getCategoryByIndex(cc);
-					Reflect(variable, subCategory, bindingData);
+					Reflect(reflectionData, variable, typeLayout, subCategory, bindingData);
 				}
 				return;
 			}
+
 			BindingData1 newBinding;
 			if (variableCategory == ParameterCategory::SubElementRegisterSpace)
 			{
@@ -534,7 +555,69 @@ namespace ShaderCompilerSlang
 			{
 				newBinding = bindingData.OffsetBindingIndex(variable->getOffset((SlangParameterCategory)variableCategory));
 			}
-			ReflectByKind(variable, variableCategory, newBinding);
+			newBinding.OffsetName(variable->getName());
+
+			//Binding Done! Now Reflect By Kind
+			//到这里时不应该有Mixed类型
+			slang::TypeReflection::Kind kind = typeLayout->getKind();
+
+			uint32_t elementCount = 1;
+			//如果是Array类型，重定向为Array元素类型
+			if (kind == slang::TypeReflection::Kind::Array)
+			{
+				elementCount = typeLayout->getElementCount();
+				typeLayout = typeLayout->getElementTypeLayout();
+				kind = typeLayout->getKind();
+			}
+
+			if (kind == slang::TypeReflection::Kind::ParameterBlock || kind == slang::TypeReflection::Kind::ConstantBuffer)
+			{
+				auto elementVarLayout = typeLayout->getElementVarLayout();
+				auto elementCategory = elementVarLayout->getCategory();
+				Reflect(reflectionData, elementVarLayout, elementVarLayout->getTypeLayout(), elementCategory, newBinding);
+			}
+			//else if (kind == slang::TypeReflection::Kind::Array)
+			//{
+			//	auto elementTypeLayout = typeLayout->getElementTypeLayout();
+			//	auto elementCount = typeLayout->getElementCount();
+			//	Reflect(reflectionData, variable, elementTypeLayout, variableCategory, newBinding, elementCount);
+			//}
+			else if (kind == slang::TypeReflection::Kind::Struct)
+			{
+				//第一次追踪Struct类型中的Uniform成员时，创建UniformGroup
+				if (variableCategory == ParameterCategory::Uniform)
+				{
+					uint32_t strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
+					uint32_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+					ShaderBindingSpaceData& bindingSpace = reflectionData.EnsureBindingSpace(newBinding.bindingSpace);
+					newBinding.uniformGroupID = bindingSpace.InitUniformGroup(newBinding.bindingIndex
+						, newBinding.uniformGroupID
+						, newBinding.elementName, newBinding.memoryByteOffset, sizeInBytes, strideInBytes, elementCount);
+					fprintf(stderr, "%s space: %d binding: %d arrayLength: %d category: %s\n", newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
+				}
+
+				unsigned fieldCount = typeLayout->getFieldCount();
+				for (uint32_t i = 0; i < fieldCount; i++)
+				{
+					slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
+					auto categories = UnwrapCategories(field);
+					for (auto fieldCategory : categories)
+					{
+						if (fieldCategory == variableCategory)
+						{
+							Reflect(reflectionData, field, field->getTypeLayout(), fieldCategory, newBinding);
+						}
+					}
+				}
+			}
+			else if (kind == slang::TypeReflection::Kind::Scalar
+				|| kind == slang::TypeReflection::Kind::Vector
+				|| kind == slang::TypeReflection::Kind::Matrix
+				|| kind == slang::TypeReflection::Kind::Resource
+				|| kind == slang::TypeReflection::Kind::SamplerState)
+			{
+				fprintf(stderr, "%s space: %d binding: %d arrayLength: %d category: %s\n", newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
+			}
 		}
 
 
@@ -768,6 +851,7 @@ namespace ShaderCompilerSlang
 				ShaderReflectionData reflectionData = {};
 
 				BindingInfo baseBias;
+				BindingData1 bindingData;
 				int globalUniformGroupID = -1;
 				{
 					size_t globalBufferSize = layout->getGlobalConstantBufferSize();
@@ -776,13 +860,15 @@ namespace ShaderCompilerSlang
 					{
 						auto& globalBindingSpace = reflectionData.EnsureBindingSpace(globalBinding);
 						globalUniformGroupID = globalBindingSpace.InitUniformGroup(0, -1, "__Global", 0, globalBufferSize, globalBufferSize, 1);
+						bindingData.uniformGroupID = globalUniformGroupID;
 					}
 				}
 				uint32_t paramCount = layout->getParameterCount();
 				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)
 				{
 					auto param = layout->getParameterByIndex(paramID);
-					ReflectVariable(baseBias, reflectionData, globalUniformGroupID, 1, param);
+					Reflect(reflectionData, param, param->getTypeLayout(), param->getCategory(), bindingData);
+					//ReflectVariable(baseBias, reflectionData, globalUniformGroupID, 1, param);
 				}
 				m_CompileResults.push_back(outputTargetResult);
 			}

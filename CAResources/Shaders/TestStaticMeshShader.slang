@@ -22,15 +22,15 @@ struct Textures
     Texture2D<float4> SourceTexture;
     SamplerState SourceSampler;
 
-    // Texture2D<float4> TestTextureArray[5];
-    // TestStruct4 TestStructArray[5];
-    // float4 Test0;
-    // TestStruct2 TestStruct;
-    // ConstantBuffer<TestStruct3> TestInlineBlock;
+    Texture2D<float4> TestTextureArray[5];
+    TestStruct4 TestStructArray[5];
+    float4 Test0;
+    TestStruct2 TestStruct;
+    ConstantBuffer<TestStruct3> TestInlineBlock;
 
     float4 SampleMip0(in float2 uv)
     {
-        return SourceTexture.SampleLevel(SourceSampler, uv, 0).xyzw;// * Test0 * TestInlineBlock.BBB * TestStructArray[2].CCC;
+        return SourceTexture.SampleLevel(SourceSampler, uv, 0).xyzw * Test0 * TestInlineBlock.BBB * TestStructArray[2].CCC;
     }
 }
 
