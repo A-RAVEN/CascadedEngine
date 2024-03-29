@@ -530,6 +530,7 @@ namespace ShaderCompilerSlang
 			, ParameterCategory variableCategory
 			, BindingData1 const& bindingData)
 		{
+			slang::TypeReflection::Kind kind = typeLayout->getKind();
 			if(variableCategory == ParameterCategory::Mixed)
 			{
 				unsigned categoryCount = variable->getCategoryCount();
@@ -559,7 +560,6 @@ namespace ShaderCompilerSlang
 
 			//Binding Done! Now Reflect By Kind
 			//到这里时不应该有Mixed类型
-			slang::TypeReflection::Kind kind = typeLayout->getKind();
 
 			uint32_t elementCount = 1;
 			//如果是Array类型，重定向为Array元素类型
@@ -570,18 +570,27 @@ namespace ShaderCompilerSlang
 				kind = typeLayout->getKind();
 			}
 
-			if (kind == slang::TypeReflection::Kind::ParameterBlock || kind == slang::TypeReflection::Kind::ConstantBuffer)
+			if (kind == slang::TypeReflection::Kind::ConstantBuffer)
 			{
 				auto elementVarLayout = typeLayout->getElementVarLayout();
-				auto elementCategory = elementVarLayout->getCategory();
-				Reflect(reflectionData, elementVarLayout, elementVarLayout->getTypeLayout(), elementCategory, newBinding);
+				auto categories = UnwrapCategories(elementVarLayout);
+				for (auto elementCategory : categories)
+				{
+					if (elementCategory == variableCategory)
+					{
+						Reflect(reflectionData, elementVarLayout, elementVarLayout->getTypeLayout(), elementCategory, newBinding);
+					}
+				}
 			}
-			//else if (kind == slang::TypeReflection::Kind::Array)
-			//{
-			//	auto elementTypeLayout = typeLayout->getElementTypeLayout();
-			//	auto elementCount = typeLayout->getElementCount();
-			//	Reflect(reflectionData, variable, elementTypeLayout, variableCategory, newBinding, elementCount);
-			//}
+			if (kind == slang::TypeReflection::Kind::ParameterBlock)
+			{
+				auto elementVarLayout = typeLayout->getElementVarLayout();
+				auto categories = UnwrapCategories(elementVarLayout);
+				for (auto elementCategory : categories)
+				{
+					Reflect(reflectionData, elementVarLayout, elementVarLayout->getTypeLayout(), elementCategory, newBinding);
+				}
+			}
 			else if (kind == slang::TypeReflection::Kind::Struct)
 			{
 				//第一次追踪Struct类型中的Uniform成员时，创建UniformGroup

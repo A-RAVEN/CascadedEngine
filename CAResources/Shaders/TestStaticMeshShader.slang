@@ -26,7 +26,7 @@ struct Textures
     TestStruct4 TestStructArray[5];
     float4 Test0;
     TestStruct2 TestStruct;
-    ConstantBuffer<TestStruct3> TestInlineBlock;
+    ParameterBlock<TestStruct3> TestInlineBlock;
 
     float4 SampleMip0(in float2 uv)
     {
@@ -37,7 +37,7 @@ struct Textures
 
 Texture2D<float4> TestTexture;
 ConstantBuffer<TestStruct3> TestConstantBuffer;
-ParameterBlock<Textures> textures;
+ConstantBuffer<Textures> textures;
 ParameterBlock<MeshData> meshData;
 uniform Textures TestConstantStruct;
 uniform float4 TestConstant0;
