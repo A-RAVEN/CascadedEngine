@@ -524,6 +524,35 @@ namespace ShaderCompilerSlang
 			return result;
 		}
 
+		BindingData1 OffsetBindingDataBySingleCategory(BindingData1 const& originalBindingData, slang::VariableLayoutReflection* variable, ParameterCategory variableCategory)
+		{
+			BindingData1 newBinding;
+			if (variableCategory == ParameterCategory::SubElementRegisterSpace)
+			{
+				uint32_t bindingSpaceOffset = variable->getBindingSpace(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE) + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
+				newBinding = originalBindingData.OffsetSpace(bindingSpaceOffset);
+			}
+			else if (variableCategory == ParameterCategory::Uniform)
+			{
+				newBinding = originalBindingData.OffsetMemory(variable->getOffset((SlangParameterCategory)variableCategory));
+			}
+			else
+			{
+				newBinding = originalBindingData.OffsetBindingIndex(variable->getOffset((SlangParameterCategory)variableCategory));
+			}
+			newBinding.OffsetName(variable->getName());
+			return newBinding;
+		}
+
+
+		bool MayContainsUniform(ParameterCategory parentCategory)
+		{
+			return (parentCategory == ParameterCategory::Uniform
+				|| parentCategory == ParameterCategory::DescriptorTableSlot
+				|| parentCategory == ParameterCategory::ConstantBuffer
+				|| parentCategory == ParameterCategory::PushConstantBuffer);
+		}
+
 		void Reflect(ShaderReflectionData& reflectionData
 			, slang::VariableLayoutReflection* variable
 			, slang::TypeLayoutReflection* typeLayout
@@ -531,6 +560,7 @@ namespace ShaderCompilerSlang
 			, BindingData1 const& bindingData)
 		{
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
+			//处理混合类型
 			if(variableCategory == ParameterCategory::Mixed)
 			{
 				unsigned categoryCount = variable->getCategoryCount();
@@ -541,26 +571,10 @@ namespace ShaderCompilerSlang
 				}
 				return;
 			}
-
-			BindingData1 newBinding;
-			if (variableCategory == ParameterCategory::SubElementRegisterSpace)
-			{
-				uint32_t bindingSpaceOffset = variable->getBindingSpace(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE) + variable->getOffset(SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
-				newBinding = bindingData.OffsetSpace(bindingSpaceOffset);
-			}
-			else if (variableCategory == ParameterCategory::Uniform)
-			{
-				newBinding = bindingData.OffsetMemory(variable->getOffset((SlangParameterCategory)variableCategory));
-			}
-			else
-			{
-				newBinding = bindingData.OffsetBindingIndex(variable->getOffset((SlangParameterCategory)variableCategory));
-			}
-			newBinding.OffsetName(variable->getName());
+			//到这里时不应该有Mixed类型
+			BindingData1 newBinding = OffsetBindingDataBySingleCategory(bindingData, variable, variableCategory);
 
 			//Binding Done! Now Reflect By Kind
-			//到这里时不应该有Mixed类型
-
 			uint32_t elementCount = 1;
 			//如果是Array类型，重定向为Array元素类型
 			if (kind == slang::TypeReflection::Kind::Array)
@@ -576,7 +590,9 @@ namespace ShaderCompilerSlang
 				auto categories = UnwrapCategories(elementVarLayout);
 				for (auto elementCategory : categories)
 				{
-					if (elementCategory == variableCategory)
+					//在SpirV概念下，Uniform是
+					bool uniformInConstantBuffer = (elementCategory == ParameterCategory::Uniform) && MayContainsUniform(variableCategory);
+					if (elementCategory == variableCategory || uniformInConstantBuffer)
 					{
 						Reflect(reflectionData, elementVarLayout, elementVarLayout->getTypeLayout(), elementCategory, newBinding);
 					}
