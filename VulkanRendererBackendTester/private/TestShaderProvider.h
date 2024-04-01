@@ -15,7 +15,7 @@ public:
 	virtual void const* GetDataPtr(castl::string const& codeType) const override;
 	virtual castl::string GetUniqueName() const override;
 
-	virtual ShaderProvider::ShaderSourceInfo GetDataInfo(castl::string const& codeType) const override;
+	virtual ShaderSourceInfo GetDataInfo(castl::string const& codeType) const override;
 
 	void SetUniqueName(std::string const& uniqueName);
 

@@ -54,10 +54,18 @@ namespace graphics_backend
 			m_NameToBuffer[name] = bufferHandle;
 			return *this;
 		}
+
+		inline ShaderArgList& SetSubArgList(castl::string const& name
+			, castl::shared_ptr<ShaderArgList> const& subArgList)
+		{
+			m_NameToSubArgLists[name] = subArgList;
+			return *this;
+		}
 	private:
 		castl::unordered_map<castl::string, NumericDataPos> m_NameToDataPosition;
 		castl::unordered_map<castl::string, ImageHandle> m_NameToImage;
 		castl::unordered_map<castl::string, BufferHandle> m_NameToBuffer;
+		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> m_NameToSubArgLists;
 		castl::vector<uint8_t> m_NumericDataList;
 	};
 }

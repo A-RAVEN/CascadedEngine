@@ -12,8 +12,6 @@ namespace ShaderCompilerSlang
 		eDXIL,
 	};
 
-
-
 	//某个数值：scalar，vector，matrix
 	struct UniformElement
 	{
@@ -48,6 +46,7 @@ namespace ShaderCompilerSlang
 		uint32_t m_ElementCount;
 		castl::vector<UniformElement> m_Elements;
 		castl::vector<uint32_t> m_SubGroups;
+
 		bool isArray() const
 		{
 			m_ElementCount > 1;
@@ -97,7 +96,37 @@ namespace ShaderCompilerSlang
 		}
 	};
 
-	class ShaderBindingSpaceData
+	struct ShaderResourceGroups
+	{
+		castl::string m_Name;
+		castl::vector<uint32_t> m_SubGroups;
+		castl::vector<uint32_t> m_Buffers;
+		castl::vector<uint32_t> m_Textures;
+		castl::vector<uint32_t> m_Samplers;
+	};
+
+	struct TextureData
+	{
+		uint32_t m_BindingIndex;
+		uint32_t m_Count;
+		castl::string m_Name;
+	};
+
+	struct SamplerData
+	{
+		uint32_t m_BindingIndex;
+		uint32_t m_Count;
+		castl::string m_Name;
+	};
+
+	struct ShaderBufferData
+	{
+		uint32_t m_BindingIndex;
+		uint32_t m_Count;
+		castl::string m_Name;
+	};
+
+	struct ShaderBindingSpaceData
 	{
 	public:
 
@@ -143,11 +172,55 @@ namespace ShaderCompilerSlang
 			buffer.AddElementToGroup(groupID, element);
 		}
 
+		int32_t InitResourceGroup(castl::string const& name, int32_t parentGroupID)
+		{
+			m_ResourceGroups.push_back(ShaderResourceGroups{});
+			m_ResourceGroups.back().m_Name = name;
+			int32_t newGroupID = m_ResourceGroups.size() - 1;
+			if (parentGroupID >= 0)
+			{
+				m_ResourceGroups[parentGroupID].m_SubGroups.push_back(newGroupID);
+			}
+			return newGroupID;
+		}
+
+		void AddBufferToResourceGroup(int32_t groupID, ShaderBufferData const& bufferData)
+		{
+			CA_ASSERT(groupID >= 0, "groupID must be valid");
+			m_Buffers.push_back(bufferData);
+			m_ResourceGroups[groupID].m_Buffers.push_back(m_Buffers.size() - 1);
+		}
+
+		void AddTextureToResourceGroup(int32_t groupID, TextureData const& textureData)
+		{
+			CA_ASSERT(groupID >= 0, "groupID must be valid");
+			m_Textures.push_back(textureData);
+			m_ResourceGroups[groupID].m_Textures.push_back(m_Textures.size() - 1);
+		}
+
+		void AddSamplerToResourceGroup(int32_t groupID, SamplerData const& samplerData)
+		{
+			CA_ASSERT(groupID >= 0, "groupID must be valid");
+			m_Samplers.push_back(samplerData);
+			m_ResourceGroups[groupID].m_Samplers.push_back(m_Samplers.size() - 1);
+		}
+
 		uint32_t m_BindingSpace;
+
+		//UniformBuffer
 		castl::vector<UniformBufferData> m_UniformBuffers;
+
+		//Buffers
+		castl::vector<ShaderBufferData> m_Buffers;
+		//Textures
+		castl::vector<TextureData> m_Textures;
+		//Samplers
+		castl::vector<SamplerData> m_Samplers;
+		//ResourceGroups
+		castl::vector<ShaderResourceGroups> m_ResourceGroups;
 	};
 
-	class ShaderReflectionData
+	struct ShaderReflectionData
 	{
 	public:
 		castl::vector<ShaderBindingSpaceData> m_BindingData;
@@ -167,17 +240,15 @@ namespace ShaderCompilerSlang
 		}
 	};
 
-	class ShaderProgramData
+	struct ShaderProgramData
 	{
-	public:
 		ECompileShaderType shaderType;
 		castl::vector<uint8_t> data;
 		castl::string entryPointName;
 	};
 
-	class ShaderCompileTargetResult
+	struct ShaderCompileTargetResult
 	{
-	public:
 		EShaderTargetType targetType;
 		castl::vector<ShaderProgramData> programs;
 		ShaderReflectionData m_ReflectionData;

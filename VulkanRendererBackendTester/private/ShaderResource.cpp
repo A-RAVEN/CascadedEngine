@@ -21,9 +21,7 @@ namespace resource_management
 			LogZPPError("deserialize failed", result);
 		}
 	}
-	void ShaderResrouce::Load()
-	{
-	}
+
 	ShaderResourceLoaderSlang::ShaderResourceLoaderSlang()
 		: m_ShaderCompilerLoader("ShaderCompilerSlang")
 	{
@@ -53,15 +51,8 @@ namespace resource_management
 		else
 		{
 			ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(castl::to_ca(outPathWithExt.string()));
-
-			//uint64_t dataSize = 0;
-			//auto vertData = pCompiler->GetOutputData(vertEntryPoint, dataSize);
-			//resource->m_VertexShaderProvider.SetUniqueName(resourcePath.stem().string() + ".vert");
-			//resource->m_VertexShaderProvider.SetData("spirv", "main", vertData, dataSize);
-
-			//auto fragData = pCompiler->GetOutputData(fragEntryPoint, dataSize);
-			//resource->m_FragmentShaderProvider.SetUniqueName(resourcePath.stem().string() + ".frag");
-			//resource->m_FragmentShaderProvider.SetData("spirv", "main", fragData, dataSize);
+			resource->m_ShaderPrograms = pCompiler->GetResults();
+			resource->m_UniqueName = outPath;
 		}
 		pCompiler->EndCompileTask();
 	}

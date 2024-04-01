@@ -14,7 +14,7 @@ struct TestStruct4
 {
     float CCC;
     float3 DDD[3];
-    //Texture2D<float> textArray[4];
+    Texture2D<float> TexInArray[3];
 };
 
 struct Textures
@@ -22,7 +22,7 @@ struct Textures
     Texture2D<float4> SourceTexture;
     SamplerState SourceSampler;
 
-    Texture2D<float4> TestTextureArray[5];
+    //Texture2D<float4> TestTextureArray[5];
     TestStruct4 TestStructArray[5];
     float4 Test0;
     TestStruct2 TestStruct;

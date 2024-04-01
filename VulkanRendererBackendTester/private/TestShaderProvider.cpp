@@ -25,18 +25,18 @@ castl::string TestShaderProvider::GetUniqueName() const
     return castl::to_ca(m_UniqueName);
 }
 
-ShaderProvider::ShaderSourceInfo TestShaderProvider::GetDataInfo(castl::string const& codeType) const
+ShaderSourceInfo TestShaderProvider::GetDataInfo(castl::string const& codeType) const
 {
     const static castl::string invalidEntrypoint = "invalidEntryPoint";
     auto found = m_Data.find(castl::to_std(codeType));
     if (found != m_Data.end())
     {
-        return ShaderProvider::ShaderSourceInfo{
+        return ShaderSourceInfo{
             found->second.second.size()
                 , found->second.second.data()
                 , castl::to_ca(found->second.first)};
     }
-    return ShaderProvider::ShaderSourceInfo{
+    return ShaderSourceInfo{
         0
             , nullptr
             , invalidEntrypoint};

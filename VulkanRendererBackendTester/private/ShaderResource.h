@@ -36,22 +36,45 @@ namespace ShaderCompiler
 	}*/
 }
 
+
 namespace resource_management
 {
 	using namespace library_loader;
 	using namespace ShaderCompiler;
-	class ShaderResrouce : public IResource
+	class ShaderResrouce : public IResource, IShaderSet
 	{
 	public:
 		friend zpp::bits::access;
-		using serialize = zpp::bits::members<2>;
+		using serialize = zpp::bits::members<4>;
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
-		virtual void Load() override;
+
+		virtual ShaderSourceInfo GetShaderSourceInfo(ECompileShaderType compileShaderType) const override { 
+			if (!m_ShaderPrograms.empty())
+			{
+				for (auto& prog : m_ShaderPrograms[0].programs)
+				{
+					if (prog.shaderType == compileShaderType)
+					{
+						return { prog.data.size(), prog.data.data(), prog.entryPointName };
+					}
+				}
+			}
+			return {}; 
+		}
+		virtual ShaderCompilerSlang::ShaderReflectionData GetShaderReflectionData() const override { 
+			if (!m_ShaderPrograms.empty())
+			{
+				return m_ShaderPrograms[0].m_ReflectionData;
+			}
+			return {}; 
+		}
+		virtual castl::string GetUniqueName() const override { return m_UniqueName; }
+
 		TestShaderProvider m_VertexShaderProvider;
-		//ShaderParams m_VertexShaderParams;
 		TestShaderProvider m_FragmentShaderProvider;
-		//ShaderParams m_FragmentShaderParams;
+		castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> m_ShaderPrograms;
+		castl::string m_UniqueName;
 		friend class ShaderResourceLoader;
 	};
 

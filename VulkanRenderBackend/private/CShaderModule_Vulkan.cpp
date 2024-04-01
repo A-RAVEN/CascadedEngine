@@ -11,7 +11,7 @@ namespace graphics_backend
 
 	void CShaderModuleObject::Create(ShaderModuleDescritor const& descriptor)
 	{
-		ShaderProvider::ShaderSourceInfo shaderInfo = descriptor.provider->GetDataInfo("spirv");
+		ShaderSourceInfo shaderInfo = descriptor.provider->GetDataInfo("spirv");
 		m_EntryPointName = shaderInfo.entryPoint;
 		uint32_t codeLength_integer = shaderInfo.dataLength / sizeof(uint32_t);
 		std::vector<uint32_t> dataArray;

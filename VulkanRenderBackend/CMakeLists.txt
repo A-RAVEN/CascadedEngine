@@ -7,6 +7,7 @@ file(GLOB_RECURSE Header_List "*.h")
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 target_include_directories(${PROJECT_NAME} PRIVATE "$ENV{VK_SDK_PATH}/Include")
+target_include_directories(${PROJECT_NAME} PRIVATE "private")
 target_link_directories(${PROJECT_NAME} PRIVATE
     "$ENV{VK_SDK_PATH}/Lib"
     "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}"

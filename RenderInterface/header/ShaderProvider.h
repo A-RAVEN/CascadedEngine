@@ -1,17 +1,21 @@
 #pragma once
 #include <CASTL/CAString.h>
 #include <uhash.h>
+#include <Compiler.h>
 
 using namespace hash_utils;
+
+struct ShaderSourceInfo
+{
+	uint64_t dataLength;
+	void const* dataPtr;
+	castl::string entryPoint;
+};
+
 class ShaderProvider
 {
 public:
-	struct ShaderSourceInfo
-	{
-		uint64_t dataLength;
-		void const* dataPtr;
-		castl::string entryPoint;
-	};
+
 
 	virtual uint64_t GetDataLength(castl::string const& codeType) const = 0;
 	virtual void const* GetDataPtr(castl::string const& codeType) const = 0;
@@ -47,3 +51,20 @@ struct GraphicsShaderSet
 	}
 };
 
+struct IShaderSet
+{
+	virtual ShaderSourceInfo GetShaderSourceInfo(ECompileShaderType compileShaderType) const = 0;
+	virtual ShaderCompilerSlang::ShaderReflectionData GetShaderReflectionData() const = 0;
+	virtual castl::string GetUniqueName() const = 0;
+
+	bool operator==(IShaderSet const& other) const
+	{
+		return GetUniqueName() == other.GetUniqueName();
+	}
+
+	template <class HashAlgorithm>
+	friend void hash_append(HashAlgorithm& h, IShaderSet const& provider) noexcept
+	{
+		hash_append(h, provider.GetUniqueName());
+	}
+};
