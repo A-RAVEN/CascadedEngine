@@ -30,6 +30,15 @@ namespace graphics_backend
 			memcpy(&m_NumericDataList[found->second.offset], pValue, castl::min(found->second.size, sizeInBytes));
 			return *this;
 		}
+
+		inline ShaderArgList& SetValueArrayInternal(castl::string const& name, void const* pValue, uint32_t sizeInBytes)
+		{
+			auto& arrayData = m_NameToNumericArrayList[name];
+			arrayData.resize(sizeInBytes);
+			memcpy(arrayData.data(), pValue, sizeInBytes);
+			return *this;
+		}
+
 		template<typename T>
 		ShaderArgList& SetValue(castl::string const& name, T const& value)
 		{
@@ -38,7 +47,7 @@ namespace graphics_backend
 		template<typename T>
 		ShaderArgList& SetValueArray(castl::string const& name, T const* pValue, uint32_t count)
 		{
-			return SetValueInternal(name, pValue, sizeof(T) * count);
+			return SetValueArrayInternal(name, pValue, sizeof(T) * count);
 		}
 
 		inline ShaderArgList& SetImage(castl::string const& name
@@ -61,11 +70,36 @@ namespace graphics_backend
 			m_NameToSubArgLists[name] = subArgList;
 			return *this;
 		}
+
+		ShaderArgList const* FindSubArgList(castl::string const& name) const
+		{
+			auto found = m_NameToSubArgLists.find(name);
+			if (found != m_NameToSubArgLists.end())
+			{
+				return found->second.get();
+			}
+			return nullptr;
+		}
+		void const* FindNumericDataPointer(castl::string const& name) const
+		{
+			auto found = m_NameToDataPosition.find(name);
+			if (found != m_NameToDataPosition.end())
+			{
+				return &m_NumericDataList[found->second.offset];
+			}
+			auto foundArray = m_NameToNumericArrayList.find(name);
+			if(foundArray!= m_NameToNumericArrayList.end())
+			{
+				return foundArray->second.data();
+			}
+			return nullptr;
+		}
 	private:
-		castl::unordered_map<castl::string, NumericDataPos> m_NameToDataPosition;
+		castl::unordered_map<castl::string, castl::vector<uint8_t>> m_NameToNumericArrayList;
 		castl::unordered_map<castl::string, ImageHandle> m_NameToImage;
 		castl::unordered_map<castl::string, BufferHandle> m_NameToBuffer;
 		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> m_NameToSubArgLists;
+		castl::unordered_map<castl::string, NumericDataPos> m_NameToDataPosition;
 		castl::vector<uint8_t> m_NumericDataList;
 	};
 }
