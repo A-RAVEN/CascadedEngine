@@ -676,16 +676,15 @@ namespace ShaderCompilerSlang
 				ShaderReflectionData reflectionData = {};
 
 				BindingData bindingData;
-				int globalUniformGroupID = -1;
 				{
 					size_t globalBufferSize = layout->getGlobalConstantBufferSize();
 					uint32_t globalBinding = layout->getGlobalConstantBufferBinding();
+					auto& globalBindingSpace = reflectionData.EnsureBindingSpace(globalBinding);
 					if (globalBufferSize > 0)
 					{
-						auto& globalBindingSpace = reflectionData.EnsureBindingSpace(globalBinding);
-						globalUniformGroupID = globalBindingSpace.InitUniformGroup(0, -1, "__Global", 0, globalBufferSize, globalBufferSize, 1);
-						bindingData.uniformGroupID = globalUniformGroupID;
+						bindingData.uniformGroupID = globalBindingSpace.InitUniformGroup(0, -1, "__Global", 0, globalBufferSize, globalBufferSize, 1);
 					}
+					bindingData.resourceGroupID = globalBindingSpace.InitResourceGroup("__Global", bindingData.resourceGroupID);
 				}
 				uint32_t paramCount = layout->getParameterCount();
 				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)

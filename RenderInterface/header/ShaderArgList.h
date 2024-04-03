@@ -53,14 +53,14 @@ namespace graphics_backend
 		inline ShaderArgList& SetImage(castl::string const& name
 			, ImageHandle const& imageHandle)
 		{
-			m_NameToImage[name] = imageHandle;
+			m_NameToImage[name] = { imageHandle };
 			return *this;
 		}
 
 		inline ShaderArgList& SetBuffer(castl::string const& name
 			, BufferHandle const& bufferHandle)
 		{
-			m_NameToBuffer[name] = bufferHandle;
+			m_NameToBuffer[name] = { bufferHandle };
 			return *this;
 		}
 
@@ -94,10 +94,31 @@ namespace graphics_backend
 			}
 			return nullptr;
 		}
+
+		castl::vector<ImageHandle> FindImageHandle(castl::string const& name) const
+		{
+			auto found = m_NameToImage.find(name);
+			if (found != m_NameToImage.end())
+			{
+				return found->second;
+			}
+			return {};
+		}
+		
+		castl::vector<BufferHandle> FindBufferHandle(castl::string const& name) const
+		{
+			auto found = m_NameToBuffer.find(name);
+			if (found != m_NameToBuffer.end())
+			{
+				return found->second;
+			}
+			return {};
+		}
+
 	private:
 		castl::unordered_map<castl::string, castl::vector<uint8_t>> m_NameToNumericArrayList;
-		castl::unordered_map<castl::string, ImageHandle> m_NameToImage;
-		castl::unordered_map<castl::string, BufferHandle> m_NameToBuffer;
+		castl::unordered_map<castl::string, castl::vector<ImageHandle>> m_NameToImage;
+		castl::unordered_map<castl::string, castl::vector<BufferHandle>> m_NameToBuffer;
 		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> m_NameToSubArgLists;
 		castl::unordered_map<castl::string, NumericDataPos> m_NameToDataPosition;
 		castl::vector<uint8_t> m_NumericDataList;

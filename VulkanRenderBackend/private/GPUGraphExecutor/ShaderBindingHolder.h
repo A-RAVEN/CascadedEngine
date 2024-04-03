@@ -9,9 +9,10 @@ namespace graphics_backend
 	{
 	public:
 		void InitShaderBindings(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData);
-		void WriteShaderData(ShaderArgList const& shaderArgList);
+		void WriteShaderData(CVulkanApplication& application, vk::CommandBuffer& command, ShaderArgList const& shaderArgList);
 		castl::vector<ShaderDescriptorSetHandle> m_DescriptorSets;
 		castl::vector<VulkanBufferHandle> m_UniformBuffers;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
+		CVulkanApplication* p_Application;
 	};
 }
