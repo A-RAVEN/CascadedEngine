@@ -6,6 +6,7 @@
 #include "FramebufferObject.h"
 #include "ShaderDescriptorSetAllocator.h"
 #include "TextureSampler_Impl.h"
+#include <DescriptorAllocation/DescriptorLayoutPool.h>
 
 namespace graphics_backend
 {
@@ -19,6 +20,8 @@ namespace graphics_backend
 		PipelineObjectDic& GetPipelineCache() { return m_PipelineObjectCache; }
 		ShaderDescriptorSetAllocatorPool& GetShaderDescriptorPoolCache() { return m_ShaderDescriptorPoolCache; }
 		TextureSamplerObjectDic& GetTextureSamplerCache() { return m_TextureSamplerCache; }
+		DescriptorPoolDic m_DescriptorSetPoolDic;
+		DescriptorSetAllocatorDic m_DescriptorSetAllocatorDic;
 		//Release framebound resources
 		void ReleaseFrameboundResources(FrameType releasingFrame);
 	private:

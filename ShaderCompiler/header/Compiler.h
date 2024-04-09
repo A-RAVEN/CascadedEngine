@@ -218,6 +218,11 @@ namespace ShaderCompilerSlang
 		castl::vector<SamplerData> m_Samplers;
 		//ResourceGroups
 		castl::vector<ShaderResourceGroups> m_ResourceGroups;
+
+		uint32_t GetBindingCount() const
+		{
+			return m_UniformBuffers.size() + m_Buffers.size() + m_Textures.size() + m_Samplers.size();
+		}
 	};
 
 	struct ShaderReflectionData

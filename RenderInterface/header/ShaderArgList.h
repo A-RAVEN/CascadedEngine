@@ -1,6 +1,7 @@
 #pragma once
 #include "ShaderResourceHandle.h"
 #include "ShaderBindingBuilder.h"
+#include "TextureSampler.h"
 #include <CASTL/CAVector.h>
 #include <CASTL/CAUnorderedMap.h>
 
@@ -64,6 +65,13 @@ namespace graphics_backend
 			return *this;
 		}
 
+		inline ShaderArgList& SetSampler(castl::string const& name
+			, TextureSamplerDescriptor const& samplerDesc)
+		{
+			m_NameToSamplers[name] = samplerDesc;
+			return *this;
+		}
+
 		inline ShaderArgList& SetSubArgList(castl::string const& name
 			, castl::shared_ptr<ShaderArgList> const& subArgList)
 		{
@@ -115,11 +123,22 @@ namespace graphics_backend
 			return {};
 		}
 
+		TextureSamplerDescriptor FindSampler(castl::string const& name) const
+		{
+			auto found = m_NameToSamplers.find(name);
+			if (found != m_NameToSamplers.end())
+			{
+				return found->second;
+			}
+			return {};
+		}
+
 	private:
 		castl::unordered_map<castl::string, castl::vector<uint8_t>> m_NameToNumericArrayList;
 		castl::unordered_map<castl::string, castl::vector<ImageHandle>> m_NameToImage;
 		castl::unordered_map<castl::string, castl::vector<BufferHandle>> m_NameToBuffer;
 		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> m_NameToSubArgLists;
+		castl::unordered_map<castl::string, TextureSamplerDescriptor> m_NameToSamplers;
 		castl::unordered_map<castl::string, NumericDataPos> m_NameToDataPosition;
 		castl::vector<uint8_t> m_NumericDataList;
 	};
