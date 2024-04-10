@@ -506,6 +506,35 @@ namespace ShaderCompilerSlang
 			}
 		}
 
+		void ReflectVertexAttributes(castl::vector<ShaderVertexAttributeData>& results, slang::VariableLayoutReflection* param, uint32_t locationOffset)
+		{
+			if (param->getCategory() == ParameterCategory::VaryingInput)
+			{
+				auto typeLayout = param->getTypeLayout();
+				auto kind = typeLayout->getKind();
+				uint32_t location = param->getOffset(SLANG_PARAMETER_CATEGORY_VARYING_INPUT) + locationOffset;
+				if (kind == slang::TypeReflection::Kind::Struct)
+				{
+					unsigned fieldCount = typeLayout->getFieldCount();
+					for (uint32_t i = 0; i < fieldCount; i++)
+					{
+						slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
+						ReflectVertexAttributes(results, field, location);
+					}
+				}
+				else if (kind == slang::TypeReflection::Kind::Scalar
+					|| kind == slang::TypeReflection::Kind::Vector
+					|| kind == slang::TypeReflection::Kind::Matrix)
+				{
+					ShaderVertexAttributeData newAttribute = {};
+					newAttribute.m_Location = location;
+					newAttribute.m_Name = param->getName();
+					newAttribute.m_SematicName = param->getSemanticName();
+					results.push_back(newAttribute);
+				}
+			}
+		}
+
 		void DoCompile()
 		{
 			std::vector<const char*> searchPaths;
@@ -595,6 +624,8 @@ namespace ShaderCompilerSlang
 					m_ErrorList.push_back((const char*)diagnostics->getBufferPointer());
 					diagnostics.setNull();
 				}
+				ShaderReflectionData reflectionData = {};
+
 				int entryPointCount = layout->getEntryPointCount();
 				outputTargetResult.programs.reserve(entryPointCount);
 				for (int entryPointIndex = 0; entryPointIndex < entryPointCount; ++entryPointIndex)
@@ -671,9 +702,21 @@ namespace ShaderCompilerSlang
 
 					//fprintf(stderr, "Debug: %s\n", (char*)outProgramData.data.data());
 					outputTargetResult.programs.push_back(outProgramData);
+
+					if (outProgramData.shaderType == ECompileShaderType::eVert)
+					{
+						int paramCount = entryPointRef->getParameterCount();
+						for (int entryPointParamIndex = 0; entryPointParamIndex < paramCount; ++entryPointParamIndex)
+						{
+							auto param = entryPointRef->getParameterByIndex(entryPointParamIndex);
+							if (param->getCategory() == ParameterCategory::VaryingInput)
+							{
+								ReflectVertexAttributes(reflectionData.m_VertexAttributes, param, 0);
+							}
+						}
+					}
 				}
 
-				ShaderReflectionData reflectionData = {};
 
 				BindingData bindingData;
 				{

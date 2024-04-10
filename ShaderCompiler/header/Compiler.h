@@ -225,11 +225,18 @@ namespace ShaderCompilerSlang
 		}
 	};
 
+	struct ShaderVertexAttributeData
+	{
+		castl::string m_Name;
+		castl::string m_SematicName;
+		uint32_t m_Location;
+	};
+
 	struct ShaderReflectionData
 	{
 	public:
 		castl::vector<ShaderBindingSpaceData> m_BindingData;
-
+		castl::vector<ShaderVertexAttributeData> m_VertexAttributes;
 		ShaderBindingSpaceData& EnsureBindingSpace(uint32_t bindingSpace)
 		{
 			if(m_BindingData.size() < bindingSpace + 1)

@@ -46,7 +46,7 @@ namespace graphics_backend
 				else
 				{
 					result = castl::make_shared<ValType>(GetVulkanApplication());
-					it = m_InternalMap.insert(std::make_pair(desc, result)).first;
+					it = m_InternalMap.insert(castl::make_pair(desc, result)).first;
 					result->Create(it->first);
 				}
 			}

@@ -120,7 +120,7 @@ namespace graphics_backend
 					, EMemoryLifetime::FrameBound
 					, sourceUniformBuffer.m_Groups[0].m_MemorySize
 					, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst);
-				m_UniformBuffers.push_back(bufferHandle);
+				m_UniformBuffers.push_back(castl::move(bufferHandle));
 			}
 		}
 	}
@@ -223,6 +223,8 @@ namespace graphics_backend
 			auto& targetDescSet = m_DescriptorSets[sid];
 			auto& sourceSet = p_ReflectionData->m_BindingData[sid];
 
+			writer.Initialize(targetDescSet, sourceSet.m_Textures.size(), sourceSet.m_Samplers.size(), sourceSet.m_UniformBuffers.size(), sourceSet.m_Buffers.size());
+
 			//Uniform Buffers
 			for (int ubid = 0; ubid < sourceSet.m_UniformBuffers.size(); ++ubid)
 			{
@@ -262,6 +264,8 @@ namespace graphics_backend
 					, 0
 					, writer);
 			}
+
+			writer.Apply(application.GetDevice());
 		}
 	}
 

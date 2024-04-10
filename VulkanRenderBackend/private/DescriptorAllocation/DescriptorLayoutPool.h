@@ -8,7 +8,18 @@
 
 namespace graphics_backend
 {
-	struct DescriptorPoolDesc;
+	struct DescriptorPoolDesc
+	{
+		uint32_t UBONum;
+		uint32_t SSBONum;
+		uint32_t TexNum;
+		uint32_t SamplerNum;
+		bool operator==(DescriptorPoolDesc const& other) const
+		{
+			return hash_utils::memory_equal(*this, other);
+		}
+	};
+
 	struct DescriptorDesc
 	{
 		vk::DescriptorType descType;
@@ -29,7 +40,7 @@ namespace graphics_backend
 			return descs == other.descs;
 		}
 		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, DescriptorDesc const& desc) noexcept
+		friend void hash_append(HashAlgorithm& h, DescriptorSetDesc const& desc) noexcept
 		{
 			hash_append(h, desc.descs);
 		}
@@ -58,17 +69,6 @@ namespace graphics_backend
 		}
 	};
 
-	struct DescriptorPoolDesc
-	{
-		uint32_t UBONum;
-		uint32_t SSBONum;
-		uint32_t TexNum;
-		uint32_t SamplerNum;
-		bool operator==(DescriptorPoolDesc const& other) const
-		{
-			return hash_utils::memory_equal(*this, other);
-		}
-	};
 
 	class DescriptorPool : public VKAppSubObjectBaseNoCopy
 	{

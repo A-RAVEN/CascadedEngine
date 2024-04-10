@@ -11,6 +11,8 @@ namespace graphics_backend
 		, m_PipelineObjectCache(application)
 		, m_ShaderDescriptorPoolCache(application)
 		, m_TextureSamplerCache(application)
+		, m_DescriptorSetPoolDic(application)
+		, m_DescriptorSetAllocatorDic(application)
 	{
 	}
 	void GPUObjectManager::ReleaseFrameboundResources(FrameType releasingFrame)
