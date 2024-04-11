@@ -32,11 +32,7 @@ namespace graphics_backend
 		friend void hash_append(HashAlgorithm& h, ShaderModuleDescritor const& shadermodule_desc) noexcept
 		{
 			hash_append(h, shadermodule_desc.provider);
-
 			auto shaderName = shadermodule_desc.provider->GetUniqueName();
-			//using result_type = typename HashAlgorithm::result_type;
-			//result_type hashCode = static_cast<result_type>(h);
-			//CA_LOG_ERR(shaderName + ": " + castl::to_ca(std::to_string(hashCode)));
 		}
 	};
 
@@ -45,6 +41,7 @@ namespace graphics_backend
 	public:
 		CShaderModuleObject(CVulkanApplication& application);
 		void Create(ShaderModuleDescritor const& descriptor);
+		void Create(ShaderSourceInfo const& shaderSourceInfo);
 		virtual void Release() override;
 		vk::ShaderModule GetShaderModule() const { return m_ShaderModule; }
 		castl::string const& GetEntryPointName() const { return m_EntryPointName; }
@@ -54,4 +51,7 @@ namespace graphics_backend
 	};
 
 	using ShaderModuleObjectDic = HashPool<ShaderModuleDescritor, CShaderModuleObject>;
+	using ShaderModuleObjectDic1 = HashPool<ShaderSourceInfo, CShaderModuleObject>;
+
+
 }

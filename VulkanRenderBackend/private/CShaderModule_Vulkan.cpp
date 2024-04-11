@@ -24,6 +24,17 @@ namespace graphics_backend
 		std::atomic_thread_fence(std::memory_order_release);
 		m_ShaderModule = GetDevice().createShaderModule(shaderModuelCreateInfo);
 	}
+	void CShaderModuleObject::Create(ShaderSourceInfo const& shaderSourceInfo)
+	{
+		m_EntryPointName = shaderSourceInfo.entryPoint;
+		uint32_t codeLength_integer = shaderSourceInfo.dataLength / sizeof(uint32_t);
+		vk::ShaderModuleCreateInfo shaderModuelCreateInfo(
+			{}
+			, codeLength_integer
+			, static_cast<uint32_t const*>(shaderSourceInfo.dataPtr)
+		);
+		m_ShaderModule = GetDevice().createShaderModule(shaderModuelCreateInfo);
+	}
 	void CShaderModuleObject::Release()
 	{
 		if (m_ShaderModule != vk::ShaderModule(nullptr))

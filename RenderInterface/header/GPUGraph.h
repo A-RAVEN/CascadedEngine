@@ -10,6 +10,7 @@
 #include <DebugUtils.h>
 #include <CASTL/CAFunctional.h>
 #include <CASTL/CAUnorderedMap.h>
+#include <CASTL/CAMap.h>
 
 namespace graphics_backend
 {
@@ -17,8 +18,20 @@ namespace graphics_backend
 	{
 	public:
 		CPipelineStateObject m_PipelineStates;
-		CVertexInputDescriptor m_VertexInputDesc;
-		GraphicsShaderSet m_ShaderSet;
+		IShaderSet const* m_ShaderSet;
+		InputAssemblyStates m_InputAssemblyStates;
+		castl::map<castl::string, VertexInputsDescriptor> m_VertexInputBindings;
+	};
+
+	class DrawCallBatch
+	{
+	public:
+		//PSO
+		PipelineDescData pipelineStateDesc;
+		//Shader Args
+		ShaderArgList shaderArgs;
+		//Draw Calls
+		castl::vector<castl::function<void(CInlineCommandList&)>> m_DrawCommands;
 	};
 
 	class RenderPass
@@ -26,25 +39,19 @@ namespace graphics_backend
 	public:
 		RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
 		RenderPass& SetShaderArguments(const ShaderArgList& shaderArguments);
-		RenderPass& SetVertexInputDesc(CVertexInputDescriptor const& vertexInputs);
-		RenderPass& SetShaders(GraphicsShaderSet const& shaderBindingList);
+		RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
+		RenderPass& SetVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
+		RenderPass& SetShaders(IShaderSet const* shaderSet);
 		RenderPass& Draw(castl::function<void(CInlineCommandList&)>);
+
+		castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
+		castl::vector<ImageHandle> const& GetAttachments() const { return m_Arrachments; }
+		int GetDepthAttachmentIndex() const { return m_DepthAttachmentIndex; }
 	private:
-		class DrawCallBatch
-		{
-		public:
-			//PSO
-			PipelineDescData m_PipelineStates;
-			//Shader Args
-			ShaderArgList m_ShaderArgs;
-			//Draw Calls
-			castl::vector<castl::function<void(CInlineCommandList&)>> m_DrawCommands;
-		};
 		PipelineDescData m_CurrentPipelineStates;
 		ShaderArgList m_CurrentShaderArgs;
 		bool m_StateDirty = true;
 		castl::vector<DrawCallBatch> m_DrawCallBatches;
-
 		castl::vector<ImageHandle> m_Arrachments;
 		int m_DepthAttachmentIndex = -1;
 		friend class GPUGraph;
@@ -63,6 +70,16 @@ namespace graphics_backend
 				return;
 			};
 			m_HandleNameToDesc.insert(castl::make_pair( handleName, desc ));
+		}
+		DescriptorType const* GetDescriptor(castl::string const& handleName) const
+		{
+			auto find = m_HandleNameToDesc.find(handleName);
+			if (find == m_HandleNameToDesc.end())
+			{
+				CA_LOG_ERR(castl::string("handleName ") + "not found");
+				return nullptr;
+			};
+			return &find->second;
 		}
 	private:
 		castl::unordered_map<castl::string, DescriptorType> m_HandleNameToDesc;
@@ -83,6 +100,10 @@ namespace graphics_backend
 		void AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
 		//Allocate a graph local buffer
 		void AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc);
+
+		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
+		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
+		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
 	private:
 		//Render Passes
 		castl::deque<RenderPass> m_RenderPasses;
@@ -97,27 +118,35 @@ namespace graphics_backend
 		m_StateDirty = true;
 		return *this;
 	}
+	RenderPass& RenderPass::SetInputAssemblyStates(InputAssemblyStates assemblyStates)
+	{
+		m_CurrentPipelineStates.m_InputAssemblyStates = assemblyStates;
+		m_StateDirty = true;
+		return *this;
+	}
+
 	RenderPass& RenderPass::SetShaderArguments(const ShaderArgList& shaderArguments)
 	{
 		m_CurrentShaderArgs = shaderArguments;
 		m_StateDirty = true;
 		return *this;
 	}
-	RenderPass& RenderPass::SetVertexInputDesc(CVertexInputDescriptor const& vertexInputs)
+	RenderPass& RenderPass::SetVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes)
 	{
-		m_CurrentPipelineStates.m_VertexInputDesc = vertexInputs;
+		m_CurrentPipelineStates.m_VertexInputBindings[bindingName] = attributes;
 		m_StateDirty = true;
 		return *this;
 	}
-	RenderPass& RenderPass::SetShaders(GraphicsShaderSet const& shaderBindingList)
+
+	RenderPass& RenderPass::SetShaders(IShaderSet const* shaderSet)
 	{
-		m_CurrentPipelineStates.m_ShaderSet = shaderBindingList;
+		m_CurrentPipelineStates.m_ShaderSet = shaderSet;
 		m_StateDirty = true;
 		return *this;
 	}
 	RenderPass& RenderPass::Draw(castl::function<void(CInlineCommandList&)> commandFunc)
 	{
-		if (m_StateDirty)
+		if (m_StateDirty || m_DrawCallBatches.empty())
 		{
 			m_DrawCallBatches.push_back({ m_CurrentPipelineStates, m_CurrentShaderArgs });
 			m_StateDirty = false;
@@ -150,6 +179,14 @@ namespace graphics_backend
 		pass.m_DepthAttachmentIndex = -1;
 		return pass;
 	}
+	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, ImageHandle const& depth)
+	{
+		m_RenderPasses.emplace_back();
+		RenderPass& pass = m_RenderPasses.back();
+		pass.m_Arrachments = { color, depth };
+		pass.m_DepthAttachmentIndex = -1;
+		return pass;
+	}
 	void GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, size_t size)
 	{
 
@@ -170,12 +207,5 @@ namespace graphics_backend
 			return;
 		m_InternalBufferManager.RegisterHandle(bufferHandle.GetName(), desc);
 	}
-	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, ImageHandle const& depth)
-	{
-		m_RenderPasses.emplace_back();
-		RenderPass& pass = m_RenderPasses.back();
-		pass.m_Arrachments = { color, depth };
-		pass.m_DepthAttachmentIndex = -1;
-		return pass;
-	}
+
 }

@@ -7,6 +7,7 @@ using namespace hash_utils;
 
 struct ShaderSourceInfo
 {
+	ECompileShaderType compileShaderType;
 	uint64_t dataLength;
 	void const* dataPtr;
 	castl::string entryPoint;
@@ -15,8 +16,6 @@ struct ShaderSourceInfo
 class ShaderProvider
 {
 public:
-
-
 	virtual uint64_t GetDataLength(castl::string const& codeType) const = 0;
 	virtual void const* GetDataPtr(castl::string const& codeType) const = 0;
 	virtual castl::string GetUniqueName() const = 0;
@@ -53,8 +52,9 @@ struct GraphicsShaderSet
 
 struct IShaderSet
 {
-	virtual ShaderSourceInfo GetShaderSourceInfo(ECompileShaderType compileShaderType) const = 0;
-	virtual ShaderCompilerSlang::ShaderReflectionData GetShaderReflectionData() const = 0;
+	virtual EShaderSetType GetShaderSetType(castl::string_view const& sourceType) const = 0;
+	virtual ShaderSourceInfo GetShaderSourceInfo(castl::string_view const& sourceType, ECompileShaderType compileShaderType) const = 0;
+	virtual ShaderCompilerSlang::ShaderReflectionData const& GetShaderReflectionData() const = 0;
 	virtual castl::string GetUniqueName() const = 0;
 
 	bool operator==(IShaderSet const& other) const

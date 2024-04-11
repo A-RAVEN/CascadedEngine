@@ -9,6 +9,12 @@
 using TIndex = uint32_t;
 constexpr TIndex INVALID_INDEX = std::numeric_limits<TIndex>::max();
 
+enum class EShaderSetType : uint8_t
+{
+	eCompute = 0,
+	eGraphics,
+};
+
 enum class ECompileShaderType : uint8_t
 {
 	eVert = 0,

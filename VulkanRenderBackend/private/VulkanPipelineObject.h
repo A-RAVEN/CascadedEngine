@@ -5,9 +5,13 @@
 #include "VulkanIncludes.h"
 #include "CShaderModuleObject.h"
 #include "RenderPassObject.h"
+#include <Compiler.h>
 
 template<>
 struct hash_utils::is_contiguously_hashable<vk::DescriptorSetLayout> : public castl::true_type {};
+
+template<>
+struct hash_utils::is_contiguously_hashable<ShaderCompilerSlang::ShaderVertexAttributeData> : public castl::true_type {};
 
 namespace graphics_backend
 {
@@ -31,6 +35,7 @@ namespace graphics_backend
 		}
 	};
 
+
 	struct CPipelineObjectDescriptor
 	{
 		CPipelineStateObject pso{};
@@ -45,7 +50,9 @@ namespace graphics_backend
 		{
 			return pso == rhs.pso
 				&& vertexInputs == rhs.vertexInputs
+				&& vertexAttributes == rhs.vertexAttributes
 				&& shaderState == rhs.shaderState
+				&& descriptorSetLayouts == rhs.descriptorSetLayouts
 				&& renderPassObject == rhs.renderPassObject
 				&& subpassIndex == rhs.subpassIndex;
 		}
@@ -55,6 +62,7 @@ namespace graphics_backend
 		{
 			hash_append(h, pipeline_desc.pso);
 			hash_append(h, pipeline_desc.vertexInputs);
+			hash_append(h, pipeline_desc.vertexAttributes);
 			hash_append(h, pipeline_desc.shaderState);
 			hash_append(h, pipeline_desc.descriptorSetLayouts);
 			hash_append(h, pipeline_desc.renderPassObject.get());

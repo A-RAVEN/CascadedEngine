@@ -24,17 +24,25 @@ public:
 	uint32_t attributeIndex;
 	uint32_t offset;
 	VertexInputFormat format;
+	castl::string semanticName;
 
-	bool operator==(VertexAttribute const& rhs) const
+	auto operator<=>(const VertexAttribute&) const = default;
+
+	template <class HashAlgorithm>
+	friend void hash_append(HashAlgorithm& h, VertexAttribute const& attribute) noexcept
 	{
-		return attributeIndex == rhs.attributeIndex
-			&& offset == rhs.offset
-			&& format == rhs.format;
+		hash_append(h, attribute.attributeIndex, attribute.format, attribute.offset, attribute.semanticName);
 	}
 };
 
-template<>
-struct hash_utils::is_contiguously_hashable<VertexAttribute> : public castl::true_type {};
+struct VertexInputsDescriptor
+{
+	uint32_t stride = 0;
+	bool perInstance = false;
+	castl::vector<VertexAttribute> attributes;
+
+	friend auto operator<=>(const VertexInputsDescriptor&, const VertexInputsDescriptor&) = default;
+};
 
 class CVertexInputDescriptor
 {
