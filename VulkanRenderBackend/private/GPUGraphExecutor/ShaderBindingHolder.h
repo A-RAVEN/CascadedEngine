@@ -21,6 +21,7 @@ namespace graphics_backend
 			, vk::CommandBuffer& command
 			, ShaderArgList const& shaderArgList);
 		castl::vector<vk::DescriptorSet> m_DescriptorSets;
+		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
 		castl::vector<VulkanBufferHandle> m_UniformBuffers;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 		CVulkanApplication* p_Application;

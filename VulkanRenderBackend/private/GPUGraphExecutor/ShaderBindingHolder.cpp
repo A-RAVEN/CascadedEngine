@@ -71,6 +71,7 @@ namespace graphics_backend
 		p_Application = &application;
 		p_ReflectionData = &reflectionData;
 		m_DescriptorSets.resize(reflectionData.m_BindingData.size());
+		m_DescriptorSetsLayouts.resize(reflectionData.m_BindingData.size());
 		for (int sid = 0; sid < reflectionData.m_BindingData.size(); ++sid)
 		{
 			auto& targetDescSet = m_DescriptorSets[sid];
@@ -111,7 +112,9 @@ namespace graphics_backend
 				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
 				descSetDesc.descs.push_back(bindingDesc);
 			}
-			targetDescSet = application.GetGPUObjectManager().m_DescriptorSetAllocatorDic.GetOrCreate(descSetDesc)->AllocateSet();
+			auto descSetAllocator = application.GetGPUObjectManager().m_DescriptorSetAllocatorDic.GetOrCreate(descSetDesc);
+			m_DescriptorSetsLayouts[sid] = descSetAllocator->GetLayout();
+			targetDescSet = descSetAllocator->AllocateSet();
 
 			for(int ubid = 0; ubid < sourceSet.m_UniformBuffers.size(); ++ubid)
 			{

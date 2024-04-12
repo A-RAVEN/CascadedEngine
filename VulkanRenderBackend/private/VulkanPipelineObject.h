@@ -50,7 +50,6 @@ namespace graphics_backend
 		{
 			return pso == rhs.pso
 				&& vertexInputs == rhs.vertexInputs
-				&& vertexAttributes == rhs.vertexAttributes
 				&& shaderState == rhs.shaderState
 				&& descriptorSetLayouts == rhs.descriptorSetLayouts
 				&& renderPassObject == rhs.renderPassObject
