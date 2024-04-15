@@ -10,7 +10,10 @@ namespace graphics_backend
 	class VulkanBarrierCollector
 	{
 	public:
+		VulkanBarrierCollector() = default;
 		VulkanBarrierCollector(uint32_t currentQueueFamilyIndex) : m_CurrentQueueFamilyIndex(currentQueueFamilyIndex){}
+
+		void SetCurrentQueueFamilyIndex(uint32_t currentQueueFamilyIndex) { m_CurrentQueueFamilyIndex = currentQueueFamilyIndex; }
 
 		void PushImageBarrier(vk::Image image
 			, ETextureFormat format
@@ -35,7 +38,7 @@ namespace graphics_backend
 
 		void ExecuteCurrentQueueBarriers(vk::CommandBuffer commandBuffer);
 
-		uint32_t m_CurrentQueueFamilyIndex;
+		uint32_t m_CurrentQueueFamilyIndex = 0;
 		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags>
 			, BarrierGroup> m_BarrierGroups;
 

@@ -18,6 +18,7 @@ namespace graphics_backend
 		virtual void Release() override;
 		vk::ImageView GetDefaultImageView() const { return m_DefaultImageView; }
 		vk::ImageView GetDepthImageView() const { return m_DepthImageView; }
+		VulkanImageObject const& GetImageObject() const { return m_ImageObject; }
 	private:
 		GPUTextureDescriptor m_Descriptor;
 		VulkanImageObject m_ImageObject;

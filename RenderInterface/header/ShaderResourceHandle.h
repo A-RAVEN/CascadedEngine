@@ -52,6 +52,8 @@ namespace graphics_backend
 		}
 		ImageType GetType() const { return m_Type; }
 		castl::string const& GetName() const { return m_Name; }
+		castl::shared_ptr<GPUTexture> GetExternalManagedTexture() const { return m_ExternalManagedTexture; }
+		castl::shared_ptr<WindowHandle> GetWindowHandle() const { return m_Backbuffer; }
 	private:
 		castl::string m_Name;
 		castl::shared_ptr<GPUTexture> m_ExternalManagedTexture;

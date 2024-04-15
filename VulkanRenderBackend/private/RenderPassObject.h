@@ -21,9 +21,6 @@ namespace graphics_backend
 		friend void hash_append(HashAlgorithm& h, RenderPassDescriptor const& renderpass_desc) noexcept
 		{
 			hash_append(h, renderpass_desc.renderPassInfo);
-			//using result_type = typename HashAlgorithm::result_type;
-			//result_type hashCode = static_cast<result_type>(h);
-			//CA_LOG_ERR(castl::to_ca(std::to_string(hashCode)));
 		}
 	};
 

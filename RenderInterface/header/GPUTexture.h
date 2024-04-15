@@ -14,6 +14,7 @@ namespace graphics_backend
 		uint32_t height = 0;
 		uint32_t layers = 1;
 		uint32_t mipLevels = 1;
+		EMultiSampleCount samples = EMultiSampleCount::e1;
 		GPUTextureDescriptor() = default;
 		GPUTextureDescriptor(uint32_t inWidth, uint32_t inHeight, ETextureFormat inFormat, ETextureAccessTypeFlags inAccessTypes) :
 			width(inWidth)

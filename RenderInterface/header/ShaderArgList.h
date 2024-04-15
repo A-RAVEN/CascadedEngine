@@ -133,6 +133,20 @@ namespace graphics_backend
 			return {};
 		}
 
+		castl::unordered_map<castl::string, castl::vector<ImageHandle>> const& GetImageList() const
+		{
+			return m_NameToImage;
+		}
+
+		castl::unordered_map<castl::string, castl::vector<BufferHandle>> const& GetBufferList() const
+		{
+			return m_NameToBuffer;
+		}
+
+		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> const& GetSubArgList() const
+		{
+			return m_NameToSubArgLists;
+		}
 	private:
 		castl::unordered_map<castl::string, castl::vector<uint8_t>> m_NameToNumericArrayList;
 		castl::unordered_map<castl::string, castl::vector<ImageHandle>> m_NameToImage;
