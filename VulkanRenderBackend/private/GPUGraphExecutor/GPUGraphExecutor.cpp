@@ -47,14 +47,15 @@ namespace graphics_backend
 
 	void GPUGraphExecutor::PrepareGraph()
 	{
-		PrepareTextures();
+		PrepareResources();
 		PrepareFrameBufferAndPSOs();
 	}
 
 
-	void GPUGraphExecutor::PrepareTextures()
+	void GPUGraphExecutor::PrepareResources()
 	{
 		auto& imageManager = m_Graph.GetImageManager();
+		auto& bufferManager = m_Graph.GetBufferManager();
 		auto renderPasses = m_Graph.GetRenderPasses();
 		for (auto& renderPass : renderPasses)
 		{
@@ -97,10 +98,22 @@ namespace graphics_backend
 						}
 					}
 				}
+				for (auto& bufferPair : shaderArgs.GetBufferList())
+				{
+					auto& bufs = bufferPair.second;
+					for (auto& buf : bufs)
+					{
+						if (buf.GetType() == BufferHandle::BufferType::Internal)
+						{
+							m_BufferManager.AllocBufferIndex(buf.GetName(), bufferManager.GetDescriptorIndex(buf.GetName()));
+						}
+					}
+				}
 			}
 		}
 
 		m_ImageManager.AllocTextures(GetVulkanApplication(), m_Graph.GetImageManager());
+		m_BufferManager.AllocBuffers(GetVulkanApplication(), m_Graph.GetBufferManager());
 	}
 
 	GPUTextureDescriptor const* GPUGraphExecutor::GetTextureHandleDescriptor(ImageHandle const& handle) const
@@ -170,6 +183,24 @@ namespace graphics_backend
 		return {};
 	}
 
+	vk::Buffer GPUGraphExecutor::GetBufferHandleBufferObject(BufferHandle const& handle) const
+	{
+		auto bufferType = handle.GetType();
+		switch (bufferType)
+		{
+		case BufferHandle::BufferType::Internal:
+		{
+			return m_BufferManager.GetBufferObject(handle.GetName())->GetBuffer();
+		}
+		case BufferHandle::BufferType::External:
+		{
+			castl::shared_ptr<GPUBuffer_Impl> buffer = castl::static_shared_pointer_cast<GPUBuffer_Impl>(handle.GetExternalManagedBuffer());
+			return buffer->GetVulkanBufferObject()->GetBuffer();
+		}
+		}
+		return {};
+	}
+
 	template<typename T>
 	void UpdateResourceUsageFlags(castl::unordered_map<T, ResourceUsageFlags>& inoutResourceUsageFlagCache
 		, T resource, ResourceUsageFlags flags)
@@ -200,6 +231,7 @@ namespace graphics_backend
 
 	void GPUGraphExecutor::PrepareShaderArgsImageBarriers(VulkanBarrierCollector& inoutBarrierCollector
 		, castl::unordered_map<vk::Image, ResourceUsageFlags>& inoutResourceUsageFlagCache
+		, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
 		, ShaderArgList const* shaderArgList)
 	{
 		castl::deque<ShaderArgList const*> shaderArgLists = { shaderArgList };
@@ -219,8 +251,27 @@ namespace graphics_backend
 					auto image = GetTextureHandleImageObject(img);
 					auto pDesc = GetTextureHandleDescriptor(img);
 					ResourceUsageFlags usageFlags = ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead;
-					inoutBarrierCollector.PushImageBarrier(image, pDesc->format, GetResourceUsage(inoutResourceUsageFlagCache, image), usageFlags);
-					UpdateResourceUsageFlags(inoutResourceUsageFlagCache, image, usageFlags);
+					ResourceUsageFlags originalFlags = GetResourceUsage(inoutResourceUsageFlagCache, image);
+					if (originalFlags != usageFlags)
+					{
+						inoutBarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
+						UpdateResourceUsageFlags(inoutResourceUsageFlagCache, image, usageFlags);
+					}
+				}
+			}
+			for (auto& bufferPair : shaderArgs.GetBufferList())
+			{
+				auto& bufs = bufferPair.second;
+				for (auto& buf : bufs)
+				{
+					auto buffer = GetBufferHandleBufferObject(buf);
+					ResourceUsageFlags usageFlags = ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead;
+					ResourceUsageFlags originalFlags = GetResourceUsage(inoutBufferUsageFlagCache, buffer);
+					if (originalFlags != usageFlags)
+					{
+						inoutBarrierCollector.PushBufferBarrier(buffer, originalFlags, usageFlags);
+						UpdateResourceUsageFlags(inoutBufferUsageFlagCache, buffer, usageFlags);
+					}
 				}
 			}
 		}
@@ -230,7 +281,8 @@ namespace graphics_backend
 	{
 		auto renderPasses = m_Graph.GetRenderPasses();
 
-		castl::unordered_map<vk::Image, ResourceUsageFlags> resourceUsageFlagCache;
+		castl::unordered_map<vk::Image, ResourceUsageFlags> imageUsageFlagCache;
+		castl::unordered_map<vk::Buffer, ResourceUsageFlags> bufferUsageFlagCache;
 
 		for (auto& renderPass : renderPasses)
 		{
@@ -301,7 +353,7 @@ namespace graphics_backend
 			passInfo.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
 			for (auto& batch : drawcallBatchs)
 			{
-				PrepareShaderArgsImageBarriers(passInfo.m_BarrierCollector, resourceUsageFlagCache, batch.shaderArgs.get());
+				PrepareShaderArgsImageBarriers(passInfo.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get());
 			}
 			for (size_t i = 0; i < attachments.size(); ++i)
 			{
@@ -309,8 +361,12 @@ namespace graphics_backend
 				auto image = GetTextureHandleImageObject(attachment);
 				auto pDesc = GetTextureHandleDescriptor(attachment);
 				ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
-				passInfo.m_BarrierCollector.PushImageBarrier(image, pDesc->format, GetResourceUsage(resourceUsageFlagCache, image), usageFlags);
-				UpdateResourceUsageFlags(resourceUsageFlagCache, image, usageFlags);
+				ResourceUsageFlags originalFlags = GetResourceUsage(imageUsageFlagCache, image);
+				if (originalFlags != usageFlags)
+				{
+					passInfo.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
+					UpdateResourceUsageFlags(imageUsageFlagCache, image, usageFlags);
+				}
 			}
 
 			//Batch Info

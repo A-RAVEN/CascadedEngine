@@ -90,6 +90,7 @@ namespace graphics_backend
 		}
 		BufferType GetType() const { return m_Type; }
 		castl::string const& GetName() const { return m_Name; }
+		castl::shared_ptr<GPUBuffer> GetExternalManagedBuffer() const { return m_ExternalManagedBuffer; }
 	private:
 		castl::string m_Name;
 		castl::shared_ptr<GPUBuffer> m_ExternalManagedBuffer;
