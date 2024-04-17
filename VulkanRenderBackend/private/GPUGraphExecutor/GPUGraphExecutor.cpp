@@ -3,6 +3,7 @@
 #include <VulkanApplication.h>
 #include <GPUGraphExecutor/ShaderBindingHolder.h>
 #include <InterfaceTranslator.h>
+#include <CommandList_Impl.h>
 
 namespace graphics_backend
 {
@@ -279,7 +280,7 @@ namespace graphics_backend
 
 	void GPUGraphExecutor::PrepareFrameBufferAndPSOs()
 	{
-		auto renderPasses = m_Graph.GetRenderPasses();
+		auto& renderPasses = m_Graph.GetRenderPasses();
 
 		castl::unordered_map<vk::Image, ResourceUsageFlags> imageUsageFlagCache;
 		castl::unordered_map<vk::Buffer, ResourceUsageFlags> bufferUsageFlagCache;
@@ -349,26 +350,6 @@ namespace graphics_backend
 				passInfo.m_FrameBufferObject = GetGPUObjectManager().GetFramebufferCache().GetOrCreate(frameBufferDesc);
 			}
 
-			//Barriers
-			passInfo.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
-			for (auto& batch : drawcallBatchs)
-			{
-				PrepareShaderArgsImageBarriers(passInfo.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get());
-			}
-			for (size_t i = 0; i < attachments.size(); ++i)
-			{
-				auto& attachment = attachments[i];
-				auto image = GetTextureHandleImageObject(attachment);
-				auto pDesc = GetTextureHandleDescriptor(attachment);
-				ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
-				ResourceUsageFlags originalFlags = GetResourceUsage(imageUsageFlagCache, image);
-				if (originalFlags != usageFlags)
-				{
-					passInfo.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
-					UpdateResourceUsageFlags(imageUsageFlagCache, image, usageFlags);
-				}
-			}
-
 			//Batch Info
 			for (auto& batch : drawcallBatchs)
 			{
@@ -379,6 +360,7 @@ namespace graphics_backend
 				auto fragShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(psoDesc.m_ShaderSet->GetShaderSourceInfo("spirv", ECompileShaderType::eFrag));
 
 				//Shader Binding Holder
+				//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
 				newBatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication(), psoDesc.m_ShaderSet->GetShaderReflectionData());
 
 				auto& vertexInputBindings = psoDesc.m_VertexInputBindings;
@@ -397,7 +379,66 @@ namespace graphics_backend
 				passInfo.m_Batches.push_back(newBatchInfo);
 			}
 
+			//Barriers
+			{
+				passInfo.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
+				for (auto& batch : drawcallBatchs)
+				{
+					PrepareShaderArgsImageBarriers(passInfo.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get());
+				}
+				for (size_t i = 0; i < attachments.size(); ++i)
+				{
+					auto& attachment = attachments[i];
+					auto image = GetTextureHandleImageObject(attachment);
+					auto pDesc = GetTextureHandleDescriptor(attachment);
+					ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
+					ResourceUsageFlags originalFlags = GetResourceUsage(imageUsageFlagCache, image);
+					if (originalFlags != usageFlags)
+					{
+						passInfo.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
+						UpdateResourceUsageFlags(imageUsageFlagCache, image, usageFlags);
+					}
+				}
+			}
+			//Write Descriptors
+			{
+				auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
+				vk::CommandBuffer writeConstantsCommand = threadContext->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Upload Constants");
+				for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
+				{
+					auto& batch = drawcallBatchs[batchID];
+					GPUPassBatchInfo& newBatchInfo = passInfo.m_Batches[batchID];
+					newBatchInfo.m_ShaderBindingInstance.WriteShaderData(GetVulkanApplication(), *this, writeConstantsCommand, *batch.shaderArgs.get());
+				}
+				m_GraphicsCommandBuffers.push_back(writeConstantsCommand);
+			}
+
 			m_Passes.push_back(passInfo);
+		}
+	}
+	void GPUGraphExecutor::RecordGraph()
+	{
+		CA_ASSERT(m_Passes.size() == m_Graph.GetRenderPasses().size(), "Passes and RenderPasses Mismatch");
+		auto& renderPasses = m_Graph.GetRenderPasses();
+		for (uint32_t passID = 0; passID < m_Passes.size(); ++passID)
+		{
+			auto& renderPass = renderPasses[passID];
+			auto& passData = m_Passes[passID];
+
+			auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+			auto& batchDatas = passData.m_Batches;
+			CA_ASSERT(drawcallBatchs.size() == batchDatas.size(), "Batch Count Mismatch");
+			for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
+			{
+				auto& batchData = batchDatas[batchID];
+				auto& drawcallBatch = drawcallBatchs[batchID];
+				CCommandList_Impl commandList{ vk::CommandBuffer cmd
+					, RenderGraphExecutor * renderGraphExecutor
+					, passData.m_RenderPassObject
+					, 0
+					, {batchData.m_PSO}
+				};
+			}
 		}
 	}
 }

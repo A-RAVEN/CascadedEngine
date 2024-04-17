@@ -259,7 +259,7 @@ namespace graphics_backend
 		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_HandleNameToBufferIndex;
 	};
 
-	class GPUGraphExecutor : VKAppSubObjectBase
+	class GPUGraphExecutor : public VKAppSubObjectBase, public ShadderResourceProvider
 	{
 	public:
 		void PrepareGraph();
@@ -271,14 +271,21 @@ namespace graphics_backend
 			, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
 			, ShaderArgList const* shaderArgList);
 		void PrepareFrameBufferAndPSOs();
+		void RecordGraph();
+
 		GPUTextureDescriptor const* GetTextureHandleDescriptor(ImageHandle const& handle) const;
 		vk::ImageView GetTextureHandleImageView(ImageHandle const& handle) const;
 		vk::Image GetTextureHandleImageObject(ImageHandle const& handle) const;
 		vk::Buffer GetBufferHandleBufferObject(BufferHandle const& handle) const;
+
+		virtual vk::Buffer GetBufferFromHandle(BufferHandle const& handle) override { return GetBufferHandleBufferObject(handle); }
+		virtual vk::ImageView GetImageView(ImageHandle const& handle) override { return GetTextureHandleImageView(handle);  }
 	private:
 		GPUGraph m_Graph;
 		//Runtime
 		castl::vector<GPUPassInfo> m_Passes;
+		//
+		castl::vector<vk::CommandBuffer> m_GraphicsCommandBuffers;
 		//Manager
 		GraphExecutorImageManager m_ImageManager;
 		GraphExecutorBufferManager m_BufferManager;

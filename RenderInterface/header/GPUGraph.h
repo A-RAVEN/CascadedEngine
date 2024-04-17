@@ -31,7 +31,14 @@ namespace graphics_backend
 		//Shader Args
 		castl::shared_ptr<ShaderArgList> shaderArgs;
 		//Draw Calls
-		castl::vector<castl::function<void(CInlineCommandList&)>> m_DrawCommands;
+		castl::vector<castl::function<void(CommandList&)>> m_DrawCommands;
+
+		castl::map<castl::string, BufferHandle> m_BoundVertexBuffers;
+		BufferHandle m_BoundIndexBuffer;
+
+		DrawCallBatch& SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle);
+		DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset);
+		DrawCallBatch& Draw(castl::function<void(CommandList&)> commandFunc);
 	};
 
 	class RenderPass
@@ -40,9 +47,9 @@ namespace graphics_backend
 		RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
 		RenderPass& SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments);
 		RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
-		RenderPass& SetVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
+		RenderPass& DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
 		RenderPass& SetShaders(IShaderSet const* shaderSet);
-		RenderPass& Draw(castl::function<void(CInlineCommandList&)>);
+		DrawCallBatch& DrawCall();
 
 		castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
 		castl::vector<ImageHandle> const& GetAttachments() const { return m_Arrachments; }
@@ -143,6 +150,22 @@ namespace graphics_backend
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
 	};
 
+	DrawCallBatch& DrawCallBatch::SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle)
+	{
+		m_BoundVertexBuffers[name] = bufferHandle;
+		return *this;
+	}
+	DrawCallBatch& DrawCallBatch::SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset)
+	{
+		m_BoundIndexBuffer = bufferHandle;
+		return *this;
+	}
+	DrawCallBatch& DrawCallBatch::Draw(castl::function<void(CommandList&)> commandFunc)
+	{
+		m_DrawCommands.push_back(commandFunc);
+		return *this;
+	}
+
 	RenderPass& RenderPass::SetPipelineState(const CPipelineStateObject& pipelineState)
 	{
 		m_CurrentPipelineStates.m_PipelineStates = pipelineState;
@@ -162,7 +185,7 @@ namespace graphics_backend
 		m_StateDirty = true;
 		return *this;
 	}
-	RenderPass& RenderPass::SetVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes)
+	RenderPass& RenderPass::DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes)
 	{
 		m_CurrentPipelineStates.m_VertexInputBindings[bindingName] = attributes;
 		m_StateDirty = true;
@@ -175,15 +198,10 @@ namespace graphics_backend
 		m_StateDirty = true;
 		return *this;
 	}
-	RenderPass& RenderPass::Draw(castl::function<void(CInlineCommandList&)> commandFunc)
+	DrawCallBatch& RenderPass::DrawCall()
 	{
-		if (m_StateDirty || m_DrawCallBatches.empty())
-		{
-			m_DrawCallBatches.push_back({ m_CurrentPipelineStates, m_CurrentShaderArgs });
-			m_StateDirty = false;
-		}
-		m_DrawCallBatches.back().m_DrawCommands.push_back(commandFunc);
-		return *this;
+		m_DrawCallBatches.push_back({ m_CurrentPipelineStates, m_CurrentShaderArgs });
+		return m_DrawCallBatches.back();
 	}
 	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp, GraphicsClearValue clearValue)
 	{
