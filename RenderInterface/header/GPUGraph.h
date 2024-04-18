@@ -35,6 +35,8 @@ namespace graphics_backend
 
 		castl::map<castl::string, BufferHandle> m_BoundVertexBuffers;
 		BufferHandle m_BoundIndexBuffer;
+		EIndexBufferType m_IndexBufferType = EIndexBufferType::e16;
+		uint32_t m_IndexBufferOffset = 0;
 
 		DrawCallBatch& SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle);
 		DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset);
@@ -158,6 +160,8 @@ namespace graphics_backend
 	DrawCallBatch& DrawCallBatch::SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset)
 	{
 		m_BoundIndexBuffer = bufferHandle;
+		m_IndexBufferType = indexBufferType;
+		m_IndexBufferOffset = byteOffset;
 		return *this;
 	}
 	DrawCallBatch& DrawCallBatch::Draw(castl::function<void(CommandList&)> commandFunc)

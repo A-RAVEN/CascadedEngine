@@ -41,10 +41,12 @@ namespace graphics_backend
 	class CommandList_Impl : public CommandList
 	{
 	public:
-		virtual CommandList& BindVertexBuffer(castl::string_view const& bindingName, BufferHandle const& bufferHandle);
-		virtual CommandList& BindIndexBuffers(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset = 0) = 0;
-		virtual CommandList& DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t indexOffset = 0, uint32_t vertexOffset = 0) = 0;
-		virtual CommandList& Draw(uint32_t vertexCount, uint32_t instanceCount = 1) = 0;
-		virtual CommandList& SetSissor(uint32_t x, uint32_t y, uint32_t width, uint32_t height) = 0;
+		CommandList_Impl() = default;
+		CommandList_Impl(vk::CommandBuffer cmd) : m_CommandBuffer(cmd) {}
+		virtual CommandList& DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t indexOffset = 0, uint32_t vertexOffset = 0, uint32_t firstInstance = 0) override;
+		virtual CommandList& Draw(uint32_t vertexCount, uint32_t instanceCount = 1) override;
+		virtual CommandList& SetSissor(uint32_t x, uint32_t y, uint32_t width, uint32_t height) override;
+	private:
+		vk::CommandBuffer m_CommandBuffer = nullptr;
 	}
 }

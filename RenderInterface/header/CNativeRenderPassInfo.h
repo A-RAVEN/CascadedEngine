@@ -25,8 +25,9 @@ namespace graphics_backend
 		EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore;
 		EAttachmentLoadOp stencilLoadOp = EAttachmentLoadOp::eDontCare;
 		EAttachmentStoreOp stencilStoreOp = EAttachmentStoreOp::eDontCare;
-		GraphicsClearValue clearValue = GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 		EMultiSampleCount multiSampleCount = EMultiSampleCount::e1;
+		//Obsolete
+		GraphicsClearValue clearValue = GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
 		bool operator==(CAttachmentInfo const& rhs) const
 		{

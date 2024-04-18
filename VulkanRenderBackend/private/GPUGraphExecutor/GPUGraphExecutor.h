@@ -26,194 +26,123 @@ namespace graphics_backend
 	{
 		castl::shared_ptr<FramebufferObject> m_FrameBufferObject;
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
+		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
 		VulkanBarrierCollector m_BarrierCollector;
 	};
 
-	class GraphExecutorImageManager
+	class SubAllocator
 	{
 	public:
-		struct ImageSubAllocator
+		uint32_t passAllocationCount;
+		uint32_t AllocIndex()
 		{
-			uint32_t passAllocationCount;
-			uint32_t totalCount;
-			uint32_t AllocIndex()
+			if (m_AvailableIndices.empty())
 			{
 				++passAllocationCount;
-				totalCount = castl::max(passAllocationCount, totalCount);
 				return passAllocationCount - 1;
 			}
-			void ResetAllocationIndex()
-			{
-				passAllocationCount = 0;
-			}
-
-			void Reset()
-			{
-				passAllocationCount = 0;
-				totalCount = 0;
-			}
-
-			void Release()
-			{
-				Reset();
-				m_Images.clear();
-			}
-
-			void AllocateImages(CVulkanApplication& app, GPUTextureDescriptor const& descriptor)
-			{
-				m_Images.clear();
-				m_Images.reserve(totalCount);
-				for (int i = 0; i < totalCount; ++i)
-				{
-					auto imgObj = app.GetMemoryManager().AllocateImage(descriptor, EMemoryType::GPU, EMemoryLifetime::FrameBound);
-					m_Images.push_back(castl::move(imgObj));
-					m_ImageViews.push_back(app.CreateDefaultImageView(descriptor, imgObj->GetImage(), true, true));
-				}
-			}
-			castl::vector<VulkanImageObject> m_Images;
-			castl::vector<vk::ImageView> m_ImageViews;
-		};
-
-		void StateImageAllocation(castl::string const& handleName, int32_t descriptorIndex)
-		{
-			auto found = m_HandleNameToImageIndex.find(handleName);
-			if (found == m_HandleNameToImageIndex.end())
-			{
-				uint32_t suballocatorID = GetSubAllocatorIndex(descriptorIndex);
-				uint32_t allocIndex = m_ImageSubAllocators[suballocatorID].AllocIndex();
-				m_HandleNameToImageIndex.insert(castl::make_pair(handleName, castl::make_pair(suballocatorID, allocIndex)));
-			}
+			uint32_t result = m_AvailableIndices.front();
+			m_AvailableIndices.pop_front();
+			return result;
 		}
 
-		void ResetAllocationIndices()
+		void ReturnIndex(uint32_t index)
 		{
-			for (auto& suAllocator : m_ImageSubAllocators)
-			{
-				suAllocator.ResetAllocationIndex();
-			}
+			CA_ASSERT(index < passAllocationCount, "Return Invalid Allocation Index");
+			m_AvailableIndices.push_back(index);
 		}
 
-		void AllocTextures(CVulkanApplication& app, GraphResourceManager<GPUTextureDescriptor> const& textureHandleManager)
+		virtual void Release()
 		{
-			for (auto& descAllocatorPair : m_DescriptorIndexToSubAllocator)
-			{
-				auto desc = textureHandleManager.DescriptorIDToDescriptor(descAllocatorPair.first);
-				CA_ASSERT(desc != nullptr, "Descriptor not found");
-				m_ImageSubAllocators[descAllocatorPair.second].AllocateImages(app, *desc);
-			}
+			passAllocationCount = 0;
+			m_AvailableIndices.clear();
 		}
 
-		void ReleaseAll()
-		{
-			for (auto& allocator : m_ImageSubAllocators)
-			{
-				allocator.Release();
-			}
-			m_ImageSubAllocators.clear();
-			m_DescriptorIndexToSubAllocator.clear();
-			m_HandleNameToImageIndex.clear();
-		}
-
-		VulkanImageObject const& GetImageObject(castl::string const& handleName) const
-		{
-			auto found = m_HandleNameToImageIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToImageIndex.end(), "Image not found");
-			auto& subAllocator = m_ImageSubAllocators[found->second.first];
-			return subAllocator.m_Images[found->second.second];
-		}
-		
-		vk::ImageView GetImageView(castl::string const& handleName) const
-		{
-			auto found = m_HandleNameToImageIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToImageIndex.end(), "Image not found");
-			auto& subAllocator = m_ImageSubAllocators[found->second.first];
-			return subAllocator.m_ImageViews[found->second.second];
-		}
-	private:
-		uint32_t GetSubAllocatorIndex(int32_t descIndex)
-		{
-			auto found = m_DescriptorIndexToSubAllocator.find(descIndex);
-			if (found == m_DescriptorIndexToSubAllocator.end())
-			{
-				found = m_DescriptorIndexToSubAllocator.insert(castl::make_pair(descIndex, m_ImageSubAllocators.size())).first;
-				m_ImageSubAllocators.emplace_back();
-			}
-			return found->second;
-		}
-
-		castl::vector<ImageSubAllocator> m_ImageSubAllocators;
-		castl::unordered_map<int32_t, uint32_t> m_DescriptorIndexToSubAllocator;
-		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_HandleNameToImageIndex;
+		castl::deque<uint32_t> m_AvailableIndices;
 	};
 
-	class GraphExecutorBufferManager
+	struct ResourceInfo
+	{
+		int32_t descriptorIndex;
+		uint32_t beginPass;
+		uint32_t endPass;
+
+		ResourceInfo(int32_t descIndex, uint32_t passID)
+			: descriptorIndex(descIndex)
+			, beginPass(passID)
+			, endPass(passID)
+		{}
+
+		void UpdateEndPass(uint32_t passID)
+		{
+			endPass = castl::max(endPass, passID);
+		}
+	};
+
+	template<typename SubAllocator, typename ResManager>
+	class GraphExecutorResourceManager
 	{
 	public:
-		struct SubAllocator
+		void AllocResourceIndex(castl::string const& handleName, int32_t descriptorIndex)
 		{
-			uint32_t passAllocationCount;
-			uint32_t totalCount;
-			uint32_t AllocIndex()
+			auto found = m_HandleNameToResourceInfo.find(handleName);
+			if (found == m_HandleNameToResourceInfo.end())
 			{
-				++passAllocationCount;
-				totalCount = castl::max(passAllocationCount, totalCount);
-				return passAllocationCount - 1;
+				m_HandleNameToResourceInfo.insert(castl::make_pair(handleName, ResourceInfo(descriptorIndex, m_PassCount)));
 			}
-			void ResetAllocationIndex()
+			else
 			{
-				passAllocationCount = 0;
+				found->second.UpdateEndPass(m_PassCount);
+			}
+		}
+
+		void ResetAllocator()
+		{
+			m_PassCount = 0;
+		}
+
+		void NextPass()
+		{
+			++m_PassCount;
+		}
+
+		void AllocateResources(CVulkanApplication& app, ResManager const& bufferHandleManager)
+		{
+			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passAllocations;
+			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passDeAllocations;
+
+			passAllocations.resize(m_PassCount);
+			passDeAllocations.resize(m_PassCount);
+
+			for (auto& lifeTimePair : m_HandleNameToResourceInfo)
+			{
+				passAllocations[lifeTimePair.second.beginPass].push_back(castl::make_pair(lifeTimePair.first, lifeTimePair.second.descriptorIndex));
+				if (lifeTimePair.second.endPass < m_PassCount - 1)
+					passDeAllocations[lifeTimePair.second.endPass + 1].push_back(castl::make_pair(lifeTimePair.first, lifeTimePair.second.descriptorIndex));
 			}
 
-			void Reset()
+			for (uint32_t passID = 0; passID < m_PassCount; ++passID)
 			{
-				passAllocationCount = 0;
-				totalCount = 0;
-			}
-
-			void Release()
-			{
-				Reset();
-				m_Buffers.clear();
-			}
-
-			void AllocateBuffer(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)
-			{
-				m_Buffers.clear();
-				m_Buffers.reserve(totalCount);
-				for (int i = 0; i < totalCount; ++i)
+				auto& passDeAllocationList = passDeAllocations[passID];
+				for (auto& allocRes : passDeAllocationList)
 				{
-					auto bufferObj = app.GetMemoryManager().AllocateBuffer(EMemoryType::GPU
-						, EMemoryLifetime::FrameBound
-						, descriptor.count * descriptor.stride
-						, EBufferUsageFlagsTranslate(descriptor.usageFlags));
-					m_Buffers.push_back(castl::move(bufferObj));
+					auto allocationData = m_HandleNameToResourceIndex.find(allocRes.first);
+					CA_ASSERT(allocationData != m_HandleNameToResourceIndex.end(), "Allocation Not Found");
+					uint32_t subAllocatorIndex = GetSubAllocatorIndex(allocRes.second);
+					CA_ASSERT(allocationData->second.first == subAllocatorIndex, "Allocation Desc Match");
+					m_SubAllocators[subAllocatorIndex].ReturnIndex(allocationData->second.second);
+				}
+
+				auto& passAllocationList = passAllocations[passID];
+				for (auto& allocRes : passAllocationList)
+				{
+					uint32_t subAllocatorIndex = GetSubAllocatorIndex(allocRes.second);
+					uint32_t allocatedIndex = m_SubAllocators[subAllocatorIndex].AllocIndex();
+					m_HandleNameToResourceIndex.insert(castl::make_pair(allocRes.first, castl::make_pair(subAllocatorIndex, allocatedIndex)));
 				}
 			}
-			castl::vector<VulkanBufferHandle> m_Buffers;
-		};
 
-		void AllocBufferIndex(castl::string const& handleName, int32_t descriptorIndex)
-		{
-			auto found = m_HandleNameToBufferIndex.find(handleName);
-			if (found == m_HandleNameToBufferIndex.end())
-			{
-				uint32_t suballocatorID = GetSubAllocatorIndex(descriptorIndex);
-				uint32_t allocIndex = m_SubAllocators[suballocatorID].AllocIndex();
-				m_HandleNameToBufferIndex.insert(castl::make_pair(handleName, castl::make_pair(suballocatorID, allocIndex)));
-			}
-		}
-
-		void ResetAllocationIndices()
-		{
-			for (auto& suAllocator : m_SubAllocators)
-			{
-				suAllocator.ResetAllocationIndex();
-			}
-		}
-
-		void AllocBuffers(CVulkanApplication& app, GraphResourceManager<GPUBufferDescriptor> const& bufferHandleManager)
-		{
 			for (auto& descAllocatorPair : m_DescriptorIndexToSubAllocator)
 			{
 				auto desc = bufferHandleManager.DescriptorIDToDescriptor(descAllocatorPair.first);
@@ -230,19 +159,10 @@ namespace graphics_backend
 			}
 			m_SubAllocators.clear();
 			m_DescriptorIndexToSubAllocator.clear();
-			m_HandleNameToBufferIndex.clear();
+			m_HandleNameToResourceIndex.clear();
 		}
 
-		VulkanBufferHandle const& GetBufferObject(castl::string const& handleName) const
-		{
-			auto found = m_HandleNameToBufferIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToBufferIndex.end(), "Buffer not found");
-			auto& subAllocator = m_SubAllocators[found->second.first];
-			return subAllocator.m_Buffers[found->second.second];
-		}
-
-
-	private:
+	protected:
 		uint32_t GetSubAllocatorIndex(int32_t descIndex)
 		{
 			auto found = m_DescriptorIndexToSubAllocator.find(descIndex);
@@ -254,9 +174,96 @@ namespace graphics_backend
 			return found->second;
 		}
 
+		uint32_t m_PassCount;
 		castl::vector<SubAllocator> m_SubAllocators;
 		castl::unordered_map<int32_t, uint32_t> m_DescriptorIndexToSubAllocator;
-		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_HandleNameToBufferIndex;
+		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_HandleNameToResourceIndex;
+		castl::unordered_map<castl::string, ResourceInfo> m_HandleNameToResourceInfo;
+	};
+
+
+	class BufferSubAllocator : public SubAllocator
+	{
+	public:
+		void AllocateBuffer(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)
+		{
+			m_Buffers.clear();
+			m_Buffers.reserve(passAllocationCount);
+			for (int i = 0; i < passAllocationCount; ++i)
+			{
+				auto bufferObj = app.GetMemoryManager().AllocateBuffer(EMemoryType::GPU
+					, EMemoryLifetime::FrameBound
+					, descriptor.count * descriptor.stride
+					, EBufferUsageFlagsTranslate(descriptor.usageFlags));
+				m_Buffers.push_back(castl::move(bufferObj));
+			}
+		}
+
+		virtual void Release()
+		{
+			SubAllocator::Release();
+			m_Buffers.clear();
+		}
+
+		castl::vector<VulkanBufferHandle> m_Buffers;
+	};
+
+	class GraphExecutorBufferManager : public GraphExecutorResourceManager<BufferSubAllocator, GraphResourceManager<GPUBufferDescriptor>>
+	{
+	public:
+		VulkanBufferHandle const& GetBufferObject(castl::string const& handleName) const
+		{
+			auto found = m_HandleNameToResourceIndex.find(handleName);
+			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Buffer not found");
+			auto& subAllocator = m_SubAllocators[found->second.first];
+			return subAllocator.m_Buffers[found->second.second];
+		}
+	};
+
+
+	class ImageSubAllocator : public SubAllocator
+	{
+	public:
+		void AllocateImages(CVulkanApplication& app, GPUTextureDescriptor const& descriptor)
+		{
+			m_Images.clear();
+			m_Images.reserve(passAllocationCount);
+			for (int i = 0; i < passAllocationCount; ++i)
+			{
+				auto imgObj = app.GetMemoryManager().AllocateImage(descriptor, EMemoryType::GPU, EMemoryLifetime::FrameBound);
+				m_Images.push_back(castl::move(imgObj));
+				m_ImageViews.push_back(app.CreateDefaultImageView(descriptor, imgObj->GetImage(), true, true));
+			}
+		}
+
+		virtual void Release()
+		{
+			SubAllocator::Release();
+			m_Images.clear();
+		}
+
+		castl::vector<VulkanImageObject> m_Images;
+		castl::vector<vk::ImageView> m_ImageViews;
+	};
+
+	class GraphExecutorImageManager : public GraphExecutorResourceManager<ImageSubAllocator, GraphResourceManager<GPUTextureDescriptor>>
+	{
+	public:
+		VulkanImageObject const& GetImageObject(castl::string const& handleName) const
+		{
+			auto found = m_HandleNameToResourceIndex.find(handleName);
+			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Image not found");
+			auto& subAllocator = m_SubAllocators[found->second.first];
+			return subAllocator.m_Images[found->second.second];
+		}
+
+		vk::ImageView GetImageView(castl::string const& handleName) const
+		{
+			auto found = m_HandleNameToResourceIndex.find(handleName);
+			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Image not found");
+			auto& subAllocator = m_SubAllocators[found->second.first];
+			return subAllocator.m_ImageViews[found->second.second];
+		}
 	};
 
 	class GPUGraphExecutor : public VKAppSubObjectBase, public ShadderResourceProvider
@@ -266,7 +273,13 @@ namespace graphics_backend
 	private:
 		void PrepareResources();
 
-		void PrepareShaderArgsImageBarriers(VulkanBarrierCollector& inoutBarrierCollector
+		void PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
+			, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
+			, DrawCallBatch const& batch
+			, GPUPassBatchInfo const& batchInfo
+		);
+
+		void PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
 			, castl::unordered_map<vk::Image, ResourceUsageFlags>& inoutImageUsageFlagCache
 			, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
 			, ShaderArgList const* shaderArgList);
