@@ -1,3 +1,4 @@
+#pragma once
 #include <ShaderDescriptorSetAllocator.h>
 #include "ShaderArgList.h"
 #include <Compiler.h>

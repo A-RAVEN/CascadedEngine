@@ -8,6 +8,7 @@
 
 using TIndex = uint32_t;
 constexpr TIndex INVALID_INDEX = std::numeric_limits<TIndex>::max();
+constexpr uint32_t INVALID_ATTACHMENT_INDEX = 256;
 
 enum class EShaderSetType : uint8_t
 {
@@ -33,8 +34,33 @@ enum class ECompileShaderType : uint8_t
 	eMiss,
 	eIntersect,
 	eCallable,
+	eAmplification,
 	eMax,
 };
+
+enum class EShaderTypeMask : uint32_t
+{
+	eVert = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eVert),
+	eTessCtr = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eTessCtr),
+	eTessEvl = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eTessEvl),
+	eGeom = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eGeom),
+	eFrag = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eFrag),
+	eComp = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eComp),
+	//nvidia mesh shader
+	eTask = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eTask),
+	eMesh = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eMesh),
+	//nvidia ray tracing shader
+	eRaygen = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eRaygen),
+	eAnyhit = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eAnyhit),
+	eClosehit = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eClosehit),
+	eMiss = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eMiss),
+	eIntersect = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eIntersect),
+	eCallable = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eCallable),
+	eAmplification = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eAmplification),
+};
+
+using EShaderTypeFlags = uenum::EnumFlags<EShaderTypeMask>;
+
 
 enum class EShaderTextureType : uint8_t
 {

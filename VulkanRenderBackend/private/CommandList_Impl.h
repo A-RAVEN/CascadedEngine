@@ -48,5 +48,5 @@ namespace graphics_backend
 		virtual CommandList& SetSissor(uint32_t x, uint32_t y, uint32_t width, uint32_t height) override;
 	private:
 		vk::CommandBuffer m_CommandBuffer = nullptr;
-	}
+	};
 }

@@ -147,7 +147,7 @@ namespace graphics_backend
 			{
 				auto desc = bufferHandleManager.DescriptorIDToDescriptor(descAllocatorPair.first);
 				CA_ASSERT(desc != nullptr, "Descriptor not found");
-				m_SubAllocators[descAllocatorPair.second].AllocateBuffer(app, *desc);
+				m_SubAllocators[descAllocatorPair.second].Allocate(app, *desc);
 			}
 		}
 
@@ -185,7 +185,7 @@ namespace graphics_backend
 	class BufferSubAllocator : public SubAllocator
 	{
 	public:
-		void AllocateBuffer(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)
+		void Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)
 		{
 			m_Buffers.clear();
 			m_Buffers.reserve(passAllocationCount);
@@ -224,7 +224,7 @@ namespace graphics_backend
 	class ImageSubAllocator : public SubAllocator
 	{
 	public:
-		void AllocateImages(CVulkanApplication& app, GPUTextureDescriptor const& descriptor)
+		void Allocate(CVulkanApplication& app, GPUTextureDescriptor const& descriptor)
 		{
 			m_Images.clear();
 			m_Images.reserve(passAllocationCount);

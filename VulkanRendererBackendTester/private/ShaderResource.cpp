@@ -41,8 +41,6 @@ namespace resource_management
 		pCompiler->AddSourceFile(inPath.c_str());
 		pCompiler->EnableDebugInfo();
 		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
-		//int vertEntryPoint = pCompiler->AddEntryPoint("vert", ECompileShaderType::eVert);
-		//int fragEntryPoint = pCompiler->AddEntryPoint("frag", ECompileShaderType::eFrag);
 		pCompiler->Compile();
 		if (pCompiler->HasError())
 		{
@@ -51,7 +49,7 @@ namespace resource_management
 		else
 		{
 			ShaderResrouce* resource = resourceManager->AllocResource<ShaderResrouce>(castl::to_ca(outPathWithExt.string()));
-			resource->m_ShaderPrograms = pCompiler->GetResults();
+			resource->m_ShaderTargetResults = pCompiler->GetResults();
 			resource->m_UniqueName = outPath;
 		}
 		pCompiler->EndCompileTask();

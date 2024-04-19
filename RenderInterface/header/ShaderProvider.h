@@ -52,9 +52,9 @@ struct GraphicsShaderSet
 
 struct IShaderSet
 {
-	virtual EShaderSetType GetShaderSetType(castl::string_view const& sourceType) const = 0;
-	virtual ShaderSourceInfo GetShaderSourceInfo(castl::string_view const& sourceType, ECompileShaderType compileShaderType) const = 0;
-	virtual ShaderCompilerSlang::ShaderReflectionData const& GetShaderReflectionData() const = 0;
+	virtual EShaderTypeFlags GetShaderTypeFlags(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const = 0;
+	virtual ShaderSourceInfo GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType shaderTargetType, ECompileShaderType compileShaderType) const = 0;
+	virtual ShaderCompilerSlang::ShaderReflectionData const& GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const = 0;
 	virtual castl::string GetUniqueName() const = 0;
 
 	bool operator==(IShaderSet const& other) const

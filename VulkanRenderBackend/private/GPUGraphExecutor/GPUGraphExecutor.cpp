@@ -237,10 +237,10 @@ namespace graphics_backend
 	void UpdateResourceUsageFlags(castl::unordered_map<T, ResourceUsageFlags>& inoutResourceUsageFlagCache
 		, T resource, ResourceUsageFlags flags)
 	{
-		auto found = resourceUsageFlagCache.find(resource);
-		if (found == resourceUsageFlagCache.end())
+		auto found = inoutResourceUsageFlagCache.find(resource);
+		if (found == inoutResourceUsageFlagCache.end())
 		{
-			resourceUsageFlagCache.insert(castl::make_pair(resource, flags));
+			inoutResourceUsageFlagCache.insert(castl::make_pair(resource, flags));
 		}
 		else
 		{
@@ -253,8 +253,8 @@ namespace graphics_backend
 		, T resource
 		, ResourceUsageFlags defaultFlags = ResourceUsage::eDontCare)
 	{
-		auto found = resourceUsageFlagCache.find(resource);
-		if (found != resourceUsageFlagCache.end())
+		auto found = inoutResourceUsageFlagCache.find(resource);
+		if (found != inoutResourceUsageFlagCache.end())
 		{
 			return found->second;
 		}
@@ -425,15 +425,15 @@ namespace graphics_backend
 				GPUPassBatchInfo newBatchInfo{};
 
 				auto& psoDesc = batch.pipelineStateDesc;
-				auto vertShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(psoDesc.m_ShaderSet->GetShaderSourceInfo("spirv", ECompileShaderType::eVert));
-				auto fragShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(psoDesc.m_ShaderSet->GetShaderSourceInfo("spirv", ECompileShaderType::eFrag));
+				auto vertShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(psoDesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eVert));
+				auto fragShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(psoDesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eFrag));
 
 				//Shader Binding Holder
 				//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
-				newBatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication(), psoDesc.m_ShaderSet->GetShaderReflectionData());
+				newBatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication(), psoDesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
 
 				auto& vertexInputBindings = psoDesc.m_VertexInputBindings;
-				auto& vertexAttributes = psoDesc.m_ShaderSet->GetShaderReflectionData().m_VertexAttributes;
+				auto& vertexAttributes = psoDesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV).m_VertexAttributes;
 				CVertexInputDescriptor vertexInputDesc = MakeVertexInputDescriptors(vertexInputBindings
 					, vertexAttributes
 					, psoDesc.m_InputAssemblyStates

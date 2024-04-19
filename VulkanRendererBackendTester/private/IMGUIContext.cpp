@@ -462,8 +462,8 @@ void IMGUIContext::Initialize(
 
 	resourceSystem->LoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle", [this](ShaderResrouce* result)
 		{
-			m_ImguiShaderSet.vert = &result->m_VertexShaderProvider;
-			m_ImguiShaderSet.frag = &result->m_FragmentShaderProvider;
+			//m_ImguiShaderSet.vert = &result->m_VertexShaderProvider;
+			//m_ImguiShaderSet.frag = &result->m_FragmentShaderProvider;
 		});
 
 	InitImGUIPlatformFunctors();
@@ -754,7 +754,7 @@ void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, graphi
 
 void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRenderGraph* renderGraph)
 {
-	IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
+	/*IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
 	if (!pUserData->m_Draw)
 		return;
 	auto backBuffer = renderGraph->RegisterWindowBackbuffer(pUserData->pWindowHandle);
@@ -783,7 +783,7 @@ void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, graphics_backend::CRe
 					.SetSissor(sissors.x, sissors.y, sissors.z, sissors.w)
 					.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset));
 			}
-		});
+		});*/
 }
 
 
@@ -814,7 +814,7 @@ void IMGUIContext::ReleaseViewportContext(ImGuiViewport* viewport)
 
 void IMGUIContext::DrawIMGUI(graphics_backend::CRenderGraph* renderGraph, graphics_backend::TextureHandle renderTargethandle)
 {
-	ImGuiIO& io = ImGui::GetIO();
+	/*ImGuiIO& io = ImGui::GetIO();
 	glm::vec2 meshScale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y);
 	ImGuiViewport* main_viewport = ImGui::GetMainViewport();
 	ImDrawData* imDrawData = main_viewport->DrawData;
@@ -882,5 +882,5 @@ void IMGUIContext::DrawIMGUI(graphics_backend::CRenderGraph* renderGraph, graphi
 					cmd.SetSissor(sissors[i].x, sissors[i].y, sissors[i].z, sissors[i].w)
 						.DrawIndexed(castl::get<2>(indexDataOffsets[i]), 1, castl::get<0>(indexDataOffsets[i]), castl::get<1>(indexDataOffsets[i]));
 				}
-			});
+			});*/
 }

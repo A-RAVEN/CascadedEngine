@@ -15,7 +15,6 @@
 
 namespace graphics_backend
 {
-	constexpr uint32_t INVALID_ATTACHMENT_INDEX = 256;
 
 
 	struct CAttachmentInfo

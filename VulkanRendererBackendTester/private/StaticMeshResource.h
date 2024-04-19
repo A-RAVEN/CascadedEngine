@@ -2,7 +2,6 @@
 #include <CAResource/IResource.h>
 #include <CAResource/ResourceImporter.h>
 #include <CAResource/ResourceManagingSystem.h>
-#include "TestShaderProvider.h"
 #include <Compiler.h>
 #include <library_loader.h>
 #include <zpp_bits.h>

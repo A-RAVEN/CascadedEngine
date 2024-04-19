@@ -262,6 +262,7 @@ namespace ShaderCompilerSlang
 	struct ShaderCompileTargetResult
 	{
 		EShaderTargetType targetType;
+		EShaderTypeFlags shaderTypeFlags;
 		castl::vector<ShaderProgramData> programs;
 		ShaderReflectionData m_ReflectionData;
 	};

@@ -129,7 +129,7 @@ namespace graphics_backend
 	{
 	public:
 		//Create a new render pass
-		RenderPass& NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp, GraphicsClearValue clearValue = {});
+		RenderPass& NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore, GraphicsClearValue clearValue = {});
 		RenderPass& NewRenderPass(ImageHandle const& color, ImageHandle const& depth);
 		RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth);
 		RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors);

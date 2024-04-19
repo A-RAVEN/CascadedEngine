@@ -628,6 +628,7 @@ namespace ShaderCompilerSlang
 
 				int entryPointCount = layout->getEntryPointCount();
 				outputTargetResult.programs.reserve(entryPointCount);
+				EShaderTypeFlags shaderTypeFlags = 0;
 				for (int entryPointIndex = 0; entryPointIndex < entryPointCount; ++entryPointIndex)
 				{
 					Slang::ComPtr<IBlob> kernelBlob;
@@ -649,45 +650,59 @@ namespace ShaderCompilerSlang
 						break;
 					case SLANG_STAGE_VERTEX:
 						outProgramData.shaderType = ECompileShaderType::eVert;
+						shaderTypeFlags |= EShaderTypeMask::eVert;
 						break;
 					case SLANG_STAGE_HULL:
 						outProgramData.shaderType = ECompileShaderType::eTessCtr;
+						shaderTypeFlags |= EShaderTypeMask::eTessCtr;
 						break;
 					case SLANG_STAGE_DOMAIN:
 						outProgramData.shaderType = ECompileShaderType::eTessEvl;
+						shaderTypeFlags |= EShaderTypeMask::eTessEvl;
 						break;
 					case SLANG_STAGE_GEOMETRY:
 						outProgramData.shaderType = ECompileShaderType::eGeom;
+						shaderTypeFlags |= EShaderTypeMask::eGeom;
 						break;
 					case SLANG_STAGE_FRAGMENT:
 						outProgramData.shaderType = ECompileShaderType::eFrag;
+						shaderTypeFlags |= EShaderTypeMask::eFrag;
 						break;
 					case SLANG_STAGE_COMPUTE:
 						outProgramData.shaderType = ECompileShaderType::eComp;
+						shaderTypeFlags |= EShaderTypeMask::eComp;
 						break;
 					case SLANG_STAGE_RAY_GENERATION:
 						outProgramData.shaderType = ECompileShaderType::eRaygen;
+						shaderTypeFlags |= EShaderTypeMask::eRaygen;
 						break;
 					case SLANG_STAGE_INTERSECTION:
 						outProgramData.shaderType = ECompileShaderType::eIntersect;
+						shaderTypeFlags |= EShaderTypeMask::eIntersect;
 						break;
 					case SLANG_STAGE_ANY_HIT:
 						outProgramData.shaderType = ECompileShaderType::eAnyhit;
+						shaderTypeFlags |= EShaderTypeMask::eAnyhit;
 						break;
 					case SLANG_STAGE_CLOSEST_HIT:
 						outProgramData.shaderType = ECompileShaderType::eClosehit;
+						shaderTypeFlags |= EShaderTypeMask::eClosehit;
 						break;
 					case SLANG_STAGE_MISS:
 						outProgramData.shaderType = ECompileShaderType::eMiss;
+						shaderTypeFlags |= EShaderTypeMask::eMiss;
 						break;
 					case SLANG_STAGE_CALLABLE:
 						outProgramData.shaderType = ECompileShaderType::eCallable;
+						shaderTypeFlags |= EShaderTypeMask::eCallable;
 						break;
 					case SLANG_STAGE_MESH:
 						outProgramData.shaderType = ECompileShaderType::eMesh;
+						shaderTypeFlags |= EShaderTypeMask::eMesh;
 						break;
 					case SLANG_STAGE_AMPLIFICATION:
-						outProgramData.shaderType = ECompileShaderType::eMax;
+						outProgramData.shaderType = ECompileShaderType::eAmplification;
+						shaderTypeFlags |= EShaderTypeMask::eAmplification;
 						break;
 					default:
 						outProgramData.shaderType = ECompileShaderType::eMax;
@@ -736,6 +751,7 @@ namespace ShaderCompilerSlang
 					Reflect(reflectionData, param, param->getTypeLayout(), param->getCategory(), bindingData, 1);
 				}
 				outputTargetResult.m_ReflectionData = reflectionData;
+				outputTargetResult.shaderTypeFlags = shaderTypeFlags;
 				m_CompileResults.push_back(outputTargetResult);
 			}
 		}

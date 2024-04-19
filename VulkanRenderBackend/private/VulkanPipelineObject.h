@@ -61,7 +61,6 @@ namespace graphics_backend
 		{
 			hash_append(h, pipeline_desc.pso);
 			hash_append(h, pipeline_desc.vertexInputs);
-			hash_append(h, pipeline_desc.vertexAttributes);
 			hash_append(h, pipeline_desc.shaderState);
 			hash_append(h, pipeline_desc.descriptorSetLayouts);
 			hash_append(h, pipeline_desc.renderPassObject.get());

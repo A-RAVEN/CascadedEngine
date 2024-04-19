@@ -2,7 +2,7 @@
 #include <CAResource/IResource.h>
 #include <CAResource/ResourceImporter.h>
 #include <CAResource/ResourceManagingSystem.h>
-#include "TestShaderProvider.h"
+#include <ShaderProvider.h>
 #include <Compiler.h>
 #include <library_loader.h>
 #include <zpp_bits.h>
@@ -41,39 +41,60 @@ namespace resource_management
 {
 	using namespace library_loader;
 	using namespace ShaderCompiler;
-	class ShaderResrouce : public IResource, IShaderSet
+	class ShaderResrouce : public IResource, public IShaderSet
 	{
 	public:
 		friend zpp::bits::access;
-		using serialize = zpp::bits::members<4>;
+		using serialize = zpp::bits::members<2>;
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 
-		virtual ShaderSourceInfo GetShaderSourceInfo(ECompileShaderType compileShaderType) const override { 
-			if (!m_ShaderPrograms.empty())
+		virtual ShaderSourceInfo GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType shaderTargetType, ECompileShaderType shaderType) const override
+		{ 
+			for (auto& targetResult : m_ShaderTargetResults)
 			{
-				for (auto& prog : m_ShaderPrograms[0].programs)
+				if (targetResult.targetType == shaderTargetType)
 				{
-					if (prog.shaderType == compileShaderType)
+					for (auto& programData : targetResult.programs)
 					{
-						return { prog.data.size(), prog.data.data(), prog.entryPointName };
+						if (programData.shaderType == shaderType)
+						{
+							ShaderSourceInfo result{};
+							result.compileShaderType = shaderType;
+							result.dataLength = programData.data.size();
+							result.dataPtr = programData.data.data();
+							result.entryPoint = programData.entryPointName;
+							return result;
+						}
 					}
 				}
 			}
 			return {}; 
 		}
-		virtual ShaderCompilerSlang::ShaderReflectionData GetShaderReflectionData() const override { 
-			if (!m_ShaderPrograms.empty())
+		virtual ShaderCompilerSlang::ShaderReflectionData const& GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const override
+		{
+			for (auto& targetResult : m_ShaderTargetResults)
 			{
-				return m_ShaderPrograms[0].m_ReflectionData;
+				if (targetResult.targetType == shaderTargetType)
+				{
+					return targetResult.m_ReflectionData;
+				}
 			}
 			return {}; 
 		}
+		virtual EShaderTypeFlags GetShaderTypeFlags(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const override
+		{
+			for (auto& targetResult : m_ShaderTargetResults)
+			{
+				if (targetResult.targetType == shaderTargetType)
+				{
+					return targetResult.shaderTypeFlags;
+				}
+			}
+			return {0};
+		}
 		virtual castl::string GetUniqueName() const override { return m_UniqueName; }
-
-		TestShaderProvider m_VertexShaderProvider;
-		TestShaderProvider m_FragmentShaderProvider;
-		castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> m_ShaderPrograms;
+		castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> m_ShaderTargetResults;
 		castl::string m_UniqueName;
 		friend class ShaderResourceLoader;
 	};

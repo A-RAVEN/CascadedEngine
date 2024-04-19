@@ -11,7 +11,6 @@
 #include <CCommandList.h>
 #include <ShaderBindingBuilder.h>
 #include <FileLoader.h>
-#include "TestShaderProvider.h"
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <stb_image.h>
@@ -119,12 +118,13 @@ int main(int argc, char *argv[])
 
 
 	//GraphicsShaderSet shaderSet{};
-	//shaderSet.vert = &pTestShaderResource->m_VertexShaderProvider;
+	//shaderSet.vert = &pTestShaderResource->m_VertexShaderProvi
+	// der;
 	//shaderSet.frag = &pTestShaderResource->m_FragmentShaderProvider;
 
-	GraphicsShaderSet finalBlitShaderSet{};
-	finalBlitShaderSet.vert = &pFinalBlitShaderResource->m_VertexShaderProvider;
-	finalBlitShaderSet.frag = &pFinalBlitShaderResource->m_FragmentShaderProvider;
+	//GraphicsShaderSet finalBlitShaderSet{};
+	//finalBlitShaderSet.vert = &pFinalBlitShaderResource->m_VertexShaderProvider;
+	//finalBlitShaderSet.frag = &pFinalBlitShaderResource->m_FragmentShaderProvider;
 
 
 
@@ -171,28 +171,28 @@ int main(int argc, char *argv[])
 		g_MeshResourceToGPUData.insert(castl::make_pair(pTestMeshResource, newMeshGPUData));
 	}
 
-	MeshBatchDrawInterface drawInterface{};
-	{
-		MeshRenderer meshRenderer{};
-		meshRenderer.p_MeshResource = pTestMeshResource;
-		meshRenderer.materials = {
-			MeshMaterial 
-			{
-				CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
-				, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
-				, { samplingTextureBinding1 }
-			},
-			MeshMaterial 
-			{
-				CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
-				, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
-				, { samplingTextureBinding0 }
-			}
-		};
-		drawInterface.AddMesh(meshRenderer, glm::mat4(1.0f));
+	//MeshBatchDrawInterface drawInterface{};
+	//{
+	//	MeshRenderer meshRenderer{};
+	//	meshRenderer.p_MeshResource = pTestMeshResource;
+	//	meshRenderer.materials = {
+	//		MeshMaterial 
+	//		{
+	//			CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
+	//			, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
+	//			, { samplingTextureBinding1 }
+	//		},
+	//		MeshMaterial 
+	//		{
+	//			CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
+	//			, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
+	//			, { samplingTextureBinding0 }
+	//		}
+	//	};
+	//	drawInterface.AddMesh(meshRenderer, glm::mat4(1.0f));
 
-		drawInterface.MakeBatch(pBackend.get());
-	}
+	//	drawInterface.MakeBatch(pBackend.get());
+	//}
 
 
 	castl::vector<VertexData> vertexDataList = {
@@ -233,9 +233,9 @@ int main(int argc, char *argv[])
 	GPUGraph newGraph{};
 	auto renderPass = newGraph.NewRenderPass(windowImageHandle)
 		.SetPipelineState({})
-		.SetShaders(finalBlitShaderSet)
-		.SetShaderArguments({})
-		.Draw([](CInlineCommandList& commandList)
+		.SetShaders(pFinalBlitShaderResource)
+		.DrawCall()
+		.Draw([](CommandList& commandList)
 		{
 
 		});
@@ -263,12 +263,12 @@ int main(int argc, char *argv[])
 				, sampler
 				, pCam = &cam
 				, pmouseDown = &mouseDown
-				, pdrawInterface = &drawInterface
+				//,pdrawInterface = &drawInterface
 				, plastMousePos = &lastMousePos
 				, pDeltaTime = &deltaTime
 				, pVertexList = &vertexDataList
 				, pIndexList = &indexDataList
-				, pFinalBlitShaderSet = &finalBlitShaderSet
+				//, pFinalBlitShaderSet = &finalBlitShaderSet
 				, pVertexInputDesc = &vertexInputDesc
 				, pFinalBlitBindingDesc = &finalBlitBindingBuilder
 				, pImguiContext = &imguiContext
@@ -300,91 +300,24 @@ int main(int argc, char *argv[])
 					->ForceRunOnMainThread()
 							;
 
-				//auto updateCameraGraph = gamePlayGraph->NewTask()
-				//	->Name("Update Camera")
-				//	->Functor([plastMousePos
-				//		, pCam
-				//		, pmouseDown
-				//		, pdrawInterface
-				//		, pDeltaTime
-				//		, windowHandle]()
-				//		{
-				//			int forwarding = 0;
-				//			int lefting = 0;
-				//			if (windowHandle->IsKeyDown(CA_KEY_W))
-				//			{
-				//				++forwarding;
-				//			}
-				//			if (windowHandle->IsKeyDown(CA_KEY_S))
-				//			{
-				//				--forwarding;
-				//			}
-				//			if (windowHandle->IsKeyDown(CA_KEY_A))
-				//			{
-				//				++lefting;
-				//			}
-				//			if (windowHandle->IsKeyDown(CA_KEY_D))
-				//			{
-				//				--lefting;
-				//			}
-				//			if (windowHandle->IsKeyTriggered(CA_KEY_R))
-				//			{
-				//				windowHandle->RecreateContext();
-				//			}
-				//			glm::vec2 mouseDelta = { 0.0f, 0.0f };
-				//			glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
-				//			if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
-				//			{
-				//				//castl::cout << "Mouse Down!" << castl::endl;
-				//				if (!*pmouseDown)
-				//				{
-				//					*plastMousePos = mousePos;
-				//					*pmouseDown = true;
-				//				}
-				//				mouseDelta = mousePos - *plastMousePos;
-				//				*plastMousePos = mousePos;
-				//			}
-				//			else// if(windowHandle->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
-				//			{
-				//				*pmouseDown = false;
-				//			}
-
-				//			auto windowSize1 = windowHandle->GetSizeSafe();
-				//			pCam->Tick(*pDeltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
-				//			pdrawInterface->Update(pCam->GetViewProjMatrix());
-				//		});
 
 						auto grapicsTaskGraph = baseTaskGraph->NewTaskGraph()
 							->Name("Graphics Task Graph")
 							->DependsOn(gamePlayGraph);
-	/*				->WaitOnEvent("Graphics", lastFrame)
-					->SignalEvent("Graphics", currentFrame);*/
 
 				castl::shared_ptr<castl::vector<castl::shared_ptr<CRenderGraph>>> pGraphs = castl::make_shared<castl::vector<castl::shared_ptr<CRenderGraph>>>();
 
 				auto setupRGTask = grapicsTaskGraph->NewTask()
 					->Name("Setup Render Graph")
-					->Functor([pBackend
-						, pRenderInterface
-						, windowHandle
-						, pdrawInterface
-						, pVertexList
-						, pIndexList
-						, pFinalBlitShaderSet
-						, pVertexInputDesc
-						, pFinalBlitBindingDesc
-						, pImguiContext
-						, sampler
-						, currentFrame
-						, pGraphs
+					->Functor([
 					]()
 				{
-					auto pRenderGraph = pRenderInterface->NewRenderGraph();
+					//auto pRenderGraph = pRenderInterface->NewRenderGraph();
 
-					pImguiContext->PrepareDrawData(pRenderGraph.get());
-					pImguiContext->Draw(pRenderGraph.get());
+					//pImguiContext->PrepareDrawData(pRenderGraph.get());
+					//pImguiContext->Draw(pRenderGraph.get());
 
-					pGraphs->push_back(pRenderGraph);
+					//pGraphs->push_back(pRenderGraph);
 				});
 
 				grapicsTaskGraph->NewTaskGraph()
@@ -405,7 +338,6 @@ int main(int argc, char *argv[])
 				*pDeltaTime = duration / 1000.0f;
 				*pDeltaTime = castl::max(*pDeltaTime, 0.0001f);
 				float frameRate = 1.0f / *pDeltaTime;
-				//castl::cout << "Frame Rate: " << frameRate << castl::endl;
 			}
 			return true;
 		}, "FullGraph");
