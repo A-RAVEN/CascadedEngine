@@ -2,6 +2,17 @@
 #include "DebugUtils.h"
 #include <type_traits>
 
+#if defined __clang__
+#define STRUCT_PACK_INLINE __attribute__((always_inline)) inline
+#define CONSTEXPR_INLINE_LAMBDA __attribute__((always_inline)) constexpr
+#elif defined _MSC_VER
+#define STRUCT_PACK_INLINE __forceinline
+#define CONSTEXPR_INLINE_LAMBDA constexpr
+#else
+#define STRUCT_PACK_INLINE __attribute__((always_inline)) inline
+#define CONSTEXPR_INLINE_LAMBDA constexpr __attribute__((always_inline))
+#endif
+
 namespace careflection
 {
     struct any_type
@@ -86,6 +97,9 @@ namespace careflection
 	};
 
     template<typename T>
+    concept is_structured_binding_capable = std::is_aggregate_v<T> || is_tuple_like<T>;
+
+    template<typename T>
     struct containerStates
     {
         using noRefT = std::remove_reference_t<T>;
@@ -165,7 +179,14 @@ namespace careflection
     {
         using objType = std::remove_reference_t<decltype(object)>;
         using visitorType = std::remove_reference_t<decltype(visitor)>;
-        return visit_members_structured_binding(object, visitor);
+        if constexpr (is_structured_binding_capable<objType>)
+        {
+			return visit_members_structured_binding(object, visitor);
+		}
+        else
+        {
+			return visitor();
+		}
     }
 
     constexpr static auto max_visit_members = 64;

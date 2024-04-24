@@ -1,8 +1,10 @@
 #include <Serialization.h>
+#include <Hasher.h>
 #include <CASTL/CAVector.h>
 #include <CASTL/CAMap.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAString.h>
+#include <unordered_map>
 
 int main(int argc, char* argv[])
 {
@@ -12,6 +14,14 @@ int main(int argc, char* argv[])
 		castl::unordered_map<castl::string, int> map1;
 		int a;
 	};
+
+	struct TestStruct1
+	{
+		float aa;
+		float bb;
+	};
+
+	std::unordered_map<TestStruct1, int> tstMap1 = { {{1.0f, 2.0f}, 3} };
 
 	TestStruct testStruct = {};
 	testStruct.map = {

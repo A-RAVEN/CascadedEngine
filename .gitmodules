@@ -44,3 +44,6 @@
 [submodule "ExternalLib/JoltPhysics"]
 	path = ExternalLib/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "ExternalLib/yalantinglibs"]
+	path = ExternalLib/yalantinglibs
+	url = https://github.com/alibaba/yalantinglibs.git
