@@ -39,7 +39,7 @@ namespace cahasher
             using objType = std::remove_reference_t<decltype(object)>;
             if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {
-                hash_one(object);
+                hash_range(object);
             }
             else if constexpr (containerStates<objType>::is_container_with_size)
             {
@@ -53,11 +53,6 @@ namespace cahasher
             }
         }
     private:
-        template<typename Obj>
-        constexpr void hash_one(const Obj& object)
-        {
-            append_to_buffer(object);
-        }
 
         template<typename Obj>
         constexpr void hash_container_with_size(const Obj& object)
@@ -84,21 +79,17 @@ namespace cahasher
         {
             alg(data, size);
         }
-
     };
-}
 
-namespace std
-{
-    template<typename T>
+    template<typename T, typename hashAlg = fnv1a>
     struct hash
     {
-        using result_type = cahasher::fnv1a::result_type;
+        using result_type = hashAlg::result_type;
         result_type operator()(const T& t) const noexcept
         {
-            defaultHasher<cahasher::fnv1a> hasher;
+            defaultHasher<hashAlg> hasher;
             hasher.hash(t);
-            return hasher.alg;
+            return static_cast<result_type>(hasher.alg);
         }
     };
 }
