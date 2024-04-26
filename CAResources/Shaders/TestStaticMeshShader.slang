@@ -51,14 +51,19 @@ struct VertexToFragment
     float3 normal : TEXCOORD0;
 };
 
+struct NormalStruct
+{
+    float3 normal : NORMAL; 
+    float3 tangent : TANGENT; 
+    float3 itangent : BITANGENT; 
+}
+
 struct VertexInput
 {
     uint instanceID : INSTANCEID;
     float3 position : POSITION;
     float2 uv : TEXCOORD0; 
-    float3 normal : NORMAL; 
-    float3 tangent : TANGENT; 
-    float3 itangent : BITANGENT; 
+    NormalStruct normalData;
 };
 
 [shader("vertex")]
@@ -68,7 +73,7 @@ VertexToFragment vert(in VertexInput input)
     result.position = meshData.TransformInstanceToClip(input.instanceID, input.position);
     result.color = float3(1, 1, 1);
     result.uv = input.uv;
-    result.normal = meshData.TransformDirectionToWorld(input.instanceID, input.normal);
+    result.normal = meshData.TransformDirectionToWorld(input.instanceID, input.normalData.normal);
     return result;
 }
 

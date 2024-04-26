@@ -1,5 +1,6 @@
 #pragma once
 #include "DebugUtils.h"
+#include "Macros.h"
 #include <type_traits>
 
 #if defined __clang__
@@ -13,6 +14,37 @@
 #define CONSTEXPR_INLINE_LAMBDA constexpr __attribute__((always_inline))
 #endif
 
+// Macro to generate reflection info for non aggregate types
+
+template<typename T>
+struct CATypeDescriptor
+{
+};
+
+template<typename T, size_t Offset>
+struct CATypeMemberDesc
+{
+    using type = T;
+    static constexpr size_t offset = Offset;
+};
+
+
+#define CA_REFLECTION_MEMBER_LIST_REMAINS(Type, ItrMember, ...) ,CATypeMemberDesc<decltype(Type::ItrMember), offsetof(Type, ItrMember) >\
+	__VA_OPT__(CA_REFLECTION_MEMBER_LIST_REMAINS_AGAIN CAPARENS (Type, __VA_ARGS__) )
+#define CA_REFLECTION_MEMBER_LIST_REMAINS_AGAIN() CA_REFLECTION_MEMBER_LIST_REMAINS
+
+#define CA_REFLECTION_MEMBER_LIST_BEGIN(Type, First, ...) CATypeMemberDesc<decltype(Type::First), offsetof(Type, First) >\
+	__VA_OPT__(CAEXPAND(CA_REFLECTION_MEMBER_LIST_REMAINS(Type, __VA_ARGS__)))
+#define CA_REFLECTION(Type, ...)\
+template<>\
+struct CATypeDescriptor<Type>\
+{\
+	using type = Type;\
+	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST_BEGIN(Type, __VA_ARGS__) ) >;\
+	constexpr static size_t member_count = std::tuple_size_v<member_tuple_type>;\
+};
+#define CA_PRIVATE_REFLECTION(Type) friend struct CATypeDescriptor<Type>;
+
 namespace careflection
 {
     struct any_type
@@ -20,6 +52,9 @@ namespace careflection
         template<typename T>
         constexpr operator T() const { return T{}; }
     };
+
+    template<typename T>
+    concept has_type_desc = requires { CATypeDescriptor<T>::member_count; typename CATypeDescriptor<T>::type; };
 
     template <class T>
     concept is_c_array = (std::is_bounded_array_v<std::remove_cvref_t<T>> && std::extent_v<std::remove_cvref_t<T>> > 0);
@@ -172,14 +207,28 @@ namespace careflection
         }
     }
 
+    template<typename T, typename MemberType, size_t Offset>
+    constexpr MemberType& get_member(T& object)
+    {
+		return *((MemberType*)((uint8_t*)(&object) + Offset));
+	}
+
     template<typename Obj, typename Visitor>
     constexpr decltype(auto) inline visit_members_structured_binding(Obj&& object, Visitor&& visitor);
 
+    template<typename Obj, typename Visitor, size_t index = 0>
+    constexpr void inline visit_members_type_desc(Obj&& object, Visitor&& visitor);
+
     constexpr decltype(auto) inline visit_members(auto&& object, auto&& visitor)
     {
-        using objType = std::remove_reference_t<decltype(object)>;
-        using visitorType = std::remove_reference_t<decltype(visitor)>;
-        if constexpr (is_structured_binding_capable<objType>)
+        using objType = std::remove_cvref_t<decltype(object)>;
+        using visitorType = std::remove_cvref_t<decltype(visitor)>;
+        if constexpr (has_type_desc<objType>)
+        {
+			visit_members_type_desc(object, visitor);
+            return visitor();
+        }
+        else if constexpr (is_structured_binding_capable<objType>)
         {
 			return visit_members_structured_binding(object, visitor);
 		}
@@ -187,6 +236,22 @@ namespace careflection
         {
 			return visitor();
 		}
+    }
+
+    template<typename Obj, typename Visitor, size_t index>
+    constexpr void inline visit_members_type_desc(Obj&& object, Visitor&& visitor)
+    {
+        using objType = std::remove_cvref_t<decltype(object)>;
+        using visitorType = std::remove_cvref_t<decltype(visitor)>;
+        constexpr auto member_count = CATypeDescriptor<objType>::member_count;
+        using member_tuple_type = typename CATypeDescriptor<objType>::member_tuple_type;
+        if constexpr (index < member_count)
+        {
+            using visitingElementDescType = std::tuple_element_t<index, member_tuple_type>;
+            using visitingType = typename visitingElementDescType::type;
+            visitor(*(visitingType*)(((uint8_t*)(&object)) + visitingElementDescType::offset));
+            visit_members_type_desc<Obj, Visitor, index + 1>(object, visitor);
+        }
     }
 
     constexpr static auto max_visit_members = 64;
@@ -727,3 +792,4 @@ namespace careflection
     }
 
 }
+

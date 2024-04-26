@@ -31,6 +31,7 @@ namespace cahasher
     class defaultHasher
     {
     public:
+
         using result_type = typename hashAlg::result_type;
         hashAlg alg = {};
         template<typename Obj>

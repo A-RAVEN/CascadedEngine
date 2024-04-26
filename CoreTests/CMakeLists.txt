@@ -8,6 +8,10 @@ add_executable(${PROJECT_NAME} ${Header_List} ${Source_List})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PUBLIC "/Zc:preprocessor")
+endif()
+
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
 endif()
