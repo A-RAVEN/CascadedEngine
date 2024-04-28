@@ -17,8 +17,12 @@ namespace cacore
         template<typename Obj>
         constexpr void inline serialize(const Obj& object) requires is_bytebuffer<ByteBuffer>
         {
-            using objType = std::remove_reference_t<decltype(object)>;
-            if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
+            using objType = std::remove_cvref_t<decltype(object)>;
+            if constexpr (std::is_pointer_v<objType> || managed_pointer_traits<objType>::is_managed_pointer)
+            {
+                //ignore
+            }
+            else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {
                 serialize_one(object);
             }
@@ -83,7 +87,16 @@ namespace cacore
             using objType = std::remove_cvref_t<decltype(object)>;
             //对象如果是const的，需要去掉const
             auto& mutableObject = const_cast<objType&>(object);
-            if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
+            if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
+            {
+                managed_pointer_traits<objType>::set_pointer_null(mutableObject);
+            }
+            else if constexpr (std::is_pointer_v<objType>)
+            {
+                //赋值空
+                mutableObject = nullptr;
+            }
+            else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {
                 load_from_buffer(mutableObject);
             }
@@ -137,7 +150,6 @@ namespace cacore
                 }
                 if(objSize != containerInfo<objType>::container_size(object))
 				{
-					//throw std::runtime_error("Container size mismatch");
                     return;
 				}
                 for (uint64_t i = 0; i < objSize; i++)
@@ -149,10 +161,8 @@ namespace cacore
             }
             else
             {
-                //static_assert(containerStates<castl::string>::element_assignable, "Wrong");
                 std::is_same<objType, castl::string> a{};
                 static_assert(std::is_same<objType, castl::string>::value, "Wrong");
-                //static_assert(false, __FUNCSIG__ "Container type not supported");
             }
         }
 
@@ -174,4 +184,10 @@ namespace cacore
         size_t offset = 0;
     };
 
+    template <typename Obj, typename ByteBuffer>
+    static constexpr void serialize(ByteBuffer& buffer, Obj const& object)
+    {
+        serializer<ByteBuffer> serializer(buffer);
+        serializer.serialize(object);
+    }
 }

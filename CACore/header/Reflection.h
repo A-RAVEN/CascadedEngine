@@ -63,6 +63,15 @@ namespace careflection
     struct containerInfo;
 
     template<typename T>
+    struct managed_pointer_traits
+	{
+        constexpr static bool is_managed_pointer = false;
+        using pointee_type = T;
+        constexpr static T* get_pointer(T& ptr) { return nullptr; }
+        constexpr static void set_pointer_null() {}
+	};
+
+    template<typename T>
     concept is_size_container = requires(T t)
     {
         t.size();
@@ -197,7 +206,7 @@ namespace careflection
 			return std::tuple_size<T>::value;
 		}
         //判断用args...和一个任意类型能否构造出T,如果不能说明args为全部的参数,返回参数个数
-        else if constexpr (requires {T{ {Args{}}..., {any_type{}} }; } == false)
+        else if constexpr (requires {T{ Args{}..., any_type{} }; } == false)
         {
             return sizeof...(Args);
         }

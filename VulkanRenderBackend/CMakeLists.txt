@@ -6,6 +6,10 @@ file(GLOB_RECURSE Header_List "*.h")
 
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PUBLIC "/Zc:preprocessor")
+endif()
+
 target_include_directories(${PROJECT_NAME} PRIVATE "$ENV{VK_SDK_PATH}/Include")
 target_include_directories(${PROJECT_NAME} PRIVATE "private")
 target_link_directories(${PROJECT_NAME} PRIVATE

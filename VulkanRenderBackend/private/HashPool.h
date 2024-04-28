@@ -21,7 +21,7 @@ namespace graphics_backend
 	{
 	public:
 
-		using map_type = castl::unordered_map<DescType, castl::shared_ptr<ValType>, hash_utils::default_hashAlg>;
+		using map_type = castl::unordered_map<DescType, castl::shared_ptr<ValType>, cacore::hash<DescType>>;
 
 		HashPool() = delete;
 		HashPool(HashPool const& other) = delete;
@@ -63,6 +63,6 @@ namespace graphics_backend
 		}
 	private:
 		castl::mutex m_Mutex;
-		castl::unordered_map<DescType, castl::shared_ptr<ValType>, hash_utils::default_hashAlg> m_InternalMap;
+		castl::unordered_map<DescType, castl::shared_ptr<ValType>, cacore::hash<DescType>> m_InternalMap;
 	};
 }

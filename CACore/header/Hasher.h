@@ -1,7 +1,7 @@
 #pragma once
 #include "Reflection.h"
 
-namespace cahasher
+namespace cacore
 {
     using namespace careflection;
 
@@ -38,6 +38,15 @@ namespace cahasher
         constexpr void inline hash(const Obj& object)
         {
             using objType = std::remove_reference_t<decltype(object)>;
+            if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
+            {
+                hash_range(static_cast<uint64_t>(managed_pointer_traits<objType>::get_pointer(object)));
+            }
+            if constexpr (std::is_pointer_v<objType>)
+            {
+                //赋值空
+                hash_range(static_cast<uint64_t>(object));
+            }
             if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {
                 hash_range(object);

@@ -2,6 +2,7 @@
 #include <CASTL/CADeque.h>
 #include <CASTL/CADeque.h>
 #include <CASTL/CAUnorderedMap.h>
+#include <Hasher.h>
 #include <GPUTexture.h>
 #include "VulkanIncludes.h"
 #include "RenderBackendSettings.h"
@@ -75,7 +76,7 @@ namespace graphics_backend
 		VmaAllocator m_GlobalAllocator = nullptr;
 		std::mutex m_Mutex;
 		castl::deque<castl::tuple<vk::Buffer, VmaAllocation, FrameType>> m_PendingReleasingBuffers;
-		castl::unordered_map<vk::Buffer, VmaAllocation, hash_utils::default_hashAlg> m_ActiveBuffers;
+		castl::unordered_map<vk::Buffer, VmaAllocation, cacore::hash<vk::Buffer>> m_ActiveBuffers;
 		TFrameboundReleaser<CVulkanBufferObject> m_BufferFrameboundReleaser;
 
 		void ScheduleReleaseImage(VulkanImageObject_Internal& releasingImage);

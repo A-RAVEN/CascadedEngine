@@ -57,7 +57,7 @@ namespace graphics_backend
 			, tracking_attachment_ref_subpass.end()
 			, VK_SUBPASS_EXTERNAL);
 
-		castl::unordered_set<vk::SubpassDependency, hash_utils::default_hashAlg> dependencies{};
+		castl::unordered_set<vk::SubpassDependency, cacore::hash<vk::SubpassDependency>> dependencies{};
 
 		auto iterate_set_attachment_usage = [
 				&tracking_attachment_usages

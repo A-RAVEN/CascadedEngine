@@ -1,6 +1,7 @@
 #pragma once
 #include <ThreadManager.h>
 #include <CRenderGraph.h>
+#include <Hasher.h>
 #include "VulkanApplicationSubobjectBase.h"
 #include "RenderPassObject.h"
 #include "FramebufferObject.h"
@@ -51,12 +52,12 @@ namespace graphics_backend
 	public:
 		virtual TIndex RegisterGraphicsPipelineState(GraphicsPipelineStatesData const& pipelineStates) override;
 		virtual void AddBatch(castl::function<void(CInlineCommandList& commandList)> drawBatchFunc) override;
-		castl::unordered_map<GraphicsPipelineStatesData, uint32_t, hash_utils::default_hashAlg> const& GetPipelineStates() const { return m_PipelineStates; }
+		castl::unordered_map<GraphicsPipelineStatesData, uint32_t, cacore::hash<GraphicsPipelineStatesData>> const& GetPipelineStates() const { return m_PipelineStates; }
 		castl::vector<castl::function<void(CInlineCommandList& commandList)>> const& GetDrawBatchFuncs() const { return m_DrawBatchFuncs; }
 		uint32_t GetPSOCount() const { return m_PipelineStates.size(); }
 		GraphicsPipelineStatesData const* GetPSO(uint32_t index) const { return p_PSOs[index]; }
 	private:
-		castl::unordered_map<GraphicsPipelineStatesData, uint32_t, hash_utils::default_hashAlg> m_PipelineStates;
+		castl::unordered_map<GraphicsPipelineStatesData, uint32_t, cacore::hash<GraphicsPipelineStatesData>> m_PipelineStates;
 		castl::vector<GraphicsPipelineStatesData const*> p_PSOs;
 		castl::vector<castl::function<void(CInlineCommandList& commandList)>> m_DrawBatchFuncs;
 	};
