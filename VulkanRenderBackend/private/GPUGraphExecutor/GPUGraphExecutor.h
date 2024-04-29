@@ -274,14 +274,14 @@ namespace graphics_backend
 		void PrepareResources();
 
 		void PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
 			, DrawCallBatch const& batch
 			, GPUPassBatchInfo const& batchInfo
 		);
 
 		void PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Image, ResourceUsageFlags>& inoutImageUsageFlagCache
-			, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
+			, castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>>& inoutImageUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
 			, ShaderArgList const* shaderArgList);
 		void PrepareFrameBufferAndPSOs();
 		void RecordGraph();

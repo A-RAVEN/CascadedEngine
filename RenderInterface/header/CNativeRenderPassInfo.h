@@ -1,7 +1,6 @@
 #pragma once
 #include <CASTL/CAFunctional.h>
 #include <CASTL/CAVector.h>
-#include <uhash.h>
 #include "Common.h"
 #include "ShaderProvider.h"
 #include "CPipelineStateObject.h"
@@ -15,8 +14,6 @@
 
 namespace graphics_backend
 {
-
-
 	struct CAttachmentInfo
 	{
 		ETextureFormat format = ETextureFormat::E_R8G8B8A8_UNORM;

@@ -1,6 +1,6 @@
 #pragma once
 #include "VulkanApplicationSubobjectBase.h"
-#include <uhash.h>
+#include <Hasher.h>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAFunctional.h>

@@ -37,17 +37,23 @@ namespace cacore
         template<typename Obj>
         constexpr void inline hash(const Obj& object)
         {
-            using objType = std::remove_reference_t<decltype(object)>;
-            if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
+            using objType = std::remove_cvref_t<decltype(object)>;
+            if constexpr (std::is_trivially_copyable_v<objType>)
             {
-                hash_range(static_cast<uint64_t>(managed_pointer_traits<objType>::get_pointer(object)));
+                //直接对对象内存算哈希值
+                hash_range(object);
             }
-            if constexpr (std::is_pointer_v<objType>)
+            else if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
             {
-                //赋值空
-                hash_range(static_cast<uint64_t>(object));
+                //对指针地址算哈希值
+                hash_range(reinterpret_cast<uint64_t>(managed_pointer_traits<objType>::get_pointer(object)));
             }
-            if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
+            else if constexpr (std::is_pointer_v<objType>)
+            {
+                //对指针地址算哈希值
+                hash_range(reinterpret_cast<uint64_t>(object));
+            }
+            else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {
                 hash_range(object);
             }

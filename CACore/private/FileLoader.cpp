@@ -2,7 +2,6 @@
 #include "CASTL/CAVector.h"
 #include "CASTL/CAString.h"
 #include <fstream>
-#include <uhash.h>
 
 namespace cacore
 {
@@ -46,22 +45,4 @@ namespace cacore
 		}
 		file_dst.close();
 	}
-
-	struct testStr
-	{
-		float val0;
-		float v1;
-		bool v2;
-		std::string t3;
-
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, testStr const& provider) noexcept
-		{
-			hash_utils::hash_append(h
-				, provider.val0
-				, provider.v1
-				, provider.v2
-				, provider.t3);
-		}
-	};
 }

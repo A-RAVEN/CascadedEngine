@@ -234,7 +234,7 @@ namespace graphics_backend
 	}
 
 	template<typename T>
-	void UpdateResourceUsageFlags(castl::unordered_map<T, ResourceUsageFlags>& inoutResourceUsageFlagCache
+	void UpdateResourceUsageFlags(castl::unordered_map<T, ResourceUsageFlags, cacore::hash<T>>& inoutResourceUsageFlagCache
 		, T resource, ResourceUsageFlags flags)
 	{
 		auto found = inoutResourceUsageFlagCache.find(resource);
@@ -249,7 +249,7 @@ namespace graphics_backend
 	};
 
 	template<typename T>
-	ResourceUsageFlags GetResourceUsage(castl::unordered_map<T, ResourceUsageFlags>& inoutResourceUsageFlagCache
+	ResourceUsageFlags GetResourceUsage(castl::unordered_map<T, ResourceUsageFlags, cacore::hash<T>>& inoutResourceUsageFlagCache
 		, T resource
 		, ResourceUsageFlags defaultFlags = ResourceUsage::eDontCare)
 	{
@@ -262,7 +262,7 @@ namespace graphics_backend
 	};
 
 	void GPUGraphExecutor::PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
-		, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
+		, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
 		, DrawCallBatch const& batch
 		, GPUPassBatchInfo const& batchInfo
 	)
@@ -296,8 +296,8 @@ namespace graphics_backend
 	}
 
 	void GPUGraphExecutor::PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-		, castl::unordered_map<vk::Image, ResourceUsageFlags>& inoutResourceUsageFlagCache
-		, castl::unordered_map<vk::Buffer, ResourceUsageFlags>& inoutBufferUsageFlagCache
+		, castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>>& inoutResourceUsageFlagCache
+		, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
 		, ShaderArgList const* shaderArgList)
 	{
 		castl::deque<ShaderArgList const*> shaderArgLists = { shaderArgList };
@@ -347,8 +347,8 @@ namespace graphics_backend
 	{
 		auto& renderPasses = m_Graph.GetRenderPasses();
 
-		castl::unordered_map<vk::Image, ResourceUsageFlags> imageUsageFlagCache;
-		castl::unordered_map<vk::Buffer, ResourceUsageFlags> bufferUsageFlagCache;
+		castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>> imageUsageFlagCache;
+		castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>> bufferUsageFlagCache;
 
 		for (auto& renderPass : renderPasses)
 		{

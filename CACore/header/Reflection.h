@@ -45,6 +45,7 @@ struct CATypeDescriptor<Type>\
 };
 #define CA_PRIVATE_REFLECTION(Type) friend struct CATypeDescriptor<Type>;
 
+
 namespace careflection
 {
     struct any_type

@@ -1,5 +1,6 @@
 #pragma once
 #include <uhash.h>
+#include <Hasher.h>
 #include <CRenderBackend.h>
 #include "StaticMeshResource.h"
 
@@ -62,7 +63,9 @@ public:
 	struct MeshDrawListInternal
 	{
 		TIndex psoID;
-		castl::unordered_map<MeshDrawInfo, castl::pair<castl::shared_ptr<graphics_backend::GPUBuffer>, castl::vector<uint32_t>>, hash_utils::default_hashAlg> drawCalls;
+		castl::unordered_map<MeshDrawInfo
+			, castl::pair<castl::shared_ptr<graphics_backend::GPUBuffer>
+			, castl::vector<uint32_t>>, cacore::hash<MeshDrawInfo>> drawCalls;
 	};
 
 	static CVertexInputDescriptor GetDescriptor()
@@ -202,7 +205,7 @@ public:
 private:
 	castl::unordered_map<graphics_backend::GraphicsPipelineStatesData
 		, MeshDrawListInternal
-		, hash_utils::default_hashAlg> m_MeshBatchs;
+		, cacore::hash<graphics_backend::GraphicsPipelineStatesData>> m_MeshBatchs;
 	castl::vector<glm::mat4> m_Instances;
 	castl::vector<ShaderBindingBuilder> m_ShaderBindingDescriptors;
 	castl::shared_ptr<graphics_backend::GPUBuffer> m_InstanceBuffer;

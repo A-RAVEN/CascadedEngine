@@ -6,6 +6,7 @@
 #include <CASTL/CAString.h>
 #include <unordered_map>
 #include <CASTL/CASharedPtr.h>
+#include <glm/glm.hpp>
 
 
 struct TestStruct1
@@ -13,6 +14,7 @@ struct TestStruct1
 	castl::shared_ptr<float> testV;
 	float aa;
 	float bb;
+	float* pcc;
 	auto operator <=>(const TestStruct1&) const = default;
 };
 
@@ -79,9 +81,13 @@ int main(int argc, char* argv[])
 	cacore::deserializer<decltype(byteBuffer)> deserializer(byteBuffer);
 	deserializer.deserialize(tstMap2);
 
-	TestStruct1 testStruct2{ testFloat, 1.0f, 2.0f };
+	TestStruct1 testStruct2{ testFloat, 1.0f, 2.0f, nullptr };
+	castl::unordered_map<TestStruct1, int, cacore::hash<TestStruct1>> tstMap3;
+	tstMap3.insert({ testStruct2, 3 });
 	std::cout << careflection::aggregate_member_count<TestStruct1>() << std::endl;
 	//static_assert(careflection::aggregate_member_count<TestStruct1>() == 2, "Why");
+
+	static_assert(std::is_trivially_copyable_v<glm::vec4>, "vec4 not trivially copyable");
 
 	byteBuffer.clear();
 	cacore::serialize(byteBuffer, testStruct2);
