@@ -5,6 +5,10 @@
 
 namespace graphics_backend
 {
+	CFrameCountContext::CFrameCountContext(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
+	{
+		
+	}
 	void CFrameCountContext::WaitingForCurrentFrame()
 	{
 		++m_CurrentFrameID;
@@ -14,7 +18,7 @@ namespace graphics_backend
 		castl::vector<vk::Fence> fences = {
 			m_SubmitFrameFences[currentIndex]
 		};
-		GetVulkanApplication()->GetDevice().waitForFences(fences
+		GetDevice().waitForFences(fences
 			, true
 			, std::numeric_limits<uint64_t>::max());
 		std::atomic_thread_fence(std::memory_order_release);
@@ -100,27 +104,26 @@ namespace graphics_backend
 		return castl::pair<uint32_t, vk::Queue>(INVALID_INDEX, nullptr);
 	}
 
-	void CFrameCountContext::Initialize_Internal(CVulkanApplication const* owningApplication)
+	void CFrameCountContext::Initialize()
 	{
-
 		assert(m_SubmitFrameFences.empty());
 		m_CurrentFrameID = 0;
 		m_SubmitFrameFences.reserve(SWAPCHAIN_BUFFER_COUNT);
 		for (uint32_t itrFenceId = 0; itrFenceId < SWAPCHAIN_BUFFER_COUNT; ++itrFenceId)
 		{
 			vk::FenceCreateInfo fenceCreateInfo(vk::FenceCreateFlagBits::eSignaled);
-			vk::Fence && newFence = m_OwningApplication->GetDevice().createFence(fenceCreateInfo);
+			vk::Fence&& newFence = GetDevice().createFence(fenceCreateInfo);
 			m_SubmitFrameFences.push_back(newFence);
 		}
 		m_FenceSubmitFrameIDs.resize(SWAPCHAIN_BUFFER_COUNT);
 		castl::fill(m_FenceSubmitFrameIDs.begin(), m_FenceSubmitFrameIDs.end(), INVALID_FRAMEID);
 	}
 
-	void CFrameCountContext::Release_Internal()
+	void CFrameCountContext::Release()
 	{
 		for (auto& fence : m_SubmitFrameFences)
 		{
-			m_OwningApplication->GetDevice().destroyFence(fence);
+			GetDevice().destroyFence(fence);
 		}
 		m_SubmitFrameFences.clear();
 		m_FenceSubmitFrameIDs.clear();

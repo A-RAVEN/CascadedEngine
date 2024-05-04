@@ -1,12 +1,19 @@
 #pragma once
+#include <CASTL/CASharedPtr.h>
 #include <GPUGraph.h>
-#include <VulkanApplication.h>
 #include <VulkanApplicationSubobjectBase.h>
 #include <VulkanImageObject.h>
 #include <InterfaceTranslator.h>
+#include <VulkanBarrierCollector.h>
 #include "ShaderBindingHolder.h"
+
 namespace graphics_backend
 {
+	class FramebufferObject;
+	class RenderPassObject;
+	class CPipelineObject;
+	class CVulkanApplication;
+
 	struct VertexAttributeBindingData
 	{
 		uint32_t bindingIndex;
@@ -185,19 +192,7 @@ namespace graphics_backend
 	class BufferSubAllocator : public SubAllocator
 	{
 	public:
-		void Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)
-		{
-			m_Buffers.clear();
-			m_Buffers.reserve(passAllocationCount);
-			for (int i = 0; i < passAllocationCount; ++i)
-			{
-				auto bufferObj = app.GetMemoryManager().AllocateBuffer(EMemoryType::GPU
-					, EMemoryLifetime::FrameBound
-					, descriptor.count * descriptor.stride
-					, EBufferUsageFlagsTranslate(descriptor.usageFlags));
-				m_Buffers.push_back(castl::move(bufferObj));
-			}
-		}
+		void Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor);
 
 		virtual void Release()
 		{
@@ -224,17 +219,8 @@ namespace graphics_backend
 	class ImageSubAllocator : public SubAllocator
 	{
 	public:
-		void Allocate(CVulkanApplication& app, GPUTextureDescriptor const& descriptor)
-		{
-			m_Images.clear();
-			m_Images.reserve(passAllocationCount);
-			for (int i = 0; i < passAllocationCount; ++i)
-			{
-				auto imgObj = app.GetMemoryManager().AllocateImage(descriptor, EMemoryType::GPU, EMemoryLifetime::FrameBound);
-				m_Images.push_back(castl::move(imgObj));
-				m_ImageViews.push_back(app.CreateDefaultImageView(descriptor, imgObj->GetImage(), true, true));
-			}
-		}
+		void Allocate(CVulkanApplication& app, GPUTextureDescriptor const& descriptor);
+
 
 		virtual void Release()
 		{
@@ -269,6 +255,9 @@ namespace graphics_backend
 	class GPUGraphExecutor : public VKAppSubObjectBase, public ShadderResourceProvider
 	{
 	public:
+		GPUGraphExecutor(CVulkanApplication& application);
+		void Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph);
+		void Release() override;
 		void PrepareGraph();
 	private:
 		void PrepareResources();
@@ -294,7 +283,7 @@ namespace graphics_backend
 		virtual vk::Buffer GetBufferFromHandle(BufferHandle const& handle) override { return GetBufferHandleBufferObject(handle); }
 		virtual vk::ImageView GetImageView(ImageHandle const& handle) override { return GetTextureHandleImageView(handle);  }
 	private:
-		GPUGraph m_Graph;
+		castl::shared_ptr<GPUGraph> m_Graph;
 		//Runtime
 		castl::vector<GPUPassInfo> m_Passes;
 		//

@@ -3,6 +3,7 @@
 #include <CRenderGraph.h>
 #include <ShaderBindingBuilder.h>
 #include <CASTL/CAUnorderedMap.h>
+#include <CRenderBackend.h>
 #include "WindowContext.h"
 #include "CVulkanThreadContext.h"
 #include "FrameCountContext.h"
@@ -13,15 +14,46 @@
 #include "VulkanPipelineObject.h"
 #include "FramebufferObject.h"
 #include "GPUBuffer_Impl.h"
-
 #include "IUploadingResource.h"
 #include "GPUObjectManager.h"
 #include "RenderGraphExecutor.h"
 #include "ShaderBindingSet_Impl.h"
 #include "GPUTexture_Impl.h"
+#include "GPUGraphExecutor/GPUGraphExecutor.h"
 
 namespace graphics_backend
 {
+	template<typename T, typename...TArgs>
+	concept has_create = requires(T t)
+	{
+		t.Create(TArgs{}...);
+	};
+
+	template<typename T, typename...TArgs>
+	concept has_initialize = requires(T t)
+	{
+		t.Initialize(TArgs{}...);
+	};
+
+
+	template<typename T>
+	concept has_release = requires(T t)
+	{
+		t.Release();
+	};
+
+	template<typename T>
+	struct SubObjectDefaultDeleter {
+		void operator()(T* deleteObject)
+		{
+			if constexpr (has_release<T>)
+			{
+				deleteObject->Release();
+			}
+			delete deleteObject;
+		}
+	};
+
 	using namespace thread_management;
 	class CVulkanApplication
 	{
@@ -58,11 +90,6 @@ namespace graphics_backend
 		void ReturnThreadContext(CVulkanThreadContext& returningContext);
 		castl::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
 
-		//CTaskGraph* GetGraphicsTaskGraph() const { return p_TaskGraph; }
-
-		//CTask* NewTask();
-		//TaskParallelFor* NewTaskParallelFor();
-		//CTask* NewUploadingTask(UploadingResourceType resourceType);
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
 		castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
 			, bool visible
@@ -106,6 +133,54 @@ namespace graphics_backend
 			return newObject;
 		}
 
+		template<typename T, typename...TArgs>
+		T NewSubObject(TArgs&&...Args) const {
+			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
+				, "Type T Not Compatible To Vulkan SubObject");
+			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
+			{
+				return T{ *this, castl::forward<TArgs>(Args)... };
+			}
+			else
+			{
+				static_assert((sizeof(TArgs...) == 0 || has_initialize<T, TArgs...> || has_create<T, TArgs...>), "SubObject T Created With Arguments But Has No Initializer");
+				T result{ *this };
+				if constexpr (has_initialize<T, TArgs...>)
+				{
+					result.Initialize(castl::forward<TArgs>(Args)...);
+				}
+				else if constexpr (has_create<T, TArgs...>)
+				{
+					result.Create(castl::forward<TArgs>(Args)...);
+				}
+				return result;
+			}
+		}
+
+		template<typename T, typename...TArgs>
+		castl::shared_ptr<T> NewSubObject_Shared(TArgs&&...Args) {
+			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
+				, "Type T Not Compatible To Vulkan SubObject");
+			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
+			{
+				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this, castl::forward<TArgs>(Args)...), SubObjectDefaultDeleter<T>{} };
+				return newSubObject;
+			}
+			else
+			{
+				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this), SubObjectDefaultDeleter<T>{} };
+				if constexpr (has_initialize<T, TArgs...>)
+				{
+					newSubObject->Initialize(castl::forward<TArgs>(Args)...);
+				}
+				else if constexpr(has_create<T, TArgs...>)
+				{
+					newSubObject->Create(castl::forward<TArgs>(Args)...);
+				}
+				return newSubObject;
+			}
+		};
+
 		void ReleaseSubObject(ApplicationSubobjectBase& subobject) const
 		{
 			subobject.Release();
@@ -113,8 +188,7 @@ namespace graphics_backend
 
 		void SyncPresentationFrame(FrameType frameID);
 		void ExecuteStates(CTaskGraph* rootTaskGraph, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID);
-
-		void PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph);
+		void ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame);
 
 		void CreateImageViews2D(vk::Format format, castl::vector<vk::Image> const& inImages, castl::vector<vk::ImageView>& outImageViews) const;
 		vk::ImageView CreateDefaultImageView(

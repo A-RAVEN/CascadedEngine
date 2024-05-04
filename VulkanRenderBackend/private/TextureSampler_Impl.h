@@ -9,14 +9,14 @@ namespace graphics_backend
 	{
 	public:
 		TextureSampler_Impl(CVulkanApplication& app);
-		virtual TextureSamplerDescriptor const& GetDescriptor() const override { return *p_Descriptor; }
+		virtual TextureSamplerDescriptor const& GetDescriptor() const override { return m_Descriptor; }
 		void Create(TextureSamplerDescriptor const& descriptor);
 		void Initialize(TextureSamplerDescriptor const& descriptor);
 		virtual void Release() override;
 
 		vk::Sampler GetSampler() const { return m_Sampler; }
 	private:
-		TextureSamplerDescriptor const* p_Descriptor;
+		TextureSamplerDescriptor m_Descriptor;
 		vk::Sampler m_Sampler;
 	};
 

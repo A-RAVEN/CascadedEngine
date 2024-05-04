@@ -33,9 +33,9 @@ namespace graphics_backend
 		vk::RenderPass GetRenderPass() const { return m_RenderPass; }
 		uint32_t GetAttachmentCount() const { return m_AttachmentCounrt; }
 		uint32_t GetSubpassCount() const { return m_SubpassCount; }
-		RenderPassDescriptor const* GetDescriptor() const { return m_Descriptor; }
+		RenderPassDescriptor const* GetDescriptor() const { return &m_Descriptor; }
 	private:
-		RenderPassDescriptor const* m_Descriptor = nullptr;
+		RenderPassDescriptor m_Descriptor;
 		uint32_t m_AttachmentCounrt = 0;
 		uint32_t m_SubpassCount = 0;
 		vk::RenderPass m_RenderPass = nullptr;

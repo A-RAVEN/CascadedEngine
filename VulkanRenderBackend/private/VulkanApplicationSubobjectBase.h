@@ -41,6 +41,7 @@ namespace graphics_backend
 		}
 	};
 
+
 	class VKAppSubObjectBase
 	{
 	public:
@@ -85,4 +86,6 @@ namespace graphics_backend
 	private:
 		CVulkanApplication& m_OwningApplication;
 	};
+
+
 }

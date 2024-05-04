@@ -8,6 +8,7 @@ void* operator new[](size_t size, size_t alignment, size_t alignmentOffset, cons
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CADeque.h>
 #include <CASTL/CAVector.h>
+#include <CASTL/CASharedPtr.h>
 #include <CACore/header/ThreadSafePool.h>
 #include "TaskNode.h"
 
@@ -87,6 +88,7 @@ namespace thread_management
 		virtual CTaskGraph* WaitOnEvent(castl::string const& name, uint64_t waitingID) override;
 		virtual CTaskGraph* SignalEvent(castl::string const& name, uint64_t signalID) override;
 		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) override;
+		virtual void AddResource(castl::shared_ptr<void> const& resource) override;
 		virtual std::shared_future<void> Run() override;
 
 		virtual CTask* NewTask() override;

@@ -56,16 +56,15 @@ namespace graphics_backend
 	{
 		PrepareResources();
 		PrepareFrameBufferAndPSOs();
-
 		RecordGraph();
 	}
 
 
 	void GPUGraphExecutor::PrepareResources()
 	{
-		auto& imageManager = m_Graph.GetImageManager();
-		auto& bufferManager = m_Graph.GetBufferManager();
-		auto renderPasses = m_Graph.GetRenderPasses();
+		auto& imageManager = m_Graph->GetImageManager();
+		auto& bufferManager = m_Graph->GetBufferManager();
+		auto renderPasses = m_Graph->GetRenderPasses();
 		m_BufferManager.ResetAllocator();
 		m_ImageManager.ResetAllocator();
 		for (auto& renderPass : renderPasses)
@@ -144,8 +143,8 @@ namespace graphics_backend
 			m_BufferManager.NextPass();
 		}
 
-		m_ImageManager.AllocateResources(GetVulkanApplication(), m_Graph.GetImageManager());
-		m_BufferManager.AllocateResources(GetVulkanApplication(), m_Graph.GetBufferManager());
+		m_ImageManager.AllocateResources(GetVulkanApplication(), m_Graph->GetImageManager());
+		m_BufferManager.AllocateResources(GetVulkanApplication(), m_Graph->GetBufferManager());
 	}
 
 	GPUTextureDescriptor const* GPUGraphExecutor::GetTextureHandleDescriptor(ImageHandle const& handle) const
@@ -155,7 +154,7 @@ namespace graphics_backend
 		{
 			case ImageHandle::ImageType::Internal:
 			{
-				return m_Graph.GetImageManager().GetDescriptor(handle.GetName());
+				return m_Graph->GetImageManager().GetDescriptor(handle.GetName());
 			}
 			case ImageHandle::ImageType::External:
 			{
@@ -295,6 +294,27 @@ namespace graphics_backend
 		}
 	}
 
+	GPUGraphExecutor::GPUGraphExecutor(CVulkanApplication& application) : VKAppSubObjectBase(application)
+	{
+	}
+
+	void GPUGraphExecutor::Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph)
+	{
+		m_Graph = gpuGraph;
+	}
+
+	void GPUGraphExecutor::Release()
+	{
+		m_Graph.reset();
+		//Runtime
+		m_Passes.clear();
+		//
+		m_GraphicsCommandBuffers.clear();
+		//Manager
+		m_ImageManager.ReleaseAll();
+		m_BufferManager.ReleaseAll();
+	}
+
 	void GPUGraphExecutor::PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
 		, castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>>& inoutResourceUsageFlagCache
 		, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
@@ -345,7 +365,7 @@ namespace graphics_backend
 
 	void GPUGraphExecutor::PrepareFrameBufferAndPSOs()
 	{
-		auto& renderPasses = m_Graph.GetRenderPasses();
+		auto& renderPasses = m_Graph->GetRenderPasses();
 
 		castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>> imageUsageFlagCache;
 		castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>> bufferUsageFlagCache;
@@ -495,8 +515,8 @@ namespace graphics_backend
 	}
 	void GPUGraphExecutor::RecordGraph()
 	{
-		CA_ASSERT(m_Passes.size() == m_Graph.GetRenderPasses().size(), "Passes and RenderPasses Mismatch");
-		auto& renderPasses = m_Graph.GetRenderPasses();
+		CA_ASSERT(m_Passes.size() == m_Graph->GetRenderPasses().size(), "Passes and RenderPasses Mismatch");
+		auto& renderPasses = m_Graph->GetRenderPasses();
 
 		for (uint32_t passID = 0; passID < m_Passes.size(); ++passID)
 		{
@@ -552,6 +572,30 @@ namespace graphics_backend
 			renderPassCommandBuffer.endRenderPass();
 			renderPassCommandBuffer.end();
 			m_GraphicsCommandBuffers.push_back(renderPassCommandBuffer);
+		}
+	}
+	void BufferSubAllocator::Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)
+	{
+		m_Buffers.clear();
+		m_Buffers.reserve(passAllocationCount);
+		for (int i = 0; i < passAllocationCount; ++i)
+		{
+			auto bufferObj = app.GetMemoryManager().AllocateBuffer(EMemoryType::GPU
+				, EMemoryLifetime::FrameBound
+				, descriptor.count * descriptor.stride
+				, EBufferUsageFlagsTranslate(descriptor.usageFlags));
+			m_Buffers.push_back(castl::move(bufferObj));
+		}
+	}
+	void ImageSubAllocator::Allocate(CVulkanApplication& app, GPUTextureDescriptor const& descriptor)
+	{
+		m_Images.clear();
+		m_Images.reserve(passAllocationCount);
+		for (int i = 0; i < passAllocationCount; ++i)
+		{
+			auto imgObj = app.GetMemoryManager().AllocateImage(descriptor, EMemoryType::GPU, EMemoryLifetime::FrameBound);
+			m_Images.push_back(castl::move(imgObj));
+			m_ImageViews.push_back(app.CreateDefaultImageView(descriptor, imgObj->GetImage(), true, true));
 		}
 	}
 }

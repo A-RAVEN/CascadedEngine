@@ -117,7 +117,7 @@ namespace graphics_backend
 
 	void RenderPassObject::Create(RenderPassDescriptor const& descriptor)
 	{
-		m_Descriptor = &descriptor;
+		m_Descriptor = descriptor;
 		auto& attachmentInfo = descriptor.renderPassInfo.attachmentInfos;
 		auto& subpassInfos = descriptor.renderPassInfo.subpassInfos;
 

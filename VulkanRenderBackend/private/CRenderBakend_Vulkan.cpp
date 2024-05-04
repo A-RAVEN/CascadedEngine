@@ -21,6 +21,11 @@ namespace graphics_backend
 		m_Application.ExecuteStates(taskGraph, pendingRenderGraphs, frameID);
 	}
 
+	void CRenderBackend_Vulkan::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
+	{
+		m_Application.ScheduleGPUFrame(taskGraph, gpuFrame);
+	}
+
 	void CRenderBackend_Vulkan::Release()
 	{
 		m_Application.ReleaseApp();
@@ -51,7 +56,7 @@ namespace graphics_backend
 
 	void CRenderBackend_Vulkan::PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph)
 	{
-		m_Application.PushRenderGraph(inRenderGraph);
+		//m_Application.PushRenderGraph(inRenderGraph);
 	}
 
 	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)

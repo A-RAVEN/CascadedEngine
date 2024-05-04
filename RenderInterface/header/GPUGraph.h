@@ -38,20 +38,20 @@ namespace graphics_backend
 		EIndexBufferType m_IndexBufferType = EIndexBufferType::e16;
 		uint32_t m_IndexBufferOffset = 0;
 
-		DrawCallBatch& SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle);
-		DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset);
-		DrawCallBatch& Draw(castl::function<void(CommandList&)> commandFunc);
+		inline DrawCallBatch& SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle);
+		inline DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset);
+		inline DrawCallBatch& Draw(castl::function<void(CommandList&)> commandFunc);
 	};
 
 	class RenderPass
 	{
 	public:
-		RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
-		RenderPass& SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments);
-		RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
-		RenderPass& DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
-		RenderPass& SetShaders(IShaderSet const* shaderSet);
-		DrawCallBatch& DrawCall();
+		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
+		inline RenderPass& SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments);
+		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
+		inline RenderPass& DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
+		inline RenderPass& SetShaders(IShaderSet const* shaderSet);
+		inline DrawCallBatch& DrawCall();
 
 		castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
 		castl::vector<ImageHandle> const& GetAttachments() const { return m_Arrachments; }
@@ -129,17 +129,17 @@ namespace graphics_backend
 	{
 	public:
 		//Create a new render pass
-		RenderPass& NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore, GraphicsClearValue clearValue = {});
-		RenderPass& NewRenderPass(ImageHandle const& color, ImageHandle const& depth);
-		RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth);
-		RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors);
+		inline RenderPass& NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore, GraphicsClearValue clearValue = {});
+		inline RenderPass& NewRenderPass(ImageHandle const& color, ImageHandle const& depth);
+		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth);
+		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors);
 		//Data Transition
-		void ScheduleData(ImageHandle const& imageHandle, void const* data, size_t size);
-		void ScheduleData(BufferHandle const& bufferHandle, void const* data, size_t size);
+		inline void ScheduleData(ImageHandle const& imageHandle, void const* data, size_t size);
+		inline void ScheduleData(BufferHandle const& bufferHandle, void const* data, size_t size);
 		//Allocate a graph local image
-		void AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
+		inline void AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
 		//Allocate a graph local buffer
-		void AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc);
+		inline void AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc);
 
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }

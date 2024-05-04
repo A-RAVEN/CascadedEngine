@@ -1,5 +1,6 @@
 #pragma once
 #include <CASTL/CAString.h>
+#include <CASTL/CASharedPtr.h>
 #include <future>
 
 namespace thread_management
@@ -7,6 +8,14 @@ namespace thread_management
 	class CThreadManager;
 	class CTaskGraph;
 	class TaskParallelFor;
+
+	//给taskgraph使用
+	class ITaskBoundResource
+	{
+	public:
+		virtual void ReleaseResource() = 0;
+	};
+
 	class CTask
 	{
 	public:
@@ -67,6 +76,13 @@ namespace thread_management
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) = 0;
 		virtual CTaskGraph* WaitOnEvent(castl::string const& name, uint64_t waitingID) = 0;
 		virtual CTaskGraph* SignalEvent(castl::string const& name, uint64_t signalID) = 0;
+
+		virtual void AddResource(castl::shared_ptr<void> const& resource) = 0;
+		template<typename T>
+		void AddResource(castl::shared_ptr<T> const& resource)
+		{
+			AddResource(castl::static_pointer_cast<void>(resource));
+		}
 
 		//延迟初始化函数
 		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) = 0;

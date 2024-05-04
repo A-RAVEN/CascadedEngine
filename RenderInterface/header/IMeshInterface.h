@@ -14,14 +14,14 @@ namespace graphics_backend
 	{
 		CPipelineStateObject pipelineStateObject;
 		CVertexInputDescriptor vertexInputDescriptor;
-		GraphicsShaderSet shaderSet;
+		//GraphicsShaderSet shaderSet;
 		castl::vector<ShaderBindingBuilder> shaderBindingDescriptors;
 
 		bool operator==(GraphicsPipelineStatesData const& rhs) const
 		{
 			return pipelineStateObject == rhs.pipelineStateObject
 				&& vertexInputDescriptor == rhs.vertexInputDescriptor
-				&& shaderSet == rhs.shaderSet
+				//&& shaderSet == rhs.shaderSet
 				&& shaderBindingDescriptors == rhs.shaderBindingDescriptors;
 		}
 
@@ -30,7 +30,7 @@ namespace graphics_backend
 		{
 			hash_append(h, rhs.pipelineStateObject);
 			hash_append(h, rhs.vertexInputDescriptor);
-			hash_append(h, rhs.shaderSet);
+			//hash_append(h, rhs.shaderSet);
 			hash_append(h, rhs.shaderBindingDescriptors);
 		}
 	};

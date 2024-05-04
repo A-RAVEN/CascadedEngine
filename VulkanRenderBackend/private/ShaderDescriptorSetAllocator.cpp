@@ -12,16 +12,16 @@ namespace graphics_backend
 	}
 	void ShaderDescriptorSetAllocator::Create(ShaderDescriptorSetLayoutInfo const& layoutInfo)
 	{
-		m_LayoutInfo = &layoutInfo;
-		uint32_t constantBufferCount = m_LayoutInfo->m_ConstantBufferCount;
-		uint32_t textureCount = m_LayoutInfo->m_TextureCount;
-		uint32_t samplerCount = m_LayoutInfo->m_SamplerCount;
-		uint32_t structuredBufCount = m_LayoutInfo->m_StructuredBufferCount;
+		m_LayoutInfo = layoutInfo;
+		uint32_t constantBufferCount = m_LayoutInfo.m_ConstantBufferCount;
+		uint32_t textureCount = m_LayoutInfo.m_TextureCount;
+		uint32_t samplerCount = m_LayoutInfo.m_SamplerCount;
+		uint32_t structuredBufCount = m_LayoutInfo.m_StructuredBufferCount;
 		uint32_t bindingCount = constantBufferCount + textureCount + samplerCount + structuredBufCount;
 		castl::vector<vk::DescriptorSetLayoutBinding> bindings;
 		bindings.resize(bindingCount);
 		uint32_t bindingIndex = 0;
-		for (uint32_t itrConstant = 0; itrConstant < m_LayoutInfo->m_ConstantBufferCount; ++itrConstant)
+		for (uint32_t itrConstant = 0; itrConstant < m_LayoutInfo.m_ConstantBufferCount; ++itrConstant)
 		{
 			auto& binding = bindings[bindingIndex];
 			binding.binding = bindingIndex;
@@ -31,7 +31,7 @@ namespace graphics_backend
 			++bindingIndex;
 		}
 
-		for (uint32_t itrTexture = 0; itrTexture < m_LayoutInfo->m_TextureCount; ++itrTexture)
+		for (uint32_t itrTexture = 0; itrTexture < m_LayoutInfo.m_TextureCount; ++itrTexture)
 		{
 			auto& binding = bindings[bindingIndex];
 			binding.binding = bindingIndex;
@@ -41,7 +41,7 @@ namespace graphics_backend
 			++bindingIndex;
 		}
 
-		for (uint32_t itrSampler = 0; itrSampler < m_LayoutInfo->m_SamplerCount; ++itrSampler)
+		for (uint32_t itrSampler = 0; itrSampler < m_LayoutInfo.m_SamplerCount; ++itrSampler)
 		{
 			auto& binding = bindings[bindingIndex];
 			binding.binding = bindingIndex;
@@ -51,7 +51,7 @@ namespace graphics_backend
 			++bindingIndex;
 		}
 
-		for (uint32_t itrBuf = 0; itrBuf < m_LayoutInfo->m_StructuredBufferCount; ++itrBuf)
+		for (uint32_t itrBuf = 0; itrBuf < m_LayoutInfo.m_StructuredBufferCount; ++itrBuf)
 		{
 			auto& binding = bindings[bindingIndex];
 			binding.binding = bindingIndex;

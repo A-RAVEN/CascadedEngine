@@ -11,6 +11,7 @@
 #include "ShaderBindingSet.h"
 #include "TextureSampler.h"
 #include "MonitorHandle.h"
+#include "GPUFrame.h"
 
 namespace thread_management
 {
@@ -20,6 +21,7 @@ namespace thread_management
 
 namespace graphics_backend
 {
+	using namespace thread_management;
 	class CRenderBackend
 	{
 	public:
@@ -29,7 +31,11 @@ namespace graphics_backend
 			thread_management::CTaskGraph* taskGraph
 			, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs
 			, uint64_t frameID) = 0;
+
+		virtual void ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame) = 0;
+
 		virtual void Release() = 0;
+
 	
 		virtual void TickWindows() = 0;
 		virtual void PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph) = 0;

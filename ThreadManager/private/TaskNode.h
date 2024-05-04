@@ -2,6 +2,7 @@
 #include <future>
 #include <CASTL/CAVector.h>
 #include <CASTL/CAString.h>
+#include <CASTL/CASharedPtr.h>
 namespace thread_management
 {
 	class ThreadManager_Impl1;
@@ -48,6 +49,7 @@ namespace thread_management
 		void SignalEvent_Internal(const castl::string& name, uint64_t signalID);
 		void DependsOn_Internal(TaskNode* dependsOnNode);
 		void FinalizeExecution_Internal();
+		void AddResource_Internal(castl::shared_ptr<void> const& resource);
 	protected:
 		ThreadManager_Impl1* m_OwningManager;
 		TaskBaseObject* m_Owner;
@@ -61,6 +63,7 @@ namespace thread_management
 		castl::vector<TaskNode*>m_Dependents;
 		castl::vector<TaskNode*>m_Successors;
 		std::atomic<uint32_t>m_PendingDependsOnTaskCount{0};
+		castl::vector<castl::shared_ptr<void>> m_BoundResources;
 
 		bool m_HasPromise = false;
 		std::promise<void> m_Promise;

@@ -273,6 +273,7 @@ namespace careflection
         constexpr auto member_count = aggregate_member_count<objType>();
 
         static_assert(member_count < max_visit_members, "struct exceeds max member count, whitch is 64");
+        static_assert(member_count > 0, "Empty struct found!");
 #pragma region Boilerplate
         if constexpr (member_count == 0) {
             return visitor();

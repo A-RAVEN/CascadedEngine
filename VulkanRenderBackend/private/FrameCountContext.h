@@ -4,9 +4,10 @@
 #include "RenderBackendSettings.h"
 namespace graphics_backend
 {
-	class CFrameCountContext : public ApplicationSubobjectBase
+	class CFrameCountContext : public VKAppSubObjectBaseNoCopy
 	{
 	public:
+		CFrameCountContext(CVulkanApplication& app);
 		void WaitingForCurrentFrame();
 		void SubmitGraphics(castl::vector<vk::CommandBuffer> const& commandbufferList
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores = {}
@@ -63,15 +64,14 @@ namespace graphics_backend
 		{
 			return m_ComputeQueueReference.first;
 		}
-	private:
-		// 通过 ApplicationSubobjectBase 继承
-		virtual void Initialize_Internal(CVulkanApplication const* owningApplication) override;
-		virtual void Release_Internal() override;
+		void Initialize();
+		virtual void Release() override;
 	private:
 		castl::atomic<FrameType> m_CurrentFrameID {0};
 		FrameType m_LastFinshedFrameID = INVALID_FRAMEID;
 		castl::vector<vk::Fence> m_SubmitFrameFences;
 		castl::vector<FrameType> m_FenceSubmitFrameIDs;
+
 		castl::pair<uint32_t, uint32_t> m_GraphicsQueueReference;
 		vk::Queue m_GraphicsQueue = nullptr;
 		castl::pair<uint32_t, uint32_t> m_ComputeQueueReference;

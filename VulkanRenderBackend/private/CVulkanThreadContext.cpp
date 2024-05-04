@@ -74,11 +74,6 @@ namespace graphics_backend
 		return m_FrameBoundCommandBufferPools[poolID];
 	}
 
-	//void CVulkanThreadContext::CollectSubmittingCommandBuffers(castl::vector<vk::CommandBuffer>& inoutCommandBufferList)
-	//{
-	//	//GetCurrentFramePool().CollectCommandBufferList(inoutCommandBufferList);
-	//}
-
 	void CVulkanThreadContext::DoReleaseContextResourceByIndex(TIndex releasingIndex)
 	{
 		GetPoolByIndex(releasingIndex).ResetCommandBufferPool();

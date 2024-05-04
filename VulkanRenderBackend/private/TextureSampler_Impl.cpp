@@ -15,7 +15,7 @@ namespace graphics_backend
 
 	void TextureSampler_Impl::Initialize(TextureSamplerDescriptor const& descriptor)
 	{
-		p_Descriptor = &descriptor;
+		m_Descriptor = descriptor;
 		vk::SamplerCreateInfo samplerCreateInfo{
 			{}
 			, ETextureSamplerFilterModeToVkFilter(descriptor.magFilterMode)
@@ -39,7 +39,6 @@ namespace graphics_backend
 	void TextureSampler_Impl::Release()
 	{
 		GetDevice().destroySampler(m_Sampler);
-		p_Descriptor = nullptr;
 		m_Sampler = nullptr;
 	}
 }

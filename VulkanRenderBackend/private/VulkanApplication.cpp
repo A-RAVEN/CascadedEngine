@@ -12,6 +12,7 @@
 #include "CommandList_Impl.h"
 #include "InterfaceTranslator.h"
 #include "RenderGraphExecutor.h"
+#include "GPUGraphExecutor/GPUGraphExecutor.h"
 
 namespace graphics_backend
 {
@@ -176,10 +177,20 @@ namespace graphics_backend
 		m_GPUTexturePool.TickUpload(memoryResourceUploadingTaskGraph->NewTaskGraph()->Name("Tick Upload  Textures"));
 	}
 
-	void CVulkanApplication::PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph)
+	void CVulkanApplication::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
 	{
-		//m_PendingRenderGraphs.push_back(inRenderGraph);
+		auto runGpuFrameTaskGraph = taskGraph->NewTaskGraph()
+			->Name("Run GPU Frame")
+			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
+			{
+				for (auto& graph : gpuFrame.graphs)
+				{
+					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(graph);
+					thisGraph->AddResource(executor);
+				}
+			});
 	}
+
 
 	void CVulkanApplication::CreateImageViews2D(vk::Format format, castl::vector<vk::Image> const& inImages,
 		castl::vector<vk::ImageView>& outImageViews) const
@@ -466,7 +477,7 @@ namespace graphics_backend
 			defaultQueues.push_back(itrQueue);
 		}
 
-		m_SubmitCounterContext.Initialize(this);
+		m_SubmitCounterContext.Initialize();
 		m_SubmitCounterContext.InitializeSubmitQueues(generalQueueRef, computeQueueRef, transferQueueRef);
 		m_SubmitCounterContext.InitializeDefaultQueues(defaultQueues);
 
@@ -617,6 +628,7 @@ namespace graphics_backend
 	, m_RenderGraphDic(*this)
 	, m_ConstantSetAllocator(*this)
 	, m_ShaderBindingSetAllocator(*this)
+	, m_SubmitCounterContext(*this)
 	{
 	}
 

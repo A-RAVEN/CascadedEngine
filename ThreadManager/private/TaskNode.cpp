@@ -99,8 +99,16 @@ namespace thread_management
 		{
 			m_OwningManager->SignalEvent(m_SignalEventName, m_EventSignalID);
 		}
+		m_BoundResources.clear();
 		m_Owner->NotifyChildNodeFinish(this);
 		m_Allocator->Release(this);
+	}
+
+	void TaskNode::AddResource_Internal(castl::shared_ptr<void> const& resource)
+	{
+		if (resource == nullptr)
+			return;
+		m_BoundResources.push_back(resource);
 	}
 }
 

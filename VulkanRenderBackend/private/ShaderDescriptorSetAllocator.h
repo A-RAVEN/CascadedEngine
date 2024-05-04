@@ -102,12 +102,12 @@ namespace graphics_backend
 		ShaderDescriptorSetHandle AllocateSet();
 
 		vk::DescriptorSetLayout GetDescriptorSetLayout() const { return m_DescriptorSetLayout; }
-		ShaderDescriptorSetLayoutInfo const& GetLayoutInfo() const { return *m_LayoutInfo; }
+		ShaderDescriptorSetLayoutInfo const& GetLayoutInfo() const { return m_LayoutInfo; }
 
 		void ReleaseFrameboundResources() { m_DescriptorPool.ReleaseFrameboundResources(); }
 	private:
 		std::mutex m_Mutex;
-		ShaderDescriptorSetLayoutInfo const* m_LayoutInfo;
+		ShaderDescriptorSetLayoutInfo m_LayoutInfo;
 		vk::DescriptorSetLayout m_DescriptorSetLayout;
 		ChunkedDescriptorPoolWrapper m_DescriptorPool;
 	};

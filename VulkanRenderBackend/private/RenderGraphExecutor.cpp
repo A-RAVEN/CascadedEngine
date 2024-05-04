@@ -1272,12 +1272,12 @@ namespace graphics_backend
 					auto& psoData = subpassData.meshInterface->GetGraphicsPipelineStatesData(psoID);
 					auto& pipelineStates = psoData.pipelineStateObject;
 					auto& vertexInputs = psoData.vertexInputDescriptor;
-					auto& shaderSet = psoData.shaderSet;
+					//auto& shaderSet = psoData.shaderSet;
 					auto& shaderBindings = psoData.shaderBindingDescriptors;
 
-					//shaders
-					auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert });
-					auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag });
+					////shaders
+					//auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert });
+					//auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag });
 
 					//shaderBindings
 					castl::vector<vk::DescriptorSetLayout> layouts;
@@ -1300,7 +1300,7 @@ namespace graphics_backend
 					CPipelineObjectDescriptor pipelineDesc{
 					pipelineStates
 					, vertexInputs
-					, ShaderStateDescriptor{vertModule, fragModule}
+					, ShaderStateDescriptor{}
 					, layouts
 					, m_RenderPassObject
 					, subpassID
@@ -1335,12 +1335,12 @@ namespace graphics_backend
 								auto& psoData = *batchManager.GetPSO(psoID);
 								auto& pipelineStates = psoData.pipelineStateObject;
 								auto& vertexInputs = psoData.vertexInputDescriptor;
-								auto& shaderSet = psoData.shaderSet;
+								//auto& shaderSet = psoData.shaderSet;
 								auto& drawLevelShaderBindings = psoData.shaderBindingDescriptors;
 
 								//shaders
-								auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert }, shaderSet.vert->GetUniqueName());
-								auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag }, shaderSet.frag->GetUniqueName());
+								//auto vertModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.vert }, shaderSet.vert->GetUniqueName());
+								//auto fragModule = gpuObjectManager.GetShaderModuleCache().GetOrCreate({ shaderSet.frag }, shaderSet.frag->GetUniqueName());
 
 								//shaderBindings
 								castl::vector<vk::DescriptorSetLayout> layouts;
@@ -1370,7 +1370,7 @@ namespace graphics_backend
 								CPipelineObjectDescriptor pipelineDesc{
 								pipelineStates
 								, vertexInputs
-								, ShaderStateDescriptor{vertModule, fragModule}
+								, ShaderStateDescriptor{}//{vertModule, fragModule}
 								, layouts
 								, m_RenderPassObject
 								, subpassID
