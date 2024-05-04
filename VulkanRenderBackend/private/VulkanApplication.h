@@ -134,16 +134,25 @@ namespace graphics_backend
 		}
 
 		template<typename T, typename...TArgs>
-		T NewSubObject(TArgs&&...Args) const {
+		T NewSubObject(TArgs&&...Args) {
 			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
 				, "Type T Not Compatible To Vulkan SubObject");
 			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
 			{
-				return T{ *this, castl::forward<TArgs>(Args)... };
+				T result{ *this, castl::forward<TArgs>(Args)... };
+				if constexpr (has_initialize<T>)
+				{
+					result.Initialize();
+				}
+				else if constexpr (has_create<T>)
+				{
+					result.Create();
+				}
+				return result;
 			}
 			else
 			{
-				static_assert((sizeof(TArgs...) == 0 || has_initialize<T, TArgs...> || has_create<T, TArgs...>), "SubObject T Created With Arguments But Has No Initializer");
+				static_assert((sizeof(TArgs...) == 0 || has_initialize<T, TArgs...> || has_create<T, TArgs...>), "Subobject T Provides Construction Arguments But Has No Initializer");
 				T result{ *this };
 				if constexpr (has_initialize<T, TArgs...>)
 				{
@@ -164,6 +173,14 @@ namespace graphics_backend
 			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
 			{
 				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this, castl::forward<TArgs>(Args)...), SubObjectDefaultDeleter<T>{} };
+				if constexpr (has_initialize<T>)
+				{
+					newSubObject->Initialize();
+				}
+				else if constexpr (has_create<T>)
+				{
+					newSubObject->Create();
+				}
 				return newSubObject;
 			}
 			else

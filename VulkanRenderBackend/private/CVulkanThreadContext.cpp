@@ -5,6 +5,9 @@
 
 namespace graphics_backend
 {
+	CVulkanFrameBoundCommandBufferPool::CVulkanFrameBoundCommandBufferPool(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
+	{
+	}
 	vk::CommandBuffer CVulkanFrameBoundCommandBufferPool::AllocateOnetimeCommandBuffer(const char* cmdName)
 	{
 		vk::CommandBuffer const result = m_CommandBufferList.AllocCommandBuffer(*this, false, cmdName);
@@ -43,19 +46,19 @@ namespace graphics_backend
 
 
 
-	void CVulkanFrameBoundCommandBufferPool::Initialize_Internal(CVulkanApplication const* owningApplication)
+	void CVulkanFrameBoundCommandBufferPool::Initialize()
 	{
 		vk::CommandPoolCreateInfo commandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0);
-		m_CommandPool = m_OwningApplication->GetDevice().createCommandPool(commandPoolCreateInfo);
+		m_CommandPool = GetDevice().createCommandPool(commandPoolCreateInfo);
 		m_CommandBufferList.ClearBufferList();
 		m_SecondaryCommandBufferList.ClearBufferList();
 	}
 
-	void CVulkanFrameBoundCommandBufferPool::Release_Internal()
+	void CVulkanFrameBoundCommandBufferPool::Release()
 	{
 		m_CommandBufferList.ClearBufferList();
 		m_SecondaryCommandBufferList.ClearBufferList();
-		m_OwningApplication->GetDevice().destroyCommandPool(m_CommandPool);
+		GetDevice().destroyCommandPool(m_CommandPool);
 		m_CommandPool = nullptr;
 	}
 
@@ -82,12 +85,16 @@ namespace graphics_backend
 	void CVulkanThreadContext::Initialize_Internal(CVulkanApplication const* owningApplication)
 	{
 		assert(m_FrameBoundCommandBufferPools.size() == 0);
-		m_FrameBoundCommandBufferPools.resize(FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT);
-		castl::for_each(m_FrameBoundCommandBufferPools.begin(), m_FrameBoundCommandBufferPools.end()
-			, [owningApplication](CVulkanFrameBoundCommandBufferPool& itrPool)
-			{
-				itrPool.Initialize(owningApplication);
-			});
+		m_FrameBoundCommandBufferPools.reserve(FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT);
+		for(uint32_t i = 0; i < FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT; ++i)
+		{
+			m_FrameBoundCommandBufferPools.push_back(castl::move(GetVulkanApplication()->NewSubObject<CVulkanFrameBoundCommandBufferPool>()));
+		}
+		//castl::for_each(m_FrameBoundCommandBufferPools.begin(), m_FrameBoundCommandBufferPools.end()
+		//	, [owningApplication](CVulkanFrameBoundCommandBufferPool& itrPool)
+		//	{
+		//		itrPool.Initialize();
+		//	});
 	}
 	void CVulkanThreadContext::Release_Internal()
 	{

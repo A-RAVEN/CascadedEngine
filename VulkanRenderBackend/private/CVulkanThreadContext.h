@@ -59,19 +59,20 @@ namespace graphics_backend
 		castl::deque<T> m_Queue;
 	};
 
-	class CVulkanFrameBoundCommandBufferPool : public ApplicationSubobjectBase
+	class CVulkanFrameBoundCommandBufferPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
+		CVulkanFrameBoundCommandBufferPool(CVulkanApplication& app);
 		vk::CommandBuffer AllocateOnetimeCommandBuffer(const char* cmdName = "Default Cmd");
 		vk::CommandBuffer AllocateMiscCommandBuffer(const char* cmdName = "Default Cmd");
 		vk::CommandBuffer AllocateSecondaryCommandBuffer(const char* cmdName);
 		void ResetCommandBufferPool();
 		void CollectCommandBufferList(castl::vector<vk::CommandBuffer>& inoutCommandBufferList);
 		uint32_t GetCommandFrame() const { return m_BoundingFrameID; }
+		void Initialize();
+		virtual void Release() override;
 	private:
 		// 通过 ApplicationSubobjectBase 继承
-		virtual void Initialize_Internal(CVulkanApplication const* owningApplication) override;
-		virtual void Release_Internal() override;
 	private:
 		class CommandBufferList
 		{
