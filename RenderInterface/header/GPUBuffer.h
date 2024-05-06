@@ -11,9 +11,12 @@ namespace graphics_backend
 		EBufferUsageFlags usageFlags;
 		uint64_t count;
 		uint64_t stride;
-		bool operator==(GPUBufferDescriptor const& other) const
+
+		auto operator<=>(const GPUBufferDescriptor&) const = default;
+
+		static GPUBufferDescriptor Create(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
 		{
-			return hash_utils::memory_equal(*this, other);
+			return { usageFlags, count, stride };
 		}
 	};
 

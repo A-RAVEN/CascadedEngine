@@ -14,6 +14,7 @@
 
 namespace graphics_backend
 {
+#pragma region Render Pass And DrawCalls
 	class PipelineDescData
 	{
 	public:
@@ -72,6 +73,13 @@ namespace graphics_backend
 		uint32_t m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
 		friend class GPUGraph;
 	};
+#pragma endregion
+
+	struct GPUDataTransfers
+	{
+		castl::vector<castl::tuple<ImageHandle, void const*, uint64_t, uint64_t>> m_ImageDataUploads;
+		castl::vector<castl::tuple<BufferHandle, void const*, uint64_t, uint64_t>> m_BufferDataUploads;
+	};
 
 	template <typename DescriptorType>
 	class GraphResourceManager
@@ -128,25 +136,38 @@ namespace graphics_backend
 	class GPUGraph
 	{
 	public:
+		enum class EGraphStageType
+		{
+			eRenderPass,
+			eComputePass,
+			eTransferPass
+		};
+
 		//Create a new render pass
 		inline RenderPass& NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore, GraphicsClearValue clearValue = {});
 		inline RenderPass& NewRenderPass(ImageHandle const& color, ImageHandle const& depth);
 		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth);
 		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors);
 		//Data Transition
-		inline void ScheduleData(ImageHandle const& imageHandle, void const* data, size_t size);
-		inline void ScheduleData(BufferHandle const& bufferHandle, void const* data, size_t size);
+		inline void ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
+		inline void ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
 		//Allocate a graph local image
 		inline void AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
 		//Allocate a graph local buffer
 		inline void AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc);
 
+		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
+		castl::vector<GPUDataTransfers> const& GetDataTransfers() const { return m_DataTransfers; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
 		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
 	private:
 		//Render Passes
 		castl::deque<RenderPass> m_RenderPasses;
+		//Data Syncs
+		castl::vector<GPUDataTransfers> m_DataTransfers;
+		//Stages
+		castl::vector<EGraphStageType> m_StageTypes;
 		//Internal Resources
 		GraphResourceManager<GPUTextureDescriptor> m_InternalImageManager;
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
@@ -209,6 +230,7 @@ namespace graphics_backend
 	}
 	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp, GraphicsClearValue clearValue)
 	{
+		m_StageTypes.push_back(EGraphStageType::eRenderPass);
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = { color };
@@ -220,6 +242,7 @@ namespace graphics_backend
 	}
 	RenderPass& GPUGraph::NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)
 	{
+		m_StageTypes.push_back(EGraphStageType::eRenderPass);
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = colors;
@@ -229,6 +252,7 @@ namespace graphics_backend
 	}
 	RenderPass& GPUGraph::NewRenderPass(castl::vector<ImageHandle> const& colors)
 	{
+		m_StageTypes.push_back(EGraphStageType::eRenderPass);
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = colors;
@@ -237,19 +261,36 @@ namespace graphics_backend
 	}
 	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, ImageHandle const& depth)
 	{
+		m_StageTypes.push_back(EGraphStageType::eRenderPass);
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = { color, depth };
 		pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
 		return pass;
 	}
-	void GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, size_t size)
+	void GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset)
 	{
-
+		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
+		{
+			m_StageTypes.push_back(EGraphStageType::eTransferPass);
+		}
+		if (m_DataTransfers.empty())
+		{
+			m_DataTransfers.emplace_back();
+		}
+		m_DataTransfers.back().m_ImageDataUploads.push_back({ imageHandle, data, size, offset });
 	}
-	void GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, size_t size)
+	void GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset)
 	{
-
+		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
+		{
+			m_StageTypes.push_back(EGraphStageType::eTransferPass);
+		}
+		if (m_DataTransfers.empty())
+		{
+			m_DataTransfers.emplace_back();
+		}
+		m_DataTransfers.back().m_BufferDataUploads.push_back({ bufferHandle, data, size, offset });
 	}
 	void GPUGraph::AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc)
 	{

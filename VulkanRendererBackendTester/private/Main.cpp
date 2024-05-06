@@ -218,20 +218,35 @@ int main(int argc, char *argv[])
 
 	uint64_t frame = 0;
 
-	CVertexInputDescriptor vertexInputDesc{};
-	vertexInputDesc.AddPrimitiveDescriptor(sizeof(VertexData), {
-		VertexAttribute{0, offsetof(VertexData, pos), VertexInputFormat::eR32G32_SFloat}
-		, VertexAttribute{1, offsetof(VertexData, uv), VertexInputFormat::eR32G32_SFloat}
-		, VertexAttribute{2, offsetof(VertexData, color), VertexInputFormat::eR32G32B32_SFloat}
-		});
+	//CVertexInputDescriptor vertexInputDesc{};
+	//vertexInputDesc.AddPrimitiveDescriptor(sizeof(VertexData), {
+	//	VertexAttribute{0, offsetof(VertexData, pos), VertexInputFormat::eR32G32_SFloat}
+	//	, VertexAttribute{1, offsetof(VertexData, uv), VertexInputFormat::eR32G32_SFloat}
+	//	, VertexAttribute{2, offsetof(VertexData, color), VertexInputFormat::eR32G32B32_SFloat}
+	//	});
+
 
 	ShaderBindingDescriptorList bindingSetList = { shaderBindingBuilder };
+
+	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
+		sizeof(VertexData),
+		{
+			VertexAttribute::Create("POSITION", offsetof(VertexData, pos), VertexInputFormat::eR32G32_SFloat),
+			VertexAttribute::Create("TEXCOORD0", offsetof(VertexData, uv), VertexInputFormat::eR32G32_SFloat),
+			VertexAttribute::Create("COLOR", offsetof(VertexData, color), VertexInputFormat::eR32G32B32_SFloat),
+		}
+	);
 
 	ImageHandle windowImageHandle = windowHandle;
 	ShaderArgList argList;
 	argList.SetValue("IMGUI Scale Offset", texture0);
 	GPUGraph newGraph{};
+	BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
+	BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
+	newGraph.AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer, 4, sizeof(VertexData)));
+	newGraph.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer, 6, sizeof(uint16_t)));
 	auto renderPass = newGraph.NewRenderPass(windowImageHandle)
+		.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
 		.SetPipelineState({})
 		.SetShaders(pFinalBlitShaderResource)
 		.DrawCall()

@@ -187,6 +187,7 @@ namespace graphics_backend
 				{
 					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(graph);
 					thisGraph->AddResource(executor);
+					executor->PrepareGraph();
 				}
 			});
 	}
@@ -501,7 +502,7 @@ namespace graphics_backend
 		m_ThreadContexts.reserve(threadCount);
 		for (uint32_t threadContextId = 0; threadContextId < threadCount; ++threadContextId)
 		{
-			m_ThreadContexts.push_back(SubObject<CVulkanThreadContext>(threadContextId));
+			m_ThreadContexts.push_back(castl::move(NewSubObject<CVulkanThreadContext>(threadContextId)));
 		}
 		castl::vector<uint32_t> threadInitializeValue;
 		threadInitializeValue.resize(threadCount);
@@ -517,7 +518,7 @@ namespace graphics_backend
 	{
 		for (auto& threadContext : m_ThreadContexts)
 		{
-			ReleaseSubObject(threadContext);
+			threadContext.Release();
 		}
 		m_ThreadContexts.clear();
 	}

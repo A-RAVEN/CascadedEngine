@@ -62,13 +62,12 @@ namespace graphics_backend
 		m_CommandPool = nullptr;
 	}
 
-	CVulkanThreadContext::CVulkanThreadContext(uint32_t threadId) : m_ThreadID(threadId)
+	CVulkanThreadContext::CVulkanThreadContext(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app), m_ThreadID(0)
 	{}
 
 	CVulkanFrameBoundCommandBufferPool& CVulkanThreadContext::GetCurrentFramePool()
 	{
-		uint32_t currentFrameId = GetVulkanApplication()
-			->GetSubmitCounterContext().GetCurrentFrameBufferIndex();
+		uint32_t currentFrameId = GetFrameCountContext().GetCurrentFrameBufferIndex();
 		return m_FrameBoundCommandBufferPools[currentFrameId];
 	}
 
@@ -82,13 +81,14 @@ namespace graphics_backend
 		GetPoolByIndex(releasingIndex).ResetCommandBufferPool();
 	}
 
-	void CVulkanThreadContext::Initialize_Internal(CVulkanApplication const* owningApplication)
+	void CVulkanThreadContext::Initialize(uint32_t contextID)
 	{
+		m_ThreadID = contextID;
 		assert(m_FrameBoundCommandBufferPools.size() == 0);
 		m_FrameBoundCommandBufferPools.reserve(FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT);
 		for(uint32_t i = 0; i < FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT; ++i)
 		{
-			m_FrameBoundCommandBufferPools.push_back(castl::move(GetVulkanApplication()->NewSubObject<CVulkanFrameBoundCommandBufferPool>()));
+			m_FrameBoundCommandBufferPools.push_back(castl::move(GetVulkanApplication().NewSubObject<CVulkanFrameBoundCommandBufferPool>()));
 		}
 		//castl::for_each(m_FrameBoundCommandBufferPools.begin(), m_FrameBoundCommandBufferPools.end()
 		//	, [owningApplication](CVulkanFrameBoundCommandBufferPool& itrPool)
@@ -96,7 +96,7 @@ namespace graphics_backend
 		//		itrPool.Initialize();
 		//	});
 	}
-	void CVulkanThreadContext::Release_Internal()
+	void CVulkanThreadContext::Release()
 	{
 		if (!m_FrameBoundCommandBufferPools.empty())
 		{

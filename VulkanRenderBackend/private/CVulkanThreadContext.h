@@ -91,18 +91,17 @@ namespace graphics_backend
 		castl::vector<vk::CommandBuffer> m_MiscCommandBufferList;
 	};
 
-	class CVulkanThreadContext : public ApplicationSubobjectBase
+	class CVulkanThreadContext : public VKAppSubObjectBaseNoCopy
 	{
 	public:
-		CVulkanThreadContext(uint32_t threadId);
+		CVulkanThreadContext(CVulkanApplication& app);
 		CVulkanFrameBoundCommandBufferPool& GetCurrentFramePool();
 		CVulkanFrameBoundCommandBufferPool& GetPoolByIndex(TIndex poolIndex);
 		uint32_t GetThreadID() const { return m_ThreadID; }
 		void DoReleaseContextResourceByIndex(TIndex releasingIndex);
-	private:
-		// 通过 ApplicationSubobjectBase 继承
-		virtual void Initialize_Internal(CVulkanApplication const* owningApplication) override;
-		virtual void Release_Internal() override;
+		void Initialize(uint32_t contextID);
+		virtual void Release() override;
+
 	private:
 		uint32_t m_ThreadID;
 		castl::vector<CVulkanFrameBoundCommandBufferPool> m_FrameBoundCommandBufferPools;

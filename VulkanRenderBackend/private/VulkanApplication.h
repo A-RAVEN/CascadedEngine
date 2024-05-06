@@ -26,13 +26,13 @@ namespace graphics_backend
 	template<typename T, typename...TArgs>
 	concept has_create = requires(T t)
 	{
-		t.Create(TArgs{}...);
+		t.Create(castl::remove_cvref_t <TArgs>{}...);
 	};
 
 	template<typename T, typename...TArgs>
 	concept has_initialize = requires(T t)
 	{
-		t.Initialize(TArgs{}...);
+		t.Initialize(castl::remove_cvref_t<TArgs>{}...);
 	};
 
 
@@ -101,39 +101,6 @@ namespace graphics_backend
 		CFrameCountContext const& GetSubmitCounterContext() const { return m_SubmitCounterContext; }
 
 		template<typename T, typename...TArgs>
-		T SubObject(TArgs&&...Args) const {
-			static_assert(castl::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
-			T newSubObject( castl::forward<TArgs>(Args)... );
-			newSubObject.Initialize(this);
-			return newSubObject;
-		}
-
-		template<typename T, typename...TArgs>
-		T& SubObject_EmplaceBack(castl::vector<T>& container,TArgs&&...Args) const {
-			static_assert(castl::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
-			container.emplace_back(castl::forward<TArgs>(Args)...);
-			T& newSubObject = container.back();
-			newSubObject.Initialize(this);
-			return newSubObject;
-		}
-
-		template<typename T, typename...TArgs>
-		castl::shared_ptr<T> SubObject_Shared(TArgs&&...Args) const {
-			static_assert(castl::is_base_of<ApplicationSubobjectBase, T>::value, "Type T not derived from ApplicationSubobjectBase");
-			castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>(new T(castl::forward<TArgs>(Args)...), ApplicationSubobjectBase_Deleter{});
-			newSubObject->Initialize(this);
-			return newSubObject;
-		}
-
-		template<typename T, typename...TArgs>
-		T NewObject(TArgs&&...Args) const {
-			static_assert(castl::is_base_of<VKAppSubObjectBaseNoCopy, T>::value, "Type T not derived from VKAppSubObjectBaseNoCopy");
-			T newObject(*this);
-			newObject.Initialize(castl::forward<TArgs>(Args)...);
-			return newObject;
-		}
-
-		template<typename T, typename...TArgs>
 		T NewSubObject(TArgs&&...Args) {
 			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
 				, "Type T Not Compatible To Vulkan SubObject");
@@ -152,7 +119,7 @@ namespace graphics_backend
 			}
 			else
 			{
-				static_assert((sizeof(TArgs...) == 0 || has_initialize<T, TArgs...> || has_create<T, TArgs...>), "Subobject T Provides Construction Arguments But Has No Initializer");
+				static_assert((sizeof...(TArgs) == 0 || has_initialize<T, TArgs...> || has_create<T, TArgs...>), "Subobject T Provides Construction Arguments But Has No Initializer");
 				T result{ *this };
 				if constexpr (has_initialize<T, TArgs...>)
 				{
@@ -161,6 +128,10 @@ namespace graphics_backend
 				else if constexpr (has_create<T, TArgs...>)
 				{
 					result.Create(castl::forward<TArgs>(Args)...);
+				}
+				else
+				{
+					static_assert((sizeof...(TArgs)) == 0, "Subobject T Provides Construction Arguments But Has No Initializer");
 				}
 				return result;
 			}
@@ -197,11 +168,6 @@ namespace graphics_backend
 				return newSubObject;
 			}
 		};
-
-		void ReleaseSubObject(ApplicationSubobjectBase& subobject) const
-		{
-			subobject.Release();
-		}
 
 		void SyncPresentationFrame(FrameType frameID);
 		void ExecuteStates(CTaskGraph* rootTaskGraph, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID);

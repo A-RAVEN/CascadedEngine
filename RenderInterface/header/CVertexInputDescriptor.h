@@ -6,13 +6,8 @@
 
 struct InputAssemblyStates
 {
-public:
 	ETopology topology = ETopology::eTriangleList;
-
-	bool operator==(InputAssemblyStates const& rhs) const
-	{
-		return topology == rhs.topology;
-	}
+	auto operator<=>(const InputAssemblyStates&) const = default;
 };
 
 template<>
@@ -20,19 +15,22 @@ struct hash_utils::is_contiguously_hashable<InputAssemblyStates> : public castl:
 
 struct VertexAttribute
 {
-public:
 	uint32_t attributeIndex;
 	uint32_t offset;
 	VertexInputFormat format;
 	castl::string semanticName;
-
 	auto operator<=>(const VertexAttribute&) const = default;
 
-	template <class HashAlgorithm>
-	friend void hash_append(HashAlgorithm& h, VertexAttribute const& attribute) noexcept
+
+	static VertexAttribute Create(castl::string const& semanticName, uint32_t offset, VertexInputFormat format)
 	{
-		hash_append(h, attribute.attributeIndex, attribute.format, attribute.offset, attribute.semanticName);
+		return { 0, offset, format, semanticName };
 	}
+	//template <class HashAlgorithm>
+	//friend void hash_append(HashAlgorithm& h, VertexAttribute const& attribute) noexcept
+	//{
+	//	hash_append(h, attribute.attributeIndex, attribute.format, attribute.offset, attribute.semanticName);
+	//}
 };
 
 struct VertexInputsDescriptor
@@ -42,6 +40,11 @@ struct VertexInputsDescriptor
 	castl::vector<VertexAttribute> attributes;
 
 	friend auto operator<=>(const VertexInputsDescriptor&, const VertexInputsDescriptor&) = default;
+
+	static VertexInputsDescriptor Create(uint32_t stride, castl::vector<VertexAttribute> const& attributes, bool perInstance = false)
+	{
+		return { stride, perInstance, attributes };
+	}
 };
 
 class CVertexInputDescriptor

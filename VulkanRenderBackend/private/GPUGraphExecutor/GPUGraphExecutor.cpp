@@ -497,6 +497,7 @@ namespace graphics_backend
 					}
 				}
 			}
+			
 			//Write Descriptors
 			{
 				auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
@@ -513,6 +514,94 @@ namespace graphics_backend
 			m_Passes.push_back(passInfo);
 		}
 	}
+	
+	void GPUGraphExecutor::PrepareResourceBarriers()
+	{
+		auto& graphStages = m_Graph->GetGraphStages();
+		auto& renderPasses = m_Graph->GetRenderPasses();
+		auto& dataTransfers = m_Graph->GetDataTransfers();
+
+		castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>> imageUsageFlagCache;
+		castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>> bufferUsageFlagCache;
+
+		uint32_t currentRenderPassIndex = 0;
+		uint32_t currentTransferPassIndex = 0;
+
+		for (auto stage : graphStages)
+		{
+			switch (stage)
+			{
+				case GPUGraph::EGraphStageType::eRenderPass:
+				{
+					auto& renderPass = renderPasses[currentRenderPassIndex];
+					auto& passInfo = m_Passes[currentRenderPassIndex];
+					++currentRenderPassIndex;
+
+					auto& attachments = renderPass.GetAttachments();
+					auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+					//Barriers
+					{
+						passInfo.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
+
+						for (size_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
+						{
+							auto& batch = drawcallBatchs[batchID];
+							auto& batchData = passInfo.m_Batches[batchID];
+							PrepareVertexBuffersBarriers(passInfo.m_BarrierCollector, bufferUsageFlagCache, batch, batchData);
+							PrepareShaderArgsResourceBarriers(passInfo.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get());
+						}
+						for (size_t i = 0; i < attachments.size(); ++i)
+						{
+							auto& attachment = attachments[i];
+							auto image = GetTextureHandleImageObject(attachment);
+							auto pDesc = GetTextureHandleDescriptor(attachment);
+							ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
+							ResourceUsageFlags originalFlags = GetResourceUsage(imageUsageFlagCache, image);
+							if (originalFlags != usageFlags)
+							{
+								passInfo.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
+								UpdateResourceUsageFlags(imageUsageFlagCache, image, usageFlags);
+							}
+						}
+					}
+					break;
+				}
+				case GPUGraph::EGraphStageType::eTransferPass:
+				{
+					//
+					auto& transfersInfo = dataTransfers[currentTransferPassIndex];
+					++currentTransferPassIndex;
+					for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
+					{
+						auto [bufferHandle, address, offset, size] = bufferUpload;
+						if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
+						{
+							auto buffer = GetBufferHandleBufferObject(bufferHandle);
+							if(buffer != nullptr)
+							{
+								ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
+								ResourceUsageFlags originalFlags = GetResourceUsage(bufferUsageFlagCache, buffer);
+								if (originalFlags != usageFlags)
+								{
+									inoutBarrierCollector.PushBufferBarrier(buffer, originalFlags, usageFlags);
+									UpdateResourceUsageFlags(inoutBufferUsageFlagCache, buffer, usageFlags);
+								}
+							}
+							ResourceUsageFlags usageFlags = ResourceUsage::eVertexAttribute;
+							ResourceUsageFlags originalFlags = GetResourceUsage(inoutBufferUsageFlagCache, buffer);
+							if (originalFlags != usageFlags)
+							{
+								inoutBarrierCollector.PushBufferBarrier(buffer, originalFlags, usageFlags);
+								UpdateResourceUsageFlags(inoutBufferUsageFlagCache, buffer, usageFlags);
+							}
+						}
+					}
+					break;
+				}
+			}
+		}
+	}
+	
 	void GPUGraphExecutor::RecordGraph()
 	{
 		CA_ASSERT(m_Passes.size() == m_Graph->GetRenderPasses().size(), "Passes and RenderPasses Mismatch");

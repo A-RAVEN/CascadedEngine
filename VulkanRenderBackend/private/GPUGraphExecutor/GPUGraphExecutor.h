@@ -38,6 +38,11 @@ namespace graphics_backend
 		VulkanBarrierCollector m_BarrierCollector;
 	};
 
+	struct GPUTransferInfo
+	{
+		VulkanBarrierCollector m_BarrierCollector;
+	};
+
 	class SubAllocator
 	{
 	public:
@@ -273,6 +278,7 @@ namespace graphics_backend
 			, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
 			, ShaderArgList const* shaderArgList);
 		void PrepareFrameBufferAndPSOs();
+		void PrepareResourceBarriers();
 		void RecordGraph();
 
 		GPUTextureDescriptor const* GetTextureHandleDescriptor(ImageHandle const& handle) const;
@@ -287,6 +293,7 @@ namespace graphics_backend
 		//Runtime
 		castl::vector<GPUPassInfo> m_Passes;
 		//
+		castl::vector<GPUTransferInfo> m_TransferPasses;
 		castl::vector<vk::CommandBuffer> m_GraphicsCommandBuffers;
 		//Manager
 		GraphExecutorImageManager m_ImageManager;
