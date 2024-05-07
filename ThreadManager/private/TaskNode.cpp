@@ -10,6 +10,7 @@ namespace thread_management
 		, m_Owner(owner)
 		, m_OwningManager(owningManager)
 		, m_Allocator(allocator)
+		, m_CurrentFrame(owner->GetCurrentFrame())
 	{
 	}
 	std::shared_future<void> TaskNode::StartExecute()
@@ -37,15 +38,13 @@ namespace thread_management
 	{
 		m_Name = name;
 	}
-	void TaskNode::WaitEvent_Internal(const castl::string& name, uint64_t waitingID)
+	void TaskNode::WaitEvent_Internal(const castl::string& name)
 	{
 		m_EventName = name;
-		m_EventWaitingID = waitingID;
 	}
-	void TaskNode::SignalEvent_Internal(const castl::string& name, uint64_t signalID)
+	void TaskNode::SignalEvent_Internal(const castl::string& name)
 	{
 		m_SignalEventName = name;
-		m_EventSignalID = signalID;
 	}
 	void TaskNode::DependsOn_Internal(TaskNode* dependsOnNode)
 	{
@@ -65,9 +64,8 @@ namespace thread_management
 		m_PendingDependsOnTaskCount.store(0, std::memory_order_relaxed);
 		m_Name = "";
 		m_EventName = "";
-		m_EventWaitingID = 0;
 		m_SignalEventName = "";
-		m_EventSignalID = 0;
+		m_CurrentFrame = 0;
 		m_Dependents.clear();
 		m_Successors.clear();
 		m_HasPromise = false;
@@ -97,7 +95,7 @@ namespace thread_management
 		}
 		if (!m_SignalEventName.empty())
 		{
-			m_OwningManager->SignalEvent(m_SignalEventName, m_EventSignalID);
+			m_OwningManager->SignalEvent(m_SignalEventName, m_CurrentFrame);
 		}
 		m_BoundResources.clear();
 		m_Owner->NotifyChildNodeFinish(this);

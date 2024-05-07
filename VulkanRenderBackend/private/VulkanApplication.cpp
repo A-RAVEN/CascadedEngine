@@ -151,7 +151,7 @@ namespace graphics_backend
 		auto tickSwapchainAndResourceTask = rootTaskGraph->NewTask()
 			->Name("GPU Frame Finalize")
 			->DependsOn(finalizeTaskGraph)
-			->SignalEvent("PresentReady", frameID)
+			->SignalEvent("PresentReady")
 			->Functor([this, currentFrameID]()
 				{
 					SyncPresentationFrame(currentFrameID);

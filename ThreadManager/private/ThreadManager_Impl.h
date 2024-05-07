@@ -28,8 +28,8 @@ namespace thread_management
 		virtual CTask* DependsOn(CTask* parentTask) override;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) override;
 		virtual CTask* DependsOn(CTaskGraph* parentTask) override;
-		virtual CTask* WaitOnEvent(castl::string const& name, uint64_t waitingID) override;
-		virtual CTask* SignalEvent(castl::string const& name, uint64_t signalID) override;
+		virtual CTask* WaitOnEvent(castl::string const& name) override;
+		virtual CTask* SignalEvent(castl::string const& name) override;
 		virtual std::shared_future<void> Run() override;
 
 		virtual CTask* Functor(std::function<void()>&& functor) override;
@@ -55,8 +55,8 @@ namespace thread_management
 		virtual TaskParallelFor* DependsOn(CTask* parentTask) override;
 		virtual TaskParallelFor* DependsOn(TaskParallelFor* parentTask) override;
 		virtual TaskParallelFor* DependsOn(CTaskGraph* parentTask) override;
-		virtual TaskParallelFor* WaitOnEvent(castl::string const& name, uint64_t waitingID) override;
-		virtual TaskParallelFor* SignalEvent(castl::string const& name, uint64_t signalID) override;
+		virtual TaskParallelFor* WaitOnEvent(castl::string const& name) override;
+		virtual TaskParallelFor* SignalEvent(castl::string const& name) override;
 		virtual TaskParallelFor* Functor(std::function<void(uint32_t)> functor) override;
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) override;
 		virtual std::shared_future<void> Run() override;
@@ -85,8 +85,8 @@ namespace thread_management
 		virtual CTaskGraph* DependsOn(CTask* parentTask) override;
 		virtual CTaskGraph* DependsOn(TaskParallelFor* parentTask) override;
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) override;
-		virtual CTaskGraph* WaitOnEvent(castl::string const& name, uint64_t waitingID) override;
-		virtual CTaskGraph* SignalEvent(castl::string const& name, uint64_t signalID) override;
+		virtual CTaskGraph* WaitOnEvent(castl::string const& name) override;
+		virtual CTaskGraph* SignalEvent(castl::string const& name) override;
 		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) override;
 		virtual void AddResource(castl::shared_ptr<void> const& resource) override;
 		virtual std::shared_future<void> Run() override;
@@ -137,7 +137,8 @@ namespace thread_management
 		virtual TaskParallelFor* NewTaskParallelFor() override;
 		virtual CTaskGraph* NewTaskGraph() override;
 		virtual void LogStatus() const override;
-		void SetupFunction(std::function<bool(CThreadManager*)> functor, castl::string const& waitingEvent) override;
+		virtual uint64_t GetCurrentFrame() const override { return m_Frames; }
+		virtual void SetupFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
 		void RunSetupFunction() override;
 		void Stop();
 	public:
@@ -155,13 +156,14 @@ namespace thread_management
 		void ProcessingWorksMainThread(uint32_t threadId);
 	private:
 		//
-		std::function<bool(CThreadManager*)> m_PrepareFunctor = nullptr;
+		std::function<bool(CTaskGraph*)> m_PrepareFunctor = nullptr;
 		castl::string m_SetupEventName;
 
 		eastl::deque<TaskNode*> m_TaskQueue;
 		eastl::deque<TaskNode*> m_MainThreadQueue;
 		castl::vector<std::thread> m_WorkerThreads;
 		std::atomic_bool m_Stopped = false;
+		castl::atomic<uint64_t> m_Frames = 0u;
 		std::mutex m_Mutex;
 		std::condition_variable m_ConditinalVariable;
 		std::condition_variable m_MainthreadCV;

@@ -12,6 +12,10 @@ namespace graphics_backend
 	{
 		return m_OwningApplication;
 	}
+	castl::shared_ptr<CVulkanThreadContext> VKAppSubObjectBase::AquireThreadContextPtr()
+	{
+		return m_OwningApplication.AquireThreadContextPtr();
+	}
 	CFrameCountContext const& VKAppSubObjectBase::GetFrameCountContext() const
 	{
 		return m_OwningApplication.GetSubmitCounterContext();
@@ -48,6 +52,10 @@ namespace graphics_backend
 	CVulkanApplication& VKAppSubObjectBaseNoCopy::GetVulkanApplication() const
 	{
 		return m_OwningApplication;
+	}
+	castl::shared_ptr<CVulkanThreadContext> VKAppSubObjectBaseNoCopy::AquireThreadContextPtr()
+	{
+		return m_OwningApplication.AquireThreadContextPtr();
 	}
 	CFrameCountContext const& VKAppSubObjectBaseNoCopy::GetFrameCountContext() const
 	{

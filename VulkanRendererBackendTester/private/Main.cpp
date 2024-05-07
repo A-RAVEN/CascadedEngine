@@ -237,23 +237,9 @@ int main(int argc, char *argv[])
 		}
 	);
 
-	ImageHandle windowImageHandle = windowHandle;
-	ShaderArgList argList;
-	argList.SetValue("IMGUI Scale Offset", texture0);
-	GPUGraph newGraph{};
-	BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
-	BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
-	newGraph.AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer, 4, sizeof(VertexData)));
-	newGraph.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer, 6, sizeof(uint16_t)));
-	auto renderPass = newGraph.NewRenderPass(windowImageHandle)
-		.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
-		.SetPipelineState({})
-		.SetShaders(pFinalBlitShaderResource)
-		.DrawCall()
-		.Draw([](CommandList& commandList)
-		{
 
-		});
+
+
 	
 	castl::chrono::high_resolution_clock timer;
 	auto lastTime = timer.now();
@@ -262,98 +248,40 @@ int main(int argc, char *argv[])
 	bool mouseDown = false;
 	glm::vec2 lastMousePos = {0.0f, 0.0f};
 
-	std::shared_future<void> m_TaskFuture;
-	auto graphicsTaskGraph = pThreadManager->NewTaskGraph()
-		->Name("Graphics Task Graph");
-	pBackend->SetupGraphicsTaskGraph(graphicsTaskGraph, {}, frame);
-	m_TaskFuture = graphicsTaskGraph->Run();
-	m_TaskFuture.wait();
+
 	pThreadManager->SetupFunction([
 				pBackend
-				, pTimer = &timer
-				, pFrame = &frame
-				, pLastTime = &lastTime
 				, windowHandle
 				, pRenderInterface
-				, sampler
-				, pCam = &cam
-				, pmouseDown = &mouseDown
-				//,pdrawInterface = &drawInterface
-				, plastMousePos = &lastMousePos
-				, pDeltaTime = &deltaTime
-				, pVertexList = &vertexDataList
-				, pIndexList = &indexDataList
-				//, pFinalBlitShaderSet = &finalBlitShaderSet
-				, pVertexInputDesc = &vertexInputDesc
-				, pFinalBlitBindingDesc = &finalBlitBindingBuilder
-				, pImguiContext = &imguiContext
-		](CThreadManager* thisManager)
+				, pFinalBlitShaderResource
+				, &vertexInputDesc
+		](auto setup)
 		{
-			//if (!pBackend->AnyWindowRunning())
-			//	return false;
+			castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
+			shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+			castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+			BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
+			BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
+			newGraph->AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer, 4, sizeof(VertexData)))
+				.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer, 6, sizeof(uint16_t)))
+				.NewRenderPass(windowHandle)
+				.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
+				.SetPipelineState({})
+				.SetShaderArguments(shaderArgList)
+				.SetShaders(pFinalBlitShaderResource)
+				.DrawCall()
+				.SetVertexBuffer("QuadDesc", vertexBufferHandle)
+				.SetIndexBuffer(EIndexBufferType::e16, indexBufferHandle, 0)
+				.Draw([](CommandList& commandList)
+					{
+						commandList.DrawIndexed(6);
+					});
 
-			{
-				uint64_t lastFrame = *pFrame == 0 ? 0 : (*pFrame - 1);
-				uint64_t currentFrame = *pFrame;
+			GPUFrame gpuFrame{};
+			gpuFrame.graphs.push_back(newGraph);
+			gpuFrame.presentWindows.push_back(windowHandle);
+			pBackend->ScheduleGPUFrame(setup, gpuFrame);
 
-				auto baseTaskGraph = thisManager->NewTaskGraph()
-					->Name("BaseTaskGraph")
-					->SignalEvent("FullGraph", currentFrame);
-				auto gamePlayGraph = baseTaskGraph->NewTaskGraph()
-					->Name("GamePlayGraph");
-					//->WaitOnEvent("GamePlay", lastFrame)
-					//->SignalEvent("GamePlay", currentFrame);
-
-				auto updateImGUIGraph = gamePlayGraph->NewTask()
-					->Name("Update Imgui")
-					->Functor([windowHandle, pImguiContext, pBackend]()
-						{
-							pImguiContext->UpdateIMGUI();
-							pBackend->TickWindows();
-
-						})
-					->ForceRunOnMainThread()
-							;
-
-
-						auto grapicsTaskGraph = baseTaskGraph->NewTaskGraph()
-							->Name("Graphics Task Graph")
-							->DependsOn(gamePlayGraph);
-
-				castl::shared_ptr<castl::vector<castl::shared_ptr<CRenderGraph>>> pGraphs = castl::make_shared<castl::vector<castl::shared_ptr<CRenderGraph>>>();
-
-				auto setupRGTask = grapicsTaskGraph->NewTask()
-					->Name("Setup Render Graph")
-					->Functor([
-					]()
-				{
-					//auto pRenderGraph = pRenderInterface->NewRenderGraph();
-
-					//pImguiContext->PrepareDrawData(pRenderGraph.get());
-					//pImguiContext->Draw(pRenderGraph.get());
-
-					//pGraphs->push_back(pRenderGraph);
-				});
-
-				grapicsTaskGraph->NewTaskGraph()
-					->Name("Submit Backend Task Graph")
-					->DependsOn(setupRGTask)
-					->SetupFunctor([pBackend, pGraphs, currentFrame](CTaskGraph* thisGraph)
-						{
-							pBackend->SetupGraphicsTaskGraph(
-								thisGraph, *pGraphs, currentFrame);
-						});
-
-				baseTaskGraph->Run();
-
-				++*pFrame;
-				auto currentTime = pTimer->now();
-				auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - *pLastTime).count();
-				*pLastTime = currentTime;
-				*pDeltaTime = duration / 1000.0f;
-				*pDeltaTime = castl::max(*pDeltaTime, 0.0001f);
-				float frameRate = 1.0f / *pDeltaTime;
-			}
 			return true;
 		}, "FullGraph");
 	pThreadManager->RunSetupFunction();

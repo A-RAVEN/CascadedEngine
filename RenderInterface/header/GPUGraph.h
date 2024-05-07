@@ -149,12 +149,12 @@ namespace graphics_backend
 		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth);
 		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors);
 		//Data Transition
-		inline void ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
-		inline void ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
+		inline GPUGraph& ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
+		inline GPUGraph& ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
 		//Allocate a graph local image
-		inline void AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
+		inline GPUGraph& AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
 		//Allocate a graph local buffer
-		inline void AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc);
+		inline GPUGraph& AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc);
 
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
@@ -268,7 +268,7 @@ namespace graphics_backend
 		pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
 		return pass;
 	}
-	void GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset)
+	GPUGraph& GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset)
 	{
 		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
 		{
@@ -279,8 +279,9 @@ namespace graphics_backend
 			m_DataTransfers.emplace_back();
 		}
 		m_DataTransfers.back().m_ImageDataUploads.push_back({ imageHandle, data, size, offset });
+		return *this;
 	}
-	void GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset)
+	GPUGraph& GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset)
 	{
 		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
 		{
@@ -291,18 +292,21 @@ namespace graphics_backend
 			m_DataTransfers.emplace_back();
 		}
 		m_DataTransfers.back().m_BufferDataUploads.push_back({ bufferHandle, data, size, offset });
+		return *this;
 	}
-	void GPUGraph::AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc)
+	GPUGraph& GPUGraph::AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc)
 	{
 		if (imageHandle.GetType() != ImageHandle::ImageType::Internal)
-			return;
+			return *this;
 		m_InternalImageManager.RegisterHandle(imageHandle.GetName(), desc);
+		return *this;
 	}
-	void GPUGraph::AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc)
+	GPUGraph& GPUGraph::AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc)
 	{
 		if (bufferHandle.GetType() != BufferHandle::BufferType::Internal)
-			return;
+			return *this;
 		m_InternalBufferManager.RegisterHandle(bufferHandle.GetName(), desc);
+		return *this;
 	}
 
 }

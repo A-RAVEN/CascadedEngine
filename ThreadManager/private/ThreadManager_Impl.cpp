@@ -31,15 +31,15 @@ namespace thread_management
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::WaitOnEvent(castl::string const& name, uint64_t waitingID)
+    CTaskGraph* TaskGraph_Impl1::WaitOnEvent(castl::string const& name)
     {
-        WaitEvent_Internal(name, waitingID);
+        WaitEvent_Internal(name);
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::SignalEvent(castl::string const& name, uint64_t signalID)
+    CTaskGraph* TaskGraph_Impl1::SignalEvent(castl::string const& name)
     {
-        SignalEvent_Internal(name, signalID);
+        SignalEvent_Internal(name);
         return this;
     }
 
@@ -165,14 +165,14 @@ namespace thread_management
         DependsOn_Internal(task);
         return this;
     }
-    CTask* CTask_Impl1::WaitOnEvent(castl::string const& name, uint64_t waitingID)
+    CTask* CTask_Impl1::WaitOnEvent(castl::string const& name)
     {
-        WaitEvent_Internal(name, waitingID);
+        WaitEvent_Internal(name);
         return this;
     }
-    CTask* CTask_Impl1::SignalEvent(castl::string const& name, uint64_t signalID)
+    CTask* CTask_Impl1::SignalEvent(castl::string const& name)
     {
-        SignalEvent_Internal(name, signalID);
+        SignalEvent_Internal(name);
         return this;
     }
     std::shared_future<void> CTask_Impl1::Run()
@@ -234,16 +234,16 @@ namespace thread_management
             Stop();
             return;
         }
-        auto setupTask = NewTask()
+        auto setupTaskGraph = NewTaskGraph()
             ->Name("Setup")
-            ->Functor([this]()
-                {
-                    if (!m_PrepareFunctor(this))
-                    {
-                        Stop();
-                    }
-                });
-        EnqueueTaskNode_NoLock(dynamic_cast<TaskNode*>(setupTask));
+            ->SignalEvent(m_SetupEventName);
+        bool notEnd = m_PrepareFunctor(setupTaskGraph);
+        ++m_Frames;
+        EnqueueTaskNode_NoLock(dynamic_cast<TaskNode*>(setupTaskGraph));
+        if (!notEnd)
+        {
+            Stop();
+        }
     }
 
     void ThreadManager_Impl1::InitializeThreadCount(uint32_t threadNum)
@@ -272,7 +272,7 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
-    void ThreadManager_Impl1::SetupFunction(std::function<bool(CThreadManager*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::SetupFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
     {
         m_PrepareFunctor = functor;
         m_SetupEventName = waitingEvent;
@@ -385,7 +385,6 @@ namespace thread_management
         bool mainthreadEnqueued = false;
         if (eventName == m_SetupEventName)
         {
-            //CA_LOG_ERR("Setup");
             EnqueueSetupTask_NoLock();
             ++anythreadEnqueuedCounter;
         }
@@ -438,12 +437,12 @@ namespace thread_management
             if (found != m_EventMap.end())
             {
 				auto& waitList = m_EventWaitLists[found->second];
-                if (waitList.m_SignaledFrame < node->m_EventWaitingID)
+                if (waitList.m_SignaledFrame < node->m_CurrentFrame)
                 {
                     waitList.m_WaitingTasks.push_back(node);
-                    if (waitList.m_WaitingFrames.empty() || waitList.m_WaitingFrames.back().first < node->m_EventWaitingID)
+                    if (waitList.m_WaitingFrames.empty() || waitList.m_WaitingFrames.back().first < node->m_CurrentFrame)
                     {
-                        waitList.m_WaitingFrames.push_back(castl::make_pair(node->m_EventWaitingID, 1));
+                        waitList.m_WaitingFrames.push_back(castl::make_pair(node->m_CurrentFrame, 1));
                     }
                     else
                     {
@@ -557,15 +556,15 @@ namespace thread_management
         return this;
     }
 
-    TaskParallelFor* TaskParallelFor_Impl::WaitOnEvent(castl::string const& name, uint64_t waitingID)
+    TaskParallelFor* TaskParallelFor_Impl::WaitOnEvent(castl::string const& name)
     {
-        WaitEvent_Internal(name, waitingID);
+        WaitEvent_Internal(name);
         return this;
     }
 
-    TaskParallelFor* TaskParallelFor_Impl::SignalEvent(castl::string const& name, uint64_t signalID)
+    TaskParallelFor* TaskParallelFor_Impl::SignalEvent(castl::string const& name)
     {
-        SignalEvent_Internal(name, signalID);
+        SignalEvent_Internal(name);
         return this;
     }
 

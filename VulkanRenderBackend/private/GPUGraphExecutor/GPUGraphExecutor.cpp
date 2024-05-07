@@ -54,8 +54,13 @@ namespace graphics_backend
 
 	void GPUGraphExecutor::PrepareGraph()
 	{
+		//Alloc Image & Buffer Resources
 		PrepareResources();
+		//Prepare PSO & FrameBuffer & RenderPass
 		PrepareFrameBufferAndPSOs();
+		//Prepare Resource Barriers
+		PrepareResourceBarriers();
+		//Record CommandBuffers
 		RecordGraph();
 	}
 
@@ -306,9 +311,11 @@ namespace graphics_backend
 	void GPUGraphExecutor::Release()
 	{
 		m_Graph.reset();
-		//Runtime
+		//Rasterize Passes
 		m_Passes.clear();
-		//
+		//Transfer Passes
+		m_TransferPasses.clear();
+		//Command Buffers
 		m_GraphicsCommandBuffers.clear();
 		//Manager
 		m_ImageManager.ReleaseAll();
@@ -472,36 +479,9 @@ namespace graphics_backend
 				passInfo.m_Batches.push_back(newBatchInfo);
 			}
 
-			//Barriers
-			{
-				passInfo.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
-
-				for (size_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
-				{
-					auto& batch = drawcallBatchs[batchID];
-					auto& batchData = passInfo.m_Batches[batchID];
-					PrepareVertexBuffersBarriers(passInfo.m_BarrierCollector, bufferUsageFlagCache, batch, batchData);
-					PrepareShaderArgsResourceBarriers(passInfo.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get());
-				}
-				for (size_t i = 0; i < attachments.size(); ++i)
-				{
-					auto& attachment = attachments[i];
-					auto image = GetTextureHandleImageObject(attachment);
-					auto pDesc = GetTextureHandleDescriptor(attachment);
-					ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
-					ResourceUsageFlags originalFlags = GetResourceUsage(imageUsageFlagCache, image);
-					if (originalFlags != usageFlags)
-					{
-						passInfo.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
-						UpdateResourceUsageFlags(imageUsageFlagCache, image, usageFlags);
-					}
-				}
-			}
-			
 			//Write Descriptors
 			{
-				auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
-				vk::CommandBuffer writeConstantsCommand = threadContext->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Upload Constants");
+				vk::CommandBuffer writeConstantsCommand = AquireThreadContextPtr()->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Upload Constants");
 				for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 				{
 					auto& batch = drawcallBatchs[batchID];
@@ -534,21 +514,21 @@ namespace graphics_backend
 				case GPUGraph::EGraphStageType::eRenderPass:
 				{
 					auto& renderPass = renderPasses[currentRenderPassIndex];
-					auto& passInfo = m_Passes[currentRenderPassIndex];
+					auto& renderPassData = m_Passes[currentRenderPassIndex];
 					++currentRenderPassIndex;
 
 					auto& attachments = renderPass.GetAttachments();
 					auto& drawcallBatchs = renderPass.GetDrawCallBatches();
 					//Barriers
 					{
-						passInfo.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
+						renderPassData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
 
 						for (size_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 						{
 							auto& batch = drawcallBatchs[batchID];
-							auto& batchData = passInfo.m_Batches[batchID];
-							PrepareVertexBuffersBarriers(passInfo.m_BarrierCollector, bufferUsageFlagCache, batch, batchData);
-							PrepareShaderArgsResourceBarriers(passInfo.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get());
+							auto& batchData = renderPassData.m_Batches[batchID];
+							PrepareVertexBuffersBarriers(renderPassData.m_BarrierCollector, bufferUsageFlagCache, batch, batchData);
+							PrepareShaderArgsResourceBarriers(renderPassData.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get());
 						}
 						for (size_t i = 0; i < attachments.size(); ++i)
 						{
@@ -559,7 +539,7 @@ namespace graphics_backend
 							ResourceUsageFlags originalFlags = GetResourceUsage(imageUsageFlagCache, image);
 							if (originalFlags != usageFlags)
 							{
-								passInfo.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
+								renderPassData.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
 								UpdateResourceUsageFlags(imageUsageFlagCache, image, usageFlags);
 							}
 						}
@@ -568,31 +548,46 @@ namespace graphics_backend
 				}
 				case GPUGraph::EGraphStageType::eTransferPass:
 				{
-					//
+					m_TransferPasses.emplace_back();
+					GPUTransferInfo& transfersData = m_TransferPasses.back();
 					auto& transfersInfo = dataTransfers[currentTransferPassIndex];
 					++currentTransferPassIndex;
 					for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
 					{
+						
 						auto [bufferHandle, address, offset, size] = bufferUpload;
 						if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
 						{
 							auto buffer = GetBufferHandleBufferObject(bufferHandle);
-							if(buffer != nullptr)
+							if(buffer != vk::Buffer{ nullptr })
 							{
 								ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
 								ResourceUsageFlags originalFlags = GetResourceUsage(bufferUsageFlagCache, buffer);
 								if (originalFlags != usageFlags)
 								{
-									inoutBarrierCollector.PushBufferBarrier(buffer, originalFlags, usageFlags);
-									UpdateResourceUsageFlags(inoutBufferUsageFlagCache, buffer, usageFlags);
+									
+									transfersData.m_BarrierCollector.PushBufferBarrier(buffer, originalFlags, usageFlags);
+									UpdateResourceUsageFlags(bufferUsageFlagCache, buffer, usageFlags);
 								}
 							}
-							ResourceUsageFlags usageFlags = ResourceUsage::eVertexAttribute;
-							ResourceUsageFlags originalFlags = GetResourceUsage(inoutBufferUsageFlagCache, buffer);
-							if (originalFlags != usageFlags)
+						}
+					}
+					for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
+					{
+						auto [imageHandle, address, offset, size] = imageUpload;
+						if (imageHandle.GetType() != ImageHandle::ImageType::Invalid)
+						{
+							auto image = GetTextureHandleImageObject(imageHandle);
+							auto pDesc = GetTextureHandleDescriptor(imageHandle);
+							if (image != vk::Image{ nullptr })
 							{
-								inoutBarrierCollector.PushBufferBarrier(buffer, originalFlags, usageFlags);
-								UpdateResourceUsageFlags(inoutBufferUsageFlagCache, buffer, usageFlags);
+								ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
+								ResourceUsageFlags originalFlags = GetResourceUsage(imageUsageFlagCache, image);
+								if (originalFlags != usageFlags)
+								{
+									transfersData.m_BarrierCollector.PushImageBarrier(image, pDesc->format, originalFlags, usageFlags);
+									UpdateResourceUsageFlags(imageUsageFlagCache, image, usageFlags);
+								}
 							}
 						}
 					}
@@ -600,67 +595,134 @@ namespace graphics_backend
 				}
 			}
 		}
+	
 	}
 	
 	void GPUGraphExecutor::RecordGraph()
 	{
-		CA_ASSERT(m_Passes.size() == m_Graph->GetRenderPasses().size(), "Passes and RenderPasses Mismatch");
+		CA_ASSERT(m_Passes.size() == m_Graph->GetRenderPasses().size(), "Render Passe Count Mismatch");
+		CA_ASSERT(m_TransferPasses.size() == m_Graph->GetDataTransfers().size(), "Transfer Pass Count Mismatch");
+		auto& graphStages = m_Graph->GetGraphStages();
 		auto& renderPasses = m_Graph->GetRenderPasses();
+		auto& dataTransfers = m_Graph->GetDataTransfers();
 
-		for (uint32_t passID = 0; passID < m_Passes.size(); ++passID)
+
+		uint32_t currentRenderPassIndex = 0;
+		uint32_t currentTransferPassIndex = 0;
+
+		for (auto stage : graphStages)
 		{
-			auto& renderPass = renderPasses[passID];
-			auto& passData = m_Passes[passID];
-
-			auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-			auto& batchDatas = passData.m_Batches;
-			CA_ASSERT(drawcallBatchs.size() == batchDatas.size(), "Batch Count Mismatch");
-
-			vk::CommandBuffer renderPassCommandBuffer = GetVulkanApplication().AquireThreadContextPtr()->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Render Pass");
-			
-			passData.m_BarrierCollector.ExecuteBarrier(renderPassCommandBuffer);
-			
-			renderPassCommandBuffer.beginRenderPass(
-				vk::RenderPassBeginInfo{
-					passData.m_RenderPassObject->GetRenderPass()
-					, passData.m_FrameBufferObject->GetFramebuffer()
-					, vk::Rect2D{{0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }}
-					, passData.m_ClearValues
-				}
-				, vk::SubpassContents::eInline);
-			
-			CommandList_Impl commandList{ renderPassCommandBuffer };
-
-			for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
+			switch (stage)
 			{
-				auto& batchData = batchDatas[batchID];
-				auto& drawcallBatch = drawcallBatchs[batchID];
-
-				if(drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
+				case GPUGraph::EGraphStageType::eRenderPass:
 				{
-					auto buffer = GetBufferHandleBufferObject(drawcallBatch.m_BoundIndexBuffer);
-					renderPassCommandBuffer.bindIndexBuffer(buffer, drawcallBatch.m_IndexBufferOffset, EIndexBufferTypeTranslate(drawcallBatch.m_IndexBufferType));
-				}
+					auto& renderPass = renderPasses[currentRenderPassIndex];
+					auto& passData = m_Passes[currentRenderPassIndex];
+					++currentRenderPassIndex;
 
-				for (auto& attributePair : batchData.m_VertexAttributeBindings)
-				{
-					auto foundVertexBuffer = drawcallBatch.m_BoundVertexBuffers.find(attributePair.first);
-					if(foundVertexBuffer != drawcallBatch.m_BoundVertexBuffers.end())
+					auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+					auto& batchDatas = passData.m_Batches;
+					CA_ASSERT(drawcallBatchs.size() == batchDatas.size(), "Batch Count Mismatch");
+
+					vk::CommandBuffer renderPassCommandBuffer = AquireThreadContextPtr()->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Render Pass");
+
+					passData.m_BarrierCollector.ExecuteBarrier(renderPassCommandBuffer);
+
+					renderPassCommandBuffer.beginRenderPass(
+						vk::RenderPassBeginInfo{
+							passData.m_RenderPassObject->GetRenderPass()
+							, passData.m_FrameBufferObject->GetFramebuffer()
+							, vk::Rect2D{{0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }}
+							, passData.m_ClearValues
+						}
+					, vk::SubpassContents::eInline);
+
+					CommandList_Impl commandList{ renderPassCommandBuffer };
+
+					for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 					{
-						auto buffer = GetBufferHandleBufferObject(foundVertexBuffer->second);
-						renderPassCommandBuffer.bindVertexBuffers(attributePair.second.bindingIndex, { buffer }, { 0 });
-					}
-				}
+						auto& batchData = batchDatas[batchID];
+						auto& drawcallBatch = drawcallBatchs[batchID];
 
-				for (auto& drawFunc : drawcallBatch.m_DrawCommands)
+						if (drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
+						{
+							auto buffer = GetBufferHandleBufferObject(drawcallBatch.m_BoundIndexBuffer);
+							renderPassCommandBuffer.bindIndexBuffer(buffer, drawcallBatch.m_IndexBufferOffset, EIndexBufferTypeTranslate(drawcallBatch.m_IndexBufferType));
+						}
+
+						for (auto& attributePair : batchData.m_VertexAttributeBindings)
+						{
+							auto foundVertexBuffer = drawcallBatch.m_BoundVertexBuffers.find(attributePair.first);
+							if (foundVertexBuffer != drawcallBatch.m_BoundVertexBuffers.end())
+							{
+								auto buffer = GetBufferHandleBufferObject(foundVertexBuffer->second);
+								renderPassCommandBuffer.bindVertexBuffers(attributePair.second.bindingIndex, { buffer }, { 0 });
+							}
+						}
+
+						for (auto& drawFunc : drawcallBatch.m_DrawCommands)
+						{
+							drawFunc(commandList);
+						}
+					}
+
+					renderPassCommandBuffer.endRenderPass();
+					renderPassCommandBuffer.end();
+					m_GraphicsCommandBuffers.push_back(renderPassCommandBuffer);
+				
+					break;
+				}
+				case GPUGraph::EGraphStageType::eTransferPass:
 				{
-					drawFunc(commandList);
+					auto& transfersInfo = dataTransfers[currentTransferPassIndex];
+					GPUTransferInfo& transfersData = m_TransferPasses.back();
+					++currentTransferPassIndex;
+
+					vk::CommandBuffer dataTransferCommandBuffer = AquireThreadContextPtr()->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Render Pass");
+					transfersData.m_BarrierCollector.ExecuteBarrier(dataTransferCommandBuffer);
+
+					for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
+					{
+						auto [bufferHandle, address, offset, size] = bufferUpload;
+						if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
+						{
+							auto buffer = GetBufferHandleBufferObject(bufferHandle);
+							if (buffer != vk::Buffer{ nullptr })
+							{
+								auto srcBuffer = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(size);
+								memcpy(srcBuffer->GetMappedPointer(), address, size);
+								dataTransferCommandBuffer.copyBuffer(srcBuffer->GetBuffer(), buffer, vk::BufferCopy(0, offset, size));
+							}
+						}
+					}
+
+					for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
+					{
+						auto [imageHandle, address, offset, size] = imageUpload;
+						if (imageHandle.GetType() != ImageHandle::ImageType::Invalid)
+						{
+							auto image = GetTextureHandleImageObject(imageHandle);
+							auto pDesc = GetTextureHandleDescriptor(imageHandle);
+							if (image != vk::Image{nullptr})
+							{
+								auto srcBuffer = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(size);
+								memcpy(srcBuffer->GetMappedPointer(), address, size);
+
+								//TODO: offset is not used here for now
+								std::array<vk::BufferImageCopy, 1> bufferImageCopy = { GPUTextureDescriptorToBufferImageCopy(*pDesc) };
+								dataTransferCommandBuffer.copyBufferToImage(srcBuffer->GetBuffer()
+									, image
+									, vk::ImageLayout::eTransferDstOptimal
+									, bufferImageCopy);
+							}
+						}
+					}
+
+					dataTransferCommandBuffer.end();
+					m_GraphicsCommandBuffers.push_back(dataTransferCommandBuffer);
+					break;
 				}
 			}
-
-			renderPassCommandBuffer.endRenderPass();
-			renderPassCommandBuffer.end();
-			m_GraphicsCommandBuffers.push_back(renderPassCommandBuffer);
 		}
 	}
 	void BufferSubAllocator::Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)

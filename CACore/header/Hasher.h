@@ -108,4 +108,22 @@ namespace cacore
             return static_cast<result_type>(hasher.alg);
         }
     };
+
+    template<typename ObjType, typename hashAlg = fnvla>
+    struct HashObj
+    {
+    public:
+        HashObj(ObjType const& obj) : m_Object(obj)
+        {
+			UpdateHash();
+		}
+    private:
+        using result_type = hashAlg::result_type;
+        ObjType m_Object;
+        result_type m_HashValue;
+        void UpdateHash()
+        {
+            m_HashValue = hash<ObjType, hashAlg>{}(m_Object);
+		}
+    };
 }

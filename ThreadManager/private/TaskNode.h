@@ -19,9 +19,9 @@ namespace thread_management
 	class TaskBaseObject
 	{
 	public:
-		TaskBaseObject(TaskObjectType type) :m_Type(type) {}
+		TaskBaseObject(TaskObjectType type) :m_Type(type){}
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) {}
-	//protected:
+		virtual uint64_t GetCurrentFrame() const = 0;
 		TaskObjectType GetTaskObjectType() const { return m_Type; }
 	private:
 		TaskObjectType m_Type;
@@ -37,6 +37,7 @@ namespace thread_management
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override {}
 		virtual void Execute_Internal() = 0;
 		virtual void SetupSubnodeDependencies() {};
+		virtual uint64_t GetCurrentFrame() const override { return m_CurrentFrame; }
 		void SetupThisNodeDependencies_Internal();
 		size_t GetDepenedentCount() const { return m_Dependents.size(); }
 		void Release_Internal();
@@ -45,8 +46,8 @@ namespace thread_management
 	protected:
 		void NotifyDependsOnFinish(TaskNode* dependsOnNode);
 		void Name_Internal(const castl::string& name);
-		void WaitEvent_Internal(const castl::string& name, uint64_t waitingID);
-		void SignalEvent_Internal(const castl::string& name, uint64_t signalID);
+		void WaitEvent_Internal(const castl::string& name);
+		void SignalEvent_Internal(const castl::string& name);
 		void DependsOn_Internal(TaskNode* dependsOnNode);
 		void FinalizeExecution_Internal();
 		void AddResource_Internal(castl::shared_ptr<void> const& resource);
@@ -57,9 +58,8 @@ namespace thread_management
 		std::atomic_bool m_Running{ false };
 		castl::string m_Name;
 		castl::string m_EventName;
-		uint64_t m_EventWaitingID = 0;
 		castl::string m_SignalEventName;
-		uint64_t m_EventSignalID = 0;
+		uint64_t m_CurrentFrame;
 		castl::vector<TaskNode*>m_Dependents;
 		castl::vector<TaskNode*>m_Successors;
 		std::atomic<uint32_t>m_PendingDependsOnTaskCount{0};

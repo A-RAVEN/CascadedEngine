@@ -22,6 +22,7 @@ namespace graphics_backend
 		VKAppSubObjectBase& operator=(VKAppSubObjectBase&&) = default;
 		virtual void Release() {};
 		CVulkanApplication& GetVulkanApplication() const;
+		castl::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
 		CFrameCountContext const& GetFrameCountContext() const;
 		vk::Instance GetInstance() const;
 		vk::Device GetDevice() const;
@@ -45,6 +46,7 @@ namespace graphics_backend
 		virtual ~VKAppSubObjectBaseNoCopy() {};
 		virtual void Release() {};
 		CVulkanApplication& GetVulkanApplication() const;
+		castl::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
 		CFrameCountContext const& GetFrameCountContext() const;
 		vk::Instance GetInstance() const;
 		vk::Device GetDevice() const;

@@ -290,10 +290,11 @@ namespace graphics_backend
 		virtual vk::ImageView GetImageView(ImageHandle const& handle) override { return GetTextureHandleImageView(handle);  }
 	private:
 		castl::shared_ptr<GPUGraph> m_Graph;
-		//Runtime
+		//Rasterize Pass
 		castl::vector<GPUPassInfo> m_Passes;
-		//
+		//Transfer Pass
 		castl::vector<GPUTransferInfo> m_TransferPasses;
+		//Command Buffers
 		castl::vector<vk::CommandBuffer> m_GraphicsCommandBuffers;
 		//Manager
 		GraphExecutorImageManager m_ImageManager;
