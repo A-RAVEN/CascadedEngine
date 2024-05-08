@@ -1,13 +1,15 @@
 #pragma once
+#include <Platform.h>
 #include <CAResource/IResource.h>
 #include <CAResource/ResourceImporter.h>
 #include <CAResource/ResourceManagingSystem.h>
 #include <ShaderProvider.h>
 #include <Compiler.h>
 #include <library_loader.h>
-#include <zpp_bits.h>
 #include <filesystem>
 #include <ShaderBindingBuilder.h>
+#include <Serialization.h>
+#include <Hasher.h>
 
 namespace ShaderCompiler
 {
@@ -44,8 +46,6 @@ namespace resource_management
 	class ShaderResrouce : public IResource, public IShaderSet
 	{
 	public:
-		friend zpp::bits::access;
-		using serialize = zpp::bits::members<2>;
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 
@@ -97,6 +97,11 @@ namespace resource_management
 		castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> m_ShaderTargetResults;
 		castl::string m_UniqueName;
 		friend class ShaderResourceLoader;
+
+		friend constexpr void ca_hash(ShaderResrouce const& obj, auto& hasher)
+		{
+			hasher.hash(obj.m_UniqueName);
+		}
 	};
 
 	class ShaderResourceLoaderSlang : public ResourceImporter<ShaderResrouce>

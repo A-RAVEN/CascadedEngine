@@ -1,17 +1,17 @@
 #pragma once
+#include <Platform.h>
 #include <CAResource/IResource.h>
 #include <CAResource/ResourceImporter.h>
 #include <CAResource/ResourceManagingSystem.h>
-#include <zpp_bits.h>
 #include <Common.h>
+#include <Serialization.h>
+#include <Hasher.h>
 
 namespace resource_management
 {
 	class TextureResource : public IResource
 	{
 	public:
-		friend zpp::bits::access;
-		using serialize = zpp::bits::members<7>;
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 		void SetData(void* data, uint64_t size);
@@ -31,5 +31,16 @@ namespace resource_management
 		uint32_t m_Height;
 		uint32_t m_Slices;
 		uint32_t m_MipLevels;
+
+		CA_PRIVATE_REFLECTION(TextureResource);
 	};
+
+	CA_REFLECTION(TextureResource
+		, m_Bytes
+		, m_Format
+		, m_Type
+		, m_Width
+		, m_Height
+		, m_Slices
+		, m_MipLevels);
 }

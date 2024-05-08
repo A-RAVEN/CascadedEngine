@@ -5,19 +5,12 @@ namespace resource_management
 {
 	void TextureResource::Serialzie(castl::vector<uint8_t>& data)
 	{
-		zpp::bits::out out(data);
-		auto result = out(*this);
-		if (failure(result)) {
-			LogZPPError("serialize failed", result);
-		}
+		cacore::serialize(data, *this);
 	}
 	void TextureResource::Deserialzie(castl::vector<uint8_t>& data)
 	{
-		zpp::bits::in in(data);
-		auto result = in(*this);
-		if (failure(result)) {
-			LogZPPError("deserialize failed", result);
-		}
+		cacore::deserializer<decltype(data)> deserializer(data);
+		deserializer.deserialize(*this);
 	}
 	void TextureResource::SetData(void* data, uint64_t size)
 	{

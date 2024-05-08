@@ -165,11 +165,11 @@ int main(int argc, char *argv[])
 	samplingTextureBinding1->SetSampler("SourceSampler", sampler);
 
 
-	{
-		MeshGPUData newMeshGPUData{ pBackend };
-		newMeshGPUData.UploadMeshResource(pTestMeshResource, "VikingScene");
-		g_MeshResourceToGPUData.insert(castl::make_pair(pTestMeshResource, newMeshGPUData));
-	}
+	//{
+	//	MeshGPUData newMeshGPUData{ pBackend };
+	//	newMeshGPUData.UploadMeshResource(pTestMeshResource, "VikingScene");
+	//	g_MeshResourceToGPUData.insert(castl::make_pair(pTestMeshResource, newMeshGPUData));
+	//}
 
 	//MeshBatchDrawInterface drawInterface{};
 	//{

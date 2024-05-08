@@ -15,7 +15,7 @@ namespace cacore
         serializer(ByteBuffer& buffer) : buffer(buffer) {}
 
         template<typename Obj>
-        constexpr void inline serialize(const Obj& object) requires is_bytebuffer<ByteBuffer>
+        constexpr void inline serialize(const Obj& object) requires is_bytebuffer<std::remove_cvref_t<ByteBuffer>>
         {
             using objType = std::remove_cvref_t<decltype(object)>;
             if constexpr (std::is_pointer_v<objType> || managed_pointer_traits<objType>::is_managed_pointer)
@@ -82,7 +82,7 @@ namespace cacore
         deserializer(ByteBuffer const& buffer) : buffer(buffer) {}
 
         template<typename Obj>
-        constexpr void inline deserialize(Obj& object) requires is_byte_source<ByteBuffer>
+        constexpr void inline deserialize(Obj& object) requires is_byte_source<std::remove_cvref_t<ByteBuffer>>
         {
             using objType = std::remove_cvref_t<decltype(object)>;
             //对象如果是const的，需要去掉const

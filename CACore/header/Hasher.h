@@ -7,17 +7,21 @@ namespace cacore
 
     class fnv1a
     {
-        size_t state_ = 14695981039346656037u;
+        uint64_t state_ = 14695981039346656037u;
     public:
-        using result_type = size_t;
+        using result_type = uint64_t;
 
-        void
-            operator()(void const* key, size_t len) noexcept
+        void operator()(void const* key, uint64_t len) noexcept
         {
             unsigned char const* p = static_cast<unsigned char const*>(key);
             unsigned char const* const e = p + len;
             for (; p < e; ++p)
                 state_ = (state_ ^ *p) * 1099511628211u;
+        }
+
+        void operator()(result_type other) noexcept
+        {
+            operator()(&other, sizeof(result_type));
         }
 
         explicit
@@ -27,11 +31,17 @@ namespace cacore
         }
     };
 
+
+    template<typename T, typename hasher>
+    concept has_custom_hash_func = requires(T t, hasher h)
+    {
+        ca_hash(t, h);
+    };
+
     template <typename hashAlg>
     class defaultHasher
     {
     public:
-
         using result_type = typename hashAlg::result_type;
         hashAlg alg = {};
         template<typename Obj>
@@ -43,6 +53,11 @@ namespace cacore
                 //直接对对象内存算哈希值
                 hash_range(object);
             }
+            else if constexpr (has_custom_hash_func<objType, std::remove_cvref_t<decltype(*this)>>)
+			{
+				//自定义哈希函数
+				ca_hash(object, *this);
+			}
             else if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
             {
                 //对指针地址算哈希值
@@ -109,16 +124,30 @@ namespace cacore
         }
     };
 
-    template<typename ObjType, typename hashAlg = fnvla>
+    template<typename ObjType, typename hashAlg = fnv1a>
     struct HashObj
     {
     public:
+        using result_type = hashAlg::result_type;
         HashObj(ObjType const& obj) : m_Object(obj)
         {
 			UpdateHash();
 		}
+        constexpr result_type GetHash() const noexcept
+		{
+			return m_HashValue;
+		}
+
+        auto operator<=>(HashObj const& b) const
+        {
+            return m_HashValue <=> b.m_HashValue;
+        }
+
+        bool operator==(HashObj const& b) const
+        {
+            return m_HashValue == b.m_HashValue;
+        }
     private:
-        using result_type = hashAlg::result_type;
         ObjType m_Object;
         result_type m_HashValue;
         void UpdateHash()
@@ -126,4 +155,10 @@ namespace cacore
             m_HashValue = hash<ObjType, hashAlg>{}(m_Object);
 		}
     };
+}
+
+template<typename ObjType, typename hashAlg>
+constexpr void ca_hash(cacore::HashObj<ObjType, hashAlg> const& obj, cacore::defaultHasher<hashAlg>& hasher)
+{
+    hasher.hash(obj.GetHash());
 }

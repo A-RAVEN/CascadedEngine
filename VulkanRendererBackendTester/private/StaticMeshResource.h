@@ -1,4 +1,5 @@
 #pragma once
+#include <Platform.h>
 #include <CAResource/IResource.h>
 #include <CAResource/ResourceImporter.h>
 #include <CAResource/ResourceManagingSystem.h>

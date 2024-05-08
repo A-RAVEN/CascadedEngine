@@ -8,52 +8,99 @@
 #include <CASTL/CASharedPtr.h>
 #include <glm/glm.hpp>
 
-
-struct TestStruct1
+namespace test_namespace
 {
-	castl::shared_ptr<float> testV;
-	float aa;
-	float bb;
-	float* pcc;
-	auto operator <=>(const TestStruct1&) const = default;
-};
 
-
-
-class TestStruct2
-{
-public:
-	auto operator <=>(const TestStruct2&) const = default;
-	TestStruct2() = default;
-	TestStruct2(float a, float b) : aa(a), bb(b) { }
-	castl::shared_ptr<float> testV;
-private:
-	float aa;
-	float cc[5]{ 1, 2, 3, 5 };
-	float bb;
-
-	CA_PRIVATE_REFLECTION(TestStruct2);
-};
-
-//CA_REFLECTION(TestStruct1, aa, bb);
-CA_REFLECTION(TestStruct2, testV, aa, bb, cc);
-
-template<typename T, size_t index>
-constexpr void evaluate_type() requires careflection::has_type_desc<T>
-{
-	constexpr auto structSize = CATypeDescriptor<T>::member_count;
-	using member_tuple_type = CATypeDescriptor<T>::member_tuple_type;
-	if constexpr (index < structSize)
+	struct TestStruct1
 	{
-		using visitingElementType = std::tuple_element_t<index, member_tuple_type>;
-		std::cout << typeid(typename visitingElementType::type).name() << std::endl;
-		std::cout << visitingElementType::offset << std::endl;
-		evaluate_type<T, index + 1>();
+		castl::shared_ptr<float> testV;
+		float aa;
+		float bb;
+		float* pcc;
+		auto operator <=>(const TestStruct1&) const = default;
+	};
+
+
+
+	class TestStruct2
+	{
+	public:
+		auto operator <=>(const TestStruct2&) const = default;
+		TestStruct2() = default;
+		TestStruct2(float a, float b) : aa(a), bb(b) { }
+		castl::shared_ptr<float> testV;
+	private:
+		float aa;
+		float cc[5]{ 1, 2, 3, 5, 6 };
+		float bb;
+
+		CA_PRIVATE_REFLECTION(TestStruct2);
+	};
+
+	//CA_REFLECTION(TestStruct1, aa, bb);
+	CA_REFLECTION(TestStruct2, testV, aa, bb, cc);
+
+	template<typename T, size_t index>
+	constexpr void evaluate_type() requires careflection::has_type_desc<T>
+	{
+		constexpr auto structSize = CATypeDescriptor<T>::member_count;
+		using member_tuple_type = CATypeDescriptor<T>::member_tuple_type;
+		if constexpr (index < structSize)
+		{
+			using visitingElementType = std::tuple_element_t<index, member_tuple_type>;
+			std::cout << typeid(typename visitingElementType::type).name() << std::endl;
+			std::cout << visitingElementType::offset << std::endl;
+			evaluate_type<T, index + 1>();
+		}
+	}
+
+	struct TestStruct3
+	{
+		int a;
+		castl::string test2;
+		auto operator==(const TestStruct3& other) const
+		{
+			return test2 == other.test2;
+		}
+
+		friend constexpr void ca_hash(TestStruct3 const& obj, auto& hasher)
+		{
+			hasher.hash(obj.test2);
+		}
+	};
+
+
+
+	void TestHash()
+	{
+		cacore::HashObj<TestStruct2> testStruct2 = TestStruct2{ 1.0f, 2.0f };
+		castl::unordered_map<cacore::HashObj<TestStruct2>, int> tstMap3;
+		tstMap3.insert({ testStruct2, 3 });
+
+
+	}
+
+	void TestHash2()
+	{
+		TestStruct3 testStruct3{ 1, "test" };
+		castl::unordered_map<TestStruct3, int> testMap;
+		testMap.insert({ testStruct3, 3 });
+
+		castl::vector<uint8_t> byteBuffer;
+		cacore::serialize(byteBuffer, testStruct3);
+		TestStruct3 testStruct4;
+		cacore::deserializer<decltype(byteBuffer)> deserializer(byteBuffer);
+		deserializer.deserialize(testStruct4);
 	}
 }
 
+using namespace test_namespace;
+
 int main(int argc, char* argv[])
 {
+	TestHash();
+	TestHash2();
+
 	//evaluate_type<TestStruct1, 0>();
 	evaluate_type<TestStruct2, 0>();
 
@@ -77,12 +124,12 @@ int main(int argc, char* argv[])
 
 	cacore::serialize(byteBuffer, tstMap1);
 
-	castl::unordered_map<TestStruct2, int, cacore::hash<TestStruct2>> tstMap2;
+	castl::unordered_map<TestStruct2, int> tstMap2;
 	cacore::deserializer<decltype(byteBuffer)> deserializer(byteBuffer);
 	deserializer.deserialize(tstMap2);
 
 	TestStruct1 testStruct2{ testFloat, 1.0f, 2.0f, nullptr };
-	castl::unordered_map<TestStruct1, int, cacore::hash<TestStruct1>> tstMap3;
+	castl::unordered_map<TestStruct1, int> tstMap3;
 	tstMap3.insert({ testStruct2, 3 });
 	std::cout << careflection::aggregate_member_count<TestStruct1>() << std::endl;
 	//static_assert(careflection::aggregate_member_count<TestStruct1>() == 2, "Why");
