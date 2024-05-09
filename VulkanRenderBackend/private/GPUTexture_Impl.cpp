@@ -9,20 +9,20 @@ namespace graphics_backend
 	GPUTexture_Impl::GPUTexture_Impl(CVulkanApplication& app) : BaseTickingUpdateResource(app)
 	{
 	}
-	void GPUTexture_Impl::ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData)
-	{
-		size_t scheduleSize = textureDataOffset + dataSize;
-		if (scheduleSize > m_ScheduledData.size())
-		{
-			m_ScheduledData.resize(scheduleSize);
-		}
-		memcpy(m_ScheduledData.data() + textureDataOffset, pData, dataSize);
-		MarkDirtyThisFrame();
-	}
-	bool GPUTexture_Impl::UploadingDone() const
-	{
-		return BaseTickingUpdateResource::UploadingDone();
-	}
+	//void GPUTexture_Impl::ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData)
+	//{
+	//	size_t scheduleSize = textureDataOffset + dataSize;
+	//	if (scheduleSize > m_ScheduledData.size())
+	//	{
+	//		m_ScheduledData.resize(scheduleSize);
+	//	}
+	//	memcpy(m_ScheduledData.data() + textureDataOffset, pData, dataSize);
+	//	MarkDirtyThisFrame();
+	//}
+	//bool GPUTexture_Impl::UploadingDone() const
+	//{
+	//	return BaseTickingUpdateResource::UploadingDone();
+	//}
 	void GPUTexture_Impl::Initialize(const GPUTextureDescriptor& descriptor)
 	{
 		m_Descriptor = descriptor;

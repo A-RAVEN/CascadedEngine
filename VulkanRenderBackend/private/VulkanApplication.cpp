@@ -13,6 +13,8 @@
 #include "InterfaceTranslator.h"
 #include "RenderGraphExecutor.h"
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
+#include <GPUResources/VKGPUTexture.h>
+#include <GPUResources/VKGPUBuffer.h>
 
 namespace graphics_backend
 {
@@ -272,25 +274,38 @@ namespace graphics_backend
 		return GetDevice().createImageView(createInfo);
 	}
 
-	GPUBuffer* CVulkanApplication::NewGPUBuffer(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
+	GPUBuffer* CVulkanApplication::NewGPUBuffer(GPUBufferDescriptor const& inDescriptor)
 	{
-		GPUBuffer_Impl* result = m_GPUBufferPool.Alloc(usageFlags, count, stride);
+		VKGPUBuffer* result = new VKGPUBuffer();
+		result->SetDescriptor(inDescriptor);
 		return result;
 	}
 
 	void CVulkanApplication::ReleaseGPUBuffer(GPUBuffer* releaseGPUBuffer)
 	{
-		m_GPUBufferPool.Release(static_cast<GPUBuffer_Impl*>(releaseGPUBuffer));
+		VKGPUBuffer* vkBuffer = static_cast<VKGPUBuffer*>(releaseGPUBuffer);
+		if (vkBuffer->Initialized())
+		{
+			vkBuffer->GetBuffer();
+			//TODO: Release Buffer Resource;
+		}
 	}
 
 	GPUTexture* CVulkanApplication::NewGPUTexture(GPUTextureDescriptor const& inDescriptor)
 	{
-		return m_GPUTexturePool.Alloc(inDescriptor);
+		VKGPUTexture* result = new VKGPUTexture();
+		result->SetDescriptor(inDescriptor);
+		return result;
 	}
 
 	void CVulkanApplication::ReleaseGPUTexture(GPUTexture* releaseGPUTexture)
 	{
-		m_GPUTexturePool.Release(static_cast<GPUTexture_Impl*>(releaseGPUTexture));
+		VKGPUTexture* vkTexture = static_cast<VKGPUTexture*>(releaseGPUTexture);
+		if (vkTexture->Initialized())
+		{
+			vkTexture->GetImage();
+			//TODO: Release Image Resource;
+		}
 	}
 
 	castl::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)

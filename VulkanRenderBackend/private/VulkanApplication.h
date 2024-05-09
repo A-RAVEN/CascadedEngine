@@ -98,6 +98,7 @@ namespace graphics_backend
 			, bool floating);
 		void TickWindowContexts();
 
+
 		CFrameCountContext const& GetSubmitCounterContext() const { return m_SubmitCounterContext; }
 
 		template<typename T, typename...TArgs>
@@ -181,7 +182,7 @@ namespace graphics_backend
 			, bool stencilAspect) const;
 	public:
 		//Allocation
-		GPUBuffer* NewGPUBuffer(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride);
+		GPUBuffer* NewGPUBuffer(GPUBufferDescriptor const& inDescriptor);
 		void ReleaseGPUBuffer(GPUBuffer* releaseGPUBuffer);
 
 		GPUTexture* NewGPUTexture(GPUTextureDescriptor const& inDescriptor);

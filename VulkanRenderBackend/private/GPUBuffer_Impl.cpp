@@ -24,20 +24,20 @@ namespace graphics_backend
 		m_Stride = stride;
 
 	}
-	bool GPUBuffer_Impl::UploadingDone() const
-	{
-		return BaseTickingUpdateResource::UploadingDone();
-	}
-	void GPUBuffer_Impl::ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData)
-	{
-		size_t scheduleSize = bufferOffset + dataSize;
-		if (scheduleSize > m_ScheduledData.size())
-		{
-			m_ScheduledData.resize(scheduleSize);
-		}
-		memcpy(m_ScheduledData.data() + bufferOffset, pData, dataSize);
-		MarkDirtyThisFrame();
-	}
+	//bool GPUBuffer_Impl::UploadingDone() const
+	//{
+	//	return BaseTickingUpdateResource::UploadingDone();
+	//}
+	//void GPUBuffer_Impl::ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData)
+	//{
+	//	size_t scheduleSize = bufferOffset + dataSize;
+	//	if (scheduleSize > m_ScheduledData.size())
+	//	{
+	//		m_ScheduledData.resize(scheduleSize);
+	//	}
+	//	memcpy(m_ScheduledData.data() + bufferOffset, pData, dataSize);
+	//	MarkDirtyThisFrame();
+	//}
 	void GPUBuffer_Impl::TickUpload()
 	{
         auto& memoryManager = GetMemoryManager();

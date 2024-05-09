@@ -73,11 +73,16 @@ namespace test_namespace
 
 	void TestHash()
 	{
-		cacore::HashObj<TestStruct2> testStruct2 = TestStruct2{ 1.0f, 2.0f };
+		cacore::HashObj<TestStruct2> testStructIn = TestStruct2{ 1.0f, 2.0f };
 		castl::unordered_map<cacore::HashObj<TestStruct2>, int> tstMap3;
-		tstMap3.insert({ testStruct2, 3 });
+		tstMap3.insert({ testStructIn, 3 });
 
-
+		castl::vector<uint8_t> byteBuffer;
+		cacore::serialize(byteBuffer, testStructIn);
+		TestStruct2 testStructOut;
+		cacore::HashObj<TestStruct2> testStructOut1;
+		cacore::deserialize(byteBuffer, testStructOut);
+		cacore::deserialize(byteBuffer, testStructOut1);
 	}
 
 	void TestHash2()

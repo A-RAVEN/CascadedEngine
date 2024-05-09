@@ -73,6 +73,15 @@ namespace careflection
 	};
 
     template<typename T>
+    struct managed_wrapper_traits
+    {
+        constexpr static bool is_managed_wrapper = false;
+        using inner_type = T;
+        constexpr static T const& get_data(T const& obj) { return obj; }
+        constexpr static void set_data(T& obj, T const& data) { obj = data; }
+    };
+
+    template<typename T>
     concept is_size_container = requires(T t)
     {
         t.size();

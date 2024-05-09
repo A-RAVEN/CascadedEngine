@@ -129,10 +129,20 @@ namespace cacore
     {
     public:
         using result_type = hashAlg::result_type;
+        HashObj() = default;
         HashObj(ObjType const& obj) : m_Object(obj)
         {
 			UpdateHash();
 		}
+        HashObj(HashObj const& hashObj) : m_Object(hashObj.m_Object)
+            , m_HashValue(hashObj.m_HashValue)
+        {
+        }
+        constexpr ObjType const& Get() const noexcept
+		{
+			return m_Object;
+		}
+
         constexpr result_type GetHash() const noexcept
 		{
 			return m_HashValue;
@@ -154,6 +164,8 @@ namespace cacore
         {
             m_HashValue = hash<ObjType, hashAlg>{}(m_Object);
 		}
+
+        friend struct careflection::managed_wrapper_traits<HashObj<ObjType, hashAlg>>;
     };
 }
 
@@ -162,3 +174,12 @@ constexpr void ca_hash(cacore::HashObj<ObjType, hashAlg> const& obj, cacore::def
 {
     hasher.hash(obj.GetHash());
 }
+
+template<typename ObjType, typename hashAlg>
+struct careflection::managed_wrapper_traits<cacore::HashObj<ObjType, hashAlg>>
+{
+    constexpr static bool is_managed_wrapper = true;
+    using inner_type = ObjType;
+    constexpr static ObjType const& get_data(cacore::HashObj<ObjType, hashAlg> const& obj) { return obj.Get(); }
+    constexpr static void set_data(cacore::HashObj<ObjType, hashAlg>& obj, ObjType const& data) { obj = cacore::HashObj<ObjType, hashAlg>{ data }; }
+};

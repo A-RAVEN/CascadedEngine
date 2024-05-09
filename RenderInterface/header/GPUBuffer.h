@@ -5,13 +5,11 @@
 
 namespace graphics_backend
 {
-	class GPUBufferDescriptor
+	struct GPUBufferDescriptor
 	{
-	public:
 		EBufferUsageFlags usageFlags;
 		uint64_t count;
 		uint64_t stride;
-
 		auto operator<=>(const GPUBufferDescriptor&) const = default;
 
 		static GPUBufferDescriptor Create(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
@@ -23,11 +21,11 @@ namespace graphics_backend
 	class GPUBuffer
 	{
 	public:
-		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData) = 0;
-		virtual bool UploadingDone() const = 0;
-		virtual void Name(castl::string const& name) = 0;
+		virtual GPUBufferDescriptor const& GetDescriptor() const = 0;
+		virtual void SetName(castl::string const& name) = 0;
+		virtual castl::string const& GetName() const = 0;
 	};
 }
 
-template<>
-struct hash_utils::is_contiguously_hashable<graphics_backend::GPUBufferDescriptor> : public castl::true_type {};
+//template<>
+//struct hash_utils::is_contiguously_hashable<graphics_backend::GPUBufferDescriptor> : public castl::true_type {};

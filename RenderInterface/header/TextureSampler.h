@@ -1,5 +1,5 @@
 #pragma once
-#include <uhash.h>
+#include <Hasher.h>
 
 namespace graphics_backend
 {
@@ -27,27 +27,36 @@ namespace graphics_backend
 	struct TextureSamplerDescriptor
 	{
 	public:
-		ETextureSamplerFilterMode magFilterMode = ETextureSamplerFilterMode::eLinear;
-		ETextureSamplerFilterMode minFilterMode = ETextureSamplerFilterMode::eLinear;
-		ETextureSamplerFilterMode mipmapFilterMode = ETextureSamplerFilterMode::eLinear;
-		ETextureSamplerAddressMode addressModeU = ETextureSamplerAddressMode::eClampToEdge;
-		ETextureSamplerAddressMode addressModeV = ETextureSamplerAddressMode::eClampToEdge;
-		ETextureSamplerAddressMode addressModeW = ETextureSamplerAddressMode::eClampToEdge;
-		ETextureSamplerBorderColor boarderColor = ETextureSamplerBorderColor::eTransparentBlack;
-		bool integerFormat = false;
+		ETextureSamplerFilterMode magFilterMode;
+		ETextureSamplerFilterMode minFilterMode;
+		ETextureSamplerFilterMode mipmapFilterMode;
+		ETextureSamplerAddressMode addressModeU;
+		ETextureSamplerAddressMode addressModeV;
+		ETextureSamplerAddressMode addressModeW;
+		ETextureSamplerBorderColor boarderColor;
+		bool integerFormat;
 
-		bool operator==(TextureSamplerDescriptor const& other) const noexcept
+		static TextureSamplerDescriptor Create(
+			ETextureSamplerFilterMode filterMode = ETextureSamplerFilterMode::eLinear
+			, ETextureSamplerAddressMode addressMode = ETextureSamplerAddressMode::eRepeat
+			, ETextureSamplerBorderColor boarderColor = ETextureSamplerBorderColor::eTransparentBlack
+			, bool integerFormat = false)
 		{
-			return magFilterMode == other.magFilterMode
-				&& minFilterMode == other.minFilterMode
-				&& mipmapFilterMode == other.mipmapFilterMode
-				&& addressModeU == other.addressModeU
-				&& addressModeV == other.addressModeV
-				&& addressModeW == other.addressModeW
-				&& boarderColor == other.boarderColor
-				&& integerFormat == other.integerFormat;
+			TextureSamplerDescriptor desc;
+			desc.magFilterMode = ETextureSamplerFilterMode::eLinear;
+			desc.minFilterMode = ETextureSamplerFilterMode::eLinear;
+			desc.mipmapFilterMode = ETextureSamplerFilterMode::eLinear;
+			desc.addressModeU = ETextureSamplerAddressMode::eClampToEdge;
+			desc.addressModeV = ETextureSamplerAddressMode::eClampToEdge;
+			desc.addressModeW = ETextureSamplerAddressMode::eClampToEdge;
+			desc.boarderColor = ETextureSamplerBorderColor::eTransparentBlack;
+			desc.integerFormat = false;
+			return desc;
 		}
+		auto operator<=>(const TextureSamplerDescriptor&) const = default;
 	};
+
+	using TextureSamplerDescriptorObj = cacore::HashObj<TextureSamplerDescriptor>;
 
 	class TextureSampler
 	{
@@ -55,6 +64,3 @@ namespace graphics_backend
 		virtual TextureSamplerDescriptor const& GetDescriptor() const = 0;
 	};
 }
-
-template<>
-struct hash_utils::is_contiguously_hashable<graphics_backend::TextureSamplerDescriptor> : public std::true_type {};

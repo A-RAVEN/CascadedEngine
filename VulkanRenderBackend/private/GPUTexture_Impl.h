@@ -10,8 +10,8 @@ namespace graphics_backend
 	{
 	public:
 		GPUTexture_Impl(CVulkanApplication& app);
-		virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData) override;
-		virtual bool UploadingDone() const override;
+		//virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData) override;
+		//virtual bool UploadingDone() const override;
 		virtual GPUTextureDescriptor const& GetDescriptor() const override { return m_Descriptor; }
 		void Initialize(const GPUTextureDescriptor& descriptor);
 		void TickUpload() override;

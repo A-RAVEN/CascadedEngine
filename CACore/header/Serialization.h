@@ -22,6 +22,10 @@ namespace cacore
             {
                 //ignore
             }
+            else if constexpr (managed_wrapper_traits<objType>::is_managed_wrapper)
+            {
+                serialize(managed_wrapper_traits<objType>::get_data(object));
+            }
             else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {
                 serialize_one(object);
@@ -95,6 +99,12 @@ namespace cacore
             {
                 //赋值空
                 mutableObject = nullptr;
+            }
+            else if constexpr (managed_wrapper_traits<objType>::is_managed_wrapper)
+            {
+                typename managed_wrapper_traits<objType>::inner_type innerItem{};
+                deserialize(innerItem);
+                managed_wrapper_traits<objType>::set_data(mutableObject, innerItem);
             }
             else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {

@@ -61,9 +61,7 @@ namespace graphics_backend
 
 	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
 	{
-		return castl::shared_ptr<GPUBuffer>(m_Application.NewGPUBuffer(usageFlags
-			, count
-			, stride), [this](GPUBuffer* releaseBuffer)
+		return castl::shared_ptr<GPUBuffer>(m_Application.NewGPUBuffer(GPUBufferDescriptor::Create(usageFlags, count, stride)), [this](GPUBuffer* releaseBuffer)
 			{
 				m_Application.ReleaseGPUBuffer(releaseBuffer);
 			});

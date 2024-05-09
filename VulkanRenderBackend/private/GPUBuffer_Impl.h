@@ -14,10 +14,13 @@ namespace graphics_backend
 		void Initialize(EBufferUsageFlags usages, uint64_t count, uint64_t stride);
 		virtual void TickUpload() override;
 		// 通过 GPUBuffer 继承
-		virtual bool UploadingDone() const override;
-		virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData) override;
-		virtual void Name(castl::string const& name) override { m_Name = name; }
+		//virtual bool UploadingDone() const override;
+		//virtual void ScheduleBufferData(uint64_t bufferOffset, uint64_t dataSize, void const* pData) override;
+		//virtual void Name(castl::string const& name) override { m_Name = name; }
 		VulkanBufferHandle const& GetVulkanBufferObject() const { return m_BufferObject; }
+		virtual GPUBufferDescriptor const& GetDescriptor() const override { return {}; };
+		virtual void SetName(castl::string const& name) override { m_Name = name; };
+		virtual castl::string const& GetName() const override { return m_Name; };
 	protected:
 	private:
 		VulkanBufferHandle m_BufferObject;
