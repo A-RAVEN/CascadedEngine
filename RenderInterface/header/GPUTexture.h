@@ -42,10 +42,11 @@ namespace graphics_backend
 	class GPUTexture
 	{
 	public:
-		virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData) = 0;
-		virtual bool UploadingDone() const = 0;
+		//virtual void ScheduleTextureData(uint64_t textureDataOffset, uint64_t dataSize, void const* pData) = 0;
+		//virtual bool UploadingDone() const = 0;
 		virtual GPUTextureDescriptor const& GetDescriptor() const = 0;
-	protected:
+		virtual void SetName(castl::string const& name) = 0;
+		virtual castl::string const& GetName() const = 0;
 	};
 }
 

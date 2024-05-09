@@ -22,7 +22,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE glm)
 target_link_libraries(${PROJECT_NAME} PRIVATE IMGUI)
 target_link_libraries(${PROJECT_NAME} PRIVATE assimp)
-target_link_libraries(${PROJECT_NAME} PRIVATE zpp_bits)
+#target_link_libraries(${PROJECT_NAME} PRIVATE zpp_bits)
 target_link_libraries(${PROJECT_NAME} PRIVATE stb)
 #[[
 target_link_libraries(${PROJECT_NAME} PRIVATE flatbuffers)

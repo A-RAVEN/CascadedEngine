@@ -79,7 +79,7 @@ namespace cacore
     class deserializer
     {
     public:
-        deserializer(ByteBuffer const& buffer) : buffer(buffer) {}
+        deserializer(ByteBuffer const& buffer, uint64_t offset = 0u) : buffer(buffer), m_Offset(offset){}
 
         template<typename Obj>
         constexpr void inline deserialize(Obj& object) requires is_byte_source<std::remove_cvref_t<ByteBuffer>>
@@ -176,18 +176,25 @@ namespace cacore
 
         constexpr void load_from_buffer(void* dest, size_t size)
         {
-            memcpy(dest, buffer.data() + offset, size);
-            offset += size;
+            memcpy(dest, buffer.data() + m_Offset, size);
+            m_Offset += size;
         }
 
         ByteBuffer const& buffer;
-        size_t offset = 0;
+        uint64_t m_Offset = 0;
     };
 
     template <typename Obj, typename ByteBuffer>
     static constexpr void serialize(ByteBuffer& buffer, Obj const& object)
     {
-        serializer<ByteBuffer> serializer(buffer);
-        serializer.serialize(object);
+        serializer<ByteBuffer> srser{ buffer };
+        srser.serialize(object);
+    }
+
+    template <typename Obj, typename ByteBuffer>
+    static constexpr void deserialize(ByteBuffer const& buffer, Obj& object, uint64_t offset = 0u)
+    {
+        deserializer<ByteBuffer> desrser{ buffer, offset };
+        desrser.deserialize(object);
     }
 }

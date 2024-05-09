@@ -8,19 +8,12 @@ namespace resource_management
 {
 	void StaticMeshResource::Serialzie(castl::vector<uint8_t>& data)
 	{
-		zpp::bits::out out(data);
-		auto result = out(*this);
-		if (failure(result)) {
-			LogZPPError("serialize failed", result);
-		}
+		cacore::serialize(data, *this);
 	}
 	void StaticMeshResource::Deserialzie(castl::vector<uint8_t>& data)
 	{
-		zpp::bits::in in(data);
-		auto result = in(*this);
-		if (failure(result)) {
-			LogZPPError("deserialize failed", result);
-		}
+		cacore::deserializer<castl::vector<uint8_t>> deserializer(data);
+		deserializer.deserialize(*this);
 	}
 	StaticMeshImporter::StaticMeshImporter()
 	{

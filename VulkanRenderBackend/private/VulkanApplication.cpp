@@ -189,6 +189,10 @@ namespace graphics_backend
 					thisGraph->AddResource(executor);
 					executor->PrepareGraph();
 				}
+				if (gpuFrame.presentWindows.size() > 0)
+				{
+					gpuFrame.presentWindows;
+				}
 			});
 	}
 

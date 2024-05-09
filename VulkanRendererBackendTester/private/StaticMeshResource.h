@@ -5,7 +5,6 @@
 #include <CAResource/ResourceManagingSystem.h>
 #include <Compiler.h>
 #include <library_loader.h>
-#include <zpp_bits.h>
 #include <assimp/Importer.hpp>      // C++ importer interface
 #include <assimp/scene.h>           // Output data structure
 #include <assimp/postprocess.h>     // Post processing flags
@@ -76,8 +75,6 @@ namespace resource_management
 			uint32_t m_SubmeshID;
 			glm::mat4 m_InstanceTransform;
 		};
-		friend zpp::bits::access;
-		using serialize = zpp::bits::members<4>;
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 		uint32_t GetVertexCount() const { return m_Attributes.size(); }
@@ -92,7 +89,11 @@ namespace resource_management
 		std::vector<uint16_t> m_Indices16;
 		std::vector<SubmeshInfo> m_SubmeshInfos;
 		std::vector<InstanceInfo> m_Instance;
+
+		CA_PRIVATE_REFLECTION(StaticMeshResource);
 	};
+
+	CA_REFLECTION(StaticMeshResource, m_Attributes, m_Indices16, m_SubmeshInfos, m_Instance);
 
 	class StaticMeshImporter : public ResourceImporter<StaticMeshResource>
 	{

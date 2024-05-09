@@ -23,8 +23,8 @@ add_library(IMGUI STATIC ${IMGUI_SourceList})
 target_include_directories(IMGUI PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 
 #ZPP_Bits
-add_library(zpp_bits INTERFACE)
-target_include_directories(zpp_bits INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/zpp_bits)
+#add_library(zpp_bits INTERFACE)
+#target_include_directories(zpp_bits INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/zpp_bits)
 
 #STB
 add_library(stb INTERFACE)
