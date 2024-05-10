@@ -32,13 +32,19 @@ namespace cacore
     };
 
 
+    template<typename T>
+    struct custom_hash_trait
+    {
+        //constexpr void hash(T const&, hasher& h)
+    };
+
     template<typename T, typename hasher>
     concept has_custom_hash_func = requires(T t, hasher h)
     {
-        ca_hash(t, h);
+        custom_hash_trait<T>::hash(t, h);
     };
 
-    template <typename hashAlg>
+    template <typename hashAlg = fnv1a>
     class defaultHasher
     {
     public:
@@ -56,7 +62,8 @@ namespace cacore
             else if constexpr (has_custom_hash_func<objType, std::remove_cvref_t<decltype(*this)>>)
 			{
 				//自定义哈希函数
-				ca_hash(object, *this);
+                custom_hash_trait<objType>::hash(object, *this);
+				//ca_hash(object, *this);
 			}
             else if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
             {
@@ -158,8 +165,8 @@ namespace cacore
             return m_HashValue == b.m_HashValue;
         }
     private:
-        ObjType m_Object;
-        result_type m_HashValue;
+        ObjType m_Object{};
+        result_type m_HashValue{};
         void UpdateHash()
         {
             m_HashValue = hash<ObjType, hashAlg>{}(m_Object);
@@ -167,12 +174,15 @@ namespace cacore
 
         friend struct careflection::managed_wrapper_traits<HashObj<ObjType, hashAlg>>;
     };
-}
 
-template<typename ObjType, typename hashAlg>
-constexpr void ca_hash(cacore::HashObj<ObjType, hashAlg> const& obj, cacore::defaultHasher<hashAlg>& hasher)
-{
-    hasher.hash(obj.GetHash());
+    template<typename ObjType, typename hashAlg>
+    struct custom_hash_trait<HashObj<ObjType, hashAlg>>
+    {
+        constexpr static void hash(HashObj<ObjType, hashAlg> const&obj, auto& hasher)
+        {
+            hasher.hash(obj.GetHash());
+        }
+    };
 }
 
 template<typename ObjType, typename hashAlg>

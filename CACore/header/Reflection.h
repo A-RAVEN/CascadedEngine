@@ -43,6 +43,13 @@ struct CATypeDescriptor<Type>\
 	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST_BEGIN(Type, __VA_ARGS__) ) >;\
 	constexpr static size_t member_count = std::tuple_size_v<member_tuple_type>;\
 };
+#define CA_REFLECTION_TEMPLATE(Type, ...)\
+struct CATypeDescriptor<Type>\
+{\
+	using type = Type;\
+	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST_BEGIN(Type, __VA_ARGS__) ) >;\
+	constexpr static size_t member_count = std::tuple_size_v<member_tuple_type>;\
+};
 #define CA_PRIVATE_REFLECTION(Type) friend struct CATypeDescriptor<Type>;
 
 
@@ -114,6 +121,12 @@ namespace careflection
     };
 
     template<typename T>
+    concept has_indexer = requires(T t)
+    {
+        t[0];
+    };
+
+    template<typename T>
     concept has_push_back_element = requires(T t)
     {
         t.push_back((typename containerInfo<T>::elementType) any_type {});
@@ -159,22 +172,24 @@ namespace careflection
         using noRefT = std::remove_reference_t<T>;
         constexpr static bool is_c_array = is_c_array<noRefT>;
         constexpr static bool is_size_container = is_size_container<noRefT>;
+        constexpr static bool valid_container_info = (std::is_same_v<containerInfo<noRefT>::elementType, void> == false);
         constexpr static bool has_resize = has_resize<noRefT>;
         constexpr static bool has_data = has_data<noRefT>;
         constexpr static bool has_reserve = has_reserve<noRefT>;
         constexpr static bool element_assignable = element_assignable<noRefT>;
+        constexpr static bool has_indexer = has_indexer<noRefT>;
         constexpr static bool has_push_back_element = has_push_back_element<noRefT>;
         constexpr static bool has_insert_element = has_insert_element<noRefT>;
         constexpr static bool is_bytebuffer = is_bytebuffer<noRefT>;
         constexpr static bool is_byte_source = is_byte_source<noRefT>;
         constexpr static bool has_foreach_loop = has_foreach_loop<noRefT>;
-        constexpr static bool is_container_with_size = is_size_container || is_c_array;
+        constexpr static bool is_container_with_size = valid_container_info;// is_size_container || is_c_array;
     };
 
     template<typename T, typename Enable = void>
     struct containerInfo
     {
-        using elementType = T;
+        using elementType = void;
         constexpr static auto container_size(const T& container)
         {
             return 0;
@@ -242,6 +257,9 @@ namespace careflection
     {
         using objType = std::remove_cvref_t<decltype(object)>;
         using visitorType = std::remove_cvref_t<decltype(visitor)>;
+
+        static_assert(has_type_desc<objType> || is_structured_binding_capable<objType>, "object incompatible for reflection");
+
         if constexpr (has_type_desc<objType>)
         {
 			visit_members_type_desc(object, visitor);

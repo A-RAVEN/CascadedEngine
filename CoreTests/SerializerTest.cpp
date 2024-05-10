@@ -8,8 +8,28 @@
 #include <CASTL/CASharedPtr.h>
 #include <glm/glm.hpp>
 
+template<glm::length_t L, typename T, glm::qualifier Q>
+struct careflection::containerInfo<glm::vec<L, T, Q>>
+{
+	using elementType = glm::vec<L, T, Q>::value_type;
+	constexpr static auto container_size(const glm::vec<L, T, Q>& container)
+	{
+		return L;
+	}
+};
+
 namespace test_namespace
 {
+	//CA_REFLECTION(glm::vec4, x, y, z, w);
+	//CA_REFLECTION(glm::vec3, x, y, z);
+	//CA_REFLECTION(glm::vec2, x, y);
+	struct TestTruct0
+	{
+		glm::vec4 a;
+		glm::vec3 b;
+		glm::vec2 c;
+		auto operator <=>(const TestTruct0&) const = default;
+	};
 
 	struct TestStruct1
 	{
@@ -19,8 +39,6 @@ namespace test_namespace
 		float* pcc;
 		auto operator <=>(const TestStruct1&) const = default;
 	};
-
-
 
 	class TestStruct2
 	{
@@ -69,11 +87,25 @@ namespace test_namespace
 		}
 	};
 
-
-
 	void TestHash()
 	{
+		TestTruct0 testStructIn = TestTruct0{ {0, 0, 0, 0}, {1, 1, 1}, {2, 2} };
+		castl::unordered_map<TestTruct0, int> tstMap3;
+		tstMap3.insert({ testStructIn, 3 });
+
+		castl::vector<uint8_t> byteBuffer;
+		cacore::serialize(byteBuffer, testStructIn);
+		TestTruct0 testStructOut;
+		cacore::HashObj<TestTruct0> testStructOut1;
+		cacore::deserialize(byteBuffer, testStructOut);
+		cacore::deserialize(byteBuffer, testStructOut1);
+	}
+
+	void TestHash1()
+	{
 		cacore::HashObj<TestStruct2> testStructIn = TestStruct2{ 1.0f, 2.0f };
+		constexpr bool has_hash = cacore::has_custom_hash_func<cacore::HashObj<TestStruct2>, cacore::defaultHasher<>>;
+		constexpr bool has_hash1 = cacore::has_custom_hash_func<TestStruct2, cacore::defaultHasher<>>;
 		castl::unordered_map<cacore::HashObj<TestStruct2>, int> tstMap3;
 		tstMap3.insert({ testStructIn, 3 });
 
@@ -104,6 +136,7 @@ using namespace test_namespace;
 int main(int argc, char* argv[])
 {
 	TestHash();
+	TestHash1();
 	TestHash2();
 
 	//evaluate_type<TestStruct1, 0>();

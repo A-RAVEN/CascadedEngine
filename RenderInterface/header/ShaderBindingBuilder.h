@@ -2,7 +2,7 @@
 #include <CASTL/CAString.h>
 #include <CASTL/CAVector.h>
 #include <DebugUtils.h>
-#include <uhash.h>
+#include <Hasher.h>
 
 enum class EShaderBindingNumericType
 {
@@ -53,14 +53,11 @@ public:
 		, y(inY)
 	{
 	}
-	bool operator==(ShaderBindingDescriptor const& other) const
-	{
-		return hash_utils::memory_equal(*this, other);
-	}
-};
 
-template<>
-struct hash_utils::is_contiguously_hashable<ShaderBindingDescriptor> : public std::true_type {};
+	auto operator <=>(const ShaderBindingDescriptor&) const = default;
+};
+CA_REFLECTION(ShaderBindingDescriptor, numericType, count, x, y);
+
 
 struct ShaderTextureDescriptor
 {
@@ -80,14 +77,11 @@ public:
 	{
 	}
 
-	bool operator==(ShaderTextureDescriptor const& other) const
-	{
-		return hash_utils::memory_equal(*this, other);
-	}
-};
+	auto operator <=>(const ShaderTextureDescriptor&) const = default;
 
-template<>
-struct hash_utils::is_contiguously_hashable<ShaderTextureDescriptor> : public std::true_type {};
+};
+CA_REFLECTION(ShaderTextureDescriptor, numericType, channels, count, dimension, isRW);
+
 
 class ShaderConstantsBuilder
 {
@@ -162,7 +156,9 @@ public:
 protected:
 	castl::string m_Name;
 	castl::vector<castl::pair<castl::string, ShaderBindingDescriptor>> m_NumericDescriptors;
+	CA_PRIVATE_REFLECTION(ShaderConstantsBuilder);
 };
+CA_REFLECTION(ShaderConstantsBuilder, m_Name, m_NumericDescriptors);
 
 
 class ShaderBindingBuilder
@@ -298,7 +294,11 @@ protected:
 	castl::vector<castl::pair<castl::string, ShaderTextureDescriptor>> m_TextureDescriptors;
 	castl::vector<castl::string> m_TextureSamplers;
 	castl::vector<castl::string> m_StructuredBuffers;
+
+	CA_PRIVATE_REFLECTION(ShaderBindingBuilder);
 };
+CA_REFLECTION(ShaderBindingBuilder, m_SpaceName, m_ConstantBufferDescriptors, m_TextureDescriptors, m_TextureSamplers, m_StructuredBuffers);
+
 
 class ShaderBindingDescriptorList
 {
@@ -306,4 +306,5 @@ public:
 	ShaderBindingDescriptorList(std::initializer_list<ShaderBindingBuilder> binding_sets) : shaderBindingDescs(binding_sets) {}
 	castl::vector<ShaderBindingBuilder> shaderBindingDescs;
 };
+CA_REFLECTION(ShaderBindingDescriptorList, shaderBindingDescs);
 

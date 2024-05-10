@@ -272,13 +272,17 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
-    void ThreadManager_Impl1::SetupFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::OneTime(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
+    {
+    }
+
+    void ThreadManager_Impl1::LoopFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
     {
         m_PrepareFunctor = functor;
         m_SetupEventName = waitingEvent;
     }
 
-    void ThreadManager_Impl1::RunSetupFunction()
+    void ThreadManager_Impl1::Run()
     {
         {
             std::lock_guard<std::mutex> guard(m_Mutex);

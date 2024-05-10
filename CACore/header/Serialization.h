@@ -55,9 +55,23 @@ namespace cacore
             using arrElemType = containerInfo<objType>::elementType;
             uint64_t objSize = containerInfo<objType>::container_size(object);
             append_to_buffer(objSize);
-            for (auto& item : object)
+            if constexpr (has_foreach_loop<objType>)
             {
-                serialize(item);
+                for (auto& item : object)
+                {
+                    serialize(item);
+                }
+            }
+            else if constexpr (containerStates<objType>::has_indexer)
+            {
+                for (auto id = 0; id < objSize; ++id)
+                {
+                    serialize(object[id]);
+                }
+            }
+            else
+            {
+
             }
         }
 

@@ -81,7 +81,7 @@ namespace graphics_backend
 		//DescID to Desc
 		castl::vector<TDesc> m_DescList;
 		//Desc to DescID
-		castl::unordered_map<TDesc, uint32_t, cacore::hash<TDesc>> m_DescToDescID;
+		castl::unordered_map<TDesc, uint32_t> m_DescToDescID;
 		//DataID to DescID
 		castl::vector<TIndex> m_DataIndexToDescID;
 	};

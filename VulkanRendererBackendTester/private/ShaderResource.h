@@ -98,11 +98,9 @@ namespace resource_management
 		castl::string m_UniqueName;
 		friend class ShaderResourceLoader;
 
-		friend constexpr void ca_hash(ShaderResrouce const& obj, auto& hasher)
-		{
-			hasher.hash(obj.m_UniqueName);
-		}
 	};
+	CA_REFLECTION(ShaderResrouce, m_ShaderTargetResults, m_UniqueName);
+
 
 	class ShaderResourceLoaderSlang : public ResourceImporter<ShaderResrouce>
 	{
@@ -117,3 +115,12 @@ namespace resource_management
 		castl::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerManager;
 	};
 }
+
+template<>
+struct cacore::custom_hash_trait<resource_management::ShaderResrouce>
+{
+	constexpr static void hash(resource_management::ShaderResrouce const& obj, auto& hasher)
+	{
+		hasher.hash(obj.m_UniqueName);
+	}
+};

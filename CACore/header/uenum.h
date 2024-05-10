@@ -1,15 +1,6 @@
 #pragma once
 #include <type_traits>
-#include "uhash.h"
-
-/*
-template<>
-struct uenum::TEnumTraits<Class>
-{
-    static constexpr bool is_bitmask = true;
-};
-using ClassFlags = uenum::EnumFlags<Class>;
-*/
+#include <Hasher.h>
 
 namespace uenum
 {
@@ -35,44 +26,43 @@ namespace uenum
         //constexpr explicit EnumFlags(MaskType flags) noexcept : m_mask(flags) {}
         constexpr EnumFlags(MaskType flags) noexcept : m_mask(flags) {}
 
-        //constexpr operator std::enable_if_t<uenum::TEnumTraits<TEnumClass>::is_bitmask==false, TEnumClass>() const noexcept {
-        //    return static_cast<TEnumClass>(m_mask);
-        //}
 
-        // relational operators
-#if defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )
         auto operator<=>(EnumFlags<TEnumClass> const&) const = default;
-#else
-        constexpr bool operator<(EnumFlags<TEnumClass> const& rhs) const noexcept
-        {
-            return m_mask < rhs.m_mask;
-        }
 
-        constexpr bool operator<=(EnumFlags<TEnumClass> const& rhs) const noexcept
-        {
-            return m_mask <= rhs.m_mask;
-        }
-
-        constexpr bool operator>(EnumFlags<TEnumClass> const& rhs) const noexcept
-        {
-            return m_mask > rhs.m_mask;
-        }
-
-        constexpr bool operator>=(EnumFlags<TEnumClass> const& rhs) const noexcept
-        {
-            return m_mask >= rhs.m_mask;
-        }
-
-        constexpr bool operator==(EnumFlags<TEnumClass> const& rhs) const noexcept
-        {
-            return m_mask == rhs.m_mask;
-        }
-
-        constexpr bool operator!=(EnumFlags<TEnumClass> const& rhs) const noexcept
-        {
-            return m_mask != rhs.m_mask;
-        }
-#endif
+//        // relational operators
+//#if defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )
+//        auto operator<=>(EnumFlags<TEnumClass> const&) const = default;
+//#else
+//        constexpr bool operator<(EnumFlags<TEnumClass> const& rhs) const noexcept
+//        {
+//            return m_mask < rhs.m_mask;
+//        }
+//
+//        constexpr bool operator<=(EnumFlags<TEnumClass> const& rhs) const noexcept
+//        {
+//            return m_mask <= rhs.m_mask;
+//        }
+//
+//        constexpr bool operator>(EnumFlags<TEnumClass> const& rhs) const noexcept
+//        {
+//            return m_mask > rhs.m_mask;
+//        }
+//
+//        constexpr bool operator>=(EnumFlags<TEnumClass> const& rhs) const noexcept
+//        {
+//            return m_mask >= rhs.m_mask;
+//        }
+//
+//        constexpr bool operator==(EnumFlags<TEnumClass> const& rhs) const noexcept
+//        {
+//            return m_mask == rhs.m_mask;
+//        }
+//
+//        constexpr bool operator!=(EnumFlags<TEnumClass> const& rhs) const noexcept
+//        {
+//            return m_mask != rhs.m_mask;
+//        }
+//#endif
 
         // logical operator
         constexpr bool operator!() const noexcept
@@ -138,49 +128,49 @@ namespace uenum
     };
 
     template<typename TEnumClass>
-    struct hash_utils::is_contiguously_hashable<EnumFlags<TEnumClass>> : public std::true_type {};
+    CA_REFLECTION_TEMPLATE(EnumFlags<TEnumClass>, m_mask);
 }
 
 
-
-#if !defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )
-// relational operators only needed for pre C++20
-template <typename TEnumClass>
-constexpr bool operator<(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-{
-    return flags.operator>(bit);
-}
-
-template <typename TEnumClass>
-constexpr bool operator<=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-{
-    return flags.operator>=(bit);
-}
-
-template <typename TEnumClass>
-constexpr bool operator>(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-{
-    return flags.operator<(bit);
-}
-
-template <typename TEnumClass>
-constexpr bool operator>=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-{
-    return flags.operator<=(bit);
-}
-
-template <typename TEnumClass>
-constexpr bool operator==(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-{
-    return flags.operator==(bit);
-}
-
-template <typename TEnumClass>
-constexpr bool operator!=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-{
-    return flags.operator!=(bit);
-}
-#endif
+//
+//#if !defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )
+//// relational operators only needed for pre C++20
+//template <typename TEnumClass>
+//constexpr bool operator<(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
+//{
+//    return flags.operator>(bit);
+//}
+//
+//template <typename TEnumClass>
+//constexpr bool operator<=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
+//{
+//    return flags.operator>=(bit);
+//}
+//
+//template <typename TEnumClass>
+//constexpr bool operator>(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
+//{
+//    return flags.operator<(bit);
+//}
+//
+//template <typename TEnumClass>
+//constexpr bool operator>=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
+//{
+//    return flags.operator<=(bit);
+//}
+//
+//template <typename TEnumClass>
+//constexpr bool operator==(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
+//{
+//    return flags.operator==(bit);
+//}
+//
+//template <typename TEnumClass>
+//constexpr bool operator!=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
+//{
+//    return flags.operator!=(bit);
+//}
+//#endif
 
 // bitwise operators
 template <typename TEnumClass>

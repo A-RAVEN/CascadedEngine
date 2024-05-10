@@ -55,19 +55,6 @@ int main(int argc, char *argv[])
 	TModuleLoader<ResourceFactory> renderImportingSystemLoader("CAGeneralReourceSystem");
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
 
-	ShaderConstantsBuilder shaderConstantBuilder{ "PerObjectConstants" };
-	shaderConstantBuilder
-		.Mat4<float>("ObjectMatrix");
-
-	ShaderBindingBuilder shaderBindingBuilder{ "TestBinding" };
-	shaderBindingBuilder.ConstantBuffer(shaderConstantBuilder);
-	shaderBindingBuilder.Texture2D<float, 1>("TestTexture");
-	shaderBindingBuilder.SamplerState("TestSampler");
-
-	ShaderBindingBuilder finalBlitBindingBuilder{ "FinalBlitBinding" };
-	finalBlitBindingBuilder.Texture2D<float, 4>("SourceTexture");
-	finalBlitBindingBuilder.SamplerState("SourceSampler");
-
 	auto pThreadManager = threadManagerLoader.New();
 	pThreadManager->InitializeThreadCount(5);
 
@@ -76,14 +63,14 @@ int main(int argc, char *argv[])
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
 
-	auto pResourceImportingSystem = resourceSystemFactory->NewImportingSystemShared();
 	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
 	pResourceManagingSystem->SetResourceRootPath(assetString);
+
+	auto pResourceImportingSystem = resourceSystemFactory->NewImportingSystemShared();
 	pResourceImportingSystem->SetResourceManager(pResourceManagingSystem.get());
 	pResourceImportingSystem->AddImporter(&slangShaderResourceLoader);
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
-
 
 	ShaderResrouce* pGeneralShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
@@ -115,19 +102,6 @@ int main(int argc, char *argv[])
 			*ppResource = result;
 		});
 
-
-
-	//GraphicsShaderSet shaderSet{};
-	//shaderSet.vert = &pTestShaderResource->m_VertexShaderProvi
-	// der;
-	//shaderSet.frag = &pTestShaderResource->m_FragmentShaderProvider;
-
-	//GraphicsShaderSet finalBlitShaderSet{};
-	//finalBlitShaderSet.vert = &pFinalBlitShaderResource->m_VertexShaderProvider;
-	//finalBlitShaderSet.frag = &pFinalBlitShaderResource->m_FragmentShaderProvider;
-
-
-
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(5);
@@ -135,65 +109,6 @@ int main(int argc, char *argv[])
 	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2", true, false, true, false);
 	IMGUIContext imguiContext{};
 	imguiContext.Initialize(pBackend.get(), windowHandle.get(), pResourceManagingSystem.get());
-
-	auto sampler = pBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
-
-	auto texture0 = pBackend->CreateGPUTexture(GPUTextureDescriptor{
-		pTextureResource0->GetWidth()
-		, pTextureResource0->GetHeight()
-		, pTextureResource0->GetFormat()
-		, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst
-		});
-	texture0->ScheduleTextureData(0, pTextureResource0->GetDataSize(), pTextureResource0->GetData());
-
-	auto texture1 = pBackend->CreateGPUTexture(GPUTextureDescriptor{
-	pTextureResource1->GetWidth()
-	, pTextureResource1->GetHeight()
-	, pTextureResource1->GetFormat()
-	, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst
-		});
-	texture1->ScheduleTextureData(0, pTextureResource1->GetDataSize(), pTextureResource1->GetData());
-
-	auto samplingTextureBinding0 = pBackend->CreateShaderBindingSet(finalBlitBindingBuilder);
-	samplingTextureBinding0->SetName("samplingTextureBinding0");
-	samplingTextureBinding0->SetTexture("SourceTexture", texture0);
-	samplingTextureBinding0->SetSampler("SourceSampler", sampler);
-
-	auto samplingTextureBinding1 = pBackend->CreateShaderBindingSet(finalBlitBindingBuilder);
-	samplingTextureBinding1->SetName("samplingTextureBinding1");
-	samplingTextureBinding1->SetTexture("SourceTexture", texture1);
-	samplingTextureBinding1->SetSampler("SourceSampler", sampler);
-
-
-	//{
-	//	MeshGPUData newMeshGPUData{ pBackend };
-	//	newMeshGPUData.UploadMeshResource(pTestMeshResource, "VikingScene");
-	//	g_MeshResourceToGPUData.insert(castl::make_pair(pTestMeshResource, newMeshGPUData));
-	//}
-
-	//MeshBatchDrawInterface drawInterface{};
-	//{
-	//	MeshRenderer meshRenderer{};
-	//	meshRenderer.p_MeshResource = pTestMeshResource;
-	//	meshRenderer.materials = {
-	//		MeshMaterial 
-	//		{
-	//			CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
-	//			, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
-	//			, { samplingTextureBinding1 }
-	//		},
-	//		MeshMaterial 
-	//		{
-	//			CPipelineStateObject{ DepthStencilStates::NormalOpaque() }
-	//			, { &pGeneralShaderResource->m_VertexShaderProvider, &pGeneralShaderResource->m_FragmentShaderProvider }
-	//			, { samplingTextureBinding0 }
-	//		}
-	//	};
-	//	drawInterface.AddMesh(meshRenderer, glm::mat4(1.0f));
-
-	//	drawInterface.MakeBatch(pBackend.get());
-	//}
-
 
 	castl::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -206,27 +121,18 @@ int main(int argc, char *argv[])
 		0, 3, 2, 2, 1, 0
 	};
 
-
 	auto vertexBuffer = pBackend->CreateGPUBuffer(
 		EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, vertexDataList.size(), sizeof(VertexData));
-	vertexBuffer->ScheduleBufferData(0, vertexDataList.size() * sizeof(VertexData), vertexDataList.data());
 
 
 	auto indexBuffer = pBackend->CreateGPUBuffer(
 		EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
-	indexBuffer->ScheduleBufferData(0, indexDataList.size() * sizeof(uint16_t), indexDataList.data());
 
-	uint64_t frame = 0;
-
-	//CVertexInputDescriptor vertexInputDesc{};
-	//vertexInputDesc.AddPrimitiveDescriptor(sizeof(VertexData), {
-	//	VertexAttribute{0, offsetof(VertexData, pos), VertexInputFormat::eR32G32_SFloat}
-	//	, VertexAttribute{1, offsetof(VertexData, uv), VertexInputFormat::eR32G32_SFloat}
-	//	, VertexAttribute{2, offsetof(VertexData, color), VertexInputFormat::eR32G32B32_SFloat}
-	//	});
-
-
-	ShaderBindingDescriptorList bindingSetList = { shaderBindingBuilder };
+	castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+	submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
+	submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
+	GPUFrame submitFrame{};
+	submitFrame.graphs.push_back(submitGraph);
 
 	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
 		sizeof(VertexData),
@@ -237,54 +143,42 @@ int main(int argc, char *argv[])
 		}
 	);
 
-
-
-
-	
-	castl::chrono::high_resolution_clock timer;
-	auto lastTime = timer.now();
-	float deltaTime = 0.0f;
-	Camera cam;
-	bool mouseDown = false;
-	glm::vec2 lastMousePos = {0.0f, 0.0f};
-
-
-	pThreadManager->SetupFunction([
+	pThreadManager->LoopFunction([
 				pBackend
 				, windowHandle
 				, pRenderInterface
 				, pFinalBlitShaderResource
 				, &vertexInputDesc
-		](auto setup)
-		{
-			castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
-			shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
-			castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-			BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
-			BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
-			newGraph->AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer, 4, sizeof(VertexData)))
-				.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer, 6, sizeof(uint16_t)))
-				.NewRenderPass(windowHandle)
-				.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
-				.SetPipelineState({})
-				.SetShaderArguments(shaderArgList)
-				.SetShaders(pFinalBlitShaderResource)
-				.DrawCall()
-				.SetVertexBuffer("QuadDesc", vertexBufferHandle)
-				.SetIndexBuffer(EIndexBufferType::e16, indexBufferHandle, 0)
-				.Draw([](CommandList& commandList)
-					{
-						commandList.DrawIndexed(6);
-					});
+	](auto setup)
+	{
+		castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
+		shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+		BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
+		BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
+		newGraph->AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer, 4, sizeof(VertexData)))
+			.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer, 6, sizeof(uint16_t)))
+			.NewRenderPass(windowHandle)
+			.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
+			.SetPipelineState({})
+			.SetShaderArguments(shaderArgList)
+			.SetShaders(pFinalBlitShaderResource)
+			.DrawCall()
+			.SetVertexBuffer("QuadDesc", vertexBufferHandle)
+			.SetIndexBuffer(EIndexBufferType::e16, indexBufferHandle, 0)
+			.Draw([](CommandList& commandList)
+				{
+					commandList.DrawIndexed(6);
+				});
 
-			GPUFrame gpuFrame{};
-			gpuFrame.graphs.push_back(newGraph);
-			gpuFrame.presentWindows.push_back(windowHandle);
-			pBackend->ScheduleGPUFrame(setup, gpuFrame);
+		GPUFrame gpuFrame{};
+		gpuFrame.graphs.push_back(newGraph);
+		gpuFrame.presentWindows.push_back(windowHandle);
+		pBackend->ScheduleGPUFrame(setup, gpuFrame);
 
-			return true;
-		}, "FullGraph");
-	pThreadManager->RunSetupFunction();
+		return true;
+	}, "FullGraph");
+	pThreadManager->Run();
 	pThreadManager->LogStatus();
 	imguiContext.Release();
 	pBackend->Release();

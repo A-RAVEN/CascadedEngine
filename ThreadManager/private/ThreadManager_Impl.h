@@ -138,8 +138,9 @@ namespace thread_management
 		virtual CTaskGraph* NewTaskGraph() override;
 		virtual void LogStatus() const override;
 		virtual uint64_t GetCurrentFrame() const override { return m_Frames; }
-		virtual void SetupFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
-		void RunSetupFunction() override;
+		virtual void OneTime(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
+		virtual void LoopFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
+		virtual void Run() override;
 		void Stop();
 	public:
 		ThreadManager_Impl1();

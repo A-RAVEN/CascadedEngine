@@ -456,7 +456,7 @@ void IMGUIContext::Initialize(
 	fontDesc.mipLevels = 1;
 	fontDesc.textureType = ETextureType::e2D;
 	m_Fontimage = renderBackend->CreateGPUTexture(fontDesc);
-	m_Fontimage->ScheduleTextureData(0, texWidth * texHeight * 4, fontData);
+	//m_Fontimage->ScheduleTextureData(0, texWidth * texHeight * 4, fontData);
 
 	m_ImageSampler = renderBackend->GetOrCreateTextureSampler(TextureSamplerDescriptor{});
 
