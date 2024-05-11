@@ -34,13 +34,13 @@ namespace resource_management
 
 		CA_PRIVATE_REFLECTION(TextureResource);
 	};
-
-	CA_REFLECTION(TextureResource
-		, m_Bytes
-		, m_Format
-		, m_Type
-		, m_Width
-		, m_Height
-		, m_Slices
-		, m_MipLevels);
 }
+
+CA_REFLECTION(resource_management::TextureResource
+	, m_Bytes
+	, m_Format
+	, m_Type
+	, m_Width
+	, m_Height
+	, m_Slices
+	, m_MipLevels);

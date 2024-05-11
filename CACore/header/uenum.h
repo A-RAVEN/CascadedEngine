@@ -126,11 +126,9 @@ namespace uenum
     public:
         MaskType m_mask;
     };
-
-    template<typename TEnumClass>
-    CA_REFLECTION_TEMPLATE(EnumFlags<TEnumClass>, m_mask);
 }
-
+template<typename TEnumClass>
+CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask);
 
 //
 //#if !defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )

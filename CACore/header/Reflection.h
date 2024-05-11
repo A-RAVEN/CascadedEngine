@@ -50,7 +50,7 @@ struct CATypeDescriptor<Type>\
 	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST_BEGIN(Type, __VA_ARGS__) ) >;\
 	constexpr static size_t member_count = std::tuple_size_v<member_tuple_type>;\
 };
-#define CA_PRIVATE_REFLECTION(Type) friend struct CATypeDescriptor<Type>;
+#define CA_PRIVATE_REFLECTION(Type) friend struct ::CATypeDescriptor<Type>;
 
 
 namespace careflection
@@ -170,23 +170,23 @@ namespace careflection
     struct containerStates
     {
         using noRefT = std::remove_reference_t<T>;
-        constexpr static bool is_c_array = is_c_array<noRefT>;
-        constexpr static bool is_size_container = is_size_container<noRefT>;
+        constexpr static bool is_c_array = careflection::is_c_array<noRefT>;
+        constexpr static bool is_size_container = careflection::is_size_container<noRefT>;
         constexpr static bool valid_container_info = (std::is_same_v<containerInfo<noRefT>::elementType, void> == false);
-        constexpr static bool has_resize = has_resize<noRefT>;
-        constexpr static bool has_data = has_data<noRefT>;
-        constexpr static bool has_reserve = has_reserve<noRefT>;
-        constexpr static bool element_assignable = element_assignable<noRefT>;
-        constexpr static bool has_indexer = has_indexer<noRefT>;
-        constexpr static bool has_push_back_element = has_push_back_element<noRefT>;
-        constexpr static bool has_insert_element = has_insert_element<noRefT>;
-        constexpr static bool is_bytebuffer = is_bytebuffer<noRefT>;
-        constexpr static bool is_byte_source = is_byte_source<noRefT>;
-        constexpr static bool has_foreach_loop = has_foreach_loop<noRefT>;
+        constexpr static bool has_resize = careflection::has_resize<noRefT>;
+        constexpr static bool has_data = careflection::has_data<noRefT>;
+        constexpr static bool has_reserve = careflection::has_reserve<noRefT>;
+        constexpr static bool element_assignable = careflection::element_assignable<noRefT>;
+        constexpr static bool has_indexer = careflection::has_indexer<noRefT>;
+        constexpr static bool has_push_back_element = careflection::has_push_back_element<noRefT>;
+        constexpr static bool has_insert_element = careflection::has_insert_element<noRefT>;
+        constexpr static bool is_bytebuffer = careflection::is_bytebuffer<noRefT>;
+        constexpr static bool is_byte_source = careflection::is_byte_source<noRefT>;
+        constexpr static bool has_foreach_loop = careflection::has_foreach_loop<noRefT>;
         constexpr static bool is_container_with_size = valid_container_info;// is_size_container || is_c_array;
     };
 
-    template<typename T, typename Enable = void>
+    template<typename T, typename Enable>
     struct containerInfo
     {
         using elementType = void;

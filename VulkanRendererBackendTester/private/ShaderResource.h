@@ -11,38 +11,9 @@
 #include <Serialization.h>
 #include <Hasher.h>
 
-namespace ShaderCompiler
-{
-	/*constexpr auto serialize(auto& archive, TextureParam& param)
-	{
-		return archive(param.name, param.set, param.binding
-			, param.type, param.subpassInputAttachmentID);
-	}
-
-	constexpr auto serialize(auto& archive, BufferParam& param)
-	{
-		return archive(param.name, param.set, param.binding
-			, param.type, param.blockSize);
-	}
-
-	constexpr auto serialize(auto& archive, ConstantBufferParam& param)
-	{
-		return archive(param.name, param.set, param.binding
-			, param.blockSize, param.numericParams);
-	}
-
-	constexpr auto serialize(auto& archive, SamplerParam& param)
-	{
-		return archive(param.name, param.set, param.binding
-			, param.type);
-	}*/
-}
-
-
 namespace resource_management
 {
 	using namespace library_loader;
-	using namespace ShaderCompiler;
 	class ShaderResrouce : public IResource, public IShaderSet
 	{
 	public:
@@ -99,7 +70,6 @@ namespace resource_management
 		friend class ShaderResourceLoader;
 
 	};
-	CA_REFLECTION(ShaderResrouce, m_ShaderTargetResults, m_UniqueName);
 
 
 	class ShaderResourceLoaderSlang : public ResourceImporter<ShaderResrouce>
@@ -115,6 +85,8 @@ namespace resource_management
 		castl::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerManager;
 	};
 }
+
+CA_REFLECTION(resource_management::ShaderResrouce, m_ShaderTargetResults, m_UniqueName);
 
 template<>
 struct cacore::custom_hash_trait<resource_management::ShaderResrouce>

@@ -18,120 +18,111 @@ struct careflection::containerInfo<glm::vec<L, T, Q>>
 	}
 };
 
-namespace test_namespace
+struct TestTruct0
 {
-	//CA_REFLECTION(glm::vec4, x, y, z, w);
-	//CA_REFLECTION(glm::vec3, x, y, z);
-	//CA_REFLECTION(glm::vec2, x, y);
-	struct TestTruct0
+	glm::vec4 a;
+	glm::vec3 b;
+	glm::vec2 c;
+	auto operator <=>(const TestTruct0&) const = default;
+};
+
+struct TestStruct1
+{
+	castl::shared_ptr<float> testV;
+	float aa;
+	float bb;
+	float* pcc;
+	auto operator <=>(const TestStruct1&) const = default;
+};
+
+class TestStruct2
+{
+public:
+	auto operator <=>(const TestStruct2&) const = default;
+	TestStruct2() = default;
+	TestStruct2(float a, float b) : aa(a), bb(b) { }
+	castl::shared_ptr<float> testV;
+private:
+	float aa;
+	float cc[5]{ 1, 2, 3, 5, 6 };
+	float bb;
+
+	CA_PRIVATE_REFLECTION(TestStruct2);
+};
+
+CA_REFLECTION(TestStruct2, testV, aa, bb, cc);
+
+template<typename T, size_t index>
+constexpr void evaluate_type() requires careflection::has_type_desc<T>
+{
+	constexpr auto structSize = CATypeDescriptor<T>::member_count;
+	using member_tuple_type = CATypeDescriptor<T>::member_tuple_type;
+	if constexpr (index < structSize)
 	{
-		glm::vec4 a;
-		glm::vec3 b;
-		glm::vec2 c;
-		auto operator <=>(const TestTruct0&) const = default;
-	};
-
-	struct TestStruct1
-	{
-		castl::shared_ptr<float> testV;
-		float aa;
-		float bb;
-		float* pcc;
-		auto operator <=>(const TestStruct1&) const = default;
-	};
-
-	class TestStruct2
-	{
-	public:
-		auto operator <=>(const TestStruct2&) const = default;
-		TestStruct2() = default;
-		TestStruct2(float a, float b) : aa(a), bb(b) { }
-		castl::shared_ptr<float> testV;
-	private:
-		float aa;
-		float cc[5]{ 1, 2, 3, 5, 6 };
-		float bb;
-
-		CA_PRIVATE_REFLECTION(TestStruct2);
-	};
-
-	//CA_REFLECTION(TestStruct1, aa, bb);
-	CA_REFLECTION(TestStruct2, testV, aa, bb, cc);
-
-	template<typename T, size_t index>
-	constexpr void evaluate_type() requires careflection::has_type_desc<T>
-	{
-		constexpr auto structSize = CATypeDescriptor<T>::member_count;
-		using member_tuple_type = CATypeDescriptor<T>::member_tuple_type;
-		if constexpr (index < structSize)
-		{
-			using visitingElementType = std::tuple_element_t<index, member_tuple_type>;
-			std::cout << typeid(typename visitingElementType::type).name() << std::endl;
-			std::cout << visitingElementType::offset << std::endl;
-			evaluate_type<T, index + 1>();
-		}
-	}
-
-	struct TestStruct3
-	{
-		int a;
-		castl::string test2;
-		auto operator==(const TestStruct3& other) const
-		{
-			return test2 == other.test2;
-		}
-
-		friend constexpr void ca_hash(TestStruct3 const& obj, auto& hasher)
-		{
-			hasher.hash(obj.test2);
-		}
-	};
-
-	void TestHash()
-	{
-		TestTruct0 testStructIn = TestTruct0{ {0, 0, 0, 0}, {1, 1, 1}, {2, 2} };
-		castl::unordered_map<TestTruct0, int> tstMap3;
-		tstMap3.insert({ testStructIn, 3 });
-
-		castl::vector<uint8_t> byteBuffer;
-		cacore::serialize(byteBuffer, testStructIn);
-		TestTruct0 testStructOut;
-		cacore::HashObj<TestTruct0> testStructOut1;
-		cacore::deserialize(byteBuffer, testStructOut);
-		cacore::deserialize(byteBuffer, testStructOut1);
-	}
-
-	void TestHash1()
-	{
-		cacore::HashObj<TestStruct2> testStructIn = TestStruct2{ 1.0f, 2.0f };
-		constexpr bool has_hash = cacore::has_custom_hash_func<cacore::HashObj<TestStruct2>, cacore::defaultHasher<>>;
-		constexpr bool has_hash1 = cacore::has_custom_hash_func<TestStruct2, cacore::defaultHasher<>>;
-		castl::unordered_map<cacore::HashObj<TestStruct2>, int> tstMap3;
-		tstMap3.insert({ testStructIn, 3 });
-
-		castl::vector<uint8_t> byteBuffer;
-		cacore::serialize(byteBuffer, testStructIn);
-		TestStruct2 testStructOut;
-		cacore::HashObj<TestStruct2> testStructOut1;
-		cacore::deserialize(byteBuffer, testStructOut);
-		cacore::deserialize(byteBuffer, testStructOut1);
-	}
-
-	void TestHash2()
-	{
-		TestStruct3 testStruct3{ 1, "test" };
-		castl::unordered_map<TestStruct3, int> testMap;
-		testMap.insert({ testStruct3, 3 });
-
-		castl::vector<uint8_t> byteBuffer;
-		cacore::serialize(byteBuffer, testStruct3);
-		TestStruct3 testStruct4;
-		cacore::deserializer<decltype(byteBuffer)> deserializer(byteBuffer);
-		deserializer.deserialize(testStruct4);
+		using visitingElementType = std::tuple_element_t<index, member_tuple_type>;
+		std::cout << typeid(typename visitingElementType::type).name() << std::endl;
+		std::cout << visitingElementType::offset << std::endl;
+		evaluate_type<T, index + 1>();
 	}
 }
 
-using namespace test_namespace;
+struct TestStruct3
+{
+	int a;
+	castl::string test2;
+	auto operator==(const TestStruct3& other) const
+	{
+		return test2 == other.test2;
+	}
+
+	friend constexpr void ca_hash(TestStruct3 const& obj, auto& hasher)
+	{
+		hasher.hash(obj.test2);
+	}
+};
+
+void TestHash()
+{
+	TestTruct0 testStructIn = TestTruct0{ {0, 0, 0, 0}, {1, 1, 1}, {2, 2} };
+	castl::unordered_map<TestTruct0, int> tstMap3;
+	tstMap3.insert({ testStructIn, 3 });
+
+	castl::vector<uint8_t> byteBuffer;
+	cacore::serialize(byteBuffer, testStructIn);
+	TestTruct0 testStructOut;
+	cacore::HashObj<TestTruct0> testStructOut1;
+	cacore::deserialize(byteBuffer, testStructOut);
+	cacore::deserialize(byteBuffer, testStructOut1);
+}
+
+void TestHash1()
+{
+	cacore::HashObj<TestStruct2> testStructIn = TestStruct2{ 1.0f, 2.0f };
+	constexpr bool has_hash = cacore::has_custom_hash_func<cacore::HashObj<TestStruct2>, cacore::defaultHasher<>>;
+	constexpr bool has_hash1 = cacore::has_custom_hash_func<TestStruct2, cacore::defaultHasher<>>;
+	castl::unordered_map<cacore::HashObj<TestStruct2>, int> tstMap3;
+	tstMap3.insert({ testStructIn, 3 });
+
+	castl::vector<uint8_t> byteBuffer;
+	cacore::serialize(byteBuffer, testStructIn);
+	TestStruct2 testStructOut;
+	cacore::HashObj<TestStruct2> testStructOut1;
+	cacore::deserialize(byteBuffer, testStructOut);
+	cacore::deserialize(byteBuffer, testStructOut1);
+}
+
+void TestHash2()
+{
+	TestStruct3 testStruct3{ 1, "test" };
+	castl::unordered_map<TestStruct3, int> testMap;
+	testMap.insert({ testStruct3, 3 });
+
+	castl::vector<uint8_t> byteBuffer;
+	cacore::serialize(byteBuffer, testStruct3);
+	TestStruct3 testStruct4;
+	cacore::deserializer<decltype(byteBuffer)> deserializer(byteBuffer);
+	deserializer.deserialize(testStruct4);
+}
 
 int main(int argc, char* argv[])
 {

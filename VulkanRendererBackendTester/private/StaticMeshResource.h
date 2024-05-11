@@ -13,30 +13,6 @@
 #include <CRenderBackend.h>
 #include "GLMReflectionCommon.h"
 
-namespace glm
-{
-	constexpr auto serialize(auto& archive, glm::vec3& invec)
-	{
-		return archive(invec.x, invec.y, invec.z);
-	}
-
-	constexpr auto serialize(auto& archive, glm::vec2& invec)
-	{
-		return archive(invec.x, invec.y);
-	}
-
-	constexpr auto serialize(auto& archive, glm::vec4& invec)
-	{
-		return archive(invec.x, invec.y, invec.z, invec.w);
-	}
-
-
-	constexpr auto serialize(auto& archive, glm::mat4& inMat)
-	{
-		return archive(inMat[0], inMat[1], inMat[2], inMat[3]);
-	}
-}
-
 namespace resource_management
 {
 	struct CommonVertexData
@@ -94,7 +70,6 @@ namespace resource_management
 		CA_PRIVATE_REFLECTION(StaticMeshResource);
 	};
 
-	CA_REFLECTION(StaticMeshResource, m_Attributes, m_Indices16, m_SubmeshInfos, m_Instance);
 
 	class StaticMeshImporter : public ResourceImporter<StaticMeshResource>
 	{
@@ -108,3 +83,5 @@ namespace resource_management
 		Assimp::Importer m_Importer;
 	};
 }
+
+CA_REFLECTION(resource_management::StaticMeshResource, m_Attributes, m_Indices16, m_SubmeshInfos, m_Instance);

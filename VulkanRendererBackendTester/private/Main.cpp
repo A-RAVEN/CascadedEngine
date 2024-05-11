@@ -30,7 +30,6 @@
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
-using namespace ShaderCompiler;
 using namespace uenum;
 using namespace resource_management;
 
