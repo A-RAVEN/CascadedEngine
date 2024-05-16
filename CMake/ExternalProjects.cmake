@@ -1,3 +1,5 @@
+#[[
+
 include(FindGit)
 find_package(Git)
 
@@ -73,3 +75,4 @@ function(link_imgui THE_LIST)
     endforeach()
     return(PROPAGATE ${THE_LIST})
 endfunction()
+]]

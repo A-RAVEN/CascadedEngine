@@ -3,6 +3,7 @@
 #include <VulkanIncludes.h>
 #include <GPUBuffer.h>
 #include "GPUResource.h"
+#include "GPUResourceInternal.h"
 
 namespace graphics_backend
 {
@@ -11,16 +12,16 @@ namespace graphics_backend
 	public:
 		constexpr vk::Buffer GetBuffer() const
 		{
-			return m_Buffer;
+			return m_Buffer.buffer;
 		}
 		virtual GPUBufferDescriptor const& GetDescriptor() const override { return m_Descriptor; }
 		virtual void SetName(castl::string const& name) override { m_Name = name; }
 		virtual castl::string const& GetName() const override { return m_Name; }
 		bool Initialized() const
 		{
-			return m_Buffer != vk::Buffer{ nullptr };
+			return m_Buffer.IsValid();
 		}
-		void SetBuffer(vk::Buffer buffer)
+		void SetBuffer(VKBufferObject const& buffer)
 		{
 			m_Buffer = buffer;
 		}
@@ -29,7 +30,7 @@ namespace graphics_backend
 			m_Descriptor = descriptor;
 		}
 	private:
-		vk::Buffer m_Buffer = {nullptr};
+		VKBufferObject m_Buffer = VKBufferObject::Default();
 		GPUBufferDescriptor m_Descriptor = {};
 		castl::string m_Name = { "" };
 	};

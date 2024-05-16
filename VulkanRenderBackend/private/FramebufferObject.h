@@ -1,5 +1,4 @@
 #pragma once
-#include <uhash.h>
 #include <CASTL/CAVector.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
