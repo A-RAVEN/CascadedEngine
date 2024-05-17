@@ -17,7 +17,13 @@ namespace graphics_backend
 	public:
 		QueueContext(CVulkanApplication& app);
 
-		void Init();
+		struct QueueCreationInfo
+		{
+			castl::vector<castl::vector<float>> queueProities;
+			castl::vector<vk::DeviceQueueCreateInfo> queueCreateInfoList;
+		};
+
+		QueueCreationInfo Init();
 		void Release();
 
 		void SubmitCurrentFrameGraphics(castl::vector<vk::CommandBuffer> const& commandbufferList
