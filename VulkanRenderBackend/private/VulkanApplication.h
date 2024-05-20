@@ -20,6 +20,7 @@
 #include "ShaderBindingSet_Impl.h"
 #include "GPUTexture_Impl.h"
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
+#include <GPUContexts/QueueContext.h>
 
 namespace graphics_backend
 {
@@ -85,6 +86,7 @@ namespace graphics_backend
 		}
 		GPUObjectManager& GetGPUObjectManager() { return m_GPUObjectManager; }
 		CVulkanMemoryManager& GetMemoryManager();
+		QueueContext& GetQueueContext() { return m_QueueContext; }
 
 		CVulkanThreadContext& AquireThreadContext();
 		void ReturnThreadContext(CVulkanThreadContext& returningContext);
@@ -232,5 +234,7 @@ private:
 		RenderGraphExecutorDic m_RenderGraphDic;
 
 		CVulkanMemoryManager m_MemoryManager;
+
+		QueueContext m_QueueContext;
 	};
 }

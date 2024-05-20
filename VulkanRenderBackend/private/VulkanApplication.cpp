@@ -483,10 +483,10 @@ namespace graphics_backend
 			auto& currentQueuePriorities = queuePriorities.back();
 			deviceQueueCreateInfoList.emplace_back(vk::DeviceQueueCreateFlags(), itrOtherFamilyId, currentQueuePriorities);
 		}
-
+		QueueContext::QueueCreationInfo queueCreationInfo{};
+		m_QueueContext.InitQueueCreationInfo(m_PhysicalDevice, queueCreationInfo);
 		auto extensions = GetDeviceExtensionNames();
-		vk::DeviceCreateInfo deviceCreateInfo({}, deviceQueueCreateInfoList, {}, extensions);
-
+		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, extensions);
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
 
 		castl::vector<vk::Queue> defaultQueues;
@@ -649,6 +649,7 @@ namespace graphics_backend
 	, m_ConstantSetAllocator(*this)
 	, m_ShaderBindingSetAllocator(*this)
 	, m_SubmitCounterContext(*this)
+	, m_QueueContext(*this)
 	{
 	}
 

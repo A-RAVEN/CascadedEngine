@@ -1,19 +1,24 @@
 #pragma once
 #include <CASTL/CAVector.h>
 #include <GPUResources/GPUResourceInternal.h>
+#include "CommandBuffersPool.h"
+#include "GPUMemoryManager.h"
+#include "ResourceReleaseQueue.h"
+#include "GPUResourceObjectManager.h"
 
 namespace graphics_backend
 {
-	class BackendFrameCounter
+	class FrameBoundResourcePool : public VKAppSubObjectBaseNoCopy
 	{
-
-	};
-
-	class ReleasingFrame
-	{
-	private:
-		castl::vector<VKBufferObject> m_ReleasingBuffers;
-		castl::vector<VKBufferObject> m_ReleasingImages;
-		uint32_t m_ReleasingFrameIndex = 0;
+	public:
+		FrameBoundResourcePool(CVulkanApplication& app);
+		void Initialize();
+		void Release();
+		void ResetPool();
+	public:
+		OneTimeCommandBufferPool commandBufferPool;
+		GPUMemoryResourceManager resourceManager;
+		GlobalResourceReleaseQueue releaseQueue;
+		GPUResourceObjectManager resourceObjectManager;
 	};
 }

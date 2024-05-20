@@ -8,7 +8,14 @@ namespace uenum
     struct TEnumTraits
     {
        static constexpr bool is_bitmask = false;
+       static constexpr std::underlying_type_t<TEnumClass> EnumToInt(TEnumClass e) { return static_cast<std::underlying_type_t<TEnumClass>>(e); })
     };
+
+    template<typename TEnumClass>
+    static constexpr std::underlying_type_t<TEnumClass> enumToInt(TEnumClass e)
+    {
+        return static_cast<std::underlying_type_t<TEnumClass>>(e);
+    }
 
     template <typename TEnumClass>
     class EnumFlags
@@ -126,6 +133,7 @@ namespace uenum
     public:
         MaskType m_mask;
     };
+
 }
 template<typename TEnumClass>
 CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask);

@@ -9,9 +9,21 @@ namespace graphics_backend
 	{
 		int m_FamilyIndex;
 		int m_FamilyQueueCount;
-		castl::vector<vk::Queue> m_QueueList;
 	};
 
+	struct CommandBatch
+	{
+		castl::vector<vk::CommandBuffer> commandBuffers;
+		int dependOnBatchIndex = -1;
+	};
+
+	enum class QueueType
+	{
+		eGraphics = 0,
+		eCompute,
+		eTransfer,
+	};
+	constexpr size_t QUEUE_TYPE_COUNT = 3;
 	class QueueContext : public VKAppSubObjectBaseNoCopy
 	{
 	public:
@@ -23,21 +35,16 @@ namespace graphics_backend
 			castl::vector<vk::DeviceQueueCreateInfo> queueCreateInfoList;
 		};
 
-		QueueCreationInfo Init();
+		void InitQueueCreationInfo(vk::PhysicalDevice phyDevice, QueueContext::QueueCreationInfo& outCreationInfo);
 		void Release();
 
-		void SubmitCurrentFrameGraphics(castl::vector<vk::CommandBuffer> const& commandbufferList
+		void SubmitCommands(int familyIndex, int queueIndex
+			, vk::ArrayProxyNoTemporaries<const vk::CommandBuffer> commandbuffers
+			, vk::Fence fence = {}
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores = {}
 			, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages = {}
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores = {});
-
-		void SubmitCurrentFrameCompute(castl::vector<vk::CommandBuffer> const& commandbufferList);
-		void SubmitCurrentFrameTransfer(castl::vector<vk::CommandBuffer> const& commandbufferList);
-		void InitializeSubmitQueues(
-			castl::vector<vk::Queue> defaultQueues
-			, castl::pair<uint32_t, uint32_t> const& generalQueue
-			, castl::pair<uint32_t, uint32_t> const& computeQueue
-			, castl::pair<uint32_t, uint32_t> const& transferQueue);
+		
 		int FindPresentQueueFamily(vk::SurfaceKHR surface) const;
 
 		constexpr int GetGraphicsQueueFamily() const
@@ -54,6 +61,7 @@ namespace graphics_backend
 		{
 			return m_ComputeQueueFamilyIndex;
 		}
+
 	private:
 		int m_GraphicsQueueFamilyIndex = -1;
 		int m_ComputeQueueFamilyIndex = -1;

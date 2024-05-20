@@ -9,6 +9,7 @@ namespace graphics_backend
 	class CFrameCountContext;
 	class CVulkanMemoryManager;
 	class GPUObjectManager;
+	class QueueContext;
 #pragma endregion
 
 	class VKAppSubObjectBase
@@ -30,6 +31,7 @@ namespace graphics_backend
 		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
 		GPUObjectManager& GetGPUObjectManager();
 		CVulkanMemoryManager& GetMemoryManager() const;
+		QueueContext& GetQueueContext();
 	private:
 		CVulkanApplication& m_OwningApplication;
 	};
@@ -54,6 +56,7 @@ namespace graphics_backend
 		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
 		GPUObjectManager& GetGPUObjectManager();
 		CVulkanMemoryManager &GetMemoryManager() const;
+		QueueContext& GetQueueContext();
 	private:
 		CVulkanApplication& m_OwningApplication;
 	};

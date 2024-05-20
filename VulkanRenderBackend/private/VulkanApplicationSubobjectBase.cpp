@@ -45,6 +45,11 @@ namespace graphics_backend
 		return m_OwningApplication.GetMemoryManager();
 	}
 
+	QueueContext& VKAppSubObjectBase::GetQueueContext()
+	{
+		return m_OwningApplication.GetQueueContext();
+	}
+
 	VKAppSubObjectBaseNoCopy::VKAppSubObjectBaseNoCopy(CVulkanApplication& owner) :
 		m_OwningApplication(owner)
 	{
@@ -84,5 +89,9 @@ namespace graphics_backend
 	CVulkanMemoryManager& VKAppSubObjectBaseNoCopy::GetMemoryManager() const
 	{
 		return m_OwningApplication.GetMemoryManager();
+	}
+	QueueContext& VKAppSubObjectBaseNoCopy::GetQueueContext()
+	{
+		return m_OwningApplication.GetQueueContext();
 	}
 }
