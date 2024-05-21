@@ -114,4 +114,18 @@ namespace graphics_backend
 		return result;
 	}
 
+	castl::shared_ptr<OneTimeCommandBufferPool> CommandBufferThreadPool::AquireCommandBufferPool()
+	{
+		OneTimeCommandBufferPool* resultPool = nullptr;
+		if (!m_CommandBufferPools.try_deque(resultPool))
+		{
+			resultPool = new OneTimeCommandBufferPool(GetVulkanApplication());
+			resultPool->Initialize();
+		}
+		return castl::shared_ptr<OneTimeCommandBufferPool>(resultPool, [this](OneTimeCommandBufferPool* released)
+			{
+				m_CommandBufferPools.enqueue(released);
+			});
+	}
+
 }

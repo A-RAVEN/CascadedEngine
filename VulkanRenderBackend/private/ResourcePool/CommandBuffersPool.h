@@ -3,6 +3,7 @@
 #include <GPUResources/GPUResourceInternal.h>
 #include <VulkanApplicationSubobjectBase.h>
 #include <GPUContexts/QueueContext.h>
+#include <CASTL/CAThreadSafeQueue.h>
 
 namespace graphics_backend
 {
@@ -59,4 +60,14 @@ namespace graphics_backend
 		castl::array<int, QUEUE_TYPE_COUNT> m_QueueTypeToPoolIndex;
 	};
 
+
+	class CommandBufferThreadPool : public VKAppSubObjectBaseNoCopy
+	{
+	public:
+		castl::shared_ptr<OneTimeCommandBufferPool> AquireCommandBufferPool();
+		void ResetPool();
+		void ReleasePool();
+	private:
+		castl::threadsafe_queue<OneTimeCommandBufferPool*> m_CommandBufferPools;
+	};
 }

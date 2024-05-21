@@ -1,5 +1,6 @@
 #pragma once
 #include <CASTL/CAVector.h>
+#include <CASTL/CAThreadSafeQueue.h>
 #include <GPUResources/GPUResourceInternal.h>
 #include "CommandBuffersPool.h"
 #include "GPUMemoryManager.h"
@@ -20,5 +21,6 @@ namespace graphics_backend
 		GPUMemoryResourceManager resourceManager;
 		GlobalResourceReleaseQueue releaseQueue;
 		GPUResourceObjectManager resourceObjectManager;
+		castl::threadsafe_queue<OneTimeCommandBufferPool*> m_CommandBufferPools;
 	};
 }
