@@ -116,16 +116,22 @@ namespace graphics_backend
 
 	castl::shared_ptr<OneTimeCommandBufferPool> CommandBufferThreadPool::AquireCommandBufferPool()
 	{
+		castl::lock_guard<castl::mutex> lock(m_Mutex);
 		OneTimeCommandBufferPool* resultPool = nullptr;
-		if (!m_CommandBufferPools.try_deque(resultPool))
+		if (m_AvailablePools.empty())
 		{
-			resultPool = new OneTimeCommandBufferPool(GetVulkanApplication());
-			resultPool->Initialize();
+			m_
 		}
+
 		return castl::shared_ptr<OneTimeCommandBufferPool>(resultPool, [this](OneTimeCommandBufferPool* released)
 			{
 				m_CommandBufferPools.enqueue(released);
 			});
+	}
+
+	void CommandBufferThreadPool::ResetPool()
+	{
+		m_CommandBufferPools.
 	}
 
 }

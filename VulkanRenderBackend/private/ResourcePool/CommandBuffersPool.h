@@ -60,7 +60,6 @@ namespace graphics_backend
 		castl::array<int, QUEUE_TYPE_COUNT> m_QueueTypeToPoolIndex;
 	};
 
-
 	class CommandBufferThreadPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
@@ -68,6 +67,8 @@ namespace graphics_backend
 		void ResetPool();
 		void ReleasePool();
 	private:
-		castl::threadsafe_queue<OneTimeCommandBufferPool*> m_CommandBufferPools;
+		castl::mutex m_Mutex;
+		castl::deque<int> m_AvailablePools;
+		castl::deque<OneTimeCommandBufferPool> m_CommandBufferPools;
 	};
 }
