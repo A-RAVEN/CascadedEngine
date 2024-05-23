@@ -5,7 +5,8 @@
 
 namespace graphics_backend
 {
-	OneTimeCommandBufferPool::OneTimeCommandBufferPool(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
+	OneTimeCommandBufferPool::OneTimeCommandBufferPool(CVulkanApplication& app, uint32_t index)
+		: VKAppSubObjectBaseNoCopy(app), m_Index(index)
 	{
 	}
 	void OneTimeCommandBufferPool::Initialize()
@@ -111,7 +112,12 @@ namespace graphics_backend
 						, 1u)).front();
 			manageList.AddNewCommandBuffer(result);
 		}
+		result.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 		return result;
+	}
+
+	CommandBufferThreadPool::CommandBufferThreadPool(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
+	{
 	}
 
 	castl::shared_ptr<OneTimeCommandBufferPool> CommandBufferThreadPool::AquireCommandBufferPool()
@@ -120,18 +126,43 @@ namespace graphics_backend
 		OneTimeCommandBufferPool* resultPool = nullptr;
 		if (m_AvailablePools.empty())
 		{
-			m_
+			uint32_t index = m_CommandBufferPools.size();
+			m_CommandBufferPools.emplace_back(GetVulkanApplication(), index);
+			m_CommandBufferPools.back().Initialize();
+			resultPool = &m_CommandBufferPools.back();
 		}
-
+		else
+		{
+			uint32_t index = m_AvailablePools.back();
+			m_AvailablePools.pop_back();
+			resultPool = &m_CommandBufferPools[index];
+		}
 		return castl::shared_ptr<OneTimeCommandBufferPool>(resultPool, [this](OneTimeCommandBufferPool* released)
-			{
-				m_CommandBufferPools.enqueue(released);
-			});
+		{
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
+			CA_ASSERT(released == &m_CommandBufferPools[released->m_Index], "Invalid CommandBuffer Pool");
+			m_AvailablePools.push_back(released->m_Index);
+		});
 	}
 
 	void CommandBufferThreadPool::ResetPool()
 	{
-		m_CommandBufferPools.
+		castl::lock_guard<castl::mutex> lock(m_Mutex);
+		for(auto& pool : m_CommandBufferPools)
+		{
+			pool.ResetCommandBufferPool();
+		}
+	}
+
+	void CommandBufferThreadPool::ReleasePool()
+	{
+		castl::lock_guard<castl::mutex> lock(m_Mutex);
+		for (auto& pool : m_CommandBufferPools)
+		{
+			pool.Release();
+		}
+		m_CommandBufferPools.clear();
+		m_AvailablePools.clear();
 	}
 
 }

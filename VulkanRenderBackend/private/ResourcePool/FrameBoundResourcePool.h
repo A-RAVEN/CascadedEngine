@@ -16,11 +16,13 @@ namespace graphics_backend
 		void Initialize();
 		void Release();
 		void ResetPool();
+		vk::Fence GetFence() const { return m_Fence; }
 	public:
-		OneTimeCommandBufferPool commandBufferPool;
+		CommandBufferThreadPool commandBufferThreadPool;
 		GPUMemoryResourceManager resourceManager;
-		GlobalResourceReleaseQueue releaseQueue;
 		GPUResourceObjectManager resourceObjectManager;
-		castl::threadsafe_queue<OneTimeCommandBufferPool*> m_CommandBufferPools;
+		GlobalResourceReleaseQueue releaseQueue;
+	private:
+		vk::Fence m_Fence;
 	};
 }

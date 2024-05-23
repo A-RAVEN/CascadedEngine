@@ -21,6 +21,7 @@
 #include "GPUTexture_Impl.h"
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
 #include <GPUContexts/QueueContext.h>
+#include <GPUContexts/FrameContext.h>
 
 namespace graphics_backend
 {
@@ -235,6 +236,9 @@ private:
 
 		CVulkanMemoryManager m_MemoryManager;
 
+		GPUMemoryResourceManager m_GPUMemoryManager;
+		GPUResourceObjectManager m_GPUResourceObjManager;
 		QueueContext m_QueueContext;
+		FrameContext m_FrameContext;
 	};
 }

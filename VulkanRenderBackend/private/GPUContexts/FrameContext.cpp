@@ -1,3 +1,4 @@
+#include <Platform.h>
 #include "FrameContext.h"
 namespace graphics_backend
 {
@@ -7,16 +8,28 @@ namespace graphics_backend
 
 	void FrameContext::InitFrameCapacity(uint32_t capacity)
 	{
-		vk::FenceCreateInfo createInfo{ vk::FenceCreateFlagBits::eSignaled };
-		m_InFlightFences.resize(capacity);
-		for (auto& fence : m_InFlightFences)
-			fence = GetDevice().createFence(createInfo);
+		m_FrameBoundResourceManagers.reserve(capacity);
+		for (uint32_t i = 0; i < capacity; i++)
+		{
+			m_FrameBoundResourceManagers.push_back(castl::move(FrameBoundResourcePool(GetVulkanApplication())));
+			m_FrameBoundResourceManagers.back().Initialize();
+		}
+	}
+
+	FrameBoundResourcePool* FrameContext::GetFrameBoundResourceManager()
+	{
+		FrameBoundResourcePool* resourcePool = &m_FrameBoundResourceManagers[m_FrameIndex % m_FrameBoundResourceManagers.size()];
+		++m_FrameIndex;
+		resourcePool->ResetPool();
+		return resourcePool;
 	}
 
 	void FrameContext::Release()
 	{
-		for (auto& fence : m_InFlightFences)
-			GetDevice().destroyFence(fence);
+		for(auto &frameBoundResourceManager : m_FrameBoundResourceManagers)
+		{
+			frameBoundResourceManager.Release();
+		}
 	}
 
 }

@@ -3,6 +3,7 @@
 #include <CASTL/CAVector.h>
 #include <VulkanIncludes.h>
 #include <VulkanApplicationSubobjectBase.h>
+#include <ResourcePool/FrameBoundResourcePool.h>
 
 namespace graphics_backend
 {
@@ -11,9 +12,10 @@ namespace graphics_backend
 	public:
 		FrameContext(CVulkanApplication& owner);
 		void InitFrameCapacity(uint32_t capacity);
+		FrameBoundResourcePool* GetFrameBoundResourceManager();
 		void Release();
 	private:
-		castl::atomic<uint32_t> m_FrameIndex;
-		castl::vector<vk::Fence> m_InFlightFences;
+		uint32_t m_FrameIndex;
+		castl::vector<FrameBoundResourcePool> m_FrameBoundResourceManagers;
 	};
 }

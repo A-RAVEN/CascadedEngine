@@ -10,13 +10,14 @@ namespace graphics_backend
 	class OneTimeCommandBufferPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
-		OneTimeCommandBufferPool(CVulkanApplication& app);
+		OneTimeCommandBufferPool(CVulkanApplication& app, uint32_t index);
 		void Initialize();
 		void Release();
 		vk::CommandBuffer AllocCommand(QueueType queueType, const char* cmdName = "Default Cmd");
 		vk::CommandBuffer AllocSecondaryCommand(const char* cmdName = "Default Cmd");
 		void ResetCommandBufferPool();
 	private:
+		friend class CommandBufferThreadPool;
 		struct CommandBufferList
 		{
 			castl::vector<vk::CommandBuffer> commandBuffers;
@@ -58,11 +59,14 @@ namespace graphics_backend
 		};
 		castl::vector<SubCommandBufferPool> m_CommandBufferPools;
 		castl::array<int, QUEUE_TYPE_COUNT> m_QueueTypeToPoolIndex;
+		uint32_t m_Index;
 	};
+
 
 	class CommandBufferThreadPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
+		CommandBufferThreadPool(CVulkanApplication& app);
 		castl::shared_ptr<OneTimeCommandBufferPool> AquireCommandBufferPool();
 		void ResetPool();
 		void ReleasePool();

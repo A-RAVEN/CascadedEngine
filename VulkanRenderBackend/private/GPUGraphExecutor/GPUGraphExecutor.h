@@ -6,6 +6,7 @@
 #include <InterfaceTranslator.h>
 #include <VulkanBarrierCollector.h>
 #include "ShaderBindingHolder.h"
+#include <GPUContexts/FrameContext.h>
 
 namespace graphics_backend
 {
@@ -261,7 +262,7 @@ namespace graphics_backend
 	{
 	public:
 		GPUGraphExecutor(CVulkanApplication& application);
-		void Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph);
+		void Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph, FrameBoundResourcePool* frameBoundResourceManager);
 		void Release() override;
 		void PrepareGraph();
 	private:
@@ -299,5 +300,7 @@ namespace graphics_backend
 		//Manager
 		GraphExecutorImageManager m_ImageManager;
 		GraphExecutorBufferManager m_BufferManager;
+
+		FrameBoundResourcePool* m_FrameBoundResourceManager;
 	};
 }

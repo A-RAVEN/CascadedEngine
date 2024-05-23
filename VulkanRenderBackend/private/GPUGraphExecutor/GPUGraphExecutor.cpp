@@ -303,9 +303,10 @@ namespace graphics_backend
 	{
 	}
 
-	void GPUGraphExecutor::Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph)
+	void GPUGraphExecutor::Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph, FrameBoundResourcePool* frameBoundResourceManager)
 	{
 		m_Graph = gpuGraph;
+		m_FrameBoundResourceManager = frameBoundResourceManager;
 	}
 
 	void GPUGraphExecutor::Release()
@@ -481,7 +482,8 @@ namespace graphics_backend
 
 			//Write Descriptors
 			{
-				vk::CommandBuffer writeConstantsCommand = AquireThreadContextPtr()->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Upload Constants");
+				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+				vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
 				for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 				{
 					auto& batch = drawcallBatchs[batchID];
@@ -624,7 +626,8 @@ namespace graphics_backend
 					auto& batchDatas = passData.m_Batches;
 					CA_ASSERT(drawcallBatchs.size() == batchDatas.size(), "Batch Count Mismatch");
 
-					vk::CommandBuffer renderPassCommandBuffer = AquireThreadContextPtr()->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Render Pass");
+					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+					vk::CommandBuffer renderPassCommandBuffer = cmdPool->AllocCommand(QueueType::eGraphics, "Render Pass");
 
 					passData.m_BarrierCollector.ExecuteBarrier(renderPassCommandBuffer);
 
@@ -678,7 +681,8 @@ namespace graphics_backend
 					GPUTransferInfo& transfersData = m_TransferPasses.back();
 					++currentTransferPassIndex;
 
-					vk::CommandBuffer dataTransferCommandBuffer = AquireThreadContextPtr()->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Render Pass");
+					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+					vk::CommandBuffer dataTransferCommandBuffer = cmdPool->AllocCommand(QueueType::eGraphics, "Data Transfer");
 					transfersData.m_BarrierCollector.ExecuteBarrier(dataTransferCommandBuffer);
 
 					for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)

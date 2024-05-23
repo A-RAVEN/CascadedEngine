@@ -185,9 +185,10 @@ namespace graphics_backend
 			->Name("Run GPU Frame")
 			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
 			{
+				auto frameManager =	m_FrameContext.GetFrameBoundResourceManager();
 				for (auto& graph : gpuFrame.graphs)
 				{
-					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(graph);
+					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(graph, frameManager);
 					thisGraph->AddResource(executor);
 					executor->PrepareGraph();
 				}
@@ -650,6 +651,9 @@ namespace graphics_backend
 	, m_ShaderBindingSetAllocator(*this)
 	, m_SubmitCounterContext(*this)
 	, m_QueueContext(*this)
+	, m_FrameContext(*this)
+	, m_GPUResourceObjManager(*this)
+	, m_GPUMemoryManager(*this)
 	{
 	}
 
@@ -664,6 +668,10 @@ namespace graphics_backend
 		EnumeratePhysicalDevices();
 		CreateDevice();
 		m_MemoryManager.Initialize();
+		m_GPUMemoryManager.Initialize();
+		m_GPUResourceObjManager.Initialize();
+		m_FrameContext.InitFrameCapacity(4);
+
 	}
 
 	void CVulkanApplication::ReleaseApp()
@@ -676,6 +684,9 @@ namespace graphics_backend
 		m_MemoryManager.Release();
 		DestroyThreadContexts();
 		ReleaseAllWindowContexts();
+		m_FrameContext.Release();
+		m_GPUResourceObjManager.Release();
+		m_GPUMemoryManager.Release();
 		DestroyDevice();
 		m_PhysicalDevice = nullptr;
 		DestroyInstance();

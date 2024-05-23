@@ -1,5 +1,6 @@
 #pragma once
 #include <Platform.h>
+#include <CASTL/CAAlgorithm.h>
 #include <cstdint>
 #include <uenum.h>
 #include <uhash.h>
@@ -7,7 +8,7 @@
 
 
 using TIndex = uint32_t;
-constexpr TIndex INVALID_INDEX = std::numeric_limits<TIndex>::max();
+constexpr TIndex INVALID_INDEX = castl::numeric_limits<TIndex>::max();
 constexpr uint32_t INVALID_ATTACHMENT_INDEX = 256;
 
 enum class EShaderSetType : uint8_t
