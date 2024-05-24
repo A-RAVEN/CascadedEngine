@@ -1,7 +1,7 @@
 #pragma once
+#include <Common.h>
 #include <CASTL/CAMap.h>
 #include <CASTL/CADeque.h>
-#include <Common.h>
 #include "VulkanIncludes.h"
 #include "ResourceUsageInfo.h"
 

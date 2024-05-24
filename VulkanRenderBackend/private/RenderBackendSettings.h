@@ -6,7 +6,7 @@ namespace graphics_backend
 	constexpr uint32_t FRAMEBOUND_RESOURCE_POOL_SWAP_COUNT_PER_CONTEXT = 3;
 	constexpr uint32_t SWAPCHAIN_BUFFER_COUNT = 3;
 	using FrameType = uint64_t;
-	constexpr FrameType INVALID_FRAMEID = std::numeric_limits<FrameType>::max();
+	constexpr FrameType INVALID_FRAMEID = (castl::numeric_limits<FrameType>::max)();
 
 	static castl::vector<const char*> GetInstanceExtensionNames()
 	{

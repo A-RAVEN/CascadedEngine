@@ -67,12 +67,14 @@ namespace graphics_backend
 	{
 	public:
 		CommandBufferThreadPool(CVulkanApplication& app);
+		CommandBufferThreadPool(CommandBufferThreadPool&& other) noexcept;
 		castl::shared_ptr<OneTimeCommandBufferPool> AquireCommandBufferPool();
 		void ResetPool();
 		void ReleasePool();
 	private:
 		castl::mutex m_Mutex;
+		castl::condition_variable m_ConditionVariable;
 		castl::deque<int> m_AvailablePools;
-		castl::deque<OneTimeCommandBufferPool> m_CommandBufferPools;
+		castl::vector<OneTimeCommandBufferPool> m_CommandBufferPools;
 	};
 }

@@ -39,7 +39,7 @@ namespace graphics_backend
 	class VKAppSubObjectBaseNoCopy
 	{
 	public:
-		VKAppSubObjectBaseNoCopy() = delete;
+		VKAppSubObjectBaseNoCopy() = default;
 		VKAppSubObjectBaseNoCopy(CVulkanApplication& owner);
 		VKAppSubObjectBaseNoCopy(VKAppSubObjectBaseNoCopy const& other) = delete;
 		VKAppSubObjectBaseNoCopy& operator=(VKAppSubObjectBaseNoCopy const&) = delete;
@@ -58,7 +58,7 @@ namespace graphics_backend
 		CVulkanMemoryManager &GetMemoryManager() const;
 		QueueContext& GetQueueContext();
 	private:
-		CVulkanApplication& m_OwningApplication;
+		CVulkanApplication* m_OwningApplication = nullptr;
 	};
 
 

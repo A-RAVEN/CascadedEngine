@@ -24,12 +24,12 @@ namespace graphics_backend
 	VmaAllocation GPUMemoryResourceManager::AllocateMemory(vk::Image image, vk::MemoryPropertyFlags memoryProperties)
 	{
 		auto requirements = GetDevice().getImageMemoryRequirements(image);
-		AllocateMemory(requirements, memoryProperties);
+		return AllocateMemory(requirements, memoryProperties);
 	}
 	VmaAllocation GPUMemoryResourceManager::AllocateMemory(vk::Buffer buffer, vk::MemoryPropertyFlags memoryProperties)
 	{
 		auto requirements = GetDevice().getBufferMemoryRequirements(buffer);
-		AllocateMemory(requirements, memoryProperties);
+		return AllocateMemory(requirements, memoryProperties);
 	}
 	VmaAllocation GPUMemoryResourceManager::AllocateMemory(vk::MemoryRequirements const& memoryReqs, vk::MemoryPropertyFlags memoryProperties)
 	{

@@ -24,5 +24,10 @@ namespace graphics_backend
 		GlobalResourceReleaseQueue releaseQueue;
 	private:
 		vk::Fence m_Fence;
+
+		static_assert(std::move_constructible<CommandBufferThreadPool>, "CommandBufferThreadPool Shoule Be Movable");
+		static_assert(std::move_constructible<GPUMemoryResourceManager>, "GPUMemoryResourceManager Shoule Be Movable");
+		static_assert(std::move_constructible<GPUResourceObjectManager>, "GPUResourceObjectManager Shoule Be Movable");
+		static_assert(std::move_constructible<GlobalResourceReleaseQueue>, "GlobalResourceReleaseQueue Shoule Be Movable");
 	};
 }

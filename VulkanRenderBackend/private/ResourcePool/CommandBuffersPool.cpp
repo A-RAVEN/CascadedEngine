@@ -19,7 +19,7 @@ namespace graphics_backend
 			vk::CommandPoolCreateInfo poolInfo(vk::CommandPoolCreateFlagBits::eTransient, queueFamily);
 			SubCommandBufferPool newPool;
 			newPool.m_CommandPool = GetDevice().createCommandPool(poolInfo);
-			m_CommandBufferPools.push_back(newPool);
+			m_CommandBufferPools.push_back(castl::move(newPool));
 			m_QueueTypeToPoolIndex[uenum::enumToInt(QueueType::eGraphics)] = m_CommandBufferPools.size() - 1;
 		}
 		castl::fill(m_QueueTypeToPoolIndex.begin(), m_QueueTypeToPoolIndex.end(), queueFamily);
@@ -30,7 +30,7 @@ namespace graphics_backend
 			vk::CommandPoolCreateInfo poolInfo(vk::CommandPoolCreateFlagBits::eTransient, queueFamily);
 			SubCommandBufferPool newPool;
 			newPool.m_CommandPool = GetDevice().createCommandPool(poolInfo);
-			m_CommandBufferPools.push_back(newPool);
+			m_CommandBufferPools.push_back(castl::move(newPool));
 			m_QueueTypeToPoolIndex[uenum::enumToInt(QueueType::eCompute)] = m_CommandBufferPools.size() - 1;
 		}
 		queueFamily = queueContext.GetTransferQueueFamily();
@@ -39,7 +39,7 @@ namespace graphics_backend
 			vk::CommandPoolCreateInfo poolInfo(vk::CommandPoolCreateFlagBits::eTransient, queueFamily);
 			SubCommandBufferPool newPool;
 			newPool.m_CommandPool = GetDevice().createCommandPool(poolInfo);
-			m_CommandBufferPools.push_back(newPool);
+			m_CommandBufferPools.push_back(castl::move(newPool));
 			m_QueueTypeToPoolIndex[uenum::enumToInt(QueueType::eTransfer)] = m_CommandBufferPools.size() - 1;
 		}
 	}
@@ -118,30 +118,51 @@ namespace graphics_backend
 
 	CommandBufferThreadPool::CommandBufferThreadPool(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
 	{
+		m_CommandBufferPools.reserve(10);
+	}
+
+	CommandBufferThreadPool::CommandBufferThreadPool(CommandBufferThreadPool&& other) noexcept : VKAppSubObjectBaseNoCopy(castl::move(other))
+	{
+		castl::lock_guard<castl::mutex>(other.m_Mutex);
+		CA_ASSERT(other.m_AvailablePools.size() == other.m_CommandBufferPools.size(), "");
+		m_AvailablePools = castl::move(other.m_AvailablePools);
+		m_CommandBufferPools = castl::move(other.m_CommandBufferPools);
 	}
 
 	castl::shared_ptr<OneTimeCommandBufferPool> CommandBufferThreadPool::AquireCommandBufferPool()
 	{
-		castl::lock_guard<castl::mutex> lock(m_Mutex);
+		castl::unique_lock<castl::mutex> lock(m_Mutex);
 		OneTimeCommandBufferPool* resultPool = nullptr;
 		if (m_AvailablePools.empty())
 		{
-			uint32_t index = m_CommandBufferPools.size();
-			m_CommandBufferPools.emplace_back(GetVulkanApplication(), index);
-			m_CommandBufferPools.back().Initialize();
-			resultPool = &m_CommandBufferPools.back();
+			if (m_CommandBufferPools.size() < 10)
+			{
+				int back = m_CommandBufferPools.size();
+				m_CommandBufferPools.emplace_back(GetVulkanApplication(), back);
+				m_CommandBufferPools.back().Initialize();
+				m_AvailablePools.push_back(back);
+			}
+			else
+			{
+				m_ConditionVariable.wait(lock, [this]()
+				{
+					//m_AvailablePools不是空的，或者线程管理器已经停止，不再等待
+					return !m_AvailablePools.empty();
+				});
+			}
 		}
-		else
-		{
-			uint32_t index = m_AvailablePools.back();
-			m_AvailablePools.pop_back();
-			resultPool = &m_CommandBufferPools[index];
-		}
+		CA_ASSERT(!m_AvailablePools.empty(), "Pool is empty");
+		uint32_t index = m_AvailablePools.back();
+		m_AvailablePools.pop_back();
+		resultPool = &m_CommandBufferPools[index];
 		return castl::shared_ptr<OneTimeCommandBufferPool>(resultPool, [this](OneTimeCommandBufferPool* released)
 		{
-			castl::lock_guard<castl::mutex> lock(m_Mutex);
-			CA_ASSERT(released == &m_CommandBufferPools[released->m_Index], "Invalid CommandBuffer Pool");
-			m_AvailablePools.push_back(released->m_Index);
+			{
+				castl::lock_guard<castl::mutex> lock(m_Mutex);
+				CA_ASSERT(released == &m_CommandBufferPools[released->m_Index], "Invalid CommandBuffer Pool");
+				m_AvailablePools.push_back(released->m_Index);
+			}
+			m_ConditionVariable.notify_one();
 		});
 	}
 

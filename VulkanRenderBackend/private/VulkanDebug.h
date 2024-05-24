@@ -18,11 +18,11 @@ namespace vulkan_backend
 			device.setDebugUtilsObjectNameEXT(nameInfo);
 		}
 	}
-	void VKResultCheck(VkResult result)
+	static void VKResultCheck(VkResult result)
 	{
 
 	}
-	void VKResultCheck(vk::Result result)
+	static void VKResultCheck(vk::Result result)
 	{
 		VKResultCheck(result);
 	}

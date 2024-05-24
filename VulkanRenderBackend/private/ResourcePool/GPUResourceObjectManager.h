@@ -13,6 +13,7 @@ namespace graphics_backend
 	{
 	public:
 		GPUResourceObjectManager(CVulkanApplication& app);
+		GPUResourceObjectManager(GPUResourceObjectManager&& other) noexcept;
 		void Initialize() {};
 		void Release();
 		void DestroyImage(vk::Image image);

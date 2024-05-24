@@ -7,6 +7,13 @@ namespace graphics_backend
 	{
 	}
 
+	GPUResourceObjectManager::GPUResourceObjectManager(GPUResourceObjectManager&& other) noexcept : VKAppSubObjectBaseNoCopy(std::move(other))
+	{
+		castl::lock_guard<castl::mutex> lock(other.m_Mutex);
+		m_ActivateImages = std::move(other.m_ActivateImages);
+		m_ActiveBuffers = std::move(other.m_ActiveBuffers);
+	}
+
 	void GPUResourceObjectManager::Release()
 	{
 		DestroyAll();

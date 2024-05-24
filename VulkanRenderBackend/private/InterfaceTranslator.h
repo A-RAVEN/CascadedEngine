@@ -1,6 +1,6 @@
 #pragma once
-#include "VulkanIncludes.h"
 #include <Common.h>
+#include "VulkanIncludes.h"
 #include <TextureSampler.h>
 #include <GPUTexture.h>
 
