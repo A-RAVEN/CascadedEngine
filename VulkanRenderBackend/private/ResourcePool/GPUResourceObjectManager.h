@@ -6,9 +6,16 @@
 #include <CASTL/CAMutex.h>
 #include <VMA.h>
 #include <VulkanApplicationSubobjectBase.h>
+#include <CASTL/CAUnorderedMap.h>
+#include <CASTL/CAMap.h>
 
 namespace graphics_backend
 {
+	struct ActiveImageObjects
+	{
+		castl::map<GPUTextureView, vk::ImageView> views;
+	};
+
 	class GPUResourceObjectManager : public VKAppSubObjectBaseNoCopy
 	{
 	public:
@@ -21,9 +28,13 @@ namespace graphics_backend
 		void DestroyAll();
 		vk::Image CreateImage(GPUTextureDescriptor const& desc);
 		vk::Buffer CreateBuffer(GPUBufferDescriptor const& desc);
+
+		vk::ImageView EnsureImageView(vk::Image image
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView viewDesc);
 	private:
 		castl::mutex m_Mutex;
-		castl::set<vk::Image> m_ActivateImages;
+		castl::map<vk::Image, ActiveImageObjects> m_ActivateImages;
 		castl::set<vk::Buffer> m_ActiveBuffers;
 	};
 }

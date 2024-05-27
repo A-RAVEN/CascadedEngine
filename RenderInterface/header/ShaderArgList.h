@@ -52,9 +52,9 @@ namespace graphics_backend
 		}
 
 		inline ShaderArgList& SetImage(castl::string const& name
-			, ImageHandle const& imageHandle)
+			, ImageHandle const& imageHandle, GPUTextureView const& view)
 		{
-			m_NameToImage[name] = { imageHandle };
+			m_NameToImage[name] = { castl::make_pair<ImageHandle, GPUTextureView>(imageHandle, view) };
 			return *this;
 		}
 
@@ -103,7 +103,7 @@ namespace graphics_backend
 			return nullptr;
 		}
 
-		castl::vector<ImageHandle> FindImageHandle(castl::string const& name) const
+		castl::vector<castl::pair<ImageHandle, GPUTextureView>> FindImageHandle(castl::string const& name) const
 		{
 			auto found = m_NameToImage.find(name);
 			if (found != m_NameToImage.end())
@@ -133,7 +133,7 @@ namespace graphics_backend
 			return {};
 		}
 
-		castl::unordered_map<castl::string, castl::vector<ImageHandle>> const& GetImageList() const
+		castl::unordered_map<castl::string, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> const& GetImageList() const
 		{
 			return m_NameToImage;
 		}
@@ -149,7 +149,7 @@ namespace graphics_backend
 		}
 	private:
 		castl::unordered_map<castl::string, castl::vector<uint8_t>> m_NameToNumericArrayList;
-		castl::unordered_map<castl::string, castl::vector<ImageHandle>> m_NameToImage;
+		castl::unordered_map<castl::string, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> m_NameToImage;
 		castl::unordered_map<castl::string, castl::vector<BufferHandle>> m_NameToBuffer;
 		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> m_NameToSubArgLists;
 		castl::unordered_map<castl::string, TextureSamplerDescriptor> m_NameToSamplers;

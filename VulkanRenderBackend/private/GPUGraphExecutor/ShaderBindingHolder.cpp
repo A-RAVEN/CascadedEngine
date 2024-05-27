@@ -66,7 +66,7 @@ namespace graphics_backend
 		}
 	};
 
-	void ShaderBindingInstance::InitShaderBindings(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData)
+	void ShaderBindingInstance::InitShaderBindings(CVulkanApplication& application, FrameBoundResourcePool* pResourcePool, ShaderCompilerSlang::ShaderReflectionData const& reflectionData)
 	{
 		p_Application = &application;
 		p_ReflectionData = &reflectionData;
@@ -112,18 +112,19 @@ namespace graphics_backend
 				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
 				descSetDesc.descs.push_back(bindingDesc);
 			}
-			auto descSetAllocator = application.GetGPUObjectManager().m_DescriptorSetAllocatorDic.GetOrCreate(descSetDesc);
-			m_DescriptorSetsLayouts[sid] = descSetAllocator->GetLayout();
-			targetDescSet = descSetAllocator->AllocateSet();
+			auto descSetLayout = application.GetGPUObjectManager().m_DescriptorSetAllocatorDic.GetOrCreate(descSetDesc);
+			auto descSetAllocator = pResourcePool->descriptorPools.GetOrCreate(descSetDesc.GetPoolDesc());
+
+			m_DescriptorSetsLayouts[sid] = descSetLayout->GetLayout();
+			targetDescSet = descSetAllocator->AllocateSet(descSetLayout->GetLayout());
 
 			for(int ubid = 0; ubid < sourceSet.m_UniformBuffers.size(); ++ubid)
 			{
 				auto& sourceUniformBuffer = sourceSet.m_UniformBuffers[ubid];
-				auto bufferHandle = application.GetMemoryManager().AllocateBuffer(EMemoryType::GPU
-					, EMemoryLifetime::FrameBound
-					, sourceUniformBuffer.m_Groups[0].m_MemorySize
-					, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst);
-				m_UniformBuffers.push_back(castl::move(bufferHandle));
+				auto bufferObject = pResourcePool->CreateBufferWithMemory(GPUBufferDescriptor::Create(
+					EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst
+					, 1, sourceUniformBuffer.m_Groups[0].m_MemorySize), vk::MemoryPropertyFlagBits::eDeviceLocal);
+				m_UniformBuffers.push_back(castl::move(bufferObject));
 			}
 		}
 	}
@@ -131,7 +132,7 @@ namespace graphics_backend
 	void WriteUniformBuffer(ShaderArgList const& shaderArgList
 		, ShaderCompilerSlang::UniformBufferData const& bufferData
 		, int32_t bufferGroupID
-		, VulkanBufferHandle& dstBufferHandle)
+		, char* dataDst)
 	{
 
 		auto& group = bufferData.m_Groups[bufferGroupID];
@@ -143,7 +144,7 @@ namespace graphics_backend
 				for (uint32_t elementID = 0; elementID < element.m_ElementCount; ++elementID)
 				{
 					uint32_t elementOffset = memoryOffset + element.m_Stride * elementID;
-					memcpy(dstBufferHandle->GetMappedPointer(), pDataPos, element.m_ElementMemorySize);
+					memcpy(dataDst + elementOffset, pDataPos, element.m_ElementMemorySize);
 				}
 			}
 		}
@@ -152,7 +153,7 @@ namespace graphics_backend
 			auto found = shaderArgList.FindSubArgList(bufferData.m_Groups[subGroupID].m_Name);
 			if(found)
 			{
-				WriteUniformBuffer(*found, bufferData, subGroupID, dstBufferHandle);
+				WriteUniformBuffer(*found, bufferData, subGroupID, dataDst);
 			}
 		}
 	}
@@ -171,8 +172,8 @@ namespace graphics_backend
 			auto imageHandles = shaderArgList.FindImageHandle(textureData.m_Name);
 			for (uint32_t imgID = 0; imgID < imageHandles.size(); ++imgID)
 			{
-				//TODO: Image View Is Different from Image Itself
-				vk::ImageView imageView = resourceProvider.GetImageView(imageHandles[imgID]);
+				auto& imagePair = imageHandles[imgID];
+				vk::ImageView imageView = resourceProvider.GetImageView(imagePair.first, imagePair.second);
 				writer.AddWriteImageView(imageView
 					, textureData.m_BindingIndex
 					, vk::DescriptorType::eSampledImage
@@ -216,6 +217,7 @@ namespace graphics_backend
 
 	void ShaderBindingInstance::WriteShaderData(CVulkanApplication& application
 		, ShadderResourceProvider& resourceProvider
+		, FrameBoundResourcePool* pResourcePool
 		, vk::CommandBuffer& command
 		, ShaderArgList const& shaderArgList)
 	{
@@ -234,26 +236,24 @@ namespace graphics_backend
 				auto& sourceUniformBuffer = sourceSet.m_UniformBuffers[ubid];
 				auto& bufferHandle = m_UniformBuffers[ubid];
 				auto& group = sourceUniformBuffer.m_Groups[0];
-				writer.AddWriteBuffer(bufferHandle->GetBuffer(), sourceUniformBuffer.m_BindingIndex, vk::DescriptorType::eUniformBuffer, 0);
+				writer.AddWriteBuffer(bufferHandle.buffer, sourceUniformBuffer.m_BindingIndex, vk::DescriptorType::eUniformBuffer, 0);
+				vk::DeviceSize memorySize = group.m_MemorySize;
+				auto stageBuffer = pResourcePool->CreateStagingBuffer(memorySize, EBufferUsage::eDataSrc);
 				if (group.m_Name == "__Global")
 				{
-					vk::DeviceSize memorySize = sourceUniformBuffer.m_Groups[0].m_MemorySize;
-					auto stageBuffer = p_Application->GetMemoryManager().AllocateBuffer(EMemoryType::GPU
-						, EMemoryLifetime::FrameBound
-						, memorySize
-						, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst);
-					WriteUniformBuffer(shaderArgList, sourceUniformBuffer, 0, bufferHandle);
-					command.copyBuffer(stageBuffer->GetBuffer(), bufferHandle->GetBuffer(), vk::BufferCopy(0, 0, memorySize));
-
+					auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
+					WriteUniformBuffer(shaderArgList, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
 				}
 				else
 				{
 					auto found = shaderArgList.FindSubArgList(group.m_Name);
 					if (found)
 					{
-						WriteUniformBuffer(*found, sourceUniformBuffer, 0, bufferHandle);
+						auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
+						WriteUniformBuffer(*found, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
 					}
 				}
+				command.copyBuffer(stageBuffer.buffer, bufferHandle.buffer, vk::BufferCopy(0, 0, memorySize));
 			}
 
 			//Non Uniform Buffer Resources

@@ -80,7 +80,7 @@ namespace graphics_backend
 			, CVulkanApplication& application
 			, uint32_t chunkSize);
 		ShaderDescriptorSetHandle AllocateSet();
-		void Release() override;
+		void Release();
 
 		void ReleaseFrameboundResources();
 	private:
@@ -97,7 +97,7 @@ namespace graphics_backend
 	public:
 		ShaderDescriptorSetAllocator(CVulkanApplication& owner);
 		void Create(ShaderDescriptorSetLayoutInfo const& layoutInfo);
-		virtual void Release() override;
+		void Release();
 
 		ShaderDescriptorSetHandle AllocateSet();
 

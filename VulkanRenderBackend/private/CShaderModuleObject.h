@@ -42,7 +42,7 @@ namespace graphics_backend
 		CShaderModuleObject(CVulkanApplication& application);
 		void Create(ShaderModuleDescritor const& descriptor);
 		void Create(ShaderSourceInfo const& shaderSourceInfo);
-		virtual void Release() override;
+		void Release();
 		vk::ShaderModule GetShaderModule() const { return m_ShaderModule; }
 		castl::string const& GetEntryPointName() const { return m_EntryPointName; }
 	private:

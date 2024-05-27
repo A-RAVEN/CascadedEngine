@@ -26,11 +26,6 @@ struct VertexAttribute
 	{
 		return { 0, offset, format, semanticName };
 	}
-	//template <class HashAlgorithm>
-	//friend void hash_append(HashAlgorithm& h, VertexAttribute const& attribute) noexcept
-	//{
-	//	hash_append(h, attribute.attributeIndex, attribute.format, attribute.offset, attribute.semanticName);
-	//}
 };
 
 struct VertexInputsDescriptor

@@ -23,13 +23,13 @@ namespace graphics_backend
 		}
 		vk::DescriptorSetLayoutCreateInfo layoutCreateInfo{ {}, bindings };
 		m_Layout = GetDevice().createDescriptorSetLayout(layoutCreateInfo);
-		p_SetPool = GetGPUObjectManager().m_DescriptorSetPoolDic.GetOrCreate(desc.GetPoolDesc()).get();
+		//p_SetPool = GetGPUObjectManager().m_DescriptorSetPoolDic.GetOrCreate(desc.GetPoolDesc()).get();
 	}
 
-	vk::DescriptorSet DescriptorSetAllocator::AllocateSet()
-	{
-		return p_SetPool->AllocateSet(m_Layout);
-	}
+	//vk::DescriptorSet DescriptorSetAllocator::AllocateSet()
+	//{
+	//	return p_SetPool->AllocateSet(m_Layout);
+	//}
 
 	DescriptorPool::DescriptorPool(CVulkanApplication& application) : VKAppSubObjectBaseNoCopy(application)
 	{

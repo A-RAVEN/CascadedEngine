@@ -1,9 +1,7 @@
 #pragma once
 #include <VulkanIncludes.h>
 #include <VulkanApplicationSubobjectBase.h>
-#include <RAII.h>
 #include <HashPool.h>
-#include <uhash.h>
 #include <CASTL/CASet.h>
 
 namespace graphics_backend
@@ -14,10 +12,7 @@ namespace graphics_backend
 		uint32_t SSBONum;
 		uint32_t TexNum;
 		uint32_t SamplerNum;
-		bool operator==(DescriptorPoolDesc const& other) const
-		{
-			return hash_utils::memory_equal(*this, other);
-		}
+		auto operator<=>(const DescriptorPoolDesc&) const = default;
 	};
 
 	struct DescriptorDesc
@@ -25,25 +20,14 @@ namespace graphics_backend
 		vk::DescriptorType descType;
 		uint32_t bindingIndex;
 		uint32_t arraySize;
-
-		bool operator==(DescriptorDesc const& other) const
-		{
-			return hash_utils::memory_equal(*this, other);
-		}
+		auto operator<=>(const DescriptorDesc&) const = default;
 	};
 
 	struct DescriptorSetDesc
 	{
 		castl::vector<DescriptorDesc> descs;
-		bool operator==(DescriptorSetDesc const& other) const
-		{
-			return descs == other.descs;
-		}
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, DescriptorSetDesc const& desc) noexcept
-		{
-			hash_append(h, desc.descs);
-		}
+		auto operator<=>(const DescriptorSetDesc&) const = default;
+
 		DescriptorPoolDesc GetPoolDesc() const
 		{
 			DescriptorPoolDesc result{};
@@ -95,22 +79,16 @@ namespace graphics_backend
 	public:
 		DescriptorSetAllocator(CVulkanApplication& application);
 		void Create(DescriptorSetDesc const& desc);
-		vk::DescriptorSet AllocateSet();
+		//vk::DescriptorSet AllocateSet();
 		vk::DescriptorSetLayout GetLayout() const
 		{
 			return m_Layout;
 		}
 	private:
 		vk::DescriptorSetLayout m_Layout;
-		DescriptorPool* p_SetPool;
+		//DescriptorPool* p_SetPool;
 	};
 
 	using DescriptorSetAllocatorDic = HashPool<DescriptorSetDesc, DescriptorSetAllocator>;
 }
-
-template<>
-struct hash_utils::is_contiguously_hashable<graphics_backend::DescriptorPoolDesc> : public std::true_type {};
-
-template<>
-struct hash_utils::is_contiguously_hashable<graphics_backend::DescriptorDesc> : public std::true_type {};
 

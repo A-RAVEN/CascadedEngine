@@ -26,6 +26,3 @@ namespace graphics_backend
 		virtual castl::string const& GetName() const = 0;
 	};
 }
-
-//template<>
-//struct hash_utils::is_contiguously_hashable<graphics_backend::GPUBufferDescriptor> : public castl::true_type {};

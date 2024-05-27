@@ -12,14 +12,6 @@ namespace graphics_backend
 	{
 		return m_OwningApplication;
 	}
-	castl::shared_ptr<CVulkanThreadContext> VKAppSubObjectBase::AquireThreadContextPtr()
-	{
-		return m_OwningApplication.AquireThreadContextPtr();
-	}
-	CFrameCountContext const& VKAppSubObjectBase::GetFrameCountContext() const
-	{
-		return m_OwningApplication.GetSubmitCounterContext();
-	}
 	vk::Instance VKAppSubObjectBase::GetInstance() const
 	{
 		return m_OwningApplication.GetInstance();
@@ -32,66 +24,57 @@ namespace graphics_backend
 	{
 		return m_OwningApplication.GetPhysicalDevice();
 	}
-	CVulkanThreadContext* VKAppSubObjectBase::GetThreadContext(uint32_t threadIndex)
-	{
-		return m_OwningApplication.GetThreadContext(threadIndex);
-	}
 	GPUObjectManager& VKAppSubObjectBase::GetGPUObjectManager()
 	{
 		return m_OwningApplication.GetGPUObjectManager();
 	}
-	CVulkanMemoryManager& VKAppSubObjectBase::GetMemoryManager() const
+	constexpr GPUMemoryResourceManager& VKAppSubObjectBase::GetGlobalMemoryManager()
 	{
-		return m_OwningApplication.GetMemoryManager();
+		return m_OwningApplication.GetGlobalMemoryManager();
 	}
-
+	constexpr GPUResourceObjectManager& VKAppSubObjectBase::GetGlobalResourceObjectManager()
+	{
+		return m_OwningApplication.GetGlobalResourceObjectManager();
+	}
 	QueueContext& VKAppSubObjectBase::GetQueueContext()
 	{
 		return m_OwningApplication.GetQueueContext();
 	}
 
 	VKAppSubObjectBaseNoCopy::VKAppSubObjectBaseNoCopy(CVulkanApplication& owner) :
-		m_OwningApplication(&owner)
+		m_OwningApplication(owner)
 	{
 	}
 	CVulkanApplication& VKAppSubObjectBaseNoCopy::GetVulkanApplication() const
 	{
-		return *m_OwningApplication;
-	}
-	castl::shared_ptr<CVulkanThreadContext> VKAppSubObjectBaseNoCopy::AquireThreadContextPtr()
-	{
-		return m_OwningApplication->AquireThreadContextPtr();
-	}
-	CFrameCountContext const& VKAppSubObjectBaseNoCopy::GetFrameCountContext() const
-	{
-		return m_OwningApplication->GetSubmitCounterContext();
+		return m_OwningApplication;
 	}
 	vk::Instance VKAppSubObjectBaseNoCopy::GetInstance() const
 	{
-		return m_OwningApplication->GetInstance();
+		return m_OwningApplication.GetInstance();
 	}
 	vk::Device VKAppSubObjectBaseNoCopy::GetDevice() const
 	{
-		return m_OwningApplication->GetDevice();
+		return m_OwningApplication.GetDevice();
 	}
 	vk::PhysicalDevice VKAppSubObjectBaseNoCopy::GetPhysicalDevice() const
 	{
-		return m_OwningApplication->GetPhysicalDevice();
-	}
-	CVulkanThreadContext* VKAppSubObjectBaseNoCopy::GetThreadContext(uint32_t threadIndex)
-	{
-		return m_OwningApplication->GetThreadContext(threadIndex);
+		return m_OwningApplication.GetPhysicalDevice();
 	}
 	GPUObjectManager& VKAppSubObjectBaseNoCopy::GetGPUObjectManager()
 	{
-		return m_OwningApplication->GetGPUObjectManager();
+		return m_OwningApplication.GetGPUObjectManager();
 	}
-	CVulkanMemoryManager& VKAppSubObjectBaseNoCopy::GetMemoryManager() const
+	constexpr GPUMemoryResourceManager& VKAppSubObjectBaseNoCopy::GetGlobalMemoryManager()
 	{
-		return m_OwningApplication->GetMemoryManager();
+		return m_OwningApplication.GetGlobalMemoryManager();
+	}
+	constexpr GPUResourceObjectManager& VKAppSubObjectBaseNoCopy::GetGlobalResourceObjectManager()
+	{
+		return m_OwningApplication.GetGlobalResourceObjectManager();
 	}
 	QueueContext& VKAppSubObjectBaseNoCopy::GetQueueContext()
 	{
-		return m_OwningApplication->GetQueueContext();
+		return m_OwningApplication.GetQueueContext();
 	}
 }

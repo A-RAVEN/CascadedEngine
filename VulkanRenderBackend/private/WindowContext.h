@@ -92,6 +92,12 @@ namespace graphics_backend
 		static glfwContext s_Instance;
 	};
 
+	struct SwapchainImagePage
+	{
+		vk::Image image;
+		castl::map<GPUTextureView, vk::ImageView> views;
+	};
+
 	class SwapchainContext : public VKAppSubObjectBaseNoCopy
 	{
 	public:
@@ -101,8 +107,9 @@ namespace graphics_backend
 		void Release();
 		vk::SwapchainKHR const& GetSwapchain() const { return m_Swapchain; }
 		TIndex GetCurrentFrameBufferIndex() const { return m_CurrentBufferIndex; }
-		vk::Image GetCurrentFrameImage() const { return m_SwapchainImages[m_CurrentBufferIndex]; }
-		vk::ImageView GetCurrentFrameImageView() const { return m_SwapchainImageViews[m_CurrentBufferIndex]; }
+		vk::Image GetCurrentFrameImage() const { return m_SwapchainImages[m_CurrentBufferIndex].image; }
+		SwapchainImagePage& GetCurrentFrameImagePage() { return m_SwapchainImages[m_CurrentBufferIndex]; }
+		vk::ImageView EnsureCurrentFrameImageView(GPUTextureView view);
 		vk::Semaphore GetWaitDoneSemaphore() const { return m_WaitFrameDoneSemaphore; }
 		vk::Semaphore GetPresentWaitingSemaphore() const { return m_CanPresentSemaphore; }
 		ResourceUsageFlags GetCurrentFrameUsageFlags() const { return m_CurrentFrameUsageFlags; }
@@ -112,8 +119,7 @@ namespace graphics_backend
 	private:
 		//Swapchain
 		vk::SwapchainKHR m_Swapchain = nullptr;
-		castl::vector<vk::Image> m_SwapchainImages;
-		castl::vector<vk::ImageView> m_SwapchainImageViews;
+		castl::vector<SwapchainImagePage> m_SwapchainImages;
 		//Semaphores
 		vk::Semaphore m_WaitFrameDoneSemaphore = nullptr;
 		vk::Semaphore m_CanPresentSemaphore = nullptr;
@@ -164,7 +170,7 @@ namespace graphics_backend
 		vk::SwapchainKHR const& GetSwapchain() const { return m_SwapchainContext.GetSwapchain(); }
 		TIndex GetCurrentFrameBufferIndex() const { return m_SwapchainContext.GetCurrentFrameBufferIndex(); }
 		vk::Image GetCurrentFrameImage() const { return m_SwapchainContext.GetCurrentFrameImage(); }
-		vk::ImageView GetCurrentFrameImageView() const { return m_SwapchainContext.GetCurrentFrameImageView(); }
+		vk::ImageView EnsureCurrentFrameImageView(GPUTextureView const& viewDesc) { return m_SwapchainContext.EnsureCurrentFrameImageView(viewDesc); }
 		vk::Semaphore GetWaitDoneSemaphore() const { return m_SwapchainContext.GetWaitDoneSemaphore(); }
 		vk::Semaphore GetPresentWaitingSemaphore() const { return m_SwapchainContext.GetPresentWaitingSemaphore(); }
 		ResourceUsageFlags GetCurrentFrameUsageFlags() const { return m_SwapchainContext.GetCurrentFrameUsageFlags(); }
@@ -180,7 +186,7 @@ namespace graphics_backend
 			, bool focused
 			, bool decorate
 			, bool floating);
-		void Release() override;
+		void Release();
 		bool NeedPresent() const;
 		void PresentCurrentFrame();
 		void PrepareForPresent(VulkanBarrierCollector& inoutBarrierCollector

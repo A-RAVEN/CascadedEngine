@@ -29,6 +29,48 @@ namespace graphics_backend
 		}
 	}
 
+	//TODO: Consider More Complex Use Cases
+	constexpr static vk::ImageAspectFlags ETextureAspectToVkImageAspectFlags(ETextureAspect aspect, ETextureFormat format)
+	{
+		bool hasDepth = FormatHasDepth(format);
+		bool hasStencil = FormatHasStencil(format);
+		switch (aspect)
+		{
+		case ETextureAspect::eDepth:
+		{
+			CA_ASSERT(hasDepth, "Image Should Be Depth Or Depth Stencil Format");
+			if (hasDepth)
+			{
+				return vk::ImageAspectFlagBits::eDepth;
+			}
+		}
+		case ETextureAspect::eStencil:
+		{
+			CA_ASSERT(hasStencil, "Image Should Be Depth Stencil Format");
+			if (hasDepth)
+			{
+				return vk::ImageAspectFlagBits::eStencil;
+			}
+		}
+		}
+		//Default
+		if (hasStencil || hasDepth)
+		{
+			if (hasDepth && !hasStencil)
+			{
+				return vk::ImageAspectFlagBits::eDepth;
+			}
+			else
+			{
+				return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+			}
+		}
+		else
+		{
+			return vk::ImageAspectFlagBits::eColor;
+		}
+	}
+
 	constexpr vk::Format ETextureFormatToVkFotmat(ETextureFormat inFormat)
 	{
 		switch (inFormat)

@@ -61,7 +61,7 @@ namespace graphics_backend
 			ShaderDescriptorSetLayoutInfo layoutInfo = p_Metadata->GetLayoutInfo();
 			auto allocator = descPoolCache.GetOrCreate(layoutInfo);
 			m_DescriptorSetHandle = castl::move(allocator->AllocateSet());
-			vulkan_backend::SetVKObjectDebugName(GetDevice(), m_DescriptorSetHandle.Get().GetDescriptorSet(), m_Name.c_str());
+			SetVKObjectDebugName(GetDevice(), m_DescriptorSetHandle.Get().GetDescriptorSet(), m_Name.c_str());
 		//}
 		CA_ASSERT(m_DescriptorSetHandle.IsRAIIAquired(), "Descriptor Set Is Not Aquired!");
 		vk::DescriptorSet targetSet = m_DescriptorSetHandle->GetDescriptorSet();

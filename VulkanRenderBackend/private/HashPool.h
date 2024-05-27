@@ -26,7 +26,11 @@ namespace graphics_backend
 		HashPool() = delete;
 		HashPool(HashPool const& other) = delete;
 		HashPool& operator=(HashPool const&) = delete;
-		HashPool(HashPool&& other) = delete;
+		HashPool(HashPool&& other)
+		{
+			castl::lock_guard<castl::mutex> lockGuard(other.m_Mutex);
+			m_InternalMap = std::move(other.m_InternalMap);
+		}
 		HashPool& operator=(HashPool&&) = delete;
 
 		HashPool(CVulkanApplication& application) : VKAppSubObjectBaseNoCopy(application)
@@ -59,6 +63,12 @@ namespace graphics_backend
 			{
 				callbackFunc(it.first, it.second.get());
 			};
+		}
+
+		void Clear()
+		{
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
+			m_InternalMap.clear();
 		}
 	private:
 		castl::mutex m_Mutex;

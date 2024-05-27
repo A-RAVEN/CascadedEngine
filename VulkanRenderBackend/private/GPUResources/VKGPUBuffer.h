@@ -7,12 +7,18 @@
 
 namespace graphics_backend
 {
-	class VKGPUBuffer : public GPUBuffer, public GPUResource
+	class VKGPUBuffer : public GPUBuffer, public GPUResource, public VKAppSubObjectBaseNoCopy
 	{
 	public:
-		constexpr vk::Buffer GetBuffer() const
+		VKGPUBuffer(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app) {}
+
+		constexpr VKBufferObject const& GetBuffer() const
 		{
-			return m_Buffer.buffer;
+			return m_Buffer;
+		}
+		constexpr VKBufferObject& GetBuffer()
+		{
+			return m_Buffer;
 		}
 		virtual GPUBufferDescriptor const& GetDescriptor() const override { return m_Descriptor; }
 		virtual void SetName(castl::string const& name) override { m_Name = name; }

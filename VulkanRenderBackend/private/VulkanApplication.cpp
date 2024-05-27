@@ -6,178 +6,41 @@
 #include "Utils.h"
 #include "RenderBackendSettings.h"
 #include "VulkanApplication.h"
-#include "CVulkanThreadContext.h"
-#include "CVulkanBufferObject.h"
 #include "VulkanBarrierCollector.h"
 #include "CommandList_Impl.h"
 #include "InterfaceTranslator.h"
-#include "RenderGraphExecutor.h"
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
 #include <GPUResources/VKGPUTexture.h>
 #include <GPUResources/VKGPUBuffer.h>
 
 namespace graphics_backend
 {
-	void CVulkanApplication::SyncPresentationFrame(FrameType frameID)
-	{
-		//Update Frame, Release FrameBound Resources
-		m_SubmitCounterContext.WaitingForCurrentFrame();
-		for (auto& windowContext : m_WindowContexts)
-		{
-			windowContext->WaitCurrentFrameBufferIndex();
-			windowContext->MarkUsages(ResourceUsage::eDontCare);
-		}
+	//void CVulkanApplication::SyncPresentationFrame(FrameType frameID)
+	//{
+	//	////Update Frame, Release FrameBound Resources
+	//	//m_SubmitCounterContext.WaitingForCurrentFrame();
+	//	//for (auto& windowContext : m_WindowContexts)
+	//	//{
+	//	//	windowContext->WaitCurrentFrameBufferIndex();
+	//	//	windowContext->MarkUsages(ResourceUsage::eDontCare);
+	//	//}
 
-		if (m_SubmitCounterContext.AnyFrameFinished())
-		{
-			FrameType const releasedFrame = m_SubmitCounterContext.GetReleasedFrameID();
-			TIndex const releasedIndex = m_SubmitCounterContext.GetReleasedResourcePoolIndex();
-			for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
-			{
-				itrThreadContext->DoReleaseContextResourceByIndex(releasedIndex);
-			}
-			GetGPUObjectManager().ReleaseFrameboundResources(releasedFrame);
-			m_MemoryManager.ReleaseCurrentFrameResource(releasedFrame, releasedIndex);
-			for (auto& windowContext : m_WindowContexts)
-			{
-				windowContext->TickReleaseResources(releasedFrame);
-			}
-		}
-	}
-	void CVulkanApplication::ExecuteStates(CTaskGraph* rootTaskGraph, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs, FrameType frameID)
-	{
-		FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
-		TIndex currentPoolID = m_SubmitCounterContext.GetCurrentFrameBufferIndex();
-
-		auto memoryResourceUploadingTaskGraph = rootTaskGraph->NewTaskGraph()
-			->Name("Memory Resource Uploading Task Graph");
-
-		auto gpuAddressUploadingTaskGraph = rootTaskGraph->NewTaskGraph()
-			->Name("GPU Address Updating Task Graph")
-			->DependsOn(memoryResourceUploadingTaskGraph);
-
-		auto renderingTaskGraph = rootTaskGraph->NewTaskGraph()
-			->Name("Rendering Task Graph")
-			->DependsOn(gpuAddressUploadingTaskGraph);
-
-		castl::shared_ptr<castl::vector<RenderGraphExecutor>> pExecutors = castl::make_shared<castl::vector<RenderGraphExecutor>>();
-		pExecutors->reserve(pendingRenderGraphs.size());
-
-		for (auto& pendingGraph : pendingRenderGraphs)
-		{
-			auto taskGraph = renderingTaskGraph->NewTaskGraph()
-				->Name("Rendering Task Graph");
-			pExecutors->push_back(castl::move(RenderGraphExecutor{ *this, currentFrameID }));
-			size_t index = pExecutors->size() - 1;
-			taskGraph->SetupFunctor([this, pendingGraph, index, pExecutors](CTaskGraph* thisGraph)
-			{
-				RenderGraphExecutor& executor = (*pExecutors)[index];
-				executor.Create(pendingGraph);
-				executor.Run(thisGraph);
-			});
-		}
-		//m_PendingRenderGraphs.clear();
-
-		auto finalizeTaskGraph = rootTaskGraph->NewTaskGraph()
-			->Name("Finalize Task Graph")
-			->DependsOn(renderingTaskGraph);
-		finalizeTaskGraph->NewTask()
-			->Name("Finalize")
-			->Functor([this, currentFrameID, currentPoolID, pExecutors]()
-				{
-					//收集 Misc Commandbuffers
-					castl::vector<vk::CommandBuffer> waitingSubmitCommands;
-					for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
-					{
-						itrThreadContext->GetPoolByIndex(currentPoolID).CollectCommandBufferList(waitingSubmitCommands);
-					}
-
-					for (RenderGraphExecutor const& executor : (*pExecutors))
-					{
-						executor.CollectCommands(waitingSubmitCommands);
-					}
-					pExecutors->clear();
-
-					bool anyPresent = false;
-					if (!m_WindowContexts.empty())
-					{
-						castl::vector<vk::Semaphore> semaphores;
-						semaphores.reserve(m_WindowContexts.size());
-						castl::vector<vk::PipelineStageFlags> waitStages;
-						waitStages.reserve(m_WindowContexts.size());
-						castl::vector<vk::Semaphore> signalSemaphores;
-						signalSemaphores.reserve(m_WindowContexts.size());
-						auto threadContext = AquireThreadContextPtr();
-						VulkanBarrierCollector layoutBarrierCollector{ GetSubmitCounterContext().GetGraphicsQueueFamily() };
-						for (auto& windowContext : m_WindowContexts)
-						{
-							if (windowContext->NeedPresent())
-							{
-								anyPresent = true;
-								windowContext->PrepareForPresent(
-									layoutBarrierCollector
-									, semaphores
-									, waitStages
-									, signalSemaphores);
-							}
-						}
-						if (anyPresent)
-						{
-							auto finalizeLayoutCmd = threadContext->GetCurrentFramePool().AllocateOnetimeCommandBuffer("Finalize Backbuffer Layouts");
-							layoutBarrierCollector.ExecuteBarrier(finalizeLayoutCmd);
-							finalizeLayoutCmd.end();
-							waitingSubmitCommands.push_back(finalizeLayoutCmd);
-
-							//castl::cout << "Finalize: " << currentFrameID << castl::endl;
-							m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands
-								, semaphores
-								, waitStages
-								, signalSemaphores);
-
-							for (auto& windowContext : m_WindowContexts)
-							{
-								if (windowContext->NeedPresent())
-								{
-									//castl::cout << "Present: " << currentFrameID << castl::endl;
-									windowContext->PresentCurrentFrame();
-								}
-							}
-						}
-					}
-					if (!anyPresent)
-					{
-						m_SubmitCounterContext.FinalizeCurrentFrameGraphics(waitingSubmitCommands);
-					}
-				});
-
-		auto tickSwapchainAndResourceTask = rootTaskGraph->NewTask()
-			->Name("GPU Frame Finalize")
-			->DependsOn(finalizeTaskGraph)
-			->SignalEvent("PresentReady")
-			->Functor([this, currentFrameID]()
-				{
-					SyncPresentationFrame(currentFrameID);
-				});
-
-		//Tick uploading shader bindings
-		m_ShaderBindingSetAllocator.Foreach([gpuAddressUploadingTaskGraph](ShaderBindingBuilder const&, ShaderBindingSetAllocator* allocator)
-			{
-				auto addressUploadTask = gpuAddressUploadingTaskGraph->NewTaskGraph()
-					->Name("Upload Shader Bindings " + allocator->GetMetadata().GetBindingsDescriptor()->GetSpaceName());
-				allocator->TickUploadResources(addressUploadTask);
-			});
-
-		//Tick uploading shader bindings
-		m_ConstantSetAllocator.Foreach([memoryResourceUploadingTaskGraph](ShaderConstantsBuilder const&, ShaderConstantSetAllocator* allocator)
-			{
-				auto shaderConstantsUploadTask = memoryResourceUploadingTaskGraph->NewTaskGraph()
-					->Name("Upload Shader Constants " + allocator->GetMetadata().GetBuilder()->GetName());
-				allocator->TickUploadResources(shaderConstantsUploadTask);
-			});
-
-		m_GPUBufferPool.TickUpload(memoryResourceUploadingTaskGraph->NewTaskGraph()->Name("Tick Upload  Buffers"));
-		m_GPUTexturePool.TickUpload(memoryResourceUploadingTaskGraph->NewTaskGraph()->Name("Tick Upload  Textures"));
-	}
+	//	//if (m_SubmitCounterContext.AnyFrameFinished())
+	//	//{
+	//	//	FrameType const releasedFrame = m_SubmitCounterContext.GetReleasedFrameID();
+	//	//	TIndex const releasedIndex = m_SubmitCounterContext.GetReleasedResourcePoolIndex();
+	//	//	for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
+	//	//	{
+	//	//		itrThreadContext->DoReleaseContextResourceByIndex(releasedIndex);
+	//	//	}
+	//	//	GetGPUObjectManager().ReleaseFrameboundResources(releasedFrame);
+	//	//	m_MemoryManager.ReleaseCurrentFrameResource(releasedFrame, releasedIndex);
+	//	//	for (auto& windowContext : m_WindowContexts)
+	//	//	{
+	//	//		windowContext->TickReleaseResources(releasedFrame);
+	//	//	}
+	//	//}
+	//}
 
 	void CVulkanApplication::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
 	{
@@ -186,11 +49,13 @@ namespace graphics_backend
 			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
 			{
 				auto frameManager =	m_FrameContext.GetFrameBoundResourceManager();
+				frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
 				for (auto& graph : gpuFrame.graphs)
 				{
 					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(graph, frameManager);
 					thisGraph->AddResource(executor);
 					executor->PrepareGraph();
+					frameManager->GetQueueContext();
 				}
 				if (gpuFrame.presentWindows.size() > 0)
 				{
@@ -277,8 +142,12 @@ namespace graphics_backend
 
 	GPUBuffer* CVulkanApplication::NewGPUBuffer(GPUBufferDescriptor const& inDescriptor)
 	{
-		VKGPUBuffer* result = new VKGPUBuffer();
+		VKGPUBuffer* result = new VKGPUBuffer(*this);
 		result->SetDescriptor(inDescriptor);
+		VKBufferObject bufferObject{};
+		bufferObject.buffer = m_GPUResourceObjManager.CreateBuffer(inDescriptor);
+		bufferObject.allocation = m_GPUMemoryManager.AllocateMemory(bufferObject.buffer, vk::MemoryPropertyFlagBits::eDeviceLocal);
+		result->SetBuffer(bufferObject);
 		return result;
 	}
 
@@ -287,15 +156,18 @@ namespace graphics_backend
 		VKGPUBuffer* vkBuffer = static_cast<VKGPUBuffer*>(releaseGPUBuffer);
 		if (vkBuffer->Initialized())
 		{
-			vkBuffer->GetBuffer();
-			//TODO: Release Buffer Resource;
+			m_GlobalResourceReleasingQueue.AddBuffers(vkBuffer->GetBuffer());
 		}
 	}
 
 	GPUTexture* CVulkanApplication::NewGPUTexture(GPUTextureDescriptor const& inDescriptor)
 	{
-		VKGPUTexture* result = new VKGPUTexture();
+		VKGPUTexture* result = new VKGPUTexture(*this);
 		result->SetDescriptor(inDescriptor);
+		VKImageObject imageObject{};
+		imageObject.image = m_GPUResourceObjManager.CreateImage(inDescriptor);
+		imageObject.allocation = m_GPUMemoryManager.AllocateMemory(imageObject.image, vk::MemoryPropertyFlagBits::eDeviceLocal);
+		result->SetImage(imageObject);
 		return result;
 	}
 
@@ -304,8 +176,7 @@ namespace graphics_backend
 		VKGPUTexture* vkTexture = static_cast<VKGPUTexture*>(releaseGPUTexture);
 		if (vkTexture->Initialized())
 		{
-			vkTexture->GetImage();
-			//TODO: Release Image Resource;
+			m_GlobalResourceReleasingQueue.AddImages(vkTexture->GetImage());
 		}
 	}
 
@@ -319,11 +190,6 @@ namespace graphics_backend
 	{
 		auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder);
 		return subAllocator->AllocateSet();
-	}
-
-	castl::shared_ptr<TextureSampler> CVulkanApplication::GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor)
-	{
-		return m_GPUObjectManager.GetTextureSamplerCache().GetOrCreate(descriptor);
 	}
 
 	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
@@ -515,58 +381,58 @@ namespace graphics_backend
 		}
 	}
 
-	void CVulkanApplication::InitializeThreadContext(uint32_t threadCount)
-	{
-		CA_ASSERT(threadCount > 0, "Thread Count Should Be Greater Than 0");
-		CA_ASSERT(m_ThreadContexts.size() == 0, "Thread Contexts Are Already Initialized");
-		m_ThreadContexts.reserve(threadCount);
-		for (uint32_t threadContextId = 0; threadContextId < threadCount; ++threadContextId)
-		{
-			m_ThreadContexts.push_back(castl::move(NewSubObject<CVulkanThreadContext>(threadContextId)));
-		}
-		castl::vector<uint32_t> threadInitializeValue;
-		threadInitializeValue.resize(threadCount);
-		uint32_t id = 0;
-		castl::generate(threadInitializeValue.begin(), threadInitializeValue.end(), [&id]()
-			{
-				return id++;
-			});
-		m_AvailableThreadQueue.Initialize(threadInitializeValue);
-	}
+	//void CVulkanApplication::InitializeThreadContext(uint32_t threadCount)
+	//{
+	//	CA_ASSERT(threadCount > 0, "Thread Count Should Be Greater Than 0");
+	//	//CA_ASSERT(m_ThreadContexts.size() == 0, "Thread Contexts Are Already Initialized");
+	//	//m_ThreadContexts.reserve(threadCount);
+	//	//for (uint32_t threadContextId = 0; threadContextId < threadCount; ++threadContextId)
+	//	//{
+	//	//	m_ThreadContexts.push_back(castl::move(NewSubObject<CVulkanThreadContext>(threadContextId)));
+	//	//}
+	//	//castl::vector<uint32_t> threadInitializeValue;
+	//	//threadInitializeValue.resize(threadCount);
+	//	//uint32_t id = 0;
+	//	//castl::generate(threadInitializeValue.begin(), threadInitializeValue.end(), [&id]()
+	//	//	{
+	//	//		return id++;
+	//	//	});
+	//	//m_AvailableThreadQueue.Initialize(threadInitializeValue);
+	//}
 
-	void CVulkanApplication::DestroyThreadContexts()
+	/*void CVulkanApplication::DestroyThreadContexts()
 	{
 		for (auto& threadContext : m_ThreadContexts)
 		{
 			threadContext.Release();
 		}
 		m_ThreadContexts.clear();
-	}
+	}*/
 
-	CVulkanMemoryManager& CVulkanApplication::GetMemoryManager()
+	/*CVulkanMemoryManager& CVulkanApplication::GetMemoryManager()
 	{
 		return m_MemoryManager;
-	}
+	}*/
 
-	CVulkanThreadContext& CVulkanApplication::AquireThreadContext()
-	{
-		uint32_t available = m_AvailableThreadQueue.TryGetFront();
-		return m_ThreadContexts[available];
-	}
+	//CVulkanThreadContext& CVulkanApplication::AquireThreadContext()
+	//{
+	//	uint32_t available = m_AvailableThreadQueue.TryGetFront();
+	//	return m_ThreadContexts[available];
+	//}
 
-	void CVulkanApplication::ReturnThreadContext(CVulkanThreadContext& returningContext)
-	{
-		uint32_t id = returningContext.GetThreadID();
-		m_AvailableThreadQueue.Enqueue(id);
-	}
+	//void CVulkanApplication::ReturnThreadContext(CVulkanThreadContext& returningContext)
+	//{
+	//	uint32_t id = returningContext.GetThreadID();
+	//	m_AvailableThreadQueue.Enqueue(id);
+	//}
 
-	castl::shared_ptr<CVulkanThreadContext> CVulkanApplication::AquireThreadContextPtr()
-	{
-		return castl::shared_ptr<CVulkanThreadContext>(&AquireThreadContext(), [this](CVulkanThreadContext* releasingContext)
-			{
-				ReturnThreadContext(*releasingContext);
-			});
-	}
+	//castl::shared_ptr<CVulkanThreadContext> CVulkanApplication::AquireThreadContextPtr()
+	//{
+	//	return castl::shared_ptr<CVulkanThreadContext>(&AquireThreadContext(), [this](CVulkanThreadContext* releasingContext)
+	//		{
+	//			ReturnThreadContext(*releasingContext);
+	//		});
+	//}
 
 	castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
 		, bool visible
@@ -642,11 +508,11 @@ namespace graphics_backend
 	}
 
 	CVulkanApplication::CVulkanApplication() :
-	m_GPUBufferPool(*this)
-	, m_GPUTexturePool(*this)
-	, m_GPUObjectManager(*this)
-	, m_MemoryManager(*this)
-	, m_RenderGraphDic(*this)
+	//m_GPUBufferPool(*this)
+	//, m_GPUTexturePool(*this)
+	m_GPUObjectManager(*this)
+	//, m_MemoryManager(*this)
+	//, m_RenderGraphDic(*this)
 	, m_ConstantSetAllocator(*this)
 	, m_ShaderBindingSetAllocator(*this)
 	, m_SubmitCounterContext(*this)
@@ -654,6 +520,7 @@ namespace graphics_backend
 	, m_FrameContext(*this)
 	, m_GPUResourceObjManager(*this)
 	, m_GPUMemoryManager(*this)
+	, m_GlobalResourceReleasingQueue(*this)
 	{
 	}
 
@@ -667,7 +534,6 @@ namespace graphics_backend
 		InitializeInstance(appName, engineName);
 		EnumeratePhysicalDevices();
 		CreateDevice();
-		m_MemoryManager.Initialize();
 		m_GPUMemoryManager.Initialize();
 		m_GPUResourceObjManager.Initialize();
 		m_FrameContext.InitFrameCapacity(4);
@@ -677,12 +543,12 @@ namespace graphics_backend
 	void CVulkanApplication::ReleaseApp()
 	{
 		DeviceWaitIdle();
-		m_ConstantSetAllocator.Release();
-		m_ShaderBindingSetAllocator.Release();
-		m_GPUBufferPool.ReleaseAll();
-		m_GPUTexturePool.ReleaseAll();
-		m_MemoryManager.Release();
-		DestroyThreadContexts();
+		//m_ConstantSetAllocator.Release();
+		//m_ShaderBindingSetAllocator.Release();
+		//m_GPUBufferPool.ReleaseAll();
+		//m_GPUTexturePool.ReleaseAll();
+		//m_MemoryManager.Release();
+		//DestroyThreadContexts();
 		ReleaseAllWindowContexts();
 		m_FrameContext.Release();
 		m_GPUResourceObjManager.Release();

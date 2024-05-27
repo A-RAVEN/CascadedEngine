@@ -4,6 +4,8 @@
 #include <GPUGraphExecutor/ShaderBindingHolder.h>
 #include <InterfaceTranslator.h>
 #include <CommandList_Impl.h>
+#include <GPUResources/VKGPUBuffer.h>
+#include <GPUResources/VKGPUTexture.h>
 
 namespace graphics_backend
 {
@@ -126,9 +128,15 @@ namespace graphics_backend
 					auto& imgs = imagePair.second;
 					for (auto& img : imgs)
 					{
-						if (img.GetType() == ImageHandle::ImageType::Internal)
+						auto& imgHandle = img.first;
+						if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
 						{
-							m_ImageManager.AllocResourceIndex(img.GetName(), imageManager.GetDescriptorIndex(img.GetName()));
+							m_ImageManager.AllocResourceIndex(imgHandle.GetName(), imageManager.GetDescriptorIndex(imgHandle.GetName()));
+						}
+						else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
+						{
+							castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
+
 						}
 					}
 				}
@@ -148,8 +156,8 @@ namespace graphics_backend
 			m_BufferManager.NextPass();
 		}
 
-		m_ImageManager.AllocateResources(GetVulkanApplication(), m_Graph->GetImageManager());
-		m_BufferManager.AllocateResources(GetVulkanApplication(), m_Graph->GetBufferManager());
+		m_ImageManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetImageManager());
+		m_BufferManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetBufferManager());
 	}
 
 	GPUTextureDescriptor const* GPUGraphExecutor::GetTextureHandleDescriptor(ImageHandle const& handle) const
@@ -173,26 +181,30 @@ namespace graphics_backend
 		return nullptr;
 	}
 
-	vk::ImageView GPUGraphExecutor::GetTextureHandleImageView(ImageHandle const& handle) const
+	vk::ImageView GPUGraphExecutor::GetTextureHandleImageView(ImageHandle const& handle, GPUTextureView const& view) const
 	{
+		auto& imageManager = m_Graph->GetImageManager();
 		auto imageType = handle.GetType();
 		switch (imageType)
 		{
 		case ImageHandle::ImageType::Internal:
 		{
-			return m_ImageManager.GetImageView(handle.GetName());
+			auto& image = m_ImageManager.GetImageObject(handle.GetName());
+			auto& desc = *imageManager.GetDescriptor(handle.GetName());
+			return m_FrameBoundResourceManager->resourceObjectManager.EnsureImageView(image.image, desc, view);
 		}
 		case ImageHandle::ImageType::External:
 		{
-			castl::shared_ptr<GPUTexture_Impl> texture = castl::static_shared_pointer_cast<GPUTexture_Impl>(handle.GetExternalManagedTexture());
-			return texture->GetDefaultImageView();
+			castl::shared_ptr<VKGPUTexture> texture = castl::static_shared_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
+			return texture->EnsureImageView(view);
 		}
 		case ImageHandle::ImageType::Backbuffer:
 		{
 			castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(handle.GetWindowHandle());
-			return window->GetCurrentFrameImageView();
+			return window->EnsureCurrentFrameImageView(view);
 		}
 		}
+		CA_LOG_ERR("Invalid Image Handle For Getting Image View");
 		return {};
 	}
 
@@ -203,12 +215,12 @@ namespace graphics_backend
 		{
 		case ImageHandle::ImageType::Internal:
 		{
-			return m_ImageManager.GetImageObject(handle.GetName())->GetImage();
+			return m_ImageManager.GetImageObject(handle.GetName()).image;
 		}
 		case ImageHandle::ImageType::External:
 		{
-			castl::shared_ptr<GPUTexture_Impl> texture = castl::static_shared_pointer_cast<GPUTexture_Impl>(handle.GetExternalManagedTexture());
-			return texture->GetImageObject()->GetImage();
+			castl::shared_ptr<VKGPUTexture> texture = castl::static_shared_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
+			return texture->GetImage().image;
 		}
 		case ImageHandle::ImageType::Backbuffer:
 		{
@@ -216,6 +228,7 @@ namespace graphics_backend
 			return window->GetCurrentFrameImage();
 		}
 		}
+		CA_LOG_ERR("Invalid Image Handle For Getting Image");
 		return {};
 	}
 
@@ -226,12 +239,12 @@ namespace graphics_backend
 		{
 		case BufferHandle::BufferType::Internal:
 		{
-			return m_BufferManager.GetBufferObject(handle.GetName())->GetBuffer();
+			return m_BufferManager.GetBufferObject(handle.GetName()).buffer;
 		}
 		case BufferHandle::BufferType::External:
 		{
-			castl::shared_ptr<GPUBuffer_Impl> buffer = castl::static_shared_pointer_cast<GPUBuffer_Impl>(handle.GetExternalManagedBuffer());
-			return buffer->GetVulkanBufferObject()->GetBuffer();
+			castl::shared_ptr<VKGPUBuffer> buffer = castl::static_shared_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
+			return buffer->GetBuffer().buffer;
 		}
 		}
 		return {};
@@ -299,7 +312,7 @@ namespace graphics_backend
 		}
 	}
 
-	GPUGraphExecutor::GPUGraphExecutor(CVulkanApplication& application) : VKAppSubObjectBase(application)
+	GPUGraphExecutor::GPUGraphExecutor(CVulkanApplication& application) : VKAppSubObjectBaseNoCopy(application)
 	{
 	}
 
@@ -316,11 +329,13 @@ namespace graphics_backend
 		m_Passes.clear();
 		//Transfer Passes
 		m_TransferPasses.clear();
-		//Command Buffers
-		m_GraphicsCommandBuffers.clear();
 		//Manager
 		m_ImageManager.ReleaseAll();
 		m_BufferManager.ReleaseAll();
+
+		//Command Buffers
+		m_GraphicsCommandBuffers.clear();
+		m_WaitingSemaphores.clear();
 	}
 
 	void GPUGraphExecutor::PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
@@ -342,8 +357,9 @@ namespace graphics_backend
 				auto& imgs = imagePair.second;
 				for (auto& img : imgs)
 				{
-					auto image = GetTextureHandleImageObject(img);
-					auto pDesc = GetTextureHandleDescriptor(img);
+					auto& imgHandle = img.first;
+					auto image = GetTextureHandleImageObject(imgHandle);
+					auto pDesc = GetTextureHandleDescriptor(imgHandle);
 					ResourceUsageFlags usageFlags = ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead;
 					ResourceUsageFlags originalFlags = GetResourceUsage(inoutResourceUsageFlagCache, image);
 					if (originalFlags != usageFlags)
@@ -402,7 +418,7 @@ namespace graphics_backend
 					attachmentInfo.storeOp = renderPass.GetAttachmentStoreOp();
 					attachmentInfo.stencilLoadOp = renderPass.GetAttachmentLoadOp();
 					attachmentInfo.stencilStoreOp = renderPass.GetAttachmentStoreOp();
-					attachmentInfo.clearValue = renderPass.GetClearValue();
+					//attachmentInfo.clearValue = renderPass.GetClearValue();
 					passInfo.m_ClearValues[i] = AttachmentClearValueTranslate(
 						renderPass.GetClearValue()
 						, pDesc->format);
@@ -440,7 +456,7 @@ namespace graphics_backend
 					auto& attachment = attachments[i];
 					auto pDesc = GetTextureHandleDescriptor(attachment);
 					CA_ASSERT(pDesc != nullptr, "Invalid texture descriptor");
-					frameBufferDesc.renderImageViews[i] = GetTextureHandleImageView(attachment);
+					frameBufferDesc.renderImageViews[i] = GetTextureHandleImageView(attachment, GPUTextureView::CreateDefaultForRenderTarget(pDesc->format));
 					frameBufferDesc.renderpassObject = passInfo.m_RenderPassObject;
 				}
 
@@ -458,7 +474,7 @@ namespace graphics_backend
 
 				//Shader Binding Holder
 				//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
-				newBatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication(), psoDesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
+				newBatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication(), m_FrameBoundResourceManager, psoDesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
 
 				auto& vertexInputBindings = psoDesc.m_VertexInputBindings;
 				auto& vertexAttributes = psoDesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV).m_VertexAttributes;
@@ -488,7 +504,7 @@ namespace graphics_backend
 				{
 					auto& batch = drawcallBatchs[batchID];
 					GPUPassBatchInfo& newBatchInfo = passInfo.m_Batches[batchID];
-					newBatchInfo.m_ShaderBindingInstance.WriteShaderData(GetVulkanApplication(), *this, writeConstantsCommand, *batch.shaderArgs.get());
+					newBatchInfo.m_ShaderBindingInstance.WriteShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, *batch.shaderArgs.get());
 				}
 				m_GraphicsCommandBuffers.push_back(writeConstantsCommand);
 			}
@@ -523,7 +539,7 @@ namespace graphics_backend
 					auto& drawcallBatchs = renderPass.GetDrawCallBatches();
 					//Barriers
 					{
-						renderPassData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetFrameCountContext().GetGraphicsQueueFamily());
+						renderPassData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetGraphicsQueueFamily());
 
 						for (size_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 						{
@@ -693,9 +709,12 @@ namespace graphics_backend
 							auto buffer = GetBufferHandleBufferObject(bufferHandle);
 							if (buffer != vk::Buffer{ nullptr })
 							{
-								auto srcBuffer = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(size);
-								memcpy(srcBuffer->GetMappedPointer(), address, size);
-								dataTransferCommandBuffer.copyBuffer(srcBuffer->GetBuffer(), buffer, vk::BufferCopy(0, offset, size));
+								auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
+								{
+									auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
+									memcpy(mappedSrcBuffer.mappedMemory, address, size);
+								}
+								dataTransferCommandBuffer.copyBuffer(srcBuffer.buffer, buffer, vk::BufferCopy(0, offset, size));
 							}
 						}
 					}
@@ -709,12 +728,15 @@ namespace graphics_backend
 							auto pDesc = GetTextureHandleDescriptor(imageHandle);
 							if (image != vk::Image{nullptr})
 							{
-								auto srcBuffer = GetMemoryManager().AllocateFrameBoundTransferStagingBuffer(size);
-								memcpy(srcBuffer->GetMappedPointer(), address, size);
+								auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
+								{
+									auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
+									memcpy(mappedSrcBuffer.mappedMemory, address, size);
+								}
 
 								//TODO: offset is not used here for now
 								std::array<vk::BufferImageCopy, 1> bufferImageCopy = { GPUTextureDescriptorToBufferImageCopy(*pDesc) };
-								dataTransferCommandBuffer.copyBufferToImage(srcBuffer->GetBuffer()
+								dataTransferCommandBuffer.copyBufferToImage(srcBuffer.buffer
 									, image
 									, vk::ImageLayout::eTransferDstOptimal
 									, bufferImageCopy);
@@ -729,28 +751,24 @@ namespace graphics_backend
 			}
 		}
 	}
-	void BufferSubAllocator::Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor)
+	void BufferSubAllocator::Allocate(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, GPUBufferDescriptor const& descriptor)
 	{
 		m_Buffers.clear();
 		m_Buffers.reserve(passAllocationCount);
 		for (int i = 0; i < passAllocationCount; ++i)
 		{
-			auto bufferObj = app.GetMemoryManager().AllocateBuffer(EMemoryType::GPU
-				, EMemoryLifetime::FrameBound
-				, descriptor.count * descriptor.stride
-				, EBufferUsageFlagsTranslate(descriptor.usageFlags));
+			auto bufferObj = pResourcePool->CreateBufferWithMemory(descriptor);
 			m_Buffers.push_back(castl::move(bufferObj));
 		}
 	}
-	void ImageSubAllocator::Allocate(CVulkanApplication& app, GPUTextureDescriptor const& descriptor)
+	void ImageSubAllocator::Allocate(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, GPUTextureDescriptor const& descriptor)
 	{
 		m_Images.clear();
 		m_Images.reserve(passAllocationCount);
 		for (int i = 0; i < passAllocationCount; ++i)
 		{
-			auto imgObj = app.GetMemoryManager().AllocateImage(descriptor, EMemoryType::GPU, EMemoryLifetime::FrameBound);
+			auto imgObj = pResourcePool->CreateImageWithMemory(descriptor);
 			m_Images.push_back(castl::move(imgObj));
-			m_ImageViews.push_back(app.CreateDefaultImageView(descriptor, imgObj->GetImage(), true, true));
 		}
 	}
 }

@@ -188,7 +188,6 @@ namespace graphics_backend
 			m_Resized = false;
 			if (ValidContext())
 			{
-				std::cout << "Recreate Swapchain " << resizeFrame << ":" << m_Width << "x" << m_Height << std::endl;
 				SwapchainContext newContext(GetVulkanApplication());
 				newContext.Init(m_Width, m_Height, m_Surface, m_SwapchainContext.GetSwapchain(), m_PresentQueue.first);
 				m_PendingReleaseSwapchains.push_back(castl::make_pair(resizeFrame, m_SwapchainContext));
@@ -261,11 +260,6 @@ namespace graphics_backend
 
 		m_SwapchainContext.Init(m_Width, m_Height, m_Surface, nullptr, m_PresentQueue.first);
 		CA_LOG_ERR("Init Window");
-
-		//glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
-		//	{
-		//		CWindowContext* windowContext = static_cast<CWindowContext*>(glfwGetWindowUserPointer(window));
-		//	});
 
 		glfwContext::s_Instance.SetupWindowCallbacks(this);
 	}
@@ -355,9 +349,6 @@ namespace graphics_backend
 			swapchainExtent = surfaceCapabilities.currentExtent;
 		}
 
-		std::cout << "Swapchain Extent: " << swapchainExtent.width << "x" << swapchainExtent.height << std::endl;
-		std::cout << "Window Extent: " << width << "x" << height << std::endl;
-
 		// The FIFO present mode is guaranteed by the spec to be supported
 		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
 		
@@ -407,15 +398,15 @@ namespace graphics_backend
 			swapChainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
 		}
 		swapChainCreateInfo.oldSwapchain = oldSwapchain;
-
-		std::cout << "Create Swapchain" << std::endl;
 		m_Swapchain = GetDevice().createSwapchainKHR(swapChainCreateInfo);
-		std::cout << "Create Swapchain Done" << std::endl;
-		m_SwapchainImages = castl::to_ca(GetDevice().getSwapchainImagesKHR(m_Swapchain));
-		GetVulkanApplication().CreateImageViews2D(format, m_SwapchainImages, m_SwapchainImageViews);
+		auto images = GetDevice().getSwapchainImagesKHR(m_Swapchain);
+		m_SwapchainImages.resize(images.size());
+		for(size_t i = 0; i < images.size(); i++)
+		{
+			m_SwapchainImages[i].image = images[i];
+		}
 		m_WaitFrameDoneSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
 		m_CanPresentSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
-		std::cout << "Wait Buffer Index" << std::endl;
 		WaitCurrentFrameBufferIndex();
 	}
 	void SwapchainContext::Release()
@@ -424,14 +415,45 @@ namespace graphics_backend
 		m_CanPresentSemaphore = nullptr;
 		GetDevice().destroySemaphore(m_WaitFrameDoneSemaphore);
 		m_WaitFrameDoneSemaphore = nullptr;
-		for (auto& imgView : m_SwapchainImageViews)
+		for (auto& imgData : m_SwapchainImages)
 		{
-			GetDevice().destroyImageView(imgView);
+			for (auto& viewPair : imgData.views)
+			{
+				GetDevice().destroyImageView(viewPair.second);
+			}
 		}
-		m_SwapchainImageViews.clear();
 		m_SwapchainImages.clear();
 		GetDevice().destroySwapchainKHR(m_Swapchain);
 		m_Swapchain = nullptr;
+	}
+	vk::ImageView SwapchainContext::EnsureCurrentFrameImageView(GPUTextureView viewDesc)
+	{
+		auto& currentFrameImagePage = GetCurrentFrameImagePage();
+		auto found = currentFrameImagePage.views.find(viewDesc);
+		if(found == currentFrameImagePage.views.end())
+		{
+			viewDesc.Sanitize(m_TextureDesc);
+
+			auto imageInfo = ETextureTypeToVulkanImageInfo(m_TextureDesc.textureType);
+			vk::ImageViewCreateInfo createInfo({}
+				, currentFrameImagePage.image
+				, imageInfo.defaultImageViewType
+				, ETextureFormatToVkFotmat(m_TextureDesc.format)
+				, vk::ComponentMapping(
+					vk::ComponentSwizzle::eIdentity
+					, vk::ComponentSwizzle::eIdentity
+					, vk::ComponentSwizzle::eIdentity
+					, vk::ComponentSwizzle::eIdentity)
+				, vk::ImageSubresourceRange(
+					ETextureAspectToVkImageAspectFlags(viewDesc.aspect, m_TextureDesc.format)
+					, viewDesc.baseMip
+					, viewDesc.mipCount
+					, viewDesc.baseLayer
+					, viewDesc.layerCount));
+			auto view = GetDevice().createImageView(createInfo);
+			found = currentFrameImagePage.views.insert(castl::make_pair(viewDesc, view)).first;
+		}
+		return found->second;
 	}
 	void SwapchainContext::WaitCurrentFrameBufferIndex()
 	{
@@ -459,7 +481,6 @@ namespace graphics_backend
 		//Swapchain
 		m_Swapchain = other.m_Swapchain;
 		m_SwapchainImages = other.m_SwapchainImages;
-		m_SwapchainImageViews = other.m_SwapchainImageViews;
 		//Semaphores
 		m_WaitFrameDoneSemaphore = other.m_WaitFrameDoneSemaphore;
 		m_CanPresentSemaphore = other.m_CanPresentSemaphore;

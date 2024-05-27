@@ -120,7 +120,7 @@ namespace graphics_backend
 			++m_PassCount;
 		}
 
-		void AllocateResources(CVulkanApplication& app, ResManager const& bufferHandleManager)
+		void AllocateResources(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, ResManager const& bufferHandleManager)
 		{
 			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passAllocations;
 			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passDeAllocations;
@@ -160,7 +160,7 @@ namespace graphics_backend
 			{
 				auto desc = bufferHandleManager.DescriptorIDToDescriptor(descAllocatorPair.first);
 				CA_ASSERT(desc != nullptr, "Descriptor not found");
-				m_SubAllocators[descAllocatorPair.second].Allocate(app, *desc);
+				m_SubAllocators[descAllocatorPair.second].Allocate(app, pResourcePool, *desc);
 			}
 		}
 
@@ -198,7 +198,7 @@ namespace graphics_backend
 	class BufferSubAllocator : public SubAllocator
 	{
 	public:
-		void Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor);
+		void Allocate(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, GPUBufferDescriptor const& descriptor);
 
 		virtual void Release()
 		{
@@ -206,13 +206,13 @@ namespace graphics_backend
 			m_Buffers.clear();
 		}
 
-		castl::vector<VulkanBufferHandle> m_Buffers;
+		castl::vector<VKBufferObject> m_Buffers;
 	};
 
 	class GraphExecutorBufferManager : public GraphExecutorResourceManager<BufferSubAllocator, GraphResourceManager<GPUBufferDescriptor>>
 	{
 	public:
-		VulkanBufferHandle const& GetBufferObject(castl::string const& handleName) const
+		VKBufferObject const& GetBufferObject(castl::string const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
 			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Buffer not found");
@@ -225,8 +225,7 @@ namespace graphics_backend
 	class ImageSubAllocator : public SubAllocator
 	{
 	public:
-		void Allocate(CVulkanApplication& app, GPUTextureDescriptor const& descriptor);
-
+		void Allocate(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, GPUTextureDescriptor const& descriptor);
 
 		virtual void Release()
 		{
@@ -234,36 +233,27 @@ namespace graphics_backend
 			m_Images.clear();
 		}
 
-		castl::vector<VulkanImageObject> m_Images;
-		castl::vector<vk::ImageView> m_ImageViews;
+		castl::vector<VKImageObject> m_Images;
 	};
 
 	class GraphExecutorImageManager : public GraphExecutorResourceManager<ImageSubAllocator, GraphResourceManager<GPUTextureDescriptor>>
 	{
 	public:
-		VulkanImageObject const& GetImageObject(castl::string const& handleName) const
+		VKImageObject const& GetImageObject(castl::string const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
 			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Image not found");
 			auto& subAllocator = m_SubAllocators[found->second.first];
 			return subAllocator.m_Images[found->second.second];
 		}
-
-		vk::ImageView GetImageView(castl::string const& handleName) const
-		{
-			auto found = m_HandleNameToResourceIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Image not found");
-			auto& subAllocator = m_SubAllocators[found->second.first];
-			return subAllocator.m_ImageViews[found->second.second];
-		}
 	};
 
-	class GPUGraphExecutor : public VKAppSubObjectBase, public ShadderResourceProvider
+	class GPUGraphExecutor : public VKAppSubObjectBaseNoCopy, public ShadderResourceProvider
 	{
 	public:
 		GPUGraphExecutor(CVulkanApplication& application);
 		void Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph, FrameBoundResourcePool* frameBoundResourceManager);
-		void Release() override;
+		void Release();
 		void PrepareGraph();
 	private:
 		void PrepareResources();
@@ -283,24 +273,26 @@ namespace graphics_backend
 		void RecordGraph();
 
 		GPUTextureDescriptor const* GetTextureHandleDescriptor(ImageHandle const& handle) const;
-		vk::ImageView GetTextureHandleImageView(ImageHandle const& handle) const;
+		vk::ImageView GetTextureHandleImageView(ImageHandle const& handle, GPUTextureView const& view) const;
 		vk::Image GetTextureHandleImageObject(ImageHandle const& handle) const;
 		vk::Buffer GetBufferHandleBufferObject(BufferHandle const& handle) const;
 
 		virtual vk::Buffer GetBufferFromHandle(BufferHandle const& handle) override { return GetBufferHandleBufferObject(handle); }
-		virtual vk::ImageView GetImageView(ImageHandle const& handle) override { return GetTextureHandleImageView(handle);  }
+		virtual vk::ImageView GetImageView(ImageHandle const& handle, GPUTextureView const& view) override { return GetTextureHandleImageView(handle, view);  }
 	private:
 		castl::shared_ptr<GPUGraph> m_Graph;
 		//Rasterize Pass
 		castl::vector<GPUPassInfo> m_Passes;
 		//Transfer Pass
 		castl::vector<GPUTransferInfo> m_TransferPasses;
-		//Command Buffers
-		castl::vector<vk::CommandBuffer> m_GraphicsCommandBuffers;
+
 		//Manager
 		GraphExecutorImageManager m_ImageManager;
 		GraphExecutorBufferManager m_BufferManager;
-
 		FrameBoundResourcePool* m_FrameBoundResourceManager;
+
+		//Command Buffers
+		castl::vector<vk::CommandBuffer> m_GraphicsCommandBuffers;
+		castl::vector<vk::Semaphore> m_WaitingSemaphores;
 	};
 }

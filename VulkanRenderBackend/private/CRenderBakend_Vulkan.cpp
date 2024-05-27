@@ -13,24 +13,14 @@ namespace graphics_backend
 	{
 		m_Application.InitializeThreadContext(threadCount);
 	}
-
-	void CRenderBackend_Vulkan::SetupGraphicsTaskGraph(CTaskGraph* taskGraph
-		, castl::vector<castl::shared_ptr<CRenderGraph>> const& pendingRenderGraphs
-		, FrameType frameID)
-	{
-		m_Application.ExecuteStates(taskGraph, pendingRenderGraphs, frameID);
-	}
-
 	void CRenderBackend_Vulkan::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
 	{
 		m_Application.ScheduleGPUFrame(taskGraph, gpuFrame);
 	}
-
 	void CRenderBackend_Vulkan::Release()
 	{
 		m_Application.ReleaseApp();
 	}
-
 	castl::shared_ptr<WindowHandle> CRenderBackend_Vulkan::NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
 		, bool visible
 		, bool focused
@@ -54,11 +44,6 @@ namespace graphics_backend
 		m_Application.TickWindowContexts();
 	}
 
-	void CRenderBackend_Vulkan::PushRenderGraph(castl::shared_ptr<CRenderGraph> inRenderGraph)
-	{
-		//m_Application.PushRenderGraph(inRenderGraph);
-	}
-
 	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
 	{
 		return castl::shared_ptr<GPUBuffer>(m_Application.NewGPUBuffer(GPUBufferDescriptor::Create(usageFlags, count, stride)), [this](GPUBuffer* releaseBuffer)
@@ -73,18 +58,6 @@ namespace graphics_backend
 			{
 				m_Application.ReleaseGPUTexture(releaseTex);
 			});
-	}
-	castl::shared_ptr<ShaderConstantSet> CRenderBackend_Vulkan::CreateShaderConstantSet(ShaderConstantsBuilder const& inBuilder)
-	{
-		return m_Application.NewShaderConstantSet(inBuilder);
-	}
-	castl::shared_ptr<ShaderBindingSet> CRenderBackend_Vulkan::CreateShaderBindingSet(ShaderBindingBuilder const& inBuilder)
-	{
-		return m_Application.NewShaderBindingSet(inBuilder);
-	}
-	castl::shared_ptr<TextureSampler> CRenderBackend_Vulkan::GetOrCreateTextureSampler(TextureSamplerDescriptor const& descriptor)
-	{
-		return m_Application.GetOrCreateTextureSampler(descriptor);
 	}
 	uint32_t CRenderBackend_Vulkan::GetMonitorCount() const
 	{

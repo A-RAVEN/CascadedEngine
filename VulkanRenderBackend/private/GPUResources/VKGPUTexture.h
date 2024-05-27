@@ -6,10 +6,16 @@
 
 namespace graphics_backend
 {
-	class VKGPUTexture : public GPUTexture, public GPUResource
+	class VKGPUTexture : public GPUTexture, public GPUResource, public VKAppSubObjectBaseNoCopy
 	{
 	public:
-		constexpr vk::Image GetImage() const
+		VKGPUTexture(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app) {}
+
+		constexpr VKImageObject const& GetImage() const
+		{
+			return m_Image;
+		}
+		constexpr VKImageObject& GetImage()
 		{
 			return m_Image;
 		}
@@ -18,9 +24,9 @@ namespace graphics_backend
 		virtual castl::string const& GetName() const override { return m_Name; }
 		bool Initialized() const
 		{
-			return m_Image != vk::Image{nullptr};
+			return m_Image.IsValid();
 		}
-		void SetImage(vk::Image image)
+		void SetImage(VKImageObject image)
 		{
 			m_Image = image;
 		}
@@ -28,8 +34,12 @@ namespace graphics_backend
 		{
 			m_Descriptor = descriptor;
 		}
+		vk::ImageView EnsureImageView(GPUTextureView view)
+		{
+			return GetGlobalResourceObjectManager().EnsureImageView(m_Image.image, m_Descriptor, view);
+		}
 	private:
-		vk::Image m_Image = {};
+		VKImageObject m_Image = {};
 		GPUTextureDescriptor m_Descriptor = {};
 		castl::string m_Name = {""};
 	};

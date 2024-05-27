@@ -8,6 +8,24 @@
 
 namespace graphics_backend
 {
+	class GPUMemoryResourceManager;
+	struct MapMemoryScope
+	{
+		MapMemoryScope(void* mappedMemory, VmaAllocation allocation, GPUMemoryResourceManager* pManager)
+			: mappedMemory(mappedMemory)
+			, m_Allocation(allocation)
+			, p_Manager(pManager)
+		{
+		}
+		~MapMemoryScope()
+		{
+			p_Manager->UnmapMemory(m_Allocation);
+		}
+		void* const mappedMemory;
+	private:
+		VmaAllocation m_Allocation;
+		GPUMemoryResourceManager* p_Manager;
+	};
 	class GPUMemoryResourceManager : public VKAppSubObjectBaseNoCopy
 	{
 	public:
@@ -17,6 +35,9 @@ namespace graphics_backend
 		VmaAllocation AllocateMemory(vk::Image image, vk::MemoryPropertyFlags memoryProperties);
 		VmaAllocation AllocateMemory(vk::Buffer buffer, vk::MemoryPropertyFlags memoryProperties);
 		VmaAllocation AllocateMemory(vk::MemoryRequirements const& memoryReqs, vk::MemoryPropertyFlags memoryProperties);
+		void* MapMemory(VmaAllocation allocation);
+		void UnmapMemory(VmaAllocation allocation);
+		MapMemoryScope ScopedMapMemory(VmaAllocation allocation);
 		void BindMemory(vk::Image image, VmaAllocation allocation);
 		void BindMemory(vk::Buffer buffer, VmaAllocation allocation);
 		void FreeMemory(VmaAllocation const& allocation);

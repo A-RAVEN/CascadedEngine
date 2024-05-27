@@ -1,10 +1,7 @@
 #pragma once
 #include <CASTL/CAString.h>
-//#include <uhash.h>
 #include <Hasher.h>
 #include <Compiler.h>
-
-using namespace hash_utils;
 
 struct ShaderSourceInfo
 {

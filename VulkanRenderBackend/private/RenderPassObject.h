@@ -29,7 +29,7 @@ namespace graphics_backend
 	public:
 		RenderPassObject(CVulkanApplication& application);
 		void Create(RenderPassDescriptor const& descriptor);
-		virtual void Release() override;
+		void Release();
 		vk::RenderPass GetRenderPass() const { return m_RenderPass; }
 		uint32_t GetAttachmentCount() const { return m_AttachmentCounrt; }
 		uint32_t GetSubpassCount() const { return m_SubpassCount; }

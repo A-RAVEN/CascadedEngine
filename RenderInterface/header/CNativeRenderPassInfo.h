@@ -5,7 +5,6 @@
 #include "ShaderProvider.h"
 #include "CPipelineStateObject.h"
 #include "CVertexInputDescriptor.h"
-#include "TextureHandle.h"
 #include "ShaderBindingBuilder.h"
 #include "ShaderBindingSet.h"
 #include "ShaderBindingSetHandle.h"
@@ -22,98 +21,51 @@ namespace graphics_backend
 		EAttachmentLoadOp stencilLoadOp = EAttachmentLoadOp::eDontCare;
 		EAttachmentStoreOp stencilStoreOp = EAttachmentStoreOp::eDontCare;
 		EMultiSampleCount multiSampleCount = EMultiSampleCount::e1;
-		//Obsolete
-		GraphicsClearValue clearValue = GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
-		bool operator==(CAttachmentInfo const& rhs) const
+		auto operator<=>(const CAttachmentInfo&) const = default;
+
+		constexpr static CAttachmentInfo Create(ETextureFormat format
+			, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eLoad,
+			, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore,
+			, EMultiSampleCount multiSampleCount = EMultiSampleCount::e1)
 		{
-			return format == rhs.format
-				&& loadOp == rhs.loadOp
-				&& storeOp == rhs.storeOp
-				&& multiSampleCount == rhs.multiSampleCount
-				&& stencilLoadOp == rhs.stencilLoadOp
-				&& stencilStoreOp == rhs.stencilStoreOp
-				&& clearValue == rhs.clearValue;
+			CAttachmentInfo result{};
+			result.format = format;
+			result.loadOp = loadOp;
+			result.storeOp = storeOp;
+			result.stencilLoadOp = loadOp;
+			result.stencilStoreOp = storeOp;
+			result.multiSampleCount = multiSampleCount;
+			return result;
 		}
 
-
-
-		static CAttachmentInfo Make(GPUTexture const* pTexture
-			, EAttachmentLoadOp loadOp
-			, EAttachmentStoreOp storeOp
-			, GraphicsClearValue clearValue)
+		constexpr static CAttachmentInfo CreateDS(ETextureFormat format
+			, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eLoad,
+			, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore,
+			, EAttachmentLoadOp stencilLoadOp = EAttachmentLoadOp::eLoad,
+			, EAttachmentStoreOp stencilStoreOp = EAttachmentStoreOp::eStore,
+			, EMultiSampleCount multiSampleCount = EMultiSampleCount::e1)
 		{
-			CAttachmentInfo newAttachmentInfo{};
-			newAttachmentInfo.format = pTexture->GetDescriptor().format;
-			newAttachmentInfo.clearValue = clearValue;
-			newAttachmentInfo.loadOp = loadOp;
-			newAttachmentInfo.storeOp = storeOp;
-			return newAttachmentInfo;
-		}
-
-		static CAttachmentInfo Make(TextureHandle const& textureHandle
-			, EAttachmentLoadOp loadOp
-			, EAttachmentStoreOp storeOp
-			, GraphicsClearValue const& clearValue)
-		{
-			CAttachmentInfo newAttachmentInfo{};
-			newAttachmentInfo.format = textureHandle.GetTextureDesc().format;
-			newAttachmentInfo.clearValue = clearValue;
-			newAttachmentInfo.loadOp = loadOp;
-			newAttachmentInfo.storeOp = storeOp;
-			return newAttachmentInfo;
-		}
-
-		static CAttachmentInfo Make(GPUTexture const* pTexture)
-		{
-			return Make(pTexture, EAttachmentLoadOp::eLoad, EAttachmentStoreOp::eStore, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
-		}
-
-		static CAttachmentInfo Make(TextureHandle const& textureHandle)
-		{
-			return Make(textureHandle, EAttachmentLoadOp::eLoad, EAttachmentStoreOp::eStore, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
-		}
-
-		static CAttachmentInfo Make(GPUTexture const* pTexture, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp)
-		{
-			return Make(pTexture, loadOp, storeOp, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
-		}
-
-		static CAttachmentInfo Make(TextureHandle const& textureHandle, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp)
-		{
-			return Make(textureHandle, loadOp, storeOp, GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 0.0f));
-		}
-
-		static CAttachmentInfo Make(TextureHandle const& textureHandle, GraphicsClearValue const& clearValue)
-		{
-			return Make(textureHandle, EAttachmentLoadOp::eClear, EAttachmentStoreOp::eStore, clearValue);
+			CAttachmentInfo result{};
+			result.format = format;
+			result.loadOp = loadOp;
+			result.storeOp = storeOp;
+			result.stencilLoadOp = stencilLoadOp;
+			result.stencilStoreOp = stencilStoreOp;
+			result.multiSampleCount = multiSampleCount;
+			return result;
 		}
 	};
 
 	struct CSubpassInfo
 	{
-		castl::vector<uint32_t> colorAttachmentIDs{};
-		uint32_t depthAttachmentID = INVALID_ATTACHMENT_INDEX;
-		bool depthAttachmentReadOnly = false;
-		castl::vector<uint32_t> pixelInputAttachmentIDs{};
-		castl::vector<uint32_t> preserveAttachmentIDs{};
+		castl::vector<uint32_t> colorAttachmentIDs;
+		castl::vector<uint32_t> pixelInputAttachmentIDs;
+		castl::vector<uint32_t> preserveAttachmentIDs;
+		uint32_t depthAttachmentID;
+		bool depthAttachmentReadOnly;
 
-		bool operator==(CSubpassInfo const& rhs) const
-		{
-			return colorAttachmentIDs == rhs.colorAttachmentIDs
-				&& pixelInputAttachmentIDs == rhs.pixelInputAttachmentIDs
-				&& preserveAttachmentIDs == rhs.preserveAttachmentIDs
-				&& depthAttachmentID == rhs.depthAttachmentID;
-		}
-
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, CSubpassInfo const& subpassInfo) noexcept
-		{
-			hash_append(h, subpassInfo.colorAttachmentIDs);
-			hash_append(h, subpassInfo.pixelInputAttachmentIDs);
-			hash_append(h, subpassInfo.preserveAttachmentIDs);
-			hash_append(h, subpassInfo.depthAttachmentID);
-		}
+		auto operator<=>(const CSubpassInfo&) const = default;
 	};
 
 	struct CRenderPassInfo
@@ -121,17 +73,7 @@ namespace graphics_backend
 		castl::vector<CAttachmentInfo> attachmentInfos{};
 		castl::vector<CSubpassInfo> subpassInfos{};
 
-		bool operator==(CRenderPassInfo const& rhs) const
-		{
-			return attachmentInfos == rhs.attachmentInfos && (subpassInfos == rhs.subpassInfos);
-		}
-
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, CRenderPassInfo const& renderPassInfo) noexcept
-		{
-			hash_append(h, renderPassInfo.attachmentInfos);
-			hash_append(h, renderPassInfo.subpassInfos);
-		}
+		auto operator<=>(const CRenderPassInfo&) const = default;
 	};
 
 	enum class ESubpassType
@@ -165,7 +107,7 @@ namespace graphics_backend
 	class CRenderpassBuilder
 	{
 	public:
-		CRenderpassBuilder(castl::vector<CAttachmentInfo> const& inAttachmentInfo)// : m_TextureHandles{ static_cast<uint32_t>(inAttachmentInfo.size()), INVALID_INDEX }
+		CRenderpassBuilder(castl::vector<CAttachmentInfo> const& inAttachmentInfo)
 		{
 			mRenderPassInfo.attachmentInfos = inAttachmentInfo;
 			m_TextureHandles.resize(inAttachmentInfo.size());
