@@ -15,6 +15,8 @@ namespace graphics_backend
 
 		void SetCurrentQueueFamilyIndex(uint32_t currentQueueFamilyIndex) { m_CurrentQueueFamilyIndex = currentQueueFamilyIndex; }
 
+		uint32_t GetQueueFamily() const { return m_CurrentQueueFamilyIndex; }
+
 		void PushImageBarrier(vk::Image image
 			, ETextureFormat format
 			, ResourceUsageFlags sourceUsage
@@ -24,14 +26,38 @@ namespace graphics_backend
 			, ResourceUsageFlags sourceUsage
 			, ResourceUsageFlags destUsage);
 
+		void PushImageReleaseBarrier(uint32_t targetQueueFamilyIndex
+			, vk::Image image
+			, ETextureFormat format
+			, ResourceUsageFlags sourceUsage
+			, ResourceUsageFlags destUsage);
+
+		void PushBufferReleaseBarrier(uint32_t targetQueueFamilyIndex
+			, vk::Buffer buffer
+			, ResourceUsageFlags sourceUsage
+			, ResourceUsageFlags destUsage);
+
+		void PushImageAquireBarrier(uint32_t sourceQueueFamilyIndex
+			, vk::Image image
+			, ETextureFormat format
+			, ResourceUsageFlags sourceUsage
+			, ResourceUsageFlags destUsage);
+
+		void PushBufferAquireBarrier(uint32_t sourceQueueFamilyIndex
+			, vk::Buffer buffer
+			, ResourceUsageFlags sourceUsage
+			, ResourceUsageFlags destUsage);
+
 		void ExecuteBarrier(vk::CommandBuffer commandBuffer);
+
+		void ExecuteReleaseBarrier(vk::CommandBuffer commandBuffer);
 
 		void Clear();
 
 		struct BarrierGroup
 		{
-			castl::vector<castl::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Image, ETextureFormat>> m_Images;
-			castl::vector<castl::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Buffer>> m_Buffers;
+			castl::vector<castl::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Image, ETextureFormat, uint32_t>> m_Images;
+			castl::vector<castl::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Buffer, uint32_t>> m_Buffers;
 		};
 
 	private:
@@ -42,10 +68,7 @@ namespace graphics_backend
 		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags>
 			, BarrierGroup> m_BarrierGroups;
 
-		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags, uint32_t>
-			, BarrierGroup> m_ReleaseGroups;
-
-		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags, uint32_t>
-			, BarrierGroup> m_AquireGroups;
+		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags>
+			, BarrierGroup> m_ReleaseBarrierGroups;
 	};
 }

@@ -159,6 +159,7 @@ namespace graphics_backend
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
 		castl::vector<GPUDataTransfers> const& GetDataTransfers() const { return m_DataTransfers; }
+		castl::vector<uint32_t> const& GetPassIndices() const { return m_PassIndices; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
 		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
 	private:
@@ -168,6 +169,8 @@ namespace graphics_backend
 		castl::vector<GPUDataTransfers> m_DataTransfers;
 		//Stages
 		castl::vector<EGraphStageType> m_StageTypes;
+		//Stage To Pass Index
+		castl::vector<uint32_t> m_PassIndices;
 		//Internal Resources
 		GraphResourceManager<GPUTextureDescriptor> m_InternalImageManager;
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
@@ -231,6 +234,7 @@ namespace graphics_backend
 	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp, GraphicsClearValue clearValue)
 	{
 		m_StageTypes.push_back(EGraphStageType::eRenderPass);
+		m_PassIndices.push_back(m_RenderPasses.size());
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = { color };
@@ -243,6 +247,7 @@ namespace graphics_backend
 	RenderPass& GPUGraph::NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)
 	{
 		m_StageTypes.push_back(EGraphStageType::eRenderPass);
+		m_PassIndices.push_back(m_RenderPasses.size());
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = colors;
@@ -253,6 +258,7 @@ namespace graphics_backend
 	RenderPass& GPUGraph::NewRenderPass(castl::vector<ImageHandle> const& colors)
 	{
 		m_StageTypes.push_back(EGraphStageType::eRenderPass);
+		m_PassIndices.push_back(m_RenderPasses.size());
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = colors;
@@ -262,6 +268,7 @@ namespace graphics_backend
 	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, ImageHandle const& depth)
 	{
 		m_StageTypes.push_back(EGraphStageType::eRenderPass);
+		m_PassIndices.push_back(m_RenderPasses.size());
 		m_RenderPasses.emplace_back();
 		RenderPass& pass = m_RenderPasses.back();
 		pass.m_Arrachments = { color, depth };
@@ -273,6 +280,7 @@ namespace graphics_backend
 		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
 		{
 			m_StageTypes.push_back(EGraphStageType::eTransferPass);
+			m_PassIndices.push_back(m_DataTransfers.size());
 		}
 		if (m_DataTransfers.empty())
 		{
@@ -286,6 +294,7 @@ namespace graphics_backend
 		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
 		{
 			m_StageTypes.push_back(EGraphStageType::eTransferPass);
+			m_PassIndices.push_back(m_DataTransfers.size());
 		}
 		if (m_DataTransfers.empty())
 		{

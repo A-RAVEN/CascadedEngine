@@ -259,15 +259,19 @@ namespace graphics_backend
 		void PrepareResources();
 
 		void PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
+			, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
 			, DrawCallBatch const& batch
 			, GPUPassBatchInfo const& batchInfo
+			, uint32_t passID
 		);
 
 		void PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>>& inoutImageUsageFlagCache
-			, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
-			, ShaderArgList const* shaderArgList);
+			, castl::unordered_map<vk::Image, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Image>>& inoutImageUsageFlagCache
+			, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
+			, ShaderArgList const* shaderArgList
+			, uint32_t passID
+		);
+		VulkanBarrierCollector& GetBarrierCollector(uint32_t passID);
 		void PrepareFrameBufferAndPSOs();
 		void PrepareResourceBarriers();
 		void RecordGraph();

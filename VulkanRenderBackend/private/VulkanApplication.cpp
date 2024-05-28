@@ -59,7 +59,12 @@ namespace graphics_backend
 				}
 				if (gpuFrame.presentWindows.size() > 0)
 				{
-					gpuFrame.presentWindows;
+					for (auto& window : gpuFrame.presentWindows)
+					{
+						auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
+						windowContext->PrepareForPresent();
+						windowContext->PresentCurrentFrame();
+					}
 				}
 			});
 	}

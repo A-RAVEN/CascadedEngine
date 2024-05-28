@@ -294,7 +294,6 @@ namespace graphics_backend
 	{
 		if (!NeedPresent())
 			return;
-		//castl::cout << "Present Frame: " << m_SwapchainContext.GetCurrentFrameBufferIndex() << castl::endl;
 		castl::array<vk::Semaphore, 1> waitSemaphores = { m_SwapchainContext.GetPresentWaitingSemaphore() };
 		castl::array<uint32_t, 1> swapchainIndices = { m_SwapchainContext.GetCurrentFrameBufferIndex() };
 		vk::PresentInfoKHR presenttInfo(
