@@ -30,18 +30,25 @@ namespace graphics_backend
 		ShaderBindingInstance m_ShaderBindingInstance;
 	};
 
-	struct GPUPassInfo
+	struct PassInfoBase
+	{
+		VulkanBarrierCollector m_BarrierCollector;
+		castl::set<uint32_t> m_PredecessorPasses;
+		castl::set<uint32_t> m_SuccessorPasses;
+	};
+
+	struct GPUPassInfo : public PassInfoBase
 	{
 		castl::shared_ptr<FramebufferObject> m_FrameBufferObject;
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
 		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
-		VulkanBarrierCollector m_BarrierCollector;
+		//VulkanBarrierCollector m_BarrierCollector;
 	};
 
-	struct GPUTransferInfo
+	struct GPUTransferInfo : public PassInfoBase
 	{
-		VulkanBarrierCollector m_BarrierCollector;
+		//VulkanBarrierCollector m_BarrierCollector;
 	};
 
 	class SubAllocator
@@ -272,6 +279,16 @@ namespace graphics_backend
 			, uint32_t passID
 		);
 		VulkanBarrierCollector& GetBarrierCollector(uint32_t passID);
+		PassInfoBase* GetBasePassInfo(uint32_t passID);
+
+#pragma region Shader Resource Dependencies
+		void UpdateBufferDependency(uint32_t passID, vk::Buffer buffer
+			, ResourceUsageFlags newUsageFlags
+			, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache);
+		void UpdateImageDependency(uint32_t passID, vk::Image image, ETextureFormat format
+			, ResourceUsageFlags newUsageFlags
+			, castl::unordered_map<vk::Image, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Image>>& inoutImageUsageFlagCache);
+#pragma endregion
 		void PrepareFrameBufferAndPSOs();
 		void PrepareResourceBarriers();
 		void RecordGraph();
