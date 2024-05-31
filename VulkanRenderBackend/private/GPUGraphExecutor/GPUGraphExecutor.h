@@ -43,12 +43,10 @@ namespace graphics_backend
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
 		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
-		//VulkanBarrierCollector m_BarrierCollector;
 	};
 
 	struct GPUTransferInfo : public PassInfoBase
 	{
-		//VulkanBarrierCollector m_BarrierCollector;
 	};
 
 	class SubAllocator
@@ -255,6 +253,26 @@ namespace graphics_backend
 		}
 	};
 
+	struct CommandBatchRange
+	{
+		uint32_t queueFamilyIndex;
+		uint32_t firstPass;
+		uint32_t lastPass;
+		vk::Semaphore signalSemaphore;
+		castl::vector<vk::Semaphore> waitSemaphores;
+
+		bool hasSuccessor;
+		castl::set<uint32_t> waitingBatch;
+
+		static CommandBatchRange Create(uint32_t queueFamilyIndex, uint32_t startPassID)
+		{
+			CommandBatchRange result{};
+			result.queueFamilyIndex = queueFamilyIndex;
+			result.firstPass = result.lastPass = startPassID;
+			result.hasSuccessor = false;
+		}
+	};
+
 	class GPUGraphExecutor : public VKAppSubObjectBaseNoCopy, public ShadderResourceProvider
 	{
 	public:
@@ -292,6 +310,8 @@ namespace graphics_backend
 		void PrepareFrameBufferAndPSOs();
 		void PrepareResourceBarriers();
 		void RecordGraph();
+		void ScanCommandBatchs();
+		void Submit();
 
 		GPUTextureDescriptor const* GetTextureHandleDescriptor(ImageHandle const& handle) const;
 		vk::ImageView GetTextureHandleImageView(ImageHandle const& handle, GPUTextureView const& view) const;
@@ -300,6 +320,9 @@ namespace graphics_backend
 
 		virtual vk::Buffer GetBufferFromHandle(BufferHandle const& handle) override { return GetBufferHandleBufferObject(handle); }
 		virtual vk::ImageView GetImageView(ImageHandle const& handle, GPUTextureView const& view) override { return GetTextureHandleImageView(handle, view);  }
+	
+		castl::vector<vk::CommandBuffer> const& GetCommandBufferList() const { return m_CommandBuffers; }
+		castl::vector<CommandBatchRange> const& GetCommandBufferBatchList() const { return m_CommandBufferBatchList; }
 	private:
 		castl::shared_ptr<GPUGraph> m_Graph;
 		//Rasterize Pass
@@ -313,7 +336,9 @@ namespace graphics_backend
 		FrameBoundResourcePool* m_FrameBoundResourceManager;
 
 		//Command Buffers
-		castl::vector<vk::CommandBuffer> m_GraphicsCommandBuffers;
-		castl::vector<vk::Semaphore> m_WaitingSemaphores;
+		castl::vector<vk::CommandBuffer> m_CommandBuffers;
+		castl::vector<vk::PipelineStageFlags> m_CommandFinishStages;
+		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
+		castl::vector<vk::Semaphore> m_LeafBatchSemaphores;
 	};
 }

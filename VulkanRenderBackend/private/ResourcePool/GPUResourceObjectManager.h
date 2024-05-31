@@ -37,4 +37,16 @@ namespace graphics_backend
 		castl::map<vk::Image, ActiveImageObjects> m_ActivateImages;
 		castl::set<vk::Buffer> m_ActiveBuffers;
 	};
+
+	class SemaphorePool : public VKAppSubObjectBaseNoCopy
+	{
+	public:
+		SemaphorePool(CVulkanApplication& app);
+		void Release();
+		void Reset();
+		vk::Semaphore AllocSemaphore();
+	private:
+		castl::vector<vk::Semaphore> m_Semaphores;
+		uint32_t m_SemaphoreIndex = 0;
+	};
 }

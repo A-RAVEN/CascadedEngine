@@ -10,6 +10,7 @@ namespace graphics_backend
 		, releaseQueue(app)
 		, resourceObjectManager(app)
 		, descriptorPools(app)
+		, semaphorePool(app)
 	{
 	}
 	void FrameBoundResourcePool::Initialize()
@@ -27,6 +28,7 @@ namespace graphics_backend
 		resourceObjectManager.Release();
 		GetDevice().destroyFence(m_Fence);
 		descriptorPools.Clear();
+		semaphorePool.Release();
 	}
 	void FrameBoundResourcePool::ResetPool()
 	{
@@ -37,6 +39,7 @@ namespace graphics_backend
 		releaseQueue.ReleaseGlobalResources();
 		resourceObjectManager.DestroyAll();
 		descriptorPools.Foreach([&](auto& desc, DescriptorPool* pool) { pool->ResetAll(); });
+		semaphorePool.Reset();
 	}
 	VKBufferObject FrameBoundResourcePool::CreateStagingBuffer(size_t size, EBufferUsageFlags usages)
 	{

@@ -126,4 +126,33 @@ namespace graphics_backend
 		}
 		return foundView->second;
 	}
+	SemaphorePool::SemaphorePool(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
+	{
+	}
+
+	void SemaphorePool::Release()
+	{
+		for (auto& semaphore : m_Semaphores)
+		{
+			GetDevice().destroySemaphore(semaphore);
+		}
+		m_Semaphores.clear();
+		m_SemaphoreIndex = 0;
+	}
+
+	void SemaphorePool::Reset()
+	{
+		m_SemaphoreIndex = 0;
+	}
+
+	vk::Semaphore SemaphorePool::AllocSemaphore()
+	{
+		if (m_SemaphoreIndex == m_Semaphores.size())
+		{
+			vk::SemaphoreCreateInfo createInfo;
+			m_Semaphores.push_back(GetDevice().createSemaphore(createInfo));
+		}
+		return m_Semaphores[m_SemaphoreIndex++];
+	}
+	
 }
