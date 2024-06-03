@@ -20,17 +20,18 @@ namespace graphics_backend
 	}
 	bool BaseUploadingResource::UploadingDone() const
 	{
-		if (m_SubmitFrame == INVALID_FRAMEID)
-			return false;
-		auto& frameContext = GetFrameCountContext();
-		if (!frameContext.AnyFrameFinished())
-			return false;
-		return frameContext.GetReleasedFrameID() >= m_SubmitFrame;
+		return false;
+		//if (m_SubmitFrame == INVALID_FRAMEID)
+		//	return false;
+		//auto& frameContext = GetFrameCountContext();
+		//if (!frameContext.AnyFrameFinished())
+		//	return false;
+		//return frameContext.GetReleasedFrameID() >= m_SubmitFrame;
 	}
 	void BaseUploadingResource::MarkUploadingDoneThisFrame()
 	{
-		std::atomic_thread_fence(std::memory_order_release);
-		m_SubmitFrame = GetFrameCountContext().GetCurrentFrameID();
+		//std::atomic_thread_fence(std::memory_order_release);
+		//m_SubmitFrame = GetFrameCountContext().GetCurrentFrameID();
 	}
 	
 }

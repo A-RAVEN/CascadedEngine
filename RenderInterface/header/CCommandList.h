@@ -3,7 +3,7 @@
 #include <CASTL/CAVector.h>
 #include <CASTL/CASharedPtr.h>
 #include "Common.h"
-#include "GPUBufferHandle.h"
+//#include "GPUBufferHandle.h"
 #include "ShaderResourceHandle.h"
 
 namespace graphics_backend
@@ -16,9 +16,9 @@ namespace graphics_backend
 	public:
 		virtual CInlineCommandList& BindPipelineState(uint32_t pipelineStateId) = 0;
 		virtual CInlineCommandList& BindVertexBuffers(castl::vector<GPUBuffer const*> pGPUBuffers, castl::vector<uint32_t> byteOffsets = {}, uint32_t firstBinding = 0) = 0;
-		virtual CInlineCommandList& BindVertexBuffers(castl::vector<GPUBufferHandle> pGPUBuffers, castl::vector<uint32_t> byteOffsets = {}, uint32_t firstBinding = 0) = 0;
-		virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBuffer const* pGPUBuffer, uint32_t byteOffset = 0) = 0;
-		virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBufferHandle const& gpuBufferHandle, uint32_t byteOffset = 0) = 0;
+		//virtual CInlineCommandList& BindVertexBuffers(castl::vector<GPUBufferHandle> pGPUBuffers, castl::vector<uint32_t> byteOffsets = {}, uint32_t firstBinding = 0) = 0;
+		//virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBuffer const* pGPUBuffer, uint32_t byteOffset = 0) = 0;
+		//virtual CInlineCommandList& BindIndexBuffers(EIndexBufferType indexBufferType, GPUBufferHandle const& gpuBufferHandle, uint32_t byteOffset = 0) = 0;
 		virtual CInlineCommandList& SetShaderBindings(castl::vector<castl::shared_ptr<ShaderBindingSet>> bindings, uint32_t firstBinding = 0) = 0;
 		virtual CInlineCommandList& SetShaderBindings(castl::vector<ShaderBindingSetHandle> bindings, uint32_t firstBinding = 0) = 0;
 		virtual CInlineCommandList& DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t indexOffset = 0, uint32_t vertexOffset = 0) = 0;

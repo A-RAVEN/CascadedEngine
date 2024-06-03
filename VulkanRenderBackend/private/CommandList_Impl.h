@@ -7,7 +7,7 @@
 
 namespace graphics_backend
 {
-	class RenderGraphExecutor;
+	/*class RenderGraphExecutor;
 	class CCommandList_Impl : public CInlineCommandList
 	{
 	public:
@@ -36,7 +36,7 @@ namespace graphics_backend
 		TIndex m_PipelineObjectIndex = INVALID_INDEX;
 		castl::vector<castl::shared_ptr<CPipelineObject>> const& m_PipelineObjects;
 		RenderGraphExecutor* p_RenderGraphExecutor = nullptr;
-	};
+	};*/
 
 	class CommandList_Impl : public CommandList
 	{

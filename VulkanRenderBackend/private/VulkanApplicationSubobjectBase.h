@@ -28,8 +28,8 @@ namespace graphics_backend
 		vk::Device GetDevice() const;
 		vk::PhysicalDevice GetPhysicalDevice() const;
 		GPUObjectManager& GetGPUObjectManager();
-		constexpr GPUMemoryResourceManager& GetGlobalMemoryManager();
-		constexpr GPUResourceObjectManager& GetGlobalResourceObjectManager();
+		GPUMemoryResourceManager& GetGlobalMemoryManager();
+		GPUResourceObjectManager& GetGlobalResourceObjectManager();
 		QueueContext& GetQueueContext();
 	private:
 		CVulkanApplication& m_OwningApplication;
@@ -51,11 +51,11 @@ namespace graphics_backend
 		vk::PhysicalDevice GetPhysicalDevice() const;
 
 		GPUObjectManager& GetGPUObjectManager();
-		constexpr GPUMemoryResourceManager& GetGlobalMemoryManager();
-		constexpr GPUResourceObjectManager& GetGlobalResourceObjectManager();
+		GPUMemoryResourceManager& GetGlobalMemoryManager();
+		GPUResourceObjectManager& GetGlobalResourceObjectManager();
 		QueueContext& GetQueueContext();
 	private:
-		CVulkanApplication& m_OwningApplication;
+		CVulkanApplication* m_OwningApplication = nullptr;
 	};
 
 

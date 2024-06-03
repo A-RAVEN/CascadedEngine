@@ -29,8 +29,8 @@ namespace graphics_backend
 		virtual void SetStructBuffer(castl::string const& name, castl::shared_ptr<GPUBuffer> const& pBuffer) = 0;
 		virtual void SetTexture(castl::string const& name
 			, castl::shared_ptr<GPUTexture> const& pTexture) = 0;
-		virtual void SetSampler(castl::string const& name
-			, castl::shared_ptr<TextureSampler> const& pSampler) = 0;
+		//virtual void SetSampler(castl::string const& name
+		//	, castl::shared_ptr<TextureSampler> const& pSampler) = 0;
 		virtual bool UploadingDone() const = 0;
 		virtual ShaderBindingBuilder const& GetBindingSetDesc() const = 0;
 	};

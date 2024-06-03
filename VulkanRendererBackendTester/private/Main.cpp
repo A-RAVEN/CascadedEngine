@@ -106,8 +106,8 @@ int main(int argc, char *argv[])
 	pBackend->InitializeThreadContextCount(5);
 
 	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2", true, false, true, false);
-	IMGUIContext imguiContext{};
-	imguiContext.Initialize(pBackend.get(), windowHandle.get(), pResourceManagingSystem.get());
+	//IMGUIContext imguiContext{};
+	//imguiContext.Initialize(pBackend.get(), windowHandle.get(), pResourceManagingSystem.get());
 
 	castl::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -127,11 +127,26 @@ int main(int argc, char *argv[])
 	auto indexBuffer = pBackend->CreateGPUBuffer(
 		EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
 
-	castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
-	submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
-	submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
-	GPUFrame submitFrame{};
-	submitFrame.graphs.push_back(submitGraph);
+	pThreadManager->OneTime([
+		vertexBuffer,
+		indexBuffer,
+		&vertexDataList,
+		&indexDataList,
+		pBackend
+	](auto setup)
+		{
+			//setup->ForceRunOnMainThread();
+			castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+			submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
+			submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
+			GPUFrame submitFrame{};
+			submitFrame.pGraph = submitGraph;
+			pBackend->ScheduleGPUFrame(setup, submitFrame);
+		}
+, "");
+
+
+
 
 	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
 		sizeof(VertexData),
@@ -147,9 +162,12 @@ int main(int argc, char *argv[])
 				, windowHandle
 				, pRenderInterface
 				, pFinalBlitShaderResource
+				, &vertexDataList
+				, &indexDataList
 				, &vertexInputDesc
 	](auto setup)
 	{
+		setup->ForceRunOnMainThread();
 		castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
 		shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
@@ -157,31 +175,32 @@ int main(int argc, char *argv[])
 		BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
 		newGraph->AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer, 4, sizeof(VertexData)))
 			.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer, 6, sizeof(uint16_t)))
+			.ScheduleData(vertexBufferHandle, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]))
+			.ScheduleData(indexBufferHandle, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]))
 			.NewRenderPass(windowHandle)
-			.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
-			.SetPipelineState({})
-			.SetShaderArguments(shaderArgList)
-			.SetShaders(pFinalBlitShaderResource)
-			.DrawCall()
-			.SetVertexBuffer("QuadDesc", vertexBufferHandle)
-			.SetIndexBuffer(EIndexBufferType::e16, indexBufferHandle, 0)
-			.Draw([](CommandList& commandList)
-				{
-					commandList.DrawIndexed(6);
-				});
+				.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
+				.SetPipelineState({})
+				.SetShaderArguments(shaderArgList)
+				.SetShaders(pFinalBlitShaderResource)
+				.DrawCall()
+					.SetVertexBuffer("QuadDesc", vertexBufferHandle)
+					.SetIndexBuffer(EIndexBufferType::e16, indexBufferHandle, 0)
+					.Draw([](CommandList& commandList)
+						{
+							commandList.DrawIndexed(6);
+						});
 
 		GPUFrame gpuFrame{};
-		gpuFrame.graphs.push_back(newGraph);
-		gpuFrame.presentWindows.push_back(windowHandle);
+		gpuFrame.pGraph = newGraph;
+		//gpuFrame.presentWindows.push_back(windowHandle);
 		pBackend->ScheduleGPUFrame(setup, gpuFrame);
-
 		return true;
 	}, "FullGraph");
 	pThreadManager->Run();
 	pThreadManager->LogStatus();
-	imguiContext.Release();
+	pThreadManager.reset();
+	//imguiContext.Release();
 	pBackend->Release();
 	pBackend.reset();
-	pThreadManager.reset();
 	return EXIT_SUCCESS;
 }

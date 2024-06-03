@@ -68,7 +68,7 @@ namespace graphics_backend
 
 	void ShaderConstantSet_Impl::TickUpload()
 	{
-		CVulkanMemoryManager& memoryManager = GetMemoryManager();
+	/*	CVulkanMemoryManager& memoryManager = GetMemoryManager();
 		auto threadContext = GetVulkanApplication().AquireThreadContextPtr();
 		auto currentFrame = GetFrameCountContext().GetCurrentFrameID();
 
@@ -88,12 +88,12 @@ namespace graphics_backend
 		cmdBuffer.copyBuffer(tempBuffer->GetBuffer(), m_BufferObject->GetBuffer(), vk::BufferCopy(0, 0, bufferSize));
 		cmdBuffer.end();
 		castl::atomic_thread_fence(castl::memory_order_release);
-		MarkUploadingDoneThisFrame();
+		MarkUploadingDoneThisFrame();*/
 	}
 
 	void ShaderConstantSet_Impl::Release()
 	{
-		m_BufferObject.RAIIRelease();
+		//m_BufferObject.RAIIRelease();
 	}
 
 	size_t AccumulateOnOffset(size_t& inoutOffset, castl::pair<size_t, size_t> const& inAlign_Size)

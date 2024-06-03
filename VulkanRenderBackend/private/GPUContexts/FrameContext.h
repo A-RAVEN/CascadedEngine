@@ -15,6 +15,7 @@ namespace graphics_backend
 		FrameBoundResourcePool* GetFrameBoundResourceManager();
 		void Release();
 	private:
+		castl::mutex m_Mutex;
 		uint32_t m_FrameIndex;
 		castl::vector<FrameBoundResourcePool> m_FrameBoundResourceManagers;
 	};

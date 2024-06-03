@@ -9,6 +9,71 @@
 
 namespace graphics_backend
 {
+	//if source state and dst state have different queue family and source usage is not DontCare, a release barrier is required
+	bool NeedReleaseBarrier(ResourceState const& srcState, ResourceState const& dstState)
+	{
+		return (srcState.queueFamily != dstState.queueFamily) && (srcState.usage != ResourceUsage::eDontCare);
+	}
+
+	ResourceState GetHandleInitializeUsage(BufferHandle const& handle, int currentPassID, PassInfoBase& currentPass)
+	{
+		switch (handle.GetType())
+		{
+			case BufferHandle::BufferType::Internal:
+			{
+				return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
+			}
+			case BufferHandle::BufferType::External:
+			{
+				auto buffer = castl::static_shared_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
+				if (buffer->GetUsage() == ResourceUsage::eDontCare)
+				{
+					return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
+				}
+				else
+				{
+					return ResourceState(-1, buffer->GetUsage(), buffer->GetQueueFamily());
+				}
+			}
+		default:
+			break;
+		}
+	}
+
+	ResourceState GetHandleInitializeUsage(ImageHandle const& handle, int currentPassID, PassInfoBase& currentPass)
+	{
+		switch (handle.GetType())
+		{
+		case ImageHandle::ImageType::Internal:
+		{
+			return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
+		}
+		case ImageHandle::ImageType::External:
+		{
+			auto image = castl::static_shared_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
+			if (image->GetUsage() == eDontCare)
+			{
+				return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
+			}
+			else
+			{
+				return ResourceState(-1, image->GetUsage(), image->GetQueueFamily());
+			}
+		}
+		case ImageHandle::ImageType::Backbuffer:
+		{
+			//TODO: 可能会有不丢弃backbuffer内容的需求
+			return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
+		}
+		default:
+			break;
+		}
+	}
+
+	ResourceState MakeNewResourceState(int passID, uint32_t queueFamilyIndex, ResourceUsageFlags usage)
+	{
+		return ResourceState(passID, usage, queueFamilyIndex);
+	}
 
 	//TODO: Same Sematics May be found in multiple attribute data
 	CVertexInputDescriptor MakeVertexInputDescriptors(castl::map<castl::string, VertexInputsDescriptor> const& vertexAttributeDescs
@@ -66,6 +131,10 @@ namespace graphics_backend
 		RecordGraph();
 		//Scan Command Batches
 		ScanCommandBatchs();
+		//Submit
+		Submit();
+		//Sync Final Usages
+		SyncExternalResources();
 	}
 
 
@@ -85,6 +154,11 @@ namespace graphics_backend
 				if (img.GetType() == ImageHandle::ImageType::Internal)
 				{
 					m_ImageManager.AllocResourceIndex(img.GetName(), imageManager.GetDescriptorIndex(img.GetName()));
+				}
+				else if (img.GetType() == ImageHandle::ImageType::Backbuffer)
+				{
+					castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(img.GetWindowHandle());
+					window->WaitCurrentFrameBufferIndex();
 				}
 			}
 			//Drawcalls
@@ -138,7 +212,7 @@ namespace graphics_backend
 						else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 						{
 							castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
-							//window->GetCurrentFrameBufferIndex
+							window->WaitCurrentFrameBufferIndex();
 						}
 					}
 				}
@@ -183,18 +257,21 @@ namespace graphics_backend
 		return nullptr;
 	}
 
-	PassInfoBase* GPUGraphExecutor::GetBasePassInfo(uint32_t passID)
+	PassInfoBase* GPUGraphExecutor::GetBasePassInfo(int passID)
 	{
-		auto& graphStages = m_Graph->GetGraphStages();
-		auto& passIndices = m_Graph->GetPassIndices();
-		auto stage = graphStages[passID];
-		uint32_t realPassIndex = passIndices[passID];
-		switch (stage)
+		if (passID >= 0)
 		{
-		case GPUGraph::EGraphStageType::eRenderPass:
-			return &m_Passes[realPassIndex];
-		case GPUGraph::EGraphStageType::eTransferPass:
-			return &m_TransferPasses[realPassIndex];
+			auto& graphStages = m_Graph->GetGraphStages();
+			auto& passIndices = m_Graph->GetPassIndices();
+			auto stage = graphStages[passID];
+			uint32_t realPassIndex = passIndices[passID];
+			switch (stage)
+			{
+			case GPUGraph::EGraphStageType::eRenderPass:
+				return &m_Passes[realPassIndex];
+			case GPUGraph::EGraphStageType::eTransferPass:
+				return &m_TransferPasses[realPassIndex];
+			}
 		}
 		return nullptr;
 	}
@@ -272,6 +349,14 @@ namespace graphics_backend
 	{
 		if (m_CommandBuffers.size() == 0)
 			return;
+
+		for (auto& pair : m_ExternalResourceReleasingBarriers.queueFamilyToBarrierCollector)
+		{
+			uint32_t queueFamilyIndex = pair.first;
+			auto& releaser = pair.second;
+			releaser.signalSemaphore = m_FrameBoundResourceManager->semaphorePool.AllocSemaphore();
+		}
+
 		castl::vector<uint32_t> passToBatchID;
 		passToBatchID.resize(m_CommandBuffers.size());
 		auto& graphStages = m_Graph->GetGraphStages();
@@ -298,65 +383,175 @@ namespace graphics_backend
 			{
 				lastBatch->waitingBatch.insert(passToBatchID[predPassID]);
 			}
+			for (uint32_t queueReleaserID : pass->m_WaitingQueueFamilies)
+			{
+				lastBatch->waitingQueueFamilyReleaser.insert(queueReleaserID);
+			}
 			passToBatchID[passID] = m_CommandBufferBatchList.size() - 1;
 		}
 
 		m_LeafBatchSemaphores.clear();
+		m_LeafBatchFinishStageFlags.clear();
 		for (auto& batch : m_CommandBufferBatchList)
 		{
 			batch.signalSemaphore = m_FrameBoundResourceManager->semaphorePool.AllocSemaphore();
 			if (!batch.hasSuccessor)
 			{
 				m_LeafBatchSemaphores.push_back(batch.signalSemaphore);
+				m_LeafBatchFinishStageFlags.push_back(vk::PipelineStageFlagBits::eAllCommands);
 			}
 			batch.waitSemaphores.reserve(batch.waitingBatch.size());
 			for (uint32_t waitingBatchID : batch.waitingBatch)
 			{
 				batch.waitSemaphores.push_back(m_CommandBufferBatchList[waitingBatchID].signalSemaphore);
+				batch.waitStages.push_back(vk::PipelineStageFlagBits::eAllCommands);
+			}
+			for (uint32_t queueFamilyReleaserID : batch.waitingQueueFamilyReleaser)
+			{
+				auto& releaser = m_ExternalResourceReleasingBarriers.queueFamilyToBarrierCollector[queueFamilyReleaserID];
+				batch.waitSemaphores.push_back(releaser.signalSemaphore);
+				batch.waitStages.push_back(vk::PipelineStageFlagBits::eAllCommands);
 			}
 		}
 	}
 
 	void GPUGraphExecutor::Submit()
 	{
+		for (auto& pair : m_ExternalResourceReleasingBarriers.queueFamilyToBarrierCollector)
+		{
+			uint32_t queueFamilyIndex = pair.first;
+			auto& releaser = pair.second;
+			GetQueueContext().SubmitCommands(queueFamilyIndex
+				, 0
+				, releaser.commandBuffer
+				, {}
+				, {}
+				, {}
+				, releaser.signalSemaphore);
+		}
 		for (auto& batch : m_CommandBufferBatchList)
 		{
-
+			vk::CommandBuffer* pCommand = &m_CommandBuffers[batch.firstPass];
+			uint32_t count = batch.lastPass - batch.firstPass + 1;
+			vk::ArrayProxyNoTemporaries<vk::CommandBuffer> proxy = { count, pCommand };
+			GetQueueContext().SubmitCommands(batch.queueFamilyIndex
+				, 0
+				, proxy
+				, {}
+				, batch.waitSemaphores
+				, batch.waitStages
+				, batch.signalSemaphore);
 		}
-		GetQueueContext().SubmitCommands()
+
+		GetQueueContext()
+			.SubmitCommands(GetQueueContext().GetGraphicsQueueFamily()
+				, 0
+				, {}
+				, m_FrameBoundResourceManager->GetFence()
+				, m_LeafBatchSemaphores
+				, m_LeafBatchFinishStageFlags);
+	}
+
+	void GPUGraphExecutor::SyncExternalResources()
+	{
+		for (auto pair : m_ExternBufferFinalUsageStates)
+		{
+			auto& bufferHandle = pair.first;
+			auto& finalUsage = pair.second;
+			auto buffer = castl::static_pointer_cast<VKGPUBuffer>(bufferHandle.GetExternalManagedBuffer());
+			buffer->SetUsage(finalUsage.usage);
+			buffer->SetQueueFamily(finalUsage.queueFamily);
+		}
+
+		for (auto pair : m_ExternImageFinalUsageStates)
+		{
+			auto& imageHandle = pair.first;
+			auto& finalUsage = pair.second;
+			switch (imageHandle.GetType())
+			{
+			case ImageHandle::ImageType::External:
+				{
+					auto image = castl::static_pointer_cast<VKGPUTexture>(imageHandle.GetExternalManagedTexture());
+					image->SetUsage(finalUsage.usage);
+					image->SetQueueFamily(finalUsage.queueFamily);
+				}
+				break;
+			case ImageHandle::ImageType::Backbuffer:
+				{
+					auto window = castl::static_pointer_cast<CWindowContext>(imageHandle.GetWindowHandle());
+					window->GetSwapchainContext().MarkUsages(finalUsage.usage, finalUsage.queueFamily);
+				}
+				break;
+			}
+		}
+	}
+
+	void GPUGraphExecutor::UpdateExternalBufferUsage(PassInfoBase* passInfo, BufferHandle const& handle, ResourceState const& initUsageState, ResourceState const& newUsageState)
+	{
+		if (handle.GetType() == BufferHandle::BufferType::External)
+		{
+			auto found = m_ExternBufferFinalUsageStates.find(handle);
+			if (found == m_ExternBufferFinalUsageStates.end())
+			{
+				//Different Queue Needs Release barrier
+				if (NeedReleaseBarrier(initUsageState, newUsageState))
+				{
+					auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(initUsageState.queueFamily);
+					releaser.barrierCollector.PushBufferReleaseBarrier(newUsageState.queueFamily, GetBufferHandleBufferObject(handle), initUsageState.usage, newUsageState.usage);
+					passInfo->m_WaitingQueueFamilies.insert(initUsageState.queueFamily);
+				}
+			}
+			m_ExternBufferFinalUsageStates[handle] = newUsageState;
+		}
+	}
+
+	void GPUGraphExecutor::UpdateExternalImageUsage(PassInfoBase* passInfo, ImageHandle const& handle, ResourceState const& initUsageState, ResourceState const& newUsageState)
+	{
+		switch (handle.GetType())
+		{
+			case ImageHandle::ImageType::External:
+			case ImageHandle::ImageType::Backbuffer:
+			{
+				auto found = m_ExternImageFinalUsageStates.find(handle);
+				if (found == m_ExternImageFinalUsageStates.end())
+				{
+					//Different Queue Needs Release barrier
+					if (NeedReleaseBarrier(initUsageState, newUsageState))
+					{
+						auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(initUsageState.queueFamily);
+						auto pDesc = GetTextureHandleDescriptor(handle);
+						releaser.barrierCollector.PushImageReleaseBarrier(newUsageState.queueFamily, GetTextureHandleImageObject(handle), pDesc->format, initUsageState.usage, newUsageState.usage);
+						passInfo->m_WaitingQueueFamilies.insert(initUsageState.queueFamily);
+					}
+				}
+				m_ExternImageFinalUsageStates[handle] = newUsageState;
+				break;
+			}
+		}
 	}
 
 	template<typename T>
-	void UpdateResourceUsageFlags(castl::unordered_map<T, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<T>>& inoutResourceUsageFlagCache
-		, T resource, ResourceUsageFlags flags, uint32_t passIndex)
+	void UpdateResourceUsageFlags(castl::unordered_map<T, ResourceState>& inoutResourceUsageFlagCache
+		, T resource, ResourceState const& resourceState)
 	{
-		auto found = inoutResourceUsageFlagCache.find(resource);
-		if (found == inoutResourceUsageFlagCache.end())
-		{
-			inoutResourceUsageFlagCache.insert(castl::make_pair(resource, castl::make_pair(flags, passIndex)));
-		}
-		else
-		{
-			found->second = castl::make_pair(flags, passIndex);
-		}
+		inoutResourceUsageFlagCache[resource] = resourceState;
 	};
 
 	template<typename T>
-	castl::pair<ResourceUsageFlags, uint32_t> GetResourceUsage(castl::unordered_map<T, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<T>>& inoutResourceUsageFlagCache
+	ResourceState GetResourceUsage(castl::unordered_map<T, ResourceState>& inoutResourceUsageFlagCache
 		, T resource
-		, uint32_t passID
-		, ResourceUsageFlags defaultFlags = ResourceUsage::eDontCare)
+		, ResourceState const defaultState)
 	{
 		auto found = inoutResourceUsageFlagCache.find(resource);
 		if (found != inoutResourceUsageFlagCache.end())
 		{
 			return found->second;
 		}
-		return castl::make_pair(defaultFlags, passID);
+		return defaultState;
 	};
 
 	void GPUGraphExecutor::PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
-		, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
+		, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
 		, DrawCallBatch const& batch
 		, GPUPassBatchInfo const& batchInfo
 		, uint32_t passID
@@ -364,18 +559,16 @@ namespace graphics_backend
 	{
 		if (batch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
 		{
-			auto buffer = GetBufferHandleBufferObject(batch.m_BoundIndexBuffer);
 			ResourceUsageFlags usageFlags = ResourceUsage::eVertexAttribute;
-			UpdateBufferDependency(passID, buffer, usageFlags, inoutBufferUsageFlagCache);
+			UpdateBufferDependency(passID, batch.m_BoundIndexBuffer, usageFlags, inoutBufferUsageFlagCache);
 		}
 		for (auto bindingPair : batchInfo.m_VertexAttributeBindings)
 		{
 			auto foundBuffer = batch.m_BoundVertexBuffers.find(bindingPair.first);
 			if (foundBuffer != batch.m_BoundVertexBuffers.end())
 			{
-				auto buffer = GetBufferHandleBufferObject(foundBuffer->second);
 				ResourceUsageFlags usageFlags = ResourceUsage::eVertexAttribute;
-				UpdateBufferDependency(passID, buffer, usageFlags, inoutBufferUsageFlagCache);
+				UpdateBufferDependency(passID, foundBuffer->second, usageFlags, inoutBufferUsageFlagCache);
 			}
 		}
 	}
@@ -397,50 +590,77 @@ namespace graphics_backend
 
 	void GPUGraphExecutor::UpdateBufferDependency(
 		uint32_t destPassID
-		, vk::Buffer buffer
+		, BufferHandle const& bufferHandle
 		, ResourceUsageFlags newUsageFlags
-		, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache)
+		, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache)
 	{
-		auto [originalFlags, sourcePassID] = GetResourceUsage(inoutBufferUsageFlagCache, buffer, destPassID);
-		if (originalFlags != newUsageFlags)
+		if (bufferHandle.GetType() == BufferHandle::BufferType::Invalid)
 		{
-			auto sourceInfo = GetBasePassInfo(sourcePassID);
-			auto dstInfo = GetBasePassInfo(destPassID);
-			CA_ASSERT(sourceInfo != nullptr, "Invalid Source Pass ID");
-			CA_ASSERT(dstInfo != nullptr, "Invalid Dest Pass ID");
-			if (sourceInfo != dstInfo)
+			return;
+		}
+		auto buffer = GetBufferHandleBufferObject(bufferHandle);
+		if (buffer == vk::Buffer{nullptr})
+			return;
+
+		auto dstInfo = GetBasePassInfo(destPassID);
+		CA_ASSERT(dstInfo != nullptr, "Invalid Dest Pass ID");
+
+		auto usageStates = GetResourceUsage(inoutBufferUsageFlagCache, buffer, GetHandleInitializeUsage(bufferHandle, destPassID, *dstInfo));
+		auto newUsageState = MakeNewResourceState(destPassID, dstInfo->GetQueueFamily(), newUsageFlags);
+		CA_ASSERT(newUsageState.usage != ResourceUsage::eDontCare, "why dst usage is dont care?");
+		if (usageStates.usage != newUsageState.usage)
+		{
+			auto sourceInfo = GetBasePassInfo(usageStates.passID);
+			if (sourceInfo != nullptr)
 			{
-				sourceInfo->m_BarrierCollector.PushBufferReleaseBarrier(dstInfo->m_BarrierCollector.GetQueueFamily(), buffer, originalFlags, newUsageFlags);
-				sourceInfo->m_SuccessorPasses.insert(destPassID);
-				dstInfo->m_PredecessorPasses.insert(sourcePassID);
+				if (NeedReleaseBarrier(usageStates, newUsageState))
+				{
+					sourceInfo->m_BarrierCollector.PushBufferReleaseBarrier(newUsageState.queueFamily, buffer, usageStates.usage, newUsageState.usage);
+					sourceInfo->m_SuccessorPasses.insert(newUsageState.passID);
+					dstInfo->m_PredecessorPasses.insert(usageStates.passID);
+				}
 			}
-			dstInfo->m_BarrierCollector.PushBufferAquireBarrier(sourceInfo->m_BarrierCollector.GetQueueFamily(), buffer, originalFlags, newUsageFlags);
-			UpdateResourceUsageFlags(inoutBufferUsageFlagCache, buffer, newUsageFlags, destPassID);
+			dstInfo->m_BarrierCollector.PushBufferAquireBarrier(usageStates.queueFamily, buffer, usageStates.usage, newUsageState.usage);
+			UpdateResourceUsageFlags(inoutBufferUsageFlagCache, buffer, newUsageState);
+			UpdateExternalBufferUsage(dstInfo, bufferHandle, usageStates, newUsageState);
 		}
 	}
 
-	void GPUGraphExecutor::UpdateImageDependency(uint32_t destPassID, vk::Image image, ETextureFormat format
+	void GPUGraphExecutor::UpdateImageDependency(uint32_t destPassID, ImageHandle const& imageHandle
 		, ResourceUsageFlags newUsageFlags
-		, castl::unordered_map<vk::Image, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Image>>& inoutImageUsageFlagCache)
+		, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache)
 	{
-		auto [originalFlags, sourcePassID] = GetResourceUsage(inoutImageUsageFlagCache, image, destPassID);
-		if (originalFlags != newUsageFlags)
+		if (imageHandle.GetType() == ImageHandle::ImageType::Invalid)
 		{
-			auto sourceInfo = GetBasePassInfo(sourcePassID);
-			auto dstInfo = GetBasePassInfo(destPassID);
-			CA_ASSERT(sourceInfo != nullptr, "Invalid Source Pass ID");
-			CA_ASSERT(dstInfo != nullptr, "Invalid Dest Pass ID");
-			uint32_t sourceQueueFamily = sourceInfo->m_BarrierCollector.GetQueueFamily();
-			uint32_t dstQueueFamily = dstInfo->m_BarrierCollector.GetQueueFamily();
-			if (sourceInfo != dstInfo && sourceQueueFamily != dstQueueFamily)
-			{
-				sourceInfo->m_BarrierCollector.PushImageReleaseBarrier(dstQueueFamily, image, format, originalFlags, newUsageFlags);
-				sourceInfo->m_SuccessorPasses.insert(destPassID);
-				dstInfo->m_PredecessorPasses.insert(sourcePassID);
-			}
-			dstInfo->m_BarrierCollector.PushImageAquireBarrier(sourceQueueFamily, image, format, originalFlags, newUsageFlags);
+			return;
+		}
+		auto image = GetTextureHandleImageObject(imageHandle);
+		if (image == vk::Image{nullptr})
+			return;
 
-			UpdateResourceUsageFlags(inoutImageUsageFlagCache, image, newUsageFlags, destPassID);
+		auto dstInfo = GetBasePassInfo(destPassID);
+		CA_ASSERT(dstInfo != nullptr, "Invalid Dest Pass ID");
+
+		auto pDesc = GetTextureHandleDescriptor(imageHandle);
+
+		auto usageStates = GetResourceUsage(inoutImageUsageFlagCache, image, GetHandleInitializeUsage(imageHandle, destPassID, *dstInfo));
+		auto newUsageState = MakeNewResourceState(destPassID, dstInfo->GetQueueFamily(), newUsageFlags);
+
+		if (usageStates.usage != newUsageState.usage)
+		{
+			auto sourceInfo = GetBasePassInfo(usageStates.passID);
+			if (sourceInfo != nullptr)
+			{
+				if (NeedReleaseBarrier(usageStates, newUsageState))
+				{
+					sourceInfo->m_BarrierCollector.PushImageReleaseBarrier(newUsageState.queueFamily, image, pDesc->format, usageStates.usage, newUsageState.usage);
+					sourceInfo->m_SuccessorPasses.insert(newUsageState.passID);
+					dstInfo->m_PredecessorPasses.insert(usageStates.passID);
+				}
+			}
+			dstInfo->m_BarrierCollector.PushImageAquireBarrier(usageStates.queueFamily, image, pDesc->format, usageStates.usage, newUsageState.usage);
+			UpdateResourceUsageFlags(inoutImageUsageFlagCache, image, newUsageState);
+			UpdateExternalImageUsage(dstInfo, imageHandle, usageStates, newUsageState);
 		}
 	}
 
@@ -465,13 +685,21 @@ namespace graphics_backend
 		m_ImageManager.ReleaseAll();
 		m_BufferManager.ReleaseAll();
 
+		//Final Handle State
+		m_ExternBufferFinalUsageStates.clear();
+		m_ExternImageFinalUsageStates.clear();
+		m_ExternalResourceReleasingBarriers.Release();
 		//Command Buffers
 		m_CommandBuffers.clear();
+		m_CommandFinishStages.clear();
+		m_CommandBufferBatchList.clear();
+		m_LeafBatchSemaphores.clear();
+		m_LeafBatchFinishStageFlags.clear();
 	}
 
 	void GPUGraphExecutor::PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-		, castl::unordered_map<vk::Image, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Image>>& inoutResourceUsageFlagCache
-		, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
+		, castl::unordered_map<vk::Image, ResourceState>& inoutResourceUsageFlagCache
+		, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
 		, ShaderArgList const* shaderArgList
 		, uint32_t passID)
 	{
@@ -490,10 +718,8 @@ namespace graphics_backend
 				for (auto& img : imgs)
 				{
 					auto& imgHandle = img.first;
-					auto image = GetTextureHandleImageObject(imgHandle);
-					auto pDesc = GetTextureHandleDescriptor(imgHandle);
 					ResourceUsageFlags usageFlags = ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead;
-					UpdateImageDependency(passID, image, pDesc->format, usageFlags, inoutResourceUsageFlagCache);
+					UpdateImageDependency(passID, imgHandle, usageFlags, inoutResourceUsageFlagCache);
 				}
 			}
 			for (auto& bufferPair : shaderArgs.GetBufferList())
@@ -501,9 +727,8 @@ namespace graphics_backend
 				auto& bufs = bufferPair.second;
 				for (auto& buf : bufs)
 				{
-					auto buffer = GetBufferHandleBufferObject(buf);
 					ResourceUsageFlags usageFlags = ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead;
-					UpdateBufferDependency(passID, buffer, usageFlags, inoutBufferUsageFlagCache);
+					UpdateBufferDependency(passID, buf, usageFlags, inoutBufferUsageFlagCache);
 				}
 			}
 		}
@@ -642,8 +867,8 @@ namespace graphics_backend
 		auto& dataTransfers = m_Graph->GetDataTransfers();
 		auto& passIndices = m_Graph->GetPassIndices();
 
-		castl::unordered_map<vk::Image, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Image>> imageUsageFlagCache;
-		castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>> bufferUsageFlagCache;
+		castl::unordered_map<vk::Image, ResourceState> imageUsageFlagCache;
+		castl::unordered_map<vk::Buffer, ResourceState> bufferUsageFlagCache;
 
 		uint32_t currentRenderPassIndex = 0;
 		uint32_t currentTransferPassIndex = 0;
@@ -677,10 +902,8 @@ namespace graphics_backend
 						for (size_t i = 0; i < attachments.size(); ++i)
 						{
 							auto& attachment = attachments[i];
-							auto image = GetTextureHandleImageObject(attachment);
-							auto pDesc = GetTextureHandleDescriptor(attachment);
 							ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
-							UpdateImageDependency(passID, image, pDesc->format, usageFlags, imageUsageFlagCache);
+							UpdateImageDependency(passID, attachment, usageFlags, imageUsageFlagCache);
 						}
 					}
 					break;
@@ -699,36 +922,15 @@ namespace graphics_backend
 						auto [bufferHandle, address, offset, size] = bufferUpload;
 						if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
 						{
-							auto buffer = GetBufferHandleBufferObject(bufferHandle);
-							if(buffer != vk::Buffer{ nullptr })
-							{
-								ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
-								auto [originalFlags, sourcePassID] = GetResourceUsage(bufferUsageFlagCache, buffer, passID);
-								if (originalFlags != usageFlags)
-								{
-									auto& sourceBarrier = GetBarrierCollector(sourcePassID);
-									auto& dstBarrier = GetBarrierCollector(passID);
-									sourceBarrier.PushBufferReleaseBarrier(dstBarrier.GetQueueFamily(), buffer, originalFlags, usageFlags);
-									dstBarrier.PushBufferAquireBarrier(sourceBarrier.GetQueueFamily(), buffer, originalFlags, usageFlags);
-									//transfersData.m_BarrierCollector.PushBufferBarrier(buffer, originalFlags, usageFlags);
-									UpdateResourceUsageFlags(bufferUsageFlagCache, buffer, usageFlags, passID);
-								}
-							}
+							ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
+							UpdateBufferDependency(passID, bufferHandle, usageFlags, bufferUsageFlagCache);
 						}
 					}
 					for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
 					{
 						auto [imageHandle, address, offset, size] = imageUpload;
-						if (imageHandle.GetType() != ImageHandle::ImageType::Invalid)
-						{
-							auto image = GetTextureHandleImageObject(imageHandle);
-							auto pDesc = GetTextureHandleDescriptor(imageHandle);
-							if (image != vk::Image{ nullptr })
-							{
-								ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
-								UpdateImageDependency(passID, image, pDesc->format, usageFlags, imageUsageFlagCache);
-							}
-						}
+						ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
+						UpdateImageDependency(passID, imageHandle, usageFlags, imageUsageFlagCache);
 					}
 					break;
 				}
@@ -746,6 +948,18 @@ namespace graphics_backend
 		auto& renderPasses = m_Graph->GetRenderPasses();
 		auto& dataTransfers = m_Graph->GetDataTransfers();
 		auto& passIndices = m_Graph->GetPassIndices();
+
+		//InitialTransferPasses
+		{
+			for (auto& pair : m_ExternalResourceReleasingBarriers.queueFamilyToBarrierCollector)
+			{
+				auto& releaser = pair.second;
+				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+				vk::CommandBuffer externalResourceReleaseBarriers = cmdPool->AllocCommand(pair.first, "Data Transfer");
+				releaser.barrierCollector.ExecuteReleaseBarrier(externalResourceReleaseBarriers);
+				releaser.commandBuffer = externalResourceReleaseBarriers;
+			}
+		}
 
 
 		uint32_t currentRenderPassIndex = 0;
@@ -825,7 +1039,7 @@ namespace graphics_backend
 					++currentTransferPassIndex;
 
 					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-					vk::CommandBuffer dataTransferCommandBuffer = cmdPool->AllocCommand(QueueType::eGraphics, "Data Transfer");
+					vk::CommandBuffer dataTransferCommandBuffer = cmdPool->AllocCommand(QueueType::eTransfer, "Data Transfer");
 					transfersData.m_BarrierCollector.ExecuteBarrier(dataTransferCommandBuffer);
 
 					for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
@@ -874,6 +1088,7 @@ namespace graphics_backend
 					transfersData.m_BarrierCollector.ExecuteReleaseBarrier(dataTransferCommandBuffer);
 					dataTransferCommandBuffer.end();
 					m_CommandBuffers.push_back(dataTransferCommandBuffer);
+					m_CommandFinishStages.push_back(vk::PipelineStageFlagBits::eTransfer);
 					break;
 				}
 			}

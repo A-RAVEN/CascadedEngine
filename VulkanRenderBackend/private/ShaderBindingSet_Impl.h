@@ -7,10 +7,10 @@
 #include "Containers.h"
 #include "VulkanApplicationSubobjectBase.h"
 #include "ShaderDescriptorSetAllocator.h"
-#include "CVulkanBufferObject.h"
+//#include "CVulkanBufferObject.h"
 #include "TickUploadingResource.h"
-#include "GPUTexture_Impl.h"
-#include "GPUBuffer_Impl.h"
+//#include "GPUTexture_Impl.h"
+//#include "GPUBuffer_Impl.h"
 #include "TextureSampler_Impl.h"
 #include "ShaderConstantSet_Impl.h"
 
@@ -29,8 +29,8 @@ namespace graphics_backend
 			, castl::shared_ptr<GPUBuffer> const& pBuffer) override;
 		virtual void SetTexture(castl::string const& name
 			, castl::shared_ptr<GPUTexture> const& pTexture) override;
-		virtual void SetSampler(castl::string const& name
-			, castl::shared_ptr<TextureSampler> const& pSampler) override;
+		//virtual void SetSampler(castl::string const& name
+		//	, castl::shared_ptr<TextureSampler> const& pSampler) override;
 		virtual bool UploadingDone() const override;
 		virtual ShaderBindingBuilder const& GetBindingSetDesc() const override;
 		vk::DescriptorSet GetDescriptorSet() const {
@@ -43,9 +43,9 @@ namespace graphics_backend
 		ShaderDescriptorSetHandle m_DescriptorSetHandle;
 		castl::string m_Name = "";
 		castl::unordered_map<castl::string, castl::shared_ptr<ShaderConstantSet>> m_ConstantSets;
-		castl::unordered_map<castl::string, castl::shared_ptr<GPUTexture_Impl>> m_Textures;
-		castl::unordered_map<castl::string, castl::shared_ptr<TextureSampler_Impl>> m_Samplers;
-		castl::unordered_map<castl::string, castl::shared_ptr<GPUBuffer_Impl>> m_StructuredBuffers;
+		//castl::unordered_map<castl::string, castl::shared_ptr<GPUTexture_Impl>> m_Textures;
+		//castl::unordered_map<castl::string, castl::shared_ptr<TextureSampler_Impl>> m_Samplers;
+		//castl::unordered_map<castl::string, castl::shared_ptr<GPUBuffer_Impl>> m_StructuredBuffers;
 	};
 
 	class ShaderBindingSetMetadata
@@ -111,7 +111,7 @@ namespace graphics_backend
 		void Create(ShaderBindingBuilder const& builder);
 		ShaderBindingSetMetadata const& GetMetadata() const { return m_Metadata; }
 		castl::shared_ptr<ShaderBindingSet> AllocateSet();
-		virtual void Release() override;
+		void Release();
 		void TickUploadResources(thread_management::CTaskGraph* pTaskGraph);
 	private:
 		ShaderBindingSetMetadata m_Metadata;

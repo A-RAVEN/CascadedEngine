@@ -457,7 +457,7 @@ namespace graphics_backend
 	void SwapchainContext::WaitCurrentFrameBufferIndex()
 	{
 		//if frame image is not used, we don't need to wait
-		if (m_CurrentBufferIndex != INVALID_INDEX && m_CurrentFrameUsageFlags == ResourceUsage::eDontCare)
+		if (m_CurrentBufferIndex != INVALID_INDEX && GetCurrentFrameUsageFlags() != ResourceUsage::ePresent)
 			return;
 		vk::ResultValue<uint32_t> currentBuffer = GetDevice().acquireNextImageKHR(
 			m_Swapchain
@@ -471,9 +471,22 @@ namespace graphics_backend
 			MarkUsages(ResourceUsage::eDontCare);
 		}
 	}
-	void SwapchainContext::MarkUsages(ResourceUsageFlags usages)
+	void SwapchainContext::MarkUsages(ResourceUsageFlags usages, int queueFamily)
 	{
-		m_CurrentFrameUsageFlags = usages;
+		m_SwapchainImages[m_CurrentBufferIndex].lastUsages = usages;
+		m_SwapchainImages[m_CurrentBufferIndex].lastQueueFamilyIndex = queueFamily;
+	}
+	ResourceUsageFlags SwapchainContext::GetCurrentFrameUsageFlags() const
+	{
+		if (m_CurrentBufferIndex == INVALID_INDEX)
+			return ResourceUsage::eDontCare;
+		return m_SwapchainImages[m_CurrentBufferIndex].lastUsages;
+	}
+	int SwapchainContext::GetCurrentFrameQueueFamily() const
+	{
+		if (m_CurrentBufferIndex == INVALID_INDEX)
+			return -1;
+		return m_SwapchainImages[m_CurrentBufferIndex].lastQueueFamilyIndex;
 	}
 	void SwapchainContext::CopyFrom(SwapchainContext const& other)
 	{
@@ -484,10 +497,17 @@ namespace graphics_backend
 		m_WaitFrameDoneSemaphore = other.m_WaitFrameDoneSemaphore;
 		m_CanPresentSemaphore = other.m_CanPresentSemaphore;
 		//Meta data
-		m_CurrentFrameUsageFlags = other.m_CurrentFrameUsageFlags;
 		m_TextureDesc = other.m_TextureDesc;
 		//Index
 		m_CurrentBufferIndex = other.m_CurrentBufferIndex;
+	}
+
+	void SwapchainContext::Present()
+	{
+		//if frame image is not available or used, we don't need to present
+		if (m_CurrentBufferIndex == INVALID_INDEX || GetCurrentFrameUsageFlags() == ResourceUsage::eDontCare)
+			return;
+		MarkUsages(ResourceUsage::ePresent);
 	}
 
 #define GLFW_VERSION_COMBINED           (GLFW_VERSION_MAJOR * 1000 + GLFW_VERSION_MINOR * 100 + GLFW_VERSION_REVISION)

@@ -49,6 +49,12 @@ namespace thread_management
         return this;
     }
 
+    CTaskGraph* TaskGraph_Impl1::ForceRunOnMainThread()
+    {
+        m_RunOnMainThread = true;
+        return this;
+    }
+
     void TaskGraph_Impl1::AddResource(castl::shared_ptr<void> const& resource)
     {
         AddResource_Internal(resource);
@@ -63,6 +69,7 @@ namespace thread_management
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
         auto result = m_Allocator->NewTask(this);
+        result->SetRunOnMainThread(m_RunOnMainThread);
         m_SubTasks.push_back(result);
         return result;
     }
@@ -71,6 +78,7 @@ namespace thread_management
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
         auto result = m_Allocator->NewTaskParallelFor(this);
+        result->SetRunOnMainThread(m_RunOnMainThread);
         m_SubTasks.push_back(result);
         return result;
     }
@@ -79,6 +87,7 @@ namespace thread_management
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
         auto result = m_Allocator->NewTaskGraph(this);
+        result->SetRunOnMainThread(m_RunOnMainThread);
         m_SubTasks.push_back(result);
         return result;
     }
@@ -234,11 +243,17 @@ namespace thread_management
             Stop();
             return;
         }
-        auto setupTaskGraph = NewTaskGraph()
-            ->Name("Setup")
-            ->SignalEvent(m_SetupEventName);
+        TaskGraph_Impl1* setupTaskGraph = m_TaskNodeAllocator.NewTaskGraph(this);
+        setupTaskGraph->Name("Setup");
+        setupTaskGraph->SignalEvent(m_SetupEventName);
+        for (auto initializeTask : m_InitializeTasks)
+        {
+            setupTaskGraph->DependsOn_Internal(initializeTask);
+        }
         bool notEnd = m_PrepareFunctor(setupTaskGraph);
         ++m_Frames;
+        EnqueueTaskNodes_NoLock(m_InitializeTasks);
+        m_InitializeTasks.clear();
         EnqueueTaskNode_NoLock(dynamic_cast<TaskNode*>(setupTaskGraph));
         if (!notEnd)
         {
@@ -272,8 +287,14 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
-    void ThreadManager_Impl1::OneTime(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::OneTime(std::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent)
     {
+        if (functor == nullptr)
+            return;
+        auto* newTaskGraph = m_TaskNodeAllocator.NewTaskGraph(this);
+        functor(newTaskGraph);
+        std::lock_guard<std::mutex> guard(m_Mutex);
+        m_InitializeTasks.push_back(newTaskGraph);
     }
 
     void ThreadManager_Impl1::LoopFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
@@ -331,9 +352,8 @@ namespace thread_management
             }
         }
     }
-    void ThreadManager_Impl1::EnqueueTaskNodes(eastl::vector<TaskNode*> const& nodeDeque)
+    void ThreadManager_Impl1::EnqueueTaskNodes_NoLock(castl::vector<TaskNode*> const& nodeDeque)
     {
-        std::lock_guard<std::mutex> guard(m_Mutex);
         uint32_t anythreadEnqueuedCounter = 0;
         bool mainthreadEnqueued = false;
         for (TaskNode* itrNode : nodeDeque)
@@ -363,15 +383,21 @@ namespace thread_management
         }
         if (anythreadEnqueuedCounter == 0)
             return;
-        if(anythreadEnqueuedCounter > 1)
-		{
-			m_ConditinalVariable.notify_all();
+        if (anythreadEnqueuedCounter > 1)
+        {
+            m_ConditinalVariable.notify_all();
             m_MainthreadCV.notify_one();
         }
-		else
-		{
-			m_ConditinalVariable.notify_one();
-		}
+        else
+        {
+            m_ConditinalVariable.notify_one();
+        }
+    }
+
+    void ThreadManager_Impl1::EnqueueTaskNodes(eastl::vector<TaskNode*> const& nodeDeque)
+    {
+        std::lock_guard<std::mutex> guard(m_Mutex);
+        EnqueueTaskNodes_NoLock(nodeDeque);
     }
     void ThreadManager_Impl1::SignalEvent(castl::string const& eventName, uint64_t signalFrame)
     {
@@ -624,6 +650,7 @@ namespace thread_management
         for (uint32_t taskId = 0; taskId < m_PendingSubnodeCount; ++taskId)
         {
             auto pTask = m_Allocator->NewTask(this);
+            pTask->SetRunOnMainThread(m_RunOnMainThread);
             pTask->Name(m_Name + " Subtask:" + castl::to_string(taskId))
                 ->Functor([functor = m_Functor, taskId]()
                     {

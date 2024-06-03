@@ -1,27 +1,25 @@
 #include "pch.h"
 #include <ShaderBindingSetHandle.h>
 #include "CommandList_Impl.h"
-#include "GPUBuffer_Impl.h"
 #include "InterfaceTranslator.h"
 #include "ShaderBindingSet_Impl.h"
-#include "RenderGraphExecutor.h"
 
 namespace graphics_backend
 {
-	CCommandList_Impl::CCommandList_Impl(vk::CommandBuffer cmd
-		, RenderGraphExecutor* rendergraphExecutor
-		, castl::shared_ptr<RenderPassObject> renderPassObj
-		, TIndex subpassIndex
-		, castl::vector<castl::shared_ptr<CPipelineObject>> const& pipelineObjs
-	) :
-		m_CommandBuffer(cmd)
-		, p_RenderGraphExecutor(rendergraphExecutor)
-		, m_RenderPassObject(renderPassObj)
-		, m_SubpassIndex(subpassIndex)
-		, m_PipelineObjects(pipelineObjs)
-	{
-	}
-	CInlineCommandList& CCommandList_Impl::BindPipelineState(uint32_t pipelineStateId)
+	//CCommandList_Impl::CCommandList_Impl(vk::CommandBuffer cmd
+	//	, RenderGraphExecutor* rendergraphExecutor
+	//	, castl::shared_ptr<RenderPassObject> renderPassObj
+	//	, TIndex subpassIndex
+	//	, castl::vector<castl::shared_ptr<CPipelineObject>> const& pipelineObjs
+	//) :
+	//	m_CommandBuffer(cmd)
+	//	, p_RenderGraphExecutor(rendergraphExecutor)
+	//	, m_RenderPassObject(renderPassObj)
+	//	, m_SubpassIndex(subpassIndex)
+	//	, m_PipelineObjects(pipelineObjs)
+	//{
+	//}
+	/*CInlineCommandList& CCommandList_Impl::BindPipelineState(uint32_t pipelineStateId)
 	{
 		CA_ASSERT(pipelineStateId < m_PipelineObjects.size(), "Invalid Pipeline State Index!");
 		m_PipelineObjectIndex = pipelineStateId;
@@ -132,7 +130,7 @@ namespace graphics_backend
 	{
 		CA_ASSERT(m_PipelineObjectIndex < m_PipelineObjects.size(), "Invalid Pipeline State Index!");
 		return m_PipelineObjects[m_PipelineObjectIndex];
-	}
+	}*/
 	CommandList& CommandList_Impl::DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t indexOffset, uint32_t vertexOffset, uint32_t firstInstance)
 	{
 		m_CommandBuffer.drawIndexed(indexCount, instanceCount, indexOffset, vertexOffset, firstInstance);

@@ -33,11 +33,12 @@ namespace thread_management
 		TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void SetOwner(TaskBaseObject* owner) { m_Owner = owner; }
 		std::shared_future<void> StartExecute();
-		virtual bool RunOnMainThread() const { return false; }
+		virtual bool RunOnMainThread() const { return m_RunOnMainThread; }
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override {}
 		virtual void Execute_Internal() = 0;
 		virtual void SetupSubnodeDependencies() {};
 		virtual uint64_t GetCurrentFrame() const override { return m_CurrentFrame; }
+		void SetRunOnMainThread(bool runOnMainThread) { m_RunOnMainThread = runOnMainThread; }
 		void SetupThisNodeDependencies_Internal();
 		size_t GetDepenedentCount() const { return m_Dependents.size(); }
 		void Release_Internal();
@@ -64,7 +65,7 @@ namespace thread_management
 		castl::vector<TaskNode*>m_Successors;
 		std::atomic<uint32_t>m_PendingDependsOnTaskCount{0};
 		castl::vector<castl::shared_ptr<void>> m_BoundResources;
-
+		bool m_RunOnMainThread = false;
 		bool m_HasPromise = false;
 		std::promise<void> m_Promise;
 

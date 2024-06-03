@@ -5,7 +5,7 @@
 #include <ThreadManager.h>
 #include <CASTL/CAUnorderedMap.h>
 #include "TickUploadingResource.h"
-#include "CVulkanBufferObject.h"
+//#include "CVulkanBufferObject.h"
 
 namespace graphics_backend
 {
@@ -19,13 +19,13 @@ namespace graphics_backend
 		virtual void SetValue(castl::string const& name, void* pValue) override;
 		void Initialize(ShaderConstantSetMetadata const* inMetaData);
 		virtual castl::string const& GetName() const override;
-		VulkanBufferHandle const& GetBufferObject() const { return m_BufferObject; }
+		//VulkanBufferHandle const& GetBufferObject() const { return m_BufferObject; }
 		virtual void TickUpload() override;
-		virtual void Release() override;
+		void Release();
 	private:
 		ShaderConstantSetMetadata const* p_Metadata;
 		castl::vector<uint8_t> m_UploadData;
-		VulkanBufferHandle m_BufferObject;
+		//VulkanBufferHandle m_BufferObject;
 	};
 
 	class ShaderConstantSetMetadata
@@ -47,7 +47,7 @@ namespace graphics_backend
 		ShaderConstantSetAllocator(CVulkanApplication& owner);
 		void Create(ShaderConstantsBuilder const& builder);
 		castl::shared_ptr<ShaderConstantSet> AllocateSet();
-		virtual void Release() override;
+		void Release();
 		void TickUploadResources(thread_management::CTaskGraph* pTaskGraph);
 		ShaderConstantSetMetadata const& GetMetadata() const { return m_Metadata; }
 	private:

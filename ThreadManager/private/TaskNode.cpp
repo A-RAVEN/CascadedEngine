@@ -69,6 +69,7 @@ namespace thread_management
 		m_Dependents.clear();
 		m_Successors.clear();
 		m_HasPromise = false;
+		m_RunOnMainThread = false;
 	}
 	std::shared_future<void> TaskNode::AquireFuture()
 	{

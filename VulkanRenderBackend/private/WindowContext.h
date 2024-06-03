@@ -95,6 +95,8 @@ namespace graphics_backend
 	struct SwapchainImagePage
 	{
 		vk::Image image;
+		ResourceUsageFlags lastUsages;
+		int lastQueueFamilyIndex;
 		castl::map<GPUTextureView, vk::ImageView> views;
 	};
 
@@ -112,10 +114,12 @@ namespace graphics_backend
 		vk::ImageView EnsureCurrentFrameImageView(GPUTextureView view);
 		vk::Semaphore GetWaitDoneSemaphore() const { return m_WaitFrameDoneSemaphore; }
 		vk::Semaphore GetPresentWaitingSemaphore() const { return m_CanPresentSemaphore; }
-		ResourceUsageFlags GetCurrentFrameUsageFlags() const { return m_CurrentFrameUsageFlags; }
 		void WaitCurrentFrameBufferIndex();
-		void MarkUsages(ResourceUsageFlags usages);
+		void MarkUsages(ResourceUsageFlags usages, int queueFamily = -1);
+		ResourceUsageFlags GetCurrentFrameUsageFlags() const;
+		int GetCurrentFrameQueueFamily() const;
 		void CopyFrom(SwapchainContext const& other);
+		void Present();
 	private:
 		//Swapchain
 		vk::SwapchainKHR m_Swapchain = nullptr;
@@ -124,7 +128,6 @@ namespace graphics_backend
 		vk::Semaphore m_WaitFrameDoneSemaphore = nullptr;
 		vk::Semaphore m_CanPresentSemaphore = nullptr;
 		//Meta data
-		ResourceUsageFlags m_CurrentFrameUsageFlags = ResourceUsage::eDontCare;
 		GPUTextureDescriptor m_TextureDesc;
 		//Index
 		TIndex m_CurrentBufferIndex = INVALID_INDEX;
@@ -174,6 +177,8 @@ namespace graphics_backend
 		vk::Semaphore GetWaitDoneSemaphore() const { return m_SwapchainContext.GetWaitDoneSemaphore(); }
 		vk::Semaphore GetPresentWaitingSemaphore() const { return m_SwapchainContext.GetPresentWaitingSemaphore(); }
 		ResourceUsageFlags GetCurrentFrameUsageFlags() const { return m_SwapchainContext.GetCurrentFrameUsageFlags(); }
+		constexpr SwapchainContext& GetSwapchainContext() noexcept { return m_SwapchainContext; }
+		constexpr SwapchainContext const& GetSwapchainContext() const noexcept { return m_SwapchainContext; }
 		void MarkUsages(ResourceUsageFlags usages);
 		void Resize(FrameType resizeFrame);
 		void TickReleaseResources(FrameType releasingFrame);

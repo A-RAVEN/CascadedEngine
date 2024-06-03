@@ -97,12 +97,12 @@ namespace graphics_backend
 
 	void ChunkedDescriptorPoolWrapper::Release()
 	{
-		for(auto& pool : m_DescriptorSetPoolList)
-		{
-			pool.Release();
-		}
-		m_DescriptorSetPoolList.clear();
-		m_AvailablePools.clear();
+		//for(auto& pool : m_DescriptorSetPoolList)
+		//{
+		//	pool.Release();
+		//}
+		//m_DescriptorSetPoolList.clear();
+		//m_AvailablePools.clear();
 	}
 
 	void ChunkedDescriptorPoolWrapper::ReleaseFrameboundResources()
@@ -217,13 +217,13 @@ namespace graphics_backend
 	}
 	void DescriptorSetPool::ClientReleaseSet(ShaderDescriptorSetObject&& releasedSet)
 	{
-		FrameType currentFrame = GetFrameCountContext().GetCurrentFrameID();
-		m_FrameboundReleaser.ScheduleRelease(currentFrame, castl::move(releasedSet));
+		//FrameType currentFrame = GetFrameCountContext().GetCurrentFrameID();
+		//m_FrameboundReleaser.ScheduleRelease(currentFrame, castl::move(releasedSet));
 	}
 	void DescriptorSetPool::ReleaseFrameboundResources()
 	{
-		FrameType releasingFrame = GetFrameCountContext().GetReleasedFrameID();
-		m_FrameboundReleaser.ReleaseFrame(releasingFrame);
+		//FrameType releasingFrame = GetFrameCountContext().GetReleasedFrameID();
+		//m_FrameboundReleaser.ReleaseFrame(releasingFrame);
 	}
 	ShaderDescriptorSetObject::ShaderDescriptorSetObject(vk::DescriptorSet descriptorSet) :
 		m_DescriptorSet(descriptorSet)

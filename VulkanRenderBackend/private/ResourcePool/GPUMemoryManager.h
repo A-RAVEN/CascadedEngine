@@ -4,6 +4,7 @@
 #include <VulkanIncludes.h>
 #include <CASTL/CASet.h>
 #include <VMA.h>
+#include <CASTL/CAMutex.h>
 #include <VulkanApplicationSubobjectBase.h>
 
 namespace graphics_backend
@@ -17,10 +18,7 @@ namespace graphics_backend
 			, p_Manager(pManager)
 		{
 		}
-		~MapMemoryScope()
-		{
-			p_Manager->UnmapMemory(m_Allocation);
-		}
+		~MapMemoryScope();
 		void* const mappedMemory;
 	private:
 		VmaAllocation m_Allocation;
@@ -30,6 +28,7 @@ namespace graphics_backend
 	{
 	public:
 		GPUMemoryResourceManager(CVulkanApplication& app);
+		GPUMemoryResourceManager(GPUMemoryResourceManager&& other) noexcept;
 		void Initialize();
 		void Release();
 		VmaAllocation AllocateMemory(vk::Image image, vk::MemoryPropertyFlags memoryProperties);
@@ -43,6 +42,7 @@ namespace graphics_backend
 		void FreeMemory(VmaAllocation const& allocation);
 		void FreeAllMemory();
 	private:
+		castl::mutex m_Mutex;
 		VmaAllocator m_Allocator {nullptr};
 		castl::set<VmaAllocation> m_ActiveAllocations;
 	};

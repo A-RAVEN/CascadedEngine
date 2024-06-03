@@ -2,6 +2,7 @@
 #include "GPUTexture.h"
 #include "GPUBuffer.h"
 #include "WindowHandle.h"
+#include <Hasher.h>
 
 namespace graphics_backend
 {
@@ -54,11 +55,14 @@ namespace graphics_backend
 		castl::string const& GetName() const { return m_Name; }
 		castl::shared_ptr<GPUTexture> GetExternalManagedTexture() const { return m_ExternalManagedTexture; }
 		castl::shared_ptr<WindowHandle> GetWindowHandle() const { return m_Backbuffer; }
+		auto operator<=>(const ImageHandle&) const = default;
 	private:
 		castl::string m_Name;
 		castl::shared_ptr<GPUTexture> m_ExternalManagedTexture;
 		castl::shared_ptr<WindowHandle> m_Backbuffer;
 		ImageType m_Type;
+
+		CA_PRIVATE_REFLECTION(ImageHandle);
 	};
 
 	class BufferHandle
@@ -91,9 +95,15 @@ namespace graphics_backend
 		BufferType GetType() const { return m_Type; }
 		castl::string const& GetName() const { return m_Name; }
 		castl::shared_ptr<GPUBuffer> GetExternalManagedBuffer() const { return m_ExternalManagedBuffer; }
+		auto operator<=>(const BufferHandle&) const = default;
 	private:
 		castl::string m_Name;
 		castl::shared_ptr<GPUBuffer> m_ExternalManagedBuffer;
 		BufferType m_Type;
+
+		CA_PRIVATE_REFLECTION(BufferHandle);
 	};
 }
+
+CA_REFLECTION(graphics_backend::ImageHandle, m_Name, m_ExternalManagedTexture, m_Backbuffer, m_Type);
+CA_REFLECTION(graphics_backend::BufferHandle, m_Name, m_ExternalManagedBuffer, m_Type);

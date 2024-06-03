@@ -18,7 +18,7 @@ namespace graphics_backend
 		inline ShaderArgList& SetValueInternal(castl::string const& name, void const* pValue, uint32_t sizeInBytes)
 		{
 			auto found = m_NameToDataPosition.find(name);
-			if (found == m_NameToDataPosition.end())
+			if (found != m_NameToDataPosition.end())
 			{
 				CA_ASSERT(found->second.size >= sizeInBytes, castl::string("shader parameter ") + name + "has a data size longer than first set");
 			}
@@ -155,5 +155,6 @@ namespace graphics_backend
 		castl::unordered_map<castl::string, TextureSamplerDescriptor> m_NameToSamplers;
 		castl::unordered_map<castl::string, NumericDataPos> m_NameToDataPosition;
 		castl::vector<uint8_t> m_NumericDataList;
+		//castl::unordered_set<BufferHandle> m_ExternalManagedBuffers;
 	};
 }

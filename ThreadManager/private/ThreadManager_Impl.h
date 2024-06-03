@@ -21,8 +21,6 @@ namespace thread_management
 	public:
 		CTask_Impl1(CTask_Impl1 const& other) = default;
 
-		virtual bool RunOnMainThread() const override { return m_RunOnMainThread; }
-
 		virtual CTask* ForceRunOnMainThread() override;
 		virtual CTask* Name(castl::string name) override;
 		virtual CTask* DependsOn(CTask* parentTask) override;
@@ -40,7 +38,6 @@ namespace thread_management
 		 void Initialize() {}
 		 void Release();
 	private:
-		bool m_RunOnMainThread = false;
 		std::function<void()> m_Functor;
 		// 通过 TaskNode 继承
 		virtual void Execute_Internal() override;
@@ -88,6 +85,7 @@ namespace thread_management
 		virtual CTaskGraph* WaitOnEvent(castl::string const& name) override;
 		virtual CTaskGraph* SignalEvent(castl::string const& name) override;
 		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) override;
+		virtual CTaskGraph* ForceRunOnMainThread() override;
 		virtual void AddResource(castl::shared_ptr<void> const& resource) override;
 		virtual std::shared_future<void> Run() override;
 
@@ -138,7 +136,7 @@ namespace thread_management
 		virtual CTaskGraph* NewTaskGraph() override;
 		virtual void LogStatus() const override;
 		virtual uint64_t GetCurrentFrame() const override { return m_Frames; }
-		virtual void OneTime(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
+		virtual void OneTime(std::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
 		virtual void LoopFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
 		virtual void Run() override;
 		void Stop();
@@ -148,6 +146,7 @@ namespace thread_management
 		void EnqueueSetupTask_NoLock();
 		void EnqueueTaskNode(TaskNode* node);
 		void EnqueueTaskNode_NoLock(TaskNode* node);
+		void EnqueueTaskNodes_NoLock(castl::vector<TaskNode*> const& nodeDeque);
 		void EnqueueTaskNodes(castl::vector<TaskNode*> const& nodeDeque);
 		void SignalEvent(castl::string const& eventName, uint64_t signalFrame);
 		bool TryWaitOnEvent(TaskNode* node);
@@ -180,5 +179,7 @@ namespace thread_management
 			void Signal(uint64_t signalFrame);
 		};
 		castl::vector<TaskWaitList> m_EventWaitLists;
+
+		castl::vector<TaskNode*> m_InitializeTasks;
 	};
 }

@@ -20,7 +20,10 @@ namespace graphics_backend
 	}
 	static void VKResultCheck(VkResult result, castl::string_view problem = "")
 	{
-
+		if (result != VK_SUCCESS)
+		{
+			CA_LOG_ERR("Vulkan Result Not Success!");
+		}
 	}
 	static void VKResultCheck(vk::Result result, castl::string_view problem = "")
 	{

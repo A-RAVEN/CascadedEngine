@@ -300,7 +300,7 @@ namespace graphics_backend
 		{
 			m_DataTransfers.emplace_back();
 		}
-		m_DataTransfers.back().m_BufferDataUploads.push_back({ bufferHandle, data, size, offset });
+		m_DataTransfers.back().m_BufferDataUploads.push_back({ bufferHandle, data, offset, size });
 		return *this;
 	}
 	GPUGraph& GPUGraph::AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc)

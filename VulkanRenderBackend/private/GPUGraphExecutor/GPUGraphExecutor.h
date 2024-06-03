@@ -35,6 +35,8 @@ namespace graphics_backend
 		VulkanBarrierCollector m_BarrierCollector;
 		castl::set<uint32_t> m_PredecessorPasses;
 		castl::set<uint32_t> m_SuccessorPasses;
+		castl::set<uint32_t> m_WaitingQueueFamilies;
+		int GetQueueFamily() const { return m_BarrierCollector.GetQueueFamily(); }
 	};
 
 	struct GPUPassInfo : public PassInfoBase
@@ -220,7 +222,10 @@ namespace graphics_backend
 		VKBufferObject const& GetBufferObject(castl::string const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Buffer not found");
+			if (found == m_HandleNameToResourceIndex.end())
+			{
+				return VKBufferObject::Default();
+			}
 			auto& subAllocator = m_SubAllocators[found->second.first];
 			return subAllocator.m_Buffers[found->second.second];
 		}
@@ -247,7 +252,10 @@ namespace graphics_backend
 		VKImageObject const& GetImageObject(castl::string const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Image not found");
+			if (found == m_HandleNameToResourceIndex.end())
+			{
+				return VKImageObject::Default();
+			}
 			auto& subAllocator = m_SubAllocators[found->second.first];
 			return subAllocator.m_Images[found->second.second];
 		}
@@ -260,9 +268,11 @@ namespace graphics_backend
 		uint32_t lastPass;
 		vk::Semaphore signalSemaphore;
 		castl::vector<vk::Semaphore> waitSemaphores;
+		castl::vector<vk::PipelineStageFlags> waitStages;
 
 		bool hasSuccessor;
 		castl::set<uint32_t> waitingBatch;
+		castl::set<uint32_t> waitingQueueFamilyReleaser;
 
 		static CommandBatchRange Create(uint32_t queueFamilyIndex, uint32_t startPassID)
 		{
@@ -270,7 +280,15 @@ namespace graphics_backend
 			result.queueFamilyIndex = queueFamilyIndex;
 			result.firstPass = result.lastPass = startPassID;
 			result.hasSuccessor = false;
+			return result;
 		}
+	};
+
+	struct ResourceState
+	{
+		int passID;
+		ResourceUsageFlags usage;
+		uint32_t queueFamily;
 	};
 
 	class GPUGraphExecutor : public VKAppSubObjectBaseNoCopy, public ShadderResourceProvider
@@ -284,34 +302,35 @@ namespace graphics_backend
 		void PrepareResources();
 
 		void PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
 			, DrawCallBatch const& batch
 			, GPUPassBatchInfo const& batchInfo
 			, uint32_t passID
 		);
 
 		void PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Image, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Image>>& inoutImageUsageFlagCache
-			, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
+			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
 			, ShaderArgList const* shaderArgList
 			, uint32_t passID
 		);
 		VulkanBarrierCollector& GetBarrierCollector(uint32_t passID);
-		PassInfoBase* GetBasePassInfo(uint32_t passID);
+		PassInfoBase* GetBasePassInfo(int passID);
 
 #pragma region Shader Resource Dependencies
-		void UpdateBufferDependency(uint32_t passID, vk::Buffer buffer
+		void UpdateBufferDependency(uint32_t passID, BufferHandle const& bufferHandle
 			, ResourceUsageFlags newUsageFlags
-			, castl::unordered_map<vk::Buffer, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache);
-		void UpdateImageDependency(uint32_t passID, vk::Image image, ETextureFormat format
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache);
+		void UpdateImageDependency(uint32_t passID, ImageHandle const& imageHandle
 			, ResourceUsageFlags newUsageFlags
-			, castl::unordered_map<vk::Image, castl::pair<ResourceUsageFlags, uint32_t>, cacore::hash<vk::Image>>& inoutImageUsageFlagCache);
+			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache);
 #pragma endregion
 		void PrepareFrameBufferAndPSOs();
 		void PrepareResourceBarriers();
 		void RecordGraph();
 		void ScanCommandBatchs();
 		void Submit();
+		void SyncExternalResources();
 
 		GPUTextureDescriptor const* GetTextureHandleDescriptor(ImageHandle const& handle) const;
 		vk::ImageView GetTextureHandleImageView(ImageHandle const& handle, GPUTextureView const& view) const;
@@ -323,7 +342,39 @@ namespace graphics_backend
 	
 		castl::vector<vk::CommandBuffer> const& GetCommandBufferList() const { return m_CommandBuffers; }
 		castl::vector<CommandBatchRange> const& GetCommandBufferBatchList() const { return m_CommandBufferBatchList; }
+
+		void UpdateExternalBufferUsage(PassInfoBase* passInfo, BufferHandle const& handle, ResourceState const& initUsageState, ResourceState const& newUsageState);
+		void UpdateExternalImageUsage(PassInfoBase* passInfo, ImageHandle const& handle, ResourceState const& initUsageState, ResourceState const& newUsageState);
 	private:
+		struct ExternalResourceReleaser
+		{
+			VulkanBarrierCollector barrierCollector;
+			vk::CommandBuffer commandBuffer;
+			vk::Semaphore signalSemaphore;
+		};
+
+		struct ExternalResourceReleasingBarriers
+		{
+			castl::unordered_map<uint32_t, ExternalResourceReleaser> queueFamilyToBarrierCollector;
+			ExternalResourceReleaser& GetQueueFamilyReleaser(uint32_t queueFamily)
+			{
+				auto found = queueFamilyToBarrierCollector.find(queueFamily);
+				if (found == queueFamilyToBarrierCollector.end())
+				{
+					ExternalResourceReleaser newReleaser{};
+					newReleaser.barrierCollector = VulkanBarrierCollector{ queueFamily };
+					newReleaser.commandBuffer = {nullptr};
+					newReleaser.signalSemaphore = { nullptr };
+					found = queueFamilyToBarrierCollector.insert(castl::make_pair(queueFamily, newReleaser)).first;
+				}
+				return found->second;
+			}
+			void Release()
+			{
+				queueFamilyToBarrierCollector.clear();
+			}
+		};
+
 		castl::shared_ptr<GPUGraph> m_Graph;
 		//Rasterize Pass
 		castl::vector<GPUPassInfo> m_Passes;
@@ -335,10 +386,16 @@ namespace graphics_backend
 		GraphExecutorBufferManager m_BufferManager;
 		FrameBoundResourcePool* m_FrameBoundResourceManager;
 
+		//External Resource States
+		ExternalResourceReleasingBarriers m_ExternalResourceReleasingBarriers;//Release External Resources From Their Last Queue To Where They Are Used
+		castl::unordered_map<ImageHandle, ResourceState> m_ExternImageFinalUsageStates;
+		castl::unordered_map<BufferHandle, ResourceState> m_ExternBufferFinalUsageStates;
+
 		//Command Buffers
 		castl::vector<vk::CommandBuffer> m_CommandBuffers;
 		castl::vector<vk::PipelineStageFlags> m_CommandFinishStages;
 		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
 		castl::vector<vk::Semaphore> m_LeafBatchSemaphores;
+		castl::vector<vk::PipelineStageFlags> m_LeafBatchFinishStageFlags;
 	};
 }

@@ -12,36 +12,10 @@
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
 #include <GPUResources/VKGPUTexture.h>
 #include <GPUResources/VKGPUBuffer.h>
+#include <VulkanDebug.h>
 
 namespace graphics_backend
 {
-	//void CVulkanApplication::SyncPresentationFrame(FrameType frameID)
-	//{
-	//	////Update Frame, Release FrameBound Resources
-	//	//m_SubmitCounterContext.WaitingForCurrentFrame();
-	//	//for (auto& windowContext : m_WindowContexts)
-	//	//{
-	//	//	windowContext->WaitCurrentFrameBufferIndex();
-	//	//	windowContext->MarkUsages(ResourceUsage::eDontCare);
-	//	//}
-
-	//	//if (m_SubmitCounterContext.AnyFrameFinished())
-	//	//{
-	//	//	FrameType const releasedFrame = m_SubmitCounterContext.GetReleasedFrameID();
-	//	//	TIndex const releasedIndex = m_SubmitCounterContext.GetReleasedResourcePoolIndex();
-	//	//	for (auto itrThreadContext = m_ThreadContexts.begin(); itrThreadContext != m_ThreadContexts.end(); ++itrThreadContext)
-	//	//	{
-	//	//		itrThreadContext->DoReleaseContextResourceByIndex(releasedIndex);
-	//	//	}
-	//	//	GetGPUObjectManager().ReleaseFrameboundResources(releasedFrame);
-	//	//	m_MemoryManager.ReleaseCurrentFrameResource(releasedFrame, releasedIndex);
-	//	//	for (auto& windowContext : m_WindowContexts)
-	//	//	{
-	//	//		windowContext->TickReleaseResources(releasedFrame);
-	//	//	}
-	//	//}
-	//}
-
 	void CVulkanApplication::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
 	{
 		auto runGpuFrameTaskGraph = taskGraph->NewTaskGraph()
@@ -50,22 +24,21 @@ namespace graphics_backend
 			{
 				auto frameManager =	m_FrameContext.GetFrameBoundResourceManager();
 				frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
-				for (auto& graph : gpuFrame.graphs)
+				if(gpuFrame.pGraph != nullptr)
 				{
-					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(graph, frameManager);
+					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(gpuFrame.pGraph, frameManager);
 					thisGraph->AddResource(executor);
 					executor->PrepareGraph();
-					frameManager->GetQueueContext();
 				}
 				if (gpuFrame.presentWindows.size() > 0)
 				{
 					for (auto& window : gpuFrame.presentWindows)
 					{
 						auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
-						windowContext->PrepareForPresent();
 						windowContext->PresentCurrentFrame();
 					}
 				}
+				frameManager->HostFinish();
 			});
 	}
 
@@ -152,6 +125,7 @@ namespace graphics_backend
 		VKBufferObject bufferObject{};
 		bufferObject.buffer = m_GPUResourceObjManager.CreateBuffer(inDescriptor);
 		bufferObject.allocation = m_GPUMemoryManager.AllocateMemory(bufferObject.buffer, vk::MemoryPropertyFlagBits::eDeviceLocal);
+		m_GPUMemoryManager.BindMemory(bufferObject.buffer, bufferObject.allocation);
 		result->SetBuffer(bufferObject);
 		return result;
 	}
@@ -172,6 +146,7 @@ namespace graphics_backend
 		VKImageObject imageObject{};
 		imageObject.image = m_GPUResourceObjManager.CreateImage(inDescriptor);
 		imageObject.allocation = m_GPUMemoryManager.AllocateMemory(imageObject.image, vk::MemoryPropertyFlagBits::eDeviceLocal);
+		m_GPUMemoryManager.BindMemory(imageObject.image, imageObject.allocation);
 		result->SetImage(imageObject);
 		return result;
 	}
@@ -223,7 +198,6 @@ namespace graphics_backend
 		instance_info.setPNext(&debugUtilsExt);
 #endif
 		m_Instance = vk::createInstance(instance_info);
-
 		vulkan_backend::utils::SetupVulkanInstanceFunctionPointers(m_Instance);
 	#if !defined(NDEBUG)
 		m_DebugMessager = m_Instance.createDebugUtilsMessengerEXT(debugUtilsExt);
@@ -360,6 +334,8 @@ namespace graphics_backend
 		auto extensions = GetDeviceExtensionNames();
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, extensions);
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
+
+		//SetVKObjectDebugName(m_Device, m_Instance, "Instance");
 
 		castl::vector<vk::Queue> defaultQueues;
 		defaultQueues.reserve(queueFamilyProperties.size());

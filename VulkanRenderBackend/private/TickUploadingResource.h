@@ -85,7 +85,7 @@ namespace graphics_backend
 		{
 			CA_ASSERT(releaseObj != nullptr, (castl::string{"Try Release nullptr: "} + CA_CLASS_NAME(T)).c_str());
 			castl::lock_guard<castl::recursive_mutex> lockGuard(m_Mutex);
-			releaseObj->Release();
+			//releaseObj->Release();
 			releaseObj->ResetResource();
 			m_EmptySpaces.push_back(releaseObj);
 		}
@@ -104,7 +104,7 @@ namespace graphics_backend
 			{
 				if (emptySet.find(&m_Pool[i]) == emptySet.end())
 				{
-					m_Pool[i].Release();
+					//m_Pool[i].Release();
 				}
 			}
 			emptySet.clear();

@@ -29,7 +29,7 @@ namespace graphics_backend
 		HashPool(HashPool&& other)
 		{
 			castl::lock_guard<castl::mutex> lockGuard(other.m_Mutex);
-			m_InternalMap = std::move(other.m_InternalMap);
+			m_InternalMap = castl::move(other.m_InternalMap);
 		}
 		HashPool& operator=(HashPool&&) = delete;
 

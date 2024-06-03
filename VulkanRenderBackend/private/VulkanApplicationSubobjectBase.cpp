@@ -28,11 +28,11 @@ namespace graphics_backend
 	{
 		return m_OwningApplication.GetGPUObjectManager();
 	}
-	constexpr GPUMemoryResourceManager& VKAppSubObjectBase::GetGlobalMemoryManager()
+	GPUMemoryResourceManager& VKAppSubObjectBase::GetGlobalMemoryManager()
 	{
 		return m_OwningApplication.GetGlobalMemoryManager();
 	}
-	constexpr GPUResourceObjectManager& VKAppSubObjectBase::GetGlobalResourceObjectManager()
+	GPUResourceObjectManager& VKAppSubObjectBase::GetGlobalResourceObjectManager()
 	{
 		return m_OwningApplication.GetGlobalResourceObjectManager();
 	}
@@ -42,39 +42,39 @@ namespace graphics_backend
 	}
 
 	VKAppSubObjectBaseNoCopy::VKAppSubObjectBaseNoCopy(CVulkanApplication& owner) :
-		m_OwningApplication(owner)
+		m_OwningApplication(&owner)
 	{
 	}
 	CVulkanApplication& VKAppSubObjectBaseNoCopy::GetVulkanApplication() const
 	{
-		return m_OwningApplication;
+		return *m_OwningApplication;
 	}
 	vk::Instance VKAppSubObjectBaseNoCopy::GetInstance() const
 	{
-		return m_OwningApplication.GetInstance();
+		return m_OwningApplication->GetInstance();
 	}
 	vk::Device VKAppSubObjectBaseNoCopy::GetDevice() const
 	{
-		return m_OwningApplication.GetDevice();
+		return m_OwningApplication->GetDevice();
 	}
 	vk::PhysicalDevice VKAppSubObjectBaseNoCopy::GetPhysicalDevice() const
 	{
-		return m_OwningApplication.GetPhysicalDevice();
+		return m_OwningApplication->GetPhysicalDevice();
 	}
 	GPUObjectManager& VKAppSubObjectBaseNoCopy::GetGPUObjectManager()
 	{
-		return m_OwningApplication.GetGPUObjectManager();
+		return m_OwningApplication->GetGPUObjectManager();
 	}
-	constexpr GPUMemoryResourceManager& VKAppSubObjectBaseNoCopy::GetGlobalMemoryManager()
+	GPUMemoryResourceManager& VKAppSubObjectBaseNoCopy::GetGlobalMemoryManager()
 	{
-		return m_OwningApplication.GetGlobalMemoryManager();
+		return m_OwningApplication->GetGlobalMemoryManager();
 	}
-	constexpr GPUResourceObjectManager& VKAppSubObjectBaseNoCopy::GetGlobalResourceObjectManager()
+	GPUResourceObjectManager& VKAppSubObjectBaseNoCopy::GetGlobalResourceObjectManager()
 	{
-		return m_OwningApplication.GetGlobalResourceObjectManager();
+		return m_OwningApplication->GetGlobalResourceObjectManager();
 	}
 	QueueContext& VKAppSubObjectBaseNoCopy::GetQueueContext()
 	{
-		return m_OwningApplication.GetQueueContext();
+		return m_OwningApplication->GetQueueContext();
 	}
 }

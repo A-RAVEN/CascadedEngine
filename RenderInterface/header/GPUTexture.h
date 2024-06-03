@@ -20,8 +20,8 @@ namespace graphics_backend
 		static GPUTextureDescriptor Create(
 			uint32_t width, uint32_t height
 			, ETextureFormat format
-			, ETextureType textureType = ETextureType::e2D
 			, ETextureAccessTypeFlags accessType
+			, ETextureType textureType = ETextureType::e2D
 			, uint32_t layers = 1
 			, uint32_t mipLevels = 1
 			, EMultiSampleCount samples = EMultiSampleCount::e1)

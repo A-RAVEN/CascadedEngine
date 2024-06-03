@@ -14,6 +14,7 @@ namespace graphics_backend
 		void Initialize();
 		void Release();
 		vk::CommandBuffer AllocCommand(QueueType queueType, const char* cmdName = "Default Cmd");
+		vk::CommandBuffer AllocCommand(uint32_t queueFamilyID, const char* cmdName = "Default Cmd");
 		vk::CommandBuffer AllocSecondaryCommand(const char* cmdName = "Default Cmd");
 		void ResetCommandBufferPool();
 	private:

@@ -1,5 +1,6 @@
 #include "Platform.h"
 #include "FrameBoundResourcePool.h"
+#include <VulkanDebug.h>
 
 namespace graphics_backend
 {
@@ -11,6 +12,16 @@ namespace graphics_backend
 		, resourceObjectManager(app)
 		, descriptorPools(app)
 		, semaphorePool(app)
+	{
+	}
+	FrameBoundResourcePool::FrameBoundResourcePool(FrameBoundResourcePool&& other) noexcept : 
+		VKAppSubObjectBaseNoCopy(other.GetVulkanApplication())
+		, commandBufferThreadPool(castl::move(other.commandBufferThreadPool))
+		, memoryManager(castl::move(other.memoryManager))
+		, releaseQueue(castl::move(other.releaseQueue))
+		, resourceObjectManager(castl::move(other.resourceObjectManager))
+		, descriptorPools(castl::move(other.descriptorPools))
+		, semaphorePool(castl::move(other.semaphorePool))
 	{
 	}
 	void FrameBoundResourcePool::Initialize()
@@ -32,6 +43,7 @@ namespace graphics_backend
 	}
 	void FrameBoundResourcePool::ResetPool()
 	{
+		m_Mutex.lock();
 		GetDevice().waitForFences(m_Fence, true, castl::numeric_limits<uint64_t>::max());
 		GetDevice().resetFences(m_Fence);
 		commandBufferThreadPool.ResetPool();
@@ -41,18 +53,21 @@ namespace graphics_backend
 		descriptorPools.Foreach([&](auto& desc, DescriptorPool* pool) { pool->ResetAll(); });
 		semaphorePool.Reset();
 	}
+	void FrameBoundResourcePool::HostFinish()
+	{
+		m_Mutex.unlock();
+	}
 	VKBufferObject FrameBoundResourcePool::CreateStagingBuffer(size_t size, EBufferUsageFlags usages)
 	{
-		VKBufferObject result{};
-		result.buffer = resourceObjectManager.CreateBuffer(GPUBufferDescriptor::Create(usages, 1, size));
-		result.allocation = memoryManager.AllocateMemory(result.buffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-		return result;
+		return CreateBufferWithMemory(GPUBufferDescriptor::Create(usages, size, 1), vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, "Staging Buffer");
 	}
-	VKBufferObject FrameBoundResourcePool::CreateBufferWithMemory(GPUBufferDescriptor const& bufferDesc, vk::MemoryPropertyFlags memoryFlags)
+	VKBufferObject FrameBoundResourcePool::CreateBufferWithMemory(GPUBufferDescriptor const& bufferDesc, vk::MemoryPropertyFlags memoryFlags, const char* name)
 	{
 		VKBufferObject result{};
 		result.buffer = resourceObjectManager.CreateBuffer(bufferDesc);
+		SetVKObjectDebugName(GetDevice(), result.buffer, name);
 		result.allocation = memoryManager.AllocateMemory(result.buffer, memoryFlags);
+		memoryManager.BindMemory(result.buffer, result.allocation);
 		return result;
 	}
 	VKImageObject FrameBoundResourcePool::CreateImageWithMemory(GPUTextureDescriptor const& textureDesc, vk::MemoryPropertyFlags memoryFlags)
@@ -60,6 +75,7 @@ namespace graphics_backend
 		VKImageObject result{};
 		result.image = resourceObjectManager.CreateImage(textureDesc);
 		result.allocation = memoryManager.AllocateMemory(result.image, memoryFlags);
+		memoryManager.BindMemory(result.image, result.allocation);
 		return result;
 	}
 }

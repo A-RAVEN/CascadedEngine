@@ -31,12 +31,13 @@ namespace graphics_backend
 	}
 	bool BaseTickingUpdateResource::UploadingDone() const
 	{
+		return false;
 		if (m_SubmitFrame == INVALID_FRAMEID)
 			return false;
-		auto& frameContext = GetFrameCountContext();
+		//auto& frameContext = GetFrameCountContext();
 		//if (!frameContext.AnyFrameFinished())
 		//	return false;
-		return frameContext.GetCurrentFrameID() >= m_SubmitFrame;
+		//return frameContext.GetCurrentFrameID() >= m_SubmitFrame;
 	}
 
 	void BaseTickingUpdateResource::MarkDirtyThisFrame()
@@ -51,6 +52,6 @@ namespace graphics_backend
 	{
 		std::atomic_thread_fence(std::memory_order_release);
 		b_Dirty = false;
-		m_SubmitFrame = GetFrameCountContext().GetCurrentFrameID();
+		//m_SubmitFrame = GetFrameCountContext().GetCurrentFrameID();
 	}
 }

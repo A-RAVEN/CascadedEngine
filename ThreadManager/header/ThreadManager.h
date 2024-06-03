@@ -76,6 +76,7 @@ namespace thread_management
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) = 0;
 		virtual CTaskGraph* WaitOnEvent(castl::string const& name) = 0;
 		virtual CTaskGraph* SignalEvent(castl::string const& name) = 0;
+		virtual CTaskGraph* ForceRunOnMainThread() = 0;
 
 		virtual void AddResource(castl::shared_ptr<void> const& resource) = 0;
 		template<typename T>
@@ -107,7 +108,7 @@ namespace thread_management
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;
 		virtual CTaskGraph* NewTaskGraph() = 0;
-		virtual void OneTime(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) = 0;
+		virtual void OneTime(std::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent) = 0;
 		virtual void LoopFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) = 0;
 		virtual void Run() = 0;
 		virtual void LogStatus() const = 0;

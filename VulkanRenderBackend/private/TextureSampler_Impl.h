@@ -5,14 +5,14 @@
 
 namespace graphics_backend
 {
-	class TextureSampler_Impl : public TextureSampler, public VKAppSubObjectBaseNoCopy
+	class TextureSampler_Impl : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		TextureSampler_Impl(CVulkanApplication& app);
-		virtual TextureSamplerDescriptor const& GetDescriptor() const override { return m_Descriptor; }
+		TextureSamplerDescriptor const& GetDescriptor() const { return m_Descriptor; }
 		void Create(TextureSamplerDescriptor const& descriptor);
 		void Initialize(TextureSamplerDescriptor const& descriptor);
-		virtual void Release() override;
+		void Release();
 
 		vk::Sampler GetSampler() const { return m_Sampler; }
 	private:

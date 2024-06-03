@@ -1,6 +1,7 @@
 #include "CommandBuffersPool.h"
 #include "FrameBoundResourcePool.h"
 #include <GPUContexts/QueueContext.h>
+#include <VulkanDebug.h>
 #include <uenum.h>
 
 namespace graphics_backend
@@ -55,6 +56,11 @@ namespace graphics_backend
 	vk::CommandBuffer OneTimeCommandBufferPool::AllocCommand(QueueType queueType, const char* cmdName)
 	{
 		return m_CommandBufferPools[m_QueueTypeToPoolIndex[uenum::enumToInt(queueType)]].AllocPrimaryCommandBuffer(GetDevice(), cmdName);
+	}
+
+	vk::CommandBuffer OneTimeCommandBufferPool::AllocCommand(uint32_t queueFamilyID, const char* cmdName)
+	{
+		return AllocCommand(GetQueueContext().QueueFamilyIndexToQueueType(queueFamilyID), cmdName);
 	}
 
 	vk::CommandBuffer OneTimeCommandBufferPool::AllocSecondaryCommand(const char* cmdName)
@@ -112,6 +118,7 @@ namespace graphics_backend
 						, 1u)).front();
 			manageList.AddNewCommandBuffer(result);
 		}
+		SetVKObjectDebugName(device, result, cmdName);
 		result.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 		return result;
 	}

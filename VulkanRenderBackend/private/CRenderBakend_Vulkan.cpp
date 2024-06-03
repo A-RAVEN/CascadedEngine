@@ -11,7 +11,7 @@ namespace graphics_backend
 
 	void CRenderBackend_Vulkan::InitializeThreadContextCount(uint32_t threadCount)
 	{
-		m_Application.InitializeThreadContext(threadCount);
+		//m_Application.Ini(threadCount);
 	}
 	void CRenderBackend_Vulkan::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
 	{

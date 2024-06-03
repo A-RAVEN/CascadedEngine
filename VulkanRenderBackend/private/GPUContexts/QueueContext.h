@@ -22,6 +22,7 @@ namespace graphics_backend
 		eGraphics = 0,
 		eCompute,
 		eTransfer,
+		eMax,
 	};
 	constexpr size_t QUEUE_TYPE_COUNT = 3;
 	class QueueContext : public VKAppSubObjectBaseNoCopy
@@ -37,6 +38,15 @@ namespace graphics_backend
 
 		void InitQueueCreationInfo(vk::PhysicalDevice phyDevice, QueueContext::QueueCreationInfo& outCreationInfo);
 		void Release();
+
+		//void SubmitCommands(int familyIndex
+		//	, int queueIndex
+		//	, vk::CommandBuffer const* pCommands
+		//	, size_t commandCount
+		//	, vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores = {}
+		//	, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages = {}
+		//, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores = {}
+		//, );
 
 		void SubmitCommands(int familyIndex, int queueIndex
 			, vk::ArrayProxyNoTemporaries<const vk::CommandBuffer> commandbuffers
@@ -60,6 +70,18 @@ namespace graphics_backend
 		constexpr int GetComputeQueueFamily() const
 		{
 			return m_ComputeQueueFamilyIndex;
+		}
+
+		constexpr QueueType QueueFamilyIndexToQueueType(int queueFamily)
+		{
+			if (queueFamily == m_GraphicsQueueFamilyIndex)
+				return QueueType::eGraphics;
+			if (queueFamily == m_ComputeQueueFamilyIndex)
+				return QueueType::eCompute;
+			if (queueFamily == m_TransferQueueFamilyIndex)
+				return QueueType::eTransfer;
+
+			return QueueType::eMax;
 		}
 
 	private:

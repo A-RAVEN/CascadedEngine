@@ -8,6 +8,7 @@ namespace graphics_backend
 
 	void FrameContext::InitFrameCapacity(uint32_t capacity)
 	{
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		m_FrameBoundResourceManagers.reserve(capacity);
 		for (uint32_t i = 0; i < capacity; i++)
 		{
@@ -18,9 +19,11 @@ namespace graphics_backend
 
 	FrameBoundResourcePool* FrameContext::GetFrameBoundResourceManager()
 	{
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		FrameBoundResourcePool* resourcePool = &m_FrameBoundResourceManagers[m_FrameIndex % m_FrameBoundResourceManagers.size()];
 		++m_FrameIndex;
 		resourcePool->ResetPool();
+		CA_LOG_ERR(castl::to_string(m_FrameIndex));
 		return resourcePool;
 	}
 
