@@ -7,6 +7,33 @@ namespace graphics_backend
 	}
 	void QueueContext::InitQueueCreationInfo(vk::PhysicalDevice phyDevice, QueueContext::QueueCreationInfo& outCreationInfo)
 	{
+		constexpr vk::PipelineStageFlags graphicsFlags = ~vk::PipelineStageFlags{ 0 };
+
+		constexpr vk::PipelineStageFlags transferFlags
+			= vk::PipelineStageFlagBits::eTransfer
+			| vk::PipelineStageFlagBits::eAllCommands
+			| vk::PipelineStageFlagBits::eAllGraphics
+			| vk::PipelineStageFlagBits::eTopOfPipe
+			| vk::PipelineStageFlagBits::eBottomOfPipe;
+
+		constexpr vk::PipelineStageFlags hostFlags
+			= vk::PipelineStageFlagBits::eHost;
+
+		constexpr vk::PipelineStageFlags accelFlags
+			= vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR
+			| vk::PipelineStageFlagBits::eAccelerationStructureBuildNV;
+
+		constexpr vk::PipelineStageFlags rtFlags = 
+			vk::PipelineStageFlagBits::eRayTracingShaderKHR
+			| vk::PipelineStageFlagBits::eRayTracingShaderNV
+			| vk::PipelineStageFlagBits::eDrawIndirect;
+
+		constexpr vk::PipelineStageFlags computeFlags
+			= vk::PipelineStageFlagBits::eComputeShader
+			| vk::PipelineStageFlagBits::eDrawIndirect
+			| vk::PipelineStageFlagBits::eTopOfPipe
+			| vk::PipelineStageFlagBits::eBottomOfPipe;
+
 		outCreationInfo.queueCreateInfoList.clear();
 		outCreationInfo.queueProities.clear();
 		std::vector<vk::QueueFamilyProperties> queueFamilyProperties = phyDevice.getQueueFamilyProperties();
@@ -28,16 +55,19 @@ namespace graphics_backend
 			if ((itrProp.queueFlags & generalFlags) == generalFlags)
 			{
 				m_GraphicsQueueFamilyIndex = familyId;
+				m_GraphicsStageMask = ~vk::PipelineStageFlags{ 0 };
 			}
 			else
 			{
 				if (itrProp.queueFlags & vk::QueueFlagBits::eCompute)
 				{
 					m_ComputeQueueFamilyIndex = familyId;
+					m_ComputeStageMask = computeFlags;
 				}
 				else if (itrProp.queueFlags & vk::QueueFlagBits::eTransfer)
 				{
 					m_TransferQueueFamilyIndex = familyId;
+					m_TransferStageMask = transferFlags;
 				}
 				else
 				{

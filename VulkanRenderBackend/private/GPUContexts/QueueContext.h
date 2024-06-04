@@ -39,15 +39,6 @@ namespace graphics_backend
 		void InitQueueCreationInfo(vk::PhysicalDevice phyDevice, QueueContext::QueueCreationInfo& outCreationInfo);
 		void Release();
 
-		//void SubmitCommands(int familyIndex
-		//	, int queueIndex
-		//	, vk::CommandBuffer const* pCommands
-		//	, size_t commandCount
-		//	, vk::ArrayProxyNoTemporaries<const vk::Semaphore> waitSemaphores = {}
-		//	, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages = {}
-		//, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores = {}
-		//, );
-
 		void SubmitCommands(int familyIndex, int queueIndex
 			, vk::ArrayProxyNoTemporaries<const vk::CommandBuffer> commandbuffers
 			, vk::Fence fence = {}
@@ -62,14 +53,32 @@ namespace graphics_backend
 			return m_GraphicsQueueFamilyIndex;
 		}
 
+		constexpr vk::PipelineStageFlags GetGraphicsPipelineStageMask() const
+		{
+			return m_GraphicsStageMask;
+		}
+
+
 		constexpr int GetTransferQueueFamily() const
 		{
 			return m_TransferQueueFamilyIndex;
 		}
 
+
+		constexpr vk::PipelineStageFlags GetTransferPipelineStageMask() const
+		{
+			return m_TransferStageMask;
+		}
+
+
 		constexpr int GetComputeQueueFamily() const
 		{
 			return m_ComputeQueueFamilyIndex;
+		}
+
+		constexpr vk::PipelineStageFlags GetComputePipelineStageMask() const
+		{
+			return m_ComputeStageMask;
 		}
 
 		constexpr QueueType QueueFamilyIndexToQueueType(int queueFamily)
@@ -84,10 +93,32 @@ namespace graphics_backend
 			return QueueType::eMax;
 		}
 
+		constexpr vk::PipelineStageFlags QueueFamilyIndexToPipelineStageMask(int queueFamily)
+		{
+			QueueType queueType = GetQueueContext().QueueFamilyIndexToQueueType(queueFamily);
+			switch (queueType)
+			{
+			case QueueType::eGraphics:
+				return GetGraphicsPipelineStageMask();
+				break;
+			case QueueType::eCompute:
+				return GetComputePipelineStageMask();
+				break;
+			case QueueType::eTransfer:
+				return GetQueueContext().GetTransferPipelineStageMask();
+				break;
+			}
+
+			return vk::PipelineStageFlags{ 0 };
+		}
+
 	private:
 		int m_GraphicsQueueFamilyIndex = -1;
+		vk::PipelineStageFlags m_GraphicsStageMask;
 		int m_ComputeQueueFamilyIndex = -1;
+		vk::PipelineStageFlags m_ComputeStageMask;
 		int m_TransferQueueFamilyIndex = -1;
+		vk::PipelineStageFlags m_TransferStageMask;
 		castl::vector<QueueFamilyInfo> m_QueueFamilyList;
 	};
 }

@@ -356,19 +356,8 @@ namespace graphics_backend
 		struct ExternalResourceReleasingBarriers
 		{
 			castl::unordered_map<uint32_t, ExternalResourceReleaser> queueFamilyToBarrierCollector;
-			ExternalResourceReleaser& GetQueueFamilyReleaser(uint32_t queueFamily)
-			{
-				auto found = queueFamilyToBarrierCollector.find(queueFamily);
-				if (found == queueFamilyToBarrierCollector.end())
-				{
-					ExternalResourceReleaser newReleaser{};
-					newReleaser.barrierCollector = VulkanBarrierCollector{ queueFamily };
-					newReleaser.commandBuffer = {nullptr};
-					newReleaser.signalSemaphore = { nullptr };
-					found = queueFamilyToBarrierCollector.insert(castl::make_pair(queueFamily, newReleaser)).first;
-				}
-				return found->second;
-			}
+			ExternalResourceReleaser& GetQueueFamilyReleaser(CVulkanApplication& app, uint32_t queueFamily);
+
 			void Release()
 			{
 				queueFamilyToBarrierCollector.clear();

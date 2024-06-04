@@ -151,9 +151,9 @@ int main(int argc, char *argv[])
 	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
 		sizeof(VertexData),
 		{
-			VertexAttribute::Create("POSITION", offsetof(VertexData, pos), VertexInputFormat::eR32G32_SFloat),
-			VertexAttribute::Create("TEXCOORD0", offsetof(VertexData, uv), VertexInputFormat::eR32G32_SFloat),
-			VertexAttribute::Create("COLOR", offsetof(VertexData, color), VertexInputFormat::eR32G32B32_SFloat),
+			VertexAttribute::Create(offsetof(VertexData, pos), VertexInputFormat::eR32G32_SFloat, "POSITION"),
+			VertexAttribute::Create(offsetof(VertexData, uv), VertexInputFormat::eR32G32_SFloat, "TEXCOORD", 0),
+			VertexAttribute::Create(offsetof(VertexData, color), VertexInputFormat::eR32G32B32_SFloat, "COLOR"),
 		}
 	);
 
@@ -173,8 +173,8 @@ int main(int argc, char *argv[])
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 		BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
 		BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
-		newGraph->AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer, 4, sizeof(VertexData)))
-			.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer, 6, sizeof(uint16_t)))
+		newGraph->AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, 4, sizeof(VertexData)))
+			.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, 6, sizeof(uint16_t)))
 			.ScheduleData(vertexBufferHandle, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]))
 			.ScheduleData(indexBufferHandle, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]))
 			.NewRenderPass(windowHandle)

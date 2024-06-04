@@ -19,12 +19,12 @@ struct VertexAttribute
 	uint32_t offset;
 	VertexInputFormat format;
 	castl::string semanticName;
+	uint32_t sematicIndex;
 	auto operator<=>(const VertexAttribute&) const = default;
 
-
-	static VertexAttribute Create(castl::string const& semanticName, uint32_t offset, VertexInputFormat format)
+	static VertexAttribute Create(uint32_t offset, VertexInputFormat format, castl::string const& semanticName, uint32_t sematicIndex = 0)
 	{
-		return { 0, offset, format, semanticName };
+		return { 0, offset, format, semanticName, sematicIndex };
 	}
 };
 

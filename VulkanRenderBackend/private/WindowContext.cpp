@@ -377,12 +377,15 @@ namespace graphics_backend
 			true,
 			nullptr);
 
-		m_TextureDesc.width = swapchainExtent.width;
-		m_TextureDesc.height = swapchainExtent.height;
-		m_TextureDesc.layers = 1;
-		m_TextureDesc.mipLevels = 1;
-		m_TextureDesc.accessType = (ETextureAccessType::eRT | ETextureAccessType::eTransferDst);
-		m_TextureDesc.format = VkFotmatToETextureFormat(format);
+		m_TextureDesc = GPUTextureDescriptor::Create(swapchainExtent.width
+			, swapchainExtent.height
+			, VkFotmatToETextureFormat(format)
+			, (ETextureAccessType::eRT | ETextureAccessType::eTransferDst)
+			, ETextureType::e2D
+			, 1
+			, 1
+			, EMultiSampleCount::e1
+		);
 
 		uint32_t graphicsFamily = GetVulkanApplication().GetSubmitCounterContext().GetGraphicsQueueRef().first;
 

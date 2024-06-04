@@ -530,6 +530,7 @@ namespace ShaderCompilerSlang
 					newAttribute.m_Location = location;
 					newAttribute.m_Name = param->getName();
 					newAttribute.m_SematicName = param->getSemanticName();
+					newAttribute.m_SematicIndex = param->getSemanticIndex();
 					results.push_back(newAttribute);
 				}
 			}

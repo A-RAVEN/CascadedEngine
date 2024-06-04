@@ -12,7 +12,7 @@
 // }
 // ParameterBlock<Textures> textures;
 
-float4 TestColor;
+static float4 TestColor;
 
 struct VertexToFragment
 {

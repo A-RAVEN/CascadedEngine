@@ -27,12 +27,13 @@ namespace graphics_backend
 	void CShaderModuleObject::Create(ShaderSourceInfo const& shaderSourceInfo)
 	{
 		m_EntryPointName = shaderSourceInfo.entryPoint;
-		uint32_t codeLength_integer = shaderSourceInfo.dataLength / sizeof(uint32_t);
-		vk::ShaderModuleCreateInfo shaderModuelCreateInfo(
-			{}
-			, codeLength_integer
+		//size_t codeLength_integer = shaderSourceInfo.dataLength / sizeof(uint32_t);
+		vk::ShaderModuleCreateInfo shaderModuelCreateInfo{
+			vk::ShaderModuleCreateFlags{}
+			, shaderSourceInfo.dataLength
 			, static_cast<uint32_t const*>(shaderSourceInfo.dataPtr)
-		);
+			, nullptr
+		};
 		m_ShaderModule = GetDevice().createShaderModule(shaderModuelCreateInfo);
 	}
 	void CShaderModuleObject::Release()

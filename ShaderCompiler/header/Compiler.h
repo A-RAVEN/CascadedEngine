@@ -229,6 +229,7 @@ namespace ShaderCompilerSlang
 	{
 		castl::string m_Name;
 		castl::string m_SematicName;
+		uint32_t m_SematicIndex;
 		uint32_t m_Location;
 	};
 

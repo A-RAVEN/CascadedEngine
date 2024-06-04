@@ -1,8 +1,19 @@
 #include "pch.h"
 #include "VulkanBarrierCollector.h"
+#include <GPUContexts/QueueContext.h>
 
 namespace graphics_backend
 {
+	vk::PipelineStageFlags SanitizeSrcPipelienStageFlags(vk::PipelineStageFlags inFLags)
+	{
+		return inFLags == vk::PipelineStageFlags{ 0 } ? vk::PipelineStageFlagBits::eAllCommands : inFLags;
+	}
+
+	vk::PipelineStageFlags SanitizePipelienStageFlags(vk::PipelineStageFlags inFLags)
+	{
+		return inFLags == vk::PipelineStageFlags{0} ? vk::PipelineStageFlagBits::eAllCommands : inFLags;
+	}
+
 	void VulkanBarrierCollector::PushImageBarrier(vk::Image image
 		, ETextureFormat format
 		, ResourceUsageFlags sourceUsage
@@ -22,10 +33,13 @@ namespace graphics_backend
 		{
 			return;
 		}
+
+
 		ResourceUsageVulkanInfo sourceInfo = GetUsageInfo(sourceUsage);
 		ResourceUsageVulkanInfo destInfo = GetUsageInfo(destUsage);
 
-		auto key = castl::make_tuple(sourceInfo.m_UsageStageMask, destInfo.m_UsageStageMask);
+		auto key = castl::make_tuple(SanitizePipelienStageFlags(sourceInfo.m_UsageStageMask & m_StageMasks)
+			, SanitizePipelienStageFlags(destInfo.m_UsageStageMask & m_StageMasks));
 		auto found = m_ReleaseBarrierGroups.find(key);
 		if (found == m_ReleaseBarrierGroups.end())
 		{
@@ -45,7 +59,8 @@ namespace graphics_backend
 		ResourceUsageVulkanInfo sourceInfo = GetUsageInfo(sourceUsage);
 		ResourceUsageVulkanInfo destInfo = GetUsageInfo(destUsage);
 
-		auto key = castl::make_tuple(sourceInfo.m_UsageStageMask, destInfo.m_UsageStageMask);
+		auto key = castl::make_tuple(SanitizePipelienStageFlags(sourceInfo.m_UsageStageMask & m_StageMasks)
+			, SanitizePipelienStageFlags(destInfo.m_UsageStageMask & m_StageMasks));
 		auto found = m_ReleaseBarrierGroups.find(key);
 		if (found == m_ReleaseBarrierGroups.end())
 		{
@@ -60,7 +75,8 @@ namespace graphics_backend
 		ResourceUsageVulkanInfo sourceInfo = GetUsageInfo(sourceUsage);
 		ResourceUsageVulkanInfo destInfo = GetUsageInfo(destUsage);
 
-		auto key = castl::make_tuple(sourceInfo.m_UsageStageMask, destInfo.m_UsageStageMask);
+		auto key = castl::make_tuple(SanitizePipelienStageFlags(sourceInfo.m_UsageStageMask & m_StageMasks)
+			, SanitizePipelienStageFlags(destInfo.m_UsageStageMask & m_StageMasks));
 		auto found = m_BarrierGroups.find(key);
 		if (found == m_BarrierGroups.end())
 		{
@@ -75,7 +91,8 @@ namespace graphics_backend
 		ResourceUsageVulkanInfo sourceInfo = GetUsageInfo(sourceUsage);
 		ResourceUsageVulkanInfo destInfo = GetUsageInfo(destUsage);
 
-		auto key = castl::make_tuple(sourceInfo.m_UsageStageMask, destInfo.m_UsageStageMask);
+		auto key = castl::make_tuple(SanitizePipelienStageFlags(sourceInfo.m_UsageStageMask & m_StageMasks)
+			, SanitizePipelienStageFlags(destInfo.m_UsageStageMask & m_StageMasks));
 		auto found = m_BarrierGroups.find(key);
 		if (found == m_BarrierGroups.end())
 		{

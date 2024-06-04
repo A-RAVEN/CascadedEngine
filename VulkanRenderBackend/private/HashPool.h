@@ -26,7 +26,7 @@ namespace graphics_backend
 		HashPool() = delete;
 		HashPool(HashPool const& other) = delete;
 		HashPool& operator=(HashPool const&) = delete;
-		HashPool(HashPool&& other)
+		HashPool(HashPool&& other) noexcept : VKAppSubObjectBaseNoCopy(other.GetVulkanApplication())
 		{
 			castl::lock_guard<castl::mutex> lockGuard(other.m_Mutex);
 			m_InternalMap = castl::move(other.m_InternalMap);

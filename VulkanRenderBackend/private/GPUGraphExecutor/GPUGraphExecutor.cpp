@@ -85,7 +85,7 @@ namespace graphics_backend
 		CVertexInputDescriptor result;
 		result.assemblyStates = assemblyStates;
 
-		result.m_PrimitiveDescriptions.resize(vertexAttributes.size());
+		//result.m_PrimitiveDescriptions.resize(vertexAttributes.size());
 
 		for (auto& attributeData : vertexAttributes)
 		{
@@ -97,7 +97,7 @@ namespace graphics_backend
 				CA_ASSERT(foundAttribDesc != vertexAttributeDescs.end(), "Attribute Descriptor Not Found");
 				for (auto& attribute : foundAttribDesc->second.attributes)
 				{
-					if (attribute.semanticName == attributeData.m_SematicName)
+					if ((attribute.semanticName == attributeData.m_SematicName) && (attribute.sematicIndex == attributeData.m_SematicIndex))
 					{
 						auto found = inoutBindingNameToIndex.find(boundAttribDescName);
 						if (found == inoutBindingNameToIndex.end())
@@ -110,10 +110,23 @@ namespace graphics_backend
 						}
 						found->second.attributes.push_back(VertexAttribute{ attributeData.m_Location , attribute.offset, attribute.format });
 						attribBindingFound = true;
+						break;
 					}
 				}
+				if (attribBindingFound)
+				{
+					break;
+				}
 			}
-			CA_ASSERT(attribBindingFound, "Attribute With Semantic Not Found");
+			CA_ASSERT(attribBindingFound, "Attribute With Semantic" + attributeData.m_SematicName + "Not Found");
+		}
+		for (auto pair : inoutBindingNameToIndex)
+		{
+			if (result.m_PrimitiveDescriptions.size() <= pair.second.bindingIndex)
+			{
+				result.m_PrimitiveDescriptions.resize(pair.second.bindingIndex + 1);
+			}
+			result.m_PrimitiveDescriptions[pair.second.bindingIndex] = castl::make_tuple(pair.second.stride, pair.second.attributes, pair.second.bInstance);
 		}
 
 		return result;
@@ -496,7 +509,7 @@ namespace graphics_backend
 				//Different Queue Needs Release barrier
 				if (NeedReleaseBarrier(initUsageState, newUsageState))
 				{
-					auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(initUsageState.queueFamily);
+					auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(GetVulkanApplication(), initUsageState.queueFamily);
 					releaser.barrierCollector.PushBufferReleaseBarrier(newUsageState.queueFamily, GetBufferHandleBufferObject(handle), initUsageState.usage, newUsageState.usage);
 					passInfo->m_WaitingQueueFamilies.insert(initUsageState.queueFamily);
 				}
@@ -518,7 +531,7 @@ namespace graphics_backend
 					//Different Queue Needs Release barrier
 					if (NeedReleaseBarrier(initUsageState, newUsageState))
 					{
-						auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(initUsageState.queueFamily);
+						auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(GetVulkanApplication(), initUsageState.queueFamily);
 						auto pDesc = GetTextureHandleDescriptor(handle);
 						releaser.barrierCollector.PushImageReleaseBarrier(newUsageState.queueFamily, GetTextureHandleImageObject(handle), pDesc->format, initUsageState.usage, newUsageState.usage);
 						passInfo->m_WaitingQueueFamilies.insert(initUsageState.queueFamily);
@@ -853,6 +866,7 @@ namespace graphics_backend
 					GPUPassBatchInfo& newBatchInfo = passInfo.m_Batches[batchID];
 					newBatchInfo.m_ShaderBindingInstance.WriteShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, *batch.shaderArgs.get());
 				}
+				writeConstantsCommand.end();
 				m_CommandBuffers.push_back(writeConstantsCommand);
 			}
 
@@ -890,7 +904,7 @@ namespace graphics_backend
 					auto& drawcallBatchs = renderPass.GetDrawCallBatches();
 					//Barriers
 					{
-						renderPassData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetGraphicsQueueFamily());
+						renderPassData.m_BarrierCollector.SetCurrentQueueFamilyIndex( GetQueueContext().GetGraphicsPipelineStageMask(), GetQueueContext().GetGraphicsQueueFamily());
 
 						for (size_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 						{
@@ -912,7 +926,7 @@ namespace graphics_backend
 				{
 					m_TransferPasses.emplace_back();
 					GPUTransferInfo& transfersData = m_TransferPasses.back();
-					transfersData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetTransferQueueFamily());
+					transfersData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetTransferPipelineStageMask(), GetQueueContext().GetTransferQueueFamily());
 					auto& transfersInfo = dataTransfers[realPassID];
 					CA_ASSERT(realPassID == currentTransferPassIndex, "Render Pass Index Mismatch");
 					++currentTransferPassIndex;
@@ -957,6 +971,7 @@ namespace graphics_backend
 				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
 				vk::CommandBuffer externalResourceReleaseBarriers = cmdPool->AllocCommand(pair.first, "Data Transfer");
 				releaser.barrierCollector.ExecuteReleaseBarrier(externalResourceReleaseBarriers);
+				externalResourceReleaseBarriers.end();
 				releaser.commandBuffer = externalResourceReleaseBarriers;
 			}
 		}
@@ -994,6 +1009,8 @@ namespace graphics_backend
 							, passData.m_ClearValues
 						}
 					, vk::SubpassContents::eInline);
+
+					renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, passData.m_Batches[0].m_PSO->GetPipeline());
 
 					CommandList_Impl commandList{ renderPassCommandBuffer };
 
@@ -1114,5 +1131,19 @@ namespace graphics_backend
 			auto imgObj = pResourcePool->CreateImageWithMemory(descriptor);
 			m_Images.push_back(castl::move(imgObj));
 		}
+	}
+	GPUGraphExecutor::ExternalResourceReleaser& GPUGraphExecutor::ExternalResourceReleasingBarriers::GetQueueFamilyReleaser(CVulkanApplication& app, uint32_t queueFamily)
+	{
+		auto found = queueFamilyToBarrierCollector.find(queueFamily);
+		if (found == queueFamilyToBarrierCollector.end())
+		{
+			ExternalResourceReleaser newReleaser{};
+			newReleaser.barrierCollector = VulkanBarrierCollector{ app.GetQueueContext().QueueFamilyIndexToPipelineStageMask(queueFamily)
+				, queueFamily };
+			newReleaser.commandBuffer = { nullptr };
+			newReleaser.signalSemaphore = { nullptr };
+			found = queueFamilyToBarrierCollector.insert(castl::make_pair(queueFamily, newReleaser)).first;
+		}
+		return found->second;
 	}
 }
