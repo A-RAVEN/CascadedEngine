@@ -66,7 +66,7 @@ namespace ShaderCompilerSlang
 	{
 		uint32_t m_BindingIndex;
 		//UniformGroup
-		castl::vector<UniformGroup> m_Groups = { {} };
+		castl::vector<UniformGroup> m_Groups;
 
 		void Init(uint32_t bindingIndex)
 		{

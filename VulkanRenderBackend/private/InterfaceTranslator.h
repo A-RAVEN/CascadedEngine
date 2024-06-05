@@ -398,9 +398,9 @@ namespace graphics_backend
 		switch (inFrontFace)
 		{
 		case EFrontFace::eClockWise: 
-			return vk::FrontFace::eCounterClockwise;
-		case EFrontFace::eCounterClockWise: 
 			return vk::FrontFace::eClockwise;
+		case EFrontFace::eCounterClockWise:
+			return vk::FrontFace::eCounterClockwise;
 		default: return vk::FrontFace::eCounterClockwise;
 		}
 	}

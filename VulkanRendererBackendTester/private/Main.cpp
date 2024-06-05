@@ -27,6 +27,7 @@
 #include "TextureResource.h"
 #include "IMGUIContext.h"
 #include <GPUGraph.h>
+#include <TextureSampler.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -71,11 +72,11 @@ int main(int argc, char *argv[])
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
-	ShaderResrouce* pGeneralShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
-		{
-			*ppResource = result;
-		});
+	//ShaderResrouce* pGeneralShaderResource = nullptr;
+	//pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
+	//	{
+	//		*ppResource = result;
+	//	});
 
 	ShaderResrouce* pFinalBlitShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testFinalBlit.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
@@ -127,18 +128,23 @@ int main(int argc, char *argv[])
 	auto indexBuffer = pBackend->CreateGPUBuffer(
 		EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
 
+	auto texture = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource0->GetWidth(), pTextureResource0->GetHeight(), pTextureResource0->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
+
 	pThreadManager->OneTime([
 		vertexBuffer,
 		indexBuffer,
+		pTextureResource0,
 		&vertexDataList,
 		&indexDataList,
+		&texture,
 		pBackend
 	](auto setup)
 	{
-		setup->ForceRunOnMainThread();
+		//setup->ForceRunOnMainThread();
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
 		submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
+		submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
 		GPUFrame submitFrame{};
 		submitFrame.pGraph = submitGraph;
 		pBackend->ScheduleGPUFrame(setup, submitFrame);
@@ -156,34 +162,45 @@ int main(int argc, char *argv[])
 		}
 	);
 
+	castl::shared_ptr<ShaderArgList> textureArgList = castl::make_shared<ShaderArgList>();
+	textureArgList->SetImage("SourceTexture", texture);
+	textureArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
+
 	pThreadManager->LoopFunction([
 				pBackend
 				, windowHandle
 				, pRenderInterface
 				, pFinalBlitShaderResource
-				, &vertexDataList
-				, &indexDataList
+				, &vertexBuffer
+				, &indexBuffer
 				, &vertexInputDesc
+				, &textureArgList
+				, pTextureResource1
 	](auto setup)
 	{
 		setup->ForceRunOnMainThread();
 		castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
 		shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+		shaderArgList->SetSubArgList("textures", textureArgList);
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-		BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
-		BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
-		newGraph->AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, 4, sizeof(VertexData)))
-			.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, 6, sizeof(uint16_t)))
-			.ScheduleData(vertexBufferHandle, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]))
-			.ScheduleData(indexBufferHandle, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]))
+		//BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
+		//BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
+		ImageHandle tempTextureHandle{"TempTexture" };
+		shaderArgList->SetImage("SourceTexture1", tempTextureHandle, GPUTextureView::CreateDefaultForSampling(pTextureResource1->GetFormat()));
+		newGraph->//AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, 4, sizeof(VertexData)))
+			//.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, 6, sizeof(uint16_t)))
+			//.ScheduleData(vertexBufferHandle, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]))
+			//.ScheduleData(indexBufferHandle, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]))
+			AllocImage(tempTextureHandle, GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst))
+			.ScheduleData(tempTextureHandle, pTextureResource1->GetData(), pTextureResource1->GetDataSize())
 			.NewRenderPass(windowHandle)
 				.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
 				.SetPipelineState({})
 				.SetShaderArguments(shaderArgList)
 				.SetShaders(pFinalBlitShaderResource)
 				.DrawCall()
-					.SetVertexBuffer("QuadDesc", vertexBufferHandle)
-					.SetIndexBuffer(EIndexBufferType::e16, indexBufferHandle, 0)
+					.SetVertexBuffer("QuadDesc", vertexBuffer)
+					.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
 					.Draw([](CommandList& commandList)
 						{
 							commandList.DrawIndexed(6);

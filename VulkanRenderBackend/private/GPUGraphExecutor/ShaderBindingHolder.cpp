@@ -259,13 +259,30 @@ namespace graphics_backend
 			//Non Uniform Buffer Resources
 			if (!sourceSet.m_ResourceGroups.empty())
 			{
-				WriteResources(
-					application
-					, shaderArgList
-					, resourceProvider
-					, sourceSet
-					, 0
-					, writer);
+				if (sourceSet.m_ResourceGroups[0].m_Name != "__Global")
+				{
+					auto found = shaderArgList.FindSubArgList(sourceSet.m_ResourceGroups[0].m_Name);
+					if (found)
+					{
+						WriteResources(
+							application
+							, *found
+							, resourceProvider
+							, sourceSet
+							, 0
+							, writer);
+					}
+				}
+				else
+				{
+					WriteResources(
+						application
+						, shaderArgList
+						, resourceProvider
+						, sourceSet
+						, 0
+						, writer);
+				}
 			}
 
 			writer.Apply(application.GetDevice());

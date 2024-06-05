@@ -58,6 +58,12 @@ namespace graphics_backend
 			return *this;
 		}
 
+		inline ShaderArgList& SetImage(castl::string const& name
+			, castl::shared_ptr<GPUTexture> const& pImage)
+		{
+			return SetImage(name, pImage, GPUTextureView::CreateDefaultForSampling(pImage->GetDescriptor().format));
+		}
+
 		inline ShaderArgList& SetBuffer(castl::string const& name
 			, BufferHandle const& bufferHandle)
 		{

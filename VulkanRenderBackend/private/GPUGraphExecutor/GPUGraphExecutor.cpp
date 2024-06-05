@@ -377,21 +377,19 @@ namespace graphics_backend
 		for (uint32_t passID = 0; passID < graphStages.size(); ++passID)
 		{
 			auto pass = GetBasePassInfo(passID);
+			uint32_t startCommandID = m_FinalCommandBuffers.size();
 			for (vk::CommandBuffer cmd : pass->m_CommandBuffers)
 			{
 				m_FinalCommandBuffers.push_back(cmd);
 			}
 			uint32_t lastCommandID = m_FinalCommandBuffers.size() - 1;
 			uint32_t queueFamilyID = pass->m_BarrierCollector.GetQueueFamily();
-			if (lastBatch->queueFamilyIndex == queueFamilyID)
+			if (lastBatch->queueFamilyIndex != queueFamilyID)
 			{
-				lastBatch->lastCommand = castl::max(lastBatch->lastCommand, lastCommandID);
-			}
-			else
-			{
-				m_CommandBufferBatchList.push_back(CommandBatchRange::Create(pass->m_BarrierCollector.GetQueueFamily(), lastCommandID));
+				m_CommandBufferBatchList.push_back(CommandBatchRange::Create(pass->m_BarrierCollector.GetQueueFamily(), startCommandID));
 				lastBatch = &m_CommandBufferBatchList.back();
 			}
+			lastBatch->lastCommand = castl::max(lastBatch->lastCommand, lastCommandID);
 
 			lastBatch->hasSuccessor = lastBatch->hasSuccessor || (pass->m_SuccessorPasses.size() > 0);
 			for (uint32_t predPassID : pass->m_PredecessorPasses)
@@ -1019,14 +1017,21 @@ namespace graphics_backend
 
 					renderPassCommandBuffer.setViewport(0, { vk::Viewport(0.0f, 0.0f, (float)passData.m_FrameBufferObject->GetWidth(), (float)passData.m_FrameBufferObject->GetHeight(), 0.0f, 1.0f) });
 					renderPassCommandBuffer.setScissor(0, { vk::Rect2D({0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }) });
-					renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, passData.m_Batches[0].m_PSO->GetPipeline());
 
+					
 					CommandList_Impl commandList{ renderPassCommandBuffer };
 
+					//castl::vector<uint32_t> bufferOffsets;
 					for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 					{
 						auto& batchData = batchDatas[batchID];
 						auto& drawcallBatch = drawcallBatchs[batchID];
+
+						renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipeline());
+						
+	/*					bufferOffsets.resize(batchData.m_ShaderBindingInstance.m_DescriptorSets.size());
+						castl::fill(bufferOffsets.begin(), bufferOffsets.end(), 0);*/
+						renderPassCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipelineLayout(), 0, batchData.m_ShaderBindingInstance.m_DescriptorSets, {});
 
 						if (drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
 						{

@@ -286,7 +286,7 @@ namespace graphics_backend
 		{
 			m_DataTransfers.emplace_back();
 		}
-		m_DataTransfers.back().m_ImageDataUploads.push_back({ imageHandle, data, size, offset });
+		m_DataTransfers.back().m_ImageDataUploads.push_back({ imageHandle, data, offset, size });
 		return *this;
 	}
 	GPUGraph& GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset)
