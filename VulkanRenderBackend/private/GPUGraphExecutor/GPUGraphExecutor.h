@@ -36,6 +36,7 @@ namespace graphics_backend
 		castl::set<uint32_t> m_PredecessorPasses;
 		castl::set<uint32_t> m_SuccessorPasses;
 		castl::set<uint32_t> m_WaitingQueueFamilies;
+		castl::vector<vk::CommandBuffer> m_CommandBuffers;
 		int GetQueueFamily() const { return m_BarrierCollector.GetQueueFamily(); }
 	};
 
@@ -45,6 +46,7 @@ namespace graphics_backend
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
 		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
+
 	};
 
 	struct GPUTransferInfo : public PassInfoBase
@@ -264,8 +266,8 @@ namespace graphics_backend
 	struct CommandBatchRange
 	{
 		uint32_t queueFamilyIndex;
-		uint32_t firstPass;
-		uint32_t lastPass;
+		uint32_t firstCommand;
+		uint32_t lastCommand;
 		vk::Semaphore signalSemaphore;
 		castl::vector<vk::Semaphore> waitSemaphores;
 		castl::vector<vk::PipelineStageFlags> waitStages;
@@ -274,11 +276,11 @@ namespace graphics_backend
 		castl::set<uint32_t> waitingBatch;
 		castl::set<uint32_t> waitingQueueFamilyReleaser;
 
-		static CommandBatchRange Create(uint32_t queueFamilyIndex, uint32_t startPassID)
+		static CommandBatchRange Create(uint32_t queueFamilyIndex, uint32_t startCommandID)
 		{
 			CommandBatchRange result{};
 			result.queueFamilyIndex = queueFamilyIndex;
-			result.firstPass = result.lastPass = startPassID;
+			result.firstCommand = result.lastCommand = startCommandID;
 			result.hasSuccessor = false;
 			return result;
 		}
@@ -340,7 +342,7 @@ namespace graphics_backend
 		virtual vk::Buffer GetBufferFromHandle(BufferHandle const& handle) override { return GetBufferHandleBufferObject(handle); }
 		virtual vk::ImageView GetImageView(ImageHandle const& handle, GPUTextureView const& view) override { return GetTextureHandleImageView(handle, view);  }
 	
-		castl::vector<vk::CommandBuffer> const& GetCommandBufferList() const { return m_CommandBuffers; }
+		castl::vector<vk::CommandBuffer> const& GetCommandBufferList() const { return m_FinalCommandBuffers; }
 		castl::vector<CommandBatchRange> const& GetCommandBufferBatchList() const { return m_CommandBufferBatchList; }
 
 		void UpdateExternalBufferUsage(PassInfoBase* passInfo, BufferHandle const& handle, ResourceState const& initUsageState, ResourceState const& newUsageState);
@@ -381,8 +383,7 @@ namespace graphics_backend
 		castl::unordered_map<BufferHandle, ResourceState> m_ExternBufferFinalUsageStates;
 
 		//Command Buffers
-		castl::vector<vk::CommandBuffer> m_CommandBuffers;
-		castl::vector<vk::PipelineStageFlags> m_CommandFinishStages;
+		castl::vector<vk::CommandBuffer> m_FinalCommandBuffers;
 		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
 		castl::vector<vk::Semaphore> m_LeafBatchSemaphores;
 		castl::vector<vk::PipelineStageFlags> m_LeafBatchFinishStageFlags;

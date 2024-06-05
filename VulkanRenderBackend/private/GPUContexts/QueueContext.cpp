@@ -56,6 +56,7 @@ namespace graphics_backend
 			{
 				m_GraphicsQueueFamilyIndex = familyId;
 				m_GraphicsStageMask = ~vk::PipelineStageFlags{ 0 };
+				CA_LOG_ERR("General Queue Is " + castl::to_string(m_GraphicsQueueFamilyIndex));
 			}
 			else
 			{
@@ -63,11 +64,13 @@ namespace graphics_backend
 				{
 					m_ComputeQueueFamilyIndex = familyId;
 					m_ComputeStageMask = computeFlags;
+					CA_LOG_ERR("Compute Queue Is " + castl::to_string(m_ComputeQueueFamilyIndex));
 				}
 				else if (itrProp.queueFlags & vk::QueueFlagBits::eTransfer)
 				{
 					m_TransferQueueFamilyIndex = familyId;
 					m_TransferStageMask = transferFlags;
+					CA_LOG_ERR("Transfer Queue Is " + castl::to_string(m_TransferQueueFamilyIndex));
 				}
 				else
 				{
@@ -96,11 +99,15 @@ namespace graphics_backend
 		vk::SubmitInfo submitInfo(waitSemaphores, waitStages, commandbuffers, signalSemaphores);
 		GetDevice().getQueue(familyIndex, queueIndex).submit(submitInfo, fence);
 	}
+	bool QueueContext::QueueFamilySupportsPresent(vk::SurfaceKHR surface, int familyIndex) const
+	{
+		return GetPhysicalDevice().getSurfaceSupportKHR(familyIndex, surface);
+	}
 	int QueueContext::FindPresentQueueFamily(vk::SurfaceKHR surface) const
 	{
 		for (auto& queueFamily : m_QueueFamilyList)
 		{
-			if (GetPhysicalDevice().getSurfaceSupportKHR(queueFamily.m_FamilyIndex, surface))
+			if (QueueFamilySupportsPresent(surface, queueFamily.m_FamilyIndex))
 			{
 				return queueFamily.m_FamilyIndex;
 			}

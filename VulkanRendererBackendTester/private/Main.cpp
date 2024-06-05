@@ -134,16 +134,15 @@ int main(int argc, char *argv[])
 		&indexDataList,
 		pBackend
 	](auto setup)
-		{
-			//setup->ForceRunOnMainThread();
-			castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
-			submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
-			submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
-			GPUFrame submitFrame{};
-			submitFrame.pGraph = submitGraph;
-			pBackend->ScheduleGPUFrame(setup, submitFrame);
-		}
-, "");
+	{
+		setup->ForceRunOnMainThread();
+		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
+		submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
+		GPUFrame submitFrame{};
+		submitFrame.pGraph = submitGraph;
+		pBackend->ScheduleGPUFrame(setup, submitFrame);
+	}, "");
 
 
 
@@ -192,7 +191,7 @@ int main(int argc, char *argv[])
 
 		GPUFrame gpuFrame{};
 		gpuFrame.pGraph = newGraph;
-		//gpuFrame.presentWindows.push_back(windowHandle);
+		gpuFrame.presentWindows.push_back(windowHandle);
 		pBackend->ScheduleGPUFrame(setup, gpuFrame);
 		return true;
 	}, "FullGraph");

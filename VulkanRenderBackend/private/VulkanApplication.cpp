@@ -22,6 +22,7 @@ namespace graphics_backend
 			->Name("Run GPU Frame")
 			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
 			{
+				TickWindowContexts();
 				auto frameManager =	m_FrameContext.GetFrameBoundResourceManager();
 				frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
 				if(gpuFrame.pGraph != nullptr)
@@ -35,7 +36,7 @@ namespace graphics_backend
 					for (auto& window : gpuFrame.presentWindows)
 					{
 						auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
-						windowContext->PresentCurrentFrame();
+						windowContext->PresentFrame(frameManager);
 					}
 				}
 				frameManager->HostFinish();
@@ -433,9 +434,8 @@ namespace graphics_backend
 
 	void CVulkanApplication::TickWindowContexts()
 	{
-		FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
+		//FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
 		CWindowContext::UpdateMonitors();
-		//CA_LOG_ERR(castl::string("windows count ") + castl::to_string(m_WindowContexts.size()));
 		
 		glfwPollEvents();
 		//glfwWaitEvents();
@@ -478,7 +478,7 @@ namespace graphics_backend
 		{
 			for (auto& windowContext : m_WindowContexts)
 			{
-				windowContext->Resize(currentFrameID);
+				windowContext->Resize();
 			}
 		}
 	}

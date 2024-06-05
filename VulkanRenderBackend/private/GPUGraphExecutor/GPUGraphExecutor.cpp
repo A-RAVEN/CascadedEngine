@@ -360,8 +360,6 @@ namespace graphics_backend
 
 	void GPUGraphExecutor::ScanCommandBatchs()
 	{
-		if (m_CommandBuffers.size() == 0)
-			return;
 
 		for (auto& pair : m_ExternalResourceReleasingBarriers.queueFamilyToBarrierCollector)
 		{
@@ -370,24 +368,28 @@ namespace graphics_backend
 			releaser.signalSemaphore = m_FrameBoundResourceManager->semaphorePool.AllocSemaphore();
 		}
 
-		castl::vector<uint32_t> passToBatchID;
-		passToBatchID.resize(m_CommandBuffers.size());
 		auto& graphStages = m_Graph->GetGraphStages();
-		CA_ASSERT(graphStages.size() == m_CommandBuffers.size(), "Invalid Pass Command Count");
+		castl::vector<uint32_t> passToBatchID;
+		passToBatchID.resize(graphStages.size());
 		m_CommandBufferBatchList.clear();
 		m_CommandBufferBatchList.push_back(CommandBatchRange::Create(GetBasePassInfo(0)->m_BarrierCollector.GetQueueFamily(), 0));
 		auto lastBatch = &m_CommandBufferBatchList.back();
 		for (uint32_t passID = 0; passID < graphStages.size(); ++passID)
 		{
 			auto pass = GetBasePassInfo(passID);
+			for (vk::CommandBuffer cmd : pass->m_CommandBuffers)
+			{
+				m_FinalCommandBuffers.push_back(cmd);
+			}
+			uint32_t lastCommandID = m_FinalCommandBuffers.size() - 1;
 			uint32_t queueFamilyID = pass->m_BarrierCollector.GetQueueFamily();
 			if (lastBatch->queueFamilyIndex == queueFamilyID)
 			{
-				lastBatch->lastPass = castl::max(lastBatch->lastPass, passID);
+				lastBatch->lastCommand = castl::max(lastBatch->lastCommand, lastCommandID);
 			}
 			else
 			{
-				m_CommandBufferBatchList.push_back(CommandBatchRange::Create(pass->m_BarrierCollector.GetQueueFamily(), passID));
+				m_CommandBufferBatchList.push_back(CommandBatchRange::Create(pass->m_BarrierCollector.GetQueueFamily(), lastCommandID));
 				lastBatch = &m_CommandBufferBatchList.back();
 			}
 
@@ -444,8 +446,8 @@ namespace graphics_backend
 		}
 		for (auto& batch : m_CommandBufferBatchList)
 		{
-			vk::CommandBuffer* pCommand = &m_CommandBuffers[batch.firstPass];
-			uint32_t count = batch.lastPass - batch.firstPass + 1;
+			vk::CommandBuffer* pCommand = &m_FinalCommandBuffers[batch.firstCommand];
+			uint32_t count = batch.lastCommand - batch.firstCommand + 1;
 			vk::ArrayProxyNoTemporaries<vk::CommandBuffer> proxy = { count, pCommand };
 			GetQueueContext().SubmitCommands(batch.queueFamilyIndex
 				, 0
@@ -703,8 +705,7 @@ namespace graphics_backend
 		m_ExternImageFinalUsageStates.clear();
 		m_ExternalResourceReleasingBarriers.Release();
 		//Command Buffers
-		m_CommandBuffers.clear();
-		m_CommandFinishStages.clear();
+		m_FinalCommandBuffers.clear();
 		m_CommandBufferBatchList.clear();
 		m_LeafBatchSemaphores.clear();
 		m_LeafBatchFinishStageFlags.clear();
@@ -867,7 +868,7 @@ namespace graphics_backend
 					newBatchInfo.m_ShaderBindingInstance.WriteShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, *batch.shaderArgs.get());
 				}
 				writeConstantsCommand.end();
-				m_CommandBuffers.push_back(writeConstantsCommand);
+				passInfo.m_CommandBuffers.push_back(writeConstantsCommand);
 			}
 
 			m_Passes.push_back(passInfo);
@@ -912,6 +913,11 @@ namespace graphics_backend
 							auto& batchData = renderPassData.m_Batches[batchID];
 							PrepareVertexBuffersBarriers(renderPassData.m_BarrierCollector, bufferUsageFlagCache, batch, batchData, passID);
 							PrepareShaderArgsResourceBarriers(renderPassData.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get(), passID);
+							
+							for (auto& bufferObject : batchData.m_ShaderBindingInstance.m_UniformBuffers)
+							{
+								renderPassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead);
+							}
 						}
 						for (size_t i = 0; i < attachments.size(); ++i)
 						{
@@ -1010,6 +1016,8 @@ namespace graphics_backend
 						}
 					, vk::SubpassContents::eInline);
 
+					renderPassCommandBuffer.setViewport(0, { vk::Viewport(0.0f, 0.0f, (float)passData.m_FrameBufferObject->GetWidth(), (float)passData.m_FrameBufferObject->GetHeight(), 0.0f, 1.0f) });
+					renderPassCommandBuffer.setScissor(0, { vk::Rect2D({0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }) });
 					renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, passData.m_Batches[0].m_PSO->GetPipeline());
 
 					CommandList_Impl commandList{ renderPassCommandBuffer };
@@ -1044,8 +1052,7 @@ namespace graphics_backend
 					renderPassCommandBuffer.endRenderPass();
 					passData.m_BarrierCollector.ExecuteReleaseBarrier(renderPassCommandBuffer);
 					renderPassCommandBuffer.end();
-					m_CommandBuffers.push_back(renderPassCommandBuffer);
-					m_CommandFinishStages.push_back(vk::PipelineStageFlagBits::eAllGraphics);
+					passData.m_CommandBuffers.push_back(renderPassCommandBuffer);
 					break;
 				}
 				case GPUGraph::EGraphStageType::eTransferPass:
@@ -1104,8 +1111,7 @@ namespace graphics_backend
 
 					transfersData.m_BarrierCollector.ExecuteReleaseBarrier(dataTransferCommandBuffer);
 					dataTransferCommandBuffer.end();
-					m_CommandBuffers.push_back(dataTransferCommandBuffer);
-					m_CommandFinishStages.push_back(vk::PipelineStageFlagBits::eTransfer);
+					transfersData.m_CommandBuffers.push_back(dataTransferCommandBuffer);
 					break;
 				}
 			}

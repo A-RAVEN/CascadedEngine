@@ -46,6 +46,7 @@ namespace graphics_backend
 			, vk::ArrayProxyNoTemporaries<const vk::PipelineStageFlags> waitStages = {}
 			, vk::ArrayProxyNoTemporaries<const vk::Semaphore> signalSemaphores = {});
 		
+		bool QueueFamilySupportsPresent(vk::SurfaceKHR surface, int familyIndex) const;
 		int FindPresentQueueFamily(vk::SurfaceKHR surface) const;
 
 		constexpr int GetGraphicsQueueFamily() const

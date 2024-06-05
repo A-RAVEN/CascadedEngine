@@ -181,7 +181,7 @@ namespace graphics_backend
 		m_SwapchainContext.MarkUsages(usages);
 	}
 
-	void CWindowContext::Resize(FrameType resizeFrame)
+	void CWindowContext::Resize()
 	{
 		if (m_Resized)
 		{
@@ -190,7 +190,8 @@ namespace graphics_backend
 			{
 				SwapchainContext newContext(GetVulkanApplication());
 				newContext.Init(m_Width, m_Height, m_Surface, m_SwapchainContext.GetSwapchain(), m_PresentQueue.first);
-				m_PendingReleaseSwapchains.push_back(castl::make_pair(resizeFrame, m_SwapchainContext));
+				//m_PendingReleaseSwapchains.push_back(castl::make_pair(resizeFrame, m_SwapchainContext));
+				m_SwapchainContext.Release();
 				m_SwapchainContext.CopyFrom(newContext);
 			}
 			else
@@ -202,11 +203,11 @@ namespace graphics_backend
 
 	void CWindowContext::TickReleaseResources(FrameType releasingFrame)
 	{
-		while (!m_PendingReleaseSwapchains.empty() && m_PendingReleaseSwapchains.front().first <= releasingFrame)
-		{
-			m_PendingReleaseSwapchains.front().second.Release();
-			m_PendingReleaseSwapchains.pop_front();
-		}
+		//while (!m_PendingReleaseSwapchains.empty() && m_PendingReleaseSwapchains.front().first <= releasingFrame)
+		//{
+		//	m_PendingReleaseSwapchains.front().second.Release();
+		//	m_PendingReleaseSwapchains.pop_front();
+		//}
 	}
 
 	void CWindowContext::UpdateSize()
@@ -320,6 +321,11 @@ namespace graphics_backend
 			, GetCurrentFrameUsageFlags(), ResourceUsage::ePresent);
 	}
 
+	void CWindowContext::PresentFrame(FrameBoundResourcePool* pResourcePool)
+	{
+		m_SwapchainContext.Present(pResourcePool);
+	}
+
 	SwapchainContext::SwapchainContext(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)
 	{
 	}
@@ -331,6 +337,7 @@ namespace graphics_backend
 
 	void SwapchainContext::Init(uint32_t width, uint32_t height, vk::SurfaceKHR surface, vk::SwapchainKHR oldSwapchain, uint32_t presentQueueID)
 	{
+		m_Surface = surface;
 		std::vector<vk::SurfaceFormatKHR> formats = GetPhysicalDevice().getSurfaceFormatsKHR(surface);
 		assert(!formats.empty());
 		vk::Format format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eB8G8R8A8Unorm : formats[0].format;
@@ -409,6 +416,9 @@ namespace graphics_backend
 		}
 		m_WaitFrameDoneSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
 		m_CanPresentSemaphore = GetDevice().createSemaphore(vk::SemaphoreCreateInfo());
+
+		m_WaitingDoneFence = GetDevice().createFence({});
+
 		WaitCurrentFrameBufferIndex();
 	}
 	void SwapchainContext::Release()
@@ -465,11 +475,14 @@ namespace graphics_backend
 		vk::ResultValue<uint32_t> currentBuffer = GetDevice().acquireNextImageKHR(
 			m_Swapchain
 			, castl::numeric_limits<uint64_t>::max()
-			, m_WaitFrameDoneSemaphore, nullptr);
+			, nullptr, m_WaitingDoneFence);
+
 
 		CA_ASSERT(currentBuffer.result == vk::Result::eSuccess, "Aquire Next Swapchain Image Failed!");
 		if (currentBuffer.result == vk::Result::eSuccess)
 		{
+			GetDevice().waitForFences(m_WaitingDoneFence, true, castl::numeric_limits<uint64_t>::max());
+			GetDevice().resetFences(m_WaitingDoneFence);
 			m_CurrentBufferIndex = currentBuffer.value;
 			MarkUsages(ResourceUsage::eDontCare);
 		}
@@ -505,12 +518,75 @@ namespace graphics_backend
 		m_CurrentBufferIndex = other.m_CurrentBufferIndex;
 	}
 
-	void SwapchainContext::Present()
+	void SwapchainContext::Present(FrameBoundResourcePool* resourcePool)
 	{
 		//if frame image is not available or used, we don't need to present
 		if (m_CurrentBufferIndex == INVALID_INDEX || GetCurrentFrameUsageFlags() == ResourceUsage::eDontCare)
 			return;
-		MarkUsages(ResourceUsage::ePresent);
+
+		ResourceUsageFlags lastUsage = m_SwapchainImages[m_CurrentBufferIndex].lastUsages;
+		int lastIndex =  m_SwapchainImages[m_CurrentBufferIndex].lastQueueFamilyIndex;
+		vk::Image pendingImage = m_SwapchainImages[m_CurrentBufferIndex].image;
+
+		if (lastUsage != ResourceUsage::ePresent)
+		{
+			auto commandBufferPool = resourcePool->commandBufferThreadPool.AquireCommandBufferPool();
+
+			if (GetQueueContext().QueueFamilySupportsPresent(m_Surface, lastIndex))
+			{
+				auto stageMask = GetQueueContext().QueueFamilyIndexToPipelineStageMask(lastIndex);
+				VulkanBarrierCollector barrierCollector(stageMask, lastIndex);
+				barrierCollector.PushImageBarrier(pendingImage, m_TextureDesc.format, lastUsage, ResourceUsage::ePresent);
+				auto command = commandBufferPool->AllocCommand(lastIndex, "PresentBarrier");
+				barrierCollector.ExecuteBarrier(command);
+				command.end();
+
+				vk::Semaphore transferDoneSemaphore = resourcePool->semaphorePool.AllocSemaphore();
+				GetQueueContext().SubmitCommands(lastIndex, 0, command, {}, {}, {}, transferDoneSemaphore);
+
+				vk::PresentInfoKHR presenttInfo(
+					transferDoneSemaphore
+					, m_Swapchain
+					, m_CurrentBufferIndex
+				);
+				GetDevice().getQueue(lastIndex, 0).presentKHR(presenttInfo);
+				MarkUsages(ResourceUsage::ePresent, lastIndex);
+			}
+			else
+			{
+				int presentFamilyIndex = GetQueueContext().FindPresentQueueFamily(m_Surface);
+
+				auto srcStageMask = GetQueueContext().QueueFamilyIndexToPipelineStageMask(lastIndex);
+				VulkanBarrierCollector releaseBarrierCollector(srcStageMask, lastIndex);
+				releaseBarrierCollector.PushImageReleaseBarrier(presentFamilyIndex, pendingImage, m_TextureDesc.format, lastUsage, ResourceUsage::ePresent);
+		
+				auto dstStageMask = GetQueueContext().QueueFamilyIndexToPipelineStageMask(presentFamilyIndex);
+				VulkanBarrierCollector aquireBarrierCollector(dstStageMask, presentFamilyIndex);
+				aquireBarrierCollector.PushImageAquireBarrier(lastIndex, pendingImage, m_TextureDesc.format, lastUsage, ResourceUsage::ePresent);
+		
+				auto releaseCommand = commandBufferPool->AllocCommand(lastIndex, "PresentReleaseBarrier");
+				releaseBarrierCollector.ExecuteReleaseBarrier(releaseCommand);
+				releaseCommand.end();
+
+				auto aquireCommand = commandBufferPool->AllocCommand(presentFamilyIndex, "PresentAquireBarrier");
+				aquireBarrierCollector.ExecuteBarrier(aquireCommand);
+				aquireCommand.end();
+
+				vk::Semaphore ownershipTransferSemaphore = resourcePool->semaphorePool.AllocSemaphore();
+				vk::Semaphore transferDoneSemaphore = resourcePool->semaphorePool.AllocSemaphore();
+				auto aquireStageMask = aquireBarrierCollector.GetAquireStageMask();
+				GetQueueContext().SubmitCommands(lastIndex, 0, releaseCommand, {}, {}, {}, ownershipTransferSemaphore);
+				GetQueueContext().SubmitCommands(presentFamilyIndex, 0, aquireCommand, {}, ownershipTransferSemaphore, aquireStageMask, transferDoneSemaphore);
+			
+				vk::PresentInfoKHR presenttInfo(
+					transferDoneSemaphore
+					, m_Swapchain
+					, m_CurrentBufferIndex
+				);
+				GetDevice().getQueue(presentFamilyIndex, 0).presentKHR(presenttInfo);
+				MarkUsages(ResourceUsage::ePresent, presentFamilyIndex);
+			}
+		}
 	}
 
 #define GLFW_VERSION_COMBINED           (GLFW_VERSION_MAJOR * 1000 + GLFW_VERSION_MINOR * 100 + GLFW_VERSION_REVISION)

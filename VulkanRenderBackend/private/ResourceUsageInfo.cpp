@@ -78,7 +78,7 @@ namespace graphics_backend
 		},
 		//ePresent
 		ResourceUsageVulkanInfo{
-			~vk::PipelineStageFlags{0},
+			vk::PipelineStageFlagBits::eAllCommands,
 			vk::AccessFlagBits::eNone,
 			vk::ImageLayout::ePresentSrcKHR,
 		},

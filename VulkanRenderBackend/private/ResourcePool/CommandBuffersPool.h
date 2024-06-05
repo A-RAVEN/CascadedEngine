@@ -35,6 +35,7 @@ namespace graphics_backend
 			void AddNewCommandBuffer(vk::CommandBuffer cmdBuffer)
 			{
 				commandBuffers.push_back(cmdBuffer);
+				++lastUsedIndex;
 			}
 			bool TryGetNextCommandBuffer(vk::CommandBuffer& outCmdBuffer)
 			{

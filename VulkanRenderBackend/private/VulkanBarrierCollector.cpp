@@ -75,6 +75,7 @@ namespace graphics_backend
 		ResourceUsageVulkanInfo sourceInfo = GetUsageInfo(sourceUsage);
 		ResourceUsageVulkanInfo destInfo = GetUsageInfo(destUsage);
 
+		m_AquireStageMask |= destInfo.m_UsageStageMask & m_StageMasks;
 		auto key = castl::make_tuple(SanitizePipelienStageFlags(sourceInfo.m_UsageStageMask & m_StageMasks)
 			, SanitizePipelienStageFlags(destInfo.m_UsageStageMask & m_StageMasks));
 		auto found = m_BarrierGroups.find(key);
@@ -91,6 +92,7 @@ namespace graphics_backend
 		ResourceUsageVulkanInfo sourceInfo = GetUsageInfo(sourceUsage);
 		ResourceUsageVulkanInfo destInfo = GetUsageInfo(destUsage);
 
+		m_AquireStageMask |= destInfo.m_UsageStageMask & m_StageMasks;
 		auto key = castl::make_tuple(SanitizePipelienStageFlags(sourceInfo.m_UsageStageMask & m_StageMasks)
 			, SanitizePipelienStageFlags(destInfo.m_UsageStageMask & m_StageMasks));
 		auto found = m_BarrierGroups.find(key);

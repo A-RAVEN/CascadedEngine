@@ -61,6 +61,7 @@ namespace graphics_backend
 			castl::vector<castl::tuple<ResourceUsageVulkanInfo, ResourceUsageVulkanInfo, vk::Buffer, uint32_t>> m_Buffers;
 		};
 
+		vk::PipelineStageFlags GetAquireStageMask() const { return m_AquireStageMask; }
 	private:
 
 		void ExecuteCurrentQueueBarriers(vk::CommandBuffer commandBuffer);
@@ -72,5 +73,7 @@ namespace graphics_backend
 
 		castl::map<castl::tuple<vk::PipelineStageFlags, vk::PipelineStageFlags>
 			, BarrierGroup> m_ReleaseBarrierGroups;
+
+		vk::PipelineStageFlags m_AquireStageMask = vk::PipelineStageFlags{ 0 };
 	};
 }

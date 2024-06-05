@@ -15,6 +15,7 @@
 namespace graphics_backend
 {
 	class CWindowContext;
+	class FrameBoundResourcePool;
 	class glfwContext
 	{
 	public:
@@ -119,14 +120,17 @@ namespace graphics_backend
 		ResourceUsageFlags GetCurrentFrameUsageFlags() const;
 		int GetCurrentFrameQueueFamily() const;
 		void CopyFrom(SwapchainContext const& other);
-		void Present();
+		void Present(FrameBoundResourcePool* resourcePool);
 	private:
+		vk::SurfaceKHR m_Surface = nullptr;
 		//Swapchain
 		vk::SwapchainKHR m_Swapchain = nullptr;
 		castl::vector<SwapchainImagePage> m_SwapchainImages;
 		//Semaphores
 		vk::Semaphore m_WaitFrameDoneSemaphore = nullptr;
 		vk::Semaphore m_CanPresentSemaphore = nullptr;
+
+		vk::Fence m_WaitingDoneFence = nullptr;
 		//Meta data
 		GPUTextureDescriptor m_TextureDesc;
 		//Index
@@ -180,7 +184,7 @@ namespace graphics_backend
 		constexpr SwapchainContext& GetSwapchainContext() noexcept { return m_SwapchainContext; }
 		constexpr SwapchainContext const& GetSwapchainContext() const noexcept { return m_SwapchainContext; }
 		void MarkUsages(ResourceUsageFlags usages);
-		void Resize(FrameType resizeFrame);
+		void Resize();
 		void TickReleaseResources(FrameType releasingFrame);
 		void UpdateSize();
 		void UpdatePos();
@@ -198,6 +202,9 @@ namespace graphics_backend
 			, castl::vector<vk::Semaphore>& inoutWaitSemaphores
 			, castl::vector<vk::PipelineStageFlags>& inoutWaitStages
 			, castl::vector<vk::Semaphore>& inoutSignalSemaphores);
+
+		void PresentFrame(FrameBoundResourcePool* pResourcePool);
+
 	private:
 		friend class glfwContext;
 		castl::string m_WindowName;
