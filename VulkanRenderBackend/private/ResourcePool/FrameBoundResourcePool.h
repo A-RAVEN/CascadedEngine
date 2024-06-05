@@ -26,6 +26,9 @@ namespace graphics_backend
 			, vk::MemoryPropertyFlags memoryFlags = vk::MemoryPropertyFlagBits::eDeviceLocal, const char* name = "");
 		VKImageObject CreateImageWithMemory(GPUTextureDescriptor const& textureDesc
 			, vk::MemoryPropertyFlags memoryFlags = vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+		void FinalizeSubmit();
+		void AddLeafSempahores(vk::ArrayProxy<vk::Semaphore> semaphores);
 	public:
 		CommandBufferThreadPool commandBufferThreadPool;
 		GPUMemoryResourceManager memoryManager;
@@ -33,9 +36,13 @@ namespace graphics_backend
 		GlobalResourceReleaseQueue releaseQueue;
 		DescriptorPoolDic descriptorPools;
 		SemaphorePool semaphorePool;
+
 	private:
 		vk::Fence m_Fence;
 		castl::mutex m_Mutex;
+
+		castl::vector<vk::Semaphore> m_LeafSemaphores;
+		castl::vector<vk::PipelineStageFlags> m_LeafStageFlags;
 
 		static_assert(std::move_constructible<CommandBufferThreadPool>, "CommandBufferThreadPool Shoule Be Movable");
 		static_assert(std::move_constructible<GPUMemoryResourceManager>, "GPUMemoryResourceManager Shoule Be Movable");

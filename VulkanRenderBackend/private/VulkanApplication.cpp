@@ -39,6 +39,7 @@ namespace graphics_backend
 						windowContext->PresentFrame(frameManager);
 					}
 				}
+				frameManager->FinalizeSubmit();
 				frameManager->HostFinish();
 			});
 	}

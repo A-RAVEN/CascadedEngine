@@ -78,4 +78,27 @@ namespace graphics_backend
 		memoryManager.BindMemory(result.image, result.allocation);
 		return result;
 	}
+	void FrameBoundResourcePool::FinalizeSubmit()
+	{
+		GetQueueContext()
+			.SubmitCommands(GetQueueContext().GetGraphicsQueueFamily()
+				, 0
+				, {}
+				, GetFence()
+				, m_LeafSemaphores
+				, m_LeafStageFlags);
+		m_LeafSemaphores.clear();
+		m_LeafStageFlags.clear();
+	}
+	void FrameBoundResourcePool::AddLeafSempahores(vk::ArrayProxy<vk::Semaphore> semaphores)
+	{
+		CA_ASSERT(m_LeafStageFlags.size() == m_LeafSemaphores.size(), "Leaf Semaphore And Stage Flag Sizes Are Different!");
+		m_LeafSemaphores.reserve(m_LeafSemaphores.size() + semaphores.size());
+		m_LeafStageFlags.reserve(m_LeafStageFlags.size() + semaphores.size());
+		for (vk::Semaphore semaphore : semaphores)
+		{
+			m_LeafSemaphores.push_back(semaphore);
+			m_LeafStageFlags.push_back(vk::PipelineStageFlagBits::eAllCommands);
+		}
+	}
 }

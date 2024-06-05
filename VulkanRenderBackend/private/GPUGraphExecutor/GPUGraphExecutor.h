@@ -385,7 +385,7 @@ namespace graphics_backend
 		//Command Buffers
 		castl::vector<vk::CommandBuffer> m_FinalCommandBuffers;
 		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
-		castl::vector<vk::Semaphore> m_LeafBatchSemaphores;
-		castl::vector<vk::PipelineStageFlags> m_LeafBatchFinishStageFlags;
+		//castl::vector<vk::Semaphore> m_LeafBatchSemaphores;
+		//castl::vector<vk::PipelineStageFlags> m_LeafBatchFinishStageFlags;
 	};
 }

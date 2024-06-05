@@ -405,15 +405,16 @@ namespace graphics_backend
 			passToBatchID[passID] = m_CommandBufferBatchList.size() - 1;
 		}
 
-		m_LeafBatchSemaphores.clear();
-		m_LeafBatchFinishStageFlags.clear();
+		//m_LeafBatchSemaphores.clear();
+		//m_LeafBatchFinishStageFlags.clear();
 		for (auto& batch : m_CommandBufferBatchList)
 		{
 			batch.signalSemaphore = m_FrameBoundResourceManager->semaphorePool.AllocSemaphore();
 			if (!batch.hasSuccessor)
 			{
-				m_LeafBatchSemaphores.push_back(batch.signalSemaphore);
-				m_LeafBatchFinishStageFlags.push_back(vk::PipelineStageFlagBits::eAllCommands);
+				m_FrameBoundResourceManager->AddLeafSempahores(batch.signalSemaphore);
+				//m_LeafBatchSemaphores.push_back(batch.signalSemaphore);
+				//m_LeafBatchFinishStageFlags.push_back(vk::PipelineStageFlagBits::eAllCommands);
 			}
 			batch.waitSemaphores.reserve(batch.waitingBatch.size());
 			for (uint32_t waitingBatchID : batch.waitingBatch)
@@ -458,13 +459,13 @@ namespace graphics_backend
 				, batch.signalSemaphore);
 		}
 
-		GetQueueContext()
-			.SubmitCommands(GetQueueContext().GetGraphicsQueueFamily()
-				, 0
-				, {}
-				, m_FrameBoundResourceManager->GetFence()
-				, m_LeafBatchSemaphores
-				, m_LeafBatchFinishStageFlags);
+		//GetQueueContext()
+		//	.SubmitCommands(GetQueueContext().GetGraphicsQueueFamily()
+		//		, 0
+		//		, {}
+		//		, m_FrameBoundResourceManager->GetFence()
+		//		, m_LeafBatchSemaphores
+		//		, m_LeafBatchFinishStageFlags);
 	}
 
 	void GPUGraphExecutor::SyncExternalResources()
@@ -707,8 +708,8 @@ namespace graphics_backend
 		//Command Buffers
 		m_FinalCommandBuffers.clear();
 		m_CommandBufferBatchList.clear();
-		m_LeafBatchSemaphores.clear();
-		m_LeafBatchFinishStageFlags.clear();
+		//m_LeafBatchSemaphores.clear();
+		//m_LeafBatchFinishStageFlags.clear();
 	}
 
 	void GPUGraphExecutor::PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector

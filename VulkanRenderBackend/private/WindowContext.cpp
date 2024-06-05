@@ -542,8 +542,10 @@ namespace graphics_backend
 				command.end();
 
 				vk::Semaphore transferDoneSemaphore = resourcePool->semaphorePool.AllocSemaphore();
-				GetQueueContext().SubmitCommands(lastIndex, 0, command, {}, {}, {}, transferDoneSemaphore);
-
+				vk::Semaphore transferDoneSemaphore1 = resourcePool->semaphorePool.AllocSemaphore();
+				castl::array<vk::Semaphore, 2> semaphores = { transferDoneSemaphore, transferDoneSemaphore1 };
+				GetQueueContext().SubmitCommands(lastIndex, 0, command, {}, {}, {}, semaphores);
+				resourcePool->AddLeafSempahores(transferDoneSemaphore1);
 				vk::PresentInfoKHR presenttInfo(
 					transferDoneSemaphore
 					, m_Swapchain
@@ -574,10 +576,13 @@ namespace graphics_backend
 
 				vk::Semaphore ownershipTransferSemaphore = resourcePool->semaphorePool.AllocSemaphore();
 				vk::Semaphore transferDoneSemaphore = resourcePool->semaphorePool.AllocSemaphore();
+				vk::Semaphore transferDoneSemaphore1 = resourcePool->semaphorePool.AllocSemaphore();
+				castl::array<vk::Semaphore, 2> semaphores = { transferDoneSemaphore, transferDoneSemaphore1 };
 				auto aquireStageMask = aquireBarrierCollector.GetAquireStageMask();
 				GetQueueContext().SubmitCommands(lastIndex, 0, releaseCommand, {}, {}, {}, ownershipTransferSemaphore);
-				GetQueueContext().SubmitCommands(presentFamilyIndex, 0, aquireCommand, {}, ownershipTransferSemaphore, aquireStageMask, transferDoneSemaphore);
-			
+				GetQueueContext().SubmitCommands(presentFamilyIndex, 0, aquireCommand, {}, ownershipTransferSemaphore, aquireStageMask, semaphores);
+				resourcePool->AddLeafSempahores(transferDoneSemaphore1);
+
 				vk::PresentInfoKHR presenttInfo(
 					transferDoneSemaphore
 					, m_Swapchain
