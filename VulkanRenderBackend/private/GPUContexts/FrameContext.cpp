@@ -23,7 +23,6 @@ namespace graphics_backend
 		FrameBoundResourcePool* resourcePool = &m_FrameBoundResourceManagers[m_FrameIndex % m_FrameBoundResourceManagers.size()];
 		++m_FrameIndex;
 		resourcePool->ResetPool();
-		CA_LOG_ERR(castl::to_string(m_FrameIndex));
 		return resourcePool;
 	}
 

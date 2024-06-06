@@ -27,6 +27,12 @@ namespace graphics_backend
 	class DrawCallBatch
 	{
 	public:
+
+		static DrawCallBatch New()
+		{
+			return {};
+		}
+
 		//PSO
 		PipelineDescData pipelineStateDesc;
 		//Shader Args
@@ -47,12 +53,49 @@ namespace graphics_backend
 	class RenderPass
 	{
 	public:
+		RenderPass() = default;
+		static RenderPass New(ImageHandle const& color
+			, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear
+			, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore
+			, GraphicsClearValue clearValue = {})
+		{
+			RenderPass pass{};
+			pass.m_Arrachments = { color };
+			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+			pass.m_AttachmentLoadOp = loadOp;
+			pass.m_AttachmentStoreOp = storeOp;
+			pass.m_ClearValue = clearValue;
+			return pass;
+		}
+		static RenderPass New(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)
+		{
+			RenderPass pass{};
+			pass.m_Arrachments = colors;
+			pass.m_Arrachments.push_back(depth);
+			pass.m_DepthAttachmentIndex = pass.m_Arrachments.size() - 1;
+			return pass;
+		}
+		static RenderPass New(castl::vector<ImageHandle> const& colors)
+		{
+			RenderPass pass{};
+			pass.m_Arrachments = colors;
+			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+			return pass;
+		}
+		static RenderPass New(ImageHandle const& color, ImageHandle const& depth)
+		{
+			RenderPass pass{};
+			pass.m_Arrachments = { color, depth };
+			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+			return pass;
+		}
+
 		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
 		inline RenderPass& SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments);
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
 		inline RenderPass& DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
 		inline RenderPass& SetShaders(IShaderSet const* shaderSet);
-		inline DrawCallBatch& DrawCall();
+		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
 
 		castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
 		castl::vector<ImageHandle> const& GetAttachments() const { return m_Arrachments; }
@@ -144,10 +187,7 @@ namespace graphics_backend
 		};
 
 		//Create a new render pass
-		inline RenderPass& NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore, GraphicsClearValue clearValue = {});
-		inline RenderPass& NewRenderPass(ImageHandle const& color, ImageHandle const& depth);
-		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth);
-		inline RenderPass& NewRenderPass(castl::vector<ImageHandle> const& colors);
+		inline GPUGraph& AddPass(RenderPass const& renderPass);
 		//Data Transition
 		inline GPUGraph& ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
 		inline GPUGraph& ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
@@ -226,55 +266,23 @@ namespace graphics_backend
 		m_StateDirty = true;
 		return *this;
 	}
-	DrawCallBatch& RenderPass::DrawCall()
+
+	RenderPass& RenderPass::DrawCall(DrawCallBatch const& drawcall)
 	{
-		m_DrawCallBatches.push_back({ m_CurrentPipelineStates, m_CurrentShaderArgs });
-		return m_DrawCallBatches.back();
+		m_DrawCallBatches.push_back(drawcall);
+		m_DrawCallBatches.back().pipelineStateDesc = m_CurrentPipelineStates;
+		m_DrawCallBatches.back().shaderArgs = m_CurrentShaderArgs;
+		return *this;
 	}
-	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, EAttachmentLoadOp loadOp, EAttachmentStoreOp storeOp, GraphicsClearValue clearValue)
-	{
-		m_StageTypes.push_back(EGraphStageType::eRenderPass);
-		m_PassIndices.push_back(m_RenderPasses.size());
-		m_RenderPasses.emplace_back();
-		RenderPass& pass = m_RenderPasses.back();
-		pass.m_Arrachments = { color };
-		pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
-		pass.m_AttachmentLoadOp = loadOp;
-		pass.m_AttachmentStoreOp = storeOp;
-		pass.m_ClearValue = clearValue;
-		return pass;
-	}
-	RenderPass& GPUGraph::NewRenderPass(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)
+
+	GPUGraph& GPUGraph::AddPass(RenderPass const& renderPass)
 	{
 		m_StageTypes.push_back(EGraphStageType::eRenderPass);
 		m_PassIndices.push_back(m_RenderPasses.size());
-		m_RenderPasses.emplace_back();
-		RenderPass& pass = m_RenderPasses.back();
-		pass.m_Arrachments = colors;
-		pass.m_Arrachments.push_back(depth);
-		pass.m_DepthAttachmentIndex = pass.m_Arrachments.size() - 1;
-		return pass;
+		m_RenderPasses.push_back(renderPass);
+		return *this;
 	}
-	RenderPass& GPUGraph::NewRenderPass(castl::vector<ImageHandle> const& colors)
-	{
-		m_StageTypes.push_back(EGraphStageType::eRenderPass);
-		m_PassIndices.push_back(m_RenderPasses.size());
-		m_RenderPasses.emplace_back();
-		RenderPass& pass = m_RenderPasses.back();
-		pass.m_Arrachments = colors;
-		pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
-		return pass;
-	}
-	RenderPass& GPUGraph::NewRenderPass(ImageHandle const& color, ImageHandle const& depth)
-	{
-		m_StageTypes.push_back(EGraphStageType::eRenderPass);
-		m_PassIndices.push_back(m_RenderPasses.size());
-		m_RenderPasses.emplace_back();
-		RenderPass& pass = m_RenderPasses.back();
-		pass.m_Arrachments = { color, depth };
-		pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
-		return pass;
-	}
+	
 	GPUGraph& GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset)
 	{
 		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)

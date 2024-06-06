@@ -22,25 +22,38 @@ namespace graphics_backend
 			->Name("Run GPU Frame")
 			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
 			{
-				TickWindowContexts();
-				auto frameManager =	m_FrameContext.GetFrameBoundResourceManager();
-				frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
-				if(gpuFrame.pGraph != nullptr)
-				{
-					castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(gpuFrame.pGraph, frameManager);
-					thisGraph->AddResource(executor);
-					executor->PrepareGraph();
-				}
-				if (gpuFrame.presentWindows.size() > 0)
-				{
-					for (auto& window : gpuFrame.presentWindows)
-					{
-						auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
-						windowContext->PresentFrame(frameManager);
-					}
-				}
-				frameManager->FinalizeSubmit();
-				frameManager->HostFinish();
+				auto tickWindow = thisGraph->NewTask()
+						->Name("TickWindow")
+						->ForceRunOnMainThread()
+						->Functor([&]()
+							{
+								TickWindowContexts();
+							});
+
+				thisGraph->NewTask()
+					->Name("Run Graph")
+					->DependsOn(tickWindow)
+					->Functor([&]()
+						{
+							auto frameManager = m_FrameContext.GetFrameBoundResourceManager();
+							frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
+							if (gpuFrame.pGraph != nullptr)
+							{
+								castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(gpuFrame.pGraph, frameManager);
+								//thisGraph->AddResource(executor);
+								executor->PrepareGraph();
+							}
+							if (gpuFrame.presentWindows.size() > 0)
+							{
+								for (auto& window : gpuFrame.presentWindows)
+								{
+									auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
+									windowContext->PresentFrame(frameManager);
+								}
+							}
+							frameManager->FinalizeSubmit();
+							frameManager->HostFinish();
+						});
 			});
 	}
 

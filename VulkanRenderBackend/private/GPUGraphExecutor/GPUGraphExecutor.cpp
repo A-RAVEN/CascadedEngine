@@ -1114,7 +1114,7 @@ namespace graphics_backend
 									, bufferImageCopy);
 							}
 						}
-					}
+					}	
 
 					transfersData.m_BarrierCollector.ExecuteReleaseBarrier(dataTransferCommandBuffer);
 					dataTransferCommandBuffer.end();

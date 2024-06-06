@@ -107,8 +107,6 @@ int main(int argc, char *argv[])
 	pBackend->InitializeThreadContextCount(5);
 
 	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2", true, false, true, false);
-	//IMGUIContext imguiContext{};
-	//imguiContext.Initialize(pBackend.get(), windowHandle.get(), pResourceManagingSystem.get());
 
 	castl::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -118,7 +116,7 @@ int main(int argc, char *argv[])
 	};
 
 	castl::vector<uint16_t> indexDataList = {
-		0, 3, 2, 2, 1, 0
+		0, 1, 2, 2, 3, 0
 	};
 
 	auto vertexBuffer = pBackend->CreateGPUBuffer(
@@ -140,7 +138,6 @@ int main(int argc, char *argv[])
 		pBackend
 	](auto setup)
 	{
-		//setup->ForceRunOnMainThread();
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
 		submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
@@ -149,9 +146,6 @@ int main(int argc, char *argv[])
 		submitFrame.pGraph = submitGraph;
 		pBackend->ScheduleGPUFrame(setup, submitFrame);
 	}, "");
-
-
-
 
 	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
 		sizeof(VertexData),
@@ -178,33 +172,32 @@ int main(int argc, char *argv[])
 				, pTextureResource1
 	](auto setup)
 	{
-		setup->ForceRunOnMainThread();
+		//setup->ForceRunOnMainThread();
 		castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
 		shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
 		shaderArgList->SetSubArgList("textures", textureArgList);
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-		//BufferHandle vertexBufferHandle{ "QuadVertexBuffer" };
-		//BufferHandle indexBufferHandle{ "QuadIndexBuffer" };
+
 		ImageHandle tempTextureHandle{"TempTexture" };
 		shaderArgList->SetImage("SourceTexture1", tempTextureHandle, GPUTextureView::CreateDefaultForSampling(pTextureResource1->GetFormat()));
-		newGraph->//AllocBuffer(vertexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, 4, sizeof(VertexData)))
-			//.AllocBuffer(indexBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, 6, sizeof(uint16_t)))
-			//.ScheduleData(vertexBufferHandle, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]))
-			//.ScheduleData(indexBufferHandle, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]))
+		
+		auto drawCall = DrawCallBatch::New()
+			.SetVertexBuffer("QuadDesc", vertexBuffer)
+			.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
+			.Draw([](CommandList& commandList)
+				{
+					commandList.DrawIndexed(6);
+				});
+		
+		newGraph->
 			AllocImage(tempTextureHandle, GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst))
 			.ScheduleData(tempTextureHandle, pTextureResource1->GetData(), pTextureResource1->GetDataSize())
-			.NewRenderPass(windowHandle)
+			.AddPass(RenderPass::New(windowHandle)
 				.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
 				.SetPipelineState({})
 				.SetShaderArguments(shaderArgList)
 				.SetShaders(pFinalBlitShaderResource)
-				.DrawCall()
-					.SetVertexBuffer("QuadDesc", vertexBuffer)
-					.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
-					.Draw([](CommandList& commandList)
-						{
-							commandList.DrawIndexed(6);
-						});
+				.DrawCall(drawCall));
 
 		GPUFrame gpuFrame{};
 		gpuFrame.pGraph = newGraph;
@@ -215,7 +208,6 @@ int main(int argc, char *argv[])
 	pThreadManager->Run();
 	pThreadManager->LogStatus();
 	pThreadManager.reset();
-	//imguiContext.Release();
 	pBackend->Release();
 	pBackend.reset();
 	return EXIT_SUCCESS;
