@@ -242,6 +242,7 @@ namespace graphics_backend
 				}
 			}
 
+			m_ImageManager.NextPass();
 			m_BufferManager.NextPass();
 		}
 
