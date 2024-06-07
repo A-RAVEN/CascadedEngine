@@ -457,14 +457,6 @@ namespace graphics_backend
 				, batch.waitStages
 				, batch.signalSemaphore);
 		}
-
-		//GetQueueContext()
-		//	.SubmitCommands(GetQueueContext().GetGraphicsQueueFamily()
-		//		, 0
-		//		, {}
-		//		, m_FrameBoundResourceManager->GetFence()
-		//		, m_LeafBatchSemaphores
-		//		, m_LeafBatchFinishStageFlags);
 	}
 
 	void GPUGraphExecutor::SyncExternalResources()
@@ -966,6 +958,7 @@ namespace graphics_backend
 		CA_ASSERT(m_TransferPasses.size() == m_Graph->GetDataTransfers().size(), "Transfer Pass Count Mismatch");
 		auto& graphStages = m_Graph->GetGraphStages();
 		auto& renderPasses = m_Graph->GetRenderPasses();
+		auto& computePasses = m_Graph->GetComputePasses();
 		auto& dataTransfers = m_Graph->GetDataTransfers();
 		auto& passIndices = m_Graph->GetPassIndices();
 
@@ -1029,9 +1022,7 @@ namespace graphics_backend
 						auto& drawcallBatch = drawcallBatchs[batchID];
 
 						renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipeline());
-						
-	/*					bufferOffsets.resize(batchData.m_ShaderBindingInstance.m_DescriptorSets.size());
-						castl::fill(bufferOffsets.begin(), bufferOffsets.end(), 0);*/
+
 						renderPassCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipelineLayout(), 0, batchData.m_ShaderBindingInstance.m_DescriptorSets, {});
 
 						if (drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
@@ -1060,6 +1051,23 @@ namespace graphics_backend
 					passData.m_BarrierCollector.ExecuteReleaseBarrier(renderPassCommandBuffer);
 					renderPassCommandBuffer.end();
 					passData.m_CommandBuffers.push_back(renderPassCommandBuffer);
+					break;
+				}
+				case GPUGraph::EGraphStageType::eComputePass:
+				{
+					auto& computePass = computePasses[realPassID];
+					auto& computePassData = m_ComputePasses[realPassID];
+					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+					vk::CommandBuffer computeCommandBuffer = cmdPool->AllocCommand(QueueType::eCompute, "Compute Pass");
+					computePassData.m_BarrierCollector.ExecuteBarrier(computeCommandBuffer);
+					for (auto& dispatchData : computePass.dispatchs)
+					{
+						//computeCommandBuffer.bindPipeline();
+						computeCommandBuffer.dispatch(dispatchData.x, dispatchData.y, dispatchData.z);
+					}
+					computePassData.m_BarrierCollector.ExecuteReleaseBarrier(computeCommandBuffer);
+					computeCommandBuffer.end();
+					computePassData.m_CommandBuffers.push_back(computeCommandBuffer);
 					break;
 				}
 				case GPUGraph::EGraphStageType::eTransferPass:

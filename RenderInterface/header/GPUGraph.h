@@ -118,6 +118,59 @@ namespace graphics_backend
 	};
 #pragma endregion
 
+#pragma region Compute Shader
+	class ComputeBatch
+	{
+	public:
+		struct ComputeDispatch
+		{
+			IShaderSet const* shader;
+			castl::string kernelName;
+			castl::vector<castl::shared_ptr<ShaderArgList>> shaderArgLists;
+			uint32_t x;
+			uint32_t y;
+			uint32_t z;
+
+			static ComputeDispatch Create(IShaderSet const* shader, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::vector<castl::shared_ptr<ShaderArgList>> const& argLists)
+			{
+				ComputeDispatch dispatchStruct{};
+				dispatchStruct.shader = shader;
+				dispatchStruct.kernelName = kernelName;
+				dispatchStruct.x = x;
+				dispatchStruct.y = y;
+				dispatchStruct.z = z;
+				dispatchStruct.shaderArgLists = argLists;
+			}
+		};
+		static ComputeBatch New(castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists) 
+		{
+			ComputeBatch newBatch{};
+			newBatch.shaderArgLists = shaderArgLists;
+			return newBatch;
+		}
+		//Shader Args
+		castl::vector<castl::shared_ptr<ShaderArgList>> shaderArgLists;
+		//Dispatchs
+		castl::vector<ComputeDispatch> dispatchs;
+		ComputeBatch& PushArgList(castl::shared_ptr<ShaderArgList> const& argList)
+		{
+			shaderArgLists.push_back(argList);
+			return *this;
+		}
+		ComputeBatch& Dispatch(IShaderSet const* shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::vector<castl::shared_ptr<ShaderArgList>> const& argLists)
+		{
+			bool valid = (shaderSet != nullptr) && (x > 0 && y > 0 && z > 0) && !kernelName.empty();
+			CA_ASSERT(valid, "Invalid Compute Dispatch!");
+			if (valid)
+			{
+				dispatchs.push_back(ComputeDispatch::Create(shaderSet, kernelName, x, y, z, argLists));
+			}
+			return *this;
+		}
+	private:
+	};
+#pragma endregion
+
 	struct GPUDataTransfers
 	{
 		castl::vector<castl::tuple<ImageHandle, void const*, uint64_t, uint64_t>> m_ImageDataUploads;
@@ -188,6 +241,7 @@ namespace graphics_backend
 
 		//Create a new render pass
 		inline GPUGraph& AddPass(RenderPass const& renderPass);
+		inline GPUGraph& AddPass(ComputeBatch const& computePass);
 		//Data Transition
 		inline GPUGraph& ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
 		inline GPUGraph& ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
@@ -198,6 +252,7 @@ namespace graphics_backend
 
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
+		castl::deque<ComputeBatch> const& GetComputePasses() const { return m_ComputePasses; }
 		castl::vector<GPUDataTransfers> const& GetDataTransfers() const { return m_DataTransfers; }
 		castl::vector<uint32_t> const& GetPassIndices() const { return m_PassIndices; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
@@ -205,6 +260,8 @@ namespace graphics_backend
 	private:
 		//Render Passes
 		castl::deque<RenderPass> m_RenderPasses;
+		//Compute Passes
+		castl::deque<ComputeBatch> m_ComputePasses;
 		//Data Syncs
 		castl::vector<GPUDataTransfers> m_DataTransfers;
 		//Stages
@@ -280,6 +337,14 @@ namespace graphics_backend
 		m_StageTypes.push_back(EGraphStageType::eRenderPass);
 		m_PassIndices.push_back(m_RenderPasses.size());
 		m_RenderPasses.push_back(renderPass);
+		return *this;
+	}
+
+	GPUGraph& GPUGraph::AddPass(ComputeBatch const& computePass)
+	{
+		m_StageTypes.push_back(EGraphStageType::eComputePass);
+		m_PassIndices.push_back(m_ComputePasses.size());
+		m_ComputePasses.push_back(computePass);
 		return *this;
 	}
 	

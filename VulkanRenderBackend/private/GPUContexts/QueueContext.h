@@ -120,6 +120,8 @@ namespace graphics_backend
 		vk::PipelineStageFlags m_ComputeStageMask;
 		int m_TransferQueueFamilyIndex = -1;
 		vk::PipelineStageFlags m_TransferStageMask;
+		int m_VideoDecodeFamilyIndex = -1;
+		vk::PipelineStageFlags m_VideoDecodeStageMask;
 		castl::vector<QueueFamilyInfo> m_QueueFamilyList;
 	};
 }

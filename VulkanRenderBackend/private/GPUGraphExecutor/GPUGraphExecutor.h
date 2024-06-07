@@ -49,6 +49,11 @@ namespace graphics_backend
 
 	};
 
+	struct GPUComputePassInfo : public PassInfoBase
+	{
+
+	};
+
 	struct GPUTransferInfo : public PassInfoBase
 	{
 	};
@@ -369,13 +374,15 @@ namespace graphics_backend
 		castl::shared_ptr<GPUGraph> m_Graph;
 		//Rasterize Pass
 		castl::vector<GPUPassInfo> m_Passes;
+		//Compute Pass
+		castl::vector<GPUComputePassInfo> m_ComputePasses;
 		//Transfer Pass
 		castl::vector<GPUTransferInfo> m_TransferPasses;
 
 		//Manager
 		GraphExecutorImageManager m_ImageManager;
 		GraphExecutorBufferManager m_BufferManager;
-		FrameBoundResourcePool* m_FrameBoundResourceManager;
+		FrameBoundResourcePool* m_FrameBoundResourceManager = nullptr;
 
 		//External Resource States
 		ExternalResourceReleasingBarriers m_ExternalResourceReleasingBarriers;//Release External Resources From Their Last Queue To Where They Are Used
