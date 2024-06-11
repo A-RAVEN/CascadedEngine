@@ -3,14 +3,15 @@
 
 namespace graphics_backend
 {
-	GPUObjectManager::GPUObjectManager(CVulkanApplication& application)
-		: VKAppSubObjectBaseNoCopy(application)
-		, m_RenderPassCache(application)
-		, m_FramebufferObjectCache(application)
-		, m_PipelineObjectCache(application)
-		, m_TextureSamplerCache(application)
-		, m_ShaderModuleCache(application)
-		, m_DescriptorSetAllocatorDic(application)
+	GPUObjectManager::GPUObjectManager(CVulkanApplication& app)
+		: VKAppSubObjectBaseNoCopy(app)
+		, m_RenderPassCache(app)
+		, m_FramebufferObjectCache(app)
+		, m_PipelineObjectCache(app)
+		, m_TextureSamplerCache(app)
+		, m_ShaderModuleCache(app)
+		, m_DescriptorSetAllocatorDic(app)
+		, m_ComputePipelineCache(app)
 	{
 	}
 }

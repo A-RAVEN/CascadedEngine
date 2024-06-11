@@ -15,7 +15,9 @@ struct ShaderSourceInfo
 struct IShaderSet
 {
 	virtual EShaderTypeFlags GetShaderTypeFlags(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const = 0;
-	virtual ShaderSourceInfo GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType shaderTargetType, ECompileShaderType compileShaderType) const = 0;
+	virtual ShaderSourceInfo GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType shaderTargetType
+		, ECompileShaderType compileShaderType
+		, castl::string_view entryPoint = "") const = 0;
 	virtual ShaderCompilerSlang::ShaderReflectionData const& GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const = 0;
 	virtual castl::string GetUniqueName() const = 0;
 };

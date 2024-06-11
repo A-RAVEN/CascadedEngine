@@ -12,6 +12,20 @@ namespace ShaderCompilerSlang
 		eDXIL,
 	};
 
+	enum class EShaderResourceAccess : uint8_t
+	{
+		eUnknown,
+		eReadOnly,
+		eWriteOnly,
+		eReadWrite,
+	};
+
+	//enum class EShaderImageType : uint8_t
+	//{
+	//	eSampledImage,
+	//	eStorageImage,
+	//};
+
 	//某个数值：scalar，vector，matrix
 	struct UniformElement
 	{
@@ -109,6 +123,7 @@ namespace ShaderCompilerSlang
 	{
 		uint32_t m_BindingIndex;
 		uint32_t m_Count;
+		EShaderResourceAccess m_Access;
 		castl::string m_Name;
 	};
 
@@ -123,6 +138,7 @@ namespace ShaderCompilerSlang
 	{
 		uint32_t m_BindingIndex;
 		uint32_t m_Count;
+		EShaderResourceAccess m_Access;
 		castl::string m_Name;
 	};
 

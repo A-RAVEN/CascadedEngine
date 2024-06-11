@@ -13,6 +13,7 @@ namespace graphics_backend
 	class FramebufferObject;
 	class RenderPassObject;
 	class CPipelineObject;
+	class ComputePipelineObject;
 	class CVulkanApplication;
 
 	struct VertexAttributeBindingData
@@ -26,7 +27,7 @@ namespace graphics_backend
 	struct GPUPassBatchInfo
 	{
 		castl::shared_ptr<CPipelineObject> m_PSO;
-		castl::unordered_map<castl::string, VertexAttributeBindingData> m_VertexAttributeBindings;
+		castl::unordered_map<cacore::HashObj<VertexInputsDescriptor>, VertexAttributeBindingData> m_VertexAttributeBindings;
 		ShaderBindingInstance m_ShaderBindingInstance;
 	};
 
@@ -38,6 +39,7 @@ namespace graphics_backend
 		castl::set<uint32_t> m_WaitingQueueFamilies;
 		castl::vector<vk::CommandBuffer> m_CommandBuffers;
 		int GetQueueFamily() const { return m_BarrierCollector.GetQueueFamily(); }
+		virtual GPUGraph::EGraphStageType GetStageType() const = 0;
 	};
 
 	struct GPUPassInfo : public PassInfoBase
@@ -46,16 +48,23 @@ namespace graphics_backend
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
 		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
-
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eRenderPass; }
 	};
 
 	struct GPUComputePassInfo : public PassInfoBase
 	{
-
+		struct ComputeDispatchInfo
+		{
+			castl::shared_ptr<ComputePipelineObject> m_ComputePipeline;
+			ShaderBindingInstance m_ShaderBindingInstance;
+		};
+		castl::vector<ComputeDispatchInfo> m_DispatchInfos;
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eComputePass; }
 	};
 
 	struct GPUTransferInfo : public PassInfoBase
 	{
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eTransferPass; }
 	};
 
 	class SubAllocator
@@ -111,6 +120,10 @@ namespace graphics_backend
 	class GraphExecutorResourceManager
 	{
 	public:
+		void AllocPersistantResourceIndex(castl::string const& handleName, int32_t descriptorIndex)
+		{
+			m_PersistantHandleNameToDescriptorIndex[handleName] = descriptorIndex;
+		}
 		void AllocResourceIndex(castl::string const& handleName, int32_t descriptorIndex)
 		{
 			auto found = m_HandleNameToResourceInfo.find(handleName);
@@ -136,12 +149,18 @@ namespace graphics_backend
 
 		void AllocateResources(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, ResManager const& bufferHandleManager)
 		{
+			//Persistant Resources Permanently Occupy Resource Index
+			for (auto persistNameToDescID : m_PersistantHandleNameToDescriptorIndex)
+			{
+				uint32_t subAllocatorIndex = GetSubAllocatorIndex(persistNameToDescID.second);
+				uint32_t allocatedIndex = m_SubAllocators[subAllocatorIndex].AllocIndex();
+				m_HandleNameToResourceIndex.insert(castl::make_pair(persistNameToDescID.first, castl::make_pair(subAllocatorIndex, allocatedIndex)));
+			}
+
 			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passAllocations;
 			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passDeAllocations;
-
 			passAllocations.resize(m_PassCount);
 			passDeAllocations.resize(m_PassCount);
-
 			for (auto& lifeTimePair : m_HandleNameToResourceInfo)
 			{
 				passAllocations[lifeTimePair.second.beginPass].push_back(castl::make_pair(lifeTimePair.first, lifeTimePair.second.descriptorIndex));
@@ -206,6 +225,7 @@ namespace graphics_backend
 		castl::unordered_map<int32_t, uint32_t> m_DescriptorIndexToSubAllocator;
 		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_HandleNameToResourceIndex;
 		castl::unordered_map<castl::string, ResourceInfo> m_HandleNameToResourceInfo;
+		castl::unordered_map<castl::string, int32_t> m_PersistantHandleNameToDescriptorIndex;
 	};
 
 
@@ -321,6 +341,12 @@ namespace graphics_backend
 			, ShaderArgList const* shaderArgList
 			, uint32_t passID
 		);
+		void PrepareShaderBindingResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
+			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
+			, ShaderBindingInstance const& shaderBindingInstance
+			, uint32_t passID
+		);
 		VulkanBarrierCollector& GetBarrierCollector(uint32_t passID);
 		PassInfoBase* GetBasePassInfo(int passID);
 
@@ -333,6 +359,8 @@ namespace graphics_backend
 			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache);
 #pragma endregion
 		void PrepareFrameBufferAndPSOs();
+		void PrepareComputePSOs();
+		void WriteDescriptorSets();
 		void PrepareResourceBarriers();
 		void RecordGraph();
 		void ScanCommandBatchs();

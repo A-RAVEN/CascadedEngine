@@ -149,7 +149,10 @@ namespace cacore
 		{
 			return m_Object;
 		}
-
+        ObjType const* operator->() const noexcept
+        {
+            return &m_Object;
+        }
         constexpr result_type GetHash() const noexcept
 		{
 			return m_HashValue;

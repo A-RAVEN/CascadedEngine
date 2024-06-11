@@ -84,6 +84,18 @@ int main(int argc, char *argv[])
 			*ppResource = result;
 		});
 
+	ShaderResrouce* pTestComputeShaderResource = nullptr;
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestComputeShader.shaderbundle", [ppResource = &pTestComputeShaderResource](ShaderResrouce* result)
+		{
+			*ppResource = result;
+		});
+
+	ShaderResrouce* pFinalBlitShader = nullptr;
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/FinalBlit.shaderbundle", [&pFinalBlitShader](ShaderResrouce* result)
+		{
+			pFinalBlitShader = result;
+		});
+
 	StaticMeshResource* pTestMeshResource = nullptr;
 	pResourceManagingSystem->LoadResource<StaticMeshResource>("Models/VikingRoom/mesh.scene", [ppResource = &pTestMeshResource](StaticMeshResource* result)
 		{
@@ -165,10 +177,13 @@ int main(int argc, char *argv[])
 				, windowHandle
 				, pRenderInterface
 				, pFinalBlitShaderResource
+				, pFinalBlitShader
+				, pTestComputeShaderResource
 				, &vertexBuffer
 				, &indexBuffer
 				, &vertexInputDesc
 				, &textureArgList
+				, texture
 				, pTextureResource1
 	](auto setup)
 	{
@@ -176,28 +191,61 @@ int main(int argc, char *argv[])
 		castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
 		shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
 		shaderArgList->SetSubArgList("textures", textureArgList);
+
+		BufferHandle tempBufferHandle{"TempBuffer" };
+		castl::shared_ptr<ShaderArgList> computeShaderArgList = castl::make_shared<ShaderArgList>();
+		computeShaderArgList->SetBuffer("RWBuffer", tempBufferHandle);
+
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 
 		ImageHandle tempTextureHandle{"TempTexture" };
 		shaderArgList->SetImage("SourceTexture1", tempTextureHandle, GPUTextureView::CreateDefaultForSampling(pTextureResource1->GetFormat()));
 		
 		auto drawCall = DrawCallBatch::New()
-			.SetVertexBuffer("QuadDesc", vertexBuffer)
+			.SetVertexBuffer(vertexInputDesc, vertexBuffer)
 			.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
 			.Draw([](CommandList& commandList)
 				{
 					commandList.DrawIndexed(6);
 				});
 		
+		ImageHandle tmpTarget{"TmpTarget" };
+		castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
+		finalBlitShaderArgList->SetImage("SourceTexture", tmpTarget, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
+		finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
+
+		auto tmpDesc = windowHandle->GetBackbufferDescriptor();
+		tmpDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
 		newGraph->
 			AllocImage(tempTextureHandle, GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst))
 			.ScheduleData(tempTextureHandle, pTextureResource1->GetData(), pTextureResource1->GetDataSize())
-			.AddPass(RenderPass::New(windowHandle)
-				.DefineVertexInputBinding("QuadDesc", vertexInputDesc)
+			.AllocBuffer(tempBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataSrc, 1, sizeof(glm::vec4)))
+			.AddPass(ComputeBatch::New()
+				.PushArgList(computeShaderArgList)
+				.Dispatch(pTestComputeShaderResource, "testGenerator0", 1, 1, 1))
+			.AllocImage(tmpTarget, tmpDesc)
+			.AddPass(RenderPass::New(tmpTarget)
 				.SetPipelineState({})
 				.SetShaderArguments(shaderArgList)
 				.SetShaders(pFinalBlitShaderResource)
-				.DrawCall(drawCall));
+				.DrawCall(drawCall))
+			.AddPass
+			(
+				RenderPass::New(windowHandle)
+				.SetPipelineState({})
+				.SetShaderArguments(finalBlitShaderArgList)
+				.SetShaders(pFinalBlitShader)
+				.DrawCall
+				(
+					DrawCallBatch::New()
+					.SetVertexBuffer(vertexInputDesc, vertexBuffer)
+					.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
+					.Draw([](CommandList& commandList)
+						{
+							commandList.DrawIndexed(6);
+						})
+				)
+			);
 
 		GPUFrame gpuFrame{};
 		gpuFrame.pGraph = newGraph;

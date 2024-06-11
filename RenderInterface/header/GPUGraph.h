@@ -40,13 +40,15 @@ namespace graphics_backend
 		//Draw Calls
 		castl::vector<castl::function<void(CommandList&)>> m_DrawCommands;
 
-		castl::map<castl::string, BufferHandle> m_BoundVertexBuffers;
+		//castl::map<castl::string, BufferHandle> m_BoundVertexBuffers;
+		castl::unordered_map<cacore::HashObj<VertexInputsDescriptor>, BufferHandle> m_BoundVertexBuffers;
 		BufferHandle m_BoundIndexBuffer;
 		EIndexBufferType m_IndexBufferType = EIndexBufferType::e16;
 		uint32_t m_IndexBufferOffset = 0;
 
-		inline DrawCallBatch& SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle);
-		inline DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset);
+		//inline DrawCallBatch& SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle);
+		inline DrawCallBatch& SetVertexBuffer(cacore::HashObj<VertexInputsDescriptor> const& vertexInputDesc, BufferHandle const& bufferHandle);
+		inline DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset = 0);
 		inline DrawCallBatch& Draw(castl::function<void(CommandList&)> commandFunc);
 	};
 
@@ -93,7 +95,7 @@ namespace graphics_backend
 		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
 		inline RenderPass& SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments);
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
-		inline RenderPass& DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
+		//inline RenderPass& DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
 		inline RenderPass& SetShaders(IShaderSet const* shaderSet);
 		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
 
@@ -140,9 +142,10 @@ namespace graphics_backend
 				dispatchStruct.y = y;
 				dispatchStruct.z = z;
 				dispatchStruct.shaderArgLists = argLists;
+				return dispatchStruct;
 			}
 		};
-		static ComputeBatch New(castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists) 
+		static ComputeBatch New(castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists = {})
 		{
 			ComputeBatch newBatch{};
 			newBatch.shaderArgLists = shaderArgLists;
@@ -157,7 +160,7 @@ namespace graphics_backend
 			shaderArgLists.push_back(argList);
 			return *this;
 		}
-		ComputeBatch& Dispatch(IShaderSet const* shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::vector<castl::shared_ptr<ShaderArgList>> const& argLists)
+		ComputeBatch& Dispatch(IShaderSet const* shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::vector<castl::shared_ptr<ShaderArgList>> const& argLists = {})
 		{
 			bool valid = (shaderSet != nullptr) && (x > 0 && y > 0 && z > 0) && !kernelName.empty();
 			CA_ASSERT(valid, "Invalid Compute Dispatch!");
@@ -273,11 +276,13 @@ namespace graphics_backend
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
 	};
 
-	DrawCallBatch& DrawCallBatch::SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle)
+	DrawCallBatch& DrawCallBatch::SetVertexBuffer(cacore::HashObj<VertexInputsDescriptor> const& vertexInputDesc
+		, BufferHandle const& bufferHandle)
 	{
-		m_BoundVertexBuffers[name] = bufferHandle;
+		m_BoundVertexBuffers[vertexInputDesc] = bufferHandle;
 		return *this;
 	}
+
 	DrawCallBatch& DrawCallBatch::SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset)
 	{
 		m_BoundIndexBuffer = bufferHandle;
@@ -307,12 +312,6 @@ namespace graphics_backend
 	RenderPass& RenderPass::SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments)
 	{
 		m_CurrentShaderArgs = shaderArguments;
-		m_StateDirty = true;
-		return *this;
-	}
-	RenderPass& RenderPass::DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes)
-	{
-		m_CurrentPipelineStates.m_VertexInputBindings[bindingName] = attributes;
 		m_StateDirty = true;
 		return *this;
 	}

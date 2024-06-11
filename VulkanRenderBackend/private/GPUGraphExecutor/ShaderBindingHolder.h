@@ -23,10 +23,19 @@ namespace graphics_backend
 			, FrameBoundResourcePool* pResourcePool
 			, vk::CommandBuffer& command
 			, ShaderArgList const& shaderArgList);
+		void FillShaderData(CVulkanApplication& application
+			, ShadderResourceProvider& resourceProvider
+			, FrameBoundResourcePool* pResourcePool
+			, vk::CommandBuffer& command
+			, castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists);
 		castl::vector<vk::DescriptorSet> m_DescriptorSets;
 		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
 		castl::vector<VKBufferObject> m_UniformBuffers;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 		CVulkanApplication* p_Application;
+
+		//Collected Resources For Barrier Use
+		castl::vector<castl::pair<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess>> m_BufferHandles;
+		castl::vector<castl::pair<ImageHandle, ShaderCompilerSlang::EShaderResourceAccess>> m_ImageHandles;
 	};
 }

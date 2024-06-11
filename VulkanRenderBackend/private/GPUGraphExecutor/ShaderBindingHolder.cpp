@@ -134,7 +134,6 @@ namespace graphics_backend
 		, int32_t bufferGroupID
 		, char* dataDst)
 	{
-
 		auto& group = bufferData.m_Groups[bufferGroupID];
 		for (auto& element : group.m_Elements)
 		{
@@ -163,7 +162,9 @@ namespace graphics_backend
 		, ShadderResourceProvider& resourceProvider
 		, ShaderCompilerSlang::ShaderBindingSpaceData const& bindingSpaceData
 		, int32_t resourceGroupID
-		, DescritprorWriter& writer)
+		, DescritprorWriter& writer
+		, castl::vector<castl::pair<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess>>& inoutBufferHandles
+		, castl::vector<castl::pair<ImageHandle, ShaderCompilerSlang::EShaderResourceAccess>>& inoutImageHandles)
 	{
 		auto& currentGroup = bindingSpaceData.m_ResourceGroups[resourceGroupID];
 		for (uint32_t texID : currentGroup.m_Textures)
@@ -172,13 +173,25 @@ namespace graphics_backend
 			auto imageHandles = shaderArgList.FindImageHandle(textureData.m_Name);
 			for (uint32_t imgID = 0; imgID < imageHandles.size(); ++imgID)
 			{
+				inoutImageHandles.push_back(castl::make_pair( imageHandles[imgID].first, textureData.m_Access ));
 				auto& imagePair = imageHandles[imgID];
 				vk::ImageView imageView = resourceProvider.GetImageView(imagePair.first, imagePair.second);
+
+				vk::ImageLayout targetLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+				vk::DescriptorType descriptorType = vk::DescriptorType::eSampledImage;
+				switch (textureData.m_Access)
+				{
+					case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+					case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+						targetLayout = vk::ImageLayout::eGeneral;
+						descriptorType = vk::DescriptorType::eStorageImage;
+						break;
+				}
 				writer.AddWriteImageView(imageView
 					, textureData.m_BindingIndex
-					, vk::DescriptorType::eSampledImage
+					, descriptorType
 					//TODO: Readonly Type?
-					, vk::ImageLayout::eShaderReadOnlyOptimal
+					, targetLayout
 					, imgID);
 			}
 		}
@@ -195,6 +208,7 @@ namespace graphics_backend
 			auto bufferHandles = shaderArgList.FindBufferHandle(bufferData.m_Name);
 			for (uint32_t bufID = 0; bufID < bufferHandles.size(); ++bufID)
 			{
+				inoutBufferHandles.push_back(castl::make_pair(bufferHandles[bufID], bufferData.m_Access));
 				vk::Buffer buffer = resourceProvider.GetBufferFromHandle(bufferHandles[bufID]);
 				writer.AddWriteBuffer(buffer, bufferData.m_BindingIndex, vk::DescriptorType::eStorageBuffer, bufID);
 			}
@@ -210,7 +224,9 @@ namespace graphics_backend
 					, resourceProvider
 					, bindingSpaceData
 					, subGroupID
-					, writer);
+					, writer
+					, inoutBufferHandles
+					, inoutImageHandles);
 			}
 		}
 	}
@@ -270,7 +286,9 @@ namespace graphics_backend
 							, resourceProvider
 							, sourceSet
 							, 0
-							, writer);
+							, writer
+							, m_BufferHandles
+							, m_ImageHandles);
 					}
 				}
 				else
@@ -281,10 +299,103 @@ namespace graphics_backend
 						, resourceProvider
 						, sourceSet
 						, 0
-						, writer);
+						, writer
+						, m_BufferHandles
+						, m_ImageHandles);
 				}
 			}
 
+			writer.Apply(application.GetDevice());
+		}
+	}
+
+	void ShaderBindingInstance::FillShaderData(CVulkanApplication& application
+		, ShadderResourceProvider& resourceProvider
+		, FrameBoundResourcePool* pResourcePool
+		, vk::CommandBuffer& command
+		, castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists)
+	{
+		for (int sid = 0; sid < p_ReflectionData->m_BindingData.size(); ++sid)
+		{
+			DescritprorWriter writer;
+
+			auto& targetDescSet = m_DescriptorSets[sid];
+			auto& sourceSet = p_ReflectionData->m_BindingData[sid];
+
+			writer.Initialize(targetDescSet, sourceSet.m_Textures.size(), sourceSet.m_Samplers.size(), sourceSet.m_UniformBuffers.size(), sourceSet.m_Buffers.size());
+		
+			//Uniform Buffers
+			for (int ubid = 0; ubid < sourceSet.m_UniformBuffers.size(); ++ubid)
+			{
+				auto& sourceUniformBuffer = sourceSet.m_UniformBuffers[ubid];
+				auto& bufferHandle = m_UniformBuffers[ubid];
+				auto& group = sourceUniformBuffer.m_Groups[0];
+				writer.AddWriteBuffer(bufferHandle.buffer, sourceUniformBuffer.m_BindingIndex, vk::DescriptorType::eUniformBuffer, 0);
+				vk::DeviceSize memorySize = group.m_MemorySize;
+				auto stageBuffer = pResourcePool->CreateStagingBuffer(memorySize, EBufferUsage::eDataSrc);
+				if (group.m_Name == "__Global")
+				{
+					//For Global Uniform Constants We Collect Data From All ShaderArgLists
+					auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
+					for(auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
+					{
+						WriteUniformBuffer(**shaderArgList, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
+					}
+				}
+				else
+				{
+					for (auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
+					{
+						auto found = shaderArgList->get()->FindSubArgList(group.m_Name);
+						if (found)
+						{
+							auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
+							WriteUniformBuffer(*found, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
+						}
+					}
+				}
+				command.copyBuffer(stageBuffer.buffer, bufferHandle.buffer, vk::BufferCopy(0, 0, memorySize));
+			}
+
+
+			//Non Uniform Buffer Resources
+			if (!sourceSet.m_ResourceGroups.empty())
+			{
+				if (sourceSet.m_ResourceGroups[0].m_Name != "__Global")
+				{
+					for (auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
+					{
+						auto found = shaderArgList->get()->FindSubArgList(sourceSet.m_ResourceGroups[0].m_Name);
+						if (found)
+						{
+							WriteResources(
+								application
+								, *found
+								, resourceProvider
+								, sourceSet
+								, 0
+								, writer
+								, m_BufferHandles
+								, m_ImageHandles);
+						}
+					}
+				}
+				else
+				{
+					for (auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
+					{
+						WriteResources(
+							application
+							, **shaderArgList
+							, resourceProvider
+							, sourceSet
+							, 0
+							, writer
+							, m_BufferHandles
+							, m_ImageHandles);
+					}
+				}
+			}
 			writer.Apply(application.GetDevice());
 		}
 	}

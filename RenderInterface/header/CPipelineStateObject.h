@@ -9,7 +9,7 @@ struct RasterizerStates
 public:
 	bool enableDepthClamp = false;
 	bool discardRasterization = false;
-	ECullMode cullMode = ECullMode::eBack;
+	ECullMode cullMode = ECullMode::eNone;
 	EFrontFace frontFace = EFrontFace::eCounterClockWise;
 	EPolygonMode polygonMode = EPolygonMode::eFill;
 	float lineWidth = 1.0f;

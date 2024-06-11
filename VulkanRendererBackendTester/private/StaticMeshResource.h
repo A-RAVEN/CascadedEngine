@@ -33,6 +33,21 @@ namespace resource_management
 				, VertexAttribute{ baseOffset + 4, offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat }
 			};
 		}
+
+		static VertexInputsDescriptor GetVertexInputDescriptor()
+		{
+			VertexInputsDescriptor result;
+			result.perInstance = false;
+			result.stride = sizeof(CommonVertexData);
+			result.attributes = castl::vector{
+				VertexAttribute{ 0, offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat, "POSITION"}
+				, VertexAttribute{ 0, offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat, "TEXCOORD"}
+				, VertexAttribute{0, offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat, "NORMAL"}
+				, VertexAttribute{0, offsetof(CommonVertexData, tangent), VertexInputFormat::eR32G32B32_SFloat, "TANGENT"}
+				, VertexAttribute{ 0, offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat, "BITANGENT"}
+			};
+			return result;
+		}
 	};
 
 	using namespace library_loader;

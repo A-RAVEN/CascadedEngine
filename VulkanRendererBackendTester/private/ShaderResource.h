@@ -20,7 +20,7 @@ namespace resource_management
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 
-		virtual ShaderSourceInfo GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType shaderTargetType, ECompileShaderType shaderType) const override
+		virtual ShaderSourceInfo GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType shaderTargetType, ECompileShaderType shaderType, castl::string_view entryPoint) const override
 		{ 
 			for (auto& targetResult : m_ShaderTargetResults)
 			{
@@ -30,12 +30,16 @@ namespace resource_management
 					{
 						if (programData.shaderType == shaderType)
 						{
-							ShaderSourceInfo result{};
-							result.compileShaderType = shaderType;
-							result.dataLength = programData.data.size();
-							result.dataPtr = programData.data.data();
-							result.entryPoint = programData.entryPointName;
-							return result;
+							bool entryPointMatch = entryPoint.empty() || programData.entryPointName == entryPoint;
+							if (entryPointMatch)
+							{
+								ShaderSourceInfo result{};
+								result.compileShaderType = shaderType;
+								result.dataLength = programData.data.size();
+								result.dataPtr = programData.data.data();
+								result.entryPoint = programData.entryPointName;
+								return result;
+							}
 						}
 					}
 				}
