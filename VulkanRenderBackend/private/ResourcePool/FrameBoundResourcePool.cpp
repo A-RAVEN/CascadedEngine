@@ -57,9 +57,9 @@ namespace graphics_backend
 	{
 		m_Mutex.unlock();
 	}
-	VKBufferObject FrameBoundResourcePool::CreateStagingBuffer(size_t size, EBufferUsageFlags usages)
+	VKBufferObject FrameBoundResourcePool::CreateStagingBuffer(size_t size, EBufferUsageFlags usages, castl::string const& name)
 	{
-		return CreateBufferWithMemory(GPUBufferDescriptor::Create(usages, size, 1), vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, "Staging Buffer");
+		return CreateBufferWithMemory(GPUBufferDescriptor::Create(usages, size, 1), vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, name.c_str());
 	}
 	VKBufferObject FrameBoundResourcePool::CreateBufferWithMemory(GPUBufferDescriptor const& bufferDesc, vk::MemoryPropertyFlags memoryFlags, const char* name)
 	{

@@ -123,7 +123,7 @@ namespace graphics_backend
 		{
 			RenderPass pass{};
 			pass.m_Arrachments = { color, depth };
-			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+			pass.m_DepthAttachmentIndex = 1;
 			return pass;
 		}
 

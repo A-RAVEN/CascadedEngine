@@ -54,16 +54,17 @@ namespace graphics_backend
 
 	void DescriptorPool::ResetAll()
 	{
-		m_AllocationID = 0;
 		if (m_DescPools.empty())
 		{
+			CA_ASSERT(m_AllocationID == 0, "DescriptorPool is not initialized correctly");
 			return;
 		}
-		uint32_t poolCount = m_AllocationID / m_ChunkSize;
-		for (int i = 0; i <= poolCount; ++i)
+		uint32_t poolCount = (m_AllocationID + m_ChunkSize - 1) / m_ChunkSize;
+		for (int i = 0; i < poolCount; ++i)
 		{
 			GetDevice().resetDescriptorPool(m_DescPools[i]);
 		}
+		m_AllocationID = 0;
 	}
 
 	void DescriptorPool::Release()

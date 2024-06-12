@@ -12,8 +12,6 @@ struct careflection::containerInfo<glm::vec<L, T, Q>>
 	}
 };
 
-//template<length_t C, length_t R, typename T, qualifier Q = defaultp> struct mat
-
 template<glm::length_t C, glm::length_t R, typename T, glm::qualifier Q>
 struct careflection::containerInfo<glm::mat<C, R, T, Q>>
 {

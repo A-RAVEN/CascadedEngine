@@ -94,7 +94,7 @@ public:
 		{
 			auto& instance = instances[instanceID];
 			glm::mat4 instanceTrans = transform * instance.m_InstanceTransform;
-			m_Instances.push_back(instanceTrans);
+			m_Instances.push_back(glm::transpose(instanceTrans));
 
 			uint32_t instanceIndex = m_Instances.size() - 1;
 			auto& submeshInfo = submeshInfos[instance.m_SubmeshID];
@@ -116,20 +116,21 @@ public:
 
 	void Draw(graphics_backend::GPUGraph* pGraph, graphics_backend::RenderPass* pRenderPass)
 	{
-		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , true };
+		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , false };
 		pGraph->AllocBuffer(instanceTransformBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, m_Instances.size(), sizeof(glm::mat4)))
 			.ScheduleData(instanceTransformBuffer, m_Instances.data(), m_Instances.size() * sizeof(glm::mat4));
 		castl::shared_ptr<graphics_backend::ShaderArgList> instanceShaderArgs = castl::make_shared<graphics_backend::ShaderArgList>();
 		instanceShaderArgs->SetBuffer("instanceTransforms", instanceTransformBuffer);
 		pRenderPass->PushShaderArguments("meshInstanceTransforms", instanceShaderArgs);
 		uint32_t index = 0;
-		for (auto pair : m_DrawCallInfoToDrawCallData)
+		for (auto& pair : m_DrawCallInfoToDrawCallData)
 		{
 			auto& drawcallInfo = pair.first;
 			auto& drawcallInstances = pair.second;
 			graphics_backend::BufferHandle instanceIDBuffer{ castl::to_string(index++) };
+			size_t bufferSize = drawcallInstances.m_InstanceIDs.size() * sizeof(uint32_t);
 			pGraph->AllocBuffer(instanceIDBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, drawcallInstances.m_InstanceIDs.size(), sizeof(uint32_t)))
-				.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), drawcallInstances.m_InstanceIDs.size() * sizeof(uint32_t));
+				.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), bufferSize);
 
 			DrawCallBatch newDrawcallBatch = DrawCallBatch::New();
 			newDrawcallBatch.PushArgList("meshMaterialData", drawcallInfo.material->shaderArgs)

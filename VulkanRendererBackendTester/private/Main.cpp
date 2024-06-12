@@ -183,7 +183,7 @@ int main(int argc, char *argv[])
 	meshMaterial0.shaderSet = pMeshShaderResource;
 
 	MeshMaterial meshMaterial1;
-	meshMaterial1.pipelineStateObject = {};
+	meshMaterial1.pipelineStateObject = {DepthStencilStates::NormalOpaque()};
 	meshMaterial1.shaderArgs = castl::make_shared<ShaderArgList>();
 	meshMaterial1.shaderArgs->SetImage("albedoTexture", texture);
 	meshMaterial1.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
@@ -279,24 +279,28 @@ int main(int argc, char *argv[])
 		std::cout << "Frame Rate: " << frameRate << std::endl;
 
 		castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
-		cameraArgList->SetValue("viewProjMatrix", camera.GetViewProjMatrix());
+		cameraArgList->SetValue("viewProjMatrix", glm::transpose(camera.GetViewProjMatrix()));
 
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 
 		ImageHandle colorTexture{"ColorTexture" };
+		ImageHandle depthTexture{"DepthTexture" };
 		castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
 		finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
 		finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-		RenderPass drawMeshRenderPass = RenderPass::New(windowHandle)//(colorTexture)
+		RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture)//(colorTexture)
 			.PushShaderArguments("cameraData", cameraArgList);
 		meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
 
 		auto colorTextureDesc = windowHandle->GetBackbufferDescriptor();
 		colorTextureDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
+		auto depthTextureDesc = colorTextureDesc;
+		depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
 		newGraph->
-			AllocImage(colorTexture, colorTextureDesc);
-			//.AddPass(drawMeshRenderPass);
-	/*		.AddPass
+			AllocImage(colorTexture, colorTextureDesc)
+			.AllocImage(depthTexture, depthTextureDesc)
+			.AddPass(drawMeshRenderPass)
+			.AddPass
 			(
 				RenderPass::New(windowHandle)
 				.SetPipelineState({})
@@ -312,7 +316,7 @@ int main(int argc, char *argv[])
 							commandList.DrawIndexed(6);
 						})
 				)
-			);*/
+			);
 
 		GPUFrame gpuFrame{};
 		gpuFrame.pGraph = newGraph;

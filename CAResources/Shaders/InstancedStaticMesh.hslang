@@ -5,12 +5,14 @@ struct MeshData
 
     float3 TransformPointToWorld(uint instanceID, in float3 position)
     {
+        //return position;
         float4x4 localToWorld = instanceTransforms[instanceID];
         return mul(localToWorld, float4(position, 1.0)).xyz;
     }
 
     float3 TransformDirectionToWorld(uint instanceID, in float3 direction)
     {
+        //return direction;
         float3x3 localToWorld = (float3x3)instanceTransforms[instanceID];
         return mul(localToWorld, direction);
     }

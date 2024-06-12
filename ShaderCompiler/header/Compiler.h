@@ -214,7 +214,7 @@ namespace ShaderCompilerSlang
 
 		void AddTextureToResourceGroup(int32_t groupID, TextureData const& textureData)
 		{
-			if (groupID == -1 && m_ResourceGroups.empty())
+			if (groupID == -1)
 			{
 				InitResourceGroup("__Global", groupID);
 				groupID = 0;
@@ -226,7 +226,7 @@ namespace ShaderCompilerSlang
 
 		void AddSamplerToResourceGroup(int32_t groupID, SamplerData const& samplerData)
 		{
-			if (groupID == -1 && m_ResourceGroups.empty())
+			if (groupID == -1)
 			{
 				InitResourceGroup("__Global", groupID);
 				groupID = 0;

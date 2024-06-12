@@ -18,11 +18,22 @@ struct careflection::containerInfo<glm::vec<L, T, Q>>
 	}
 };
 
+template<glm::length_t C, glm::length_t R, typename T, glm::qualifier Q>
+struct careflection::containerInfo<glm::mat<C, R, T, Q>>
+{
+	using elementType = glm::mat<C, R, T, Q>::col_type;
+	constexpr static auto container_size(const glm::mat<C, R, T, Q>& container)
+	{
+		return C;
+	}
+};
+
 struct TestTruct0
 {
 	glm::vec4 a;
 	glm::vec3 b;
 	glm::vec2 c;
+	glm::mat4 testMat;
 	auto operator <=>(const TestTruct0&) const = default;
 };
 
@@ -83,7 +94,8 @@ struct TestStruct3
 
 void TestHash()
 {
-	TestTruct0 testStructIn = TestTruct0{ {0, 0, 0, 0}, {1, 1, 1}, {2, 2} };
+	static_assert(careflection::containerInfo<glm::vec3>::container_size(glm::vec3{ 1, 1, 1 }) == 3);
+	TestTruct0 testStructIn = TestTruct0{ {0, 0, 0, 0}, {1, 1, 1}, {2, 2}, glm::mat4(1.0f)};
 	castl::unordered_map<TestTruct0, int> tstMap3;
 	tstMap3.insert({ testStructIn, 3 });
 

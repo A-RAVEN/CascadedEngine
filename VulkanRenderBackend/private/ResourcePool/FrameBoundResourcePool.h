@@ -21,7 +21,7 @@ namespace graphics_backend
 		void ResetPool();
 		void HostFinish();
 		vk::Fence GetFence() const { return m_Fence; }
-		VKBufferObject CreateStagingBuffer(size_t size, EBufferUsageFlags usages);
+		VKBufferObject CreateStagingBuffer(size_t size, EBufferUsageFlags usages, castl::string const& name = "Staging Buffer");
 		VKBufferObject CreateBufferWithMemory(GPUBufferDescriptor const& bufferDesc
 			, vk::MemoryPropertyFlags memoryFlags = vk::MemoryPropertyFlagBits::eDeviceLocal, const char* name = "");
 		VKImageObject CreateImageWithMemory(GPUTextureDescriptor const& textureDesc

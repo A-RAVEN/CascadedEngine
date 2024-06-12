@@ -1,5 +1,6 @@
 #pragma once
 #include <Platform.h>
+#include "GLMReflectionCommon.h"
 #include <CAResource/IResource.h>
 #include <CAResource/ResourceImporter.h>
 #include <CAResource/ResourceManagingSystem.h>
@@ -11,7 +12,6 @@
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <CRenderBackend.h>
-#include "GLMReflectionCommon.h"
 
 namespace resource_management
 {
@@ -22,6 +22,8 @@ namespace resource_management
 		glm::vec3 normal;
 		glm::vec3 tangent;
 		glm::vec3 bitangent;
+
+		auto operator<=>(const CommonVertexData&) const = default;
 
 		static auto GetVertexInputDescs(uint32_t baseOffset)
 		{
@@ -60,12 +62,14 @@ namespace resource_management
 			int m_IndicesCount;
 			int m_IndexArrayOffset;
 			int m_VertexArrayOffset;
+			auto operator<=>(const SubmeshInfo&) const = default;
 		};
 
 		struct InstanceInfo
 		{
 			uint32_t m_SubmeshID;
 			glm::mat4 m_InstanceTransform;
+			auto operator<=>(const InstanceInfo&) const = default;
 		};
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
@@ -75,6 +79,13 @@ namespace resource_management
 		void const* GetIndicesData() const { return m_Indices16.data(); }
 		std::vector<SubmeshInfo> const& GetSubmeshInfos() const { return m_SubmeshInfos; }
 		std::vector<InstanceInfo> const& GetInstanceInfos() const { return m_Instance; }
+		bool operator==(StaticMeshResource const& other) const
+		{
+			return m_Attributes == other.m_Attributes
+				&& m_Indices16 == other.m_Indices16
+				&& m_SubmeshInfos == other.m_SubmeshInfos
+				&& m_Instance == other.m_Instance;
+		}
 	private:
 		friend class StaticMeshImporter;
 		std::vector<CommonVertexData> m_Attributes;

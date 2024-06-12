@@ -1392,9 +1392,17 @@ namespace graphics_backend
 						auto buffer = GetBufferHandleBufferObject(bufferHandle);
 						if (buffer != vk::Buffer{ nullptr })
 						{
-							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
+							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc, "Staging Buffer " + bufferHandle.GetName());
 							{
 								auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
+								if (bufferHandle.GetName() == "0")
+								{
+									castl::vector<uint32_t> readValue;
+									readValue.resize(size / sizeof(uint32_t));
+									castl::fill(readValue.begin(), readValue.end(), -1);
+									memcpy(readValue.data(), address, size);
+									CA_LOG_ERR(castl::to_string(readValue[0]));
+								}
 								memcpy(mappedSrcBuffer.mappedMemory, address, size);
 							}
 							dataTransferCommandBuffer.copyBuffer(srcBuffer.buffer, buffer, vk::BufferCopy(0, offset, size));

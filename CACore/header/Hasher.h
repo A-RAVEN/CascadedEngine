@@ -95,7 +95,7 @@ namespace cacore
         template<typename Obj>
         constexpr void hash_container_with_size(const Obj& object)
         {
-            using objType = std::remove_reference_t<decltype(object)>;
+            using objType = std::remove_cvref_t<decltype(object)>;
             using arrElemType = containerInfo<objType>::elementType;
             uint64_t objSize = containerInfo<objType>::container_size(object);
             hash_range(objSize);
