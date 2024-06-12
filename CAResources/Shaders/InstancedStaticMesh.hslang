@@ -1,18 +1,17 @@
 #pragma once
 struct MeshData
 {
-    float4x4 ViewProjectionMatrix;
-    StructuredBuffer<float4x4> InstanceMatBuffer;
+    StructuredBuffer<float4x4> instanceTransforms;
 
-    float4 TransformInstanceToClip(uint instanceID, in float3 position)
+    float3 TransformPointToWorld(uint instanceID, in float3 position)
     {
-        float4x4 localToWorld = InstanceMatBuffer[instanceID];
-        return mul(ViewProjectionMatrix, mul(localToWorld, float4(position, 1.0)));
+        float4x4 localToWorld = instanceTransforms[instanceID];
+        return mul(localToWorld, float4(position, 1.0)).xyz;
     }
 
     float3 TransformDirectionToWorld(uint instanceID, in float3 direction)
     {
-        float3x3 localToWorld = (float3x3)InstanceMatBuffer[instanceID];
+        float3x3 localToWorld = (float3x3)instanceTransforms[instanceID];
         return mul(localToWorld, direction);
     }
 }

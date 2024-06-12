@@ -27,7 +27,7 @@ namespace graphics_backend
 			, ShadderResourceProvider& resourceProvider
 			, FrameBoundResourcePool* pResourcePool
 			, vk::CommandBuffer& command
-			, castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists);
+			, castl::vector <castl::pair <castl::string, castl::shared_ptr<ShaderArgList>>> const& shaderArgLists);
 		castl::vector<vk::DescriptorSet> m_DescriptorSets;
 		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
 		castl::vector<VKBufferObject> m_UniformBuffers;

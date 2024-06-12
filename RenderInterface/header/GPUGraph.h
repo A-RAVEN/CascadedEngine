@@ -15,13 +15,30 @@
 namespace graphics_backend
 {
 #pragma region Render Pass And DrawCalls
-	class PipelineDescData
+	struct PipelineDescData
 	{
-	public:
-		CPipelineStateObject m_PipelineStates;
 		IShaderSet const* m_ShaderSet;
-		InputAssemblyStates m_InputAssemblyStates;
-		castl::map<castl::string, VertexInputsDescriptor> m_VertexInputBindings;
+		cacore::HashObj<CPipelineStateObject> m_PipelineStates;
+		cacore::HashObj <InputAssemblyStates> m_InputAssemblyStates;
+		castl::vector<castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>> shaderArgLists;
+		//TODO: Do Not Expose This
+		static PipelineDescData CombindDescData(PipelineDescData const& parent, PipelineDescData const& child)
+		{
+			PipelineDescData newDescData{};
+			newDescData.m_ShaderSet = child.m_ShaderSet ? child.m_ShaderSet : parent.m_ShaderSet;
+			newDescData.m_PipelineStates = child.m_PipelineStates.Valid() ? child.m_PipelineStates : parent.m_PipelineStates;
+			newDescData.m_InputAssemblyStates = child.m_InputAssemblyStates.Valid() ? child.m_InputAssemblyStates : parent.m_InputAssemblyStates;
+			newDescData.shaderArgLists.reserve(child.shaderArgLists.size() + parent.shaderArgLists.size());
+			for (auto argList : parent.shaderArgLists)
+			{
+				newDescData.shaderArgLists.push_back(argList);
+			}
+			for (auto argList : child.shaderArgLists)
+			{
+				newDescData.shaderArgLists.push_back(argList);
+			}
+			return newDescData;
+		}
 	};
 
 	class DrawCallBatch
@@ -35,18 +52,36 @@ namespace graphics_backend
 
 		//PSO
 		PipelineDescData pipelineStateDesc;
-		//Shader Args
-		castl::shared_ptr<ShaderArgList> shaderArgs;
 		//Draw Calls
 		castl::vector<castl::function<void(CommandList&)>> m_DrawCommands;
-
-		//castl::map<castl::string, BufferHandle> m_BoundVertexBuffers;
 		castl::unordered_map<cacore::HashObj<VertexInputsDescriptor>, BufferHandle> m_BoundVertexBuffers;
 		BufferHandle m_BoundIndexBuffer;
 		EIndexBufferType m_IndexBufferType = EIndexBufferType::e16;
 		uint32_t m_IndexBufferOffset = 0;
 
-		//inline DrawCallBatch& SetVertexBuffer(castl::string const& name, BufferHandle const& bufferHandle);
+		inline DrawCallBatch& SetPipelineState(const CPipelineStateObject& pipelineState)
+		{
+			pipelineStateDesc.m_PipelineStates = pipelineState;
+			return *this;
+		}
+
+		inline DrawCallBatch& SetInputAssemblyStates(InputAssemblyStates assemblyStates)
+		{
+			pipelineStateDesc.m_InputAssemblyStates = assemblyStates;
+			return *this;
+		}
+
+		inline DrawCallBatch& SetShaderSet(IShaderSet const* pShaderSet)
+		{
+			pipelineStateDesc.m_ShaderSet = pShaderSet;
+			return *this;
+		}
+
+		inline DrawCallBatch& PushArgList(castl::string const& name, castl::shared_ptr<ShaderArgList> const& argList)
+		{
+			pipelineStateDesc.shaderArgLists.push_back(castl::make_pair(name, argList));
+			return *this;
+		}
 		inline DrawCallBatch& SetVertexBuffer(cacore::HashObj<VertexInputsDescriptor> const& vertexInputDesc, BufferHandle const& bufferHandle);
 		inline DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset = 0);
 		inline DrawCallBatch& Draw(castl::function<void(CommandList&)> commandFunc);
@@ -93,9 +128,12 @@ namespace graphics_backend
 		}
 
 		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
-		inline RenderPass& SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments);
+		inline RenderPass& PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList>& shaderArguments);
+		inline RenderPass& PushShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments)
+		{
+			return PushShaderArguments("", shaderArguments);
+		}
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
-		//inline RenderPass& DefineVertexInputBinding(castl::string const& bindingName, VertexInputsDescriptor const& attributes);
 		inline RenderPass& SetShaders(IShaderSet const* shaderSet);
 		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
 
@@ -106,10 +144,9 @@ namespace graphics_backend
 		GraphicsClearValue const& GetClearValue() const { return m_ClearValue; }
 		EAttachmentLoadOp GetAttachmentLoadOp() const { return m_AttachmentLoadOp; }
 		EAttachmentStoreOp GetAttachmentStoreOp() const { return m_AttachmentStoreOp; }
+		PipelineDescData const& GetPipelineStates() const { return m_PipelineStates; }
 	private:
-		PipelineDescData m_CurrentPipelineStates;
-		castl::shared_ptr<ShaderArgList> m_CurrentShaderArgs;
-		bool m_StateDirty = true;
+		PipelineDescData m_PipelineStates;
 		EAttachmentLoadOp m_AttachmentLoadOp = EAttachmentLoadOp::eLoad;
 		EAttachmentStoreOp m_AttachmentStoreOp = EAttachmentStoreOp::eStore;
 		GraphicsClearValue m_ClearValue = {};
@@ -128,12 +165,14 @@ namespace graphics_backend
 		{
 			IShaderSet const* shader;
 			castl::string kernelName;
-			castl::vector<castl::shared_ptr<ShaderArgList>> shaderArgLists;
+			castl::vector<
+				castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
+			> shaderArgLists;
 			uint32_t x;
 			uint32_t y;
 			uint32_t z;
 
-			static ComputeDispatch Create(IShaderSet const* shader, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::vector<castl::shared_ptr<ShaderArgList>> const& argLists)
+			static ComputeDispatch Create(IShaderSet const* shader, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::vector<castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>> const& argLists)
 			{
 				ComputeDispatch dispatchStruct{};
 				dispatchStruct.shader = shader;
@@ -145,22 +184,26 @@ namespace graphics_backend
 				return dispatchStruct;
 			}
 		};
-		static ComputeBatch New(castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists = {})
+		static ComputeBatch New()
 		{
 			ComputeBatch newBatch{};
-			newBatch.shaderArgLists = shaderArgLists;
 			return newBatch;
 		}
 		//Shader Args
-		castl::vector<castl::shared_ptr<ShaderArgList>> shaderArgLists;
+		castl::vector<
+			castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
+		> shaderArgLists;
 		//Dispatchs
 		castl::vector<ComputeDispatch> dispatchs;
-		ComputeBatch& PushArgList(castl::shared_ptr<ShaderArgList> const& argList)
+		ComputeBatch& PushArgList(castl::string name, castl::shared_ptr<ShaderArgList> const& argList)
 		{
-			shaderArgLists.push_back(argList);
+			shaderArgLists.push_back(castl::make_pair(name, argList));
 			return *this;
 		}
-		ComputeBatch& Dispatch(IShaderSet const* shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::vector<castl::shared_ptr<ShaderArgList>> const& argLists = {})
+		ComputeBatch& Dispatch(IShaderSet const* shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z
+			, castl::vector<
+			castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
+			> const& argLists = {})
 		{
 			bool valid = (shaderSet != nullptr) && (x > 0 && y > 0 && z > 0) && !kernelName.empty();
 			CA_ASSERT(valid, "Invalid Compute Dispatch!");
@@ -298,36 +341,30 @@ namespace graphics_backend
 
 	RenderPass& RenderPass::SetPipelineState(const CPipelineStateObject& pipelineState)
 	{
-		m_CurrentPipelineStates.m_PipelineStates = pipelineState;
-		m_StateDirty = true;
+		m_PipelineStates.m_PipelineStates = pipelineState;
 		return *this;
 	}
 	RenderPass& RenderPass::SetInputAssemblyStates(InputAssemblyStates assemblyStates)
 	{
-		m_CurrentPipelineStates.m_InputAssemblyStates = assemblyStates;
-		m_StateDirty = true;
+		m_PipelineStates.m_InputAssemblyStates = assemblyStates;
 		return *this;
 	}
 
-	RenderPass& RenderPass::SetShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments)
+	RenderPass& RenderPass::PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList>& shaderArguments)
 	{
-		m_CurrentShaderArgs = shaderArguments;
-		m_StateDirty = true;
+		m_PipelineStates.shaderArgLists.push_back(castl::make_pair(name, shaderArguments));
 		return *this;
 	}
 
 	RenderPass& RenderPass::SetShaders(IShaderSet const* shaderSet)
 	{
-		m_CurrentPipelineStates.m_ShaderSet = shaderSet;
-		m_StateDirty = true;
+		m_PipelineStates.m_ShaderSet = shaderSet;
 		return *this;
 	}
 
 	RenderPass& RenderPass::DrawCall(DrawCallBatch const& drawcall)
 	{
 		m_DrawCallBatches.push_back(drawcall);
-		m_DrawCallBatches.back().pipelineStateDesc = m_CurrentPipelineStates;
-		m_DrawCallBatches.back().shaderArgs = m_CurrentShaderArgs;
 		return *this;
 	}
 

@@ -19,22 +19,22 @@ namespace graphics_backend
 	{
 		switch (handle.GetType())
 		{
-			case BufferHandle::BufferType::Internal:
+		case BufferHandle::BufferType::Internal:
+		{
+			return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
+		}
+		case BufferHandle::BufferType::External:
+		{
+			auto buffer = castl::static_shared_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
+			if (buffer->GetUsage() == ResourceUsage::eDontCare)
 			{
 				return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
 			}
-			case BufferHandle::BufferType::External:
+			else
 			{
-				auto buffer = castl::static_shared_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
-				if (buffer->GetUsage() == ResourceUsage::eDontCare)
-				{
-					return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
-				}
-				else
-				{
-					return ResourceState(-1, buffer->GetUsage(), buffer->GetQueueFamily());
-				}
+				return ResourceState(-1, buffer->GetUsage(), buffer->GetQueueFamily());
 			}
+		}
 		default:
 			break;
 		}
@@ -226,16 +226,19 @@ namespace graphics_backend
 					window->WaitCurrentFrameBufferIndex();
 				}
 			}
-			
-			//Drawcalls
-			auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+
+			//Shader Args
 			castl::deque<ShaderArgList const*> shaderArgLists;
+			for (auto argList : renderPass.GetPipelineStates().shaderArgLists)
+			{
+				shaderArgLists.push_back(argList.second.get());
+			}
+			auto& drawcallBatchs = renderPass.GetDrawCallBatches();
 			for (auto& batch : drawcallBatchs)
 			{
-				auto& shaderArgs = batch.shaderArgs;
-				if (batch.shaderArgs != nullptr)
+				for (auto argList : batch.pipelineStateDesc.shaderArgLists)
 				{
-					shaderArgLists.push_back(shaderArgs.get());
+					shaderArgLists.push_back(argList.second.get());
 				}
 				{
 					//Index Buffer
@@ -245,7 +248,7 @@ namespace graphics_backend
 						m_BufferManager.AllocResourceIndex(indesBuffer.GetName(), bufferManager.GetDescriptorIndex(indesBuffer.GetName()));
 					}
 					//Vertex Buffers
-					for(auto& vertexBufferPair : batch.m_BoundVertexBuffers)
+					for (auto& vertexBufferPair : batch.m_BoundVertexBuffers)
 					{
 						auto& vertexBuffer = vertexBufferPair.second;
 						if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
@@ -260,7 +263,7 @@ namespace graphics_backend
 			{
 				ShaderArgList const& shaderArgs = *shaderArgLists.front();
 				shaderArgLists.pop_front();
-				for (auto& subArgPairs: shaderArgs.GetSubArgList())
+				for (auto& subArgPairs : shaderArgs.GetSubArgList())
 				{
 					shaderArgLists.push_back(subArgPairs.second.get());
 				}
@@ -304,13 +307,13 @@ namespace graphics_backend
 			castl::deque<ShaderArgList const*> shaderArgLists;
 			for (auto& arg : computePass.shaderArgLists)
 			{
-				shaderArgLists.push_back(arg.get());
+				shaderArgLists.push_back(arg.second.get());
 			}
 			for (auto& dispatch : computePass.dispatchs)
 			{
 				for (auto& arg : dispatch.shaderArgLists)
 				{
-					shaderArgLists.push_back(arg.get());
+					shaderArgLists.push_back(arg.second.get());
 				}
 			}
 
@@ -362,18 +365,18 @@ namespace graphics_backend
 		auto imageType = handle.GetType();
 		switch (imageType)
 		{
-			case ImageHandle::ImageType::Internal:
-			{
-				return m_Graph->GetImageManager().GetDescriptor(handle.GetName());
-			}
-			case ImageHandle::ImageType::External:
-			{
-				return &handle.GetExternalManagedTexture()->GetDescriptor();
-			}
-			case ImageHandle::ImageType::Backbuffer:
-			{
-				return &handle.GetWindowHandle()->GetBackbufferDescriptor();
-			}
+		case ImageHandle::ImageType::Internal:
+		{
+			return m_Graph->GetImageManager().GetDescriptor(handle.GetName());
+		}
+		case ImageHandle::ImageType::External:
+		{
+			return &handle.GetExternalManagedTexture()->GetDescriptor();
+		}
+		case ImageHandle::ImageType::Backbuffer:
+		{
+			return &handle.GetWindowHandle()->GetBackbufferDescriptor();
+		}
 		}
 		return nullptr;
 	}
@@ -551,7 +554,7 @@ namespace graphics_backend
 				, {}
 				, {}
 				, {}
-				, releaser.signalSemaphore);
+			, releaser.signalSemaphore);
 		}
 		for (auto& batch : m_CommandBufferBatchList)
 		{
@@ -586,18 +589,18 @@ namespace graphics_backend
 			switch (imageHandle.GetType())
 			{
 			case ImageHandle::ImageType::External:
-				{
-					auto image = castl::static_pointer_cast<VKGPUTexture>(imageHandle.GetExternalManagedTexture());
-					image->SetUsage(finalUsage.usage);
-					image->SetQueueFamily(finalUsage.queueFamily);
-				}
-				break;
+			{
+				auto image = castl::static_pointer_cast<VKGPUTexture>(imageHandle.GetExternalManagedTexture());
+				image->SetUsage(finalUsage.usage);
+				image->SetQueueFamily(finalUsage.queueFamily);
+			}
+			break;
 			case ImageHandle::ImageType::Backbuffer:
-				{
-					auto window = castl::static_pointer_cast<CWindowContext>(imageHandle.GetWindowHandle());
-					window->GetSwapchainContext().MarkUsages(finalUsage.usage, finalUsage.queueFamily);
-				}
-				break;
+			{
+				auto window = castl::static_pointer_cast<CWindowContext>(imageHandle.GetWindowHandle());
+				window->GetSwapchainContext().MarkUsages(finalUsage.usage, finalUsage.queueFamily);
+			}
+			break;
 			}
 		}
 	}
@@ -625,24 +628,24 @@ namespace graphics_backend
 	{
 		switch (handle.GetType())
 		{
-			case ImageHandle::ImageType::External:
-			case ImageHandle::ImageType::Backbuffer:
+		case ImageHandle::ImageType::External:
+		case ImageHandle::ImageType::Backbuffer:
+		{
+			auto found = m_ExternImageFinalUsageStates.find(handle);
+			if (found == m_ExternImageFinalUsageStates.end())
 			{
-				auto found = m_ExternImageFinalUsageStates.find(handle);
-				if (found == m_ExternImageFinalUsageStates.end())
+				//Different Queue Needs Release barrier
+				if (NeedReleaseBarrier(initUsageState, newUsageState))
 				{
-					//Different Queue Needs Release barrier
-					if (NeedReleaseBarrier(initUsageState, newUsageState))
-					{
-						auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(GetVulkanApplication(), initUsageState.queueFamily);
-						auto pDesc = GetTextureHandleDescriptor(handle);
-						releaser.barrierCollector.PushImageReleaseBarrier(newUsageState.queueFamily, GetTextureHandleImageObject(handle), pDesc->format, initUsageState.usage, newUsageState.usage);
-						passInfo->m_WaitingQueueFamilies.insert(initUsageState.queueFamily);
-					}
+					auto& releaser = m_ExternalResourceReleasingBarriers.GetQueueFamilyReleaser(GetVulkanApplication(), initUsageState.queueFamily);
+					auto pDesc = GetTextureHandleDescriptor(handle);
+					releaser.barrierCollector.PushImageReleaseBarrier(newUsageState.queueFamily, GetTextureHandleImageObject(handle), pDesc->format, initUsageState.usage, newUsageState.usage);
+					passInfo->m_WaitingQueueFamilies.insert(initUsageState.queueFamily);
 				}
-				m_ExternImageFinalUsageStates[handle] = newUsageState;
-				break;
 			}
+			m_ExternImageFinalUsageStates[handle] = newUsageState;
+			break;
+		}
 		}
 	}
 
@@ -715,7 +718,7 @@ namespace graphics_backend
 			return;
 		}
 		auto buffer = GetBufferHandleBufferObject(bufferHandle);
-		if (buffer == vk::Buffer{nullptr})
+		if (buffer == vk::Buffer{ nullptr })
 			return;
 
 		auto dstInfo = GetBasePassInfo(destPassID);
@@ -751,7 +754,7 @@ namespace graphics_backend
 			return;
 		}
 		auto image = GetTextureHandleImageObject(imageHandle);
-		if (image == vk::Image{nullptr})
+		if (image == vk::Image{ nullptr })
 			return;
 
 		auto dstInfo = GetBasePassInfo(destPassID);
@@ -860,66 +863,66 @@ namespace graphics_backend
 		ResourceUsageFlags writeFlags;
 		switch (basePassInfo->GetStageType())
 		{
-			case GPUGraph::EGraphStageType::eRenderPass:
-			{
-				readFlags = ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead;
-				writeFlags = ResourceUsage::eVertexWrite | ResourceUsage::eFragmentWrite;
-				break;
-			}
-			case GPUGraph::EGraphStageType::eComputePass:
-			{
-				readFlags = ResourceUsage::eComputeRead;
-				writeFlags = ResourceUsage::eComputeWrite;
-				break;
-			}
-			default:
-			{
-				CA_LOG_ERR("Invalid Pass Type For Shader Binding Resource Barriers");
-				readFlags = ResourceUsage::eComputeRead;
-				writeFlags = ResourceUsage::eComputeWrite;
-				break;
-			}
+		case GPUGraph::EGraphStageType::eRenderPass:
+		{
+			readFlags = ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead;
+			writeFlags = ResourceUsage::eVertexWrite | ResourceUsage::eFragmentWrite;
+			break;
+		}
+		case GPUGraph::EGraphStageType::eComputePass:
+		{
+			readFlags = ResourceUsage::eComputeRead;
+			writeFlags = ResourceUsage::eComputeWrite;
+			break;
+		}
+		default:
+		{
+			CA_LOG_ERR("Invalid Pass Type For Shader Binding Resource Barriers");
+			readFlags = ResourceUsage::eComputeRead;
+			writeFlags = ResourceUsage::eComputeWrite;
+			break;
+		}
 		}
 		for (auto bufferHandlePairs : shaderBindingInstance.m_BufferHandles)
 		{
 			switch (bufferHandlePairs.second)
 			{
-				case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
-				{
-					UpdateBufferDependency(passID, bufferHandlePairs.first, readFlags, inoutBufferUsageFlagCache);
-					break;
-				}
-				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
-				{
-					UpdateBufferDependency(passID, bufferHandlePairs.first, writeFlags, inoutBufferUsageFlagCache);
-					break;
-				}
-				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
-				{
-					UpdateBufferDependency(passID, bufferHandlePairs.first, readFlags | writeFlags, inoutBufferUsageFlagCache);
-					break;
-				}
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+			{
+				UpdateBufferDependency(passID, bufferHandlePairs.first, readFlags, inoutBufferUsageFlagCache);
+				break;
+			}
+			case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+			{
+				UpdateBufferDependency(passID, bufferHandlePairs.first, writeFlags, inoutBufferUsageFlagCache);
+				break;
+			}
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+			{
+				UpdateBufferDependency(passID, bufferHandlePairs.first, readFlags | writeFlags, inoutBufferUsageFlagCache);
+				break;
+			}
 			}
 		}
 		for (auto imageHandlePairs : shaderBindingInstance.m_ImageHandles)
 		{
 			switch (imageHandlePairs.second)
 			{
-				case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
-				{
-					UpdateImageDependency(passID, imageHandlePairs.first, readFlags, inoutImageUsageFlagCache);
-					break;
-				}
-				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
-				{
-					UpdateImageDependency(passID, imageHandlePairs.first, writeFlags, inoutImageUsageFlagCache);
-					break;
-				}
-				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
-				{
-					UpdateImageDependency(passID, imageHandlePairs.first, readFlags | writeFlags, inoutImageUsageFlagCache);
-					break;
-				}
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+			{
+				UpdateImageDependency(passID, imageHandlePairs.first, readFlags, inoutImageUsageFlagCache);
+				break;
+			}
+			case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+			{
+				UpdateImageDependency(passID, imageHandlePairs.first, writeFlags, inoutImageUsageFlagCache);
+				break;
+			}
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+			{
+				UpdateImageDependency(passID, imageHandlePairs.first, readFlags | writeFlags, inoutImageUsageFlagCache);
+				break;
+			}
 			}
 		}
 	}
@@ -997,30 +1000,33 @@ namespace graphics_backend
 				passInfo.m_FrameBufferObject = GetGPUObjectManager().GetFramebufferCache().GetOrCreate(frameBufferDesc);
 			}
 
+
+			auto& passLevelPsoDesc = renderPass.GetPipelineStates();
 			//Batch Info
 			for (auto& batch : drawcallBatchs)
 			{
 				GPUPassBatchInfo newBatchInfo{};
 
-				auto& psoDesc = batch.pipelineStateDesc;
-				auto vertShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(psoDesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eVert));
-				auto fragShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(psoDesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eFrag));
+				auto& batchLevelPsoDesc = batch.pipelineStateDesc;
+				auto resolvedPSODesc = PipelineDescData::CombindDescData(passLevelPsoDesc, batchLevelPsoDesc);
+				auto vertShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eVert));
+				auto fragShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eFrag));
 
 				//Shader Binding Holder
 				//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
-				newBatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication(), m_FrameBoundResourceManager, psoDesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
+				newBatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication(), m_FrameBoundResourceManager, resolvedPSODesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
 
-				auto& vertexInputBindings = psoDesc.m_VertexInputBindings;
-				auto& vertexAttributes = psoDesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV).m_VertexAttributes;
+				//auto& vertexInputBindings = resolvedPSODesc.m_VertexInputBindings;
+				auto& vertexAttributes = resolvedPSODesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV).m_VertexAttributes;
 				CVertexInputDescriptor vertexInputDesc = MakeVertexInputDescriptorsNew(
 					vertexAttributes
-					, psoDesc.m_InputAssemblyStates
+					, resolvedPSODesc.m_InputAssemblyStates.Get()
 					, batch.m_BoundVertexBuffers
 					, newBatchInfo.m_VertexAttributeBindings);
 
 				CPipelineObjectDescriptor psoDescObj;
 				psoDescObj.vertexInputs = vertexInputDesc;
-				psoDescObj.pso = psoDesc.m_PipelineStates;
+				psoDescObj.pso = resolvedPSODesc.m_PipelineStates.Get();
 				psoDescObj.shaderState = { vertShader, fragShader };
 				psoDescObj.renderPassObject = passInfo.m_RenderPassObject;
 				psoDescObj.descriptorSetLayouts = newBatchInfo.m_ShaderBindingInstance.m_DescriptorSetsLayouts;
@@ -1033,7 +1039,7 @@ namespace graphics_backend
 			m_Passes.push_back(passInfo);
 		}
 	}
-	
+
 	void GPUGraphExecutor::PrepareComputePSOs()
 	{
 		auto& computePasses = m_Graph->GetComputePasses();
@@ -1046,7 +1052,7 @@ namespace graphics_backend
 				newDispatchInfo.m_ShaderBindingInstance.InitShaderBindings(GetVulkanApplication()
 					, m_FrameBoundResourceManager
 					, dispatch.shader->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
-				
+
 				auto comp = GetGPUObjectManager()
 					.m_ShaderModuleCache
 					.GetOrCreate(dispatch.shader
@@ -1080,6 +1086,7 @@ namespace graphics_backend
 				auto& renderPassData = m_Passes[passID];
 				auto& drawcallBatchData = renderPassData.m_Batches;
 				CA_ASSERT(drawcallBatchs.size() == drawcallBatchData.size(), "InCompatible Render Pass Batch Sizes");
+				auto& passLevelPsoDesc = renderPass.GetPipelineStates();
 
 				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
 				vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
@@ -1087,7 +1094,9 @@ namespace graphics_backend
 				{
 					auto& batch = drawcallBatchs[batchID];
 					GPUPassBatchInfo& newBatchInfo = drawcallBatchData[batchID];
-					newBatchInfo.m_ShaderBindingInstance.WriteShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, *batch.shaderArgs.get());
+					auto& batchLevelPsoDesc = batch.pipelineStateDesc;
+					auto resolvedPSODesc = PipelineDescData::CombindDescData(passLevelPsoDesc, batchLevelPsoDesc);
+					newBatchInfo.m_ShaderBindingInstance.FillShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, resolvedPSODesc.shaderArgLists);
 				}
 				writeConstantsCommand.end();
 				renderPassData.m_CommandBuffers.push_back(writeConstantsCommand);
@@ -1098,9 +1107,9 @@ namespace graphics_backend
 			auto& computePasses = m_Graph->GetComputePasses();
 			CA_ASSERT(computePasses.size() == m_ComputePasses.size(), "InCompatible Compute Pass Sizes");
 
-			for(size_t passID = 0; passID < computePasses.size(); ++passID)
+			for (size_t passID = 0; passID < computePasses.size(); ++passID)
 			{
-				castl::vector<castl::shared_ptr<ShaderArgList>> shaderArgs;
+				castl::vector <castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>> shaderArgs;
 				auto& computePass = computePasses[passID];
 				auto& computePassData = m_ComputePasses[passID];
 				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
@@ -1112,7 +1121,7 @@ namespace graphics_backend
 					auto& dispatchData = computePass.dispatchs[dispatchID];
 					auto& dispatchData1 = computePassData.m_DispatchInfos[dispatchID];
 					shaderArgs.resize(computePass.shaderArgLists.size() + dispatchData.shaderArgLists.size());
-					for(size_t copyID = 0; copyID < dispatchData.shaderArgLists.size(); ++copyID)
+					for (size_t copyID = 0; copyID < dispatchData.shaderArgLists.size(); ++copyID)
 					{
 						shaderArgs[computePass.shaderArgLists.size() + copyID] = dispatchData.shaderArgLists[copyID];
 					}
@@ -1145,104 +1154,104 @@ namespace graphics_backend
 			uint32_t realPassID = passIndices[passID];
 			switch (stage)
 			{
-				case GPUGraph::EGraphStageType::eRenderPass:
+			case GPUGraph::EGraphStageType::eRenderPass:
+			{
+				CA_ASSERT(realPassID == currentRenderPassIndex, "Render Pass Index Mismatch");
+				++currentRenderPassIndex;
+				auto& renderPass = renderPasses[realPassID];
+				auto& renderPassData = m_Passes[realPassID];
+				auto& attachments = renderPass.GetAttachments();
+				auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+				//Barriers
 				{
-					CA_ASSERT(realPassID == currentRenderPassIndex, "Render Pass Index Mismatch");
-					++currentRenderPassIndex;
-					auto& renderPass = renderPasses[realPassID];
-					auto& renderPassData = m_Passes[realPassID];
-					auto& attachments = renderPass.GetAttachments();
-					auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-					//Barriers
+					renderPassData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetGraphicsPipelineStageMask(), GetQueueContext().GetGraphicsQueueFamily());
+
+					for (size_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 					{
-						renderPassData.m_BarrierCollector.SetCurrentQueueFamilyIndex( GetQueueContext().GetGraphicsPipelineStageMask(), GetQueueContext().GetGraphicsQueueFamily());
-
-						for (size_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
-						{
-							auto& batch = drawcallBatchs[batchID];
-							auto& batchData = renderPassData.m_Batches[batchID];
-							PrepareVertexBuffersBarriers(renderPassData.m_BarrierCollector, bufferUsageFlagCache, batch, batchData, passID);
-							//PrepareShaderArgsResourceBarriers(renderPassData.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get(), passID);
-							PrepareShaderBindingResourceBarriers(renderPassData.m_BarrierCollector
-								, imageUsageFlagCache
-								, bufferUsageFlagCache
-								, batchData.m_ShaderBindingInstance
-								, passID);
-
-							for (auto& bufferObject : batchData.m_ShaderBindingInstance.m_UniformBuffers)
-							{
-								renderPassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead);
-							}
-						}
-						for (size_t i = 0; i < attachments.size(); ++i)
-						{
-							auto& attachment = attachments[i];
-							ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
-							UpdateImageDependency(passID, attachment, usageFlags, imageUsageFlagCache);
-						}
-					}
-					break;
-				}
-				case GPUGraph::EGraphStageType::eComputePass:
-				{
-					CA_ASSERT(realPassID == currentComputePassIndex, "Compute Pass Index Mismatch");
-					++currentComputePassIndex;
-					auto& computePass = computePasses[realPassID];
-					auto& computePassData = m_ComputePasses[realPassID];
-					computePassData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetComputePipelineStageMask(), GetQueueContext().GetComputeQueueFamily());
-					for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
-					{
-						auto& dispatchData = computePass.dispatchs[dispatchID];
-						auto& dispatchData1 = computePassData.m_DispatchInfos[dispatchID];
-
-						//TODO: 重写这个函数
-						//PrepareShaderArgsResourceBarriers(computePassData.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get(), passID);
-						PrepareShaderBindingResourceBarriers(computePassData.m_BarrierCollector
+						auto& batch = drawcallBatchs[batchID];
+						auto& batchData = renderPassData.m_Batches[batchID];
+						PrepareVertexBuffersBarriers(renderPassData.m_BarrierCollector, bufferUsageFlagCache, batch, batchData, passID);
+						//PrepareShaderArgsResourceBarriers(renderPassData.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get(), passID);
+						PrepareShaderBindingResourceBarriers(renderPassData.m_BarrierCollector
 							, imageUsageFlagCache
 							, bufferUsageFlagCache
-							, dispatchData1.m_ShaderBindingInstance
+							, batchData.m_ShaderBindingInstance
 							, passID);
 
-						for (auto& bufferObject : dispatchData1.m_ShaderBindingInstance.m_UniformBuffers)
+						for (auto& bufferObject : batchData.m_ShaderBindingInstance.m_UniformBuffers)
 						{
-							computePassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eComputeRead);
+							renderPassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead);
 						}
 					}
-					break;
+					for (size_t i = 0; i < attachments.size(); ++i)
+					{
+						auto& attachment = attachments[i];
+						ResourceUsageFlags usageFlags = i == renderPass.GetDepthAttachmentIndex() ? ResourceUsage::eDepthStencilAttachment : ResourceUsage::eColorAttachmentOutput;
+						UpdateImageDependency(passID, attachment, usageFlags, imageUsageFlagCache);
+					}
 				}
-				case GPUGraph::EGraphStageType::eTransferPass:
+				break;
+			}
+			case GPUGraph::EGraphStageType::eComputePass:
+			{
+				CA_ASSERT(realPassID == currentComputePassIndex, "Compute Pass Index Mismatch");
+				++currentComputePassIndex;
+				auto& computePass = computePasses[realPassID];
+				auto& computePassData = m_ComputePasses[realPassID];
+				computePassData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetComputePipelineStageMask(), GetQueueContext().GetComputeQueueFamily());
+				for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 				{
-					CA_ASSERT(realPassID == currentTransferPassIndex, "Render Pass Index Mismatch");
-					++currentTransferPassIndex;
-					m_TransferPasses.emplace_back();
-					GPUTransferInfo& transfersData = m_TransferPasses.back();
-					transfersData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetTransferPipelineStageMask(), GetQueueContext().GetTransferQueueFamily());
-					auto& transfersInfo = dataTransfers[realPassID];
-	
-					for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
+					auto& dispatchData = computePass.dispatchs[dispatchID];
+					auto& dispatchData1 = computePassData.m_DispatchInfos[dispatchID];
+
+					//TODO: 重写这个函数
+					//PrepareShaderArgsResourceBarriers(computePassData.m_BarrierCollector, imageUsageFlagCache, bufferUsageFlagCache, batch.shaderArgs.get(), passID);
+					PrepareShaderBindingResourceBarriers(computePassData.m_BarrierCollector
+						, imageUsageFlagCache
+						, bufferUsageFlagCache
+						, dispatchData1.m_ShaderBindingInstance
+						, passID);
+
+					for (auto& bufferObject : dispatchData1.m_ShaderBindingInstance.m_UniformBuffers)
 					{
-						
-						auto [bufferHandle, address, offset, size] = bufferUpload;
-						if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
-						{
-							ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
-							UpdateBufferDependency(passID, bufferHandle, usageFlags, bufferUsageFlagCache);
-						}
+						computePassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eComputeRead);
 					}
-					for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
-					{
-						auto [imageHandle, address, offset, size] = imageUpload;
-						ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
-						UpdateImageDependency(passID, imageHandle, usageFlags, imageUsageFlagCache);
-					}
-					break;
 				}
+				break;
+			}
+			case GPUGraph::EGraphStageType::eTransferPass:
+			{
+				CA_ASSERT(realPassID == currentTransferPassIndex, "Render Pass Index Mismatch");
+				++currentTransferPassIndex;
+				m_TransferPasses.emplace_back();
+				GPUTransferInfo& transfersData = m_TransferPasses.back();
+				transfersData.m_BarrierCollector.SetCurrentQueueFamilyIndex(GetQueueContext().GetTransferPipelineStageMask(), GetQueueContext().GetTransferQueueFamily());
+				auto& transfersInfo = dataTransfers[realPassID];
+
+				for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
+				{
+
+					auto [bufferHandle, address, offset, size] = bufferUpload;
+					if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
+					{
+						ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
+						UpdateBufferDependency(passID, bufferHandle, usageFlags, bufferUsageFlagCache);
+					}
+				}
+				for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
+				{
+					auto [imageHandle, address, offset, size] = imageUpload;
+					ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
+					UpdateImageDependency(passID, imageHandle, usageFlags, imageUsageFlagCache);
+				}
+				break;
+			}
 			}
 			++passID;
 		}
-	
+
 	}
-	
+
 	void GPUGraphExecutor::RecordGraph()
 	{
 		CA_ASSERT(m_Passes.size() == m_Graph->GetRenderPasses().size(), "Render Passe Count Mismatch");
@@ -1276,153 +1285,153 @@ namespace graphics_backend
 			uint32_t realPassID = passIndices[passID];
 			switch (stage)
 			{
-				case GPUGraph::EGraphStageType::eRenderPass:
+			case GPUGraph::EGraphStageType::eRenderPass:
+			{
+				auto& renderPass = renderPasses[realPassID];
+				auto& passData = m_Passes[realPassID];
+				CA_ASSERT(realPassID == currentRenderPassIndex, "Render Pass Index Mismatch");
+				++currentRenderPassIndex;
+
+				auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+				auto& batchDatas = passData.m_Batches;
+				CA_ASSERT(drawcallBatchs.size() == batchDatas.size(), "Batch Count Mismatch");
+
+				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+				vk::CommandBuffer renderPassCommandBuffer = cmdPool->AllocCommand(QueueType::eGraphics, "Render Pass");
+
+				passData.m_BarrierCollector.ExecuteBarrier(renderPassCommandBuffer);
+				renderPassCommandBuffer.beginRenderPass(
+					vk::RenderPassBeginInfo{
+						passData.m_RenderPassObject->GetRenderPass()
+						, passData.m_FrameBufferObject->GetFramebuffer()
+						, vk::Rect2D{{0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }}
+						, passData.m_ClearValues
+					}
+				, vk::SubpassContents::eInline);
+
+				renderPassCommandBuffer.setViewport(0, { vk::Viewport(0.0f, 0.0f, (float)passData.m_FrameBufferObject->GetWidth(), (float)passData.m_FrameBufferObject->GetHeight(), 0.0f, 1.0f) });
+				renderPassCommandBuffer.setScissor(0, { vk::Rect2D({0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }) });
+
+
+				CommandList_Impl commandList{ renderPassCommandBuffer };
+
+				//castl::vector<uint32_t> bufferOffsets;
+				for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 				{
-					auto& renderPass = renderPasses[realPassID];
-					auto& passData = m_Passes[realPassID];
-					CA_ASSERT(realPassID == currentRenderPassIndex, "Render Pass Index Mismatch");
-					++currentRenderPassIndex;
+					auto& batchData = batchDatas[batchID];
+					auto& drawcallBatch = drawcallBatchs[batchID];
 
-					auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-					auto& batchDatas = passData.m_Batches;
-					CA_ASSERT(drawcallBatchs.size() == batchDatas.size(), "Batch Count Mismatch");
+					renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipeline());
 
-					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-					vk::CommandBuffer renderPassCommandBuffer = cmdPool->AllocCommand(QueueType::eGraphics, "Render Pass");
+					renderPassCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipelineLayout(), 0, batchData.m_ShaderBindingInstance.m_DescriptorSets, {});
 
-					passData.m_BarrierCollector.ExecuteBarrier(renderPassCommandBuffer);
-					renderPassCommandBuffer.beginRenderPass(
-						vk::RenderPassBeginInfo{
-							passData.m_RenderPassObject->GetRenderPass()
-							, passData.m_FrameBufferObject->GetFramebuffer()
-							, vk::Rect2D{{0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }}
-							, passData.m_ClearValues
-						}
-					, vk::SubpassContents::eInline);
-
-					renderPassCommandBuffer.setViewport(0, { vk::Viewport(0.0f, 0.0f, (float)passData.m_FrameBufferObject->GetWidth(), (float)passData.m_FrameBufferObject->GetHeight(), 0.0f, 1.0f) });
-					renderPassCommandBuffer.setScissor(0, { vk::Rect2D({0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }) });
-
-					
-					CommandList_Impl commandList{ renderPassCommandBuffer };
-
-					//castl::vector<uint32_t> bufferOffsets;
-					for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
+					if (drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
 					{
-						auto& batchData = batchDatas[batchID];
-						auto& drawcallBatch = drawcallBatchs[batchID];
+						auto buffer = GetBufferHandleBufferObject(drawcallBatch.m_BoundIndexBuffer);
+						renderPassCommandBuffer.bindIndexBuffer(buffer, drawcallBatch.m_IndexBufferOffset, EIndexBufferTypeTranslate(drawcallBatch.m_IndexBufferType));
+					}
 
-						renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipeline());
-
-						renderPassCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipelineLayout(), 0, batchData.m_ShaderBindingInstance.m_DescriptorSets, {});
-
-						if (drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
+					for (auto& attributePair : batchData.m_VertexAttributeBindings)
+					{
+						auto foundVertexBuffer = drawcallBatch.m_BoundVertexBuffers.find(attributePair.first);
+						if (foundVertexBuffer != drawcallBatch.m_BoundVertexBuffers.end())
 						{
-							auto buffer = GetBufferHandleBufferObject(drawcallBatch.m_BoundIndexBuffer);
-							renderPassCommandBuffer.bindIndexBuffer(buffer, drawcallBatch.m_IndexBufferOffset, EIndexBufferTypeTranslate(drawcallBatch.m_IndexBufferType));
-						}
-
-						for (auto& attributePair : batchData.m_VertexAttributeBindings)
-						{
-							auto foundVertexBuffer = drawcallBatch.m_BoundVertexBuffers.find(attributePair.first);
-							if (foundVertexBuffer != drawcallBatch.m_BoundVertexBuffers.end())
-							{
-								auto buffer = GetBufferHandleBufferObject(foundVertexBuffer->second);
-								renderPassCommandBuffer.bindVertexBuffers(attributePair.second.bindingIndex, { buffer }, { 0 });
-							}
-						}
-
-						for (auto& drawFunc : drawcallBatch.m_DrawCommands)
-						{
-							drawFunc(commandList);
+							auto buffer = GetBufferHandleBufferObject(foundVertexBuffer->second);
+							renderPassCommandBuffer.bindVertexBuffers(attributePair.second.bindingIndex, { buffer }, { 0 });
 						}
 					}
 
-					renderPassCommandBuffer.endRenderPass();
-					passData.m_BarrierCollector.ExecuteReleaseBarrier(renderPassCommandBuffer);
-					renderPassCommandBuffer.end();
-					passData.m_CommandBuffers.push_back(renderPassCommandBuffer);
-					break;
-				}
-				case GPUGraph::EGraphStageType::eComputePass:
-				{
-					auto& computePass = computePasses[realPassID];
-					auto& computePassData = m_ComputePasses[realPassID];
-					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-					vk::CommandBuffer computeCommandBuffer = cmdPool->AllocCommand(QueueType::eCompute, "Compute Pass");
-					computePassData.m_BarrierCollector.ExecuteBarrier(computeCommandBuffer);
-					for(size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
+					for (auto& drawFunc : drawcallBatch.m_DrawCommands)
 					{
-						auto& dispatchData = computePass.dispatchs[dispatchID];
-						auto& dispatchData1 = computePassData.m_DispatchInfos[dispatchID];
-						computeCommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, dispatchData1.m_ComputePipeline->GetPipeline());
-						computeCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, dispatchData1.m_ComputePipeline->GetPipelineLayout(), 0, dispatchData1.m_ShaderBindingInstance.m_DescriptorSets, {});
-						computeCommandBuffer.dispatch(dispatchData.x, dispatchData.y, dispatchData.z);
+						drawFunc(commandList);
 					}
-					computePassData.m_BarrierCollector.ExecuteReleaseBarrier(computeCommandBuffer);
-					computeCommandBuffer.end();
-					computePassData.m_CommandBuffers.push_back(computeCommandBuffer);
-					break;
 				}
-				case GPUGraph::EGraphStageType::eTransferPass:
+
+				renderPassCommandBuffer.endRenderPass();
+				passData.m_BarrierCollector.ExecuteReleaseBarrier(renderPassCommandBuffer);
+				renderPassCommandBuffer.end();
+				passData.m_CommandBuffers.push_back(renderPassCommandBuffer);
+				break;
+			}
+			case GPUGraph::EGraphStageType::eComputePass:
+			{
+				auto& computePass = computePasses[realPassID];
+				auto& computePassData = m_ComputePasses[realPassID];
+				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+				vk::CommandBuffer computeCommandBuffer = cmdPool->AllocCommand(QueueType::eCompute, "Compute Pass");
+				computePassData.m_BarrierCollector.ExecuteBarrier(computeCommandBuffer);
+				for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 				{
-					auto& transfersInfo = dataTransfers[realPassID];
-					GPUTransferInfo& transfersData = m_TransferPasses[realPassID];
-					CA_ASSERT(realPassID == currentTransferPassIndex, "Render Pass Index Mismatch");
-					++currentTransferPassIndex;
+					auto& dispatchData = computePass.dispatchs[dispatchID];
+					auto& dispatchData1 = computePassData.m_DispatchInfos[dispatchID];
+					computeCommandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, dispatchData1.m_ComputePipeline->GetPipeline());
+					computeCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, dispatchData1.m_ComputePipeline->GetPipelineLayout(), 0, dispatchData1.m_ShaderBindingInstance.m_DescriptorSets, {});
+					computeCommandBuffer.dispatch(dispatchData.x, dispatchData.y, dispatchData.z);
+				}
+				computePassData.m_BarrierCollector.ExecuteReleaseBarrier(computeCommandBuffer);
+				computeCommandBuffer.end();
+				computePassData.m_CommandBuffers.push_back(computeCommandBuffer);
+				break;
+			}
+			case GPUGraph::EGraphStageType::eTransferPass:
+			{
+				auto& transfersInfo = dataTransfers[realPassID];
+				GPUTransferInfo& transfersData = m_TransferPasses[realPassID];
+				CA_ASSERT(realPassID == currentTransferPassIndex, "Render Pass Index Mismatch");
+				++currentTransferPassIndex;
 
-					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-					vk::CommandBuffer dataTransferCommandBuffer = cmdPool->AllocCommand(QueueType::eTransfer, "Data Transfer");
-					transfersData.m_BarrierCollector.ExecuteBarrier(dataTransferCommandBuffer);
+				auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+				vk::CommandBuffer dataTransferCommandBuffer = cmdPool->AllocCommand(QueueType::eTransfer, "Data Transfer");
+				transfersData.m_BarrierCollector.ExecuteBarrier(dataTransferCommandBuffer);
 
-					for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
+				for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
+				{
+					auto [bufferHandle, address, offset, size] = bufferUpload;
+					if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
 					{
-						auto [bufferHandle, address, offset, size] = bufferUpload;
-						if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
+						auto buffer = GetBufferHandleBufferObject(bufferHandle);
+						if (buffer != vk::Buffer{ nullptr })
 						{
-							auto buffer = GetBufferHandleBufferObject(bufferHandle);
-							if (buffer != vk::Buffer{ nullptr })
+							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
 							{
-								auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
-								{
-									auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
-									memcpy(mappedSrcBuffer.mappedMemory, address, size);
-								}
-								dataTransferCommandBuffer.copyBuffer(srcBuffer.buffer, buffer, vk::BufferCopy(0, offset, size));
+								auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
+								memcpy(mappedSrcBuffer.mappedMemory, address, size);
 							}
+							dataTransferCommandBuffer.copyBuffer(srcBuffer.buffer, buffer, vk::BufferCopy(0, offset, size));
 						}
 					}
-
-					for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
-					{
-						auto [imageHandle, address, offset, size] = imageUpload;
-						if (imageHandle.GetType() != ImageHandle::ImageType::Invalid)
-						{
-							auto image = GetTextureHandleImageObject(imageHandle);
-							auto pDesc = GetTextureHandleDescriptor(imageHandle);
-							if (image != vk::Image{nullptr})
-							{
-								auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
-								{
-									auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
-									memcpy(mappedSrcBuffer.mappedMemory, address, size);
-								}
-
-								//TODO: offset is not used here for now
-								std::array<vk::BufferImageCopy, 1> bufferImageCopy = { GPUTextureDescriptorToBufferImageCopy(*pDesc) };
-								dataTransferCommandBuffer.copyBufferToImage(srcBuffer.buffer
-									, image
-									, vk::ImageLayout::eTransferDstOptimal
-									, bufferImageCopy);
-							}
-						}
-					}	
-
-					transfersData.m_BarrierCollector.ExecuteReleaseBarrier(dataTransferCommandBuffer);
-					dataTransferCommandBuffer.end();
-					transfersData.m_CommandBuffers.push_back(dataTransferCommandBuffer);
-					break;
 				}
+
+				for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
+				{
+					auto [imageHandle, address, offset, size] = imageUpload;
+					if (imageHandle.GetType() != ImageHandle::ImageType::Invalid)
+					{
+						auto image = GetTextureHandleImageObject(imageHandle);
+						auto pDesc = GetTextureHandleDescriptor(imageHandle);
+						if (image != vk::Image{ nullptr })
+						{
+							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
+							{
+								auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
+								memcpy(mappedSrcBuffer.mappedMemory, address, size);
+							}
+
+							//TODO: offset is not used here for now
+							std::array<vk::BufferImageCopy, 1> bufferImageCopy = { GPUTextureDescriptorToBufferImageCopy(*pDesc) };
+							dataTransferCommandBuffer.copyBufferToImage(srcBuffer.buffer
+								, image
+								, vk::ImageLayout::eTransferDstOptimal
+								, bufferImageCopy);
+						}
+					}
+				}
+
+				transfersData.m_BarrierCollector.ExecuteReleaseBarrier(dataTransferCommandBuffer);
+				dataTransferCommandBuffer.end();
+				transfersData.m_CommandBuffers.push_back(dataTransferCommandBuffer);
+				break;
+			}
 			}
 			++passID;
 		}

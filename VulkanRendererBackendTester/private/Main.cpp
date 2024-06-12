@@ -72,11 +72,11 @@ int main(int argc, char *argv[])
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
-	//ShaderResrouce* pGeneralShaderResource = nullptr;
-	//pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pGeneralShaderResource](ShaderResrouce* result)
-	//	{
-	//		*ppResource = result;
-	//	});
+	ShaderResrouce* pMeshShaderResource = nullptr;
+	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pMeshShaderResource](ShaderResrouce* result)
+		{
+			*ppResource = result;
+		});
 
 	ShaderResrouce* pFinalBlitShaderResource = nullptr;
 	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testFinalBlit.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
@@ -147,6 +147,7 @@ int main(int argc, char *argv[])
 		&vertexDataList,
 		&indexDataList,
 		&texture,
+		pTestMeshResource,
 		pBackend
 	](auto setup)
 	{
@@ -154,6 +155,8 @@ int main(int argc, char *argv[])
 		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
 		submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
 		submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
+		RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
+		
 		GPUFrame submitFrame{};
 		submitFrame.pGraph = submitGraph;
 		pBackend->ScheduleGPUFrame(setup, submitFrame);
@@ -172,6 +175,38 @@ int main(int argc, char *argv[])
 	textureArgList->SetImage("SourceTexture", texture);
 	textureArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
 
+	MeshMaterial meshMaterial0;
+	meshMaterial0.pipelineStateObject = {};
+	meshMaterial0.shaderArgs = castl::make_shared<ShaderArgList>();
+	meshMaterial0.shaderArgs->SetImage("albedoTexture", texture);
+	meshMaterial0.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
+	meshMaterial0.shaderSet = pMeshShaderResource;
+
+	MeshMaterial meshMaterial1;
+	meshMaterial1.pipelineStateObject = {};
+	meshMaterial1.shaderArgs = castl::make_shared<ShaderArgList>();
+	meshMaterial1.shaderArgs->SetImage("albedoTexture", texture);
+	meshMaterial1.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
+	meshMaterial1.shaderSet = pMeshShaderResource;
+
+
+	MeshRenderer meshRenderer{};
+	meshRenderer.p_MeshResource = pTestMeshResource;
+	meshRenderer.materials.resize(2);
+	meshRenderer.materials[0] = meshMaterial0;
+	meshRenderer.materials[1] = meshMaterial1;
+
+	MeshBatcher meshBatcher{ pBackend };
+	meshBatcher.AddMeshRenderer(meshRenderer, glm::mat4(1.0f));
+
+	Camera camera;
+	castl::chrono::high_resolution_clock timer;
+	auto lastTime = timer.now();
+	float deltaTime = 0.0f;
+	Camera cam;
+	bool mouseDown = false;
+	glm::vec2 lastMousePos = { 0.0f, 0.0f };
+
 	pThreadManager->LoopFunction([
 				pBackend
 				, windowHandle
@@ -185,55 +220,87 @@ int main(int argc, char *argv[])
 				, &textureArgList
 				, texture
 				, pTextureResource1
+				, &camera
+					, &lastTime
+					, &deltaTime
+					, &lastMousePos
+					, &mouseDown
+					, &timer
+					, &meshBatcher
 	](auto setup)
 	{
-		//setup->ForceRunOnMainThread();
-		castl::shared_ptr<ShaderArgList> shaderArgList = castl::make_shared<ShaderArgList>();
-		shaderArgList->SetValue("TestColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
-		shaderArgList->SetSubArgList("textures", textureArgList);
+					int forwarding = 0;
+					int lefting = 0;
+					if (windowHandle->IsKeyDown(CA_KEY_W))
+					{
+						++forwarding;
+					}
+					if (windowHandle->IsKeyDown(CA_KEY_S))
+					{
+						--forwarding;
+					}
+					if (windowHandle->IsKeyDown(CA_KEY_A))
+					{
+						++lefting;
+					}
+					if (windowHandle->IsKeyDown(CA_KEY_D))
+					{
+						--lefting;
+					}
+					if (windowHandle->IsKeyTriggered(CA_KEY_R))
+					{
+						windowHandle->RecreateContext();
+					}
+					glm::vec2 mouseDelta = { 0.0f, 0.0f };
+					glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
+					if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+					{
+						//castl::cout << "Mouse Down!" << castl::endl;
+						if (!mouseDown)
+						{
+							lastMousePos = mousePos;
+							mouseDown = true;
+						}
+						mouseDelta = mousePos - lastMousePos;
+						lastMousePos = mousePos;
+					}
+					else// if(windowHandle->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
+					{
+						mouseDown = false;
+					}
+					auto windowSize1 = windowHandle->GetSizeSafe();
+		camera.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
+		auto currentTime = timer.now();
+		auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - lastTime).count();
+		lastTime = currentTime;
+		deltaTime = duration / 1000.0f;
+		deltaTime = castl::max(deltaTime, 0.0001f);
+		float frameRate = 1.0f / deltaTime;
+		std::cout << "Frame Rate: " << frameRate << std::endl;
 
-		BufferHandle tempBufferHandle{"TempBuffer" };
-		castl::shared_ptr<ShaderArgList> computeShaderArgList = castl::make_shared<ShaderArgList>();
-		computeShaderArgList->SetBuffer("RWBuffer", tempBufferHandle);
+		castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
+		cameraArgList->SetValue("viewProjMatrix", camera.GetViewProjMatrix());
 
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 
-		ImageHandle tempTextureHandle{"TempTexture" };
-		shaderArgList->SetImage("SourceTexture1", tempTextureHandle, GPUTextureView::CreateDefaultForSampling(pTextureResource1->GetFormat()));
-		
-		auto drawCall = DrawCallBatch::New()
-			.SetVertexBuffer(vertexInputDesc, vertexBuffer)
-			.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
-			.Draw([](CommandList& commandList)
-				{
-					commandList.DrawIndexed(6);
-				});
-		
-		ImageHandle tmpTarget{"TmpTarget" };
+		ImageHandle colorTexture{"ColorTexture" };
 		castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
-		finalBlitShaderArgList->SetImage("SourceTexture", tmpTarget, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
+		finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
 		finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
+		RenderPass drawMeshRenderPass = RenderPass::New(windowHandle)//(colorTexture)
+			.PushShaderArguments("cameraData", cameraArgList);
+		meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
 
-		auto tmpDesc = windowHandle->GetBackbufferDescriptor();
-		tmpDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
+		auto colorTextureDesc = windowHandle->GetBackbufferDescriptor();
+		colorTextureDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
 		newGraph->
-			AllocImage(tempTextureHandle, GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst))
-			.ScheduleData(tempTextureHandle, pTextureResource1->GetData(), pTextureResource1->GetDataSize())
-			.AllocBuffer(tempBufferHandle, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataSrc, 1, sizeof(glm::vec4)))
-			.AddPass(ComputeBatch::New()
-				.PushArgList(computeShaderArgList)
-				.Dispatch(pTestComputeShaderResource, "testGenerator0", 1, 1, 1))
-			.AllocImage(tmpTarget, tmpDesc)
-			.AddPass(RenderPass::New(tmpTarget)
-				.SetPipelineState({})
-				.SetShaderArguments(shaderArgList)
-				.SetShaders(pFinalBlitShaderResource)
-				.DrawCall(drawCall))
-			.AddPass
+			AllocImage(colorTexture, colorTextureDesc);
+			//.AddPass(drawMeshRenderPass);
+	/*		.AddPass
 			(
 				RenderPass::New(windowHandle)
 				.SetPipelineState({})
-				.SetShaderArguments(finalBlitShaderArgList)
+				.PushShaderArguments(finalBlitShaderArgList)
 				.SetShaders(pFinalBlitShader)
 				.DrawCall
 				(
@@ -245,7 +312,7 @@ int main(int argc, char *argv[])
 							commandList.DrawIndexed(6);
 						})
 				)
-			);
+			);*/
 
 		GPUFrame gpuFrame{};
 		gpuFrame.pGraph = newGraph;

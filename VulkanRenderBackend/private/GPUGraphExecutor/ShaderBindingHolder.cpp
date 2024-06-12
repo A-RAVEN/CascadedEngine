@@ -313,7 +313,7 @@ namespace graphics_backend
 		, ShadderResourceProvider& resourceProvider
 		, FrameBoundResourcePool* pResourcePool
 		, vk::CommandBuffer& command
-		, castl::vector<castl::shared_ptr<ShaderArgList>> const& shaderArgLists)
+		, castl::vector <castl::pair <castl::string, castl::shared_ptr<ShaderArgList>>> const& shaderArgLists)
 	{
 		for (int sid = 0; sid < p_ReflectionData->m_BindingData.size(); ++sid)
 		{
@@ -333,60 +333,30 @@ namespace graphics_backend
 				writer.AddWriteBuffer(bufferHandle.buffer, sourceUniformBuffer.m_BindingIndex, vk::DescriptorType::eUniformBuffer, 0);
 				vk::DeviceSize memorySize = group.m_MemorySize;
 				auto stageBuffer = pResourcePool->CreateStagingBuffer(memorySize, EBufferUsage::eDataSrc);
-				if (group.m_Name == "__Global")
+
 				{
-					//For Global Uniform Constants We Collect Data From All ShaderArgLists
 					auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
-					for(auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
+					for (auto shaderArgList : shaderArgLists)
 					{
-						WriteUniformBuffer(**shaderArgList, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
-					}
-				}
-				else
-				{
-					for (auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
-					{
-						auto found = shaderArgList->get()->FindSubArgList(group.m_Name);
-						if (found)
+						if (shaderArgList.first == group.m_Name || (group.m_Name == "__Global" && shaderArgList.first.empty()))
 						{
-							auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
-							WriteUniformBuffer(*found, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
+							WriteUniformBuffer(*shaderArgList.second, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
 						}
 					}
 				}
 				command.copyBuffer(stageBuffer.buffer, bufferHandle.buffer, vk::BufferCopy(0, 0, memorySize));
 			}
 
-
 			//Non Uniform Buffer Resources
 			if (!sourceSet.m_ResourceGroups.empty())
 			{
-				if (sourceSet.m_ResourceGroups[0].m_Name != "__Global")
+				for (auto shaderArgList : shaderArgLists)
 				{
-					for (auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
-					{
-						auto found = shaderArgList->get()->FindSubArgList(sourceSet.m_ResourceGroups[0].m_Name);
-						if (found)
-						{
-							WriteResources(
-								application
-								, *found
-								, resourceProvider
-								, sourceSet
-								, 0
-								, writer
-								, m_BufferHandles
-								, m_ImageHandles);
-						}
-					}
-				}
-				else
-				{
-					for (auto shaderArgList = shaderArgLists.crbegin(); shaderArgList != shaderArgLists.crend(); ++shaderArgList)
+					if (shaderArgList.first == sourceSet.m_ResourceGroups[0].m_Name || (sourceSet.m_ResourceGroups[0].m_Name == "__Global" && shaderArgList.first.empty()))
 					{
 						WriteResources(
 							application
-							, **shaderArgList
+							, *shaderArgList.second
 							, resourceProvider
 							, sourceSet
 							, 0

@@ -1,0 +1,13 @@
+#pragma once
+struct MeshMaterial
+{
+    Texture2D<float4> albedoTexture;
+    SamplerState sampler;
+
+    float4 GetColor(in float2 uv, in float3 worldPos, in float3 normal)
+    {
+        float4 albedo = albedoTexture.Sample(sampler, uv).xyzw;
+        float ndL = saturate(dot(normal, float3(1, 1, 1)));
+        return float4(albedo.xyz * ndL, albedo.a);
+    }
+}

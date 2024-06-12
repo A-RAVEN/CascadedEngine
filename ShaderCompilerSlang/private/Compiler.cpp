@@ -764,7 +764,7 @@ namespace ShaderCompilerSlang
 					{
 						bindingData.uniformGroupID = globalBindingSpace.InitUniformGroup(0, -1, "__Global", 0, globalBufferSize, globalBufferSize, 1);
 					}
-					bindingData.resourceGroupID = globalBindingSpace.InitResourceGroup("__Global", bindingData.resourceGroupID);
+					//bindingData.resourceGroupID = globalBindingSpace.InitResourceGroup("__Global", bindingData.resourceGroupID);
 				}
 				uint32_t paramCount = layout->getParameterCount();
 				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)

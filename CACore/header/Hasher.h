@@ -158,7 +158,12 @@ namespace cacore
 			return m_HashValue;
 		}
 
-        auto operator<=>(HashObj const& b) const
+        constexpr bool Valid() const noexcept
+        {
+            return m_HashValid;
+        }
+
+        constexpr auto operator<=>(HashObj const& b) const
         {
             return m_HashValue <=> b.m_HashValue;
         }
@@ -170,6 +175,7 @@ namespace cacore
     private:
         ObjType m_Object{};
         result_type m_HashValue{};
+        bool m_HashValid = false;
         void UpdateHash()
         {
             m_HashValue = hash<ObjType, hashAlg>{}(m_Object);

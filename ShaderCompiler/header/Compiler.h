@@ -202,6 +202,11 @@ namespace ShaderCompilerSlang
 
 		void AddBufferToResourceGroup(int32_t groupID, ShaderBufferData const& bufferData)
 		{
+			if (groupID == -1 && m_ResourceGroups.empty())
+			{
+				InitResourceGroup("__Global", groupID);
+				groupID = 0;
+			}
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Buffers.push_back(bufferData);
 			m_ResourceGroups[groupID].m_Buffers.push_back(m_Buffers.size() - 1);
@@ -209,6 +214,11 @@ namespace ShaderCompilerSlang
 
 		void AddTextureToResourceGroup(int32_t groupID, TextureData const& textureData)
 		{
+			if (groupID == -1 && m_ResourceGroups.empty())
+			{
+				InitResourceGroup("__Global", groupID);
+				groupID = 0;
+			}
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Textures.push_back(textureData);
 			m_ResourceGroups[groupID].m_Textures.push_back(m_Textures.size() - 1);
@@ -216,6 +226,11 @@ namespace ShaderCompilerSlang
 
 		void AddSamplerToResourceGroup(int32_t groupID, SamplerData const& samplerData)
 		{
+			if (groupID == -1 && m_ResourceGroups.empty())
+			{
+				InitResourceGroup("__Global", groupID);
+				groupID = 0;
+			}
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Samplers.push_back(samplerData);
 			m_ResourceGroups[groupID].m_Samplers.push_back(m_Samplers.size() - 1);

@@ -1,17 +1,18 @@
 #pragma once
-#include <uhash.h>
 #include <Hasher.h>
 #include <CRenderBackend.h>
 #include "StaticMeshResource.h"
 #include <GPUGraph.h>
+
+using namespace graphics_backend;
 
 class MeshGPUData
 {
 public:
 	MeshGPUData() = default;
 	MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
-	void UploadMeshResource(GPUGraph* gpuGraph, resource_management::StaticMeshResource* meshResource);
-	void DrawCall(DrawCallBatch& drawallBatch, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset);
+	void UploadMeshResource(graphics_backend::GPUGraph* gpuGraph, resource_management::StaticMeshResource* meshResource);
+	void DrawCall(graphics_backend::DrawCallBatch& drawallBatch, uint32_t submeshID, uint32_t instanceCount);
 private:
 	castl::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
 	resource_management::StaticMeshResource* p_MeshResource;
@@ -23,7 +24,7 @@ private:
 static castl::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
 
 static void RegisterMeshResource(castl::shared_ptr<graphics_backend::CRenderBackend> pBackend
-	, GPUGraph* gpuGraph
+	, graphics_backend::GPUGraph* gpuGraph
 	, resource_management::StaticMeshResource* meshResource)
 {
 	auto found = g_MeshResourceToGPUData.find(meshResource);
@@ -42,7 +43,7 @@ struct MeshMaterial
 	//Shader
 	IShaderSet* shaderSet;
 	//Shader参数
-	castl::shared_ptr<ShaderArgList> shaderArgs;
+	castl::shared_ptr<graphics_backend::ShaderArgList> shaderArgs;
 };
 
 struct MeshRenderer
@@ -52,19 +53,22 @@ public:
 	castl::vector<cacore::HashObj<MeshMaterial>> materials;
 };
 
+extern VertexInputsDescriptor const g_InstanceDescriptor;
+
 class MeshBatcher
 {
-	castl::shared_ptr<CRenderBackend> pRenderBackend;
+	castl::shared_ptr<graphics_backend::CRenderBackend> pRenderBackend;
 
 	castl::vector<glm::mat4> m_Instances;
+
+
 
 	struct SubmeshDrawcallInfo
 	{
 		MeshGPUData* p_GPUMeshData;
 		cacore::HashObj<MeshMaterial> material;
-		int m_IndicesCount;
-		int m_IndexArrayOffset;
-		int m_VertexArrayOffset;
+		uint32_t submeshID;
+		auto operator<=>(const SubmeshDrawcallInfo&) const = default;
 	};
 
 	struct SubmeshDrawcallData
@@ -73,6 +77,12 @@ class MeshBatcher
 	};
 
 	castl::unordered_map< SubmeshDrawcallInfo, SubmeshDrawcallData> m_DrawCallInfoToDrawCallData;
+
+public:
+	MeshBatcher(castl::shared_ptr<graphics_backend::CRenderBackend> pRenderBackend)
+		: pRenderBackend(pRenderBackend)
+	{
+	}
 
 	void AddMeshRenderer(MeshRenderer const& meshRenderer, glm::mat4 const& transform)
 	{
@@ -93,9 +103,7 @@ class MeshBatcher
 			SubmeshDrawcallInfo drawcallinfo{};
 			drawcallinfo.material = material;
 			drawcallinfo.p_GPUMeshData = pGpuMeshData;
-			drawcallinfo.m_IndicesCount = submeshInfo.m_IndicesCount;
-			drawcallinfo.m_IndexArrayOffset = submeshInfo.m_IndexArrayOffset;
-			drawcallinfo.m_VertexArrayOffset = submeshInfo.m_VertexArrayOffset;
+			drawcallinfo.submeshID = instance.m_SubmeshID;
 
 			auto found = m_DrawCallInfoToDrawCallData.find(drawcallinfo);
 			if (found == m_DrawCallInfoToDrawCallData.end())
@@ -106,16 +114,31 @@ class MeshBatcher
 		}
 	}
 
-	void Draw(graphics_backend::GPUGraph* pGraph, castl::vector<DrawCallBatch>& drawcallBatchs)
+	void Draw(graphics_backend::GPUGraph* pGraph, graphics_backend::RenderPass* pRenderPass)
 	{
+		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , true };
+		pGraph->AllocBuffer(instanceTransformBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, m_Instances.size(), sizeof(glm::mat4)))
+			.ScheduleData(instanceTransformBuffer, m_Instances.data(), m_Instances.size() * sizeof(glm::mat4));
+		castl::shared_ptr<graphics_backend::ShaderArgList> instanceShaderArgs = castl::make_shared<graphics_backend::ShaderArgList>();
+		instanceShaderArgs->SetBuffer("instanceTransforms", instanceTransformBuffer);
+		pRenderPass->PushShaderArguments("meshInstanceTransforms", instanceShaderArgs);
 		uint32_t index = 0;
 		for (auto pair : m_DrawCallInfoToDrawCallData)
 		{
-			BufferHandle buffer{ castl::to_string(index++) };
-			pGraph->AllocBuffer(buffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, pair.second.m_InstanceIDs.size(), sizeof(uint32_t)))
-				.ScheduleData(buffer, pair.second.m_InstanceIDs.data(), pair.second.m_InstanceIDs.size() * sizeof(uint32_t));
+			auto& drawcallInfo = pair.first;
+			auto& drawcallInstances = pair.second;
+			graphics_backend::BufferHandle instanceIDBuffer{ castl::to_string(index++) };
+			pGraph->AllocBuffer(instanceIDBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, drawcallInstances.m_InstanceIDs.size(), sizeof(uint32_t)))
+				.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), drawcallInstances.m_InstanceIDs.size() * sizeof(uint32_t));
 
 			DrawCallBatch newDrawcallBatch = DrawCallBatch::New();
+			newDrawcallBatch.PushArgList("meshMaterialData", drawcallInfo.material->shaderArgs)
+				.SetShaderSet(drawcallInfo.material->shaderSet)
+				.SetPipelineState(drawcallInfo.material->pipelineStateObject)
+				.SetVertexBuffer(g_InstanceDescriptor, instanceIDBuffer);
+			drawcallInfo.p_GPUMeshData->DrawCall(newDrawcallBatch, drawcallInfo.submeshID, drawcallInstances.m_InstanceIDs.size());
+
+			pRenderPass->DrawCall(newDrawcallBatch);
 		}
 	}
 };
