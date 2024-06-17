@@ -945,19 +945,19 @@ namespace graphics_backend
 
 				for (size_t i = 0; i < attachments.size(); ++i)
 				{
+					auto& attachmentConfig = renderPass.GetAttachmentConfig(i);
 					auto& attachment = attachments[i];
 					auto& attachmentInfo = renderPassDesc.renderPassInfo.attachmentInfos[i];
 					auto pDesc = GetTextureHandleDescriptor(attachment);
 					attachmentInfo.format = pDesc->format;
 					attachmentInfo.multiSampleCount = pDesc->samples;
 					//TODO DO A Attachment Wise Version
-					attachmentInfo.loadOp = renderPass.GetAttachmentLoadOp();
-					attachmentInfo.storeOp = renderPass.GetAttachmentStoreOp();
-					attachmentInfo.stencilLoadOp = renderPass.GetAttachmentLoadOp();
-					attachmentInfo.stencilStoreOp = renderPass.GetAttachmentStoreOp();
-					//attachmentInfo.clearValue = renderPass.GetClearValue();
+					attachmentInfo.loadOp = attachmentConfig.loadOp;
+					attachmentInfo.storeOp = attachmentConfig.storeOp;
+					attachmentInfo.stencilLoadOp = attachmentConfig.loadOp;
+					attachmentInfo.stencilStoreOp = attachmentConfig.storeOp;
 					passInfo.m_ClearValues[i] = AttachmentClearValueTranslate(
-						renderPass.GetClearValue()
+						attachmentConfig.clearValue
 						, pDesc->format);
 				}
 
@@ -1178,9 +1178,12 @@ namespace graphics_backend
 							, batchData.m_ShaderBindingInstance
 							, passID);
 
-						for (auto& bufferObject : batchData.m_ShaderBindingInstance.m_UniformBuffers)
+						for (auto& bufferSet : batchData.m_ShaderBindingInstance.m_UniformBuffers)
 						{
-							renderPassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead);
+							for (auto& bufferObject : bufferSet.second)
+							{
+								renderPassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead);
+							}
 						}
 					}
 					for (size_t i = 0; i < attachments.size(); ++i)
@@ -1212,9 +1215,12 @@ namespace graphics_backend
 						, dispatchData1.m_ShaderBindingInstance
 						, passID);
 
-					for (auto& bufferObject : dispatchData1.m_ShaderBindingInstance.m_UniformBuffers)
+					for (auto& bufferSet : dispatchData1.m_ShaderBindingInstance.m_UniformBuffers)
 					{
-						computePassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eComputeRead);
+						for (auto& bufferObject : bufferSet.second)
+						{
+							computePassData.m_BarrierCollector.PushBufferBarrier(bufferObject.buffer, ResourceUsage::eTransferDest, ResourceUsage::eComputeRead);
+						}
 					}
 				}
 				break;
@@ -1401,7 +1407,6 @@ namespace graphics_backend
 									readValue.resize(size / sizeof(uint32_t));
 									castl::fill(readValue.begin(), readValue.end(), -1);
 									memcpy(readValue.data(), address, size);
-									CA_LOG_ERR(castl::to_string(readValue[0]));
 								}
 								memcpy(mappedSrcBuffer.mappedMemory, address, size);
 							}

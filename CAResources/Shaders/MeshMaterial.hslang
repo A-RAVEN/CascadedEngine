@@ -1,10 +1,20 @@
 #pragma once
+#include "GlobalDirectLighting.hslang"
+
 struct MeshMaterial
 {
     Texture2D<float4> albedoTexture;
     SamplerState sampler;
 
-    float4 GetColor(in float2 uv, in float3 worldPos, in float3 normal)
+    float4 GetColor(in float2 uv, in float3 worldPos, in float3 normal, in GlobalDirectLighting globalDirectLighting)
+    {
+        float4 albedo = albedoTexture.Sample(sampler, uv).xyzw;
+        float ndL = saturate(dot(normal, globalDirectLighting.lightDirection.xyz));
+        float3 resultShading = albedo.rgb * ndL * globalDirectLighting.lightColor.xyz + globalDirectLighting.ambientColor.xyz;
+        return float4(resultShading, albedo.a);
+    }
+
+    float4 GetColorOld(in float2 uv, in float3 worldPos, in float3 normal)
     {
         float4 albedo = albedoTexture.Sample(sampler, uv).xyzw;
         float ndL = saturate(dot(normal, float3(1, 1, 1)));

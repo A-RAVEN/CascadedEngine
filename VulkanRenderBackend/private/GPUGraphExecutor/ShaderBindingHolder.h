@@ -30,7 +30,7 @@ namespace graphics_backend
 			, castl::vector <castl::pair <castl::string, castl::shared_ptr<ShaderArgList>>> const& shaderArgLists);
 		castl::vector<vk::DescriptorSet> m_DescriptorSets;
 		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
-		castl::vector<VKBufferObject> m_UniformBuffers;
+		castl::map<uint32_t, castl::vector<VKBufferObject>> m_UniformBuffers;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 		CVulkanApplication* p_Application;
 

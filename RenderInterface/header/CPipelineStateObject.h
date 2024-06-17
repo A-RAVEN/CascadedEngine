@@ -16,10 +16,24 @@ public:
 
 	auto operator<=>(const RasterizerStates&) const = default;
 
-	static RasterizerStates CullOff()
+	constexpr static RasterizerStates CullOff()
 	{
-		RasterizerStates states;
+		RasterizerStates states{};
 		states.cullMode = ECullMode::eNone;
+		return states;
+	}
+
+	constexpr static RasterizerStates CullBack()
+	{
+		RasterizerStates states{};
+		states.cullMode = ECullMode::eBack;
+		return states;
+	}
+
+	constexpr static RasterizerStates CullFront()
+	{
+		RasterizerStates states{};
+		states.cullMode = ECullMode::eFront;
 		return states;
 	}
 };

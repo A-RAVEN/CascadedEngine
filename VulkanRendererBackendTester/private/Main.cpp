@@ -139,22 +139,27 @@ int main(int argc, char *argv[])
 		EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
 
 	auto texture = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource0->GetWidth(), pTextureResource0->GetHeight(), pTextureResource0->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
+	auto texture1 = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
 
 	pThreadManager->OneTime([
 		vertexBuffer,
 		indexBuffer,
 		pTextureResource0,
+		pTextureResource1,
 		&vertexDataList,
 		&indexDataList,
 		&texture,
+		&texture1,
 		pTestMeshResource,
 		pBackend
 	](auto setup)
 	{
+		//setup->ForceRunOnMainThread();
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
 		submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
 		submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
+		submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
 		RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
 		
 		GPUFrame submitFrame{};
@@ -171,19 +176,21 @@ int main(int argc, char *argv[])
 		}
 	);
 
-	castl::shared_ptr<ShaderArgList> textureArgList = castl::make_shared<ShaderArgList>();
-	textureArgList->SetImage("SourceTexture", texture);
-	textureArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-
 	MeshMaterial meshMaterial0;
-	meshMaterial0.pipelineStateObject = {};
+	meshMaterial0.pipelineStateObject = { 
+		DepthStencilStates::NormalOpaque()
+		, RasterizerStates::CullBack()
+	};
 	meshMaterial0.shaderArgs = castl::make_shared<ShaderArgList>();
-	meshMaterial0.shaderArgs->SetImage("albedoTexture", texture);
+	meshMaterial0.shaderArgs->SetImage("albedoTexture", texture1);
 	meshMaterial0.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
 	meshMaterial0.shaderSet = pMeshShaderResource;
 
 	MeshMaterial meshMaterial1;
-	meshMaterial1.pipelineStateObject = {DepthStencilStates::NormalOpaque()};
+	meshMaterial1.pipelineStateObject = {
+		DepthStencilStates::NormalOpaque()
+		, RasterizerStates::CullBack()
+	};
 	meshMaterial1.shaderArgs = castl::make_shared<ShaderArgList>();
 	meshMaterial1.shaderArgs->SetImage("albedoTexture", texture);
 	meshMaterial1.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
@@ -207,6 +214,11 @@ int main(int argc, char *argv[])
 	bool mouseDown = false;
 	glm::vec2 lastMousePos = { 0.0f, 0.0f };
 
+	castl::shared_ptr<ShaderArgList> globalLightShaderArg = castl::make_shared<ShaderArgList>();
+	globalLightShaderArg->SetValue("lightDirection", glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f)));
+	globalLightShaderArg->SetValue("lightColor", glm::vec3(2.0f, 2.0f, 0.25f));
+	globalLightShaderArg->SetValue("ambientColor", glm::vec3(0.1f, 0.1f, 0.2f));
+
 	pThreadManager->LoopFunction([
 				pBackend
 				, windowHandle
@@ -217,18 +229,19 @@ int main(int argc, char *argv[])
 				, &vertexBuffer
 				, &indexBuffer
 				, &vertexInputDesc
-				, &textureArgList
 				, texture
 				, pTextureResource1
 				, &camera
-					, &lastTime
-					, &deltaTime
-					, &lastMousePos
-					, &mouseDown
-					, &timer
-					, &meshBatcher
+				, &lastTime
+				, &deltaTime
+				, &lastMousePos
+				, &mouseDown
+				, &timer
+				, &meshBatcher
+				, globalLightShaderArg
 	](auto setup)
 	{
+					//setup->ForceRunOnMainThread();
 					int forwarding = 0;
 					int lefting = 0;
 					if (windowHandle->IsKeyDown(CA_KEY_W))
@@ -288,8 +301,11 @@ int main(int argc, char *argv[])
 		castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
 		finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
 		finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-		RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture)//(colorTexture)
-			.PushShaderArguments("cameraData", cameraArgList);
+		RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
+			, AttachmentConfig::Clear()
+			, AttachmentConfig::ClearDepthStencil())
+			.PushShaderArguments("cameraData", cameraArgList)
+			.PushShaderArguments("globalLighting", globalLightShaderArg);
 		meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
 
 		auto colorTextureDesc = windowHandle->GetBackbufferDescriptor();

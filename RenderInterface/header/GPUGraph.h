@@ -87,6 +87,34 @@ namespace graphics_backend
 		inline DrawCallBatch& Draw(castl::function<void(CommandList&)> commandFunc);
 	};
 
+	struct AttachmentConfig
+	{
+		EAttachmentLoadOp	loadOp;
+		EAttachmentStoreOp	storeOp;
+		GraphicsClearValue	clearValue;
+		static AttachmentConfig Create(
+			EAttachmentLoadOp loadOp = EAttachmentLoadOp::eLoad
+			, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore
+			, GraphicsClearValue clearValue = GraphicsClearValue::ClearColor())
+		{
+			AttachmentConfig result{};
+			result.loadOp = loadOp;
+			result.storeOp = storeOp;
+			result.clearValue = clearValue;
+			return result;
+		}
+		static AttachmentConfig Clear(GraphicsClearValue const& clearValue = GraphicsClearValue::ClearColor()
+			, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore)
+		{
+			return Create(EAttachmentLoadOp::eClear, storeOp, clearValue);
+		}
+		static AttachmentConfig ClearDepthStencil(float depth = 1.0f, uint32_t stencil = 0
+			, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore)
+		{
+			return Create(EAttachmentLoadOp::eClear, storeOp, GraphicsClearValue::ClearDepthStencil(depth, stencil));
+		}
+	};
+
 	class RenderPass
 	{
 	public:
@@ -98,6 +126,7 @@ namespace graphics_backend
 		{
 			RenderPass pass{};
 			pass.m_Arrachments = { color };
+			pass.m_AttachmentConfigs = { AttachmentConfig::Create(loadOp, storeOp, clearValue) };
 			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
 			pass.m_AttachmentLoadOp = loadOp;
 			pass.m_AttachmentStoreOp = storeOp;
@@ -116,20 +145,29 @@ namespace graphics_backend
 		{
 			RenderPass pass{};
 			pass.m_Arrachments = colors;
+			pass.m_AttachmentConfigs.resize(colors.size());
+			castl::fill(pass.m_AttachmentConfigs.begin(), pass.m_AttachmentConfigs.end(), AttachmentConfig::Create());
 			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
 			return pass;
 		}
-		static RenderPass New(ImageHandle const& color, ImageHandle const& depth)
+		static RenderPass New(ImageHandle const& color, ImageHandle const& depth
+			, AttachmentConfig const& colorAttachmentConfig = AttachmentConfig::Create()
+			, AttachmentConfig const& depthAttachmentConfig = AttachmentConfig::Create())
 		{
 			RenderPass pass{};
 			pass.m_Arrachments = { color, depth };
+			pass.m_AttachmentConfigs = { colorAttachmentConfig, depthAttachmentConfig };
 			pass.m_DepthAttachmentIndex = 1;
 			return pass;
 		}
 
+		inline RenderPass& SetAttachmentConfig(uint32_t index, AttachmentConfig const& attachmentConfig)
+		{
+			m_AttachmentConfigs[index] = attachmentConfig;
+		}
 		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
-		inline RenderPass& PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList>& shaderArguments);
-		inline RenderPass& PushShaderArguments(castl::shared_ptr<ShaderArgList>& shaderArguments)
+		inline RenderPass& PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments);
+		inline RenderPass& PushShaderArguments(castl::shared_ptr<ShaderArgList> const& shaderArguments)
 		{
 			return PushShaderArguments("", shaderArguments);
 		}
@@ -141,15 +179,20 @@ namespace graphics_backend
 		castl::vector<ImageHandle> const& GetAttachments() const { return m_Arrachments; }
 		int GetDepthAttachmentIndex() const { return m_DepthAttachmentIndex; }
 
-		GraphicsClearValue const& GetClearValue() const { return m_ClearValue; }
-		EAttachmentLoadOp GetAttachmentLoadOp() const { return m_AttachmentLoadOp; }
-		EAttachmentStoreOp GetAttachmentStoreOp() const { return m_AttachmentStoreOp; }
+		AttachmentConfig const& GetAttachmentConfig(uint32_t attachmentID) const {
+			return m_AttachmentConfigs[attachmentID];
+		}
+
+		//GraphicsClearValue const& GetClearValue() const { return m_ClearValue; }
+		//EAttachmentLoadOp GetAttachmentLoadOp() const { return m_AttachmentLoadOp; }
+		//EAttachmentStoreOp GetAttachmentStoreOp() const { return m_AttachmentStoreOp; }
 		PipelineDescData const& GetPipelineStates() const { return m_PipelineStates; }
 	private:
 		PipelineDescData m_PipelineStates;
 		EAttachmentLoadOp m_AttachmentLoadOp = EAttachmentLoadOp::eLoad;
 		EAttachmentStoreOp m_AttachmentStoreOp = EAttachmentStoreOp::eStore;
 		GraphicsClearValue m_ClearValue = {};
+		castl::vector<AttachmentConfig> m_AttachmentConfigs;
 		castl::vector<DrawCallBatch> m_DrawCallBatches;
 		castl::vector<ImageHandle> m_Arrachments;
 		uint32_t m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
@@ -350,7 +393,7 @@ namespace graphics_backend
 		return *this;
 	}
 
-	RenderPass& RenderPass::PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList>& shaderArguments)
+	RenderPass& RenderPass::PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments)
 	{
 		m_PipelineStates.shaderArgLists.push_back(castl::make_pair(name, shaderArguments));
 		return *this;

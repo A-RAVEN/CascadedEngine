@@ -143,6 +143,7 @@ namespace cacore
 		}
         HashObj(HashObj const& hashObj) : m_Object(hashObj.m_Object)
             , m_HashValue(hashObj.m_HashValue)
+            , m_HashValid(hashObj.m_HashValid)
         {
         }
         constexpr ObjType const& Get() const noexcept
@@ -179,6 +180,7 @@ namespace cacore
         void UpdateHash()
         {
             m_HashValue = hash<ObjType, hashAlg>{}(m_Object);
+            m_HashValid = true;
 		}
 
         friend struct careflection::managed_wrapper_traits<HashObj<ObjType, hashAlg>>;

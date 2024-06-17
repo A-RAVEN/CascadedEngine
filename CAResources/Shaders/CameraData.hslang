@@ -2,7 +2,6 @@
 struct CameraData
 {
     float4x4 viewProjMatrix;
-
     float4 WorldToClip(in float3 wsPos)
     {
         return mul(viewProjMatrix, float4(wsPos, 1.0));

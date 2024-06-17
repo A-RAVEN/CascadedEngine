@@ -153,6 +153,12 @@ namespace vulkan_backend
 	                }
 	            }
 	        }
+			if (messageSeverity == VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+			{
+#if BREAK_ON_VULKAN_ERROR
+				__debugbreak();
+#endif
+			}
 	        return VK_FALSE;
 	    }
 
