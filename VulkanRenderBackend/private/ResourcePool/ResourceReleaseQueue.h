@@ -1,6 +1,7 @@
 #pragma once
 #include <VulkanApplicationSubobjectBase.h>
 #include <GPUResources/GPUResourceInternal.h>
+#include <CASTL/CAVector.h>
 #include <CASTL/CAMutex.h>
 namespace graphics_backend
 {

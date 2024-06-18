@@ -43,16 +43,5 @@ namespace graphics_backend
 		virtual void SetWindowName(castl::string_view const& name) = 0;
 		virtual void SetWindowAlpha(float alpha) = 0;
 		virtual float GetDpiScale() const = 0;
-
-		//virtual void SetWindowFocusCallback(castl::function<void(WindowHandle*, bool)> callback) = 0;
-		//virtual void SetCursorEnterCallback(castl::function<void(WindowHandle*)> callback) = 0;
-		//virtual void SetCursorPosCallback(castl::function<void(WindowHandle*, float, float)> callback) = 0;
-		//virtual void SetMouseButtonCallback(castl::function<void(WindowHandle*, int, int, int)> callback) = 0;
-		//virtual void SetScrollCallback(castl::function<void(WindowHandle*, float, float)> callback) = 0;
-		//virtual void SetKeyCallback(castl::function<void(WindowHandle*, int, int, int, int)> callback) = 0;
-		//virtual void SetCharCallback(castl::function<void(WindowHandle*, uint32_t)> callback) = 0;
-		//virtual void SetWindowCloseCallback(castl::function<void(WindowHandle*)> callback) = 0;
-		//virtual void SetWindowPosCallback(castl::function<void(WindowHandle*, float, float)> callback) = 0;
-		//virtual void SetWindowSizeCallback(castl::function<void(WindowHandle*, float,float)> callback) = 0;
 	};
 }

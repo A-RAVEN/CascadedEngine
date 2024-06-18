@@ -12,7 +12,6 @@
 #include "FramebufferObject.h"
 #include "IUploadingResource.h"
 #include "GPUObjectManager.h"
-#include "ShaderBindingSet_Impl.h"
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
 #include <GPUContexts/QueueContext.h>
 #include <GPUContexts/FrameContext.h>
@@ -78,10 +77,6 @@ namespace graphics_backend
 		constexpr GPUResourceObjectManager& GetGlobalResourceObjectManager() { return m_GPUResourceObjManager; }
 		QueueContext& GetQueueContext() { return m_QueueContext; }
 
-	/*	CVulkanThreadContext& AquireThreadContext();
-		void ReturnThreadContext(CVulkanThreadContext& returningContext);
-		castl::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();*/
-
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
 		castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
 			, bool visible
@@ -92,43 +87,6 @@ namespace graphics_backend
 
 
 		CFrameCountContext const& GetSubmitCounterContext() const { return m_SubmitCounterContext; }
-
-		/*template<typename T, typename...TArgs>
-		T NewSubObject(TArgs&&...Args) {
-			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
-				, "Type T Not Compatible To Vulkan SubObject");
-			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
-			{
-				T result{ *this, castl::forward<TArgs>(Args)... };
-				if constexpr (has_initialize<T>)
-				{
-					result.Initialize();
-				}
-				else if constexpr (has_create<T>)
-				{
-					result.Create();
-				}
-				return result;
-			}
-			else
-			{
-				static_assert((sizeof...(TArgs) == 0 || has_initialize<T, TArgs...> || has_create<T, TArgs...>), "Subobject T Provides Construction Arguments But Has No Initializer");
-				T result{ *this };
-				if constexpr (has_initialize<T, TArgs...>)
-				{
-					result.Initialize(castl::forward<TArgs>(Args)...);
-				}
-				else if constexpr (has_create<T, TArgs...>)
-				{
-					result.Create(castl::forward<TArgs>(Args)...);
-				}
-				else
-				{
-					static_assert((sizeof...(TArgs)) == 0, "Subobject T Provides Construction Arguments But Has No Initializer");
-				}
-				return result;
-			}
-		}*/
 
 		template<typename T, typename...TArgs>
 		castl::shared_ptr<T> NewSubObject_Shared(TArgs&&...Args) {
@@ -162,7 +120,6 @@ namespace graphics_backend
 			}
 		};
 
-		//void SyncPresentationFrame(FrameType frameID);
 		void ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame);
 
 		void CreateImageViews2D(vk::Format format, castl::vector<vk::Image> const& inImages, castl::vector<vk::ImageView>& outImageViews) const;
@@ -179,12 +136,6 @@ namespace graphics_backend
 		GPUTexture* NewGPUTexture(GPUTextureDescriptor const& inDescriptor);
 		void ReleaseGPUTexture(GPUTexture* releaseGPUTexture);
 
-
-		castl::shared_ptr<ShaderConstantSet> NewShaderConstantSet(ShaderConstantsBuilder const& builder);
-		castl::shared_ptr<ShaderBindingSet> NewShaderBindingSet(ShaderBindingBuilder const& builder);
-
-		HashPool<ShaderBindingBuilder, ShaderBindingSetAllocator>& GetShaderBindingSetAllocators() { return m_ShaderBindingSetAllocator; }
-		HashPool<ShaderConstantsBuilder, ShaderConstantSetAllocator>& GetShaderConstantSetAllocators() { return m_ConstantSetAllocator; }
 private:
 
 		void InitializeInstance(castl::string const& name, castl::string const& engineName);
@@ -193,10 +144,7 @@ private:
 		void CreateDevice();
 		void DestroyDevice();
 
-		//void DestroyThreadContexts();
-
 		void ReleaseAllWindowContexts();
-
 	private:
 		vk::Instance m_Instance = nullptr;
 		vk::PhysicalDevice m_PhysicalDevice = nullptr;
@@ -209,14 +157,7 @@ private:
 		CFrameCountContext m_SubmitCounterContext;
 		castl::vector<castl::shared_ptr<CWindowContext>> m_WindowContexts;
 
-
-		//Uniform Buffer
-		HashPool<ShaderConstantsBuilder, ShaderConstantSetAllocator> m_ConstantSetAllocator;
-		//Shader Descriptor Set
-		HashPool<ShaderBindingBuilder, ShaderBindingSetAllocator> m_ShaderBindingSetAllocator;
-
 		GPUObjectManager m_GPUObjectManager;
-
 		GPUMemoryResourceManager m_GPUMemoryManager;
 		GPUResourceObjectManager m_GPUResourceObjManager;
 		GlobalResourceReleaseQueue m_GlobalResourceReleasingQueue;

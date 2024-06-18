@@ -175,17 +175,17 @@ namespace graphics_backend
 		}
 	}
 
-	castl::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)
-	{
-		auto subAllocator = m_ConstantSetAllocator.GetOrCreate(builder);
-		return subAllocator->AllocateSet();
-	}
+	//castl::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)
+	//{
+	//	auto subAllocator = m_ConstantSetAllocator.GetOrCreate(builder);
+	//	return subAllocator->AllocateSet();
+	//}
 
-	castl::shared_ptr<ShaderBindingSet> CVulkanApplication::NewShaderBindingSet(ShaderBindingBuilder const& builder)
-	{
-		auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder);
-		return subAllocator->AllocateSet();
-	}
+	//castl::shared_ptr<ShaderBindingSet> CVulkanApplication::NewShaderBindingSet(ShaderBindingBuilder const& builder)
+	//{
+	//	auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder);
+	//	return subAllocator->AllocateSet();
+	//}
 
 	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
 	{
@@ -377,59 +377,6 @@ namespace graphics_backend
 		}
 	}
 
-	//void CVulkanApplication::InitializeThreadContext(uint32_t threadCount)
-	//{
-	//	CA_ASSERT(threadCount > 0, "Thread Count Should Be Greater Than 0");
-	//	//CA_ASSERT(m_ThreadContexts.size() == 0, "Thread Contexts Are Already Initialized");
-	//	//m_ThreadContexts.reserve(threadCount);
-	//	//for (uint32_t threadContextId = 0; threadContextId < threadCount; ++threadContextId)
-	//	//{
-	//	//	m_ThreadContexts.push_back(castl::move(NewSubObject<CVulkanThreadContext>(threadContextId)));
-	//	//}
-	//	//castl::vector<uint32_t> threadInitializeValue;
-	//	//threadInitializeValue.resize(threadCount);
-	//	//uint32_t id = 0;
-	//	//castl::generate(threadInitializeValue.begin(), threadInitializeValue.end(), [&id]()
-	//	//	{
-	//	//		return id++;
-	//	//	});
-	//	//m_AvailableThreadQueue.Initialize(threadInitializeValue);
-	//}
-
-	/*void CVulkanApplication::DestroyThreadContexts()
-	{
-		for (auto& threadContext : m_ThreadContexts)
-		{
-			threadContext.Release();
-		}
-		m_ThreadContexts.clear();
-	}*/
-
-	/*CVulkanMemoryManager& CVulkanApplication::GetMemoryManager()
-	{
-		return m_MemoryManager;
-	}*/
-
-	//CVulkanThreadContext& CVulkanApplication::AquireThreadContext()
-	//{
-	//	uint32_t available = m_AvailableThreadQueue.TryGetFront();
-	//	return m_ThreadContexts[available];
-	//}
-
-	//void CVulkanApplication::ReturnThreadContext(CVulkanThreadContext& returningContext)
-	//{
-	//	uint32_t id = returningContext.GetThreadID();
-	//	m_AvailableThreadQueue.Enqueue(id);
-	//}
-
-	//castl::shared_ptr<CVulkanThreadContext> CVulkanApplication::AquireThreadContextPtr()
-	//{
-	//	return castl::shared_ptr<CVulkanThreadContext>(&AquireThreadContext(), [this](CVulkanThreadContext* releasingContext)
-	//		{
-	//			ReturnThreadContext(*releasingContext);
-	//		});
-	//}
-
 	castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
 		, bool visible
 		, bool focused
@@ -503,13 +450,7 @@ namespace graphics_backend
 	}
 
 	CVulkanApplication::CVulkanApplication() :
-	//m_GPUBufferPool(*this)
-	//, m_GPUTexturePool(*this)
 	m_GPUObjectManager(*this)
-	//, m_MemoryManager(*this)
-	//, m_RenderGraphDic(*this)
-	, m_ConstantSetAllocator(*this)
-	, m_ShaderBindingSetAllocator(*this)
 	, m_SubmitCounterContext(*this)
 	, m_QueueContext(*this)
 	, m_FrameContext(*this)
@@ -521,7 +462,6 @@ namespace graphics_backend
 
 	CVulkanApplication::~CVulkanApplication()
 	{
-		//ReleaseApp();
 	}
 
 	void CVulkanApplication::InitApp(castl::string const& appName, castl::string const& engineName)

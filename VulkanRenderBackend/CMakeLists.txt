@@ -4,7 +4,7 @@ project(${PROJECT_NAME})
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 
-add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List} "private/GPUContexts/FrameContext.cpp")
+add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PUBLIC "/Zc:preprocessor")
