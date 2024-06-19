@@ -127,6 +127,16 @@ namespace thread_management
 		ThreadManager_Impl1* m_OwningManager;
 	};
 
+	class TaskQueue
+	{
+
+
+	private:
+		std::mutex m_Mutex;
+		eastl::deque<TaskNode*> m_Queue;
+		std::condition_variable m_ConditionalVariable;
+	};
+
 	class ThreadManager_Impl1 : public TaskBaseObject, public CThreadManager
 	{
 	public:

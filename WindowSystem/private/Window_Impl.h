@@ -1,18 +1,21 @@
 #pragma once
 #include <CAWindow/WindowSystem.h>
-#include <GLFW/glfw3.h>
+#include "GLFWInclude.h"
 
 namespace cawindow
 {
+	class WindowSystem;
 	class WindowImpl : public IWindow
 	{
-		void Initialize(castl::string const& windowName
+		void Initialize(WindowSystem* windowSystem
+			, castl::string const& windowName
 			, int initialWidth
 			, int initialHeight
 			, bool visible
 			, bool focused
 			, bool decorate
 			, bool floating);
+		void Release();
 
 		// 通过 IWindow 继承
 		void CloseWindow() override;
@@ -24,16 +27,22 @@ namespace cawindow
 		void Focus() override;
 		bool GetWindowFocus() const override;
 		bool GetWindowMinimized() const override;
-		void SetWindowName(castl::string_view const& name) override;
+		void SetWindowName(castl::string const& name) override;
+		castl::string_view GetWindowName() const override;
 		void SetWindowAlpha(float alpha) override;
 		float GetDpiScale() const override;
+		IWindowSystem* GetWindowSystem() override;
 	private:
 		friend class glfwContext;
+		friend class WindowSystem;
+		WindowSystem* m_WindowSystem;
 		castl::string m_WindowName;
-		uint32_t m_Width = 0;
-		uint32_t m_Height = 0;
-		int m_PosX = 0;
-		int m_PosY = 0;
 		GLFWwindow* m_Window = nullptr;
+
+		// 通过 IWindow 继承
+		void* GetNativeWindowHandle() override;
+#if defined(_WIN32) || defined(_WIN64)
+		HWND m_Win32Window;
+#endif
 	};
 }

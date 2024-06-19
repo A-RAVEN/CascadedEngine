@@ -5,6 +5,7 @@
 #include <Utils.h>
 namespace cawindow
 {
+	class IWindowSystem;
 	class IWindow
 	{
 	public:
@@ -17,10 +18,12 @@ namespace cawindow
 		virtual void Focus() = 0;
 		virtual bool GetWindowFocus() const = 0;
 		virtual bool GetWindowMinimized() const = 0;
-		virtual void SetWindowName(castl::string_view const& name) = 0;
+		virtual void SetWindowName(castl::string const& name) = 0;
+		virtual castl::string_view GetWindowName() const = 0;
 		virtual void SetWindowAlpha(float alpha) = 0;
 		virtual float GetDpiScale() const = 0;
-		virtual void* GetNativeWindowHandle() const = 0;
+		virtual void* GetNativeWindowHandle() = 0;
+		virtual IWindowSystem* GetWindowSystem() = 0;
 	};
 
 	using FloatRect = cacore::Rect<float>;
@@ -35,11 +38,14 @@ namespace cawindow
 	class IWindowSystem
 	{
 	public:
-		virtual castl::shared_ptr<IWindow> NewWindow(int width, int height, castl::string_view const& windowName
-			, bool visible
-			, bool focused
-			, bool decorate
-			, bool floating) = 0;
+		virtual castl::shared_ptr<IWindow> NewWindow(
+			int width
+			, int height
+			, castl::string_view const& windowName = "Default Window"
+			, bool visible = true
+			, bool focused = true
+			, bool decorate = true
+			, bool floating = false) = 0;
 
 		virtual int GetMonitorCount() const = 0;
 		virtual MonitorInfo GetMonitor(int monitorID) const = 0;
@@ -57,5 +63,7 @@ namespace cawindow
 
 		virtual void SetKeyCallback(castl::function<void(IWindow*, int, int, int, int)> callback) = 0;
 		virtual void SetCharCallback(castl::function<void(IWindow*, uint32_t)> callback) = 0;
+
+		virtual void* GetSystemNativeHandle() = 0;
 	};
 }

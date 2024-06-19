@@ -28,12 +28,13 @@
 #include "IMGUIContext.h"
 #include <GPUGraph.h>
 #include <TextureSampler.h>
+#include <CAWindow/WindowSystem.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
 using namespace uenum;
 using namespace resource_management;
-
+using namespace cawindow;
 
 struct VertexData
 {
@@ -51,14 +52,18 @@ int main(int argc, char *argv[])
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
-	TModuleLoader<RenderInterfaceManager> renderInterfaceLoader("Rendering");
 	TModuleLoader<ResourceFactory> renderImportingSystemLoader("CAGeneralReourceSystem");
-	auto resourceSystemFactory = renderImportingSystemLoader.New();
+	TModuleLoader<IWindowSystem> windowSystemLoader("WindowSystem");
 
+	auto windowSystem = windowSystemLoader.New();
+
+	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
+	newWindow->GetNativeWindowHandle();
+	newWindow->GetWindowSystem()->GetSystemNativeHandle();
+
+	auto resourceSystemFactory = renderImportingSystemLoader.New();
 	auto pThreadManager = threadManagerLoader.New();
 	pThreadManager->InitializeThreadCount(5);
-
-	auto pRenderInterface = renderInterfaceLoader.New();
 
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
@@ -222,7 +227,6 @@ int main(int argc, char *argv[])
 	pThreadManager->LoopFunction([
 				pBackend
 				, windowHandle
-				, pRenderInterface
 				, pFinalBlitShaderResource
 				, pFinalBlitShader
 				, pTestComputeShaderResource
@@ -239,8 +243,16 @@ int main(int argc, char *argv[])
 				, &timer
 				, &meshBatcher
 				, globalLightShaderArg
+					, windowSystem
 	](auto setup)
 	{
+					setup->NewTask()
+						->ForceRunOnMainThread()
+						->Functor(
+							[windowSystem]()
+							{
+								windowSystem->UpdateSystem();
+							});
 					//setup->ForceRunOnMainThread();
 					int forwarding = 0;
 					int lefting = 0;
