@@ -57,6 +57,7 @@ namespace thread_management
 		TaskBaseObject* m_Owner;
 		TaskNodeAllocator* m_Allocator;
 		std::atomic_bool m_Running{ false };
+		cacore::HashObj<castl::string> m_ThreadKey;
 		castl::string m_Name;
 		castl::string m_EventName;
 		castl::string m_SignalEventName;

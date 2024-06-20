@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
 
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
 	auto pThreadManager = threadManagerLoader.New();
-	pThreadManager->InitializeThreadCount(5);
+	pThreadManager->InitializeThreadCount(5, 2);
 
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;

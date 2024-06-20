@@ -1,6 +1,4 @@
 #pragma once
-#include <future>
-//#include <deque>
 void* __cdecl operator new[](size_t size, const char* name, int flags, unsigned debugFlags, const char* file, int line);
 void* operator new[](size_t size, size_t alignment, size_t alignmentOffset, const char* name, int flags, unsigned debugFlags, const char* file, int line);
 #define CASTL_STD_COMPATIBLE
@@ -9,6 +7,8 @@ void* operator new[](size_t size, size_t alignment, size_t alignmentOffset, cons
 #include <CASTL/CADeque.h>
 #include <CASTL/CAVector.h>
 #include <CASTL/CASharedPtr.h>
+#include <CASTL/CAArrayRef.h>
+#include <CASTL/CASemaphore.h>
 #include <CACore/header/ThreadSafePool.h>
 #include "TaskNode.h"
 
@@ -127,20 +127,52 @@ namespace thread_management
 		ThreadManager_Impl1* m_OwningManager;
 	};
 
-	class TaskQueue
+	class DedicateTaskQueue
 	{
-
-
+	public:
+		DedicateTaskQueue() = default;
+		DedicateTaskQueue(DedicateTaskQueue&& other) {}
+		void Stop();
+		void WorkLoop();
+		void EnqueueTaskNodes(castl::array_ref<TaskNode*> const& nodeDeque);
 	private:
+		void EnqueueTaskNodes_NoLock(castl::array_ref<TaskNode*> const& nodeDeque);
 		std::mutex m_Mutex;
+		bool m_Stop = false;
 		eastl::deque<TaskNode*> m_Queue;
 		std::condition_variable m_ConditionalVariable;
 	};
 
+	class DedicateThreadMap
+	{
+	public:
+		uint32_t GetThreadIndex(cacore::HashObj<castl::string> const& name)
+		{
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
+			auto found = m_DedicateThreadMapping.find(name);
+			if (found == m_DedicateThreadMapping.end())
+			{
+				uint32_t newID = m_DedicateThreadMapping.size();
+				found = m_DedicateThreadMapping.insert(castl::make_pair(name, newID)).first;
+			}
+			return found->second;
+		}
+		void SetThreadIndex(cacore::HashObj<castl::string> const& name, uint32_t index)
+		{
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
+			m_DedicateThreadMapping[name] = index;
+		}
+	private:
+		castl::mutex m_Mutex;
+		castl::unordered_map<cacore::HashObj<castl::string>, uint32_t> m_DedicateThreadMapping;
+	};
+
+
 	class ThreadManager_Impl1 : public TaskBaseObject, public CThreadManager
 	{
 	public:
-		virtual void InitializeThreadCount(uint32_t threadNum) override;
+		virtual void InitializeThreadCount(uint32_t threadNum, uint32_t dedicateThreadNum) override;
+		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) override;
 		virtual CTask* NewTask() override;
 		virtual TaskParallelFor* NewTaskParallelFor() override;
 		virtual CTaskGraph* NewTaskGraph() override;
@@ -169,16 +201,18 @@ namespace thread_management
 		std::function<bool(CTaskGraph*)> m_PrepareFunctor = nullptr;
 		castl::string m_SetupEventName;
 
-		eastl::deque<TaskNode*> m_TaskQueue;
-		eastl::deque<TaskNode*> m_MainThreadQueue;
+		castl::deque<TaskNode*> m_TaskQueue;
+		castl::deque<TaskNode*> m_MainThreadQueue;
 		castl::vector<std::thread> m_WorkerThreads;
+		castl::vector<DedicateTaskQueue> m_DedicateTaskQueues;
 		std::atomic_bool m_Stopped = false;
 		castl::atomic<uint64_t> m_Frames = 0u;
-		std::mutex m_Mutex;
-		std::condition_variable m_ConditinalVariable;
-		std::condition_variable m_MainthreadCV;
+		castl::mutex m_Mutex;
+		castl::condition_variable m_ConditinalVariable;
+		castl::condition_variable m_MainthreadCV;
 
 		TaskNodeAllocator m_TaskNodeAllocator;
+		DedicateThreadMap m_DedicateThreadMap;
 
 		castl::unordered_map<castl::string, uint32_t> m_EventMap;
 		struct TaskWaitList

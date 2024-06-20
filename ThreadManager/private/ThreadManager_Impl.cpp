@@ -261,13 +261,22 @@ namespace thread_management
         }
     }
 
-    void ThreadManager_Impl1::InitializeThreadCount(uint32_t threadNum)
+    void ThreadManager_Impl1::InitializeThreadCount(uint32_t threadNum, uint32_t dedicateThreadNum)
     {
-        m_WorkerThreads.reserve(threadNum);
+        m_WorkerThreads.reserve(threadNum + dedicateThreadNum);
+        m_DedicateTaskQueues.resize(dedicateThreadNum);
         for (uint32_t i = 0; i < threadNum; ++i)
         {
             m_WorkerThreads.emplace_back(&ThreadManager_Impl1::ProcessingWorks, this, i);
         }
+        for (uint32_t i = 0; i < dedicateThreadNum; ++i)
+        {
+			m_WorkerThreads.emplace_back(&DedicateTaskQueue::WorkLoop, &m_DedicateTaskQueues[i]);
+		}
+    }
+    void ThreadManager_Impl1::SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name)
+    {
+        m_DedicateThreadMap.SetThreadIndex(name, dedicateThreadIndex);
     }
     CTask* ThreadManager_Impl1::NewTask()
     {
@@ -320,6 +329,10 @@ namespace thread_management
     void ThreadManager_Impl1::Stop()
     {
         {
+            for (auto& dedicateThread : m_DedicateTaskQueues)
+            {
+                dedicateThread.Stop();
+            }
             m_Stopped = true;
             m_ConditinalVariable.notify_all();
             m_MainthreadCV.notify_one();
@@ -722,6 +735,47 @@ namespace thread_management
         if (signalFrame > m_SignaledFrame)
         {
             m_SignaledFrame = signalFrame;
+        }
+    }
+
+    void DedicateTaskQueue::Stop()
+    {
+        std::lock_guard<std::mutex> guard(m_Mutex);
+        m_Stop = true;
+    }
+    void DedicateTaskQueue::WorkLoop()
+    {
+        while (!m_Stop)
+        {
+            std::unique_lock<std::mutex> lock(m_Mutex);
+            m_ConditionalVariable.wait(lock, [this]()
+                {
+                    return m_Stop || !m_Queue.empty();
+                });
+            if (m_Queue.empty() || m_Stop)
+            {
+                lock.unlock();
+                continue;
+            }
+            auto task = m_Queue.front();
+            m_Queue.pop_front();
+            lock.unlock();
+            task->Execute_Internal();
+        }
+    }
+    void DedicateTaskQueue::EnqueueTaskNodes(castl::array_ref<TaskNode*> const& nodeDeque)
+    {
+        {
+            std::lock_guard<std::mutex> guard(m_Mutex);
+            EnqueueTaskNodes_NoLock(nodeDeque);
+        }
+        m_ConditionalVariable.notify_one();
+    }
+    void DedicateTaskQueue::EnqueueTaskNodes_NoLock(castl::array_ref<TaskNode*> const& nodeDeque)
+    {
+        for (TaskNode* itrNode : nodeDeque)
+        {
+            m_Queue.push_back(itrNode);
         }
     }
 }

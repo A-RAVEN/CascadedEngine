@@ -1,7 +1,7 @@
 #pragma once
 #include <CASTL/CAString.h>
 #include <CASTL/CASharedPtr.h>
-#include <future>
+#include <Hasher.h>
 
 namespace thread_management
 {
@@ -27,6 +27,7 @@ namespace thread_management
 		CTask& operator=(CTask&& other) = delete;
 
 		virtual CTask* ForceRunOnMainThread() = 0;
+		virtual CTask* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
 		virtual CTask* Name(castl::string name) = 0;
 		virtual CTask* DependsOn(CTask* parentTask) = 0;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) = 0;
@@ -77,6 +78,7 @@ namespace thread_management
 		virtual CTaskGraph* WaitOnEvent(castl::string const& name) = 0;
 		virtual CTaskGraph* SignalEvent(castl::string const& name) = 0;
 		virtual CTaskGraph* ForceRunOnMainThread() = 0;
+		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
 
 		virtual void AddResource(castl::shared_ptr<void> const& resource) = 0;
 		template<typename T>
@@ -104,7 +106,8 @@ namespace thread_management
 		CThreadManager(CThreadManager&& other) = delete;
 		CThreadManager& operator=(CThreadManager&& other) = delete;
 
-		virtual void InitializeThreadCount(uint32_t threadNum) = 0;
+		virtual void InitializeThreadCount(uint32_t threadNum, uint32_t dedicateThreadNum) = 0;
+		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) = 0;
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;
 		virtual CTaskGraph* NewTaskGraph() = 0;
