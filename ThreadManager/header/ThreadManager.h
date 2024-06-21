@@ -35,7 +35,7 @@ namespace thread_management
 		virtual CTask* WaitOnEvent(castl::string const& name) = 0;
 		virtual CTask* SignalEvent(castl::string const& name) = 0;
 
-		virtual CTask* Functor(std::function<void()>&& functor) = 0;
+		virtual CTask* Functor(castl::function<void()>&& functor) = 0;
 	};
 
 	class TaskParallelFor
@@ -55,7 +55,7 @@ namespace thread_management
 		virtual TaskParallelFor* WaitOnEvent(castl::string const& name) = 0;
 		virtual TaskParallelFor* SignalEvent(castl::string const& name) = 0;
 
-		virtual TaskParallelFor* Functor(std::function<void(uint32_t)> functor) = 0;
+		virtual TaskParallelFor* Functor(castl::function<void(uint32_t)> functor) = 0;
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) = 0;
 	};
 
@@ -86,7 +86,7 @@ namespace thread_management
 		}
 
 		//延迟初始化函数
-		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) = 0;
+		virtual CTaskGraph* SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor) = 0;
 
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;
@@ -108,8 +108,8 @@ namespace thread_management
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;
 		virtual CTaskGraph* NewTaskGraph() = 0;
-		virtual void OneTime(std::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent) = 0;
-		virtual void LoopFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) = 0;
+		virtual void OneTime(castl::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent) = 0;
+		virtual void LoopFunction(castl::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) = 0;
 		virtual void Run() = 0;
 		virtual void LogStatus() const = 0;
 	};
