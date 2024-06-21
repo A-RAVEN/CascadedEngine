@@ -34,7 +34,6 @@ namespace thread_management
 		virtual CTask* DependsOn(CTaskGraph* parentTask) = 0;
 		virtual CTask* WaitOnEvent(castl::string const& name) = 0;
 		virtual CTask* SignalEvent(castl::string const& name) = 0;
-		virtual std::shared_future<void> Run() = 0;
 
 		virtual CTask* Functor(std::function<void()>&& functor) = 0;
 	};
@@ -58,7 +57,6 @@ namespace thread_management
 
 		virtual TaskParallelFor* Functor(std::function<void(uint32_t)> functor) = 0;
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) = 0;
-		virtual std::shared_future<void> Run() = 0;
 	};
 
 	class CTaskGraph
@@ -89,7 +87,6 @@ namespace thread_management
 
 		//延迟初始化函数
 		virtual CTaskGraph* SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor) = 0;
-		virtual std::shared_future<void> Run() = 0;
 
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;

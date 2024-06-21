@@ -42,6 +42,7 @@ namespace thread_management
 		void SetupThisNodeDependencies_Internal();
 		size_t GetDepenedentCount() const { return m_Dependents.size(); }
 		void Release_Internal();
+		void SetThreadKey_Internal(cacore::HashObj<castl::string> const& key) { m_ThreadKey = key; }
 		std::shared_future<void> AquireFuture();
 		void FulfillPromise();
 	protected:
