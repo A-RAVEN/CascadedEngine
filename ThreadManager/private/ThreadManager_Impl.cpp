@@ -328,7 +328,7 @@ namespace thread_management
     {
         EnqueueSetupTask();
         uint32_t mainThreadID = m_WorkerThreads.size();
-        ProcessingWorksMainThread(mainThreadID);
+        ProcessingWorksMainThread();
         for (std::thread& itrThread : m_WorkerThreads)
         {
             itrThread.join();
@@ -392,7 +392,7 @@ namespace thread_management
     }
     void ThreadManager_Impl1::EnqueueTaskNode_GeneralThread(TaskNode* node)
     {
-        if (!TryWaitOnEvent(node))
+        if (m_EventManager.WaitEventDone(node))
         {
             node->m_Running.store(true, std::memory_order_relaxed);
             {
@@ -404,138 +404,23 @@ namespace thread_management
     }
     void ThreadManager_Impl1::EnqueueTaskNode_DedicateThread(TaskNode* node)
     {
-        if (!TryWaitOnEvent(node))
+        if (m_EventManager.WaitEventDone(node))
         {
             node->m_Running.store(true, std::memory_order_relaxed);
             uint32_t dedicateThreadID = m_DedicateThreadMap.GetThreadIndex(node->m_ThreadKey) % m_DedicateTaskQueues.size();
             m_DedicateTaskQueues[dedicateThreadID].EnqueueTaskNodes(node);
         }
     }
-    /*void ThreadManager_Impl1::EnqueueTaskNodes_NoLock(castl::vector<TaskNode*> const& nodeDeque)
-    {
-        uint32_t anythreadEnqueuedCounter = 0;
-        bool mainthreadEnqueued = false;
-        for (TaskNode* itrNode : nodeDeque)
-        {
-            if (!itrNode->m_Running)
-            {
-                if (!TryWaitOnEvent(itrNode))
-                {
-                    itrNode->m_Running.store(true, std::memory_order_relaxed);
-                    if (itrNode->RunOnMainThread())
-                    {
-                        mainthreadEnqueued = true;
-                        m_MainThreadQueue.push_back(itrNode);
-                    }
-                    else
-                    {
-                        m_TaskQueue.push_back(itrNode);
-                        ++anythreadEnqueuedCounter;
-                    }
-                }
-            }
-        };
-        std::atomic_thread_fence(std::memory_order_release);
-        if (mainthreadEnqueued)
-        {
-            m_MainthreadCV.notify_one();
-        }
-        if (anythreadEnqueuedCounter == 0)
-            return;
-        if (anythreadEnqueuedCounter > 1)
-        {
-            m_ConditinalVariable.notify_all();
-            m_MainthreadCV.notify_one();
-        }
-        else
-        {
-            m_ConditinalVariable.notify_one();
-        }
-    }
-
-    void ThreadManager_Impl1::EnqueueTaskNodes(eastl::vector<TaskNode*> const& nodeDeque)
-    {
-        std::lock_guard<std::mutex> guard(m_Mutex);
-        EnqueueTaskNodes_NoLock(nodeDeque);
-    }*/
+    
     void ThreadManager_Impl1::SignalEvent(castl::string const& eventName, uint64_t signalFrame)
     {
-        std::lock_guard<std::mutex> guard(m_Mutex);
-        auto found = m_EventMap.find(eventName);
-        if(found == m_EventMap.end())
-		{
-            found = m_EventMap.insert(castl::make_pair(eventName, m_EventWaitLists.size())).first;
-            m_EventWaitLists.emplace_back();
-		}
-        auto& waitList = m_EventWaitLists[found->second];
-        waitList.Signal(signalFrame);
         if (eventName == m_SetupEventName)
         {
             EnqueueSetupTask();
         }
-        if (!waitList.m_WaitingFrames.empty())
-        {
-            while (!waitList.m_WaitingFrames.empty() && waitList.m_WaitingFrames.front().first <= waitList.m_SignaledFrame)
-            {
-                for (uint32_t i = 0; i < waitList.m_WaitingFrames.front().second; ++i)
-                {
-                    TaskNode* waitNode = waitList.m_WaitingTasks.front();
-                    waitList.m_WaitingTasks.pop_front();
-                    CA_ASSERT(!waitNode->m_Running, "Task is already running");
-                    waitNode->m_Running.store(true, std::memory_order_relaxed);
-                    if (waitNode->RunOnMainThread())
-                    {
-                        m_MainThreadQueue.push_back(waitNode);
-                        mainthreadEnqueued = true;
-                    }
-                    else
-                    {
-                        m_TaskQueue.push_back(waitNode);
-                        ++anythreadEnqueuedCounter;
-                    }
-                }
-                waitList.m_WaitingFrames.pop_front();
-            }
-        }
-
-        if (anythreadEnqueuedCounter > 0)
-        {
-            if (anythreadEnqueuedCounter > 1)
-            {
-                m_ConditinalVariable.notify_all();
-                m_MainthreadCV.notify_one();
-            }
-            else if (anythreadEnqueuedCounter == 1)
-            {
-                m_ConditinalVariable.notify_one();
-            }
-        }
+        m_EventManager.SignalEvent(*this, eventName, signalFrame);
     }
-    bool ThreadManager_Impl1::TryWaitOnEvent(TaskNode* node)
-    {
-        if (!node->m_EventName.empty())
-        {
-            auto found = m_EventMap.find(node->m_EventName);
-            if (found != m_EventMap.end())
-            {
-				auto& waitList = m_EventWaitLists[found->second];
-                if (waitList.m_SignaledFrame < node->m_CurrentFrame)
-                {
-                    waitList.m_WaitingTasks.push_back(node);
-                    if (waitList.m_WaitingFrames.empty() || waitList.m_WaitingFrames.back().first < node->m_CurrentFrame)
-                    {
-                        waitList.m_WaitingFrames.push_back(castl::make_pair(node->m_CurrentFrame, 1));
-                    }
-                    else
-                    {
-                        waitList.m_WaitingFrames.back().second++;
-                    }
-                    return true;
-                }
-			}
-        }
-        return false;
-    }
+    
     void ThreadManager_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
     {
 
@@ -732,13 +617,13 @@ namespace thread_management
         std::cout << "parallelTasks: " << m_TaskParallelForPool.GetPoolSize() << ";  " << m_TaskParallelForPool.GetEmptySpaceSize() << std::endl;
         std::cout << "taskGraphs: " << m_TaskGraphPool.GetPoolSize() << ";  " << m_TaskGraphPool.GetEmptySpaceSize() << std::endl;
     }
-    void ThreadManager_Impl1::TaskWaitList::Signal(uint64_t signalFrame)
-    {
-        if (signalFrame > m_SignaledFrame)
-        {
-            m_SignaledFrame = signalFrame;
-        }
-    }
+    //void ThreadManager_Impl1::TaskWaitList::Signal(uint64_t signalFrame)
+    //{
+    //    if (signalFrame > m_SignaledFrame)
+    //    {
+    //        m_SignaledFrame = signalFrame;
+    //    }
+    //}
 
     void DedicateTaskQueue::Stop()
     {
@@ -779,6 +664,59 @@ namespace thread_management
         {
             m_Queue.push_back(itrNode);
         }
+    }
+    void TaskNodeEventManager::SignalEvent(ThreadManager_Impl1& threadManager, cacore::HashObj<castl::string> const& eventKey, uint64_t signalFrame)
+    {
+        castl::lock_guard<castl::mutex> guard(m_Mutex);
+        auto found = m_EventMap.find(eventKey);
+        if (found == m_EventMap.end())
+        {
+            found = m_EventMap.insert(castl::make_pair(eventKey, m_EventWaitLists.size())).first;
+            m_EventWaitLists.emplace_back();
+        }
+        auto& waitList = m_EventWaitLists[found->second];
+        waitList.Signal(signalFrame);
+        if (!waitList.m_WaitingFrames.empty())
+        {
+            while (!waitList.m_WaitingFrames.empty() && waitList.m_WaitingFrames.front().first <= waitList.m_SignaledFrame)
+            {
+                auto waitCount = waitList.m_WaitingFrames.front().second;
+                waitList.m_WaitingFrames.pop_front();
+                for (uint32_t i = 0; i < waitCount; ++i)
+                {
+                    TaskNode* waitNode = waitList.m_WaitingTasks.front();
+                    waitList.m_WaitingTasks.pop_front();
+                    CA_ASSERT(!waitNode->m_Running, "Task is already running");
+                    threadManager.EnqueueTaskNode(waitNode);
+                }
+            }
+        }
+    }
+    bool TaskNodeEventManager::WaitEventDone(TaskNode* node)
+    {
+        if (!node->m_EventName.empty())
+        {
+            castl::lock_guard<castl::mutex> guard(m_Mutex);
+            auto found = m_EventMap.find(node->m_EventName);
+            if (found != m_EventMap.end())
+            {
+                auto& waitList = m_EventWaitLists[found->second];
+                if (waitList.m_SignaledFrame < node->m_CurrentFrame)
+                {
+                    waitList.m_WaitingTasks.push_back(node);
+                    if (waitList.m_WaitingFrames.empty() || waitList.m_WaitingFrames.back().first < node->m_CurrentFrame)
+                    {
+                        waitList.m_WaitingFrames.push_back(castl::make_pair(node->m_CurrentFrame, 1));
+                    }
+                    else
+                    {
+                        waitList.m_WaitingFrames.back().second++;
+                    }
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }
 

@@ -72,6 +72,7 @@ namespace thread_management
 		std::promise<void> m_Promise;
 
 		friend class ThreadManager_Impl1;
+		friend class TaskNodeEventManager;
 	};
 }
 

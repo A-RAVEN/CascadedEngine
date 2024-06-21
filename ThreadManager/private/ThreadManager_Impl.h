@@ -169,6 +169,26 @@ namespace thread_management
 		castl::unordered_map<cacore::HashObj<castl::string>, uint32_t> m_DedicateThreadMapping;
 	};
 
+	class TaskNodeEventManager
+	{
+		struct TaskWaitList
+		{
+			castl::deque<TaskNode*> m_WaitingTasks;
+			castl::deque<castl::pair<uint64_t, uint32_t>> m_WaitingFrames;
+			uint64_t m_SignaledFrame = 0;
+			void Signal(uint64_t signalFrame)
+			{
+				m_SignaledFrame = castl::max(m_SignaledFrame, signalFrame);
+			}
+		};
+		castl::mutex m_Mutex;
+		castl::unordered_map<cacore::HashObj<castl::string>, uint32_t> m_EventMap;
+		castl::vector<TaskWaitList> m_EventWaitLists;
+	public:
+		void SignalEvent(ThreadManager_Impl1& threadManager, cacore::HashObj<castl::string> const& eventKey, uint64_t signalFrame);
+		bool WaitEventDone(TaskNode* node);
+	};
+
 
 	class ThreadManager_Impl1 : public TaskBaseObject, public CThreadManager
 	{
@@ -189,7 +209,6 @@ namespace thread_management
 		~ThreadManager_Impl1();
 
 		void SignalEvent(castl::string const& eventName, uint64_t signalFrame);
-		bool TryWaitOnEvent(TaskNode* node);
 
 		void EnqueueSetupTask();
 		void EnqueueTaskNode(TaskNode* node);
@@ -208,27 +227,26 @@ namespace thread_management
 		castl::string m_SetupEventName;
 
 		castl::deque<TaskNode*> m_TaskQueue;
-		//castl::deque<TaskNode*> m_MainThreadQueue;
 		castl::vector<std::thread> m_WorkerThreads;
 		castl::vector<DedicateTaskQueue> m_DedicateTaskQueues;
 		std::atomic_bool m_Stopped = false;
 		castl::atomic<uint64_t> m_Frames = 0u;
 		castl::mutex m_Mutex;
 		castl::condition_variable m_ConditinalVariable;
-		//castl::condition_variable m_MainthreadCV;
 
 		TaskNodeAllocator m_TaskNodeAllocator;
 		DedicateThreadMap m_DedicateThreadMap;
+		TaskNodeEventManager m_EventManager;
 
-		castl::unordered_map<castl::string, uint32_t> m_EventMap;
-		struct TaskWaitList
-		{
-			castl::deque<TaskNode*> m_WaitingTasks;
-			castl::deque<castl::pair<uint64_t, uint32_t>> m_WaitingFrames;
-			uint64_t m_SignaledFrame = 0;
-			void Signal(uint64_t signalFrame);
-		};
-		castl::vector<TaskWaitList> m_EventWaitLists;
+		//castl::unordered_map<castl::string, uint32_t> m_EventMap;
+		//struct TaskWaitList
+		//{
+		//	castl::deque<TaskNode*> m_WaitingTasks;
+		//	castl::deque<castl::pair<uint64_t, uint32_t>> m_WaitingFrames;
+		//	uint64_t m_SignaledFrame = 0;
+		//	void Signal(uint64_t signalFrame);
+		//};
+		//castl::vector<TaskWaitList> m_EventWaitLists;
 
 		castl::vector<TaskNode*> m_InitializeTasks;
 	};
