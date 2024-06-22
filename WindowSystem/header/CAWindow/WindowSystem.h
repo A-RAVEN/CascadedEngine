@@ -2,7 +2,7 @@
 #include <CASTL/CAString.h>
 #include <CASTL/CASharedPtr.h>
 #include <CASTL/CAFunctional.h>
-#include <Utils.h>
+#include <CAUtils.h>
 namespace cawindow
 {
 	class IWindowSystem;
@@ -10,6 +10,7 @@ namespace cawindow
 	{
 	public:
 		virtual void CloseWindow() = 0;
+		virtual bool WindowShouldClose() const = 0;
 		virtual void ShowWindow() = 0;
 		virtual void SetWindowPos(int inX, int inY) = 0;
 		virtual void GetWindowPos(int& outX, int& outY) const = 0;
@@ -24,6 +25,14 @@ namespace cawindow
 		virtual float GetDpiScale() const = 0;
 		virtual void* GetNativeWindowHandle() = 0;
 		virtual IWindowSystem* GetWindowSystem() = 0;
+
+		virtual bool GetKeyState(int keycode, int state) const = 0;
+		virtual float GetMouseX() const = 0;
+		virtual float GetMouseY() const = 0;
+		virtual bool IsKeyDown(int keycode) const = 0;
+		virtual bool IsKeyTriggered(int keycode) const = 0;
+		virtual bool IsMouseDown(int mousecode) const = 0;
+		virtual bool IsMouseUp(int mousecode) const = 0;
 	};
 
 	using FloatRect = cacore::Rect<float>;

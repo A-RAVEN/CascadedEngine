@@ -19,6 +19,7 @@ namespace cawindow
 
 		// 通过 IWindow 继承
 		void CloseWindow() override;
+		bool WindowShouldClose() const override;
 		void ShowWindow() override;
 		void SetWindowPos(int inX, int inY) override;
 		void GetWindowPos(int& outX, int& outY) const override;
@@ -32,6 +33,13 @@ namespace cawindow
 		void SetWindowAlpha(float alpha) override;
 		float GetDpiScale() const override;
 		IWindowSystem* GetWindowSystem() override;
+		bool GetKeyState(int keycode, int state) const override;
+		float GetMouseX() const override;
+		float GetMouseY() const override;
+		bool IsKeyDown(int keycode) const override;
+		bool IsKeyTriggered(int keycode) const override;
+		bool IsMouseDown(int mousecode) const override;
+		bool IsMouseUp(int mousecode) const override;
 	private:
 		friend class glfwContext;
 		friend class WindowSystem;

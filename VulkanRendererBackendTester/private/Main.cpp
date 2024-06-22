@@ -57,13 +57,11 @@ int main(int argc, char *argv[])
 
 	auto windowSystem = windowSystemLoader.New();
 
-	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
-	newWindow->GetNativeWindowHandle();
-	newWindow->GetWindowSystem()->GetSystemNativeHandle();
 
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
 	auto pThreadManager = threadManagerLoader.New();
 	pThreadManager->InitializeThreadCount(5, 2);
+	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
@@ -123,7 +121,10 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(5);
 
-	auto windowHandle = pBackend->NewWindow(1024, 512, "Test Window2", true, false, true, false);
+	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
+	newWindow->GetNativeWindowHandle();
+	newWindow->GetWindowSystem()->GetSystemNativeHandle();
+	auto windowHandle = pBackend->GetWindowHandle(newWindow);
 
 	castl::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -159,7 +160,7 @@ int main(int argc, char *argv[])
 		pBackend
 	](auto setup)
 	{
-		//setup->ForceRunOnMainThread();
+		//setup->MainThread();
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
 		submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
@@ -243,42 +244,43 @@ int main(int argc, char *argv[])
 				, &timer
 				, &meshBatcher
 				, globalLightShaderArg
-					, windowSystem
+				, windowSystem
+				, newWindow
 	](auto setup)
 	{
 					setup->NewTask()
-						->ForceRunOnMainThread()
+						->MainThread()
 						->Functor(
 							[windowSystem]()
 							{
 								windowSystem->UpdateSystem();
 							});
-					//setup->ForceRunOnMainThread();
+					setup->MainThread();
 					int forwarding = 0;
 					int lefting = 0;
-					if (windowHandle->IsKeyDown(CA_KEY_W))
+					if (newWindow->IsKeyDown(CA_KEY_W))
 					{
 						++forwarding;
 					}
-					if (windowHandle->IsKeyDown(CA_KEY_S))
+					if (newWindow->IsKeyDown(CA_KEY_S))
 					{
 						--forwarding;
 					}
-					if (windowHandle->IsKeyDown(CA_KEY_A))
+					if (newWindow->IsKeyDown(CA_KEY_A))
 					{
 						++lefting;
 					}
-					if (windowHandle->IsKeyDown(CA_KEY_D))
+					if (newWindow->IsKeyDown(CA_KEY_D))
 					{
 						--lefting;
 					}
-					if (windowHandle->IsKeyTriggered(CA_KEY_R))
-					{
-						windowHandle->RecreateContext();
-					}
+					//if (newWindow->IsKeyTriggered(CA_KEY_R))
+					//{
+					//	newWindow->RecreateContext();
+					//}
 					glm::vec2 mouseDelta = { 0.0f, 0.0f };
-					glm::vec2 mousePos = { windowHandle->GetMouseX(),windowHandle->GetMouseY() };
-					if (windowHandle->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+					glm::vec2 mousePos = { newWindow->GetMouseX(),newWindow->GetMouseY() };
+					if (newWindow->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
 					{
 						//castl::cout << "Mouse Down!" << castl::endl;
 						if (!mouseDown)
@@ -301,7 +303,6 @@ int main(int argc, char *argv[])
 		deltaTime = duration / 1000.0f;
 		deltaTime = castl::max(deltaTime, 0.0001f);
 		float frameRate = 1.0f / deltaTime;
-		std::cout << "Frame Rate: " << frameRate << std::endl;
 
 		castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
 		cameraArgList->SetValue("viewProjMatrix", glm::transpose(camera.GetViewProjMatrix()));

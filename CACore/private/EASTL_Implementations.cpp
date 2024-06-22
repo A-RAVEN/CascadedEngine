@@ -22,10 +22,19 @@ int Vsnprintf8(char8_t* p, size_t n, const char8_t* pFormat, va_list arguments)
 int Vsnprintf16(char16_t* p, size_t n, const char16_t* pFormat, va_list arguments)
 {
     #ifdef _MSC_VER
-        return _vsnwprintf_s((wchar_t*)p, n, _TRUNCATE, (const wchar_t*)pFormat, arguments);
+        return _vsnwprintf((wchar_t*)p, n, (const wchar_t*)pFormat, arguments);
     #else
         return vsnwprintf(p, n, pFormat, arguments); // Won't work on Unix because its libraries implement wchar_t as int32_t.
     #endif
+}
+
+int VsnprintfW(wchar_t* p, size_t n, const wchar_t* pFormat, va_list arguments)
+{
+#ifdef _MSC_VER
+    return _vsnwprintf(p, n, pFormat, arguments);
+#else
+    return vsnwprintf(p, n, pFormat, arguments); // Won't work on Unix because its libraries implement wchar_t as int32_t.
+#endif
 }
 
 void* __cdecl operator new[](size_t size, const char* name, int flags, unsigned debugFlags, const char* file, int line)

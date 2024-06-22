@@ -26,7 +26,7 @@ namespace thread_management
 		CTask(CTask&& other) = delete;
 		CTask& operator=(CTask&& other) = delete;
 
-		virtual CTask* ForceRunOnMainThread() = 0;
+		virtual CTask* MainThread() = 0;
 		virtual CTask* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
 		virtual CTask* Name(castl::string name) = 0;
 		virtual CTask* DependsOn(CTask* parentTask) = 0;
@@ -75,7 +75,7 @@ namespace thread_management
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) = 0;
 		virtual CTaskGraph* WaitOnEvent(castl::string const& name) = 0;
 		virtual CTaskGraph* SignalEvent(castl::string const& name) = 0;
-		virtual CTaskGraph* ForceRunOnMainThread() = 0;
+		virtual CTaskGraph* MainThread() = 0;
 		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
 
 		virtual void AddResource(castl::shared_ptr<void> const& resource) = 0;

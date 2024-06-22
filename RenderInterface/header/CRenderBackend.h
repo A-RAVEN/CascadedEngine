@@ -2,6 +2,7 @@
 #include <CASTL/CAVector.h>
 #include <CASTL/CASharedPtr.h>
 #include <CASTL/CAString.h>
+#include <CAWindow/WindowSystem.h>
 #include "Common.h"
 #include "GPUBuffer.h"
 #include "CNativeRenderPassInfo.h"
@@ -36,14 +37,17 @@ namespace graphics_backend
 			, uint64_t count
 			, uint64_t stride) = 0;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor) = 0;
-		//TODO: Remove Me To A Dedicate Window Manager Library
-		virtual castl::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
-			, bool visible
-			, bool focused
-			, bool decorate
-			, bool floating) = 0;
+		
+		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) = 0;
+		////TODO: Remove Me To A Dedicate Window Manager Library
+		//virtual castl::shared_ptr<WindowHandle> NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
+		//	, bool visible
+		//	, bool focused
+		//	, bool decorate
+		//	, bool floating) = 0;
 		virtual bool AnyWindowRunning() = 0;
-		virtual uint32_t GetMonitorCount() const = 0;
+
+		/*virtual uint32_t GetMonitorCount() const = 0;
 		virtual MonitorHandle GetMonitorHandleAt(uint32_t monitorID) const = 0;
 
 		virtual void SetWindowFocusCallback(castl::function<void(WindowHandle*, bool)> callback) = 0;
@@ -55,7 +59,7 @@ namespace graphics_backend
 		virtual void SetCharCallback(castl::function<void(WindowHandle*, uint32_t)> callback) = 0;
 		virtual void SetWindowCloseCallback(castl::function<void(WindowHandle*)> callback) = 0;
 		virtual void SetWindowPosCallback(castl::function<void(WindowHandle*, float, float)> callback) = 0;
-		virtual void SetWindowSizeCallback(castl::function<void(WindowHandle*, float, float)> callback) = 0;
+		virtual void SetWindowSizeCallback(castl::function<void(WindowHandle*, float, float)> callback) = 0;*/
 	};
 }
 

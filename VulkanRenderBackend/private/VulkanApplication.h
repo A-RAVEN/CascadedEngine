@@ -75,14 +75,16 @@ namespace graphics_backend
 		GPUObjectManager& GetGPUObjectManager() { return m_GPUObjectManager; }
 		constexpr GPUMemoryResourceManager& GetGlobalMemoryManager() { return m_GPUMemoryManager; }
 		constexpr GPUResourceObjectManager& GetGlobalResourceObjectManager() { return m_GPUResourceObjManager; }
+		constexpr GlobalResourceReleaseQueue& GetGlobalResourecReleasingQueue() { return m_GlobalResourceReleasingQueue; }
 		QueueContext& GetQueueContext() { return m_QueueContext; }
 
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
-		castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
-			, bool visible
-			, bool focused
-			, bool decorate
-			, bool floating);
+		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window);
+		//castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
+		//	, bool visible
+		//	, bool focused
+		//	, bool decorate
+		//	, bool floating);
 		void TickWindowContexts();
 
 
@@ -137,13 +139,11 @@ namespace graphics_backend
 		void ReleaseGPUTexture(GPUTexture* releaseGPUTexture);
 
 private:
-
 		void InitializeInstance(castl::string const& name, castl::string const& engineName);
 		void DestroyInstance();
 		void EnumeratePhysicalDevices();
 		void CreateDevice();
 		void DestroyDevice();
-
 		void ReleaseAllWindowContexts();
 	private:
 		vk::Instance m_Instance = nullptr;

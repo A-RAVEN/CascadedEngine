@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "ThreadManager_Impl.h"
 #include <DebugUtils.h>
+//#include <processthreadsapi.h>
 
 namespace thread_management
 {
@@ -43,13 +44,13 @@ namespace thread_management
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::SetupFunctor(std::function<void(CTaskGraph* thisGraph)> functor)
+    CTaskGraph* TaskGraph_Impl1::SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor)
     {
         m_Functor = functor;
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::ForceRunOnMainThread()
+    CTaskGraph* TaskGraph_Impl1::MainThread()
     {
         m_RunOnMainThread = true;
         return this;
@@ -151,7 +152,7 @@ namespace thread_management
         uint32_t pendingTaskCount = m_SubTasks.size();
         m_PendingSubnodeCount.store(pendingTaskCount, std::memory_order_release);
     }
-    CTask* CTask_Impl1::ForceRunOnMainThread()
+    CTask* CTask_Impl1::MainThread()
     {
         m_RunOnMainThread = true;
         return this;
@@ -198,7 +199,7 @@ namespace thread_management
     {
         return StartExecute();
     }
-    CTask* CTask_Impl1::Functor(std::function<void()>&& functor)
+    CTask* CTask_Impl1::Functor(castl::function<void()>&& functor)
     {
         Functor_Internal(std::move(functor));
         return this;
@@ -208,7 +209,7 @@ namespace thread_management
     {
     }
 
-    void CTask_Impl1::Functor_Internal(std::function<void()>&& functor)
+    void CTask_Impl1::Functor_Internal(castl::function<void()>&& functor)
     {
         m_Functor = functor;
     }
@@ -279,16 +280,30 @@ namespace thread_management
         m_DedicateThreadMap.SetThreadIndex(castl::string{ "MainThread" }, 0);
         for (uint32_t i = 0; i < threadNum; ++i)
         {
-            m_WorkerThreads.emplace_back(&ThreadManager_Impl1::ProcessingWorks, this, i);
+            m_WorkerThreads.emplace_back(&ThreadManager_Impl1::ProcessingWorks, this);
+
+            castl::wstring name = L"General Thread " + castl::to_wstring(i);
+            HRESULT r;
+            r = SetThreadDescription(
+                m_WorkerThreads.back().native_handle(),
+                name.c_str()
+            );
         }
         for (uint32_t i = 0; i < dedicateThreadNum; ++i)
         {
 			m_WorkerThreads.emplace_back(&DedicateTaskQueue::WorkLoop, &m_DedicateTaskQueues[i + 1]);
+            
+            castl::wstring name = L"Dedicate Thread " + castl::to_wstring(i);
+            HRESULT r;
+            r = SetThreadDescription(
+                m_WorkerThreads.back().native_handle(),
+                name.c_str()
+            );
 		}
     }
     void ThreadManager_Impl1::SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name)
     {
-        m_DedicateThreadMap.SetThreadIndex(name, dedicateThreadIndex);
+        m_DedicateThreadMap.SetThreadIndex(name, dedicateThreadIndex + 1);
     }
     CTask* ThreadManager_Impl1::NewTask()
     {
@@ -308,7 +323,7 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
-    void ThreadManager_Impl1::OneTime(std::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::OneTime(castl::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent)
     {
         if (functor == nullptr)
             return;
@@ -318,7 +333,7 @@ namespace thread_management
         m_InitializeTasks.push_back(newTaskGraph);
     }
 
-    void ThreadManager_Impl1::LoopFunction(std::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::LoopFunction(castl::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
     {
         m_PrepareFunctor = functor;
         m_SetupEventName = waitingEvent;
@@ -350,7 +365,7 @@ namespace thread_management
 
     void ThreadManager_Impl1::EnqueueTaskNode(TaskNode* enqueueNode)
     {
-        if(enqueueNode->m_ThreadKey.Valid())
+        if(enqueueNode->m_ThreadKey.Valid() || enqueueNode->m_RunOnMainThread)
         {
 			EnqueueTaskNode_DedicateThread(enqueueNode);
 		}
@@ -407,7 +422,7 @@ namespace thread_management
         if (m_EventManager.WaitEventDone(node))
         {
             node->m_Running.store(true, std::memory_order_relaxed);
-            uint32_t dedicateThreadID = m_DedicateThreadMap.GetThreadIndex(node->m_ThreadKey) % m_DedicateTaskQueues.size();
+            uint32_t dedicateThreadID = node->m_RunOnMainThread ? 0u : m_DedicateThreadMap.GetThreadIndex(node->m_ThreadKey) % m_DedicateTaskQueues.size();
             m_DedicateTaskQueues[dedicateThreadID].EnqueueTaskNodes(node);
         }
     }
@@ -500,7 +515,7 @@ namespace thread_management
         return this;
     }
 
-    TaskParallelFor* TaskParallelFor_Impl::Functor(std::function<void(uint32_t)> functor)
+    TaskParallelFor* TaskParallelFor_Impl::Functor(castl::function<void(uint32_t)> functor)
     {
         m_Functor = functor;
         return this;

@@ -23,12 +23,12 @@ namespace graphics_backend
 			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
 			{
 				auto tickWindow = thisGraph->NewTask()
-						->Name("TickWindow")
-						->ForceRunOnMainThread()
-						->Functor([&]()
-							{
-								TickWindowContexts();
-							});
+					->Name("TickWindow")
+					->MainThread()
+					->Functor([&]()
+						{
+							TickWindowContexts();
+						});
 
 				thisGraph->NewTask()
 					->Name("Run Graph")
@@ -40,7 +40,6 @@ namespace graphics_backend
 							if (gpuFrame.pGraph != nullptr)
 							{
 								castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(gpuFrame.pGraph, frameManager);
-								//thisGraph->AddResource(executor);
 								executor->PrepareGraph();
 							}
 							if (gpuFrame.presentWindows.size() > 0)
@@ -377,55 +376,52 @@ namespace graphics_backend
 		}
 	}
 
-	castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
-		, bool visible
-		, bool focused
-		, bool decorate
-		, bool floating)
+	castl::shared_ptr<WindowHandle> CVulkanApplication::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)
 	{
 		m_WindowContexts.emplace_back(castl::make_shared<CWindowContext>(*this));
 		auto newContext = m_WindowContexts.back();
-		newContext->Initialize(windowName, initialWidth, initialHeight
-			, visible
-			, focused
-			, decorate
-			, floating);
+		newContext->InitializeWindowHandle(window);
 		return newContext;
 	}
 
+	//castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
+	//	, bool visible
+	//	, bool focused
+	//	, bool decorate
+	//	, bool floating)
+	//{
+	//	m_WindowContexts.emplace_back(castl::make_shared<CWindowContext>(*this));
+	//	auto newContext = m_WindowContexts.back();
+	//	//newContext->Initialize(windowName, initialWidth, initialHeight
+	//	//	, visible
+	//	//	, focused
+	//	//	, decorate
+	//	//	, floating);
+	//	return newContext;
+	//}
+
 	void CVulkanApplication::TickWindowContexts()
 	{
-		//FrameType currentFrameID = m_SubmitCounterContext.GetCurrentFrameID();
-		CWindowContext::UpdateMonitors();
-		
-		glfwPollEvents();
-		//glfwWaitEvents();
+		bool anyInvalid = false;
+		bool anySwapchainChange = false;
 		for (auto& windowContext : m_WindowContexts)
 		{
-			windowContext->UpdatePos();
-			windowContext->UpdateSize();
+			anyInvalid = anyInvalid || windowContext->Invalid();
+			windowContext->CheckRecreateSwapchain();
+			anySwapchainChange = anySwapchainChange || windowContext->NeedRecreateSwapchain();
 		}
-		bool anyNeedClose = castl::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
-			{
-				return wcontest->NeedClose();
-			});
-		bool anyResized = castl::any_of(m_WindowContexts.begin(), m_WindowContexts.end(), [](auto& wcontest)
-			{
-				return wcontest->Resized();
-			});
-		if (anyNeedClose || anyResized)
+
+		if (anyInvalid)
 		{
 			DeviceWaitIdle();
-		}
-		if(anyNeedClose)
-		{
+
 			size_t lastIndex = m_WindowContexts.size();
 			size_t currentIndex = 0;
 			while (currentIndex < m_WindowContexts.size())
 			{
-				if (m_WindowContexts[currentIndex]->NeedClose())
+				if (m_WindowContexts[currentIndex]->Invalid())
 				{
-					m_WindowContexts[currentIndex]->Release();
+					m_WindowContexts[currentIndex]->ReleaseContext();
 					castl::swap(m_WindowContexts[currentIndex], m_WindowContexts.back());
 					m_WindowContexts.pop_back();
 				}
@@ -434,18 +430,16 @@ namespace graphics_backend
 					++currentIndex;
 				}
 			}
-		}
-		if (anyResized)
-		{
-			for (auto& windowContext : m_WindowContexts)
-			{
-				windowContext->Resize();
-			}
+
 		}
 	}
 
 	void CVulkanApplication::ReleaseAllWindowContexts()
 	{
+		for (auto& windowContext : m_WindowContexts)
+		{
+			windowContext->ReleaseContext();
+		}
 		m_WindowContexts.clear();
 	}
 

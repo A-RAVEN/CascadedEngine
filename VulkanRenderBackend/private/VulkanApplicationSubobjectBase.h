@@ -12,6 +12,7 @@ namespace graphics_backend
 	class QueueContext;
 	class GPUMemoryResourceManager;
 	class GPUResourceObjectManager;
+	class GlobalResourceReleaseQueue;
 #pragma endregion
 
 	class VKAppSubObjectBase
@@ -53,10 +54,9 @@ namespace graphics_backend
 		GPUObjectManager& GetGPUObjectManager();
 		GPUMemoryResourceManager& GetGlobalMemoryManager();
 		GPUResourceObjectManager& GetGlobalResourceObjectManager();
+		GlobalResourceReleaseQueue& GetGlobalResourecReleasingQueue();
 		QueueContext& GetQueueContext();
 	private:
 		CVulkanApplication* m_OwningApplication = nullptr;
 	};
-
-
 }

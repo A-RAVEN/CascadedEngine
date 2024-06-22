@@ -29,10 +29,12 @@ namespace cawindow
 		void* GetSystemNativeHandle() override;
 	private:
 		void InitializeWindowCallbacks(GLFWwindow* window);
+		void UpdateMonitors();
 	private:
 #if defined(_WIN32) || defined(_WIN64)
 		HINSTANCE m_HInstance;
 #endif
+		castl::vector<MonitorInfo> m_Monitors;
 	public:
 		castl::function<void(IWindow*, bool)> 					m_WindowFocusCallback = nullptr;
 		castl::function<void(IWindow*, bool)> 					m_CursorEnterCallback = nullptr;

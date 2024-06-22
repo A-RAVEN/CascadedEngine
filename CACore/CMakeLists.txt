@@ -3,7 +3,7 @@ set(PROJECT_NAME CACore)
 file(GLOB_RECURSE Header_List "*.h")
 file(GLOB_RECURSE Source_List "*.cpp")
 
-add_library(CACore STATIC ${Source_List} ${Header_List} "header/CASTL/CAThreadSafeQueue.h")
+add_library(CACore STATIC ${Source_List} ${Header_List})
 target_link_libraries(CACore PUBLIC EASTL)
 target_include_directories(CACore PUBLIC header)
 if(MSVC)

@@ -20,18 +20,22 @@ namespace graphics_backend
 	{
 		m_Application.ReleaseApp();
 	}
-	castl::shared_ptr<WindowHandle> CRenderBackend_Vulkan::NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
-		, bool visible
-		, bool focused
-		, bool decorate
-		, bool floating)
+	castl::shared_ptr<WindowHandle> CRenderBackend_Vulkan::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)
 	{
-		return m_Application.CreateWindowContext(windowName, width, height
-			, visible
-			, focused
-			, decorate
-			, floating);
+		return m_Application.GetWindowHandle(window);
 	}
+	//castl::shared_ptr<WindowHandle> CRenderBackend_Vulkan::NewWindow(uint32_t width, uint32_t height, castl::string const& windowName
+	//	, bool visible
+	//	, bool focused
+	//	, bool decorate
+	//	, bool floating)
+	//{
+	//	return m_Application.CreateWindowContext(windowName, width, height
+	//		, visible
+	//		, focused
+	//		, decorate
+	//		, floating);
+	//}
 
 	bool CRenderBackend_Vulkan::AnyWindowRunning()
 	{
@@ -58,7 +62,7 @@ namespace graphics_backend
 				m_Application.ReleaseGPUTexture(releaseTex);
 			});
 	}
-	uint32_t CRenderBackend_Vulkan::GetMonitorCount() const
+	/*uint32_t CRenderBackend_Vulkan::GetMonitorCount() const
 	{
 		return CWindowContext::GetMonitors().size();
 	}
@@ -116,5 +120,5 @@ namespace graphics_backend
 	void CRenderBackend_Vulkan::SetWindowSizeCallback(castl::function<void(WindowHandle*, float, float)> callback)
 	{
 		glfwContext::s_Instance.m_WindowSizeCallback = callback;
-	}
+	}*/
 }

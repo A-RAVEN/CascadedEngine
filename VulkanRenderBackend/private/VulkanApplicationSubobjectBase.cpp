@@ -73,6 +73,10 @@ namespace graphics_backend
 	{
 		return m_OwningApplication->GetGlobalResourceObjectManager();
 	}
+	GlobalResourceReleaseQueue& VKAppSubObjectBaseNoCopy::GetGlobalResourecReleasingQueue()
+	{
+		return m_OwningApplication->GetGlobalResourecReleasingQueue();
+	}
 	QueueContext& VKAppSubObjectBaseNoCopy::GetQueueContext()
 	{
 		return m_OwningApplication->GetQueueContext();

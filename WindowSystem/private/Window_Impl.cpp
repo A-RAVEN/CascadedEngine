@@ -32,6 +32,10 @@ namespace cawindow
 		SetWindowName("Closing...");
 		glfwSetWindowShouldClose(m_Window, GLFW_TRUE);
 	}
+	bool WindowImpl::WindowShouldClose() const
+	{
+		return glfwWindowShouldClose(m_Window) == GLFW_TRUE;
+	}
 	void WindowImpl::ShowWindow()
 	{
 		glfwShowWindow(m_Window);
@@ -85,6 +89,50 @@ namespace cawindow
 	{
 		return m_WindowSystem;
 	}
+
+	bool WindowImpl::GetKeyState(int keycode, int state) const
+	{
+		return glfwGetKey(m_Window, keycode) == state;
+	}
+
+	float WindowImpl::GetMouseX() const
+	{
+		double x, y;
+		glfwGetCursorPos(m_Window, &x, &y);
+		return static_cast<float>(x);
+	}
+
+	float WindowImpl::GetMouseY() const
+	{
+		double x, y;
+		glfwGetCursorPos(m_Window, &x, &y);
+		return static_cast<float>(y);
+	}
+
+	bool WindowImpl::IsKeyDown(int keycode) const
+	{
+		auto state = glfwGetKey(m_Window, keycode);
+		return state == GLFW_PRESS || state == GLFW_REPEAT;
+	}
+
+	bool WindowImpl::IsKeyTriggered(int keycode) const
+	{
+		auto state = glfwGetKey(m_Window, keycode);
+		return state == GLFW_PRESS;
+	}
+
+	bool WindowImpl::IsMouseDown(int mousecode) const
+	{
+		auto state = glfwGetMouseButton(m_Window, mousecode);
+		return state == GLFW_PRESS;
+	}
+
+	bool WindowImpl::IsMouseUp(int mousecode) const
+	{
+		auto state = glfwGetMouseButton(m_Window, mousecode);
+		return state == GLFW_RELEASE;
+	}
+
 	void* WindowImpl::GetNativeWindowHandle()
 	{
 #if defined(_WIN32) || defined(_WIN64)

@@ -28,8 +28,13 @@ namespace graphics_backend
 			GetGlobalMemoryManager().FreeMemory(image.allocation);
 		}
 		m_PendingImages.clear();
+		for (auto& swapchain : m_PendingSwapchains)
+		{
+			swapchain.Release();
+		}
+		m_PendingSwapchains.clear();
 	}
-	void GlobalResourceReleaseQueue::AddBuffers(vk::ArrayProxyNoTemporaries<VKBufferObject> const& bufferList)
+	void GlobalResourceReleaseQueue::AddBuffers(castl::array_ref<VKBufferObject> const& bufferList)
 	{
 		castl::lock_guard<castl::mutex> thisLock(m_Mutex);
 		m_PendingBuffers.reserve(m_PendingBuffers.size() + bufferList.size());
@@ -38,7 +43,7 @@ namespace graphics_backend
 			m_PendingBuffers.push_back(obj);
 		}
 	}
-	void GlobalResourceReleaseQueue::AddImages(vk::ArrayProxyNoTemporaries<VKImageObject> const& imgList)
+	void GlobalResourceReleaseQueue::AddImages(castl::array_ref<VKImageObject> const& imgList)
 	{
 		castl::lock_guard<castl::mutex> thisLock(m_Mutex);
 		m_PendingImages.reserve(m_PendingImages.size() + imgList.size());
@@ -47,13 +52,24 @@ namespace graphics_backend
 			m_PendingImages.push_back(obj);
 		}
 	}
+	void GlobalResourceReleaseQueue::AddSwapchains(castl::array_ref<SwapchainContext> const& swapchains)
+	{
+		castl::lock_guard<castl::mutex> thisLock(m_Mutex);
+		m_PendingSwapchains.reserve(m_PendingSwapchains.size() + swapchains.size());
+		for (SwapchainContext const& obj : swapchains)
+		{
+			m_PendingSwapchains.push_back(obj);
+		}
+	}
 	void GlobalResourceReleaseQueue::Load(GlobalResourceReleaseQueue& other)
 	{
 		castl::lock_guard<castl::mutex> otherLock(other.m_Mutex);
 		castl::lock_guard<castl::mutex> thisLock(m_Mutex);
 		m_PendingBuffers = castl::move(other.m_PendingBuffers);
 		m_PendingImages = castl::move(other.m_PendingImages);
+		m_PendingSwapchains = castl::move(other.m_PendingSwapchains);
 		other.m_PendingBuffers.clear();
 		other.m_PendingImages.clear();
+		other.m_PendingSwapchains.clear();
 	}
 }
