@@ -47,7 +47,7 @@ namespace cawindow
 	class IWindowSystem
 	{
 	public:
-		virtual castl::shared_ptr<IWindow> NewWindow(
+		virtual castl::weak_ptr<IWindow> NewWindow(
 			int width
 			, int height
 			, castl::string_view const& windowName = "Default Window"
@@ -55,7 +55,7 @@ namespace cawindow
 			, bool focused = true
 			, bool decorate = true
 			, bool floating = false) = 0;
-
+		virtual int GetWindowCount() const = 0;
 		virtual int GetMonitorCount() const = 0;
 		virtual MonitorInfo GetMonitor(int monitorID) const = 0;
 

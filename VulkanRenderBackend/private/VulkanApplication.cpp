@@ -22,7 +22,7 @@ namespace graphics_backend
 			->Name("Run GPU Frame")
 			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
 			{
-				auto tickWindow = thisGraph->NewTask()
+				auto tickWindowHandles = thisGraph->NewTask()
 					->Name("TickWindow")
 					->MainThread()
 					->Functor([&]()
@@ -30,16 +30,16 @@ namespace graphics_backend
 							TickWindowContexts();
 						});
 
-				thisGraph->NewTask()
+				auto runGraph = thisGraph->NewTask()
 					->Name("Run Graph")
-					->DependsOn(tickWindow)
+					->DependsOn(tickWindowHandles)
 					->Functor([&]()
 						{
 							auto frameManager = m_FrameContext.GetFrameBoundResourceManager();
 							frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
 							if (gpuFrame.pGraph != nullptr)
 							{
-								castl::shared_ptr<GPUGraphExecutor> executor = NewSubObject_Shared<GPUGraphExecutor>(gpuFrame.pGraph, frameManager);
+								auto executor = frameManager->NewExecutor(gpuFrame.pGraph);
 								executor->PrepareGraph();
 							}
 							if (gpuFrame.presentWindows.size() > 0)
@@ -47,89 +47,12 @@ namespace graphics_backend
 								for (auto& window : gpuFrame.presentWindows)
 								{
 									auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
-									windowContext->PresentFrame(frameManager);
+									windowContext->PresentFrame(frameManager.get());
 								}
 							}
 							frameManager->FinalizeSubmit();
-							frameManager->HostFinish();
 						});
 			});
-	}
-
-
-	void CVulkanApplication::CreateImageViews2D(vk::Format format, castl::vector<vk::Image> const& inImages,
-		castl::vector<vk::ImageView>& outImageViews) const
-	{
-		for(auto& img : inImages)
-		{
-			vk::ImageViewCreateInfo createInfo({}
-				, img
-				, vk::ImageViewType::e2D
-				, format
-				, vk::ComponentMapping(
-					vk::ComponentSwizzle::eIdentity
-					, vk::ComponentSwizzle::eIdentity
-					, vk::ComponentSwizzle::eIdentity
-					, vk::ComponentSwizzle::eIdentity)
-				, vk::ImageSubresourceRange(
-					vk::ImageAspectFlagBits::eColor
-					, 0
-					, 1
-					, 0
-					, 1));
-			auto newView = GetDevice().createImageView(createInfo);
-			outImageViews.push_back(newView);
-		}
-	}
-
-	vk::ImageView CVulkanApplication::CreateDefaultImageView(
-		GPUTextureDescriptor const& inDescriptor
-		, vk::Image inImage
-		, bool depthAspect
-		, bool stencilAspect) const
-	{
-		bool isDepthStencil = IsDepthStencilFormat(inDescriptor.format);
-		bool isDepthOnly = IsDepthOnlyFormat(inDescriptor.format);
-
-		if ((depthAspect || stencilAspect) && !isDepthStencil)
-			return nullptr;
-
-		if(isDepthOnly && stencilAspect && !depthAspect)
-			return nullptr;
-
-		vk::ImageAspectFlags aspectFlags = vk::ImageAspectFlagBits::eColor;
-		if (isDepthStencil)
-		{
-			aspectFlags = {};
-			if (depthAspect)
-			{
-				aspectFlags |= vk::ImageAspectFlagBits::eDepth;
-			}
-			if (stencilAspect)
-			{
-				aspectFlags |= vk::ImageAspectFlagBits::eStencil;
-			}
-		}
-
-		auto imageInfo = ETextureTypeToVulkanImageInfo(inDescriptor.textureType);
-		vk::ImageViewCreateInfo createInfo{
-			vk::ImageViewCreateFlags{}
-			, inImage
-			, imageInfo.defaultImageViewType
-			, ETextureFormatToVkFotmat(inDescriptor.format)
-			, vk::ComponentMapping(
-				vk::ComponentSwizzle::eIdentity
-				, vk::ComponentSwizzle::eIdentity
-				, vk::ComponentSwizzle::eIdentity
-				, vk::ComponentSwizzle::eIdentity)
-				, vk::ImageSubresourceRange{
-				aspectFlags
-					, 0
-					, VK_REMAINING_MIP_LEVELS
-					, 0
-					, VK_REMAINING_ARRAY_LAYERS}
-		};
-		return GetDevice().createImageView(createInfo);
 	}
 
 	GPUBuffer* CVulkanApplication::NewGPUBuffer(GPUBufferDescriptor const& inDescriptor)
@@ -241,134 +164,16 @@ namespace graphics_backend
 
 	void CVulkanApplication::CreateDevice()
 	{
-		std::vector<vk::QueueFamilyProperties> queueFamilyProperties = m_PhysicalDevice.getQueueFamilyProperties();
-		castl::vector<castl::pair<uint32_t, uint32_t>> generalUsageQueues;
-		castl::vector<castl::pair<uint32_t, uint32_t>> computeDedicateQueues;
-		castl::vector<castl::pair<uint32_t, uint32_t>> transferDedicateQueues;
-
-		vk::QueueFlags generalFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer;
-		for (uint32_t queueId = 0; queueId < queueFamilyProperties.size(); ++queueId)
-		{
-			vk::QueueFamilyProperties const& itrProp = queueFamilyProperties[queueId];
-			if ((itrProp.queueFlags & generalFlags) == generalFlags)
-			{
-				generalUsageQueues.push_back(castl::make_pair(queueId, itrProp.queueCount));
-			}
-			else
-			{
-				if (itrProp.queueFlags & vk::QueueFlagBits::eCompute)
-				{
-					computeDedicateQueues.push_back(castl::make_pair(queueId, itrProp.queueCount));
-				}
-				else if (itrProp.queueFlags & vk::QueueFlagBits::eTransfer)
-				{
-					transferDedicateQueues.push_back(castl::make_pair(queueId, itrProp.queueCount));
-				}
-				else
-				{
-				}
-			}
-		}
-
-		CA_ASSERT(!generalUsageQueues.empty(), "Vulkan: No General Usage Queue Found!");
-
-		if (computeDedicateQueues.empty())
-		{
-			computeDedicateQueues.push_back(generalUsageQueues[0]);
-		}
-		if (transferDedicateQueues.empty())
-		{
-			transferDedicateQueues.push_back(generalUsageQueues[0]);
-		}
-		castl::set<castl::pair<uint32_t, uint32_t>> queueFamityIndices;
-		queueFamityIndices.insert(generalUsageQueues[0]);
-		queueFamityIndices.insert(computeDedicateQueues[0]);
-		queueFamityIndices.insert(transferDedicateQueues[0]);
-
-		castl::vector<vk::DeviceQueueCreateInfo> deviceQueueCreateInfoList;
-		castl::pair<uint32_t, uint32_t> generalQueueRef;
-		castl::pair<uint32_t, uint32_t> computeQueueRef;
-		castl::pair<uint32_t, uint32_t> transferQueueRef;
-		castl::vector<castl::vector<float>> queuePriorities;
-		for (castl::pair<uint32_t, uint32_t> const& itrQueueInfo : queueFamityIndices)
-		{
-			uint32_t queueFamilyId = itrQueueInfo.first;
-			uint32_t queueCount = itrQueueInfo.second;
-
-			uint32_t itrQueueId = 0;
-			uint32_t requiredQueueCount = 0;
-			if (queueFamilyId == generalUsageQueues[0].first)
-			{
-				generalQueueRef = castl::make_pair(queueFamilyId, itrQueueId);
-				itrQueueId = (itrQueueId + 1) % queueCount;
-				requiredQueueCount = castl::min(requiredQueueCount + 1, queueCount);
-			}
-			if (queueFamilyId == computeDedicateQueues[0].first)
-			{
-				computeQueueRef = castl::make_pair(queueFamilyId, itrQueueId);
-				itrQueueId = (itrQueueId + 1) % queueCount;
-				requiredQueueCount = castl::min(requiredQueueCount + 1, queueCount);
-			}
-
-			if (queueFamilyId == transferDedicateQueues[0].first)
-			{
-				transferQueueRef = castl::make_pair(queueFamilyId, itrQueueId);
-				itrQueueId = (itrQueueId + 1) % queueCount;
-				requiredQueueCount = castl::min(requiredQueueCount + 1, queueCount);
-			}
-
-			{
-				castl::vector<float> tmp;
-				tmp.resize(requiredQueueCount);
-				castl::fill(tmp.begin(), tmp.end(), 0.0f);
-				queuePriorities.push_back(tmp);
-			}
-			auto& currentQueuePriorities = queuePriorities.back();
-			deviceQueueCreateInfoList.emplace_back(vk::DeviceQueueCreateFlags(), queueFamilyId, currentQueuePriorities);
-		}
-
-		castl::vector<uint32_t> otherQueueFamilies;
-		for(uint32_t familyId = 0; familyId < queueFamilyProperties.size(); ++familyId)
-		{
-			if(familyId != generalQueueRef.first && familyId != computeQueueRef.first && familyId != transferQueueRef.first)
-			{
-				otherQueueFamilies.push_back(familyId);
-			}
-		}
-
-
-		for(uint32_t itrOtherFamilyId : otherQueueFamilies)
-		{
-			queuePriorities.push_back({ 0.0f });
-			auto& currentQueuePriorities = queuePriorities.back();
-			deviceQueueCreateInfoList.emplace_back(vk::DeviceQueueCreateFlags(), itrOtherFamilyId, currentQueuePriorities);
-		}
 		QueueContext::QueueCreationInfo queueCreationInfo{};
 		m_QueueContext.InitQueueCreationInfo(m_PhysicalDevice, queueCreationInfo);
 		auto extensions = GetDeviceExtensionNames();
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, extensions);
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
-
-		//SetVKObjectDebugName(m_Device, m_Instance, "Instance");
-
-		castl::vector<vk::Queue> defaultQueues;
-		defaultQueues.reserve(queueFamilyProperties.size());
-		for(int itrFamily = 0; itrFamily < queueFamilyProperties.size(); ++itrFamily)
-		{
-			vk::Queue itrQueue = m_Device.getQueue(itrFamily, 0);
-			defaultQueues.push_back(itrQueue);
-		}
-
-		m_SubmitCounterContext.Initialize();
-		m_SubmitCounterContext.InitializeSubmitQueues(generalQueueRef, computeQueueRef, transferQueueRef);
-		m_SubmitCounterContext.InitializeDefaultQueues(defaultQueues);
-
 		vulkan_backend::utils::SetupVulkanDeviceFunctinoPointers(m_Device);
 	}
 
 	void CVulkanApplication::DestroyDevice()
 	{
-		m_SubmitCounterContext.Release();
 		if(m_Device != vk::Device(nullptr))
 		{
 			m_Device.destroy();
@@ -384,53 +189,22 @@ namespace graphics_backend
 		return newContext;
 	}
 
-	//castl::shared_ptr<WindowHandle> CVulkanApplication::CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
-	//	, bool visible
-	//	, bool focused
-	//	, bool decorate
-	//	, bool floating)
-	//{
-	//	m_WindowContexts.emplace_back(castl::make_shared<CWindowContext>(*this));
-	//	auto newContext = m_WindowContexts.back();
-	//	//newContext->Initialize(windowName, initialWidth, initialHeight
-	//	//	, visible
-	//	//	, focused
-	//	//	, decorate
-	//	//	, floating);
-	//	return newContext;
-	//}
-
 	void CVulkanApplication::TickWindowContexts()
 	{
-		bool anyInvalid = false;
-		bool anySwapchainChange = false;
-		for (auto& windowContext : m_WindowContexts)
+		size_t currentIndex = 0;
+		while (currentIndex < m_WindowContexts.size())
 		{
-			anyInvalid = anyInvalid || windowContext->Invalid();
-			windowContext->CheckRecreateSwapchain();
-			anySwapchainChange = anySwapchainChange || windowContext->NeedRecreateSwapchain();
-		}
-
-		if (anyInvalid)
-		{
-			DeviceWaitIdle();
-
-			size_t lastIndex = m_WindowContexts.size();
-			size_t currentIndex = 0;
-			while (currentIndex < m_WindowContexts.size())
+			if (m_WindowContexts[currentIndex]->Invalid())
 			{
-				if (m_WindowContexts[currentIndex]->Invalid())
-				{
-					m_WindowContexts[currentIndex]->ReleaseContext();
-					castl::swap(m_WindowContexts[currentIndex], m_WindowContexts.back());
-					m_WindowContexts.pop_back();
-				}
-				else
-				{
-					++currentIndex;
-				}
+				m_WindowContexts[currentIndex]->ReleaseContext();
+				castl::swap(m_WindowContexts[currentIndex], m_WindowContexts.back());
+				m_WindowContexts.pop_back();
 			}
-
+			else
+			{
+				m_WindowContexts[currentIndex]->CheckRecreateSwapchain();
+				++currentIndex;
+			}
 		}
 	}
 
@@ -445,7 +219,6 @@ namespace graphics_backend
 
 	CVulkanApplication::CVulkanApplication() :
 	m_GPUObjectManager(*this)
-	, m_SubmitCounterContext(*this)
 	, m_QueueContext(*this)
 	, m_FrameContext(*this)
 	, m_GPUResourceObjManager(*this)
@@ -472,13 +245,8 @@ namespace graphics_backend
 	void CVulkanApplication::ReleaseApp()
 	{
 		DeviceWaitIdle();
-		//m_ConstantSetAllocator.Release();
-		//m_ShaderBindingSetAllocator.Release();
-		//m_GPUBufferPool.ReleaseAll();
-		//m_GPUTexturePool.ReleaseAll();
-		//m_MemoryManager.Release();
-		//DestroyThreadContexts();
 		ReleaseAllWindowContexts();
+		m_GlobalResourceReleasingQueue.ReleaseGlobalResources();
 		m_FrameContext.Release();
 		m_GPUResourceObjManager.Release();
 		m_GPUMemoryManager.Release();
@@ -489,7 +257,6 @@ namespace graphics_backend
 
 	void CVulkanApplication::DeviceWaitIdle()
 	{
-		//m_TaskFuture.wait();
 		if (m_Device != vk::Device(nullptr))
 		{
 			m_Device.waitIdle();

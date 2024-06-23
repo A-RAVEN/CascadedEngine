@@ -12,7 +12,7 @@ namespace graphics_backend
 	public:
 		FrameContext(CVulkanApplication& owner);
 		void InitFrameCapacity(uint32_t capacity);
-		FrameBoundResourcePool* GetFrameBoundResourceManager();
+		castl::shared_ptr<FrameBoundResourcePool> GetFrameBoundResourceManager();
 		void Release();
 	private:
 		castl::mutex m_Mutex;

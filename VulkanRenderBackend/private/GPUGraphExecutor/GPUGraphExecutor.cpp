@@ -9,6 +9,23 @@
 
 namespace graphics_backend
 {
+	bool ValidImageHandle(ImageHandle const& handle)
+	{
+		switch (handle.GetType())
+		{
+			case ImageHandle::ImageType::Invalid:
+			{
+				return false;
+			}
+			case ImageHandle::ImageType::Backbuffer:
+			{
+				castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(handle.GetWindowHandle());
+				return !window->Invalid();
+			}
+		}
+		return true;
+	}
+
 	//if source state and dst state have different queue family and source usage is not DontCare, a release barrier is required
 	bool NeedReleaseBarrier(ResourceState const& srcState, ResourceState const& dstState)
 	{
@@ -749,7 +766,7 @@ namespace graphics_backend
 		, ResourceUsageFlags newUsageFlags
 		, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache)
 	{
-		if (imageHandle.GetType() == ImageHandle::ImageType::Invalid)
+		if (!ValidImageHandle(imageHandle))
 		{
 			return;
 		}
@@ -811,8 +828,6 @@ namespace graphics_backend
 		//Command Buffers
 		m_FinalCommandBuffers.clear();
 		m_CommandBufferBatchList.clear();
-		//m_LeafBatchSemaphores.clear();
-		//m_LeafBatchFinishStageFlags.clear();
 	}
 
 	void GPUGraphExecutor::PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
@@ -988,18 +1003,33 @@ namespace graphics_backend
 				frameBufferDesc.layers = 1;
 				frameBufferDesc.renderImageViews.resize(attachments.size());
 
+				bool anyInvalidFrameBuffer = false;
 				for (size_t i = 0; i < attachments.size(); ++i)
 				{
 					auto& attachment = attachments[i];
-					auto pDesc = GetTextureHandleDescriptor(attachment);
-					CA_ASSERT(pDesc != nullptr, "Invalid texture descriptor");
-					frameBufferDesc.renderImageViews[i] = GetTextureHandleImageView(attachment, GPUTextureView::CreateDefaultForRenderTarget(pDesc->format));
-					frameBufferDesc.renderpassObject = passInfo.m_RenderPassObject;
+					if (ValidImageHandle(attachment))
+					{
+						auto pDesc = GetTextureHandleDescriptor(attachment);
+						CA_ASSERT(pDesc != nullptr, "Invalid texture descriptor");
+						frameBufferDesc.renderImageViews[i] = GetTextureHandleImageView(attachment, GPUTextureView::CreateDefaultForRenderTarget(pDesc->format));
+						frameBufferDesc.renderpassObject = passInfo.m_RenderPassObject;
+					}
+					else
+					{
+						anyInvalidFrameBuffer = true;
+						break;
+					}
 				}
 
-				passInfo.m_FrameBufferObject = GetGPUObjectManager().GetFramebufferCache().GetOrCreate(frameBufferDesc);
+				if (anyInvalidFrameBuffer)
+				{
+					passInfo.m_FrameBufferObject = nullptr;
+				}
+				else
+				{
+					passInfo.m_FrameBufferObject = GetGPUObjectManager().GetFramebufferCache().GetOrCreate(frameBufferDesc);
+				}
 			}
-
 
 			auto& passLevelPsoDesc = renderPass.GetPipelineStates();
 			//Batch Info
@@ -1306,54 +1336,56 @@ namespace graphics_backend
 				vk::CommandBuffer renderPassCommandBuffer = cmdPool->AllocCommand(QueueType::eGraphics, "Render Pass");
 
 				passData.m_BarrierCollector.ExecuteBarrier(renderPassCommandBuffer);
-				renderPassCommandBuffer.beginRenderPass(
-					vk::RenderPassBeginInfo{
-						passData.m_RenderPassObject->GetRenderPass()
-						, passData.m_FrameBufferObject->GetFramebuffer()
-						, vk::Rect2D{{0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }}
-						, passData.m_ClearValues
-					}
-				, vk::SubpassContents::eInline);
 
-				renderPassCommandBuffer.setViewport(0, { vk::Viewport(0.0f, 0.0f, (float)passData.m_FrameBufferObject->GetWidth(), (float)passData.m_FrameBufferObject->GetHeight(), 0.0f, 1.0f) });
-				renderPassCommandBuffer.setScissor(0, { vk::Rect2D({0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }) });
-
-
-				CommandList_Impl commandList{ renderPassCommandBuffer };
-
-				//castl::vector<uint32_t> bufferOffsets;
-				for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
+				if (passData.ValidPassData())
 				{
-					auto& batchData = batchDatas[batchID];
-					auto& drawcallBatch = drawcallBatchs[batchID];
+					renderPassCommandBuffer.beginRenderPass(
+						vk::RenderPassBeginInfo{
+							passData.m_RenderPassObject->GetRenderPass()
+							, passData.m_FrameBufferObject->GetFramebuffer()
+							, vk::Rect2D{{0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }}
+							, passData.m_ClearValues
+						}
+					, vk::SubpassContents::eInline);
 
-					renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipeline());
+					renderPassCommandBuffer.setViewport(0, { vk::Viewport(0.0f, 0.0f, (float)passData.m_FrameBufferObject->GetWidth(), (float)passData.m_FrameBufferObject->GetHeight(), 0.0f, 1.0f) });
+					renderPassCommandBuffer.setScissor(0, { vk::Rect2D({0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }) });
 
-					renderPassCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipelineLayout(), 0, batchData.m_ShaderBindingInstance.m_DescriptorSets, {});
+					CommandList_Impl commandList{ renderPassCommandBuffer };
 
-					if (drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
+					for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 					{
-						auto buffer = GetBufferHandleBufferObject(drawcallBatch.m_BoundIndexBuffer);
-						renderPassCommandBuffer.bindIndexBuffer(buffer, drawcallBatch.m_IndexBufferOffset, EIndexBufferTypeTranslate(drawcallBatch.m_IndexBufferType));
-					}
+						auto& batchData = batchDatas[batchID];
+						auto& drawcallBatch = drawcallBatchs[batchID];
 
-					for (auto& attributePair : batchData.m_VertexAttributeBindings)
-					{
-						auto foundVertexBuffer = drawcallBatch.m_BoundVertexBuffers.find(attributePair.first);
-						if (foundVertexBuffer != drawcallBatch.m_BoundVertexBuffers.end())
+						renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipeline());
+
+						renderPassCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipelineLayout(), 0, batchData.m_ShaderBindingInstance.m_DescriptorSets, {});
+
+						if (drawcallBatch.m_BoundIndexBuffer.GetType() != BufferHandle::BufferType::Invalid)
 						{
-							auto buffer = GetBufferHandleBufferObject(foundVertexBuffer->second);
-							renderPassCommandBuffer.bindVertexBuffers(attributePair.second.bindingIndex, { buffer }, { 0 });
+							auto buffer = GetBufferHandleBufferObject(drawcallBatch.m_BoundIndexBuffer);
+							renderPassCommandBuffer.bindIndexBuffer(buffer, drawcallBatch.m_IndexBufferOffset, EIndexBufferTypeTranslate(drawcallBatch.m_IndexBufferType));
+						}
+
+						for (auto& attributePair : batchData.m_VertexAttributeBindings)
+						{
+							auto foundVertexBuffer = drawcallBatch.m_BoundVertexBuffers.find(attributePair.first);
+							if (foundVertexBuffer != drawcallBatch.m_BoundVertexBuffers.end())
+							{
+								auto buffer = GetBufferHandleBufferObject(foundVertexBuffer->second);
+								renderPassCommandBuffer.bindVertexBuffers(attributePair.second.bindingIndex, { buffer }, { 0 });
+							}
+						}
+
+						for (auto& drawFunc : drawcallBatch.m_DrawCommands)
+						{
+							drawFunc(commandList);
 						}
 					}
-
-					for (auto& drawFunc : drawcallBatch.m_DrawCommands)
-					{
-						drawFunc(commandList);
-					}
+					renderPassCommandBuffer.endRenderPass();
 				}
 
-				renderPassCommandBuffer.endRenderPass();
 				passData.m_BarrierCollector.ExecuteReleaseBarrier(renderPassCommandBuffer);
 				renderPassCommandBuffer.end();
 				passData.m_CommandBuffers.push_back(renderPassCommandBuffer);
@@ -1418,7 +1450,7 @@ namespace graphics_backend
 				for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
 				{
 					auto [imageHandle, address, offset, size] = imageUpload;
-					if (imageHandle.GetType() != ImageHandle::ImageType::Invalid)
+					if (ValidImageHandle(imageHandle))
 					{
 						auto image = GetTextureHandleImageObject(imageHandle);
 						auto pDesc = GetTextureHandleDescriptor(imageHandle);

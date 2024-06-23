@@ -6,7 +6,6 @@
 #include "CVertexInputDescriptor.h"
 #include "ShaderProvider.h"
 #include "ShaderResourceHandle.h"
-
 #include <DebugUtils.h>
 #include <CASTL/CAFunctional.h>
 #include <CASTL/CAUnorderedMap.h>

@@ -123,6 +123,7 @@ namespace thread_management
 		void Release(TaskNode* node);
 		void LogStatus() const;
 	private:
+		castl::atomic<uint32_t> m_Counter = 0;
 		threadsafe_utils::TThreadSafePointerPool<CTask_Impl1> m_TaskPool;
 		threadsafe_utils::TThreadSafePointerPool<TaskParallelFor_Impl> m_TaskParallelForPool;
 		threadsafe_utils::TThreadSafePointerPool<TaskGraph_Impl1> m_TaskGraphPool;
@@ -133,8 +134,9 @@ namespace thread_management
 	{
 	public:
 		DedicateTaskQueue() = default;
-		DedicateTaskQueue(DedicateTaskQueue&& other) {}
+		DedicateTaskQueue(DedicateTaskQueue&& other) noexcept : DedicateTaskQueue(){}
 		void Stop();
+		void Reset();
 		void WorkLoop();
 		void EnqueueTaskNodes(castl::array_ref<TaskNode*> const& nodeDeque);
 	private:
@@ -195,9 +197,9 @@ namespace thread_management
 	public:
 		virtual void InitializeThreadCount(uint32_t threadNum, uint32_t dedicateThreadNum) override;
 		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) override;
-		virtual CTask* NewTask() override;
-		virtual TaskParallelFor* NewTaskParallelFor() override;
-		virtual CTaskGraph* NewTaskGraph() override;
+		CTask_Impl1* NewTask();
+		TaskParallelFor_Impl* NewTaskParallelFor();
+		TaskGraph_Impl1* NewTaskGraph();
 		virtual void LogStatus() const override;
 		virtual uint64_t GetCurrentFrame() const override { return m_Frames; }
 		virtual void OneTime(castl::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
@@ -210,6 +212,7 @@ namespace thread_management
 
 		void SignalEvent(castl::string const& eventName, uint64_t signalFrame);
 
+		void EnqueueOneTimeTasks();
 		void EnqueueSetupTask();
 		void EnqueueTaskNode(TaskNode* node);
 		void EnqueueTaskNodes_Loop(castl::array_ref<TaskNode*> nodes);
@@ -220,6 +223,8 @@ namespace thread_management
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
 		void ProcessingWorks();
+		void ResetMainThread();
+		void StopMainThread();
 		void ProcessingWorksMainThread();
 	private:
 		//
@@ -238,15 +243,8 @@ namespace thread_management
 		DedicateThreadMap m_DedicateThreadMap;
 		TaskNodeEventManager m_EventManager;
 
-		//castl::unordered_map<castl::string, uint32_t> m_EventMap;
-		//struct TaskWaitList
-		//{
-		//	castl::deque<TaskNode*> m_WaitingTasks;
-		//	castl::deque<castl::pair<uint64_t, uint32_t>> m_WaitingFrames;
-		//	uint64_t m_SignaledFrame = 0;
-		//	void Signal(uint64_t signalFrame);
-		//};
-		//castl::vector<TaskWaitList> m_EventWaitLists;
+		castl::atomic<bool> m_WaitingIdle = false;
+		castl::atomic<uint32_t> m_PendingTaskCount = 0;
 
 		castl::vector<TaskNode*> m_InitializeTasks;
 	};

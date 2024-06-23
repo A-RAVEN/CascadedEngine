@@ -12,7 +12,8 @@ namespace cawindow
 		WindowSystem();
 	public:
 		// 通过 IWindowSystem 继承
-		castl::shared_ptr<IWindow> NewWindow(int width, int height, castl::string_view const& windowName, bool visible, bool focused, bool decorate, bool floating) override;
+		castl::weak_ptr<IWindow> NewWindow(int width, int height, castl::string_view const& windowName, bool visible, bool focused, bool decorate, bool floating) override;
+		int GetWindowCount() const override;
 		int GetMonitorCount() const override;
 		void UpdateSystem() override;
 		MonitorInfo GetMonitor(int monitorID) const override;
@@ -30,11 +31,13 @@ namespace cawindow
 	private:
 		void InitializeWindowCallbacks(GLFWwindow* window);
 		void UpdateMonitors();
+		void UpdateWindows();
 	private:
 #if defined(_WIN32) || defined(_WIN64)
 		HINSTANCE m_HInstance;
 #endif
 		castl::vector<MonitorInfo> m_Monitors;
+		castl::vector<castl::shared_ptr<IWindow>> m_Windows;
 	public:
 		castl::function<void(IWindow*, bool)> 					m_WindowFocusCallback = nullptr;
 		castl::function<void(IWindow*, bool)> 					m_CursorEnterCallback = nullptr;

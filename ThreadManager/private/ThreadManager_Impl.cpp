@@ -241,34 +241,34 @@ namespace thread_management
     ThreadManager_Impl1::~ThreadManager_Impl1()
     {
         Stop();
-        for (std::thread& itrThread : m_WorkerThreads)
-        {
-            itrThread.join();
-        }
+
+    }
+
+    void ThreadManager_Impl1::EnqueueOneTimeTasks()
+    {
+        EnqueueTaskNodes_Loop(m_InitializeTasks);
+        m_InitializeTasks.clear();
     }
 
     void ThreadManager_Impl1::EnqueueSetupTask()
     {
+        if (m_WaitingIdle)
+            return;
         if (m_PrepareFunctor == nullptr)
         {
-            Stop();
+            m_WaitingIdle = true;
             return;
         }
-        TaskGraph_Impl1* setupTaskGraph = m_TaskNodeAllocator.NewTaskGraph(this);
+        TaskGraph_Impl1* setupTaskGraph = NewTaskGraph();
         setupTaskGraph->Name("Setup");
         setupTaskGraph->SignalEvent(m_SetupEventName);
-        for (auto initializeTask : m_InitializeTasks)
-        {
-            setupTaskGraph->DependsOn_Internal(initializeTask);
-        }
         bool notEnd = m_PrepareFunctor(setupTaskGraph);
         ++m_Frames;
-        EnqueueTaskNodes_Loop(m_InitializeTasks);
-        m_InitializeTasks.clear();
         EnqueueTaskNode(setupTaskGraph);
         if (!notEnd)
         {
-            Stop();
+            m_WaitingIdle = true;
+            //StopMainThread();
         }
     }
 
@@ -305,16 +305,19 @@ namespace thread_management
     {
         m_DedicateThreadMap.SetThreadIndex(name, dedicateThreadIndex + 1);
     }
-    CTask* ThreadManager_Impl1::NewTask()
+    CTask_Impl1* ThreadManager_Impl1::NewTask()
     {
+        ++m_PendingTaskCount;
         return m_TaskNodeAllocator.NewTask(this);
     }
-    TaskParallelFor* ThreadManager_Impl1::NewTaskParallelFor()
+    TaskParallelFor_Impl* ThreadManager_Impl1::NewTaskParallelFor()
     {
+        ++m_PendingTaskCount;
         return m_TaskNodeAllocator.NewTaskParallelFor(this);
     }
-    CTaskGraph* ThreadManager_Impl1::NewTaskGraph()
+    TaskGraph_Impl1* ThreadManager_Impl1::NewTaskGraph()
     {
+        ++m_PendingTaskCount;
         return m_TaskNodeAllocator.NewTaskGraph(this);
     }
 
@@ -327,7 +330,7 @@ namespace thread_management
     {
         if (functor == nullptr)
             return;
-        auto* newTaskGraph = m_TaskNodeAllocator.NewTaskGraph(this);
+        auto* newTaskGraph = NewTaskGraph();
         functor(newTaskGraph);
         std::lock_guard<std::mutex> guard(m_Mutex);
         m_InitializeTasks.push_back(newTaskGraph);
@@ -341,26 +344,25 @@ namespace thread_management
 
     void ThreadManager_Impl1::Run()
     {
+        m_WaitingIdle = false;
+        ResetMainThread();
+        EnqueueOneTimeTasks();
         EnqueueSetupTask();
-        uint32_t mainThreadID = m_WorkerThreads.size();
         ProcessingWorksMainThread();
-        for (std::thread& itrThread : m_WorkerThreads)
-        {
-            itrThread.join();
-        }
     }
 
     void ThreadManager_Impl1::Stop()
     {
+        for (auto& dedicateThread : m_DedicateTaskQueues)
         {
-            for (auto& dedicateThread : m_DedicateTaskQueues)
-            {
-                dedicateThread.Stop();
-            }
-            m_Stopped = true;
-            m_ConditinalVariable.notify_all();
+            dedicateThread.Stop();
         }
-
+        m_Stopped = true;
+        m_ConditinalVariable.notify_all();
+        for (std::thread& itrThread : m_WorkerThreads)
+        {
+            itrThread.join();
+        }
     }
 
     void ThreadManager_Impl1::EnqueueTaskNode(TaskNode* enqueueNode)
@@ -438,7 +440,11 @@ namespace thread_management
     
     void ThreadManager_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
     {
-
+        --m_PendingTaskCount;
+        if (m_PendingTaskCount == 0)
+        {
+            StopMainThread();
+        }
     }
     void ThreadManager_Impl1::ProcessingWorks()
     {
@@ -466,6 +472,16 @@ namespace thread_management
             lock.unlock();
             task->Execute_Internal();
         }
+    }
+
+    void ThreadManager_Impl1::ResetMainThread()
+    {
+        m_DedicateTaskQueues[0].Reset();
+    }
+
+    void ThreadManager_Impl1::StopMainThread()
+    {
+		m_DedicateTaskQueues[0].Stop();
     }
 
     void ThreadManager_Impl1::ProcessingWorksMainThread()
@@ -586,18 +602,21 @@ namespace thread_management
     {
         auto result = m_TaskPool.Alloc(owner, m_OwningManager, this);
         result->SetOwner(owner);
+        ++m_Counter;
         return result;
     }
     TaskParallelFor_Impl* TaskNodeAllocator::NewTaskParallelFor(TaskBaseObject* owner)
     {
         auto result = m_TaskParallelForPool.Alloc(owner, m_OwningManager, this);
         result->SetOwner(owner);
+        ++m_Counter;
         return result;
     }
     TaskGraph_Impl1* TaskNodeAllocator::NewTaskGraph(TaskBaseObject* owner)
     {
         auto result = m_TaskGraphPool.Alloc(owner, m_OwningManager, this);
         result->SetOwner(owner);
+        ++m_Counter;
         return result;
     }
    
@@ -608,16 +627,19 @@ namespace thread_management
         case TaskObjectType::eGraph:
         {
             m_TaskGraphPool.Release(static_cast<TaskGraph_Impl1*>(childNode));
+            --m_Counter;
             break;
         }
         case TaskObjectType::eNode:
         {
             m_TaskPool.Release(static_cast<CTask_Impl1*>(childNode));
+            --m_Counter;
             break;
         }
         case TaskObjectType::eNodeParallel:
         {
             m_TaskParallelForPool.Release(static_cast<TaskParallelFor_Impl*>(childNode));
+            --m_Counter;
             break;
         }
         default:
@@ -632,18 +654,19 @@ namespace thread_management
         std::cout << "parallelTasks: " << m_TaskParallelForPool.GetPoolSize() << ";  " << m_TaskParallelForPool.GetEmptySpaceSize() << std::endl;
         std::cout << "taskGraphs: " << m_TaskGraphPool.GetPoolSize() << ";  " << m_TaskGraphPool.GetEmptySpaceSize() << std::endl;
     }
-    //void ThreadManager_Impl1::TaskWaitList::Signal(uint64_t signalFrame)
-    //{
-    //    if (signalFrame > m_SignaledFrame)
-    //    {
-    //        m_SignaledFrame = signalFrame;
-    //    }
-    //}
 
     void DedicateTaskQueue::Stop()
     {
+        {
+            std::lock_guard<std::mutex> guard(m_Mutex);
+            m_Stop = true;
+        }
+ 	    m_ConditionalVariable.notify_one();
+    }
+    void DedicateTaskQueue::Reset()
+    {
         std::lock_guard<std::mutex> guard(m_Mutex);
-        m_Stop = true;
+		m_Stop = false;
     }
     void DedicateTaskQueue::WorkLoop()
     {

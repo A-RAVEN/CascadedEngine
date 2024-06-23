@@ -122,9 +122,10 @@ int main(int argc, char *argv[])
 	pBackend->InitializeThreadContextCount(5);
 
 	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
-	newWindow->GetNativeWindowHandle();
-	newWindow->GetWindowSystem()->GetSystemNativeHandle();
-	auto windowHandle = pBackend->GetWindowHandle(newWindow);
+	auto windowHandle = pBackend->GetWindowHandle(newWindow.lock());
+
+	auto newWindow1 = windowSystem->NewWindow(1024, 512, "Window System Window 1");
+	auto windowHandle1 = pBackend->GetWindowHandle(newWindow1.lock());
 
 	castl::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -248,54 +249,53 @@ int main(int argc, char *argv[])
 				, newWindow
 	](auto setup)
 	{
-					setup->NewTask()
-						->MainThread()
-						->Functor(
-							[windowSystem]()
-							{
-								windowSystem->UpdateSystem();
-							});
-					setup->MainThread();
-					int forwarding = 0;
-					int lefting = 0;
-					if (newWindow->IsKeyDown(CA_KEY_W))
-					{
-						++forwarding;
-					}
-					if (newWindow->IsKeyDown(CA_KEY_S))
-					{
-						--forwarding;
-					}
-					if (newWindow->IsKeyDown(CA_KEY_A))
-					{
-						++lefting;
-					}
-					if (newWindow->IsKeyDown(CA_KEY_D))
-					{
-						--lefting;
-					}
-					//if (newWindow->IsKeyTriggered(CA_KEY_R))
-					//{
-					//	newWindow->RecreateContext();
-					//}
-					glm::vec2 mouseDelta = { 0.0f, 0.0f };
-					glm::vec2 mousePos = { newWindow->GetMouseX(),newWindow->GetMouseY() };
-					if (newWindow->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
-					{
-						//castl::cout << "Mouse Down!" << castl::endl;
-						if (!mouseDown)
-						{
-							lastMousePos = mousePos;
-							mouseDown = true;
-						}
-						mouseDelta = mousePos - lastMousePos;
-						lastMousePos = mousePos;
-					}
-					else// if(windowHandle->IsMouseUp(CA_MOUSE_BUTTON_LEFT))
-					{
-						mouseDown = false;
-					}
-					auto windowSize1 = windowHandle->GetSizeSafe();
+		setup->NewTask()
+			->MainThread()
+			->Functor(
+				[windowSystem]()
+				{
+					windowSystem->UpdateSystem();
+				});
+		if (newWindow.expired())
+		{
+			return false;
+		}
+		int forwarding = 0;
+		int lefting = 0;
+		auto lockedWindow = newWindow.lock();
+		if (lockedWindow->IsKeyDown(CA_KEY_W))
+		{
+			++forwarding;
+		}
+		if (lockedWindow->IsKeyDown(CA_KEY_S))
+		{
+			--forwarding;
+		}
+		if (lockedWindow->IsKeyDown(CA_KEY_A))
+		{
+			++lefting;
+		}
+		if (lockedWindow->IsKeyDown(CA_KEY_D))
+		{
+			--lefting;
+		}
+		glm::vec2 mouseDelta = { 0.0f, 0.0f };
+		glm::vec2 mousePos = { lockedWindow->GetMouseX(),lockedWindow->GetMouseY() };
+		if (lockedWindow->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+		{
+			if (!mouseDown)
+			{
+				lastMousePos = mousePos;
+				mouseDown = true;
+			}
+			mouseDelta = mousePos - lastMousePos;
+			lastMousePos = mousePos;
+		}
+		else
+		{
+			mouseDown = false;
+		}
+		auto windowSize1 = windowHandle->GetSizeSafe();
 		camera.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
 		auto currentTime = timer.now();
 		auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - lastTime).count();
@@ -351,7 +351,8 @@ int main(int argc, char *argv[])
 		gpuFrame.pGraph = newGraph;
 		gpuFrame.presentWindows.push_back(windowHandle);
 		pBackend->ScheduleGPUFrame(setup, gpuFrame);
-		return true;
+
+		return windowSystem->GetWindowCount() > 0;
 	}, "FullGraph");
 	pThreadManager->Run();
 	pThreadManager->LogStatus();

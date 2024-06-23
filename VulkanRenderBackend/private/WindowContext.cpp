@@ -89,9 +89,10 @@ namespace graphics_backend
 
 	void CWindowContext::ReleaseContext()
 	{
-		GetInstance().destroySurfaceKHR(m_Surface);
+		GetGlobalResourecReleasingQueue().AddSwapchains(m_SwapchainContext);
+		GetGlobalResourecReleasingQueue().AddWindowAndSurface(m_OwningWindow, m_Surface);
+		m_Surface = nullptr;
 		m_OwningWindow = nullptr;
-		m_SwapchainContext.Release();
 	}
 
 	SwapchainContext::SwapchainContext(CVulkanApplication& app) : VKAppSubObjectBaseNoCopy(app)

@@ -33,6 +33,12 @@ namespace graphics_backend
 			swapchain.Release();
 		}
 		m_PendingSwapchains.clear();
+		for (auto& pair : m_PendingSurfaceAndWindows)
+		{
+			GetInstance().destroySurfaceKHR(pair.second);
+			pair.first.reset();
+		}
+		m_PendingSurfaceAndWindows.clear();
 	}
 	void GlobalResourceReleaseQueue::AddBuffers(castl::array_ref<VKBufferObject> const& bufferList)
 	{
@@ -61,6 +67,11 @@ namespace graphics_backend
 			m_PendingSwapchains.push_back(obj);
 		}
 	}
+	void GlobalResourceReleaseQueue::AddWindowAndSurface(castl::shared_ptr<cawindow::IWindow> const& windowPtr, vk::SurfaceKHR surface)
+	{
+		castl::lock_guard<castl::mutex> thisLock(m_Mutex);
+		m_PendingSurfaceAndWindows.push_back(castl::make_pair(windowPtr, surface));
+	}
 	void GlobalResourceReleaseQueue::Load(GlobalResourceReleaseQueue& other)
 	{
 		castl::lock_guard<castl::mutex> otherLock(other.m_Mutex);
@@ -68,8 +79,10 @@ namespace graphics_backend
 		m_PendingBuffers = castl::move(other.m_PendingBuffers);
 		m_PendingImages = castl::move(other.m_PendingImages);
 		m_PendingSwapchains = castl::move(other.m_PendingSwapchains);
+		m_PendingSurfaceAndWindows = castl::move(other.m_PendingSurfaceAndWindows);
 		other.m_PendingBuffers.clear();
 		other.m_PendingImages.clear();
 		other.m_PendingSwapchains.clear();
+		other.m_PendingSurfaceAndWindows.clear();
 	}
 }

@@ -16,11 +16,13 @@ namespace graphics_backend
 		void AddBuffers(castl::array_ref<VKBufferObject> const& bufferList);
 		void AddImages(castl::array_ref<VKImageObject> const& bufferList);
 		void AddSwapchains(castl::array_ref<SwapchainContext> const& swapchains);
+		void AddWindowAndSurface(castl::shared_ptr<cawindow::IWindow> const& windowPtr, vk::SurfaceKHR surface);
 		void Load(GlobalResourceReleaseQueue& other);
 	private:
 		castl::mutex m_Mutex;
 		castl::vector<VKBufferObject> m_PendingBuffers;
 		castl::vector<VKImageObject> m_PendingImages;
 		castl::vector<SwapchainContext> m_PendingSwapchains;
+		castl::vector<castl::pair<castl::shared_ptr<cawindow::IWindow>, vk::SurfaceKHR>> m_PendingSurfaceAndWindows;
 	};
 }

@@ -4,7 +4,6 @@
 #include "RenderPassObject.h"
 #include "VulkanPipelineObject.h"
 #include "FramebufferObject.h"
-#include "ShaderDescriptorSetAllocator.h"
 #include "TextureSampler_Impl.h"
 #include <DescriptorAllocation/DescriptorLayoutPool.h>
 #include <GPUObject/ComputePipelineObject.h>

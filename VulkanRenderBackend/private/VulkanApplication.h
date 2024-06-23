@@ -56,7 +56,6 @@ namespace graphics_backend
 		CVulkanApplication();
 		~CVulkanApplication();
 		void InitApp(castl::string const& appName, castl::string const& engineName);
-		//void InitializeThreadContext(uint32_t threadCount);
 		void ReleaseApp();
 		void DeviceWaitIdle();
 		inline vk::Instance const& GetInstance() const
@@ -72,23 +71,14 @@ namespace graphics_backend
 			return m_PhysicalDevice;
 		}
 
-		GPUObjectManager& GetGPUObjectManager() { return m_GPUObjectManager; }
+		constexpr GPUObjectManager& GetGPUObjectManager() { return m_GPUObjectManager; }
 		constexpr GPUMemoryResourceManager& GetGlobalMemoryManager() { return m_GPUMemoryManager; }
 		constexpr GPUResourceObjectManager& GetGlobalResourceObjectManager() { return m_GPUResourceObjManager; }
 		constexpr GlobalResourceReleaseQueue& GetGlobalResourecReleasingQueue() { return m_GlobalResourceReleasingQueue; }
-		QueueContext& GetQueueContext() { return m_QueueContext; }
-
+		constexpr QueueContext& GetQueueContext() { return m_QueueContext; }
 		bool AnyWindowRunning() const { return !m_WindowContexts.empty(); }
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window);
-		//castl::shared_ptr<WindowHandle> CreateWindowContext(castl::string windowName, uint32_t initialWidth, uint32_t initialHeight
-		//	, bool visible
-		//	, bool focused
-		//	, bool decorate
-		//	, bool floating);
 		void TickWindowContexts();
-
-
-		CFrameCountContext const& GetSubmitCounterContext() const { return m_SubmitCounterContext; }
 
 		template<typename T, typename...TArgs>
 		castl::shared_ptr<T> NewSubObject_Shared(TArgs&&...Args) {
@@ -123,13 +113,6 @@ namespace graphics_backend
 		};
 
 		void ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame);
-
-		void CreateImageViews2D(vk::Format format, castl::vector<vk::Image> const& inImages, castl::vector<vk::ImageView>& outImageViews) const;
-		vk::ImageView CreateDefaultImageView(
-			GPUTextureDescriptor const& inDescriptor
-			, vk::Image inImage
-			, bool depthAspect
-			, bool stencilAspect) const;
 	public:
 		//Allocation
 		GPUBuffer* NewGPUBuffer(GPUBufferDescriptor const& inDescriptor);
@@ -152,11 +135,7 @@ private:
 	#if !defined(NDEBUG)
 		vk::DebugUtilsMessengerEXT m_DebugMessager = nullptr;
 	#endif
-
-		//TODO: Obsolete
-		CFrameCountContext m_SubmitCounterContext;
 		castl::vector<castl::shared_ptr<CWindowContext>> m_WindowContexts;
-
 		GPUObjectManager m_GPUObjectManager;
 		GPUMemoryResourceManager m_GPUMemoryManager;
 		GPUResourceObjectManager m_GPUResourceObjManager;

@@ -12,6 +12,7 @@ namespace graphics_backend
 		, resourceObjectManager(app)
 		, descriptorPools(app)
 		, semaphorePool(app)
+		, m_GraphExecutorManager(app)
 	{
 	}
 	FrameBoundResourcePool::FrameBoundResourcePool(FrameBoundResourcePool&& other) noexcept : 
@@ -22,6 +23,7 @@ namespace graphics_backend
 		, resourceObjectManager(castl::move(other.resourceObjectManager))
 		, descriptorPools(castl::move(other.descriptorPools))
 		, semaphorePool(castl::move(other.semaphorePool))
+		, m_GraphExecutorManager(castl::move(other.m_GraphExecutorManager))
 	{
 	}
 	void FrameBoundResourcePool::Initialize()
@@ -33,13 +35,15 @@ namespace graphics_backend
 	}
 	void FrameBoundResourcePool::Release()
 	{
+		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		commandBufferThreadPool.ReleasePool();
 		memoryManager.Release();
 		releaseQueue.ReleaseGlobalResources();
 		resourceObjectManager.Release();
-		GetDevice().destroyFence(m_Fence);
 		descriptorPools.Clear();
 		semaphorePool.Release();
+		m_GraphExecutorManager.Release();
+		GetDevice().destroyFence(m_Fence);
 	}
 	void FrameBoundResourcePool::ResetPool()
 	{
@@ -52,6 +56,7 @@ namespace graphics_backend
 		resourceObjectManager.DestroyAll();
 		descriptorPools.Foreach([&](auto& desc, DescriptorPool* pool) { pool->ResetAll(); });
 		semaphorePool.Reset();
+		m_GraphExecutorManager.Reset();
 	}
 	void FrameBoundResourcePool::HostFinish()
 	{
@@ -77,6 +82,10 @@ namespace graphics_backend
 		result.allocation = memoryManager.AllocateMemory(result.image, memoryFlags);
 		memoryManager.BindMemory(result.image, result.allocation);
 		return result;
+	}
+	GPUGraphExecutor* FrameBoundResourcePool::NewExecutor(castl::shared_ptr<GPUGraph> const& gpuGraph)
+	{
+		return m_GraphExecutorManager.NewExecutor(gpuGraph, this);
 	}
 	void FrameBoundResourcePool::FinalizeSubmit()
 	{

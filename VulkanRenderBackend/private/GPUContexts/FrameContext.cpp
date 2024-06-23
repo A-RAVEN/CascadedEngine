@@ -17,13 +17,17 @@ namespace graphics_backend
 		}
 	}
 
-	FrameBoundResourcePool* FrameContext::GetFrameBoundResourceManager()
+	castl::shared_ptr<FrameBoundResourcePool> FrameContext::GetFrameBoundResourceManager()
 	{
 		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		FrameBoundResourcePool* resourcePool = &m_FrameBoundResourceManagers[m_FrameIndex % m_FrameBoundResourceManagers.size()];
 		++m_FrameIndex;
 		resourcePool->ResetPool();
-		return resourcePool;
+		castl::shared_ptr<FrameBoundResourcePool> result = castl::shared_ptr<FrameBoundResourcePool>(resourcePool, [](FrameBoundResourcePool* releasingPool)
+			{
+				releasingPool->HostFinish();
+			});
+		return result;
 	}
 
 	void FrameContext::Release()

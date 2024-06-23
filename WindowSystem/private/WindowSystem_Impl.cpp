@@ -167,27 +167,33 @@ namespace cawindow
 		}
 #endif
 	}
-	castl::shared_ptr<IWindow> WindowSystem::NewWindow(int width, int height, castl::string_view const& windowName, bool visible, bool focused, bool decorate, bool floating)
+	castl::weak_ptr<IWindow> WindowSystem::NewWindow(int width, int height, castl::string_view const& windowName, bool visible, bool focused, bool decorate, bool floating)
 	{
 		WindowImpl* window = new WindowImpl();
 		window->Initialize(this, castl::string{ windowName }, width, height, visible, focused, decorate, floating);
 		InitializeWindowCallbacks(window->m_Window);
-		castl::shared_ptr<IWindow> result = castl::shared_ptr<IWindow>(window, [](IWindow* releasedWindow)
+		castl::shared_ptr<IWindow> result = castl::shared_ptr<IWindow>(window, [this](IWindow* releasedWindow)
 			{
 				auto pwindowImpl = static_cast<WindowImpl*>(releasedWindow);
 				pwindowImpl->Release();
 				delete pwindowImpl;
 			});
-		return result;
+		m_Windows.push_back(result);
+		return m_Windows.back();
+	}
+	int WindowSystem::GetWindowCount() const
+	{
+		return m_Windows.size();
 	}
 	int WindowSystem::GetMonitorCount() const
 	{
-		return 0;
+		return m_Monitors.size();
 	}
 	void WindowSystem::UpdateSystem()
 	{
 		glfwPollEvents();
 		UpdateMonitors();
+		UpdateWindows();
 	}
 
 	MonitorInfo WindowSystem::GetMonitor(int monitorID) const
@@ -292,6 +298,22 @@ namespace cawindow
 			glfwGetMonitorContentScale(glfw_monitors[n], &x_scale, &y_scale);
 			monitorHandle.m_DPIScale = x_scale;
 			m_Monitors.push_back(monitorHandle);
+		}
+	}
+	void WindowSystem::UpdateWindows()
+	{
+		size_t currentIndex = 0;
+		while (currentIndex < m_Windows.size())
+		{
+			if (m_Windows[currentIndex].use_count() == 1 && m_Windows[currentIndex]->WindowShouldClose())
+			{
+				castl::swap(m_Windows[currentIndex], m_Windows.back());
+				m_Windows.pop_back();
+			}
+			else
+			{
+				currentIndex++;
+			}
 		}
 	}
 #pragma endregion

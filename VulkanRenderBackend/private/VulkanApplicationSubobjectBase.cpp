@@ -47,6 +47,7 @@ namespace graphics_backend
 	}
 	CVulkanApplication& VKAppSubObjectBaseNoCopy::GetVulkanApplication() const
 	{
+		CA_ASSERT(m_OwningApplication != nullptr, "VulkanApplication is nullptr");
 		return *m_OwningApplication;
 	}
 	vk::Instance VKAppSubObjectBaseNoCopy::GetInstance() const

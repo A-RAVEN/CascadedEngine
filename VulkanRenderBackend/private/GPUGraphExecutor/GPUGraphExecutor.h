@@ -2,11 +2,8 @@
 #include <CASTL/CASharedPtr.h>
 #include <GPUGraph.h>
 #include <VulkanApplicationSubobjectBase.h>
-#include <VulkanImageObject.h>
-#include <InterfaceTranslator.h>
 #include <VulkanBarrierCollector.h>
 #include "ShaderBindingHolder.h"
-#include <GPUContexts/FrameContext.h>
 
 namespace graphics_backend
 {
@@ -48,6 +45,10 @@ namespace graphics_backend
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
 		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
+		bool ValidPassData() const
+		{
+			return m_FrameBufferObject != nullptr && m_RenderPassObject != nullptr;
+		}
 		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eRenderPass; }
 	};
 
@@ -420,7 +421,5 @@ namespace graphics_backend
 		//Command Buffers
 		castl::vector<vk::CommandBuffer> m_FinalCommandBuffers;
 		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
-		//castl::vector<vk::Semaphore> m_LeafBatchSemaphores;
-		//castl::vector<vk::PipelineStageFlags> m_LeafBatchFinishStageFlags;
 	};
 }

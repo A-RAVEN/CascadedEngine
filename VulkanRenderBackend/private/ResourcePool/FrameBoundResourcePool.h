@@ -6,6 +6,7 @@
 #include "GPUMemoryManager.h"
 #include "ResourceReleaseQueue.h"
 #include "GPUResourceObjectManager.h"
+#include "GraphExecutorManager.h"
 #include <DescriptorAllocation/DescriptorLayoutPool.h>
 #include <CASTL/CAMutex.h>
 
@@ -26,6 +27,7 @@ namespace graphics_backend
 			, vk::MemoryPropertyFlags memoryFlags = vk::MemoryPropertyFlagBits::eDeviceLocal, const char* name = "");
 		VKImageObject CreateImageWithMemory(GPUTextureDescriptor const& textureDesc
 			, vk::MemoryPropertyFlags memoryFlags = vk::MemoryPropertyFlagBits::eDeviceLocal);
+		GPUGraphExecutor* NewExecutor(castl::shared_ptr<GPUGraph> const& gpuGraph);
 
 		void FinalizeSubmit();
 		void AddLeafSempahores(vk::ArrayProxy<vk::Semaphore> semaphores);
@@ -36,10 +38,11 @@ namespace graphics_backend
 		GlobalResourceReleaseQueue releaseQueue;
 		DescriptorPoolDic descriptorPools;
 		SemaphorePool semaphorePool;
-
 	private:
 		vk::Fence m_Fence;
 		castl::mutex m_Mutex;
+
+		GraphExecutorManager m_GraphExecutorManager;
 
 		castl::vector<vk::Semaphore> m_LeafSemaphores;
 		castl::vector<vk::PipelineStageFlags> m_LeafStageFlags;
@@ -50,5 +53,6 @@ namespace graphics_backend
 		static_assert(std::move_constructible<GlobalResourceReleaseQueue>, "GlobalResourceReleaseQueue Shoule Be Movable");
 		static_assert(std::move_constructible<DescriptorPoolDic>, "DescriptorPoolDic Shoule Be Movable");
 		static_assert(std::move_constructible<SemaphorePool>, "SemaphorePool Shoule Be Movable");
+		static_assert(std::move_constructible<GraphExecutorManager>, "GraphExecutorManager Shoule Be Movable");
 	};
 }

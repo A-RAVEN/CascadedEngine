@@ -1,20 +1,19 @@
 #pragma once
-#include <functional>
+#include "CAFunctional.h"
 
-namespace raii_utils
+namespace castl
 {
 	template<typename T>
-	class TRAIIContainer
+	class raii_wrapper
 	{
 	public:
-
 		template<typename TT = T, typename = std::enable_if_t<std::is_default_constructible<TT>::value>>
-		TRAIIContainer() : m_RAIIData(), _Releaser(nullptr)
+		raii_wrapper() : m_RAIIData(), _Releaser(nullptr)
 			, _RAII_Aquired(false)
 		{
 		}
 
-		TRAIIContainer(T&& rttiData, std::function<void(T& releaseObj)> releaser) : m_RAIIData(std::move(rttiData))
+		raii_wrapper(T&& rttiData, std::function<void(T& releaseObj)> releaser) : m_RAIIData(std::move(rttiData))
 			, _Releaser(std::move(releaser))
 			, _RAII_Aquired(true)
 		{
@@ -28,37 +27,37 @@ namespace raii_utils
 			_Releaser(m_RAIIData);
 		}
 
-		virtual ~TRAIIContainer()
+		virtual ~raii_wrapper()
 		{
 			RAIIRelease();
 		}
 
-		TRAIIContainer(TRAIIContainer& other) :
+		//raii_wrapper(raii_wrapper& other) :
+		//	m_RAIIData(std::move(other.m_RAIIData))
+		//	, _Releaser(std::move(other._Releaser))
+		//	, _RAII_Aquired(other._RAII_Aquired)
+		//{
+		//	other._RAII_Aquired = false;
+		//}
+
+		//raii_wrapper& operator=(raii_wrapper& other)
+		//{
+		//	RAIIRelease();
+		//	m_RAIIData = std::move<T&>(other.m_RAIIData);
+		//	_Releaser = std::move(other._Releaser);
+		//	_RAII_Aquired = std::move(other._RAII_Aquired);
+		//	other._RAII_Aquired = false;
+		//	return *this;
+		//}
+
+		raii_wrapper(raii_wrapper&& other) : 
 			m_RAIIData(std::move(other.m_RAIIData))
 			, _Releaser(std::move(other._Releaser))
 			, _RAII_Aquired(other._RAII_Aquired)
 		{
 			other._RAII_Aquired = false;
 		}
-
-		TRAIIContainer& operator=(TRAIIContainer& other)
-		{
-			RAIIRelease();
-			m_RAIIData = std::move<T&>(other.m_RAIIData);
-			_Releaser = std::move(other._Releaser);
-			_RAII_Aquired = std::move(other._RAII_Aquired);
-			other._RAII_Aquired = false;
-			return *this;
-		}
-
-		TRAIIContainer(TRAIIContainer&& other) : 
-			m_RAIIData(std::move(other.m_RAIIData))
-			, _Releaser(std::move(other._Releaser))
-			, _RAII_Aquired(other._RAII_Aquired)
-		{
-			other._RAII_Aquired = false;
-		}
-		TRAIIContainer& operator=(TRAIIContainer&& other)
+		raii_wrapper& operator=(raii_wrapper&& other)
 		{
 			RAIIRelease();
 			m_RAIIData = std::move<T&>(other.m_RAIIData);
