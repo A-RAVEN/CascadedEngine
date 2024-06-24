@@ -10,9 +10,19 @@ namespace graphics_backend
 		, m_PipelineObjectCache(app)
 		, m_TextureSamplerCache(app)
 		, m_ShaderModuleCache(app)
-		, m_DescriptorSetAllocatorDic(app)
+		, m_DescriptorSetLayoutCache(app)
 		, m_ComputePipelineCache(app)
 	{
+	}
+	void GPUObjectManager::Release()
+	{
+		m_TextureSamplerCache.ReleaseAll();
+		m_ShaderModuleCache.ReleaseAll();
+		m_DescriptorSetLayoutCache.ReleaseAll();
+		m_PipelineObjectCache.ReleaseAll();
+		m_ComputePipelineCache.ReleaseAll();
+		m_RenderPassCache.ReleaseAll();
+		m_FramebufferObjectCache.ReleaseAll();
 	}
 }
 

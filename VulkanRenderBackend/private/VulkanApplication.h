@@ -15,10 +15,11 @@
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
 #include <GPUContexts/QueueContext.h>
 #include <GPUContexts/FrameContext.h>
+#include <Utilities/SubobjectTraits.h>
 
 namespace graphics_backend
 {
-	template<typename T, typename...TArgs>
+	/*template<typename T, typename...TArgs>
 	concept has_create = requires(T t)
 	{
 		t.Create(castl::remove_cvref_t <TArgs>{}...);
@@ -47,7 +48,7 @@ namespace graphics_backend
 			}
 			delete deleteObject;
 		}
-	};
+	};*/
 
 	using namespace thread_management;
 	class CVulkanApplication

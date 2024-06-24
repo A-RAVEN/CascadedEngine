@@ -225,4 +225,9 @@ namespace graphics_backend
 		graphicsPipeCreateInfo.setPDynamicState(&dynamicStateInfo);
 		m_GraphicsPipeline = GetDevice().createGraphicsPipeline(nullptr, graphicsPipeCreateInfo).value;
 	}
+	void CPipelineObject::Release()
+	{
+		GetDevice().destroyPipelineLayout(m_PipelineLayout);
+		GetDevice().destroyPipeline(m_GraphicsPipeline);
+	}
 }

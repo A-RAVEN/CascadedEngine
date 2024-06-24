@@ -26,6 +26,11 @@ namespace graphics_backend
 		//p_SetPool = GetGPUObjectManager().m_DescriptorSetPoolDic.GetOrCreate(desc.GetPoolDesc()).get();
 	}
 
+	void DescriptorSetAllocator::Release()
+	{
+		GetDevice().destroyDescriptorSetLayout(m_Layout);
+	}
+
 	//vk::DescriptorSet DescriptorSetAllocator::AllocateSet()
 	//{
 	//	return p_SetPool->AllocateSet(m_Layout);

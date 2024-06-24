@@ -16,6 +16,13 @@ namespace graphics_backend
 	{
 		m_Application.ScheduleGPUFrame(taskGraph, gpuFrame);
 	}
+	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
+	{
+		return castl::shared_ptr<GPUBuffer>(m_Application.NewGPUBuffer(descriptor), [this](GPUBuffer* releaseBuffer)
+			{
+				m_Application.ReleaseGPUBuffer(releaseBuffer);
+			});
+	}
 	void CRenderBackend_Vulkan::Release()
 	{
 		m_Application.ReleaseApp();
@@ -30,18 +37,6 @@ namespace graphics_backend
 		return m_Application.AnyWindowRunning();
 	}
 
-	void CRenderBackend_Vulkan::TickWindows()
-	{
-		m_Application.TickWindowContexts();
-	}
-
-	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
-	{
-		return castl::shared_ptr<GPUBuffer>(m_Application.NewGPUBuffer(GPUBufferDescriptor::Create(usageFlags, count, stride)), [this](GPUBuffer* releaseBuffer)
-			{
-				m_Application.ReleaseGPUBuffer(releaseBuffer);
-			});
-	}
 	castl::shared_ptr<GPUTexture> CRenderBackend_Vulkan::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor)
 	{
 		return castl::shared_ptr<GPUTexture>(m_Application.NewGPUTexture(inDescriptor)

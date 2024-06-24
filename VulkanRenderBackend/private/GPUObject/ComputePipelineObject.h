@@ -21,6 +21,7 @@ namespace graphics_backend
 	public:
 		ComputePipelineObject(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner) {};
 		void Create(ComputePipelineDescriptor const& computeshaderModule);
+		void Release();
 		vk::Pipeline const& GetPipeline() const { return m_Pipeline; }
 		vk::PipelineLayout const& GetPipelineLayout() const { return m_PipelineLayout; }
 	protected:

@@ -1039,8 +1039,8 @@ namespace graphics_backend
 
 				auto& batchLevelPsoDesc = batch.pipelineStateDesc;
 				auto resolvedPSODesc = PipelineDescData::CombindDescData(passLevelPsoDesc, batchLevelPsoDesc);
-				auto vertShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eVert));
-				auto fragShader = GetGPUObjectManager().m_ShaderModuleCache.GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eFrag));
+				auto vertShader = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eVert));
+				auto fragShader = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eFrag));
 
 				//Shader Binding Holder
 				//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
@@ -1084,7 +1084,7 @@ namespace graphics_backend
 					, dispatch.shader->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
 
 				auto comp = GetGPUObjectManager()
-					.m_ShaderModuleCache
+					.GetShaderModuleCache()
 					.GetOrCreate(dispatch.shader
 						->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV
 							, ECompileShaderType::eComp

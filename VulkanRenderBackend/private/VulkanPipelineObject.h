@@ -35,6 +35,7 @@ namespace graphics_backend
 	public:
 		CPipelineObject(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner) {};
 		void Create(CPipelineObjectDescriptor const& pipelineObjectDescriptor);
+		void Release();
 		vk::Pipeline const& GetPipeline() const { return m_GraphicsPipeline; }
 		vk::PipelineLayout const& GetPipelineLayout() const { return m_PipelineLayout; }
 	protected:

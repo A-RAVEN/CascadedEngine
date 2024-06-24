@@ -20,4 +20,9 @@ namespace graphics_backend
 
 		m_Pipeline = GetDevice().createComputePipeline(nullptr, pipelineCreateInfo).value;
 	}
+	void ComputePipelineObject::Release()
+	{
+		GetDevice().destroyPipelineLayout(m_PipelineLayout);
+		GetDevice().destroyPipeline(m_Pipeline);
+	}
 }

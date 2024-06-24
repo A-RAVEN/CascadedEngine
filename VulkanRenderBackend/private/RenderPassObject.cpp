@@ -218,6 +218,4 @@ namespace graphics_backend
 			m_RenderPass = nullptr;
 		}
 	}
-
-
 }

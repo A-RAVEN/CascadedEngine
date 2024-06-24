@@ -248,6 +248,7 @@ namespace graphics_backend
 		ReleaseAllWindowContexts();
 		m_GlobalResourceReleasingQueue.ReleaseGlobalResources();
 		m_FrameContext.Release();
+		m_GPUObjectManager.Release();
 		m_GPUResourceObjManager.Release();
 		m_GPUMemoryManager.Release();
 		DestroyDevice();

@@ -79,6 +79,7 @@ namespace graphics_backend
 	public:
 		DescriptorSetAllocator(CVulkanApplication& application);
 		void Create(DescriptorSetDesc const& desc);
+		void Release();
 		vk::DescriptorSetLayout GetLayout() const
 		{
 			return m_Layout;

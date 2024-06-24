@@ -173,6 +173,7 @@ int main(int argc, char *argv[])
 		submitFrame.pGraph = submitGraph;
 		pBackend->ScheduleGPUFrame(setup, submitFrame);
 	}, "");
+	pThreadManager->Run();
 
 	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
 		sizeof(VertexData),

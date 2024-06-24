@@ -5,7 +5,7 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAFunctional.h>
 #include <DebugUtils.h>
-#include <concurrent_unordered_map.h>
+#include <Utilities/SubobjectTraits.h>
 
 namespace graphics_backend
 {
@@ -16,7 +16,7 @@ namespace graphics_backend
 	};
 
 	template<typename DescType, typename ValType>
-	requires CanCreateWithDesc<DescType, ValType>
+	requires has_create<ValType, DescType>
 	class HashPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
@@ -63,6 +63,16 @@ namespace graphics_backend
 			{
 				callbackFunc(it.first, it.second.get());
 			};
+		}
+
+		void ReleaseAll() requires has_release<ValType>
+		{
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
+			for (auto& it : m_InternalMap)
+			{
+				it.second->Release();
+			}
+			m_InternalMap.clear();
 		}
 
 		void Clear()

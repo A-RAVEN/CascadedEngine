@@ -112,7 +112,7 @@ namespace graphics_backend
 				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
 				descSetDesc.descs.push_back(bindingDesc);
 			}
-			auto descSetLayout = application.GetGPUObjectManager().m_DescriptorSetAllocatorDic.GetOrCreate(descSetDesc);
+			auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
 			auto descSetAllocator = pResourcePool->descriptorPools.GetOrCreate(descSetDesc.GetPoolDesc());
 
 			m_DescriptorSetsLayouts[sid] = descSetLayout->GetLayout();
