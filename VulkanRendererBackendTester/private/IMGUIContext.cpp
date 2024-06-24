@@ -709,18 +709,24 @@ namespace imgui_display
 		auto shaderArgs = castl::make_shared<ShaderArgList>();
 		pUserData->m_ShaderArgs = shaderArgs;
 		shaderArgs->SetValue("IMGUIScale_Pos", meshScale_Pos);
-		shaderArgs->SetImage("FontTexture", m_Fontimage);
-		shaderArgs->SetSampler("FontSampler", TextureSamplerDescriptor::Create());
+		shaderArgs->SetSampler("IMGUITextureSampler", TextureSamplerDescriptor::Create());
 
-		pUserData->m_VertexBuffer = renderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert));
-		pUserData->m_IndexBuffer = renderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx));
+		auto defaultImageArgs = castl::make_shared<ShaderArgList>();
+		defaultImageArgs->SetImage("IMGUITexture", m_Fontimage);
+
+		pUserData->m_VertexBuffer = BufferHandle("IMGUI Buffer Handle");
+		pUserData->m_IndexBuffer = BufferHandle("IMGUI Index Buffer Handle");
+		renderGraph->AllocBuffer(pUserData->m_VertexBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert)));
+		renderGraph->AllocBuffer(pUserData->m_IndexBuffer, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx)));
 
 		size_t vtxOffset = 0;
 		size_t idxOffset = 0;
 		for (int n = 0; n < imDrawData->CmdListsCount; n++) {
 			const ImDrawList* cmd_list = imDrawData->CmdLists[n];
-			renderGraph->ScheduleBufferData(pUserData->m_VertexBuffer, vtxOffset * sizeof(ImDrawVert), cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
-			renderGraph->ScheduleBufferData(pUserData->m_IndexBuffer, idxOffset * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Data);
+
+
+			renderGraph->ScheduleData(pUserData->m_VertexBuffer, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), vtxOffset * sizeof(ImDrawVert));
+			renderGraph->ScheduleData(pUserData->m_IndexBuffer, cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), idxOffset * sizeof(ImDrawIdx));
 
 			for (int j = 0; j < cmd_list->CmdBuffer.Size; ++j)
 			{
@@ -732,64 +738,67 @@ namespace imgui_display
 				if (id != nullptr)
 				{
 					IMGUITextureViewContext* textureContext = (IMGUITextureViewContext*)id;
-					GPUTextureDescriptor desc{
-						(uint32_t)textureContext->m_ViewportRect.width
-						,(uint32_t)textureContext->m_ViewportRect.height
+					GPUTextureDescriptor desc = GPUTextureDescriptor::Create((uint32_t)textureContext->m_ViewportRect.width
+						, (uint32_t)textureContext->m_ViewportRect.height
 						, ETextureFormat::E_R8G8B8A8_UNORM
-						, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst | ETextureAccessType::eRT
-					};
-					textureContext->m_RenderTarget = renderGraph->NewTextureHandle(desc);
+						, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
 
-					auto specialBinding = renderGraph->NewShaderBindingSetHandle(m_ImguiShaderBindingBuilder);
-					specialBinding.m_Name = "IMGUI Bindings";
-					specialBinding.SetConstantSet(m_ImguiShaderConstantsBuilder.GetName(), pUserData->m_ShaderConstants)
-						.SetSampler("FontSampler", m_ImageSampler)
-						.SetTexture("FontTexture", textureContext->m_RenderTarget);
-					pUserData->m_TextureBindings.push_back(specialBinding);
+					textureContext->m_RenderTarget = ImageHandle("ExtraViewport");
+					renderGraph->AllocImage(textureContext->m_RenderTarget, desc);
+
+					auto customImageArgs = castl::make_shared<ShaderArgList>();
+					customImageArgs->SetImage("IMGUITexture", textureContext->m_RenderTarget, GPUTextureView::CreateDefaultForSampling(desc.format));
+					pUserData->m_TextureBindings.push_back(customImageArgs);
 				}
 				else
 				{
-					pUserData->m_TextureBindings.push_back(pUserData->m_ShaderBindings);
+					pUserData->m_TextureBindings.push_back(defaultImageArgs);
 				}
 			}
 			vtxOffset += cmd_list->VtxBuffer.Size;
 		}
-
-
 	}
+
+	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
+		sizeof(ImDrawVert),
+		{
+			VertexAttribute::Create(offsetof(ImDrawVert, pos), VertexInputFormat::eR32G32_SFloat, "POSITION")
+			, VertexAttribute::Create(offsetof(ImDrawVert, uv), VertexInputFormat::eR32G32_SFloat, "TEXCOORD")
+			, VertexAttribute::Create(offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm, "COLOR")
+		}
+	);
 
 	void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, GPUGraph* renderGraph)
 	{
-		/*IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
+		IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
 		if (!pUserData->m_Draw)
 			return;
-		auto backBuffer = renderGraph->RegisterWindowBackbuffer(pUserData->pWindowHandle);
-		CVertexInputDescriptor vertexInputDesc{};
-		vertexInputDesc.AddPrimitiveDescriptor(sizeof(ImDrawVert), {
-			VertexAttribute{0, offsetof(ImDrawVert, pos), VertexInputFormat::eR32G32_SFloat}
-			, VertexAttribute{1, offsetof(ImDrawVert, uv), VertexInputFormat::eR32G32_SFloat}
-			, VertexAttribute{2, offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm}
-			});
+		auto backBuffer = p_RenderBackend->GetWindowHandle(pUserData->pWindowHandle);
 
-		renderGraph->NewRenderPass(backBuffer, GraphicsClearValue::ClearColor(0.0f, 1.0f, 1.0f, 1.0f)
-			, CPipelineStateObject{ {}, {RasterizerStates::CullOff()},  ColorAttachmentsBlendStates::AlphaTransparent() }
-			, vertexInputDesc
-			, m_ImguiShaderSet
-			, { {}, {pUserData->m_ShaderBindings} }
-			, [pUserData](CInlineCommandList& cmd)
-			{
-				cmd.BindVertexBuffers({ pUserData->m_VertexBuffer })
-					.BindIndexBuffers(EIndexBufferType::e16, pUserData->m_IndexBuffer);
-				for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
-				{
-					auto& sissors = pUserData->m_Sissors[i];
-					auto& indexDataOffset = pUserData->m_IndexDataOffsets[i];
-					auto bindings = pUserData->m_TextureBindings[i];
-					cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ bindings })
-						.SetSissor(sissors.x, sissors.y, sissors.z, sissors.w)
-						.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset));
-				}
-			});*/
+		auto renderPass = RenderPass::New(backBuffer)
+			.SetPipelineState({})
+			.PushShaderArguments(pUserData->m_ShaderArgs)
+			.SetShaders(m_ImguiShaderSet);
+
+		for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
+		{
+			auto& sissors = pUserData->m_Sissors[i];
+			auto& indexDataOffset = pUserData->m_IndexDataOffsets[i];
+			auto bindings = pUserData->m_TextureBindings[i];
+
+			renderPass.DrawCall(
+				DrawCallBatch::New()
+				.PushArgList("", bindings)
+				.SetVertexBuffer(vertexInputDesc, pUserData->m_VertexBuffer)
+				.SetIndexBuffer(EIndexBufferType::e16, pUserData->m_IndexBuffer, 0)
+				.Draw([&](CommandList& commandList)
+					{
+						commandList.SetSissor(sissors.x, sissors.y, sissors.z, sissors.w);
+						commandList.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset));
+					})
+			);
+		}
+		renderGraph->AddPass(renderPass);
 	}
 
 
@@ -816,78 +825,5 @@ namespace imgui_display
 		m_ViewportContextPool.Release(viewportContext);
 		viewport->PlatformUserData = nullptr;
 	}
-
-
-	void IMGUIContext::DrawIMGUI(GPUGraph* renderGraph, graphics_backend::TextureHandle renderTargethandle)
-	{
-		/*ImGuiIO& io = ImGui::GetIO();
-		glm::vec2 meshScale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y);
-		ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-		ImDrawData* imDrawData = main_viewport->DrawData;
-		size_t vertexBufferSize = imDrawData->TotalVtxCount * sizeof(ImDrawVert);
-		size_t indexBufferSize = imDrawData->TotalIdxCount * sizeof(ImDrawIdx);
-
-		if ((vertexBufferSize == 0) || (indexBufferSize == 0)) {
-			return;
-		}
-
-		auto vertexBufferHandle = renderGraph->NewGPUBufferHandle(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert));
-		auto indexBufferHandle = renderGraph->NewGPUBufferHandle(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx));
-
-		CVertexInputDescriptor vertexInputDesc{};
-		vertexInputDesc.AddPrimitiveDescriptor(sizeof(ImDrawVert), {
-			VertexAttribute{0, offsetof(ImDrawVert, pos), VertexInputFormat::eR32G32_SFloat}
-			, VertexAttribute{1, offsetof(ImDrawVert, uv), VertexInputFormat::eR32G32_SFloat}
-			, VertexAttribute{2, offsetof(ImDrawVert, col), VertexInputFormat::eR8G8B8A8_UNorm}
-			});
-
-		size_t vtxOffset = 0;
-		size_t idxOffset = 0;
-		castl::vector<castl::tuple<uint32_t, uint32_t, uint32_t>> indexDataOffsets;
-		castl::vector<glm::uvec4> sissors;
-		for (int n = 0; n < imDrawData->CmdListsCount; n++) {
-			const ImDrawList* cmd_list = imDrawData->CmdLists[n];
-			renderGraph->ScheduleBufferData(vertexBufferHandle, vtxOffset * sizeof(ImDrawVert), cmd_list->VtxBuffer.Size * sizeof(ImDrawVert), cmd_list->VtxBuffer.Data);
-			renderGraph->ScheduleBufferData(indexBufferHandle, idxOffset * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx), cmd_list->IdxBuffer.Data);
-
-			for (int j = 0; j < cmd_list->CmdBuffer.Size; ++j)
-			{
-				const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
-				indexDataOffsets.push_back(castl::make_tuple(idxOffset, vtxOffset, pcmd->ElemCount));
-				sissors.push_back(glm::ivec4(pcmd->ClipRect.x, pcmd->ClipRect.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
-				idxOffset += pcmd->ElemCount;
-			}
-			vtxOffset += cmd_list->VtxBuffer.Size;
-		}
-
-		CAttachmentInfo targetattachmentInfo{};
-		targetattachmentInfo.format = renderGraph->GetTextureDescriptor(renderTargethandle).format;
-		auto shaderConstants = renderGraph->NewShaderConstantSetHandle(m_ImguiShaderConstantsBuilder);
-		auto shaderBinding = renderGraph->NewShaderBindingSetHandle(m_ImguiShaderBindingBuilder);
-		shaderConstants.SetValue("IMGUIScale", meshScale);
-		shaderBinding.SetConstantSet(m_ImguiShaderConstantsBuilder.GetName(), shaderConstants)
-			.SetSampler("FontSampler", m_ImageSampler)
-			.SetTexture("FontTexture", m_Fontimage);
-		auto blendStates = ColorAttachmentsBlendStates::AlphaTransparent();
-
-
-		renderGraph->NewRenderPass({ targetattachmentInfo })
-			.SetAttachmentTarget(0, renderTargethandle)
-			.Subpass({ {0} }
-				, CPipelineStateObject{ {}, RasterizerStates::CullOff(), blendStates }
-				, vertexInputDesc
-				, m_ImguiShaderSet
-				, { {}, {shaderBinding} }
-				, [shaderBinding, vertexBufferHandle, indexBufferHandle, indexDataOffsets, sissors](CInlineCommandList& cmd)
-				{
-					cmd.SetShaderBindings(castl::vector<ShaderBindingSetHandle>{ shaderBinding })
-						.BindVertexBuffers({ vertexBufferHandle })
-						.BindIndexBuffers(EIndexBufferType::e16, indexBufferHandle);
-					for (uint32_t i = 0; i < indexDataOffsets.size(); ++i)
-					{
-						cmd.SetSissor(sissors[i].x, sissors[i].y, sissors[i].z, sissors[i].w)
-							.DrawIndexed(castl::get<2>(indexDataOffsets[i]), 1, castl::get<0>(indexDataOffsets[i]), castl::get<1>(indexDataOffsets[i]));
-					}
-				});*/
-	}
+	
 }

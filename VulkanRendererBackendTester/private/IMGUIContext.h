@@ -14,7 +14,6 @@ namespace imgui_display
 {
 	using namespace graphics_backend;
 	using namespace cawindow;
-	//struct ImGuiViewport;
 	class IMGUIContext;
 	class IMGUIViewportContext
 	{
@@ -51,11 +50,9 @@ namespace imgui_display
 		BufferHandle m_VertexBuffer;
 		BufferHandle m_IndexBuffer;
 		castl::shared_ptr<ShaderArgList> m_ShaderArgs;
-		//ShaderConstantSetHandle m_ShaderConstants;
-		//ShaderBindingSetHandle m_ShaderBindings;
 		castl::vector<castl::tuple<uint32_t, uint32_t, uint32_t>> m_IndexDataOffsets;
 		castl::vector<glm::uvec4> m_Sissors;
-		//castl::vector<ShaderBindingSetHandle> m_TextureBindings;
+		castl::vector<castl::shared_ptr<ShaderArgList>> m_TextureBindings;
 		bool m_Draw;
 	};
 
@@ -81,12 +78,12 @@ namespace imgui_display
 		void UpdateIMGUI();
 		void PrepareDrawData(GPUGraph* pRenderGraph);
 		void Draw(GPUGraph* pRenderGraph);
-		void DrawIMGUI(
-			GPUGraph* renderGraph
-			, ImageHandle renderTargethandle);
 		void DrawView(int id = 0);
 		castl::shared_ptr<CRenderBackend> GetRenderBackend() const { return p_RenderBackend; }
 		castl::shared_ptr<IWindowSystem> GetWindowSystem() const { return p_WindowSystem; }
+		castl::deque<IMGUITextureViewContext> const& GetTextureViewContexts() const {
+			return m_TextureViewContexts;
+		}
 	public:
 		void PrepareSingleViewGUIResources(ImGuiViewport* viewPort, GPUGraph* renderGraph);
 		void DrawSingleView(ImGuiViewport* viewPort, GPUGraph* renderGraph);
