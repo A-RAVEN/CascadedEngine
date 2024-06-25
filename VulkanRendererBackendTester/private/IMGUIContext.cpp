@@ -439,6 +439,7 @@ namespace imgui_display
 		, castl::shared_ptr<IWindowSystem> const& windowSystem
 		, castl::shared_ptr<IWindow> const& mainWindowHandle
 		, ResourceManagingSystem* resourceSystem
+		, GPUGraph* initializeGraph
 	)
 	{
 		p_RenderBackend = renderBackend;
@@ -463,6 +464,8 @@ namespace imgui_display
 		fontDesc.mipLevels = 1;
 		fontDesc.textureType = ETextureType::e2D;
 		m_Fontimage = renderBackend->CreateGPUTexture(fontDesc);
+
+		initializeGraph->ScheduleData(ImageHandle{ m_Fontimage }, fontData, texWidth * texHeight * sizeof(uint32_t));
 
 		resourceSystem->LoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle", [this](ShaderResrouce* result)
 		{
@@ -635,6 +638,7 @@ namespace imgui_display
 	void IMGUIContext::PrepareDrawData(GPUGraph* pRenderGraph)
 	{
 		auto& io = ImGui::GetIO();
+		m_WindowHandles.clear();
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
 			ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
@@ -706,6 +710,7 @@ namespace imgui_display
 			return;
 		}
 
+		m_WindowHandles.push_back(pUserData->pWindowSurface);
 		auto shaderArgs = castl::make_shared<ShaderArgList>();
 		pUserData->m_ShaderArgs = shaderArgs;
 		shaderArgs->SetValue("IMGUIScale_Pos", meshScale_Pos);
@@ -777,7 +782,7 @@ namespace imgui_display
 
 		auto renderPass = RenderPass::New(backBuffer)
 			.SetPipelineState({})
-			.PushShaderArguments(pUserData->m_ShaderArgs)
+			.PushShaderArguments("imguiCommon", pUserData->m_ShaderArgs)
 			.SetShaders(m_ImguiShaderSet);
 
 		for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
@@ -788,7 +793,7 @@ namespace imgui_display
 
 			renderPass.DrawCall(
 				DrawCallBatch::New()
-				.PushArgList("", bindings)
+				.PushArgList(bindings)
 				.SetVertexBuffer(vertexInputDesc, pUserData->m_VertexBuffer)
 				.SetIndexBuffer(EIndexBufferType::e16, pUserData->m_IndexBuffer, 0)
 				.Draw([&](CommandList& commandList)
@@ -807,6 +812,7 @@ namespace imgui_display
 	{
 		auto viewportContext = m_ViewportContextPool.Alloc();
 		viewportContext->pWindowHandle = pWindow;
+		viewportContext->pWindowSurface = p_RenderBackend->GetWindowHandle(pWindow);
 		viewportContext->pContext = this;
 		viewport->PlatformUserData = viewportContext;
 		viewport->PlatformHandle = viewportContext;

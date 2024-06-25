@@ -1267,7 +1267,7 @@ namespace graphics_backend
 				for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
 				{
 
-					auto [bufferHandle, address, offset, size] = bufferUpload;
+					auto [bufferHandle, uploadRef] = bufferUpload;
 					if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
 					{
 						ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
@@ -1276,7 +1276,7 @@ namespace graphics_backend
 				}
 				for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
 				{
-					auto [imageHandle, address, offset, size] = imageUpload;
+					auto [imageHandle, uploadRef] = imageUpload;
 					ResourceUsageFlags usageFlags = ResourceUsage::eTransferDest;
 					UpdateImageDependency(passID, imageHandle, usageFlags, imageUsageFlagCache);
 				}
@@ -1297,6 +1297,7 @@ namespace graphics_backend
 		auto& computePasses = m_Graph->GetComputePasses();
 		auto& dataTransfers = m_Graph->GetDataTransfers();
 		auto& passIndices = m_Graph->GetPassIndices();
+		auto& uploadData = m_Graph->GetUploadDataHolder();
 
 		//InitialTransferPasses
 		{
@@ -1424,42 +1425,35 @@ namespace graphics_backend
 
 				for (auto& bufferUpload : transfersInfo.m_BufferDataUploads)
 				{
-					auto [bufferHandle, address, offset, size] = bufferUpload;
+					auto [bufferHandle, uploadRef] = bufferUpload;
 					if (bufferHandle.GetType() != BufferHandle::BufferType::Invalid)
 					{
 						auto buffer = GetBufferHandleBufferObject(bufferHandle);
 						if (buffer != vk::Buffer{ nullptr })
 						{
-							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc, "Staging Buffer " + bufferHandle.GetName());
+							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(uploadRef.dataSize, EBufferUsage::eDataSrc, "Staging Buffer " + bufferHandle.GetName());
 							{
 								auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
-								if (bufferHandle.GetName() == "0")
-								{
-									castl::vector<uint32_t> readValue;
-									readValue.resize(size / sizeof(uint32_t));
-									castl::fill(readValue.begin(), readValue.end(), -1);
-									memcpy(readValue.data(), address, size);
-								}
-								memcpy(mappedSrcBuffer.mappedMemory, address, size);
+								memcpy(mappedSrcBuffer.mappedMemory, uploadData.GetPtr(uploadRef.dataIndex), uploadRef.dataSize);
 							}
-							dataTransferCommandBuffer.copyBuffer(srcBuffer.buffer, buffer, vk::BufferCopy(0, offset, size));
+							dataTransferCommandBuffer.copyBuffer(srcBuffer.buffer, buffer, vk::BufferCopy(0, uploadRef.dstOffset, uploadRef.dataSize));
 						}
 					}
 				}
 
 				for (auto& imageUpload : transfersInfo.m_ImageDataUploads)
 				{
-					auto [imageHandle, address, offset, size] = imageUpload;
+					auto [imageHandle, uploadRef] = imageUpload;
 					if (ValidImageHandle(imageHandle))
 					{
 						auto image = GetTextureHandleImageObject(imageHandle);
 						auto pDesc = GetTextureHandleDescriptor(imageHandle);
 						if (image != vk::Image{ nullptr })
 						{
-							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(size, EBufferUsage::eDataSrc);
+							auto srcBuffer = m_FrameBoundResourceManager->CreateStagingBuffer(uploadRef.dataSize, EBufferUsage::eDataSrc);
 							{
 								auto mappedSrcBuffer = m_FrameBoundResourceManager->memoryManager.ScopedMapMemory(srcBuffer.allocation);
-								memcpy(mappedSrcBuffer.mappedMemory, address, size);
+								memcpy(mappedSrcBuffer.mappedMemory, uploadData.GetPtr(uploadRef.dataIndex), uploadRef.dataSize);
 							}
 
 							//TODO: offset is not used here for now

@@ -25,6 +25,7 @@ namespace imgui_display
 			m_ViewportTextureHandles.clear();
 			pContext = nullptr;
 			pWindowHandle = nullptr;
+			pWindowSurface = nullptr;
 			IgnoreWindowPosEventFrame = -1;
 			IgnoreWindowSizeEventFrame = -1;
 		};
@@ -46,6 +47,7 @@ namespace imgui_display
 		castl::vector<ImageHandle> m_ViewportTextureHandles;
 		IMGUIContext* pContext;
 		castl::shared_ptr<IWindow> pWindowHandle;
+		castl::shared_ptr<WindowHandle> pWindowSurface;
 
 		BufferHandle m_VertexBuffer;
 		BufferHandle m_IndexBuffer;
@@ -73,6 +75,7 @@ namespace imgui_display
 			, castl::shared_ptr<IWindowSystem> const& windowSystem
 			, castl::shared_ptr<IWindow> const& mainWindowHandle
 			, resource_management::ResourceManagingSystem* resourceSystem
+			, GPUGraph* initializeGraph
 		);
 		void Release();
 		void UpdateIMGUI();
@@ -81,6 +84,9 @@ namespace imgui_display
 		void DrawView(int id = 0);
 		castl::shared_ptr<CRenderBackend> GetRenderBackend() const { return p_RenderBackend; }
 		castl::shared_ptr<IWindowSystem> GetWindowSystem() const { return p_WindowSystem; }
+		castl::vector<castl::shared_ptr<graphics_backend::WindowHandle>> const& GetWindowHandles() const {
+			return m_WindowHandles;
+		}
 		castl::deque<IMGUITextureViewContext> const& GetTextureViewContexts() const {
 			return m_TextureViewContexts;
 		}
@@ -98,10 +104,10 @@ namespace imgui_display
 		ShaderConstantsBuilder m_ImguiShaderConstantsBuilder;
 		ShaderBindingBuilder m_ImguiShaderBindingBuilder;
 		castl::shared_ptr<IWindowSystem> p_WindowSystem;
+		castl::vector<castl::shared_ptr<graphics_backend::WindowHandle>> m_WindowHandles;
 		castl::shared_ptr<CRenderBackend> p_RenderBackend;
 		threadsafe_utils::TThreadSafePointerPool<IMGUIViewportContext> m_ViewportContextPool;
 		castl::deque<IMGUITextureViewContext> m_TextureViewContexts;
-
-		IShaderSet* m_ImguiShaderSet;
+		IShaderSet* m_ImguiShaderSet = nullptr;
 	};
 }

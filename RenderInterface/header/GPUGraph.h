@@ -13,6 +13,31 @@
 
 namespace graphics_backend
 {
+#pragma region Upload Data Holder
+	struct UploadDataHolder
+	{
+		castl::vector<uint8_t> m_Data;
+		uint64_t AddData(void const* pData, uint64_t byteSize)
+		{
+			uint64_t startPos = m_Data.size();
+			if (byteSize > 0)
+			{
+				m_Data.resize(startPos + byteSize);
+				memcpy(&m_Data[startPos], pData, byteSize);
+			}
+			return startPos;
+		}
+		void const* GetPtr(uint64_t index) const
+		{
+			return &m_Data[index];
+		}
+		void Clear()
+		{
+			m_Data.clear();
+		}
+	};
+#pragma endregion
+
 #pragma region Render Pass And DrawCalls
 	struct PipelineDescData
 	{
@@ -81,6 +106,12 @@ namespace graphics_backend
 			pipelineStateDesc.shaderArgLists.push_back(castl::make_pair(name, argList));
 			return *this;
 		}
+
+		inline DrawCallBatch& PushArgList(castl::shared_ptr<ShaderArgList> const& argList)
+		{
+			return PushArgList("", argList);
+		}
+
 		inline DrawCallBatch& SetVertexBuffer(cacore::HashObj<VertexInputsDescriptor> const& vertexInputDesc, BufferHandle const& bufferHandle);
 		inline DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset = 0);
 		inline DrawCallBatch& Draw(castl::function<void(CommandList&)> commandFunc);
@@ -261,8 +292,21 @@ namespace graphics_backend
 
 	struct GPUDataTransfers
 	{
-		castl::vector<castl::tuple<ImageHandle, void const*, uint64_t, uint64_t>> m_ImageDataUploads;
-		castl::vector<castl::tuple<BufferHandle, void const*, uint64_t, uint64_t>> m_BufferDataUploads;
+		struct DataReference
+		{
+			void const* pData;
+			uint64_t dataIndex;
+			uint64_t dstOffset;
+			uint64_t dataSize;
+			bool copied;
+			static DataReference Create(void const* pData, uint64_t dataIndex, uint64_t dstOffset, uint64_t dataSize, bool copied)
+			{
+				DataReference result{ pData, dataIndex, dstOffset, dataSize, copied };
+				return result;
+			}
+		};
+		castl::vector<castl::pair<ImageHandle, DataReference>> m_ImageDataUploads;
+		castl::vector<castl::pair<BufferHandle, DataReference>> m_BufferDataUploads;
 	};
 
 	template <typename DescriptorType>
@@ -343,6 +387,7 @@ namespace graphics_backend
 		castl::deque<ComputeBatch> const& GetComputePasses() const { return m_ComputePasses; }
 		castl::vector<GPUDataTransfers> const& GetDataTransfers() const { return m_DataTransfers; }
 		castl::vector<uint32_t> const& GetPassIndices() const { return m_PassIndices; }
+		UploadDataHolder const& GetUploadDataHolder() const { return m_DataHolder; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
 		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
 	private:
@@ -356,6 +401,8 @@ namespace graphics_backend
 		castl::vector<EGraphStageType> m_StageTypes;
 		//Stage To Pass Index
 		castl::vector<uint32_t> m_PassIndices;
+		//Submit Data Holder
+		UploadDataHolder m_DataHolder;
 		//Internal Resources
 		GraphResourceManager<GPUTextureDescriptor> m_InternalImageManager;
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
@@ -437,7 +484,9 @@ namespace graphics_backend
 		{
 			m_DataTransfers.emplace_back();
 		}
-		m_DataTransfers.back().m_ImageDataUploads.push_back({ imageHandle, data, offset, size });
+		uint64_t dataIndex = m_DataHolder.AddData(data, size);
+		m_DataTransfers.back().m_ImageDataUploads.push_back(castl::make_pair( imageHandle
+			, GPUDataTransfers::DataReference::Create(data, dataIndex, offset, size, true) ));
 		return *this;
 	}
 	GPUGraph& GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset)
@@ -451,7 +500,9 @@ namespace graphics_backend
 		{
 			m_DataTransfers.emplace_back();
 		}
-		m_DataTransfers.back().m_BufferDataUploads.push_back({ bufferHandle, data, offset, size });
+		uint64_t dataIndex = m_DataHolder.AddData(data, size);
+		m_DataTransfers.back().m_BufferDataUploads.push_back(castl::make_pair(bufferHandle
+			, GPUDataTransfers::DataReference::Create(data, dataIndex, offset, size, true)));
 		return *this;
 	}
 	GPUGraph& GPUGraph::AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc)

@@ -121,11 +121,11 @@ int main(int argc, char *argv[])
 	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(5);
 
+	imgui_display::IMGUIContext imguiContext;
+
 	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
 	auto windowHandle = pBackend->GetWindowHandle(newWindow.lock());
 
-	auto newWindow1 = windowSystem->NewWindow(1024, 512, "Window System Window 1");
-	auto windowHandle1 = pBackend->GetWindowHandle(newWindow1.lock());
 
 	castl::vector<VertexData> vertexDataList = {
 		VertexData{glm::vec2(-1.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec3(1, 1, 1)},
@@ -148,19 +148,9 @@ int main(int argc, char *argv[])
 	auto texture = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource0->GetWidth(), pTextureResource0->GetHeight(), pTextureResource0->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
 	auto texture1 = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
 
-	pThreadManager->OneTime([
-		vertexBuffer,
-		indexBuffer,
-		pTextureResource0,
-		pTextureResource1,
-		&vertexDataList,
-		&indexDataList,
-		&texture,
-		&texture1,
-		pTestMeshResource,
-		pBackend
-	](auto setup)
+	pThreadManager->OneTime([&](auto setup)
 	{
+
 		//setup->MainThread();
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
@@ -168,6 +158,8 @@ int main(int argc, char *argv[])
 		submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
 		submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
 		RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
+
+		imguiContext.Initialize(pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
 		
 		GPUFrame submitFrame{};
 		submitFrame.pGraph = submitGraph;
@@ -227,35 +219,15 @@ int main(int argc, char *argv[])
 	globalLightShaderArg->SetValue("lightColor", glm::vec3(2.0f, 2.0f, 0.25f));
 	globalLightShaderArg->SetValue("ambientColor", glm::vec3(0.1f, 0.1f, 0.2f));
 
-	pThreadManager->LoopFunction([
-				pBackend
-				, windowHandle
-				, pFinalBlitShaderResource
-				, pFinalBlitShader
-				, pTestComputeShaderResource
-				, &vertexBuffer
-				, &indexBuffer
-				, &vertexInputDesc
-				, texture
-				, pTextureResource1
-				, &camera
-				, &lastTime
-				, &deltaTime
-				, &lastMousePos
-				, &mouseDown
-				, &timer
-				, &meshBatcher
-				, globalLightShaderArg
-				, windowSystem
-				, newWindow
-	](auto setup)
+	pThreadManager->LoopFunction([&](auto setup)
 	{
-		setup->NewTask()
+		auto updateWindow = setup->NewTask()
 			->MainThread()
 			->Functor(
-				[windowSystem]()
+				[&]()
 				{
 					windowSystem->UpdateSystem();
+	
 				});
 		if (newWindow.expired())
 		{
@@ -296,63 +268,93 @@ int main(int argc, char *argv[])
 		{
 			mouseDown = false;
 		}
-		auto windowSize1 = windowHandle->GetSizeSafe();
-		camera.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
-		auto currentTime = timer.now();
-		auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - lastTime).count();
-		lastTime = currentTime;
-		deltaTime = duration / 1000.0f;
-		deltaTime = castl::max(deltaTime, 0.0001f);
-		float frameRate = 1.0f / deltaTime;
-
-		castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
-		cameraArgList->SetValue("viewProjMatrix", glm::transpose(camera.GetViewProjMatrix()));
 
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 
-		ImageHandle colorTexture{"ColorTexture" };
-		ImageHandle depthTexture{"DepthTexture" };
-		castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
-		finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
-		finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-		RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
-			, AttachmentConfig::Clear()
-			, AttachmentConfig::ClearDepthStencil())
-			.PushShaderArguments("cameraData", cameraArgList)
-			.PushShaderArguments("globalLighting", globalLightShaderArg);
-		meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
+		auto graphics = setup->NewTask()
+			->Name("IMGUI")
+			->DependsOn(updateWindow)
+			->Functor([&, newGraph]()
+				{
+					//IMGUI Logic
+					imguiContext.UpdateIMGUI();
+					imguiContext.PrepareDrawData(newGraph.get());
+					//Draw Viewports Here
+					imguiContext.GetTextureViewContexts();
+					imguiContext.Draw(newGraph.get());
+				});
 
-		auto colorTextureDesc = windowHandle->GetBackbufferDescriptor();
-		colorTextureDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
-		auto depthTextureDesc = colorTextureDesc;
-		depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
-		newGraph->
-			AllocImage(colorTexture, colorTextureDesc)
-			.AllocImage(depthTexture, depthTextureDesc)
-			.AddPass(drawMeshRenderPass)
-			.AddPass
-			(
-				RenderPass::New(windowHandle)
-				.SetPipelineState({})
-				.PushShaderArguments(finalBlitShaderArgList)
-				.SetShaders(pFinalBlitShader)
-				.DrawCall
-				(
-					DrawCallBatch::New()
-					.SetVertexBuffer(vertexInputDesc, vertexBuffer)
-					.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
-					.Draw([](CommandList& commandList)
-						{
-							commandList.DrawIndexed(6);
-						})
-				)
-			);
+#pragma region DrawLoop
+		//{
+		//	auto windowSize1 = windowHandle->GetSizeSafe();
+		//	camera.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
+		//	auto currentTime = timer.now();
+		//	auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - lastTime).count();
+		//	lastTime = currentTime;
+		//	deltaTime = duration / 1000.0f;
+		//	deltaTime = castl::max(deltaTime, 0.0001f);
+		//	float frameRate = 1.0f / deltaTime;
 
-		GPUFrame gpuFrame{};
-		gpuFrame.pGraph = newGraph;
-		gpuFrame.presentWindows.push_back(windowHandle);
-		pBackend->ScheduleGPUFrame(setup, gpuFrame);
+		//	castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
+		//	cameraArgList->SetValue("viewProjMatrix", glm::transpose(camera.GetViewProjMatrix()));
 
+		//	ImageHandle colorTexture{ "ColorTexture" };
+		//	ImageHandle depthTexture{ "DepthTexture" };
+		//	castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
+		//	finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
+		//	finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
+		//	RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
+		//		, AttachmentConfig::Clear()
+		//		, AttachmentConfig::ClearDepthStencil())
+		//		.PushShaderArguments("cameraData", cameraArgList)
+		//		.PushShaderArguments("cameraData1", cameraArgList)
+		//		.PushShaderArguments("cameraData2", cameraArgList)
+		//		.PushShaderArguments("globalLighting", globalLightShaderArg);
+		//	meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
+
+		//	auto colorTextureDesc = windowHandle->GetBackbufferDescriptor();
+		//	colorTextureDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
+		//	auto depthTextureDesc = colorTextureDesc;
+		//	depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
+		//	newGraph->
+		//		AllocImage(colorTexture, colorTextureDesc)
+		//		.AllocImage(depthTexture, depthTextureDesc)
+		//		.AddPass(drawMeshRenderPass)
+		//		.AddPass
+		//		(
+		//			RenderPass::New(windowHandle)
+		//			.SetPipelineState({})
+		//			.PushShaderArguments(finalBlitShaderArgList)
+		//			.SetShaders(pFinalBlitShader)
+		//			.DrawCall
+		//			(
+		//				DrawCallBatch::New()
+		//				.SetVertexBuffer(vertexInputDesc, vertexBuffer)
+		//				.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
+		//				.Draw([](CommandList& commandList)
+		//					{
+		//						commandList.DrawIndexed(6);
+		//					})
+		//			)
+		//		);
+		//}
+		//
+#pragma endregion
+
+		setup->NewTaskGraph()
+			->Name("Submit GPU")
+			->DependsOn(graphics)
+			->SetupFunctor([&, newGraph](auto graph)
+				{
+					auto& presentSurfaces = imguiContext.GetWindowHandles();
+					GPUFrame gpuFrame{};
+					gpuFrame.pGraph = newGraph;
+					for (auto& surface : presentSurfaces)
+					{
+						gpuFrame.presentWindows.push_back(surface);
+					}
+					pBackend->ScheduleGPUFrame(graph, gpuFrame);
+				});
 		return windowSystem->GetWindowCount() > 0;
 	}, "FullGraph");
 	pThreadManager->Run();

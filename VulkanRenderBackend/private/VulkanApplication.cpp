@@ -183,36 +183,43 @@ namespace graphics_backend
 
 	castl::shared_ptr<WindowHandle> CVulkanApplication::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)
 	{
-		m_WindowContexts.emplace_back(castl::make_shared<CWindowContext>(*this));
-		auto newContext = m_WindowContexts.back();
-		newContext->InitializeWindowHandle(window);
-		return newContext;
+		auto found = m_WindowContexts.find(window);
+		if (found == m_WindowContexts.end())
+		{
+			auto newContext = castl::make_shared<CWindowContext>(*this);
+			newContext->InitializeWindowHandle(window);
+			found = m_WindowContexts.insert(castl::make_pair(window, newContext)).first;
+		}
+		return found->second;
 	}
 
 	void CVulkanApplication::TickWindowContexts()
 	{
 		size_t currentIndex = 0;
-		while (currentIndex < m_WindowContexts.size())
+		castl::vector<castl::shared_ptr<cawindow::IWindow>> removalWindows;
+		for (auto& pair : m_WindowContexts)
 		{
-			if (m_WindowContexts[currentIndex]->Invalid())
+			if (pair.second->Invalid())
 			{
-				m_WindowContexts[currentIndex]->ReleaseContext();
-				castl::swap(m_WindowContexts[currentIndex], m_WindowContexts.back());
-				m_WindowContexts.pop_back();
+				pair.second->ReleaseContext();
+				removalWindows.push_back(pair.first);
 			}
 			else
 			{
-				m_WindowContexts[currentIndex]->CheckRecreateSwapchain();
-				++currentIndex;
+				pair.second->CheckRecreateSwapchain();
 			}
+		}
+		for (auto& removal : removalWindows)
+		{
+			m_WindowContexts.erase(removal);
 		}
 	}
 
 	void CVulkanApplication::ReleaseAllWindowContexts()
 	{
-		for (auto& windowContext : m_WindowContexts)
+		for (auto& windowPair : m_WindowContexts)
 		{
-			windowContext->ReleaseContext();
+			windowPair.second->ReleaseContext();
 		}
 		m_WindowContexts.clear();
 	}

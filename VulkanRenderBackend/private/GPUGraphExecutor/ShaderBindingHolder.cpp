@@ -154,10 +154,10 @@ namespace graphics_backend
 				}
 			}
 		}
-		for(uint32_t subGroupID : group.m_SubGroups)
+		for (uint32_t subGroupID : group.m_SubGroups)
 		{
 			auto found = shaderArgList.FindSubArgList(bufferData.m_Groups[subGroupID].m_Name);
-			if(found)
+			if (found)
 			{
 				WriteUniformBuffer(*found, bufferData, subGroupID, dataDst);
 			}
@@ -180,7 +180,7 @@ namespace graphics_backend
 			auto imageHandles = shaderArgList.FindImageHandle(textureData.m_Name);
 			for (uint32_t imgID = 0; imgID < imageHandles.size(); ++imgID)
 			{
-				inoutImageHandles.push_back(castl::make_pair( imageHandles[imgID].first, textureData.m_Access ));
+				inoutImageHandles.push_back(castl::make_pair(imageHandles[imgID].first, textureData.m_Access));
 				auto& imagePair = imageHandles[imgID];
 				vk::ImageView imageView = resourceProvider.GetImageView(imagePair.first, imagePair.second);
 
@@ -188,11 +188,11 @@ namespace graphics_backend
 				vk::DescriptorType descriptorType = vk::DescriptorType::eSampledImage;
 				switch (textureData.m_Access)
 				{
-					case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
-					case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
-						targetLayout = vk::ImageLayout::eGeneral;
-						descriptorType = vk::DescriptorType::eStorageImage;
-						break;
+				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+					targetLayout = vk::ImageLayout::eGeneral;
+					descriptorType = vk::DescriptorType::eStorageImage;
+					break;
 				}
 				writer.AddWriteImageView(imageView
 					, textureData.m_BindingIndex
@@ -330,7 +330,7 @@ namespace graphics_backend
 			auto& sourceSet = p_ReflectionData->m_BindingData[sid];
 
 			writer.Initialize(targetDescSet, sourceSet.m_Textures.size(), sourceSet.m_Samplers.size(), sourceSet.m_UniformBuffers.size(), sourceSet.m_Buffers.size());
-		
+
 			//Uniform Buffers
 			auto foundUniformBuffers = m_UniformBuffers.find(sid);
 			if (foundUniformBuffers != m_UniformBuffers.end())
@@ -353,6 +353,18 @@ namespace graphics_backend
 							{
 								WriteUniformBuffer(*shaderArgList.second, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
 							}
+							//Global下的subgroup可以被认为是单独的资源组
+							else if (group.m_Name == "__Global")
+							{
+								for (uint32_t subgroupID : group.m_SubGroups)
+								{
+									auto& subgroup = sourceUniformBuffer.m_Groups[subgroupID];
+									if (subgroup.m_Name == shaderArgList.first)
+									{
+										WriteUniformBuffer(*shaderArgList.second, sourceUniformBuffer, subgroupID, static_cast<char*>(tmpMap.mappedMemory));
+									}
+								}
+							}
 						}
 					}
 					command.copyBuffer(stageBuffer.buffer, bufferHandle.buffer, vk::BufferCopy(0, 0, memorySize));
@@ -364,7 +376,8 @@ namespace graphics_backend
 			{
 				for (auto shaderArgList : shaderArgLists)
 				{
-					if (shaderArgList.first == sourceSet.m_ResourceGroups[0].m_Name || (sourceSet.m_ResourceGroups[0].m_Name == "__Global" && shaderArgList.first.empty()))
+					auto& group = sourceSet.m_ResourceGroups[0];
+					if (shaderArgList.first == group.m_Name || (group.m_Name == "__Global" && shaderArgList.first.empty()))
 					{
 						WriteResources(
 							application
@@ -375,6 +388,26 @@ namespace graphics_backend
 							, writer
 							, m_BufferHandles
 							, m_ImageHandles);
+					}
+					//Global下的subgroup可以被认为是单独的资源组
+					else if (group.m_Name == "__Global")
+					{
+						for (uint32_t subgroupID : group.m_SubGroups)
+						{
+							auto& subgroup = sourceSet.m_ResourceGroups[subgroupID];
+							if (subgroup.m_Name == shaderArgList.first)
+							{
+								WriteResources(
+									application
+									, *shaderArgList.second
+									, resourceProvider
+									, sourceSet
+									, subgroupID
+									, writer
+									, m_BufferHandles
+									, m_ImageHandles);
+							}
+						}
 					}
 				}
 			}

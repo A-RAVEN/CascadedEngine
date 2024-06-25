@@ -136,7 +136,7 @@ private:
 	#if !defined(NDEBUG)
 		vk::DebugUtilsMessengerEXT m_DebugMessager = nullptr;
 	#endif
-		castl::vector<castl::shared_ptr<CWindowContext>> m_WindowContexts;
+		castl::unordered_map<castl::shared_ptr<cawindow::IWindow>, castl::shared_ptr<CWindowContext>> m_WindowContexts;
 		GPUObjectManager m_GPUObjectManager;
 		GPUMemoryResourceManager m_GPUMemoryManager;
 		GPUResourceObjectManager m_GPUResourceObjManager;

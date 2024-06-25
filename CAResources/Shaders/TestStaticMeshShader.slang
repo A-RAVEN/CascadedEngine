@@ -4,7 +4,7 @@
 
 ParameterBlock<MeshData> meshInstanceTransforms;
 ParameterBlock<MeshMaterial> meshMaterialData;
-ParameterBlock<CameraData> cameraData;
+ConstantBuffer<CameraData> cameraData;
 ParameterBlock<GlobalDirectLighting> globalLighting;
 
 struct VertexToFragment
