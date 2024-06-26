@@ -221,6 +221,7 @@ int main(int argc, char *argv[])
 
 	pThreadManager->LoopFunction([&](auto setup)
 	{
+		setup->MainThread();
 		auto updateWindow = setup->NewTask()
 			->MainThread()
 			->Functor(
@@ -233,41 +234,6 @@ int main(int argc, char *argv[])
 		if (newWindow.expired())
 		{
 			return false;
-		}
-		int forwarding = 0;
-		int lefting = 0;
-		auto lockedWindow = newWindow.lock();
-		if (lockedWindow->IsKeyDown(CA_KEY_W))
-		{
-			++forwarding;
-		}
-		if (lockedWindow->IsKeyDown(CA_KEY_S))
-		{
-			--forwarding;
-		}
-		if (lockedWindow->IsKeyDown(CA_KEY_A))
-		{
-			++lefting;
-		}
-		if (lockedWindow->IsKeyDown(CA_KEY_D))
-		{
-			--lefting;
-		}
-		glm::vec2 mouseDelta = { 0.0f, 0.0f };
-		glm::vec2 mousePos = { lockedWindow->GetMouseX(),lockedWindow->GetMouseY() };
-		if (lockedWindow->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
-		{
-			if (!mouseDown)
-			{
-				lastMousePos = mousePos;
-				mouseDown = true;
-			}
-			mouseDelta = mousePos - lastMousePos;
-			lastMousePos = mousePos;
-		}
-		else
-		{
-			mouseDown = false;
 		}
 
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
@@ -282,6 +248,44 @@ int main(int argc, char *argv[])
 					//Draw Viewports Here
 #pragma region DrawLoop
 					auto& viewContexts = imguiContext.GetTextureViewContexts();
+
+
+					int forwarding = 0;
+					int lefting = 0;
+					auto lockedWindow = newWindow.lock();
+					if (lockedWindow->IsKeyDown(CA_KEY_W))
+					{
+						++forwarding;
+					}
+					if (lockedWindow->IsKeyDown(CA_KEY_S))
+					{
+						--forwarding;
+					}
+					if (lockedWindow->IsKeyDown(CA_KEY_A))
+					{
+						++lefting;
+					}
+					if (lockedWindow->IsKeyDown(CA_KEY_D))
+					{
+						--lefting;
+					}
+					glm::vec2 mouseDelta = { 0.0f, 0.0f };
+					glm::vec2 mousePos = { lockedWindow->GetMouseX(),lockedWindow->GetMouseY() };
+					if (lockedWindow->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+					{
+						if (!mouseDown)
+						{
+							lastMousePos = mousePos;
+							mouseDown = true;
+						}
+						mouseDelta = mousePos - lastMousePos;
+						lastMousePos = mousePos;
+					}
+					else
+					{
+						mouseDown = false;
+					}
+
 
 					for(auto& viewContext : viewContexts)
 					{
@@ -310,8 +314,6 @@ int main(int argc, char *argv[])
 							, AttachmentConfig::Clear()
 							, AttachmentConfig::ClearDepthStencil())
 							.PushShaderArguments("cameraData", cameraArgList)
-							.PushShaderArguments("cameraData1", cameraArgList)
-							.PushShaderArguments("cameraData2", cameraArgList)
 							.PushShaderArguments("globalLighting", globalLightShaderArg);
 						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
 

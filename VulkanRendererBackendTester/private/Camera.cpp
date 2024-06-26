@@ -13,7 +13,7 @@ void Camera::Tick(float deltaTime
 	m_Angles.y = glm::clamp(m_Angles.y, -90.0f, 90.0f);
 
 
-	m_Rotation = glm::quat(glm::radians(glm::vec3(m_Angles.y, 0.0f, m_Angles.x)));
+	m_Rotation = glm::normalize( glm::quat(glm::radians(glm::vec3(m_Angles.y, 0.0f, m_Angles.x))));
 
 	glm::vec3 forwardVec = m_Rotation * glm::vec3(0.0f, 1.0f, 0.0f);
 	glm::vec3 leftVec = m_Rotation * glm::vec3(-1.0f, 0.0f, 0.0f);

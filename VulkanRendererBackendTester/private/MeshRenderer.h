@@ -116,7 +116,7 @@ public:
 
 	void Draw(graphics_backend::GPUGraph* pGraph, graphics_backend::RenderPass* pRenderPass)
 	{
-		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , false };
+		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , 0 };
 		pGraph->AllocBuffer(instanceTransformBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, m_Instances.size(), sizeof(glm::mat4)))
 			.ScheduleData(instanceTransformBuffer, m_Instances.data(), m_Instances.size() * sizeof(glm::mat4));
 		castl::shared_ptr<graphics_backend::ShaderArgList> instanceShaderArgs = castl::make_shared<graphics_backend::ShaderArgList>();
@@ -127,7 +127,7 @@ public:
 		{
 			auto& drawcallInfo = pair.first;
 			auto& drawcallInstances = pair.second;
-			graphics_backend::BufferHandle instanceIDBuffer{ castl::to_string(index++) };
+			graphics_backend::BufferHandle instanceIDBuffer{ "MeshInstanceIDBuffer", index++};
 			size_t bufferSize = drawcallInstances.m_InstanceIDs.size() * sizeof(uint32_t);
 			pGraph->AllocBuffer(instanceIDBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, drawcallInstances.m_InstanceIDs.size(), sizeof(uint32_t)))
 				.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), bufferSize);

@@ -19,10 +19,10 @@ namespace imgui_display
 	{
 	public:
 		void Initialize() {
-			m_ShaderArgs = castl::make_shared<ShaderArgList>();
+			Reset();
 		};
 		void Release() {
-			m_ViewportTextureHandles.clear();
+			Reset();
 			pContext = nullptr;
 			pWindowHandle = nullptr;
 			pWindowSurface = nullptr;
@@ -33,11 +33,12 @@ namespace imgui_display
 		void Reset()
 		{
 			m_ViewportTextureHandles.clear();
+			m_TextureBindings.clear();
 			m_IndexDataOffsets.clear();
 			m_Sissors.clear();
 			m_VertexBuffer = {};
 			m_IndexBuffer = {};
-			m_ShaderArgs = castl::make_shared<ShaderArgList>();
+			m_ShaderArgs = nullptr;
 		}
 	public:
 		int IgnoreWindowPosEventFrame = -1;
@@ -49,13 +50,13 @@ namespace imgui_display
 		castl::shared_ptr<IWindow> pWindowHandle;
 		castl::shared_ptr<WindowHandle> pWindowSurface;
 
-		BufferHandle m_VertexBuffer;
-		BufferHandle m_IndexBuffer;
-		castl::shared_ptr<ShaderArgList> m_ShaderArgs;
+		BufferHandle m_VertexBuffer = {};
+		BufferHandle m_IndexBuffer = {};
+		castl::shared_ptr<ShaderArgList> m_ShaderArgs = nullptr;
 		castl::vector<castl::tuple<uint32_t, uint32_t, uint32_t>> m_IndexDataOffsets;
 		castl::vector<glm::uvec4> m_Sissors;
 		castl::vector<castl::shared_ptr<ShaderArgList>> m_TextureBindings;
-		bool m_Draw;
+		bool m_Draw = false;
 	};
 
 	struct IMGUITextureViewContext

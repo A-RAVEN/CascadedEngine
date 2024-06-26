@@ -620,11 +620,11 @@ namespace imgui_display
 		//SRS - ShowDemoWindow() sets its own initial position and size, cannot override here
 		bool show = true;
 		ShowExampleAppDockSpace(&show);
-		ImGui::ShowDemoWindow();
+		//ImGui::ShowDemoWindow();
 		DrawView(0);
 
-		DrawFrame(0);
-		DrawFrame(1);
+		//DrawFrame(0);
+		//DrawFrame(1);
 
 		ImGui::Render();
 

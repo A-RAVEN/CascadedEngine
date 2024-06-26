@@ -10,7 +10,7 @@ struct MeshMaterial
     {
         float4 albedo = albedoTexture.Sample(sampler, uv).xyzw;
         float ndL = saturate(dot(normal, globalDirectLighting.lightDirection.xyz));
-        float3 resultShading = albedo.rgb * ndL * globalDirectLighting.lightColor.xyz + globalDirectLighting.ambientColor.xyz;
+        float3 resultShading = albedo.rgb * (ndL * globalDirectLighting.lightColor.xyz + globalDirectLighting.ambientColor.xyz);
         return float4(resultShading, albedo.a);
     }
 
