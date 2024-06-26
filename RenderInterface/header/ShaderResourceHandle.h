@@ -6,6 +6,17 @@
 
 namespace graphics_backend
 {
+	struct ResourceHandleKeyData
+	{
+		castl::string name;
+		uint32_t uniqueID;
+		auto operator<=>(const ResourceHandleKeyData&) const = default;
+		static ResourceHandleKeyData Default() { return { "", 0 }; }
+		static ResourceHandleKeyData Create(castl::string const& name, uint32_t uniqueID) { return { name, uniqueID }; }
+	};
+
+	using ResourceHandleKey = cacore::HashObj<ResourceHandleKeyData, true>;
+
 	class ImageHandle
 	{
 	public:
@@ -17,56 +28,52 @@ namespace graphics_backend
 			Invalid,
 		};
 		ImageHandle()
-			: m_Name("")
+			: m_Key(ResourceHandleKeyData::Default())
 			, m_ExternalManagedTexture(nullptr)
 			, m_Backbuffer(nullptr)
 			, m_Type(ImageType::Invalid)
-			, m_UniqueID(0)
 		{
 		}
 		ImageHandle(ImageHandle const& other)
-			: m_Name(other.m_Name)
+			: m_Key(other.m_Key)
 			, m_ExternalManagedTexture(other.m_ExternalManagedTexture)
 			, m_Backbuffer(other.m_Backbuffer)
 			, m_Type(other.m_Type)
-			, m_UniqueID(other.m_UniqueID)
 		{
 		}
-		ImageHandle(castl::string_view name, bool unique = false)
-			: m_Name(name)
+		ImageHandle(castl::string const& name, uint32_t uniqueID = 0)
+			: m_Key(ResourceHandleKeyData::Create(name, uniqueID))
 			, m_ExternalManagedTexture(nullptr)
 			, m_Backbuffer(nullptr)
 			, m_Type(ImageType::Internal)
-			, m_UniqueID(unique ? -1 : 0)
 		{
 		}
 		ImageHandle(castl::shared_ptr<GPUTexture> const& texture)
-			: m_Name("")
+			: m_Key(ResourceHandleKeyData::Default())
 			, m_ExternalManagedTexture(texture)
 			, m_Backbuffer(nullptr)
 			, m_Type(ImageType::External)
-			, m_UniqueID(0)
 		{
 		}
 		ImageHandle(castl::shared_ptr<WindowHandle> const& window)
-			: m_Name("")
+			: m_Key(ResourceHandleKeyData::Default())
 			, m_ExternalManagedTexture(nullptr)
 			, m_Backbuffer(window)
 			, m_Type(ImageType::Backbuffer)
-			, m_UniqueID(0)
 		{
 		}
+		bool IsValid() const { return m_Type != ImageType::Invalid; }
 		ImageType GetType() const { return m_Type; }
-		castl::string const& GetName() const { return m_Name; }
+		castl::string const& GetName() const { return m_Key.Get().name; }
+		ResourceHandleKey const& GetKey() const { return m_Key; }
 		castl::shared_ptr<GPUTexture> GetExternalManagedTexture() const { return m_ExternalManagedTexture; }
 		castl::shared_ptr<WindowHandle> GetWindowHandle() const { return m_Backbuffer; }
 		auto operator<=>(const ImageHandle&) const = default;
 	private:
-		castl::string m_Name;
+		ResourceHandleKey m_Key;
 		castl::shared_ptr<GPUTexture> m_ExternalManagedTexture;
 		castl::shared_ptr<WindowHandle> m_Backbuffer;
 		ImageType m_Type;
-		int32_t m_UniqueID;
 
 		CA_PRIVATE_REFLECTION(ImageHandle);
 	};
@@ -81,46 +88,43 @@ namespace graphics_backend
 			Invalid,
 		};
 		BufferHandle()
-			: m_Name("")
+			: m_Key(ResourceHandleKeyData::Default())
 			, m_ExternalManagedBuffer(nullptr)
 			, m_Type(BufferType::Invalid)
-			, m_UniqueID(0)
 		{
 		}
 		BufferHandle(BufferHandle const& other)
-			: m_Name(other.m_Name)
+			: m_Key(other.m_Key)
 			, m_ExternalManagedBuffer(other.m_ExternalManagedBuffer)
 			, m_Type(other.m_Type)
-			, m_UniqueID(other.m_UniqueID)
 		{
 		}
-		BufferHandle(castl::string_view name, bool unique = false)
-			: m_Name(name)
+		BufferHandle(castl::string const& name, uint32_t uniqueID = 0)
+			: m_Key(ResourceHandleKeyData::Create(name, uniqueID))
 			, m_ExternalManagedBuffer(nullptr)
 			, m_Type(BufferType::Internal)
-			, m_UniqueID(unique ? -1 : 0)
 		{
 		}
 		BufferHandle(castl::shared_ptr<GPUBuffer> const& buffer)
-			: m_Name("")
+			: m_Key(ResourceHandleKeyData::Default())
 			, m_ExternalManagedBuffer(buffer)
 			, m_Type(BufferType::External)
-			, m_UniqueID(0)
 		{
 		}
+		bool IsValid() const { return m_Type != BufferType::Invalid; }
 		BufferType GetType() const { return m_Type; }
-		castl::string const& GetName() const { return m_Name; }
+		castl::string const& GetName() const { return m_Key.Get().name; }
+		ResourceHandleKey const& GetKey() const { return m_Key; }
 		castl::shared_ptr<GPUBuffer> GetExternalManagedBuffer() const { return m_ExternalManagedBuffer; }
 		auto operator<=>(const BufferHandle&) const = default;
 	private:
-		castl::string m_Name;
+		ResourceHandleKey m_Key;
 		castl::shared_ptr<GPUBuffer> m_ExternalManagedBuffer;
 		BufferType m_Type;
-		int32_t m_UniqueID;
 
 		CA_PRIVATE_REFLECTION(BufferHandle);
 	};
 }
 
-CA_REFLECTION(graphics_backend::ImageHandle, m_Name, m_ExternalManagedTexture, m_Backbuffer, m_Type, m_UniqueID);
-CA_REFLECTION(graphics_backend::BufferHandle, m_Name, m_ExternalManagedBuffer, m_Type, m_UniqueID);
+CA_REFLECTION(graphics_backend::ImageHandle, m_Key, m_ExternalManagedTexture, m_Backbuffer, m_Type);
+CA_REFLECTION(graphics_backend::BufferHandle, m_Key, m_ExternalManagedBuffer, m_Type);

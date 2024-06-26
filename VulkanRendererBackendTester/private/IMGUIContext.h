@@ -62,6 +62,7 @@ namespace imgui_display
 	{
 		ImageHandle m_RenderTarget;
 		cacore::Rect<float> m_ViewportRect;
+		GPUTextureDescriptor m_TextureDescriptor;
 		int m_SceneViewIndex;
 	};
 
@@ -91,7 +92,7 @@ namespace imgui_display
 			return m_TextureViewContexts;
 		}
 	public:
-		void PrepareSingleViewGUIResources(ImGuiViewport* viewPort, GPUGraph* renderGraph);
+		void PrepareSingleViewGUIResources(uint32_t& inoutHandleID, ImGuiViewport* viewPort, GPUGraph* renderGraph);
 		void DrawSingleView(ImGuiViewport* viewPort, GPUGraph* renderGraph);
 		void PrepareInitViewportContext(ImGuiViewport* viewPort, castl::shared_ptr<IWindow> const& pWindow, bool mainWindow = false);
 		void ReleaseViewportContext(ImGuiViewport* viewPort);

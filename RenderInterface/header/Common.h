@@ -110,6 +110,14 @@ enum class ETextureAspect : uint8_t
 	eStencil
 };
 
+enum class EColorChannel : uint8_t
+{
+	eR = 0,
+	eG,
+	eB,
+	eA,
+};
+
 enum class ETextureType : uint8_t
 {
 	e1D,

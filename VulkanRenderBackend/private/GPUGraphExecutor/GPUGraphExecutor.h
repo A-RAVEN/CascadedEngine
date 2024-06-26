@@ -121,12 +121,16 @@ namespace graphics_backend
 	class GraphExecutorResourceManager
 	{
 	public:
-		void AllocPersistantResourceIndex(castl::string const& handleName, int32_t descriptorIndex)
+		void AllocPersistantResourceIndex(ResourceHandleKey const& handleName, int32_t descriptorIndex)
 		{
+			if (descriptorIndex < 0)
+				return;
 			m_PersistantHandleNameToDescriptorIndex[handleName] = descriptorIndex;
 		}
-		void AllocResourceIndex(castl::string const& handleName, int32_t descriptorIndex)
+		void AllocResourceIndex(ResourceHandleKey const& handleName, int32_t descriptorIndex)
 		{
+			if (descriptorIndex < 0)
+				return;
 			auto found = m_HandleNameToResourceInfo.find(handleName);
 			if (found == m_HandleNameToResourceInfo.end())
 			{
@@ -158,8 +162,8 @@ namespace graphics_backend
 				m_HandleNameToResourceIndex.insert(castl::make_pair(persistNameToDescID.first, castl::make_pair(subAllocatorIndex, allocatedIndex)));
 			}
 
-			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passAllocations;
-			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passDeAllocations;
+			castl::vector<castl::vector<castl::pair<ResourceHandleKey, int32_t>>> passAllocations;
+			castl::vector<castl::vector<castl::pair<ResourceHandleKey, int32_t>>> passDeAllocations;
 			passAllocations.resize(m_PassCount);
 			passDeAllocations.resize(m_PassCount);
 			for (auto& lifeTimePair : m_HandleNameToResourceInfo)
@@ -224,9 +228,9 @@ namespace graphics_backend
 		uint32_t m_PassCount;
 		castl::vector<SubAllocator> m_SubAllocators;
 		castl::unordered_map<int32_t, uint32_t> m_DescriptorIndexToSubAllocator;
-		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_HandleNameToResourceIndex;
-		castl::unordered_map<castl::string, ResourceInfo> m_HandleNameToResourceInfo;
-		castl::unordered_map<castl::string, int32_t> m_PersistantHandleNameToDescriptorIndex;
+		castl::unordered_map<ResourceHandleKey, castl::pair<uint32_t, uint32_t>> m_HandleNameToResourceIndex;
+		castl::unordered_map<ResourceHandleKey, ResourceInfo> m_HandleNameToResourceInfo;
+		castl::unordered_map<ResourceHandleKey, int32_t> m_PersistantHandleNameToDescriptorIndex;
 	};
 
 
@@ -247,7 +251,7 @@ namespace graphics_backend
 	class GraphExecutorBufferManager : public GraphExecutorResourceManager<BufferSubAllocator, GraphResourceManager<GPUBufferDescriptor>>
 	{
 	public:
-		VKBufferObject const& GetBufferObject(castl::string const& handleName) const
+		VKBufferObject const& GetBufferObject(ResourceHandleKey const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
 			if (found == m_HandleNameToResourceIndex.end())
@@ -277,7 +281,7 @@ namespace graphics_backend
 	class GraphExecutorImageManager : public GraphExecutorResourceManager<ImageSubAllocator, GraphResourceManager<GPUTextureDescriptor>>
 	{
 	public:
-		VKImageObject const& GetImageObject(castl::string const& handleName) const
+		VKImageObject const& GetImageObject(ResourceHandleKey const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
 			if (found == m_HandleNameToResourceIndex.end())
@@ -327,6 +331,7 @@ namespace graphics_backend
 		void Release();
 		void PrepareGraph();
 	private:
+		bool ValidImageHandle(ImageHandle const& handle);
 		void PrepareResources();
 
 		void PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector

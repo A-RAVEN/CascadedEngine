@@ -110,11 +110,7 @@ namespace graphics_backend
 				, image
 				, imageInfo.defaultImageViewType
 				, ETextureFormatToVkFotmat(desc.format)
-				, vk::ComponentMapping(
-					vk::ComponentSwizzle::eIdentity
-					, vk::ComponentSwizzle::eIdentity
-					, vk::ComponentSwizzle::eIdentity
-					, vk::ComponentSwizzle::eIdentity)
+				, ETextureSwizzleToVkComponentMapping(viewDesc.swizzle)
 				, vk::ImageSubresourceRange(
 					ETextureAspectToVkImageAspectFlags(viewDesc.aspect, desc.format)
 					, viewDesc.baseMip

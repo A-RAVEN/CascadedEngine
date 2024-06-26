@@ -227,7 +227,8 @@ int main(int argc, char *argv[])
 				[&]()
 				{
 					windowSystem->UpdateSystem();
-	
+					imguiContext.UpdateIMGUI();
+					windowSystem->UpdateSystem();
 				});
 		if (newWindow.expired())
 		{
@@ -271,75 +272,82 @@ int main(int argc, char *argv[])
 
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 
-		auto graphics = setup->NewTask()
+		auto graphics = setup->NewTaskGraph()
 			->Name("IMGUI")
 			->DependsOn(updateWindow)
-			->Functor([&, newGraph]()
+			->SetupFunctor([&, newGraph](auto taskGraph)
 				{
 					//IMGUI Logic
-					imguiContext.UpdateIMGUI();
 					imguiContext.PrepareDrawData(newGraph.get());
 					//Draw Viewports Here
-					imguiContext.GetTextureViewContexts();
+#pragma region DrawLoop
+					auto& viewContexts = imguiContext.GetTextureViewContexts();
+
+					for(auto& viewContext : viewContexts)
+					{
+						if (!viewContext.m_RenderTarget.IsValid())
+						{
+							continue;
+						}
+						auto windowSize1 = glm::vec2{ viewContext.m_ViewportRect.width, viewContext.m_ViewportRect.height };
+						camera.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
+						auto currentTime = timer.now();
+						auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - lastTime).count();
+						lastTime = currentTime;
+						deltaTime = duration / 1000.0f;
+						deltaTime = castl::max(deltaTime, 0.0001f);
+						float frameRate = 1.0f / deltaTime;
+
+						castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
+						cameraArgList->SetValue("viewProjMatrix", glm::transpose(camera.GetViewProjMatrix()));
+
+						ImageHandle colorTexture{ "ColorTexture" };
+						ImageHandle depthTexture{ "DepthTexture" };
+						castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
+						finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
+						finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
+						RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
+							, AttachmentConfig::Clear()
+							, AttachmentConfig::ClearDepthStencil())
+							.PushShaderArguments("cameraData", cameraArgList)
+							.PushShaderArguments("cameraData1", cameraArgList)
+							.PushShaderArguments("cameraData2", cameraArgList)
+							.PushShaderArguments("globalLighting", globalLightShaderArg);
+						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
+
+						auto colorTextureDesc = viewContext.m_TextureDescriptor;
+						colorTextureDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
+						auto depthTextureDesc = colorTextureDesc;
+						depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
+						newGraph->
+							AllocImage(colorTexture, colorTextureDesc)
+							.AllocImage(depthTexture, depthTextureDesc)
+							.AddPass(drawMeshRenderPass)
+							.AddPass
+							(
+								RenderPass::New(viewContext.m_RenderTarget)
+								.SetPipelineState({})
+								.PushShaderArguments(finalBlitShaderArgList)
+								.SetShaders(pFinalBlitShader)
+								.DrawCall
+								(
+									DrawCallBatch::New()
+									.SetVertexBuffer(vertexInputDesc, vertexBuffer)
+									.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
+									.Draw([](CommandList& commandList)
+										{
+											commandList.DrawIndexed(6);
+										})
+								)
+							);
+					}
+
+#pragma endregion
+
 					imguiContext.Draw(newGraph.get());
 				});
 
-#pragma region DrawLoop
-		//{
-		//	auto windowSize1 = windowHandle->GetSizeSafe();
-		//	camera.Tick(deltaTime, forwarding, lefting, mouseDelta.x, mouseDelta.y, windowSize1.x, windowSize1.y);
-		//	auto currentTime = timer.now();
-		//	auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - lastTime).count();
-		//	lastTime = currentTime;
-		//	deltaTime = duration / 1000.0f;
-		//	deltaTime = castl::max(deltaTime, 0.0001f);
-		//	float frameRate = 1.0f / deltaTime;
 
-		//	castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
-		//	cameraArgList->SetValue("viewProjMatrix", glm::transpose(camera.GetViewProjMatrix()));
-
-		//	ImageHandle colorTexture{ "ColorTexture" };
-		//	ImageHandle depthTexture{ "DepthTexture" };
-		//	castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
-		//	finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(windowHandle->GetBackbufferDescriptor().format));
-		//	finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-		//	RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
-		//		, AttachmentConfig::Clear()
-		//		, AttachmentConfig::ClearDepthStencil())
-		//		.PushShaderArguments("cameraData", cameraArgList)
-		//		.PushShaderArguments("cameraData1", cameraArgList)
-		//		.PushShaderArguments("cameraData2", cameraArgList)
-		//		.PushShaderArguments("globalLighting", globalLightShaderArg);
-		//	meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
-
-		//	auto colorTextureDesc = windowHandle->GetBackbufferDescriptor();
-		//	colorTextureDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
-		//	auto depthTextureDesc = colorTextureDesc;
-		//	depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
-		//	newGraph->
-		//		AllocImage(colorTexture, colorTextureDesc)
-		//		.AllocImage(depthTexture, depthTextureDesc)
-		//		.AddPass(drawMeshRenderPass)
-		//		.AddPass
-		//		(
-		//			RenderPass::New(windowHandle)
-		//			.SetPipelineState({})
-		//			.PushShaderArguments(finalBlitShaderArgList)
-		//			.SetShaders(pFinalBlitShader)
-		//			.DrawCall
-		//			(
-		//				DrawCallBatch::New()
-		//				.SetVertexBuffer(vertexInputDesc, vertexBuffer)
-		//				.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
-		//				.Draw([](CommandList& commandList)
-		//					{
-		//						commandList.DrawIndexed(6);
-		//					})
-		//			)
-		//		);
-		//}
-		//
-#pragma endregion
 
 		setup->NewTaskGraph()
 			->Name("Submit GPU")

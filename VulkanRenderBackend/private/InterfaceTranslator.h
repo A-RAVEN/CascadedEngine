@@ -200,7 +200,31 @@ namespace graphics_backend
 		return {};
 	}
 
+	constexpr vk::ComponentSwizzle EColorChannelToVkComponentSwizzle(EColorChannel channel)
+	{
+		switch (channel)
+		{
+		case EColorChannel::eR:
+			return vk::ComponentSwizzle::eR;
+		case EColorChannel::eG:
+			return vk::ComponentSwizzle::eG;
+		case EColorChannel::eB:
+			return vk::ComponentSwizzle::eB;
+		case EColorChannel::eA:
+			return vk::ComponentSwizzle::eA;
+		}
+		return vk::ComponentSwizzle::eIdentity;
+	}
 
+	constexpr vk::ComponentMapping ETextureSwizzleToVkComponentMapping(GPUTextureSwizzle const& swizzle)
+	{
+		vk::ComponentMapping result{};
+		result.r = EColorChannelToVkComponentSwizzle(swizzle.r);
+		result.g = EColorChannelToVkComponentSwizzle(swizzle.g);
+		result.b = EColorChannelToVkComponentSwizzle(swizzle.b);
+		result.a = EColorChannelToVkComponentSwizzle(swizzle.a);
+		return result;
+	}
 
 	constexpr ETextureFormat VkFotmatToETextureFormat(vk::Format inFormat)
 	{

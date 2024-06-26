@@ -9,22 +9,7 @@
 
 namespace graphics_backend
 {
-	bool ValidImageHandle(ImageHandle const& handle)
-	{
-		switch (handle.GetType())
-		{
-			case ImageHandle::ImageType::Invalid:
-			{
-				return false;
-			}
-			case ImageHandle::ImageType::Backbuffer:
-			{
-				castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(handle.GetWindowHandle());
-				return !window->Invalid();
-			}
-		}
-		return true;
-	}
+	
 
 	//if source state and dst state have different queue family and source usage is not DontCare, a release barrier is required
 	bool NeedReleaseBarrier(ResourceState const& srcState, ResourceState const& dstState)
@@ -197,6 +182,27 @@ namespace graphics_backend
 		return result;
 	}
 
+	bool GPUGraphExecutor::ValidImageHandle(ImageHandle const& handle)
+	{
+		switch (handle.GetType())
+		{
+		case ImageHandle::ImageType::Invalid:
+		{
+			return false;
+		}
+		case ImageHandle::ImageType::Backbuffer:
+		{
+			castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(handle.GetWindowHandle());
+			return !window->Invalid();
+		}
+		case ImageHandle::ImageType::External:
+		{
+			return handle.GetExternalManagedTexture() != nullptr;
+		}
+		}
+		return m_Graph->GetImageManager().GetDescriptorIndex(handle.GetKey()) >= 0;
+	}
+
 	void GPUGraphExecutor::PrepareGraph()
 	{
 		//Alloc Image & Buffer Resources
@@ -235,7 +241,7 @@ namespace graphics_backend
 			{
 				if (img.GetType() == ImageHandle::ImageType::Internal)
 				{
-					m_ImageManager.AllocResourceIndex(img.GetName(), imageManager.GetDescriptorIndex(img.GetName()));
+					m_ImageManager.AllocResourceIndex(img.GetKey(), imageManager.GetDescriptorIndex(img.GetKey()));
 				}
 				else if (img.GetType() == ImageHandle::ImageType::Backbuffer)
 				{
@@ -262,7 +268,7 @@ namespace graphics_backend
 					auto& indesBuffer = batch.m_BoundIndexBuffer;
 					if (indesBuffer.GetType() == BufferHandle::BufferType::Internal)
 					{
-						m_BufferManager.AllocResourceIndex(indesBuffer.GetName(), bufferManager.GetDescriptorIndex(indesBuffer.GetName()));
+						m_BufferManager.AllocResourceIndex(indesBuffer.GetKey(), bufferManager.GetDescriptorIndex(indesBuffer.GetKey()));
 					}
 					//Vertex Buffers
 					for (auto& vertexBufferPair : batch.m_BoundVertexBuffers)
@@ -270,7 +276,7 @@ namespace graphics_backend
 						auto& vertexBuffer = vertexBufferPair.second;
 						if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
 						{
-							m_BufferManager.AllocResourceIndex(vertexBuffer.GetName(), bufferManager.GetDescriptorIndex(vertexBuffer.GetName()));
+							m_BufferManager.AllocResourceIndex(vertexBuffer.GetKey(), bufferManager.GetDescriptorIndex(vertexBuffer.GetKey()));
 						}
 					}
 				}
@@ -292,7 +298,7 @@ namespace graphics_backend
 						auto& imgHandle = img.first;
 						if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
 						{
-							m_ImageManager.AllocResourceIndex(imgHandle.GetName(), imageManager.GetDescriptorIndex(imgHandle.GetName()));
+							m_ImageManager.AllocResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
 						}
 						else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 						{
@@ -308,7 +314,7 @@ namespace graphics_backend
 					{
 						if (buf.GetType() == BufferHandle::BufferType::Internal)
 						{
-							m_BufferManager.AllocResourceIndex(buf.GetName(), bufferManager.GetDescriptorIndex(buf.GetName()));
+							m_BufferManager.AllocResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
 						}
 					}
 				}
@@ -350,7 +356,7 @@ namespace graphics_backend
 						auto& imgHandle = img.first;
 						if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
 						{
-							m_ImageManager.AllocPersistantResourceIndex(imgHandle.GetName(), imageManager.GetDescriptorIndex(imgHandle.GetName()));
+							m_ImageManager.AllocPersistantResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
 						}
 						else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 						{
@@ -366,7 +372,7 @@ namespace graphics_backend
 					{
 						if (buf.GetType() == BufferHandle::BufferType::Internal)
 						{
-							m_BufferManager.AllocPersistantResourceIndex(buf.GetName(), bufferManager.GetDescriptorIndex(buf.GetName()));
+							m_BufferManager.AllocPersistantResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
 						}
 					}
 				}
@@ -384,7 +390,7 @@ namespace graphics_backend
 		{
 		case ImageHandle::ImageType::Internal:
 		{
-			return m_Graph->GetImageManager().GetDescriptor(handle.GetName());
+			return m_Graph->GetImageManager().GetDescriptor(handle.GetKey());
 		}
 		case ImageHandle::ImageType::External:
 		{
@@ -427,8 +433,8 @@ namespace graphics_backend
 		{
 		case ImageHandle::ImageType::Internal:
 		{
-			auto& image = m_ImageManager.GetImageObject(handle.GetName());
-			auto& desc = *imageManager.GetDescriptor(handle.GetName());
+			auto& image = m_ImageManager.GetImageObject(handle.GetKey());
+			auto& desc = *imageManager.GetDescriptor(handle.GetKey());
 			return m_FrameBoundResourceManager->resourceObjectManager.EnsureImageView(image.image, desc, view);
 		}
 		case ImageHandle::ImageType::External:
@@ -453,7 +459,7 @@ namespace graphics_backend
 		{
 		case ImageHandle::ImageType::Internal:
 		{
-			return m_ImageManager.GetImageObject(handle.GetName()).image;
+			return m_ImageManager.GetImageObject(handle.GetKey()).image;
 		}
 		case ImageHandle::ImageType::External:
 		{
@@ -477,7 +483,7 @@ namespace graphics_backend
 		{
 		case BufferHandle::BufferType::Internal:
 		{
-			return m_BufferManager.GetBufferObject(handle.GetName()).buffer;
+			return m_BufferManager.GetBufferObject(handle.GetKey()).buffer;
 		}
 		case BufferHandle::BufferType::External:
 		{

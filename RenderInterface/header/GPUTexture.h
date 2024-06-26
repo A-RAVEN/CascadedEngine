@@ -39,6 +39,34 @@ namespace graphics_backend
 		}
 	};
 
+	struct GPUTextureSwizzle
+	{
+		EColorChannel r;
+		EColorChannel g;
+		EColorChannel b;
+		EColorChannel a;
+
+		auto operator<=>(const GPUTextureSwizzle&) const = default;
+
+		constexpr static GPUTextureSwizzle Create(EColorChannel r = EColorChannel::eR
+			, EColorChannel g = EColorChannel::eG
+			, EColorChannel b = EColorChannel::eB
+			, EColorChannel a = EColorChannel::eA)
+		{
+			GPUTextureSwizzle desc{};
+			desc.r = r;
+			desc.g = g;
+			desc.b = b;
+			desc.a = a;
+			return desc;
+		}
+
+		constexpr static GPUTextureSwizzle SingleChannel(EColorChannel channel)
+		{
+			return Create(channel, channel, channel, channel);
+		}
+	};
+
 	struct GPUTextureView
 	{
 		ETextureAspect aspect;
@@ -46,6 +74,7 @@ namespace graphics_backend
 		uint32_t mipCount;
 		uint32_t baseLayer;
 		uint32_t layerCount;
+		GPUTextureSwizzle swizzle;
 
 		auto operator<=>(const GPUTextureView&) const = default;
 
@@ -54,7 +83,8 @@ namespace graphics_backend
 			, uint32_t mipCount = 0
 			, uint32_t baseLayer = 0
 			, uint32_t layerCount = 0
-			, ETextureAspect aspect = ETextureAspect::eDefault)
+			, ETextureAspect aspect = ETextureAspect::eDefault
+			, GPUTextureSwizzle swizzle = GPUTextureSwizzle::Create())
 		{
 			GPUTextureView desc{};
 			desc.baseMip = baseMip;
@@ -62,6 +92,7 @@ namespace graphics_backend
 			desc.baseLayer = baseLayer;
 			desc.layerCount = layerCount;
 			desc.aspect = aspect;
+			desc.swizzle = swizzle;
 			return desc;
 		}
 
@@ -73,10 +104,11 @@ namespace graphics_backend
 			desc.baseLayer = layer;
 			desc.layerCount = 1;
 			desc.aspect = ETextureAspect::eDefault;
+			desc.swizzle = GPUTextureSwizzle::Create();
 			return desc;
 		}
 
-		constexpr static GPUTextureView CreateDefaultForSampling(ETextureFormat format)
+		constexpr static GPUTextureView CreateDefaultForSampling(ETextureFormat format, GPUTextureSwizzle swizzle = GPUTextureSwizzle::Create())
 		{
 			bool hasDepth = FormatHasDepth(format);
 			GPUTextureView desc{};
@@ -85,6 +117,7 @@ namespace graphics_backend
 			desc.baseLayer = 0;
 			desc.layerCount = ~0;
 			desc.aspect = hasDepth ? ETextureAspect::eDepth : ETextureAspect::eDefault;
+			desc.swizzle = swizzle;
 			return desc;
 		}
 

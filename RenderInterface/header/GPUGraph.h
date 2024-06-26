@@ -313,21 +313,25 @@ namespace graphics_backend
 	class GraphResourceManager
 	{
 	public:
-		void RegisterHandle(castl::string const& handleName, DescriptorType const& desc)
+		void RegisterHandle(ResourceHandleKey const& handleKey, DescriptorType const& desc)
 		{
-			auto find = m_HandleNameToDesc.find(handleName);
+			if (!handleKey.Valid())
+				return;
+			auto find = m_HandleNameToDesc.find(handleKey);
 			if (find != m_HandleNameToDesc.end())
 			{
 				CA_LOG_ERR(castl::string("handleName ") + "aready allocated");
 				return;
 			};
 			m_Descriptors.push_back(desc);
-			m_HandleNameToDesc.insert(castl::make_pair( handleName, m_Descriptors.size() - 1));
+			m_HandleNameToDesc.insert(castl::make_pair(handleKey, m_Descriptors.size() - 1));
 		}
 
-		int32_t GetDescriptorIndex(castl::string const& handleName) const
+		int32_t GetDescriptorIndex(ResourceHandleKey const& handleKey) const
 		{
-			auto find = m_HandleNameToDesc.find(handleName);
+			if (!handleKey.Valid())
+				return -1;
+			auto find = m_HandleNameToDesc.find(handleKey);
 			if (find == m_HandleNameToDesc.end())
 			{
 				CA_LOG_ERR(castl::string("handleName ") + "not found");
@@ -346,9 +350,11 @@ namespace graphics_backend
 			return &m_Descriptors[index];
 		}
 
-		DescriptorType const* GetDescriptor(castl::string const& handleName) const
+		DescriptorType const* GetDescriptor(ResourceHandleKey const& handleKey) const
 		{
-			auto find = m_HandleNameToDesc.find(handleName);
+			if (!handleKey.Valid())
+				return nullptr;
+			auto find = m_HandleNameToDesc.find(handleKey);
 			if (find == m_HandleNameToDesc.end())
 			{
 				CA_LOG_ERR(castl::string("handleName ") + "not found");
@@ -357,7 +363,7 @@ namespace graphics_backend
 			return &m_Descriptors[find->second];
 		}
 	private:
-		castl::unordered_map<castl::string, int32_t> m_HandleNameToDesc;
+		castl::unordered_map<ResourceHandleKey, int32_t> m_HandleNameToDesc;
 		castl::vector<DescriptorType> m_Descriptors;
 	};
 
@@ -509,14 +515,14 @@ namespace graphics_backend
 	{
 		if (imageHandle.GetType() != ImageHandle::ImageType::Internal)
 			return *this;
-		m_InternalImageManager.RegisterHandle(imageHandle.GetName(), desc);
+		m_InternalImageManager.RegisterHandle(imageHandle.GetKey(), desc);
 		return *this;
 	}
 	GPUGraph& GPUGraph::AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc)
 	{
 		if (bufferHandle.GetType() != BufferHandle::BufferType::Internal)
 			return *this;
-		m_InternalBufferManager.RegisterHandle(bufferHandle.GetName(), desc);
+		m_InternalBufferManager.RegisterHandle(bufferHandle.GetKey(), desc);
 		return *this;
 	}
 

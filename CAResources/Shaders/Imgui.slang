@@ -1,4 +1,3 @@
-
 Texture2D<float4> IMGUITexture;
 struct ImguiContext
 {

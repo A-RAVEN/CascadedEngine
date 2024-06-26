@@ -307,7 +307,7 @@ namespace imgui_display
 		vMax.y += ImGui::GetWindowPos().y;
 
 		//ImGui::GetForegroundDrawList()->AddRect(vMin, vMax, IM_COL32(255, 255, 0, 255));
-		m_TextureViewContexts.push_back(IMGUITextureViewContext{ {}, {vMin.x, vMin.y, vMax.x - vMin.x, vMax.y - vMin.y}, id });
+		m_TextureViewContexts.push_back(IMGUITextureViewContext{ {}, {vMin.x, vMin.y, vMax.x - vMin.x, vMax.y - vMin.y}, {}, id });
 		ImTextureID texID = &m_TextureViewContexts.back();
 		ImGui::Image(texID, ImVec2(vMax.x - vMin.x, vMax.y - vMin.y), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 		ImGui::End();
@@ -453,11 +453,11 @@ namespace imgui_display
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 		unsigned char* fontData;
 		int texWidth, texHeight;
-		io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
+		io.Fonts->GetTexDataAsAlpha8(&fontData, &texWidth, &texHeight);
 
 		GPUTextureDescriptor fontDesc{};
 		fontDesc.accessType = ETextureAccessType::eSampled | ETextureAccessType::eTransferDst;
-		fontDesc.format = ETextureFormat::E_R8G8B8A8_UNORM;
+		fontDesc.format = ETextureFormat::E_R8_UNORM;
 		fontDesc.width = texWidth;
 		fontDesc.height = texHeight;
 		fontDesc.layers = 1;
@@ -465,7 +465,7 @@ namespace imgui_display
 		fontDesc.textureType = ETextureType::e2D;
 		m_Fontimage = renderBackend->CreateGPUTexture(fontDesc);
 
-		initializeGraph->ScheduleData(ImageHandle{ m_Fontimage }, fontData, texWidth * texHeight * sizeof(uint32_t));
+		initializeGraph->ScheduleData(ImageHandle{ m_Fontimage }, fontData, texWidth * texHeight * sizeof(uint8_t));
 
 		resourceSystem->LoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle", [this](ShaderResrouce* result)
 		{
@@ -639,13 +639,14 @@ namespace imgui_display
 	{
 		auto& io = ImGui::GetIO();
 		m_WindowHandles.clear();
+		uint32_t handleID = 0;
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
 			ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-			for (int i = 0; i < platform_io.Viewports.Size; i++)
+			for (uint32_t i = 0; i < platform_io.Viewports.Size; i++)
 			{
 				ImGuiViewport* viewport = platform_io.Viewports[i];
-				PrepareSingleViewGUIResources(viewport, pRenderGraph);
+				PrepareSingleViewGUIResources(handleID, viewport, pRenderGraph);
 			}
 		}
 	}
@@ -684,7 +685,7 @@ namespace imgui_display
 		}
 	}
 
-	void IMGUIContext::PrepareSingleViewGUIResources(ImGuiViewport* viewPort, GPUGraph* renderGraph)
+	void IMGUIContext::PrepareSingleViewGUIResources(uint32_t& inoutHandleID, ImGuiViewport* viewPort, GPUGraph* renderGraph)
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		glm::vec4 meshScale_Pos = glm::vec4(2.0f / viewPort->Size.x, 2.0f / viewPort->Size.y, viewPort->Pos.x, viewPort->Pos.y);
@@ -717,10 +718,11 @@ namespace imgui_display
 		shaderArgs->SetSampler("IMGUITextureSampler", TextureSamplerDescriptor::Create());
 
 		auto defaultImageArgs = castl::make_shared<ShaderArgList>();
-		defaultImageArgs->SetImage("IMGUITexture", m_Fontimage);
+		defaultImageArgs->SetImage("IMGUITexture", m_Fontimage
+			, GPUTextureView::CreateDefaultForSampling(ETextureFormat::E_R8_UNORM, GPUTextureSwizzle::SingleChannel(EColorChannel::eR)));
 
-		pUserData->m_VertexBuffer = BufferHandle("IMGUI Buffer Handle");
-		pUserData->m_IndexBuffer = BufferHandle("IMGUI Index Buffer Handle");
+		pUserData->m_VertexBuffer = BufferHandle("IMGUI Buffer Handle", inoutHandleID++);
+		pUserData->m_IndexBuffer = BufferHandle("IMGUI Index Buffer Handle", inoutHandleID++);
 		renderGraph->AllocBuffer(pUserData->m_VertexBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, imDrawData->TotalVtxCount, sizeof(ImDrawVert)));
 		renderGraph->AllocBuffer(pUserData->m_IndexBuffer, GPUBufferDescriptor::Create(EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, imDrawData->TotalIdxCount, sizeof(ImDrawIdx)));
 
@@ -743,17 +745,24 @@ namespace imgui_display
 				if (id != nullptr)
 				{
 					IMGUITextureViewContext* textureContext = (IMGUITextureViewContext*)id;
-					GPUTextureDescriptor desc = GPUTextureDescriptor::Create((uint32_t)textureContext->m_ViewportRect.width
-						, (uint32_t)textureContext->m_ViewportRect.height
-						, ETextureFormat::E_R8G8B8A8_UNORM
-						, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
+					if (textureContext->m_ViewportRect.width > 0 && textureContext->m_ViewportRect.height > 0)
+					{
+						textureContext->m_TextureDescriptor = GPUTextureDescriptor::Create((uint32_t)textureContext->m_ViewportRect.width
+							, (uint32_t)textureContext->m_ViewportRect.height
+							, ETextureFormat::E_R8G8B8A8_UNORM
+							, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
 
-					textureContext->m_RenderTarget = ImageHandle("ExtraViewport");
-					renderGraph->AllocImage(textureContext->m_RenderTarget, desc);
+						textureContext->m_RenderTarget = ImageHandle("ExtraViewport", inoutHandleID++);
+						renderGraph->AllocImage(textureContext->m_RenderTarget, textureContext->m_TextureDescriptor);
 
-					auto customImageArgs = castl::make_shared<ShaderArgList>();
-					customImageArgs->SetImage("IMGUITexture", textureContext->m_RenderTarget, GPUTextureView::CreateDefaultForSampling(desc.format));
-					pUserData->m_TextureBindings.push_back(customImageArgs);
+						auto customImageArgs = castl::make_shared<ShaderArgList>();
+						customImageArgs->SetImage("IMGUITexture", textureContext->m_RenderTarget, GPUTextureView::CreateDefaultForSampling(textureContext->m_TextureDescriptor.format));
+						pUserData->m_TextureBindings.push_back(customImageArgs);
+					}
+					else
+					{
+						pUserData->m_TextureBindings.push_back(defaultImageArgs);
+					}
 				}
 				else
 				{
@@ -781,7 +790,7 @@ namespace imgui_display
 		auto backBuffer = p_RenderBackend->GetWindowHandle(pUserData->pWindowHandle);
 
 		auto renderPass = RenderPass::New(backBuffer)
-			.SetPipelineState({})
+			.SetPipelineState({ {}, {}, ColorAttachmentsBlendStates::AlphaTransparent()})
 			.PushShaderArguments("imguiCommon", pUserData->m_ShaderArgs)
 			.SetShaders(m_ImguiShaderSet);
 
