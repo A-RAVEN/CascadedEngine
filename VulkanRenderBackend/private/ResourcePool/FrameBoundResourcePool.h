@@ -8,6 +8,7 @@
 #include "GPUResourceObjectManager.h"
 #include "GraphExecutorManager.h"
 #include <DescriptorAllocation/DescriptorLayoutPool.h>
+#include <FramebufferObject.h>
 #include <CASTL/CAMutex.h>
 
 namespace graphics_backend
@@ -35,6 +36,7 @@ namespace graphics_backend
 		CommandBufferThreadPool commandBufferThreadPool;
 		GPUMemoryResourceManager memoryManager;
 		GPUResourceObjectManager resourceObjectManager;
+		FramebufferObjectDic framebufferObjectCache;
 		GlobalResourceReleaseQueue releaseQueue;
 		DescriptorPoolDic descriptorPools;
 		SemaphorePool semaphorePool;
@@ -54,5 +56,6 @@ namespace graphics_backend
 		static_assert(std::move_constructible<DescriptorPoolDic>, "DescriptorPoolDic Shoule Be Movable");
 		static_assert(std::move_constructible<SemaphorePool>, "SemaphorePool Shoule Be Movable");
 		static_assert(std::move_constructible<GraphExecutorManager>, "GraphExecutorManager Shoule Be Movable");
+		static_assert(std::move_constructible<FramebufferObjectDic>, "FramebufferObjectDic Shoule Be Movable");
 	};
 }

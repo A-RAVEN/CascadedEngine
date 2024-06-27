@@ -747,8 +747,10 @@ namespace imgui_display
 					IMGUITextureViewContext* textureContext = (IMGUITextureViewContext*)id;
 					if (textureContext->m_ViewportRect.width > 0 && textureContext->m_ViewportRect.height > 0)
 					{
-						textureContext->m_TextureDescriptor = GPUTextureDescriptor::Create((uint32_t)textureContext->m_ViewportRect.width
-							, (uint32_t)textureContext->m_ViewportRect.height
+						textureContext->m_TextureDescriptor = GPUTextureDescriptor::Create(
+			/*				(uint32_t)textureContext->m_ViewportRect.width
+							, (uint32_t)textureContext->m_ViewportRect.height*/
+							256, 256
 							, ETextureFormat::E_R8G8B8A8_UNORM
 							, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
 
@@ -789,7 +791,7 @@ namespace imgui_display
 			return;
 		auto backBuffer = p_RenderBackend->GetWindowHandle(pUserData->pWindowHandle);
 
-		auto renderPass = RenderPass::New(backBuffer)
+		auto renderPass = RenderPass::New(backBuffer, AttachmentConfig::Clear())
 			.SetPipelineState({ {}, {}, ColorAttachmentsBlendStates::AlphaTransparent()})
 			.PushShaderArguments("imguiCommon", pUserData->m_ShaderArgs)
 			.SetShaders(m_ImguiShaderSet);

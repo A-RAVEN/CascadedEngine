@@ -1,5 +1,4 @@
 #pragma once
-#include <uhash.h>
 #include <CNativeRenderPassInfo.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
@@ -15,12 +14,6 @@ namespace graphics_backend
 		{
 			bool result = (renderPassInfo == other.renderPassInfo);
 			return result;
-		}
-
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, RenderPassDescriptor const& renderpass_desc) noexcept
-		{
-			hash_append(h, renderpass_desc.renderPassInfo);
 		}
 	};
 

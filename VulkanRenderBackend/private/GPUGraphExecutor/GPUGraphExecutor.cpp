@@ -1033,7 +1033,7 @@ namespace graphics_backend
 				}
 				else
 				{
-					passInfo.m_FrameBufferObject = GetGPUObjectManager().GetFramebufferCache().GetOrCreate(frameBufferDesc);
+					passInfo.m_FrameBufferObject = m_FrameBoundResourceManager->framebufferObjectCache.GetOrCreate(frameBufferDesc);
 				}
 			}
 

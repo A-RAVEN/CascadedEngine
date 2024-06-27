@@ -123,7 +123,7 @@ namespace graphics_backend
 		};
 
 		const castl::vector<const char*> g_validationLayers{
-			"VK_LAYER_KHRONOS_validation"
+			 "VK_LAYER_KHRONOS_validation"
 		};
 
 

@@ -319,9 +319,8 @@ int main(int argc, char *argv[])
 						castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
 						finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
 						finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-						RenderPass drawMeshRenderPass = RenderPass::New(viewContext.m_RenderTarget, depthTexture
-							, AttachmentConfig::Clear()
-							, AttachmentConfig::ClearDepthStencil())
+						RenderPass drawMeshRenderPass = RenderPass::New(viewContext.m_RenderTarget
+							, AttachmentConfig::Clear())
 							.PushShaderArguments("cameraData", cameraArgList)
 							.PushShaderArguments("globalLighting", globalLightShaderArg);
 						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);

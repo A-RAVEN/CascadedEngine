@@ -149,18 +149,24 @@ namespace graphics_backend
 	{
 	public:
 		RenderPass() = default;
+		//static RenderPass New(ImageHandle const& color
+		//	, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear
+		//	, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore
+		//	, GraphicsClearValue clearValue = {})
+		//{
+		//	RenderPass pass{};
+		//	pass.m_Arrachments = { color };
+		//	pass.m_AttachmentConfigs = { AttachmentConfig::Create(loadOp, storeOp, clearValue) };
+		//	pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+		//	return pass;
+		//}
 		static RenderPass New(ImageHandle const& color
-			, EAttachmentLoadOp loadOp = EAttachmentLoadOp::eClear
-			, EAttachmentStoreOp storeOp = EAttachmentStoreOp::eStore
-			, GraphicsClearValue clearValue = {})
+			, AttachmentConfig const& colorAttachmentConfig = AttachmentConfig::Create())
 		{
 			RenderPass pass{};
 			pass.m_Arrachments = { color };
-			pass.m_AttachmentConfigs = { AttachmentConfig::Create(loadOp, storeOp, clearValue) };
+			pass.m_AttachmentConfigs = { colorAttachmentConfig };
 			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
-			pass.m_AttachmentLoadOp = loadOp;
-			pass.m_AttachmentStoreOp = storeOp;
-			pass.m_ClearValue = clearValue;
 			return pass;
 		}
 		static RenderPass New(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)
@@ -213,15 +219,9 @@ namespace graphics_backend
 			return m_AttachmentConfigs[attachmentID];
 		}
 
-		//GraphicsClearValue const& GetClearValue() const { return m_ClearValue; }
-		//EAttachmentLoadOp GetAttachmentLoadOp() const { return m_AttachmentLoadOp; }
-		//EAttachmentStoreOp GetAttachmentStoreOp() const { return m_AttachmentStoreOp; }
 		PipelineDescData const& GetPipelineStates() const { return m_PipelineStates; }
 	private:
 		PipelineDescData m_PipelineStates;
-		EAttachmentLoadOp m_AttachmentLoadOp = EAttachmentLoadOp::eLoad;
-		EAttachmentStoreOp m_AttachmentStoreOp = EAttachmentStoreOp::eStore;
-		GraphicsClearValue m_ClearValue = {};
 		castl::vector<AttachmentConfig> m_AttachmentConfigs;
 		castl::vector<DrawCallBatch> m_DrawCallBatches;
 		castl::vector<ImageHandle> m_Arrachments;

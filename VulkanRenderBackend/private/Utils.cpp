@@ -1,5 +1,5 @@
 #include "pch.h"
-
+#define BREAK_ON_VULKAN_ERROR 1
 //Dynamic Function Pointers of Vulkan Should be defined under global namespace
 PFN_vkCreateDebugUtilsMessengerEXT  pfnVkCreateDebugUtilsMessengerEXT = nullptr;
 PFN_vkDestroyDebugUtilsMessengerEXT pfnVkDestroyDebugUtilsMessengerEXT = nullptr;

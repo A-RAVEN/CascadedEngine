@@ -10,6 +10,7 @@ namespace graphics_backend
 		, memoryManager(app)
 		, releaseQueue(app)
 		, resourceObjectManager(app)
+		, framebufferObjectCache(app)
 		, descriptorPools(app)
 		, semaphorePool(app)
 		, m_GraphExecutorManager(app)
@@ -21,6 +22,7 @@ namespace graphics_backend
 		, memoryManager(castl::move(other.memoryManager))
 		, releaseQueue(castl::move(other.releaseQueue))
 		, resourceObjectManager(castl::move(other.resourceObjectManager))
+		, framebufferObjectCache(castl::move(other.framebufferObjectCache))
 		, descriptorPools(castl::move(other.descriptorPools))
 		, semaphorePool(castl::move(other.semaphorePool))
 		, m_GraphExecutorManager(castl::move(other.m_GraphExecutorManager))
@@ -36,6 +38,7 @@ namespace graphics_backend
 	void FrameBoundResourcePool::Release()
 	{
 		castl::lock_guard<castl::mutex> guard(m_Mutex);
+		framebufferObjectCache.ReleaseAll();
 		commandBufferThreadPool.ReleasePool();
 		memoryManager.Release();
 		releaseQueue.ReleaseGlobalResources();
@@ -48,8 +51,9 @@ namespace graphics_backend
 	void FrameBoundResourcePool::ResetPool()
 	{
 		m_Mutex.lock();
-		GetDevice().waitForFences(m_Fence, true, castl::numeric_limits<uint64_t>::max());
+		VKResultCheck(GetDevice().waitForFences(m_Fence, true, castl::numeric_limits<uint64_t>::max()), "Framebound Resource Pool Fence Wait Failed!");
 		GetDevice().resetFences(m_Fence);
+		framebufferObjectCache.ReleaseAll();
 		commandBufferThreadPool.ResetPool();
 		memoryManager.FreeAllMemory();
 		releaseQueue.ReleaseGlobalResources();
