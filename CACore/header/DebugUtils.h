@@ -6,6 +6,9 @@
 #include <stdint.h>
 #ifdef _WIN32
 #include <Windows.h>
+#include <dbghelp.h>
+#include <shellapi.h>
+#include <shlobj.h>
 #endif // _WIN32
 
 
@@ -25,16 +28,3 @@ static inline void CALogError(castl::string const& log, int line, castl::string 
 	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN);
 #endif
 }
-//
-//static inline void CALogError(char const* log, int line, char const* file)
-//{
-//#ifdef _WIN32
-//	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-//	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-//#endif
-//	std::string out = "\n" + std::string(log) + "\nLine: " + std::to_string(line) + "\nFile: " + file + "\n";
-//	std::cerr << out << std::endl;
-//#ifdef _WIN32
-//	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN);
-//#endif
-//}

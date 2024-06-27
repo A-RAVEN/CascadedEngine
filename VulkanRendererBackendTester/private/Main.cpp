@@ -29,6 +29,7 @@
 #include <GPUGraph.h>
 #include <TextureSampler.h>
 #include <CAWindow/WindowSystem.h>
+#include "MiniDump.h"
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -45,6 +46,8 @@ struct VertexData
 
 int main(int argc, char *argv[])
 {
+	MiniDump::EnableAutoDump(true);
+
 	std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format};
 	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
 	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
@@ -229,7 +232,6 @@ int main(int argc, char *argv[])
 				{
 					windowSystem->UpdateSystem();
 					imguiContext.UpdateIMGUI();
-					windowSystem->UpdateSystem();
 				});
 		if (newWindow.expired())
 		{
@@ -307,21 +309,26 @@ int main(int argc, char *argv[])
 
 						ImageHandle colorTexture{ "ColorTexture" };
 						ImageHandle depthTexture{ "DepthTexture" };
-						castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
-						finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
-						finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-						RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
-							, AttachmentConfig::Clear()
-							, AttachmentConfig::ClearDepthStencil())
-							.PushShaderArguments("cameraData", cameraArgList)
-							.PushShaderArguments("globalLighting", globalLightShaderArg);
-						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
-
 						auto colorTextureDesc = viewContext.m_TextureDescriptor;
 						colorTextureDesc.accessType = ETextureAccessType::eRT | ETextureAccessType::eSampled;
 						auto depthTextureDesc = colorTextureDesc;
 						depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
 						newGraph->
+							AllocImage(colorTexture, colorTextureDesc)
+							.AllocImage(depthTexture, depthTextureDesc);
+						castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
+						finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
+						finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
+						RenderPass drawMeshRenderPass = RenderPass::New(viewContext.m_RenderTarget, depthTexture
+							, AttachmentConfig::Clear()
+							, AttachmentConfig::ClearDepthStencil())
+							.PushShaderArguments("cameraData", cameraArgList)
+							.PushShaderArguments("globalLighting", globalLightShaderArg);
+						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
+						newGraph->AddPass(drawMeshRenderPass);
+
+	
+		/*				newGraph->
 							AllocImage(colorTexture, colorTextureDesc)
 							.AllocImage(depthTexture, depthTextureDesc)
 							.AddPass(drawMeshRenderPass)
@@ -341,7 +348,7 @@ int main(int argc, char *argv[])
 											commandList.DrawIndexed(6);
 										})
 								)
-							);
+							);*/
 					}
 
 #pragma endregion

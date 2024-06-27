@@ -13,8 +13,6 @@ if (POLICY CMP0140)
   cmake_policy(SET CMP0140 NEW)
 endif()
 
-
-
 project ("CascadedEngine")
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
