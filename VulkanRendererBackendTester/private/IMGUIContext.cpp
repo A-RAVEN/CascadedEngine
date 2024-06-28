@@ -1,5 +1,5 @@
 #include <GPUTexture.h>
-#include <imgui.h>
+#include "IMGUIIncludes.h"
 #include <glm/mat4x4.hpp>
 #include "IMGUIContext.h"
 #include "ShaderResource.h"
@@ -748,9 +748,8 @@ namespace imgui_display
 					if (textureContext->m_ViewportRect.width > 0 && textureContext->m_ViewportRect.height > 0)
 					{
 						textureContext->m_TextureDescriptor = GPUTextureDescriptor::Create(
-			/*				(uint32_t)textureContext->m_ViewportRect.width
-							, (uint32_t)textureContext->m_ViewportRect.height*/
-							256, 256
+							(uint32_t)textureContext->m_ViewportRect.width
+							, (uint32_t)textureContext->m_ViewportRect.height
 							, ETextureFormat::E_R8G8B8A8_UNORM
 							, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
 

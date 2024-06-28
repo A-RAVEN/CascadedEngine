@@ -1,6 +1,6 @@
 #pragma once
 #include <memory>
-#include <imgui.h>
+#include "IMGUIIncludes.h"
 #include <CRenderBackend.h>
 #include <ShaderProvider.h>
 #include <GPUTexture.h>

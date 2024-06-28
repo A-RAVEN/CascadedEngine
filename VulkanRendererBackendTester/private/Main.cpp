@@ -224,7 +224,7 @@ int main(int argc, char *argv[])
 
 	pThreadManager->LoopFunction([&](auto setup)
 	{
-		setup->MainThread();
+		//setup->MainThread();
 		auto updateWindow = setup->NewTask()
 			->MainThread()
 			->Functor(
@@ -319,19 +319,17 @@ int main(int argc, char *argv[])
 						castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
 						finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
 						finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
-						RenderPass drawMeshRenderPass = RenderPass::New(viewContext.m_RenderTarget
-							, AttachmentConfig::Clear())
+						RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
+							, AttachmentConfig::Clear()
+							, AttachmentConfig::ClearDepthStencil())
 							.PushShaderArguments("cameraData", cameraArgList)
 							.PushShaderArguments("globalLighting", globalLightShaderArg);
 						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
 						newGraph->AddPass(drawMeshRenderPass);
 
 	
-		/*				newGraph->
-							AllocImage(colorTexture, colorTextureDesc)
-							.AllocImage(depthTexture, depthTextureDesc)
-							.AddPass(drawMeshRenderPass)
-							.AddPass
+						newGraph->
+							AddPass
 							(
 								RenderPass::New(viewContext.m_RenderTarget)
 								.SetPipelineState({})
@@ -347,7 +345,7 @@ int main(int argc, char *argv[])
 											commandList.DrawIndexed(6);
 										})
 								)
-							);*/
+							);
 					}
 
 #pragma endregion
