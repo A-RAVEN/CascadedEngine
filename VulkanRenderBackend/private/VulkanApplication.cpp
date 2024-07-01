@@ -23,8 +23,7 @@ namespace graphics_backend
 			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
 			{
 				auto tickWindowHandles = thisGraph->NewTask()
-					->Name("TickWindow")
-					->MainThread()
+					->Name("TickSurfaces")
 					->Functor([&]()
 						{
 							TickWindowContexts();

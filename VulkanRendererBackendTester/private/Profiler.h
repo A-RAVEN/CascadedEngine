@@ -9,6 +9,7 @@
 #include <span>
 #include <unordered_map>
 #include <assert.h>
+#include <CATimer/Timer.h>
 //#include <d3d12.h>
 
 #define check(op, ...) assert(op)
@@ -497,17 +498,17 @@ struct CPUProfilerCallbacks
 // CPU Profiler
 // Also responsible for updating GPU profiler
 // Also responsible for drawing HUD
-class CPUProfiler
+class CPUProfiler : public catimer::TimerSystem
 {
 public:
 	void Initialize(uint32 historySize, uint32 maxEvents);
 	void Shutdown();
 
 	// Start and push an event on the current thread
-	void BeginEvent(const char* pName, const char* pFilePath = nullptr, uint32 lineNumber = 0);
+	void BeginEvent(const char* pName, const char* pFilePath = nullptr, uint32 lineNumber = 0) override;
 
 	// End and pop the last pushed event on the current thread
-	void EndEvent();
+	void EndEvent() override;
 
 	// Resolve the last frame and advance to the next frame.
 	// Call at the START of the frame.
@@ -515,6 +516,16 @@ public:
 
 	// Initialize a thread with an optional name
 	void RegisterThread(const char* pName = nullptr);
+
+	virtual void SetThreadName(const char* pName) override
+	{
+		RegisterThread(pName);
+	}
+
+	virtual void NewFrame() override
+	{
+		Tick();
+	}
 
 	// Struct containing all sampling data of a single frame
 	struct EventData

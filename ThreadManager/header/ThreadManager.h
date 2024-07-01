@@ -2,6 +2,7 @@
 #include <CASTL/CAString.h>
 #include <CASTL/CASharedPtr.h>
 #include <Hasher.h>
+#include <CATimer/Timer.h>
 
 namespace thread_management
 {
@@ -103,7 +104,7 @@ namespace thread_management
 		CThreadManager(CThreadManager&& other) = delete;
 		CThreadManager& operator=(CThreadManager&& other) = delete;
 
-		virtual void InitializeThreadCount(uint32_t threadNum, uint32_t dedicateThreadNum) = 0;
+		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum) = 0;
 		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) = 0;
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;

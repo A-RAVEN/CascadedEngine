@@ -1,4 +1,5 @@
 #include <GPUTexture.h>
+#include "IconsFontAwesome4.h"
 #include "IMGUIIncludes.h"
 #include <glm/mat4x4.hpp>
 #include "IMGUIContext.h"
@@ -6,6 +7,7 @@
 #include "KeyCodes.h"
 #include <CASTL/CAString.h>
 #include <CAWindow/WindowSystem.h>
+#include "Profiler.h"
 
 namespace imgui_display
 {
@@ -434,8 +436,8 @@ namespace imgui_display
 			.Texture2D<float, 4>("FontTexture")
 			.SamplerState("FontSampler");
 	}
-	void IMGUIContext::Initialize(
-		castl::shared_ptr<CRenderBackend> const& renderBackend
+	void IMGUIContext::Initialize(castl::string const& editorConfigPath
+		, castl::shared_ptr<CRenderBackend> const& renderBackend
 		, castl::shared_ptr<IWindowSystem> const& windowSystem
 		, castl::shared_ptr<IWindow> const& mainWindowHandle
 		, ResourceManagingSystem* resourceSystem
@@ -451,6 +453,15 @@ namespace imgui_display
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+
+		io.Fonts->AddFontDefault();
+		ImFontConfig fontConfig;
+		fontConfig.MergeMode = true;
+		fontConfig.GlyphMinAdvanceX = 15.0f;
+		static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+		castl::string fontPath = editorConfigPath + FONT_ICON_FILE_NAME_FA;
+		io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 15.0f, &fontConfig, icon_ranges);
+
 		unsigned char* fontData;
 		int texWidth, texHeight;
 		io.Fonts->GetTexDataAsAlpha8(&fontData, &texWidth, &texHeight);
@@ -466,7 +477,7 @@ namespace imgui_display
 		m_Fontimage = renderBackend->CreateGPUTexture(fontDesc);
 
 		initializeGraph->ScheduleData(ImageHandle{ m_Fontimage }, fontData, texWidth * texHeight * sizeof(uint8_t));
-
+		IM_FREE(fontData);
 		resourceSystem->LoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle", [this](ShaderResrouce* result)
 		{
 			m_ImguiShaderSet = result;
@@ -622,7 +633,7 @@ namespace imgui_display
 		ShowExampleAppDockSpace(&show);
 		//ImGui::ShowDemoWindow();
 		DrawView(0);
-
+		DrawProfilerHUD();
 		//DrawFrame(0);
 		//DrawFrame(1);
 

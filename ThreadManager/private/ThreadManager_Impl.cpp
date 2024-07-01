@@ -5,6 +5,8 @@
 
 namespace thread_management
 {
+    CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CThreadManager, ThreadManager_Impl1)
+
     CTaskGraph* TaskGraph_Impl1::Name(castl::string name)
     {
         Name_Internal(name);
@@ -125,6 +127,7 @@ namespace thread_management
     }
     void TaskGraph_Impl1::Execute_Internal()
     {
+        CPUTIMER_SCOPE(m_Name.c_str());
         if (m_Functor != nullptr)
         {
             m_Functor(this);
@@ -223,7 +226,7 @@ namespace thread_management
 
     void CTask_Impl1::Execute_Internal()
     {
-        //CA_LOG_ERR("Execute " + m_Name);
+        CPUTIMER_SCOPE(m_Name.c_str());
         if (m_Functor != nullptr)
         {
             m_Functor();
@@ -272,8 +275,9 @@ namespace thread_management
         }
     }
 
-    void ThreadManager_Impl1::InitializeThreadCount(uint32_t threadNum, uint32_t dedicateThreadNum)
+    void ThreadManager_Impl1::InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum)
     {
+        catimer::SetGlobalTimerSystem(timer);
         m_WorkerThreads.reserve(threadNum + dedicateThreadNum);
         uint32_t dedicateTaskQueueNum = dedicateThreadNum + 1;
         m_DedicateTaskQueues.resize(dedicateTaskQueueNum);
@@ -489,7 +493,6 @@ namespace thread_management
         m_DedicateTaskQueues[0].WorkLoop();
     }
 
-    CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CThreadManager, ThreadManager_Impl1)
 
 
     TaskParallelFor* TaskParallelFor_Impl::Name(castl::string name)
@@ -756,6 +759,7 @@ namespace thread_management
         }
         return true;
     }
+
 }
 
 

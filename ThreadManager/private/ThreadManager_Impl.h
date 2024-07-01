@@ -195,7 +195,7 @@ namespace thread_management
 	class ThreadManager_Impl1 : public TaskBaseObject, public CThreadManager
 	{
 	public:
-		virtual void InitializeThreadCount(uint32_t threadNum, uint32_t dedicateThreadNum) override;
+		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum) override;
 		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) override;
 		CTask_Impl1* NewTask();
 		TaskParallelFor_Impl* NewTaskParallelFor();

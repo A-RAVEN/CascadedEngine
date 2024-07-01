@@ -7,6 +7,7 @@ file(GLOB_RECURSE Header_List "*.h")
 add_executable(${PROJECT_NAME} ${Header_List} ${Source_List})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
+target_link_libraries(${PROJECT_NAME} PRIVATE TimerSystem)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE Rendering_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompiler)

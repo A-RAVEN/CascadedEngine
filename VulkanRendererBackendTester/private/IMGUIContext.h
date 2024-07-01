@@ -72,8 +72,8 @@ namespace imgui_display
 	{
 	public:
 		IMGUIContext();
-		void Initialize(
-			castl::shared_ptr<CRenderBackend> const& renderBackend
+		void Initialize(castl::string const& editorConfigPath
+			, castl::shared_ptr<CRenderBackend> const& renderBackend
 			, castl::shared_ptr<IWindowSystem> const& windowSystem
 			, castl::shared_ptr<IWindow> const& mainWindowHandle
 			, resource_management::ResourceManagingSystem* resourceSystem

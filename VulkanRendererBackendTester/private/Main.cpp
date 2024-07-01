@@ -30,6 +30,8 @@
 #include <TextureSampler.h>
 #include <CAWindow/WindowSystem.h>
 #include "MiniDump.h"
+#include "Profiler.h"
+#include <CATimer/Timer.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -52,6 +54,7 @@ int main(int argc, char *argv[])
 	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
 	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
 	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
+	castl::string editorResourceString = castl::to_ca(rootPath.string()) + "EditorConfigs";
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
@@ -60,11 +63,14 @@ int main(int argc, char *argv[])
 
 	auto windowSystem = windowSystemLoader.New();
 
+	gCPUProfiler.Initialize(5, 1024);
+	PROFILE_FRAME();
 
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
 	auto pThreadManager = threadManagerLoader.New();
-	pThreadManager->InitializeThreadCount(5, 2);
+	pThreadManager->InitializeThreadCount(&gCPUProfiler, 5, 2);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
+
 
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
@@ -162,7 +168,7 @@ int main(int argc, char *argv[])
 		submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
 		RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
 
-		imguiContext.Initialize(pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
+		imguiContext.Initialize(editorResourceString, pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
 		
 		GPUFrame submitFrame{};
 		submitFrame.pGraph = submitGraph;
@@ -222,14 +228,20 @@ int main(int argc, char *argv[])
 	globalLightShaderArg->SetValue("lightColor", glm::vec3(2.0f, 2.0f, 0.25f));
 	globalLightShaderArg->SetValue("ambientColor", glm::vec3(0.1f, 0.1f, 0.2f));
 
+	
+	PROFILE_FRAME();
+
 	pThreadManager->LoopFunction([&](auto setup)
 	{
 		//setup->MainThread();
+		//PROFILE_CPU_SCOPE("MainThread Setup");
 		auto updateWindow = setup->NewTask()
 			->MainThread()
 			->Functor(
 				[&]()
 				{
+					PROFILE_FRAME();
+					PROFILE_CPU_SCOPE("Update Window");
 					windowSystem->UpdateSystem();
 					imguiContext.UpdateIMGUI();
 				});
@@ -241,10 +253,11 @@ int main(int argc, char *argv[])
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 
 		auto graphics = setup->NewTaskGraph()
-			->Name("IMGUI")
+			->Name("DrawEverything")
 			->DependsOn(updateWindow)
 			->SetupFunctor([&, newGraph](auto taskGraph)
 				{
+					PROFILE_CPU_SCOPE("Draw Everything");
 					//IMGUI Logic
 					imguiContext.PrepareDrawData(newGraph.get());
 					//Draw Viewports Here
@@ -291,6 +304,8 @@ int main(int argc, char *argv[])
 
 					for(auto& viewContext : viewContexts)
 					{
+						PROFILE_CPU_SCOPE("Draw View");
+
 						if (!viewContext.m_RenderTarget.IsValid())
 						{
 							continue;
@@ -353,13 +368,12 @@ int main(int argc, char *argv[])
 					imguiContext.Draw(newGraph.get());
 				});
 
-
-
 		setup->NewTaskGraph()
 			->Name("Submit GPU")
 			->DependsOn(graphics)
 			->SetupFunctor([&, newGraph](auto graph)
 				{
+					PROFILE_CPU_SCOPE("Submit GPUGraph");
 					auto& presentSurfaces = imguiContext.GetWindowHandles();
 					GPUFrame gpuFrame{};
 					gpuFrame.pGraph = newGraph;
@@ -369,6 +383,7 @@ int main(int argc, char *argv[])
 					}
 					pBackend->ScheduleGPUFrame(graph, gpuFrame);
 				});
+
 		return windowSystem->GetWindowCount() > 0;
 	}, "FullGraph");
 	pThreadManager->Run();
@@ -376,5 +391,7 @@ int main(int argc, char *argv[])
 	pThreadManager.reset();
 	pBackend->Release();
 	pBackend.reset();
+
+	gCPUProfiler.Shutdown();
 	return EXIT_SUCCESS;
 }

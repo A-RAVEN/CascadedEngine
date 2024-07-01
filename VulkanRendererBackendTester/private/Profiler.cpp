@@ -362,6 +362,9 @@ void CPUProfiler::BeginEvent(const char* pName, const char* pFilePath, uint32 li
 	if (m_Paused)
 		return;
 
+	if (m_pEventData == nullptr)
+		return;
+
 	EventData& data = GetData();
 	uint32 newIndex = data.NumEvents.fetch_add(1);
 	check(newIndex < data.Events.size());
@@ -387,6 +390,9 @@ void CPUProfiler::EndEvent()
 		m_EventCallback.OnEventEnd(m_EventCallback.pUserData);
 
 	if (m_Paused)
+		return;
+
+	if (m_pEventData == nullptr)
 		return;
 
 	EventData::Event& event = GetData().Events[GetTLS().EventStack.Pop()];
