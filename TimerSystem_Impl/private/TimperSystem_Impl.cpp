@@ -8,7 +8,6 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAChrono.h>
 #include <Hasher.h>
-#include <LibraryExportCommon.h>
 namespace catimer
 {
 	using TimerType = castl::chrono::high_resolution_clock;
@@ -155,8 +154,6 @@ namespace catimer
 		friend class TimerSystem_Impl;
 	};
 
-
-
 	struct EventHandlePool
 	{
 		EventHandle const& GetOrCreateEventHandle(cacore::HashObj<castl::string> const& eventKey)
@@ -226,5 +223,4 @@ namespace catimer
 		EventHandlePool m_EventHandlePool;
 	};
 
-	CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(TimerSystem, TimerSystem_Impl)
 }
