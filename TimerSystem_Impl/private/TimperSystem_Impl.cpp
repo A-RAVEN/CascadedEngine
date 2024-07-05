@@ -8,39 +8,13 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAChrono.h>
 #include <Hasher.h>
+#include <TimerSystemEditor/TimerSystem_Impl.h>
 namespace catimer
 {
-	using TimerType = castl::chrono::high_resolution_clock;
 	struct TimerFrameHistories;
 	class TimerSystem_Impl;
 
-	struct EventHandle
-	{
-		uint32_t handleID;
-		castl::string_view name;
-	};
-	class FrameData
-	{
-	public:
-		struct EventData
-		{
-			EventHandle handle;
-			uint32_t stackID;
-			TimerType::time_point beginTime;
-			TimerType::time_point endTime;
-		};
-
-		void AddEvent(EventHandle const& inEvent, uint32_t stackID, TimerType::time_point beginTime, TimerType::time_point endTime)
-		{
-			m_EventRecords.push_back({ inEvent, stackID, beginTime, endTime });
-		}
-		void Clear()
-		{
-			m_EventRecords.clear();
-		}
-		castl::vector<EventData> m_EventRecords;
-	};
-
+	constexpr uint32_t kMaxFrameCount = 10;
 
 	struct TimerFrameHistories
 	{
@@ -55,13 +29,45 @@ namespace catimer
 					m_FrameData.pop_front();
 				}
 			}
+			castl::string m_ThreadName;
 			castl::deque<castl::pair<uint32_t, FrameData>> m_FrameData;
 		};
 
 		void SubmitFrame(uint32_t threadID, uint32_t frameID, FrameData const& frameData)
 		{
 			castl::shared_lock<castl::shared_mutex> lock(m_Mutex);
-			m_ThreadFrameHistories[threadID].PushFrameData(frameID, m_PreserveFrameCount, frameData);
+			m_ThreadFrameHistories[threadID].PushFrameData(frameID, kMaxFrameCount, frameData);
+		}
+
+		void SetThreadName(uint32_t threadID, castl::string_view name)
+		{
+			castl::shared_lock<castl::shared_mutex> lock(m_Mutex);
+			m_ThreadFrameHistories[threadID].m_ThreadName = name;
+		}
+
+		void GetThreadHistories(castl::vector<ThreadHistories>& outThreadHistories, uint32_t beginFrame)
+		{
+			castl::shared_lock<castl::shared_mutex> lock(m_Mutex);
+			outThreadHistories.resize(m_ThreadFrameHistories.size());
+			for (size_t threadID = 0; threadID < m_ThreadFrameHistories.size(); ++threadID)
+			{
+				auto& threadHistory = m_ThreadFrameHistories[threadID];
+				auto& outThreadHistory = outThreadHistories[threadID];
+				outThreadHistory.m_ThreadName = threadHistory.m_ThreadName;
+
+				uint32_t frameCounter = beginFrame;
+				for (auto& frameData : threadHistory.m_FrameData)
+				{
+					while (frameData.first > frameCounter)
+					{
+						outThreadHistory.m_FrameData.emplace_back();
+					}
+					if (frameData.first == frameCounter)
+					{
+						outThreadHistory.m_FrameData.push_back(frameData.second);
+					}
+				}
+			}
 		}
 
 		uint32_t RegiterThread()
@@ -71,7 +77,6 @@ namespace catimer
 			return m_ThreadFrameHistories.size() - 1;
 		}
 
-		uint32_t m_PreserveFrameCount = 10;
 		castl::shared_mutex m_Mutex;
 		castl::vector<ThreadFrameHistories> m_ThreadFrameHistories;
 	};
@@ -110,9 +115,11 @@ namespace catimer
 			return tls;
 		}
 
-		void SetName(castl::string_view name)
+		void SetName(TimerFrameHistories& inHistories, castl::string_view name)
 		{
 			m_Name = name;
+			CheckInitialize(inHistories);
+			inHistories.SetThreadName(m_ThreadID, name);
 		}
 
 		void EndEvent(TimerFrameHistories& inHistories, uint32_t frameCount)
@@ -129,6 +136,7 @@ namespace catimer
 
 
 	private:
+
 		void CheckInitialize(TimerFrameHistories& inHistories)
 		{
 			if (m_ThreadID < 0)
@@ -184,13 +192,52 @@ namespace catimer
 		castl::unordered_map<cacore::HashObj<castl::string>, EventHandle> m_EventHandles;
 	};
 
-	class TimerSystem_Impl : public TimerSystem
+	struct FrameCounter
+	{
+		castl::shared_mutex m_Mutex;
+		uint32_t m_CurrentCount = 0;
+		castl::deque<TimerType::time_point> m_FrameBeginTimes;
+		uint32_t CopyFrameBeginTimes(castl::vector<TimerType::time_point>& outFrameBeginTimes)
+		{
+			castl::shared_lock<castl::shared_mutex> lock(m_Mutex);
+			outFrameBeginTimes.resize(m_FrameBeginTimes.size());
+			castl::copy(m_FrameBeginTimes.begin(), m_FrameBeginTimes.end(), outFrameBeginTimes.begin());
+			return m_CurrentCount;
+		}
+		uint32_t GetCurrentFrameCount()
+		{
+			castl::shared_lock<castl::shared_mutex> lock(m_Mutex);
+			return m_CurrentCount;
+		}
+		void NextFrame()
+		{
+			castl::unique_lock<castl::shared_mutex> lock(m_Mutex);
+			m_FrameBeginTimes.push_back(TimerType::now());
+			while (m_FrameBeginTimes.size() > kMaxFrameCount)
+			{
+				m_FrameBeginTimes.pop_front();
+			}
+			++m_CurrentCount;
+		}
+	};
+
+	class TimerSystem_Impl : public TimerSystem, public TimerSystem_Editor
 	{
 	public:
+		// 通过 TimerSystem_Editor 继承
+		virtual TimerData QueryHistories() override
+		{
+			TimerData result{};
+			uint32_t endFrameCount = m_FrameCounter.CopyFrameBeginTimes(result.frameBeginTimes);
+			result.startFrame = endFrameCount - result.frameBeginTimes.size();
+			m_FrameHistories.GetThreadHistories(result.outThreadHistories, result.startFrame);
+			return result;
+		}
+
 		// 通过 TimerSystem 继承
 		void SetThreadName(const char* pName) override
 		{
-			ThreadLocalStorage::Get().SetName(pName);
+			ThreadLocalStorage::Get().SetName(m_FrameHistories, pName);
 		}
 
 		void BeginEvent(const char* pName, const char* pFilePath, uint32_t lineNumber) override
@@ -201,12 +248,12 @@ namespace catimer
 
 		void EndEvent() override
 		{
-			ThreadLocalStorage::Get().EndEvent(m_FrameHistories, m_CurrentCount);
+			ThreadLocalStorage::Get().EndEvent(m_FrameHistories, m_FrameCounter.GetCurrentFrameCount());
 		}
 		
 		void NewFrame() override
 		{
-			++m_CurrentCount;
+			m_FrameCounter.NextFrame();
 		}
 
 		void CheckInitializeThread()
@@ -216,11 +263,17 @@ namespace catimer
 				return;
 		}
 	private:
-		castl::atomic<uint32_t> m_CurrentCount = 0;
+		FrameCounter m_FrameCounter;
 
 		TimerFrameHistories m_FrameHistories;
 
 		EventHandlePool m_EventHandlePool;
 	};
 
+	TimerSystem_Impl g_TimerSystem_Impl;
+
+	TimerSystem_Editor& GetTimerSystemEditor()
+	{
+		return g_TimerSystem_Impl;
+	}
 }

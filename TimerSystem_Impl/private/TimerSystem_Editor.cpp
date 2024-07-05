@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <CASTL/CAAlgorithm.h>
 #include <TimerSystemEditor/TimerSystem_Editor.h>
+#include <TimerSystemEditor/TimerSystem_Impl.h>
+#include "IconsFontAwesome4.h"
 
 namespace catimer
 {
@@ -134,8 +136,11 @@ namespace catimer
 			// How many ticks are in the timeline
 			float ticksInTimeline = MsToTicks * style.MaxTime;
 
+			auto& timerSystem = GetTimerSystemEditor();
+			auto timerData = timerSystem.QueryHistories();
 			uint64_t timelineTicksBegin, timelineTicksEnd;
-			gCPUProfiler.GetHistoryRange(timelineTicksBegin, timelineTicksEnd);
+			timerData.GetTimerDataRangeMS(timelineTicksBegin, timelineTicksEnd);
+			//gCPUProfiler.GetHistoryRange(timelineTicksBegin, timelineTicksEnd);
 			uint64_t beginAnchor = timelineTicksBegin;
 
 			// How many pixels is one tick
@@ -169,16 +174,18 @@ namespace catimer
 			cursor.y += style.BarHeight;
 
 			// Add dark shade background for every even frame
-			int frameNr = 0;
-			URange cpuRange = gCPUProfiler.GetFrameRange();
-			for (uint32_t i = cpuRange.Begin; i < cpuRange.End; ++i)
 			{
-				Span<const CPUProfiler::EventData::Event> events = gCPUProfiler.GetEventsForThread(gCPUProfiler.GetThreads()[0], i);
-				if (events.size() > 0 && frameNr++ % 2 == 0)
+				uint32_t beginFrame = timerData.startFrame;
+				uint32_t frameCount = timerData.frameBeginTimes.size() - 1;
+				for (uint32_t i = 0; i < frameCount; ++i)
 				{
-					float beginOffset = (events[0].TicksBegin - beginAnchor) * TicksToPixels;
-					float endOffset = (events[0].TicksEnd - beginAnchor) * TicksToPixels;
-					pDraw->AddRectFilled(ImVec2(cursor.x + beginOffset, timelineRect.Min.y), ImVec2(cursor.x + endOffset, timelineRect.Max.y), ImColor(1.0f, 1.0f, 1.0f, 0.05f));
+					uint32_t frameID = beginFrame + i;
+					if (frameID % 2 == 0)
+					{
+						float beginOffset = (timerData.GetFrameBeginMS(i) - beginAnchor) * TicksToPixels;
+						float endOffset = (timerData.GetFrameBeginMS(i + 1) - beginAnchor) * TicksToPixels;
+						pDraw->AddRectFilled(ImVec2(cursor.x + beginOffset, timelineRect.Min.y), ImVec2(cursor.x + endOffset, timelineRect.Max.y), ImColor(1.0f, 1.0f, 1.0f, 0.05f));
+					}
 				}
 			}
 
@@ -215,8 +222,7 @@ namespace catimer
 							}
 							else if (context.PauseThreshold && ms >= context.PauseThresholdTime)
 							{
-								gCPUProfiler.SetPaused(true);
-								//gGPUProfiler.SetPaused(true);
+								//gCPUProfiler.SetPaused(true);
 							}
 
 							// Darken the bottom
@@ -329,13 +335,14 @@ namespace catimer
 			pDraw->AddLine(ImVec2(timelineRect.Min.x, cursor.y), ImVec2(timelineRect.Max.x, cursor.y), ImColor(style.BGTextColor), 4);
 
 			// Draw each CPU thread track
-			Span<const CPUProfiler::ThreadData> threads = gCPUProfiler.GetThreads();
+			auto& threads = timerData.outThreadHistories;
+			//Span<const CPUProfiler::ThreadData> threads = gCPUProfiler.GetThreads();
 			for (uint32_t threadIndex = 0; threadIndex < (uint32_t)threads.size(); ++threadIndex)
 			{
 				// Add thread name for track
-				const CPUProfiler::ThreadData& thread = threads[threadIndex];
+				const auto& thread = threads[threadIndex];
 				const char* pHeaderText;
-				ImFormatStringToTempBuffer(&pHeaderText, nullptr, "%s [%d]", thread.Name, thread.ThreadID);
+				ImFormatStringToTempBuffer(&pHeaderText, nullptr, "%s [%d]", thread.m_ThreadName.c_str(), threadIndex);
 				bool isOpen = TrackHeader(pHeaderText, ImGui::GetID(&thread));
 
 				uint32_t maxDepth = isOpen ? style.MaxDepth : 1;
@@ -347,33 +354,40 @@ namespace catimer
 					|[=============]			|
 					|	[======]				|
 				*/
-				for (uint32_t frameIndex = cpuRange.Begin; frameIndex < cpuRange.End; ++frameIndex)
 				{
-					Span<const CPUProfiler::EventData::Event> events = gCPUProfiler.GetEventsForThread(thread, frameIndex);
-					for (const CPUProfiler::EventData::Event& event : events)
+					uint32_t beginFrame = timerData.startFrame;
+					uint32_t frameCount = timerData.frameBeginTimes.size() - 1;
+					for (uint32_t id = 0; id < frameCount; ++id)
 					{
-						// Skip events above the max depth
-						if (event.Depth >= maxDepth)
-							continue;
-
-						trackDepth = ImMax(trackDepth, (uint32_t)event.Depth + 1);
-
-						bool hovered;
-						DrawBar(ImGui::GetID(&event), event.TicksBegin, event.TicksEnd, event.Depth, event.pName, &hovered);
-						if (hovered)
+						uint32_t frameIndex = beginFrame + id;
+						auto& frameData = thread.m_FrameData[id];
+						auto& events = frameData.m_EventRecords;
+						for (const auto& event : events)
 						{
-							if (ImGui::BeginTooltip())
+							// Skip events above the max depth
+							if (event.stackDepth >= maxDepth)
+								continue;
+
+							trackDepth = ImMax(trackDepth, (uint32_t)event.stackDepth + 1);
+
+							bool hovered;
+							uint64_t tickBegin, tickEnd;
+							event.GetDataRangeMS(tickBegin, tickEnd);
+							DrawBar(ImGui::GetID(&event), tickBegin, tickEnd, event.stackDepth, event.handle.name.data(), &hovered);
+							if (hovered)
 							{
-								ImGui::Text("%s | %.3f ms", event.pName, TicksToMs * (float)(event.TicksEnd - event.TicksBegin));
-								ImGui::Text("Frame %d", frameIndex);
-								if (event.pFilePath)
-									ImGui::Text("%s:%d", event.pFilePath, event.LineNumber);
-								ImGui::EndTooltip();
+								if (ImGui::BeginTooltip())
+								{
+									ImGui::Text("%s | %.3f ms", event.handle.name.data(), TicksToMs * (float)(tickEnd - tickBegin));
+									ImGui::Text("Frame %d", frameIndex);
+			/*						if (event.pFilePath)
+										ImGui::Text("%s:%d", event.pFilePath, event.LineNumber);*/
+									ImGui::EndTooltip();
+								}
 							}
 						}
 					}
 				}
-
 				// Add vertical line to end track
 				cursor.y += trackDepth * style.BarHeight;
 				pDraw->AddLine(ImVec2(timelineRect.Min.x, cursor.y), ImVec2(timelineRect.Max.x, cursor.y), ImColor(style.BGTextColor));
