@@ -275,157 +275,167 @@ namespace graphics_backend
 	{
 		auto& imageManager = m_Graph->GetImageManager();
 		auto& bufferManager = m_Graph->GetBufferManager();
-		auto& renderPasses = m_Graph->GetRenderPasses();
 		m_BufferManager.ResetAllocator();
 		m_ImageManager.ResetAllocator();
-		for (auto& renderPass : renderPasses)
-		{
-			//Rendertargets
-			auto& imageHandles = renderPass.GetAttachments();
-			for (auto& img : imageHandles)
-			{
-				if (img.GetType() == ImageHandle::ImageType::Internal)
-				{
-					m_ImageManager.AllocResourceIndex(img.GetKey(), imageManager.GetDescriptorIndex(img.GetKey()));
-				}
-				else if (img.GetType() == ImageHandle::ImageType::Backbuffer)
-				{
-					castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(img.GetWindowHandle());
-					window->WaitCurrentFrameBufferIndex();
-				}
-			}
 
-			//Shader Args
-			castl::deque<ShaderArgList const*> shaderArgLists;
-			for (auto argList : renderPass.GetPipelineStates().shaderArgLists)
+		{
+			CPUTIMER_SCOPE("Stat Rasterize Resources");
+			auto& renderPasses = m_Graph->GetRenderPasses();
+			for (auto& renderPass : renderPasses)
 			{
-				shaderArgLists.push_back(argList.second.get());
-			}
-			auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-			for (auto& batch : drawcallBatchs)
-			{
-				for (auto argList : batch.pipelineStateDesc.shaderArgLists)
+				//Rendertargets
+				auto& imageHandles = renderPass.GetAttachments();
+				for (auto& img : imageHandles)
+				{
+					if (img.GetType() == ImageHandle::ImageType::Internal)
+					{
+						m_ImageManager.AllocResourceIndex(img.GetKey(), imageManager.GetDescriptorIndex(img.GetKey()));
+					}
+					else if (img.GetType() == ImageHandle::ImageType::Backbuffer)
+					{
+						castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(img.GetWindowHandle());
+						window->WaitCurrentFrameBufferIndex();
+					}
+				}
+
+				//Shader Args
+				castl::deque<ShaderArgList const*> shaderArgLists;
+				for (auto argList : renderPass.GetPipelineStates().shaderArgLists)
 				{
 					shaderArgLists.push_back(argList.second.get());
 				}
+				auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+				for (auto& batch : drawcallBatchs)
 				{
-					//Index Buffer
-					auto& indesBuffer = batch.m_BoundIndexBuffer;
-					if (indesBuffer.GetType() == BufferHandle::BufferType::Internal)
+					for (auto argList : batch.pipelineStateDesc.shaderArgLists)
 					{
-						m_BufferManager.AllocResourceIndex(indesBuffer.GetKey(), bufferManager.GetDescriptorIndex(indesBuffer.GetKey()));
+						shaderArgLists.push_back(argList.second.get());
 					}
-					//Vertex Buffers
-					for (auto& vertexBufferPair : batch.m_BoundVertexBuffers)
 					{
-						auto& vertexBuffer = vertexBufferPair.second;
-						if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
+						//Index Buffer
+						auto& indesBuffer = batch.m_BoundIndexBuffer;
+						if (indesBuffer.GetType() == BufferHandle::BufferType::Internal)
 						{
-							m_BufferManager.AllocResourceIndex(vertexBuffer.GetKey(), bufferManager.GetDescriptorIndex(vertexBuffer.GetKey()));
+							m_BufferManager.AllocResourceIndex(indesBuffer.GetKey(), bufferManager.GetDescriptorIndex(indesBuffer.GetKey()));
+						}
+						//Vertex Buffers
+						for (auto& vertexBufferPair : batch.m_BoundVertexBuffers)
+						{
+							auto& vertexBuffer = vertexBufferPair.second;
+							if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
+							{
+								m_BufferManager.AllocResourceIndex(vertexBuffer.GetKey(), bufferManager.GetDescriptorIndex(vertexBuffer.GetKey()));
+							}
+						}
+					}
+
+				}
+				while (!shaderArgLists.empty())
+				{
+					ShaderArgList const& shaderArgs = *shaderArgLists.front();
+					shaderArgLists.pop_front();
+					for (auto& subArgPairs : shaderArgs.GetSubArgList())
+					{
+						shaderArgLists.push_back(subArgPairs.second.get());
+					}
+					for (auto& imagePair : shaderArgs.GetImageList())
+					{
+						auto& imgs = imagePair.second;
+						for (auto& img : imgs)
+						{
+							auto& imgHandle = img.first;
+							if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
+							{
+								m_ImageManager.AllocResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
+							}
+							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
+							{
+								castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
+								window->WaitCurrentFrameBufferIndex();
+							}
+						}
+					}
+					for (auto& bufferPair : shaderArgs.GetBufferList())
+					{
+						auto& bufs = bufferPair.second;
+						for (auto& buf : bufs)
+						{
+							if (buf.GetType() == BufferHandle::BufferType::Internal)
+							{
+								m_BufferManager.AllocResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
+							}
 						}
 					}
 				}
 
+				m_ImageManager.NextPass();
+				m_BufferManager.NextPass();
 			}
-			while (!shaderArgLists.empty())
-			{
-				ShaderArgList const& shaderArgs = *shaderArgLists.front();
-				shaderArgLists.pop_front();
-				for (auto& subArgPairs : shaderArgs.GetSubArgList())
-				{
-					shaderArgLists.push_back(subArgPairs.second.get());
-				}
-				for (auto& imagePair : shaderArgs.GetImageList())
-				{
-					auto& imgs = imagePair.second;
-					for (auto& img : imgs)
-					{
-						auto& imgHandle = img.first;
-						if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
-						{
-							m_ImageManager.AllocResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
-						}
-						else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
-						{
-							castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
-							window->WaitCurrentFrameBufferIndex();
-						}
-					}
-				}
-				for (auto& bufferPair : shaderArgs.GetBufferList())
-				{
-					auto& bufs = bufferPair.second;
-					for (auto& buf : bufs)
-					{
-						if (buf.GetType() == BufferHandle::BufferType::Internal)
-						{
-							m_BufferManager.AllocResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
-						}
-					}
-				}
-			}
-
-			m_ImageManager.NextPass();
-			m_BufferManager.NextPass();
 		}
 
-		auto& computePasses = m_Graph->GetComputePasses();
-		for (auto& computePass : computePasses)
 		{
-			castl::deque<ShaderArgList const*> shaderArgLists;
-			for (auto& arg : computePass.shaderArgLists)
+			CPUTIMER_SCOPE("Stat Compute Resources");
+			auto& computePasses = m_Graph->GetComputePasses();
+			for (auto& computePass : computePasses)
 			{
-				shaderArgLists.push_back(arg.second.get());
-			}
-			for (auto& dispatch : computePass.dispatchs)
-			{
-				for (auto& arg : dispatch.shaderArgLists)
+				castl::deque<ShaderArgList const*> shaderArgLists;
+				for (auto& arg : computePass.shaderArgLists)
 				{
 					shaderArgLists.push_back(arg.second.get());
 				}
-			}
-
-			while (!shaderArgLists.empty())
-			{
-				ShaderArgList const& shaderArgs = *shaderArgLists.front();
-				shaderArgLists.pop_front();
-				for (auto& subArgPairs : shaderArgs.GetSubArgList())
+				for (auto& dispatch : computePass.dispatchs)
 				{
-					shaderArgLists.push_back(subArgPairs.second.get());
-				}
-				for (auto& imagePair : shaderArgs.GetImageList())
-				{
-					auto& imgs = imagePair.second;
-					for (auto& img : imgs)
+					for (auto& arg : dispatch.shaderArgLists)
 					{
-						auto& imgHandle = img.first;
-						if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
-						{
-							m_ImageManager.AllocPersistantResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
-						}
-						else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
-						{
-							castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
-							window->WaitCurrentFrameBufferIndex();
-						}
+						shaderArgLists.push_back(arg.second.get());
 					}
 				}
-				for (auto& bufferPair : shaderArgs.GetBufferList())
+
+				while (!shaderArgLists.empty())
 				{
-					auto& bufs = bufferPair.second;
-					for (auto& buf : bufs)
+					ShaderArgList const& shaderArgs = *shaderArgLists.front();
+					shaderArgLists.pop_front();
+					for (auto& subArgPairs : shaderArgs.GetSubArgList())
 					{
-						if (buf.GetType() == BufferHandle::BufferType::Internal)
+						shaderArgLists.push_back(subArgPairs.second.get());
+					}
+					for (auto& imagePair : shaderArgs.GetImageList())
+					{
+						auto& imgs = imagePair.second;
+						for (auto& img : imgs)
 						{
-							m_BufferManager.AllocPersistantResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
+							auto& imgHandle = img.first;
+							if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
+							{
+								m_ImageManager.AllocPersistantResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
+							}
+							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
+							{
+								castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
+								window->WaitCurrentFrameBufferIndex();
+							}
+						}
+					}
+					for (auto& bufferPair : shaderArgs.GetBufferList())
+					{
+						auto& bufs = bufferPair.second;
+						for (auto& buf : bufs)
+						{
+							if (buf.GetType() == BufferHandle::BufferType::Internal)
+							{
+								m_BufferManager.AllocPersistantResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
+							}
 						}
 					}
 				}
 			}
 		}
-
-		m_ImageManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetImageManager());
-		m_BufferManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetBufferManager());
+		
+		{
+			CPUTIMER_SCOPE("Allocate GPU Resources");
+			m_ImageManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetImageManager());
+			m_BufferManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetBufferManager());
+		}
 	}
 
 	GPUTextureDescriptor const* GPUGraphExecutor::GetTextureHandleDescriptor(ImageHandle const& handle) const
@@ -1174,6 +1184,7 @@ namespace graphics_backend
 				vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
 				for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 				{
+					CPUTIMER_SCOPE("Rasterize Batch ShaderArgs");
 					auto& batch = drawcallBatchs[batchID];
 					GPUPassBatchInfo& newBatchInfo = drawcallBatchData[batchID];
 					auto& batchLevelPsoDesc = batch.pipelineStateDesc;
@@ -1200,6 +1211,7 @@ namespace graphics_backend
 				castl::copy(computePass.shaderArgLists.begin(), computePass.shaderArgLists.end(), shaderArgs.begin());
 				for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 				{
+					CPUTIMER_SCOPE("Compute Dispatch ShaderArgs");
 					auto& dispatchData = computePass.dispatchs[dispatchID];
 					auto& dispatchData1 = computePassData.m_DispatchInfos[dispatchID];
 					shaderArgs.resize(computePass.shaderArgLists.size() + dispatchData.shaderArgLists.size());

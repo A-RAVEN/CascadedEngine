@@ -222,7 +222,7 @@ namespace thread_management
 
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
-		void ProcessingWorks();
+		void ProcessingWorks(uint32_t threadID);
 		void ResetMainThread();
 		void StopMainThread();
 		void ProcessingWorksMainThread();

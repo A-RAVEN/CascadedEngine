@@ -10,7 +10,6 @@
 #include "RenderPassObject.h"
 #include "VulkanPipelineObject.h"
 #include "FramebufferObject.h"
-#include "IUploadingResource.h"
 #include "GPUObjectManager.h"
 #include "GPUGraphExecutor/GPUGraphExecutor.h"
 #include <GPUContexts/QueueContext.h>

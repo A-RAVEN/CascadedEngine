@@ -283,7 +283,7 @@ namespace thread_management
         m_DedicateThreadMap.SetThreadIndex(castl::string{ "MainThread" }, 0);
         for (uint32_t i = 0; i < threadNum; ++i)
         {
-            m_WorkerThreads.emplace_back(&ThreadManager_Impl1::ProcessingWorks, this);
+            m_WorkerThreads.emplace_back(&ThreadManager_Impl1::ProcessingWorks, this, i);
 
             castl::wstring name = L"General Thread " + castl::to_wstring(i);
             HRESULT r;
@@ -449,8 +449,9 @@ namespace thread_management
             StopMainThread();
         }
     }
-    void ThreadManager_Impl1::ProcessingWorks()
+    void ThreadManager_Impl1::ProcessingWorks(uint32_t threadID)
     {
+        catimer::GetGlobalTimerSystem()->SetThreadName((castl::string("WorkThread") + castl::to_string(threadID)).c_str());
         while (!m_Stopped)
         {
             std::unique_lock<std::mutex> lock(m_Mutex);
