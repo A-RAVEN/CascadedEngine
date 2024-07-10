@@ -508,7 +508,7 @@ public:
 	void BeginEvent(const char* pName, const char* pFilePath = nullptr, uint32 lineNumber = 0) override;
 
 	// End and pop the last pushed event on the current thread
-	void EndEvent() override;
+	void EndEvent(const char*) override;
 
 	// Resolve the last frame and advance to the next frame.
 	// Call at the START of the frame.
@@ -673,19 +673,22 @@ private:
 // Helper RAII-style structure to push and pop a CPU sample region
 struct CPUProfileScope
 {
+	const char* cacheName;
 	CPUProfileScope(const char* pFunctionName, const char* pFilePath, uint32 lineNumber, const char* pName)
 	{
+		cacheName = pName;
 		gCPUProfiler.BeginEvent(pName, pFilePath, lineNumber);
 	}
 
 	CPUProfileScope(const char* pFunctionName, const char* pFilePath, uint32 lineNumber)
 	{
+		cacheName = pFunctionName;
 		gCPUProfiler.BeginEvent(pFunctionName, pFilePath, lineNumber);
 	}
 
 	~CPUProfileScope()
 	{
-		gCPUProfiler.EndEvent();
+		gCPUProfiler.EndEvent(cacheName);
 	}
 
 	CPUProfileScope(const CPUProfileScope&) = delete;

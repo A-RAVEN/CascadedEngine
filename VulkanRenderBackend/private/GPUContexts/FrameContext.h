@@ -1,6 +1,7 @@
 #pragma once
 #include <CASTL/CAAtomic.h>
 #include <CASTL/CAVector.h>
+#include <CASTL/CADeque.h>
 #include <VulkanIncludes.h>
 #include <VulkanApplicationSubobjectBase.h>
 #include <ResourcePool/FrameBoundResourcePool.h>
@@ -16,7 +17,9 @@ namespace graphics_backend
 		void Release();
 	private:
 		castl::mutex m_Mutex;
-		uint32_t m_FrameIndex;
+		castl::condition_variable m_ConditionalVal;
+		//uint32_t m_FrameIndex;
 		castl::vector<FrameBoundResourcePool> m_FrameBoundResourceManagers;
+		castl::deque<uint32_t> m_AvailableResourcesManagers;
 	};
 }

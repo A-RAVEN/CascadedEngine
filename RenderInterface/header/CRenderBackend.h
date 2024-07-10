@@ -3,6 +3,7 @@
 #include <CASTL/CASharedPtr.h>
 #include <CASTL/CAString.h>
 #include <CAWindow/WindowSystem.h>
+#include <CATimer/Timer.h>
 #include "Common.h"
 #include "GPUBuffer.h"
 #include "CNativeRenderPassInfo.h"
@@ -25,7 +26,7 @@ namespace graphics_backend
 	class CRenderBackend
 	{
 	public:
-		virtual void Initialize(castl::string const& appName, castl::string const& engineName) = 0;
+		virtual void Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName) = 0;
 		virtual void InitializeThreadContextCount(uint32_t threadContextCount) = 0;
 		virtual void ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame) = 0;
 		virtual void Release() = 0;

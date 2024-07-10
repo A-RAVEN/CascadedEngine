@@ -37,7 +37,6 @@ namespace graphics_backend
 	}
 	void FrameBoundResourcePool::Release()
 	{
-		castl::lock_guard<castl::mutex> guard(m_Mutex);
 		framebufferObjectCache.ReleaseAll();
 		commandBufferThreadPool.ReleasePool();
 		memoryManager.Release();
@@ -50,7 +49,6 @@ namespace graphics_backend
 	}
 	void FrameBoundResourcePool::ResetPool()
 	{
-		m_Mutex.lock();
 		VKResultCheck(GetDevice().waitForFences(m_Fence, true, castl::numeric_limits<uint64_t>::max()), "Framebound Resource Pool Fence Wait Failed!");
 		GetDevice().resetFences(m_Fence);
 		framebufferObjectCache.ReleaseAll();
@@ -61,10 +59,6 @@ namespace graphics_backend
 		descriptorPools.Foreach([&](auto& desc, DescriptorPool* pool) { pool->ResetAll(); });
 		semaphorePool.Reset();
 		m_GraphExecutorManager.Reset();
-	}
-	void FrameBoundResourcePool::HostFinish()
-	{
-		m_Mutex.unlock();
 	}
 	VKBufferObject FrameBoundResourcePool::CreateStagingBuffer(size_t size, EBufferUsageFlags usages, castl::string const& name)
 	{

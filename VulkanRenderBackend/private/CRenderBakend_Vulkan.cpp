@@ -1,11 +1,13 @@
 #include "pch.h"
 #include "CRenderBackend_Vulkan.h"
 #include "WindowContext.h"
+#include <CATimer/Timer.h>
 
 namespace graphics_backend
 {
-	void CRenderBackend_Vulkan::Initialize(castl::string const& appName, castl::string const& engineName)
+	void CRenderBackend_Vulkan::Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName)
 	{
+		catimer::SetGlobalTimerSystem(timer);
 		m_Application.InitApp(appName, engineName);
 	}
 

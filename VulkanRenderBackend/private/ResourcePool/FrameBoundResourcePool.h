@@ -21,7 +21,6 @@ namespace graphics_backend
 		void Initialize();
 		void Release();
 		void ResetPool();
-		void HostFinish();
 		vk::Fence GetFence() const { return m_Fence; }
 		VKBufferObject CreateStagingBuffer(size_t size, EBufferUsageFlags usages, castl::string const& name = "Staging Buffer");
 		VKBufferObject CreateBufferWithMemory(GPUBufferDescriptor const& bufferDesc
@@ -42,7 +41,6 @@ namespace graphics_backend
 		SemaphorePool semaphorePool;
 	private:
 		vk::Fence m_Fence;
-		castl::mutex m_Mutex;
 
 		GraphExecutorManager m_GraphExecutorManager;
 

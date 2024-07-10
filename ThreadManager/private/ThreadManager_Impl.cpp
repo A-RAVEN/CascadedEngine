@@ -127,9 +127,9 @@ namespace thread_management
     }
     void TaskGraph_Impl1::Execute_Internal()
     {
-        CPUTIMER_SCOPE(m_Name.c_str());
         if (m_Functor != nullptr)
         {
+            CPUTIMER_SCOPE(m_Name.c_str());
             m_Functor(this);
         }
         if (m_SubTasks.empty())
@@ -226,12 +226,11 @@ namespace thread_management
 
     void CTask_Impl1::Execute_Internal()
     {
-        CPUTIMER_SCOPE(m_Name.c_str());
         if (m_Functor != nullptr)
         {
+            CPUTIMER_SCOPE(m_Name.c_str());
             m_Functor();
         }
-        //CA_LOG_ERR("Finalize " + m_Name);
         FinalizeExecution_Internal();
     }
 

@@ -30,14 +30,16 @@
 #include <TextureSampler.h>
 #include <CAWindow/WindowSystem.h>
 #include "MiniDump.h"
-#include "Profiler.h"
+//#include "Profiler.h"
 #include <CATimer/Timer.h>
+#include <TimerSystemEditor/TimerSystem_Impl.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
 using namespace uenum;
 using namespace resource_management;
 using namespace cawindow;
+using namespace catimer;
 
 struct VertexData
 {
@@ -63,12 +65,16 @@ int main(int argc, char *argv[])
 
 	auto windowSystem = windowSystemLoader.New();
 
-	gCPUProfiler.Initialize(5, 1024);
-	PROFILE_FRAME();
+	InitTimerSystem();
+	GetGlobalTimerSystem()->SetThreadName("Main");
+
+	TIMER_NEWFRAME();
+	//gCPUProfiler.Initialize(5, 1024);
+	//PROFILE_FRAME();
 
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
 	auto pThreadManager = threadManagerLoader.New();
-	pThreadManager->InitializeThreadCount(&gCPUProfiler, 5, 2);
+	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), 5, 2);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
 
@@ -127,7 +133,7 @@ int main(int argc, char *argv[])
 		});
 
 	auto pBackend = renderBackendLoader.New();
-	pBackend->Initialize("Test Vulkan Backend", "CASCADED Engine");
+	pBackend->Initialize(GetGlobalTimerSystem(), "Test Vulkan Backend", "CASCADED Engine");
 	pBackend->InitializeThreadContextCount(5);
 
 	imgui_display::IMGUIContext imguiContext;
@@ -229,10 +235,9 @@ int main(int argc, char *argv[])
 	globalLightShaderArg->SetValue("ambientColor", glm::vec3(0.1f, 0.1f, 0.2f));
 
 	
-	PROFILE_FRAME();
-
 	pThreadManager->LoopFunction([&](auto setup)
 	{
+		TIMER_NEWFRAME();
 		//setup->MainThread();
 		//PROFILE_CPU_SCOPE("MainThread Setup");
 		auto updateWindow = setup->NewTask()
@@ -240,8 +245,7 @@ int main(int argc, char *argv[])
 			->Functor(
 				[&]()
 				{
-					PROFILE_FRAME();
-					PROFILE_CPU_SCOPE("Update Window");
+					CPUTIMER_SCOPE("Update Window");
 					windowSystem->UpdateSystem();
 					imguiContext.UpdateIMGUI();
 				});
@@ -257,7 +261,8 @@ int main(int argc, char *argv[])
 			->DependsOn(updateWindow)
 			->SetupFunctor([&, newGraph](auto taskGraph)
 				{
-					PROFILE_CPU_SCOPE("Draw Everything");
+
+					CPUTIMER_SCOPE("Draw Everything");
 					//IMGUI Logic
 					imguiContext.PrepareDrawData(newGraph.get());
 					//Draw Viewports Here
@@ -304,7 +309,7 @@ int main(int argc, char *argv[])
 
 					for(auto& viewContext : viewContexts)
 					{
-						PROFILE_CPU_SCOPE("Draw View");
+						CPUTIMER_SCOPE("Draw View");
 
 						if (!viewContext.m_RenderTarget.IsValid())
 						{
@@ -373,7 +378,7 @@ int main(int argc, char *argv[])
 			->DependsOn(graphics)
 			->SetupFunctor([&, newGraph](auto graph)
 				{
-					PROFILE_CPU_SCOPE("Submit GPUGraph");
+					CPUTIMER_SCOPE("Submit GPUGraph");
 					auto& presentSurfaces = imguiContext.GetWindowHandles();
 					GPUFrame gpuFrame{};
 					gpuFrame.pGraph = newGraph;
@@ -392,6 +397,6 @@ int main(int argc, char *argv[])
 	pBackend->Release();
 	pBackend.reset();
 
-	gCPUProfiler.Shutdown();
+	//gCPUProfiler.Shutdown();
 	return EXIT_SUCCESS;
 }

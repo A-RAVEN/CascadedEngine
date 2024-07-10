@@ -384,7 +384,7 @@ void CPUProfiler::BeginEvent(const char* pName, const char* pFilePath, uint32 li
 
 
 // End and pop the last pushed event on the current thread
-void CPUProfiler::EndEvent()
+void CPUProfiler::EndEvent(const char*)
 {
 	if (m_EventCallback.OnEventEnd)
 		m_EventCallback.OnEventEnd(m_EventCallback.pUserData);
@@ -407,7 +407,7 @@ void CPUProfiler::Tick()
 		return;
 
 	if (m_FrameIndex)
-		EndEvent();
+		EndEvent(nullptr);
 
 	// Check if all threads have ended all open sample events
 	for (auto& threadData : m_ThreadData)

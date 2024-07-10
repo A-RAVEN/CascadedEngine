@@ -1,5 +1,6 @@
 #pragma once
 #include <CASTL/CASharedPtr.h>
+#include <ThreadManager.h>
 #include <GPUGraph.h>
 #include <VulkanApplicationSubobjectBase.h>
 #include <VulkanBarrierCollector.h>
@@ -329,7 +330,7 @@ namespace graphics_backend
 		GPUGraphExecutor(CVulkanApplication& application);
 		void Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph, FrameBoundResourcePool* frameBoundResourceManager);
 		void Release();
-		void PrepareGraph();
+		void PrepareGraph(thread_management::CTaskGraph* taskGraph);
 	private:
 		bool ValidImageHandle(ImageHandle const& handle);
 		void PrepareResources();

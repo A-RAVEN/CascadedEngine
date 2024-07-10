@@ -16,6 +16,7 @@ add_library(${PROJECT_INTERFACE_NAME} INTERFACE)
 target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE ThreadManager_Interface)
 target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE ShaderCompiler)
 target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE WindowSystem_Interface)
+target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE TimerSystem)
 target_include_directories(${PROJECT_INTERFACE_NAME} INTERFACE header)
 
 target_precompile_headers(${PROJECT_NAME}

@@ -11,6 +11,7 @@ namespace catimer
 	{
 		uint32_t handleID;
 		castl::string_view name;
+		auto operator<=>(const EventHandle&) const = default;
 	};
 	class FrameData
 	{
@@ -23,8 +24,10 @@ namespace catimer
 			TimerType::time_point endTime;
 			void GetDataRangeMS(uint64_t& outBegin, uint64_t& outEnd) const
 			{
-				outBegin = castl::chrono::duration_cast<castl::chrono::milliseconds>(beginTime.time_since_epoch()).count();
-				outEnd = castl::chrono::duration_cast<castl::chrono::milliseconds>(endTime.time_since_epoch()).count();
+				auto durationBegin = castl::chrono::duration_cast<castl::chrono::microseconds>(beginTime.time_since_epoch());
+				auto durationEnd = castl::chrono::duration_cast<castl::chrono::microseconds>(endTime.time_since_epoch());
+				outBegin = durationBegin.count();
+				outEnd = durationEnd.count();
 			}
 		};
 
@@ -52,12 +55,12 @@ namespace catimer
 		castl::vector<ThreadHistories> outThreadHistories;
 		uint64_t GetFrameBeginMS(uint32_t frameID)
 		{
-			return castl::chrono::duration_cast<castl::chrono::milliseconds>(frameBeginTimes[frameID].time_since_epoch()).count();
+			return castl::chrono::duration_cast<castl::chrono::microseconds>(frameBeginTimes[frameID].time_since_epoch()).count();
 		}
 		void GetTimerDataRangeMS(uint64_t& outBegin, uint64_t& outEnd)
 		{
-			outBegin = castl::chrono::duration_cast<castl::chrono::milliseconds>(frameBeginTimes.begin()->time_since_epoch()).count();
-			outEnd = castl::chrono::duration_cast<castl::chrono::milliseconds>(frameBeginTimes.rbegin()->time_since_epoch()).count();
+			outBegin = castl::chrono::duration_cast<castl::chrono::microseconds>(frameBeginTimes.begin()->time_since_epoch()).count();
+			outEnd = castl::chrono::duration_cast<castl::chrono::microseconds>(frameBeginTimes.rbegin()->time_since_epoch()).count();
 		}
 	};
 
@@ -68,4 +71,5 @@ namespace catimer
 	};
 
 	TimerSystem_Editor& GetTimerSystemEditor();
+	void InitTimerSystem();
 }

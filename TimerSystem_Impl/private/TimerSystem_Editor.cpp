@@ -41,6 +41,7 @@ namespace catimer
 		bool PauseThreshold = false;
 		float PauseThresholdTime = 100.0f;
 		bool IsPaused = false;
+		catimer::TimerData m_CachedTimerData;
 	};
 
 	static HUDContext gHUDContext;
@@ -128,16 +129,24 @@ namespace catimer
 			ImGui::PushClipRect(timelineRect.Min, timelineRect.Max, true);
 
 			// How many ticks per ms
-			uint64_t frequency = 0;
-			QueryPerformanceFrequency((LARGE_INTEGER*)&frequency);
-			const float MsToTicks = (float)frequency / 1000.0f;
-			const float TicksToMs = 1000.0f / frequency;
+			const float MsToTicks = 1000.0f;// (float)frequency / 1000.0f;
+			const float TicksToMs = 1.0f / 1000.0f;
 
 			// How many ticks are in the timeline
 			float ticksInTimeline = MsToTicks * style.MaxTime;
 
 			auto& timerSystem = GetTimerSystemEditor();
-			auto timerData = timerSystem.QueryHistories();
+			if (!context.IsPaused)
+			{
+				context.m_CachedTimerData = timerSystem.QueryHistories();
+			}
+
+			auto& timerData = context.m_CachedTimerData;
+
+			if (timerData.outThreadHistories.empty())
+				return;
+			if (timerData.frameBeginTimes.size() < 2)
+				return;
 			uint64_t timelineTicksBegin, timelineTicksEnd;
 			timerData.GetTimerDataRangeMS(timelineTicksBegin, timelineTicksEnd);
 			//gCPUProfiler.GetHistoryRange(timelineTicksBegin, timelineTicksEnd);
@@ -463,7 +472,7 @@ namespace catimer
 					// Logarithmic scale
 					float logScale = logf(context.TimelineScale);
 					logScale += zoomDelta;
-					float newScale = ImClamp(expf(logScale), 1.0f, 100.0f);
+					float newScale = ImClamp(expf(logScale), 0.001f, 1000.0f);
 
 					float scaleFactor = newScale / context.TimelineScale;
 					context.TimelineScale *= scaleFactor;
@@ -509,6 +518,49 @@ namespace catimer
 
 	void DrawTimerSystemEditor()
 	{
+		HUDContext& context = Context();
+		StyleOptions& style = context.Style;
 
+		if (context.IsPaused)
+			ImGui::Text("Paused");
+		else
+			ImGui::Text("Press Space to pause");
+
+		ImGui::SameLine(ImGui::GetWindowWidth() - 620);
+
+		ImGui::Checkbox("Pause threshold", &Context().PauseThreshold);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(150);
+		ImGui::SliderFloat("##Treshold", &context.PauseThresholdTime, 0.0f, 16.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+		ImGui::SameLine();
+
+		ImGui::Dummy(ImVec2(30, 0));
+		ImGui::SameLine();
+
+		ImGui::Text("Filter");
+		ImGui::SetNextItemWidth(150);
+		ImGui::SameLine();
+		ImGui::InputText("##Search", context.SearchString, ARRAYSIZE(context.SearchString));
+		ImGui::SameLine();
+		if (ImGui::Button(ICON_FA_TIMES "##clearfilter"))
+			context.SearchString[0] = 0;
+		ImGui::SameLine();
+		if (ImGui::Button(ICON_FA_PAINT_BRUSH "##styleeditor"))
+			ImGui::OpenPopup("Style Editor");
+
+		if (ImGui::BeginPopup("Style Editor"))
+		{
+			EditStyle(style);
+			ImGui::EndPopup();
+		}
+
+		if (ImGui::IsKeyPressed(ImGuiKey_Space))
+		{
+			context.IsPaused = !context.IsPaused;
+		}
+
+		//gCPUProfiler.SetPaused(context.IsPaused);
+
+		DrawProfilerTimeline(ImVec2(0, 0));
 	}
 }

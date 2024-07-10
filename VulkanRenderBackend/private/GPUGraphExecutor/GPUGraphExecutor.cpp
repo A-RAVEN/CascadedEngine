@@ -203,26 +203,71 @@ namespace graphics_backend
 		return m_Graph->GetImageManager().GetDescriptorIndex(handle.GetKey()) >= 0;
 	}
 
-	void GPUGraphExecutor::PrepareGraph()
+	void GPUGraphExecutor::PrepareGraph(thread_management::CTaskGraph* taskGraph)
 	{
-		//Alloc Image & Buffer Resources
-		PrepareResources();
-		//Prepare PSO & FrameBuffer & RenderPass
-		PrepareFrameBufferAndPSOs();
-		//Prepare PSO For Compute Passes
-		PrepareComputePSOs();
-		//Write DescriptorSets
-		WriteDescriptorSets();
-		//Prepare Resource Barriers
-		PrepareResourceBarriers();
-		//Record CommandBuffers
-		RecordGraph();
-		//Scan Command Batches
-		ScanCommandBatchs();
-		//Submit
-		Submit();
-		//Sync Final Usages
-		SyncExternalResources();
+		auto allocResources = taskGraph->NewTaskGraph()
+			->Name("Prepare GPU Resource")
+			->SetupFunctor([this](auto graph)
+				{
+					//Alloc Image & Buffer Resources
+					PrepareResources();
+				});
+
+		auto prepareGPUObjects = taskGraph->NewTaskGraph()
+			->Name("Prepare GPUObjects")
+			->DependsOn(allocResources)
+			->SetupFunctor([this](auto graph)
+				{
+					graph->NewTask()
+						->Name("Prepare PSO & FrameBuffer & RenderPass")
+						->Functor([this]()
+							{
+								//Prepare PSO & FrameBuffer & RenderPass
+								PrepareFrameBufferAndPSOs();
+							});
+
+					graph->NewTask()
+						->Name("Prepare Compute PSOs")
+						->Functor([this]()
+							{
+								//Prepare PSO For Compute Passes
+								PrepareComputePSOs();
+							});
+				});
+
+
+		auto prepareDescs = taskGraph->NewTaskGraph()
+			->Name("Write Descriptor Sets")
+			->DependsOn(prepareGPUObjects)
+			->SetupFunctor([this](auto graph)
+				{
+					//Write DescriptorSets
+					WriteDescriptorSets();
+				});
+
+		auto prepareBarriers = taskGraph->NewTaskGraph()
+			->Name("Prepare Resource Barriers")
+			->DependsOn(prepareDescs)
+			->SetupFunctor([this](auto graph)
+				{
+					//Prepare Resource Barriers
+					PrepareResourceBarriers();
+				});
+
+		auto recordAndSubmit = taskGraph->NewTaskGraph()
+			->Name("Prepare Resource Barriers")
+			->DependsOn(prepareBarriers)
+			->SetupFunctor([this](auto graph)
+				{
+					//Record CommandBuffers
+					RecordGraph();
+					//Scan Command Batches
+					ScanCommandBatchs();
+					//Submit
+					Submit();
+					//Sync Final Usages
+					SyncExternalResources();
+				});
 	}
 
 
@@ -1041,6 +1086,7 @@ namespace graphics_backend
 			//Batch Info
 			for (auto& batch : drawcallBatchs)
 			{
+				CPUTIMER_SCOPE("Get Or Create PSO");
 				GPUPassBatchInfo newBatchInfo{};
 
 				auto& batchLevelPsoDesc = batch.pipelineStateDesc;

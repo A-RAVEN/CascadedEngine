@@ -7,7 +7,8 @@
 #include "KeyCodes.h"
 #include <CASTL/CAString.h>
 #include <CAWindow/WindowSystem.h>
-#include "Profiler.h"
+//#include "Profiler.h"
+#include <TimerSystemEditor/TimerSystem_Editor.h>
 
 namespace imgui_display
 {
@@ -633,7 +634,9 @@ namespace imgui_display
 		ShowExampleAppDockSpace(&show);
 		//ImGui::ShowDemoWindow();
 		DrawView(0);
-		DrawProfilerHUD();
+
+		catimer::DrawTimerSystemEditor();
+		//DrawProfilerHUD();
 		//DrawFrame(0);
 		//DrawFrame(1);
 

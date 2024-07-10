@@ -29,27 +29,42 @@ namespace graphics_backend
 							TickWindowContexts();
 						});
 
-				auto runGraph = thisGraph->NewTask()
+				auto runGraph = thisGraph->NewTaskGraph()
 					->Name("Run Graph")
 					->DependsOn(tickWindowHandles)
-					->Functor([&]()
+					->SetupFunctor([this, gpuFrame](CTaskGraph* runGraph)
 						{
 							auto frameManager = m_FrameContext.GetFrameBoundResourceManager();
 							frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
-							if (gpuFrame.pGraph != nullptr)
-							{
-								auto executor = frameManager->NewExecutor(gpuFrame.pGraph);
-								executor->PrepareGraph();
-							}
-							if (gpuFrame.presentWindows.size() > 0)
-							{
-								for (auto& window : gpuFrame.presentWindows)
-								{
-									auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
-									windowContext->PresentFrame(frameManager.get());
-								}
-							}
-							frameManager->FinalizeSubmit();
+		
+							auto executeGPUGraph = runGraph->NewTaskGraph()
+								->Name("Prepare And Execute GPU Graph")
+								->SetupFunctor([this, frameManager, gpuFrame](auto subgraph)
+									{
+										if (gpuFrame.pGraph != nullptr)
+										{
+											auto executor = frameManager->NewExecutor(gpuFrame.pGraph);
+											executor->PrepareGraph(subgraph);
+										}
+									});
+	
+
+							runGraph->NewTaskGraph()
+								->Name("PresentFrame")
+								->DependsOn(executeGPUGraph)
+								->SetupFunctor([this, frameManager, gpuFrame](auto subgraph)
+									{
+										if (gpuFrame.presentWindows.size() > 0)
+										{
+											for (auto& window : gpuFrame.presentWindows)
+											{
+												auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
+												windowContext->PresentFrame(frameManager.get());
+											}
+										}
+										frameManager->FinalizeSubmit();
+									});
+
 						});
 			});
 	}

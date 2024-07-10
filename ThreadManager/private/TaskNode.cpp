@@ -62,7 +62,7 @@ namespace thread_management
 		FulfillPromise();
 		m_Running.store(false, std::memory_order_relaxed);
 		m_PendingDependsOnTaskCount.store(0, std::memory_order_relaxed);
-		m_Name = "";
+		m_Name = "Default Task Name";
 		m_EventName = "";
 		m_SignalEventName = "";
 		m_CurrentFrame = 0;

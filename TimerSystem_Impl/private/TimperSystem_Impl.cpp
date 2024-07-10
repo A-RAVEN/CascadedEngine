@@ -45,7 +45,7 @@ namespace catimer
 			m_ThreadFrameHistories[threadID].m_ThreadName = name;
 		}
 
-		void GetThreadHistories(castl::vector<ThreadHistories>& outThreadHistories, uint32_t beginFrame)
+		void GetThreadHistories(castl::vector<ThreadHistories>& outThreadHistories, uint32_t beginFrame, uint32_t frameCount)
 		{
 			castl::shared_lock<castl::shared_mutex> lock(m_Mutex);
 			outThreadHistories.resize(m_ThreadFrameHistories.size());
@@ -60,12 +60,19 @@ namespace catimer
 				{
 					while (frameData.first > frameCounter)
 					{
+						++frameCounter;
 						outThreadHistory.m_FrameData.emplace_back();
 					}
 					if (frameData.first == frameCounter)
 					{
+						++frameCounter;
 						outThreadHistory.m_FrameData.push_back(frameData.second);
 					}
+				}
+				while (frameCounter < beginFrame + frameCount)
+				{
+						++frameCounter;
+					outThreadHistory.m_FrameData.emplace_back();
 				}
 			}
 		}
@@ -95,11 +102,12 @@ namespace catimer
 		{
 			m_EventStack.push(castl::make_pair( inEvent, m_Timer.now()));
 		}
-		void PopEvent(FrameData& frameData)
+		void PopEvent(EventHandle const& eventHandle, FrameData& frameData)
 		{
 			uint32_t stackID = m_EventStack.size() - 1;
 			castl::pair<EventHandle, TimerType::time_point> eventRecord = m_EventStack.top();
 			m_EventStack.pop();
+			CA_ASSERT(eventHandle == eventRecord.first, "Handle Not Equal!!!");
 			frameData.AddEvent(eventRecord.first, stackID, eventRecord.second, m_Timer.now());
 		}
 		TimerType m_Timer;
@@ -122,11 +130,11 @@ namespace catimer
 			inHistories.SetThreadName(m_ThreadID, name);
 		}
 
-		void EndEvent(TimerFrameHistories& inHistories, uint32_t frameCount)
+		void EndEvent(EventHandle const& eventHandle, TimerFrameHistories& inHistories, uint32_t frameCount)
 		{
 			CheckInitialize(inHistories);
 			UpdateFrameData(inHistories, frameCount);
-			m_EventStack.PopEvent(m_FrameData);
+			m_EventStack.PopEvent(eventHandle, m_FrameData);
 		}
 
 		void BeginEvent(EventHandle const& eventHandle)
@@ -230,7 +238,7 @@ namespace catimer
 			TimerData result{};
 			uint32_t endFrameCount = m_FrameCounter.CopyFrameBeginTimes(result.frameBeginTimes);
 			result.startFrame = endFrameCount - result.frameBeginTimes.size();
-			m_FrameHistories.GetThreadHistories(result.outThreadHistories, result.startFrame);
+			m_FrameHistories.GetThreadHistories(result.outThreadHistories, result.startFrame, result.frameBeginTimes.size() - 1);
 			return result;
 		}
 
@@ -246,9 +254,10 @@ namespace catimer
 			ThreadLocalStorage::Get().BeginEvent(eventHandle);
 		}
 
-		void EndEvent() override
+		void EndEvent(const char* pName) override
 		{
-			ThreadLocalStorage::Get().EndEvent(m_FrameHistories, m_FrameCounter.GetCurrentFrameCount());
+			auto& eventHandle = m_EventHandlePool.GetOrCreateEventHandle(castl::string{ pName });
+			ThreadLocalStorage::Get().EndEvent(eventHandle, m_FrameHistories, m_FrameCounter.GetCurrentFrameCount());
 		}
 		
 		void NewFrame() override
@@ -275,5 +284,9 @@ namespace catimer
 	TimerSystem_Editor& GetTimerSystemEditor()
 	{
 		return g_TimerSystem_Impl;
+	}
+	void InitTimerSystem()
+	{
+		SetGlobalTimerSystem(&g_TimerSystem_Impl);
 	}
 }
