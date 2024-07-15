@@ -24,6 +24,14 @@ namespace graphics_backend
 		ResourceUsageFlags lastUsages;
 		int lastQueueFamilyIndex;
 		castl::map<GPUTextureView, vk::ImageView> views;
+		void Init(CVulkanApplication& application, vk::Image image)
+		{
+			this->image = image;
+			lastUsages = ResourceUsage::eDontCare;
+			lastQueueFamilyIndex = -1;
+			views.clear();
+		}
+		void Release(CVulkanApplication& application);
 	};
 
 	class SwapchainContext : public VKAppSubObjectBaseNoCopy
@@ -46,6 +54,7 @@ namespace graphics_backend
 		void Present(FrameBoundResourcePool* resourcePool);
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }
+		vk::Fence GetWaitDoneFence() const{return m_WaitingDoneFence;}
 	private:
 		uint32_t m_Width = 0;
 		uint32_t m_Height = 0;

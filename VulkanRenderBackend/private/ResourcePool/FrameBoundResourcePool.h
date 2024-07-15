@@ -37,7 +37,7 @@ namespace graphics_backend
 		GPUResourceObjectManager resourceObjectManager;
 		FramebufferObjectDic framebufferObjectCache;
 		GlobalResourceReleaseQueue releaseQueue;
-		DescriptorPoolDic descriptorPools;
+		DescriptorSetThreadPool descriptorPools;
 		SemaphorePool semaphorePool;
 	private:
 		vk::Fence m_Fence;
@@ -51,7 +51,7 @@ namespace graphics_backend
 		static_assert(std::move_constructible<GPUMemoryResourceManager>, "GPUMemoryResourceManager Shoule Be Movable");
 		static_assert(std::move_constructible<GPUResourceObjectManager>, "GPUResourceObjectManager Shoule Be Movable");
 		static_assert(std::move_constructible<GlobalResourceReleaseQueue>, "GlobalResourceReleaseQueue Shoule Be Movable");
-		static_assert(std::move_constructible<DescriptorPoolDic>, "DescriptorPoolDic Shoule Be Movable");
+		static_assert(std::move_constructible<DescriptorSetThreadPool>, "DescriptorSetThreadPool Shoule Be Movable");
 		static_assert(std::move_constructible<SemaphorePool>, "SemaphorePool Shoule Be Movable");
 		static_assert(std::move_constructible<GraphExecutorManager>, "GraphExecutorManager Shoule Be Movable");
 		static_assert(std::move_constructible<FramebufferObjectDic>, "FramebufferObjectDic Shoule Be Movable");

@@ -42,7 +42,7 @@ namespace graphics_backend
 		memoryManager.Release();
 		releaseQueue.ReleaseGlobalResources();
 		resourceObjectManager.Release();
-		descriptorPools.Clear();
+		descriptorPools.ReleasePool();
 		semaphorePool.Release();
 		m_GraphExecutorManager.Release();
 		GetDevice().destroyFence(m_Fence);
@@ -56,7 +56,7 @@ namespace graphics_backend
 		memoryManager.FreeAllMemory();
 		releaseQueue.ReleaseGlobalResources();
 		resourceObjectManager.DestroyAll();
-		descriptorPools.Foreach([&](auto& desc, DescriptorPool* pool) { pool->ResetAll(); });
+		descriptorPools.ResetPool();
 		semaphorePool.Reset();
 		m_GraphExecutorManager.Reset();
 	}

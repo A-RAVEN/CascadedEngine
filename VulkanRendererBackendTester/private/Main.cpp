@@ -33,6 +33,7 @@
 //#include "Profiler.h"
 #include <CATimer/Timer.h>
 #include <TimerSystemEditor/TimerSystem_Impl.h>
+#include <thread>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -74,7 +75,9 @@ int main(int argc, char *argv[])
 
 	auto resourceSystemFactory = renderImportingSystemLoader.New();
 	auto pThreadManager = threadManagerLoader.New();
-	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), 5, 2);
+	unsigned int n = std::thread::hardware_concurrency();
+	n = (n == 0) ? 5 : (castl::min)(n, 8u);
+	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 2);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
 

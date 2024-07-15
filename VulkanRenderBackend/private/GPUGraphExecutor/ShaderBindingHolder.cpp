@@ -66,6 +66,92 @@ namespace graphics_backend
 		}
 	};
 
+	void ShaderBindingInstance::InitShaderBindingLayouts(CVulkanApplication& application
+		, ShaderCompilerSlang::ShaderReflectionData const& reflectionData)
+	{
+		p_Application = &application;
+		p_ReflectionData = &reflectionData;
+		m_DescriptorSetsLayouts.resize(reflectionData.m_BindingData.size());
+		m_DescriptorSetDescs.resize(reflectionData.m_BindingData.size());
+		for (int sid = 0; sid < reflectionData.m_BindingData.size(); ++sid)
+		{
+			auto& sourceSet = reflectionData.m_BindingData[sid];
+			uint32_t bindingCount = sourceSet.GetBindingCount();
+
+			DescriptorSetDesc descSetDesc;
+			descSetDesc.descs.reserve(bindingCount);
+			for (auto& uniformBuf : sourceSet.m_UniformBuffers)
+			{
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = uniformBuf.m_BindingIndex;
+				bindingDesc.arraySize = 1;
+				bindingDesc.descType = vk::DescriptorType::eUniformBuffer;
+				descSetDesc.descs.push_back(bindingDesc);
+			}
+			for (auto& textureBinding : sourceSet.m_Textures)
+			{
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = textureBinding.m_BindingIndex;
+				bindingDesc.arraySize = textureBinding.m_Count;
+				bindingDesc.descType = vk::DescriptorType::eSampledImage;
+				descSetDesc.descs.push_back(bindingDesc);
+			}
+			for (auto& samplerBinding : sourceSet.m_Samplers)
+			{
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = samplerBinding.m_BindingIndex;
+				bindingDesc.arraySize = samplerBinding.m_Count;
+				bindingDesc.descType = vk::DescriptorType::eSampler;
+				descSetDesc.descs.push_back(bindingDesc);
+			}
+			for (auto& storageBufferBinding : sourceSet.m_Buffers)
+			{
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = storageBufferBinding.m_BindingIndex;
+				bindingDesc.arraySize = storageBufferBinding.m_Count;
+				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
+				descSetDesc.descs.push_back(bindingDesc);
+			}
+			auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
+			m_DescriptorSetDescs[sid] = descSetDesc;
+			m_DescriptorSetsLayouts[sid] = descSetLayout->GetLayout();
+		}
+	}
+
+	void ShaderBindingInstance::InitShaderBindingSets(FrameBoundResourcePool* pResourcePool)
+	{
+		m_DescriptorSets.resize(p_ReflectionData->m_BindingData.size());
+		m_UniformBuffers.clear();
+		for (int sid = 0; sid < p_ReflectionData->m_BindingData.size(); ++sid)
+		{
+			auto& targetDescSet = m_DescriptorSets[sid];
+			auto& sourceSet = p_ReflectionData->m_BindingData[sid];
+			uint32_t bindingCount = sourceSet.GetBindingCount();
+
+			auto& descSetDesc = m_DescriptorSetDescs[sid];
+			auto descriptorPool = pResourcePool->descriptorPools.AquirePool();
+			auto descSetAllocator = descriptorPool->GetOrCreate(descSetDesc->GetPoolDesc());
+
+			auto layout = m_DescriptorSetsLayouts[sid];
+			targetDescSet = descSetAllocator->AllocateSet(layout);
+
+			if (!sourceSet.m_UniformBuffers.empty())
+			{
+				castl::vector<VKBufferObject> bufferObjects;
+				bufferObjects.reserve(sourceSet.m_UniformBuffers.size());
+				for (int ubid = 0; ubid < sourceSet.m_UniformBuffers.size(); ++ubid)
+				{
+					auto& sourceUniformBuffer = sourceSet.m_UniformBuffers[ubid];
+					auto bufferObject = pResourcePool->CreateBufferWithMemory(GPUBufferDescriptor::Create(
+						EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst
+						, 1, sourceUniformBuffer.m_Groups[0].m_MemorySize), vk::MemoryPropertyFlagBits::eDeviceLocal);
+					bufferObjects.push_back(castl::move(bufferObject));
+				}
+				m_UniformBuffers.insert(castl::make_pair(sid, bufferObjects));
+			}
+		}
+	}
+
 	void ShaderBindingInstance::InitShaderBindings(CVulkanApplication& application, FrameBoundResourcePool* pResourcePool, ShaderCompilerSlang::ShaderReflectionData const& reflectionData)
 	{
 		p_Application = &application;
@@ -113,7 +199,8 @@ namespace graphics_backend
 				descSetDesc.descs.push_back(bindingDesc);
 			}
 			auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
-			auto descSetAllocator = pResourcePool->descriptorPools.GetOrCreate(descSetDesc.GetPoolDesc());
+			auto descriptorPool = pResourcePool->descriptorPools.AquirePool();
+			auto descSetAllocator = descriptorPool->GetOrCreate(descSetDesc.GetPoolDesc());
 
 			m_DescriptorSetsLayouts[sid] = descSetLayout->GetLayout();
 			targetDescSet = descSetAllocator->AllocateSet(descSetLayout->GetLayout());
@@ -236,84 +323,6 @@ namespace graphics_backend
 					, inoutImageHandles);
 			}
 		}
-	}
-
-	void ShaderBindingInstance::WriteShaderData(CVulkanApplication& application
-		, ShadderResourceProvider& resourceProvider
-		, FrameBoundResourcePool* pResourcePool
-		, vk::CommandBuffer& command
-		, ShaderArgList const& shaderArgList)
-	{
-		//for (int sid = 0; sid < p_ReflectionData->m_BindingData.size(); ++sid)
-		//{
-		//	DescritprorWriter writer;
-
-		//	auto& targetDescSet = m_DescriptorSets[sid];
-		//	auto& sourceSet = p_ReflectionData->m_BindingData[sid];
-
-		//	writer.Initialize(targetDescSet, sourceSet.m_Textures.size(), sourceSet.m_Samplers.size(), sourceSet.m_UniformBuffers.size(), sourceSet.m_Buffers.size());
-
-		//	//Uniform Buffers
-		//	for (int ubid = 0; ubid < sourceSet.m_UniformBuffers.size(); ++ubid)
-		//	{
-		//		auto& sourceUniformBuffer = sourceSet.m_UniformBuffers[ubid];
-		//		auto& bufferHandle = m_UniformBuffers[ubid];
-		//		auto& group = sourceUniformBuffer.m_Groups[0];
-		//		writer.AddWriteBuffer(bufferHandle.buffer, sourceUniformBuffer.m_BindingIndex, vk::DescriptorType::eUniformBuffer, 0);
-		//		vk::DeviceSize memorySize = group.m_MemorySize;
-		//		auto stageBuffer = pResourcePool->CreateStagingBuffer(memorySize, EBufferUsage::eDataSrc);
-		//		if (group.m_Name == "__Global")
-		//		{
-		//			auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
-		//			WriteUniformBuffer(shaderArgList, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
-		//		}
-		//		else
-		//		{
-		//			auto found = shaderArgList.FindSubArgList(group.m_Name);
-		//			if (found)
-		//			{
-		//				auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
-		//				WriteUniformBuffer(*found, sourceUniformBuffer, 0, static_cast<char*>(tmpMap.mappedMemory));
-		//			}
-		//		}
-		//		command.copyBuffer(stageBuffer.buffer, bufferHandle.buffer, vk::BufferCopy(0, 0, memorySize));
-		//	}
-
-		//	//Non Uniform Buffer Resources
-		//	if (!sourceSet.m_ResourceGroups.empty())
-		//	{
-		//		if (sourceSet.m_ResourceGroups[0].m_Name != "__Global")
-		//		{
-		//			auto found = shaderArgList.FindSubArgList(sourceSet.m_ResourceGroups[0].m_Name);
-		//			if (found)
-		//			{
-		//				WriteResources(
-		//					application
-		//					, *found
-		//					, resourceProvider
-		//					, sourceSet
-		//					, 0
-		//					, writer
-		//					, m_BufferHandles
-		//					, m_ImageHandles);
-		//			}
-		//		}
-		//		else
-		//		{
-		//			WriteResources(
-		//				application
-		//				, shaderArgList
-		//				, resourceProvider
-		//				, sourceSet
-		//				, 0
-		//				, writer
-		//				, m_BufferHandles
-		//				, m_ImageHandles);
-		//		}
-		//	}
-
-		//	writer.Apply(application.GetDevice());
-		//}
 	}
 
 	void ShaderBindingInstance::FillShaderData(CVulkanApplication& application

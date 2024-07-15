@@ -171,7 +171,7 @@ namespace graphics_backend
 		m_SwapchainImages.resize(images.size());
 		for(size_t i = 0; i < images.size(); i++)
 		{
-			m_SwapchainImages[i].image = images[i];
+			m_SwapchainImages[i].Init(GetVulkanApplication(), images[i]);
 		}
 		m_WaitingDoneFence = GetDevice().createFence({});
 		WaitCurrentFrameBufferIndex();
@@ -182,10 +182,7 @@ namespace graphics_backend
 		m_WaitingDoneFence = nullptr;
 		for (auto& imgData : m_SwapchainImages)
 		{
-			for (auto& viewPair : imgData.views)
-			{
-				GetDevice().destroyImageView(viewPair.second);
-			}
+			imgData.Release(GetVulkanApplication());
 		}
 		m_SwapchainImages.clear();
 		GetDevice().destroySwapchainKHR(m_Swapchain);
@@ -229,8 +226,8 @@ namespace graphics_backend
 		CA_ASSERT(currentBuffer.result == vk::Result::eSuccess, "Aquire Next Swapchain Image Failed!");
 		if (currentBuffer.result == vk::Result::eSuccess)
 		{
-			GetDevice().waitForFences(m_WaitingDoneFence, true, castl::numeric_limits<uint64_t>::max());
-			GetDevice().resetFences(m_WaitingDoneFence);
+			//GetDevice().waitForFences(m_WaitingDoneFence, true, castl::numeric_limits<uint64_t>::max());
+			//GetDevice().resetFences(m_WaitingDoneFence);
 			m_CurrentBufferIndex = currentBuffer.value;
 			MarkUsages(ResourceUsage::eDontCare);
 		}
@@ -341,6 +338,15 @@ namespace graphics_backend
 				MarkUsages(ResourceUsage::ePresent, presentFamilyIndex);
 			}
 		}
+	}
+
+	void SwapchainImagePage::Release(CVulkanApplication& application)
+	{
+		for (auto& viewPair : views)
+		{
+			application.GetDevice().destroyImageView(viewPair.second);
+		}
+		views.clear();
 	}
 
 }

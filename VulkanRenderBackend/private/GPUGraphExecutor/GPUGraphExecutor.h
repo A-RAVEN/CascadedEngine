@@ -1,5 +1,6 @@
 #pragma once
 #include <CASTL/CASharedPtr.h>
+#include <CASTL/CAUnorderedSet.h>
 #include <ThreadManager.h>
 #include <GPUGraph.h>
 #include <VulkanApplicationSubobjectBase.h>
@@ -35,6 +36,7 @@ namespace graphics_backend
 		castl::set<uint32_t> m_PredecessorPasses;
 		castl::set<uint32_t> m_SuccessorPasses;
 		castl::set<uint32_t> m_WaitingQueueFamilies;
+		castl::vector<vk::CommandBuffer> m_PrepareShaderArgCommands;
 		castl::vector<vk::CommandBuffer> m_CommandBuffers;
 		int GetQueueFamily() const { return m_BarrierCollector.GetQueueFamily(); }
 		virtual GPUGraph::EGraphStageType GetStageType() const = 0;
@@ -334,6 +336,10 @@ namespace graphics_backend
 	private:
 		bool ValidImageHandle(ImageHandle const& handle);
 		void PrepareResources();
+		void InitializePasses();
+		void PrepareGraphLocalImageResources();
+		void PrepareGraphLocalBufferResources();
+		void WaitBackbuffers();
 
 		void PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
 			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
@@ -354,7 +360,7 @@ namespace graphics_backend
 			, ShaderBindingInstance const& shaderBindingInstance
 			, uint32_t passID
 		);
-		VulkanBarrierCollector& GetBarrierCollector(uint32_t passID);
+		//VulkanBarrierCollector& GetBarrierCollector(uint32_t passID);
 		PassInfoBase* GetBasePassInfo(int passID);
 
 #pragma region Shader Resource Dependencies
@@ -365,11 +371,11 @@ namespace graphics_backend
 			, ResourceUsageFlags newUsageFlags
 			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache);
 #pragma endregion
-		void PrepareFrameBufferAndPSOs();
+		void PrepareFrameBufferAndPSOs(thread_management::CTaskGraph* taskGraph);
 		void PrepareComputePSOs();
-		void WriteDescriptorSets();
+		void WriteDescriptorSets(thread_management::CTaskGraph* taskGraph);
 		void PrepareResourceBarriers();
-		void RecordGraph();
+		void RecordGraph(thread_management::CTaskGraph* taskGraph);
 		void ScanCommandBatchs();
 		void Submit();
 		void SyncExternalResources();
@@ -427,5 +433,7 @@ namespace graphics_backend
 		//Command Buffers
 		castl::vector<vk::CommandBuffer> m_FinalCommandBuffers;
 		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
+
+		castl::unordered_set<castl::shared_ptr<CWindowContext>> m_WaitingWindows;
 	};
 }

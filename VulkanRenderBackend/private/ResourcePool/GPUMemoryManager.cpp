@@ -21,7 +21,7 @@ namespace graphics_backend
 		vmaCreateInfo.instance = GetInstance();
 		vmaCreateInfo.physicalDevice = GetPhysicalDevice();
 		vmaCreateInfo.device = GetDevice();
-		vmaCreateInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
+		//vmaCreateInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
 		vmaCreateAllocator(&vmaCreateInfo, &m_Allocator);
 	}
 	void GPUMemoryResourceManager::Release()

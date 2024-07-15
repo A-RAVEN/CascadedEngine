@@ -34,8 +34,12 @@ namespace graphics_backend
 					->DependsOn(tickWindowHandles)
 					->SetupFunctor([this, gpuFrame](CTaskGraph* runGraph)
 						{
-							auto frameManager = m_FrameContext.GetFrameBoundResourceManager();
-							frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
+							castl::shared_ptr<FrameBoundResourcePool> frameManager;
+							{
+								CPUTIMER_SCOPE("Aquire Frame Manager");
+								frameManager = m_FrameContext.GetFrameBoundResourceManager();
+								frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
+							}
 		
 							auto executeGPUGraph = runGraph->NewTaskGraph()
 								->Name("Prepare And Execute GPU Graph")

@@ -134,6 +134,7 @@ namespace graphics_backend
 		CA_ASSERT(other.m_AvailablePools.size() == other.m_CommandBufferPools.size(), "");
 		m_AvailablePools = castl::move(other.m_AvailablePools);
 		m_CommandBufferPools = castl::move(other.m_CommandBufferPools);
+		m_CommandBufferPools.reserve(10);
 	}
 
 	castl::shared_ptr<OneTimeCommandBufferPool> CommandBufferThreadPool::AquireCommandBufferPool()

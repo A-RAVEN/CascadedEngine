@@ -68,10 +68,6 @@ namespace graphics_backend
 		void ReleaseAll() requires has_release<ValType>
 		{
 			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			//for (auto& it : m_InternalMap)
-			//{
-			//	it.second->Release();
-			//}
 			m_InternalMap.clear();
 		}
 

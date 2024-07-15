@@ -89,5 +89,20 @@ namespace graphics_backend
 	};
 
 	using DescriptorSetAllocatorDic = HashPool<DescriptorSetDesc, DescriptorSetAllocator>;
+
+	class DescriptorSetThreadPool : public VKAppSubObjectBaseNoCopy
+	{
+	public:
+		DescriptorSetThreadPool(CVulkanApplication& app);
+		DescriptorSetThreadPool(DescriptorSetThreadPool&& other) noexcept;
+		castl::shared_ptr<DescriptorPoolDic> AquirePool();
+		void ResetPool();
+		void ReleasePool();
+	private:
+		castl::mutex m_Mutex;
+		castl::condition_variable m_ConditionVariable;
+		castl::deque<int> m_AvailablePools;
+		castl::vector<DescriptorPoolDic> m_DescPools;
+	};
 }
 
