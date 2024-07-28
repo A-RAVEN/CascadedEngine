@@ -67,3 +67,13 @@ load_assembly_and_get_function_pointer_fn get_dotnet_load_assembly(const char_t*
     close_fptr(cxt);
     return (load_assembly_and_get_function_pointer_fn)load_assembly_and_get_function_pointer;
 }
+
+int main(int argc, char* argv[])
+{
+    if (!load_hostfxr())
+    {
+		std::cerr << "Failed to load hostfxr" << std::endl;
+		return EXIT_FAILURE;
+	}
+    return EXIT_SUCCESS;
+}
