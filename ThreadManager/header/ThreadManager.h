@@ -9,12 +9,50 @@ namespace thread_management
 	class CThreadManager;
 	class CTaskGraph;
 	class TaskParallelFor;
+	class CTask;
+	class CTaskUnsafe;
 
-	//给taskgraph使用
-	class ITaskBoundResource
+	class TaskUnsafeScheduler
 	{
 	public:
-		virtual void ReleaseResource() = 0;
+		virtual TaskUnsafe* NewTaskUnsafe() = 0;
+		virtual TaskUnsafeScheduler* RunAndWait();
+
+	};
+
+	class TaskUnsafe
+	{
+	public:
+		virtual ~TaskUnsafe() = default;
+		TaskUnsafe() = default;
+		TaskUnsafe(TaskUnsafe const& other) = delete;
+		TaskUnsafe& operator=(TaskUnsafe const& other) = delete;
+		TaskUnsafe(TaskUnsafe&& other) = delete;
+		TaskUnsafe& operator=(TaskUnsafe&& other) = delete;
+
+		virtual TaskUnsafe* MainThread() = 0;
+		virtual TaskUnsafe* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
+		virtual TaskUnsafe* Name(castl::string name) = 0;
+		virtual TaskUnsafe* DependencyCount(uint32_t count) = 0;
+		virtual TaskUnsafe* Functor(castl::function<void()>&& functor) = 0;
+		virtual void DecreaseDependency(uint32_t decCount) = 0;
+	};
+
+	class TaskGraphUnsafe
+	{
+	public:
+		virtual ~TaskGraphUnsafe() = default;
+		TaskGraphUnsafe() = default;
+		TaskGraphUnsafe(TaskGraphUnsafe const& other) = delete;
+		TaskGraphUnsafe& operator=(TaskGraphUnsafe const& other) = delete;
+		TaskGraphUnsafe(TaskGraphUnsafe&& other) = delete;
+		TaskGraphUnsafe& operator=(TaskGraphUnsafe&& other) = delete;
+		virtual TaskGraphUnsafe* MainThread() = 0;
+
+		virtual TaskGraphUnsafe* MainThread() = 0;
+		virtual TaskGraphUnsafe* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
+		virtual TaskGraphUnsafe* Name(castl::string name) = 0;
+		virtual TaskGraphUnsafe* SetupFunctor(castl::function<void(TaskUnsafeScheduler* scheduler)>&& functor) = 0;
 	};
 
 	class CTask
