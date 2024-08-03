@@ -1,6 +1,7 @@
 #pragma once
 #include <CASTL/CAString.h>
 #include <CASTL/CASharedPtr.h>
+#include <CASTL/CAArrayRef.h>
 #include <Hasher.h>
 #include <CATimer/Timer.h>
 
@@ -10,50 +11,7 @@ namespace thread_management
 	class CTaskGraph;
 	class TaskParallelFor;
 	class CTask;
-	class CTaskUnsafe;
 
-	class TaskUnsafeScheduler
-	{
-	public:
-		virtual TaskUnsafe* NewTaskUnsafe() = 0;
-		virtual TaskUnsafeScheduler* RunAndWait();
-
-	};
-
-	class TaskUnsafe
-	{
-	public:
-		virtual ~TaskUnsafe() = default;
-		TaskUnsafe() = default;
-		TaskUnsafe(TaskUnsafe const& other) = delete;
-		TaskUnsafe& operator=(TaskUnsafe const& other) = delete;
-		TaskUnsafe(TaskUnsafe&& other) = delete;
-		TaskUnsafe& operator=(TaskUnsafe&& other) = delete;
-
-		virtual TaskUnsafe* MainThread() = 0;
-		virtual TaskUnsafe* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
-		virtual TaskUnsafe* Name(castl::string name) = 0;
-		virtual TaskUnsafe* DependencyCount(uint32_t count) = 0;
-		virtual TaskUnsafe* Functor(castl::function<void()>&& functor) = 0;
-		virtual void DecreaseDependency(uint32_t decCount) = 0;
-	};
-
-	class TaskGraphUnsafe
-	{
-	public:
-		virtual ~TaskGraphUnsafe() = default;
-		TaskGraphUnsafe() = default;
-		TaskGraphUnsafe(TaskGraphUnsafe const& other) = delete;
-		TaskGraphUnsafe& operator=(TaskGraphUnsafe const& other) = delete;
-		TaskGraphUnsafe(TaskGraphUnsafe&& other) = delete;
-		TaskGraphUnsafe& operator=(TaskGraphUnsafe&& other) = delete;
-		virtual TaskGraphUnsafe* MainThread() = 0;
-
-		virtual TaskGraphUnsafe* MainThread() = 0;
-		virtual TaskGraphUnsafe* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
-		virtual TaskGraphUnsafe* Name(castl::string name) = 0;
-		virtual TaskGraphUnsafe* SetupFunctor(castl::function<void(TaskUnsafeScheduler* scheduler)>&& functor) = 0;
-	};
 
 	class CTask
 	{
@@ -117,12 +75,7 @@ namespace thread_management
 		virtual CTaskGraph* MainThread() = 0;
 		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
 
-		virtual void AddResource(castl::shared_ptr<void> const& resource) = 0;
-		template<typename T>
-		void AddResource(castl::shared_ptr<T> const& resource)
-		{
-			AddResource(castl::static_pointer_cast<void>(resource));
-		}
+
 
 		//延迟初始化函数
 		virtual CTaskGraph* SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor) = 0;

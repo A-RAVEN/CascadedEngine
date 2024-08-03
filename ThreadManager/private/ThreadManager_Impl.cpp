@@ -64,11 +64,6 @@ namespace thread_management
         return this;
     }
 
-    void TaskGraph_Impl1::AddResource(castl::shared_ptr<void> const& resource)
-    {
-        AddResource_Internal(resource);
-    }
-
     std::shared_future<void> TaskGraph_Impl1::Run()
     {
         return StartExecute();

@@ -28,6 +28,78 @@ namespace thread_management
 		TaskObjectType m_Type;
 	};
 
+
+	class TaskNodeBase : public TaskBaseObject
+	{
+	public:
+		TaskNodeBase(TaskObjectType type) : TaskBaseObject(type)
+		{
+			Reset();
+		}
+		void SetPendingCount(int32_t pendingCount)
+		{
+			m_PendingCount = pendingCount;
+		}
+		bool PendingFree() const
+		{
+			return m_PendingCount <= 0;
+		}
+		void DecreasePendingCount()
+		{
+			--m_PendingCount;
+		}
+
+		void Name(castl::string_view const& name)
+		{
+			m_Name = name;
+		}
+
+		virtual void Execute() = 0;
+		virtual void Reset()
+		{
+			ResetNodeBase();
+		}
+	private:
+		void InitNodeBase(TaskBaseObject* owner, uint32_t frameID)
+		{
+			m_Owner = owner;
+			m_CurrentFrame = frameID;
+		}
+		void ResetNodeBase()
+		{
+			m_Owner = nullptr;
+			m_Running = false;
+			m_RunOnMainThread = false;
+			m_CurrentFrame = 0;
+			m_PendingCount = 0;
+			m_ThreadKey.Reset();
+			m_Name = "Default Task Name";
+		}
+	private:
+		TaskBaseObject* m_Owner = nullptr;
+		bool m_Running = false;
+		bool m_RunOnMainThread = false;
+		uint64_t m_CurrentFrame = 0;
+		int32_t m_PendingCount = 0;
+		cacore::HashObj<castl::string> m_ThreadKey;
+		castl::string m_Name = "Default Task Name";
+	};
+
+
+
+	class TaskNodeGeneral : public TaskNodeBase
+	{
+	public:
+		TaskNodeGeneral(TaskBaseObject* owner);
+		void SetUnsafeDependencyCount(int32_t count)
+		{
+			m_UnsafeDependencyCount = count;
+		}
+	private:
+		int32_t m_UnsafeDependencyCount = 0;
+	};
+
+
 	class TaskNode : public TaskBaseObject
 	{
 	public:

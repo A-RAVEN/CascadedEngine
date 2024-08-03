@@ -164,6 +164,11 @@ namespace cacore
             return m_HashValid;
         }
 
+        constexpr void Reset() noexcept
+        {
+            m_HashValid = false;
+        }
+
         castl::weak_ordering operator<=>(HashObj const& b) const
         {
             if constexpr (FullCompare)

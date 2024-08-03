@@ -88,7 +88,6 @@ namespace thread_management
 		virtual CTaskGraph* SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor) override;
 		virtual CTaskGraph* MainThread() override;
 		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) override;
-		virtual void AddResource(castl::shared_ptr<void> const& resource) override;
 		std::shared_future<void> Run();
 
 		virtual CTask* NewTask() override;
