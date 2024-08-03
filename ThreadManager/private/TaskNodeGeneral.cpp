@@ -1,5 +1,6 @@
 #include "TaskNodeGeneral.h"
 #include <CASTL/CAVector.h>
+#include <CASTL/CAMutex.h>
 
 namespace thread_management
 {
@@ -29,6 +30,7 @@ namespace thread_management
 		virtual TaskNodeGeneral_Impl* NewGeneralTaskNode() override
 		{
 			auto result = m_RootAllocator->NewGeneralTaskNode();
+			result->SetTaskQueue(m_OwningNode->GetTaskQueue());
 			result->SetOwner(m_OwningNode);
 			return result;
 		}
@@ -44,7 +46,34 @@ namespace thread_management
 	class TaskQueue
 	{
 	public:
-		virtual void EnqueueTaskNode(TaskNodeBase_Impl* node) = 0;
+		void EnqueueSingleTaskNode(TaskNodeBase_Impl* node)
+		{
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
+			EnqueueSingleTaskNodeNoLock(node);
+		}
+		void ExecuteTaskNodes(castl::array_ref<TaskNodeBase*> nodes, bool wait)
+		{
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
+			//TODO: Insert nodes
+			for (TaskNodeBase* taskNode : nodes)
+			{
+				TaskNodeBase_Impl* taskNodeImpl = dynamic_cast<TaskNodeBase_Impl*>(taskNode);
+				if (taskNodeImpl->ReadyToExecute())
+				{
+					EnqueueSingleTaskNodeNoLock(taskNodeImpl);
+				}
+			}
+			if (wait)
+			{
+				//TODO: Goto Thread Wait Function
+			}
+		}
+	private:
+		void EnqueueSingleTaskNodeNoLock(TaskNodeBase_Impl* node)
+		{
+			//m_TaskNodes.push_back(node);
+		}
+		castl::mutex m_Mutex;
 	};
 
 	class TaskObjectBase
@@ -70,7 +99,8 @@ namespace thread_management
 	class TaskNodeBase_Impl : public virtual TaskNodeBase, public TaskObjectBase
 	{
 	public:
-		TaskNodeBase_Impl(ETaskNodeType nodeType, RootTaskAllocator* rootAllocator) : m_NodeType(nodeType), m_LocalAllocator(this, rootAllocator)
+		TaskNodeBase_Impl(ETaskNodeType nodeType
+			, RootTaskAllocator* rootAllocator) : m_NodeType(nodeType), m_LocalAllocator(this, rootAllocator)
 		{
 		}
 
@@ -100,15 +130,29 @@ namespace thread_management
 			CheckEnqueueSelf();
 		}
 
+		void SetTaskQueue(TaskQueue* taskQueue)
+		{
+			m_TaskQueue = taskQueue;
+		}
+
+		TaskQueue* GetTaskQueue()
+		{
+			return m_TaskQueue;
+		}
+
 		//Called By Thread Worker
 		virtual void Execute() = 0;
 
+		bool ReadyToExecute() const
+		{
+			return m_ExplicitDepsCount <= 0 && m_DepsCount <= 0;
+		}
 
 		void CheckEnqueueSelf()
 		{
-			if (m_ExplicitDepsCount <= 0 && m_DepsCount <= 0)
+			if (ReadyToExecute())
 			{
-				m_TaskQueue->EnqueueTaskNode(this);
+				m_TaskQueue->EnqueueSingleTaskNode(this);
 			}
 		}
 
@@ -127,7 +171,7 @@ namespace thread_management
 		ETaskNodeType m_NodeType;
 		int32_t m_ExplicitDepsCount = 0;
 		int32_t m_DepsCount = 0;
-		TaskQueue* m_TaskQueue;
+		TaskQueue* m_TaskQueue = nullptr;
 		castl::vector<TaskNodeBase*> m_Successors;
 		NodeLocalTaskAllocator m_LocalAllocator;
 	};
@@ -185,5 +229,48 @@ namespace thread_management
 		}
 	};
 
-	
+
+	class TaskManager : public TaskObjectBase
+	{
+	public:
+		void Loop(castl::function<void(TaskScheduler*)> loopFunctor)
+		{
+
+		}
+	private:
+		class TaskScheduler_Impl : public TaskScheduler
+		{
+			TaskQueue* m_TaskQueue;
+			TaskAllocator* m_Allocator;
+
+			virtual TaskNodeGeneral* NewTaskNode() override
+			{
+				return m_Allocator->NewGeneralTaskNode();
+			}
+
+			virtual TaskNodeParallel* NewTaskNodeParallel() override
+			{
+				return nullptr;
+			}
+
+			virtual void ExecuteAndWait(castl::array_ref<TaskNodeBase*> nodes) override
+			{
+				if(nodes.empty())
+				{
+					return;
+				}
+
+				for (TaskNodeBase* taskNode : nodes)
+				{
+					TaskNodeBase_Impl* taskNodeImpl = dynamic_cast<TaskNodeBase_Impl*>(taskNode);
+					if (taskNodeImpl->ReadyToExecute())
+					{
+
+					}
+				}
+			}
+		};
+		TaskQueue m_TaskQueue;
+		RootTaskAllocator m_RootAllocator;
+	};
 }
