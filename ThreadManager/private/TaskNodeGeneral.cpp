@@ -1,6 +1,8 @@
 #include "TaskNodeGeneral.h"
 #include <CASTL/CAVector.h>
 #include <CASTL/CAMutex.h>
+#include <CASTL/CAAtomic.h>
+#include <CASTL/CADeque.h>
 
 namespace thread_management
 {
@@ -14,6 +16,14 @@ namespace thread_management
 		eGeneral,
 		eParallel,
 	};
+
+	class ThreadLocalData
+	{
+	public:
+		castl::string threadName;
+		uint32_t threadID;
+	};
+
 	class TaskAllocator
 	{
 	public:
@@ -46,15 +56,162 @@ namespace thread_management
 	class TaskQueue
 	{
 	public:
+		castl::condition_variable& GetConditionalVariable()
+		{
+			return m_ConditionalVariable;
+		}
+		castl::mutex& GetMutex()
+		{
+			return m_Mutex;
+		}
+		bool Empty() const
+		{
+			return m_Queue.empty();
+		}
+		castl::deque<TaskNodeBase_Impl*>& GetQueue()
+		{
+			return m_Queue;
+		}
+	private:
+		castl::deque<TaskNodeBase_Impl*> m_Queue;
+		castl::condition_variable m_ConditionalVariable;
+		castl::mutex m_Mutex;
+	};
+
+	class TaskWorker
+	{
+	public:
+		class TaskThreadExecuteProxy : public TaskObjectBase
+		{
+		public:
+
+			TaskThreadExecuteProxy(TaskObjectBase* baseObj, castl::array_ref<TaskNodeBase*> nodes)
+			{
+				SetOwner(baseObj);
+				m_TaskCount = nodes.size();
+				for(TaskNodeBase* taskNode : nodes)
+				{
+					TaskNodeBase_Impl* taskNodeImpl = dynamic_cast<TaskNodeBase_Impl*>(taskNode);
+					taskNodeImpl->SetOwner(this);
+				}
+			}
+
+			bool AllTaskDone() const
+			{
+				return m_TaskCount <= 0;
+			}
+
+			virtual TaskAllocator* GetAllocator() override
+			{
+				return GetOwner()->GetAllocator();
+			}
+
+			virtual void OnChildNodeFinish(TaskNodeBase_Impl* childNode) override
+			{
+				GetAllocator()->ReleaseTaskNode(childNode);
+				--m_TaskCount;
+				if (m_TaskCount <= 0)
+				{
+					//Notify
+				}
+			}
+			
+		private:
+			castl::atomic<int32_t> m_TaskCount = 0;
+		};
+
+	public:
+		void WorkLoopWhileWaiting(TaskThreadExecuteProxy& proxy)
+		{
+			while (!(proxy.AllTaskDone() || m_Stop))
+			{
+				castl::unique_lock<castl::mutex> lock(p_TargetTaskQueue->GetMutex());
+				p_TargetTaskQueue->GetConditionalVariable().wait(lock, [this, &proxy]()
+					{
+						return m_Stop || proxy.AllTaskDone() || !p_TargetTaskQueue->Empty();
+					});
+				if (m_Stop || p_TargetTaskQueue->Empty() || proxy.AllTaskDone())
+				{
+					lock.unlock();
+					continue;
+				}
+				TaskNodeBase_Impl* taskNode = p_TargetTaskQueue->GetQueue().front();
+				p_TargetTaskQueue->GetQueue().pop_front();
+				lock.unlock();
+				taskNode->Execute();
+			}
+		}
+		void WorkLoop()
+		{
+			while (!m_Stop)
+			{
+				castl::unique_lock<castl::mutex> lock(p_TargetTaskQueue->GetMutex());
+				p_TargetTaskQueue->GetConditionalVariable().wait(lock, [this]()
+					{
+						return m_Stop || !p_TargetTaskQueue->Empty();
+					});
+				if (m_Stop || p_TargetTaskQueue->Empty())
+				{
+					lock.unlock();
+					continue;
+				}
+				TaskNodeBase_Impl* taskNode = p_TargetTaskQueue->GetQueue().front();
+				p_TargetTaskQueue->GetQueue().pop_front();
+				lock.unlock();
+				taskNode->Execute();
+			}
+		}
+	private:
+		bool m_Stop = false;
+		TaskQueue* p_TargetTaskQueue;
+	};
+
+	class TaskQueueManager
+	{
+	public:
 		void EnqueueSingleTaskNode(TaskNodeBase_Impl* node)
 		{
-			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			EnqueueSingleTaskNodeNoLock(node);
 		}
-		void ExecuteTaskNodes(castl::array_ref<TaskNodeBase*> nodes, bool wait)
+
+		void EnqueueTaskNodes(castl::array_ref<TaskNodeBase*> nodes, bool wait)
 		{
-			castl::lock_guard<castl::mutex> lock(m_Mutex);
-			//TODO: Insert nodes
+			if (wait)
+			{
+				EnqueueTasksNoLockAndWait(nodes);
+			}
+			else
+			{
+				EnqueueTasksNoLockNoWait(nodes);
+			}
+		}
+
+	private:
+		thread_local static ThreadLocalData s_ThreadLocalData;
+
+		void EnqueueSingleTaskNodeNoLock(TaskNodeBase_Impl* node)
+		{
+			//m_TaskNodes.push_back(node);
+		}
+
+		void EnqueueTasksNoLockAndWait(castl::array_ref<TaskNodeBase*> nodes)
+		{
+			TaskWorker::TaskThreadExecuteProxy proxy{ nodes };
+			for (TaskNodeBase* taskNode : nodes)
+			{
+				TaskNodeBase_Impl* taskNodeImpl = dynamic_cast<TaskNodeBase_Impl*>(taskNode);
+				
+				if (taskNodeImpl->ReadyToExecute())
+				{
+					EnqueueSingleTaskNodeNoLock(taskNodeImpl);
+				}
+			}
+			//等待列表中的任务完成，同时此线程也会执行任务
+			m_TaskWorkers[s_ThreadLocalData.threadID].WorkLoopWhileWaiting(proxy);
+		}
+
+		void EnqueueTasksNoLockNoWait(castl::array_ref<TaskNodeBase*> nodes)
+		{
 			for (TaskNodeBase* taskNode : nodes)
 			{
 				TaskNodeBase_Impl* taskNodeImpl = dynamic_cast<TaskNodeBase_Impl*>(taskNode);
@@ -63,17 +220,10 @@ namespace thread_management
 					EnqueueSingleTaskNodeNoLock(taskNodeImpl);
 				}
 			}
-			if (wait)
-			{
-				//TODO: Goto Thread Wait Function
-			}
 		}
-	private:
-		void EnqueueSingleTaskNodeNoLock(TaskNodeBase_Impl* node)
-		{
-			//m_TaskNodes.push_back(node);
-		}
-		castl::mutex m_Mutex;
+
+		castl::vector<TaskWorker> m_TaskWorkers;
+		castl::vector<TaskQueue> m_TaskQueues;
 	};
 
 	class TaskObjectBase
@@ -130,12 +280,12 @@ namespace thread_management
 			CheckEnqueueSelf();
 		}
 
-		void SetTaskQueue(TaskQueue* taskQueue)
+		void SetTaskQueue(TaskQueueManager* taskQueue)
 		{
 			m_TaskQueue = taskQueue;
 		}
 
-		TaskQueue* GetTaskQueue()
+		TaskQueueManager* GetTaskQueue()
 		{
 			return m_TaskQueue;
 		}
@@ -171,7 +321,7 @@ namespace thread_management
 		ETaskNodeType m_NodeType;
 		int32_t m_ExplicitDepsCount = 0;
 		int32_t m_DepsCount = 0;
-		TaskQueue* m_TaskQueue = nullptr;
+		TaskQueueManager* m_TaskQueue = nullptr;
 		castl::vector<TaskNodeBase*> m_Successors;
 		NodeLocalTaskAllocator m_LocalAllocator;
 	};
@@ -240,7 +390,7 @@ namespace thread_management
 	private:
 		class TaskScheduler_Impl : public TaskScheduler
 		{
-			TaskQueue* m_TaskQueue;
+			TaskQueueManager* m_TaskQueue;
 			TaskAllocator* m_Allocator;
 
 			virtual TaskNodeGeneral* NewTaskNode() override
@@ -270,7 +420,7 @@ namespace thread_management
 				}
 			}
 		};
-		TaskQueue m_TaskQueue;
+		TaskQueueManager m_TaskQueue;
 		RootTaskAllocator m_RootAllocator;
 	};
 }
