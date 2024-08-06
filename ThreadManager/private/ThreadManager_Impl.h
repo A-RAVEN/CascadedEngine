@@ -29,7 +29,6 @@ namespace thread_management
 		virtual CTask* DependsOn(CTaskGraph* parentTask) override;
 		virtual CTask* WaitOnEvent(castl::string const& name) override;
 		virtual CTask* SignalEvent(castl::string const& name) override;
-		std::shared_future<void> Run();
 
 		virtual CTask* Functor(castl::function<void()>&& functor) override;
 	public:
@@ -57,7 +56,6 @@ namespace thread_management
 		virtual TaskParallelFor* SignalEvent(castl::string const& name) override;
 		virtual TaskParallelFor* Functor(castl::function<void(uint32_t)> functor) override;
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) override;
-		std::shared_future<void> Run();
 
 	public:
 		TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
@@ -74,6 +72,12 @@ namespace thread_management
 		castl::vector<TaskNode*> m_TaskList;
 	};
 
+	class TaskScheduler : public TaskBaseObject
+	{
+	public:
+		TaskScheduler(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+	};
+
 	class TaskGraph_Impl1 : public TaskNode, public CTaskGraph
 	{
 	public:
@@ -88,7 +92,6 @@ namespace thread_management
 		virtual CTaskGraph* SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor) override;
 		virtual CTaskGraph* MainThread() override;
 		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) override;
-		std::shared_future<void> Run();
 
 		virtual CTask* NewTask() override;
 		virtual TaskParallelFor* NewTaskParallelFor() override;

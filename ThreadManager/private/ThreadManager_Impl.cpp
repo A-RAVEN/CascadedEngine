@@ -64,11 +64,6 @@ namespace thread_management
         return this;
     }
 
-    std::shared_future<void> TaskGraph_Impl1::Run()
-    {
-        return StartExecute();
-    }
-
     CTask* TaskGraph_Impl1::NewTask()
     {
         std::lock_guard<std::mutex> guard(m_Mutex);
@@ -193,10 +188,7 @@ namespace thread_management
         SignalEvent_Internal(name);
         return this;
     }
-    std::shared_future<void> CTask_Impl1::Run()
-    {
-        return StartExecute();
-    }
+
     CTask* CTask_Impl1::Functor(castl::function<void()>&& functor)
     {
         Functor_Internal(std::move(functor));
@@ -539,11 +531,6 @@ namespace thread_management
     {
         m_PendingSubnodeCount.store(jobCount, std::memory_order_release);
         return this;
-    }
-
-    std::shared_future<void> TaskParallelFor_Impl::Run()
-    {
-        return StartExecute();
     }
 
     TaskParallelFor_Impl::TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :

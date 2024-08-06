@@ -15,6 +15,7 @@ namespace thread_management
 		eGraph,
 		eNode,
 		eNodeParallel,
+		eTaskScheduler,
 	};
 
 	class TaskBaseObject
@@ -28,84 +29,12 @@ namespace thread_management
 		TaskObjectType m_Type;
 	};
 
-
-	class TaskNodeBase : public TaskBaseObject
-	{
-	public:
-		TaskNodeBase(TaskObjectType type) : TaskBaseObject(type)
-		{
-			Reset();
-		}
-		void SetPendingCount(int32_t pendingCount)
-		{
-			m_PendingCount = pendingCount;
-		}
-		bool PendingFree() const
-		{
-			return m_PendingCount <= 0;
-		}
-		void DecreasePendingCount()
-		{
-			--m_PendingCount;
-		}
-
-		void Name(castl::string_view const& name)
-		{
-			m_Name = name;
-		}
-
-		virtual void Execute() = 0;
-		virtual void Reset()
-		{
-			ResetNodeBase();
-		}
-	private:
-		void InitNodeBase(TaskBaseObject* owner, uint32_t frameID)
-		{
-			m_Owner = owner;
-			m_CurrentFrame = frameID;
-		}
-		void ResetNodeBase()
-		{
-			m_Owner = nullptr;
-			m_Running = false;
-			m_RunOnMainThread = false;
-			m_CurrentFrame = 0;
-			m_PendingCount = 0;
-			m_ThreadKey.Reset();
-			m_Name = "Default Task Name";
-		}
-	private:
-		TaskBaseObject* m_Owner = nullptr;
-		bool m_Running = false;
-		bool m_RunOnMainThread = false;
-		uint64_t m_CurrentFrame = 0;
-		int32_t m_PendingCount = 0;
-		cacore::HashObj<castl::string> m_ThreadKey;
-		castl::string m_Name = "Default Task Name";
-	};
-
-
-
-	class TaskNodeGeneral : public TaskNodeBase
-	{
-	public:
-		TaskNodeGeneral(TaskBaseObject* owner);
-		void SetUnsafeDependencyCount(int32_t count)
-		{
-			m_UnsafeDependencyCount = count;
-		}
-	private:
-		int32_t m_UnsafeDependencyCount = 0;
-	};
-
-
 	class TaskNode : public TaskBaseObject
 	{
 	public:
 		TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void SetOwner(TaskBaseObject* owner) { m_Owner = owner; }
-		std::shared_future<void> StartExecute();
+		//std::shared_future<void> StartExecute();
 		virtual bool RunOnMainThread() const { return m_RunOnMainThread; }
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override {}
 		virtual void Execute_Internal() = 0;
@@ -116,8 +45,6 @@ namespace thread_management
 		size_t GetDepenedentCount() const { return m_Dependents.size(); }
 		void Release_Internal();
 		void SetThreadKey_Internal(cacore::HashObj<castl::string> const& key) { m_ThreadKey = key; }
-		std::shared_future<void> AquireFuture();
-		void FulfillPromise();
 	protected:
 		void NotifyDependsOnFinish(TaskNode* dependsOnNode);
 		void Name_Internal(const castl::string& name);
@@ -141,8 +68,6 @@ namespace thread_management
 		std::atomic<uint32_t>m_PendingDependsOnTaskCount{0};
 		castl::vector<castl::shared_ptr<void>> m_BoundResources;
 		bool m_RunOnMainThread = false;
-		bool m_HasPromise = false;
-		std::promise<void> m_Promise;
 
 		friend class ThreadManager_Impl1;
 		friend class TaskNodeEventManager;

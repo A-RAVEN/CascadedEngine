@@ -72,6 +72,14 @@ namespace thread_management
 		{
 			return m_Queue;
 		}
+		void Enqueue(TaskNodeBase_Impl* node)
+		{
+			{
+				castl::unique_lock<castl::mutex> lock(m_Mutex);
+				m_Queue.push_back(node);
+			}
+			m_ConditionalVariable.notify_one();
+		}
 	private:
 		castl::deque<TaskNodeBase_Impl*> m_Queue;
 		castl::condition_variable m_ConditionalVariable;
@@ -84,7 +92,6 @@ namespace thread_management
 		class TaskThreadExecuteProxy : public TaskObjectBase
 		{
 		public:
-
 			TaskThreadExecuteProxy(TaskObjectBase* baseObj, castl::array_ref<TaskNodeBase*> nodes)
 			{
 				SetOwner(baseObj);
@@ -110,10 +117,6 @@ namespace thread_management
 			{
 				GetAllocator()->ReleaseTaskNode(childNode);
 				--m_TaskCount;
-				if (m_TaskCount <= 0)
-				{
-					//Notify
-				}
 			}
 			
 		private:
@@ -186,12 +189,20 @@ namespace thread_management
 			}
 		}
 
+		TaskWorker& GetCurrentThreadWorker()
+		{
+			return m_TaskWorkers[s_ThreadLocalData.threadID];
+		}
+
 	private:
 		thread_local static ThreadLocalData s_ThreadLocalData;
+		constexpr static size_t SHARED_THREAD_ID = 0;
+		constexpr static size_t MAIN_THREAD_ID = 0;
 
 		void EnqueueSingleTaskNodeNoLock(TaskNodeBase_Impl* node)
 		{
 			//m_TaskNodes.push_back(node);
+			m_TaskQueues[SHARED_THREAD_ID].Enqueue(node);
 		}
 
 		void EnqueueTasksNoLockAndWait(castl::array_ref<TaskNodeBase*> nodes)
@@ -207,7 +218,7 @@ namespace thread_management
 				}
 			}
 			//等待列表中的任务完成，同时此线程也会执行任务
-			m_TaskWorkers[s_ThreadLocalData.threadID].WorkLoopWhileWaiting(proxy);
+			GetCurrentThreadWorker().WorkLoopWhileWaiting(proxy);
 		}
 
 		void EnqueueTasksNoLockNoWait(castl::array_ref<TaskNodeBase*> nodes)
