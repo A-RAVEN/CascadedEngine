@@ -742,6 +742,30 @@ namespace thread_management
         return true;
     }
 
+    void TaskScheduler_Impl::Execute(castl::array_ref<TaskNode*> nodes)
+    {
+        //m_OwningManager->Get
+        int32_t taskCount = 0;
+        for(TaskNode* node : nodes)
+		{
+            if (node->m_Owner == m_Owner)
+            {
+                node->SetOwner(this);
+                ++taskCount;
+            }
+		}
+        m_PendingTaskCount.store(taskCount);
+
+    }
+
+    void TaskScheduler_Impl::OnSchedulerFinish()
+    {
+        if (m_PendingTaskCount <= 0)
+        {
+            Task
+        }
+    }
+
 }
 
 

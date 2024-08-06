@@ -16,6 +16,20 @@ namespace thread_management
 {
 	class TaskNodeAllocator;
 
+	class TaskScheduler_Impl : public TaskBaseObject
+	{
+	public:
+		TaskScheduler_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		void Execute(castl::array_ref<TaskNode*> nodes);
+		void NotifyChildNodeFinish(TaskNode* childNode) override;
+	private:
+		void OnSchedulerFinish();
+		TaskBaseObject* m_Owner;
+		ThreadManager_Impl1* m_OwningManager;
+		TaskNodeAllocator* m_Allocator;
+		castl::atomic<int32_t> m_PendingTaskCount = 0;
+	};
+
 	class CTask_Impl1 : public TaskNode, public CTask
 	{
 	public:

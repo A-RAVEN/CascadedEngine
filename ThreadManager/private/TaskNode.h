@@ -71,6 +71,7 @@ namespace thread_management
 
 		friend class ThreadManager_Impl1;
 		friend class TaskNodeEventManager;
+		friend class TaskScheduler_Impl;
 	};
 }
 
