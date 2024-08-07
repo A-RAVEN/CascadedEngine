@@ -16,10 +16,17 @@ namespace thread_management
 {
 	class TaskNodeAllocator;
 
+	struct ThreadLocalData
+	{
+		castl::wstring threadName;
+		uint32_t threadIndex;
+		uint32_t queueIndex;
+	};
+
 	class TaskScheduler_Impl : public TaskBaseObject
 	{
 	public:
-		TaskScheduler_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		TaskScheduler_Impl( TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void Execute(castl::array_ref<TaskNode*> nodes);
 		void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
@@ -86,12 +93,6 @@ namespace thread_management
 		castl::vector<TaskNode*> m_TaskList;
 	};
 
-	class TaskScheduler : public TaskBaseObject
-	{
-	public:
-		TaskScheduler(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
-	};
-
 	class TaskGraph_Impl1 : public TaskNode, public CTaskGraph
 	{
 	public:
@@ -153,7 +154,7 @@ namespace thread_management
 		DedicateTaskQueue(DedicateTaskQueue&& other) noexcept : DedicateTaskQueue(){}
 		void Stop();
 		void Reset();
-		void WorkLoop();
+		void WorkLoop(ThreadLocalData const& threadLocalData);
 		void EnqueueTaskNodes(castl::array_ref<TaskNode*> const& nodeDeque);
 	private:
 		void EnqueueTaskNodes_NoLock(castl::array_ref<TaskNode*> const& nodeDeque);
@@ -263,5 +264,6 @@ namespace thread_management
 		castl::atomic<uint32_t> m_PendingTaskCount = 0;
 
 		castl::vector<TaskNode*> m_InitializeTasks;
+
 	};
 }

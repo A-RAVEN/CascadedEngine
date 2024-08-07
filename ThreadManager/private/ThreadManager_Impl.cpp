@@ -7,6 +7,8 @@ namespace thread_management
 {
     CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CThreadManager, ThreadManager_Impl1)
 
+    thread_local static ThreadLocalData g_ThreadLocalData;
+
     CTaskGraph* TaskGraph_Impl1::Name(castl::string name)
     {
         Name_Internal(name);
@@ -265,30 +267,45 @@ namespace thread_management
     {
         catimer::SetGlobalTimerSystem(timer);
         m_WorkerThreads.reserve(threadNum + dedicateThreadNum);
-        uint32_t dedicateTaskQueueNum = dedicateThreadNum + 1;
-        m_DedicateTaskQueues.resize(dedicateTaskQueueNum);
+        uint32_t taskQueueNum = threadNum + dedicateThreadNum + 1;
+        m_DedicateTaskQueues.resize(taskQueueNum);
         m_DedicateThreadMap.SetThreadIndex(castl::string{ "MainThread" }, 0);
+
+        uint32_t queueID = 1;
+        uint32_t threadIndex = 1;
         for (uint32_t i = 0; i < threadNum; ++i)
         {
-            m_WorkerThreads.emplace_back(&ThreadManager_Impl1::ProcessingWorks, this, i);
+            ThreadLocalData threadLocalData;
+            threadLocalData.threadName = L"General Thread " + castl::to_wstring(i);
+            threadLocalData.queueIndex = queueID;
+            threadLocalData.threadIndex = threadIndex;
+            m_WorkerThreads.emplace_back(&DedicateTaskQueue::WorkLoop, &m_DedicateTaskQueues[queueID], threadLocalData);
 
-            castl::wstring name = L"General Thread " + castl::to_wstring(i);
-            HRESULT r;
-            r = SetThreadDescription(
-                m_WorkerThreads.back().native_handle(),
-                name.c_str()
-            );
+            ++threadIndex;
+            //castl::wstring name = L"General Thread " + castl::to_wstring(i);
+            //HRESULT r;
+            //r = SetThreadDescription(
+            //    m_WorkerThreads.back().native_handle(),
+            //    name.c_str()
+            //);
         }
         for (uint32_t i = 0; i < dedicateThreadNum; ++i)
         {
-			m_WorkerThreads.emplace_back(&DedicateTaskQueue::WorkLoop, &m_DedicateTaskQueues[i + 1]);
+            ThreadLocalData threadLocalData;
+            threadLocalData.threadName = L"Dedicate Thread " + castl::to_wstring(i);
+            threadLocalData.queueIndex = queueID;
+            threadLocalData.threadIndex = threadIndex;
+
+			m_WorkerThreads.emplace_back(&DedicateTaskQueue::WorkLoop, &m_DedicateTaskQueues[queueID]);
+            ++queueID;
+            ++threadIndex;
             
-            castl::wstring name = L"Dedicate Thread " + castl::to_wstring(i);
-            HRESULT r;
-            r = SetThreadDescription(
-                m_WorkerThreads.back().native_handle(),
-                name.c_str()
-            );
+            //castl::wstring name = L"Dedicate Thread " + castl::to_wstring(i);
+            //HRESULT r;
+            //r = SetThreadDescription(
+            //    m_WorkerThreads.back().native_handle(),
+            //    name.c_str()
+            //);
 		}
     }
     void ThreadManager_Impl1::SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name)
@@ -477,7 +494,11 @@ namespace thread_management
 
     void ThreadManager_Impl1::ProcessingWorksMainThread()
     {
-        m_DedicateTaskQueues[0].WorkLoop();
+        ThreadLocalData threadLocalData;
+        threadLocalData.threadName = L"Main Thread";
+        threadLocalData.queueIndex = 0;
+        threadLocalData.threadIndex = 0;
+        m_DedicateTaskQueues[0].WorkLoop(threadLocalData);
     }
 
 
@@ -653,8 +674,16 @@ namespace thread_management
         std::lock_guard<std::mutex> guard(m_Mutex);
 		m_Stop = false;
     }
-    void DedicateTaskQueue::WorkLoop()
+    void DedicateTaskQueue::WorkLoop(ThreadLocalData const& threadLocalData)
     {
+        g_ThreadLocalData = threadLocalData;
+
+        HRESULT r;
+        r = SetThreadDescription(
+            GetCurrentThread(),
+            g_ThreadLocalData.threadName.c_str()
+        );
+
         while (!m_Stop)
         {
             std::unique_lock<std::mutex> lock(m_Mutex);
@@ -762,7 +791,7 @@ namespace thread_management
     {
         if (m_PendingTaskCount <= 0)
         {
-            Task
+            //m_OwningManager
         }
     }
 
