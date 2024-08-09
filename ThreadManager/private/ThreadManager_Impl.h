@@ -239,7 +239,7 @@ namespace thread_management
 
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
-		void ProcessingWorks(uint32_t threadID);
+		//void ProcessingWorks(uint32_t threadID);
 		void ResetMainThread();
 		void StopMainThread();
 		void ProcessingWorksMainThread();
@@ -248,13 +248,13 @@ namespace thread_management
 		castl::function<bool(CTaskGraph*)> m_PrepareFunctor = nullptr;
 		castl::string m_SetupEventName;
 
-		castl::deque<TaskNode*> m_TaskQueue;
+		//castl::deque<TaskNode*> m_TaskQueue;
 		castl::vector<std::thread> m_WorkerThreads;
 		castl::vector<DedicateTaskQueue> m_DedicateTaskQueues;
-		std::atomic_bool m_Stopped = false;
+		//std::atomic_bool m_Stopped = false;
 		castl::atomic<uint64_t> m_Frames = 0u;
 		castl::mutex m_Mutex;
-		castl::condition_variable m_ConditinalVariable;
+		//castl::condition_variable m_ConditinalVariable;
 
 		TaskNodeAllocator m_TaskNodeAllocator;
 		DedicateThreadMap m_DedicateThreadMap;

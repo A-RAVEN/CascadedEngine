@@ -40,7 +40,9 @@ namespace graphics_backend
 
 		vk::QueueFlags generalFlags = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer;
 		vk::QueueFlags computeFlags = vk::QueueFlagBits::eCompute;
+#if VK_ENABLE_BETA_EXTENSIONS
 		vk::QueueFlags videoDecodingFlags = vk::QueueFlagBits::eVideoDecodeKHR;
+#endif
 		for (uint32_t familyId = 0; familyId < queueFamilyProperties.size(); ++familyId)
 		{
 			vk::QueueFamilyProperties const& itrProp = queueFamilyProperties[familyId];
@@ -66,12 +68,14 @@ namespace graphics_backend
 				m_ComputeStageMask = computeStageFlags;
 				CA_LOG_ERR("Compute Queue Is " + castl::to_string(m_ComputeQueueFamilyIndex));
 			}
+#if VK_ENABLE_BETA_EXTENSIONS
 			else if (itrProp.queueFlags & videoDecodingFlags)
 			{
 				m_VideoDecodeFamilyIndex = familyId;
 				m_VideoDecodeStageMask = transferFlags;
 				CA_LOG_ERR("Video Decoding Queue Is " + castl::to_string(m_VideoDecodeFamilyIndex));
 			}
+#endif
 			else if (itrProp.queueFlags & vk::QueueFlagBits::eTransfer)
 			{
 				m_TransferQueueFamilyIndex = familyId;
