@@ -89,7 +89,7 @@ namespace thread_management
 		virtual void Execute_Internal() override;
 	private:
 		castl::function<void(uint32_t)> m_Functor;
-		std::atomic<uint32_t>m_PendingSubnodeCount{0};
+		castl::atomic<uint32_t>m_PendingSubnodeCount{0};
 		castl::vector<TaskNode*> m_TaskList;
 	};
 
@@ -111,6 +111,8 @@ namespace thread_management
 		virtual CTask* NewTask() override;
 		virtual TaskParallelFor* NewTaskParallelFor() override;
 		virtual CTaskGraph* NewTaskGraph() override;
+		
+		bool IsFinished() const { return m_AllFinished; }
 
 	public:
 		TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
@@ -124,9 +126,11 @@ namespace thread_management
 	private:
 		castl::function<void(CTaskGraph* thisGraph)> m_Functor = nullptr;
 		castl::vector<TaskNode*> m_RootTasks;
-		std::atomic<uint32_t>m_PendingSubnodeCount{0};
+		castl::atomic<int32_t>m_PendingSubnodeCount{0};
+		castl::atomic<bool> m_AllFinished = false;
+		castl::atomic<int32_t>m_WaitingQueueID = -1;
 
-		std::mutex m_Mutex;
+		castl::mutex m_Mutex;
 		eastl::deque<TaskNode*> m_SubTasks;
 	};
 
@@ -153,15 +157,17 @@ namespace thread_management
 		DedicateTaskQueue() = default;
 		DedicateTaskQueue(DedicateTaskQueue&& other) noexcept : DedicateTaskQueue(){}
 		void Stop();
+		void NotifyAll();
 		void Reset();
+		void InlineWorkLoop(TaskGraph_Impl1* taskGraph);
 		void WorkLoop(ThreadLocalData const& threadLocalData);
 		void EnqueueTaskNodes(castl::array_ref<TaskNode*> const& nodeDeque);
 	private:
 		void EnqueueTaskNodes_NoLock(castl::array_ref<TaskNode*> const& nodeDeque);
-		std::mutex m_Mutex;
-		bool m_Stop = false;
+		castl::mutex m_Mutex;
+		castl::atomic<bool> m_Stop = false;
 		eastl::deque<TaskNode*> m_Queue;
-		std::condition_variable m_ConditionalVariable;
+		castl::condition_variable m_ConditionalVariable;
 	};
 
 	class DedicateThreadMap
@@ -223,6 +229,8 @@ namespace thread_management
 		virtual void LoopFunction(castl::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
 		virtual void Run() override;
 		void Stop();
+
+		DedicateTaskQueue& GetDedicateTaskQueue(uint32_t queueIndex) { return m_DedicateTaskQueues[queueIndex]; }
 	public:
 		ThreadManager_Impl1();
 		~ThreadManager_Impl1();
@@ -251,7 +259,7 @@ namespace thread_management
 		//castl::deque<TaskNode*> m_TaskQueue;
 		castl::vector<std::thread> m_WorkerThreads;
 		castl::vector<DedicateTaskQueue> m_DedicateTaskQueues;
-		//std::atomic_bool m_Stopped = false;
+		//castl::atomic_bool m_Stopped = false;
 		castl::atomic<uint64_t> m_Frames = 0u;
 		castl::mutex m_Mutex;
 		//castl::condition_variable m_ConditinalVariable;

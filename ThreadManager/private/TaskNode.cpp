@@ -13,19 +13,6 @@ namespace thread_management
 		, m_CurrentFrame(owner->GetCurrentFrame())
 	{
 	}
-	//std::shared_future<void> TaskNode::StartExecute()
-	//{
-	//	if (m_Owner->GetTaskObjectType() == TaskObjectType::eManager
-	//		&& m_Owner == m_OwningManager
-	//		&& m_Dependents.empty()
-	//		&& !m_Running)
-	//	{
-	//		SetupThisNodeDependencies_Internal();
-	//		m_OwningManager->EnqueueTaskNode(this);
-	//		return AquireFuture();
-	//	}
-	//	return std::shared_future<void>();
-	//}
 	void TaskNode::NotifyDependsOnFinish(TaskNode* dependsOnNode)
 	{
 		uint32_t remainCounter = --m_PendingDependsOnTaskCount;
@@ -55,12 +42,12 @@ namespace thread_management
 	void TaskNode::SetupThisNodeDependencies_Internal()
 	{
 		uint32_t pendingCount = m_Dependents.size();
-		m_PendingDependsOnTaskCount.store(pendingCount, std::memory_order_relaxed);
+		m_PendingDependsOnTaskCount.store(pendingCount, castl::memory_order_relaxed);
 	}
 	void TaskNode::Release_Internal()
 	{
-		m_Running.store(false, std::memory_order_relaxed);
-		m_PendingDependsOnTaskCount.store(0, std::memory_order_relaxed);
+		m_Running.store(false, castl::memory_order_relaxed);
+		m_PendingDependsOnTaskCount.store(0, castl::memory_order_relaxed);
 		m_Name = "Default Task Name";
 		m_EventName = "";
 		m_SignalEventName = "";
@@ -72,7 +59,7 @@ namespace thread_management
 	}
 	void TaskNode::FinalizeExecution_Internal()
 	{
-		std::atomic_thread_fence(std::memory_order_release);
+		castl::atomic_thread_fence(castl::memory_order_release);
 		for (auto itrSuccessor = m_Successors.begin(); itrSuccessor != m_Successors.end(); ++itrSuccessor)
 		{
 			(*itrSuccessor)->NotifyDependsOnFinish(this);
@@ -81,16 +68,8 @@ namespace thread_management
 		{
 			m_OwningManager->SignalEvent(m_SignalEventName, m_CurrentFrame);
 		}
-		m_BoundResources.clear();
 		m_Owner->NotifyChildNodeFinish(this);
 		m_Allocator->Release(this);
-	}
-
-	void TaskNode::AddResource_Internal(castl::shared_ptr<void> const& resource)
-	{
-		if (resource == nullptr)
-			return;
-		m_BoundResources.push_back(resource);
 	}
 }
 
