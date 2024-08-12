@@ -42,12 +42,12 @@ namespace thread_management
 	void TaskNode::SetupThisNodeDependencies_Internal()
 	{
 		uint32_t pendingCount = m_Dependents.size();
-		m_PendingDependsOnTaskCount.store(pendingCount, castl::memory_order_relaxed);
+		m_PendingDependsOnTaskCount.store(pendingCount, castl::memory_order_release);
 	}
 	void TaskNode::Release_Internal()
 	{
-		m_Running.store(false, castl::memory_order_relaxed);
-		m_PendingDependsOnTaskCount.store(0, castl::memory_order_relaxed);
+		m_Running.store(false, castl::memory_order_release);
+		m_PendingDependsOnTaskCount.store(0, castl::memory_order_release);
 		m_Name = "Default Task Name";
 		m_EventName = "";
 		m_SignalEventName = "";
@@ -59,7 +59,7 @@ namespace thread_management
 	}
 	void TaskNode::FinalizeExecution_Internal()
 	{
-		castl::atomic_thread_fence(castl::memory_order_release);
+		castl::atomic_thread_fence(castl::memory_order_acq_rel);
 		for (auto itrSuccessor = m_Successors.begin(); itrSuccessor != m_Successors.end(); ++itrSuccessor)
 		{
 			(*itrSuccessor)->NotifyDependsOnFinish(this);
@@ -68,6 +68,7 @@ namespace thread_management
 		{
 			m_OwningManager->SignalEvent(m_SignalEventName, m_CurrentFrame);
 		}
+		//std::cout << (GetName() + " Finalize" + castl::to_string(GetCurrentFrame())).c_str() << std::endl;
 		m_Owner->NotifyChildNodeFinish(this);
 		m_Allocator->Release(this);
 	}

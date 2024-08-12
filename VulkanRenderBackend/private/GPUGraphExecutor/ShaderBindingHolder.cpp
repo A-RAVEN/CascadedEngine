@@ -331,6 +331,8 @@ namespace graphics_backend
 		, vk::CommandBuffer& command
 		, castl::vector <castl::pair <castl::string, castl::shared_ptr<ShaderArgList>>> const& shaderArgLists)
 	{
+		if (p_ReflectionData == nullptr)
+			return;
 		for (int sid = 0; sid < p_ReflectionData->m_BindingData.size(); ++sid)
 		{
 			DescritprorWriter writer;

@@ -1560,33 +1560,17 @@ namespace graphics_backend
 							->JobCount(drawcallBatchs.size())
 							->Functor([&](uint32_t batchID)
 							{
-								{
-									CPUTIMER_SCOPE("Rasterize Batch ShaderArgs");
-									auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-									vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
-									auto& batch = drawcallBatchs[batchID];
-									GPUPassBatchInfo& newBatchInfo = drawcallBatchData[batchID];
-									auto& batchLevelPsoDesc = batch.pipelineStateDesc;
-									auto resolvedPSODesc = PipelineDescData::CombindDescData(passLevelPsoDesc, batchLevelPsoDesc);
-									newBatchInfo.m_ShaderBindingInstance.FillShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, resolvedPSODesc.shaderArgLists);
-									writeConstantsCommand.end();
-									renderPassData.m_PrepareShaderArgCommands[batchID] = writeConstantsCommand;
-								}
+								CPUTIMER_SCOPE("Rasterize Batch ShaderArgs");
+								auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+								vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
+								auto& batch = drawcallBatchs[batchID];
+								GPUPassBatchInfo& newBatchInfo = drawcallBatchData[batchID];
+								auto& batchLevelPsoDesc = batch.pipelineStateDesc;
+								auto resolvedPSODesc = PipelineDescData::CombindDescData(passLevelPsoDesc, batchLevelPsoDesc);
+								newBatchInfo.m_ShaderBindingInstance.FillShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, resolvedPSODesc.shaderArgLists);
+								writeConstantsCommand.end();
+								renderPassData.m_PrepareShaderArgCommands[batchID] = writeConstantsCommand;
 							});
-
-						//for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
-						//{
-						//	CPUTIMER_SCOPE("Rasterize Batch ShaderArgs");
-						//	auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-						//	vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
-						//	auto& batch = drawcallBatchs[batchID];
-						//	GPUPassBatchInfo& newBatchInfo = drawcallBatchData[batchID];
-						//	auto& batchLevelPsoDesc = batch.pipelineStateDesc;
-						//	auto resolvedPSODesc = PipelineDescData::CombindDescData(passLevelPsoDesc, batchLevelPsoDesc);
-						//	newBatchInfo.m_ShaderBindingInstance.FillShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, resolvedPSODesc.shaderArgLists);
-						//	writeConstantsCommand.end();
-						//	renderPassData.m_PrepareShaderArgCommands[batchID] = writeConstantsCommand;
-						//}
 					});
 			}
 		}

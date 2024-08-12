@@ -454,6 +454,7 @@ namespace imgui_display
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+		io.ConfigDockingTransparentPayload = true;
 
 		io.Fonts->AddFontDefault();
 		ImFontConfig fontConfig;
@@ -582,6 +583,12 @@ namespace imgui_display
 		pUserData->pWindowHandle->SetWindowName(title);
 	}
 
+	static void ImGui_Impl_SetWindowAlpha(ImGuiViewport* viewport, float alpha)
+	{
+		IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewport->PlatformUserData;
+		pUserData->pWindowHandle->SetWindowAlpha(alpha);
+	}
+
 	void InitImGUIPlatformFunctors()
 	{
 		ImGuiIO& io = ImGui::GetIO();
@@ -600,7 +607,7 @@ namespace imgui_display
 		//platform_io.Platform_RenderWindow = ImGui_ImplGlfw_RenderWindow;
 		//platform_io.Platform_SwapBuffers = ImGui_ImplGlfw_SwapBuffers;
 	//#if GLFW_HAS_WINDOW_ALPHA
-	//	platform_io.Platform_SetWindowAlpha = ImGui_ImplGlfw_SetWindowAlpha;
+		platform_io.Platform_SetWindowAlpha = ImGui_Impl_SetWindowAlpha;
 	//#endif
 	//#if GLFW_HAS_VULKAN
 	//	platform_io.Platform_CreateVkSurface = ImGui_ImplGlfw_CreateVkSurface;

@@ -107,7 +107,7 @@ namespace catimer
 			uint32_t stackID = m_EventStack.size() - 1;
 			castl::pair<EventHandle, TimerType::time_point> eventRecord = m_EventStack.top();
 			m_EventStack.pop();
-			CA_ASSERT(eventHandle == eventRecord.first, "Handle Not Equal!!!");
+			CA_ASSERT(eventHandle == eventRecord.first, (castl::string("Handle Not Equal ") + castl::string(eventHandle.name) + " " + castl::string(eventRecord.first.name)));
 			frameData.AddEvent(eventRecord.first, stackID, eventRecord.second, m_Timer.now());
 		}
 		TimerType m_Timer;

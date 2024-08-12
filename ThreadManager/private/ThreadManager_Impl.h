@@ -26,7 +26,7 @@ namespace thread_management
 	class TaskScheduler_Impl : public TaskBaseObject
 	{
 	public:
-		TaskScheduler_Impl( TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		TaskScheduler_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void Execute(castl::array_ref<TaskNode*> nodes);
 		void NotifyChildNodeFinish(TaskNode* childNode) override;
 	private:
@@ -34,6 +34,7 @@ namespace thread_management
 		TaskBaseObject* m_Owner;
 		ThreadManager_Impl1* m_OwningManager;
 		TaskNodeAllocator* m_Allocator;
+		castl::atomic<int32_t> m_HoldingQueueID = -1;
 		castl::atomic<int32_t> m_PendingTaskCount = 0;
 	};
 
@@ -112,7 +113,8 @@ namespace thread_management
 		virtual TaskParallelFor* NewTaskParallelFor() override;
 		virtual CTaskGraph* NewTaskGraph() override;
 		
-		bool IsFinished() const { return m_AllFinished; }
+		inline bool IsFinished() const noexcept { return m_PendingSubnodeCount <= 0; }
+		int32_t GetPendingCount() const { return m_PendingSubnodeCount; }
 
 	public:
 		TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
@@ -122,12 +124,10 @@ namespace thread_management
 		// 通过 TaskNode 继承
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 		virtual void Execute_Internal() override;
-		virtual void SetupSubnodeDependencies() override;
+		//virtual void SetupSubnodeDependencies() override;
 	private:
 		castl::function<void(CTaskGraph* thisGraph)> m_Functor = nullptr;
-		castl::vector<TaskNode*> m_RootTasks;
 		castl::atomic<int32_t>m_PendingSubnodeCount{0};
-		castl::atomic<bool> m_AllFinished = false;
 		castl::atomic<int32_t>m_WaitingQueueID = -1;
 
 		castl::mutex m_Mutex;

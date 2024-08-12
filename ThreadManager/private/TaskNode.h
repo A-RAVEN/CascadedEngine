@@ -32,12 +32,14 @@ namespace thread_management
 	{
 	public:
 		TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
-		void SetOwner(TaskBaseObject* owner) { m_Owner = owner; }
+		void SetOwner(TaskBaseObject* owner) { 
+			m_Owner = owner;
+			m_CurrentFrame = owner->GetCurrentFrame(); }
 		//castl::shared_future<void> StartExecute();
 		virtual bool RunOnMainThread() const { return m_RunOnMainThread; }
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override {}
 		virtual void Execute_Internal() = 0;
-		virtual void SetupSubnodeDependencies() {};
+		//virtual void SetupSubnodeDependencies() {};
 		virtual uint64_t GetCurrentFrame() const override { return m_CurrentFrame; }
 		void SetRunOnMainThread(bool runOnMainThread) { m_RunOnMainThread = runOnMainThread; }
 		void SetupThisNodeDependencies_Internal();
