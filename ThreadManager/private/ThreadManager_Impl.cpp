@@ -1,7 +1,7 @@
 #include "pch.h"
 #include "ThreadManager_Impl.h"
 #include <DebugUtils.h>
-//#include <processthreadsapi.h>
+#include <CASTL/CAChrono.h>
 
 namespace thread_management
 {
@@ -50,9 +50,15 @@ namespace thread_management
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor)
+    //CTaskGraph* TaskGraph_Impl1::SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor)
+    //{
+    //    m_Functor = functor;
+    //    return this;
+    //}
+
+    CTaskGraph* TaskGraph_Impl1::Func(castl::function<void(TaskScheduler*)> functor)
     {
-        m_Functor = functor;
+        m_ScheduleFunctor = functor;
         return this;
     }
 
@@ -68,9 +74,8 @@ namespace thread_management
         return this;
     }
 
-    CTask* TaskGraph_Impl1::NewTask()
+    /*CTask* TaskGraph_Impl1::NewTask()
     {
-        castl::lock_guard<castl::mutex> guard(m_Mutex);
         auto result = m_Allocator->NewTask(this);
         result->Thread(m_ThreadKey);
         result->SetRunOnMainThread(m_RunOnMainThread);
@@ -80,7 +85,6 @@ namespace thread_management
 
     TaskParallelFor* TaskGraph_Impl1::NewTaskParallelFor()
     {
-        castl::lock_guard<castl::mutex> guard(m_Mutex);
         auto result = m_Allocator->NewTaskParallelFor(this);
         result->SetRunOnMainThread(m_RunOnMainThread);
         m_SubTasks.push_back(result);
@@ -89,78 +93,37 @@ namespace thread_management
 
     CTaskGraph* TaskGraph_Impl1::NewTaskGraph()
     {
-        castl::lock_guard<castl::mutex> guard(m_Mutex);
         auto result = m_Allocator->NewTaskGraph(this);
         result->Thread(m_ThreadKey);
         result->SetRunOnMainThread(m_RunOnMainThread);
         m_SubTasks.push_back(result);
         return result;
-    }
+    }*/
 
-    TaskGraph_Impl1::TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
-        TaskNode(TaskObjectType::eGraph, owner, owningManager, allocator)
+    TaskGraph_Impl1::TaskGraph_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
+        TaskNode(TaskObjectType::eGraph, owningManager, allocator)
     {
     }
 
     void TaskGraph_Impl1::Release()
     {
-        //std::cout << ("Release " + GetName()).c_str() << std::endl;
-        castl::lock_guard<castl::mutex> guard(m_Mutex);
-        m_PendingSubnodeCount.store(0, castl::memory_order_seq_cst);
-        m_WaitingQueueID = -1;
-        m_SubTasks.clear();
-        m_Functor = nullptr;
+        m_ScheduleFunctor = nullptr;
         Release_Internal();
     }
 
     void TaskGraph_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
     {
-        int queueID = m_WaitingQueueID;
-        int nodeCount = m_PendingSubnodeCount.fetch_sub(1, castl::memory_order_seq_cst);
-        //std::cout << (childNode->GetName() + " Notify " + GetName() + " " + castl::to_string(GetCurrentFrame()) + " " + castl::to_string(nodeCount)).c_str() << std::endl;
-        if (nodeCount == 1)
-        {
-            castl::atomic_thread_fence(castl::memory_order_acq_rel);
-            m_OwningManager->GetDedicateTaskQueue(queueID).NotifyAll();
-        }
     }
     void TaskGraph_Impl1::Execute_Internal()
     {
         {
             CPUTIMER_SCOPE(m_Name.c_str());
-            if (m_Functor != nullptr)
+            if (m_ScheduleFunctor != nullptr)
             {
-                m_Functor(this);
+                TaskScheduler_Impl taskScheduler(this, m_OwningManager, m_Allocator);
+                m_ScheduleFunctor(&taskScheduler);
+                taskScheduler.Finalize();
             }
-
-            m_WaitingQueueID.store(g_ThreadLocalData.queueIndex, castl::memory_order_release);
-
-            {
-                castl::lock_guard<castl::mutex> guard(m_Mutex);
-                int taskSize = m_SubTasks.size();
-                m_PendingSubnodeCount.store(taskSize, castl::memory_order_release);
-
-                //int prev = m_PendingSubnodeCount.fetch_add(taskSize, castl::memory_order_seq_cst);
-                //CA_ASSERT(prev == 0, "TaskCount Error");
-                //std::cout << ("TaskCount " + GetName() + " " + castl::to_string(GetCurrentFrame()) + " " + castl::to_string(taskSize)).c_str() << std::endl;
-
-                for (TaskNode* itrTask : m_SubTasks)
-                {
-                    itrTask->SetupThisNodeDependencies_Internal();
-                }
-
-                for (TaskNode* itrTask : m_SubTasks)
-                {
-                    if (itrTask->GetDepenedentCount() == 0)
-                    {
-                        m_OwningManager->EnqueueTaskNode(itrTask);
-                    }
-                }
-            }
-
-            castl::atomic_thread_fence(castl::memory_order_acq_rel);
-            auto& threadLocalQueue = m_OwningManager->GetDedicateTaskQueue(g_ThreadLocalData.queueIndex);
-            threadLocalQueue.InlineWorkLoop(this);
         }
         FinalizeExecution_Internal();
     }
@@ -212,21 +175,17 @@ namespace thread_management
 
     CTask* CTask_Impl1::Functor(castl::function<void()>&& functor)
     {
-        Functor_Internal(castl::move(functor));
+        m_Functor = functor;
         return this;
     }
-    CTask_Impl1::CTask_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
-        TaskNode(TaskObjectType::eNode, owner, owningManager, allocator)
+    CTask_Impl1::CTask_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
+        TaskNode(TaskObjectType::eNode, owningManager, allocator)
     {
-    }
-
-    void CTask_Impl1::Functor_Internal(castl::function<void()>&& functor)
-    {
-        m_Functor = functor;
     }
 
     void CTask_Impl1::Release()
     {
+        //castl::lock_guard<castl::mutex> guard(m_Mutex);
         m_RunOnMainThread = false;
         m_Functor = nullptr;
         Release_Internal();
@@ -234,6 +193,7 @@ namespace thread_management
 
     void CTask_Impl1::Execute_Internal()
     {
+        //castl::lock_guard<castl::mutex> guard(m_Mutex);
         if (m_Functor != nullptr)
         {
             CPUTIMER_SCOPE(m_Name.c_str());
@@ -251,7 +211,6 @@ namespace thread_management
     ThreadManager_Impl1::~ThreadManager_Impl1()
     {
         Stop();
-
     }
 
     void ThreadManager_Impl1::EnqueueOneTimeTasks()
@@ -272,13 +231,13 @@ namespace thread_management
         TaskGraph_Impl1* setupTaskGraph = NewTaskGraph();
         setupTaskGraph->Name("Setup");
         setupTaskGraph->SignalEvent(m_SetupEventName);
-        bool notEnd = m_PrepareFunctor(setupTaskGraph);
+        setupTaskGraph->Func(m_PrepareFunctor);
         ++m_Frames;
         EnqueueTaskNode(setupTaskGraph);
-        if (!notEnd)
-        {
-            m_WaitingIdle = true;
-        }
+        //if (!notEnd)
+        //{
+        //    m_WaitingIdle = true;
+        //}
     }
 
     void ThreadManager_Impl1::InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum)
@@ -339,17 +298,17 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
-    void ThreadManager_Impl1::OneTime(castl::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent)
     {
         if (functor == nullptr)
             return;
         auto* newTaskGraph = NewTaskGraph();
-        functor(newTaskGraph);
+        newTaskGraph->Func(functor);
         castl::lock_guard<castl::mutex> guard(m_Mutex);
         m_InitializeTasks.push_back(newTaskGraph);
     }
 
-    void ThreadManager_Impl1::LoopFunction(castl::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::LoopFunction(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent)
     {
         m_PrepareFunctor = functor;
         m_SetupEventName = waitingEvent;
@@ -378,8 +337,19 @@ namespace thread_management
         }
     }
 
+    void ThreadManager_Impl1::WakeAll()
+    {
+        for (auto& dedicateThread : m_DedicateTaskQueues)
+        {
+            dedicateThread.NotifyAll();
+        }
+    }
+
     void ThreadManager_Impl1::EnqueueTaskNode(TaskNode* enqueueNode)
     {
+        //std::cout << "Enqueue" << std::endl;
+        CA_ASSERT(enqueueNode->m_Running.load() == TaskNodeState::ePrepare, "Invalid Task Node");
+        CA_ASSERT_BREAK(enqueueNode->Valid(), "Invalid Task Node");
         if(enqueueNode->m_ThreadKey.Valid() || enqueueNode->m_RunOnMainThread)
         {
 			EnqueueTaskNode_DedicateThread(enqueueNode);
@@ -398,33 +368,27 @@ namespace thread_management
         }
     }
 
-    void ThreadManager_Impl1::EnqueueTaskNodes_GeneralThread(castl::array_ref<TaskNode*> nodes)
-    {
-        for (TaskNode* itrNode : nodes)
-        {
-            itrNode->m_Running.store(true, castl::memory_order_relaxed);
-        }
-        m_DedicateTaskQueues[GENERAL_QUEUE_ID].EnqueueTaskNodes(nodes);
-    }
+    //void ThreadManager_Impl1::EnqueueTaskNodes_GeneralThread(castl::array_ref<TaskNode*> nodes)
+    //{
+    //    for (TaskNode* itrNode : nodes)
+    //    {
+    //        itrNode->m_Running.store(true, castl::memory_order_relaxed);
+    //    }
+    //    m_DedicateTaskQueues[GENERAL_QUEUE_ID].EnqueueTaskNodes(nodes);
+    //}
     void ThreadManager_Impl1::EnqueueTaskNode_GeneralThread(TaskNode* node)
     {
+        node->m_Running.store(TaskNodeState::ePending, castl::memory_order_seq_cst);
         if (m_EventManager.WaitEventDone(node))
         {
-            node->m_Running.store(true, castl::memory_order_relaxed);
             m_DedicateTaskQueues[GENERAL_QUEUE_ID].EnqueueTaskNodes(node);
-
-            /*{
-                castl::lock_guard<castl::mutex> guard(m_Mutex);
-                m_TaskQueue.push_back(node);
-                m_ConditinalVariable.notify_one();
-            }*/
         }
     }
     void ThreadManager_Impl1::EnqueueTaskNode_DedicateThread(TaskNode* node)
     {
+        node->m_Running.store(TaskNodeState::ePending, castl::memory_order_seq_cst);
         if (m_EventManager.WaitEventDone(node))
         {
-            node->m_Running.store(true, castl::memory_order_relaxed);
             uint32_t dedicateThreadID = node->m_RunOnMainThread ? 0u : m_DedicateThreadMap.GetThreadIndex(node->m_ThreadKey) % m_DedicateTaskQueues.size();
             m_DedicateTaskQueues[dedicateThreadID].EnqueueTaskNodes(node);
         }
@@ -441,8 +405,8 @@ namespace thread_management
     
     void ThreadManager_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
     {
-        --m_PendingTaskCount;
-        if (m_PendingTaskCount == 0)
+        uint32_t resultCount =  m_PendingTaskCount.sub_fetch(1, castl::memory_order_seq_cst);
+        if (resultCount == 0)
         {
             StopMainThread();
         }
@@ -450,12 +414,12 @@ namespace thread_management
     
     void ThreadManager_Impl1::ResetMainThread()
     {
-        m_DedicateTaskQueues[0].Reset();
+        m_DedicateTaskQueues[MAIN_QUEUE_ID].Reset();
     }
 
     void ThreadManager_Impl1::StopMainThread()
     {
-		m_DedicateTaskQueues[0].Stop();
+		m_DedicateTaskQueues[MAIN_QUEUE_ID].Stop();
     }
 
     void ThreadManager_Impl1::ProcessingWorksMainThread()
@@ -516,52 +480,46 @@ namespace thread_management
 
     TaskParallelFor* TaskParallelFor_Impl::JobCount(uint32_t jobCount)
     {
-        m_PendingSubnodeCount.store(jobCount, castl::memory_order_release);
+        m_JobCount.store(jobCount, castl::memory_order_release);
         return this;
     }
 
-    TaskParallelFor_Impl::TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
-        TaskNode(TaskObjectType::eNodeParallel, owner, owningManager, allocator)
+    TaskParallelFor_Impl::TaskParallelFor_Impl(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
+        TaskNode(TaskObjectType::eNodeParallel, owningManager, allocator)
     {
     }
 
     void TaskParallelFor_Impl::Release()
     {
-        m_PendingSubnodeCount.store(0, castl::memory_order_relaxed);
-        m_TaskList.clear();
+        m_JobCount.store(0, castl::memory_order_seq_cst);
+        //m_TaskList.clear();
         Release_Internal();
     }
 
     void TaskParallelFor_Impl::NotifyChildNodeFinish(TaskNode* childNode)
     {
-        uint32_t remainCounter = --m_PendingSubnodeCount;
-        if (remainCounter == 0)
-        {
-            FinalizeExecution_Internal();
-        }
+
     }
 
     void TaskParallelFor_Impl::Execute_Internal()
     {
-        if (m_PendingSubnodeCount == 0 || m_Functor == nullptr)
+        CPUTIMER_SCOPE(m_Name.c_str());
+        if (m_JobCount > 0 && m_Functor != nullptr)
         {
-            FinalizeExecution_Internal();
-            return;
-        };
-        m_TaskList.clear();
-        m_TaskList.reserve(m_PendingSubnodeCount);
-        for (uint32_t taskId = 0; taskId < m_PendingSubnodeCount; ++taskId)
-        {
-            auto pTask = m_Allocator->NewTask(this);
-            pTask->SetRunOnMainThread(m_RunOnMainThread);
-            pTask->Name(m_Name + " Subtask:" + castl::to_string(taskId))
-                ->Functor([functor = m_Functor, taskId]()
+            TaskScheduler_Impl taskScheduler(this, m_OwningManager, m_Allocator);
+            for (uint32_t taskId = 0; taskId < m_JobCount; ++taskId)
+            {
+                taskScheduler.NewTask()
+                    ->Name("Parallal For Task")
+                    ->Functor([functor = m_Functor, taskId]()
                     {
                         functor(taskId);
                     });
-            m_TaskList.push_back(pTask);
-        };
-        m_OwningManager->EnqueueTaskNodes_GeneralThread(m_TaskList);
+            }
+            taskScheduler.Finalize();
+        }
+        FinalizeExecution_Internal();
+
     }
     TaskNodeAllocator::TaskNodeAllocator(ThreadManager_Impl1* owningManager) :  
         m_OwningManager(owningManager)
@@ -572,23 +530,26 @@ namespace thread_management
     }
     CTask_Impl1* TaskNodeAllocator::NewTask(TaskBaseObject* owner)
     {
-        auto result = m_TaskPool.Alloc(owner, m_OwningManager, this);
+        auto result = m_TaskPool.Alloc(m_OwningManager, this);
         result->SetOwner(owner);
         ++m_Counter;
+        castl::atomic_thread_fence(castl::memory_order_release);
         return result;
     }
     TaskParallelFor_Impl* TaskNodeAllocator::NewTaskParallelFor(TaskBaseObject* owner)
     {
-        auto result = m_TaskParallelForPool.Alloc(owner, m_OwningManager, this);
+        auto result = m_TaskParallelForPool.Alloc(m_OwningManager, this);
         result->SetOwner(owner);
         ++m_Counter;
+        //CA_ASSERT(result->m_Owner != nullptr, "NULL Owner");
         return result;
     }
     TaskGraph_Impl1* TaskNodeAllocator::NewTaskGraph(TaskBaseObject* owner)
     {
-        auto result = m_TaskGraphPool.Alloc(owner, m_OwningManager, this);
+        auto result = m_TaskGraphPool.Alloc(m_OwningManager, this);
         result->SetOwner(owner);
         ++m_Counter;
+        //CA_ASSERT(result->m_Owner != nullptr, "NULL Owner");
         return result;
     }
    
@@ -633,11 +594,12 @@ namespace thread_management
         {
             castl::lock_guard<castl::mutex> guard(m_Mutex);
             m_Stop = true;
+            m_ConditionalVariable.notify_all();
         }
- 	    m_ConditionalVariable.notify_one();
     }
     void DedicateTaskQueue::NotifyAll()
     {
+        castl::lock_guard<castl::mutex> guard(m_Mutex);
         m_ConditionalVariable.notify_all();
     }
     void DedicateTaskQueue::Reset()
@@ -645,25 +607,27 @@ namespace thread_management
         castl::lock_guard<castl::mutex> guard(m_Mutex);
 		m_Stop = false;
     }
-    void DedicateTaskQueue::InlineWorkLoop(TaskGraph_Impl1* taskGraph)
+    void DedicateTaskQueue::InlineWorkLoop(TaskScheduler_Impl* taskScheduler)
     {
-        //std::cout << ("Enter " + taskGraph->GetName() + " " + castl::to_string(taskGraph->GetCurrentFrame())).c_str() << std::endl;
+        CPUTIMER_SCOPE("Inline WorkLoop");
         castl::atomic_thread_fence(castl::memory_order_acq_rel);
-        while (!(m_Stop || taskGraph->IsFinished()))
+        while (!(m_Stop || taskScheduler->IsFinished()))
         {
             TaskNode* pNode = nullptr;
             {
                 castl::unique_lock<castl::mutex> lock(m_Mutex);
-                m_ConditionalVariable.wait(lock, [this, taskGraph]()
-                {
-                    if(taskGraph->IsFinished())
-                        return true;
-                    if (m_Stop)
-                        return true;
-                    if (!m_Queue.empty())
-                        return true;
-                });
-                if (m_Stop || taskGraph->IsFinished())
+                m_ConditionalVariable.wait_for(lock, std::chrono::seconds(3), [this, taskScheduler]()
+                    {
+                        if (m_Stop)
+                            return true;
+                        if (!m_Queue.empty())
+                            return true;
+                        if (taskScheduler->IsFinished())
+                            return true;
+                        else
+                            return false;
+                    });
+                if (m_Stop || taskScheduler->IsFinished())
                 {
                     return;
                 }
@@ -675,9 +639,9 @@ namespace thread_management
             if (pNode)
             {
                 pNode->Execute_Internal();
+                pNode->ReleaseSelf();
             }
         }
-        //std::cout << ("Exit " + taskGraph->GetName()).c_str() << std::endl;
     }
     void DedicateTaskQueue::WorkLoop(ThreadLocalData const& threadLocalData)
     {
@@ -691,20 +655,25 @@ namespace thread_management
 
         while (!m_Stop)
         {
-            castl::unique_lock<castl::mutex> lock(m_Mutex);
-            m_ConditionalVariable.wait(lock, [this]()
-                {
-                    return m_Stop || !m_Queue.empty();
-                });
-            if (m_Queue.empty() || m_Stop)
+            TaskNode* pNode = nullptr;
             {
-                lock.unlock();
-                continue;
+                castl::unique_lock<castl::mutex> lock(m_Mutex);
+                m_ConditionalVariable.wait(lock, [this]()
+                    {
+                        return m_Stop || !m_Queue.empty();
+                    });
+                if (m_Queue.empty() || m_Stop)
+                {
+                    continue;
+                }
+                pNode = m_Queue.front();
+                m_Queue.pop_front();
             }
-            auto task = m_Queue.front();
-            m_Queue.pop_front();
-            lock.unlock();
-            task->Execute_Internal();
+            if (pNode)
+            {
+                pNode->Execute_Internal();
+                pNode->ReleaseSelf();
+            }
         }
     }
     void DedicateTaskQueue::EnqueueTaskNodes(castl::array_ref<TaskNode*> const& nodeDeque)
@@ -712,8 +681,8 @@ namespace thread_management
         {
             castl::lock_guard<castl::mutex> guard(m_Mutex);
             EnqueueTaskNodes_NoLock(nodeDeque);
+            m_ConditionalVariable.notify_all();
         }
-        m_ConditionalVariable.notify_all();
     }
     void DedicateTaskQueue::EnqueueTaskNodes_NoLock(castl::array_ref<TaskNode*> const& nodeDeque)
     {
@@ -743,7 +712,6 @@ namespace thread_management
                 {
                     TaskNode* waitNode = waitList.m_WaitingTasks.front();
                     waitList.m_WaitingTasks.pop_front();
-                    CA_ASSERT(!waitNode->m_Running, "Task is already running");
                     threadManager.EnqueueTaskNode(waitNode);
                 }
             }
@@ -779,6 +747,7 @@ namespace thread_management
     TaskScheduler_Impl::TaskScheduler_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
         : TaskBaseObject(TaskObjectType::eTaskScheduler), m_Owner(owner), m_OwningManager(owningManager), m_Allocator(allocator)
     {
+        m_HoldingQueueID = g_ThreadLocalData.queueIndex;
     }
 
     void TaskScheduler_Impl::Execute(castl::array_ref<TaskNode*> nodes)
@@ -786,15 +755,15 @@ namespace thread_management
         int32_t taskCount = 0;
         for(TaskNode* node : nodes)
 		{
-            if (node->m_Owner == m_Owner)
+            if (node->WaitingToRun(this))
             {
-                node->SetOwner(this);
+                node->SetupThisNodeDependencies_Internal();
                 ++taskCount;
             }
 		}
-        m_PendingTaskCount.store(taskCount);
-        m_HoldingQueueID = g_ThreadLocalData.queueIndex;
-
+        if(taskCount == 0)
+			return;
+        m_PendingTaskCount.store(taskCount, castl::memory_order_release);
         for (TaskNode* node : nodes)
         {
             if (node->GetDepenedentCount() == 0)
@@ -804,28 +773,51 @@ namespace thread_management
         }
 
         auto& threadLocalQueue = m_OwningManager->GetDedicateTaskQueue(m_HoldingQueueID);
-        //threadLocalQueue.InlineWorkLoop(this);
-        //m_OwningManager->GetDedicateTaskQueue(g_ThreadLocalData.queueIndex)
+        threadLocalQueue.InlineWorkLoop(this);
+    }
+
+    void TaskScheduler_Impl::Finalize()
+    {
+        Execute(m_SubTasks);
+        m_SubTasks.clear();
     }
 
     void TaskScheduler_Impl::NotifyChildNodeFinish(TaskNode* childNode)
     {
-        auto prev = m_PendingTaskCount.fetch_sub(1);
-        if (prev <= 1)
+        int queueID = m_HoldingQueueID.load(castl::memory_order_seq_cst);
+        auto resultCount = m_PendingTaskCount.sub_fetch(1, castl::memory_order_seq_cst);
+        if (IsFinished())
         {
-            m_OwningManager->GetDedicateTaskQueue(m_HoldingQueueID).NotifyAll();
+            //m_OwningManager->WakeAll();
+            m_OwningManager->GetDedicateTaskQueue(queueID).NotifyAll();
         }
     }
-
-    void TaskScheduler_Impl::OnSchedulerFinish()
+    CTask* TaskScheduler_Impl::NewTask()
     {
-        if (m_PendingTaskCount <= 0)
-        {
-            m_OwningManager->GetDedicateTaskQueue(m_HoldingQueueID).NotifyAll();
-            //m_OwningManager
-        }
+        auto result = m_Allocator->NewTask(this);
+        m_SubTasks.push_back(result);
+        return result;
     }
-
+    TaskParallelFor* TaskScheduler_Impl::NewTaskParallelFor()
+    {
+        auto result = m_Allocator->NewTaskParallelFor(this);
+        m_SubTasks.push_back(result);
+        return result;
+    }
+    CTaskGraph* TaskScheduler_Impl::NewTaskGraph()
+    {
+        auto result = m_Allocator->NewTaskGraph(this);
+        m_SubTasks.push_back(result);
+        return result;
+    }
+    void TaskScheduler_Impl::WaitAll()
+    {
+        Finalize();
+    }
+    uint64_t TaskScheduler_Impl::GetCurrentFrame() const
+    {
+        return m_Owner->GetCurrentFrame();
+    }
 }
 
 

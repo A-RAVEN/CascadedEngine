@@ -204,27 +204,27 @@ namespace graphics_backend
 		return m_Graph->GetImageManager().GetDescriptorIndex(handle.GetKey()) >= 0;
 	}
 
-	void GPUGraphExecutor::PrepareGraph(thread_management::CTaskGraph* taskGraph)
+	void GPUGraphExecutor::PrepareGraph(thread_management::TaskScheduler* taskGraph)
 	{
 		auto allocResources = taskGraph->NewTaskGraph()
 			->Name("Prepare GPU Resource")
-			->SetupFunctor([this](auto graph)
+			->Func([this](auto scheduler)
 				{
 					//Alloc Image & Buffer Resources
-					graph->NewTask()
+					scheduler->NewTask()
 						->Name("Alloc Buffer Resources")
 						->Functor([this]()
 							{
 								PrepareGraphLocalBufferResources();
 							});
-					graph->NewTask()
+					scheduler->NewTask()
 						->Name("Alloc Image Resources")
 						->Functor([this]()
 							{
 								PrepareGraphLocalImageResources();
 							});
 
-					graph->NewTask()
+					scheduler->NewTask()
 						->Name("Initialize Passes")
 						->Functor([this]()
 							{
@@ -243,11 +243,11 @@ namespace graphics_backend
 		auto prepareGPUObjects = taskGraph->NewTaskGraph()
 			->Name("Prepare GPUObjects")
 			->DependsOn(allocResources)
-			->SetupFunctor([this](auto graph)
+			->Func([this](auto graph)
 				{
 					auto prepareRasterizePSO = graph->NewTaskGraph()
 						->Name("Prepare PSO & FrameBuffer & RenderPass")
-						->SetupFunctor([this](auto rstPSOGraph)
+						->Func([this](auto rstPSOGraph)
 							{
 								//Prepare PSO & FrameBuffer & RenderPass
 								PrepareFrameBufferAndPSOs(rstPSOGraph);
@@ -267,7 +267,7 @@ namespace graphics_backend
 		auto writeShaderArgs = taskGraph->NewTaskGraph()
 			->Name("Write Descriptor Sets")
 			->DependsOn(prepareGPUObjects)
-			->SetupFunctor([this](auto graph)
+			->Func([this](auto graph)
 				{
 					//Write DescriptorSets
 					WriteDescriptorSets(graph);
@@ -285,7 +285,7 @@ namespace graphics_backend
 		auto recordGraphs = taskGraph->NewTaskGraph()
 			->Name("Record Execution Commands")
 			->DependsOn(prepareResourceBarriers)
-			->SetupFunctor([this](auto graph)
+			->Func([this](auto graph)
 				{
 					//Record CommandBuffers
 					RecordGraph(graph);
@@ -296,7 +296,7 @@ namespace graphics_backend
 			->DependsOn(recordGraphs)//执行指令录制完毕
 			->DependsOn(writeShaderArgs)//着色器参数写入完毕
 			//->DependsOn(waitBackbuffers)//backbuffer等待完毕
-			->SetupFunctor([this](auto graph)
+			->Func([this](auto graph)
 				{
 					WaitBackbuffers();
 					//Scan Command Batches
@@ -1345,7 +1345,7 @@ namespace graphics_backend
 		}
 	}
 
-	void GPUGraphExecutor::PrepareFrameBufferAndPSOs(thread_management::CTaskGraph* taskGraph)
+	void GPUGraphExecutor::PrepareFrameBufferAndPSOs(thread_management::TaskScheduler* taskGraph)
 	{
 		//FBO, RenderPass And PSO For Rasterization Passes
 		auto& renderPasses = m_Graph->GetRenderPasses();
@@ -1354,7 +1354,7 @@ namespace graphics_backend
 		{
 			taskGraph->NewTaskGraph()
 				->Name("Prepare Render Pass And FBO")
-				->SetupFunctor([this, passID, &renderPasses](auto setupGraph)
+				->Func([this, passID, &renderPasses](auto setupGraph)
 				{
 					auto& renderPass = renderPasses[passID];
 					auto& attachments = renderPass.GetAttachments();
@@ -1464,7 +1464,7 @@ namespace graphics_backend
 							{
 								auto& batch = drawcallBatchs[batchID];
 								{
-									CPUTIMER_SCOPE("Get Or Create PSO");
+									//CPUTIMER_SCOPE("Get Or Create PSO");
 									GPUPassBatchInfo& newBatchInfo = passInfo.m_Batches[batchID];
 
 									auto& batchLevelPsoDesc = batch.pipelineStateDesc;
@@ -1493,6 +1493,7 @@ namespace graphics_backend
 									psoDescObj.descriptorSetLayouts = newBatchInfo.m_ShaderBindingInstance.m_DescriptorSetsLayouts;
 
 									newBatchInfo.m_PSO = GetGPUObjectManager().GetPipelineCache().GetOrCreate(psoDescObj);
+									CA_ASSERT(newBatchInfo.m_PSO != nullptr, "Invalid PSO");
 								}
 							});
 				});
@@ -1535,7 +1536,7 @@ namespace graphics_backend
 
 
 
-	void GPUGraphExecutor::WriteDescriptorSets(thread_management::CTaskGraph* taskGraph)
+	void GPUGraphExecutor::WriteDescriptorSets(thread_management::TaskScheduler* taskGraph)
 	{
 		////Write Descriptors Of Render Passes
 		{
@@ -1545,7 +1546,7 @@ namespace graphics_backend
 			{
 				taskGraph->NewTaskGraph()
 					->Name("Write Rasterize Pass Descriptors")
-					->SetupFunctor([this, passID, &renderPasses](auto passGraph)
+					->Func([this, passID, &renderPasses](auto passGraph)
 					{
 						auto& renderPass = renderPasses[passID];
 						auto& drawcallBatchs = renderPass.GetDrawCallBatches();
@@ -1560,7 +1561,7 @@ namespace graphics_backend
 							->JobCount(drawcallBatchs.size())
 							->Functor([&](uint32_t batchID)
 							{
-								CPUTIMER_SCOPE("Rasterize Batch ShaderArgs");
+								//CPUTIMER_SCOPE("Rasterize Batch ShaderArgs");
 								auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
 								vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
 								auto& batch = drawcallBatchs[batchID];
@@ -1734,7 +1735,7 @@ namespace graphics_backend
 
 	}
 
-	void GPUGraphExecutor::RecordGraph(thread_management::CTaskGraph* taskGraph)
+	void GPUGraphExecutor::RecordGraph(thread_management::TaskScheduler* taskGraph)
 	{
 		CA_ASSERT(m_Passes.size() == m_Graph->GetRenderPasses().size(), "Render Passe Count Mismatch");
 		CA_ASSERT(m_TransferPasses.size() == m_Graph->GetDataTransfers().size(), "Transfer Pass Count Mismatch");
@@ -1749,7 +1750,7 @@ namespace graphics_backend
 		{
 			taskGraph->NewTaskGraph()
 				->Name("Prepare External Resource Release Barriers")
-				->SetupFunctor([&](auto extResourceGraph)
+				->Func([&](auto extResourceGraph)
 					{
 						for (auto& pair : m_ExternalResourceReleasingBarriers.queueFamilyToBarrierCollector)
 						{

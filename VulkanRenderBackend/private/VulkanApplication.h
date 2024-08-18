@@ -112,7 +112,7 @@ namespace graphics_backend
 			}
 		};
 
-		void ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame);
+		void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame);
 	public:
 		//Allocation
 		GPUBuffer* NewGPUBuffer(GPUBufferDescriptor const& inDescriptor);

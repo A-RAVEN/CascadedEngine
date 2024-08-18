@@ -18,6 +18,7 @@ namespace thread_management
 {
 	class CThreadManager;
 	class CTaskGraph;
+	class TaskScheduler;
 }
 
 namespace graphics_backend
@@ -28,7 +29,7 @@ namespace graphics_backend
 	public:
 		virtual void Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName) = 0;
 		virtual void InitializeThreadContextCount(uint32_t threadContextCount) = 0;
-		virtual void ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame) = 0;
+		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) = 0;
 		virtual void Release() = 0;
 
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor) = 0;

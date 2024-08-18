@@ -5,12 +5,10 @@
 
 namespace thread_management
 {
-	TaskNode::TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
+	TaskNode::TaskNode(TaskObjectType type, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
 		: TaskBaseObject(type)
-		, m_Owner(owner)
 		, m_OwningManager(owningManager)
 		, m_Allocator(allocator)
-		, m_CurrentFrame(owner->GetCurrentFrame())
 	{
 	}
 	void TaskNode::NotifyDependsOnFinish(TaskNode* dependsOnNode)
@@ -44,9 +42,14 @@ namespace thread_management
 		uint32_t pendingCount = m_Dependents.size();
 		m_PendingDependsOnTaskCount.store(pendingCount, castl::memory_order_release);
 	}
+	void TaskNode::ReleaseSelf()
+	{
+		m_Allocator->Release(this);
+	}
 	void TaskNode::Release_Internal()
 	{
-		m_Running.store(false, castl::memory_order_release);
+		m_Owner = nullptr;
+		m_Running.store(TaskNodeState::eInvalid, castl::memory_order_release);
 		m_PendingDependsOnTaskCount.store(0, castl::memory_order_release);
 		m_Name = "Default Task Name";
 		m_EventName = "";
@@ -59,7 +62,6 @@ namespace thread_management
 	}
 	void TaskNode::FinalizeExecution_Internal()
 	{
-		castl::atomic_thread_fence(castl::memory_order_acq_rel);
 		for (auto itrSuccessor = m_Successors.begin(); itrSuccessor != m_Successors.end(); ++itrSuccessor)
 		{
 			(*itrSuccessor)->NotifyDependsOnFinish(this);
@@ -68,9 +70,7 @@ namespace thread_management
 		{
 			m_OwningManager->SignalEvent(m_SignalEventName, m_CurrentFrame);
 		}
-		//std::cout << (GetName() + " Finalize" + castl::to_string(GetCurrentFrame())).c_str() << std::endl;
-		m_Owner->NotifyChildNodeFinish(this);
-		m_Allocator->Release(this);
+		m_Owner.load()->NotifyChildNodeFinish(this);
 	}
 }
 

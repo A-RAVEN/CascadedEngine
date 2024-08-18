@@ -14,9 +14,9 @@ namespace graphics_backend
 	void CRenderBackend_Vulkan::InitializeThreadContextCount(uint32_t threadCount)
 	{
 	}
-	void CRenderBackend_Vulkan::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
+	void CRenderBackend_Vulkan::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
 	{
-		m_Application.ScheduleGPUFrame(taskGraph, gpuFrame);
+		m_Application.ScheduleGPUFrame(scheduler, gpuFrame);
 	}
 	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
 	{

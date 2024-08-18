@@ -13,11 +13,16 @@
 
 
 #define CA_ASSERT( _condition , _log ) {if(!(_condition)){CALogError(_log, __LINE__, __FILE__);}}
+#define CA_ASSERT_BREAK( _condition , _log ) {if(!(_condition)){CALogError(_log, __LINE__, __FILE__, true);}}
 #define CA_LOG_ERR(_log) {CALogError(_log, __LINE__, __FILE__);}
 #define CA_CLASS_NAME(_class) (typeid(_class).name())
 
-static inline void CALogError(castl::string const& log, int line, castl::string const& file)
+static inline void CALogError(castl::string const& log, int line, castl::string const& file, bool debugBreak = false)
 {
+	if (debugBreak)
+	{
+		__debugbreak();
+	}
 #ifdef _WIN32
 	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);

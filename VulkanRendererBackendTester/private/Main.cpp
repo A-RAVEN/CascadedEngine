@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
 	n = (n == 0) ? 5 : (castl::min)(n, 8u);
-	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 2);
+	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 1);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
 
@@ -168,20 +168,24 @@ int main(int argc, char *argv[])
 
 	pThreadManager->OneTime([&](auto setup)
 	{
+			setup->NewTaskGraph()
+				->Name("Setup")
+				->Func([&, pBackend = pBackend](auto scheduler)
+				{
+					castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+					submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
+					submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
+					submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
+					submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
+					RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
 
-		//setup->MainThread();
-		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
-		submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
-		submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
-		submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
-		submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
-		RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
+					imguiContext.Initialize(editorResourceString, pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
 
-		imguiContext.Initialize(editorResourceString, pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
-		
-		GPUFrame submitFrame{};
-		submitFrame.pGraph = submitGraph;
-		pBackend->ScheduleGPUFrame(setup, submitFrame);
+					GPUFrame submitFrame{};
+					submitFrame.pGraph = submitGraph;
+					pBackend->ScheduleGPUFrame(scheduler, submitFrame);
+				});
+
 	}, "");
 	pThreadManager->Run();
 
@@ -254,7 +258,7 @@ int main(int argc, char *argv[])
 				});
 		if (newWindow.expired())
 		{
-			return false;
+			return;
 		}
 
 		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
@@ -262,7 +266,7 @@ int main(int argc, char *argv[])
 		auto graphics = setup->NewTaskGraph()
 			->Name("DrawEverything")
 			->DependsOn(updateWindow)
-			->SetupFunctor([&, newGraph](auto taskGraph)
+			->Func([&, newGraph](auto scheduler)
 				{
 
 					CPUTIMER_SCOPE("Draw Everything");
@@ -348,11 +352,8 @@ int main(int argc, char *argv[])
 							.PushShaderArguments("cameraData", cameraArgList)
 							.PushShaderArguments("globalLighting", globalLightShaderArg);
 						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
-						newGraph->AddPass(drawMeshRenderPass);
-
-	
-						newGraph->
-							AddPass
+						newGraph->AddPass(drawMeshRenderPass)
+							.AddPass
 							(
 								RenderPass::New(viewContext.m_RenderTarget)
 								.SetPipelineState({})
@@ -379,7 +380,7 @@ int main(int argc, char *argv[])
 		setup->NewTaskGraph()
 			->Name("Submit GPU")
 			->DependsOn(graphics)
-			->SetupFunctor([&, newGraph](auto graph)
+			->Func([&, newGraph](auto scheduler)
 				{
 					CPUTIMER_SCOPE("Submit GPUGraph");
 					auto& presentSurfaces = imguiContext.GetWindowHandles();
@@ -389,10 +390,9 @@ int main(int argc, char *argv[])
 					{
 						gpuFrame.presentWindows.push_back(surface);
 					}
-					pBackend->ScheduleGPUFrame(graph, gpuFrame);
+					pBackend->ScheduleGPUFrame(scheduler, gpuFrame);
+					scheduler->WaitAll();
 				});
-
-		return windowSystem->GetWindowCount() > 0;
 	}, "FullGraph");
 	pThreadManager->Run();
 	pThreadManager->LogStatus();

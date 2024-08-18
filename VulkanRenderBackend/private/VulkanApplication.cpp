@@ -16,23 +16,23 @@
 
 namespace graphics_backend
 {
-	void CVulkanApplication::ScheduleGPUFrame(CTaskGraph* taskGraph, GPUFrame const& gpuFrame)
+	void CVulkanApplication::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
 	{
-		auto runGpuFrameTaskGraph = taskGraph->NewTaskGraph()
+		auto runGpuFrameTaskGraph = scheduler->NewTaskGraph()
 			->Name("Run GPU Frame")
-			->SetupFunctor([this, gpuFrame](CTaskGraph* thisGraph)
+			->Func([this, gpuFrame](auto scheduler)
 			{
-				auto tickWindowHandles = thisGraph->NewTask()
+				auto tickWindowHandles = scheduler->NewTask()
 					->Name("TickSurfaces")
 					->Functor([&]()
 						{
 							TickWindowContexts();
 						});
 
-				auto runGraph = thisGraph->NewTaskGraph()
+				auto runGraph = scheduler->NewTaskGraph()
 					->Name("Run Graph")
 					->DependsOn(tickWindowHandles)
-					->SetupFunctor([this, gpuFrame](CTaskGraph* runGraph)
+					->Func([this, gpuFrame](auto scheduler)
 						{
 							castl::shared_ptr<FrameBoundResourcePool> frameManager;
 							{
@@ -41,22 +41,22 @@ namespace graphics_backend
 								frameManager->releaseQueue.Load(m_GlobalResourceReleasingQueue);
 							}
 		
-							auto executeGPUGraph = runGraph->NewTaskGraph()
+							auto executeGPUGraph = scheduler->NewTaskGraph()
 								->Name("Prepare And Execute GPU Graph")
-								->SetupFunctor([this, frameManager, gpuFrame](auto subgraph)
+								->Func([this, frameManager, gpuFrame](auto scheduler)
 									{
 										if (gpuFrame.pGraph != nullptr)
 										{
 											auto executor = frameManager->NewExecutor(gpuFrame.pGraph);
-											executor->PrepareGraph(subgraph);
+											executor->PrepareGraph(scheduler);
 										}
 									});
 	
 
-							runGraph->NewTaskGraph()
+							scheduler->NewTaskGraph()
 								->Name("PresentFrame")
 								->DependsOn(executeGPUGraph)
-								->SetupFunctor([this, frameManager, gpuFrame](auto subgraph)
+								->Func([this, frameManager, gpuFrame](auto scheduler)
 									{
 										if (gpuFrame.presentWindows.size() > 0)
 										{

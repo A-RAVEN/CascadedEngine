@@ -332,7 +332,7 @@ namespace graphics_backend
 		GPUGraphExecutor(CVulkanApplication& application);
 		void Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph, FrameBoundResourcePool* frameBoundResourceManager);
 		void Release();
-		void PrepareGraph(thread_management::CTaskGraph* taskGraph);
+		void PrepareGraph(thread_management::TaskScheduler* taskGraph);
 	private:
 		bool ValidImageHandle(ImageHandle const& handle);
 		void PrepareResources();
@@ -371,11 +371,11 @@ namespace graphics_backend
 			, ResourceUsageFlags newUsageFlags
 			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache);
 #pragma endregion
-		void PrepareFrameBufferAndPSOs(thread_management::CTaskGraph* taskGraph);
+		void PrepareFrameBufferAndPSOs(thread_management::TaskScheduler* taskGraph);
 		void PrepareComputePSOs();
-		void WriteDescriptorSets(thread_management::CTaskGraph* taskGraph);
+		void WriteDescriptorSets(thread_management::TaskScheduler* taskGraph);
 		void PrepareResourceBarriers();
-		void RecordGraph(thread_management::CTaskGraph* taskGraph);
+		void RecordGraph(thread_management::TaskScheduler* taskGraph);
 		void ScanCommandBatchs();
 		void Submit();
 		void SyncExternalResources();

@@ -23,19 +23,30 @@ namespace thread_management
 		uint32_t queueIndex;
 	};
 
-	class TaskScheduler_Impl : public TaskBaseObject
+	class TaskScheduler_Impl : public TaskScheduler, public TaskBaseObject
 	{
 	public:
 		TaskScheduler_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		TaskScheduler_Impl(TaskScheduler_Impl const& other) = delete;
 		void Execute(castl::array_ref<TaskNode*> nodes);
+		void Finalize();
+		bool IsFinished() const noexcept { return m_PendingTaskCount.load(castl::memory_order_seq_cst) <= 0; }
 		void NotifyChildNodeFinish(TaskNode* childNode) override;
+		virtual CTask* NewTask() override;
+		virtual TaskParallelFor* NewTaskParallelFor() override;
+		virtual CTaskGraph* NewTaskGraph() override;
+		virtual void WaitAll() override;
+		// 通过 TaskBaseObject 继承
+		virtual uint64_t GetCurrentFrame() const override;
 	private:
-		void OnSchedulerFinish();
 		TaskBaseObject* m_Owner;
 		ThreadManager_Impl1* m_OwningManager;
 		TaskNodeAllocator* m_Allocator;
 		castl::atomic<int32_t> m_HoldingQueueID = -1;
 		castl::atomic<int32_t> m_PendingTaskCount = 0;
+		castl::vector<TaskNode*> m_SubTasks;
+
+
 	};
 
 	class CTask_Impl1 : public TaskNode, public CTask
@@ -51,15 +62,14 @@ namespace thread_management
 		virtual CTask* DependsOn(CTaskGraph* parentTask) override;
 		virtual CTask* WaitOnEvent(castl::string const& name) override;
 		virtual CTask* SignalEvent(castl::string const& name) override;
-
 		virtual CTask* Functor(castl::function<void()>&& functor) override;
 	public:
-		CTask_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		CTask_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		// 通过 CTask 继承
-		 void Functor_Internal(castl::function<void()>&& functor);
-		 void Initialize() {}
-		 void Release();
+		void Initialize() { Initialize_Internal(); }
+		void Release();
 	private:
+		//castl::mutex m_Mutex;
 		castl::function<void()> m_Functor;
 		// 通过 TaskNode 继承
 		virtual void Execute_Internal() override;
@@ -80,9 +90,9 @@ namespace thread_management
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) override;
 
 	public:
-		TaskParallelFor_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		TaskParallelFor_Impl(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 
-		void Initialize() {}
+		void Initialize() { Initialize_Internal(); }
 		void Release();
 
 		// 通过 TaskNode 继承
@@ -90,8 +100,8 @@ namespace thread_management
 		virtual void Execute_Internal() override;
 	private:
 		castl::function<void(uint32_t)> m_Functor;
-		castl::atomic<uint32_t>m_PendingSubnodeCount{0};
-		castl::vector<TaskNode*> m_TaskList;
+		castl::atomic<uint32_t>m_JobCount{0};
+		//castl::vector<TaskNode*> m_TaskList;
 	};
 
 	class TaskGraph_Impl1 : public TaskNode, public CTaskGraph
@@ -105,33 +115,19 @@ namespace thread_management
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) override;
 		virtual CTaskGraph* WaitOnEvent(castl::string const& name) override;
 		virtual CTaskGraph* SignalEvent(castl::string const& name) override;
-		virtual CTaskGraph* SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor) override;
+		virtual CTaskGraph* Func(castl::function<void(TaskScheduler*)> functor) override;
 		virtual CTaskGraph* MainThread() override;
 		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) override;
-
-		virtual CTask* NewTask() override;
-		virtual TaskParallelFor* NewTaskParallelFor() override;
-		virtual CTaskGraph* NewTaskGraph() override;
-		
-		inline bool IsFinished() const noexcept { return m_PendingSubnodeCount <= 0; }
-		int32_t GetPendingCount() const { return m_PendingSubnodeCount; }
-
 	public:
-		TaskGraph_Impl1(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
-		void Initialize() {}
+		TaskGraph_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		void Initialize() { Initialize_Internal(); }
 		void Release();
 	protected:
 		// 通过 TaskNode 继承
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override;
 		virtual void Execute_Internal() override;
-		//virtual void SetupSubnodeDependencies() override;
 	private:
-		castl::function<void(CTaskGraph* thisGraph)> m_Functor = nullptr;
-		castl::atomic<int32_t>m_PendingSubnodeCount{0};
-		castl::atomic<int32_t>m_WaitingQueueID = -1;
-
-		castl::mutex m_Mutex;
-		eastl::deque<TaskNode*> m_SubTasks;
+		castl::function<void(TaskScheduler* scheduler)> m_ScheduleFunctor = nullptr;
 	};
 
 	class TaskNodeAllocator
@@ -159,14 +155,15 @@ namespace thread_management
 		void Stop();
 		void NotifyAll();
 		void Reset();
-		void InlineWorkLoop(TaskGraph_Impl1* taskGraph);
+		//void InlineWorkLoop(TaskGraph_Impl1* taskGraph);
+		void InlineWorkLoop(TaskScheduler_Impl* taskScheduler);
 		void WorkLoop(ThreadLocalData const& threadLocalData);
 		void EnqueueTaskNodes(castl::array_ref<TaskNode*> const& nodeDeque);
 	private:
 		void EnqueueTaskNodes_NoLock(castl::array_ref<TaskNode*> const& nodeDeque);
 		castl::mutex m_Mutex;
 		castl::atomic<bool> m_Stop = false;
-		eastl::deque<TaskNode*> m_Queue;
+		castl::deque<TaskNode*> m_Queue;
 		castl::condition_variable m_ConditionalVariable;
 	};
 
@@ -225,10 +222,11 @@ namespace thread_management
 		TaskGraph_Impl1* NewTaskGraph();
 		virtual void LogStatus() const override;
 		virtual uint64_t GetCurrentFrame() const override { return m_Frames; }
-		virtual void OneTime(castl::function<void(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
-		virtual void LoopFunction(castl::function<bool(CTaskGraph*)> functor, castl::string const& waitingEvent) override;
+		virtual void OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) override;
+		virtual void LoopFunction(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) override;
 		virtual void Run() override;
 		void Stop();
+		void WakeAll();
 
 		DedicateTaskQueue& GetDedicateTaskQueue(uint32_t queueIndex) { return m_DedicateTaskQueues[queueIndex]; }
 	public:
@@ -241,7 +239,7 @@ namespace thread_management
 		void EnqueueSetupTask();
 		void EnqueueTaskNode(TaskNode* node);
 		void EnqueueTaskNodes_Loop(castl::array_ref<TaskNode*> nodes);
-		void EnqueueTaskNodes_GeneralThread(castl::array_ref<TaskNode*> nodes);
+		//void EnqueueTaskNodes_GeneralThread(castl::array_ref<TaskNode*> nodes);
 		void EnqueueTaskNode_GeneralThread(TaskNode* node);
 		void EnqueueTaskNode_DedicateThread(TaskNode* node);
 
@@ -253,7 +251,7 @@ namespace thread_management
 		void ProcessingWorksMainThread();
 	private:
 		//
-		castl::function<bool(CTaskGraph*)> m_PrepareFunctor = nullptr;
+		castl::function<void(TaskScheduler*)> m_PrepareFunctor = nullptr;
 		castl::string m_SetupEventName;
 
 		//castl::deque<TaskNode*> m_TaskQueue;
