@@ -62,7 +62,8 @@ namespace cawindow
 	}
 	bool WindowImpl::GetWindowFocus() const
 	{
-		return glfwGetWindowAttrib(m_Window, GLFW_FOCUSED) != 0;
+		int focused = glfwGetWindowAttrib(m_Window, GLFW_FOCUSED);
+		return focused != 0;
 	}
 	bool WindowImpl::GetWindowMinimized() const
 	{

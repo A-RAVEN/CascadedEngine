@@ -266,6 +266,7 @@ int main(int argc, char *argv[])
 		auto graphics = setup->NewTaskGraph()
 			->Name("DrawEverything")
 			->DependsOn(updateWindow)
+			->MainThread()
 			->Func([&, newGraph](auto scheduler)
 				{
 
@@ -276,43 +277,51 @@ int main(int argc, char *argv[])
 #pragma region DrawLoop
 					auto& viewContexts = imguiContext.GetTextureViewContexts();
 
-
 					int forwarding = 0;
 					int lefting = 0;
-					auto lockedWindow = newWindow.lock();
-					if (lockedWindow->IsKeyDown(CA_KEY_W))
-					{
-						++forwarding;
-					}
-					if (lockedWindow->IsKeyDown(CA_KEY_S))
-					{
-						--forwarding;
-					}
-					if (lockedWindow->IsKeyDown(CA_KEY_A))
-					{
-						++lefting;
-					}
-					if (lockedWindow->IsKeyDown(CA_KEY_D))
-					{
-						--lefting;
-					}
 					glm::vec2 mouseDelta = { 0.0f, 0.0f };
-					glm::vec2 mousePos = { lockedWindow->GetMouseX(),lockedWindow->GetMouseY() };
-					if (lockedWindow->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
-					{
-						if (!mouseDown)
-						{
-							lastMousePos = mousePos;
-							mouseDown = true;
-						}
-						mouseDelta = mousePos - lastMousePos;
-						lastMousePos = mousePos;
-					}
-					else
-					{
-						mouseDown = false;
-					}
+					auto locked = newWindow.lock();
 
+					for (auto& view : viewContexts)
+					{
+						if (view.m_WindowHandle == nullptr)
+							continue;
+						if (view.m_WindowHandle->GetWindowFocus())
+						{
+							auto lockedWindow = view.m_WindowHandle;
+							if (lockedWindow->IsKeyDown(CA_KEY_W))
+							{
+								++forwarding;
+							}
+							if (lockedWindow->IsKeyDown(CA_KEY_S))
+							{
+								--forwarding;
+							}
+							if (lockedWindow->IsKeyDown(CA_KEY_A))
+							{
+								++lefting;
+							}
+							if (lockedWindow->IsKeyDown(CA_KEY_D))
+							{
+								--lefting;
+							}
+							glm::vec2 mousePos = { lockedWindow->GetMouseX(),lockedWindow->GetMouseY() };
+							if (lockedWindow->IsMouseDown(CA_MOUSE_BUTTON_LEFT))
+							{
+								if (!mouseDown)
+								{
+									lastMousePos = mousePos;
+									mouseDown = true;
+								}
+								mouseDelta = mousePos - lastMousePos;
+								lastMousePos = mousePos;
+							}
+							else
+							{
+								mouseDown = false;
+							}
+						}
+					}
 
 					for(auto& viewContext : viewContexts)
 					{
@@ -373,7 +382,6 @@ int main(int argc, char *argv[])
 					}
 
 #pragma endregion
-
 					imguiContext.Draw(newGraph.get());
 				});
 

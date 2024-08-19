@@ -348,7 +348,7 @@ namespace thread_management
     void ThreadManager_Impl1::EnqueueTaskNode(TaskNode* enqueueNode)
     {
         //std::cout << "Enqueue" << std::endl;
-        CA_ASSERT(enqueueNode->m_Running.load() == TaskNodeState::ePrepare, "Invalid Task Node");
+        CA_ASSERT(enqueueNode->m_Running.load() == TaskNodeState::ePrepare, "Task Node Not Prepared");
         CA_ASSERT_BREAK(enqueueNode->Valid(), "Invalid Task Node");
         if(enqueueNode->m_ThreadKey.Valid() || enqueueNode->m_RunOnMainThread)
         {

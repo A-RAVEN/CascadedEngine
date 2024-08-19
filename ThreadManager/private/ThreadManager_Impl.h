@@ -79,7 +79,6 @@ namespace thread_management
 	{
 	public:
 		TaskParallelFor_Impl(TaskParallelFor_Impl const& other) = default;
-
 		virtual TaskParallelFor* Name(castl::string name) override;
 		virtual TaskParallelFor* DependsOn(CTask* parentTask) override;
 		virtual TaskParallelFor* DependsOn(TaskParallelFor* parentTask) override;
@@ -101,7 +100,6 @@ namespace thread_management
 	private:
 		castl::function<void(uint32_t)> m_Functor;
 		castl::atomic<uint32_t>m_JobCount{0};
-		//castl::vector<TaskNode*> m_TaskList;
 	};
 
 	class TaskGraph_Impl1 : public TaskNode, public CTaskGraph

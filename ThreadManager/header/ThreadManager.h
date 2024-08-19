@@ -84,12 +84,7 @@ namespace thread_management
 		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
 
 		//延迟初始化函数
-		//virtual CTaskGraph* SetupFunctor(castl::function<void(CTaskGraph* thisGraph)> functor) = 0;
 		virtual CTaskGraph* Func(castl::function<void(TaskScheduler*)> functor) = 0;
-
-		//virtual CTask* NewTask() = 0;
-		//virtual TaskParallelFor* NewTaskParallelFor() = 0;
-		//virtual CTaskGraph* NewTaskGraph() = 0;
 	};
 
 	class CThreadManager
@@ -104,9 +99,6 @@ namespace thread_management
 
 		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum) = 0;
 		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) = 0;
-		virtual CTask* NewTask() = 0;
-		virtual TaskParallelFor* NewTaskParallelFor() = 0;
-		virtual CTaskGraph* NewTaskGraph() = 0;
 		virtual void OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) = 0;
 		virtual void LoopFunction(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) = 0;
 		virtual void Run() = 0;

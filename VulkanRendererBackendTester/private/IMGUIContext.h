@@ -61,6 +61,7 @@ namespace imgui_display
 
 	struct IMGUITextureViewContext
 	{
+		castl::shared_ptr<IWindow> m_WindowHandle;
 		ImageHandle m_RenderTarget;
 		cacore::Rect<float> m_ViewportRect;
 		GPUTextureDescriptor m_TextureDescriptor;

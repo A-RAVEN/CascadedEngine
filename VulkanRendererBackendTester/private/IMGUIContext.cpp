@@ -1,5 +1,4 @@
 #include <GPUTexture.h>
-#include "IconsFontAwesome4.h"
 #include "IMGUIIncludes.h"
 #include <glm/mat4x4.hpp>
 #include "IMGUIContext.h"
@@ -299,6 +298,7 @@ namespace imgui_display
 	void IMGUIContext::DrawView(int id)
 	{
 
+		ImGui::SetNextWindowSize(ImVec2(1024, 512), ImGuiCond_FirstUseEver);
 		ImGui::Begin("View");
 
 		ImVec2 vMin = ImGui::GetWindowContentRegionMin();
@@ -309,12 +309,16 @@ namespace imgui_display
 		vMax.x += ImGui::GetWindowPos().x;
 		vMax.y += ImGui::GetWindowPos().y;
 
-		//ImGui::GetForegroundDrawList()->AddRect(vMin, vMax, IM_COL32(255, 255, 0, 255));
-		m_TextureViewContexts.push_back(IMGUITextureViewContext{ {}, {vMin.x, vMin.y, vMax.x - vMin.x, vMax.y - vMin.y}, {}, id });
+		IMGUITextureViewContext newWindowHandle{ {}, {}, {vMin.x, vMin.y, vMax.x - vMin.x, vMax.y - vMin.y}, {}, id };
+		IMGUIViewportContext* pUserData = (IMGUIViewportContext*)ImGui::GetWindowViewport()->PlatformUserData;
+		if (pUserData != nullptr)
+		{
+			newWindowHandle.m_WindowHandle = pUserData->pWindowHandle;
+		}
+		m_TextureViewContexts.push_back(newWindowHandle);
 		ImTextureID texID = &m_TextureViewContexts.back();
 		ImGui::Image(texID, ImVec2(vMax.x - vMin.x, vMax.y - vMin.y), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 		ImGui::End();
-
 	}
 
 	void ShowExampleAppDockSpace(bool* p_open)
@@ -454,15 +458,19 @@ namespace imgui_display
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+		io.ConfigWindowsMoveFromTitleBarOnly = true;
 		io.ConfigDockingTransparentPayload = true;
 
 		io.Fonts->AddFontDefault();
-		ImFontConfig fontConfig;
-		fontConfig.MergeMode = true;
-		fontConfig.GlyphMinAdvanceX = 15.0f;
-		static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
-		castl::string fontPath = editorConfigPath + FONT_ICON_FILE_NAME_FA;
-		io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 15.0f, &fontConfig, icon_ranges);
+
+		catimer::SetupFonts(editorConfigPath);
+
+		//ImFontConfig fontConfig;
+		//fontConfig.MergeMode = true;
+		//fontConfig.GlyphMinAdvanceX = 15.0f;
+		//static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+		//castl::string fontPath = editorConfigPath + FONT_ICON_FILE_NAME_FA;
+		//io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 15.0f, &fontConfig, icon_ranges);
 
 		unsigned char* fontData;
 		int texWidth, texHeight;

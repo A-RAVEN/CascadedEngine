@@ -103,6 +103,7 @@ namespace threadsafe_utils
 			assert(releaseObj != nullptr);
 			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			m_Releaser(releaseObj);
+			castl::atomic_thread_fence(castl::memory_order_acq_rel);
 			m_EmptySpaces.push_back(releaseObj);
 		}
 

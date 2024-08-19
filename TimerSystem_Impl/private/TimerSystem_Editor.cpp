@@ -14,7 +14,7 @@ namespace catimer
 	struct StyleOptions
 	{
 		int MaxDepth = 10;
-		int MaxTime = 80;
+		int MaxTime = 400;
 
 		float BarHeight = 25;
 		float BarPadding = 2;
@@ -42,6 +42,7 @@ namespace catimer
 		float PauseThresholdTime = 100.0f;
 		bool IsPaused = false;
 		catimer::TimerData m_CachedTimerData;
+		castl::chrono::time_point<catimer::TimerType> m_LastUpdateTime;
 	};
 
 	static HUDContext gHUDContext;
@@ -104,6 +105,20 @@ namespace catimer
 		return ImColor(HSVtoRGB(hashF, 0.5f, 0.6f));
 	}
 
+	static void UpdateTimerData()
+	{
+		HUDContext& context = Context();;
+		if (!context.IsPaused)
+		{
+			auto nowTime = catimer::TimerType::now();
+			if (nowTime - context.m_LastUpdateTime > castl::chrono::seconds(1))
+			{
+				context.m_LastUpdateTime = nowTime;
+				auto& timerSystem = GetTimerSystemEditor();
+				context.m_CachedTimerData = timerSystem.QueryHistories();
+			}
+		}
+	}
 
 	static void DrawProfilerTimeline(const ImVec2& size = ImVec2(0, 0))
 	{
@@ -134,12 +149,6 @@ namespace catimer
 
 			// How many ticks are in the timeline
 			float ticksInTimeline = MsToTicks * style.MaxTime;
-
-			auto& timerSystem = GetTimerSystemEditor();
-			if (!context.IsPaused)
-			{
-				context.m_CachedTimerData = timerSystem.QueryHistories();
-			}
 
 			auto& timerData = context.m_CachedTimerData;
 
@@ -515,12 +524,27 @@ namespace catimer
 		}
 	}
 
+	void SetupFonts(castl::string const& editorConfigPath)
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		ImFontConfig fontConfig;
+		fontConfig.MergeMode = true;
+		fontConfig.GlyphMinAdvanceX = 15.0f;
+		static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+		castl::string fontPath = editorConfigPath + FONT_ICON_FILE_NAME_FA;
+		io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 15.0f, &fontConfig, icon_ranges);
+	}
+
 
 	void DrawTimerSystemEditor()
 	{
+		UpdateTimerData();
+
 		HUDContext& context = Context();
 		StyleOptions& style = context.Style;
 
+		ImGui::SetNextWindowSize(ImVec2(1024, 512), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Time Profiler");
 		if (context.IsPaused)
 			ImGui::Text("Paused");
 		else
@@ -559,8 +583,7 @@ namespace catimer
 			context.IsPaused = !context.IsPaused;
 		}
 
-		//gCPUProfiler.SetPaused(context.IsPaused);
-
 		DrawProfilerTimeline(ImVec2(0, 0));
+		ImGui::End();
 	}
 }
