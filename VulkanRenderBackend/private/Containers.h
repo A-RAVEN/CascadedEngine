@@ -95,8 +95,6 @@ namespace graphics_backend
 		castl::deque<T*> m_EmptySpaces;
 	};
 
-	
-
 	template<typename T>
 	class TFrameboundReleaser
 	{

@@ -29,11 +29,13 @@ namespace graphics_backend
 		}
 	};
 
+	//TODO: Move To FrameBound Manager
 	class FramebufferObject final : public VKAppSubObjectBaseNoCopy
 	{
 	public:
 		FramebufferObject(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner) {};
 		void Create(FramebufferDescriptor const& framebufferDescriptor);
+		void Release();
 		vk::Framebuffer const& GetFramebuffer() const { return mFramebuffer; }
 		uint32_t GetWidth() const 
 		{

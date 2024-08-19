@@ -12,6 +12,20 @@ namespace ShaderCompilerSlang
 		eDXIL,
 	};
 
+	enum class EShaderResourceAccess : uint8_t
+	{
+		eUnknown,
+		eReadOnly,
+		eWriteOnly,
+		eReadWrite,
+	};
+
+	//enum class EShaderImageType : uint8_t
+	//{
+	//	eSampledImage,
+	//	eStorageImage,
+	//};
+
 	//某个数值：scalar，vector，matrix
 	struct UniformElement
 	{
@@ -66,7 +80,7 @@ namespace ShaderCompilerSlang
 	{
 		uint32_t m_BindingIndex;
 		//UniformGroup
-		castl::vector<UniformGroup> m_Groups = { {} };
+		castl::vector<UniformGroup> m_Groups;
 
 		void Init(uint32_t bindingIndex)
 		{
@@ -109,6 +123,7 @@ namespace ShaderCompilerSlang
 	{
 		uint32_t m_BindingIndex;
 		uint32_t m_Count;
+		EShaderResourceAccess m_Access;
 		castl::string m_Name;
 	};
 
@@ -123,6 +138,7 @@ namespace ShaderCompilerSlang
 	{
 		uint32_t m_BindingIndex;
 		uint32_t m_Count;
+		EShaderResourceAccess m_Access;
 		castl::string m_Name;
 	};
 
@@ -186,6 +202,11 @@ namespace ShaderCompilerSlang
 
 		void AddBufferToResourceGroup(int32_t groupID, ShaderBufferData const& bufferData)
 		{
+			if (groupID == -1 && m_ResourceGroups.empty())
+			{
+				InitResourceGroup("__Global", groupID);
+				groupID = 0;
+			}
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Buffers.push_back(bufferData);
 			m_ResourceGroups[groupID].m_Buffers.push_back(m_Buffers.size() - 1);
@@ -193,6 +214,11 @@ namespace ShaderCompilerSlang
 
 		void AddTextureToResourceGroup(int32_t groupID, TextureData const& textureData)
 		{
+			if (groupID == -1)
+			{
+				InitResourceGroup("__Global", groupID);
+				groupID = 0;
+			}
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Textures.push_back(textureData);
 			m_ResourceGroups[groupID].m_Textures.push_back(m_Textures.size() - 1);
@@ -200,6 +226,11 @@ namespace ShaderCompilerSlang
 
 		void AddSamplerToResourceGroup(int32_t groupID, SamplerData const& samplerData)
 		{
+			if (groupID == -1)
+			{
+				InitResourceGroup("__Global", groupID);
+				groupID = 0;
+			}
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Samplers.push_back(samplerData);
 			m_ResourceGroups[groupID].m_Samplers.push_back(m_Samplers.size() - 1);
@@ -229,6 +260,7 @@ namespace ShaderCompilerSlang
 	{
 		castl::string m_Name;
 		castl::string m_SematicName;
+		uint32_t m_SematicIndex;
 		uint32_t m_Location;
 	};
 

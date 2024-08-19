@@ -1,8 +1,8 @@
 #pragma once
-#include <future>
 #include <CASTL/CAVector.h>
 #include <CASTL/CAString.h>
 #include <CASTL/CASharedPtr.h>
+#include <Hasher.h>
 namespace thread_management
 {
 	class ThreadManager_Impl1;
@@ -14,6 +14,14 @@ namespace thread_management
 		eGraph,
 		eNode,
 		eNodeParallel,
+		eTaskScheduler,
+	};
+
+	enum class TaskNodeState : uint8_t
+	{
+		eInvalid = 0,
+		ePrepare,
+		ePending,
 	};
 
 	class TaskBaseObject
@@ -30,19 +38,31 @@ namespace thread_management
 	class TaskNode : public TaskBaseObject
 	{
 	public:
-		TaskNode(TaskObjectType type, TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
-		void SetOwner(TaskBaseObject* owner) { m_Owner = owner; }
-		std::shared_future<void> StartExecute();
-		virtual bool RunOnMainThread() const { return false; }
+		TaskNode(TaskObjectType type, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		void SetOwner(TaskBaseObject* owner) { 
+			m_Owner = owner;
+			m_CurrentFrame = owner->GetCurrentFrame(); }
+		bool Valid() const { return m_Owner != nullptr; }
+		virtual bool RunOnMainThread() const { return m_RunOnMainThread; }
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) override {}
 		virtual void Execute_Internal() = 0;
-		virtual void SetupSubnodeDependencies() {};
 		virtual uint64_t GetCurrentFrame() const override { return m_CurrentFrame; }
+		void SetRunOnMainThread(bool runOnMainThread) { m_RunOnMainThread = runOnMainThread; }
 		void SetupThisNodeDependencies_Internal();
 		size_t GetDepenedentCount() const { return m_Dependents.size(); }
+		void ReleaseSelf();
+		void Initialize_Internal() { m_Running.store(TaskNodeState::ePrepare); m_Name = "Default Task Name"; }
 		void Release_Internal();
-		std::shared_future<void> AquireFuture();
-		void FulfillPromise();
+		void SetThreadKey_Internal(cacore::HashObj<castl::string> const& key) { m_ThreadKey = key; }
+		castl::string const& GetName() const { return m_Name; }
+		bool WaitingToRun(TaskBaseObject* owner) const
+		{
+			if (owner != m_Owner)
+				return false;
+			if (m_Running.load() != TaskNodeState::ePrepare)
+				return false;
+			return true;
+		}
 	protected:
 		void NotifyDependsOnFinish(TaskNode* dependsOnNode);
 		void Name_Internal(const castl::string& name);
@@ -50,25 +70,25 @@ namespace thread_management
 		void SignalEvent_Internal(const castl::string& name);
 		void DependsOn_Internal(TaskNode* dependsOnNode);
 		void FinalizeExecution_Internal();
-		void AddResource_Internal(castl::shared_ptr<void> const& resource);
 	protected:
 		ThreadManager_Impl1* m_OwningManager;
-		TaskBaseObject* m_Owner;
 		TaskNodeAllocator* m_Allocator;
-		std::atomic_bool m_Running{ false };
-		castl::string m_Name;
+		castl::atomic<TaskBaseObject*> m_Owner{ nullptr };
+		castl::atomic<TaskNodeState> m_Running{ TaskNodeState::eInvalid };
+		cacore::HashObj<castl::string> m_ThreadKey;
+		castl::string m_Name = "Default Task Name";
 		castl::string m_EventName;
 		castl::string m_SignalEventName;
 		uint64_t m_CurrentFrame;
 		castl::vector<TaskNode*>m_Dependents;
 		castl::vector<TaskNode*>m_Successors;
-		std::atomic<uint32_t>m_PendingDependsOnTaskCount{0};
-		castl::vector<castl::shared_ptr<void>> m_BoundResources;
+		castl::atomic<uint32_t>m_PendingDependsOnTaskCount{0};
+		bool m_RunOnMainThread = false;
 
-		bool m_HasPromise = false;
-		std::promise<void> m_Promise;
-
+		friend class TaskNodeAllocator;
 		friend class ThreadManager_Impl1;
+		friend class TaskNodeEventManager;
+		friend class TaskScheduler_Impl;
 	};
 }
 

@@ -10,13 +10,35 @@
 
 namespace threadsafe_utils
 {
+	template<typename T, typename...TArgs>
+	concept has_create = requires(T t)
+	{
+		t.Create(castl::remove_cvref_t <TArgs>{}...);
+	};
+
+	template<typename T, typename...TArgs>
+	concept has_initialize = requires(T t)
+	{
+		t.Initialize(castl::remove_cvref_t<TArgs>{}...);
+	};
+
+
+	template<typename T>
+	concept has_release = requires(T t)
+	{
+		t.Release();
+	};
+
 	template<typename T>
 	class DefaultInitializer
 	{
 	public:
 		void operator()(T* initialize)
 		{
-			initialize->Initialize();
+			if constexpr (has_initialize<T>)
+			{
+				initialize->Initialize();
+			}
 		}
 	};
 
@@ -26,7 +48,10 @@ namespace threadsafe_utils
 	public:
 		void operator()(T* release)
 		{
-			release->Release();
+			if constexpr (has_release<T>)
+			{
+				release->Release();
+			}
 		}
 	};
 
@@ -77,8 +102,8 @@ namespace threadsafe_utils
 		{
 			assert(releaseObj != nullptr);
 			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			m_EmptySpaces.push_back(releaseObj);
 			m_Releaser(releaseObj);
+			m_EmptySpaces.push_back(releaseObj);
 		}
 
 		bool IsEmpty()

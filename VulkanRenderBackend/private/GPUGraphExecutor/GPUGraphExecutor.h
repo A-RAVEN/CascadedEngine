@@ -1,18 +1,18 @@
 #pragma once
 #include <CASTL/CASharedPtr.h>
+#include <CASTL/CAUnorderedSet.h>
+#include <ThreadManager.h>
 #include <GPUGraph.h>
 #include <VulkanApplicationSubobjectBase.h>
-#include <VulkanImageObject.h>
-#include <InterfaceTranslator.h>
 #include <VulkanBarrierCollector.h>
 #include "ShaderBindingHolder.h"
-#include <GPUContexts/FrameContext.h>
 
 namespace graphics_backend
 {
 	class FramebufferObject;
 	class RenderPassObject;
 	class CPipelineObject;
+	class ComputePipelineObject;
 	class CVulkanApplication;
 
 	struct VertexAttributeBindingData
@@ -26,22 +26,49 @@ namespace graphics_backend
 	struct GPUPassBatchInfo
 	{
 		castl::shared_ptr<CPipelineObject> m_PSO;
-		castl::unordered_map<castl::string, VertexAttributeBindingData> m_VertexAttributeBindings;
+		castl::unordered_map<cacore::HashObj<VertexInputsDescriptor>, VertexAttributeBindingData> m_VertexAttributeBindings;
 		ShaderBindingInstance m_ShaderBindingInstance;
 	};
 
-	struct GPUPassInfo
+	struct PassInfoBase
+	{
+		VulkanBarrierCollector m_BarrierCollector;
+		castl::set<uint32_t> m_PredecessorPasses;
+		castl::set<uint32_t> m_SuccessorPasses;
+		castl::set<uint32_t> m_WaitingQueueFamilies;
+		castl::vector<vk::CommandBuffer> m_PrepareShaderArgCommands;
+		castl::vector<vk::CommandBuffer> m_CommandBuffers;
+		int GetQueueFamily() const { return m_BarrierCollector.GetQueueFamily(); }
+		virtual GPUGraph::EGraphStageType GetStageType() const = 0;
+	};
+
+	struct GPUPassInfo : public PassInfoBase
 	{
 		castl::shared_ptr<FramebufferObject> m_FrameBufferObject;
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
 		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
-		VulkanBarrierCollector m_BarrierCollector;
+		bool ValidPassData() const
+		{
+			return m_FrameBufferObject != nullptr && m_RenderPassObject != nullptr;
+		}
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eRenderPass; }
 	};
 
-	struct GPUTransferInfo
+	struct GPUComputePassInfo : public PassInfoBase
 	{
-		VulkanBarrierCollector m_BarrierCollector;
+		struct ComputeDispatchInfo
+		{
+			castl::shared_ptr<ComputePipelineObject> m_ComputePipeline;
+			ShaderBindingInstance m_ShaderBindingInstance;
+		};
+		castl::vector<ComputeDispatchInfo> m_DispatchInfos;
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eComputePass; }
+	};
+
+	struct GPUTransferInfo : public PassInfoBase
+	{
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eTransferPass; }
 	};
 
 	class SubAllocator
@@ -97,8 +124,16 @@ namespace graphics_backend
 	class GraphExecutorResourceManager
 	{
 	public:
-		void AllocResourceIndex(castl::string const& handleName, int32_t descriptorIndex)
+		void AllocPersistantResourceIndex(ResourceHandleKey const& handleName, int32_t descriptorIndex)
 		{
+			if (descriptorIndex < 0)
+				return;
+			m_PersistantHandleNameToDescriptorIndex[handleName] = descriptorIndex;
+		}
+		void AllocResourceIndex(ResourceHandleKey const& handleName, int32_t descriptorIndex)
+		{
+			if (descriptorIndex < 0)
+				return;
 			auto found = m_HandleNameToResourceInfo.find(handleName);
 			if (found == m_HandleNameToResourceInfo.end())
 			{
@@ -120,14 +155,20 @@ namespace graphics_backend
 			++m_PassCount;
 		}
 
-		void AllocateResources(CVulkanApplication& app, ResManager const& bufferHandleManager)
+		void AllocateResources(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, ResManager const& bufferHandleManager)
 		{
-			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passAllocations;
-			castl::vector<castl::vector<castl::pair<castl::string, int32_t>>> passDeAllocations;
+			//Persistant Resources Permanently Occupy Resource Index
+			for (auto persistNameToDescID : m_PersistantHandleNameToDescriptorIndex)
+			{
+				uint32_t subAllocatorIndex = GetSubAllocatorIndex(persistNameToDescID.second);
+				uint32_t allocatedIndex = m_SubAllocators[subAllocatorIndex].AllocIndex();
+				m_HandleNameToResourceIndex.insert(castl::make_pair(persistNameToDescID.first, castl::make_pair(subAllocatorIndex, allocatedIndex)));
+			}
 
+			castl::vector<castl::vector<castl::pair<ResourceHandleKey, int32_t>>> passAllocations;
+			castl::vector<castl::vector<castl::pair<ResourceHandleKey, int32_t>>> passDeAllocations;
 			passAllocations.resize(m_PassCount);
 			passDeAllocations.resize(m_PassCount);
-
 			for (auto& lifeTimePair : m_HandleNameToResourceInfo)
 			{
 				passAllocations[lifeTimePair.second.beginPass].push_back(castl::make_pair(lifeTimePair.first, lifeTimePair.second.descriptorIndex));
@@ -160,7 +201,7 @@ namespace graphics_backend
 			{
 				auto desc = bufferHandleManager.DescriptorIDToDescriptor(descAllocatorPair.first);
 				CA_ASSERT(desc != nullptr, "Descriptor not found");
-				m_SubAllocators[descAllocatorPair.second].Allocate(app, *desc);
+				m_SubAllocators[descAllocatorPair.second].Allocate(app, pResourcePool, *desc);
 			}
 		}
 
@@ -190,15 +231,16 @@ namespace graphics_backend
 		uint32_t m_PassCount;
 		castl::vector<SubAllocator> m_SubAllocators;
 		castl::unordered_map<int32_t, uint32_t> m_DescriptorIndexToSubAllocator;
-		castl::unordered_map<castl::string, castl::pair<uint32_t, uint32_t>> m_HandleNameToResourceIndex;
-		castl::unordered_map<castl::string, ResourceInfo> m_HandleNameToResourceInfo;
+		castl::unordered_map<ResourceHandleKey, castl::pair<uint32_t, uint32_t>> m_HandleNameToResourceIndex;
+		castl::unordered_map<ResourceHandleKey, ResourceInfo> m_HandleNameToResourceInfo;
+		castl::unordered_map<ResourceHandleKey, int32_t> m_PersistantHandleNameToDescriptorIndex;
 	};
 
 
 	class BufferSubAllocator : public SubAllocator
 	{
 	public:
-		void Allocate(CVulkanApplication& app, GPUBufferDescriptor const& descriptor);
+		void Allocate(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, GPUBufferDescriptor const& descriptor);
 
 		virtual void Release()
 		{
@@ -206,16 +248,19 @@ namespace graphics_backend
 			m_Buffers.clear();
 		}
 
-		castl::vector<VulkanBufferHandle> m_Buffers;
+		castl::vector<VKBufferObject> m_Buffers;
 	};
 
 	class GraphExecutorBufferManager : public GraphExecutorResourceManager<BufferSubAllocator, GraphResourceManager<GPUBufferDescriptor>>
 	{
 	public:
-		VulkanBufferHandle const& GetBufferObject(castl::string const& handleName) const
+		VKBufferObject const& GetBufferObject(ResourceHandleKey const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Buffer not found");
+			if (found == m_HandleNameToResourceIndex.end())
+			{
+				return VKBufferObject::Default();
+			}
 			auto& subAllocator = m_SubAllocators[found->second.first];
 			return subAllocator.m_Buffers[found->second.second];
 		}
@@ -225,8 +270,7 @@ namespace graphics_backend
 	class ImageSubAllocator : public SubAllocator
 	{
 	public:
-		void Allocate(CVulkanApplication& app, GPUTextureDescriptor const& descriptor);
-
+		void Allocate(CVulkanApplication& app, FrameBoundResourcePool* pResourcePool, GPUTextureDescriptor const& descriptor);
 
 		virtual void Release()
 		{
@@ -234,73 +278,162 @@ namespace graphics_backend
 			m_Images.clear();
 		}
 
-		castl::vector<VulkanImageObject> m_Images;
-		castl::vector<vk::ImageView> m_ImageViews;
+		castl::vector<VKImageObject> m_Images;
 	};
 
 	class GraphExecutorImageManager : public GraphExecutorResourceManager<ImageSubAllocator, GraphResourceManager<GPUTextureDescriptor>>
 	{
 	public:
-		VulkanImageObject const& GetImageObject(castl::string const& handleName) const
+		VKImageObject const& GetImageObject(ResourceHandleKey const& handleName) const
 		{
 			auto found = m_HandleNameToResourceIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Image not found");
+			if (found == m_HandleNameToResourceIndex.end())
+			{
+				return VKImageObject::Default();
+			}
 			auto& subAllocator = m_SubAllocators[found->second.first];
 			return subAllocator.m_Images[found->second.second];
 		}
+	};
 
-		vk::ImageView GetImageView(castl::string const& handleName) const
+	struct CommandBatchRange
+	{
+		uint32_t queueFamilyIndex;
+		uint32_t firstCommand;
+		uint32_t lastCommand;
+		vk::Semaphore signalSemaphore;
+		castl::vector<vk::Semaphore> waitSemaphores;
+		castl::vector<vk::PipelineStageFlags> waitStages;
+
+		bool hasSuccessor;
+		castl::set<uint32_t> waitingBatch;
+		castl::set<uint32_t> waitingQueueFamilyReleaser;
+
+		static CommandBatchRange Create(uint32_t queueFamilyIndex, uint32_t startCommandID)
 		{
-			auto found = m_HandleNameToResourceIndex.find(handleName);
-			CA_ASSERT(found != m_HandleNameToResourceIndex.end(), "Image not found");
-			auto& subAllocator = m_SubAllocators[found->second.first];
-			return subAllocator.m_ImageViews[found->second.second];
+			CommandBatchRange result{};
+			result.queueFamilyIndex = queueFamilyIndex;
+			result.firstCommand = result.lastCommand = startCommandID;
+			result.hasSuccessor = false;
+			return result;
 		}
 	};
 
-	class GPUGraphExecutor : public VKAppSubObjectBase, public ShadderResourceProvider
+	struct ResourceState
+	{
+		int passID;
+		ResourceUsageFlags usage;
+		uint32_t queueFamily;
+	};
+
+	class GPUGraphExecutor : public VKAppSubObjectBaseNoCopy, public ShadderResourceProvider
 	{
 	public:
 		GPUGraphExecutor(CVulkanApplication& application);
 		void Initialize(castl::shared_ptr<GPUGraph> const& gpuGraph, FrameBoundResourcePool* frameBoundResourceManager);
-		void Release() override;
-		void PrepareGraph();
+		void Release();
+		void PrepareGraph(thread_management::TaskScheduler* taskGraph);
 	private:
+		bool ValidImageHandle(ImageHandle const& handle);
 		void PrepareResources();
+		void InitializePasses();
+		void PrepareGraphLocalImageResources();
+		void PrepareGraphLocalBufferResources();
+		void WaitBackbuffers();
 
 		void PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
 			, DrawCallBatch const& batch
 			, GPUPassBatchInfo const& batchInfo
+			, uint32_t passID
 		);
 
 		void PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Image, ResourceUsageFlags, cacore::hash<vk::Image>>& inoutImageUsageFlagCache
-			, castl::unordered_map<vk::Buffer, ResourceUsageFlags, cacore::hash<vk::Buffer>>& inoutBufferUsageFlagCache
-			, ShaderArgList const* shaderArgList);
-		void PrepareFrameBufferAndPSOs();
+			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
+			, ShaderArgList const* shaderArgList
+			, uint32_t passID
+		);
+		void PrepareShaderBindingResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
+			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
+			, ShaderBindingInstance const& shaderBindingInstance
+			, uint32_t passID
+		);
+		//VulkanBarrierCollector& GetBarrierCollector(uint32_t passID);
+		PassInfoBase* GetBasePassInfo(int passID);
+
+#pragma region Shader Resource Dependencies
+		void UpdateBufferDependency(uint32_t passID, BufferHandle const& bufferHandle
+			, ResourceUsageFlags newUsageFlags
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache);
+		void UpdateImageDependency(uint32_t passID, ImageHandle const& imageHandle
+			, ResourceUsageFlags newUsageFlags
+			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache);
+#pragma endregion
+		void PrepareFrameBufferAndPSOs(thread_management::TaskScheduler* taskGraph);
+		void PrepareComputePSOs();
+		void WriteDescriptorSets(thread_management::TaskScheduler* taskGraph);
 		void PrepareResourceBarriers();
-		void RecordGraph();
+		void RecordGraph(thread_management::TaskScheduler* taskGraph);
+		void ScanCommandBatchs();
+		void Submit();
+		void SyncExternalResources();
 
 		GPUTextureDescriptor const* GetTextureHandleDescriptor(ImageHandle const& handle) const;
-		vk::ImageView GetTextureHandleImageView(ImageHandle const& handle) const;
+		vk::ImageView GetTextureHandleImageView(ImageHandle const& handle, GPUTextureView const& view) const;
 		vk::Image GetTextureHandleImageObject(ImageHandle const& handle) const;
 		vk::Buffer GetBufferHandleBufferObject(BufferHandle const& handle) const;
 
 		virtual vk::Buffer GetBufferFromHandle(BufferHandle const& handle) override { return GetBufferHandleBufferObject(handle); }
-		virtual vk::ImageView GetImageView(ImageHandle const& handle) override { return GetTextureHandleImageView(handle);  }
+		virtual vk::ImageView GetImageView(ImageHandle const& handle, GPUTextureView const& view) override { return GetTextureHandleImageView(handle, view);  }
+	
+		castl::vector<vk::CommandBuffer> const& GetCommandBufferList() const { return m_FinalCommandBuffers; }
+		castl::vector<CommandBatchRange> const& GetCommandBufferBatchList() const { return m_CommandBufferBatchList; }
+
+		void UpdateExternalBufferUsage(PassInfoBase* passInfo, BufferHandle const& handle, ResourceState const& initUsageState, ResourceState const& newUsageState);
+		void UpdateExternalImageUsage(PassInfoBase* passInfo, ImageHandle const& handle, ResourceState const& initUsageState, ResourceState const& newUsageState);
 	private:
+		struct ExternalResourceReleaser
+		{
+			VulkanBarrierCollector barrierCollector;
+			vk::CommandBuffer commandBuffer;
+			vk::Semaphore signalSemaphore;
+		};
+
+		struct ExternalResourceReleasingBarriers
+		{
+			castl::unordered_map<uint32_t, ExternalResourceReleaser> queueFamilyToBarrierCollector;
+			ExternalResourceReleaser& GetQueueFamilyReleaser(CVulkanApplication& app, uint32_t queueFamily);
+
+			void Release()
+			{
+				queueFamilyToBarrierCollector.clear();
+			}
+		};
+
 		castl::shared_ptr<GPUGraph> m_Graph;
 		//Rasterize Pass
 		castl::vector<GPUPassInfo> m_Passes;
+		//Compute Pass
+		castl::vector<GPUComputePassInfo> m_ComputePasses;
 		//Transfer Pass
 		castl::vector<GPUTransferInfo> m_TransferPasses;
-		//Command Buffers
-		castl::vector<vk::CommandBuffer> m_GraphicsCommandBuffers;
+
 		//Manager
 		GraphExecutorImageManager m_ImageManager;
 		GraphExecutorBufferManager m_BufferManager;
+		FrameBoundResourcePool* m_FrameBoundResourceManager = nullptr;
 
-		FrameBoundResourcePool* m_FrameBoundResourceManager;
+		//External Resource States
+		ExternalResourceReleasingBarriers m_ExternalResourceReleasingBarriers;//Release External Resources From Their Last Queue To Where They Are Used
+		castl::unordered_map<ImageHandle, ResourceState> m_ExternImageFinalUsageStates;
+		castl::unordered_map<BufferHandle, ResourceState> m_ExternBufferFinalUsageStates;
+
+		//Command Buffers
+		castl::vector<vk::CommandBuffer> m_FinalCommandBuffers;
+		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
+
+		castl::unordered_set<castl::shared_ptr<CWindowContext>> m_WaitingWindows;
 	};
 }

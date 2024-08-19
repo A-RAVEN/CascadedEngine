@@ -1,7 +1,7 @@
 #pragma once
 #include "VulkanIncludes.h"
 
-namespace vulkan_backend
+namespace graphics_backend
 {
 	template<typename T>
 	void SetVKObjectDebugName(vk::Device device, T vkObj, const char* name)
@@ -18,13 +18,19 @@ namespace vulkan_backend
 			device.setDebugUtilsObjectNameEXT(nameInfo);
 		}
 	}
-	static void VKResultCheck(VkResult result)
+	static void VKResultCheck(VkResult result, castl::string_view problem = "")
 	{
-
+		if (result != VK_SUCCESS)
+		{
+			CA_LOG_ERR("Vulkan Result Not Success!");
+		}
 	}
-	static void VKResultCheck(vk::Result result)
+	static void VKResultCheck(vk::Result result, castl::string_view problem = "")
 	{
-		VKResultCheck(result);
+		if (result != vk::Result::eSuccess)
+		{
+			CA_LOG_ERR("Vulkan Result Not Success!");
+		}
 	}
 
 

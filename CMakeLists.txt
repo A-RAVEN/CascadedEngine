@@ -13,8 +13,6 @@ if (POLICY CMP0140)
   cmake_policy(SET CMP0140 NEW)
 endif()
 
-
-
 project ("CascadedEngine")
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -36,11 +34,15 @@ add_subdirectory ("ExternalLib")
 
 # 包含子项目。
 add_subdirectory ("CACore")
+add_subdirectory ("TimerSystem")
+add_subdirectory ("TimerSystem_Impl")
 add_subdirectory ("ThreadManager")
+add_subdirectory ("WindowSystem")
 add_subdirectory ("GeneralResources")
 add_subdirectory ("ShaderCompiler")
 add_subdirectory ("RenderInterface")
 add_subdirectory ("ShaderCompilerSlang")
 add_subdirectory ("VulkanRenderBackend")
+#add_subdirectory ("DotNetHost")
 add_subdirectory ("VulkanRendererBackendTester")
 add_subdirectory ("CoreTests")

@@ -147,7 +147,11 @@ namespace ShaderCompilerSlang
 		castl::vector<ShaderCompileTargetResult> m_CompileResults;
 		castl::vector<CompilerOptionEntry> m_CompilerOptionEntries = { 
 			CompilerOptionEntry{ CompilerOptionName::VulkanUseEntryPointName , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }} ,
-			CompilerOptionEntry{ CompilerOptionName::Optimization , CompilerOptionValue{ CompilerOptionValueKind::Int, SlangOptimizationLevel::SLANG_OPTIMIZATION_LEVEL_NONE }}
+			//CompilerOptionEntry{ CompilerOptionName::EmitSpirvDirectly , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }} ,
+			CompilerOptionEntry{ CompilerOptionName::DebugInformation , CompilerOptionValue{ CompilerOptionValueKind::Int, SLANG_DEBUG_INFO_LEVEL_STANDARD  }} ,
+			CompilerOptionEntry{ CompilerOptionName::Optimization , CompilerOptionValue{ CompilerOptionValueKind::Int, SlangOptimizationLevel::SLANG_OPTIMIZATION_LEVEL_NONE }},
+			CompilerOptionEntry{ CompilerOptionName::MatrixLayoutRow , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }},
+			CompilerOptionEntry{ CompilerOptionName::MatrixLayoutColumn , CompilerOptionValue{ CompilerOptionValueKind::Int, 0 }},
 		};
 
 		void PushTarget(SlangCompileTarget targetType, const char* profileStr)
@@ -365,6 +369,22 @@ namespace ShaderCompilerSlang
 				|| parentCategory == ParameterCategory::PushConstantBuffer);
 		}
 
+
+		EShaderResourceAccess TranslateSlangResourceAccess(SlangResourceAccess resourceAccess)
+		{
+			switch (resourceAccess)
+			{
+				case SLANG_RESOURCE_ACCESS_READ:
+					return EShaderResourceAccess::eReadOnly;
+				case SLANG_RESOURCE_ACCESS_WRITE:
+					return EShaderResourceAccess::eWriteOnly;
+				case SLANG_RESOURCE_ACCESS_READ_WRITE:
+					return EShaderResourceAccess::eReadWrite;
+			}
+			return EShaderResourceAccess::eUnknown;
+		}
+
+
 		void Reflect(ShaderReflectionData& reflectionData
 			, slang::VariableLayoutReflection* variable
 			, slang::TypeLayoutReflection* typeLayout
@@ -472,23 +492,28 @@ namespace ShaderCompilerSlang
 				|| kind == slang::TypeReflection::Kind::SamplerState)
 			{
 				slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
+				SlangResourceAccess resourceAccess = typeLayout->getResourceAccess();
 				switch (bindingType)
 				{
+					case slang::BindingType::MutableTexture:
 					case slang::BindingType::Texture:
 					{
 						TextureData newTexture = {};
 						newTexture.m_Name = newBinding.elementName;
 						newTexture.m_BindingIndex = newBinding.bindingIndex;
 						newTexture.m_Count = unrolledArrayLength;
+						newTexture.m_Access = TranslateSlangResourceAccess(resourceAccess);
 						bindingSpace.AddTextureToResourceGroup(newBinding.resourceGroupID, newTexture);
 						break;
 					}
+					case slang::BindingType::MutableRawBuffer:
 					case slang::BindingType::RawBuffer:
 					{
 						ShaderBufferData newBuffer = {};
 						newBuffer.m_Name = newBinding.elementName;
 						newBuffer.m_BindingIndex = newBinding.bindingIndex;
 						newBuffer.m_Count = unrolledArrayLength;
+						newBuffer.m_Access = TranslateSlangResourceAccess(resourceAccess);
 						bindingSpace.AddBufferToResourceGroup(newBinding.resourceGroupID, newBuffer);
 						break;
 					}
@@ -530,6 +555,7 @@ namespace ShaderCompilerSlang
 					newAttribute.m_Location = location;
 					newAttribute.m_Name = param->getName();
 					newAttribute.m_SematicName = param->getSemanticName();
+					newAttribute.m_SematicIndex = param->getSemanticIndex();
 					results.push_back(newAttribute);
 				}
 			}
@@ -742,7 +768,7 @@ namespace ShaderCompilerSlang
 					{
 						bindingData.uniformGroupID = globalBindingSpace.InitUniformGroup(0, -1, "__Global", 0, globalBufferSize, globalBufferSize, 1);
 					}
-					bindingData.resourceGroupID = globalBindingSpace.InitResourceGroup("__Global", bindingData.resourceGroupID);
+					//bindingData.resourceGroupID = globalBindingSpace.InitResourceGroup("__Global", bindingData.resourceGroupID);
 				}
 				uint32_t paramCount = layout->getParameterCount();
 				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)

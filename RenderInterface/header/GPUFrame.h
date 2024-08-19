@@ -8,7 +8,7 @@ namespace graphics_backend
 {
 	struct GPUFrame
 	{
-		castl::vector<castl::shared_ptr<GPUGraph>> graphs;
+		castl::shared_ptr<GPUGraph> pGraph;
 		castl::vector<castl::shared_ptr<WindowHandle>> presentWindows;
 	};
 }

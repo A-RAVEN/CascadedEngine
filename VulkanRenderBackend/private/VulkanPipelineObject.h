@@ -6,12 +6,7 @@
 #include "CShaderModuleObject.h"
 #include "RenderPassObject.h"
 #include <Compiler.h>
-
-template<>
-struct hash_utils::is_contiguously_hashable<vk::DescriptorSetLayout> : public castl::true_type {};
-
-template<>
-struct hash_utils::is_contiguously_hashable<ShaderCompilerSlang::ShaderVertexAttributeData> : public castl::true_type {};
+#include <Hasher.h>
 
 namespace graphics_backend
 {
@@ -20,21 +15,8 @@ namespace graphics_backend
 	public:
 		castl::shared_ptr<CShaderModuleObject> vertexShader = nullptr;
 		castl::shared_ptr <CShaderModuleObject> fragmentShader = nullptr;
-
-		bool operator==(ShaderStateDescriptor const& rhs) const
-		{
-			return vertexShader == rhs.vertexShader
-				&& fragmentShader == rhs.fragmentShader;
-		}
-
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, ShaderStateDescriptor const& shaderstate_desc) noexcept
-		{
-			hash_append(h, reinterpret_cast<size_t>(shaderstate_desc.vertexShader.get()));
-			hash_append(h, reinterpret_cast<size_t>(shaderstate_desc.fragmentShader.get()));
-		}
+		auto operator<=>(const ShaderStateDescriptor&) const = default;
 	};
-
 
 	struct CPipelineObjectDescriptor
 	{
@@ -45,27 +27,7 @@ namespace graphics_backend
 		castl::vector<vk::DescriptorSetLayout> descriptorSetLayouts{};
 		castl::shared_ptr<RenderPassObject> renderPassObject = nullptr;
 		uint32_t subpassIndex = 0;
-
-		bool operator==(CPipelineObjectDescriptor const& rhs) const
-		{
-			return pso == rhs.pso
-				&& vertexInputs == rhs.vertexInputs
-				&& shaderState == rhs.shaderState
-				&& descriptorSetLayouts == rhs.descriptorSetLayouts
-				&& renderPassObject == rhs.renderPassObject
-				&& subpassIndex == rhs.subpassIndex;
-		}
-
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, CPipelineObjectDescriptor const& pipeline_desc) noexcept
-		{
-			hash_append(h, pipeline_desc.pso);
-			hash_append(h, pipeline_desc.vertexInputs);
-			hash_append(h, pipeline_desc.shaderState);
-			hash_append(h, pipeline_desc.descriptorSetLayouts);
-			hash_append(h, pipeline_desc.renderPassObject.get());
-			hash_append(h, pipeline_desc.subpassIndex);
-		}
+		auto operator<=>(const CPipelineObjectDescriptor&) const = default;
 	};
 
 	class CPipelineObject final : public VKAppSubObjectBaseNoCopy
@@ -73,13 +35,25 @@ namespace graphics_backend
 	public:
 		CPipelineObject(CVulkanApplication& owner) : VKAppSubObjectBaseNoCopy(owner) {};
 		void Create(CPipelineObjectDescriptor const& pipelineObjectDescriptor);
+		void Release();
 		vk::Pipeline const& GetPipeline() const { return m_GraphicsPipeline; }
 		vk::PipelineLayout const& GetPipelineLayout() const { return m_PipelineLayout; }
 	protected:
 		vk::Pipeline m_GraphicsPipeline = nullptr;
-
 		vk::PipelineLayout m_PipelineLayout = nullptr;
 	};
 
 	using PipelineObjectDic = HashPool<CPipelineObjectDescriptor, CPipelineObject>;
 }
+
+CA_REFLECTION(graphics_backend::ShaderStateDescriptor
+	, vertexShader
+	, fragmentShader);
+
+CA_REFLECTION(graphics_backend::CPipelineObjectDescriptor
+	, pso
+	, vertexInputs
+	, shaderState
+	, descriptorSetLayouts
+	, renderPassObject
+	, subpassIndex);

@@ -1,0 +1,7 @@
+#pragma once
+struct GlobalDirectLighting
+{
+    float3 lightDirection;
+    float3 lightColor;
+    float3 ambientColor;
+};

@@ -60,13 +60,19 @@ namespace graphics_backend
 		castl::unordered_set<vk::SubpassDependency, cacore::hash<vk::SubpassDependency>> dependencies{};
 
 		auto iterate_set_attachment_usage = [
-				&tracking_attachment_usages
+				&attachmentInfo
+				, &tracking_attachment_usages
 				, &tracking_attachment_ref_subpass
 				, &dependencies
 				,&inoutLayouts]
 		(uint32_t subpassId, size_t attachment_id, ResourceUsage new_usage)
 		{
+			auto& attahment = attachmentInfo[attachment_id];
 			auto& tracking_usage = tracking_attachment_usages[attachment_id];
+			if (tracking_usage == ResourceUsage::eDontCare)
+			{
+				tracking_usage = new_usage;
+			}
 			uint32_t& tracking_subpass_id = tracking_attachment_ref_subpass[attachment_id];
 			auto& layout_pair = inoutLayouts[attachment_id];
 
@@ -143,8 +149,17 @@ namespace graphics_backend
 			attachmentDesc.samples = EMultiSampleCountToVkSampleCount(srcInfo.multiSampleCount);
 			attachmentDesc.loadOp = EAttachmentLoadOpToVkLoadOp(srcInfo.loadOp);
 			attachmentDesc.storeOp = EAttachmentStoreOpToVkStoreOp(srcInfo.storeOp);
-			attachmentDesc.stencilLoadOp = EAttachmentLoadOpToVkLoadOp(srcInfo.stencilLoadOp);
-			attachmentDesc.stencilStoreOp = EAttachmentStoreOpToVkStoreOp(srcInfo.stencilStoreOp);
+
+			if (FormatHasStencil(srcInfo.format))
+			{
+				attachmentDesc.stencilLoadOp = EAttachmentLoadOpToVkLoadOp(srcInfo.stencilLoadOp);
+				attachmentDesc.stencilStoreOp = EAttachmentStoreOpToVkStoreOp(srcInfo.stencilStoreOp);
+			}
+			else
+			{
+				attachmentDesc.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+				attachmentDesc.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+			}
 		}
 
 		castl::vector<vk::SubpassDescription> subpassDescs{subpassInfos.size()};
@@ -218,6 +233,4 @@ namespace graphics_backend
 			m_RenderPass = nullptr;
 		}
 	}
-
-
 }

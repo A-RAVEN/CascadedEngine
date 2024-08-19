@@ -57,10 +57,4 @@ namespace graphics_backend
 	};
 
 	using TextureSamplerDescriptorObj = cacore::HashObj<TextureSamplerDescriptor>;
-
-	class TextureSampler
-	{
-	public:
-		virtual TextureSamplerDescriptor const& GetDescriptor() const = 0;
-	};
 }

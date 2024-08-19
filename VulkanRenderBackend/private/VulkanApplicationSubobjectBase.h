@@ -10,6 +10,9 @@ namespace graphics_backend
 	class CVulkanMemoryManager;
 	class GPUObjectManager;
 	class QueueContext;
+	class GPUMemoryResourceManager;
+	class GPUResourceObjectManager;
+	class GlobalResourceReleaseQueue;
 #pragma endregion
 
 	class VKAppSubObjectBase
@@ -21,16 +24,13 @@ namespace graphics_backend
 		VKAppSubObjectBase& operator=(VKAppSubObjectBase const&) = default;
 		VKAppSubObjectBase(VKAppSubObjectBase&&) = default;
 		VKAppSubObjectBase& operator=(VKAppSubObjectBase&&) = default;
-		virtual void Release() {};
 		CVulkanApplication& GetVulkanApplication() const;
-		castl::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
-		CFrameCountContext const& GetFrameCountContext() const;
 		vk::Instance GetInstance() const;
 		vk::Device GetDevice() const;
 		vk::PhysicalDevice GetPhysicalDevice() const;
-		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
 		GPUObjectManager& GetGPUObjectManager();
-		CVulkanMemoryManager& GetMemoryManager() const;
+		GPUMemoryResourceManager& GetGlobalMemoryManager();
+		GPUResourceObjectManager& GetGlobalResourceObjectManager();
 		QueueContext& GetQueueContext();
 	private:
 		CVulkanApplication& m_OwningApplication;
@@ -46,20 +46,17 @@ namespace graphics_backend
 		VKAppSubObjectBaseNoCopy(VKAppSubObjectBaseNoCopy&& other) = default;
 		VKAppSubObjectBaseNoCopy& operator=(VKAppSubObjectBaseNoCopy&&) = default;
 		virtual ~VKAppSubObjectBaseNoCopy() {};
-		virtual void Release() {};
 		CVulkanApplication& GetVulkanApplication() const;
-		castl::shared_ptr<CVulkanThreadContext> AquireThreadContextPtr();
-		CFrameCountContext const& GetFrameCountContext() const;
 		vk::Instance GetInstance() const;
 		vk::Device GetDevice() const;
 		vk::PhysicalDevice GetPhysicalDevice() const;
-		CVulkanThreadContext* GetThreadContext(uint32_t threadIndex);
+
 		GPUObjectManager& GetGPUObjectManager();
-		CVulkanMemoryManager &GetMemoryManager() const;
+		GPUMemoryResourceManager& GetGlobalMemoryManager();
+		GPUResourceObjectManager& GetGlobalResourceObjectManager();
+		GlobalResourceReleaseQueue& GetGlobalResourecReleasingQueue();
 		QueueContext& GetQueueContext();
 	private:
 		CVulkanApplication* m_OwningApplication = nullptr;
 	};
-
-
 }

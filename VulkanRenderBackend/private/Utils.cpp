@@ -1,5 +1,5 @@
 #include "pch.h"
-
+#define BREAK_ON_VULKAN_ERROR 0
 //Dynamic Function Pointers of Vulkan Should be defined under global namespace
 PFN_vkCreateDebugUtilsMessengerEXT  pfnVkCreateDebugUtilsMessengerEXT = nullptr;
 PFN_vkDestroyDebugUtilsMessengerEXT pfnVkDestroyDebugUtilsMessengerEXT = nullptr;
@@ -117,42 +117,52 @@ namespace vulkan_backend
 	        }
 #endif
 
-	        std::cerr << vk::to_string(static_cast<vk::DebugUtilsMessageSeverityFlagBitsEXT>(messageSeverity)) << ": "
-	            << vk::to_string(static_cast<vk::DebugUtilsMessageTypeFlagsEXT>(messageTypes)) << ":\n";
-	        std::cerr << std::string("\t") << "messageIDName   = <" << pCallbackData->pMessageIdName << ">\n";
-	        std::cerr << std::string("\t") << "messageIdNumber = " << pCallbackData->messageIdNumber << "\n";
-	        std::cerr << std::string("\t") << "message         = <" << pCallbackData->pMessage << ">\n";
-	        if (0 < pCallbackData->queueLabelCount)
-	        {
-	            std::cerr << std::string("\t") << "Queue Labels:\n";
-	            for (uint32_t i = 0; i < pCallbackData->queueLabelCount; i++)
-	            {
-	                std::cerr << std::string("\t\t") << "labelName = <" << pCallbackData->pQueueLabels[i].pLabelName << ">\n";
-	            }
-	        }
-	        if (0 < pCallbackData->cmdBufLabelCount)
-	        {
-	            std::cerr << std::string("\t") << "CommandBuffer Labels:\n";
-	            for (uint32_t i = 0; i < pCallbackData->cmdBufLabelCount; i++)
-	            {
-	                std::cerr << std::string("\t\t") << "labelName = <" << pCallbackData->pCmdBufLabels[i].pLabelName << ">\n";
-	            }
-	        }
-	        if (0 < pCallbackData->objectCount)
-	        {
-	            std::cerr << std::string("\t") << "Objects:\n";
-	            for (uint32_t i = 0; i < pCallbackData->objectCount; i++)
-	            {
-	                std::cerr << std::string("\t\t") << "Object " << i << "\n";
-	                std::cerr << std::string("\t\t\t") << "objectType   = " << vk::to_string(static_cast<vk::ObjectType>(pCallbackData->pObjects[i].objectType))
-	                    << "\n";
-	                std::cerr << std::string("\t\t\t") << "objectHandle = " << pCallbackData->pObjects[i].objectHandle << "\n";
-	                if (pCallbackData->pObjects[i].pObjectName)
-	                {
-	                    std::cerr << std::string("\t\t\t") << "objectName   = <" << pCallbackData->pObjects[i].pObjectName << ">\n";
-	                }
-	            }
-	        }
+			if (pCallbackData->pMessageIdName != NULL)
+			{
+				std::cerr << vk::to_string(static_cast<vk::DebugUtilsMessageSeverityFlagBitsEXT>(messageSeverity)) << ": "
+					<< vk::to_string(static_cast<vk::DebugUtilsMessageTypeFlagsEXT>(messageTypes)) << ":\n";
+				std::cerr << std::string("\t") << "messageIDName   = <" << pCallbackData->pMessageIdName << ">\n";
+				std::cerr << std::string("\t") << "messageIdNumber = " << pCallbackData->messageIdNumber << "\n";
+				std::cerr << std::string("\t") << "message         = <" << pCallbackData->pMessage << ">\n";
+				if (0 < pCallbackData->queueLabelCount)
+				{
+					std::cerr << std::string("\t") << "Queue Labels:\n";
+					for (uint32_t i = 0; i < pCallbackData->queueLabelCount; i++)
+					{
+						std::cerr << std::string("\t\t") << "labelName = <" << pCallbackData->pQueueLabels[i].pLabelName << ">\n";
+					}
+				}
+				if (0 < pCallbackData->cmdBufLabelCount)
+				{
+					std::cerr << std::string("\t") << "CommandBuffer Labels:\n";
+					for (uint32_t i = 0; i < pCallbackData->cmdBufLabelCount; i++)
+					{
+						std::cerr << std::string("\t\t") << "labelName = <" << pCallbackData->pCmdBufLabels[i].pLabelName << ">\n";
+					}
+				}
+				if (0 < pCallbackData->objectCount)
+				{
+					std::cerr << std::string("\t") << "Objects:\n";
+					for (uint32_t i = 0; i < pCallbackData->objectCount; i++)
+					{
+						std::cerr << std::string("\t\t") << "Object " << i << "\n";
+						std::cerr << std::string("\t\t\t") << "objectType   = " << vk::to_string(static_cast<vk::ObjectType>(pCallbackData->pObjects[i].objectType))
+							<< "\n";
+						std::cerr << std::string("\t\t\t") << "objectHandle = " << pCallbackData->pObjects[i].objectHandle << "\n";
+						if (pCallbackData->pObjects[i].pObjectName)
+						{
+							std::cerr << std::string("\t\t\t") << "objectName   = <" << pCallbackData->pObjects[i].pObjectName << ">\n";
+						}
+					}
+				}
+				if (messageSeverity == VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+				{
+	#if BREAK_ON_VULKAN_ERROR
+					__debugbreak();
+	#endif
+				}
+			}
+
 	        return VK_FALSE;
 	    }
 

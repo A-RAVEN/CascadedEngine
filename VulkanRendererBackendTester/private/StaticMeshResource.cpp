@@ -154,6 +154,12 @@ namespace resource_management
 					}
 				}
 			}
+
+			castl::vector<uint8_t> testData;
+			meshResource->Serialzie(testData);
+			StaticMeshResource testResource;
+			testResource.Deserialzie(testData);
+			CA_ASSERT(testResource == *meshResource, "INVALID!!!");
 		}
 	}
 }

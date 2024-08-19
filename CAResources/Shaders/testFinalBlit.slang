@@ -9,8 +9,16 @@ struct Textures
     {
         return SourceTexture.SampleLevel(SourceSampler, uv, 0).xyzw;
     }
+
+    float4 SampleExternal(in float2 uv, in Texture2D<float4> texture)
+    {
+        return texture.SampleLevel(SourceSampler, uv, 0).xyzw;
+    }
 }
 ParameterBlock<Textures> textures;
+
+uniform Texture2D<float4> SourceTexture1;
+uniform float4 TestColor;
 
 struct VertexToFragment
 {
@@ -41,5 +49,6 @@ VertexToFragment vert(in VertexInput input)
 [shader("fragment")]
 float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    return textures.SampleMip0(input.uv).xyzw;
+    float change = input.uv.x < 0.5 ? 0.0 : 1.0;
+    return lerp(textures.SampleMip0(input.uv).xyzw, textures.SampleExternal(input.uv, SourceTexture1).xyzw, change);
 }

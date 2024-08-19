@@ -65,7 +65,7 @@ namespace graphics_backend
 			return m_ComputeQueueReference.first;
 		}
 		void Initialize();
-		virtual void Release() override;
+		void Release();
 	private:
 		castl::atomic<FrameType> m_CurrentFrameID {0};
 		FrameType m_LastFinshedFrameID = INVALID_FRAMEID;

@@ -2,6 +2,7 @@
 #include "ResourceImporter.h"
 #include "IResource.h"
 #include <ThreadManager.h>
+#include <functional>
 
 namespace resource_management
 {

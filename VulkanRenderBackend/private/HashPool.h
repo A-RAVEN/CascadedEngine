@@ -5,7 +5,7 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAFunctional.h>
 #include <DebugUtils.h>
-#include <concurrent_unordered_map.h>
+#include <Utilities/SubobjectTraits.h>
 
 namespace graphics_backend
 {
@@ -16,7 +16,7 @@ namespace graphics_backend
 	};
 
 	template<typename DescType, typename ValType>
-	requires CanCreateWithDesc<DescType, ValType>
+	requires has_create<ValType, DescType>
 	class HashPool : public VKAppSubObjectBaseNoCopy
 	{
 	public:
@@ -26,7 +26,11 @@ namespace graphics_backend
 		HashPool() = delete;
 		HashPool(HashPool const& other) = delete;
 		HashPool& operator=(HashPool const&) = delete;
-		HashPool(HashPool&& other) = delete;
+		HashPool(HashPool&& other) noexcept : VKAppSubObjectBaseNoCopy(other.GetVulkanApplication())
+		{
+			castl::lock_guard<castl::mutex> lockGuard(other.m_Mutex);
+			m_InternalMap = castl::move(other.m_InternalMap);
+		}
 		HashPool& operator=(HashPool&&) = delete;
 
 		HashPool(CVulkanApplication& application) : VKAppSubObjectBaseNoCopy(application)
@@ -59,6 +63,18 @@ namespace graphics_backend
 			{
 				callbackFunc(it.first, it.second.get());
 			};
+		}
+
+		void ReleaseAll() requires has_release<ValType>
+		{
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
+			m_InternalMap.clear();
+		}
+
+		void Clear()
+		{
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
+			m_InternalMap.clear();
 		}
 	private:
 		castl::mutex m_Mutex;

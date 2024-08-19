@@ -3,26 +3,24 @@
 
 namespace graphics_backend
 {
-	GPUObjectManager::GPUObjectManager(CVulkanApplication& application)
-		: VKAppSubObjectBaseNoCopy(application)
-		, m_ShaderModuleCacheOld(application)
-		, m_RenderPassCache(application)
-		, m_FramebufferObjectCache(application)
-		, m_PipelineObjectCache(application)
-		, m_ShaderDescriptorPoolCache(application)
-		, m_TextureSamplerCache(application)
-		, m_ShaderModuleCache(application)
-		, m_DescriptorSetPoolDic(application)
-		, m_DescriptorSetAllocatorDic(application)
+	GPUObjectManager::GPUObjectManager(CVulkanApplication& app)
+		: VKAppSubObjectBaseNoCopy(app)
+		, m_RenderPassCache(app)
+		, m_PipelineObjectCache(app)
+		, m_TextureSamplerCache(app)
+		, m_ShaderModuleCache(app)
+		, m_DescriptorSetLayoutCache(app)
+		, m_ComputePipelineCache(app)
 	{
 	}
-	void GPUObjectManager::ReleaseFrameboundResources(FrameType releasingFrame)
+	void GPUObjectManager::Release()
 	{
-		m_ShaderDescriptorPoolCache.Foreach([releasingFrame](ShaderDescriptorSetLayoutInfo const& info
-			, ShaderDescriptorSetAllocator* pool)
-			{
-				pool->ReleaseFrameboundResources();
-			});
+		m_TextureSamplerCache.ReleaseAll();
+		m_ShaderModuleCache.ReleaseAll();
+		m_DescriptorSetLayoutCache.ReleaseAll();
+		m_PipelineObjectCache.ReleaseAll();
+		m_ComputePipelineCache.ReleaseAll();
+		m_RenderPassCache.ReleaseAll();
 	}
 }
 

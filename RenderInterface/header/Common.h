@@ -9,7 +9,7 @@
 
 using TIndex = uint32_t;
 constexpr TIndex INVALID_INDEX = (castl::numeric_limits<TIndex>::max)();
-constexpr uint32_t INVALID_ATTACHMENT_INDEX = 256;
+constexpr uint32_t INVALID_ATTACHMENT_INDEX = (castl::numeric_limits<uint32_t>::max)();
 
 enum class EShaderSetType : uint8_t
 {
@@ -106,8 +106,16 @@ enum class ETextureAspect : uint8_t
 {
 	//Color for non-depth format, depth for depth format
 	eDefault = 0,
-	eStencil,
-	eDepthStencil
+	eDepth,
+	eStencil
+};
+
+enum class EColorChannel : uint8_t
+{
+	eR = 0,
+	eG,
+	eB,
+	eA,
 };
 
 enum class ETextureType : uint8_t
@@ -122,7 +130,7 @@ enum class ETextureType : uint8_t
 enum class ETextureFormat : uint8_t
 {
 	//标记浮点值
-	E_FLOAT_TYPE_CATEGORY_BEGIN,
+	E_FLOAT_TYPE_CATEGORY_BEGIN,////FLoat Type Begin
 	E_R8_UNORM,
 	E_R16_UNORM,
 	E_R16_SFLOAT,
@@ -138,7 +146,7 @@ enum class ETextureFormat : uint8_t
 
 	E_R32_SFLOAT,
 	E_R32G32B32A32_SFLOAT,
-	E_FLOAT_TYPE_CATEGORY_END,
+	E_FLOAT_TYPE_CATEGORY_END,////FLoat Type End
 
 	//标记整形值
 	E_INT_TYPE_CATEGORY_BEGIN,
@@ -149,38 +157,48 @@ enum class ETextureFormat : uint8_t
 	E_UINT_TYPE_CATEGORY_END,
 
 	//标记深度，模板值
-	E_DEPTHSTENCIL_TYPE_CATEGORY_BEGIN,
+	E_DEPTHSTENCIL_TYPE_CATEGORY_BEGIN,///Depth Stencil Type Begin
 	//仅深度
-	E_DEPTHONLY_TYPE_CATEGORY_BEGIN,
+	E_DEPTHONLY_TYPE_CATEGORY_BEGIN,///Depth Only Type Begin
 	E_D32_SFLOAT,
-	E_DEPTHONLY_TYPE_CATEGORY_END,
+	E_DEPTHONLY_TYPE_CATEGORY_END,///Depth Only Type End
 	E_D32_SFLOAT_S8_UINT,
-	E_DEPTHSTENCIL_TYPE_CATEGORY_END,
+	E_DEPTHSTENCIL_TYPE_CATEGORY_END,///Depth Stencil Type End
 
 	E_INVALID,
 };
 
-constexpr bool IsDepthOnlyFormat(ETextureFormat format)
+constexpr static bool IsDepthOnlyFormat(ETextureFormat format)
 {
 	return (format > ETextureFormat::E_DEPTHONLY_TYPE_CATEGORY_BEGIN && format < ETextureFormat::E_DEPTHONLY_TYPE_CATEGORY_END);
 }
 
-constexpr bool IsDepthStencilFormat(ETextureFormat format)
+constexpr static bool IsDepthStencilFormat(ETextureFormat format)
 {
 	return (format > ETextureFormat::E_DEPTHSTENCIL_TYPE_CATEGORY_BEGIN && format < ETextureFormat::E_DEPTHSTENCIL_TYPE_CATEGORY_END);
 }
 
-constexpr bool IsFloatFormat(ETextureFormat format)
+constexpr static bool FormatHasDepth(ETextureFormat format)
+{
+	return IsDepthStencilFormat(format);
+}
+
+constexpr static bool FormatHasStencil(ETextureFormat format)
+{
+	return IsDepthStencilFormat(format) && !IsDepthOnlyFormat(format);
+}
+
+constexpr static bool IsFloatFormat(ETextureFormat format)
 {
 	return (format > ETextureFormat::E_FLOAT_TYPE_CATEGORY_BEGIN && format < ETextureFormat::E_FLOAT_TYPE_CATEGORY_END);
 }
 
-constexpr bool IsIntFormat(ETextureFormat format)
+constexpr static bool IsIntFormat(ETextureFormat format)
 {
 	return (format > ETextureFormat::E_INT_TYPE_CATEGORY_BEGIN && format < ETextureFormat::E_INT_TYPE_CATEGORY_END);
 }
 
-constexpr bool IsUintFormat(ETextureFormat format)
+constexpr static bool IsUintFormat(ETextureFormat format)
 {
 	return (format > ETextureFormat::E_UINT_TYPE_CATEGORY_BEGIN && format < ETextureFormat::E_UINT_TYPE_CATEGORY_END);
 }

@@ -1,215 +1,145 @@
-//#pragma once
-//#include <uhash.h>
-//#include <Hasher.h>
-//#include <CRenderBackend.h>
-//#include "StaticMeshResource.h"
-//
-//class MeshGPUData
-//{
-//public:
-//	MeshGPUData() = default;
-//	MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
-//	void UploadMeshResource(resource_management::StaticMeshResource* meshResource, castl::string const& name);
-//	void Draw(graphics_backend::CInlineCommandList& commandList, uint32_t submeshID, uint32_t instanceCount, uint32_t bindingOffset);
-//private:
-//	castl::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
-//	resource_management::StaticMeshResource* p_MeshResource;
-//	castl::shared_ptr<graphics_backend::GPUBuffer> m_VertexBuffer;
-//	castl::shared_ptr<graphics_backend::GPUBuffer> m_IndicesBuffer;
-//};
-//
-//struct MeshMaterial
-//{
-//	CPipelineStateObject pipelineStateObject;
-//	GraphicsShaderSet shaderSet;
-//	castl::vector<castl::shared_ptr<graphics_backend::ShaderBindingSet>> materialShaderBindings;
-//};
-//
-//struct MeshRenderer
-//{
-//public:
-//	resource_management::StaticMeshResource* p_MeshResource;
-//	castl::vector<MeshMaterial> materials;
-//};
-//
-//struct MeshDrawInfo
-//{
-//public:
-//	resource_management::StaticMeshResource* p_MeshResource;
-//	uint32_t m_SubmeshIndex;
-//	castl::vector<castl::shared_ptr<graphics_backend::ShaderBindingSet>> p_ShaderBindings;
-//
-//	bool operator==(MeshDrawInfo const& rhs) const
-//	{
-//		return p_MeshResource == rhs.p_MeshResource
-//			&& m_SubmeshIndex == rhs.m_SubmeshIndex
-//			&& p_ShaderBindings == rhs.p_ShaderBindings;
-//	}
-//
-//	template <class HashAlgorithm>
-//	friend void hash_append(HashAlgorithm& h, MeshDrawInfo const& rhs) noexcept
-//	{
-//		hash_append(h, rhs.p_MeshResource);
-//		hash_append(h, rhs.m_SubmeshIndex);
-//		hash_append(h, rhs.p_ShaderBindings);
-//	}
-//};
-//
-//extern castl::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
-//
-//class MeshBatchDrawInterface : public graphics_backend::IDrawBatchInterface
-//{
-//public:
-//	struct MeshDrawListInternal
-//	{
-//		TIndex psoID;
-//		castl::unordered_map<MeshDrawInfo
-//			, castl::pair<castl::shared_ptr<graphics_backend::GPUBuffer>
-//			, castl::vector<uint32_t>>, cacore::hash<MeshDrawInfo>> drawCalls;
-//	};
-//
-//	static CVertexInputDescriptor GetDescriptor()
-//	{
-//		CVertexInputDescriptor descriptor;
-//		descriptor.AddPrimitiveDescriptor(sizeof(uint32_t), { {0, 0, VertexInputFormat::eR32_UInt} }, true);
-//		descriptor.AddPrimitiveDescriptor(sizeof(resource_management::CommonVertexData)
-//			, resource_management::CommonVertexData::GetVertexInputDescs(1), false);
-//		return descriptor;
-//	}
-//
-//	virtual void OnRegisterGraphicsPipelineStates(graphics_backend::IBatchManager& batchManager) override
-//	{
-//		for (auto& pipelineState : m_MeshBatchs)
-//		{
-//			pipelineState.second.psoID = batchManager.RegisterGraphicsPipelineState(pipelineState.first);
-//			batchManager.AddBatch([this, refData = &pipelineState.second](graphics_backend::CInlineCommandList& cmd)
-//				{
-//					cmd.BindPipelineState(refData->psoID);
-//					cmd.SetShaderBindings({ m_PerViewShaderBindings });
-//					for (auto drawCall : refData->drawCalls)
-//					{
-//						cmd.SetShaderBindings(drawCall.first.p_ShaderBindings, 1);
-//						cmd.BindVertexBuffers({ drawCall.second.first.get() }, {}, 0);
-//						g_MeshResourceToGPUData[drawCall.first.p_MeshResource].Draw(cmd
-//						, drawCall.first.m_SubmeshIndex
-//						, drawCall.second.second.size()
-//						, 1);
-//					}
-//				});
-//		}
-//	}
-//
-//	virtual castl::vector<ShaderBindingBuilder> const& GetInterfaceLevelShaderBindingDescriptors() const override
-//	{
-//		return m_ShaderBindingDescriptors;
-//	}
-//
-//	void AddMeshDrawcall(graphics_backend::GraphicsPipelineStatesData const& pipelineStates
-//		, castl::vector<castl::shared_ptr<graphics_backend::ShaderBindingSet>> shaderBindings
-//		, uint32_t instanceIndex
-//		, resource_management::StaticMeshResource* pMeshResource
-//		, uint32_t submeshID)
-//	{
-//		auto find = m_MeshBatchs.find(pipelineStates);
-//		if (find == m_MeshBatchs.end())
-//		{
-//			find = m_MeshBatchs.insert({ pipelineStates, {} }).first;
-//		}
-//		auto& drawListInternal = find->second;
-//		auto& submeshes = pMeshResource->GetSubmeshInfos();
-//		{
-//			MeshDrawInfo drawInfo{ pMeshResource, submeshID, shaderBindings };
-//			auto findDrawCall = drawListInternal.drawCalls.find(drawInfo);
-//			if (findDrawCall == drawListInternal.drawCalls.end())
-//			{
-//				findDrawCall = drawListInternal.drawCalls.insert(castl::make_pair(drawInfo, castl::make_pair(nullptr, castl::vector<uint32_t>{}))).first;
-//			}
-//			findDrawCall->second.second.push_back(instanceIndex);
-//		}
-//	}
-//
-//	void AddMesh(MeshRenderer const& meshRenderer, glm::mat4 const& transform)
-//	{
-//		castl::vector<graphics_backend::GraphicsPipelineStatesData> materialPipelineStates;
-//		materialPipelineStates.resize(meshRenderer.materials.size());
-//		for (uint32_t i = 0; i < meshRenderer.materials.size(); ++i)
-//		{
-//			materialPipelineStates[i] = graphics_backend::GraphicsPipelineStatesData{
-//			meshRenderer.materials[i].pipelineStateObject
-//			, GetDescriptor() 
-//			, meshRenderer.materials[i].shaderSet};
-//			materialPipelineStates[i].shaderBindingDescriptors.resize(meshRenderer.materials[i].materialShaderBindings.size());
-//			for (uint32_t mid = 0; mid < meshRenderer.materials[i].materialShaderBindings.size(); ++mid)
-//			{
-//				materialPipelineStates[i].shaderBindingDescriptors[mid] = meshRenderer.materials[i].materialShaderBindings[mid]->GetBindingSetDesc();
-//			}
-//		}
-//
-//		auto& instances = meshRenderer.p_MeshResource->GetInstanceInfos();
-//		auto& submeshs = meshRenderer.p_MeshResource->GetSubmeshInfos();
-//		for (int instanceID = 0; instanceID < instances.size(); ++instanceID)
-//		{
-//			auto& instance = instances[instanceID];
-//			glm::mat4 instanceTrans = transform * instance.m_InstanceTransform;
-//
-//			m_Instances.push_back(instanceTrans);
-//			uint32_t instanceIndex = m_Instances.size() - 1;
-//			uint32_t matID = submeshs[instance.m_SubmeshID].m_MaterialID;
-//			AddMeshDrawcall(materialPipelineStates[matID], meshRenderer.materials[matID].materialShaderBindings, instanceIndex, meshRenderer.p_MeshResource, instance.m_SubmeshID);
-//		}
-//	}
-//
-//	void MakeBatch(graphics_backend::CRenderBackend* pBackend)
-//	{
-//		for (auto& meshBatch : m_MeshBatchs)
-//		{
-//			for (auto& drawcall : meshBatch.second.drawCalls)
-//			{
-//				drawcall.second.first = pBackend->CreateGPUBuffer(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst
-//					, drawcall.second.second.size(), sizeof(uint32_t));
-//				drawcall.second.first->ScheduleBufferData(0
-//					, drawcall.second.second.size() * sizeof(uint32_t)
-//					, drawcall.second.second.data());
-//			}
-//		}
-//		m_InstanceBuffer = pBackend->CreateGPUBuffer(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst
-//			, m_Instances.size(), sizeof(glm::mat4));
-//		m_InstanceBuffer->ScheduleBufferData(0
-//			, m_Instances.size() * sizeof(glm::mat4)
-//			, m_Instances.data());
-//
-//		ShaderConstantsBuilder shaderConstantDescs{ "PerViewConstants" };
-//		shaderConstantDescs
-//			.Mat4<float>("ViewProjectionMatrix");
-//
-//		ShaderBindingBuilder shaderBindingBuilder{ "TestBinding" };
-//		shaderBindingBuilder.ConstantBuffer(shaderConstantDescs);
-//		shaderBindingBuilder.StructuredBuffer("InstanceMatBuffer");
-//
-//		m_ShaderBindingDescriptors.push_back(shaderBindingBuilder);
-//
-//		m_PerViewShaderConstants = pBackend->CreateShaderConstantSet(shaderConstantDescs);
-//		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", glm::mat4(1.0f));
-//
-//
-//		m_PerViewShaderBindings = pBackend->CreateShaderBindingSet(shaderBindingBuilder);
-//
-//		m_PerViewShaderBindings->SetConstantSet(m_PerViewShaderConstants->GetName(), m_PerViewShaderConstants);
-//		m_PerViewShaderBindings->SetStructBuffer("InstanceMatBuffer", m_InstanceBuffer);
-//	}
-//
-//	void Update(glm::mat4 const& viewProjectionMatrix)
-//	{
-//		m_PerViewShaderConstants->SetValue("ViewProjectionMatrix", viewProjectionMatrix);
-//	}
-//private:
-//	castl::unordered_map<graphics_backend::GraphicsPipelineStatesData
-//		, MeshDrawListInternal
-//		, cacore::hash<graphics_backend::GraphicsPipelineStatesData>> m_MeshBatchs;
-//	castl::vector<glm::mat4> m_Instances;
-//	castl::vector<ShaderBindingBuilder> m_ShaderBindingDescriptors;
-//	castl::shared_ptr<graphics_backend::GPUBuffer> m_InstanceBuffer;
-//
-//	castl::shared_ptr<graphics_backend::ShaderConstantSet> m_PerViewShaderConstants;
-//	castl::shared_ptr<graphics_backend::ShaderBindingSet> m_PerViewShaderBindings;
-//};
+#pragma once
+#include <Hasher.h>
+#include <CRenderBackend.h>
+#include "StaticMeshResource.h"
+#include <GPUGraph.h>
+
+using namespace graphics_backend;
+
+class MeshGPUData
+{
+public:
+	MeshGPUData() = default;
+	MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
+	void UploadMeshResource(graphics_backend::GPUGraph* gpuGraph, resource_management::StaticMeshResource* meshResource);
+	void DrawCall(graphics_backend::DrawCallBatch& drawallBatch, uint32_t submeshID, uint32_t instanceCount);
+private:
+	castl::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
+	resource_management::StaticMeshResource* p_MeshResource;
+	castl::shared_ptr<graphics_backend::GPUBuffer> m_VertexBuffer;
+	castl::shared_ptr<graphics_backend::GPUBuffer> m_IndicesBuffer;
+	cacore::HashObj<VertexInputsDescriptor> m_VertexInputDescriptor;
+};
+
+static castl::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
+
+static void RegisterMeshResource(castl::shared_ptr<graphics_backend::CRenderBackend> pBackend
+	, graphics_backend::GPUGraph* gpuGraph
+	, resource_management::StaticMeshResource* meshResource)
+{
+	auto found = g_MeshResourceToGPUData.find(meshResource);
+	if (found == g_MeshResourceToGPUData.end())
+	{
+		MeshGPUData gpuData{ pBackend };
+		gpuData.UploadMeshResource(gpuGraph, meshResource);
+		g_MeshResourceToGPUData.insert(castl::make_pair(meshResource, gpuData));
+	}
+}
+
+struct MeshMaterial
+{
+	//基础管线状态
+	CPipelineStateObject pipelineStateObject;
+	//Shader
+	IShaderSet* shaderSet;
+	//Shader参数
+	castl::shared_ptr<graphics_backend::ShaderArgList> shaderArgs;
+};
+
+struct MeshRenderer
+{
+public:
+	resource_management::StaticMeshResource* p_MeshResource;
+	castl::vector<cacore::HashObj<MeshMaterial>> materials;
+};
+
+extern VertexInputsDescriptor const g_InstanceDescriptor;
+
+class MeshBatcher
+{
+	castl::shared_ptr<graphics_backend::CRenderBackend> pRenderBackend;
+
+	castl::vector<glm::mat4> m_Instances;
+
+
+
+	struct SubmeshDrawcallInfo
+	{
+		MeshGPUData* p_GPUMeshData;
+		cacore::HashObj<MeshMaterial> material;
+		uint32_t submeshID;
+		auto operator<=>(const SubmeshDrawcallInfo&) const = default;
+	};
+
+	struct SubmeshDrawcallData
+	{
+		castl::vector<uint32_t> m_InstanceIDs;
+	};
+
+	castl::unordered_map< SubmeshDrawcallInfo, SubmeshDrawcallData> m_DrawCallInfoToDrawCallData;
+
+public:
+	MeshBatcher(castl::shared_ptr<graphics_backend::CRenderBackend> pRenderBackend)
+		: pRenderBackend(pRenderBackend)
+	{
+	}
+
+	void AddMeshRenderer(MeshRenderer const& meshRenderer, glm::mat4 const& transform)
+	{
+		MeshGPUData* pGpuMeshData = &g_MeshResourceToGPUData[meshRenderer.p_MeshResource];
+
+		auto& submeshInfos = meshRenderer.p_MeshResource->GetSubmeshInfos();
+		auto& instances = meshRenderer.p_MeshResource->GetInstanceInfos();
+		for (int instanceID = 0; instanceID < instances.size(); ++instanceID)
+		{
+			auto& instance = instances[instanceID];
+			glm::mat4 instanceTrans = transform * instance.m_InstanceTransform;
+			m_Instances.push_back(glm::transpose(instanceTrans));
+
+			uint32_t instanceIndex = m_Instances.size() - 1;
+			auto& submeshInfo = submeshInfos[instance.m_SubmeshID];
+			auto& material = meshRenderer.materials[castl::min((size_t)submeshInfo.m_MaterialID, meshRenderer.materials.size() - 1)];
+
+			SubmeshDrawcallInfo drawcallinfo{};
+			drawcallinfo.material = material;
+			drawcallinfo.p_GPUMeshData = pGpuMeshData;
+			drawcallinfo.submeshID = instance.m_SubmeshID;
+
+			auto found = m_DrawCallInfoToDrawCallData.find(drawcallinfo);
+			if (found == m_DrawCallInfoToDrawCallData.end())
+			{
+				found = m_DrawCallInfoToDrawCallData.insert(castl::make_pair(drawcallinfo, SubmeshDrawcallData{})).first;
+			}
+			found->second.m_InstanceIDs.push_back(instanceIndex);
+		}
+	}
+
+	void Draw(graphics_backend::GPUGraph* pGraph, graphics_backend::RenderPass* pRenderPass)
+	{
+		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , 0 };
+		pGraph->AllocBuffer(instanceTransformBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, m_Instances.size(), sizeof(glm::mat4)))
+			.ScheduleData(instanceTransformBuffer, m_Instances.data(), m_Instances.size() * sizeof(glm::mat4));
+		castl::shared_ptr<graphics_backend::ShaderArgList> instanceShaderArgs = castl::make_shared<graphics_backend::ShaderArgList>();
+		instanceShaderArgs->SetBuffer("instanceTransforms", instanceTransformBuffer);
+		pRenderPass->PushShaderArguments("meshInstanceTransforms", instanceShaderArgs);
+		uint32_t index = 0;
+		for (auto& pair : m_DrawCallInfoToDrawCallData)
+		{
+			auto& drawcallInfo = pair.first;
+			auto& drawcallInstances = pair.second;
+			graphics_backend::BufferHandle instanceIDBuffer{ "MeshInstanceIDBuffer", index++};
+			size_t bufferSize = drawcallInstances.m_InstanceIDs.size() * sizeof(uint32_t);
+			pGraph->AllocBuffer(instanceIDBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, drawcallInstances.m_InstanceIDs.size(), sizeof(uint32_t)))
+				.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), bufferSize);
+
+			DrawCallBatch newDrawcallBatch = DrawCallBatch::New();
+			newDrawcallBatch.PushArgList("meshMaterialData", drawcallInfo.material->shaderArgs)
+				.SetShaderSet(drawcallInfo.material->shaderSet)
+				.SetPipelineState(drawcallInfo.material->pipelineStateObject)
+				.SetVertexBuffer(g_InstanceDescriptor, instanceIDBuffer);
+			drawcallInfo.p_GPUMeshData->DrawCall(newDrawcallBatch, drawcallInfo.submeshID, drawcallInstances.m_InstanceIDs.size());
+
+			pRenderPass->DrawCall(newDrawcallBatch);
+		}
+	}
+};

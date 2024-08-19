@@ -95,7 +95,7 @@ namespace cacore
         template<typename Obj>
         constexpr void hash_container_with_size(const Obj& object)
         {
-            using objType = std::remove_reference_t<decltype(object)>;
+            using objType = std::remove_cvref_t<decltype(object)>;
             using arrElemType = containerInfo<objType>::elementType;
             uint64_t objSize = containerInfo<objType>::container_size(object);
             hash_range(objSize);
@@ -131,7 +131,7 @@ namespace cacore
         }
     };
 
-    template<typename ObjType, typename hashAlg = fnv1a>
+    template<typename ObjType, bool FullCompare = false, typename hashAlg = fnv1a>
     struct HashObj
     {
     public:
@@ -143,21 +143,38 @@ namespace cacore
 		}
         HashObj(HashObj const& hashObj) : m_Object(hashObj.m_Object)
             , m_HashValue(hashObj.m_HashValue)
+            , m_HashValid(hashObj.m_HashValid)
         {
         }
         constexpr ObjType const& Get() const noexcept
 		{
 			return m_Object;
 		}
-
+        ObjType const* operator->() const noexcept
+        {
+            return &m_Object;
+        }
         constexpr result_type GetHash() const noexcept
 		{
 			return m_HashValue;
 		}
 
-        auto operator<=>(HashObj const& b) const
+        constexpr bool Valid() const noexcept
         {
-            return m_HashValue <=> b.m_HashValue;
+            return m_HashValid;
+        }
+
+        constexpr void Reset() noexcept
+        {
+            m_HashValid = false;
+        }
+
+        castl::weak_ordering operator<=>(HashObj const& b) const
+        {
+            if constexpr (FullCompare)
+				return m_Object <=> b.m_Object;
+			else
+                return m_HashValue <=> b.m_HashValue;
         }
 
         bool operator==(HashObj const& b) const
@@ -167,29 +184,31 @@ namespace cacore
     private:
         ObjType m_Object{};
         result_type m_HashValue{};
+        bool m_HashValid = false;
         void UpdateHash()
         {
             m_HashValue = hash<ObjType, hashAlg>{}(m_Object);
+            m_HashValid = true;
 		}
 
-        friend struct careflection::managed_wrapper_traits<HashObj<ObjType, hashAlg>>;
+        friend struct careflection::managed_wrapper_traits<HashObj<ObjType, FullCompare, hashAlg>>;
     };
 
-    template<typename ObjType, typename hashAlg>
-    struct custom_hash_trait<HashObj<ObjType, hashAlg>>
+    template<typename ObjType, bool FullCompare, typename hashAlg>
+    struct custom_hash_trait<HashObj<ObjType, FullCompare, hashAlg>>
     {
-        constexpr static void hash(HashObj<ObjType, hashAlg> const&obj, auto& hasher)
+        constexpr static void hash(HashObj<ObjType, FullCompare, hashAlg> const&obj, auto& hasher)
         {
             hasher.hash(obj.GetHash());
         }
     };
 }
 
-template<typename ObjType, typename hashAlg>
-struct careflection::managed_wrapper_traits<cacore::HashObj<ObjType, hashAlg>>
+template<typename ObjType, bool FullCompare, typename hashAlg>
+struct careflection::managed_wrapper_traits<cacore::HashObj<ObjType, FullCompare, hashAlg>>
 {
     constexpr static bool is_managed_wrapper = true;
     using inner_type = ObjType;
-    constexpr static ObjType const& get_data(cacore::HashObj<ObjType, hashAlg> const& obj) { return obj.Get(); }
-    constexpr static void set_data(cacore::HashObj<ObjType, hashAlg>& obj, ObjType const& data) { obj = cacore::HashObj<ObjType, hashAlg>{ data }; }
+    constexpr static ObjType const& get_data(cacore::HashObj<ObjType, FullCompare, hashAlg> const& obj) { return obj.Get(); }
+    constexpr static void set_data(cacore::HashObj<ObjType, FullCompare, hashAlg>& obj, ObjType const& data) { obj = cacore::HashObj<ObjType, FullCompare, hashAlg>{ data }; }
 };

@@ -4,9 +4,9 @@
 #include "RenderPassObject.h"
 #include "VulkanPipelineObject.h"
 #include "FramebufferObject.h"
-#include "ShaderDescriptorSetAllocator.h"
 #include "TextureSampler_Impl.h"
 #include <DescriptorAllocation/DescriptorLayoutPool.h>
+#include <GPUObject/ComputePipelineObject.h>
 
 namespace graphics_backend
 {
@@ -14,23 +14,19 @@ namespace graphics_backend
 	{
 	public:
 		GPUObjectManager(CVulkanApplication& application);
-		ShaderModuleObjectDic& GetShaderModuleCache() { return m_ShaderModuleCacheOld; }
+		void Release();
 		RenderPassObjectDic& GetRenderPassCache() { return m_RenderPassCache; }
-		FramebufferObjectDic& GetFramebufferCache() { return m_FramebufferObjectCache; }
 		PipelineObjectDic& GetPipelineCache() { return m_PipelineObjectCache; }
-		ShaderDescriptorSetAllocatorPool& GetShaderDescriptorPoolCache() { return m_ShaderDescriptorPoolCache; }
 		TextureSamplerObjectDic& GetTextureSamplerCache() { return m_TextureSamplerCache; }
-		ShaderModuleObjectDic1 m_ShaderModuleCache;
-		DescriptorPoolDic m_DescriptorSetPoolDic;
-		DescriptorSetAllocatorDic m_DescriptorSetAllocatorDic;
-		//Release framebound resources
-		void ReleaseFrameboundResources(FrameType releasingFrame);
+		ComputePipelineObjectDic& GetComputePipelineCache() { return m_ComputePipelineCache; }
+		DescriptorSetAllocatorDic& GetDescriptorSetLayoutCache() { return m_DescriptorSetLayoutCache; }
+		ShaderModuleObjectDic& GetShaderModuleCache() { return m_ShaderModuleCache; }
 	private:
-		ShaderModuleObjectDic m_ShaderModuleCacheOld;
 		RenderPassObjectDic m_RenderPassCache;
-		FramebufferObjectDic m_FramebufferObjectCache;
 		PipelineObjectDic m_PipelineObjectCache;
-		ShaderDescriptorSetAllocatorPool m_ShaderDescriptorPoolCache;
 		TextureSamplerObjectDic m_TextureSamplerCache;
+		ComputePipelineObjectDic m_ComputePipelineCache;
+		ShaderModuleObjectDic m_ShaderModuleCache;
+		DescriptorSetAllocatorDic m_DescriptorSetLayoutCache;
 	};
 }

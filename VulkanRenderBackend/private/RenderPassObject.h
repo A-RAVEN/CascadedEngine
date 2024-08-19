@@ -1,5 +1,4 @@
 #pragma once
-#include <uhash.h>
 #include <CNativeRenderPassInfo.h>
 #include "VulkanIncludes.h"
 #include "VulkanApplicationSubobjectBase.h"
@@ -16,12 +15,6 @@ namespace graphics_backend
 			bool result = (renderPassInfo == other.renderPassInfo);
 			return result;
 		}
-
-		template <class HashAlgorithm>
-		friend void hash_append(HashAlgorithm& h, RenderPassDescriptor const& renderpass_desc) noexcept
-		{
-			hash_append(h, renderpass_desc.renderPassInfo);
-		}
 	};
 
 	class RenderPassObject : public VKAppSubObjectBaseNoCopy
@@ -29,7 +22,7 @@ namespace graphics_backend
 	public:
 		RenderPassObject(CVulkanApplication& application);
 		void Create(RenderPassDescriptor const& descriptor);
-		virtual void Release() override;
+		void Release();
 		vk::RenderPass GetRenderPass() const { return m_RenderPass; }
 		uint32_t GetAttachmentCount() const { return m_AttachmentCounrt; }
 		uint32_t GetSubpassCount() const { return m_SubpassCount; }

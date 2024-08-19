@@ -1,6 +1,7 @@
 #pragma once
 #include <CASTL/CAArray.h>
 #include <uhash.h>
+#include <Reflection.h>
 #include "Common.h"
 
 struct RasterizerStates
@@ -8,36 +9,32 @@ struct RasterizerStates
 public:
 	bool enableDepthClamp = false;
 	bool discardRasterization = false;
-	ECullMode cullMode = ECullMode::eBack;
-	EFrontFace frontFace = EFrontFace::eClockWise;
+	ECullMode cullMode = ECullMode::eNone;
+	EFrontFace frontFace = EFrontFace::eCounterClockWise;
 	EPolygonMode polygonMode = EPolygonMode::eFill;
 	float lineWidth = 1.0f;
 
-	bool operator==(RasterizerStates const& rhs) const
-	{
-		return enableDepthClamp == rhs.enableDepthClamp
-			&& discardRasterization == rhs.discardRasterization
-			&& cullMode == rhs.cullMode
-			&& frontFace == rhs.frontFace
-			&& polygonMode == rhs.polygonMode
-			&& lineWidth == rhs.lineWidth;
-	}
+	auto operator<=>(const RasterizerStates&) const = default;
 
-	static RasterizerStates CullOff()
+	constexpr static RasterizerStates CullOff()
 	{
-		RasterizerStates states;
+		RasterizerStates states{};
 		states.cullMode = ECullMode::eNone;
 		return states;
 	}
-};
 
-struct MultiSampleStates
-{
-	EMultiSampleCount msCount = EMultiSampleCount::e1;
-
-	bool operator==(MultiSampleStates const& rhs) const
+	constexpr static RasterizerStates CullBack()
 	{
-		return msCount == rhs.msCount;
+		RasterizerStates states{};
+		states.cullMode = ECullMode::eBack;
+		return states;
+	}
+
+	constexpr static RasterizerStates CullFront()
+	{
+		RasterizerStates states{};
+		states.cullMode = ECullMode::eFront;
+		return states;
 	}
 };
 
@@ -53,16 +50,7 @@ struct DepthStencilStates
 		uint32_t writeMask = 0u;
 		uint32_t reference = 0u;
 
-		bool operator==(StencilStates const& rhs) const
-		{
-			return failOp == rhs.failOp
-				&& passOp == rhs.passOp
-				&& depthFailOp == rhs.depthFailOp
-				&& compareOp == rhs.compareOp
-				&& compareMask == rhs.compareMask
-				&& writeMask == rhs.writeMask
-				&& reference == rhs.reference;
-		}
+		auto operator<=>(const StencilStates&) const = default;
 	};
 
 	bool depthTestEnable = false;
@@ -73,15 +61,7 @@ struct DepthStencilStates
 	StencilStates stencilStateFront = {};
 	StencilStates stencilStateBack = {};
 
-	bool operator==(DepthStencilStates const& rhs) const
-	{
-		return depthTestEnable == rhs.depthTestEnable
-			&& depthWriteEnable == rhs.depthWriteEnable
-			&& depthCompareOp == rhs.depthCompareOp
-			&& stencilTestEnable == rhs.stencilTestEnable
-			&& stencilStateFront == rhs.stencilStateFront
-			&& stencilStateBack == rhs.stencilStateBack;
-	}
+	auto operator<=>(const DepthStencilStates&) const = default;
 
 	static DepthStencilStates NormalOpaque()
 	{
@@ -92,8 +72,6 @@ struct DepthStencilStates
 		return states;
 	}
 };
-
-
 
 struct SingleColorAttachmentBlendStates
 {
@@ -106,17 +84,7 @@ struct SingleColorAttachmentBlendStates
 	EBlendOp colorBlendOp = EBlendOp::eAdd;
 	EBlendOp alphaBlendOp = EBlendOp::eAdd;
 
-	bool operator==(SingleColorAttachmentBlendStates const& rhs) const
-	{
-		return blendEnable == rhs.blendEnable
-			&& channelMask == rhs.channelMask
-			&& sourceColorBlendFactor == rhs.sourceColorBlendFactor
-			&& destColorBlendFactor == rhs.destColorBlendFactor
-			&& sourceAlphaBlendFactor == rhs.sourceAlphaBlendFactor
-			&& destAlphaBlendFactor == rhs.destAlphaBlendFactor
-			&& colorBlendOp == rhs.colorBlendOp
-			&& alphaBlendOp == rhs.alphaBlendOp;
-	}
+	auto operator<=>(const SingleColorAttachmentBlendStates&) const = default;
 
 	static SingleColorAttachmentBlendStates AlphaTransparent()
 	{
@@ -128,23 +96,11 @@ struct SingleColorAttachmentBlendStates
 	}
 };
 
-
-
 struct ColorAttachmentsBlendStates
 {
 	castl::array<SingleColorAttachmentBlendStates, 8> attachmentBlendStates = {};
 
-	bool operator==(ColorAttachmentsBlendStates const& rhs) const
-	{
-		for (uint32_t i = 0; i < 8; ++i)
-		{
-			if (!(attachmentBlendStates[i] == rhs.attachmentBlendStates[i]))
-			{
-				return false;
-			}
-		}
-		return true;
-	}
+	auto operator<=>(const ColorAttachmentsBlendStates&) const = default;
 
 	static ColorAttachmentsBlendStates AlphaTransparent()
 	{
@@ -167,32 +123,41 @@ public:
 	DepthStencilStates depthStencilStates = {};
 	RasterizerStates rasterizationStates = {};
 	ColorAttachmentsBlendStates colorAttachments = {};
-	MultiSampleStates multiSampleStates = {};
+	EMultiSampleCount msCount = EMultiSampleCount::e1;
 
-	bool operator==(CPipelineStateObject const& rhs) const
-	{
-		return rasterizationStates == rhs.rasterizationStates
-			&& multiSampleStates == rhs.multiSampleStates
-			&& depthStencilStates == rhs.depthStencilStates
-			&& colorAttachments == rhs.colorAttachments;
-	}
+	auto operator<=>(const CPipelineStateObject&) const = default;
 };
 
-
-
-
-namespace hash_utils
-{
-	template<>
-	struct is_contiguously_hashable<RasterizerStates> : public std::true_type {};
-	template<>
-	struct is_contiguously_hashable<MultiSampleStates> : public std::true_type {};
-	template<>
-	struct is_contiguously_hashable<DepthStencilStates> : public std::true_type {};
-	template<>
-	struct is_contiguously_hashable<SingleColorAttachmentBlendStates> : public std::true_type {};
-	template<>
-	struct is_contiguously_hashable<ColorAttachmentsBlendStates> : public std::true_type {};
-	template<>
-	struct is_contiguously_hashable<CPipelineStateObject> : public std::true_type {};
-}
+CA_REFLECTION(RasterizerStates
+	, enableDepthClamp
+	, discardRasterization
+	, cullMode
+	, frontFace
+	, polygonMode
+	, lineWidth);
+CA_REFLECTION(DepthStencilStates::StencilStates
+	, failOp
+	, passOp
+	, depthFailOp
+	, compareOp
+	, compareMask
+	, writeMask
+	, reference);
+CA_REFLECTION(DepthStencilStates
+	, depthTestEnable
+	, depthWriteEnable
+	, depthCompareOp
+	, stencilTestEnable
+	, stencilStateFront
+	, stencilStateBack);
+CA_REFLECTION(SingleColorAttachmentBlendStates
+	, blendEnable
+	, channelMask
+	, sourceColorBlendFactor
+	, destColorBlendFactor
+	, sourceAlphaBlendFactor
+	, destAlphaBlendFactor
+	, colorBlendOp
+	, alphaBlendOp);
+CA_REFLECTION(ColorAttachmentsBlendStates, attachmentBlendStates);
+CA_REFLECTION(CPipelineStateObject, depthStencilStates, rasterizationStates, colorAttachments, msCount);

@@ -17,4 +17,8 @@ namespace graphics_backend
 				, framebufferDescriptor.layers
 		});
 	}
+	void FramebufferObject::Release()
+	{
+		GetDevice().destroyFramebuffer(mFramebuffer);
+	}
 }

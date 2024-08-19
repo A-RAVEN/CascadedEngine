@@ -70,11 +70,11 @@ namespace graphics_backend
 		return result;
 	}
 
-	vk::PipelineMultisampleStateCreateInfo PopulateMultiSampleStateInfo(MultiSampleStates const& msState)
+	vk::PipelineMultisampleStateCreateInfo PopulateMultiSampleStateInfo(EMultiSampleCount msCount)
 	{
 		vk::PipelineMultisampleStateCreateInfo result{
 			{}
-			, ESampleCountTranslate(msState.msCount)
+			, ESampleCountTranslate(msCount)
 		};
 		return result;
 	}
@@ -176,7 +176,7 @@ namespace graphics_backend
 		vk::PipelineRasterizationStateCreateInfo rasterizationInfo = PopulateRasterizationStateInfo(pipelineObjectDescriptor.pso);
 
 		//MultiSample States
-		vk::PipelineMultisampleStateCreateInfo multisampleInfo = PopulateMultiSampleStateInfo(pipelineObjectDescriptor.pso.multiSampleStates);
+		vk::PipelineMultisampleStateCreateInfo multisampleInfo = PopulateMultiSampleStateInfo(pipelineObjectDescriptor.pso.msCount);
 		
 		//Depth Stencil
 		vk::PipelineDepthStencilStateCreateInfo depthStencilState = PopulateDepthStencilStateInfo(pipelineObjectDescriptor.pso);
@@ -224,5 +224,10 @@ namespace graphics_backend
 		graphicsPipeCreateInfo.setPViewportState(&viewportStateInfo);
 		graphicsPipeCreateInfo.setPDynamicState(&dynamicStateInfo);
 		m_GraphicsPipeline = GetDevice().createGraphicsPipeline(nullptr, graphicsPipeCreateInfo).value;
+	}
+	void CPipelineObject::Release()
+	{
+		GetDevice().destroyPipelineLayout(m_PipelineLayout);
+		GetDevice().destroyPipeline(m_GraphicsPipeline);
 	}
 }

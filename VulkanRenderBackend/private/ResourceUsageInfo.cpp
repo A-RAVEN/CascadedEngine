@@ -4,7 +4,7 @@
 namespace graphics_backend
 {
 	const ResourceUsageVulkanInfo s_NoneUsageVulkanInfo{
-		vk::PipelineStageFlagBits::eTopOfPipe,
+		vk::PipelineStageFlagBits::eAllCommands,
 		vk::AccessFlagBits::eNone,
 		vk::ImageLayout::eUndefined,
 	};
@@ -78,7 +78,7 @@ namespace graphics_backend
 		},
 		//ePresent
 		ResourceUsageVulkanInfo{
-			vk::PipelineStageFlagBits::eBottomOfPipe,
+			vk::PipelineStageFlagBits::eAllCommands,
 			vk::AccessFlagBits::eNone,
 			vk::ImageLayout::ePresentSrcKHR,
 		},

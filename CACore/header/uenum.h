@@ -16,6 +16,12 @@ namespace uenum
         return static_cast<std::underlying_type_t<TEnumClass>>(e);
     }
 
+    template<typename TEnumFlags, typename TEnumClass>
+    static constexpr bool hasFlag(TEnumFlags flags, TEnumClass flag)
+	{
+		return static_cast<std::underlying_type_t<TEnumClass>>(flags & flag) != 0;
+	}
+
     template <typename TEnumClass>
     class EnumFlags
     {
@@ -34,41 +40,6 @@ namespace uenum
 
 
         auto operator<=>(EnumFlags<TEnumClass> const&) const = default;
-
-//        // relational operators
-//#if defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )
-//        auto operator<=>(EnumFlags<TEnumClass> const&) const = default;
-//#else
-//        constexpr bool operator<(EnumFlags<TEnumClass> const& rhs) const noexcept
-//        {
-//            return m_mask < rhs.m_mask;
-//        }
-//
-//        constexpr bool operator<=(EnumFlags<TEnumClass> const& rhs) const noexcept
-//        {
-//            return m_mask <= rhs.m_mask;
-//        }
-//
-//        constexpr bool operator>(EnumFlags<TEnumClass> const& rhs) const noexcept
-//        {
-//            return m_mask > rhs.m_mask;
-//        }
-//
-//        constexpr bool operator>=(EnumFlags<TEnumClass> const& rhs) const noexcept
-//        {
-//            return m_mask >= rhs.m_mask;
-//        }
-//
-//        constexpr bool operator==(EnumFlags<TEnumClass> const& rhs) const noexcept
-//        {
-//            return m_mask == rhs.m_mask;
-//        }
-//
-//        constexpr bool operator!=(EnumFlags<TEnumClass> const& rhs) const noexcept
-//        {
-//            return m_mask != rhs.m_mask;
-//        }
-//#endif
 
         // logical operator
         constexpr bool operator!() const noexcept
