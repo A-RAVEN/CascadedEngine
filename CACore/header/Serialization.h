@@ -2,6 +2,7 @@
 //#include "CASTL/CA"
 //#include <type_traits>
 #include <memory>
+#include <CASTL/CAString.h>
 #include "Reflection.h"
 
 namespace cacore

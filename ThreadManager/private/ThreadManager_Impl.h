@@ -28,10 +28,10 @@ namespace thread_management
 	public:
 		TaskScheduler_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		TaskScheduler_Impl(TaskScheduler_Impl const& other) = delete;
-		void Execute(castl::array_ref<TaskNode*> nodes);
 		void Finalize();
 		bool IsFinished() const noexcept { return m_PendingTaskCount.load(castl::memory_order_seq_cst) <= 0; }
 		void NotifyChildNodeFinish(TaskNode* childNode) override;
+		virtual void Execute(castl::array_ref<TaskBase*> nodes, bool wait) override;
 		virtual CTask* NewTask() override;
 		virtual TaskParallelFor* NewTaskParallelFor() override;
 		virtual CTaskGraph* NewTaskGraph() override;
@@ -44,7 +44,7 @@ namespace thread_management
 		TaskNodeAllocator* m_Allocator;
 		castl::atomic<int32_t> m_HoldingQueueID = -1;
 		castl::atomic<int32_t> m_PendingTaskCount = 0;
-		castl::vector<TaskNode*> m_SubTasks;
+		castl::vector<TaskBase*> m_SubTasks;
 
 
 	};
@@ -135,7 +135,7 @@ namespace thread_management
 		CTask_Impl1* NewTask(TaskBaseObject* owner);
 		TaskParallelFor_Impl* NewTaskParallelFor(TaskBaseObject* owner);
 		TaskGraph_Impl1* NewTaskGraph(TaskBaseObject* owner);
-		void Release(TaskNode* node);
+		void Release(TaskBase* node);
 		void LogStatus() const;
 	private:
 		castl::atomic<uint32_t> m_Counter = 0;

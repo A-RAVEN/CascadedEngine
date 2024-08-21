@@ -4,7 +4,9 @@
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 using namespace JPH;
-
+#include <CASTL/CALockedDeque.h>
+#include <CASTL/CAVector.h>
+#include <ThreadManager.h>
 
 
 /// Layer that objects can be in, determines which other objects it can collide with
@@ -135,6 +137,84 @@ public:
 			return false;
 		}
 	}
+};
+
+
+
+class JoltJobWrapper : public JobSystem
+{
+	
+	class JoltBarrierWrapper : public Barrier
+	{
+		// 通过 Barrier 继承
+		void AddJob(const JobHandle& inJob) override
+		{
+			inJob.GetPtr();
+		}
+		void AddJobs(const JobHandle* inHandles, uint inNumHandles) override
+		{
+		}
+		void OnJobFinished(Job* inJob) override
+		{
+		}
+		castl::vector<thread_management::TaskBase*> m_Tasks;
+	};
+
+	// 通过 JobSystem 继承
+	int GetMaxConcurrency() const override
+	{
+		return 0;
+	}
+	JobHandle CreateJob(const char* inName, ColorArg inColor, const JobFunction& inJobFunction, uint32 inNumDependencies) override
+	{
+		auto newJob = new Job(inName, inColor, this, inJobFunction, inNumDependencies);
+		return JobHandle(newJob);
+	}
+	Barrier* CreateBarrier() override
+	{
+		return new JoltBarrierWrapper();
+	}
+	void DestroyBarrier(Barrier* inBarrier) override
+	{
+		delete static_cast<JoltBarrierWrapper*>(inBarrier);
+	}
+	void WaitForJobs(Barrier* inBarrier) override
+	{
+	}
+	void QueueJob(Job* inJob) override
+	{
+		auto task = pTaskScheduler->NewTask()
+			->Name("Jolt SubTask")
+			->Functor([inJob]()
+				{
+					inJob->Execute();
+					inJob->Release();
+				});
+		pTaskScheduler->Execute(task);
+	}
+	void QueueJobs(Job** inJobs, uint inNumJobs) override
+	{
+		castl::vector<thread_management::TaskBase*> tasks;
+		tasks.reserve(inNumJobs);
+		for (uint i = 0; i < inNumJobs; ++i)
+		{
+			auto task = pTaskScheduler->NewTask()
+				->Name("Jolt SubTask")
+				->Functor([pJob = inJobs[i]]()
+					{
+						pJob->Execute();
+						pJob->Release();
+					});
+			tasks.push_back(task);
+		}
+		pTaskScheduler->Execute(tasks);
+	}
+	void FreeJob(Job* inJob) override
+	{
+		delete inJob;
+	}
+private:
+	thread_management::TaskScheduler* pTaskScheduler;
 };
 
 

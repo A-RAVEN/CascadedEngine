@@ -28,7 +28,7 @@ namespace graphics_backend
 				m_NumericDataList.resize(offset + sizeInBytes);
 				found = m_NameToDataPosition.insert(castl::make_pair(name, NumericDataPos{ offset, sizeInBytes })).first;
 			}
-			memcpy(&m_NumericDataList[found->second.offset], pValue, castl::min(found->second.size, sizeInBytes));
+			memcpy(&m_NumericDataList[found->second.offset], pValue, (castl::min)(found->second.size, sizeInBytes));
 			return *this;
 		}
 

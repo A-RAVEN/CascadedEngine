@@ -8,6 +8,7 @@
 namespace thread_management
 {
 	class CThreadManager;
+	class TaskBase;
 	class CTaskGraph;
 	class TaskParallelFor;
 	class CTask;
@@ -18,10 +19,24 @@ namespace thread_management
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;
 		virtual CTaskGraph* NewTaskGraph() = 0;
+		virtual void Execute(castl::array_ref<TaskBase*> nodes, bool wait = false) = 0;
 		virtual void WaitAll() = 0;
 	};
 
-	class CTask
+	enum class TaskNodeType
+	{
+		eGraph,
+		eNode,
+		eNodeParallel,
+	};
+
+	class TaskBase
+	{
+	public:
+		virtual TaskNodeType GetType() const = 0;
+	};
+
+	class CTask : public TaskBase
 	{
 	public:
 		virtual ~CTask() = default;
@@ -30,6 +45,10 @@ namespace thread_management
 		CTask& operator=(CTask const& other) = delete;
 		CTask(CTask&& other) = delete;
 		CTask& operator=(CTask&& other) = delete;
+		virtual TaskNodeType GetType() const override
+		{
+			return TaskNodeType::eNode;
+		}
 
 		virtual CTask* MainThread() = 0;
 		virtual CTask* Thread(cacore::HashObj<castl::string> const& threadKey) = 0;
@@ -43,7 +62,7 @@ namespace thread_management
 		virtual CTask* Functor(castl::function<void()>&& functor) = 0;
 	};
 
-	class TaskParallelFor
+	class TaskParallelFor : public TaskBase
 	{
 	public:
 		virtual ~TaskParallelFor() = default;
@@ -52,6 +71,10 @@ namespace thread_management
 		TaskParallelFor& operator=(TaskParallelFor const& other) = delete;
 		TaskParallelFor(TaskParallelFor&& other) = delete;
 		TaskParallelFor& operator=(TaskParallelFor&& other) = delete;
+		virtual TaskNodeType GetType() const override
+		{
+			return TaskNodeType::eNodeParallel;
+		}
 
 		virtual TaskParallelFor* Name(castl::string name) = 0;
 		virtual TaskParallelFor* DependsOn(CTask* parentTask) = 0;
@@ -64,7 +87,7 @@ namespace thread_management
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) = 0;
 	};
 
-	class CTaskGraph
+	class CTaskGraph : public TaskBase
 	{
 	public:
 		virtual ~CTaskGraph() = default;
@@ -73,6 +96,10 @@ namespace thread_management
 		CTaskGraph& operator=(CTaskGraph const& other) = delete;
 		CTaskGraph(CTaskGraph && other) = delete;
 		CTaskGraph& operator=(CTaskGraph && other) = delete;
+		virtual TaskNodeType GetType() const override
+		{
+			return TaskNodeType::eGraph;
+		}
 
 		virtual CTaskGraph* Name(castl::string name) = 0;
 		virtual CTaskGraph* DependsOn(CTask* parentTask) = 0;

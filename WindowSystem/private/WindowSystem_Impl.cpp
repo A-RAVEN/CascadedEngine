@@ -1,6 +1,7 @@
 #include <LibraryExportCommon.h>
 #include "WindowSystem_Impl.h"
 #include "Window_Impl.h"
+#include <DebugUtils.h>
 
 namespace cawindow
 {

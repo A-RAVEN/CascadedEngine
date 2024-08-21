@@ -101,7 +101,7 @@ namespace thread_management
     }*/
 
     TaskGraph_Impl1::TaskGraph_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
-        TaskNode(TaskObjectType::eGraph, owningManager, allocator)
+        TaskNode(owningManager, allocator)
     {
     }
 
@@ -179,7 +179,7 @@ namespace thread_management
         return this;
     }
     CTask_Impl1::CTask_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
-        TaskNode(TaskObjectType::eNode, owningManager, allocator)
+        TaskNode(owningManager, allocator)
     {
     }
 
@@ -203,8 +203,7 @@ namespace thread_management
     }
 
     ThreadManager_Impl1::ThreadManager_Impl1() : 
-        TaskBaseObject(TaskObjectType::eManager)
-        , m_TaskNodeAllocator(this)
+        m_TaskNodeAllocator(this)
     {
     }
 
@@ -485,7 +484,7 @@ namespace thread_management
     }
 
     TaskParallelFor_Impl::TaskParallelFor_Impl(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator) :
-        TaskNode(TaskObjectType::eNodeParallel, owningManager, allocator)
+        TaskNode(owningManager, allocator)
     {
     }
 
@@ -553,24 +552,25 @@ namespace thread_management
         return result;
     }
    
-    void TaskNodeAllocator::Release(TaskNode* childNode)
+    void TaskNodeAllocator::Release(TaskBase* childNode)
     {
         castl::atomic_thread_fence(castl::memory_order_acq_rel);
-        switch (childNode->GetTaskObjectType())
+        CA_ASSERT(dynamic_cast<TaskNode*>(childNode)->GetState() != TaskNodeState::eInvalid, "Release Invalid Node");
+        switch (childNode->GetType())
         {
-        case TaskObjectType::eGraph:
+        case TaskNodeType::eGraph:
         {
             m_TaskGraphPool.Release(static_cast<TaskGraph_Impl1*>(childNode));
             --m_Counter;
             break;
         }
-        case TaskObjectType::eNode:
+        case TaskNodeType::eNode:
         {
             m_TaskPool.Release(static_cast<CTask_Impl1*>(childNode));
             --m_Counter;
             break;
         }
-        case TaskObjectType::eNodeParallel:
+        case TaskNodeType::eNodeParallel:
         {
             m_TaskParallelForPool.Release(static_cast<TaskParallelFor_Impl*>(childNode));
             --m_Counter;
@@ -745,40 +745,45 @@ namespace thread_management
     }
 
     TaskScheduler_Impl::TaskScheduler_Impl(TaskBaseObject* owner, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
-        : TaskBaseObject(TaskObjectType::eTaskScheduler), m_Owner(owner), m_OwningManager(owningManager), m_Allocator(allocator)
+        : m_Owner(owner), m_OwningManager(owningManager), m_Allocator(allocator)
     {
         m_HoldingQueueID = g_ThreadLocalData.queueIndex;
     }
 
-    void TaskScheduler_Impl::Execute(castl::array_ref<TaskNode*> nodes)
+    void TaskScheduler_Impl::Execute(castl::array_ref<TaskBase*> nodes, bool wait)
     {
         int32_t taskCount = 0;
-        for(TaskNode* node : nodes)
+        for(TaskBase* node : nodes)
 		{
-            if (node->WaitingToRun(this))
+            TaskNode* taskNode = dynamic_cast<TaskNode*>(node);
+            if (taskNode->WaitingToRun(this))
             {
-                node->SetupThisNodeDependencies_Internal();
+                taskNode->SetupThisNodeDependencies_Internal();
                 ++taskCount;
             }
 		}
         if(taskCount == 0)
 			return;
         m_PendingTaskCount.store(taskCount, castl::memory_order_release);
-        for (TaskNode* node : nodes)
+        for (TaskBase* node : nodes)
         {
-            if (node->GetDepenedentCount() == 0)
+            TaskNode* taskNode = dynamic_cast<TaskNode*>(node);
+            if (taskNode->WaitingToRun(this) && taskNode->GetDepenedentCount() == 0)
             {
-                m_OwningManager->EnqueueTaskNode(node);
+                m_OwningManager->EnqueueTaskNode(taskNode);
             }
         }
 
-        auto& threadLocalQueue = m_OwningManager->GetDedicateTaskQueue(m_HoldingQueueID);
-        threadLocalQueue.InlineWorkLoop(this);
+        if (wait)
+        {
+            auto& threadLocalQueue = m_OwningManager->GetDedicateTaskQueue(m_HoldingQueueID);
+            threadLocalQueue.InlineWorkLoop(this);
+        }
     }
 
     void TaskScheduler_Impl::Finalize()
     {
-        Execute(m_SubTasks);
+        Execute(m_SubTasks, true);
         m_SubTasks.clear();
     }
 
@@ -788,7 +793,6 @@ namespace thread_management
         auto resultCount = m_PendingTaskCount.sub_fetch(1, castl::memory_order_seq_cst);
         if (IsFinished())
         {
-            //m_OwningManager->WakeAll();
             m_OwningManager->GetDedicateTaskQueue(queueID).NotifyAll();
         }
     }

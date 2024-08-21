@@ -9,6 +9,7 @@
 #include <CASTL/CAChrono.h>
 #include <Hasher.h>
 #include <TimerSystemEditor/TimerSystem_Impl.h>
+#include <DebugUtils.h>
 namespace catimer
 {
 	struct TimerFrameHistories;

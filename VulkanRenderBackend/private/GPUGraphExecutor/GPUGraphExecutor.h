@@ -116,7 +116,7 @@ namespace graphics_backend
 
 		void UpdateEndPass(uint32_t passID)
 		{
-			endPass = castl::max(endPass, passID);
+			endPass = (castl::max)(endPass, passID);
 		}
 	};
 

@@ -5,9 +5,8 @@
 
 namespace thread_management
 {
-	TaskNode::TaskNode(TaskObjectType type, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
-		: TaskBaseObject(type)
-		, m_OwningManager(owningManager)
+	TaskNode::TaskNode(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
+		: m_OwningManager(owningManager)
 		, m_Allocator(allocator)
 	{
 	}
@@ -44,7 +43,7 @@ namespace thread_management
 	}
 	void TaskNode::ReleaseSelf()
 	{
-		m_Allocator->Release(this);
+		m_Allocator->Release(dynamic_cast<TaskBase*>(this));
 	}
 	void TaskNode::Release_Internal()
 	{

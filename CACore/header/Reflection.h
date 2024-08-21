@@ -1,5 +1,9 @@
 #pragma once
-#include "DebugUtils.h"
+#include <assert.h>
+#include <CASTL/CAString.h>
+#include <iostream>
+#include <stdio.h>
+#include <stdint.h>
 #include "Macros.h"
 #include <type_traits>
 

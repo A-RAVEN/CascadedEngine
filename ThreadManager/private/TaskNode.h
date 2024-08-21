@@ -8,14 +8,14 @@ namespace thread_management
 	class ThreadManager_Impl1;
 	class TaskNodeAllocator;
 	class TaskNode;
-	enum class TaskObjectType
-	{
-		eManager = 0,
-		eGraph,
-		eNode,
-		eNodeParallel,
-		eTaskScheduler,
-	};
+	//enum class TaskObjectType
+	//{
+	//	eManager = 0,
+	//	eGraph,
+	//	eNode,
+	//	eNodeParallel,
+	//	eTaskScheduler,
+	//};
 
 	enum class TaskNodeState : uint8_t
 	{
@@ -27,18 +27,18 @@ namespace thread_management
 	class TaskBaseObject
 	{
 	public:
-		TaskBaseObject(TaskObjectType type) :m_Type(type){}
+		//TaskBaseObject(TaskObjectType type) :m_Type(type){}
 		virtual void NotifyChildNodeFinish(TaskNode* childNode) {}
 		virtual uint64_t GetCurrentFrame() const = 0;
-		TaskObjectType GetTaskObjectType() const { return m_Type; }
+		//TaskObjectType GetTaskObjectType() const { return m_Type; }
 	private:
-		TaskObjectType m_Type;
+		//TaskObjectType m_Type;
 	};
 
 	class TaskNode : public TaskBaseObject
 	{
 	public:
-		TaskNode(TaskObjectType type, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
+		TaskNode(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void SetOwner(TaskBaseObject* owner) { 
 			m_Owner = owner;
 			m_CurrentFrame = owner->GetCurrentFrame(); }
@@ -55,6 +55,7 @@ namespace thread_management
 		void Release_Internal();
 		void SetThreadKey_Internal(cacore::HashObj<castl::string> const& key) { m_ThreadKey = key; }
 		castl::string const& GetName() const { return m_Name; }
+		TaskNodeState GetState() const { return m_Running.load(); }
 		bool WaitingToRun(TaskBaseObject* owner) const
 		{
 			if (owner != m_Owner)
