@@ -10,6 +10,7 @@
 #include <CASTL/CAFunctional.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAMap.h>
+#include <CASTL/CADeque.h>
 
 namespace graphics_backend
 {

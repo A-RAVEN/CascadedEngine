@@ -7,14 +7,14 @@ namespace castl
 	class raii_wrapper
 	{
 	public:
-		template<typename TT = T, typename = std::enable_if_t<std::is_default_constructible<TT>::value>>
+		template<typename TT = T, typename = castl::enable_if_t<castl::is_default_constructible<TT>::value>>
 		raii_wrapper() : m_RAIIData(), _Releaser(nullptr)
 			, _RAII_Aquired(false)
 		{
 		}
 
-		raii_wrapper(T&& rttiData, std::function<void(T& releaseObj)> releaser) : m_RAIIData(std::move(rttiData))
-			, _Releaser(std::move(releaser))
+		raii_wrapper(T&& rttiData, castl::function<void(T& releaseObj)> releaser) : m_RAIIData(castl::move(rttiData))
+			, _Releaser(castl::move(releaser))
 			, _RAII_Aquired(true)
 		{
 		}
@@ -33,8 +33,8 @@ namespace castl
 		}
 
 		//raii_wrapper(raii_wrapper& other) :
-		//	m_RAIIData(std::move(other.m_RAIIData))
-		//	, _Releaser(std::move(other._Releaser))
+		//	m_RAIIData(castl::move(other.m_RAIIData))
+		//	, _Releaser(castl::move(other._Releaser))
 		//	, _RAII_Aquired(other._RAII_Aquired)
 		//{
 		//	other._RAII_Aquired = false;
@@ -43,16 +43,16 @@ namespace castl
 		//raii_wrapper& operator=(raii_wrapper& other)
 		//{
 		//	RAIIRelease();
-		//	m_RAIIData = std::move<T&>(other.m_RAIIData);
-		//	_Releaser = std::move(other._Releaser);
-		//	_RAII_Aquired = std::move(other._RAII_Aquired);
+		//	m_RAIIData = castl::move<T&>(other.m_RAIIData);
+		//	_Releaser = castl::move(other._Releaser);
+		//	_RAII_Aquired = castl::move(other._RAII_Aquired);
 		//	other._RAII_Aquired = false;
 		//	return *this;
 		//}
 
 		raii_wrapper(raii_wrapper&& other) : 
-			m_RAIIData(std::move(other.m_RAIIData))
-			, _Releaser(std::move(other._Releaser))
+			m_RAIIData(castl::move(other.m_RAIIData))
+			, _Releaser(castl::move(other._Releaser))
 			, _RAII_Aquired(other._RAII_Aquired)
 		{
 			other._RAII_Aquired = false;
@@ -60,9 +60,9 @@ namespace castl
 		raii_wrapper& operator=(raii_wrapper&& other)
 		{
 			RAIIRelease();
-			m_RAIIData = std::move<T&>(other.m_RAIIData);
-			_Releaser = std::move(other._Releaser);
-			_RAII_Aquired = std::move(other._RAII_Aquired);
+			m_RAIIData = castl::move<T&>(other.m_RAIIData);
+			_Releaser = castl::move(other._Releaser);
+			_RAII_Aquired = castl::move(other._RAII_Aquired);
 			other._RAII_Aquired = false;
 			return *this;
 		}
@@ -94,32 +94,32 @@ namespace castl
 		}
 
 		template<typename TT = T>
-		typename std::enable_if_t<std::is_pointer_v<TT>, TT> operator->() const noexcept
+		typename castl::enable_if_t<castl::is_pointer_v<TT>, TT> operator->() const noexcept
 		{
 			return m_RAIIData;
 		}
 
 		template<typename TT = T>
-		typename std::enable_if_t<std::is_pointer_v<TT>, TT> operator->() noexcept
+		typename castl::enable_if_t<castl::is_pointer_v<TT>, TT> operator->() noexcept
 		{
 			return m_RAIIData;
 		}
 
 		template<typename TT = T>
-		typename std::enable_if_t<std::is_class_v<TT>, TT const*> operator->() const noexcept
+		typename castl::enable_if_t<castl::is_class_v<TT>, TT const*> operator->() const noexcept
 		{
 			return &m_RAIIData;
 		}
 
 		template<typename TT = T>
-		typename std::enable_if_t<std::is_class_v<TT>, TT*> operator->() noexcept
+		typename castl::enable_if_t<castl::is_class_v<TT>, TT*> operator->() noexcept
 		{
 			return &m_RAIIData;
 		}
 
 	private:
 		mutable T m_RAIIData;
-		mutable std::function<void(T& releaseObj)> _Releaser;
+		mutable castl::function<void(T& releaseObj)> _Releaser;
 		mutable bool _RAII_Aquired = false;
 	};
 }

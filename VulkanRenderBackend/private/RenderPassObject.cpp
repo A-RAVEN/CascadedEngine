@@ -5,9 +5,6 @@
 #include "InterfaceTranslator.h"
 #include "ResourceUsageInfo.h"
 
-template<>
-struct hash_utils::is_contiguously_hashable<vk::SubpassDependency> : public castl::true_type {};
-
 namespace graphics_backend
 {
 

@@ -2,6 +2,7 @@
 #include "WindowSystem_Impl.h"
 #include "Window_Impl.h"
 #include <DebugUtils.h>
+#include <CASTL/CAAlgorithm.h>
 
 namespace cawindow
 {

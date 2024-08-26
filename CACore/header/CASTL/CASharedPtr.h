@@ -1,7 +1,11 @@
 #pragma once
 #include "CAContainerBase.h"
-#include <EASTL/shared_ptr.h>
 #include <Serialization.h>
+#if USING_EASTL
+#include <EASTL/shared_ptr.h>
+#else
+#include <memory>
+#endif
 
 namespace careflection
 {

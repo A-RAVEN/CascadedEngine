@@ -62,7 +62,7 @@ namespace graphics_backend
 										{
 											for (auto& window : gpuFrame.presentWindows)
 											{
-												auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
+												auto windowContext = castl::static_pointer_cast<CWindowContext>(window);
 												windowContext->PresentFrame(frameManager.get());
 											}
 										}

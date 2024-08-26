@@ -28,7 +28,7 @@ namespace graphics_backend
 		}
 		case BufferHandle::BufferType::External:
 		{
-			auto buffer = castl::static_shared_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
+			auto buffer = castl::static_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
 			if (buffer->GetUsage() == ResourceUsage::eDontCare)
 			{
 				return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
@@ -53,7 +53,7 @@ namespace graphics_backend
 		}
 		case ImageHandle::ImageType::External:
 		{
-			auto image = castl::static_shared_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
+			auto image = castl::static_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
 			if (image->GetUsage() == eDontCare)
 			{
 				return ResourceState(currentPassID, ResourceUsage::eDontCare, currentPass.GetQueueFamily());
@@ -193,7 +193,7 @@ namespace graphics_backend
 		}
 		case ImageHandle::ImageType::Backbuffer:
 		{
-			castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(handle.GetWindowHandle());
+			castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(handle.GetWindowHandle());
 			return !window->Invalid();
 		}
 		case ImageHandle::ImageType::External:
@@ -368,7 +368,7 @@ namespace graphics_backend
 					}
 					else if (img.GetType() == ImageHandle::ImageType::Backbuffer)
 					{
-						castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(img.GetWindowHandle());
+						castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(img.GetWindowHandle());
 						window->WaitCurrentFrameBufferIndex();
 					}
 				}
@@ -425,7 +425,7 @@ namespace graphics_backend
 							}
 							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 							{
-								castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
+								castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
 								window->WaitCurrentFrameBufferIndex();
 							}
 						}
@@ -486,7 +486,7 @@ namespace graphics_backend
 							}
 							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 							{
-								castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
+								castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
 								window->WaitCurrentFrameBufferIndex();
 							}
 						}
@@ -535,7 +535,7 @@ namespace graphics_backend
 					else if (img.GetType() == ImageHandle::ImageType::Backbuffer)
 					{
 						CPUTIMER_SCOPE("Stat Attachment FrameBuffer Image");
-						castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(img.GetWindowHandle());
+						castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(img.GetWindowHandle());
 						window->WaitCurrentFrameBufferIndex();
 						m_WaitingWindows.insert(window);
 					}
@@ -576,7 +576,7 @@ namespace graphics_backend
 							}
 							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 							{
-								castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
+								castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
 								window->WaitCurrentFrameBufferIndex();
 								m_WaitingWindows.insert(window);
 							}
@@ -626,7 +626,7 @@ namespace graphics_backend
 							}
 							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 							{
-								castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
+								castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
 								window->WaitCurrentFrameBufferIndex();
 								m_WaitingWindows.insert(window);
 							}
@@ -833,12 +833,12 @@ namespace graphics_backend
 		}
 		case ImageHandle::ImageType::External:
 		{
-			castl::shared_ptr<VKGPUTexture> texture = castl::static_shared_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
+			castl::shared_ptr<VKGPUTexture> texture = castl::static_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
 			return texture->EnsureImageView(view);
 		}
 		case ImageHandle::ImageType::Backbuffer:
 		{
-			castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(handle.GetWindowHandle());
+			castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(handle.GetWindowHandle());
 			return window->EnsureCurrentFrameImageView(view);
 		}
 		}
@@ -857,12 +857,12 @@ namespace graphics_backend
 		}
 		case ImageHandle::ImageType::External:
 		{
-			castl::shared_ptr<VKGPUTexture> texture = castl::static_shared_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
+			castl::shared_ptr<VKGPUTexture> texture = castl::static_pointer_cast<VKGPUTexture>(handle.GetExternalManagedTexture());
 			return texture->GetImage().image;
 		}
 		case ImageHandle::ImageType::Backbuffer:
 		{
-			castl::shared_ptr<CWindowContext> window = castl::static_shared_pointer_cast<CWindowContext>(handle.GetWindowHandle());
+			castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(handle.GetWindowHandle());
 			return window->GetCurrentFrameImage();
 		}
 		}
@@ -881,7 +881,7 @@ namespace graphics_backend
 		}
 		case BufferHandle::BufferType::External:
 		{
-			castl::shared_ptr<VKGPUBuffer> buffer = castl::static_shared_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
+			castl::shared_ptr<VKGPUBuffer> buffer = castl::static_pointer_cast<VKGPUBuffer>(handle.GetExternalManagedBuffer());
 			return buffer->GetBuffer().buffer;
 		}
 		}

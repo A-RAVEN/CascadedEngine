@@ -1,7 +1,7 @@
 #pragma once
 #include <CASTL/CAString.h>
-#include <CASTL/CASharedPtr.h>
 #include <CASTL/CAArrayRef.h>
+#include <CASTL/CAFunctional.h>
 #include <Hasher.h>
 #include <CATimer/Timer.h>
 

@@ -198,7 +198,7 @@ namespace thread_management
 			uint64_t m_SignaledFrame = 0;
 			void Signal(uint64_t signalFrame)
 			{
-				m_SignaledFrame = castl::max(m_SignaledFrame, signalFrame);
+				m_SignaledFrame = (castl::max)(m_SignaledFrame, signalFrame);
 			}
 		};
 		castl::mutex m_Mutex;

@@ -5,6 +5,7 @@
 #include <CASTL/CADeque.h>
 #include <CASTL/CAString.h>
 #include <CASTL/CAVector.h>
+#include <CASTL/CAMutex.h>
 #include <filesystem>
 #include <LibraryExportCommon.h>
 #include <DebugUtils.h>
@@ -13,7 +14,7 @@
 namespace resource_management
 {
 	using namespace castl;
-	using namespace std::filesystem;
+	using namespace castl::filesystem;
 	class ResourceImportingSystemImpl : public ResourceImportingSystem
 	{
 	public:
@@ -41,12 +42,12 @@ namespace resource_management
 			}
 			m_ReservedSpace.resize(m_Importers.size());
 			m_ImportingResources.resize(m_Importers.size());
-			std::fill(m_ReservedSpace.begin(), m_ReservedSpace.end(), 0);
+			castl::fill(m_ReservedSpace.begin(), m_ReservedSpace.end(), 0);
 			for (auto& strVec : m_ImportingResources)
 			{
 				strVec.clear();
 			}
-			std::filesystem::path targetRootPath = m_ResourceManagingSystem->GetResourceRootPath().c_str();
+			castl::filesystem::path targetRootPath = m_ResourceManagingSystem->GetResourceRootPath().c_str();
 			for(auto& p : recursive_directory_iterator(rootPath))
 			{
 				if(p.is_regular_file())
@@ -57,21 +58,21 @@ namespace resource_management
 					{
 						auto importer = m_Importers[found->second];
 
-						auto relativePath = std::filesystem::relative(p.path(), rootPath);
+						auto relativePath = castl::filesystem::relative(p.path(), rootPath);
 						relativePath.replace_extension(castl::to_std(importer->GetDestFilePostfix()));
 						//relativePath.replace_extension("");
 						auto destPath = targetRootPath / relativePath;
 
 						bool needImport = true;
-						if (std::filesystem::exists(destPath))
+						if (castl::filesystem::exists(destPath))
 						{
 							bool hasFile = true;
-							auto targetTime = std::filesystem::last_write_time(destPath);
+							auto targetTime = castl::filesystem::last_write_time(destPath);
 							if (!destPath.has_extension())
 							{
 								hasFile = false;
-								using Entry = std::filesystem::directory_entry;
-								for (Entry const& entry : std::filesystem::directory_iterator(destPath))
+								using Entry = castl::filesystem::directory_entry;
+								for (Entry const& entry : castl::filesystem::directory_iterator(destPath))
 								{
 									hasFile = true;
 									targetTime = targetTime < entry.last_write_time() ? targetTime : entry.last_write_time();
@@ -103,7 +104,7 @@ namespace resource_management
 		castl::unordered_map<castl::string, uint32_t> m_PostfixToImporterIndex;
 		castl::vector<ResourceImporterBase*> m_Importers;
 		castl::vector<size_t> m_ReservedSpace;
-		castl::vector<castl::vector<castl::pair<std::filesystem::path, std::filesystem::path>>> m_ImportingResources;
+		castl::vector<castl::vector<castl::pair<castl::filesystem::path, castl::filesystem::path>>> m_ImportingResources;
 		ResourceManagingSystem* m_ResourceManagingSystem;
 	};
 
@@ -167,7 +168,7 @@ namespace resource_management
 
 		virtual IResource* TryGetResource(castl::string const& path) override
 		{
-			std::lock_guard<std::mutex> lock(m_Mutex);
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			IResource* result = nullptr;
 			auto find = m_AssetPathToResourceAddress.find(path);
 			if (find != m_AssetPathToResourceAddress.end())
@@ -188,7 +189,7 @@ namespace resource_management
 			, castl::string const& resource_path
 			, uint64_t size_in_bytes) override
 		{
-			std::lock_guard<std::mutex> lock(m_Mutex);
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			auto found = m_TypeNameToMemoryAllocator.find(type_name);
 			if (found == m_TypeNameToMemoryAllocator.end())
 			{
@@ -209,7 +210,7 @@ namespace resource_management
 		}
 		virtual void ReleaseResourceMemory(castl::string type_name, void* pointer) override
 		{
-			std::lock_guard<std::mutex> lock(m_Mutex);
+			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			auto found = m_TypeNameToMemoryAllocator.find(type_name);
 			CA_ASSERT(found != m_TypeNameToMemoryAllocator.end(), ("try release memory to void: " + type_name).c_str());
 			found->second.ReleaseChunk(pointer);
@@ -226,8 +227,8 @@ namespace resource_management
 		{
 			for (auto& pair : m_ResourceAddressToAssetPath)
 			{
-				std::filesystem::path destPath = m_AssetRootPath / to_std(pair.second);
-				std::filesystem::create_directories(destPath.parent_path());
+				castl::filesystem::path destPath = m_AssetRootPath / to_std(pair.second);
+				castl::filesystem::create_directories(destPath.parent_path());
 				IResource* resource = static_cast<IResource*>(pair.first);
 				castl::vector<uint8_t> serializedData;
 				resource->Serialzie(serializedData);
@@ -235,12 +236,12 @@ namespace resource_management
 			}
 		}
 	private:
-		std::mutex m_Mutex;
+		castl::mutex m_Mutex;
 		castl::unordered_map<castl::string, ChunkedMemoryAllocator> m_TypeNameToMemoryAllocator;
 		castl::unordered_map<castl::string, void*> m_AssetPathToResourceAddress;
 		castl::unordered_map<void*, castl::string> m_ResourceAddressToAssetPath;
 
-		std::filesystem::path m_AssetRootPath;
+		castl::filesystem::path m_AssetRootPath;
 	};
 
 	class ResourceFactoryImpl : public ResourceFactory

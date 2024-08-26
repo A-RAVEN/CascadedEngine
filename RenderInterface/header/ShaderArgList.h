@@ -4,6 +4,7 @@
 #include "TextureSampler.h"
 #include <CASTL/CAVector.h>
 #include <CASTL/CAUnorderedMap.h>
+//#include <CASTL/CAPair.h>
 
 namespace graphics_backend
 {
@@ -54,7 +55,7 @@ namespace graphics_backend
 		inline ShaderArgList& SetImage(castl::string const& name
 			, ImageHandle const& imageHandle, GPUTextureView const& view)
 		{
-			m_NameToImage[name] = { castl::make_pair<ImageHandle, GPUTextureView>(imageHandle, view) };
+			m_NameToImage[name] = { castl::make_pair(imageHandle, view) };
 			return *this;
 		}
 

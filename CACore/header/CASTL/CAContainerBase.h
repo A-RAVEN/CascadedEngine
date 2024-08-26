@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdarg>
-//#define EA_COMPILER_HAS_THREE_WAY_COMPARISON 1
+#if USING_EASTL
 #define EASTL_EASTDC_VSNPRINTF 0
 #define EASTL_LIST_SIZE_CACHE 1
 extern int Vsnprintf8(char* p, size_t n, const char* pFormat, va_list arguments);
@@ -21,10 +21,15 @@ namespace eastl
 	};
 }
 #endif
+#endif
 
 namespace castl
 {
+#if USING_EASTL
 	using namespace eastl;
 	using strong_ordering = std::strong_ordering;
 	using weak_ordering = std::weak_ordering;
+#else
+	using namespace std;
+#endif
 }

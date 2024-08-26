@@ -25,13 +25,13 @@ namespace graphics_backend
 
 		virtual ~TVulkanApplicationPool()
 		{
-			CA_ASSERT(IsEmpty(), std::string{"Vulkan Application Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T));
+			CA_ASSERT(IsEmpty(), castl::string{"Vulkan Application Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T));
 		}
 
 		template<typename...TArgs>
 		T* Alloc(TArgs&&...Args)
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			T* result = nullptr;
 			if (m_EmptySpaces.empty())
 			{
@@ -43,21 +43,21 @@ namespace graphics_backend
 				result = m_EmptySpaces.front();
 				m_EmptySpaces.pop_front();
 			}
-			result->Initialize(std::forward<TArgs>(Args)...);
+			result->Initialize(castl::forward<TArgs>(Args)...);
 			return result;
 		}
 
 		void Release(T* releaseObj)
 		{
-			CA_ASSERT(releaseObj != nullptr, std::string{"Try Release nullptr: "} + CA_CLASS_NAME(T));
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			CA_ASSERT(releaseObj != nullptr, castl::string{"Try Release nullptr: "} + CA_CLASS_NAME(T));
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			releaseObj->Release();
 			m_EmptySpaces.push_back(releaseObj);
 		}
 
 		void ReleaseAll()
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 
 			castl::unordered_set<T*> emptySet;
 			for (T* emptyPtr : m_EmptySpaces)
@@ -80,17 +80,17 @@ namespace graphics_backend
 		template<typename...TArgs>
 		castl::shared_ptr<T> AllocShared(TArgs&&...Args)
 		{
-			return castl::shared_ptr<T>(Alloc(std::forward<TArgs>(Args)...), [this](T* releaseObj) { Release(releaseObj); });
+			return castl::shared_ptr<T>(Alloc(castl::forward<TArgs>(Args)...), [this](T* releaseObj) { Release(releaseObj); });
 		}
 
 		bool IsEmpty()
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			return m_EmptySpaces.size() == m_Pool.size();
 		}
 	private:
 		CVulkanApplication& m_Owner;
-		std::mutex m_Mutex;
+		castl::mutex m_Mutex;
 		castl::deque<T> m_Pool;
 		castl::deque<T*> m_EmptySpaces;
 	};
@@ -99,14 +99,14 @@ namespace graphics_backend
 	class TFrameboundReleaser
 	{
 	public:
-		TFrameboundReleaser(std::function<void(castl::deque<T> const&)> const& releasingFunc) :
+		TFrameboundReleaser(castl::function<void(castl::deque<T> const&)> const& releasingFunc) :
 			m_ReleaseFunc(releasingFunc)
 		{
 		}
 		//Called When Release
 		void ScheduleRelease(FrameType frameType, T&& releaseObj)
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			if ((!m_WaitForRelease.empty()) && m_WaitForRelease.back().first == frameType)
 			{
 				m_WaitForRelease.back().second.push_back(releaseObj);
@@ -114,13 +114,13 @@ namespace graphics_backend
 			}
 			CA_ASSERT((m_WaitForRelease.empty() || m_WaitForRelease.back().first < frameType), "Inconsistent FrameIndex");
 			castl::deque<T> newVec;
-			newVec.emplace_back(std::move(releaseObj));
-			m_WaitForRelease.emplace_back(std::make_pair(frameType, std::move(newVec)));
+			newVec.emplace_back(castl::move(releaseObj));
+			m_WaitForRelease.emplace_back(castl::make_pair(frameType, castl::move(newVec)));
 		}
 		//Called When Frame Done
 		void ReleaseFrame(FrameType doneFrame)
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			CA_ASSERT(m_ReleaseFunc != nullptr, "Framebound Releaser Has NULL Release Func!");
 			if(m_WaitForRelease.empty())
 				return;
@@ -132,7 +132,7 @@ namespace graphics_backend
 		}
 		void ReleaseAll()
 		{
-			std::lock_guard<std::mutex> lockGuard(m_Mutex);
+			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			CA_ASSERT(m_ReleaseFunc != nullptr, "Framebound Releaser Has NULL Release Func!");
 			for (auto& itrPair : m_WaitForRelease)
 			{
@@ -141,8 +141,8 @@ namespace graphics_backend
 			m_WaitForRelease.clear();
 		}
 	private:
-		std::mutex m_Mutex;
-		std::function<void(castl::deque<T> const&)> m_ReleaseFunc;
-		castl::deque<std::pair<FrameType, castl::deque<T>>> m_WaitForRelease;
+		castl::mutex m_Mutex;
+		castl::function<void(castl::deque<T> const&)> m_ReleaseFunc;
+		castl::deque<castl::pair<FrameType, castl::deque<T>>> m_WaitForRelease;
 	};
 }

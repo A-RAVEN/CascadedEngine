@@ -3,7 +3,7 @@
 #include <CASTL/CAAlgorithm.h>
 #include <cstdint>
 #include <uenum.h>
-#include <uhash.h>
+//#include <uhash.h>
 #include <DebugUtils.h>
 
 
@@ -404,14 +404,11 @@ public:
 		return result;
 	}
 
-	bool operator==(GraphicsClearValue const& rhs) const
-	{
-		return hash_utils::memory_equal(*this, rhs);
-	}
+	auto operator<=>(const GraphicsClearValue&) const = default;
 };
 
-namespace hash_utils
-{
-	template<>
-	struct is_contiguously_hashable<GraphicsClearValue> : public std::true_type {};
-}
+//namespace hash_utils
+//{
+//	template<>
+//	struct is_contiguously_hashable<GraphicsClearValue> : public std::true_type {};
+//}

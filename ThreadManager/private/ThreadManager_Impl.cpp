@@ -404,8 +404,8 @@ namespace thread_management
     
     void ThreadManager_Impl1::NotifyChildNodeFinish(TaskNode* childNode)
     {
-        uint32_t resultCount =  m_PendingTaskCount.sub_fetch(1, castl::memory_order_seq_cst);
-        if (resultCount == 0)
+        uint32_t resultCount =  m_PendingTaskCount.fetch_sub(1, castl::memory_order_seq_cst);
+        if (resultCount == 1)
         {
             StopMainThread();
         }
@@ -790,7 +790,7 @@ namespace thread_management
     void TaskScheduler_Impl::NotifyChildNodeFinish(TaskNode* childNode)
     {
         int queueID = m_HoldingQueueID.load(castl::memory_order_seq_cst);
-        auto resultCount = m_PendingTaskCount.sub_fetch(1, castl::memory_order_seq_cst);
+        auto resultCount = m_PendingTaskCount.fetch_sub(1, castl::memory_order_seq_cst);
         if (IsFinished())
         {
             m_OwningManager->GetDedicateTaskQueue(queueID).NotifyAll();
