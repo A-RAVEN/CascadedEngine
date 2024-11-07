@@ -13,16 +13,6 @@ namespace thread_management
 	class TaskParallelFor;
 	class CTask;
 
-	class TaskScheduler
-	{
-	public:
-		virtual CTask* NewTask() = 0;
-		virtual TaskParallelFor* NewTaskParallelFor() = 0;
-		virtual CTaskGraph* NewTaskGraph() = 0;
-		virtual void Execute(castl::array_ref<TaskBase*> nodes, bool wait = false) = 0;
-		virtual void WaitAll() = 0;
-	};
-
 	enum class TaskNodeType
 	{
 		eGraph,
@@ -36,15 +26,19 @@ namespace thread_management
 		virtual TaskNodeType GetType() const = 0;
 	};
 
+	class TaskScheduler
+	{
+	public:
+		virtual CTask* NewTask() = 0;
+		virtual TaskParallelFor* NewTaskParallelFor() = 0;
+		virtual CTaskGraph* NewTaskGraph() = 0;
+		virtual void Execute(castl::array_ref<TaskBase*> nodes, bool wait = false) = 0;
+		virtual void WaitAll() = 0;
+	};
+
 	class CTask : public TaskBase
 	{
 	public:
-		virtual ~CTask() = default;
-		CTask() = default;
-		CTask(CTask const& other) = delete;
-		CTask& operator=(CTask const& other) = delete;
-		CTask(CTask&& other) = delete;
-		CTask& operator=(CTask&& other) = delete;
 		virtual TaskNodeType GetType() const override
 		{
 			return TaskNodeType::eNode;
@@ -65,12 +59,6 @@ namespace thread_management
 	class TaskParallelFor : public TaskBase
 	{
 	public:
-		virtual ~TaskParallelFor() = default;
-		TaskParallelFor() = default;
-		TaskParallelFor(TaskParallelFor const& other) = delete;
-		TaskParallelFor& operator=(TaskParallelFor const& other) = delete;
-		TaskParallelFor(TaskParallelFor&& other) = delete;
-		TaskParallelFor& operator=(TaskParallelFor&& other) = delete;
 		virtual TaskNodeType GetType() const override
 		{
 			return TaskNodeType::eNodeParallel;
@@ -90,12 +78,6 @@ namespace thread_management
 	class CTaskGraph : public TaskBase
 	{
 	public:
-		virtual ~CTaskGraph() = default;
-		CTaskGraph() = default;
-		CTaskGraph(CTaskGraph const& other) = delete;
-		CTaskGraph& operator=(CTaskGraph const& other) = delete;
-		CTaskGraph(CTaskGraph && other) = delete;
-		CTaskGraph& operator=(CTaskGraph && other) = delete;
 		virtual TaskNodeType GetType() const override
 		{
 			return TaskNodeType::eGraph;
@@ -117,13 +99,6 @@ namespace thread_management
 	class CThreadManager
 	{
 	public:
-		virtual ~CThreadManager() = default;
-		CThreadManager() = default;
-		CThreadManager(CThreadManager const& other) = delete;
-		CThreadManager& operator=(CThreadManager const& other) = delete;
-		CThreadManager(CThreadManager&& other) = delete;
-		CThreadManager& operator=(CThreadManager&& other) = delete;
-
 		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum) = 0;
 		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) = 0;
 		virtual void OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) = 0;
