@@ -103,6 +103,7 @@ namespace thread_management
 		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) = 0;
 		virtual void OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) = 0;
 		virtual void LoopFunction(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) = 0;
+		virtual castl::shared_ptr<TaskScheduler> NewScheduler() = 0;
 		virtual void Run() = 0;
 		virtual void LogStatus() const = 0;
 	};

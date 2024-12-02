@@ -73,6 +73,7 @@ namespace resource_management
 		};
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
+		virtual void Deserialzie(ca_io::IOBatch*) override;
 		uint32_t GetVertexCount() const { return m_Attributes.size(); }
 		uint32_t GetIndicesCount() const { return m_Indices16.size(); }
 		void const* GetVertexData() const { return m_Attributes.data(); }

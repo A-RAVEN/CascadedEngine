@@ -53,8 +53,8 @@ add_subdirectory(${ASSIMP_DIR})
 
 
 #EASTL
-set(EASTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EASTL)
-add_subdirectory(${EASTL_DIR})
+#set(EASTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EASTL)
+#add_subdirectory(${EASTL_DIR})
 
 
 #slang

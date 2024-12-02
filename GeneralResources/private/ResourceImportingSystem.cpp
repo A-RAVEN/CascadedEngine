@@ -184,6 +184,11 @@ namespace resource_management
 			return cacore::LoadBinaryFile(to_ca(resourcePath.string()));
 		}
 
+		virtual castl::string ResourceFullPath(castl::string_view path) override
+		{
+			return (m_AssetRootPath / path).string();
+		}
+
 		virtual void* AllocResourceMemory(
 			castl::string type_name
 			, castl::string const& resource_path

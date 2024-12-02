@@ -119,6 +119,12 @@ namespace careflection
     };
 
     template<typename T>
+    concept has_clear = requires(T t)
+    {
+        t.clear();
+    };
+
+    template<typename T>
     concept element_assignable = requires(T t)
     {
         t[0] = (typename containerInfo<T>::elementType) any_type{};
@@ -180,6 +186,7 @@ namespace careflection
         constexpr static bool has_resize = careflection::has_resize<noRefT>;
         constexpr static bool has_data = careflection::has_data<noRefT>;
         constexpr static bool has_reserve = careflection::has_reserve<noRefT>;
+        constexpr static bool has_clear = careflection::has_clear<noRefT>;
         constexpr static bool element_assignable = careflection::element_assignable<noRefT>;
         constexpr static bool has_indexer = careflection::has_indexer<noRefT>;
         constexpr static bool has_push_back_element = careflection::has_push_back_element<noRefT>;

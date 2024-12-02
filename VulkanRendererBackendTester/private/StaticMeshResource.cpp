@@ -3,6 +3,7 @@
 #include "SerializationLog.h"
 #include "TextureResource.h"
 #include <filesystem>
+#include <IOManager/IOManager.h>
 
 namespace resource_management
 {
@@ -14,6 +15,12 @@ namespace resource_management
 	{
 		cacore::deserializer<castl::vector<uint8_t>> deserializer(data);
 		deserializer.deserialize(*this);
+	}
+	void StaticMeshResource::Deserialzie(ca_io::IOBatch* pBatch)
+	{
+		cacore::batch_deserializer<ca_io::IOBatch> deserializer(pBatch);
+		deserializer.deserialize(*this);
+		deserializer.finalize();
 	}
 	StaticMeshImporter::StaticMeshImporter()
 	{

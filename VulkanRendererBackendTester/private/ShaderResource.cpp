@@ -3,6 +3,7 @@
 #include <filesystem>
 #include "SerializationLog.h"
 
+
 namespace resource_management
 {
 	void ShaderResrouce::Serialzie(castl::vector<uint8_t>& data)
@@ -13,6 +14,13 @@ namespace resource_management
 	{
 		cacore::deserializer<decltype(data)> deserializer(data);
 		deserializer.deserialize(*this);
+	}
+
+	void ShaderResrouce::Deserialzie(ca_io::IOBatch* data)
+	{
+		cacore::batch_deserializer<ca_io::IOBatch> deserializer(data);
+		deserializer.deserialize(*this);
+		deserializer.finalize();
 	}
 
 	ShaderResourceLoaderSlang::ShaderResourceLoaderSlang()

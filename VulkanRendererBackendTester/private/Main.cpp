@@ -34,6 +34,7 @@
 #include <CATimer/Timer.h>
 #include <TimerSystemEditor/TimerSystem_Impl.h>
 #include <thread>
+#include <IOManager/IOManager.h>
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -41,6 +42,10 @@ using namespace uenum;
 using namespace resource_management;
 using namespace cawindow;
 using namespace catimer;
+using namespace ca_io;
+
+castl::shared_ptr<IOManager> g_IOManager;
+
 
 struct VertexData
 {
@@ -61,8 +66,10 @@ int main(int argc, char *argv[])
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("VulkanRenderBackend");
-	TModuleLoader<ResourceFactory> renderImportingSystemLoader("CAGeneralReourceSystem");
+	TModuleLoader<ResourceFactory> resourceSystemLoader("CAGeneralReourceSystem");
 	TModuleLoader<IWindowSystem> windowSystemLoader("WindowSystem");
+	TModuleLoader<IOManager> ioManagerLoader("IOManager_FS");
+
 
 	auto windowSystem = windowSystemLoader.New();
 
@@ -73,18 +80,21 @@ int main(int argc, char *argv[])
 	//gCPUProfiler.Initialize(5, 1024);
 	//PROFILE_FRAME();
 
-	auto resourceSystemFactory = renderImportingSystemLoader.New();
+	auto resourceSystemFactory = resourceSystemLoader.New();
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
-	n = (n == 0) ? 5 : (castl::min)(n, 8u);
+	n = (n == 0) ? 5 : (castl::min)(n, 16u);
 	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 1);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
+	g_IOManager = ioManagerLoader.New();
+	g_IOManager->Initialize(pThreadManager.get());
 
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
 
 	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
+	pResourceManagingSystem->Initialize(g_IOManager);
 	pResourceManagingSystem->SetResourceRootPath(assetString);
 
 	auto pResourceImportingSystem = resourceSystemFactory->NewImportingSystemShared();
@@ -166,28 +176,26 @@ int main(int argc, char *argv[])
 	auto texture = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource0->GetWidth(), pTextureResource0->GetHeight(), pTextureResource0->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
 	auto texture1 = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
 
-	pThreadManager->OneTime([&](auto setup)
 	{
-			setup->NewTaskGraph()
-				->Name("Setup")
-				->Func([&, pBackend = pBackend](auto scheduler)
-				{
-					castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
-					submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
-					submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
-					submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
-					submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
-					RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
+		auto pSetupScheduler = pThreadManager->NewScheduler();
+		pSetupScheduler->NewTaskGraph()
+			->Name("Setup")
+			->Func([&, pBackend = pBackend](auto scheduler)
+			{
+				castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+				submitGraph->ScheduleData(BufferHandle{ vertexBuffer }, vertexDataList.data(), vertexDataList.size() * sizeof(vertexDataList[0]));
+				submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
+				submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
+				submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
+				RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
 
-					imguiContext.Initialize(editorResourceString, pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
+				imguiContext.Initialize(editorResourceString, pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
 
-					GPUFrame submitFrame{};
-					submitFrame.pGraph = submitGraph;
-					pBackend->ScheduleGPUFrame(scheduler, submitFrame);
-				});
-
-	}, "");
-	pThreadManager->Run();
+				GPUFrame submitFrame{};
+				submitFrame.pGraph = submitGraph;
+				pBackend->ScheduleGPUFrame(scheduler, submitFrame);
+			});
+	}
 
 	VertexInputsDescriptor vertexInputDesc = VertexInputsDescriptor::Create(
 		sizeof(VertexData),

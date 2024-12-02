@@ -12,6 +12,12 @@ namespace resource_management
 		cacore::deserializer<decltype(data)> deserializer(data);
 		deserializer.deserialize(*this);
 	}
+	void TextureResource::Deserialzie(ca_io::IOBatch* data)
+	{
+		cacore::batch_deserializer<ca_io::IOBatch> deserializer(data);
+		deserializer.deserialize(*this);
+		deserializer.finalize();
+	}
 	void TextureResource::SetData(void* data, uint64_t size)
 	{
 		m_Bytes.resize(size);

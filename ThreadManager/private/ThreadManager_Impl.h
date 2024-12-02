@@ -222,6 +222,7 @@ namespace thread_management
 		virtual uint64_t GetCurrentFrame() const override { return m_Frames; }
 		virtual void OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) override;
 		virtual void LoopFunction(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) override;
+		virtual castl::shared_ptr<TaskScheduler> NewScheduler() override;
 		virtual void Run() override;
 		void Stop();
 		void WakeAll();

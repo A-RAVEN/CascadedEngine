@@ -19,6 +19,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE assimp)
 target_link_libraries(${PROJECT_NAME} PRIVATE stb)
 target_link_libraries(${PROJECT_NAME} PRIVATE TimerSystem_Impl)
 target_link_libraries(${PROJECT_NAME} PRIVATE Jolt)
+target_link_libraries(${PROJECT_NAME} PRIVATE IOManager)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)

@@ -11,6 +11,7 @@
 #include <Serialization.h>
 #include <Hasher.h>
 
+
 namespace resource_management
 {
 	using namespace library_loader;
@@ -19,6 +20,7 @@ namespace resource_management
 	public:
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
 		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
+		virtual void Deserialzie(ca_io::IOBatch*) override;
 
 		virtual ShaderSourceInfo GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType shaderTargetType, ECompileShaderType shaderType, castl::string_view entryPoint) const override
 		{ 

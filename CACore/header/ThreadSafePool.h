@@ -1,7 +1,4 @@
 #pragma once
-//#include <mutex>
-//#include <deque>
-//#include <functional>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CADeque.h>
 #include <CASTL/CAList.h>

@@ -313,6 +313,15 @@ namespace thread_management
         m_SetupEventName = waitingEvent;
     }
 
+    castl::shared_ptr<TaskScheduler> ThreadManager_Impl1::NewScheduler()
+    {
+        TaskScheduler_Impl* newScheduler = new TaskScheduler_Impl(this, this, &m_TaskNodeAllocator);
+        return castl::shared_ptr<TaskScheduler>(newScheduler, [](TaskScheduler* pScheduler)
+            {
+                pScheduler->WaitAll();
+            });
+    }
+
     void ThreadManager_Impl1::Run()
     {
         m_WaitingIdle = false;

@@ -3,12 +3,19 @@
 #include "IResource.h"
 #include <ThreadManager.h>
 #include <functional>
+#include <CASTL/CASharedPtr.h>
+#include <IOManager/IOManager.h>
 
 namespace resource_management
 {
 	class ResourceManagingSystem
 	{
 	public:
+		void Initialize(castl::shared_ptr<ca_io::IOManager> ioManager)
+		{
+			pIOManager = ioManager;
+		}
+
 		virtual void* AllocResourceMemory(
 			castl::string type_name
 			, castl::string const& resource_path
@@ -25,6 +32,9 @@ namespace resource_management
 
 		virtual castl::vector<uint8_t> LoadBinaryFile(castl::string const& path) = 0;
 
+		virtual castl::string ResourceFullPath(castl::string_view path) = 0;
+
+
 		template<typename TRes>
 		void LoadResource(castl::string const& path, std::function<void(TRes*)> callback)
 		{
@@ -36,9 +46,10 @@ namespace resource_management
 			}
 			else
 			{
-				auto data = LoadBinaryFile(path);
+				auto batch = pIOManager->Batch(ResourceFullPath(path));
+				//auto data = LoadBinaryFile(path);
 				TRes* newResult = AllocResource<TRes>(path);
-				newResult->Deserialzie(data);
+				newResult->Deserialzie(batch.get());
 				callback(newResult);
 			}
 		}
@@ -67,5 +78,7 @@ namespace resource_management
 			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
 			ReleaseResourceMemory(typeid(TRes).name(), releasingRes);
 		}
+
+		castl::shared_ptr<ca_io::IOManager> pIOManager;
 	};
 }
