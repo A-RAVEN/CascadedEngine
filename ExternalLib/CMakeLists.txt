@@ -51,6 +51,8 @@ set(ASSIMP_BUILD_TESTS OFF CACHE INTERNAL "Turn Off Tests")
 set(ASSIMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assimp)
 add_subdirectory(${ASSIMP_DIR})
 
+add_subdirectory(DirectX-Headers)
+
 
 #EASTL
 #set(EASTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EASTL)
@@ -75,3 +77,7 @@ add_subdirectory(${SLANG_DIR})
 set(CROSS_PLATFORM_DETERMINISTIC ON)
 set(OVERRIDE_CXX_FLAGS OFF)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JoltPhysics/Build)
+
+add_library(VulkanSDK SHARED IMPORTED GLOBAL)
+set_property(TARGET VulkanSDK PROPERTY INTERFACE_INCLUDE_DIRECTORIES $ENV{VK_SDK_PATH}/Include)
+set_property(TARGET VulkanSDK PROPERTY IMPORTED_IMPLIB $ENV{VK_SDK_PATH}/Lib/vulkan-1.lib)

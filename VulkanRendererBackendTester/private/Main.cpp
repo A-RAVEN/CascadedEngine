@@ -147,7 +147,6 @@ int main(int argc, char *argv[])
 
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize(GetGlobalTimerSystem(), "Test Vulkan Backend", "CASCADED Engine");
-	pBackend->InitializeThreadContextCount(5);
 
 	imgui_display::IMGUIContext imguiContext;
 

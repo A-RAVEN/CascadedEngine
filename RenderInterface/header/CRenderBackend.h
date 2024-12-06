@@ -28,7 +28,6 @@ namespace graphics_backend
 	{
 	public:
 		virtual void Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName) = 0;
-		virtual void InitializeThreadContextCount(uint32_t threadContextCount) = 0;
 		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) = 0;
 		virtual void Release() = 0;
 

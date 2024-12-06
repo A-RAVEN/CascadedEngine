@@ -23,3 +23,6 @@
 [submodule "ExternalLib/JoltPhysics"]
 	path = ExternalLib/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "ExternalLib/DirectX-Headers"]
+	path = ExternalLib/DirectX-Headers
+	url = https://github.com/microsoft/DirectX-Headers.git

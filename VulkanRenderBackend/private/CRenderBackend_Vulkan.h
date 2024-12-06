@@ -11,7 +11,6 @@ namespace graphics_backend
 	{
 	public:
 		void Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName) override;
-		void InitializeThreadContextCount(uint32_t threadCount) override;
 		void Release() override;
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		bool AnyWindowRunning() override;
