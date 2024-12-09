@@ -49,7 +49,6 @@ int main(int argc, char* argv[])
 	auto windowSystem = windowSystemLoader.New();
 
 	InitTimerSystem();
-	GetGlobalTimerSystem()->SetThreadName("Main");
 
 	TIMER_NEWFRAME();
 
@@ -62,6 +61,8 @@ int main(int argc, char* argv[])
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize(GetGlobalTimerSystem(), "Test Vulkan Backend", "CASCADED Engine");
 
+	GPUTextureDescriptor textureDesc = GPUTextureDescriptor::Create(1024, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst);
+	castl::shared_ptr<GPUTexture> texture = pBackend->CreateGPUTexture(textureDesc);
 
 	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
 	auto windowHandle = pBackend->GetWindowHandle(newWindow.lock());

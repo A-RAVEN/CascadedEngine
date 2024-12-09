@@ -26,3 +26,6 @@
 [submodule "ExternalLib/DirectX-Headers"]
 	path = ExternalLib/DirectX-Headers
 	url = https://github.com/microsoft/DirectX-Headers.git
+[submodule "ExternalLib/D3D12MemoryAllocator"]
+	path = ExternalLib/D3D12MemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator.git

@@ -289,5 +289,6 @@ namespace catimer
 	void InitTimerSystem()
 	{
 		SetGlobalTimerSystem(&g_TimerSystem_Impl);
+		TIMER_NEWFRAME();
 	}
 }

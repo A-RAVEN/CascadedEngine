@@ -6,6 +6,8 @@ project (${PROJECT_NAME})
 set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator)
 add_subdirectory(${VMA_DIR})
 
+add_subdirectory(D3D12MemoryAllocator)
+
 #GLM
 add_subdirectory(glm)
 

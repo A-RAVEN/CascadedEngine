@@ -3,6 +3,9 @@
 #include "RenderBackend_D3D12.h"
 #include <CATimer/Timer.h>
 #include <LibraryExportCommon.h>
+#include <ResourceManagment/D3DImageObject.h>
+#include <ResourceManagment/D3DBufferObject.h>
+#include <Utils/InterfaceTranslation.h>
 
 namespace graphics_backend
 {
@@ -89,7 +92,11 @@ namespace graphics_backend
         *ppAdapter = adapter.Detach();
     }
 
-	void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName)
+    RenderBackend_D3D12::RenderBackend_D3D12() : m_MemoryManager(this)
+    {
+    }
+
+    void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName)
 	{
         catimer::SetGlobalTimerSystem(timer);
 
@@ -113,11 +120,10 @@ namespace graphics_backend
         //ComPtr<IDXGIFactory4> factory;
         ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_Factory)));
 
-        ComPtr<IDXGIAdapter1> hardwareAdapter;
-        GetHardwareAdapter(m_Factory.Get(), &hardwareAdapter);
+        GetHardwareAdapter(m_Factory.Get(), &m_Adapter);
 
         ThrowIfFailed(D3D12CreateDevice(
-            hardwareAdapter.Get(),
+            m_Adapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
             IID_PPV_ARGS(&m_Device)
         ));
@@ -126,7 +132,15 @@ namespace graphics_backend
         queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_CommandQueue)));
+
+        m_MemoryManager.Init();
 	}
+
+    void RenderBackend_D3D12::Release()
+    {
+        m_MemoryManager.Release();
+
+    }
 
     castl::shared_ptr<WindowHandle> RenderBackend_D3D12::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)
     {
@@ -143,6 +157,46 @@ namespace graphics_backend
     bool RenderBackend_D3D12::AnyWindowRunning()
     {
         return !m_WindowContexts.empty();
+    }
+
+    castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
+    {
+        castl::shared_ptr<D3DBufferObject> result = castl::make_shared<D3DBufferObject>(this);
+        D3D12_RESOURCE_DESC resourceDesc{};
+        resourceDesc.Alignment = 0;
+        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resourceDesc.Width = descriptor.count;
+        resourceDesc.Height = 1;
+        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.MipLevels = 1;
+        resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        resourceDesc.SampleDesc.Count = 1;
+        resourceDesc.SampleDesc.Quality = 0;
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+        result->SetGPUResource(castl::move(resource));
+        return result;
+    }
+
+    castl::shared_ptr<GPUTexture> RenderBackend_D3D12::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor)
+    {
+        castl::shared_ptr<D3DImageObject> result = castl::make_shared<D3DImageObject>(this);
+        D3D12_RESOURCE_DESC resourceDesc{};
+        resourceDesc.Alignment = 0;
+        resourceDesc.Dimension = ETextureTypeToResourceDimension(inDescriptor.textureType);
+		resourceDesc.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
+        resourceDesc.Width = inDescriptor.width;
+        resourceDesc.Height = inDescriptor.height;
+        resourceDesc.DepthOrArraySize = inDescriptor.layers;
+        resourceDesc.MipLevels = inDescriptor.mipLevels;
+        resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(inDescriptor.format, inDescriptor.accessType);
+        resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
+        resourceDesc.SampleDesc.Quality = 0;
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+        result->SetGPUResource(castl::move(resource));
+        return result;
     }
 
 
