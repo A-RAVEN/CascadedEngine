@@ -72,6 +72,9 @@ namespace graphics_backend
 	{
 		castl::vector<CAttachmentInfo> attachmentInfos{};
 		castl::vector<CSubpassInfo> subpassInfos{};
+		constexpr size_t GetSubpassColorAttachmentCount(uint32_t subpassID) const { return subpassInfos[subpassID].colorAttachmentIDs.size(); }
+		constexpr CAttachmentInfo const& GetSubPassColorAttachmentInfo(uint32_t subpassID, uint32_t colorAttachmentID) const { return attachmentInfos[subpassInfos[subpassID].colorAttachmentIDs[colorAttachmentID]]; }
+		constexpr CAttachmentInfo const& GetSubPassDepthAttachmentInfo(uint32_t subpassID) const { return attachmentInfos[subpassInfos[subpassID].depthAttachmentID]; }
 		auto operator<=>(const CRenderPassInfo&) const = default;
 	};
 }

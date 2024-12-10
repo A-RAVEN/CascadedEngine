@@ -50,7 +50,6 @@ int main(int argc, char* argv[])
 
 	InitTimerSystem();
 
-	TIMER_NEWFRAME();
 
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();

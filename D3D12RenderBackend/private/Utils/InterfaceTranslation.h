@@ -134,4 +134,79 @@ namespace graphics_backend
 		return D3D12_RESOURCE_DIMENSION_UNKNOWN;
 	}
 
+	constexpr D3D12_BLEND EBlendFactorToD3D12Blend(EBlendFactor blendFactor)
+    {
+		switch (blendFactor)
+		{
+			case EBlendFactor::eZero:
+				return D3D12_BLEND_ZERO;
+			case EBlendFactor::eOne:
+				return D3D12_BLEND_ONE;
+			case EBlendFactor::eSrcAlpha:
+				return D3D12_BLEND_SRC_ALPHA;
+			case EBlendFactor::eOneMinusSrcAlpha:
+				return D3D12_BLEND_INV_SRC_ALPHA;
+			case EBlendFactor::eDstAlpha:
+				return D3D12_BLEND_DEST_ALPHA;
+			case EBlendFactor::eOneMinusDstAlpha:
+				return D3D12_BLEND_INV_DEST_ALPHA;
+			case EBlendFactor::eSrcColor:
+				return D3D12_BLEND_SRC_COLOR;
+			case EBlendFactor::eOneMinusSrcColor:
+				return D3D12_BLEND_INV_SRC_COLOR;
+			case EBlendFactor::eDstColor:
+				return D3D12_BLEND_DEST_COLOR;
+			case EBlendFactor::eOneMinusDstColor:
+				return D3D12_BLEND_INV_DEST_COLOR;
+			default:
+				CA_LOG_ERR("Unknown Blend Factor!");
+				return D3D12_BLEND_ZERO;
+		}
+    }
+
+	constexpr D3D12_BLEND_OP EBlendOpToD3D12BlendOp(EBlendOp blendOp)
+	{
+		switch (blendOp)
+		{
+		case EBlendOp::eAdd:
+			return D3D12_BLEND_OP_ADD;
+		case EBlendOp::eSubtract:
+			return D3D12_BLEND_OP_SUBTRACT;
+		case EBlendOp::eReverseSubtract:
+			return D3D12_BLEND_OP_REV_SUBTRACT;
+		case EBlendOp::eMin:
+			return D3D12_BLEND_OP_MIN;
+		case EBlendOp::eMax:
+			return D3D12_BLEND_OP_MAX;
+		default:
+			CA_LOG_ERR("Unknown Blend Op!");
+			return D3D12_BLEND_OP_ADD;
+		}
+	}
+
+	constexpr D3D12_COMPARISON_FUNC ECompareOpToD3D12Comparison(ECompareOp compareOp)
+	{
+		switch (compareOp)
+		{
+		case ECompareOp::eAlways:
+			return D3D12_COMPARISON_FUNC_ALWAYS;
+		case ECompareOp::eNever:
+			return D3D12_COMPARISON_FUNC_NEVER;
+		case ECompareOp::eLEqual:
+			return D3D12_COMPARISON_FUNC_LESS_EQUAL;
+		case ECompareOp::eGEqual:
+			return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+		case ECompareOp::eLess:
+			return D3D12_COMPARISON_FUNC_LESS;
+		case ECompareOp::eGreater:
+			return D3D12_COMPARISON_FUNC_GREATER;
+		case ECompareOp::eEqual:
+			return D3D12_COMPARISON_FUNC_EQUAL;
+		case ECompareOp::eUnequal:
+			return D3D12_COMPARISON_FUNC_NOT_EQUAL;
+		default:
+			CA_LOG_ERR("Unknown Compare Op!");
+			return D3D12_COMPARISON_FUNC_NONE;
+		}
+	}
 }
