@@ -209,4 +209,43 @@ namespace graphics_backend
 			return D3D12_COMPARISON_FUNC_NONE;
 		}
 	}
+
+	constexpr D3D12_CULL_MODE ECullModeToD3D12CullMode(ECullMode cullMode)
+	{
+		switch (cullMode)
+		{
+		case ECullMode::eNone:
+			return D3D12_CULL_MODE_NONE;
+		case ECullMode::eBack:
+			return D3D12_CULL_MODE_BACK;
+		case ECullMode::eFront:
+			return D3D12_CULL_MODE_FRONT;
+		default:
+			CA_LOG_ERR("Unknown Cull Mode!");
+			return D3D12_CULL_MODE_NONE;
+		}
+	}
+
+	constexpr bool EFrontFaceIsClockWise(EFrontFace frontFace)
+	{
+		return frontFace == EFrontFace::eClockWise;
+	}
+
+	constexpr D3D12_PRIMITIVE_TOPOLOGY_TYPE ETopologyToD3D12TopologyType(ETopology topology)
+	{
+		switch (topology)
+		{
+		case ETopology::ePointList:
+			return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+		case ETopology::eLineList:
+		case ETopology::eLineStrip:
+			return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+		case ETopology::eTriangleList:
+		case ETopology::eTriangleStrip:
+			return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		default:
+			CA_LOG_ERR("Unknown Topology!");
+			return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+		}
+	}
 }

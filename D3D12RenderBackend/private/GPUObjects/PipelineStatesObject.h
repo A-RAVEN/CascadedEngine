@@ -18,6 +18,8 @@ namespace graphics_backend
 		cacore::HashObj<CPipelineStateObject> pipelineStates;
 		cacore::HashObj <CVertexInputDescriptor> vertexInputDesc;
 		cacore::HashObj <ShaderStateDescriptor> shaderStatesDesc;
+		cacore::HashObj <CRenderPassInfo> renderPassInfo;
+		uint32_t subpassIndex;
 	};
 	class PipelineStates : public D3D12SubobjectBase
 	{
