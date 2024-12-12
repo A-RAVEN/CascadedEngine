@@ -80,25 +80,56 @@ namespace graphics_backend
 		}
     }
 
-	static void PopulateFromVertexInputStates(D3D12_GRAPHICS_PIPELINE_STATE_DESC& inoutPipelienStateDesc
-		, CVertexInputDescriptor const& vertexInputStates)
-	{
-		inoutPipelienStateDesc.PrimitiveTopologyType = ETopologyToD3D12TopologyType(vertexInputStates.assemblyStates.topology);
-	}
-
 	void PipelineStates::Init(PipelineStateDesc const& pipelineStateDesc)
 	{
         auto& pipelineSates = pipelineStateDesc.pipelineStates.Get();
+        auto& shaderStates = pipelineStateDesc.shaderStatesDesc.Get();
 		auto& vertexInputStates = pipelineStateDesc.vertexInputDesc.Get();
 		auto& assemblyStates = vertexInputStates.assemblyStates;
 		auto& renderPassInfo = pipelineStateDesc.renderPassInfo.Get();
 
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+		castl::vector<D3D12_INPUT_ELEMENT_DESC> inputElementDescs;
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+
+		{
+			psoDesc.PrimitiveTopologyType = ETopologyToD3D12TopologyType(vertexInputStates.assemblyStates.topology);
+			size_t primitiveDescCount = 0;
+			for (uint32_t i = 0; i < vertexInputStates.m_PrimitiveDescriptions.size(); ++i)
+			{
+				primitiveDescCount += castl::get<1>(vertexInputStates.m_PrimitiveDescriptions[i]).size();
+			}
+			inputElementDescs.resize(primitiveDescCount);
+			psoDesc.InputLayout.NumElements = primitiveDescCount;
+
+			{
+				size_t inputElementIndex = 0;
+				uint32_t inputSlot = 0;
+				for (auto& primitiveDesc : vertexInputStates.m_PrimitiveDescriptions)
+				{
+					auto& srcPrimitiveDesc = castl::get<1>(primitiveDesc);
+					for (auto& srcInputElement : srcPrimitiveDesc)
+					{
+						auto& destInputElement = inputElementDescs[inputElementIndex];
+						destInputElement.SemanticName = srcInputElement.semanticName.c_str();
+						destInputElement.SemanticIndex = srcInputElement.attributeIndex;
+						destInputElement.Format = VertexInputFormatToDXGIFormat(srcInputElement.format);
+						destInputElement.InputSlot = inputSlot;
+						destInputElement.AlignedByteOffset = srcInputElement.offset;
+						destInputElement.InputSlotClass = castl::get<2>(primitiveDesc) ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+						destInputElement.InstanceDataStepRate = castl::get<0>(primitiveDesc);
+						++inputElementIndex;
+					}
+					++inputSlot;
+				}
+			}
+		}
+
         //psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
-        ////psoDesc.pRootSignature = m_rootSignature.Get();
+		{
+		}
+        psoDesc.pRootSignature = shaderStates.rootSignature.Get();
         //psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
         //psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
         psoDesc.SampleMask = UINT_MAX;
 		PopulateFromPipelineStates(psoDesc, renderPassInfo, pipelineStateDesc.subpassIndex, pipelineSates);
-		PopulateFromVertexInputStates(psoDesc, vertexInputStates);
 	}

@@ -8,6 +8,7 @@ namespace graphics_backend
 	struct ShaderStateDescriptor
 	{
 	public:
+		ComPtr<ID3D12RootSignature> rootSignature = nullptr;
 		//castl::shared_ptr<CShaderModuleObject> vertexShader = nullptr;
 		//castl::shared_ptr <CShaderModuleObject> fragmentShader = nullptr;
 		auto operator<=>(const ShaderStateDescriptor&) const = default;

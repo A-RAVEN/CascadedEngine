@@ -248,4 +248,28 @@ namespace graphics_backend
 			return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 		}
 	}
+
+	constexpr DXGI_FORMAT VertexInputFormatToDXGIFormat(VertexInputFormat vertexInputFormat)
+	{
+		switch (vertexInputFormat)
+		{
+		case VertexInputFormat::eR32_SFloat:
+			return DXGI_FORMAT_R32_FLOAT;
+		case VertexInputFormat::eR32G32_SFloat:
+			return DXGI_FORMAT_R32G32_FLOAT;
+		case VertexInputFormat::eR32G32B32_SFloat:
+			return DXGI_FORMAT_R32G32B32_FLOAT;
+		case VertexInputFormat::eR32G32B32A32_SFloat:
+			return DXGI_FORMAT_R32G32B32A32_FLOAT;
+		case VertexInputFormat::eR8G8B8A8_UNorm:
+			return DXGI_FORMAT_R8G8B8A8_UNORM;
+		case VertexInputFormat::eR32_UInt:
+			return DXGI_FORMAT_R32_UINT;
+		case VertexInputFormat::eR32_SInt:
+			return DXGI_FORMAT_R32_SINT;
+		default:
+			CA_LOG_ERR("Unknown Vertex Input Format!");
+			return DXGI_FORMAT_UNKNOWN;
+		}
+	}
 }
