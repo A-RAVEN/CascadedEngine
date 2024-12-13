@@ -316,7 +316,7 @@ namespace imgui_display
 			newWindowHandle.m_WindowHandle = pUserData->pWindowHandle;
 		}
 		m_TextureViewContexts.push_back(newWindowHandle);
-		ImTextureID texID = &m_TextureViewContexts.back();
+		ImTextureID texID = (uint64_t)(&m_TextureViewContexts.back());
 		ImGui::Image(texID, ImVec2(vMax.x - vMin.x, vMax.y - vMin.y), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 		ImGui::End();
 	}
@@ -771,9 +771,9 @@ namespace imgui_display
 				pUserData->m_Sissors.push_back(glm::ivec4(pcmd->ClipRect.x - viewPort->Pos.x, pcmd->ClipRect.y - viewPort->Pos.y, pcmd->ClipRect.z - pcmd->ClipRect.x, pcmd->ClipRect.w - pcmd->ClipRect.y));
 				idxOffset += pcmd->ElemCount;
 				ImTextureID id = pcmd->GetTexID();
-				if (id != nullptr)
+				IMGUITextureViewContext* textureContext = (IMGUITextureViewContext*)id;
+				if (textureContext != nullptr)
 				{
-					IMGUITextureViewContext* textureContext = (IMGUITextureViewContext*)id;
 					if (textureContext->m_ViewportRect.width > 0 && textureContext->m_ViewportRect.height > 0)
 					{
 						textureContext->m_TextureDescriptor = GPUTextureDescriptor::Create(

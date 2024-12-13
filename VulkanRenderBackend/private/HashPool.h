@@ -49,7 +49,8 @@ namespace graphics_backend
 				}
 				else
 				{
-					result = GetVulkanApplication().NewSubObject_Shared<ValType>(desc);
+					auto& VulkanApp = GetVulkanApplication();
+					result = VulkanApp.template NewSubObject_Shared<ValType>(desc);
 					it = m_InternalMap.insert(castl::make_pair(desc, result)).first;
 				}
 			}

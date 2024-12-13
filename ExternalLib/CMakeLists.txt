@@ -2,66 +2,75 @@
 set(PROJECT_NAME ExternalProjects)
 project (${PROJECT_NAME})
 
-#VMA
-set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator)
-add_subdirectory(${VMA_DIR})
+#CPM
+file(
+  DOWNLOAD
+  https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.40.2/CPM.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake
+)
+include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
-add_subdirectory(D3D12MemoryAllocator)
+CPMAddPackage(
+  NAME VulkanMemoryAllocator
+  GIT_TAG v3.1.0
+  GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
+)
 
-#GLM
-add_subdirectory(glm)
+#DMA Only Master Works For Now
+CPMAddPackage(
+  NAME D3D12MemoryAllocator
+  GIT_TAG master
+  GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator
+)
 
-#GLFW
-set(GLFW_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glfw)
-set(GLFW_BUILD_EXAMPLES OFF CACHE INTERNAL "Build the GLFW example programs")
-set(GLFW_BUILD_TESTS OFF CACHE INTERNAL "Build the GLFW test programs")
-set(GLFW_BUILD_DOCS OFF CACHE INTERNAL "Build the GLFW documentation")
-set(GLFW_INSTALL OFF CACHE INTERNAL "Generate installation target")
-add_subdirectory(${GLFW_DIR})
+CPMAddPackage(
+  NAME glfw
+  GIT_TAG 3.4
+  GITHUB_REPOSITORY glfw/glfw
+  OPTIONS
+	"GLFW_BUILD_EXAMPLES OFF"
+	"GLFW_BUILD_TESTS OFF"
+	"GLFW_BUILD_DOCS OFF"
+	"GLFW_INSTALL OFF"
+)
 
-#IMGUI
-file(GLOB IMGUI_SourceList "${CMAKE_CURRENT_SOURCE_DIR}/imgui/*.cpp")
+CPMAddPackage(
+  NAME glm
+  GIT_TAG 1.0.1
+  GITHUB_REPOSITORY g-truc/glm
+)
+
+CPMAddPackage(
+  NAME imgui
+  VERSION 1.91.6-docking
+  GITHUB_REPOSITORY ocornut/imgui
+  DOWNLOAD_ONLY TRUE
+)
+file(GLOB IMGUI_SourceList "${imgui_SOURCE_DIR}/*.cpp")
 add_library(IMGUI STATIC ${IMGUI_SourceList})
-target_include_directories(IMGUI PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
-
-#ZPP_Bits
-#add_library(zpp_bits INTERFACE)
-#target_include_directories(zpp_bits INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/zpp_bits)
-
-#STB
-add_library(stb INTERFACE)
-target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
-
-#DXC
-#[[
-set(LLVM_PARALLEL_COMPILE_JOBS 1)
-set(LLVM_PARALLEL_LINK_JOBS 1)
-set(LLVM_TARGETS_TO_BUILD "None")
-set(DXC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/DirectXShaderCompiler)
-include(${DXC_DIR}/cmake/caches/PredefinedParams.cmake)
-set(LLVM_INCLUDE_TESTS OFF)
-set(HLSL_INCLUDE_TESTS OFF)
-set(ENABLE_SPIRV_CODEGEN ON)
-add_subdirectory(${DXC_DIR})
-]]
-
-#ASSIMP
-set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE INTERNAL "Turn Off Warnings As Errors")
-set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE INTERNAL "Turn Off Postfix")
-set(ASSIMP_INSTALL OFF CACHE INTERNAL "Turn Off Postfix")
-set(ASSIMP_BUILD_TESTS OFF CACHE INTERNAL "Turn Off Tests")
-set(ASSIMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assimp)
-add_subdirectory(${ASSIMP_DIR})
-
-add_subdirectory(DirectX-Headers)
+target_include_directories(IMGUI PUBLIC ${imgui_SOURCE_DIR})
 
 
-#EASTL
-#set(EASTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EASTL)
-#add_subdirectory(${EASTL_DIR})
 
+CPMAddPackage(
+  NAME assimp
+  GIT_TAG v5.4.3
+  GITHUB_REPOSITORY assimp/assimp
+  OPTIONS
+	"ASSIMP_WARNINGS_AS_ERRORS OFF"
+	"ASSIMP_INJECT_DEBUG_POSTFIX OFF"
+	"ASSIMP_INSTALL OFF"
+	"ASSIMP_BUILD_TESTS OFF"
+)
+
+CPMAddPackage(
+  NAME DirectX-Headers
+  VERSION 1.614.1
+  GITHUB_REPOSITORY microsoft/DirectX-Headers
+)
 
 #slang
+#[[
 set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
 set(SLANG_LIB_TYPE STATIC)
 set(SLANG_ENABLE_SLANG_GLSLANG ON)
@@ -74,11 +83,46 @@ set(SLANG_ENABLE_EXAMPLES OFF)
 add_compile_definitions(SLANG_ENABLE_GLSLANG_STATIC_LINK)
 set(SLANG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/slang)
 add_subdirectory(${SLANG_DIR})
+]]
 
-#jolt physics
-set(CROSS_PLATFORM_DETERMINISTIC ON)
-set(OVERRIDE_CXX_FLAGS OFF)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JoltPhysics/Build)
+CPMAddPackage(
+  NAME slang
+  GIT_TAG master
+  GITHUB_REPOSITORY A-RAVEN/slang
+  GIT_SUBMODULES_RECURSE TRUE
+  GIT_PROGRESS TRUE
+  OPTIONS
+	"SLANG_SLANG_LLVM_FLAVOR DISABLE"
+	"SLANG_LIB_TYPE STATIC"
+	"SLANG_ENABLE_SLANG_GLSLANG ON"
+	"SLANG_ENABLE_DXIL ON"
+	"SLANG_ENABLE_TESTS OFF"
+	"SLANG_ENABLE_GFX OFF"
+	"SLANG_ENABLE_SLANGD OFF"
+	"SLANG_ENABLE_SLANGRT OFF"
+	"SLANG_ENABLE_EXAMPLES OFF"
+)
+
+#STB
+if(NOT TARGET stb)
+CPMAddPackage(
+  NAME stb
+  GIT_TAG master
+  GITHUB_REPOSITORY nothings/stb
+  DOWNLOAD_ONLY TRUE
+)
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
+endif()
+
+CPMAddPackage(
+  NAME JoltPhysics
+  VERSION 5.2.0
+  GITHUB_REPOSITORY jrouwe/JoltPhysics
+  OPTIONS
+	"CROSS_PLATFORM_DETERMINISTIC ON"
+	"OVERRIDE_CXX_FLAGS OFF"
+)
 
 add_library(VulkanSDK SHARED IMPORTED GLOBAL)
 set_property(TARGET VulkanSDK PROPERTY INTERFACE_INCLUDE_DIRECTORIES $ENV{VK_SDK_PATH}/Include)

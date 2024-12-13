@@ -7,12 +7,12 @@ namespace graphics_backend
 	{
 	}
 
-    static void PopulateFromPipelineStates(D3D12_GRAPHICS_PIPELINE_STATE_DESC& inoutPipelienStateDesc
+	static void PopulateFromPipelineStates(D3D12_GRAPHICS_PIPELINE_STATE_DESC& inoutPipelienStateDesc
 		, CRenderPassInfo const& renderPassInfo
 		, uint32_t subpassId
 		, CPipelineStateObject const& pipelineState)
-    {
-        auto& subpassInfo = renderPassInfo.subpassInfos[subpassId];
+	{
+		auto& subpassInfo = renderPassInfo.subpassInfos[subpassId];
 		auto& srcBlendStates = pipelineState.colorAttachments.attachmentBlendStates;
 		auto& srcRasterizerState = pipelineState.rasterizationStates;
 		auto& dstRasterizerState = inoutPipelienStateDesc.RasterizerState;
@@ -78,12 +78,12 @@ namespace graphics_backend
 				itrBlendState.LogicOp = D3D12_LOGIC_OP_CLEAR;
 			}
 		}
-    }
+	}
 
 	void PipelineStates::Init(PipelineStateDesc const& pipelineStateDesc)
 	{
-        auto& pipelineSates = pipelineStateDesc.pipelineStates.Get();
-        auto& shaderStates = pipelineStateDesc.shaderStatesDesc.Get();
+		auto& pipelineSates = pipelineStateDesc.pipelineStates.Get();
+		auto& shaderStates = pipelineStateDesc.shaderStatesDesc.Get();
 		auto& vertexInputStates = pipelineStateDesc.vertexInputDesc.Get();
 		auto& assemblyStates = vertexInputStates.assemblyStates;
 		auto& renderPassInfo = pipelineStateDesc.renderPassInfo.Get();
@@ -124,12 +124,13 @@ namespace graphics_backend
 			}
 		}
 
-        //psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+		//psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
 		{
 		}
-        psoDesc.pRootSignature = shaderStates.rootSignature.Get();
-        //psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
-        //psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
-        psoDesc.SampleMask = UINT_MAX;
+		psoDesc.pRootSignature = shaderStates.rootSignature.Get();
+		//psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
+		//psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
+		psoDesc.SampleMask = UINT_MAX;
 		PopulateFromPipelineStates(psoDesc, renderPassInfo, pipelineStateDesc.subpassIndex, pipelineSates);
 	}
+}

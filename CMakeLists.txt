@@ -27,7 +27,7 @@ if (CMAKE_VERSION VERSION_GREATER 3.12)
 	set(CMAKE_CXX_STANDARD 20)
 endif()
 
-
+SET(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR}/installed)
 
 # External Project Help
 add_subdirectory ("ExternalLib")

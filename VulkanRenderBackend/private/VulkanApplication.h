@@ -15,6 +15,7 @@
 #include <GPUContexts/QueueContext.h>
 #include <GPUContexts/FrameContext.h>
 #include <Utilities/SubobjectTraits.h>
+#include <CASTL/CATypeTraits.h>
 
 namespace graphics_backend
 {
@@ -50,7 +51,7 @@ namespace graphics_backend
 		void TickWindowContexts();
 
 		template<typename T, typename...TArgs>
-		castl::shared_ptr<T> NewSubObject_Shared(TArgs&&...Args) {
+		castl::shared_ptr<T> NewSubObject_Shared(TArgs&...Args) {
 			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
 				, "Type T Not Compatible To Vulkan SubObject");
 			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
