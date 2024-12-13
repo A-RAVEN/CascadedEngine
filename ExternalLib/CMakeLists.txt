@@ -1,4 +1,5 @@
 
+include(FetchContent)
 set(PROJECT_NAME ExternalProjects)
 project (${PROJECT_NAME})
 
@@ -131,3 +132,10 @@ CPMAddPackage(
 add_library(VulkanSDK SHARED IMPORTED GLOBAL)
 set_property(TARGET VulkanSDK PROPERTY INTERFACE_INCLUDE_DIRECTORIES $ENV{VK_SDK_PATH}/Include)
 set_property(TARGET VulkanSDK PROPERTY IMPORTED_IMPLIB $ENV{VK_SDK_PATH}/Lib/vulkan-1.lib)
+
+FetchContent_Declare(
+  enum_name
+  GIT_REPOSITORY https://github.com/mguludag/enum_name.git
+  GIT_TAG main # or the specific tag or branch you want to use
+)
+FetchContent_MakeAvailable(enum_name)

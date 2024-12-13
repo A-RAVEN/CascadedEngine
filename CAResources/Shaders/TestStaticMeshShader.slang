@@ -12,7 +12,7 @@ struct VertexToFragment
     float4 position : SV_POSITION;
     float2 uv : TEXCOORD0;
     float3 wsPos : TEXCOORD1;
-    float3 normal : TEXCOORD0;
+    float3 normal : TEXCOORD2;
 };
 
 struct NormalStruct

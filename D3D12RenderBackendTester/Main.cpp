@@ -26,6 +26,8 @@
 #include <TimerSystemEditor/TimerSystem_Impl.h>
 #include <IOManager/IOManager.h>
 #include <filesystem>
+#include <mgutility/reflection/enum_name.hpp>
+
 using namespace thread_management;
 using namespace library_loader;
 using namespace graphics_backend;
@@ -36,11 +38,41 @@ using namespace ca_io;
 
 int main(int argc, char* argv[])
 {
+	TModuleLoader<ShaderCompilerSlang::IShaderCompilerManager> shaderManager("ShaderCompilerSlang");
+	castl::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> shaderCompilerManager = shaderManager.New();
+	shaderCompilerManager->InitializePoolSize(1);
+
+
+
 	std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format };
 	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
 	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
 	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
 	castl::string editorResourceString = castl::to_ca(rootPath.string()) + "EditorConfigs";
+
+	{
+		castl::string shaderPath = resourceString + "/Shaders";
+		castl::string testPath = shaderPath + "/TestStaticMeshShader.slang";
+		auto pCompiler = shaderCompilerManager->AquireShaderCompilerShared();
+		pCompiler->BeginCompileTask();
+		pCompiler->AddInlcudePath(shaderPath.c_str());
+		pCompiler->AddSourceFile(testPath.c_str());
+		pCompiler->EnableDebugInfo();
+		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
+		pCompiler->Compile();
+		if (pCompiler->HasError())
+		{
+			CA_LOG_ERR("Shader compile failed");
+		}
+		else
+		{
+			castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> result = pCompiler->GetResults();
+			for (auto& shaderCompileTargetResult : result)
+			{
+				std::cout << mgutility::enum_name(shaderCompileTargetResult.targetType) << std::endl;
+			}
+		}
+	}
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("D3D12RenderBackend");

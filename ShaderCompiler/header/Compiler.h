@@ -20,12 +20,6 @@ namespace ShaderCompilerSlang
 		eReadWrite,
 	};
 
-	//enum class EShaderImageType : uint8_t
-	//{
-	//	eSampledImage,
-	//	eStorageImage,
-	//};
-
 	//某个数值：scalar，vector，matrix
 	struct UniformElement
 	{
