@@ -20,7 +20,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE stb)
 target_link_libraries(${PROJECT_NAME} PRIVATE TimerSystem_Impl)
 target_link_libraries(${PROJECT_NAME} PRIVATE Jolt)
 target_link_libraries(${PROJECT_NAME} PRIVATE IOManager)
-target_link_libraries(${PROJECT_NAME} PRIVATE mgutility::enum_name)
+target_link_libraries(${PROJECT_NAME} PRIVATE magic_enum)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)

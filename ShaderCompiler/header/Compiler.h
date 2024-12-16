@@ -33,7 +33,7 @@ namespace ShaderCompilerSlang
 
 		bool isArray() const
 		{
-			m_ElementCount > 1;
+			return m_ElementCount > 1;
 		}
 		void Init(castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)
 		{
@@ -50,14 +50,16 @@ namespace ShaderCompilerSlang
 		castl::string m_Name;
 		uint32_t m_MemoryOffset;
 		uint32_t m_MemorySize;
+		//Array Element Stride?
 		uint32_t m_Stride;
+		//Array Element Count?
 		uint32_t m_ElementCount;
 		castl::vector<UniformElement> m_Elements;
 		castl::vector<uint32_t> m_SubGroups;
 
 		bool isArray() const
 		{
-			m_ElementCount > 1;
+			return m_ElementCount > 1;
 		}
 
 		void Init(castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)

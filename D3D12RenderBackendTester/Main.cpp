@@ -26,7 +26,7 @@
 #include <TimerSystemEditor/TimerSystem_Impl.h>
 #include <IOManager/IOManager.h>
 #include <filesystem>
-#include <mgutility/reflection/enum_name.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 using namespace thread_management;
 using namespace library_loader;
@@ -58,7 +58,7 @@ int main(int argc, char* argv[])
 		pCompiler->AddInlcudePath(shaderPath.c_str());
 		pCompiler->AddSourceFile(testPath.c_str());
 		pCompiler->EnableDebugInfo();
-		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
+		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eDXIL);
 		pCompiler->Compile();
 		if (pCompiler->HasError())
 		{
@@ -69,7 +69,37 @@ int main(int argc, char* argv[])
 			castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> result = pCompiler->GetResults();
 			for (auto& shaderCompileTargetResult : result)
 			{
-				std::cout << mgutility::enum_name(shaderCompileTargetResult.targetType) << std::endl;
+				std::cout << "TargetType: " <<  magic_enum::enum_name(shaderCompileTargetResult.targetType) << std::endl;
+				auto& reflectionData = shaderCompileTargetResult.m_ReflectionData;
+				auto& bindingData = reflectionData.m_BindingData;
+				for (auto& binding : bindingData)
+				{
+
+					std::cout << "-Binding Space: " << binding.m_BindingSpace << std::endl;
+					int uniformID = 0;
+					for (auto& uniformBuffer : binding.m_UniformBuffers)
+					{
+						std::cout << "--Uniform" << uniformID << ": BindingID" << uniformBuffer.m_BindingIndex << std::endl;
+						for (auto& group : uniformBuffer.m_Groups)
+						{
+							std::cout << "---Group: " << group.m_Name << std::endl;
+							std::cout << "----Offset/Size/Stride:" << group.m_MemoryOffset << "/" << group.m_MemorySize << "/" << group.m_Stride << std::endl;
+							if (group.isArray())
+							{
+								std::cout << "----IsArray(ElementCount):" << group.m_ElementCount << std::endl;
+							}
+							for (auto& element : group.m_Elements)
+							{
+								std::cout << "-----Name: " << element.m_Name << std::endl;
+								std::cout << "-----Offset/Size/Stride:" << element.m_MemoryOffset << "/" << element.m_ElementMemorySize << "/" << element.m_Stride << std::endl;
+								if (element.isArray())
+								{
+									std::cout << "-----IsArray(ElementCount):" << element.m_ElementCount << std::endl;
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}

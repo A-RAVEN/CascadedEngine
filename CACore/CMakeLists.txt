@@ -5,6 +5,7 @@ file(GLOB_RECURSE Source_List "*.cpp")
 
 add_library(${PROJECT_NAME} STATIC ${Source_List} ${Header_List})
 target_link_libraries(${PROJECT_NAME} PUBLIC CASTL)
+target_link_libraries(${PROJECT_NAME} PRIVATE magic_enum)
 target_include_directories(${PROJECT_NAME} PUBLIC header)
 target_include_directories(${PROJECT_NAME} INTERFACE header)
 
