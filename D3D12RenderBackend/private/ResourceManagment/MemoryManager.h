@@ -11,7 +11,7 @@ namespace graphics_backend
 		MemoryManager(RenderBackend_D3D12* app);
 		MemoryManager(MemoryManager&& other) = default;
 		MemoryManager& operator=(MemoryManager&& other) = default;
-		void Init() override;
+		void Init();
 		void Release() override;
 		GPUResource AllocGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType);
 	private:

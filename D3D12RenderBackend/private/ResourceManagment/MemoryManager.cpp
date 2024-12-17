@@ -28,6 +28,7 @@ namespace graphics_backend
 
 	GPUResource MemoryManager::AllocGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType)
 	{
+		D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = GetDevice()->GetResourceAllocationInfo(0, 1, &resourceDesc);
 		D3D12MA::ALLOCATION_DESC allocationDesc = {};
 		allocationDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
 
