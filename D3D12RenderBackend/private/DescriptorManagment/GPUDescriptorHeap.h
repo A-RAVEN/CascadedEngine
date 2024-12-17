@@ -37,10 +37,20 @@ namespace graphics_backend
 		castl::list<castl::range<uint32_t>> m_FreeList;
 	};
 
-	class CPUDescriptorManager : D3D12SubobjectBase
+	class CPUPagedDescriptorAllocator : D3D12SubobjectBase
 	{
 	public:
+		DescriptorAllocation AllocDescriptors(uint32_t descCount);
 	private:
-		castl::deque<DescriptorHeapAllocator> m_Allocators;
+		castl::deque<DescriptorHeapAllocator> m_Pages;
+	};
+
+	class GPUDescriptorHeap : D3D12SubobjectBase
+	{
+	public:
+		GPUDescriptorHeap(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_HugeHeap(app){}
+		void Init();
+	private:
+		DescriptorHeapAllocator m_HugeHeap;
 	};
 }

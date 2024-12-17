@@ -111,4 +111,27 @@ namespace graphics_backend
 		m_Range.head() += count;
 		return result;
 	}
+	void DescriptorAllocation::Release()
+	{
+		m_Allocator->FreeDescriptors(m_Range);
+	}
+	DescriptorAllocation CPUPagedDescriptorAllocator::AllocDescriptors(uint32_t descCount)
+	{
+		for (auto& page : m_Pages)
+		{
+			if (page.CanAllocate(descCount))
+			{
+				return page.AllocDescriptors(descCount);
+			}
+		}
+		auto& newPage = m_Pages.emplace_front(GetApp());
+		newPage.Init(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, false, 1024);
+		return newPage.AllocDescriptors(descCount);
+	}
+
+	void GPUDescriptorHeap::Init()
+	{
+		m_HugeHeap.Init(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true, castl::numeric_limits<uint32_t>::max());
+	}
+
 }

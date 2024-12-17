@@ -3,6 +3,7 @@
 #include "CATypeTraits.h"
 namespace castl
 {
+	//inclusive head and exclusive tail
 	template<typename T>
 	class range
 	{
@@ -13,16 +14,15 @@ namespace castl
 		T const& tail() const { return m_tail; }
 		T& head() { return m_head; }
 		T& tail() { return m_tail; }
-		T size() const { return m_tail - m_head + 1; }
+		T size() const { return m_tail - m_head; }
 
 		bool overlaps(range const& other) const
 		{
-			return m_head <= other.tail() && m_tail >= other.head();
+			return m_head < other.tail() && m_tail > other.head();
 		}
 		bool connect(range const& other) const
 		{
-			return ((m_tail < other.head()) && (m_tail + 1 == other.head()))
-				|| ((m_head > other.tail()) && (other.tail() + 1 == m_head));
+			return m_tail == other.head || other.tail() == m_head;
 		}
 		bool can_combine(range const& other) const
 		{
@@ -32,7 +32,7 @@ namespace castl
 		void encapsule(T const& value)
 		{
 			m_head = castl::min(m_head, value);
-			m_tail = castl::max(m_tail, value);
+			m_tail = castl::max(m_tail, value + 1);
 		}
 
 		void expand(range const& other)
@@ -43,7 +43,7 @@ namespace castl
 
 		static range invalid()
 		{
-			return range(1, 0);
+			return range(0, 0);
 		}
 	private:
 		T m_head;
