@@ -4,11 +4,14 @@ set(PROJECT_NAME ExternalProjects)
 project (${PROJECT_NAME})
 
 #CPM
+#[[
 file(
   DOWNLOAD
   https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.40.2/CPM.cmake
   ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake
 )
+]]
+file(COPY_FILE ${CMAKE_CURRENT_SOURCE_DIR}/CPM.cmake ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
 CPMAddPackage(
@@ -72,21 +75,8 @@ CPMAddPackage(
 )
 
 #slang
-#[[
-set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
-set(SLANG_LIB_TYPE STATIC)
-set(SLANG_ENABLE_SLANG_GLSLANG ON)
-set(SLANG_ENABLE_TESTS OFF)
-set(SLANG_ENABLE_GFX OFF)
-set(SLANG_ENABLE_SLANGD OFF)
-set(SLANG_ENABLE_SLANGC OFF)
-set(SLANG_ENABLE_SLANGRT OFF)
-set(SLANG_ENABLE_EXAMPLES OFF)
-add_compile_definitions(SLANG_ENABLE_GLSLANG_STATIC_LINK)
-set(SLANG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/slang)
-add_subdirectory(${SLANG_DIR})
-]]
 
+#[[
 CPMAddPackage(
   NAME slang
   GIT_TAG master
@@ -105,6 +95,37 @@ CPMAddPackage(
 	"SLANG_ENABLE_SLANGRT OFF"
 	"SLANG_ENABLE_EXAMPLES OFF"
 )
+]]
+
+CPMAddPackage(
+  NAME slang
+  URL https://github.com/shader-slang/slang/releases/download/v2024.17/slang-2024.17-windows-x86_64.zip
+  VERSION 2024.17
+  # the range-v3 CMakeLists screws with configuration options
+  DOWNLOAD_ONLY True
+)
+find_package(slang REQUIRED)
+
+#[[
+CPMAddPackage(
+  NAME slang
+  GIT_TAG v2024.15.2
+  GITHUB_REPOSITORY shader-slang/slang
+  GIT_SUBMODULES_RECURSE TRUE
+  GIT_PROGRESS TRUE
+  EXCLUDE_FROM_ALL TRUE
+  OPTIONS
+	"SLANG_SLANG_LLVM_FLAVOR DISABLE"
+	"SLANG_LIB_TYPE SHARED"
+	"SLANG_ENABLE_SLANG_GLSLANG ON"
+	"SLANG_ENABLE_DXIL ON"
+	"SLANG_ENABLE_TESTS OFF"
+	"SLANG_ENABLE_GFX OFF"
+	"SLANG_ENABLE_SLANGD OFF"
+	"SLANG_ENABLE_SLANGRT OFF"
+	"SLANG_ENABLE_EXAMPLES OFF"
+)
+]]
 
 #STB
 if(NOT TARGET stb)

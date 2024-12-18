@@ -51,6 +51,21 @@ namespace graphics_backend
 		void TickWindowContexts();
 
 		template<typename T, typename...TArgs>
+		static void InitObj(T* inoutObj, TArgs&...Args)
+		{
+			static_assert(has_initialize<T, TArgs...> || has_create<T, TArgs...>
+				, "Type T Not Initializable");
+			if constexpr (has_initialize<T, TArgs...>)
+			{
+				inoutObj->Initialize(castl::forward<TArgs>(Args)...);
+			}
+			else if constexpr (has_create<T, TArgs...>)
+			{
+				inoutObj->Create(castl::forward<TArgs>(Args)...);
+			}
+		}
+
+		template<typename T, typename...TArgs>
 		castl::shared_ptr<T> NewSubObject_Shared(TArgs&...Args) {
 			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
 				, "Type T Not Compatible To Vulkan SubObject");

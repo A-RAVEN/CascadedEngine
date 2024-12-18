@@ -12,4 +12,5 @@
 #define VULKAN_HPP_TYPESAFE_CONVERSION 1
 #endif
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_hash.hpp>
 #define VULKAN_API_VERSION_IN_USE VK_API_VERSION_1_3

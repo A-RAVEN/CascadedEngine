@@ -29,8 +29,6 @@ namespace graphics_backend
 		HashPool& operator=(HashPool const&) = delete;
 		HashPool(HashPool&& other) noexcept : VKAppSubObjectBaseNoCopy(other.GetVulkanApplication()), m_InternalDic(castl::move(other.m_InternalDic))
 		{
-			//castl::lock_guard<castl::mutex> lockGuard(other.m_Mutex);
-			//m_InternalMap = castl::move(other.m_InternalMap);
 		}
 		HashPool& operator=(HashPool&&) = delete;
 
@@ -39,28 +37,13 @@ namespace graphics_backend
 
 		castl::shared_ptr<ValType> GetOrCreate(DescType const& desc, castl::string const& name = "")
 		{
-			return m_InternalDic.get_or_create(desc, [&](auto inKey)
+			auto resultPair = m_InternalDic.get_or_create(desc, [&](auto inKey)
 				{
-					castl::shared_ptr<ValType> result = GetVulkanApplication().template NewSubObject_Shared<ValType>(inKey.Get());
+					castl::shared_ptr<ValType> result = GetVulkanApplication().template NewSubObject_Shared<ValType>();
 					return result;
 				});
-			//castl::shared_ptr<ValType> result = nullptr;
-			//{
-			//	castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			//	auto mapEnd = m_InternalMap.end();
-			//	auto it = m_InternalMap.find(desc);
-			//	if (it != mapEnd)
-			//	{
-			//		result = it->second;
-			//	}
-			//	else
-			//	{
-			//		auto& VulkanApp = GetVulkanApplication();
-			//		result = VulkanApp.template NewSubObject_Shared<ValType>(desc);
-			//		it = m_InternalMap.insert(castl::make_pair(desc, result)).first;
-			//	}
-			//}
-			//return result;
+			CVulkanApplication::InitObj(resultPair->second.get(), resultPair->first.Get());
+			return resultPair->second;
 		}
 
 		void Foreach(castl::function<void(DescType const&, ValType*)> callbackFunc)
@@ -69,12 +52,6 @@ namespace graphics_backend
 				{
 					callbackFunc(key.Get(), value.get());
 				});
-
-			//castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			//for (auto& it : m_InternalMap)
-			//{
-			//	callbackFunc(it.first, it.second.get());
-			//};
 		}
 
 		void ReleaseAll() requires has_release<ValType>
@@ -83,8 +60,6 @@ namespace graphics_backend
 				{
 					value->Release();
 				});
-			//castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			//m_InternalMap.clear();
 		}
 
 		void Clear()

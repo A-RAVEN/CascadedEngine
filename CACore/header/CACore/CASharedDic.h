@@ -10,20 +10,22 @@ namespace castl
 	class shared_dic
 	{
 	public:
+		using map_type = castl::unordered_map<cacore::HashObj<TKey>, TValue, cacore::hash<cacore::HashObj<TKey>>>;
+
 		shared_dic() = default;
 		shared_dic(shared_dic&& other) noexcept
 		{
 			castl::unique_lock write_lock(other.m_SharedMutex);
 			m_Map = castl::move(other.m_Map);
 		}
-		TValue& get_or_create(cacore::HashObj<TKey> const& inKey, castl::function<TValue(cacore::HashObj<TKey> const&)> createFunctor)
+		map_type::iterator get_or_create(cacore::HashObj<TKey> const& inKey, castl::function<TValue(cacore::HashObj<TKey> const&)> createFunctor)
 		{
 			{
 				castl::shared_lock lock(m_SharedMutex);
 				auto found = m_Map.find(inKey);
 				if (found != m_Map.end())
 				{
-					return found->second;
+					return found;
 				}
 			}
 			{
@@ -33,7 +35,7 @@ namespace castl
 				{
 					found = m_Map.insert(castl::make_pair(inKey, castl::move(createFunctor(inKey)))).first;
 				}
-				return found->second;
+				return found;
 			}
 		}
 		void for_each_const(castl::function<void(cacore::HashObj<TKey> const&, TValue const&)> callback) const
@@ -89,6 +91,6 @@ namespace castl
 		//}
 	private:
 		castl::shared_mutex m_SharedMutex;
-		castl::unordered_map<cacore::HashObj<TKey>, TValue, cacore::hash<cacore::HashObj<TKey>>> m_Map;
+		map_type m_Map;
 	};
 }

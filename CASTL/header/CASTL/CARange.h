@@ -22,7 +22,7 @@ namespace castl
 		}
 		bool connect(range const& other) const
 		{
-			return m_tail == other.head || other.tail() == m_head;
+			return m_tail == other.head() || other.tail() == m_head;
 		}
 		bool can_combine(range const& other) const
 		{
