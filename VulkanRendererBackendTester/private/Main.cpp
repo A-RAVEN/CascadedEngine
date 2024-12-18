@@ -233,7 +233,7 @@ int main(int argc, char *argv[])
 	meshRenderer.materials[1] = meshMaterial1;
 
 	MeshBatcher meshBatcher{ pBackend };
-	meshBatcher.AddMeshRenderer(meshRenderer, glm::mat4(1.0f));
+	meshBatcher.AddMeshRenderer(meshRenderer, glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)));
 
 	Camera camera;
 	castl::chrono::high_resolution_clock timer;

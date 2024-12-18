@@ -11,6 +11,7 @@ namespace castl
 	{
 	public:
 		using map_type = castl::unordered_map<cacore::HashObj<TKey>, TValue, cacore::hash<cacore::HashObj<TKey>>>;
+		using map_iterator = map_type::iterator;
 
 		shared_dic() = default;
 		shared_dic(shared_dic&& other) noexcept
@@ -34,6 +35,30 @@ namespace castl
 				if (found == m_Map.end())
 				{
 					found = m_Map.insert(castl::make_pair(inKey, castl::move(createFunctor(inKey)))).first;
+				}
+				return found;
+			}
+		}
+
+		map_iterator get_or_create(cacore::HashObj<TKey> const& inKey
+			, castl::function<TValue(cacore::HashObj<TKey> const&)> createFunctor
+			, castl::function<void(map_iterator&)> initializeFunctor)
+		{
+			{
+				castl::shared_lock lock(m_SharedMutex);
+				auto found = m_Map.find(inKey);
+				if (found != m_Map.end())
+				{
+					return found;
+				}
+			}
+			{
+				castl::unique_lock write_lock(m_SharedMutex);
+				auto found = m_Map.find(inKey);
+				if (found == m_Map.end())
+				{
+					found = m_Map.insert(castl::make_pair(inKey, castl::move(createFunctor(inKey)))).first;
+					initializeFunctor(found);
 				}
 				return found;
 			}

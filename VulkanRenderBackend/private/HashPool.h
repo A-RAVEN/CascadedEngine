@@ -41,8 +41,12 @@ namespace graphics_backend
 				{
 					castl::shared_ptr<ValType> result = GetVulkanApplication().template NewSubObject_Shared<ValType>();
 					return result;
+				},
+				[&](auto& kv_pair)
+				{
+					CVulkanApplication::InitObj(kv_pair->second.get(), kv_pair->first.Get());
 				});
-			CVulkanApplication::InitObj(resultPair->second.get(), resultPair->first.Get());
+			//CVulkanApplication::InitObj(resultPair->second.get(), resultPair->first.Get());
 			return resultPair->second;
 		}
 

@@ -11,6 +11,7 @@ file(
   ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake
 )
 ]]
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/cmake)
 file(COPY_FILE ${CMAKE_CURRENT_SOURCE_DIR}/CPM.cmake ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
@@ -97,6 +98,7 @@ CPMAddPackage(
 )
 ]]
 
+#[[
 CPMAddPackage(
   NAME slang
   URL https://github.com/shader-slang/slang/releases/download/v2024.17/slang-2024.17-windows-x86_64.zip
@@ -104,7 +106,8 @@ CPMAddPackage(
   # the range-v3 CMakeLists screws with configuration options
   DOWNLOAD_ONLY True
 )
-find_package(slang REQUIRED)
+find_package(slang REQUIRED PATHS ${slang_SOURCE_DIR}/cmake NO_DEFAULT_PATH)
+]]
 
 #[[
 CPMAddPackage(
