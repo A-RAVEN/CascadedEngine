@@ -12,6 +12,14 @@ struct ShaderSourceInfo
 	auto operator<=>(const ShaderSourceInfo&) const = default;
 };
 
+struct ShaderInfo
+{
+	castl::string path;
+	castl::string entryPoint;
+};
+
+using ShaderInfoHandle = cacore::HashObj<ShaderInfo>;
+
 struct IShaderSet
 {
 	virtual EShaderTypeFlags GetShaderTypeFlags(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const = 0;
