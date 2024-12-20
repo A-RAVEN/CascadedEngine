@@ -2,6 +2,7 @@
 #include <Utils/D3D12SubobjectBase.h>
 #include <GPUGraph.h>
 #include <CNativeRenderPassInfo.h>
+#include <Utils/HashDictionary.h>
 
 namespace graphics_backend
 {
@@ -30,4 +31,6 @@ namespace graphics_backend
 		void Init(PipelineStateDesc const& pipelineStateDesc);
 
 	};
+
+	using PipelineStatesDic = HashDictionary<PipelineStateDesc, PipelineStates>;
 }

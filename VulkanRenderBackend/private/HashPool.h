@@ -60,10 +60,7 @@ namespace graphics_backend
 
 		void ReleaseAll() requires has_release<ValType>
 		{
-			m_InternalDic.clear([](cacore::HashObj<DescType> const& key, castl::shared_ptr<ValType>& value)
-				{
-					value->Release();
-				});
+			m_InternalDic.clear();
 		}
 
 		void Clear()

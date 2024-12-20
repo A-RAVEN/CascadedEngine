@@ -1,4 +1,5 @@
 #pragma once
+#include <CASTL/CATypeTraits.h>
 
 namespace graphics_backend
 {
@@ -6,5 +7,17 @@ namespace graphics_backend
 	concept CanInitWithDesc = requires(DescType desc, ValType val)
 	{
 		val.Init(desc);
+	};
+
+	template<typename T, typename...TArgs>
+	concept CanInit = requires(T t)
+	{
+		t.Init(castl::remove_cvref_t<TArgs>{}...);
+	};
+
+	template<typename T>
+	concept CanRelease = requires(T t)
+	{
+		t.Release();
 	};
 }

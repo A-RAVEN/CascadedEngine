@@ -1,4 +1,5 @@
 #pragma once
+#include <Utils/TypeTraits.h>
 #include <CRenderBackend.h>
 #include <ThreadManager.h>
 #include <ShaderBindingBuilder.h>
@@ -37,37 +38,48 @@ namespace graphics_backend
 			return m_CommandQueue;
 		}
 
-		//template<typename T, typename...TArgs>
-		//T SubObject(TArgs&...Args) {
-		//	static_assert(castl::is_constructible_v<T, RenderBackend_D3D12&> || castl::is_constructible_v<T, RenderBackend_D3D12&, TArgs...>
-		//		, "Type T Not Compatible To Vulkan SubObject");
-		//	if constexpr (castl::is_constructible_v<T, RenderBackend_D3D12&, TArgs...>)
-		//	{
-		//		castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this, castl::forward<TArgs>(Args)...), SubObjectDefaultDeleter<T>{} };
-		//		if constexpr (has_initialize<T>)
-		//		{
-		//			newSubObject->Initialize();
-		//		}
-		//		else if constexpr (has_create<T>)
-		//		{
-		//			newSubObject->Create();
-		//		}
-		//		return newSubObject;
-		//	}
-		//	else
-		//	{
-		//		castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this), SubObjectDefaultDeleter<T>{} };
-		//		if constexpr (has_initialize<T, TArgs...>)
-		//		{
-		//			newSubObject->Initialize(castl::forward<TArgs>(Args)...);
-		//		}
-		//		else if constexpr (has_create<T, TArgs...>)
-		//		{
-		//			newSubObject->Create(castl::forward<TArgs>(Args)...);
-		//		}
-		//		return newSubObject;
-		//	}
-		//};
+		template<typename T, typename...TArgs>
+		static void InitObj(T* inoutObj, TArgs&...Args)
+		{
+			static_assert(CanInit<T, TArgs...>, "Type T Not Initializable");
+			inoutObj->Init(castl::forward<TArgs>(Args)...);
+		}
+
+		template<typename T>
+		struct SubObjectDefaultDeleter {
+			void operator()(T* deleteObject)
+			{
+				if constexpr (CanRelease<T>)
+				{
+					deleteObject->Release();
+				}
+				delete deleteObject;
+			}
+		};
+
+		template<typename T, typename...TArgs>
+		castl::shared_ptr<T> NewSubObject_Shared(TArgs&...Args) {
+			static_assert(castl::is_constructible_v<T, RenderBackend_D3D12*> || castl::is_constructible_v<T, RenderBackend_D3D12*, TArgs...>
+				, "Type T Not Compatible To D3D12SubObject");
+			if constexpr (castl::is_constructible_v<T, RenderBackend_D3D12*, TArgs...>)
+			{
+				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(this, castl::forward<TArgs>(Args)...), SubObjectDefaultDeleter<T>{} };
+				if constexpr (CanInit<T>)
+				{
+					newSubObject->Init();
+				}
+				return newSubObject;
+			}
+			else
+			{
+				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(this), SubObjectDefaultDeleter<T>{} };
+				if constexpr (CanInit<T, TArgs...>)
+				{
+					newSubObject->Init(castl::forward<TArgs>(Args)...);
+				}
+				return newSubObject;
+			}
+		};
 
 	private:
 		MemoryManager m_MemoryManager;

@@ -25,12 +25,12 @@ namespace graphics_backend
 		{
 			auto resultPair = m_InternalDic.get_or_create(desc, [&](auto inKey)
 				{
-					castl::shared_ptr<ValType> result = GetVulkanApplication().template NewSubObject_Shared<ValType>();
+					castl::shared_ptr<ValType> result = GetApp()->template NewSubObject_Shared<ValType>();
 					return result;
 				},
 				[&](auto& kv_pair)
 				{
-					CVulkanApplication::InitObj(kv_pair->second.get(), kv_pair->first.Get());
+					RenderBackend_D3D12::InitObj(kv_pair->second.get(), kv_pair->first.Get());
 				});
 			return resultPair->second;
 		}
@@ -45,10 +45,7 @@ namespace graphics_backend
 
 		void ReleaseAll() requires has_release<ValType>
 		{
-			m_InternalDic.clear([](cacore::HashObj<DescType> const& key, castl::shared_ptr<ValType>& value)
-				{
-					value->Release();
-				});
+			m_InternalDic.clear();
 		}
 
 		void Clear()

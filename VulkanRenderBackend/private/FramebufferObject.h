@@ -39,17 +39,18 @@ namespace graphics_backend
 		vk::Framebuffer const& GetFramebuffer() const { return mFramebuffer; }
 		uint32_t GetWidth() const 
 		{
-			return m_Width;
+			return m_FramebufferDescriptor->width;
 		}
 		uint32_t GetHeight() const
 		{
-			return m_Height;
+			return m_FramebufferDescriptor->height;
 		}
 	private:
+		FramebufferDescriptor const* m_FramebufferDescriptor = nullptr;
 		vk::Framebuffer mFramebuffer;
-		uint32_t m_Width = 0;
-		uint32_t m_Height = 0;
-		uint32_t m_Layers = 0;
+		//uint32_t m_Width = 0;
+		//uint32_t m_Height = 0;
+		//uint32_t m_Layers = 0;
 	};
 
 	using FramebufferObjectDic = HashPool<FramebufferDescriptor, FramebufferObject>;
