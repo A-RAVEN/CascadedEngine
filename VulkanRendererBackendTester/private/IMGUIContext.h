@@ -111,6 +111,6 @@ namespace imgui_display
 		castl::shared_ptr<CRenderBackend> p_RenderBackend;
 		threadsafe_utils::TThreadSafePointerPool<IMGUIViewportContext> m_ViewportContextPool;
 		castl::deque<IMGUITextureViewContext> m_TextureViewContexts;
-		IShaderSet* m_ImguiShaderSet = nullptr;
+		castl::shared_ptr<IShaderSet> m_ImguiShaderSet = nullptr;
 	};
 }

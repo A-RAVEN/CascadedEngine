@@ -103,47 +103,19 @@ int main(int argc, char *argv[])
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 
-	ShaderResrouce* pMeshShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle", [ppResource = &pMeshShaderResource](ShaderResrouce* result)
-		{
-			*ppResource = result;
-		});
+	auto pMeshShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle");
 
-	ShaderResrouce* pFinalBlitShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/testFinalBlit.shaderbundle", [ppResource = &pFinalBlitShaderResource](ShaderResrouce* result)
-		{
-			*ppResource = result;
-		});
+	auto pFinalBlitShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/testFinalBlit.shaderbundle");
 
-	ShaderResrouce* pTestComputeShaderResource = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/TestComputeShader.shaderbundle", [ppResource = &pTestComputeShaderResource](ShaderResrouce* result)
-		{
-			*ppResource = result;
-		});
+	auto pTestComputeShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestComputeShader.shaderbundle");
 
-	ShaderResrouce* pFinalBlitShader = nullptr;
-	pResourceManagingSystem->LoadResource<ShaderResrouce>("Shaders/FinalBlit.shaderbundle", [&pFinalBlitShader](ShaderResrouce* result)
-		{
-			pFinalBlitShader = result;
-		});
+	auto pFinalBlitShader = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/FinalBlit.shaderbundle");
 
-	StaticMeshResource* pTestMeshResource = nullptr;
-	pResourceManagingSystem->LoadResource<StaticMeshResource>("Models/VikingRoom/mesh.scene", [ppResource = &pTestMeshResource](StaticMeshResource* result)
-		{
-			*ppResource = result;
-		});
+	auto pTestMeshResource = pResourceManagingSystem->GetOrLoadResource<StaticMeshResource>("Models/VikingRoom/mesh.scene");
 
-	TextureResource* pTextureResource0 = nullptr;
-	pResourceManagingSystem->LoadResource<TextureResource>("Models/VikingRoom/IMG_2348.texture", [ppResource = &pTextureResource0](TextureResource* result)
-		{
-			*ppResource = result;
-		});
+	auto pTextureResource0 = pResourceManagingSystem->GetOrLoadResource<TextureResource>("Models/VikingRoom/IMG_2348.texture");
 
-	TextureResource* pTextureResource1 = nullptr;
-	pResourceManagingSystem->LoadResource<TextureResource>("Models/VikingRoom/IMG_2349.texture", [ppResource = &pTextureResource1](TextureResource* result)
-		{
-			*ppResource = result;
-		});
+	auto pTextureResource1 = pResourceManagingSystem->GetOrLoadResource<TextureResource>("Models/VikingRoom/IMG_2349.texture");
 
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize(GetGlobalTimerSystem(), "Test Vulkan Backend", "CASCADED Engine");
@@ -186,7 +158,7 @@ int main(int argc, char *argv[])
 				submitGraph->ScheduleData(BufferHandle{ indexBuffer }, indexDataList.data(), indexDataList.size() * sizeof(indexDataList[0]));
 				submitGraph->ScheduleData(texture, pTextureResource0->GetData(), pTextureResource0->GetDataSize());
 				submitGraph->ScheduleData(texture1, pTextureResource1->GetData(), pTextureResource1->GetDataSize());
-				RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource);
+				RegisterMeshResource(pBackend, submitGraph.get(), pTestMeshResource.get());
 
 				imguiContext.Initialize(editorResourceString, pBackend, windowSystem, newWindow.lock(), pResourceManagingSystem.get(), submitGraph.get());
 
@@ -213,7 +185,7 @@ int main(int argc, char *argv[])
 	meshMaterial0.shaderArgs = castl::make_shared<ShaderArgList>();
 	meshMaterial0.shaderArgs->SetImage("albedoTexture", texture1);
 	meshMaterial0.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
-	meshMaterial0.shaderSet = pMeshShaderResource;
+	meshMaterial0.shaderSet = pMeshShaderResource.get();
 
 	MeshMaterial meshMaterial1;
 	meshMaterial1.pipelineStateObject = {
@@ -223,11 +195,11 @@ int main(int argc, char *argv[])
 	meshMaterial1.shaderArgs = castl::make_shared<ShaderArgList>();
 	meshMaterial1.shaderArgs->SetImage("albedoTexture", texture);
 	meshMaterial1.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
-	meshMaterial1.shaderSet = pMeshShaderResource;
+	meshMaterial1.shaderSet = pMeshShaderResource.get();
 
 
 	MeshRenderer meshRenderer{};
-	meshRenderer.p_MeshResource = pTestMeshResource;
+	meshRenderer.p_MeshResource = pTestMeshResource.get();
 	meshRenderer.materials.resize(2);
 	meshRenderer.materials[0] = meshMaterial0;
 	meshRenderer.materials[1] = meshMaterial1;
@@ -374,7 +346,7 @@ int main(int argc, char *argv[])
 								RenderPass::New(viewContext.m_RenderTarget)
 								.SetPipelineState({})
 								.PushShaderArguments(finalBlitShaderArgList)
-								.SetShaders(pFinalBlitShader)
+								.SetShaders(pFinalBlitShader.get())
 								.DrawCall
 								(
 									DrawCallBatch::New()

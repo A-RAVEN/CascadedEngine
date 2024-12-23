@@ -488,10 +488,7 @@ namespace imgui_display
 
 		initializeGraph->ScheduleData(ImageHandle{ m_Fontimage }, fontData, texWidth * texHeight * sizeof(uint8_t));
 		IM_FREE(fontData);
-		resourceSystem->LoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle", [this](ShaderResrouce* result)
-		{
-			m_ImguiShaderSet = result;
-		});
+		m_ImguiShaderSet = resourceSystem->GetOrLoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle");
 
 		InitImGUIPlatformFunctors();
 
@@ -822,7 +819,7 @@ namespace imgui_display
 		auto renderPass = RenderPass::New(backBuffer, AttachmentConfig::Clear())
 			.SetPipelineState({ {}, {}, ColorAttachmentsBlendStates::AlphaTransparent()})
 			.PushShaderArguments("imguiCommon", pUserData->m_ShaderArgs)
-			.SetShaders(m_ImguiShaderSet);
+			.SetShaders(m_ImguiShaderSet.get());
 
 		for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
 		{

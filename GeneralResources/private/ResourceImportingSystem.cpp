@@ -98,7 +98,7 @@ namespace resource_management
 						, castl::to_ca(m_ImportingResources[i][itrResource].second.string()));
 				}
 			}
-			m_ResourceManagingSystem->SerializeAllResources();
+			m_ResourceManagingSystem->SerializeAll();
 		}
 	private:
 		castl::unordered_map<castl::string, uint32_t> m_PostfixToImporterIndex;
@@ -108,146 +108,207 @@ namespace resource_management
 		ResourceManagingSystem* m_ResourceManagingSystem;
 	};
 
-	class ResourceManagingSystemImpl : public ResourceManagingSystem
+	class ResourceManagingSystem_Impl : public ResourceManagingSystem
 	{
 	public:
-		struct ChunkedMemoryAllocator
+		void Initialize(castl::shared_ptr<ca_io::IOManager> ioManager) override
 		{
-		public:
-			ChunkedMemoryAllocator(size_t page_size, size_t chunk_size) : m_PageSize(page_size)
-				, m_ChunkSizeByte(chunk_size), m_LastPageUsedChunkCount(m_PageSize)
-			{
-
-			}
-
-			void* AllocChunk()
-			{
-				if (m_AvailableChunks.empty())
-				{
-					return AllocNew();
-				}
-				auto front = m_AvailableChunks.front();
-				m_AvailableChunks.pop_front();
-				return front;
-			}
-
-			void ReleaseChunk(void* releasedChunk)
-			{
-				m_AvailableChunks.push_back(releasedChunk);
-			}
-		private:
-			void* AllocNew()
-			{
-				if (m_LastPageUsedChunkCount == m_PageSize)
-				{
-					m_MemoryPages.emplace_back();
-					m_MemoryPages.back().resize(m_PageSize * m_ChunkSizeByte);
-					m_LastPageUsedChunkCount = 0;
-				}
-				void* result = m_MemoryPages.back().data() + m_LastPageUsedChunkCount * m_ChunkSizeByte;
-				++m_LastPageUsedChunkCount;
-				return result;
-			}
-		private:
-			size_t m_PageSize;
-			size_t m_ChunkSizeByte;
-			castl::vector<castl::vector<uint8_t>> m_MemoryPages;
-			size_t m_LastPageUsedChunkCount;
-			castl::deque<void*> m_AvailableChunks;
-		};
-
-		virtual void SetResourceRootPath(castl::string const& path) override
-		{
-			m_AssetRootPath = castl::to_std(path);
+			pIOManager = ioManager;
 		}
-
-		virtual castl::string GetResourceRootPath() const override
+		void SerializeAll() override
 		{
-			return castl::to_ca(m_AssetRootPath.string());
-		}
-
-		virtual IResource* TryGetResource(castl::string const& path) override
-		{
-			castl::lock_guard<castl::mutex> lock(m_Mutex);
-			IResource* result = nullptr;
-			auto find = m_AssetPathToResourceAddress.find(path);
-			if (find != m_AssetPathToResourceAddress.end())
+			m_PathToResource.for_each([&](cacore::HashObj<castl::string> const& key, castl::shared_ptr<IResource>& val)
 			{
-				return static_cast<IResource*>(find->second);
-			}
-			return nullptr;
+				castl::filesystem::path destPath = m_AssetRootPath / key.Get();
+				castl::filesystem::create_directories(destPath.parent_path());
+				castl::vector<uint8_t> serializedData;
+				val->Serialzie(serializedData);
+				cacore::WriteBinaryFile(castl::to_ca(destPath.string()), serializedData.data(), serializedData.size());
+			});
 		}
-
-		virtual castl::vector<uint8_t> LoadBinaryFile(castl::string const& path) override
+		void SetResourceRootPath(castl::string const& path) override
 		{
-			auto resourcePath = m_AssetRootPath / to_std(path);
-			return cacore::LoadBinaryFile(to_ca(resourcePath.string()));
+			m_AssetRootPath = path;
 		}
-
-		virtual castl::string ResourceFullPath(castl::string_view path) override
+		castl::string GetResourceRootPath() const override
+		{
+			return m_AssetRootPath.string();
+		}
+		castl::string GetResourceFullPath(castl::string_view path) const override
 		{
 			return (m_AssetRootPath / path).string();
 		}
-
-		virtual void* AllocResourceMemory(
-			castl::string type_name
-			, castl::string const& resource_path
-			, uint64_t size_in_bytes) override
+		castl::shared_ptr<IResource> GetOrLoadResource(castl::string const& path
+			, castl::function<IResource* ()> newCallback, castl::function<void(IResource*)> deleteCallback) override
 		{
-			castl::lock_guard<castl::mutex> lock(m_Mutex);
-			auto found = m_TypeNameToMemoryAllocator.find(type_name);
-			if (found == m_TypeNameToMemoryAllocator.end())
-			{
-				m_TypeNameToMemoryAllocator.insert(castl::make_pair(type_name, ChunkedMemoryAllocator{ 16, size_in_bytes }));
-				found = m_TypeNameToMemoryAllocator.find(type_name);
-			}
-
-			void* result = found->second.AllocChunk();
-			if (resource_path != "")
-			{
-				CA_ASSERT(m_AssetPathToResourceAddress.find(resource_path) == m_AssetPathToResourceAddress.end(), "Asset Already Exist!");
-				CA_ASSERT(m_ResourceAddressToAssetPath.find(result) == m_ResourceAddressToAssetPath.end(), "Asset Already Exist!");
-				m_AssetPathToResourceAddress[resource_path] = result;
-				m_ResourceAddressToAssetPath[result] = resource_path;
-			}
-
-			return result;
+			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
+				{
+					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
+					auto batch = pIOManager->Batch(GetResourceFullPath(path));
+					newRes->Deserialzie(batch.get());
+					return newRes;
+				});
+			return result->second;
 		}
-		virtual void ReleaseResourceMemory(castl::string type_name, void* pointer) override
+		castl::shared_ptr<IResource> GetOrNewResource(castl::string const& path
+			, castl::function<IResource* ()> newCallback, castl::function<void(IResource*)> deleteCallback) override
 		{
-			castl::lock_guard<castl::mutex> lock(m_Mutex);
-			auto found = m_TypeNameToMemoryAllocator.find(type_name);
-			CA_ASSERT(found != m_TypeNameToMemoryAllocator.end(), ("try release memory to void: " + type_name).c_str());
-			found->second.ReleaseChunk(pointer);
-
-			auto resourceToPath = m_ResourceAddressToAssetPath.find(pointer);
-			if (resourceToPath != m_ResourceAddressToAssetPath.end())
-			{
-				m_AssetPathToResourceAddress.erase(resourceToPath->second);
-				m_ResourceAddressToAssetPath.erase(pointer);
-			}
-		}
-
-		virtual void SerializeAllResources() override
-		{
-			for (auto& pair : m_ResourceAddressToAssetPath)
-			{
-				castl::filesystem::path destPath = m_AssetRootPath / to_std(pair.second);
-				castl::filesystem::create_directories(destPath.parent_path());
-				IResource* resource = static_cast<IResource*>(pair.first);
-				castl::vector<uint8_t> serializedData;
-				resource->Serialzie(serializedData);
-				cacore::WriteBinaryFile(castl::to_ca(destPath.string()), serializedData.data(), serializedData.size());
-			}
+			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
+				{
+					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
+					return newRes;
+				});
+			return result->second;
 		}
 	private:
-		castl::mutex m_Mutex;
-		castl::unordered_map<castl::string, ChunkedMemoryAllocator> m_TypeNameToMemoryAllocator;
-		castl::unordered_map<castl::string, void*> m_AssetPathToResourceAddress;
-		castl::unordered_map<void*, castl::string> m_ResourceAddressToAssetPath;
-
 		castl::filesystem::path m_AssetRootPath;
+		castl::shared_ptr<ca_io::IOManager> pIOManager;
+		castl::shared_dic<castl::string, castl::shared_ptr<IResource>> m_PathToResource;
 	};
+
+	//class ResourceManagingSystemImpl : public ResourceManagingSystem
+	//{
+	//public:
+	//	struct ChunkedMemoryAllocator
+	//	{
+	//	public:
+	//		ChunkedMemoryAllocator(size_t page_size, size_t chunk_size) : m_PageSize(page_size)
+	//			, m_ChunkSizeByte(chunk_size), m_LastPageUsedChunkCount(m_PageSize)
+	//		{
+
+	//		}
+
+	//		void* AllocChunk()
+	//		{
+	//			if (m_AvailableChunks.empty())
+	//			{
+	//				return AllocNew();
+	//			}
+	//			auto front = m_AvailableChunks.front();
+	//			m_AvailableChunks.pop_front();
+	//			return front;
+	//		}
+
+	//		void ReleaseChunk(void* releasedChunk)
+	//		{
+	//			m_AvailableChunks.push_back(releasedChunk);
+	//		}
+	//	private:
+	//		void* AllocNew()
+	//		{
+	//			if (m_LastPageUsedChunkCount == m_PageSize)
+	//			{
+	//				m_MemoryPages.emplace_back();
+	//				m_MemoryPages.back().resize(m_PageSize * m_ChunkSizeByte);
+	//				m_LastPageUsedChunkCount = 0;
+	//			}
+	//			void* result = m_MemoryPages.back().data() + m_LastPageUsedChunkCount * m_ChunkSizeByte;
+	//			++m_LastPageUsedChunkCount;
+	//			return result;
+	//		}
+	//	private:
+	//		size_t m_PageSize;
+	//		size_t m_ChunkSizeByte;
+	//		castl::vector<castl::vector<uint8_t>> m_MemoryPages;
+	//		size_t m_LastPageUsedChunkCount;
+	//		castl::deque<void*> m_AvailableChunks;
+	//	};
+
+	//	virtual void SetResourceRootPath(castl::string const& path) override
+	//	{
+	//		m_AssetRootPath = castl::to_std(path);
+	//	}
+
+	//	virtual castl::string GetResourceRootPath() const override
+	//	{
+	//		return castl::to_ca(m_AssetRootPath.string());
+	//	}
+
+	//	virtual IResource* TryGetResource(castl::string const& path) override
+	//	{
+	//		castl::lock_guard<castl::mutex> lock(m_Mutex);
+	//		IResource* result = nullptr;
+	//		auto find = m_AssetPathToResourceAddress.find(path);
+	//		if (find != m_AssetPathToResourceAddress.end())
+	//		{
+	//			return static_cast<IResource*>(find->second);
+	//		}
+	//		return nullptr;
+	//	}
+
+	//	virtual castl::vector<uint8_t> LoadBinaryFile(castl::string const& path) override
+	//	{
+	//		auto resourcePath = m_AssetRootPath / to_std(path);
+	//		return cacore::LoadBinaryFile(to_ca(resourcePath.string()));
+	//	}
+
+	//	virtual castl::string ResourceFullPath(castl::string_view path) override
+	//	{
+	//		return (m_AssetRootPath / path).string();
+	//	}
+
+	//	virtual void* AllocResourceMemory(
+	//		castl::string type_name
+	//		, castl::string const& resource_path
+	//		, uint64_t size_in_bytes) override
+	//	{
+	//		castl::lock_guard<castl::mutex> lock(m_Mutex);
+	//		auto found = m_TypeNameToMemoryAllocator.find(type_name);
+	//		if (found == m_TypeNameToMemoryAllocator.end())
+	//		{
+	//			m_TypeNameToMemoryAllocator.insert(castl::make_pair(type_name, ChunkedMemoryAllocator{ 16, size_in_bytes }));
+	//			found = m_TypeNameToMemoryAllocator.find(type_name);
+	//		}
+
+	//		void* result = found->second.AllocChunk();
+	//		if (resource_path != "")
+	//		{
+	//			CA_ASSERT(m_AssetPathToResourceAddress.find(resource_path) == m_AssetPathToResourceAddress.end(), "Asset Already Exist!");
+	//			CA_ASSERT(m_ResourceAddressToAssetPath.find(result) == m_ResourceAddressToAssetPath.end(), "Asset Already Exist!");
+	//			m_AssetPathToResourceAddress[resource_path] = result;
+	//			m_ResourceAddressToAssetPath[result] = resource_path;
+	//		}
+
+	//		return result;
+	//	}
+	//	virtual void ReleaseResourceMemory(castl::string type_name, void* pointer) override
+	//	{
+	//		castl::lock_guard<castl::mutex> lock(m_Mutex);
+	//		auto found = m_TypeNameToMemoryAllocator.find(type_name);
+	//		CA_ASSERT(found != m_TypeNameToMemoryAllocator.end(), ("try release memory to void: " + type_name).c_str());
+	//		found->second.ReleaseChunk(pointer);
+
+	//		auto resourceToPath = m_ResourceAddressToAssetPath.find(pointer);
+	//		if (resourceToPath != m_ResourceAddressToAssetPath.end())
+	//		{
+	//			m_AssetPathToResourceAddress.erase(resourceToPath->second);
+	//			m_ResourceAddressToAssetPath.erase(pointer);
+	//		}
+	//	}
+
+	//	virtual void SerializeAllResources() override
+	//	{
+	//		for (auto& pair : m_ResourceAddressToAssetPath)
+	//		{
+	//			castl::filesystem::path destPath = m_AssetRootPath / to_std(pair.second);
+	//			castl::filesystem::create_directories(destPath.parent_path());
+	//			IResource* resource = static_cast<IResource*>(pair.first);
+	//			castl::vector<uint8_t> serializedData;
+	//			resource->Serialzie(serializedData);
+	//			cacore::WriteBinaryFile(castl::to_ca(destPath.string()), serializedData.data(), serializedData.size());
+	//		}
+	//	}
+	//private:
+	//	castl::mutex m_Mutex;
+	//	castl::unordered_map<castl::string, ChunkedMemoryAllocator> m_TypeNameToMemoryAllocator;
+	//	castl::unordered_map<castl::string, void*> m_AssetPathToResourceAddress;
+	//	castl::unordered_map<void*, castl::string> m_ResourceAddressToAssetPath;
+
+
+	//	castl::unordered_map<castl::string, castl::shared_ptr<IResource>> m_ResourceCache;
+
+	//	castl::filesystem::path m_AssetRootPath;
+	//};
 
 	class ResourceFactoryImpl : public ResourceFactory
 	{
@@ -262,7 +323,7 @@ namespace resource_management
 		}
 		virtual ResourceManagingSystem* NewManagingSystem() override
 		{
-			return new ResourceManagingSystemImpl();
+			return new ResourceManagingSystem_Impl();
 		}
 		virtual void DeleteManagingSystem(ResourceManagingSystem* releasingSystem) override
 		{

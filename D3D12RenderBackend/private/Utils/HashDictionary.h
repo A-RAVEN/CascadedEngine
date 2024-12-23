@@ -16,10 +16,10 @@ namespace graphics_backend
 	public:
 		HashDictionary(RenderBackend_D3D12& app) : D3D12SubobjectBase(app){}
 		HashDictionary() = delete;
-		HashDictionary(HashPool const& other) = delete;
-		HashDictionary& operator=(HashPool const&) = delete;
-		HashDictionary(HashPool&& other) noexcept = default;
-		HashDictionary& operator=(HashPool&&) = default;
+		HashDictionary(HashDictionary const& other) = delete;
+		HashDictionary& operator=(HashDictionary const&) = delete;
+		HashDictionary(HashDictionary&& other) noexcept = default;
+		HashDictionary& operator=(HashDictionary&&) = default;
 
 		castl::shared_ptr<ValType> GetOrCreate(cacore::HashObj<DescType> const& desc, castl::string const& name = "")
 		{
@@ -43,7 +43,7 @@ namespace graphics_backend
 				});
 		}
 
-		void ReleaseAll() requires has_release<ValType>
+		void ReleaseAll() requires CanRelease<ValType>
 		{
 			m_InternalDic.clear();
 		}

@@ -43,7 +43,7 @@ namespace resource_management
 
 		if (scene->HasMeshes())
 		{
-			StaticMeshResource* meshResource = resourceManager->AllocSubResource<StaticMeshResource>(outPath, "mesh.scene");
+			auto meshResource = resourceManager->GetOrNewSubResource<StaticMeshResource>(outPath, "mesh.scene");
 			uint32_t vertexOffset = 0;
 			uint32_t indexOffset = 0;
 			for (int i = 0; i < scene->mNumMeshes; ++i)
@@ -93,7 +93,7 @@ namespace resource_management
 
 					if (pTexture->mHeight == 0)
 					{
-						TextureResource* textureResource = resourceManager->AllocSubResource<TextureResource>(outPath, castl::to_ca(texturePath.string()));
+						auto textureResource = resourceManager->GetOrNewSubResource<TextureResource>(outPath, castl::to_ca(texturePath.string()));
 						int w, h, channel_num;
 						stbi_info_from_memory(reinterpret_cast<stbi_uc*>(pTexture->pcData), pTexture->mWidth, &w, &h, &channel_num);
 						int desiredChannel = channel_num;
