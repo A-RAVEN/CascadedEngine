@@ -18,13 +18,6 @@ namespace resource_management
 	};
 
 	template<typename TRes>
-	class ResourceImporterPass
-	{
-	public:
-		virtual void Process(TRes* resource) const = 0;
-	};
-
-	template<typename TRes>
 	class ResourceImporter : public ResourceImporterBase
 	{
 	public:
@@ -33,20 +26,11 @@ namespace resource_management
 			return sizeof(TRes);
 		}
 
-		void ApplyPasses(TRes* resource) const
-		{
-			for (auto pass : m_Passes)
-			{
-				pass->Process(resource);
-			}
-		}
-
 		virtual castl::string GetResourceType() const override
 		{
 			return castl::string{ typeid(TRes).name() };
 		}
 
 	protected:
-		castl::vector<ResourceImporterPass<TRes> const*> m_Passes;
 	};
 }

@@ -81,6 +81,78 @@ namespace ca_io
 		castl::vector<IORead> m_Reads;
 	};
 
+	class BatchCache
+	{
+	public:
+		BatchCache(castl::string_view filePath): m_FilePath(filePath)
+		{
+			m_FileSize = std::filesystem::file_size(filePath);
+			m_NextChunk = m_Chunks.end();
+		}
+		void AppendRange(size_t rwSize, void* rwDest)
+		{
+			if (rwSize == 0u)
+				return;
+			if (m_CurrrentPos + rwSize > m_FileSize)
+				return;
+			IORead newRange{ m_CurrrentPos, rwSize, rwDest };
+			if (m_NextChunk == m_Chunks.end() || !m_NextChunk->TryAddRead(newRange))
+			{
+				m_NextChunk = m_Chunks.insert(m_NextChunk, IOChunkState(newRange));
+			}
+
+			if (m_NextChunk != m_Chunks.begin())
+			{
+				auto prevChunk = m_NextChunk;
+				--prevChunk;
+				if (prevChunk->TryCombineNext(*m_NextChunk))
+				{
+					m_Chunks.erase(m_NextChunk);
+					m_NextChunk = prevChunk;
+				}
+			}
+			{
+				auto newNextChunk = m_NextChunk;
+				++newNextChunk;
+				if (newNextChunk != m_Chunks.end() && m_NextChunk->TryCombineNext(*newNextChunk))
+				{
+					m_Chunks.erase(newNextChunk);
+				}
+			}
+			m_CurrrentPos += rwSize;
+		}
+		void Seek(uint64_t offset)
+		{
+			m_CurrrentPos = offset;
+			if (m_Chunks.empty())
+			{
+				m_NextChunk = m_Chunks.end();
+				return;
+			}
+			for (m_NextChunk = m_Chunks.begin(); m_NextChunk != m_Chunks.end(); ++m_NextChunk)
+			{
+				if (m_NextChunk->m_ChunkRange.GetEnd() >= offset)
+				{
+					break;
+				}
+			}
+		}
+		bool IsEmpty() const
+		{
+			return m_Chunks.empty();
+		}
+		void Clear()
+		{
+			m_Chunks.clear();
+			m_NextChunk = m_Chunks.end();
+		}
+		castl::list<IOChunkState>::iterator m_NextChunk;
+		castl::list<IOChunkState> m_Chunks;
+		uint64_t m_CurrrentPos = 0;
+		uint64_t m_FileSize = 0;
+		castl::string m_FilePath;
+	};
+
 	class IOBatchImpl : public IOBatch
 	{
 	public:
@@ -90,14 +162,25 @@ namespace ca_io
 		virtual void Seek(uint64_t offset) override;
 		virtual void SubmitAndWait() override;
 		virtual uint32_t SubmitCount() const override;
-		castl::list<IOChunkState>::iterator m_NextChunk;
-		castl::list<IOChunkState> m_Chunks;
-		uint64_t m_CurrrentPos = 0;
-		uint64_t m_FileSize = 0;
-		uint64_t m_SubmitCount = 0;
 
+		BatchCache m_Batchs;
+		uint64_t m_SubmitCount = 0;
 		IOManagerImpl* m_OwningManager;
-		castl::string m_FilePath;
+	};
+
+	class WriteBatchImpl : public WBatch
+	{
+	public:
+
+		WriteBatchImpl(IOManagerImpl* owningManager, castl::string_view filePath) : m_OwningManager(owningManager), m_Batchs(filePath) {}
+		virtual void Write(uint64_t readSize, void* destination) override { m_Batchs.AppendRange(readSize, destination); }
+		virtual void Seek(uint64_t offset) override { m_Batchs.Seek(offset); }
+		virtual void SubmitAndWait() override;
+		virtual uint32_t SubmitCount() const override { return m_SubmitCount; }
+
+		BatchCache m_Batchs;
+		uint64_t m_SubmitCount = 0;
+		IOManagerImpl* m_OwningManager;
 	};
 
 	class IOManagerImpl : public IOManager
@@ -112,62 +195,28 @@ namespace ca_io
 		{
 			return castl::shared_ptr<IOBatch>(new IOBatchImpl(this, filePath));
 		}
+
+		virtual castl::shared_ptr<WBatch> WriteBatch(castl::string_view filePath) override
+		{
+			return castl::shared_ptr<WBatch>(new WriteBatchImpl(this, filePath));
+		}
 		thread_management::CThreadManager* pThreadManager;
 	};
 
-	IOBatchImpl::IOBatchImpl(IOManagerImpl* owningManager, castl::string_view filePath) : m_OwningManager(owningManager), m_FilePath(filePath)
+	IOBatchImpl::IOBatchImpl(IOManagerImpl* owningManager, castl::string_view filePath) : m_OwningManager(owningManager), m_Batchs(filePath)
 	{
-		m_FileSize = std::filesystem::file_size(filePath);
-		m_NextChunk = m_Chunks.end();
+		//m_FileSize = std::filesystem::file_size(filePath);
+		//m_NextChunk = m_Chunks.end();
 	}
 
 	void IOBatchImpl::Read(uint64_t readSize, void* destination)
 	{
-		if (readSize == 0u)
-			return;
-		if (m_CurrrentPos + readSize > m_FileSize)
-			return;
-		IORead newRange{ m_CurrrentPos, readSize, destination };
-		if (m_NextChunk == m_Chunks.end() || !m_NextChunk->TryAddRead(newRange))
-		{
-			m_NextChunk = m_Chunks.insert(m_NextChunk, IOChunkState(newRange));
-		}
-
-		if (m_NextChunk != m_Chunks.begin())
-		{
-			auto prevChunk = m_NextChunk;
-			--prevChunk;
-			if (prevChunk->TryCombineNext(*m_NextChunk))
-			{
-				m_Chunks.erase(m_NextChunk);
-				m_NextChunk = prevChunk;
-			}
-		}
-		{
-			auto newNextChunk = m_NextChunk;
-			++newNextChunk;
-			if (newNextChunk != m_Chunks.end() && m_NextChunk->TryCombineNext(*newNextChunk))
-			{
-				m_Chunks.erase(newNextChunk);
-			}
-		}
-		m_CurrrentPos += readSize;
+		m_Batchs.AppendRange(readSize, destination);
+		
 	}
 	void IOBatchImpl::Seek(uint64_t offset)
 	{
-		m_CurrrentPos = offset;
-		if (m_Chunks.empty())
-		{
-			m_NextChunk = m_Chunks.end();
-			return;
-		}
-		for (m_NextChunk = m_Chunks.begin(); m_NextChunk != m_Chunks.end(); ++m_NextChunk)
-		{
-			if (m_NextChunk->m_ChunkRange.GetEnd() >= offset)
-			{
-				break;
-			}
-		}
+		m_Batchs.Seek(offset);
 	}
 
 	uint32_t IOBatchImpl::SubmitCount() const
@@ -177,17 +226,17 @@ namespace ca_io
 
 	void IOBatchImpl::SubmitAndWait()
 	{
-		if (m_Chunks.empty())
+		if (m_Batchs.IsEmpty())
 			return;
 		auto scheduler = m_OwningManager->pThreadManager->NewScheduler();
 		scheduler->NewTask()
 			->Name("IOBatch")
 			->Functor([&]()
 				{
-					std::ifstream file_src(castl::to_std(m_FilePath), std::ios::in | std::ios::binary);
+					std::ifstream file_src(castl::to_std(m_Batchs.m_FilePath), std::ios::in | std::ios::binary);
 
 					uint64_t maxChunkSize = 0;
-					for (auto& chunkState : m_Chunks)
+					for (auto& chunkState : m_Batchs.m_Chunks)
 					{
 						maxChunkSize = castl::max(maxChunkSize, chunkState.m_ChunkRange.size);
 					}
@@ -196,11 +245,8 @@ namespace ca_io
 					stageBuffer.resize(maxChunkSize);
 					if (file_src.is_open())
 					{
-						/*file_src.seekg(0, std::ios::end);
-						m_FileSize = file_src.tellg();*/
 						file_src.seekg(0, std::ios::beg);
-
-						for (auto& chunkState : m_Chunks)
+						for (auto& chunkState : m_Batchs.m_Chunks)
 						{
 							file_src.seekg(chunkState.m_ChunkRange.offset, std::ios::beg);
 							file_src.read(reinterpret_cast<char*>(stageBuffer.data()), chunkState.m_ChunkRange.size);
@@ -212,8 +258,47 @@ namespace ca_io
 						}
 						file_src.close();
 					}
-					m_Chunks.clear();
-					m_NextChunk = m_Chunks.end();
+					m_Batchs.Clear();
+				});
+		scheduler->WaitAll();
+		++m_SubmitCount;
+	}
+
+	void WriteBatchImpl::SubmitAndWait()
+	{
+		if (m_Batchs.IsEmpty())
+			return;
+		auto scheduler = m_OwningManager->pThreadManager->NewScheduler();
+		scheduler->NewTask()
+			->Name("IOBatch")
+			->Functor([&]()
+				{
+					std::ofstream file_src(castl::to_std(m_Batchs.m_FilePath), std::ios::out | std::ios::binary);
+
+					uint64_t maxChunkSize = 0;
+					for (auto& chunkState : m_Batchs.m_Chunks)
+					{
+						maxChunkSize = castl::max(maxChunkSize, chunkState.m_ChunkRange.size);
+					}
+
+					castl::vector<uint8_t> stageBuffer;
+					stageBuffer.resize(maxChunkSize);
+					if (file_src.is_open())
+					{
+						file_src.seekp(0, std::ios::beg);
+						for (auto& chunkState : m_Batchs.m_Chunks)
+						{
+							file_src.seekp(chunkState.m_ChunkRange.offset, std::ios::beg);
+							for (auto& read : chunkState.m_Reads)
+							{
+								size_t localOffset = read.offset - chunkState.m_ChunkRange.offset;
+								memcpy(stageBuffer.data() + localOffset, read.destination, read.size);
+							}
+							file_src.write(reinterpret_cast<char*>(stageBuffer.data()), chunkState.m_ChunkRange.size);
+						}
+						file_src.close();
+					}
+					m_Batchs.Clear();
 				});
 		scheduler->WaitAll();
 		++m_SubmitCount;

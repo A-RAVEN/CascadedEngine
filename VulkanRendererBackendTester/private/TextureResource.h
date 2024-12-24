@@ -13,7 +13,7 @@ namespace resource_management
 	{
 	public:
 		virtual void Serialzie(castl::vector<uint8_t>& out) override;
-		virtual void Deserialzie(castl::vector<uint8_t>& in) override;
+		//virtual void Deserialzie(castl::vector<uint8_t>& in) override;
 		virtual void Deserialzie(ca_io::IOBatch* in) override;
 		void SetData(void* data, uint64_t size);
 		void SetMetaData(uint32_t width, uint32_t height, uint32_t slices, uint32_t mipLevels, ETextureFormat format, ETextureType type);

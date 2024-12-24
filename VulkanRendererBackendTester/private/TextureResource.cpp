@@ -7,11 +7,11 @@ namespace resource_management
 	{
 		cacore::serialize(data, *this);
 	}
-	void TextureResource::Deserialzie(castl::vector<uint8_t>& data)
-	{
-		cacore::deserializer<decltype(data)> deserializer(data);
-		deserializer.deserialize(*this);
-	}
+	//void TextureResource::Deserialzie(castl::vector<uint8_t>& data)
+	//{
+	//	cacore::deserializer<decltype(data)> deserializer(data);
+	//	deserializer.deserialize(*this);
+	//}
 	void TextureResource::Deserialzie(ca_io::IOBatch* data)
 	{
 		cacore::batch_deserializer<ca_io::IOBatch> deserializer(data);

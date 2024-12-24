@@ -11,11 +11,11 @@ namespace resource_management
 	{
 		cacore::serialize(data, *this);
 	}
-	void StaticMeshResource::Deserialzie(castl::vector<uint8_t>& data)
-	{
-		cacore::deserializer<castl::vector<uint8_t>> deserializer(data);
-		deserializer.deserialize(*this);
-	}
+	//void StaticMeshResource::Deserialzie(castl::vector<uint8_t>& data)
+	//{
+	//	cacore::deserializer<castl::vector<uint8_t>> deserializer(data);
+	//	deserializer.deserialize(*this);
+	//}
 	void StaticMeshResource::Deserialzie(ca_io::IOBatch* pBatch)
 	{
 		cacore::batch_deserializer<ca_io::IOBatch> deserializer(pBatch);
@@ -162,11 +162,11 @@ namespace resource_management
 				}
 			}
 
-			castl::vector<uint8_t> testData;
-			meshResource->Serialzie(testData);
-			StaticMeshResource testResource;
-			testResource.Deserialzie(testData);
-			CA_ASSERT(testResource == *meshResource, "INVALID!!!");
+			//castl::vector<uint8_t> testData;
+			//meshResource->Serialzie(testData);
+			//StaticMeshResource testResource;
+			////testResource.Deserialzie(testData);
+			//CA_ASSERT(testResource == *meshResource, "INVALID!!!");
 		}
 	}
 }

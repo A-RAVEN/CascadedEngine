@@ -3,6 +3,7 @@
 #include <CASTL/CAString.h>
 #include <ShaderProvider.h>
 #include <CACore/CASharedDic.h>
+#include <CAResource/IResource.h>
 
 namespace graphics_backend
 {
@@ -18,10 +19,13 @@ namespace graphics_backend
 
 	};
 
-	class D3D12ShaderResource
+	class D3D12ShaderResource : public resource_management::IResource
 	{
 	public:
 		void Init(ShaderInfoHandle const&);
+
+		virtual void Serialzie(castl::vector<uint8_t>& out) override;
+		virtual void Deserialzie(ca_io::IOBatch* inReader) override;
 	private:
 		ShaderInfoHandle const* m_InfoHandle;
 		ComPtr<ID3DBlob> m_ShaderByteCode;
