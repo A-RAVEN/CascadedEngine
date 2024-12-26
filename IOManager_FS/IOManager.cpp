@@ -6,6 +6,7 @@
 #include <fstream>
 #include <LibraryExportCommon.h>
 #include <filesystem>
+#include <CACore/CASharedDic.h>
 
 namespace ca_io
 {
@@ -17,6 +18,7 @@ namespace ca_io
 		uint64_t size;
 		void* destination;
 	};
+
 	struct IORange
 	{
 		uint64_t offset;
@@ -86,15 +88,17 @@ namespace ca_io
 	public:
 		BatchCache(castl::string_view filePath): m_FilePath(filePath)
 		{
-			m_FileSize = std::filesystem::file_size(filePath);
 			m_NextChunk = m_Chunks.end();
+		}
+		uint64_t GetCurrentPos() const
+		{
+			return m_CurrrentPos;
 		}
 		void AppendRange(size_t rwSize, void* rwDest)
 		{
 			if (rwSize == 0u)
 				return;
-			if (m_CurrrentPos + rwSize > m_FileSize)
-				return;
+
 			IORead newRange{ m_CurrrentPos, rwSize, rwDest };
 			if (m_NextChunk == m_Chunks.end() || !m_NextChunk->TryAddRead(newRange))
 			{
@@ -149,7 +153,6 @@ namespace ca_io
 		castl::list<IOChunkState>::iterator m_NextChunk;
 		castl::list<IOChunkState> m_Chunks;
 		uint64_t m_CurrrentPos = 0;
-		uint64_t m_FileSize = 0;
 		castl::string m_FilePath;
 	};
 
@@ -165,6 +168,7 @@ namespace ca_io
 
 		BatchCache m_Batchs;
 		uint64_t m_SubmitCount = 0;
+		uint64_t m_FileSize = 0;
 		IOManagerImpl* m_OwningManager;
 	};
 
@@ -173,7 +177,7 @@ namespace ca_io
 	public:
 
 		WriteBatchImpl(IOManagerImpl* owningManager, castl::string_view filePath) : m_OwningManager(owningManager), m_Batchs(filePath) {}
-		virtual void Write(uint64_t readSize, void* destination) override { m_Batchs.AppendRange(readSize, destination); }
+		virtual void Write(uint64_t readSize, void const* destination) override { m_Batchs.AppendRange(readSize, (void*)destination); }
 		virtual void Seek(uint64_t offset) override { m_Batchs.Seek(offset); }
 		virtual void SubmitAndWait() override;
 		virtual uint32_t SubmitCount() const override { return m_SubmitCount; }
@@ -181,6 +185,48 @@ namespace ca_io
 		BatchCache m_Batchs;
 		uint64_t m_SubmitCount = 0;
 		IOManagerImpl* m_OwningManager;
+	};
+
+	class OStreamContext
+	{
+	public:
+		OStreamContext(OStreamContext&& other) noexcept
+		{
+			castl::lock_guard(other.m_Mutex);
+			m_Stream = std::move(other.m_Stream);
+		}
+		OStreamContext(castl::string const& path) : m_Stream(path, std::ios::out | std::ios::binary)
+		{
+		}
+		~OStreamContext()
+		{
+			if (m_Stream.is_open())
+				m_Stream.close();
+		}
+		castl::mutex m_Mutex;
+		castl::ofstream m_Stream;
+	private:
+	};
+
+	class OStreamLock
+	{
+	public:
+		OStreamLock(OStreamLock const&) = delete;
+		OStreamLock& operator=(OStreamLock const&) = delete;
+		OStreamLock(OStreamContext& context) : m_Context(context), m_Lock(context.m_Mutex)
+		{
+		}
+		castl::ofstream& GetStream()
+		{
+			return m_Context.m_Stream;
+		}
+		castl::ofstream* operator->()
+		{
+			return &m_Context.m_Stream;
+		}
+	private:
+		castl::lock_guard<castl::mutex> m_Lock;
+		OStreamContext& m_Context;
 	};
 
 	class IOManagerImpl : public IOManager
@@ -200,17 +246,29 @@ namespace ca_io
 		{
 			return castl::shared_ptr<WBatch>(new WriteBatchImpl(this, filePath));
 		}
+
+		OStreamLock GetOStream(castl::string const& filePath)
+		{
+			auto result = m_OStreamCache.get_or_create(filePath, [&](cacore::HashObj<castl::string> const& key)
+			{
+				return OStreamContext(key.Get());
+			});
+			return OStreamLock(result->second);
+		}
+
 		thread_management::CThreadManager* pThreadManager;
+		castl::shared_dic<castl::string, OStreamContext> m_OStreamCache;
 	};
 
 	IOBatchImpl::IOBatchImpl(IOManagerImpl* owningManager, castl::string_view filePath) : m_OwningManager(owningManager), m_Batchs(filePath)
 	{
-		//m_FileSize = std::filesystem::file_size(filePath);
-		//m_NextChunk = m_Chunks.end();
+		m_FileSize = std::filesystem::file_size(filePath);
 	}
 
 	void IOBatchImpl::Read(uint64_t readSize, void* destination)
 	{
+		if (m_Batchs.GetCurrentPos() + readSize > m_FileSize)
+			return;
 		m_Batchs.AppendRange(readSize, destination);
 		
 	}
@@ -273,7 +331,9 @@ namespace ca_io
 			->Name("IOBatch")
 			->Functor([&]()
 				{
-					std::ofstream file_src(castl::to_std(m_Batchs.m_FilePath), std::ios::out | std::ios::binary);
+					auto lockedOStream = m_OwningManager->GetOStream(m_Batchs.m_FilePath);
+					auto& file_src = lockedOStream.GetStream();
+					//std::ofstream file_src(castl::to_std(m_Batchs.m_FilePath), std::ios::out | std::ios::binary);
 
 					uint64_t maxChunkSize = 0;
 					for (auto& chunkState : m_Batchs.m_Chunks)
@@ -296,8 +356,8 @@ namespace ca_io
 							}
 							file_src.write(reinterpret_cast<char*>(stageBuffer.data()), chunkState.m_ChunkRange.size);
 						}
-						file_src.close();
 					}
+					file_src.flush();
 					m_Batchs.Clear();
 				});
 		scheduler->WaitAll();

@@ -7,16 +7,14 @@
 
 namespace resource_management
 {
-	void StaticMeshResource::Serialzie(castl::vector<uint8_t>& data)
+	void StaticMeshResource::Serialize(ca_io::WBatch* inWriter)
 	{
-		cacore::serialize(data, *this);
+		cacore::batch_serializer<ca_io::WBatch> serializer(inWriter);
+		serializer.serialize(*this);
+		serializer.finalize();
 	}
-	//void StaticMeshResource::Deserialzie(castl::vector<uint8_t>& data)
-	//{
-	//	cacore::deserializer<castl::vector<uint8_t>> deserializer(data);
-	//	deserializer.deserialize(*this);
-	//}
-	void StaticMeshResource::Deserialzie(ca_io::IOBatch* pBatch)
+
+	void StaticMeshResource::Deserialize(ca_io::IOBatch* pBatch)
 	{
 		cacore::batch_deserializer<ca_io::IOBatch> deserializer(pBatch);
 		deserializer.deserialize(*this);
@@ -165,7 +163,7 @@ namespace resource_management
 			//castl::vector<uint8_t> testData;
 			//meshResource->Serialzie(testData);
 			//StaticMeshResource testResource;
-			////testResource.Deserialzie(testData);
+			////testResource.Deserialize(testData);
 			//CA_ASSERT(testResource == *meshResource, "INVALID!!!");
 		}
 	}

@@ -34,7 +34,7 @@ namespace castl
 				auto found = m_Map.find(inKey);
 				if (found == m_Map.end())
 				{
-					found = m_Map.insert(castl::make_pair(inKey, castl::move(createFunctor(inKey)))).first;
+					found = m_Map.insert(castl::make_pair(inKey, castl::forward<TValue>(createFunctor(inKey)))).first;
 				}
 				return found;
 			}

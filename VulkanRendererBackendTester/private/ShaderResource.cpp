@@ -6,17 +6,15 @@
 
 namespace resource_management
 {
-	void ShaderResrouce::Serialzie(castl::vector<uint8_t>& data)
-	{
-		cacore::serialize(data, *this);
-	}
-	//void ShaderResrouce::Deserialzie(castl::vector<uint8_t>& data)
-	//{
-	//	cacore::deserializer<decltype(data)> deserializer(data);
-	//	deserializer.deserialize(*this);
-	//}
 
-	void ShaderResrouce::Deserialzie(ca_io::IOBatch* data)
+	void ShaderResrouce::Serialize(ca_io::WBatch* inWriter)
+	{
+		cacore::batch_serializer<ca_io::WBatch> serializer(inWriter);
+		serializer.serialize(*this);
+		serializer.finalize();
+	}
+
+	void ShaderResrouce::Deserialize(ca_io::IOBatch* data)
 	{
 		cacore::batch_deserializer<ca_io::IOBatch> deserializer(data);
 		deserializer.deserialize(*this);

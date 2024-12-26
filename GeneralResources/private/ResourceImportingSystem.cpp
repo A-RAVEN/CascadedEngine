@@ -121,9 +121,10 @@ namespace resource_management
 			{
 				castl::filesystem::path destPath = m_AssetRootPath / key.Get();
 				castl::filesystem::create_directories(destPath.parent_path());
-				castl::vector<uint8_t> serializedData;
-				val->Serialzie(serializedData);
-				cacore::WriteBinaryFile(castl::to_ca(destPath.string()), serializedData.data(), serializedData.size());
+				auto batch = pIOManager->WriteBatch(destPath.string());
+				val->Serialize(batch.get());
+				batch->SubmitAndWait();
+				//cacore::WriteBinaryFile(castl::to_ca(destPath.string()), serializedData.data(), serializedData.size());
 			});
 		}
 		void SetResourceRootPath(castl::string const& path) override
@@ -145,7 +146,7 @@ namespace resource_management
 				{
 					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
 					auto batch = pIOManager->Batch(GetResourceFullPath(path));
-					newRes->Deserialzie(batch.get());
+					newRes->Deserialize(batch.get());
 					return newRes;
 				});
 			return result->second;

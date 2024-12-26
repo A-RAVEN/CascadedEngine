@@ -90,6 +90,18 @@ int main(int argc, char *argv[])
 	g_IOManager = ioManagerLoader.New();
 	g_IOManager->Initialize(pThreadManager.get());
 
+	/*castl::string testPath = (rootPath / "test.txt").string();
+	auto pWrite = g_IOManager->WriteBatch(testPath);
+	pWrite->Seek(5);
+	pWrite->Write(4, "TEST");
+	pWrite->SubmitAndWait();
+	pWrite->Seek(0);
+	pWrite->Write(5, "Hello");
+	pWrite->SubmitAndWait();
+	pWrite->Seek(7);
+	pWrite->Write(5, "World");
+	pWrite->SubmitAndWait();*/
+
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
 

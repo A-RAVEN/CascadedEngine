@@ -17,7 +17,7 @@ namespace ca_io
 	class WBatch
 	{
 	public:
-		virtual void Write(uint64_t readSize, void* destination) = 0;
+		virtual void Write(uint64_t readSize, void const* destination) = 0;
 		virtual void Seek(uint64_t offset) = 0;
 		virtual void SubmitAndWait() = 0;
 		virtual uint32_t SubmitCount() const = 0;

@@ -10,6 +10,101 @@ namespace cacore
 {
     using namespace careflection;
 
+    template <typename ByteSource>
+    class batch_serializer
+    {
+    public:
+        batch_serializer(ByteSource* byteSource) : m_ByteSource(byteSource) {}
+
+        constexpr void inline finalize()
+        {
+            m_ByteSource->SubmitAndWait();
+            std::cout << "Submit Count:" << m_ByteSource->SubmitCount() << std::endl;
+        }
+
+        template<typename Obj>
+        constexpr void inline serialize(const Obj& object, bool finalize = false)
+        {
+            using objType = std::remove_cvref_t<decltype(object)>;
+            if constexpr (std::is_pointer_v<objType> || managed_pointer_traits<objType>::is_managed_pointer)
+            {
+                //ignore
+            }
+            else if constexpr (managed_wrapper_traits<objType>::is_managed_wrapper)
+            {
+                serialize(managed_wrapper_traits<objType>::get_data(object));
+            }
+            else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
+            {
+                serialize_one(object);
+            }
+            else if constexpr (containerStates<objType>::is_container_with_size)
+            {
+                serialize_container_with_size(object);
+            }
+            else if constexpr (std::is_class_v<objType>)
+            {
+                visit_members(object, [this](auto &&...items) CONSTEXPR_INLINE_LAMBDA{
+                    (serialize(items), ...);
+                    }); //解包结构体
+            }
+            if (finalize)
+            {
+                m_ByteSource->SubmitAndWait();
+            }
+        }
+    private:
+
+        template<typename Obj>
+        constexpr void serialize_one(const Obj& object)
+        {
+            append_to_buffer(object);
+        }
+
+        template<typename Obj>
+        constexpr void serialize_container_with_size(const Obj& object)
+        {
+            using objType = std::remove_cvref_t<decltype(object)>;
+            using arrElemType = containerInfo<objType>::elementType;
+            uint64_t objSize = containerInfo<objType>::container_size(object);
+            append_to_buffer(objSize);
+            if constexpr (has_foreach_loop<objType>)
+            {
+                for (auto& item : object)
+                {
+                    serialize(item);
+                }
+            }
+            else if constexpr (containerStates<objType>::has_indexer)
+            {
+                for (auto id = 0; id < objSize; ++id)
+                {
+                    serialize(object[id]);
+                }
+            }
+            else
+            {
+
+            }
+            m_ByteSource->SubmitAndWait();
+        }
+
+        template<typename Obj>
+        constexpr void append_to_buffer(const Obj& object)
+        {
+            using objType = std::remove_cvref_t<decltype(object)>;
+            static_assert(std::is_trivially_copyable_v<objType>, "Object must be trivially copyable");
+            append_to_buffer(&object, sizeof(objType));
+        }
+
+        constexpr void append_to_buffer(const void* data, size_t size)
+        {
+			m_ByteSource->Write(size, data);
+        }
+        ByteSource* m_ByteSource;
+
+    };
+
     template <typename ByteBuffer>
     class serializer
     {

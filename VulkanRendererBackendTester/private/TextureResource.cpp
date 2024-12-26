@@ -3,16 +3,18 @@
 
 namespace resource_management
 {
-	void TextureResource::Serialzie(castl::vector<uint8_t>& data)
+	void TextureResource::Serialize(ca_io::WBatch* inWriter)
 	{
-		cacore::serialize(data, *this);
+		cacore::batch_serializer<ca_io::WBatch> serializer(inWriter);
+		serializer.serialize(*this);
+		serializer.finalize();
 	}
-	//void TextureResource::Deserialzie(castl::vector<uint8_t>& data)
+	//void TextureResource::Deserialize(castl::vector<uint8_t>& data)
 	//{
 	//	cacore::deserializer<decltype(data)> deserializer(data);
 	//	deserializer.deserialize(*this);
 	//}
-	void TextureResource::Deserialzie(ca_io::IOBatch* data)
+	void TextureResource::Deserialize(ca_io::IOBatch* data)
 	{
 		cacore::batch_deserializer<ca_io::IOBatch> deserializer(data);
 		deserializer.deserialize(*this);

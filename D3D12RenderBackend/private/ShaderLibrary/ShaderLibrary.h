@@ -24,8 +24,8 @@ namespace graphics_backend
 	public:
 		void Init(ShaderInfoHandle const&);
 
-		virtual void Serialzie(castl::vector<uint8_t>& out) override;
-		virtual void Deserialzie(ca_io::IOBatch* inReader) override;
+		void Serialize(ca_io::WBatch* inWriter) override;
+		virtual void Deserialize(ca_io::IOBatch* inReader) override;
 	private:
 		ShaderInfoHandle const* m_InfoHandle;
 		ComPtr<ID3DBlob> m_ShaderByteCode;
