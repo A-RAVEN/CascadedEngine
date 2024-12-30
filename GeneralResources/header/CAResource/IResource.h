@@ -7,8 +7,13 @@ namespace resource_management
 	{
 	public:
 		virtual ~IResource() {}
-		//virtual void Serialzie(castl::vector<uint8_t>& out) = 0;
 		virtual void Serialize(ca_io::WBatch* inWriter) = 0;
 		virtual void Deserialize(ca_io::IOBatch* inReader) = 0;
 	};
-}
+
+	class IResourceReadOnly
+	{
+	public:
+		virtual ~IResourceReadOnly() {}
+		virtual void Deserialize(ca_io::IOBatch* inReader) = 0;
+	};

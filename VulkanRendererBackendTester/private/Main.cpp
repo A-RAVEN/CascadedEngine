@@ -105,6 +105,7 @@ int main(int argc, char *argv[])
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
 
+
 	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
 	pResourceManagingSystem->Initialize(g_IOManager);
 	pResourceManagingSystem->SetResourceRootPath(assetString);
