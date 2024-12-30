@@ -85,6 +85,29 @@ namespace graphics_backend
 		return result;
 	}
 
+	void AliasedMemoryAllocator::LogAllocatorStates()
+	{
+		for (auto& pair : m_Blocks)
+		{
+			D3D12MA::Statistics heapStats;
+			for (VirtualBlock& block : pair.second)
+			{
+				D3D12MA::Statistics stats;
+				block.m_Block->GetStatistics(&stats);
+				if (stats.AllocationCount > 0)
+				{
+					castl::cout << "block Bytes:" << stats.BlockBytes << ";allocation bytes:" << stats.AllocationBytes << ";allocation count:" << castl::endl;
+				}
+				int id = 0;
+				for (auto resourceInfo : block.m_Resources)
+				{
+					castl::cout << "resource" << id << " offset:" << resourceInfo.m_Offset << ";resource size:" << resourceInfo.m_Size << castl::endl;
+					++id;
+				}
+			}
+		}
+	}
+
 	void AliasedMemoryAllocator::CommitAllocations()
 	{
 		for (auto& pair : m_Blocks)
@@ -102,11 +125,13 @@ namespace graphics_backend
 					heapStats.BlockCount += stats.BlockCount;
 
 					D3D12MA::Allocation* allocation;
-					D3D12MA::ALLOCATION_DESC allocationDesc = {};
+					D3D12MA::ALLOCATION_DESC
+					allocationDesc = {};
+					allocationDesc.HeapType = pair.first;
+					allocationDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED | D3D12MA::ALLOCATION_FLAG_CAN_ALIAS;
 					D3D12_RESOURCE_ALLOCATION_INFO resourceAllocationInfo = {};
 					resourceAllocationInfo.Alignment = block.m_MaxAlignment;
 					resourceAllocationInfo.SizeInBytes = stats.BlockBytes;
-					allocationDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
 					ThrowIfFailed(m_Allocator->AllocateMemory(&allocationDesc, &resourceAllocationInfo, &allocation));
 					m_Allocations.push_back(allocation);
 
@@ -136,15 +161,18 @@ namespace graphics_backend
 			{
 				block.Release();
 			}
+			pair.second.clear();
 		}
 		for (auto resource : m_PlacedResources)
 		{
 			resource.Reset();
 		}
+		m_PlacedResources.clear();
 		for (auto allocation : m_Allocations)
 		{
 			allocation->Release();
 		}
+		m_Allocations.clear();
 	}
 
 	AliasedMemoryAllocator::VirtualBlock::VirtualBlock(uint64_t virtualBlockSize)
@@ -158,6 +186,7 @@ namespace graphics_backend
 	{
 		m_Resources.clear();
 		m_Block->Clear();
+		m_Block->Release();
 	}
 
 	bool AliasedMemoryAllocator::VirtualBlock::TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator, D3D12_RESOURCE_DESC const& resourceDesc, AliasedGPUResource& outGPUResource)

@@ -41,6 +41,8 @@ namespace graphics_backend
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor) = 0;
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) = 0;
 		virtual bool AnyWindowRunning() = 0;
+
+		virtual void RunTestCode(){};
 	};
 }
 

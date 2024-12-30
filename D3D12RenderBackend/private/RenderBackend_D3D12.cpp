@@ -179,24 +179,42 @@ namespace graphics_backend
         return result;
     }
 
+	D3D12_RESOURCE_DESC GetResourceDescFromTextureDescriptor(GPUTextureDescriptor const& inDescriptor)
+	{
+		D3D12_RESOURCE_DESC resourceDesc{};
+		resourceDesc.Alignment = 0;
+		resourceDesc.Dimension = ETextureTypeToResourceDimension(inDescriptor.textureType);
+		resourceDesc.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
+		resourceDesc.Width = inDescriptor.width;
+		resourceDesc.Height = inDescriptor.height;
+		resourceDesc.DepthOrArraySize = inDescriptor.layers;
+		resourceDesc.MipLevels = inDescriptor.mipLevels;
+		resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(inDescriptor.format, inDescriptor.accessType);
+		resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
+		resourceDesc.SampleDesc.Quality = 0;
+		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		return resourceDesc;
+	}
+
     castl::shared_ptr<GPUTexture> RenderBackend_D3D12::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor)
     {
         castl::shared_ptr<D3DImageObject> result = castl::make_shared<D3DImageObject>(this);
-        D3D12_RESOURCE_DESC resourceDesc{};
-        resourceDesc.Alignment = 0;
-        resourceDesc.Dimension = ETextureTypeToResourceDimension(inDescriptor.textureType);
-		resourceDesc.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
-        resourceDesc.Width = inDescriptor.width;
-        resourceDesc.Height = inDescriptor.height;
-        resourceDesc.DepthOrArraySize = inDescriptor.layers;
-        resourceDesc.MipLevels = inDescriptor.mipLevels;
-        resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(inDescriptor.format, inDescriptor.accessType);
-        resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
-        resourceDesc.SampleDesc.Quality = 0;
-        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromTextureDescriptor(inDescriptor);
         GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
         result->SetGPUResource(castl::move(resource));
         return result;
+    }
+
+    void RenderBackend_D3D12::RunTestCode()
+    {
+		AliasedMemoryAllocator allocator(this, m_MemoryManager.GetAllocator());
+		GPUTextureDescriptor desc = GPUTextureDescriptor::Create(512, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eRT);
+		auto resourceDesc = GetResourceDescFromTextureDescriptor(desc);
+        auto resource = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+		auto resource2 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+		resource.FreeVirtualMemmories();
+		auto resource3 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+        allocator.LogAllocatorStates();
     }
 
 

@@ -17,6 +17,8 @@ namespace graphics_backend
 		void Release() override;
 		D3D12MA::Allocation* AllocMemory(D3D12_RESOURCE_ALLOCATION_INFO const& allocationInfo, D3D12_HEAP_TYPE heapType);
 		GPUResource AllocGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType);
+		ComPtr<D3D12MA::Allocator>& GetAllocator() { return m_Allocator; }
+		ComPtr<D3D12MA::Allocator> const& GetAllocator() const { return m_Allocator; }
 	private:
 		ComPtr<D3D12MA::Allocator> m_Allocator;
 	};
@@ -41,6 +43,7 @@ namespace graphics_backend
 	public:
 		AliasedMemoryAllocator(RenderBackend_D3D12* app, ComPtr<D3D12MA::Allocator> allocator, uint64_t virtualBlockSize = (512 << 20));
 		AliasedGPUResource AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType);
+		void LogAllocatorStates();
 		void CommitAllocations();
 		void ReleaseAll();
 
@@ -58,7 +61,6 @@ namespace graphics_backend
 			VirtualBlock(uint64_t virtualBlockSize);
 			bool TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator, D3D12_RESOURCE_DESC const& resourceDesc, AliasedGPUResource& outGPUResource);
 			void Release();
-			void CreatePlacedResources(D3D12MA::Allocation* pAllocation);
 			D3D12MA::VirtualBlock* m_Block;
 			castl::vector<ResourceInfo> m_Resources;
 			uint64_t m_MaxAlignment;
