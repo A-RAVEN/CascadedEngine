@@ -33,9 +33,23 @@ namespace resource_management
 			}
 		}
 
+		virtual void AddImporter(ResourceImporterFree* importer) override
+		{
+			if (importer == nullptr)
+				return;
+			m_GeneralImporters.push_back(importer);
+		}
+
 		virtual void ScanSourceDirectory(const castl::string& sourceDirectory) override
 		{
 			path rootPath(castl::to_std(sourceDirectory));
+			castl::filesystem::path targetRootPath = m_ResourceManagingSystem->GetResourceRootPath();
+
+			for (ResourceImporterFree* importer : m_GeneralImporters)
+			{
+				importer->ImportResource(m_ResourceManagingSystem, rootPath, targetRootPath);
+			}
+
 			if(!exists(rootPath))
 			{
 				return;
@@ -47,7 +61,6 @@ namespace resource_management
 			{
 				strVec.clear();
 			}
-			castl::filesystem::path targetRootPath = m_ResourceManagingSystem->GetResourceRootPath().c_str();
 			for(auto& p : recursive_directory_iterator(rootPath))
 			{
 				if(p.is_regular_file())
@@ -102,6 +115,7 @@ namespace resource_management
 		}
 	private:
 		castl::unordered_map<castl::string, uint32_t> m_PostfixToImporterIndex;
+		castl::vector<ResourceImporterFree*> m_GeneralImporters;
 		castl::vector<ResourceImporterBase*> m_Importers;
 		castl::vector<size_t> m_ReservedSpace;
 		castl::vector<castl::vector<castl::pair<castl::filesystem::path, castl::filesystem::path>>> m_ImportingResources;

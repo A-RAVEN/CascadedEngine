@@ -22,7 +22,7 @@ namespace resource_management
 		virtual castl::shared_ptr<IResource> GetOrLoadResource(castl::string const& path
 			, castl::function<IResource*()> newCallback, castl::function<void(IResource*)> deleteCallback) = 0;
 		virtual castl::shared_ptr<IResource> GetOrNewResource(castl::string const& path
-			, castl::function<IResource* ()> newCallback, castl::function<void(IResource*)> deleteCallback) = 0;
+			, castl::function<IResource*()> newCallback, castl::function<void(IResource*)> deleteCallback) = 0;
 	public:
 		template<typename TRes>
 		castl::shared_ptr<TRes> GetOrLoadResource(castl::string const& path) requires std::is_base_of_v<IResource, TRes>
@@ -35,6 +35,14 @@ namespace resource_management
 				{
 					delete releasedObj;
 				});
+			return castl::static_pointer_cast<TRes>(loaded);
+		}
+
+		template<typename TRes>
+		castl::shared_ptr<TRes> GetOrLoadResource(castl::string const& path
+			, castl::function<TRes* ()> newCallback, castl::function<void(IResource*)> deleteCallback) requires std::is_base_of_v<IResource, TRes>
+		{
+			castl::shared_ptr<IResource> loaded = GetOrLoadResource(path, newCallback, deleteCallback);
 			return castl::static_pointer_cast<TRes>(loaded);
 		}
 

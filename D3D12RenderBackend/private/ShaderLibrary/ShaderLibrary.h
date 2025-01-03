@@ -4,6 +4,7 @@
 #include <ShaderProvider.h>
 #include <CACore/CASharedDic.h>
 #include <CAResource/IResource.h>
+#include <Utils/D3D12SubobjectBase.h>
 
 namespace graphics_backend
 {
@@ -16,26 +17,29 @@ namespace graphics_backend
 	{
 		castl::string pathToFile;
 		castl::string entryPoint;
-
 	};
 
-	class D3D12ShaderResource : public resource_management::IResource
+	class D3D12ShaderResourceRW : public resource_management::IResource, public D3D12SubobjectBase
 	{
 	public:
-		void Init(ShaderInfoHandle const&);
-
+		D3D12ShaderResourceRW(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		void Init(ShaderInfo const& shaderInfo);
+		void Release();
 		void Serialize(ca_io::WBatch* inWriter) override;
 		virtual void Deserialize(ca_io::IOBatch* inReader) override;
 	private:
-		ShaderInfoHandle const* m_InfoHandle;
+		ShaderInfo const* p_ShaderInfo;
 		ComPtr<ID3DBlob> m_ShaderByteCode;
+		ShaderCompilerSlang::ShaderReflectionData m_ReflectionData;
+		friend class D3D12ShaderLibrary;
 	};
 
-	class D3D12ShaderLibrary
+	class D3D12ShaderLibrary : public D3D12SubobjectBase
 	{
 	public:
-		castl::shared_ptr<D3D12ShaderResource> GetOrLoadShader(cacore::HashObj<ShaderInfoHandle> const& inShaderInfo);
+		D3D12ShaderLibrary(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		castl::shared_ptr<D3D12ShaderResourceRW> GetOrLoadShader(cacore::HashObj<ShaderInfo> const& inShaderInfo);
 	private:
-		castl::shared_dic<cacore::HashObj<ShaderInfoHandle>, castl::shared_ptr<D3D12ShaderResource>> m_ShaderSourceCache;
+		castl::shared_dic<ShaderInfo, castl::shared_ptr<D3D12ShaderResourceRW>> m_ShaderSourceCache;
 	};
 }

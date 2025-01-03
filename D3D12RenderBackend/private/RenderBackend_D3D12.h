@@ -5,6 +5,7 @@
 #include <ShaderBindingBuilder.h>
 #include <CAWindow/WindowSystem.h>
 #include <ResourceManagment/MemoryManager.h>
+#include <CAResource/ResourceManagingSystem.h>
 #include "D3D12Includes.h"
 #include "WindowContext.h"
 
@@ -14,7 +15,11 @@ namespace graphics_backend
 	{
 	public:
 		RenderBackend_D3D12();
-		void Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName) override;
+		void Initialize(catimer::TimerSystem* timer
+			, ca_io::IOManager* ioManager
+			, resource_management::ResourceManagingSystem* resourceManager
+			, castl::string const& appName
+			, castl::string const& engineName) override;
 		void Release() override;
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		bool AnyWindowRunning() override;
@@ -23,6 +28,14 @@ namespace graphics_backend
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor) override;
 
 		virtual void RunTestCode() override;
+		resource_management::ResourceManagingSystem* GetResourceManager() const
+		{
+			return p_ResourceManager;
+		}
+		ca_io::IOManager* GetIOManager() const
+		{
+			return p_IOManager;
+		}
 		ComPtr<IDXGIFactory4> GetFactory() const
 		{
 			return m_Factory;
@@ -85,6 +98,8 @@ namespace graphics_backend
 
 	private:
 		MemoryManager m_MemoryManager;
+		ca_io::IOManager* p_IOManager;
+		resource_management::ResourceManagingSystem* p_ResourceManager;
 		ComPtr<IDXGIFactory4> m_Factory;
 		ComPtr<ID3D12Device> m_Device;
 		ComPtr<IDXGIAdapter1> m_Adapter;

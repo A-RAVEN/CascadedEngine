@@ -60,6 +60,11 @@ namespace graphics_backend
 		p_OwningBlock->FreeAllocation(m_Allocation);
 	}
 
+	ResourceInfo const& AliasedGPUResource::GetResourceInfo() const
+	{
+		return p_OwningAllocator->GetResourceInfo(m_HeapType, m_BlockID, m_ResourceID);
+	}
+
 	AliasedMemoryAllocator::AliasedMemoryAllocator(RenderBackend_D3D12* app, ComPtr<D3D12MA::Allocator> allocator, uint64_t virtualBlockSize)
 		: D3D12SubobjectBase(app), m_Allocator(allocator), m_VirtualBlockSize(virtualBlockSize)
 	{
@@ -68,20 +73,27 @@ namespace graphics_backend
 	AliasedGPUResource AliasedMemoryAllocator::AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType)
 	{
 		AliasedGPUResource result{};
+		result.m_HeapType = heapType;
 		auto found = m_Blocks.find(heapType);
 		if (found == m_Blocks.end())
 		{
 			found = m_Blocks.insert(castl::make_pair(heapType, castl::vector<VirtualBlock>{})).first;
 		}
-		for (VirtualBlock& virtualBlock : found->second)
+		for (uint32_t blockID = 0; blockID < found->second.size(); ++blockID)
 		{
+			VirtualBlock& virtualBlock = found->second[blockID];
 			if (virtualBlock.TryAllocateGPUResource(*this, resourceDesc, result))
 			{
+				result.m_BlockID = blockID;
 				return result;
 			}
 		}
 		found->second.push_back(VirtualBlock{ m_VirtualBlockSize });
-		assert(found->second.back().TryAllocateGPUResource(resourceDesc, result));
+		{
+			bool newAlloc = found->second.back().TryAllocateGPUResource(*this, resourceDesc, result);
+			assert(newAlloc);
+			result.m_BlockID = found->second.size() - 1;
+		}
 		return result;
 	}
 
@@ -92,12 +104,9 @@ namespace graphics_backend
 			D3D12MA::Statistics heapStats;
 			for (VirtualBlock& block : pair.second)
 			{
-				D3D12MA::Statistics stats;
-				block.m_Block->GetStatistics(&stats);
-				if (stats.AllocationCount > 0)
-				{
-					castl::cout << "block Bytes:" << stats.BlockBytes << ";allocation bytes:" << stats.AllocationBytes << ";allocation count:" << castl::endl;
-				}
+				if (block.m_MaxSize == 0)
+					continue;
+				castl::cout << "block Bytes:" << block.m_MaxSize << castl::endl;
 				int id = 0;
 				for (auto resourceInfo : block.m_Resources)
 				{
@@ -112,18 +121,10 @@ namespace graphics_backend
 	{
 		for (auto& pair : m_Blocks)
 		{
-			D3D12MA::Statistics heapStats;
 			for (VirtualBlock& block : pair.second)
 			{
-				D3D12MA::Statistics stats;
-				block.m_Block->GetStatistics(&stats);
-				if (stats.AllocationCount > 0)
+				if (block.m_MaxSize > 0)
 				{
-					heapStats.AllocationBytes += stats.AllocationBytes;
-					heapStats.AllocationCount += stats.AllocationCount;
-					heapStats.BlockBytes += stats.BlockBytes;
-					heapStats.BlockCount += stats.BlockCount;
-
 					D3D12MA::Allocation* allocation;
 					D3D12MA::ALLOCATION_DESC
 					allocationDesc = {};
@@ -131,7 +132,7 @@ namespace graphics_backend
 					allocationDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED | D3D12MA::ALLOCATION_FLAG_CAN_ALIAS;
 					D3D12_RESOURCE_ALLOCATION_INFO resourceAllocationInfo = {};
 					resourceAllocationInfo.Alignment = block.m_MaxAlignment;
-					resourceAllocationInfo.SizeInBytes = stats.BlockBytes;
+					resourceAllocationInfo.SizeInBytes = block.m_MaxSize;
 					ThrowIfFailed(m_Allocator->AllocateMemory(&allocationDesc, &resourceAllocationInfo, &allocation));
 					m_Allocations.push_back(allocation);
 
@@ -140,11 +141,11 @@ namespace graphics_backend
 						allocation->GetHeap();
 						allocation->GetOffset();
 						ComPtr<ID3D12Resource> resource;
-						GetDevice()->
+						ThrowIfFailed(GetDevice()->
 							CreatePlacedResource(allocation->GetHeap()
 								, allocation->GetOffset() + resourceInfo.m_Offset
 								, &resourceInfo.m_Desc
-								, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource));
+								, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)));
 						m_PlacedResources.push_back(resource);
 					}
 				}
@@ -153,7 +154,7 @@ namespace graphics_backend
 		}
 	}
 
-	void AliasedMemoryAllocator::ReleaseAll()
+	void AliasedMemoryAllocator::Release()
 	{
 		for (auto& pair : m_Blocks)
 		{
@@ -175,7 +176,12 @@ namespace graphics_backend
 		m_Allocations.clear();
 	}
 
-	AliasedMemoryAllocator::VirtualBlock::VirtualBlock(uint64_t virtualBlockSize)
+	ResourceInfo const& AliasedMemoryAllocator::GetResourceInfo(D3D12_HEAP_TYPE, uint32_t virtualBlockID, uint32_t resourceID) const
+	{
+		return m_Blocks.find(D3D12_HEAP_TYPE_DEFAULT)->second[virtualBlockID].m_Resources[resourceID];
+	}
+
+	AliasedMemoryAllocator::VirtualBlock::VirtualBlock(uint64_t virtualBlockSize) : m_MaxAlignment(0), m_MaxSize(0)
 	{
 		D3D12MA::VIRTUAL_BLOCK_DESC blockDesc = {};
 		blockDesc.Size = virtualBlockSize;
@@ -196,13 +202,15 @@ namespace graphics_backend
 		D3D12MA::VIRTUAL_ALLOCATION_DESC allocDesc = {};
 		allocDesc.Size = allocationInfo.SizeInBytes; // 4 KB
 		allocDesc.Alignment = allocationInfo.Alignment;
-		m_MaxAlignment = std::max(m_MaxAlignment, allocDesc.Alignment);
 
 		D3D12MA::VirtualAllocation alloc;
 		UINT64 allocOffset;
 		auto hr = m_Block->Allocate(&allocDesc, &alloc, &allocOffset);
 		if (SUCCEEDED(hr))
 		{
+			m_MaxAlignment = std::max(m_MaxAlignment, allocDesc.Alignment);
+			m_MaxSize = std::max(m_MaxSize, allocOffset + allocDesc.Size);
+
 			ResourceInfo resourceInfo;
 			resourceInfo.m_Desc = resourceDesc;
 			resourceInfo.m_Allocation = alloc;
@@ -210,11 +218,12 @@ namespace graphics_backend
 			resourceInfo.m_Size = allocDesc.Size;
 			m_Resources.push_back(resourceInfo);
 
-			outGPUResource.m_Offset = allocOffset;
-			outGPUResource.m_Size = allocDesc.Size;
+			//outGPUResource.m_Offset = allocOffset;
+			//outGPUResource.m_Size = allocDesc.Size;
 			outGPUResource.m_Allocation = alloc;
 			outGPUResource.p_OwningAllocator = &owningAllocator;
 			outGPUResource.p_OwningBlock = m_Block;
+			outGPUResource.m_ResourceID = m_Resources.size() - 1;
 			return true;
 		}
 

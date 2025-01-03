@@ -17,3 +17,4 @@ namespace resource_management
 		virtual ~IResourceReadOnly() {}
 		virtual void Deserialize(ca_io::IOBatch* inReader) = 0;
 	};
+}

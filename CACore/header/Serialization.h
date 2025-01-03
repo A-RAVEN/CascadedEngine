@@ -455,6 +455,13 @@ namespace cacore
         uint64_t m_Offset = 0;
     };
 
+    template<typename Obj, typename ByteSource>
+	static constexpr void batch_serialize(ByteSource* byteSource, const Obj& object)
+	{
+		batch_serializer<ByteSource> srser{ byteSource };
+		srser.serialize(object);
+	}
+
     template <typename Obj, typename ByteBuffer>
     static constexpr void serialize(ByteBuffer& buffer, Obj const& object)
     {

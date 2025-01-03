@@ -18,7 +18,6 @@ struct ShaderInfo
 	castl::string entryPoint;
 };
 
-using ShaderInfoHandle = cacore::HashObj<ShaderInfo>;
 
 struct IShaderSet
 {

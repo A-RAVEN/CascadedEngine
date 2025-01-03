@@ -122,6 +122,8 @@ int main(int argc, char* argv[])
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize(GetGlobalTimerSystem(), "Test Vulkan Backend", "CASCADED Engine");
 
+	pBackend->RunTestCode();
+
 	GPUTextureDescriptor textureDesc = GPUTextureDescriptor::Create(1024, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst);
 	castl::shared_ptr<GPUTexture> texture = pBackend->CreateGPUTexture(textureDesc);
 

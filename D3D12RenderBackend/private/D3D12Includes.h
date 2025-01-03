@@ -10,6 +10,7 @@
 #include <dxgi1_6.h>
 #include <directx/d3dx12.h>
 #include <wrl.h>
+#include <d3dcompiler.h>
 
 #define D3D12MA_USING_DIRECTX_HEADERS 1
 #include "D3D12MemAlloc.h"

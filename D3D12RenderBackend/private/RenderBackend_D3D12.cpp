@@ -96,9 +96,15 @@ namespace graphics_backend
     {
     }
 
-    void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName)
+    void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer
+        , ca_io::IOManager* ioManager
+        , resource_management::ResourceManagingSystem* resourceManager
+        , castl::string const& appName
+        , castl::string const& engineName)
 	{
         catimer::SetGlobalTimerSystem(timer);
+        p_IOManager = ioManager;
+        p_ResourceManager = resourceManager;
 
         UINT dxgiFactoryFlags = 0;
 
@@ -211,10 +217,14 @@ namespace graphics_backend
 		GPUTextureDescriptor desc = GPUTextureDescriptor::Create(512, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eRT);
 		auto resourceDesc = GetResourceDescFromTextureDescriptor(desc);
         auto resource = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
-		auto resource2 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
-		resource.FreeVirtualMemmories();
-		auto resource3 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+        auto resource2 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+        auto resource3 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+        resource.FreeVirtualMemmories();
+        resource2.FreeVirtualMemmories();
+        auto resource4 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
         allocator.LogAllocatorStates();
+        allocator.CommitAllocations();
+		allocator.Release();
     }
 
 

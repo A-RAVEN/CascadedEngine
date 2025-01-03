@@ -13,6 +13,8 @@
 #include "TextureSampler.h"
 #include "MonitorHandle.h"
 #include "GPUFrame.h"
+#include <IOManager/IOManager.h>
+#include <CAResource/ResourceManagingSystem.h>
 
 namespace thread_management
 {
@@ -27,7 +29,12 @@ namespace graphics_backend
 	class CRenderBackend
 	{
 	public:
-		virtual void Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName) = 0;
+		virtual void Initialize(
+			catimer::TimerSystem* timer
+			, ca_io::IOManager* ioManager
+			, resource_management::ResourceManagingSystem* resourceManager
+			, castl::string const& appName
+			, castl::string const& engineName) = 0;
 		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) = 0;
 		virtual void Release() = 0;
 
