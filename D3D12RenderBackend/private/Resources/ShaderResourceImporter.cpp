@@ -34,6 +34,13 @@ namespace graphics_backend
 					{
 						//auto resource = resourceManager->GetOrNewResource<ShaderRes>(castl::to_ca(outPathWithExt.string()));
 						auto compileResults = pCompiler->GetResults();
+						for (auto& result : compileResults)
+						{
+							if (result.targetType == ShaderCompilerSlang::EShaderTargetType::eDXIL)
+							{
+
+							}
+						}
 						//resource->m_UniqueName = outPath;
 					}
 					pCompiler->EndCompileTask();
