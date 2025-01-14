@@ -477,9 +477,9 @@ namespace cacore
     }
 
     template <typename Obj, typename ByteSource>
-    static constexpr void batch_deserialize(ByteSource const& source, Obj& object)
+    static constexpr void batch_deserialize(ByteSource* source, Obj& object)
     {
-        batch_deserializer<ByteSource> desrser{ source };
+        batch_deserializer<ByteSource> desrser(source);
         desrser.deserialize(object);
     }
 }

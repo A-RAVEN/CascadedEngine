@@ -8,10 +8,6 @@
 
 namespace graphics_backend
 {
-	struct ShaderMetaData
-	{
-		castl::string entryPoint;
-	};
 
 	struct ShaderSourceKey
 	{

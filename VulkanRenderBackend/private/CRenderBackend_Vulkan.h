@@ -10,7 +10,11 @@ namespace graphics_backend
 	class CRenderBackend_Vulkan : public CRenderBackend
 	{
 	public:
-		void Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName) override;
+		void Initialize(catimer::TimerSystem* timer
+			, ca_io::IOManager* ioManager
+			, resource_management::ResourceManagingSystem* resourceManager
+			, castl::string const& appName
+			, castl::string const& engineName) override;
 		void Release() override;
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		bool AnyWindowRunning() override;

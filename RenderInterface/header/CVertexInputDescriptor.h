@@ -1,7 +1,6 @@
 #pragma once
 #include <CASTL/CAVector.h>
 #include <CASTL/CATuple.h>
-//#include <uhash.h>
 #include "Common.h"
 
 struct InputAssemblyStates
@@ -9,9 +8,6 @@ struct InputAssemblyStates
 	ETopology topology = ETopology::eTriangleList;
 	auto operator<=>(const InputAssemblyStates&) const = default;
 };
-
-//template<>
-//struct hash_utils::is_contiguously_hashable<InputAssemblyStates> : public castl::true_type {};
 
 struct VertexAttribute
 {

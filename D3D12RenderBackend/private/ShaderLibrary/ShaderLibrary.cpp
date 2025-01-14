@@ -24,7 +24,7 @@ namespace graphics_backend
 
 	void D3D12ShaderResourceRW::Deserialize(ca_io::IOBatch* inReader)
 	{
-		cacore::batch_deserialize(*p_ShaderInfo, inReader);
+		cacore::batch_deserialize(inReader, *p_ShaderInfo);
 		uint32_t size;
 		inReader->Read(size);
 		inReader->SubmitAndWait();

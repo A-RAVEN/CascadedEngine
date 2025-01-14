@@ -8,6 +8,7 @@
 #include <CASTL/CAArray.h>
 #include <CASTL/CAVector.h>
 #include <CASTL/CAString.h>
+#include <CACore/CAHash.h>
 
 //在需要hash的类或结构体中实现hash_append，在其中自行将需要计算hash的成员变量累加
 //template <class HashAlgorithm>
@@ -23,7 +24,7 @@
 
 namespace hash_utils
 {
-	
+	using namespace cahash;
 
 #pragma region Is Contiguously
 
@@ -49,27 +50,7 @@ struct is_contiguously_hashable<castl::pair<T, U>>
 #pragma endregion
 
 #pragma region Hash Algorithms
-class fnv1a
-{
-    size_t state_ = 14695981039346656037u;
-public:
-    using result_type = size_t;
 
-    void
-        operator()(void const* key, size_t len) noexcept
-    {
-        unsigned char const* p = static_cast<unsigned char const*>(key);
-        unsigned char const* const e = p + len;
-        for (; p < e; ++p)
-            state_ = (state_ ^ *p) * 1099511628211u;
-    }
-
-    explicit
-        operator result_type() const noexcept
-	    {
-	        return state_;
-	    }
-};
 
 
 #pragma endregion

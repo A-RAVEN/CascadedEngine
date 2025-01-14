@@ -232,6 +232,7 @@ namespace ShaderCompilerSlang
 			m_ResourceGroups[groupID].m_Samplers.push_back(m_Samplers.size() - 1);
 		}
 
+		//Binding Space Of This Data
 		uint32_t m_BindingSpace;
 
 		//UniformBuffer

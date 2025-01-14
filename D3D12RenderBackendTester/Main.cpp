@@ -27,8 +27,10 @@
 #include <IOManager/IOManager.h>
 #include <filesystem>
 #include <magic_enum/magic_enum.hpp>
+#include <CAResource/ResourceSystemFactory.h>
 
 using namespace thread_management;
+using namespace resource_management;
 using namespace library_loader;
 using namespace graphics_backend;
 using namespace cawindow;
@@ -107,20 +109,34 @@ int main(int argc, char* argv[])
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("D3D12RenderBackend");
 	TModuleLoader<IWindowSystem> windowSystemLoader("WindowSystem");
+	TModuleLoader<IOManager> ioManagerLoader("IOManager_FS");
+	TModuleLoader<ResourceFactory> resourceSystemLoader("CAGeneralReourceSystem");
 
-	auto windowSystem = windowSystemLoader.New();
-
+	//Timer System
 	InitTimerSystem();
 
+	//Window System
+	auto windowSystem = windowSystemLoader.New();
 
+	//Initialize Thread Manager
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
 	n = (n == 0) ? 5 : (castl::min)(n, 16u);
 	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 1);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
+	//Initialize IO Manager
+	auto g_IOManager = ioManagerLoader.New();
+	g_IOManager->Initialize(pThreadManager.get());
+
+	//Resource System
+	auto resourceSystemFactory = resourceSystemLoader.New();
+	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
+	pResourceManagingSystem->Initialize(g_IOManager);
+	pResourceManagingSystem->SetResourceRootPath(assetString);
+
 	auto pBackend = renderBackendLoader.New();
-	pBackend->Initialize(GetGlobalTimerSystem(), "Test Vulkan Backend", "CASCADED Engine");
+	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
 
 	pBackend->RunTestCode();
 

@@ -1,6 +1,5 @@
 #pragma once
 #include <CASTL/CAString.h>
-//#include <uhash.h>
 #include "Common.h"
 
 namespace graphics_backend

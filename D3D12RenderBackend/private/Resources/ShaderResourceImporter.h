@@ -2,6 +2,7 @@
 #include <CAResource/ResourceImporter.h>
 #include <Compiler.h>
 #include <library_loader.h>
+#include <Resources/ShaderResource.h>
 
 namespace graphics_backend
 {

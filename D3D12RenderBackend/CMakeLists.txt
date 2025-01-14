@@ -5,7 +5,7 @@ file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
-target_link_libraries(${PROJECT_NAME} PRIVATE d3d12 dxgi dxguid)
+target_link_libraries(${PROJECT_NAME} PRIVATE d3d12 dxgi dxguid d3dcompiler)
 target_include_directories(${PROJECT_NAME} PRIVATE "private")
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)

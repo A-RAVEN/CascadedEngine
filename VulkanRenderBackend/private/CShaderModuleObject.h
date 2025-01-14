@@ -1,6 +1,5 @@
 #pragma once
 #include <ShaderProvider.h>
-//#include <uhash.h>
 #include <unordered_map>
 #include <DebugUtils.h>
 #include "VulkanApplicationSubobjectBase.h"

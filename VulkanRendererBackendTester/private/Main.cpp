@@ -90,17 +90,6 @@ int main(int argc, char *argv[])
 	g_IOManager = ioManagerLoader.New();
 	g_IOManager->Initialize(pThreadManager.get());
 
-	/*castl::string testPath = (rootPath / "test.txt").string();
-	auto pWrite = g_IOManager->WriteBatch(testPath);
-	pWrite->Seek(5);
-	pWrite->Write(4, "TEST");
-	pWrite->SubmitAndWait();
-	pWrite->Seek(0);
-	pWrite->Write(5, "Hello");
-	pWrite->SubmitAndWait();
-	pWrite->Seek(7);
-	pWrite->Write(5, "World");
-	pWrite->SubmitAndWait();*/
 
 	ShaderResourceLoaderSlang slangShaderResourceLoader;
 	StaticMeshImporter staticMeshImporter;
@@ -131,7 +120,7 @@ int main(int argc, char *argv[])
 	auto pTextureResource1 = pResourceManagingSystem->GetOrLoadResource<TextureResource>("Models/VikingRoom/IMG_2349.texture");
 
 	auto pBackend = renderBackendLoader.New();
-	pBackend->Initialize(GetGlobalTimerSystem(), "Test Vulkan Backend", "CASCADED Engine");
+	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
 
 	imgui_display::IMGUIContext imguiContext;
 

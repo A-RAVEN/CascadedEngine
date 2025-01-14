@@ -1,36 +1,12 @@
 #pragma once
 #include "Reflection.h"
+#include <CACore/CAHash.h>
 
 namespace cacore
 {
     using namespace careflection;
 
-    class fnv1a
-    {
-        uint64_t state_ = 14695981039346656037u;
-    public:
-        using result_type = uint64_t;
-
-        void operator()(void const* key, uint64_t len) noexcept
-        {
-            unsigned char const* p = static_cast<unsigned char const*>(key);
-            unsigned char const* const e = p + len;
-            for (; p < e; ++p)
-                state_ = (state_ ^ *p) * 1099511628211u;
-        }
-
-        void operator()(result_type other) noexcept
-        {
-            operator()(&other, sizeof(result_type));
-        }
-
-        explicit
-            operator result_type() const noexcept
-        {
-            return state_;
-        }
-    };
-
+    using default_hashclass = typename cahash::komiHash;
 
     template<typename T>
     struct custom_hash_trait
@@ -44,12 +20,24 @@ namespace cacore
         custom_hash_trait<T>::hash(t, h);
     };
 
-    template <typename hashAlg = fnv1a>
+    template<typename T>
+    concept has_std_hash = requires(T t)
+    {
+        std::hash<T>{}(t);
+    };
+
+    template <typename hashAlg = default_hashclass>
     class defaultHasher
     {
     public:
         using result_type = typename hashAlg::result_type;
         hashAlg alg = {};
+
+		result_type getHash() const noexcept
+		{
+			return static_cast<result_type>(alg);
+		}
+
         template<typename Obj>
         constexpr void inline hash(const Obj& object)
         {
@@ -58,7 +46,12 @@ namespace cacore
             {
                 //直接对对象内存算哈希值
                 hash_range(object);
-            }
+			}
+			else if constexpr (has_std_hash<objType>)
+			{
+				//使用标准哈希函数
+				hash_range(std::hash<objType>{}(object));
+			}
             else if constexpr (has_custom_hash_func<objType, std::remove_cvref_t<decltype(*this)>>)
 			{
 				//自定义哈希函数
@@ -119,7 +112,7 @@ namespace cacore
         }
     };
 
-    template<typename T, typename hashAlg = fnv1a>
+    template<typename T, typename hashAlg = default_hashclass>
     struct hash
     {
         using result_type = hashAlg::result_type;
@@ -131,7 +124,8 @@ namespace cacore
         }
     };
 
-    template<typename ObjType, bool FullCompare = false, typename hashAlg = fnv1a>
+
+    template<typename ObjType, bool FullCompare = false, typename hashAlg = default_hashclass>
     struct HashObj
     {
     public:

@@ -5,7 +5,11 @@
 
 namespace graphics_backend
 {
-	void CRenderBackend_Vulkan::Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName)
+	void CRenderBackend_Vulkan::Initialize(catimer::TimerSystem* timer
+		, ca_io::IOManager* ioManager
+		, resource_management::ResourceManagingSystem* resourceManager
+		, castl::string const& appName
+		, castl::string const& engineName)
 	{
 		catimer::SetGlobalTimerSystem(timer);
 		m_Application.InitApp(appName, engineName);
