@@ -15,6 +15,7 @@
 #include "GPUFrame.h"
 #include <IOManager/IOManager.h>
 #include <CAResource/ResourceManagingSystem.h>
+#include <CAResource/ResourceImportingSystem.h>
 
 namespace thread_management
 {
@@ -33,6 +34,7 @@ namespace graphics_backend
 			catimer::TimerSystem* timer
 			, ca_io::IOManager* ioManager
 			, resource_management::ResourceManagingSystem* resourceManager
+			, resource_management::ResourceImportingSystem* resourceImporter
 			, castl::string const& appName
 			, castl::string const& engineName) = 0;
 		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) = 0;

@@ -42,7 +42,7 @@ namespace resource_management
 
 		virtual void ScanSourceDirectory(const castl::string& sourceDirectory) override
 		{
-			path rootPath(castl::to_std(sourceDirectory));
+			path rootPath(sourceDirectory, cafs::path::format::generic_format);
 			castl::filesystem::path targetRootPath = m_ResourceManagingSystem->GetResourceRootPath();
 
 			for (ResourceImporterFree* importer : m_GeneralImporters)
@@ -65,7 +65,7 @@ namespace resource_management
 			{
 				if(p.is_regular_file())
 				{
-					auto postfix = castl::to_ca(p.path().extension().string());
+					auto postfix = castl::to_ca(p.path().extension().generic_string());
 					auto found = m_PostfixToImporterIndex.find(postfix);
 					if(found != m_PostfixToImporterIndex.end())
 					{
@@ -107,8 +107,8 @@ namespace resource_management
 				for(uint32_t itrResource = 0; itrResource < m_ReservedSpace[i]; ++itrResource)
 				{
 					m_Importers[i]->ImportResource(m_ResourceManagingSystem
-						, castl::to_ca(m_ImportingResources[i][itrResource].first.string())
-						, castl::to_ca(m_ImportingResources[i][itrResource].second.string()));
+						, castl::to_ca(m_ImportingResources[i][itrResource].first.generic_string())
+						, castl::to_ca(m_ImportingResources[i][itrResource].second.generic_string()));
 				}
 			}
 			m_ResourceManagingSystem->SerializeAll();
@@ -135,10 +135,10 @@ namespace resource_management
 			{
 				castl::filesystem::path destPath = m_AssetRootPath / key.Get();
 				castl::filesystem::create_directories(destPath.parent_path());
-				auto batch = pIOManager->WriteBatch(destPath.string());
+				auto batch = pIOManager->WriteBatch(destPath.generic_string());
 				val->Serialize(batch.get());
 				batch->SubmitAndWait();
-				//cacore::WriteBinaryFile(castl::to_ca(destPath.string()), serializedData.data(), serializedData.size());
+				//cacore::WriteBinaryFile(castl::to_ca(destPath.generic_string()), serializedData.data(), serializedData.size());
 			});
 		}
 		void SetResourceRootPath(castl::string const& path) override
@@ -147,17 +147,19 @@ namespace resource_management
 		}
 		castl::string GetResourceRootPath() const override
 		{
-			return m_AssetRootPath.string();
+			return m_AssetRootPath.generic_string();
 		}
 		castl::string GetResourceFullPath(castl::string const& path) const override
 		{
-			return (m_AssetRootPath / path).string();
+			return (m_AssetRootPath / path).generic_string();
 		}
 		castl::shared_ptr<IResource> GetOrLoadResource(castl::string const& path
 			, castl::function<IResource* ()> newCallback, castl::function<void(IResource*)> deleteCallback) override
 		{
 			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
 				{
+					castl::string log = "Load new resource: " + path + "\n";
+					castl::cout << log << castl::endl;
 					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
 					auto batch = pIOManager->Batch(GetResourceFullPath(path));
 					newRes->Deserialize(batch.get());
@@ -170,6 +172,8 @@ namespace resource_management
 		{
 			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
 				{
+					castl::string log = "Create New resource: " + path + "\n";
+					castl::cout << log << castl::endl;
 					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
 					return newRes;
 				});

@@ -67,8 +67,10 @@ namespace graphics_backend
 	};
 
 	void ShaderBindingInstance::InitShaderBindingLayouts(CVulkanApplication& application
-		, ShaderCompilerSlang::ShaderReflectionData const& reflectionData)
+		, ShaderCompilerSlang::ShaderReflectionData const& reflectionData
+		, castl::string const& debugName)
 	{
+		castl::string debug = "binding For Shader " + debugName + ": ";
 		p_Application = &application;
 		p_ReflectionData = &reflectionData;
 		m_DescriptorSetsLayouts.resize(reflectionData.m_BindingData.size());
@@ -87,6 +89,7 @@ namespace graphics_backend
 				bindingDesc.arraySize = 1;
 				bindingDesc.descType = vk::DescriptorType::eUniformBuffer;
 				descSetDesc.descs.push_back(bindingDesc);
+				debug += "Uniform Buffer Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(uniformBuf.m_BindingIndex) + " ";
 			}
 			for (auto& textureBinding : sourceSet.m_Textures)
 			{
@@ -95,6 +98,7 @@ namespace graphics_backend
 				bindingDesc.arraySize = textureBinding.m_Count;
 				bindingDesc.descType = vk::DescriptorType::eSampledImage;
 				descSetDesc.descs.push_back(bindingDesc);
+				debug += "Texture Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(textureBinding.m_BindingIndex) + " ";
 			}
 			for (auto& samplerBinding : sourceSet.m_Samplers)
 			{
@@ -103,6 +107,7 @@ namespace graphics_backend
 				bindingDesc.arraySize = samplerBinding.m_Count;
 				bindingDesc.descType = vk::DescriptorType::eSampler;
 				descSetDesc.descs.push_back(bindingDesc);
+				debug += "Sampler Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(samplerBinding.m_BindingIndex) + " ";
 			}
 			for (auto& storageBufferBinding : sourceSet.m_Buffers)
 			{
@@ -111,11 +116,13 @@ namespace graphics_backend
 				bindingDesc.arraySize = storageBufferBinding.m_Count;
 				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
 				descSetDesc.descs.push_back(bindingDesc);
+				debug += "Storage Buffer Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(storageBufferBinding.m_BindingIndex) + " ";
 			}
 			auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
 			m_DescriptorSetDescs[sid] = descSetDesc;
 			m_DescriptorSetsLayouts[sid] = descSetLayout->GetLayout();
 		}
+		//castl::cout << debug << castl::endl;
 	}
 
 	void ShaderBindingInstance::InitShaderBindingSets(FrameBoundResourcePool* pResourcePool)

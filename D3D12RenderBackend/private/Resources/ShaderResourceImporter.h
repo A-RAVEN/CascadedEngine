@@ -14,6 +14,7 @@ namespace graphics_backend
 		ShaderResourceImporter() : m_ShaderCompilerLoader("ShaderCompilerSlang")
 		{
 			m_ShaderCompilerManager = m_ShaderCompilerLoader.New();
+			m_ShaderCompilerManager->InitializePoolSize(1);
 		}
 		virtual castl::string GetTags() const override { return "Win32;HLSL;Slang"; }
 		virtual void ImportResource(ResourceManagingSystem* resourceManager

@@ -15,7 +15,7 @@ namespace graphics_backend
 		static ResourceHandleKeyData Create(castl::string const& name, uint32_t uniqueID) { return { name, uniqueID }; }
 	};
 
-	using ResourceHandleKey = cacore::HashObj<ResourceHandleKeyData, true>;
+	using ResourceHandleKey = cacore::HashObj<ResourceHandleKeyData, cacore::EHashObjCompareMode::FullCompare>;
 
 	class ImageHandle
 	{

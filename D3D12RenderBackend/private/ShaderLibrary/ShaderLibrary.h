@@ -9,11 +9,11 @@
 namespace graphics_backend
 {
 
-	struct ShaderSourceKey
-	{
-		castl::string pathToFile;
-		castl::string entryPoint;
-	};
+	//struct ShaderSourceKey
+	//{
+	//	castl::string pathToFile;
+	//	castl::string entryPoint;
+	//};
 
 	class D3D12ShaderResourceRW : public resource_management::IResource, public D3D12SubobjectBase
 	{

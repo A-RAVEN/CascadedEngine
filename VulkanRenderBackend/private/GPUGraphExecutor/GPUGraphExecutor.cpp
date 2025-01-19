@@ -1474,7 +1474,7 @@ namespace graphics_backend
 
 									//Shader Binding Holder
 									//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
-									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingLayouts(GetVulkanApplication(), resolvedPSODesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
+									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingLayouts(GetVulkanApplication(), resolvedPSODesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV), resolvedPSODesc.m_ShaderSet->GetUniqueName());
 									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingSets(m_FrameBoundResourceManager);
 
 									//auto& vertexInputBindings = resolvedPSODesc.m_VertexInputBindings;
@@ -1513,7 +1513,7 @@ namespace graphics_backend
 				GPUComputePassInfo::ComputeDispatchInfo newDispatchInfo{};
 				//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
 				newDispatchInfo.m_ShaderBindingInstance.InitShaderBindingLayouts(GetVulkanApplication()
-					, dispatch.shader->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV));
+					, dispatch.shader->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV), dispatch.shader->GetUniqueName());
 				newDispatchInfo.m_ShaderBindingInstance.InitShaderBindingSets(m_FrameBoundResourceManager);
 
 				auto comp = GetGPUObjectManager()

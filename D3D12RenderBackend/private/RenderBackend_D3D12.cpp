@@ -99,12 +99,15 @@ namespace graphics_backend
     void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer
         , ca_io::IOManager* ioManager
         , resource_management::ResourceManagingSystem* resourceManager
+        , resource_management::ResourceImportingSystem* resourceImporter
         , castl::string const& appName
         , castl::string const& engineName)
 	{
         catimer::SetGlobalTimerSystem(timer);
         p_IOManager = ioManager;
         p_ResourceManager = resourceManager;
+		p_ResourceImporter = resourceImporter;
+        p_ResourceImporter->AddImporter(&m_ShaderResourceImporter);
 
         UINT dxgiFactoryFlags = 0;
 

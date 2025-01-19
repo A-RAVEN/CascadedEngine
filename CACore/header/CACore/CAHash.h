@@ -13,11 +13,32 @@ namespace cahash
         {
             unsigned char data[32];
 			auto operator <=>(result_type const&) const = default;
+
+			castl::string toString() const
+			{
+                std::string result;
+                result.reserve(2 * 32);
+                for (int i = 0; i < 32; i++)
+                {
+                    static const char dec2hex[16 + 1] = "0123456789abcdef";
+                    result += dec2hex[(data[i] >> 4) & 15];
+                    result += dec2hex[data[i] & 15];
+                }
+                return result;
+			}
         };
 
         void operator()(void const* key, size_t len) noexcept
         {
             shaState.add(key, len);
+        }
+
+        explicit operator result_type() const noexcept
+        {
+            result_type result;
+			SHA256 tmpState = shaState;
+            tmpState.getHash(result.data);
+            return result;
         }
 
         explicit operator result_type() noexcept

@@ -6,12 +6,7 @@
 namespace graphics_backend
 {
 
-	struct ShaderCode
-	{
-		ECompileShaderType shaderType;
-		castl::vector<uint8_t> data;
-		castl::unordered_set<ShaderSourceKey> sourceKeys;
-	};
+
 
 	void ShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager
 		, cafs::path const& sourcePath
@@ -26,7 +21,8 @@ namespace graphics_backend
 
 		cafs::path shaderLibraryPath = destPath / "DXShaderLibrary.shLib";
 
-		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath.string());
+		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath.generic_string());
+		shaderLibrary->m_ShaderPrograms.clear();
 
 		for (auto& p : cafs::recursive_directory_iterator(sourcePath))
 		{
@@ -39,8 +35,8 @@ namespace graphics_backend
 
 					auto pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared();
 					pCompiler->BeginCompileTask();
-					pCompiler->AddInlcudePath(sourcePath.string().c_str());
-					pCompiler->AddSourceFile(p.path().string().c_str());
+					pCompiler->AddInlcudePath(sourcePath.generic_string().c_str());
+					pCompiler->AddSourceFile(p.path().generic_string().c_str());
 					pCompiler->EnableDebugInfo();
 					pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eDXIL);
 					pCompiler->Compile();
@@ -50,7 +46,7 @@ namespace graphics_backend
 					}
 					else
 					{
-						//auto resource = resourceManager->GetOrNewResource<ShaderRes>(castl::to_ca(outPathWithExt.string()));
+						//auto resource = resourceManager->GetOrNewResource<ShaderRes>(castl::to_ca(outPathWithExt.generic_string()));
 						auto compileResults = pCompiler->GetResults();
 						for (auto& result : compileResults)
 						{
@@ -59,37 +55,40 @@ namespace graphics_backend
 								for (auto& program : result.programs)
 								{
 									auto shaHash = cahash::getHash<cahash::sha256_hash>(program.data.data(), program.data.size());
-									auto found = shaderPrograms.find(shaHash);
-									if (found == shaderPrograms.end())
+									auto found = shaderLibrary->m_ShaderPrograms.find(shaHash);
+									if (found == shaderLibrary->m_ShaderPrograms.end())
 									{
 										ShaderCode shaderCode;
 										shaderCode.data = program.data;
 										shaderCode.shaderType = program.shaderType;
-										found = shaderPrograms.insert(castl::make_pair(shaHash, shaderCode)).first;
+										found = shaderLibrary->m_ShaderPrograms.insert(castl::make_pair(shaHash, shaderCode)).first;
 									}
-									found->second.sourceKeys.insert(ShaderSourceKey{ relative_path.string(), program.entryPointName });
+
+
+									std::cout << relative_path.generic_string() << ":" << shaHash.toString() << std::endl;
+									found->second.sourceKeys.insert(ShaderSourceKey{ relative_path.generic_string(), program.entryPointName });
 								}
 
-								//Add Vertex Attributes
-								{
-									cacore::defaultHasher<cahash::sha256_hash> hasher;
-									for (auto& vertexAttributes : result.m_ReflectionData.m_VertexAttributes)
-									{
-										hasher.hash(vertexAttributes);
-									}
-									auto vertexAttributesHash = hasher.getHash();
-									castl::unordered_map<cahash::sha256_hash::result_type, castl::vector<ShaderCompilerSlang::ShaderVertexAttributeData>> vertexAttributesMap;
-								}
+								////Add Vertex Attributes
+								//{
+								//	cacore::defaultHasher<cahash::sha256_hash> hasher;
+								//	for (auto& vertexAttributes : result.m_ReflectionData.m_VertexAttributes)
+								//	{
+								//		hasher.hash(vertexAttributes);
+								//	}
+								//	auto vertexAttributesHash = hasher.getHash();
+								//	castl::unordered_map<cahash::sha256_hash::result_type, castl::vector<ShaderCompilerSlang::ShaderVertexAttributeData>> vertexAttributesMap;
+								//}
 
-								//Add Binding Data
-								{
-									cacore::defaultHasher<cahash::sha256_hash> hasher;
-									for (auto& bindingData : result.m_ReflectionData.m_BindingData)
-									{
-										hasher.hash(bindingData);
-									}
-									auto bindingDataHash = hasher.getHash();
-								}
+								////Add Binding Data
+								//{
+								//	cacore::defaultHasher<cahash::sha256_hash> hasher;
+								//	for (auto& bindingData : result.m_ReflectionData.m_BindingData)
+								//	{
+								//		hasher.hash(bindingData);
+								//	}
+								//	auto bindingDataHash = hasher.getHash();
+								//}
 
 								result.m_ReflectionData.m_BindingData;
 							}

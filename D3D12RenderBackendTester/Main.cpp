@@ -54,13 +54,13 @@ int main(int argc, char* argv[])
 
 	{
 		castl::string shaderPath = resourceString + "/Shaders";
-		castl::string testPath = shaderPath + "/TestStaticMeshShader.slang";
+		castl::string testPath = shaderPath + "/Imgui.slang";
 		auto pCompiler = shaderCompilerManager->AquireShaderCompilerShared();
 		pCompiler->BeginCompileTask();
 		pCompiler->AddInlcudePath(shaderPath.c_str());
 		pCompiler->AddSourceFile(testPath.c_str());
 		pCompiler->EnableDebugInfo();
-		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eDXIL);
+		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
 		pCompiler->Compile();
 		if (pCompiler->HasError())
 		{
@@ -71,7 +71,7 @@ int main(int argc, char* argv[])
 			castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> result = pCompiler->GetResults();
 			for (auto& shaderCompileTargetResult : result)
 			{
-				std::cout << "TargetType: " <<  magic_enum::enum_name(shaderCompileTargetResult.targetType) << std::endl;
+				std::cout << "\nTargetType: " <<  magic_enum::enum_name(shaderCompileTargetResult.targetType) << std::endl;
 				auto& reflectionData = shaderCompileTargetResult.m_ReflectionData;
 				auto& bindingData = reflectionData.m_BindingData;
 				for (auto& binding : bindingData)
@@ -100,6 +100,18 @@ int main(int argc, char* argv[])
 								}
 							}
 						}
+					}
+					for (auto& texture : binding.m_Textures)
+					{
+						std::cout << "--Texture " << texture.m_Name << "; BindingID: " << texture.m_BindingIndex << std::endl;
+					}
+					for (auto& sampler : binding.m_Samplers)
+					{
+						std::cout << "--Sampler " << sampler.m_Name << "; BindingID: " << sampler.m_BindingIndex << std::endl;
+					}
+					for (auto& buffer : binding.m_Buffers)
+					{
+						std::cout << "--Buffer " << buffer.m_Name << "; BindingID: " << buffer.m_BindingIndex << std::endl;
 					}
 				}
 			}
@@ -132,13 +144,21 @@ int main(int argc, char* argv[])
 	//Resource System
 	auto resourceSystemFactory = resourceSystemLoader.New();
 	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
+
 	pResourceManagingSystem->Initialize(g_IOManager);
 	pResourceManagingSystem->SetResourceRootPath(assetString);
 
+	auto importingSystem = resourceSystemFactory->NewImportingSystemShared();
+	importingSystem->SetResourceManager(pResourceManagingSystem.get());
+
 	auto pBackend = renderBackendLoader.New();
-	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
+	pBackend->Initialize(GetGlobalTimerSystem()
+		, g_IOManager.get(), pResourceManagingSystem.get(), importingSystem.get()
+		, "Test Vulkan Backend", "CASCADED Engine");
 
 	pBackend->RunTestCode();
+
+	importingSystem->ScanSourceDirectory(resourceString);
 
 	GPUTextureDescriptor textureDesc = GPUTextureDescriptor::Create(1024, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst);
 	castl::shared_ptr<GPUTexture> texture = pBackend->CreateGPUTexture(textureDesc);

@@ -13,6 +13,7 @@ namespace graphics_backend
 		void Initialize(catimer::TimerSystem* timer
 			, ca_io::IOManager* ioManager
 			, resource_management::ResourceManagingSystem* resourceManager
+			, resource_management::ResourceImportingSystem* resourceImporter
 			, castl::string const& appName
 			, castl::string const& engineName) override;
 		void Release() override;

@@ -16,7 +16,7 @@ namespace graphics_backend
 	class ShaderBindingInstance
 	{
 	public:
-		void InitShaderBindingLayouts(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData);
+		void InitShaderBindingLayouts(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
 		void InitShaderBindingSets(FrameBoundResourcePool* pResourcePool);
 		void InitShaderBindings(CVulkanApplication& application, FrameBoundResourcePool* pResourcePool, ShaderCompilerSlang::ShaderReflectionData const& reflectionData);
 		void FillShaderData(CVulkanApplication& application

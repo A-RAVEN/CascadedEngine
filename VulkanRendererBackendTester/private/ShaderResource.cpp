@@ -36,7 +36,7 @@ namespace resource_management
 		folderPath.remove_filename();
 		auto pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared();
 		pCompiler->BeginCompileTask();
-		pCompiler->AddInlcudePath(folderPath.string().c_str());
+		pCompiler->AddInlcudePath(folderPath.generic_string().c_str());
 		pCompiler->AddSourceFile(inPath.c_str());
 		pCompiler->EnableDebugInfo();
 		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
@@ -47,7 +47,7 @@ namespace resource_management
 		}
 		else
 		{
-			auto resource = resourceManager->GetOrNewResource<ShaderResrouce>(castl::to_ca(outPathWithExt.string()));
+			auto resource = resourceManager->GetOrNewResource<ShaderResrouce>(castl::to_ca(outPathWithExt.generic_string()));
 			resource->m_ShaderTargetResults = pCompiler->GetResults();
 			resource->m_UniqueName = outPath;
 		}

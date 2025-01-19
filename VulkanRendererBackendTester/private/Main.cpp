@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
 	n = (n == 0) ? 5 : (castl::min)(n, 16u);
-	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 1);
+	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), 1, 1);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
 	g_IOManager = ioManagerLoader.New();
@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
 	auto pTextureResource1 = pResourceManagingSystem->GetOrLoadResource<TextureResource>("Models/VikingRoom/IMG_2349.texture");
 
 	auto pBackend = renderBackendLoader.New();
-	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
+	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), pResourceImportingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
 
 	imgui_display::IMGUIContext imguiContext;
 

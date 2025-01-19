@@ -108,45 +108,6 @@ namespace uenum
 template<typename TEnumClass>
 CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask);
 
-//
-//#if !defined( VULKAN_HPP_HAS_SPACESHIP_OPERATOR )
-//// relational operators only needed for pre C++20
-//template <typename TEnumClass>
-//constexpr bool operator<(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-//{
-//    return flags.operator>(bit);
-//}
-//
-//template <typename TEnumClass>
-//constexpr bool operator<=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-//{
-//    return flags.operator>=(bit);
-//}
-//
-//template <typename TEnumClass>
-//constexpr bool operator>(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-//{
-//    return flags.operator<(bit);
-//}
-//
-//template <typename TEnumClass>
-//constexpr bool operator>=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-//{
-//    return flags.operator<=(bit);
-//}
-//
-//template <typename TEnumClass>
-//constexpr bool operator==(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-//{
-//    return flags.operator==(bit);
-//}
-//
-//template <typename TEnumClass>
-//constexpr bool operator!=(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
-//{
-//    return flags.operator!=(bit);
-//}
-//#endif
 
 // bitwise operators
 template <typename TEnumClass>

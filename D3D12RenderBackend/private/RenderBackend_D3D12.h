@@ -8,6 +8,7 @@
 #include <CAResource/ResourceManagingSystem.h>
 #include "D3D12Includes.h"
 #include "WindowContext.h"
+#include <Resources/ShaderResourceImporter.h>
 
 namespace graphics_backend
 {
@@ -18,6 +19,7 @@ namespace graphics_backend
 		void Initialize(catimer::TimerSystem* timer
 			, ca_io::IOManager* ioManager
 			, resource_management::ResourceManagingSystem* resourceManager
+			, resource_management::ResourceImportingSystem* resourceImporter
 			, castl::string const& appName
 			, castl::string const& engineName) override;
 		void Release() override;
@@ -100,10 +102,12 @@ namespace graphics_backend
 		MemoryManager m_MemoryManager;
 		ca_io::IOManager* p_IOManager;
 		resource_management::ResourceManagingSystem* p_ResourceManager;
+		resource_management::ResourceImportingSystem* p_ResourceImporter;
 		ComPtr<IDXGIFactory4> m_Factory;
 		ComPtr<ID3D12Device> m_Device;
 		ComPtr<IDXGIAdapter1> m_Adapter;
 		ComPtr<ID3D12CommandQueue> m_CommandQueue;
 		castl::unordered_map<castl::shared_ptr<cawindow::IWindow>, castl::shared_ptr<WindowContext>> m_WindowContexts;
+		ShaderResourceImporter m_ShaderResourceImporter;
 	};
 }
