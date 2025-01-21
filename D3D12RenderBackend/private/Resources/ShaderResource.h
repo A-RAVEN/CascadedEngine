@@ -19,6 +19,11 @@ namespace graphics_backend
 		castl::unordered_set<ShaderSourceKey> sourceKeys;
 	};
 
+	struct ShaderParamTable
+	{
+
+	};
+
 	class ShaderLibrary : public resource_management::IResource
 	{
 	public:

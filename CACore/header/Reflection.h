@@ -346,7 +346,7 @@ namespace careflection
         using objType = std::remove_cvref_t<decltype(object)>;
         using visitorType = std::remove_cvref_t<decltype(visitor)>;
 
-        static_assert(has_type_desc<objType> || is_structured_binding_capable<objType>, "object incompatible for reflection");
+        static_assert(has_type_desc<objType> || is_structured_binding_capable<objType> || managed_wrapper_traits<objType>::is_managed_wrapper, "object incompatible for reflection");
 
         if constexpr (has_type_desc<objType>)
         {

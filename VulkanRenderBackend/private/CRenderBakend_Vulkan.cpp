@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <CACore/CAHash.h>
 #include "CRenderBackend_Vulkan.h"
 #include "WindowContext.h"
 #include <CATimer/Timer.h>
@@ -48,5 +49,10 @@ namespace graphics_backend
 			{
 				m_Application.ReleaseGPUTexture(releaseTex);
 			});
+	}
+
+	void CRenderBackend_Vulkan::RunTestCode()
+	{
+		castl::cout << cacore::has_std_hash<vk::RenderPassCreateInfo> << castl::endl;
 	}
 }

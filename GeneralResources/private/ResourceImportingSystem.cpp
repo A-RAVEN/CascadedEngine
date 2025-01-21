@@ -131,14 +131,13 @@ namespace resource_management
 		}
 		void SerializeAll() override
 		{
-			m_PathToResource.for_each([&](cacore::HashObj<castl::string> const& key, castl::shared_ptr<IResource>& val)
+			m_PathToResource.for_each([&](cacore::PathHash const& key, castl::shared_ptr<IResource>& val)
 			{
 				castl::filesystem::path destPath = m_AssetRootPath / key.Get();
 				castl::filesystem::create_directories(destPath.parent_path());
 				auto batch = pIOManager->WriteBatch(destPath.generic_string());
 				val->Serialize(batch.get());
 				batch->SubmitAndWait();
-				//cacore::WriteBinaryFile(castl::to_ca(destPath.generic_string()), serializedData.data(), serializedData.size());
 			});
 		}
 		void SetResourceRootPath(castl::string const& path) override
@@ -153,12 +152,12 @@ namespace resource_management
 		{
 			return (m_AssetRootPath / path).generic_string();
 		}
-		castl::shared_ptr<IResource> GetOrLoadResource(castl::string const& path
+		castl::shared_ptr<IResource> GetOrLoadResource(cacore::PathHash const& path
 			, castl::function<IResource* ()> newCallback, castl::function<void(IResource*)> deleteCallback) override
 		{
 			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
 				{
-					castl::string log = "Load new resource: " + path + "\n";
+					castl::string log = "Load new resource: " + path.Get() + "\n";
 					castl::cout << log << castl::endl;
 					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
 					auto batch = pIOManager->Batch(GetResourceFullPath(path));
@@ -167,12 +166,12 @@ namespace resource_management
 				});
 			return result->second;
 		}
-		castl::shared_ptr<IResource> GetOrNewResource(castl::string const& path
+		castl::shared_ptr<IResource> GetOrNewResource(cacore::PathHash const& path
 			, castl::function<IResource* ()> newCallback, castl::function<void(IResource*)> deleteCallback) override
 		{
 			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
 				{
-					castl::string log = "Create New resource: " + path + "\n";
+					castl::string log = "Create New resource: " + path.Get() + "\n";
 					castl::cout << log << castl::endl;
 					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
 					return newRes;
@@ -182,7 +181,7 @@ namespace resource_management
 	private:
 		castl::filesystem::path m_AssetRootPath;
 		castl::shared_ptr<ca_io::IOManager> pIOManager;
-		castl::shared_dic<castl::string, castl::shared_ptr<IResource>> m_PathToResource;
+		castl::shared_dic<cacore::PathHash, castl::shared_ptr<IResource>> m_PathToResource;
 	};
 
 	class ResourceFactoryImpl : public ResourceFactory

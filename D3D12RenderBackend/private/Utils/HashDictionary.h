@@ -53,6 +53,6 @@ namespace graphics_backend
 			m_InternalDic.clear();
 		}
 	private:
-		castl::shared_dic<DescType, castl::shared_ptr<ValType>> m_InternalDic;
+		castl::shared_dic<cacore::HashObj<DescType>, castl::shared_ptr<ValType>> m_InternalDic;
 	};
 }

@@ -19,13 +19,13 @@ namespace resource_management
 		virtual castl::string GetResourceRootPath() const = 0;
 		virtual castl::string GetResourceFullPath(castl::string const& path) const = 0;
 	protected:
-		virtual castl::shared_ptr<IResource> GetOrLoadResource(castl::string const& path
+		virtual castl::shared_ptr<IResource> GetOrLoadResource(cacore::PathHash const& path
 			, castl::function<IResource*()> newCallback, castl::function<void(IResource*)> deleteCallback) = 0;
-		virtual castl::shared_ptr<IResource> GetOrNewResource(castl::string const& path
+		virtual castl::shared_ptr<IResource> GetOrNewResource(cacore::PathHash const& path
 			, castl::function<IResource*()> newCallback, castl::function<void(IResource*)> deleteCallback) = 0;
 	public:
 		template<typename TRes>
-		castl::shared_ptr<TRes> GetOrLoadResource(castl::string const& path) requires std::is_base_of_v<IResource, TRes>
+		castl::shared_ptr<TRes> GetOrLoadResource(cacore::PathHash const& path) requires std::is_base_of_v<IResource, TRes>
 		{
 			castl::shared_ptr<IResource> loaded = GetOrLoadResource(path, [&]()
 				{
@@ -39,7 +39,7 @@ namespace resource_management
 		}
 
 		template<typename TRes>
-		castl::shared_ptr<TRes> GetOrLoadResource(castl::string const& path
+		castl::shared_ptr<TRes> GetOrLoadResource(cacore::PathHash const& path
 			, castl::function<TRes* ()> newCallback, castl::function<void(IResource*)> deleteCallback) requires std::is_base_of_v<IResource, TRes>
 		{
 			castl::shared_ptr<IResource> loaded = GetOrLoadResource(path, newCallback, deleteCallback);
@@ -47,7 +47,7 @@ namespace resource_management
 		}
 
 		template<typename TRes, typename...TArgs>
-		castl::shared_ptr<TRes> GetOrNewResource(castl::string const& path, TArgs&&...Args) requires std::is_base_of_v<IResource, TRes>
+		castl::shared_ptr<TRes> GetOrNewResource(cacore::PathHash const& path, TArgs&&...Args) requires std::is_base_of_v<IResource, TRes>
 		{
 			castl::shared_ptr<IResource> newRes = GetOrNewResource(path, [&]()
 				{
@@ -61,9 +61,9 @@ namespace resource_management
 		}
 
 		template<typename TRes, typename...TArgs>
-		castl::shared_ptr<TRes> GetOrNewSubResource(castl::string const& path, castl::string const& postfix, TArgs&&...Args) requires std::is_base_of_v<IResource, TRes>
+		castl::shared_ptr<TRes> GetOrNewSubResource(cafs::path const& path, castl::string const& postfix, TArgs&&...Args) requires std::is_base_of_v<IResource, TRes>
 		{
-			return GetOrNewResource<TRes, TArgs...>((path + "/" + postfix), castl::forward<TArgs>(Args)...);
+			return GetOrNewResource<TRes, TArgs...>((path / postfix), castl::forward<TArgs>(Args)...);
 		}
 	};
 }

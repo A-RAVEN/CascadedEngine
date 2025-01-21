@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
 	n = (n == 0) ? 5 : (castl::min)(n, 16u);
-	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), 1, 1);
+	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 1);
 	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
 
 	g_IOManager = ioManagerLoader.New();
@@ -121,6 +121,7 @@ int main(int argc, char *argv[])
 
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), pResourceImportingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
+	pBackend->RunTestCode();
 
 	imgui_display::IMGUIContext imguiContext;
 
@@ -185,8 +186,11 @@ int main(int argc, char *argv[])
 		, RasterizerStates::CullBack()
 	};
 	meshMaterial0.shaderArgs = castl::make_shared<ShaderArgList>();
-	meshMaterial0.shaderArgs->SetImage("albedoTexture", texture1);
-	meshMaterial0.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
+	//meshMaterial0.shaderArgs->SetImage(cacore::NameHash::StaticNameHash<'a','l','b','e','d','o','T','e','x','t','u','r','e'>(), texture1);
+	//meshMaterial0.shaderArgs->SetImage(cacore::NameHash::StaticNameHash<'a','l','b','e','d','o','T','e','x','t','u','r','e'>(), texture1);
+	//meshMaterial0.shaderArgs->SetImage(cacore::NameHash::StaticNameHash<'a','l','b','e','d','o','T','e','x','t','u','r','e'>(), texture1);
+	meshMaterial0.shaderArgs->SetImage(CANAME("albedoTexture"), texture1);
+	meshMaterial0.shaderArgs->SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
 	meshMaterial0.shaderSet = pMeshShaderResource.get();
 
 	MeshMaterial meshMaterial1;
@@ -195,8 +199,8 @@ int main(int argc, char *argv[])
 		, RasterizerStates::CullBack()
 	};
 	meshMaterial1.shaderArgs = castl::make_shared<ShaderArgList>();
-	meshMaterial1.shaderArgs->SetImage("albedoTexture", texture);
-	meshMaterial1.shaderArgs->SetSampler("sampler", TextureSamplerDescriptor::Create());
+	meshMaterial1.shaderArgs->SetImage(CANAME("albedoTexture"), texture);
+	meshMaterial1.shaderArgs->SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
 	meshMaterial1.shaderSet = pMeshShaderResource.get();
 
 
@@ -322,7 +326,22 @@ int main(int argc, char *argv[])
 						float frameRate = 1.0f / deltaTime;
 
 						castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
-						cameraArgList->SetValue("viewProjMatrix", glm::transpose(camera.GetViewProjMatrix()));
+						auto viewMatrix = glm::transpose(camera.GetViewProjMatrix());
+
+						{
+							CPUTIMER_SCOPE("ViewMatStr");
+							for (int i = 0; i < 100; ++i)
+							{
+								cameraArgList->SetValue("viewProjMatrix", viewMatrix);
+							}
+						}
+						{
+							CPUTIMER_SCOPE("ViewMatN");
+							for (int i = 0; i < 100; ++i)
+							{
+								cameraArgList->SetValue(CANAME("viewProjMatrix"), viewMatrix);
+							}
+						}
 
 						ImageHandle colorTexture{ "ColorTexture" };
 						ImageHandle depthTexture{ "DepthTexture" };

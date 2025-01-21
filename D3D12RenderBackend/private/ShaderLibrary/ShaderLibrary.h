@@ -36,6 +36,6 @@ namespace graphics_backend
 		D3D12ShaderLibrary(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
 		castl::shared_ptr<D3D12ShaderResourceRW> GetOrLoadShader(cacore::HashObj<ShaderInfo> const& inShaderInfo);
 	private:
-		castl::shared_dic<ShaderInfo, castl::shared_ptr<D3D12ShaderResourceRW>> m_ShaderSourceCache;
+		castl::shared_dic<cacore::HashObj<ShaderInfo>, castl::shared_ptr<D3D12ShaderResourceRW>> m_ShaderSourceCache;
 	};
 }

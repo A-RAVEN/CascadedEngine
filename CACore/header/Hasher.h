@@ -1,6 +1,8 @@
 #pragma once
 #include "Reflection.h"
 #include <CACore/CAHash.h>
+#include <CASTL/CAFileSystem.h>
+#include <CACore/CALiteralString.h>
 
 namespace cacore
 {
@@ -47,16 +49,17 @@ namespace cacore
         constexpr void inline hash(const Obj& object)
         {
             using objType = std::remove_cvref_t<decltype(object)>;
-            if constexpr (std::is_trivially_copyable_v<objType>)
-            {
-                //直接对对象内存算哈希值
-                hash_range(object);
-			}
-			else if constexpr (has_std_hash<objType>)
+
+			if constexpr (has_std_hash<objType>)
 			{
 				//使用标准哈希函数
 				hash_range(std::hash<objType>{}(object));
 			}
+            else if constexpr (std::is_trivially_copyable_v<objType>)
+            {
+                //直接对对象内存算哈希值
+                hash_range(object);
+            }
             else if constexpr (has_custom_hash_func<objType, std::remove_cvref_t<decltype(*this)>>)
 			{
 				//自定义哈希函数
@@ -121,7 +124,7 @@ namespace cacore
     struct hash
     {
         using result_type = hashAlg::result_type;
-        result_type operator()(const T& t) const noexcept
+        constexpr result_type operator()(const T& t) const noexcept
         {
             defaultHasher<hashAlg> hasher;
             hasher.hash(t);
@@ -141,6 +144,7 @@ namespace cacore
     {
     public:
         using result_type = hashAlg::result_type;
+        using obj_type = ObjType;
         HashObj() = default;
         HashObj(ObjType const& obj) : m_Object(obj)
         {
@@ -212,6 +216,138 @@ namespace cacore
         friend struct careflection::managed_wrapper_traits<HashObj<ObjType, CompareMode, hashAlg>>;
     };
 
+	struct PathHash : public HashObj<castl::string, EHashObjCompareMode::FullCompare, default_hashclass>
+    {
+    public:
+        PathHash() = default;
+		PathHash(const char* str) : HashObj(cafs::path(str).generic_string()) {}
+        PathHash(castl::string const& str) : HashObj(cafs::path(str).generic_string()) {}
+        PathHash(cafs::path const& path) : HashObj(path.generic_string()) {}
+		operator castl::string() const noexcept
+        {
+            return Get();
+        }
+        friend struct careflection::managed_wrapper_traits<PathHash>;
+    };
+
+    //struct NameHash : public HashObj<castl::string, EHashObjCompareMode::FullCompare, default_hashclass>
+    //{
+    //public:
+    //    NameHash() = default;
+    //    NameHash(const char* str) : HashObj(str) {}
+    //    NameHash(castl::string const& str) : HashObj(str) {}
+    //    operator castl::string() const noexcept
+    //    {
+    //        return Get();
+    //    }
+    //};
+
+    //template<typename hashAlg = default_hashclass>
+    struct NameHash
+    {
+    public:
+        using result_type = default_hashclass::result_type;
+        using obj_type = castl::string;
+
+        constexpr NameHash() : m_HashValue(0), m_HashValid(false), m_Name("") {}
+        constexpr NameHash(const char* str) : m_Name(str)
+        {
+            m_NameView = castl::string_view(m_Name.c_str());
+            UpdateHash();
+        }
+        constexpr NameHash(castl::string const& str) : m_Name(str)
+        {
+			m_NameView = castl::string_view(m_Name.c_str());
+            UpdateHash();
+        }
+        constexpr NameHash(NameHash const& nameHash) : m_Name(nameHash.m_Name)
+            , m_HashValue(nameHash.m_HashValue)
+            , m_HashValid(nameHash.m_HashValid)
+        {
+            if (m_Name.empty())
+            {
+                m_NameView = nameHash.m_NameView;
+            }
+            else
+            {
+				m_NameView = castl::string_view(m_Name.c_str());
+            }
+        }
+
+		constexpr castl::string string() const noexcept
+		{
+			return castl::string(m_NameView);
+		}
+
+        constexpr castl::string_view const& Get() const noexcept
+        {
+            return m_NameView;
+        }
+        constexpr result_type GetHash() const noexcept
+        {
+            return m_HashValue;
+        }
+
+        constexpr bool Valid() const noexcept
+        {
+            return m_HashValid;
+        }
+
+        constexpr void Reset() noexcept
+        {
+            m_HashValid = false;
+        }
+
+        castl::weak_ordering operator<=>(NameHash const& b) const
+        {
+            return m_NameView <=> b.m_NameView;
+        }
+
+        bool operator==(NameHash const& b) const
+        {
+            return m_NameView == b.m_NameView;
+        };
+
+        constexpr void UpdateHash()
+        {
+            m_HashValue = hash<castl::string, default_hashclass>{}(m_Name);
+            m_HashValid = true;
+        }
+
+    private:
+        constexpr NameHash(const char* str, result_type hashVal) : m_Name()
+			, m_NameView(str)
+            , m_HashValue(hashVal)
+            , m_HashValid(true)
+        {
+        }
+    public:
+
+        template <char... c>
+        static constexpr NameHash StaticNameHash() {
+            constexpr static std::size_t n = sizeof...(c);
+            constexpr static const char data[n] = { c... };
+            static const result_type hashVal = hash<const char[n], default_hashclass>{}(data);
+            return NameHash(data, hashVal);
+        };
+
+        template <castl::string_literal str, size_t... N>
+        static constexpr NameHash StaticNameHashInternal(castl::index_sequence<N...>) {
+            return StaticNameHash<str.get_char<N>()...>();
+        }
+
+        template <castl::string_literal str>
+        static constexpr NameHash Static() {
+            return StaticNameHashInternal<str>(std::make_index_sequence<str.count>{});
+        }
+
+    private:
+        result_type m_HashValue;
+        bool m_HashValid;
+        castl::string m_Name;
+        castl::string_view m_NameView;
+    };
+
     template<typename ObjType, EHashObjCompareMode CompareMode, typename hashAlg>
     struct custom_hash_trait<HashObj<ObjType, CompareMode, hashAlg>>
     {
@@ -222,11 +358,35 @@ namespace cacore
     };
 }
 
-template<typename ObjType, cacore::EHashObjCompareMode CompareMode, typename hashAlg>
-struct careflection::managed_wrapper_traits<cacore::HashObj<ObjType, CompareMode, hashAlg>>
+#define CANAME(str) cacore::NameHash::Static<castl::string_literal(str)>()
+
+namespace careflection
 {
-    constexpr static bool is_managed_wrapper = true;
-    using inner_type = ObjType;
-    constexpr static ObjType const& get_data(cacore::HashObj<ObjType, CompareMode, hashAlg> const& obj) { return obj.Get(); }
-    constexpr static void set_data(cacore::HashObj<ObjType, CompareMode, hashAlg>& obj, ObjType const& data) { obj = cacore::HashObj<ObjType, CompareMode, hashAlg>{ data }; }
-};
+
+    template<typename ObjType, cacore::EHashObjCompareMode CompareMode, typename hashAlg>
+    struct managed_wrapper_traits<cacore::HashObj<ObjType, CompareMode, hashAlg>>
+    {
+        constexpr static bool is_managed_wrapper = true;
+        using inner_type = ObjType;
+        constexpr static ObjType const& get_data(cacore::HashObj<ObjType, CompareMode, hashAlg> const& obj) { return obj.Get(); }
+        constexpr static void set_data(cacore::HashObj<ObjType, CompareMode, hashAlg>& obj, ObjType const& data) { obj = cacore::HashObj<ObjType, CompareMode, hashAlg>{ data }; }
+    };
+
+    template<>
+    struct managed_wrapper_traits<cacore::PathHash>
+    {
+        constexpr static bool is_managed_wrapper = true;
+        using inner_type = cacore::PathHash::obj_type;
+        constexpr static inner_type const& get_data(cacore::PathHash const& obj) { return obj.Get(); }
+        constexpr static void set_data(cacore::PathHash& obj, inner_type const& data) { obj = cacore::PathHash{ data }; }
+    };
+
+    template<>
+    struct managed_wrapper_traits<cacore::NameHash>
+    {
+        constexpr static bool is_managed_wrapper = true;
+        using inner_type = castl::string;
+        constexpr static castl::string const& get_data(cacore::NameHash const& obj) { return obj.string(); }
+        constexpr static void set_data(cacore::NameHash& obj, castl::string const& data) { obj = cacore::NameHash{ data }; }
+    };
+}

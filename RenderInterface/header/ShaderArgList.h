@@ -16,12 +16,12 @@ namespace graphics_backend
 			uint32_t offset;
 			uint32_t size;
 		};
-		inline ShaderArgList& SetValueInternal(castl::string const& name, void const* pValue, uint32_t sizeInBytes)
+		inline ShaderArgList& SetValueInternal(cacore::NameHash const& name, void const* pValue, uint32_t sizeInBytes)
 		{
 			auto found = m_NameToDataPosition.find(name);
 			if (found != m_NameToDataPosition.end())
 			{
-				CA_ASSERT(found->second.size >= sizeInBytes, castl::string("shader parameter ") + name + "has a data size longer than first set");
+				CA_ASSERT(found->second.size >= sizeInBytes, castl::string("shader parameter ") + name.string() + "has a data size longer than first set");
 			}
 			else
 			{
@@ -33,7 +33,7 @@ namespace graphics_backend
 			return *this;
 		}
 
-		inline ShaderArgList& SetValueArrayInternal(castl::string const& name, void const* pValue, uint32_t sizeInBytes)
+		inline ShaderArgList& SetValueArrayInternal(cacore::NameHash const& name, void const* pValue, uint32_t sizeInBytes)
 		{
 			auto& arrayData = m_NameToNumericArrayList[name];
 			arrayData.resize(sizeInBytes);
@@ -42,51 +42,51 @@ namespace graphics_backend
 		}
 
 		template<typename T>
-		ShaderArgList& SetValue(castl::string const& name, T const& value)
+		ShaderArgList& SetValue(cacore::NameHash const& name, T const& value)
 		{
 			return SetValueInternal(name, &value, sizeof(T));
 		}
 		template<typename T>
-		ShaderArgList& SetValueArray(castl::string const& name, T const* pValue, uint32_t count)
+		ShaderArgList& SetValueArray(cacore::NameHash const& name, T const* pValue, uint32_t count)
 		{
 			return SetValueArrayInternal(name, pValue, sizeof(T) * count);
 		}
 
-		inline ShaderArgList& SetImage(castl::string const& name
+		inline ShaderArgList& SetImage(cacore::NameHash const& name
 			, ImageHandle const& imageHandle, GPUTextureView const& view)
 		{
 			m_NameToImage[name] = { castl::make_pair(imageHandle, view) };
 			return *this;
 		}
 
-		inline ShaderArgList& SetImage(castl::string const& name
+		inline ShaderArgList& SetImage(cacore::NameHash const& name
 			, castl::shared_ptr<GPUTexture> const& pImage)
 		{
 			return SetImage(name, pImage, GPUTextureView::CreateDefaultForSampling(pImage->GetDescriptor().format));
 		}
 
-		inline ShaderArgList& SetBuffer(castl::string const& name
+		inline ShaderArgList& SetBuffer(cacore::NameHash const& name
 			, BufferHandle const& bufferHandle)
 		{
 			m_NameToBuffer[name] = { bufferHandle };
 			return *this;
 		}
 
-		inline ShaderArgList& SetSampler(castl::string const& name
+		inline ShaderArgList& SetSampler(cacore::NameHash const& name
 			, TextureSamplerDescriptor const& samplerDesc)
 		{
 			m_NameToSamplers[name] = samplerDesc;
 			return *this;
 		}
 
-		inline ShaderArgList& SetSubArgList(castl::string const& name
+		inline ShaderArgList& SetSubArgList(cacore::NameHash const& name
 			, castl::shared_ptr<ShaderArgList> const& subArgList)
 		{
 			m_NameToSubArgLists[name] = subArgList;
 			return *this;
 		}
 
-		ShaderArgList const* FindSubArgList(castl::string const& name) const
+		ShaderArgList const* FindSubArgList(cacore::NameHash const& name) const
 		{
 			auto found = m_NameToSubArgLists.find(name);
 			if (found != m_NameToSubArgLists.end())
@@ -95,7 +95,7 @@ namespace graphics_backend
 			}
 			return nullptr;
 		}
-		void const* FindNumericDataPointer(castl::string const& name) const
+		void const* FindNumericDataPointer(cacore::NameHash const& name) const
 		{
 			auto found = m_NameToDataPosition.find(name);
 			if (found != m_NameToDataPosition.end())
@@ -110,7 +110,7 @@ namespace graphics_backend
 			return nullptr;
 		}
 
-		castl::vector<castl::pair<ImageHandle, GPUTextureView>> FindImageHandle(castl::string const& name) const
+		castl::vector<castl::pair<ImageHandle, GPUTextureView>> FindImageHandle(cacore::NameHash const& name) const
 		{
 			auto found = m_NameToImage.find(name);
 			if (found != m_NameToImage.end())
@@ -120,7 +120,7 @@ namespace graphics_backend
 			return {};
 		}
 		
-		castl::vector<BufferHandle> FindBufferHandle(castl::string const& name) const
+		castl::vector<BufferHandle> FindBufferHandle(cacore::NameHash const& name) const
 		{
 			auto found = m_NameToBuffer.find(name);
 			if (found != m_NameToBuffer.end())
@@ -130,7 +130,7 @@ namespace graphics_backend
 			return {};
 		}
 
-		TextureSamplerDescriptor FindSampler(castl::string const& name) const
+		TextureSamplerDescriptor FindSampler(cacore::NameHash const& name) const
 		{
 			auto found = m_NameToSamplers.find(name);
 			if (found != m_NameToSamplers.end())
@@ -140,28 +140,27 @@ namespace graphics_backend
 			return {};
 		}
 
-		castl::unordered_map<castl::string, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> const& GetImageList() const
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> const& GetImageList() const
 		{
 			return m_NameToImage;
 		}
 
-		castl::unordered_map<castl::string, castl::vector<BufferHandle>> const& GetBufferList() const
+		castl::unordered_map<cacore::NameHash, castl::vector<BufferHandle>> const& GetBufferList() const
 		{
 			return m_NameToBuffer;
 		}
 
-		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> const& GetSubArgList() const
+		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderArgList>> const& GetSubArgList() const
 		{
 			return m_NameToSubArgLists;
 		}
 	private:
-		castl::unordered_map<castl::string, castl::vector<uint8_t>> m_NameToNumericArrayList;
-		castl::unordered_map<castl::string, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> m_NameToImage;
-		castl::unordered_map<castl::string, castl::vector<BufferHandle>> m_NameToBuffer;
-		castl::unordered_map<castl::string, castl::shared_ptr<ShaderArgList>> m_NameToSubArgLists;
-		castl::unordered_map<castl::string, TextureSamplerDescriptor> m_NameToSamplers;
-		castl::unordered_map<castl::string, NumericDataPos> m_NameToDataPosition;
+		castl::unordered_map<cacore::NameHash, castl::vector<uint8_t>> m_NameToNumericArrayList;
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> m_NameToImage;
+		castl::unordered_map<cacore::NameHash, castl::vector<BufferHandle>> m_NameToBuffer;
+		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderArgList>> m_NameToSubArgLists;
+		castl::unordered_map<cacore::NameHash, TextureSamplerDescriptor> m_NameToSamplers;
+		castl::unordered_map<cacore::NameHash, NumericDataPos> m_NameToDataPosition;
 		castl::vector<uint8_t> m_NumericDataList;
-		//castl::unordered_set<BufferHandle> m_ExternalManagedBuffers;
 	};
 }

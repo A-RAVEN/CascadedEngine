@@ -740,11 +740,11 @@ namespace imgui_display
 		m_WindowHandles.push_back(pUserData->pWindowSurface);
 		auto shaderArgs = castl::make_shared<ShaderArgList>();
 		pUserData->m_ShaderArgs = shaderArgs;
-		shaderArgs->SetValue("IMGUIScale_Pos", meshScale_Pos);
-		shaderArgs->SetSampler("IMGUITextureSampler", TextureSamplerDescriptor::Create());
+		shaderArgs->SetValue(CANAME("IMGUIScale_Pos"), meshScale_Pos);
+		shaderArgs->SetSampler(CANAME("IMGUITextureSampler"), TextureSamplerDescriptor::Create());
 
 		auto defaultImageArgs = castl::make_shared<ShaderArgList>();
-		defaultImageArgs->SetImage("IMGUITexture", m_Fontimage
+		defaultImageArgs->SetImage(CANAME("IMGUITexture"), m_Fontimage
 			, GPUTextureView::CreateDefaultForSampling(ETextureFormat::E_R8_UNORM, GPUTextureSwizzle::SingleChannel(EColorChannel::eR)));
 
 		pUserData->m_VertexBuffer = BufferHandle("IMGUI Buffer Handle", inoutHandleID++);
@@ -783,7 +783,7 @@ namespace imgui_display
 						renderGraph->AllocImage(textureContext->m_RenderTarget, textureContext->m_TextureDescriptor);
 
 						auto customImageArgs = castl::make_shared<ShaderArgList>();
-						customImageArgs->SetImage("IMGUITexture", textureContext->m_RenderTarget, GPUTextureView::CreateDefaultForSampling(textureContext->m_TextureDescriptor.format));
+						customImageArgs->SetImage(CANAME("IMGUITexture"), textureContext->m_RenderTarget, GPUTextureView::CreateDefaultForSampling(textureContext->m_TextureDescriptor.format));
 						pUserData->m_TextureBindings.push_back(customImageArgs);
 					}
 					else

@@ -70,7 +70,7 @@ namespace graphics_backend
 	private:
 		//castl::mutex m_Mutex;
 		//castl::unordered_map<DescType, castl::shared_ptr<ValType>, cacore::hash<DescType>> m_InternalMap;
-		castl::shared_dic<DescType, castl::shared_ptr<ValType>> m_InternalDic;
+		castl::shared_dic<cacore::HashObj<DescType>, castl::shared_ptr<ValType>> m_InternalDic;
 
 	};
 }

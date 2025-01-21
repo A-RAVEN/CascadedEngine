@@ -47,7 +47,7 @@ namespace resource_management
 		}
 		else
 		{
-			auto resource = resourceManager->GetOrNewResource<ShaderResrouce>(castl::to_ca(outPathWithExt.generic_string()));
+			auto resource = resourceManager->GetOrNewResource<ShaderResrouce>(outPathWithExt);
 			resource->m_ShaderTargetResults = pCompiler->GetResults();
 			resource->m_UniqueName = outPath;
 		}
