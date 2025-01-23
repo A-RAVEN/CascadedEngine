@@ -18,15 +18,15 @@ namespace thread_management
 			m_OwningManager->EnqueueTaskNode(this);
 		}
 	}
-	void TaskNode::Name_Internal(const castl::string& name)
+	void TaskNode::Name_Internal(const cacore::NameHash& name)
 	{
 		m_Name = name;
 	}
-	void TaskNode::WaitEvent_Internal(const castl::string& name)
+	void TaskNode::WaitEvent_Internal(const cacore::NameHash& name)
 	{
 		m_EventName = name;
 	}
-	void TaskNode::SignalEvent_Internal(const castl::string& name)
+	void TaskNode::SignalEvent_Internal(const cacore::NameHash& name)
 	{
 		m_SignalEventName = name;
 	}
@@ -65,7 +65,7 @@ namespace thread_management
 		{
 			(*itrSuccessor)->NotifyDependsOnFinish(this);
 		}
-		if (!m_SignalEventName.empty())
+		if (!m_SignalEventName.Get().empty())
 		{
 			m_OwningManager->SignalEvent(m_SignalEventName, m_CurrentFrame);
 		}

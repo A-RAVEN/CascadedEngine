@@ -110,8 +110,8 @@ void TestHash()
 void TestHash1()
 {
 	cacore::HashObj<TestStruct2> testStructIn = TestStruct2{ 1.0f, 2.0f };
-	constexpr bool has_hash = cacore::has_custom_hash_func<cacore::HashObj<TestStruct2>, cacore::defaultHasher<>>;
-	constexpr bool has_hash1 = cacore::has_custom_hash_func<TestStruct2, cacore::defaultHasher<>>;
+	constexpr bool has_hash = cacore::has_custom_hash_func<cacore::HashObj<TestStruct2>, cacore::aggregateHasher<>>;
+	constexpr bool has_hash1 = cacore::has_custom_hash_func<TestStruct2, cacore::aggregateHasher<>>;
 	castl::unordered_map<cacore::HashObj<TestStruct2>, int> tstMap3;
 	tstMap3.insert({ testStructIn, 3 });
 

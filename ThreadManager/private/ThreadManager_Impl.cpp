@@ -11,7 +11,7 @@ namespace thread_management
     constexpr uint32_t MAIN_QUEUE_ID = 0;
     constexpr uint32_t GENERAL_QUEUE_ID = 1;
 
-    CTaskGraph* TaskGraph_Impl1::Name(castl::string name)
+    CTaskGraph* TaskGraph_Impl1::Name(cacore::NameHash name)
     {
         Name_Internal(name);
         return this;
@@ -38,13 +38,13 @@ namespace thread_management
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::WaitOnEvent(castl::string const& name)
+    CTaskGraph* TaskGraph_Impl1::WaitOnEvent(cacore::NameHash const& name)
     {
         WaitEvent_Internal(name);
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::SignalEvent(castl::string const& name)
+    CTaskGraph* TaskGraph_Impl1::SignalEvent(cacore::NameHash const& name)
     {
         SignalEvent_Internal(name);
         return this;
@@ -68,7 +68,7 @@ namespace thread_management
         return this;
     }
 
-    CTaskGraph* TaskGraph_Impl1::Thread(cacore::HashObj<castl::string> const& threadKey)
+    CTaskGraph* TaskGraph_Impl1::Thread(cacore::NameHash const& threadKey)
     {
         SetThreadKey_Internal(threadKey);
         return this;
@@ -117,7 +117,7 @@ namespace thread_management
     void TaskGraph_Impl1::Execute_Internal()
     {
         {
-            CPUTIMER_SCOPE(m_Name.c_str());
+            CPUTIMER_SCOPE(m_Name.Get().data());
             if (m_ScheduleFunctor != nullptr)
             {
                 TaskScheduler_Impl taskScheduler(this, m_OwningManager, m_Allocator);
@@ -134,12 +134,12 @@ namespace thread_management
         m_RunOnMainThread = true;
         return this;
     }
-    CTask* CTask_Impl1::Thread(cacore::HashObj<castl::string> const& threadKey)
+    CTask* CTask_Impl1::Thread(cacore::NameHash const& threadKey)
     {
         SetThreadKey_Internal(threadKey);
         return this;
     }
-    CTask* CTask_Impl1::Name(castl::string name)
+    CTask* CTask_Impl1::Name(cacore::NameHash name)
     {
         Name_Internal(name);
         return this;
@@ -162,12 +162,12 @@ namespace thread_management
         DependsOn_Internal(task);
         return this;
     }
-    CTask* CTask_Impl1::WaitOnEvent(castl::string const& name)
+    CTask* CTask_Impl1::WaitOnEvent(cacore::NameHash const& name)
     {
         WaitEvent_Internal(name);
         return this;
     }
-    CTask* CTask_Impl1::SignalEvent(castl::string const& name)
+    CTask* CTask_Impl1::SignalEvent(cacore::NameHash const& name)
     {
         SignalEvent_Internal(name);
         return this;
@@ -272,7 +272,7 @@ namespace thread_management
             ++threadIndex;
 		}
     }
-    void ThreadManager_Impl1::SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name)
+    void ThreadManager_Impl1::SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::NameHash const& name)
     {
         m_DedicateThreadMap.SetThreadIndex(name, dedicateThreadIndex + 1);
     }
@@ -297,17 +297,7 @@ namespace thread_management
         m_TaskNodeAllocator.LogStatus();
     }
 
-    void ThreadManager_Impl1::OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent)
-    {
-        if (functor == nullptr)
-            return;
-        auto* newTaskGraph = NewTaskGraph();
-        newTaskGraph->Func(functor);
-        castl::lock_guard<castl::mutex> guard(m_Mutex);
-        m_InitializeTasks.push_back(newTaskGraph);
-    }
-
-    void ThreadManager_Impl1::LoopFunction(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent)
+    void ThreadManager_Impl1::LoopFunction(castl::function<void(TaskScheduler*)> functor, cacore::NameHash const& waitingEvent)
     {
         m_PrepareFunctor = functor;
         m_SetupEventName = waitingEvent;
@@ -402,7 +392,7 @@ namespace thread_management
         }
     }
     
-    void ThreadManager_Impl1::SignalEvent(castl::string const& eventName, uint64_t signalFrame)
+    void ThreadManager_Impl1::SignalEvent(cacore::NameHash const& eventName, uint64_t signalFrame)
     {
         if (eventName == m_SetupEventName)
         {
@@ -441,7 +431,7 @@ namespace thread_management
 
 
 
-    TaskParallelFor* TaskParallelFor_Impl::Name(castl::string name)
+    TaskParallelFor* TaskParallelFor_Impl::Name(cacore::NameHash name)
     {
         Name_Internal(name);
         return this;
@@ -468,13 +458,13 @@ namespace thread_management
         return this;
     }
 
-    TaskParallelFor* TaskParallelFor_Impl::WaitOnEvent(castl::string const& name)
+    TaskParallelFor* TaskParallelFor_Impl::WaitOnEvent(cacore::NameHash const& name)
     {
         WaitEvent_Internal(name);
         return this;
     }
 
-    TaskParallelFor* TaskParallelFor_Impl::SignalEvent(castl::string const& name)
+    TaskParallelFor* TaskParallelFor_Impl::SignalEvent(cacore::NameHash const& name)
     {
         SignalEvent_Internal(name);
         return this;
@@ -700,7 +690,7 @@ namespace thread_management
             m_Queue.push_back(itrNode);
         }
     }
-    void TaskNodeEventManager::SignalEvent(ThreadManager_Impl1& threadManager, cacore::HashObj<castl::string> const& eventKey, uint64_t signalFrame)
+    void TaskNodeEventManager::SignalEvent(ThreadManager_Impl1& threadManager, cacore::NameHash const& eventKey, uint64_t signalFrame)
     {
         castl::lock_guard<castl::mutex> guard(m_Mutex);
         auto found = m_EventMap.find(eventKey);
@@ -728,7 +718,7 @@ namespace thread_management
     }
     bool TaskNodeEventManager::WaitEventDone(TaskNode* node)
     {
-        if (!node->m_EventName.empty())
+        if (!node->m_EventName.Valid())
         {
             castl::lock_guard<castl::mutex> guard(m_Mutex);
             auto found = m_EventMap.find(node->m_EventName);

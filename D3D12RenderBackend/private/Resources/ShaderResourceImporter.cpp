@@ -71,7 +71,7 @@ namespace graphics_backend
 
 								////Add Vertex Attributes
 								//{
-								//	cacore::defaultHasher<cahash::sha256_hash> hasher;
+								//	cacore::aggregateHasher<cahash::sha256_hash> hasher;
 								//	for (auto& vertexAttributes : result.m_ReflectionData.m_VertexAttributes)
 								//	{
 								//		hasher.hash(vertexAttributes);
@@ -82,7 +82,7 @@ namespace graphics_backend
 
 								////Add Binding Data
 								//{
-								//	cacore::defaultHasher<cahash::sha256_hash> hasher;
+								//	cacore::aggregateHasher<cahash::sha256_hash> hasher;
 								//	for (auto& bindingData : result.m_ReflectionData.m_BindingData)
 								//	{
 								//		hasher.hash(bindingData);

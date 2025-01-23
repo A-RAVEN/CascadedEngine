@@ -25,11 +25,11 @@ namespace cacore
     template<typename T>
     concept has_std_hash = requires(T t)
     {
-        std::hash<T>{}(t);
+        castl::hash<T>{}(t);
     };
 
     template <typename hashAlg = default_hashclass>
-    class defaultHasher
+    class aggregateHasher
     {
     public:
         using result_type = typename hashAlg::result_type;
@@ -45,20 +45,40 @@ namespace cacore
             return static_cast<result_type>(alg);
         }
 
+        constexpr void hash_raw(const void* data, size_t size)
+        {
+            alg(data, size);
+        }
+
+        template<typename Obj>
+        constexpr void hash_one(const Obj& object)
+        {
+            using objType = std::remove_cvref_t<decltype(object)>;
+            static_assert(std::is_trivially_copyable_v<objType>, "Object must be trivially copyable");
+            hash_raw(&object, sizeof(objType));
+        }
+
+        template<typename Obj>
+        constexpr void hash_range(const Obj* object, size_t size)
+        {
+            using objType = std::remove_cvref_t<decltype(object)>;
+            static_assert(std::is_trivially_copyable_v<objType>, "Object must be trivially copyable");
+			size_t count = sizeof(objType) * size;
+			//castl::cout << castl::to_string(count) << castl::endl;
+			//castl::cout << castl::to_string(size) << castl::endl;
+            hash_raw(object, count);
+        }
+
         template<typename Obj>
         constexpr void inline hash(const Obj& object)
         {
             using objType = std::remove_cvref_t<decltype(object)>;
 
-			if constexpr (has_std_hash<objType>)
-			{
-				//使用标准哈希函数
-				hash_range(std::hash<objType>{}(object));
-			}
-            else if constexpr (std::is_trivially_copyable_v<objType>)
+
+            if constexpr (std::is_trivially_copyable_v<objType>)
             {
                 //直接对对象内存算哈希值
-                hash_range(object);
+                hash_one(object);
             }
             else if constexpr (has_custom_hash_func<objType, std::remove_cvref_t<decltype(*this)>>)
 			{
@@ -69,20 +89,25 @@ namespace cacore
             else if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
             {
                 //对指针地址算哈希值
-                hash_range(reinterpret_cast<uint64_t>(managed_pointer_traits<objType>::get_pointer(object)));
+                hash_one(reinterpret_cast<uint64_t>(managed_pointer_traits<objType>::get_pointer(object)));
             }
             else if constexpr (std::is_pointer_v<objType>)
             {
                 //对指针地址算哈希值
-                hash_range(reinterpret_cast<uint64_t>(object));
+                hash_one(reinterpret_cast<uint64_t>(object));
             }
             else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
             {
-                hash_range(object);
+                hash_one(object);
             }
             else if constexpr (containerStates<objType>::is_container_with_size)
             {
                 hash_container_with_size(object);
+            }
+            else if constexpr (has_std_hash<objType>)
+            {
+                //使用标准哈希函数
+                hash_one(std::hash<objType>{}(object));
             }
             else if constexpr (std::is_class_v<objType>)
             {
@@ -99,36 +124,40 @@ namespace cacore
             using objType = std::remove_cvref_t<decltype(object)>;
             using arrElemType = containerInfo<objType>::elementType;
             uint64_t objSize = containerInfo<objType>::container_size(object);
-            hash_range(objSize);
-            for (auto& item : object)
+            hash_one(objSize);
+            if constexpr (std::is_trivially_copyable_v<arrElemType> && containerStates<objType>::has_data)
             {
-                hash(item);
+                hash_raw(object.data(), objSize * sizeof(arrElemType));
+            }
+            else
+            {
+                for (auto& item : object)
+                {
+                    hash(item);
+                }
             }
         }
 
-        template<typename Obj>
-        constexpr void hash_range(const Obj& object)
-        {
-            using objType = std::remove_cvref_t<decltype(object)>;
-            static_assert(std::is_trivially_copyable_v<objType>, "Object must be trivially copyable");
-            hash_range(&object, sizeof(objType));
-        }
-
-        constexpr void hash_range(const void* data, size_t size)
-        {
-            alg(data, size);
-        }
+  
     };
 
     template<typename T, typename hashAlg = default_hashclass>
     struct hash
     {
         using result_type = hashAlg::result_type;
-        constexpr result_type operator()(const T& t) const noexcept
+        constexpr result_type operator()(const T& obj) const noexcept
         {
-            defaultHasher<hashAlg> hasher;
-            hasher.hash(t);
-            return static_cast<result_type>(hasher.alg);
+            if constexpr (has_std_hash<T> && std::is_same_v<result_type, size_t>)
+            {
+                //使用标准哈希函数
+                return std::hash<T>{}(obj);
+            }
+            else
+            {
+                aggregateHasher<hashAlg> hasher;
+                hasher.hash(obj);
+                return static_cast<result_type>(hasher.alg);
+            }
         }
     };
 
@@ -154,6 +183,21 @@ namespace cacore
             , m_HashValue(hashObj.m_HashValue)
             , m_HashValid(hashObj.m_HashValid)
         {
+            if constexpr (CompareMode == EHashObjCompareMode::SHA256)
+            {
+                m_SHA256HashValue = hash<ObjType, cahash::sha256_hash>{}(m_Object);
+            }
+        }
+        constexpr HashObj& operator=(HashObj const& other)
+        {
+            m_Object = other.m_Object;
+            m_HashValue = other.m_HashValue;
+            m_HashValid = other.m_HashValid;
+            if constexpr (CompareMode == EHashObjCompareMode::SHA256)
+            {
+                m_SHA256HashValue = hash<ObjType, cahash::sha256_hash>{}(m_Object);
+            }
+            return *this;
         }
         constexpr ObjType const& Get() const noexcept
 		{
@@ -223,6 +267,11 @@ namespace cacore
 		PathHash(const char* str) : HashObj(cafs::path(str).generic_string()) {}
         PathHash(castl::string const& str) : HashObj(cafs::path(str).generic_string()) {}
         PathHash(cafs::path const& path) : HashObj(path.generic_string()) {}
+        constexpr PathHash& operator=(HashObj const& other)
+        {
+            HashObj::operator=(other);
+            return *this;
+        }
 		operator castl::string() const noexcept
         {
             return Get();
@@ -230,19 +279,6 @@ namespace cacore
         friend struct careflection::managed_wrapper_traits<PathHash>;
     };
 
-    //struct NameHash : public HashObj<castl::string, EHashObjCompareMode::FullCompare, default_hashclass>
-    //{
-    //public:
-    //    NameHash() = default;
-    //    NameHash(const char* str) : HashObj(str) {}
-    //    NameHash(castl::string const& str) : HashObj(str) {}
-    //    operator castl::string() const noexcept
-    //    {
-    //        return Get();
-    //    }
-    //};
-
-    //template<typename hashAlg = default_hashclass>
     struct NameHash
     {
     public:
@@ -250,14 +286,14 @@ namespace cacore
         using obj_type = castl::string;
 
         constexpr NameHash() : m_HashValue(0), m_HashValid(false), m_Name("") {}
-        constexpr NameHash(const char* str) : m_Name(str)
+         NameHash(const char* str) : m_Name(str)
         {
-            m_NameView = castl::string_view(m_Name.c_str());
+            m_NameView = m_Name;
             UpdateHash();
         }
-        constexpr NameHash(castl::string const& str) : m_Name(str)
+         NameHash(castl::string const& str) : m_Name(str)
         {
-			m_NameView = castl::string_view(m_Name.c_str());
+			m_NameView = m_Name;
             UpdateHash();
         }
         constexpr NameHash(NameHash const& nameHash) : m_Name(nameHash.m_Name)
@@ -270,8 +306,23 @@ namespace cacore
             }
             else
             {
-				m_NameView = castl::string_view(m_Name.c_str());
+				m_NameView = m_Name;
             }
+        }
+        constexpr NameHash& operator=(NameHash const& nameHash)
+        {
+            m_Name = nameHash.m_Name;
+            m_HashValue = nameHash.m_HashValue;
+            m_HashValid = nameHash.m_HashValid;
+            if (m_Name.empty())
+            {
+                m_NameView = nameHash.m_NameView;
+            }
+            else
+            {
+                m_NameView = m_Name;
+            }
+            return *this;
         }
 
 		constexpr castl::string string() const noexcept
@@ -279,10 +330,21 @@ namespace cacore
 			return castl::string(m_NameView);
 		}
 
+		constexpr char const* c_str() const noexcept
+		{
+			return m_NameView.data();
+		}
+
         constexpr castl::string_view const& Get() const noexcept
         {
             return m_NameView;
         }
+
+		constexpr castl::string_view const* operator->() const noexcept
+		{
+			return &m_NameView;
+		}
+
         constexpr result_type GetHash() const noexcept
         {
             return m_HashValue;
@@ -308,9 +370,11 @@ namespace cacore
             return m_NameView == b.m_NameView;
         };
 
-        constexpr void UpdateHash()
+        void UpdateHash()
         {
-            m_HashValue = hash<castl::string, default_hashclass>{}(m_Name);
+            default_hashclass hasher{};
+            hasher(m_Name.data(), m_Name.size());
+            m_HashValue = static_cast<result_type>(hasher);
             m_HashValid = true;
         }
 
@@ -327,7 +391,9 @@ namespace cacore
         static constexpr NameHash StaticNameHash() {
             constexpr static std::size_t n = sizeof...(c);
             constexpr static const char data[n] = { c... };
-            static const result_type hashVal = hash<const char[n], default_hashclass>{}(data);
+            default_hashclass hasher{};
+			hasher(data, n);
+            static const result_type hashVal = static_cast<result_type>(hasher);
             return NameHash(data, hashVal);
         };
 
@@ -338,6 +404,7 @@ namespace cacore
 
         template <castl::string_literal str>
         static constexpr NameHash Static() {
+            //castl::cout << "literal string count " << castl::to_string(str.count) << castl::endl;
             return StaticNameHashInternal<str>(std::make_index_sequence<str.count>{});
         }
 
@@ -356,9 +423,42 @@ namespace cacore
             hasher.hash(obj.GetHash());
         }
     };
+
+    template<>
+    struct custom_hash_trait<NameHash>
+    {
+        constexpr static void hash(NameHash const& obj, auto& hasher)
+        {
+            hasher.hash_raw(obj.Get().data(), obj.Get().size());
+        }
+    };
 }
 
-#define CANAME(str) cacore::NameHash::Static<castl::string_literal(str)>()
+namespace std
+{
+    template<>
+    struct hash <cacore::PathHash> {
+        size_t operator()(const cacore::PathHash& obj) const {
+            return obj.GetHash();
+        }
+    };
+
+    template<>
+    struct hash <cacore::NameHash > {
+        size_t operator()(const cacore::NameHash& obj) const {
+            return obj.GetHash();
+        }
+    };
+
+    template<typename ObjType, cacore::EHashObjCompareMode CompareMode, typename hashAlg>
+    struct hash <cacore::HashObj<ObjType, CompareMode, hashAlg>> {
+        size_t operator()(const cacore::HashObj<ObjType, CompareMode, hashAlg>& obj) const {
+            return obj.GetHash();
+        }
+    };
+}
+
+#define CANAME(str) cacore::NameHash::Static<castl::string_literal<castl::string_view{str}.size()>(str)>()
 
 namespace careflection
 {

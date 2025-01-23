@@ -53,8 +53,8 @@ namespace thread_management
 		void ReleaseSelf();
 		void Initialize_Internal() { m_Running.store(TaskNodeState::ePrepare); m_Name = "Default Task Name"; }
 		void Release_Internal();
-		void SetThreadKey_Internal(cacore::HashObj<castl::string> const& key) { m_ThreadKey = key; }
-		castl::string const& GetName() const { return m_Name; }
+		void SetThreadKey_Internal(cacore::NameHash const& key) { m_ThreadKey = key; }
+		castl::string const& GetName() const { return castl::string(m_Name.Get()); }
 		TaskNodeState GetState() const { return m_Running.load(); }
 		bool WaitingToRun(TaskBaseObject* owner) const
 		{
@@ -66,9 +66,9 @@ namespace thread_management
 		}
 	protected:
 		void NotifyDependsOnFinish(TaskNode* dependsOnNode);
-		void Name_Internal(const castl::string& name);
-		void WaitEvent_Internal(const castl::string& name);
-		void SignalEvent_Internal(const castl::string& name);
+		void Name_Internal(const cacore::NameHash& name);
+		void WaitEvent_Internal(const cacore::NameHash& name);
+		void SignalEvent_Internal(const cacore::NameHash& name);
 		void DependsOn_Internal(TaskNode* dependsOnNode);
 		void FinalizeExecution_Internal();
 	protected:
@@ -76,10 +76,10 @@ namespace thread_management
 		TaskNodeAllocator* m_Allocator;
 		castl::atomic<TaskBaseObject*> m_Owner{ nullptr };
 		castl::atomic<TaskNodeState> m_Running{ TaskNodeState::eInvalid };
-		cacore::HashObj<castl::string> m_ThreadKey;
-		castl::string m_Name = "Default Task Name";
-		castl::string m_EventName;
-		castl::string m_SignalEventName;
+		cacore::NameHash m_ThreadKey;
+		cacore::NameHash m_Name = "Default Task Name";
+		cacore::NameHash m_EventName;
+		cacore::NameHash m_SignalEventName;
 		uint64_t m_CurrentFrame;
 		castl::vector<TaskNode*>m_Dependents;
 		castl::vector<TaskNode*>m_Successors;

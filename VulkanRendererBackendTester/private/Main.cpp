@@ -73,6 +73,11 @@ int main(int argc, char *argv[])
 
 	auto windowSystem = windowSystemLoader.New();
 
+	constexpr castl::string_view testString = "Test";
+	castl::cout << testString.size() << castl::endl;
+	cacore::NameHash hash0 = CANAME("Test");
+	cacore::NameHash hash1 = "Test";
+
 	InitTimerSystem();
 	GetGlobalTimerSystem()->SetThreadName("Main");
 
@@ -186,9 +191,6 @@ int main(int argc, char *argv[])
 		, RasterizerStates::CullBack()
 	};
 	meshMaterial0.shaderArgs = castl::make_shared<ShaderArgList>();
-	//meshMaterial0.shaderArgs->SetImage(cacore::NameHash::StaticNameHash<'a','l','b','e','d','o','T','e','x','t','u','r','e'>(), texture1);
-	//meshMaterial0.shaderArgs->SetImage(cacore::NameHash::StaticNameHash<'a','l','b','e','d','o','T','e','x','t','u','r','e'>(), texture1);
-	//meshMaterial0.shaderArgs->SetImage(cacore::NameHash::StaticNameHash<'a','l','b','e','d','o','T','e','x','t','u','r','e'>(), texture1);
 	meshMaterial0.shaderArgs->SetImage(CANAME("albedoTexture"), texture1);
 	meshMaterial0.shaderArgs->SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
 	meshMaterial0.shaderSet = pMeshShaderResource.get();
@@ -222,9 +224,9 @@ int main(int argc, char *argv[])
 	glm::vec2 lastMousePos = { 0.0f, 0.0f };
 
 	castl::shared_ptr<ShaderArgList> globalLightShaderArg = castl::make_shared<ShaderArgList>();
-	globalLightShaderArg->SetValue("lightDirection", glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f)));
-	globalLightShaderArg->SetValue("lightColor", glm::vec3(2.0f, 2.0f, 0.25f));
-	globalLightShaderArg->SetValue("ambientColor", glm::vec3(0.1f, 0.1f, 0.2f));
+	globalLightShaderArg->SetValue(CANAME("lightDirection"), glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f)));
+	globalLightShaderArg->SetValue(CANAME("lightColor"), glm::vec3(2.0f, 2.0f, 0.25f));
+	globalLightShaderArg->SetValue(CANAME("ambientColor"), glm::vec3(0.1f, 0.1f, 0.2f));
 
 	
 	pThreadManager->LoopFunction([&](auto setup)
@@ -353,8 +355,8 @@ int main(int argc, char *argv[])
 							AllocImage(colorTexture, colorTextureDesc)
 							.AllocImage(depthTexture, depthTextureDesc);
 						castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
-						finalBlitShaderArgList->SetImage("SourceTexture", colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
-						finalBlitShaderArgList->SetSampler("SourceSampler", TextureSamplerDescriptor::Create());
+						finalBlitShaderArgList->SetImage(CANAME("SourceTexture"), colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
+						finalBlitShaderArgList->SetSampler(CANAME("SourceSampler"), TextureSamplerDescriptor::Create());
 						RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
 							, AttachmentConfig::Clear()
 							, AttachmentConfig::ClearDepthStencil())

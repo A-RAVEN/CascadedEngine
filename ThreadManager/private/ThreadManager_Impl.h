@@ -55,13 +55,13 @@ namespace thread_management
 		CTask_Impl1(CTask_Impl1 const& other) = default;
 
 		virtual CTask* MainThread() override;
-		virtual CTask* Thread(cacore::HashObj<castl::string> const& threadKey) override;
-		virtual CTask* Name(castl::string name) override;
+		virtual CTask* Thread(cacore::NameHash const& threadKey) override;
+		virtual CTask* Name(cacore::NameHash name) override;
 		virtual CTask* DependsOn(CTask* parentTask) override;
 		virtual CTask* DependsOn(TaskParallelFor* parentTask) override;
 		virtual CTask* DependsOn(CTaskGraph* parentTask) override;
-		virtual CTask* WaitOnEvent(castl::string const& name) override;
-		virtual CTask* SignalEvent(castl::string const& name) override;
+		virtual CTask* WaitOnEvent(cacore::NameHash const& name) override;
+		virtual CTask* SignalEvent(cacore::NameHash const& name) override;
 		virtual CTask* Functor(castl::function<void()>&& functor) override;
 	public:
 		CTask_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
@@ -79,12 +79,12 @@ namespace thread_management
 	{
 	public:
 		TaskParallelFor_Impl(TaskParallelFor_Impl const& other) = default;
-		virtual TaskParallelFor* Name(castl::string name) override;
+		virtual TaskParallelFor* Name(cacore::NameHash name) override;
 		virtual TaskParallelFor* DependsOn(CTask* parentTask) override;
 		virtual TaskParallelFor* DependsOn(TaskParallelFor* parentTask) override;
 		virtual TaskParallelFor* DependsOn(CTaskGraph* parentTask) override;
-		virtual TaskParallelFor* WaitOnEvent(castl::string const& name) override;
-		virtual TaskParallelFor* SignalEvent(castl::string const& name) override;
+		virtual TaskParallelFor* WaitOnEvent(cacore::NameHash const& name) override;
+		virtual TaskParallelFor* SignalEvent(cacore::NameHash const& name) override;
 		virtual TaskParallelFor* Functor(castl::function<void(uint32_t)> functor) override;
 		virtual TaskParallelFor* JobCount(uint32_t jobCount) override;
 
@@ -107,15 +107,15 @@ namespace thread_management
 	public:
 		TaskGraph_Impl1(TaskGraph_Impl1 const& other) = default;
 
-		virtual CTaskGraph* Name(castl::string name) override;
+		virtual CTaskGraph* Name(cacore::NameHash name) override;
 		virtual CTaskGraph* DependsOn(CTask* parentTask) override;
 		virtual CTaskGraph* DependsOn(TaskParallelFor* parentTask) override;
 		virtual CTaskGraph* DependsOn(CTaskGraph* parentTask) override;
-		virtual CTaskGraph* WaitOnEvent(castl::string const& name) override;
-		virtual CTaskGraph* SignalEvent(castl::string const& name) override;
+		virtual CTaskGraph* WaitOnEvent(cacore::NameHash const& name) override;
+		virtual CTaskGraph* SignalEvent(cacore::NameHash const& name) override;
 		virtual CTaskGraph* Func(castl::function<void(TaskScheduler*)> functor) override;
 		virtual CTaskGraph* MainThread() override;
-		virtual CTaskGraph* Thread(cacore::HashObj<castl::string> const& threadKey) override;
+		virtual CTaskGraph* Thread(cacore::NameHash const& threadKey) override;
 	public:
 		TaskGraph_Impl1(ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator);
 		void Initialize() { Initialize_Internal(); }
@@ -168,7 +168,7 @@ namespace thread_management
 	class DedicateThreadMap
 	{
 	public:
-		uint32_t GetThreadIndex(cacore::HashObj<castl::string> const& name)
+		uint32_t GetThreadIndex(cacore::NameHash const& name)
 		{
 			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			auto found = m_DedicateThreadMapping.find(name);
@@ -179,14 +179,14 @@ namespace thread_management
 			}
 			return found->second;
 		}
-		void SetThreadIndex(cacore::HashObj<castl::string> const& name, uint32_t index)
+		void SetThreadIndex(cacore::NameHash const& name, uint32_t index)
 		{
 			castl::lock_guard<castl::mutex> lock(m_Mutex);
 			m_DedicateThreadMapping[name] = index;
 		}
 	private:
 		castl::mutex m_Mutex;
-		castl::unordered_map<cacore::HashObj<castl::string>, uint32_t> m_DedicateThreadMapping;
+		castl::unordered_map<cacore::NameHash, uint32_t> m_DedicateThreadMapping;
 	};
 
 	class TaskNodeEventManager
@@ -202,10 +202,10 @@ namespace thread_management
 			}
 		};
 		castl::mutex m_Mutex;
-		castl::unordered_map<cacore::HashObj<castl::string>, uint32_t> m_EventMap;
+		castl::unordered_map<cacore::NameHash, uint32_t> m_EventMap;
 		castl::vector<TaskWaitList> m_EventWaitLists;
 	public:
-		void SignalEvent(ThreadManager_Impl1& threadManager, cacore::HashObj<castl::string> const& eventKey, uint64_t signalFrame);
+		void SignalEvent(ThreadManager_Impl1& threadManager, cacore::NameHash const& eventKey, uint64_t signalFrame);
 		bool WaitEventDone(TaskNode* node);
 	};
 
@@ -214,14 +214,13 @@ namespace thread_management
 	{
 	public:
 		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum) override;
-		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::HashObj<castl::string> const& name) override;
+		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::NameHash const& name) override;
 		CTask_Impl1* NewTask();
 		TaskParallelFor_Impl* NewTaskParallelFor();
 		TaskGraph_Impl1* NewTaskGraph();
 		virtual void LogStatus() const override;
 		virtual uint64_t GetCurrentFrame() const override { return m_Frames; }
-		virtual void OneTime(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) override;
-		virtual void LoopFunction(castl::function<void(TaskScheduler*)> functor, castl::string const& waitingEvent) override;
+		virtual void LoopFunction(castl::function<void(TaskScheduler*)> functor, cacore::NameHash const& waitingEvent) override;
 		virtual castl::shared_ptr<TaskScheduler> NewScheduler() override;
 		virtual void Run() override;
 		void Stop();
@@ -232,7 +231,7 @@ namespace thread_management
 		ThreadManager_Impl1();
 		~ThreadManager_Impl1();
 
-		void SignalEvent(castl::string const& eventName, uint64_t signalFrame);
+		void SignalEvent(cacore::NameHash const& eventName, uint64_t signalFrame);
 
 		void EnqueueOneTimeTasks();
 		void EnqueueSetupTask();
@@ -251,7 +250,7 @@ namespace thread_management
 	private:
 		//
 		castl::function<void(TaskScheduler*)> m_PrepareFunctor = nullptr;
-		castl::string m_SetupEventName;
+		cacore::NameHash m_SetupEventName;
 
 		//castl::deque<TaskNode*> m_TaskQueue;
 		castl::vector<std::thread> m_WorkerThreads;
