@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
 
 	{
 		castl::string shaderPath = resourceString + "/Shaders";
-		castl::string testPath = shaderPath + "/Imgui.slang";
+		castl::string testPath = shaderPath + "/TestBindingShader.slang";
 		auto pCompiler = shaderCompilerManager->AquireShaderCompilerShared();
 		pCompiler->BeginCompileTask();
 		pCompiler->AddInlcudePath(shaderPath.c_str());
@@ -92,7 +92,7 @@ int main(int argc, char* argv[])
 							}
 							for (auto& element : group.m_Elements)
 							{
-								std::cout << "-----Name: " << element.m_Name << std::endl;
+								std::cout << "-----Name: " << element.m_Name.Get() << std::endl;
 								std::cout << "-----Offset/Size/Stride:" << element.m_MemoryOffset << "/" << element.m_ElementMemorySize << "/" << element.m_Stride << std::endl;
 								if (element.isArray())
 								{
@@ -134,8 +134,7 @@ int main(int argc, char* argv[])
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
 	n = (n == 0) ? 5 : (castl::min)(n, 16u);
-	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 1);
-	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
+	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n);
 
 	//Initialize IO Manager
 	auto g_IOManager = ioManagerLoader.New();

@@ -89,8 +89,7 @@ int main(int argc, char *argv[])
 	auto pThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
 	n = (n == 0) ? 5 : (castl::min)(n, 16u);
-	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n, 1);
-	pThreadManager->SetDedicateThreadMapping(0, { "MainThread" });
+	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n);
 
 	g_IOManager = ioManagerLoader.New();
 	g_IOManager->Initialize(pThreadManager.get());

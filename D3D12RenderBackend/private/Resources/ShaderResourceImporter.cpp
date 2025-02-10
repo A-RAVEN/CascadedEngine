@@ -80,15 +80,17 @@ namespace graphics_backend
 								//	castl::unordered_map<cahash::sha256_hash::result_type, castl::vector<ShaderCompilerSlang::ShaderVertexAttributeData>> vertexAttributesMap;
 								//}
 
-								////Add Binding Data
-								//{
-								//	cacore::aggregateHasher<cahash::sha256_hash> hasher;
-								//	for (auto& bindingData : result.m_ReflectionData.m_BindingData)
-								//	{
-								//		hasher.hash(bindingData);
-								//	}
-								//	auto bindingDataHash = hasher.getHash();
-								//}
+								//Add Binding Data
+								//Prepare Constant Buffer Data
+								{
+									cacore::aggregateHasher<cahash::sha256_hash> hasher;
+									for (auto& bindingData : result.m_ReflectionData.m_BindingData)
+									{
+
+										hasher.hash(bindingData);
+									}
+									auto bindingDataHash = hasher.getHash();
+								}
 
 								result.m_ReflectionData.m_BindingData;
 							}

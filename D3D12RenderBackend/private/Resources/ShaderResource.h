@@ -19,9 +19,22 @@ namespace graphics_backend
 		castl::unordered_set<ShaderSourceKey> sourceKeys;
 	};
 
-	struct ShaderParamTable
+	struct ShaderUniformElementData
 	{
+	public:
+		cacore::NameHash typeName;
+		uint32_t offset;
+		uint32_t count;
+	};
 
+	struct ShaderStructTypeMetaData
+	{
+	public:
+		cacore::NameHash typeName;
+		uint32_t size;
+		uint32_t stride;
+		castl::vector<ShaderUniformElementData> elements;
+		auto operator<=>(const ShaderStructTypeMetaData&) const = default;
 	};
 
 	class ShaderLibrary : public resource_management::IResource
@@ -29,6 +42,7 @@ namespace graphics_backend
 	public:
 		//castl::unordered_map<ShaderSourceKey, castl::shared_ptr<ShaderResource>> m_ShaderResources;
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> m_ShaderPrograms;
+		castl::unordered_map<cacore::NameHash, ShaderStructTypeMetaData> m_ShaderStructs;
 		virtual void Serialize(ca_io::WBatch* inWriter) override {}
 		virtual void Deserialize(ca_io::IOBatch* inReader) override {}
 	};

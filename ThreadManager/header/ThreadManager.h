@@ -99,8 +99,16 @@ namespace thread_management
 	class CThreadManager
 	{
 	public:
-		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum, uint32_t dedicateThreadNum) = 0;
-		virtual void SetDedicateThreadMapping(uint32_t dedicateThreadIndex, cacore::NameHash const& name) = 0;
+		static cacore::NameHash const& MainThreadName()
+		{
+			return CANAME("MainThread");
+		}
+		static cacore::NameHash const& CommonTaskName()
+		{
+			return CANAME("CommonTask");
+		}
+		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum) = 0;
+		virtual void AddTaskQueue(cacore::NameHash const& name, castl::array_ref<uint32_t> threadIndices) = 0;
 		virtual void LoopFunction(castl::function<void(TaskScheduler*)> functor, cacore::NameHash const& waitingEvent) = 0;
 		virtual castl::shared_ptr<TaskScheduler> NewScheduler() = 0;
 		virtual void Run() = 0;

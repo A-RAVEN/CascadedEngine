@@ -20,10 +20,11 @@ namespace ShaderCompilerSlang
 		eReadWrite,
 	};
 
-	//某个数值：scalar，vector，matrix
+	//某个数值：scalar，vector，matrix，也可能是某个结构体
 	struct UniformElement
 	{
-		castl::string m_Name;
+		cacore::NameHash m_TypeName;
+		cacore::NameHash m_Name;
 		uint32_t m_MemoryOffset;
 		uint32_t m_ElementMemorySize;
 
@@ -35,8 +36,9 @@ namespace ShaderCompilerSlang
 		{
 			return m_ElementCount > 1;
 		}
-		void Init(castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)
+		void Init(cacore::NameHash const& typeName, cacore::NameHash const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)
 		{
+			m_TypeName = typeName;
 			m_Name = name;
 			m_MemoryOffset = memoryOffset;
 			m_ElementMemorySize = memorySize;
@@ -45,14 +47,158 @@ namespace ShaderCompilerSlang
 		}
 	};
 
+	struct ShaderStructUniforms
+	{
+		uint32_t m_MemorySize;
+		uint32_t m_Stride;
+		castl::vector<UniformElement> m_Elements;
+
+		void SetSize(uint32_t size, uint32_t stride)
+		{
+			m_MemorySize = size;
+			m_Stride = stride;
+		}
+
+		void EnsureElement(UniformElement const& element)
+		{
+			for (auto& e : m_Elements)
+			{
+				if (e.m_Name == element.m_Name)
+				{
+					return;
+				}
+			}
+			m_Elements.push_back(element);
+		}
+	};
+
+	
+
+	struct BufferData
+	{
+		cacore::NameHash m_Name;
+		EShaderResourceAccess m_RWType;
+		uint32_t m_ElementCount;
+	};
+
+	struct ShaderTextureData
+	{
+		cacore::NameHash m_Name;
+		EShaderResourceAccess m_RWType;
+		uint32_t m_ElementCount;
+	};
+
+	//子结构引用，和StructUniform中的Element不同，这里是另一个binding，只是逻辑上是子结构体
+	struct SubStructReference
+	{
+		cacore::NameHash m_Name;
+		cacore::NameHash m_StructTypeName;
+		uint32_t m_ElementCount;
+	};
+
+	struct ShaderStructData
+	{
+		cacore::NameHash m_TypeName;
+		ShaderStructUniforms m_StructUniforms;
+		//Other Non Uniform Resources
+		castl::vector<ShaderTextureData> m_Textures;
+		castl::vector<cacore::NameHash> m_TextureSamplers;
+		castl::vector<BufferData> m_Buffers;
+		castl::vector<SubStructReference> m_SubStructReferences;
+
+		void Init(cacore::NameHash const& typeName)
+		{
+			m_TypeName = typeName;
+		}
+
+		void EnsureShaderTexture(ShaderTextureData const& textureData)
+		{
+			for (auto& texture : m_Textures)
+			{
+				if (texture.m_Name == textureData.m_Name)
+				{
+					return;
+				}
+			}
+			m_Textures.push_back(textureData);
+		}
+
+		void EnsureShaderBuffer(BufferData const& bufferData)
+		{
+			for (auto& buffer : m_Buffers)
+			{
+				if (buffer.m_Name == bufferData.m_Name)
+				{
+					return;
+				}
+			}
+			m_Buffers.push_back(bufferData);
+		}
+
+		void EnsureSubStructReference(SubStructReference const& subStructReference)
+		{
+			for (auto& subStruct : m_SubStructReferences)
+			{
+				if (subStruct.m_Name == subStructReference.m_Name)
+				{
+					return;
+				}
+			}
+			m_SubStructReferences.push_back(subStructReference);
+		}
+
+		void EnsureTextureSampler(cacore::NameHash const& samplerName)
+		{
+			for (auto& sampler : m_TextureSamplers)
+			{
+				if (sampler == samplerName)
+				{
+					return;
+				}
+			}
+			m_TextureSamplers.push_back(samplerName);
+		}
+	};
+
+	//对应到实际的Resource，比如Buffer，Texture，Sampler
+	struct ShaderResourceBinding
+	{
+		uint32_t m_BindingID;
+		cacore::NameHash m_Name;
+		uint32_t m_ElementCount;
+	};
+
+	//对应到某个Struct,Struct本身可能数组，所以也有ElementCount
+	struct ShaderBindingHierarchy
+	{
+		cacore::NameHash m_Name;
+		uint32_t m_ElementCount;
+		//该Struct中的Resource
+		castl::vector<ShaderResourceBinding> m_Bindings;
+		castl::vector<uint32_t> m_SubBindingHierarchies;
+	};
+
+	struct ShaderSpaceToHierarchy
+	{
+		uint32_t m_SpaceID;
+		uint32_t m_HierarchyID;
+	};
+
+	struct ShaderBindingInfo
+	{
+		castl::vector<ShaderBindingHierarchy> m_BindingDataHierarchies;
+		castl::vector<ShaderSpaceToHierarchy> m_SpaceToRootHierarchy;
+
+		//uint32_t EnsureHierarchy
+	};
+
 	struct UniformGroup
 	{
+		castl::string m_TypeName;
 		castl::string m_Name;
 		uint32_t m_MemoryOffset;
 		uint32_t m_MemorySize;
-		//Array Element Stride?
 		uint32_t m_Stride;
-		//Array Element Count?
 		uint32_t m_ElementCount;
 		castl::vector<UniformElement> m_Elements;
 		castl::vector<uint32_t> m_SubGroups;
@@ -62,8 +208,9 @@ namespace ShaderCompilerSlang
 			return m_ElementCount > 1;
 		}
 
-		void Init(castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)
+		void Init(castl::string const& typeName, castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)
 		{
+			m_TypeName = typeName;
 			m_Name = name;
 			m_MemoryOffset = memoryOffset;
 			m_MemorySize = memorySize;
@@ -108,12 +255,21 @@ namespace ShaderCompilerSlang
 
 	struct ShaderResourceGroups
 	{
+		castl::string m_TypeName;
 		castl::string m_Name;
 		castl::vector<uint32_t> m_SubGroups;
 		castl::vector<uint32_t> m_Buffers;
 		castl::vector<uint32_t> m_Textures;
 		castl::vector<uint32_t> m_Samplers;
+
+		void InitResourceGroup(castl::string typeName, castl::string name)
+		{
+			m_TypeName = typeName;
+			m_Name = name;
+		}
 	};
+
+
 
 	struct TextureData
 	{
@@ -162,7 +318,12 @@ namespace ShaderCompilerSlang
 		}
 
 		int32_t InitUniformGroup(uint32_t bindingIndex, int32_t parentGroupID
-			, castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t memoryStride, uint32_t elementCount = 1)
+			, castl::string const& typeName
+			, castl::string const& name
+			, uint32_t memoryOffset
+			, uint32_t memorySize
+			, uint32_t memoryStride
+			, uint32_t elementCount = 1)
 		{
 			if(memorySize == 0 || memoryStride == 0 || elementCount == 0)
 			{
@@ -170,7 +331,7 @@ namespace ShaderCompilerSlang
 			}
 			UniformBufferData& buffer = GetUniformBuffer(bindingIndex);
 			int32_t newGroupID = buffer.NewGroup();
-			buffer.GetGroup(newGroupID).Init(name, memoryOffset, memorySize, memoryStride, elementCount);
+			buffer.GetGroup(newGroupID).Init(typeName, name, memoryOffset, memorySize, memoryStride, elementCount);
 			if (parentGroupID >= 0)
 			{
 				buffer.AddSubGroupToGroup(parentGroupID, newGroupID);
@@ -184,10 +345,10 @@ namespace ShaderCompilerSlang
 			buffer.AddElementToGroup(groupID, element);
 		}
 
-		int32_t InitResourceGroup(castl::string const& name, int32_t parentGroupID)
+		int32_t InitResourceGroup(castl::string const& typeName, castl::string const& name, int32_t parentGroupID)
 		{
 			m_ResourceGroups.push_back(ShaderResourceGroups{});
-			m_ResourceGroups.back().m_Name = name;
+			m_ResourceGroups.back().InitResourceGroup(typeName, name);
 			int32_t newGroupID = m_ResourceGroups.size() - 1;
 			if (parentGroupID >= 0)
 			{
@@ -196,13 +357,18 @@ namespace ShaderCompilerSlang
 			return newGroupID;
 		}
 
-		void AddBufferToResourceGroup(int32_t groupID, ShaderBufferData const& bufferData)
+		void EnsureDefaultResourceGroup(int32_t groupID)
 		{
-			if (groupID == -1 && m_ResourceGroups.empty())
+			if (groupID == -1)
 			{
-				InitResourceGroup("__Global", groupID);
+				InitResourceGroup("__Root", "__Global", groupID);
 				groupID = 0;
 			}
+		}
+
+		void AddBufferToResourceGroup(int32_t groupID, ShaderBufferData const& bufferData)
+		{
+			EnsureDefaultResourceGroup(groupID);
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Buffers.push_back(bufferData);
 			m_ResourceGroups[groupID].m_Buffers.push_back(m_Buffers.size() - 1);
@@ -210,11 +376,7 @@ namespace ShaderCompilerSlang
 
 		void AddTextureToResourceGroup(int32_t groupID, TextureData const& textureData)
 		{
-			if (groupID == -1)
-			{
-				InitResourceGroup("__Global", groupID);
-				groupID = 0;
-			}
+			EnsureDefaultResourceGroup(groupID);
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Textures.push_back(textureData);
 			m_ResourceGroups[groupID].m_Textures.push_back(m_Textures.size() - 1);
@@ -222,11 +384,7 @@ namespace ShaderCompilerSlang
 
 		void AddSamplerToResourceGroup(int32_t groupID, SamplerData const& samplerData)
 		{
-			if (groupID == -1)
-			{
-				InitResourceGroup("__Global", groupID);
-				groupID = 0;
-			}
+			EnsureDefaultResourceGroup(groupID);
 			CA_ASSERT(groupID >= 0, "groupID must be valid");
 			m_Samplers.push_back(samplerData);
 			m_ResourceGroups[groupID].m_Samplers.push_back(m_Samplers.size() - 1);
@@ -247,6 +405,7 @@ namespace ShaderCompilerSlang
 		//ResourceGroups
 		castl::vector<ShaderResourceGroups> m_ResourceGroups;
 
+
 		uint32_t GetBindingCount() const
 		{
 			return m_UniformBuffers.size() + m_Buffers.size() + m_Textures.size() + m_Samplers.size();
@@ -266,6 +425,21 @@ namespace ShaderCompilerSlang
 	public:
 		castl::vector<ShaderBindingSpaceData> m_BindingData;
 		castl::vector<ShaderVertexAttributeData> m_VertexAttributes;
+		castl::unordered_map<cacore::NameHash, ShaderStructData> m_ShaderStructs;
+		ShaderBindingInfo m_BindingInfo;
+
+		ShaderStructData& EnsureStruct(cacore::NameHash structTypeName)
+		{
+			auto found = m_ShaderStructs.find(structTypeName);
+			if (found == m_ShaderStructs.end())
+			{
+				m_ShaderStructs.insert(castl::make_pair(structTypeName, ShaderStructData{}));
+				found = m_ShaderStructs.find(structTypeName);
+				found->second.Init(structTypeName);
+			}
+			return found->second;
+		}
+
 		ShaderBindingSpaceData& EnsureBindingSpace(uint32_t bindingSpace)
 		{
 			if(m_BindingData.size() < bindingSpace + 1)

@@ -8,14 +8,14 @@ struct ShaderSourceInfo
 	ECompileShaderType compileShaderType;
 	uint64_t dataLength;
 	void const* dataPtr;
-	castl::string entryPoint;
+	cacore::NameHash entryPoint;
 	auto operator<=>(const ShaderSourceInfo&) const = default;
 };
 
 struct ShaderInfo
 {
-	castl::string path;
-	castl::string entryPoint;
+	cacore::PathHash path;
+	cacore::NameHash entryPoint;
 };
 
 

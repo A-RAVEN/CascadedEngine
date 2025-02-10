@@ -286,8 +286,14 @@ namespace cacore
         using obj_type = castl::string;
 
         constexpr NameHash() : m_HashValue(0), m_HashValid(false), m_Name("") {}
-         NameHash(const char* str) : m_Name(str)
+         NameHash(const char* str)
         {
+            if (str == nullptr)
+            {
+                 Reset();
+                 return;
+            }
+			m_Name = str;
             m_NameView = m_Name;
             UpdateHash();
         }
@@ -360,7 +366,7 @@ namespace cacore
             m_HashValid = false;
         }
 
-        castl::weak_ordering operator<=>(NameHash const& b) const
+        constexpr auto operator<=>(NameHash const& b) const
         {
             return m_NameView <=> b.m_NameView;
         }
@@ -388,23 +394,23 @@ namespace cacore
     public:
 
         template <char... c>
-        static constexpr NameHash StaticNameHash() {
+        static constexpr NameHash const& StaticNameHash() {
             constexpr static std::size_t n = sizeof...(c);
             constexpr static const char data[n] = { c... };
             default_hashclass hasher{};
 			hasher(data, n);
             static const result_type hashVal = static_cast<result_type>(hasher);
-            return NameHash(data, hashVal);
+			static const NameHash nameHash(data, hashVal);
+            return nameHash;
         };
 
         template <castl::string_literal str, size_t... N>
-        static constexpr NameHash StaticNameHashInternal(castl::index_sequence<N...>) {
+        static constexpr NameHash const& StaticNameHashInternal(castl::index_sequence<N...>) {
             return StaticNameHash<str.get_char<N>()...>();
         }
 
         template <castl::string_literal str>
-        static constexpr NameHash Static() {
-            //castl::cout << "literal string count " << castl::to_string(str.count) << castl::endl;
+        static constexpr NameHash const& Static() {
             return StaticNameHashInternal<str>(std::make_index_sequence<str.count>{});
         }
 

@@ -7,12 +7,17 @@ add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 CPMAddPackage(
   NAME slang
-  URL https://github.com/shader-slang/slang/releases/download/v2024.17/slang-2024.17-windows-x86_64.zip
-  VERSION 2024.17
+  URL https://github.com/shader-slang/slang/releases/download/v2025.4/slang-2025.4-windows-x86_64.zip
+  VERSION 2025.4
   # the range-v3 CMakeLists screws with configuration options
   DOWNLOAD_ONLY True
 )
-find_package(slang REQUIRED PATHS ${slang_SOURCE_DIR}/cmake NO_DEFAULT_PATH)
+#find_package(slang REQUIRED PATHS ${slang_SOURCE_DIR}/cmake NO_DEFAULT_PATH)
+add_library(slang SHARED IMPORTED GLOBAL)
+set_property(TARGET slang PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include)
+set_property(TARGET slang PROPERTY IMPORTED_IMPLIB ${slang_SOURCE_DIR}/lib/slang.lib)
+set_property(TARGET slang PROPERTY IMPORTED_LOCATION ${slang_SOURCE_DIR}/bin/slang.dll)
+add_library(slang::slang ALIAS slang)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${slang_SOURCE_DIR}/include)
 target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompiler)
