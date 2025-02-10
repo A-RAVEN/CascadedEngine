@@ -69,6 +69,11 @@ int main(int argc, char* argv[])
 		else
 		{
 			castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> result = pCompiler->GetResults();
+			cacore::NameHash testHash = CANAME("TEST_HASH");
+			castl::vector<byte> serializedData;
+			cacore::serialize(serializedData, testHash);
+			cacore::NameHash deserializedName;
+			cacore::deserialize(serializedData, deserializedName);
 			for (auto& shaderCompileTargetResult : result)
 			{
 				std::cout << "\nTargetType: " <<  magic_enum::enum_name(shaderCompileTargetResult.targetType) << std::endl;

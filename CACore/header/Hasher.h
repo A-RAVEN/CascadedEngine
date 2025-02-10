@@ -415,10 +415,10 @@ namespace cacore
         }
 
     private:
-        result_type m_HashValue;
-        bool m_HashValid;
-        castl::string m_Name;
         castl::string_view m_NameView;
+        bool m_HashValid;
+        result_type m_HashValue;
+        castl::string m_Name;
     };
 
     template<typename ObjType, EHashObjCompareMode CompareMode, typename hashAlg>
@@ -492,7 +492,7 @@ namespace careflection
     {
         constexpr static bool is_managed_wrapper = true;
         using inner_type = castl::string;
-        constexpr static castl::string const& get_data(cacore::NameHash const& obj) { return obj.string(); }
+        constexpr static castl::string get_data(cacore::NameHash const& obj) { return obj.string(); }
         constexpr static void set_data(cacore::NameHash& obj, castl::string const& data) { obj = cacore::NameHash{ data }; }
     };
 }

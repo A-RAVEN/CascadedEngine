@@ -70,10 +70,10 @@ namespace ShaderCompilerSlang
 			switch (targetType)
 			{
 			case EShaderTargetType::eSpirV:
-				PushTarget(SLANG_GLSL, "glsl_450");
+				PushTarget(SLANG_SPIRV, "glsl_450");
 				break;
 			case EShaderTargetType::eDXIL:
-				PushTarget(SLANG_HLSL, "sm_6_3");
+				PushTarget(SLANG_DXIL, "sm_6_3");
 				break;
 			}
 		}
@@ -679,21 +679,45 @@ namespace ShaderCompilerSlang
 			}
 		}
 
-		void ReflectConstantBufferBindings(VariableLayoutReflection* variable, AccessPath accessPath)
+		static cacore::NameHash const& RootName()
+		{
+			return CANAME("__Root");
+		}
+
+		static cacore::NameHash const& RootTypeName()
+		{
+			return CANAME("__RootType");
+		}
+
+
+		void ReflectConstantBufferBindings(ShaderBindingInfo& bindingInfo
+			, VariableLayoutReflection* variable
+			, AccessPath accessPath
+			, int32_t parentHierarchyID)
 		{
 			AccessPathNode newNode = accessPath.NewNode(variable);
+			cacore::NameHash name = variable->getName();
 			accessPath.SetLeaf(newNode);
 			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(variable);
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
 			cacore::NameHash typeName = typeLayout->getName();
+			if (parentHierarchyID == -1)
+			{
+				name = RootName();
+				typeName = RootTypeName();
+			}
 			ParameterCategory variableCategory = variable->getCategory();
 			uint32_t elementCount = GetArrayElementCount(variable->getTypeLayout());
 			if (kind == slang::TypeReflection::Kind::ConstantBuffer || kind == slang::TypeReflection::Kind::ParameterBlock)
 			{
+				int32_t currentHierarchyID = bindingInfo.NewHierarchy(parentHierarchyID, name, typeName, elementCount);
+				auto& currentHierarchy = bindingInfo.GetHierarchy(currentHierarchyID);
 				{
 					SpaceAndBinding bindings{};
 					if (accessPath.GetLastCBufferBinding(bindings))
 					{
+						currentHierarchy.m_SelfUniformBufferID = bindings.offset;
+						bindingInfo.TryInitSpaceInfo(bindings.space, currentHierarchyID);
 						fprintf(stderr, "[%s]%s uniformBuffer space: %d binding: %d arrayLength: %d category: %s\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					}
 				}
@@ -709,13 +733,15 @@ namespace ShaderCompilerSlang
 					for (uint32_t i = 0; i < fieldCount; i++)
 					{
 						slang::VariableLayoutReflection* field = elementTypeLayout->getFieldByIndex(i);
-						ReflectBindings(field, accessPath);
+						ReflectBindings(bindingInfo, field, accessPath, currentHierarchyID);
 					}
 				}
 			}
 		}
 
-		void ReflectBindings(VariableLayoutReflection* variable, AccessPath accessPath)
+		void ReflectBindings(ShaderBindingInfo& bindingInfo
+			, VariableLayoutReflection* variable, AccessPath accessPath
+			, int32_t parentHierarchyID)
 		{
 
 			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(variable);
@@ -723,24 +749,27 @@ namespace ShaderCompilerSlang
 
 			if (kind == slang::TypeReflection::Kind::ConstantBuffer || kind == slang::TypeReflection::Kind::ParameterBlock)
 			{
-				ReflectConstantBufferBindings(variable, accessPath);
+				ReflectConstantBufferBindings(bindingInfo, variable, accessPath, parentHierarchyID);
 				return;
 			}
 
+			//assert(parentHierarchyID >= 0 && "Parent Hierarchy Should Be Valid");
 			AccessPathNode newNode = accessPath.NewNode(variable);
 			accessPath.SetLeaf(newNode);
 			cacore::NameHash typeName = typeLayout->getName();
+			cacore::NameHash name = variable->getName();
 			ParameterCategory variableCategory = variable->getCategory();
 			uint32_t elementCount = GetArrayElementCount(variable->getTypeLayout());
 
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
-				unsigned fieldCount = typeLayout->getFieldCount();
+				int32_t currentHierarchyID = bindingInfo.NewHierarchy(parentHierarchyID, name, typeName, elementCount);
 
+				unsigned fieldCount = typeLayout->getFieldCount();
 				for (uint32_t i = 0; i < fieldCount; i++)
 				{
 					slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
-					ReflectBindings(field, accessPath);
+					ReflectBindings(bindingInfo, field, accessPath, currentHierarchyID);
 				}
 			}
 			else if (kind == slang::TypeReflection::Kind::Resource
@@ -749,6 +778,14 @@ namespace ShaderCompilerSlang
 				slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
 				SlangResourceAccess resourceAccess = typeLayout->getResourceAccess();
 				auto bindings = accessPath.GetLeafSpaceAndBinding();
+				auto& parentHierarchy = bindingInfo.GetHierarchy(parentHierarchyID);
+
+				ShaderResourceBinding newBinding = {};
+				newBinding.m_TypeName = typeName;
+				newBinding.m_Name = name;
+				newBinding.m_ElementCount = elementCount;
+				newBinding.m_BindingID = bindings.offset;
+				parentHierarchy.m_Bindings.push_back(newBinding);
 
 				switch (bindingType)
 				{
@@ -779,23 +816,15 @@ namespace ShaderCompilerSlang
 			, cacore::NameHash const& parentTypeName)
 		{
 			auto targetVariable = variable;
-			//slang::TypeLayoutReflection* typeLayout = targetVariable->getTypeLayout();
 			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(variable);
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
 			cacore::NameHash name = targetVariable->getName();
 			auto categories = UnwrapCategories(targetVariable);
 			auto& parentStruct = reflectionData.EnsureStruct(parentTypeName);
+			uint32_t elementCount = GetArrayElementCount(variable->getTypeLayout());
 
 			//Binding Done! Now Reflect By Kind
-			uint32_t elementCount = GetArrayElementCount(variable->getTypeLayout());
-			//uint32_t elementCount = 1;
-			////如果是Array类型，重定向为Array元素类型
-			//if (kind == slang::TypeReflection::Kind::Array)
-			//{
-			//	elementCount = typeLayout->getElementCount();
-			//	typeLayout = typeLayout->getElementTypeLayout();
-			//	kind = typeLayout->getKind();
-			//}
+
 			//如果是ConstantBuffer或者ParameterBlock类型，需要追踪ElementVarLayout
 			if (kind == slang::TypeReflection::Kind::ConstantBuffer || kind == slang::TypeReflection::Kind::ParameterBlock)
 			{
@@ -805,7 +834,6 @@ namespace ShaderCompilerSlang
 			}
 
 			cacore::NameHash typeName = typeLayout->getName();
-
 
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
@@ -889,6 +917,46 @@ namespace ShaderCompilerSlang
 			}
 		}
 
+		void  ReflectRootTypeLayouts(ShaderReflectionData& reflectionData
+			, slang::VariableLayoutReflection* variable
+			, cacore::NameHash const& rootTypeName)
+		{
+			auto targetVariable = variable;
+			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(targetVariable);
+			slang::TypeReflection::Kind kind = typeLayout->getKind();
+			auto categories = UnwrapCategories(targetVariable);
+			uint32_t elementCount = GetArrayElementCount(targetVariable->getTypeLayout());
+			assert(elementCount == 1 && "Root Type Should Only Has One Element");
+
+			//如果是ConstantBuffer或者ParameterBlock类型，需要追踪ElementVarLayout
+			if (kind == slang::TypeReflection::Kind::ConstantBuffer || kind == slang::TypeReflection::Kind::ParameterBlock)
+			{
+				targetVariable = typeLayout->getElementVarLayout();
+				typeLayout = targetVariable->getTypeLayout();
+				kind = typeLayout->getKind();
+			}
+			cacore::NameHash typeName = typeLayout->getName();
+			assert(!typeName.Valid() && "Root Type Name Should Not Be Valid");
+			typeName = rootTypeName;
+
+			assert(kind == slang::TypeReflection::Kind::Struct && "Root Type Should Be Struct");
+			if (kind == slang::TypeReflection::Kind::Struct)
+			{
+				//第一次追踪Struct类型中的Uniform成员时，创建UniformGroup
+				auto& shaderStruct = reflectionData.EnsureStruct(typeName);
+				uint32_t strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
+				uint32_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+				shaderStruct.m_StructUniforms.SetSize(sizeInBytes, strideInBytes);
+
+				unsigned fieldCount = typeLayout->getFieldCount();
+				for (uint32_t i = 0; i < fieldCount; i++)
+				{
+					slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
+					ReflectTypeLayouts(reflectionData, field, typeName);
+				}
+			}
+		}
+
 		void Reflect(ShaderReflectionData& reflectionData
 			, slang::VariableLayoutReflection* variable
 			, ParameterCategory variableCategory
@@ -958,14 +1026,13 @@ namespace ShaderCompilerSlang
 					auto typeName = typeLayout->getName();
 					newBinding.uniformGroupID = bindingSpace.InitUniformGroup(newBinding.bindingIndex
 						, newBinding.uniformGroupID
-						, typeName
 						, newBinding.elementName, newBinding.memoryByteOffset, sizeInBytes, strideInBytes, elementCount);
 					fprintf(stderr, "[%s]%s space: %d binding: %d arrayLength: %d category: %s\n", typeName, newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
 				}
 				else
 				{
 					auto typeName = typeLayout->getName();
-					newBinding.resourceGroupID = bindingSpace.InitResourceGroup(typeName, newBinding.elementName, newBinding.resourceGroupID);
+					newBinding.resourceGroupID = bindingSpace.InitResourceGroup(newBinding.elementName, newBinding.resourceGroupID);
 					fprintf(stderr, "[%s]%s resource space: %d binding: %d arrayLength: %d category: %s\n", typeName, newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
 				}
 
@@ -1272,16 +1339,11 @@ namespace ShaderCompilerSlang
 				SpaceAndBindingOffset bindingAndOffsets = {};
 				AccessPath accessPath = {};
 
-	/*			{
-					testPrint::ReflectingPrinting layoutPrinter;
-					
-					layoutPrinter.printProgramLayout(layout, m_TargetDescs[targetIndex].format);
-				}*/
-
 				{
 					auto globalParamVarLayout = layout->getGlobalParamsVarLayout();
-					ReflectBindings(globalParamVarLayout, accessPath);
-					ReflectTypeLayouts(reflectionData, globalParamVarLayout, CANAME("__Root"));
+
+					ReflectRootTypeLayouts(reflectionData, globalParamVarLayout, RootName());
+					ReflectBindings(reflectionData.m_BindingInfo, globalParamVarLayout, accessPath, -1);
 				}
 
 
@@ -1291,17 +1353,13 @@ namespace ShaderCompilerSlang
 					auto& globalBindingSpace = reflectionData.EnsureBindingSpace(globalBinding);
 					if (globalBufferSize > 0)
 					{
-						bindingData.uniformGroupID = globalBindingSpace.InitUniformGroup(0, -1, "__Root", "__Global", 0, globalBufferSize, globalBufferSize, 1);
+						bindingData.uniformGroupID = globalBindingSpace.InitUniformGroup(0, -1, "__Global", 0, globalBufferSize, globalBufferSize, 1);
 					}
 				}
 				uint32_t paramCount = layout->getParameterCount();
 				for (uint32_t paramID = 0; paramID < paramCount; ++paramID)
 				{
 					auto param = layout->getParameterByIndex(paramID);
-					ReflectTypeLayouts(reflectionData, param, CANAME("__Root"));
-
-					//ReflectBindings(reflectionData, param->getCategory(), param, bindingAndOffsets, -1);
-
 					Reflect(reflectionData, param, param->getCategory(), bindingData, 1);
 				}
 				outputTargetResult.m_ReflectionData = reflectionData;

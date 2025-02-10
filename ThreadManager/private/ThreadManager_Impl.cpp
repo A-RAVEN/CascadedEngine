@@ -238,10 +238,14 @@ namespace thread_management
     }
     void ThreadManager_Impl::AddTaskQueue(cacore::NameHash const& name, castl::array_ref<uint32_t> threadIDs)
     {
-        castl::unique_lock guard(m_Mutex);
-        size_t queueID = m_SharedTaskQueues.size();
-		m_DedicateThreadMap.SetThreadIndex(name, queueID);
-        m_SharedTaskQueues.emplace_back(this, threadIDs);
+        size_t queueID;
+        {
+            castl::unique_lock guard(m_Mutex);
+            queueID = m_SharedTaskQueues.size();
+            m_DedicateThreadMap.SetThreadIndex(name, queueID);
+            m_SharedTaskQueues.emplace_back(this, threadIDs);
+        }
+
 		for (uint32_t threadID : threadIDs)
 		{
 			m_TaskWorkers[threadID].AddQueue(queueID);

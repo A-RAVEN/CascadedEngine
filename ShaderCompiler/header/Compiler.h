@@ -165,6 +165,7 @@ namespace ShaderCompilerSlang
 	{
 		uint32_t m_BindingID;
 		cacore::NameHash m_Name;
+		cacore::NameHash m_TypeName;
 		uint32_t m_ElementCount;
 	};
 
@@ -172,29 +173,83 @@ namespace ShaderCompilerSlang
 	struct ShaderBindingHierarchy
 	{
 		cacore::NameHash m_Name;
+		cacore::NameHash m_TypeName;
 		uint32_t m_ElementCount;
+		int32_t m_ParentID;
+		int32_t m_SelfUniformBufferID;
 		//该Struct中的Resource
 		castl::vector<ShaderResourceBinding> m_Bindings;
-		castl::vector<uint32_t> m_SubBindingHierarchies;
+		castl::vector<int32_t> m_SubBindingHierarchies;
 	};
 
-	struct ShaderSpaceToHierarchy
+	struct ShaderSpaceInfo
 	{
 		uint32_t m_SpaceID;
-		uint32_t m_HierarchyID;
+		uint32_t m_RootHierarchyID;
 	};
 
 	struct ShaderBindingInfo
 	{
 		castl::vector<ShaderBindingHierarchy> m_BindingDataHierarchies;
-		castl::vector<ShaderSpaceToHierarchy> m_SpaceToRootHierarchy;
+		castl::vector<ShaderSpaceInfo> m_SpaceInfos;
+		int32_t m_RootHierarchyID;
 
-		//uint32_t EnsureHierarchy
+		ShaderSpaceInfo& EnsureSpaceInfo(uint32_t spaceID)
+		{
+			if (m_SpaceInfos.size() <= spaceID)
+			{
+				m_SpaceInfos.resize(spaceID + 1);
+				m_SpaceInfos[spaceID].m_SpaceID = spaceID;
+			}
+			return m_SpaceInfos[spaceID];
+		}
+
+		ShaderSpaceInfo& TryInitSpaceInfo(uint32_t spaceID, int32_t hierarchyID)
+		{
+			if (m_SpaceInfos.size() <= spaceID)
+			{
+				m_SpaceInfos.resize(spaceID + 1);
+				m_SpaceInfos[spaceID].m_SpaceID = spaceID;
+				m_SpaceInfos[spaceID].m_RootHierarchyID = hierarchyID;
+			}
+			return m_SpaceInfos[spaceID];
+		}
+
+		int32_t NewHierarchy(int32_t parentID, cacore::NameHash const& name, cacore::NameHash const& typeName, uint32_t elementCount)
+		{
+
+			ShaderBindingHierarchy newHierarchy{};
+			newHierarchy.m_Name = name;
+			newHierarchy.m_TypeName = typeName;
+			newHierarchy.m_ElementCount = elementCount;
+			newHierarchy.m_ParentID = parentID;
+			newHierarchy.m_SelfUniformBufferID = -1;
+			if (parentID >= 0)
+			{
+				assert(parentID < m_BindingDataHierarchies.size());
+			}
+			m_BindingDataHierarchies.push_back(newHierarchy);
+			int32_t newBindingHierarchyID = m_BindingDataHierarchies.size() - 1;
+			if (parentID >= 0)
+			{
+				m_BindingDataHierarchies[parentID].m_SubBindingHierarchies.push_back(newBindingHierarchyID);
+			}
+			else
+			{
+				m_RootHierarchyID = newBindingHierarchyID;
+			}
+			return newBindingHierarchyID;
+		}
+
+		ShaderBindingHierarchy& GetHierarchy(int32_t hierarchyID)
+		{
+			assert(hierarchyID >= 0 && hierarchyID < m_BindingDataHierarchies.size());
+			return m_BindingDataHierarchies[hierarchyID];
+		}
 	};
 
 	struct UniformGroup
 	{
-		castl::string m_TypeName;
 		castl::string m_Name;
 		uint32_t m_MemoryOffset;
 		uint32_t m_MemorySize;
@@ -208,9 +263,8 @@ namespace ShaderCompilerSlang
 			return m_ElementCount > 1;
 		}
 
-		void Init(castl::string const& typeName, castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)
+		void Init(castl::string const& name, uint32_t memoryOffset, uint32_t memorySize, uint32_t stride, uint32_t elementCount)
 		{
-			m_TypeName = typeName;
 			m_Name = name;
 			m_MemoryOffset = memoryOffset;
 			m_MemorySize = memorySize;
@@ -255,16 +309,14 @@ namespace ShaderCompilerSlang
 
 	struct ShaderResourceGroups
 	{
-		castl::string m_TypeName;
 		castl::string m_Name;
 		castl::vector<uint32_t> m_SubGroups;
 		castl::vector<uint32_t> m_Buffers;
 		castl::vector<uint32_t> m_Textures;
 		castl::vector<uint32_t> m_Samplers;
 
-		void InitResourceGroup(castl::string typeName, castl::string name)
+		void InitResourceGroup(castl::string name)
 		{
-			m_TypeName = typeName;
 			m_Name = name;
 		}
 	};
@@ -318,7 +370,6 @@ namespace ShaderCompilerSlang
 		}
 
 		int32_t InitUniformGroup(uint32_t bindingIndex, int32_t parentGroupID
-			, castl::string const& typeName
 			, castl::string const& name
 			, uint32_t memoryOffset
 			, uint32_t memorySize
@@ -331,7 +382,7 @@ namespace ShaderCompilerSlang
 			}
 			UniformBufferData& buffer = GetUniformBuffer(bindingIndex);
 			int32_t newGroupID = buffer.NewGroup();
-			buffer.GetGroup(newGroupID).Init(typeName, name, memoryOffset, memorySize, memoryStride, elementCount);
+			buffer.GetGroup(newGroupID).Init(name, memoryOffset, memorySize, memoryStride, elementCount);
 			if (parentGroupID >= 0)
 			{
 				buffer.AddSubGroupToGroup(parentGroupID, newGroupID);
@@ -345,10 +396,10 @@ namespace ShaderCompilerSlang
 			buffer.AddElementToGroup(groupID, element);
 		}
 
-		int32_t InitResourceGroup(castl::string const& typeName, castl::string const& name, int32_t parentGroupID)
+		int32_t InitResourceGroup(castl::string const& name, int32_t parentGroupID)
 		{
 			m_ResourceGroups.push_back(ShaderResourceGroups{});
-			m_ResourceGroups.back().InitResourceGroup(typeName, name);
+			m_ResourceGroups.back().InitResourceGroup(name);
 			int32_t newGroupID = m_ResourceGroups.size() - 1;
 			if (parentGroupID >= 0)
 			{
@@ -357,11 +408,11 @@ namespace ShaderCompilerSlang
 			return newGroupID;
 		}
 
-		void EnsureDefaultResourceGroup(int32_t groupID)
+		void EnsureDefaultResourceGroup(int32_t& groupID)
 		{
 			if (groupID == -1)
 			{
-				InitResourceGroup("__Root", "__Global", groupID);
+				InitResourceGroup("__Global", groupID);
 				groupID = 0;
 			}
 		}
