@@ -15,6 +15,7 @@ namespace graphics_backend
 	{
 		catimer::SetGlobalTimerSystem(timer);
 		m_Application.InitApp(appName, engineName);
+		resourceImporter->AddImporter(&m_Application.m_ShaderResourceImporter);
 	}
 
 	void CRenderBackend_Vulkan::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
@@ -49,6 +50,11 @@ namespace graphics_backend
 			{
 				m_Application.ReleaseGPUTexture(releaseTex);
 			});
+	}
+
+	castl::shared_ptr<ShaderStruct> CRenderBackend_Vulkan::CreateShaderStruct(cacore::NameHash const& structType)
+	{
+		return m_Application.CreateShaderStruct(structType);
 	}
 
 	void CRenderBackend_Vulkan::RunTestCode()

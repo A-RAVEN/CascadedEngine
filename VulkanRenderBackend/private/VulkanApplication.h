@@ -16,6 +16,7 @@
 #include <GPUContexts/FrameContext.h>
 #include <Utilities/SubobjectTraits.h>
 #include <CASTL/CATypeTraits.h>
+#include <ShaderLibrary/ShaderImporter_Vulkan.h>
 
 namespace graphics_backend
 {
@@ -53,8 +54,6 @@ namespace graphics_backend
 		template<typename T, typename...TArgs>
 		static void InitObj(T* inoutObj, TArgs&...Args)
 		{
-			static_assert(has_initialize<T, TArgs...> || has_create<T, TArgs...>
-				, "Type T Not Initializable");
 			if constexpr (has_initialize<T, TArgs...>)
 			{
 				inoutObj->Initialize(castl::forward<TArgs>(Args)...);
@@ -72,27 +71,13 @@ namespace graphics_backend
 			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
 			{
 				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this, castl::forward<TArgs>(Args)...), SubObjectDefaultDeleter<T>{} };
-				if constexpr (has_initialize<T>)
-				{
-					newSubObject->Initialize();
-				}
-				else if constexpr (has_create<T>)
-				{
-					newSubObject->Create();
-				}
+				InitObj(newSubObject.get());
 				return newSubObject;
 			}
 			else
 			{
 				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this), SubObjectDefaultDeleter<T>{} };
-				if constexpr (has_initialize<T, TArgs...>)
-				{
-					newSubObject->Initialize(castl::forward<TArgs>(Args)...);
-				}
-				else if constexpr(has_create<T, TArgs...>)
-				{
-					newSubObject->Create(castl::forward<TArgs>(Args)...);
-				}
+				InitObj(newSubObject.get(), castl::forward<TArgs>(Args)...);
 				return newSubObject;
 			}
 		};
@@ -105,6 +90,12 @@ namespace graphics_backend
 
 		GPUTexture* NewGPUTexture(GPUTextureDescriptor const& inDescriptor);
 		void ReleaseGPUTexture(GPUTexture* releaseGPUTexture);
+
+		castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType);
+
+
+		//Shader Resource Importer
+		VKShaderResourceImporter m_ShaderResourceImporter;
 
 private:
 		void InitializeInstance(castl::string const& name, castl::string const& engineName);
@@ -127,5 +118,6 @@ private:
 		GlobalResourceReleaseQueue m_GlobalResourceReleasingQueue;
 		QueueContext m_QueueContext;
 		FrameContext m_FrameContext;
+
 	};
 }

@@ -49,7 +49,7 @@ namespace graphics_backend
 			return CreateGPUBuffer(GPUBufferDescriptor::Create(usageFlags, count, stride));
 		}
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor) = 0;
-		//virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) = 0;
+		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) = 0;
 
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) = 0;
 		virtual bool AnyWindowRunning() = 0;

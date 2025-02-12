@@ -108,6 +108,9 @@ int main(int argc, char *argv[])
 	pResourceImportingSystem->AddImporter(&slangShaderResourceLoader);
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
 	pResourceImportingSystem->ScanSourceDirectory(resourceString);
+	auto pBackend = renderBackendLoader.New();
+	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), pResourceImportingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
+	pBackend->RunTestCode();
 
 	auto pMeshShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle");
 
@@ -123,9 +126,7 @@ int main(int argc, char *argv[])
 
 	auto pTextureResource1 = pResourceManagingSystem->GetOrLoadResource<TextureResource>("Models/VikingRoom/IMG_2349.texture");
 
-	auto pBackend = renderBackendLoader.New();
-	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), pResourceImportingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
-	pBackend->RunTestCode();
+
 
 	imgui_display::IMGUIContext imguiContext;
 

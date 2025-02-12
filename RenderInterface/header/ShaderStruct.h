@@ -29,8 +29,8 @@ namespace graphics_backend
 			, TextureSamplerDescriptor const& samplerDesc
 			, uint32_t elementIndex) = 0;
 
-		virtual void SetSubArgList(cacore::NameHash const& name
-			, castl::shared_ptr<ShaderStruct> const& subArgList
+		virtual void SetStruct(cacore::NameHash const& name
+			, castl::shared_ptr<ShaderStruct> const& subStruct
 			, uint32_t elementIndex) = 0;
 	};
 }

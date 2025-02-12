@@ -214,6 +214,11 @@ namespace graphics_backend
         return result;
     }
 
+    castl::shared_ptr<ShaderStruct> RenderBackend_D3D12::CreateShaderStruct(cacore::NameHash const& structType)
+    {
+        return nullptr;// castl::shared_ptr<ShaderStruct>();
+    }
+
     void RenderBackend_D3D12::RunTestCode()
     {
 		AliasedMemoryAllocator allocator(this, m_MemoryManager.GetAllocator());

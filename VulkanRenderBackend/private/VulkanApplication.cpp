@@ -13,6 +13,7 @@
 #include <GPUResources/VKGPUTexture.h>
 #include <GPUResources/VKGPUBuffer.h>
 #include <VulkanDebug.h>
+#include <ShaderStruct/VKShaderStruct.h>
 
 namespace graphics_backend
 {
@@ -115,17 +116,11 @@ namespace graphics_backend
 		}
 	}
 
-	//castl::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)
-	//{
-	//	auto subAllocator = m_ConstantSetAllocator.GetOrCreate(builder);
-	//	return subAllocator->AllocateSet();
-	//}
-
-	//castl::shared_ptr<ShaderBindingSet> CVulkanApplication::NewShaderBindingSet(ShaderBindingBuilder const& builder)
-	//{
-	//	auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder);
-	//	return subAllocator->AllocateSet();
-	//}
+	castl::shared_ptr<ShaderStruct> CVulkanApplication::CreateShaderStruct(cacore::NameHash const& structType)
+	{
+		ShaderCompilerSlang::ShaderStructData* pData = nullptr;
+		return NewSubObject_Shared<VKShaderStruct>(pData);
+	}
 
 	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
 	{
