@@ -2,33 +2,10 @@
 #include <CAResource/ResourceManagingSystem.h>
 #include <CASTL/CAUnorderedSet.h>
 #include <CAResource/IResource.h>
+#include "ShaderLibrary.h"
 
 namespace graphics_backend
 {
-
-	struct ShaderSourceKey
-	{
-		castl::string pathToFile;
-		castl::string entryPoint;
-		auto operator<=>(const ShaderSourceKey&) const = default;
-	};
-
-	struct ShaderCode
-	{
-		ECompileShaderType shaderType;
-		castl::vector<uint8_t> data;
-		castl::unordered_set<ShaderSourceKey> sourceKeys;
-	};
-
-	class ShaderLibrary : public resource_management::IResource
-	{
-	public:
-		//castl::unordered_map<ShaderSourceKey, castl::shared_ptr<ShaderResource>> m_ShaderResources;
-		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> m_ShaderPrograms;
-		castl::unordered_map<cacore::NameHash, ShaderCompilerSlang::ShaderStructData> m_ShaderStructs;
-		virtual void Serialize(ca_io::WBatch* inWriter) override {}
-		virtual void Deserialize(ca_io::IOBatch* inReader) override {}
-	};
 
 	void VKShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager
 		, cafs::path const& sourcePath
@@ -41,7 +18,7 @@ namespace graphics_backend
 
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> shaderPrograms;
 
-		cafs::path shaderLibraryPath = destPath / "VKShaderLibrary.shLib";
+		cafs::path shaderLibraryPath = "VKShaderLibrary.shLib";
 
 		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath.generic_string());
 		shaderLibrary->m_ShaderPrograms.clear();
@@ -97,41 +74,20 @@ namespace graphics_backend
 									{
 										auto& name = pairs.first;
 										auto& shaderStruct = pairs.second;
-										if (shaderLibrary->m_ShaderStructs.find(name) == shaderLibrary->m_ShaderStructs.end())
+										if (name == CANAME("__Root"))
 										{
+											castl::cout << "Root Struct For " << sourcePath.string() << castl::endl;
+										}
+										else if (shaderLibrary->m_ShaderStructs.find(name) == shaderLibrary->m_ShaderStructs.end())
+										{
+											castl::cout << "Add Shader Struct: " << name.Get() << castl::endl;
 											shaderLibrary->m_ShaderStructs.insert(castl::make_pair(name, shaderStruct));
 										}
 										else
 										{
-											CA_LOG_ERR("Struct already exists");
 										}
 									}
 								}
-
-								////Add Vertex Attributes
-								//{
-								//	cacore::aggregateHasher<cahash::sha256_hash> hasher;
-								//	for (auto& vertexAttributes : result.m_ReflectionData.m_VertexAttributes)
-								//	{
-								//		hasher.hash(vertexAttributes);
-								//	}
-								//	auto vertexAttributesHash = hasher.getHash();
-								//	castl::unordered_map<cahash::sha256_hash::result_type, castl::vector<ShaderCompilerSlang::ShaderVertexAttributeData>> vertexAttributesMap;
-								//}
-
-								//Add Binding Data
-								//Prepare Constant Buffer Data
-								{
-									cacore::aggregateHasher<cahash::sha256_hash> hasher;
-									for (auto& bindingData : result.m_ReflectionData.m_BindingData)
-									{
-
-										hasher.hash(bindingData);
-									}
-									auto bindingDataHash = hasher.getHash();
-								}
-
-								result.m_ReflectionData.m_BindingData;
 							}
 						}
 					}

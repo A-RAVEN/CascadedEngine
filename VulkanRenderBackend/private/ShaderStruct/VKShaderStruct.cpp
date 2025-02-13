@@ -44,7 +44,7 @@ namespace graphics_backend
 				, pValue, sizeInBytes);
 		}
 	}
-	void VKShaderStruct::SetImage(cacore::NameHash const& name, ImageHandle const& imageHandle, GPUTextureView const& view, uint32_t elementIndex)
+	void VKShaderStruct::SetImageInternal(cacore::NameHash const& name, ImageHandle const& imageHandle, GPUTextureView const& view, uint32_t elementIndex)
 	{
 		auto found = m_NameToImageHandles.find(name);
 		if (found != m_NameToImageHandles.end())
@@ -54,7 +54,7 @@ namespace graphics_backend
 			imageList[elementIndex] = { imageHandle, view };
 		}
 	}
-	void VKShaderStruct::SetBuffer(cacore::NameHash const& name, BufferHandle const& bufferHandle, uint32_t elementIndex)
+	void VKShaderStruct::SetBufferInternal(cacore::NameHash const& name, BufferHandle const& bufferHandle, uint32_t elementIndex)
 	{
 		auto found = m_NameToBufferHandles.find(name);
 		if (found != m_NameToBufferHandles.end())
@@ -64,7 +64,7 @@ namespace graphics_backend
 			bufferList[elementIndex] = bufferHandle;
 		}
 	}
-	void VKShaderStruct::SetSampler(cacore::NameHash const& name, TextureSamplerDescriptor const& samplerDesc, uint32_t elementIndex)
+	void VKShaderStruct::SetSamplerInternal(cacore::NameHash const& name, TextureSamplerDescriptor const& samplerDesc, uint32_t elementIndex)
 	{
 		auto found = m_NameToSamplerDescriptors.find(name);
 		if (found != m_NameToSamplerDescriptors.end())
@@ -74,7 +74,7 @@ namespace graphics_backend
 			samplerList[elementIndex] = samplerDesc;
 		}
 	}
-	void VKShaderStruct::SetStruct(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& subStruct, uint32_t elementIndex)
+	void VKShaderStruct::SetStructInternal(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& subStruct, uint32_t elementIndex)
 	{
 		auto found = m_NameToSubStructs.find(name);
 		if (found != m_NameToSubStructs.end())

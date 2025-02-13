@@ -7,8 +7,8 @@ add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 CPMAddPackage(
   NAME slang
-  URL https://github.com/shader-slang/slang/releases/download/v2025.4/slang-2025.4-windows-x86_64.zip
-  VERSION 2025.4
+  URL https://github.com/shader-slang/slang/releases/download/v2025.5/slang-2025.5-windows-x86_64.zip
+  VERSION 2025.5
   # the range-v3 CMakeLists screws with configuration options
   DOWNLOAD_ONLY True
 )

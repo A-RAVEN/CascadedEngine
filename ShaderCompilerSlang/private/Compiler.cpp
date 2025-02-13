@@ -700,16 +700,20 @@ namespace ShaderCompilerSlang
 			accessPath.SetLeaf(newNode);
 			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(variable);
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
-			cacore::NameHash typeName = typeLayout->getName();
-			if (parentHierarchyID == -1)
-			{
-				name = RootName();
-				typeName = RootTypeName();
-			}
+
 			ParameterCategory variableCategory = variable->getCategory();
 			uint32_t elementCount = GetArrayElementCount(variable->getTypeLayout());
 			if (kind == slang::TypeReflection::Kind::ConstantBuffer || kind == slang::TypeReflection::Kind::ParameterBlock)
 			{
+				auto elementVariable = typeLayout->getElementVarLayout();
+				auto elementTypeLayout = typeLayout->getElementTypeLayout();
+
+				cacore::NameHash typeName = GetFullTypeName(elementTypeLayout);
+				if (parentHierarchyID == -1)
+				{
+					name = RootName();
+					typeName = RootTypeName();
+				}
 				int32_t currentHierarchyID = bindingInfo.NewHierarchy(parentHierarchyID, name, typeName, elementCount);
 				auto& currentHierarchy = bindingInfo.GetHierarchy(currentHierarchyID);
 				{
@@ -721,8 +725,7 @@ namespace ShaderCompilerSlang
 						fprintf(stderr, "[%s]%s uniformBuffer space: %d binding: %d arrayLength: %d category: %s\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					}
 				}
-				auto elementVariable = typeLayout->getElementVarLayout();
-				auto elementTypeLayout = typeLayout->getElementTypeLayout();
+
 				AccessPathNode elementNode = accessPath.NewNode(elementVariable);
 				accessPath.SetLeaf(elementNode);
 				auto elementKind = elementTypeLayout->getKind();
@@ -756,7 +759,7 @@ namespace ShaderCompilerSlang
 			//assert(parentHierarchyID >= 0 && "Parent Hierarchy Should Be Valid");
 			AccessPathNode newNode = accessPath.NewNode(variable);
 			accessPath.SetLeaf(newNode);
-			cacore::NameHash typeName = typeLayout->getName();
+			cacore::NameHash typeName = GetFullTypeName(typeLayout);
 			cacore::NameHash name = variable->getName();
 			ParameterCategory variableCategory = variable->getCategory();
 			uint32_t elementCount = GetArrayElementCount(variable->getTypeLayout());
@@ -811,12 +814,26 @@ namespace ShaderCompilerSlang
 			}
 		}
 
+		static cacore::NameHash GetFullTypeName(TypeLayoutReflection* typeLayout)
+		{
+			auto varType = typeLayout->getType();
+			cacore::NameHash resultTypeName = varType->getName();
+			Slang::ComPtr<ISlangBlob> fullName;
+			varType->getFullName(fullName.writeRef());
+			if (fullName.get() != nullptr)
+			{
+				return static_cast<const char*>(fullName->getBufferPointer());
+			}
+			return {};
+		}
+
 		void ReflectTypeLayouts(ShaderReflectionData& reflectionData
 			, slang::VariableLayoutReflection* variable
 			, cacore::NameHash const& parentTypeName)
 		{
 			auto targetVariable = variable;
 			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(variable);
+
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
 			cacore::NameHash name = targetVariable->getName();
 			auto categories = UnwrapCategories(targetVariable);
@@ -833,7 +850,7 @@ namespace ShaderCompilerSlang
 				kind = typeLayout->getKind();
 			}
 
-			cacore::NameHash typeName = typeLayout->getName();
+			cacore::NameHash typeName = GetFullTypeName(typeLayout);
 
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
@@ -923,6 +940,8 @@ namespace ShaderCompilerSlang
 		{
 			auto targetVariable = variable;
 			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(targetVariable);
+			auto varType = variable->getType();
+			cacore::NameHash resultTypeName = varType->getName();
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
 			auto categories = UnwrapCategories(targetVariable);
 			uint32_t elementCount = GetArrayElementCount(targetVariable->getTypeLayout());
@@ -935,7 +954,7 @@ namespace ShaderCompilerSlang
 				typeLayout = targetVariable->getTypeLayout();
 				kind = typeLayout->getKind();
 			}
-			cacore::NameHash typeName = typeLayout->getName();
+			cacore::NameHash typeName = GetFullTypeName(typeLayout);
 			assert(!typeName.Valid() && "Root Type Name Should Not Be Valid");
 			typeName = rootTypeName;
 
@@ -1023,7 +1042,7 @@ namespace ShaderCompilerSlang
 				{
 					uint32_t strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
 					uint32_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
-					auto typeName = typeLayout->getName();
+					auto typeName = GetFullTypeName(typeLayout);
 					newBinding.uniformGroupID = bindingSpace.InitUniformGroup(newBinding.bindingIndex
 						, newBinding.uniformGroupID
 						, newBinding.elementName, newBinding.memoryByteOffset, sizeInBytes, strideInBytes, elementCount);
@@ -1031,7 +1050,7 @@ namespace ShaderCompilerSlang
 				}
 				else
 				{
-					auto typeName = typeLayout->getName();
+					auto typeName = GetFullTypeName(typeLayout);
 					newBinding.resourceGroupID = bindingSpace.InitResourceGroup(newBinding.elementName, newBinding.resourceGroupID);
 					fprintf(stderr, "[%s]%s resource space: %d binding: %d arrayLength: %d category: %s\n", typeName, newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
 				}
@@ -1059,7 +1078,7 @@ namespace ShaderCompilerSlang
 				uint32_t strideInBytes = typeLayout->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				uint32_t sizeInBytes = typeLayout->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				UniformElement newElement = {};
-				auto typeName = typeLayout->getName();
+				auto typeName = GetFullTypeName(typeLayout);
 				newElement.Init(typeName, newBinding.elementName, newBinding.memoryByteOffset, sizeInBytes, strideInBytes, elementCount);
 				bindingSpace.AddElementToGroup(newBinding.bindingIndex, newBinding.uniformGroupID, newElement);
 				fprintf(stderr, "%s space: %d binding: %d arrayLength: %d category: %s\n", newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
@@ -1317,7 +1336,7 @@ namespace ShaderCompilerSlang
 					outProgramData.data.resize(kernelBlob->getBufferSize());
 					memcpy(outProgramData.data.data(), kernelBlob->getBufferPointer(), kernelBlob->getBufferSize());
 
-					fprintf(stderr, "Debug: %s\n", (char*)outProgramData.data.data());
+					//fprintf(stderr, "Debug: %s\n", (char*)outProgramData.data.data());
 					outputTargetResult.programs.push_back(outProgramData);
 
 					if (outProgramData.shaderType == ECompileShaderType::eVert)
@@ -1338,6 +1357,7 @@ namespace ShaderCompilerSlang
 				BindingData bindingData;
 				SpaceAndBindingOffset bindingAndOffsets = {};
 				AccessPath accessPath = {};
+
 
 				{
 					auto globalParamVarLayout = layout->getGlobalParamsVarLayout();

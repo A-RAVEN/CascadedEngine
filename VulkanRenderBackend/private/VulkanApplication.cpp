@@ -14,6 +14,7 @@
 #include <GPUResources/VKGPUBuffer.h>
 #include <VulkanDebug.h>
 #include <ShaderStruct/VKShaderStruct.h>
+#include <ShaderLibrary/ShaderLibrary.h>
 
 namespace graphics_backend
 {
@@ -118,8 +119,23 @@ namespace graphics_backend
 
 	castl::shared_ptr<ShaderStruct> CVulkanApplication::CreateShaderStruct(cacore::NameHash const& structType)
 	{
-		ShaderCompilerSlang::ShaderStructData* pData = nullptr;
+		ShaderCompilerSlang::ShaderStructData const* pData = GetShaderStructData(structType);
+		if (pData == nullptr)
+		{
+			return nullptr;
+		}
 		return NewSubObject_Shared<VKShaderStruct>(pData);
+	}
+
+	ShaderCompilerSlang::ShaderStructData const* CVulkanApplication::GetShaderStructData(cacore::NameHash const& structType)
+	{
+		auto shaderLibrary = m_ResourceManager->GetOrLoadResource<ShaderLibrary>("VKShaderLibrary.shLib");
+		auto found = shaderLibrary->m_ShaderStructs.find(structType);
+		if (found != shaderLibrary->m_ShaderStructs.end())
+		{
+			return &found->second;
+		}
+		return nullptr;
 	}
 
 	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
@@ -251,8 +267,11 @@ namespace graphics_backend
 	{
 	}
 
-	void CVulkanApplication::InitApp(castl::string const& appName, castl::string const& engineName)
+	void CVulkanApplication::InitApp(castl::string const& appName
+		, castl::string const& engineName
+		, resource_management::ResourceManagingSystem* resourceManager)
 	{
+		m_ResourceManager = resourceManager;
 		InitializeInstance(appName, engineName);
 		EnumeratePhysicalDevices();
 		CreateDevice();

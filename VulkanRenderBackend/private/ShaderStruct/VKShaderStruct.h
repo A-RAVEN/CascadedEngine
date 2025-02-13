@@ -15,19 +15,19 @@ namespace graphics_backend
 			, uint32_t sizeInBytes
 			, uint32_t elementIndex) override;
 
-		virtual void SetImage(cacore::NameHash const& name
+		virtual void SetImageInternal(cacore::NameHash const& name
 			, ImageHandle const& imageHandle, GPUTextureView const& view
 			, uint32_t elementIndex) override;
 
-		virtual void SetBuffer(cacore::NameHash const& name
+		virtual void SetBufferInternal(cacore::NameHash const& name
 			, BufferHandle const& bufferHandle
 			, uint32_t elementIndex) override;
 
-		virtual void SetSampler(cacore::NameHash const& name
+		virtual void SetSamplerInternal(cacore::NameHash const& name
 			, TextureSamplerDescriptor const& samplerDesc
 			, uint32_t elementIndex) override;
 
-		virtual void SetStruct(cacore::NameHash const& name
+		virtual void SetStructInternal(cacore::NameHash const& name
 			, castl::shared_ptr<ShaderStruct> const& subStruct
 			, uint32_t elementIndex) override;
 

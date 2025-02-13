@@ -14,7 +14,7 @@ namespace graphics_backend
 		, castl::string const& engineName)
 	{
 		catimer::SetGlobalTimerSystem(timer);
-		m_Application.InitApp(appName, engineName);
+		m_Application.InitApp(appName, engineName, resourceManager);
 		resourceImporter->AddImporter(&m_Application.m_ShaderResourceImporter);
 	}
 

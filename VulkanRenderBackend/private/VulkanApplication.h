@@ -26,7 +26,7 @@ namespace graphics_backend
 	public:
 		CVulkanApplication();
 		~CVulkanApplication();
-		void InitApp(castl::string const& appName, castl::string const& engineName);
+		void InitApp(castl::string const& appName, castl::string const& engineName, resource_management::ResourceManagingSystem* resourceManager);
 		void ReleaseApp();
 		void DeviceWaitIdle();
 		inline vk::Instance const& GetInstance() const
@@ -93,6 +93,8 @@ namespace graphics_backend
 
 		castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType);
 
+		ShaderCompilerSlang::ShaderStructData const* GetShaderStructData(cacore::NameHash const& structType);
+
 
 		//Shader Resource Importer
 		VKShaderResourceImporter m_ShaderResourceImporter;
@@ -119,5 +121,6 @@ private:
 		QueueContext m_QueueContext;
 		FrameContext m_FrameContext;
 
+		resource_management::ResourceManagingSystem* m_ResourceManager = nullptr;
 	};
 }

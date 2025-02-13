@@ -107,10 +107,16 @@ int main(int argc, char *argv[])
 	pResourceImportingSystem->SetResourceManager(pResourceManagingSystem.get());
 	pResourceImportingSystem->AddImporter(&slangShaderResourceLoader);
 	pResourceImportingSystem->AddImporter(&staticMeshImporter);
-	pResourceImportingSystem->ScanSourceDirectory(resourceString);
 	auto pBackend = renderBackendLoader.New();
 	pBackend->Initialize(GetGlobalTimerSystem(), g_IOManager.get(), pResourceManagingSystem.get(), pResourceImportingSystem.get(), "Test Vulkan Backend", "CASCADED Engine");
 	pBackend->RunTestCode();
+	pResourceImportingSystem->ScanSourceDirectory(resourceString);
+
+
+	auto testData1 = pBackend->CreateShaderStruct(CANAME("TestData.TestDataStruct1"));
+	auto testData = pBackend->CreateShaderStruct(CANAME("TestData.TestDataStruct"));
+	testData->SetStruct(CANAME("testSubBlock"), testData1, 0);
+	testData->SetStruct(CANAME("testSubBlock"), testData1, 1);
 
 	auto pMeshShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle");
 
@@ -328,20 +334,13 @@ int main(int argc, char *argv[])
 						float frameRate = 1.0f / deltaTime;
 
 						castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
+						auto cameraArgs = pBackend->CreateShaderStruct(CANAME("CameraData"));
 						auto viewMatrix = glm::transpose(camera.GetViewProjMatrix());
+						{
 
-						{
-							CPUTIMER_SCOPE("ViewMatStr");
-							for (int i = 0; i < 100; ++i)
-							{
-								cameraArgList->SetValue("viewProjMatrix", viewMatrix);
-							}
-						}
-						{
-							CPUTIMER_SCOPE("ViewMatN");
-							for (int i = 0; i < 100; ++i)
 							{
 								cameraArgList->SetValue(CANAME("viewProjMatrix"), viewMatrix);
+								cameraArgs->SetValue(CANAME("viewProjMatrix"), viewMatrix);
 							}
 						}
 

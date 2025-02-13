@@ -1,18 +1,21 @@
-// struct TestDataStruct1
-// {
-//     float4x4 testmat;
-// };
 
-// struct TestDataStruct
-// {
-//     float4x4 testMat1;
-//     ConstantBuffer<TestDataStruct1> testSubBlock[2];
-//     Texture2D<float4> testTexture;
-//     StructuredBuffer<float4> testBuffer;
-// };
-// uniform float4x4 testMatrix1;
-// uniform TestDataStruct testData[2];
+namespace TestData
+{
+    struct TestDataStruct1
+    {
+        float4x4 testmat;
+    };
 
+    struct TestDataStruct
+    {
+        float4x4 testMat1;
+        ConstantBuffer<TestDataStruct1> testSubBlock[2];
+        Texture2D<float4> testTexture;
+        StructuredBuffer<float4> testBuffer;
+    };
+
+    uniform TestData::TestDataStruct testData;
+}
 
 struct VertexInput
 {
