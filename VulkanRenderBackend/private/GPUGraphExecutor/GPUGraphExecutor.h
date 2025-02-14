@@ -335,7 +335,7 @@ namespace graphics_backend
 		void PrepareGraph(thread_management::TaskScheduler* taskGraph);
 	private:
 		bool ValidImageHandle(ImageHandle const& handle);
-		void PrepareResources();
+		//void PrepareResources();
 		void InitializePasses();
 		void PrepareGraphLocalImageResources();
 		void PrepareGraphLocalBufferResources();

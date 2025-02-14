@@ -31,6 +31,13 @@ namespace graphics_backend
 			, castl::shared_ptr<ShaderStruct> const& subStruct
 			, uint32_t elementIndex) override;
 
+	public:
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::shared_ptr<ShaderStruct>>> const& GetSubStructs() const { return m_NameToSubStructs; }
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> const& GetImageHandles() const { return m_NameToImageHandles; }
+		castl::unordered_map<cacore::NameHash, castl::vector<TextureSamplerDescriptor>> const& GetSamplerDescriptors() const { return m_NameToSamplerDescriptors; }
+		castl::unordered_map<cacore::NameHash, castl::vector<BufferHandle>> const& GetBufferHandles() const { return m_NameToBufferHandles; }
+		castl::vector<uint8_t> const& GetSelfUniformBuffer() const { return m_SelfUniformBuffer; }
+		//castl::unordered_map<cacore::NameHash, uint32_t> const& GetNameToUniformElementMetaID() const { return m_NameToUniformElementMetaID; }
 	private:
 		ShaderCompilerSlang::ShaderStructData const* p_StructData;
 		castl::vector<uint8_t> m_SelfUniformBuffer;

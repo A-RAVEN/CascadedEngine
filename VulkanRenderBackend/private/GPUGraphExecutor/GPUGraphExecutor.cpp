@@ -7,6 +7,7 @@
 #include <GPUResources/VKGPUBuffer.h>
 #include <GPUResources/VKGPUTexture.h>
 #include <VulkanDebug.h>
+#include <ShaderStruct/VKShaderStruct.h>
 
 namespace graphics_backend
 {
@@ -232,14 +233,6 @@ namespace graphics_backend
 							});
 				});
 
-		//auto waitBackbuffers = taskGraph->NewTaskGraph()
-		//	->Name("Wait Backbuffers")
-		//	->DependsOn(allocResources)
-		//	->SetupFunctor([this](auto graph)
-		//		{
-		//			WaitBackbuffers();
-		//		});
-
 		auto prepareGPUObjects = taskGraph->NewTaskGraph()
 			->Name("Prepare GPUObjects")
 			->DependsOn(allocResources)
@@ -345,173 +338,34 @@ namespace graphics_backend
 		m_TransferPasses.resize(transferPassCount);
 	}
 
-
-	void GPUGraphExecutor::PrepareResources()
+	static void ForeachRenderPassShaderStructs(RenderPass const& renderPass, castl::function<void(VKShaderStruct const&)> callback)
 	{
-		auto& imageManager = m_Graph->GetImageManager();
-		auto& bufferManager = m_Graph->GetBufferManager();
-		m_BufferManager.ResetAllocator();
-		m_ImageManager.ResetAllocator();
-
+		castl::deque<castl::shared_ptr<VKShaderStruct>> shaderStructs;
+		for (auto shaderStruct : renderPass.GetPipelineStates().shaderStructs)
 		{
-			CPUTIMER_SCOPE("Stat Rasterize Resources");
-			auto& renderPasses = m_Graph->GetRenderPasses();
-			for (auto& renderPass : renderPasses)
+			shaderStructs.push_back(castl::static_pointer_cast<VKShaderStruct>(shaderStruct.second));
+		}
+		auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+		for (auto& batch : drawcallBatchs)
+		{
+			for (auto shaderStruct : batch.pipelineStateDesc.shaderStructs)
 			{
-				//Rendertargets
-				auto& imageHandles = renderPass.GetAttachments();
-				for (auto& img : imageHandles)
-				{
-					if (img.GetType() == ImageHandle::ImageType::Internal)
-					{
-						m_ImageManager.AllocResourceIndex(img.GetKey(), imageManager.GetDescriptorIndex(img.GetKey()));
-					}
-					else if (img.GetType() == ImageHandle::ImageType::Backbuffer)
-					{
-						castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(img.GetWindowHandle());
-						window->WaitCurrentFrameBufferIndex();
-					}
-				}
-
-				//Shader Args
-				castl::deque<ShaderArgList const*> shaderArgLists;
-				for (auto argList : renderPass.GetPipelineStates().shaderArgLists)
-				{
-					shaderArgLists.push_back(argList.second.get());
-				}
-				auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-				for (auto& batch : drawcallBatchs)
-				{
-					for (auto argList : batch.pipelineStateDesc.shaderArgLists)
-					{
-						shaderArgLists.push_back(argList.second.get());
-					}
-					{
-						//Index Buffer
-						auto& indesBuffer = batch.m_BoundIndexBuffer;
-						if (indesBuffer.GetType() == BufferHandle::BufferType::Internal)
-						{
-							m_BufferManager.AllocResourceIndex(indesBuffer.GetKey(), bufferManager.GetDescriptorIndex(indesBuffer.GetKey()));
-						}
-						//Vertex Buffers
-						for (auto& vertexBufferPair : batch.m_BoundVertexBuffers)
-						{
-							auto& vertexBuffer = vertexBufferPair.second;
-							if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
-							{
-								m_BufferManager.AllocResourceIndex(vertexBuffer.GetKey(), bufferManager.GetDescriptorIndex(vertexBuffer.GetKey()));
-							}
-						}
-					}
-
-				}
-				while (!shaderArgLists.empty())
-				{
-					ShaderArgList const& shaderArgs = *shaderArgLists.front();
-					shaderArgLists.pop_front();
-					for (auto& subArgPairs : shaderArgs.GetSubArgList())
-					{
-						shaderArgLists.push_back(subArgPairs.second.get());
-					}
-					for (auto& imagePair : shaderArgs.GetImageList())
-					{
-						auto& imgs = imagePair.second;
-						for (auto& img : imgs)
-						{
-							auto& imgHandle = img.first;
-							if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
-							{
-								m_ImageManager.AllocResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
-							}
-							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
-							{
-								castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
-								window->WaitCurrentFrameBufferIndex();
-							}
-						}
-					}
-					for (auto& bufferPair : shaderArgs.GetBufferList())
-					{
-						auto& bufs = bufferPair.second;
-						for (auto& buf : bufs)
-						{
-							if (buf.GetType() == BufferHandle::BufferType::Internal)
-							{
-								m_BufferManager.AllocResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
-							}
-						}
-					}
-				}
-
-				m_ImageManager.NextPass();
-				m_BufferManager.NextPass();
+				shaderStructs.push_back(castl::static_pointer_cast<VKShaderStruct>(shaderStruct.second));
 			}
 		}
-
+		while (!shaderStructs.empty())
 		{
-			CPUTIMER_SCOPE("Stat Compute Resources");
-			auto& computePasses = m_Graph->GetComputePasses();
-			for (auto& computePass : computePasses)
+			auto shaderStruct = shaderStructs.front();
+			callback(*shaderStruct);
+			shaderStructs.pop_front();
+			for (auto& subArgPairs : shaderStruct->GetSubStructs())
 			{
-				castl::deque<ShaderArgList const*> shaderArgLists;
-				for (auto& arg : computePass.shaderArgLists)
+				for (auto subStruct : subArgPairs.second)
 				{
-					shaderArgLists.push_back(arg.second.get());
-				}
-				for (auto& dispatch : computePass.dispatchs)
-				{
-					for (auto& arg : dispatch.shaderArgLists)
-					{
-						shaderArgLists.push_back(arg.second.get());
-					}
-				}
-
-				while (!shaderArgLists.empty())
-				{
-					ShaderArgList const& shaderArgs = *shaderArgLists.front();
-					shaderArgLists.pop_front();
-					for (auto& subArgPairs : shaderArgs.GetSubArgList())
-					{
-						shaderArgLists.push_back(subArgPairs.second.get());
-					}
-					for (auto& imagePair : shaderArgs.GetImageList())
-					{
-						auto& imgs = imagePair.second;
-						for (auto& img : imgs)
-						{
-							auto& imgHandle = img.first;
-							if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
-							{
-								m_ImageManager.AllocPersistantResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
-							}
-							else if (imgHandle.GetType() == ImageHandle::ImageType::Backbuffer)
-							{
-								castl::shared_ptr<CWindowContext> window = castl::static_pointer_cast<CWindowContext>(imgHandle.GetWindowHandle());
-								window->WaitCurrentFrameBufferIndex();
-							}
-						}
-					}
-					for (auto& bufferPair : shaderArgs.GetBufferList())
-					{
-						auto& bufs = bufferPair.second;
-						for (auto& buf : bufs)
-						{
-							if (buf.GetType() == BufferHandle::BufferType::Internal)
-							{
-								m_BufferManager.AllocPersistantResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
-							}
-						}
-					}
+					shaderStructs.push_back(castl::static_pointer_cast<VKShaderStruct>(subStruct));
 				}
 			}
 		}
-		
-		{
-			CPUTIMER_SCOPE("Allocate GPU Resources");
-			m_ImageManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetImageManager());
-			m_BufferManager.AllocateResources(GetVulkanApplication(), m_FrameBoundResourceManager, m_Graph->GetBufferManager());
-		}
-
 	}
 
 	void GPUGraphExecutor::PrepareGraphLocalImageResources()
@@ -542,28 +396,9 @@ namespace graphics_backend
 				}
 
 				//Shader Args
-				castl::deque<ShaderArgList const*> shaderArgLists;
-				for (auto argList : renderPass.GetPipelineStates().shaderArgLists)
+				ForeachRenderPassShaderStructs(renderPass, [&](VKShaderStruct const& shaderStruct)
 				{
-					shaderArgLists.push_back(argList.second.get());
-				}
-				auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-				for (auto& batch : drawcallBatchs)
-				{
-					for (auto argList : batch.pipelineStateDesc.shaderArgLists)
-					{
-						shaderArgLists.push_back(argList.second.get());
-					}
-				}
-				while (!shaderArgLists.empty())
-				{
-					ShaderArgList const& shaderArgs = *shaderArgLists.front();
-					shaderArgLists.pop_front();
-					for (auto& subArgPairs : shaderArgs.GetSubArgList())
-					{
-						shaderArgLists.push_back(subArgPairs.second.get());
-					}
-					for (auto& imagePair : shaderArgs.GetImageList())
+					for (auto& imagePair : shaderStruct.GetImageHandles())
 					{
 						auto& imgs = imagePair.second;
 						for (auto& img : imgs)
@@ -582,7 +417,7 @@ namespace graphics_backend
 							}
 						}
 					}
-				}
+				});
 
 				m_ImageManager.NextPass();
 			}
@@ -652,48 +487,10 @@ namespace graphics_backend
 			auto& renderPasses = m_Graph->GetRenderPasses();
 			for (auto& renderPass : renderPasses)
 			{
-				//Shader Args
-				castl::deque<ShaderArgList const*> shaderArgLists;
-				for (auto argList : renderPass.GetPipelineStates().shaderArgLists)
-				{
-					shaderArgLists.push_back(argList.second.get());
-				}
-				auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-				for (auto& batch : drawcallBatchs)
-				{
-					for (auto argList : batch.pipelineStateDesc.shaderArgLists)
-					{
-						shaderArgLists.push_back(argList.second.get());
-					}
-					{
-						//Index Buffer
-						auto& indesBuffer = batch.m_BoundIndexBuffer;
-						if (indesBuffer.GetType() == BufferHandle::BufferType::Internal)
-						{
-							m_BufferManager.AllocResourceIndex(indesBuffer.GetKey(), bufferManager.GetDescriptorIndex(indesBuffer.GetKey()));
-						}
-						//Vertex Buffers
-						for (auto& vertexBufferPair : batch.m_BoundVertexBuffers)
-						{
-							auto& vertexBuffer = vertexBufferPair.second;
-							if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
-							{
-								m_BufferManager.AllocResourceIndex(vertexBuffer.GetKey(), bufferManager.GetDescriptorIndex(vertexBuffer.GetKey()));
-							}
-						}
-					}
 
-				}
-				while (!shaderArgLists.empty())
+				ForeachRenderPassShaderStructs(renderPass, [&](VKShaderStruct const& shaderStruct)
 				{
-					ShaderArgList const& shaderArgs = *shaderArgLists.front();
-					shaderArgLists.pop_front();
-					for (auto& subArgPairs : shaderArgs.GetSubArgList())
-					{
-						shaderArgLists.push_back(subArgPairs.second.get());
-					}
-	
-					for (auto& bufferPair : shaderArgs.GetBufferList())
+					for (auto& bufferPair : shaderStruct.GetBufferHandles())
 					{
 						auto& bufs = bufferPair.second;
 						for (auto& buf : bufs)
@@ -704,7 +501,7 @@ namespace graphics_backend
 							}
 						}
 					}
-				}
+				});
 
 				m_BufferManager.NextPass();
 			}
