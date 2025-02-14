@@ -196,9 +196,9 @@ int main(int argc, char *argv[])
 		DepthStencilStates::NormalOpaque()
 		, RasterizerStates::CullBack()
 	};
-	meshMaterial0.shaderArgs = castl::make_shared<ShaderArgList>();
-	meshMaterial0.shaderArgs->SetImage(CANAME("albedoTexture"), texture1);
-	meshMaterial0.shaderArgs->SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
+	meshMaterial0.shaderStruct = pBackend->CreateShaderStruct(CANAME("MeshMaterial"));
+	meshMaterial0.shaderStruct->SetImage(CANAME("albedoTexture"), texture1)
+		.SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
 	meshMaterial0.shaderSet = pMeshShaderResource.get();
 
 	MeshMaterial meshMaterial1;
@@ -206,9 +206,9 @@ int main(int argc, char *argv[])
 		DepthStencilStates::NormalOpaque()
 		, RasterizerStates::CullBack()
 	};
-	meshMaterial1.shaderArgs = castl::make_shared<ShaderArgList>();
-	meshMaterial1.shaderArgs->SetImage(CANAME("albedoTexture"), texture);
-	meshMaterial1.shaderArgs->SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
+	meshMaterial0.shaderStruct = pBackend->CreateShaderStruct(CANAME("MeshMaterial"));
+	meshMaterial0.shaderStruct->SetImage(CANAME("albedoTexture"), texture)
+		.SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
 	meshMaterial1.shaderSet = pMeshShaderResource.get();
 
 
@@ -229,10 +229,10 @@ int main(int argc, char *argv[])
 	bool mouseDown = false;
 	glm::vec2 lastMousePos = { 0.0f, 0.0f };
 
-	castl::shared_ptr<ShaderArgList> globalLightShaderArg = castl::make_shared<ShaderArgList>();
-	globalLightShaderArg->SetValue(CANAME("lightDirection"), glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f)));
-	globalLightShaderArg->SetValue(CANAME("lightColor"), glm::vec3(2.0f, 2.0f, 0.25f));
-	globalLightShaderArg->SetValue(CANAME("ambientColor"), glm::vec3(0.1f, 0.1f, 0.2f));
+	castl::shared_ptr<ShaderStruct> globalLightParams = pBackend->CreateShaderStruct(CANAME("GlobalDirectLighting"));
+	globalLightParams->SetValue(CANAME("lightDirection"), glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f)))
+		.SetValue(CANAME("lightColor"), glm::vec3(2.0f, 2.0f, 0.25f))
+		.SetValue(CANAME("ambientColor"), glm::vec3(0.1f, 0.1f, 0.2f));
 
 	
 	pThreadManager->LoopFunction([&](auto setup)
@@ -333,13 +333,13 @@ int main(int argc, char *argv[])
 						deltaTime = castl::max(deltaTime, 0.0001f);
 						float frameRate = 1.0f / deltaTime;
 
-						castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
+						//castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
 						auto cameraArgs = pBackend->CreateShaderStruct(CANAME("CameraData"));
 						auto viewMatrix = glm::transpose(camera.GetViewProjMatrix());
 						{
 
 							{
-								cameraArgList->SetValue(CANAME("viewProjMatrix"), viewMatrix);
+								//cameraArgList->SetValue(CANAME("viewProjMatrix"), viewMatrix);
 								cameraArgs->SetValue(CANAME("viewProjMatrix"), viewMatrix);
 							}
 						}
@@ -359,8 +359,8 @@ int main(int argc, char *argv[])
 						RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
 							, AttachmentConfig::Clear()
 							, AttachmentConfig::ClearDepthStencil())
-							.PushShaderArguments("cameraData", cameraArgList)
-							.PushShaderArguments("globalLighting", globalLightShaderArg);
+							.SetParam("cameraData", cameraArgs)
+							.SetParam("globalLighting", globalLightParams);
 						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
 						newGraph->AddPass(drawMeshRenderPass)
 							.AddPass

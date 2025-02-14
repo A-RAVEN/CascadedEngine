@@ -44,6 +44,7 @@ struct MeshMaterial
 	IShaderSet* shaderSet;
 	//Shader参数
 	castl::shared_ptr<graphics_backend::ShaderArgList> shaderArgs;
+	castl::shared_ptr<graphics_backend::ShaderStruct> shaderStruct;
 };
 
 struct MeshRenderer

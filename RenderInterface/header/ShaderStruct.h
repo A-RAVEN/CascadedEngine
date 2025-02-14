@@ -43,15 +43,22 @@ namespace graphics_backend
 
 		ShaderStruct& SetImage(cacore::NameHash const& name
 			, ImageHandle const& imageHandle, GPUTextureView const& view
-			, uint32_t elementIndex)
+			, uint32_t elementIndex = 0)
 		{
 			SetImageInternal(name, imageHandle, view, elementIndex);
 			return *this;
 		}
 
+		inline ShaderStruct& SetImage(cacore::NameHash const& name
+			, castl::shared_ptr<GPUTexture> const& pImage
+			, uint32_t elementIndex = 0)
+		{
+			return SetImage(name, pImage, GPUTextureView::CreateDefaultForSampling(pImage->GetDescriptor().format), elementIndex);
+		}
+
 		ShaderStruct& SetBuffer(cacore::NameHash const& name
 			, BufferHandle const& bufferHandle
-			, uint32_t elementIndex)
+			, uint32_t elementIndex = 0)
 		{
 			SetBufferInternal(name, bufferHandle, elementIndex);
 			return *this;
@@ -59,7 +66,7 @@ namespace graphics_backend
 
 		ShaderStruct& SetSampler(cacore::NameHash const& name
 			, TextureSamplerDescriptor const& samplerDesc
-			, uint32_t elementIndex)
+			, uint32_t elementIndex = 0)
 		{
 			SetSamplerInternal(name, samplerDesc, elementIndex);
 			return *this;
@@ -67,7 +74,7 @@ namespace graphics_backend
 
 		ShaderStruct& SetStruct(cacore::NameHash const& name
 			, castl::shared_ptr<ShaderStruct> const& subStruct
-			, uint32_t elementIndex)
+			, uint32_t elementIndex = 0)
 		{
 			SetStructInternal(name, subStruct, elementIndex);
 			return *this;

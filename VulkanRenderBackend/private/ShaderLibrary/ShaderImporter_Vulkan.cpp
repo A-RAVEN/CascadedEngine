@@ -6,7 +6,6 @@
 
 namespace graphics_backend
 {
-
 	void VKShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager
 		, cafs::path const& sourcePath
 		, cafs::path const& destPath)
@@ -15,7 +14,7 @@ namespace graphics_backend
 		{
 			return;
 		}
-
+		castl::cout << CATypeDescriptor<ShaderLibrary>::member_count << castl::endl;
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> shaderPrograms;
 
 		cafs::path shaderLibraryPath = "VKShaderLibrary.shLib";
@@ -45,11 +44,14 @@ namespace graphics_backend
 					}
 					else
 					{
+						cacore::PathHash shaderPathHash = relative_path;
 						auto compileResults = pCompiler->GetResults();
 						for (auto& result : compileResults)
 						{
 							if (result.targetType == ShaderCompilerSlang::EShaderTargetType::eDXIL)
 							{
+								auto& shaderInfo = shaderLibrary->m_ShaderFiles[shaderPathHash];
+								shaderInfo.entryPointToShaderProgram.clear();
 								for (auto& program : result.programs)
 								{
 									auto shaHash = cahash::getHash<cahash::sha256_hash>(program.data.data(), program.data.size());
@@ -61,10 +63,10 @@ namespace graphics_backend
 										shaderCode.shaderType = program.shaderType;
 										found = shaderLibrary->m_ShaderPrograms.insert(castl::make_pair(shaHash, shaderCode)).first;
 									}
-
-
-									std::cout << relative_path.generic_string() << ":" << shaHash.toString() << std::endl;
-									found->second.sourceKeys.insert(ShaderSourceKey{ relative_path.generic_string(), program.entryPointName });
+									cacore::NameHash entryPointName = program.entryPointName;
+									shaderInfo.entryPointToShaderProgram.push_back(castl::make_pair(entryPointName, shaHash));
+									//std::cout << relative_path.generic_string() << ":" << shaHash.toString() << std::endl;
+									found->second.sourceKeys.insert(ShaderSourceKey{ shaderPathHash, entryPointName });
 								}
 
 
@@ -76,7 +78,8 @@ namespace graphics_backend
 										auto& shaderStruct = pairs.second;
 										if (name == CANAME("__Root"))
 										{
-											castl::cout << "Root Struct For " << sourcePath.string() << castl::endl;
+											shaderLibrary->m_ShaderRootStructs.insert(castl::make_pair(relative_path, shaderStruct));
+											castl::cout << "Root Struct For " << relative_path.generic_string() << castl::endl;
 										}
 										else if (shaderLibrary->m_ShaderStructs.find(name) == shaderLibrary->m_ShaderStructs.end())
 										{

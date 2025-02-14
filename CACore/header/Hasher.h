@@ -222,7 +222,7 @@ namespace cacore
             m_HashValid = false;
         }
 
-        castl::weak_ordering operator<=>(HashObj const& b) const
+        constexpr auto operator<=>(HashObj const& b) const
         {
 			if constexpr (CompareMode == EHashObjCompareMode::SHA256)
 			{
@@ -238,7 +238,7 @@ namespace cacore
 			}
         }
 
-        bool operator==(HashObj const& b) const
+        constexpr bool operator==(HashObj const& b) const
         {
             return m_HashValue == b.m_HashValue;
         }

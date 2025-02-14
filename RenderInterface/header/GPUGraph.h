@@ -11,6 +11,7 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAMap.h>
 #include <CASTL/CADeque.h>
+#include <ShaderStruct.h>
 
 namespace graphics_backend
 {
@@ -46,6 +47,7 @@ namespace graphics_backend
 		cacore::HashObj<CPipelineStateObject> m_PipelineStates;
 		cacore::HashObj <InputAssemblyStates> m_InputAssemblyStates;
 		castl::vector<castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>> shaderArgLists;
+		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
 		//TODO: Do Not Expose This
 		static PipelineDescData CombindDescData(PipelineDescData const& parent, PipelineDescData const& child)
 		{
@@ -99,6 +101,12 @@ namespace graphics_backend
 		inline DrawCallBatch& SetShaderSet(IShaderSet const* pShaderSet)
 		{
 			pipelineStateDesc.m_ShaderSet = pShaderSet;
+			return *this;
+		}
+
+		inline DrawCallBatch& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
+		{
+			pipelineStateDesc.shaderStructs[name] = shaderStruct;
 			return *this;
 		}
 
@@ -208,6 +216,7 @@ namespace graphics_backend
 		{
 			return PushShaderArguments("", shaderArguments);
 		}
+		inline RenderPass& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct);
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
 		inline RenderPass& SetShaders(IShaderSet const* shaderSet);
 		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
@@ -449,6 +458,12 @@ namespace graphics_backend
 	RenderPass& RenderPass::PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments)
 	{
 		m_PipelineStates.shaderArgLists.push_back(castl::make_pair(name, shaderArguments));
+		return *this;
+	}
+
+	inline RenderPass& RenderPass::SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
+	{
+		m_PipelineStates.shaderStructs[name] = shaderStruct;
 		return *this;
 	}
 

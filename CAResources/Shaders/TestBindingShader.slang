@@ -9,7 +9,7 @@ namespace TestData
     struct TestDataStruct
     {
         float4x4 testMat1;
-        ConstantBuffer<TestDataStruct1> testSubBlock[2];
+        TestDataStruct1 testSubBlock[2];
         Texture2D<float4> testTexture;
         StructuredBuffer<float4> testBuffer;
     };

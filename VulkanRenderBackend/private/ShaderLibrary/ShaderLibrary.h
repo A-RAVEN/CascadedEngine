@@ -1,14 +1,23 @@
 #pragma once
 #include <CASTL/CAUnorderedSet.h>
 #include <CAResource/IResource.h>
+#include <Common.h>
+#include <Compiler.h>
 
 namespace graphics_backend
 {
 	struct ShaderSourceKey
 	{
-		castl::string pathToFile;
-		castl::string entryPoint;
+		cacore::PathHash path;
+		cacore::NameHash entryPoint;
 		auto operator<=>(const ShaderSourceKey&) const = default;
+	};
+
+	struct ShaderFileInfo
+	{
+		cacore::PathHash path;
+		castl::vector<castl::pair<cacore::NameHash, cahash::sha256_hash::result_type>> entryPointToShaderProgram;
+		auto operator<=>(const ShaderFileInfo&) const = default;
 	};
 
 	struct ShaderCode
@@ -18,13 +27,21 @@ namespace graphics_backend
 		castl::unordered_set<ShaderSourceKey> sourceKeys;
 	};
 
-	class ShaderLibrary : public resource_management::IResource
+	class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
 	{
 	public:
-		//castl::unordered_map<ShaderSourceKey, castl::shared_ptr<ShaderResource>> m_ShaderResources;
+		castl::unordered_map<cacore::PathHash, ShaderFileInfo> m_ShaderFiles;
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> m_ShaderPrograms;
 		castl::unordered_map<cacore::NameHash, ShaderCompilerSlang::ShaderStructData> m_ShaderStructs;
-		virtual void Serialize(ca_io::WBatch* inWriter) override {}
-		virtual void Deserialize(ca_io::IOBatch* inReader) override {}
+		castl::unordered_map<cacore::PathHash, ShaderCompilerSlang::ShaderStructData> m_ShaderRootStructs;
+		ShaderFileInfo const* GetShaderFileInfo(cacore::PathHash const& path) const;
+		ShaderCode const* GetShaderCode(cahash::sha256_hash::result_type const& shaHash) const;
+		friend struct CATypeDescriptor<ShaderLibrary>;
 	};
 }
+
+CA_REFLECTION(graphics_backend::ShaderLibrary
+	, m_ShaderFiles
+	, m_ShaderPrograms
+	, m_ShaderStructs
+	, m_ShaderRootStructs);

@@ -122,3 +122,5 @@ namespace cahash
 		return static_cast<HashAlgorithm::result_type>(h);
 	}
 }
+
+CA_REFLECTION(cahash::sha256_hash::result_type, data);
