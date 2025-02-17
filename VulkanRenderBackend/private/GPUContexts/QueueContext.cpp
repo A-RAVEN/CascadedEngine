@@ -60,31 +60,31 @@ namespace graphics_backend
 			{
 				m_GraphicsQueueFamilyIndex = familyId;
 				m_GraphicsStageMask = ~vk::PipelineStageFlags{ 0 };
-				CA_LOG_ERR("General Queue Is " + castl::to_string(m_GraphicsQueueFamilyIndex));
+				CA_LOG("General Queue Is {}", m_GraphicsQueueFamilyIndex);
 			}
 			else if (itrProp.queueFlags & computeFlags)
 			{
 				m_ComputeQueueFamilyIndex = familyId;
 				m_ComputeStageMask = computeStageFlags;
-				CA_LOG_ERR("Compute Queue Is " + castl::to_string(m_ComputeQueueFamilyIndex));
+				CA_LOG("Compute Queue Is {}", m_ComputeQueueFamilyIndex);
 			}
 #if VK_ENABLE_BETA_EXTENSIONS
 			else if (itrProp.queueFlags & videoDecodingFlags)
 			{
 				m_VideoDecodeFamilyIndex = familyId;
 				m_VideoDecodeStageMask = transferFlags;
-				CA_LOG_ERR("Video Decoding Queue Is " + castl::to_string(m_VideoDecodeFamilyIndex));
+				CA_LOG("Video Decoding Queue Is {}", m_VideoDecodeFamilyIndex);
 			}
 #endif
 			else if (itrProp.queueFlags & vk::QueueFlagBits::eTransfer)
 			{
 				m_TransferQueueFamilyIndex = familyId;
 				m_TransferStageMask = transferFlags;
-				CA_LOG_ERR("Transfer Queue Is " + castl::to_string(m_TransferQueueFamilyIndex));
+				CA_LOG("Transfer Queue Is {}", m_TransferQueueFamilyIndex);
 			}
 			else
 			{
-				CA_LOG_ERR("UnCategoried Queue" + castl::to_string(m_TransferQueueFamilyIndex));
+				CA_LOG("UnCategoried Queue {}", m_TransferQueueFamilyIndex);
 			}
 			m_QueueFamilyList.push_back(queueFamilyInfo);
 		}

@@ -1,35 +1,54 @@
 #pragma once
-#include <assert.h>
 #include <CASTL/CAString.h>
-#include <iostream>
-#include <stdio.h>
-#include <stdint.h>
-#ifdef _WIN32
-#include <Windows.h>
-#include <dbghelp.h>
-#include <shellapi.h>
-#include <shlobj.h>
-#endif // _WIN32
+#include <CACore/CAFormat.h>
+#include <source_location>
 
-
-#define CA_ASSERT( _condition , _log ) {if(!(_condition)){CALogError(_log, __LINE__, __FILE__);}}
-#define CA_ASSERT_BREAK( _condition , _log ) {if(!(_condition)){CALogError(_log, __LINE__, __FILE__, true);}}
-#define CA_LOG_ERR(_log) {CALogError(_log, __LINE__, __FILE__);}
-#define CA_CLASS_NAME(_class) (typeid(_class).name())
-
-static inline void CALogError(castl::string const& log, int line, castl::string const& file, bool debugBreak = false)
+namespace cacore
 {
-	if (debugBreak)
-	{
-		__debugbreak();
+	template <typename... T>
+	FMT_INLINE void style_log_with_location(const text_style& ts, std::source_location const& location, bool show_location, format_string<T...> fmt, T&&... args) {
+		try
+		{
+			if (show_location)
+			{
+				fmt::print(ts, "\n[{}]\n{})\n[{}]\n{}\n", location.function_name(), location.line(), location.file_name(), format(fmt, std::forward<T>(args)...));
+			}
+			else
+			{
+				fmt::print(ts, fmt, std::forward<T>(args)...);
+			}
+		}
+		catch (format_error err)
+		{
+			fmt::print(fg(fmt::color::crimson) | fmt::emphasis::bold | fmt::emphasis::blink
+				, "\n{}) [{}]\n{}\n", location.line(), location.file_name(), err.what());
+		}
 	}
-#ifdef _WIN32
-	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-#endif
-	castl::string out = "\n" + log + "\nLine: " + castl::to_string(line) + "\nFile: " + file + "\n";
-	std::cerr << castl::to_std(out) << std::endl;
-#ifdef _WIN32
-	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN);
-#endif
+
+	template <typename... T>
+	FMT_INLINE void error_with_location(std::source_location const& location, format_string<T...> fmt, T&&... args) {
+		style_log_with_location(fg(fmt::color::crimson) | fmt::emphasis::bold | fmt::emphasis::blink, location, true, fmt, std::forward<T>(args)...);
+	}
+
+	template <typename... T>
+	FMT_INLINE void error_with_location(std::source_location const& location, castl::string_view const& str) {
+		error_with_location(location, "{}", str);
+	}
+
+	template <typename... T>
+	FMT_INLINE void log_with_location(std::source_location const& location, bool show_location, format_string<T...> fmt, T&&... args) {
+		style_log_with_location(fg(fmt::color::gray), location, show_location, fmt, std::forward<T>(args)...);
+	}
+
+	template <typename... T>
+	FMT_INLINE void log_with_location(std::source_location const& location, bool show_location, castl::string_view const& str) {
+		log_with_location(location, show_location, "{}", str);
+	}
 }
+
+#define CA_LOG(_log, ...) {cacore::log_with_location(std::source_location::current(), false, _log __VA_OPT__(, __VA_ARGS__ ));}
+#define CA_LOG_IF( _condition , _log, ...) {if(_condition){CA_LOG(_log, __VA_ARGS__);}}
+#define CA_LOG_ERR(_log, ...) {cacore::error_with_location(std::source_location::current(), _log __VA_OPT__(, __VA_ARGS__ ));}
+#define CA_ASSERT( _condition , _log, ...) {if(!(_condition)){CA_LOG_ERR(_log, __VA_ARGS__);}}
+#define CA_ASSERT_BREAK( _condition , _log, ...) {if(!(_condition)){CA_LOG_ERR(_log, __VA_ARGS__);__debugbreak();}}
+#define CA_CLASS_NAME(_class) (typeid(_class).name())

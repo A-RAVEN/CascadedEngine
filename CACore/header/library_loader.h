@@ -34,9 +34,7 @@ namespace library_loader
 			else
 			{
 				int errCode = GetLastError();
-				castl::string errStr = "Load Module Error: ";
-				errStr += castl::to_string(errCode);
-				CA_LOG_ERR(errStr);
+				CA_LOG_ERR("Load Module Error: {}", errCode);
 			}
 		}
 

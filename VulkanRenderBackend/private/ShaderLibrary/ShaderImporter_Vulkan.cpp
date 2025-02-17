@@ -78,8 +78,10 @@ namespace graphics_backend
 										auto& shaderStruct = pairs.second;
 										if (name == CANAME("__Root"))
 										{
-											shaderLibrary->m_ShaderRootStructs.insert(castl::make_pair(relative_path, shaderStruct));
-											castl::cout << "Root Struct For " << relative_path.generic_string() << castl::endl;
+											auto shaderpath = relative_path;
+											shaderpath.replace_extension("");
+											shaderLibrary->m_ShaderRootStructs.insert(castl::make_pair(shaderpath, shaderStruct));
+											castl::cout << "Root Struct For " << shaderpath.generic_string() << castl::endl;
 										}
 										else if (shaderLibrary->m_ShaderStructs.find(name) == shaderLibrary->m_ShaderStructs.end())
 										{

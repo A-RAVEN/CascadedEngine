@@ -348,12 +348,6 @@ namespace graphics_backend
 			, uint32_t passID
 		);
 
-		void PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
-			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
-			, ShaderArgList const* shaderArgList
-			, uint32_t passID
-		);
 		void PrepareShaderBindingResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
 			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
 			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache

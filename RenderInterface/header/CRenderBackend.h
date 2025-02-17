@@ -9,7 +9,6 @@
 #include "CNativeRenderPassInfo.h"
 #include "WindowHandle.h"
 #include "ShaderBindingBuilder.h"
-#include "ShaderBindingSet.h"
 #include "TextureSampler.h"
 #include "MonitorHandle.h"
 #include "GPUFrame.h"

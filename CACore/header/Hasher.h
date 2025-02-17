@@ -341,6 +341,16 @@ namespace cacore
 			return m_NameView.data();
 		}
 
+		constexpr operator char const* () const noexcept
+		{
+			return m_NameView.data();
+		}
+
+        constexpr operator castl::string_view const&() const noexcept
+        {
+            return m_NameView;
+        }
+
         constexpr castl::string_view const& Get() const noexcept
         {
             return m_NameView;
@@ -465,6 +475,14 @@ namespace std
 }
 
 #define CANAME(str) cacore::NameHash::Static<castl::string_literal<castl::string_view{str}.size()>(str)>()
+
+constexpr auto format_as(cacore::NameHash const& nameHash) {
+    return nameHash.c_str();
+}
+
+constexpr auto format_as(cacore::PathHash const& pathHash) {
+	return pathHash.Get();
+}
 
 namespace careflection
 {

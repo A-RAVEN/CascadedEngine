@@ -182,10 +182,21 @@ namespace ShaderCompilerSlang
 		castl::vector<int32_t> m_SubBindingHierarchies;
 	};
 
+	struct ShaderSpaceResourceStats
+	{
+		uint32_t m_CBufferCount;
+		uint32_t m_SamplerCount;
+		uint32_t m_TextureCount;
+		uint32_t m_RWTextureCount;
+		uint32_t m_StorageBufferCount;
+		uint32_t m_RWBufferCount;
+	};
+
 	struct ShaderSpaceInfo
 	{
 		uint32_t m_SpaceID;
 		uint32_t m_RootHierarchyID;
+		ShaderSpaceResourceStats m_ResourceStats;
 	};
 
 	struct ShaderBindingInfo
@@ -194,26 +205,30 @@ namespace ShaderCompilerSlang
 		castl::vector<ShaderSpaceInfo> m_SpaceInfos;
 		int32_t m_RootHierarchyID;
 
-		ShaderSpaceInfo& EnsureSpaceInfo(uint32_t spaceID)
+		ShaderSpaceInfo& EnsureSpaceInfo(uint32_t spaceID, int32_t hierarchyID)
 		{
+			assert(hierarchyID >= 0);
 			if (m_SpaceInfos.size() <= spaceID)
 			{
 				m_SpaceInfos.resize(spaceID + 1);
-				m_SpaceInfos[spaceID].m_SpaceID = spaceID;
-			}
-			return m_SpaceInfos[spaceID];
-		}
-
-		ShaderSpaceInfo& TryInitSpaceInfo(uint32_t spaceID, int32_t hierarchyID)
-		{
-			if (m_SpaceInfos.size() <= spaceID)
-			{
-				m_SpaceInfos.resize(spaceID + 1);
+				m_SpaceInfos[spaceID] = {};
 				m_SpaceInfos[spaceID].m_SpaceID = spaceID;
 				m_SpaceInfos[spaceID].m_RootHierarchyID = hierarchyID;
 			}
 			return m_SpaceInfos[spaceID];
 		}
+
+		//ShaderSpaceInfo& TryInitSpaceInfo(uint32_t spaceID, int32_t hierarchyID)
+		//{
+		//	if (m_SpaceInfos.size() <= spaceID)
+		//	{
+		//		m_SpaceInfos.resize(spaceID + 1);
+		//		m_SpaceInfos[spaceID] = {};
+		//		m_SpaceInfos[spaceID].m_SpaceID = spaceID;
+		//		m_SpaceInfos[spaceID].m_RootHierarchyID = hierarchyID;
+		//	}
+		//	return m_SpaceInfos[spaceID];
+		//}
 
 		int32_t NewHierarchy(int32_t parentID, cacore::NameHash const& name, cacore::NameHash const& typeName, uint32_t elementCount)
 		{

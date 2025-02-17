@@ -15,9 +15,11 @@ struct ShaderSourceInfo
 struct ShaderInfo
 {
 	cacore::PathHash path;
-	cacore::NameHash entryPoint;
+	constexpr bool isValid() const noexcept
+	{
+		return path.Valid();
+	}
 };
-
 
 struct IShaderSet
 {

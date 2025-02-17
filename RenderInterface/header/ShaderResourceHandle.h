@@ -8,11 +8,11 @@ namespace graphics_backend
 {
 	struct ResourceHandleKeyData
 	{
-		castl::string name;
+		cacore::NameHash name;
 		uint32_t uniqueID;
 		auto operator<=>(const ResourceHandleKeyData&) const = default;
-		static ResourceHandleKeyData Default() { return { "", 0 }; }
-		static ResourceHandleKeyData Create(castl::string const& name, uint32_t uniqueID) { return { name, uniqueID }; }
+		static ResourceHandleKeyData Default() { return { {}, 0 }; }
+		static ResourceHandleKeyData Create(cacore::NameHash const& name, uint32_t uniqueID) { return { name, uniqueID }; }
 	};
 
 	using ResourceHandleKey = cacore::HashObj<ResourceHandleKeyData, cacore::EHashObjCompareMode::FullCompare>;
@@ -41,7 +41,7 @@ namespace graphics_backend
 			, m_Type(other.m_Type)
 		{
 		}
-		ImageHandle(castl::string const& name, uint32_t uniqueID = 0)
+		ImageHandle(cacore::NameHash const& name, uint32_t uniqueID = 0)
 			: m_Key(ResourceHandleKeyData::Create(name, uniqueID))
 			, m_ExternalManagedTexture(nullptr)
 			, m_Backbuffer(nullptr)
@@ -64,7 +64,7 @@ namespace graphics_backend
 		}
 		bool IsValid() const { return m_Type != ImageType::Invalid; }
 		ImageType GetType() const { return m_Type; }
-		castl::string const& GetName() const { return m_Key.Get().name; }
+		castl::string_view const& GetName() const { return m_Key.Get().name.Get(); }
 		ResourceHandleKey const& GetKey() const { return m_Key; }
 		castl::shared_ptr<GPUTexture> GetExternalManagedTexture() const { return m_ExternalManagedTexture; }
 		castl::shared_ptr<WindowHandle> GetWindowHandle() const { return m_Backbuffer; }
@@ -99,7 +99,7 @@ namespace graphics_backend
 			, m_Type(other.m_Type)
 		{
 		}
-		BufferHandle(castl::string const& name, uint32_t uniqueID = 0)
+		BufferHandle(cacore::NameHash const& name, uint32_t uniqueID = 0)
 			: m_Key(ResourceHandleKeyData::Create(name, uniqueID))
 			, m_ExternalManagedBuffer(nullptr)
 			, m_Type(BufferType::Internal)
@@ -113,7 +113,7 @@ namespace graphics_backend
 		}
 		bool IsValid() const { return m_Type != BufferType::Invalid; }
 		BufferType GetType() const { return m_Type; }
-		castl::string const& GetName() const { return m_Key.Get().name; }
+		castl::string_view const& GetName() const { return m_Key.Get().name.Get(); }
 		ResourceHandleKey const& GetKey() const { return m_Key; }
 		castl::shared_ptr<GPUBuffer> GetExternalManagedBuffer() const { return m_ExternalManagedBuffer; }
 		auto operator<=>(const BufferHandle&) const = default;

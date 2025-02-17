@@ -24,6 +24,11 @@ namespace graphics_backend
 			, FrameBoundResourcePool* pResourcePool
 			, vk::CommandBuffer& command
 			, castl::vector <castl::pair <castl::string, castl::shared_ptr<ShaderArgList>>> const& shaderArgLists);
+		void FillShaderData(CVulkanApplication& application
+			, ShadderResourceProvider& resourceProvider
+			, FrameBoundResourcePool* pResourcePool
+			, vk::CommandBuffer& command
+			, castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*> const& shaderStructs);
 		castl::vector<vk::DescriptorSet> m_DescriptorSets;
 		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
 		castl::vector<cacore::HashObj<DescriptorSetDesc>> m_DescriptorSetDescs;

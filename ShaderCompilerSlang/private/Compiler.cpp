@@ -449,7 +449,7 @@ namespace ShaderCompilerSlang
 				{
 					if (searchingCategory == ParameterCategory::None)
 					{
-						fprintf(stderr, "Leaf category is mixed, searchingCategory Should Be Specified\n");
+						CA_LOG_ERR("Leaf category is mixed, searchingCategory Should Be Specified");
 						return result;
 					}
 					auto categories = UnwrapCategories(leaf->varLayout);
@@ -464,12 +464,12 @@ namespace ShaderCompilerSlang
 				}
 				if (leafCategory == ParameterCategory::Mixed)
 				{
-					fprintf(stderr, "searchCategory Not Found In Leaf\n");
+					CA_LOG_ERR("searchCategory Not Found In Leaf");
 					return result;
 				}
 				if (searchingCategory != ParameterCategory::None && searchingCategory != leafCategory)
 				{
-					fprintf(stderr, "searchCategory Not Matched\n");
+					CA_LOG_ERR("searchCategory Not Matched\n");
 					return result;
 				}
 				if (IsSpaceRelatedCategories(leafCategory))
@@ -721,8 +721,9 @@ namespace ShaderCompilerSlang
 					if (accessPath.GetLastCBufferBinding(bindings))
 					{
 						currentHierarchy.m_SelfUniformBufferID = bindings.offset;
-						bindingInfo.TryInitSpaceInfo(bindings.space, currentHierarchyID);
-						fprintf(stderr, "[%s]%s uniformBuffer space: %d binding: %d arrayLength: %d category: %s\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
+						auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, currentHierarchyID);
+						spaceInfo.m_ResourceStats.m_CBufferCount++;
+						CA_LOG("[{}]{} uniformBuffer space: {} binding: {} arrayLength: {} category: {}\n", typeName, bindings.name, bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					}
 				}
 
@@ -756,13 +757,24 @@ namespace ShaderCompilerSlang
 				return;
 			}
 
-			//assert(parentHierarchyID >= 0 && "Parent Hierarchy Should Be Valid");
+
 			AccessPathNode newNode = accessPath.NewNode(variable);
 			accessPath.SetLeaf(newNode);
 			cacore::NameHash typeName = GetFullTypeName(typeLayout);
 			cacore::NameHash name = variable->getName();
 			ParameterCategory variableCategory = variable->getCategory();
 			uint32_t elementCount = GetArrayElementCount(variable->getTypeLayout());
+
+			//assert(parentHierarchyID >= 0 && "Parent Hierarchy Should Be Valid");
+			if (parentHierarchyID == -1)
+			{
+				assert(!typeName.Valid());
+				assert(!name.Valid());
+				name = RootName();
+				typeName = RootTypeName();
+				//if parent hierarchy is not valid, create a root hierarchy
+				//parentHierarchyID = bindingInfo.NewHierarchy(parentHierarchyID, RootName(), RootTypeName(), 1);
+			}
 
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
@@ -782,6 +794,7 @@ namespace ShaderCompilerSlang
 				SlangResourceAccess resourceAccess = typeLayout->getResourceAccess();
 				auto bindings = accessPath.GetLeafSpaceAndBinding();
 				auto& parentHierarchy = bindingInfo.GetHierarchy(parentHierarchyID);
+				auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, parentHierarchyID);
 
 				ShaderResourceBinding newBinding = {};
 				newBinding.m_TypeName = typeName;
@@ -793,21 +806,31 @@ namespace ShaderCompilerSlang
 				switch (bindingType)
 				{
 				case slang::BindingType::MutableTexture:
+				{
+					spaceInfo.m_ResourceStats.m_RWTextureCount++;
+					break;
+				}
 				case slang::BindingType::Texture:
 				{
-					fprintf(stderr, "[%s]%s texture space: %d binding: %d arrayLength: %d category: %s\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
+					spaceInfo.m_ResourceStats.m_TextureCount++;
+					CA_LOG("[{}]{} texture space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				case slang::BindingType::MutableRawBuffer:
+				{
+					spaceInfo.m_ResourceStats.m_RWBufferCount++;
+					break;
+				}
 				case slang::BindingType::RawBuffer:
 				{
-
-					fprintf(stderr, "[%s]%s buffer space: %d binding: %d arrayLength: %d category: %s\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
+					spaceInfo.m_ResourceStats.m_StorageBufferCount++;
+					CA_LOG("[{}]{} buffer space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				case slang::BindingType::Sampler:
 				{
-					fprintf(stderr, "[%s]%s sampler space: %d binding: %d arrayLength: %d category: %s\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
+					spaceInfo.m_ResourceStats.m_SamplerCount++;
+					CA_LOG("[{}]{} sampler space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				}
@@ -1046,13 +1069,13 @@ namespace ShaderCompilerSlang
 					newBinding.uniformGroupID = bindingSpace.InitUniformGroup(newBinding.bindingIndex
 						, newBinding.uniformGroupID
 						, newBinding.elementName, newBinding.memoryByteOffset, sizeInBytes, strideInBytes, elementCount);
-					fprintf(stderr, "[%s]%s space: %d binding: %d arrayLength: %d category: %s\n", typeName, newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
+					CA_LOG("[{}]{} space: {} binding: {} arrayLength: {} category: {}\n", typeName, newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
 				}
 				else
 				{
 					auto typeName = GetFullTypeName(typeLayout);
 					newBinding.resourceGroupID = bindingSpace.InitResourceGroup(newBinding.elementName, newBinding.resourceGroupID);
-					fprintf(stderr, "[%s]%s resource space: %d binding: %d arrayLength: %d category: %s\n", typeName, newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
+					CA_LOG("[{}]{} resource space: {} binding: {} arrayLength: {} category: {}\n", typeName, newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
 				}
 
 				unsigned fieldCount = typeLayout->getFieldCount();
@@ -1081,7 +1104,7 @@ namespace ShaderCompilerSlang
 				auto typeName = GetFullTypeName(typeLayout);
 				newElement.Init(typeName, newBinding.elementName, newBinding.memoryByteOffset, sizeInBytes, strideInBytes, elementCount);
 				bindingSpace.AddElementToGroup(newBinding.bindingIndex, newBinding.uniformGroupID, newElement);
-				fprintf(stderr, "%s space: %d binding: %d arrayLength: %d category: %s\n", newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
+				CA_LOG("{} space: {} binding: {} arrayLength: {} category: {}\n", newBinding.path.c_str(), newBinding.bindingSpace, newBinding.bindingIndex, elementCount, GetCategoryName(variableCategory));
 			}
 			else if (kind == slang::TypeReflection::Kind::Resource
 				|| kind == slang::TypeReflection::Kind::SamplerState)
@@ -1122,7 +1145,7 @@ namespace ShaderCompilerSlang
 						break;
 					}
 				}
-				fprintf(stderr, "%s bindingType: %s space: %d binding: %d arrayLength: %d category: %s\n", newBinding.path.c_str(), GetBindingTypeName(bindingType), newBinding.bindingSpace, newBinding.bindingIndex, unrolledArrayLength, GetCategoryName(variableCategory));
+				CA_LOG("{} bindingType: {} space: {} binding: {} arrayLength: {} category: {}\n", newBinding.path.c_str(), GetBindingTypeName(bindingType), newBinding.bindingSpace, newBinding.bindingIndex, unrolledArrayLength, GetCategoryName(variableCategory));
 			}
 		}
 
@@ -1195,7 +1218,7 @@ namespace ShaderCompilerSlang
 				auto imodule = m_CompileSession->loadModule(module.c_str(), diagnostics.writeRef());
 				if (diagnostics)
 				{
-					fprintf(stderr, "%s\n", (const char*)diagnostics->getBufferPointer());
+					CA_LOG_ERR((const char*)diagnostics->getBufferPointer());
 					m_ErrorList.push_back((const char*)diagnostics->getBufferPointer());
 					diagnostics.setNull();
 				}
@@ -1215,7 +1238,7 @@ namespace ShaderCompilerSlang
 			program->link(linkedProgram.writeRef(), diagnostics.writeRef());
 			if (diagnostics)
 			{
-				fprintf(stderr, "%s\n", (const char*)diagnostics->getBufferPointer());
+				CA_LOG_ERR((const char*)diagnostics->getBufferPointer());
 				m_ErrorList.push_back((const char*)diagnostics->getBufferPointer());
 				diagnostics.setNull();
 			}
@@ -1241,7 +1264,7 @@ namespace ShaderCompilerSlang
 				slang::ProgramLayout* layout = linkedProgram->getLayout(targetIndex, diagnostics.writeRef());
 				if (diagnostics)
 				{
-					fprintf(stderr, "%s\n", (const char*)diagnostics->getBufferPointer());
+					CA_LOG_ERR((const char*)diagnostics->getBufferPointer());
 					m_ErrorList.push_back((const char*)diagnostics->getBufferPointer());
 					diagnostics.setNull();
 				}
@@ -1256,7 +1279,7 @@ namespace ShaderCompilerSlang
 					linkedProgram->getEntryPointCode(entryPointIndex, targetIndex, kernelBlob.writeRef(), diagnostics.writeRef());
 					if (diagnostics)
 					{
-						fprintf(stderr, "%s\n", (const char*)diagnostics->getBufferPointer());
+						CA_LOG_ERR((const char*)diagnostics->getBufferPointer());
 						m_ErrorList.push_back((const char*)diagnostics->getBufferPointer());
 						diagnostics.setNull();
 					}
@@ -1336,7 +1359,7 @@ namespace ShaderCompilerSlang
 					outProgramData.data.resize(kernelBlob->getBufferSize());
 					memcpy(outProgramData.data.data(), kernelBlob->getBufferPointer(), kernelBlob->getBufferSize());
 
-					//fprintf(stderr, "Debug: %s\n", (char*)outProgramData.data.data());
+					//CA_LOG("Debug: {}\n", (char*)outProgramData.data.data());
 					outputTargetResult.programs.push_back(outProgramData);
 
 					if (outProgramData.shaderType == ECompileShaderType::eVert)

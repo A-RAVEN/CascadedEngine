@@ -14,11 +14,11 @@ struct VertexAttribute
 	uint32_t attributeIndex;
 	uint32_t offset;
 	VertexInputFormat format;
-	castl::string semanticName;
+	cacore::NameHash semanticName;
 	uint32_t sematicIndex;
 	auto operator<=>(const VertexAttribute&) const = default;
 
-	static VertexAttribute Create(uint32_t offset, VertexInputFormat format, castl::string const& semanticName, uint32_t sematicIndex = 0)
+	static VertexAttribute Create(uint32_t offset, VertexInputFormat format, cacore::NameHash const& semanticName, uint32_t sematicIndex = 0)
 	{
 		return { 0, offset, format, semanticName, sematicIndex };
 	}

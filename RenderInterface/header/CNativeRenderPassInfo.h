@@ -6,8 +6,6 @@
 #include "CPipelineStateObject.h"
 #include "CVertexInputDescriptor.h"
 #include "ShaderBindingBuilder.h"
-#include "ShaderBindingSet.h"
-#include "ShaderBindingSetHandle.h"
 #include "CCommandList.h"
 #include "IMeshInterface.h"
 

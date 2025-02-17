@@ -73,7 +73,7 @@ namespace threadsafe_utils
 		}
 		virtual ~TThreadSafePointerPool()
 		{
-			CA_ASSERT(IsEmpty(), (castl::string{"ThreadSafe Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T)).c_str());
+			CA_ASSERT(IsEmpty(), "ThreadSafe Pointer Pool Is Not Released Before Destruct: {}", CA_CLASS_NAME(T));
 		}
 
 		template<typename...TArgs>

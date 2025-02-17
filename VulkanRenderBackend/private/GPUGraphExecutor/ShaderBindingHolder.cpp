@@ -336,6 +336,15 @@ namespace graphics_backend
 		, ShadderResourceProvider& resourceProvider
 		, FrameBoundResourcePool* pResourcePool
 		, vk::CommandBuffer& command
+		, castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*> const& shaderStructs)
+	{
+
+	}
+
+	void ShaderBindingInstance::FillShaderData(CVulkanApplication& application
+		, ShadderResourceProvider& resourceProvider
+		, FrameBoundResourcePool* pResourcePool
+		, vk::CommandBuffer& command
 		, castl::vector <castl::pair <castl::string, castl::shared_ptr<ShaderArgList>>> const& shaderArgLists)
 	{
 		if (p_ReflectionData == nullptr)
