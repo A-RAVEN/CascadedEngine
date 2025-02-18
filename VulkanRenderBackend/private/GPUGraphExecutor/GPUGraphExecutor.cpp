@@ -1220,12 +1220,15 @@ namespace graphics_backend
 
 									auto& batchLevelPsoDesc = batch.pipelineStateDesc;
 									auto resolvedPSODesc = PipelineDescData::CombindDescData(passLevelPsoDesc, batchLevelPsoDesc);
-									auto vertShader = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eVert));
-									auto fragShader = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eFrag));
+
+									ShaderSetData shaderSet = GetVulkanApplication().GetShaderCodes(resolvedPSODesc.m_ShaderInfo);
+
+							/*		auto vertShader = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eVert));
+									auto fragShader = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(resolvedPSODesc.m_ShaderSet->GetShaderSourceInfo(ShaderCompilerSlang::EShaderTargetType::eSpirV, ECompileShaderType::eFrag));*/
 
 									//Shader Binding Holder
 									//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
-									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingLayouts(GetVulkanApplication(), resolvedPSODesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV), resolvedPSODesc.m_ShaderSet->GetUniqueName());
+									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingLayouts(GetVulkanApplication(), *shaderSet.reflectionData, resolvedPSODesc.m_ShaderInfo.path);
 									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingSets(m_FrameBoundResourceManager);
 
 									//auto& vertexInputBindings = resolvedPSODesc.m_VertexInputBindings;
@@ -1239,7 +1242,7 @@ namespace graphics_backend
 									CPipelineObjectDescriptor psoDescObj;
 									psoDescObj.vertexInputs = vertexInputDesc;
 									psoDescObj.pso = resolvedPSODesc.m_PipelineStates.Get();
-									psoDescObj.shaderState = { vertShader, fragShader };
+									psoDescObj.shaderState = { shaderSet.vertexShader, shaderSet.fragmentShader };
 									psoDescObj.renderPassObject = passInfo.m_RenderPassObject;
 									psoDescObj.descriptorSetLayouts = newBatchInfo.m_ShaderBindingInstance.m_DescriptorSetsLayouts;
 

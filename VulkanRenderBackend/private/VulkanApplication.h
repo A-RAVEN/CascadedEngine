@@ -17,6 +17,7 @@
 #include <Utilities/SubobjectTraits.h>
 #include <CASTL/CATypeTraits.h>
 #include <ShaderLibrary/ShaderImporter_Vulkan.h>
+#include <ShaderLibrary/ShaderLibrary.h>
 
 namespace graphics_backend
 {
@@ -94,6 +95,8 @@ namespace graphics_backend
 		castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType);
 
 		ShaderCompilerSlang::ShaderStructData const* GetShaderStructData(cacore::NameHash const& structType);
+
+		ShaderSetData GetShaderCodes(ShaderInfo const& shaderInfo);
 
 
 		//Shader Resource Importer

@@ -97,6 +97,12 @@ namespace graphics_backend
 			return *this;
 		}
 
+		inline DrawCallBatch& SetShaderInfo(ShaderInfo const& shaderInfo)
+		{
+			pipelineStateDesc.m_ShaderInfo = shaderInfo;
+			return *this;
+		}
+
 		inline DrawCallBatch& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
 		{
 			shaderStructs[name] = shaderStruct;
@@ -205,6 +211,7 @@ namespace graphics_backend
 		inline RenderPass& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct);
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
 		inline RenderPass& SetShaders(IShaderSet const* shaderSet);
+		inline RenderPass& SetShaderInfo(ShaderInfo const& shaderInfo);
 		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
 
 		castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
@@ -466,6 +473,12 @@ namespace graphics_backend
 	RenderPass& RenderPass::SetShaders(IShaderSet const* shaderSet)
 	{
 		m_PipelineStates.m_ShaderSet = shaderSet;
+		return *this;
+	}
+
+	RenderPass& RenderPass::SetShaderInfo(ShaderInfo const& shaderInfo)
+	{
+		m_PipelineStates.m_ShaderInfo = shaderInfo;
 		return *this;
 	}
 

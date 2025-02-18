@@ -3,6 +3,7 @@
 #include <CAResource/IResource.h>
 #include <Common.h>
 #include <Compiler.h>
+#include <CShaderModuleObject.h>
 
 namespace graphics_backend
 {
@@ -17,6 +18,7 @@ namespace graphics_backend
 	{
 		cacore::PathHash path;
 		castl::vector<castl::pair<cacore::NameHash, cahash::sha256_hash::result_type>> entryPointToShaderProgram;
+		ShaderCompilerSlang::ShaderReflectionData reflectionData;
 		auto operator<=>(const ShaderFileInfo&) const = default;
 	};
 
@@ -25,6 +27,14 @@ namespace graphics_backend
 		ECompileShaderType shaderType;
 		castl::vector<uint8_t> data;
 		castl::unordered_set<ShaderSourceKey> sourceKeys;
+	};
+
+	struct ShaderSetData
+	{
+		castl::shared_ptr<CShaderModuleObject>  vertexShader;
+		castl::shared_ptr<CShaderModuleObject>  fragmentShader;
+		castl::shared_ptr<CShaderModuleObject>  computeShader;
+		ShaderCompilerSlang::ShaderReflectionData const* reflectionData;
 	};
 
 	class ShaderLibrary : public resource_management::TResource<ShaderLibrary>

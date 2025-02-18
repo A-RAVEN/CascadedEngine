@@ -138,6 +138,42 @@ namespace graphics_backend
 		return nullptr;
 	}
 
+	ShaderSetData CVulkanApplication::GetShaderCodes(ShaderInfo const& shaderInfo)
+	{
+		ShaderSetData result;
+		auto shaderLibrary = m_ResourceManager->GetOrLoadResource<ShaderLibrary>("VKShaderLibrary.shLib");
+		auto fileInfo = shaderLibrary->GetShaderFileInfo(shaderInfo.path);
+		result.reflectionData = &fileInfo->reflectionData;
+		for (auto& fileInfo : fileInfo->entryPointToShaderProgram)
+		{
+			auto code =  shaderLibrary->GetShaderCode(fileInfo.second);
+
+			ShaderSourceInfo sourceInfo{};
+			sourceInfo.compileShaderType = code->shaderType;
+			sourceInfo.entryPoint = fileInfo.first;
+			sourceInfo.dataPtr = code->data.data();
+			sourceInfo.dataLength = code->data.size();
+			auto shaderModule = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(sourceInfo);
+
+			switch (sourceInfo.compileShaderType)
+			{
+			case ECompileShaderType::eVert:
+				result.vertexShader = shaderModule;
+				break;
+			case ECompileShaderType::eFrag:
+				result.fragmentShader = shaderModule;
+				break;
+			case ECompileShaderType::eComp:
+				result.computeShader = shaderModule;
+				break;
+			default:
+				break;
+			}
+			result;
+		}
+		return result;
+	}
+
 	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
 	{
 		vk::ApplicationInfo application_info(

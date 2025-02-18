@@ -52,6 +52,7 @@ namespace graphics_backend
 							{
 								auto& shaderInfo = shaderLibrary->m_ShaderFiles[shaderPathHash];
 								shaderInfo.entryPointToShaderProgram.clear();
+								shaderInfo.reflectionData = result.m_ReflectionData;
 								for (auto& program : result.programs)
 								{
 									auto shaHash = cahash::getHash<cahash::sha256_hash>(program.data.data(), program.data.size());
