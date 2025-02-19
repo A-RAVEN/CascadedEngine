@@ -17,7 +17,9 @@ namespace graphics_backend
 	{
 	public:
 		void InitShaderBindingLayouts(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
+		void InitShaderBindingLayoutsNew(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
 		void InitShaderBindingSets(FrameBoundResourcePool* pResourcePool);
+		void InitShaderBindingSetsNew(FrameBoundResourcePool* pResourcePool);
 		void InitShaderBindings(CVulkanApplication& application, FrameBoundResourcePool* pResourcePool, ShaderCompilerSlang::ShaderReflectionData const& reflectionData);
 		void FillShaderData(CVulkanApplication& application
 			, ShadderResourceProvider& resourceProvider

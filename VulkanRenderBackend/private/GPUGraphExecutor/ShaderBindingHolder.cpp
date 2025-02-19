@@ -125,6 +125,33 @@ namespace graphics_backend
 		//castl::cout << debug << castl::endl;
 	}
 
+	void ShaderBindingInstance::InitShaderBindingLayoutsNew(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName)
+	{
+		p_Application = &application;
+		p_ReflectionData = &reflectionData;
+
+		auto& spaceInfos = p_ReflectionData->m_BindingInfo.m_SpaceInfos;
+		auto& hierarcies = p_ReflectionData->m_BindingInfo.m_BindingDataHierarchies;
+		m_DescriptorSetsLayouts.resize(spaceInfos.size());
+		m_DescriptorSetDescs.resize(spaceInfos.size());
+		m_DescriptorSets.resize(spaceInfos.size());
+		for (size_t spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
+		{
+			auto& spaceInfo = spaceInfos[spaceID];
+			uint32_t bindingCount = spaceInfo.m_ResourceStats.m_CBufferCount
+				+ spaceInfo.m_ResourceStats.m_TextureCount
+				+ spaceInfo.m_ResourceStats.m_RWTextureCount
+				+ spaceInfo.m_ResourceStats.m_SamplerCount
+				+ spaceInfo.m_ResourceStats.m_StorageBufferCount
+				+ spaceInfo.m_ResourceStats.m_RWBufferCount;
+
+			DescriptorSetDesc descSetDesc;
+			descSetDesc.descs.reserve(bindingCount);
+
+			//castl::deque<>
+		}
+	}
+
 	void ShaderBindingInstance::InitShaderBindingSets(FrameBoundResourcePool* pResourcePool)
 	{
 		m_DescriptorSets.resize(p_ReflectionData->m_BindingData.size());
@@ -158,6 +185,8 @@ namespace graphics_backend
 			}
 		}
 	}
+
+
 
 	void ShaderBindingInstance::InitShaderBindings(CVulkanApplication& application, FrameBoundResourcePool* pResourcePool, ShaderCompilerSlang::ShaderReflectionData const& reflectionData)
 	{
@@ -338,7 +367,10 @@ namespace graphics_backend
 		, vk::CommandBuffer& command
 		, castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*> const& shaderStructs)
 	{
-
+		for (auto pMap : shaderStructs)
+		{
+			auto& structMap = *pMap;
+		}
 	}
 
 	void ShaderBindingInstance::FillShaderData(CVulkanApplication& application
