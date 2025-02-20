@@ -722,7 +722,7 @@ namespace ShaderCompilerSlang
 					{
 						currentHierarchy.m_SelfUniformBufferID = bindings.offset;
 						auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, currentHierarchyID);
-						spaceInfo.m_ResourceStats.m_CBufferCount++;
+						spaceInfo.m_ResourceStats.m_CBufferBindings.push_back(bindings.offset);
 						CA_LOG("[{}]{} uniformBuffer space: {} binding: {} arrayLength: {} category: {}\n", typeName, bindings.name, bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					}
 				}
@@ -807,29 +807,29 @@ namespace ShaderCompilerSlang
 				{
 				case slang::BindingType::MutableTexture:
 				{
-					spaceInfo.m_ResourceStats.m_RWTextureCount++;
+					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back(bindings.offset);
 					break;
 				}
 				case slang::BindingType::Texture:
 				{
-					spaceInfo.m_ResourceStats.m_TextureCount++;
+					spaceInfo.m_ResourceStats.m_TextureBindings.push_back(bindings.offset);
 					CA_LOG("[{}]{} texture space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				case slang::BindingType::MutableRawBuffer:
 				{
-					spaceInfo.m_ResourceStats.m_RWBufferCount++;
+					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back(bindings.offset);
 					break;
 				}
 				case slang::BindingType::RawBuffer:
 				{
-					spaceInfo.m_ResourceStats.m_StorageBufferCount++;
+					spaceInfo.m_ResourceStats.m_StorageBufferBindings.push_back(bindings.offset);
 					CA_LOG("[{}]{} buffer space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				case slang::BindingType::Sampler:
 				{
-					spaceInfo.m_ResourceStats.m_SamplerCount++;
+					spaceInfo.m_ResourceStats.m_SamplerBindings.push_back(bindings.offset);
 					CA_LOG("[{}]{} sampler space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}

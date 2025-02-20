@@ -184,12 +184,18 @@ namespace ShaderCompilerSlang
 
 	struct ShaderSpaceResourceStats
 	{
-		uint32_t m_CBufferCount;
-		uint32_t m_SamplerCount;
-		uint32_t m_TextureCount;
-		uint32_t m_RWTextureCount;
-		uint32_t m_StorageBufferCount;
-		uint32_t m_RWBufferCount;
+		//uint32_t m_CBufferCount;
+		//uint32_t m_SamplerCount;
+		//uint32_t m_TextureCount;
+		//uint32_t m_RWTextureCount;
+		//uint32_t m_StorageBufferCount;
+		//uint32_t m_RWBufferCount;
+		castl::vector<uint32_t> m_CBufferBindings;
+		castl::vector<uint32_t> m_SamplerBindings;
+		castl::vector<uint32_t> m_TextureBindings;
+		castl::vector<uint32_t> m_RWTextureBindings;
+		castl::vector<uint32_t> m_StorageBufferBindings;
+		castl::vector<uint32_t> m_RWBufferBindings;
 	};
 
 	struct ShaderSpaceInfo

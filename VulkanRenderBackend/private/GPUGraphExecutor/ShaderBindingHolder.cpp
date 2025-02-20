@@ -138,17 +138,68 @@ namespace graphics_backend
 		for (size_t spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
 		{
 			auto& spaceInfo = spaceInfos[spaceID];
-			uint32_t bindingCount = spaceInfo.m_ResourceStats.m_CBufferCount
-				+ spaceInfo.m_ResourceStats.m_TextureCount
-				+ spaceInfo.m_ResourceStats.m_RWTextureCount
-				+ spaceInfo.m_ResourceStats.m_SamplerCount
-				+ spaceInfo.m_ResourceStats.m_StorageBufferCount
-				+ spaceInfo.m_ResourceStats.m_RWBufferCount;
+			uint32_t bindingCount = spaceInfo.m_ResourceStats.m_CBufferBindings.size()
+				+ spaceInfo.m_ResourceStats.m_TextureBindings.size()
+				+ spaceInfo.m_ResourceStats.m_RWTextureBindings.size()
+				+ spaceInfo.m_ResourceStats.m_SamplerBindings.size()
+				+ spaceInfo.m_ResourceStats.m_StorageBufferBindings.size()
+				+ spaceInfo.m_ResourceStats.m_RWBufferBindings.size();
 
 			DescriptorSetDesc descSetDesc;
+			castl::vector<vk::DescriptorSetLayoutBinding> bindings;
 			descSetDesc.descs.reserve(bindingCount);
-
-			//castl::deque<>
+			bindings.reserve(bindingCount);
+			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_CBufferBindings)
+			{
+				vk::DescriptorSetLayoutBinding bindingDesc;
+				bindingDesc.binding = bindingIndex;
+				bindingDesc.descriptorCount = 1;
+				bindingDesc.descriptorType = vk::DescriptorType::eUniformBuffer;
+				bindings.push_back(bindingDesc);
+			}
+			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_TextureBindings)
+			{
+				vk::DescriptorSetLayoutBinding bindingDesc;
+				bindingDesc.binding = bindingIndex;
+				bindingDesc.descriptorCount = 1;
+				bindingDesc.descriptorType = vk::DescriptorType::eSampledImage;
+				bindings.push_back(bindingDesc);
+			}
+			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_RWTextureBindings)
+			{
+				vk::DescriptorSetLayoutBinding bindingDesc;
+				bindingDesc.binding = bindingIndex;
+				bindingDesc.descriptorCount = 1;
+				bindingDesc.descriptorType = vk::DescriptorType::eStorageImage;
+				bindings.push_back(bindingDesc);
+			}
+			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_SamplerBindings)
+			{
+				vk::DescriptorSetLayoutBinding bindingDesc;
+				bindingDesc.binding = bindingIndex;
+				bindingDesc.descriptorCount = 1;
+				bindingDesc.descriptorType = vk::DescriptorType::eSampler;
+				bindings.push_back(bindingDesc);
+			}
+			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_StorageBufferBindings)
+			{
+				vk::DescriptorSetLayoutBinding bindingDesc;
+				bindingDesc.binding = bindingIndex;
+				bindingDesc.descriptorCount = 1;
+				bindingDesc.descriptorType = vk::DescriptorType::eStorageBuffer;
+				bindings.push_back(bindingDesc);
+			}
+			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_RWBufferBindings)
+			{
+				vk::DescriptorSetLayoutBinding bindingDesc;
+				bindingDesc.binding = bindingIndex;
+				bindingDesc.descriptorCount = 1;
+				bindingDesc.descriptorType = vk::DescriptorType::eStorageBuffer;
+				bindings.push_back(bindingDesc);
+			}
+			auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
+			m_DescriptorSetDescs[spaceID] = descSetDesc;
+			m_DescriptorSetsLayouts[spaceID] = descSetLayout->GetLayout();
 		}
 	}
 
