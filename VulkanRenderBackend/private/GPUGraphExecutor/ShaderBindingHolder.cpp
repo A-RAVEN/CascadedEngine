@@ -2,6 +2,7 @@
 #include <VulkanApplication.h>
 #include <DescriptorAllocation/DescriptorLayoutPool.h>
 #include "ShaderBindingHolder.h"
+#include <ShaderStruct/VKShaderStruct.h>
 
 namespace graphics_backend
 {
@@ -66,64 +67,63 @@ namespace graphics_backend
 		}
 	};
 
-	void ShaderBindingInstance::InitShaderBindingLayouts(CVulkanApplication& application
-		, ShaderCompilerSlang::ShaderReflectionData const& reflectionData
-		, castl::string const& debugName)
-	{
-		castl::string debug = "binding For Shader " + debugName + ": ";
-		p_Application = &application;
-		p_ReflectionData = &reflectionData;
-		m_DescriptorSetsLayouts.resize(reflectionData.m_BindingData.size());
-		m_DescriptorSetDescs.resize(reflectionData.m_BindingData.size());
-		for (int sid = 0; sid < reflectionData.m_BindingData.size(); ++sid)
-		{
-			auto& sourceSet = reflectionData.m_BindingData[sid];
-			uint32_t bindingCount = sourceSet.GetBindingCount();
-
-			DescriptorSetDesc descSetDesc;
-			descSetDesc.descs.reserve(bindingCount);
-			for (auto& uniformBuf : sourceSet.m_UniformBuffers)
-			{
-				DescriptorDesc bindingDesc;
-				bindingDesc.bindingIndex = uniformBuf.m_BindingIndex;
-				bindingDesc.arraySize = 1;
-				bindingDesc.descType = vk::DescriptorType::eUniformBuffer;
-				descSetDesc.descs.push_back(bindingDesc);
-				debug += "Uniform Buffer Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(uniformBuf.m_BindingIndex) + " ";
-			}
-			for (auto& textureBinding : sourceSet.m_Textures)
-			{
-				DescriptorDesc bindingDesc;
-				bindingDesc.bindingIndex = textureBinding.m_BindingIndex;
-				bindingDesc.arraySize = textureBinding.m_Count;
-				bindingDesc.descType = vk::DescriptorType::eSampledImage;
-				descSetDesc.descs.push_back(bindingDesc);
-				debug += "Texture Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(textureBinding.m_BindingIndex) + " ";
-			}
-			for (auto& samplerBinding : sourceSet.m_Samplers)
-			{
-				DescriptorDesc bindingDesc;
-				bindingDesc.bindingIndex = samplerBinding.m_BindingIndex;
-				bindingDesc.arraySize = samplerBinding.m_Count;
-				bindingDesc.descType = vk::DescriptorType::eSampler;
-				descSetDesc.descs.push_back(bindingDesc);
-				debug += "Sampler Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(samplerBinding.m_BindingIndex) + " ";
-			}
-			for (auto& storageBufferBinding : sourceSet.m_Buffers)
-			{
-				DescriptorDesc bindingDesc;
-				bindingDesc.bindingIndex = storageBufferBinding.m_BindingIndex;
-				bindingDesc.arraySize = storageBufferBinding.m_Count;
-				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
-				descSetDesc.descs.push_back(bindingDesc);
-				debug += "Storage Buffer Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(storageBufferBinding.m_BindingIndex) + " ";
-			}
-			auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
-			m_DescriptorSetDescs[sid] = descSetDesc;
-			m_DescriptorSetsLayouts[sid] = descSetLayout->GetLayout();
-		}
-		//castl::cout << debug << castl::endl;
-	}
+	//void ShaderBindingInstance::InitShaderBindingLayouts(CVulkanApplication& application
+	//	, ShaderCompilerSlang::ShaderReflectionData const& reflectionData
+	//	, castl::string const& debugName)
+	//{
+	//	castl::string debug = "binding For Shader " + debugName + ": ";
+	//	p_Application = &application;
+	//	p_ReflectionData = &reflectionData;
+	//	m_DescriptorSetsLayouts.resize(reflectionData.m_BindingData.size());
+	//	m_DescriptorSetDescs.resize(reflectionData.m_BindingData.size());
+	//	for (int sid = 0; sid < reflectionData.m_BindingData.size(); ++sid)
+	//	{
+	//		auto& sourceSet = reflectionData.m_BindingData[sid];
+	//		uint32_t bindingCount = sourceSet.GetBindingCount();
+	//		DescriptorSetDesc descSetDesc;
+	//		descSetDesc.descs.reserve(bindingCount);
+	//		for (auto& uniformBuf : sourceSet.m_UniformBuffers)
+	//		{
+	//			DescriptorDesc bindingDesc;
+	//			bindingDesc.bindingIndex = uniformBuf.m_BindingIndex;
+	//			bindingDesc.arraySize = 1;
+	//			bindingDesc.descType = vk::DescriptorType::eUniformBuffer;
+	//			descSetDesc.descs.push_back(bindingDesc);
+	//			debug += "Uniform Buffer Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(uniformBuf.m_BindingIndex) + " ";
+	//		}
+	//		for (auto& textureBinding : sourceSet.m_Textures)
+	//		{
+	//			DescriptorDesc bindingDesc;
+	//			bindingDesc.bindingIndex = textureBinding.m_BindingIndex;
+	//			bindingDesc.arraySize = textureBinding.m_Count;
+	//			bindingDesc.descType = vk::DescriptorType::eSampledImage;
+	//			descSetDesc.descs.push_back(bindingDesc);
+	//			debug += "Texture Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(textureBinding.m_BindingIndex) + " ";
+	//		}
+	//		for (auto& samplerBinding : sourceSet.m_Samplers)
+	//		{
+	//			DescriptorDesc bindingDesc;
+	//			bindingDesc.bindingIndex = samplerBinding.m_BindingIndex;
+	//			bindingDesc.arraySize = samplerBinding.m_Count;
+	//			bindingDesc.descType = vk::DescriptorType::eSampler;
+	//			descSetDesc.descs.push_back(bindingDesc);
+	//			debug += "Sampler Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(samplerBinding.m_BindingIndex) + " ";
+	//		}
+	//		for (auto& storageBufferBinding : sourceSet.m_Buffers)
+	//		{
+	//			DescriptorDesc bindingDesc;
+	//			bindingDesc.bindingIndex = storageBufferBinding.m_BindingIndex;
+	//			bindingDesc.arraySize = storageBufferBinding.m_Count;
+	//			bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
+	//			descSetDesc.descs.push_back(bindingDesc);
+	//			debug += "Storage Buffer Space:" + castl::to_string(sid) + " Binding:" + castl::to_string(storageBufferBinding.m_BindingIndex) + " ";
+	//		}
+	//		auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
+	//		m_DescriptorSetDescs[sid] = descSetDesc;
+	//		m_DescriptorSetsLayouts[sid] = descSetLayout->GetLayout();
+	//	}
+	//	//castl::cout << debug << castl::endl;
+	//}
 
 	void ShaderBindingInstance::InitShaderBindingLayoutsNew(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName)
 	{
@@ -132,11 +132,12 @@ namespace graphics_backend
 
 		auto& spaceInfos = p_ReflectionData->m_BindingInfo.m_SpaceInfos;
 		auto& hierarcies = p_ReflectionData->m_BindingInfo.m_BindingDataHierarchies;
-		m_DescriptorSetsLayouts.resize(spaceInfos.size());
-		m_DescriptorSetDescs.resize(spaceInfos.size());
-		m_DescriptorSets.resize(spaceInfos.size());
+		m_DescriptorSetInstances.resize(spaceInfos.size());
+		//m_DescriptorSetDescs.resize(spaceInfos.size());
+		//m_DescriptorSets.resize(spaceInfos.size());
 		for (size_t spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
 		{
+			auto& descSetInst = m_DescriptorSetInstances[spaceID];
 			auto& spaceInfo = spaceInfos[spaceID];
 			uint32_t bindingCount = spaceInfo.m_ResourceStats.m_CBufferBindings.size()
 				+ spaceInfo.m_ResourceStats.m_TextureBindings.size()
@@ -146,62 +147,95 @@ namespace graphics_backend
 				+ spaceInfo.m_ResourceStats.m_RWBufferBindings.size();
 
 			DescriptorSetDesc descSetDesc;
-			castl::vector<vk::DescriptorSetLayoutBinding> bindings;
 			descSetDesc.descs.reserve(bindingCount);
-			bindings.reserve(bindingCount);
-			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_CBufferBindings)
+			for (auto& desc : spaceInfo.m_ResourceStats.m_CBufferBindings)
 			{
-				vk::DescriptorSetLayoutBinding bindingDesc;
-				bindingDesc.binding = bindingIndex;
-				bindingDesc.descriptorCount = 1;
-				bindingDesc.descriptorType = vk::DescriptorType::eUniformBuffer;
-				bindings.push_back(bindingDesc);
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = desc.bindingID;
+				bindingDesc.arraySize = desc.elementCount;
+				bindingDesc.descType = vk::DescriptorType::eUniformBuffer;
+				descSetDesc.descs.push_back(bindingDesc);
 			}
-			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_TextureBindings)
+			for (auto& desc : spaceInfo.m_ResourceStats.m_TextureBindings)
 			{
-				vk::DescriptorSetLayoutBinding bindingDesc;
-				bindingDesc.binding = bindingIndex;
-				bindingDesc.descriptorCount = 1;
-				bindingDesc.descriptorType = vk::DescriptorType::eSampledImage;
-				bindings.push_back(bindingDesc);
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = desc.bindingID;
+				bindingDesc.arraySize = desc.elementCount;
+				bindingDesc.descType = vk::DescriptorType::eSampledImage;
+				descSetDesc.descs.push_back(bindingDesc);
 			}
-			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_RWTextureBindings)
+			for (auto& desc : spaceInfo.m_ResourceStats.m_RWTextureBindings)
 			{
-				vk::DescriptorSetLayoutBinding bindingDesc;
-				bindingDesc.binding = bindingIndex;
-				bindingDesc.descriptorCount = 1;
-				bindingDesc.descriptorType = vk::DescriptorType::eStorageImage;
-				bindings.push_back(bindingDesc);
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = desc.bindingID;
+				bindingDesc.arraySize = desc.elementCount;
+				bindingDesc.descType = vk::DescriptorType::eStorageImage;
+				descSetDesc.descs.push_back(bindingDesc);
 			}
-			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_SamplerBindings)
+			for (auto& desc : spaceInfo.m_ResourceStats.m_SamplerBindings)
 			{
-				vk::DescriptorSetLayoutBinding bindingDesc;
-				bindingDesc.binding = bindingIndex;
-				bindingDesc.descriptorCount = 1;
-				bindingDesc.descriptorType = vk::DescriptorType::eSampler;
-				bindings.push_back(bindingDesc);
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = desc.bindingID;
+				bindingDesc.arraySize = desc.elementCount;
+				bindingDesc.descType = vk::DescriptorType::eSampler;
+				descSetDesc.descs.push_back(bindingDesc);
 			}
-			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_StorageBufferBindings)
+			for (auto& desc : spaceInfo.m_ResourceStats.m_StorageBufferBindings)
 			{
-				vk::DescriptorSetLayoutBinding bindingDesc;
-				bindingDesc.binding = bindingIndex;
-				bindingDesc.descriptorCount = 1;
-				bindingDesc.descriptorType = vk::DescriptorType::eStorageBuffer;
-				bindings.push_back(bindingDesc);
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = desc.bindingID;
+				bindingDesc.arraySize = desc.elementCount;
+				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
+				descSetDesc.descs.push_back(bindingDesc);
 			}
-			for (auto& bindingIndex : spaceInfo.m_ResourceStats.m_RWBufferBindings)
+			for (auto& desc : spaceInfo.m_ResourceStats.m_RWBufferBindings)
 			{
-				vk::DescriptorSetLayoutBinding bindingDesc;
-				bindingDesc.binding = bindingIndex;
-				bindingDesc.descriptorCount = 1;
-				bindingDesc.descriptorType = vk::DescriptorType::eStorageBuffer;
-				bindings.push_back(bindingDesc);
+				DescriptorDesc bindingDesc;
+				bindingDesc.bindingIndex = desc.bindingID;
+				bindingDesc.arraySize = desc.elementCount;
+				bindingDesc.descType = vk::DescriptorType::eStorageBuffer;
+				descSetDesc.descs.push_back(bindingDesc);
 			}
 			auto descSetLayout = application.GetGPUObjectManager().GetDescriptorSetLayoutCache().GetOrCreate(descSetDesc);
-			m_DescriptorSetDescs[spaceID] = descSetDesc;
-			m_DescriptorSetsLayouts[spaceID] = descSetLayout->GetLayout();
+			descSetInst.m_DescriptorSetDesc = descSetDesc;
+			descSetInst.m_Layout = descSetLayout->GetLayout();
 		}
 	}
+
+	void ShaderBindingInstance::InitShaderBindingSetsNew(FrameBoundResourcePool* pResourcePool)
+	{
+		auto& spaceInfos = p_ReflectionData->m_BindingInfo.m_SpaceInfos;
+		auto& hierarcies = p_ReflectionData->m_BindingInfo.m_BindingDataHierarchies;
+		auto descriptorPool = pResourcePool->descriptorPools.AquirePool();
+		for (size_t spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
+		{
+			auto& descSetInst = m_DescriptorSetInstances[spaceID];
+			auto& spaceInfo = spaceInfos[spaceID];
+			auto descSetAllocator = descriptorPool->GetOrCreate(descSetInst.m_DescriptorSetDesc->GetPoolDesc());
+			descSetInst.m_Set = descSetAllocator->AllocateSet(descSetInst.m_Layout);
+			if (!spaceInfo.m_ResourceStats.m_CBufferBindings.empty())
+			{
+				descSetInst.m_BoundUniformBuffers.clear();
+				for (int cbufID = 0; cbufID < spaceInfo.m_ResourceStats.m_CBufferBindings.size(); ++cbufID)
+				{
+					descSetInst.m_BoundUniformBuffers.emplace_back();
+					auto& binding = descSetInst.m_BoundUniformBuffers.back();
+					auto& sourceUniformBuffer = spaceInfo.m_ResourceStats.m_CBufferBindings[cbufID];
+					binding.bindingID = sourceUniformBuffer.bindingID;
+					binding.bufferStride = sourceUniformBuffer.memoryStride;
+					binding.m_UniformBuffers.reserve(sourceUniformBuffer.elementCount);
+					for (int elementID = 0; elementID < sourceUniformBuffer.elementCount; ++elementID)
+					{
+						auto bufferObject = pResourcePool->CreateBufferWithMemory(GPUBufferDescriptor::Create(
+							EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst
+							, 1, sourceUniformBuffer.memoryStride), vk::MemoryPropertyFlagBits::eDeviceLocal);
+						binding.m_UniformBuffers.push_back(bufferObject);
+					}
+				}
+			}
+		}
+	}
+
 
 	void ShaderBindingInstance::InitShaderBindingSets(FrameBoundResourcePool* pResourcePool)
 	{
@@ -236,6 +270,7 @@ namespace graphics_backend
 			}
 		}
 	}
+
 
 
 
@@ -418,10 +453,72 @@ namespace graphics_backend
 		, vk::CommandBuffer& command
 		, castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*> const& shaderStructs)
 	{
-		for (auto pMap : shaderStructs)
+		auto& spaceInfos = p_ReflectionData->m_BindingInfo.m_SpaceInfos;
+		castl::vector<DescritprorWriter> writers;
+		writers.resize(spaceInfos.size());
+		for (int spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
 		{
-			auto& structMap = *pMap;
+			auto& spaceInfo = spaceInfos[spaceID];
+			auto& spaceStats = spaceInfo.m_ResourceStats;
+			auto& descSetInst = m_DescriptorSetInstances[spaceID];
+			auto& writer = writers[spaceID];
+			writer.Initialize(descSetInst.m_Set
+				, spaceStats.m_RWTextureCount + spaceStats.m_TextureCount
+				, spaceStats.m_SamplerCount
+				, spaceStats.m_CBufferCount
+				, spaceStats.m_StorageBufferCount);
 		}
+		//目前仅支持搜索根节点下的ConstantBuffer和ParameterBlock
+		auto& bindingInfo = p_ReflectionData->m_BindingInfo;
+
+		auto& rootHierarchy = bindingInfo.m_BindingDataHierarchies[bindingInfo.m_RootHierarchyID];
+
+		auto findShaderStructOfName = [&](cacore::NameHash const& inName)
+		{
+			for (auto pMap : shaderStructs)
+			{
+				auto& structMap = *pMap;
+				auto found = structMap.find(inName);
+				if (found != structMap.end())
+				{
+					return static_cast<VKShaderStruct const*>(found->second.get());
+				}
+			}
+			return static_cast<VKShaderStruct const*>(nullptr);
+		};
+
+		castl::deque<uint32_t> hierarchyIDs;
+		hierarchyIDs.insert(hierarchyIDs.end(), rootHierarchy.m_SubBindingHierarchies.begin(), rootHierarchy.m_SubBindingHierarchies.end());
+		while (!hierarchyIDs.empty())
+		{
+			uint32_t hierarchyID = hierarchyIDs.front();
+			hierarchyIDs.pop_front();
+			auto& hierarchy = bindingInfo.m_BindingDataHierarchies[hierarchyID];
+			hierarchyIDs.insert(hierarchyIDs.end(), hierarchy.m_SubBindingHierarchies.begin(), hierarchy.m_SubBindingHierarchies.end());
+			auto sourceStruct = findShaderStructOfName(hierarchy.m_Name);
+
+			//Write Uniform Buffer
+			if (hierarchy.m_SelfUniformBufferID != -1)
+			{
+				CA_ASSERT_BREAK(hierarchy.m_SelfUniformSpaceID != -1, "invalid uniform space id: {}", hierarchy.m_SelfUniformSpaceID);
+				auto& descSetInst = m_DescriptorSetInstances[hierarchy.m_SelfUniformSpaceID];
+				auto& uniformBufferData = sourceStruct->GetSelfUniformBuffer();
+				ShaderDescriptorSetInstance::ShaderUniformBufferBindings* pdestUniforms = descSetInst.GetUniformBufferBinding(hierarchy.m_SelfUniformBufferID);
+				CA_ASSERT_BREAK(pdestUniforms != nullptr, "cant find self uniform buffer binding: {}", hierarchy.m_Name);
+				pdestUniforms->bufferStride;
+				for (int uniformID = 0; uniformID < pdestUniforms->m_UniformBuffers.size(); ++uniformID)
+				{
+					auto& bufferHandle = pdestUniforms->m_UniformBuffers[uniformID];
+					uint32_t offset = pdestUniforms->bufferStride * uniformID;
+					auto stageBuffer = pResourcePool->CreateStagingBuffer(pdestUniforms->bufferStride, EBufferUsage::eDataSrc);
+					auto tmpMap = pResourcePool->memoryManager.ScopedMapMemory(stageBuffer.allocation);
+					memcpy(tmpMap.mappedMemory, &uniformBufferData[offset], pdestUniforms->bufferStride);
+					command.copyBuffer(stageBuffer.buffer, bufferHandle.buffer, vk::BufferCopy(0, 0, pdestUniforms->bufferStride));
+				}
+			}
+		}
+
+
 	}
 
 	void ShaderBindingInstance::FillShaderData(CVulkanApplication& application

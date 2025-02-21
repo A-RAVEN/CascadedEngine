@@ -1228,8 +1228,8 @@ namespace graphics_backend
 
 									//Shader Binding Holder
 									//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
-									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingLayouts(GetVulkanApplication(), *shaderSet.reflectionData, resolvedPSODesc.m_ShaderInfo.path);
-									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingSets(m_FrameBoundResourceManager);
+									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingLayoutsNew(GetVulkanApplication(), *shaderSet.reflectionData, resolvedPSODesc.m_ShaderInfo.path);
+									newBatchInfo.m_ShaderBindingInstance.InitShaderBindingSetsNew(m_FrameBoundResourceManager);
 
 									//auto& vertexInputBindings = resolvedPSODesc.m_VertexInputBindings;
 									auto& vertexAttributes = resolvedPSODesc.m_ShaderSet->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV).m_VertexAttributes;
@@ -1266,9 +1266,9 @@ namespace graphics_backend
 			{
 				GPUComputePassInfo::ComputeDispatchInfo newDispatchInfo{};
 				//Dont Need To Make Instance here, We Only Need Descriptor Set Layouts
-				newDispatchInfo.m_ShaderBindingInstance.InitShaderBindingLayouts(GetVulkanApplication()
+				newDispatchInfo.m_ShaderBindingInstance.InitShaderBindingLayoutsNew(GetVulkanApplication()
 					, dispatch.shader->GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType::eSpirV), dispatch.shader->GetUniqueName());
-				newDispatchInfo.m_ShaderBindingInstance.InitShaderBindingSets(m_FrameBoundResourceManager);
+				newDispatchInfo.m_ShaderBindingInstance.InitShaderBindingSetsNew(m_FrameBoundResourceManager);
 
 				auto comp = GetGPUObjectManager()
 					.GetShaderModuleCache()
@@ -1325,7 +1325,11 @@ namespace graphics_backend
 								castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*> pShaderStructs;
 								pShaderStructs.push_back(&renderPass.GetShaderStructs());
 								pShaderStructs.push_back(&batch.shaderStructs);
-								newBatchInfo.m_ShaderBindingInstance.FillShaderData(GetVulkanApplication(), *this, m_FrameBoundResourceManager, writeConstantsCommand, pShaderStructs);
+								newBatchInfo.m_ShaderBindingInstance.FillShaderData(GetVulkanApplication()
+									, *this
+									, m_FrameBoundResourceManager
+									, writeConstantsCommand
+									, pShaderStructs);
 								writeConstantsCommand.end();
 								renderPassData.m_PrepareShaderArgCommands[batchID] = writeConstantsCommand;
 							});

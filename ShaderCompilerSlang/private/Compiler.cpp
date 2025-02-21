@@ -720,10 +720,14 @@ namespace ShaderCompilerSlang
 					SpaceAndBinding bindings{};
 					if (accessPath.GetLastCBufferBinding(bindings))
 					{
+						uint32_t stride = elementTypeLayout->getStride(slang::Uniform);
 						currentHierarchy.m_SelfUniformBufferID = bindings.offset;
+						currentHierarchy.m_SelfUniformSpaceID = bindings.space;
 						auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, currentHierarchyID);
-						spaceInfo.m_ResourceStats.m_CBufferBindings.push_back(bindings.offset);
-						CA_LOG("[{}]{} uniformBuffer space: {} binding: {} arrayLength: {} category: {}\n", typeName, bindings.name, bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
+						spaceInfo.m_ResourceStats.m_CBufferBindings.push_back({ bindings.offset, elementCount, stride });
+						spaceInfo.m_ResourceStats.m_TotalBindingCount++;
+						spaceInfo.m_ResourceStats.m_CBufferCount += elementCount;
+						CA_LOG("[{}]{} uniformBuffer space: {} binding: {} stride: {} arrayLength: {} category: {}\n", typeName, bindings.name, bindings.space, bindings.offset, stride, elementCount, GetCategoryName(variableCategory));
 					}
 				}
 
@@ -800,6 +804,7 @@ namespace ShaderCompilerSlang
 				newBinding.m_TypeName = typeName;
 				newBinding.m_Name = name;
 				newBinding.m_ElementCount = elementCount;
+				newBinding.m_BindingSpace = bindings.space;
 				newBinding.m_BindingID = bindings.offset;
 				parentHierarchy.m_Bindings.push_back(newBinding);
 
@@ -807,29 +812,39 @@ namespace ShaderCompilerSlang
 				{
 				case slang::BindingType::MutableTexture:
 				{
-					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back(bindings.offset);
+					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back({ bindings.offset, elementCount });
+					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
+					spaceInfo.m_ResourceStats.m_RWTextureCount += elementCount;
 					break;
 				}
 				case slang::BindingType::Texture:
 				{
-					spaceInfo.m_ResourceStats.m_TextureBindings.push_back(bindings.offset);
+					spaceInfo.m_ResourceStats.m_TextureBindings.push_back({ bindings.offset, elementCount });
+					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
+					spaceInfo.m_ResourceStats.m_TextureCount += elementCount;
 					CA_LOG("[{}]{} texture space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				case slang::BindingType::MutableRawBuffer:
 				{
-					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back(bindings.offset);
+					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back({ bindings.offset, elementCount });
+					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
+					spaceInfo.m_ResourceStats.m_RWBufferCount+= elementCount;
 					break;
 				}
 				case slang::BindingType::RawBuffer:
 				{
-					spaceInfo.m_ResourceStats.m_StorageBufferBindings.push_back(bindings.offset);
+					spaceInfo.m_ResourceStats.m_StorageBufferBindings.push_back({ bindings.offset, elementCount });
+					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
+					spaceInfo.m_ResourceStats.m_StorageBufferCount += elementCount;
 					CA_LOG("[{}]{} buffer space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				case slang::BindingType::Sampler:
 				{
-					spaceInfo.m_ResourceStats.m_SamplerBindings.push_back(bindings.offset);
+					spaceInfo.m_ResourceStats.m_SamplerBindings.push_back({ bindings.offset, elementCount });
+					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
+					spaceInfo.m_ResourceStats.m_SamplerCount += elementCount;
 					CA_LOG("[{}]{} sampler space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}

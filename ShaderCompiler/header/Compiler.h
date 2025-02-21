@@ -163,6 +163,7 @@ namespace ShaderCompilerSlang
 	//对应到实际的Resource，比如Buffer，Texture，Sampler
 	struct ShaderResourceBinding
 	{
+		uint32_t m_BindingSpace;
 		uint32_t m_BindingID;
 		cacore::NameHash m_Name;
 		cacore::NameHash m_TypeName;
@@ -177,25 +178,40 @@ namespace ShaderCompilerSlang
 		uint32_t m_ElementCount;
 		int32_t m_ParentID;
 		int32_t m_SelfUniformBufferID;
+		int32_t m_SelfUniformSpaceID;
 		//该Struct中的Resource
 		castl::vector<ShaderResourceBinding> m_Bindings;
 		castl::vector<int32_t> m_SubBindingHierarchies;
 	};
 
+
 	struct ShaderSpaceResourceStats
 	{
-		//uint32_t m_CBufferCount;
-		//uint32_t m_SamplerCount;
-		//uint32_t m_TextureCount;
-		//uint32_t m_RWTextureCount;
-		//uint32_t m_StorageBufferCount;
-		//uint32_t m_RWBufferCount;
-		castl::vector<uint32_t> m_CBufferBindings;
-		castl::vector<uint32_t> m_SamplerBindings;
-		castl::vector<uint32_t> m_TextureBindings;
-		castl::vector<uint32_t> m_RWTextureBindings;
-		castl::vector<uint32_t> m_StorageBufferBindings;
-		castl::vector<uint32_t> m_RWBufferBindings;
+		struct BindingDesc
+		{
+			int32_t bindingID;
+			uint32_t elementCount;
+		};
+
+		struct BufferBindingDesc
+		{
+			int32_t bindingID;
+			uint32_t elementCount;
+			uint32_t memoryStride;
+		};
+		castl::vector<BufferBindingDesc> m_CBufferBindings;
+		castl::vector<BindingDesc> m_SamplerBindings;
+		castl::vector<BindingDesc> m_TextureBindings;
+		castl::vector<BindingDesc> m_RWTextureBindings;
+		castl::vector<BindingDesc> m_StorageBufferBindings;
+		castl::vector<BindingDesc> m_RWBufferBindings;
+		uint32_t m_TotalBindingCount;
+		uint32_t m_CBufferCount;
+		uint32_t m_SamplerCount;
+		uint32_t m_TextureCount;
+		uint32_t m_RWTextureCount;
+		uint32_t m_StorageBufferCount;
+		uint32_t m_RWBufferCount;
 	};
 
 	struct ShaderSpaceInfo
@@ -236,7 +252,10 @@ namespace ShaderCompilerSlang
 		//	return m_SpaceInfos[spaceID];
 		//}
 
-		int32_t NewHierarchy(int32_t parentID, cacore::NameHash const& name, cacore::NameHash const& typeName, uint32_t elementCount)
+		int32_t NewHierarchy(int32_t parentID
+			, cacore::NameHash const& name
+			, cacore::NameHash const& typeName
+			, uint32_t elementCount)
 		{
 
 			ShaderBindingHierarchy newHierarchy{};
@@ -245,6 +264,7 @@ namespace ShaderCompilerSlang
 			newHierarchy.m_ElementCount = elementCount;
 			newHierarchy.m_ParentID = parentID;
 			newHierarchy.m_SelfUniformBufferID = -1;
+			newHierarchy.m_SelfUniformSpaceID = -1;
 			if (parentID >= 0)
 			{
 				assert(parentID < m_BindingDataHierarchies.size());

@@ -13,10 +13,36 @@ namespace graphics_backend
 		virtual vk::ImageView GetImageView(ImageHandle const& handle, GPUTextureView const& view) = 0;
 	};
 
+	struct ShaderDescriptorSetInstance
+	{
+		vk::DescriptorSetLayout m_Layout;
+		cacore::HashObj<DescriptorSetDesc> m_DescriptorSetDesc;
+		vk::DescriptorSet m_Set;
+		struct ShaderUniformBufferBindings
+		{
+			uint32_t bindingID;
+			uint32_t bufferStride;
+			castl::vector<VKBufferObject> m_UniformBuffers;
+		};
+		castl::vector<ShaderUniformBufferBindings> m_BoundUniformBuffers;
+
+		ShaderUniformBufferBindings* GetUniformBufferBinding(uint32_t bindingID)
+		{
+			for (auto& binding : m_BoundUniformBuffers)
+			{
+				if (binding.bindingID == bindingID)
+				{
+					return &binding;
+				}
+			}
+			return nullptr;
+		}
+	};
+
 	class ShaderBindingInstance
 	{
 	public:
-		void InitShaderBindingLayouts(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
+		//void InitShaderBindingLayouts(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
 		void InitShaderBindingLayoutsNew(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
 		void InitShaderBindingSets(FrameBoundResourcePool* pResourcePool);
 		void InitShaderBindingSetsNew(FrameBoundResourcePool* pResourcePool);
@@ -31,9 +57,13 @@ namespace graphics_backend
 			, FrameBoundResourcePool* pResourcePool
 			, vk::CommandBuffer& command
 			, castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*> const& shaderStructs);
-		castl::vector<vk::DescriptorSet> m_DescriptorSets;
+		
+		castl::vector<ShaderDescriptorSetInstance> m_DescriptorSetInstances;
+
 		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
 		castl::vector<cacore::HashObj<DescriptorSetDesc>> m_DescriptorSetDescs;
+
+		castl::vector<vk::DescriptorSet> m_DescriptorSets;
 		castl::map<uint32_t, castl::vector<VKBufferObject>> m_UniformBuffers;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 		CVulkanApplication* p_Application;
@@ -42,4 +72,6 @@ namespace graphics_backend
 		castl::vector<castl::pair<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess>> m_BufferHandles;
 		castl::vector<castl::pair<ImageHandle, ShaderCompilerSlang::EShaderResourceAccess>> m_ImageHandles;
 	};
+
+
 }

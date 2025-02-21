@@ -12,6 +12,9 @@ namespace graphics_backend
 	class GPUMemoryResourceManager;
 	struct MapMemoryScope
 	{
+		MapMemoryScope(MapMemoryScope const&) = delete;
+		MapMemoryScope& operator=(MapMemoryScope const&) = delete;
+		MapMemoryScope(MapMemoryScope&&) = default;
 		MapMemoryScope(void* mappedMemory, VmaAllocation allocation, GPUMemoryResourceManager* pManager)
 			: mappedMemory(mappedMemory)
 			, m_Allocation(allocation)
