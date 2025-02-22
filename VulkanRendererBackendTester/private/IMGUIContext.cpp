@@ -488,7 +488,7 @@ namespace imgui_display
 
 		initializeGraph->ScheduleData(ImageHandle{ m_Fontimage }, fontData, texWidth * texHeight * sizeof(uint8_t));
 		IM_FREE(fontData);
-		m_ImguiShaderSet = resourceSystem->GetOrLoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle");
+		//m_ImguiShaderSet = resourceSystem->GetOrLoadResource<ShaderResrouce>("Shaders/Imgui.shaderbundle");
 
 		InitImGUIPlatformFunctors();
 
@@ -738,12 +738,12 @@ namespace imgui_display
 		}
 
 		m_WindowHandles.push_back(pUserData->pWindowSurface);
-		auto shaderArgs = castl::make_shared<ShaderArgList>();
-		pUserData->m_ShaderArgs = shaderArgs;
+		auto shaderArgs = GetRenderBackend()->CreateShaderStruct("ImguiContext");
+		pUserData->m_ShaderStruct = shaderArgs;
 		shaderArgs->SetValue(CANAME("IMGUIScale_Pos"), meshScale_Pos);
 		shaderArgs->SetSampler(CANAME("IMGUITextureSampler"), TextureSamplerDescriptor::Create());
 
-		auto defaultImageArgs = castl::make_shared<ShaderArgList>();
+		auto defaultImageArgs = GetRenderBackend()->CreateShaderStruct("IMGUITextureBinding");
 		defaultImageArgs->SetImage(CANAME("IMGUITexture"), m_Fontimage
 			, GPUTextureView::CreateDefaultForSampling(ETextureFormat::E_R8_UNORM, GPUTextureSwizzle::SingleChannel(EColorChannel::eR)));
 
@@ -782,7 +782,7 @@ namespace imgui_display
 						textureContext->m_RenderTarget = ImageHandle("ExtraViewport", inoutHandleID++);
 						renderGraph->AllocImage(textureContext->m_RenderTarget, textureContext->m_TextureDescriptor);
 
-						auto customImageArgs = castl::make_shared<ShaderArgList>();
+						auto customImageArgs = GetRenderBackend()->CreateShaderStruct("IMGUITextureBinding");
 						customImageArgs->SetImage(CANAME("IMGUITexture"), textureContext->m_RenderTarget, GPUTextureView::CreateDefaultForSampling(textureContext->m_TextureDescriptor.format));
 						pUserData->m_TextureBindings.push_back(customImageArgs);
 					}
@@ -818,8 +818,8 @@ namespace imgui_display
 
 		auto renderPass = RenderPass::New(backBuffer, AttachmentConfig::Clear())
 			.SetPipelineState({ {}, {}, ColorAttachmentsBlendStates::AlphaTransparent()})
-			.PushShaderArguments("imguiCommon", pUserData->m_ShaderArgs)
-			.SetShaders(m_ImguiShaderSet.get());
+			.SetParam(CANAME("imguiCommon"), pUserData->m_ShaderStruct)
+			.SetShaderInfo({"Shaders/Imgui"});
 
 		for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
 		{
@@ -829,7 +829,7 @@ namespace imgui_display
 
 			renderPass.DrawCall(
 				DrawCallBatch::New()
-				.PushArgList(bindings)
+				.SetParam(CANAME("imguiTextureBinding"), bindings)
 				.SetVertexBuffer(vertexInputDesc, pUserData->m_VertexBuffer)
 				.SetIndexBuffer(EIndexBufferType::e16, pUserData->m_IndexBuffer, 0)
 				.Draw([&](CommandList& commandList)

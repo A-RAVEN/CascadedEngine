@@ -44,7 +44,7 @@ namespace graphics_backend
 #pragma region Render Pass And DrawCalls
 	struct PipelineDescData
 	{
-		IShaderSet const* m_ShaderSet;
+		//IShaderSet const* m_ShaderSet;
 		ShaderInfo m_ShaderInfo;
 		cacore::HashObj<CPipelineStateObject> m_PipelineStates;
 		cacore::HashObj <InputAssemblyStates> m_InputAssemblyStates;
@@ -52,7 +52,7 @@ namespace graphics_backend
 		static PipelineDescData CombindDescData(PipelineDescData const& parent, PipelineDescData const& child)
 		{
 			PipelineDescData newDescData{};
-			newDescData.m_ShaderSet = child.m_ShaderSet ? child.m_ShaderSet : parent.m_ShaderSet;
+			//newDescData.m_ShaderSet = child.m_ShaderSet ? child.m_ShaderSet : parent.m_ShaderSet;
 			newDescData.m_ShaderInfo = child.m_ShaderInfo.isValid() ? child.m_ShaderInfo : parent.m_ShaderInfo;
 			newDescData.m_PipelineStates = child.m_PipelineStates.Valid() ? child.m_PipelineStates : parent.m_PipelineStates;
 			newDescData.m_InputAssemblyStates = child.m_InputAssemblyStates.Valid() ? child.m_InputAssemblyStates : parent.m_InputAssemblyStates;
@@ -91,11 +91,11 @@ namespace graphics_backend
 			return *this;
 		}
 
-		inline DrawCallBatch& SetShaderSet(IShaderSet const* pShaderSet)
-		{
-			pipelineStateDesc.m_ShaderSet = pShaderSet;
-			return *this;
-		}
+		//inline DrawCallBatch& SetShaderSet(IShaderSet const* pShaderSet)
+		//{
+		//	pipelineStateDesc.m_ShaderSet = pShaderSet;
+		//	return *this;
+		//}
 
 		inline DrawCallBatch& SetShaderInfo(ShaderInfo const& shaderInfo)
 		{
@@ -105,20 +105,21 @@ namespace graphics_backend
 
 		inline DrawCallBatch& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
 		{
+			CA_ASSERT_BREAK(shaderStruct != nullptr, "Shader Struct Is Null When Setting Param:{}", name);
 			shaderStructs[name] = shaderStruct;
 			return *this;
 		}
 
-		inline DrawCallBatch& PushArgList(castl::string const& name, castl::shared_ptr<ShaderArgList> const& argList)
-		{
-			//pipelineStateDesc.shaderArgLists.push_back(castl::make_pair(name, argList));
-			return *this;
-		}
+		//inline DrawCallBatch& PushArgList(castl::string const& name, castl::shared_ptr<ShaderArgList> const& argList)
+		//{
+		//	//pipelineStateDesc.shaderArgLists.push_back(castl::make_pair(name, argList));
+		//	return *this;
+		//}
 
-		inline DrawCallBatch& PushArgList(castl::shared_ptr<ShaderArgList> const& argList)
-		{
-			return PushArgList("", argList);
-		}
+		//inline DrawCallBatch& PushArgList(castl::shared_ptr<ShaderArgList> const& argList)
+		//{
+		//	return PushArgList("", argList);
+		//}
 
 		inline DrawCallBatch& SetVertexBuffer(cacore::HashObj<VertexInputsDescriptor> const& vertexInputDesc, BufferHandle const& bufferHandle);
 		inline DrawCallBatch& SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset = 0);
@@ -203,14 +204,14 @@ namespace graphics_backend
 			m_AttachmentConfigs[index] = attachmentConfig;
 		}
 		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
-		inline RenderPass& PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments);
-		inline RenderPass& PushShaderArguments(castl::shared_ptr<ShaderArgList> const& shaderArguments)
-		{
-			return PushShaderArguments("", shaderArguments);
-		}
+		//inline RenderPass& PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments);
+		//inline RenderPass& PushShaderArguments(castl::shared_ptr<ShaderArgList> const& shaderArguments)
+		//{
+		//	return PushShaderArguments("", shaderArguments);
+		//}
 		inline RenderPass& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct);
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
-		inline RenderPass& SetShaders(IShaderSet const* shaderSet);
+		//inline RenderPass& SetShaders(IShaderSet const* shaderSet);
 		inline RenderPass& SetShaderInfo(ShaderInfo const& shaderInfo);
 		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
 
@@ -244,9 +245,9 @@ namespace graphics_backend
 		{
 			IShaderSet const* shader;
 			castl::string kernelName;
-			castl::vector<
-				castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
-			> shaderArgLists;
+			//castl::vector<
+			//	castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
+			//> shaderArgLists;
 			castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
 			uint32_t x;
 			uint32_t y;
@@ -270,9 +271,9 @@ namespace graphics_backend
 			return newBatch;
 		}
 		//Shader Args
-		castl::vector<
-			castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
-		> shaderArgLists;
+		//castl::vector<
+		//	castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
+		//> shaderArgLists;
 		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
 		//Dispatchs
 		castl::vector<ComputeDispatch> dispatchs;
@@ -283,11 +284,11 @@ namespace graphics_backend
 			return *this;
 		}
 
-		ComputeBatch& PushArgList(castl::string name, castl::shared_ptr<ShaderArgList> const& argList)
-		{
-			shaderArgLists.push_back(castl::make_pair(name, argList));
-			return *this;
-		}
+		//ComputeBatch& PushArgList(castl::string name, castl::shared_ptr<ShaderArgList> const& argList)
+		//{
+		//	shaderArgLists.push_back(castl::make_pair(name, argList));
+		//	return *this;
+		//}
 		ComputeBatch& Dispatch(IShaderSet const* shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z
 			, castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const& shaderStructs = {})
 		{
@@ -458,11 +459,11 @@ namespace graphics_backend
 		return *this;
 	}
 
-	RenderPass& RenderPass::PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments)
-	{
-		//m_PipelineStates.shaderArgLists.push_back(castl::make_pair(name, shaderArguments));
-		return *this;
-	}
+	//RenderPass& RenderPass::PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments)
+	//{
+	//	//m_PipelineStates.shaderArgLists.push_back(castl::make_pair(name, shaderArguments));
+	//	return *this;
+	//}
 
 	inline RenderPass& RenderPass::SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
 	{
@@ -470,11 +471,11 @@ namespace graphics_backend
 		return *this;
 	}
 
-	RenderPass& RenderPass::SetShaders(IShaderSet const* shaderSet)
-	{
-		m_PipelineStates.m_ShaderSet = shaderSet;
-		return *this;
-	}
+	//RenderPass& RenderPass::SetShaders(IShaderSet const* shaderSet)
+	//{
+	//	m_PipelineStates.m_ShaderSet = shaderSet;
+	//	return *this;
+	//}
 
 	RenderPass& RenderPass::SetShaderInfo(ShaderInfo const& shaderInfo)
 	{

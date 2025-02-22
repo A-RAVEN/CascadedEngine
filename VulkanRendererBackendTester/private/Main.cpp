@@ -118,13 +118,13 @@ int main(int argc, char *argv[])
 	testData->SetStruct(CANAME("testSubBlock"), testData1, 0);
 	testData->SetStruct(CANAME("testSubBlock"), testData1, 1);
 
-	auto pMeshShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle");
+	//auto pMeshShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestStaticMeshShader.shaderbundle");
 
-	auto pFinalBlitShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/testFinalBlit.shaderbundle");
+	//auto pFinalBlitShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/testFinalBlit.shaderbundle");
 
-	auto pTestComputeShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestComputeShader.shaderbundle");
+	//auto pTestComputeShaderResource = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/TestComputeShader.shaderbundle");
 
-	auto pFinalBlitShader = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/FinalBlit.shaderbundle");
+	//auto pFinalBlitShader = pResourceManagingSystem->GetOrLoadResource<ShaderResrouce>("Shaders/FinalBlit.shaderbundle");
 
 	auto pTestMeshResource = pResourceManagingSystem->GetOrLoadResource<StaticMeshResource>("Models/VikingRoom/mesh.scene");
 
@@ -199,17 +199,17 @@ int main(int argc, char *argv[])
 	meshMaterial0.shaderStruct = pBackend->CreateShaderStruct(CANAME("MeshMaterial"));
 	meshMaterial0.shaderStruct->SetImage(CANAME("albedoTexture"), texture1)
 		.SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
-	meshMaterial0.shaderSet = pMeshShaderResource.get();
+	meshMaterial0.shaderSet = { "Shaders/TestStaticMeshShader" };
 
 	MeshMaterial meshMaterial1;
 	meshMaterial1.pipelineStateObject = {
 		DepthStencilStates::NormalOpaque()
 		, RasterizerStates::CullBack()
 	};
-	meshMaterial0.shaderStruct = pBackend->CreateShaderStruct(CANAME("MeshMaterial"));
-	meshMaterial0.shaderStruct->SetImage(CANAME("albedoTexture"), texture)
+	meshMaterial1.shaderStruct = pBackend->CreateShaderStruct(CANAME("MeshMaterial"));
+	meshMaterial1.shaderStruct->SetImage(CANAME("albedoTexture"), texture)
 		.SetSampler(CANAME("sampler"), TextureSamplerDescriptor::Create());
-	meshMaterial1.shaderSet = pMeshShaderResource.get();
+	meshMaterial1.shaderSet = { "Shaders/TestStaticMeshShader" };
 
 
 	MeshRenderer meshRenderer{};
@@ -353,7 +353,7 @@ int main(int argc, char *argv[])
 						newGraph->
 							AllocImage(colorTexture, colorTextureDesc)
 							.AllocImage(depthTexture, depthTextureDesc);
-						castl::shared_ptr<ShaderArgList> finalBlitShaderArgList = castl::make_shared<ShaderArgList>();
+						auto finalBlitShaderArgList = pBackend->CreateShaderStruct("FinalBlitInputs");
 						finalBlitShaderArgList->SetImage(CANAME("SourceTexture"), colorTexture, GPUTextureView::CreateDefaultForSampling(viewContext.m_TextureDescriptor.format));
 						finalBlitShaderArgList->SetSampler(CANAME("SourceSampler"), TextureSamplerDescriptor::Create());
 						RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
@@ -367,8 +367,8 @@ int main(int argc, char *argv[])
 							(
 								RenderPass::New(viewContext.m_RenderTarget)
 								.SetPipelineState({})
-								.PushShaderArguments(finalBlitShaderArgList)
-								.SetShaders(pFinalBlitShader.get())
+								.SetParam("finalBlitInputs", finalBlitShaderArgList)
+								.SetShaderInfo({"Shaders/FinalBlit"})
 								.DrawCall
 								(
 									DrawCallBatch::New()

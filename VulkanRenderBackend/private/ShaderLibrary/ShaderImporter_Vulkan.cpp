@@ -30,13 +30,15 @@ namespace graphics_backend
 				if (postfix == ".slang")
 				{
 					auto relative_path = cafs::relative(p.path(), sourcePath);
+					auto shaderpath = relative_path;
+					shaderpath.replace_extension("");
 
 					auto pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared();
 					pCompiler->BeginCompileTask();
 					pCompiler->AddInlcudePath(sourcePath.generic_string().c_str());
 					pCompiler->AddSourceFile(p.path().generic_string().c_str());
 					pCompiler->EnableDebugInfo();
-					pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eDXIL);
+					pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
 					pCompiler->Compile();
 					if (pCompiler->HasError())
 					{
@@ -44,11 +46,11 @@ namespace graphics_backend
 					}
 					else
 					{
-						cacore::PathHash shaderPathHash = relative_path;
+						cacore::PathHash shaderPathHash = shaderpath;
 						auto compileResults = pCompiler->GetResults();
 						for (auto& result : compileResults)
 						{
-							if (result.targetType == ShaderCompilerSlang::EShaderTargetType::eDXIL)
+							if (result.targetType == ShaderCompilerSlang::EShaderTargetType::eSpirV)
 							{
 								auto& shaderInfo = shaderLibrary->m_ShaderFiles[shaderPathHash];
 								shaderInfo.entryPointToShaderProgram.clear();
@@ -66,7 +68,6 @@ namespace graphics_backend
 									}
 									cacore::NameHash entryPointName = program.entryPointName;
 									shaderInfo.entryPointToShaderProgram.push_back(castl::make_pair(entryPointName, shaHash));
-									//std::cout << relative_path.generic_string() << ":" << shaHash.toString() << std::endl;
 									found->second.sourceKeys.insert(ShaderSourceKey{ shaderPathHash, entryPointName });
 								}
 
@@ -79,8 +80,7 @@ namespace graphics_backend
 										auto& shaderStruct = pairs.second;
 										if (name == CANAME("__Root"))
 										{
-											auto shaderpath = relative_path;
-											shaderpath.replace_extension("");
+			
 											shaderLibrary->m_ShaderRootStructs.insert(castl::make_pair(shaderpath, shaderStruct));
 											castl::cout << "Root Struct For " << shaderpath.generic_string() << castl::endl;
 										}

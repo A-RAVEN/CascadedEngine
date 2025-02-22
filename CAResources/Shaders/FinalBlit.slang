@@ -1,5 +1,9 @@
-Texture2D<float4> SourceTexture;
-SamplerState SourceSampler;
+struct FinalBlitInputs
+{
+    Texture2D<float4> SourceTexture;
+    SamplerState SourceSampler;
+};
+ParameterBlock<FinalBlitInputs> finalBlitInputs;
 
 struct VertexInput
 {
@@ -29,5 +33,5 @@ VertexToFragment vert(in VertexInput input)
 [shader("fragment")]
 float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    return SourceTexture.SampleLevel(SourceSampler, input.uv, 0).xyzw;
+    return finalBlitInputs.SourceTexture.SampleLevel(finalBlitInputs.SourceSampler, input.uv, 0).xyzw;
 }

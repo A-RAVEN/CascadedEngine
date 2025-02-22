@@ -38,7 +38,7 @@ namespace imgui_display
 			m_Sissors.clear();
 			m_VertexBuffer = {};
 			m_IndexBuffer = {};
-			m_ShaderArgs = nullptr;
+			m_ShaderStruct = nullptr;
 		}
 	public:
 		int IgnoreWindowPosEventFrame = -1;
@@ -52,10 +52,10 @@ namespace imgui_display
 
 		BufferHandle m_VertexBuffer = {};
 		BufferHandle m_IndexBuffer = {};
-		castl::shared_ptr<ShaderArgList> m_ShaderArgs = nullptr;
+		castl::shared_ptr<ShaderStruct> m_ShaderStruct = nullptr;
 		castl::vector<castl::tuple<uint32_t, uint32_t, uint32_t>> m_IndexDataOffsets;
 		castl::vector<glm::uvec4> m_Sissors;
-		castl::vector<castl::shared_ptr<ShaderArgList>> m_TextureBindings;
+		castl::vector<castl::shared_ptr<ShaderStruct>> m_TextureBindings;
 		bool m_Draw = false;
 	};
 
@@ -111,6 +111,6 @@ namespace imgui_display
 		castl::shared_ptr<CRenderBackend> p_RenderBackend;
 		threadsafe_utils::TThreadSafePointerPool<IMGUIViewportContext> m_ViewportContextPool;
 		castl::deque<IMGUITextureViewContext> m_TextureViewContexts;
-		castl::shared_ptr<IShaderSet> m_ImguiShaderSet = nullptr;
+		//castl::shared_ptr<IShaderSet> m_ImguiShaderSet = nullptr;
 	};
 }

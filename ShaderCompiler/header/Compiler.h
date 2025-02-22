@@ -20,6 +20,15 @@ namespace ShaderCompilerSlang
 		eReadWrite,
 	};
 
+	enum class EShaderResourceType : uint8_t
+	{
+		eTexture,
+		eRWTexture,
+		eSampler,
+		eStructuredBuffer,
+		eRWStructuredBuffer,
+	};
+
 	//某个数值：scalar，vector，matrix，也可能是某个结构体
 	struct UniformElement
 	{
@@ -167,6 +176,8 @@ namespace ShaderCompilerSlang
 		uint32_t m_BindingID;
 		cacore::NameHash m_Name;
 		cacore::NameHash m_TypeName;
+		EShaderResourceAccess m_Access;
+		EShaderResourceType m_ResourceType;
 		uint32_t m_ElementCount;
 	};
 

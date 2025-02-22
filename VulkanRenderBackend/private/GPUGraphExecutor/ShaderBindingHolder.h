@@ -15,17 +15,24 @@ namespace graphics_backend
 
 	struct ShaderDescriptorSetInstance
 	{
-		vk::DescriptorSetLayout m_Layout;
-		cacore::HashObj<DescriptorSetDesc> m_DescriptorSetDesc;
-		vk::DescriptorSet m_Set;
 		struct ShaderUniformBufferBindings
 		{
 			uint32_t bindingID;
 			uint32_t bufferStride;
-			castl::vector<VKBufferObject> m_UniformBuffers;
+			castl::vector<vk::Buffer> m_UniformBuffers;
 		};
-		castl::vector<ShaderUniformBufferBindings> m_BoundUniformBuffers;
 
+		vk::DescriptorSetLayout* p_Layout;
+		vk::DescriptorSet* p_Set;
+
+		void Init(vk::DescriptorSetLayout& descLayout, vk::DescriptorSet& descSet)
+		{
+			p_Layout = &descLayout;
+			p_Set = &descSet;
+		}
+		cacore::HashObj<DescriptorSetDesc> m_DescriptorSetDesc;
+
+		castl::vector<ShaderUniformBufferBindings> m_BoundUniformBuffers;
 		ShaderUniformBufferBindings* GetUniformBufferBinding(uint32_t bindingID)
 		{
 			for (auto& binding : m_BoundUniformBuffers)
@@ -42,31 +49,27 @@ namespace graphics_backend
 	class ShaderBindingInstance
 	{
 	public:
-		//void InitShaderBindingLayouts(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
 		void InitShaderBindingLayoutsNew(CVulkanApplication& application, ShaderCompilerSlang::ShaderReflectionData const& reflectionData, castl::string const& debugName);
-		void InitShaderBindingSets(FrameBoundResourcePool* pResourcePool);
 		void InitShaderBindingSetsNew(FrameBoundResourcePool* pResourcePool);
-		void InitShaderBindings(CVulkanApplication& application, FrameBoundResourcePool* pResourcePool, ShaderCompilerSlang::ShaderReflectionData const& reflectionData);
-		void FillShaderData(CVulkanApplication& application
-			, ShadderResourceProvider& resourceProvider
-			, FrameBoundResourcePool* pResourcePool
-			, vk::CommandBuffer& command
-			, castl::vector <castl::pair <castl::string, castl::shared_ptr<ShaderArgList>>> const& shaderArgLists);
+
 		void FillShaderData(CVulkanApplication& application
 			, ShadderResourceProvider& resourceProvider
 			, FrameBoundResourcePool* pResourcePool
 			, vk::CommandBuffer& command
 			, castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*> const& shaderStructs);
 		
-		castl::vector<ShaderDescriptorSetInstance> m_DescriptorSetInstances;
+		void PushUniformReadyBarriers(VulkanBarrierCollector& targetBarrierCollector, ResourceUsageFlags destUsage);
 
-		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
-		castl::vector<cacore::HashObj<DescriptorSetDesc>> m_DescriptorSetDescs;
+		uint32_t GetDescriptorSetCount() const { return static_cast<uint32_t>(m_DescriptorSetInstances.size()); }
+		castl::vector<ShaderDescriptorSetInstance>const& GetDescriptorSetInstances() const { return m_DescriptorSetInstances; }
 
-		castl::vector<vk::DescriptorSet> m_DescriptorSets;
-		castl::map<uint32_t, castl::vector<VKBufferObject>> m_UniformBuffers;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 		CVulkanApplication* p_Application;
+
+		//Descriptor Layouts And Sets
+		castl::vector<ShaderDescriptorSetInstance> m_DescriptorSetInstances;
+		castl::vector<vk::DescriptorSetLayout> m_DescriptorSetsLayouts;
+		castl::vector<vk::DescriptorSet> m_DescriptorSets;
 
 		//Collected Resources For Barrier Use
 		castl::vector<castl::pair<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess>> m_BufferHandles;

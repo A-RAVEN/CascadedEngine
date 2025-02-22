@@ -368,40 +368,66 @@ namespace ShaderCompilerSlang
 			void SetLeaf(AccessPathNode& node)
 			{
 				leaf = &node;
-				auto typeLayout = GetTypeLayoutNonArray(leaf->varLayout);
-				auto kind = typeLayout->getKind();
-				switch (kind)
+
+				if (leaf->outer != nullptr)
 				{
-				case slang::TypeReflection::Kind::ConstantBuffer:
-				case slang::TypeReflection::Kind::ParameterBlock:
-				{
-					auto containerVarLayout = typeLayout->getContainerVarLayout();
-					auto elementVarLayout = typeLayout->getElementVarLayout();
-					deepestConstantBuffer = &node;
-					if (containerVarLayout->getTypeLayout()->getSize(ParameterCategory::SubElementRegisterSpace) != 0)
+					auto parentTypeLayout = GetTypeLayoutNonArray(leaf->outer->varLayout);
+					auto kind = parentTypeLayout->getKind();
+					switch (kind)
 					{
-						deepestParameterBlock = &node;
+					case slang::TypeReflection::Kind::ConstantBuffer:
+					case slang::TypeReflection::Kind::ParameterBlock:
+					{
+						auto containerVarLayout = parentTypeLayout->getContainerVarLayout();
+						auto elementVarLayout = parentTypeLayout->getElementVarLayout();
+						CA_ASSERT_BREAK(elementVarLayout == leaf->varLayout, "Current Node Should Be Element Of Parent CBuffer Or Parameter Buffer");
+						deepestConstantBuffer = &node;
+						if (containerVarLayout->getTypeLayout()->getSize(ParameterCategory::SubElementRegisterSpace) != 0)
+						{
+							deepestParameterBlock = &node;
+						}
+						break;
 					}
-					break;
-				}
+					}
 				}
 			}
 
-			bool GetLastCBufferBinding(SpaceAndBinding& result) const
+			bool GetLastBufferBinding(SpaceAndBinding& result) const
 			{
 				result = {};
-				if (deepestConstantBuffer != nullptr)
+				if (leaf != nullptr)
 				{
-					auto varLayout = deepestConstantBuffer->varLayout;
+					auto kind = leaf->varLayout->getTypeLayout()->getKind();
+					switch(kind)
+					{
+					default:
+						CA_LOG_ERR_BREAK("Unexpected Type Kind For Buffer");
+						return false;
+					case slang::TypeReflection::Kind::ConstantBuffer:
+					case slang::TypeReflection::Kind::ParameterBlock:
+					case slang::TypeReflection::Kind::TextureBuffer:
+					case slang::TypeReflection::Kind::ShaderStorageBuffer:
+						break;
+					}
+					auto varLayout = leaf->varLayout;
 					auto typeLayout = GetTypeLayoutNonArray(varLayout);
 					auto containerLayout = typeLayout->getContainerVarLayout();
 					auto containerCategories = UnwrapCategories(containerLayout);
-					assert(containerCategories.size() <= 2 && "CBuffer Or Parameter Block Should Have Atmost Two Categories?");
+					CA_ASSERT_BREAK(containerCategories.size() <= 2, "CBuffer Or Parameter Block Should Have Atmost Two Categories?");
+					uint32_t spaceRelatedCategoryCount = 0;
 					for (auto cbufferCategory : containerCategories)
 					{
 						if (IsSpaceRelatedCategories(cbufferCategory))
 						{
-							for (auto itrNode = deepestConstantBuffer; itrNode != deepestParameterBlock; itrNode = itrNode->outer)
+							spaceRelatedCategoryCount++;
+						}
+					}
+					CA_ASSERT_BREAK(spaceRelatedCategoryCount <= 1, "CBuffer Or Parameter Block Should Have Atmost One Space Related Category");
+					for (auto cbufferCategory : containerCategories)
+					{
+						if (IsSpaceRelatedCategories(cbufferCategory))
+						{
+							for (auto itrNode = leaf; itrNode != deepestParameterBlock; itrNode = itrNode->outer)
 							{
 								auto varLayout = itrNode->varLayout;
 								auto typeLayout = varLayout->getTypeLayout();
@@ -449,7 +475,7 @@ namespace ShaderCompilerSlang
 				{
 					if (searchingCategory == ParameterCategory::None)
 					{
-						CA_LOG_ERR("Leaf category is mixed, searchingCategory Should Be Specified");
+						CA_LOG_ERR_BREAK("Leaf category is mixed, searchingCategory Should Be Specified");
 						return result;
 					}
 					auto categories = UnwrapCategories(leaf->varLayout);
@@ -464,12 +490,12 @@ namespace ShaderCompilerSlang
 				}
 				if (leafCategory == ParameterCategory::Mixed)
 				{
-					CA_LOG_ERR("searchCategory Not Found In Leaf");
+					CA_LOG_ERR_BREAK("searchCategory Not Found In Leaf");
 					return result;
 				}
 				if (searchingCategory != ParameterCategory::None && searchingCategory != leafCategory)
 				{
-					CA_LOG_ERR("searchCategory Not Matched\n");
+					CA_LOG_ERR_BREAK("searchCategory Not Matched\n");
 					return result;
 				}
 				if (IsSpaceRelatedCategories(leafCategory))
@@ -480,6 +506,10 @@ namespace ShaderCompilerSlang
 						auto typeLayout = varLayout->getTypeLayout();
 						auto category = varLayout->getCategory();
 						auto kind = typeLayout->getKind();
+						//if (category == slang::ParameterCategory::Mixed)
+						//{
+						//	auto categories = UnwrapCategories(varLayout);
+						//}
 						if (category == ParameterCategory::SubElementRegisterSpace)
 						{
 							result.space += varLayout->getOffset(ParameterCategory::SubElementRegisterSpace);
@@ -717,17 +747,21 @@ namespace ShaderCompilerSlang
 				int32_t currentHierarchyID = bindingInfo.NewHierarchy(parentHierarchyID, name, typeName, elementCount);
 				auto& currentHierarchy = bindingInfo.GetHierarchy(currentHierarchyID);
 				{
-					SpaceAndBinding bindings{};
-					if (accessPath.GetLastCBufferBinding(bindings))
+					//if (accessPath.GetLeafSpaceAndBinding(slang::ParameterCategory::ConstantBuffer))
 					{
 						uint32_t stride = elementTypeLayout->getStride(slang::Uniform);
-						currentHierarchy.m_SelfUniformBufferID = bindings.offset;
-						currentHierarchy.m_SelfUniformSpaceID = bindings.space;
-						auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, currentHierarchyID);
-						spaceInfo.m_ResourceStats.m_CBufferBindings.push_back({ bindings.offset, elementCount, stride });
-						spaceInfo.m_ResourceStats.m_TotalBindingCount++;
-						spaceInfo.m_ResourceStats.m_CBufferCount += elementCount;
-						CA_LOG("[{}]{} uniformBuffer space: {} binding: {} stride: {} arrayLength: {} category: {}\n", typeName, bindings.name, bindings.space, bindings.offset, stride, elementCount, GetCategoryName(variableCategory));
+						if (stride > 0)
+						{
+							SpaceAndBinding bindings{};
+							accessPath.GetLastBufferBinding(bindings);
+							currentHierarchy.m_SelfUniformBufferID = bindings.offset;
+							currentHierarchy.m_SelfUniformSpaceID = bindings.space;
+							auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, currentHierarchyID);
+							spaceInfo.m_ResourceStats.m_CBufferBindings.push_back({ bindings.offset, elementCount, stride });
+							spaceInfo.m_ResourceStats.m_TotalBindingCount++;
+							spaceInfo.m_ResourceStats.m_CBufferCount += elementCount;
+							CA_LOG("[{}]{} uniformBuffer space: {} binding: {} stride: {} arrayLength: {} category: {}\n", typeName, bindings.name, bindings.space, bindings.offset, stride, elementCount, GetCategoryName(variableCategory));
+						}
 					}
 				}
 
@@ -796,6 +830,7 @@ namespace ShaderCompilerSlang
 			{
 				slang::BindingType bindingType = typeLayout->getBindingRangeType(0);
 				SlangResourceAccess resourceAccess = typeLayout->getResourceAccess();
+				//CA_BREAK_IF(name == CANAME("IMGUITextureSampler"));
 				auto bindings = accessPath.GetLeafSpaceAndBinding();
 				auto& parentHierarchy = bindingInfo.GetHierarchy(parentHierarchyID);
 				auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, parentHierarchyID);
@@ -806,7 +841,7 @@ namespace ShaderCompilerSlang
 				newBinding.m_ElementCount = elementCount;
 				newBinding.m_BindingSpace = bindings.space;
 				newBinding.m_BindingID = bindings.offset;
-				parentHierarchy.m_Bindings.push_back(newBinding);
+				newBinding.m_Access = TranslateSlangResourceAccess(resourceAccess);
 
 				switch (bindingType)
 				{
@@ -815,6 +850,7 @@ namespace ShaderCompilerSlang
 					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back({ bindings.offset, elementCount });
 					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
 					spaceInfo.m_ResourceStats.m_RWTextureCount += elementCount;
+					newBinding.m_ResourceType = EShaderResourceType::eRWTexture;
 					break;
 				}
 				case slang::BindingType::Texture:
@@ -822,6 +858,7 @@ namespace ShaderCompilerSlang
 					spaceInfo.m_ResourceStats.m_TextureBindings.push_back({ bindings.offset, elementCount });
 					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
 					spaceInfo.m_ResourceStats.m_TextureCount += elementCount;
+					newBinding.m_ResourceType = EShaderResourceType::eTexture;
 					CA_LOG("[{}]{} texture space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
@@ -830,6 +867,7 @@ namespace ShaderCompilerSlang
 					spaceInfo.m_ResourceStats.m_RWBufferBindings.push_back({ bindings.offset, elementCount });
 					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
 					spaceInfo.m_ResourceStats.m_RWBufferCount+= elementCount;
+					newBinding.m_ResourceType = EShaderResourceType::eRWStructuredBuffer;
 					break;
 				}
 				case slang::BindingType::RawBuffer:
@@ -837,6 +875,7 @@ namespace ShaderCompilerSlang
 					spaceInfo.m_ResourceStats.m_StorageBufferBindings.push_back({ bindings.offset, elementCount });
 					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
 					spaceInfo.m_ResourceStats.m_StorageBufferCount += elementCount;
+					newBinding.m_ResourceType = EShaderResourceType::eStructuredBuffer;
 					CA_LOG("[{}]{} buffer space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
@@ -845,10 +884,12 @@ namespace ShaderCompilerSlang
 					spaceInfo.m_ResourceStats.m_SamplerBindings.push_back({ bindings.offset, elementCount });
 					spaceInfo.m_ResourceStats.m_TotalBindingCount++;
 					spaceInfo.m_ResourceStats.m_SamplerCount += elementCount;
+					newBinding.m_ResourceType = EShaderResourceType::eSampler;
 					CA_LOG("[{}]{} sampler space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
 				}
+				parentHierarchy.m_Bindings.push_back(newBinding);
 			}
 		}
 
@@ -1020,6 +1061,7 @@ namespace ShaderCompilerSlang
 			, BindingData const& bindingData
 			, uint32_t parentArrayLength)
 		{
+			return;
 			slang::TypeLayoutReflection* typeLayout = variable->getTypeLayout();
 			slang::TypeReflection::Kind kind = typeLayout->getKind();
 			//处理混合类型

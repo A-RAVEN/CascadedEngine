@@ -20,14 +20,14 @@ namespace cacore
 		}
 		catch (format_error err)
 		{
-			fmt::print(fg(fmt::color::crimson) | fmt::emphasis::bold | fmt::emphasis::blink
+			fmt::print(fg(fmt::color::crimson) | fmt::emphasis::bold
 				, "\n{}) [{}]\n{}\n", location.line(), location.file_name(), err.what());
 		}
 	}
 
 	template <typename... T>
 	FMT_INLINE void error_with_location(std::source_location const& location, format_string<T...> fmt, T&&... args) {
-		style_log_with_location(fg(fmt::color::crimson) | fmt::emphasis::bold | fmt::emphasis::blink, location, true, fmt, std::forward<T>(args)...);
+		style_log_with_location(fg(fmt::color::crimson) | fmt::emphasis::bold, location, true, fmt, std::forward<T>(args)...);
 	}
 
 	template <typename... T>
@@ -49,6 +49,8 @@ namespace cacore
 #define CA_LOG(_log, ...) {cacore::log_with_location(std::source_location::current(), false, _log __VA_OPT__(, __VA_ARGS__ ));}
 #define CA_LOG_IF( _condition , _log, ...) {if(_condition){CA_LOG(_log, __VA_ARGS__);}}
 #define CA_LOG_ERR(_log, ...) {cacore::error_with_location(std::source_location::current(), _log __VA_OPT__(, __VA_ARGS__ ));}
+#define CA_LOG_ERR_BREAK(_log, ...) {CA_LOG_ERR(_log, __VA_ARGS__);__debugbreak();}
 #define CA_ASSERT( _condition , _log, ...) {if(!(_condition)){CA_LOG_ERR(_log, __VA_ARGS__);}}
 #define CA_ASSERT_BREAK( _condition , _log, ...) {if(!(_condition)){CA_LOG_ERR(_log, __VA_ARGS__);__debugbreak();}}
+#define CA_BREAK_IF(_condition ) {if(_condition){__debugbreak();}}
 #define CA_CLASS_NAME(_class) (typeid(_class).name())

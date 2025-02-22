@@ -1,12 +1,16 @@
-Texture2D<float4> IMGUITexture;
+struct IMGUITextureBinding
+{
+    Texture2D<float4> IMGUITexture;
+};
+ConstantBuffer<IMGUITextureBinding> imguiTextureBinding;
 struct ImguiContext
 {
     float4 IMGUIScale_Pos;
-    SamplerState FontSampler;
+    SamplerState IMGUITextureSampler;
 
     float4 SampleFont(in float2 uv)
     {
-        return IMGUITexture.SampleLevel(FontSampler, uv, 0).xyzw;
+        return imguiTextureBinding.IMGUITexture.SampleLevel(IMGUITextureSampler, uv, 0).xyzw;
     }
 
     float2 TransformIMGUIVertex(in float2 inVert)

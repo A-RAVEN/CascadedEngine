@@ -41,9 +41,9 @@ struct MeshMaterial
 	//基础管线状态
 	CPipelineStateObject pipelineStateObject;
 	//Shader
-	IShaderSet* shaderSet;
+	ShaderInfo shaderSet;
 	//Shader参数
-	castl::shared_ptr<graphics_backend::ShaderArgList> shaderArgs;
+	//castl::shared_ptr<graphics_backend::ShaderArgList> shaderArgs;
 	castl::shared_ptr<graphics_backend::ShaderStruct> shaderStruct;
 };
 
@@ -120,9 +120,9 @@ public:
 		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , 0 };
 		pGraph->AllocBuffer(instanceTransformBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, m_Instances.size(), sizeof(glm::mat4)))
 			.ScheduleData(instanceTransformBuffer, m_Instances.data(), m_Instances.size() * sizeof(glm::mat4));
-		castl::shared_ptr<graphics_backend::ShaderArgList> instanceShaderArgs = castl::make_shared<graphics_backend::ShaderArgList>();
+		auto instanceShaderArgs = pRenderBackend->CreateShaderStruct(CANAME("MeshData"));
 		instanceShaderArgs->SetBuffer("instanceTransforms", instanceTransformBuffer);
-		pRenderPass->PushShaderArguments("meshInstanceTransforms", instanceShaderArgs);
+		pRenderPass->SetParam("meshInstanceTransforms", instanceShaderArgs);
 		uint32_t index = 0;
 		for (auto& pair : m_DrawCallInfoToDrawCallData)
 		{
@@ -134,8 +134,8 @@ public:
 				.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), bufferSize);
 
 			DrawCallBatch newDrawcallBatch = DrawCallBatch::New();
-			newDrawcallBatch.PushArgList("meshMaterialData", drawcallInfo.material->shaderArgs)
-				.SetShaderSet(drawcallInfo.material->shaderSet)
+			newDrawcallBatch.SetParam("meshMaterialData", drawcallInfo.material->shaderStruct)
+				.SetShaderInfo(drawcallInfo.material->shaderSet)
 				.SetPipelineState(drawcallInfo.material->pipelineStateObject)
 				.SetVertexBuffer(g_InstanceDescriptor, instanceIDBuffer);
 			drawcallInfo.p_GPUMeshData->DrawCall(newDrawcallBatch, drawcallInfo.submeshID, drawcallInstances.m_InstanceIDs.size());
