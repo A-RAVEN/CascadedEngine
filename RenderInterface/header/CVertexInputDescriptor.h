@@ -11,7 +11,6 @@ struct InputAssemblyStates
 
 struct VertexAttribute
 {
-	uint32_t attributeIndex;
 	uint32_t offset;
 	VertexInputFormat format;
 	cacore::NameHash semanticName;
@@ -20,7 +19,7 @@ struct VertexAttribute
 
 	static VertexAttribute Create(uint32_t offset, VertexInputFormat format, cacore::NameHash const& semanticName, uint32_t sematicIndex = 0)
 	{
-		return { 0, offset, format, semanticName, sematicIndex };
+		return { offset, format, semanticName, sematicIndex };
 	}
 };
 

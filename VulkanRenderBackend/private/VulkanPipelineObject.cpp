@@ -160,17 +160,17 @@ namespace graphics_backend
 	void CPipelineObject::Create(CPipelineObjectDescriptor const& pipelineObjectDescriptor)
 	{
 		//Vertex States
-		castl::vector<vk::VertexInputBindingDescription> vertexBindingDescriptions;
-		castl::vector<vk::VertexInputAttributeDescription> vertexAttributeDescriptions;
-		PopulateVertexInputStates(
-			vertexBindingDescriptions
-			, vertexAttributeDescriptions
-			, pipelineObjectDescriptor.vertexInputs);
+		castl::vector<vk::VertexInputBindingDescription> const& vertexBindingDescriptions = pipelineObjectDescriptor.vertexBindingDescriptions;
+		castl::vector<vk::VertexInputAttributeDescription> const& vertexAttributeDescriptions = pipelineObjectDescriptor.vertexAttributeDescriptions;
+		//PopulateVertexInputStates(
+		//	vertexBindingDescriptions
+		//	, vertexAttributeDescriptions
+		//	, pipelineObjectDescriptor.vertexInputs);
 
 		vk::PipelineVertexInputStateCreateInfo vertexStateCreateInfo({}, vertexBindingDescriptions, vertexAttributeDescriptions);
 
 		//Input Assembly
-		vk::PipelineInputAssemblyStateCreateInfo inputAssemblyInfo = PopulateInputAssemblyInfo(pipelineObjectDescriptor.vertexInputs);
+		vk::PipelineInputAssemblyStateCreateInfo const& inputAssemblyInfo = pipelineObjectDescriptor.inputAssemblyState;// PopulateInputAssemblyInfo(pipelineObjectDescriptor.vertexInputs);
 
 		//Rasterization States
 		vk::PipelineRasterizationStateCreateInfo rasterizationInfo = PopulateRasterizationStateInfo(pipelineObjectDescriptor.pso);

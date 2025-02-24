@@ -4,6 +4,15 @@
 #include <Reflection.h>
 #include "Common.h"
 
+struct RectSate
+{
+	uint32_t x;
+	uint32_t y;
+	uint32_t width;
+	uint32_t height;
+	auto operator<=>(const RectSate&) const = default;
+};
+
 struct RasterizerStates
 {
 public:

@@ -336,13 +336,7 @@ int main(int argc, char *argv[])
 						//castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
 						auto cameraArgs = pBackend->CreateShaderStruct(CANAME("CameraData"));
 						auto viewMatrix = glm::transpose(camera.GetViewProjMatrix());
-						{
-
-							{
-								//cameraArgList->SetValue(CANAME("viewProjMatrix"), viewMatrix);
-								cameraArgs->SetValue(CANAME("viewProjMatrix"), viewMatrix);
-							}
-						}
+						cameraArgs->SetValue(CANAME("viewProjMatrix"), viewMatrix);
 
 						ImageHandle colorTexture{ "ColorTexture" };
 						ImageHandle depthTexture{ "DepthTexture" };

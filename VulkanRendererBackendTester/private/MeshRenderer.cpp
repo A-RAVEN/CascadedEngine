@@ -43,3 +43,15 @@ void MeshGPUData::DrawCall(graphics_backend::DrawCallBatch& drawcallBatch, uint3
 				, submeshInfo.m_VertexArrayOffset);
 		});
 }
+
+graphics_backend::DrawCall MeshGPUData::DrawCall(uint32_t submeshID, uint32_t instanceCount)
+{
+	graphics_backend::DrawCall drawcall;
+	auto& submeshInfos = p_MeshResource->GetSubmeshInfos();
+	auto& submeshInfo = submeshInfos[submeshID];
+	drawcall.SetIndexBuffer(EIndexBufferType::e16, m_IndicesBuffer);
+	drawcall.SetVertexBuffer(m_VertexInputDescriptor, m_VertexBuffer)
+		.DrawIndexed(submeshInfo.m_IndicesCount, instanceCount
+			, submeshInfo.m_IndexArrayOffset, submeshInfo.m_VertexArrayOffset);
+	return drawcall;
+}
