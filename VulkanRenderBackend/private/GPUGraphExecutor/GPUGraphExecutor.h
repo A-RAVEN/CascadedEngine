@@ -16,10 +16,12 @@ namespace graphics_backend
 	class ComputePipelineObject;
 	class CVulkanApplication;
 
+	using ShaderStructStack = castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*>;
+
 	//Shader Binding Key
 	struct GPUShaderBindingKey
 	{
-		castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const&>  m_ShaderStructStack;
+		ShaderStructStack  m_ShaderStructStack;
 		ShaderInfo m_ShaderInfo;
 	};
 
@@ -44,11 +46,15 @@ namespace graphics_backend
 		castl::set<uint32_t> m_PredecessorPasses;
 		castl::set<uint32_t> m_SuccessorPasses;
 		castl::set<uint32_t> m_WaitingQueueFamilies;
-		//castl::vector<vk::CommandBuffer> m_PrepareShaderArgCommands;
 		castl::vector<vk::CommandBuffer> m_CommandBuffers;
-		//cacore::HashObj<GPUShaderBindingKey> m_ShaderBindingKey;
 		int GetQueueFamily() const { return m_BarrierCollector.GetQueueFamily(); }
 		virtual GPUGraph::EGraphStageType GetStageType() const = 0;
+	};
+
+	struct PrepareShaderBindingConstantsPass : public PassInfoBase
+	{
+		castl::unordered_map<cacore::HashObj<GPUShaderBindingKey>, ShaderBindingInstance> m_ShaderBindingInstances;
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eTransferPass; }
 	};
 
 	struct GPUPassInfo : public PassInfoBase
@@ -344,7 +350,7 @@ namespace graphics_backend
 		void PrepareGraph(thread_management::TaskScheduler* taskGraph);
 	private:
 		bool ValidImageHandle(ImageHandle const& handle);
-		ShaderBindingInstance& SelectShaderBindingInstance(GPUPassBatchInfo const& batchInfo);
+		ShaderBindingInstance& SelectShaderBindingInstance(cacore::HashObj<GPUShaderBindingKey>const& shaderBindingKey);
 		//void PrepareResources();
 		void InitializePasses();
 		void PrepareGraphLocalImageResources();
@@ -439,8 +445,9 @@ namespace graphics_backend
 		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
 
 		//ShaderBindingInstances
-		castl::unordered_map<cacore::HashObj<GPUShaderBindingKey>, ShaderBindingInstance> m_ShaderBindingInstances;
-		castl::vector<vk::CommandBuffer> m_PrepareShaderBindingsCommands;
+		PrepareShaderBindingConstantsPass m_PrepareShaderBindingConstantsPass;
+		//castl::unordered_map<cacore::HashObj<GPUShaderBindingKey>, ShaderBindingInstance> m_ShaderBindingInstances;
+		//castl::vector<vk::CommandBuffer> m_PrepareShaderBindingsCommands;
 
 		castl::unordered_set<castl::shared_ptr<CWindowContext>> m_WaitingWindows;
 	};

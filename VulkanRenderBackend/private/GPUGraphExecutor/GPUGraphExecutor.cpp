@@ -11,7 +11,7 @@
 
 namespace graphics_backend
 {
-	
+	constexpr int PREPARE_PASS_ID = -1;
 
 	//if source state and dst state have different queue family and source usage is not DontCare, a release barrier is required
 	bool NeedReleaseBarrier(ResourceState const& srcState, ResourceState const& dstState)
@@ -173,10 +173,10 @@ namespace graphics_backend
 		}
 	}
 
-	ShaderBindingInstance& GPUGraphExecutor::SelectShaderBindingInstance(GPUPassBatchInfo const& batchInfo)
+	ShaderBindingInstance& GPUGraphExecutor::SelectShaderBindingInstance(cacore::HashObj<GPUShaderBindingKey>const& shaderBindingKey)
 	{
-		CA_ASSERT_BREAK(batchInfo.m_ShaderBindingKey.Valid(), "Invalid Shader Binding Key");
-		auto found = m_ShaderBindingInstances.find(batchInfo.m_ShaderBindingKey);
+		CA_ASSERT_BREAK(shaderBindingKey.Valid(), "Invalid Shader Binding Key");
+		auto found = m_ShaderBindingInstances.find(shaderBindingKey);
 		CA_ASSERT_BREAK(found != m_ShaderBindingInstances.end(), "Shader Binding Instance Not Found");
 		return found->second;
 	}
@@ -747,34 +747,23 @@ namespace graphics_backend
 			releaser.signalSemaphore = m_FrameBoundResourceManager->semaphorePool.AllocSemaphore();
 		}
 
-
 		auto& graphStages = m_Graph->GetGraphStages();
-		castl::vector<uint32_t> passToBatchID;
-		passToBatchID.resize(graphStages.size());
+		castl::unordered_map<int32_t, int32_t> passToBatchID;
 		m_CommandBufferBatchList.clear();
-		m_CommandBufferBatchList.push_back(CommandBatchRange::Create(GetBasePassInfo(0)->m_BarrierCollector.GetQueueFamily(), 0));
+		m_CommandBufferBatchList.push_back(CommandBatchRange::Create(GetBasePassInfo(PREPARE_PASS_ID)->m_BarrierCollector.GetQueueFamily(), 0));
 		auto lastBatch = &m_CommandBufferBatchList.back();
 
-		for (vk::CommandBuffer prepareCmd : m_PrepareShaderBindingsCommands)
-		{
-
-		}
-
-		for (uint32_t passID = 0; passID < graphStages.size(); ++passID)
+		auto collectPassCommands = [&](int32_t passID)
 		{
 			auto pass = GetBasePassInfo(passID);
 			uint32_t startCommandID = m_FinalCommandBuffers.size();
-			//先执行准备资源的命令
-			for (vk::CommandBuffer prepareCmd : pass->m_PrepareShaderArgCommands)
-			{
-				m_FinalCommandBuffers.push_back(prepareCmd);
-			}
 			for (vk::CommandBuffer cmd : pass->m_CommandBuffers)
 			{
 				m_FinalCommandBuffers.push_back(cmd);
 			}
 			uint32_t lastCommandID = m_FinalCommandBuffers.size() - 1;
 			uint32_t queueFamilyID = pass->m_BarrierCollector.GetQueueFamily();
+
 			if (lastBatch->queueFamilyIndex != queueFamilyID)
 			{
 				m_CommandBufferBatchList.push_back(CommandBatchRange::Create(pass->m_BarrierCollector.GetQueueFamily(), startCommandID));
@@ -792,6 +781,44 @@ namespace graphics_backend
 				lastBatch->waitingQueueFamilyReleaser.insert(queueReleaserID);
 			}
 			passToBatchID[passID] = m_CommandBufferBatchList.size() - 1;
+		};
+
+		collectPassCommands(PREPARE_PASS_ID);
+
+		for (uint32_t passID = 0; passID < graphStages.size(); ++passID)
+		{
+			collectPassCommands(passID);
+
+			//auto pass = GetBasePassInfo(passID);
+			//uint32_t startCommandID = m_FinalCommandBuffers.size();
+			////先执行准备资源的命令
+			////for (vk::CommandBuffer prepareCmd : pass->m_PrepareShaderArgCommands)
+			////{
+			////	m_FinalCommandBuffers.push_back(prepareCmd);
+			////}
+			//for (vk::CommandBuffer cmd : pass->m_CommandBuffers)
+			//{
+			//	m_FinalCommandBuffers.push_back(cmd);
+			//}
+			//uint32_t lastCommandID = m_FinalCommandBuffers.size() - 1;
+			//uint32_t queueFamilyID = pass->m_BarrierCollector.GetQueueFamily();
+			//if (lastBatch->queueFamilyIndex != queueFamilyID)
+			//{
+			//	m_CommandBufferBatchList.push_back(CommandBatchRange::Create(pass->m_BarrierCollector.GetQueueFamily(), startCommandID));
+			//	lastBatch = &m_CommandBufferBatchList.back();
+			//}
+			//lastBatch->lastCommand = castl::max(lastBatch->lastCommand, lastCommandID);
+
+			//lastBatch->hasSuccessor = lastBatch->hasSuccessor || (pass->m_SuccessorPasses.size() > 0);
+			//for (uint32_t predPassID : pass->m_PredecessorPasses)
+			//{
+			//	lastBatch->waitingBatch.insert(passToBatchID[predPassID]);
+			//}
+			//for (uint32_t queueReleaserID : pass->m_WaitingQueueFamilies)
+			//{
+			//	lastBatch->waitingQueueFamilyReleaser.insert(queueReleaserID);
+			//}
+			//passToBatchID[passID] = m_CommandBufferBatchList.size() - 1;
 		}
 
 		for (auto& batch : m_CommandBufferBatchList)
@@ -1360,7 +1387,7 @@ namespace graphics_backend
 			->Name(CANAME("Write All Descriptors"))
 			->Func([this](auto scheduler)
 			{
-				m_PrepareShaderBindingsCommands.resize(m_ShaderBindingInstances.size());
+				m_PrepareShaderBindingsCommands.resize(m_ShaderBindingInstances.size() + 1);
 				uint32_t shaderBindingIndex = 0;
 				for (auto& shaderBindingInstPair : m_ShaderBindingInstances)
 				{
@@ -1476,6 +1503,13 @@ namespace graphics_backend
 		castl::unordered_map<vk::Image, ResourceState> imageUsageFlagCache;
 		castl::unordered_map<vk::Buffer, ResourceState> bufferUsageFlagCache;
 
+		//TODO Add Constant Buffer Resource States Here
+		for (auto& shaderBindingInstPair : m_ShaderBindingInstances)
+		{
+			auto& shaderBindingInst = shaderBindingInstPair.second;
+			//shaderBindingInst.InitConstantBufferUsages();
+		}
+
 		uint32_t currentRenderPassIndex = 0;
 		uint32_t currentComputePassIndex = 0;
 		uint32_t currentTransferPassIndex = 0;
@@ -1504,16 +1538,12 @@ namespace graphics_backend
 						auto& batchData = renderPassData.m_Batches[batchID];
 						PrepareVertexBuffersBarriers(renderPassData.m_BarrierCollector, bufferUsageFlagCache, batch, batchData, passID);
 
-						auto& shaderBindingInstance = SelectShaderBindingInstance(batchData);
+						auto& shaderBindingInstance = SelectShaderBindingInstance(batchData.m_ShaderBindingKey);
 						PrepareShaderBindingResourceBarriers(renderPassData.m_BarrierCollector
 							, imageUsageFlagCache
 							, bufferUsageFlagCache
 							, shaderBindingInstance
 							, passID);
-
-						shaderBindingInstance.PushUniformReadyBarriers(
-							renderPassData.m_BarrierCollector
-							, ResourceUsage::eFragmentRead | ResourceUsage::eVertexRead);
 					}
 					for (size_t i = 0; i < attachments.size(); ++i)
 					{
@@ -1536,17 +1566,12 @@ namespace graphics_backend
 					auto& dispatchData = computePass.dispatchs[dispatchID];
 					auto& dispatchData1 = computePassData.m_DispatchInfos[dispatchID];
 
-					//TODO: 重写这个函数
+					auto& shaderBindingInstance = SelectShaderBindingInstance(dispatchData1.m_ShaderBindingKey);
 					PrepareShaderBindingResourceBarriers(computePassData.m_BarrierCollector
 						, imageUsageFlagCache
 						, bufferUsageFlagCache
-						, dispatchData1.m_ShaderBindingInstance
+						, shaderBindingInstance
 						, passID);
-
-
-					dispatchData1.m_ShaderBindingInstance.PushUniformReadyBarriers(
-						computePassData.m_BarrierCollector
-						, ResourceUsage::eComputeRead);
 				}
 				break;
 			}
@@ -1671,7 +1696,7 @@ namespace graphics_backend
 							auto& batchData = batchDatas[batchID];
 							auto& drawcallBatch = drawcallBatchs[batchID];
 
-							auto& shaderBindingInstance = SelectShaderBindingInstance(batchData);
+							auto& shaderBindingInstance = SelectShaderBindingInstance(batchData.m_ShaderBindingKey);
 
 							renderPassCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.m_PSO->GetPipeline());
 							renderPassCommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics

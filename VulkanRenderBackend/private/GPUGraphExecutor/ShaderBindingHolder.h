@@ -74,6 +74,8 @@ namespace graphics_backend
 		//Collected Resources For Barrier Use
 		castl::vector<castl::pair<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess>> m_BufferHandles;
 		castl::vector<castl::pair<ImageHandle, ShaderCompilerSlang::EShaderResourceAccess>> m_ImageHandles;
+
+		VulkanBarrierCollector m_PrepareShaderBindingsBarrierCollector;
 	};
 
 
