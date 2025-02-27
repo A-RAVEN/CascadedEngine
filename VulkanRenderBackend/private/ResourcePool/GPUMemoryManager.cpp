@@ -51,7 +51,7 @@ namespace graphics_backend
 			allocCreateInfo.preferredFlags = static_cast<VkMemoryPropertyFlags>(memoryProperties);
 			VkMemoryRequirements req = memoryReqs;
 			VmaAllocationInfo allocationInfo{};
-			VKResultCheck(vmaAllocateMemory(m_Allocator, &req, &allocCreateInfo, &alloc, &allocationInfo));
+			VK_RESULT_CHECK(vmaAllocateMemory(m_Allocator, &req, &allocCreateInfo, &alloc, &allocationInfo));
 			m_ActiveAllocations.insert(alloc);
 		}
 		return alloc;
@@ -63,7 +63,7 @@ namespace graphics_backend
 		vmaGetAllocationMemoryProperties(m_Allocator, allocation, &props);
 		CA_ASSERT(uenum::hasFlag(props, VkMemoryPropertyFlagBits::VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT), "Try To Map Host Invisible Memory");
 		void* mappedMemory = nullptr;
-		VKResultCheck(vmaMapMemory(m_Allocator, allocation, &mappedMemory), "Mapping Memory");
+		VK_RESULT_CHECK_LOG(vmaMapMemory(m_Allocator, allocation, &mappedMemory), "Mapping Memory");
 		return mappedMemory;
 	}
 	void GPUMemoryResourceManager::UnmapMemory(VmaAllocation allocation)
@@ -80,11 +80,11 @@ namespace graphics_backend
 	}
 	void GPUMemoryResourceManager::BindMemory(vk::Image image, VmaAllocation allocation)
 	{
-		VKResultCheck(vmaBindImageMemory(m_Allocator, allocation, image));
+		VK_RESULT_CHECK(vmaBindImageMemory(m_Allocator, allocation, image));
 	}
 	void GPUMemoryResourceManager::BindMemory(vk::Buffer buffer, VmaAllocation allocation)
 	{
-		VKResultCheck(vmaBindBufferMemory(m_Allocator, allocation, buffer));
+		VK_RESULT_CHECK(vmaBindBufferMemory(m_Allocator, allocation, buffer));
 	}
 	void GPUMemoryResourceManager::FreeMemory(VmaAllocation const& allocation)
 	{

@@ -49,7 +49,7 @@ namespace graphics_backend
 	}
 	void FrameBoundResourcePool::ResetPool()
 	{
-		VKResultCheck(GetDevice().waitForFences(m_Fence, true, castl::numeric_limits<uint64_t>::max()), "Framebound Resource Pool Fence Wait Failed!");
+		VK_RESULT_CHECK_LOG(GetDevice().waitForFences(m_Fence, true, castl::numeric_limits<uint64_t>::max()), "Framebound Resource Pool Fence Wait Failed!");
 		GetDevice().resetFences(m_Fence);
 		framebufferObjectCache.ReleaseAll();
 		commandBufferThreadPool.ResetPool();

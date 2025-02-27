@@ -12,7 +12,7 @@ public:
 	MeshGPUData() = default;
 	MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
 	void UploadMeshResource(graphics_backend::GPUGraph* gpuGraph, resource_management::StaticMeshResource* meshResource);
-	void DrawCall(graphics_backend::DrawCallBatch& drawallBatch, uint32_t submeshID, uint32_t instanceCount);
+	//void DrawCall(graphics_backend::DrawCallBatch& drawallBatch, uint32_t submeshID, uint32_t instanceCount);
 	graphics_backend::DrawCall DrawCall(uint32_t submeshID, uint32_t instanceCount);
 private:
 	castl::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
@@ -55,6 +55,7 @@ public:
 };
 
 extern VertexInputsDescriptor const g_InstanceDescriptor;
+extern VertexInputsDescriptor const g_VertexDescriptor;
 
 class MeshBatcher
 {
@@ -142,7 +143,9 @@ public:
 			DrawCallBatch newDrawcallBatch = DrawCallBatch::New();
 			newDrawcallBatch.SetParam("meshMaterialData", material->shaderStruct)
 				.SetShaderInfo(material->shaderSet)
-				.SetPipelineState(material->pipelineStateObject);
+				.SetPipelineState(material->pipelineStateObject)
+				.VertexStream(CANAME("InstanceID"), g_InstanceDescriptor)
+				.VertexStream(CANAME("MeshVertexBuffer"), g_VertexDescriptor);
 
 			for (auto& pair : materialSubDrawCalls.m_DrawCallInfoToDrawCallData)
 			{
@@ -155,7 +158,7 @@ public:
 				newDrawcallBatch.DrawCall(drawcallInfo
 					->p_GPUMeshData
 					->DrawCall(drawcallInfo->submeshID, drawcallInstances.m_InstanceIDs.size())
-					.SetVertexBuffer(g_InstanceDescriptor, instanceIDBuffer)
+					.SetVertexBuffer(CANAME("InstanceID"), instanceIDBuffer)
 				);
 			}
 			pRenderPass->DrawCall(newDrawcallBatch);

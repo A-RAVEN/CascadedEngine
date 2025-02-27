@@ -74,8 +74,8 @@ CA_REFLECTION(graphics_backend::ShaderStateDescriptor
 
 CA_REFLECTION(graphics_backend::CPipelineObjectDescriptor
 	, pso
-	, vertexInputs
 	, shaderState
+	, vertexBindingData
 	, descriptorSetLayouts
 	, renderPassObject
 	, subpassIndex);

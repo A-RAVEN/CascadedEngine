@@ -18,20 +18,21 @@ namespace graphics_backend
 			device.setDebugUtilsObjectNameEXT(nameInfo);
 		}
 	}
-	static void VKResultCheck(VkResult result, castl::string_view problem = "")
-	{
-		if (result != VK_SUCCESS)
-		{
-			CA_LOG_ERR("Vulkan Result Not Success!");
-		}
-	}
-	static void VKResultCheck(vk::Result result, castl::string_view problem = "")
-	{
-		if (result != vk::Result::eSuccess)
-		{
-			CA_LOG_ERR("Vulkan Result Not Success!");
-		}
-	}
-
+	//static void VKResultCheck(VkResult result, castl::string_view problem = "")
+	//{
+	//	if (result != VK_SUCCESS)
+	//	{
+	//		CA_LOG_ERR("Vulkan Result Not Success!");
+	//	}
+	//}
+	//static void VKResultCheck(vk::Result result, castl::string_view problem = "")
+	//{
+	//	if (result != vk::Result::eSuccess)
+	//	{
+	//		CA_LOG_ERR("Vulkan Result Not Success!");
+	//	}
+	//}
+#define VK_RESULT_CHECK_LOG(result, log , ...) CA_ASSERT_BREAK((VkResult)result != VK_SUCCESS , log __VA_OPT__(, __VA_ARGS__ ));
+#define VK_RESULT_CHECK(result) CA_ASSERT_BREAK((VkResult)result != VK_SUCCESS, "Vulkan Result Check Failed!");
 
 }

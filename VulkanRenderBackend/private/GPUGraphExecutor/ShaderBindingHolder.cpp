@@ -181,7 +181,7 @@ namespace graphics_backend
 		p_Application = &application;
 		p_ReflectionData = &reflectionData;
 
-		m_PrepareShaderBindingsBarrierCollector.SetCurrentQueueFamilyIndex(application.GetQueueContext().GetTransferPipelineStageMask(), application.GetQueueContext().GetTransferQueueFamily());
+		
 
 		auto& spaceInfos = p_ReflectionData->m_BindingInfo.m_SpaceInfos;
 		auto& hierarcies = p_ReflectionData->m_BindingInfo.m_BindingDataHierarchies;
@@ -671,7 +671,7 @@ namespace graphics_backend
 			writer.Apply(application.GetDevice());
 		}
 
-		PushUniformReadyBarriers(m_PrepareShaderBindingsBarrierCollector, ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead | ResourceUsage::eComputeRead);
+		//PushUniformReadyBarriers(m_PrepareShaderBindingsBarrierCollector, ResourceUsage::eVertexRead | ResourceUsage::eFragmentRead | ResourceUsage::eComputeRead);
 	}
 
 	void ShaderBindingInstance::PushUniformReadyBarriers(VulkanBarrierCollector& targetBarrierCollector, ResourceUsageFlags destUsage)

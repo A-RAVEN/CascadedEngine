@@ -27,7 +27,7 @@ namespace graphics_backend
 
 	struct GPUDrawCallInfo
 	{
-		castl::unordered_map<BufferHandle, VKVertexAttributeBindingData> m_VertexAttributeBindings;
+		castl::vector<BufferHandle> m_VertexBufferBindings;
 		auto operator <=> (const GPUDrawCallInfo&) const = default;
 	};
 
@@ -35,6 +35,8 @@ namespace graphics_backend
 	{
 		cacore::HashObj<GPUShaderBindingKey> m_ShaderBindingKey;
 		castl::shared_ptr<CPipelineObject> m_PSO;
+		castl::vector<cacore::NameHash> m_VertexStreamNames;
+		castl::vector<VKVertexAttributeBindingData> m_VertexStreamBindings;
 		//castl::unordered_map<BufferHandle, VKVertexAttributeBindingData> m_VertexAttributeBindings;
 		castl::vector<GPUDrawCallInfo> m_DrawCalls;
 		auto operator <=> (const GPUPassBatchInfo&) const = default;
@@ -53,7 +55,7 @@ namespace graphics_backend
 
 	struct PrepareShaderBindingConstantsPass : public PassInfoBase
 	{
-		castl::unordered_map<cacore::HashObj<GPUShaderBindingKey>, ShaderBindingInstance> m_ShaderBindingInstances;
+		castl::shared_dic<cacore::HashObj<GPUShaderBindingKey>, ShaderBindingInstance> m_ShaderBindingInstances;
 		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eTransferPass; }
 	};
 
@@ -374,6 +376,9 @@ namespace graphics_backend
 		PassInfoBase* GetBasePassInfo(int passID);
 
 #pragma region Shader Resource Dependencies
+		void UpdateUniformBufferDepenedency(int32_t passID, vk::Buffer uniformBuffer
+			, ResourceUsageFlags newUsageFlags
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache);
 		void UpdateBufferDependency(uint32_t passID, BufferHandle const& bufferHandle
 			, ResourceUsageFlags newUsageFlags
 			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache);

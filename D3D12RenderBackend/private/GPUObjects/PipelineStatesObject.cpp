@@ -111,7 +111,7 @@ namespace graphics_backend
 					{
 						auto& destInputElement = inputElementDescs[inputElementIndex];
 						destInputElement.SemanticName = srcInputElement.semanticName.c_str();
-						destInputElement.SemanticIndex = srcInputElement.attributeIndex;
+						//destInputElement.SemanticIndex = srcInputElement.attributeIndex;
 						destInputElement.Format = VertexInputFormatToDXGIFormat(srcInputElement.format);
 						destInputElement.InputSlot = inputSlot;
 						destInputElement.AlignedByteOffset = srcInputElement.offset;

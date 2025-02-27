@@ -827,16 +827,19 @@ namespace imgui_display
 			auto& indexDataOffset = pUserData->m_IndexDataOffsets[i];
 			auto bindings = pUserData->m_TextureBindings[i];
 
-			renderPass.DrawCall(
+			renderPass.DrawCall
+			(
 				DrawCallBatch::New()
 				.SetParam(CANAME("imguiTextureBinding"), bindings)
-				.SetVertexBuffer(vertexInputDesc, pUserData->m_VertexBuffer)
-				.SetIndexBuffer(EIndexBufferType::e16, pUserData->m_IndexBuffer, 0)
-				.Draw([&](CommandList& commandList)
-					{
-						commandList.SetSissor(sissors.x, sissors.y, sissors.z, sissors.w);
-						commandList.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset));
-					})
+				.VertexStream(CANAME("ImguiVertexBuf"), vertexInputDesc)
+				.DrawCall
+				(
+					DrawCall::New()
+					.SetIndexBuffer(EIndexBufferType::e16, pUserData->m_IndexBuffer, 0)
+					.SetVertexBuffer(CANAME("ImguiVertexBuf"), pUserData->m_VertexBuffer)
+					.Scissor(sissors.x, sissors.y, sissors.z, sissors.w)
+					.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset))
+				)
 			);
 		}
 		renderGraph->AddPass(renderPass);

@@ -362,16 +362,18 @@ int main(int argc, char *argv[])
 								RenderPass::New(viewContext.m_RenderTarget)
 								.SetPipelineState({})
 								.SetParam("finalBlitInputs", finalBlitShaderArgList)
-								.SetShaderInfo({"Shaders/FinalBlit"})
+								.SetShaderInfo({ "Shaders/FinalBlit" })
 								.DrawCall
 								(
 									DrawCallBatch::New()
-									.SetVertexBuffer(vertexInputDesc, vertexBuffer)
-									.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
-									.Draw([](CommandList& commandList)
-										{
-											commandList.DrawIndexed(6);
-										})
+									.VertexStream(CANAME("BlitVertex"), vertexInputDesc)
+									.DrawCall
+									(
+										DrawCall::New()
+										.SetVertexBuffer(CANAME("BlitVertex"), vertexBuffer)
+										.SetIndexBuffer(EIndexBufferType::e16, indexBuffer, 0)
+										.DrawIndexed(6)
+									)
 								)
 							);
 					}

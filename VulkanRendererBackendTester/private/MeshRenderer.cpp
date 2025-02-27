@@ -6,8 +6,10 @@ using namespace graphics_backend;
 VertexInputsDescriptor const g_InstanceDescriptor = VertexInputsDescriptor{
 	   sizeof(uint32_t)
 	   , true
-	   , {VertexAttribute{0, 0, VertexInputFormat::eR32_UInt, "INSTANCEID"}}
+	   , {VertexAttribute{0, VertexInputFormat::eR32_UInt, "INSTANCEID"}}
 };
+
+VertexInputsDescriptor const g_VertexDescriptor = resource_management::CommonVertexData::GetVertexInputDescriptor();
 
 MeshGPUData::MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend)
 {
@@ -29,20 +31,20 @@ void MeshGPUData::UploadMeshResource(graphics_backend::GPUGraph* gpuGraph, resou
 	gpuGraph->ScheduleData(m_IndicesBuffer, meshResource->GetIndicesData(), indexCount * sizeof(uint16_t), 0);
 }
 
-void MeshGPUData::DrawCall(graphics_backend::DrawCallBatch& drawcallBatch, uint32_t submeshID, uint32_t instanceCount)
-{
-	drawcallBatch.SetIndexBuffer(EIndexBufferType::e16, m_IndicesBuffer);
-	drawcallBatch.SetVertexBuffer(m_VertexInputDescriptor, m_VertexBuffer);
-	drawcallBatch.Draw([this, submeshID, instanceCount](graphics_backend::CommandList& commandList)
-		{
-			auto& submeshInfos = p_MeshResource->GetSubmeshInfos();
-			auto& submeshInfo = submeshInfos[submeshID];
-			commandList.DrawIndexed(submeshInfo.m_IndicesCount
-				, instanceCount
-				, submeshInfo.m_IndexArrayOffset
-				, submeshInfo.m_VertexArrayOffset);
-		});
-}
+//void MeshGPUData::DrawCall(graphics_backend::DrawCallBatch& drawcallBatch, uint32_t submeshID, uint32_t instanceCount)
+//{
+//	drawcallBatch.SetIndexBuffer(EIndexBufferType::e16, m_IndicesBuffer);
+//	drawcallBatch.SetVertexBuffer(m_VertexInputDescriptor, m_VertexBuffer);
+//	drawcallBatch.Draw([this, submeshID, instanceCount](graphics_backend::CommandList& commandList)
+//		{
+//			auto& submeshInfos = p_MeshResource->GetSubmeshInfos();
+//			auto& submeshInfo = submeshInfos[submeshID];
+//			commandList.DrawIndexed(submeshInfo.m_IndicesCount
+//				, instanceCount
+//				, submeshInfo.m_IndexArrayOffset
+//				, submeshInfo.m_VertexArrayOffset);
+//		});
+//}
 
 graphics_backend::DrawCall MeshGPUData::DrawCall(uint32_t submeshID, uint32_t instanceCount)
 {
@@ -50,7 +52,7 @@ graphics_backend::DrawCall MeshGPUData::DrawCall(uint32_t submeshID, uint32_t in
 	auto& submeshInfos = p_MeshResource->GetSubmeshInfos();
 	auto& submeshInfo = submeshInfos[submeshID];
 	drawcall.SetIndexBuffer(EIndexBufferType::e16, m_IndicesBuffer);
-	drawcall.SetVertexBuffer(m_VertexInputDescriptor, m_VertexBuffer)
+	drawcall.SetVertexBuffer(CANAME("MeshVertexBuffer"), m_VertexBuffer)
 		.DrawIndexed(submeshInfo.m_IndicesCount, instanceCount
 			, submeshInfo.m_IndexArrayOffset, submeshInfo.m_VertexArrayOffset);
 	return drawcall;

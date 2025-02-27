@@ -25,16 +25,16 @@ namespace resource_management
 
 		auto operator<=>(const CommonVertexData&) const = default;
 
-		static auto GetVertexInputDescs(uint32_t baseOffset)
-		{
-			return castl::vector{
-				VertexAttribute{ baseOffset, offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat }
-				, VertexAttribute{ baseOffset + 1, offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat }
-				, VertexAttribute{ baseOffset + 2, offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat }
-				, VertexAttribute{ baseOffset + 3, offsetof(CommonVertexData, tangent), VertexInputFormat::eR32G32B32_SFloat }
-				, VertexAttribute{ baseOffset + 4, offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat }
-			};
-		}
+		//static auto GetVertexInputDescs(uint32_t baseOffset)
+		//{
+		//	return castl::vector{
+		//		VertexAttribute{ baseOffset, offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat }
+		//		, VertexAttribute{ baseOffset + 1, offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat }
+		//		, VertexAttribute{ baseOffset + 2, offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat }
+		//		, VertexAttribute{ baseOffset + 3, offsetof(CommonVertexData, tangent), VertexInputFormat::eR32G32B32_SFloat }
+		//		, VertexAttribute{ baseOffset + 4, offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat }
+		//	};
+		//}
 
 		static VertexInputsDescriptor GetVertexInputDescriptor()
 		{
@@ -42,11 +42,11 @@ namespace resource_management
 			result.perInstance = false;
 			result.stride = sizeof(CommonVertexData);
 			result.attributes = castl::vector{
-				VertexAttribute{ 0, offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat, "POSITION"}
-				, VertexAttribute{ 0, offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat, "TEXCOORD"}
-				, VertexAttribute{0, offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat, "NORMAL"}
-				, VertexAttribute{0, offsetof(CommonVertexData, tangent), VertexInputFormat::eR32G32B32_SFloat, "TANGENT"}
-				, VertexAttribute{ 0, offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat, "BITANGENT"}
+				VertexAttribute{ offsetof(CommonVertexData, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")}
+				, VertexAttribute{ offsetof(CommonVertexData, uv), VertexInputFormat::eR32G32_SFloat, CANAME("TEXCOORD")}
+				, VertexAttribute{ offsetof(CommonVertexData, normal), VertexInputFormat::eR32G32B32_SFloat, CANAME("NORMAL")}
+				, VertexAttribute{ offsetof(CommonVertexData, tangent), VertexInputFormat::eR32G32B32_SFloat, CANAME("TANGENT")}
+				, VertexAttribute{ offsetof(CommonVertexData, bitangent), VertexInputFormat::eR32G32B32_SFloat, CANAME("BITANGENT")}
 			};
 			return result;
 		}
