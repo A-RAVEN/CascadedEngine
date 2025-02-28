@@ -485,6 +485,7 @@ namespace imgui_display
 		fontDesc.mipLevels = 1;
 		fontDesc.textureType = ETextureType::e2D;
 		m_Fontimage = renderBackend->CreateGPUTexture(fontDesc);
+		m_Fontimage->SetName("FontImage");
 
 		initializeGraph->ScheduleData(ImageHandle{ m_Fontimage }, fontData, texWidth * texHeight * sizeof(uint8_t));
 		IM_FREE(fontData);
@@ -817,6 +818,7 @@ namespace imgui_display
 		auto backBuffer = p_RenderBackend->GetWindowHandle(pUserData->pWindowHandle);
 
 		auto renderPass = RenderPass::New(backBuffer, AttachmentConfig::Clear())
+			.Name(CANAME("IMGUI View"))
 			.SetPipelineState({ {}, {}, ColorAttachmentsBlendStates::AlphaTransparent()})
 			.SetParam(CANAME("imguiCommon"), pUserData->m_ShaderStruct)
 			.SetShaderInfo({"Shaders/Imgui"});

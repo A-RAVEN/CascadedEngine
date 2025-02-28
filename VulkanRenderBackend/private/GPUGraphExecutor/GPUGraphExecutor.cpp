@@ -101,6 +101,7 @@ namespace graphics_backend
 					{
 						outAttribute = attribute;
 						outName = boundPair.first;
+						outVertexInputsDesc = attribDesc.Get();
 						return true;
 					}
 				}
@@ -402,7 +403,7 @@ namespace graphics_backend
 				auto& imageHandles = renderPass.GetAttachments();
 				for (auto& img : imageHandles)
 				{
-					if (img.GetType() == ImageHandle::ImageType::Internal)
+					if (img.IsIntternal())
 					{
 						CPUTIMER_SCOPE("Stat Attachment Tmp Image");
 						m_ImageManager.AllocResourceIndex(img.GetKey(), imageManager.GetDescriptorIndex(img.GetKey()));
@@ -426,7 +427,7 @@ namespace graphics_backend
 						{
 							CPUTIMER_SCOPE("Stat Shader Args Image");
 							auto& imgHandle = img.first;
-							if (imgHandle.GetType() == ImageHandle::ImageType::Internal)
+							if (imgHandle.IsIntternal())
 							{
 								m_ImageManager.AllocResourceIndex(imgHandle.GetKey(), imageManager.GetDescriptorIndex(imgHandle.GetKey()));
 							}
@@ -497,7 +498,7 @@ namespace graphics_backend
 						auto& bufs = bufferPair.second;
 						for (auto& buf : bufs)
 						{
-							if (buf.GetType() == BufferHandle::BufferType::Internal)
+							if (buf.IsIntternal())
 							{
 								m_BufferManager.AllocResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
 							}
@@ -508,15 +509,6 @@ namespace graphics_backend
 				auto& drawcallBatchs = renderPass.GetDrawCallBatches();
 				for (auto& batch : drawcallBatchs)
 				{
-					//Vertex Buffers
-					//for (auto& vertexBufferPair : batch.m_BoundVertexBuffers)
-					//{
-					//	auto& vertexBuffer = vertexBufferPair.second;
-					//	if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
-					//	{
-					//		m_BufferManager.AllocResourceIndex(vertexBuffer.GetKey(), bufferManager.GetDescriptorIndex(vertexBuffer.GetKey()));
-					//	}
-					//}
 
 					for (auto& drawCall : batch.m_DrawCalls)
 					{
@@ -526,13 +518,16 @@ namespace graphics_backend
 							auto indexBufferHandle = drawCall.GetIndexBuffer();
 							//indexBufferHandle = indexBufferHandle.Select(batch.m_IndexBufferData);
 							CA_ASSERT_BREAK(indexBufferHandle.indexBufferHandle.IsValid(), "Invalid Index Buffer");
-							m_BufferManager.AllocResourceIndex(indexBufferHandle.indexBufferHandle.GetKey(), bufferManager.GetDescriptorIndex(indexBufferHandle.indexBufferHandle.GetKey()));
+							if (indexBufferHandle.indexBufferHandle.IsIntternal())
+							{
+								m_BufferManager.AllocResourceIndex(indexBufferHandle.indexBufferHandle.GetKey(), bufferManager.GetDescriptorIndex(indexBufferHandle.indexBufferHandle.GetKey()));
+							}
 						}
 
 						for (auto& vertexBufferPair : drawCall.GetVertexBuffers())
 						{
 							auto& vertexBuffer = vertexBufferPair.second;
-							if (vertexBuffer.GetType() == BufferHandle::BufferType::Internal)
+							if (vertexBuffer.IsIntternal())
 							{
 								m_BufferManager.AllocResourceIndex(vertexBuffer.GetKey(), bufferManager.GetDescriptorIndex(vertexBuffer.GetKey()));
 							}
@@ -557,7 +552,7 @@ namespace graphics_backend
 						auto& bufs = bufferPair.second;
 						for (auto& buf : bufs)
 						{
-							if (buf.GetType() == BufferHandle::BufferType::Internal)
+							if (buf.IsIntternal())
 							{
 								m_BufferManager.AllocPersistantResourceIndex(buf.GetKey(), bufferManager.GetDescriptorIndex(buf.GetKey()));
 							}
@@ -726,12 +721,15 @@ namespace graphics_backend
 		auto collectPassCommands = [&](int32_t passID)
 		{
 			auto pass = GetBasePassInfo(passID);
+			if (pass->m_CommandBuffers.empty())
+				return;
+
 			uint32_t startCommandID = m_FinalCommandBuffers.size();
 			for (vk::CommandBuffer cmd : pass->m_CommandBuffers)
 			{
 				m_FinalCommandBuffers.push_back(cmd);
 			}
-			uint32_t lastCommandID = m_FinalCommandBuffers.size() - 1;
+			int32_t lastCommandID = (int32_t)m_FinalCommandBuffers.size() - 1;
 			uint32_t queueFamilyID = pass->m_BarrierCollector.GetQueueFamily();
 
 			if (lastBatch->queueFamilyIndex != queueFamilyID)
@@ -758,37 +756,6 @@ namespace graphics_backend
 		for (uint32_t passID = 0; passID < graphStages.size(); ++passID)
 		{
 			collectPassCommands(passID);
-
-			//auto pass = GetBasePassInfo(passID);
-			//uint32_t startCommandID = m_FinalCommandBuffers.size();
-			////先执行准备资源的命令
-			////for (vk::CommandBuffer prepareCmd : pass->m_PrepareShaderArgCommands)
-			////{
-			////	m_FinalCommandBuffers.push_back(prepareCmd);
-			////}
-			//for (vk::CommandBuffer cmd : pass->m_CommandBuffers)
-			//{
-			//	m_FinalCommandBuffers.push_back(cmd);
-			//}
-			//uint32_t lastCommandID = m_FinalCommandBuffers.size() - 1;
-			//uint32_t queueFamilyID = pass->m_BarrierCollector.GetQueueFamily();
-			//if (lastBatch->queueFamilyIndex != queueFamilyID)
-			//{
-			//	m_CommandBufferBatchList.push_back(CommandBatchRange::Create(pass->m_BarrierCollector.GetQueueFamily(), startCommandID));
-			//	lastBatch = &m_CommandBufferBatchList.back();
-			//}
-			//lastBatch->lastCommand = castl::max(lastBatch->lastCommand, lastCommandID);
-
-			//lastBatch->hasSuccessor = lastBatch->hasSuccessor || (pass->m_SuccessorPasses.size() > 0);
-			//for (uint32_t predPassID : pass->m_PredecessorPasses)
-			//{
-			//	lastBatch->waitingBatch.insert(passToBatchID[predPassID]);
-			//}
-			//for (uint32_t queueReleaserID : pass->m_WaitingQueueFamilies)
-			//{
-			//	lastBatch->waitingQueueFamilyReleaser.insert(queueReleaserID);
-			//}
-			//passToBatchID[passID] = m_CommandBufferBatchList.size() - 1;
 		}
 
 		for (auto& batch : m_CommandBufferBatchList)
@@ -933,11 +900,11 @@ namespace graphics_backend
 		, ResourceState const defaultState)
 	{
 		auto found = inoutResourceUsageFlagCache.find(resource);
-		if (found != inoutResourceUsageFlagCache.end())
+		if (found == inoutResourceUsageFlagCache.end())
 		{
-			return found->second;
+			found = inoutResourceUsageFlagCache.insert(castl::make_pair(resource, defaultState)).first;
 		}
-		return defaultState;
+		return found->second;
 	};
 
 	void GPUGraphExecutor::PrepareVertexBuffersBarriers(VulkanBarrierCollector& inoutBarrierCollector
@@ -1045,7 +1012,7 @@ namespace graphics_backend
 			return;
 
 		auto dstInfo = GetBasePassInfo(destPassID);
-		CA_ASSERT(dstInfo != nullptr, "Invalid Dest Pass ID");
+		CA_ASSERT_BREAK(dstInfo != nullptr, "Invalid Dest Pass ID");
 
 		auto pDesc = GetTextureHandleDescriptor(imageHandle);
 
@@ -1054,6 +1021,7 @@ namespace graphics_backend
 
 		if (usageStates.usage != newUsageState.usage)
 		{
+			CA_ASSERT_BREAK(usageStates.passID != PREPARE_PASS_ID, "Image Dependency Shall Not Found In PreparePass");
 			auto sourceInfo = GetBasePassInfo(usageStates.passID);
 			if (sourceInfo != nullptr)
 			{
@@ -1438,7 +1406,7 @@ namespace graphics_backend
 							, &commandBuffers]()
 					{
 						auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-						vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eGraphics, "Write Descriptors");
+						vk::CommandBuffer writeConstantsCommand = cmdPool->AllocCommand(QueueType::eTransfer, "Write Descriptors");
 						shaderBindingInst.FillShaderData(GetVulkanApplication()
 							, *this
 							, m_FrameBoundResourceManager
@@ -1601,13 +1569,28 @@ namespace graphics_backend
 								{
 									auto& releaser = pair.second;
 									auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
-									vk::CommandBuffer externalResourceReleaseBarriers = cmdPool->AllocCommand(pair.first, "Data Transfer");
+									vk::CommandBuffer externalResourceReleaseBarriers = cmdPool->AllocCommand(pair.first, "Extern Resource Barriers");
 									releaser.barrierCollector.ExecuteReleaseBarrier(externalResourceReleaseBarriers);
 									externalResourceReleaseBarriers.end();
 									releaser.commandBuffer = externalResourceReleaseBarriers;
 								});
 						}
 					});
+		}
+
+		//Shader Uniform Buffer Release Barriers
+		{
+			taskGraph->NewTaskGraph()
+				->Name("Prepare Uniform Buffer Release Barriers")
+				->Func([&](auto extResourceGraph)
+				{
+					auto cmdPool = m_FrameBoundResourceManager->commandBufferThreadPool.AquireCommandBufferPool();
+					vk::CommandBuffer releaseUniformCmd = cmdPool->AllocCommand(QueueType::eTransfer, "Release Uniform Buffer Barriers");
+					m_PrepareShaderBindingConstantsPass.m_BarrierCollector.ExecuteBarrier(releaseUniformCmd);
+					m_PrepareShaderBindingConstantsPass.m_BarrierCollector.ExecuteReleaseBarrier(releaseUniformCmd);
+					releaseUniformCmd.end();
+					m_PrepareShaderBindingConstantsPass.m_CommandBuffers.push_back(releaseUniformCmd);
+				});
 		}
 
 		taskGraph->NewTaskParallelFor()
@@ -1634,6 +1617,8 @@ namespace graphics_backend
 
 					passData.m_BarrierCollector.ExecuteBarrier(renderPassCommandBuffer);
 
+					
+
 					if (passData.ValidPassData())
 					{
 						castl::vector<vk::ClearValue> clearValues;
@@ -1648,6 +1633,12 @@ namespace graphics_backend
 								, pDesc->format);
 						}
 
+						if (renderPass.GetName().Valid())
+						{
+							vk::DebugUtilsLabelEXT m_DebugLabelInfo = { renderPass.GetName().c_str() };
+							renderPassCommandBuffer.beginDebugUtilsLabelEXT(m_DebugLabelInfo);
+						}
+
 						renderPassCommandBuffer.beginRenderPass(
 							vk::RenderPassBeginInfo{
 								passData.m_RenderPassObject->GetRenderPass()
@@ -1657,8 +1648,7 @@ namespace graphics_backend
 							}
 						, vk::SubpassContents::eInline);
 
-						renderPassCommandBuffer.setViewport(0, { vk::Viewport(0.0f, 0.0f, (float)passData.m_FrameBufferObject->GetWidth(), (float)passData.m_FrameBufferObject->GetHeight(), 0.0f, 1.0f) });
-						renderPassCommandBuffer.setScissor(0, { vk::Rect2D({0, 0}, { passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight() }) });
+						ViewRectData defaultViewRect{0, 0,passData.m_FrameBufferObject->GetWidth(), passData.m_FrameBufferObject->GetHeight()};
 
 						for (uint32_t batchID = 0; batchID < drawcallBatchs.size(); ++batchID)
 						{
@@ -1678,6 +1668,12 @@ namespace graphics_backend
 								auto& graphDrawcall = drawcallBatch.m_DrawCalls[drawCallID];
 								auto& drawcall = batchData.m_DrawCalls[drawCallID];
 								auto& drawCallInfo = graphDrawcall.GetDrawInfo();
+
+								ViewRectData viewRect = graphDrawcall.GetViewPort().Valid() ? graphDrawcall.GetViewPort().Get() : defaultViewRect;
+								ViewRectData scissorRect = graphDrawcall.GetScissor().Valid() ? graphDrawcall.GetScissor().Get() : defaultViewRect;
+
+								renderPassCommandBuffer.setViewport(0, { vk::Viewport(viewRect.x, viewRect.y, viewRect.width, viewRect.height, 0.0f, 1.0f)});
+								renderPassCommandBuffer.setScissor(0, { vk::Rect2D({scissorRect.x, scissorRect.y}, { (uint32_t)scissorRect.width, (uint32_t)scissorRect.height }) });
 
 								CA_ASSERT_BREAK(batchData.m_VertexStreamBindings.size() == drawcall.m_VertexBufferBindings.size(), "InCompatible Vertex Buffer Binding Count");
 								for (uint32_t vertexBindID = 0; vertexBindID < batchData.m_VertexStreamBindings.size(); ++vertexBindID)
@@ -1705,6 +1701,10 @@ namespace graphics_backend
 							}
 						}
 						renderPassCommandBuffer.endRenderPass();
+						if (renderPass.GetName().Valid())
+						{
+							renderPassCommandBuffer.endDebugUtilsLabelEXT();
+						}
 					}
 
 					passData.m_BarrierCollector.ExecuteReleaseBarrier(renderPassCommandBuffer);

@@ -126,21 +126,23 @@ public:
 		}
 	}
 
-	void Draw(graphics_backend::GPUGraph* pGraph, graphics_backend::RenderPass* pRenderPass)
+	castl::vector<DrawCallBatch> Draw(graphics_backend::GPUGraph* pGraph)
 	{
 		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , 0 };
 		pGraph->AllocBuffer(instanceTransformBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, m_Instances.size(), sizeof(glm::mat4)))
 			.ScheduleData(instanceTransformBuffer, m_Instances.data(), m_Instances.size() * sizeof(glm::mat4));
 		auto instanceShaderArgs = pRenderBackend->CreateShaderStruct(CANAME("MeshData"));
 		instanceShaderArgs->SetBuffer("instanceTransforms", instanceTransformBuffer);
-		pRenderPass->SetParam("meshInstanceTransforms", instanceShaderArgs);
 		uint32_t index = 0;
+		castl::vector<DrawCallBatch> drawcallBatches;
+		drawcallBatches.reserve(m_MaterialToSubDrawCalls.size());
 		for (auto& pair : m_MaterialToSubDrawCalls)
 		{
 			auto& material = pair.first;
 			auto& materialSubDrawCalls = pair.second;
 
 			DrawCallBatch newDrawcallBatch = DrawCallBatch::New();
+			newDrawcallBatch.SetParam("meshInstanceTransforms", instanceShaderArgs);
 			newDrawcallBatch.SetParam("meshMaterialData", material->shaderStruct)
 				.SetShaderInfo(material->shaderSet)
 				.SetPipelineState(material->pipelineStateObject)
@@ -161,7 +163,8 @@ public:
 					.SetVertexBuffer(CANAME("InstanceID"), instanceIDBuffer)
 				);
 			}
-			pRenderPass->DrawCall(newDrawcallBatch);
+			drawcallBatches.push_back(newDrawcallBatch);
 		}
+		return drawcallBatches;
 	}
 };

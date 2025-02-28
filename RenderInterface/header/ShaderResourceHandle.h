@@ -62,6 +62,7 @@ namespace graphics_backend
 			, m_Type(ImageType::Backbuffer)
 		{
 		}
+		bool IsIntternal() const { return m_Type == ImageType::Internal; }
 		bool IsValid() const { return m_Type != ImageType::Invalid; }
 		ImageType GetType() const { return m_Type; }
 		castl::string_view const& GetName() const { return m_Key.Get().name.Get(); }
@@ -111,6 +112,7 @@ namespace graphics_backend
 			, m_Type(BufferType::External)
 		{
 		}
+		bool IsIntternal() const { return m_Type == BufferType::Internal; }
 		bool IsValid() const { return m_Type != BufferType::Invalid; }
 		BufferType GetType() const { return m_Type; }
 		castl::string_view const& GetName() const { return m_Key.Get().name.Get(); }

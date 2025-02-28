@@ -176,6 +176,8 @@ namespace graphics_backend
 
 	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
 	{
+		VK_RESULT_CHECK_LOG(volkInitialize(), "Volk Initialization Failed!");
+
 		vk::ApplicationInfo application_info(
 			name.c_str()
 			, 1
@@ -200,6 +202,7 @@ namespace graphics_backend
 		instance_info.setPNext(&debugUtilsExt);
 #endif
 		m_Instance = vk::createInstance(instance_info);
+		volkLoadInstance(m_Instance);
 		vulkan_backend::utils::SetupVulkanInstanceFunctionPointers(m_Instance);
 	#if !defined(NDEBUG)
 		m_DebugMessager = m_Instance.createDebugUtilsMessengerEXT(debugUtilsExt);
@@ -234,6 +237,7 @@ namespace graphics_backend
 		auto extensions = GetDeviceExtensionNames();
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, extensions);
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
+		volkLoadDevice(m_Device);
 		vulkan_backend::utils::SetupVulkanDeviceFunctinoPointers(m_Device);
 	}
 

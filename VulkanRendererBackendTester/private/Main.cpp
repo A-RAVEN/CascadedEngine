@@ -159,7 +159,9 @@ int main(int argc, char *argv[])
 		EBufferUsage::eIndexBuffer | EBufferUsage::eDataDst, indexDataList.size(), sizeof(uint16_t));
 
 	auto texture = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource0->GetWidth(), pTextureResource0->GetHeight(), pTextureResource0->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
+	texture->SetName("IMG_2348");
 	auto texture1 = pBackend->CreateGPUTexture(GPUTextureDescriptor::Create(pTextureResource1->GetWidth(), pTextureResource1->GetHeight(), pTextureResource1->GetFormat(), ETextureAccessType::eSampled | ETextureAccessType::eTransferDst));
+	texture1->SetName("IMG_2349");
 
 	{
 		auto pSetupScheduler = pThreadManager->NewScheduler();
@@ -333,6 +335,13 @@ int main(int argc, char *argv[])
 						deltaTime = castl::max(deltaTime, 0.0001f);
 						float frameRate = 1.0f / deltaTime;
 
+						castl::vector<DrawCallBatch> meshDrawCalls;
+						{
+							CPUTIMER_SCOPE("Prepare Mesh Draw Calls");
+							meshDrawCalls = meshBatcher.Draw(newGraph.get());
+						}
+						
+
 						//castl::shared_ptr<ShaderArgList> cameraArgList = castl::make_shared<ShaderArgList>();
 						auto cameraArgs = pBackend->CreateShaderStruct(CANAME("CameraData"));
 						auto viewMatrix = glm::transpose(camera.GetViewProjMatrix());
@@ -353,13 +362,20 @@ int main(int argc, char *argv[])
 						RenderPass drawMeshRenderPass = RenderPass::New(colorTexture, depthTexture
 							, AttachmentConfig::Clear()
 							, AttachmentConfig::ClearDepthStencil())
+							.Name(CANAME("Draw Scene"))
 							.SetParam("cameraData", cameraArgs)
 							.SetParam("globalLighting", globalLightParams);
-						meshBatcher.Draw(newGraph.get(), &drawMeshRenderPass);
+
+						for (auto& drawCall : meshDrawCalls)
+						{
+							drawMeshRenderPass.DrawCall(drawCall);
+						}
+
 						newGraph->AddPass(drawMeshRenderPass)
 							.AddPass
 							(
 								RenderPass::New(viewContext.m_RenderTarget)
+								.Name(CANAME("Final Blit"))
 								.SetPipelineState({})
 								.SetParam("finalBlitInputs", finalBlitShaderArgList)
 								.SetShaderInfo({ "Shaders/FinalBlit" })

@@ -173,6 +173,8 @@ namespace graphics_backend
 		DrawInfo const& GetDrawInfo() const { return m_DrawInfo; }
 		IndexBufferData const& GetIndexBuffer() const { return m_IndexBufferData; }
 		castl::unordered_map<cacore::NameHash, BufferHandle> const& GetVertexBuffers() const { return m_BoundVertexBuffers; }
+		cacore::HashObj<ViewRectData> const& GetViewPort() const { return m_ViewPort; }
+		cacore::HashObj<ViewRectData> const& GetScissor() const { return m_Sissor; }
 	private:
 		PipelineDescData m_PipelineStateDesc;
 		castl::unordered_map<cacore::NameHash, BufferHandle> m_BoundVertexBuffers;
@@ -322,19 +324,19 @@ namespace graphics_backend
 			return pass;
 		}
 
+		RenderPass& Name(cacore::NameHash const& name)
+		{
+			m_Name = name;
+			return *this;
+		}
+
 		inline RenderPass& SetAttachmentConfig(uint32_t index, AttachmentConfig const& attachmentConfig)
 		{
 			m_AttachmentConfigs[index] = attachmentConfig;
 		}
 		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
-		//inline RenderPass& PushShaderArguments(castl::string const& name, castl::shared_ptr<ShaderArgList> const& shaderArguments);
-		//inline RenderPass& PushShaderArguments(castl::shared_ptr<ShaderArgList> const& shaderArguments)
-		//{
-		//	return PushShaderArguments("", shaderArguments);
-		//}
 		inline RenderPass& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct);
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
-		//inline RenderPass& SetShaders(IShaderSet const* shaderSet);
 		inline RenderPass& SetShaderInfo(ShaderInfo const& shaderInfo);
 		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
 
@@ -349,6 +351,8 @@ namespace graphics_backend
 		PipelineDescData const& GetPipelineStates() const { return m_PipelineStates; }
 
 		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const& GetShaderStructs() const { return shaderStructs; }
+
+		cacore::NameHash const& GetName() const { return m_Name; }
 	private:
 		PipelineDescData m_PipelineStates;
 		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
@@ -356,6 +360,7 @@ namespace graphics_backend
 		castl::vector<DrawCallBatch> m_DrawCallBatches;
 		castl::vector<ImageHandle> m_Arrachments;
 		uint32_t m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+		cacore::NameHash m_Name;
 		friend class GPUGraph;
 	};
 #pragma endregion
@@ -471,7 +476,7 @@ namespace graphics_backend
 			auto find = m_HandleNameToDesc.find(handleKey);
 			if (find == m_HandleNameToDesc.end())
 			{
-				CA_LOG_ERR("handle {} not found!", handleKey->name.Get());
+				CA_LOG_ERR_BREAK("handle {} not found!", handleKey->name.Get());
 				return -1;
 			};
 			return find->second;

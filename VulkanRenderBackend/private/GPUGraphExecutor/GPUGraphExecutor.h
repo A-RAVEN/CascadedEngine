@@ -316,14 +316,14 @@ namespace graphics_backend
 	struct CommandBatchRange
 	{
 		uint32_t queueFamilyIndex;
-		uint32_t firstCommand;
-		uint32_t lastCommand;
+		int32_t firstCommand;
+		int32_t lastCommand;
 		vk::Semaphore signalSemaphore;
 		castl::vector<vk::Semaphore> waitSemaphores;
 		castl::vector<vk::PipelineStageFlags> waitStages;
 
 		bool hasSuccessor;
-		castl::set<uint32_t> waitingBatch;
+		castl::set<int32_t> waitingBatch;
 		castl::set<uint32_t> waitingQueueFamilyReleaser;
 
 		static CommandBatchRange Create(uint32_t queueFamilyIndex, uint32_t startCommandID)
