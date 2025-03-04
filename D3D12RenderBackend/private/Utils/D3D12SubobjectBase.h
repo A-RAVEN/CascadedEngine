@@ -4,6 +4,7 @@
 namespace graphics_backend
 {
 	class RenderBackend_D3D12;
+	class D3D12ShaderObjectDic;
 
 	class D3D12SubobjectBase
 	{
@@ -20,6 +21,7 @@ namespace graphics_backend
 		RenderBackend_D3D12* GetApp() const {
 			return pApp;
 		}
+
 		ComPtr<IDXGIFactory4> GetFactory() const;
 		ComPtr<ID3D12Device> GetDevice() const;
 		ComPtr<IDXGIAdapter1> GetAdapter() const;

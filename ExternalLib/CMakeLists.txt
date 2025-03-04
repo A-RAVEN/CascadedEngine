@@ -155,7 +155,7 @@ CPMAddPackage(
 
 add_library(VulkanSDK SHARED IMPORTED GLOBAL)
 set_property(TARGET VulkanSDK PROPERTY INTERFACE_INCLUDE_DIRECTORIES $ENV{VK_SDK_PATH}/Include)
-#set_property(TARGET VulkanSDK PROPERTY IMPORTED_IMPLIB $ENV{VK_SDK_PATH}/Lib/vulkan-1.lib)
+set_property(TARGET VulkanSDK PROPERTY IMPORTED_IMPLIB $ENV{VK_SDK_PATH}/Lib/vulkan-1.lib)
 
 CPMAddPackage(
   NAME magic_enum

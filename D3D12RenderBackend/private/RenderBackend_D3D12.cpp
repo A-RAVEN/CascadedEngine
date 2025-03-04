@@ -92,7 +92,9 @@ namespace graphics_backend
         *ppAdapter = adapter.Detach();
     }
 
-    RenderBackend_D3D12::RenderBackend_D3D12() : m_MemoryManager(this)
+    RenderBackend_D3D12::RenderBackend_D3D12() : 
+        m_MemoryManager(this)
+        , m_ShaderObjects(*this)
     {
     }
 

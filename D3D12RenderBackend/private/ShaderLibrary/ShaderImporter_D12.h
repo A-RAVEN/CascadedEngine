@@ -2,21 +2,21 @@
 #include <CAResource/ResourceImporter.h>
 #include <Compiler.h>
 #include <library_loader.h>
-#include <Resources/ShaderResource.h>
+//#include <Resources/ShaderResource.h>
 
 namespace graphics_backend
 {
 	using namespace library_loader;
 	using namespace resource_management;
-	class ShaderResourceImporter : public ResourceImporterFree
+	class D3D12ShaderResourceImporter : public ResourceImporterFree
 	{
 	public:
-		ShaderResourceImporter() : m_ShaderCompilerLoader("ShaderCompilerSlang")
+		D3D12ShaderResourceImporter() : m_ShaderCompilerLoader("ShaderCompilerSlang")
 		{
 			m_ShaderCompilerManager = m_ShaderCompilerLoader.New();
 			m_ShaderCompilerManager->InitializePoolSize(1);
 		}
-		virtual castl::string GetTags() const override { return "Win32;HLSL;Slang"; }
+		virtual castl::string GetTags() const override { return "D3D12;Slang"; }
 		virtual void ImportResource(ResourceManagingSystem* resourceManager
 			, cafs::path const& sourcePath
 			, cafs::path const& destPath) override;

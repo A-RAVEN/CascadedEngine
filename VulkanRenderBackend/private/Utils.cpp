@@ -1,28 +1,41 @@
 #include "pch.h"
 #define BREAK_ON_VULKAN_ERROR 1
 //Dynamic Function Pointers of Vulkan Should be defined under global namespace
-PFN_vkCreateDebugUtilsMessengerEXT  pfnVkCreateDebugUtilsMessengerEXT = nullptr;
-PFN_vkDestroyDebugUtilsMessengerEXT pfnVkDestroyDebugUtilsMessengerEXT = nullptr;
-PFN_vkSetDebugUtilsObjectNameEXT pfnVkSetDebugUtilsObjectNameEXT = nullptr;
 
+PFN_vkCreateDebugUtilsMessengerEXT  pfnvkCreateDebugUtilsMessengerEXT = nullptr;
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT(VkInstance                                 instance,
 	const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
 	const VkAllocationCallbacks* pAllocator,
 	VkDebugUtilsMessengerEXT* pMessenger)
 {
-	return pfnVkCreateDebugUtilsMessengerEXT(instance, pCreateInfo, pAllocator, pMessenger);
+	return pfnvkCreateDebugUtilsMessengerEXT(instance, pCreateInfo, pAllocator, pMessenger);
 }
 
+PFN_vkDestroyDebugUtilsMessengerEXT pfnvkDestroyDebugUtilsMessengerEXT = nullptr;
 VKAPI_ATTR void VKAPI_CALL vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT messenger, VkAllocationCallbacks const* pAllocator)
 {
-	return pfnVkDestroyDebugUtilsMessengerEXT(instance, messenger, pAllocator);
+	return pfnvkDestroyDebugUtilsMessengerEXT(instance, messenger, pAllocator);
 }
 
+PFN_vkSetDebugUtilsObjectNameEXT pfnvkSetDebugUtilsObjectNameEXT = nullptr;
 VKAPI_ATTR VkResult VKAPI_CALL vkSetDebugUtilsObjectNameEXT(VkDevice device, const VkDebugUtilsObjectNameInfoEXT* pNameInfo)
 {
-	return pfnVkSetDebugUtilsObjectNameEXT(device, pNameInfo);
+	return pfnvkSetDebugUtilsObjectNameEXT(device, pNameInfo);
 }
 
+PFN_vkCmdBeginDebugUtilsLabelEXT pfnvkCmdBeginDebugUtilsLabelEXT = nullptr;
+VKAPI_ATTR void VKAPI_CALL vkCmdBeginDebugUtilsLabelEXT(VkCommandBuffer commandBuffer, const VkDebugUtilsLabelEXT* pLabelInfo)
+{
+	pfnvkCmdBeginDebugUtilsLabelEXT(commandBuffer, pLabelInfo);
+}
+
+PFN_vkCmdEndDebugUtilsLabelEXT pfnvkCmdEndDebugUtilsLabelEXT = nullptr;
+VKAPI_ATTR void VKAPI_CALL vkCmdEndDebugUtilsLabelEXT(VkCommandBuffer commandBuffer)
+{
+	pfnvkCmdEndDebugUtilsLabelEXT(commandBuffer);
+}
+
+#define LOAD_VULKAN_FUNCTION_POINTER(instance, function) pfn##function = reinterpret_cast<PFN_##function>(instance.getProcAddr(#function))
 
 namespace vulkan_backend
 {
@@ -30,22 +43,16 @@ namespace vulkan_backend
     {
 		void SetupVulkanInstanceFunctionPointers(vk::Instance const& inInstance)
 		{
-			pfnVkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(inInstance.getProcAddr("vkCreateDebugUtilsMessengerEXT"));
-			pfnVkDestroyDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(inInstance.getProcAddr("vkDestroyDebugUtilsMessengerEXT"));
+			LOAD_VULKAN_FUNCTION_POINTER(inInstance, vkCreateDebugUtilsMessengerEXT);
+			LOAD_VULKAN_FUNCTION_POINTER(inInstance, vkDestroyDebugUtilsMessengerEXT);
 		}
 
 		void SetupVulkanDeviceFunctinoPointers(vk::Device const& inDevice)
 		{
-			pfnVkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(inDevice.getProcAddr("vkSetDebugUtilsObjectNameEXT"));
+			LOAD_VULKAN_FUNCTION_POINTER(inDevice, vkSetDebugUtilsObjectNameEXT);
+			LOAD_VULKAN_FUNCTION_POINTER(inDevice, vkCmdBeginDebugUtilsLabelEXT);
+			LOAD_VULKAN_FUNCTION_POINTER(inDevice, vkCmdEndDebugUtilsLabelEXT);
 		}
-
-		void CleanupVulkanInstanceFuncitonPointers()
-		{
-			pfnVkCreateDebugUtilsMessengerEXT = nullptr;
-			pfnVkDestroyDebugUtilsMessengerEXT = nullptr;
-		}
-
-
 
 		vk::ImageSubresourceRange const& DefaultColorSubresourceRange()
 		{

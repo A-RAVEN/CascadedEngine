@@ -1,14 +1,12 @@
-#include "ShaderResourceImporter.h"
+#include "ShaderImporter_D12.h"
 #include <CAResource/ResourceManagingSystem.h>
-#include <CACore/CAHash.h>
 #include <CASTL/CAUnorderedSet.h>
+#include <CAResource/IResource.h>
+#include "ShaderLibrary.h"
 
 namespace graphics_backend
 {
-
-
-
-	void ShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager
+	void D3D12ShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager
 		, cafs::path const& sourcePath
 		, cafs::path const& destPath)
 	{
@@ -16,10 +14,10 @@ namespace graphics_backend
 		{
 			return;
 		}
-
+		castl::cout << CATypeDescriptor<ShaderLibrary>::member_count << castl::endl;
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> shaderPrograms;
 
-		cafs::path shaderLibraryPath = destPath / "DXShaderLibrary.shLib";
+		cafs::path shaderLibraryPath = "D3D12ShaderLibrary.shLib";
 
 		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath.generic_string());
 		shaderLibrary->m_ShaderPrograms.clear();
@@ -32,6 +30,8 @@ namespace graphics_backend
 				if (postfix == ".slang")
 				{
 					auto relative_path = cafs::relative(p.path(), sourcePath);
+					auto shaderpath = relative_path;
+					shaderpath.replace_extension("");
 
 					auto pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared();
 					pCompiler->BeginCompileTask();
@@ -46,12 +46,15 @@ namespace graphics_backend
 					}
 					else
 					{
-						//auto resource = resourceManager->GetOrNewResource<ShaderRes>(castl::to_ca(outPathWithExt.generic_string()));
+						cacore::PathHash shaderPathHash = shaderpath;
 						auto compileResults = pCompiler->GetResults();
 						for (auto& result : compileResults)
 						{
 							if (result.targetType == ShaderCompilerSlang::EShaderTargetType::eDXIL)
 							{
+								auto& shaderInfo = shaderLibrary->m_ShaderFiles[shaderPathHash];
+								shaderInfo.entryPointToShaderProgram.clear();
+								shaderInfo.reflectionData = result.m_ReflectionData;
 								for (auto& program : result.programs)
 								{
 									auto shaHash = cahash::getHash<cahash::sha256_hash>(program.data.data(), program.data.size());
@@ -63,39 +66,36 @@ namespace graphics_backend
 										shaderCode.shaderType = program.shaderType;
 										found = shaderLibrary->m_ShaderPrograms.insert(castl::make_pair(shaHash, shaderCode)).first;
 									}
-
-
-									std::cout << relative_path.generic_string() << ":" << shaHash.toString() << std::endl;
-									found->second.sourceKeys.insert(ShaderSourceKey{ relative_path.generic_string(), program.entryPointName });
+									cacore::NameHash entryPointName = program.entryPointName;
+									shaderInfo.entryPointToShaderProgram.push_back(castl::make_pair(entryPointName, shaHash));
+									found->second.sourceKeys.insert(ShaderSourceKey{ shaderPathHash, entryPointName });
 								}
 
-								////Add Vertex Attributes
-								//{
-								//	cacore::aggregateHasher<cahash::sha256_hash> hasher;
-								//	for (auto& vertexAttributes : result.m_ReflectionData.m_VertexAttributes)
-								//	{
-								//		hasher.hash(vertexAttributes);
-								//	}
-								//	auto vertexAttributesHash = hasher.getHash();
-								//	castl::unordered_map<cahash::sha256_hash::result_type, castl::vector<ShaderCompilerSlang::ShaderVertexAttributeData>> vertexAttributesMap;
-								//}
 
-								//Add Binding Data
-								//Prepare Constant Buffer Data
+								///RegisterStructsInfo
 								{
-									cacore::aggregateHasher<cahash::sha256_hash> hasher;
-									for (auto& bindingData : result.m_ReflectionData.m_BindingData)
+									for (auto& pairs : result.m_ReflectionData.m_ShaderStructs)
 									{
-
-										hasher.hash(bindingData);
+										auto& name = pairs.first;
+										auto& shaderStruct = pairs.second;
+										if (name == CANAME("__Root"))
+										{
+			
+											shaderLibrary->m_ShaderRootStructs.insert(castl::make_pair(shaderpath, shaderStruct));
+											castl::cout << "Root Struct For " << shaderpath.generic_string() << castl::endl;
+										}
+										else if (shaderLibrary->m_ShaderStructs.find(name) == shaderLibrary->m_ShaderStructs.end())
+										{
+											castl::cout << "Add Shader Struct: " << name.Get() << castl::endl;
+											shaderLibrary->m_ShaderStructs.insert(castl::make_pair(name, shaderStruct));
+										}
+										else
+										{
+										}
 									}
-									auto bindingDataHash = hasher.getHash();
 								}
-
-								result.m_ReflectionData.m_BindingData;
 							}
 						}
-						//resource->m_UniqueName = outPath;
 					}
 					pCompiler->EndCompileTask();
 				}

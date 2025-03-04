@@ -8,7 +8,8 @@
 #include <CAResource/ResourceManagingSystem.h>
 #include "D3D12Includes.h"
 #include "WindowContext.h"
-#include <Resources/ShaderResourceImporter.h>
+#include <GPUObjects/ShaderObject.h>
+#include <ShaderLibrary/ShaderImporter_D12.h>
 
 namespace graphics_backend
 {
@@ -99,6 +100,11 @@ namespace graphics_backend
 			}
 		};
 
+		D3D12ShaderObjectDic& GetShaderObjectDic()
+		{
+			return m_ShaderObjects;
+		}
+
 	private:
 		MemoryManager m_MemoryManager;
 		ca_io::IOManager* p_IOManager;
@@ -109,6 +115,10 @@ namespace graphics_backend
 		ComPtr<IDXGIAdapter1> m_Adapter;
 		ComPtr<ID3D12CommandQueue> m_CommandQueue;
 		castl::unordered_map<castl::shared_ptr<cawindow::IWindow>, castl::shared_ptr<WindowContext>> m_WindowContexts;
-		ShaderResourceImporter m_ShaderResourceImporter;
+
+		D3D12ShaderObjectDic m_ShaderObjects;
+
+		D3D12ShaderResourceImporter m_ShaderResourceImporter;
+
 	};
 }
