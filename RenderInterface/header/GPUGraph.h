@@ -3,7 +3,6 @@
 #include "CCommandList.h"
 #include "ShaderArgList.h"
 #include "CPipelineStateObject.h"
-#include "CVertexInputDescriptor.h"
 #include "ShaderProvider.h"
 #include "ShaderResourceHandle.h"
 #include <DebugUtils.h>
@@ -13,6 +12,7 @@
 #include <CASTL/CADeque.h>
 #include <ShaderStruct.h>
 #include <CASTL/CAStringView.h>
+#include <CVertexInputDescriptor.h>
 
 namespace graphics_backend
 {

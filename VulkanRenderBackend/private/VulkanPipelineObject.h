@@ -1,5 +1,4 @@
 #pragma once
-#include <CVertexInputDescriptor.h>
 #include <CPipelineStateObject.h>
 #include "VulkanApplicationSubobjectBase.h"
 #include "VulkanIncludes.h"
@@ -39,12 +38,8 @@ namespace graphics_backend
 	{
 		CPipelineStateObject pso{};
 		ShaderStateDescriptor shaderState{};
-		//CVertexInputDescriptor vertexInputs{};
 		castl::vector<VKVertexAttributeBindingData> vertexBindingData;
 		InputAssemblyStates assemblyStates;
-		//castl::vector<vk::VertexInputBindingDescription> vertexBindingDescriptions;
-		//castl::vector<vk::VertexInputAttributeDescription> vertexAttributeDescriptions;
-		//vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{};
 		//TODO Wrap ME
 		castl::vector<vk::DescriptorSetLayout> descriptorSetLayouts{};
 		castl::shared_ptr<RenderPassObject> renderPassObject = nullptr;

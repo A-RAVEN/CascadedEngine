@@ -7,7 +7,6 @@
 #include "CVertexInputDescriptor.h"
 #include "ShaderBindingBuilder.h"
 #include "CCommandList.h"
-#include "IMeshInterface.h"
 
 namespace graphics_backend
 {

@@ -1,5 +1,6 @@
 #include "PipelineStatesObject.h"
 #include <Utils/InterfaceTranslation.h>
+#include <D3D12Debug.h>
 
 namespace graphics_backend
 {
@@ -84,19 +85,26 @@ namespace graphics_backend
 	{
 		auto& pipelineSates = pipelineStateDesc.pipelineStates.Get();
 		auto& shaderStates = pipelineStateDesc.shaderStatesDesc.Get();
-		auto& vertexInputStates = pipelineStateDesc.vertexInputDesc.Get();
-		auto& assemblyStates = vertexInputStates.assemblyStates;
+		auto& vertexInputDescs = pipelineStateDesc.vertexInputDescs;
 		auto& renderPassInfo = pipelineStateDesc.renderPassInfo.Get();
 
 		castl::vector<D3D12_INPUT_ELEMENT_DESC> inputElementDescs;
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 
+		//Root Signature & Shaders
 		{
-			psoDesc.PrimitiveTopologyType = ETopologyToD3D12TopologyType(vertexInputStates.assemblyStates.topology);
+			psoDesc.pRootSignature = shaderStates.rootSignature.Get();
+			psoDesc.VS = CD3DX12_SHADER_BYTECODE(shaderStates.vertexShader.Get());
+			psoDesc.PS = CD3DX12_SHADER_BYTECODE(shaderStates.fragmentShader.Get());
+		}
+
+		//Vertex Inputs
+		{
+			psoDesc.PrimitiveTopologyType = pipelineStateDesc.topologyType;
 			size_t primitiveDescCount = 0;
-			for (uint32_t i = 0; i < vertexInputStates.m_PrimitiveDescriptions.size(); ++i)
+			for (uint32_t i = 0; i < vertexInputDescs.size(); ++i)
 			{
-				primitiveDescCount += castl::get<1>(vertexInputStates.m_PrimitiveDescriptions[i]).size();
+				primitiveDescCount += vertexInputDescs[i].VertexBindings.size();
 			}
 			inputElementDescs.resize(primitiveDescCount);
 			psoDesc.InputLayout.NumElements = primitiveDescCount;
@@ -104,33 +112,29 @@ namespace graphics_backend
 			{
 				size_t inputElementIndex = 0;
 				uint32_t inputSlot = 0;
-				for (auto& primitiveDesc : vertexInputStates.m_PrimitiveDescriptions)
+				for (auto& primitiveBindingSlot : vertexInputDescs)
 				{
-					auto& srcPrimitiveDesc = castl::get<1>(primitiveDesc);
-					for (auto& srcInputElement : srcPrimitiveDesc)
+					for (auto& vertexInputBinding : primitiveBindingSlot.VertexBindings)
 					{
 						auto& destInputElement = inputElementDescs[inputElementIndex];
-						destInputElement.SemanticName = srcInputElement.semanticName.c_str();
-						//destInputElement.SemanticIndex = srcInputElement.attributeIndex;
-						destInputElement.Format = VertexInputFormatToDXGIFormat(srcInputElement.format);
+						destInputElement.SemanticName = vertexInputBinding.SemanticName.c_str();
+						destInputElement.SemanticIndex = vertexInputBinding.SemanticIndex;
+						destInputElement.Format = vertexInputBinding.Format;
 						destInputElement.InputSlot = inputSlot;
-						destInputElement.AlignedByteOffset = srcInputElement.offset;
-						destInputElement.InputSlotClass = castl::get<2>(primitiveDesc) ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
-						destInputElement.InstanceDataStepRate = castl::get<0>(primitiveDesc);
+						destInputElement.AlignedByteOffset = vertexInputBinding.AlignedByteOffset;
+						destInputElement.InputSlotClass = primitiveBindingSlot.InputSlotClass;
+						destInputElement.InstanceDataStepRate = primitiveBindingSlot.Stride;
 						++inputElementIndex;
 					}
 					++inputSlot;
 				}
 			}
+			psoDesc.InputLayout.pInputElementDescs = inputElementDescs.data();
 		}
-
-		//psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
-		{
-		}
-		psoDesc.pRootSignature = shaderStates.rootSignature.Get();
-		//psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
-		//psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
+		//Others: Color Attachements
 		psoDesc.SampleMask = UINT_MAX;
 		PopulateFromPipelineStates(psoDesc, renderPassInfo, pipelineStateDesc.subpassIndex, pipelineSates);
+		
+		ThrowIfFailed(GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_PiplineStates)));
 	}
 }

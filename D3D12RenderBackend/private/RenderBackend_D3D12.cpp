@@ -94,7 +94,6 @@ namespace graphics_backend
 
     RenderBackend_D3D12::RenderBackend_D3D12() : 
         m_MemoryManager(this)
-        , m_ShaderObjects(*this)
     {
     }
 
@@ -235,6 +234,35 @@ namespace graphics_backend
         allocator.LogAllocatorStates();
         allocator.CommitAllocations();
 		allocator.Release();
+    }
+
+    ShaderSetData RenderBackend_D3D12::GetShaderCodes(ShaderInfo const& shaderInfo)
+    {
+        ShaderSetData result;
+        auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("D3D12ShaderLibrary.shLib");
+        auto fileInfo = shaderLibrary->GetShaderFileInfo(shaderInfo.path);
+        result.reflectionData = &fileInfo->reflectionData;
+        for (auto& fileInfo : fileInfo->entryPointToShaderProgram)
+        {
+            auto code = shaderLibrary->GetShaderCode(fileInfo.second);
+
+            switch (code->shaderType)
+            {
+            case ECompileShaderType::eVert:
+                result.vertexShader = code->data;
+                break;
+            case ECompileShaderType::eFrag:
+                result.fragmentShader = code->data;
+                break;
+            case ECompileShaderType::eComp:
+                result.computeShader = code->data;
+                break;
+            default:
+                break;
+            }
+            result;
+        }
+        return result;
     }
 
 

@@ -62,7 +62,8 @@ namespace graphics_backend
 									if (found == shaderLibrary->m_ShaderPrograms.end())
 									{
 										ShaderCode shaderCode;
-										shaderCode.data = program.data;
+										//shaderCode.data = program.data;
+										careflection::managed_wrapper_traits<ComPtr<ID3DBlob>>::set_data(shaderCode.data, program.data);
 										shaderCode.shaderType = program.shaderType;
 										found = shaderLibrary->m_ShaderPrograms.insert(castl::make_pair(shaHash, shaderCode)).first;
 									}

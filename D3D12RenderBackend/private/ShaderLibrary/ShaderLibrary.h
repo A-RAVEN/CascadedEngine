@@ -25,17 +25,17 @@ namespace graphics_backend
 	struct ShaderCode
 	{
 		ECompileShaderType shaderType;
-		castl::vector<uint8_t> data;
+		ComPtr<ID3DBlob> data;
 		castl::unordered_set<ShaderSourceKey> sourceKeys;
 	};
 
-	struct ShaderSourceInfo
-	{
-		ECompileShaderType shaderType;
-		uint8_t const* data;
-		size_t dataLength;
-		auto operator<=>(const ShaderSourceInfo&) const = default;
-	};
+	//struct ShaderSourceInfo
+	//{
+	//	ECompileShaderType shaderType;
+	//	uint8_t const* data;
+	//	size_t dataLength;
+	//	auto operator<=>(const ShaderSourceInfo&) const = default;
+	//};
 
 	struct ShaderSetData
 	{
@@ -57,6 +57,7 @@ namespace graphics_backend
 		friend struct CATypeDescriptor<ShaderLibrary>;
 	};
 }
+
 
 CA_REFLECTION(graphics_backend::ShaderLibrary
 	, m_ShaderFiles
