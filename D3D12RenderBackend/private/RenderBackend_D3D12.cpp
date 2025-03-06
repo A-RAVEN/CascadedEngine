@@ -6,6 +6,7 @@
 #include <ResourceManagment/D3DImageObject.h>
 #include <ResourceManagment/D3DBufferObject.h>
 #include <Utils/InterfaceTranslation.h>
+#include <ShaderLibrary/D3D12ShaderStruct.h>
 
 namespace graphics_backend
 {
@@ -217,7 +218,14 @@ namespace graphics_backend
 
     castl::shared_ptr<ShaderStruct> RenderBackend_D3D12::CreateShaderStruct(cacore::NameHash const& structType)
     {
-        return nullptr;// castl::shared_ptr<ShaderStruct>();
+        auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("D3D12ShaderLibrary.shLib");
+        auto found = shaderLibrary->m_ShaderStructs.find(structType);
+        ShaderCompilerSlang::ShaderStructData const* pData = nullptr;
+        if (found != shaderLibrary->m_ShaderStructs.end())
+        {
+            pData = &found->second;
+        }
+        return NewSubObject_Shared<D3D2ShaderStruct>(pData);
     }
 
     void RenderBackend_D3D12::RunTestCode()

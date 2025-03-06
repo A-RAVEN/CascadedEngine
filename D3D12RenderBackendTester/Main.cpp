@@ -170,6 +170,9 @@ int main(int argc, char* argv[])
 	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
 	auto windowHandle = pBackend->GetWindowHandle(newWindow.lock());
 
+	castl::shared_ptr<ShaderStruct> pCameraData = pBackend->CreateShaderStruct(CANAME("CameraData"));
+	pCameraData->SetValue(CANAME("viewProjMatrix"), glm::mat4(1.0f));
+
 	pThreadManager.reset();
 	pBackend->Release();
 	pBackend.reset();
