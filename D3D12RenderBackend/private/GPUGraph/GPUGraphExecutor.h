@@ -3,13 +3,31 @@
 
 namespace graphics_backend
 {
+	class RasterizationPass
+	{
+
+	};
+
+	class ComputePass
+	{
+
+	};
+
+	class TransferPass
+	{
+
+	};
+
+
 	class GPUPassDependencyGraph
 	{
 	public:
 		class GraphNode
 		{
 		public:
-
+			castl::vector<RasterizationPass> m_RasterPasses;
+			castl::vector<ComputePass> m_ComputePasses;
+			castl::vector<TransferPass> m_TransferPasses;
 		};
 	};
 
