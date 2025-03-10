@@ -1,21 +1,38 @@
 #pragma once
 #include <Utils/D3D12SubobjectBase.h>
+#include <GPUGraph.h>
+#include <ShaderLibrary/D3D12ShaderStruct.h>
+#include <unordered_set>
 
 namespace graphics_backend
 {
-	class RasterizationPass
+	class PassBase
 	{
+	protected:
+		void CollectShaderStructResourcesForBasePass(D3D2ShaderStruct const& shaderStruct);
 
+		castl::unordered_set<ImageHandle> m_WriteImages;
+		castl::unordered_set<ImageHandle> m_ReadImages;
+		castl::unordered_set<BufferHandle> m_WriteBuffers;
+		castl::unordered_set<BufferHandle> m_ReadBuffers;
 	};
 
-	class ComputePass
+	class RasterizationPass : public PassBase
 	{
-
+	public:
+		void Prepare(RenderPass const& renderPass);
 	};
 
-	class TransferPass
+	class ComputePass : public PassBase
 	{
+	public:
+		void Prepare(ComputeBatch const& computePass);
+	};
 
+	class TransferPass : public PassBase
+	{
+	public:
+		void Prepare(GPUDataTransfers const& transferPass);
 	};
 
 
