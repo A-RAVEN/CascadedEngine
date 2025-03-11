@@ -8,7 +8,7 @@ namespace graphics_backend
 {
 	class PassBase
 	{
-	protected:
+	public:
 		void CollectShaderStructResourcesForBasePass(D3D2ShaderStruct const& shaderStruct);
 
 		castl::unordered_set<ImageHandle> m_WriteImages;
@@ -36,16 +36,12 @@ namespace graphics_backend
 	};
 
 
-	class GPUPassDependencyGraph
+	class GraphNode
 	{
 	public:
-		class GraphNode
-		{
-		public:
-			castl::vector<RasterizationPass> m_RasterPasses;
-			castl::vector<ComputePass> m_ComputePasses;
-			castl::vector<TransferPass> m_TransferPasses;
-		};
+		castl::vector<RasterizationPass*> m_RasterPasses;
+		castl::vector<ComputePass*> m_ComputePasses;
+		castl::vector<TransferPass*> m_TransferPasses;
 	};
 
 
@@ -53,9 +49,15 @@ namespace graphics_backend
 	{
 	public:
 		D3D12GPUGraphExecutor(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
-
+		void Init(GPUGraph const& owningGraph);
 	private:
 		void BuildPassDependencyGraph();
+
+		castl::vector<RasterizationPass> m_RasterizePasses;
+		castl::vector<ComputePass> m_ComputePasses;
+		castl::vector<TransferPass> m_TransferPasses;
+
+		castl::vector<GraphNode> m_GraphNodes;
 
 	};
 }
