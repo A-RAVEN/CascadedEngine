@@ -4,6 +4,151 @@
 
 namespace graphics_backend
 {
+	
+
+	constexpr D3D12_BARRIER_ACCESS EBufferUsageTranslate(EBufferUsage inUsage)
+	{
+		switch (inUsage)
+		{
+		case EBufferUsage::eConstantBuffer:
+			return D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+		case EBufferUsage::eStructuredBuffer:
+			return D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
+		case EBufferUsage::eUnorderedAccess:
+			return D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+			break;
+		case EBufferUsage::eVertexBuffer:
+			return D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+		case EBufferUsage::eIndexBuffer:
+			return D3D12_BARRIER_ACCESS_INDEX_BUFFER;
+		case EBufferUsage::eDataDst:
+			return D3D12_BARRIER_ACCESS_COPY_DEST;
+		case EBufferUsage::eDataSrc:
+			return D3D12_BARRIER_ACCESS_COPY_SOURCE;
+		default: return D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+		}
+	}
+
+	//constexpr D3D12_BARRIER_ACCESS EBufferUsagesToD3D12BarrierAccess(EBufferUsageFlags usageFlags)
+	//{
+	//	D3D12_BARRIER_ACCESS result;
+	//	for (uint32_t i = 0
+	//		; i <= static_cast<uint32_t>(EBufferUsage::eMaxBit)
+	//		; ++i)
+	//	{
+	//		EBufferUsage itrUsage = static_cast<EBufferUsage>(1 << i);
+	//		if (usageFlags & itrUsage)
+	//		{
+	//			result |= EBufferUsageTranslate(itrUsage);
+	//		}
+	//	}
+	//	return result;
+	//}
+
+	constexpr D3D12_BARRIER_LAYOUT ETextureAccessTypeToD3D12BarrierLayout(ETextureFormat format, ETextureAccessType accessType)
+	{
+		switch (accessType)
+		{
+		case ETextureAccessType::eSampled:
+		case ETextureAccessType::eSubpassInput:
+			return D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+			break;
+		case ETextureAccessType::eRT:
+			if (IsDepthStencilFormat(format))
+			{
+				return D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE;
+			}
+			else
+			{
+				return D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+			}
+			break;
+		case ETextureAccessType::eUnorderedAccess:
+			return D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
+			break;
+		case ETextureAccessType::eTransferDst:
+			return D3D12_BARRIER_LAYOUT_COPY_DEST;
+			break;
+		case ETextureAccessType::eTransferSrc:
+			return D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+			break;
+		}
+	}
+
+	constexpr D3D12_BARRIER_ACCESS ETextureAccessTypeToD3D12BarrierAccess(ETextureFormat format, ETextureAccessTypeFlags accessType)
+	{
+		D3D12_BARRIER_ACCESS resultAccess = D3D12_BARRIER_ACCESS_COMMON;
+		for (std::underlying_type_t<ETextureAccessType> accessTypeId = 0
+			; accessTypeId <= static_cast<std::underlying_type_t<ETextureAccessType>>(ETextureAccessType::eAccessType_Max)
+			; ++accessTypeId)
+		{
+			ETextureAccessType typemask = static_cast<ETextureAccessType>(1 << accessTypeId);
+			if (accessType & typemask)
+			{
+				switch (typemask)
+				{
+				case ETextureAccessType::eSampled:
+				case ETextureAccessType::eSubpassInput:
+					resultAccess |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
+					break;
+				case ETextureAccessType::eRT:
+					if (IsDepthStencilFormat(format))
+					{
+						resultAccess |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
+					}
+					else
+					{
+						resultAccess |= D3D12_BARRIER_ACCESS_RENDER_TARGET;
+					}
+					break;
+				case ETextureAccessType::eUnorderedAccess:
+					resultAccess |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+					break;
+				case ETextureAccessType::eTransferDst:
+					resultAccess |= D3D12_BARRIER_ACCESS_COPY_DEST;
+					break;
+				case ETextureAccessType::eTransferSrc:
+					resultAccess |= D3D12_BARRIER_ACCESS_COPY_SOURCE;
+					break;
+				}
+			}
+		}
+		return resultAccess;
+	}
+
+	constexpr D3D12_RESOURCE_FLAGS EBufferUsageFlagsToD3D12ResourceFlags(EBufferUsageFlags usageFlags)
+	{
+		D3D12_RESOURCE_FLAGS resultFlags = D3D12_RESOURCE_FLAG_NONE;
+		for (std::underlying_type_t<EBufferUsage> accessTypeId = 0
+			; accessTypeId <= static_cast<std::underlying_type_t<EBufferUsage>>(EBufferUsage::eMaxBit)
+			; ++accessTypeId)
+		{
+			EBufferUsage typemask = static_cast<EBufferUsage>(1 << accessTypeId);
+			if (usageFlags & typemask)
+			{
+				switch (typemask)
+				{
+				case EBufferUsage::eConstantBuffer:
+				case EBufferUsage::eStructuredBuffer:
+					resultFlags |= D3D12_RESOURCE_FLAGS::D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+					break;
+				case EBufferUsage::eUnorderedAccess:
+					resultFlags |= D3D12_RESOURCE_FLAGS::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+					break;
+				case EBufferUsage::eVertexBuffer:
+				case EBufferUsage::eIndexBuffer:
+				case EBufferUsage::eDataSrc:
+				case EBufferUsage::eDataDst:
+					break;
+				default:
+					CA_LOG_ERR_BREAK("Unknown Buffer Usage {}", typemask);
+					break;
+				}
+			}
+		}
+		return resultFlags;
+	}
+
 	constexpr D3D12_RESOURCE_FLAGS ETextureAccessTypeToD3D12ResourceFlags(ETextureFormat format, ETextureAccessTypeFlags accessType)
 	{
 		D3D12_RESOURCE_FLAGS resultFlags = D3D12_RESOURCE_FLAG_NONE;
@@ -115,6 +260,44 @@ namespace graphics_backend
 		}
 	}
 
+	constexpr D3D12_SRV_DIMENSION ETextureTypeToSRVDimension(ETextureType textureType)
+	{
+		switch (textureType)
+		{
+		case ETextureType::e1D:
+			return D3D12_SRV_DIMENSION_TEXTURE1D;
+		case ETextureType::e2D:
+			return D3D12_SRV_DIMENSION_TEXTURE2D;
+		case ETextureType::e3D:
+			return D3D12_SRV_DIMENSION_TEXTURE3D;
+		case ETextureType::e2DArray:
+			return D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+		case ETextureType::eCubeMap:
+			return D3D12_SRV_DIMENSION_TEXTURECUBE;
+		}
+		CA_LOG_ERR_BREAK("Unknown Texture Type!");
+		return D3D12_SRV_DIMENSION_UNKNOWN;
+	}
+
+	constexpr D3D12_UAV_DIMENSION ETextureTypeToUAVDimension(ETextureType textureType)
+	{
+		switch (textureType)
+		{
+		case ETextureType::e1D:
+			return D3D12_UAV_DIMENSION_TEXTURE1D;
+		case ETextureType::e2D:
+			return D3D12_UAV_DIMENSION_TEXTURE2D;
+		case ETextureType::e3D:
+			return D3D12_UAV_DIMENSION_TEXTURE3D;
+		case ETextureType::e2DArray:
+			return D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+		case ETextureType::eCubeMap:
+			return D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+		}
+		CA_LOG_ERR_BREAK("Unknown Texture Type!");
+		return D3D12_UAV_DIMENSION_UNKNOWN;
+	}
+
 	constexpr D3D12_RESOURCE_DIMENSION ETextureTypeToResourceDimension(ETextureType textureType)
 	{
 		switch (textureType)
@@ -206,7 +389,7 @@ namespace graphics_backend
 			return D3D12_COMPARISON_FUNC_NOT_EQUAL;
 		default:
 			CA_LOG_ERR("Unknown Compare Op!");
-			return D3D12_COMPARISON_FUNC_NONE;
+			return D3D12_COMPARISON_FUNC_ALWAYS;
 		}
 	}
 
@@ -271,5 +454,148 @@ namespace graphics_backend
 			CA_LOG_ERR("Unknown Vertex Input Format!");
 			return DXGI_FORMAT_UNKNOWN;
 		}
+	}
+
+	constexpr D3D12_RESOURCE_DESC GetResourceDescFromGPUBufferDescriptor(GPUBufferDescriptor const& inDescriptor)
+	{
+		return CD3DX12_RESOURCE_DESC::Buffer(inDescriptor.count * inDescriptor.stride, EBufferUsageFlagsToD3D12ResourceFlags(inDescriptor.usageFlags));
+	}
+
+	constexpr D3D12_RESOURCE_DESC GetResourceDescFromTextureDescriptor(GPUTextureDescriptor const& inDescriptor)
+	{
+		D3D12_RESOURCE_DESC resourceDesc{};
+		resourceDesc.Alignment = 0;
+		resourceDesc.Dimension = ETextureTypeToResourceDimension(inDescriptor.textureType);
+		resourceDesc.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
+		resourceDesc.Width = inDescriptor.width;
+		resourceDesc.Height = inDescriptor.height;
+		resourceDesc.DepthOrArraySize = inDescriptor.layers;
+		resourceDesc.MipLevels = inDescriptor.mipLevels;
+		resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(inDescriptor.format, inDescriptor.accessType);
+		resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
+		resourceDesc.SampleDesc.Quality = 0;
+		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		return resourceDesc;
+	}
+
+	constexpr D3D12_UNORDERED_ACCESS_VIEW_DESC GetUAVDescFromGPUTextureDescriptor(
+		GPUTextureDescriptor const& inDescriptor
+		, GPUTextureView textureView)
+	{
+		textureView.Sanitize(inDescriptor);
+		D3D12_UNORDERED_ACCESS_VIEW_DESC result{};
+		result.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
+		result.ViewDimension = ETextureTypeToUAVDimension(inDescriptor.textureType);
+		switch (inDescriptor.textureType)
+		{
+		case ETextureType::e1D:
+		{
+			result.Texture1D.MipSlice = textureView.baseMip;
+		}
+		break;
+		case ETextureType::e2D:
+			result.Texture2D.PlaneSlice = 0;
+			result.Texture2D.MipSlice = textureView.baseMip;
+			break;
+		case ETextureType::e3D:
+			result.Texture3D.MipLevels = textureView.mipCount;
+			result.Texture3D.MipSlice = textureView.baseMip;
+			result.Texture3D.ResourceMinLODClamp = 0;
+			break;
+		case ETextureType::e2DArray:
+			result.Texture2D.PlaneSlice = 0;
+			result.Texture2DArray.MipLevels = textureView.mipCount;
+			result.Texture2DArray.MostDetailedMip = textureView.baseMip;
+			result.Texture2DArray.ResourceMinLODClamp = 0;
+			result.Texture2DArray.FirstArraySlice = textureView.baseLayer;
+			result.Texture2DArray.ArraySize = textureView.layerCount;
+			break;
+		case ETextureType::eCubeMap:
+			result.TextureCube.MipLevels = textureView.mipCount;
+			result.TextureCube.MostDetailedMip = textureView.baseMip;
+			result.TextureCube.ResourceMinLODClamp = 0;
+			break;
+		}
+		return result;
+	}
+
+	constexpr D3D12_SHADER_RESOURCE_VIEW_DESC GetSRVDescFromGPUTextureDescriptor(
+		GPUTextureDescriptor const& inDescriptor
+		, GPUTextureView textureView)
+	{
+		textureView.Sanitize(inDescriptor);
+		D3D12_SHADER_RESOURCE_VIEW_DESC result{};
+		result.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
+		result.ViewDimension = ETextureTypeToSRVDimension(inDescriptor.textureType);
+		switch (inDescriptor.textureType)
+		{
+		case ETextureType::e1D:
+		{
+			result.Texture1D.MipLevels = textureView.mipCount;
+			result.Texture1D.MostDetailedMip = textureView.baseMip;
+			result.Texture1D.ResourceMinLODClamp = 0;
+		}
+			break;
+		case ETextureType::e2D:
+			result.Texture2D.PlaneSlice = 0;
+			result.Texture2D.MipLevels = textureView.mipCount;
+			result.Texture2D.MostDetailedMip = textureView.baseMip;
+			result.Texture2D.ResourceMinLODClamp = 0;
+			break;
+		case ETextureType::e3D:
+			result.Texture3D.MipLevels = textureView.mipCount;
+			result.Texture3D.MostDetailedMip = textureView.baseMip;
+			result.Texture3D.ResourceMinLODClamp = 0;
+			break;
+		case ETextureType::e2DArray:
+			result.Texture2D.PlaneSlice = 0;
+			result.Texture2DArray.MipLevels = textureView.mipCount;
+			result.Texture2DArray.MostDetailedMip = textureView.baseMip;
+			result.Texture2DArray.ResourceMinLODClamp = 0;
+			result.Texture2DArray.FirstArraySlice = textureView.baseLayer;
+			result.Texture2DArray.ArraySize = textureView.layerCount;
+			break;
+		case ETextureType::eCubeMap:
+			result.TextureCube.MipLevels = textureView.mipCount;
+			result.TextureCube.MostDetailedMip = textureView.baseMip;
+			result.TextureCube.ResourceMinLODClamp = 0;
+			break;
+		}
+		return result;
+	}
+
+	 
+	constexpr D3D12_SHADER_RESOURCE_VIEW_DESC GetSRVDescFromGPUBufferDescriptor(GPUBufferDescriptor const& inDescriptor)
+	{
+		D3D12_SHADER_RESOURCE_VIEW_DESC result{};
+		result.Format = DXGI_FORMAT_UNKNOWN;
+		result.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		result.Buffer.FirstElement = 0;
+		result.Buffer.NumElements = inDescriptor.count;
+		result.Buffer.StructureByteStride = inDescriptor.stride;
+		result.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+		return result;
+	}
+
+	constexpr D3D12_UNORDERED_ACCESS_VIEW_DESC GetUAVDescFromGPUBufferDescriptor(GPUBufferDescriptor const& inDescriptor)
+	{
+		D3D12_UNORDERED_ACCESS_VIEW_DESC result{};
+		result.Format = DXGI_FORMAT_UNKNOWN;
+		result.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+		result.Buffer.CounterOffsetInBytes = 0;
+		result.Buffer.FirstElement = 0;
+		result.Buffer.NumElements = inDescriptor.count;
+		result.Buffer.StructureByteStride = inDescriptor.stride;
+		result.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+		return result;
+	}
+
+	constexpr D3D12_CONSTANT_BUFFER_VIEW_DESC GetCBVDescFromGPUBufferDescriptor(D3D12_GPU_VIRTUAL_ADDRESS address,
+		GPUBufferDescriptor const& inDescriptor)
+	{
+		D3D12_CONSTANT_BUFFER_VIEW_DESC result{};
+		result.BufferLocation = address;
+		result.SizeInBytes = inDescriptor.count * inDescriptor.stride;
+		return result;
 	}
 }

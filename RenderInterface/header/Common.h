@@ -210,7 +210,8 @@ enum class EBufferUsage : uint16_t
 	eIndexBuffer = 1 << 3,
 	eDataSrc = 1 << 4,
 	eDataDst = 1 << 5,
-	eMaxBit = 5
+	eUnorderedAccess = 1 << 6,
+	eMaxBit = 6
 };
 
 template <>

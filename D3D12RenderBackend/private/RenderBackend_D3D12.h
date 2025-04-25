@@ -58,6 +58,11 @@ namespace graphics_backend
 			return m_CommandQueue;
 		}
 
+		MemoryManager& GetMemoryManager()
+		{
+			return m_MemoryManager;
+		}
+
 		template<typename T, typename...TArgs>
 		static void InitObj(T* inoutObj, TArgs&...Args)
 		{
@@ -100,6 +105,8 @@ namespace graphics_backend
 				return newSubObject;
 			}
 		};
+
+		ShaderFileInfo const* GetShaderFileInfo(ShaderInfo const& shaderInfo);
 
 		ShaderSetData GetShaderCodes(ShaderInfo const& shaderInfo);
 

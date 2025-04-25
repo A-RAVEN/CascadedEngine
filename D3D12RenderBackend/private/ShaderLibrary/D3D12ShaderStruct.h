@@ -39,6 +39,9 @@ namespace graphics_backend
 		castl::unordered_map<cacore::NameHash, castl::vector<BufferHandle>> const& GetBufferHandles() const { return m_NameToBufferHandles; }
 		castl::vector<uint8_t> const& GetSelfUniformBuffer() const { return m_SelfUniformBuffer; }
 		ShaderCompilerSlang::ShaderStructData const* GetStructData() const { return p_StructData; }
+		ETextureAccessType GetTextureAccessType(cacore::NameHash const& textureName) const;
+		ShaderCompilerSlang::EShaderResourceAccess GetBufferRWType(cacore::NameHash const& bufferName) const;
+		EBufferUsage GetBufferUsage(cacore::NameHash const& bufferName) const;
 	private:
 		ShaderCompilerSlang::ShaderStructData const* p_StructData;
 		castl::vector<uint8_t> m_SelfUniformBuffer;

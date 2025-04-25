@@ -223,6 +223,7 @@ namespace ShaderCompilerSlang
 		uint32_t m_RWTextureCount;
 		uint32_t m_StorageBufferCount;
 		uint32_t m_RWBufferCount;
+
 	};
 
 	struct ShaderSpaceInfo

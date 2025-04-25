@@ -17,6 +17,7 @@
 namespace graphics_backend
 {
 	//using VertexInputBufferMap = castl::unordered_map<cacore::HashObj<VertexInputsDescriptor>, BufferHandle>;
+	using ShaderStructDic = castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>>;
 #pragma region Upload Data Holder
 	struct UploadDataHolder
 	{
@@ -196,9 +197,9 @@ namespace graphics_backend
 		//PSO
 		PipelineDescData pipelineStateDesc;
 		//Draw Calls
-		castl::vector< DrawCall> m_DrawCalls;
+		castl::vector<DrawCall> m_DrawCalls;
 		//castl::function<void(CommandList&)> m_DrawCommands;
-		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
+		ShaderStructDic shaderStructs;
 		//VertexInputBufferMap m_BoundVertexBuffers;
 		castl::unordered_map<cacore::NameHash, cacore::HashObj<VertexInputsDescriptor>> m_VertexInputDescs;
 		//IndexBufferData m_IndexBufferData;
@@ -355,7 +356,7 @@ namespace graphics_backend
 		cacore::NameHash const& GetName() const { return m_Name; }
 	private:
 		PipelineDescData m_PipelineStates;
-		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
+		ShaderStructDic shaderStructs;
 		castl::vector<AttachmentConfig> m_AttachmentConfigs;
 		castl::vector<DrawCallBatch> m_DrawCallBatches;
 		castl::vector<ImageHandle> m_Arrachments;
@@ -376,12 +377,12 @@ namespace graphics_backend
 			//castl::vector<
 			//	castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
 			//> shaderArgLists;
-			castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
+			ShaderStructDic shaderStructs;
 			uint32_t x;
 			uint32_t y;
 			uint32_t z;
 
-			static ComputeDispatch Create(ShaderInfo const& shader, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const& shaderStructs)
+			static ComputeDispatch Create(ShaderInfo const& shader, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, ShaderStructDic const& shaderStructs)
 			{
 				ComputeDispatch dispatchStruct{};
 				dispatchStruct.m_ShaderInfo = shader;
@@ -402,7 +403,7 @@ namespace graphics_backend
 		//castl::vector<
 		//	castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
 		//> shaderArgLists;
-		castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> shaderStructs;
+		ShaderStructDic shaderStructs;
 		//Dispatchs
 		castl::vector<ComputeDispatch> dispatchs;
 
@@ -418,7 +419,7 @@ namespace graphics_backend
 		//	return *this;
 		//}
 		ComputeBatch& Dispatch(ShaderInfo const& shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z
-			, castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const& shaderStructs = {})
+			, ShaderStructDic const& shaderStructs = {})
 		{
 			bool valid = (shaderSet.isValid()) && (x > 0 && y > 0 && z > 0) && !kernelName.empty();
 			CA_ASSERT(valid, "Invalid Compute Dispatch!");
@@ -504,6 +505,11 @@ namespace graphics_backend
 			};
 			return &m_Descriptors[find->second];
 		}
+
+		castl::unordered_map<ResourceHandleKey, int32_t> const& GetHandleNameToDesc() const
+		{
+			return m_HandleNameToDesc;
+		}
 	private:
 		castl::unordered_map<ResourceHandleKey, int32_t> m_HandleNameToDesc;
 		castl::vector<DescriptorType> m_Descriptors;
@@ -538,6 +544,7 @@ namespace graphics_backend
 		UploadDataHolder const& GetUploadDataHolder() const { return m_DataHolder; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
 		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
+
 	private:
 		//Render Passes
 		castl::deque<RenderPass> m_RenderPasses;
@@ -556,16 +563,40 @@ namespace graphics_backend
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
 	};
 
-	//DrawCallBatch& DrawCallBatch::SetIndexBuffer(EIndexBufferType indexBufferType, BufferHandle const& bufferHandle, uint32_t byteOffset)
-	//{
-	//	m_IndexBufferData = { bufferHandle, indexBufferType, byteOffset };
-	//	return *this;
-	//}
-	//DrawCallBatch& DrawCallBatch::Draw(castl::function<void(CommandList&)> commandFunc)
-	//{
-	//	m_DrawCommands = commandFunc;
-	//	return *this;
-	//}
+	template<typename TSS, typename TSSRange>
+	static void ForeachShaderStructs(TSSRange const& inShaderStructRange, castl::function<void(TSS const&)> callback)
+	{
+		castl::deque<castl::shared_ptr<ShaderStruct>> shaderStructs;
+		for (castl::shared_ptr<ShaderStruct> const& shaderStruct : inShaderStructRange)
+		{
+			CA_ASSERT_BREAK(shaderStruct.second != nullptr, "Shader Struct Is Null, Why!?");
+			shaderStructs.push_back(shaderStruct.second);
+		}
+		/*auto& drawcallBatchs = renderPass.GetDrawCallBatches();
+		for (auto& batch : drawcallBatchs)
+		{
+			for (auto shaderStruct : batch.shaderStructs)
+			{
+				CA_ASSERT_BREAK(shaderStruct.second != nullptr, "Shader Struct Is Null, Why!?");
+				shaderStructs.push_back(shaderStruct.second);
+			}
+		}*/
+		while (!shaderStructs.empty())
+		{
+			auto shaderStruct = shaderStructs.front();
+			TSS* pStruct = static_cast<TSS*>(shaderStruct.get());
+			CA_ASSERT_BREAK(pStruct != nullptr, "Shader Struct Is Null, Why!?");
+			callback(*pStruct);
+			shaderStructs.pop_front();
+			for (auto& subArgPairs : pStruct->GetSubStructs())
+			{
+				for (auto subStruct : subArgPairs.second)
+				{
+					shaderStructs.push_back(subStruct);
+				}
+			}
+		}
+	}
 
 	RenderPass& RenderPass::SetPipelineState(const CPipelineStateObject& pipelineState)
 	{

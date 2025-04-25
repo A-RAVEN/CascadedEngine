@@ -33,11 +33,12 @@ namespace graphics_backend
 		uint64_t m_Size;
 	};
 
-	class AliasedGPUResource : public castl::nocopiable
+	class AliasedGPUResource
 	{
 	public:
 		void FreeVirtualMemmories();
 		ResourceInfo const& GetResourceInfo() const;
+		ID3D12Resource* GetResource() const;
 	private:
 		AliasedMemoryAllocator* p_OwningAllocator;
 		D3D12MA::VirtualBlock* p_OwningBlock;
@@ -60,11 +61,14 @@ namespace graphics_backend
 		public:
 			VirtualBlock(uint64_t virtualBlockSize);
 			bool TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator, D3D12_RESOURCE_DESC const& resourceDesc, AliasedGPUResource& outGPUResource);
+			void CommitBlock(D3D12_HEAP_TYPE heapType, D3D12MA::Allocator* allocator, ID3D12Device* device);
 			void Release();
 			D3D12MA::VirtualBlock* m_Block;
 			castl::vector<ResourceInfo> m_Resources;
 			uint64_t m_MaxAlignment = 0;
 			uint64_t m_MaxSize = 0;
+			D3D12MA::Allocation* p_BlockAllocation;
+			castl::vector<ComPtr<ID3D12Resource>> m_BlockPlacedResources;
 		};
 
 
@@ -75,12 +79,13 @@ namespace graphics_backend
 		void Release() override;
 		
 		ResourceInfo const& GetResourceInfo(D3D12_HEAP_TYPE, uint32_t virtualBlockID, uint32_t resourceID) const;
+		ID3D12Resource* GetResource(D3D12_HEAP_TYPE, uint32_t virtualBlockID, uint32_t resourceID) const;
 
 		castl::unordered_map<D3D12_HEAP_TYPE, castl::vector<VirtualBlock>> m_Blocks;
 		uint64_t m_VirtualBlockSize;
 
-		castl::vector<ComPtr<ID3D12Resource>> m_PlacedResources;
-		castl::vector<D3D12MA::Allocation*> m_Allocations;
+		//castl::vector<ComPtr<ID3D12Resource>> m_PlacedResources;
+		//castl::vector<D3D12MA::Allocation*> m_Allocations;
 		ComPtr<D3D12MA::Allocator> m_Allocator;
 	};
 }

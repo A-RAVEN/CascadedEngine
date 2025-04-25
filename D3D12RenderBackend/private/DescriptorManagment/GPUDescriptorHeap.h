@@ -10,9 +10,12 @@ namespace graphics_backend
 	class DescriptorAllocation
 	{
 	public:
+		DescriptorAllocation() = default;
 		DescriptorAllocation(castl::range<uint32_t> const& range, DescriptorHeapAllocator* allocator) : m_Range(range), m_Allocator(allocator) {}
 		DescriptorAllocation Split(uint32_t count);
-
+		CD3DX12_CPU_DESCRIPTOR_HANDLE CPUHandle() const;
+		CD3DX12_GPU_DESCRIPTOR_HANDLE GPUHandle() const;
+		bool IsValid() const;
 		void Release();
 	private:
 		castl::range<uint32_t> m_Range;
@@ -23,7 +26,7 @@ namespace graphics_backend
 	class DescriptorHeapAllocator : D3D12SubobjectBase
 	{
 	public:
-		DescriptorHeapAllocator(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		DescriptorHeapAllocator(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_ShaderVisible(false){}
 		DescriptorHeapAllocator(DescriptorHeapAllocator&& other) noexcept = default;
 		void Init(D3D12_DESCRIPTOR_HEAP_TYPE heapType, bool shaderVisible, uint32_t size);
 		void Release() override;
@@ -35,6 +38,7 @@ namespace graphics_backend
 	private:
 		ComPtr<ID3D12DescriptorHeap> m_DescriptorHeap;
 		castl::list<castl::range<uint32_t>> m_FreeList;
+		bool m_ShaderVisible;
 	};
 
 	class CPUPagedDescriptorAllocator : D3D12SubobjectBase
@@ -52,5 +56,14 @@ namespace graphics_backend
 		void Init();
 	private:
 		DescriptorHeapAllocator m_HugeHeap;
+	};
+
+	class CPUDescriptorAllocatorSet
+	{
+	public:
+		CPUPagedDescriptorAllocator m_SRV_UAV_CBV_Allocator;
+		CPUPagedDescriptorAllocator m_RTV_Allocator;
+		CPUPagedDescriptorAllocator m_DSV_Allocator;
+		CPUPagedDescriptorAllocator m_Sampler_Allocator;
 	};
 }

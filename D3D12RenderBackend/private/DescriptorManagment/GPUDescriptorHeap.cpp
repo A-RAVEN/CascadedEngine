@@ -6,6 +6,7 @@ namespace graphics_backend
 {
 	void DescriptorHeapAllocator::Init(D3D12_DESCRIPTOR_HEAP_TYPE heapType, bool shaderVisible, uint32_t size)
 	{
+		m_ShaderVisible = shaderVisible;
 		constexpr uint32_t kDescriptorHeapSize = castl::numeric_limits<uint32_t>::max();
 		D3D12_DESCRIPTOR_HEAP_DESC m_DescriptorHeapDesc = {};
 		m_DescriptorHeapDesc.Type = heapType;
@@ -52,20 +53,25 @@ namespace graphics_backend
 	}
 	CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHeapAllocator::GetCPUHandle(uint32_t offset) const
 	{
+		auto stride = GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type);
 		return CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			m_DescriptorHeap->GetCPUDescriptorHandleForHeapStart()
 			, offset
-			, GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type));
+			, stride);
 	}
 	CD3DX12_GPU_DESCRIPTOR_HANDLE DescriptorHeapAllocator::GetGPUHandle(uint32_t offset) const
 	{
+		CA_ASSERT_BREAK(m_ShaderVisible, "Only Shader Visible Allocator Can Have GPU Handle");
+		auto stride = GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type);
 		return CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			m_DescriptorHeap->GetGPUDescriptorHandleForHeapStart()
 			, offset
-			, GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type));
+			, stride);
 	}
 	void DescriptorHeapAllocator::FreeDescriptors(castl::range<uint32_t> range)
 	{
+		if (range.size() == 0)
+			return;
 		auto itr = m_FreeList.begin();
 		while (itr != m_FreeList.end())
 		{
@@ -111,9 +117,24 @@ namespace graphics_backend
 		m_Range.head() += count;
 		return result;
 	}
+	CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorAllocation::CPUHandle() const
+	{
+		CA_ASSERT(m_Range.size() > 0, "Empty Descriptor Allocation");
+		return m_Allocator->GetCPUHandle(m_Range.head());
+	}
+	CD3DX12_GPU_DESCRIPTOR_HANDLE DescriptorAllocation::GPUHandle() const
+	{
+		CA_ASSERT(m_Range.size() > 0, "Empty Descriptor Allocation");
+		return m_Allocator->GetGPUHandle(m_Range.head());
+	}
+	bool DescriptorAllocation::IsValid() const
+	{
+		return m_Range.size() > 0;
+	}
 	void DescriptorAllocation::Release()
 	{
 		m_Allocator->FreeDescriptors(m_Range);
+		m_Range = {};
 	}
 	DescriptorAllocation CPUPagedDescriptorAllocator::AllocDescriptors(uint32_t descCount)
 	{

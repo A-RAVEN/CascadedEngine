@@ -96,4 +96,50 @@ namespace graphics_backend
 				, pVKSubstruct->m_SelfUniformBuffer.data(), pVKSubstruct->m_SelfUniformBuffer.size());
 		}
 	}
+	ETextureAccessType D3D2ShaderStruct::GetTextureAccessType(cacore::NameHash const& textureName) const
+	{
+		for (auto& texture : p_StructData->m_Textures)
+		{
+			if (texture.m_Name == textureName)
+			{
+				switch (texture.m_RWType)
+				{
+				case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+					return ETextureAccessType::eSampled;
+				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+					return ETextureAccessType::eUnorderedAccess;
+				}
+			}
+		}
+		return ETextureAccessType::eAccessType_Max;
+	}
+	ShaderCompilerSlang::EShaderResourceAccess D3D2ShaderStruct::GetBufferRWType(cacore::NameHash const& bufferName) const
+	{
+		for (auto& buffer : p_StructData->m_Buffers)
+		{
+			if (buffer.m_Name == bufferName)
+			{
+				return buffer.m_RWType;
+			}
+		}
+		return ShaderCompilerSlang::EShaderResourceAccess::eUnknown;
+	}
+	EBufferUsage D3D2ShaderStruct::GetBufferUsage(cacore::NameHash const& bufferName) const
+	{
+		for (auto& buffer : p_StructData->m_Buffers)
+		{
+			if (buffer.m_Name == bufferName)
+			{
+				switch (buffer.m_RWType)
+				{
+				case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+					return EBufferUsage::eStructuredBuffer;
+				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+					return EBufferUsage::eStructuredBuffer;
+				}
+			}
+		}
+	}
 }

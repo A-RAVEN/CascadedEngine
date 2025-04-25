@@ -70,7 +70,7 @@ CPMAddPackage(
 
 CPMAddPackage(
   NAME DirectX-Headers
-  VERSION 1.614.1
+  VERSION 1.615.0
   GITHUB_REPOSITORY microsoft/DirectX-Headers
   EXCLUDE_FROM_ALL TRUE
 )

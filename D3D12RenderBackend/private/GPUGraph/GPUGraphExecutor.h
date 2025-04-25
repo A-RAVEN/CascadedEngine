@@ -3,6 +3,8 @@
 #include <GPUGraph.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <unordered_set>
+#include <ResourceManagment/MemoryManager.h>
+#include "GPUResourceStates.h"
 
 namespace graphics_backend
 {
@@ -21,18 +23,21 @@ namespace graphics_backend
 	{
 	public:
 		void Prepare(RenderPass const& renderPass);
+		RenderPass const* pPass;
 	};
 
 	class ComputePass : public PassBase
 	{
 	public:
 		void Prepare(ComputeBatch const& computePass);
+		ComputeBatch const* pPass;
 	};
 
 	class TransferPass : public PassBase
 	{
 	public:
 		void Prepare(GPUDataTransfers const& transferPass);
+		GPUDataTransfers const* pPass;
 	};
 
 
@@ -48,8 +53,9 @@ namespace graphics_backend
 	class D3D12GPUGraphExecutor : public D3D12SubobjectBase
 	{
 	public:
-		D3D12GPUGraphExecutor(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		D3D12GPUGraphExecutor(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_LocalResourceManager(app){}
 		void Init(GPUGraph const& owningGraph);
+		void RegisterGraphResources(GPUGraph const& owningGraph);
 	private:
 		void BuildPassDependencyGraph();
 
@@ -59,5 +65,6 @@ namespace graphics_backend
 
 		castl::vector<GraphNode> m_GraphNodes;
 
+		D3D12GraphLocalResourceManager m_LocalResourceManager;
 	};
 }

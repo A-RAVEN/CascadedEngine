@@ -173,39 +173,13 @@ namespace graphics_backend
     castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
     {
         castl::shared_ptr<D3DBufferObject> result = castl::make_shared<D3DBufferObject>(this);
-        D3D12_RESOURCE_DESC resourceDesc{};
-        resourceDesc.Alignment = 0;
-        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
-        resourceDesc.Width = descriptor.count;
-        resourceDesc.Height = 1;
-        resourceDesc.DepthOrArraySize = 1;
-        resourceDesc.MipLevels = 1;
-        resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-        resourceDesc.SampleDesc.Count = 1;
-        resourceDesc.SampleDesc.Quality = 0;
-        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromGPUBufferDescriptor(descriptor);
         GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
         result->SetGPUResource(castl::move(resource));
         return result;
     }
 
-	D3D12_RESOURCE_DESC GetResourceDescFromTextureDescriptor(GPUTextureDescriptor const& inDescriptor)
-	{
-		D3D12_RESOURCE_DESC resourceDesc{};
-		resourceDesc.Alignment = 0;
-		resourceDesc.Dimension = ETextureTypeToResourceDimension(inDescriptor.textureType);
-		resourceDesc.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
-		resourceDesc.Width = inDescriptor.width;
-		resourceDesc.Height = inDescriptor.height;
-		resourceDesc.DepthOrArraySize = inDescriptor.layers;
-		resourceDesc.MipLevels = inDescriptor.mipLevels;
-		resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(inDescriptor.format, inDescriptor.accessType);
-		resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
-		resourceDesc.SampleDesc.Quality = 0;
-		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-		return resourceDesc;
-	}
+
 
     castl::shared_ptr<GPUTexture> RenderBackend_D3D12::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor)
     {
@@ -242,6 +216,13 @@ namespace graphics_backend
         allocator.LogAllocatorStates();
         allocator.CommitAllocations();
 		allocator.Release();
+    }
+
+    ShaderFileInfo const* RenderBackend_D3D12::GetShaderFileInfo(ShaderInfo const& shaderInfo)
+    {
+        auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("D3D12ShaderLibrary.shLib");
+        auto fileInfo = shaderLibrary->GetShaderFileInfo(shaderInfo.path);
+        return fileInfo;
     }
 
     ShaderSetData RenderBackend_D3D12::GetShaderCodes(ShaderInfo const& shaderInfo)

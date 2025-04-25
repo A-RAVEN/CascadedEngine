@@ -65,6 +65,11 @@ namespace graphics_backend
 		return p_OwningAllocator->GetResourceInfo(m_HeapType, m_BlockID, m_ResourceID);
 	}
 
+	ID3D12Resource* AliasedGPUResource::GetResource() const
+	{
+		return p_OwningAllocator->GetResource(m_HeapType, m_BlockID, m_ResourceID);
+	}
+
 	AliasedMemoryAllocator::AliasedMemoryAllocator(RenderBackend_D3D12* app, ComPtr<D3D12MA::Allocator> allocator, uint64_t virtualBlockSize)
 		: D3D12SubobjectBase(app), m_Allocator(allocator), m_VirtualBlockSize(virtualBlockSize)
 	{
@@ -123,33 +128,7 @@ namespace graphics_backend
 		{
 			for (VirtualBlock& block : pair.second)
 			{
-				if (block.m_MaxSize > 0)
-				{
-					D3D12MA::Allocation* allocation;
-					D3D12MA::ALLOCATION_DESC
-					allocationDesc = {};
-					allocationDesc.HeapType = pair.first;
-					allocationDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED | D3D12MA::ALLOCATION_FLAG_CAN_ALIAS;
-					D3D12_RESOURCE_ALLOCATION_INFO resourceAllocationInfo = {};
-					resourceAllocationInfo.Alignment = block.m_MaxAlignment;
-					resourceAllocationInfo.SizeInBytes = block.m_MaxSize;
-					ThrowIfFailed(m_Allocator->AllocateMemory(&allocationDesc, &resourceAllocationInfo, &allocation));
-					m_Allocations.push_back(allocation);
-
-					for (auto& resourceInfo : block.m_Resources)
-					{
-						allocation->GetHeap();
-						allocation->GetOffset();
-						ComPtr<ID3D12Resource> resource;
-						ThrowIfFailed(GetDevice()->
-							CreatePlacedResource(allocation->GetHeap()
-								, allocation->GetOffset() + resourceInfo.m_Offset
-								, &resourceInfo.m_Desc
-								, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)));
-						m_PlacedResources.push_back(resource);
-					}
-				}
-
+				block.CommitBlock(pair.first, m_Allocator.Get(), GetDevice().Get());
 			}
 		}
 	}
@@ -164,21 +143,16 @@ namespace graphics_backend
 			}
 			pair.second.clear();
 		}
-		for (auto resource : m_PlacedResources)
-		{
-			resource.Reset();
-		}
-		m_PlacedResources.clear();
-		for (auto allocation : m_Allocations)
-		{
-			allocation->Release();
-		}
-		m_Allocations.clear();
 	}
 
 	ResourceInfo const& AliasedMemoryAllocator::GetResourceInfo(D3D12_HEAP_TYPE, uint32_t virtualBlockID, uint32_t resourceID) const
 	{
 		return m_Blocks.find(D3D12_HEAP_TYPE_DEFAULT)->second[virtualBlockID].m_Resources[resourceID];
+	}
+
+	ID3D12Resource* AliasedMemoryAllocator::GetResource(D3D12_HEAP_TYPE, uint32_t virtualBlockID, uint32_t resourceID) const
+	{
+		return m_Blocks.find(D3D12_HEAP_TYPE_DEFAULT)->second[virtualBlockID].m_BlockPlacedResources[resourceID].Get();
 	}
 
 	AliasedMemoryAllocator::VirtualBlock::VirtualBlock(uint64_t virtualBlockSize) : m_MaxAlignment(0), m_MaxSize(0)
@@ -190,6 +164,16 @@ namespace graphics_backend
 
 	void AliasedMemoryAllocator::VirtualBlock::Release()
 	{
+		for (auto& res : m_BlockPlacedResources)
+		{
+			res->Release();
+		}
+		m_BlockPlacedResources.clear();
+		if (p_BlockAllocation != nullptr)
+		{
+			p_BlockAllocation->Release();
+			p_BlockAllocation = nullptr;
+		}
 		m_Resources.clear();
 		m_Block->Clear();
 		m_Block->Release();
@@ -228,6 +212,37 @@ namespace graphics_backend
 		}
 
 		return false;
+	}
+
+	void AliasedMemoryAllocator::VirtualBlock::CommitBlock(D3D12_HEAP_TYPE heapType, D3D12MA::Allocator* allocator, ID3D12Device* device)
+	{
+		if (m_MaxSize > 0)
+		{
+			D3D12MA::Allocation* allocation;
+			D3D12MA::ALLOCATION_DESC
+				allocationDesc = {};
+			allocationDesc.HeapType = heapType;
+			allocationDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED | D3D12MA::ALLOCATION_FLAG_CAN_ALIAS;
+			D3D12_RESOURCE_ALLOCATION_INFO resourceAllocationInfo = {};
+			resourceAllocationInfo.Alignment = m_MaxAlignment;
+			resourceAllocationInfo.SizeInBytes = m_MaxSize;
+			ThrowIfFailed(allocator->AllocateMemory(&allocationDesc, &resourceAllocationInfo, &p_BlockAllocation));
+
+			m_BlockPlacedResources.reserve(m_Resources.size());
+			m_BlockPlacedResources.clear();
+			for (auto& resourceInfo : m_Resources)
+			{
+				allocation->GetHeap();
+				allocation->GetOffset();
+				ComPtr<ID3D12Resource> resource;
+				ThrowIfFailed(device->
+					CreatePlacedResource(allocation->GetHeap()
+						, allocation->GetOffset() + resourceInfo.m_Offset
+						, &resourceInfo.m_Desc
+						, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)));
+				m_BlockPlacedResources.push_back(resource);
+			}
+		}
 	}
 
 }
