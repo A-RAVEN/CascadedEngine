@@ -1,6 +1,8 @@
 #pragma once
 #include <Common.h>
 #include <D3D12Includes.h>
+#include <GPUBuffer.h>
+#include <GPUTexture.h>
 
 namespace graphics_backend
 {
@@ -498,22 +500,15 @@ namespace graphics_backend
 			result.Texture2D.MipSlice = textureView.baseMip;
 			break;
 		case ETextureType::e3D:
-			result.Texture3D.MipLevels = textureView.mipCount;
 			result.Texture3D.MipSlice = textureView.baseMip;
-			result.Texture3D.ResourceMinLODClamp = 0;
-			break;
-		case ETextureType::e2DArray:
-			result.Texture2D.PlaneSlice = 0;
-			result.Texture2DArray.MipLevels = textureView.mipCount;
-			result.Texture2DArray.MostDetailedMip = textureView.baseMip;
-			result.Texture2DArray.ResourceMinLODClamp = 0;
-			result.Texture2DArray.FirstArraySlice = textureView.baseLayer;
-			result.Texture2DArray.ArraySize = textureView.layerCount;
+			result.Texture3D.FirstWSlice = 0;
 			break;
 		case ETextureType::eCubeMap:
-			result.TextureCube.MipLevels = textureView.mipCount;
-			result.TextureCube.MostDetailedMip = textureView.baseMip;
-			result.TextureCube.ResourceMinLODClamp = 0;
+		case ETextureType::e2DArray:
+			result.Texture2D.PlaneSlice = 0;
+			result.Texture2DArray.MipSlice = textureView.baseMip;
+			result.Texture2DArray.FirstArraySlice = textureView.baseLayer;
+			result.Texture2DArray.ArraySize = textureView.layerCount;
 			break;
 		}
 		return result;

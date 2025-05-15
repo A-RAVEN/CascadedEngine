@@ -3,16 +3,68 @@
 #include "GPUBuffer.h"
 #include "WindowHandle.h"
 #include <Hasher.h>
+#include <CASTL/CAMutex.h>
 
 namespace graphics_backend
 {
+	struct ThreadID
+	{
+	private:
+		static castl::atomic<uint32_t> s_ThreadCounter;
+		thread_local static bool s_Initialized;
+		thread_local static uint32_t s_ThreadID;
+		static void Init()
+		{
+			if(!s_Initialized)
+			{
+				s_Initialized = true;
+				s_ThreadID = s_ThreadCounter++;
+			}
+		}
+	public:
+		static uint32_t Get()
+		{
+			Init();
+			return s_ThreadID;
+		}
+	};
+
+	struct ThreadLocalID
+	{
+	private:
+		thread_local static uint32_t s_NextID;
+		thread_local static bool s_Initialized;
+		static void Init()
+		{
+			if(!s_Initialized)
+			{
+				s_Initialized = true;
+				s_NextID = 0;
+			}
+		}
+	public:
+		static uint32_t Get()
+		{
+			Init();
+			return s_NextID++;
+		}
+
+	};
+
+
 	struct ResourceHandleKeyData
 	{
 		cacore::NameHash name;
 		uint32_t uniqueID;
+		uint32_t threadID;
 		auto operator<=>(const ResourceHandleKeyData&) const = default;
-		static ResourceHandleKeyData Default() { return { {}, 0 }; }
-		static ResourceHandleKeyData Create(cacore::NameHash const& name, uint32_t uniqueID) { return { name, uniqueID }; }
+		static ResourceHandleKeyData Default() { return { {}, std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max() }; }
+		static ResourceHandleKeyData Shared(cacore::NameHash const& name){ return { name,  std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max() }; }
+		static ResourceHandleKeyData Unique(cacore::NameHash const& name){ return { name, ThreadLocalID::Get(), ThreadID::Get() }; }
+		static ResourceHandleKeyData Create(cacore::NameHash const& name, bool unique){
+			return unique ? Unique(name) : Shared(name);
+		}
+		//static ResourceHandleKeyData Create(cacore::NameHash const& name, uint32_t uniqueID) { return { name, uniqueID }; }
 	};
 
 	using ResourceHandleKey = cacore::HashObj<ResourceHandleKeyData, cacore::EHashObjCompareMode::FullCompare>;
@@ -100,8 +152,8 @@ namespace graphics_backend
 			, m_Type(other.m_Type)
 		{
 		}
-		BufferHandle(cacore::NameHash const& name, uint32_t uniqueID = 0)
-			: m_Key(ResourceHandleKeyData::Create(name, uniqueID))
+		BufferHandle(cacore::NameHash const& name, bool unique = false)
+			: m_Key(ResourceHandleKeyData::Create(name, unique))
 			, m_ExternalManagedBuffer(nullptr)
 			, m_Type(BufferType::Internal)
 		{

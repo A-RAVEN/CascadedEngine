@@ -1,9 +1,12 @@
 #include "GPUGraphExecutor.h"
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <Utils/InterfaceTranslation.h>
+#include <RenderBackend_D3D12.h>
 
 namespace graphics_backend
 {
+
+
 
 	class BasePassDependency
 	{
@@ -44,9 +47,11 @@ namespace graphics_backend
 			};
 
 			//TODO: check Dependency
+			//读/写依赖
 			hasDependency = checkDependency(thisPass.m_ReadImages, predPass->thisPass.m_WriteImages);
-			hasDependency = hasDependency || checkDependency(thisPass.m_WriteImages, predPass->thisPass.m_ReadImages);
 			hasDependency = hasDependency || checkDependency(thisPass.m_ReadBuffers, predPass->thisPass.m_WriteBuffers);
+			//写/读依赖
+			hasDependency = hasDependency || checkDependency(thisPass.m_WriteImages, predPass->thisPass.m_ReadImages);
 			hasDependency = hasDependency || checkDependency(thisPass.m_WriteBuffers, predPass->thisPass.m_ReadBuffers);
 			
 			if (hasDependency)
@@ -233,9 +238,247 @@ namespace graphics_backend
 		}
 	}
 
+	D3D12GPUGraphExecutor::D3D12GPUGraphExecutor(RenderBackend_D3D12* app) : 
+		D3D12SubobjectBase(app)
+		, m_LocalResourceManager(app)
+		, m_ConstantBufferManager(app)
+	{}
+
+
+	struct PassRWState
+	{
+		castl::unordered_map<ImageHandle, ShaderCompilerSlang::EShaderResourceAccess> imageRWStates;
+		castl::unordered_map<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess> bufferRWStates;
+		bool isWriting(ImageHandle const& image) const
+		{
+			auto found = imageRWStates.find(image);
+			if(found != imageRWStates.end())
+			{
+				return found->second == ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
+					|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
+			}
+			return false;
+		}
+		bool isWriting(BufferHandle const& buffer) const
+		{
+			auto found = bufferRWStates.find(buffer);
+			if(found != bufferRWStates.end())
+			{
+				return found->second == ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
+					|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
+			}
+			return false;
+		}
+		bool isReading(ImageHandle const& image) const
+		{
+			auto found = imageRWStates.find(image);
+			if(found != imageRWStates.end())
+			{
+				return found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+					|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
+			}
+			return false;
+		}
+		bool isReading(BufferHandle const& buffer) const
+		{
+			auto found = bufferRWStates.find(buffer);
+			if(found != bufferRWStates.end())
+			{
+				return found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+					|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
+			}
+			return false;
+		}
+		void SetImageRWState(ImageHandle const& image, ShaderCompilerSlang::EShaderResourceAccess access)
+		{
+			auto found = imageRWStates.find(image);
+			if(found != imageRWStates.end())
+			{
+				assert(found->second == access
+					|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite
+					|| access == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+				found->second = (found->second != access) ? ShaderCompilerSlang::EShaderResourceAccess::eReadWrite : access;
+			}
+			else
+			{
+				imageRWStates.insert(castl::make_pair(image, access));
+			}
+		}
+		void SetBufferRWState(BufferHandle const& buffer, ShaderCompilerSlang::EShaderResourceAccess access)
+		{
+			auto found = bufferRWStates.find(buffer);
+			if(found != bufferRWStates.end())
+			{
+				assert(found->second == access
+					|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite
+					|| access == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+				found->second = (found->second != access) ? ShaderCompilerSlang::EShaderResourceAccess::eReadWrite : access;
+			}
+			else
+			{
+				bufferRWStates.insert(castl::make_pair(buffer, access));
+			}
+		}
+	};
+
+	class PassDependency
+	{
+	public:
+		PassRWState& rwState;
+		uint32_t passID;
+		GPUGraph::EGraphStageType passType;
+		uint32_t predecessorCount;
+		castl::vector<PassDependency*> successors;
+
+		PassDependency(PassRWState& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
+			: rwState(rwState), passID(passID), passType(passType), predecessorCount(0) {}
+
+	};
+
+	void Prepare(GPUGraph const& owningGraph,
+		D3D12GPUGraphExecutor& executor,
+		castl::vector<PassRWState>& passRWStates,
+		castl::vector<PassRWState>& computePassRWStates,
+		castl::vector<PassRWState>& transferPassRWStates
+	)
+	{
+		auto pApp = executor.GetApp();
+		auto& resourceManager = executor.GetLocalResourceManager();
+		auto& constantBufferManager = executor.GetConstantBufferManager();
+		auto& shaderResourceInstances = executor.GetShaderResourceInstances();
+		auto registerBufferToLocalResourceManager = [&](BufferHandle const& buffer)
+		{
+			auto descriptor = owningGraph.GetBufferManager().GetDescriptor(buffer.GetKey());
+			CA_ASSERT_BREAK(descriptor != nullptr, "Buffer {} Not Registered", buffer.GetName());
+			resourceManager.AddBuffer(buffer, *descriptor);
+		};
+
+		auto addPassShaderInstancesResourcesRWStates = [&](PassRWState& passRWState,
+			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
+		{
+			for(auto pair : passLocalBindingInstances)
+			{
+				auto resourceBindingInstance = pair.second;
+				resourceBindingInstance->IterateResourceUsages(
+				[&](GPUResourceBindingInstance::ImageBindingInfo const& imageInfo)
+				{
+					passRWState.SetImageRWState(imageInfo.image, imageInfo.accessType);
+				},
+				[&](GPUResourceBindingInstance::BufferBindingInfo const& bufferInfo)
+				{
+					passRWState.SetBufferRWState(bufferInfo.buffer, bufferInfo.accessType);
+				});
+			}
+		};
+		//遍历所有Pass的shader，对每种shader和shaderstruct组合创建GPUResourceBindingInstance
+		//shaderstruct中的constant资源会注册进m_ConstantBufferManager
+		passRWStates.resize(owningGraph.GetRenderPasses().size());
+		for (size_t passID = 0; passID < owningGraph.GetRenderPasses().size(); ++passID)
+		{
+			auto& renderPass = owningGraph.GetRenderPasses()[passID];
+			auto& passRWState = passRWStates[passID];
+			//将renderPass的attachment注册进m_LocalResourceManager中
+			for (auto& attachment : renderPass.GetAttachments())
+			{
+				auto descriptor = owningGraph.GetImageManager().GetDescriptor(attachment.GetKey());
+				CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", attachment.GetName());
+				resourceManager.AddTexture(attachment, *descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor->format));
+				passRWState.SetImageRWState(attachment, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+			}
+
+			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
+			for(auto& drawcallBatchs : renderPass.GetDrawCallBatches())
+			{
+				for (auto& drawcall : drawcallBatchs.m_DrawCalls)
+				{
+					//将drawcall的index和vertexbuffer注册进m_LocalResourceManager中
+					if (drawcall.GetDrawInfo().drawIndexed)
+					{
+						auto& indesxBuffer = drawcall.GetIndexBuffer().indexBufferHandle;
+						registerBufferToLocalResourceManager(indesxBuffer);
+						passRWState.SetBufferRWState(indesxBuffer, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
+					}
+					for (auto& vertBuf : drawcall.GetVertexBuffers())
+					{
+						registerBufferToLocalResourceManager(vertBuf.second);
+						passRWState.SetBufferRWState(vertBuf.second, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
+					}
+				}
+				auto pipelineData = PipelineDescData::CombindDescData(renderPass.GetPipelineStates(), drawcallBatchs.pipelineStateDesc);
+				castl::vector<ShaderStructDic const*> shaderStructs;
+				shaderStructs.push_back(&drawcallBatchs.shaderStructs);
+				shaderStructs.push_back(&renderPass.GetShaderStructs());
+				ShaderResourceSet resourceSet;
+				resourceSet.Init(pApp, pipelineData.m_ShaderInfo, {shaderStructs});
+				auto resourceBindingInstance = shaderResourceInstances.get_or_create(resourceSet, [&](ShaderResourceSet const& resourceInstance) -> castl::shared_ptr<GPUResourceBindingInstance>
+				{
+					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
+				})->second;
+				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
+			}
+			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
+		}
+		computePassRWStates.resize(owningGraph.GetComputePasses().size());
+		for(size_t passID = 0; passID < owningGraph.GetComputePasses().size(); ++passID)
+		{
+			auto& computePass = owningGraph.GetComputePasses()[passID];
+			auto& passRWState = computePassRWStates[passID];
+			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
+			for (auto& dispatch : computePass.dispatchs)
+			{
+				castl::vector<ShaderStructDic const*> shaderStructs;
+				shaderStructs.push_back(&dispatch.shaderStructs);
+				shaderStructs.push_back(&computePass.shaderStructs);
+				ShaderResourceSet resourceSet;
+				resourceSet.Init(pApp, dispatch.m_ShaderInfo, { shaderStructs });
+				auto resourceBindingInstance = shaderResourceInstances.get_or_create(resourceSet, [&](ShaderResourceSet const& resourceInstance) -> castl::shared_ptr<GPUResourceBindingInstance>
+				{
+					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
+				})->second;
+				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
+			}
+			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
+		}
+		transferPassRWStates.resize(owningGraph.GetDataTransfers().size());
+		for (size_t passID = 0; passID < owningGraph.GetDataTransfers().size(); ++passID)
+		{
+			auto& transferPass = owningGraph.GetDataTransfers()[passID];
+			auto& passRWState = transferPassRWStates[passID];
+			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
+			for (auto& bufferWrites : transferPass.m_BufferDataUploads)
+			{
+				registerBufferToLocalResourceManager(bufferWrites.first);
+				passRWState.SetBufferRWState(bufferWrites.first, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly);
+			}
+			for (auto& imgWrites : transferPass.m_ImageDataUploads)
+			{
+				auto descriptor = owningGraph.GetImageManager().GetDescriptor(imgWrites.first.GetKey());
+				CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", imgWrites.first.GetName());
+				resourceManager.AddTexture(imgWrites.first, *descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor->format));
+				passRWState.SetImageRWState(imgWrites.first, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly);
+			}
+		}
+
+		//将m_ConstantBufferManager中的constant buffer资源注册到m_LocalResourceManager中
+		constantBufferManager.BuildResources(resourceManager);
+		//将m_ShaderResourceInstances中的资源注册到m_LocalResourceManager中
+		shaderResourceInstances.for_each([&](ShaderResourceSet const& resourceSet
+			, castl::shared_ptr<GPUResourceBindingInstance>& resourceInstance)
+		{
+			resourceInstance->BuildResources(owningGraph, resourceManager);
+		});
+	}
+
+
 	void D3D12GPUGraphExecutor::Init(GPUGraph const& owningGraph)
 	{
-		RegisterGraphResources(owningGraph);
+		//收集当前图中所有的资源
+		//并注册到m_LocalResourceManager中
+		//整理每个pass的读写状态
+		castl::vector<PassRWState> passRWStates;
+		castl::vector<PassRWState> computePassRWStates;
+		castl::vector<PassRWState> transferPassRWStates;
+		Prepare(owningGraph, *this, passRWStates, computePassRWStates, transferPassRWStates);
 
 		auto& renderPasses =owningGraph.GetRenderPasses();
 		m_RasterizePasses.resize(renderPasses.size());
@@ -474,95 +717,74 @@ namespace graphics_backend
 		//m_LocalResourceManager.AddGPUPassResourceStates()
 	}
 
-	
+	// void ForeachResourceInGraph(GPUGraph const& owningGraph, castl::function<void(ImageHandle const&)> imageCallback
+	// 	, castl::function<void(BufferHandle const&)> bufferCallback)
+	// {
+	// 	auto shaderStructCallback = [&](D3D2ShaderStruct const& shaderStruct)
+	// 	{
+	// 		for (auto& imgListPair : shaderStruct.GetImageHandles())
+	// 		{
+	// 			for (auto& imgPair : imgListPair.second)
+	// 			{
+	// 				imageCallback(imgPair.first);
+	// 			}
+	// 		}
+	// 		for (auto& bufListPair : shaderStruct.GetBufferHandles())
+	// 		{
+	// 			for (auto& buf : bufListPair.second)
+	// 			{
+	// 				bufferCallback(buf);
+	// 			}
+	// 		}
+	// 	};
 
-	void ForeachResourceInGraph(GPUGraph const& owningGraph, castl::function<void(ImageHandle const&)> imageCallback
-		, castl::function<void(BufferHandle const&)> bufferCallback)
-	{
-		auto shaderStructCallback = [&](D3D2ShaderStruct const& shaderStruct)
-		{
-			for (auto& imgListPair : shaderStruct.GetImageHandles())
-			{
-				for (auto& imgPair : imgListPair.second)
-				{
-					imageCallback(imgPair.first);
-				}
-			}
-			for (auto& bufListPair : shaderStruct.GetBufferHandles())
-			{
-				for (auto& buf : bufListPair.second)
-				{
-					bufferCallback(buf);
-				}
-			}
-		};
+	// 	for (auto& renderPass : owningGraph.GetRenderPasses())
+	// 	{
+	// 		for (auto& attachment : renderPass.GetAttachments())
+	// 		{
+	// 			imageCallback(attachment);
+	// 		}
 
-		for (auto& renderPass : owningGraph.GetRenderPasses())
-		{
-			for (auto& attachment : renderPass.GetAttachments())
-			{
-				imageCallback(attachment);
-			}
+	// 		ForeachShaderStructs<D3D2ShaderStruct>(renderPass.GetShaderStructs(), [&](D3D2ShaderStruct const& shaderStruct)
+	// 		{
+	// 			shaderStructCallback(shaderStruct);
+	// 		});
 
-			ForeachShaderStructs<D3D2ShaderStruct>(renderPass.GetShaderStructs(), [&](D3D2ShaderStruct const& shaderStruct)
-			{
-				shaderStructCallback(shaderStruct);
-			});
+	// 		for (auto& batch : renderPass.GetDrawCallBatches())
+	// 		{
+	// 			ForeachShaderStructs<D3D2ShaderStruct>(batch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
+	// 			{
+	// 				shaderStructCallback(shaderStruct);
+	// 			});
 
-			for (auto& batch : renderPass.GetDrawCallBatches())
-			{
-				ForeachShaderStructs<D3D2ShaderStruct>(batch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-				{
-					shaderStructCallback(shaderStruct);
-				});
+	// 			for (auto& drawcall : batch.m_DrawCalls)
+	// 			{
+	// 				if (drawcall.GetDrawInfo().drawIndexed)
+	// 				{
+	// 					bufferCallback(drawcall.GetIndexBuffer().indexBufferHandle);
+	// 				}
+	// 				for (auto& vertBuf : drawcall.GetVertexBuffers())
+	// 				{
+	// 					bufferCallback(vertBuf.second);
+	// 				}
+	// 			}
+	// 		}
+	// 	}
 
-				for (auto& drawcall : batch.m_DrawCalls)
-				{
-					if (drawcall.GetDrawInfo().drawIndexed)
-					{
-						bufferCallback(drawcall.GetIndexBuffer().indexBufferHandle);
-					}
-					for (auto& vertBuf : drawcall.GetVertexBuffers())
-					{
-						bufferCallback(vertBuf.second);
-					}
-				}
-			}
-		}
-
-		for (auto& computePass : owningGraph.GetComputePasses())
-		{
-			ForeachShaderStructs<D3D2ShaderStruct>(computePass.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-			{
-				shaderStructCallback(shaderStruct);
-			});
-			for (auto& dispatch : computePass.dispatchs)
-			{
-				ForeachShaderStructs<D3D2ShaderStruct>(dispatch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-				{
-					shaderStructCallback(shaderStruct);
-				});
-			}
-		}
-
-	}
-
-	void D3D12GPUGraphExecutor::RegisterGraphResources(GPUGraph const& owningGraph)
-	{
-		auto registerImage = [&](ImageHandle const& image)
-		{
-			auto descriptor = owningGraph.GetImageManager().GetDescriptor(image.GetKey());
-			CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", image.GetName());
-			m_LocalResourceManager.AddTexture(image, *descriptor);
-		};
-
-		auto registerBuffer = [&](BufferHandle const& buffer)
-		{
-			auto descriptor = owningGraph.GetBufferManager().GetDescriptor(buffer.GetKey());
-			CA_ASSERT_BREAK(descriptor != nullptr, "Buffer {} Not Registered", buffer.GetName());
-			m_LocalResourceManager.AddBuffer(buffer, *descriptor);
-		};
-		ForeachResourceInGraph(owningGraph, registerImage, registerBuffer);
-	}
+	// 	for (auto& computePass : owningGraph.GetComputePasses())
+	// 	{
+	// 		ForeachShaderStructs<D3D2ShaderStruct>(computePass.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
+	// 		{
+	// 			shaderStructCallback(shaderStruct);
+	// 		});
+	// 		for (auto& dispatch : computePass.dispatchs)
+	// 		{
+	// 			ForeachShaderStructs<D3D2ShaderStruct>(dispatch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
+	// 			{
+	// 				shaderStructCallback(shaderStruct);
+	// 			});
+	// 		}
+	// 	}
+	// }
 
 }

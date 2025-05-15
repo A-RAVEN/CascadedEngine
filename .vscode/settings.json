@@ -1,5 +1,23 @@
 {
     "files.associations": {
-      "*.hslang": "slang"
+      "*.hslang": "slang",
+      "utility": "cpp",
+      "functional": "cpp",
+      "vector": "cpp",
+      "memory": "cpp",
+      "chrono": "cpp",
+      "span": "cpp",
+      "xhash": "cpp",
+      "atomic": "cpp",
+      "limits": "cpp",
+      "deque": "cpp",
+      "regex": "cpp",
+      "thread": "cpp",
+      "list": "cpp",
+      "charconv": "cpp",
+      "map": "cpp",
+      "unordered_map": "cpp",
+      "xstring": "cpp",
+      "xtree": "cpp"
     }
 }

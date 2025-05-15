@@ -1,6 +1,13 @@
 set(PROJECT_NAME D3D12RenderBackend)
 project(${PROJECT_NAME})
 
+#DMA Only Master Works For Now
+CPMAddPackage(
+  NAME D3D12MemoryAllocator
+  GIT_TAG master
+  GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator
+)
+
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 

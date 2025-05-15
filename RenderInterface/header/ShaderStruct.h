@@ -33,6 +33,7 @@ namespace graphics_backend
 			, castl::shared_ptr<ShaderStruct> const& subStruct
 			, uint32_t elementIndex) = 0;
 
+
 	public:
 		template<typename T>
 		ShaderStruct& SetValue(cacore::NameHash const& name, T const& value, uint32_t elementIndex = 0)
@@ -79,5 +80,7 @@ namespace graphics_backend
 			SetStructInternal(name, subStruct, elementIndex);
 			return *this;
 		}
+
+		virtual cacore::NameHash const& GetStructTypeName() const = 0;
 	};
 }

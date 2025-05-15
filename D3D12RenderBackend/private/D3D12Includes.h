@@ -15,7 +15,7 @@
 #include <Reflection.h>
 
 #define D3D12MA_USING_DIRECTX_HEADERS 1
-#include "D3D12MemAlloc.h"
+#include <D3D12MemAlloc.h>
 
 using Microsoft::WRL::ComPtr;
 

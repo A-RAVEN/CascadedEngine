@@ -15,18 +15,9 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/cmake)
 file(COPY_FILE ${CMAKE_CURRENT_SOURCE_DIR}/CPM.cmake ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
-CPMAddPackage(
-  NAME VulkanMemoryAllocator
-  GIT_TAG v3.1.0
-  GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
-)
 
-#DMA Only Master Works For Now
-CPMAddPackage(
-  NAME D3D12MemoryAllocator
-  GIT_TAG master
-  GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator
-)
+
+
 
 CPMAddPackage(
   NAME glfw

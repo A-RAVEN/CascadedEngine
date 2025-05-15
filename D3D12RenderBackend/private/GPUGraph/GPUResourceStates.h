@@ -28,8 +28,6 @@ namespace graphics_backend
 		castl::vector<castl::pair<BufferHandle, D3D12BufferUsageState>> bufferUsageStates;
 	};
 
-
-
 	struct TextureResourceTransition
 	{
 		D3D12_BARRIER_ACCESS sourceAccess;

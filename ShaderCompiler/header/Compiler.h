@@ -14,11 +14,13 @@ namespace ShaderCompilerSlang
 
 	enum class EShaderResourceAccess : uint8_t
 	{
-		eUnknown,
-		eReadOnly,
-		eWriteOnly,
-		eReadWrite,
+		eUnknown = 0,
+		eReadOnly = 1,
+		eWriteOnly = 2,
+		eReadWrite = 3,
 	};
+
+	using EShaderResourceAccessFlags = uenum::EnumFlags<EShaderResourceAccess>;
 
 	enum class EShaderResourceType : uint8_t
 	{
@@ -27,6 +29,7 @@ namespace ShaderCompilerSlang
 		eSampler,
 		eStructuredBuffer,
 		eRWStructuredBuffer,
+		eCBuffer,
 	};
 
 	//某个数值：scalar，vector，matrix，也可能是某个结构体

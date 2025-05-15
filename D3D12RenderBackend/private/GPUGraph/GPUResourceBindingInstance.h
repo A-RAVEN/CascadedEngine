@@ -4,32 +4,69 @@
 #include <CASTL/CAArrayRef.h>
 #include "GPUResourceStates.h"
 #include <ShaderLibrary/D3D12ShaderStruct.h>
+#include <CACore/CASharedDic.h>
 /// <summary>
 /// Shader Resource Binding Instance With 
 /// </summary>
 namespace graphics_backend
 {
+	class GPUConstantBufferManager : public D3D12SubobjectBase
+	{
+	public:
+		GPUConstantBufferManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		BufferHandle GetConstantBufferHandle(D3D2ShaderStruct const* pShaderStruct);
+		void BuildResources(D3D12GraphLocalResourceManager& resourceManager);
+		void IterateResources(castl::function<void(D3D2ShaderStruct const*, BufferHandle const&)> callback);
+	private:
+		castl::shared_dic<D3D2ShaderStruct const*, BufferHandle> m_ConstantBufferHandles;
+	};
 
-
+	struct ShaderResourceSet
+	{
+		void Init(RenderBackend_D3D12* app, ShaderInfo const& shaderInfo, castl::array_ref<ShaderStructDic const*> const& shaderStructs);
+		ShaderInfo shaderInfo;
+		castl::unordered_map<cacore::NameHash, D3D2ShaderStruct const*> resourceDic;
+		auto operator<=>(ShaderResourceSet const& other) const = default;
+	};
 
 	class GPUResourceBindingInstance : public D3D12SubobjectBase
 	{
 	public:
+		struct ImageBindingInfo
+		{
+			ImageHandle image;
+			GPUTextureView textureView;
+			ShaderCompilerSlang::EShaderResourceType resourceType;
+			ShaderCompilerSlang::EShaderResourceAccess accessType;
+		};
+
+		struct BufferBindingInfo
+		{
+			BufferHandle buffer;
+			ShaderCompilerSlang::EShaderResourceType resourceType;
+			ShaderCompilerSlang::EShaderResourceAccess accessType;
+		};
+
 		struct GPUResourceSpaceInfo
 		{
 			uint32_t spaceID;
 			castl::vector<D3D2ShaderStruct const*> cbufferStructs;
 			castl::vector<BufferHandle> cbufferHandles;
-			castl::unordered_map<ImageHandle, ShaderCompilerSlang::EShaderResourceType> imageInfo;
-			castl::unordered_map<BufferHandle, ShaderCompilerSlang::EShaderResourceType> bufferInfos;
+			castl::vector<ImageBindingInfo> imageInfo;
+			castl::vector<BufferBindingInfo> bufferInfos;
 		};
 	public:
-
-		void Init(ShaderInfo const& shaderInfo, castl::array_ref<ShaderStructDic const*> const& shaderStructs);
-		void BuildResources(GPUGraph& gpuGraph, D3D12GraphLocalResourceManager& resourceManager);
+		GPUResourceBindingInstance(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		void Init(ShaderResourceSet const& resourceSet
+			, GPUConstantBufferManager& cbufferManager);
+		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager);
+		void IterateResourceUsages(castl::function<void(ImageBindingInfo const&)>const& imageCallback,
+		castl::function<void(BufferBindingInfo const&)>const& bufferCallback) const;
 	private:
 		castl::vector<GPUResourceSpaceInfo> m_GPUResourceSpaceInfos;
-		ShaderInfo const* p_ShaderInfo;
+		ShaderInfo shaderInfo;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 	};
+
+	using ShaderResourceInstanceDic = castl::shared_dic<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>>;
 }
