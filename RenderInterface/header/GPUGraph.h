@@ -545,6 +545,27 @@ namespace graphics_backend
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
 		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
 
+		void IterateShaderStagePasses(castl::function<void(size_t, RenderPass const&)> callbackRaster,
+			castl::function<void(size_t, ComputeBatch const&)> callbackCompute,
+			castl::function<void(size_t, GPUDataTransfers const&)> callbackTransfer
+		) const
+		{
+			for (size_t i = 0; i < m_StageTypes.size(); ++i)
+			{
+				switch (m_StageTypes[i])
+				{
+				case EGraphStageType::eRenderPass:
+					callbackRaster(i, m_RenderPasses[m_PassIndices[i]]);
+					break;
+				case EGraphStageType::eComputePass:
+					callbackCompute(i, m_ComputePasses[m_PassIndices[i]]);
+					break;
+				case EGraphStageType::eTransferPass:
+					callbackTransfer(i, m_DataTransfers[m_PassIndices[i]]);
+					break;	
+				}
+		}
+
 	private:
 		//Render Passes
 		castl::deque<RenderPass> m_RenderPasses;

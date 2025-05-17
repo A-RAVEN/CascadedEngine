@@ -5,9 +5,6 @@
 
 namespace graphics_backend
 {
-
-
-
 	class BasePassDependency
 	{
 	public:
@@ -249,6 +246,42 @@ namespace graphics_backend
 	{
 		castl::unordered_map<ImageHandle, ShaderCompilerSlang::EShaderResourceAccess> imageRWStates;
 		castl::unordered_map<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess> bufferRWStates;
+		bool depends(PassRWState const& other)
+		{
+			for(auto& pair : imageRWStates)
+			{
+				auto&&[img, rwState] = pair;
+				auto found = other.imageRWStates.find(img);
+				if(found != other.imageRWStates.end())
+				{
+					if(rwState == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+						&& found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
+					{
+					}
+					else
+					{
+						return true;
+					}
+				}
+			}
+			for(auto& pair : bufferRWStates)
+			{
+				auto&&[buf, rwState] = pair;
+				auto found = other.bufferRWStates.find(buf);
+				if(found != other.bufferRWStates.end())
+				{
+					if(rwState == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+						&& found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
+					{
+					}
+					else
+					{
+						return true;
+					}
+				}
+			}
+			return false;
+		}
 		bool isWriting(ImageHandle const& image) const
 		{
 			auto found = imageRWStates.find(image);
@@ -288,6 +321,14 @@ namespace graphics_backend
 					|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
 			}
 			return false;
+		}
+		bool isReadingOrWriting(ImageHandle const& image) const
+		{
+			return imageRWStates.contains(image);
+		}
+		bool isReadingOrWriting(BufferHandle const& buffer) const
+		{
+			return bufferRWStates.contains(buffer);
 		}
 		void SetImageRWState(ImageHandle const& image, ShaderCompilerSlang::EShaderResourceAccess access)
 		{
@@ -333,6 +374,14 @@ namespace graphics_backend
 		PassDependency(PassRWState& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
 			: rwState(rwState), passID(passID), passType(passType), predecessorCount(0) {}
 
+		void CheckAddSuccessor(PassDependency* successor)
+		{
+			if(rwState.depends(successor->rwState))
+			{
+				successors.push_back(successor);
+				successor->predecessorCount++;
+			}
+		}
 	};
 
 	void Prepare(GPUGraph const& owningGraph,
@@ -352,7 +401,7 @@ namespace graphics_backend
 			CA_ASSERT_BREAK(descriptor != nullptr, "Buffer {} Not Registered", buffer.GetName());
 			resourceManager.AddBuffer(buffer, *descriptor);
 		};
-
+		//将一个pass中所有资源的读写状态注册进PassRWState中，包括CBuffer
 		auto addPassShaderInstancesResourcesRWStates = [&](PassRWState& passRWState,
 			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
 		{
@@ -461,7 +510,7 @@ namespace graphics_backend
 
 		//将m_ConstantBufferManager中的constant buffer资源注册到m_LocalResourceManager中
 		constantBufferManager.BuildResources(resourceManager);
-		//将m_ShaderResourceInstances中的资源注册到m_LocalResourceManager中
+		//将m_ShaderResourceInstances中的资源注册到m_LocalResourceManager中(不包括CBuffer)
 		shaderResourceInstances.for_each([&](ShaderResourceSet const& resourceSet
 			, castl::shared_ptr<GPUResourceBindingInstance>& resourceInstance)
 		{
@@ -469,6 +518,18 @@ namespace graphics_backend
 		});
 	}
 
+
+	void BuildDependencyPasses(GPUGraph const& owningGraph,
+		D3D12GPUGraphExecutor& executor,
+		castl::vector<PassRWState>& rasterPassRWStates,
+		castl::vector<PassRWState>& computePassRWStates,
+		castl::vector<PassRWState>& transferPassRWStates)
+	{
+		auto& stages = owningGraph.GetGraphStages();
+		CA_ASSERT_BREAK(stages.size() == (rasterPassRWStates.size() + computePassRWStates.size() + transferPassRWStates.size()), "Graph Nodes Size Not Equal");
+		castl::vector<PassDependency> passDeps;
+		passDeps.reserve(stages.size());
+	}
 
 	void D3D12GPUGraphExecutor::Init(GPUGraph const& owningGraph)
 	{
