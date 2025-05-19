@@ -82,9 +82,11 @@ namespace graphics_backend
 			, GPUTextureView const& textureView);
 		void AddBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& resourceDesc);
 		void AddGPUPassResourceStates(D3D12PassResourceStates const& states);
-		void AllocateAliasedResources();
+		void AllocateAliasedResources(uint32_t resourceBatchCount, castl::unordered_map<ImageHandle, castl::range<uint32_t>> imageLifeTimes,
+			castl::unordered_map<BufferHandle, castl::range<uint32_t>> bufferLifeTimes);
 		void PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocators);
-		uint32_t InternalResourceID();
+		TextureResourceAllocationInfo* GetImageResource(ImageHandle const& imageHandle);
+		BufferResourceAllocationInfo* GetBufferResource(BufferHandle const& bufferHandle);
 		castl::unordered_map<ImageHandle, TextureResourceAllocationInfo> imageHandleToResource;
 		castl::unordered_map<BufferHandle, BufferResourceAllocationInfo> bufferHandleToResource;
 		castl::vector<D3D12PassResourceStates> resourceStates;

@@ -21,6 +21,7 @@ namespace graphics_backend
 		castl::shared_dic<D3D2ShaderStruct const*, BufferHandle> m_ConstantBufferHandles;
 	};
 
+
 	struct ShaderResourceSet
 	{
 		void Init(RenderBackend_D3D12* app, ShaderInfo const& shaderInfo, castl::array_ref<ShaderStructDic const*> const& shaderStructs);
@@ -32,28 +33,60 @@ namespace graphics_backend
 	class GPUResourceBindingInstance : public D3D12SubobjectBase
 	{
 	public:
+
+
 		struct ImageBindingInfo
 		{
-			ImageHandle image;
-			GPUTextureView textureView;
+			struct ImageBinding
+			{
+				ImageHandle image;
+				GPUTextureView textureView;
+			};
 			ShaderCompilerSlang::EShaderResourceType resourceType;
 			ShaderCompilerSlang::EShaderResourceAccess accessType;
+			bool isUAV() const
+			{
+				return (resourceType == ShaderCompilerSlang::EShaderResourceType::eRWTexture) ||
+					(resourceType == ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer);
+			}
+			uint32_t bindingID;
+			std::vector<ImageBinding> bindings;
 		};
 
 		struct BufferBindingInfo
 		{
-			BufferHandle buffer;
 			ShaderCompilerSlang::EShaderResourceType resourceType;
 			ShaderCompilerSlang::EShaderResourceAccess accessType;
+			bool isUAV() const
+			{
+				return (resourceType == ShaderCompilerSlang::EShaderResourceType::eRWTexture) ||
+					(resourceType == ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer);
+			}
+			uint32_t bindingID;
+			std::vector<BufferHandle> bindings;
+		};
+
+		struct CBufferBindingInfo
+		{
+			uint32_t bindingID;
+			D3D2ShaderStruct const* pCBufferStruct;
+			BufferHandle cbufferHandle;
+		};
+
+		struct SamplerBindingInfo
+		{
+			uint32_t bindingID;
+			uint32_t samplerCount;
 		};
 
 		struct GPUResourceSpaceInfo
 		{
 			uint32_t spaceID;
-			castl::vector<D3D2ShaderStruct const*> cbufferStructs;
-			castl::vector<BufferHandle> cbufferHandles;
+			DescriptorAllocation descriptorAllocation;
+			castl::vector<CBufferBindingInfo> cbufferInfos;
 			castl::vector<ImageBindingInfo> imageInfo;
 			castl::vector<BufferBindingInfo> bufferInfos;
+			castl::vector<SamplerBindingInfo> samplerInfos;
 		};
 	public:
 		GPUResourceBindingInstance(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
@@ -62,6 +95,8 @@ namespace graphics_backend
 		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager);
 		void IterateResourceUsages(castl::function<void(ImageBindingInfo const&)>const& imageCallback,
 		castl::function<void(BufferBindingInfo const&)>const& bufferCallback) const;
+		void BindDescriptors(D3D12GraphLocalResourceManager& resourceManager
+			, GPUDescriptorHeap& gpuDescriptorHeap);
 	private:
 		castl::vector<GPUResourceSpaceInfo> m_GPUResourceSpaceInfos;
 		ShaderInfo shaderInfo;

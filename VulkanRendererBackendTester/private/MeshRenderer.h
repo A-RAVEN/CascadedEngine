@@ -153,7 +153,7 @@ public:
 			{
 				auto& drawcallInfo = pair.first;
 				auto& drawcallInstances = pair.second;
-				graphics_backend::BufferHandle instanceIDBuffer{ "MeshInstanceIDBuffer", index++ };
+				graphics_backend::BufferHandle instanceIDBuffer{ "MeshInstanceIDBuffer", true };
 				size_t bufferSize = drawcallInstances.m_InstanceIDs.size() * sizeof(uint32_t);
 				pGraph->AllocBuffer(instanceIDBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, drawcallInstances.m_InstanceIDs.size(), sizeof(uint32_t)))
 					.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), bufferSize);

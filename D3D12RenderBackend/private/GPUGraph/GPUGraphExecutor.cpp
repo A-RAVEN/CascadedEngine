@@ -282,6 +282,17 @@ namespace graphics_backend
 			}
 			return false;
 		}
+		void Append(PassRWState const& other)
+		{
+			for (auto pair : other.imageRWStates)
+			{
+				imageRWStates.insert(pair);
+			}
+			for (auto pair : other.bufferRWStates)
+			{
+				bufferRWStates.insert(pair);
+			}
+		}
 		bool isWriting(ImageHandle const& image) const
 		{
 			auto found = imageRWStates.find(image);
@@ -374,6 +385,19 @@ namespace graphics_backend
 		PassDependency(PassRWState& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
 			: rwState(rwState), passID(passID), passType(passType), predecessorCount(0) {}
 
+		bool DepsFree() const
+		{
+			return predecessorCount == 0;
+		}
+
+		void RemoveSelfDeps()
+		{
+			for (PassDependency* dep : successors)
+			{
+				dep->predecessorCount--;
+			}
+		}
+
 		void CheckAddSuccessor(PassDependency* successor)
 		{
 			if(rwState.depends(successor->rwState))
@@ -385,16 +409,20 @@ namespace graphics_backend
 	};
 
 	void Prepare(GPUGraph const& owningGraph,
-		D3D12GPUGraphExecutor& executor,
+		//D3D12GPUGraphExecutor& executor,
+		RenderBackend_D3D12* pApp,
+		D3D12GraphLocalResourceManager& resourceManager,
+		GPUConstantBufferManager& constantBufferManager,
+		ShaderResourceInstanceDic& shaderResourceInstances,
 		castl::vector<PassRWState>& passRWStates,
 		castl::vector<PassRWState>& computePassRWStates,
 		castl::vector<PassRWState>& transferPassRWStates
 	)
 	{
-		auto pApp = executor.GetApp();
-		auto& resourceManager = executor.GetLocalResourceManager();
-		auto& constantBufferManager = executor.GetConstantBufferManager();
-		auto& shaderResourceInstances = executor.GetShaderResourceInstances();
+		//auto pApp = executor.GetApp();
+		//auto& resourceManager = executor.GetLocalResourceManager();
+		//auto& constantBufferManager = executor.GetConstantBufferManager();
+		//auto& shaderResourceInstances = executor.GetShaderResourceInstances();
 		auto registerBufferToLocalResourceManager = [&](BufferHandle const& buffer)
 		{
 			auto descriptor = owningGraph.GetBufferManager().GetDescriptor(buffer.GetKey());
@@ -411,11 +439,17 @@ namespace graphics_backend
 				resourceBindingInstance->IterateResourceUsages(
 				[&](GPUResourceBindingInstance::ImageBindingInfo const& imageInfo)
 				{
-					passRWState.SetImageRWState(imageInfo.image, imageInfo.accessType);
+					for (auto& img : imageInfo.bindings)
+					{
+						passRWState.SetImageRWState(img.image, imageInfo.accessType);
+					}
 				},
 				[&](GPUResourceBindingInstance::BufferBindingInfo const& bufferInfo)
 				{
-					passRWState.SetBufferRWState(bufferInfo.buffer, bufferInfo.accessType);
+					for (auto& buf : bufferInfo.bindings)
+					{
+						passRWState.SetBufferRWState(buf, bufferInfo.accessType);
+					}
 				});
 			}
 		};
@@ -518,17 +552,109 @@ namespace graphics_backend
 		});
 	}
 
-
-	void BuildDependencyPasses(GPUGraph const& owningGraph,
-		D3D12GPUGraphExecutor& executor,
-		castl::vector<PassRWState>& rasterPassRWStates,
-		castl::vector<PassRWState>& computePassRWStates,
-		castl::vector<PassRWState>& transferPassRWStates)
+	struct GPUExecutionBatch
 	{
+		std::vector<uint32_t> rasterPassRefs;
+		std::vector<uint32_t> computePassRefs;
+		std::vector<uint32_t> transferPassRefs;
+		PassRWState batchRWStates;
+	};
+
+	using ResourceUsageRange = castl::range<uint32_t>;
+
+	void BuildDependencyFreeBatchs(GPUGraph const& owningGraph,
+		//D3D12GPUGraphExecutor& executor,
+		castl::vector<PassRWState> const& rasterPassRWStates,
+		castl::vector<PassRWState> const& computePassRWStates,
+		castl::vector<PassRWState> const& transferPassRWStates,
+		castl::vector<GPUExecutionBatch>& outExecutionBatchs
+	)
+	{
+		using EGraphStageType = GPUGraph::EGraphStageType;
 		auto& stages = owningGraph.GetGraphStages();
 		CA_ASSERT_BREAK(stages.size() == (rasterPassRWStates.size() + computePassRWStates.size() + transferPassRWStates.size()), "Graph Nodes Size Not Equal");
 		castl::vector<PassDependency> passDeps;
 		passDeps.reserve(stages.size());
+		castl::list<PassDependency*> pendingDependencies;
+		for (size_t stageID = 0; stageID < owningGraph.GetGraphStages().size(); ++stageID)
+		{
+			auto stage = owningGraph.GetGraphStages()[stageID];
+			auto passID = owningGraph.GetPassIndices()[stageID];
+			switch (stage)
+			{
+			case EGraphStageType::eRenderPass:
+				passDeps.emplace_back(rasterPassRWStates[passID], stage, stage);
+				break;
+			case EGraphStageType::eComputePass:
+				passDeps.emplace_back(computePassRWStates[passID], stage, stage);
+				break;
+			case EGraphStageType::eTransferPass:
+				passDeps.emplace_back(transferPassRWStates[passID], stage, stage);
+				break;
+			}
+			pendingDependencies.push_back(&passDeps.back());
+		}
+
+		if (owningGraph.GetGraphStages().size() < 2)
+			return;
+		for (size_t prevPass = 0; prevPass < owningGraph.GetGraphStages().size() - 1; ++prevPass)
+		{
+			for (size_t latterPass = prevPass + 1; latterPass < owningGraph.GetGraphStages().size(); ++latterPass)
+			{
+				passDeps[prevPass].CheckAddSuccessor(&passDeps[latterPass]);
+			}
+		}
+		while (!pendingDependencies.empty())
+		{
+			GPUExecutionBatch& newPass = outExecutionBatchs.emplace_back();
+			std::vector<PassDependency*> passFreeDeps;
+			for (PassDependency* dep : pendingDependencies)
+			{
+				if (dep->DepsFree())
+				{
+					passFreeDeps.push_back(dep);
+					//add to newPass
+					newPass.batchRWStates.Append(dep->rwState);
+					switch (dep->passType)
+					{
+					case EGraphStageType::eRenderPass:
+						newPass.rasterPassRefs.push_back(dep->passID);
+						break;
+					case EGraphStageType::eComputePass:
+						newPass.computePassRefs.push_back(dep->passID);
+						break;
+					case EGraphStageType::eTransferPass:
+						newPass.transferPassRefs.push_back(dep->passID);
+						break;
+					}
+
+				}
+			}
+			for (PassDependency* dep : passFreeDeps)
+			{
+				dep->RemoveSelfDeps();
+			}
+		}
+	}
+
+	void BuildResourceUsageRanges(castl::unordered_map<ImageHandle, ResourceUsageRange>& imageRanges,
+		castl::unordered_map<BufferHandle, ResourceUsageRange>& bufferRanges,
+		castl::vector<GPUExecutionBatch> const& executionBatchs
+	)
+	{
+		for (uint32_t batchID = 0; batchID < executionBatchs.size(); ++batchID)
+		{
+			auto& batch = executionBatchs[batchID];
+			auto& rwStates = batch.batchRWStates;
+			for (auto& imageRWState : rwStates.imageRWStates)
+			{
+				imageRanges[imageRWState.first].encapsule(batchID);
+			}
+			for (auto& bufferRWState : rwStates.bufferRWStates)
+			{
+				bufferRanges[bufferRWState.first].encapsule(batchID);
+			}
+		}
 	}
 
 	void D3D12GPUGraphExecutor::Init(GPUGraph const& owningGraph)
@@ -539,243 +665,31 @@ namespace graphics_backend
 		castl::vector<PassRWState> passRWStates;
 		castl::vector<PassRWState> computePassRWStates;
 		castl::vector<PassRWState> transferPassRWStates;
-		Prepare(owningGraph, *this, passRWStates, computePassRWStates, transferPassRWStates);
+		Prepare(owningGraph
+			, GetApp()
+			, m_LocalResourceManager
+			, m_ConstantBufferManager
+			, m_ShaderResourceInstances
+			, passRWStates, computePassRWStates, transferPassRWStates);
+		//整理出多个连续的无依赖batch
+		castl::vector<GPUExecutionBatch> executionBatchs;
+		BuildDependencyFreeBatchs(owningGraph
+			, passRWStates
+			, computePassRWStates
+			, transferPassRWStates
+			, executionBatchs
+		);
 
-		auto& renderPasses =owningGraph.GetRenderPasses();
-		m_RasterizePasses.resize(renderPasses.size());
-		for (size_t passID = 0; passID < m_RasterizePasses.size(); ++passID)
-		{
-			m_RasterizePasses[passID].Prepare(renderPasses[passID]);
-		}
+		//统计资源的生命周期
+		castl::unordered_map<ImageHandle, ResourceUsageRange> imageLifeTimes;
+		castl::unordered_map<BufferHandle, ResourceUsageRange> bufferLifeTimes;
+		BuildResourceUsageRanges(imageLifeTimes, bufferLifeTimes, executionBatchs);
 
-		auto& computePasses = owningGraph.GetComputePasses();
-		m_ComputePasses.resize(computePasses.size());
-		for (size_t passID = 0; passID < m_ComputePasses.size(); ++passID)
-		{
-			m_ComputePasses[passID].Prepare(computePasses[passID]);
-		}
-
-		auto& transferPasses = owningGraph.GetDataTransfers();
-		m_TransferPasses.resize(transferPasses.size());
-		for (size_t passID = 0; passID < m_TransferPasses.size(); ++passID)
-		{
-			m_TransferPasses[passID].Prepare(transferPasses[passID]);
-		}
-
-		auto& stages = owningGraph.GetGraphStages();
-		std::list<BasePassDependency> passDeps;
-		//passDeps.reserve(stages.size());
-		size_t rasterPassID = 0;
-		size_t computePassID = 0;
-		size_t transferPassID = 0;
-		for (auto& stage : stages)
-		{
-			switch (stage)
-			{
-			case GPUGraph::EGraphStageType::eRenderPass:
-			{
-				passDeps.emplace_back(m_RasterizePasses[rasterPassID], stage);
-				++rasterPassID;
-			}
-				break;
-			case GPUGraph::EGraphStageType::eComputePass:
-			{
-				passDeps.emplace_back(m_ComputePasses[computePassID], stage);
-				++computePassID;
-			}
-				break;
-			case GPUGraph::EGraphStageType::eTransferPass:
-			{
-				passDeps.emplace_back(m_TransferPasses[transferPassID], stage);
-				++transferPassID;
-			}
-				break;
-			default:
-				break;
-			}
-		}
-
-		for (auto endDeps = ++passDeps.begin(); endDeps != passDeps.end(); ++endDeps)
-		{
-			for (auto predDeps = passDeps.begin(); predDeps != endDeps; ++predDeps)
-			{
-				endDeps->CheckAddPredecessor(predDeps.operator->());
-			}
-		}
-
-		castl::vector<BasePassDependency*> depFreeDeps;
-		for (BasePassDependency& dep : passDeps)
-		{
-			if (dep.DependencyFree())
-			{
-				depFreeDeps.push_back(&dep);
-			}
-			else
-			{
-
-				m_GraphNodes.emplace_back();
-				GraphNode& lastNode = m_GraphNodes.back();
-				for (BasePassDependency* pFreeDep : depFreeDeps)
-				{
-					BasePassDependency& freeDep = *pFreeDep;
-					freeDep.RemoveSelfDependency();
-					switch (freeDep.graphStageType)
-					{
-					case GPUGraph::EGraphStageType::eRenderPass:
-					{
-						lastNode.m_RasterPasses.push_back(static_cast<RasterizationPass*>(&freeDep.thisPass));
-					}
-					break;
-					case GPUGraph::EGraphStageType::eComputePass:
-					{
-						lastNode.m_ComputePasses.push_back(static_cast<ComputePass*>(&freeDep.thisPass));
-					}
-					break;
-					case GPUGraph::EGraphStageType::eTransferPass:
-					{
-						lastNode.m_TransferPasses.push_back(static_cast<TransferPass*>(&freeDep.thisPass));
-					}
-					break;
-					default:
-						break;
-					}
-				}
-
-			}
-		}
-
-
-		for (auto& node : m_GraphNodes)
-		{
-			D3D12PassResourceStates newStates;
-
-			auto addTextureToUsageState = [&](D3D12_COMMAND_LIST_TYPE queueType
-				, ImageHandle const& image
-				, ETextureAccessType accessType)
-			{
-				auto descriptor = owningGraph.GetImageManager().GetDescriptor(image.GetKey());
-				CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", image.GetName());
-				D3D12TextureUsageState usageState{};
-				usageState.accessState = ETextureAccessTypeToD3D12BarrierAccess(descriptor->format, accessType);
-				usageState.layoutState = ETextureAccessTypeToD3D12BarrierLayout(descriptor->format, accessType);
-				usageState.queueType = queueType;
-				newStates.textureUsageStates.push_back(castl::make_pair(image, usageState));
-			};
-
-			auto addBufferToUsageState = [&](D3D12_COMMAND_LIST_TYPE queueType
-				, BufferHandle const& buffer
-				, EBufferUsage bufferUsage
-				, bool write)
-			{
-				D3D12BufferUsageState usageState{};
-				usageState.accessState = EBufferUsageTranslate(bufferUsage);
-				usageState.queueType = queueType;
-				newStates.bufferUsageStates.push_back(castl::make_pair(buffer, usageState));
-			};
-
-			auto processShaderStruct = [&](D3D12_COMMAND_LIST_TYPE queueType, D3D2ShaderStruct const& shaderStruct)
-			{
-				for (auto& imgListPair : shaderStruct.GetImageHandles())
-				{
-					ETextureAccessType accessType = shaderStruct.GetTextureAccessType(imgListPair.first);
-
-					for (auto& imgPair : imgListPair.second)
-					{
-						addTextureToUsageState(queueType, imgPair.first, accessType);
-					}
-				}
-				for (auto& bufListPair : shaderStruct.GetBufferHandles())
-				{
-					auto rwType = shaderStruct.GetBufferRWType(bufListPair.first);
-					for (auto& buf : bufListPair.second)
-					{
-						addBufferToUsageState(queueType, buf, EBufferUsage::eStructuredBuffer, rwType != ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
-					}
-				}
-			};
-
-#pragma region Render Passes
-			for (auto pRenderPass : node.m_RasterPasses)
-			{
-				auto& renderPass = *(pRenderPass->pPass);
-				for (auto& attachment : renderPass.GetAttachments())
-				{
-					addTextureToUsageState(D3D12_COMMAND_LIST_TYPE_DIRECT, attachment, ETextureAccessType::eRT);
-				}
-
-				ForeachShaderStructs<D3D2ShaderStruct>(renderPass.GetShaderStructs(), [&](D3D2ShaderStruct const& shaderStruct)
-				{
-					processShaderStruct(D3D12_COMMAND_LIST_TYPE_DIRECT, shaderStruct);
-				});
-
-				for (auto& batch : renderPass.GetDrawCallBatches())
-				{
-					ForeachShaderStructs<D3D2ShaderStruct>(batch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-					{
-						processShaderStruct(D3D12_COMMAND_LIST_TYPE_DIRECT, shaderStruct);
-					});
-
-					for (auto& drawcall : batch.m_DrawCalls)
-					{
-						if (drawcall.GetDrawInfo().drawIndexed)
-						{
-							addBufferToUsageState(D3D12_COMMAND_LIST_TYPE_DIRECT
-								, drawcall.GetIndexBuffer().indexBufferHandle
-								, EBufferUsage::eIndexBuffer
-								, false);
-						}
-						for (auto& vertBuf : drawcall.GetVertexBuffers())
-						{
-							addBufferToUsageState(D3D12_COMMAND_LIST_TYPE_DIRECT
-								, vertBuf.second
-								, EBufferUsage::eVertexBuffer
-								, false);
-						}
-					}
-				}
-			}
-#pragma endregion
+		//依据资源的生命周期实际分配资源
+		m_LocalResourceManager.AllocateAliasedResources(executionBatchs.size(), imageLifeTimes, bufferLifeTimes);
+		//为资源创建 descriptor
+		m_LocalResourceManager.PrepareResourceDescriptors(m_DescriptorAllocatorSet);
 		
-#pragma Compute Passes
-			for (auto& pComputePass : node.m_ComputePasses)
-			{
-				auto& computePass = *pComputePass->pPass;
-				
-				ForeachShaderStructs<D3D2ShaderStruct>(computePass.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-				{
-					processShaderStruct(D3D12_COMMAND_LIST_TYPE_COMPUTE, shaderStruct);
-				});
-				for (auto& dispatch : computePass.dispatchs)
-				{
-					ForeachShaderStructs<D3D2ShaderStruct>(dispatch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-					{
-						processShaderStruct(D3D12_COMMAND_LIST_TYPE_COMPUTE, shaderStruct);
-					});
-				}
-			}
-#pragma endregion
-
-			for (auto& pTransferPass : node.m_TransferPasses)
-			{
-				auto& transferPass = pTransferPass->pPass;
-				for (auto& uploads : transferPass->m_ImageDataUploads)
-				{
-					addTextureToUsageState(D3D12_COMMAND_LIST_TYPE_COPY, uploads.first, ETextureAccessType::eTransferDst);
-				}
-
-				for (auto& uploads : transferPass->m_BufferDataUploads)
-				{
-					addBufferToUsageState(D3D12_COMMAND_LIST_TYPE_COPY, uploads.first, EBufferUsage::eDataDst, false);
-				}
-
-			}
-
-#pragma 
-
-
-		}
-
-		//m_LocalResourceManager.AddGPUPassResourceStates()
 	}
 
 	// void ForeachResourceInGraph(GPUGraph const& owningGraph, castl::function<void(ImageHandle const&)> imageCallback

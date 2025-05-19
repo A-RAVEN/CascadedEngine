@@ -3,6 +3,8 @@
 #include <Utils/D3D12SubobjectBase.h>
 #include <CASTL/CARange.h>
 #include <CASTL/CADeque.h>
+#include <TextureSampler.h>
+#include <CASTL/CAUnorderedMap.h>
 
 namespace graphics_backend
 {
@@ -13,6 +15,7 @@ namespace graphics_backend
 		DescriptorAllocation() = default;
 		DescriptorAllocation(castl::range<uint32_t> const& range, DescriptorHeapAllocator* allocator) : m_Range(range), m_Allocator(allocator) {}
 		DescriptorAllocation Split(uint32_t count);
+		DescriptorAllocation Slice(uint32_t index);
 		CD3DX12_CPU_DESCRIPTOR_HANDLE CPUHandle() const;
 		CD3DX12_GPU_DESCRIPTOR_HANDLE GPUHandle() const;
 		bool IsValid() const;
@@ -44,9 +47,11 @@ namespace graphics_backend
 	class CPUPagedDescriptorAllocator : D3D12SubobjectBase
 	{
 	public:
+		CPUPagedDescriptorAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType) : D3D12SubobjectBase(app), m_HeapType(heapType) {}
 		DescriptorAllocation AllocDescriptors(uint32_t descCount);
 	private:
 		castl::deque<DescriptorHeapAllocator> m_Pages;
+		D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType;
 	};
 
 	class GPUDescriptorHeap : D3D12SubobjectBase
@@ -54,6 +59,7 @@ namespace graphics_backend
 	public:
 		GPUDescriptorHeap(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_HugeHeap(app){}
 		void Init();
+		DescriptorAllocation AllocDescriptorChunk(uint32_t descCount);
 	private:
 		DescriptorHeapAllocator m_HugeHeap;
 	};
@@ -64,6 +70,14 @@ namespace graphics_backend
 		CPUPagedDescriptorAllocator m_SRV_UAV_CBV_Allocator;
 		CPUPagedDescriptorAllocator m_RTV_Allocator;
 		CPUPagedDescriptorAllocator m_DSV_Allocator;
+		CPUPagedDescriptorAllocator m_Sampler_Allocator;
+	};
+
+	class SamplerManager : D3D12SubobjectBase
+	{
+	public:
+		CD3DX12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(TextureSamplerDescriptor const& samplerDesc);
+		castl::unordered_map<TextureSamplerDescriptor, DescriptorAllocation> m_TextureSamplers;
 		CPUPagedDescriptorAllocator m_Sampler_Allocator;
 	};
 }

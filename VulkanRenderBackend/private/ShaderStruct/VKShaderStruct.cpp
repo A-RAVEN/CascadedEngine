@@ -1,4 +1,4 @@
-#include "VKShaderStruct.h"
+﻿#include "VKShaderStruct.h"
 
 namespace graphics_backend
 {
@@ -96,5 +96,9 @@ namespace graphics_backend
 			memcpy(&m_SelfUniformBuffer[elementMeta.m_MemoryOffset + elementMeta.m_Stride * elementIndex]
 				, pVKSubstruct->m_SelfUniformBuffer.data(), pVKSubstruct->m_SelfUniformBuffer.size());
 		}
+	}
+	cacore::NameHash const& VKShaderStruct::GetStructTypeName() const
+	{
+		return p_StructData->m_TypeName;
 	}
 }

@@ -9,46 +9,14 @@ namespace graphics_backend
 {
 	struct ThreadID
 	{
-	private:
-		static castl::atomic<uint32_t> s_ThreadCounter;
-		thread_local static bool s_Initialized;
-		thread_local static uint32_t s_ThreadID;
-		static void Init()
-		{
-			if(!s_Initialized)
-			{
-				s_Initialized = true;
-				s_ThreadID = s_ThreadCounter++;
-			}
-		}
 	public:
-		static uint32_t Get()
-		{
-			Init();
-			return s_ThreadID;
-		}
+		static uint32_t Get();
 	};
 
 	struct ThreadLocalID
 	{
-	private:
-		thread_local static uint32_t s_NextID;
-		thread_local static bool s_Initialized;
-		static void Init()
-		{
-			if(!s_Initialized)
-			{
-				s_Initialized = true;
-				s_NextID = 0;
-			}
-		}
 	public:
-		static uint32_t Get()
-		{
-			Init();
-			return s_NextID++;
-		}
-
+		static uint32_t Get();
 	};
 
 

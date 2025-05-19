@@ -25,55 +25,11 @@ namespace graphics_backend
 	{
 		resourceStates.push_back(states);
 	}
-	
-	//Mark Texture Layout Direct Queue Local If Possible
-	void D3D12GraphLocalResourceManager::AllocateAliasedResources()
+
+	void D3D12GraphLocalResourceManager::AllocateAliasedResources(uint32_t resourceBatchCount
+		, castl::unordered_map<ImageHandle, castl::range<uint32_t>> imageLifeTimes,
+		castl::unordered_map<BufferHandle, castl::range<uint32_t>> bufferLifeTimes)
 	{
-		struct ResourceLifetime
-		{
-			uint32_t firstUsingPass;
-			uint32_t lastUsingPass;
-
-			void Expand(uint32_t passID)
-			{
-				firstUsingPass = std::min(firstUsingPass, passID);
-				lastUsingPass = std::max(lastUsingPass, passID);
-			}
-		};
-
-		castl::unordered_map<ImageHandle, ResourceLifetime> imageLifeTimes;
-		castl::unordered_map<BufferHandle, ResourceLifetime> bufferLifeTimes;
-
-		for (uint32_t passID = 0; passID < resourceStates.size(); ++passID)
-		{
-			auto& resourceStatePass = resourceStates[passID];
-			for (auto& pair : resourceStatePass.textureUsageStates)
-			{
-				auto& image = pair.first;
-				auto& usageState = pair.second;
-				if (image.IsIntternal())
-				{
-					auto& imgResourceData = imageHandleToResource[image];
-					imgResourceData.access |= usageState.accessState;
-					auto[lifetime, created] = imageLifeTimes.insert(std::make_pair(image, ResourceLifetime{ passID , passID }));
-					lifetime->second.Expand(passID);
-				}
-			}
-
-			for (auto& pair : resourceStatePass.bufferUsageStates)
-			{
-				auto& buffer = pair.first;
-				auto& usageState = pair.second;
-				if (buffer.IsIntternal())
-				{
-					auto& bufResourceData = bufferHandleToResource[buffer];
-					bufResourceData.access |= usageState.accessState;
-					auto [lifetime, created] = bufferLifeTimes.insert(std::make_pair(buffer, ResourceLifetime{ passID , passID }));
-					lifetime->second.Expand(passID);
-				}
-			}
-		}
-
 		struct ResourceAllocationPasses
 		{
 			std::vector<ImageHandle> newImagesOnThisPass;
@@ -88,17 +44,18 @@ namespace graphics_backend
 		{
 			auto& img = imgPair.first;
 			auto& lifeTime = imgPair.second;
-			allocationPasses[lifeTime.firstUsingPass].newImagesOnThisPass.push_back(img);
-			allocationPasses[lifeTime.lastUsingPass].releasedImagesAfterThisPass.push_back(img);
+			allocationPasses[lifeTime.head()].newImagesOnThisPass.push_back(img);
+			allocationPasses[lifeTime.end()].releasedImagesAfterThisPass.push_back(img);
 		}
 
 		for (auto& bufPair : bufferLifeTimes)
 		{
 			auto& buf = bufPair.first;
 			auto& lifeTime = bufPair.second;
-			allocationPasses[lifeTime.firstUsingPass].newBuffersOnThisPass.push_back(buf);
-			allocationPasses[lifeTime.lastUsingPass].releasedBuffersAfterThisPass.push_back(buf);
+			allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(buf);
+			allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(buf);
 		}
+
 
 		for (auto& allocationPass : allocationPasses)
 		{
@@ -146,6 +103,7 @@ namespace graphics_backend
 			resourceData.gpuResource.GetResource()->SetName(converter.from_bytes(pair.first.GetName().data()).c_str());
 		}
 	}
+	
 	void D3D12GraphLocalResourceManager::PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocatorsr)
 	{
 		for (auto& pair : imageHandleToResource)
@@ -173,13 +131,11 @@ namespace graphics_backend
 					if (resourceData.access & D3D12_BARRIER_ACCESS_RENDER_TARGET)
 					{
 						resourceView.rtv = descriptorAllocatorsr.m_RTV_Allocator.AllocDescriptors(1);
-						//GetDevice()->CreateRenderTargetView
 					}
 					if (resourceData.access
 						& (D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE))
 					{
 						resourceView.dsv = descriptorAllocatorsr.m_DSV_Allocator.AllocDescriptors(1);
-						//GetDevice()->CreateDepthStencilView 
 					}
 				}
 			}
@@ -217,8 +173,25 @@ namespace graphics_backend
 			}
 		}
 	}
-	uint32_t D3D12GraphLocalResourceManager::InternalResourceID()
+
+	TextureResourceAllocationInfo* D3D12GraphLocalResourceManager::GetImageResource(ImageHandle const& imageHandle)
 	{
-		return resourceIDCounter++;
+		auto found = imageHandleToResource.find(imageHandle);
+		if (found == imageHandleToResource.end())
+		{
+			return nullptr;
+		}
+		return &found->second;
 	}
+
+	BufferResourceAllocationInfo* D3D12GraphLocalResourceManager::GetBufferResource(BufferHandle const& bufferHandle)
+	{
+		auto found = bufferHandleToResource.find(bufferHandle);
+		if (found == bufferHandleToResource.end())
+		{
+			return nullptr;
+		}
+		return &found->second;
+	}
+
 }

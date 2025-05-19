@@ -124,6 +124,7 @@ namespace graphics_backend
 		//D3D12ShaderObjectDic m_ShaderObjects;
 
 		D3D12ShaderResourceImporter m_ShaderResourceImporter;
+		CPUPagedDescriptorAllocator m_Sampler_Allocator;
 
 	};
 }

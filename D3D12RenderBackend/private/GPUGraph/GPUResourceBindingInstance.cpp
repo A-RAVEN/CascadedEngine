@@ -82,7 +82,7 @@ namespace graphics_backend
 			m_GPUResourceSpaceInfos[spaceID].spaceID = spaceID;
 			auto& spaceInfo = spaceInfos[spaceID];
 			auto& spaceStats = spaceInfo.m_ResourceStats;
-			m_GPUResourceSpaceInfos[spaceID].cbufferStructs.resize(spaceStats.m_CBufferBindings.size());
+			m_GPUResourceSpaceInfos[spaceID].cbufferInfos.resize(spaceStats.m_CBufferBindings.size());
 		}
 
 
@@ -112,18 +112,20 @@ namespace graphics_backend
 			auto sourceStruct = findShaderStructOfName(hierarchy.m_Name);
 			CA_ASSERT_BREAK(sourceStruct != nullptr, "cant find shader struct: {}", hierarchy.m_Name);
 
-			//Write Uniform Buffer
+			//Collect Uniform Buffer
 			if (hierarchy.m_SelfUniformBufferID != -1)
 			{
 				CA_ASSERT_BREAK(hierarchy.m_SelfUniformSpaceID != -1, "invalid uniform space id: {}", hierarchy.m_SelfUniformSpaceID);
 				auto spaceID = hierarchy.m_SelfUniformSpaceID;
 				auto uniformBufferID = hierarchy.m_SelfUniformSpaceID;
 				auto& spaceResourceInfo = m_GPUResourceSpaceInfos[spaceID];
-				spaceResourceInfo.cbufferStructs[uniformBufferID] = sourceStruct;
-				spaceResourceInfo.cbufferHandles[uniformBufferID] = cbufferManager.GetConstantBufferHandle(sourceStruct);
+				auto& cbufferInfo = spaceResourceInfo.cbufferInfos[uniformBufferID];
+				cbufferInfo.bindingID = hierarchy.m_SelfUniformBufferID;
+				cbufferInfo.pCBufferStruct = sourceStruct;
+				cbufferInfo.cbufferHandle = cbufferManager.GetConstantBufferHandle(sourceStruct);
 			}
 
-			//Write Resources
+			//Collect Resources
 			if (!hierarchy.m_Bindings.empty())
 			{
 				auto& bufferHandles = sourceStruct->GetBufferHandles();
@@ -133,6 +135,7 @@ namespace graphics_backend
 				for (auto& binding : hierarchy.m_Bindings)
 				{
 					auto spaceID = binding.m_BindingSpace;
+					auto bindingID = binding.m_BindingID;
 					auto& spaceResourceInfo = m_GPUResourceSpaceInfos[spaceID];
 					switch (binding.m_ResourceType)
 					{
@@ -145,14 +148,16 @@ namespace graphics_backend
 							ImageBindingInfo imageInfo{};
 							imageInfo.accessType = binding.m_Access;
 							imageInfo.resourceType = binding.m_ResourceType;
-
+							imageInfo.bindingID = bindingID;
 							auto& imageList = found->second;
 							for (uint32_t imageID = 0; imageID < imageList.size(); ++imageID)
 							{
-								imageInfo.image = imageList[imageID].first;
-								imageInfo.textureView = imageList[imageID].second;
-								spaceResourceInfo.imageInfo.push_back(imageInfo);
+								ImageBindingInfo::ImageBinding binding;
+								binding.image = imageList[imageID].first;
+								binding.textureView = imageList[imageID].second;
+								imageInfo.bindings.push_back(binding);
 							}
+							spaceResourceInfo.imageInfo.push_back(imageInfo);
 						}
 						break;
 					}
@@ -165,13 +170,14 @@ namespace graphics_backend
 							BufferBindingInfo bufferInfo{};
 							bufferInfo.accessType = binding.m_Access;
 							bufferInfo.resourceType = binding.m_ResourceType;
+							bufferInfo.bindingID = bindingID;
 
 							auto& bufferList = found->second;
 							for (uint32_t bufferID = 0; bufferID < bufferList.size(); ++bufferID)
 							{
-								bufferInfo.buffer = bufferList[bufferID];
-								spaceResourceInfo.bufferInfos.push_back(bufferInfo);
+								bufferInfo.bindings.push_back(bufferList[bufferID]);
 							}
+							spaceResourceInfo.bufferInfos.push_back(bufferInfo);
 						}
 						break;
 					}
@@ -181,6 +187,10 @@ namespace graphics_backend
 						if (found != samplerDescs.end())
 						{
 							auto& samplerList = found->second;
+							SamplerBindingInfo samplerInfo{};
+							samplerInfo.bindingID = bindingID;
+							samplerInfo.samplerCount = samplerList.size();
+							spaceResourceInfo.samplerInfos.push_back(samplerInfo);
 						}
 					}
 					}
@@ -195,30 +205,22 @@ namespace graphics_backend
 			auto& spaceRefInfo = p_ReflectionData->m_BindingInfo.m_SpaceInfos[spaceInfo.spaceID];
 			for (auto& bufInfo : spaceInfo.bufferInfos)
 			{
-				auto* pDesc = gpuGraph.GetBufferManager().GetDescriptor(bufInfo.buffer.GetKey());
-				CA_ASSERT_BREAK(pDesc != nullptr, "Buffer {} Not Registered", bufInfo.buffer.GetName());
-				resourceManager.AddBuffer(bufInfo.buffer, *pDesc);
+				for (auto& buf : bufInfo.bindings)
+				{
+					auto* pDesc = gpuGraph.GetBufferManager().GetDescriptor(buf.GetKey());
+					CA_ASSERT_BREAK(pDesc != nullptr, "Buffer {} Not Registered", buf.GetName());
+					resourceManager.AddBuffer(buf, *pDesc);
+				}
 			}
 			for (auto& imgInfo : spaceInfo.imageInfo)
 			{
-				auto* pDesc = gpuGraph.GetImageManager().GetDescriptor(imgInfo.image.GetKey());
-				CA_ASSERT_BREAK(pDesc != nullptr, "Image {} Not Registered", imgInfo.image.GetName());
-				resourceManager.AddTexture(imgInfo.image, *pDesc, imgInfo.textureView);
+				for (auto& img : imgInfo.bindings)
+				{
+					auto* pDesc = gpuGraph.GetImageManager().GetDescriptor(img.image.GetKey());
+					CA_ASSERT_BREAK(pDesc != nullptr, "Image {} Not Registered", img.image.GetName());
+					resourceManager.AddTexture(img.image, *pDesc, img.textureView);
+				}
 			}
-			// if (!spaceInfo.cbufferStructs.empty())
-			// {
-			// 	spaceInfo.cbufferHandles.resize(spaceInfo.cbufferStructs.size());
-			// 	CA_ASSERT_BREAK(spaceRefInfo.m_ResourceStats.m_CBufferBindings.size() == spaceInfo.cbufferStructs.size(), "CBuffer Size Not Equal");
-			// 	for (uint32_t bufID = 0; bufID < spaceInfo.cbufferStructs.size(); ++bufID)
-			// 	{
-			// 		auto& cBuffer = spaceInfo.cbufferHandles[bufID];
-			// 		auto cBufStruct = spaceInfo.cbufferStructs[bufID];
-			// 		auto bindingDesc = spaceRefInfo.m_ResourceStats.m_CBufferBindings[bufID];
-			// 		cBuffer = BufferHandle{ CANAME("__internal_cbuffer_"), resourceManager.InternalResourceID() };
-			// 		GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, bindingDesc.elementCount, bindingDesc.memoryStride);
-			// 		resourceManager.AddBuffer(cBuffer, desc);
-			// 	}
-			// }
 		}
 	}
 
@@ -236,20 +238,117 @@ namespace graphics_backend
 			{
 				imageCallback(imgInfo);
 			}
-			if (!spaceInfo.cbufferStructs.empty())
+			if (!spaceInfo.cbufferInfos.empty())
 			{
-				CA_ASSERT_BREAK(spaceRefInfo.m_ResourceStats.m_CBufferBindings.size() == spaceInfo.cbufferStructs.size(), "CBuffer Size Not Equal");
-				for (uint32_t bufID = 0; bufID < spaceInfo.cbufferStructs.size(); ++bufID)
+				CA_ASSERT_BREAK(spaceRefInfo.m_ResourceStats.m_CBufferBindings.size() == spaceInfo.cbufferInfos.size(), "CBuffer Size Not Equal");
+				for (uint32_t bufID = 0; bufID < spaceInfo.cbufferInfos.size(); ++bufID)
 				{
-					auto& cBuffer = spaceInfo.cbufferHandles[bufID];
+					auto& cBuffer = spaceInfo.cbufferInfos[bufID];
 
 					BufferBindingInfo bufferInfo{};
 					bufferInfo.accessType = ShaderCompilerSlang::EShaderResourceAccess::eReadOnly;
 					bufferInfo.resourceType = ShaderCompilerSlang::EShaderResourceType::eCBuffer;
-					bufferInfo.buffer = cBuffer;
+					bufferInfo.bindingID = cBuffer.bindingID;
+					bufferInfo.bindings = { cBuffer.cbufferHandle };
+
 					bufferCallback(bufferInfo);
 				}
 			}
+		}
+	}
+
+	void GPUResourceBindingInstance::BindDescriptors(D3D12GraphLocalResourceManager& resourceManager
+		, GPUDescriptorHeap& gpuDescriptorHeap)
+	{
+		for (size_t spaceID = 0; spaceID < m_GPUResourceSpaceInfos.size(); ++spaceID)
+		{
+			auto& spaceInfo = m_GPUResourceSpaceInfos[spaceID];
+			std::vector<D3D12_DESCRIPTOR_RANGE1> descriptors;
+			uint32_t descriptorCount = 0;
+			for (auto& cbuffer : spaceInfo.cbufferInfos)
+			{
+				CD3DX12_DESCRIPTOR_RANGE1 range;
+				range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, cbuffer.bindingID);
+				descriptors.push_back(range);
+				descriptorCount++;
+			}
+			for (auto& bufferInfo : spaceInfo.bufferInfos)
+			{
+				CD3DX12_DESCRIPTOR_RANGE1 range;
+				range.Init(bufferInfo.isUAV() ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV : D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+					, bufferInfo.bindings.size()
+					, bufferInfo.bindingID);
+				descriptors.push_back(range);
+				descriptorCount += bufferInfo.bindings.size();
+			}
+			for (auto& imgInfo : spaceInfo.imageInfo)
+			{
+				CD3DX12_DESCRIPTOR_RANGE1 range;
+				range.Init(imgInfo.isUAV() ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV : D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+					, imgInfo.bindings.size()
+					, imgInfo.bindingID);
+				descriptors.push_back(range);
+				descriptorCount += imgInfo.bindings.size();
+			}
+			spaceInfo.descriptorAllocation = gpuDescriptorHeap.AllocDescriptorChunk(descriptorCount);
+			{
+				uint32_t descriptorID = 0;
+				for (auto& cbuffer : spaceInfo.cbufferInfos)
+				{
+					//Desc Table Range
+					CD3DX12_DESCRIPTOR_RANGE1 range;
+					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, cbuffer.bindingID);
+					descriptors.push_back(range);
+					//Copy CPU Desc To GPU DescHeap
+					auto pResource = resourceManager.GetBufferResource(cbuffer.cbufferHandle);
+					CA_ASSERT_BREAK(pResource != nullptr, "CBuffer {} Resource Not Found", cbuffer.cbufferHandle.GetName());
+					GetDevice()->CopyDescriptorsSimple(1, spaceInfo.descriptorAllocation.Slice(descriptorID).CPUHandle()
+						, pResource->cbv.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+					descriptorID++;
+				}
+				for (auto& bufferInfo : spaceInfo.bufferInfos)
+				{
+					//Desc Table Range
+					CD3DX12_DESCRIPTOR_RANGE1 range;
+					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, bufferInfo.bindings.size(), bufferInfo.bindingID);
+					descriptors.push_back(range);
+
+					//Copy CPU Descs To GPU DescHeap
+					bool isUAV = bufferInfo.isUAV();
+					for (auto& buf : bufferInfo.bindings)
+					{
+						auto pResource = resourceManager.GetBufferResource(buf);
+						CA_ASSERT_BREAK(pResource != nullptr, "ShaderBuffer {} Resource Not Found", buf.GetName());
+						auto writingView = isUAV ? pResource->uav : pResource->srv;
+						GetDevice()->CopyDescriptorsSimple(1, spaceInfo.descriptorAllocation.Slice(descriptorID).CPUHandle()
+							, writingView.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+						descriptorID++;
+					}
+				}
+				for (auto& imageInfo : spaceInfo.imageInfo)
+				{
+					//Desc Table Range
+					CD3DX12_DESCRIPTOR_RANGE1 range;
+					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, imageInfo.bindings.size(), imageInfo.bindingID);
+					descriptors.push_back(range);
+
+					//Copy CPU Descs To GPU DescHeap
+					bool isUAV = imageInfo.isUAV();
+					for (auto& img : imageInfo.bindings)
+					{
+						auto pResource = resourceManager.GetImageResource(img.image);
+						CA_ASSERT_BREAK(pResource != nullptr, "ShaderImage {} Resource Not Found", img.image.GetName());
+						auto foundView = pResource->resourceViews.find(img.textureView);
+						CA_ASSERT_BREAK(foundView != pResource->resourceViews.end(), "ShaderImageView {} Resource Not Found", img.image.GetName());
+
+						auto writingView = isUAV ? foundView->second.uav : foundView->second.srv;
+						GetDevice()->CopyDescriptorsSimple(1, spaceInfo.descriptorAllocation.Slice(descriptorID).CPUHandle()
+							, writingView.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+						descriptorID++;
+					}
+				}
+			}
+			
 		}
 	}
 

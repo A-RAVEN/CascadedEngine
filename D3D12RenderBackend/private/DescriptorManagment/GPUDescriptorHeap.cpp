@@ -117,6 +117,12 @@ namespace graphics_backend
 		m_Range.head() += count;
 		return result;
 	}
+	DescriptorAllocation DescriptorAllocation::Slice(uint32_t index)
+	{
+		CA_ASSERT_BREAK(m_Range.size() > index, "Descriptor Allocation Slice Index Out of Bounds[{}/{}]", m_Range.size(), index);
+		DescriptorAllocation result{ castl::range<uint32_t>(m_Range.head() + index, m_Range.head() + index + 1), m_Allocator };
+		return result;
+	}
 	CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorAllocation::CPUHandle() const
 	{
 		CA_ASSERT(m_Range.size() > 0, "Empty Descriptor Allocation");
@@ -153,6 +159,25 @@ namespace graphics_backend
 	void GPUDescriptorHeap::Init()
 	{
 		m_HugeHeap.Init(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true, castl::numeric_limits<uint32_t>::max());
+	}
+
+	DescriptorAllocation GPUDescriptorHeap::AllocDescriptorChunk(uint32_t descCount)
+	{
+		return m_HugeHeap.AllocDescriptors(descCount);
+	}
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE SamplerManager::GetCPUHandle(TextureSamplerDescriptor const& samplerDesc)
+	{
+		auto found = m_TextureSamplers.find(samplerDesc);
+		if (found != m_TextureSamplers.end())
+		{
+			return found->second.CPUHandle();
+		}
+		auto descAllocation =  m_Sampler_Allocator.AllocDescriptors(1);
+		D3D12_SAMPLER_DESC desc{};
+		//Init Sampler Desc From Texture
+		GetDevice()->CreateSampler(&desc, descAllocation.CPUHandle());
+		m_TextureSamplers.insert(castl::make_pair(samplerDesc, descAllocation));
 	}
 
 }

@@ -22,7 +22,7 @@ add_library(slang::slang ALIAS slang)
 target_include_directories(${PROJECT_NAME} PRIVATE ${slang_SOURCE_DIR}/include)
 target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompiler)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
-target_link_libraries(${PROJECT_NAME} PRIVATE Rendering_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
 target_link_libraries(${PROJECT_NAME} PRIVATE slang::slang)
 
 add_custom_command(TARGET ShaderCompilerSlang POST_BUILD

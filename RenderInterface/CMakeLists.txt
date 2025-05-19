@@ -5,21 +5,17 @@ project(${PROJECT_NAME})
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 
-add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
+add_library(${PROJECT_NAME} STATIC ${Header_List} ${Source_List})
 
+target_include_directories(${PROJECT_NAME} PUBLIC header)
+target_link_libraries(${PROJECT_NAME} PUBLIC WindowSystem_Interface)
+target_link_libraries(${PROJECT_NAME} PUBLIC ShaderCompiler)
+#TODO: Move To System Manager
+target_link_libraries(${PROJECT_NAME} PUBLIC TimerSystem)
+#TODO: Move To System Manager
+target_link_libraries(${PROJECT_NAME} PUBLIC IOManager)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
-target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompiler)
-target_include_directories(${PROJECT_NAME} PRIVATE header)
-
-add_library(${PROJECT_INTERFACE_NAME} INTERFACE)
-target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE ThreadManager_Interface)
-target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE ShaderCompiler)
-target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE WindowSystem_Interface)
-target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE TimerSystem)
-target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE IOManager)
-target_link_libraries(${PROJECT_INTERFACE_NAME} INTERFACE CAGeneralReourceSystem_Interface)
-target_include_directories(${PROJECT_INTERFACE_NAME} INTERFACE header)
 
 target_precompile_headers(${PROJECT_NAME}
   PRIVATE

@@ -72,5 +72,7 @@ namespace graphics_backend
 		D3D12GraphLocalResourceManager m_LocalResourceManager;
 		GPUConstantBufferManager m_ConstantBufferManager;
 		ShaderResourceInstanceDic m_ShaderResourceInstances;
+
+		CPUDescriptorAllocatorSet m_DescriptorAllocatorSet;
 	};
 }
