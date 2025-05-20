@@ -1,7 +1,7 @@
-#include <RenderBackend_D3D12.h>
+﻿#include <RenderBackend_D3D12.h>
 #include <Utils/InterfaceTranslation.h>
 #include "GPUResourceBindingInstance.h"
-
+#include <D3D12Debug.h>
 namespace graphics_backend
 {
 
@@ -189,7 +189,7 @@ namespace graphics_backend
 							auto& samplerList = found->second;
 							SamplerBindingInfo samplerInfo{};
 							samplerInfo.bindingID = bindingID;
-							samplerInfo.samplerCount = samplerList.size();
+							samplerInfo.samplerDescriptors = samplerList;
 							spaceResourceInfo.samplerInfos.push_back(samplerInfo);
 						}
 					}
@@ -257,48 +257,64 @@ namespace graphics_backend
 		}
 	}
 
-	void GPUResourceBindingInstance::BindDescriptors(D3D12GraphLocalResourceManager& resourceManager
-		, GPUDescriptorHeap& gpuDescriptorHeap)
+	void GPUResourceBindingInstance::BuildDescriptors(D3D12GraphLocalResourceManager& resourceManager
+		, GPUDescriptorHeap& gpuDescriptorHeap
+		, GPUDescriptorHeap& samplerDescriptorHeap)
 	{
+		castl::vector<D3D12_ROOT_PARAMETER1> rootParameters;
 		for (size_t spaceID = 0; spaceID < m_GPUResourceSpaceInfos.size(); ++spaceID)
 		{
 			auto& spaceInfo = m_GPUResourceSpaceInfos[spaceID];
-			std::vector<D3D12_DESCRIPTOR_RANGE1> descriptors;
-			uint32_t descriptorCount = 0;
-			for (auto& cbuffer : spaceInfo.cbufferInfos)
+			//Record Descriptor Table
 			{
-				CD3DX12_DESCRIPTOR_RANGE1 range;
-				range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, cbuffer.bindingID);
-				descriptors.push_back(range);
-				descriptorCount++;
+				std::vector<D3D12_DESCRIPTOR_RANGE1>& descriptors = spaceInfo.descTable;
+				descriptors.clear();
+				uint32_t descriptorCount = 0;
+				for (auto& cbuffer : spaceInfo.cbufferInfos)
+				{
+					CD3DX12_DESCRIPTOR_RANGE1 range;
+					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, cbuffer.bindingID);
+					descriptors.push_back(range);
+					descriptorCount++;
+				}
+				for (auto& bufferInfo : spaceInfo.bufferInfos)
+				{
+					CD3DX12_DESCRIPTOR_RANGE1 range;
+					range.Init(bufferInfo.isUAV() ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV : D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+						, bufferInfo.bindings.size()
+						, bufferInfo.bindingID);
+					descriptors.push_back(range);
+					descriptorCount += bufferInfo.bindings.size();
+				}
+				for (auto& imgInfo : spaceInfo.imageInfo)
+				{
+					CD3DX12_DESCRIPTOR_RANGE1 range;
+					range.Init(imgInfo.isUAV() ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV : D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+						, imgInfo.bindings.size()
+						, imgInfo.bindingID);
+					descriptors.push_back(range);
+					descriptorCount += imgInfo.bindings.size();
+				}
+				uint32_t samplerCount = 0;
+				for (auto& samplerInfo : spaceInfo.samplerInfos)
+				{
+					CD3DX12_DESCRIPTOR_RANGE1 range;
+					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
+						, samplerInfo.samplerDescriptors.size()
+						, samplerInfo.bindingID);
+					descriptors.push_back(range);
+					samplerCount += samplerInfo.samplerDescriptors.size();
+				}
+				spaceInfo.descriptorAllocation = gpuDescriptorHeap.AllocDescriptorChunk(descriptorCount);
+				spaceInfo.samplerAllocation = samplerDescriptorHeap.AllocDescriptorChunk(samplerCount);
+				CD3DX12_ROOT_PARAMETER1 newParameter;
+				newParameter.InitAsDescriptorTable(descriptors.size(), descriptors.data());
+				rootParameters.push_back(newParameter);
 			}
-			for (auto& bufferInfo : spaceInfo.bufferInfos)
-			{
-				CD3DX12_DESCRIPTOR_RANGE1 range;
-				range.Init(bufferInfo.isUAV() ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV : D3D12_DESCRIPTOR_RANGE_TYPE_SRV
-					, bufferInfo.bindings.size()
-					, bufferInfo.bindingID);
-				descriptors.push_back(range);
-				descriptorCount += bufferInfo.bindings.size();
-			}
-			for (auto& imgInfo : spaceInfo.imageInfo)
-			{
-				CD3DX12_DESCRIPTOR_RANGE1 range;
-				range.Init(imgInfo.isUAV() ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV : D3D12_DESCRIPTOR_RANGE_TYPE_SRV
-					, imgInfo.bindings.size()
-					, imgInfo.bindingID);
-				descriptors.push_back(range);
-				descriptorCount += imgInfo.bindings.size();
-			}
-			spaceInfo.descriptorAllocation = gpuDescriptorHeap.AllocDescriptorChunk(descriptorCount);
 			{
 				uint32_t descriptorID = 0;
 				for (auto& cbuffer : spaceInfo.cbufferInfos)
 				{
-					//Desc Table Range
-					CD3DX12_DESCRIPTOR_RANGE1 range;
-					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, cbuffer.bindingID);
-					descriptors.push_back(range);
 					//Copy CPU Desc To GPU DescHeap
 					auto pResource = resourceManager.GetBufferResource(cbuffer.cbufferHandle);
 					CA_ASSERT_BREAK(pResource != nullptr, "CBuffer {} Resource Not Found", cbuffer.cbufferHandle.GetName());
@@ -308,11 +324,6 @@ namespace graphics_backend
 				}
 				for (auto& bufferInfo : spaceInfo.bufferInfos)
 				{
-					//Desc Table Range
-					CD3DX12_DESCRIPTOR_RANGE1 range;
-					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, bufferInfo.bindings.size(), bufferInfo.bindingID);
-					descriptors.push_back(range);
-
 					//Copy CPU Descs To GPU DescHeap
 					bool isUAV = bufferInfo.isUAV();
 					for (auto& buf : bufferInfo.bindings)
@@ -327,11 +338,6 @@ namespace graphics_backend
 				}
 				for (auto& imageInfo : spaceInfo.imageInfo)
 				{
-					//Desc Table Range
-					CD3DX12_DESCRIPTOR_RANGE1 range;
-					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, imageInfo.bindings.size(), imageInfo.bindingID);
-					descriptors.push_back(range);
-
 					//Copy CPU Descs To GPU DescHeap
 					bool isUAV = imageInfo.isUAV();
 					for (auto& img : imageInfo.bindings)
@@ -347,9 +353,37 @@ namespace graphics_backend
 						descriptorID++;
 					}
 				}
+				uint32_t samplerID = 0;
+				for (auto& samplerInfo : spaceInfo.samplerInfos)
+				{
+					for (auto& samplerDesc : samplerInfo.samplerDescriptors)
+					{
+						auto descHandle = GetApp()->GetSamplerManager().GetCPUHandle(samplerDesc);
+						GetDevice()->CopyDescriptorsSimple(1, spaceInfo.samplerAllocation.Slice(samplerID).CPUHandle()
+							, descHandle, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+						samplerID++;
+					}
+				}
 			}
 			
 		}
+
+		CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
+		rootSigDesc.Init_1_1(rootParameters.size(), rootParameters.data(), 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+		ComPtr<ID3DBlob> serializedRootSig = nullptr;
+		ComPtr<ID3DBlob> errorBlob = nullptr;
+		// 编译root signature 描述结构
+		ThrowIfFailed(D3D12SerializeVersionedRootSignature(&rootSigDesc, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf()));
+		if (errorBlob != nullptr)
+		{
+			CA_LOG_ERR_BREAK("{}", (char*)errorBlob->GetBufferPointer());
+		}
+		ThrowIfFailed(GetDevice()->CreateRootSignature(
+			0,
+			serializedRootSig->GetBufferPointer(),
+			serializedRootSig->GetBufferSize(),
+			IID_PPV_ARGS(m_RootSignature.GetAddressOf())));
 	}
 
 }

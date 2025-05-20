@@ -689,6 +689,11 @@ namespace graphics_backend
 		m_LocalResourceManager.AllocateAliasedResources(executionBatchs.size(), imageLifeTimes, bufferLifeTimes);
 		//为资源创建 descriptor
 		m_LocalResourceManager.PrepareResourceDescriptors(m_DescriptorAllocatorSet);
+
+		m_ShaderResourceInstances.for_each([&](auto& shaderSet, castl::shared_ptr<GPUResourceBindingInstance>& pInstance)->void
+		{
+			pInstance->BuildDescriptors(m_LocalResourceManager, m_ResourceGPUHeap, m_SamplerGPUHeap);
+		});
 		
 	}
 

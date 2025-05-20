@@ -76,13 +76,15 @@ namespace graphics_backend
 		struct SamplerBindingInfo
 		{
 			uint32_t bindingID;
-			uint32_t samplerCount;
+			castl::vector<TextureSamplerDescriptor> samplerDescriptors;
 		};
 
 		struct GPUResourceSpaceInfo
 		{
 			uint32_t spaceID;
 			DescriptorAllocation descriptorAllocation;
+			DescriptorAllocation samplerAllocation;
+			std::vector<D3D12_DESCRIPTOR_RANGE1> descTable;
 			castl::vector<CBufferBindingInfo> cbufferInfos;
 			castl::vector<ImageBindingInfo> imageInfo;
 			castl::vector<BufferBindingInfo> bufferInfos;
@@ -95,10 +97,12 @@ namespace graphics_backend
 		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager);
 		void IterateResourceUsages(castl::function<void(ImageBindingInfo const&)>const& imageCallback,
 		castl::function<void(BufferBindingInfo const&)>const& bufferCallback) const;
-		void BindDescriptors(D3D12GraphLocalResourceManager& resourceManager
-			, GPUDescriptorHeap& gpuDescriptorHeap);
+		void BuildDescriptors(D3D12GraphLocalResourceManager& resourceManager
+			, GPUDescriptorHeap& gpuDescriptorHeap
+			, GPUDescriptorHeap& samplerDescriptorHeap);
 	private:
 		castl::vector<GPUResourceSpaceInfo> m_GPUResourceSpaceInfos;
+		ComPtr<ID3D12RootSignature> m_RootSignature;
 		ShaderInfo shaderInfo;
 		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 	};

@@ -74,5 +74,9 @@ namespace graphics_backend
 		ShaderResourceInstanceDic m_ShaderResourceInstances;
 
 		CPUDescriptorAllocatorSet m_DescriptorAllocatorSet;
+
+		GPUDescriptorHeap m_ResourceGPUHeap;
+		GPUDescriptorHeap m_SamplerGPUHeap;
+
 	};
 }

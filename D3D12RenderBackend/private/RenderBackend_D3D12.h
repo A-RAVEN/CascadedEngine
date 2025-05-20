@@ -63,6 +63,11 @@ namespace graphics_backend
 			return m_MemoryManager;
 		}
 
+		SamplerManager& GetSamplerManager()
+		{
+			return m_SamplerManager;
+		}
+
 		template<typename T, typename...TArgs>
 		static void InitObj(T* inoutObj, TArgs&...Args)
 		{
@@ -124,7 +129,6 @@ namespace graphics_backend
 		//D3D12ShaderObjectDic m_ShaderObjects;
 
 		D3D12ShaderResourceImporter m_ShaderResourceImporter;
-		CPUPagedDescriptorAllocator m_Sampler_Allocator;
-
+		SamplerManager m_SamplerManager;
 	};
 }

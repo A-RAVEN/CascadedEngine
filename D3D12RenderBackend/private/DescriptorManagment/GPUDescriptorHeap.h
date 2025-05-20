@@ -70,12 +70,13 @@ namespace graphics_backend
 		CPUPagedDescriptorAllocator m_SRV_UAV_CBV_Allocator;
 		CPUPagedDescriptorAllocator m_RTV_Allocator;
 		CPUPagedDescriptorAllocator m_DSV_Allocator;
-		CPUPagedDescriptorAllocator m_Sampler_Allocator;
+		//CPUPagedDescriptorAllocator m_Sampler_Allocator;
 	};
 
 	class SamplerManager : D3D12SubobjectBase
 	{
 	public:
+		struct 
 		CD3DX12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(TextureSamplerDescriptor const& samplerDesc);
 		castl::unordered_map<TextureSamplerDescriptor, DescriptorAllocation> m_TextureSamplers;
 		CPUPagedDescriptorAllocator m_Sampler_Allocator;
