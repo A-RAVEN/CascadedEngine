@@ -94,6 +94,8 @@ namespace graphics_backend
 		GPUResourceBindingInstance(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
 		void Init(ShaderResourceSet const& resourceSet
 			, GPUConstantBufferManager& cbufferManager);
+		void Init1(ShaderResourceSet const& resourceSet
+			, GPUConstantBufferManager& cbufferManager);
 		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager);
 		void IterateResourceUsages(castl::function<void(ImageBindingInfo const&)>const& imageCallback,
 		castl::function<void(BufferBindingInfo const&)>const& bufferCallback) const;

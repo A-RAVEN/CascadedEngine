@@ -69,7 +69,197 @@ namespace graphics_backend
 		}
 	}
 
+
+	struct HierarchyBound
+	{
+		ShaderCompilerSlang::ShaderBindingHierarchy const* pHierarchy;
+		D3D2ShaderStruct const* pStruct;
+		uint32_t offset;
+	};
+
+	void ReflectResourceBindings(ShaderCompilerSlang::ShaderReflectionData const* reflectionData
+		, castl::unordered_map<cacore::NameHash, D3D2ShaderStruct const*> const& resoureBindings
+		, castl::function<void(HierarchyBound const&)> hierarchyBoundCallback)
+	{
+		using namespace ShaderCompilerSlang;
+		auto& bindingInfo = reflectionData->m_BindingInfo;
+		auto& rootHierarchy = bindingInfo.m_BindingDataHierarchies[bindingInfo.m_RootHierarchyID];
+
+		castl::deque<HierarchyBound> hierarchies;
+		for (auto hierarchyID : rootHierarchy.m_SubBindingHierarchies)
+		{
+			auto findRootShaderStruct = [&](cacore::NameHash const& inName)->D3D2ShaderStruct const*
+			{
+				auto found = resoureBindings.find(inName);
+				if (found != resoureBindings.end())
+				{
+					return found->second;
+				}
+				return nullptr;
+			};
+			auto& itrHierarchy = bindingInfo.m_BindingDataHierarchies[hierarchyID];
+			hierarchies.push_back(HierarchyBound{ &itrHierarchy , findRootShaderStruct(itrHierarchy.m_Name), 0 });
+		}
+		while (!hierarchies.empty())
+		{
+			HierarchyBound bounds = hierarchies.front();
+			hierarchies.pop_front();
+			if (bounds.pHierarchy != nullptr && bounds.pStruct != nullptr)
+			{
+				auto& itrHierarchy = *bounds.pHierarchy;
+				auto& itrStruct = *bounds.pStruct;
+				uint32_t offset = bounds.offset;
+				auto findShaderStructsFromParent = [&](cacore::NameHash const& inName)
+					->castl::vector<castl::shared_ptr<ShaderStruct>> const*
+				{
+					auto found = itrStruct.GetSubStructs().find(inName);
+					if (found != itrStruct.GetSubStructs().end())
+					{
+						return &found->second;
+					}
+					return nullptr;
+				};
+				for (auto subHierarchyID : itrHierarchy.m_SubBindingHierarchies)
+				{
+					auto& subHierarchy = bindingInfo.m_BindingDataHierarchies[subHierarchyID];
+					castl::vector<castl::shared_ptr<ShaderStruct>> const* pStructs = findShaderStructsFromParent(subHierarchy.m_Name);
+					auto tryGetpStruct = [&](uint32_t id) ->D3D2ShaderStruct const*
+					{
+						if (pStructs == nullptr)
+							return nullptr;
+						castl::vector<castl::shared_ptr<ShaderStruct>> const& structs = *pStructs;
+						if (structs.size() <= id)
+							return nullptr;
+						return static_cast<D3D2ShaderStruct const*>(structs[id].get());
+					};
+					for (uint32_t id = 0; id < subHierarchy.m_ElementCount; ++id)
+					{
+						uint32_t resolvedOffset = id + offset * subHierarchy.m_ElementCount;
+						D3D2ShaderStruct const* itrSubStruct = tryGetpStruct(id);
+						hierarchies.push_back(HierarchyBound{ &subHierarchy , itrSubStruct, resolvedOffset });
+					}
+				}
+			}
+		}
+	}
+
 	void GPUResourceBindingInstance::Init(ShaderResourceSet const& resourceSet
+		, GPUConstantBufferManager& cbufferManager)
+	{
+		shaderInfo = resourceSet.shaderInfo;
+		p_ReflectionData = &GetApp()->GetShaderFileInfo(shaderInfo)->reflectionData;
+		auto& spaceInfos = p_ReflectionData->m_BindingInfo.m_SpaceInfos;
+		m_GPUResourceSpaceInfos.resize(spaceInfos.size());
+		for (int spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
+		{
+			m_GPUResourceSpaceInfos[spaceID].spaceID = spaceID;
+			auto& spaceInfo = spaceInfos[spaceID];
+			auto& spaceStats = spaceInfo.m_ResourceStats;
+			m_GPUResourceSpaceInfos[spaceID].cbufferInfos.resize(spaceStats.m_CBufferBindings.size());
+		}
+		auto& bindingInfo = p_ReflectionData->m_BindingInfo;
+
+
+		ReflectResourceBindings(p_ReflectionData, resourceSet.resourceDic, [&](HierarchyBound const& hierarchyBound)
+		{
+			CA_ASSERT_BREAK(hierarchyBound.pHierarchy != nullptr, "Invalid Hierarchy");
+			CA_ASSERT_BREAK(hierarchyBound.pStruct != nullptr, "Struct Not Bound {}", hierarchyBound.pHierarchy->m_Name);
+
+			auto& hierarchy = *hierarchyBound.pHierarchy;
+			auto pStruct = hierarchyBound.pStruct;
+
+			for (uint32_t spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
+			{
+				//Collect Uniform Buffer
+				if (hierarchy.m_SelfUniformBufferID != -1
+					&& hierarchy.m_SelfUniformSpaceID == spaceID)
+				{
+					CA_ASSERT_BREAK(hierarchy.m_SelfUniformSpaceID != -1, "invalid uniform space id: {}", hierarchy.m_SelfUniformSpaceID);
+					auto uniformBufferID = hierarchy.m_SelfUniformSpaceID;
+					auto& spaceResourceInfo = m_GPUResourceSpaceInfos[spaceID];
+					auto& cbufferInfo = spaceResourceInfo.cbufferInfos[uniformBufferID];
+					cbufferInfo.bindingID = hierarchyBound.offset + hierarchy.m_SelfUniformBufferID;
+					cbufferInfo.pCBufferStruct = pStruct;
+					cbufferInfo.cbufferHandle = cbufferManager.GetConstantBufferHandle(pStruct);
+				}
+
+				//Collect Resources
+				if (!hierarchy.m_Bindings.empty())
+				{
+					auto& bufferHandles = pStruct->GetBufferHandles();
+					auto& imageHandles = pStruct->GetImageHandles();
+					auto& samplerDescs = pStruct->GetSamplerDescriptors();
+
+					for (auto& binding : hierarchy.m_Bindings)
+					{
+						if (binding.m_BindingSpace != spaceID)
+							continue;
+						auto bindingID = hierarchyBound.offset + binding.m_BindingID;
+						auto& spaceResourceInfo = m_GPUResourceSpaceInfos[spaceID];
+						switch (binding.m_ResourceType)
+						{
+							case ShaderCompilerSlang::EShaderResourceType::eTexture:
+							case ShaderCompilerSlang::EShaderResourceType::eRWTexture:
+							{
+								auto found = imageHandles.find(binding.m_Name);
+								CA_ASSERT_BREAK(found != imageHandles.end(), "Texture Not Found:{}", binding.m_Name);
+								{
+									ImageBindingInfo imageInfo{};
+									imageInfo.accessType = binding.m_Access;
+									imageInfo.resourceType = binding.m_ResourceType;
+									imageInfo.bindingID = bindingID;
+									auto& imageList = found->second;
+									for (uint32_t imageID = 0; imageID < imageList.size(); ++imageID)
+									{
+										ImageBindingInfo::ImageBinding binding;
+										binding.image = imageList[imageID].first;
+										binding.textureView = imageList[imageID].second;
+										imageInfo.bindings.push_back(binding);
+									}
+									spaceResourceInfo.imageInfo.push_back(imageInfo);
+								}
+								break;
+							}
+							case ShaderCompilerSlang::EShaderResourceType::eStructuredBuffer:
+							case ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer:
+							{
+								auto found = bufferHandles.find(binding.m_Name);
+								CA_ASSERT_BREAK(found != bufferHandles.end(), "Buffer Not Found:{}", binding.m_Name);
+								{
+									BufferBindingInfo bufferInfo{};
+									bufferInfo.accessType = binding.m_Access;
+									bufferInfo.resourceType = binding.m_ResourceType;
+									bufferInfo.bindingID = bindingID;
+
+									auto& bufferList = found->second;
+									for (uint32_t bufferID = 0; bufferID < bufferList.size(); ++bufferID)
+									{
+										bufferInfo.bindings.push_back(bufferList[bufferID]);
+									}
+									spaceResourceInfo.bufferInfos.push_back(bufferInfo);
+								}
+								break;
+							}
+							case ShaderCompilerSlang::EShaderResourceType::eSampler:
+							{
+								auto found = samplerDescs.find(binding.m_Name);
+								CA_ASSERT_BREAK(found != samplerDescs.end(), "Sampler Not Found:{}", binding.m_Name);
+								{
+									auto& samplerList = found->second;
+									SamplerBindingInfo samplerInfo{};
+									samplerInfo.bindingID = bindingID;
+									samplerInfo.samplerDescriptors = samplerList;
+									spaceResourceInfo.samplerInfos.push_back(samplerInfo);
+								}
+							}
+						}
+					}
+				}
+			}
+		});
+	}
+
+	void GPUResourceBindingInstance::Init1(ShaderResourceSet const& resourceSet
 		, GPUConstantBufferManager& cbufferManager)
 	{
 		shaderInfo = resourceSet.shaderInfo;
@@ -84,7 +274,6 @@ namespace graphics_backend
 			auto& spaceStats = spaceInfo.m_ResourceStats;
 			m_GPUResourceSpaceInfos[spaceID].cbufferInfos.resize(spaceStats.m_CBufferBindings.size());
 		}
-
 
 		auto& bindingInfo = p_ReflectionData->m_BindingInfo;
 
@@ -109,6 +298,7 @@ namespace graphics_backend
 			hierarchyIDs.pop_front();
 			auto& hierarchy = bindingInfo.m_BindingDataHierarchies[hierarchyID];
 			hierarchyIDs.insert(hierarchyIDs.end(), hierarchy.m_SubBindingHierarchies.begin(), hierarchy.m_SubBindingHierarchies.end());
+			
 			auto sourceStruct = findShaderStructOfName(hierarchy.m_Name);
 			CA_ASSERT_BREAK(sourceStruct != nullptr, "cant find shader struct: {}", hierarchy.m_Name);
 

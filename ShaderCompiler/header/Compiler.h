@@ -184,7 +184,7 @@ namespace ShaderCompilerSlang
 		uint32_t m_ElementCount;
 	};
 
-	//对应到某个Struct,Struct本身可能数组，所以也有ElementCount
+	//对应到某个Struct,Struct本身可能是数组，所以也有ElementCount
 	struct ShaderBindingHierarchy
 	{
 		cacore::NameHash m_Name;

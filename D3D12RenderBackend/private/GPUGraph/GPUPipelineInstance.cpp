@@ -25,6 +25,7 @@ namespace graphics_backend
 		psoDesc.NumRenderTargets = 0;
 		for (ImageHandle const& imageHandle : attachments)
 		{
+			resourceManager.
 			psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM; // 匹配交换链格式
 		}
 		psoDesc.NumRenderTargets = 1;
