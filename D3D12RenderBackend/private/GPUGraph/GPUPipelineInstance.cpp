@@ -13,24 +13,24 @@ namespace graphics_backend
 		// --------------------------
 		// 基础配置
 		// --------------------------
-		psoDesc.pRootSignature = pRootSignature; // 已创建的根签名
-		psoDesc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
-		psoDesc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
-		psoDesc.InputLayout = { inputLayout, _countof(inputLayout) };
-		psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; // 图元类型
+		// psoDesc.pRootSignature = pRootSignature; // 已创建的根签名
+		// psoDesc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+		// psoDesc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
+		// psoDesc.InputLayout = { inputLayout, _countof(inputLayout) };
+		// psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; // 图元类型
 
-		// --------------------------
-		// 渲染目标格式与混合配置
-		// --------------------------
-		psoDesc.NumRenderTargets = 0;
-		for (ImageHandle const& imageHandle : attachments)
-		{
-			resourceManager.
-			psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM; // 匹配交换链格式
-		}
-		psoDesc.NumRenderTargets = 1;
-		psoDesc.SampleDesc.Count = 1; // 关闭多重采样
-		psoDesc.SampleMask = UINT_MAX;
+		// // --------------------------
+		// // 渲染目标格式与混合配置
+		// // --------------------------
+		// psoDesc.NumRenderTargets = 0;
+		// for (ImageHandle const& imageHandle : attachments)
+		// {
+		// 	resourceManager.
+		// 	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM; // 匹配交换链格式
+		// }
+		// psoDesc.NumRenderTargets = 1;
+		// psoDesc.SampleDesc.Count = 1; // 关闭多重采样
+		// psoDesc.SampleMask = UINT_MAX;
 
 		// --------------------------
 		// 光栅化状态

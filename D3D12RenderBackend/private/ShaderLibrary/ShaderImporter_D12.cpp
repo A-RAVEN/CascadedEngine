@@ -8,87 +8,7 @@
 
 namespace graphics_backend
 {
-	struct CBufferBindingInfo
-	{
-		uint32_t bindingID;
-		uint32_t descTableID;
-		cacore::NameHash cbufferStructName;
-	};
-
-	struct ImageBindingInfo
-	{
-		ShaderCompilerSlang::EShaderResourceType resourceType;
-		ShaderCompilerSlang::EShaderResourceAccess accessType;
-		bool isUAV() const
-		{
-			return (resourceType == ShaderCompilerSlang::EShaderResourceType::eRWTexture) ||
-				(resourceType == ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer);
-		}
-		uint32_t bindingID;
-		uint32_t descTableID;
-		cacore::NameHash imageBindingName;
-		int imageCount;
-	};
-
-	struct BufferBindingInfo
-	{
-		ShaderCompilerSlang::EShaderResourceType resourceType;
-		ShaderCompilerSlang::EShaderResourceAccess accessType;
-		bool isUAV() const
-		{
-			return (resourceType == ShaderCompilerSlang::EShaderResourceType::eRWTexture) ||
-				(resourceType == ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer);
-		}
-		uint32_t bindingID;
-		uint32_t descTableID;
-		cacore::NameHash bufferBindingName;
-		int bufferCount;
-	};
-
-	struct SamplerBindingInfo
-	{
-		uint32_t bindingID;
-		uint32_t descTableID;
-		cacore::NameHash samplerBindingName;
-		int samplerCount;
-	};
-
-	struct StructBindingInfos
-	{
-		StructBindingInfos(cacore::NameHash const& name) : structBindingName(name)
-			, subStructOffset(0)
-			, subStructCount(0)
-		{
-
-		}
-		void InitSubStructs(uint32_t offset, uint32_t count)
-		{
-			subStructOffset = offset;
-			subStructCount = count;
-		}
-		cacore::NameHash structBindingName;
-		castl::vector<uint32_t> cbufferRefs;
-		castl::vector<uint32_t> imageRefs;
-		castl::vector<uint32_t> bufferRefs;
-		castl::vector<uint32_t> samplerRefs;
-		uint32_t subStructOffset;
-		uint32_t subStructCount;
-	};
-
-	struct ShaderResourceBindingInfo
-	{
-		uint32_t spaceID;
-		castl::vector<StructBindingInfos> structBindingInfos;
-		castl::vector<CBufferBindingInfo> cbufferInfos;
-		castl::vector<ImageBindingInfo> imageInfo;
-		castl::vector<BufferBindingInfo> bufferInfos;
-		castl::vector<SamplerBindingInfo> samplerInfos;
-
-		void EmplaceStruct(cacore::NameHash const& name)
-		{
-			structBindingInfos.emplace_back(name);
-		}
-	};
+	
 
 	struct HierarchyElement
 	{
@@ -130,36 +50,24 @@ namespace graphics_backend
 	}
 
 
-	void ConstructShaderDescriptorInfo(ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData)
+	ShaderResourceBindingInfo ConstructShaderDescriptorInfo(ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData)
 	{
-		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData = &shaderReflectionData;
-
-		auto& spaceInfos = p_ReflectionData->m_BindingInfo.m_SpaceInfos;
-		castl::vector<ShaderResourceBindingInfo> resourceBindingInfos;
-		castl::vector<uint8_t> serializedRootSignatureData;
-		auto& bindingInfo = p_ReflectionData->m_BindingInfo;
-		size_t spaceCount = spaceInfos.size();
-		resourceBindingInfos.resize(spaceCount);
-		for (int spaceID = 0; spaceID < spaceInfos.size(); ++spaceID)
-		{
-			resourceBindingInfos[spaceID].spaceID = spaceID;
-			auto& spaceInfo = spaceInfos[spaceID];
-			auto& spaceStats = spaceInfo.m_ResourceStats;
-			resourceBindingInfos[spaceID].cbufferInfos.resize(spaceStats.m_CBufferBindings.size());
-		}
+		auto& spaceInfos = shaderReflectionData.m_BindingInfo.m_SpaceInfos;
+		ShaderResourceBindingInfo resourceBindingInfo;
+		resourceBindingInfo.resourceDescCount = 0;
+		resourceBindingInfo.samplerDescCount = 0;
+		auto& bindingInfo = shaderReflectionData.m_BindingInfo;
 
 		std::vector<D3D12_DESCRIPTOR_RANGE1> descriptorRanges;
 		std::vector<D3D12_DESCRIPTOR_RANGE1> samplerDescriptorRanges;
-		for (size_t spaceID = 0; spaceID < spaceCount; ++spaceID)
+
 		{
 			castl::deque<int> hierarchyIDs;
 			hierarchyIDs.push_back(bindingInfo.m_RootHierarchyID);
-			ShaderResourceBindingInfo& spaceResourceBindingInfo = resourceBindingInfos[spaceID];
-			//auto& ranges = spaceResourceBindingInfo.descriptorRanges;
-			spaceResourceBindingInfo.structBindingInfos.reserve(bindingInfo.m_BindingDataHierarchies.size());
+			resourceBindingInfo.structBindingInfos.reserve(bindingInfo.m_BindingDataHierarchies.size());
 			{
 				auto& rootHierarchy = bindingInfo.m_BindingDataHierarchies[bindingInfo.m_RootHierarchyID];
-				spaceResourceBindingInfo.EmplaceStruct(rootHierarchy.m_Name);
+				resourceBindingInfo.EmplaceStruct(rootHierarchy.m_Name, 1);
 			}
 
 			size_t counter = 0;
@@ -167,32 +75,45 @@ namespace graphics_backend
 			{
 				uint32_t hierarchyID = hierarchyIDs[counter];
 				auto& processingHierarchy = bindingInfo.m_BindingDataHierarchies[hierarchyID];
-				auto& currentStructBindingInfo = spaceResourceBindingInfo.structBindingInfos[counter];
+				auto& currentStructBindingInfo = resourceBindingInfo.structBindingInfos[counter];
 				CA_ASSERT_BREAK(processingHierarchy.m_Name == currentStructBindingInfo.structBindingName, "Struct Binding Name Incompatible");
 				auto& structName = processingHierarchy.m_Name;
 				//add child binding infos
+				currentStructBindingInfo.InitSubStructs(resourceBindingInfo.structBindingInfos.size()
+					, processingHierarchy.m_SubBindingHierarchies.size());
 				for (auto& subHierarchyID : processingHierarchy.m_SubBindingHierarchies)
 				{
 					auto& subHierarchy = bindingInfo.m_BindingDataHierarchies[subHierarchyID];
 					//TODO: check if this hierarchy has any useful data for this space
 					hierarchyIDs.push_back(subHierarchyID);
-					spaceResourceBindingInfo.EmplaceStruct(subHierarchy.m_Name);
+					resourceBindingInfo.EmplaceStruct(subHierarchy.m_Name
+						, subHierarchy.m_ElementCount * currentStructBindingInfo.elementCount);
 				}
 
+				uint32_t currentStructElementCount = currentStructBindingInfo.elementCount;
+
 				//Collect Uniform Buffer
-				if (processingHierarchy.m_SelfUniformBufferID != -1 && processingHierarchy.m_SelfUniformSpaceID == spaceID)
+				if (processingHierarchy.m_SelfUniformBufferID != -1)
 				{
 					CA_ASSERT_BREAK(processingHierarchy.m_SelfUniformSpaceID != -1, "invalid uniform space id: {}"
 						, processingHierarchy.m_SelfUniformSpaceID);
-					auto uniformBufferID = processingHierarchy.m_SelfUniformSpaceID;
-					auto& cbufferInfo = spaceResourceBindingInfo.cbufferInfos[uniformBufferID];
+					CBufferBindingInfo cbufferInfo{};
+					cbufferInfo.elementCount = currentStructElementCount;
+					cbufferInfo.spaceID = processingHierarchy.m_SelfUniformSpaceID;
 					cbufferInfo.bindingID = processingHierarchy.m_SelfUniformBufferID;
 					cbufferInfo.cbufferStructName = structName;
-					cbufferInfo.descTableID = descriptorRanges.size();
+					cbufferInfo.descTableID = resourceBindingInfo.resourceDescCount;
+					currentStructBindingInfo.cbufferRefs.push_back(resourceBindingInfo.cbufferInfos.size());
+					resourceBindingInfo.cbufferInfos.push_back(cbufferInfo);
 
 					CD3DX12_DESCRIPTOR_RANGE1 range;
-					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, cbufferInfo.bindingID, spaceID);
+					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV
+						, cbufferInfo.elementCount
+						, cbufferInfo.bindingID, cbufferInfo.spaceID
+						, D3D12_DESCRIPTOR_RANGE_FLAG_NONE
+						, resourceBindingInfo.resourceDescCount);
 					descriptorRanges.push_back(range);
+					resourceBindingInfo.resourceDescCount += cbufferInfo.elementCount;
 				}
 
 				//Collect Resources
@@ -200,10 +121,9 @@ namespace graphics_backend
 				{
 					for (auto& binding : processingHierarchy.m_Bindings)
 					{
-						if (binding.m_BindingSpace != spaceID)
-							continue;
 						auto bindingID = binding.m_BindingID;
-
+						auto bindingSpace = binding.m_BindingSpace;
+						uint32_t elementCount = currentStructElementCount * binding.m_ElementCount;
 						//Collect For Binding Info
 						switch (binding.m_ResourceType)
 						{
@@ -213,12 +133,13 @@ namespace graphics_backend
 							ImageBindingInfo imageInfo{};
 							imageInfo.accessType = binding.m_Access;
 							imageInfo.resourceType = binding.m_ResourceType;
+							imageInfo.spaceID = bindingSpace;
 							imageInfo.bindingID = bindingID;
 							imageInfo.imageBindingName = binding.m_Name;
-							imageInfo.imageCount = binding.m_ElementCount;
-							imageInfo.descTableID = descriptorRanges.size();
-							spaceResourceBindingInfo.imageInfo.push_back(imageInfo);
-							currentStructBindingInfo.imageRefs.push_back(spaceResourceBindingInfo.imageInfo.size() - 1);
+							imageInfo.elementCount = elementCount;
+							imageInfo.descTableID = resourceBindingInfo.resourceDescCount;
+							currentStructBindingInfo.imageRefs.push_back(resourceBindingInfo.imageInfo.size());
+							resourceBindingInfo.imageInfo.push_back(imageInfo);
 							break;
 						}
 						case ShaderCompilerSlang::EShaderResourceType::eStructuredBuffer:
@@ -227,23 +148,25 @@ namespace graphics_backend
 							BufferBindingInfo bufferInfo{};
 							bufferInfo.accessType = binding.m_Access;
 							bufferInfo.resourceType = binding.m_ResourceType;
+							bufferInfo.spaceID = bindingSpace;
 							bufferInfo.bindingID = bindingID;
 							bufferInfo.bufferBindingName = binding.m_Name;
-							bufferInfo.bufferCount = binding.m_ElementCount;
-							bufferInfo.descTableID = descriptorRanges.size();
-							spaceResourceBindingInfo.bufferInfos.push_back(bufferInfo);
-							currentStructBindingInfo.bufferRefs.push_back(spaceResourceBindingInfo.bufferInfos.size() - 1);
+							bufferInfo.elementCount = elementCount;
+							bufferInfo.descTableID = resourceBindingInfo.resourceDescCount;
+							currentStructBindingInfo.bufferRefs.push_back(resourceBindingInfo.bufferInfos.size());
+							resourceBindingInfo.bufferInfos.push_back(bufferInfo);
 							break;
 						}
 						case ShaderCompilerSlang::EShaderResourceType::eSampler:
 						{
 							SamplerBindingInfo samplerInfo{};
+							samplerInfo.spaceID = bindingSpace;
 							samplerInfo.bindingID = bindingID;
 							samplerInfo.samplerBindingName = binding.m_Name;
-							samplerInfo.samplerCount = binding.m_ElementCount;
-							samplerInfo.descTableID = samplerDescriptorRanges.size();
-							spaceResourceBindingInfo.samplerInfos.push_back(samplerInfo);
-							currentStructBindingInfo.samplerRefs.push_back(spaceResourceBindingInfo.samplerInfos.size() - 1);
+							samplerInfo.elementCount = elementCount;
+							samplerInfo.descTableID = resourceBindingInfo.samplerDescCount;
+							currentStructBindingInfo.samplerRefs.push_back(resourceBindingInfo.samplerInfos.size());
+							resourceBindingInfo.samplerInfos.push_back(samplerInfo);
 							break;
 						}
 						}
@@ -254,25 +177,86 @@ namespace graphics_backend
 						case ShaderCompilerSlang::EShaderResourceType::eRWTexture:
 						case ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer:
 							CD3DX12_DESCRIPTOR_RANGE1 range;
-							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, bindingID, spaceID);
+							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+								, elementCount
+								, bindingID
+								, bindingSpace
+								, D3D12_DESCRIPTOR_RANGE_FLAG_NONE
+								, resourceBindingInfo.resourceDescCount);
 							descriptorRanges.push_back(range);
+							resourceBindingInfo.resourceDescCount += elementCount;
 							break;
 						case ShaderCompilerSlang::EShaderResourceType::eTexture:
 						case ShaderCompilerSlang::EShaderResourceType::eStructuredBuffer:
 							CD3DX12_DESCRIPTOR_RANGE1 range;
-							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, bindingID, spaceID);
+							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV
+								, elementCount
+								, bindingID
+								, bindingSpace
+								, D3D12_DESCRIPTOR_RANGE_FLAG_NONE
+								, resourceBindingInfo.resourceDescCount);
 							descriptorRanges.push_back(range);
+							resourceBindingInfo.resourceDescCount += elementCount;
 							break;
 						case ShaderCompilerSlang::EShaderResourceType::eSampler:
 							CD3DX12_DESCRIPTOR_RANGE1 range;
-							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, bindingID, spaceID);
+							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
+								, elementCount
+								, bindingID
+								, bindingSpace
+								, D3D12_DESCRIPTOR_RANGE_FLAG_NONE
+								, resourceBindingInfo.samplerDescCount);
 							samplerDescriptorRanges.push_back(range);
+							resourceBindingInfo.samplerDescCount += elementCount;
 							break;
 						}
 					}
 				}
 
 				++counter;
+			}
+		}
+
+		if (!descriptorRanges.empty())
+		{
+			uint32_t descCount = (descriptorRanges.back().NumDescriptors + descriptorRanges.back().OffsetInDescriptorsFromTableStart);
+			CA_ASSERT_BREAK(
+				resourceBindingInfo.resourceDescCount == descCount
+				, "Incompatible Resource Desc Count:[{}/{}]", resourceBindingInfo.resourceDescCount, descCount);
+			if (descriptorRanges.size() > 1)
+			{
+				for (int id = 0; id < descriptorRanges.size() - 1; ++id)
+				{
+					auto& thisRange = descriptorRanges[id];
+					auto& nextRange = descriptorRanges[id + 1];
+					CA_ASSERT_BREAK(
+						(thisRange.OffsetInDescriptorsFromTableStart + thisRange.NumDescriptors) == nextRange.OffsetInDescriptorsFromTableStart
+						, "Incompatible Resource Range Neighbours:[{}/{}/{}]"
+						, thisRange.OffsetInDescriptorsFromTableStart
+						, thisRange.NumDescriptors
+						, nextRange.OffsetInDescriptorsFromTableStart);
+				}
+			}
+		}
+		if (!samplerDescriptorRanges.empty())
+		{
+			uint32_t descCount = (samplerDescriptorRanges.back().NumDescriptors + samplerDescriptorRanges.back().OffsetInDescriptorsFromTableStart);
+			CA_ASSERT_BREAK(
+				resourceBindingInfo.samplerDescCount == descCount
+				, "Incompatible Sampler Desc Count:[{}/{}]", resourceBindingInfo.samplerDescCount, descCount);
+			if (samplerDescriptorRanges.size() > 1)
+			{
+				for (int id = 0; id < samplerDescriptorRanges.size() - 1; ++id)
+				{
+					auto& thisRange = samplerDescriptorRanges[id];
+					auto& nextRange = samplerDescriptorRanges[id + 1];
+					CA_ASSERT_BREAK(
+						(thisRange.OffsetInDescriptorsFromTableStart + thisRange.NumDescriptors) == nextRange.OffsetInDescriptorsFromTableStart
+						, "Incompatible Sampler Range Neighbours:[{}/{}/{}]"
+						, thisRange.OffsetInDescriptorsFromTableStart
+						, thisRange.NumDescriptors
+						, nextRange.OffsetInDescriptorsFromTableStart);
+				}
 			}
 		}
 		
@@ -303,9 +287,10 @@ namespace graphics_backend
 			{
 				CA_LOG_ERR_BREAK("{}", (char*)errorBlob->GetBufferPointer());
 			}
-			serializedRootSignatureData.resize(serializedRootSig->GetBufferSize());
-			memcpy(serializedRootSignatureData.data(), serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize());
+			resourceBindingInfo.serializedRootSignatureData.resize(serializedRootSig->GetBufferSize());
+			memcpy(resourceBindingInfo.serializedRootSignatureData.data(), serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize());
 		}
+		return resourceBindingInfo;
 	}
 
 	void D3D12ShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager
@@ -357,6 +342,7 @@ namespace graphics_backend
 								auto& shaderInfo = shaderLibrary->m_ShaderFiles[shaderPathHash];
 								shaderInfo.entryPointToShaderProgram.clear();
 								shaderInfo.reflectionData = result.m_ReflectionData;
+								shaderInfo.shaderBindingInfo = ConstructShaderDescriptorInfo(shaderInfo.reflectionData);
 								for (auto& program : result.programs)
 								{
 									auto shaHash = cahash::getHash<cahash::sha256_hash>(program.data.data(), program.data.size());

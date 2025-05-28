@@ -47,7 +47,8 @@ namespace graphics_backend
 	class CPUPagedDescriptorAllocator : D3D12SubobjectBase
 	{
 	public:
-		CPUPagedDescriptorAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType) : D3D12SubobjectBase(app), m_HeapType(heapType) {}
+		CPUPagedDescriptorAllocator() = delete;
+		CPUPagedDescriptorAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType);
 		DescriptorAllocation AllocDescriptors(uint32_t descCount);
 	private:
 		castl::deque<DescriptorHeapAllocator> m_Pages;
@@ -57,26 +58,29 @@ namespace graphics_backend
 	class GPUDescriptorHeap : D3D12SubobjectBase
 	{
 	public:
-		GPUDescriptorHeap(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_HugeHeap(app){}
+		GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType);
 		void Init();
 		DescriptorAllocation AllocDescriptorChunk(uint32_t descCount);
 	private:
 		DescriptorHeapAllocator m_HugeHeap;
+		D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType;
 	};
 
 	class CPUDescriptorAllocatorSet
 	{
 	public:
+		CPUDescriptorAllocatorSet() = delete;
+		CPUDescriptorAllocatorSet(RenderBackend_D3D12* app);
 		CPUPagedDescriptorAllocator m_SRV_UAV_CBV_Allocator;
 		CPUPagedDescriptorAllocator m_RTV_Allocator;
 		CPUPagedDescriptorAllocator m_DSV_Allocator;
-		//CPUPagedDescriptorAllocator m_Sampler_Allocator;
 	};
 
 	class SamplerManager : D3D12SubobjectBase
 	{
 	public:
-		struct 
+		SamplerManager() = delete;
+		SamplerManager(RenderBackend_D3D12* app);
 		CD3DX12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(TextureSamplerDescriptor const& samplerDesc);
 		castl::unordered_map<TextureSamplerDescriptor, DescriptorAllocation> m_TextureSamplers;
 		CPUPagedDescriptorAllocator m_Sampler_Allocator;

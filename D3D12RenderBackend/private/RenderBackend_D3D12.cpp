@@ -95,6 +95,7 @@ namespace graphics_backend
 
     RenderBackend_D3D12::RenderBackend_D3D12() : 
         m_MemoryManager(this)
+        , m_SamplerManager(this)
     {
     }
 

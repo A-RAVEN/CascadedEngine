@@ -11,6 +11,7 @@
 //#include <GPUObjects/ShaderObject.h>
 #include <ShaderLibrary/ShaderImporter_D12.h>
 #include <ShaderLibrary/ShaderLibrary.h>
+#include <DescriptorManagment/GPUDescriptorHeap.h>
 
 namespace graphics_backend
 {

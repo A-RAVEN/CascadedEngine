@@ -142,6 +142,10 @@ namespace graphics_backend
 		m_Allocator->FreeDescriptors(m_Range);
 		m_Range = {};
 	}
+
+	CPUPagedDescriptorAllocator::CPUPagedDescriptorAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
+	 : D3D12SubobjectBase(app), m_HeapType(heapType) {}
+
 	DescriptorAllocation CPUPagedDescriptorAllocator::AllocDescriptors(uint32_t descCount)
 	{
 		for (auto& page : m_Pages)
@@ -156,9 +160,12 @@ namespace graphics_backend
 		return newPage.AllocDescriptors(descCount);
 	}
 
+	GPUDescriptorHeap::GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
+	 : D3D12SubobjectBase(app), m_HugeHeap(app), m_HeapType(heapType){}
+
 	void GPUDescriptorHeap::Init()
 	{
-		m_HugeHeap.Init(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true, castl::numeric_limits<uint32_t>::max());
+		m_HugeHeap.Init(m_HeapType, true, castl::numeric_limits<uint32_t>::max());
 	}
 
 	DescriptorAllocation GPUDescriptorHeap::AllocDescriptorChunk(uint32_t descCount)
@@ -179,5 +186,16 @@ namespace graphics_backend
 		GetDevice()->CreateSampler(&desc, descAllocation.CPUHandle());
 		m_TextureSamplers.insert(castl::make_pair(samplerDesc, descAllocation));
 	}
+
+	CPUDescriptorAllocatorSet::CPUDescriptorAllocatorSet(RenderBackend_D3D12* app) :
+		m_SRV_UAV_CBV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+		, m_RTV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
+		, m_DSV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
+	{}
+
+
+	SamplerManager::SamplerManager(RenderBackend_D3D12* app)
+		 : D3D12SubobjectBase(app), m_Sampler_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+	{}
 
 }

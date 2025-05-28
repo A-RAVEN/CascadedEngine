@@ -239,6 +239,9 @@ namespace graphics_backend
 		D3D12SubobjectBase(app)
 		, m_LocalResourceManager(app)
 		, m_ConstantBufferManager(app)
+		, m_DescriptorAllocatorSet(app)
+		, m_ResourceGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+		, m_SamplerGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
 	{}
 
 
