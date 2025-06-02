@@ -5,6 +5,12 @@
 
 namespace cacore
 {
+	template<typename T>
+	concept equal_test = requires(T const& a, T const& b)
+	{
+		{ a == b } -> std::same_as<bool>;
+	};
+
 	template <typename... T>
 	FMT_INLINE void style_log_with_location(const text_style& ts, std::source_location const& location, bool show_location, format_string<T...> fmt, T&&... args) {
 		try
@@ -15,7 +21,7 @@ namespace cacore
 			}
 			else
 			{
-				fmt::print(ts, fmt, std::forward<T>(args)...);
+				fmt::print(ts, "{}\n", format(fmt, std::forward<T>(args)...));
 			}
 		}
 		catch (format_error err)

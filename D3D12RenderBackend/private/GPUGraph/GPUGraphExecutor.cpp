@@ -2,62 +2,10 @@
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <Utils/InterfaceTranslation.h>
 #include <RenderBackend_D3D12.h>
+#include <GPUGraph/GPUPipelineInstance.h>
 
 namespace graphics_backend
 {
-	class BasePassDependency
-	{
-	public:
-		PassBase& thisPass;
-		castl::unordered_set<BasePassDependency*> predecessors;
-		castl::unordered_set<BasePassDependency*> successors;
-		GPUGraph::EGraphStageType graphStageType;
-		BasePassDependency(PassBase& pass, GPUGraph::EGraphStageType graphStage) : thisPass(pass), graphStageType(graphStage){}
-
-		bool DependencyFree() const
-		{
-			return predecessors.empty();
-		}
-
-		void RemoveSelfDependency()
-		{
-			for (BasePassDependency* successor : successors)
-			{
-				successor->predecessors.erase(this);
-			}
-		}
-
-		void CheckAddPredecessor(BasePassDependency* predPass)
-		{
-			bool hasDependency = false;
-
-			auto checkDependency = [&](auto& thisSet, auto& otherSet)
-			{
-				for (auto& readImg : thisSet)
-				{
-					if (otherSet.find(readImg) != otherSet.end())
-					{
-						return true;
-					}
-				}
-				return false;
-			};
-
-			//TODO: check Dependency
-			//读/写依赖
-			hasDependency = checkDependency(thisPass.m_ReadImages, predPass->thisPass.m_WriteImages);
-			hasDependency = hasDependency || checkDependency(thisPass.m_ReadBuffers, predPass->thisPass.m_WriteBuffers);
-			//写/读依赖
-			hasDependency = hasDependency || checkDependency(thisPass.m_WriteImages, predPass->thisPass.m_ReadImages);
-			hasDependency = hasDependency || checkDependency(thisPass.m_WriteBuffers, predPass->thisPass.m_ReadBuffers);
-			
-			if (hasDependency)
-			{
-				predecessors.insert(predPass);
-				predPass->successors.insert(this);
-			}
-		}
-	};
 
 	static void ForeachRenderPassShaderStructs(RenderPass const& renderPass, castl::function<void(D3D2ShaderStruct const&)> callback)
 	{
@@ -124,116 +72,118 @@ namespace graphics_backend
 	}
 
 
-	void PassBase::CollectShaderStructResourcesForBasePass(D3D2ShaderStruct const& shaderStruct)
-	{
-		auto pStructData = shaderStruct.GetStructData();
-		auto& imageHandles = shaderStruct.GetImageHandles();
-		auto& bufferHandles = shaderStruct.GetBufferHandles();
+	// void PassBase::CollectShaderStructResourcesForBasePass(D3D2ShaderStruct const& shaderStruct)
+	// {
+	// 	auto pStructData = shaderStruct.GetStructData();
+	// 	auto& imageHandles = shaderStruct.GetImageHandles();
+	// 	auto& bufferHandles = shaderStruct.GetBufferHandles();
 
-		for (auto& textureData : pStructData->m_Textures)
-		{
-			auto found = imageHandles.find(textureData.m_Name);
-			if (found != imageHandles.end())
-			{
-				for (auto img : found->second)
-				{
-					switch (textureData.m_RWType)
-					{
-					case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
-						m_ReadImages.insert(img.first);
-						break;
-					case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
-						m_WriteImages.insert(img.first);
-						break;
-					case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
-						m_ReadImages.insert(img.first);
-						m_WriteImages.insert(img.first);
-						break;
-					}
-				}
-			}
-		}
+	// 	for (auto& textureData : pStructData->m_Textures)
+	// 	{
+	// 		auto found = imageHandles.find(textureData.m_Name);
+	// 		if (found != imageHandles.end())
+	// 		{
+	// 			for (auto img : found->second)
+	// 			{
+	// 				switch (textureData.m_RWType)
+	// 				{
+	// 				case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+	// 					m_ReadImages.insert(img.first);
+	// 					break;
+	// 				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+	// 					m_WriteImages.insert(img.first);
+	// 					break;
+	// 				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+	// 					m_ReadImages.insert(img.first);
+	// 					m_WriteImages.insert(img.first);
+	// 					break;
+	// 				}
+	// 			}
+	// 		}
+	// 	}
 
-		for (auto& bufferData : pStructData->m_Buffers)
-		{
-			auto found = bufferHandles.find(bufferData.m_Name);
-			if (found != bufferHandles.end())
-			{
-				for (auto buf : found->second)
-				{
-					switch (bufferData.m_RWType)
-					{
-					case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
-						m_ReadBuffers.insert(buf);
-						break;
-					case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
-						m_WriteBuffers.insert(buf);
-						break;
-					case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
-						m_ReadBuffers.insert(buf);
-						m_WriteBuffers.insert(buf);
-						break;
-					}
-				}
-			}
-		}
-	}
+	// 	for (auto& bufferData : pStructData->m_Buffers)
+	// 	{
+	// 		auto found = bufferHandles.find(bufferData.m_Name);
+	// 		if (found != bufferHandles.end())
+	// 		{
+	// 			for (auto buf : found->second)
+	// 			{
+	// 				switch (bufferData.m_RWType)
+	// 				{
+	// 				case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+	// 					m_ReadBuffers.insert(buf);
+	// 					break;
+	// 				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+	// 					m_WriteBuffers.insert(buf);
+	// 					break;
+	// 				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+	// 					m_ReadBuffers.insert(buf);
+	// 					m_WriteBuffers.insert(buf);
+	// 					break;
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
 
-	void RasterizationPass::Prepare(RenderPass const& renderPass)
-	{
-		pPass = &renderPass;
-		auto& attachments = renderPass.GetAttachments();
+	// void RasterizationPass::Prepare(RenderPass const& renderPass)
+	// {
+	// 	pPass = &renderPass;
+	// 	auto& attachments = renderPass.GetAttachments();
 
-		for (auto& attachment : attachments)
-		{
-			//TODO: Fully Check Read/Write State Of Attachments
-			m_ReadImages.insert(attachment);
-			m_WriteImages.insert(attachment);
-		}
+	// 	for (auto& attachment : attachments)
+	// 	{
+	// 		//TODO: Fully Check Read/Write State Of Attachments
+	// 		m_ReadImages.insert(attachment);
+	// 		m_WriteImages.insert(attachment);
+	// 	}
 
-		auto& drawCallBatchs = renderPass.GetDrawCallBatches();
-		for (auto& drawCallBatch : drawCallBatchs)
-		{
-			for (auto& drawCall : drawCallBatch.m_DrawCalls)
-			{
-				if (drawCall.GetDrawInfo().drawIndexed)
-				{
-					m_ReadBuffers.insert(drawCall.GetIndexBuffer().indexBufferHandle);
-				}
-				for (auto& vertexBuffer : drawCall.GetVertexBuffers())
-				{
-					m_ReadBuffers.insert(vertexBuffer.second);
-				}
-			}
-		}
+	// 	auto& drawCallBatchs = renderPass.GetDrawCallBatches();
+	// 	for (auto& drawCallBatch : drawCallBatchs)
+	// 	{
+	// 		for (auto& drawCall : drawCallBatch.m_DrawCalls)
+	// 		{
+	// 			if (drawCall.GetDrawInfo().drawIndexed)
+	// 			{
+	// 				m_ReadBuffers.insert(drawCall.GetIndexBuffer().indexBufferHandle);
+	// 			}
+	// 			for (auto& vertexBuffer : drawCall.GetVertexBuffers())
+	// 			{
+	// 				m_ReadBuffers.insert(vertexBuffer.second);
+	// 			}
+	// 		}
+	// 	}
 
-		ForeachRenderPassShaderStructs(renderPass, [&](D3D2ShaderStruct const& shaderStruct)
-		{
-			CollectShaderStructResourcesForBasePass(shaderStruct);
-		});
-	}
+	// 	ForeachRenderPassShaderStructs(renderPass, [&](D3D2ShaderStruct const& shaderStruct)
+	// 	{
+	// 		CollectShaderStructResourcesForBasePass(shaderStruct);
+	// 	});
+	// }
 	
-	void ComputePass::Prepare(ComputeBatch const& computePass)
-	{
-		pPass = &computePass;
-		ForeachComputePassShaderStructs(computePass, [&](D3D2ShaderStruct const& shaderStruct)
-		{
-			CollectShaderStructResourcesForBasePass(shaderStruct);
-		});
-	}
+	// void ComputePass::Prepare(ComputeBatch const& computePass)
+	// {
+	// 	pPass = &computePass;
+	// 	ForeachComputePassShaderStructs(computePass, [&](D3D2ShaderStruct const& shaderStruct)
+	// 	{
+	// 		CollectShaderStructResourcesForBasePass(shaderStruct);
+	// 	});
+	// }
 
-	void TransferPass::Prepare(GPUDataTransfers const& transferPass)
-	{
-		pPass = &transferPass;
-		for (auto& bufferWrites : transferPass.m_BufferDataUploads)
-		{
-			m_WriteBuffers.insert(bufferWrites.first);
-		}
-		for (auto& imgWrites : transferPass.m_ImageDataUploads)
-		{
-			m_WriteImages.insert(imgWrites.first);
-		}
-	}
+	// void TransferPass::Prepare(GPUDataTransfers const& transferPass)
+	// {
+	// 	pPass = &transferPass;
+	// 	for (auto& bufferWrites : transferPass.m_BufferDataUploads)
+	// 	{
+	// 		m_WriteBuffers.insert(bufferWrites.first);
+	// 	}
+	// 	for (auto& imgWrites : transferPass.m_ImageDataUploads)
+	// 	{
+	// 		m_WriteImages.insert(imgWrites.first);
+	// 	}
+	// }
+
+
 
 	D3D12GPUGraphExecutor::D3D12GPUGraphExecutor(RenderBackend_D3D12* app) : 
 		D3D12SubobjectBase(app)
@@ -244,12 +194,11 @@ namespace graphics_backend
 		, m_SamplerGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
 	{}
 
-
 	struct PassRWState
 	{
 		castl::unordered_map<ImageHandle, ShaderCompilerSlang::EShaderResourceAccess> imageRWStates;
 		castl::unordered_map<BufferHandle, ShaderCompilerSlang::EShaderResourceAccess> bufferRWStates;
-		bool depends(PassRWState const& other)
+		bool depends(PassRWState const& other) const
 		{
 			for(auto& pair : imageRWStates)
 			{
@@ -379,13 +328,13 @@ namespace graphics_backend
 	class PassDependency
 	{
 	public:
-		PassRWState& rwState;
+		PassRWState const& rwState;
 		uint32_t passID;
 		GPUGraph::EGraphStageType passType;
 		uint32_t predecessorCount;
 		castl::vector<PassDependency*> successors;
 
-		PassDependency(PassRWState& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
+		PassDependency(PassRWState const& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
 			: rwState(rwState), passID(passID), passType(passType), predecessorCount(0) {}
 
 		bool DepsFree() const
@@ -434,25 +383,30 @@ namespace graphics_backend
 		};
 		//将一个pass中所有资源的读写状态注册进PassRWState中，包括CBuffer
 		auto addPassShaderInstancesResourcesRWStates = [&](PassRWState& passRWState,
-			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
+			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
 		{
 			for(auto pair : passLocalBindingInstances)
 			{
 				auto resourceBindingInstance = pair.second;
 				resourceBindingInstance->IterateResourceUsages(
-				[&](GPUResourceBindingInstance::ImageBindingInfo const& imageInfo)
+				[&](GPUResourceBindingInstance::ImageBindingElement const& imageInfo)
 				{
 					for (auto& img : imageInfo.bindings)
 					{
-						passRWState.SetImageRWState(img.image, imageInfo.accessType);
+						passRWState.SetImageRWState(img.image, imageInfo.bindingInfo.accessType);
 					}
 				},
-				[&](GPUResourceBindingInstance::BufferBindingInfo const& bufferInfo)
+				[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
 				{
 					for (auto& buf : bufferInfo.bindings)
 					{
-						passRWState.SetBufferRWState(buf, bufferInfo.accessType);
+						passRWState.SetBufferRWState(buf, bufferInfo.bindingInfo.accessType);
 					}
+				},
+				[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
+				{
+					passRWState.SetBufferRWState(cbufferInfo.cbufferHandle
+						, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
 				});
 			}
 		};
@@ -472,7 +426,7 @@ namespace graphics_backend
 				passRWState.SetImageRWState(attachment, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
 			}
 
-			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
+			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
 			for(auto& drawcallBatchs : renderPass.GetDrawCallBatches())
 			{
 				for (auto& drawcall : drawcallBatchs.m_DrawCalls)
@@ -496,10 +450,11 @@ namespace graphics_backend
 				shaderStructs.push_back(&renderPass.GetShaderStructs());
 				ShaderResourceSet resourceSet;
 				resourceSet.Init(pApp, pipelineData.m_ShaderInfo, {shaderStructs});
-				auto resourceBindingInstance = shaderResourceInstances.get_or_create(resourceSet, [&](ShaderResourceSet const& resourceInstance) -> castl::shared_ptr<GPUResourceBindingInstance>
+				castl::shared_ptr<GPUResourceBindingInstance> resourceBindingInstance = shaderResourceInstances.get_or_create(resourceSet, [&](ShaderResourceSet const& resourceInstance) -> castl::shared_ptr<GPUResourceBindingInstance>
 				{
 					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
 				})->second;
+
 				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
 			}
 			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
@@ -509,7 +464,7 @@ namespace graphics_backend
 		{
 			auto& computePass = owningGraph.GetComputePasses()[passID];
 			auto& passRWState = computePassRWStates[passID];
-			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
+			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
 			for (auto& dispatch : computePass.dispatchs)
 			{
 				castl::vector<ShaderStructDic const*> shaderStructs;
@@ -530,7 +485,7 @@ namespace graphics_backend
 		{
 			auto& transferPass = owningGraph.GetDataTransfers()[passID];
 			auto& passRWState = transferPassRWStates[passID];
-			std::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
+			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
 			for (auto& bufferWrites : transferPass.m_BufferDataUploads)
 			{
 				registerBufferToLocalResourceManager(bufferWrites.first);
@@ -586,13 +541,13 @@ namespace graphics_backend
 			switch (stage)
 			{
 			case EGraphStageType::eRenderPass:
-				passDeps.emplace_back(rasterPassRWStates[passID], stage, stage);
+				passDeps.emplace_back(rasterPassRWStates[passID], passID, stage);
 				break;
 			case EGraphStageType::eComputePass:
-				passDeps.emplace_back(computePassRWStates[passID], stage, stage);
+				passDeps.emplace_back(computePassRWStates[passID], passID, stage);
 				break;
 			case EGraphStageType::eTransferPass:
-				passDeps.emplace_back(transferPassRWStates[passID], stage, stage);
+				passDeps.emplace_back(transferPassRWStates[passID], passID, stage);
 				break;
 			}
 			pendingDependencies.push_back(&passDeps.back());
@@ -660,6 +615,49 @@ namespace graphics_backend
 		}
 	}
 
+	struct RenderPassGPUData
+	{
+		struct DrawCallBatchGPUData
+		{
+			GPUPipelineInstance const* pipelineInstances;
+		};
+		castl::vector<DrawCallBatchGPUData> drawcallBatchs;
+	};
+
+	void BuildPipelineStates(RenderBackend_D3D12* app
+		, GPUGraph const& owningGraph
+		, D3D12GraphLocalResourceManager const& resourceManager
+		, castl::vector<RenderPassGPUData>& outRasterPassObjects)
+	{
+		auto& renderPasses = owningGraph.GetRenderPasses();
+		outRasterPassObjects.reserve(renderPasses.size());
+		for (auto& rasterPass : renderPasses)
+		{
+			RenderPassGPUData gpuData;
+
+			auto& attachments = rasterPass.GetAttachments();
+			for (auto& batch : rasterPass.GetDrawCallBatches())
+			{
+				RenderPassGPUData::DrawCallBatchGPUData batchData;
+
+				PipelineDescData batchLevelDescData = PipelineDescData::CombindDescData(
+					rasterPass.GetPipelineStates()
+					, batch.GetPipelineStates());
+				GPUPipelineStateKey pipelineStateKey;
+				pipelineStateKey.Init(app
+					, batchLevelDescData
+					, attachments
+					, rasterPass.GetDepthAttachmentIndex()
+					, batch
+					, resourceManager);
+
+				batchData.pipelineInstances = app->GetRasterPipelineManager().GetPipelineState(pipelineStateKey);
+				gpuData.drawcallBatchs.push_back(batchData);
+			}
+			outRasterPassObjects.push_back(gpuData);
+		}
+	}
+
 	void D3D12GPUGraphExecutor::Init(GPUGraph const& owningGraph)
 	{
 		//收集当前图中所有的资源
@@ -697,77 +695,18 @@ namespace graphics_backend
 		{
 			pInstance->BuildDescriptors(m_LocalResourceManager, m_ResourceGPUHeap, m_SamplerGPUHeap);
 		});
+
+		//创建PipelineBarriers
+
 		
+		//创建PSO:TODO 并行化
+		castl::vector<RenderPassGPUData> rasterPassGPUDataList;
+		BuildPipelineStates(GetApp()
+			, owningGraph
+			, m_LocalResourceManager
+			, rasterPassGPUDataList);
+
+
+
 	}
-
-	// void ForeachResourceInGraph(GPUGraph const& owningGraph, castl::function<void(ImageHandle const&)> imageCallback
-	// 	, castl::function<void(BufferHandle const&)> bufferCallback)
-	// {
-	// 	auto shaderStructCallback = [&](D3D2ShaderStruct const& shaderStruct)
-	// 	{
-	// 		for (auto& imgListPair : shaderStruct.GetImageHandles())
-	// 		{
-	// 			for (auto& imgPair : imgListPair.second)
-	// 			{
-	// 				imageCallback(imgPair.first);
-	// 			}
-	// 		}
-	// 		for (auto& bufListPair : shaderStruct.GetBufferHandles())
-	// 		{
-	// 			for (auto& buf : bufListPair.second)
-	// 			{
-	// 				bufferCallback(buf);
-	// 			}
-	// 		}
-	// 	};
-
-	// 	for (auto& renderPass : owningGraph.GetRenderPasses())
-	// 	{
-	// 		for (auto& attachment : renderPass.GetAttachments())
-	// 		{
-	// 			imageCallback(attachment);
-	// 		}
-
-	// 		ForeachShaderStructs<D3D2ShaderStruct>(renderPass.GetShaderStructs(), [&](D3D2ShaderStruct const& shaderStruct)
-	// 		{
-	// 			shaderStructCallback(shaderStruct);
-	// 		});
-
-	// 		for (auto& batch : renderPass.GetDrawCallBatches())
-	// 		{
-	// 			ForeachShaderStructs<D3D2ShaderStruct>(batch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-	// 			{
-	// 				shaderStructCallback(shaderStruct);
-	// 			});
-
-	// 			for (auto& drawcall : batch.m_DrawCalls)
-	// 			{
-	// 				if (drawcall.GetDrawInfo().drawIndexed)
-	// 				{
-	// 					bufferCallback(drawcall.GetIndexBuffer().indexBufferHandle);
-	// 				}
-	// 				for (auto& vertBuf : drawcall.GetVertexBuffers())
-	// 				{
-	// 					bufferCallback(vertBuf.second);
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-
-	// 	for (auto& computePass : owningGraph.GetComputePasses())
-	// 	{
-	// 		ForeachShaderStructs<D3D2ShaderStruct>(computePass.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-	// 		{
-	// 			shaderStructCallback(shaderStruct);
-	// 		});
-	// 		for (auto& dispatch : computePass.dispatchs)
-	// 		{
-	// 			ForeachShaderStructs<D3D2ShaderStruct>(dispatch.shaderStructs, [&](D3D2ShaderStruct const& shaderStruct)
-	// 			{
-	// 				shaderStructCallback(shaderStruct);
-	// 			});
-	// 		}
-	// 	}
-	// }
-
 }

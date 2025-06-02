@@ -12,6 +12,7 @@
 #include <wrl.h>
 #include <d3dcompiler.h>
 #include <Reflection.h>
+#include <Hasher.h>
 
 #define D3D12MA_USING_DIRECTX_HEADERS 1
 #include <D3D12MemAlloc.h>
@@ -27,6 +28,28 @@ using Microsoft::WRL::ComPtr;
 #define D3D12_RENDER_BACKEND_DEBUG 0
 #endif
 
+namespace cacore
+{
+	template<>
+	struct custom_hash_trait<ComPtr<ID3DBlob>>
+	{
+		constexpr static void hash(ComPtr<ID3DBlob> const& obj, auto& hasher)
+		{
+			hasher.hash_raw(obj->GetBufferPointer(), obj->GetBufferSize());
+		}
+	};
+}
+
+inline bool operator==(D3D12_INPUT_ELEMENT_DESC const& lhs, D3D12_INPUT_ELEMENT_DESC const& rhs)
+{
+	return (std::strcmp(lhs.SemanticName, rhs.SemanticName) == 0)
+		&& lhs.SemanticIndex == rhs.SemanticIndex
+		&& lhs.Format == rhs.Format
+		&& lhs.InputSlot == rhs.InputSlot
+		&& lhs.AlignedByteOffset == rhs.AlignedByteOffset
+		&& lhs.InputSlotClass == rhs.InputSlotClass
+		&& lhs.InstanceDataStepRate == rhs.InstanceDataStepRate;
+}
 
 namespace careflection
 {
@@ -44,5 +67,16 @@ namespace careflection
 			D3DCreateBlob(data.size(), &obj);
 			memcpy(obj->GetBufferPointer(), data.data(), obj->GetBufferSize());
 		}
+	};
+
+	template<typename T>
+	struct managed_pointer_traits<ComPtr<T>>
+	{
+		constexpr static bool is_managed_pointer = true;
+		using pointer_type = ComPtr<T>;
+		using pointee_type = T;
+		constexpr static T const* get_pointer(pointer_type const& ptr) { return ptr.Get(); }
+		constexpr static T* get_pointer(pointer_type& ptr) { return ptr.Get(); }
+		constexpr static void set_pointer_null(pointer_type& ptr) { ptr = nullptr; }
 	};
 }

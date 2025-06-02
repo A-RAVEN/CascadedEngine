@@ -85,4 +85,6 @@ namespace graphics_backend
 		castl::unordered_map<TextureSamplerDescriptor, DescriptorAllocation> m_TextureSamplers;
 		CPUPagedDescriptorAllocator m_Sampler_Allocator;
 	};
+
+
 }

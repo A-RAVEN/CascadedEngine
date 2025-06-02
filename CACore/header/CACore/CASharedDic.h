@@ -3,6 +3,7 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CAFunctional.h>
+#include <DebugUtils.h>
 
 namespace castl
 {
@@ -10,6 +11,9 @@ namespace castl
 	class shared_dic
 	{
 	public:
+		static_assert(cacore::equal_test<TKey>, "TKey Cannot Equal");
+		static_assert(cacore::hashable<TKey>, "TKey Not Hashable");
+
 		using map_type = castl::unordered_map<TKey, TValue, cacore::hash<TKey>>;
 		using map_iterator = map_type::iterator;
 
@@ -111,7 +115,7 @@ namespace castl
 			return m_Map.size();
 		}
 	private:
-		castl::shared_mutex m_SharedMutex;
+		mutable castl::shared_mutex m_SharedMutex;
 		map_type m_Map;
 	};
 }

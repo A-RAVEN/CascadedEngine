@@ -111,33 +111,33 @@ namespace graphics_backend
 		{
 			return {};
 		}
-		inline DrawCall& SetPipelineState(const CPipelineStateObject& pipelineState)
-		{
-			m_PipelineStateDesc.m_PipelineStates = pipelineState;
-			return *this;
-		}
-		inline DrawCall& SetInputAssemblyStates(InputAssemblyStates assemblyStates)
-		{
-			m_PipelineStateDesc.m_InputAssemblyStates = assemblyStates;
-			return *this;
-		}
-		inline DrawCall& SetShaderInfo(ShaderInfo const& shaderInfo)
-		{
-			m_PipelineStateDesc.m_ShaderInfo = shaderInfo;
-			return *this;
-		}
+		//inline DrawCall& SetPipelineState(const CPipelineStateObject& pipelineState)
+		//{
+		//	m_PipelineStateDesc.m_PipelineStates = pipelineState;
+		//	return *this;
+		//}
+		//inline DrawCall& SetInputAssemblyStates(InputAssemblyStates assemblyStates)
+		//{
+		//	m_PipelineStateDesc.m_InputAssemblyStates = assemblyStates;
+		//	return *this;
+		//}
+		//inline DrawCall& SetShaderInfo(ShaderInfo const& shaderInfo)
+		//{
+		//	m_PipelineStateDesc.m_ShaderInfo = shaderInfo;
+		//	return *this;
+		//}
 
-		inline DrawCall& SetViewPort(RectSate const& viewport)
-		{
-			m_PipelineStateDesc.m_Viewport = viewport;
-			return *this;
-		}
+		//inline DrawCall& SetViewPort(RectSate const& viewport)
+		//{
+		//	m_PipelineStateDesc.m_Viewport = viewport;
+		//	return *this;
+		//}
 
-		inline DrawCall& SetScissor(RectSate const& scissor)
-		{
-			m_PipelineStateDesc.m_Scissor = scissor;
-			return *this;
-		}
+		//inline DrawCall& SetScissor(RectSate const& scissor)
+		//{
+		//	m_PipelineStateDesc.m_Scissor = scissor;
+		//	return *this;
+		//}
 		inline DrawCall& SetVertexBuffer(cacore::NameHash const& name, BufferHandle const& bufferHandle)
 		{
 			m_BoundVertexBuffers[name] = bufferHandle;
@@ -177,7 +177,7 @@ namespace graphics_backend
 		cacore::HashObj<ViewRectData> const& GetViewPort() const { return m_ViewPort; }
 		cacore::HashObj<ViewRectData> const& GetScissor() const { return m_Sissor; }
 	private:
-		PipelineDescData m_PipelineStateDesc;
+		//PipelineDescData m_PipelineStateDesc;
 		castl::unordered_map<cacore::NameHash, BufferHandle> m_BoundVertexBuffers;
 		IndexBufferData m_IndexBufferData;
 		DrawInfo m_DrawInfo;
@@ -198,11 +198,13 @@ namespace graphics_backend
 		PipelineDescData pipelineStateDesc;
 		//Draw Calls
 		castl::vector<DrawCall> m_DrawCalls;
-		//castl::function<void(CommandList&)> m_DrawCommands;
 		ShaderStructDic shaderStructs;
-		//VertexInputBufferMap m_BoundVertexBuffers;
 		castl::unordered_map<cacore::NameHash, cacore::HashObj<VertexInputsDescriptor>> m_VertexInputDescs;
-		//IndexBufferData m_IndexBufferData;
+
+		PipelineDescData const& GetPipelineStates() const
+		{
+			return pipelineStateDesc;
+		}
 
 		inline DrawCallBatch& SetPipelineState(const CPipelineStateObject& pipelineState)
 		{

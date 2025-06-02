@@ -1,20 +1,34 @@
 
 namespace TestData
 {
+    struct TestData3
+    {
+        float3 testValue;
+    };
+
+    struct TestDataStruct2
+    {
+        float4 testValue0;
+        Texture2D<float4> testTexture;
+        Texture2D<float4> testTexture1;
+        Texture2D<float4> testTexture2;
+        StructuredBuffer<TestData3> testBuffer0;
+        RWStructuredBuffer<TestData3> rwtestBuffer0;
+        //ConstantBuffer<TestData3> testCBuffer0;
+    };
+
     struct TestDataStruct1
     {
-        float4x4 testmat;
+        TestDataStruct2 testSubBlock[2];
     };
 
     struct TestDataStruct
     {
-        float4x4 testMat1;
         TestDataStruct1 testSubBlock[2];
-        Texture2D<float4> testTexture;
-        StructuredBuffer<float4> testBuffer;
     };
 
-    uniform TestData::TestDataStruct testData;
+    ParameterBlock<TestDataStruct> testData;
+    //ParameterBlock<TestDataStruct> testData1;
 }
 
 struct VertexInput
@@ -38,5 +52,5 @@ VertexToFragment vert(in VertexInput input)
 [shader("fragment")]
 float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    return 1.0f;
+    return TestData::testData.testSubBlock[0].testSubBlock[0].testValue0;
 }

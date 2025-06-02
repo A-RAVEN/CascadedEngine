@@ -85,8 +85,8 @@ namespace graphics_backend
 		void AllocateAliasedResources(uint32_t resourceBatchCount, castl::unordered_map<ImageHandle, castl::range<uint32_t>> imageLifeTimes,
 			castl::unordered_map<BufferHandle, castl::range<uint32_t>> bufferLifeTimes);
 		void PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocators);
-		TextureResourceAllocationInfo* GetImageResource(ImageHandle const& imageHandle);
-		BufferResourceAllocationInfo* GetBufferResource(BufferHandle const& bufferHandle);
+		TextureResourceAllocationInfo const* GetImageResource(ImageHandle const& imageHandle) const;
+		BufferResourceAllocationInfo const* GetBufferResource(BufferHandle const& bufferHandle) const;
 		castl::unordered_map<ImageHandle, TextureResourceAllocationInfo> imageHandleToResource;
 		castl::unordered_map<BufferHandle, BufferResourceAllocationInfo> bufferHandleToResource;
 		castl::vector<D3D12PassResourceStates> resourceStates;

@@ -143,7 +143,7 @@ namespace graphics_backend
 				case EBufferUsage::eDataDst:
 					break;
 				default:
-					CA_LOG_ERR_BREAK("Unknown Buffer Usage {}", typemask);
+					CA_LOG_ERR_BREAK("Unknown Buffer Usage {}", (int)typemask);
 					break;
 				}
 			}
@@ -201,6 +201,28 @@ namespace graphics_backend
 		return resultFlags;
 	}
 
+	//constexpr DXGI_FORMAT VertexInputFormatToDXGIFormat(VertexInputFormat inFormat)
+	//{
+	//	switch (inFormat)
+	//	{
+	//	case VertexInputFormat::eR32_SFloat:
+	//		return DXGI_FORMAT_R32_FLOAT;
+	//	case VertexInputFormat::eR32G32_SFloat:
+	//		return DXGI_FORMAT_R32G32_FLOAT;
+	//	case VertexInputFormat::eR32G32B32_SFloat:
+	//		return DXGI_FORMAT_R32G32B32_FLOAT;
+	//	case VertexInputFormat::eR32G32B32A32_SFloat:
+	//		return DXGI_FORMAT_R32G32B32A32_FLOAT;
+	//	case VertexInputFormat::eR8G8B8A8_UNorm:
+	//		return DXGI_FORMAT_R8G8B8A8_UNORM;
+	//	case VertexInputFormat::eR32_UInt:
+	//		return DXGI_FORMAT_R32G32B32A32_UINT;
+	//	case VertexInputFormat::eR32_SInt:
+	//		return DXGI_FORMAT_R32G32B32A32_SINT;
+	//	default:
+	//		return DXGI_FORMAT_UNKNOWN;
+	//	}
+	//}
 
 	constexpr DXGI_FORMAT ETextureFormatToDXGIFotmat(ETextureFormat inFormat)
 	{
@@ -277,7 +299,7 @@ namespace graphics_backend
 		case ETextureType::eCubeMap:
 			return D3D12_SRV_DIMENSION_TEXTURECUBE;
 		}
-		CA_LOG_ERR_BREAK("Unknown Texture Type!");
+		CA_LOG_ERR_BREAK("Unknown Texture Type! {}", (int)textureType);
 		return D3D12_SRV_DIMENSION_UNKNOWN;
 	}
 
@@ -296,7 +318,7 @@ namespace graphics_backend
 		case ETextureType::eCubeMap:
 			return D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
 		}
-		CA_LOG_ERR_BREAK("Unknown Texture Type!");
+		CA_LOG_ERR_BREAK("Unknown Texture Type! {}", (int)textureType);
 		return D3D12_UAV_DIMENSION_UNKNOWN;
 	}
 
@@ -431,6 +453,35 @@ namespace graphics_backend
 		default:
 			CA_LOG_ERR("Unknown Topology!");
 			return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+		}
+	}
+
+	constexpr D3D12_FILL_MODE EPolygonModeToD3D12FillMode(EPolygonMode polygonMode)
+	{
+		switch (polygonMode)
+		{
+		case EPolygonMode::eFill:
+			return D3D12_FILL_MODE::D3D12_FILL_MODE_SOLID;
+		case EPolygonMode::eLine:
+			return D3D12_FILL_MODE::D3D12_FILL_MODE_WIREFRAME;
+		default:
+			return D3D12_FILL_MODE::D3D12_FILL_MODE_SOLID;
+		}
+	}
+
+	constexpr D3D12_STENCIL_OP EStencilOpToD3D12StencilOp(EStencilOp op)
+	{
+		switch (op)
+		{
+		case EStencilOp::eKeep:
+			return D3D12_STENCIL_OP::D3D12_STENCIL_OP_KEEP;
+		case EStencilOp::eReplace:
+			return D3D12_STENCIL_OP::D3D12_STENCIL_OP_REPLACE;
+		case EStencilOp::eZero:
+			return D3D12_STENCIL_OP::D3D12_STENCIL_OP_ZERO;
+		default:
+			CA_LOG_ERR_BREAK("D3D12 Unmapped Stencil Op {}", (int)op);
+			return D3D12_STENCIL_OP_KEEP;
 		}
 	}
 

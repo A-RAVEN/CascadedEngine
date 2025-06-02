@@ -141,5 +141,6 @@ namespace graphics_backend
 				}
 			}
 		}
+		return EBufferUsage::eMaxBit;
 	}
 }

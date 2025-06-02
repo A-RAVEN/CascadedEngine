@@ -95,8 +95,10 @@ namespace graphics_backend
 				//Collect Uniform Buffer
 				if (processingHierarchy.m_SelfUniformBufferID != -1)
 				{
-					CA_ASSERT_BREAK(processingHierarchy.m_SelfUniformSpaceID != -1, "invalid uniform space id: {}"
+					CA_ASSERT_BREAK(processingHierarchy.m_SelfUniformSpaceID != -1
+						, "invalid uniform space id: {}"
 						, processingHierarchy.m_SelfUniformSpaceID);
+
 					CBufferBindingInfo cbufferInfo{};
 					cbufferInfo.elementCount = currentStructElementCount;
 					cbufferInfo.spaceID = processingHierarchy.m_SelfUniformSpaceID;
@@ -105,6 +107,12 @@ namespace graphics_backend
 					cbufferInfo.descTableID = resourceBindingInfo.resourceDescCount;
 					currentStructBindingInfo.cbufferRefs.push_back(resourceBindingInfo.cbufferInfos.size());
 					resourceBindingInfo.cbufferInfos.push_back(cbufferInfo);
+
+					CA_LOG("cbuffer info[{}], bindingID[{}],spaceID[{}],elementCount[{}],descTableID[{}]",
+						processingHierarchy.m_Name
+						, processingHierarchy.m_SelfUniformBufferID
+						, processingHierarchy.m_SelfUniformSpaceID
+						, currentStructElementCount, resourceBindingInfo.resourceDescCount);
 
 					CD3DX12_DESCRIPTOR_RANGE1 range;
 					range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV
@@ -130,6 +138,8 @@ namespace graphics_backend
 						case ShaderCompilerSlang::EShaderResourceType::eTexture:
 						case ShaderCompilerSlang::EShaderResourceType::eRWTexture:
 						{
+							CA_LOG("image info[{}], bindingID[{}],spaceID[{}],elementCount[{}],descTableID[{}]",
+								binding.m_Name, bindingID, bindingSpace, elementCount, resourceBindingInfo.resourceDescCount);
 							ImageBindingInfo imageInfo{};
 							imageInfo.accessType = binding.m_Access;
 							imageInfo.resourceType = binding.m_ResourceType;
@@ -145,6 +155,8 @@ namespace graphics_backend
 						case ShaderCompilerSlang::EShaderResourceType::eStructuredBuffer:
 						case ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer:
 						{
+							CA_LOG("buffer info[{}], bindingID[{}],spaceID[{}],elementCount[{}],descTableID[{}]",
+								binding.m_Name, bindingID, bindingSpace, elementCount, resourceBindingInfo.resourceDescCount);
 							BufferBindingInfo bufferInfo{};
 							bufferInfo.accessType = binding.m_Access;
 							bufferInfo.resourceType = binding.m_ResourceType;
@@ -172,11 +184,11 @@ namespace graphics_backend
 						}
 
 						//Collect For Resource Table Descriptor
+						CD3DX12_DESCRIPTOR_RANGE1 range;
 						switch (binding.m_ResourceType)
 						{
 						case ShaderCompilerSlang::EShaderResourceType::eRWTexture:
 						case ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer:
-							CD3DX12_DESCRIPTOR_RANGE1 range;
 							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV
 								, elementCount
 								, bindingID
@@ -188,7 +200,6 @@ namespace graphics_backend
 							break;
 						case ShaderCompilerSlang::EShaderResourceType::eTexture:
 						case ShaderCompilerSlang::EShaderResourceType::eStructuredBuffer:
-							CD3DX12_DESCRIPTOR_RANGE1 range;
 							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV
 								, elementCount
 								, bindingID
@@ -199,7 +210,6 @@ namespace graphics_backend
 							resourceBindingInfo.resourceDescCount += elementCount;
 							break;
 						case ShaderCompilerSlang::EShaderResourceType::eSampler:
-							CD3DX12_DESCRIPTOR_RANGE1 range;
 							range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
 								, elementCount
 								, bindingID
@@ -279,18 +289,51 @@ namespace graphics_backend
 			CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
 			rootSigDesc.Init_1_1(rootParameters.size(), rootParameters.data(), 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-			ComPtr<ID3DBlob> serializedRootSig = nullptr;
 			ComPtr<ID3DBlob> errorBlob = nullptr;
 			// 编译root signature 描述结构
-			ThrowIfFailed(D3D12SerializeVersionedRootSignature(&rootSigDesc, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf()));
+			ThrowIfFailed(D3D12SerializeVersionedRootSignature(&rootSigDesc, resourceBindingInfo.serializedRootSignatureData.GetAddressOf(), errorBlob.GetAddressOf()));
 			if (errorBlob != nullptr)
 			{
 				CA_LOG_ERR_BREAK("{}", (char*)errorBlob->GetBufferPointer());
 			}
-			resourceBindingInfo.serializedRootSignatureData.resize(serializedRootSig->GetBufferSize());
-			memcpy(resourceBindingInfo.serializedRootSignatureData.data(), serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize());
 		}
 		return resourceBindingInfo;
+	}
+
+	void D3D12ShaderResourceImporter::Test()
+	{
+		castl::string sourcePath = "E:/Projects/CascadedEngine/CAResources/Shaders";
+		castl::string filePath = "E:/Projects/CascadedEngine/CAResources/Shaders/TestBindingShader.slang";
+		auto pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared();
+		pCompiler->BeginCompileTask();
+		pCompiler->AddInlcudePath(sourcePath.c_str());
+		pCompiler->AddSourceFile(filePath.c_str());
+		pCompiler->EnableDebugInfo();
+		pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
+		pCompiler->Compile();
+
+		if (pCompiler->HasError())
+		{
+			CA_LOG_ERR("Shader compile failed");
+		}
+		else
+		{
+			auto compileResults = pCompiler->GetResults();
+			for (auto& result : compileResults)
+			{
+	/*			if (!result.programs.empty())
+				{
+					castl::string str;
+					str.resize(result.programs[0].data.size());
+					memcpy(str.data(), result.programs[0].data.data(), result.programs[0].data.size());
+					CA_LOG(str);
+				}*/
+				{
+					ConstructShaderDescriptorInfo(result.m_ReflectionData);
+				}
+			}
+		}
+		pCompiler->EndCompileTask();
 	}
 
 	void D3D12ShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager

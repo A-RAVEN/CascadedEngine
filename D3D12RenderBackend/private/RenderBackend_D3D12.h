@@ -12,6 +12,8 @@
 #include <ShaderLibrary/ShaderImporter_D12.h>
 #include <ShaderLibrary/ShaderLibrary.h>
 #include <DescriptorManagment/GPUDescriptorHeap.h>
+#include <ResourceManagment/RootSignatureManager.h>
+#include <GPUGraph/GPUPipelineInstance.h>
 
 namespace graphics_backend
 {
@@ -67,6 +69,16 @@ namespace graphics_backend
 		SamplerManager& GetSamplerManager()
 		{
 			return m_SamplerManager;
+		}
+
+		RootSignatureManager& GetRootSignatureManager()
+		{
+			return m_RootSignatureManager;
+		}
+
+		GPUPipelineManager& GetRasterPipelineManager()
+		{
+			return m_PipelineManager;
 		}
 
 		template<typename T, typename...TArgs>
@@ -131,5 +143,7 @@ namespace graphics_backend
 
 		D3D12ShaderResourceImporter m_ShaderResourceImporter;
 		SamplerManager m_SamplerManager;
+		RootSignatureManager m_RootSignatureManager;
+		GPUPipelineManager m_PipelineManager;
 	};
 }

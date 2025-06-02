@@ -28,6 +28,7 @@ namespace cacore
         castl::hash<T>{}(t);
     };
 
+
     template <typename hashAlg = default_hashclass>
     class aggregateHasher
     {
@@ -140,6 +141,12 @@ namespace cacore
 
   
     };
+
+    template<typename T, typename hashAlg = default_hashclass>
+    concept hashable = requires (T const& obj)
+    {
+        aggregateHasher<hashAlg>{}.hash(obj);
+    } || has_std_hash<T>;
 
     template<typename T, typename hashAlg = default_hashclass>
     struct hash

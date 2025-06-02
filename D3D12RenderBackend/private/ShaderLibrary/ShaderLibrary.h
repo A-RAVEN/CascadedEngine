@@ -73,6 +73,7 @@ namespace graphics_backend
 			result.elementCount = elementCount;
 			result.subStructOffset = 0;
 			result.subStructCount = 0;
+			return result;
 		}
 		void InitSubStructs(uint32_t offset, uint32_t count)
 		{
@@ -98,7 +99,7 @@ namespace graphics_backend
 		castl::vector<ImageBindingInfo> imageInfo;
 		castl::vector<BufferBindingInfo> bufferInfos;
 		castl::vector<SamplerBindingInfo> samplerInfos;
-		castl::vector<uint8_t> serializedRootSignatureData;
+		ComPtr<ID3DBlob> serializedRootSignatureData;
 
 		void EmplaceStruct(cacore::NameHash const& name, uint32_t count)
 		{
@@ -121,14 +122,6 @@ namespace graphics_backend
 		ComPtr<ID3DBlob> data;
 		castl::unordered_set<ShaderSourceKey> sourceKeys;
 	};
-
-	//struct ShaderSourceInfo
-	//{
-	//	ECompileShaderType shaderType;
-	//	uint8_t const* data;
-	//	size_t dataLength;
-	//	auto operator<=>(const ShaderSourceInfo&) const = default;
-	//};
 
 	struct ShaderSetData
 	{

@@ -96,6 +96,8 @@ namespace graphics_backend
     RenderBackend_D3D12::RenderBackend_D3D12() : 
         m_MemoryManager(this)
         , m_SamplerManager(this)
+        , m_RootSignatureManager(this)
+        , m_PipelineManager(this)
     {
     }
 
@@ -205,6 +207,8 @@ namespace graphics_backend
 
     void RenderBackend_D3D12::RunTestCode()
     {
+        m_ShaderResourceImporter.Test();
+        return;
 		AliasedMemoryAllocator allocator(this, m_MemoryManager.GetAllocator());
 		GPUTextureDescriptor desc = GPUTextureDescriptor::Create(512, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eRT);
 		auto resourceDesc = GetResourceDescFromTextureDescriptor(desc);

@@ -17,7 +17,9 @@
             "cppStandard": "c++20",
             "compilerArgs": [
                 "/Zc:preprocessor"
-            ]
+            ],
+            "intelliSenseMode": "windows-msvc-x64",
+            "configurationProvider": "ms-vscode.cmake-tools"
         }
     ],
     "version": 4

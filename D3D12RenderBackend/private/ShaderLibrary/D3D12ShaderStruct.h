@@ -32,6 +32,11 @@ namespace graphics_backend
 			, castl::shared_ptr<ShaderStruct> const& subStruct
 			, uint32_t elementIndex) override;
 
+		virtual cacore::NameHash const& GetStructTypeName() const override
+		{
+			return p_StructData->m_TypeName;
+		}
+
 	public:
 		castl::unordered_map<cacore::NameHash, castl::vector<castl::shared_ptr<ShaderStruct>>> const& GetSubStructs() const { return m_NameToSubStructs; }
 		castl::unordered_map<cacore::NameHash, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> const& GetImageHandles() const { return m_NameToImageHandles; }

@@ -20,6 +20,7 @@ namespace graphics_backend
 		virtual void ImportResource(ResourceManagingSystem* resourceManager
 			, cafs::path const& sourcePath
 			, cafs::path const& destPath) override;
+		void Test();
 	private:
 		TModuleLoader<ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerLoader;
 		castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> m_ShaderCompilerManager;

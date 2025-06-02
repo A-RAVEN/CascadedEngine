@@ -174,7 +174,7 @@ namespace graphics_backend
 		}
 	}
 
-	TextureResourceAllocationInfo* D3D12GraphLocalResourceManager::GetImageResource(ImageHandle const& imageHandle)
+	TextureResourceAllocationInfo const* D3D12GraphLocalResourceManager::GetImageResource(ImageHandle const& imageHandle) const
 	{
 		auto found = imageHandleToResource.find(imageHandle);
 		if (found == imageHandleToResource.end())
@@ -184,7 +184,7 @@ namespace graphics_backend
 		return &found->second;
 	}
 
-	BufferResourceAllocationInfo* D3D12GraphLocalResourceManager::GetBufferResource(BufferHandle const& bufferHandle)
+	BufferResourceAllocationInfo const* D3D12GraphLocalResourceManager::GetBufferResource(BufferHandle const& bufferHandle) const
 	{
 		auto found = bufferHandleToResource.find(bufferHandle);
 		if (found == bufferHandleToResource.end())

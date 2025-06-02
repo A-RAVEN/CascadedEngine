@@ -15,6 +15,7 @@ struct ShaderSourceInfo
 struct ShaderInfo
 {
 	cacore::PathHash path;
+	auto operator<=>(ShaderInfo const& other) const = default;
 	constexpr bool isValid() const noexcept
 	{
 		return path.Valid();

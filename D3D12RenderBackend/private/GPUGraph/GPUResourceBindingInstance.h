@@ -5,6 +5,7 @@
 #include "GPUResourceStates.h"
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <CACore/CASharedDic.h>
+#include <ShaderLibrary/ShaderLibrary.h>
 /// <summary>
 /// Shader Resource Binding Instance With 
 /// </summary>
@@ -29,84 +30,73 @@ namespace graphics_backend
 		castl::unordered_map<cacore::NameHash, D3D2ShaderStruct const*> resourceDic;
 		auto operator<=>(ShaderResourceSet const& other) const = default;
 	};
+	static_assert(cacore::equal_test<ShaderResourceSet>, "ShaderResourceSet  Cannot Equal");
+	static_assert(cacore::hashable<ShaderResourceSet>, "Not Hashable");
 
 	class GPUResourceBindingInstance : public D3D12SubobjectBase
 	{
 	public:
 
-
-		struct ImageBindingInfo
+		struct ImageBindingElement
 		{
 			struct ImageBinding
 			{
 				ImageHandle image;
 				GPUTextureView textureView;
 			};
-			ShaderCompilerSlang::EShaderResourceType resourceType;
-			ShaderCompilerSlang::EShaderResourceAccess accessType;
-			bool isUAV() const
-			{
-				return (resourceType == ShaderCompilerSlang::EShaderResourceType::eRWTexture) ||
-					(resourceType == ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer);
-			}
-			uint32_t bindingID;
+			uint32_t offset;
+			ImageBindingInfo bindingInfo;
 			std::vector<ImageBinding> bindings;
 		};
 
-		struct BufferBindingInfo
+		struct BufferBindingElement
 		{
-			ShaderCompilerSlang::EShaderResourceType resourceType;
-			ShaderCompilerSlang::EShaderResourceAccess accessType;
-			bool isUAV() const
-			{
-				return (resourceType == ShaderCompilerSlang::EShaderResourceType::eRWTexture) ||
-					(resourceType == ShaderCompilerSlang::EShaderResourceType::eRWStructuredBuffer);
-			}
-			uint32_t bindingID;
+			uint32_t offset;
+			BufferBindingInfo bindingInfo;
 			std::vector<BufferHandle> bindings;
 		};
 
-		struct CBufferBindingInfo
+		struct CBufferBindingElement
 		{
-			uint32_t bindingID;
+			uint32_t offset;
+			CBufferBindingInfo bindingInfo;
 			D3D2ShaderStruct const* pCBufferStruct;
 			BufferHandle cbufferHandle;
 		};
 
-		struct SamplerBindingInfo
+		struct SamplerBindingElement
 		{
-			uint32_t bindingID;
+			uint32_t offset;
+			SamplerBindingInfo bindingInfo;
 			castl::vector<TextureSamplerDescriptor> samplerDescriptors;
 		};
 
-		struct GPUResourceSpaceInfo
+		struct GPUResourceBindingInfos
 		{
-			uint32_t spaceID;
 			DescriptorAllocation descriptorAllocation;
 			DescriptorAllocation samplerAllocation;
-			std::vector<D3D12_DESCRIPTOR_RANGE1> descTable;
-			castl::vector<CBufferBindingInfo> cbufferInfos;
-			castl::vector<ImageBindingInfo> imageInfo;
-			castl::vector<BufferBindingInfo> bufferInfos;
-			castl::vector<SamplerBindingInfo> samplerInfos;
+			castl::vector<CBufferBindingElement> cbufferBindings;
+			castl::vector<ImageBindingElement> imageBindings;
+			castl::vector<BufferBindingElement> bufferBindings;
+			castl::vector<SamplerBindingElement> samplerBindings;
 		};
 	public:
 		GPUResourceBindingInstance(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
 		void Init(ShaderResourceSet const& resourceSet
 			, GPUConstantBufferManager& cbufferManager);
-		void Init1(ShaderResourceSet const& resourceSet
-			, GPUConstantBufferManager& cbufferManager);
 		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager);
-		void IterateResourceUsages(castl::function<void(ImageBindingInfo const&)>const& imageCallback,
-		castl::function<void(BufferBindingInfo const&)>const& bufferCallback) const;
+		void IterateResourceUsages(castl::function<void(ImageBindingElement const&)>const& imageCallback
+			, castl::function<void(BufferBindingElement const&)>const& bufferCallback
+			, castl::function<void(CBufferBindingElement const&)>const& cbufferCallback) const;
 		void BuildDescriptors(D3D12GraphLocalResourceManager& resourceManager
 			, GPUDescriptorHeap& gpuDescriptorHeap
 			, GPUDescriptorHeap& samplerDescriptorHeap);
 	private:
-		castl::vector<GPUResourceSpaceInfo> m_GPUResourceSpaceInfos;
+		GPUResourceBindingInfos m_GPUResourceBindingInfos;
 		ComPtr<ID3D12RootSignature> m_RootSignature;
-		ShaderInfo shaderInfo;
-		ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
+		ShaderInfo m_ShaderInfo;
+		//ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
+		ShaderFileInfo const* pShaderFileInfo;
 	};
 
 	using ShaderResourceInstanceDic = castl::shared_dic<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>>;

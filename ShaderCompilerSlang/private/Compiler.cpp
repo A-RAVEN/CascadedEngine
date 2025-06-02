@@ -72,6 +72,9 @@ namespace ShaderCompilerSlang
 			case EShaderTargetType::eSpirV:
 				PushTarget(SLANG_SPIRV, "glsl_450");
 				break;
+			case EShaderTargetType::eHLSL:
+				PushTarget(SLANG_HLSL, "sm_6_3");
+				break;
 			case EShaderTargetType::eDXIL:
 				PushTarget(SLANG_DXIL, "sm_6_3");
 				break;
@@ -150,10 +153,10 @@ namespace ShaderCompilerSlang
 			CompilerOptionEntry{ CompilerOptionName::VulkanUseEntryPointName , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }} ,
 			//CompilerOptionEntry{ CompilerOptionName::EmitSpirvDirectly , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }} ,
 			CompilerOptionEntry{ CompilerOptionName::DebugInformation , CompilerOptionValue{ CompilerOptionValueKind::Int, SLANG_DEBUG_INFO_LEVEL_STANDARD  }} ,
-			CompilerOptionEntry{ CompilerOptionName::Optimization , CompilerOptionValue{ CompilerOptionValueKind::Int, SlangOptimizationLevel::SLANG_OPTIMIZATION_LEVEL_NONE }},
+			CompilerOptionEntry{ CompilerOptionName::Optimization , CompilerOptionValue{ CompilerOptionValueKind::Int, SlangOptimizationLevel::SLANG_OPTIMIZATION_LEVEL_HIGH }},
 			CompilerOptionEntry{ CompilerOptionName::MatrixLayoutRow , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }},
 			CompilerOptionEntry{ CompilerOptionName::MatrixLayoutColumn , CompilerOptionValue{ CompilerOptionValueKind::Int, 0 }},
-			CompilerOptionEntry{ CompilerOptionName::PreserveParameters , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }},
+			CompilerOptionEntry{ CompilerOptionName::PreserveParameters , CompilerOptionValue{ CompilerOptionValueKind::Int, 0 }},
 		};
 
 		void PushTarget(SlangCompileTarget targetType, const char* profileStr)
@@ -719,11 +722,44 @@ namespace ShaderCompilerSlang
 			return CANAME("__RootType");
 		}
 
+		uint32_t  CollectResourceUsage(SlangParameterCategory category
+			, SpaceAndBinding const& bindings
+			, castl::vector<slang::IMetadata*> const& metaDatas)
+		{
+			uint32_t usage = 0;
+			for (uint32_t metaID = 0; metaID < metaDatas.size(); ++metaID)
+			{
+				auto metaData = metaDatas[metaID];
+				bool used;
+				metaData->isParameterLocationUsed(
+					category
+					, bindings.space, bindings.offset, used);
+				if (used)
+				{
+					usage |= (1 << metaID);
+				}
+			}
+			return usage;
+		}
+
+		castl::string LogUsage(uint32_t usageBits)
+		{
+			castl::string usages = "Usages:";
+			for (uint32_t id = 0; id < 32; ++id)
+			{
+				if (usageBits & (1 << id))
+				{
+					usages += castl::to_string(id) + "; ";
+				}
+			}
+			return usages;
+		}
 
 		void ReflectConstantBufferBindings(ShaderBindingInfo& bindingInfo
 			, VariableLayoutReflection* variable
 			, AccessPath accessPath
-			, int32_t parentHierarchyID)
+			, int32_t parentHierarchyID
+			, castl::vector<slang::IMetadata*> const& metaDatas)
 		{
 			AccessPathNode newNode = accessPath.NewNode(variable);
 			cacore::NameHash name = variable->getName();
@@ -737,6 +773,9 @@ namespace ShaderCompilerSlang
 			{
 				auto elementVariable = typeLayout->getElementVarLayout();
 				auto elementTypeLayout = typeLayout->getElementTypeLayout();
+				//ParameterCategory elementCategory = elementVariable->getCategory();
+				auto elementCategories =  UnwrapCategories(elementVariable);
+	
 
 				cacore::NameHash typeName = GetFullTypeName(elementTypeLayout);
 				if (parentHierarchyID == -1)
@@ -752,15 +791,27 @@ namespace ShaderCompilerSlang
 						uint32_t stride = elementTypeLayout->getStride(slang::Uniform);
 						if (stride > 0)
 						{
+							slang::ParameterCategory cbufferCategory = slang::ParameterCategory::ConstantBuffer;
+							for (auto cat : elementCategories)
+							{
+								if (cat == slang::ParameterCategory::DescriptorTableSlot)
+								{
+									cbufferCategory = cat;
+									break;
+								}
+							}
+
 							SpaceAndBinding bindings{};
 							accessPath.GetLastBufferBinding(bindings);
 							currentHierarchy.m_SelfUniformBufferID = bindings.offset;
 							currentHierarchy.m_SelfUniformSpaceID = bindings.space;
+							currentHierarchy.m_SelfUniformUsage = CollectResourceUsage((SlangParameterCategory)cbufferCategory, bindings, metaDatas);
 							auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, currentHierarchyID);
 							spaceInfo.m_ResourceStats.m_CBufferBindings.push_back({ bindings.offset, elementCount, stride });
 							spaceInfo.m_ResourceStats.m_TotalBindingCount++;
 							spaceInfo.m_ResourceStats.m_CBufferCount += elementCount;
-							CA_LOG("[{}]{} uniformBuffer space: {} binding: {} stride: {} arrayLength: {} category: {}\n", typeName, bindings.name, bindings.space, bindings.offset, stride, elementCount, GetCategoryName(variableCategory));
+							CA_LOG("[{}]{} uniformBuffer space: {} binding: {} stride: {} arrayLength: {} category: {}", typeName, bindings.name, bindings.space, bindings.offset, stride, elementCount, GetCategoryName(cbufferCategory));
+							CA_LOG(" {}", LogUsage(currentHierarchy.m_SelfUniformUsage));
 						}
 					}
 				}
@@ -775,7 +826,7 @@ namespace ShaderCompilerSlang
 					for (uint32_t i = 0; i < fieldCount; i++)
 					{
 						slang::VariableLayoutReflection* field = elementTypeLayout->getFieldByIndex(i);
-						ReflectBindings(bindingInfo, field, accessPath, currentHierarchyID);
+						ReflectBindings(bindingInfo, field, accessPath, currentHierarchyID, metaDatas);
 					}
 				}
 			}
@@ -783,7 +834,8 @@ namespace ShaderCompilerSlang
 
 		void ReflectBindings(ShaderBindingInfo& bindingInfo
 			, VariableLayoutReflection* variable, AccessPath accessPath
-			, int32_t parentHierarchyID)
+			, int32_t parentHierarchyID
+			, castl::vector<slang::IMetadata*> const& metaDatas)
 		{
 
 			slang::TypeLayoutReflection* typeLayout = GetTypeLayoutNonArray(variable);
@@ -791,7 +843,7 @@ namespace ShaderCompilerSlang
 
 			if (kind == slang::TypeReflection::Kind::ConstantBuffer || kind == slang::TypeReflection::Kind::ParameterBlock)
 			{
-				ReflectConstantBufferBindings(bindingInfo, variable, accessPath, parentHierarchyID);
+				ReflectConstantBufferBindings(bindingInfo, variable, accessPath, parentHierarchyID, metaDatas);
 				return;
 			}
 
@@ -822,7 +874,7 @@ namespace ShaderCompilerSlang
 				for (uint32_t i = 0; i < fieldCount; i++)
 				{
 					slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(i);
-					ReflectBindings(bindingInfo, field, accessPath, currentHierarchyID);
+					ReflectBindings(bindingInfo, field, accessPath, currentHierarchyID, metaDatas);
 				}
 			}
 			else if (kind == slang::TypeReflection::Kind::Resource
@@ -842,6 +894,8 @@ namespace ShaderCompilerSlang
 				newBinding.m_BindingSpace = bindings.space;
 				newBinding.m_BindingID = bindings.offset;
 				newBinding.m_Access = TranslateSlangResourceAccess(resourceAccess);
+				newBinding.m_Usage = CollectResourceUsage((SlangParameterCategory)variableCategory, bindings, metaDatas);
+
 
 				switch (bindingType)
 				{
@@ -888,7 +942,13 @@ namespace ShaderCompilerSlang
 					CA_LOG("[{}]{} sampler space: {} binding: {} arrayLength: {} category: {}\n", typeName.c_str(), bindings.name.c_str(), bindings.space, bindings.offset, elementCount, GetCategoryName(variableCategory));
 					break;
 				}
+				default:
+					CA_LOG_ERR_BREAK("Unknown Binding Type");
+					break;
 				}
+
+				CA_LOG(" {}", LogUsage(newBinding.m_Usage));
+
 				parentHierarchy.m_Bindings.push_back(newBinding);
 			}
 		}
@@ -1055,6 +1115,7 @@ namespace ShaderCompilerSlang
 			}
 		}
 
+		//TODO:Deprecated
 		void Reflect(ShaderReflectionData& reflectionData
 			, slang::VariableLayoutReflection* variable
 			, ParameterCategory variableCategory
@@ -1317,6 +1378,11 @@ namespace ShaderCompilerSlang
 						outputTargetResult.targetType = EShaderTargetType::eDXIL;
 						break;
 					}
+					case SlangCompileTarget::SLANG_HLSL:
+					{
+						outputTargetResult.targetType = EShaderTargetType::eHLSL;
+						break;
+					}
 				}
 				slang::ProgramLayout* layout = linkedProgram->getLayout(targetIndex, diagnostics.writeRef());
 				if (diagnostics)
@@ -1330,6 +1396,8 @@ namespace ShaderCompilerSlang
 				int entryPointCount = layout->getEntryPointCount();
 				outputTargetResult.programs.reserve(entryPointCount);
 				EShaderTypeFlags shaderTypeFlags = 0;
+				castl::vector<slang::IMetadata*> entryPointMetaDatas;
+				entryPointMetaDatas.resize(entryPointCount);
 				for (int entryPointIndex = 0; entryPointIndex < entryPointCount; ++entryPointIndex)
 				{
 					Slang::ComPtr<IBlob> kernelBlob;
@@ -1341,6 +1409,17 @@ namespace ShaderCompilerSlang
 						diagnostics.setNull();
 					}
 					ShaderProgramData outProgramData = {};
+					linkedProgram->getEntryPointMetadata(
+						entryPointIndex,
+						targetIndex,
+						&entryPointMetaDatas[entryPointIndex]
+						, diagnostics.writeRef());
+					if (diagnostics)
+					{
+						CA_LOG_ERR((const char*)diagnostics->getBufferPointer());
+						m_ErrorList.push_back((const char*)diagnostics->getBufferPointer());
+						diagnostics.setNull();
+					}
 
 					auto entryPointRef = layout->getEntryPointByIndex(entryPointIndex);
 					auto shaderStage = entryPointRef->getStage();
@@ -1443,7 +1522,11 @@ namespace ShaderCompilerSlang
 					auto globalParamVarLayout = layout->getGlobalParamsVarLayout();
 
 					ReflectRootTypeLayouts(reflectionData, globalParamVarLayout, RootName());
-					ReflectBindings(reflectionData.m_BindingInfo, globalParamVarLayout, accessPath, -1);
+					ReflectBindings(reflectionData.m_BindingInfo
+						, globalParamVarLayout
+						, accessPath
+						, -1
+						, entryPointMetaDatas);
 				}
 
 

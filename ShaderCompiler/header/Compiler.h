@@ -10,6 +10,7 @@ namespace ShaderCompilerSlang
 	{
 		eSpirV,
 		eDXIL,
+		eHLSL,
 	};
 
 	enum class EShaderResourceAccess : uint8_t
@@ -182,6 +183,7 @@ namespace ShaderCompilerSlang
 		EShaderResourceAccess m_Access;
 		EShaderResourceType m_ResourceType;
 		uint32_t m_ElementCount;
+		uint32_t m_Usage;
 	};
 
 	//对应到某个Struct,Struct本身可能是数组，所以也有ElementCount
@@ -193,6 +195,7 @@ namespace ShaderCompilerSlang
 		int32_t m_ParentID;
 		int32_t m_SelfUniformBufferID;
 		int32_t m_SelfUniformSpaceID;
+		uint32_t m_SelfUniformUsage;
 		//该Struct中的Resource
 		castl::vector<ShaderResourceBinding> m_Bindings;
 		castl::vector<int32_t> m_SubBindingHierarchies;
