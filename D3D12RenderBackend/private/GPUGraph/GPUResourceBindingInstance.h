@@ -47,6 +47,7 @@ namespace graphics_backend
 			uint32_t offset;
 			ImageBindingInfo bindingInfo;
 			std::vector<ImageBinding> bindings;
+			EShaderTypeFlags usingStages;
 		};
 
 		struct BufferBindingElement
@@ -54,6 +55,7 @@ namespace graphics_backend
 			uint32_t offset;
 			BufferBindingInfo bindingInfo;
 			std::vector<BufferHandle> bindings;
+			EShaderTypeFlags usingStages;
 		};
 
 		struct CBufferBindingElement
@@ -62,6 +64,7 @@ namespace graphics_backend
 			CBufferBindingInfo bindingInfo;
 			D3D2ShaderStruct const* pCBufferStruct;
 			BufferHandle cbufferHandle;
+			EShaderTypeFlags usingStages;
 		};
 
 		struct SamplerBindingElement
@@ -69,6 +72,7 @@ namespace graphics_backend
 			uint32_t offset;
 			SamplerBindingInfo bindingInfo;
 			castl::vector<TextureSamplerDescriptor> samplerDescriptors;
+			EShaderTypeFlags usingStages;
 		};
 
 		struct GPUResourceBindingInfos

@@ -22,4 +22,16 @@ namespace graphics_backend
 		}
 		return &it->second;
 	}
+	EShaderTypeFlags ShaderFileInfo::GetShaderStageUsage(uint32_t usageMask) const
+	{
+		EShaderTypeFlags result = 0;
+		for (uint32_t id = 0; id < entryPointToShaderProgram.size(); ++id)
+		{
+			if (usageMask & id)
+			{
+				result &= ECompileShaderTypeToMask(entryPointToShaderProgram[id].shaderType);
+			}
+		}
+		return result;
+	}
 }

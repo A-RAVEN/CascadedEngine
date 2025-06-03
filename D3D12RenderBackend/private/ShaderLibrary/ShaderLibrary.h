@@ -20,6 +20,7 @@ namespace graphics_backend
 		uint32_t elementCount;
 		uint32_t bindingID;
 		uint32_t descTableID;
+		uint32_t usageMask;
 		cacore::NameHash cbufferStructName;
 	};
 
@@ -31,6 +32,7 @@ namespace graphics_backend
 		uint32_t elementCount;
 		uint32_t bindingID;
 		uint32_t descTableID;
+		uint32_t usageMask;
 		cacore::NameHash imageBindingName;
 		bool isUAV() const
 		{
@@ -47,6 +49,7 @@ namespace graphics_backend
 		uint32_t elementCount;
 		uint32_t bindingID;
 		uint32_t descTableID;
+		uint32_t usageMask;
 		cacore::NameHash bufferBindingName;
 		bool isUAV() const
 		{
@@ -61,6 +64,7 @@ namespace graphics_backend
 		uint32_t elementCount;
 		uint32_t bindingID;
 		uint32_t descTableID;
+		uint32_t usageMask;
 		cacore::NameHash samplerBindingName;
 	};
 
@@ -109,10 +113,17 @@ namespace graphics_backend
 
 	struct ShaderFileInfo
 	{
+		struct ProgramInfo
+		{
+			cacore::NameHash entryPointName;
+			cahash::sha256_hash::result_type programHash;
+			ECompileShaderType shaderType;
+		};
 		cacore::PathHash path;
-		castl::vector<castl::pair<cacore::NameHash, cahash::sha256_hash::result_type>> entryPointToShaderProgram;
+		castl::vector<ProgramInfo> entryPointToShaderProgram;
 		ShaderCompilerSlang::ShaderReflectionData reflectionData;
 		ShaderResourceBindingInfo shaderBindingInfo;
+		EShaderTypeFlags GetShaderStageUsage(uint32_t usageMask) const;
 		auto operator<=>(const ShaderFileInfo&) const = default;
 	};
 

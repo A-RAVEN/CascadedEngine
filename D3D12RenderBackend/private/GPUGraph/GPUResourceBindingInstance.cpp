@@ -174,11 +174,11 @@ namespace graphics_backend
 			CA_ASSERT_BREAK(hierarchyBound.pBindingInfo != nullptr, "Invalid Hierarchy");
 			CA_ASSERT_BREAK(hierarchyBound.pStruct != nullptr, "Struct Not Bound {}", hierarchyBound.pBindingInfo->structBindingName);
 
-			auto& bindingInfo = *hierarchyBound.pBindingInfo;
+			auto& structBindingInfo = *hierarchyBound.pBindingInfo;
 			auto pStruct = hierarchyBound.pStruct;
 			uint32_t offset = hierarchyBound.bindingOffset;
 
-			for (auto cbufferID : bindingInfo.cbufferRefs)
+			for (auto cbufferID : structBindingInfo.cbufferRefs)
 			{
 				auto& bindingInfo = shaderBindingInfo.cbufferInfos[cbufferID];
 				CBufferBindingElement cbufferElement{};
@@ -186,6 +186,7 @@ namespace graphics_backend
 				cbufferElement.offset = offset;
 				cbufferElement.pCBufferStruct = pStruct;
 				cbufferElement.cbufferHandle = cbufferManager.GetConstantBufferHandle(pStruct);
+				cbufferElement.usingStages = pShaderFileInfo->GetShaderStageUsage(bindingInfo.usageMask);
 				outCBufferBindings.push_back(cbufferElement);
 			}
 
@@ -193,7 +194,7 @@ namespace graphics_backend
 			auto& imageHandles = pStruct->GetImageHandles();
 			auto& samplerDescs = pStruct->GetSamplerDescriptors();
 
-			for (auto imageID : bindingInfo.imageRefs)
+			for (auto imageID : structBindingInfo.imageRefs)
 			{
 				auto& bindingInfo = shaderBindingInfo.imageInfo[imageID];
 				auto found = imageHandles.find(bindingInfo.imageBindingName);
@@ -202,6 +203,7 @@ namespace graphics_backend
 				ImageBindingElement imageElement{};
 				imageElement.bindingInfo = bindingInfo;
 				imageElement.offset = offset;
+				imageElement.usingStages = pShaderFileInfo->GetShaderStageUsage(bindingInfo.usageMask);
 				for (uint32_t imgID = 0; imgID < imageList.size(); ++imgID)
 				{
 					ImageBindingElement::ImageBinding binding;
@@ -212,7 +214,7 @@ namespace graphics_backend
 				outImageBindings.push_back(imageElement);
 			}
 
-			for (auto bufferID : bindingInfo.bufferRefs)
+			for (auto bufferID : structBindingInfo.bufferRefs)
 			{
 				auto& bindingInfo = shaderBindingInfo.bufferInfos[bufferID];
 				auto found = bufferHandles.find(bindingInfo.bufferBindingName);
@@ -221,6 +223,7 @@ namespace graphics_backend
 				BufferBindingElement bufferElement{};
 				bufferElement.bindingInfo = bindingInfo;
 				bufferElement.offset = offset;
+				bufferElement.usingStages = pShaderFileInfo->GetShaderStageUsage(bindingInfo.usageMask);
 				for (uint32_t bufID = 0; bufID < bufferList.size(); ++bufID)
 				{
 					bufferElement.bindings.push_back(bufferList[bufID]);
@@ -228,7 +231,7 @@ namespace graphics_backend
 				outBufferBindings.push_back(bufferElement);
 			}
 
-			for (auto samplerID : bindingInfo.samplerRefs)
+			for (auto samplerID : structBindingInfo.samplerRefs)
 			{
 				auto& bindingInfo = shaderBindingInfo.samplerInfos[samplerID];
 				auto found = samplerDescs.find(bindingInfo.samplerBindingName);
@@ -237,6 +240,7 @@ namespace graphics_backend
 				SamplerBindingElement samplerElement{};
 				samplerElement.bindingInfo = bindingInfo;
 				samplerElement.offset = offset;
+				samplerElement.usingStages = pShaderFileInfo->GetShaderStageUsage(bindingInfo.usageMask);
 				for (uint32_t smpID = 0; smpID < samplerList.size(); ++smpID)
 				{
 					samplerElement.samplerDescriptors.push_back(samplerList[smpID]);

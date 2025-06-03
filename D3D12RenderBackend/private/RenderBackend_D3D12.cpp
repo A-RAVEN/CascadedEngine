@@ -238,7 +238,7 @@ namespace graphics_backend
         result.reflectionData = &fileInfo->reflectionData;
         for (auto& fileInfo : fileInfo->entryPointToShaderProgram)
         {
-            auto code = shaderLibrary->GetShaderCode(fileInfo.second);
+            auto code = shaderLibrary->GetShaderCode(fileInfo.programHash);
 
             switch (code->shaderType)
             {

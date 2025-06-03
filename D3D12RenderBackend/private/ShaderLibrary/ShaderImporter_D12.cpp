@@ -103,6 +103,7 @@ namespace graphics_backend
 					cbufferInfo.elementCount = currentStructElementCount;
 					cbufferInfo.spaceID = processingHierarchy.m_SelfUniformSpaceID;
 					cbufferInfo.bindingID = processingHierarchy.m_SelfUniformBufferID;
+					cbufferInfo.usageMask = processingHierarchy.m_SelfUniformUsage;
 					cbufferInfo.cbufferStructName = structName;
 					cbufferInfo.descTableID = resourceBindingInfo.resourceDescCount;
 					currentStructBindingInfo.cbufferRefs.push_back(resourceBindingInfo.cbufferInfos.size());
@@ -145,6 +146,7 @@ namespace graphics_backend
 							imageInfo.resourceType = binding.m_ResourceType;
 							imageInfo.spaceID = bindingSpace;
 							imageInfo.bindingID = bindingID;
+							imageInfo.usageMask = binding.m_Usage;
 							imageInfo.imageBindingName = binding.m_Name;
 							imageInfo.elementCount = elementCount;
 							imageInfo.descTableID = resourceBindingInfo.resourceDescCount;
@@ -162,6 +164,7 @@ namespace graphics_backend
 							bufferInfo.resourceType = binding.m_ResourceType;
 							bufferInfo.spaceID = bindingSpace;
 							bufferInfo.bindingID = bindingID;
+							bufferInfo.usageMask = binding.m_Usage;
 							bufferInfo.bufferBindingName = binding.m_Name;
 							bufferInfo.elementCount = elementCount;
 							bufferInfo.descTableID = resourceBindingInfo.resourceDescCount;
@@ -174,6 +177,7 @@ namespace graphics_backend
 							SamplerBindingInfo samplerInfo{};
 							samplerInfo.spaceID = bindingSpace;
 							samplerInfo.bindingID = bindingID;
+							samplerInfo.usageMask = binding.m_Usage;
 							samplerInfo.samplerBindingName = binding.m_Name;
 							samplerInfo.elementCount = elementCount;
 							samplerInfo.descTableID = resourceBindingInfo.samplerDescCount;
@@ -399,7 +403,7 @@ namespace graphics_backend
 										found = shaderLibrary->m_ShaderPrograms.insert(castl::make_pair(shaHash, shaderCode)).first;
 									}
 									cacore::NameHash entryPointName = program.entryPointName;
-									shaderInfo.entryPointToShaderProgram.push_back(castl::make_pair(entryPointName, shaHash));
+									shaderInfo.entryPointToShaderProgram.push_back({ entryPointName, shaHash, program.shaderType });
 									found->second.sourceKeys.insert(ShaderSourceKey{ shaderPathHash, entryPointName });
 								}
 

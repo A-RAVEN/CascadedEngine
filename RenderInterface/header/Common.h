@@ -40,24 +40,29 @@ enum class ECompileShaderType : uint8_t
 
 enum class EShaderTypeMask : uint32_t
 {
-	eVert = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eVert),
-	eTessCtr = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eTessCtr),
-	eTessEvl = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eTessEvl),
-	eGeom = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eGeom),
-	eFrag = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eFrag),
-	eComp = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eComp),
+	eVert = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eVert),
+	eTessCtr = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eTessCtr),
+	eTessEvl = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eTessEvl),
+	eGeom = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eGeom),
+	eFrag = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eFrag),
+	eComp = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eComp),
 	//nvidia mesh shader
-	eTask = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eTask),
-	eMesh = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eMesh),
+	eTask = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eTask),
+	eMesh = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eMesh),
 	//nvidia ray tracing shader
-	eRaygen = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eRaygen),
-	eAnyhit = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eAnyhit),
-	eClosehit = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eClosehit),
-	eMiss = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eMiss),
-	eIntersect = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eIntersect),
-	eCallable = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eCallable),
-	eAmplification = 1 << static_cast<castl::underlying_type_t<ECompileShaderType>>(ECompileShaderType::eAmplification),
+	eRaygen = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eRaygen),
+	eAnyhit = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eAnyhit),
+	eClosehit = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eClosehit),
+	eMiss = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eMiss),
+	eIntersect = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eIntersect),
+	eCallable = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eCallable),
+	eAmplification = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eAmplification),
 };
+
+constexpr EShaderTypeMask ECompileShaderTypeToMask(ECompileShaderType shaderType)
+{
+	return static_cast<EShaderTypeMask>(1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eVert));
+}
 
 using EShaderTypeFlags = uenum::EnumFlags<EShaderTypeMask>;
 
