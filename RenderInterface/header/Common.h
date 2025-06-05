@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <uenum.h>
 #include <DebugUtils.h>
-
+#include <CASTL/CAFunctional.h>
 
 using TIndex = uint32_t;
 constexpr TIndex INVALID_INDEX = (castl::numeric_limits<TIndex>::max)();
@@ -40,6 +40,7 @@ enum class ECompileShaderType : uint8_t
 
 enum class EShaderTypeMask : uint32_t
 {
+	eNone = 0,
 	eVert = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eVert),
 	eTessCtr = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eTessCtr),
 	eTessEvl = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eTessEvl),
@@ -65,6 +66,26 @@ constexpr EShaderTypeMask ECompileShaderTypeToMask(ECompileShaderType shaderType
 }
 
 using EShaderTypeFlags = uenum::EnumFlags<EShaderTypeMask>;
+
+static void IterateShaderTypeFlags(EShaderTypeFlags shaderTypeFlags, castl::function<void(EShaderTypeMask)> callback)
+{
+	if (shaderTypeFlags == EShaderTypeMask::eNone)
+	{
+		callback(EShaderTypeMask::eNone);
+	}
+	else
+	{
+		for (uint32_t i = 0; i < (uint32_t)ECompileShaderType::eMax; ++i)
+		{
+			ECompileShaderType shaderType = static_cast<ECompileShaderType>(i);
+			EShaderTypeMask shaderMask = static_cast<EShaderTypeMask>(1 << i);
+			if (shaderTypeFlags & shaderMask)
+			{
+				callback(shaderMask);
+			}
+		}
+	}
+}
 
 
 enum class EShaderTextureType : uint8_t

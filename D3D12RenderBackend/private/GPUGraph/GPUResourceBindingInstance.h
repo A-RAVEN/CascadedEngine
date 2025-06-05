@@ -48,6 +48,7 @@ namespace graphics_backend
 			ImageBindingInfo bindingInfo;
 			std::vector<ImageBinding> bindings;
 			EShaderTypeFlags usingStages;
+			EResourceUsageFlags resourceUsages;
 		};
 
 		struct BufferBindingElement
@@ -56,6 +57,7 @@ namespace graphics_backend
 			BufferBindingInfo bindingInfo;
 			std::vector<BufferHandle> bindings;
 			EShaderTypeFlags usingStages;
+			EResourceUsageFlags resourceUsages;
 		};
 
 		struct CBufferBindingElement

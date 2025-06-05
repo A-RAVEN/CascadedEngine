@@ -9,6 +9,54 @@
 
 namespace graphics_backend
 {
+	enum class EResourceUsage
+	{
+		eShaderResource = 1 << 0,
+		eShaderUnorderedAccess = 1 << 1,
+		eRenderTarget = 1 << 2,
+		eVertexInput = 1 << 3,
+		eCopy = 1 << 4,
+		eBitMax = 5,
+	};
+	using EResourceUsageFlags = uenum::EnumFlags<EResourceUsage>;
+
+	static void IterateResourceUsages(EResourceUsageFlags flags)
+	{
+
+	}
+
+	struct ResourceState
+	{
+		ShaderCompilerSlang::EShaderResourceAccess resourceAccess;
+		EShaderTypeFlags shaderStages;
+		EResourceUsageFlags resourceUsage;
+		bool Compatible(ResourceState const& other) const
+		{
+			return (resourceAccess == other.resourceAccess);
+		}
+		void Combine(ResourceState const& other)
+		{
+			CA_ASSERT_BREAK(resourceAccess == other.resourceAccess, "Resource Access Not Compatible");
+			shaderStages |= other.shaderStages;
+			resourceUsage |= other.resourceUsage;
+		}
+	};
+
+	D3D12_BARRIER_SYNC DetermingBarrierSync(ResourceState const& resourceState)
+	{
+		IterateShaderTypeFlags(resourceState.shaderStages, [&](EShaderTypeMask shaderType)
+		{
+
+		});
+	}
+
+	void BarrierTest()
+	{
+		D3D12_BARRIER_GROUP barrierGroup;
+		D3D12_TEXTURE_BARRIER textureBarrier;
+		textureBarrier.SyncBefore = 
+	}
+
 	struct D3D12TextureUsageState
 	{
 		D3D12_BARRIER_ACCESS accessState;

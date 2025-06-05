@@ -204,6 +204,7 @@ namespace graphics_backend
 				imageElement.bindingInfo = bindingInfo;
 				imageElement.offset = offset;
 				imageElement.usingStages = pShaderFileInfo->GetShaderStageUsage(bindingInfo.usageMask);
+				imageElement.resourceUsages = bindingInfo.isUAV() ? EResourceUsage::eShaderUnorderedAccess : EResourceUsage::eShaderResource;
 				for (uint32_t imgID = 0; imgID < imageList.size(); ++imgID)
 				{
 					ImageBindingElement::ImageBinding binding;
@@ -224,6 +225,7 @@ namespace graphics_backend
 				bufferElement.bindingInfo = bindingInfo;
 				bufferElement.offset = offset;
 				bufferElement.usingStages = pShaderFileInfo->GetShaderStageUsage(bindingInfo.usageMask);
+				bufferElement.resourceUsages = bindingInfo.isUAV() ? EResourceUsage::eShaderUnorderedAccess : EResourceUsage::eShaderResource;
 				for (uint32_t bufID = 0; bufID < bufferList.size(); ++bufID)
 				{
 					bufferElement.bindings.push_back(bufferList[bufID]);
