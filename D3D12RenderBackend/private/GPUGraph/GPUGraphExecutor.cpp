@@ -316,7 +316,7 @@ namespace graphics_backend
 				{
 					passRWState.SetBufferRWState(cbufferInfo.cbufferHandle
 						, cbufferInfo.usingStages
-						, EResourceUsage::eShaderResource
+						, EResourceUsage::eConstantBuffer
 						, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
 				});
 			}
@@ -329,13 +329,26 @@ namespace graphics_backend
 			auto& renderPass = owningGraph.GetRenderPasses()[passID];
 			auto& passRWState = passRWStates[passID];
 			//将renderPass的attachment注册进m_LocalResourceManager中
-			for (auto& attachment : renderPass.GetAttachments())
 			{
-				auto descriptor = owningGraph.GetImageManager().GetDescriptor(attachment.GetKey());
-				CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", attachment.GetName());
-				resourceManager.AddTexture(attachment, *descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor->format));
-				passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eRenderTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+				int attachmentID = 0;
+				for (auto& attachment : renderPass.GetAttachments())
+				{
+					auto descriptor = owningGraph.GetImageManager().GetDescriptor(attachment.GetKey());
+					CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", attachment.GetName());
+					resourceManager.AddTexture(attachment, *descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor->format));
+					if (attachmentID == renderPass.GetDepthAttachmentIndex())
+					{
+						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eDepthStencilTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+					}
+					else
+					{
+						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eRenderTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+					}
+					
+					++attachmentID;
+				}
 			}
+
 
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
 			for(auto& drawcallBatchs : renderPass.GetDrawCallBatches())
@@ -347,7 +360,7 @@ namespace graphics_backend
 					{
 						auto& indesxBuffer = drawcall.GetIndexBuffer().indexBufferHandle;
 						registerBufferToLocalResourceManager(indesxBuffer);
-						passRWState.SetBufferRWState(indesxBuffer, EShaderTypeMask::eNone, EResourceUsage::eVertexInput, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
+						passRWState.SetBufferRWState(indesxBuffer, EShaderTypeMask::eNone, EResourceUsage::eIndexInput, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
 					}
 					for (auto& vertBuf : drawcall.GetVertexBuffers())
 					{

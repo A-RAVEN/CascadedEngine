@@ -21,10 +21,10 @@ namespace graphics_backend
 	{
 		bufferHandleToResource[bufferHandle].resourceDesc = resourceDesc;
 	}
-	void D3D12GraphLocalResourceManager::AddGPUPassResourceStates(D3D12PassResourceStates const& states)
-	{
-		resourceStates.push_back(states);
-	}
+	//void D3D12GraphLocalResourceManager::AddGPUPassResourceStates(D3D12PassResourceStates const& states)
+	//{
+	//	resourceStates.push_back(states);
+	//}
 
 	void D3D12GraphLocalResourceManager::AllocateAliasedResources(uint32_t resourceBatchCount
 		, castl::unordered_map<ImageHandle, castl::range<uint32_t>> imageLifeTimes,
@@ -38,7 +38,7 @@ namespace graphics_backend
 			std::vector<BufferHandle> releasedBuffersAfterThisPass;
 		};
 
-		castl::vector<ResourceAllocationPasses> allocationPasses(resourceStates.size());
+		castl::vector<ResourceAllocationPasses> allocationPasses(resourceBatchCount);
 
 		for (auto& imgPair : imageLifeTimes)
 		{

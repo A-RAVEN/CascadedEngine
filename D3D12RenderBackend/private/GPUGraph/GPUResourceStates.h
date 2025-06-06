@@ -9,20 +9,45 @@
 
 namespace graphics_backend
 {
-	enum class EResourceUsage
+	enum class EResourceUsage : uint32_t
 	{
 		eShaderResource = 1 << 0,
 		eShaderUnorderedAccess = 1 << 1,
 		eRenderTarget = 1 << 2,
 		eVertexInput = 1 << 3,
-		eCopy = 1 << 4,
-		eBitMax = 5,
+		eIndexInput = 1 << 4,
+		eCopy = 1 << 5,
+		eConstantBuffer = 1 << 6,
+		eDepthStencilTarget = 1 << 7,
+		eBitMax = 8,
 	};
 	using EResourceUsageFlags = uenum::EnumFlags<EResourceUsage>;
 
-	static void IterateResourceUsages(EResourceUsageFlags flags)
+	enum class EGPUQueueType : uint32_t
 	{
+		eDirect = 1 << 0,
+		eCompute = 1 << 1,
+		eCopy = 1 << 2,
+	};
+	using EGPUQueueTypeFlags = uenum::EnumFlags<EGPUQueueType>;
 
+	struct ResourceBarrierUsageStates
+	{
+		D3D12_BARRIER_ACCESS accessState;
+		D3D12_BARRIER_LAYOUT layoutState;
+		D3D12_BARRIER_SYNC barrierSync;
+	};
+
+	static void IterateResourceUsages(EResourceUsageFlags flags, castl::function<void(EResourceUsage)> callback)
+	{
+		for (uint32_t i = 0; i < static_cast<uint32_t>(EResourceUsage::eBitMax); ++i)
+		{
+			EResourceUsage usage = static_cast<EResourceUsage>(1 << i);
+			if (flags & usage)
+			{
+				callback(usage);
+			}
+		}
 	}
 
 	struct ResourceState
@@ -30,6 +55,39 @@ namespace graphics_backend
 		ShaderCompilerSlang::EShaderResourceAccess resourceAccess;
 		EShaderTypeFlags shaderStages;
 		EResourceUsageFlags resourceUsage;
+		D3D12_COMMAND_LIST_TYPE commandListType;
+		bool ReadOnly() const
+		{
+			switch (resourceAccess)
+			{
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+				return true;
+			default:
+				return false;
+			}
+		}
+		bool Read() const
+		{
+			switch (resourceAccess)
+			{
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+				return true;
+			default:
+				return false;
+			}
+		}
+		bool Write() const
+		{
+			switch (resourceAccess)
+			{
+			case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+			case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+				return true;
+			default:
+				return false;
+			}
+		}
 		bool Compatible(ResourceState const& other) const
 		{
 			return (resourceAccess == other.resourceAccess);
@@ -42,58 +100,119 @@ namespace graphics_backend
 		}
 	};
 
-	D3D12_BARRIER_SYNC DetermingBarrierSync(ResourceState const& resourceState)
+	constexpr D3D12_BARRIER_SYNC DetermingShaderStageSync(EShaderTypeFlags flags)
 	{
-		IterateShaderTypeFlags(resourceState.shaderStages, [&](EShaderTypeMask shaderType)
+		D3D12_BARRIER_SYNC result = D3D12_BARRIER_SYNC_NONE;
+		if (flags & EShaderTypeMask::eComp)
 		{
+			result |= D3D12_BARRIER_SYNC_COMPUTE_SHADING;
+		}
 
+		EShaderTypeFlags vertStages = EShaderTypeFlags{ EShaderTypeMask::eVert } | EShaderTypeMask::eTessCtr | EShaderTypeMask::eTessEvl | EShaderTypeMask::eGeom
+			| EShaderTypeMask::eMesh | EShaderTypeMask::eTask;
+		if (flags & vertStages)
+		{
+			result |= D3D12_BARRIER_SYNC_VERTEX_SHADING;
+		}
+
+		if (flags & EShaderTypeMask::eFrag)
+		{
+			result |= D3D12_BARRIER_SYNC_PIXEL_SHADING;
+		}
+
+		if (flags & EShaderTypeMask::eAllRaytracing)
+		{
+			result |= D3D12_BARRIER_SYNC_RAYTRACING;
+		}
+		return result;
+	}
+
+	static ResourceBarrierUsageStates DetermineResourceBarrierUsageStates(ResourceState const& resourceState)
+	{
+		D3D12_BARRIER_ACCESS barrierAccess = D3D12_BARRIER_ACCESS_COMMON;
+		D3D12_BARRIER_SYNC resultSync = D3D12_BARRIER_SYNC_NONE;
+		D3D12_BARRIER_LAYOUT barrierLayout = D3D12_BARRIER_LAYOUT_UNDEFINED;
+
+		auto setBarrierLayout = [&](D3D12_BARRIER_LAYOUT layout)
+		{
+			if (barrierLayout == D3D12_BARRIER_LAYOUT_UNDEFINED)
+			{
+				barrierLayout = layout;
+			}
+			else
+			{
+				barrierLayout = D3D12_BARRIER_LAYOUT_COMMON;
+			}
+		};
+
+		IterateResourceUsages(resourceState.resourceUsage, [&](EResourceUsage usage)
+		{
+			switch (usage)
+			{
+			case graphics_backend::EResourceUsage::eConstantBuffer:
+				resultSync |= DetermingShaderStageSync(resourceState.shaderStages);
+				barrierAccess |= D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+				break;
+			case graphics_backend::EResourceUsage::eShaderResource:
+				resultSync |= DetermingShaderStageSync(resourceState.shaderStages);
+				barrierAccess |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
+				setBarrierLayout(D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+				break;
+			case graphics_backend::EResourceUsage::eShaderUnorderedAccess:
+				resultSync |= DetermingShaderStageSync(resourceState.shaderStages);
+				barrierAccess |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+				setBarrierLayout(D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS);
+				break;
+			case graphics_backend::EResourceUsage::eRenderTarget:
+				resultSync |= D3D12_BARRIER_SYNC_RENDER_TARGET;
+				barrierAccess |= D3D12_BARRIER_ACCESS_RENDER_TARGET;
+				setBarrierLayout(D3D12_BARRIER_LAYOUT_RENDER_TARGET);
+				break;
+			case graphics_backend::EResourceUsage::eDepthStencilTarget:
+				resultSync |= D3D12_BARRIER_SYNC_DEPTH_STENCIL;
+				if (resourceState.Read())
+				{
+					barrierAccess |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ;
+					setBarrierLayout(D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ);
+				}
+				if (resourceState.Write())
+				{
+					barrierAccess |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
+					setBarrierLayout(D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
+				}
+				break;
+			case graphics_backend::EResourceUsage::eVertexInput:
+				resultSync |= D3D12_BARRIER_SYNC_VERTEX_SHADING;
+				barrierAccess |= D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+				break;
+			case graphics_backend::EResourceUsage::eIndexInput:
+				resultSync |= D3D12_BARRIER_SYNC_INDEX_INPUT;
+				barrierAccess |= D3D12_BARRIER_ACCESS_INDEX_BUFFER;
+				break;
+			case graphics_backend::EResourceUsage::eCopy:
+				resultSync |= D3D12_BARRIER_SYNC_COPY;
+				if (resourceState.ReadOnly())
+				{
+					barrierAccess |= D3D12_BARRIER_ACCESS_COPY_SOURCE;
+					setBarrierLayout(D3D12_BARRIER_LAYOUT_COPY_SOURCE);
+				}
+				else
+				{
+					barrierAccess |= D3D12_BARRIER_ACCESS_COPY_DEST;
+					setBarrierLayout(D3D12_BARRIER_LAYOUT_COPY_SOURCE);
+				}
+				break;
+			default:
+				break;
+			}
 		});
+
+		ResourceBarrierUsageStates result;
+		result.accessState = barrierAccess;
+		result.layoutState = barrierLayout;
+		result.barrierSync = resultSync;
+		return result;
 	}
-
-	void BarrierTest()
-	{
-		D3D12_BARRIER_GROUP barrierGroup;
-		D3D12_TEXTURE_BARRIER textureBarrier;
-		textureBarrier.SyncBefore = 
-	}
-
-	struct D3D12TextureUsageState
-	{
-		D3D12_BARRIER_ACCESS accessState;
-		D3D12_BARRIER_LAYOUT layoutState;
-		D3D12_COMMAND_LIST_TYPE queueType;
-	};
-
-	struct D3D12BufferUsageState
-	{
-		D3D12_BARRIER_ACCESS accessState;
-		D3D12_COMMAND_LIST_TYPE queueType;
-	};
-
-	struct D3D12PassResourceStates
-	{
-		castl::vector<castl::pair<ImageHandle, D3D12TextureUsageState>> textureUsageStates;
-		castl::vector<castl::pair<BufferHandle, D3D12BufferUsageState>> bufferUsageStates;
-	};
-
-	struct TextureResourceTransition
-	{
-		D3D12_BARRIER_ACCESS sourceAccess;
-		D3D12_BARRIER_ACCESS dstAccess;
-		D3D12_BARRIER_LAYOUT sourceLayout;
-		D3D12_BARRIER_LAYOUT destLayout;
-		D3D12_COMMAND_LIST_TYPE sourceQueueType;
-		D3D12_COMMAND_LIST_TYPE destQueueType;
-	};
-
-	struct BufferResourceTransition
-	{
-		D3D12_BARRIER_ACCESS sourceAccess;
-		D3D12_BARRIER_ACCESS dstAccess;
-		D3D12_COMMAND_LIST_TYPE sourceQueueType;
-		D3D12_COMMAND_LIST_TYPE destQueueType;
-	};
-
 
 	struct BufferResourceAllocationInfo
 	{
@@ -129,7 +248,7 @@ namespace graphics_backend
 			, GPUTextureDescriptor const& resourceDesc
 			, GPUTextureView const& textureView);
 		void AddBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& resourceDesc);
-		void AddGPUPassResourceStates(D3D12PassResourceStates const& states);
+		//void AddGPUPassResourceStates(D3D12PassResourceStates const& states);
 		void AllocateAliasedResources(uint32_t resourceBatchCount, castl::unordered_map<ImageHandle, castl::range<uint32_t>> imageLifeTimes,
 			castl::unordered_map<BufferHandle, castl::range<uint32_t>> bufferLifeTimes);
 		void PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocators);
@@ -137,7 +256,7 @@ namespace graphics_backend
 		BufferResourceAllocationInfo const* GetBufferResource(BufferHandle const& bufferHandle) const;
 		castl::unordered_map<ImageHandle, TextureResourceAllocationInfo> imageHandleToResource;
 		castl::unordered_map<BufferHandle, BufferResourceAllocationInfo> bufferHandleToResource;
-		castl::vector<D3D12PassResourceStates> resourceStates;
+		//castl::vector<D3D12PassResourceStates> resourceStates;
 
 		AliasedMemoryAllocator aliasedAllocator;
 		uint32_t resourceIDCounter;
