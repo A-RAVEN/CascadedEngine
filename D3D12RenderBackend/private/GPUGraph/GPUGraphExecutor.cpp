@@ -3,6 +3,8 @@
 #include <Utils/InterfaceTranslation.h>
 #include <RenderBackend_D3D12.h>
 #include <GPUGraph/GPUPipelineInstance.h>
+#include <ResourceManagment/D3DImageObject.h>
+#include <ResourceManagment/D3DBufferObject.h>
 
 namespace graphics_backend
 {
@@ -86,10 +88,6 @@ namespace graphics_backend
 
 	struct PassRWState
 	{
-
-
-
-
 		castl::unordered_map<ImageHandle, ResourceState> imageRWStates;
 		castl::unordered_map<BufferHandle, ResourceState> bufferRWStates;
 		bool depends(PassRWState const& other) const
@@ -434,15 +432,38 @@ namespace graphics_backend
 		});
 	}
 
+	struct RenderStateBarrier
+	{
+		ResourceState before;
+		ResourceState after;
+	};
+
+	struct RenderStateBarriers
+	{
+		castl::vector<castl::pair<ImageHandle, RenderStateBarrier>> imageBarriers;
+		castl::vector<castl::pair<BufferHandle, RenderStateBarrier>> bufferBarriers;
+		void AddImageBarrier(ImageHandle const& handle, ResourceState const& before, ResourceState const& after)
+		{
+			RenderStateBarrier barrier{ before, after };
+			imageBarriers.push_back(castl::make_pair(handle, barrier));
+		}
+		void AddBufferBarrier(BufferHandle const& handle, ResourceState const& before, ResourceState const& after)
+		{
+			RenderStateBarrier barrier{ before, after };
+			bufferBarriers.push_back(castl::make_pair(handle, barrier));
+		}
+	};
+
 	struct GPUExecutionBatch
 	{
 		std::vector<uint32_t> rasterPassRefs;
 		std::vector<uint32_t> computePassRefs;
 		std::vector<uint32_t> transferPassRefs;
+		RenderStateBarriers resourceBarriers;
 		PassRWState batchRWStates;
 	};
 
-	using ResourceUsageRange = castl::range<uint32_t>;
+
 
 	void BuildDependencyFreeBatchs(GPUGraph const& owningGraph,
 		//D3D12GPUGraphExecutor& executor,
@@ -519,8 +540,8 @@ namespace graphics_backend
 		}
 	}
 
-	void BuildResourceUsageRanges(castl::unordered_map<ImageHandle, ResourceUsageRange>& imageRanges,
-		castl::unordered_map<BufferHandle, ResourceUsageRange>& bufferRanges,
+	void BuildResourceUsageRanges(castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageRanges,
+		castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferRanges,
 		castl::vector<GPUExecutionBatch> const& executionBatchs
 	)
 	{
@@ -530,11 +551,11 @@ namespace graphics_backend
 			auto& rwStates = batch.batchRWStates;
 			for (auto& imageRWState : rwStates.imageRWStates)
 			{
-				imageRanges[imageRWState.first].encapsule(batchID);
+				imageRanges[imageRWState.first].Expand(batchID, imageRWState.second);
 			}
 			for (auto& bufferRWState : rwStates.bufferRWStates)
 			{
-				bufferRanges[bufferRWState.first].encapsule(batchID);
+				bufferRanges[bufferRWState.first].Expand(batchID, bufferRWState.second);
 			}
 		}
 	}
@@ -582,6 +603,92 @@ namespace graphics_backend
 		}
 	}
 
+	void PrepareBatchResourceBarriers(castl::vector<GPUExecutionBatch>& executionBatchs
+		, castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageLifetimes
+		, castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferLifetimes
+		, D3D12GraphLocalResourceManager& resourceManager
+	)
+	{
+		castl::unordered_map<ImageHandle, ResourceState> imageStates;
+		castl::unordered_map<BufferHandle, ResourceState> bufferStates;
+
+		for (auto& pair : imageLifetimes)
+		{
+			ImageHandle const& image = pair.first;
+			ResourceState initSate;
+			if (image.IsIntternal())
+			{
+				initSate = ResourceState::InitializedState();
+			}
+			else
+			{
+				D3DImageObject const* pImage = static_cast<D3DImageObject const*>(image.GetExternalManagedTexture().get());
+				initSate = pImage->GetResourceState();
+			}
+
+			imageStates.insert(castl::make_pair(pair.first, initSate));
+		}
+		for (auto& pair : bufferLifetimes)
+		{
+			BufferHandle const& buffer = pair.first;
+			ResourceState initSate;
+			if (buffer.IsIntternal())
+			{
+				initSate = ResourceState::InitializedState();
+			}
+			else
+			{
+				D3DBufferObject const* pBuffer = static_cast<D3DBufferObject const*>(buffer.GetExternalManagedBuffer().get());
+				initSate = pBuffer->GetResourceState();
+			}
+			bufferStates.insert(castl::make_pair(pair.first, initSate));
+		}
+		for (uint32_t batchID = 0; batchID < executionBatchs.size(); ++batchID)
+		{
+			GPUExecutionBatch& batch = executionBatchs[batchID];
+			PassRWState& batchRWStates = batch.batchRWStates;
+			D3D12_BARRIER_GROUP barrierGroup;
+			for (auto& pair : batchRWStates.imageRWStates)
+			{
+				ImageHandle const& image = pair.first;
+				ResourceState& lastState = imageStates[image];
+				ResourceState const& currentState = pair.second;
+				if (currentState.AnyStateChange(lastState))
+				{
+					//TODO: Collect
+					batch.resourceBarriers.AddImageBarrier(image, lastState, currentState);
+					lastState = currentState;
+
+					ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
+					ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
+
+					D3D12_TEXTURE_BARRIER textureBarrier{};
+					textureBarrier.AccessBefore = lastBarrierStates.accessState;
+					textureBarrier.AccessAfter = currentBarrierStates.accessState;
+					textureBarrier.SyncBefore = lastBarrierStates.barrierSync;
+					textureBarrier.SyncAfter = currentBarrierStates.barrierSync;
+					textureBarrier.LayoutBefore = lastBarrierStates.layoutState;
+					textureBarrier.LayoutAfter = currentBarrierStates.layoutState;
+					CD3DX12_BARRIER_SUBRESOURCE_RANGE fullSubresource(0xffffffff);
+					textureBarrier.Subresources = fullSubresource;
+					textureBarrier.Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+				}
+			}
+			for (auto& pair : batchRWStates.bufferRWStates)
+			{
+				BufferHandle const& buffer = pair.first;
+				ResourceState& lastState = bufferStates[buffer];
+				ResourceState const& currentState = pair.second;
+				if (currentState.AnyStateChange(lastState))
+				{
+					//TODO: Collect
+					batch.resourceBarriers.AddBufferBarrier(buffer, lastState, currentState);
+					lastState = currentState;
+				}
+			}
+		}
+	}
+
 	void D3D12GPUGraphExecutor::Init(GPUGraph const& owningGraph)
 	{
 		//收集当前图中所有的资源
@@ -606,8 +713,8 @@ namespace graphics_backend
 		);
 
 		//统计资源的生命周期
-		castl::unordered_map<ImageHandle, ResourceUsageRange> imageLifeTimes;
-		castl::unordered_map<BufferHandle, ResourceUsageRange> bufferLifeTimes;
+		castl::unordered_map<ImageHandle, ResourceUsageRangeData> imageLifeTimes;
+		castl::unordered_map<BufferHandle, ResourceUsageRangeData> bufferLifeTimes;
 		BuildResourceUsageRanges(imageLifeTimes, bufferLifeTimes, executionBatchs);
 
 		//依据资源的生命周期实际分配资源
@@ -621,7 +728,7 @@ namespace graphics_backend
 		});
 
 		//创建PipelineBarriers
-
+		PrepareBatchResourceBarriers(executionBatchs, imageLifeTimes, bufferLifeTimes, m_LocalResourceManager);
 		
 		//创建PSO:TODO 并行化
 		castl::vector<RenderPassGPUData> rasterPassGPUDataList;

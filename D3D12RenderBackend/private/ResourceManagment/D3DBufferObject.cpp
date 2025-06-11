@@ -3,7 +3,9 @@
 namespace graphics_backend
 {
 	D3DBufferObject::D3DBufferObject(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_Resource(app)
-	{}
+	{
+		m_LastResourceState = ResourceState::InitializedState();
+	}
 
 	GPUBufferDescriptor const& D3DBufferObject::GetDescriptor() const
 	{

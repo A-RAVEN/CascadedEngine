@@ -75,7 +75,7 @@ namespace graphics_backend
 	{
 	}
 
-	AliasedGPUResource AliasedMemoryAllocator::AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType)
+	AliasedGPUResource AliasedMemoryAllocator::AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType, D3D12_RESOURCE_STATES initialState)
 	{
 		AliasedGPUResource result{};
 		result.m_HeapType = heapType;
@@ -87,7 +87,7 @@ namespace graphics_backend
 		for (uint32_t blockID = 0; blockID < found->second.size(); ++blockID)
 		{
 			VirtualBlock& virtualBlock = found->second[blockID];
-			if (virtualBlock.TryAllocateGPUResource(*this, resourceDesc, result))
+			if (virtualBlock.TryAllocateGPUResource(*this, resourceDesc, initialState, result))
 			{
 				result.m_BlockID = blockID;
 				return result;
@@ -95,7 +95,7 @@ namespace graphics_backend
 		}
 		found->second.push_back(VirtualBlock{ m_VirtualBlockSize });
 		{
-			bool newAlloc = found->second.back().TryAllocateGPUResource(*this, resourceDesc, result);
+			bool newAlloc = found->second.back().TryAllocateGPUResource(*this, resourceDesc, initialState, result);
 			assert(newAlloc);
 			result.m_BlockID = found->second.size() - 1;
 		}
@@ -179,7 +179,10 @@ namespace graphics_backend
 		m_Block->Release();
 	}
 
-	bool AliasedMemoryAllocator::VirtualBlock::TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator, D3D12_RESOURCE_DESC const& resourceDesc, AliasedGPUResource& outGPUResource)
+	bool AliasedMemoryAllocator::VirtualBlock::TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator
+		, D3D12_RESOURCE_DESC const& resourceDesc
+		, D3D12_RESOURCE_STATES initialState
+		, AliasedGPUResource& outGPUResource)
 	{
 		D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = owningAllocator.GetDevice()->GetResourceAllocationInfo(0, 1, &resourceDesc);
 
@@ -198,6 +201,7 @@ namespace graphics_backend
 			ResourceInfo resourceInfo;
 			resourceInfo.m_Desc = resourceDesc;
 			resourceInfo.m_Allocation = alloc;
+			resourceInfo.m_InitialState = initialState;
 			resourceInfo.m_Offset = allocOffset;
 			resourceInfo.m_Size = allocDesc.Size;
 			m_Resources.push_back(resourceInfo);

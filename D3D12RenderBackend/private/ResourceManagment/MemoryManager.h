@@ -29,6 +29,7 @@ namespace graphics_backend
 	{
 		D3D12_RESOURCE_DESC m_Desc;
 		D3D12MA::VirtualAllocation m_Allocation;
+		D3D12_RESOURCE_STATES m_InitialState;
 		uint64_t m_Offset;
 		uint64_t m_Size;
 	};
@@ -60,7 +61,7 @@ namespace graphics_backend
 		{
 		public:
 			VirtualBlock(uint64_t virtualBlockSize);
-			bool TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator, D3D12_RESOURCE_DESC const& resourceDesc, AliasedGPUResource& outGPUResource);
+			bool TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator, D3D12_RESOURCE_DESC const& resourceDesc, D3D12_RESOURCE_STATES initialState, AliasedGPUResource& outGPUResource);
 			void CommitBlock(D3D12_HEAP_TYPE heapType, D3D12MA::Allocator* allocator, ID3D12Device* device);
 			void Release();
 			D3D12MA::VirtualBlock* m_Block;
@@ -73,7 +74,8 @@ namespace graphics_backend
 
 
 		AliasedMemoryAllocator(RenderBackend_D3D12* app, ComPtr<D3D12MA::Allocator> allocator, uint64_t virtualBlockSize = (512 << 20));
-		AliasedGPUResource AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType);
+		AliasedGPUResource AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType
+			, D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON);
 		void LogAllocatorStates();
 		void CommitAllocations();
 		void Release() override;

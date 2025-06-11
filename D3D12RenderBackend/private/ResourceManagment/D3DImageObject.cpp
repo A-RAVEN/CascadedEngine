@@ -3,7 +3,9 @@
 namespace graphics_backend
 {
 	D3DImageObject::D3DImageObject(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_Resource(app)
-	{}
+	{
+		m_LastResourceState = ResourceState::InitializedState();
+	}
 
 	GPUTextureDescriptor const& D3DImageObject::GetDescriptor() const
 	{

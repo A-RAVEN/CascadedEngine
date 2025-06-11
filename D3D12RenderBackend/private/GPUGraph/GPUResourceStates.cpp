@@ -27,15 +27,15 @@ namespace graphics_backend
 	//}
 
 	void D3D12GraphLocalResourceManager::AllocateAliasedResources(uint32_t resourceBatchCount
-		, castl::unordered_map<ImageHandle, castl::range<uint32_t>> imageLifeTimes,
-		castl::unordered_map<BufferHandle, castl::range<uint32_t>> bufferLifeTimes)
+		, castl::unordered_map<ImageHandle, ResourceUsageRangeData> imageLifeTimes,
+		castl::unordered_map<BufferHandle, ResourceUsageRangeData> bufferLifeTimes)
 	{
 		struct ResourceAllocationPasses
 		{
-			std::vector<ImageHandle> newImagesOnThisPass;
-			std::vector<ImageHandle> releasedImagesAfterThisPass;
-			std::vector<BufferHandle> newBuffersOnThisPass;
-			std::vector<BufferHandle> releasedBuffersAfterThisPass;
+			std::vector<castl::pair<ImageHandle, ResourceUsageRangeData>> newImagesOnThisPass;
+			std::vector<castl::pair<ImageHandle, ResourceUsageRangeData>> releasedImagesAfterThisPass;
+			std::vector<castl::pair<BufferHandle, ResourceUsageRangeData>> newBuffersOnThisPass;
+			std::vector<castl::pair<BufferHandle, ResourceUsageRangeData>> releasedBuffersAfterThisPass;
 		};
 
 		castl::vector<ResourceAllocationPasses> allocationPasses(resourceBatchCount);
@@ -43,46 +43,62 @@ namespace graphics_backend
 		for (auto& imgPair : imageLifeTimes)
 		{
 			auto& img = imgPair.first;
-			auto& lifeTime = imgPair.second;
-			allocationPasses[lifeTime.head()].newImagesOnThisPass.push_back(img);
-			allocationPasses[lifeTime.end()].releasedImagesAfterThisPass.push_back(img);
+			if (img.IsIntternal())
+			{
+				auto& lifeTime = imgPair.second.lifeTime;
+				allocationPasses[lifeTime.head()].newImagesOnThisPass.push_back(imgPair);
+				allocationPasses[lifeTime.end()].releasedImagesAfterThisPass.push_back(imgPair);
+			}
 		}
 
 		for (auto& bufPair : bufferLifeTimes)
 		{
 			auto& buf = bufPair.first;
-			auto& lifeTime = bufPair.second;
-			allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(buf);
-			allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(buf);
+			if (buf.IsIntternal())
+			{
+				auto& lifeTime = bufPair.second.lifeTime;
+				allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(bufPair);
+				allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(bufPair);
+			}
 		}
 
 
 		for (auto& allocationPass : allocationPasses)
 		{
-			for (auto& image : allocationPass.newImagesOnThisPass)
+			for (auto& imagePair : allocationPass.newImagesOnThisPass)
 			{
+				auto& image = imagePair.first;
+				ResourceState& initialResourceState = imagePair.second.initialState;
+				D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
 				auto& resource = imageHandleToResource[image];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromTextureDescriptor(resource.resourceDesc)
-					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT);
+					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT
+					, D3D12_RESOURCE_STATE_COMMON);
 			}
 
-			for (auto& buffer : allocationPass.newBuffersOnThisPass)
+			for (auto& bufferPair : allocationPass.newBuffersOnThisPass)
 			{
+				auto& buffer = bufferPair.first;
+				ResourceState& initialResourceState = bufferPair.second.initialState;
+				D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
 				auto& resource = bufferHandleToResource[buffer];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromGPUBufferDescriptor(resource.resourceDesc)
-					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT);
+					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT
+					, D3D12_RESOURCE_STATE_COMMON);
 			}
 
-			for (auto& image : allocationPass.releasedImagesAfterThisPass)
+			for (auto& imagePair : allocationPass.releasedImagesAfterThisPass)
 			{
+				auto& image = imagePair.first;
 				auto& resource = imageHandleToResource[image];
 				resource.gpuResource.FreeVirtualMemmories();
 			}
 
-			for (auto& buffer : allocationPass.releasedBuffersAfterThisPass)
+			for (auto& bufferPair : allocationPass.releasedBuffersAfterThisPass)
 			{
+				auto& buffer = bufferPair.first;
 				auto& resource = bufferHandleToResource[buffer];
 				resource.gpuResource.FreeVirtualMemmories();
 			}

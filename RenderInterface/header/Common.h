@@ -59,6 +59,7 @@ enum class EShaderTypeMask : uint32_t
 	eCallable = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eCallable),
 	eAmplification = 1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eAmplification),
 	eAllRaytracing = (eRaygen | eAnyhit | eClosehit | eMiss | eIntersect | eCallable | eAmplification),
+	eAllVertex = (eVert | eTessCtr | eTessEvl | eGeom | eTask | eMesh),
 };
 
 constexpr EShaderTypeMask ECompileShaderTypeToMask(ECompileShaderType shaderType)
