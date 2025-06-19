@@ -19,7 +19,6 @@ namespace graphics_backend
 		GPUConstantBufferManager& GetConstantBufferManager() { return m_ConstantBufferManager; }
 		ShaderResourceInstanceDic& GetShaderResourceInstances() { return m_ShaderResourceInstances; }
 	private:
-		void BuildPassDependencyGraph();
 
 		// castl::vector<RasterizationPass> m_RasterizePasses;
 		// castl::vector<ComputePass> m_ComputePasses;

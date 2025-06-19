@@ -75,14 +75,15 @@ namespace graphics_backend
 
 
 
-	D3D12GPUGraphExecutor::D3D12GPUGraphExecutor(RenderBackend_D3D12* app) : 
+	D3D12GPUGraphExecutor::D3D12GPUGraphExecutor(RenderBackend_D3D12* app) :
 		D3D12SubobjectBase(app)
 		, m_LocalResourceManager(app)
 		, m_ConstantBufferManager(app)
 		, m_DescriptorAllocatorSet(app)
 		, m_ResourceGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
 		, m_SamplerGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
-	{}
+	{
+	}
 
 
 
@@ -92,13 +93,13 @@ namespace graphics_backend
 		castl::unordered_map<BufferHandle, ResourceState> bufferRWStates;
 		bool depends(PassRWState const& other) const
 		{
-			for(auto& pair : imageRWStates)
+			for (auto& pair : imageRWStates)
 			{
-				auto&&[img, rwState] = pair;
+				auto&& [img, rwState] = pair;
 				auto found = other.imageRWStates.find(img);
-				if(found != other.imageRWStates.end())
+				if (found != other.imageRWStates.end())
 				{
-					if(rwState.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+					if (rwState.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
 						&& found->second.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
 					{
 					}
@@ -108,13 +109,13 @@ namespace graphics_backend
 					}
 				}
 			}
-			for(auto& pair : bufferRWStates)
+			for (auto& pair : bufferRWStates)
 			{
-				auto&&[buf, rwState] = pair;
+				auto&& [buf, rwState] = pair;
 				auto found = other.bufferRWStates.find(buf);
-				if(found != other.bufferRWStates.end())
+				if (found != other.bufferRWStates.end())
 				{
-					if(rwState.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+					if (rwState.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
 						&& found->second.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
 					{
 					}
@@ -197,7 +198,7 @@ namespace graphics_backend
 			};
 
 			auto found = imageRWStates.find(image);
-			if(found != imageRWStates.end())
+			if (found != imageRWStates.end())
 			{
 				CA_ASSERT_BREAK(found->second.Compatible(newResourceState), "Resource State Not Compatible");
 				found->second.Combine(newResourceState);
@@ -220,7 +221,7 @@ namespace graphics_backend
 			};
 
 			auto found = bufferRWStates.find(buffer);
-			if(found != bufferRWStates.end())
+			if (found != bufferRWStates.end())
 			{
 				CA_ASSERT_BREAK(found->second.Compatible(newResourceState), "Resource State Not Compatible");
 				found->second.Combine(newResourceState);
@@ -242,7 +243,8 @@ namespace graphics_backend
 		castl::vector<PassDependency*> successors;
 
 		PassDependency(PassRWState const& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
-			: rwState(rwState), passID(passID), passType(passType), predecessorCount(0) {}
+			: rwState(rwState), passID(passID), passType(passType), predecessorCount(0) {
+		}
 
 		bool DepsFree() const
 		{
@@ -259,7 +261,7 @@ namespace graphics_backend
 
 		void CheckAddSuccessor(PassDependency* successor)
 		{
-			if(rwState.depends(successor->rwState))
+			if (rwState.depends(successor->rwState))
 			{
 				successors.push_back(successor);
 				successor->predecessorCount++;
@@ -292,25 +294,25 @@ namespace graphics_backend
 		auto addPassShaderInstancesResourcesRWStates = [&](PassRWState& passRWState,
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
 		{
-			for(auto pair : passLocalBindingInstances)
+			for (auto pair : passLocalBindingInstances)
 			{
 				auto resourceBindingInstance = pair.second;
 				resourceBindingInstance->IterateResourceUsages(
-				[&](GPUResourceBindingInstance::ImageBindingElement const& imageInfo)
+					[&](GPUResourceBindingInstance::ImageBindingElement const& imageInfo)
 				{
 					for (auto& img : imageInfo.bindings)
 					{
 						passRWState.SetImageRWState(img.image, imageInfo.usingStages, imageInfo.resourceUsages, imageInfo.bindingInfo.accessType);
 					}
 				},
-				[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
+					[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
 				{
 					for (auto& buf : bufferInfo.bindings)
 					{
 						passRWState.SetBufferRWState(buf, bufferInfo.usingStages, bufferInfo.resourceUsages, bufferInfo.bindingInfo.accessType);
 					}
 				},
-				[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
+					[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
 				{
 					passRWState.SetBufferRWState(cbufferInfo.cbufferHandle
 						, cbufferInfo.usingStages
@@ -342,14 +344,14 @@ namespace graphics_backend
 					{
 						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eRenderTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
 					}
-					
+
 					++attachmentID;
 				}
 			}
 
 
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
-			for(auto& drawcallBatchs : renderPass.GetDrawCallBatches())
+			for (auto& drawcallBatchs : renderPass.GetDrawCallBatches())
 			{
 				for (auto& drawcall : drawcallBatchs.m_DrawCalls)
 				{
@@ -371,7 +373,7 @@ namespace graphics_backend
 				shaderStructs.push_back(&drawcallBatchs.shaderStructs);
 				shaderStructs.push_back(&renderPass.GetShaderStructs());
 				ShaderResourceSet resourceSet;
-				resourceSet.Init(pApp, pipelineData.m_ShaderInfo, {shaderStructs});
+				resourceSet.Init(pApp, pipelineData.m_ShaderInfo, { shaderStructs });
 				castl::shared_ptr<GPUResourceBindingInstance> resourceBindingInstance = shaderResourceInstances.get_or_create(resourceSet, [&](ShaderResourceSet const& resourceInstance) -> castl::shared_ptr<GPUResourceBindingInstance>
 				{
 					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
@@ -382,7 +384,7 @@ namespace graphics_backend
 			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
 		}
 		computePassRWStates.resize(owningGraph.GetComputePasses().size());
-		for(size_t passID = 0; passID < owningGraph.GetComputePasses().size(); ++passID)
+		for (size_t passID = 0; passID < owningGraph.GetComputePasses().size(); ++passID)
 		{
 			auto& computePass = owningGraph.GetComputePasses()[passID];
 			auto& passRWState = computePassRWStates[passID];
@@ -440,16 +442,15 @@ namespace graphics_backend
 
 	struct RenderStateBarriers
 	{
-		castl::vector<castl::pair<ImageHandle, RenderStateBarrier>> imageBarriers;
-		castl::vector<castl::pair<BufferHandle, RenderStateBarrier>> bufferBarriers;
-		void AddImageBarrier(ImageHandle const& handle, ResourceState const& before, ResourceState const& after)
+		castl::vector<castl::pair<ImageHandle, D3D12_TEXTURE_BARRIER>> imageBarriers;
+		castl::vector<castl::pair<BufferHandle, D3D12_BUFFER_BARRIER>> bufferBarriers;
+		castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
+		void AddImageBarrier(ImageHandle const& handle, D3D12_TEXTURE_BARRIER const& barrier)
 		{
-			RenderStateBarrier barrier{ before, after };
 			imageBarriers.push_back(castl::make_pair(handle, barrier));
 		}
-		void AddBufferBarrier(BufferHandle const& handle, ResourceState const& before, ResourceState const& after)
+		void AddBufferBarrier(BufferHandle const& handle, D3D12_BUFFER_BARRIER const& barrier)
 		{
-			RenderStateBarrier barrier{ before, after };
 			bufferBarriers.push_back(castl::make_pair(handle, barrier));
 		}
 	};
@@ -459,7 +460,8 @@ namespace graphics_backend
 		std::vector<uint32_t> rasterPassRefs;
 		std::vector<uint32_t> computePassRefs;
 		std::vector<uint32_t> transferPassRefs;
-		RenderStateBarriers resourceBarriers;
+		RenderStateBarriers aquireBarriers;
+		RenderStateBarriers releaseBarriers;
 		PassRWState batchRWStates;
 	};
 
@@ -610,83 +612,144 @@ namespace graphics_backend
 	)
 	{
 		castl::unordered_map<ImageHandle, ResourceState> imageStates;
-		castl::unordered_map<BufferHandle, ResourceState> bufferStates;
+		//castl::unordered_map<BufferHandle, ResourceState> bufferStates;
 
 		for (auto& pair : imageLifetimes)
 		{
 			ImageHandle const& image = pair.first;
-			ResourceState initSate;
+			ResourceState cachedState;
 			if (image.IsIntternal())
 			{
-				initSate = ResourceState::InitializedState();
+				cachedState = ResourceState::InitializedState();
 			}
 			else
 			{
 				D3DImageObject const* pImage = static_cast<D3DImageObject const*>(image.GetExternalManagedTexture().get());
-				initSate = pImage->GetResourceState();
+				cachedState = pImage->GetResourceState();
 			}
+			ResourceUsageRangeData const& usageRanges = pair.second;
 
-			imageStates.insert(castl::make_pair(pair.first, initSate));
+			//Iterate Resource Ranges, Add barriers for each batch
+			for (int bid = 0; bid < usageRanges.states.size(); ++bid)
+			{
+				ResourceUsageRangeData::BatchAndState const& batchAndState = usageRanges.states[bid];
+				int currentBatchID = batchAndState.batchID;
+				ResourceState const& currentState = batchAndState.state;
+				bool isFirstState = bid == 0;
+				bool isLastState = bid == (usageRanges.states.size() - 1);
+				int lastBatchID = isFirstState ? -1 : usageRanges.states[bid - 1].batchID;
+				bool stateHaveGap = isFirstState ? false : ((currentBatchID - lastBatchID) > 1);
+				ResourceState const& lastState = isFirstState ? cachedState : usageRanges.states[bid - 1].state;
+
+				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
+				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
+
+				D3D12_TEXTURE_BARRIER resouceBarrier{};
+				resouceBarrier.AccessBefore = lastBarrierStates.accessState;
+				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
+				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
+				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+				resouceBarrier.pResource = resourceManager.GetImageResource(image)->gpuResource.GetResource();
+				resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+
+				if (stateHaveGap)
+				{
+					CA_ASSERT_BREAK(!isFirstState, "First State Should Not Have Gap");
+					CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
+
+					auto& currentBatch = executionBatchs[currentBatchID];
+					auto& lastBatch = executionBatchs[lastBatchID];
+
+					//Have Gap, Using Split Barrier
+					D3D12_TEXTURE_BARRIER releaseBarrier = resouceBarrier;
+					releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
+					lastBatch.releaseBarriers.AddImageBarrier(image, releaseBarrier);
+
+					D3D12_TEXTURE_BARRIER aquireBarrier = resouceBarrier;
+					aquireBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
+					currentBatch.aquireBarriers.AddImageBarrier(image, aquireBarrier);
+				}
+				else
+				{
+					auto& currentBatch = executionBatchs[currentBatchID];
+					currentBatch.aquireBarriers.AddImageBarrier(image, resouceBarrier);
+				}
+			}
 		}
 		for (auto& pair : bufferLifetimes)
 		{
 			BufferHandle const& buffer = pair.first;
-			ResourceState initSate;
+			ResourceState cachedState;
 			if (buffer.IsIntternal())
 			{
-				initSate = ResourceState::InitializedState();
+				cachedState = ResourceState::InitializedState();
 			}
 			else
 			{
 				D3DBufferObject const* pBuffer = static_cast<D3DBufferObject const*>(buffer.GetExternalManagedBuffer().get());
-				initSate = pBuffer->GetResourceState();
+				cachedState = pBuffer->GetResourceState();
 			}
-			bufferStates.insert(castl::make_pair(pair.first, initSate));
-		}
-		for (uint32_t batchID = 0; batchID < executionBatchs.size(); ++batchID)
-		{
-			GPUExecutionBatch& batch = executionBatchs[batchID];
-			PassRWState& batchRWStates = batch.batchRWStates;
-			D3D12_BARRIER_GROUP barrierGroup;
-			for (auto& pair : batchRWStates.imageRWStates)
+			ResourceUsageRangeData const& usageRanges = pair.second;
+			//Iterate Resource Ranges, Add barriers for each batch
+			for (int bid = 0; bid < usageRanges.states.size(); ++bid)
 			{
-				ImageHandle const& image = pair.first;
-				ResourceState& lastState = imageStates[image];
-				ResourceState const& currentState = pair.second;
-				if (currentState.AnyStateChange(lastState))
+				ResourceUsageRangeData::BatchAndState const& batchAndState = usageRanges.states[bid];
+				int currentBatchID = batchAndState.batchID;
+				ResourceState const& currentState = batchAndState.state;
+				bool isFirstState = bid == 0;
+				bool isLastState = bid == (usageRanges.states.size() - 1);
+				int lastBatchID = isFirstState ? -1 : usageRanges.states[bid - 1].batchID;
+				bool stateHaveGap = isFirstState ? false : ((currentBatchID - lastBatchID) > 1);
+				ResourceState const& lastState = isFirstState ? cachedState : usageRanges.states[bid - 1].state;
+
+				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
+				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
+
+				D3D12_BUFFER_BARRIER resouceBarrier{};
+				resouceBarrier.AccessBefore = lastBarrierStates.accessState;
+				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
+				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
+				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+				resouceBarrier.pResource = resourceManager.GetBufferResource(buffer)->gpuResource.GetResource();
+				resouceBarrier.Offset = 0;
+				resouceBarrier.Size = ULLONG_MAX;
+				if (stateHaveGap)
 				{
-					//TODO: Collect
-					batch.resourceBarriers.AddImageBarrier(image, lastState, currentState);
-					lastState = currentState;
+					CA_ASSERT_BREAK(!isFirstState, "First State Should Not Have Gap");
+					CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
 
-					ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
-					ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
+					auto& currentBatch = executionBatchs[currentBatchID];
+					auto& lastBatch = executionBatchs[lastBatchID];
 
-					D3D12_TEXTURE_BARRIER textureBarrier{};
-					textureBarrier.AccessBefore = lastBarrierStates.accessState;
-					textureBarrier.AccessAfter = currentBarrierStates.accessState;
-					textureBarrier.SyncBefore = lastBarrierStates.barrierSync;
-					textureBarrier.SyncAfter = currentBarrierStates.barrierSync;
-					textureBarrier.LayoutBefore = lastBarrierStates.layoutState;
-					textureBarrier.LayoutAfter = currentBarrierStates.layoutState;
-					CD3DX12_BARRIER_SUBRESOURCE_RANGE fullSubresource(0xffffffff);
-					textureBarrier.Subresources = fullSubresource;
-					textureBarrier.Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+					//Have Gap, Using Split Barrier
+					D3D12_BUFFER_BARRIER releaseBarrier = resouceBarrier;
+					releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
+					lastBatch.releaseBarriers.AddBufferBarrier(buffer, releaseBarrier);
+
+					D3D12_BUFFER_BARRIER aquireBarrier = resouceBarrier;
+					releaseBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
+					currentBatch.aquireBarriers.AddBufferBarrier(buffer, aquireBarrier);
+
+				}
+				else
+				{
+					auto& currentBatch = executionBatchs[currentBatchID];
+					currentBatch.aquireBarriers.AddBufferBarrier(buffer, resouceBarrier);
 				}
 			}
-			for (auto& pair : batchRWStates.bufferRWStates)
-			{
-				BufferHandle const& buffer = pair.first;
-				ResourceState& lastState = bufferStates[buffer];
-				ResourceState const& currentState = pair.second;
-				if (currentState.AnyStateChange(lastState))
-				{
-					//TODO: Collect
-					batch.resourceBarriers.AddBufferBarrier(buffer, lastState, currentState);
-					lastState = currentState;
-				}
-			}
+
 		}
+
+	}
+
+	void Execute(RenderBackend_D3D12* pBackend
+		, GPUGraph const& owningGraph
+		, castl::vector<GPUExecutionBatch> const& executeBatchs
+		, castl::vector<RenderPassGPUData> const& rasterPassGPUData)
+	{
+		ID3D12GraphicsCommandList7* commandList7 = nullptr;
+		pBackend->GetDevice()->CreateCommandList(0
+			, D3D12_COMMAND_LIST_TYPE_DIRECT, nullptr, nullptr, IID_PPV_ARGS(&commandList7));
 	}
 
 	void D3D12GPUGraphExecutor::Init(GPUGraph const& owningGraph)
@@ -727,9 +790,9 @@ namespace graphics_backend
 			pInstance->BuildDescriptors(m_LocalResourceManager, m_ResourceGPUHeap, m_SamplerGPUHeap);
 		});
 
-		//创建PipelineBarriers
+		//创建PipelineBarriers, 目前确保在资源创建完毕后再调用
 		PrepareBatchResourceBarriers(executionBatchs, imageLifeTimes, bufferLifeTimes, m_LocalResourceManager);
-		
+
 		//创建PSO:TODO 并行化
 		castl::vector<RenderPassGPUData> rasterPassGPUDataList;
 		BuildPipelineStates(GetApp()

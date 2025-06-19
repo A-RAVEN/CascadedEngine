@@ -68,8 +68,8 @@ namespace graphics_backend
 			for (auto& imagePair : allocationPass.newImagesOnThisPass)
 			{
 				auto& image = imagePair.first;
-				ResourceState& initialResourceState = imagePair.second.initialState;
-				D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
+				//ResourceState& initialResourceState = imagePair.second.initialState;
+				//D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
 				auto& resource = imageHandleToResource[image];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromTextureDescriptor(resource.resourceDesc)
@@ -80,8 +80,8 @@ namespace graphics_backend
 			for (auto& bufferPair : allocationPass.newBuffersOnThisPass)
 			{
 				auto& buffer = bufferPair.first;
-				ResourceState& initialResourceState = bufferPair.second.initialState;
-				D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
+				//ResourceState& initialResourceState = bufferPair.second.initialState;
+				//D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
 				auto& resource = bufferHandleToResource[buffer];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromGPUBufferDescriptor(resource.resourceDesc)

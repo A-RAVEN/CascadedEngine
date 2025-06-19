@@ -131,16 +131,25 @@ namespace graphics_backend
 	struct ResourceUsageRangeData
 	{
 		ResourceUsageRange lifeTime;
-		ResourceState initialState;
-		ResourceState finalState;
+		//ResourceState initialState;
+		//ResourceState finalState;
+
+		struct BatchAndState
+		{
+			uint32_t batchID;
+			ResourceState state;
+		};
+		castl::vector<BatchAndState> states;
 
 		void Expand(uint32_t passID, ResourceState const& resourceState)
 		{
-			if (lifeTime.empty())
-			{
-				initialState = resourceState;
-			}
-			finalState = resourceState;
+			states.push_back({ passID, resourceState });
+
+			//if (lifeTime.empty())
+			//{
+			//	initialState = resourceState;
+			//}
+			//finalState = resourceState;
 			lifeTime.encapsule(passID);
 		}
 	};
