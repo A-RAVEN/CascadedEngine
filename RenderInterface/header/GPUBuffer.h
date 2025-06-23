@@ -9,6 +9,10 @@ namespace graphics_backend
 		EBufferUsageFlags usageFlags;
 		uint64_t count;
 		uint64_t stride;
+		uint64_t SizeInByte() const
+		{
+			return count * stride;
+		}
 		auto operator<=>(const GPUBufferDescriptor&) const = default;
 
 		static GPUBufferDescriptor Create(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)

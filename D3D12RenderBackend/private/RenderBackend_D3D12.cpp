@@ -98,6 +98,7 @@ namespace graphics_backend
         , m_SamplerManager(this)
         , m_RootSignatureManager(this)
         , m_PipelineManager(this)
+        , m_ComputePipelineManager(this)
     {
     }
 
@@ -147,13 +148,12 @@ namespace graphics_backend
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_CommandQueue)));
 
-        m_MemoryManager.Init();
+        DeviceInitializeSubObjects();
 	}
 
     void RenderBackend_D3D12::Release()
     {
         m_MemoryManager.Release();
-
     }
 
     castl::shared_ptr<WindowHandle> RenderBackend_D3D12::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)

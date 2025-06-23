@@ -38,6 +38,10 @@ namespace graphics_backend
 		CD3DX12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(uint32_t offset) const;
 		CD3DX12_GPU_DESCRIPTOR_HANDLE GetGPUHandle(uint32_t offset) const;
 		void FreeDescriptors(castl::range<uint32_t> range);
+		ComPtr<ID3D12DescriptorHeap> const& GetHeap() const
+		{
+			return m_DescriptorHeap;
+		}
 	private:
 		ComPtr<ID3D12DescriptorHeap> m_DescriptorHeap;
 		castl::list<castl::range<uint32_t>> m_FreeList;
@@ -61,6 +65,10 @@ namespace graphics_backend
 		GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType);
 		void Init();
 		DescriptorAllocation AllocDescriptorChunk(uint32_t descCount);
+		ComPtr<ID3D12DescriptorHeap> const& GetHeap() const
+		{
+			return m_HugeHeap.GetHeap();
+		}
 	private:
 		DescriptorHeapAllocator m_HugeHeap;
 		D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType;

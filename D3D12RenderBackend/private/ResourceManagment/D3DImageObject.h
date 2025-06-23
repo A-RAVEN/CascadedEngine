@@ -1,7 +1,7 @@
 #pragma once
 #include <GPUTexture.h>
 #include "GPUResource.h" 
-#include <GPUGraph/GPUResourceStates.h>
+#include <ResourceManagment/GPUResourceStates.h>
 
 namespace graphics_backend
 {

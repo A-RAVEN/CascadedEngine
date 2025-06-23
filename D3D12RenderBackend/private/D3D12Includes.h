@@ -16,6 +16,7 @@
 
 #define D3D12MA_USING_DIRECTX_HEADERS 1
 #include <D3D12MemAlloc.h>
+#include <DirectXTex.h>
 
 using Microsoft::WRL::ComPtr;
 

@@ -56,6 +56,8 @@ namespace graphics_backend
 		ShaderResourceBindingInfo resourceBindingInfo;
 		resourceBindingInfo.resourceDescCount = 0;
 		resourceBindingInfo.samplerDescCount = 0;
+		resourceBindingInfo.resourceHeapParamID = -1;
+		resourceBindingInfo.samplerHeapParamID = -1;
 		auto& bindingInfo = shaderReflectionData.m_BindingInfo;
 
 		std::vector<D3D12_DESCRIPTOR_RANGE1> descriptorRanges;
@@ -277,12 +279,14 @@ namespace graphics_backend
 		castl::vector<D3D12_ROOT_PARAMETER1> rootParameters;
 		if (!descriptorRanges.empty())
 		{
+			resourceBindingInfo.resourceHeapParamID = rootParameters.size();
 			CD3DX12_ROOT_PARAMETER1 resourceTableParams;
 			resourceTableParams.InitAsDescriptorTable(descriptorRanges.size(), descriptorRanges.data());
 			rootParameters.push_back(resourceTableParams);
 		}
 		if (!samplerDescriptorRanges.empty())
 		{
+			resourceBindingInfo.samplerHeapParamID = rootParameters.size();
 			CD3DX12_ROOT_PARAMETER1 samplerTableParams;
 			samplerTableParams.InitAsDescriptorTable(samplerDescriptorRanges.size(), samplerDescriptorRanges.data());
 			rootParameters.push_back(samplerTableParams);

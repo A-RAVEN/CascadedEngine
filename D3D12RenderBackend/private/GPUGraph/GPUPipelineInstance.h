@@ -2,7 +2,7 @@
 #include <Utils/D3D12SubobjectBase.h>
 #include <GPUGraph.h>
 #include <CASTL/CAArrayRef.h>
-#include "GPUResourceStates.h"
+#include <ResourceManagment/GPUResourceStates.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <CACore/CASharedDic.h>
 #include "GPUResourceBindingInstance.h"
@@ -25,7 +25,7 @@ namespace graphics_backend
 			, uint32_t depthAttachmentIndex
 			, DrawCallBatch const& drawCallBatch
 			, D3D12GraphLocalResourceManager const& resourceManager);
-		ComPtr<ID3D12RootSignature> pRootSignature;
+		//ComPtr<ID3D12RootSignature> pRootSignature;
 		ShaderInfo m_ShaderInfo;
 		cacore::HashObj<CPipelineStateObject> m_PipelineStates;
 		cacore::HashObj<InputAssemblyStates> m_InputAssemblyStates;
@@ -40,12 +40,20 @@ namespace graphics_backend
 	{
 	public:
 		void Init(RenderBackend_D3D12* app, GPUPipelineStateKey const& pipelineStateKey);
-		ComPtr<ID3D12PipelineState> Get() const
+		ComPtr<ID3D12PipelineState> GetPipelineState() const
 		{
 			return m_PipelineState;
 		}
+		int GetResourceHeapParamID() const {
+			return m_ResourceHeapParamIndex;
+		}
+		int GetSamplerHeapParamID() const {
+			return m_SamplerHeapParamIndex;
+		}
 	private:
 		ComPtr<ID3D12PipelineState> m_PipelineState;
+		int m_ResourceHeapParamIndex;
+		int m_SamplerHeapParamIndex;
 	};
 
 	class GPUPipelineManager : public D3D12SubobjectBase

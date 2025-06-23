@@ -105,39 +105,11 @@ namespace graphics_backend
 			uint32_t instanceCount = 0;
 		};
 
-
-
 		static DrawCall New()
 		{
 			return {};
 		}
-		//inline DrawCall& SetPipelineState(const CPipelineStateObject& pipelineState)
-		//{
-		//	m_PipelineStateDesc.m_PipelineStates = pipelineState;
-		//	return *this;
-		//}
-		//inline DrawCall& SetInputAssemblyStates(InputAssemblyStates assemblyStates)
-		//{
-		//	m_PipelineStateDesc.m_InputAssemblyStates = assemblyStates;
-		//	return *this;
-		//}
-		//inline DrawCall& SetShaderInfo(ShaderInfo const& shaderInfo)
-		//{
-		//	m_PipelineStateDesc.m_ShaderInfo = shaderInfo;
-		//	return *this;
-		//}
 
-		//inline DrawCall& SetViewPort(RectSate const& viewport)
-		//{
-		//	m_PipelineStateDesc.m_Viewport = viewport;
-		//	return *this;
-		//}
-
-		//inline DrawCall& SetScissor(RectSate const& scissor)
-		//{
-		//	m_PipelineStateDesc.m_Scissor = scissor;
-		//	return *this;
-		//}
 		inline DrawCall& SetVertexBuffer(cacore::NameHash const& name, BufferHandle const& bufferHandle)
 		{
 			m_BoundVertexBuffers[name] = bufferHandle;
@@ -188,7 +160,7 @@ namespace graphics_backend
 	class DrawCallBatch
 	{
 	public:
-
+		using VertexInputDescMap = castl::unordered_map<cacore::NameHash, cacore::HashObj<VertexInputsDescriptor>>;
 		static DrawCallBatch New()
 		{
 			return {};
@@ -199,7 +171,7 @@ namespace graphics_backend
 		//Draw Calls
 		castl::vector<DrawCall> m_DrawCalls;
 		ShaderStructDic shaderStructs;
-		castl::unordered_map<cacore::NameHash, cacore::HashObj<VertexInputsDescriptor>> m_VertexInputDescs;
+		VertexInputDescMap m_VertexInputDescs;
 
 		PipelineDescData const& GetPipelineStates() const
 		{
@@ -346,6 +318,10 @@ namespace graphics_backend
 		castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
 		castl::vector<ImageHandle> const& GetAttachments() const { return m_Arrachments; }
 		int GetDepthAttachmentIndex() const { return m_DepthAttachmentIndex; }
+		bool HasDepthAttachment() const
+		{
+			return m_DepthAttachmentIndex != INVALID_ATTACHMENT_INDEX;
+		}
 
 		AttachmentConfig const& GetAttachmentConfig(uint32_t attachmentID) const {
 			return m_AttachmentConfigs[attachmentID];

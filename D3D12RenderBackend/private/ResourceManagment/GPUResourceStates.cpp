@@ -27,8 +27,11 @@ namespace graphics_backend
 	//}
 
 	void D3D12GraphLocalResourceManager::AllocateAliasedResources(uint32_t resourceBatchCount
-		, castl::unordered_map<ImageHandle, ResourceUsageRangeData> imageLifeTimes,
-		castl::unordered_map<BufferHandle, ResourceUsageRangeData> bufferLifeTimes)
+		, castl::unordered_map<ImageHandle, ResourceUsageRangeData> const& imageLifeTimes
+		, castl::unordered_map<BufferHandle, ResourceUsageRangeData> const& bufferLifeTimes
+		, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
+		, GPUConstantBufferManager& constantBufferManager
+	)
 	{
 		struct ResourceAllocationPasses
 		{
@@ -62,14 +65,21 @@ namespace graphics_backend
 			}
 		}
 
+		for (auto& cbufferPair : cbufferLifetimes)
+		{
+			D3D2ShaderStruct const* pStruct = cbufferPair.first;
+			ResourceUsageRange const& lifeTime = cbufferPair.second;
+			BufferHandle handle = constantBufferManager.GetConstantBufferHandle(pStruct);
+			castl::pair<BufferHandle, ResourceUsageRangeData> bufPair = castl::make_pair(handle, ResourceUsageRangeData{});
+			allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(bufPair);
+			allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(bufPair);
+		}
 
 		for (auto& allocationPass : allocationPasses)
 		{
 			for (auto& imagePair : allocationPass.newImagesOnThisPass)
 			{
 				auto& image = imagePair.first;
-				//ResourceState& initialResourceState = imagePair.second.initialState;
-				//D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
 				auto& resource = imageHandleToResource[image];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromTextureDescriptor(resource.resourceDesc)
@@ -80,8 +90,6 @@ namespace graphics_backend
 			for (auto& bufferPair : allocationPass.newBuffersOnThisPass)
 			{
 				auto& buffer = bufferPair.first;
-				//ResourceState& initialResourceState = bufferPair.second.initialState;
-				//D3D12_RESOURCE_STATES determinedInitialState = DetermingResourceStates(initialResourceState);
 				auto& resource = bufferHandleToResource[buffer];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromGPUBufferDescriptor(resource.resourceDesc)

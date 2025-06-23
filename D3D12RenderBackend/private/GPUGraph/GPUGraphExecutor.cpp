@@ -5,73 +5,57 @@
 #include <GPUGraph/GPUPipelineInstance.h>
 #include <ResourceManagment/D3DImageObject.h>
 #include <ResourceManagment/D3DBufferObject.h>
+#include <D3D12Debug.h>
 
 namespace graphics_backend
 {
 
-	//static void ForeachRenderPassShaderStructs(RenderPass const& renderPass, castl::function<void(D3D2ShaderStruct const&)> callback)
-	//{
-	//	castl::deque<castl::shared_ptr<ShaderStruct>> shaderStructs;
-	//	for (auto shaderStruct : renderPass.GetShaderStructs())
-	//	{
-	//		CA_ASSERT_BREAK(shaderStruct.second != nullptr, "Shader Struct Is Null, Why!?");
-	//		shaderStructs.push_back(shaderStruct.second);
-	//	}
-	//	auto& drawcallBatchs = renderPass.GetDrawCallBatches();
-	//	for (auto& batch : drawcallBatchs)
-	//	{
-	//		for (auto shaderStruct : batch.shaderStructs)
-	//		{
-	//			CA_ASSERT_BREAK(shaderStruct.second != nullptr, "Shader Struct Is Null, Why!?");
-	//			shaderStructs.push_back(shaderStruct.second);
-	//		}
-	//	}
-	//	while (!shaderStructs.empty())
-	//	{
-	//		auto shaderStruct = shaderStructs.front();
-	//		D3D2ShaderStruct* pStruct = static_cast<D3D2ShaderStruct*>(shaderStruct.get());
-	//		CA_ASSERT_BREAK(pStruct != nullptr, "Shader Struct Is Null, Why!?");
-	//		callback(*pStruct);
-	//		shaderStructs.pop_front();
-	//		for (auto& subArgPairs : pStruct->GetSubStructs())
-	//		{
-	//			for (auto subStruct : subArgPairs.second)
-	//			{
-	//				shaderStructs.push_back(subStruct);
-	//			}
-	//		}
-	//	}
-	//}
+	void CollectInputAssemblyBindings(VertexInputBindingData const& bindingData
+		, DrawCallBatch::VertexInputDescMap const& vertexBufferDescs
+		, castl::unordered_map<cacore::NameHash, BufferHandle> const& boundVertexBuffers
+		, castl::vector<castl::pair<VertexInputsDescriptor, BufferHandle>> outVertexBufferBindings
+	)
+	{
+		outVertexBufferBindings.resize(bindingData.inoutBindingNameToIndex.size());
+		for (int bindingIndex = 0; bindingIndex < bindingData.inoutBindingNameToIndex.size(); ++bindingIndex)
+		{
+			cacore::NameHash const& vertexBufferDescName = bindingData.inoutBindingNameToIndex[bindingIndex];
+			auto foundDesc = vertexBufferDescs.find(vertexBufferDescName);
+			auto foundBuffer = boundVertexBuffers.find(vertexBufferDescName);
+			if (foundDesc != vertexBufferDescs.end() && foundBuffer != boundVertexBuffers.end())
+			{
+				outVertexBufferBindings[bindingIndex] = castl::make_pair(foundDesc->second.Get(), foundBuffer->second);
+			}
+		}
+	}
 
 
-	//static void ForeachComputePassShaderStructs(ComputeBatch const& computePass, castl::function<void(D3D2ShaderStruct const&)> callback)
-	//{
-	//	castl::deque<castl::shared_ptr<D3D2ShaderStruct>> shaderStructs;
-	//	for (auto& shaderStruct : computePass.shaderStructs)
-	//	{
-	//		shaderStructs.push_back(castl::static_pointer_cast<D3D2ShaderStruct>(shaderStruct.second));
-	//	}
-	//	for (auto& dispatch : computePass.dispatchs)
-	//	{
-	//		for (auto& shaderStruct : dispatch.shaderStructs)
-	//		{
-	//			shaderStructs.push_back(castl::static_pointer_cast<D3D2ShaderStruct>(shaderStruct.second));
-	//		}
-	//	}
-	//	while (!shaderStructs.empty())
-	//	{
-	//		auto shaderStruct = shaderStructs.front();
-	//		callback(*shaderStruct);
-	//		shaderStructs.pop_front();
-	//		for (auto& subArgPairs : shaderStruct->GetSubStructs())
-	//		{
-	//			for (auto subStruct : subArgPairs.second)
-	//			{
-	//				shaderStructs.push_back(castl::static_pointer_cast<D3D2ShaderStruct>(subStruct));
-	//			}
-	//		}
-	//	}
-	//}
+	struct RenderPassGPUData
+	{
+		struct DrawCallGPUData
+		{
+			castl::vector<castl::pair<VertexInputsDescriptor, BufferHandle>> inputAssemblyBindingBuffers;
+		};
+
+		struct DrawCallBatchGPUData
+		{
+			GPUPipelineInstance const* pipelineInstances;
+			GPUResourceBindingInstance const* pResourceBindingInstance;
+			castl::vector<DrawCallGPUData> drawcalls;
+		};
+		castl::vector<DrawCallBatchGPUData> drawcallBatchs;
+	};
+
+	struct ComputePassGPUData
+	{
+		struct DispatchGPUData
+		{
+			GPUComputePipelineInstance const* pipelineInstances;
+			GPUResourceBindingInstance const* pResourceBindingInstance;
+		};
+		castl::vector<DispatchGPUData> dispatchs;
+	};
+
 
 
 
@@ -82,7 +66,10 @@ namespace graphics_backend
 		, m_DescriptorAllocatorSet(app)
 		, m_ResourceGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
 		, m_SamplerGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+		, m_CommandListManager(app)
+		, m_StagingMemoryManager(app)
 	{
+		m_SamplerGPUHeap.Init();
 	}
 
 
@@ -91,6 +78,7 @@ namespace graphics_backend
 	{
 		castl::unordered_map<ImageHandle, ResourceState> imageRWStates;
 		castl::unordered_map<BufferHandle, ResourceState> bufferRWStates;
+		castl::unordered_set<D3D2ShaderStruct const*> cBufferUsageStates;
 		bool depends(PassRWState const& other) const
 		{
 			for (auto& pair : imageRWStates)
@@ -137,55 +125,12 @@ namespace graphics_backend
 			{
 				bufferRWStates.insert(pair);
 			}
+			for (D3D2ShaderStruct const* pstruct : other.cBufferUsageStates)
+			{
+				cBufferUsageStates.insert(pstruct);
+			}
 		}
-		//bool isWriting(ImageHandle const& image) const
-		//{
-		//	auto found = imageRWStates.find(image);
-		//	if(found != imageRWStates.end())
-		//	{
-		//		return found->second.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
-		//			|| found->second.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
-		//	}
-		//	return false;
-		//}
-		//bool isWriting(BufferHandle const& buffer) const
-		//{
-		//	auto found = bufferRWStates.find(buffer);
-		//	if(found != bufferRWStates.end())
-		//	{
-		//		return found->second == ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
-		//			|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
-		//	}
-		//	return false;
-		//}
-		//bool isReading(ImageHandle const& image) const
-		//{
-		//	auto found = imageRWStates.find(image);
-		//	if(found != imageRWStates.end())
-		//	{
-		//		return found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
-		//			|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
-		//	}
-		//	return false;
-		//}
-		//bool isReading(BufferHandle const& buffer) const
-		//{
-		//	auto found = bufferRWStates.find(buffer);
-		//	if(found != bufferRWStates.end())
-		//	{
-		//		return found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
-		//			|| found->second == ShaderCompilerSlang::EShaderResourceAccess::eReadWrite;
-		//	}
-		//	return false;
-		//}
-		//bool isReadingOrWriting(ImageHandle const& image) const
-		//{
-		//	return imageRWStates.contains(image);
-		//}
-		//bool isReadingOrWriting(BufferHandle const& buffer) const
-		//{
-		//	return bufferRWStates.contains(buffer);
-		//}
+		
 		void SetImageRWState(ImageHandle const& image
 			, EShaderTypeFlags stages
 			, EResourceUsageFlags usages
@@ -230,6 +175,10 @@ namespace graphics_backend
 			{
 				bufferRWStates.insert(castl::make_pair(buffer, newResourceState));
 			}
+		}
+		void SetCBufferUsageState(D3D2ShaderStruct const* pCBufferStruct)
+		{
+			cBufferUsageStates.insert(pCBufferStruct);
 		}
 	};
 
@@ -277,13 +226,11 @@ namespace graphics_backend
 		ShaderResourceInstanceDic& shaderResourceInstances,
 		castl::vector<PassRWState>& passRWStates,
 		castl::vector<PassRWState>& computePassRWStates,
-		castl::vector<PassRWState>& transferPassRWStates
+		castl::vector<PassRWState>& transferPassRWStates,
+		castl::vector<RenderPassGPUData>& rasterGPUData,
+		castl::vector<ComputePassGPUData>& computeGPUData
 	)
 	{
-		//auto pApp = executor.GetApp();
-		//auto& resourceManager = executor.GetLocalResourceManager();
-		//auto& constantBufferManager = executor.GetConstantBufferManager();
-		//auto& shaderResourceInstances = executor.GetShaderResourceInstances();
 		auto registerBufferToLocalResourceManager = [&](BufferHandle const& buffer)
 		{
 			auto descriptor = owningGraph.GetBufferManager().GetDescriptor(buffer.GetKey());
@@ -298,26 +245,27 @@ namespace graphics_backend
 			{
 				auto resourceBindingInstance = pair.second;
 				resourceBindingInstance->IterateResourceUsages(
-					[&](GPUResourceBindingInstance::ImageBindingElement const& imageInfo)
+				[&](GPUResourceBindingInstance::ImageBindingElement const& imageInfo)
 				{
 					for (auto& img : imageInfo.bindings)
 					{
 						passRWState.SetImageRWState(img.image, imageInfo.usingStages, imageInfo.resourceUsages, imageInfo.bindingInfo.accessType);
 					}
 				},
-					[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
+				[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
 				{
 					for (auto& buf : bufferInfo.bindings)
 					{
 						passRWState.SetBufferRWState(buf, bufferInfo.usingStages, bufferInfo.resourceUsages, bufferInfo.bindingInfo.accessType);
 					}
 				},
-					[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
+				[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
 				{
-					passRWState.SetBufferRWState(cbufferInfo.cbufferHandle
+					passRWState.SetCBufferUsageState(cbufferInfo.pCBufferStruct);
+					/*passRWState.SetBufferRWState(cbufferInfo.cbufferHandle
 						, cbufferInfo.usingStages
 						, EResourceUsage::eConstantBuffer
-						, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
+						, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);*/
 				});
 			}
 		};
@@ -328,6 +276,7 @@ namespace graphics_backend
 		{
 			auto& renderPass = owningGraph.GetRenderPasses()[passID];
 			auto& passRWState = passRWStates[passID];
+			auto& rasterPassGPUData = rasterGPUData[passID];
 			//将renderPass的attachment注册进m_LocalResourceManager中
 			{
 				int attachmentID = 0;
@@ -344,16 +293,19 @@ namespace graphics_backend
 					{
 						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eRenderTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
 					}
-
 					++attachmentID;
 				}
 			}
 
 
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
-			for (auto& drawcallBatchs : renderPass.GetDrawCallBatches())
+			auto& drawcalBatchs = renderPass.GetDrawCallBatches();
+
+			for(size_t batchID = 0; batchID < drawcalBatchs.size(); ++batchID)
 			{
-				for (auto& drawcall : drawcallBatchs.m_DrawCalls)
+				auto& drawcallBatch = drawcalBatchs[batchID];
+				auto& batchGPUData = rasterPassGPUData.drawcallBatchs[batchID];
+				for (auto& drawcall : drawcallBatch.m_DrawCalls)
 				{
 					//将drawcall的index和vertexbuffer注册进m_LocalResourceManager中
 					if (drawcall.GetDrawInfo().drawIndexed)
@@ -368,9 +320,9 @@ namespace graphics_backend
 						passRWState.SetBufferRWState(vertBuf.second, EShaderTypeMask::eNone, EResourceUsage::eVertexInput, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
 					}
 				}
-				auto pipelineData = PipelineDescData::CombindDescData(renderPass.GetPipelineStates(), drawcallBatchs.pipelineStateDesc);
+				auto pipelineData = PipelineDescData::CombindDescData(renderPass.GetPipelineStates(), drawcallBatch.pipelineStateDesc);
 				castl::vector<ShaderStructDic const*> shaderStructs;
-				shaderStructs.push_back(&drawcallBatchs.shaderStructs);
+				shaderStructs.push_back(&drawcallBatch.shaderStructs);
 				shaderStructs.push_back(&renderPass.GetShaderStructs());
 				ShaderResourceSet resourceSet;
 				resourceSet.Init(pApp, pipelineData.m_ShaderInfo, { shaderStructs });
@@ -378,6 +330,8 @@ namespace graphics_backend
 				{
 					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
 				})->second;
+
+				batchGPUData.pResourceBindingInstance = resourceBindingInstance.get();
 
 				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
 			}
@@ -388,9 +342,12 @@ namespace graphics_backend
 		{
 			auto& computePass = owningGraph.GetComputePasses()[passID];
 			auto& passRWState = computePassRWStates[passID];
+			auto& computePassGPUData = computeGPUData[passID];
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
-			for (auto& dispatch : computePass.dispatchs)
+			for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 			{
+				auto& dispatch = computePass.dispatchs[dispatchID];
+				auto& dispatchGPUData = computePassGPUData.dispatchs[dispatchID];
 				castl::vector<ShaderStructDic const*> shaderStructs;
 				shaderStructs.push_back(&dispatch.shaderStructs);
 				shaderStructs.push_back(&computePass.shaderStructs);
@@ -400,6 +357,7 @@ namespace graphics_backend
 				{
 					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
 				})->second;
+				dispatchGPUData.pResourceBindingInstance = resourceBindingInstance.get();
 				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
 			}
 			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
@@ -440,11 +398,19 @@ namespace graphics_backend
 		ResourceState after;
 	};
 
+	struct CBufferInitializeBarriers
+	{
+		castl::vector<castl::pair<BufferHandle, D3D2ShaderStruct const*>> cbufferData;
+		void AddCBuffer(BufferHandle const& bufferHandle, D3D2ShaderStruct const* shaderStruct)
+		{
+			cbufferData.push_back(castl::make_pair(bufferHandle, shaderStruct));
+		}
+	};
+
 	struct RenderStateBarriers
 	{
 		castl::vector<castl::pair<ImageHandle, D3D12_TEXTURE_BARRIER>> imageBarriers;
 		castl::vector<castl::pair<BufferHandle, D3D12_BUFFER_BARRIER>> bufferBarriers;
-		castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
 		void AddImageBarrier(ImageHandle const& handle, D3D12_TEXTURE_BARRIER const& barrier)
 		{
 			imageBarriers.push_back(castl::make_pair(handle, barrier));
@@ -462,7 +428,98 @@ namespace graphics_backend
 		std::vector<uint32_t> transferPassRefs;
 		RenderStateBarriers aquireBarriers;
 		RenderStateBarriers releaseBarriers;
+		CBufferInitializeBarriers cbufferBarriers;
 		PassRWState batchRWStates;
+
+
+		void ExecuteAquireBarriers(ID3D12GraphicsCommandList7* pCommandList
+			, LinearMemoryManager& linearMemoryManager
+			, D3D12GraphLocalResourceManager& resourceManager) const
+		{
+			castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
+			castl::vector<D3D12_TEXTURE_BARRIER> imageBarriers;
+			for (auto& aquireImageBarriers : aquireBarriers.imageBarriers)
+			{
+				imageBarriers.push_back(aquireImageBarriers.second);
+			}
+			if (!imageBarriers.empty())
+			{
+				CD3DX12_BARRIER_GROUP imageBarrierGroup(imageBarriers.size(), imageBarriers.data());
+				barrierGroups.push_back(imageBarrierGroup);
+			}
+			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
+			//CBuffer Barriers
+			for (auto& cbufferData : cbufferBarriers.cbufferData)
+			{
+				BufferHandle const& bufferHandle = cbufferData.first;
+				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
+				ID3D12Resource* targetBuffer = info->gpuResource.GetResource();
+
+				D3D2ShaderStruct const* pStruct = cbufferData.second;
+				auto& uniformBufferData = pStruct->GetSelfUniformBuffer();
+				ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(uniformBufferData.size());
+				UINT8* mappedStagingData;
+				stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
+				memcpy(mappedStagingData, uniformBufferData.data(), uniformBufferData.size());
+				stagingBuffer->Unmap(0, nullptr);
+
+				pCommandList->CopyBufferRegion(targetBuffer, 0, stagingBuffer, 0, uniformBufferData.size());
+
+				D3D12_BUFFER_BARRIER resouceBarrier{};
+				resouceBarrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+				resouceBarrier.AccessAfter = D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+				resouceBarrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+				resouceBarrier.SyncAfter = D3D12_BARRIER_SYNC_ALL;//TODO: Need Sync After!
+				resouceBarrier.pResource = targetBuffer;
+				resouceBarrier.Offset = 0;
+				resouceBarrier.Size = ULLONG_MAX;
+				bufferBarriers.push_back(resouceBarrier);
+			}
+			for (auto& aquireBufferBarriers : aquireBarriers.bufferBarriers)
+			{
+				bufferBarriers.push_back(aquireBufferBarriers.second);
+			}
+			if (!bufferBarriers.empty())
+			{
+				CD3DX12_BARRIER_GROUP bufferBarrierGroup(bufferBarriers.size(), bufferBarriers.data());
+				barrierGroups.push_back(bufferBarrierGroup);
+			}
+			if (!barrierGroups.empty())
+			{
+				pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
+			}
+		}
+
+		void ExecuteReleaseBarriers(ID3D12GraphicsCommandList7* pCommandList) const
+		{
+			castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
+			castl::vector<D3D12_TEXTURE_BARRIER> imageBarriers;
+			for (auto& aquireImageBarriers : releaseBarriers.imageBarriers)
+			{
+				imageBarriers.push_back(aquireImageBarriers.second);
+			}
+			if (!imageBarriers.empty())
+			{
+				CD3DX12_BARRIER_GROUP imageBarrierGroup(imageBarriers.size(), imageBarriers.data());
+				barrierGroups.push_back(imageBarrierGroup);
+			}
+			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
+			
+			for (auto& aquireBufferBarriers : releaseBarriers.bufferBarriers)
+			{
+				bufferBarriers.push_back(aquireBufferBarriers.second);
+			}
+			if (!bufferBarriers.empty())
+			{
+				CD3DX12_BARRIER_GROUP bufferBarrierGroup(bufferBarriers.size(), bufferBarriers.data());
+				barrierGroups.push_back(bufferBarrierGroup);
+			}
+			if (!barrierGroups.empty())
+			{
+				pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
+			}
+		}
+
 	};
 
 
@@ -544,6 +601,7 @@ namespace graphics_backend
 
 	void BuildResourceUsageRanges(castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageRanges,
 		castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferRanges,
+		castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange>& cbufferRanges,
 		castl::vector<GPUExecutionBatch> const& executionBatchs
 	)
 	{
@@ -559,60 +617,93 @@ namespace graphics_backend
 			{
 				bufferRanges[bufferRWState.first].Expand(batchID, bufferRWState.second);
 			}
+			for (D3D2ShaderStruct const* cbufferStruct : rwStates.cBufferUsageStates)
+			{
+				cbufferRanges[cbufferStruct].encapsule(batchID);
+			}
 		}
 	}
-
-	struct RenderPassGPUData
-	{
-		struct DrawCallBatchGPUData
-		{
-			GPUPipelineInstance const* pipelineInstances;
-		};
-		castl::vector<DrawCallBatchGPUData> drawcallBatchs;
-	};
 
 	void BuildPipelineStates(RenderBackend_D3D12* app
 		, GPUGraph const& owningGraph
 		, D3D12GraphLocalResourceManager const& resourceManager
-		, castl::vector<RenderPassGPUData>& outRasterPassObjects)
+		, castl::vector<RenderPassGPUData>& inoutRasterPassObjects
+		, castl::vector<ComputePassGPUData>& inoutComputePassObjects
+	)
 	{
-		auto& renderPasses = owningGraph.GetRenderPasses();
-		outRasterPassObjects.reserve(renderPasses.size());
-		for (auto& rasterPass : renderPasses)
+		//Raster Passes
 		{
-			RenderPassGPUData gpuData;
-
-			auto& attachments = rasterPass.GetAttachments();
-			for (auto& batch : rasterPass.GetDrawCallBatches())
+			auto& renderPasses = owningGraph.GetRenderPasses();
+			CA_ASSERT_BREAK(renderPasses.size() == inoutRasterPassObjects.size(), "rasterPass Data Length Not Equal");
+			for (size_t passID = 0; passID < renderPasses.size(); ++passID)
 			{
-				RenderPassGPUData::DrawCallBatchGPUData batchData;
+				auto& rasterPass = renderPasses[passID];
+				auto& rasterPassData = inoutRasterPassObjects[passID];
 
-				PipelineDescData batchLevelDescData = PipelineDescData::CombindDescData(
-					rasterPass.GetPipelineStates()
-					, batch.GetPipelineStates());
-				GPUPipelineStateKey pipelineStateKey;
-				pipelineStateKey.Init(app
-					, batchLevelDescData
-					, attachments
-					, rasterPass.GetDepthAttachmentIndex()
-					, batch
-					, resourceManager);
+				auto& attachments = rasterPass.GetAttachments();
+				CA_ASSERT_BREAK(rasterPass.GetDrawCallBatches().size() == rasterPassData.drawcallBatchs.size(), "drawcall batch Data Length Not Equal");
+				for (size_t batchID = 0; batchID < rasterPass.GetDrawCallBatches().size(); ++batchID)
+				{
+					auto& batch = rasterPass.GetDrawCallBatches()[batchID];
+					auto& batchData = rasterPassData.drawcallBatchs[batchID];
 
-				batchData.pipelineInstances = app->GetRasterPipelineManager().GetPipelineState(pipelineStateKey);
-				gpuData.drawcallBatchs.push_back(batchData);
+					PipelineDescData batchLevelDescData = PipelineDescData::CombindDescData(
+						rasterPass.GetPipelineStates()
+						, batch.GetPipelineStates());
+					GPUPipelineStateKey pipelineStateKey;
+					pipelineStateKey.Init(app
+						, batchLevelDescData
+						, attachments
+						, rasterPass.GetDepthAttachmentIndex()
+						, batch
+						, resourceManager);
+
+					batchData.pipelineInstances = app->GetRasterPipelineManager().GetPipelineState(pipelineStateKey);
+
+					batchData.drawcalls.resize(batch.m_DrawCalls.size());
+					for (size_t drawcallID = 0; drawcallID < batch.m_DrawCalls.size(); ++drawcallID)
+					{
+						auto& drawcall = batch.m_DrawCalls[drawcallID];
+						auto& drawcallData = batchData.drawcalls[drawcallID];
+						CollectInputAssemblyBindings(pipelineStateKey.m_VertexInputBindingData
+							, batch.m_VertexInputDescs
+							, drawcall.GetVertexBuffers()
+							, drawcallData.inputAssemblyBindingBuffers);
+					}
+				}
 			}
-			outRasterPassObjects.push_back(gpuData);
 		}
+
+		//Compute Passes
+		{
+			auto& computePasses = owningGraph.GetComputePasses();
+			CA_ASSERT_BREAK(computePasses.size() == inoutComputePassObjects.size(), "computePass Data Length Not Equal");
+			for (size_t passID = 0; passID < computePasses.size(); ++passID)
+			{
+				auto& computePass = computePasses[passID];
+				auto& computePassData = inoutComputePassObjects[passID];
+				CA_ASSERT_BREAK(computePass.dispatchs.size() == computePassData.dispatchs.size(), "dispatch Data Length Not Equal");
+				for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
+				{
+					auto& dispatch = computePass.dispatchs[dispatchID];
+					auto& dispatchData = computePassData.dispatchs[dispatchID];
+
+					dispatchData.pipelineInstances = app->GetComputePipelineManager().GetPipelineState(dispatch.m_ShaderInfo);
+				}
+			}
+		}
+
 	}
 
 	void PrepareBatchResourceBarriers(castl::vector<GPUExecutionBatch>& executionBatchs
 		, castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageLifetimes
 		, castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferLifetimes
+		, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
+		, GPUConstantBufferManager& constantBufferManager
 		, D3D12GraphLocalResourceManager& resourceManager
 	)
 	{
 		castl::unordered_map<ImageHandle, ResourceState> imageStates;
-		//castl::unordered_map<BufferHandle, ResourceState> bufferStates;
 
 		for (auto& pair : imageLifetimes)
 		{
@@ -679,6 +770,8 @@ namespace graphics_backend
 		for (auto& pair : bufferLifetimes)
 		{
 			BufferHandle const& buffer = pair.first;
+			ResourceUsageRangeData const& usageRanges = pair.second;
+			
 			ResourceState cachedState;
 			if (buffer.IsIntternal())
 			{
@@ -689,13 +782,13 @@ namespace graphics_backend
 				D3DBufferObject const* pBuffer = static_cast<D3DBufferObject const*>(buffer.GetExternalManagedBuffer().get());
 				cachedState = pBuffer->GetResourceState();
 			}
-			ResourceUsageRangeData const& usageRanges = pair.second;
 			//Iterate Resource Ranges, Add barriers for each batch
 			for (int bid = 0; bid < usageRanges.states.size(); ++bid)
 			{
 				ResourceUsageRangeData::BatchAndState const& batchAndState = usageRanges.states[bid];
 				int currentBatchID = batchAndState.batchID;
 				ResourceState const& currentState = batchAndState.state;
+
 				bool isFirstState = bid == 0;
 				bool isLastState = bid == (usageRanges.states.size() - 1);
 				int lastBatchID = isFirstState ? -1 : usageRanges.states[bid - 1].batchID;
@@ -737,22 +830,233 @@ namespace graphics_backend
 					currentBatch.aquireBarriers.AddBufferBarrier(buffer, resouceBarrier);
 				}
 			}
-
 		}
 
+		//Constant Buffers Initialized In First Used Batch And Remain Unchanged In Whole Lifetime
+		for (auto& pair : cbufferLifetimes)
+		{
+			if (pair.second.empty())
+				continue;
+			D3D2ShaderStruct const* pStruct = pair.first;
+			int initialBatchID = pair.second.head();
+			auto& initialBatch = executionBatchs[initialBatchID];
+			initialBatch.cbufferBarriers.AddCBuffer(constantBufferManager.GetConstantBufferHandle(pStruct), pStruct);
+		}
 	}
 
 	void Execute(RenderBackend_D3D12* pBackend
 		, GPUGraph const& owningGraph
+		, CommandListManager& commandListMgr
+		, LinearMemoryManager& linearMemoryManager
+		, D3D12GraphLocalResourceManager& resourceManager
+		, GPUDescriptorHeap& resourceHeap
+		, GPUDescriptorHeap& samplerHeap
 		, castl::vector<GPUExecutionBatch> const& executeBatchs
 		, castl::vector<RenderPassGPUData> const& rasterPassGPUData)
 	{
-		ID3D12GraphicsCommandList7* commandList7 = nullptr;
-		pBackend->GetDevice()->CreateCommandList(0
-			, D3D12_COMMAND_LIST_TYPE_DIRECT, nullptr, nullptr, IID_PPV_ARGS(&commandList7));
+		ID3D12GraphicsCommandList7* pCommand = commandListMgr.DirectCommand();
+		std::array<ID3D12DescriptorHeap*, 2> descHeaps = { resourceHeap.GetHeap().Get(),samplerHeap.GetHeap().Get()};
+		pCommand->SetDescriptorHeaps(descHeaps.size(), descHeaps.data());
+		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
+		{
+			auto& executeBatch = executeBatchs[executeBatchID];
+			executeBatch.ExecuteAquireBarriers(pCommand, linearMemoryManager, resourceManager);
+
+			//Rasterize Passes
+			for (int rasterPassID : executeBatch.rasterPassRefs)
+			{
+				auto& rasterData = rasterPassGPUData[rasterPassID];
+				auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
+				CA_ASSERT_BREAK(rasterData.drawcallBatchs.size() == pass.GetDrawCallBatches().size(), "Raster Pass Batch Count Inompatible");
+				
+				//Set Render Targets
+				{
+					castl::vector<D3D12_CPU_DESCRIPTOR_HANDLE> rtvs;
+					rtvs.reserve(pass.GetAttachments().size());
+					for (int attachmentID = 0; attachmentID < pass.GetAttachments().size(); ++attachmentID)
+					{
+						if (attachmentID != pass.GetDepthAttachmentIndex())
+						{
+							ImageHandle const& imageHandle = pass.GetAttachments()[attachmentID];
+							auto pImageResource = resourceManager.GetImageResource(imageHandle);
+							auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget(pImageResource->resourceDesc.format);
+							auto foundView = pImageResource->resourceViews.find(defaultImageView);
+							CA_ASSERT_BREAK(foundView != pImageResource->resourceViews.end(), "Attachment Image View Not Found");
+							rtvs.push_back(foundView->second.rtv.CPUHandle());
+						}
+					}
+					if (pass.HasDepthAttachment())
+					{
+						ImageHandle const& imageHandle = pass.GetAttachments()[pass.GetDepthAttachmentIndex()];
+						auto pImageResource = resourceManager.GetImageResource(imageHandle);
+						auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget(pImageResource->resourceDesc.format);
+						auto foundView = pImageResource->resourceViews.find(defaultImageView);
+						CA_ASSERT_BREAK(foundView != pImageResource->resourceViews.end(), "Depth Attachment Image View Not Found");
+						D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = foundView->second.dsv.CPUHandle();
+						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, &dsvHandle);
+					}
+					else
+					{
+						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, NULL);
+					}
+
+				}
+	
+				for (int batchID = 0; batchID < rasterData.drawcallBatchs.size(); ++batchID)
+				{
+					auto& batchData = rasterData.drawcallBatchs[batchID];
+					auto& batch = pass.GetDrawCallBatches()[batchID];
+					auto pipelineState = batchData.pipelineInstances->GetPipelineState();
+					pCommand->SetPipelineState(pipelineState.Get());
+
+					//Bind Descriptor Tables
+					{
+						int resourceHeapID = batchData.pipelineInstances->GetResourceHeapParamID();
+						int samplerHeapID = batchData.pipelineInstances->GetSamplerHeapParamID();
+						bool hasResourceHeap = resourceHeapID != -1;
+						bool hasSamplerHeap = samplerHeapID != -1;
+						//Descriptor Table Should Match Root Signature Param ID
+						if (hasResourceHeap)
+						{
+							pCommand->SetGraphicsRootDescriptorTable(resourceHeapID
+								, batchData.pResourceBindingInstance->GetBindingInfo().descriptorAllocation.GPUHandle());
+						}
+						if (hasSamplerHeap)
+						{
+							pCommand->SetGraphicsRootDescriptorTable(samplerHeapID
+								, batchData.pResourceBindingInstance->GetBindingInfo().samplerAllocation.GPUHandle());
+						}
+					}
+
+					//Commands For Drawcalls
+					for (int drawcallID = 0; drawcallID < batch.m_DrawCalls.size(); ++drawcallID)
+					{
+						auto& drawcall = batch.m_DrawCalls[drawcallID];
+						auto& drawInfo = drawcall.GetDrawInfo();
+						auto& drawcallData = batchData.drawcalls[drawcallID];
+
+						//Vertex Assembly Input
+						{
+							castl::vector<D3D12_VERTEX_BUFFER_VIEW>vertexBufferViews(drawcallData.inputAssemblyBindingBuffers.size());
+							for (size_t vbid = 0; vbid < drawcallData.inputAssemblyBindingBuffers.size(); ++vbid)
+							{
+								auto&& [vertexInputDesc, bufferHandle] = drawcallData.inputAssemblyBindingBuffers[vbid];
+								auto pBufferResource = resourceManager.GetBufferResource(bufferHandle);
+								D3D12_VERTEX_BUFFER_VIEW& view = vertexBufferViews[vbid];
+								view.BufferLocation = pBufferResource->gpuResource.GetResource()->GetGPUVirtualAddress();
+								view.SizeInBytes = pBufferResource->resourceDesc.SizeInByte();
+								view.StrideInBytes = vertexInputDesc.stride;
+							}
+							pCommand->IASetVertexBuffers(0, vertexBufferViews.size(), vertexBufferViews.data());
+						}
+
+
+						if (drawInfo.drawIndexed)
+						{
+							pCommand->DrawIndexedInstanced(drawInfo.indexCount, drawInfo.instanceCount, drawInfo.indexOffset, drawInfo.vertexOffset, drawInfo.firstInstanceID);
+						}
+						else
+						{
+							pCommand->DrawInstanced(drawInfo.vertexCount, drawInfo.instanceCount, drawInfo.vertexOffset, drawInfo.firstInstanceID);
+						}
+					}
+				}
+			}
+
+			//Compute Passes
+
+			//Transfer Passes
+			for (int transferPassID : executeBatch.transferPassRefs)
+			{
+				GPUDataTransfers const& transferPass = owningGraph.GetDataTransfers()[transferPassID];
+				for (auto& imageUploads : transferPass.m_ImageDataUploads)
+				{
+					auto&& [targetImageHandle, dataRef] = imageUploads;
+					auto pImageResource = resourceManager.GetImageResource(targetImageHandle);
+					auto targetGPUResource = pImageResource->gpuResource.GetResource();
+
+					D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts;
+					UINT numRows;
+					UINT64 rowSizeInBytes;
+					UINT64 totalBytes;
+					D3D12_RESOURCE_DESC resourceDesc = targetGPUResource->GetDesc();
+					const UINT subresourceNum = 1;
+					pBackend->GetDevice()->GetCopyableFootprints(&resourceDesc
+						, 0, subresourceNum, 0
+						, &layouts, &numRows, &rowSizeInBytes, &totalBytes);
+
+					ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(totalBytes);
+					D3D12_SUBRESOURCE_DATA subresourceData{};
+					subresourceData.pData = dataRef.pData;
+					{
+						size_t rowPitch;
+						size_t slicePitch;
+						DirectX::ComputePitch(resourceDesc.Format, resourceDesc.Width, resourceDesc.Height
+							, rowPitch, slicePitch, DirectX::CP_FLAGS_NONE);
+						subresourceData.RowPitch = rowPitch;
+						subresourceData.SlicePitch = slicePitch;
+					}
+					ThrowIfFailed(UpdateSubresources((ID3D12GraphicsCommandList*)pCommand
+						, targetGPUResource, stagingBuffer
+						, 0
+						, subresourceNum, totalBytes, &layouts, &numRows, &rowSizeInBytes, &subresourceData));
+				}
+				for (auto& bufferUploads : transferPass.m_BufferDataUploads)
+				{
+					auto&& [targetBufferHandle, dataRef] = bufferUploads;
+					auto pBufferHandle = resourceManager.GetBufferResource(targetBufferHandle);
+
+					ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(dataRef.dataSize);
+					UINT8* mappedStagingData;
+					stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
+					memcpy(mappedStagingData, dataRef.pData, dataRef.dataSize);
+					stagingBuffer->Unmap(0, nullptr);
+
+					pCommand->CopyBufferRegion(pBufferHandle->gpuResource.GetResource(), 0, stagingBuffer, 0, dataRef.dataSize);
+				}
+			}
+
+			executeBatch.ExecuteReleaseBarriers(pCommand);
+		}
+		pCommand->Close();
+		castl::vector<ID3D12CommandList*> commands = { pCommand };
+		pBackend->GetDirectQueue()->ExecuteCommandLists(1, commands.data());
+		ComPtr<ID3D12Fence> fance;
+		pBackend->GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fance));
+		pBackend->GetDirectQueue()->Signal(fance.Get(), 1);
+		while (fance->GetCompletedValue() < 1)
+		{
+			//Do Nothing;
+		}
 	}
 
-	void D3D12GPUGraphExecutor::Init(GPUGraph const& owningGraph)
+	void InitArraySizes(GPUGraph const& owningGraph,
+		castl::vector<PassRWState>& passRWStates,
+		castl::vector<PassRWState>& computePassRWStates,
+		castl::vector<PassRWState>& transferPassRWStates,
+		castl::vector<RenderPassGPUData>& rasterPassGPUDataList,
+		castl::vector<ComputePassGPUData>& computePassGPUDataList
+	)
+	{
+		passRWStates.resize(owningGraph.GetRenderPasses().size());
+		rasterPassGPUDataList.resize(owningGraph.GetRenderPasses().size());
+		for (size_t rasterPassID = 0; rasterPassID < owningGraph.GetRenderPasses().size(); ++rasterPassID)
+		{
+			auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
+			auto& passData = rasterPassGPUDataList[rasterPassID];
+			passData.drawcallBatchs.resize(pass.GetDrawCallBatches().size());
+		}
+		computePassRWStates.resize(owningGraph.GetComputePasses().size());
+		for (size_t computePassID = 0; computePassID < owningGraph.GetComputePasses().size(); ++computePassID)
+		{
+			auto& pass = owningGraph.GetComputePasses()[computePassID];
+			auto& passData = computePassGPUDataList[computePassID];
+			passData.dispatchs.resize(pass.dispatchs.size());
+		}
+		transferPassRWStates.resize(owningGraph.GetDataTransfers().size());
+	}
+
+	void D3D12GPUGraphExecutor::CompileAndExecute(GPUGraph const& owningGraph)
 	{
 		//收集当前图中所有的资源
 		//并注册到m_LocalResourceManager中
@@ -760,12 +1064,20 @@ namespace graphics_backend
 		castl::vector<PassRWState> passRWStates;
 		castl::vector<PassRWState> computePassRWStates;
 		castl::vector<PassRWState> transferPassRWStates;
+		castl::vector<RenderPassGPUData> rasterPassGPUDataList;
+		castl::vector<ComputePassGPUData> computePassGPUDataList;
+		InitArraySizes(owningGraph
+			, passRWStates, computePassRWStates, transferPassRWStates
+			, rasterPassGPUDataList, computePassGPUDataList
+		);
 		Prepare(owningGraph
 			, GetApp()
 			, m_LocalResourceManager
 			, m_ConstantBufferManager
 			, m_ShaderResourceInstances
-			, passRWStates, computePassRWStates, transferPassRWStates);
+			, passRWStates, computePassRWStates, transferPassRWStates
+			, rasterPassGPUDataList
+			, computePassGPUDataList);
 		//整理出多个连续的无依赖batch
 		castl::vector<GPUExecutionBatch> executionBatchs;
 		BuildDependencyFreeBatchs(owningGraph
@@ -778,29 +1090,34 @@ namespace graphics_backend
 		//统计资源的生命周期
 		castl::unordered_map<ImageHandle, ResourceUsageRangeData> imageLifeTimes;
 		castl::unordered_map<BufferHandle, ResourceUsageRangeData> bufferLifeTimes;
-		BuildResourceUsageRanges(imageLifeTimes, bufferLifeTimes, executionBatchs);
+		castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> cbufferLifeTimes;
+		BuildResourceUsageRanges(imageLifeTimes, bufferLifeTimes, cbufferLifeTimes, executionBatchs);
 
 		//依据资源的生命周期实际分配资源
-		m_LocalResourceManager.AllocateAliasedResources(executionBatchs.size(), imageLifeTimes, bufferLifeTimes);
+		m_LocalResourceManager.AllocateAliasedResources(executionBatchs.size(), imageLifeTimes, bufferLifeTimes
+			, cbufferLifeTimes, m_ConstantBufferManager);
 		//为资源创建 descriptor
 		m_LocalResourceManager.PrepareResourceDescriptors(m_DescriptorAllocatorSet);
-
+		//构建每个shader实例的资源绑定集合
 		m_ShaderResourceInstances.for_each([&](auto& shaderSet, castl::shared_ptr<GPUResourceBindingInstance>& pInstance)->void
 		{
 			pInstance->BuildDescriptors(m_LocalResourceManager, m_ResourceGPUHeap, m_SamplerGPUHeap);
 		});
 
 		//创建PipelineBarriers, 目前确保在资源创建完毕后再调用
-		PrepareBatchResourceBarriers(executionBatchs, imageLifeTimes, bufferLifeTimes, m_LocalResourceManager);
+		PrepareBatchResourceBarriers(executionBatchs
+			, imageLifeTimes
+			, bufferLifeTimes
+			, cbufferLifeTimes
+			, m_ConstantBufferManager
+			, m_LocalResourceManager);
 
 		//创建PSO:TODO 并行化
-		castl::vector<RenderPassGPUData> rasterPassGPUDataList;
 		BuildPipelineStates(GetApp()
 			, owningGraph
 			, m_LocalResourceManager
-			, rasterPassGPUDataList);
-
-
+			, rasterPassGPUDataList
+			, computePassGPUDataList);
 
 	}
 }

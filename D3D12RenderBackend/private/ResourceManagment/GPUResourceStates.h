@@ -4,6 +4,7 @@
 #include <Common.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <GPUGraph.h>
+#include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <ResourceManagment/MemoryManager.h>
 #include <DescriptorManagment/GPUDescriptorHeap.h>
 
@@ -131,8 +132,6 @@ namespace graphics_backend
 	struct ResourceUsageRangeData
 	{
 		ResourceUsageRange lifeTime;
-		//ResourceState initialState;
-		//ResourceState finalState;
 
 		struct BatchAndState
 		{
@@ -144,12 +143,6 @@ namespace graphics_backend
 		void Expand(uint32_t passID, ResourceState const& resourceState)
 		{
 			states.push_back({ passID, resourceState });
-
-			//if (lifeTime.empty())
-			//{
-			//	initialState = resourceState;
-			//}
-			//finalState = resourceState;
 			lifeTime.encapsule(passID);
 		}
 	};
@@ -371,6 +364,7 @@ namespace graphics_backend
 		castl::unordered_map<GPUTextureView, ResourceViews> resourceViews;
 	};
 
+	class GPUConstantBufferManager;
 	class D3D12GraphLocalResourceManager : public D3D12SubobjectBase
 	{
 	public:
@@ -380,8 +374,12 @@ namespace graphics_backend
 			, GPUTextureView const& textureView);
 		void AddBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& resourceDesc);
 		//void AddGPUPassResourceStates(D3D12PassResourceStates const& states);
-		void AllocateAliasedResources(uint32_t resourceBatchCount, castl::unordered_map<ImageHandle, ResourceUsageRangeData> imageLifeTimes,
-			castl::unordered_map<BufferHandle, ResourceUsageRangeData> bufferLifeTimes);
+		void AllocateAliasedResources(uint32_t resourceBatchCount
+			, castl::unordered_map<ImageHandle, ResourceUsageRangeData> const& imageLifeTimes
+			, castl::unordered_map<BufferHandle, ResourceUsageRangeData> const& bufferLifeTimes
+			, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
+			, GPUConstantBufferManager& constantBufferManager
+		);
 		void PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocators);
 		TextureResourceAllocationInfo const* GetImageResource(ImageHandle const& imageHandle) const;
 		BufferResourceAllocationInfo const* GetBufferResource(BufferHandle const& bufferHandle) const;

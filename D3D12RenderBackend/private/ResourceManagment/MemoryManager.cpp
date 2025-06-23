@@ -7,7 +7,7 @@ namespace graphics_backend
 	{
 	}
 
-	void MemoryManager::Init()
+	void MemoryManager::DeviceInit()
 	{
 		D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
 		allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();
@@ -53,6 +53,88 @@ namespace graphics_backend
 		GPUResource result(this);
 		result.SetAllocation(allocation);
 		return result;
+	}
+
+	GPUResource MemoryManager::AllocUploadStagingBuffer(uint64_t bufferSize)
+	{
+		D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_NONE);
+		D3D12MA::ALLOCATION_DESC allocationDesc = {};
+		allocationDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
+
+		D3D12MA::Allocation* allocation;
+		HRESULT hr = m_Allocator->CreateResource(
+			&allocationDesc,
+			&resourceDesc,
+			D3D12_RESOURCE_STATE_COMMON,
+			NULL,
+			&allocation,
+			IID_NULL, NULL);
+
+		GPUResource result(this);
+		result.SetAllocation(allocation);
+		return result;
+	}
+
+	void LinearMemoryManager::DeviceInit()
+	{
+		D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
+		allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();
+		allocatorDesc.pAdapter = GetAdapter<IDXGIAdapter>().Get();
+		// These flags are optional but recommended.
+		allocatorDesc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED |
+			D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
+
+		D3D12MA::Allocator* allocator;
+		ThrowIfFailed(D3D12MA::CreateAllocator(&allocatorDesc, &allocator));
+		m_Allocator = allocator;
+	}
+	void LinearMemoryManager::Release()
+	{
+		Reset();
+		m_Allocator.Reset();
+	}
+
+	ID3D12Resource* LinearMemoryManager::AllocUploadStagingResource(D3D12_RESOURCE_DESC const& resourceDesc)
+	{
+		D3D12MA::ALLOCATION_DESC allocationDesc = {};
+		allocationDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
+
+		D3D12MA::Allocation* allocation;
+		HRESULT hr = m_Allocator->CreateResource(
+			&allocationDesc,
+			&resourceDesc,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			NULL,
+			&allocation,
+			IID_NULL, NULL);
+		m_Allocations.push_back(allocation);
+		return allocation->GetResource();
+	}
+
+	ID3D12Resource* LinearMemoryManager::AllocUploadStagingBuffer(uint64_t bufferSize)
+	{
+		D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_NONE);
+		D3D12MA::ALLOCATION_DESC allocationDesc = {};
+		allocationDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
+
+		D3D12MA::Allocation* allocation;
+		HRESULT hr = m_Allocator->CreateResource(
+			&allocationDesc,
+			&resourceDesc,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			NULL,
+			&allocation,
+			IID_NULL, NULL);
+		m_Allocations.push_back(allocation);
+		return allocation->GetResource();
+	}
+	void LinearMemoryManager::Reset()
+	{
+		for (D3D12MA::Allocation* allocation : m_Allocations)
+		{
+			allocation->Release();
+		}
+		m_Allocations.clear();
 	}
 
 	void AliasedGPUResource::FreeVirtualMemmories()
@@ -113,7 +195,7 @@ namespace graphics_backend
 					continue;
 				castl::cout << "block Bytes:" << block.m_MaxSize << castl::endl;
 				int id = 0;
-				for (auto resourceInfo : block.m_Resources)
+				for (auto& resourceInfo : block.m_Resources)
 				{
 					castl::cout << "resource" << id << " offset:" << resourceInfo.m_Offset << ";resource size:" << resourceInfo.m_Size << castl::endl;
 					++id;
@@ -206,8 +288,6 @@ namespace graphics_backend
 			resourceInfo.m_Size = allocDesc.Size;
 			m_Resources.push_back(resourceInfo);
 
-			//outGPUResource.m_Offset = allocOffset;
-			//outGPUResource.m_Size = allocDesc.Size;
 			outGPUResource.m_Allocation = alloc;
 			outGPUResource.p_OwningAllocator = &owningAllocator;
 			outGPUResource.p_OwningBlock = m_Block;

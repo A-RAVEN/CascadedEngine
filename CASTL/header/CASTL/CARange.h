@@ -9,7 +9,7 @@ namespace castl
 	{
 		static_assert(castl::is_integral_v<T>, "castl::range<T>: T must be numeric type");
 	public:
-		range() : m_head(castl::numeric_limits<T>::max()), m_tail(castl::numeric_limits<T>::min()) {}
+		range() : m_head(castl::numeric_limits<T>::max()), m_tail(castl::numeric_limits<T>::lowest()) {}
 		range(T const& head, T const& tail) : m_head(head), m_tail(tail) {}
 		T const& head() const { return m_head; }
 		T const& tail() const { return m_tail; }

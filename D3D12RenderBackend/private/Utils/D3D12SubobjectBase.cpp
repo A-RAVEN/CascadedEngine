@@ -5,7 +5,7 @@ namespace graphics_backend
 {
 	D3D12SubobjectBase::D3D12SubobjectBase(RenderBackend_D3D12* app) : pApp(app)
 	{
-
+		app->AddPendingSubobject(this);
 	}
 
 	D3D12SubobjectBase::D3D12SubobjectBase(D3D12SubobjectBase&& other) : pApp(other.pApp)

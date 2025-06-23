@@ -1,7 +1,7 @@
 #pragma once
 #include <GPUBuffer.h>
 #include "GPUResource.h" 
-#include <GPUGraph/GPUResourceStates.h>
+#include <ResourceManagment/GPUResourceStates.h>
 
 namespace graphics_backend
 {
@@ -19,6 +19,10 @@ namespace graphics_backend
 		void SetDescriptor(GPUBufferDescriptor const& desc);
 		ResourceState const& GetResourceState() const { return m_LastResourceState; }
 		ResourceState& GetResourceState() { return m_LastResourceState; }
+		GPUResource const& GetGPUResource() const
+		{
+			return m_Resource;
+		}
 	private:
 		GPUResource m_Resource;
 		GPUBufferDescriptor m_Descriptor{};

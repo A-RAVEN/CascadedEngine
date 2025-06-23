@@ -88,10 +88,10 @@ namespace graphics_backend
 		, D3D12GraphLocalResourceManager const& resourceManager)
 	{
 		ShaderFileInfo const* pshaderFileInfo = app->GetShaderFileInfo(pipelineDesc.m_ShaderInfo);
-		pRootSignature = app->GetRootSignatureManager().GetRootSignature(pshaderFileInfo->shaderBindingInfo.serializedRootSignatureData);
 		auto& vertexAttributes = pshaderFileInfo->reflectionData.m_VertexAttributes;
 		auto& boundVertexBuffers = drawCallBatch.m_VertexInputDescs;
 		MakeVertexInputDescriptorsNew(vertexAttributes, boundVertexBuffers, m_VertexInputBindingData);
+
 		m_ShaderInfo = pipelineDesc.m_ShaderInfo;
 		m_PipelineStates = pipelineDesc.m_PipelineStates;
 		m_InputAssemblyStates = pipelineDesc.m_InputAssemblyStates;
@@ -118,6 +118,11 @@ namespace graphics_backend
 
 	void GPUPipelineInstance::Init(RenderBackend_D3D12* app, GPUPipelineStateKey const& pipelineStateKey)
 	{
+		ShaderFileInfo const* pshaderFileInfo = app->GetShaderFileInfo(pipelineStateKey.m_ShaderInfo);
+		auto pRootSignature = app->GetRootSignatureManager().GetRootSignature(pshaderFileInfo->shaderBindingInfo.serializedRootSignatureData);
+		m_ResourceHeapParamIndex = pshaderFileInfo->shaderBindingInfo.resourceHeapParamID;
+		m_SamplerHeapParamIndex = pshaderFileInfo->shaderBindingInfo.samplerHeapParamID;
+
 		ShaderSetData shaderSetData = app->GetShaderCodes(pipelineStateKey.m_ShaderInfo);
 		VertexInputBindingData bindingData = pipelineStateKey.m_VertexInputBindingData;
 
@@ -126,7 +131,7 @@ namespace graphics_backend
 		// --------------------------
 		// Vertex Input Assemblies
 		// --------------------------
-		psoDesc.pRootSignature = pipelineStateKey.pRootSignature.Get(); // 已创建的根签名
+		psoDesc.pRootSignature = pRootSignature.Get(); // 已创建的根签名
 		psoDesc.VS = { shaderSetData.vertexShader->GetBufferPointer(), shaderSetData.vertexShader->GetBufferSize() };
 		psoDesc.PS = { shaderSetData.fragmentShader->GetBufferPointer(), shaderSetData.fragmentShader->GetBufferSize() };
 		psoDesc.InputLayout = { bindingData.outVertexAttributes.data(), (uint32_t)bindingData.outVertexAttributes.size() };

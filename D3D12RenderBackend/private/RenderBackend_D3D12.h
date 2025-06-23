@@ -14,6 +14,8 @@
 #include <DescriptorManagment/GPUDescriptorHeap.h>
 #include <ResourceManagment/RootSignatureManager.h>
 #include <GPUGraph/GPUPipelineInstance.h>
+#include <GPUGraph/GPUComputePipelineInstance.h>
+#include <CACore/CASharedList.h>
 
 namespace graphics_backend
 {
@@ -60,6 +62,10 @@ namespace graphics_backend
 		{
 			return m_CommandQueue;
 		}
+		ComPtr<ID3D12CommandQueue> GetDirectQueue() const
+		{
+			return m_CommandQueue;
+		}
 
 		MemoryManager& GetMemoryManager()
 		{
@@ -79,6 +85,16 @@ namespace graphics_backend
 		GPUPipelineManager& GetRasterPipelineManager()
 		{
 			return m_PipelineManager;
+		}
+
+		GPUComputePipelineManager& GetComputePipelineManager()
+		{
+			return m_ComputePipelineManager;
+		}
+
+		bool DeviceInited() const
+		{
+			return !(m_Device == nullptr);
 		}
 
 		template<typename T, typename...TArgs>
@@ -145,5 +161,33 @@ namespace graphics_backend
 		SamplerManager m_SamplerManager;
 		RootSignatureManager m_RootSignatureManager;
 		GPUPipelineManager m_PipelineManager;
+		GPUComputePipelineManager m_ComputePipelineManager;
+
+		friend class D3D12SubobjectBase;
+		castl::shared_list<D3D12SubobjectBase*> m_PendingInitializeObjects;
+		void AddPendingSubobject(D3D12SubobjectBase* obj)
+		{
+			if (DeviceInited())
+			{
+				obj->DeviceInit();
+				return;
+			}
+			if (!m_PendingInitializeObjects.push_back_if(obj, [&]()->bool
+			{
+				return !DeviceInited();
+			}))
+			{
+				CA_ASSERT_BREAK(DeviceInited(), "Device Should Init Here Now!");
+				obj->DeviceInit();
+				return;
+			}
+		}
+		void DeviceInitializeSubObjects()
+		{
+			m_PendingInitializeObjects.clear([&](D3D12SubobjectBase* obj)
+			{
+				obj->DeviceInit();
+			});
+		}
 	};
 }

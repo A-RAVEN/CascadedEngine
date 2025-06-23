@@ -9,20 +9,38 @@ namespace graphics_backend
 {
 	class AliasedMemoryAllocator;
 
+	//Common Immediate Memory Manager
 	class MemoryManager : public D3D12SubobjectBase
 	{
 	public:
 		MemoryManager(RenderBackend_D3D12* app);
 		MemoryManager(MemoryManager&& other) = default;
 		MemoryManager& operator=(MemoryManager&& other) = default;
-		void Init();
+		void DeviceInit() override;
 		void Release() override;
 		D3D12MA::Allocation* AllocMemory(D3D12_RESOURCE_ALLOCATION_INFO const& allocationInfo, D3D12_HEAP_TYPE heapType);
 		GPUResource AllocGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType);
+		GPUResource AllocUploadStagingBuffer(uint64_t bufferSize);
+
 		ComPtr<D3D12MA::Allocator>& GetAllocator() { return m_Allocator; }
 		ComPtr<D3D12MA::Allocator> const& GetAllocator() const { return m_Allocator; }
 	private:
 		ComPtr<D3D12MA::Allocator> m_Allocator;
+	};
+
+	class LinearMemoryManager : public D3D12SubobjectBase
+	{
+	public:
+		LinearMemoryManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		LinearMemoryManager(LinearMemoryManager&& other) = default;
+		void DeviceInit() override;
+		void Release() override;
+		ID3D12Resource* AllocUploadStagingResource(D3D12_RESOURCE_DESC const& resourceDesc);
+		ID3D12Resource* AllocUploadStagingBuffer(uint64_t bufferSize);
+		void Reset();
+	private:
+		ComPtr<D3D12MA::Allocator> m_Allocator;
+		castl::vector<D3D12MA::Allocation*> m_Allocations;
 	};
 
 	struct ResourceInfo
@@ -55,8 +73,6 @@ namespace graphics_backend
 	class AliasedMemoryAllocator : public D3D12SubobjectBase
 	{
 	public:
-
-
 		class VirtualBlock
 		{
 		public:
@@ -86,8 +102,6 @@ namespace graphics_backend
 		castl::unordered_map<D3D12_HEAP_TYPE, castl::vector<VirtualBlock>> m_Blocks;
 		uint64_t m_VirtualBlockSize;
 
-		//castl::vector<ComPtr<ID3D12Resource>> m_PlacedResources;
-		//castl::vector<D3D12MA::Allocation*> m_Allocations;
 		ComPtr<D3D12MA::Allocator> m_Allocator;
 	};
 }

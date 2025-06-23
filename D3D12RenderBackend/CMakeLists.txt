@@ -8,6 +8,12 @@ CPMAddPackage(
   GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator
 )
 
+CPMAddPackage(
+  NAME DirectXTex
+  GIT_TAG mar2025
+  GITHUB_REPOSITORY microsoft/DirectXTex
+)
+
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 
@@ -22,4 +28,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE glfw)
 target_link_libraries(${PROJECT_NAME} PRIVATE DirectX-Headers)
 target_link_libraries(${PROJECT_NAME} PRIVATE D3D12MemoryAllocator)
 target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE DirectXTex)
 target_link_libraries(${PROJECT_NAME} PUBLIC IOManager)

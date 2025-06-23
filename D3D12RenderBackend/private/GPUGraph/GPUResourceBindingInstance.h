@@ -2,7 +2,7 @@
 #include <Utils/D3D12SubobjectBase.h>
 #include <GPUGraph.h>
 #include <CASTL/CAArrayRef.h>
-#include "GPUResourceStates.h"
+#include <ResourceManagment/GPUResourceStates.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <CACore/CASharedDic.h>
 #include <ShaderLibrary/ShaderLibrary.h>
@@ -97,6 +97,10 @@ namespace graphics_backend
 		void BuildDescriptors(D3D12GraphLocalResourceManager& resourceManager
 			, GPUDescriptorHeap& gpuDescriptorHeap
 			, GPUDescriptorHeap& samplerDescriptorHeap);
+		GPUResourceBindingInfos const& GetBindingInfo() const
+		{
+			return m_GPUResourceBindingInfos;
+		}
 	private:
 		GPUResourceBindingInfos m_GPUResourceBindingInfos;
 		ComPtr<ID3D12RootSignature> m_RootSignature;
