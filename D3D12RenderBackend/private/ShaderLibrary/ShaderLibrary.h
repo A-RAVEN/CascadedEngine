@@ -98,8 +98,8 @@ namespace graphics_backend
 	{
 		uint32_t resourceDescCount;
 		uint32_t samplerDescCount;
-		int resourceHeapParamID = -1;
-		int samplerHeapParamID = -1;
+		int resourceHeapParamID;
+		int samplerHeapParamID;
 		castl::vector<StructBindingInfos> structBindingInfos;
 		castl::vector<CBufferBindingInfo> cbufferInfos;
 		castl::vector<ImageBindingInfo> imageInfo;

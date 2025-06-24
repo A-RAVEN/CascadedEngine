@@ -284,6 +284,25 @@ namespace cacore
             return Get();
         }
         friend struct careflection::managed_wrapper_traits<PathHash>;
+
+        template <char... c>
+        static constexpr PathHash const& StaticPathHash() {
+            constexpr static std::size_t n = sizeof...(c);
+            constexpr static const char data[n] = { c... };
+            static const PathHash pathHash(data);
+            return pathHash;
+        };
+
+        template <castl::string_literal str, size_t... N>
+        static constexpr PathHash const& StaticPathHashInternal(castl::index_sequence<N...>) {
+            return StaticPathHash<str.get_char<N>()...>();
+        }
+
+        template <castl::string_literal str>
+        static constexpr PathHash const& Static() {
+            return StaticPathHashInternal<str>(std::make_index_sequence<str.count>{});
+        }
+
     };
 
     struct NameHash
@@ -482,6 +501,7 @@ namespace std
 }
 
 #define CANAME(str) cacore::NameHash::Static<castl::string_literal<castl::string_view{str}.size()>(str)>()
+#define CAPATH(str) cacore::PathHash::Static<castl::string_literal<castl::string_view{str}.size()>(str)>()
 
 constexpr auto format_as(cacore::NameHash const& nameHash) {
     return nameHash.c_str();

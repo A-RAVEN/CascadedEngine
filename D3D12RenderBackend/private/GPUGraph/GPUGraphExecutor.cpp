@@ -69,7 +69,6 @@ namespace graphics_backend
 		, m_CommandListManager(app)
 		, m_StagingMemoryManager(app)
 	{
-		m_SamplerGPUHeap.Init();
 	}
 
 
@@ -271,7 +270,7 @@ namespace graphics_backend
 		};
 		//遍历所有Pass的shader，对每种shader和shaderstruct组合创建GPUResourceBindingInstance
 		//shaderstruct中的constant资源会注册进m_ConstantBufferManager
-		passRWStates.resize(owningGraph.GetRenderPasses().size());
+		CA_ASSERT_BREAK(passRWStates.size() == owningGraph.GetRenderPasses().size(), "Raster Pass RW State Size Incompatible");
 		for (size_t passID = 0; passID < owningGraph.GetRenderPasses().size(); ++passID)
 		{
 			auto& renderPass = owningGraph.GetRenderPasses()[passID];
@@ -337,7 +336,7 @@ namespace graphics_backend
 			}
 			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
 		}
-		computePassRWStates.resize(owningGraph.GetComputePasses().size());
+		CA_ASSERT_BREAK(computePassRWStates.size() == owningGraph.GetComputePasses().size(), "Compute Pass RW State Size Incompatible");
 		for (size_t passID = 0; passID < owningGraph.GetComputePasses().size(); ++passID)
 		{
 			auto& computePass = owningGraph.GetComputePasses()[passID];
@@ -362,7 +361,7 @@ namespace graphics_backend
 			}
 			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
 		}
-		transferPassRWStates.resize(owningGraph.GetDataTransfers().size());
+		CA_ASSERT_BREAK(transferPassRWStates.size() == owningGraph.GetDataTransfers().size(), "Transfer Pass RW State Size Incompatible");
 		for (size_t passID = 0; passID < owningGraph.GetDataTransfers().size(); ++passID)
 		{
 			auto& transferPass = owningGraph.GetDataTransfers()[passID];
@@ -570,10 +569,13 @@ namespace graphics_backend
 		{
 			GPUExecutionBatch& newPass = outExecutionBatchs.emplace_back();
 			std::vector<PassDependency*> passFreeDeps;
-			for (PassDependency* dep : pendingDependencies)
+			auto depItr = pendingDependencies.begin();
+			while(depItr != pendingDependencies.end())
 			{
+				PassDependency* dep = *depItr;
 				if (dep->DepsFree())
 				{
+					depItr = pendingDependencies.erase(depItr);
 					passFreeDeps.push_back(dep);
 					//add to newPass
 					newPass.batchRWStates.Append(dep->rwState);
@@ -589,7 +591,10 @@ namespace graphics_backend
 						newPass.transferPassRefs.push_back(dep->passID);
 						break;
 					}
-
+				}
+				else
+				{
+					++depItr;
 				}
 			}
 			for (PassDependency* dep : passFreeDeps)
@@ -660,7 +665,7 @@ namespace graphics_backend
 
 					batchData.pipelineInstances = app->GetRasterPipelineManager().GetPipelineState(pipelineStateKey);
 
-					batchData.drawcalls.resize(batch.m_DrawCalls.size());
+					CA_ASSERT_BREAK(batchData.drawcalls.size() == batch.m_DrawCalls.size(), "Drawcall Size Incompatible");
 					for (size_t drawcallID = 0; drawcallID < batch.m_DrawCalls.size(); ++drawcallID)
 					{
 						auto& drawcall = batch.m_DrawCalls[drawcallID];
@@ -1045,6 +1050,10 @@ namespace graphics_backend
 			auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
 			auto& passData = rasterPassGPUDataList[rasterPassID];
 			passData.drawcallBatchs.resize(pass.GetDrawCallBatches().size());
+			for (size_t drawcalBatchID = 0; drawcalBatchID < pass.GetDrawCallBatches().size(); ++drawcalBatchID)
+			{
+				passData.drawcallBatchs[drawcalBatchID].drawcalls.resize(pass.GetDrawCallBatches()[drawcalBatchID].m_DrawCalls.size());
+			}
 		}
 		computePassRWStates.resize(owningGraph.GetComputePasses().size());
 		for (size_t computePassID = 0; computePassID < owningGraph.GetComputePasses().size(); ++computePassID)

@@ -21,10 +21,6 @@ namespace graphics_backend
 	{
 		bufferHandleToResource[bufferHandle].resourceDesc = resourceDesc;
 	}
-	//void D3D12GraphLocalResourceManager::AddGPUPassResourceStates(D3D12PassResourceStates const& states)
-	//{
-	//	resourceStates.push_back(states);
-	//}
 
 	void D3D12GraphLocalResourceManager::AllocateAliasedResources(uint32_t resourceBatchCount
 		, castl::unordered_map<ImageHandle, ResourceUsageRangeData> const& imageLifeTimes

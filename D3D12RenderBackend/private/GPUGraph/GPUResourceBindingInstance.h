@@ -103,9 +103,6 @@ namespace graphics_backend
 		}
 	private:
 		GPUResourceBindingInfos m_GPUResourceBindingInfos;
-		ComPtr<ID3D12RootSignature> m_RootSignature;
-		ShaderInfo m_ShaderInfo;
-		//ShaderCompilerSlang::ShaderReflectionData const* p_ReflectionData;
 		ShaderFileInfo const* pShaderFileInfo;
 	};
 

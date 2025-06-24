@@ -50,7 +50,7 @@ namespace graphics_backend
 	}
 
 
-	ShaderResourceBindingInfo ConstructShaderDescriptorInfo(ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData)
+	ShaderResourceBindingInfo ConstructShaderDescriptorInfo(const char* pathName, ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData)
 	{
 		auto& spaceInfos = shaderReflectionData.m_BindingInfo.m_SpaceInfos;
 		ShaderResourceBindingInfo resourceBindingInfo;
@@ -292,10 +292,14 @@ namespace graphics_backend
 			rootParameters.push_back(samplerTableParams);
 		}
 
-		if (!rootParameters.empty())
+		//if (!rootParameters.empty())
 		{
+			if (rootParameters.empty())
+			{
+				CA_LOG("Empty Root Signature For Shader Set {}", pathName);
+			}
 			CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
-			rootSigDesc.Init_1_1(rootParameters.size(), rootParameters.data(), 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+			rootSigDesc.Init_1_1(rootParameters.size(), rootParameters.empty() ? nullptr : rootParameters.data(), 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 			ComPtr<ID3DBlob> errorBlob = nullptr;
 			// 编译root signature 描述结构
@@ -329,16 +333,7 @@ namespace graphics_backend
 			auto compileResults = pCompiler->GetResults();
 			for (auto& result : compileResults)
 			{
-	/*			if (!result.programs.empty())
-				{
-					castl::string str;
-					str.resize(result.programs[0].data.size());
-					memcpy(str.data(), result.programs[0].data.data(), result.programs[0].data.size());
-					CA_LOG(str);
-				}*/
-				{
-					ConstructShaderDescriptorInfo(result.m_ReflectionData);
-				}
+				ConstructShaderDescriptorInfo(filePath.c_str(), result.m_ReflectionData);
 			}
 		}
 		pCompiler->EndCompileTask();
@@ -393,7 +388,7 @@ namespace graphics_backend
 								auto& shaderInfo = shaderLibrary->m_ShaderFiles[shaderPathHash];
 								shaderInfo.entryPointToShaderProgram.clear();
 								shaderInfo.reflectionData = result.m_ReflectionData;
-								shaderInfo.shaderBindingInfo = ConstructShaderDescriptorInfo(shaderInfo.reflectionData);
+								shaderInfo.shaderBindingInfo = ConstructShaderDescriptorInfo(p.path().generic_string().c_str(), shaderInfo.reflectionData);
 								for (auto& program : result.programs)
 								{
 									auto shaHash = cahash::getHash<cahash::sha256_hash>(program.data.data(), program.data.size());

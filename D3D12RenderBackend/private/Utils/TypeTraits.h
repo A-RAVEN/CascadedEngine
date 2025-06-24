@@ -10,9 +10,9 @@ namespace graphics_backend
 	};
 
 	template<typename T, typename...TArgs>
-	concept CanInit = requires(T t)
+	concept CanInit = requires(T t, TArgs ... args)
 	{
-		t.Init(castl::remove_cvref_t<TArgs>{}...);
+		t.Init(args...);
 	};
 
 	template<typename T>

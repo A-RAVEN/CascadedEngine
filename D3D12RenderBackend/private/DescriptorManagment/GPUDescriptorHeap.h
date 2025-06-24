@@ -63,7 +63,7 @@ namespace graphics_backend
 	{
 	public:
 		GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType);
-		void Init();
+		void DeviceInit() override;
 		DescriptorAllocation AllocDescriptorChunk(uint32_t descCount);
 		ComPtr<ID3D12DescriptorHeap> const& GetHeap() const
 		{

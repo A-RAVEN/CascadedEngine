@@ -7,12 +7,15 @@ namespace graphics_backend
 	{
 		return m_RootSignatures.get_or_create(blob, [&](ComPtr<ID3DBlob> const& blb) ->ComPtr<ID3D12RootSignature>
 		{
-			ComPtr<ID3D12RootSignature> rootSig;
-			ThrowIfFailed(GetDevice()->CreateRootSignature(
-				0,
-				blb->GetBufferPointer(),
-				blb->GetBufferSize(),
-				IID_PPV_ARGS(rootSig.GetAddressOf())));
+			ComPtr<ID3D12RootSignature> rootSig = nullptr;
+			if (blb != nullptr)
+			{
+				ThrowIfFailed(GetDevice()->CreateRootSignature(
+					0,
+					blb->GetBufferPointer(),
+					blb->GetBufferSize(),
+					IID_PPV_ARGS(rootSig.GetAddressOf())));
+			}
 			return rootSig;
 		})->second;
 	}

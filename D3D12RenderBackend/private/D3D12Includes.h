@@ -36,6 +36,11 @@ namespace cacore
 	{
 		constexpr static void hash(ComPtr<ID3DBlob> const& obj, auto& hasher)
 		{
+			if (obj == nullptr)
+			{
+				hasher.hash_one<uint64_t>(0);
+				return;
+			}
 			hasher.hash_raw(obj->GetBufferPointer(), obj->GetBufferSize());
 		}
 	};

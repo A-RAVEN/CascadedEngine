@@ -302,7 +302,6 @@ namespace graphics_backend
 	{
 		if (m_MaxSize > 0)
 		{
-			D3D12MA::Allocation* allocation;
 			D3D12MA::ALLOCATION_DESC
 				allocationDesc = {};
 			allocationDesc.HeapType = heapType;
@@ -316,12 +315,10 @@ namespace graphics_backend
 			m_BlockPlacedResources.clear();
 			for (auto& resourceInfo : m_Resources)
 			{
-				allocation->GetHeap();
-				allocation->GetOffset();
 				ComPtr<ID3D12Resource> resource;
 				ThrowIfFailed(device->
-					CreatePlacedResource(allocation->GetHeap()
-						, allocation->GetOffset() + resourceInfo.m_Offset
+					CreatePlacedResource(p_BlockAllocation->GetHeap()
+						, p_BlockAllocation->GetOffset() + resourceInfo.m_Offset
 						, &resourceInfo.m_Desc
 						, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)));
 				m_BlockPlacedResources.push_back(resource);

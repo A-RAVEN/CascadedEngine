@@ -269,6 +269,7 @@ namespace graphics_backend
 			pass.m_Arrachments = { color };
 			pass.m_AttachmentConfigs = { colorAttachmentConfig };
 			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+			pass.SetPipelineState({});
 			return pass;
 		}
 		static RenderPass New(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)

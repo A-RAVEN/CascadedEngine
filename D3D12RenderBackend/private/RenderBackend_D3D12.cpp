@@ -7,6 +7,7 @@
 #include <ResourceManagment/D3DBufferObject.h>
 #include <Utils/InterfaceTranslation.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
+#include <GPUGraph/GPUGraphExecutor.h>
 
 namespace graphics_backend
 {
@@ -94,11 +95,15 @@ namespace graphics_backend
     }
 
     RenderBackend_D3D12::RenderBackend_D3D12() : 
-        m_MemoryManager(this)
+        m_PendingInitializeObjects()
+        , m_MemoryManager(this)
         , m_SamplerManager(this)
         , m_RootSignatureManager(this)
         , m_PipelineManager(this)
         , m_ComputePipelineManager(this)
+        , p_IOManager(nullptr)
+        , p_ResourceImporter(nullptr)
+        , p_ResourceManager(nullptr)
     {
     }
 
@@ -207,21 +212,48 @@ namespace graphics_backend
 
     void RenderBackend_D3D12::RunTestCode()
     {
-        m_ShaderResourceImporter.Test();
-        return;
-		AliasedMemoryAllocator allocator(this, m_MemoryManager.GetAllocator());
-		GPUTextureDescriptor desc = GPUTextureDescriptor::Create(512, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eRT);
-		auto resourceDesc = GetResourceDescFromTextureDescriptor(desc);
-        auto resource = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
-        auto resource2 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
-        auto resource3 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
-        resource.FreeVirtualMemmories();
-        resource2.FreeVirtualMemmories();
-        auto resource4 = allocator.AllocateGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
-        allocator.LogAllocatorStates();
-        allocator.CommitAllocations();
-		allocator.Release();
+        struct VertexStruct
+        {
+            std::array<float, 3> pos;
+            std::array<float, 3> color;
+        };
+        cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+            {
+                VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+                VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
+            }, false);
+
+        std::vector<VertexStruct> testBuffer = {
+            {{-0.25f, -0.25f, -0.25f }, {1.0f, 0.0f, 0.0f}},
+            {{0.25f, -0.25f, -0.25f }, {0.0f, 1.0f, 0.0f}},
+            {{0.0f, 0.5f, 0.0f }, {0.0f, 0.0f, 1.0f}},
+        };
+
+        ImageHandle image(CANAME("TestImage"));
+        BufferHandle vbuffer(CANAME("TestVertBuffer"));
+        GPUGraph newGraph;
+        newGraph.AllocImage(image, GPUTextureDescriptor::Create(1024, 720, ETextureFormat::E_R8G8B8A8_UNORM, ETextureAccessType::eRT));
+        newGraph.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])));
+        newGraph.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]));
+        newGraph.AddPass(
+            RenderPass::New({ image })
+            .SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
+            .DrawCall
+            (
+                DrawCallBatch::New()
+                .VertexStream(CANAME("TestVerticesInput"), descs)
+                .DrawCall(
+                    DrawCall::New()
+                    .SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+                    .Draw(testBuffer.size())
+                 )
+            )
+        );
+
+        D3D12GPUGraphExecutor executor(this);
+        executor.CompileAndExecute(newGraph);
     }
+
 
     ShaderFileInfo const* RenderBackend_D3D12::GetShaderFileInfo(ShaderInfo const& shaderInfo)
     {

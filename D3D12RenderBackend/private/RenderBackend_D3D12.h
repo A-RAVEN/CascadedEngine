@@ -117,7 +117,7 @@ namespace graphics_backend
 		};
 
 		template<typename T, typename...TArgs>
-		castl::shared_ptr<T> NewSubObject_Shared(TArgs&...Args) {
+		castl::shared_ptr<T> NewSubObject_Shared(TArgs&&...Args) {
 			static_assert(castl::is_constructible_v<T, RenderBackend_D3D12*> || castl::is_constructible_v<T, RenderBackend_D3D12*, TArgs...>
 				, "Type T Not Compatible To D3D12SubObject");
 			if constexpr (castl::is_constructible_v<T, RenderBackend_D3D12*, TArgs...>)
@@ -132,6 +132,7 @@ namespace graphics_backend
 			else
 			{
 				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(this), SubObjectDefaultDeleter<T>{} };
+				static_assert(CanInit<T, TArgs...>);
 				if constexpr (CanInit<T, TArgs...>)
 				{
 					newSubObject->Init(castl::forward<TArgs>(Args)...);
@@ -145,14 +146,17 @@ namespace graphics_backend
 		ShaderSetData GetShaderCodes(ShaderInfo const& shaderInfo);
 
 	private:
+		castl::shared_list<D3D12SubobjectBase*> m_PendingInitializeObjects;
+		ComPtr<IDXGIFactory4>		m_Factory = nullptr;
+		ComPtr<ID3D12Device>		m_Device = nullptr;
+		ComPtr<IDXGIAdapter1>		m_Adapter = nullptr;
+		ComPtr<ID3D12CommandQueue>	m_CommandQueue = nullptr;
+
 		MemoryManager m_MemoryManager;
 		ca_io::IOManager* p_IOManager;
 		resource_management::ResourceManagingSystem* p_ResourceManager;
 		resource_management::ResourceImportingSystem* p_ResourceImporter;
-		ComPtr<IDXGIFactory4> m_Factory;
-		ComPtr<ID3D12Device> m_Device;
-		ComPtr<IDXGIAdapter1> m_Adapter;
-		ComPtr<ID3D12CommandQueue> m_CommandQueue;
+
 		castl::unordered_map<castl::shared_ptr<cawindow::IWindow>, castl::shared_ptr<WindowContext>> m_WindowContexts;
 
 		//D3D12ShaderObjectDic m_ShaderObjects;
@@ -164,7 +168,6 @@ namespace graphics_backend
 		GPUComputePipelineManager m_ComputePipelineManager;
 
 		friend class D3D12SubobjectBase;
-		castl::shared_list<D3D12SubobjectBase*> m_PendingInitializeObjects;
 		void AddPendingSubobject(D3D12SubobjectBase* obj)
 		{
 			if (DeviceInited())

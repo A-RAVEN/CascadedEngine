@@ -163,7 +163,7 @@ namespace graphics_backend
 	GPUDescriptorHeap::GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
 	 : D3D12SubobjectBase(app), m_HugeHeap(app), m_HeapType(heapType){}
 
-	void GPUDescriptorHeap::Init()
+	void GPUDescriptorHeap::DeviceInit()
 	{
 		m_HugeHeap.Init(m_HeapType, true, castl::numeric_limits<uint32_t>::max());
 	}

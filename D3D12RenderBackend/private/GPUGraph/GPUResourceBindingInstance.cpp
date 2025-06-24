@@ -160,8 +160,7 @@ namespace graphics_backend
 	void GPUResourceBindingInstance::Init(ShaderResourceSet const& resourceSet
 		, GPUConstantBufferManager& cbufferManager)
 	{
-		m_ShaderInfo = resourceSet.shaderInfo;
-		pShaderFileInfo = GetApp()->GetShaderFileInfo(m_ShaderInfo);
+		pShaderFileInfo = GetApp()->GetShaderFileInfo(resourceSet.shaderInfo);
 		auto& shaderBindingInfo = pShaderFileInfo->shaderBindingInfo;
 
 		auto& outCBufferBindings = m_GPUResourceBindingInfos.cbufferBindings;
@@ -343,7 +342,5 @@ namespace graphics_backend
 			GetDevice()->CopyDescriptorsSimple(1, m_GPUResourceBindingInfos.descriptorAllocation.Slice(descriptorID).CPUHandle()
 				, pResource->cbv.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 		}
-		m_RootSignature = GetApp()->GetRootSignatureManager().GetRootSignature(shaderBindingInfo.serializedRootSignatureData);
-	
 	}
 }

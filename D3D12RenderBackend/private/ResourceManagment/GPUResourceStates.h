@@ -385,10 +385,8 @@ namespace graphics_backend
 		BufferResourceAllocationInfo const* GetBufferResource(BufferHandle const& bufferHandle) const;
 		castl::unordered_map<ImageHandle, TextureResourceAllocationInfo> imageHandleToResource;
 		castl::unordered_map<BufferHandle, BufferResourceAllocationInfo> bufferHandleToResource;
-		//castl::vector<D3D12PassResourceStates> resourceStates;
 
 		AliasedMemoryAllocator aliasedAllocator;
-		uint32_t resourceIDCounter;
 	};
 
 }
