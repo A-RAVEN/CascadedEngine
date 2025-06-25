@@ -1,24 +1,24 @@
 #include "MemoryManager.h"
 #include <D3D12Debug.h>
+#include <RenderBackend_D3D12.h>
 
 namespace graphics_backend
 {
 	MemoryManager::MemoryManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app)
 	{
-	}
+		app->OnDeviceInit([&]()
+		{
+			D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
+			allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();
+			allocatorDesc.pAdapter = GetAdapter<IDXGIAdapter>().Get();
+			// These flags are optional but recommended.
+			allocatorDesc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED |
+				D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
 
-	void MemoryManager::DeviceInit()
-	{
-		D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
-		allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();
-		allocatorDesc.pAdapter = GetAdapter<IDXGIAdapter>().Get();
-		// These flags are optional but recommended.
-		allocatorDesc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED |
-			D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
-
-		D3D12MA::Allocator* allocator;
-		ThrowIfFailed(D3D12MA::CreateAllocator(&allocatorDesc, &allocator));
-		m_Allocator = allocator;
+			D3D12MA::Allocator* allocator;
+			ThrowIfFailed(D3D12MA::CreateAllocator(&allocatorDesc, &allocator));
+			m_Allocator = allocator;
+		});
 	}
 
 	void MemoryManager::Release()
@@ -75,19 +75,23 @@ namespace graphics_backend
 		return result;
 	}
 
-	void LinearMemoryManager::DeviceInit()
+	LinearMemoryManager::LinearMemoryManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) 
 	{
-		D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
-		allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();
-		allocatorDesc.pAdapter = GetAdapter<IDXGIAdapter>().Get();
-		// These flags are optional but recommended.
-		allocatorDesc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED |
-			D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
+		app->OnDeviceInit([&]()
+		{
+			D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
+			allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();
+			allocatorDesc.pAdapter = GetAdapter<IDXGIAdapter>().Get();
+			// These flags are optional but recommended.
+			allocatorDesc.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED |
+				D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
 
-		D3D12MA::Allocator* allocator;
-		ThrowIfFailed(D3D12MA::CreateAllocator(&allocatorDesc, &allocator));
-		m_Allocator = allocator;
+			D3D12MA::Allocator* allocator;
+			ThrowIfFailed(D3D12MA::CreateAllocator(&allocatorDesc, &allocator));
+			m_Allocator = allocator;
+		});
 	}
+
 	void LinearMemoryManager::Release()
 	{
 		Reset();

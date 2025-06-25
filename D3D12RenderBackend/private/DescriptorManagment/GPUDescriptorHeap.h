@@ -29,9 +29,8 @@ namespace graphics_backend
 	class DescriptorHeapAllocator : D3D12SubobjectBase
 	{
 	public:
-		DescriptorHeapAllocator(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_ShaderVisible(false){}
+		DescriptorHeapAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType, bool shaderVisible, uint32_t size);
 		DescriptorHeapAllocator(DescriptorHeapAllocator&& other) noexcept = default;
-		void Init(D3D12_DESCRIPTOR_HEAP_TYPE heapType, bool shaderVisible, uint32_t size);
 		void Release() override;
 		bool CanAllocate(uint32_t descCount) const;
 		DescriptorAllocation AllocDescriptors(uint32_t descCount);
@@ -45,7 +44,6 @@ namespace graphics_backend
 	private:
 		ComPtr<ID3D12DescriptorHeap> m_DescriptorHeap;
 		castl::list<castl::range<uint32_t>> m_FreeList;
-		bool m_ShaderVisible;
 	};
 
 	class CPUPagedDescriptorAllocator : D3D12SubobjectBase
@@ -63,7 +61,6 @@ namespace graphics_backend
 	{
 	public:
 		GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType);
-		void DeviceInit() override;
 		DescriptorAllocation AllocDescriptorChunk(uint32_t descCount);
 		ComPtr<ID3D12DescriptorHeap> const& GetHeap() const
 		{
@@ -71,7 +68,6 @@ namespace graphics_backend
 		}
 	private:
 		DescriptorHeapAllocator m_HugeHeap;
-		D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType;
 	};
 
 	class CPUDescriptorAllocatorSet

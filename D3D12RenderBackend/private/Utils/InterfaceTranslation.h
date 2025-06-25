@@ -644,4 +644,37 @@ namespace graphics_backend
 		result.SizeInBytes = inDescriptor.count * inDescriptor.stride;
 		return result;
 	}
+
+	constexpr D3D12_RTV_DIMENSION ETextureTypeToRTVDimension(ETextureType textureType, EMultiSampleCount ms)
+	{
+		switch (textureType)
+		{
+			case ETextureType::e1D:
+				return D3D12_RTV_DIMENSION_TEXTURE1D;
+			case ETextureType::e2D:
+				if (ms == EMultiSampleCount::e1)
+					return D3D12_RTV_DIMENSION_TEXTURE2D;
+				else
+					return D3D12_RTV_DIMENSION_TEXTURE2DMS;
+			case ETextureType::e3D:
+				return D3D12_RTV_DIMENSION_TEXTURE3D;
+			case ETextureType::e2DArray:
+			case ETextureType::eCubeMap:
+				if (ms == EMultiSampleCount::e1)
+					return D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+				else
+					return D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+		}
+		return D3D12_RTV_DIMENSION_UNKNOWN;
+	}
+
+	constexpr D3D12_RENDER_TARGET_VIEW_DESC GetRTVDescFromTextureDescriptor(GPUTextureDescriptor const& inDescriptor)
+	{
+		D3D12_RENDER_TARGET_VIEW_DESC result{};
+		result.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
+		result.ViewDimension = ETextureTypeToRTVDimension(inDescriptor.textureType, inDescriptor.samples);
+		result.Texture2D.MipSlice = 0;
+		result.Texture2D.PlaneSlice = 0;
+		return result;
+	}
 }

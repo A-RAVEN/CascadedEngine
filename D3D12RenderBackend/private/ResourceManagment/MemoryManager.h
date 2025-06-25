@@ -16,7 +16,6 @@ namespace graphics_backend
 		MemoryManager(RenderBackend_D3D12* app);
 		MemoryManager(MemoryManager&& other) = default;
 		MemoryManager& operator=(MemoryManager&& other) = default;
-		void DeviceInit() override;
 		void Release() override;
 		D3D12MA::Allocation* AllocMemory(D3D12_RESOURCE_ALLOCATION_INFO const& allocationInfo, D3D12_HEAP_TYPE heapType);
 		GPUResource AllocGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType);
@@ -31,9 +30,8 @@ namespace graphics_backend
 	class LinearMemoryManager : public D3D12SubobjectBase
 	{
 	public:
-		LinearMemoryManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		LinearMemoryManager(RenderBackend_D3D12* app);
 		LinearMemoryManager(LinearMemoryManager&& other) = default;
-		void DeviceInit() override;
 		void Release() override;
 		ID3D12Resource* AllocUploadStagingResource(D3D12_RESOURCE_DESC const& resourceDesc);
 		ID3D12Resource* AllocUploadStagingBuffer(uint64_t bufferSize);

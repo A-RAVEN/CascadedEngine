@@ -151,6 +151,10 @@ namespace graphics_backend
 					if (resourceData.access & D3D12_BARRIER_ACCESS_RENDER_TARGET)
 					{
 						resourceView.rtv = descriptorAllocatorsr.m_RTV_Allocator.AllocDescriptors(1);
+						auto rtvDesc = GetRTVDescFromTextureDescriptor(resourceData.resourceDesc);
+						GetDevice()->CreateRenderTargetView(resourceData.gpuResource.GetResource()
+							, &rtvDesc
+							, resourceView.srv.CPUHandle());
 					}
 					if (resourceData.access
 						& (D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE))

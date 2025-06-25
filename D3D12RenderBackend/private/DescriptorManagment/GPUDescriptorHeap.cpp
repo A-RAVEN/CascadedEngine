@@ -1,20 +1,37 @@
 #include "GPUDescriptorHeap.h"
 #include <D3D12Debug.h>
 #include <DebugUtils.h>
+#include <RenderBackend_D3D12.h>
 
 namespace graphics_backend
 {
-	void DescriptorHeapAllocator::Init(D3D12_DESCRIPTOR_HEAP_TYPE heapType, bool shaderVisible, uint32_t size)
+	uint32_t GetHeapMaxSize(D3D12_DESCRIPTOR_HEAP_TYPE heapType)
 	{
-		m_ShaderVisible = shaderVisible;
-		constexpr uint32_t kDescriptorHeapSize = castl::numeric_limits<uint32_t>::max();
-		D3D12_DESCRIPTOR_HEAP_DESC m_DescriptorHeapDesc = {};
-		m_DescriptorHeapDesc.Type = heapType;
-		m_DescriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-		m_DescriptorHeapDesc.NodeMask = 0;
-		m_DescriptorHeapDesc.NumDescriptors = size;
-		ThrowIfFailed(GetDevice()->CreateDescriptorHeap(&m_DescriptorHeapDesc, IID_PPV_ARGS(&m_DescriptorHeap)));
-		m_FreeList.push_back({ 0, size });
+		switch (heapType)
+		{
+		case D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+			return 1000000;
+		case D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
+			return 4080;
+		}
+		return 1024;
+	}
+
+
+	DescriptorHeapAllocator::DescriptorHeapAllocator(RenderBackend_D3D12* app
+		, D3D12_DESCRIPTOR_HEAP_TYPE heapType
+		, bool shaderVisible, uint32_t size) : D3D12SubobjectBase(app)
+	{
+		app->OnDeviceInit([&]()
+		{
+			D3D12_DESCRIPTOR_HEAP_DESC m_DescriptorHeapDesc = {};
+			m_DescriptorHeapDesc.Type = heapType;
+			m_DescriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+			m_DescriptorHeapDesc.NodeMask = 0;
+			m_DescriptorHeapDesc.NumDescriptors = size;
+			ThrowIfFailed(GetDevice()->CreateDescriptorHeap(&m_DescriptorHeapDesc, IID_PPV_ARGS(&m_DescriptorHeap)));
+			m_FreeList.push_back({ 0, size });
+		});
 	}
 
 	void DescriptorHeapAllocator::Release()
@@ -53,6 +70,7 @@ namespace graphics_backend
 	}
 	CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHeapAllocator::GetCPUHandle(uint32_t offset) const
 	{
+		CA_ASSERT_BREAK(m_DescriptorHeap != nullptr, "Heap Invalid Or Not Initialized");
 		auto stride = GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type);
 		return CD3DX12_CPU_DESCRIPTOR_HANDLE(
 			m_DescriptorHeap->GetCPUDescriptorHandleForHeapStart()
@@ -61,7 +79,8 @@ namespace graphics_backend
 	}
 	CD3DX12_GPU_DESCRIPTOR_HANDLE DescriptorHeapAllocator::GetGPUHandle(uint32_t offset) const
 	{
-		CA_ASSERT_BREAK(m_ShaderVisible, "Only Shader Visible Allocator Can Have GPU Handle");
+		CA_ASSERT_BREAK(m_DescriptorHeap != nullptr, "Heap Invalid Or Not Initialized");
+		CA_ASSERT_BREAK((m_DescriptorHeap->GetDesc().Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE), "Only Shader Visible Allocator Can Have GPU Handle");
 		auto stride = GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type);
 		return CD3DX12_GPU_DESCRIPTOR_HANDLE(
 			m_DescriptorHeap->GetGPUDescriptorHandleForHeapStart()
@@ -155,17 +174,13 @@ namespace graphics_backend
 				return page.AllocDescriptors(descCount);
 			}
 		}
-		auto& newPage = m_Pages.emplace_front(GetApp());
-		newPage.Init(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, false, 1024);
+		auto& newPage = m_Pages.emplace_front(GetApp(), m_HeapType, false, 1024);
 		return newPage.AllocDescriptors(descCount);
 	}
 
 	GPUDescriptorHeap::GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
-	 : D3D12SubobjectBase(app), m_HugeHeap(app), m_HeapType(heapType){}
-
-	void GPUDescriptorHeap::DeviceInit()
+	 : D3D12SubobjectBase(app), m_HugeHeap(app, heapType, true, GetHeapMaxSize(heapType))
 	{
-		m_HugeHeap.Init(m_HeapType, true, castl::numeric_limits<uint32_t>::max());
 	}
 
 	DescriptorAllocation GPUDescriptorHeap::AllocDescriptorChunk(uint32_t descCount)

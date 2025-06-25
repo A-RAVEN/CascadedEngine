@@ -1,14 +1,19 @@
 #include "CommandListManager.h"
+#include "RenderBackend_D3D12.h"
 
 namespace graphics_backend
 {
-	void CommandListManager::DeviceInit()
+	CommandListManager::CommandListManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app)
 	{
-		GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_DirectAllocator));
-		GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_BUNDLE, IID_PPV_ARGS(&m_BundleAllocator));
-		GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(&m_ComputeAllocator));
-		GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_CopyAllocator));
+		app->OnDeviceInit([&]()
+		{
+			GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_DirectAllocator));
+			GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_BUNDLE, IID_PPV_ARGS(&m_BundleAllocator));
+			GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(&m_ComputeAllocator));
+			GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_CopyAllocator));
+		});
 	}
+
 	void CommandListManager::Release()
 	{
 		m_DirectAllocator.Reset();

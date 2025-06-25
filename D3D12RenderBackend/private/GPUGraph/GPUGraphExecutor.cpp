@@ -13,7 +13,7 @@ namespace graphics_backend
 	void CollectInputAssemblyBindings(VertexInputBindingData const& bindingData
 		, DrawCallBatch::VertexInputDescMap const& vertexBufferDescs
 		, castl::unordered_map<cacore::NameHash, BufferHandle> const& boundVertexBuffers
-		, castl::vector<castl::pair<VertexInputsDescriptor, BufferHandle>> outVertexBufferBindings
+		, castl::vector<castl::pair<VertexInputsDescriptor, BufferHandle>>& outVertexBufferBindings
 	)
 	{
 		outVertexBufferBindings.resize(bindingData.inoutBindingNameToIndex.size());
@@ -1127,6 +1127,17 @@ namespace graphics_backend
 			, m_LocalResourceManager
 			, rasterPassGPUDataList
 			, computePassGPUDataList);
+
+		Execute(GetApp()
+			, owningGraph
+			, m_CommandListManager
+			, m_StagingMemoryManager
+			, m_LocalResourceManager
+			, m_ResourceGPUHeap
+			, m_SamplerGPUHeap
+			, executionBatchs
+			, rasterPassGPUDataList);
+
 
 	}
 }

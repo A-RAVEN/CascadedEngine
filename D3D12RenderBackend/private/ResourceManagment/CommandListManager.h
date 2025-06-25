@@ -6,8 +6,7 @@ namespace graphics_backend
 	class CommandListManager : D3D12SubobjectBase
 	{
 	public:
-		CommandListManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
-		void DeviceInit() override;
+		CommandListManager(RenderBackend_D3D12* app);
 		void Release() override;
 		void Reset();
 		ID3D12GraphicsCommandList7* DirectCommand();

@@ -145,8 +145,14 @@ namespace graphics_backend
 
 		ShaderSetData GetShaderCodes(ShaderInfo const& shaderInfo);
 
+		void OnDeviceInit(castl::function<void()>const& callback);
+
 	private:
+		void AfterDeviceInit();
+
+
 		castl::shared_list<D3D12SubobjectBase*> m_PendingInitializeObjects;
+		castl::shared_list<castl::function<void()>> m_PendingDeviceInitCallbacks;
 		ComPtr<IDXGIFactory4>		m_Factory = nullptr;
 		ComPtr<ID3D12Device>		m_Device = nullptr;
 		ComPtr<IDXGIAdapter1>		m_Adapter = nullptr;
@@ -166,31 +172,5 @@ namespace graphics_backend
 		RootSignatureManager m_RootSignatureManager;
 		GPUPipelineManager m_PipelineManager;
 		GPUComputePipelineManager m_ComputePipelineManager;
-
-		friend class D3D12SubobjectBase;
-		void AddPendingSubobject(D3D12SubobjectBase* obj)
-		{
-			if (DeviceInited())
-			{
-				obj->DeviceInit();
-				return;
-			}
-			if (!m_PendingInitializeObjects.push_back_if(obj, [&]()->bool
-			{
-				return !DeviceInited();
-			}))
-			{
-				CA_ASSERT_BREAK(DeviceInited(), "Device Should Init Here Now!");
-				obj->DeviceInit();
-				return;
-			}
-		}
-		void DeviceInitializeSubObjects()
-		{
-			m_PendingInitializeObjects.clear([&](D3D12SubobjectBase* obj)
-			{
-				obj->DeviceInit();
-			});
-		}
 	};
 }

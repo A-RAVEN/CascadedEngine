@@ -16,7 +16,6 @@ namespace graphics_backend
 
 		D3D12SubobjectBase& operator=(D3D12SubobjectBase&& other) = default;
 
-		virtual void DeviceInit() {};
 		virtual void Release() {};
 		RenderBackend_D3D12* GetApp() const {
 			return pApp;
