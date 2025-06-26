@@ -160,6 +160,10 @@ namespace graphics_backend
 						& (D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE))
 					{
 						resourceView.dsv = descriptorAllocatorsr.m_DSV_Allocator.AllocDescriptors(1);
+						auto dsvDesc = GetDSVDescFromTextureDescriptor(resourceData.resourceDesc);
+						GetDevice()->CreateDepthStencilView(resourceData.gpuResource.GetResource()
+							, &dsvDesc
+							, resourceView.srv.CPUHandle());
 					}
 				}
 			}
