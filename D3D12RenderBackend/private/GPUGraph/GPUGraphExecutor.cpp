@@ -39,6 +39,8 @@ namespace graphics_backend
 
 		struct DrawCallBatchGPUData
 		{
+			//TODO: Set Topology Here
+			D3D12_PRIMITIVE_TOPOLOGY topology;
 			GPUPipelineInstance const* pipelineInstances;
 			GPUResourceBindingInstance const* pResourceBindingInstance;
 			castl::vector<DrawCallGPUData> drawcalls;
@@ -430,6 +432,63 @@ namespace graphics_backend
 		CBufferInitializeBarriers cbufferBarriers;
 		PassRWState batchRWStates;
 
+		void CbufferInitializeBarriers(ID3D12GraphicsCommandList7* pCommandList
+			, D3D12GraphLocalResourceManager& resourceManager
+			, castl::vector<D3D12_BUFFER_BARRIER>& beforeBarriers
+			, castl::vector<D3D12_BUFFER_BARRIER>& afterBarriers) const
+		{
+			//CBuffer Barriers
+			for (auto& cbufferData : cbufferBarriers.cbufferData)
+			{
+				BufferHandle const& bufferHandle = cbufferData.first;
+				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
+				ID3D12Resource* targetBuffer = info->gpuResource.GetResource();
+
+				D3D12_BUFFER_BARRIER beforeBarrier{};
+				beforeBarrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+				beforeBarrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_DEST;
+				beforeBarrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+				beforeBarrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+				beforeBarrier.pResource = targetBuffer;
+				beforeBarrier.Offset = 0;
+				beforeBarrier.Size = ULLONG_MAX;
+				beforeBarriers.push_back(beforeBarrier);
+
+				D3D12_BUFFER_BARRIER afterBarrier{};
+				afterBarrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+				afterBarrier.AccessAfter = D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+				afterBarrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+				afterBarrier.SyncAfter = D3D12_BARRIER_SYNC_ALL;
+				afterBarrier.pResource = targetBuffer;
+				afterBarrier.Offset = 0;
+				afterBarrier.Size = ULLONG_MAX;
+				afterBarriers.push_back(afterBarrier);
+			}
+		}
+
+		void CBufferCopyInitialize(ID3D12GraphicsCommandList7* pCommandList
+			, LinearMemoryManager& linearMemoryManager
+			, D3D12GraphLocalResourceManager& resourceManager) const
+		{
+			//CBuffer Barriers
+			for (auto& cbufferData : cbufferBarriers.cbufferData)
+			{
+				BufferHandle const& bufferHandle = cbufferData.first;
+				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
+				ID3D12Resource* targetBuffer = info->gpuResource.GetResource();
+
+				D3D2ShaderStruct const* pStruct = cbufferData.second;
+				auto& uniformBufferData = pStruct->GetSelfUniformBuffer();
+				ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(uniformBufferData.size());
+				UINT8* mappedStagingData;
+				stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
+				memcpy(mappedStagingData, uniformBufferData.data(), uniformBufferData.size());
+				stagingBuffer->Unmap(0, nullptr);
+
+				pCommandList->CopyBufferRegion(targetBuffer, 0, stagingBuffer, 0, uniformBufferData.size());
+			}
+		}
+
 
 		void ExecuteAquireBarriers(ID3D12GraphicsCommandList7* pCommandList
 			, LinearMemoryManager& linearMemoryManager
@@ -447,33 +506,19 @@ namespace graphics_backend
 				barrierGroups.push_back(imageBarrierGroup);
 			}
 			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
+
+#pragma region CBuffer Barriers
 			//CBuffer Barriers
-			for (auto& cbufferData : cbufferBarriers.cbufferData)
+			if (!cbufferBarriers.cbufferData.empty())
 			{
-				BufferHandle const& bufferHandle = cbufferData.first;
-				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
-				ID3D12Resource* targetBuffer = info->gpuResource.GetResource();
-
-				D3D2ShaderStruct const* pStruct = cbufferData.second;
-				auto& uniformBufferData = pStruct->GetSelfUniformBuffer();
-				ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(uniformBufferData.size());
-				UINT8* mappedStagingData;
-				stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
-				memcpy(mappedStagingData, uniformBufferData.data(), uniformBufferData.size());
-				stagingBuffer->Unmap(0, nullptr);
-
-				pCommandList->CopyBufferRegion(targetBuffer, 0, stagingBuffer, 0, uniformBufferData.size());
-
-				D3D12_BUFFER_BARRIER resouceBarrier{};
-				resouceBarrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
-				resouceBarrier.AccessAfter = D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
-				resouceBarrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
-				resouceBarrier.SyncAfter = D3D12_BARRIER_SYNC_ALL;//TODO: Need Sync After!
-				resouceBarrier.pResource = targetBuffer;
-				resouceBarrier.Offset = 0;
-				resouceBarrier.Size = ULLONG_MAX;
-				bufferBarriers.push_back(resouceBarrier);
+				castl::vector<D3D12_BUFFER_BARRIER> cbufferAquireBarriers;
+				CbufferInitializeBarriers(pCommandList, resourceManager, cbufferAquireBarriers, bufferBarriers);
+				CD3DX12_BARRIER_GROUP cbufferAquireBarrierGroup(cbufferAquireBarriers.size(), cbufferAquireBarriers.data());
+				pCommandList->Barrier(1, &cbufferAquireBarrierGroup);
+				CBufferCopyInitialize(pCommandList, linearMemoryManager, resourceManager);
 			}
+#pragma endregion
+			
 			for (auto& aquireBufferBarriers : aquireBarriers.bufferBarriers)
 			{
 				bufferBarriers.push_back(aquireBufferBarriers.second);
@@ -664,6 +709,7 @@ namespace graphics_backend
 						, resourceManager);
 
 					batchData.pipelineInstances = app->GetRasterPipelineManager().GetPipelineState(pipelineStateKey);
+					batchData.topology = ETopologyToD3D12Topology(batchLevelDescData.m_InputAssemblyStates->topology);
 
 					CA_ASSERT_BREAK(batchData.drawcalls.size() == batch.m_DrawCalls.size(), "Drawcall Size Incompatible");
 					for (size_t drawcallID = 0; drawcallID < batch.m_DrawCalls.size(); ++drawcallID)
@@ -745,6 +791,8 @@ namespace graphics_backend
 				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
 				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
 				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+				resouceBarrier.LayoutBefore = lastBarrierStates.layoutState;
+				resouceBarrier.LayoutAfter = currentBarrierStates.layoutState;
 				resouceBarrier.pResource = resourceManager.GetImageResource(image)->gpuResource.GetResource();
 				resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
 
@@ -911,8 +959,9 @@ namespace graphics_backend
 				{
 					auto& batchData = rasterData.drawcallBatchs[batchID];
 					auto& batch = pass.GetDrawCallBatches()[batchID];
-					auto pipelineState = batchData.pipelineInstances->GetPipelineState();
-					pCommand->SetPipelineState(pipelineState.Get());
+					pCommand->SetPipelineState(batchData.pipelineInstances->GetPipelineState().Get());
+					pCommand->SetGraphicsRootSignature(batchData.pipelineInstances->GetRootSignature().Get());
+					pCommand->IASetPrimitiveTopology(batchData.topology);
 
 					//Bind Descriptor Tables
 					{

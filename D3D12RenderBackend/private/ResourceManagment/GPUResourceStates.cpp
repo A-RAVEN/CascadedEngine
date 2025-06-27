@@ -45,6 +45,8 @@ namespace graphics_backend
 			if (img.IsIntternal())
 			{
 				auto& lifeTime = imgPair.second.lifeTime;
+				auto& resource = imageHandleToResource[img];
+				resource.usages = imgPair.second.allUsages;
 				allocationPasses[lifeTime.head()].newImagesOnThisPass.push_back(imgPair);
 				allocationPasses[lifeTime.end()].releasedImagesAfterThisPass.push_back(imgPair);
 			}
@@ -56,6 +58,8 @@ namespace graphics_backend
 			if (buf.IsIntternal())
 			{
 				auto& lifeTime = bufPair.second.lifeTime;
+				auto& resource = bufferHandleToResource[buf];
+				resource.usages = bufPair.second.allUsages;
 				allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(bufPair);
 				allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(bufPair);
 			}
@@ -136,7 +140,7 @@ namespace graphics_backend
 				{
 					auto& resourceView = pair.second;
 					auto& textureView = pair.first;
-					if (resourceData.access & D3D12_BARRIER_ACCESS_SHADER_RESOURCE)
+					if (resourceData.usages & EResourceUsage::eShaderResource)
 					{
 						resourceView.srv = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
 						auto srvDesc = GetSRVDescFromGPUTextureDescriptor(resourceData.resourceDesc, textureView);
@@ -144,26 +148,25 @@ namespace graphics_backend
 							, &srvDesc
 							, resourceView.srv.CPUHandle());
 					}
-					if (resourceData.access & D3D12_BARRIER_ACCESS_UNORDERED_ACCESS)
+					if (resourceData.usages & EResourceUsage::eShaderUnorderedAccess)
 					{
 						resourceView.uav = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
 					}
-					if (resourceData.access & D3D12_BARRIER_ACCESS_RENDER_TARGET)
+					if (resourceData.usages & EResourceUsage::eRenderTarget)
 					{
 						resourceView.rtv = descriptorAllocatorsr.m_RTV_Allocator.AllocDescriptors(1);
 						auto rtvDesc = GetRTVDescFromTextureDescriptor(resourceData.resourceDesc);
 						GetDevice()->CreateRenderTargetView(resourceData.gpuResource.GetResource()
 							, &rtvDesc
-							, resourceView.srv.CPUHandle());
+							, resourceView.rtv.CPUHandle());
 					}
-					if (resourceData.access
-						& (D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE))
+					if (resourceData.usages & EResourceUsage::eDepthStencilTarget)
 					{
 						resourceView.dsv = descriptorAllocatorsr.m_DSV_Allocator.AllocDescriptors(1);
 						auto dsvDesc = GetDSVDescFromTextureDescriptor(resourceData.resourceDesc);
 						GetDevice()->CreateDepthStencilView(resourceData.gpuResource.GetResource()
 							, &dsvDesc
-							, resourceView.srv.CPUHandle());
+							, resourceView.dsv.CPUHandle());
 					}
 				}
 			}
@@ -174,7 +177,7 @@ namespace graphics_backend
 			if (buf.IsIntternal())
 			{
 				auto& resourceData = pair.second;
-				if (resourceData.access & D3D12_BARRIER_ACCESS_SHADER_RESOURCE)
+				if (resourceData.usages & EResourceUsage::eShaderResource)
 				{
 					resourceData.srv = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
 					auto srvDesc = GetSRVDescFromGPUBufferDescriptor(resourceData.resourceDesc);
@@ -182,7 +185,7 @@ namespace graphics_backend
 						, &srvDesc
 						, resourceData.srv.CPUHandle());
 				}
-				if (resourceData.access & D3D12_BARRIER_ACCESS_UNORDERED_ACCESS)
+				if (resourceData.usages & EResourceUsage::eShaderUnorderedAccess)
 				{
 					resourceData.uav = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
 					auto uavDesc = GetUAVDescFromGPUBufferDescriptor(resourceData.resourceDesc);
@@ -191,7 +194,7 @@ namespace graphics_backend
 						, &uavDesc
 						, resourceData.uav.CPUHandle());
 				}
-				if (resourceData.access & D3D12_BARRIER_ACCESS_CONSTANT_BUFFER)
+				if (resourceData.usages & EResourceUsage::eConstantBuffer)
 				{
 					resourceData.cbv = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
 					auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(resourceData.gpuResource.GetResource()->GetGPUVirtualAddress()

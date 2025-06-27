@@ -119,7 +119,7 @@ namespace graphics_backend
 	void GPUPipelineInstance::Init(RenderBackend_D3D12* app, GPUPipelineStateKey const& pipelineStateKey)
 	{
 		ShaderFileInfo const* pshaderFileInfo = app->GetShaderFileInfo(pipelineStateKey.m_ShaderInfo);
-		auto pRootSignature = app->GetRootSignatureManager().GetRootSignature(pshaderFileInfo->shaderBindingInfo.serializedRootSignatureData);
+		m_RootSignature = app->GetRootSignatureManager().GetRootSignature(pshaderFileInfo->shaderBindingInfo.serializedRootSignatureData);
 		m_ResourceHeapParamIndex = pshaderFileInfo->shaderBindingInfo.resourceHeapParamID;
 		m_SamplerHeapParamIndex = pshaderFileInfo->shaderBindingInfo.samplerHeapParamID;
 
@@ -131,7 +131,7 @@ namespace graphics_backend
 		// --------------------------
 		// Vertex Input Assemblies
 		// --------------------------
-		psoDesc.pRootSignature = pRootSignature.Get(); // 已创建的根签名
+		psoDesc.pRootSignature = m_RootSignature.Get(); // 已创建的根签名
 		psoDesc.VS = { shaderSetData.vertexShader->GetBufferPointer(), shaderSetData.vertexShader->GetBufferSize() };
 		psoDesc.PS = { shaderSetData.fragmentShader->GetBufferPointer(), shaderSetData.fragmentShader->GetBufferSize() };
 		psoDesc.InputLayout = { bindingData.outVertexAttributes.data(), (uint32_t)bindingData.outVertexAttributes.size() };

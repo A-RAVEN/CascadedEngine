@@ -438,6 +438,26 @@ namespace graphics_backend
 		return frontFace == EFrontFace::eClockWise;
 	}
 
+	constexpr D3D12_PRIMITIVE_TOPOLOGY ETopologyToD3D12Topology(ETopology topology)
+	{
+		switch (topology)
+		{
+		case ETopology::ePointList:
+			return D3D12_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_POINTLIST;
+		case ETopology::eLineList:
+			return D3D12_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_LINELIST;
+		case ETopology::eLineStrip:
+			return D3D12_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_LINESTRIP;
+		case ETopology::eTriangleList:
+			return D3D12_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		case ETopology::eTriangleStrip:
+			return D3D12_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+		default:
+			CA_LOG_ERR("Unknown Topology!");
+			return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+		}
+	}
+
 	constexpr D3D12_PRIMITIVE_TOPOLOGY_TYPE ETopologyToD3D12TopologyType(ETopology topology)
 	{
 		switch (topology)

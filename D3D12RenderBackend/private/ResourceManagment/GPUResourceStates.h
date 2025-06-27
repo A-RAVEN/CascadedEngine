@@ -12,6 +12,7 @@ namespace graphics_backend
 {
 	enum class EResourceUsage : uint32_t
 	{
+		eNone = 0,
 		eShaderResource = 1 << 0,
 		eShaderUnorderedAccess = 1 << 1,
 		eRenderTarget = 1 << 2,
@@ -132,6 +133,7 @@ namespace graphics_backend
 	struct ResourceUsageRangeData
 	{
 		ResourceUsageRange lifeTime;
+		EResourceUsageFlags allUsages = EResourceUsage::eNone;
 
 		struct BatchAndState
 		{
@@ -142,6 +144,7 @@ namespace graphics_backend
 
 		void Expand(uint32_t passID, ResourceState const& resourceState)
 		{
+			allUsages |= resourceState.resourceUsage;
 			states.push_back({ passID, resourceState });
 			lifeTime.encapsule(passID);
 		}
@@ -259,6 +262,8 @@ namespace graphics_backend
 
 		auto setBarrierLayout = [&](D3D12_BARRIER_LAYOUT layout)
 		{
+			if (barrierLayout == layout)
+				return;
 			if (barrierLayout == D3D12_BARRIER_LAYOUT_UNDEFINED)
 			{
 				barrierLayout = layout;
@@ -331,6 +336,8 @@ namespace graphics_backend
 			}
 		});
 
+		//TODO: Check Validity: access state and layout state compatible?
+
 		ResourceBarrierUsageStates result;
 		result.accessState = barrierAccess;
 		result.layoutState = barrierLayout;
@@ -342,7 +349,7 @@ namespace graphics_backend
 	{
 		GPUBufferDescriptor resourceDesc;
 		AliasedGPUResource gpuResource;
-		D3D12_BARRIER_ACCESS access;
+		EResourceUsageFlags usages;
 		DescriptorAllocation srv;
 		DescriptorAllocation uav;
 		DescriptorAllocation cbv;
@@ -352,7 +359,7 @@ namespace graphics_backend
 	{
 		GPUTextureDescriptor resourceDesc;
 		AliasedGPUResource gpuResource;
-		D3D12_BARRIER_ACCESS access;
+		EResourceUsageFlags usages;
 
 		struct ResourceViews
 		{
