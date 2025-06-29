@@ -101,6 +101,7 @@ namespace graphics_backend
 		, m_RootSignatureManager(this)
 		, m_PipelineManager(this)
 		, m_ComputePipelineManager(this)
+		, m_DescriptorAllocatorSet(this)
 		, p_IOManager(nullptr)
 		, p_ResourceImporter(nullptr)
 		, p_ResourceManager(nullptr)
@@ -176,6 +177,13 @@ namespace graphics_backend
 	bool RenderBackend_D3D12::AnyWindowRunning()
 	{
 		return !m_WindowContexts.empty();
+	}
+
+	void RenderBackend_D3D12::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
+	{
+		auto pGraph = gpuFrame.pGraph;
+		D3D12GPUGraphExecutor executor(this);
+		executor.CompileAndExecute(*pGraph.get());
 	}
 
 	castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)

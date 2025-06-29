@@ -25,12 +25,10 @@ namespace graphics_backend
 		GPUConstantBufferManager m_ConstantBufferManager;
 		ShaderResourceInstanceDic m_ShaderResourceInstances;
 
+		//TODO: Move Me TO Per Frame Resources Manager
 		CPUDescriptorAllocatorSet m_DescriptorAllocatorSet;
-
 		GPUDescriptorHeap m_ResourceGPUHeap;
 		GPUDescriptorHeap m_SamplerGPUHeap;
-
-		//TODO: Move Me TO Per Frame Resources Manager
 		CommandListManager m_CommandListManager;
 		LinearMemoryManager m_StagingMemoryManager;
 

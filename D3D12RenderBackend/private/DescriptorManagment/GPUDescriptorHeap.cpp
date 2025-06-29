@@ -158,6 +158,8 @@ namespace graphics_backend
 	}
 	void DescriptorAllocation::Release()
 	{
+		if (!IsValid())
+			return;
 		m_Allocator->FreeDescriptors(m_Range);
 		m_Range = {};
 	}

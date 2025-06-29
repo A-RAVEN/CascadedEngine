@@ -32,7 +32,7 @@ namespace graphics_backend
 		void Release() override;
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		bool AnyWindowRunning() override;
-		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) override {}
+		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) override;
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor) override;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor) override;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) override;
@@ -147,6 +147,9 @@ namespace graphics_backend
 
 		void OnDeviceInit(castl::function<void()>const& callback);
 
+		CPUDescriptorAllocatorSet& GetCommonDescriptorAllocatorSet() {
+			return m_DescriptorAllocatorSet;
+		}
 	private:
 		void AfterDeviceInit();
 
@@ -165,12 +168,13 @@ namespace graphics_backend
 
 		castl::unordered_map<castl::shared_ptr<cawindow::IWindow>, castl::shared_ptr<WindowContext>> m_WindowContexts;
 
-		//D3D12ShaderObjectDic m_ShaderObjects;
 
 		D3D12ShaderResourceImporter m_ShaderResourceImporter;
 		SamplerManager m_SamplerManager;
 		RootSignatureManager m_RootSignatureManager;
 		GPUPipelineManager m_PipelineManager;
 		GPUComputePipelineManager m_ComputePipelineManager;
+
+		CPUDescriptorAllocatorSet m_DescriptorAllocatorSet;
 	};
 }

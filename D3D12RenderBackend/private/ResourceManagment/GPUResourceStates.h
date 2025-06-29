@@ -22,7 +22,8 @@ namespace graphics_backend
 		eConstantBuffer = 1 << 6,
 		eDepthStencilTarget = 1 << 7,
 		eInitialized = 1 << 8,
-		eBitMax = 9,
+		ePresent = 1 << 9,
+		eBitMax = 10,
 	};
 	using EResourceUsageFlags = uenum::EnumFlags<EResourceUsage>;
 
@@ -66,12 +67,27 @@ namespace graphics_backend
 			return resourceUsage == EResourceUsage::eInitialized;
 		}
 
+		bool isPresent() const
+		{
+			return resourceUsage == EResourceUsage::ePresent;
+		}
+
 		static ResourceState InitializedState()
 		{
 			ResourceState result;
 			result.resourceAccess = ShaderCompilerSlang::EShaderResourceAccess::eUnknown;
 			result.shaderStages = EShaderTypeMask::eNone;
 			result.resourceUsage = EResourceUsage::eInitialized;
+			result.queueTypes = EGPUQueueType::eNone;
+			return result;
+		}
+
+		static ResourceState PresentState()
+		{
+			ResourceState result;
+			result.resourceAccess = ShaderCompilerSlang::EShaderResourceAccess::eUnknown;
+			result.shaderStages = EShaderTypeMask::eNone;
+			result.resourceUsage = EResourceUsage::ePresent;
 			result.queueTypes = EGPUQueueType::eNone;
 			return result;
 		}
@@ -246,13 +262,19 @@ namespace graphics_backend
 	{
 		if (resourceState.isUndefined())
 		{
-			D3D12_BARRIER_ACCESS access = D3D12_BARRIER_ACCESS_NO_ACCESS;
-			D3D12_BARRIER_SYNC sync = D3D12_BARRIER_SYNC_NONE;
-			D3D12_BARRIER_LAYOUT layout = D3D12_BARRIER_LAYOUT_UNDEFINED;
 			ResourceBarrierUsageStates undefinedResult;
-			undefinedResult.accessState = access;
-			undefinedResult.layoutState = layout;
-			undefinedResult.barrierSync = sync;
+			undefinedResult.accessState = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			undefinedResult.layoutState = D3D12_BARRIER_LAYOUT_UNDEFINED;
+			undefinedResult.barrierSync = D3D12_BARRIER_SYNC_NONE;
+			return undefinedResult;
+		}
+
+		if (resourceState.isPresent())
+		{
+			ResourceBarrierUsageStates undefinedResult;
+			undefinedResult.accessState = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			undefinedResult.layoutState = D3D12_BARRIER_LAYOUT_PRESENT;
+			undefinedResult.barrierSync = D3D12_BARRIER_SYNC_NONE;
 			return undefinedResult;
 		}
 
@@ -345,11 +367,77 @@ namespace graphics_backend
 		return result;
 	}
 
+	struct TextureResourceViews
+	{
+		struct ResourceViews
+		{
+			DescriptorAllocation srv;
+			DescriptorAllocation uav;
+			DescriptorAllocation rtv;
+			DescriptorAllocation dsv;
+		};
+		castl::unordered_map<GPUTextureView, ResourceViews> resourceViews;
+
+		DescriptorAllocation const& EnsureSRV_NoLock(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+		DescriptorAllocation const& EnsureUAV_NoLock(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+		DescriptorAllocation const& EnsureRTV_NoLock(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+		DescriptorAllocation const& EnsureDSV_NoLock(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+
+		DescriptorAllocation const& EnsureSRV(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, castl::shared_mutex& inMutex
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+		DescriptorAllocation const& EnsureUAV(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, castl::shared_mutex& inMutex
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+		DescriptorAllocation const& EnsureRTV(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, castl::shared_mutex& inMutex
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+		DescriptorAllocation const& EnsureDSV(RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, castl::shared_mutex& inMutex
+			, ID3D12Resource* pResource
+			, GPUTextureDescriptor const& desc
+			, GPUTextureView const& textureView);
+	};
+
+	struct BufferResourceViews
+	{
+		DescriptorAllocation srv;
+		DescriptorAllocation uav;
+		DescriptorAllocation cbv;
+	};
+
 	struct BufferResourceAllocationInfo
 	{
 		GPUBufferDescriptor resourceDesc;
 		AliasedGPUResource gpuResource;
 		EResourceUsageFlags usages;
+		ID3D12Resource* pResource;
 		DescriptorAllocation srv;
 		DescriptorAllocation uav;
 		DescriptorAllocation cbv;
@@ -360,6 +448,7 @@ namespace graphics_backend
 		GPUTextureDescriptor resourceDesc;
 		AliasedGPUResource gpuResource;
 		EResourceUsageFlags usages;
+		ID3D12Resource* pResource;
 
 		struct ResourceViews
 		{

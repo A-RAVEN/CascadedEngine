@@ -1,10 +1,24 @@
 #include "D3DImageObject.h"
-
+#include <RenderBackend_D3D12.h>
+#include <Utils/InterfaceTranslation.h>
 namespace graphics_backend
 {
 	D3DImageObject::D3DImageObject(RenderBackend_D3D12* app) : D3D12SubobjectBase(app), m_Resource(app)
 	{
 		m_LastResourceState = ResourceState::InitializedState();
+	}
+
+	void D3DImageObject::Release()
+	{
+		castl::unique_lock lock(m_SharedMutex);
+		for (auto& pair : m_CachedResourceViews.resourceViews)
+		{
+			auto&& [descView, data] = pair;
+			data.dsv.Release();
+			data.rtv.Release();
+			data.srv.Release();
+			data.uav.Release();
+		}
 	}
 
 	GPUTextureDescriptor const& D3DImageObject::GetDescriptor() const
@@ -31,4 +45,38 @@ namespace graphics_backend
 	{
 		m_Descriptor = desc;
 	}
+
+	DescriptorAllocation const& D3DImageObject::EnsureSRV(GPUTextureView const& textureView)
+	{
+		return m_CachedResourceViews.EnsureSRV(GetApp(), GetApp()->GetCommonDescriptorAllocatorSet()
+			, m_SharedMutex
+			, m_Resource.GetResource()
+			, m_Descriptor
+			, textureView);
+	}
+	DescriptorAllocation const& D3DImageObject::EnsureUAV(GPUTextureView const& textureView)
+	{
+		return m_CachedResourceViews.EnsureUAV(GetApp(), GetApp()->GetCommonDescriptorAllocatorSet()
+			, m_SharedMutex
+			, m_Resource.GetResource()
+			, m_Descriptor
+			, textureView);
+	}
+	DescriptorAllocation const& D3DImageObject::EnsureRTV(GPUTextureView const& textureView)
+	{
+		return m_CachedResourceViews.EnsureRTV(GetApp(), GetApp()->GetCommonDescriptorAllocatorSet()
+			, m_SharedMutex
+			, m_Resource.GetResource()
+			, m_Descriptor
+			, textureView);
+	}
+	DescriptorAllocation const& D3DImageObject::EnsureDSV(GPUTextureView const& textureView)
+	{
+		return m_CachedResourceViews.EnsureDSV(GetApp(), GetApp()->GetCommonDescriptorAllocatorSet()
+			, m_SharedMutex
+			, m_Resource.GetResource()
+			, m_Descriptor
+			, textureView);
+	}
+
 }

@@ -501,7 +501,8 @@ namespace graphics_backend
 		{
 			eRenderPass,
 			eComputePass,
-			eTransferPass
+			eTransferPass,
+			eSubGraph
 		};
 
 		//Create a new render pass
@@ -514,7 +515,21 @@ namespace graphics_backend
 		inline GPUGraph& AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
 		//Allocate a graph local buffer
 		inline GPUGraph& AllocBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& desc);
-
+		inline GPUGraph& Present(ImageHandle const& windowHandle)
+		{
+			if (windowHandle.GetType() == ImageHandle::ImageType::Backbuffer)
+			{
+				m_PresentBackBuffers.push_back(windowHandle);
+			}
+			return *this;
+		}
+		inline GPUGraph& SubGraph(castl::shared_ptr<GPUGraph> const& subGraph)
+		{
+			m_StageTypes.push_back(EGraphStageType::eSubGraph);
+			m_PassIndices.push_back(m_SubGraphs.size());
+			m_SubGraphs.push_back(subGraph);
+			return *this;
+		}
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
 		castl::deque<ComputeBatch> const& GetComputePasses() const { return m_ComputePasses; }
@@ -523,7 +538,7 @@ namespace graphics_backend
 		UploadDataHolder const& GetUploadDataHolder() const { return m_DataHolder; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
 		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
-
+		castl::vector<ImageHandle> const& GetPresentBackBuffers() const { return m_PresentBackBuffers; }
 	private:
 		//Render Passes
 		castl::deque<RenderPass> m_RenderPasses;
@@ -540,6 +555,8 @@ namespace graphics_backend
 		//Internal Resources
 		GraphResourceManager<GPUTextureDescriptor> m_InternalImageManager;
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
+		castl::vector<ImageHandle> m_PresentBackBuffers;
+		castl::vector<castl::shared_ptr<GPUGraph>> m_SubGraphs;
 	};
 
 	template<typename TSS, typename TSSRange>

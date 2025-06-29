@@ -89,6 +89,16 @@ namespace graphics_backend
 		ResourceHandleKey const& GetKey() const { return m_Key; }
 		castl::shared_ptr<GPUTexture> GetExternalManagedTexture() const { return m_ExternalManagedTexture; }
 		castl::shared_ptr<WindowHandle> GetWindowHandle() const { return m_Backbuffer; }
+		template<typename TWindow>
+		TWindow* GetWindowPtr() const
+		{
+			return static_cast<TWindow*>(GetWindowHandle().get());
+		}
+		template<typename TTexture>
+		TTexture* GetTexturePtr() const
+		{
+			return static_cast<TTexture*>(GetExternalManagedTexture().get());
+		}
 		auto operator<=>(const ImageHandle&) const = default;
 	private:
 		ResourceHandleKey m_Key;
@@ -138,6 +148,11 @@ namespace graphics_backend
 		castl::string_view const& GetName() const { return m_Key.Get().name.Get(); }
 		ResourceHandleKey const& GetKey() const { return m_Key; }
 		castl::shared_ptr<GPUBuffer> GetExternalManagedBuffer() const { return m_ExternalManagedBuffer; }
+		template<typename TBuffer>
+		TBuffer* GetBufferPtr() const
+		{
+			return static_cast<TBuffer*>(GetExternalManagedBuffer().get());
+		}
 		auto operator<=>(const BufferHandle&) const = default;
 	private:
 		ResourceHandleKey m_Key;

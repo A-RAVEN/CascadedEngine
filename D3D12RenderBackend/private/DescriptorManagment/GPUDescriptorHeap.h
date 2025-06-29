@@ -22,7 +22,7 @@ namespace graphics_backend
 		void Release();
 	private:
 		castl::range<uint32_t> m_Range;
-		DescriptorHeapAllocator* m_Allocator;
+		DescriptorHeapAllocator* m_Allocator = nullptr;
 	};
 
 	//Free list based descriptor heap allocator

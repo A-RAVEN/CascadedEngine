@@ -52,76 +52,6 @@ int main(int argc, char* argv[])
 	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
 	castl::string editorResourceString = castl::to_ca(rootPath.string()) + "EditorConfigs";
 
-	//{
-	//	castl::string shaderPath = resourceString + "/Shaders";
-	//	castl::string testPath = shaderPath + "/TestBindingShader.slang";
-	//	auto pCompiler = shaderCompilerManager->AquireShaderCompilerShared();
-	//	pCompiler->BeginCompileTask();
-	//	pCompiler->AddInlcudePath(shaderPath.c_str());
-	//	pCompiler->AddSourceFile(testPath.c_str());
-	//	pCompiler->EnableDebugInfo();
-	//	pCompiler->SetTarget(ShaderCompilerSlang::EShaderTargetType::eSpirV);
-	//	pCompiler->Compile();
-	//	if (pCompiler->HasError())
-	//	{
-	//		CA_LOG_ERR("Shader compile failed");
-	//	}
-	//	else
-	//	{
-	//		castl::vector<ShaderCompilerSlang::ShaderCompileTargetResult> result = pCompiler->GetResults();
-	//		cacore::NameHash testHash = CANAME("TEST_HASH");
-	//		castl::vector<byte> serializedData;
-	//		cacore::serialize(serializedData, testHash);
-	//		cacore::NameHash deserializedName;
-	//		cacore::deserialize(serializedData, deserializedName);
-	//		for (auto& shaderCompileTargetResult : result)
-	//		{
-	//			std::cout << "\nTargetType: " <<  magic_enum::enum_name(shaderCompileTargetResult.targetType) << std::endl;
-	//			auto& reflectionData = shaderCompileTargetResult.m_ReflectionData;
-	//			auto& bindingData = reflectionData.m_BindingData;
-	//			for (auto& binding : bindingData)
-	//			{
-
-	//				std::cout << "-Binding Space: " << binding.m_BindingSpace << std::endl;
-	//				int uniformID = 0;
-	//				for (auto& uniformBuffer : binding.m_UniformBuffers)
-	//				{
-	//					std::cout << "--Uniform" << uniformID << ": BindingID" << uniformBuffer.m_BindingIndex << std::endl;
-	//					for (auto& group : uniformBuffer.m_Groups)
-	//					{
-	//						std::cout << "---Group: " << group.m_Name << std::endl;
-	//						std::cout << "----Offset/Size/Stride:" << group.m_MemoryOffset << "/" << group.m_MemorySize << "/" << group.m_Stride << std::endl;
-	//						if (group.isArray())
-	//						{
-	//							std::cout << "----IsArray(ElementCount):" << group.m_ElementCount << std::endl;
-	//						}
-	//						for (auto& element : group.m_Elements)
-	//						{
-	//							std::cout << "-----Name: " << element.m_Name.Get() << std::endl;
-	//							std::cout << "-----Offset/Size/Stride:" << element.m_MemoryOffset << "/" << element.m_ElementMemorySize << "/" << element.m_Stride << std::endl;
-	//							if (element.isArray())
-	//							{
-	//								std::cout << "-----IsArray(ElementCount):" << element.m_ElementCount << std::endl;
-	//							}
-	//						}
-	//					}
-	//				}
-	//				for (auto& texture : binding.m_Textures)
-	//				{
-	//					std::cout << "--Texture " << texture.m_Name << "; BindingID: " << texture.m_BindingIndex << std::endl;
-	//				}
-	//				for (auto& sampler : binding.m_Samplers)
-	//				{
-	//					std::cout << "--Sampler " << sampler.m_Name << "; BindingID: " << sampler.m_BindingIndex << std::endl;
-	//				}
-	//				for (auto& buffer : binding.m_Buffers)
-	//				{
-	//					std::cout << "--Buffer " << buffer.m_Name << "; BindingID: " << buffer.m_BindingIndex << std::endl;
-	//				}
-	//			}
-	//		}
-	//	}
-	//}
 
 	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
 	TModuleLoader<CRenderBackend> renderBackendLoader("D3D12RenderBackend");
@@ -161,7 +91,7 @@ int main(int argc, char* argv[])
 		, "Test D3D12 Backend", "CASCADED Engine");
 	importingSystem->ScanSourceDirectory(resourceString);
 
-	pBackend->RunTestCode();
+	//pBackend->RunTestCode();
 
 
 	GPUTextureDescriptor textureDesc = GPUTextureDescriptor::Create(1024, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst);
@@ -169,6 +99,56 @@ int main(int argc, char* argv[])
 
 	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
 	auto windowHandle = pBackend->GetWindowHandle(newWindow.lock());
+
+
+
+	{
+		struct VertexStruct
+		{
+			std::array<float, 3> pos;
+			std::array<float, 3> color;
+		};
+		cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+			{
+				VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+				VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
+			}, false);
+
+		std::vector<VertexStruct> testBuffer = {
+			{{-0.25f, -0.25f, -0.25f }, {1.0f, 0.0f, 0.0f}},
+			{{0.25f, -0.25f, -0.25f }, {0.0f, 1.0f, 0.0f}},
+			{{0.0f, 0.5f, 0.0f }, {0.0f, 0.0f, 1.0f}},
+		};
+
+		ImageHandle windowBackBuffer(windowHandle);
+		ImageHandle image(CANAME("TestImage"));
+		BufferHandle vbuffer(CANAME("TestVertBuffer"));
+		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+		newGraph->Present(windowBackBuffer);
+		newGraph->AllocImage(image, GPUTextureDescriptor::Create(1024, 720, ETextureFormat::E_R8G8B8A8_UNORM, ETextureAccessType::eRT))
+			.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+			.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+			.AddPass(
+			RenderPass::New({ windowBackBuffer })
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), descs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.Draw(testBuffer.size())
+				)
+			)
+		);
+		GPUFrame newFrame;
+		newFrame.pGraph = newGraph;
+		//newFrame.presentWindows.push_back(windowHandle);
+		auto scheduler = pThreadManager->NewScheduler();
+		pBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+	}
+
 
 	castl::shared_ptr<ShaderStruct> pCameraData = pBackend->CreateShaderStruct(CANAME("CameraData"));
 	pCameraData->SetValue(CANAME("viewProjMatrix"), glm::mat4(1.0f));

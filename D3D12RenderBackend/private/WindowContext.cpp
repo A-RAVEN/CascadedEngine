@@ -1,12 +1,12 @@
-#include "WindowContext.h"
+﻿#include "WindowContext.h"
 #include "D3D12Debug.h"
 #include "RenderBackend_D3D12.h"
 
 namespace graphics_backend
 {
 	WindowContext::WindowContext(RenderBackend_D3D12* app, castl::shared_ptr<cawindow::IWindow> windowHandle)
+        : D3D12SubobjectBase(app), m_Semaphore(1)
 	{
-		p_App = app;
 		m_WindowHandle = windowHandle;
 
         UINT32 FrameCount = 3;
@@ -23,9 +23,13 @@ namespace graphics_backend
         swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         swapChainDesc.SampleDesc.Count = 1;
 
+        m_BackBufferDesc = GPUTextureDescriptor::Create(width, height
+            , ETextureFormat::E_R8G8B8A8_UNORM
+            , ETextureAccessType::eRT, ETextureType::e2D, 1, 1, EMultiSampleCount::e1);
+
         ComPtr<IDXGISwapChain1> swapChain;
-        ThrowIfFailed(p_App->GetFactory()->CreateSwapChainForHwnd(
-            p_App->GetPresentQueue().Get(),        // Swap chain needs the queue so that it can force a flush on it.
+        ThrowIfFailed(GetApp()->GetFactory()->CreateSwapChainForHwnd(
+            GetApp()->GetPresentQueue().Get(),        // Swap chain needs the queue so that it can force a flush on it.
             winHandle,
             &swapChainDesc,
             nullptr,
@@ -34,7 +38,14 @@ namespace graphics_backend
         ));
 
         ThrowIfFailed(swapChain.As(&m_Swapchain));
-        m_FrameIndex = m_Swapchain->GetCurrentBackBufferIndex();
+        m_BackBufferIndex = m_Swapchain->GetCurrentBackBufferIndex();
+
+        for (UINT32 bufferID = 0; bufferID < FrameCount; ++bufferID)
+        {
+            ComPtr<ID3D12Resource> backBuffer;
+            swapChain->GetBuffer(bufferID, IID_PPV_ARGS(&backBuffer));
+            m_BackBuffers.push_back({ backBuffer, TextureResourceViews{}, ResourceState::InitializedState()});
+        }
 	}
 
     uint2 WindowContext::GetSizeSafe() const
@@ -45,6 +56,30 @@ namespace graphics_backend
     }
     GPUTextureDescriptor const& WindowContext::GetBackbufferDescriptor() const
     {
-        return {};
+        return  m_BackBufferDesc;
+    }
+    ComPtr<ID3D12Resource> const& WindowContext::GetCurrentBackBufferResource() const
+    {
+        return m_BackBuffers[m_BackBufferIndex].backbufferResource;
+    }
+    DescriptorAllocation WindowContext::EnsureCurrentBackBufferRTV()
+    {
+        auto& currentBuffer = m_BackBuffers[m_BackBufferIndex];
+        return currentBuffer.resourceViews.EnsureRTV(GetApp(), GetApp()->GetCommonDescriptorAllocatorSet(), m_Mutex
+            , currentBuffer.backbufferResource.Get(), m_BackBufferDesc
+            , GPUTextureView::CreateDefaultForRenderTarget(m_BackBufferDesc.format));
+    }
+    ResourceState const& WindowContext::GetCurrentBackBufferResourceState() const
+    {
+        return m_BackBuffers[m_BackBufferIndex].resourceState;
+    }
+    void WindowContext::ApplyCurrentBackBufferResourceState(ResourceState const& resourceState)
+    {
+        m_BackBuffers[m_BackBufferIndex].resourceState = resourceState;
+    }
+    void WindowContext::Present()
+    {
+        m_Swapchain->Present(1, 0);
+        m_BackBufferIndex = m_Swapchain->GetCurrentBackBufferIndex();
     }
 }

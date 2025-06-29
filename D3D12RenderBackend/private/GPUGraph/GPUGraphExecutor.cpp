@@ -10,6 +10,27 @@
 namespace graphics_backend
 {
 
+	GPUTextureDescriptor GetDescriptor(GPUGraph const& graph, ImageHandle const& image)
+	{
+		switch (image.GetType())
+		{
+		case ImageHandle::ImageType::External:
+			return image.GetTexturePtr<D3DImageObject>()->GetDescriptor();
+		case ImageHandle::ImageType::Backbuffer:
+			return image.GetWindowPtr<WindowContext>()->GetBackbufferDescriptor();
+		case ImageHandle::ImageType::Internal:
+		{
+			GPUTextureDescriptor const* pdesc = graph.GetImageManager().GetDescriptor(image.GetKey());
+			CA_ASSERT_BREAK(pdesc != nullptr, "Internal Image Not Registered");
+			return *pdesc;
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Image Handle");
+			return {};
+		}
+	}
+
+
 	void CollectInputAssemblyBindings(VertexInputBindingData const& bindingData
 		, DrawCallBatch::VertexInputDescMap const& vertexBufferDescs
 		, castl::unordered_map<cacore::NameHash, BufferHandle> const& boundVertexBuffers
@@ -283,9 +304,10 @@ namespace graphics_backend
 				int attachmentID = 0;
 				for (auto& attachment : renderPass.GetAttachments())
 				{
-					auto descriptor = owningGraph.GetImageManager().GetDescriptor(attachment.GetKey());
-					CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", attachment.GetName());
-					resourceManager.AddTexture(attachment, *descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor->format));
+					auto descriptor = GetDescriptor(owningGraph, attachment);
+					//auto descriptor = owningGraph.GetImageManager().GetDescriptor(attachment.GetKey());
+					//CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", attachment.GetName());
+					resourceManager.AddTexture(attachment, descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor.format));
 					if (attachmentID == renderPass.GetDepthAttachmentIndex())
 					{
 						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eDepthStencilTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
@@ -376,9 +398,10 @@ namespace graphics_backend
 			}
 			for (auto& imgWrites : transferPass.m_ImageDataUploads)
 			{
-				auto descriptor = owningGraph.GetImageManager().GetDescriptor(imgWrites.first.GetKey());
-				CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", imgWrites.first.GetName());
-				resourceManager.AddTexture(imgWrites.first, *descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor->format));
+				auto descriptor = GetDescriptor(owningGraph, imgWrites.first);
+				//auto descriptor = owningGraph.GetImageManager().GetDescriptor(imgWrites.first.GetKey());
+				//CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", imgWrites.first.GetName());
+				resourceManager.AddTexture(imgWrites.first, descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor.format));
 				passRWState.SetImageRWState(imgWrites.first, EShaderTypeMask::eNone, EResourceUsage::eCopy, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly);
 			}
 		}
@@ -422,6 +445,42 @@ namespace graphics_backend
 		}
 	};
 
+	struct GPUFinalizeBatch
+	{
+		RenderStateBarriers finalizeBarriers;
+
+		void ExecuteFinalizeBarriers(ID3D12GraphicsCommandList7* pCommandList) const
+		{
+			castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
+			castl::vector<D3D12_TEXTURE_BARRIER> imageBarriers;
+			for (auto& aquireImageBarriers : finalizeBarriers.imageBarriers)
+			{
+				imageBarriers.push_back(aquireImageBarriers.second);
+			}
+			if (!imageBarriers.empty())
+			{
+				CD3DX12_BARRIER_GROUP imageBarrierGroup(imageBarriers.size(), imageBarriers.data());
+				barrierGroups.push_back(imageBarrierGroup);
+			}
+			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
+
+			for (auto& aquireBufferBarriers : finalizeBarriers.bufferBarriers)
+			{
+				bufferBarriers.push_back(aquireBufferBarriers.second);
+			}
+			if (!bufferBarriers.empty())
+			{
+				CD3DX12_BARRIER_GROUP bufferBarrierGroup(bufferBarriers.size(), bufferBarriers.data());
+				barrierGroups.push_back(bufferBarrierGroup);
+			}
+			if (!barrierGroups.empty())
+			{
+				pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
+			}
+		}
+
+	};
+
 	struct GPUExecutionBatch
 	{
 		std::vector<uint32_t> rasterPassRefs;
@@ -442,7 +501,7 @@ namespace graphics_backend
 			{
 				BufferHandle const& bufferHandle = cbufferData.first;
 				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
-				ID3D12Resource* targetBuffer = info->gpuResource.GetResource();
+				ID3D12Resource* targetBuffer = info->pResource;
 
 				D3D12_BUFFER_BARRIER beforeBarrier{};
 				beforeBarrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
@@ -475,7 +534,7 @@ namespace graphics_backend
 			{
 				BufferHandle const& bufferHandle = cbufferData.first;
 				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
-				ID3D12Resource* targetBuffer = info->gpuResource.GetResource();
+				ID3D12Resource* targetBuffer = info->pResource;
 
 				D3D2ShaderStruct const* pStruct = cbufferData.second;
 				auto& uniformBufferData = pStruct->GetSelfUniformBuffer();
@@ -746,7 +805,9 @@ namespace graphics_backend
 
 	}
 
-	void PrepareBatchResourceBarriers(castl::vector<GPUExecutionBatch>& executionBatchs
+	void PrepareBatchResourceBarriers(GPUGraph const& owningGraph
+		, GPUFinalizeBatch& finalizeBatch
+		, castl::vector<GPUExecutionBatch>& executionBatchs
 		, castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageLifetimes
 		, castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferLifetimes
 		, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
@@ -754,8 +815,6 @@ namespace graphics_backend
 		, D3D12GraphLocalResourceManager& resourceManager
 	)
 	{
-		castl::unordered_map<ImageHandle, ResourceState> imageStates;
-
 		for (auto& pair : imageLifetimes)
 		{
 			ImageHandle const& image = pair.first;
@@ -764,10 +823,15 @@ namespace graphics_backend
 			{
 				cachedState = ResourceState::InitializedState();
 			}
-			else
+			else if(image.GetType() == ImageHandle::ImageType::External)
 			{
 				D3DImageObject const* pImage = static_cast<D3DImageObject const*>(image.GetExternalManagedTexture().get());
 				cachedState = pImage->GetResourceState();
+			}
+			else if (image.GetType() == ImageHandle::ImageType::Backbuffer)
+			{
+				WindowContext const* pWindow = static_cast<WindowContext const*>(image.GetWindowHandle().get());
+				cachedState = pWindow->GetCurrentBackBufferResourceState();
 			}
 			ResourceUsageRangeData const& usageRanges = pair.second;
 
@@ -793,7 +857,7 @@ namespace graphics_backend
 				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
 				resouceBarrier.LayoutBefore = lastBarrierStates.layoutState;
 				resouceBarrier.LayoutAfter = currentBarrierStates.layoutState;
-				resouceBarrier.pResource = resourceManager.GetImageResource(image)->gpuResource.GetResource();
+				resouceBarrier.pResource = resourceManager.GetImageResource(image)->pResource;
 				resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
 
 				if (stateHaveGap)
@@ -820,6 +884,7 @@ namespace graphics_backend
 				}
 			}
 		}
+
 		for (auto& pair : bufferLifetimes)
 		{
 			BufferHandle const& buffer = pair.first;
@@ -856,7 +921,7 @@ namespace graphics_backend
 				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
 				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
 				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
-				resouceBarrier.pResource = resourceManager.GetBufferResource(buffer)->gpuResource.GetResource();
+				resouceBarrier.pResource = resourceManager.GetBufferResource(buffer)->pResource;
 				resouceBarrier.Offset = 0;
 				resouceBarrier.Size = ULLONG_MAX;
 				if (stateHaveGap)
@@ -895,6 +960,58 @@ namespace graphics_backend
 			auto& initialBatch = executionBatchs[initialBatchID];
 			initialBatch.cbufferBarriers.AddCBuffer(constantBufferManager.GetConstantBufferHandle(pStruct), pStruct);
 		}
+
+		//Backbuffer Barriers
+		for (auto& backBufferImage : owningGraph.GetPresentBackBuffers())
+		{
+			auto found = imageLifetimes.find(backBufferImage);
+			if (found != imageLifetimes.end())
+			{
+				int finalBatchID = executionBatchs.size();
+				auto backBufferUsage = found->second;
+				WindowContext const* pWindow = static_cast<WindowContext const*>(backBufferImage.GetWindowHandle().get());
+				ResourceState const& cachedState = pWindow->GetCurrentBackBufferResourceState();
+				bool hasInGraphState = backBufferUsage.states.empty();
+				ResourceState const& lastState = hasInGraphState ? cachedState : backBufferUsage.states.back().state;
+				int lastBatchID = hasInGraphState ? backBufferUsage.states.back().batchID : -1;
+				bool stateHaveGap = hasInGraphState && ((finalBatchID - lastBatchID) > 1);
+
+				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
+				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(ResourceState::PresentState());
+
+				D3D12_TEXTURE_BARRIER resouceBarrier{};
+				resouceBarrier.AccessBefore = lastBarrierStates.accessState;
+				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
+				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
+				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+				resouceBarrier.LayoutBefore = lastBarrierStates.layoutState;
+				resouceBarrier.LayoutAfter = currentBarrierStates.layoutState;
+				resouceBarrier.pResource = pWindow->GetCurrentBackBufferResource().Get();
+				resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+
+
+				if (stateHaveGap)
+				{
+					CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
+
+					auto& lastBatch = executionBatchs[lastBatchID];
+
+					//Have Gap, Using Split Barrier
+					D3D12_TEXTURE_BARRIER releaseBarrier = resouceBarrier;
+					releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
+					lastBatch.releaseBarriers.AddImageBarrier(backBufferImage, releaseBarrier);
+
+					D3D12_TEXTURE_BARRIER aquireBarrier = resouceBarrier;
+					aquireBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
+					finalizeBatch.finalizeBarriers.AddImageBarrier(backBufferImage, aquireBarrier);
+				}
+				else
+				{
+					finalizeBatch.finalizeBarriers.AddImageBarrier(backBufferImage, resouceBarrier);
+				}
+			}
+
+		}
 	}
 
 	void Execute(RenderBackend_D3D12* pBackend
@@ -904,6 +1021,7 @@ namespace graphics_backend
 		, D3D12GraphLocalResourceManager& resourceManager
 		, GPUDescriptorHeap& resourceHeap
 		, GPUDescriptorHeap& samplerHeap
+		, GPUFinalizeBatch& finalizeBatch
 		, castl::vector<GPUExecutionBatch> const& executeBatchs
 		, castl::vector<RenderPassGPUData> const& rasterPassGPUData)
 	{
@@ -922,6 +1040,21 @@ namespace graphics_backend
 				auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
 				CA_ASSERT_BREAK(rasterData.drawcallBatchs.size() == pass.GetDrawCallBatches().size(), "Raster Pass Batch Count Inompatible");
 				
+				GPUTextureDescriptor desc = GetDescriptor(owningGraph, pass.GetAttachments()[0]);
+				D3D12_VIEWPORT viewport;
+				D3D12_RECT surfaceSize;
+				surfaceSize.left = 0;
+				surfaceSize.top = 0;
+				surfaceSize.right = static_cast<LONG>(desc.width);
+				surfaceSize.bottom = static_cast<LONG>(desc.height);
+
+				viewport.TopLeftX = 0.0f;
+				viewport.TopLeftY = 0.0f;
+				viewport.Width = static_cast<float>(desc.width);
+				viewport.Height = static_cast<float>(desc.height);
+				viewport.MinDepth = .1f;
+				viewport.MaxDepth = 1000.f;
+
 				//Set Render Targets
 				{
 					castl::vector<D3D12_CPU_DESCRIPTOR_HANDLE> rtvs;
@@ -952,7 +1085,8 @@ namespace graphics_backend
 					{
 						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, NULL);
 					}
-
+					const float clearColor[] = { 0.2f, 1.0f, 0.2f, 1.0f };
+					pCommand->ClearRenderTargetView(rtvs[0], clearColor, 0, nullptr);
 				}
 	
 				for (int batchID = 0; batchID < rasterData.drawcallBatchs.size(); ++batchID)
@@ -962,7 +1096,8 @@ namespace graphics_backend
 					pCommand->SetPipelineState(batchData.pipelineInstances->GetPipelineState().Get());
 					pCommand->SetGraphicsRootSignature(batchData.pipelineInstances->GetRootSignature().Get());
 					pCommand->IASetPrimitiveTopology(batchData.topology);
-
+					pCommand->RSSetViewports(1, &viewport);
+					pCommand->RSSetScissorRects(1, &surfaceSize);
 					//Bind Descriptor Tables
 					{
 						int resourceHeapID = batchData.pipelineInstances->GetResourceHeapParamID();
@@ -997,7 +1132,7 @@ namespace graphics_backend
 								auto&& [vertexInputDesc, bufferHandle] = drawcallData.inputAssemblyBindingBuffers[vbid];
 								auto pBufferResource = resourceManager.GetBufferResource(bufferHandle);
 								D3D12_VERTEX_BUFFER_VIEW& view = vertexBufferViews[vbid];
-								view.BufferLocation = pBufferResource->gpuResource.GetResource()->GetGPUVirtualAddress();
+								view.BufferLocation = pBufferResource->pResource->GetGPUVirtualAddress();
 								view.SizeInBytes = pBufferResource->resourceDesc.SizeInByte();
 								view.StrideInBytes = vertexInputDesc.stride;
 							}
@@ -1027,7 +1162,7 @@ namespace graphics_backend
 				{
 					auto&& [targetImageHandle, dataRef] = imageUploads;
 					auto pImageResource = resourceManager.GetImageResource(targetImageHandle);
-					auto targetGPUResource = pImageResource->gpuResource.GetResource();
+					auto targetGPUResource = pImageResource->pResource;
 
 					D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts;
 					UINT numRows;
@@ -1066,18 +1201,26 @@ namespace graphics_backend
 					memcpy(mappedStagingData, dataRef.pData, dataRef.dataSize);
 					stagingBuffer->Unmap(0, nullptr);
 
-					pCommand->CopyBufferRegion(pBufferHandle->gpuResource.GetResource(), 0, stagingBuffer, 0, dataRef.dataSize);
+					pCommand->CopyBufferRegion(pBufferHandle->pResource, 0, stagingBuffer, 0, dataRef.dataSize);
 				}
 			}
 
 			executeBatch.ExecuteReleaseBarriers(pCommand);
 		}
+		finalizeBatch.ExecuteFinalizeBarriers(pCommand);
 		pCommand->Close();
 		castl::vector<ID3D12CommandList*> commands = { pCommand };
 		pBackend->GetDirectQueue()->ExecuteCommandLists(1, commands.data());
 		ComPtr<ID3D12Fence> fance;
 		pBackend->GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fance));
 		pBackend->GetDirectQueue()->Signal(fance.Get(), 1);
+
+		for (auto& backBufferImage : owningGraph.GetPresentBackBuffers())
+		{
+			WindowContext* pWindow = backBufferImage.GetWindowPtr<WindowContext>();
+			pWindow->Present();
+		}
+
 		while (fance->GetCompletedValue() < 1)
 		{
 			//Do Nothing;
@@ -1124,6 +1267,7 @@ namespace graphics_backend
 		castl::vector<PassRWState> transferPassRWStates;
 		castl::vector<RenderPassGPUData> rasterPassGPUDataList;
 		castl::vector<ComputePassGPUData> computePassGPUDataList;
+		GPUFinalizeBatch finalizeBatch;
 		InitArraySizes(owningGraph
 			, passRWStates, computePassRWStates, transferPassRWStates
 			, rasterPassGPUDataList, computePassGPUDataList
@@ -1163,7 +1307,9 @@ namespace graphics_backend
 		});
 
 		//创建PipelineBarriers, 目前确保在资源创建完毕后再调用
-		PrepareBatchResourceBarriers(executionBatchs
+		PrepareBatchResourceBarriers(owningGraph
+			, finalizeBatch
+			, executionBatchs
 			, imageLifeTimes
 			, bufferLifeTimes
 			, cbufferLifeTimes
@@ -1184,6 +1330,7 @@ namespace graphics_backend
 			, m_LocalResourceManager
 			, m_ResourceGPUHeap
 			, m_SamplerGPUHeap
+			, finalizeBatch
 			, executionBatchs
 			, rasterPassGPUDataList);
 

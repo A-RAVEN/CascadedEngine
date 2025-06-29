@@ -156,7 +156,7 @@ namespace graphics_backend
 		psoDesc.RasterizerState.CullMode = ECullModeToD3D12CullMode(rasterizeStates.cullMode);
 		psoDesc.RasterizerState.FrontCounterClockwise = rasterizeStates.frontFace == EFrontFace::eCounterClockWise
 			? TRUE : FALSE; // 顶点顺序是否为逆时针
-		psoDesc.RasterizerState.DepthClipEnable = TRUE;
+		psoDesc.RasterizerState.DepthClipEnable = FALSE;
 
 		// --------------------------
 		// Blending
