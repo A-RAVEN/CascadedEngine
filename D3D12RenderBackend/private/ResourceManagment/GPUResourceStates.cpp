@@ -210,6 +210,8 @@ namespace graphics_backend
 			D3D2ShaderStruct const* pStruct = cbufferPair.first;
 			ResourceUsageRange const& lifeTime = cbufferPair.second;
 			BufferHandle handle = constantBufferManager.GetConstantBufferHandle(pStruct);
+			auto& resource = bufferHandleToResource[handle];
+			resource.usages = EResourceUsage::eConstantBuffer | EResourceUsage::eCopy;
 			castl::pair<BufferHandle, ResourceUsageRangeData> bufPair = castl::make_pair(handle, ResourceUsageRangeData{});
 			allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(bufPair);
 			allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(bufPair);
@@ -251,13 +253,15 @@ namespace graphics_backend
 				resource.gpuResource.FreeVirtualMemmories();
 			}
 		}
+	}
+
+	void D3D12GraphLocalResourceManager::CommitAliasedResources()
+	{
 		aliasedAllocator.CommitAllocations();
-
-
 		for (auto& pair : imageHandleToResource)
 		{
 			castl::wstring_convert<castl::codecvt_utf8<wchar_t>> converter;
-			auto&&[imageHandle, resourceData] = pair;
+			auto&& [imageHandle, resourceData] = pair;
 			switch (imageHandle.GetType())
 			{
 			case ImageHandle::ImageType::Internal:
@@ -445,8 +449,13 @@ namespace graphics_backend
 				if (resourceData.usages & EResourceUsage::eConstantBuffer)
 				{
 					resourceData.cbv = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
+					
+					auto resourceDesc = resourceData.gpuResource.GetResource()->GetDesc();
+					D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = GetDevice()->GetResourceAllocationInfo(0, 1, &resourceDesc);
+					uint64_t resourceSize = resourceData.gpuResource.GetResourceInfo().m_Size;
+					CA_LOG("CBuffer Size:{}", resourceSize);
 					auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(resourceData.gpuResource.GetResource()->GetGPUVirtualAddress()
-						, resourceData.resourceDesc);
+						, allocationInfo);
 					GetDevice()->CreateConstantBufferView(&cbvDesc, resourceData.cbv.CPUHandle());
 				}
 			}

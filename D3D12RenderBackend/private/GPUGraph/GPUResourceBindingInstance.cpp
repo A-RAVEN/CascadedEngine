@@ -271,6 +271,12 @@ namespace graphics_backend
 				resourceManager.AddBuffer(buf, *pDesc);
 			}
 		}
+		for (auto& cbufferBinding : m_GPUResourceBindingInfos.cbufferBindings)
+		{
+			auto& uniformBufferData = cbufferBinding.pCBufferStruct->GetSelfUniformBuffer();
+			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, uniformBufferData.size());
+			resourceManager.AddBuffer(cbufferBinding.cbufferHandle, desc);
+		}
 	}
 
 	void GPUResourceBindingInstance::IterateResourceUsages(

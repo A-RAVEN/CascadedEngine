@@ -25,8 +25,6 @@ namespace graphics_backend
 		ePresent = 1 << 9,
 		eBitMax = 10,
 	};
-	using EResourceUsageFlags = uenum::EnumFlags<EResourceUsage>;
-
 	enum class EGPUQueueType : uint32_t
 	{
 		eNone = 0,
@@ -34,8 +32,12 @@ namespace graphics_backend
 		eCompute = 1 << 1,
 		eCopy = 1 << 2,
 	};
-	using EGPUQueueTypeFlags = uenum::EnumFlags<EGPUQueueType>;
+}
+CA_ENUM_FLAGS(EResourceUsage, graphics_backend);
+CA_ENUM_FLAGS(EGPUQueueType, graphics_backend);
 
+namespace graphics_backend
+{
 	struct ResourceBarrierUsageStates
 	{
 		D3D12_BARRIER_ACCESS accessState;
@@ -476,6 +478,7 @@ namespace graphics_backend
 			, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
 			, GPUConstantBufferManager& constantBufferManager
 		);
+		void CommitAliasedResources();
 		void PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocators);
 		TextureResourceAllocationInfo const* GetImageResource(ImageHandle const& imageHandle) const;
 		BufferResourceAllocationInfo const* GetBufferResource(BufferHandle const& bufferHandle) const;

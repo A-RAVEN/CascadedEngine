@@ -284,10 +284,6 @@ namespace graphics_backend
 				[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
 				{
 					passRWState.SetCBufferUsageState(cbufferInfo.pCBufferStruct);
-					/*passRWState.SetBufferRWState(cbufferInfo.cbufferHandle
-						, cbufferInfo.usingStages
-						, EResourceUsage::eConstantBuffer
-						, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);*/
 				});
 			}
 		};
@@ -1298,6 +1294,7 @@ namespace graphics_backend
 		//依据资源的生命周期实际分配资源
 		m_LocalResourceManager.AllocateAliasedResources(executionBatchs.size(), imageLifeTimes, bufferLifeTimes
 			, cbufferLifeTimes, m_ConstantBufferManager);
+		m_LocalResourceManager.CommitAliasedResources();
 		//为资源创建 descriptor
 		m_LocalResourceManager.PrepareResourceDescriptors(m_DescriptorAllocatorSet);
 		//构建每个shader实例的资源绑定集合

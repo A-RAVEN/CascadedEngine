@@ -219,6 +219,17 @@ namespace graphics_backend
 		}
 	}
 
+	void AliasedMemoryAllocator::FreeMemories()
+	{
+		for (auto& pair : m_Blocks)
+		{
+			for (VirtualBlock& block : pair.second)
+			{
+				block.FreeMemory();
+			}
+		}
+	}
+
 	void AliasedMemoryAllocator::Release()
 	{
 		for (auto& pair : m_Blocks)
@@ -248,7 +259,7 @@ namespace graphics_backend
 		ThrowIfFailed(CreateVirtualBlock(&blockDesc, &m_Block));
 	}
 
-	void AliasedMemoryAllocator::VirtualBlock::Release()
+	void AliasedMemoryAllocator::VirtualBlock::FreeMemory()
 	{
 		for (auto& res : m_BlockPlacedResources)
 		{
@@ -260,6 +271,11 @@ namespace graphics_backend
 			p_BlockAllocation->Release();
 			p_BlockAllocation = nullptr;
 		}
+	}
+
+	void AliasedMemoryAllocator::VirtualBlock::Release()
+	{
+		FreeMemory();
 		m_Resources.clear();
 		m_Block->Clear();
 		m_Block->Release();
@@ -329,5 +345,4 @@ namespace graphics_backend
 			}
 		}
 	}
-
 }

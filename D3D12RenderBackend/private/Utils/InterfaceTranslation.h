@@ -657,11 +657,11 @@ namespace graphics_backend
 	}
 
 	constexpr D3D12_CONSTANT_BUFFER_VIEW_DESC GetCBVDescFromGPUBufferDescriptor(D3D12_GPU_VIRTUAL_ADDRESS address,
-		GPUBufferDescriptor const& inDescriptor)
+		D3D12_RESOURCE_ALLOCATION_INFO const& inDescriptor)
 	{
 		D3D12_CONSTANT_BUFFER_VIEW_DESC result{};
 		result.BufferLocation = address;
-		result.SizeInBytes = inDescriptor.count * inDescriptor.stride;
+		result.SizeInBytes = inDescriptor.SizeInBytes;
 		return result;
 	}
 

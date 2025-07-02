@@ -108,7 +108,6 @@ namespace uenum
 template<typename TEnumClass>
 CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask);
 
-
 // bitwise operators
 template <typename TEnumClass>
 constexpr uenum::EnumFlags<TEnumClass> operator&(TEnumClass bit, uenum::EnumFlags<TEnumClass> const& flags) noexcept
@@ -152,3 +151,7 @@ inline constexpr uenum::EnumFlags<TEnumClass> operator~(TEnumClass bit) noexcept
 {
     return ~(uenum::EnumFlags<TEnumClass>(bit));
 }
+
+#define CA_ENUM_FLAGS(EnumClass, NameSpace)\
+namespace NameSpace { using EnumClass##Flags = uenum::EnumFlags<EnumClass>; }\
+template<>struct ::uenum::TEnumTraits<NameSpace::EnumClass> { static constexpr bool is_bitmask = true; };

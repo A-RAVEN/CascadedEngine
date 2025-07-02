@@ -37,6 +37,108 @@ using namespace cawindow;
 using namespace catimer;
 using namespace ca_io;
 
+castl::shared_ptr<CThreadManager> g_ThreadManager;
+castl::shared_ptr<CRenderBackend> g_GPUBackend;
+castl::shared_ptr<IWindowSystem> g_WindowSystem;
+
+void TestGPUGraph0()
+{
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle");
+	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
+	struct VertexStruct
+	{
+		std::array<float, 3> pos;
+		std::array<float, 3> color;
+	};
+	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+			VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
+		}, false);
+
+	std::vector<VertexStruct> testBuffer = {
+		{{-0.25f, -0.25f, -0.25f }, {1.0f, 0.0f, 0.0f}},
+		{{0.25f, -0.25f, -0.25f }, {0.0f, 1.0f, 0.0f}},
+		{{0.0f, 0.5f, 0.0f }, {0.0f, 0.0f, 1.0f}},
+	};
+
+	ImageHandle windowBackBuffer(windowHandle);
+	ImageHandle image(CANAME("TestImage"));
+	BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.AddPass(
+			RenderPass::New({ windowBackBuffer })
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), descs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.Draw(testBuffer.size())
+				)
+			)
+		);
+	GPUFrame newFrame;
+	newFrame.pGraph = newGraph;
+	//newFrame.presentWindows.push_back(windowHandle);
+	auto scheduler = g_ThreadManager->NewScheduler();
+	g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+}
+
+void TestGPUGraph1()
+{
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Color");
+	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
+	struct VertexStruct
+	{
+		std::array<float, 3> pos;
+	};
+	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+		}, false);
+
+	std::vector<VertexStruct> testBuffer = {
+		{{-0.25f, -0.25f, -0.25f }},
+		{{0.25f, -0.25f, -0.25f }},
+		{{0.0f, 0.5f, 0.0f }},
+	};
+
+	castl::shared_ptr<ShaderStruct> pConstantColor = g_GPUBackend->CreateShaderStruct(CANAME("ConstantColor"));
+	pConstantColor->SetValue(CANAME("color"), glm::vec3(1.0f, 0.5f, 1.0f));
+
+	ImageHandle windowBackBuffer(windowHandle);
+	BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.AddPass(
+			RenderPass::New({ windowBackBuffer })
+			.SetParam(CANAME("constantColorBlock"), pConstantColor)
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithConstantColor") })
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), descs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.Draw(testBuffer.size())
+				)
+			)
+		);
+	GPUFrame newFrame;
+	newFrame.pGraph = newGraph;
+	auto scheduler = g_ThreadManager->NewScheduler();
+	g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -63,17 +165,17 @@ int main(int argc, char* argv[])
 	InitTimerSystem();
 
 	//Window System
-	auto windowSystem = windowSystemLoader.New();
+	g_WindowSystem = windowSystemLoader.New();
 
 	//Initialize Thread Manager
-	auto pThreadManager = threadManagerLoader.New();
+	g_ThreadManager = threadManagerLoader.New();
 	unsigned int n = std::thread::hardware_concurrency();
 	n = (n == 0) ? 5 : (castl::min)(n, 16u);
-	pThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n);
+	g_ThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n);
 
 	//Initialize IO Manager
 	auto g_IOManager = ioManagerLoader.New();
-	g_IOManager->Initialize(pThreadManager.get());
+	g_IOManager->Initialize(g_ThreadManager.get());
 
 	//Resource System
 	auto resourceSystemFactory = resourceSystemLoader.New();
@@ -85,78 +187,17 @@ int main(int argc, char* argv[])
 	auto importingSystem = resourceSystemFactory->NewImportingSystemShared();
 	importingSystem->SetResourceManager(pResourceManagingSystem.get());
 
-	auto pBackend = renderBackendLoader.New();
-	pBackend->Initialize(GetGlobalTimerSystem()
+	g_GPUBackend = renderBackendLoader.New();
+	g_GPUBackend->Initialize(GetGlobalTimerSystem()
 		, g_IOManager.get(), pResourceManagingSystem.get(), importingSystem.get()
 		, "Test D3D12 Backend", "CASCADED Engine");
 	importingSystem->ScanSourceDirectory(resourceString);
 
-	//pBackend->RunTestCode();
 
+	//TestGPUGraph0();
+	TestGPUGraph1();
 
-	GPUTextureDescriptor textureDesc = GPUTextureDescriptor::Create(1024, 512, ETextureFormat::E_B8G8R8A8_UNORM, ETextureAccessType::eSampled | ETextureAccessType::eTransferDst);
-	castl::shared_ptr<GPUTexture> texture = pBackend->CreateGPUTexture(textureDesc);
-
-	auto newWindow = windowSystem->NewWindow(1024, 512, "Window System Window");
-	auto windowHandle = pBackend->GetWindowHandle(newWindow.lock());
-
-
-
-	{
-		struct VertexStruct
-		{
-			std::array<float, 3> pos;
-			std::array<float, 3> color;
-		};
-		cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
-			{
-				VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
-				VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
-			}, false);
-
-		std::vector<VertexStruct> testBuffer = {
-			{{-0.25f, -0.25f, -0.25f }, {1.0f, 0.0f, 0.0f}},
-			{{0.25f, -0.25f, -0.25f }, {0.0f, 1.0f, 0.0f}},
-			{{0.0f, 0.5f, 0.0f }, {0.0f, 0.0f, 1.0f}},
-		};
-
-		ImageHandle windowBackBuffer(windowHandle);
-		ImageHandle image(CANAME("TestImage"));
-		BufferHandle vbuffer(CANAME("TestVertBuffer"));
-		castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-		newGraph->Present(windowBackBuffer);
-		newGraph->AllocImage(image, GPUTextureDescriptor::Create(1024, 720, ETextureFormat::E_R8G8B8A8_UNORM, ETextureAccessType::eRT))
-			.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
-			.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
-			.AddPass(
-			RenderPass::New({ windowBackBuffer })
-			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
-			.DrawCall
-			(
-				DrawCallBatch::New()
-				.VertexStream(CANAME("TestVerticesInput"), descs)
-				.DrawCall(
-					DrawCall::New()
-					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
-					.Draw(testBuffer.size())
-				)
-			)
-		);
-		GPUFrame newFrame;
-		newFrame.pGraph = newGraph;
-		//newFrame.presentWindows.push_back(windowHandle);
-		auto scheduler = pThreadManager->NewScheduler();
-		pBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
-	}
-
-
-	castl::shared_ptr<ShaderStruct> pCameraData = pBackend->CreateShaderStruct(CANAME("CameraData"));
-	pCameraData->SetValue(CANAME("viewProjMatrix"), glm::mat4(1.0f));
-
-	pThreadManager.reset();
-	pBackend->Release();
-	pBackend.reset();
-
-	//gCPUProfiler.Shutdown();
+	g_ThreadManager.reset();
+	g_GPUBackend.reset();
 	return EXIT_SUCCESS;
 }
