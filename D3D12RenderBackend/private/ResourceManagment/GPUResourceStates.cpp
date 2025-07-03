@@ -456,6 +456,7 @@ namespace graphics_backend
 					CA_LOG("CBuffer Size:{}", resourceSize);
 					auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(resourceData.gpuResource.GetResource()->GetGPUVirtualAddress()
 						, allocationInfo);
+					cbvDesc.SizeInBytes = 256;
 					GetDevice()->CreateConstantBufferView(&cbvDesc, resourceData.cbv.CPUHandle());
 				}
 			}

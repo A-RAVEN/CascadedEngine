@@ -274,7 +274,7 @@ namespace graphics_backend
 		for (auto& cbufferBinding : m_GPUResourceBindingInfos.cbufferBindings)
 		{
 			auto& uniformBufferData = cbufferBinding.pCBufferStruct->GetSelfUniformBuffer();
-			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, uniformBufferData.size());
+			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, castl::alignto<size_t>(uniformBufferData.size(), 256));
 			resourceManager.AddBuffer(cbufferBinding.cbufferHandle, desc);
 		}
 	}

@@ -1,6 +1,8 @@
-#include "MemoryManager.h"
+﻿#include "MemoryManager.h"
 #include <D3D12Debug.h>
 #include <RenderBackend_D3D12.h>
+#include <codecvt>
+#include <CACore/CAFormat.h>
 
 namespace graphics_backend
 {
@@ -266,6 +268,7 @@ namespace graphics_backend
 			res->Release();
 		}
 		m_BlockPlacedResources.clear();
+		//m_Heap.Reset();
 		if (p_BlockAllocation != nullptr)
 		{
 			p_BlockAllocation->Release();
@@ -325,11 +328,23 @@ namespace graphics_backend
 			D3D12MA::ALLOCATION_DESC
 				allocationDesc = {};
 			allocationDesc.HeapType = heapType;
-			allocationDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED | D3D12MA::ALLOCATION_FLAG_CAN_ALIAS;
+			allocationDesc.Flags = D3D12MA::ALLOCATION_FLAG_CAN_ALIAS;
+			allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
 			D3D12_RESOURCE_ALLOCATION_INFO resourceAllocationInfo = {};
 			resourceAllocationInfo.Alignment = m_MaxAlignment;
-			resourceAllocationInfo.SizeInBytes = m_MaxSize;
+			resourceAllocationInfo.SizeInBytes = castl::alignto<UINT64>(m_MaxSize, 64 * 1024);
 			ThrowIfFailed(allocator->AllocateMemory(&allocationDesc, &resourceAllocationInfo, &p_BlockAllocation));
+
+			CA_LOG("Block Offset:{}", p_BlockAllocation->GetOffset());
+			//D3D12_HEAP_DESC heapDesc = {};
+			//heapDesc.SizeInBytes = m_MaxSize; // 1MB 堆
+			//heapDesc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+			//heapDesc.Alignment = m_MaxAlignment;
+			//heapDesc.Flags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
+			//ThrowIfFailed(device->CreateHeap(&heapDesc, IID_PPV_ARGS(&m_Heap)));
+			//castl::wstring_convert<castl::codecvt_utf8<wchar_t>> converter;
+			//castl::string str = cacore::format("AliasedResourceHeap[{}]", 0);
+			//m_Heap->SetName(converter.from_bytes(str.data()).c_str());
 
 			m_BlockPlacedResources.reserve(m_Resources.size());
 			m_BlockPlacedResources.clear();
@@ -341,6 +356,9 @@ namespace graphics_backend
 						, p_BlockAllocation->GetOffset() + resourceInfo.m_Offset
 						, &resourceInfo.m_Desc
 						, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)));
+				CA_LOG("Resource Offset:[{}];Size:[{}];Width:[{}];Virtual Address[{}]"
+					, p_BlockAllocation->GetOffset() + resourceInfo.m_Offset
+					, resourceInfo.m_Size, resourceInfo.m_Desc.Width, resource->GetGPUVirtualAddress());
 				m_BlockPlacedResources.push_back(resource);
 			}
 		}

@@ -84,6 +84,7 @@ namespace graphics_backend
 			uint64_t m_MaxAlignment = 0;
 			uint64_t m_MaxSize = 0;
 			D3D12MA::Allocation* p_BlockAllocation;
+			//ComPtr<ID3D12Heap> m_Heap;
 			castl::vector<ComPtr<ID3D12Resource>> m_BlockPlacedResources;
 		};
 
