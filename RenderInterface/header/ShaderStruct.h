@@ -37,7 +37,11 @@ namespace graphics_backend
 	public:
 		template<typename T>
 		ShaderStruct& SetValue(cacore::NameHash const& name, T const& value, uint32_t elementIndex = 0)
+			requires (!std::is_same_v<T, ImageHandle> && !std::is_same_v<T, BufferHandle> && !std::is_same_v<T, TextureSamplerDescriptor>)
 		{
+			static_assert(!std::is_same_v<T, ImageHandle>);
+			static_assert(!std::is_same_v<T, BufferHandle>);
+			static_assert(!std::is_same_v<T, TextureSamplerDescriptor>);
 			SetValueInternal(name, &value, sizeof(T), elementIndex);
 			return *this;
 		}

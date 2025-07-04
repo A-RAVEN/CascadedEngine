@@ -170,7 +170,7 @@ namespace graphics_backend
 
 	constexpr D3D12_BARRIER_SYNC DetermingShaderStageSync(EShaderTypeFlags flags)
 	{
-		D3D12_BARRIER_SYNC result = D3D12_BARRIER_SYNC_NONE;
+		D3D12_BARRIER_SYNC result = D3D12_BARRIER_SYNC_ALL_SHADING;
 		if (flags & EShaderTypeMask::eComp)
 		{
 			result |= D3D12_BARRIER_SYNC_COMPUTE_SHADING;

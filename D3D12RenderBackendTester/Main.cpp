@@ -99,9 +99,9 @@ void TestGPUGraph1()
 		std::array<float, 3> pos;
 	};
 	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
-		{
-			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
-		}, false);
+	{
+		VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+	}, false);
 
 	std::vector<VertexStruct> testBuffer = {
 		{{-0.25f, -0.25f, -0.25f }},
@@ -110,7 +110,7 @@ void TestGPUGraph1()
 	};
 
 	castl::shared_ptr<ShaderStruct> pConstantColor = g_GPUBackend->CreateShaderStruct(CANAME("ConstantColor"));
-	pConstantColor->SetValue(CANAME("color"), glm::vec3(1.0f, 0.5f, 1.0f));
+	pConstantColor->SetValue(CANAME("color"), glm::vec3(1.0f, 1.0f, 0.0f));
 
 	ImageHandle windowBackBuffer(windowHandle);
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
@@ -122,6 +122,60 @@ void TestGPUGraph1()
 			RenderPass::New({ windowBackBuffer })
 			.SetParam(CANAME("constantColorBlock"), pConstantColor)
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithConstantColor") })
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), descs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.Draw(testBuffer.size())
+				)
+			)
+		);
+	GPUFrame newFrame;
+	newFrame.pGraph = newGraph;
+	auto scheduler = g_ThreadManager->NewScheduler();
+	g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+}
+
+void TestGPUGraph2()
+{
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Color");
+	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
+	struct VertexStruct
+	{
+		std::array<float, 3> pos;
+	};
+	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+		}, false);
+
+	std::vector<VertexStruct> testBuffer = {
+		{{-0.25f, -0.25f, -0.25f }},
+		{{0.25f, -0.25f, -0.25f }},
+		{{0.0f, 0.5f, 0.0f }},
+	};
+
+	BufferHandle structuredColorBuffer(CANAME("StructuredColorBuffer"));
+	castl::shared_ptr<ShaderStruct> pStructuredColor = g_GPUBackend->CreateShaderStruct(CANAME("StructuredColor"));
+	pStructuredColor->SetBuffer(CANAME("color"), structuredColorBuffer);
+
+	glm::vec3 testColor = glm::vec3(1.0f, 0.0f, 1.0f);
+
+	ImageHandle windowBackBuffer(windowHandle);
+	BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.AllocBuffer(structuredColorBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, 1, sizeof(glm::vec3)))
+		.ScheduleData(structuredColorBuffer, &testColor, sizeof(testColor))
+		.AddPass(
+			RenderPass::New({ windowBackBuffer })
+			.SetParam(CANAME("structuredColorBlock"), pStructuredColor)
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithStructuredBufferColor") })
 			.DrawCall
 			(
 				DrawCallBatch::New()
@@ -195,7 +249,8 @@ int main(int argc, char* argv[])
 
 
 	//TestGPUGraph0();
-	TestGPUGraph1();
+	//TestGPUGraph1();
+	TestGPUGraph2();
 
 	g_ThreadManager.reset();
 	g_GPUBackend.reset();

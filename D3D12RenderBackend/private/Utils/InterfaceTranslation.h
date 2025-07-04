@@ -121,6 +121,7 @@ namespace graphics_backend
 	constexpr D3D12_RESOURCE_FLAGS EBufferUsageFlagsToD3D12ResourceFlags(EBufferUsageFlags usageFlags)
 	{
 		D3D12_RESOURCE_FLAGS resultFlags = D3D12_RESOURCE_FLAG_NONE;
+		bool noShaderResourceUsage = true;
 		for (std::underlying_type_t<EBufferUsage> accessTypeId = 0
 			; accessTypeId <= static_cast<std::underlying_type_t<EBufferUsage>>(EBufferUsage::eMaxBit)
 			; ++accessTypeId)
@@ -132,7 +133,7 @@ namespace graphics_backend
 				{
 				case EBufferUsage::eConstantBuffer:
 				case EBufferUsage::eStructuredBuffer:
-					resultFlags |= D3D12_RESOURCE_FLAGS::D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+					noShaderResourceUsage = false;
 					break;
 				case EBufferUsage::eUnorderedAccess:
 					resultFlags |= D3D12_RESOURCE_FLAGS::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -147,6 +148,10 @@ namespace graphics_backend
 					break;
 				}
 			}
+		}
+		if (noShaderResourceUsage)
+		{
+			resultFlags |= D3D12_RESOURCE_FLAGS::D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 		}
 		return resultFlags;
 	}
@@ -636,6 +641,7 @@ namespace graphics_backend
 		D3D12_SHADER_RESOURCE_VIEW_DESC result{};
 		result.Format = DXGI_FORMAT_UNKNOWN;
 		result.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		result.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 		result.Buffer.FirstElement = 0;
 		result.Buffer.NumElements = inDescriptor.count;
 		result.Buffer.StructureByteStride = inDescriptor.stride;
