@@ -31,6 +31,11 @@ namespace graphics_backend
 		});
 	}
 
+	void GPUConstantBufferManager::Clear()
+	{
+		m_ConstantBufferHandles.clear();
+	}
+
 	void ShaderResourceSet::Init(RenderBackend_D3D12* app
 		, ShaderInfo const& shaderInfo
 		, castl::array_ref<ShaderStructDic const*> const& shaderStructs)
@@ -54,17 +59,15 @@ namespace graphics_backend
 		this->shaderInfo = shaderInfo;
 		resourceDic.clear();
 
+		//No Need Do This
 		auto& bindingInfo = reflectionData.m_BindingInfo;
 		auto& rootHierarchy = bindingInfo.m_BindingDataHierarchies[bindingInfo.m_RootHierarchyID];
-		castl::deque<uint32_t> hierarchyIDs;
-		hierarchyIDs.insert(hierarchyIDs.end(), rootHierarchy.m_SubBindingHierarchies.begin(), rootHierarchy.m_SubBindingHierarchies.end());
-		while (!hierarchyIDs.empty())
+
+		for (uint32_t hierarchyID : rootHierarchy.m_SubBindingHierarchies)
 		{
-			uint32_t hierarchyID = hierarchyIDs.front();
-			hierarchyIDs.pop_front();
 			auto& hierarchy = bindingInfo.m_BindingDataHierarchies[hierarchyID];
-			hierarchyIDs.insert(hierarchyIDs.end(), hierarchy.m_SubBindingHierarchies.begin(), hierarchy.m_SubBindingHierarchies.end());
 			auto sourceStruct = findShaderStructOfName(hierarchy.m_Name);
+			CA_ASSERT_BREAK(sourceStruct != nullptr, "Root Struct [{}] Not Found", hierarchy.m_Name);
 			resourceDic.insert(castl::make_pair(hierarchy.m_Name, sourceStruct));
 		}
 	}
@@ -103,6 +106,7 @@ namespace graphics_backend
 					{
 						return found->second;
 					}
+					CA_LOG_ERR_BREAK("Root Shader Struct [{}] Not Found", inName);
 					return nullptr;
 				};
 				uint32_t subBindingID = rootBinding.subStructOffset + id;
@@ -130,6 +134,10 @@ namespace graphics_backend
 					{
 						return &found->second;
 					}
+					CA_LOG_ERR_BREAK("Shader Struct [{}] Not Found in Parent Struct [{}][type {}]"
+						, inName
+						, itrHierarchy.structBindingName
+						, itrStruct.GetStructTypeName());
 					return nullptr;
 				};
 				for (uint32_t id = 0; id < itrHierarchy.subStructCount; ++id)
@@ -157,8 +165,7 @@ namespace graphics_backend
 		}
 	}
 
-	void GPUResourceBindingInstance::Init(ShaderResourceSet const& resourceSet
-		, GPUConstantBufferManager& cbufferManager)
+	void GPUResourceBindingInstance::Init(ShaderResourceSet const& resourceSet)
 	{
 		pShaderFileInfo = GetApp()->GetShaderFileInfo(resourceSet.shaderInfo);
 		auto& shaderBindingInfo = pShaderFileInfo->shaderBindingInfo;
@@ -184,7 +191,6 @@ namespace graphics_backend
 				cbufferElement.bindingInfo = bindingInfo;
 				cbufferElement.offset = offset;
 				cbufferElement.pCBufferStruct = pStruct;
-				cbufferElement.cbufferHandle = cbufferManager.GetConstantBufferHandle(pStruct);
 				cbufferElement.usingStages = pShaderFileInfo->GetShaderStageUsage(bindingInfo.usageMask);
 				outCBufferBindings.push_back(cbufferElement);
 			}
@@ -251,7 +257,9 @@ namespace graphics_backend
 		});
 	}
 
-	void GPUResourceBindingInstance::BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager)
+	void GPUResourceBindingInstance::BuildResources(GPUGraph const& gpuGraph
+		, D3D12GraphLocalResourceManager& resourceManager
+		, GPUConstantBufferManager& cbufferManager)
 	{
 		for (auto& imageBinding : m_GPUResourceBindingInfos.imageBindings)
 		{
@@ -275,7 +283,8 @@ namespace graphics_backend
 		{
 			auto& uniformBufferData = cbufferBinding.pCBufferStruct->GetSelfUniformBuffer();
 			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, castl::alignto<size_t>(uniformBufferData.size(), 256));
-			resourceManager.AddBuffer(cbufferBinding.cbufferHandle, desc);
+			BufferHandle cbufferHandle = cbufferManager.GetConstantBufferHandle(cbufferBinding.pCBufferStruct);
+			resourceManager.AddBuffer(cbufferHandle, desc);
 		}
 	}
 
@@ -299,8 +308,10 @@ namespace graphics_backend
 	}
 
 	void GPUResourceBindingInstance::BuildDescriptors(D3D12GraphLocalResourceManager& resourceManager
+		, CPUDescriptorAllocatorSet& descriptorAllocatorsr
 		, GPUDescriptorHeap& gpuDescriptorHeap
-		, GPUDescriptorHeap& samplerDescriptorHeap)
+		, GPUDescriptorHeap& samplerDescriptorHeap
+		, GPUConstantBufferManager& cbufferManager)
 	{
 		auto& shaderBindingInfo = pShaderFileInfo->shaderBindingInfo;
 		m_GPUResourceBindingInfos.descriptorAllocation = gpuDescriptorHeap.AllocDescriptorChunk(shaderBindingInfo.resourceDescCount);
@@ -313,12 +324,10 @@ namespace graphics_backend
 
 			for (auto& img : imageBinding.bindings)
 			{
-				auto pResource = resourceManager.GetImageResource(img.image);
-				CA_ASSERT_BREAK(pResource != nullptr, "ShaderImage {} Resource Not Found", img.image.GetName());
-				auto foundView = pResource->resourceViews.find(img.textureView);
-				CA_ASSERT_BREAK(foundView != pResource->resourceViews.end(), "ShaderImageView {} Resource Not Found", img.image.GetName());
-
-				auto writingView = isUAV ? foundView->second.uav : foundView->second.srv;
+				auto writingView = resourceManager.EnsureResourceView(img.image
+					, isUAV ? EResourceViewType::eUAV : EResourceViewType::eSRV
+					, descriptorAllocatorsr
+					, img.textureView);
 				GetDevice()->CopyDescriptorsSimple(1, m_GPUResourceBindingInfos.descriptorAllocation.Slice(descriptorID).CPUHandle()
 					, writingView.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 				++descriptorID;
@@ -331,9 +340,10 @@ namespace graphics_backend
 			uint32_t descriptorID = bufferBinding.bindingInfo.descTableID + bufferBinding.offset;
 			for (auto& buf : bufferBinding.bindings)
 			{
-				auto pResource = resourceManager.GetBufferResource(buf);
-				CA_ASSERT_BREAK(pResource != nullptr, "ShaderBuffer {} Resource Not Found", buf.GetName());
-				auto writingView = isUAV ? pResource->uav : pResource->srv;
+				auto writingView = resourceManager.EnsureResourceView(
+					buf
+					, isUAV ? EResourceViewType::eUAV : EResourceViewType::eSRV
+					, descriptorAllocatorsr);
 				GetDevice()->CopyDescriptorsSimple(1, m_GPUResourceBindingInfos.descriptorAllocation.Slice(descriptorID).CPUHandle()
 					, writingView.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 				descriptorID++;
@@ -342,11 +352,25 @@ namespace graphics_backend
 		for (auto& cbufferBinding : m_GPUResourceBindingInfos.cbufferBindings)
 		{
 			//Copy CPU Desc To GPU DescHeap
-			auto pResource = resourceManager.GetBufferResource(cbufferBinding.cbufferHandle);
+			BufferHandle cbufferHandle = cbufferManager.GetConstantBufferHandle(cbufferBinding.pCBufferStruct);
+			auto writingView = resourceManager.EnsureResourceView(cbufferHandle
+				, EResourceViewType::eCBV
+				, descriptorAllocatorsr);
 			uint32_t descriptorID = cbufferBinding.bindingInfo.descTableID + cbufferBinding.offset;
-			CA_ASSERT_BREAK(pResource != nullptr, "CBuffer {} Resource Not Found", cbufferBinding.cbufferHandle.GetName());
 			GetDevice()->CopyDescriptorsSimple(1, m_GPUResourceBindingInfos.descriptorAllocation.Slice(descriptorID).CPUHandle()
-				, pResource->cbv.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+				, writingView.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 		}
+	}
+	ShaderResourceInstanceManager::ShaderResourceInstanceManager(RenderBackend_D3D12* app):
+		D3D12SubobjectBase(app)
+	{
+	}
+	castl::shared_ptr<GPUResourceBindingInstance> ShaderResourceInstanceManager::EnsureResourceBindingInstance(ShaderResourceSet const& resourecSet)
+	{
+		m_ResourceInstances.get_or_create(resourecSet, [&](ShaderResourceSet const& shaderResourceSet) -> castl::shared_ptr<GPUResourceBindingInstance>
+		{
+			return GetApp()->NewSubObject_Shared<GPUResourceBindingInstance>(shaderResourceSet);
+		});
+		return castl::shared_ptr<GPUResourceBindingInstance>();
 	}
 }

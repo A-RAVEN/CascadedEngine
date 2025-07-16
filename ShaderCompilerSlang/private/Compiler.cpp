@@ -895,7 +895,7 @@ namespace ShaderCompilerSlang
 				newBinding.m_BindingID = bindings.offset;
 				newBinding.m_Access = TranslateSlangResourceAccess(resourceAccess);
 				newBinding.m_Usage = CollectResourceUsage((SlangParameterCategory)variableCategory, bindings, metaDatas);
-
+				CA_LOG("Resource[{}] Usage Mask{}", name, newBinding.m_Usage);
 
 				switch (bindingType)
 				{

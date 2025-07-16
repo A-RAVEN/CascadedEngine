@@ -92,7 +92,7 @@ void TestGPUGraph0()
 
 void TestGPUGraph1()
 {
-	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Color");
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Constant Color");
 	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
 	struct VertexStruct
 	{
@@ -141,7 +141,7 @@ void TestGPUGraph1()
 
 void TestGPUGraph2()
 {
-	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Color");
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Structured Color");
 	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
 	struct VertexStruct
 	{
@@ -160,7 +160,7 @@ void TestGPUGraph2()
 
 	BufferHandle structuredColorBuffer(CANAME("StructuredColorBuffer"));
 	castl::shared_ptr<ShaderStruct> pStructuredColor = g_GPUBackend->CreateShaderStruct(CANAME("StructuredColor"));
-	pStructuredColor->SetBuffer(CANAME("color"), structuredColorBuffer);
+	pStructuredColor->SetBuffer(CANAME("colorStructuredBuffer"), structuredColorBuffer);
 
 	glm::vec3 testColor = glm::vec3(1.0f, 0.0f, 1.0f);
 

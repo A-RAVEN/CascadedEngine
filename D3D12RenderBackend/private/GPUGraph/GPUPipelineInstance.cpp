@@ -101,17 +101,16 @@ namespace graphics_backend
 		for (uint32_t id = 0; id < attachments.size(); ++id)
 		{
 			auto& img = attachments[id];
-			auto allocationInfo = resourceManager.GetImageResource(img);
-			CA_ASSERT_BREAK(allocationInfo != nullptr, "Image {} Not Created", img.GetName());
+			auto allocationInfo = resourceManager.GetTextureResourceInfo(img);
 			if (id == depthAttachmentIndex)
 			{
-				CA_ASSERT_BREAK(IsDepthStencilFormat(allocationInfo->resourceDesc.format)
+				CA_ASSERT_BREAK(IsDepthStencilFormat(allocationInfo.resourceDesc.format)
 					, "Image {} Should Be Depth Stencil Format", img.GetName());
-				m_DepthFormat = allocationInfo->resourceDesc.format;
+				m_DepthFormat = allocationInfo.resourceDesc.format;
 			}
 			else
 			{
-				m_AttachmentFormats.push_back(allocationInfo->resourceDesc.format);
+				m_AttachmentFormats.push_back(allocationInfo.resourceDesc.format);
 			}
 		}
 	}

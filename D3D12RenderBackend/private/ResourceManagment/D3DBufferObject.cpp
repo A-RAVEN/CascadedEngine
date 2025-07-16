@@ -1,4 +1,5 @@
-#include <ResourceManagment/D3DBufferObject.h>
+﻿#include <ResourceManagment/D3DBufferObject.h>
+#include <RenderBackend_D3D12.h>
 
 namespace graphics_backend
 {
@@ -30,5 +31,13 @@ namespace graphics_backend
 	void D3DBufferObject::SetDescriptor(GPUBufferDescriptor const& desc)
 	{
 		m_Descriptor = desc;
+	}
+	DescriptorAllocation const& D3DBufferObject::EnsureResourceView(EResourceViewType viewType)
+	{
+		return m_CachedResourceViews.EnsureResourceView_NoLock(viewType
+			, GetApp()
+			, m_Resource.GetResource()
+			, GetApp()->GetCommonDescriptorAllocatorSet()
+			, m_Descriptor);
 	}
 }

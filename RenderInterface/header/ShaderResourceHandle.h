@@ -82,6 +82,13 @@ namespace graphics_backend
 			, m_Type(ImageType::Backbuffer)
 		{
 		}
+		ImageHandle(ResourceHandleKeyData const& key)
+			: m_Key(key)
+			, m_ExternalManagedTexture(nullptr)
+			, m_Backbuffer(nullptr)
+			, m_Type(ImageType::Internal)
+		{
+		}
 		bool IsIntternal() const { return m_Type == ImageType::Internal; }
 		bool IsValid() const { return m_Type != ImageType::Invalid; }
 		ImageType GetType() const { return m_Type; }
@@ -140,6 +147,12 @@ namespace graphics_backend
 			: m_Key(ResourceHandleKeyData::Default())
 			, m_ExternalManagedBuffer(buffer)
 			, m_Type(BufferType::External)
+		{
+		}
+		BufferHandle(ResourceHandleKeyData const& key)
+			: m_Key(key)
+			, m_ExternalManagedBuffer(nullptr)
+			, m_Type(BufferType::Internal)
 		{
 		}
 		bool IsIntternal() const { return m_Type == BufferType::Internal; }

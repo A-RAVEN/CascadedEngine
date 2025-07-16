@@ -16,6 +16,7 @@
 #include <GPUGraph/GPUPipelineInstance.h>
 #include <GPUGraph/GPUComputePipelineInstance.h>
 #include <CACore/CASharedList.h>
+#include <ResourceManagment/FrameBoundResourceManager.h>
 
 namespace graphics_backend
 {
@@ -33,6 +34,7 @@ namespace graphics_backend
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		bool AnyWindowRunning() override;
 		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) override;
+		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) override;
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor) override;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor) override;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) override;
@@ -176,5 +178,7 @@ namespace graphics_backend
 		GPUComputePipelineManager m_ComputePipelineManager;
 
 		CPUDescriptorAllocatorSet m_DescriptorAllocatorSet;
+
+		GPUFrameManager m_GPUFrameManager;
 	};
 }

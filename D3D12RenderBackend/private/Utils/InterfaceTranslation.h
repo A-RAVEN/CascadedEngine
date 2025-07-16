@@ -667,7 +667,7 @@ namespace graphics_backend
 	{
 		D3D12_CONSTANT_BUFFER_VIEW_DESC result{};
 		result.BufferLocation = address;
-		result.SizeInBytes = inDescriptor.SizeInBytes;
+		result.SizeInBytes = castl::alignto<size_t>(inDescriptor.SizeInBytes, 256);
 		return result;
 	}
 

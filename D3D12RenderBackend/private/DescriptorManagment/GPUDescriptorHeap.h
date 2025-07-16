@@ -32,6 +32,7 @@ namespace graphics_backend
 		DescriptorHeapAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType, bool shaderVisible, uint32_t size);
 		DescriptorHeapAllocator(DescriptorHeapAllocator&& other) noexcept = default;
 		void Release() override;
+		void Reset();
 		bool CanAllocate(uint32_t descCount) const;
 		DescriptorAllocation AllocDescriptors(uint32_t descCount);
 		CD3DX12_CPU_DESCRIPTOR_HANDLE GetCPUHandle(uint32_t offset) const;
@@ -52,6 +53,8 @@ namespace graphics_backend
 		CPUPagedDescriptorAllocator() = delete;
 		CPUPagedDescriptorAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType);
 		DescriptorAllocation AllocDescriptors(uint32_t descCount);
+		void Release() override;
+		void Reset();
 	private:
 		castl::deque<DescriptorHeapAllocator> m_Pages;
 		D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType;
@@ -66,6 +69,14 @@ namespace graphics_backend
 		{
 			return m_HugeHeap.GetHeap();
 		}
+		void Release() override
+		{
+			m_HugeHeap.Release();
+		}
+		void Reset()
+		{
+			m_HugeHeap.Reset();
+		}
 	private:
 		DescriptorHeapAllocator m_HugeHeap;
 	};
@@ -75,6 +86,8 @@ namespace graphics_backend
 	public:
 		CPUDescriptorAllocatorSet() = delete;
 		CPUDescriptorAllocatorSet(RenderBackend_D3D12* app);
+		void Release();
+		void Reset();
 		CPUPagedDescriptorAllocator m_SRV_UAV_CBV_Allocator;
 		CPUPagedDescriptorAllocator m_RTV_Allocator;
 		CPUPagedDescriptorAllocator m_DSV_Allocator;

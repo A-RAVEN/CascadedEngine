@@ -489,6 +489,14 @@ namespace graphics_backend
 		{
 			return m_HandleNameToDesc;
 		}
+
+		void Foreach(castl::function<void(ResourceHandleKeyData const&, DescriptorType const&)> const& callback) const
+		{
+			for (auto& pair : m_HandleNameToDesc)
+			{
+				callback(pair.first.Get(), *DescriptorIDToDescriptor(pair.second));
+			}
+		}
 	private:
 		castl::unordered_map<ResourceHandleKey, int32_t> m_HandleNameToDesc;
 		castl::vector<DescriptorType> m_Descriptors;

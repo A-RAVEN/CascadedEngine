@@ -22,7 +22,7 @@ namespace graphics_backend
 		, D3D12_DESCRIPTOR_HEAP_TYPE heapType
 		, bool shaderVisible, uint32_t size) : D3D12SubobjectBase(app)
 	{
-		app->OnDeviceInit([&]()
+		app->OnDeviceInit([this, heapType, shaderVisible, size]()
 		{
 			D3D12_DESCRIPTOR_HEAP_DESC m_DescriptorHeapDesc = {};
 			m_DescriptorHeapDesc.Type = heapType;
@@ -37,6 +37,12 @@ namespace graphics_backend
 	void DescriptorHeapAllocator::Release()
 	{
 		m_DescriptorHeap.Reset();
+	}
+
+	void DescriptorHeapAllocator::Reset()
+	{
+		m_FreeList.clear();
+		m_FreeList.push_back({ 0, m_DescriptorHeap->GetDesc().NumDescriptors });
 	}
 
 	bool DescriptorHeapAllocator::CanAllocate(uint32_t descCount) const
@@ -180,6 +186,23 @@ namespace graphics_backend
 		return newPage.AllocDescriptors(descCount);
 	}
 
+	void CPUPagedDescriptorAllocator::Release()
+	{
+		for (auto& page : m_Pages)
+		{
+			page.Release();
+		}
+		m_Pages.clear();
+	}
+
+	void CPUPagedDescriptorAllocator::Reset()
+	{
+		for (auto& page : m_Pages)
+		{
+			page.Reset();
+		}
+	}
+
 	GPUDescriptorHeap::GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
 	 : D3D12SubobjectBase(app), m_HugeHeap(app, heapType, true, GetHeapMaxSize(heapType))
 	{
@@ -209,6 +232,20 @@ namespace graphics_backend
 		, m_RTV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
 		, m_DSV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
 	{}
+
+	void CPUDescriptorAllocatorSet::Release()
+	{
+		m_SRV_UAV_CBV_Allocator.Release();
+		m_RTV_Allocator.Release();
+		m_DSV_Allocator.Release();
+	}
+
+	void CPUDescriptorAllocatorSet::Reset()
+	{
+		m_SRV_UAV_CBV_Allocator.Reset();
+		m_RTV_Allocator.Reset();
+		m_DSV_Allocator.Reset();
+	}
 
 
 	SamplerManager::SamplerManager(RenderBackend_D3D12* app)

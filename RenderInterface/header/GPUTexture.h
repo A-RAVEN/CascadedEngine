@@ -96,7 +96,20 @@ namespace graphics_backend
 			return desc;
 		}
 
+		//Obsolete
 		constexpr static GPUTextureView CreateDefaultForRenderTarget(ETextureFormat format, uint32_t mip = 0u, uint32_t layer = 0u)
+		{
+			GPUTextureView desc{};
+			desc.baseMip = mip;
+			desc.mipCount = 1;
+			desc.baseLayer = layer;
+			desc.layerCount = 1;
+			desc.aspect = ETextureAspect::eDefault;
+			desc.swizzle = GPUTextureSwizzle::Create();
+			return desc;
+		}
+
+		constexpr static GPUTextureView CreateDefaultForRenderTarget(uint32_t mip = 0u, uint32_t layer = 0u)
 		{
 			GPUTextureView desc{};
 			desc.baseMip = mip;

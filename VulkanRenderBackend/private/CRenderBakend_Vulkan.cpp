@@ -22,6 +22,9 @@ namespace graphics_backend
 	{
 		m_Application.ScheduleGPUFrame(scheduler, gpuFrame);
 	}
+	void CRenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
+	{
+	}
 	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
 	{
 		return castl::shared_ptr<GPUBuffer>(m_Application.NewGPUBuffer(descriptor), [this](GPUBuffer* releaseBuffer)

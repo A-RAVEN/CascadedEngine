@@ -9,7 +9,7 @@
 namespace castl
 {
 	template<typename T>
-	T alignto(T n, T alignN) requires std::is_integral<T>::value
+	constexpr T alignto(T n, T alignN) requires std::is_integral<T>::value
 	{
 		return ((n + alignN - 1) / alignN) * alignN;
 	}

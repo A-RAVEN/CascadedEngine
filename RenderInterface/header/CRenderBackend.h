@@ -38,6 +38,8 @@ namespace graphics_backend
 			, castl::string const& appName
 			, castl::string const& engineName) = 0;
 		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) = 0;
+		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) = 0;
+
 		virtual void Release() = 0;
 
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor) = 0;

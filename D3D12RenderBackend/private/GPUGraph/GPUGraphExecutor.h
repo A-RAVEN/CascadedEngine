@@ -7,6 +7,7 @@
 #include <ResourceManagment/GPUResourceStates.h>
 #include "GPUResourceBindingInstance.h"
 #include <ResourceManagment/CommandListManager.h>
+#include <ResourceManagment/FrameBoundResourceManager.h>
 
 namespace graphics_backend
 {
@@ -14,23 +15,18 @@ namespace graphics_backend
 	{
 	public:
 		D3D12GPUGraphExecutor(RenderBackend_D3D12* app);
-		void CompileAndExecute(GPUGraph const& owningGraph);
+		void CompileAndExecute(GPUGraph const& owningGraph, GPUFrameManager::PFrameContext&& frameContext);
 
 		D3D12GraphLocalResourceManager& GetLocalResourceManager() { return m_LocalResourceManager; }
 		GPUConstantBufferManager& GetConstantBufferManager() { return m_ConstantBufferManager; }
 		ShaderResourceInstanceDic& GetShaderResourceInstances() { return m_ShaderResourceInstances; }
 	private:
-
+		void Reset();
 		D3D12GraphLocalResourceManager m_LocalResourceManager;
 		GPUConstantBufferManager m_ConstantBufferManager;
 		ShaderResourceInstanceDic m_ShaderResourceInstances;
 
-		//TODO: Move Me TO Per Frame Resources Manager
-		CPUDescriptorAllocatorSet m_DescriptorAllocatorSet;
-		GPUDescriptorHeap m_ResourceGPUHeap;
-		GPUDescriptorHeap m_SamplerGPUHeap;
-		CommandListManager m_CommandListManager;
-		LinearMemoryManager m_StagingMemoryManager;
+		GPUFrameManager::PFrameContext m_CurrentFrameContext;
 
 	};
 }

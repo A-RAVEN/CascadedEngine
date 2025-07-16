@@ -18,6 +18,7 @@ namespace graphics_backend
 		BufferHandle GetConstantBufferHandle(D3D2ShaderStruct const* pShaderStruct);
 		void BuildResources(D3D12GraphLocalResourceManager& resourceManager);
 		void IterateResources(castl::function<void(D3D2ShaderStruct const*, BufferHandle const&)> callback);
+		void Clear();
 	private:
 		castl::shared_dic<D3D2ShaderStruct const*, BufferHandle> m_ConstantBufferHandles;
 	};
@@ -65,7 +66,7 @@ namespace graphics_backend
 			uint32_t offset;
 			CBufferBindingInfo bindingInfo;
 			D3D2ShaderStruct const* pCBufferStruct;
-			BufferHandle cbufferHandle;
+			//BufferHandle cbufferHandle;
 			EShaderTypeFlags usingStages;
 		};
 
@@ -88,23 +89,35 @@ namespace graphics_backend
 		};
 	public:
 		GPUResourceBindingInstance(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
-		void Init(ShaderResourceSet const& resourceSet
+		void Init(ShaderResourceSet const& resourceSet);
+		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager
 			, GPUConstantBufferManager& cbufferManager);
-		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager);
 		void IterateResourceUsages(castl::function<void(ImageBindingElement const&)>const& imageCallback
 			, castl::function<void(BufferBindingElement const&)>const& bufferCallback
 			, castl::function<void(CBufferBindingElement const&)>const& cbufferCallback) const;
 		void BuildDescriptors(D3D12GraphLocalResourceManager& resourceManager
+			, CPUDescriptorAllocatorSet& descriptorAllocatorsr
 			, GPUDescriptorHeap& gpuDescriptorHeap
-			, GPUDescriptorHeap& samplerDescriptorHeap);
+			, GPUDescriptorHeap& samplerDescriptorHeap
+			, GPUConstantBufferManager& cbufferManager);
 		GPUResourceBindingInfos const& GetBindingInfo() const
 		{
 			return m_GPUResourceBindingInfos;
 		}
 	private:
 		GPUResourceBindingInfos m_GPUResourceBindingInfos;
-		ShaderFileInfo const* pShaderFileInfo;
+		ShaderFileInfo const* pShaderFileInfo = nullptr;
 	};
 
 	using ShaderResourceInstanceDic = castl::shared_dic<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>>;
+
+	class ShaderResourceInstanceManager : public D3D12SubobjectBase
+	{
+	public:
+		ShaderResourceInstanceManager(RenderBackend_D3D12* app);
+		castl::shared_ptr<GPUResourceBindingInstance> EnsureResourceBindingInstance(ShaderResourceSet const& resourecSet);
+	private:
+		ShaderResourceInstanceDic m_ResourceInstances;
+	};
+
 }

@@ -23,6 +23,7 @@ namespace graphics_backend
 		ResourceState& GetResourceState() { return m_LastResourceState; }
 		GPUResource const& GetGPUResource() const { return m_Resource; }
 
+		DescriptorAllocation const& EnsureResourceView(EResourceViewType viewType, GPUTextureView const& textureView);
 		DescriptorAllocation const& EnsureSRV(GPUTextureView const& textureView);
 		DescriptorAllocation const& EnsureUAV(GPUTextureView const& textureView);
 		DescriptorAllocation const& EnsureRTV(GPUTextureView const& textureView);

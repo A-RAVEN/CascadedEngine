@@ -7,6 +7,26 @@
 
 namespace graphics_backend
 {
+	DescriptorAllocation const& TextureResourceViews::GetResourceView(EResourceViewType viewType
+		, GPUTextureView const& textureView) const
+	{
+		auto views = resourceViews.find(textureView);
+		CA_ASSERT_BREAK(views != resourceViews.end(), "Resource View Not Found");
+		switch (viewType)
+		{
+		case EResourceViewType::eSRV:
+			return views->second.srv;
+		case EResourceViewType::eUAV:
+			return views->second.uav;
+		case EResourceViewType::eRTV:
+			return views->second.rtv;
+		case EResourceViewType::eDSV:
+			return views->second.dsv;
+		default:
+			CA_LOG_ERR_BREAK("Incompatible Resource View {} For Texture", (int)viewType);
+			return {};
+		}
+	}
 	DescriptorAllocation const& TextureResourceViews::EnsureSRV_NoLock(RenderBackend_D3D12* app, CPUDescriptorAllocatorSet& allocatorSet, ID3D12Resource* pResource, GPUTextureDescriptor const& desc, GPUTextureView const& textureView)
 	{
 		auto& views = resourceViews[textureView];
@@ -149,13 +169,21 @@ namespace graphics_backend
 		, aliasedAllocator(app, app->GetMemoryManager().GetAllocator())
 	{
 	}
+
+	void D3D12GraphLocalResourceManager::AddTexture(ImageHandle const& imageHandle
+		, GPUTextureDescriptor const& resourceDesc)
+	{
+		auto& resouceData = imageHandleToResource[imageHandle];
+		resouceData.resourceDesc = resourceDesc;
+	}
+
 	void D3D12GraphLocalResourceManager::AddTexture(ImageHandle const& imageHandle
 		, GPUTextureDescriptor const& resourceDesc
 		, GPUTextureView const& textureView)
 	{
 		auto& resouceData = imageHandleToResource[imageHandle];
 		resouceData.resourceDesc = resourceDesc;
-		resouceData.resourceViews.insert(castl::make_pair(textureView, TextureResourceAllocationInfo::ResourceViews{}));
+		//resouceData.resourceViews.insert(castl::make_pair(textureView, TextureResourceAllocationInfo::ResourceViews{}));
 	}
 	void D3D12GraphLocalResourceManager::AddBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& resourceDesc)
 	{
@@ -171,10 +199,10 @@ namespace graphics_backend
 	{
 		struct ResourceAllocationPasses
 		{
-			std::vector<castl::pair<ImageHandle, ResourceUsageRangeData>> newImagesOnThisPass;
-			std::vector<castl::pair<ImageHandle, ResourceUsageRangeData>> releasedImagesAfterThisPass;
-			std::vector<castl::pair<BufferHandle, ResourceUsageRangeData>> newBuffersOnThisPass;
-			std::vector<castl::pair<BufferHandle, ResourceUsageRangeData>> releasedBuffersAfterThisPass;
+			std::vector<ImageHandle> newImagesOnThisPass;
+			std::vector<ImageHandle> releasedImagesAfterThisPass;
+			std::vector<BufferHandle> newBuffersOnThisPass;
+			std::vector<BufferHandle> releasedBuffersAfterThisPass;
 		};
 
 		castl::vector<ResourceAllocationPasses> allocationPasses(resourceBatchCount);
@@ -187,8 +215,8 @@ namespace graphics_backend
 			if (img.IsIntternal())
 			{
 				auto& lifeTime = imgPair.second.lifeTime;
-				allocationPasses[lifeTime.head()].newImagesOnThisPass.push_back(imgPair);
-				allocationPasses[lifeTime.end()].releasedImagesAfterThisPass.push_back(imgPair);
+				allocationPasses[lifeTime.head()].newImagesOnThisPass.push_back(img);
+				allocationPasses[lifeTime.end()].releasedImagesAfterThisPass.push_back(img);
 			}
 		}
 
@@ -200,8 +228,8 @@ namespace graphics_backend
 			if (buf.IsIntternal())
 			{
 				auto& lifeTime = bufPair.second.lifeTime;
-				allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(bufPair);
-				allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(bufPair);
+				allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(buf);
+				allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(buf);
 			}
 		}
 
@@ -212,16 +240,14 @@ namespace graphics_backend
 			BufferHandle handle = constantBufferManager.GetConstantBufferHandle(pStruct);
 			auto& resource = bufferHandleToResource[handle];
 			resource.usages = EResourceUsage::eConstantBuffer | EResourceUsage::eCopy;
-			castl::pair<BufferHandle, ResourceUsageRangeData> bufPair = castl::make_pair(handle, ResourceUsageRangeData{});
-			allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(bufPair);
-			allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(bufPair);
+			allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(handle);
+			allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(handle);
 		}
 
 		for (auto& allocationPass : allocationPasses)
 		{
-			for (auto& imagePair : allocationPass.newImagesOnThisPass)
+			for (auto& image : allocationPass.newImagesOnThisPass)
 			{
-				auto& image = imagePair.first;
 				auto& resource = imageHandleToResource[image];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromTextureDescriptor(resource.resourceDesc)
@@ -229,9 +255,8 @@ namespace graphics_backend
 					, D3D12_RESOURCE_STATE_COMMON);
 			}
 
-			for (auto& bufferPair : allocationPass.newBuffersOnThisPass)
+			for (auto& buffer : allocationPass.newBuffersOnThisPass)
 			{
-				auto& buffer = bufferPair.first;
 				auto& resource = bufferHandleToResource[buffer];
 				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
 					GetResourceDescFromGPUBufferDescriptor(resource.resourceDesc)
@@ -239,16 +264,14 @@ namespace graphics_backend
 					, D3D12_RESOURCE_STATE_COMMON);
 			}
 
-			for (auto& imagePair : allocationPass.releasedImagesAfterThisPass)
+			for (auto& image : allocationPass.releasedImagesAfterThisPass)
 			{
-				auto& image = imagePair.first;
 				auto& resource = imageHandleToResource[image];
 				resource.gpuResource.FreeVirtualMemmories();
 			}
 
-			for (auto& bufferPair : allocationPass.releasedBuffersAfterThisPass)
+			for (auto& buffer : allocationPass.releasedBuffersAfterThisPass)
 			{
-				auto& buffer = bufferPair.first;
 				auto& resource = bufferHandleToResource[buffer];
 				resource.gpuResource.FreeVirtualMemmories();
 			}
@@ -305,168 +328,234 @@ namespace graphics_backend
 		}
 	}
 
-	void D3D12GraphLocalResourceManager::PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocatorsr)
+	void D3D12GraphLocalResourceManager::Reset()
 	{
-		for (auto& pair : imageHandleToResource)
-		{
-			auto& img = pair.first;
-			{
-				auto& resourceData = pair.second;
-				for (auto& pair : resourceData.resourceViews)
-				{
-					auto& resourceView = pair.second;
-					auto& textureView = pair.first;
-					if (resourceData.usages & EResourceUsage::eShaderResource)
-					{
-						switch (img.GetType())
-						{
-						case ImageHandle::ImageType::Internal:
-						{
-							resourceView.srv = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
-							auto srvDesc = GetSRVDescFromGPUTextureDescriptor(resourceData.resourceDesc, textureView);
-							GetDevice()->CreateShaderResourceView(resourceData.gpuResource.GetResource()
-								, &srvDesc
-								, resourceView.srv.CPUHandle());
-							break;
-						}
-						case ImageHandle::ImageType::External:
-						{
-							resourceView.srv = img.GetTexturePtr<D3DImageObject>()->EnsureSRV(textureView);
-							break;
-						}
-						case ImageHandle::ImageType::Backbuffer:
-						{
-							//Can We Sample Backbuffers?
-						}
-						}
-	
-					}
-					if (resourceData.usages & EResourceUsage::eShaderUnorderedAccess)
-					{
-	
-						switch (img.GetType())
-						{
-						case ImageHandle::ImageType::Internal:
-						{
-							resourceView.uav = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
-							auto uavDesc = GetUAVDescFromGPUTextureDescriptor(resourceData.resourceDesc, textureView);
-							GetDevice()->CreateUnorderedAccessView(resourceData.gpuResource.GetResource()
-								, nullptr
-								, &uavDesc
-								, resourceView.uav.CPUHandle());
-							break;
-						}
-						case ImageHandle::ImageType::External:
-						{
-							resourceView.uav = img.GetTexturePtr<D3DImageObject>()->EnsureUAV(textureView);
-							break;
-						}
-						case ImageHandle::ImageType::Backbuffer:
-						{
-							//Can We Sample Backbuffers?
-							CA_LOG_ERR_BREAK("BackBuffer Not Supported For SRV");
-						}
-						}
-					}
-					if (resourceData.usages & EResourceUsage::eRenderTarget)
-					{
-						switch (img.GetType())
-						{
-						case ImageHandle::ImageType::Internal:
-						{
-							resourceView.rtv = descriptorAllocatorsr.m_RTV_Allocator.AllocDescriptors(1);
-							auto rtvDesc = GetRTVDescFromTextureDescriptor(resourceData.resourceDesc);
-							GetDevice()->CreateRenderTargetView(resourceData.gpuResource.GetResource()
-								, &rtvDesc
-								, resourceView.rtv.CPUHandle());
-							break;
-						}
-						case ImageHandle::ImageType::External:
-						{
-							resourceView.rtv = img.GetTexturePtr<D3DImageObject>()->EnsureRTV(textureView);
-							break;
-						}
-						case ImageHandle::ImageType::Backbuffer:
-						{
-							resourceView.rtv = img.GetWindowPtr<WindowContext>()->EnsureCurrentBackBufferRTV();
-							break;
-						}
-						}
-					}
-					if (resourceData.usages & EResourceUsage::eDepthStencilTarget)
-					{
+		aliasedAllocator.FreeMemories();
+	}
 
-						switch (img.GetType())
-						{
-						case ImageHandle::ImageType::Internal:
-						{
-							resourceView.dsv = descriptorAllocatorsr.m_DSV_Allocator.AllocDescriptors(1);
-							auto dsvDesc = GetDSVDescFromTextureDescriptor(resourceData.resourceDesc);
-							GetDevice()->CreateDepthStencilView(resourceData.gpuResource.GetResource()
-								, &dsvDesc
-								, resourceView.dsv.CPUHandle());
-							break;
-						}
-						case ImageHandle::ImageType::External:
-						{
-							resourceView.rtv = img.GetTexturePtr<D3DImageObject>()->EnsureDSV(textureView);
-							break;
-						}
-						case ImageHandle::ImageType::Backbuffer:
-						{
-							CA_LOG_ERR_BREAK("BackBuffer Not Supported For DSV");
-							//resourceView.rtv = img.GetWindowPtr<WindowContext>()->EnsureCurrentBackBufferRTV();
-							//break;
-						}
-						}
-					}
-				}
-			}
-		}
-		for (auto& pair : bufferHandleToResource)
+	DescriptorAllocation const& D3D12GraphLocalResourceManager::EnsureResourceView(ImageHandle const& imageHandle, EResourceViewType viewType, CPUDescriptorAllocatorSet& allocatorSet, GPUTextureView const& textureView)
+	{
+		switch (imageHandle.GetType())
 		{
-			auto& buf = pair.first;
-			if (buf.IsIntternal())
+		case ImageHandle::ImageType::Internal:
+		{
+			TextureResourceAllocationInfo* imageResource = GetImageResource(imageHandle);
+			return imageResource->EnsureResourceView(viewType, GetApp(), allocatorSet, textureView);
+		}
+		case ImageHandle::ImageType::External:
+		{
+			auto* imageObject = imageHandle.GetTexturePtr<D3DImageObject>();
+			if (imageObject == nullptr)
 			{
-				auto& resourceData = pair.second;
-				if (resourceData.usages & EResourceUsage::eShaderResource)
-				{
-					resourceData.srv = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
-					auto srvDesc = GetSRVDescFromGPUBufferDescriptor(resourceData.resourceDesc);
-					GetDevice()->CreateShaderResourceView(resourceData.gpuResource.GetResource()
-						, &srvDesc
-						, resourceData.srv.CPUHandle());
-				}
-				if (resourceData.usages & EResourceUsage::eShaderUnorderedAccess)
-				{
-					resourceData.uav = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
-					auto uavDesc = GetUAVDescFromGPUBufferDescriptor(resourceData.resourceDesc);
-					GetDevice()->CreateUnorderedAccessView(resourceData.gpuResource.GetResource()
-						, nullptr
-						, &uavDesc
-						, resourceData.uav.CPUHandle());
-				}
-				if (resourceData.usages & EResourceUsage::eConstantBuffer)
-				{
-					resourceData.cbv = descriptorAllocatorsr.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
-					
-					auto resourceDesc = resourceData.gpuResource.GetResource()->GetDesc();
-					D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = GetDevice()->GetResourceAllocationInfo(0, 1, &resourceDesc);
-					uint64_t resourceSize = resourceData.gpuResource.GetResourceInfo().m_Size;
-					CA_LOG("CBuffer Size:{}", resourceSize);
-					auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(resourceData.gpuResource.GetResource()->GetGPUVirtualAddress()
-						, allocationInfo);
-					cbvDesc.SizeInBytes = 256;
-					GetDevice()->CreateConstantBufferView(&cbvDesc, resourceData.cbv.CPUHandle());
-				}
+				CA_LOG_ERR_BREAK("Invalid Image Handle: {}", imageHandle.GetName());
+				return {};
 			}
+			return imageObject->EnsureResourceView(viewType, textureView);
+		}
+		case ImageHandle::ImageType::Backbuffer:
+		{
+			CA_ASSERT_BREAK(viewType == EResourceViewType::eRTV, "Backbuffer Should Be RTV");
+			auto* windowContext = imageHandle.GetWindowPtr<WindowContext>();
+			if (windowContext == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Backbuffer Handle: {}", imageHandle.GetName());
+				return {};
+			}
+			return windowContext->EnsureCurrentBackBufferRTV();
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Image Handle Type: {}", (int)imageHandle.GetType());
+			return {};
 		}
 	}
+
+	DescriptorAllocation const& D3D12GraphLocalResourceManager::EnsureResourceView(BufferHandle const& bufferHandle, EResourceViewType viewType, CPUDescriptorAllocatorSet& allocatorSet)
+	{
+		switch (bufferHandle.GetType())
+		{
+		case BufferHandle::BufferType::Internal:
+		{
+			BufferResourceAllocationInfo* bufferResource = GetBufferResource(bufferHandle);
+			if (bufferResource == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Buffer Handle: {}", bufferHandle.GetName());
+				return {};
+			}
+			return bufferResource->EnsureResourceView(viewType, GetApp(), allocatorSet);
+		}
+		case BufferHandle::BufferType::External:
+		{
+			auto* bufferObject = bufferHandle.GetBufferPtr<D3DBufferObject>();
+			if (bufferObject == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Buffer Handle: {}", bufferHandle.GetName());
+				return {};
+			}
+			return bufferObject->EnsureResourceView(viewType);
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Buffer Handle Type: {}", (int)bufferHandle.GetType());
+			return {};
+		}
+	}
+
+	ID3D12Resource* D3D12GraphLocalResourceManager::GetImageD3D12Resource(ImageHandle const& imageHandle) const
+	{
+		switch (imageHandle.GetType())
+		{
+		case ImageHandle::ImageType::Internal:
+		{
+			TextureResourceAllocationInfo const* imageResource = GetImageResource(imageHandle);
+			CA_ASSERT_BREAK(imageResource != nullptr, "Invalid Internal Image Handle: {}", imageHandle.GetName());
+			return imageResource->gpuResource.GetResource();
+		}
+		case ImageHandle::ImageType::External:
+		{
+			auto* imageObject = imageHandle.GetTexturePtr<D3DImageObject>();
+			if (imageObject == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Image Handle: {}", imageHandle.GetName());
+				return nullptr;
+			}
+			return imageObject->GetGPUResource().GetResource();
+		}
+		case ImageHandle::ImageType::Backbuffer:
+		{
+			auto* windowContext = imageHandle.GetWindowPtr<WindowContext>();
+			if (windowContext == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Backbuffer Handle: {}", imageHandle.GetName());
+				return nullptr;
+			}
+			return windowContext->GetCurrentBackBufferResource().Get();
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Image Handle Type: {}", (int)imageHandle.GetType());
+			return nullptr;
+		}
+	}
+
+	ID3D12Resource* D3D12GraphLocalResourceManager::GetBufferD3D12Resource(BufferHandle const& bufferHandle) const
+	{
+		switch (bufferHandle.GetType())
+		{
+		case BufferHandle::BufferType::Internal:
+		{
+			BufferResourceAllocationInfo const* bufferResource = GetBufferResource(bufferHandle);
+			if (bufferResource == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Internal Buffer Handle: {}", bufferHandle.GetName());
+				return nullptr;
+			}
+			return bufferResource->gpuResource.GetResource();
+		}
+		case BufferHandle::BufferType::External:
+		{
+			auto* bufferObject = bufferHandle.GetBufferPtr<D3DBufferObject>();
+			if (bufferObject == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Buffer Handle: {}", bufferHandle.GetName());
+				return nullptr;
+			}
+			return bufferObject->GetGPUResource().GetResource();
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Buffer Handle Type: {}", (int)bufferHandle.GetType());
+			return nullptr;
+		}
+	}
+
+	TextureResourceInfo D3D12GraphLocalResourceManager::GetTextureResourceInfo(ImageHandle const& imageHandle) const
+	{
+		switch (imageHandle.GetType())
+		{
+		case ImageHandle::ImageType::Internal:
+		{
+			TextureResourceAllocationInfo const* imageResource = GetImageResource(imageHandle);
+			CA_ASSERT_BREAK(imageResource != nullptr, "Invalid Internal Image Handle: {}", imageHandle.GetName());
+			return TextureResourceInfo{ imageResource->gpuResource.GetResource(), imageResource->resourceDesc };
+		}
+		case ImageHandle::ImageType::External:
+		{
+			auto* imageObject = imageHandle.GetTexturePtr<D3DImageObject>();
+			if (imageObject == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Image Handle: {}", imageHandle.GetName());
+				return {};
+			}
+			return { imageObject->GetGPUResource().GetResource(), imageObject->GetDescriptor() };
+		}
+		case ImageHandle::ImageType::Backbuffer:
+		{
+			auto* windowContext = imageHandle.GetWindowPtr<WindowContext>();
+			if (windowContext == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Backbuffer Handle: {}", imageHandle.GetName());
+				return {};
+			}
+			return { windowContext->GetCurrentBackBufferResource().Get(), windowContext->GetBackbufferDescriptor()};
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Image Handle Type: {}", (int)imageHandle.GetType());
+			return {};
+		}
+	}
+
+	BufferResourceInfo D3D12GraphLocalResourceManager::GetBufferResourceInfo(BufferHandle const& bufferHandle) const
+	{
+		switch (bufferHandle.GetType())
+		{
+		case BufferHandle::BufferType::Internal:
+		{
+			BufferResourceAllocationInfo const* bufferResource = GetBufferResource(bufferHandle);
+			if (bufferResource == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Internal Buffer Handle: {}", bufferHandle.GetName());
+				return {};
+			}
+			return { bufferResource->gpuResource.GetResource(), bufferResource->resourceDesc };
+		}
+		case BufferHandle::BufferType::External:
+		{
+			auto* bufferObject = bufferHandle.GetBufferPtr<D3DBufferObject>();
+			if (bufferObject == nullptr)
+			{
+				CA_LOG_ERR_BREAK("Invalid Buffer Handle: {}", bufferHandle.GetName());
+				return {};
+			}
+			return { bufferObject->GetGPUResource().GetResource(), bufferObject->GetDescriptor() };
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Buffer Handle Type: {}", (int)bufferHandle.GetType());
+			return {};
+		}
+	}
+
 
 	TextureResourceAllocationInfo const* D3D12GraphLocalResourceManager::GetImageResource(ImageHandle const& imageHandle) const
 	{
 		auto found = imageHandleToResource.find(imageHandle);
 		if (found == imageHandleToResource.end())
+		{
+			return nullptr;
+		}
+		return &found->second;
+	}
+
+	TextureResourceAllocationInfo* D3D12GraphLocalResourceManager::GetImageResource(ImageHandle const& imageHandle)
+	{
+		auto found = imageHandleToResource.find(imageHandle);
+		if (found == imageHandleToResource.end())
+		{
+			return nullptr;
+		}
+		return &found->second;
+	}
+
+	BufferResourceAllocationInfo* D3D12GraphLocalResourceManager::GetBufferResource(BufferHandle const& bufferHandle)
+	{
+		auto found = bufferHandleToResource.find(bufferHandle);
+		if (found == bufferHandleToResource.end())
 		{
 			return nullptr;
 		}
@@ -481,6 +570,90 @@ namespace graphics_backend
 			return nullptr;
 		}
 		return &found->second;
+	}
+
+	DescriptorAllocation TextureResourceAllocationInfo::EnsureResourceView(EResourceViewType viewType
+		, RenderBackend_D3D12* app
+		, CPUDescriptorAllocatorSet& allocatorSet, GPUTextureView const& textureView)
+	{
+		switch (viewType)
+		{
+		case EResourceViewType::eSRV:
+			return textureResourceViews.EnsureSRV_NoLock(app, allocatorSet, pResource, resourceDesc, textureView);
+		case EResourceViewType::eUAV:
+			return textureResourceViews.EnsureUAV_NoLock(app, allocatorSet, pResource, resourceDesc, textureView);
+		case EResourceViewType::eRTV:
+			return textureResourceViews.EnsureRTV_NoLock(app, allocatorSet, pResource, resourceDesc, textureView);
+		case EResourceViewType::eDSV:
+			return textureResourceViews.EnsureDSV_NoLock(app, allocatorSet, pResource, resourceDesc, textureView);
+		}
+	}
+
+	DescriptorAllocation const& BufferResourceViews::EnsureResourceView_NoLock(EResourceViewType viewType
+		, RenderBackend_D3D12* app
+		, ID3D12Resource* pResource
+		, CPUDescriptorAllocatorSet& allocatorSet
+		, GPUBufferDescriptor const& resourceDesc)
+	{
+		switch (viewType)
+		{
+		case EResourceViewType::eSRV:
+		{
+			if (!srv.IsValid())
+			{
+				srv = allocatorSet.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
+				auto srvDesc = GetSRVDescFromGPUBufferDescriptor(resourceDesc);
+				app->GetDevice()->CreateShaderResourceView(pResource
+					, &srvDesc
+					, srv.CPUHandle());
+			}
+			return srv;
+		}
+		break;
+		case EResourceViewType::eUAV:
+		{
+			if (!uav.IsValid())
+			{
+				uav = allocatorSet.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
+				auto uavDesc = GetUAVDescFromGPUBufferDescriptor(resourceDesc);
+				app->GetDevice()->CreateUnorderedAccessView(pResource
+					, nullptr
+					, &uavDesc
+					, uav.CPUHandle());
+			}
+			return uav;
+		}
+		break;
+		case EResourceViewType::eCBV:
+		{
+			if (!cbv.IsValid())
+			{
+				cbv = allocatorSet.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
+				auto cbufferDesc = pResource->GetDesc();
+				D3D12_RESOURCE_ALLOCATION_INFO allocationInfo
+					= app->GetDevice()->GetResourceAllocationInfo(0, 1, &cbufferDesc);
+				uint64_t resourceSize = resourceDesc.SizeInByte();
+				CA_LOG("CBuffer Size:{}", resourceSize);
+				auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(pResource->GetGPUVirtualAddress()
+					, allocationInfo);
+				app->GetDevice()->CreateConstantBufferView(&cbvDesc, cbv.CPUHandle());
+			}
+			return cbv;
+		}
+		break;
+		default:
+			CA_LOG_ERR_BREAK("Unsupported Resource View Type {} For Buffer", (int)viewType);
+			return {};
+		}
+
+	}
+
+	DescriptorAllocation BufferResourceAllocationInfo::EnsureResourceView(EResourceViewType viewType
+		, RenderBackend_D3D12* app
+		, CPUDescriptorAllocatorSet& allocatorSet)
+	{
+		return bufferResourceView.EnsureResourceView_NoLock(viewType
+			, app, pResource, allocatorSet, resourceDesc);
 	}
 
 }

@@ -86,22 +86,16 @@ namespace graphics_backend
 		D3D12SubobjectBase(app)
 		, m_LocalResourceManager(app)
 		, m_ConstantBufferManager(app)
-		, m_DescriptorAllocatorSet(app)
-		, m_ResourceGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
-		, m_SamplerGPUHeap(app, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
-		, m_CommandListManager(app)
-		, m_StagingMemoryManager(app)
 	{
 	}
-
-
 
 	struct PassRWState
 	{
 		castl::unordered_map<ImageHandle, ResourceState> imageRWStates;
 		castl::unordered_map<BufferHandle, ResourceState> bufferRWStates;
 		castl::unordered_set<D3D2ShaderStruct const*> cBufferUsageStates;
-		bool depends(PassRWState const& other) const
+
+		bool Depends(PassRWState const& other) const
 		{
 			for (auto& pair : imageRWStates)
 			{
@@ -109,11 +103,7 @@ namespace graphics_backend
 				auto found = other.imageRWStates.find(img);
 				if (found != other.imageRWStates.end())
 				{
-					if (rwState.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
-						&& found->second.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
-					{
-					}
-					else
+					if (!rwState.CompatibleToCombine(found->second))
 					{
 						return true;
 					}
@@ -125,11 +115,7 @@ namespace graphics_backend
 				auto found = other.bufferRWStates.find(buf);
 				if (found != other.bufferRWStates.end())
 				{
-					if (rwState.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
-						&& found->second.resourceAccess == ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
-					{
-					}
-					else
+					if (!rwState.CompatibleToCombine(found->second))
 					{
 						return true;
 					}
@@ -137,31 +123,78 @@ namespace graphics_backend
 			}
 			return false;
 		}
+
 		void Append(PassRWState const& other)
 		{
 			for (auto pair : other.imageRWStates)
 			{
-				imageRWStates.insert(pair);
+				auto found = imageRWStates.find(pair.first);
+				if (found == imageRWStates.end())
+				{
+					imageRWStates.insert(pair);
+				}
+				else
+				{
+					imageRWStates[pair.first].Combine(pair.second);
+				}
 			}
 			for (auto pair : other.bufferRWStates)
 			{
-				bufferRWStates.insert(pair);
+				auto found = bufferRWStates.find(pair.first);
+				if (found == bufferRWStates.end())
+				{
+					bufferRWStates.insert(pair);
+				}
+				else
+				{
+					bufferRWStates[pair.first].Combine(pair.second);
+				}
 			}
 			for (D3D2ShaderStruct const* pstruct : other.cBufferUsageStates)
 			{
 				cBufferUsageStates.insert(pstruct);
 			}
 		}
+
+		void SetImageRWStateNoView(ImageHandle const& image
+			, EShaderTypeFlags stages
+			, EResourceUsageFlags usages
+			, ShaderCompilerSlang::EShaderResourceAccess access
+			, EGPUQueueType queueType)
+		{
+
+			ResourceState newResourceState{
+				access,
+				stages,
+				usages,
+				queueType,
+			};
+
+			auto found = imageRWStates.find(image);
+			if (found != imageRWStates.end())
+			{
+				CA_ASSERT_BREAK(found->second.Compatible(newResourceState), "Resource State Not Compatible");
+				found->second.Combine(newResourceState);
+			}
+			else
+			{
+				imageRWStates.insert(castl::make_pair(image, newResourceState));
+			}
+		}
 		
 		void SetImageRWState(ImageHandle const& image
 			, EShaderTypeFlags stages
 			, EResourceUsageFlags usages
-			, ShaderCompilerSlang::EShaderResourceAccess access)
+			, ShaderCompilerSlang::EShaderResourceAccess access
+			, EGPUQueueType queueType
+			, GPUTextureView const textureView)
 		{
+
 			ResourceState newResourceState{
 				access,
 				stages,
-				usages
+				usages,
+				queueType,
 			};
 
 			auto found = imageRWStates.find(image);
@@ -178,13 +211,16 @@ namespace graphics_backend
 		void SetBufferRWState(BufferHandle const& buffer
 			, EShaderTypeFlags stages
 			, EResourceUsageFlags usages
-			, ShaderCompilerSlang::EShaderResourceAccess access)
+			, ShaderCompilerSlang::EShaderResourceAccess access
+			, EGPUQueueType queueType
+		)
 		{
 
 			ResourceState newResourceState{
 				access,
 				stages,
-				usages
+				usages,
+				queueType
 			};
 
 			auto found = bufferRWStates.find(buffer);
@@ -232,7 +268,7 @@ namespace graphics_backend
 
 		void CheckAddSuccessor(PassDependency* successor)
 		{
-			if (rwState.depends(successor->rwState))
+			if (rwState.Depends(successor->rwState))
 			{
 				successors.push_back(successor);
 				successor->predecessorCount++;
@@ -271,14 +307,24 @@ namespace graphics_backend
 				{
 					for (auto& img : imageInfo.bindings)
 					{
-						passRWState.SetImageRWState(img.image, imageInfo.usingStages, imageInfo.resourceUsages, imageInfo.bindingInfo.accessType);
+						passRWState.SetImageRWState(img.image
+							, imageInfo.usingStages
+							, imageInfo.resourceUsages
+							, imageInfo.bindingInfo.accessType
+							, EGPUQueueType::eDirect
+							, img.textureView);
 					}
 				},
 				[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
 				{
 					for (auto& buf : bufferInfo.bindings)
 					{
-						passRWState.SetBufferRWState(buf, bufferInfo.usingStages, bufferInfo.resourceUsages, bufferInfo.bindingInfo.accessType);
+						passRWState.SetBufferRWState(buf
+							, bufferInfo.usingStages
+							, bufferInfo.resourceUsages
+							, bufferInfo.bindingInfo.accessType
+							, EGPUQueueType::eDirect
+						);
 					}
 				},
 				[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
@@ -301,16 +347,28 @@ namespace graphics_backend
 				for (auto& attachment : renderPass.GetAttachments())
 				{
 					auto descriptor = GetDescriptor(owningGraph, attachment);
-					//auto descriptor = owningGraph.GetImageManager().GetDescriptor(attachment.GetKey());
-					//CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", attachment.GetName());
-					resourceManager.AddTexture(attachment, descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor.format));
+
+					GPUTextureView textureView = GPUTextureView::CreateDefaultForRenderTarget(descriptor.format);
+
+					resourceManager.AddTexture(attachment, descriptor, textureView);
 					if (attachmentID == renderPass.GetDepthAttachmentIndex())
 					{
-						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eDepthStencilTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone
+							, EResourceUsage::eDepthStencilTarget
+							, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite
+							, EGPUQueueType::eDirect
+							, textureView
+						);
 					}
 					else
 					{
-						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone, EResourceUsage::eRenderTarget, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite);
+						passRWState.SetImageRWState(attachment
+							, EShaderTypeMask::eNone
+							, EResourceUsage::eRenderTarget
+							, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite
+							, EGPUQueueType::eDirect
+							, textureView
+						);
 					}
 					++attachmentID;
 				}
@@ -331,12 +389,22 @@ namespace graphics_backend
 					{
 						auto& indesxBuffer = drawcall.GetIndexBuffer().indexBufferHandle;
 						registerBufferToLocalResourceManager(indesxBuffer);
-						passRWState.SetBufferRWState(indesxBuffer, EShaderTypeMask::eNone, EResourceUsage::eIndexInput, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
+						passRWState.SetBufferRWState(indesxBuffer
+							, EShaderTypeMask::eNone
+							, EResourceUsage::eIndexInput
+							, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+							, EGPUQueueType::eDirect
+						);
 					}
 					for (auto& vertBuf : drawcall.GetVertexBuffers())
 					{
 						registerBufferToLocalResourceManager(vertBuf.second);
-						passRWState.SetBufferRWState(vertBuf.second, EShaderTypeMask::eNone, EResourceUsage::eVertexInput, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly);
+						passRWState.SetBufferRWState(vertBuf.second
+							, EShaderTypeMask::eNone
+							, EResourceUsage::eVertexInput
+							, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+							, EGPUQueueType::eDirect
+						);
 					}
 				}
 				auto pipelineData = PipelineDescData::CombindDescData(renderPass.GetPipelineStates(), drawcallBatch.pipelineStateDesc);
@@ -344,10 +412,10 @@ namespace graphics_backend
 				shaderStructs.push_back(&drawcallBatch.shaderStructs);
 				shaderStructs.push_back(&renderPass.GetShaderStructs());
 				ShaderResourceSet resourceSet;
-				resourceSet.Init(pApp, pipelineData.m_ShaderInfo, { shaderStructs });
+				resourceSet.Init(pApp, pipelineData.m_ShaderInfo, shaderStructs);
 				castl::shared_ptr<GPUResourceBindingInstance> resourceBindingInstance = shaderResourceInstances.get_or_create(resourceSet, [&](ShaderResourceSet const& resourceInstance) -> castl::shared_ptr<GPUResourceBindingInstance>
 				{
-					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
+					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance);
 				})->second;
 
 				batchGPUData.pResourceBindingInstance = resourceBindingInstance.get();
@@ -374,7 +442,7 @@ namespace graphics_backend
 				resourceSet.Init(pApp, dispatch.m_ShaderInfo, { shaderStructs });
 				auto resourceBindingInstance = shaderResourceInstances.get_or_create(resourceSet, [&](ShaderResourceSet const& resourceInstance) -> castl::shared_ptr<GPUResourceBindingInstance>
 				{
-					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance, constantBufferManager);
+					return pApp->NewSubObject_Shared<GPUResourceBindingInstance>(resourceInstance);
 				})->second;
 				dispatchGPUData.pResourceBindingInstance = resourceBindingInstance.get();
 				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
@@ -390,26 +458,50 @@ namespace graphics_backend
 			for (auto& bufferWrites : transferPass.m_BufferDataUploads)
 			{
 				registerBufferToLocalResourceManager(bufferWrites.first);
-				passRWState.SetBufferRWState(bufferWrites.first, EShaderTypeMask::eNone, EResourceUsage::eCopy, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly);
+				passRWState.SetBufferRWState(bufferWrites.first
+					, EShaderTypeMask::eNone
+					, EResourceUsage::eCopy
+					, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
+					, EGPUQueueType::eDirect
+				);
 			}
 			for (auto& imgWrites : transferPass.m_ImageDataUploads)
 			{
 				auto descriptor = GetDescriptor(owningGraph, imgWrites.first);
-				//auto descriptor = owningGraph.GetImageManager().GetDescriptor(imgWrites.first.GetKey());
-				//CA_ASSERT_BREAK(descriptor != nullptr, "Image {} Not Registered", imgWrites.first.GetName());
 				resourceManager.AddTexture(imgWrites.first, descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor.format));
-				passRWState.SetImageRWState(imgWrites.first, EShaderTypeMask::eNone, EResourceUsage::eCopy, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly);
+				passRWState.SetImageRWStateNoView(imgWrites.first
+					, EShaderTypeMask::eNone
+					, EResourceUsage::eCopy
+					, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
+					, EGPUQueueType::eDirect
+				);
 			}
 		}
-
-		//将m_ConstantBufferManager中的constant buffer资源注册到m_LocalResourceManager中
-		constantBufferManager.BuildResources(resourceManager);
-		//将m_ShaderResourceInstances中的资源注册到m_LocalResourceManager中(不包括CBuffer)
 		shaderResourceInstances.for_each([&](ShaderResourceSet const& resourceSet
 			, castl::shared_ptr<GPUResourceBindingInstance>& resourceInstance)
 		{
-			resourceInstance->BuildResources(owningGraph, resourceManager);
+			resourceInstance->IterateResourceUsages([&](auto const& imageInfo) {},
+				[&](auto const& bufferInfo) {},
+				[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
+			{
+				constantBufferManager.GetConstantBufferHandle(cbufferInfo.pCBufferStruct);
+			});
 		});
+
+		//将m_ConstantBufferManager中的constant buffer资源注册到m_LocalResourceManager中
+		constantBufferManager.BuildResources(resourceManager);
+		//将图中的资源注册到m_LocalResourceManager中
+		owningGraph.GetBufferManager().Foreach([&](ResourceHandleKeyData const& handleKey
+			, auto& desc)
+		{
+			resourceManager.AddBuffer(handleKey, desc);
+		});
+		owningGraph.GetImageManager().Foreach([&](ResourceHandleKeyData const& handleKey
+			, auto& desc)
+		{
+			resourceManager.AddTexture(handleKey, desc);
+		});
+
 	}
 
 	struct RenderStateBarrier
@@ -496,8 +588,7 @@ namespace graphics_backend
 			for (auto& cbufferData : cbufferBarriers.cbufferData)
 			{
 				BufferHandle const& bufferHandle = cbufferData.first;
-				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
-				ID3D12Resource* targetBuffer = info->pResource;
+				ID3D12Resource* targetBuffer = resourceManager.GetBufferD3D12Resource(bufferHandle);
 
 				D3D12_BUFFER_BARRIER beforeBarrier{};
 				beforeBarrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
@@ -529,8 +620,7 @@ namespace graphics_backend
 			for (auto& cbufferData : cbufferBarriers.cbufferData)
 			{
 				BufferHandle const& bufferHandle = cbufferData.first;
-				BufferResourceAllocationInfo const* info = resourceManager.GetBufferResource(bufferHandle);
-				ID3D12Resource* targetBuffer = info->pResource;
+				ID3D12Resource* targetBuffer = resourceManager.GetBufferD3D12Resource(bufferHandle);
 
 				D3D2ShaderStruct const* pStruct = cbufferData.second;
 				auto& uniformBufferData = pStruct->GetSelfUniformBuffer();
@@ -853,7 +943,7 @@ namespace graphics_backend
 				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
 				resouceBarrier.LayoutBefore = lastBarrierStates.layoutState;
 				resouceBarrier.LayoutAfter = currentBarrierStates.layoutState;
-				resouceBarrier.pResource = resourceManager.GetImageResource(image)->pResource;
+				resouceBarrier.pResource = resourceManager.GetImageD3D12Resource(image);
 				resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
 
 				if (stateHaveGap)
@@ -917,7 +1007,7 @@ namespace graphics_backend
 				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
 				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
 				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
-				resouceBarrier.pResource = resourceManager.GetBufferResource(buffer)->pResource;
+				resouceBarrier.pResource = resourceManager.GetBufferD3D12Resource(buffer);
 				resouceBarrier.Offset = 0;
 				resouceBarrier.Size = ULLONG_MAX;
 				if (stateHaveGap)
@@ -1015,6 +1105,7 @@ namespace graphics_backend
 		, CommandListManager& commandListMgr
 		, LinearMemoryManager& linearMemoryManager
 		, D3D12GraphLocalResourceManager& resourceManager
+		, CPUDescriptorAllocatorSet& cpuDescriptorAllocatorSet
 		, GPUDescriptorHeap& resourceHeap
 		, GPUDescriptorHeap& samplerHeap
 		, GPUFinalizeBatch& finalizeBatch
@@ -1060,22 +1151,20 @@ namespace graphics_backend
 						if (attachmentID != pass.GetDepthAttachmentIndex())
 						{
 							ImageHandle const& imageHandle = pass.GetAttachments()[attachmentID];
-							auto pImageResource = resourceManager.GetImageResource(imageHandle);
-							auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget(pImageResource->resourceDesc.format);
-							auto foundView = pImageResource->resourceViews.find(defaultImageView);
-							CA_ASSERT_BREAK(foundView != pImageResource->resourceViews.end(), "Attachment Image View Not Found");
-							rtvs.push_back(foundView->second.rtv.CPUHandle());
+							auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget();
+							auto rtv = resourceManager.EnsureResourceView(imageHandle, EResourceViewType::eRTV, cpuDescriptorAllocatorSet, defaultImageView);
+
+							rtvs.push_back(rtv.CPUHandle());
 						}
 					}
 					if (pass.HasDepthAttachment())
 					{
 						ImageHandle const& imageHandle = pass.GetAttachments()[pass.GetDepthAttachmentIndex()];
-						auto pImageResource = resourceManager.GetImageResource(imageHandle);
-						auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget(pImageResource->resourceDesc.format);
-						auto foundView = pImageResource->resourceViews.find(defaultImageView);
-						CA_ASSERT_BREAK(foundView != pImageResource->resourceViews.end(), "Depth Attachment Image View Not Found");
-						D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = foundView->second.dsv.CPUHandle();
-						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, &dsvHandle);
+						auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget();
+						auto dsv = resourceManager.EnsureResourceView(imageHandle, EResourceViewType::eDSV, cpuDescriptorAllocatorSet, defaultImageView);
+						
+						D3D12_CPU_DESCRIPTOR_HANDLE dsvhandle = dsv.CPUHandle();
+						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, &dsvhandle);
 					}
 					else
 					{
@@ -1126,10 +1215,10 @@ namespace graphics_backend
 							for (size_t vbid = 0; vbid < drawcallData.inputAssemblyBindingBuffers.size(); ++vbid)
 							{
 								auto&& [vertexInputDesc, bufferHandle] = drawcallData.inputAssemblyBindingBuffers[vbid];
-								auto pBufferResource = resourceManager.GetBufferResource(bufferHandle);
+								auto pBufferResource = resourceManager.GetBufferD3D12Resource(bufferHandle);
 								D3D12_VERTEX_BUFFER_VIEW& view = vertexBufferViews[vbid];
-								view.BufferLocation = pBufferResource->pResource->GetGPUVirtualAddress();
-								view.SizeInBytes = pBufferResource->resourceDesc.SizeInByte();
+								view.BufferLocation = pBufferResource->GetGPUVirtualAddress();
+								view.SizeInBytes = pBufferResource->GetDesc().Width;
 								view.StrideInBytes = vertexInputDesc.stride;
 							}
 							pCommand->IASetVertexBuffers(0, vertexBufferViews.size(), vertexBufferViews.data());
@@ -1157,14 +1246,13 @@ namespace graphics_backend
 				for (auto& imageUploads : transferPass.m_ImageDataUploads)
 				{
 					auto&& [targetImageHandle, dataRef] = imageUploads;
-					auto pImageResource = resourceManager.GetImageResource(targetImageHandle);
-					auto targetGPUResource = pImageResource->pResource;
+					auto pImageResource = resourceManager.GetImageD3D12Resource(targetImageHandle);
 
 					D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts;
 					UINT numRows;
 					UINT64 rowSizeInBytes;
 					UINT64 totalBytes;
-					D3D12_RESOURCE_DESC resourceDesc = targetGPUResource->GetDesc();
+					D3D12_RESOURCE_DESC resourceDesc = pImageResource->GetDesc();
 					const UINT subresourceNum = 1;
 					pBackend->GetDevice()->GetCopyableFootprints(&resourceDesc
 						, 0, subresourceNum, 0
@@ -1182,14 +1270,14 @@ namespace graphics_backend
 						subresourceData.SlicePitch = slicePitch;
 					}
 					ThrowIfFailed(UpdateSubresources((ID3D12GraphicsCommandList*)pCommand
-						, targetGPUResource, stagingBuffer
+						, pImageResource, stagingBuffer
 						, 0
 						, subresourceNum, totalBytes, &layouts, &numRows, &rowSizeInBytes, &subresourceData));
 				}
 				for (auto& bufferUploads : transferPass.m_BufferDataUploads)
 				{
 					auto&& [targetBufferHandle, dataRef] = bufferUploads;
-					auto pBufferHandle = resourceManager.GetBufferResource(targetBufferHandle);
+					auto pBufferResource = resourceManager.GetBufferD3D12Resource(targetBufferHandle);
 
 					ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(dataRef.dataSize);
 					UINT8* mappedStagingData;
@@ -1197,7 +1285,7 @@ namespace graphics_backend
 					memcpy(mappedStagingData, dataRef.pData, dataRef.dataSize);
 					stagingBuffer->Unmap(0, nullptr);
 
-					pCommand->CopyBufferRegion(pBufferHandle->pResource, 0, stagingBuffer, 0, dataRef.dataSize);
+					pCommand->CopyBufferRegion(pBufferResource, 0, stagingBuffer, 0, dataRef.dataSize);
 				}
 			}
 
@@ -1253,8 +1341,17 @@ namespace graphics_backend
 		transferPassRWStates.resize(owningGraph.GetDataTransfers().size());
 	}
 
-	void D3D12GPUGraphExecutor::CompileAndExecute(GPUGraph const& owningGraph)
+	void D3D12GPUGraphExecutor::CompileAndExecute(GPUGraph const& owningGraph, GPUFrameManager::PFrameContext&& frameContext)
 	{
+		//Setup Frame Context
+		m_CurrentFrameContext = castl::move(frameContext);
+
+		auto& descriptorAllocatorSet = m_CurrentFrameContext->GetResourceManager().GetDescriptorAllocatorSet();
+		auto& commandListManager = m_CurrentFrameContext->GetResourceManager().GetCommandListManager();
+		auto& stagingMemoryAllocator = m_CurrentFrameContext->GetResourceManager().GetStagingMemoryManager();
+		auto& resourceGPUHeap = m_CurrentFrameContext->GetResourceManager().GetResourceGPUHeap();
+		auto& samplerGPUHeap = m_CurrentFrameContext->GetResourceManager().GetSamplerGPUHeap();
+
 		//收集当前图中所有的资源
 		//并注册到m_LocalResourceManager中
 		//整理每个pass的读写状态
@@ -1296,11 +1393,16 @@ namespace graphics_backend
 			, cbufferLifeTimes, m_ConstantBufferManager);
 		m_LocalResourceManager.CommitAliasedResources();
 		//为资源创建 descriptor
-		m_LocalResourceManager.PrepareResourceDescriptors(m_DescriptorAllocatorSet);
+		//TODO:似乎不用在这里构建Resource View，在下面做
+		//m_LocalResourceManager.PrepareResourceDescriptors(descriptorAllocatorSet);
 		//构建每个shader实例的资源绑定集合
 		m_ShaderResourceInstances.for_each([&](auto& shaderSet, castl::shared_ptr<GPUResourceBindingInstance>& pInstance)->void
 		{
-			pInstance->BuildDescriptors(m_LocalResourceManager, m_ResourceGPUHeap, m_SamplerGPUHeap);
+			pInstance->BuildDescriptors(m_LocalResourceManager
+				, descriptorAllocatorSet
+				, resourceGPUHeap
+				, samplerGPUHeap
+				, m_ConstantBufferManager);
 		});
 
 		//创建PipelineBarriers, 目前确保在资源创建完毕后再调用
@@ -1320,17 +1422,25 @@ namespace graphics_backend
 			, rasterPassGPUDataList
 			, computePassGPUDataList);
 
+
 		Execute(GetApp()
 			, owningGraph
-			, m_CommandListManager
-			, m_StagingMemoryManager
+			, commandListManager
+			, stagingMemoryAllocator
 			, m_LocalResourceManager
-			, m_ResourceGPUHeap
-			, m_SamplerGPUHeap
+			, descriptorAllocatorSet
+			, resourceGPUHeap
+			, samplerGPUHeap
 			, finalizeBatch
 			, executionBatchs
 			, rasterPassGPUDataList);
 
-
+		Reset();
+	}
+	void D3D12GPUGraphExecutor::Reset()
+	{
+		m_LocalResourceManager.Reset();
+		m_ConstantBufferManager.Clear();
+		m_CurrentFrameContext.release();
 	}
 }

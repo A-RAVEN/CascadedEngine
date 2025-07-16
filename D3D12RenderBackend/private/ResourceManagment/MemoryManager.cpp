@@ -8,7 +8,7 @@ namespace graphics_backend
 {
 	MemoryManager::MemoryManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app)
 	{
-		app->OnDeviceInit([&]()
+		app->OnDeviceInit([this]()
 		{
 			D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
 			allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();
@@ -79,7 +79,7 @@ namespace graphics_backend
 
 	LinearMemoryManager::LinearMemoryManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) 
 	{
-		app->OnDeviceInit([&]()
+		app->OnDeviceInit([this]()
 		{
 			D3D12MA::ALLOCATOR_DESC allocatorDesc = {};
 			allocatorDesc.pDevice = GetDevice<ID3D12Device>().Get();

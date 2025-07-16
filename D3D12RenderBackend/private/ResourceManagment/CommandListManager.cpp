@@ -5,7 +5,7 @@ namespace graphics_backend
 {
 	CommandListManager::CommandListManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app)
 	{
-		app->OnDeviceInit([&]()
+		app->OnDeviceInit([this]()
 		{
 			GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_DirectAllocator));
 			GetDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_BUNDLE, IID_PPV_ARGS(&m_BundleAllocator));

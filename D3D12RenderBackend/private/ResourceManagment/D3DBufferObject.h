@@ -23,10 +23,14 @@ namespace graphics_backend
 		{
 			return m_Resource;
 		}
+		DescriptorAllocation const& EnsureResourceView(EResourceViewType viewType);
 	private:
 		GPUResource m_Resource;
 		GPUBufferDescriptor m_Descriptor{};
 		castl::string m_Name = { "" };
 		ResourceState m_LastResourceState;
+
+		BufferResourceViews m_CachedResourceViews;
+
 	};
 }

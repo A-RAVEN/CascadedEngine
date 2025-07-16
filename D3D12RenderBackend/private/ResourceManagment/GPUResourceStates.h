@@ -7,6 +7,7 @@
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <ResourceManagment/MemoryManager.h>
 #include <DescriptorManagment/GPUDescriptorHeap.h>
+#include <CASTL/CAUnorderedSet.h>
 
 namespace graphics_backend
 {
@@ -31,6 +32,15 @@ namespace graphics_backend
 		eDirect = 1 << 0,
 		eCompute = 1 << 1,
 		eCopy = 1 << 2,
+	};
+
+	enum class EResourceViewType
+	{
+		eSRV,
+		eUAV,
+		eRTV,
+		eDSV,
+		eCBV,
 	};
 }
 CA_ENUM_FLAGS(EResourceUsage, graphics_backend);
@@ -126,9 +136,18 @@ namespace graphics_backend
 				return false;
 			}
 		}
+		bool CompatibleToCombine(ResourceState const& other) const
+		{
+			bool readonlyAccess = ReadOnly() && other.ReadOnly();
+			bool usageEqual = resourceUsage == other.resourceUsage;
+			return readonlyAccess && usageEqual;
+		}
 		bool Compatible(ResourceState const& other) const
 		{
-			return (resourceAccess == other.resourceAccess);
+			//TODO: Do More Check
+			bool accessEqual = resourceAccess == other.resourceAccess;
+			bool usageEqual = resourceUsage == other.resourceUsage;
+			return accessEqual && usageEqual;
 		}
 		void Combine(ResourceState const& other)
 		{
@@ -170,7 +189,7 @@ namespace graphics_backend
 
 	constexpr D3D12_BARRIER_SYNC DetermingShaderStageSync(EShaderTypeFlags flags)
 	{
-		D3D12_BARRIER_SYNC result = D3D12_BARRIER_SYNC_ALL_SHADING;
+		D3D12_BARRIER_SYNC result = D3D12_BARRIER_SYNC_NONE;
 		if (flags & EShaderTypeMask::eComp)
 		{
 			result |= D3D12_BARRIER_SYNC_COMPUTE_SHADING;
@@ -191,6 +210,11 @@ namespace graphics_backend
 		if (flags & EShaderTypeMask::eAllRaytracing)
 		{
 			result |= D3D12_BARRIER_SYNC_RAYTRACING;
+		}
+		if (result == D3D12_BARRIER_SYNC_NONE)
+		{
+			CA_LOG_ERR("No Shader Stage Sync Detected, Using All Shading Sync");
+			result = D3D12_BARRIER_SYNC_ALL_SHADING;
 		}
 		return result;
 	}
@@ -380,6 +404,10 @@ namespace graphics_backend
 		};
 		castl::unordered_map<GPUTextureView, ResourceViews> resourceViews;
 
+		DescriptorAllocation const& GetResourceView(EResourceViewType viewType, GPUTextureView const& textureView) const;
+
+		//DescriptorAllocation const& EnsureResourceView()
+
 		DescriptorAllocation const& EnsureSRV_NoLock(RenderBackend_D3D12* app
 			, CPUDescriptorAllocatorSet& allocatorSet
 			, ID3D12Resource* pResource
@@ -432,34 +460,57 @@ namespace graphics_backend
 		DescriptorAllocation srv;
 		DescriptorAllocation uav;
 		DescriptorAllocation cbv;
+
+		DescriptorAllocation const& EnsureResourceView_NoLock(EResourceViewType viewType
+			, RenderBackend_D3D12* app
+			, ID3D12Resource* pResource
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, GPUBufferDescriptor const& resourceDesc
+		);
 	};
 
 	struct BufferResourceAllocationInfo
 	{
+	public:
 		GPUBufferDescriptor resourceDesc;
 		AliasedGPUResource gpuResource;
 		EResourceUsageFlags usages;
 		ID3D12Resource* pResource;
-		DescriptorAllocation srv;
-		DescriptorAllocation uav;
-		DescriptorAllocation cbv;
+
+		BufferResourceViews bufferResourceView;
+		DescriptorAllocation EnsureResourceView(EResourceViewType viewType
+			, RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet);
+
 	};
+
 
 	struct TextureResourceAllocationInfo
 	{
+	public:
 		GPUTextureDescriptor resourceDesc;
 		AliasedGPUResource gpuResource;
 		EResourceUsageFlags usages;
 		ID3D12Resource* pResource;
 
-		struct ResourceViews
-		{
-			DescriptorAllocation srv;
-			DescriptorAllocation uav;
-			DescriptorAllocation rtv;
-			DescriptorAllocation dsv;
-		};
-		castl::unordered_map<GPUTextureView, ResourceViews> resourceViews;
+		TextureResourceViews textureResourceViews;
+
+		DescriptorAllocation EnsureResourceView(EResourceViewType viewType
+			, RenderBackend_D3D12* app
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, GPUTextureView const& textureView);
+	};
+
+	struct BufferResourceInfo
+	{
+		ID3D12Resource* pResource;
+		GPUBufferDescriptor resourceDesc;
+	};
+
+	struct TextureResourceInfo
+	{
+		ID3D12Resource* pResource;
+		GPUTextureDescriptor resourceDesc;
 	};
 
 	class GPUConstantBufferManager;
@@ -468,10 +519,11 @@ namespace graphics_backend
 	public:
 		D3D12GraphLocalResourceManager(RenderBackend_D3D12* app);
 		void AddTexture(ImageHandle const& imageHandle
+			, GPUTextureDescriptor const& resourceDesc);
+		void AddTexture(ImageHandle const& imageHandle
 			, GPUTextureDescriptor const& resourceDesc
 			, GPUTextureView const& textureView);
 		void AddBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& resourceDesc);
-		//void AddGPUPassResourceStates(D3D12PassResourceStates const& states);
 		void AllocateAliasedResources(uint32_t resourceBatchCount
 			, castl::unordered_map<ImageHandle, ResourceUsageRangeData> const& imageLifeTimes
 			, castl::unordered_map<BufferHandle, ResourceUsageRangeData> const& bufferLifeTimes
@@ -479,8 +531,29 @@ namespace graphics_backend
 			, GPUConstantBufferManager& constantBufferManager
 		);
 		void CommitAliasedResources();
-		void PrepareResourceDescriptors(CPUDescriptorAllocatorSet& descriptorAllocators);
+		void Reset();
+		DescriptorAllocation const& EnsureResourceView(
+			ImageHandle const& imageHandle
+			, EResourceViewType viewType
+			, CPUDescriptorAllocatorSet& allocatorSet
+			, GPUTextureView const& textureView);
+		DescriptorAllocation const& EnsureResourceView(
+			BufferHandle const& bufferHandle
+			, EResourceViewType viewType
+			, CPUDescriptorAllocatorSet& allocatorSet);
+
+		ID3D12Resource* GetImageD3D12Resource(ImageHandle const& imageHandle) const;
+
+		ID3D12Resource* GetBufferD3D12Resource(BufferHandle const& bufferHandle) const;
+
+		TextureResourceInfo GetTextureResourceInfo(ImageHandle const& bufferHandle) const;
+		BufferResourceInfo GetBufferResourceInfo(BufferHandle const& bufferHandle) const;
+
+	private:
+
 		TextureResourceAllocationInfo const* GetImageResource(ImageHandle const& imageHandle) const;
+		TextureResourceAllocationInfo* GetImageResource(ImageHandle const& imageHandle);
+		BufferResourceAllocationInfo* GetBufferResource(BufferHandle const& bufferHandle);
 		BufferResourceAllocationInfo const* GetBufferResource(BufferHandle const& bufferHandle) const;
 		castl::unordered_map<ImageHandle, TextureResourceAllocationInfo> imageHandleToResource;
 		castl::unordered_map<BufferHandle, BufferResourceAllocationInfo> bufferHandleToResource;

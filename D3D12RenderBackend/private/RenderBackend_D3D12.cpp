@@ -105,6 +105,7 @@ namespace graphics_backend
 		, p_IOManager(nullptr)
 		, p_ResourceImporter(nullptr)
 		, p_ResourceManager(nullptr)
+		, m_GPUFrameManager(this)
 	{
 	}
 
@@ -181,9 +182,18 @@ namespace graphics_backend
 
 	void RenderBackend_D3D12::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
 	{
+		GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
 		auto pGraph = gpuFrame.pGraph;
 		D3D12GPUGraphExecutor executor(this);
-		executor.CompileAndExecute(*pGraph.get());
+		executor.CompileAndExecute(*pGraph.get(), std::move(frameContext));
+	}
+
+	void RenderBackend_D3D12::ExecuteGraph(TaskScheduler* scheduler
+		, castl::shared_ptr<GPUGraph> const& graph)
+	{
+		GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
+		D3D12GPUGraphExecutor executor(this);
+		executor.CompileAndExecute(*graph.get(), std::move(frameContext));
 	}
 
 	castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
@@ -220,46 +230,46 @@ namespace graphics_backend
 
 	void RenderBackend_D3D12::RunTestCode()
 	{
-		struct VertexStruct
-		{
-			std::array<float, 3> pos;
-			std::array<float, 3> color;
-		};
-		cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
-			{
-				VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
-				VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
-			}, false);
+		//struct VertexStruct
+		//{
+		//	std::array<float, 3> pos;
+		//	std::array<float, 3> color;
+		//};
+		//cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		//	{
+		//		VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+		//		VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
+		//	}, false);
 
-		std::vector<VertexStruct> testBuffer = {
-			{{-0.25f, -0.25f, -0.25f }, {1.0f, 0.0f, 0.0f}},
-			{{0.25f, -0.25f, -0.25f }, {0.0f, 1.0f, 0.0f}},
-			{{0.0f, 0.5f, 0.0f }, {0.0f, 0.0f, 1.0f}},
-		};
+		//std::vector<VertexStruct> testBuffer = {
+		//	{{-0.25f, -0.25f, -0.25f }, {1.0f, 0.0f, 0.0f}},
+		//	{{0.25f, -0.25f, -0.25f }, {0.0f, 1.0f, 0.0f}},
+		//	{{0.0f, 0.5f, 0.0f }, {0.0f, 0.0f, 1.0f}},
+		//};
 
-		ImageHandle image(CANAME("TestImage"));
-		BufferHandle vbuffer(CANAME("TestVertBuffer"));
-		GPUGraph newGraph;
-		newGraph.AllocImage(image, GPUTextureDescriptor::Create(1024, 720, ETextureFormat::E_R8G8B8A8_UNORM, ETextureAccessType::eRT));
-		newGraph.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])));
-		newGraph.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]));
-		newGraph.AddPass(
-			RenderPass::New({ image })
-			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
-			.DrawCall
-			(
-				DrawCallBatch::New()
-				.VertexStream(CANAME("TestVerticesInput"), descs)
-				.DrawCall(
-					DrawCall::New()
-					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
-					.Draw(testBuffer.size())
-				)
-			)
-		);
+		//ImageHandle image(CANAME("TestImage"));
+		//BufferHandle vbuffer(CANAME("TestVertBuffer"));
+		//GPUGraph newGraph;
+		//newGraph.AllocImage(image, GPUTextureDescriptor::Create(1024, 720, ETextureFormat::E_R8G8B8A8_UNORM, ETextureAccessType::eRT));
+		//newGraph.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])));
+		//newGraph.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]));
+		//newGraph.AddPass(
+		//	RenderPass::New({ image })
+		//	.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
+		//	.DrawCall
+		//	(
+		//		DrawCallBatch::New()
+		//		.VertexStream(CANAME("TestVerticesInput"), descs)
+		//		.DrawCall(
+		//			DrawCall::New()
+		//			.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+		//			.Draw(testBuffer.size())
+		//		)
+		//	)
+		//);
 
-		D3D12GPUGraphExecutor executor(this);
-		executor.CompileAndExecute(newGraph);
+		//D3D12GPUGraphExecutor executor(this);
+		//executor.CompileAndExecute(newGraph);
 	}
 
 

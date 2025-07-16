@@ -11,7 +11,7 @@ struct VertexToFragment
 
 struct StructuredColor
 {
-    StructuredBuffer<float3> color;
+    StructuredBuffer<float3> colorStructuredBuffer;
 };
 
 ParameterBlock<StructuredColor> structuredColorBlock;
@@ -27,5 +27,5 @@ VertexToFragment vert(in VertexInput input)
 [shader("fragment")]
 float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    return float4(structuredColorBlock.color[0], 1.0f);
+    return float4(structuredColorBlock.colorStructuredBuffer[0], 1.0f);
 }
