@@ -47,7 +47,7 @@ namespace graphics_backend
 		HRESULT hr = m_Allocator->CreateResource(
 			&allocationDesc,
 			&resourceDesc,
-			D3D12_RESOURCE_STATE_COPY_DEST,
+			D3D12_RESOURCE_STATE_COMMON,
 			NULL,
 			&allocation,
 			IID_NULL, NULL);
@@ -163,6 +163,11 @@ namespace graphics_backend
 	{
 	}
 
+	AliasedMemoryAllocator::AliasedMemoryAllocator(RenderBackend_D3D12* app, uint64_t virtualBlockSize)
+		: D3D12SubobjectBase(app), m_Allocator(app->GetMemoryManager().GetAllocator()), m_VirtualBlockSize(virtualBlockSize)
+	{
+	}
+
 	AliasedGPUResource AliasedMemoryAllocator::AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType, D3D12_RESOURCE_STATES initialState)
 	{
 		AliasedGPUResource result{};
@@ -263,12 +268,11 @@ namespace graphics_backend
 
 	void AliasedMemoryAllocator::VirtualBlock::FreeMemory()
 	{
-		for (auto& res : m_BlockPlacedResources)
-		{
-			res->Release();
-		}
+		//for (auto& res : m_BlockPlacedResources)
+		//{
+		//	res->Release();
+		//}
 		m_BlockPlacedResources.clear();
-		//m_Heap.Reset();
 		if (p_BlockAllocation != nullptr)
 		{
 			p_BlockAllocation->Release();

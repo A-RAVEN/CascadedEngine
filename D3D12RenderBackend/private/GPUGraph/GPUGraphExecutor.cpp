@@ -181,7 +181,7 @@ namespace graphics_backend
 				imageRWStates.insert(castl::make_pair(image, newResourceState));
 			}
 		}
-		
+
 		void SetImageRWState(ImageHandle const& image
 			, EShaderTypeFlags stages
 			, EResourceUsageFlags usages
@@ -303,7 +303,7 @@ namespace graphics_backend
 			{
 				auto resourceBindingInstance = pair.second;
 				resourceBindingInstance->IterateResourceUsages(
-				[&](GPUResourceBindingInstance::ImageBindingElement const& imageInfo)
+					[&](GPUResourceBindingInstance::ImageBindingElement const& imageInfo)
 				{
 					for (auto& img : imageInfo.bindings)
 					{
@@ -315,7 +315,7 @@ namespace graphics_backend
 							, img.textureView);
 					}
 				},
-				[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
+					[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
 				{
 					for (auto& buf : bufferInfo.bindings)
 					{
@@ -327,7 +327,7 @@ namespace graphics_backend
 						);
 					}
 				},
-				[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
+					[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
 				{
 					passRWState.SetCBufferUsageState(cbufferInfo.pCBufferStruct);
 				});
@@ -378,7 +378,7 @@ namespace graphics_backend
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
 			auto& drawcalBatchs = renderPass.GetDrawCallBatches();
 
-			for(size_t batchID = 0; batchID < drawcalBatchs.size(); ++batchID)
+			for (size_t batchID = 0; batchID < drawcalBatchs.size(); ++batchID)
 			{
 				auto& drawcallBatch = drawcalBatchs[batchID];
 				auto& batchGPUData = rasterPassGPUData.drawcallBatchs[batchID];
@@ -663,7 +663,7 @@ namespace graphics_backend
 				CBufferCopyInitialize(pCommandList, linearMemoryManager, resourceManager);
 			}
 #pragma endregion
-			
+
 			for (auto& aquireBufferBarriers : aquireBarriers.bufferBarriers)
 			{
 				bufferBarriers.push_back(aquireBufferBarriers.second);
@@ -693,7 +693,7 @@ namespace graphics_backend
 				barrierGroups.push_back(imageBarrierGroup);
 			}
 			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
-			
+
 			for (auto& aquireBufferBarriers : releaseBarriers.bufferBarriers)
 			{
 				bufferBarriers.push_back(aquireBufferBarriers.second);
@@ -746,8 +746,8 @@ namespace graphics_backend
 			pendingDependencies.push_back(&passDeps.back());
 		}
 
-		if (owningGraph.GetGraphStages().size() < 2)
-			return;
+		//if (owningGraph.GetGraphStages().size() < 2)
+		//	return;
 		for (size_t prevPass = 0; prevPass < owningGraph.GetGraphStages().size() - 1; ++prevPass)
 		{
 			for (size_t latterPass = prevPass + 1; latterPass < owningGraph.GetGraphStages().size(); ++latterPass)
@@ -760,7 +760,7 @@ namespace graphics_backend
 			GPUExecutionBatch& newPass = outExecutionBatchs.emplace_back();
 			std::vector<PassDependency*> passFreeDeps;
 			auto depItr = pendingDependencies.begin();
-			while(depItr != pendingDependencies.end())
+			while (depItr != pendingDependencies.end())
 			{
 				PassDependency* dep = *depItr;
 				if (dep->DepsFree())
@@ -792,6 +792,63 @@ namespace graphics_backend
 				dep->RemoveSelfDeps();
 			}
 		}
+	}
+
+	void ApplyExternalResourceStates(GPUGraph const& owningGraph, castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageRanges,
+		castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferRanges)
+	{
+		for (auto pair : imageRanges)
+		{
+			auto&& [image, resourceUsageRange] = pair;
+			if (!image.IsIntternal())
+			{
+				CA_ASSERT_BREAK(!resourceUsageRange.states.empty(), "Image {} Has Empty States", image.GetName());
+				auto& lastState = resourceUsageRange.states.back();
+				switch (image.GetType())
+				{
+				case ImageHandle::ImageType::External:
+				{
+					auto texturePtr = image.GetTexturePtr<D3DImageObject>();
+					texturePtr->ApplyResourceState(lastState.state);
+					break;
+				}
+				case ImageHandle::ImageType::Backbuffer:
+				{
+					WindowContext* pWindow = image.GetWindowPtr<WindowContext>();
+					pWindow->ApplyCurrentBackBufferResourceState(lastState.state);
+					break;
+				}
+				}
+			}
+		}
+
+		for (auto& backBufferImage : owningGraph.GetPresentBackBuffers())
+		{
+			WindowContext* pWindow = backBufferImage.GetWindowPtr<WindowContext>();
+			pWindow->ApplyCurrentBackBufferResourceState(ResourceState::PresentState());
+		}
+
+		for (auto pair : bufferRanges)
+		{
+			auto&& [buffer, resourceUsageRange] = pair;
+			if (!buffer.IsIntternal())
+			{
+				CA_ASSERT_BREAK(!resourceUsageRange.states.empty(), "Buffer {} Has Empty States", buffer.GetName());
+				auto& lastState = resourceUsageRange.states.back();
+				switch (buffer.GetType())
+				{
+				case BufferHandle::BufferType::External:
+				{
+					auto bufPtr = buffer.GetBufferPtr<D3DBufferObject>();
+					bufPtr->ApplyResourceState(lastState.state);
+					break;
+				}
+				}
+			}
+		}
+
+
+
 	}
 
 	void BuildResourceUsageRanges(castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageRanges,
@@ -909,7 +966,7 @@ namespace graphics_backend
 			{
 				cachedState = ResourceState::InitializedState();
 			}
-			else if(image.GetType() == ImageHandle::ImageType::External)
+			else if (image.GetType() == ImageHandle::ImageType::External)
 			{
 				D3DImageObject const* pImage = static_cast<D3DImageObject const*>(image.GetExternalManagedTexture().get());
 				cachedState = pImage->GetResourceState();
@@ -975,7 +1032,7 @@ namespace graphics_backend
 		{
 			BufferHandle const& buffer = pair.first;
 			ResourceUsageRangeData const& usageRanges = pair.second;
-			
+
 			ResourceState cachedState;
 			if (buffer.IsIntternal())
 			{
@@ -1110,10 +1167,12 @@ namespace graphics_backend
 		, GPUDescriptorHeap& samplerHeap
 		, GPUFinalizeBatch& finalizeBatch
 		, castl::vector<GPUExecutionBatch> const& executeBatchs
-		, castl::vector<RenderPassGPUData> const& rasterPassGPUData)
+		, castl::vector<RenderPassGPUData> const& rasterPassGPUData
+		, GPUFrameManager::PFrameContext& pFrameContext
+	)
 	{
 		ID3D12GraphicsCommandList7* pCommand = commandListMgr.DirectCommand();
-		std::array<ID3D12DescriptorHeap*, 2> descHeaps = { resourceHeap.GetHeap().Get(),samplerHeap.GetHeap().Get()};
+		std::array<ID3D12DescriptorHeap*, 2> descHeaps = { resourceHeap.GetHeap().Get(),samplerHeap.GetHeap().Get() };
 		pCommand->SetDescriptorHeaps(descHeaps.size(), descHeaps.data());
 		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
 		{
@@ -1126,7 +1185,7 @@ namespace graphics_backend
 				auto& rasterData = rasterPassGPUData[rasterPassID];
 				auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
 				CA_ASSERT_BREAK(rasterData.drawcallBatchs.size() == pass.GetDrawCallBatches().size(), "Raster Pass Batch Count Inompatible");
-				
+
 				GPUTextureDescriptor desc = GetDescriptor(owningGraph, pass.GetAttachments()[0]);
 				D3D12_VIEWPORT viewport;
 				D3D12_RECT surfaceSize;
@@ -1162,7 +1221,7 @@ namespace graphics_backend
 						ImageHandle const& imageHandle = pass.GetAttachments()[pass.GetDepthAttachmentIndex()];
 						auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget();
 						auto dsv = resourceManager.EnsureResourceView(imageHandle, EResourceViewType::eDSV, cpuDescriptorAllocatorSet, defaultImageView);
-						
+
 						D3D12_CPU_DESCRIPTOR_HANDLE dsvhandle = dsv.CPUHandle();
 						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, &dsvhandle);
 					}
@@ -1173,7 +1232,7 @@ namespace graphics_backend
 					const float clearColor[] = { 0.2f, 1.0f, 0.2f, 1.0f };
 					pCommand->ClearRenderTargetView(rtvs[0], clearColor, 0, nullptr);
 				}
-	
+
 				for (int batchID = 0; batchID < rasterData.drawcallBatchs.size(); ++batchID)
 				{
 					auto& batchData = rasterData.drawcallBatchs[batchID];
@@ -1295,19 +1354,15 @@ namespace graphics_backend
 		pCommand->Close();
 		castl::vector<ID3D12CommandList*> commands = { pCommand };
 		pBackend->GetDirectQueue()->ExecuteCommandLists(1, commands.data());
-		ComPtr<ID3D12Fence> fance;
-		pBackend->GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fance));
-		pBackend->GetDirectQueue()->Signal(fance.Get(), 1);
+		pFrameContext->Signal(pBackend->GetDirectQueue());
+	}
 
+	void PresentWindows(GPUGraph const& owningGraph)
+	{
 		for (auto& backBufferImage : owningGraph.GetPresentBackBuffers())
 		{
 			WindowContext* pWindow = backBufferImage.GetWindowPtr<WindowContext>();
 			pWindow->Present();
-		}
-
-		while (fance->GetCompletedValue() < 1)
-		{
-			//Do Nothing;
 		}
 	}
 
@@ -1346,12 +1401,16 @@ namespace graphics_backend
 		//Setup Frame Context
 		m_CurrentFrameContext = castl::move(frameContext);
 
-		auto& descriptorAllocatorSet = m_CurrentFrameContext->GetResourceManager().GetDescriptorAllocatorSet();
-		auto& commandListManager = m_CurrentFrameContext->GetResourceManager().GetCommandListManager();
-		auto& stagingMemoryAllocator = m_CurrentFrameContext->GetResourceManager().GetStagingMemoryManager();
-		auto& resourceGPUHeap = m_CurrentFrameContext->GetResourceManager().GetResourceGPUHeap();
-		auto& samplerGPUHeap = m_CurrentFrameContext->GetResourceManager().GetSamplerGPUHeap();
+		auto& frameBoundResourceManager = m_CurrentFrameContext->GetResourceManager();
 
+		auto& descriptorAllocatorSet = frameBoundResourceManager.GetDescriptorAllocatorSet();
+		auto& commandListManager = frameBoundResourceManager.GetCommandListManager();
+		auto& stagingMemoryAllocator = frameBoundResourceManager.GetStagingMemoryManager();
+		auto& resourceGPUHeap = frameBoundResourceManager.GetResourceGPUHeap();
+		auto& samplerGPUHeap = frameBoundResourceManager.GetSamplerGPUHeap();
+		auto& aliasesdMemoryAllocator = frameBoundResourceManager.GetAliasedMemoryAllocator();
+
+		m_LocalResourceManager.SetAllocator(&aliasesdMemoryAllocator);
 		//收集当前图中所有的资源
 		//并注册到m_LocalResourceManager中
 		//整理每个pass的读写状态
@@ -1433,7 +1492,12 @@ namespace graphics_backend
 			, samplerGPUHeap
 			, finalizeBatch
 			, executionBatchs
-			, rasterPassGPUDataList);
+			, rasterPassGPUDataList
+			, m_CurrentFrameContext);
+
+		ApplyExternalResourceStates(owningGraph, imageLifeTimes, bufferLifeTimes);
+
+		PresentWindows(owningGraph);
 
 		Reset();
 	}
@@ -1441,6 +1505,7 @@ namespace graphics_backend
 	{
 		m_LocalResourceManager.Reset();
 		m_ConstantBufferManager.Clear();
-		m_CurrentFrameContext.release();
+		m_CurrentFrameContext->GPUWaitIdle();
+		m_CurrentFrameContext = nullptr;
 	}
 }

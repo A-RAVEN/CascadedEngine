@@ -201,6 +201,7 @@ namespace graphics_backend
 		castl::shared_ptr<D3DBufferObject> result = castl::make_shared<D3DBufferObject>(this);
 		D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromGPUBufferDescriptor(descriptor);
 		GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+		result->SetDescriptor(descriptor);
 		result->SetGPUResource(castl::move(resource));
 		return result;
 	}
@@ -212,6 +213,7 @@ namespace graphics_backend
 		castl::shared_ptr<D3DImageObject> result = castl::make_shared<D3DImageObject>(this);
 		D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromTextureDescriptor(inDescriptor);
 		GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
+		result->SetDescriptor(inDescriptor);
 		result->SetGPUResource(castl::move(resource));
 		return result;
 	}

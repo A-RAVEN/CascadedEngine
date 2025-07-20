@@ -360,6 +360,18 @@ namespace graphics_backend
 			GetDevice()->CopyDescriptorsSimple(1, m_GPUResourceBindingInfos.descriptorAllocation.Slice(descriptorID).CPUHandle()
 				, writingView.CPUHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 		}
+		
+		for (auto& samplerBinding : m_GPUResourceBindingInfos.samplerBindings)
+		{
+			uint32_t descriptorID = samplerBinding.bindingInfo.descTableID + samplerBinding.offset;
+			for (auto& samplerDesc : samplerBinding.samplerDescriptors)
+			{
+				auto cpuHandle = GetApp()->GetSamplerManager().GetCPUHandle(samplerDesc);
+				GetDevice()->CopyDescriptorsSimple(1, m_GPUResourceBindingInfos.samplerAllocation.Slice(descriptorID).CPUHandle()
+					, cpuHandle, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+				descriptorID++;
+			}
+		}
 	}
 	ShaderResourceInstanceManager::ShaderResourceInstanceManager(RenderBackend_D3D12* app):
 		D3D12SubobjectBase(app)

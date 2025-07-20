@@ -2,6 +2,7 @@
 #include <D3D12Debug.h>
 #include <DebugUtils.h>
 #include <RenderBackend_D3D12.h>
+#include <Utils/InterfaceTranslation.h>
 
 namespace graphics_backend
 {
@@ -213,6 +214,8 @@ namespace graphics_backend
 		return m_HugeHeap.AllocDescriptors(descCount);
 	}
 
+
+
 	CD3DX12_CPU_DESCRIPTOR_HANDLE SamplerManager::GetCPUHandle(TextureSamplerDescriptor const& samplerDesc)
 	{
 		auto found = m_TextureSamplers.find(samplerDesc);
@@ -221,10 +224,24 @@ namespace graphics_backend
 			return found->second.CPUHandle();
 		}
 		auto descAllocation =  m_Sampler_Allocator.AllocDescriptors(1);
+
 		D3D12_SAMPLER_DESC desc{};
+		desc.AddressU = ETextureSamplerAddressModeToD3D12TextureAddressMode(samplerDesc.addressModeU);
+		desc.AddressV = ETextureSamplerAddressModeToD3D12TextureAddressMode(samplerDesc.addressModeV);
+		desc.AddressW = ETextureSamplerAddressModeToD3D12TextureAddressMode(samplerDesc.addressModeW);
+		desc.Filter = D3D12_ENCODE_BASIC_FILTER(ETextureSamplerFilterModeToD3D12FilterType(samplerDesc.minFilterMode)
+			, ETextureSamplerFilterModeToD3D12FilterType(samplerDesc.magFilterMode)
+			, ETextureSamplerFilterModeToD3D12FilterType(samplerDesc.mipmapFilterMode)
+			, D3D12_FILTER_REDUCTION_TYPE_STANDARD);
+		desc.MaxAnisotropy = 1;
+		desc.ComparisonFunc = D3D12_COMPARISON_FUNC::D3D12_COMPARISON_FUNC_NONE;
+		desc.MinLOD = 0;
+		desc.MaxLOD = 1024;
+
 		//Init Sampler Desc From Texture
 		GetDevice()->CreateSampler(&desc, descAllocation.CPUHandle());
 		m_TextureSamplers.insert(castl::make_pair(samplerDesc, descAllocation));
+		return descAllocation.CPUHandle();
 	}
 
 	CPUDescriptorAllocatorSet::CPUDescriptorAllocatorSet(RenderBackend_D3D12* app) :

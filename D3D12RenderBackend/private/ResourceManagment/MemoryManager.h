@@ -90,6 +90,7 @@ namespace graphics_backend
 
 
 		AliasedMemoryAllocator(RenderBackend_D3D12* app, ComPtr<D3D12MA::Allocator> allocator, uint64_t virtualBlockSize = (512 << 20));
+		AliasedMemoryAllocator(RenderBackend_D3D12* app, uint64_t virtualBlockSize = (512 << 20));
 		AliasedGPUResource AllocateGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType
 			, D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON);
 		void LogAllocatorStates();

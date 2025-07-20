@@ -43,15 +43,39 @@ namespace graphics_backend
 			, bool integerFormat = false)
 		{
 			TextureSamplerDescriptor desc;
-			desc.magFilterMode = ETextureSamplerFilterMode::eLinear;
-			desc.minFilterMode = ETextureSamplerFilterMode::eLinear;
-			desc.mipmapFilterMode = ETextureSamplerFilterMode::eLinear;
-			desc.addressModeU = ETextureSamplerAddressMode::eClampToEdge;
-			desc.addressModeV = ETextureSamplerAddressMode::eClampToEdge;
-			desc.addressModeW = ETextureSamplerAddressMode::eClampToEdge;
-			desc.boarderColor = ETextureSamplerBorderColor::eTransparentBlack;
+			desc.magFilterMode = filterMode;
+			desc.minFilterMode = filterMode;
+			desc.mipmapFilterMode = filterMode;
+			desc.addressModeU = addressMode;
+			desc.addressModeV = addressMode;
+			desc.addressModeW = addressMode;
+			desc.boarderColor = boarderColor;
 			desc.integerFormat = false;
 			return desc;
+		}
+		static TextureSamplerDescriptor const& LinearClamp()
+		{
+			const static TextureSamplerDescriptor sampler = Create(ETextureSamplerFilterMode::eLinear
+				, ETextureSamplerAddressMode::eClampToEdge);
+			return sampler;
+		}
+		static TextureSamplerDescriptor const& LinearRepeat()
+		{
+			const static TextureSamplerDescriptor sampler = Create(ETextureSamplerFilterMode::eLinear
+				, ETextureSamplerAddressMode::eRepeat);
+			return sampler;
+		}
+		static TextureSamplerDescriptor const& PointClamp()
+		{
+			const static TextureSamplerDescriptor sampler = Create(ETextureSamplerFilterMode::eNearest
+				, ETextureSamplerAddressMode::eClampToEdge);
+			return sampler;
+		}
+		static TextureSamplerDescriptor const& PointRepeat()
+		{
+			const static TextureSamplerDescriptor sampler = Create(ETextureSamplerFilterMode::eNearest
+				, ETextureSamplerAddressMode::eRepeat);
+			return sampler;
 		}
 		auto operator<=>(const TextureSamplerDescriptor&) const = default;
 	};

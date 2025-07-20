@@ -41,7 +41,7 @@ castl::shared_ptr<CThreadManager> g_ThreadManager;
 castl::shared_ptr<CRenderBackend> g_GPUBackend;
 castl::shared_ptr<IWindowSystem> g_WindowSystem;
 
-void TestGPUGraph0()
+void TestSimpleTriangle()
 {
 	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle");
 	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
@@ -63,7 +63,6 @@ void TestGPUGraph0()
 	};
 
 	ImageHandle windowBackBuffer(windowHandle);
-	ImageHandle image(CANAME("TestImage"));
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
@@ -85,12 +84,16 @@ void TestGPUGraph0()
 		);
 	GPUFrame newFrame;
 	newFrame.pGraph = newGraph;
-	//newFrame.presentWindows.push_back(windowHandle);
-	auto scheduler = g_ThreadManager->NewScheduler();
-	g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+
+	while (!newWindow.lock()->WindowShouldClose())
+	{
+		g_WindowSystem->UpdateSystem();
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+	}
 }
 
-void TestGPUGraph1()
+void TestTriangleWithConstantColor()
 {
 	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Constant Color");
 	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
@@ -135,11 +138,16 @@ void TestGPUGraph1()
 		);
 	GPUFrame newFrame;
 	newFrame.pGraph = newGraph;
-	auto scheduler = g_ThreadManager->NewScheduler();
-	g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+
+	while (!newWindow.lock()->WindowShouldClose())
+	{
+		g_WindowSystem->UpdateSystem();
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+	}
 }
 
-void TestGPUGraph2()
+void TestTriangleWithStructuredBufferColor()
 {
 	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle With Structured Color");
 	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
@@ -189,10 +197,82 @@ void TestGPUGraph2()
 		);
 	GPUFrame newFrame;
 	newFrame.pGraph = newGraph;
-	auto scheduler = g_ThreadManager->NewScheduler();
-	g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+	while (!newWindow.lock()->WindowShouldClose())
+	{
+		g_WindowSystem->UpdateSystem();
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+	}
 }
 
+
+void TestTriangleWithImageBuffer()
+{
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle");
+	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
+	struct VertexStruct
+	{
+		std::array<float, 3> pos;
+		std::array<float, 2> texcoord;
+	};
+	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+			VertexAttribute::Create(offsetof(VertexStruct, texcoord), VertexInputFormat::eR32G32_SFloat, CANAME("TEXCOORD")),
+		}, false);
+
+	std::vector<VertexStruct> testBuffer = {
+		{{-0.25f, -0.25f, -0.25f }, {0.0f, 0.0f}},
+		{{0.25f, -0.25f, -0.25f }, {1.0f, 0.0f}},
+		{{0.0f, 0.5f, 0.0f }, {0.5f, 1.0f}},
+	};
+
+	ImageHandle windowBackBuffer(windowHandle);
+
+	auto testTexture = g_GPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(256, 256
+		, ETextureFormat::E_B8G8R8A8_UNORM
+		, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled));
+	uint32_t color = (0 << 16) | (0 << 8) | (255);
+	castl::vector<uint32_t> colorData(256 * 256, color);
+	castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+	submitGraph->ScheduleData(testTexture, colorData.data(), colorData.size() * sizeof(uint32_t));
+	{
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ExecuteGraph(scheduler.get(), submitGraph);
+	}
+
+	auto imageStruct = g_GPUBackend->CreateShaderStruct(CANAME("SamplingTextureData"));
+	imageStruct->SetImage(CANAME("testTexture"), testTexture);
+	imageStruct->SetSampler(CANAME("testSampler"), TextureSamplerDescriptor::LinearClamp());
+
+	BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.AddPass(
+			RenderPass::New({ windowBackBuffer })
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
+			.SetParam(CANAME("textureData"), imageStruct)
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), descs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.Draw(testBuffer.size())
+				)
+			)
+		);
+
+	while (!newWindow.lock()->WindowShouldClose())
+	{
+		g_WindowSystem->UpdateSystem();
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+	}
+}
 
 int main(int argc, char* argv[])
 {
@@ -248,9 +328,10 @@ int main(int argc, char* argv[])
 	importingSystem->ScanSourceDirectory(resourceString);
 
 
-	//TestGPUGraph0();
-	//TestGPUGraph1();
-	TestGPUGraph2();
+	//TestSimpleTriangle();
+	//TestTriangleWithConstantColor();
+	//TestTriangleWithStructuredBufferColor();
+	TestTriangleWithImageBuffer();
 
 	g_ThreadManager.reset();
 	g_GPUBackend.reset();

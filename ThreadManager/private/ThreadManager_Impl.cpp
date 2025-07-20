@@ -297,10 +297,13 @@ namespace thread_management
 
     void ThreadManager_Impl::Stop()
     {
-
         {
 			castl::unique_lock guard(m_Mutex);
 			m_Running = false;
+        }
+        for (auto& worker : m_TaskWorkers)
+        {
+            worker.Stop();
         }
         for (std::thread& itrThread : m_WorkerThreads)
         {
@@ -847,7 +850,7 @@ namespace thread_management
                     queue_locks.reserve(m_Queues.size());
                     m_WorkerConditionalVariable.wait(lock, [this, &queue_locks]()
                     {
-                        //ȫ����ס���ж�
+                        //È«²¿Ëø×¡ÔÙÅÐ¶Ï
                         castl::shared_lock manager_lock(m_OwningManager->GetMutex());
                         for (auto queueID : m_Queues)
                         {
@@ -895,7 +898,7 @@ namespace thread_management
                     queue_locks.reserve(m_Queues.size());
                     m_WorkerConditionalVariable.wait(lock, [this, taskScheduler, &queue_locks]()
                     {
-                        //ȫ����ס���ж�
+                        //È«²¿Ëø×¡ÔÙÅÐ¶Ï
                         castl::shared_lock scheduler_lock(taskScheduler->GetMutex());
                         castl::shared_lock manager_lock(m_OwningManager->GetMutex());
                         for (auto queueID : m_Queues)

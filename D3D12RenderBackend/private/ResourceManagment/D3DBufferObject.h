@@ -19,6 +19,7 @@ namespace graphics_backend
 		void SetDescriptor(GPUBufferDescriptor const& desc);
 		ResourceState const& GetResourceState() const { return m_LastResourceState; }
 		ResourceState& GetResourceState() { return m_LastResourceState; }
+		void ApplyResourceState(ResourceState const& state) { m_LastResourceState = state; }
 		GPUResource const& GetGPUResource() const
 		{
 			return m_Resource;

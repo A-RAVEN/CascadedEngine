@@ -166,8 +166,13 @@ namespace graphics_backend
 	}
 
 	D3D12GraphLocalResourceManager::D3D12GraphLocalResourceManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app)
-		, aliasedAllocator(app, app->GetMemoryManager().GetAllocator())
+		, p_AliasedAllocator(nullptr)
 	{
+	}
+
+	void D3D12GraphLocalResourceManager::SetAllocator(AliasedMemoryAllocator* allocator)
+	{
+		p_AliasedAllocator = allocator;
 	}
 
 	void D3D12GraphLocalResourceManager::AddTexture(ImageHandle const& imageHandle
@@ -197,6 +202,7 @@ namespace graphics_backend
 		, GPUConstantBufferManager& constantBufferManager
 	)
 	{
+		CA_ASSERT_BREAK(p_AliasedAllocator != nullptr, "Null Aliased Allocator");
 		struct ResourceAllocationPasses
 		{
 			std::vector<ImageHandle> newImagesOnThisPass;
@@ -249,7 +255,7 @@ namespace graphics_backend
 			for (auto& image : allocationPass.newImagesOnThisPass)
 			{
 				auto& resource = imageHandleToResource[image];
-				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
+				resource.gpuResource = p_AliasedAllocator->AllocateGPUResource(
 					GetResourceDescFromTextureDescriptor(resource.resourceDesc)
 					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT
 					, D3D12_RESOURCE_STATE_COMMON);
@@ -258,7 +264,7 @@ namespace graphics_backend
 			for (auto& buffer : allocationPass.newBuffersOnThisPass)
 			{
 				auto& resource = bufferHandleToResource[buffer];
-				resource.gpuResource = aliasedAllocator.AllocateGPUResource(
+				resource.gpuResource = p_AliasedAllocator->AllocateGPUResource(
 					GetResourceDescFromGPUBufferDescriptor(resource.resourceDesc)
 					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT
 					, D3D12_RESOURCE_STATE_COMMON);
@@ -280,7 +286,8 @@ namespace graphics_backend
 
 	void D3D12GraphLocalResourceManager::CommitAliasedResources()
 	{
-		aliasedAllocator.CommitAllocations();
+		CA_ASSERT_BREAK(p_AliasedAllocator != nullptr, "Null Aliased Allocator");
+		p_AliasedAllocator->CommitAllocations();
 		for (auto& pair : imageHandleToResource)
 		{
 			castl::wstring_convert<castl::codecvt_utf8<wchar_t>> converter;
@@ -330,7 +337,9 @@ namespace graphics_backend
 
 	void D3D12GraphLocalResourceManager::Reset()
 	{
-		aliasedAllocator.FreeMemories();
+		p_AliasedAllocator = nullptr;
+		imageHandleToResource.clear();
+		bufferHandleToResource.clear();
 	}
 
 	DescriptorAllocation const& D3D12GraphLocalResourceManager::EnsureResourceView(ImageHandle const& imageHandle, EResourceViewType viewType, CPUDescriptorAllocatorSet& allocatorSet, GPUTextureView const& textureView)

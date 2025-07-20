@@ -3,6 +3,7 @@
 #include <D3D12Includes.h>
 #include <GPUBuffer.h>
 #include <GPUTexture.h>
+#include <TextureSampler.h>
 
 namespace graphics_backend
 {
@@ -590,6 +591,11 @@ namespace graphics_backend
 		return result;
 	}
 
+	constexpr uint32_t EColorChannelToInt(EColorChannel colorChannel)
+	{
+		return static_cast<uint32_t>(colorChannel);
+	}
+
 	constexpr D3D12_SHADER_RESOURCE_VIEW_DESC GetSRVDescFromGPUTextureDescriptor(
 		GPUTextureDescriptor const& inDescriptor
 		, GPUTextureView textureView)
@@ -598,6 +604,13 @@ namespace graphics_backend
 		D3D12_SHADER_RESOURCE_VIEW_DESC result{};
 		result.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
 		result.ViewDimension = ETextureTypeToSRVDimension(inDescriptor.textureType);
+		result.Shader4ComponentMapping = D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+			EColorChannelToInt(textureView.swizzle.r),
+			EColorChannelToInt(textureView.swizzle.g),
+			EColorChannelToInt(textureView.swizzle.b),
+			EColorChannelToInt(textureView.swizzle.a)
+		);
+		//result.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 		switch (inDescriptor.textureType)
 		{
 		case ETextureType::e1D:
@@ -733,4 +746,34 @@ namespace graphics_backend
 		result.Texture2D.MipSlice = 0;
 		return result;
 	}
+
+	constexpr D3D12_TEXTURE_ADDRESS_MODE ETextureSamplerAddressModeToD3D12TextureAddressMode(ETextureSamplerAddressMode addressMode)
+	{
+		switch (addressMode)
+		{
+		case ETextureSamplerAddressMode::eRepeat:
+			return D3D12_TEXTURE_ADDRESS_MODE::D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+		case ETextureSamplerAddressMode::eMirroredRepeat:
+			return D3D12_TEXTURE_ADDRESS_MODE::D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+		case ETextureSamplerAddressMode::eClampToEdge:
+			return D3D12_TEXTURE_ADDRESS_MODE::D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+		case ETextureSamplerAddressMode::eClampToBorder:
+			return D3D12_TEXTURE_ADDRESS_MODE::D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+		default:
+			CA_LOG_ERR_BREAK("D3D12 Unknown Texture Address Mode {}", (int)addressMode);
+			return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+		}
+	}
+
+	constexpr D3D12_FILTER_TYPE ETextureSamplerFilterModeToD3D12FilterType(ETextureSamplerFilterMode filterMode)
+	{
+		switch (filterMode)
+		{
+		case ETextureSamplerFilterMode::eLinear:
+			return D3D12_FILTER_TYPE::D3D12_FILTER_TYPE_LINEAR;
+		case ETextureSamplerFilterMode::eNearest:
+			return D3D12_FILTER_TYPE::D3D12_FILTER_TYPE_POINT;
+		}
+	}
+
 }
