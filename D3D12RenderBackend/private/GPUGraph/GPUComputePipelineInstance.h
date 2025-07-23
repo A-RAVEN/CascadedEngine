@@ -25,6 +25,7 @@ namespace graphics_backend
 	{
 	public:
 		GPUComputePipelineManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
+		void Release() override;
 		GPUComputePipelineInstance const* GetPipelineState(ShaderInfo const& stateKey);
 	private:
 		castl::shared_dic<ShaderInfo, GPUComputePipelineInstance> m_SharedDic;

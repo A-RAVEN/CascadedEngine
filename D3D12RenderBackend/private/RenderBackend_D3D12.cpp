@@ -160,7 +160,22 @@ namespace graphics_backend
 
 	void RenderBackend_D3D12::Release()
 	{
+		m_GPUFrameManager.Release();
+		m_SamplerManager.Release();
+		m_RootSignatureManager.Release();
+		m_PipelineManager.Release();
+		m_ComputePipelineManager.Release();
+		m_DescriptorAllocatorSet.Release();
 		m_MemoryManager.Release();
+		m_CommandQueue = nullptr;
+		m_Device = nullptr;
+		m_Adapter = nullptr;
+		m_Factory = nullptr;
+	}
+
+	RenderBackend_D3D12::~RenderBackend_D3D12()
+	{
+		Release();
 	}
 
 	castl::shared_ptr<WindowHandle> RenderBackend_D3D12::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)

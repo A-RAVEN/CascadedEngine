@@ -5,7 +5,7 @@
 
 namespace graphics_backend
 {
-	class RootSignatureManager : D3D12SubobjectBase
+	class RootSignatureManager : public D3D12SubobjectBase
 	{
 	public:
 		RootSignatureManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {};

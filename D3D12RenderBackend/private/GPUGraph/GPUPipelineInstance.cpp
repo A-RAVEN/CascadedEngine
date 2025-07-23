@@ -212,6 +212,11 @@ namespace graphics_backend
 		ThrowIfFailed(app->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_PipelineState)));
 	}
 
+	void GPUPipelineManager::Release()
+	{
+		m_SharedDic.clear();
+	}
+
 	GPUPipelineInstance const* GPUPipelineManager::GetPipelineState(GPUPipelineStateKey const& stateKey)
 	{
 		auto& inst = m_SharedDic.get_or_create(stateKey, [&](GPUPipelineStateKey const& stateKey) -> GPUPipelineInstance

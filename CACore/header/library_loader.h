@@ -6,8 +6,14 @@
 
 namespace library_loader
 {
+	//class IModuleLoader
+	//{
+	//public:
+	//	virtual ~IModuleLoader() {}
+	//};
+
 	template<typename TModInstance>
-	class TModuleLoader
+	class TModuleLoader// : public IModuleLoader
 	{
 	private:
 		typedef TModInstance* (*FTP_NewModuleObject)();

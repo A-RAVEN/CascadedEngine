@@ -269,4 +269,9 @@ namespace graphics_backend
 		 : D3D12SubobjectBase(app), m_Sampler_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
 	{}
 
+	void SamplerManager::Release()
+	{
+		m_Sampler_Allocator.Release();
+	}
+
 }

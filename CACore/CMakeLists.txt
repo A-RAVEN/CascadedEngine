@@ -23,6 +23,15 @@ CPMAddPackage(
   GIT_TAG 5.10
   GITHUB_REPOSITORY avaneev/komihash
 )
+
+CPMAddPackage(
+    NAME mimalloc
+    GIT_TAG v3.0.8
+    GITHUB_REPOSITORY microsoft/mimalloc
+    OPTIONS
+    "MI_USE_CXX ON"
+)
+
 file(GLOB HashLib_SourceList "${hash-library_SOURCE_DIR}/*.cpp")
 add_library(HashLib STATIC ${HashLib_SourceList})
 target_include_directories(HashLib PUBLIC ${hash-library_SOURCE_DIR})
@@ -34,6 +43,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC CASTL)
 target_link_libraries(${PROJECT_NAME} PUBLIC HashLib)
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt)
 target_link_libraries(${PROJECT_NAME} PRIVATE magic_enum)
+target_link_libraries(${PROJECT_NAME} PUBLIC mimalloc)
 target_include_directories(${PROJECT_NAME} PUBLIC header)
 target_include_directories(${PROJECT_NAME} INTERFACE header)
 

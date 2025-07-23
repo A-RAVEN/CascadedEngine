@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <CASTL/CASharedPtr.h>
 #include <glm/glm.hpp>
+#include <mimalloc.h>
 
 template<glm::length_t L, typename T, glm::qualifier Q>
 struct careflection::containerInfo<glm::vec<L, T, Q>>
@@ -136,12 +137,8 @@ void TestHash2()
 	deserializer.deserialize(testStruct4);
 }
 
-int main(int argc, char* argv[])
+void TestSerialize0()
 {
-	TestHash();
-	TestHash1();
-	TestHash2();
-
 	//evaluate_type<TestStruct1, 0>();
 	evaluate_type<TestStruct2, 0>();
 
@@ -182,5 +179,38 @@ int main(int argc, char* argv[])
 	TestStruct1 testStruct3;
 	cacore::deserializer<decltype(byteBuffer)> deserializer1(byteBuffer);
 	deserializer1.deserialize(testStruct3);
+}
+
+void TestAllocation()
+{
+	{
+		TestStruct1* testStr = new TestStruct1[32];
+		delete[] testStr;
+	}
+
+	
+	{
+		TestStruct1* testStr = new TestStruct1();
+		delete testStr;
+	}
+
+	{
+		castl::vector<TestStruct1> testVec;
+		for (int i = 0; i < 3; ++i)
+		{
+			testVec.emplace_back();
+		}
+	}
+	mi_stats_print(NULL);
+
+}
+
+int main(int argc, char* argv[])
+{
+	//TestHash();
+	//TestHash1();
+	//TestHash2();
+	TestAllocation();
+	
 	return 0;
 }
