@@ -30,6 +30,13 @@ CPMAddPackage(
     GITHUB_REPOSITORY microsoft/mimalloc
     OPTIONS
     "MI_USE_CXX ON"
+    "MI_OVERRIDE ON"
+)
+
+CPMAddPackage(
+  NAME magic_enum
+  VERSION 0.9.7
+  GITHUB_REPOSITORY Neargye/magic_enum
 )
 
 file(GLOB HashLib_SourceList "${hash-library_SOURCE_DIR}/*.cpp")
@@ -39,13 +46,13 @@ target_include_directories(HashLib PUBLIC ${komihash_SOURCE_DIR})
 
 
 add_library(${PROJECT_NAME} STATIC ${Source_List} ${Header_List})
-target_link_libraries(${PROJECT_NAME} PUBLIC CASTL)
+target_link_libraries(${PROJECT_NAME} PUBLIC mimalloc)
 target_link_libraries(${PROJECT_NAME} PUBLIC HashLib)
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt)
 target_link_libraries(${PROJECT_NAME} PRIVATE magic_enum)
-target_link_libraries(${PROJECT_NAME} PUBLIC mimalloc)
 target_include_directories(${PROJECT_NAME} PUBLIC header)
 target_include_directories(${PROJECT_NAME} INTERFACE header)
+target_compile_definitions(${PROJECT_NAME} INTERFACE USING_EASTL=0)
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PUBLIC "/Zc:preprocessor")

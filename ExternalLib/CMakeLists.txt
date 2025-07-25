@@ -19,21 +19,14 @@ include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
 
 
-CPMAddPackage(
-  NAME glfw
-  GIT_TAG 3.4
-  GITHUB_REPOSITORY glfw/glfw
-  OPTIONS
-	"GLFW_BUILD_EXAMPLES OFF"
-	"GLFW_BUILD_TESTS OFF"
-	"GLFW_BUILD_DOCS OFF"
-	"GLFW_INSTALL OFF"
-)
+
 
 CPMAddPackage(
   NAME glm
   GIT_TAG 1.0.1
   GITHUB_REPOSITORY g-truc/glm
+  OPTIONS
+	"GLM_BUILD_LIBRARY ON"
 )
 
 CPMAddPackage(
@@ -59,12 +52,6 @@ CPMAddPackage(
 	"ASSIMP_BUILD_TESTS OFF"
 )
 
-CPMAddPackage(
-  NAME DirectX-Headers
-  VERSION 1.615.0
-  GITHUB_REPOSITORY microsoft/DirectX-Headers
-  EXCLUDE_FROM_ALL TRUE
-)
 
 #slang
 
@@ -148,8 +135,3 @@ add_library(VulkanSDK SHARED IMPORTED GLOBAL)
 set_property(TARGET VulkanSDK PROPERTY INTERFACE_INCLUDE_DIRECTORIES $ENV{VK_SDK_PATH}/Include)
 set_property(TARGET VulkanSDK PROPERTY IMPORTED_IMPLIB $ENV{VK_SDK_PATH}/Lib/vulkan-1.lib)
 
-CPMAddPackage(
-  NAME magic_enum
-  VERSION 0.9.7
-  GITHUB_REPOSITORY Neargye/magic_enum
-)

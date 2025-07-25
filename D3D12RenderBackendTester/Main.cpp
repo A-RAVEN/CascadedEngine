@@ -1,3 +1,4 @@
+#include<mimalloc.h>
 #include <cstdlib>
 #define NOMINMAX
 #include <windows.h>
@@ -276,6 +277,7 @@ void TestTriangleWithImageBuffer()
 
 int main(int argc, char* argv[])
 {
+	mi_version();
 	TModuleLoader<ShaderCompilerSlang::IShaderCompilerManager> shaderManager("ShaderCompilerSlang");
 	castl::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> shaderCompilerManager = shaderManager.New();
 	shaderCompilerManager->InitializePoolSize(1);

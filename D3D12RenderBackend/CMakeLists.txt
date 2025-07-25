@@ -14,6 +14,13 @@ CPMAddPackage(
   GITHUB_REPOSITORY microsoft/DirectXTex
 )
 
+CPMAddPackage(
+  NAME DirectX-Headers
+  VERSION 1.615.0
+  GITHUB_REPOSITORY microsoft/DirectX-Headers
+  EXCLUDE_FROM_ALL TRUE
+)
+
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 

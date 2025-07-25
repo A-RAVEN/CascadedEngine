@@ -34,7 +34,7 @@ SET(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR}/installed)
 add_subdirectory ("ExternalLib")
 
 # 包含子项目。
-add_subdirectory ("CASTL")
+#add_subdirectory ("CASTL")
 add_subdirectory ("CACore")
 add_subdirectory ("TimerSystem")
 add_subdirectory ("TimerSystem_Impl")
