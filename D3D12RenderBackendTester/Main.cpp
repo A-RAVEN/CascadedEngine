@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <magic_enum/magic_enum.hpp>
 #include <CAResource/ResourceSystemFactory.h>
+#include <stb_image.h>
 
 using namespace thread_management;
 using namespace resource_management;
@@ -41,6 +42,10 @@ using namespace ca_io;
 castl::shared_ptr<CThreadManager> g_ThreadManager;
 castl::shared_ptr<CRenderBackend> g_GPUBackend;
 castl::shared_ptr<IWindowSystem> g_WindowSystem;
+
+std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format };
+std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
+std::filesystem::path resourceString = rootPath / "CAResources";
 
 void TestSimpleTriangle()
 {
@@ -209,7 +214,7 @@ void TestTriangleWithStructuredBufferColor()
 
 void TestTriangleWithImageBuffer()
 {
-	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Hello Triangle");
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Texture Sampling");
 	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
 	struct VertexStruct
 	{
@@ -221,25 +226,58 @@ void TestTriangleWithImageBuffer()
 			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
 			VertexAttribute::Create(offsetof(VertexStruct, texcoord), VertexInputFormat::eR32G32_SFloat, CANAME("TEXCOORD")),
 		}, false);
-
+	//We Choose Vulkan & DX12 Convention, in which texcoord starts at top-left of texture
 	std::vector<VertexStruct> testBuffer = {
-		{{-0.25f, -0.25f, -0.25f }, {0.0f, 0.0f}},
-		{{0.25f, -0.25f, -0.25f }, {1.0f, 0.0f}},
-		{{0.0f, 0.5f, 0.0f }, {0.5f, 1.0f}},
+	{{-0.5f, -0.5f, 0.25f }, {0.0f, 1.0f}},
+	{{0.5f, -0.5f, 0.25f }, {1.0f, 1.0f}},
+	{{0.5f, 0.5f, 0.25f }, {1.0f, 0.0f}},
+	{{-0.5f, 0.5f, 0.25f }, {0.0f, 0.0f}},
+	};
+
+	std::vector<uint32_t> indicesBuffer = {
+		0, 1, 2,
+		2, 3, 0
 	};
 
 	ImageHandle windowBackBuffer(windowHandle);
 
-	auto testTexture = g_GPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(256, 256
-		, ETextureFormat::E_B8G8R8A8_UNORM
-		, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled));
-	uint32_t color = (0 << 16) | (0 << 8) | (255);
-	castl::vector<uint32_t> colorData(256 * 256, color);
-	castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
-	submitGraph->ScheduleData(testTexture, colorData.data(), colorData.size() * sizeof(uint32_t));
+	castl::shared_ptr<GPUTexture> testTexture;
+	castl::shared_ptr<GPUBuffer> testVertexBuffer;
+	castl::shared_ptr<GPUBuffer> testIndexBuffer;
+
+	//Submit
 	{
+		auto texturFile = resourceString / "Images/vulkanlogo.png";
+		int width, height, channels;
+		auto data = stbi_load(texturFile.string().c_str(), &width, &height, &channels, 4);
+		testTexture = g_GPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(width, height
+			, ETextureFormat::E_R8G8B8A8_UNORM
+			, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled));
+
+		uint32_t textureSize = width * height * 4;
+
+		uint32_t color = (0 << 16) | (0 << 8) | (255);
+		castl::vector<uint32_t> colorData(256 * 256, color);
+
+		testVertexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+			EBufferUsage::eDataDst | EBufferUsage::eVertexBuffer
+			, testBuffer.size()
+			, sizeof(testBuffer[0])
+		));
+
+		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+			EBufferUsage::eDataDst | EBufferUsage::eIndexBuffer
+			, indicesBuffer.size()
+			, sizeof(indicesBuffer[0])
+		));
+
+		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+		submitGraph->ScheduleData(testTexture, data, textureSize);
+		submitGraph->ScheduleData(testVertexBuffer, testBuffer);
+		submitGraph->ScheduleData(testIndexBuffer, indicesBuffer);
 		auto scheduler = g_ThreadManager->NewScheduler();
 		g_GPUBackend->ExecuteGraph(scheduler.get(), submitGraph);
+		stbi_image_free(data);
 	}
 
 	auto imageStruct = g_GPUBackend->CreateShaderStruct(CANAME("SamplingTextureData"));
@@ -247,10 +285,11 @@ void TestTriangleWithImageBuffer()
 	imageStruct->SetSampler(CANAME("testSampler"), TextureSamplerDescriptor::LinearClamp());
 
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	BufferHandle ibuffer(CANAME("TestIndicesBuffer"));
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
-		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.AllocAndUploadBuffer(vbuffer, testBuffer)
+		.AllocAndUploadBuffer(ibuffer, indicesBuffer)
 		.AddPass(
 			RenderPass::New({ windowBackBuffer })
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
@@ -261,8 +300,155 @@ void TestTriangleWithImageBuffer()
 				.VertexStream(CANAME("TestVerticesInput"), descs)
 				.DrawCall(
 					DrawCall::New()
-					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
-					.Draw(testBuffer.size())
+					.SetVertexBuffer(CANAME("TestVerticesInput"), testVertexBuffer)
+					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
+					.DrawIndexed(indicesBuffer.size())
+				)
+			)
+		);
+
+	while (!newWindow.lock()->WindowShouldClose())
+	{
+		g_WindowSystem->UpdateSystem();
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+	}
+}
+
+
+void TestDoublePass()
+{
+	int windowWidth = 1024;
+	int windowHeight = 512;
+	auto newWindow = g_WindowSystem->NewWindow(windowWidth, windowHeight, "Hello Double Pass");
+	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
+	struct VertexStruct
+	{
+		std::array<float, 3> pos;
+		std::array<float, 2> texcoord;
+	};
+	cacore::HashObj<VertexInputsDescriptor> blitpassDescs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+			VertexAttribute::Create(offsetof(VertexStruct, texcoord), VertexInputFormat::eR32G32_SFloat, CANAME("TEXCOORD")),
+		}, false);
+	//We Choose Vulkan & DX12 Convention, in which texcoord starts at top-left of texture
+	std::vector<VertexStruct> testBuffer = {
+	{{-0.5f, -0.5f, 0.25f }, {0.0f, 1.0f}},
+	{{0.5f, -0.5f, 0.25f }, {1.0f, 1.0f}},
+	{{0.5f, 0.5f, 0.25f }, {1.0f, 0.0f}},
+	{{-0.5f, 0.5f, 0.25f }, {0.0f, 0.0f}},
+	};
+
+	std::vector<VertexStruct> testBuffer1 = {
+	{{-1.0f, -1.0f, 0.25f }, {0.0f, 1.0f}},
+	{{1.0f, -1.0f, 0.25f }, {1.0f, 1.0f}},
+	{{1.0f, 1.0f, 0.25f }, {1.0f, 0.0f}},
+	{{-1.0f, 1.0f, 0.25f }, {0.0f, 0.0f}},
+	};
+
+	std::vector<uint32_t> indicesBuffer = {
+		0, 1, 2,
+		2, 3, 0
+	};
+
+	ImageHandle windowBackBuffer(windowHandle);
+
+	castl::shared_ptr<GPUTexture> testTexture;
+	castl::shared_ptr<GPUBuffer> testVertexBuffer;
+	castl::shared_ptr<GPUBuffer> testVertexBuffer1;
+	castl::shared_ptr<GPUBuffer> testIndexBuffer;
+
+	//Submit
+	{
+		auto texturFile = resourceString / "Images/vulkanlogo.png";
+		int width, height, channels;
+		auto data = stbi_load(texturFile.string().c_str(), &width, &height, &channels, 4);
+		testTexture = g_GPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(width, height
+			, ETextureFormat::E_R8G8B8A8_UNORM
+			, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled));
+
+		uint32_t textureSize = width * height * 4;
+
+		uint32_t color = (0 << 16) | (0 << 8) | (255);
+		castl::vector<uint32_t> colorData(256 * 256, color);
+
+		testVertexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+			EBufferUsage::eDataDst | EBufferUsage::eVertexBuffer
+			, testBuffer.size()
+			, sizeof(testBuffer[0])
+		));
+
+		testVertexBuffer1 = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+			EBufferUsage::eDataDst | EBufferUsage::eVertexBuffer
+			, testBuffer1.size()
+			, sizeof(testBuffer1[0])
+		));
+
+		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+			EBufferUsage::eDataDst | EBufferUsage::eIndexBuffer
+			, indicesBuffer.size()
+			, sizeof(indicesBuffer[0])
+		));
+
+		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+		submitGraph->ScheduleData(testTexture, data, textureSize);
+		submitGraph->ScheduleData(testVertexBuffer, testBuffer);
+		submitGraph->ScheduleData(testVertexBuffer1, testBuffer1);
+		submitGraph->ScheduleData(testIndexBuffer, indicesBuffer);
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ExecuteGraph(scheduler.get(), submitGraph);
+		stbi_image_free(data);
+	}
+
+	auto imageStruct = g_GPUBackend->CreateShaderStruct(CANAME("SamplingTextureData"));
+	imageStruct->SetImage(CANAME("testTexture"), testTexture);
+	imageStruct->SetSampler(CANAME("testSampler"), TextureSamplerDescriptor::LinearClamp());
+
+
+
+	BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	BufferHandle ibuffer(CANAME("TestIndicesBuffer"));
+	ImageHandle pass0RT(CANAME("Pass0"));
+
+	auto blitStruct = g_GPUBackend->CreateShaderStruct(CANAME("SamplingTextureData"));
+	blitStruct->SetImage(CANAME("testTexture"), pass0RT, GPUTextureView::CreateDefaultForRenderTarget());
+	blitStruct->SetSampler(CANAME("testSampler"), TextureSamplerDescriptor::LinearClamp());
+
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocAndUploadBuffer(vbuffer, testBuffer)
+		.AllocAndUploadBuffer(ibuffer, indicesBuffer)
+		.AllocImage(pass0RT, GPUTextureDescriptor::Create(windowWidth, windowHeight, ETextureFormat::E_R8G8B8A8_UNORM, 0))
+		.AddPass(
+			RenderPass::New({ pass0RT })
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
+			.SetParam(CANAME("textureData"), imageStruct)
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), blitpassDescs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), testVertexBuffer)
+					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
+					.DrawIndexed(indicesBuffer.size())
+				)
+			)
+		)
+		.AddPass(
+			RenderPass::New({ windowBackBuffer })
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestBlitToScreenPass") })
+			.SetParam(CANAME("textureData"), blitStruct)
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), blitpassDescs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), testVertexBuffer1)
+					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
+					.DrawIndexed(indicesBuffer.size())
 				)
 			)
 		);
@@ -284,8 +470,7 @@ int main(int argc, char* argv[])
 
 
 
-	std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format };
-	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
+
 	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
 	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
 	castl::string editorResourceString = castl::to_ca(rootPath.string()) + "EditorConfigs";
@@ -333,7 +518,8 @@ int main(int argc, char* argv[])
 	//TestSimpleTriangle();
 	//TestTriangleWithConstantColor();
 	//TestTriangleWithStructuredBufferColor();
-	TestTriangleWithImageBuffer();
+	//TestTriangleWithImageBuffer();
+	TestDoublePass();
 
 	g_ThreadManager.reset();
 	g_GPUBackend.reset();

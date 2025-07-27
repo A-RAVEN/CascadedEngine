@@ -30,6 +30,24 @@ namespace graphics_backend
 		}
 	}
 
+	GPUBufferDescriptor GetDescriptor(GPUGraph const& graph, BufferHandle const& buffer)
+	{
+		switch (buffer.GetType())
+		{
+		case BufferHandle::BufferType::External:
+			return buffer.GetBufferPtr<D3DBufferObject>()->GetDescriptor();
+		case BufferHandle::BufferType::Internal:
+		{
+			GPUBufferDescriptor const* pdesc = graph.GetBufferManager().GetDescriptor(buffer.GetKey());
+			CA_ASSERT_BREAK(pdesc != nullptr, "Internal Buffer Not Registered");
+			return *pdesc;
+		}
+		default:
+			CA_LOG_ERR_BREAK("Invalid Buffer Handle");
+			return {};
+		}
+	}
+
 
 	void CollectInputAssemblyBindings(VertexInputBindingData const& bindingData
 		, DrawCallBatch::VertexInputDescMap const& vertexBufferDescs
@@ -196,6 +214,8 @@ namespace graphics_backend
 				usages,
 				queueType,
 			};
+			if (newResourceState.NotUsed())
+				return;
 
 			auto found = imageRWStates.find(image);
 			if (found != imageRWStates.end())
@@ -222,6 +242,8 @@ namespace graphics_backend
 				usages,
 				queueType
 			};
+			if (newResourceState.NotUsed())
+				return;
 
 			auto found = bufferRWStates.find(buffer);
 			if (found != bufferRWStates.end())
@@ -234,8 +256,10 @@ namespace graphics_backend
 				bufferRWStates.insert(castl::make_pair(buffer, newResourceState));
 			}
 		}
-		void SetCBufferUsageState(D3D2ShaderStruct const* pCBufferStruct)
+		void SetCBufferUsageState(D3D2ShaderStruct const* pCBufferStruct, EShaderTypeFlags stages)
 		{
+			if (stages == 0)
+				return;
 			cBufferUsageStates.insert(pCBufferStruct);
 		}
 	};
@@ -289,12 +313,12 @@ namespace graphics_backend
 		castl::vector<ComputePassGPUData>& computeGPUData
 	)
 	{
-		auto registerBufferToLocalResourceManager = [&](BufferHandle const& buffer)
-		{
-			auto descriptor = owningGraph.GetBufferManager().GetDescriptor(buffer.GetKey());
-			CA_ASSERT_BREAK(descriptor != nullptr, "Buffer {} Not Registered", buffer.GetName());
-			resourceManager.AddBuffer(buffer, *descriptor);
-		};
+		//auto registerBufferToLocalResourceManager = [&](BufferHandle const& buffer)
+		//{
+		//	auto descriptor = owningGraph.GetBufferManager().GetDescriptor(buffer.GetKey());
+		//	CA_ASSERT_BREAK(descriptor != nullptr, "Buffer {} Not Registered", buffer.GetName());
+		//	resourceManager.AddBuffer(buffer, *descriptor);
+		//};
 		//将一个pass中所有资源的读写状态注册进PassRWState中，包括CBuffer
 		auto addPassShaderInstancesResourcesRWStates = [&](PassRWState& passRWState,
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
@@ -329,7 +353,7 @@ namespace graphics_backend
 				},
 					[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
 				{
-					passRWState.SetCBufferUsageState(cbufferInfo.pCBufferStruct);
+					passRWState.SetCBufferUsageState(cbufferInfo.pCBufferStruct, cbufferInfo.usingStages);
 				});
 			}
 		};
@@ -388,7 +412,10 @@ namespace graphics_backend
 					if (drawcall.GetDrawInfo().drawIndexed)
 					{
 						auto& indesxBuffer = drawcall.GetIndexBuffer().indexBufferHandle;
-						registerBufferToLocalResourceManager(indesxBuffer);
+						auto descriptor = GetDescriptor(owningGraph, indesxBuffer);
+						//registerBufferToLocalResourceManager(indesxBuffer);
+						resourceManager.AddBuffer(indesxBuffer, descriptor);
+
 						passRWState.SetBufferRWState(indesxBuffer
 							, EShaderTypeMask::eNone
 							, EResourceUsage::eIndexInput
@@ -398,8 +425,9 @@ namespace graphics_backend
 					}
 					for (auto& vertBuf : drawcall.GetVertexBuffers())
 					{
-						registerBufferToLocalResourceManager(vertBuf.second);
-						passRWState.SetBufferRWState(vertBuf.second
+						auto& vertBuffer = vertBuf.second;
+						auto descriptor = GetDescriptor(owningGraph, vertBuffer);
+						passRWState.SetBufferRWState(vertBuffer
 							, EShaderTypeMask::eNone
 							, EResourceUsage::eVertexInput
 							, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
@@ -457,8 +485,10 @@ namespace graphics_backend
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
 			for (auto& bufferWrites : transferPass.m_BufferDataUploads)
 			{
-				registerBufferToLocalResourceManager(bufferWrites.first);
-				passRWState.SetBufferRWState(bufferWrites.first
+				auto& uploadBuffer = bufferWrites.first;
+				auto descriptor = GetDescriptor(owningGraph, uploadBuffer);
+				//registerBufferToLocalResourceManager(bufferWrites.first);
+				passRWState.SetBufferRWState(uploadBuffer
 					, EShaderTypeMask::eNone
 					, EResourceUsage::eCopy
 					, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
@@ -1286,6 +1316,14 @@ namespace graphics_backend
 
 						if (drawInfo.drawIndexed)
 						{
+							auto& indexBufferData = drawcall.GetIndexBuffer();
+							auto pBufferResource = resourceManager.GetBufferD3D12Resource(indexBufferData.indexBufferHandle);
+
+							D3D12_INDEX_BUFFER_VIEW bufferView{};
+							bufferView.BufferLocation = pBufferResource->GetGPUVirtualAddress();
+							bufferView.SizeInBytes = pBufferResource->GetDesc().Width;
+							bufferView.Format = indexBufferData.indexBufferType == EIndexBufferType::e16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+							pCommand->IASetIndexBuffer(&bufferView);
 							pCommand->DrawIndexedInstanced(drawInfo.indexCount, drawInfo.instanceCount, drawInfo.indexOffset, drawInfo.vertexOffset, drawInfo.firstInstanceID);
 						}
 						else
@@ -1328,7 +1366,8 @@ namespace graphics_backend
 						subresourceData.RowPitch = rowPitch;
 						subresourceData.SlicePitch = slicePitch;
 					}
-					ThrowIfFailed(UpdateSubresources((ID3D12GraphicsCommandList*)pCommand
+					//ThrowIfFailed(UpdateSubresources(pCommand, pImageResource, stagingBuffer, 0, 0, 1, &subresourceData));
+					ThrowIfFailed(UpdateSubresources(pCommand
 						, pImageResource, stagingBuffer
 						, 0
 						, subresourceNum, totalBytes, &layouts, &numRows, &rowSizeInBytes, &subresourceData));

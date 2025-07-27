@@ -24,6 +24,7 @@ namespace graphics_backend
 		eDepthStencilTarget = 1 << 7,
 		eInitialized = 1 << 8,
 		ePresent = 1 << 9,
+		eShaderInputs = eShaderResource | eShaderUnorderedAccess | eConstantBuffer,
 		eBitMax = 10,
 	};
 	enum class EGPUQueueType : uint32_t
@@ -43,8 +44,8 @@ namespace graphics_backend
 		eCBV,
 	};
 }
-CA_ENUM_FLAGS(EResourceUsage, graphics_backend);
-CA_ENUM_FLAGS(EGPUQueueType, graphics_backend);
+CA_ENUM_FLAGS_NAMESPACE(EResourceUsage, graphics_backend);
+CA_ENUM_FLAGS_NAMESPACE(EGPUQueueType, graphics_backend);
 
 namespace graphics_backend
 {
@@ -102,6 +103,15 @@ namespace graphics_backend
 			result.resourceUsage = EResourceUsage::ePresent;
 			result.queueTypes = EGPUQueueType::eNone;
 			return result;
+		}
+
+		bool NotUsed() const
+		{
+			if (resourceUsage == 0)
+				return true;
+			EResourceUsageFlags shaderResourceUsages = EResourceUsage::eShaderInputs;
+			bool shadowInputsOnly = ((resourceUsage & ~(shaderResourceUsages)) == 0);
+			return shadowInputsOnly && (shaderStages == 0);
 		}
 
 		bool ReadOnly() const
@@ -219,66 +229,6 @@ namespace graphics_backend
 		return result;
 	}
 
-	//static D3D12_RESOURCE_STATES DetermingResourceStates(ResourceState const& resourceState)
-	//{
-	//	D3D12_RESOURCE_STATES resultStates = D3D12_RESOURCE_STATE_COMMON;
-	//	const EShaderTypeFlags nonPixelShaderStage =
-	//		EShaderTypeFlags(EShaderTypeMask::eAllVertex) | EShaderTypeMask::eAllRaytracing | EShaderTypeMask::eComp;
-	//	IterateResourceUsages(resourceState.resourceUsage, [&](EResourceUsage usage)
-	//	{
-	//		switch (usage)
-	//		{
-	//		case graphics_backend::EResourceUsage::eConstantBuffer:
-	//			resultStates |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-	//			break;
-	//		case graphics_backend::EResourceUsage::eShaderResource:
-	//			if (resourceState.shaderStages & EShaderTypeMask::eFrag)
-	//			{
-	//				resultStates |= D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-	//			}
-	//			if (resourceState.shaderStages & nonPixelShaderStage)
-	//			{
-	//				resultStates |= D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-	//			}
-	//			break;
-	//		case graphics_backend::EResourceUsage::eShaderUnorderedAccess:
-	//			resultStates |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-	//			break;
-	//		case graphics_backend::EResourceUsage::eRenderTarget:
-	//			resultStates |= D3D12_RESOURCE_STATE_RENDER_TARGET;
-	//			break;
-	//		case graphics_backend::EResourceUsage::eDepthStencilTarget:
-	//			if (resourceState.Read())
-	//			{
-	//				resultStates |= D3D12_RESOURCE_STATE_DEPTH_READ;
-	//			}
-	//			if (resourceState.Write())
-	//			{
-	//				resultStates |= D3D12_RESOURCE_STATE_DEPTH_WRITE;
-	//			}
-	//			break;
-	//		case graphics_backend::EResourceUsage::eVertexInput:
-	//			resultStates |= D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-	//			break;
-	//		case graphics_backend::EResourceUsage::eIndexInput:
-	//			resultStates |= D3D12_RESOURCE_STATE_INDEX_BUFFER;
-	//			break;
-	//		case graphics_backend::EResourceUsage::eCopy:
-	//			if (resourceState.ReadOnly())
-	//			{
-	//				resultStates |= D3D12_RESOURCE_STATE_COPY_SOURCE;
-	//			}
-	//			else
-	//			{
-	//				resultStates |= D3D12_RESOURCE_STATE_COPY_DEST;
-	//			}
-	//			break;
-	//		default:
-	//			break;
-	//		}
-	//	});
-	//	return resultStates;
-	//}
 
 	static ResourceBarrierUsageStates DetermineResourceBarrierUsageStates(ResourceState const& resourceState)
 	{

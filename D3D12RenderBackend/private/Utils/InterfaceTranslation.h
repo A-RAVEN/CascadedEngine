@@ -4,6 +4,7 @@
 #include <GPUBuffer.h>
 #include <GPUTexture.h>
 #include <TextureSampler.h>
+#include <ResourceManagment/GPUResourceStates.h>
 
 namespace graphics_backend
 {
@@ -31,22 +32,6 @@ namespace graphics_backend
 		default: return D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
 		}
 	}
-
-	//constexpr D3D12_BARRIER_ACCESS EBufferUsagesToD3D12BarrierAccess(EBufferUsageFlags usageFlags)
-	//{
-	//	D3D12_BARRIER_ACCESS result;
-	//	for (uint32_t i = 0
-	//		; i <= static_cast<uint32_t>(EBufferUsage::eMaxBit)
-	//		; ++i)
-	//	{
-	//		EBufferUsage itrUsage = static_cast<EBufferUsage>(1 << i);
-	//		if (usageFlags & itrUsage)
-	//		{
-	//			result |= EBufferUsageTranslate(itrUsage);
-	//		}
-	//	}
-	//	return result;
-	//}
 
 	constexpr D3D12_BARRIER_LAYOUT ETextureAccessTypeToD3D12BarrierLayout(ETextureFormat format, ETextureAccessType accessType)
 	{
@@ -207,28 +192,29 @@ namespace graphics_backend
 		return resultFlags;
 	}
 
-	//constexpr DXGI_FORMAT VertexInputFormatToDXGIFormat(VertexInputFormat inFormat)
-	//{
-	//	switch (inFormat)
-	//	{
-	//	case VertexInputFormat::eR32_SFloat:
-	//		return DXGI_FORMAT_R32_FLOAT;
-	//	case VertexInputFormat::eR32G32_SFloat:
-	//		return DXGI_FORMAT_R32G32_FLOAT;
-	//	case VertexInputFormat::eR32G32B32_SFloat:
-	//		return DXGI_FORMAT_R32G32B32_FLOAT;
-	//	case VertexInputFormat::eR32G32B32A32_SFloat:
-	//		return DXGI_FORMAT_R32G32B32A32_FLOAT;
-	//	case VertexInputFormat::eR8G8B8A8_UNorm:
-	//		return DXGI_FORMAT_R8G8B8A8_UNORM;
-	//	case VertexInputFormat::eR32_UInt:
-	//		return DXGI_FORMAT_R32G32B32A32_UINT;
-	//	case VertexInputFormat::eR32_SInt:
-	//		return DXGI_FORMAT_R32G32B32A32_SINT;
-	//	default:
-	//		return DXGI_FORMAT_UNKNOWN;
-	//	}
-	//}
+	constexpr D3D12_RESOURCE_FLAGS ETextureAccessTypeToD3D12ResourceFlags(EResourceUsageFlags resourceUsages)
+	{
+		D3D12_RESOURCE_FLAGS resultFlags = D3D12_RESOURCE_FLAG_NONE;
+		bool anyShaderResource = false;
+		if ((resourceUsages & (EResourceUsage::eShaderResource)) == 0)
+		{
+			resultFlags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+		}
+		if (resourceUsages & EResourceUsage::eShaderUnorderedAccess)
+		{
+			resultFlags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+		}
+		if (resourceUsages & EResourceUsage::eRenderTarget)
+		{
+			resultFlags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+		}
+		if (resourceUsages & EResourceUsage::eDepthStencilTarget)
+		{
+			resultFlags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		}
+		return resultFlags;
+	}
+
 
 	constexpr DXGI_FORMAT ETextureFormatToDXGIFotmat(ETextureFormat inFormat)
 	{
@@ -506,7 +492,7 @@ namespace graphics_backend
 		case EStencilOp::eZero:
 			return D3D12_STENCIL_OP::D3D12_STENCIL_OP_ZERO;
 		default:
-			CA_LOG_ERR_BREAK("D3D12 Unmapped Stencil Op {}", (int)op);
+			CA_LOG_ERR_BREAK("D3D12 Unmapped Stencil Op {}", uenum::enum_name(op));
 			return D3D12_STENCIL_OP_KEEP;
 		}
 	}
@@ -551,6 +537,23 @@ namespace graphics_backend
 		resourceDesc.DepthOrArraySize = inDescriptor.layers;
 		resourceDesc.MipLevels = inDescriptor.mipLevels;
 		resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(inDescriptor.format, inDescriptor.accessType);
+		resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
+		resourceDesc.SampleDesc.Quality = 0;
+		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		return resourceDesc;
+	}
+
+	constexpr D3D12_RESOURCE_DESC GetResourceDescFromTextureDescriptor(GPUTextureDescriptor const& inDescriptor, EResourceUsageFlags usages)
+	{
+		D3D12_RESOURCE_DESC resourceDesc{};
+		resourceDesc.Alignment = 0;
+		resourceDesc.Dimension = ETextureTypeToResourceDimension(inDescriptor.textureType);
+		resourceDesc.Format = ETextureFormatToDXGIFotmat(inDescriptor.format);
+		resourceDesc.Width = inDescriptor.width;
+		resourceDesc.Height = inDescriptor.height;
+		resourceDesc.DepthOrArraySize = inDescriptor.layers;
+		resourceDesc.MipLevels = inDescriptor.mipLevels;
+		resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(usages);
 		resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
 		resourceDesc.SampleDesc.Quality = 0;
 		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -760,7 +763,7 @@ namespace graphics_backend
 		case ETextureSamplerAddressMode::eClampToBorder:
 			return D3D12_TEXTURE_ADDRESS_MODE::D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 		default:
-			CA_LOG_ERR_BREAK("D3D12 Unknown Texture Address Mode {}", (int)addressMode);
+			CA_LOG_ERR_BREAK("D3D12 Unknown Texture Address Mode {}", uenum::enum_name(addressMode));
 			return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
 		}
 	}

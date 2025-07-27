@@ -18,7 +18,6 @@ struct SamplingTextureData
     float4 Sample(in float2 uv)
     {
         float4 result = testTexture.Sample(testSampler, uv);
-        result.rgb *= result.a; // Premultiplied alpha
         return result;
     }
 };
@@ -37,6 +36,5 @@ VertexToFragment vert(in VertexInput input)
 [shader("fragment")]
 float4 frag(in VertexToFragment input) : SV_TARGET0
 {
-    return float4(input.uv, textureData.Sample(input.uv).a, 1.0f);
-    //return textureData.Sample(input.uv);
+    return float4(textureData.Sample(input.uv).rgb * float3(1.0f, 0.1f, 0.1f), 1.0f);
 }

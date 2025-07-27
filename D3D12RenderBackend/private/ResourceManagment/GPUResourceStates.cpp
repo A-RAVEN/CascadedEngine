@@ -256,7 +256,7 @@ namespace graphics_backend
 			{
 				auto& resource = imageHandleToResource[image];
 				resource.gpuResource = p_AliasedAllocator->AllocateGPUResource(
-					GetResourceDescFromTextureDescriptor(resource.resourceDesc)
+					GetResourceDescFromTextureDescriptor(resource.resourceDesc, resource.usages)
 					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT
 					, D3D12_RESOURCE_STATE_COMMON);
 			}

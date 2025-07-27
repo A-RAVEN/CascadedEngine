@@ -519,6 +519,18 @@ namespace graphics_backend
 		//Data Transition
 		inline GPUGraph& ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
 		inline GPUGraph& ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
+		template<typename TVector>
+		GPUGraph& ScheduleData(ImageHandle const& imageHandle, TVector const& imageVector)
+		{
+			ScheduleData(imageHandle, imageVector.data(), imageVector.size() * sizeof(imageVector[0]));
+			return *this;
+		}
+		template<typename TVector>
+		GPUGraph& ScheduleData(BufferHandle const& bufferHandle, TVector const& bufferVector)
+		{
+			ScheduleData(bufferHandle, bufferVector.data(), bufferVector.size() * sizeof(bufferVector[0]));
+			return *this;
+		}
 		//Allocate a graph local image
 		inline GPUGraph& AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc);
 		//Allocate a graph local buffer
@@ -536,6 +548,15 @@ namespace graphics_backend
 			m_StageTypes.push_back(EGraphStageType::eSubGraph);
 			m_PassIndices.push_back(m_SubGraphs.size());
 			m_SubGraphs.push_back(subGraph);
+			return *this;
+		}
+		template<typename TVector>
+		GPUGraph& AllocAndUploadBuffer(BufferHandle const& bufferHandle, TVector const& bufferVector)
+		{
+			AllocBuffer(bufferHandle
+				, GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer
+					, bufferVector.size(), sizeof(bufferVector[0])));
+			ScheduleData(bufferHandle, bufferVector.data(), bufferVector.size() * sizeof(bufferVector[0]));
 			return *this;
 		}
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }

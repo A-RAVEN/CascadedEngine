@@ -68,6 +68,7 @@ constexpr EShaderTypeMask ECompileShaderTypeToMask(ECompileShaderType shaderType
 }
 
 using EShaderTypeFlags = uenum::EnumFlags<EShaderTypeMask>;
+template<>struct ::uenum::TEnumTraits<EShaderTypeMask> { static constexpr bool is_bitmask = true; };
 
 static void IterateShaderTypeFlags(EShaderTypeFlags shaderTypeFlags, castl::function<void(EShaderTypeMask)> callback)
 {
