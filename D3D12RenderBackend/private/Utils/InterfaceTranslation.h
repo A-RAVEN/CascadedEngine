@@ -192,7 +192,7 @@ namespace graphics_backend
 		return resultFlags;
 	}
 
-	constexpr D3D12_RESOURCE_FLAGS ETextureAccessTypeToD3D12ResourceFlags(EResourceUsageFlags resourceUsages)
+	constexpr D3D12_RESOURCE_FLAGS EResourceUsageFlagsToD3D12ResourceFlags(EResourceUsageFlags resourceUsages)
 	{
 		D3D12_RESOURCE_FLAGS resultFlags = D3D12_RESOURCE_FLAG_NONE;
 		bool anyShaderResource = false;
@@ -526,6 +526,11 @@ namespace graphics_backend
 		return CD3DX12_RESOURCE_DESC::Buffer(inDescriptor.count * inDescriptor.stride, EBufferUsageFlagsToD3D12ResourceFlags(inDescriptor.usageFlags));
 	}
 
+	static D3D12_RESOURCE_DESC GetResourceDescFromGPUBufferDescriptor(GPUBufferDescriptor const& inDescriptor, EResourceUsageFlags usages)
+	{
+		return CD3DX12_RESOURCE_DESC::Buffer(inDescriptor.count * inDescriptor.stride, EResourceUsageFlagsToD3D12ResourceFlags(usages));
+	}
+
 	constexpr D3D12_RESOURCE_DESC GetResourceDescFromTextureDescriptor(GPUTextureDescriptor const& inDescriptor)
 	{
 		D3D12_RESOURCE_DESC resourceDesc{};
@@ -553,7 +558,7 @@ namespace graphics_backend
 		resourceDesc.Height = inDescriptor.height;
 		resourceDesc.DepthOrArraySize = inDescriptor.layers;
 		resourceDesc.MipLevels = inDescriptor.mipLevels;
-		resourceDesc.Flags = ETextureAccessTypeToD3D12ResourceFlags(usages);
+		resourceDesc.Flags = EResourceUsageFlagsToD3D12ResourceFlags(usages);
 		resourceDesc.SampleDesc.Count = EMultiSampleCountToUint(inDescriptor.samples);
 		resourceDesc.SampleDesc.Quality = 0;
 		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;

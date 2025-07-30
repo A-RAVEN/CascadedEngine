@@ -265,7 +265,7 @@ namespace graphics_backend
 			{
 				auto& resource = bufferHandleToResource[buffer];
 				resource.gpuResource = p_AliasedAllocator->AllocateGPUResource(
-					GetResourceDescFromGPUBufferDescriptor(resource.resourceDesc)
+					GetResourceDescFromGPUBufferDescriptor(resource.resourceDesc, resource.usages)
 					, D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT
 					, D3D12_RESOURCE_STATE_COMMON);
 			}
@@ -296,8 +296,11 @@ namespace graphics_backend
 			{
 			case ImageHandle::ImageType::Internal:
 			{
-				resourceData.pResource = resourceData.gpuResource.GetResource();
-				resourceData.pResource->SetName(converter.from_bytes(pair.first.GetName().data()).c_str());
+				if (resourceData.gpuResource.IsValid())
+				{
+					resourceData.pResource = resourceData.gpuResource.GetResource();
+					resourceData.pResource->SetName(converter.from_bytes(pair.first.GetName().data()).c_str());
+				}
 				break;
 			}
 			case ImageHandle::ImageType::External:
@@ -321,8 +324,11 @@ namespace graphics_backend
 			{
 			case BufferHandle::BufferType::Internal:
 			{
-				resourceData.pResource = resourceData.gpuResource.GetResource();
-				resourceData.pResource->SetName(converter.from_bytes(pair.first.GetName().data()).c_str());
+				if (resourceData.gpuResource.IsValid())
+				{
+					resourceData.pResource = resourceData.gpuResource.GetResource();
+					resourceData.pResource->SetName(converter.from_bytes(pair.first.GetName().data()).c_str());
+				}
 				break;
 			}
 			case BufferHandle::BufferType::External:

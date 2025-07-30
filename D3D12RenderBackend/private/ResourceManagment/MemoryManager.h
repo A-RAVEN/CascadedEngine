@@ -56,9 +56,10 @@ namespace graphics_backend
 		void FreeVirtualMemmories();
 		ResourceInfo const& GetResourceInfo() const;
 		ID3D12Resource* GetResource() const;
+		bool IsValid() const { return p_OwningAllocator != nullptr; }
 	private:
-		AliasedMemoryAllocator* p_OwningAllocator;
-		D3D12MA::VirtualBlock* p_OwningBlock;
+		AliasedMemoryAllocator* p_OwningAllocator = nullptr;
+		D3D12MA::VirtualBlock* p_OwningBlock = nullptr;
 		D3D12MA::VirtualAllocation m_Allocation;
 
 		D3D12_HEAP_TYPE m_HeapType;

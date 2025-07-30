@@ -8,11 +8,13 @@ namespace graphics_backend
 	{
 		ShaderFileInfo const* pshaderFileInfo = app->GetShaderFileInfo(shaderInfo);
 		ShaderSetData shaderSetData = app->GetShaderCodes(shaderInfo);
-		auto pRootSignature = app->GetRootSignatureManager().GetRootSignature(pshaderFileInfo->shaderBindingInfo.serializedRootSignatureData);
+		m_RootSignature = app->GetRootSignatureManager().GetRootSignature(pshaderFileInfo->shaderBindingInfo.serializedRootSignatureData);
+		m_ResourceHeapParamIndex = pshaderFileInfo->shaderBindingInfo.resourceHeapParamID;
+		m_SamplerHeapParamIndex = pshaderFileInfo->shaderBindingInfo.samplerHeapParamID;
 
 		D3D12_COMPUTE_PIPELINE_STATE_DESC computePsoDesc = {};
 		computePsoDesc.CS = { shaderSetData.computeShader->GetBufferPointer(), shaderSetData.computeShader->GetBufferSize() };
-		computePsoDesc.pRootSignature = pRootSignature.Get();
+		computePsoDesc.pRootSignature = m_RootSignature.Get();
 
 		ThrowIfFailed(app->GetDevice()->CreateComputePipelineState(&computePsoDesc, IID_PPV_ARGS(&m_PipelineState)));
 	}

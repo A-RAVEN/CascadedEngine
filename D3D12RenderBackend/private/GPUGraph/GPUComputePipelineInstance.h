@@ -17,8 +17,21 @@ namespace graphics_backend
 		{
 			return m_PipelineState;
 		}
+		ComPtr<ID3D12RootSignature> const& GetRootSignature() const
+		{
+			return m_RootSignature;
+		}
+		int GetResourceHeapParamID() const {
+			return m_ResourceHeapParamIndex;
+		}
+		int GetSamplerHeapParamID() const {
+			return m_SamplerHeapParamIndex;
+		}
 	private:
 		ComPtr<ID3D12PipelineState> m_PipelineState;
+		ComPtr<ID3D12RootSignature> m_RootSignature;
+		int m_ResourceHeapParamIndex;
+		int m_SamplerHeapParamIndex;
 	};
 
 	class GPUComputePipelineManager : public D3D12SubobjectBase

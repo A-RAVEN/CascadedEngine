@@ -407,8 +407,8 @@ void TestDoublePass()
 
 
 
-	BufferHandle vbuffer(CANAME("TestVertBuffer"));
-	BufferHandle ibuffer(CANAME("TestIndicesBuffer"));
+	//BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	//BufferHandle ibuffer(CANAME("TestIndicesBuffer"));
 	ImageHandle pass0RT(CANAME("Pass0"));
 
 	auto blitStruct = g_GPUBackend->CreateShaderStruct(CANAME("SamplingTextureData"));
@@ -417,8 +417,8 @@ void TestDoublePass()
 
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
-		.AllocAndUploadBuffer(vbuffer, testBuffer)
-		.AllocAndUploadBuffer(ibuffer, indicesBuffer)
+		//.AllocAndUploadBuffer(vbuffer, testBuffer)
+		//.AllocAndUploadBuffer(ibuffer, indicesBuffer)
 		.AllocImage(pass0RT, GPUTextureDescriptor::Create(windowWidth, windowHeight, ETextureFormat::E_R8G8B8A8_UNORM, 0))
 		.AddPass(
 			RenderPass::New({ pass0RT })
@@ -461,15 +461,90 @@ void TestDoublePass()
 	}
 }
 
+
+void TestComputeBuffer()
+{
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "Compute Modify Vertex Position");
+	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
+
+	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(
+		sizeof(float) * 3,
+		{
+			VertexAttribute::Create(0, VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+		}, false);
+
+	std::vector<uint32_t> indicesBuffer = {
+		0, 1, 2,
+		2, 3, 0
+	};
+
+	ImageHandle windowBackBuffer(windowHandle);
+
+	castl::shared_ptr<GPUBuffer> testIndexBuffer;
+
+	//Submit Index Buffer
+	{
+		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+			EBufferUsage::eDataDst | EBufferUsage::eIndexBuffer
+			, indicesBuffer.size()
+			, sizeof(indicesBuffer[0])
+		));
+
+		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
+		submitGraph->ScheduleData(testIndexBuffer, indicesBuffer);
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ExecuteGraph(scheduler.get(), submitGraph);
+	}
+
+	//Set Vertex Buffer As Compute Buffer
+	BufferHandle vbuffer(CANAME("ComputeVertexBuffer"));
+	auto computeParams = g_GPUBackend->CreateShaderStruct(CANAME("TestComputeBufferParams"));
+	computeParams->SetBuffer(CANAME("RWVertexBuffer"), vbuffer);
+
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(0, 4, sizeof(float) * 3))
+		.AddPass(ComputeBatch::New()
+			.SetParam(CANAME("computeParams"), computeParams)
+			.Dispatch({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }
+				, "noneed", 1, 1, 1)
+		)
+		.AddPass(
+			RenderPass::New({ windowBackBuffer })
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestNaiveTriangle") })
+			.DrawCall
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), descs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
+					.DrawIndexed(indicesBuffer.size())
+				)
+			)
+		);
+
+	castl::chrono::high_resolution_clock timer;
+	auto startTime = timer.now();
+	while (!newWindow.lock()->WindowShouldClose())
+	{
+		auto elapsedTime = timer.now() - startTime;
+		auto duration = castl::chrono::duration_cast<castl::chrono::duration<float>>(elapsedTime).count();
+		computeParams->SetValue(CANAME("time"), duration);
+		g_WindowSystem->UpdateSystem();
+		auto scheduler = g_ThreadManager->NewScheduler();
+		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+	}
+}
+
+
 int main(int argc, char* argv[])
 {
 	mi_version();
 	TModuleLoader<ShaderCompilerSlang::IShaderCompilerManager> shaderManager("ShaderCompilerSlang");
 	castl::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> shaderCompilerManager = shaderManager.New();
 	shaderCompilerManager->InitializePoolSize(1);
-
-
-
 
 	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
 	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
@@ -519,7 +594,8 @@ int main(int argc, char* argv[])
 	//TestTriangleWithConstantColor();
 	//TestTriangleWithStructuredBufferColor();
 	//TestTriangleWithImageBuffer();
-	TestDoublePass();
+	//TestDoublePass();
+	TestComputeBuffer();
 
 	g_ThreadManager.reset();
 	g_GPUBackend.reset();

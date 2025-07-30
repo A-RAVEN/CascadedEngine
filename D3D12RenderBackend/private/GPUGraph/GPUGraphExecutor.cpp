@@ -1198,6 +1198,7 @@ namespace graphics_backend
 		, GPUFinalizeBatch& finalizeBatch
 		, castl::vector<GPUExecutionBatch> const& executeBatchs
 		, castl::vector<RenderPassGPUData> const& rasterPassGPUData
+		, castl::vector<ComputePassGPUData> const& computePassGPUData
 		, GPUFrameManager::PFrameContext& pFrameContext
 	)
 	{
@@ -1335,6 +1336,39 @@ namespace graphics_backend
 			}
 
 			//Compute Passes
+			for (int computePassID : executeBatch.computePassRefs)
+			{
+				auto& computeData = computePassGPUData[computePassID];
+				auto& pass = owningGraph.GetComputePasses()[computePassID];
+
+				for (int dispatchID = 0; dispatchID < computeData.dispatchs.size(); ++dispatchID)
+				{
+					auto& dispatchData = computeData.dispatchs[dispatchID];
+					auto& dispatchInfo = pass.dispatchs[dispatchID];
+					pCommand->SetPipelineState(dispatchData.pipelineInstances->Get().Get());
+					pCommand->SetComputeRootSignature(dispatchData.pipelineInstances->GetRootSignature().Get());
+
+					//Bind Descriptor Tables
+					{
+						int resourceHeapID = dispatchData.pipelineInstances->GetResourceHeapParamID();
+						int samplerHeapID = dispatchData.pipelineInstances->GetSamplerHeapParamID();
+						bool hasResourceHeap = resourceHeapID != -1;
+						bool hasSamplerHeap = samplerHeapID != -1;
+						//Descriptor Table Should Match Root Signature Param ID
+						if (hasResourceHeap)
+						{
+							pCommand->SetComputeRootDescriptorTable(resourceHeapID
+								, dispatchData.pResourceBindingInstance->GetBindingInfo().descriptorAllocation.GPUHandle());
+						}
+						if (hasSamplerHeap)
+						{
+							pCommand->SetComputeRootDescriptorTable(samplerHeapID
+								, dispatchData.pResourceBindingInstance->GetBindingInfo().samplerAllocation.GPUHandle());
+						}
+					}
+					pCommand->Dispatch(dispatchInfo.x, dispatchInfo.y, dispatchInfo.z);
+				}
+			}
 
 			//Transfer Passes
 			for (int transferPassID : executeBatch.transferPassRefs)
@@ -1426,6 +1460,7 @@ namespace graphics_backend
 			}
 		}
 		computePassRWStates.resize(owningGraph.GetComputePasses().size());
+		computePassGPUDataList.resize(owningGraph.GetComputePasses().size());
 		for (size_t computePassID = 0; computePassID < owningGraph.GetComputePasses().size(); ++computePassID)
 		{
 			auto& pass = owningGraph.GetComputePasses()[computePassID];
@@ -1532,6 +1567,7 @@ namespace graphics_backend
 			, finalizeBatch
 			, executionBatchs
 			, rasterPassGPUDataList
+			, computePassGPUDataList
 			, m_CurrentFrameContext);
 
 		ApplyExternalResourceStates(owningGraph, imageLifeTimes, bufferLifeTimes);
