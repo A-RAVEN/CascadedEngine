@@ -86,6 +86,10 @@ namespace graphics_backend
 		int width;
 		int height;
 		auto operator<=> (const ViewRectData&) const = default;
+		static ViewRectData Zeros()
+		{
+			return { 0, 0, 0, 0 };
+		}
 	};
 
 	class DrawCall
@@ -172,6 +176,8 @@ namespace graphics_backend
 		castl::vector<DrawCall> m_DrawCalls;
 		ShaderStructDic shaderStructs;
 		VertexInputDescMap m_VertexInputDescs;
+		cacore::HashObj<ViewRectData> m_ViewPort;
+		cacore::HashObj<ViewRectData> m_Sissor;
 
 		PipelineDescData const& GetPipelineStates() const
 		{
@@ -196,15 +202,15 @@ namespace graphics_backend
 			return *this;
 		}
 
-		inline DrawCallBatch& SetViewPort(RectSate const& viewport)
+		inline DrawCallBatch& SetViewPort(ViewRectData const& viewport)
 		{
-			pipelineStateDesc.m_Viewport = viewport;
+			m_ViewPort = viewport;
 			return *this;
 		}
 
-		inline DrawCallBatch& SetScissor(RectSate const& scissor)
+		inline DrawCallBatch& SetScissor(ViewRectData const& scissor)
 		{
-			pipelineStateDesc.m_Scissor = scissor;
+			m_Sissor = scissor;
 			return *this;
 		}
 
@@ -261,32 +267,32 @@ namespace graphics_backend
 	class RenderPass
 	{
 	public:
-		RenderPass() = default;
+		//RenderPass() = default;
 		static RenderPass New(ImageHandle const& color
 			, AttachmentConfig const& colorAttachmentConfig = AttachmentConfig::Create())
 		{
 			RenderPass pass{};
-			pass.m_Arrachments = { color };
+			pass.m_Attachments = { color };
 			pass.m_AttachmentConfigs = { colorAttachmentConfig };
-			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
 			pass.SetPipelineState({});
 			return pass;
 		}
 		static RenderPass New(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)
 		{
 			RenderPass pass{};
-			pass.m_Arrachments = colors;
-			pass.m_Arrachments.push_back(depth);
-			pass.m_DepthAttachmentIndex = pass.m_Arrachments.size() - 1;
+			pass.m_Attachments = colors;
+			pass.m_Attachments.push_back(depth);
+			pass.m_AttachmentConfigs.resize(pass.m_Attachments.size());
+			pass.m_HasDepthAttachment = true;
+			castl::fill(pass.m_AttachmentConfigs.begin(), pass.m_AttachmentConfigs.end(), AttachmentConfig::Create());
 			return pass;
 		}
 		static RenderPass New(castl::vector<ImageHandle> const& colors)
 		{
 			RenderPass pass{};
-			pass.m_Arrachments = colors;
+			pass.m_Attachments = colors;
 			pass.m_AttachmentConfigs.resize(colors.size());
 			castl::fill(pass.m_AttachmentConfigs.begin(), pass.m_AttachmentConfigs.end(), AttachmentConfig::Create());
-			pass.m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
 			return pass;
 		}
 		static RenderPass New(ImageHandle const& color, ImageHandle const& depth
@@ -294,9 +300,9 @@ namespace graphics_backend
 			, AttachmentConfig const& depthAttachmentConfig = AttachmentConfig::Create())
 		{
 			RenderPass pass{};
-			pass.m_Arrachments = { color, depth };
+			pass.m_Attachments = { color, depth };
 			pass.m_AttachmentConfigs = { colorAttachmentConfig, depthAttachmentConfig };
-			pass.m_DepthAttachmentIndex = 1;
+			pass.m_HasDepthAttachment = true;
 			return pass;
 		}
 
@@ -309,19 +315,36 @@ namespace graphics_backend
 		inline RenderPass& SetAttachmentConfig(uint32_t index, AttachmentConfig const& attachmentConfig)
 		{
 			m_AttachmentConfigs[index] = attachmentConfig;
+			return *this;
+		}
+		inline RenderPass& SetDepthAttachmentConfig(AttachmentConfig const& depthConfig)
+		{
+			if (HasDepthAttachment())
+			{
+				m_AttachmentConfigs[GetDepthAttachmentIndex()] = depthConfig;
+			}
+			return *this;
 		}
 		inline RenderPass& SetPipelineState(const CPipelineStateObject& pipelineState);
 		inline RenderPass& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct);
 		inline RenderPass& SetInputAssemblyStates(InputAssemblyStates assemblyStates);
 		inline RenderPass& SetShaderInfo(ShaderInfo const& shaderInfo);
 		inline RenderPass& DrawCall(DrawCallBatch const& drawcall);
+		inline RenderPass& Batch(DrawCallBatch const& drawcall);
 
 		castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
-		castl::vector<ImageHandle> const& GetAttachments() const { return m_Arrachments; }
-		int GetDepthAttachmentIndex() const { return m_DepthAttachmentIndex; }
+		castl::vector<ImageHandle> const& GetAttachments() const { return m_Attachments; }
+
+		int GetDepthAttachmentIndex() const { return m_HasDepthAttachment ? m_Attachments.size() - 1 : -1; }
+
+		uint32_t GetColorAttachmentCount() const
+		{
+			return m_HasDepthAttachment ? (m_Attachments.size() - 1) : m_Attachments.size();
+		}
+
 		bool HasDepthAttachment() const
 		{
-			return m_DepthAttachmentIndex != INVALID_ATTACHMENT_INDEX;
+			return m_HasDepthAttachment;
 		}
 
 		AttachmentConfig const& GetAttachmentConfig(uint32_t attachmentID) const {
@@ -334,12 +357,12 @@ namespace graphics_backend
 
 		cacore::NameHash const& GetName() const { return m_Name; }
 	private:
-		PipelineDescData m_PipelineStates;
-		ShaderStructDic shaderStructs;
+		PipelineDescData m_PipelineStates{};
+		ShaderStructDic shaderStructs{};
 		castl::vector<AttachmentConfig> m_AttachmentConfigs;
 		castl::vector<DrawCallBatch> m_DrawCallBatches;
-		castl::vector<ImageHandle> m_Arrachments;
-		uint32_t m_DepthAttachmentIndex = INVALID_ATTACHMENT_INDEX;
+		castl::vector<ImageHandle> m_Attachments;
+		bool m_HasDepthAttachment = false;
 		cacore::NameHash m_Name;
 		friend class GPUGraph;
 	};
@@ -659,6 +682,12 @@ namespace graphics_backend
 	}
 
 	RenderPass& RenderPass::DrawCall(DrawCallBatch const& drawcall)
+	{
+		m_DrawCallBatches.push_back(drawcall);
+		return *this;
+	}
+
+	RenderPass& RenderPass::Batch(DrawCallBatch const& drawcall)
 	{
 		m_DrawCallBatches.push_back(drawcall);
 		return *this;

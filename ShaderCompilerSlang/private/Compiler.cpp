@@ -1000,25 +1000,28 @@ namespace ShaderCompilerSlang
 				uint32_t offsetInBytes = targetVariable->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM);
 				shaderStruct.m_StructUniforms.SetSize(sizeInBytes, strideInBytes);
 
+				SubStructReference newSubStruct = {};
+				newSubStruct.m_StructTypeName = typeName;
+				newSubStruct.m_Name = name;
+				newSubStruct.m_ElementCount = elementCount;
+				newSubStruct.m_Stride = strideInBytes;
+				newSubStruct.m_MemoryOffset = offsetInBytes;
+				newSubStruct.m_ElementMemorySize = sizeInBytes;
+				parentStruct.EnsureSubStructReference(newSubStruct);
 
-				for (auto category : categories)
-				{
-					if (category == ParameterCategory::Uniform)
-					{
-						UniformElement newElement = {};
-						newElement.Init(typeName, name
-							, offsetInBytes, sizeInBytes, strideInBytes, elementCount);
-						parentStruct.m_StructUniforms.EnsureElement(newElement);
-					}
-					else
-					{
-						SubStructReference newSubStruct = {};
-						newSubStruct.m_StructTypeName = typeName;
-						newSubStruct.m_Name = name;
-						newSubStruct.m_ElementCount = elementCount;
-						parentStruct.EnsureSubStructReference(newSubStruct);
-					}
-				}
+				//for (auto category : categories)
+				//{
+				//	if (category == ParameterCategory::Uniform)
+				//	{
+				//		UniformElement newElement = {};
+				//		newElement.Init(typeName, name
+				//			, offsetInBytes, sizeInBytes, strideInBytes, elementCount);
+				//		parentStruct.m_StructUniforms.EnsureElement(newElement);
+				//	}
+				//	else
+				//	{
+				//	}
+				//}
 				unsigned fieldCount = typeLayout->getFieldCount();
 				for (uint32_t i = 0; i < fieldCount; i++)
 				{
@@ -1094,10 +1097,10 @@ namespace ShaderCompilerSlang
 				kind = typeLayout->getKind();
 			}
 			cacore::NameHash typeName = GetFullTypeName(typeLayout);
-			assert(!typeName.Valid() && "Root Type Name Should Not Be Valid");
+			CA_ASSERT_BREAK(!typeName.Valid(), "Root Type Name Should Not Be Valid");
 			typeName = rootTypeName;
 
-			assert(kind == slang::TypeReflection::Kind::Struct && "Root Type Should Be Struct");
+			CA_ASSERT_BREAK(kind == slang::TypeReflection::Kind::Struct, "Root Type Should Be Struct");
 			if (kind == slang::TypeReflection::Kind::Struct)
 			{
 				//第一次追踪Struct类型中的Uniform成员时，创建UniformGroup

@@ -108,9 +108,9 @@ void TestTriangleWithConstantColor()
 		std::array<float, 3> pos;
 	};
 	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
-	{
-		VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
-	}, false);
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+		}, false);
 
 	std::vector<VertexStruct> testBuffer = {
 		{{-0.25f, -0.25f, -0.25f }},
@@ -119,19 +119,31 @@ void TestTriangleWithConstantColor()
 	};
 
 	castl::shared_ptr<ShaderStruct> pConstantColor = g_GPUBackend->CreateShaderStruct(CANAME("ConstantColor"));
-	pConstantColor->SetValue(CANAME("color"), glm::vec3(1.0f, 1.0f, 0.0f));
+
+	castl::array<castl::shared_ptr<ShaderStruct>, 3> colorStructs;
+	for (int i = 0; i < colorStructs.size(); ++i)
+	{
+		colorStructs[i] = g_GPUBackend->CreateShaderStruct(CANAME("ColorSubStruct"));
+		pConstantColor->SetStruct(CANAME("colorStruct"), colorStructs[i], i);
+	}
 
 	ImageHandle windowBackBuffer(windowHandle);
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
+	ImageHandle depthBuffer(CANAME("WindowDepth"));
+	GPUTextureDescriptor depthTextureDesc = windowHandle->GetBackbufferDescriptor();
+	depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
+		.AllocImage(depthBuffer, depthTextureDesc)
 		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
 		.AddPass(
-			RenderPass::New({ windowBackBuffer })
+			RenderPass::New(windowBackBuffer, depthBuffer)
+			.SetAttachmentConfig(0, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
+			.SetDepthAttachmentConfig(AttachmentConfig::ClearDepthStencil())
 			.SetParam(CANAME("constantColorBlock"), pConstantColor)
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithConstantColor") })
-			.DrawCall
+			.Batch
 			(
 				DrawCallBatch::New()
 				.VertexStream(CANAME("TestVerticesInput"), descs)
@@ -144,12 +156,24 @@ void TestTriangleWithConstantColor()
 		);
 	GPUFrame newFrame;
 	newFrame.pGraph = newGraph;
-
+	castl::chrono::high_resolution_clock timer;
+	auto beginTime = timer.now();
+	auto lastTime = beginTime;
 	while (!newWindow.lock()->WindowShouldClose())
 	{
 		g_WindowSystem->UpdateSystem();
 		auto scheduler = g_ThreadManager->NewScheduler();
 		g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+
+		auto currentTime = timer.now();
+		auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - beginTime).count();
+		float elapsedTime = duration / 1000.0f;
+
+
+		for (int i = 0; i < colorStructs.size(); ++i)
+		{
+			colorStructs[i]->SetValue(CANAME("color"), glm::vec3(1.0f, i * 0.5f, 0.0f) * (castl::cos(elapsedTime) * 0.5f + 0.5f));
+		}
 	}
 }
 
@@ -314,6 +338,7 @@ void TestTriangleWithImageBuffer()
 		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 	}
 }
+
 
 
 void TestDoublePass()
@@ -591,11 +616,11 @@ int main(int argc, char* argv[])
 
 
 	//TestSimpleTriangle();
-	//TestTriangleWithConstantColor();
+	TestTriangleWithConstantColor();
 	//TestTriangleWithStructuredBufferColor();
 	//TestTriangleWithImageBuffer();
 	//TestDoublePass();
-	TestComputeBuffer();
+	//TestComputeBuffer();
 
 	g_ThreadManager.reset();
 	g_GPUBackend.reset();

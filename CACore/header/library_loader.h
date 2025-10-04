@@ -3,6 +3,8 @@
 #include "CASTL/CAString.h"
 #include "CASTL/CaSharedPtr.h"
 #include "DebugUtils.h"
+#include <Hasher.h>
+#include <CACore/CASharedDic.h>
 
 namespace library_loader
 {
@@ -11,6 +13,7 @@ namespace library_loader
 	//public:
 	//	virtual ~IModuleLoader() {}
 	//};
+
 
 	template<typename TModInstance>
 	class TModuleLoader// : public IModuleLoader
@@ -73,4 +76,31 @@ namespace library_loader
 			}
 		}
 	};
+
+
+
+	class Module
+	{
+	public:
+		Module(castl::string const& modulePath);
+		void* NewInstance();
+		void DeleteInstance(void* ptr);
+	private:
+		typedef void* (*FTP_NewModuleObject)();
+		typedef void(*FPT_DeleteModuleObject)(void*);
+		HINSTANCE hModuleLib = nullptr;
+		FTP_NewModuleObject pNewInstanceFunc = nullptr;
+		FPT_DeleteModuleObject pDeleteInstanceFunc = nullptr;
+	};
+
+	class ModuleManager
+	{
+	public:
+		void EnsureModule(cacore::NameHash const& moduleName);
+
+	private:
+		castl::shared_dic<cacore::NameHash, Module*> m_Modules;
+	};
+
+
 }

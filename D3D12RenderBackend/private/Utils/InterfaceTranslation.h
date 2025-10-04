@@ -684,11 +684,11 @@ namespace graphics_backend
 	}
 
 	constexpr D3D12_CONSTANT_BUFFER_VIEW_DESC GetCBVDescFromGPUBufferDescriptor(D3D12_GPU_VIRTUAL_ADDRESS address,
-		D3D12_RESOURCE_ALLOCATION_INFO const& inDescriptor)
+		uint32_t bufferSizeInBytes)
 	{
 		D3D12_CONSTANT_BUFFER_VIEW_DESC result{};
 		result.BufferLocation = address;
-		result.SizeInBytes = castl::alignto<size_t>(inDescriptor.SizeInBytes, 256);
+		result.SizeInBytes = castl::alignto<uint32_t>(bufferSizeInBytes, 256);
 		return result;
 	}
 
@@ -781,6 +781,66 @@ namespace graphics_backend
 			return D3D12_FILTER_TYPE::D3D12_FILTER_TYPE_LINEAR;
 		case ETextureSamplerFilterMode::eNearest:
 			return D3D12_FILTER_TYPE::D3D12_FILTER_TYPE_POINT;
+		}
+	}
+
+	constexpr D3D12_VIEWPORT ViewRectDataToD3D12Viewport(ViewRectData const& inData)
+	{
+		D3D12_VIEWPORT result{};
+		result.TopLeftX = inData.x;
+		result.TopLeftY = inData.y;
+		result.Width = inData.width;
+		result.Height = inData.height;
+		result.MinDepth = 0.0f;
+		result.MaxDepth = 1.0f;
+		return result;
+	}
+
+	constexpr D3D12_RECT ViewRectDataToD3D12Rect(ViewRectData const& inData)
+	{
+		D3D12_RECT result{};
+		result.left = static_cast<LONG>(inData.x);
+		result.top = static_cast<LONG>(inData.y);
+		result.right = static_cast<LONG>(inData.x + inData.width);
+		result.bottom = static_cast<LONG>(inData.y + inData.height);
+		return result;
+	}
+
+	constexpr void TranslateClearColor(GraphicsClearValue const& clearColor, float* pOutClearColor)
+	{
+		pOutClearColor[0] = clearColor.color.r;
+		pOutClearColor[1] = clearColor.color.g;
+		pOutClearColor[2] = clearColor.color.b;
+		pOutClearColor[3] = clearColor.color.a;
+	}
+
+	constexpr void TranslateClearDepthStencil(GraphicsClearValue const& clearDepthStencil, D3D12_DEPTH_STENCIL_VALUE& outClearDepthStencil)
+	{
+		outClearDepthStencil.Depth = clearDepthStencil.depthStencil.depth;
+		outClearDepthStencil.Stencil = clearDepthStencil.depthStencil.stencil;
+	}
+
+	constexpr D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE EAttachmentLoadOpToD3D12RenderPassBeginAccess(EAttachmentLoadOp loadOp)
+	{
+		switch (loadOp)
+		{
+		case EAttachmentLoadOp::eLoad:
+			return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE::D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+		case EAttachmentLoadOp::eClear:
+			return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE::D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+		case EAttachmentLoadOp::eDontCare:
+			return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE::D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+		}
+	}
+
+	constexpr D3D12_RENDER_PASS_ENDING_ACCESS_TYPE EAttachmentStoreOpToD3D12RenderPassEndAccess(EAttachmentStoreOp storeOp)
+	{
+		switch (storeOp)
+		{
+		case EAttachmentStoreOp::eStore:
+			return D3D12_RENDER_PASS_ENDING_ACCESS_TYPE::D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+		case EAttachmentStoreOp::eDontCare:
+			return D3D12_RENDER_PASS_ENDING_ACCESS_TYPE::D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD;
 		}
 	}
 

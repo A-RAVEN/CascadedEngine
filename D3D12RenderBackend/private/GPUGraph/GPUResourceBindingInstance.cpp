@@ -18,7 +18,7 @@ namespace graphics_backend
 		m_ConstantBufferHandles.for_each_const([&](D3D2ShaderStruct const* inKey, BufferHandle const& inValue)
 		{
 			ShaderCompilerSlang::ShaderStructData const* pStructData = inKey->GetStructData();
-			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, pStructData->m_StructUniforms.m_Stride);
+			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, castl::alignto<uint32_t>(pStructData->m_StructUniforms.m_Stride, 256));
 			resourceManager.AddBuffer(inValue, desc);
 		});
 	}
@@ -127,7 +127,7 @@ namespace graphics_backend
 				auto& itrStruct = *bindingPair.pStruct;
 				uint32_t offset = bindingPair.bindingOffset;
 				auto findShaderStructsFromParent = [&](cacore::NameHash const& inName)
-					->castl::vector<castl::shared_ptr<ShaderStruct>> const*
+					->castl::vector<castl::shared_ptr<D3D2ShaderStruct>> const*
 				{
 					auto found = itrStruct.GetSubStructs().find(inName);
 					if (found != itrStruct.GetSubStructs().end())
@@ -144,12 +144,12 @@ namespace graphics_backend
 				{
 					uint32_t subBindingID = itrHierarchy.subStructOffset + id;
 					auto& subHierarchy = bindingData.structBindingInfos[subBindingID];
-					castl::vector<castl::shared_ptr<ShaderStruct>> const* pStructs = findShaderStructsFromParent(subHierarchy.structBindingName);
+					castl::vector<castl::shared_ptr<D3D2ShaderStruct>> const* pStructs = findShaderStructsFromParent(subHierarchy.structBindingName);
 					auto tryGetpStruct = [&](uint32_t id) ->D3D2ShaderStruct const*
 					{
 						if (pStructs == nullptr)
 							return nullptr;
-						castl::vector<castl::shared_ptr<ShaderStruct>> const& structs = *pStructs;
+						castl::vector<castl::shared_ptr<D3D2ShaderStruct>> const& structs = *pStructs;
 						if (structs.size() <= id)
 							return nullptr;
 						return static_cast<D3D2ShaderStruct const*>(structs[id].get());
@@ -281,8 +281,7 @@ namespace graphics_backend
 		}
 		for (auto& cbufferBinding : m_GPUResourceBindingInfos.cbufferBindings)
 		{
-			auto& uniformBufferData = cbufferBinding.pCBufferStruct->GetSelfUniformBuffer();
-			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, castl::alignto<size_t>(uniformBufferData.size(), 256));
+			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, castl::alignto<size_t>(cbufferBinding.pCBufferStruct->GetCBufferSize(), 256));
 			BufferHandle cbufferHandle = cbufferManager.GetConstantBufferHandle(cbufferBinding.pCBufferStruct);
 			resourceManager.AddBuffer(cbufferHandle, desc);
 		}

@@ -73,6 +73,8 @@ namespace graphics_backend
 	{
 		struct DrawCallGPUData
 		{
+			D3D12_VIEWPORT defaultViewport;
+			D3D12_RECT defaultSissors;
 			castl::vector<castl::pair<VertexInputsDescriptor, BufferHandle>> inputAssemblyBindingBuffers;
 		};
 
@@ -186,6 +188,7 @@ namespace graphics_backend
 				stages,
 				usages,
 				queueType,
+				true
 			};
 
 			auto found = imageRWStates.find(image);
@@ -213,6 +216,7 @@ namespace graphics_backend
 				stages,
 				usages,
 				queueType,
+				true
 			};
 			if (newResourceState.NotUsed())
 				return;
@@ -240,7 +244,8 @@ namespace graphics_backend
 				access,
 				stages,
 				usages,
-				queueType
+				queueType,
+				false
 			};
 			if (newResourceState.NotUsed())
 				return;
@@ -313,12 +318,6 @@ namespace graphics_backend
 		castl::vector<ComputePassGPUData>& computeGPUData
 	)
 	{
-		//auto registerBufferToLocalResourceManager = [&](BufferHandle const& buffer)
-		//{
-		//	auto descriptor = owningGraph.GetBufferManager().GetDescriptor(buffer.GetKey());
-		//	CA_ASSERT_BREAK(descriptor != nullptr, "Buffer {} Not Registered", buffer.GetName());
-		//	resourceManager.AddBuffer(buffer, *descriptor);
-		//};
 		//将一个pass中所有资源的读写状态注册进PassRWState中，包括CBuffer
 		auto addPassShaderInstancesResourcesRWStates = [&](PassRWState& passRWState,
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
@@ -379,7 +378,7 @@ namespace graphics_backend
 					{
 						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone
 							, EResourceUsage::eDepthStencilTarget
-							, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite
+							, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
 							, EGPUQueueType::eDirect
 							, textureView
 						);
@@ -653,14 +652,13 @@ namespace graphics_backend
 				ID3D12Resource* targetBuffer = resourceManager.GetBufferD3D12Resource(bufferHandle);
 
 				D3D2ShaderStruct const* pStruct = cbufferData.second;
-				auto& uniformBufferData = pStruct->GetSelfUniformBuffer();
-				ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(uniformBufferData.size());
+				ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(pStruct->GetCBufferSize());
 				UINT8* mappedStagingData;
 				stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
-				memcpy(mappedStagingData, uniformBufferData.data(), uniformBufferData.size());
+				pStruct->ComputeMaxChildrenVersion();
+				pStruct->UpdateUniformBuffer(0, mappedStagingData, pStruct->GetCBufferSize(), 0);
 				stagingBuffer->Unmap(0, nullptr);
-
-				pCommandList->CopyBufferRegion(targetBuffer, 0, stagingBuffer, 0, uniformBufferData.size());
+				pCommandList->CopyBufferRegion(targetBuffer, 0, stagingBuffer, 0, pStruct->GetCBufferSize());
 			}
 		}
 
@@ -922,12 +920,23 @@ namespace graphics_backend
 				auto& rasterPass = renderPasses[passID];
 				auto& rasterPassData = inoutRasterPassObjects[passID];
 
+				GPUTextureDescriptor desc = GetDescriptor(owningGraph, rasterPass.GetAttachments()[0]);
+				cacore::HashObj<ViewRectData> passLevelViewport = ViewRectData{
+					0,0,
+					static_cast<int>(desc.width),
+					static_cast<int>(desc.height)
+				};
+				cacore::HashObj<ViewRectData> passLevelSissors = passLevelViewport;
+
 				auto& attachments = rasterPass.GetAttachments();
 				CA_ASSERT_BREAK(rasterPass.GetDrawCallBatches().size() == rasterPassData.drawcallBatchs.size(), "drawcall batch Data Length Not Equal");
 				for (size_t batchID = 0; batchID < rasterPass.GetDrawCallBatches().size(); ++batchID)
 				{
 					auto& batch = rasterPass.GetDrawCallBatches()[batchID];
 					auto& batchData = rasterPassData.drawcallBatchs[batchID];
+
+					auto& batchLevelViewport = cacore::HashObj<ViewRectData>::SelectIfValid(batch.m_ViewPort, passLevelViewport);
+					auto& batchLevelSissor = cacore::HashObj<ViewRectData>::SelectIfValid(batch.m_Sissor, passLevelSissors);
 
 					PipelineDescData batchLevelDescData = PipelineDescData::CombindDescData(
 						rasterPass.GetPipelineStates()
@@ -948,6 +957,13 @@ namespace graphics_backend
 					{
 						auto& drawcall = batch.m_DrawCalls[drawcallID];
 						auto& drawcallData = batchData.drawcalls[drawcallID];
+
+						auto& drawcallLevelViewport = cacore::HashObj<ViewRectData>::SelectIfValid(drawcall.GetViewPort(), batchLevelViewport);
+						auto& drawcallLevelSissor = cacore::HashObj<ViewRectData>::SelectIfValid(drawcall.GetScissor(), batchLevelSissor);
+
+						drawcallData.defaultViewport = ViewRectDataToD3D12Viewport(drawcallLevelViewport.Get());
+						drawcallData.defaultSissors = ViewRectDataToD3D12Rect(drawcallLevelSissor.Get());
+
 						CollectInputAssemblyBindings(pipelineStateKey.m_VertexInputBindingData
 							, batch.m_VertexInputDescs
 							, drawcall.GetVertexBuffers()
@@ -1217,51 +1233,58 @@ namespace graphics_backend
 				auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
 				CA_ASSERT_BREAK(rasterData.drawcallBatchs.size() == pass.GetDrawCallBatches().size(), "Raster Pass Batch Count Inompatible");
 
-				GPUTextureDescriptor desc = GetDescriptor(owningGraph, pass.GetAttachments()[0]);
-				D3D12_VIEWPORT viewport;
-				D3D12_RECT surfaceSize;
-				surfaceSize.left = 0;
-				surfaceSize.top = 0;
-				surfaceSize.right = static_cast<LONG>(desc.width);
-				surfaceSize.bottom = static_cast<LONG>(desc.height);
-
-				viewport.TopLeftX = 0.0f;
-				viewport.TopLeftY = 0.0f;
-				viewport.Width = static_cast<float>(desc.width);
-				viewport.Height = static_cast<float>(desc.height);
-				viewport.MinDepth = .1f;
-				viewport.MaxDepth = 1000.f;
-
 				//Set Render Targets
 				{
-					castl::vector<D3D12_CPU_DESCRIPTOR_HANDLE> rtvs;
-					rtvs.reserve(pass.GetAttachments().size());
-					for (int attachmentID = 0; attachmentID < pass.GetAttachments().size(); ++attachmentID)
+					if (pass.HasDepthAttachment())
 					{
-						if (attachmentID != pass.GetDepthAttachmentIndex())
+						CA_ASSERT_BREAK(pass.GetAttachments().size() - 1 == pass.GetDepthAttachmentIndex(), "Depth Attachment Should Be The Last One Of Attachments");
+					}
+					castl::vector<D3D12_RENDER_PASS_RENDER_TARGET_DESC> colorAttachments;
+					colorAttachments.reserve(pass.GetColorAttachmentCount());
+					for (int attachmentID = 0; attachmentID < pass.GetColorAttachmentCount(); ++attachmentID)
+					{
+						auto& config = pass.GetAttachmentConfig(attachmentID);
+						ImageHandle const& imageHandle = pass.GetAttachments()[attachmentID];
+						auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget();
+						auto rtv = resourceManager.EnsureResourceView(imageHandle
+							, EResourceViewType::eRTV
+							, cpuDescriptorAllocatorSet
+							, defaultImageView);
+						D3D12_RENDER_PASS_RENDER_TARGET_DESC rtDesc = {};
+						rtDesc.cpuDescriptor = rtv.CPUHandle();
+						rtDesc.BeginningAccess.Type = EAttachmentLoadOpToD3D12RenderPassBeginAccess(config.loadOp);
+						rtDesc.EndingAccess.Type = EAttachmentStoreOpToD3D12RenderPassEndAccess(config.storeOp);
+						if (config.loadOp == EAttachmentLoadOp::eClear)
 						{
-							ImageHandle const& imageHandle = pass.GetAttachments()[attachmentID];
-							auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget();
-							auto rtv = resourceManager.EnsureResourceView(imageHandle, EResourceViewType::eRTV, cpuDescriptorAllocatorSet, defaultImageView);
-
-							rtvs.push_back(rtv.CPUHandle());
+							TranslateClearColor(config.clearValue, rtDesc.BeginningAccess.Clear.ClearValue.Color);
 						}
+						colorAttachments.push_back(rtDesc);
 					}
 					if (pass.HasDepthAttachment())
 					{
-						ImageHandle const& imageHandle = pass.GetAttachments()[pass.GetDepthAttachmentIndex()];
+						uint32_t depthAttachmentID = pass.GetDepthAttachmentIndex();
+						auto& config = pass.GetAttachmentConfig(depthAttachmentID);
+						ImageHandle const& imageHandle = pass.GetAttachments()[depthAttachmentID];
 						auto defaultImageView = GPUTextureView::CreateDefaultForRenderTarget();
-						auto dsv = resourceManager.EnsureResourceView(imageHandle, EResourceViewType::eDSV, cpuDescriptorAllocatorSet, defaultImageView);
+						auto dsv = resourceManager.EnsureResourceView(imageHandle
+							, EResourceViewType::eDSV
+							, cpuDescriptorAllocatorSet
+							, defaultImageView);
 
-						D3D12_CPU_DESCRIPTOR_HANDLE dsvhandle = dsv.CPUHandle();
-						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, &dsvhandle);
+						D3D12_RENDER_PASS_DEPTH_STENCIL_DESC dsvDesc = {};
+						dsvDesc.cpuDescriptor = dsv.CPUHandle();
+						dsvDesc.DepthBeginningAccess.Type = EAttachmentLoadOpToD3D12RenderPassBeginAccess(config.loadOp);
+						dsvDesc.DepthEndingAccess.Type = EAttachmentStoreOpToD3D12RenderPassEndAccess(config.storeOp);
+						if (config.loadOp == EAttachmentLoadOp::eClear)
+						{
+							TranslateClearDepthStencil(config.clearValue, dsvDesc.DepthBeginningAccess.Clear.ClearValue.DepthStencil);
+						}
+						pCommand->BeginRenderPass(colorAttachments.size(), colorAttachments.data(), &dsvDesc, D3D12_RENDER_PASS_FLAG_NONE);
 					}
 					else
 					{
-						pCommand->OMSetRenderTargets(rtvs.size(), rtvs.data(), FALSE, NULL);
+						pCommand->BeginRenderPass(colorAttachments.size(), colorAttachments.data(), nullptr, D3D12_RENDER_PASS_FLAG_NONE);
 					}
-					const float clearColor[] = { 0.2f, 1.0f, 0.2f, 1.0f };
-					pCommand->ClearRenderTargetView(rtvs[0], clearColor, 0, nullptr);
 				}
 
 				for (int batchID = 0; batchID < rasterData.drawcallBatchs.size(); ++batchID)
@@ -1271,8 +1294,7 @@ namespace graphics_backend
 					pCommand->SetPipelineState(batchData.pipelineInstances->GetPipelineState().Get());
 					pCommand->SetGraphicsRootSignature(batchData.pipelineInstances->GetRootSignature().Get());
 					pCommand->IASetPrimitiveTopology(batchData.topology);
-					pCommand->RSSetViewports(1, &viewport);
-					pCommand->RSSetScissorRects(1, &surfaceSize);
+
 					//Bind Descriptor Tables
 					{
 						int resourceHeapID = batchData.pipelineInstances->GetResourceHeapParamID();
@@ -1295,9 +1317,14 @@ namespace graphics_backend
 					//Commands For Drawcalls
 					for (int drawcallID = 0; drawcallID < batch.m_DrawCalls.size(); ++drawcallID)
 					{
+
+
 						auto& drawcall = batch.m_DrawCalls[drawcallID];
 						auto& drawInfo = drawcall.GetDrawInfo();
 						auto& drawcallData = batchData.drawcalls[drawcallID];
+
+						pCommand->RSSetViewports(1, &drawcallData.defaultViewport);
+						pCommand->RSSetScissorRects(1, &drawcallData.defaultSissors);
 
 						//Vertex Assembly Input
 						{
@@ -1333,6 +1360,8 @@ namespace graphics_backend
 						}
 					}
 				}
+
+				pCommand->EndRenderPass();
 			}
 
 			//Compute Passes

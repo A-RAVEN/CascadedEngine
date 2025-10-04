@@ -74,6 +74,7 @@ namespace graphics_backend
 		EShaderTypeFlags shaderStages;
 		EResourceUsageFlags resourceUsage;
 		EGPUQueueTypeFlags queueTypes;
+		bool isImage;
 
 		bool isUndefined() const
 		{
@@ -148,6 +149,7 @@ namespace graphics_backend
 		}
 		bool CompatibleToCombine(ResourceState const& other) const
 		{
+			CA_ASSERT_BREAK(isImage == other.isImage, "Incompatible IsImage State!");
 			bool readonlyAccess = ReadOnly() && other.ReadOnly();
 			bool usageEqual = resourceUsage == other.resourceUsage;
 			return readonlyAccess && usageEqual;
@@ -155,12 +157,14 @@ namespace graphics_backend
 		bool Compatible(ResourceState const& other) const
 		{
 			//TODO: Do More Check
+			CA_ASSERT_BREAK(isImage == other.isImage, "Incompatible IsImage State!");
 			bool accessEqual = resourceAccess == other.resourceAccess;
 			bool usageEqual = resourceUsage == other.resourceUsage;
 			return accessEqual && usageEqual;
 		}
 		void Combine(ResourceState const& other)
 		{
+			CA_ASSERT_BREAK(isImage == other.isImage, "Incompatible IsImage State!");
 			CA_ASSERT_BREAK(resourceAccess == other.resourceAccess, "Resource Access Not Compatible");
 			shaderStages |= other.shaderStages;
 			resourceUsage |= other.resourceUsage;
@@ -229,6 +233,203 @@ namespace graphics_backend
 		return result;
 	}
 
+	struct AccessFlagsToLayout
+	{
+		D3D12_BARRIER_LAYOUT layout;
+		D3D12_BARRIER_ACCESS flags;
+	};
+
+	constexpr static AccessFlagsToLayout DirectQueueFlagsToLayouts[] = {
+		{
+			D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON,
+			D3D12_BARRIER_ACCESS_COPY_SOURCE
+			| D3D12_BARRIER_ACCESS_COPY_DEST
+			| D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+			| D3D12_BARRIER_ACCESS_UNORDERED_ACCESS
+		},
+		{
+			D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+			| D3D12_BARRIER_ACCESS_COPY_SOURCE
+			| D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ
+			| D3D12_BARRIER_ACCESS_SHADING_RATE_SOURCE
+			| D3D12_BARRIER_ACCESS_RESOLVE_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS,
+			D3D12_BARRIER_ACCESS_UNORDERED_ACCESS
+		},
+		{
+			D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE,
+			D3D12_BARRIER_ACCESS_COPY_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST,
+			D3D12_BARRIER_ACCESS_COPY_DEST
+		},
+	};
+
+	constexpr static AccessFlagsToLayout ComputeQueueFlagsToLayouts[] = {
+
+		{
+			D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS,
+			D3D12_BARRIER_ACCESS_UNORDERED_ACCESS
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE,
+			D3D12_BARRIER_ACCESS_COPY_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST,
+			D3D12_BARRIER_ACCESS_COPY_DEST
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON,
+			D3D12_BARRIER_ACCESS_COPY_SOURCE
+			| D3D12_BARRIER_ACCESS_COPY_DEST
+			| D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+			| D3D12_BARRIER_ACCESS_UNORDERED_ACCESS
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+			| D3D12_BARRIER_ACCESS_COPY_SOURCE
+		},
+
+	};
+
+	constexpr static AccessFlagsToLayout CommonAccessFlagsToLayouts[] = {
+		{
+			D3D12_BARRIER_LAYOUT_UNDEFINED,
+			D3D12_BARRIER_ACCESS_NO_ACCESS,
+		},
+		{
+			D3D12_BARRIER_LAYOUT_RENDER_TARGET,
+			D3D12_BARRIER_ACCESS_RENDER_TARGET
+		},
+		{
+			D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,
+			D3D12_BARRIER_ACCESS_UNORDERED_ACCESS
+		},
+		{
+			D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ,
+			D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ
+		},
+
+		{
+			D3D12_BARRIER_LAYOUT_SHADER_RESOURCE,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COPY_SOURCE,
+			D3D12_BARRIER_ACCESS_COPY_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COPY_DEST,
+			D3D12_BARRIER_ACCESS_COPY_DEST
+		},
+		{
+			D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE,
+			D3D12_BARRIER_ACCESS_RESOLVE_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_RESOLVE_DEST,
+			D3D12_BARRIER_ACCESS_RESOLVE_DEST
+		},
+		{
+			D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE,
+			D3D12_BARRIER_ACCESS_SHADING_RATE_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_VIDEO_DECODE_READ,
+			D3D12_BARRIER_ACCESS_VIDEO_DECODE_READ
+		},
+		{
+			D3D12_BARRIER_LAYOUT_VIDEO_DECODE_WRITE,
+			D3D12_BARRIER_ACCESS_VIDEO_DECODE_WRITE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_READ,
+			D3D12_BARRIER_ACCESS_VIDEO_PROCESS_READ
+		},
+		{
+			D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_WRITE,
+			D3D12_BARRIER_ACCESS_VIDEO_PROCESS_WRITE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_READ,
+			D3D12_BARRIER_ACCESS_VIDEO_ENCODE_READ
+		},
+		{
+			D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_WRITE,
+			D3D12_BARRIER_ACCESS_VIDEO_ENCODE_WRITE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_COMMON,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+			| D3D12_BARRIER_ACCESS_COPY_DEST
+			| D3D12_BARRIER_ACCESS_COPY_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_GENERIC_READ,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE
+			| D3D12_BARRIER_ACCESS_COPY_SOURCE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
+			D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ
+			| D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE
+		},
+		{
+			D3D12_BARRIER_LAYOUT_VIDEO_QUEUE_COMMON,
+			D3D12_BARRIER_ACCESS_COPY_SOURCE
+			| D3D12_BARRIER_ACCESS_COPY_DEST
+		},
+	};
+
+	static D3D12_BARRIER_LAYOUT DetermineLayoutByAccessFlags(bool isImage, EGPUQueueTypeFlags queueType, D3D12_BARRIER_ACCESS accessFlags)
+	{
+		if(!isImage)
+			return D3D12_BARRIER_LAYOUT_COMMON;
+		if (queueType == EGPUQueueType::eDirect)
+		{
+			for (auto& flagsToLayout : DirectQueueFlagsToLayouts)
+			{
+				if ((accessFlags & flagsToLayout.flags) == accessFlags)
+				{
+					return flagsToLayout.layout;
+				}
+			}
+		}
+		else if (queueType == EGPUQueueType::eCompute)
+		{
+			for (auto& flagsToLayout : ComputeQueueFlagsToLayouts)
+			{
+				if ((accessFlags & flagsToLayout.flags) == accessFlags)
+				{
+					return flagsToLayout.layout;
+				}
+			}
+		}
+		for (auto& flagsToLayout : CommonAccessFlagsToLayouts)
+		{
+			if ((accessFlags & flagsToLayout.flags) == accessFlags)
+			{
+				return flagsToLayout.layout;
+			}
+		}
+		CA_LOG_ERR_BREAK("Cannot Determine Layout For Access Flags: {}", accessFlags);
+		return D3D12_BARRIER_LAYOUT_UNDEFINED;
+	}
+
 
 	static ResourceBarrierUsageStates DetermineResourceBarrierUsageStates(ResourceState const& resourceState)
 	{
@@ -252,21 +453,6 @@ namespace graphics_backend
 
 		D3D12_BARRIER_ACCESS barrierAccess = D3D12_BARRIER_ACCESS_COMMON;
 		D3D12_BARRIER_SYNC resultSync = D3D12_BARRIER_SYNC_NONE;
-		D3D12_BARRIER_LAYOUT barrierLayout = D3D12_BARRIER_LAYOUT_UNDEFINED;
-
-		auto setBarrierLayout = [&](D3D12_BARRIER_LAYOUT layout)
-		{
-			if (barrierLayout == layout)
-				return;
-			if (barrierLayout == D3D12_BARRIER_LAYOUT_UNDEFINED)
-			{
-				barrierLayout = layout;
-			}
-			else
-			{
-				barrierLayout = D3D12_BARRIER_LAYOUT_COMMON;
-			}
-		};
 
 		IterateResourceUsages(resourceState.resourceUsage, [&](EResourceUsage usage)
 		{
@@ -279,29 +465,24 @@ namespace graphics_backend
 			case graphics_backend::EResourceUsage::eShaderResource:
 				resultSync |= DetermingShaderStageSync(resourceState.shaderStages);
 				barrierAccess |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
-				setBarrierLayout(D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
 				break;
 			case graphics_backend::EResourceUsage::eShaderUnorderedAccess:
 				resultSync |= DetermingShaderStageSync(resourceState.shaderStages);
 				barrierAccess |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
-				setBarrierLayout(D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS);
 				break;
 			case graphics_backend::EResourceUsage::eRenderTarget:
 				resultSync |= D3D12_BARRIER_SYNC_RENDER_TARGET;
 				barrierAccess |= D3D12_BARRIER_ACCESS_RENDER_TARGET;
-				setBarrierLayout(D3D12_BARRIER_LAYOUT_RENDER_TARGET);
 				break;
 			case graphics_backend::EResourceUsage::eDepthStencilTarget:
 				resultSync |= D3D12_BARRIER_SYNC_DEPTH_STENCIL;
 				if (resourceState.Read())
 				{
 					barrierAccess |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ;
-					setBarrierLayout(D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ);
 				}
 				if (resourceState.Write())
 				{
 					barrierAccess |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
-					setBarrierLayout(D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
 				}
 				break;
 			case graphics_backend::EResourceUsage::eVertexInput:
@@ -314,15 +495,13 @@ namespace graphics_backend
 				break;
 			case graphics_backend::EResourceUsage::eCopy:
 				resultSync |= D3D12_BARRIER_SYNC_COPY;
-				if (resourceState.ReadOnly())
+				if (resourceState.Read())
 				{
 					barrierAccess |= D3D12_BARRIER_ACCESS_COPY_SOURCE;
-					setBarrierLayout(D3D12_BARRIER_LAYOUT_COPY_SOURCE);
 				}
-				else
+				if (resourceState.Write())
 				{
 					barrierAccess |= D3D12_BARRIER_ACCESS_COPY_DEST;
-					setBarrierLayout(D3D12_BARRIER_LAYOUT_COPY_DEST);
 				}
 				break;
 			default:
@@ -332,10 +511,15 @@ namespace graphics_backend
 
 		//TODO: Check Validity: access state and layout state compatible?
 
+
 		ResourceBarrierUsageStates result;
 		result.accessState = barrierAccess;
-		result.layoutState = barrierLayout;
+		result.layoutState = DetermineLayoutByAccessFlags(resourceState.isImage, resourceState.queueTypes, barrierAccess);
 		result.barrierSync = resultSync;
+		if (barrierAccess & D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ)
+		{
+			CA_LOG("Found {}/{}", barrierAccess, result.layoutState);
+		}
 		return result;
 	}
 

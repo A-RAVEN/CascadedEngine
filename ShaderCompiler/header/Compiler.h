@@ -45,6 +45,11 @@ namespace ShaderCompilerSlang
 		uint32_t m_Stride;
 		uint32_t m_ElementCount;
 
+		uint32_t GetFullSize() const
+		{
+			return m_ElementCount * m_Stride;
+		}
+
 		bool isArray() const
 		{
 			return m_ElementCount > 1;
@@ -62,6 +67,7 @@ namespace ShaderCompilerSlang
 
 	struct ShaderStructUniforms
 	{
+		//TODO: Make Struct Local Memory Size
 		uint32_t m_MemorySize;
 		uint32_t m_Stride;
 		castl::vector<UniformElement> m_Elements;
@@ -107,6 +113,11 @@ namespace ShaderCompilerSlang
 		cacore::NameHash m_Name;
 		cacore::NameHash m_StructTypeName;
 		uint32_t m_ElementCount;
+
+		// For Uniform Memory Layout
+		uint32_t m_MemoryOffset;
+		uint32_t m_ElementMemorySize;
+		uint32_t m_Stride;
 	};
 
 	struct ShaderStructData

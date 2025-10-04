@@ -171,6 +171,26 @@ constexpr auto format_as(TEnumClass const& enumVal) {
 	return uenum::enum_name(enumVal);
 }
 
+template<EnumConcept TEnumClass>
+constexpr auto format_as(uenum::EnumFlags<TEnumClass> const& enumFlags) {
+	using namespace magic_enum::bitwise_operators;
+	std::string result;
+	bool first = true;
+	for (auto e : uenum::enum_values<TEnumClass>()) {
+		if ((enumFlags & e) == e) {
+			if (!first) {
+				result += " | ";
+			}
+			result += std::string(uenum::enum_name(e));
+			first = false;
+		}
+	}
+	if (result.empty()) {
+		result = "0";
+	}
+	return result;
+}
+
 #define CA_ENUM_FLAGS_NAMESPACE(EnumClass, NameSpace)\
 namespace NameSpace { using EnumClass##Flags = uenum::EnumFlags<EnumClass>; }\
 template<>struct ::uenum::TEnumTraits<NameSpace::EnumClass> { static constexpr bool is_bitmask = true;};

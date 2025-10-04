@@ -12,4 +12,8 @@ extern "C"\
 	{\
 		delete static_cast<TImplemented*>(instance);\
 	}\
+	CA_LIBRARY_API const char* InterfaceTypeName()\
+	{\
+		return typeid(TInterface).name();\
+	}\
 }

@@ -41,6 +41,12 @@ namespace graphics_backend
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) override;
 
 		virtual void RunTestCode() override;
+
+		uint64_t GetCurrentFrameVersion() const
+		{
+			return m_ResourceVersion.load();
+		}
+
 		resource_management::ResourceManagingSystem* GetResourceManager() const
 		{
 			return p_ResourceManager;
@@ -181,5 +187,7 @@ namespace graphics_backend
 		CPUDescriptorAllocatorSet m_DescriptorAllocatorSet;
 
 		GPUFrameManager m_GPUFrameManager;
+
+		castl::atomic<uint64_t> m_ResourceVersion = 1;
 	};
 }

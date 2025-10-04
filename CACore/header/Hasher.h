@@ -249,6 +249,16 @@ namespace cacore
         {
             return m_HashValue == b.m_HashValue;
         }
+
+		static HashObj const& SelectIfValid(HashObj const& inObj, HashObj const& fallback)
+		{
+			if (inObj.Valid())
+			{
+				return inObj;
+			}
+			return fallback;
+		}
+
     private:
         ObjType m_Object{};
         result_type m_HashValue{};

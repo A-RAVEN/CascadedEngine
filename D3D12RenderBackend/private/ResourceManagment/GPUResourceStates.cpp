@@ -645,12 +645,9 @@ namespace graphics_backend
 			{
 				cbv = allocatorSet.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
 				auto cbufferDesc = pResource->GetDesc();
-				D3D12_RESOURCE_ALLOCATION_INFO allocationInfo
-					= app->GetDevice()->GetResourceAllocationInfo(0, 1, &cbufferDesc);
 				uint64_t resourceSize = resourceDesc.SizeInByte();
 				CA_LOG("CBuffer Size:{}", resourceSize);
-				auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(pResource->GetGPUVirtualAddress()
-					, allocationInfo);
+				auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(pResource->GetGPUVirtualAddress(), resourceSize);
 				app->GetDevice()->CreateConstantBufferView(&cbvDesc, cbv.CPUHandle());
 			}
 			return cbv;
