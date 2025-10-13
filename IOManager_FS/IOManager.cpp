@@ -251,7 +251,7 @@ namespace ca_io
 		{
 			auto result = m_OStreamCache.get_or_create(filePath, [&](cacore::PathHash const& key)
 			{
-				return OStreamContext(key.Get());
+				return OStreamContext(key.string());
 			});
 			return OStreamLock(result->second);
 		}
@@ -291,7 +291,7 @@ namespace ca_io
 			->Name("IOBatch")
 			->Functor([&]()
 				{
-					std::ifstream file_src(m_Batchs.m_FilePath.Get(), std::ios::in | std::ios::binary);
+					std::ifstream file_src(m_Batchs.m_FilePath.string(), std::ios::in | std::ios::binary);
 
 					uint64_t maxChunkSize = 0;
 					for (auto& chunkState : m_Batchs.m_Chunks)

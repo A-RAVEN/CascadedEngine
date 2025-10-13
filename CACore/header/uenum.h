@@ -114,6 +114,15 @@ namespace uenum
 			return m_mask;
 		}
 
+		constexpr int BitCount() const
+		{
+			return std::popcount(m_mask);
+		}
+
+		std::string to_string() const {
+			return format_as(*this);
+		}
+
 	public:
 		MaskType m_mask;
 	};

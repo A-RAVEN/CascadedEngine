@@ -53,7 +53,13 @@ namespace graphics_backend
 	{
 		D3D12_BARRIER_ACCESS accessState;
 		D3D12_BARRIER_LAYOUT layoutState;
+		D3D12_BARRIER_LAYOUT queueLocalLayoutState;
 		D3D12_BARRIER_SYNC barrierSync;
+		EGPUQueueTypeFlags queueTypes;
+		bool HasQueueLocalState()
+		{
+			return layoutState != queueLocalLayoutState;
+		}
 	};
 
 	static void IterateResourceUsages(EResourceUsageFlags flags, castl::function<void(EResourceUsage)> callback)
@@ -75,6 +81,37 @@ namespace graphics_backend
 		EResourceUsageFlags resourceUsage;
 		EGPUQueueTypeFlags queueTypes;
 		bool isImage;
+
+		//Check 
+		bool isDirectQueueLocal() const
+		{
+			return queueTypes == EGPUQueueType::eDirect;
+		}
+
+		bool isComputeQueueLocal() const
+		{
+			return queueTypes == EGPUQueueType::eCompute;
+		}
+
+		bool hasComputeQueue() const
+		{
+			return (queueTypes & EGPUQueueType::eCompute) == EGPUQueueType::eCompute;
+		}
+
+		bool hasDirectQueue() const
+		{
+			return (queueTypes & EGPUQueueType::eDirect) == EGPUQueueType::eDirect;
+		}
+
+		//bool isDirectOrComputeQueueLocal() const
+		//{
+		//	return isDirectQueueLocal() || isComputeQueueLocal();
+		//}
+
+		bool isSharedBetweenQueues() const
+		{
+			return hasComputeQueue() && hasDirectQueue();
+		}
 
 		bool isUndefined() const
 		{
@@ -102,7 +139,7 @@ namespace graphics_backend
 			result.resourceAccess = ShaderCompilerSlang::EShaderResourceAccess::eUnknown;
 			result.shaderStages = EShaderTypeMask::eNone;
 			result.resourceUsage = EResourceUsage::ePresent;
-			result.queueTypes = EGPUQueueType::eNone;
+			result.queueTypes = EGPUQueueType::eDirect;
 			return result;
 		}
 
@@ -110,9 +147,10 @@ namespace graphics_backend
 		{
 			if (resourceUsage == 0)
 				return true;
+			//Resource Is Used As Shader Argument But No Shader Stage Use It
 			EResourceUsageFlags shaderResourceUsages = EResourceUsage::eShaderInputs;
-			bool shadowInputsOnly = ((resourceUsage & ~(shaderResourceUsages)) == 0);
-			return shadowInputsOnly && (shaderStages == 0);
+			bool shaderInputesOnly = ((resourceUsage & ~(shaderResourceUsages)) == 0);
+			return shaderInputesOnly && (shaderStages == 0);
 		}
 
 		bool ReadOnly() const
@@ -149,14 +187,7 @@ namespace graphics_backend
 		}
 		bool CompatibleToCombine(ResourceState const& other) const
 		{
-			CA_ASSERT_BREAK(isImage == other.isImage, "Incompatible IsImage State!");
-			bool readonlyAccess = ReadOnly() && other.ReadOnly();
-			bool usageEqual = resourceUsage == other.resourceUsage;
-			return readonlyAccess && usageEqual;
-		}
-		bool Compatible(ResourceState const& other) const
-		{
-			//TODO: Do More Check
+			//TODO: Do Better Combine Check
 			CA_ASSERT_BREAK(isImage == other.isImage, "Incompatible IsImage State!");
 			bool accessEqual = resourceAccess == other.resourceAccess;
 			bool usageEqual = resourceUsage == other.resourceUsage;
@@ -168,6 +199,7 @@ namespace graphics_backend
 			CA_ASSERT_BREAK(resourceAccess == other.resourceAccess, "Resource Access Not Compatible");
 			shaderStages |= other.shaderStages;
 			resourceUsage |= other.resourceUsage;
+			queueTypes |= other.queueTypes;
 		}
 		bool AnyStateChange(ResourceState const& otherResourceState) const
 		{
@@ -181,6 +213,19 @@ namespace graphics_backend
 	};
 
 	using ResourceUsageRange = castl::range<uint32_t>;
+
+	struct CBufferUsageData
+	{
+		ResourceUsageRange lifeTime;
+		EGPUQueueTypeFlags queueTypes = EGPUQueueType::eNone;
+
+		void Encapsule(uint32_t passID, EGPUQueueTypeFlags queueType)
+		{
+			queueTypes |= queueType;
+			lifeTime.encapsule(passID);
+		}
+	};
+
 	struct ResourceUsageRangeData
 	{
 		ResourceUsageRange lifeTime;
@@ -395,17 +440,35 @@ namespace graphics_backend
 		},
 	};
 
-	static D3D12_BARRIER_LAYOUT DetermineLayoutByAccessFlags(bool isImage, EGPUQueueTypeFlags queueType, D3D12_BARRIER_ACCESS accessFlags)
+	static void DetermineLayoutByAccessFlags(bool isImage
+		, EGPUQueueTypeFlags queueType
+		, D3D12_BARRIER_ACCESS accessFlags
+		, D3D12_BARRIER_LAYOUT& outDefaultLayout
+		, D3D12_BARRIER_LAYOUT& outQueueLocalLayout
+	)
 	{
-		if(!isImage)
-			return D3D12_BARRIER_LAYOUT_COMMON;
+		if (!isImage)
+		{
+			outDefaultLayout = outQueueLocalLayout = D3D12_BARRIER_LAYOUT_COMMON;
+			return;
+		}
+		outDefaultLayout = outQueueLocalLayout = D3D12_BARRIER_LAYOUT_UNDEFINED;
+		for (auto& flagsToLayout : CommonAccessFlagsToLayouts)
+		{
+			if ((accessFlags & flagsToLayout.flags) == accessFlags)
+			{
+				outDefaultLayout = outQueueLocalLayout = flagsToLayout.layout;
+				break;
+			}
+		}
 		if (queueType == EGPUQueueType::eDirect)
 		{
 			for (auto& flagsToLayout : DirectQueueFlagsToLayouts)
 			{
 				if ((accessFlags & flagsToLayout.flags) == accessFlags)
 				{
-					return flagsToLayout.layout;
+					outQueueLocalLayout = flagsToLayout.layout;
+					break;
 				}
 			}
 		}
@@ -415,21 +478,15 @@ namespace graphics_backend
 			{
 				if ((accessFlags & flagsToLayout.flags) == accessFlags)
 				{
-					return flagsToLayout.layout;
+					outQueueLocalLayout = flagsToLayout.layout;
+					break;
 				}
 			}
 		}
-		for (auto& flagsToLayout : CommonAccessFlagsToLayouts)
-		{
-			if ((accessFlags & flagsToLayout.flags) == accessFlags)
-			{
-				return flagsToLayout.layout;
-			}
-		}
-		CA_LOG_ERR_BREAK("Cannot Determine Layout For Access Flags: {}", accessFlags);
-		return D3D12_BARRIER_LAYOUT_UNDEFINED;
-	}
 
+		CA_ASSERT_BREAK(outDefaultLayout != D3D12_BARRIER_LAYOUT_UNDEFINED, "Cannot Determine Layout For Access Flags: {}", accessFlags);
+		CA_ASSERT_BREAK(outQueueLocalLayout != D3D12_BARRIER_LAYOUT_UNDEFINED, "Cannot Determine Queue Local Layout For Access Flags: {}", accessFlags);
+	}
 
 	static ResourceBarrierUsageStates DetermineResourceBarrierUsageStates(ResourceState const& resourceState)
 	{
@@ -438,7 +495,9 @@ namespace graphics_backend
 			ResourceBarrierUsageStates undefinedResult;
 			undefinedResult.accessState = D3D12_BARRIER_ACCESS_NO_ACCESS;
 			undefinedResult.layoutState = D3D12_BARRIER_LAYOUT_UNDEFINED;
+			undefinedResult.queueLocalLayoutState = D3D12_BARRIER_LAYOUT_UNDEFINED;
 			undefinedResult.barrierSync = D3D12_BARRIER_SYNC_NONE;
+			undefinedResult.queueTypes = resourceState.queueTypes;
 			return undefinedResult;
 		}
 
@@ -447,7 +506,9 @@ namespace graphics_backend
 			ResourceBarrierUsageStates undefinedResult;
 			undefinedResult.accessState = D3D12_BARRIER_ACCESS_NO_ACCESS;
 			undefinedResult.layoutState = D3D12_BARRIER_LAYOUT_PRESENT;
+			undefinedResult.queueLocalLayoutState = D3D12_BARRIER_LAYOUT_PRESENT;
 			undefinedResult.barrierSync = D3D12_BARRIER_SYNC_NONE;
+			undefinedResult.queueTypes = resourceState.queueTypes;
 			return undefinedResult;
 		}
 
@@ -514,12 +575,18 @@ namespace graphics_backend
 
 		ResourceBarrierUsageStates result;
 		result.accessState = barrierAccess;
-		result.layoutState = DetermineLayoutByAccessFlags(resourceState.isImage, resourceState.queueTypes, barrierAccess);
+		DetermineLayoutByAccessFlags(resourceState.isImage
+			, resourceState.queueTypes
+			, barrierAccess
+			, result.layoutState
+			, result.queueLocalLayoutState
+		);
 		result.barrierSync = resultSync;
-		if (barrierAccess & D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ)
-		{
-			CA_LOG("Found {}/{}", barrierAccess, result.layoutState);
-		}
+		result.queueTypes = resourceState.queueTypes;
+		//if (barrierAccess & D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ)
+		//{
+		//	CA_LOG("Found {}/{}/{}", barrierAccess, result.layoutState, result.queueLocalLayoutState);
+		//}
 		return result;
 	}
 
@@ -658,7 +725,7 @@ namespace graphics_backend
 		void AllocateAliasedResources(uint32_t resourceBatchCount
 			, castl::unordered_map<ImageHandle, ResourceUsageRangeData> const& imageLifeTimes
 			, castl::unordered_map<BufferHandle, ResourceUsageRangeData> const& bufferLifeTimes
-			, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
+			, castl::unordered_map<D3D2ShaderStruct const*, CBufferUsageData> const& cbufferLifetimes
 			, GPUConstantBufferManager& constantBufferManager
 		);
 		void CommitAliasedResources();

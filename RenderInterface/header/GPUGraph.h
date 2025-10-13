@@ -369,45 +369,57 @@ namespace graphics_backend
 #pragma endregion
 
 #pragma region Compute Shader
+
+
+	struct ComputeDispatch
+	{
+		ShaderInfo m_ShaderInfo;
+		castl::string kernelName;
+		ShaderStructDic shaderStructs;
+		uint32_t x;
+		uint32_t y;
+		uint32_t z;
+
+		static ComputeDispatch Create(ShaderInfo const& shader, uint32_t x, uint32_t y, uint32_t z)
+		{
+			ComputeDispatch dispatchStruct{};
+			dispatchStruct.m_ShaderInfo = shader;
+			dispatchStruct.x = x;
+			dispatchStruct.y = y;
+			dispatchStruct.z = z;
+			//dispatchStruct.shaderStructs = shaderStructs;
+			return dispatchStruct;
+		}
+
+		ComputeDispatch& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
+		{
+			shaderStructs[name] = shaderStruct;
+			return *this;
+		}
+
+	};
+
+
 	class ComputeBatch
 	{
 	public:
-		struct ComputeDispatch
-		{
-			ShaderInfo m_ShaderInfo;
-			castl::string kernelName;
-			//castl::vector<
-			//	castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
-			//> shaderArgLists;
-			ShaderStructDic shaderStructs;
-			uint32_t x;
-			uint32_t y;
-			uint32_t z;
 
-			static ComputeDispatch Create(ShaderInfo const& shader, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z, ShaderStructDic const& shaderStructs)
-			{
-				ComputeDispatch dispatchStruct{};
-				dispatchStruct.m_ShaderInfo = shader;
-				dispatchStruct.kernelName = kernelName;
-				dispatchStruct.x = x;
-				dispatchStruct.y = y;
-				dispatchStruct.z = z;
-				dispatchStruct.shaderStructs = shaderStructs;
-				return dispatchStruct;
-			}
-		};
-		static ComputeBatch New()
+		static ComputeBatch New(bool asyncCompute = false)
 		{
 			ComputeBatch newBatch{};
+			newBatch.asyncCompute = asyncCompute;
 			return newBatch;
 		}
-		//Shader Args
-		//castl::vector<
-		//	castl::pair<castl::string, castl::shared_ptr<ShaderArgList>>
-		//> shaderArgLists;
 		ShaderStructDic shaderStructs;
 		//Dispatchs
 		castl::vector<ComputeDispatch> dispatchs;
+		bool asyncCompute;
+
+		ComputeBatch& SetAsync(bool async)
+		{
+			asyncCompute = async;
+			return *this;
+		}
 
 		ComputeBatch& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
 		{
@@ -415,11 +427,13 @@ namespace graphics_backend
 			return *this;
 		}
 
-		//ComputeBatch& PushArgList(castl::string name, castl::shared_ptr<ShaderArgList> const& argList)
-		//{
-		//	shaderArgLists.push_back(castl::make_pair(name, argList));
-		//	return *this;
-		//}
+		ComputeBatch& Dispatch(ComputeDispatch const& dispatch)
+		{
+			dispatchs.push_back(dispatch);
+			return *this;
+		}
+
+		//Obsolete
 		ComputeBatch& Dispatch(ShaderInfo const& shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z
 			, ShaderStructDic const& shaderStructs = {})
 		{
@@ -427,7 +441,7 @@ namespace graphics_backend
 			CA_ASSERT(valid, "Invalid Compute Dispatch!");
 			if (valid)
 			{
-				dispatchs.push_back(ComputeDispatch::Create(shaderSet, kernelName, x, y, z, shaderStructs));
+				dispatchs.push_back(ComputeDispatch::Create(shaderSet, x, y, z));
 			}
 			return *this;
 		}

@@ -75,6 +75,10 @@ namespace graphics_backend
 		{
 			return m_CommandQueue;
 		}
+		ComPtr<ID3D12CommandQueue> GetComputeQueue() const
+		{
+			return m_ComputeQueue;
+		}
 
 		MemoryManager& GetMemoryManager()
 		{
@@ -169,6 +173,7 @@ namespace graphics_backend
 		ComPtr<ID3D12Device>		m_Device = nullptr;
 		ComPtr<IDXGIAdapter1>		m_Adapter = nullptr;
 		ComPtr<ID3D12CommandQueue>	m_CommandQueue = nullptr;
+		ComPtr<ID3D12CommandQueue>	m_ComputeQueue = nullptr;
 
 		MemoryManager m_MemoryManager;
 		ca_io::IOManager* p_IOManager;

@@ -277,29 +277,194 @@ namespace cacore
         friend struct careflection::managed_wrapper_traits<HashObj<ObjType, CompareMode, hashAlg>>;
     };
 
-	struct PathHash : public HashObj<castl::string, EHashObjCompareMode::FullCompare, default_hashclass>
+
+	//struct PathHash : public HashObj<castl::string, EHashObjCompareMode::FullCompare, default_hashclass>
+ //   {
+ //   public:
+ //       PathHash() = default;
+	//	PathHash(const char* str) : HashObj(cafs::path(str).generic_string()) {}
+ //       PathHash(castl::string const& str) : HashObj(cafs::path(str).generic_string()) {}
+ //       PathHash(cafs::path const& path) : HashObj(path.generic_string()) {}
+ //       PathHash& operator=(PathHash const& other)
+ //       {
+ //           HashObj::operator=(other);
+ //           return *this;
+ //       }
+
+ //       auto operator<=>(PathHash const& b) const
+ //       {
+ //           return HashObj::operator<=>(b);
+ //       }
+
+	//	operator castl::string() const noexcept
+ //       {
+ //           return Get();
+ //       }
+ //       friend struct careflection::managed_wrapper_traits<PathHash>;
+
+ //       template <char... c>
+ //       static constexpr PathHash const& StaticPathHash() {
+ //           constexpr static std::size_t n = sizeof...(c);
+ //           constexpr static const char data[n] = { c... };
+ //           static const PathHash pathHash(data);
+ //           return pathHash;
+ //       };
+
+ //       template <castl::string_literal str, size_t... N>
+ //       static constexpr PathHash const& StaticPathHashInternal(castl::index_sequence<N...>) {
+ //           return StaticPathHash<str.get_char<N>()...>();
+ //       }
+
+ //       template <castl::string_literal str>
+ //       static constexpr PathHash const& Static() {
+ //           return StaticPathHashInternal<str>(std::make_index_sequence<str.count>{});
+ //       }
+
+ //   };
+
+    struct PathHash
     {
     public:
-        PathHash() = default;
-		PathHash(const char* str) : HashObj(cafs::path(str).generic_string()) {}
-        PathHash(castl::string const& str) : HashObj(cafs::path(str).generic_string()) {}
-        PathHash(cafs::path const& path) : HashObj(path.generic_string()) {}
-        constexpr PathHash& operator=(HashObj const& other)
+        using result_type = default_hashclass::result_type;
+        using obj_type = castl::string;
+
+        constexpr PathHash() : m_HashValue(0), m_HashValid(false), m_Name("") {}
+        PathHash(const char* str)
         {
-            HashObj::operator=(other);
+            if (str == nullptr)
+            {
+                Reset();
+                return;
+            }
+            m_Name = cafs::path(str).generic_string();
+            m_NameView = m_Name;
+            UpdateHash();
+        }
+        PathHash(castl::string const& str) : m_Name(cafs::path(str).generic_string())
+        {
+            m_NameView = m_Name;
+            UpdateHash();
+        }
+        PathHash(cafs::path const& path) : m_Name(path.generic_string())
+        {
+            m_NameView = m_Name;
+            UpdateHash();
+        }
+
+        constexpr PathHash(PathHash const& pathHash) : m_Name(pathHash.m_Name)
+            , m_HashValue(pathHash.m_HashValue)
+            , m_HashValid(pathHash.m_HashValid)
+        {
+            if (m_Name.empty())
+            {
+                m_NameView = pathHash.m_NameView;
+            }
+            else
+            {
+                m_NameView = m_Name;
+            }
+        }
+        constexpr PathHash& operator=(PathHash const& pathHash)
+        {
+            m_Name = pathHash.m_Name;
+            m_HashValue = pathHash.m_HashValue;
+            m_HashValid = pathHash.m_HashValid;
+            if (m_Name.empty())
+            {
+                m_NameView = pathHash.m_NameView;
+            }
+            else
+            {
+                m_NameView = m_Name;
+            }
             return *this;
         }
-		operator castl::string() const noexcept
+
+        constexpr castl::string string() const noexcept
         {
-            return Get();
+            return castl::string(m_NameView);
         }
-        friend struct careflection::managed_wrapper_traits<PathHash>;
+
+        constexpr char const* c_str() const noexcept
+        {
+            return m_NameView.data();
+        }
+
+        constexpr operator char const* () const noexcept
+        {
+            return m_NameView.data();
+        }
+
+        constexpr operator castl::string_view const& () const noexcept
+        {
+            return m_NameView;
+        }
+
+        constexpr operator castl::string() const noexcept
+        {
+            return string();
+        }
+
+        constexpr castl::string_view const& Get() const noexcept
+        {
+            return m_NameView;
+        }
+
+        constexpr castl::string_view const* operator->() const noexcept
+        {
+            return &m_NameView;
+        }
+
+        constexpr result_type GetHash() const noexcept
+        {
+            return m_HashValue;
+        }
+
+        constexpr bool Valid() const noexcept
+        {
+            return m_HashValid;
+        }
+
+        constexpr void Reset() noexcept
+        {
+            m_HashValid = false;
+        }
+
+        constexpr auto operator<=>(PathHash const& b) const
+        {
+            return m_NameView <=> b.m_NameView;
+        }
+
+        bool operator==(PathHash const& b) const
+        {
+            return m_NameView == b.m_NameView;
+        };
+
+        void UpdateHash()
+        {
+            default_hashclass hasher{};
+            hasher(m_Name.data(), m_Name.size());
+            m_HashValue = static_cast<result_type>(hasher);
+            m_HashValid = true;
+        }
+
+    private:
+        constexpr PathHash(const char* str, result_type hashVal) : m_Name()
+            , m_NameView(str)
+            , m_HashValue(hashVal)
+            , m_HashValid(true)
+        {
+        }
+    public:
 
         template <char... c>
         static constexpr PathHash const& StaticPathHash() {
             constexpr static std::size_t n = sizeof...(c);
             constexpr static const char data[n] = { c... };
-            static const PathHash pathHash(data);
+            default_hashclass hasher{};
+            hasher(data, n);
+            static const result_type hashVal = static_cast<result_type>(hasher);
+            static const PathHash pathHash(data, hashVal);
             return pathHash;
         };
 
@@ -313,7 +478,14 @@ namespace cacore
             return StaticPathHashInternal<str>(std::make_index_sequence<str.count>{});
         }
 
+    private:
+        castl::string_view m_NameView;
+        bool m_HashValid;
+        result_type m_HashValue;
+        castl::string m_Name;
     };
+
+
 
     struct NameHash
     {
@@ -472,7 +644,7 @@ namespace cacore
     {
         constexpr static void hash(HashObj<ObjType, CompareMode, hashAlg> const&obj, auto& hasher)
         {
-            hasher.hash(obj.GetHash());
+            hasher.hash(obj.Get());
         }
     };
 
@@ -484,6 +656,16 @@ namespace cacore
             hasher.hash_raw(obj.Get().data(), obj.Get().size());
         }
     };
+
+    template<>
+    struct custom_hash_trait<PathHash>
+    {
+        constexpr static void hash(PathHash const& obj, auto& hasher)
+        {
+            hasher.hash_raw(obj.Get().data(), obj.Get().size());
+        }
+    };
+
 }
 
 namespace std
@@ -537,9 +719,9 @@ namespace careflection
     struct managed_wrapper_traits<cacore::PathHash>
     {
         constexpr static bool is_managed_wrapper = true;
-        using inner_type = cacore::PathHash::obj_type;
-        constexpr static inner_type const& get_data(cacore::PathHash const& obj) { return obj.Get(); }
-        constexpr static void set_data(cacore::PathHash& obj, inner_type const& data) { obj = cacore::PathHash{ data }; }
+        using inner_type = castl::string;
+        constexpr static castl::string get_data(cacore::PathHash const& obj) { return obj.string(); }
+        constexpr static void set_data(cacore::PathHash& obj, castl::string const& data) { obj = cacore::PathHash( data ); }
     };
 
     template<>

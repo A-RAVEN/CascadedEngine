@@ -64,7 +64,7 @@ enum class EShaderTypeMask : uint32_t
 
 constexpr EShaderTypeMask ECompileShaderTypeToMask(ECompileShaderType shaderType)
 {
-	return static_cast<EShaderTypeMask>(1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(ECompileShaderType::eVert));
+	return static_cast<EShaderTypeMask>(1 << static_cast<castl::underlying_type_t<EShaderTypeMask>>(shaderType));
 }
 
 using EShaderTypeFlags = uenum::EnumFlags<EShaderTypeMask>;

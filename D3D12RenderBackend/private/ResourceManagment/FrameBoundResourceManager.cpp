@@ -10,7 +10,10 @@ namespace graphics_backend
 		, m_CommandListManager(app)
 		, m_DescriptorAllocatorSet(app)
 		, m_AliasedMemoryAllocator(app)
-	{}
+	{
+		GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_FrameFences.m_DirectQueueFence));
+		GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_FrameFences.m_ComputeQueueFence));
+	}
 
 	GPUFrameManager::GPUFrameManager(RenderBackend_D3D12* app, uint64_t maxFrameCount)
 		: D3D12SubobjectBase(app), m_MaxFrameContexts(maxFrameCount)
@@ -19,10 +22,13 @@ namespace graphics_backend
 		app->OnDeviceInit([this]()
 		{
 			GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_FrameCounterFence));
+			GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_ComputeCounterFence));
+			m_FrameCounterFence->SetName(L"GlobalDirectFrameCounterFence");
+			m_ComputeCounterFence->SetName(L"GlobalComputeFrameCounterFence");
 			m_FrameContexts.reserve(m_MaxFrameContexts);
 			for (int i = 0; i < m_MaxFrameContexts; ++i)
 			{
-				m_FrameContexts.emplace_back(GetApp(), m_FrameCounterFence.Get());
+				m_FrameContexts.emplace_back(GetApp(), m_FrameCounterFence.Get(), m_ComputeCounterFence.Get());
 			}
 		});
 	}
@@ -47,6 +53,8 @@ namespace graphics_backend
 			context.Release();
 		}
 		m_FrameContexts.clear();
+		m_FrameCounterFence.Reset();
+		m_ComputeCounterFence.Reset();
 	}
 
 }

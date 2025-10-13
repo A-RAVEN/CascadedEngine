@@ -75,9 +75,9 @@ void TestSimpleTriangle()
 		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
 		.AddPass(
-			RenderPass::New({ windowBackBuffer })
+			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
-			.DrawCall
+			.Batch
 			(
 				DrawCallBatch::New()
 				.VertexStream(CANAME("TestVerticesInput"), descs)
@@ -138,7 +138,7 @@ void TestTriangleWithConstantColor()
 		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
 		.AddPass(
-			RenderPass::New(windowBackBuffer, depthBuffer)
+			RenderPass::New(windowBackBuffer, depthBuffer, AttachmentConfig::Clear(), AttachmentConfig::ClearDepthStencil())
 			.SetAttachmentConfig(0, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetDepthAttachmentConfig(AttachmentConfig::ClearDepthStencil())
 			.SetParam(CANAME("constantColorBlock"), pConstantColor)
@@ -211,10 +211,10 @@ void TestTriangleWithStructuredBufferColor()
 		.AllocBuffer(structuredColorBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, 1, sizeof(glm::vec3)))
 		.ScheduleData(structuredColorBuffer, &testColor, sizeof(testColor))
 		.AddPass(
-			RenderPass::New({ windowBackBuffer })
+			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetParam(CANAME("structuredColorBlock"), pStructuredColor)
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithStructuredBufferColor") })
-			.DrawCall
+			.Batch
 			(
 				DrawCallBatch::New()
 				.VertexStream(CANAME("TestVerticesInput"), descs)
@@ -315,10 +315,10 @@ void TestTriangleWithImageBuffer()
 		.AllocAndUploadBuffer(vbuffer, testBuffer)
 		.AllocAndUploadBuffer(ibuffer, indicesBuffer)
 		.AddPass(
-			RenderPass::New({ windowBackBuffer })
+			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
 			.SetParam(CANAME("textureData"), imageStruct)
-			.DrawCall
+			.Batch
 			(
 				DrawCallBatch::New()
 				.VertexStream(CANAME("TestVerticesInput"), descs)
@@ -446,10 +446,10 @@ void TestDoublePass()
 		//.AllocAndUploadBuffer(ibuffer, indicesBuffer)
 		.AllocImage(pass0RT, GPUTextureDescriptor::Create(windowWidth, windowHeight, ETextureFormat::E_R8G8B8A8_UNORM, 0))
 		.AddPass(
-			RenderPass::New({ pass0RT })
+			RenderPass::New(pass0RT, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
 			.SetParam(CANAME("textureData"), imageStruct)
-			.DrawCall
+			.Batch
 			(
 				DrawCallBatch::New()
 				.VertexStream(CANAME("TestVerticesInput"), blitpassDescs)
@@ -462,10 +462,10 @@ void TestDoublePass()
 			)
 		)
 		.AddPass(
-			RenderPass::New({ windowBackBuffer })
+			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestBlitToScreenPass") })
 			.SetParam(CANAME("textureData"), blitStruct)
-			.DrawCall
+			.Batch
 			(
 				DrawCallBatch::New()
 				.VertexStream(CANAME("TestVerticesInput"), blitpassDescs)
@@ -503,6 +503,25 @@ void TestComputeBuffer()
 		2, 3, 0
 	};
 
+
+	struct VertexStruct
+	{
+		std::array<float, 3> pos;
+		std::array<float, 3> color;
+	};
+	cacore::HashObj<VertexInputsDescriptor> descs1 = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+			VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
+		}, false);
+
+	std::vector<VertexStruct> triangleBuffer1 = {
+		{{-0.25f, -0.25f, -0.25f }, {1.0f, 0.0f, 0.0f}},
+		{{0.25f, -0.25f, -0.25f }, {0.0f, 1.0f, 0.0f}},
+		{{0.0f, 0.5f, 0.0f }, {0.0f, 0.0f, 1.0f}},
+	};
+
+
 	ImageHandle windowBackBuffer(windowHandle);
 
 	castl::shared_ptr<GPUBuffer> testIndexBuffer;
@@ -523,21 +542,35 @@ void TestComputeBuffer()
 
 	//Set Vertex Buffer As Compute Buffer
 	BufferHandle vbuffer(CANAME("ComputeVertexBuffer"));
+	BufferHandle vbuffer1(CANAME("ParallelGeometryBuffer"));
 	auto computeParams = g_GPUBackend->CreateShaderStruct(CANAME("TestComputeBufferParams"));
 	computeParams->SetBuffer(CANAME("RWVertexBuffer"), vbuffer);
 
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
 		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(0, 4, sizeof(float) * 3))
-		.AddPass(ComputeBatch::New()
+		//.AllocBuffer(vbuffer1, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, triangleBuffer1.size(), sizeof(triangleBuffer1[0])))
+		//.ScheduleData(vbuffer1, triangleBuffer1.data(), triangleBuffer1.size() * sizeof(triangleBuffer1[0]))
+		.AddPass(ComputeBatch::New(true)
 			.SetParam(CANAME("computeParams"), computeParams)
-			.Dispatch({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }
-				, "noneed", 1, 1, 1)
+			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1))
 		)
 		.AddPass(
-			RenderPass::New({ windowBackBuffer })
+			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5, 0, 1)))
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleNoAssemblyInputs") })
+			.Batch
+			(
+				DrawCallBatch::New()
+				.DrawCall(
+					DrawCall::New()
+					.Draw(3)
+				)
+			)
+		)
+		.AddPass(
+			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestNaiveTriangle") })
-			.DrawCall
+			.Batch
 			(
 				DrawCallBatch::New()
 				.VertexStream(CANAME("TestVerticesInput"), descs)
@@ -616,11 +649,11 @@ int main(int argc, char* argv[])
 
 
 	//TestSimpleTriangle();
-	TestTriangleWithConstantColor();
+	//TestTriangleWithConstantColor();
 	//TestTriangleWithStructuredBufferColor();
 	//TestTriangleWithImageBuffer();
 	//TestDoublePass();
-	//TestComputeBuffer();
+	TestComputeBuffer();
 
 	g_ThreadManager.reset();
 	g_GPUBackend.reset();

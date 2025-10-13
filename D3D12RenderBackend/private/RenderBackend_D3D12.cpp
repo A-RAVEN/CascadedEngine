@@ -155,6 +155,9 @@ namespace graphics_backend
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_CommandQueue)));
 
+		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_ComputeQueue)));
+
 		AfterDeviceInit();
 	}
 
@@ -168,6 +171,7 @@ namespace graphics_backend
 		m_DescriptorAllocatorSet.Release();
 		m_MemoryManager.Release();
 		m_CommandQueue = nullptr;
+		m_ComputeQueue = nullptr;
 		m_Device = nullptr;
 		m_Adapter = nullptr;
 		m_Factory = nullptr;

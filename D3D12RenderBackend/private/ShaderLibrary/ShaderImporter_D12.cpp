@@ -352,7 +352,7 @@ namespace graphics_backend
 
 		cafs::path shaderLibraryPath = "D3D12ShaderLibrary.shLib";
 
-		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath.generic_string());
+		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath);
 		shaderLibrary->m_ShaderPrograms.clear();
 
 		for (auto& p : cafs::recursive_directory_iterator(sourcePath))

@@ -284,6 +284,7 @@ namespace thread_management
         return castl::shared_ptr<TaskScheduler>(newScheduler, [](TaskScheduler* pScheduler)
             {
                 pScheduler->WaitAll();
+				delete pScheduler;
             });
     }
 

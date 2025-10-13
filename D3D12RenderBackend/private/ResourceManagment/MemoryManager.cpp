@@ -226,15 +226,16 @@ namespace graphics_backend
 		}
 	}
 
-	void AliasedMemoryAllocator::FreeMemories()
+	void AliasedMemoryAllocator::Reset()
 	{
 		for (auto& pair : m_Blocks)
 		{
 			for (VirtualBlock& block : pair.second)
 			{
-				block.FreeMemory();
+				block.Reset();
 			}
 		}
+		
 	}
 
 	void AliasedMemoryAllocator::Release()
@@ -268,10 +269,6 @@ namespace graphics_backend
 
 	void AliasedMemoryAllocator::VirtualBlock::FreeMemory()
 	{
-		//for (auto& res : m_BlockPlacedResources)
-		//{
-		//	res->Release();
-		//}
 		m_BlockPlacedResources.clear();
 		if (p_BlockAllocation != nullptr)
 		{
@@ -280,11 +277,16 @@ namespace graphics_backend
 		}
 	}
 
-	void AliasedMemoryAllocator::VirtualBlock::Release()
+	void AliasedMemoryAllocator::VirtualBlock::Reset()
 	{
 		FreeMemory();
 		m_Resources.clear();
 		m_Block->Clear();
+	}
+
+	void AliasedMemoryAllocator::VirtualBlock::Release()
+	{
+		Reset();
 		m_Block->Release();
 	}
 
@@ -339,7 +341,7 @@ namespace graphics_backend
 			resourceAllocationInfo.SizeInBytes = castl::alignto<UINT64>(m_MaxSize, 64 * 1024);
 			ThrowIfFailed(allocator->AllocateMemory(&allocationDesc, &resourceAllocationInfo, &p_BlockAllocation));
 
-			CA_LOG("Block Offset:{}", p_BlockAllocation->GetOffset());
+			//CA_LOG("Block Offset:{}", p_BlockAllocation->GetOffset());
 			//D3D12_HEAP_DESC heapDesc = {};
 			//heapDesc.SizeInBytes = m_MaxSize; // 1MB 堆
 			//heapDesc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -360,9 +362,9 @@ namespace graphics_backend
 						, p_BlockAllocation->GetOffset() + resourceInfo.m_Offset
 						, &resourceInfo.m_Desc
 						, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)));
-				CA_LOG("Resource Offset:[{}];Size:[{}];Width:[{}];Virtual Address[{}]"
-					, p_BlockAllocation->GetOffset() + resourceInfo.m_Offset
-					, resourceInfo.m_Size, resourceInfo.m_Desc.Width, resource->GetGPUVirtualAddress());
+				//CA_LOG("Resource Offset:[{}];Size:[{}];Width:[{}];Virtual Address[{}]"
+				//	, p_BlockAllocation->GetOffset() + resourceInfo.m_Offset
+				//	, resourceInfo.m_Size, resourceInfo.m_Desc.Width, resource->GetGPUVirtualAddress());
 				m_BlockPlacedResources.push_back(resource);
 			}
 		}

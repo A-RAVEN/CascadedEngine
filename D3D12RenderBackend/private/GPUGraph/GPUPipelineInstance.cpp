@@ -58,14 +58,14 @@ namespace graphics_backend
 			{
 				uint32_t id = getBindID(foundName);
 
-				outBindingData.sematicNames.emplace_back(foundAttribute.semanticName.string());
+				//outBindingData.sematicNames.emplace_back(foundAttribute.semanticName.string());
 
-				D3D12_INPUT_ELEMENT_DESC elementDesc{};
+				VertexInputBindingData::InputElementDesc elementDesc{};
 				elementDesc.InputSlot = id;
 				elementDesc.Format = VertexInputFormatToDXGIFormat(foundAttribute.format);
 				elementDesc.AlignedByteOffset = foundAttribute.offset;
 				elementDesc.SemanticIndex = foundAttribute.sematicIndex;
-				elementDesc.SemanticName = outBindingData.sematicNames.back().c_str();
+				elementDesc.SemanticName = foundAttribute.semanticName;
 				elementDesc.InputSlotClass = foundDesc.perInstance
 					? D3D12_INPUT_CLASSIFICATION::D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA
 					: D3D12_INPUT_CLASSIFICATION::D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
@@ -130,10 +130,11 @@ namespace graphics_backend
 		// --------------------------
 		// Vertex Input Assemblies
 		// --------------------------
+		auto attributeVector = bindingData.AsInputElementDesc();
 		psoDesc.pRootSignature = m_RootSignature.Get(); // 已创建的根签名
 		psoDesc.VS = { shaderSetData.vertexShader->GetBufferPointer(), shaderSetData.vertexShader->GetBufferSize() };
 		psoDesc.PS = { shaderSetData.fragmentShader->GetBufferPointer(), shaderSetData.fragmentShader->GetBufferSize() };
-		psoDesc.InputLayout = { bindingData.outVertexAttributes.data(), (uint32_t)bindingData.outVertexAttributes.size() };
+		psoDesc.InputLayout = { attributeVector.data(), (uint32_t)attributeVector.size() };
 		psoDesc.PrimitiveTopologyType = ETopologyToD3D12TopologyType(pipelineStateKey.m_InputAssemblyStates->topology); // 图元类型
 
 		// // --------------------------

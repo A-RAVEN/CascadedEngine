@@ -157,8 +157,7 @@ namespace resource_management
 		{
 			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
 				{
-					castl::string log = "Load new resource: " + path.Get() + "\n";
-					castl::cout << log << castl::endl;
+					CA_LOG("Load new resource: {}", path);
 					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
 					auto batch = pIOManager->Batch(GetResourceFullPath(path));
 					newRes->Deserialize(batch.get());
@@ -171,8 +170,7 @@ namespace resource_management
 		{
 			auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
 				{
-					castl::string log = "Create New resource: " + path.Get() + "\n";
-					castl::cout << log << castl::endl;
+					CA_LOG("Create new resource: {}", path);
 					castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
 					return newRes;
 				});

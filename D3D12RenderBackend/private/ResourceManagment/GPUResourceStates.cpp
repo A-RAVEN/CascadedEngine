@@ -198,7 +198,7 @@ namespace graphics_backend
 	void D3D12GraphLocalResourceManager::AllocateAliasedResources(uint32_t resourceBatchCount
 		, castl::unordered_map<ImageHandle, ResourceUsageRangeData> const& imageLifeTimes
 		, castl::unordered_map<BufferHandle, ResourceUsageRangeData> const& bufferLifeTimes
-		, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
+		, castl::unordered_map<D3D2ShaderStruct const*, CBufferUsageData> const& cbufferLifetimes
 		, GPUConstantBufferManager& constantBufferManager
 	)
 	{
@@ -242,12 +242,12 @@ namespace graphics_backend
 		for (auto& cbufferPair : cbufferLifetimes)
 		{
 			D3D2ShaderStruct const* pStruct = cbufferPair.first;
-			ResourceUsageRange const& lifeTime = cbufferPair.second;
+			CBufferUsageData const& usageData = cbufferPair.second;
 			BufferHandle handle = constantBufferManager.GetConstantBufferHandle(pStruct);
 			auto& resource = bufferHandleToResource[handle];
 			resource.usages = EResourceUsage::eConstantBuffer | EResourceUsage::eCopy;
-			allocationPasses[lifeTime.head()].newBuffersOnThisPass.push_back(handle);
-			allocationPasses[lifeTime.end()].releasedBuffersAfterThisPass.push_back(handle);
+			allocationPasses[usageData.lifeTime.head()].newBuffersOnThisPass.push_back(handle);
+			allocationPasses[usageData.lifeTime.end()].releasedBuffersAfterThisPass.push_back(handle);
 		}
 
 		for (auto& allocationPass : allocationPasses)
@@ -646,7 +646,7 @@ namespace graphics_backend
 				cbv = allocatorSet.m_SRV_UAV_CBV_Allocator.AllocDescriptors(1);
 				auto cbufferDesc = pResource->GetDesc();
 				uint64_t resourceSize = resourceDesc.SizeInByte();
-				CA_LOG("CBuffer Size:{}", resourceSize);
+				//CA_LOG("CBuffer Size:{}", resourceSize);
 				auto cbvDesc = GetCBVDescFromGPUBufferDescriptor(pResource->GetGPUVirtualAddress(), resourceSize);
 				app->GetDevice()->CreateConstantBufferView(&cbvDesc, cbv.CPUHandle());
 			}

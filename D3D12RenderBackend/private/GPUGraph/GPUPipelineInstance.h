@@ -11,9 +11,43 @@ namespace graphics_backend
 {
 	struct VertexInputBindingData
 	{
+		//Alias Of D3D12_INPUT_ELEMENT_DESC
+		struct InputElementDesc
+		{
+			cacore::NameHash SemanticName;
+			UINT SemanticIndex;
+			DXGI_FORMAT Format;
+			UINT InputSlot;
+			UINT AlignedByteOffset;
+			D3D12_INPUT_CLASSIFICATION InputSlotClass;
+			UINT InstanceDataStepRate;
+			constexpr operator D3D12_INPUT_ELEMENT_DESC() const noexcept
+			{
+				D3D12_INPUT_ELEMENT_DESC desc;
+				desc.SemanticName = SemanticName.c_str();
+				desc.SemanticIndex = SemanticIndex;
+				desc.Format = Format;
+				desc.InputSlot = InputSlot;
+				desc.AlignedByteOffset = AlignedByteOffset;
+				desc.InputSlotClass = InputSlotClass;
+				desc.InstanceDataStepRate = InstanceDataStepRate;
+				return desc;
+			}
+			auto operator<=>(InputElementDesc const& other) const = default;
+		};
+
 		castl::vector<cacore::NameHash> inoutBindingNameToIndex;
-		castl::deque<castl::string> sematicNames;
-		castl::vector<D3D12_INPUT_ELEMENT_DESC> outVertexAttributes;
+		castl::vector<InputElementDesc> outVertexAttributes;
+		castl::vector<D3D12_INPUT_ELEMENT_DESC> AsInputElementDesc() const
+		{
+			castl::vector<D3D12_INPUT_ELEMENT_DESC> result;
+			result.reserve(outVertexAttributes.size());
+			for (auto const& attr : outVertexAttributes)
+			{
+				result.push_back(attr);
+			}
+			return result;
+		}
 		auto operator<=>(VertexInputBindingData const& other) const = default;
 	};
 
@@ -25,14 +59,51 @@ namespace graphics_backend
 			, uint32_t depthAttachmentIndex
 			, DrawCallBatch const& drawCallBatch
 			, D3D12GraphLocalResourceManager const& resourceManager);
-		//ComPtr<ID3D12RootSignature> pRootSignature;
 		ShaderInfo m_ShaderInfo;
 		cacore::HashObj<CPipelineStateObject> m_PipelineStates;
 		cacore::HashObj<InputAssemblyStates> m_InputAssemblyStates;
 		castl::vector<ETextureFormat> m_AttachmentFormats;
 		ETextureFormat m_DepthFormat;
 		VertexInputBindingData m_VertexInputBindingData;
-		auto operator<=>(GPUPipelineStateKey const& other) const = default;
+		bool operator==(const GPUPipelineStateKey& other) const
+		{
+			bool result = m_ShaderInfo == other.m_ShaderInfo
+				&& m_PipelineStates == other.m_PipelineStates
+				&& m_InputAssemblyStates == other.m_InputAssemblyStates
+				&& m_AttachmentFormats == other.m_AttachmentFormats
+				&& m_DepthFormat == other.m_DepthFormat
+				&& m_VertexInputBindingData == other.m_VertexInputBindingData;
+			if (!result)
+			{
+				CA_LOG("Not Equal");
+				if (m_ShaderInfo != other.m_ShaderInfo)
+				{
+					CA_LOG("Shader Info Not Equal");
+				}
+				if (m_PipelineStates != other.m_PipelineStates)
+				{
+					CA_LOG("Pipeline States Not Equal");
+				}
+				if (m_InputAssemblyStates != other.m_InputAssemblyStates)
+				{
+					CA_LOG("Input Assembly States Not Equal");
+				}
+				if (m_AttachmentFormats != other.m_AttachmentFormats)
+				{
+					CA_LOG("Attachment Formats Not Equal");
+				}
+				if (m_DepthFormat != other.m_DepthFormat)
+				{
+					CA_LOG("Depth Format Not Equal");
+				}
+				if (m_VertexInputBindingData != other.m_VertexInputBindingData)
+				{
+					CA_LOG("Vertex Input Binding Data Not Equal");
+				}
+			}
+			return result;
+		}
+		//auto operator<=>(GPUPipelineStateKey const& other) const = default;
 	};
 	static_assert(cacore::hashable<GPUPipelineStateKey>, "not hashable");
 

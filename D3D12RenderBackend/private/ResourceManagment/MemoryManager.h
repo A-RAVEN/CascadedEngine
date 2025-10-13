@@ -79,6 +79,7 @@ namespace graphics_backend
 			bool TryAllocateGPUResource(AliasedMemoryAllocator& owningAllocator, D3D12_RESOURCE_DESC const& resourceDesc, D3D12_RESOURCE_STATES initialState, AliasedGPUResource& outGPUResource);
 			void CommitBlock(D3D12_HEAP_TYPE heapType, D3D12MA::Allocator* allocator, ID3D12Device* device);
 			void FreeMemory();
+			void Reset();
 			void Release();
 			D3D12MA::VirtualBlock* m_Block;
 			castl::vector<ResourceInfo> m_Resources;
@@ -96,7 +97,8 @@ namespace graphics_backend
 			, D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON);
 		void LogAllocatorStates();
 		void CommitAllocations();
-		void FreeMemories();
+		//Only Free Memories
+		void Reset();
 		void Release() override;
 		
 		ResourceInfo const& GetResourceInfo(D3D12_HEAP_TYPE, uint32_t virtualBlockID, uint32_t resourceID) const;

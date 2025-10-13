@@ -6,6 +6,7 @@
 #include <ResourceManagment/D3DImageObject.h>
 #include <ResourceManagment/D3DBufferObject.h>
 #include <D3D12Debug.h>
+#include <CASTL/CASet.h>
 
 namespace graphics_backend
 {
@@ -113,7 +114,8 @@ namespace graphics_backend
 	{
 		castl::unordered_map<ImageHandle, ResourceState> imageRWStates;
 		castl::unordered_map<BufferHandle, ResourceState> bufferRWStates;
-		castl::unordered_set<D3D2ShaderStruct const*> cBufferUsageStates;
+		castl::unordered_map<D3D2ShaderStruct const*, EGPUQueueTypeFlags> cBufferUsageStates;
+		EGPUQueueTypeFlags batchResourceQueueTypes = 0;
 
 		bool Depends(PassRWState const& other) const
 		{
@@ -146,6 +148,7 @@ namespace graphics_backend
 
 		void Append(PassRWState const& other)
 		{
+			batchResourceQueueTypes |= other.batchResourceQueueTypes;
 			for (auto pair : other.imageRWStates)
 			{
 				auto found = imageRWStates.find(pair.first);
@@ -170,9 +173,17 @@ namespace graphics_backend
 					bufferRWStates[pair.first].Combine(pair.second);
 				}
 			}
-			for (D3D2ShaderStruct const* pstruct : other.cBufferUsageStates)
+			for (auto pair : other.cBufferUsageStates)
 			{
-				cBufferUsageStates.insert(pstruct);
+				auto found = cBufferUsageStates.find(pair.first);
+				if (found == cBufferUsageStates.end())
+				{
+					cBufferUsageStates.insert(pair);
+				}
+				else
+				{
+					cBufferUsageStates[pair.first] |= pair.second;
+				}
 			}
 		}
 
@@ -194,21 +205,21 @@ namespace graphics_backend
 			auto found = imageRWStates.find(image);
 			if (found != imageRWStates.end())
 			{
-				CA_ASSERT_BREAK(found->second.Compatible(newResourceState), "Resource State Not Compatible");
+				CA_ASSERT_BREAK(found->second.CompatibleToCombine(newResourceState), "Resource State Not Compatible");
 				found->second.Combine(newResourceState);
 			}
 			else
 			{
 				imageRWStates.insert(castl::make_pair(image, newResourceState));
 			}
+			batchResourceQueueTypes |= newResourceState.queueTypes;
 		}
 
 		void SetImageRWState(ImageHandle const& image
 			, EShaderTypeFlags stages
 			, EResourceUsageFlags usages
 			, ShaderCompilerSlang::EShaderResourceAccess access
-			, EGPUQueueType queueType
-			, GPUTextureView const textureView)
+			, EGPUQueueType queueType)
 		{
 
 			ResourceState newResourceState{
@@ -224,13 +235,14 @@ namespace graphics_backend
 			auto found = imageRWStates.find(image);
 			if (found != imageRWStates.end())
 			{
-				CA_ASSERT_BREAK(found->second.Compatible(newResourceState), "Resource State Not Compatible");
+				CA_ASSERT_BREAK(found->second.CompatibleToCombine(newResourceState), "Resource State Not Compatible");
 				found->second.Combine(newResourceState);
 			}
 			else
 			{
 				imageRWStates.insert(castl::make_pair(image, newResourceState));
 			}
+			batchResourceQueueTypes |= newResourceState.queueTypes;
 		}
 		void SetBufferRWState(BufferHandle const& buffer
 			, EShaderTypeFlags stages
@@ -253,19 +265,30 @@ namespace graphics_backend
 			auto found = bufferRWStates.find(buffer);
 			if (found != bufferRWStates.end())
 			{
-				CA_ASSERT_BREAK(found->second.Compatible(newResourceState), "Resource State Not Compatible");
+				CA_ASSERT_BREAK(found->second.CompatibleToCombine(newResourceState), "Resource State Not Compatible");
 				found->second.Combine(newResourceState);
 			}
 			else
 			{
 				bufferRWStates.insert(castl::make_pair(buffer, newResourceState));
 			}
+			batchResourceQueueTypes |= newResourceState.queueTypes;
 		}
-		void SetCBufferUsageState(D3D2ShaderStruct const* pCBufferStruct, EShaderTypeFlags stages)
+		void SetCBufferUsageState(D3D2ShaderStruct const* pCBufferStruct
+			, EShaderTypeFlags stages
+			, EGPUQueueType queueType)
 		{
 			if (stages == 0)
 				return;
-			cBufferUsageStates.insert(pCBufferStruct);
+			auto found = cBufferUsageStates.find(pCBufferStruct);
+			if (found != cBufferUsageStates.end())
+			{
+				found->second |= queueType;
+			}
+			else
+			{
+				cBufferUsageStates.insert(castl::make_pair(pCBufferStruct, queueType));
+			}
 		}
 	};
 
@@ -319,7 +342,7 @@ namespace graphics_backend
 	)
 	{
 		//将一个pass中所有资源的读写状态注册进PassRWState中，包括CBuffer
-		auto addPassShaderInstancesResourcesRWStates = [&](PassRWState& passRWState,
+		auto addPassShaderInstancesResourcesRWStates = [&](EGPUQueueType queueType, PassRWState& passRWState,
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> const& passLocalBindingInstances)
 		{
 			for (auto pair : passLocalBindingInstances)
@@ -334,8 +357,7 @@ namespace graphics_backend
 							, imageInfo.usingStages
 							, imageInfo.resourceUsages
 							, imageInfo.bindingInfo.accessType
-							, EGPUQueueType::eDirect
-							, img.textureView);
+							, queueType);
 					}
 				},
 					[&](GPUResourceBindingInstance::BufferBindingElement const& bufferInfo)
@@ -346,13 +368,15 @@ namespace graphics_backend
 							, bufferInfo.usingStages
 							, bufferInfo.resourceUsages
 							, bufferInfo.bindingInfo.accessType
-							, EGPUQueueType::eDirect
+							, queueType
 						);
 					}
 				},
 					[&](GPUResourceBindingInstance::CBufferBindingElement const& cbufferInfo)
 				{
-					passRWState.SetCBufferUsageState(cbufferInfo.pCBufferStruct, cbufferInfo.usingStages);
+					passRWState.SetCBufferUsageState(cbufferInfo.pCBufferStruct
+						, cbufferInfo.usingStages
+						, queueType);
 				});
 			}
 		};
@@ -379,9 +403,7 @@ namespace graphics_backend
 						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone
 							, EResourceUsage::eDepthStencilTarget
 							, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
-							, EGPUQueueType::eDirect
-							, textureView
-						);
+							, EGPUQueueType::eDirect);
 					}
 					else
 					{
@@ -389,9 +411,7 @@ namespace graphics_backend
 							, EShaderTypeMask::eNone
 							, EResourceUsage::eRenderTarget
 							, ShaderCompilerSlang::EShaderResourceAccess::eReadWrite
-							, EGPUQueueType::eDirect
-							, textureView
-						);
+							, EGPUQueueType::eDirect);
 					}
 					++attachmentID;
 				}
@@ -449,7 +469,7 @@ namespace graphics_backend
 
 				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
 			}
-			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
+			addPassShaderInstancesResourcesRWStates(EGPUQueueType::eDirect, passRWState, passLocalBindingInstances);
 		}
 		CA_ASSERT_BREAK(computePassRWStates.size() == owningGraph.GetComputePasses().size(), "Compute Pass RW State Size Incompatible");
 		for (size_t passID = 0; passID < owningGraph.GetComputePasses().size(); ++passID)
@@ -457,6 +477,7 @@ namespace graphics_backend
 			auto& computePass = owningGraph.GetComputePasses()[passID];
 			auto& passRWState = computePassRWStates[passID];
 			auto& computePassGPUData = computeGPUData[passID];
+			EGPUQueueType queueType = computePass.asyncCompute ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
 			castl::unordered_map<ShaderResourceSet, castl::shared_ptr<GPUResourceBindingInstance>> passLocalBindingInstances;
 			for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 			{
@@ -474,7 +495,7 @@ namespace graphics_backend
 				dispatchGPUData.pResourceBindingInstance = resourceBindingInstance.get();
 				passLocalBindingInstances.insert(castl::make_pair(resourceSet, resourceBindingInstance));
 			}
-			addPassShaderInstancesResourcesRWStates(passRWState, passLocalBindingInstances);
+			addPassShaderInstancesResourcesRWStates(queueType, passRWState, passLocalBindingInstances);
 		}
 		CA_ASSERT_BREAK(transferPassRWStates.size() == owningGraph.GetDataTransfers().size(), "Transfer Pass RW State Size Incompatible");
 		for (size_t passID = 0; passID < owningGraph.GetDataTransfers().size(); ++passID)
@@ -546,6 +567,92 @@ namespace graphics_backend
 		{
 			cbufferData.push_back(castl::make_pair(bufferHandle, shaderStruct));
 		}
+
+		bool AnyBarrier() const
+		{
+			return !cbufferData.empty();
+		}
+
+		void CbufferInitializeBarriers(ID3D12GraphicsCommandList7* pCommandList
+			, D3D12GraphLocalResourceManager& resourceManager
+			, castl::vector<D3D12_BUFFER_BARRIER>& beforeBarriers
+			, castl::vector<D3D12_BUFFER_BARRIER>& afterBarriers) const
+		{
+			//CBuffer Barriers
+			for (auto& cbufferData : cbufferData)
+			{
+				BufferHandle const& bufferHandle = cbufferData.first;
+				ID3D12Resource* targetBuffer = resourceManager.GetBufferD3D12Resource(bufferHandle);
+
+				D3D12_BUFFER_BARRIER beforeBarrier{};
+				beforeBarrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+				beforeBarrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_DEST;
+				beforeBarrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+				beforeBarrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+				beforeBarrier.pResource = targetBuffer;
+				beforeBarrier.Offset = 0;
+				beforeBarrier.Size = ULLONG_MAX;
+				beforeBarriers.push_back(beforeBarrier);
+
+				D3D12_BUFFER_BARRIER afterBarrier{};
+				afterBarrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+				afterBarrier.AccessAfter = D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+				afterBarrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+				afterBarrier.SyncAfter = D3D12_BARRIER_SYNC_ALL;
+				afterBarrier.pResource = targetBuffer;
+				afterBarrier.Offset = 0;
+				afterBarrier.Size = ULLONG_MAX;
+				afterBarriers.push_back(afterBarrier);
+			}
+		}
+
+
+		void CBufferCopyInitialize(ID3D12GraphicsCommandList7* pCommandList
+			, LinearMemoryManager& linearMemoryManager
+			, D3D12GraphLocalResourceManager& resourceManager) const
+		{
+			//CBuffer Barriers
+			for (auto& cbufferData : cbufferData)
+			{
+				BufferHandle const& bufferHandle = cbufferData.first;
+				ID3D12Resource* targetBuffer = resourceManager.GetBufferD3D12Resource(bufferHandle);
+
+				D3D2ShaderStruct const* pStruct = cbufferData.second;
+				ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(pStruct->GetCBufferSize());
+				UINT8* mappedStagingData;
+				stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
+				pStruct->ComputeMaxChildrenVersion();
+				pStruct->UpdateUniformBuffer(0, mappedStagingData, pStruct->GetCBufferSize(), 0);
+				stagingBuffer->Unmap(0, nullptr);
+				pCommandList->CopyBufferRegion(targetBuffer, 0, stagingBuffer, 0, pStruct->GetCBufferSize());
+			}
+		}
+
+
+		void ExecuteCBufferInitializationBarriers(ID3D12GraphicsCommandList7* pCommandList
+			, LinearMemoryManager& linearMemoryManager
+			, D3D12GraphLocalResourceManager& resourceManager) const
+		{
+			//CBuffer Barriers
+			if (!cbufferData.empty())
+			{
+				castl::vector<D3D12_BUFFER_BARRIER> toCopyDestBarriers;
+				castl::vector<D3D12_BUFFER_BARRIER> toCBufferBarriers;
+				CbufferInitializeBarriers(pCommandList, resourceManager, toCopyDestBarriers, toCBufferBarriers);
+
+				//none->copyDest
+				CD3DX12_BARRIER_GROUP toCopyDestBarrierGroup(toCopyDestBarriers.size(), toCopyDestBarriers.data());
+				pCommandList->Barrier(1, &toCopyDestBarrierGroup);
+
+				CBufferCopyInitialize(pCommandList, linearMemoryManager, resourceManager);
+
+				//copyDest->CBuffer
+				CD3DX12_BARRIER_GROUP toCBufferBarrierGroup(toCBufferBarriers.size(), toCBufferBarriers.data());
+				pCommandList->Barrier(1, &toCBufferBarrierGroup);
+			}
+		}
+
+
 	};
 
 	struct RenderStateBarriers
@@ -560,6 +667,45 @@ namespace graphics_backend
 		{
 			bufferBarriers.push_back(castl::make_pair(handle, barrier));
 		}
+		bool IsEmpty() const
+		{
+			return imageBarriers.empty() && bufferBarriers.empty();
+		}
+		bool AnyBarrier() const
+		{
+			return !IsEmpty();
+		}
+
+		void ExecuteBarriers(ID3D12GraphicsCommandList7* pCommandList) const
+		{
+			castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
+			castl::vector<D3D12_TEXTURE_BARRIER> images;
+			for (auto& aquireImageBarriers : imageBarriers)
+			{
+				images.push_back(aquireImageBarriers.second);
+			}
+			if (!images.empty())
+			{
+				CD3DX12_BARRIER_GROUP imageBarrierGroup(images.size(), images.data());
+				barrierGroups.push_back(imageBarrierGroup);
+			}
+			castl::vector<D3D12_BUFFER_BARRIER> buffers;
+
+			for (auto& aquireBufferBarriers : bufferBarriers)
+			{
+				buffers.push_back(aquireBufferBarriers.second);
+			}
+			if (!buffers.empty())
+			{
+				CD3DX12_BARRIER_GROUP bufferBarrierGroup(buffers.size(), buffers.data());
+				barrierGroups.push_back(bufferBarrierGroup);
+			}
+			if (!barrierGroups.empty())
+			{
+				pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
+			}
+		}
+
 	};
 
 	struct GPUFinalizeBatch
@@ -603,140 +749,60 @@ namespace graphics_backend
 		std::vector<uint32_t> rasterPassRefs;
 		std::vector<uint32_t> computePassRefs;
 		std::vector<uint32_t> transferPassRefs;
+		//General Direct Queue Aquire/Release Barriers，Do Barriers For Both Direct And Compute Queue
 		RenderStateBarriers aquireBarriers;
+		//bool aquireForDirectAndComputeQueues;
 		RenderStateBarriers releaseBarriers;
+		//bool releaseForDirectAndComputeQueues;
+
+		RenderStateBarriers computeAquireBarriers;
+		RenderStateBarriers computeReleaseBarriers;
+
 		CBufferInitializeBarriers cbufferBarriers;
+		CBufferInitializeBarriers computeCBufferBarriers;
+
+
 		PassRWState batchRWStates;
+		bool anyComputeQueueOperations;
 
-		void CbufferInitializeBarriers(ID3D12GraphicsCommandList7* pCommandList
-			, D3D12GraphLocalResourceManager& resourceManager
-			, castl::vector<D3D12_BUFFER_BARRIER>& beforeBarriers
-			, castl::vector<D3D12_BUFFER_BARRIER>& afterBarriers) const
+		//QueueFenceSyncPoint
+		EGPUQueueTypeFlags aquireBarriersEmitFenceQueues = EGPUQueueType::eNone;
+		EGPUQueueTypeFlags bodyCommandsEmitFenceQueues = EGPUQueueType::eNone;
+		EGPUQueueTypeFlags releaseBarriersEmitFenceQueues = EGPUQueueType::eNone;
+
+		castl::set<uint32_t> computeWaitingDirectBatches;
+		castl::set<uint32_t> directWaitingComputeBatches;
+
+		RenderStateBarriers& GetReleaseBarriers(bool computeLocal)
 		{
-			//CBuffer Barriers
-			for (auto& cbufferData : cbufferBarriers.cbufferData)
-			{
-				BufferHandle const& bufferHandle = cbufferData.first;
-				ID3D12Resource* targetBuffer = resourceManager.GetBufferD3D12Resource(bufferHandle);
-
-				D3D12_BUFFER_BARRIER beforeBarrier{};
-				beforeBarrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
-				beforeBarrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_DEST;
-				beforeBarrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
-				beforeBarrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
-				beforeBarrier.pResource = targetBuffer;
-				beforeBarrier.Offset = 0;
-				beforeBarrier.Size = ULLONG_MAX;
-				beforeBarriers.push_back(beforeBarrier);
-
-				D3D12_BUFFER_BARRIER afterBarrier{};
-				afterBarrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
-				afterBarrier.AccessAfter = D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
-				afterBarrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
-				afterBarrier.SyncAfter = D3D12_BARRIER_SYNC_ALL;
-				afterBarrier.pResource = targetBuffer;
-				afterBarrier.Offset = 0;
-				afterBarrier.Size = ULLONG_MAX;
-				afterBarriers.push_back(afterBarrier);
-			}
+			return computeLocal ? computeReleaseBarriers : releaseBarriers;
 		}
 
-		void CBufferCopyInitialize(ID3D12GraphicsCommandList7* pCommandList
-			, LinearMemoryManager& linearMemoryManager
-			, D3D12GraphLocalResourceManager& resourceManager) const
+		RenderStateBarriers& GetAquireBarriers(bool computeLocal)
 		{
-			//CBuffer Barriers
-			for (auto& cbufferData : cbufferBarriers.cbufferData)
-			{
-				BufferHandle const& bufferHandle = cbufferData.first;
-				ID3D12Resource* targetBuffer = resourceManager.GetBufferD3D12Resource(bufferHandle);
-
-				D3D2ShaderStruct const* pStruct = cbufferData.second;
-				ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(pStruct->GetCBufferSize());
-				UINT8* mappedStagingData;
-				stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
-				pStruct->ComputeMaxChildrenVersion();
-				pStruct->UpdateUniformBuffer(0, mappedStagingData, pStruct->GetCBufferSize(), 0);
-				stagingBuffer->Unmap(0, nullptr);
-				pCommandList->CopyBufferRegion(targetBuffer, 0, stagingBuffer, 0, pStruct->GetCBufferSize());
-			}
+			return computeLocal ? computeAquireBarriers : aquireBarriers;
 		}
 
-
-		void ExecuteAquireBarriers(ID3D12GraphicsCommandList7* pCommandList
-			, LinearMemoryManager& linearMemoryManager
-			, D3D12GraphLocalResourceManager& resourceManager) const
+		RenderStateBarriers& GetReleaseBarriers(EGPUQueueTypeFlags queueFlags)
 		{
-			castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
-			castl::vector<D3D12_TEXTURE_BARRIER> imageBarriers;
-			for (auto& aquireImageBarriers : aquireBarriers.imageBarriers)
-			{
-				imageBarriers.push_back(aquireImageBarriers.second);
-			}
-			if (!imageBarriers.empty())
-			{
-				CD3DX12_BARRIER_GROUP imageBarrierGroup(imageBarriers.size(), imageBarriers.data());
-				barrierGroups.push_back(imageBarrierGroup);
-			}
-			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
-
-#pragma region CBuffer Barriers
-			//CBuffer Barriers
-			if (!cbufferBarriers.cbufferData.empty())
-			{
-				castl::vector<D3D12_BUFFER_BARRIER> cbufferAquireBarriers;
-				CbufferInitializeBarriers(pCommandList, resourceManager, cbufferAquireBarriers, bufferBarriers);
-				CD3DX12_BARRIER_GROUP cbufferAquireBarrierGroup(cbufferAquireBarriers.size(), cbufferAquireBarriers.data());
-				pCommandList->Barrier(1, &cbufferAquireBarrierGroup);
-				CBufferCopyInitialize(pCommandList, linearMemoryManager, resourceManager);
-			}
-#pragma endregion
-
-			for (auto& aquireBufferBarriers : aquireBarriers.bufferBarriers)
-			{
-				bufferBarriers.push_back(aquireBufferBarriers.second);
-			}
-			if (!bufferBarriers.empty())
-			{
-				CD3DX12_BARRIER_GROUP bufferBarrierGroup(bufferBarriers.size(), bufferBarriers.data());
-				barrierGroups.push_back(bufferBarrierGroup);
-			}
-			if (!barrierGroups.empty())
-			{
-				pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
-			}
+			if (queueFlags == EGPUQueueType::eCompute)
+				return computeReleaseBarriers;
+			return releaseBarriers;
 		}
 
-		void ExecuteReleaseBarriers(ID3D12GraphicsCommandList7* pCommandList) const
+		RenderStateBarriers& GetAquireBarriers(EGPUQueueTypeFlags queueFlags)
 		{
-			castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
-			castl::vector<D3D12_TEXTURE_BARRIER> imageBarriers;
-			for (auto& aquireImageBarriers : releaseBarriers.imageBarriers)
-			{
-				imageBarriers.push_back(aquireImageBarriers.second);
-			}
-			if (!imageBarriers.empty())
-			{
-				CD3DX12_BARRIER_GROUP imageBarrierGroup(imageBarriers.size(), imageBarriers.data());
-				barrierGroups.push_back(imageBarrierGroup);
-			}
-			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
-
-			for (auto& aquireBufferBarriers : releaseBarriers.bufferBarriers)
-			{
-				bufferBarriers.push_back(aquireBufferBarriers.second);
-			}
-			if (!bufferBarriers.empty())
-			{
-				CD3DX12_BARRIER_GROUP bufferBarrierGroup(bufferBarriers.size(), bufferBarriers.data());
-				barrierGroups.push_back(bufferBarrierGroup);
-			}
-			if (!barrierGroups.empty())
-			{
-				pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
-			}
+			if (queueFlags == EGPUQueueType::eCompute)
+				return computeAquireBarriers;
+			return aquireBarriers;
 		}
 
+		CBufferInitializeBarriers& GetCBufferBarriers(EGPUQueueTypeFlags queueFlags)
+		{
+			if (queueFlags == EGPUQueueType::eCompute)
+				return computeCBufferBarriers;
+			return cbufferBarriers;
+		}
 	};
 
 
@@ -785,7 +851,8 @@ namespace graphics_backend
 		}
 		while (!pendingDependencies.empty())
 		{
-			GPUExecutionBatch& newPass = outExecutionBatchs.emplace_back();
+			GPUExecutionBatch& newBatch = outExecutionBatchs.emplace_back();
+			newBatch.anyComputeQueueOperations = false;
 			std::vector<PassDependency*> passFreeDeps;
 			auto depItr = pendingDependencies.begin();
 			while (depItr != pendingDependencies.end())
@@ -796,17 +863,20 @@ namespace graphics_backend
 					depItr = pendingDependencies.erase(depItr);
 					passFreeDeps.push_back(dep);
 					//add to newPass
-					newPass.batchRWStates.Append(dep->rwState);
+					newBatch.batchRWStates.Append(dep->rwState);
 					switch (dep->passType)
 					{
 					case EGraphStageType::eRenderPass:
-						newPass.rasterPassRefs.push_back(dep->passID);
+						newBatch.rasterPassRefs.push_back(dep->passID);
 						break;
 					case EGraphStageType::eComputePass:
-						newPass.computePassRefs.push_back(dep->passID);
+						{
+							newBatch.anyComputeQueueOperations = newBatch.anyComputeQueueOperations || owningGraph.GetComputePasses()[dep->passID].asyncCompute;
+							newBatch.computePassRefs.push_back(dep->passID);
+						}
 						break;
 					case EGraphStageType::eTransferPass:
-						newPass.transferPassRefs.push_back(dep->passID);
+						newBatch.transferPassRefs.push_back(dep->passID);
 						break;
 					}
 				}
@@ -818,6 +888,22 @@ namespace graphics_backend
 			for (PassDependency* dep : passFreeDeps)
 			{
 				dep->RemoveSelfDeps();
+			}
+		}
+
+		//Add Finalize Batch Here
+		bool NeedFinalizeBatch = !owningGraph.GetPresentBackBuffers().empty();
+		if (NeedFinalizeBatch)
+		{
+			GPUExecutionBatch& newBatch = outExecutionBatchs.emplace_back();
+			newBatch.anyComputeQueueOperations = false;
+			for (auto& backBuffer : owningGraph.GetPresentBackBuffers())
+			{
+				newBatch.batchRWStates.SetImageRWState(backBuffer
+					, EShaderTypeMask::eNone
+					, EResourceUsage::ePresent
+					, ShaderCompilerSlang::EShaderResourceAccess::eUnknown
+					, EGPUQueueType::eDirect);
 			}
 		}
 	}
@@ -881,7 +967,7 @@ namespace graphics_backend
 
 	void BuildResourceUsageRanges(castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageRanges,
 		castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferRanges,
-		castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange>& cbufferRanges,
+		castl::unordered_map<D3D2ShaderStruct const*, CBufferUsageData>& cbufferRanges,
 		castl::vector<GPUExecutionBatch> const& executionBatchs
 	)
 	{
@@ -897,9 +983,9 @@ namespace graphics_backend
 			{
 				bufferRanges[bufferRWState.first].Expand(batchID, bufferRWState.second);
 			}
-			for (D3D2ShaderStruct const* cbufferStruct : rwStates.cBufferUsageStates)
+			for (auto cbufferStruct : rwStates.cBufferUsageStates)
 			{
-				cbufferRanges[cbufferStruct].encapsule(batchID);
+				cbufferRanges[cbufferStruct.first].Encapsule(batchID, cbufferStruct.second);
 			}
 		}
 	}
@@ -995,11 +1081,11 @@ namespace graphics_backend
 	}
 
 	void PrepareBatchResourceBarriers(GPUGraph const& owningGraph
-		, GPUFinalizeBatch& finalizeBatch
+		//, GPUFinalizeBatch& finalizeBatch
 		, castl::vector<GPUExecutionBatch>& executionBatchs
 		, castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageLifetimes
 		, castl::unordered_map<BufferHandle, ResourceUsageRangeData>& bufferLifetimes
-		, castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> const& cbufferLifetimes
+		, castl::unordered_map<D3D2ShaderStruct const*, CBufferUsageData> const& cbufferLifetimes
 		, GPUConstantBufferManager& constantBufferManager
 		, D3D12GraphLocalResourceManager& resourceManager
 	)
@@ -1039,38 +1125,110 @@ namespace graphics_backend
 				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
 				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
 
-				D3D12_TEXTURE_BARRIER resouceBarrier{};
-				resouceBarrier.AccessBefore = lastBarrierStates.accessState;
-				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
-				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
-				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
-				resouceBarrier.LayoutBefore = lastBarrierStates.layoutState;
-				resouceBarrier.LayoutAfter = currentBarrierStates.layoutState;
-				resouceBarrier.pResource = resourceManager.GetImageD3D12Resource(image);
-				resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+				bool currentHasQueueLocalLayout = currentBarrierStates.HasQueueLocalState();
+				bool lastHasQueueLocalLayout = lastBarrierStates.HasQueueLocalState();
+				bool computeWaitDirect = currentState.hasComputeQueue() && lastState.hasDirectQueue();
+				bool directWaitCompute = currentState.hasDirectQueue() && lastState.hasComputeQueue();
+				bool anyCrossQueueWaiting = computeWaitDirect || directWaitCompute;
+				bool asyncSplitQueueType = (currentHasQueueLocalLayout || lastHasQueueLocalLayout) && anyCrossQueueWaiting;
 
-				if (stateHaveGap)
+				if (anyCrossQueueWaiting)
 				{
-					CA_ASSERT_BREAK(!isFirstState, "First State Should Not Have Gap");
-					CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
+					//We Need Fence To Sync Resource Dependencies Between Queues
+					auto& currentBatch = executionBatchs[currentBatchID];
+					auto& lastBatch = executionBatchs[lastBatchID];
+					if (computeWaitDirect)
+					{
+						lastBatch.releaseBarriersEmitFenceQueues |= EGPUQueueType::eDirect;
+						currentBatch.computeWaitingDirectBatches.insert(lastBatchID);
+					}
+					if (directWaitCompute)
+					{
+						lastBatch.releaseBarriersEmitFenceQueues |= EGPUQueueType::eCompute;
+						currentBatch.directWaitingComputeBatches.insert(lastBatchID);
+					}
+					if (lastState.isSharedBetweenQueues())
+					{
+						lastBatch.bodyCommandsEmitFenceQueues |= EGPUQueueType::eCompute;
+					}
+					if (currentState.isSharedBetweenQueues())
+					{
+						currentBatch.aquireBarriersEmitFenceQueues |= EGPUQueueType::eDirect;
+					}
+				}
+
+				if (asyncSplitQueueType)
+				{
+					//Special Transition For Transition Between Queue Local Layouts
+					//previous queue local layout -> common layout -> next queue local layout
 
 					auto& currentBatch = executionBatchs[currentBatchID];
 					auto& lastBatch = executionBatchs[lastBatchID];
+					//When Queue Changed We Need Special, More Restrict Barrier
+					D3D12_TEXTURE_BARRIER resouceBarrier{};
+					resouceBarrier.AccessBefore = lastBarrierStates.accessState;
+					resouceBarrier.AccessAfter = currentBarrierStates.accessState;
+					resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
+					resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+					resouceBarrier.pResource = resourceManager.GetImageD3D12Resource(image);
+					resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
 
-					//Have Gap, Using Split Barrier
-					D3D12_TEXTURE_BARRIER releaseBarrier = resouceBarrier;
-					releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
-					lastBatch.releaseBarriers.AddImageBarrier(image, releaseBarrier);
+					//Before, Transition to an intermediate layout
+					if(lastBarrierStates.queueLocalLayoutState != currentBarrierStates.layoutState)
+					{
+						D3D12_TEXTURE_BARRIER releaseBarrier = resouceBarrier;
+						releaseBarrier.LayoutBefore = lastBarrierStates.queueLocalLayoutState;
+						releaseBarrier.LayoutAfter = currentBarrierStates.layoutState;
 
-					D3D12_TEXTURE_BARRIER aquireBarrier = resouceBarrier;
-					aquireBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
-					currentBatch.aquireBarriers.AddImageBarrier(image, aquireBarrier);
+						lastBatch.GetReleaseBarriers(lastState.queueTypes).AddImageBarrier(image, releaseBarrier);
+					}
+					//After, Transition from intermediate layout to target layout
+					if(currentBarrierStates.layoutState != currentBarrierStates.queueLocalLayoutState)
+					{
+						D3D12_TEXTURE_BARRIER aquireBarrier = resouceBarrier;
+						aquireBarrier.LayoutBefore = lastBarrierStates.layoutState;
+						aquireBarrier.LayoutAfter = currentBarrierStates.queueLocalLayoutState;
+
+						currentBatch.GetAquireBarriers(currentState.queueTypes).AddImageBarrier(image, aquireBarrier);
+					}
 				}
 				else
 				{
-					auto& currentBatch = executionBatchs[currentBatchID];
-					currentBatch.aquireBarriers.AddImageBarrier(image, resouceBarrier);
+					D3D12_TEXTURE_BARRIER resouceBarrier{};
+					resouceBarrier.AccessBefore = lastBarrierStates.accessState;
+					resouceBarrier.AccessAfter = currentBarrierStates.accessState;
+					resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
+					resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+					resouceBarrier.LayoutBefore = lastBarrierStates.queueLocalLayoutState;
+					resouceBarrier.LayoutAfter = currentBarrierStates.queueLocalLayoutState;
+					resouceBarrier.pResource = resourceManager.GetImageD3D12Resource(image);
+					resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+
+					if (stateHaveGap)
+					{
+						CA_ASSERT_BREAK(!isFirstState, "First State Should Not Have Gap");
+						CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
+
+						auto& currentBatch = executionBatchs[currentBatchID];
+						auto& lastBatch = executionBatchs[lastBatchID];
+
+						//Have Gap, Using Split Barrier
+						D3D12_TEXTURE_BARRIER releaseBarrier = resouceBarrier;
+						releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
+						lastBatch.GetReleaseBarriers(lastState.queueTypes).AddImageBarrier(image, releaseBarrier);
+
+
+						D3D12_TEXTURE_BARRIER aquireBarrier = resouceBarrier;
+						aquireBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
+						currentBatch.GetAquireBarriers(currentState.queueTypes).AddImageBarrier(image, aquireBarrier);
+					}
+					else
+					{
+						auto& currentBatch = executionBatchs[currentBatchID];
+						currentBatch.GetAquireBarriers(currentState.queueTypes).AddImageBarrier(image, resouceBarrier);
+					}
 				}
+				
 			}
 		}
 
@@ -1105,6 +1263,35 @@ namespace graphics_backend
 				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
 				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
 
+				bool computeWaitDirect = currentState.hasComputeQueue() && lastState.hasDirectQueue();
+				bool directWaitCompute = currentState.hasDirectQueue() && lastState.hasComputeQueue();
+				bool anyCrossQueueWaiting = computeWaitDirect || directWaitCompute;
+
+				if (anyCrossQueueWaiting)
+				{
+					//We Need Fence To Sync Resource Dependencies Between Queues
+					auto& currentBatch = executionBatchs[currentBatchID];
+					auto& lastBatch = executionBatchs[lastBatchID];
+					if (computeWaitDirect)
+					{
+						lastBatch.releaseBarriersEmitFenceQueues |= EGPUQueueType::eDirect;
+						currentBatch.computeWaitingDirectBatches.insert(lastBatchID);
+					}
+					if (directWaitCompute)
+					{
+						lastBatch.releaseBarriersEmitFenceQueues |= EGPUQueueType::eCompute;
+						currentBatch.directWaitingComputeBatches.insert(lastBatchID);
+					}
+					if (lastState.isSharedBetweenQueues())
+					{
+						lastBatch.bodyCommandsEmitFenceQueues |= EGPUQueueType::eCompute;
+					}
+					if (currentState.isSharedBetweenQueues())
+					{
+						currentBatch.aquireBarriersEmitFenceQueues |= EGPUQueueType::eDirect;
+					}
+				}
+
 				D3D12_BUFFER_BARRIER resouceBarrier{};
 				resouceBarrier.AccessBefore = lastBarrierStates.accessState;
 				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
@@ -1124,17 +1311,17 @@ namespace graphics_backend
 					//Have Gap, Using Split Barrier
 					D3D12_BUFFER_BARRIER releaseBarrier = resouceBarrier;
 					releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
-					lastBatch.releaseBarriers.AddBufferBarrier(buffer, releaseBarrier);
+					lastBatch.GetReleaseBarriers(lastState.queueTypes).AddBufferBarrier(buffer, releaseBarrier);
 
 					D3D12_BUFFER_BARRIER aquireBarrier = resouceBarrier;
 					releaseBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
-					currentBatch.aquireBarriers.AddBufferBarrier(buffer, aquireBarrier);
+					currentBatch.GetAquireBarriers(currentState.queueTypes).AddBufferBarrier(buffer, aquireBarrier);
 
 				}
 				else
 				{
 					auto& currentBatch = executionBatchs[currentBatchID];
-					currentBatch.aquireBarriers.AddBufferBarrier(buffer, resouceBarrier);
+					currentBatch.GetAquireBarriers(currentState.queueTypes).AddBufferBarrier(buffer, resouceBarrier);
 				}
 			}
 		}
@@ -1142,93 +1329,332 @@ namespace graphics_backend
 		//Constant Buffers Initialized In First Used Batch And Remain Unchanged In Whole Lifetime
 		for (auto& pair : cbufferLifetimes)
 		{
-			if (pair.second.empty())
+			auto& cbufferUsage = pair.second;
+			if (cbufferUsage.lifeTime.empty())
 				continue;
 			D3D2ShaderStruct const* pStruct = pair.first;
-			int initialBatchID = pair.second.head();
+			int initialBatchID = cbufferUsage.lifeTime.head();
 			auto& initialBatch = executionBatchs[initialBatchID];
-			initialBatch.cbufferBarriers.AddCBuffer(constantBufferManager.GetConstantBufferHandle(pStruct), pStruct);
-		}
 
-		//Backbuffer Barriers
-		for (auto& backBufferImage : owningGraph.GetPresentBackBuffers())
-		{
-			auto found = imageLifetimes.find(backBufferImage);
-			if (found != imageLifetimes.end())
+			initialBatch.GetCBufferBarriers(cbufferUsage.queueTypes).AddCBuffer(constantBufferManager.GetConstantBufferHandle(pStruct), pStruct);
+			if (cbufferUsage.queueTypes.BitCount() > 1)
 			{
-				int finalBatchID = executionBatchs.size();
-				auto backBufferUsage = found->second;
-				WindowContext const* pWindow = static_cast<WindowContext const*>(backBufferImage.GetWindowHandle().get());
-				ResourceState const& cachedState = pWindow->GetCurrentBackBufferResourceState();
-				bool hasInGraphState = backBufferUsage.states.empty();
-				ResourceState const& lastState = hasInGraphState ? cachedState : backBufferUsage.states.back().state;
-				int lastBatchID = hasInGraphState ? backBufferUsage.states.back().batchID : -1;
-				bool stateHaveGap = hasInGraphState && ((finalBatchID - lastBatchID) > 1);
-
-				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
-				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(ResourceState::PresentState());
-
-				D3D12_TEXTURE_BARRIER resouceBarrier{};
-				resouceBarrier.AccessBefore = lastBarrierStates.accessState;
-				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
-				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
-				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
-				resouceBarrier.LayoutBefore = lastBarrierStates.layoutState;
-				resouceBarrier.LayoutAfter = currentBarrierStates.layoutState;
-				resouceBarrier.pResource = pWindow->GetCurrentBackBufferResource().Get();
-				resouceBarrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
-
-
-				if (stateHaveGap)
-				{
-					CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
-
-					auto& lastBatch = executionBatchs[lastBatchID];
-
-					//Have Gap, Using Split Barrier
-					D3D12_TEXTURE_BARRIER releaseBarrier = resouceBarrier;
-					releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
-					lastBatch.releaseBarriers.AddImageBarrier(backBufferImage, releaseBarrier);
-
-					D3D12_TEXTURE_BARRIER aquireBarrier = resouceBarrier;
-					aquireBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
-					finalizeBatch.finalizeBarriers.AddImageBarrier(backBufferImage, aquireBarrier);
-				}
-				else
-				{
-					finalizeBatch.finalizeBarriers.AddImageBarrier(backBufferImage, resouceBarrier);
-				}
+				initialBatch.aquireBarriersEmitFenceQueues |= EGPUQueueType::eDirect;
 			}
-
 		}
 	}
 
-	void Execute(RenderBackend_D3D12* pBackend
-		, GPUGraph const& owningGraph
-		, CommandListManager& commandListMgr
-		, LinearMemoryManager& linearMemoryManager
-		, D3D12GraphLocalResourceManager& resourceManager
-		, CPUDescriptorAllocatorSet& cpuDescriptorAllocatorSet
-		, GPUDescriptorHeap& resourceHeap
-		, GPUDescriptorHeap& samplerHeap
-		, GPUFinalizeBatch& finalizeBatch
-		, castl::vector<GPUExecutionBatch> const& executeBatchs
-		, castl::vector<RenderPassGPUData> const& rasterPassGPUData
-		, castl::vector<ComputePassGPUData> const& computePassGPUData
-		, GPUFrameManager::PFrameContext& pFrameContext
-	)
+	class BatchCommandExecutionRanges
 	{
-		ID3D12GraphicsCommandList7* pCommand = commandListMgr.DirectCommand();
-		std::array<ID3D12DescriptorHeap*, 2> descHeaps = { resourceHeap.GetHeap().Get(),samplerHeap.GetHeap().Get() };
-		pCommand->SetDescriptorHeaps(descHeaps.size(), descHeaps.data());
-		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
+	public:
+		struct QueueExecutionRange
 		{
-			auto& executeBatch = executeBatchs[executeBatchID];
-			executeBatch.ExecuteAquireBarriers(pCommand, linearMemoryManager, resourceManager);
+			castl::vector<ID3D12GraphicsCommandList7*> commands;
+			int waitingFenceID = 0;
+			int signalFenceID = 0;
+			void Signal(int fenceID)
+			{
+				if (fenceID == 0)return;
+				signalFenceID = fenceID;
+			}
+			void Wait(int fenceID)
+			{
+				if (fenceID == 0)return;
+				waitingFenceID = fenceID;
+			}
+			bool Signaled() const
+			{
+				return signalFenceID != 0;
+			}
+			bool Waited() const
+			{
+				return waitingFenceID != 0;
+			}
+			void Submit(ID3D12CommandQueue* queue, ID3D12Fence* fence, ID3D12Fence* waitFence)
+			{
+				if (waitingFenceID != 0)
+				{
+					queue->Wait(waitFence, waitingFenceID);
+				}
+				if (!commands.empty())
+				{
+					queue->ExecuteCommandLists(commands.size(), (ID3D12CommandList *const*)commands.data());
+				}
+				if (signalFenceID != 0)
+				{
+					queue->Signal(fence, signalFenceID);
+				}
+			}
+		};
+
+		struct CombinedQueueExecutionRange
+		{
+			QueueExecutionRange directQueueRange;
+			QueueExecutionRange computeQueueRange;
+			
+			void Signal(int directFenceID, int computeFenceID)
+			{
+				CA_ASSERT_BREAK(directFenceID == 0 || !directQueueRange.Signaled(), "DirectQueue Should Not Be Signaled");
+				CA_ASSERT_BREAK(computeFenceID == 0 || !computeQueueRange.Signaled(), "ComputeQueue Should Not Be Signaled");
+				directQueueRange.Signal(directFenceID);
+				computeQueueRange.Signal(computeFenceID);
+			}
+			void Wait(int directWaitFenceID, int computeWaitFenceID)
+			{
+				CA_ASSERT_BREAK((directWaitFenceID == 0) || (!directQueueRange.Waited()), "DirectQueue Should Not Wait");
+				CA_ASSERT_BREAK((computeWaitFenceID == 0) || (!computeQueueRange.Waited()), "ComputeQueue Should Not Wait");
+				directQueueRange.Wait(directWaitFenceID);
+				computeQueueRange.Wait(computeWaitFenceID);
+			}
+			bool isSignaled() const
+			{
+				return directQueueRange.Signaled() || computeQueueRange.Signaled();
+			}
+
+			void Submit(RenderBackend_D3D12* pBackend, FrameLocalFences& fences)
+			{
+				{
+					auto queue = pBackend->GetDirectQueue().Get();
+					auto fence = fences.m_DirectQueueFence.Get();
+					auto waitFence = fences.m_ComputeQueueFence.Get();
+					directQueueRange.Submit(queue, fence, waitFence);
+				}
+				{
+					auto queue = pBackend->GetComputeQueue().Get();
+					auto fence = fences.m_ComputeQueueFence.Get();
+					auto waitFence = fences.m_DirectQueueFence.Get();
+					computeQueueRange.Submit(queue, fence, waitFence);
+				}
+			}
+
+		};
+
+		castl::vector<CombinedQueueExecutionRange> ranges;
+
+		CombinedQueueExecutionRange& EnsureNonSignaledRange()
+		{
+			if (ranges.empty() || ranges.back().isSignaled())
+			{
+				ranges.emplace_back();
+			}
+			return ranges.back();
+		}
+
+
+	};
+
+
+
+	struct SignalFenceIDPair
+	{
+		int directSignal = 0;
+		int computeSignal = 0;
+
+		bool AnySignal() const
+		{
+			return directSignal != 0 || computeSignal != 0;
+		}
+
+		void Signals(BatchCommandExecutionRanges::CombinedQueueExecutionRange& range) const
+		{
+			range.Signal(directSignal, computeSignal);
+		}
+
+		void Wait(BatchCommandExecutionRanges::CombinedQueueExecutionRange& range) const
+		{
+			//Signaled On Direct Queue, Waited By Compute Queue;
+			range.Wait(computeSignal, directSignal);
+		}
+
+		void AssignSignals(EGPUQueueTypeFlags flags, int& directFenceCounter, int& computeFenceCounter)
+		{
+			directSignal = 0;
+			computeSignal = 0;
+			if (flags & EGPUQueueType::eDirect)
+			{
+				directSignal = ++directFenceCounter;
+			}
+			if (flags & EGPUQueueType::eCompute)
+			{
+				computeSignal = ++computeFenceCounter;
+			}
+		}
+
+		SignalFenceIDPair Greater(SignalFenceIDPair const& other) const
+		{
+			SignalFenceIDPair result;
+			result.directSignal = std::max(directSignal, other.directSignal);
+			result.computeSignal = std::max(computeSignal, other.computeSignal);
+			return result;
+		}
+	};
+
+	class ReleaseResourceCommandSet
+	{
+		ID3D12GraphicsCommandList7* pDirectCmd = nullptr;
+		ID3D12GraphicsCommandList7* pComputeCmd = nullptr;
+	public:
+		void Record(RenderBackend_D3D12* backend
+			, GPUExecutionBatch const& executionBatch
+			, CommandListManager& cmdListMgr
+		)
+		{
+			if (executionBatch.releaseBarriers.AnyBarrier())
+			{
+				pDirectCmd = cmdListMgr.DirectCommand();
+				executionBatch.releaseBarriers.ExecuteBarriers(pDirectCmd);
+				pDirectCmd->Close();
+			}
+			if (executionBatch.computeReleaseBarriers.AnyBarrier())
+			{
+				pComputeCmd = cmdListMgr.ComputeCommand();
+				executionBatch.computeReleaseBarriers.ExecuteBarriers(pComputeCmd);
+				pComputeCmd->Close();
+			}
+		}
+
+		void CollectCommands(BatchCommandExecutionRanges::CombinedQueueExecutionRange& range)
+		{
+			if (pDirectCmd)
+			{
+				range.directQueueRange.commands.push_back(pDirectCmd);
+				pDirectCmd = nullptr;
+			}
+			if (pComputeCmd)
+			{
+				range.computeQueueRange.commands.push_back(pComputeCmd);
+				pComputeCmd = nullptr;
+			}
+		}
+
+	};
+
+	class AquireResourceCommandSet
+	{
+		ID3D12GraphicsCommandList7* pDirectCmd = nullptr;
+		ID3D12GraphicsCommandList7* pComputeCmd = nullptr;
+
+	public:
+		void Record(RenderBackend_D3D12* backend
+			, GPUExecutionBatch const& executionBatch
+			, CommandListManager& cmdListMgr
+			, LinearMemoryManager& linearMemoryManager
+			, D3D12GraphLocalResourceManager& resourceManager
+		)
+		{
+			if (executionBatch.aquireBarriers.AnyBarrier() || executionBatch.cbufferBarriers.AnyBarrier())
+			{
+				pDirectCmd = cmdListMgr.DirectCommand();
+				executionBatch.cbufferBarriers.ExecuteCBufferInitializationBarriers(pDirectCmd, linearMemoryManager, resourceManager);
+				executionBatch.aquireBarriers.ExecuteBarriers(pDirectCmd);
+				pDirectCmd->Close();
+			}
+			if (executionBatch.computeAquireBarriers.AnyBarrier() || executionBatch.computeCBufferBarriers.AnyBarrier())
+			{
+				pComputeCmd = cmdListMgr.ComputeCommand();
+				executionBatch.computeCBufferBarriers.ExecuteCBufferInitializationBarriers(pComputeCmd, linearMemoryManager, resourceManager);
+				executionBatch.computeAquireBarriers.ExecuteBarriers(pComputeCmd);
+				pComputeCmd->Close();
+			}
+		}
+
+		void CollectCommands(BatchCommandExecutionRanges::CombinedQueueExecutionRange& range)
+		{
+			if (pDirectCmd)
+			{
+				range.directQueueRange.commands.push_back(pDirectCmd);
+				pDirectCmd = nullptr;
+			}
+			if (pComputeCmd)
+			{
+				range.computeQueueRange.commands.push_back(pComputeCmd);
+				pComputeCmd = nullptr;
+			}
+		}
+		
+	};
+
+	class BatchExecutionContext
+	{
+	public:
+		ID3D12GraphicsCommandList7* pDirectCmd = nullptr;
+		ID3D12GraphicsCommandList7* pComputeCmd = nullptr;
+
+
+		AquireResourceCommandSet aquireCommands;
+		ReleaseResourceCommandSet releaseCommands;
+
+		//int computeWaitingDirectFence = 0;
+		//int directWaitingComputeFence = 0;
+		SignalFenceIDPair waitSignals;
+
+		SignalFenceIDPair aquireBarrierSignals;
+		SignalFenceIDPair bodySignals;
+		SignalFenceIDPair releaseSignals;
+		SignalFenceIDPair finalSignals;
+
+		void Record(
+			RenderBackend_D3D12* pBackend
+			, GPUGraph const& owningGraph
+			, CommandListManager& commandListMgr
+			, LinearMemoryManager& linearMemoryManager
+			, D3D12GraphLocalResourceManager& resourceManager
+			, CPUDescriptorAllocatorSet& cpuDescriptorAllocatorSet
+			, GPUDescriptorHeap& resourceHeap
+			, GPUDescriptorHeap& samplerHeap
+			, GPUExecutionBatch const& executeBatch
+			, castl::vector<RenderPassGPUData> const& rasterPassGPUData
+			, castl::vector<ComputePassGPUData> const& computePassGPUData
+			, GPUFrameManager::PFrameContext& pFrameContext
+		)
+		{
+			std::array<ID3D12DescriptorHeap*, 2> descHeaps = { resourceHeap.GetHeap().Get(),samplerHeap.GetHeap().Get() };
+
+			aquireCommands.Record(pBackend, executeBatch, commandListMgr, linearMemoryManager, resourceManager);
+			releaseCommands.Record(pBackend, executeBatch, commandListMgr);
+
+			pDirectCmd = nullptr;
+			pComputeCmd = nullptr;
+
+			auto getDirectCmd = [&]() -> ID3D12GraphicsCommandList7*
+			{
+				if (!pDirectCmd)
+				{
+					pDirectCmd = commandListMgr.DirectCommand();
+					pDirectCmd->SetDescriptorHeaps(descHeaps.size(), descHeaps.data());
+				}
+				return pDirectCmd;
+			};
+
+			auto getComputeCmd = [&](bool preferCompute) -> ID3D12GraphicsCommandList7*
+			{
+				if(!preferCompute)
+					return getDirectCmd();
+
+				if (!pComputeCmd)
+				{
+					pComputeCmd = commandListMgr.ComputeCommand();
+					pComputeCmd->SetDescriptorHeaps(descHeaps.size(), descHeaps.data());
+				}
+				return pComputeCmd;
+			};
+
+			auto closeCommands = [&]()
+			{
+				if (pDirectCmd)
+				{
+					pDirectCmd->Close();
+				}
+				if (pComputeCmd)
+				{
+					pComputeCmd->Close();
+				}
+			};
 
 			//Rasterize Passes
 			for (int rasterPassID : executeBatch.rasterPassRefs)
 			{
+				auto pCommand = getDirectCmd();
 				auto& rasterData = rasterPassGPUData[rasterPassID];
 				auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
 				CA_ASSERT_BREAK(rasterData.drawcallBatchs.size() == pass.GetDrawCallBatches().size(), "Raster Pass Batch Count Inompatible");
@@ -1370,6 +1796,8 @@ namespace graphics_backend
 				auto& computeData = computePassGPUData[computePassID];
 				auto& pass = owningGraph.GetComputePasses()[computePassID];
 
+				auto pCommand = getComputeCmd(pass.asyncCompute);
+
 				for (int dispatchID = 0; dispatchID < computeData.dispatchs.size(); ++dispatchID)
 				{
 					auto& dispatchData = computeData.dispatchs[dispatchID];
@@ -1402,6 +1830,7 @@ namespace graphics_backend
 			//Transfer Passes
 			for (int transferPassID : executeBatch.transferPassRefs)
 			{
+				auto pCommand = getDirectCmd();
 				GPUDataTransfers const& transferPass = owningGraph.GetDataTransfers()[transferPassID];
 				for (auto& imageUploads : transferPass.m_ImageDataUploads)
 				{
@@ -1450,13 +1879,124 @@ namespace graphics_backend
 				}
 			}
 
-			executeBatch.ExecuteReleaseBarriers(pCommand);
+			closeCommands();
 		}
-		finalizeBatch.ExecuteFinalizeBarriers(pCommand);
-		pCommand->Close();
-		castl::vector<ID3D12CommandList*> commands = { pCommand };
-		pBackend->GetDirectQueue()->ExecuteCommandLists(1, commands.data());
-		pFrameContext->Signal(pBackend->GetDirectQueue());
+
+		void AssignFenceIDs(int& directFenceCounter
+			, int& computeFenceCounter
+			, GPUExecutionBatch const& executionBatch)
+		{
+			aquireBarrierSignals.AssignSignals(executionBatch.aquireBarriersEmitFenceQueues, directFenceCounter, computeFenceCounter);
+			bodySignals.AssignSignals(executionBatch.bodyCommandsEmitFenceQueues, directFenceCounter, computeFenceCounter);
+			releaseSignals.AssignSignals(executionBatch.releaseBarriersEmitFenceQueues, directFenceCounter, computeFenceCounter);
+			finalSignals = aquireBarrierSignals.Greater(bodySignals).Greater(releaseSignals);
+		}
+
+		void FindWaitFenceIDs(castl::vector<BatchExecutionContext> const& allcommand
+			, GPUExecutionBatch const& executionBatch)
+		{
+			//computeWaitingDirectFence = 0;
+			//directWaitingComputeFence = 0; 
+			waitSignals = {};
+			for (int batchID : executionBatch.computeWaitingDirectBatches)
+			{
+				waitSignals.directSignal = std::max(waitSignals.directSignal, allcommand[batchID].finalSignals.directSignal);
+			}
+			for (int batchID : executionBatch.directWaitingComputeBatches)
+			{
+				waitSignals.computeSignal = std::max(waitSignals.computeSignal, allcommand[batchID].finalSignals.computeSignal);
+			}
+		}
+
+		void CollectCommands(BatchCommandExecutionRanges& ranges)
+		{
+			auto& aquireRange = ranges.EnsureNonSignaledRange();
+			waitSignals.Wait(aquireRange);
+			aquireCommands.CollectCommands(aquireRange);
+			aquireBarrierSignals.Signals(aquireRange);
+
+			auto& executionRange = ranges.EnsureNonSignaledRange();
+			aquireBarrierSignals.Wait(executionRange);
+			if (pDirectCmd)
+			{
+				executionRange.directQueueRange.commands.push_back(pDirectCmd);
+			}
+			if (pComputeCmd)
+			{
+				executionRange.computeQueueRange.commands.push_back(pComputeCmd);
+			}
+			bodySignals.Signals(executionRange);
+
+			auto& releaseRange = ranges.EnsureNonSignaledRange();
+			bodySignals.Wait(releaseRange);
+			releaseCommands.CollectCommands(releaseRange);
+			releaseSignals.Signals(releaseRange);
+		}
+
+	};
+
+	void Execute(RenderBackend_D3D12* pBackend
+		, GPUGraph const& owningGraph
+		, CommandListManager& commandListMgr
+		, LinearMemoryManager& linearMemoryManager
+		, D3D12GraphLocalResourceManager& resourceManager
+		, CPUDescriptorAllocatorSet& cpuDescriptorAllocatorSet
+		, GPUDescriptorHeap& resourceHeap
+		, GPUDescriptorHeap& samplerHeap
+		, castl::vector<GPUExecutionBatch> const& executeBatchs
+		, castl::vector<RenderPassGPUData> const& rasterPassGPUData
+		, castl::vector<ComputePassGPUData> const& computePassGPUData
+		, GPUFrameManager::PFrameContext& pFrameContext
+	)
+	{
+		std::vector<BatchExecutionContext> contexts(executeBatchs.size());
+		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
+		{
+			auto& executeBatch = executeBatchs[executeBatchID];
+			BatchExecutionContext& batchContext = contexts[executeBatchID];
+			batchContext.Record(pBackend
+				, owningGraph
+				, commandListMgr
+				, linearMemoryManager
+				, resourceManager
+				, cpuDescriptorAllocatorSet
+				, resourceHeap
+				, samplerHeap
+				, executeBatch
+				, rasterPassGPUData
+				, computePassGPUData
+				, pFrameContext);
+		}
+		int directFenceCounter = 0;
+		int computeFenceCounter = 0;
+		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
+		{
+			auto& executeBatch = executeBatchs[executeBatchID];
+			BatchExecutionContext& batchContext = contexts[executeBatchID];
+			batchContext.AssignFenceIDs(directFenceCounter, computeFenceCounter, executeBatch);
+		}
+		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
+		{
+			auto& executeBatch = executeBatchs[executeBatchID];
+			BatchExecutionContext& batchContext = contexts[executeBatchID];
+			batchContext.FindWaitFenceIDs(contexts, executeBatch);
+		}
+
+		BatchCommandExecutionRanges executionRanges;
+		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
+		{
+			auto& executeBatch = executeBatchs[executeBatchID];
+			BatchExecutionContext& batchContext = contexts[executeBatchID];
+			batchContext.CollectCommands(executionRanges);
+		}
+
+		FrameLocalFences& frameLocalFences = pFrameContext->GetResourceManager().GetFrameLocalFences();
+		for (auto& range : executionRanges.ranges)
+		{
+			range.Submit(pBackend, frameLocalFences);
+		}
+
+		pFrameContext->Signal(pBackend->GetDirectQueue(), pBackend->GetComputeQueue());
 	}
 
 	void PresentWindows(GPUGraph const& owningGraph)
@@ -1522,7 +2062,7 @@ namespace graphics_backend
 		castl::vector<PassRWState> transferPassRWStates;
 		castl::vector<RenderPassGPUData> rasterPassGPUDataList;
 		castl::vector<ComputePassGPUData> computePassGPUDataList;
-		GPUFinalizeBatch finalizeBatch;
+		//GPUFinalizeBatch finalizeBatch;
 		InitArraySizes(owningGraph
 			, passRWStates, computePassRWStates, transferPassRWStates
 			, rasterPassGPUDataList, computePassGPUDataList
@@ -1547,7 +2087,7 @@ namespace graphics_backend
 		//统计资源的生命周期
 		castl::unordered_map<ImageHandle, ResourceUsageRangeData> imageLifeTimes;
 		castl::unordered_map<BufferHandle, ResourceUsageRangeData> bufferLifeTimes;
-		castl::unordered_map<D3D2ShaderStruct const*, ResourceUsageRange> cbufferLifeTimes;
+		castl::unordered_map<D3D2ShaderStruct const*, CBufferUsageData> cbufferLifeTimes;
 		BuildResourceUsageRanges(imageLifeTimes, bufferLifeTimes, cbufferLifeTimes, executionBatchs);
 
 		//依据资源的生命周期实际分配资源
@@ -1569,7 +2109,7 @@ namespace graphics_backend
 
 		//创建PipelineBarriers, 目前确保在资源创建完毕后再调用
 		PrepareBatchResourceBarriers(owningGraph
-			, finalizeBatch
+			//, finalizeBatch
 			, executionBatchs
 			, imageLifeTimes
 			, bufferLifeTimes
@@ -1593,7 +2133,7 @@ namespace graphics_backend
 			, descriptorAllocatorSet
 			, resourceGPUHeap
 			, samplerGPUHeap
-			, finalizeBatch
+			//, finalizeBatch
 			, executionBatchs
 			, rasterPassGPUDataList
 			, computePassGPUDataList
@@ -1609,7 +2149,7 @@ namespace graphics_backend
 	{
 		m_LocalResourceManager.Reset();
 		m_ConstantBufferManager.Clear();
-		m_CurrentFrameContext->GPUWaitIdle();
+		//m_CurrentFrameContext->GPUWaitIdle();
 		m_CurrentFrameContext = nullptr;
 	}
 }

@@ -29,6 +29,7 @@ namespace thread_management
 	class TaskScheduler
 	{
 	public:
+		virtual ~TaskScheduler() = default;
 		virtual CTask* NewTask() = 0;
 		virtual TaskParallelFor* NewTaskParallelFor() = 0;
 		virtual CTaskGraph* NewTaskGraph() = 0;
