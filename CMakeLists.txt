@@ -15,6 +15,8 @@ endif()
 
 project ("CascadedEngine")
 add_compile_definitions(NOMINMAX=1)
+set(ENV{HTTP_PROXY} "http://127.0.0.1:7890")
+set(ENV{HTTPS_PROXY} "http://127.0.0.1:7890")
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

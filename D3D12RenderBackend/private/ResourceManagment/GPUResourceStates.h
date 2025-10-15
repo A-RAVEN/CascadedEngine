@@ -25,6 +25,8 @@ namespace graphics_backend
 		eInitialized = 1 << 8,
 		ePresent = 1 << 9,
 		eShaderInputs = eShaderResource | eShaderUnorderedAccess | eConstantBuffer,
+		eComputeQueueMask = eShaderResource | eShaderUnorderedAccess | eCopy | eConstantBuffer | eInitialized,
+		eAll = ~0,
 		eBitMax = 10,
 	};
 	enum class EGPUQueueType : uint32_t
@@ -78,9 +80,19 @@ namespace graphics_backend
 	{
 		ShaderCompilerSlang::EShaderResourceAccess resourceAccess;
 		EShaderTypeFlags shaderStages;
+
 		EResourceUsageFlags resourceUsage;
 		EGPUQueueTypeFlags queueTypes;
 		bool isImage;
+
+		bool operator==(const ResourceState& other) const
+		{
+			return resourceAccess == other.resourceAccess
+				&& shaderStages == other.shaderStages
+				&& resourceUsage == other.resourceUsage
+				&& queueTypes == other.queueTypes
+				&& isImage == other.isImage;
+		}
 
 		//Check 
 		bool isDirectQueueLocal() const
@@ -486,6 +498,23 @@ namespace graphics_backend
 
 		CA_ASSERT_BREAK(outDefaultLayout != D3D12_BARRIER_LAYOUT_UNDEFINED, "Cannot Determine Layout For Access Flags: {}", accessFlags);
 		CA_ASSERT_BREAK(outQueueLocalLayout != D3D12_BARRIER_LAYOUT_UNDEFINED, "Cannot Determine Queue Local Layout For Access Flags: {}", accessFlags);
+	}
+
+	static bool ResourceUsageCompatible(EResourceUsageFlags resourceUsages, EGPUQueueTypeFlags queueTypes)
+	{
+		if (queueTypes.HasAny(EGPUQueueType::eDirect))
+		{
+			EResourceUsageFlags directQueueUsages = EResourceUsage::eAll;
+			if (!directQueueUsages.HasAll(resourceUsages))
+				return false;
+		}
+		if (queueTypes.HasAny(EGPUQueueType::eCompute))
+		{
+			EResourceUsageFlags computeQueueUsages = EResourceUsage::eComputeQueueMask;
+			if (!computeQueueUsages.HasAll(resourceUsages))
+				return false;
+		}
+		return true;
 	}
 
 	static ResourceBarrierUsageStates DetermineResourceBarrierUsageStates(ResourceState const& resourceState)

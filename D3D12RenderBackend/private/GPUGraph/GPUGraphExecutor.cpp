@@ -117,14 +117,18 @@ namespace graphics_backend
 		castl::unordered_map<D3D2ShaderStruct const*, EGPUQueueTypeFlags> cBufferUsageStates;
 		EGPUQueueTypeFlags batchResourceQueueTypes = 0;
 
-		bool Depends(PassRWState const& other) const
+		bool Depends(PassRWState const& successor) const
 		{
 			for (auto& pair : imageRWStates)
 			{
 				auto&& [img, rwState] = pair;
-				auto found = other.imageRWStates.find(img);
-				if (found != other.imageRWStates.end())
+				auto found = successor.imageRWStates.find(img);
+				if (found != successor.imageRWStates.end())
 				{
+					if (rwState.Write() || found->second.Write())
+					{
+						return true;
+					}
 					if (!rwState.CompatibleToCombine(found->second))
 					{
 						return true;
@@ -134,9 +138,13 @@ namespace graphics_backend
 			for (auto& pair : bufferRWStates)
 			{
 				auto&& [buf, rwState] = pair;
-				auto found = other.bufferRWStates.find(buf);
-				if (found != other.bufferRWStates.end())
+				auto found = successor.bufferRWStates.find(buf);
+				if (found != successor.bufferRWStates.end())
 				{
+					if (rwState.Write() || found->second.Write())
+					{
+						return true;
+					}
 					if (!rwState.CompatibleToCombine(found->second))
 					{
 						return true;
@@ -1122,6 +1130,12 @@ namespace graphics_backend
 				bool stateHaveGap = isFirstState ? false : ((currentBatchID - lastBatchID) > 1);
 				ResourceState const& lastState = isFirstState ? cachedState : usageRanges.states[bid - 1].state;
 
+				if (lastState == currentState)
+				{
+					//No State Change, No Barrier Needed
+					continue;
+				}
+
 				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
 				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
 
@@ -1214,12 +1228,14 @@ namespace graphics_backend
 
 						//Have Gap, Using Split Barrier
 						D3D12_TEXTURE_BARRIER releaseBarrier = resouceBarrier;
-						releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
+						//releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
+						releaseBarrier.SyncAfter = D3D12_BARRIER_SYNC_SPLIT;
 						lastBatch.GetReleaseBarriers(lastState.queueTypes).AddImageBarrier(image, releaseBarrier);
 
 
 						D3D12_TEXTURE_BARRIER aquireBarrier = resouceBarrier;
-						aquireBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
+						//aquireBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
+						aquireBarrier.SyncBefore = D3D12_BARRIER_SYNC_SPLIT;
 						currentBatch.GetAquireBarriers(currentState.queueTypes).AddImageBarrier(image, aquireBarrier);
 					}
 					else
@@ -1263,6 +1279,9 @@ namespace graphics_backend
 				ResourceBarrierUsageStates lastBarrierStates = DetermineResourceBarrierUsageStates(lastState);
 				ResourceBarrierUsageStates currentBarrierStates = DetermineResourceBarrierUsageStates(currentState);
 
+				bool usageCompatible = ResourceUsageCompatible(lastState.resourceUsage, currentState.queueTypes)
+					&& ResourceUsageCompatible(currentState.resourceUsage, lastState.queueTypes);
+
 				bool computeWaitDirect = currentState.hasComputeQueue() && lastState.hasDirectQueue();
 				bool directWaitCompute = currentState.hasDirectQueue() && lastState.hasComputeQueue();
 				bool anyCrossQueueWaiting = computeWaitDirect || directWaitCompute;
@@ -1291,38 +1310,81 @@ namespace graphics_backend
 						currentBatch.aquireBarriersEmitFenceQueues |= EGPUQueueType::eDirect;
 					}
 				}
-
-				D3D12_BUFFER_BARRIER resouceBarrier{};
-				resouceBarrier.AccessBefore = lastBarrierStates.accessState;
-				resouceBarrier.AccessAfter = currentBarrierStates.accessState;
-				resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
-				resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
-				resouceBarrier.pResource = resourceManager.GetBufferD3D12Resource(buffer);
-				resouceBarrier.Offset = 0;
-				resouceBarrier.Size = ULLONG_MAX;
-				if (stateHaveGap)
+				bool asyncSplitQueueType = !usageCompatible;
+				if (asyncSplitQueueType)
 				{
-					CA_ASSERT_BREAK(!isFirstState, "First State Should Not Have Gap");
-					CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
-
 					auto& currentBatch = executionBatchs[currentBatchID];
 					auto& lastBatch = executionBatchs[lastBatchID];
 
-					//Have Gap, Using Split Barrier
-					D3D12_BUFFER_BARRIER releaseBarrier = resouceBarrier;
-					releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
-					lastBatch.GetReleaseBarriers(lastState.queueTypes).AddBufferBarrier(buffer, releaseBarrier);
+					//When Queue Changed We Need Special, More Restrict Barrier
+					D3D12_BUFFER_BARRIER resouceBarrier{};
+					resouceBarrier.AccessBefore = lastBarrierStates.accessState;
+					resouceBarrier.AccessAfter = currentBarrierStates.accessState;
+					resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
+					resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+					resouceBarrier.pResource = resourceManager.GetBufferD3D12Resource(buffer);
+					resouceBarrier.Offset = 0;
+					resouceBarrier.Size = ULLONG_MAX;
 
-					D3D12_BUFFER_BARRIER aquireBarrier = resouceBarrier;
-					releaseBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
-					currentBatch.GetAquireBarriers(currentState.queueTypes).AddBufferBarrier(buffer, aquireBarrier);
+					D3D12_BARRIER_ACCESS commonAccess = D3D12_BARRIER_ACCESS_NO_ACCESS;
+					D3D12_BARRIER_SYNC commonSync = D3D12_BARRIER_SYNC_NONE;
 
+					//Before, Transition to an intermediate layout
+					{
+						D3D12_BUFFER_BARRIER releaseBarrier = resouceBarrier;
+						releaseBarrier.AccessAfter = commonAccess;
+						releaseBarrier.SyncAfter = commonSync;
+
+						lastBatch.GetReleaseBarriers(lastState.queueTypes).AddBufferBarrier(buffer, releaseBarrier);
+					}
+					//After, Transition from intermediate layout to target layout
+					{
+						D3D12_BUFFER_BARRIER aquireBarrier = resouceBarrier;
+						aquireBarrier.AccessBefore = commonAccess;
+						aquireBarrier.SyncBefore = commonSync;
+
+						currentBatch.GetAquireBarriers(currentState.queueTypes).AddBufferBarrier(buffer, aquireBarrier);
+					}
 				}
 				else
 				{
-					auto& currentBatch = executionBatchs[currentBatchID];
-					currentBatch.GetAquireBarriers(currentState.queueTypes).AddBufferBarrier(buffer, resouceBarrier);
+					D3D12_BUFFER_BARRIER resouceBarrier{};
+					resouceBarrier.AccessBefore = lastBarrierStates.accessState;
+					resouceBarrier.AccessAfter = currentBarrierStates.accessState;
+					resouceBarrier.SyncBefore = lastBarrierStates.barrierSync;
+					resouceBarrier.SyncAfter = currentBarrierStates.barrierSync;
+					resouceBarrier.pResource = resourceManager.GetBufferD3D12Resource(buffer);
+					resouceBarrier.Offset = 0;
+					resouceBarrier.Size = ULLONG_MAX;
+					if (stateHaveGap)
+					{
+						CA_ASSERT_BREAK(!isFirstState, "First State Should Not Have Gap");
+						CA_ASSERT_BREAK(lastBatchID >= 0, "Last Batch ID Should Not Be -1");
+
+						auto& currentBatch = executionBatchs[currentBatchID];
+						auto& lastBatch = executionBatchs[lastBatchID];
+
+						//Have Gap, Using Split Barrier
+						D3D12_BUFFER_BARRIER releaseBarrier = resouceBarrier;
+						//releaseBarrier.SyncAfter |= D3D12_BARRIER_SYNC_SPLIT;
+						releaseBarrier.SyncAfter = D3D12_BARRIER_SYNC_SPLIT;
+						lastBatch.GetReleaseBarriers(lastState.queueTypes).AddBufferBarrier(buffer, releaseBarrier);
+
+						D3D12_BUFFER_BARRIER aquireBarrier = resouceBarrier;
+						//releaseBarrier.SyncBefore |= D3D12_BARRIER_SYNC_SPLIT;
+						releaseBarrier.SyncBefore = D3D12_BARRIER_SYNC_SPLIT;
+						currentBatch.GetAquireBarriers(currentState.queueTypes).AddBufferBarrier(buffer, aquireBarrier);
+
+					}
+					else
+					{
+						auto& currentBatch = executionBatchs[currentBatchID];
+						currentBatch.GetAquireBarriers(currentState.queueTypes).AddBufferBarrier(buffer, resouceBarrier);
+					}
 				}
+
+
+
 			}
 		}
 
@@ -1414,16 +1476,16 @@ namespace graphics_backend
 			void Submit(RenderBackend_D3D12* pBackend, FrameLocalFences& fences)
 			{
 				{
-					auto queue = pBackend->GetDirectQueue().Get();
-					auto fence = fences.m_DirectQueueFence.Get();
-					auto waitFence = fences.m_ComputeQueueFence.Get();
-					directQueueRange.Submit(queue, fence, waitFence);
-				}
-				{
 					auto queue = pBackend->GetComputeQueue().Get();
 					auto fence = fences.m_ComputeQueueFence.Get();
 					auto waitFence = fences.m_DirectQueueFence.Get();
 					computeQueueRange.Submit(queue, fence, waitFence);
+				}
+				{
+					auto queue = pBackend->GetDirectQueue().Get();
+					auto fence = fences.m_DirectQueueFence.Get();
+					auto waitFence = fences.m_ComputeQueueFence.Get();
+					directQueueRange.Submit(queue, fence, waitFence);
 				}
 			}
 

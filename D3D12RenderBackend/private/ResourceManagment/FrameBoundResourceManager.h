@@ -60,6 +60,7 @@ namespace graphics_backend
 			m_FrameFences.Release();
 			GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_FrameFences.m_DirectQueueFence));
 			GetDevice()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_FrameFences.m_ComputeQueueFence));
+
 			m_FrameFences.m_DirectQueueFence->SetName(L"FrameLocalDirectQueueFence");
 			m_FrameFences.m_ComputeQueueFence->SetName(L"FrameLocalComputeQueueFence");
 			//GetDevice()->SetName(m_FrameFences.m_ComputeQueueFence, )

@@ -548,26 +548,30 @@ void TestComputeBuffer()
 
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(0, 4, sizeof(float) * 3))
-		//.AllocBuffer(vbuffer1, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, triangleBuffer1.size(), sizeof(triangleBuffer1[0])))
-		//.ScheduleData(vbuffer1, triangleBuffer1.data(), triangleBuffer1.size() * sizeof(triangleBuffer1[0]))
-		.AddPass(ComputeBatch::New(true)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(0, 4, sizeof(float) * 3));
+	for (int loop = 0; loop < 3; ++loop)
+	{
+		newGraph->AddPass(ComputeBatch::New(true)
 			.SetParam(CANAME("computeParams"), computeParams)
 			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1))
-		)
-		.AddPass(
+		);
+		auto batch = DrawCallBatch::New();
+		for (int fastPass = 0; fastPass < 100; ++fastPass)
+		{
+			batch.DrawCall(
+				DrawCall::New()
+				.Draw(3)
+			);
+		};
+		newGraph->AddPass(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleNoAssemblyInputs") })
 			.Batch
 			(
-				DrawCallBatch::New()
-				.DrawCall(
-					DrawCall::New()
-					.Draw(3)
-				)
+				batch
 			)
-		)
-		.AddPass(
+		);
+		newGraph->AddPass(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestNaiveTriangle") })
 			.Batch
@@ -582,6 +586,7 @@ void TestComputeBuffer()
 				)
 			)
 		);
+	}
 
 	castl::chrono::high_resolution_clock timer;
 	auto startTime = timer.now();

@@ -123,6 +123,16 @@ namespace uenum
 			return format_as(*this);
 		}
 
+		constexpr bool HasAll(EnumFlags<TEnumClass> const& test) const noexcept
+		{
+			return (m_mask & test.m_mask) == test.m_mask;
+		}
+
+		constexpr bool HasAny(EnumFlags<TEnumClass> const& test) const noexcept
+		{
+			return (m_mask & test.m_mask) != 0;
+		}
+
 	public:
 		MaskType m_mask;
 	};
