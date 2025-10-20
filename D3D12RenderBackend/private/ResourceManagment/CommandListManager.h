@@ -3,6 +3,20 @@
 
 namespace graphics_backend
 {
+	class PooledCommandAllocator : D3D12SubobjectBase
+	{
+	public:
+		PooledCommandAllocator(RenderBackend_D3D12* app, D3D12_COMMAND_LIST_TYPE cmdType);
+		ID3D12GraphicsCommandList7* Alloc();
+		void Reset();
+		void Release() override;
+	private:
+		ComPtr<ID3D12CommandAllocator> m_Allocator;
+		uint32_t m_InUseCount = 0;
+		castl::vector<ID3D12GraphicsCommandList7*> m_CommandLists;
+		D3D12_COMMAND_LIST_TYPE m_AllocatorType;
+	};
+
 	class CommandListManager : D3D12SubobjectBase
 	{
 	public:
@@ -14,9 +28,9 @@ namespace graphics_backend
 		ID3D12GraphicsCommandList7* ComputeCommand();
 		ID3D12GraphicsCommandList7* CopyCommand();
 	private:
-		ComPtr<ID3D12CommandAllocator> m_DirectAllocator;
-		ComPtr<ID3D12CommandAllocator> m_BundleAllocator;
-		ComPtr<ID3D12CommandAllocator> m_ComputeAllocator;
-		ComPtr<ID3D12CommandAllocator> m_CopyAllocator;
+		PooledCommandAllocator m_DirectAllocator;
+		PooledCommandAllocator m_BundleAllocator;
+		PooledCommandAllocator m_ComputeAllocator;
+		PooledCommandAllocator m_CopyAllocator;
 	};
 }

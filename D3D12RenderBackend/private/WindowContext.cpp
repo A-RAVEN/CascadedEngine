@@ -24,8 +24,7 @@ namespace graphics_backend
         swapChainDesc.SampleDesc.Count = 1;
 
         m_BackBufferDesc = GPUTextureDescriptor::Create(width, height
-            , ETextureFormat::E_R8G8B8A8_UNORM
-            , ETextureAccessType::eRT, ETextureType::e2D, 1, 1, EMultiSampleCount::e1);
+            , ETextureFormat::E_R8G8B8A8_UNORM, ETextureType::e2D, 1, 1, EMultiSampleCount::e1);
 
         ComPtr<IDXGISwapChain1> swapChain;
         ThrowIfFailed(GetApp()->GetFactory()->CreateSwapChainForHwnd(

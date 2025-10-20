@@ -16,6 +16,7 @@ namespace graphics_backend
 	public:
 		D3D12GPUGraphExecutor(RenderBackend_D3D12* app);
 		void CompileAndExecute(GPUGraph const& owningGraph, GPUFrameManager::PFrameContext&& frameContext);
+		void Release() override;
 
 		D3D12GraphLocalResourceManager& GetLocalResourceManager() { return m_LocalResourceManager; }
 		GPUConstantBufferManager& GetConstantBufferManager() { return m_ConstantBufferManager; }

@@ -8,7 +8,7 @@ namespace graphics_backend
 	{
 		ETextureFormat format;
 		ETextureType textureType;
-		ETextureAccessTypeFlags accessType;
+		//ETextureAccessTypeFlags accessType;
 		uint32_t width;
 		uint32_t height;
 		uint32_t layers;
@@ -20,7 +20,7 @@ namespace graphics_backend
 		static GPUTextureDescriptor Create(
 			uint32_t width, uint32_t height
 			, ETextureFormat format
-			, ETextureAccessTypeFlags accessType
+			//, ETextureAccessTypeFlags accessType
 			, ETextureType textureType = ETextureType::e2D
 			, uint32_t layers = 1
 			, uint32_t mipLevels = 1
@@ -31,7 +31,7 @@ namespace graphics_backend
 			desc.height = height;
 			desc.format = format;
 			desc.textureType = textureType;
-			desc.accessType = accessType;
+			//desc.accessType = accessType;
 			desc.layers = layers;
 			desc.mipLevels = mipLevels;
 			desc.samples = samples;

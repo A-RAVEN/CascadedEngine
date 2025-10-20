@@ -20,14 +20,14 @@
 
 using Microsoft::WRL::ComPtr;
 
-#define D3D12_RENDER_BACKEND_DEBUG 1
-#ifdef NDEBUG
-#define D3D12_RENDER_BACKEND_DEBUG 1
-#endif
-
-#ifndef D3D12_RENDER_BACKEND_DEBUG
 #define D3D12_RENDER_BACKEND_DEBUG 0
-#endif
+//#ifdef NDEBUG
+//#define D3D12_RENDER_BACKEND_DEBUG 1
+//#endif
+//
+//#ifndef D3D12_RENDER_BACKEND_DEBUG
+//#define D3D12_RENDER_BACKEND_DEBUG 0
+//#endif
 
 namespace cacore
 {

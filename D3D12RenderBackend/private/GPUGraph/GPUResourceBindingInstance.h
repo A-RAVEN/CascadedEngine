@@ -86,10 +86,20 @@ namespace graphics_backend
 			castl::vector<ImageBindingElement> imageBindings;
 			castl::vector<BufferBindingElement> bufferBindings;
 			castl::vector<SamplerBindingElement> samplerBindings;
+			void Release()
+			{
+				descriptorAllocation.Release();
+				samplerAllocation.Release();
+				cbufferBindings.clear();
+				imageBindings.clear();
+				bufferBindings.clear();
+				samplerBindings.clear();
+			}
 		};
 	public:
 		GPUResourceBindingInstance(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) {}
 		void Init(ShaderResourceSet const& resourceSet);
+		void Release();
 		void BuildResources(GPUGraph const& gpuGraph, D3D12GraphLocalResourceManager& resourceManager
 			, GPUConstantBufferManager& cbufferManager);
 		void IterateResourceUsages(castl::function<void(ImageBindingElement const&)>const& imageCallback
@@ -116,6 +126,13 @@ namespace graphics_backend
 	public:
 		ShaderResourceInstanceManager(RenderBackend_D3D12* app);
 		castl::shared_ptr<GPUResourceBindingInstance> EnsureResourceBindingInstance(ShaderResourceSet const& resourecSet);
+		void Release() override
+		{
+			m_ResourceInstances.clear([](auto& key, auto& instance)
+			{
+				instance->Release();
+			});
+		}
 	private:
 		ShaderResourceInstanceDic m_ResourceInstances;
 	};

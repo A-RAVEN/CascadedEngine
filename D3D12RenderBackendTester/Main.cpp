@@ -74,7 +74,7 @@ void TestSimpleTriangle()
 	newGraph->Present(windowBackBuffer)
 		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
-		.AddPass(
+		.Rast(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
 			.Batch
@@ -137,7 +137,7 @@ void TestTriangleWithConstantColor()
 		.AllocImage(depthBuffer, depthTextureDesc)
 		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
-		.AddPass(
+		.Rast(
 			RenderPass::New(windowBackBuffer, depthBuffer, AttachmentConfig::Clear(), AttachmentConfig::ClearDepthStencil())
 			.SetAttachmentConfig(0, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetDepthAttachmentConfig(AttachmentConfig::ClearDepthStencil())
@@ -210,7 +210,7 @@ void TestTriangleWithStructuredBufferColor()
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
 		.AllocBuffer(structuredColorBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, 1, sizeof(glm::vec3)))
 		.ScheduleData(structuredColorBuffer, &testColor, sizeof(testColor))
-		.AddPass(
+		.Rast(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetParam(CANAME("structuredColorBlock"), pStructuredColor)
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithStructuredBufferColor") })
@@ -275,8 +275,8 @@ void TestTriangleWithImageBuffer()
 		int width, height, channels;
 		auto data = stbi_load(texturFile.string().c_str(), &width, &height, &channels, 4);
 		testTexture = g_GPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(width, height
-			, ETextureFormat::E_R8G8B8A8_UNORM
-			, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled));
+			, ETextureFormat::E_R8G8B8A8_UNORM)
+			, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled);
 
 		uint32_t textureSize = width * height * 4;
 
@@ -314,7 +314,7 @@ void TestTriangleWithImageBuffer()
 	newGraph->Present(windowBackBuffer)
 		.AllocAndUploadBuffer(vbuffer, testBuffer)
 		.AllocAndUploadBuffer(ibuffer, indicesBuffer)
-		.AddPass(
+		.Rast(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
 			.SetParam(CANAME("textureData"), imageStruct)
@@ -390,8 +390,8 @@ void TestDoublePass()
 		int width, height, channels;
 		auto data = stbi_load(texturFile.string().c_str(), &width, &height, &channels, 4);
 		testTexture = g_GPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(width, height
-			, ETextureFormat::E_R8G8B8A8_UNORM
-			, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled));
+			, ETextureFormat::E_R8G8B8A8_UNORM)
+			, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled);
 
 		uint32_t textureSize = width * height * 4;
 
@@ -444,8 +444,8 @@ void TestDoublePass()
 	newGraph->Present(windowBackBuffer)
 		//.AllocAndUploadBuffer(vbuffer, testBuffer)
 		//.AllocAndUploadBuffer(ibuffer, indicesBuffer)
-		.AllocImage(pass0RT, GPUTextureDescriptor::Create(windowWidth, windowHeight, ETextureFormat::E_R8G8B8A8_UNORM, 0))
-		.AddPass(
+		.AllocImage(pass0RT, GPUTextureDescriptor::Create(windowWidth, windowHeight, ETextureFormat::E_R8G8B8A8_UNORM))
+		.Rast(
 			RenderPass::New(pass0RT, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
 			.SetParam(CANAME("textureData"), imageStruct)
@@ -461,7 +461,7 @@ void TestDoublePass()
 				)
 			)
 		)
-		.AddPass(
+		.Rast(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestBlitToScreenPass") })
 			.SetParam(CANAME("textureData"), blitStruct)
@@ -548,30 +548,12 @@ void TestComputeBuffer()
 
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(0, 4, sizeof(float) * 3));
-	for (int loop = 0; loop < 3; ++loop)
-	{
-		newGraph->AddPass(ComputeBatch::New(true)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(0, 4, sizeof(float) * 3))
+		.Comp(ComputeBatch::New(true)
 			.SetParam(CANAME("computeParams"), computeParams)
 			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1))
-		);
-		auto batch = DrawCallBatch::New();
-		for (int fastPass = 0; fastPass < 100; ++fastPass)
-		{
-			batch.DrawCall(
-				DrawCall::New()
-				.Draw(3)
-			);
-		};
-		newGraph->AddPass(
-			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5, 0, 1)))
-			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleNoAssemblyInputs") })
-			.Batch
-			(
-				batch
-			)
-		);
-		newGraph->AddPass(
+		)
+		.Rast(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestNaiveTriangle") })
 			.Batch
@@ -586,7 +568,6 @@ void TestComputeBuffer()
 				)
 			)
 		);
-	}
 
 	castl::chrono::high_resolution_clock timer;
 	auto startTime = timer.now();
@@ -600,6 +581,7 @@ void TestComputeBuffer()
 		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 	}
 }
+
 
 
 int main(int argc, char* argv[])

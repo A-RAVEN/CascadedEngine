@@ -257,6 +257,11 @@ namespace graphics_backend
 		});
 	}
 
+	void GPUResourceBindingInstance::Release()
+	{
+		m_GPUResourceBindingInfos.Release();
+	}
+
 	void GPUResourceBindingInstance::BuildResources(GPUGraph const& gpuGraph
 		, D3D12GraphLocalResourceManager& resourceManager
 		, GPUConstantBufferManager& cbufferManager)

@@ -449,6 +449,19 @@ namespace graphics_backend
 	};
 #pragma endregion
 
+#pragma region Barriers
+	class BarrierBatch
+	{
+	public:
+		void SetUsage(ImageHandle const& imageHandle, ETextureAccessTypeFlags textureUsage)
+		{
+			m_ImageUsages[imageHandle] = textureUsage;
+		}
+	private:
+		castl::map<ImageHandle, ETextureAccessTypeFlags> m_ImageUsages;
+	};
+#pragma endregion
+
 	struct GPUDataTransfers
 	{
 		struct DataReference
@@ -547,12 +560,15 @@ namespace graphics_backend
 			eRenderPass,
 			eComputePass,
 			eTransferPass,
+			eBarrierPass,
 			eSubGraph
 		};
 
 		//Create a new render pass
 		inline GPUGraph& AddPass(RenderPass const& renderPass);
+		inline GPUGraph& Rast(RenderPass const& renderPass);
 		inline GPUGraph& AddPass(ComputeBatch const& computePass);
+		inline GPUGraph& Comp(ComputeBatch const& computePass);
 		//Data Transition
 		inline GPUGraph& ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
 		inline GPUGraph& ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
@@ -580,6 +596,7 @@ namespace graphics_backend
 			}
 			return *this;
 		}
+		inline GPUGraph& Finalize(ImageHandle const& imageHandle, ETextureAccessTypeFlags textureUsage);
 		inline GPUGraph& SubGraph(castl::shared_ptr<GPUGraph> const& subGraph)
 		{
 			m_StageTypes.push_back(EGraphStageType::eSubGraph);
@@ -596,6 +613,12 @@ namespace graphics_backend
 			ScheduleData(bufferHandle, bufferVector.data(), bufferVector.size() * sizeof(bufferVector[0]));
 			return *this;
 		}
+
+		//inline GPUGraph& SubGraph(castl::shared_ptr<GPUGraph> const& subGraph)
+		//{
+		//	return *this;
+		//}
+
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
 		castl::deque<ComputeBatch> const& GetComputePasses() const { return m_ComputePasses; }
@@ -715,7 +738,23 @@ namespace graphics_backend
 		return *this;
 	}
 
+	GPUGraph& GPUGraph::Rast(RenderPass const& renderPass)
+	{
+		m_StageTypes.push_back(EGraphStageType::eRenderPass);
+		m_PassIndices.push_back(m_RenderPasses.size());
+		m_RenderPasses.push_back(renderPass);
+		return *this;
+	}
+
 	GPUGraph& GPUGraph::AddPass(ComputeBatch const& computePass)
+	{
+		m_StageTypes.push_back(EGraphStageType::eComputePass);
+		m_PassIndices.push_back(m_ComputePasses.size());
+		m_ComputePasses.push_back(computePass);
+		return *this;
+	}
+
+	GPUGraph& GPUGraph::Comp(ComputeBatch const& computePass)
 	{
 		m_StageTypes.push_back(EGraphStageType::eComputePass);
 		m_PassIndices.push_back(m_ComputePasses.size());
@@ -767,6 +806,17 @@ namespace graphics_backend
 		if (bufferHandle.GetType() != BufferHandle::BufferType::Internal)
 			return *this;
 		m_InternalBufferManager.RegisterHandle(bufferHandle.GetKey(), desc);
+		return *this;
+	}
+
+	GPUGraph& GPUGraph::Finalize(ImageHandle const& imageHandle, ETextureAccessTypeFlags textureUsage)
+	{
+		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eBarrierPass)
+		{
+			m_StageTypes.push_back(EGraphStageType::eBarrierPass);
+			m_PassIndices.push_back(m_DataTransfers.size());
+		}
+
 		return *this;
 	}
 

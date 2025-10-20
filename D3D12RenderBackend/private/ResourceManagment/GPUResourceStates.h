@@ -533,10 +533,10 @@ namespace graphics_backend
 		if (resourceState.isPresent())
 		{
 			ResourceBarrierUsageStates undefinedResult;
-			undefinedResult.accessState = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			undefinedResult.accessState = D3D12_BARRIER_ACCESS_COMMON;
 			undefinedResult.layoutState = D3D12_BARRIER_LAYOUT_PRESENT;
 			undefinedResult.queueLocalLayoutState = D3D12_BARRIER_LAYOUT_PRESENT;
-			undefinedResult.barrierSync = D3D12_BARRIER_SYNC_NONE;
+			undefinedResult.barrierSync = D3D12_BARRIER_SYNC_ALL;
 			undefinedResult.queueTypes = resourceState.queueTypes;
 			return undefinedResult;
 		}
@@ -759,6 +759,10 @@ namespace graphics_backend
 		);
 		void CommitAliasedResources();
 		void Reset();
+		void Release()override
+		{
+			Reset();
+		}
 		DescriptorAllocation const& EnsureResourceView(
 			ImageHandle const& imageHandle
 			, EResourceViewType viewType

@@ -213,6 +213,7 @@ namespace graphics_backend
 		GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
 		D3D12GPUGraphExecutor executor(this);
 		executor.CompileAndExecute(*graph.get(), std::move(frameContext));
+		executor.Release();
 	}
 
 	castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
@@ -227,10 +228,10 @@ namespace graphics_backend
 
 
 
-	castl::shared_ptr<GPUTexture> RenderBackend_D3D12::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor)
+	castl::shared_ptr<GPUTexture> RenderBackend_D3D12::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType)
 	{
 		castl::shared_ptr<D3DImageObject> result = castl::make_shared<D3DImageObject>(this);
-		D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromTextureDescriptor(inDescriptor);
+		D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromTextureDescriptor(inDescriptor, accessType);
 		GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
 		result->SetDescriptor(inDescriptor);
 		result->SetGPUResource(castl::move(resource));

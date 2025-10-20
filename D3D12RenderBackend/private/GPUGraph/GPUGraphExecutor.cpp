@@ -2011,6 +2011,13 @@ namespace graphics_backend
 		, GPUFrameManager::PFrameContext& pFrameContext
 	)
 	{
+		//for (int i = 0; i < 5; ++i)
+		//{
+		//	auto cmd = commandListMgr.DirectCommand();
+		//	cmd->Close();
+		//	//cmd->Release();
+		//}
+		//return;
 		std::vector<BatchExecutionContext> contexts(executeBatchs.size());
 		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
 		{
@@ -2058,7 +2065,6 @@ namespace graphics_backend
 			range.Submit(pBackend, frameLocalFences);
 		}
 
-		pFrameContext->Signal(pBackend->GetDirectQueue(), pBackend->GetComputeQueue());
 	}
 
 	void PresentWindows(GPUGraph const& owningGraph)
@@ -2201,11 +2207,22 @@ namespace graphics_backend
 			, computePassGPUDataList
 			, m_CurrentFrameContext);
 
+		m_CurrentFrameContext->Signal(GetApp()->GetDirectQueue(), GetApp()->GetComputeQueue());
+
 		ApplyExternalResourceStates(owningGraph, imageLifeTimes, bufferLifeTimes);
 
 		PresentWindows(owningGraph);
 
 		Reset();
+	}
+	void D3D12GPUGraphExecutor::Release()
+	{
+		m_LocalResourceManager.Release();
+		m_ConstantBufferManager.Release();
+		m_ShaderResourceInstances.clear([](auto& key, auto& instance)
+		{
+			instance->Release();
+		});
 	}
 	void D3D12GPUGraphExecutor::Reset()
 	{

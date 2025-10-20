@@ -104,7 +104,7 @@ namespace castl
 			castl::unique_lock write_lock(m_SharedMutex);
 			for (auto itr = m_Map.begin(); itr != m_Map.end(); ++itr)
 			{
-				callback(itr->first.Get(), itr->second);
+				callback(itr->first, itr->second);
 			}
 			m_Map.clear();
 		}
