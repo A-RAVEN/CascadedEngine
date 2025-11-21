@@ -33,6 +33,19 @@ namespace castl
 			}
 			return nullptr;
 		}
+
+		bool try_erase(TKey const& inKey)
+		{
+			castl::shared_lock lock(m_SharedMutex);
+			auto found = m_Map.find(inKey);
+			if (found != m_Map.end())
+			{
+				m_Map.erase(found);
+				return true;
+			}
+			return false;
+		}
+
 		map_type::iterator get_or_create(TKey const& inKey, castl::function<TValue(TKey const&)> createFunctor)
 		{
 			{
@@ -77,6 +90,13 @@ namespace castl
 				return found;
 			}
 		}
+
+		map_iterator begin()
+		{
+			castl::shared_lock lock(m_SharedMutex);
+			return m_Map.begin();
+		}
+
 		void for_each_const(castl::function<void(TKey const&, TValue const&)> callback) const
 		{
 			castl::shared_lock lock(m_SharedMutex);
@@ -109,11 +129,18 @@ namespace castl
 			m_Map.clear();
 		}
 
-		size_t size()
+		size_t size() const
 		{
 			castl::shared_lock lock(m_SharedMutex);
 			return m_Map.size();
 		}
+
+		bool empty() const
+		{
+			castl::shared_lock lock(m_SharedMutex);
+			return m_Map.empty();
+		}
+
 	private:
 		mutable castl::shared_mutex m_SharedMutex;
 		map_type m_Map;

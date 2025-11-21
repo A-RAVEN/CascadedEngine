@@ -30,6 +30,7 @@
 #include <magic_enum/magic_enum.hpp>
 #include <CAResource/ResourceSystemFactory.h>
 #include <stb_image.h>
+#include <CACore/CAModuleManager.h>
 
 using namespace thread_management;
 using namespace resource_management;
@@ -39,9 +40,10 @@ using namespace cawindow;
 using namespace catimer;
 using namespace ca_io;
 
-castl::shared_ptr<CThreadManager> g_ThreadManager;
-castl::shared_ptr<CRenderBackend> g_GPUBackend;
-castl::shared_ptr<IWindowSystem> g_WindowSystem;
+cacore::IModuleManager* g_ModuleManager;
+CThreadManager* g_ThreadManager;
+CRenderBackend* g_GPUBackend;
+IWindowSystem* g_WindowSystem;
 
 std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format };
 std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
@@ -72,7 +74,7 @@ void TestSimpleTriangle()
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
 		.Rast(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5, 0, 1)))
@@ -135,7 +137,7 @@ void TestTriangleWithConstantColor()
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
 		.AllocImage(depthBuffer, depthTextureDesc)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
 		.Rast(
 			RenderPass::New(windowBackBuffer, depthBuffer, AttachmentConfig::Clear(), AttachmentConfig::ClearDepthStencil())
@@ -206,9 +208,9 @@ void TestTriangleWithStructuredBufferColor()
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, testBuffer.size(), sizeof(testBuffer[0])))
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
 		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
-		.AllocBuffer(structuredColorBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, 1, sizeof(glm::vec3)))
+		.AllocBuffer(structuredColorBuffer, GPUBufferDescriptor::Create(1, sizeof(glm::vec3)))
 		.ScheduleData(structuredColorBuffer, &testColor, sizeof(testColor))
 		.Rast(
 			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
@@ -283,22 +285,23 @@ void TestTriangleWithImageBuffer()
 		uint32_t color = (0 << 16) | (0 << 8) | (255);
 		castl::vector<uint32_t> colorData(256 * 256, color);
 
-		testVertexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+		testVertexBuffer = g_GPUBackend->CreateGPUBuffer(
 			EBufferUsage::eDataDst | EBufferUsage::eVertexBuffer
 			, testBuffer.size()
 			, sizeof(testBuffer[0])
-		));
+		);
 
-		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(
 			EBufferUsage::eDataDst | EBufferUsage::eIndexBuffer
 			, indicesBuffer.size()
 			, sizeof(indicesBuffer[0])
-		));
+		);
 
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(testTexture, data, textureSize);
 		submitGraph->ScheduleData(testVertexBuffer, testBuffer);
 		submitGraph->ScheduleData(testIndexBuffer, indicesBuffer);
+		submitGraph->Finalize(testTexture, ETextureAccessType::eSampled);
 		auto scheduler = g_ThreadManager->NewScheduler();
 		g_GPUBackend->ExecuteGraph(scheduler.get(), submitGraph);
 		stbi_image_free(data);
@@ -398,23 +401,23 @@ void TestDoublePass()
 		uint32_t color = (0 << 16) | (0 << 8) | (255);
 		castl::vector<uint32_t> colorData(256 * 256, color);
 
-		testVertexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+		testVertexBuffer = g_GPUBackend->CreateGPUBuffer(
 			EBufferUsage::eDataDst | EBufferUsage::eVertexBuffer
 			, testBuffer.size()
 			, sizeof(testBuffer[0])
-		));
+		);
 
-		testVertexBuffer1 = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+		testVertexBuffer1 = g_GPUBackend->CreateGPUBuffer(
 			EBufferUsage::eDataDst | EBufferUsage::eVertexBuffer
 			, testBuffer1.size()
 			, sizeof(testBuffer1[0])
-		));
+		);
 
-		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(
 			EBufferUsage::eDataDst | EBufferUsage::eIndexBuffer
 			, indicesBuffer.size()
 			, sizeof(indicesBuffer[0])
-		));
+		);
 
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(testTexture, data, textureSize);
@@ -528,11 +531,11 @@ void TestComputeBuffer()
 
 	//Submit Index Buffer
 	{
-		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(GPUBufferDescriptor::Create(
+		testIndexBuffer = g_GPUBackend->CreateGPUBuffer(
 			EBufferUsage::eDataDst | EBufferUsage::eIndexBuffer
 			, indicesBuffer.size()
 			, sizeof(indicesBuffer[0])
-		));
+		);
 
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(testIndexBuffer, indicesBuffer);
@@ -548,7 +551,7 @@ void TestComputeBuffer()
 
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(0, 4, sizeof(float) * 3))
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(4, sizeof(float) * 3))
 		.Comp(ComputeBatch::New(true)
 			.SetParam(CANAME("computeParams"), computeParams)
 			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1))
@@ -587,62 +590,50 @@ void TestComputeBuffer()
 int main(int argc, char* argv[])
 {
 	mi_version();
-	TModuleLoader<ShaderCompilerSlang::IShaderCompilerManager> shaderManager("ShaderCompilerSlang");
-	castl::shared_ptr < ShaderCompilerSlang::IShaderCompilerManager> shaderCompilerManager = shaderManager.New();
-	shaderCompilerManager->InitializePoolSize(1);
 
 	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
 	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
 	castl::string editorResourceString = castl::to_ca(rootPath.string()) + "EditorConfigs";
 
+	//extern void Init_TimerSystem(cacore::IModuleManager * mgr);
 
-	TModuleLoader<CThreadManager> threadManagerLoader("ThreadManager");
-	TModuleLoader<CRenderBackend> renderBackendLoader("D3D12RenderBackend");
-	TModuleLoader<IWindowSystem> windowSystemLoader("WindowSystem");
-	TModuleLoader<IOManager> ioManagerLoader("IOManager_FS");
-	TModuleLoader<ResourceFactory> resourceSystemLoader("CAGeneralReourceSystem");
+	cacore::CAModuleManager moduleManager;
+	g_ModuleManager = &moduleManager;
+	CA_ADD_MODULE(g_ModuleManager, TimerSystem_Impl);
+	CA_ADD_MODULE(g_ModuleManager, ThreadManager);
+	CA_ADD_MODULE(g_ModuleManager, D3D12RenderBackend);
+	CA_ADD_MODULE(g_ModuleManager, ShaderCompilerSlang);
+	CA_ADD_MODULE(g_ModuleManager, WindowSystem);
+	CA_ADD_MODULE(g_ModuleManager, IOManager_FS);
+	CA_ADD_MODULE(g_ModuleManager, CAGeneralReourceSystem);
 
-	//Timer System
-	InitTimerSystem();
+	g_ModuleManager->LinkModules();
+	SetGlobalTimerSystem(g_ModuleManager->GetInstance<catimer::TimerSystem>());
 
 	//Window System
-	g_WindowSystem = windowSystemLoader.New();
+	g_WindowSystem = g_ModuleManager->GetInstance<IWindowSystem>();
 
 	//Initialize Thread Manager
-	g_ThreadManager = threadManagerLoader.New();
-	unsigned int n = std::thread::hardware_concurrency();
-	n = (n == 0) ? 5 : (castl::min)(n, 16u);
-	g_ThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n);
-
-	//Initialize IO Manager
-	auto g_IOManager = ioManagerLoader.New();
-	g_IOManager->Initialize(g_ThreadManager.get());
+	g_ThreadManager = g_ModuleManager->GetInstance<CThreadManager>();
+	//unsigned int n = std::thread::hardware_concurrency();
+	//n = (n == 0) ? 5 : (castl::min)(n, 16u);
+	//g_ThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n);
 
 	//Resource System
-	auto resourceSystemFactory = resourceSystemLoader.New();
-	auto pResourceManagingSystem = resourceSystemFactory->NewManagingSystemShared();
-
-	pResourceManagingSystem->Initialize(g_IOManager);
+	auto pResourceManagingSystem = g_ModuleManager->GetInstance<ResourceManagingSystem>();
 	pResourceManagingSystem->SetResourceRootPath(assetString);
 
-	auto importingSystem = resourceSystemFactory->NewImportingSystemShared();
-	importingSystem->SetResourceManager(pResourceManagingSystem.get());
+	auto importingSystem = g_ModuleManager->GetInstance<ResourceImportingSystem>();
 
-	g_GPUBackend = renderBackendLoader.New();
-	g_GPUBackend->Initialize(GetGlobalTimerSystem()
-		, g_IOManager.get(), pResourceManagingSystem.get(), importingSystem.get()
-		, "Test D3D12 Backend", "CASCADED Engine");
+	g_GPUBackend = g_ModuleManager->GetInstance<CRenderBackend>();
 	importingSystem->ScanSourceDirectory(resourceString);
 
 
-	//TestSimpleTriangle();
-	//TestTriangleWithConstantColor();
-	//TestTriangleWithStructuredBufferColor();
-	//TestTriangleWithImageBuffer();
+	TestTriangleWithImageBuffer();
 	//TestDoublePass();
-	TestComputeBuffer();
+	//TestComputeBuffer();
 
-	g_ThreadManager.reset();
-	g_GPUBackend.reset();
+	//g_ThreadManager.reset();
+	//g_GPUBackend.reset();
 	return EXIT_SUCCESS;
 }

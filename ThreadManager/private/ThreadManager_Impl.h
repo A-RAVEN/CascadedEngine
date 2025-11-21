@@ -11,6 +11,7 @@ void* operator new[](size_t size, size_t alignment, size_t alignmentOffset, cons
 #include <CASTL/CASemaphore.h>
 #include <CACore/header/ThreadSafePool.h>
 #include "TaskNode.h"
+#include <CACore/CAModuleManager.h>
 
 namespace thread_management
 {
@@ -259,6 +260,7 @@ namespace thread_management
 	class ThreadManager_Impl : public TaskBaseObject, public CThreadManager
 	{
 	public:
+		void Init(cacore::IModuleManager* pManager);
 		virtual void InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum) override;
 		void AddTaskQueue(cacore::NameHash const& name, castl::array_ref<uint32_t> threadIDs) override;
 		CTask_Impl1* NewTask();

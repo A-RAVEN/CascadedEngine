@@ -4,7 +4,9 @@
 #include <CASTL/CAList.h>
 #include <ThreadManager.h>
 #include <fstream>
-#include <LibraryExportCommon.h>
+//#include <LibraryExportCommon.h>
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
 #include <filesystem>
 #include <CACore/CASharedDic.h>
 
@@ -232,6 +234,12 @@ namespace ca_io
 	class IOManagerImpl : public IOManager
 	{
 	public:
+
+		void Init(cacore::IModuleManager* pModuleManager)
+		{
+			pThreadManager = pModuleManager->GetInstance<thread_management::CThreadManager>();
+		}
+
 		virtual void Initialize(thread_management::CThreadManager* threadManager) override
 		{
 			pThreadManager = threadManager;
@@ -364,7 +372,7 @@ namespace ca_io
 		++m_SubmitCount;
 	}
 
-
-	CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(IOManager, IOManagerImpl)
+	//CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(IOManager, IOManagerImpl)
 }
+CA_MODULE_INSTANCE(ca_io::IOManager, ca_io::IOManagerImpl, IOManager_FS);
 

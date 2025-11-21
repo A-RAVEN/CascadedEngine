@@ -345,6 +345,7 @@ namespace graphics_backend
 		castl::vector<PassRWState>& passRWStates,
 		castl::vector<PassRWState>& computePassRWStates,
 		castl::vector<PassRWState>& transferPassRWStates,
+		PassRWState& finalPassRWStates,
 		castl::vector<RenderPassGPUData>& rasterGPUData,
 		castl::vector<ComputePassGPUData>& computeGPUData
 	)
@@ -402,10 +403,7 @@ namespace graphics_backend
 				for (auto& attachment : renderPass.GetAttachments())
 				{
 					auto descriptor = GetDescriptor(owningGraph, attachment);
-
-					GPUTextureView textureView = GPUTextureView::CreateDefaultForRenderTarget(descriptor.format);
-
-					resourceManager.AddTexture(attachment, descriptor, textureView);
+					resourceManager.AddTexture(attachment, descriptor);
 					if (attachmentID == renderPass.GetDepthAttachmentIndex())
 					{
 						passRWState.SetImageRWState(attachment, EShaderTypeMask::eNone
@@ -526,13 +524,33 @@ namespace graphics_backend
 			for (auto& imgWrites : transferPass.m_ImageDataUploads)
 			{
 				auto descriptor = GetDescriptor(owningGraph, imgWrites.first);
-				resourceManager.AddTexture(imgWrites.first, descriptor, GPUTextureView::CreateDefaultForRenderTarget(descriptor.format));
+				resourceManager.AddTexture(imgWrites.first, descriptor);
 				passRWState.SetImageRWStateNoView(imgWrites.first
 					, EShaderTypeMask::eNone
 					, EResourceUsage::eCopy
 					, ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly
 					, EGPUQueueType::eDirect
 				);
+			}
+		}
+		if (!owningGraph.GetFinalizePass().isEmpty())
+		{
+			for (auto& img : owningGraph.GetFinalizePass().m_ImageUsages)
+			{
+				auto descriptor = GetDescriptor(owningGraph, img.first);
+				resourceManager.AddTexture(img.first, descriptor);
+				finalPassRWStates.SetImageRWState(img.first, EShaderTypeMask::eFrag
+					, EResourceUsage::eShaderResource
+					, ShaderCompilerSlang::EShaderResourceAccess::eReadOnly
+					, EGPUQueueType::eDirect);
+			}
+			for (auto& backBuffer : owningGraph.GetFinalizePass().m_PresentBackBuffers)
+			{
+				finalPassRWStates.SetImageRWState(backBuffer
+					, EShaderTypeMask::eNone
+					, EResourceUsage::ePresent
+					, ShaderCompilerSlang::EShaderResourceAccess::eUnknown
+					, EGPUQueueType::eDirect);
 			}
 		}
 		shaderResourceInstances.for_each([&](ShaderResourceSet const& resourceSet
@@ -716,47 +734,48 @@ namespace graphics_backend
 
 	};
 
-	struct GPUFinalizeBatch
-	{
-		RenderStateBarriers finalizeBarriers;
+	//struct GPUFinalizeBatch
+	//{
+	//	RenderStateBarriers finalizeBarriers;
 
-		void ExecuteFinalizeBarriers(ID3D12GraphicsCommandList7* pCommandList) const
-		{
-			castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
-			castl::vector<D3D12_TEXTURE_BARRIER> imageBarriers;
-			for (auto& aquireImageBarriers : finalizeBarriers.imageBarriers)
-			{
-				imageBarriers.push_back(aquireImageBarriers.second);
-			}
-			if (!imageBarriers.empty())
-			{
-				CD3DX12_BARRIER_GROUP imageBarrierGroup(imageBarriers.size(), imageBarriers.data());
-				barrierGroups.push_back(imageBarrierGroup);
-			}
-			castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
+	//	void ExecuteFinalizeBarriers(ID3D12GraphicsCommandList7* pCommandList) const
+	//	{
+	//		castl::vector<D3D12_BARRIER_GROUP> barrierGroups;
+	//		castl::vector<D3D12_TEXTURE_BARRIER> imageBarriers;
+	//		for (auto& aquireImageBarriers : finalizeBarriers.imageBarriers)
+	//		{
+	//			imageBarriers.push_back(aquireImageBarriers.second);
+	//		}
+	//		if (!imageBarriers.empty())
+	//		{
+	//			CD3DX12_BARRIER_GROUP imageBarrierGroup(imageBarriers.size(), imageBarriers.data());
+	//			barrierGroups.push_back(imageBarrierGroup);
+	//		}
+	//		castl::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
 
-			for (auto& aquireBufferBarriers : finalizeBarriers.bufferBarriers)
-			{
-				bufferBarriers.push_back(aquireBufferBarriers.second);
-			}
-			if (!bufferBarriers.empty())
-			{
-				CD3DX12_BARRIER_GROUP bufferBarrierGroup(bufferBarriers.size(), bufferBarriers.data());
-				barrierGroups.push_back(bufferBarrierGroup);
-			}
-			if (!barrierGroups.empty())
-			{
-				pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
-			}
-		}
+	//		for (auto& aquireBufferBarriers : finalizeBarriers.bufferBarriers)
+	//		{
+	//			bufferBarriers.push_back(aquireBufferBarriers.second);
+	//		}
+	//		if (!bufferBarriers.empty())
+	//		{
+	//			CD3DX12_BARRIER_GROUP bufferBarrierGroup(bufferBarriers.size(), bufferBarriers.data());
+	//			barrierGroups.push_back(bufferBarrierGroup);
+	//		}
+	//		if (!barrierGroups.empty())
+	//		{
+	//			pCommandList->Barrier(barrierGroups.size(), barrierGroups.data());
+	//		}
+	//	}
 
-	};
+	//};
 
 	struct GPUExecutionBatch
 	{
 		std::vector<uint32_t> rasterPassRefs;
 		std::vector<uint32_t> computePassRefs;
 		std::vector<uint32_t> transferPassRefs;
+		bool hasFinalizePass;
 		//General Direct Queue Aquire/Release Barriers，Do Barriers For Both Direct And Compute Queue
 		RenderStateBarriers aquireBarriers;
 		//bool aquireForDirectAndComputeQueues;
@@ -820,16 +839,20 @@ namespace graphics_backend
 		castl::vector<PassRWState> const& rasterPassRWStates,
 		castl::vector<PassRWState> const& computePassRWStates,
 		castl::vector<PassRWState> const& transferPassRWStates,
+		PassRWState const& finalPassRWStates,
 		castl::vector<GPUExecutionBatch>& outExecutionBatchs
 	)
 	{
 		using EGraphStageType = GPUGraph::EGraphStageType;
+		bool hasFinalBatch = !owningGraph.GetFinalizePass().isEmpty();
 		auto& stages = owningGraph.GetGraphStages();
 		CA_ASSERT_BREAK(stages.size() == (rasterPassRWStates.size() + computePassRWStates.size() + transferPassRWStates.size()), "Graph Nodes Size Not Equal");
+		size_t stageCount = stages.size() + (hasFinalBatch ? 1 : 0);
 		castl::vector<PassDependency> passDeps;
-		passDeps.reserve(stages.size());
+		passDeps.reserve(stageCount);
 		castl::list<PassDependency*> pendingDependencies;
-		for (size_t stageID = 0; stageID < owningGraph.GetGraphStages().size(); ++stageID)
+		size_t stageID = 0;
+		for (stageID; stageID < owningGraph.GetGraphStages().size(); ++stageID)
 		{
 			auto stage = owningGraph.GetGraphStages()[stageID];
 			auto passID = owningGraph.GetPassIndices()[stageID];
@@ -848,11 +871,17 @@ namespace graphics_backend
 			pendingDependencies.push_back(&passDeps.back());
 		}
 
+		if (!owningGraph.GetFinalizePass().isEmpty())
+		{
+			passDeps.emplace_back(finalPassRWStates, 0, EGraphStageType::eFinalPass);
+			pendingDependencies.push_back(&passDeps.back());
+		}
+
 		//if (owningGraph.GetGraphStages().size() < 2)
 		//	return;
-		for (size_t prevPass = 0; prevPass < owningGraph.GetGraphStages().size() - 1; ++prevPass)
+		for (size_t prevPass = 0; prevPass < passDeps.size() - 1; ++prevPass)
 		{
-			for (size_t latterPass = prevPass + 1; latterPass < owningGraph.GetGraphStages().size(); ++latterPass)
+			for (size_t latterPass = prevPass + 1; latterPass < passDeps.size(); ++latterPass)
 			{
 				passDeps[prevPass].CheckAddSuccessor(&passDeps[latterPass]);
 			}
@@ -886,6 +915,9 @@ namespace graphics_backend
 					case EGraphStageType::eTransferPass:
 						newBatch.transferPassRefs.push_back(dep->passID);
 						break;
+					case EGraphStageType::eFinalPass:
+						newBatch.hasFinalizePass = true;
+						break;
 					}
 				}
 				else
@@ -899,21 +931,21 @@ namespace graphics_backend
 			}
 		}
 
-		//Add Finalize Batch Here
-		bool NeedFinalizeBatch = !owningGraph.GetPresentBackBuffers().empty();
-		if (NeedFinalizeBatch)
-		{
-			GPUExecutionBatch& newBatch = outExecutionBatchs.emplace_back();
-			newBatch.anyComputeQueueOperations = false;
-			for (auto& backBuffer : owningGraph.GetPresentBackBuffers())
-			{
-				newBatch.batchRWStates.SetImageRWState(backBuffer
-					, EShaderTypeMask::eNone
-					, EResourceUsage::ePresent
-					, ShaderCompilerSlang::EShaderResourceAccess::eUnknown
-					, EGPUQueueType::eDirect);
-			}
-		}
+		////Add Finalize Batch Here
+		//bool NeedFinalizeBatch = !owningGraph.GetPresentBackBuffers().empty();
+		//if (NeedFinalizeBatch)
+		//{
+		//	GPUExecutionBatch& newBatch = outExecutionBatchs.emplace_back();
+		//	newBatch.anyComputeQueueOperations = false;
+		//	for (auto& backBuffer : owningGraph.GetPresentBackBuffers())
+		//	{
+		//		newBatch.batchRWStates.SetImageRWState(backBuffer
+		//			, EShaderTypeMask::eNone
+		//			, EResourceUsage::ePresent
+		//			, ShaderCompilerSlang::EShaderResourceAccess::eUnknown
+		//			, EGPUQueueType::eDirect);
+		//	}
+		//}
 	}
 
 	void ApplyExternalResourceStates(GPUGraph const& owningGraph, castl::unordered_map<ImageHandle, ResourceUsageRangeData>& imageRanges,
@@ -944,11 +976,11 @@ namespace graphics_backend
 			}
 		}
 
-		for (auto& backBufferImage : owningGraph.GetPresentBackBuffers())
-		{
-			WindowContext* pWindow = backBufferImage.GetWindowPtr<WindowContext>();
-			pWindow->ApplyCurrentBackBufferResourceState(ResourceState::PresentState());
-		}
+		//for (auto& backBufferImage : owningGraph.GetFinalizePass().m_PresentBackBuffers)
+		//{
+		//	WindowContext* pWindow = backBufferImage.GetWindowPtr<WindowContext>();
+		//	pWindow->ApplyCurrentBackBufferResourceState(ResourceState::PresentState());
+		//}
 
 		for (auto pair : bufferRanges)
 		{
@@ -2011,13 +2043,6 @@ namespace graphics_backend
 		, GPUFrameManager::PFrameContext& pFrameContext
 	)
 	{
-		//for (int i = 0; i < 5; ++i)
-		//{
-		//	auto cmd = commandListMgr.DirectCommand();
-		//	cmd->Close();
-		//	//cmd->Release();
-		//}
-		//return;
 		std::vector<BatchExecutionContext> contexts(executeBatchs.size());
 		for (int executeBatchID = 0; executeBatchID < executeBatchs.size(); ++executeBatchID)
 		{
@@ -2069,7 +2094,7 @@ namespace graphics_backend
 
 	void PresentWindows(GPUGraph const& owningGraph)
 	{
-		for (auto& backBufferImage : owningGraph.GetPresentBackBuffers())
+		for (auto& backBufferImage : owningGraph.GetFinalizePass().m_PresentBackBuffers)
 		{
 			WindowContext* pWindow = backBufferImage.GetWindowPtr<WindowContext>();
 			pWindow->Present();
@@ -2128,6 +2153,7 @@ namespace graphics_backend
 		castl::vector<PassRWState> passRWStates;
 		castl::vector<PassRWState> computePassRWStates;
 		castl::vector<PassRWState> transferPassRWStates;
+		PassRWState finalizePassRWStates;
 		castl::vector<RenderPassGPUData> rasterPassGPUDataList;
 		castl::vector<ComputePassGPUData> computePassGPUDataList;
 		//GPUFinalizeBatch finalizeBatch;
@@ -2140,7 +2166,7 @@ namespace graphics_backend
 			, m_LocalResourceManager
 			, m_ConstantBufferManager
 			, m_ShaderResourceInstances
-			, passRWStates, computePassRWStates, transferPassRWStates
+			, passRWStates, computePassRWStates, transferPassRWStates, finalizePassRWStates
 			, rasterPassGPUDataList
 			, computePassGPUDataList);
 		//整理出多个连续的无依赖batch
@@ -2149,6 +2175,7 @@ namespace graphics_backend
 			, passRWStates
 			, computePassRWStates
 			, transferPassRWStates
+			, finalizePassRWStates
 			, executionBatchs
 		);
 

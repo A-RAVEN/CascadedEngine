@@ -10,6 +10,8 @@
 #include <Hasher.h>
 #include <TimerSystemEditor/TimerSystem_Impl.h>
 #include <DebugUtils.h>
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
 namespace catimer
 {
 	struct TimerFrameHistories;
@@ -292,3 +294,5 @@ namespace catimer
 		TIMER_NEWFRAME();
 	}
 }
+
+CA_MODULE_INSTANCE(catimer::TimerSystem, catimer::TimerSystem_Impl, CATimer);

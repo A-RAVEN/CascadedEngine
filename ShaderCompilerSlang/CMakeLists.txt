@@ -24,6 +24,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompiler)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
 target_link_libraries(${PROJECT_NAME} PRIVATE slang::slang)
+CA_SETUP_MODULE(${PROJECT_NAME})
 
 add_custom_command(TARGET ShaderCompilerSlang POST_BUILD
   COMMENT "-E copy -t $<TARGET_FILE_DIR:ShaderCompilerSlang> $<TARGET_RUNTIME_DLLS:ShaderCompilerSlang>"

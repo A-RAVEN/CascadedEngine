@@ -182,14 +182,13 @@ namespace graphics_backend
 		resouceData.resourceDesc = resourceDesc;
 	}
 
-	void D3D12GraphLocalResourceManager::AddTexture(ImageHandle const& imageHandle
-		, GPUTextureDescriptor const& resourceDesc
-		, GPUTextureView const& textureView)
-	{
-		auto& resouceData = imageHandleToResource[imageHandle];
-		resouceData.resourceDesc = resourceDesc;
-		//resouceData.resourceViews.insert(castl::make_pair(textureView, TextureResourceAllocationInfo::ResourceViews{}));
-	}
+	//void D3D12GraphLocalResourceManager::AddTexture(ImageHandle const& imageHandle
+	//	, GPUTextureDescriptor const& resourceDesc
+	//	, GPUTextureView const& textureView)
+	//{
+	//	auto& resouceData = imageHandleToResource[imageHandle];
+	//	resouceData.resourceDesc = resourceDesc;
+	//}
 	void D3D12GraphLocalResourceManager::AddBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& resourceDesc)
 	{
 		bufferHandleToResource[bufferHandle].resourceDesc = resourceDesc;

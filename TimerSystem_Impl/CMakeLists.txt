@@ -8,6 +8,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC header)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE TimerSystem)
 target_link_libraries(${PROJECT_NAME} PRIVATE IMGUI)
+CA_SETUP_MODULE(${PROJECT_NAME})
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)

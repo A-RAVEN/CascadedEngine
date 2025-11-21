@@ -6,7 +6,6 @@ namespace graphics_backend
 {
 	struct GPUBufferDescriptor
 	{
-		EBufferUsageFlags usageFlags;
 		uint64_t count;
 		uint64_t stride;
 		uint64_t SizeInByte() const
@@ -15,9 +14,9 @@ namespace graphics_backend
 		}
 		auto operator<=>(const GPUBufferDescriptor&) const = default;
 
-		static GPUBufferDescriptor Create(EBufferUsageFlags usageFlags, uint64_t count, uint64_t stride)
+		static GPUBufferDescriptor Create(uint64_t count, uint64_t stride)
 		{
-			return { usageFlags, count, stride };
+			return GPUBufferDescriptor{ count, stride };
 		}
 	};
 

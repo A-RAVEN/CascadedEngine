@@ -521,9 +521,9 @@ namespace graphics_backend
 		}
 	}
 
-	static D3D12_RESOURCE_DESC GetResourceDescFromGPUBufferDescriptor(GPUBufferDescriptor const& inDescriptor)
+	static D3D12_RESOURCE_DESC GetResourceDescFromGPUBufferDescriptor(GPUBufferDescriptor const& inDescriptor, EBufferUsageFlags usageFlags)
 	{
-		return CD3DX12_RESOURCE_DESC::Buffer(inDescriptor.count * inDescriptor.stride, EBufferUsageFlagsToD3D12ResourceFlags(inDescriptor.usageFlags));
+		return CD3DX12_RESOURCE_DESC::Buffer(inDescriptor.count * inDescriptor.stride, EBufferUsageFlagsToD3D12ResourceFlags(usageFlags));
 	}
 
 	static D3D12_RESOURCE_DESC GetResourceDescFromGPUBufferDescriptor(GPUBufferDescriptor const& inDescriptor, EResourceUsageFlags usages)

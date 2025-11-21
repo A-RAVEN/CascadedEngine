@@ -75,7 +75,7 @@ namespace cahash
 	public:
 		using result_type = size_t;
 
-		void operator()(void const* key, size_t len) noexcept
+        void operator()(void const* key, size_t len) noexcept
 		{
 			auto newHash = std::hash<std::string>{}(std::string(static_cast<char const*>(key), len));
 			if (state_ == 0)
@@ -88,7 +88,7 @@ namespace cahash
 			}
 		}
 
-		explicit operator result_type() noexcept
+        constexpr explicit operator result_type() noexcept
 		{
 			return state_;
 		}
@@ -111,6 +111,25 @@ namespace cahash
         explicit operator result_type() noexcept
         {
             return komihash_stream_final(&state_);
+        }
+    };
+
+    class constexpr_fnvla_64_Hash
+    {
+        uint64_t state_ = 14695981039346656037ull;
+    public:
+        using result_type = uint64_t;
+        constexpr void operator()(void const* key, size_t len) noexcept
+        {
+            const uint8_t* p = static_cast<const uint8_t*>(key);
+            for (std::size_t i = 0; i < len; ++i) {
+                state_ ^= p[i];
+                state_ *= 1099511628211ull;
+            }
+		}
+        constexpr explicit operator result_type() noexcept
+        {
+            return state_;
         }
     };
 

@@ -18,7 +18,7 @@ namespace graphics_backend
 		m_ConstantBufferHandles.for_each_const([&](D3D2ShaderStruct const* inKey, BufferHandle const& inValue)
 		{
 			ShaderCompilerSlang::ShaderStructData const* pStructData = inKey->GetStructData();
-			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, castl::alignto<uint32_t>(pStructData->m_StructUniforms.m_Stride, 256));
+			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(1, castl::alignto<uint32_t>(pStructData->m_StructUniforms.m_Stride, 256));
 			resourceManager.AddBuffer(inValue, desc);
 		});
 	}
@@ -272,7 +272,7 @@ namespace graphics_backend
 			{
 				auto* pDesc = gpuGraph.GetImageManager().GetDescriptor(img.image.GetKey());
 				CA_ASSERT_BREAK(pDesc != nullptr, "Image {} Not Registered", img.image.GetName());
-				resourceManager.AddTexture(img.image, *pDesc, img.textureView);
+				resourceManager.AddTexture(img.image, *pDesc);
 			}
 		}
 		for (auto& bufferBinding : m_GPUResourceBindingInfos.bufferBindings)
@@ -286,7 +286,7 @@ namespace graphics_backend
 		}
 		for (auto& cbufferBinding : m_GPUResourceBindingInfos.cbufferBindings)
 		{
-			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer | EBufferUsage::eDataDst, 1, castl::alignto<size_t>(cbufferBinding.pCBufferStruct->GetCBufferSize(), 256));
+			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(1, castl::alignto<size_t>(cbufferBinding.pCBufferStruct->GetCBufferSize(), 256));
 			BufferHandle cbufferHandle = cbufferManager.GetConstantBufferHandle(cbufferBinding.pCBufferStruct);
 			resourceManager.AddBuffer(cbufferHandle, desc);
 		}

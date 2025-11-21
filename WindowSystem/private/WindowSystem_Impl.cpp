@@ -1,8 +1,10 @@
-#include <LibraryExportCommon.h>
+//#include <LibraryExportCommon.h>
 #include "WindowSystem_Impl.h"
 #include "Window_Impl.h"
 #include <DebugUtils.h>
 #include <CASTL/CAAlgorithm.h>
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
 
 namespace cawindow
 {
@@ -319,7 +321,6 @@ namespace cawindow
 		}
 	}
 #pragma endregion
-
-	CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(IWindowSystem, WindowSystem)
+	//CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(IWindowSystem, WindowSystem)
 }
-
+CA_MODULE_INSTANCE(cawindow::IWindowSystem, cawindow::WindowSystem, WindowSystem_GLFW);

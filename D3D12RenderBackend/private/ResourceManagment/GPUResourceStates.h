@@ -747,9 +747,9 @@ namespace graphics_backend
 		void SetAllocator(AliasedMemoryAllocator* allocator);
 		void AddTexture(ImageHandle const& imageHandle
 			, GPUTextureDescriptor const& resourceDesc);
-		void AddTexture(ImageHandle const& imageHandle
-			, GPUTextureDescriptor const& resourceDesc
-			, GPUTextureView const& textureView);
+		//void AddTexture(ImageHandle const& imageHandle
+		//	, GPUTextureDescriptor const& resourceDesc
+		//	, GPUTextureView const& textureView);
 		void AddBuffer(BufferHandle const& bufferHandle, GPUBufferDescriptor const& resourceDesc);
 		void AllocateAliasedResources(uint32_t resourceBatchCount
 			, castl::unordered_map<ImageHandle, ResourceUsageRangeData> const& imageLifeTimes

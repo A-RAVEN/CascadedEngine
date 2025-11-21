@@ -17,6 +17,7 @@
 #include <GPUGraph/GPUComputePipelineInstance.h>
 #include <CACore/CASharedList.h>
 #include <ResourceManagment/FrameBoundResourceManager.h>
+#include <CACore/CAModuleManager.h>
 
 namespace graphics_backend
 {
@@ -24,10 +25,14 @@ namespace graphics_backend
 	{
 	public:
 		RenderBackend_D3D12();
+
+		void Init(cacore::IModuleManager* pModuleManager);
+
 		void Initialize(catimer::TimerSystem* timer
 			, ca_io::IOManager* ioManager
 			, resource_management::ResourceManagingSystem* resourceManager
 			, resource_management::ResourceImportingSystem* resourceImporter
+			, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
 			, castl::string const& appName
 			, castl::string const& engineName) override;
 		void Release() override;
@@ -36,7 +41,7 @@ namespace graphics_backend
 		bool AnyWindowRunning() override;
 		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) override;
 		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) override;
-		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor) override;
+		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) override;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) override;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) override;
 

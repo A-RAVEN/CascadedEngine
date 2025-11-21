@@ -2,10 +2,12 @@
 #include "ThreadManager_Impl.h"
 #include <DebugUtils.h>
 #include <CASTL/CAChrono.h>
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
 
 namespace thread_management
 {
-    CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CThreadManager, ThreadManager_Impl)
+    //CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CThreadManager, ThreadManager_Impl)
 
     thread_local static ThreadLocalData g_ThreadLocalData;
     constexpr uint32_t MAIN_WORKER_ID = 0;
@@ -200,6 +202,14 @@ namespace thread_management
         setupTaskGraph->Func(m_PrepareFunctor);
         ++m_Frames;
         EnqueueTaskNode(setupTaskGraph);
+    }
+
+    void ThreadManager_Impl::Init(cacore::IModuleManager* pManager)
+    {
+        //catimer::SetGlobalTimerSystem(pManager->GetInstance<catimer::TimerSystem>());
+		InitializeThreadCount(
+			pManager->GetInstance<catimer::TimerSystem>(),
+			castl::max(1u, 5u));
     }
 
     void ThreadManager_Impl::InitializeThreadCount(catimer::TimerSystem* timer, uint32_t threadNum)
@@ -1006,5 +1016,13 @@ namespace thread_management
         }
     }
 }
+CA_MODULE_INSTANCE(thread_management::CThreadManager, thread_management::ThreadManager_Impl, ThreadManager);
 
-
+extern "C"
+{
+    CA_MODULE_API void TryLink(void* pManager)
+    {
+		cacore::IModuleManager* pMgr = static_cast<cacore::IModuleManager*>(pManager);
+        catimer::SetGlobalTimerSystem(pMgr->GetInstance<catimer::TimerSystem>());
+    };
+}

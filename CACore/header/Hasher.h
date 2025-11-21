@@ -8,7 +8,7 @@ namespace cacore
 {
     using namespace careflection;
 
-    using default_hashclass = typename cahash::komiHash;
+    using default_hashclass = typename cahash::constexpr_fnvla_64_Hash;
 
     template<typename T>
     struct custom_hash_trait
@@ -458,7 +458,7 @@ namespace cacore
     public:
 
         template <char... c>
-        static constexpr PathHash const& StaticPathHash() {
+        static PathHash const& StaticPathHash() {
             constexpr static std::size_t n = sizeof...(c);
             constexpr static const char data[n] = { c... };
             default_hashclass hasher{};
@@ -469,12 +469,12 @@ namespace cacore
         };
 
         template <castl::string_literal str, size_t... N>
-        static constexpr PathHash const& StaticPathHashInternal(castl::index_sequence<N...>) {
+        static PathHash const& StaticPathHashInternal(castl::index_sequence<N...>) {
             return StaticPathHash<str.get_char<N>()...>();
         }
 
         template <castl::string_literal str>
-        static constexpr PathHash const& Static() {
+        static PathHash const& Static() {
             return StaticPathHashInternal<str>(std::make_index_sequence<str.count>{});
         }
 
@@ -612,7 +612,7 @@ namespace cacore
     public:
 
         template <char... c>
-        static constexpr NameHash const& StaticNameHash() {
+        static NameHash const& StaticNameHash() {
             constexpr static std::size_t n = sizeof...(c);
             constexpr static const char data[n] = { c... };
             default_hashclass hasher{};
@@ -623,12 +623,12 @@ namespace cacore
         };
 
         template <castl::string_literal str, size_t... N>
-        static constexpr NameHash const& StaticNameHashInternal(castl::index_sequence<N...>) {
+        static NameHash const& StaticNameHashInternal(castl::index_sequence<N...>) {
             return StaticNameHash<str.get_char<N>()...>();
         }
 
         template <castl::string_literal str>
-        static constexpr NameHash const& Static() {
+        static NameHash const& Static() {
             return StaticNameHashInternal<str>(std::make_index_sequence<str.count>{});
         }
 

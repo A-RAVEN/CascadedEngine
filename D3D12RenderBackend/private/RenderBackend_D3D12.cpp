@@ -2,12 +2,13 @@
 #include "D3D12Debug.h"
 #include "RenderBackend_D3D12.h"
 #include <CATimer/Timer.h>
-#include <LibraryExportCommon.h>
 #include <ResourceManagment/D3DImageObject.h>
 #include <ResourceManagment/D3DBufferObject.h>
 #include <Utils/InterfaceTranslation.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <GPUGraph/GPUGraphExecutor.h>
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
 
 namespace graphics_backend
 {
@@ -109,14 +110,65 @@ namespace graphics_backend
 	{
 	}
 
+	void RenderBackend_D3D12::Init(cacore::IModuleManager* pModuleManager)
+	{
+		catimer::SetGlobalTimerSystem(pModuleManager->GetInstance<catimer::TimerSystem>());
+		m_ShaderResourceImporter.SetCompiler(pModuleManager->GetInstance<ShaderCompilerSlang::IShaderCompilerManager>());
+		p_IOManager = pModuleManager->GetInstance<ca_io::IOManager>();
+		p_ResourceManager = pModuleManager->GetInstance<resource_management::ResourceManagingSystem>();
+		p_ResourceImporter = pModuleManager->GetInstance<resource_management::ResourceImportingSystem>();
+		p_ResourceImporter->AddImporter(&m_ShaderResourceImporter);
+
+		UINT dxgiFactoryFlags = 0;
+
+#if D3D12_RENDER_BACKEND_DEBUG
+		// Enable the debug layer (requires the Graphics Tools "optional feature").
+		// NOTE: Enabling the debug layer after device creation will invalidate the active device.
+		{
+			ComPtr<ID3D12Debug> debugController;
+			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
+			{
+				debugController->EnableDebugLayer();
+
+				// Enable additional debug layers.
+				dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+			}
+		}
+#endif
+
+		//ComPtr<IDXGIFactory4> factory;
+		ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_Factory)));
+
+		GetHardwareAdapter(m_Factory.Get(), &m_Adapter);
+
+		ThrowIfFailed(D3D12CreateDevice(
+			m_Adapter.Get(),
+			D3D_FEATURE_LEVEL_11_0,
+			IID_PPV_ARGS(&m_Device)
+		));
+
+		D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+		queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_CommandQueue)));
+
+		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_ComputeQueue)));
+
+		AfterDeviceInit();
+
+	}
+
 	void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer
 		, ca_io::IOManager* ioManager
 		, resource_management::ResourceManagingSystem* resourceManager
 		, resource_management::ResourceImportingSystem* resourceImporter
+		, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
 		, castl::string const& appName
 		, castl::string const& engineName)
 	{
 		catimer::SetGlobalTimerSystem(timer);
+		m_ShaderResourceImporter.SetCompiler(shaderCompiler.get());
 		p_IOManager = ioManager;
 		p_ResourceManager = resourceManager;
 		p_ResourceImporter = resourceImporter;
@@ -216,10 +268,10 @@ namespace graphics_backend
 		executor.Release();
 	}
 
-	castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
+	castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags)
 	{
 		castl::shared_ptr<D3DBufferObject> result = castl::make_shared<D3DBufferObject>(this);
-		D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromGPUBufferDescriptor(descriptor);
+		D3D12_RESOURCE_DESC resourceDesc = GetResourceDescFromGPUBufferDescriptor(descriptor, usageFlags);
 		GPUResource resource = m_MemoryManager.AllocGPUResource(resourceDesc, D3D12_HEAP_TYPE_DEFAULT);
 		result->SetDescriptor(descriptor);
 		result->SetGPUResource(castl::move(resource));
@@ -356,7 +408,7 @@ namespace graphics_backend
 			callback();
 		});
 	}
-
-
-	CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CRenderBackend, RenderBackend_D3D12)
+	//CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CRenderBackend, RenderBackend_D3D12)
 }
+
+CA_MODULE_INSTANCE(graphics_backend::CRenderBackend, graphics_backend::RenderBackend_D3D12, RenderBackend_D3D12);

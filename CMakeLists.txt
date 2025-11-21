@@ -2,6 +2,7 @@
 # 并包含子项目。
 #
 cmake_minimum_required (VERSION 3.12)
+include("CMake/CACMakeUtils.cmake")
 
 # Enable Hot Reload for MSVC compilers if supported.
 if (POLICY CMP0141)

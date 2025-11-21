@@ -7,7 +7,9 @@
 #include <CASTL/CAVector.h>
 #include <CASTL/CAMutex.h>
 #include <filesystem>
-#include <LibraryExportCommon.h>
+//#include <LibraryExportCommon.h>
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
 #include <DebugUtils.h>
 #include <FileLoader.h>
 
@@ -21,6 +23,11 @@ namespace resource_management
 		virtual void SetResourceManager(ResourceManagingSystem* resourceManagingSystem) override
 		{
 			m_ResourceManagingSystem = resourceManagingSystem;
+		}
+
+		void Init(cacore::IModuleManager* pModuleManager)
+		{
+			m_ResourceManagingSystem = pModuleManager->GetInstance<ResourceManagingSystem>();
 		}
 
 		virtual void AddImporter(ResourceImporterBase* importer) override
@@ -125,9 +132,15 @@ namespace resource_management
 	class ResourceManagingSystem_Impl : public ResourceManagingSystem
 	{
 	public:
+		void Init(cacore::IModuleManager* pModuleManager)
+		{
+			pIOManager = pModuleManager->GetInstance<ca_io::IOManager>();
+		}
+
+
 		void Initialize(castl::shared_ptr<ca_io::IOManager> ioManager) override
 		{
-			pIOManager = ioManager;
+			pIOManager = ioManager.get();
 		}
 		void SerializeAll() override
 		{
@@ -178,7 +191,7 @@ namespace resource_management
 		}
 	private:
 		castl::filesystem::path m_AssetRootPath;
-		castl::shared_ptr<ca_io::IOManager> pIOManager;
+		ca_io::IOManager* pIOManager;
 		castl::shared_dic<cacore::PathHash, castl::shared_ptr<IResource>> m_PathToResource;
 	};
 
@@ -203,5 +216,8 @@ namespace resource_management
 		}
 	};
 
-	CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(ResourceFactory, ResourceFactoryImpl);
+	//CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(ResourceFactory, ResourceFactoryImpl);
 }
+
+CA_MODULE_INSTANCE(resource_management::ResourceImportingSystem, resource_management::ResourceImportingSystemImpl, ResourceImportingSystem);
+CA_MODULE_INSTANCE(resource_management::ResourceManagingSystem, resource_management::ResourceManagingSystem_Impl, ResourceManagingSystem);

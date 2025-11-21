@@ -12,8 +12,11 @@
 #include <CASTL/CAString.h>
 #include <CASTL/CAMutex.h>
 #include <DebugUtils.h>
-#include <LibraryExportCommon.h>
+//#include <LibraryExportCommon.h>
 #include "TestPrint.h"
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
+
 
 namespace ShaderCompilerSlang
 {
@@ -1582,6 +1585,11 @@ namespace ShaderCompilerSlang
 			m_AvailableCompilers.clear();
 		}
 
+		void Init(cacore::IModuleManager* pManger)
+		{
+			InitializePoolSize(2);
+		}
+
 		virtual IShaderCompiler* AquireShaderCompiler() override
 		{
 			castl::unique_lock<castl::mutex> lock(m_Mutex);
@@ -1622,7 +1630,7 @@ namespace ShaderCompilerSlang
 		castl::vector<IShaderCompiler*> m_AvailableCompilers;
 		castl::vector<Compiler_Impl> m_Compilers;
 	};
-
-	CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(IShaderCompilerManager, ShaderCompilerManager);
+	//CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(IShaderCompilerManager, ShaderCompilerManager);
 }
 
+CA_MODULE_INSTANCE(ShaderCompilerSlang::IShaderCompilerManager, ShaderCompilerSlang::ShaderCompilerManager, ShaderCompilerManager_Slang);

@@ -10,7 +10,7 @@
 // add headers that you want to pre-compile here
 #include <cstdint>
 #include <Platform.h>
-#include <LibraryExportCommon.h>
+//#include <LibraryExportCommon.h>
 #include <DebugUtils.h>
 
 #endif //PCH_H

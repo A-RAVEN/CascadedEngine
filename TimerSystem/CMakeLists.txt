@@ -8,7 +8,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC CACore)
 target_include_directories(${PROJECT_NAME} PUBLIC header)
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
-
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
   set_property(TARGET ${PROJECT_INTERFACE_NAME} PROPERTY CXX_STANDARD 20)

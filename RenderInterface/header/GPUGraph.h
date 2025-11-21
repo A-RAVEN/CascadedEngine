@@ -380,6 +380,11 @@ namespace graphics_backend
 		uint32_t y;
 		uint32_t z;
 
+		static ComputeDispatch New()
+		{
+			return {};
+		}
+
 		static ComputeDispatch Create(ShaderInfo const& shader, uint32_t x, uint32_t y, uint32_t z)
 		{
 			ComputeDispatch dispatchStruct{};
@@ -387,8 +392,21 @@ namespace graphics_backend
 			dispatchStruct.x = x;
 			dispatchStruct.y = y;
 			dispatchStruct.z = z;
-			//dispatchStruct.shaderStructs = shaderStructs;
 			return dispatchStruct;
+		}
+
+		ComputeDispatch& SetShader(ShaderInfo const& shader)
+		{
+			m_ShaderInfo = shader;
+			return *this;
+		}
+
+		ComputeDispatch& Dispatch(uint32_t x, uint32_t y, uint32_t z)
+		{
+			x = x;
+			y = y;
+			z = z;
+			return *this;
 		}
 
 		ComputeDispatch& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
@@ -449,18 +467,41 @@ namespace graphics_backend
 	};
 #pragma endregion
 
-#pragma region Barriers
-	class BarrierBatch
+#pragma region Finalize
+	class FinalizePass
 	{
 	public:
-		void SetUsage(ImageHandle const& imageHandle, ETextureAccessTypeFlags textureUsage)
+		bool isEmpty() const
 		{
-			m_ImageUsages[imageHandle] = textureUsage;
+			return m_ImageUsages.empty() && m_PresentBackBuffers.empty();
 		}
-	private:
-		castl::map<ImageHandle, ETextureAccessTypeFlags> m_ImageUsages;
+		castl::map<ImageHandle, ETextureAccessType> m_ImageUsages;
+		castl::vector<ImageHandle> m_PresentBackBuffers;
 	};
+
 #pragma endregion
+
+//#pragma region Barriers
+//	class BarrierBatch
+//	{
+//	public:
+//		static BarrierBatch New()
+//		{
+//			return {};
+//		}
+//		BarrierBatch& SetUsage(ImageHandle const& imageHandle, ETextureAccessType textureUsage)
+//		{
+//			m_ImageUsages[imageHandle] = textureUsage;
+//			return *this;
+//		}
+//		castl::map<ImageHandle, ETextureAccessType> const& GetUsages() const
+//		{
+//			return m_ImageUsages;
+//		}
+//	private:
+//		castl::map<ImageHandle, ETextureAccessType> m_ImageUsages;
+//	};
+//#pragma endregion
 
 	struct GPUDataTransfers
 	{
@@ -560,7 +601,7 @@ namespace graphics_backend
 			eRenderPass,
 			eComputePass,
 			eTransferPass,
-			eBarrierPass,
+			eFinalPass,
 			eSubGraph
 		};
 
@@ -592,11 +633,11 @@ namespace graphics_backend
 		{
 			if (windowHandle.GetType() == ImageHandle::ImageType::Backbuffer)
 			{
-				m_PresentBackBuffers.push_back(windowHandle);
+				m_FinalizePass.m_PresentBackBuffers.push_back(windowHandle);
 			}
 			return *this;
 		}
-		inline GPUGraph& Finalize(ImageHandle const& imageHandle, ETextureAccessTypeFlags textureUsage);
+		inline GPUGraph& Finalize(ImageHandle const& imageHandle, ETextureAccessType textureUsage);
 		inline GPUGraph& SubGraph(castl::shared_ptr<GPUGraph> const& subGraph)
 		{
 			m_StageTypes.push_back(EGraphStageType::eSubGraph);
@@ -607,17 +648,10 @@ namespace graphics_backend
 		template<typename TVector>
 		GPUGraph& AllocAndUploadBuffer(BufferHandle const& bufferHandle, TVector const& bufferVector)
 		{
-			AllocBuffer(bufferHandle
-				, GPUBufferDescriptor::Create(EBufferUsage::eConstantBuffer
-					, bufferVector.size(), sizeof(bufferVector[0])));
+			AllocBuffer(bufferHandle, GPUBufferDescriptor::Create(bufferVector.size(), sizeof(bufferVector[0])));
 			ScheduleData(bufferHandle, bufferVector.data(), bufferVector.size() * sizeof(bufferVector[0]));
 			return *this;
 		}
-
-		//inline GPUGraph& SubGraph(castl::shared_ptr<GPUGraph> const& subGraph)
-		//{
-		//	return *this;
-		//}
 
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
@@ -627,7 +661,8 @@ namespace graphics_backend
 		UploadDataHolder const& GetUploadDataHolder() const { return m_DataHolder; }
 		GraphResourceManager<GPUTextureDescriptor> const& GetImageManager() const { return m_InternalImageManager; }
 		GraphResourceManager<GPUBufferDescriptor> const& GetBufferManager() const { return m_InternalBufferManager; }
-		castl::vector<ImageHandle> const& GetPresentBackBuffers() const { return m_PresentBackBuffers; }
+		FinalizePass const& GetFinalizePass() const { return m_FinalizePass; }
+		//castl::vector<ImageHandle> const& GetPresentBackBuffers() const { return m_PresentBackBuffers; }
 	private:
 		//Render Passes
 		castl::deque<RenderPass> m_RenderPasses;
@@ -639,12 +674,14 @@ namespace graphics_backend
 		castl::vector<EGraphStageType> m_StageTypes;
 		//Stage To Pass Index
 		castl::vector<uint32_t> m_PassIndices;
+		//
+		FinalizePass m_FinalizePass;
 		//Submit Data Holder
 		UploadDataHolder m_DataHolder;
 		//Internal Resources
 		GraphResourceManager<GPUTextureDescriptor> m_InternalImageManager;
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
-		castl::vector<ImageHandle> m_PresentBackBuffers;
+		//castl::vector<ImageHandle> m_PresentBackBuffers;
 		castl::vector<castl::shared_ptr<GPUGraph>> m_SubGraphs;
 	};
 
@@ -809,14 +846,9 @@ namespace graphics_backend
 		return *this;
 	}
 
-	GPUGraph& GPUGraph::Finalize(ImageHandle const& imageHandle, ETextureAccessTypeFlags textureUsage)
+	GPUGraph& GPUGraph::Finalize(ImageHandle const& imageHandle, ETextureAccessType textureUsage)
 	{
-		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eBarrierPass)
-		{
-			m_StageTypes.push_back(EGraphStageType::eBarrierPass);
-			m_PassIndices.push_back(m_DataTransfers.size());
-		}
-
+		m_FinalizePass.m_ImageUsages[imageHandle] = textureUsage;
 		return *this;
 	}
 

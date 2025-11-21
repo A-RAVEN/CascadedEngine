@@ -16,6 +16,7 @@
 #include <CAResource/ResourceManagingSystem.h>
 #include <CAResource/ResourceImportingSystem.h>
 #include <ShaderStruct.h>
+#include <Compiler.h>
 
 namespace thread_management
 {
@@ -30,11 +31,13 @@ namespace graphics_backend
 	class CRenderBackend
 	{
 	public:
+
 		virtual void Initialize(
 			catimer::TimerSystem* timer
 			, ca_io::IOManager* ioManager
 			, resource_management::ResourceManagingSystem* resourceManager
 			, resource_management::ResourceImportingSystem* resourceImporter
+			, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
 			, castl::string const& appName
 			, castl::string const& engineName) = 0;
 		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) = 0;
@@ -42,12 +45,12 @@ namespace graphics_backend
 
 		virtual void Release() = 0;
 
-		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor) = 0;
+		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) = 0;
 		castl::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags usageFlags
 			, uint64_t count
 			, uint64_t stride)
 		{
-			return CreateGPUBuffer(GPUBufferDescriptor::Create(usageFlags, count, stride));
+			return CreateGPUBuffer(GPUBufferDescriptor::Create(count, stride), usageFlags);
 		}
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) = 0;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) = 0;
