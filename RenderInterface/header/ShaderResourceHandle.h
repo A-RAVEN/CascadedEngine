@@ -61,8 +61,8 @@ namespace graphics_backend
 			, m_Type(other.m_Type)
 		{
 		}
-		ImageHandle(cacore::NameHash const& name, uint32_t uniqueID = 0)
-			: m_Key(ResourceHandleKeyData::Create(name, uniqueID))
+		ImageHandle(cacore::NameHash const& name, bool unique = false)
+			: m_Key(ResourceHandleKeyData::Create(name, unique))
 			, m_ExternalManagedTexture(nullptr)
 			, m_Backbuffer(nullptr)
 			, m_Type(ImageType::Internal)

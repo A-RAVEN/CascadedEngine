@@ -31,6 +31,7 @@
 #include <CAResource/ResourceSystemFactory.h>
 #include <stb_image.h>
 #include <CACore/CAModuleManager.h>
+#include <IMGUIContext/IMGUIContext.h>
 
 using namespace thread_management;
 using namespace resource_management;
@@ -44,6 +45,7 @@ cacore::IModuleManager* g_ModuleManager;
 CThreadManager* g_ThreadManager;
 CRenderBackend* g_GPUBackend;
 IWindowSystem* g_WindowSystem;
+imgui_display::IMGUIContext* g_IMGUIContext;
 
 std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format };
 std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
@@ -273,7 +275,7 @@ void TestTriangleWithImageBuffer()
 
 	//Submit
 	{
-		auto texturFile = resourceString / "Images/vulkanlogo.png";
+		auto texturFile = resourceString / "Images/test.png";
 		int width, height, channels;
 		auto data = stbi_load(texturFile.string().c_str(), &width, &height, &channels, 4);
 		testTexture = g_GPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(width, height
@@ -421,12 +423,12 @@ void TestDoublePass()
 
 		castl::shared_ptr<GPUGraph> submitGraph = castl::make_shared<GPUGraph>();
 		submitGraph->ScheduleData(testTexture, data, textureSize);
+		stbi_image_free(data);
 		submitGraph->ScheduleData(testVertexBuffer, testBuffer);
 		submitGraph->ScheduleData(testVertexBuffer1, testBuffer1);
 		submitGraph->ScheduleData(testIndexBuffer, indicesBuffer);
 		auto scheduler = g_ThreadManager->NewScheduler();
 		g_GPUBackend->ExecuteGraph(scheduler.get(), submitGraph);
-		stbi_image_free(data);
 	}
 
 	auto imageStruct = g_GPUBackend->CreateShaderStruct(CANAME("SamplingTextureData"));
@@ -586,6 +588,48 @@ void TestComputeBuffer()
 }
 
 
+void TestIMGUI(castl::string const& editorConfigsPath)
+{
+	auto newWindow = g_WindowSystem->NewWindow(1024, 512, "IMGUI Test Window");
+
+	{
+		auto scheduler = g_ThreadManager->NewScheduler();
+		castl::shared_ptr<GPUGraph> initializeGraph = castl::make_shared<GPUGraph>();
+		g_IMGUIContext->Initialize(editorConfigsPath, newWindow.lock(), initializeGraph.get());
+		g_GPUBackend->ExecuteGraph(scheduler.get(), initializeGraph);
+	}
+
+
+
+	auto windowHandle = g_GPUBackend->GetWindowHandle(newWindow.lock());
+	while (!newWindow.lock()->WindowShouldClose())
+	{
+		g_WindowSystem->UpdateSystem();
+
+		g_IMGUIContext->UpdateIMGUI();
+
+		auto scheduler = g_ThreadManager->NewScheduler();
+		castl::shared_ptr<GPUGraph> frameGraph = castl::make_shared<GPUGraph>();
+		g_IMGUIContext->PrepareDrawData(frameGraph.get());
+
+		auto& contexts = g_IMGUIContext->GetTextureViewContexts();
+		for (auto& contexts : contexts)
+		{
+			contexts.m_SceneViewIndex
+		}
+
+		g_IMGUIContext->Draw(frameGraph.get());
+
+		auto& presentSurfaces = g_IMGUIContext->GetWindowHandles();
+		for (auto& surface : presentSurfaces)
+		{
+			frameGraph->Present(ImageHandle(surface));
+		}
+		g_GPUBackend->ExecuteGraph(scheduler.get(), frameGraph);
+
+	}
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -606,9 +650,11 @@ int main(int argc, char* argv[])
 	CA_ADD_MODULE(g_ModuleManager, WindowSystem);
 	CA_ADD_MODULE(g_ModuleManager, IOManager_FS);
 	CA_ADD_MODULE(g_ModuleManager, CAGeneralReourceSystem);
+	CA_ADD_MODULE(g_ModuleManager, IMGUIContext);
 
 	g_ModuleManager->LinkModules();
 	SetGlobalTimerSystem(g_ModuleManager->GetInstance<catimer::TimerSystem>());
+
 
 	//Window System
 	g_WindowSystem = g_ModuleManager->GetInstance<IWindowSystem>();
@@ -618,6 +664,8 @@ int main(int argc, char* argv[])
 	//unsigned int n = std::thread::hardware_concurrency();
 	//n = (n == 0) ? 5 : (castl::min)(n, 16u);
 	//g_ThreadManager->InitializeThreadCount(GetGlobalTimerSystem(), n);
+
+	g_IMGUIContext = g_ModuleManager->GetInstance<imgui_display::IMGUIContext>();
 
 	//Resource System
 	auto pResourceManagingSystem = g_ModuleManager->GetInstance<ResourceManagingSystem>();
@@ -629,11 +677,13 @@ int main(int argc, char* argv[])
 	importingSystem->ScanSourceDirectory(resourceString);
 
 
-	TestTriangleWithImageBuffer();
+	//TestTriangleWithImageBuffer();
+	TestIMGUI(editorResourceString);
 	//TestDoublePass();
 	//TestComputeBuffer();
 
 	//g_ThreadManager.reset();
 	//g_GPUBackend.reset();
+
 	return EXIT_SUCCESS;
 }

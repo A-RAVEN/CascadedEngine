@@ -46,6 +46,27 @@ namespace graphics_backend
 		});
 	}
 
+	void GPUFrameManager::WaitIdle()
+	{
+		++m_FrameIndex;
+		GetApp()->GetDirectQueue()->Signal(m_FrameCounterFence.Get(), m_FrameIndex);
+		GetApp()->GetComputeQueue()->Signal(m_ComputeCounterFence.Get(), m_FrameIndex);
+		if (m_FrameCounterFence->GetCompletedValue() < m_FrameIndex)
+		{
+			HANDLE eventHandle = CreateEvent(nullptr, false, false, nullptr);
+			ThrowIfFailed(m_FrameCounterFence->SetEventOnCompletion(m_FrameIndex, eventHandle));
+			WaitForSingleObject(eventHandle, INFINITE);
+			CloseHandle(eventHandle);
+		}
+		if (m_ComputeCounterFence->GetCompletedValue() < m_FrameIndex)
+		{
+			HANDLE eventHandle = CreateEvent(nullptr, false, false, nullptr);
+			ThrowIfFailed(m_ComputeCounterFence->SetEventOnCompletion(m_FrameIndex, eventHandle));
+			WaitForSingleObject(eventHandle, INFINITE);
+			CloseHandle(eventHandle);
+		}
+	}
+
 	void GPUFrameManager::Release()
 	{
 		for (auto& context : m_FrameContexts)

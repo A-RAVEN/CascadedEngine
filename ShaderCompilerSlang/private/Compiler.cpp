@@ -154,9 +154,10 @@ namespace ShaderCompilerSlang
 		castl::vector<ShaderCompileTargetResult> m_CompileResults;
 		castl::vector<CompilerOptionEntry> m_CompilerOptionEntries = { 
 			CompilerOptionEntry{ CompilerOptionName::VulkanUseEntryPointName , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }} ,
-			//CompilerOptionEntry{ CompilerOptionName::EmitSpirvDirectly , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }} ,
+			CompilerOptionEntry{ CompilerOptionName::EmitSpirvDirectly , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }} ,
 			CompilerOptionEntry{ CompilerOptionName::DebugInformation , CompilerOptionValue{ CompilerOptionValueKind::Int, SLANG_DEBUG_INFO_LEVEL_STANDARD  }} ,
-			CompilerOptionEntry{ CompilerOptionName::Optimization , CompilerOptionValue{ CompilerOptionValueKind::Int, SlangOptimizationLevel::SLANG_OPTIMIZATION_LEVEL_HIGH }},
+			CompilerOptionEntry{ CompilerOptionName::Optimization , CompilerOptionValue{ CompilerOptionValueKind::Int, SlangOptimizationLevel::SLANG_OPTIMIZATION_LEVEL_NONE }},
+			//CompilerOptionEntry{ CompilerOptionName::Optimization , CompilerOptionValue{ CompilerOptionValueKind::Int, SlangOptimizationLevel::SLANG_OPTIMIZATION_LEVEL_HIGH }},
 			CompilerOptionEntry{ CompilerOptionName::MatrixLayoutRow , CompilerOptionValue{ CompilerOptionValueKind::Int, 1 }},
 			CompilerOptionEntry{ CompilerOptionName::MatrixLayoutColumn , CompilerOptionValue{ CompilerOptionValueKind::Int, 0 }},
 			CompilerOptionEntry{ CompilerOptionName::PreserveParameters , CompilerOptionValue{ CompilerOptionValueKind::Int, 0 }},
@@ -737,6 +738,7 @@ namespace ShaderCompilerSlang
 				metaData->isParameterLocationUsed(
 					category
 					, bindings.space, bindings.offset, used);
+				used = true;
 				if (used)
 				{
 					usage |= (1 << metaID);
@@ -781,6 +783,10 @@ namespace ShaderCompilerSlang
 	
 
 				cacore::NameHash typeName = GetFullTypeName(elementTypeLayout);
+				if (typeName == CANAME("ImguiContext"))
+				{
+					CA_LOG(" Found!");
+				}
 				if (parentHierarchyID == -1)
 				{
 					name = RootName();
@@ -808,13 +814,14 @@ namespace ShaderCompilerSlang
 							accessPath.GetLastBufferBinding(bindings);
 							currentHierarchy.m_SelfUniformBufferID = bindings.offset;
 							currentHierarchy.m_SelfUniformSpaceID = bindings.space;
+
 							currentHierarchy.m_SelfUniformUsage = CollectResourceUsage((SlangParameterCategory)cbufferCategory, bindings, metaDatas);
 							auto& spaceInfo = bindingInfo.EnsureSpaceInfo(bindings.space, currentHierarchyID);
 							spaceInfo.m_ResourceStats.m_CBufferBindings.push_back({ bindings.offset, elementCount, stride });
 							spaceInfo.m_ResourceStats.m_TotalBindingCount++;
 							spaceInfo.m_ResourceStats.m_CBufferCount += elementCount;
 							CA_LOG("[{}]{} uniformBuffer space: {} binding: {} stride: {} arrayLength: {} category: {}", typeName, bindings.name, bindings.space, bindings.offset, stride, elementCount, GetCategoryName(cbufferCategory));
-							CA_LOG(" {}", LogUsage(currentHierarchy.m_SelfUniformUsage));
+							CA_LOG("ConstBuffer [{}] {}", typeName, LogUsage(currentHierarchy.m_SelfUniformUsage));
 						}
 					}
 				}

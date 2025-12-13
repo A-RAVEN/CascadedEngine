@@ -18,6 +18,8 @@ namespace graphics_backend
 		ComPtr<ID3D12Resource> const& GetCurrentBackBufferResource() const;
 		DescriptorAllocation EnsureCurrentBackBufferRTV();
 		ResourceState const& GetCurrentBackBufferResourceState() const;
+		bool NeedResize();
+		void CheckResize();
 		void ApplyCurrentBackBufferResourceState(ResourceState const& resourceState);
 		void Present();
 		void Aquire()

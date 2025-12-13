@@ -451,7 +451,6 @@ namespace graphics_backend
 			return *this;
 		}
 
-		//Obsolete
 		ComputeBatch& Dispatch(ShaderInfo const& shaderSet, castl::string_view const& kernelName, uint32_t x, uint32_t y, uint32_t z
 			, ShaderStructDic const& shaderStructs = {})
 		{
@@ -611,8 +610,8 @@ namespace graphics_backend
 		inline GPUGraph& AddPass(ComputeBatch const& computePass);
 		inline GPUGraph& Comp(ComputeBatch const& computePass);
 		//Data Transition
-		inline GPUGraph& ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0);
-		inline GPUGraph& ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0);
+		inline GPUGraph& ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset = 0, bool copy = true);
+		inline GPUGraph& ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset = 0, bool copy = true);
 		template<typename TVector>
 		GPUGraph& ScheduleData(ImageHandle const& imageHandle, TVector const& imageVector)
 		{
@@ -799,7 +798,7 @@ namespace graphics_backend
 		return *this;
 	}
 
-	GPUGraph& GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset)
+	GPUGraph& GPUGraph::ScheduleData(ImageHandle const& imageHandle, void const* data, uint64_t size, uint64_t offset, bool copy)
 	{
 		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
 		{
@@ -810,12 +809,21 @@ namespace graphics_backend
 		{
 			m_DataTransfers.emplace_back();
 		}
-		uint64_t dataIndex = m_DataHolder.AddData(data, size);
-		m_DataTransfers.back().m_ImageDataUploads.push_back(castl::make_pair(imageHandle
-			, GPUDataTransfers::DataReference::Create(data, dataIndex, offset, size, true)));
+		if (copy)
+		{
+			uint64_t dataIndex = m_DataHolder.AddData(data, size);
+			m_DataTransfers.back().m_ImageDataUploads.push_back(castl::make_pair(imageHandle
+				, GPUDataTransfers::DataReference::Create(nullptr, dataIndex, offset, size, true)));
+		}
+		else
+		{
+			m_DataTransfers.back().m_ImageDataUploads.push_back(castl::make_pair(imageHandle
+				, GPUDataTransfers::DataReference::Create(data, 0, offset, size, false)));
+		}
+
 		return *this;
 	}
-	GPUGraph& GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset)
+	GPUGraph& GPUGraph::ScheduleData(BufferHandle const& bufferHandle, void const* data, uint64_t size, uint64_t offset, bool copy)
 	{
 		if (m_StageTypes.empty() || m_StageTypes.back() != EGraphStageType::eTransferPass)
 		{
@@ -826,9 +834,18 @@ namespace graphics_backend
 		{
 			m_DataTransfers.emplace_back();
 		}
-		uint64_t dataIndex = m_DataHolder.AddData(data, size);
-		m_DataTransfers.back().m_BufferDataUploads.push_back(castl::make_pair(bufferHandle
-			, GPUDataTransfers::DataReference::Create(data, dataIndex, offset, size, true)));
+		if (copy)
+		{
+			uint64_t dataIndex = m_DataHolder.AddData(data, size);
+			m_DataTransfers.back().m_BufferDataUploads.push_back(castl::make_pair(bufferHandle
+				, GPUDataTransfers::DataReference::Create(nullptr, dataIndex, offset, size, true)));
+		}
+		else
+		{
+			m_DataTransfers.back().m_BufferDataUploads.push_back(castl::make_pair(bufferHandle
+				, GPUDataTransfers::DataReference::Create(data, 0, offset, size, false)));
+		}
+
 		return *this;
 	}
 	GPUGraph& GPUGraph::AllocImage(ImageHandle const& imageHandle, GPUTextureDescriptor const& desc)

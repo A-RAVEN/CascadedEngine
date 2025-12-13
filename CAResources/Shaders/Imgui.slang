@@ -10,7 +10,8 @@ struct ImguiContext
 
     float4 SampleFont(in float2 uv)
     {
-        return imguiTextureBinding.IMGUITexture.SampleLevel(IMGUITextureSampler, uv, 0).xyzw;
+        //uv.y = 1.0f - uv.y;
+        return imguiTextureBinding.IMGUITexture.SampleLevel(IMGUITextureSampler, uv, 0).aaaa;
     }
 
     float2 TransformIMGUIVertex(in float2 inVert)
@@ -39,12 +40,14 @@ VSOutput vert(VSInput input)
 	VSOutput output = (VSOutput)0;
 	output.UV = input.UV;
 	output.Color = input.Color;
-	output.Pos = float4(imguiCommon.TransformIMGUIVertex(input.Pos), 0.0, 1.0);
+    output.Pos = float4(imguiCommon.TransformIMGUIVertex(input.Pos) + imguiCommon.IMGUIScale_Pos.xy, 0.0, 1.0);
+    output.Pos.y = -output.Pos.y;
 	return output;
 }
 
 [shader("fragment")]
 float4 frag(VSOutput input) : SV_TARGET
 {
-	return input.Color * imguiCommon.SampleFont(input.UV);
+    //return float4(input.UV, 0.0, 1.0);
+	 return input.Color * imguiCommon.SampleFont(input.UV);
 }

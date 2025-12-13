@@ -20,7 +20,7 @@
 
 using Microsoft::WRL::ComPtr;
 
-#define D3D12_RENDER_BACKEND_DEBUG 0
+#define D3D12_RENDER_BACKEND_DEBUG 1
 //#ifdef NDEBUG
 //#define D3D12_RENDER_BACKEND_DEBUG 1
 //#endif

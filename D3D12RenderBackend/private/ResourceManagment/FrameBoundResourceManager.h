@@ -153,6 +153,7 @@ namespace graphics_backend
 		using PFrameContext = castl::unique_ptr<FrameContext, castl::function<void(FrameContext*)>>;
 		GPUFrameManager(RenderBackend_D3D12* app, uint64_t maxFrameCount = 1);
 		PFrameContext AquireFrameContext();
+		void WaitIdle();
 		void Release() override;
 	private:
 		uint64_t m_FrameIndex = 0;

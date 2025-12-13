@@ -39,6 +39,7 @@ add_subdirectory ("ExternalLib")
 # 包含子项目。
 #add_subdirectory ("CASTL")
 add_subdirectory ("CACore")
+add_subdirectory ("IMGUIContext")
 add_subdirectory ("TimerSystem")
 add_subdirectory ("TimerSystem_Impl")
 add_subdirectory ("ThreadManager")

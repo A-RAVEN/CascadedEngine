@@ -53,6 +53,36 @@ namespace graphics_backend
         m_Swapchain->GetSourceSize(&result.x, &result.y);
         return result;
     }
+    bool WindowContext::NeedResize()
+    {
+        int2 targetSize;
+        m_WindowHandle->GetWindowSize(targetSize.x, targetSize.y);
+        uint2 currentSize = GetSizeSafe();
+        if (currentSize.x == targetSize.x && currentSize.y == targetSize.y)
+            return false;
+        return true;
+    }
+
+    void WindowContext::CheckResize()
+    {
+        UINT32 FrameCount = 3;
+        int2 targetSize;
+        m_WindowHandle->GetWindowSize(targetSize.x, targetSize.y);
+		uint2 currentSize = GetSizeSafe();
+        if (currentSize.x == targetSize.x && currentSize.y == targetSize.y)
+            return;
+        m_BackBufferDesc.width = targetSize.x;
+        m_BackBufferDesc.height = targetSize.y;
+        m_BackBuffers.clear();
+        ThrowIfFailed(m_Swapchain->ResizeBuffers(FrameCount, targetSize.x, targetSize.y, DXGI_FORMAT_R8G8B8A8_UNORM, 0));
+        m_BackBufferIndex = m_Swapchain->GetCurrentBackBufferIndex();
+        for (UINT32 bufferID = 0; bufferID < FrameCount; ++bufferID)
+        {
+            ComPtr<ID3D12Resource> backBuffer;
+            m_Swapchain->GetBuffer(bufferID, IID_PPV_ARGS(&backBuffer));
+            m_BackBuffers.push_back({ backBuffer, TextureResourceViews{}, ResourceState::InitializedState() });
+        }
+    }
     GPUTextureDescriptor const& WindowContext::GetBackbufferDescriptor() const
     {
         return  m_BackBufferDesc;

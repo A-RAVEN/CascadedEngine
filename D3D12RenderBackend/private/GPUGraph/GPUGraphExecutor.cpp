@@ -1924,6 +1924,7 @@ namespace graphics_backend
 			//Transfer Passes
 			for (int transferPassID : executeBatch.transferPassRefs)
 			{
+				auto& dataHolder = owningGraph.GetUploadDataHolder();
 				auto pCommand = getDirectCmd();
 				GPUDataTransfers const& transferPass = owningGraph.GetDataTransfers()[transferPassID];
 				for (auto& imageUploads : transferPass.m_ImageDataUploads)
@@ -1938,12 +1939,14 @@ namespace graphics_backend
 					D3D12_RESOURCE_DESC resourceDesc = pImageResource->GetDesc();
 					const UINT subresourceNum = 1;
 					pBackend->GetDevice()->GetCopyableFootprints(&resourceDesc
-						, 0, subresourceNum, 0
+						, 0
+						, subresourceNum
+						, 0
 						, &layouts, &numRows, &rowSizeInBytes, &totalBytes);
 
 					ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(totalBytes);
 					D3D12_SUBRESOURCE_DATA subresourceData{};
-					subresourceData.pData = dataRef.pData;
+					subresourceData.pData = dataRef.copied ? dataHolder.GetPtr(dataRef.dataIndex) : dataRef.pData;
 					{
 						size_t rowPitch;
 						size_t slicePitch;
@@ -1966,10 +1969,11 @@ namespace graphics_backend
 					ID3D12Resource* stagingBuffer = linearMemoryManager.AllocUploadStagingBuffer(dataRef.dataSize);
 					UINT8* mappedStagingData;
 					stagingBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mappedStagingData));
-					memcpy(mappedStagingData, dataRef.pData, dataRef.dataSize);
+					auto pData = dataRef.copied ? dataHolder.GetPtr(dataRef.dataIndex) : dataRef.pData;
+					memcpy(mappedStagingData, pData, dataRef.dataSize);
 					stagingBuffer->Unmap(0, nullptr);
 
-					pCommand->CopyBufferRegion(pBufferResource, 0, stagingBuffer, 0, dataRef.dataSize);
+					pCommand->CopyBufferRegion(pBufferResource, dataRef.dstOffset, stagingBuffer, 0, dataRef.dataSize);
 				}
 			}
 

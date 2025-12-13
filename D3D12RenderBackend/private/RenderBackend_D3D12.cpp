@@ -251,17 +251,53 @@ namespace graphics_backend
 		return !m_WindowContexts.empty();
 	}
 
+	void RenderBackend_D3D12::CleanupWindowHandles()
+	{
+		bool needWait = false;
+		for(auto& pair : m_WindowContexts)
+		{
+			if(pair.first->WindowShouldClose() || pair.second->NeedResize())
+			{
+				needWait = true;
+				break;
+			}
+		}
+		if (!needWait)
+		{
+			return;
+		}
+
+		m_GPUFrameManager.WaitIdle();
+		auto itr = m_WindowContexts.begin();
+		while(itr != m_WindowContexts.end())
+		{
+			if (itr->first->WindowShouldClose())
+			{
+				itr->second->Release();
+				itr = m_WindowContexts.erase(itr);
+			}
+			else
+			{
+				itr->second->CheckResize();
+				++itr;
+			}
+		}
+	}
+
 	void RenderBackend_D3D12::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
 	{
 		GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
 		auto pGraph = gpuFrame.pGraph;
 		D3D12GPUGraphExecutor executor(this);
 		executor.CompileAndExecute(*pGraph.get(), std::move(frameContext));
+		CleanupWindowHandles();
 	}
 
 	void RenderBackend_D3D12::ExecuteGraph(TaskScheduler* scheduler
 		, castl::shared_ptr<GPUGraph> const& graph)
 	{
+		CleanupWindowHandles();
+
 		GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
 		D3D12GPUGraphExecutor executor(this);
 		executor.CompileAndExecute(*graph.get(), std::move(frameContext));
