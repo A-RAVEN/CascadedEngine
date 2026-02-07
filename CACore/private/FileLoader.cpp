@@ -8,14 +8,14 @@ namespace cacore
 	using namespace castl;
 	castl::string LoadStringFile(castl::string const& file_source)
 	{
-		std::ifstream file_src(castl::to_std(file_source));
+		std::ifstream file_src(file_source);
 		castl::string result;
 		if (file_src.is_open())
 		{
 			std::string line;
 			while (std::getline(file_src, line))
 			{
-				result += castl::to_ca(line) + "\n";
+				result += line + "\n";
 			}
 		}
 		return result;
@@ -23,7 +23,7 @@ namespace cacore
 
 	castl::vector<uint8_t> LoadBinaryFile(castl::string const& file_source)
 	{
-		std::ifstream file_src(castl::to_std(file_source), std::ios::in | std::ios::binary);
+		std::ifstream file_src(file_source, std::ios::in | std::ios::binary);
 		castl::vector<uint8_t> result;
 		if (file_src.is_open())
 		{
@@ -38,7 +38,7 @@ namespace cacore
 
 	void WriteBinaryFile(castl::string const& file_dest, void const* data, size_t size)
 	{
-		std::ofstream file_dst(castl::to_std(file_dest), std::ios::out | std::ios::binary);
+		std::ofstream file_dst(file_dest, std::ios::out | std::ios::binary);
 		if (file_dst.is_open())
 		{
 			file_dst.write(static_cast<char const*>(data), size);

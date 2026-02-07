@@ -28,19 +28,19 @@ namespace graphics_backend
 
 		void Init(cacore::IModuleManager* pModuleManager);
 
-		void Initialize(catimer::TimerSystem* timer
-			, ca_io::IOManager* ioManager
-			, resource_management::ResourceManagingSystem* resourceManager
-			, resource_management::ResourceImportingSystem* resourceImporter
-			, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
-			, castl::string const& appName
-			, castl::string const& engineName) override;
+		//void Initialize(catimer::TimerSystem* timer
+		//	, ca_io::IOManager* ioManager
+		//	, resource_management::ResourceManagingSystem* resourceManager
+		//	, resource_management::ResourceImportingSystem* resourceImporter
+		//	, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
+		//	, castl::string const& appName
+		//	, castl::string const& engineName) override;
 		void Release() override;
 		~RenderBackend_D3D12();
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		bool AnyWindowRunning() override;
 		void CleanupWindowHandles();
-		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) override;
+		//virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) override;
 		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) override;
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) override;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) override;
@@ -201,4 +201,5 @@ namespace graphics_backend
 
 		castl::atomic<uint64_t> m_ResourceVersion = 1;
 	};
+	
 }

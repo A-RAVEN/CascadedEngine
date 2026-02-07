@@ -23,6 +23,18 @@ namespace castl
 			castl::unique_lock write_lock(other.m_SharedMutex);
 			m_Map = castl::move(other.m_Map);
 		}
+
+		TValue const* try_get(TKey const& inKey) const
+		{
+			castl::shared_lock lock(m_SharedMutex);
+			auto found = m_Map.find(inKey);
+			if (found != m_Map.end())
+			{
+				return &found->second;
+			}
+			return nullptr;
+		}
+
 		TValue* try_get(TKey const& inKey)
 		{
 			castl::shared_lock lock(m_SharedMutex);
@@ -44,6 +56,27 @@ namespace castl
 				return true;
 			}
 			return false;
+		}
+
+		map_type::iterator get_or_create(TKey const& inKey, castl::function<TValue()> createFunctor)
+		{
+			{
+				castl::shared_lock lock(m_SharedMutex);
+				auto found = m_Map.find(inKey);
+				if (found != m_Map.end())
+				{
+					return found;
+				}
+			}
+			{
+				castl::unique_lock write_lock(m_SharedMutex);
+				auto found = m_Map.find(inKey);
+				if (found == m_Map.end())
+				{
+					found = m_Map.insert(castl::make_pair(inKey, castl::forward<TValue>(createFunctor()))).first;
+				}
+				return found;
+			}
 		}
 
 		map_type::iterator get_or_create(TKey const& inKey, castl::function<TValue(TKey const&)> createFunctor)

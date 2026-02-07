@@ -31,10 +31,21 @@ target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
 #target_link_libraries(${PROJECT_NAME} PRIVATE VulkanMemoryAllocator)
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw)
+#target_link_libraries(${PROJECT_NAME} PRIVATE glfw)
 target_link_libraries(${PROJECT_NAME} PRIVATE DirectX-Headers)
 target_link_libraries(${PROJECT_NAME} PRIVATE D3D12MemoryAllocator)
 target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE DirectXTex)
 target_link_libraries(${PROJECT_NAME} PUBLIC IOManager)
+
+# Suppress specific warnings that occur in Windows headers for this module
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE 
+        /wd4068  # Disable unknown pragma warning
+        /wd26812 # Disable "Prefer enum class" warning
+        /wd26451 # Disable arithmetic overflow warning
+        /wd26495 # Disable uninitialized member variable warning
+    )
+endif()
+
 CA_SETUP_MODULE(${PROJECT_NAME})

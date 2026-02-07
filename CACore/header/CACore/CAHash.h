@@ -1,6 +1,8 @@
 #pragma once
 #include <sha256.h>
 #include <komihash.h>
+#include <CASTL/CAString.h>
+#include "Reflection.h"
 
 namespace cahash
 {
@@ -140,6 +142,9 @@ namespace cahash
 		h(key, len);
 		return static_cast<HashAlgorithm::result_type>(h);
 	}
+
+    using hash256 = sha256_hash::result_type;
+
 }
 
 CA_REFLECTION(cahash::sha256_hash::result_type, data);

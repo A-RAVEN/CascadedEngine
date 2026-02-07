@@ -31,20 +31,8 @@ namespace graphics_backend
 	class CRenderBackend
 	{
 	public:
-
-		virtual void Initialize(
-			catimer::TimerSystem* timer
-			, ca_io::IOManager* ioManager
-			, resource_management::ResourceManagingSystem* resourceManager
-			, resource_management::ResourceImportingSystem* resourceImporter
-			, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
-			, castl::string const& appName
-			, castl::string const& engineName) = 0;
-		virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) = 0;
 		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) = 0;
-
 		virtual void Release() = 0;
-
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) = 0;
 		castl::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags usageFlags
 			, uint64_t count
@@ -54,10 +42,8 @@ namespace graphics_backend
 		}
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) = 0;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) = 0;
-
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) = 0;
 		virtual bool AnyWindowRunning() = 0;
-
 		virtual void RunTestCode(){};
 	};
 }

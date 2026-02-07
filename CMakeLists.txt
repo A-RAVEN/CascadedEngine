@@ -31,6 +31,20 @@ if (CMAKE_VERSION VERSION_GREATER 3.12)
 	set(CMAKE_CXX_STANDARD 20)
 endif()
 
+# Suppress specific warnings from Windows headers that are treated as errors
+if(MSVC)
+  # Disable warnings-as-errors and treat SDK headers as external to avoid SDK noise.
+  add_compile_options(/WX-)
+  add_compile_options(/external:anglebrackets /external:W0)
+
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd4068>")  # Unknown pragma
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd26812>") # Prefer enum class over enum
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd26451>") # Arithmetic overflow/underflow
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd26495>") # Uninitialized member variable
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd28251>") # Inconsistent annotation
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd6387>")  # Parameter may be 0
+endif()
+
 SET(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR}/installed)
 
 # External Project Help
@@ -50,7 +64,7 @@ add_subdirectory ("IOManager")
 add_subdirectory ("IOManager_FS")
 add_subdirectory ("RenderInterface")
 add_subdirectory ("ShaderCompilerSlang")
-#add_subdirectory ("VulkanRenderBackend")
+#add_subdirectory ("VulkanRenderBackendNew")
 add_subdirectory ("D3D12RenderBackend")
 #add_subdirectory ("DotNetHost")
 #add_subdirectory ("VulkanRendererBackendTester")

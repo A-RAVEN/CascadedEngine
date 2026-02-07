@@ -168,6 +168,9 @@ namespace cacore
         }
     };
 
+    template<typename T>
+	using hash_256 = hash<T, cahash::sha256_hash>;
+
     enum class EHashObjCompareMode
     {
         HashOnly,

@@ -1,0 +1,42 @@
+set(PROJECT_NAME VulkanRenderBackend)
+project(${PROJECT_NAME})
+
+file(GLOB_RECURSE Source_List "*.cpp")
+file(GLOB_RECURSE Header_List "*.h")
+
+add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
+
+CPMAddPackage(
+  NAME VulkanMemoryAllocator
+  GIT_TAG v3.1.0
+  GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
+)
+
+#CPMAddPackage(
+#  NAME volk
+#  GIT_TAG vulkan-sdk-1.3.296.0
+#  GITHUB_REPOSITORY zeux/volk
+#  DOWNLOAD_ONLY TRUE
+#)
+#add_library(volk INTERFACE)
+#target_include_directories(volk INTERFACE ${volk_SOURCE_DIR})
+#target_include_directories(volk INTERFACE $ENV{VK_SDK_PATH}/Include)
+
+#add_library(VulkanSDK SHARED IMPORTED GLOBAL)
+#set_property(TARGET VulkanSDK PROPERTY INTERFACE_INCLUDE_DIRECTORIES $ENV{VK_SDK_PATH}/Include)
+#set_property(TARGET VulkanSDK PROPERTY IMPORTED_IMPLIB $ENV{VK_SDK_PATH}/Lib/vulkan-1.lib)
+
+add_library(VulkanHPP INTERFACE)
+target_include_directories(VulkanHPP INTERFACE $ENV{VK_SDK_PATH}/Include)
+
+target_include_directories(${PROJECT_NAME} PRIVATE "private")
+target_link_libraries(${PROJECT_NAME} PRIVATE VulkanHPP)
+#target_link_libraries(${PROJECT_NAME} PRIVATE volk)
+target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
+target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
+target_link_libraries(${PROJECT_NAME} PRIVATE VulkanMemoryAllocator)
+#target_link_libraries(${PROJECT_NAME} PRIVATE glfw)
+target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
+target_link_libraries(${PROJECT_NAME} PUBLIC IOManager)
+CA_SETUP_MODULE(${PROJECT_NAME})

@@ -298,8 +298,6 @@ namespace imgui_display
 
 	void IMGUIContext::CustomTexture(ImVec2 const& offset, ImVec2 const& size, int id)
 	{
-		ImGui::
-
 		IMGUITextureViewContext newWindowHandle{ {}, {}, {offset.x, offset.y, size.x, size.y}, {}, id };
 		IMGUIViewportContext* pUserData = (IMGUIViewportContext*)ImGui::GetWindowViewport()->PlatformUserData;
 		if (pUserData != nullptr)
@@ -308,7 +306,7 @@ namespace imgui_display
 		}
 		m_TextureViewContexts.push_back(newWindowHandle);
 		ImTextureID texID = (uint64_t)(&m_TextureViewContexts.back());
-		ImGui::Image(texID, ImVec2(vMax.x - vMin.x, vMax.y - vMin.y), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+		ImGui::Image(texID, size, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 	}
 
 

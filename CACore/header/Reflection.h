@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "Macros.h"
 #include <type_traits>
+#include <utility>
 
 #if defined __clang__
 #define STRUCT_PACK_INLINE __attribute__((always_inline)) inline
@@ -30,7 +31,7 @@ namespace castruct_name
         constexpr static size_t N = n;
 
         template <std::size_t index>
-        consteval char GetChar() const {
+        constexpr char GetChar() const {
             return value[index < n ? index : n - 1];
         }
     };
@@ -42,12 +43,12 @@ namespace castruct_name
     };
 
     template <CAStringLiteral str, size_t... N>
-    auto CreateStructNameInternal(std::index_sequence<N...>) {
+    constexpr auto CreateStructNameInternal(std::index_sequence<N...>) {
         return CAStructName<str.GetChar<N>()...>{};
     }
 
     template <CAStringLiteral str>
-    auto CACreateStructName() {
+    constexpr auto CACreateStructName() {
         return CreateStructNameInternal<str>(std::make_index_sequence<str.N>{});
     }
 }
@@ -72,11 +73,11 @@ struct CATypeMemberDesc
 };
 
 
-#define CA_REFLECTION_MEMBER_LIST_REMAINS(Type, ItrMember, ...) ,CATypeMemberDesc<decltype(Type::ItrMember), offsetof(Type, ItrMember), CA_STUCTNAME_TYPE(#ItrMember) >\
+#define CA_REFLECTION_MEMBER_LIST_REMAINS(Type, ItrMember, ...) ,CATypeMemberDesc<decltype(std::declval<Type>().ItrMember), offsetof(Type, ItrMember), CA_STUCTNAME_TYPE(#ItrMember) >\
 	__VA_OPT__(CA_REFLECTION_MEMBER_LIST_REMAINS_AGAIN CAPARENS (Type, __VA_ARGS__) )
 #define CA_REFLECTION_MEMBER_LIST_REMAINS_AGAIN() CA_REFLECTION_MEMBER_LIST_REMAINS
 
-#define CA_REFLECTION_MEMBER_LIST(Type, First, ...) CATypeMemberDesc<decltype(Type::First), offsetof(Type, First), CA_STUCTNAME_TYPE(#First) >\
+#define CA_REFLECTION_MEMBER_LIST(Type, First, ...) CATypeMemberDesc<decltype(std::declval<Type>().First), offsetof(Type, First), CA_STUCTNAME_TYPE(#First) >\
 	__VA_OPT__(CAEXPAND(CA_REFLECTION_MEMBER_LIST_REMAINS(Type, __VA_ARGS__)))
 #define CA_REFLECTION(Type, ...)\
 template<>\

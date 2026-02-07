@@ -72,14 +72,14 @@ namespace resource_management
 			{
 				if(p.is_regular_file())
 				{
-					auto postfix = castl::to_ca(p.path().extension().generic_string());
+					auto postfix = p.path().extension().generic_string();
 					auto found = m_PostfixToImporterIndex.find(postfix);
 					if(found != m_PostfixToImporterIndex.end())
 					{
 						auto importer = m_Importers[found->second];
 
 						auto relativePath = castl::filesystem::relative(p.path(), rootPath);
-						relativePath.replace_extension(castl::to_std(importer->GetDestFilePostfix()));
+						relativePath.replace_extension(importer->GetDestFilePostfix());
 						//relativePath.replace_extension("");
 						auto destPath = targetRootPath / relativePath;
 
@@ -114,8 +114,8 @@ namespace resource_management
 				for(uint32_t itrResource = 0; itrResource < m_ReservedSpace[i]; ++itrResource)
 				{
 					m_Importers[i]->ImportResource(m_ResourceManagingSystem
-						, castl::to_ca(m_ImportingResources[i][itrResource].first.generic_string())
-						, castl::to_ca(m_ImportingResources[i][itrResource].second.generic_string()));
+						, m_ImportingResources[i][itrResource].first.generic_string()
+						, m_ImportingResources[i][itrResource].second.generic_string());
 				}
 			}
 			m_ResourceManagingSystem->SerializeAll();

@@ -99,7 +99,8 @@ void TestSimpleTriangle()
 	{
 		g_WindowSystem->UpdateSystem();
 		auto scheduler = g_ThreadManager->NewScheduler();
-		g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+		//g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
 	}
 }
 
@@ -167,7 +168,8 @@ void TestTriangleWithConstantColor()
 	{
 		g_WindowSystem->UpdateSystem();
 		auto scheduler = g_ThreadManager->NewScheduler();
-		g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+		//g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
 
 		auto currentTime = timer.now();
 		auto duration = castl::chrono::duration_cast<castl::chrono::milliseconds>(currentTime - beginTime).count();
@@ -235,7 +237,8 @@ void TestTriangleWithStructuredBufferColor()
 	{
 		g_WindowSystem->UpdateSystem();
 		auto scheduler = g_ThreadManager->NewScheduler();
-		g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
+		g_GPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+		//g_GPUBackend->ScheduleGPUFrame(scheduler.get(), newFrame);
 	}
 }
 
@@ -613,10 +616,10 @@ void TestIMGUI(castl::string const& editorConfigsPath)
 		g_IMGUIContext->PrepareDrawData(frameGraph.get());
 
 		auto& contexts = g_IMGUIContext->GetTextureViewContexts();
-		for (auto& contexts : contexts)
-		{
-			contexts.m_SceneViewIndex
-		}
+		//for (auto& contexts : contexts)
+		//{
+		//	contexts.m_SceneViewIndex
+		//}
 
 		g_IMGUIContext->Draw(frameGraph.get());
 
@@ -635,9 +638,9 @@ int main(int argc, char* argv[])
 {
 	mi_version();
 
-	castl::string resourceString = castl::to_ca(rootPath.string()) + "CAResources";
-	castl::string assetString = castl::to_ca(rootPath.string()) + "CAAssets";
-	castl::string editorResourceString = castl::to_ca(rootPath.string()) + "EditorConfigs";
+	castl::string resourceString = rootPath.string() + "CAResources";
+	castl::string assetString = rootPath.string() + "CAAssets";
+	castl::string editorResourceString = rootPath.string() + "EditorConfigs";
 
 	//extern void Init_TimerSystem(cacore::IModuleManager * mgr);
 
@@ -646,6 +649,7 @@ int main(int argc, char* argv[])
 	CA_ADD_MODULE(g_ModuleManager, TimerSystem_Impl);
 	CA_ADD_MODULE(g_ModuleManager, ThreadManager);
 	CA_ADD_MODULE(g_ModuleManager, D3D12RenderBackend);
+	//CA_ADD_MODULE(g_ModuleManager, VulkanRenderBackend);
 	CA_ADD_MODULE(g_ModuleManager, ShaderCompilerSlang);
 	CA_ADD_MODULE(g_ModuleManager, WindowSystem);
 	CA_ADD_MODULE(g_ModuleManager, IOManager_FS);
@@ -653,6 +657,9 @@ int main(int argc, char* argv[])
 	CA_ADD_MODULE(g_ModuleManager, IMGUIContext);
 
 	g_ModuleManager->LinkModules();
+
+	//return EXIT_SUCCESS;
+
 	SetGlobalTimerSystem(g_ModuleManager->GetInstance<catimer::TimerSystem>());
 
 

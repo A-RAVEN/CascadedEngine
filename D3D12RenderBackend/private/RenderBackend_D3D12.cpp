@@ -159,59 +159,59 @@ namespace graphics_backend
 
 	}
 
-	void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer
-		, ca_io::IOManager* ioManager
-		, resource_management::ResourceManagingSystem* resourceManager
-		, resource_management::ResourceImportingSystem* resourceImporter
-		, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
-		, castl::string const& appName
-		, castl::string const& engineName)
-	{
-		catimer::SetGlobalTimerSystem(timer);
-		m_ShaderResourceImporter.SetCompiler(shaderCompiler.get());
-		p_IOManager = ioManager;
-		p_ResourceManager = resourceManager;
-		p_ResourceImporter = resourceImporter;
-		p_ResourceImporter->AddImporter(&m_ShaderResourceImporter);
-
-		UINT dxgiFactoryFlags = 0;
-
-#if D3D12_RENDER_BACKEND_DEBUG
-		// Enable the debug layer (requires the Graphics Tools "optional feature").
-		// NOTE: Enabling the debug layer after device creation will invalidate the active device.
-		{
-			ComPtr<ID3D12Debug> debugController;
-			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
-			{
-				debugController->EnableDebugLayer();
-
-				// Enable additional debug layers.
-				dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-			}
-		}
-#endif
-
-		//ComPtr<IDXGIFactory4> factory;
-		ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_Factory)));
-
-		GetHardwareAdapter(m_Factory.Get(), &m_Adapter);
-
-		ThrowIfFailed(D3D12CreateDevice(
-			m_Adapter.Get(),
-			D3D_FEATURE_LEVEL_11_0,
-			IID_PPV_ARGS(&m_Device)
-		));
-
-		D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-		queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_CommandQueue)));
-
-		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
-		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_ComputeQueue)));
-
-		AfterDeviceInit();
-	}
+//	void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer
+//		, ca_io::IOManager* ioManager
+//		, resource_management::ResourceManagingSystem* resourceManager
+//		, resource_management::ResourceImportingSystem* resourceImporter
+//		, castl::shared_ptr <ShaderCompilerSlang::IShaderCompilerManager> shaderCompiler
+//		, castl::string const& appName
+//		, castl::string const& engineName)
+//	{
+//		catimer::SetGlobalTimerSystem(timer);
+//		m_ShaderResourceImporter.SetCompiler(shaderCompiler.get());
+//		p_IOManager = ioManager;
+//		p_ResourceManager = resourceManager;
+//		p_ResourceImporter = resourceImporter;
+//		p_ResourceImporter->AddImporter(&m_ShaderResourceImporter);
+//
+//		UINT dxgiFactoryFlags = 0;
+//
+//#if D3D12_RENDER_BACKEND_DEBUG
+//		// Enable the debug layer (requires the Graphics Tools "optional feature").
+//		// NOTE: Enabling the debug layer after device creation will invalidate the active device.
+//		{
+//			ComPtr<ID3D12Debug> debugController;
+//			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
+//			{
+//				debugController->EnableDebugLayer();
+//
+//				// Enable additional debug layers.
+//				dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+//			}
+//		}
+//#endif
+//
+//		//ComPtr<IDXGIFactory4> factory;
+//		ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_Factory)));
+//
+//		GetHardwareAdapter(m_Factory.Get(), &m_Adapter);
+//
+//		ThrowIfFailed(D3D12CreateDevice(
+//			m_Adapter.Get(),
+//			D3D_FEATURE_LEVEL_11_0,
+//			IID_PPV_ARGS(&m_Device)
+//		));
+//
+//		D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+//		queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+//		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+//		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_CommandQueue)));
+//
+//		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+//		ThrowIfFailed(m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_ComputeQueue)));
+//
+//		AfterDeviceInit();
+//	}
 
 	void RenderBackend_D3D12::Release()
 	{
@@ -284,14 +284,14 @@ namespace graphics_backend
 		}
 	}
 
-	void RenderBackend_D3D12::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
-	{
-		GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
-		auto pGraph = gpuFrame.pGraph;
-		D3D12GPUGraphExecutor executor(this);
-		executor.CompileAndExecute(*pGraph.get(), std::move(frameContext));
-		CleanupWindowHandles();
-	}
+	//void RenderBackend_D3D12::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
+	//{
+	//	GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
+	//	auto pGraph = gpuFrame.pGraph;
+	//	D3D12GPUGraphExecutor executor(this);
+	//	executor.CompileAndExecute(*pGraph.get(), std::move(frameContext));
+	//	CleanupWindowHandles();
+	//}
 
 	void RenderBackend_D3D12::ExecuteGraph(TaskScheduler* scheduler
 		, castl::shared_ptr<GPUGraph> const& graph)
