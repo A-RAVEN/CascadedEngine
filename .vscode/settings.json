@@ -1,28 +1,39 @@
 {
     "files.associations": {
-      "*.hslang": "slang",
-      "utility": "cpp",
-      "functional": "cpp",
-      "vector": "cpp",
-      "memory": "cpp",
-      "chrono": "cpp",
-      "span": "cpp",
-      "xhash": "cpp",
-      "atomic": "cpp",
-      "limits": "cpp",
-      "deque": "cpp",
-      "regex": "cpp",
-      "thread": "cpp",
-      "list": "cpp",
-      "charconv": "cpp",
-      "map": "cpp",
-      "unordered_map": "cpp",
-      "xstring": "cpp",
-      "xtree": "cpp",
-      "xmemory": "cpp",
-      "type_traits": "cpp"
+        "*.hslang": "slang",
+        "utility": "cpp",
+        "functional": "cpp",
+        "vector": "cpp",
+        "memory": "cpp",
+        "chrono": "cpp",
+        "span": "cpp",
+        "xhash": "cpp",
+        "atomic": "cpp",
+        "limits": "cpp",
+        "deque": "cpp",
+        "regex": "cpp",
+        "thread": "cpp",
+        "list": "cpp",
+        "charconv": "cpp",
+        "map": "cpp",
+        "unordered_map": "cpp",
+        "xstring": "cpp",
+        "xtree": "cpp",
+        "xmemory": "cpp",
+        "type_traits": "cpp"
     },
     "cmake.debugConfig": {
-      "console": "integratedTerminal"
+        "console": "integratedTerminal"
+    },
+    "chat.promptFilesRecommendations": {
+        "speckit.constitution": true,
+        "speckit.specify": true,
+        "speckit.plan": true,
+        "speckit.tasks": true,
+        "speckit.implement": true
+    },
+    "chat.tools.terminal.autoApprove": {
+        ".specify/scripts/bash/": true,
+        ".specify/scripts/powershell/": true
     }
 }

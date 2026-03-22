@@ -54,19 +54,28 @@ add_subdirectory ("ExternalLib")
 #add_subdirectory ("CASTL")
 add_subdirectory ("CACore")
 add_subdirectory ("IMGUIContext")
-add_subdirectory ("TimerSystem")
+# Interface modules (core abstractions)
+add_subdirectory ("Interface/TimerSystem")
+add_subdirectory ("Interface/IOManager")
+add_subdirectory ("Interface/RenderInterface")
+add_subdirectory ("Interface/ShaderCompiler")
+
+# Core implementations
 add_subdirectory ("TimerSystem_Impl")
 add_subdirectory ("ThreadManager")
 add_subdirectory ("WindowSystem")
 add_subdirectory ("GeneralResources")
-add_subdirectory ("ShaderCompiler")
-add_subdirectory ("IOManager")
 add_subdirectory ("IOManager_FS")
-add_subdirectory ("RenderInterface")
 add_subdirectory ("ShaderCompilerSlang")
+
+# Render backends
 #add_subdirectory ("VulkanRenderBackendNew")
 add_subdirectory ("D3D12RenderBackend")
-#add_subdirectory ("DotNetHost")
-#add_subdirectory ("VulkanRendererBackendTester")
-add_subdirectory ("D3D12RenderBackendTester")
-add_subdirectory ("CoreTests")
+
+# Test projects
+#add_subdirectory ("Test/VulkanRendererBackendTester")
+add_subdirectory ("Test/D3D12RenderBackendTester")
+add_subdirectory ("Test/CoreTests")
+
+# Experimental projects
+#add_subdirectory ("Experimental/DotNetHost")
