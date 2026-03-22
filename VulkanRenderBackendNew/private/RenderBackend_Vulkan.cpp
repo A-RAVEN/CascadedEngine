@@ -1,5 +1,9 @@
 #include <RenderBackend_Vulkan.h>
 #include <Utils/VulkanDebug.h>
+#include <VulkanObjects/VulkanBuffer.h>
+#include <VulkanObjects/VulkanTexture.h>
+#include <VulkanObjects/VulkanWindowHandle.h>
+#include <VulkanObjects/VulkanShaderStruct.h>
 
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
@@ -169,31 +173,133 @@ namespace graphics_backend
 		//Init Object Containers
 		InitSubObj(&m_DescriptorSetLayoutContainer);
 
+		// Init Memory Manager
+		InitSubObj(&m_MemoryManager);
+		m_MemoryManager.Init();
+
+		// Init Command List Manager
+		InitSubObj(&m_CommandListManager);
+		m_CommandListManager.Init();
+
+		// Check for pipeline library support
+		auto deviceExtensions = m_PhysicalDevice.enumerateDeviceExtensionProperties();
+		for (auto const& ext : deviceExtensions)
+		{
+			if (strcmp(ext.extensionName, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME) == 0)
+			{
+				m_PipelineLibrarySupported = true;
+				CA_LOG_INFO("VK_EXT_graphics_pipeline_library supported");
+				break;
+			}
+		}
+
+		CA_LOG_INFO("VulkanRenderBackend initialized successfully");
 	}
 	void RenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
 	{
 	}
 	void RenderBackend_Vulkan::Release()
 	{
+		// Clear window handles
+		m_WindowHandles.clear();
+
+		// Release command list manager
+		m_CommandListManager.Release();
+
+		// Release memory manager
+		m_MemoryManager.Release();
+
+		// Release descriptor set layout container
+		m_DescriptorSetLayoutContainer.Release();
+
+		// Destroy device
+		if (m_Device)
+		{
+			m_Device.waitIdle();
+			m_Device.destroy();
+			m_Device = nullptr;
+		}
+
+#if !defined(NDEBUG)
+		// Destroy debug messenger
+		if (m_DebugMessenger)
+		{
+			m_VulkanInstance.destroyDebugUtilsMessengerEXT(m_DebugMessenger);
+			m_DebugMessenger = nullptr;
+		}
+#endif
+
+		// Destroy instance
+		if (m_VulkanInstance)
+		{
+			m_VulkanInstance.destroy();
+			m_VulkanInstance = nullptr;
+		}
+
+		CA_LOG_INFO("VulkanRenderBackend released");
 	}
 	castl::shared_ptr<GPUBuffer> RenderBackend_Vulkan::CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags)
 	{
-		return castl::shared_ptr<GPUBuffer>();
+		auto buffer = castl::make_shared<VulkanBuffer>();
+		InitSubObj(buffer.get());
+		buffer->Init(descriptor, usageFlags);
+		return buffer;
 	}
 	castl::shared_ptr<GPUTexture> RenderBackend_Vulkan::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType)
 	{
-		return castl::shared_ptr<GPUTexture>();
+		auto texture = castl::make_shared<VulkanTexture>();
+		InitSubObj(texture.get());
+		texture->Init(inDescriptor, accessType);
+		return texture;
 	}
 	castl::shared_ptr<ShaderStruct> RenderBackend_Vulkan::CreateShaderStruct(cacore::NameHash const& structType)
 	{
-		return castl::shared_ptr<ShaderStruct>();
+		auto shaderStruct = castl::make_shared<VulkanShaderStruct>();
+		InitSubObj(shaderStruct.get());
+		shaderStruct->Init(structType);
+		return shaderStruct;
 	}
 	castl::shared_ptr<WindowHandle> RenderBackend_Vulkan::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)
 	{
-		return castl::shared_ptr<WindowHandle>();
+		if (!window)
+			return nullptr;
+
+		// Check for existing handle
+		auto it = m_WindowHandles.find(window.get());
+		if (it != m_WindowHandles.end())
+		{
+			auto existing = it->second.lock();
+			if (existing)
+				return existing;
+		}
+
+		// Create new handle
+		auto windowHandle = castl::make_shared<VulkanWindowHandle>();
+		InitSubObj(windowHandle.get());
+		windowHandle->Init(window);
+
+		m_WindowHandles[window.get()] = windowHandle;
+		return windowHandle;
 	}
 	bool RenderBackend_Vulkan::AnyWindowRunning()
 	{
+		for (auto it = m_WindowHandles.begin(); it != m_WindowHandles.end(); )
+		{
+			auto handle = it->second.lock();
+			if (!handle)
+			{
+				// Remove expired handles
+				it = m_WindowHandles.erase(it);
+			}
+			else if (handle->IsValid())
+			{
+				return true;
+			}
+			else
+			{
+				++it;
+			}
+		}
 		return false;
 	}
 }

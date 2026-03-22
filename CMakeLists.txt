@@ -69,7 +69,7 @@ add_subdirectory ("IOManager_FS")
 add_subdirectory ("ShaderCompilerSlang")
 
 # Render backends
-#add_subdirectory ("VulkanRenderBackendNew")
+add_subdirectory ("VulkanRenderBackendNew")
 add_subdirectory ("D3D12RenderBackend")
 
 # Test projects

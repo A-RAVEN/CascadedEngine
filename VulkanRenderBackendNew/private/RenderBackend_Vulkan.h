@@ -7,6 +7,10 @@
 #include <VulkanQueue/QueueContext.h>
 #include <VulkanObjectManaging/DescriptorSetLayoutManager.h>
 #include <VulkanObjectManaging/PipelineLayoutManager.h>
+#include <ResourceManagement/VulkanMemoryManager.h>
+#include <ResourceManagement/VulkanCommandListManager.h>
+#include <CASTL/CAUnorderedMap.h>
+#include <CASTL/CAVector.h>
 
 
 namespace graphics_backend
@@ -82,6 +86,12 @@ namespace graphics_backend
 			}
 		}
 
+		VulkanMemoryManager& GetMemoryManager() { return m_MemoryManager; }
+		VulkanMemoryManager const& GetMemoryManager() const { return m_MemoryManager; }
+		VulkanCommandListManager& GetCommandListManager() { return m_CommandListManager; }
+		VulkanCommandListManager const& GetCommandListManager() const { return m_CommandListManager; }
+
+		bool IsPipelineLibrarySupported() const { return m_PipelineLibrarySupported; }
 
 	private:
 
@@ -93,6 +103,13 @@ namespace graphics_backend
 		QueueContext m_QueueContext;
 		DescriptorSetLayoutContainer m_DescriptorSetLayoutContainer;
 		PipelineLayoutContainer m_PipelineLayoutContainer;
+		VulkanMemoryManager m_MemoryManager;
+		VulkanCommandListManager m_CommandListManager;
+
+		bool m_PipelineLibrarySupported = false;
+
+		// Window handle tracking
+		castl::unordered_map<cawindow::IWindow*, castl::weak_ptr<WindowHandle>> m_WindowHandles;
 	};
 
 }

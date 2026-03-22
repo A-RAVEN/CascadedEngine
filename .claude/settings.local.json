@@ -3,7 +3,8 @@
     "allow": [
       "Bash(powershell -NoProfile -Command \"./.specify/scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks\")",
       "Bash(git mv:*)",
-      "Bash(cmake --preset=x64-relWithDebugInfo)"
+      "Bash(cmake --preset=x64-relWithDebugInfo)",
+      "Bash(powershell -NoProfile -Command \"./.specify/scripts/powershell/setup-plan.ps1 -Json\")"
     ]
   }
 }
