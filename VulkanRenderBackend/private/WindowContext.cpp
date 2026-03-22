@@ -2,6 +2,7 @@
 #include "WindowContext.h"
 #include "VulkanApplication.h"
 #include "InterfaceTranslator.h"
+#include <VulkanDebug.h>
 
 namespace graphics_backend
 {
@@ -171,6 +172,7 @@ namespace graphics_backend
 		m_SwapchainImages.resize(images.size());
 		for(size_t i = 0; i < images.size(); i++)
 		{
+			SetVKObjectDebugName(GetDevice(), images[i], "WindowBackBuffer");
 			m_SwapchainImages[i].Init(GetVulkanApplication(), images[i]);
 		}
 		m_WaitingDoneFence = GetDevice().createFence({});

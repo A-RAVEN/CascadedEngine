@@ -24,13 +24,9 @@ namespace graphics_backend
 		void Create(RenderPassDescriptor const& descriptor);
 		void Release();
 		vk::RenderPass GetRenderPass() const { return m_RenderPass; }
-		uint32_t GetAttachmentCount() const { return m_AttachmentCounrt; }
-		uint32_t GetSubpassCount() const { return m_SubpassCount; }
-		RenderPassDescriptor const* GetDescriptor() const { return &m_Descriptor; }
+		RenderPassDescriptor const* GetDescriptor() const { return p_Descriptor; }
 	private:
-		RenderPassDescriptor m_Descriptor;
-		uint32_t m_AttachmentCounrt = 0;
-		uint32_t m_SubpassCount = 0;
+		RenderPassDescriptor const* p_Descriptor;
 		vk::RenderPass m_RenderPass = nullptr;
 		castl::vector<castl::pair<vk::ImageLayout, vk::ImageLayout>> m_AttachmentExternalLayouts;
 	};

@@ -2,6 +2,7 @@
 # 并包含子项目。
 #
 cmake_minimum_required (VERSION 3.12)
+include("CMake/CACMakeUtils.cmake")
 
 # Enable Hot Reload for MSVC compilers if supported.
 if (POLICY CMP0141)
@@ -14,6 +15,9 @@ if (POLICY CMP0140)
 endif()
 
 project ("CascadedEngine")
+add_compile_definitions(NOMINMAX=1)
+set(ENV{HTTP_PROXY} "http://127.0.0.1:7890")
+set(ENV{HTTPS_PROXY} "http://127.0.0.1:7890")
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -27,22 +31,51 @@ if (CMAKE_VERSION VERSION_GREATER 3.12)
 	set(CMAKE_CXX_STANDARD 20)
 endif()
 
+# Suppress specific warnings from Windows headers that are treated as errors
+if(MSVC)
+  # Disable warnings-as-errors and treat SDK headers as external to avoid SDK noise.
+  add_compile_options(/WX-)
+  add_compile_options(/external:anglebrackets /external:W0)
 
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd4068>")  # Unknown pragma
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd26812>") # Prefer enum class over enum
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd26451>") # Arithmetic overflow/underflow
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd26495>") # Uninitialized member variable
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd28251>") # Inconsistent annotation
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/wd6387>")  # Parameter may be 0
+endif()
+
+SET(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR}/installed)
 
 # External Project Help
 add_subdirectory ("ExternalLib")
 
 # 包含子项目。
+#add_subdirectory ("CASTL")
 add_subdirectory ("CACore")
-add_subdirectory ("TimerSystem")
+add_subdirectory ("IMGUIContext")
+# Interface modules (core abstractions)
+add_subdirectory ("Interface/TimerSystem")
+add_subdirectory ("Interface/IOManager")
+add_subdirectory ("Interface/RenderInterface")
+add_subdirectory ("Interface/ShaderCompiler")
+
+# Core implementations
 add_subdirectory ("TimerSystem_Impl")
 add_subdirectory ("ThreadManager")
 add_subdirectory ("WindowSystem")
 add_subdirectory ("GeneralResources")
-add_subdirectory ("ShaderCompiler")
-add_subdirectory ("RenderInterface")
+add_subdirectory ("IOManager_FS")
 add_subdirectory ("ShaderCompilerSlang")
-add_subdirectory ("VulkanRenderBackend")
-#add_subdirectory ("DotNetHost")
-add_subdirectory ("VulkanRendererBackendTester")
-add_subdirectory ("CoreTests")
+
+# Render backends
+#add_subdirectory ("VulkanRenderBackendNew")
+add_subdirectory ("D3D12RenderBackend")
+
+# Test projects
+#add_subdirectory ("Test/VulkanRendererBackendTester")
+add_subdirectory ("Test/D3D12RenderBackendTester")
+add_subdirectory ("Test/CoreTests")
+
+# Experimental projects
+#add_subdirectory ("Experimental/DotNetHost")

@@ -5,8 +5,29 @@ file(GLOB_RECURSE Header_List "*.h")
 
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
+CPMAddPackage(
+  NAME slang
+  URL https://github.com/shader-slang/slang/releases/download/v2025.10/slang-2025.10-windows-x86_64.zip
+  VERSION 2025.10
+  # the range-v3 CMakeLists screws with configuration options
+  DOWNLOAD_ONLY True
+)
+#find_package(slang REQUIRED PATHS ${slang_SOURCE_DIR}/cmake NO_DEFAULT_PATH)
+add_library(slang SHARED IMPORTED GLOBAL)
+set_property(TARGET slang PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${slang_SOURCE_DIR}/include)
+set_property(TARGET slang PROPERTY IMPORTED_IMPLIB ${slang_SOURCE_DIR}/lib/slang.lib)
+set_property(TARGET slang PROPERTY IMPORTED_LOCATION ${slang_SOURCE_DIR}/bin/slang.dll)
+add_library(slang::slang ALIAS slang)
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${slang_SOURCE_DIR}/include)
 target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompiler)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
-target_link_libraries(${PROJECT_NAME} PRIVATE Rendering_Interface)
-target_link_libraries(${PROJECT_NAME} PRIVATE slang)
-#target_include_directories(${PROJECT_NAME} PRIVATE header)
+target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
+target_link_libraries(${PROJECT_NAME} PRIVATE slang::slang)
+CA_SETUP_MODULE(${PROJECT_NAME})
+
+add_custom_command(TARGET ShaderCompilerSlang POST_BUILD
+  COMMENT "-E copy -t $<TARGET_FILE_DIR:ShaderCompilerSlang> $<TARGET_RUNTIME_DLLS:ShaderCompilerSlang>"
+  COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:ShaderCompilerSlang> $<TARGET_RUNTIME_DLLS:ShaderCompilerSlang>
+  COMMAND_EXPAND_LISTS
+)

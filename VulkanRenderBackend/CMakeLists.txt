@@ -6,19 +6,17 @@ file(GLOB_RECURSE Header_List "*.h")
 
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
-if(MSVC)
-    target_compile_options(${PROJECT_NAME} PUBLIC "/Zc:preprocessor")
-endif()
-
-target_include_directories(${PROJECT_NAME} PRIVATE "$ENV{VK_SDK_PATH}/Include")
-target_include_directories(${PROJECT_NAME} PRIVATE "private")
-target_link_directories(${PROJECT_NAME} PRIVATE
-    "$ENV{VK_SDK_PATH}/Lib"
-    "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}"
+CPMAddPackage(
+  NAME VulkanMemoryAllocator
+  GIT_TAG v3.1.0
+  GITHUB_REPOSITORY GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
 )
-target_link_libraries(${PROJECT_NAME} PRIVATE "vulkan-1.lib")
+
+target_include_directories(${PROJECT_NAME} PRIVATE "private")
+target_link_libraries(${PROJECT_NAME} PRIVATE VulkanSDK)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
-target_link_libraries(${PROJECT_NAME} PRIVATE Rendering_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
 target_link_libraries(${PROJECT_NAME} PRIVATE VulkanMemoryAllocator)
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw)
+target_link_libraries(${PROJECT_NAME} PRIVATE ShaderCompiler)
+target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)

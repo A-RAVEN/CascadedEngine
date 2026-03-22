@@ -1,5 +1,6 @@
 #pragma once
 #include <CASTL/CAString.h>
+#include <CASTL/CAFileSystem.h>
 #include <CASTL/CAVector.h>
 
 namespace resource_management
@@ -9,19 +10,21 @@ namespace resource_management
 	class ResourceImporterBase
 	{
 	public:
-		virtual castl::string GetResourceType() const = 0;
+		virtual castl::string GetResourceType() const { return ""; }
 		virtual castl::string GetSourceFilePostfix() const = 0;
 		virtual castl::string GetDestFilePostfix() const = 0;
 		virtual castl::string GetTags() const = 0;
-		virtual uint64_t GetIResourceSizeInByte() const = 0;
+		virtual uint64_t GetIResourceSizeInByte() const { return 0; }
 		virtual void ImportResource(ResourceManagingSystem* resourceManager, castl::string const& resourcePath, castl::string const& outPath) = 0;
 	};
 
-	template<typename TRes>
-	class ResourceImporterPass
+	class ResourceImporterFree
 	{
 	public:
-		virtual void Process(TRes* resource) const = 0;
+		virtual castl::string GetTags() const = 0;
+		virtual void ImportResource(ResourceManagingSystem* resourceManager
+			, cafs::path const& sourcePath
+			, cafs::path const& destPath) = 0;
 	};
 
 	template<typename TRes>
@@ -33,20 +36,11 @@ namespace resource_management
 			return sizeof(TRes);
 		}
 
-		void ApplyPasses(TRes* resource) const
-		{
-			for (auto pass : m_Passes)
-			{
-				pass->Process(resource);
-			}
-		}
-
 		virtual castl::string GetResourceType() const override
 		{
 			return castl::string{ typeid(TRes).name() };
 		}
 
 	protected:
-		castl::vector<ResourceImporterPass<TRes> const*> m_Passes;
 	};
 }

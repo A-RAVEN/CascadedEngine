@@ -5,11 +5,11 @@
 
 namespace thread_management
 {
-	TaskNode::TaskNode(TaskObjectType type, ThreadManager_Impl1* owningManager, TaskNodeAllocator* allocator)
-		: TaskBaseObject(type)
-		, m_OwningManager(owningManager)
+	TaskNode::TaskNode(ThreadManager_Impl* owningManager, TaskNodeAllocator* allocator)
+		: m_OwningManager(owningManager)
 		, m_Allocator(allocator)
 	{
+		Release_Internal();
 	}
 	void TaskNode::NotifyDependsOnFinish(TaskNode* dependsOnNode)
 	{
@@ -19,15 +19,15 @@ namespace thread_management
 			m_OwningManager->EnqueueTaskNode(this);
 		}
 	}
-	void TaskNode::Name_Internal(const castl::string& name)
+	void TaskNode::Name_Internal(const cacore::NameHash& name)
 	{
 		m_Name = name;
 	}
-	void TaskNode::WaitEvent_Internal(const castl::string& name)
+	void TaskNode::WaitEvent_Internal(const cacore::NameHash& name)
 	{
 		m_EventName = name;
 	}
-	void TaskNode::SignalEvent_Internal(const castl::string& name)
+	void TaskNode::SignalEvent_Internal(const cacore::NameHash& name)
 	{
 		m_SignalEventName = name;
 	}
@@ -37,6 +37,10 @@ namespace thread_management
 		dependsOnNode->m_Successors.push_back(this);
 		m_Dependents.push_back(dependsOnNode);
 	}
+	bool TaskNode::RunOnMainThread() const
+	{
+		return m_ThreadKey == CThreadManager::MainThreadName();
+	}
 	void TaskNode::SetupThisNodeDependencies_Internal()
 	{
 		uint32_t pendingCount = m_Dependents.size();
@@ -44,21 +48,20 @@ namespace thread_management
 	}
 	void TaskNode::ReleaseSelf()
 	{
-		m_Allocator->Release(this);
+		m_Allocator->Release(dynamic_cast<TaskBase*>(this));
 	}
 	void TaskNode::Release_Internal()
 	{
 		m_Owner = nullptr;
 		m_Running.store(TaskNodeState::eInvalid, castl::memory_order_release);
 		m_PendingDependsOnTaskCount.store(0, castl::memory_order_release);
-		m_Name = "Default Task Name";
-		m_EventName = "";
-		m_SignalEventName = "";
+		m_Name = CANAME("None");
+		m_EventName.Reset();
+		m_SignalEventName.Reset();
+		m_ThreadKey = CThreadManager::CommonTaskName();
 		m_CurrentFrame = 0;
 		m_Dependents.clear();
 		m_Successors.clear();
-		m_RunOnMainThread = false;
-		m_ThreadKey = {};
 	}
 	void TaskNode::FinalizeExecution_Internal()
 	{
@@ -66,7 +69,7 @@ namespace thread_management
 		{
 			(*itrSuccessor)->NotifyDependsOnFinish(this);
 		}
-		if (!m_SignalEventName.empty())
+		if (m_SignalEventName.Valid())
 		{
 			m_OwningManager->SignalEvent(m_SignalEventName, m_CurrentFrame);
 		}

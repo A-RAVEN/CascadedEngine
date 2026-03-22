@@ -1,22 +1,29 @@
 #include "pch.h"
+#include <CACore/CAHash.h>
 #include "CRenderBackend_Vulkan.h"
 #include "WindowContext.h"
 #include <CATimer/Timer.h>
 
 namespace graphics_backend
 {
-	void CRenderBackend_Vulkan::Initialize(catimer::TimerSystem* timer, castl::string const& appName, castl::string const& engineName)
+	void CRenderBackend_Vulkan::Initialize(catimer::TimerSystem* timer
+		, ca_io::IOManager* ioManager
+		, resource_management::ResourceManagingSystem* resourceManager
+		, resource_management::ResourceImportingSystem* resourceImporter
+		, castl::string const& appName
+		, castl::string const& engineName)
 	{
 		catimer::SetGlobalTimerSystem(timer);
-		m_Application.InitApp(appName, engineName);
+		m_Application.InitApp(appName, engineName, resourceManager);
+		resourceImporter->AddImporter(&m_Application.m_ShaderResourceImporter);
 	}
 
-	void CRenderBackend_Vulkan::InitializeThreadContextCount(uint32_t threadCount)
-	{
-	}
 	void CRenderBackend_Vulkan::ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame)
 	{
 		m_Application.ScheduleGPUFrame(scheduler, gpuFrame);
+	}
+	void CRenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
+	{
 	}
 	castl::shared_ptr<GPUBuffer> CRenderBackend_Vulkan::CreateGPUBuffer(GPUBufferDescriptor const& descriptor)
 	{
@@ -46,5 +53,15 @@ namespace graphics_backend
 			{
 				m_Application.ReleaseGPUTexture(releaseTex);
 			});
+	}
+
+	castl::shared_ptr<ShaderStruct> CRenderBackend_Vulkan::CreateShaderStruct(cacore::NameHash const& structType)
+	{
+		return m_Application.CreateShaderStruct(structType);
+	}
+
+	void CRenderBackend_Vulkan::RunTestCode()
+	{
+		castl::cout << cacore::has_std_hash<vk::RenderPassCreateInfo> << castl::endl;
 	}
 }

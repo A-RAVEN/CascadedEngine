@@ -1,0 +1,37 @@
+#include "GPUComputePipelineInstance.h"
+#include <RenderBackend_D3D12.h>
+#include <Utils/InterfaceTranslation.h>
+#include <D3D12Debug.h>
+namespace graphics_backend
+{
+	void GPUComputePipelineInstance::Init(RenderBackend_D3D12* app, ShaderInfo const& shaderInfo)
+	{
+		ShaderFileInfo const* pshaderFileInfo = app->GetShaderFileInfo(shaderInfo);
+		ShaderSetData shaderSetData = app->GetShaderCodes(shaderInfo);
+		m_RootSignature = app->GetRootSignatureManager().GetRootSignature(pshaderFileInfo->shaderBindingInfo.serializedRootSignatureData);
+		m_ResourceHeapParamIndex = pshaderFileInfo->shaderBindingInfo.resourceHeapParamID;
+		m_SamplerHeapParamIndex = pshaderFileInfo->shaderBindingInfo.samplerHeapParamID;
+
+		D3D12_COMPUTE_PIPELINE_STATE_DESC computePsoDesc = {};
+		computePsoDesc.CS = { shaderSetData.computeShader->GetBufferPointer(), shaderSetData.computeShader->GetBufferSize() };
+		computePsoDesc.pRootSignature = m_RootSignature.Get();
+
+		ThrowIfFailed(app->GetDevice()->CreateComputePipelineState(&computePsoDesc, IID_PPV_ARGS(&m_PipelineState)));
+	}
+
+	void GPUComputePipelineManager::Release()
+	{
+		m_SharedDic.clear();
+	}
+
+	GPUComputePipelineInstance const* GPUComputePipelineManager::GetPipelineState(ShaderInfo const& stateKey)
+	{
+		auto& inst = m_SharedDic.get_or_create(stateKey, [&](ShaderInfo const& stateKey) -> GPUComputePipelineInstance
+		{
+			GPUComputePipelineInstance newInstance;
+			newInstance.Init(GetApp(), stateKey);
+			return newInstance;
+		})->second;
+		return &inst;
+	}
+}

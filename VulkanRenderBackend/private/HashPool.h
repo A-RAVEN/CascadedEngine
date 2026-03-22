@@ -6,6 +6,7 @@
 #include <CASTL/CAFunctional.h>
 #include <DebugUtils.h>
 #include <Utilities/SubobjectTraits.h>
+#include <CACore/CASharedDic.h>
 
 namespace graphics_backend
 {
@@ -21,15 +22,13 @@ namespace graphics_backend
 	{
 	public:
 
-		using map_type = castl::unordered_map<DescType, castl::shared_ptr<ValType>, cacore::hash<DescType>>;
+		//using map_type = castl::unordered_map<DescType, castl::shared_ptr<ValType>, cacore::hash<DescType>>;
 
 		HashPool() = delete;
 		HashPool(HashPool const& other) = delete;
 		HashPool& operator=(HashPool const&) = delete;
-		HashPool(HashPool&& other) noexcept : VKAppSubObjectBaseNoCopy(other.GetVulkanApplication())
+		HashPool(HashPool&& other) noexcept : VKAppSubObjectBaseNoCopy(other.GetVulkanApplication()), m_InternalDic(castl::move(other.m_InternalDic))
 		{
-			castl::lock_guard<castl::mutex> lockGuard(other.m_Mutex);
-			m_InternalMap = castl::move(other.m_InternalMap);
 		}
 		HashPool& operator=(HashPool&&) = delete;
 
@@ -38,46 +37,40 @@ namespace graphics_backend
 
 		castl::shared_ptr<ValType> GetOrCreate(DescType const& desc, castl::string const& name = "")
 		{
-			castl::shared_ptr<ValType> result = nullptr;
-			{
-				castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-				auto mapEnd = m_InternalMap.end();
-				auto it = m_InternalMap.find(desc);
-				if (it != mapEnd)
+			auto resultPair = m_InternalDic.get_or_create(desc, [&](auto inKey)
 				{
-					result = it->second;
-				}
-				else
+					castl::shared_ptr<ValType> result = GetVulkanApplication().template NewSubObject_Shared<ValType>();
+					return result;
+				},
+				[&](auto& kv_pair)
 				{
-					result = GetVulkanApplication().NewSubObject_Shared<ValType>(desc);
-					it = m_InternalMap.insert(castl::make_pair(desc, result)).first;
-				}
-			}
-			return result;
+					CVulkanApplication::InitObj(kv_pair->second.get(), kv_pair->first.Get());
+				});
+			//CVulkanApplication::InitObj(resultPair->second.get(), resultPair->first.Get());
+			return resultPair->second;
 		}
 
 		void Foreach(castl::function<void(DescType const&, ValType*)> callbackFunc)
 		{
-			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			for (auto& it : m_InternalMap)
-			{
-				callbackFunc(it.first, it.second.get());
-			};
+			m_InternalDic.for_each([&](cacore::HashObj<DescType>const& key, castl::shared_ptr<ValType>& value)
+				{
+					callbackFunc(key.Get(), value.get());
+				});
 		}
 
 		void ReleaseAll() requires has_release<ValType>
 		{
-			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			m_InternalMap.clear();
+			m_InternalDic.clear();
 		}
 
 		void Clear()
 		{
-			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
-			m_InternalMap.clear();
+			m_InternalDic.clear();
 		}
 	private:
-		castl::mutex m_Mutex;
-		castl::unordered_map<DescType, castl::shared_ptr<ValType>, cacore::hash<DescType>> m_InternalMap;
+		//castl::mutex m_Mutex;
+		//castl::unordered_map<DescType, castl::shared_ptr<ValType>, cacore::hash<DescType>> m_InternalMap;
+		castl::shared_dic<cacore::HashObj<DescType>, castl::shared_ptr<ValType>> m_InternalDic;
+
 	};
 }

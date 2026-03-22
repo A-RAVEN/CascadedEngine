@@ -14,7 +14,7 @@ namespace graphics_backend
 			return buffer != vk::Buffer{nullptr} && allocation;
 		}
 
-		constexpr static VKBufferObject Default()
+		static VKBufferObject Default()
 		{
 			return VKBufferObject{ vk::Buffer{}, VmaAllocation{} };
 		}
@@ -30,7 +30,7 @@ namespace graphics_backend
 			return image != vk::Image{ nullptr } && allocation;
 		}
 
-		constexpr static VKImageObject Default()
+		static VKImageObject Default()
 		{
 			return VKImageObject{ vk::Image{}, VmaAllocation{} };
 		}

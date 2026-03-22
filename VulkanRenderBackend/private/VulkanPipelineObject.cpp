@@ -10,35 +10,35 @@ namespace graphics_backend
 	
 	void PopulateVertexInputStates(castl::vector<vk::VertexInputBindingDescription>& inoutVertexBindingDescs
 		, castl::vector<vk::VertexInputAttributeDescription>& inoutVertexAttributeDescs
-		, CVertexInputDescriptor const& vertexInputs)
+		, castl::vector<VKVertexAttributeBindingData> const& vertexBindings)
 	{
 		uint32_t attribute_count = 0;
-		for(auto& desc : vertexInputs.m_PrimitiveDescriptions)
+		for(auto& desc : vertexBindings)
 		{
-			attribute_count += static_cast<uint32_t>(castl::get<1>(desc).size());
+			attribute_count += desc.attributes.size();
 		}
 		inoutVertexBindingDescs.clear();
 		inoutVertexAttributeDescs.clear();
-		inoutVertexBindingDescs.reserve(vertexInputs.m_PrimitiveDescriptions.size());
+		inoutVertexBindingDescs.reserve(vertexBindings.size());
 		inoutVertexAttributeDescs.reserve(attribute_count);
 
-		for (uint32_t bindingId = 0; bindingId < vertexInputs.m_PrimitiveDescriptions.size(); ++bindingId)
+		for (uint32_t bindingId = 0; bindingId < vertexBindings.size(); ++bindingId)
 		{
-			auto& comp = vertexInputs.m_PrimitiveDescriptions[bindingId];
+			auto& binding = vertexBindings[bindingId];
 			vk::VertexInputBindingDescription newInputBinding(
-				bindingId
-				, castl::get<0>(comp)
-				, castl::get<2>(comp) ? vk::VertexInputRate::eInstance : vk::VertexInputRate::eVertex);
+				binding.bindingIndex
+				, binding.stride
+				, binding.perInstance ? vk::VertexInputRate::eInstance : vk::VertexInputRate::eVertex);
 			inoutVertexBindingDescs.push_back(newInputBinding);
 
-			auto& attribArray = castl::get<1>(comp);
+			auto& attribArray = binding.attributes;
 			for(uint32_t locationId = 0; locationId < attribArray.size(); ++locationId)
 			{
 				auto& attribData = attribArray[locationId];
 				vk::VertexInputAttributeDescription newAttribDesc(
 					attribData.attributeIndex
-					, bindingId
-					, VertexInputFormatToVkFormat(attribData.format)
+					, binding.bindingIndex
+					, attribData.format
 					, attribData.offset
 				);
 				inoutVertexAttributeDescs.push_back(newAttribDesc);
@@ -46,11 +46,11 @@ namespace graphics_backend
 		}
 	}
 
-	vk::PipelineInputAssemblyStateCreateInfo PopulateInputAssemblyInfo(CVertexInputDescriptor const& vertexInputs)
+	vk::PipelineInputAssemblyStateCreateInfo PopulateInputAssemblyInfo(InputAssemblyStates const& assemblyStates)
 	{
 		vk::PipelineInputAssemblyStateCreateInfo result(
 			{}
-			, ETopologyToVkTopology(vertexInputs.assemblyStates.topology));
+			, ETopologyToVkTopology(assemblyStates.topology));
 		return result;
 	}
 
@@ -160,17 +160,17 @@ namespace graphics_backend
 	void CPipelineObject::Create(CPipelineObjectDescriptor const& pipelineObjectDescriptor)
 	{
 		//Vertex States
-		castl::vector<vk::VertexInputBindingDescription> vertexBindingDescriptions;
-		castl::vector<vk::VertexInputAttributeDescription> vertexAttributeDescriptions;
+		castl::vector<vk::VertexInputBindingDescription> vertexBindingDescriptions;// = pipelineObjectDescriptor.vertexBindingDescriptions;
+		castl::vector<vk::VertexInputAttributeDescription> vertexAttributeDescriptions;// = pipelineObjectDescriptor.vertexAttributeDescriptions;
 		PopulateVertexInputStates(
 			vertexBindingDescriptions
 			, vertexAttributeDescriptions
-			, pipelineObjectDescriptor.vertexInputs);
+			, pipelineObjectDescriptor.vertexBindingData);
 
 		vk::PipelineVertexInputStateCreateInfo vertexStateCreateInfo({}, vertexBindingDescriptions, vertexAttributeDescriptions);
 
 		//Input Assembly
-		vk::PipelineInputAssemblyStateCreateInfo inputAssemblyInfo = PopulateInputAssemblyInfo(pipelineObjectDescriptor.vertexInputs);
+		vk::PipelineInputAssemblyStateCreateInfo const& inputAssemblyInfo = PopulateInputAssemblyInfo(pipelineObjectDescriptor.assemblyStates);
 
 		//Rasterization States
 		vk::PipelineRasterizationStateCreateInfo rasterizationInfo = PopulateRasterizationStateInfo(pipelineObjectDescriptor.pso);

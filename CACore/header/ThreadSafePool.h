@@ -1,7 +1,4 @@
 #pragma once
-//#include <mutex>
-//#include <deque>
-//#include <functional>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CADeque.h>
 #include <CASTL/CAList.h>
@@ -76,7 +73,7 @@ namespace threadsafe_utils
 		}
 		virtual ~TThreadSafePointerPool()
 		{
-			CA_ASSERT(IsEmpty(), (castl::string{"ThreadSafe Pointer Pool Is Not Released Before Destruct: "} + CA_CLASS_NAME(T)).c_str());
+			CA_ASSERT(IsEmpty(), "ThreadSafe Pointer Pool Is Not Released Before Destruct: {}", CA_CLASS_NAME(T));
 		}
 
 		template<typename...TArgs>
@@ -101,9 +98,11 @@ namespace threadsafe_utils
 		void Release(T* releaseObj)
 		{
 			assert(releaseObj != nullptr);
-			castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
 			m_Releaser(releaseObj);
-			m_EmptySpaces.push_back(releaseObj);
+			{
+				castl::lock_guard<castl::mutex> lockGuard(m_Mutex);
+				m_EmptySpaces.push_back(releaseObj);
+			}
 		}
 
 		bool IsEmpty()

@@ -1,4 +1,4 @@
-﻿{
+{
   "version": 3,
   "configurePresets": [
     {
@@ -11,7 +11,6 @@
         "CMAKE_C_COMPILER": "cl",
         "CMAKE_CXX_COMPILER": "cl"
       },
-      //"toolset": "ClangCL",
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
           "hostOS": [ "Windows" ]
@@ -39,15 +38,6 @@
       "name": "x64-debug",
       "displayName": "x64 Debug",
       "inherits": "windows-base",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      //"vendor": {
-      //  "microsoft.com/VisualStudioSettings/CMake/1.0": {
-      //    "intelliSenseMode": "windows-clang-x64"
-      //  }
-      //},
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -72,31 +62,7 @@
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
-    {
-      "name": "x86-debug",
-      "displayName": "x86 Debug",
-      "inherits": "windows-base",
-      "architecture": {
-        "value": "x86",
-        "strategy": "external"
-      },
-      "vendor": {
-        "microsoft.com/VisualStudioSettings/CMake/1.0": {
-          "intelliSenseMode": "windows-clang-x86"
-        }
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "x86-release",
-      "displayName": "x86 Release",
-      "inherits": "x86-debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
+
     {
       "name": "x64-relWithDebugInfo",
       "displayName": "x64 ReleaseWithDebugInfo",

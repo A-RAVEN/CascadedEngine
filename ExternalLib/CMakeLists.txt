@@ -1,77 +1,135 @@
 
+include(FetchContent)
 set(PROJECT_NAME ExternalProjects)
 project (${PROJECT_NAME})
 
-#VMA
-set(VMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator)
-add_subdirectory(${VMA_DIR})
-
-#GLM
-add_subdirectory(glm)
-
-#GLFW
-set(GLFW_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glfw)
-set(GLFW_BUILD_EXAMPLES OFF CACHE INTERNAL "Build the GLFW example programs")
-set(GLFW_BUILD_TESTS OFF CACHE INTERNAL "Build the GLFW test programs")
-set(GLFW_BUILD_DOCS OFF CACHE INTERNAL "Build the GLFW documentation")
-set(GLFW_INSTALL OFF CACHE INTERNAL "Generate installation target")
-add_subdirectory(${GLFW_DIR})
-
-#IMGUI
-file(GLOB IMGUI_SourceList "${CMAKE_CURRENT_SOURCE_DIR}/imgui/*.cpp")
-add_library(IMGUI STATIC ${IMGUI_SourceList})
-target_include_directories(IMGUI PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
-
-#ZPP_Bits
-#add_library(zpp_bits INTERFACE)
-#target_include_directories(zpp_bits INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/zpp_bits)
-
-#STB
-add_library(stb INTERFACE)
-target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
-
-#DXC
+#CPM
 #[[
-set(LLVM_PARALLEL_COMPILE_JOBS 1)
-set(LLVM_PARALLEL_LINK_JOBS 1)
-set(LLVM_TARGETS_TO_BUILD "None")
-set(DXC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/DirectXShaderCompiler)
-include(${DXC_DIR}/cmake/caches/PredefinedParams.cmake)
-set(LLVM_INCLUDE_TESTS OFF)
-set(HLSL_INCLUDE_TESTS OFF)
-set(ENABLE_SPIRV_CODEGEN ON)
-add_subdirectory(${DXC_DIR})
+file(
+  DOWNLOAD
+  https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.40.2/CPM.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake
+)
 ]]
-
-#ASSIMP
-set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE INTERNAL "Turn Off Warnings As Errors")
-set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE INTERNAL "Turn Off Postfix")
-set(ASSIMP_INSTALL OFF CACHE INTERNAL "Turn Off Postfix")
-set(ASSIMP_BUILD_TESTS OFF CACHE INTERNAL "Turn Off Tests")
-set(ASSIMP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assimp)
-add_subdirectory(${ASSIMP_DIR})
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/cmake)
+file(COPY_FILE ${CMAKE_CURRENT_SOURCE_DIR}/CPM.cmake ${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
+include(${CMAKE_CURRENT_BINARY_DIR}/cmake/CPM.cmake)
 
 
-#EASTL
-set(EASTL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EASTL)
-add_subdirectory(${EASTL_DIR})
+
+
+
+
+
+CPMAddPackage(
+  NAME glm
+  GIT_TAG 1.0.1
+  GITHUB_REPOSITORY g-truc/glm
+  OPTIONS
+	"GLM_BUILD_LIBRARY ON"
+)
+
+CPMAddPackage(
+  NAME imgui
+  VERSION 1.91.6-docking
+  GITHUB_REPOSITORY ocornut/imgui
+  DOWNLOAD_ONLY TRUE
+)
+file(GLOB IMGUI_SourceList "${imgui_SOURCE_DIR}/*.cpp")
+add_library(IMGUI STATIC ${IMGUI_SourceList})
+target_include_directories(IMGUI PUBLIC ${imgui_SOURCE_DIR})
+
+
+
+CPMAddPackage(
+  NAME assimp
+  GIT_TAG v5.4.3
+  GITHUB_REPOSITORY assimp/assimp
+  OPTIONS
+	"ASSIMP_WARNINGS_AS_ERRORS OFF"
+	"ASSIMP_INJECT_DEBUG_POSTFIX OFF"
+	"ASSIMP_INSTALL OFF"
+	"ASSIMP_BUILD_TESTS OFF"
+)
 
 
 #slang
-set(SLANG_SLANG_LLVM_FLAVOR DISABLE)
-set(SLANG_LIB_TYPE STATIC)
-set(SLANG_ENABLE_SLANG_GLSLANG ON)
-set(SLANG_ENABLE_TESTS OFF)
-set(SLANG_ENABLE_GFX OFF)
-set(SLANG_ENABLE_SLANGD OFF)
-set(SLANG_ENABLE_SLANGC OFF)
-set(SLANG_ENABLE_SLANGRT OFF)
-set(SLANG_ENABLE_EXAMPLES OFF)
-add_compile_definitions(SLANG_ENABLE_GLSLANG_STATIC_LINK)
-set(SLANG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/slang)
-add_subdirectory(${SLANG_DIR})
 
-#jolt physics
-set(CROSS_PLATFORM_DETERMINISTIC ON)
-set(OVERRIDE_CXX_FLAGS OFF)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JoltPhysics/Build)
+#[[
+CPMAddPackage(
+  NAME slang
+  GIT_TAG master
+  GITHUB_REPOSITORY A-RAVEN/slang
+  GIT_SUBMODULES_RECURSE TRUE
+  GIT_PROGRESS TRUE
+  EXCLUDE_FROM_ALL TRUE
+  OPTIONS
+	"SLANG_SLANG_LLVM_FLAVOR DISABLE"
+	"SLANG_LIB_TYPE STATIC"
+	"SLANG_ENABLE_SLANG_GLSLANG ON"
+	"SLANG_ENABLE_DXIL ON"
+	"SLANG_ENABLE_TESTS OFF"
+	"SLANG_ENABLE_GFX OFF"
+	"SLANG_ENABLE_SLANGD OFF"
+	"SLANG_ENABLE_SLANGRT OFF"
+	"SLANG_ENABLE_EXAMPLES OFF"
+)
+]]
+
+#[[
+CPMAddPackage(
+  NAME slang
+  URL https://github.com/shader-slang/slang/releases/download/v2024.17/slang-2024.17-windows-x86_64.zip
+  VERSION 2024.17
+  # the range-v3 CMakeLists screws with configuration options
+  DOWNLOAD_ONLY True
+)
+find_package(slang REQUIRED PATHS ${slang_SOURCE_DIR}/cmake NO_DEFAULT_PATH)
+]]
+
+#[[
+CPMAddPackage(
+  NAME slang
+  GIT_TAG v2024.15.2
+  GITHUB_REPOSITORY shader-slang/slang
+  GIT_SUBMODULES_RECURSE TRUE
+  GIT_PROGRESS TRUE
+  EXCLUDE_FROM_ALL TRUE
+  OPTIONS
+	"SLANG_SLANG_LLVM_FLAVOR DISABLE"
+	"SLANG_LIB_TYPE SHARED"
+	"SLANG_ENABLE_SLANG_GLSLANG ON"
+	"SLANG_ENABLE_DXIL ON"
+	"SLANG_ENABLE_TESTS OFF"
+	"SLANG_ENABLE_GFX OFF"
+	"SLANG_ENABLE_SLANGD OFF"
+	"SLANG_ENABLE_SLANGRT OFF"
+	"SLANG_ENABLE_EXAMPLES OFF"
+)
+]]
+
+#STB
+if(NOT TARGET stb)
+CPMAddPackage(
+  NAME stb
+  GIT_TAG master
+  GITHUB_REPOSITORY nothings/stb
+  DOWNLOAD_ONLY TRUE
+)
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
+endif()
+
+CPMAddPackage(
+  NAME JoltPhysics
+  VERSION 5.2.0
+  GITHUB_REPOSITORY jrouwe/JoltPhysics
+  SOURCE_SUBDIR Build
+  EXCLUDE_FROM_ALL TRUE
+  OPTIONS
+	"CROSS_PLATFORM_DETERMINISTIC ON"
+	"OVERRIDE_CXX_FLAGS OFF"
+)
+
+
+

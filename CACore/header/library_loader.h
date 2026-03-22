@@ -1,13 +1,18 @@
 #pragma once
 #include "Platform.h"
-#include "CASTL/CAString.h"
-#include "CASTL/CaSharedPtr.h"
+#include <Hasher.h>
+#include <CASTL/CAString.h>
+#include <CASTL/CASharedPtr.h>
 #include "DebugUtils.h"
+#include <CACore/CASharedDic.h>
+#include <CACore/CATypeHelper.h>
 
 namespace library_loader
 {
+
+
 	template<typename TModInstance>
-	class TModuleLoader
+	class TModuleLoader// : public IModuleLoader
 	{
 	private:
 		typedef TModInstance* (*FTP_NewModuleObject)();
@@ -34,9 +39,7 @@ namespace library_loader
 			else
 			{
 				int errCode = GetLastError();
-				castl::string errStr = "Load Module Error: ";
-				errStr += castl::to_string(errCode);
-				CA_LOG_ERR(errStr);
+				CA_LOG_ERR("Load Module Error: {}", errCode);
 			}
 		}
 
@@ -69,4 +72,55 @@ namespace library_loader
 			}
 		}
 	};
+
+
+
+	class ModuleManager;
+	class Module
+	{
+	public:
+		Module(castl::string const& modulePath);
+		bool isValid() const;
+		void ReleaseModule();
+		void* GetInstance();
+		void ReleaseInstance();
+		void TryInit(ModuleManager* moduleManager);
+		template<typename T>
+		T* GetInstance()
+		{
+			return static_cast<T*>(GetInstance());
+		}
+		const char* GetInterfaceTypeName() const;
+	private:
+		typedef void* (*FTP_NewModuleObject)();
+		typedef void(*FPT_DeleteModuleObject)(void*);
+		typedef char const*(*FPT_GetInterfaceType)();
+		typedef void (*FPT_TryInit)(ModuleManager*, void*);
+		HINSTANCE hModuleLib = nullptr;
+		FTP_NewModuleObject pNewInstanceFunc = nullptr;
+		FPT_DeleteModuleObject pDeleteInstanceFunc = nullptr;
+		FPT_GetInterfaceType pGetInterfaceTypeName = nullptr;
+		FPT_TryInit pTryInitFunc = nullptr;
+		void* pInstance = nullptr;
+	};
+
+	class ModuleManager
+	{
+	public:
+		~ModuleManager();
+		Module& EnsureModule(cacore::NameHash const& moduleName);
+		void StartupModules();
+		void* GetModuleInstance(const char* interfaceName);
+		template<typename T>
+		T* GetModuleInstance()
+		{
+			const char* interfaceName = CAGetTypeName<T>();
+			return static_cast<T*>(GetModuleInstance(interfaceName));
+		}
+	private:
+		castl::shared_dic<cacore::NameHash, Module> m_NameToModules;
+		castl::shared_dic<cacore::NameHash, castl::vector<cacore::NameHash>> m_InterfaceToModuleName;
+	};
+
+
 }

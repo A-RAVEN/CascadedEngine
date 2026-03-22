@@ -1,0 +1,277 @@
+#include "GPUDescriptorHeap.h"
+#include <D3D12Debug.h>
+#include <DebugUtils.h>
+#include <RenderBackend_D3D12.h>
+#include <Utils/InterfaceTranslation.h>
+
+namespace graphics_backend
+{
+	uint32_t GetHeapMaxSize(D3D12_DESCRIPTOR_HEAP_TYPE heapType)
+	{
+		switch (heapType)
+		{
+		case D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+			return 1000000;
+		case D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
+			return 4080;
+		}
+		return 1024;
+	}
+
+
+	DescriptorHeapAllocator::DescriptorHeapAllocator(RenderBackend_D3D12* app
+		, D3D12_DESCRIPTOR_HEAP_TYPE heapType
+		, bool shaderVisible, uint32_t size) : D3D12SubobjectBase(app)
+	{
+		app->OnDeviceInit([this, heapType, shaderVisible, size]()
+		{
+			D3D12_DESCRIPTOR_HEAP_DESC m_DescriptorHeapDesc = {};
+			m_DescriptorHeapDesc.Type = heapType;
+			m_DescriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+			m_DescriptorHeapDesc.NodeMask = 0;
+			m_DescriptorHeapDesc.NumDescriptors = size;
+			ThrowIfFailed(GetDevice()->CreateDescriptorHeap(&m_DescriptorHeapDesc, IID_PPV_ARGS(&m_DescriptorHeap)));
+			m_FreeList.push_back({ 0, size });
+		});
+	}
+
+	void DescriptorHeapAllocator::Release()
+	{
+		m_DescriptorHeap.Reset();
+	}
+
+	void DescriptorHeapAllocator::Reset()
+	{
+		m_FreeList.clear();
+		m_FreeList.push_back({ 0, m_DescriptorHeap->GetDesc().NumDescriptors });
+	}
+
+	bool DescriptorHeapAllocator::CanAllocate(uint32_t descCount) const
+	{
+		for (auto it = m_FreeList.begin(); it != m_FreeList.end(); ++it)
+		{
+			if (it->size() >= descCount)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	DescriptorAllocation DescriptorHeapAllocator::AllocDescriptors(uint32_t descCount)
+	{
+		for (auto it = m_FreeList.begin(); it != m_FreeList.end(); ++it)
+		{
+			if (it->size() >= descCount)
+			{
+				auto result = castl::range<uint32_t>(it->head(), it->head() + descCount);
+				it->head() += descCount;
+				if (it->size() == 0)
+				{
+					m_FreeList.erase(it);
+				}
+				return DescriptorAllocation(result, this);
+			}
+		}
+		return DescriptorAllocation(castl::range<uint32_t>::invalid(), this);
+	}
+	CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHeapAllocator::GetCPUHandle(uint32_t offset) const
+	{
+		CA_ASSERT_BREAK(m_DescriptorHeap != nullptr, "Heap Invalid Or Not Initialized");
+		auto stride = GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type);
+		return CD3DX12_CPU_DESCRIPTOR_HANDLE(
+			m_DescriptorHeap->GetCPUDescriptorHandleForHeapStart()
+			, offset
+			, stride);
+	}
+	CD3DX12_GPU_DESCRIPTOR_HANDLE DescriptorHeapAllocator::GetGPUHandle(uint32_t offset) const
+	{
+		CA_ASSERT_BREAK(m_DescriptorHeap != nullptr, "Heap Invalid Or Not Initialized");
+		CA_ASSERT_BREAK((m_DescriptorHeap->GetDesc().Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE), "Only Shader Visible Allocator Can Have GPU Handle");
+		auto stride = GetDevice()->GetDescriptorHandleIncrementSize(m_DescriptorHeap->GetDesc().Type);
+		return CD3DX12_GPU_DESCRIPTOR_HANDLE(
+			m_DescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+			, offset
+			, stride);
+	}
+	void DescriptorHeapAllocator::FreeDescriptors(castl::range<uint32_t> range)
+	{
+		if (range.size() == 0)
+			return;
+		auto itr = m_FreeList.begin();
+		while (itr != m_FreeList.end())
+		{
+			if (itr->head() <= range.head())
+			{
+				break;
+			}
+			++itr;
+		}
+		if (itr == m_FreeList.end())
+		{
+			m_FreeList.push_back(range);
+			itr = m_FreeList.end();
+			--itr;
+		}
+		itr->expand(range);
+		if (itr != m_FreeList.begin())
+		{
+			auto prev = itr;
+			--prev;
+			if (prev->can_combine(*itr))
+			{
+				prev->expand(*itr);
+				m_FreeList.erase(itr);
+				itr = prev;
+			}
+		}
+		if (itr != m_FreeList.end())
+		{
+			auto next = itr;
+			++next;
+			if (next != m_FreeList.end() && itr->can_combine(*next))
+			{
+				itr->expand(*next);
+				m_FreeList.erase(next);
+			}
+		}
+	}
+	DescriptorAllocation DescriptorAllocation::Split(uint32_t count)
+	{
+		CA_ASSERT_BREAK(m_Range.size() >= count, "Cannot Split Greater Allocation");
+		DescriptorAllocation result{ castl::range<uint32_t>(m_Range.head(), m_Range.head() + count), m_Allocator };
+		m_Range.head() += count;
+		return result;
+	}
+	DescriptorAllocation DescriptorAllocation::Slice(uint32_t index)
+	{
+		CA_ASSERT_BREAK(m_Range.size() > index, "Descriptor Allocation Slice Index Out of Bounds[{}/{}]", m_Range.size(), index);
+		DescriptorAllocation result{ castl::range<uint32_t>(m_Range.head() + index, m_Range.head() + index + 1), m_Allocator };
+		return result;
+	}
+	CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorAllocation::CPUHandle() const
+	{
+		CA_ASSERT(m_Range.size() > 0, "Empty Descriptor Allocation");
+		return m_Allocator->GetCPUHandle(m_Range.head());
+	}
+	CD3DX12_GPU_DESCRIPTOR_HANDLE DescriptorAllocation::GPUHandle() const
+	{
+		CA_ASSERT(m_Range.size() > 0, "Empty Descriptor Allocation");
+		return m_Allocator->GetGPUHandle(m_Range.head());
+	}
+	bool DescriptorAllocation::IsValid() const
+	{
+		return m_Range.size() > 0;
+	}
+	void DescriptorAllocation::Release()
+	{
+		if (!IsValid())
+			return;
+		m_Allocator->FreeDescriptors(m_Range);
+		m_Range = {};
+	}
+
+	CPUPagedDescriptorAllocator::CPUPagedDescriptorAllocator(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
+	 : D3D12SubobjectBase(app), m_HeapType(heapType) {}
+
+	DescriptorAllocation CPUPagedDescriptorAllocator::AllocDescriptors(uint32_t descCount)
+	{
+		for (auto& page : m_Pages)
+		{
+			if (page.CanAllocate(descCount))
+			{
+				return page.AllocDescriptors(descCount);
+			}
+		}
+		auto& newPage = m_Pages.emplace_front(GetApp(), m_HeapType, false, 1024);
+		return newPage.AllocDescriptors(descCount);
+	}
+
+	void CPUPagedDescriptorAllocator::Release()
+	{
+		for (auto& page : m_Pages)
+		{
+			page.Release();
+		}
+		m_Pages.clear();
+	}
+
+	void CPUPagedDescriptorAllocator::Reset()
+	{
+		for (auto& page : m_Pages)
+		{
+			page.Reset();
+		}
+	}
+
+	GPUDescriptorHeap::GPUDescriptorHeap(RenderBackend_D3D12* app, D3D12_DESCRIPTOR_HEAP_TYPE heapType)
+	 : D3D12SubobjectBase(app), m_HugeHeap(app, heapType, true, GetHeapMaxSize(heapType))
+	{
+	}
+
+	DescriptorAllocation GPUDescriptorHeap::AllocDescriptorChunk(uint32_t descCount)
+	{
+		return m_HugeHeap.AllocDescriptors(descCount);
+	}
+
+
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE SamplerManager::GetCPUHandle(TextureSamplerDescriptor const& samplerDesc)
+	{
+		auto found = m_TextureSamplers.find(samplerDesc);
+		if (found != m_TextureSamplers.end())
+		{
+			return found->second.CPUHandle();
+		}
+		auto descAllocation =  m_Sampler_Allocator.AllocDescriptors(1);
+
+		D3D12_SAMPLER_DESC desc{};
+		desc.AddressU = ETextureSamplerAddressModeToD3D12TextureAddressMode(samplerDesc.addressModeU);
+		desc.AddressV = ETextureSamplerAddressModeToD3D12TextureAddressMode(samplerDesc.addressModeV);
+		desc.AddressW = ETextureSamplerAddressModeToD3D12TextureAddressMode(samplerDesc.addressModeW);
+		desc.Filter = D3D12_ENCODE_BASIC_FILTER(ETextureSamplerFilterModeToD3D12FilterType(samplerDesc.minFilterMode)
+			, ETextureSamplerFilterModeToD3D12FilterType(samplerDesc.magFilterMode)
+			, ETextureSamplerFilterModeToD3D12FilterType(samplerDesc.mipmapFilterMode)
+			, D3D12_FILTER_REDUCTION_TYPE_STANDARD);
+		desc.MaxAnisotropy = 1;
+		desc.ComparisonFunc = D3D12_COMPARISON_FUNC::D3D12_COMPARISON_FUNC_NONE;
+		desc.MinLOD = 0;
+		desc.MaxLOD = 1024;
+
+		//Init Sampler Desc From Texture
+		GetDevice()->CreateSampler(&desc, descAllocation.CPUHandle());
+		m_TextureSamplers.insert(castl::make_pair(samplerDesc, descAllocation));
+		return descAllocation.CPUHandle();
+	}
+
+	CPUDescriptorAllocatorSet::CPUDescriptorAllocatorSet(RenderBackend_D3D12* app) :
+		m_SRV_UAV_CBV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+		, m_RTV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
+		, m_DSV_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
+	{}
+
+	void CPUDescriptorAllocatorSet::Release()
+	{
+		m_SRV_UAV_CBV_Allocator.Release();
+		m_RTV_Allocator.Release();
+		m_DSV_Allocator.Release();
+	}
+
+	void CPUDescriptorAllocatorSet::Reset()
+	{
+		m_SRV_UAV_CBV_Allocator.Reset();
+		m_RTV_Allocator.Reset();
+		m_DSV_Allocator.Reset();
+	}
+
+
+	SamplerManager::SamplerManager(RenderBackend_D3D12* app)
+		 : D3D12SubobjectBase(app), m_Sampler_Allocator(app, D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+	{}
+
+	void SamplerManager::Release()
+	{
+		m_Sampler_Allocator.Release();
+	}
+
+}

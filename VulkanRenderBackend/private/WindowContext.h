@@ -3,7 +3,7 @@
 #include <CAWindow/WindowSystem.h>
 //#include <MonitorHandle.h>
 #include <WindowHandle.h>
-#include <GLFW/glfw3.h>
+//#include <GLFW/glfw3.h>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CAFunctional.h>
 #include <CASTL/CADeque.h>

@@ -10,6 +10,7 @@ namespace resource_management
 	public:
 		virtual void SetResourceManager(ResourceManagingSystem* resourceManagingSystem) = 0;
 		virtual void AddImporter(ResourceImporterBase* importer) = 0;
+		virtual void AddImporter(ResourceImporterFree* importer) = 0;
 		virtual void ScanSourceDirectory(const castl::string& sourceDirectory) = 0;
 	};
 }

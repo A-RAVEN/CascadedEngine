@@ -13,6 +13,8 @@
 #include <GPUResources/VKGPUTexture.h>
 #include <GPUResources/VKGPUBuffer.h>
 #include <VulkanDebug.h>
+#include <ShaderStruct/VKShaderStruct.h>
+#include <ShaderLibrary/ShaderLibrary.h>
 
 namespace graphics_backend
 {
@@ -62,7 +64,7 @@ namespace graphics_backend
 										{
 											for (auto& window : gpuFrame.presentWindows)
 											{
-												auto windowContext = castl::static_shared_pointer_cast<CWindowContext>(window);
+												auto windowContext = castl::static_pointer_cast<CWindowContext>(window);
 												windowContext->PresentFrame(frameManager.get());
 											}
 										}
@@ -115,17 +117,62 @@ namespace graphics_backend
 		}
 	}
 
-	//castl::shared_ptr<ShaderConstantSet> CVulkanApplication::NewShaderConstantSet(ShaderConstantsBuilder const& builder)
-	//{
-	//	auto subAllocator = m_ConstantSetAllocator.GetOrCreate(builder);
-	//	return subAllocator->AllocateSet();
-	//}
+	castl::shared_ptr<ShaderStruct> CVulkanApplication::CreateShaderStruct(cacore::NameHash const& structType)
+	{
+		ShaderCompilerSlang::ShaderStructData const* pData = GetShaderStructData(structType);
+		if (pData == nullptr)
+		{
+			return nullptr;
+		}
+		return NewSubObject_Shared<VKShaderStruct>(pData);
+	}
 
-	//castl::shared_ptr<ShaderBindingSet> CVulkanApplication::NewShaderBindingSet(ShaderBindingBuilder const& builder)
-	//{
-	//	auto subAllocator = m_ShaderBindingSetAllocator.GetOrCreate(builder);
-	//	return subAllocator->AllocateSet();
-	//}
+	ShaderCompilerSlang::ShaderStructData const* CVulkanApplication::GetShaderStructData(cacore::NameHash const& structType)
+	{
+		auto shaderLibrary = m_ResourceManager->GetOrLoadResource<ShaderLibrary>("VKShaderLibrary.shLib");
+		auto found = shaderLibrary->m_ShaderStructs.find(structType);
+		if (found != shaderLibrary->m_ShaderStructs.end())
+		{
+			return &found->second;
+		}
+		return nullptr;
+	}
+
+	ShaderSetData CVulkanApplication::GetShaderCodes(ShaderInfo const& shaderInfo)
+	{
+		ShaderSetData result;
+		auto shaderLibrary = m_ResourceManager->GetOrLoadResource<ShaderLibrary>("VKShaderLibrary.shLib");
+		auto fileInfo = shaderLibrary->GetShaderFileInfo(shaderInfo.path);
+		result.reflectionData = &fileInfo->reflectionData;
+		for (auto& fileInfo : fileInfo->entryPointToShaderProgram)
+		{
+			auto code =  shaderLibrary->GetShaderCode(fileInfo.second);
+
+			ShaderSourceInfo sourceInfo{};
+			sourceInfo.compileShaderType = code->shaderType;
+			sourceInfo.entryPoint = fileInfo.first;
+			sourceInfo.dataPtr = code->data.data();
+			sourceInfo.dataLength = code->data.size();
+			auto shaderModule = GetGPUObjectManager().GetShaderModuleCache().GetOrCreate(sourceInfo);
+
+			switch (sourceInfo.compileShaderType)
+			{
+			case ECompileShaderType::eVert:
+				result.vertexShader = shaderModule;
+				break;
+			case ECompileShaderType::eFrag:
+				result.fragmentShader = shaderModule;
+				break;
+			case ECompileShaderType::eComp:
+				result.computeShader = shaderModule;
+				break;
+			default:
+				break;
+			}
+			result;
+		}
+		return result;
+	}
 
 	void CVulkanApplication::InitializeInstance(castl::string const& name, castl::string const& engineName)
 	{
@@ -168,7 +215,6 @@ namespace graphics_backend
 			m_DebugMessager = nullptr;
 	#endif
 
-			vulkan_backend::utils::CleanupVulkanInstanceFuncitonPointers();
 			m_Instance.destroy();
 			m_Instance = nullptr;
 		}
@@ -256,8 +302,11 @@ namespace graphics_backend
 	{
 	}
 
-	void CVulkanApplication::InitApp(castl::string const& appName, castl::string const& engineName)
+	void CVulkanApplication::InitApp(castl::string const& appName
+		, castl::string const& engineName
+		, resource_management::ResourceManagingSystem* resourceManager)
 	{
+		m_ResourceManager = resourceManager;
 		InitializeInstance(appName, engineName);
 		EnumeratePhysicalDevices();
 		CreateDevice();

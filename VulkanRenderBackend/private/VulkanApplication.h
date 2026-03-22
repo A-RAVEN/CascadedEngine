@@ -15,47 +15,19 @@
 #include <GPUContexts/QueueContext.h>
 #include <GPUContexts/FrameContext.h>
 #include <Utilities/SubobjectTraits.h>
+#include <CASTL/CATypeTraits.h>
+#include <ShaderLibrary/ShaderImporter_Vulkan.h>
+#include <ShaderLibrary/ShaderLibrary.h>
 
 namespace graphics_backend
 {
-	/*template<typename T, typename...TArgs>
-	concept has_create = requires(T t)
-	{
-		t.Create(castl::remove_cvref_t <TArgs>{}...);
-	};
-
-	template<typename T, typename...TArgs>
-	concept has_initialize = requires(T t)
-	{
-		t.Initialize(castl::remove_cvref_t<TArgs>{}...);
-	};
-
-
-	template<typename T>
-	concept has_release = requires(T t)
-	{
-		t.Release();
-	};
-
-	template<typename T>
-	struct SubObjectDefaultDeleter {
-		void operator()(T* deleteObject)
-		{
-			if constexpr (has_release<T>)
-			{
-				deleteObject->Release();
-			}
-			delete deleteObject;
-		}
-	};*/
-
 	using namespace thread_management;
 	class CVulkanApplication
 	{
 	public:
 		CVulkanApplication();
 		~CVulkanApplication();
-		void InitApp(castl::string const& appName, castl::string const& engineName);
+		void InitApp(castl::string const& appName, castl::string const& engineName, resource_management::ResourceManagingSystem* resourceManager);
 		void ReleaseApp();
 		void DeviceWaitIdle();
 		inline vk::Instance const& GetInstance() const
@@ -81,33 +53,32 @@ namespace graphics_backend
 		void TickWindowContexts();
 
 		template<typename T, typename...TArgs>
-		castl::shared_ptr<T> NewSubObject_Shared(TArgs&&...Args) {
+		static void InitObj(T* inoutObj, TArgs&...Args)
+		{
+			if constexpr (has_initialize<T, TArgs...>)
+			{
+				inoutObj->Initialize(castl::forward<TArgs>(Args)...);
+			}
+			else if constexpr (has_create<T, TArgs...>)
+			{
+				inoutObj->Create(castl::forward<TArgs>(Args)...);
+			}
+		}
+
+		template<typename T, typename...TArgs>
+		castl::shared_ptr<T> NewSubObject_Shared(TArgs&...Args) {
 			static_assert(castl::is_constructible_v<T, CVulkanApplication&> || castl::is_constructible_v<T, CVulkanApplication&, TArgs...>
 				, "Type T Not Compatible To Vulkan SubObject");
 			if constexpr (castl::is_constructible_v<T, CVulkanApplication&, TArgs...>)
 			{
 				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this, castl::forward<TArgs>(Args)...), SubObjectDefaultDeleter<T>{} };
-				if constexpr (has_initialize<T>)
-				{
-					newSubObject->Initialize();
-				}
-				else if constexpr (has_create<T>)
-				{
-					newSubObject->Create();
-				}
+				InitObj(newSubObject.get());
 				return newSubObject;
 			}
 			else
 			{
 				castl::shared_ptr<T> newSubObject = castl::shared_ptr<T>{ new T(*this), SubObjectDefaultDeleter<T>{} };
-				if constexpr (has_initialize<T, TArgs...>)
-				{
-					newSubObject->Initialize(castl::forward<TArgs>(Args)...);
-				}
-				else if constexpr(has_create<T, TArgs...>)
-				{
-					newSubObject->Create(castl::forward<TArgs>(Args)...);
-				}
+				InitObj(newSubObject.get(), castl::forward<TArgs>(Args)...);
 				return newSubObject;
 			}
 		};
@@ -120,6 +91,16 @@ namespace graphics_backend
 
 		GPUTexture* NewGPUTexture(GPUTextureDescriptor const& inDescriptor);
 		void ReleaseGPUTexture(GPUTexture* releaseGPUTexture);
+
+		castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType);
+
+		ShaderCompilerSlang::ShaderStructData const* GetShaderStructData(cacore::NameHash const& structType);
+
+		ShaderSetData GetShaderCodes(ShaderInfo const& shaderInfo);
+
+
+		//Shader Resource Importer
+		VKShaderResourceImporter m_ShaderResourceImporter;
 
 private:
 		void InitializeInstance(castl::string const& name, castl::string const& engineName);
@@ -142,5 +123,7 @@ private:
 		GlobalResourceReleaseQueue m_GlobalResourceReleasingQueue;
 		QueueContext m_QueueContext;
 		FrameContext m_FrameContext;
+
+		resource_management::ResourceManagingSystem* m_ResourceManager = nullptr;
 	};
 }

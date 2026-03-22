@@ -1,6 +1,5 @@
 #pragma once
 #include <ShaderProvider.h>
-#include <uhash.h>
 #include <unordered_map>
 #include <DebugUtils.h>
 #include "VulkanApplicationSubobjectBase.h"
@@ -15,10 +14,10 @@ namespace graphics_backend
 		void Create(ShaderSourceInfo const& shaderSourceInfo);
 		void Release();
 		vk::ShaderModule GetShaderModule() const { return m_ShaderModule; }
-		castl::string const& GetEntryPointName() const { return m_EntryPointName; }
+		cacore::NameHash const& GetEntryPointName() const { return m_EntryPointName; }
 	private:
 		vk::ShaderModule m_ShaderModule = nullptr;
-		castl::string m_EntryPointName;
+		cacore::NameHash m_EntryPointName;
 	};
 
 	using ShaderModuleObjectDic = HashPool<ShaderSourceInfo, CShaderModuleObject>;

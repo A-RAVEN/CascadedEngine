@@ -1,5 +1,4 @@
 #include "pch.h"
-#include <ShaderBindingSetHandle.h>
 #include "CommandList_Impl.h"
 #include "InterfaceTranslator.h"
 

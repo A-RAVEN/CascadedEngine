@@ -1,5 +1,4 @@
 #pragma once
-#include <CVertexInputDescriptor.h>
 #include <CPipelineStateObject.h>
 #include "VulkanApplicationSubobjectBase.h"
 #include "VulkanIncludes.h"
@@ -10,6 +9,23 @@
 
 namespace graphics_backend
 {
+	struct VkVertexAttribute
+	{
+		uint32_t offset;
+		vk::Format format;
+		uint32_t attributeIndex;
+		auto operator<=>(const VkVertexAttribute&) const = default;
+	};
+
+	struct VKVertexAttributeBindingData
+	{
+		bool perInstance;
+		uint32_t bindingIndex;
+		uint32_t stride;
+		castl::vector<VkVertexAttribute> attributes;
+		auto operator <=> (const VKVertexAttributeBindingData&) const = default;
+	};
+
 	struct ShaderStateDescriptor
 	{
 	public:
@@ -21,8 +37,9 @@ namespace graphics_backend
 	struct CPipelineObjectDescriptor
 	{
 		CPipelineStateObject pso{};
-		CVertexInputDescriptor vertexInputs{};
 		ShaderStateDescriptor shaderState{};
+		castl::vector<VKVertexAttributeBindingData> vertexBindingData;
+		InputAssemblyStates assemblyStates;
 		//TODO Wrap ME
 		castl::vector<vk::DescriptorSetLayout> descriptorSetLayouts{};
 		castl::shared_ptr<RenderPassObject> renderPassObject = nullptr;
@@ -52,8 +69,8 @@ CA_REFLECTION(graphics_backend::ShaderStateDescriptor
 
 CA_REFLECTION(graphics_backend::CPipelineObjectDescriptor
 	, pso
-	, vertexInputs
 	, shaderState
+	, vertexBindingData
 	, descriptorSetLayouts
 	, renderPassObject
 	, subpassIndex);

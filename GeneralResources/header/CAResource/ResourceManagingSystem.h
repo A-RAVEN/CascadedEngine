@@ -3,69 +3,67 @@
 #include "IResource.h"
 #include <ThreadManager.h>
 #include <functional>
+#include <CASTL/CASharedPtr.h>
+#include <IOManager/IOManager.h>
+#include <CACore/CASharedDic.h>
 
 namespace resource_management
 {
+
 	class ResourceManagingSystem
 	{
 	public:
-		virtual void* AllocResourceMemory(
-			castl::string type_name
-			, castl::string const& resource_path
-			, uint64_t size_in_bytes) = 0;
-		virtual void ReleaseResourceMemory(castl::string type_name, void* pointer) = 0;
-
-		virtual void SerializeAllResources() = 0;
-
+		virtual void Initialize(castl::shared_ptr<ca_io::IOManager> ioManager) = 0;
+		virtual void SerializeAll() = 0;
 		virtual void SetResourceRootPath(castl::string const& path) = 0;
-
 		virtual castl::string GetResourceRootPath() const = 0;
-
-		virtual IResource* TryGetResource(castl::string const& path) = 0;
-
-		virtual castl::vector<uint8_t> LoadBinaryFile(castl::string const& path) = 0;
-
+		virtual castl::string GetResourceFullPath(castl::string const& path) const = 0;
+	protected:
+		virtual castl::shared_ptr<IResource> GetOrLoadResource(cacore::PathHash const& path
+			, castl::function<IResource*()> newCallback, castl::function<void(IResource*)> deleteCallback) = 0;
+		virtual castl::shared_ptr<IResource> GetOrNewResource(cacore::PathHash const& path
+			, castl::function<IResource*()> newCallback, castl::function<void(IResource*)> deleteCallback) = 0;
+	public:
 		template<typename TRes>
-		void LoadResource(castl::string const& path, std::function<void(TRes*)> callback)
+		castl::shared_ptr<TRes> GetOrLoadResource(cacore::PathHash const& path) requires std::is_base_of_v<IResource, TRes>
 		{
-			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
-			IResource* result = TryGetResource(path);
-			if (result != nullptr)
-			{
-				callback(static_cast<TRes*>(result));
-			}
-			else
-			{
-				auto data = LoadBinaryFile(path);
-				TRes* newResult = AllocResource<TRes>(path);
-				newResult->Deserialzie(data);
-				callback(newResult);
-			}
-		}
-
-		template<typename TRes, typename...TArgs>
-		TRes* AllocResource(castl::string const& outPath, TArgs&&...Args) {
-			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
-			uint64_t allocSize = sizeof(TRes);
-			auto address = AllocResourceMemory(typeid(TRes).name(), outPath, allocSize);
-			TRes* result = new (address) TRes(std::forward<TArgs>(Args)...);
-			return result;
-		}
-
-		template<typename TRes, typename...TArgs>
-		TRes* AllocSubResource(castl::string const& outPath, castl::string const& postfix, TArgs&&...Args) {
-			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
-			uint64_t allocSize = sizeof(TRes);
-			auto address = AllocResourceMemory(typeid(TRes).name(), (outPath + "/" + postfix), allocSize);
-			TRes* result =  new (address) TRes(std::forward<TArgs>(Args)...);
-			return result;
+			castl::shared_ptr<IResource> loaded = GetOrLoadResource(path, [&]()
+				{
+					return new TRes();
+				},
+				[&](IResource* releasedObj)
+				{
+					delete releasedObj;
+				});
+			return castl::static_pointer_cast<TRes>(loaded);
 		}
 
 		template<typename TRes>
-		void ReleaseResource(TRes* releasingRes)
+		castl::shared_ptr<TRes> GetOrLoadResource(cacore::PathHash const& path
+			, castl::function<TRes* ()> newCallback, castl::function<void(IResource*)> deleteCallback) requires std::is_base_of_v<IResource, TRes>
 		{
-			static_assert(std::is_base_of<IResource, TRes>::value, "Type T not derived from IResource");
-			ReleaseResourceMemory(typeid(TRes).name(), releasingRes);
+			castl::shared_ptr<IResource> loaded = GetOrLoadResource(path, newCallback, deleteCallback);
+			return castl::static_pointer_cast<TRes>(loaded);
+		}
+
+		template<typename TRes, typename...TArgs>
+		castl::shared_ptr<TRes> GetOrNewResource(cacore::PathHash const& path, TArgs&&...Args) requires std::is_base_of_v<IResource, TRes>
+		{
+			castl::shared_ptr<IResource> newRes = GetOrNewResource(path, [&]()
+				{
+					return new TRes(castl::forward<TArgs>(Args)...);
+				},
+				[&](IResource* releasedObj)
+				{
+					delete releasedObj;
+				});
+			return castl::static_pointer_cast<TRes>(newRes);
+		}
+
+		template<typename TRes, typename...TArgs>
+		castl::shared_ptr<TRes> GetOrNewSubResource(cafs::path const& path, castl::string const& postfix, TArgs&&...Args) requires std::is_base_of_v<IResource, TRes>
+		{
+			return GetOrNewResource<TRes, TArgs...>((path / postfix), castl::forward<TArgs>(Args)...);
 		}
 	};
 }

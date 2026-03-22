@@ -3,6 +3,7 @@
 #include <VulkanIncludes.h>
 #include <GPUTexture.h>
 #include "GPUResource.h"
+#include <VulkanDebug.h>
 
 namespace graphics_backend
 {
@@ -20,7 +21,11 @@ namespace graphics_backend
 			return m_Image;
 		}
 		virtual GPUTextureDescriptor const& GetDescriptor() const override {return m_Descriptor;}
-		virtual void SetName(castl::string const& name) override { m_Name = name; }
+		virtual void SetName(castl::string const& name) override 
+		{ 
+			m_Name = name; 
+			SetVKObjectDebugName(GetDevice(), m_Image.image, name.c_str());
+		}
 		virtual castl::string const& GetName() const override { return m_Name; }
 		bool Initialized() const
 		{

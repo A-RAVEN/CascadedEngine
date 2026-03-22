@@ -1,0 +1,170 @@
+#pragma once
+#include <Hasher.h>
+#include <CRenderBackend.h>
+#include "StaticMeshResource.h"
+#include <GPUGraph.h>
+
+using namespace graphics_backend;
+
+class MeshGPUData
+{
+public:
+	MeshGPUData() = default;
+	MeshGPUData(castl::shared_ptr<graphics_backend::CRenderBackend> renderBackend);
+	void UploadMeshResource(graphics_backend::GPUGraph* gpuGraph, resource_management::StaticMeshResource* meshResource);
+	//void DrawCall(graphics_backend::DrawCallBatch& drawallBatch, uint32_t submeshID, uint32_t instanceCount);
+	graphics_backend::DrawCall DrawCall(uint32_t submeshID, uint32_t instanceCount);
+private:
+	castl::shared_ptr<graphics_backend::CRenderBackend> m_RenderBackend;
+	resource_management::StaticMeshResource* p_MeshResource;
+	castl::shared_ptr<graphics_backend::GPUBuffer> m_VertexBuffer;
+	castl::shared_ptr<graphics_backend::GPUBuffer> m_IndicesBuffer;
+	cacore::HashObj<VertexInputsDescriptor> m_VertexInputDescriptor;
+};
+
+static castl::unordered_map<resource_management::StaticMeshResource*, MeshGPUData> g_MeshResourceToGPUData;
+
+static void RegisterMeshResource(castl::shared_ptr<graphics_backend::CRenderBackend> pBackend
+	, graphics_backend::GPUGraph* gpuGraph
+	, resource_management::StaticMeshResource* meshResource)
+{
+	auto found = g_MeshResourceToGPUData.find(meshResource);
+	if (found == g_MeshResourceToGPUData.end())
+	{
+		MeshGPUData gpuData{ pBackend };
+		gpuData.UploadMeshResource(gpuGraph, meshResource);
+		g_MeshResourceToGPUData.insert(castl::make_pair(meshResource, gpuData));
+	}
+}
+
+struct MeshMaterial
+{
+	//基础管线状态
+	CPipelineStateObject pipelineStateObject;
+	//Shader
+	ShaderInfo shaderSet;
+	//Shader参数
+	castl::shared_ptr<graphics_backend::ShaderStruct> shaderStruct;
+};
+
+struct MeshRenderer
+{
+public:
+	resource_management::StaticMeshResource* p_MeshResource;
+	castl::vector<cacore::HashObj<MeshMaterial>> materials;
+};
+
+extern VertexInputsDescriptor const g_InstanceDescriptor;
+extern VertexInputsDescriptor const g_VertexDescriptor;
+
+class MeshBatcher
+{
+	castl::shared_ptr<graphics_backend::CRenderBackend> pRenderBackend;
+
+	castl::vector<glm::mat4> m_Instances;
+
+
+
+	struct SubmeshDrawcallInfo
+	{
+		MeshGPUData* p_GPUMeshData;
+		//cacore::HashObj<MeshMaterial> material;
+		uint32_t submeshID;
+		auto operator<=>(const SubmeshDrawcallInfo&) const = default;
+	};
+
+	struct SubmeshDrawcallData
+	{
+		castl::vector<uint32_t> m_InstanceIDs;
+	};
+
+	struct MaterialSubDrawCalls
+	{
+		castl::unordered_map<cacore::HashObj<SubmeshDrawcallInfo>, SubmeshDrawcallData> m_DrawCallInfoToDrawCallData;
+	};
+
+	castl::unordered_map< cacore::HashObj<MeshMaterial>, MaterialSubDrawCalls> m_MaterialToSubDrawCalls;
+
+	//castl::unordered_map< SubmeshDrawcallInfo, SubmeshDrawcallData> m_DrawCallInfoToDrawCallData;
+
+public:
+	MeshBatcher(castl::shared_ptr<graphics_backend::CRenderBackend> pRenderBackend)
+		: pRenderBackend(pRenderBackend)
+	{
+	}
+
+	void AddMeshRenderer(MeshRenderer const& meshRenderer, glm::mat4 const& transform)
+	{
+		MeshGPUData* pGpuMeshData = &g_MeshResourceToGPUData[meshRenderer.p_MeshResource];
+
+		auto& submeshInfos = meshRenderer.p_MeshResource->GetSubmeshInfos();
+		auto& instances = meshRenderer.p_MeshResource->GetInstanceInfos();
+		for (int instanceID = 0; instanceID < instances.size(); ++instanceID)
+		{
+			auto& instance = instances[instanceID];
+			glm::mat4 instanceTrans = transform * instance.m_InstanceTransform;
+			m_Instances.push_back(glm::transpose(instanceTrans));
+
+			uint32_t instanceIndex = m_Instances.size() - 1;
+			auto& submeshInfo = submeshInfos[instance.m_SubmeshID];
+			auto& material = meshRenderer.materials[castl::min((size_t)submeshInfo.m_MaterialID, meshRenderer.materials.size() - 1)];
+
+			MaterialSubDrawCalls& materialSubDrawCalls = m_MaterialToSubDrawCalls[material];
+			auto& drawCallDatas = materialSubDrawCalls.m_DrawCallInfoToDrawCallData;
+
+			SubmeshDrawcallInfo drawcallinfo{};
+			//drawcallinfo.material = material;
+			drawcallinfo.p_GPUMeshData = pGpuMeshData;
+			drawcallinfo.submeshID = instance.m_SubmeshID;
+
+			auto found = drawCallDatas.find(drawcallinfo);
+			if (found == drawCallDatas.end())
+			{
+				found = drawCallDatas.insert(castl::make_pair(drawcallinfo, SubmeshDrawcallData{})).first;
+			}
+			found->second.m_InstanceIDs.push_back(instanceIndex);
+		}
+	}
+
+	castl::vector<DrawCallBatch> Draw(graphics_backend::GPUGraph* pGraph)
+	{
+		graphics_backend::BufferHandle instanceTransformBuffer{ "InstanceTransformsBuffer" , 0 };
+		pGraph->AllocBuffer(instanceTransformBuffer, GPUBufferDescriptor::Create(EBufferUsage::eStructuredBuffer | EBufferUsage::eDataDst, m_Instances.size(), sizeof(glm::mat4)))
+			.ScheduleData(instanceTransformBuffer, m_Instances.data(), m_Instances.size() * sizeof(glm::mat4));
+		auto instanceShaderArgs = pRenderBackend->CreateShaderStruct(CANAME("MeshData"));
+		instanceShaderArgs->SetBuffer("instanceTransforms", instanceTransformBuffer);
+		uint32_t index = 0;
+		castl::vector<DrawCallBatch> drawcallBatches;
+		drawcallBatches.reserve(m_MaterialToSubDrawCalls.size());
+		for (auto& pair : m_MaterialToSubDrawCalls)
+		{
+			auto& material = pair.first;
+			auto& materialSubDrawCalls = pair.second;
+
+			DrawCallBatch newDrawcallBatch = DrawCallBatch::New();
+			newDrawcallBatch.SetParam("meshInstanceTransforms", instanceShaderArgs);
+			newDrawcallBatch.SetParam("meshMaterialData", material->shaderStruct)
+				.SetShaderInfo(material->shaderSet)
+				.SetPipelineState(material->pipelineStateObject)
+				.VertexStream(CANAME("InstanceID"), g_InstanceDescriptor)
+				.VertexStream(CANAME("MeshVertexBuffer"), g_VertexDescriptor);
+
+			for (auto& pair : materialSubDrawCalls.m_DrawCallInfoToDrawCallData)
+			{
+				auto& drawcallInfo = pair.first;
+				auto& drawcallInstances = pair.second;
+				graphics_backend::BufferHandle instanceIDBuffer{ "MeshInstanceIDBuffer", true };
+				size_t bufferSize = drawcallInstances.m_InstanceIDs.size() * sizeof(uint32_t);
+				pGraph->AllocBuffer(instanceIDBuffer, GPUBufferDescriptor::Create(EBufferUsage::eVertexBuffer | EBufferUsage::eDataDst, drawcallInstances.m_InstanceIDs.size(), sizeof(uint32_t)))
+					.ScheduleData(instanceIDBuffer, drawcallInstances.m_InstanceIDs.data(), bufferSize);
+				newDrawcallBatch.DrawCall(drawcallInfo
+					->p_GPUMeshData
+					->DrawCall(drawcallInfo->submeshID, drawcallInstances.m_InstanceIDs.size())
+					.SetVertexBuffer(CANAME("InstanceID"), instanceIDBuffer)
+				);
+			}
+			drawcallBatches.push_back(newDrawcallBatch);
+		}
+		return drawcallBatches;
+	}
+};

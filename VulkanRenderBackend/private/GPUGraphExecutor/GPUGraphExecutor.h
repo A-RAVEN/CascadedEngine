@@ -6,6 +6,7 @@
 #include <VulkanApplicationSubobjectBase.h>
 #include <VulkanBarrierCollector.h>
 #include "ShaderBindingHolder.h"
+#include <VulkanPipelineObject.h>
 
 namespace graphics_backend
 {
@@ -15,19 +16,30 @@ namespace graphics_backend
 	class ComputePipelineObject;
 	class CVulkanApplication;
 
-	struct VertexAttributeBindingData
+	using ShaderStructStack = castl::vector<castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> const*>;
+
+	//Shader Binding Key
+	struct GPUShaderBindingKey
 	{
-		uint32_t bindingIndex;
-		uint32_t stride;
-		castl::vector<VertexAttribute> attributes;
-		bool bInstance;
+		ShaderStructStack  m_ShaderStructStack;
+		ShaderInfo m_ShaderInfo;
+	};
+
+	struct GPUDrawCallInfo
+	{
+		castl::vector<BufferHandle> m_VertexBufferBindings;
+		auto operator <=> (const GPUDrawCallInfo&) const = default;
 	};
 
 	struct GPUPassBatchInfo
 	{
+		cacore::HashObj<GPUShaderBindingKey> m_ShaderBindingKey;
 		castl::shared_ptr<CPipelineObject> m_PSO;
-		castl::unordered_map<cacore::HashObj<VertexInputsDescriptor>, VertexAttributeBindingData> m_VertexAttributeBindings;
-		ShaderBindingInstance m_ShaderBindingInstance;
+		castl::vector<cacore::NameHash> m_VertexStreamNames;
+		castl::vector<VKVertexAttributeBindingData> m_VertexStreamBindings;
+		//castl::unordered_map<BufferHandle, VKVertexAttributeBindingData> m_VertexAttributeBindings;
+		castl::vector<GPUDrawCallInfo> m_DrawCalls;
+		auto operator <=> (const GPUPassBatchInfo&) const = default;
 	};
 
 	struct PassInfoBase
@@ -36,17 +48,21 @@ namespace graphics_backend
 		castl::set<uint32_t> m_PredecessorPasses;
 		castl::set<uint32_t> m_SuccessorPasses;
 		castl::set<uint32_t> m_WaitingQueueFamilies;
-		castl::vector<vk::CommandBuffer> m_PrepareShaderArgCommands;
 		castl::vector<vk::CommandBuffer> m_CommandBuffers;
 		int GetQueueFamily() const { return m_BarrierCollector.GetQueueFamily(); }
 		virtual GPUGraph::EGraphStageType GetStageType() const = 0;
+	};
+
+	struct PrepareShaderBindingConstantsPass : public PassInfoBase
+	{
+		castl::shared_dic<cacore::HashObj<GPUShaderBindingKey>, ShaderBindingInstance> m_ShaderBindingInstances;
+		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eTransferPass; }
 	};
 
 	struct GPUPassInfo : public PassInfoBase
 	{
 		castl::shared_ptr<FramebufferObject> m_FrameBufferObject;
 		castl::shared_ptr<RenderPassObject> m_RenderPassObject;
-		castl::vector<vk::ClearValue> m_ClearValues;
 		castl::vector<GPUPassBatchInfo> m_Batches;
 		bool ValidPassData() const
 		{
@@ -60,7 +76,8 @@ namespace graphics_backend
 		struct ComputeDispatchInfo
 		{
 			castl::shared_ptr<ComputePipelineObject> m_ComputePipeline;
-			ShaderBindingInstance m_ShaderBindingInstance;
+			cacore::HashObj<GPUShaderBindingKey> m_ShaderBindingKey;
+			//ShaderBindingInstance m_ShaderBindingInstance;
 		};
 		castl::vector<ComputeDispatchInfo> m_DispatchInfos;
 		virtual GPUGraph::EGraphStageType GetStageType() const override { return GPUGraph::EGraphStageType::eComputePass; }
@@ -116,7 +133,7 @@ namespace graphics_backend
 
 		void UpdateEndPass(uint32_t passID)
 		{
-			endPass = castl::max(endPass, passID);
+			endPass = (castl::max)(endPass, passID);
 		}
 	};
 
@@ -299,14 +316,14 @@ namespace graphics_backend
 	struct CommandBatchRange
 	{
 		uint32_t queueFamilyIndex;
-		uint32_t firstCommand;
-		uint32_t lastCommand;
+		int32_t firstCommand;
+		int32_t lastCommand;
 		vk::Semaphore signalSemaphore;
 		castl::vector<vk::Semaphore> waitSemaphores;
 		castl::vector<vk::PipelineStageFlags> waitStages;
 
 		bool hasSuccessor;
-		castl::set<uint32_t> waitingBatch;
+		castl::set<int32_t> waitingBatch;
 		castl::set<uint32_t> waitingQueueFamilyReleaser;
 
 		static CommandBatchRange Create(uint32_t queueFamilyIndex, uint32_t startCommandID)
@@ -335,7 +352,8 @@ namespace graphics_backend
 		void PrepareGraph(thread_management::TaskScheduler* taskGraph);
 	private:
 		bool ValidImageHandle(ImageHandle const& handle);
-		void PrepareResources();
+		ShaderBindingInstance& SelectShaderBindingInstance(cacore::HashObj<GPUShaderBindingKey>const& shaderBindingKey);
+		//void PrepareResources();
 		void InitializePasses();
 		void PrepareGraphLocalImageResources();
 		void PrepareGraphLocalBufferResources();
@@ -348,12 +366,6 @@ namespace graphics_backend
 			, uint32_t passID
 		);
 
-		void PrepareShaderArgsResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
-			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
-			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
-			, ShaderArgList const* shaderArgList
-			, uint32_t passID
-		);
 		void PrepareShaderBindingResourceBarriers(VulkanBarrierCollector& inoutBarrierCollector
 			, castl::unordered_map<vk::Image, ResourceState>& inoutImageUsageFlagCache
 			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache
@@ -364,6 +376,9 @@ namespace graphics_backend
 		PassInfoBase* GetBasePassInfo(int passID);
 
 #pragma region Shader Resource Dependencies
+		void UpdateUniformBufferDepenedency(int32_t passID, vk::Buffer uniformBuffer
+			, ResourceUsageFlags newUsageFlags
+			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache);
 		void UpdateBufferDependency(uint32_t passID, BufferHandle const& bufferHandle
 			, ResourceUsageFlags newUsageFlags
 			, castl::unordered_map<vk::Buffer, ResourceState>& inoutBufferUsageFlagCache);
@@ -433,6 +448,11 @@ namespace graphics_backend
 		//Command Buffers
 		castl::vector<vk::CommandBuffer> m_FinalCommandBuffers;
 		castl::vector<CommandBatchRange> m_CommandBufferBatchList;
+
+		//ShaderBindingInstances
+		PrepareShaderBindingConstantsPass m_PrepareShaderBindingConstantsPass;
+		//castl::unordered_map<cacore::HashObj<GPUShaderBindingKey>, ShaderBindingInstance> m_ShaderBindingInstances;
+		//castl::vector<vk::CommandBuffer> m_PrepareShaderBindingsCommands;
 
 		castl::unordered_set<castl::shared_ptr<CWindowContext>> m_WaitingWindows;
 	};

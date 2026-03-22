@@ -1,7 +1,12 @@
 #pragma once
-#include "DebugUtils.h"
+#include <assert.h>
+#include <CASTL/CAString.h>
+#include <iostream>
+#include <stdio.h>
+#include <stdint.h>
 #include "Macros.h"
 #include <type_traits>
+#include <utility>
 
 #if defined __clang__
 #define STRUCT_PACK_INLINE __attribute__((always_inline)) inline
@@ -16,45 +21,117 @@
 
 // Macro to generate reflection info for non aggregate types
 
+namespace castruct_name
+{
+    template<size_t n>
+    struct CAStringLiteral
+    {
+        constexpr CAStringLiteral(const char(&str)[n]) { std::copy_n(str, n, value); };
+        char value[n];
+        constexpr static size_t N = n;
+
+        template <std::size_t index>
+        constexpr char GetChar() const {
+            return value[index < n ? index : n - 1];
+        }
+    };
+
+    template <char... c>
+    struct CAStructName {
+        constexpr static std::size_t n = sizeof...(c);
+        constexpr static const char data[n] = { c... };
+    };
+
+    template <CAStringLiteral str, size_t... N>
+    constexpr auto CreateStructNameInternal(std::index_sequence<N...>) {
+        return CAStructName<str.GetChar<N>()...>{};
+    }
+
+    template <CAStringLiteral str>
+    constexpr auto CACreateStructName() {
+        return CreateStructNameInternal<str>(std::make_index_sequence<str.N>{});
+    }
+}
+
+#define CA_STUCTNAME_TYPE(str) decltype(castruct_name::CACreateStructName<castruct_name::CAStringLiteral{str}>())
+
 template<typename T>
 struct CATypeDescriptor
 {
+    using type = nullptr_t;
+    using member_tuple_type = std::tuple<>;
+    constexpr static size_t member_count = 0;
+    constexpr static char const* name = "Null Type Descriptor";
 };
 
-template<typename T, size_t Offset>
+template<typename T, size_t Offset, typename NT>
 struct CATypeMemberDesc
 {
     using type = T;
+    using nameType = NT;
     static constexpr size_t offset = Offset;
 };
 
 
-#define CA_REFLECTION_MEMBER_LIST_REMAINS(Type, ItrMember, ...) ,CATypeMemberDesc<decltype(Type::ItrMember), offsetof(Type, ItrMember) >\
+#define CA_REFLECTION_MEMBER_LIST_REMAINS(Type, ItrMember, ...) ,CATypeMemberDesc<decltype(std::declval<Type>().ItrMember), offsetof(Type, ItrMember), CA_STUCTNAME_TYPE(#ItrMember) >\
 	__VA_OPT__(CA_REFLECTION_MEMBER_LIST_REMAINS_AGAIN CAPARENS (Type, __VA_ARGS__) )
 #define CA_REFLECTION_MEMBER_LIST_REMAINS_AGAIN() CA_REFLECTION_MEMBER_LIST_REMAINS
 
-#define CA_REFLECTION_MEMBER_LIST_BEGIN(Type, First, ...) CATypeMemberDesc<decltype(Type::First), offsetof(Type, First) >\
+#define CA_REFLECTION_MEMBER_LIST(Type, First, ...) CATypeMemberDesc<decltype(std::declval<Type>().First), offsetof(Type, First), CA_STUCTNAME_TYPE(#First) >\
 	__VA_OPT__(CAEXPAND(CA_REFLECTION_MEMBER_LIST_REMAINS(Type, __VA_ARGS__)))
 #define CA_REFLECTION(Type, ...)\
 template<>\
 struct CATypeDescriptor<Type>\
 {\
 	using type = Type;\
-	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST_BEGIN(Type, __VA_ARGS__) ) >;\
+	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST(Type, __VA_ARGS__) ) >;\
 	constexpr static size_t member_count = std::tuple_size_v<member_tuple_type>;\
+    constexpr static char const* name = #Type;\
 };
 #define CA_REFLECTION_TEMPLATE(Type, ...)\
 struct CATypeDescriptor<Type>\
 {\
 	using type = Type;\
-	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST_BEGIN(Type, __VA_ARGS__) ) >;\
+	using member_tuple_type = std::tuple < __VA_OPT__( CA_REFLECTION_MEMBER_LIST(Type, __VA_ARGS__) ) >;\
 	constexpr static size_t member_count = std::tuple_size_v<member_tuple_type>;\
+    constexpr static char const* name = #Type;\
 };
 #define CA_PRIVATE_REFLECTION(Type) friend struct ::CATypeDescriptor<Type>;
 
 
 namespace careflection
 {
+    template<typename T, size_t index>
+    static constexpr void log_member_sequence()
+    {
+        using typeDesc = CATypeDescriptor<T>;
+        constexpr auto member_count = typeDesc::member_count;
+        using member_tuple_type = typename typeDesc::member_tuple_type;
+        //CATypeMemberDesc
+        using visitingElementDescType = std::tuple_element_t<index, member_tuple_type>;
+        using visitingType = typename visitingElementDescType::type;
+        //CAStructName
+        using visitingElementNameType = typename visitingElementDescType::nameType;
+        std::cout << "  member:" << visitingElementNameType::data << "; offset: " << visitingElementDescType::offset << std::endl;
+        if constexpr (index + 1 < member_count)
+        {
+            log_member_sequence<T, index + 1>();
+        }
+    }
+
+    template<typename T>
+    static constexpr void log_reflection()
+    {
+        return;
+		using typeDesc = CATypeDescriptor<T>;
+        constexpr auto member_count = typeDesc::member_count;
+        std::cout << "Type Reflection:" << typeDesc::name << "; member count:" << member_count << std::endl;
+        if constexpr (member_count > 0)
+        {
+            log_member_sequence<T, 0>();
+        }
+    }
+
     struct any_type
     {
         template<typename T>
@@ -62,7 +139,12 @@ namespace careflection
     };
 
     template<typename T>
-    concept has_type_desc = requires { CATypeDescriptor<T>::member_count; typename CATypeDescriptor<T>::type; };
+    concept has_type_desc = requires 
+    { 
+        CATypeDescriptor<T>::member_count; 
+        typename CATypeDescriptor<T>::type; 
+		requires std::same_as<typename CATypeDescriptor<T>::type, nullptr_t> == false;
+    };
 
     template <class T>
     concept is_c_array = (std::is_bounded_array_v<std::remove_cvref_t<T>> && std::extent_v<std::remove_cvref_t<T>> > 0);
@@ -112,6 +194,12 @@ namespace careflection
     concept has_reserve = requires(T t)
     {
         t.reserve(0);
+    };
+
+    template<typename T>
+    concept has_clear = requires(T t)
+    {
+        t.clear();
     };
 
     template<typename T>
@@ -176,6 +264,7 @@ namespace careflection
         constexpr static bool has_resize = careflection::has_resize<noRefT>;
         constexpr static bool has_data = careflection::has_data<noRefT>;
         constexpr static bool has_reserve = careflection::has_reserve<noRefT>;
+        constexpr static bool has_clear = careflection::has_clear<noRefT>;
         constexpr static bool element_assignable = careflection::element_assignable<noRefT>;
         constexpr static bool has_indexer = careflection::has_indexer<noRefT>;
         constexpr static bool has_push_back_element = careflection::has_push_back_element<noRefT>;
@@ -258,7 +347,7 @@ namespace careflection
         using objType = std::remove_cvref_t<decltype(object)>;
         using visitorType = std::remove_cvref_t<decltype(visitor)>;
 
-        static_assert(has_type_desc<objType> || is_structured_binding_capable<objType>, "object incompatible for reflection");
+        static_assert(has_type_desc<objType> || is_structured_binding_capable<objType> || managed_wrapper_traits<objType>::is_managed_wrapper, "object incompatible for reflection");
 
         if constexpr (has_type_desc<objType>)
         {
@@ -279,13 +368,18 @@ namespace careflection
     constexpr void inline visit_members_type_desc(Obj&& object, Visitor&& visitor)
     {
         using objType = std::remove_cvref_t<decltype(object)>;
+        log_reflection<objType>();
         using visitorType = std::remove_cvref_t<decltype(visitor)>;
         constexpr auto member_count = CATypeDescriptor<objType>::member_count;
         using member_tuple_type = typename CATypeDescriptor<objType>::member_tuple_type;
         if constexpr (index < member_count)
         {
+            //CATypeMemberDesc
             using visitingElementDescType = std::tuple_element_t<index, member_tuple_type>;
             using visitingType = typename visitingElementDescType::type;
+            //CAStructName
+			using visitingElementNameType = typename visitingElementDescType::nameType;
+
             visitor(*(visitingType*)(((uint8_t*)(&object)) + visitingElementDescType::offset));
             visit_members_type_desc<Obj, Visitor, index + 1>(object, visitor);
         }

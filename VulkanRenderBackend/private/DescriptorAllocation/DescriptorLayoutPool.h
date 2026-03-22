@@ -3,6 +3,7 @@
 #include <VulkanApplicationSubobjectBase.h>
 #include <HashPool.h>
 #include <CASTL/CASet.h>
+#include <CASTL/CADeque.h>
 
 namespace graphics_backend
 {

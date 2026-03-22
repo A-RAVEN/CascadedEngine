@@ -9,6 +9,9 @@
 #include <CASTL/CAChrono.h>
 #include <Hasher.h>
 #include <TimerSystemEditor/TimerSystem_Impl.h>
+#include <DebugUtils.h>
+#define CA_IMPLEMENT_MODULE 1
+#include <CACore/CAModuleImplementation.h>
 namespace catimer
 {
 	struct TimerFrameHistories;
@@ -107,7 +110,7 @@ namespace catimer
 			uint32_t stackID = m_EventStack.size() - 1;
 			castl::pair<EventHandle, TimerType::time_point> eventRecord = m_EventStack.top();
 			m_EventStack.pop();
-			CA_ASSERT(eventHandle == eventRecord.first, (castl::string("Handle Not Equal ") + castl::string(eventHandle.name) + " " + castl::string(eventRecord.first.name)));
+			CA_ASSERT(eventHandle == eventRecord.first, (castl::string("Handle Not Equal: [") + castl::string(eventHandle.name) + "];" + castl::string(eventRecord.first.name)));
 			frameData.AddEvent(eventRecord.first, stackID, eventRecord.second, m_Timer.now());
 		}
 		TimerType m_Timer;
@@ -172,7 +175,7 @@ namespace catimer
 
 	struct EventHandlePool
 	{
-		EventHandle const& GetOrCreateEventHandle(cacore::HashObj<castl::string> const& eventKey)
+		EventHandle const& GetOrCreateEventHandle(cacore::NameHash const& eventKey)
 		{
 			{
 				castl::shared_lock<castl::shared_mutex> lock(m_Mutex);
@@ -197,7 +200,7 @@ namespace catimer
 			}
 		}
 		castl::shared_mutex m_Mutex;
-		castl::unordered_map<cacore::HashObj<castl::string>, EventHandle> m_EventHandles;
+		castl::unordered_map<cacore::NameHash, EventHandle> m_EventHandles;
 	};
 
 	struct FrameCounter
@@ -250,7 +253,7 @@ namespace catimer
 
 		void BeginEvent(const char* pName, const char* pFilePath, uint32_t lineNumber) override
 		{
-			auto& eventHandle = m_EventHandlePool.GetOrCreateEventHandle(castl::string{ pName });
+			auto& eventHandle = m_EventHandlePool.GetOrCreateEventHandle(pName);
 			ThreadLocalStorage::Get().BeginEvent(eventHandle);
 		}
 
@@ -288,5 +291,8 @@ namespace catimer
 	void InitTimerSystem()
 	{
 		SetGlobalTimerSystem(&g_TimerSystem_Impl);
+		TIMER_NEWFRAME();
 	}
 }
+
+CA_MODULE_INSTANCE(catimer::TimerSystem, catimer::TimerSystem_Impl, CATimer);
