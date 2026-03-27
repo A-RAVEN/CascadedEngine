@@ -114,7 +114,12 @@ As a graphics developer, I want the Vulkan backend to manage windows and swapcha
 - **FR-010**: The backend MUST support required extensions for swapchain and pipeline library
 - **FR-011**: The backend MUST fall back gracefully when optional extensions are not available
 - **FR-012**: The backend MUST use CACore logging system to record key operations for debugging
-- **FR-013**: Shader import MUST use ShaderCompilerSlang::IShaderCompilerManager with eSpirV target type, referencing D3D12RenderBackend/ShaderLibrary/ShaderImporter_D12 implementation pattern
+- **FR-013**: Shader import MUST use ShaderCompilerSlang::IShaderCompilerManager with eSpirV target type, referencing D3D12RenderBackend/ShaderLibrary/ShaderImporter_D12 implementation pattern:
+  - Use `IShaderCompilerManager::AquireShaderCompilerShared()` to get compiler instance
+  - Call `BeginCompileTask()`, `AddSourceFile()`, `SetTarget(eSpirV)`, `Compile()`
+  - Extract reflection data from `GetResults()` → `result.m_ReflectionData` (NOT manual SPIR-V parsing)
+  - Build descriptor bindings from `ShaderReflectionData.m_BindingInfo` following `ConstructShaderDescriptorInfo()` pattern
+  - Handle hierarchical binding structures (`m_BindingDataHierarchies`) and shader structs (`m_ShaderStructs`)
 - **FR-014**: GPUGraph execution MUST implement VulkanGraphExecutor following D3D12GPUGraphExecutor pattern:
   - Resource collection and state tracking (PassRWState)
   - Dependency analysis and batch construction
@@ -132,7 +137,7 @@ As a graphics developer, I want the Vulkan backend to manage windows and swapcha
 - **VulkanWindowHandle**: Implements WindowHandle interface, manages surface and swapchain
 - **VulkanPipelineLibrary**: Manages cached pipeline library parts (vertex input, pre-rasterization, fragment, fragment output)
 - **VulkanMemoryAllocator (VMA)**: External library for GPU memory management, used via VulkanMemoryAllocator integration
-- **VulkanShaderImporter**: Handles shader compilation and metadata extraction using ShaderCompilerSlang::IShaderCompilerManager with eSpirV target
+- **VulkanShaderImporter**: Handles shader compilation and metadata extraction using ShaderCompilerSlang::IShaderCompilerManager with eSpirV target. Must follow D3D12ShaderResourceImporter pattern: compile from source (not pre-compiled SPIR-V), extract reflection data from ShaderCompilerSlang results, construct descriptor bindings from ShaderReflectionData.m_BindingInfo hierarchy
 - **VulkanGraphExecutor**: Executes GPUGraph following D3D12GPUGraphExecutor pattern
 - **VulkanGraphLocalResourceManager**: Manages graph-local resources with memory aliasing support
 - **VulkanResourceBindingInstance**: Shader resource binding implementation for descriptor sets
@@ -150,6 +155,10 @@ As a graphics developer, I want the Vulkan backend to manage windows and swapcha
 - **SC-006**: The backend compiles without errors when integrated into the build system
 
 ## Clarifications
+
+### Session 2026-03-25
+
+- Q: ShaderImporter实现未遵循FR-013，应如何修正？ → A: 完整集成IShaderCompilerManager：1) 使用IShaderCompilerManager进行shader源码编译（非仅接受预编译SPIR-V）；2) 从ShaderCompilerSlang结果提取reflection data（非手动解析SPIR-V）；3) 遵循D3D12 ShaderImporter_D12模式（AquireShaderCompilerShared→BeginCompileTask→SetTarget(eSpirV)→Compile→GetResults）；4) 使用ConstructShaderDescriptorInfo模式构建descriptor binding info
 
 ### Session 2026-03-23
 

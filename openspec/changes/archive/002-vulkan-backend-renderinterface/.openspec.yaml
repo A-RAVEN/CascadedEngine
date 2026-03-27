@@ -1,0 +1,6 @@
+change:
+  id: 002-vulkan-backend-renderinterface
+  name: Vulkan Backend RenderInterface Implementation
+  status: archived
+  created: 2026-03-22
+  archived: 2026-03-27

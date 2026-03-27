@@ -1,0 +1,44 @@
+schema: spec-driven
+
+# Project context
+# This is shown to AI when creating artifacts.
+context: |
+  ## Tech Stack
+  - Language: C++20
+  - Build System: CMake 3.12+
+  - Compiler: MSVC (Visual Studio 2022)
+  - Package Manager: vcpkg (optional external dependencies)
+
+  ## Graphics APIs
+  - Vulkan 1.2 (primary backend being developed)
+  - D3D12 (reference implementation)
+  - VulkanMemoryAllocator (VMA) v3.1.0 for GPU memory management
+
+  ## Project Type
+  CascadedEngine - A multi-backend rendering engine with pluggable graphics backends.
+  The engine uses a render graph architecture (GPUGraph) for frame composition.
+
+  ## Code Conventions
+  - Use CACore logging system for debug output
+  - Follow RAII for resource management
+  - Reference counting for long-lived GPU resources
+  - Memory aliasing for graph-scoped temporary resources
+
+  ## Key Modules
+  - RenderInterface: Abstract rendering interface (backend-agnostic)
+  - D3D12RenderBackend: D3D12 implementation (reference)
+  - VulkanRenderBackendNew: Vulkan implementation (in development)
+  - ShaderCompilerSlang: Slang shader compiler with SPIR-V/DXIL output
+
+  ## Documentation Language
+  Specs and documentation are written in Chinese (Simplified).
+
+# Per-artifact rules
+rules:
+  proposal:
+    - Include "Non-goals" section for scope clarity
+    - Reference existing modules and patterns
+  tasks:
+    - Mark parallel tasks with [P]
+    - Map tasks to user stories with [USx]
+    - Keep tasks atomic and testable

@@ -9,6 +9,9 @@
 #include <VulkanObjectManaging/PipelineLayoutManager.h>
 #include <ResourceManagement/VulkanMemoryManager.h>
 #include <ResourceManagement/VulkanCommandListManager.h>
+#include <GPUGraph/VulkanGraphExecutor.h>
+#include <PipelineLibrary/VulkanPipelineLibrary.h>
+#include <PipelineLibrary/PipelineLibraryCache.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAVector.h>
 
@@ -91,6 +94,11 @@ namespace graphics_backend
 		VulkanCommandListManager& GetCommandListManager() { return m_CommandListManager; }
 		VulkanCommandListManager const& GetCommandListManager() const { return m_CommandListManager; }
 
+		VulkanPipelineLibrary& GetPipelineLibrary() { return m_PipelineLibrary; }
+		VulkanPipelineLibrary const& GetPipelineLibrary() const { return m_PipelineLibrary; }
+		PipelineLibraryCache& GetPipelineLibraryCache() { return m_PipelineLibraryCache; }
+		PipelineLibraryCache const& GetPipelineLibraryCache() const { return m_PipelineLibraryCache; }
+
 		bool IsPipelineLibrarySupported() const { return m_PipelineLibrarySupported; }
 
 	private:
@@ -105,6 +113,8 @@ namespace graphics_backend
 		PipelineLayoutContainer m_PipelineLayoutContainer;
 		VulkanMemoryManager m_MemoryManager;
 		VulkanCommandListManager m_CommandListManager;
+		VulkanPipelineLibrary m_PipelineLibrary;
+		PipelineLibraryCache m_PipelineLibraryCache;
 
 		bool m_PipelineLibrarySupported = false;
 

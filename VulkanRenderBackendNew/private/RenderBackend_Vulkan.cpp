@@ -193,15 +193,45 @@ namespace graphics_backend
 			}
 		}
 
+		// Init Pipeline Library
+		InitSubObj(&m_PipelineLibrary);
+		m_PipelineLibrary.Init();
+
+		// Init Pipeline Library Cache
+		InitSubObj(&m_PipelineLibraryCache);
+		m_PipelineLibraryCache.Init();
+
 		CA_LOG_INFO("VulkanRenderBackend initialized successfully");
 	}
 	void RenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
 	{
+		if (!graph)
+		{
+			CA_LOG_WARN("RenderBackend_Vulkan::ExecuteGraph - null graph");
+			return;
+		}
+
+		// Create graph executor
+		VulkanGraphExecutor executor;
+		InitSubObj(&executor);
+		executor.Init();
+
+		// Execute graph
+		executor.CompileAndExecute(scheduler, graph);
+
+		// Release executor
+		executor.Release();
 	}
 	void RenderBackend_Vulkan::Release()
 	{
 		// Clear window handles
 		m_WindowHandles.clear();
+
+		// Release pipeline library cache
+		m_PipelineLibraryCache.Release();
+
+		// Release pipeline library
+		m_PipelineLibrary.Release();
 
 		// Release command list manager
 		m_CommandListManager.Release();
