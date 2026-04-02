@@ -9,14 +9,14 @@
 
 ## 2. ShaderLibrary Extension
 
-- [ ] 2.1 Add m_ShaderFiles (PathHash → VulkanShaderFileInfo) to ShaderLibrary
-- [ ] 2.2 Add m_ShaderPrograms (SHA256Hash → VulkanShaderCode) to ShaderLibrary
-- [ ] 2.3 Add m_ShaderStructs (NameHash → ShaderStructData) to ShaderLibrary
-- [ ] 2.4 Add m_ShaderRootStructs (PathHash → ShaderStructData) to ShaderLibrary
-- [ ] 2.5 Implement GetShaderFileInfo(pathHash) const method
-- [ ] 2.6 Implement GetShaderCode(shaHash) const method
-- [ ] 2.7 Implement GetShaderStruct(nameHash) const method
-- [ ] 2.8 Implement GetShaderRootStruct(pathHash) const method
+- [x] 2.1 Add m_ShaderFiles (PathHash → VulkanShaderFileInfo) to ShaderLibrary
+- [x] 2.2 Add m_ShaderPrograms (SHA256Hash → VulkanShaderCode) to ShaderLibrary
+- [x] 2.3 Add m_ShaderStructs (NameHash → ShaderStructData) to ShaderLibrary
+- [x] 2.4 Add m_ShaderRootStructs (PathHash → ShaderStructData) to ShaderLibrary
+- [x] 2.5 Implement GetShaderFileInfo(pathHash) const method
+- [x] 2.6 Implement GetShaderCode(shaHash) const method
+- [x] 2.7 Implement GetShaderStruct(nameHash) const method
+- [x] 2.8 Implement GetShaderRootStruct(pathHash) const method
 
 ## 3. VulkanShaderResourceBindingInfo Construction
 
@@ -98,7 +98,7 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Data Structures | ✓ 6/6 |
-| 2 | ShaderLibrary Extension | ⏳ 0/8 |
+| 2 | ShaderLibrary Extension | ✓ 8/8 |
 | 3 | Binding Info Construction | ⏳ 0/8 |
 | 4 | ShaderImporter Extension | ⏳ 0/6 |
 | 5 | Version Control | ⏳ 0/4 |
@@ -108,4 +108,4 @@
 | 9 | Integration | ⏳ 0/5 |
 | 10 | Testing | ⏳ 0/4 |
 
-**Total**: 6/63 Complete (10%)
+**Total**: 14/63 Complete (22%)

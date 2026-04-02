@@ -147,6 +147,16 @@ namespace graphics_backend
 	class ShaderLibrary : public VulkanSubobjectBase
 	{
 	public:
+		castl::unordered_map<cacore::PathHash, VulkanShaderFileInfo> m_ShaderFiles;
+		castl::unordered_map<cahash::sha256_hash::result_type, VulkanShaderCode> m_ShaderPrograms;
+		castl::unordered_map<cacore::NameHash, ShaderCompilerSlang::ShaderStructData> m_ShaderStructs;
+		castl::unordered_map<cacore::PathHash, ShaderCompilerSlang::ShaderStructData> m_ShaderRootStructs;
+
+		VulkanShaderFileInfo const* GetShaderFileInfo(cacore::PathHash const& pathHash) const;
+		VulkanShaderCode const* GetShaderCode(cahash::sha256_hash::result_type const& shaHash) const;
+		ShaderCompilerSlang::ShaderStructData const* GetShaderStruct(cacore::NameHash const& nameHash) const;
+		ShaderCompilerSlang::ShaderStructData const* GetShaderRootStruct(cacore::PathHash const& pathHash) const;
+
 		bool TryAquireShaderModule(ShaderModuleCache const& cache
 			, TypedVKHashVal<ShaderModuleCache>& outShaderModuleCache);
 		bool ShaderModuleCacheValid(TypedVKHashVal<ShaderModuleCache> const& cache, VKShaderCodeHashVal const& shaderCodeHash) const;
