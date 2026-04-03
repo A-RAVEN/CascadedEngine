@@ -2,9 +2,11 @@
 #include <Utils/VulkanSubobjectBase.h>
 #include <CASTL/CAString.h>
 #include <CASTL/CAVector.h>
+#include <CASTL/CADeque.h>
 #include <CACore/CAHash.h>
 #include <vk_mem_alloc.h>
 #include <Interface/ShaderCompiler/header/Compiler.h>
+#include <ShaderLibrary/ShaderLibrary.h>
 
 namespace graphics_backend
 {
@@ -38,54 +40,27 @@ namespace graphics_backend
 		cacore::NameHash entryPoint;
 		// SPIR-V bytecode (kept for shader module creation)
 		castl::vector<uint32_t> spirvCode;
-		// Reflection data from ShaderCompilerSlang
+		// reflection data from ShaderCompilerSlang
 		ShaderCompilerSlang::ShaderReflectionData reflectionData;
 	};
 
-	// Vulkan shader resource binding info (similar to D3D12's ShaderResourceBindingInfo)
-	struct VulkanShaderResourceBindingInfo
+	// Task 3.1: Hierarchy element for IterateHierarchyElements helper
+	struct VulkanHierarchyElement
 	{
-		struct CBufferInfo
-		{
-			uint32_t set;
-			uint32_t binding;
-			uint32_t elementCount;
-			cacore::NameHash name;
-		};
-
-		struct ImageInfo
-		{
-			uint32_t set;
-			uint32_t binding;
-			uint32_t elementCount;
-			cacore::NameHash name;
-			ShaderCompilerSlang::EShaderResourceAccess access;
-			ShaderCompilerSlang::EShaderResourceType resourceType;
-		};
-
-		struct BufferInfo
-		{
-			uint32_t set;
-			uint32_t binding;
-			uint32_t elementCount;
-			cacore::NameHash name;
-			ShaderCompilerSlang::EShaderResourceAccess access;
-			ShaderCompilerSlang::EShaderResourceType resourceType;
-		};
-
-		struct SamplerInfo
-		{
-			uint32_t set;
-			uint32_t binding;
-			uint32_t elementCount;
-			cacore::NameHash name;
-		};
-
-		castl::vector<CBufferInfo> cbufferInfos;
-		castl::vector<ImageInfo> imageInfos;
-		castl::vector<BufferInfo> bufferInfos;
-		castl::vector<SamplerInfo> samplerInfos;
+		ShaderCompilerSlang::ShaderBindingHierarchy const* pHierarchy;
+		uint32_t hierarchyID;
+		uint32_t offset;
 	};
+
+	// Task 3.1: IterateHierarchyElements helper function (references D3D12 implementation)
+	void IterateHierarchyElements(
+		ShaderCompilerSlang::ShaderReflectionData const* reflectionData,
+		castl::function<void(VulkanHierarchyElement const&)> hierarchyElementCallback);
+
+	// Task 3.2: Construct VulkanShaderResourceBindingInfo from reflection data
+	VulkanShaderResourceBindingInfo ConstructShaderDescriptorInfo(
+		const char* pathName,
+		ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData);
 
 	class ShaderImporter_Vulkan : public VulkanSubobjectBase
 	{
@@ -121,10 +96,6 @@ namespace graphics_backend
 		// Get push constant ranges from compiled shader
 		castl::vector<vk::PushConstantRange> GetPushConstantRanges(
 			VulkanCompiledShaderInfo const& shaderInfo) const;
-
-		// FR-013: Construct Vulkan descriptor bindings from ShaderReflectionData
-		VulkanShaderResourceBindingInfo ConstructShaderDescriptorInfo(
-			ShaderCompilerSlang::ShaderReflectionData const& reflectionData);
 
 	private:
 		// Create shader module from SPIR-V

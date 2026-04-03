@@ -5,6 +5,266 @@
 
 namespace graphics_backend
 {
+	// Task 3.1 [P]: Implement IterateHierarchyElements helper (reference D3D12)
+	void IterateHierarchyElements(
+		ShaderCompilerSlang::ShaderReflectionData const* reflectionData,
+		castl::function<void(VulkanHierarchyElement const&)> hierarchyElementCallback)
+	{
+		using namespace ShaderCompilerSlang;
+		auto& bindingInfo = reflectionData->m_BindingInfo;
+		auto& rootHierarchy = bindingInfo.m_BindingDataHierarchies[bindingInfo.m_RootHierarchyID];
+
+		castl::deque<VulkanHierarchyElement> hierarchies;
+		hierarchies.push_back(VulkanHierarchyElement{ &rootHierarchy, (uint32_t)bindingInfo.m_RootHierarchyID, 0 });
+
+		while (!hierarchies.empty())
+		{
+			VulkanHierarchyElement bounds = hierarchies.front();
+			hierarchyElementCallback(bounds);
+			hierarchies.pop_front();
+
+			CA_ASSERT_BREAK(bounds.pHierarchy != nullptr, "Hierarchy Should Never Be Null");
+			{
+				auto& itrHierarchy = *bounds.pHierarchy;
+				uint32_t offset = bounds.offset;
+				for (auto subHierarchyID : itrHierarchy.m_SubBindingHierarchies)
+				{
+					auto& subHierarchy = bindingInfo.m_BindingDataHierarchies[subHierarchyID];
+
+					for (uint32_t id = 0; id < subHierarchy.m_ElementCount; ++id)
+					{
+						uint32_t resolvedOffset = id + offset * subHierarchy.m_ElementCount;
+						hierarchies.push_back(VulkanHierarchyElement{ &subHierarchy, (uint32_t)subHierarchyID, resolvedOffset });
+					}
+				}
+			}
+		}
+	}
+
+	// Task 3.2-3.8: ConstructShaderDescriptorInfo implementation
+	VulkanShaderResourceBindingInfo ConstructShaderDescriptorInfo(
+		const char* pathName,
+		ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData)
+	{
+		using namespace ShaderCompilerSlang;
+
+		VulkanShaderResourceBindingInfo resourceBindingInfo;
+		resourceBindingInfo.totalDescriptorCount = 0;
+		resourceBindingInfo.samplerDescriptorCount = 0;
+
+		auto& bindingInfo = shaderReflectionData.m_BindingInfo;
+		auto& hierarchies = bindingInfo.m_BindingDataHierarchies;
+
+		// Map to track bindings per set index for Task 3.7
+		castl::unordered_map<uint32_t, castl::vector<vk::DescriptorSetLayoutBinding>> setBindings;
+
+		// Task 3.2: Main hierarchy traversal following D3D12 pattern
+		{
+			castl::deque<int32_t> hierarchyIDs;
+			hierarchyIDs.push_back(bindingInfo.m_RootHierarchyID);
+			resourceBindingInfo.structBindingInfos.reserve(hierarchies.size());
+
+			{
+				auto& rootHierarchy = hierarchies[bindingInfo.m_RootHierarchyID];
+				resourceBindingInfo.EmplaceStruct(rootHierarchy.m_Name, 1);
+			}
+
+			size_t counter = 0;
+			while (counter != hierarchyIDs.size())
+			{
+				uint32_t hierarchyID = hierarchyIDs[counter];
+				auto& processingHierarchy = hierarchies[hierarchyID];
+				auto& currentStructBindingInfo = resourceBindingInfo.structBindingInfos[counter];
+				CA_ASSERT_BREAK(processingHierarchy.m_Name == currentStructBindingInfo.structBindingName, "Struct Binding Name Incompatible");
+				auto& structName = processingHierarchy.m_Name;
+
+				// Add child binding infos
+				currentStructBindingInfo.InitSubStructs(
+					(uint32_t)resourceBindingInfo.structBindingInfos.size(),
+					(uint32_t)processingHierarchy.m_SubBindingHierarchies.size());
+
+				for (auto& subHierarchyID : processingHierarchy.m_SubBindingHierarchies)
+				{
+					auto& subHierarchy = hierarchies[subHierarchyID];
+					hierarchyIDs.push_back(subHierarchyID);
+					resourceBindingInfo.EmplaceStruct(subHierarchy.m_Name
+						, subHierarchy.m_ElementCount * currentStructBindingInfo.elementCount);
+				}
+
+				uint32_t currentStructElementCount = currentStructBindingInfo.elementCount;
+
+				// Task 3.3: Collect Uniform Buffer (cbuffer) bindings
+				if (processingHierarchy.m_SelfUniformBufferID != -1)
+				{
+					CA_ASSERT_BREAK(processingHierarchy.m_SelfUniformSpaceID != -1
+						, "invalid uniform space id: {}"
+						, processingHierarchy.m_SelfUniformSpaceID);
+
+					VulkanCBufferBindingInfo cbufferInfo{};
+					cbufferInfo.elementCount = currentStructElementCount;
+					cbufferInfo.spaceID = processingHierarchy.m_SelfUniformSpaceID;
+					cbufferInfo.bindingID = processingHierarchy.m_SelfUniformBufferID;
+					cbufferInfo.usageMask = processingHierarchy.m_SelfUniformUsage;
+					cbufferInfo.cbufferStructName = structName;
+					currentStructBindingInfo.cbufferRefs.push_back((uint32_t)resourceBindingInfo.cbufferInfos.size());
+					resourceBindingInfo.cbufferInfos.push_back(cbufferInfo);
+
+					// Task 3.8: Logging
+					CA_LOG("cbuffer info[{}], bindingID[{}], spaceID[{}], elementCount[{}]",
+						processingHierarchy.m_Name.Get()
+						, processingHierarchy.m_SelfUniformBufferID
+						, processingHierarchy.m_SelfUniformSpaceID
+						, currentStructElementCount);
+
+					// Task 3.7: Build DescriptorSetLayoutBinding for cbuffer
+					vk::DescriptorSetLayoutBinding layoutBinding{};
+					layoutBinding.binding = cbufferInfo.bindingID;
+					layoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+					layoutBinding.descriptorCount = cbufferInfo.elementCount;
+					layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
+					layoutBinding.pImmutableSamplers = nullptr;
+					setBindings[cbufferInfo.spaceID].push_back(layoutBinding);
+
+					resourceBindingInfo.totalDescriptorCount += cbufferInfo.elementCount;
+				}
+
+				// Task 3.4-3.6: Collect Resources (image, buffer, sampler)
+				if (!processingHierarchy.m_Bindings.empty())
+				{
+					for (auto& binding : processingHierarchy.m_Bindings)
+					{
+						auto bindingID = binding.m_BindingID;
+						auto bindingSpace = binding.m_BindingSpace;
+						uint32_t elementCount = currentStructElementCount * binding.m_ElementCount;
+
+						switch (binding.m_ResourceType)
+						{
+						// Task 3.4: Image binding extraction
+						case EShaderResourceType::eTexture:
+						case EShaderResourceType::eRWTexture:
+						{
+							CA_LOG("image info[{}], bindingID[{}], spaceID[{}], elementCount[{}]",
+								binding.m_Name.Get(), bindingID, bindingSpace, elementCount);
+
+							VulkanImageBindingInfo imageInfo{};
+							imageInfo.accessType = binding.m_Access;
+							imageInfo.resourceType = binding.m_ResourceType;
+							imageInfo.spaceID = bindingSpace;
+							imageInfo.bindingID = bindingID;
+							imageInfo.usageMask = binding.m_Usage;
+							imageInfo.imageBindingName = binding.m_Name;
+							imageInfo.elementCount = elementCount;
+							currentStructBindingInfo.imageRefs.push_back((uint32_t)resourceBindingInfo.imageInfos.size());
+							resourceBindingInfo.imageInfos.push_back(imageInfo);
+
+							// Task 3.7: Build DescriptorSetLayoutBinding for image
+							vk::DescriptorSetLayoutBinding layoutBinding{};
+							layoutBinding.binding = bindingID;
+							layoutBinding.descriptorType = (binding.m_ResourceType == EShaderResourceType::eRWTexture)
+								? vk::DescriptorType::eStorageImage
+								: vk::DescriptorType::eSampledImage;
+							layoutBinding.descriptorCount = elementCount;
+							layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
+							layoutBinding.pImmutableSamplers = nullptr;
+							setBindings[bindingSpace].push_back(layoutBinding);
+
+							resourceBindingInfo.totalDescriptorCount += elementCount;
+							break;
+						}
+						// Task 3.5: Buffer binding extraction
+						case EShaderResourceType::eStructuredBuffer:
+						case EShaderResourceType::eRWStructuredBuffer:
+						{
+							CA_LOG("buffer info[{}], bindingID[{}], spaceID[{}], elementCount[{}]",
+								binding.m_Name.Get(), bindingID, bindingSpace, elementCount);
+
+							VulkanBufferBindingInfo bufferInfo{};
+							bufferInfo.accessType = binding.m_Access;
+							bufferInfo.resourceType = binding.m_ResourceType;
+							bufferInfo.spaceID = bindingSpace;
+							bufferInfo.bindingID = bindingID;
+							bufferInfo.usageMask = binding.m_Usage;
+							bufferInfo.bufferBindingName = binding.m_Name;
+							bufferInfo.elementCount = elementCount;
+							currentStructBindingInfo.bufferRefs.push_back((uint32_t)resourceBindingInfo.bufferInfos.size());
+							resourceBindingInfo.bufferInfos.push_back(bufferInfo);
+
+							// Task 3.7: Build DescriptorSetLayoutBinding for buffer
+							vk::DescriptorSetLayoutBinding layoutBinding{};
+							layoutBinding.binding = bindingID;
+							layoutBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+							layoutBinding.descriptorCount = elementCount;
+							layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
+							layoutBinding.pImmutableSamplers = nullptr;
+							setBindings[bindingSpace].push_back(layoutBinding);
+
+							resourceBindingInfo.totalDescriptorCount += elementCount;
+							break;
+						}
+						// Task 3.6: Sampler binding extraction
+						case EShaderResourceType::eSampler:
+						{
+							CA_LOG("sampler info[{}], bindingID[{}], spaceID[{}], elementCount[{}]",
+								binding.m_Name.Get(), bindingID, bindingSpace, elementCount);
+
+							VulkanSamplerBindingInfo samplerInfo{};
+							samplerInfo.spaceID = bindingSpace;
+							samplerInfo.bindingID = bindingID;
+							samplerInfo.usageMask = binding.m_Usage;
+							samplerInfo.samplerBindingName = binding.m_Name;
+							samplerInfo.elementCount = elementCount;
+							currentStructBindingInfo.samplerRefs.push_back((uint32_t)resourceBindingInfo.samplerInfos.size());
+							resourceBindingInfo.samplerInfos.push_back(samplerInfo);
+
+							// Task 3.7: Build DescriptorSetLayoutBinding for sampler
+							vk::DescriptorSetLayoutBinding layoutBinding{};
+							layoutBinding.binding = bindingID;
+							layoutBinding.descriptorType = vk::DescriptorType::eSampler;
+							layoutBinding.descriptorCount = elementCount;
+							layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
+							layoutBinding.pImmutableSamplers = nullptr;
+							setBindings[bindingSpace].push_back(layoutBinding);
+
+							resourceBindingInfo.samplerDescriptorCount += elementCount;
+							break;
+						}
+						case EShaderResourceType::eCBuffer:
+							// Already handled via m_SelfUniformBufferID
+							break;
+						}
+					}
+				}
+
+				++counter;
+			}
+		}
+
+		// Task 3.7: Build VulkanDescriptorSetLayoutInfo per set index
+		for (auto& [setIndex, bindings] : setBindings)
+		{
+			VulkanDescriptorSetLayoutInfo setLayoutInfo{};
+			setLayoutInfo.setIndex = setIndex;
+			setLayoutInfo.bindings = castl::move(bindings);
+			setLayoutInfo.createInfo = vk::DescriptorSetLayoutCreateInfo{}
+				.setBindingCount((uint32_t)setLayoutInfo.bindings.size())
+				.setPBindings(setLayoutInfo.bindings.data());
+			resourceBindingInfo.setLayoutInfos.push_back(castl::move(setLayoutInfo));
+		}
+
+		// Task 3.8: Summary logging
+		CA_LOG("ConstructShaderDescriptorInfo[{}]: totalDescriptors={}, samplerDescriptors={}, sets={}, cbuffers={}, images={}, buffers={}, samplers={}, structs={}",
+			pathName,
+			resourceBindingInfo.totalDescriptorCount,
+			resourceBindingInfo.samplerDescriptorCount,
+			resourceBindingInfo.setLayoutInfos.size(),
+			resourceBindingInfo.cbufferInfos.size(),
+			resourceBindingInfo.imageInfos.size(),
+			resourceBindingInfo.bufferInfos.size(),
+			resourceBindingInfo.samplerInfos.size(),
+			resourceBindingInfo.structBindingInfos.size());
+
+		return resourceBindingInfo;
+	}
 	void ShaderImporter_Vulkan::Init()
 	{
 		CA_LOG_INFO("ShaderImporter_Vulkan initialized");
@@ -281,100 +541,6 @@ namespace graphics_backend
 		default:
 			return vk::DescriptorType::eSampledImage;
 		}
-	}
-
-	// FR-013: Construct Vulkan shader resource binding info following ConstructShaderDescriptorInfo pattern
-	VulkanShaderResourceBindingInfo ShaderImporter_Vulkan::ConstructShaderDescriptorInfo(
-		ShaderCompilerSlang::ShaderReflectionData const& reflectionData)
-	{
-		using namespace ShaderCompilerSlang;
-
-		VulkanShaderResourceBindingInfo bindingInfo;
-		auto& shaderBindingInfo = reflectionData.m_BindingInfo;
-		auto& hierarchies = shaderBindingInfo.m_BindingDataHierarchies;
-
-		// Iterate through hierarchies (following D3D12 ConstructShaderDescriptorInfo pattern)
-		castl::deque<int32_t> hierarchyIDs;
-		hierarchyIDs.push_back(shaderBindingInfo.m_RootHierarchyID);
-
-		size_t counter = 0;
-		while (counter < hierarchyIDs.size())
-		{
-			int32_t hierarchyID = hierarchyIDs[counter];
-			auto& processingHierarchy = hierarchies[hierarchyID];
-
-			// Add sub-hierarchies to processing queue
-			for (auto& subHierarchyID : processingHierarchy.m_SubBindingHierarchies)
-			{
-				hierarchyIDs.push_back(subHierarchyID);
-			}
-
-			// Collect uniform buffer (cbuffer)
-			if (processingHierarchy.m_SelfUniformBufferID != -1)
-			{
-				VulkanShaderResourceBindingInfo::CBufferInfo cbufferInfo{};
-				cbufferInfo.set = processingHierarchy.m_SelfUniformSpaceID;
-				cbufferInfo.binding = processingHierarchy.m_SelfUniformBufferID;
-				cbufferInfo.elementCount = processingHierarchy.m_ElementCount;
-				cbufferInfo.name = processingHierarchy.m_Name;
-				bindingInfo.cbufferInfos.push_back(cbufferInfo);
-			}
-
-			// Collect resource bindings
-			for (auto& binding : processingHierarchy.m_Bindings)
-			{
-				switch (binding.m_ResourceType)
-				{
-				case EShaderResourceType::eTexture:
-				case EShaderResourceType::eRWTexture:
-				{
-					VulkanShaderResourceBindingInfo::ImageInfo imageInfo{};
-					imageInfo.set = binding.m_BindingSpace;
-					imageInfo.binding = binding.m_BindingID;
-					imageInfo.elementCount = binding.m_ElementCount;
-					imageInfo.name = binding.m_Name;
-					imageInfo.access = binding.m_Access;
-					imageInfo.resourceType = binding.m_ResourceType;
-					bindingInfo.imageInfos.push_back(imageInfo);
-					break;
-				}
-				case EShaderResourceType::eStructuredBuffer:
-				case EShaderResourceType::eRWStructuredBuffer:
-				{
-					VulkanShaderResourceBindingInfo::BufferInfo bufferInfo{};
-					bufferInfo.set = binding.m_BindingSpace;
-					bufferInfo.binding = binding.m_BindingID;
-					bufferInfo.elementCount = binding.m_ElementCount;
-					bufferInfo.name = binding.m_Name;
-					bufferInfo.access = binding.m_Access;
-					bufferInfo.resourceType = binding.m_ResourceType;
-					bindingInfo.bufferInfos.push_back(bufferInfo);
-					break;
-				}
-				case EShaderResourceType::eSampler:
-				{
-					VulkanShaderResourceBindingInfo::SamplerInfo samplerInfo{};
-					samplerInfo.set = binding.m_BindingSpace;
-					samplerInfo.binding = binding.m_BindingID;
-					samplerInfo.elementCount = binding.m_ElementCount;
-					samplerInfo.name = binding.m_Name;
-					bindingInfo.samplerInfos.push_back(samplerInfo);
-					break;
-				}
-				case EShaderResourceType::eCBuffer:
-					// Already handled via m_SelfUniformBufferID
-					break;
-				}
-			}
-
-			++counter;
-		}
-
-		CA_LOG_INFO("ShaderImporter_Vulkan: Constructed binding info - CBuffers: {}, Images: {}, Buffers: {}, Samplers: {}",
-			bindingInfo.cbufferInfos.size(), bindingInfo.imageInfos.size(),
-			bindingInfo.bufferInfos.size(), bindingInfo.samplerInfos.size());
-
-		return bindingInfo;
 	}
 
 	castl::vector<vk::DescriptorSetLayoutBinding> ShaderImporter_Vulkan::GetDescriptorSetLayoutBindings(

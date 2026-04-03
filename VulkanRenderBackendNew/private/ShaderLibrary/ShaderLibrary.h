@@ -1,7 +1,6 @@
 #pragma once
-#include <Utils/VulkanSubobjectBase.h>
+#include <CAResource/IResource.h>
 #include <Hasher.h>
-#include <PipelineStates/ShaderModule.h>
 #include <Compiler.h>
 
 namespace graphics_backend
@@ -129,22 +128,14 @@ namespace graphics_backend
 		auto operator<=>(const VulkanShaderFileInfo&) const = default;
 	};
 
-	// Task 1.6: Vulkan shader code
+	// Task 1.6: Vulkan shader code (serializable, no runtime vk::ShaderModule)
 	struct VulkanShaderCode
 	{
 		ECompileShaderType shaderType;
-		vk::UniqueShaderModule shaderModule;
 		castl::vector<uint32_t> spirvCode;
 	};
 
-	struct ShaderCodeSource
-	{
-		uint32_t shaderCodeLength;
-		void* pShaderCode;
-		VKShaderCodeHashVal shaderCodeHash;
-	};
-
-	class ShaderLibrary : public VulkanSubobjectBase
+	class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
 	{
 	public:
 		castl::unordered_map<cacore::PathHash, VulkanShaderFileInfo> m_ShaderFiles;
@@ -157,10 +148,12 @@ namespace graphics_backend
 		ShaderCompilerSlang::ShaderStructData const* GetShaderStruct(cacore::NameHash const& nameHash) const;
 		ShaderCompilerSlang::ShaderStructData const* GetShaderRootStruct(cacore::PathHash const& pathHash) const;
 
-		bool TryAquireShaderModule(ShaderModuleCache const& cache
-			, TypedVKHashVal<ShaderModuleCache>& outShaderModuleCache);
-		bool ShaderModuleCacheValid(TypedVKHashVal<ShaderModuleCache> const& cache, VKShaderCodeHashVal const& shaderCodeHash) const;
-		ShaderModuleCache GetShaderModuleCache(TypedVKHashVal<ShaderModuleCache> const& cache) const;
-		ShaderCodeSource GetShaderCodeSource(TypedVKHashVal<ShaderModuleCache> const& cache) const;
+		friend struct CATypeDescriptor<ShaderLibrary>;
 	};
 }
+
+CA_REFLECTION(graphics_backend::ShaderLibrary
+	, m_ShaderFiles
+	, m_ShaderPrograms
+	, m_ShaderStructs
+	, m_ShaderRootStructs);

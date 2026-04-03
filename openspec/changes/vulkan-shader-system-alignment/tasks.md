@@ -1,3 +1,11 @@
+## 0. ShaderLibrary Base Class Refactoring (Prerequisite)
+
+- [x] 0.1 [P] 修改ShaderLibrary基类：VulkanSubobjectBase → resource_management::TResource<ShaderLibrary>
+- [x] 0.2 [P] 从VulkanShaderCode中移除vk::UniqueShaderModule成员
+- [x] 0.3 添加CA_REFLECTION宏支持序列化
+- [x] 0.4 移除或重构TryAquireShaderModule/ShaderModuleCacheValid等运行时方法
+- [x] 0.5 确保ShaderLibrary可通过GetOrNewResource<ShaderLibrary>()获取
+
 ## 1. Data Structure Definitions
 
 - [x] 1.1 [P] Define VulkanDescriptorSetLayoutInfo in ShaderLibrary.h
@@ -20,23 +28,29 @@
 
 ## 3. VulkanShaderResourceBindingInfo Construction
 
-- [ ] 3.1 [P] Implement IterateHierarchyElements helper (reference D3D12)
-- [ ] 3.2 Implement ConstructShaderDescriptorInfo() main function
-- [ ] 3.3 Implement cbuffer binding extraction from BindingHierarchy
-- [ ] 3.4 Implement image binding extraction from BindingHierarchy
-- [ ] 3.5 Implement buffer binding extraction from BindingHierarchy
-- [ ] 3.6 Implement sampler binding extraction from BindingHierarchy
-- [ ] 3.7 Build DescriptorSetLayoutBinding arrays per set index
-- [ ] 3.8 Add logging for binding info construction
+- [x] 3.1 [P] Implement IterateHierarchyElements helper (reference D3D12)
+- [x] 3.2 Implement ConstructShaderDescriptorInfo() main function
+- [x] 3.3 Implement cbuffer binding extraction from BindingHierarchy
+- [x] 3.4 Implement image binding extraction from BindingHierarchy
+- [x] 3.5 Implement buffer binding extraction from BindingHierarchy
+- [x] 3.6 Implement sampler binding extraction from BindingHierarchy
+- [x] 3.7 Build DescriptorSetLayoutBinding arrays per set index
+- [x] 3.8 Add logging for binding info construction
 
-## 4. ShaderImporter_Vulkan Extension
+## 4. ShaderImporter_Vulkan重构 (参考D3D12ShaderResourceImporter)
 
-- [ ] 4.1 Modify CompileFromSource to populate VulkanShaderFileInfo
-- [ ] 4.2 Call ConstructShaderDescriptorInfo after compilation
-- [ ] 4.3 Store shader programs to m_ShaderPrograms
-- [ ] 4.4 Register shader structs to m_ShaderStructs
-- [ ] 4.5 Register root struct to m_ShaderRootStructs
-- [ ] 4.6 Handle multiple entry points from single compilation
+- [ ] 4.1 修改基类：VulkanSubobjectBase → ResourceImporterFree
+- [ ] 4.2 添加GetTags()方法，返回"Vulkan;Slang"
+- [ ] 4.3 实现ImportResource()方法框架
+- [ ] 4.4 在ImportResource中实现目录遍历（recursive_directory_iterator）
+- [ ] 4.5 设置编译目标为eSpirV（而非eDXIL）
+- [ ] 4.6 获取ShaderLibrary：resourceManager->GetOrNewResource<ShaderLibrary>()
+- [ ] 4.7 填充m_ShaderFiles[pathHash]（reflectionData, shaderBindingInfo, entryPoints）
+- [ ] 4.8 填充m_ShaderPrograms[shaHash]（spirvCode, shaderType）
+- [ ] 4.9 填充m_ShaderStructs和m_ShaderRootStructs
+- [ ] 4.10 调用ConstructShaderDescriptorInfo生成bindingInfo
+- [ ] 4.11 删除fantasy接口：CompileFromSource, CompileFromSPIRV等
+- [ ] 4.12 删除fantasy结构体：VulkanCompiledShaderInfo, VulkanDescriptorBindingInfo等
 
 ## 5. VulkanShaderStruct Version Control
 
@@ -97,10 +111,11 @@
 
 | Phase | Description | Status |
 |-------|-------------|--------|
+| 0 | ShaderLibrary Base Class | ✓ 5/5 |
 | 1 | Data Structures | ✓ 6/6 |
 | 2 | ShaderLibrary Extension | ✓ 8/8 |
-| 3 | Binding Info Construction | ⏳ 0/8 |
-| 4 | ShaderImporter Extension | ⏳ 0/6 |
+| 3 | Binding Info Construction | ✓ 8/8 |
+| 4 | ShaderImporter重构 | ⏳ 0/12 |
 | 5 | Version Control | ⏳ 0/4 |
 | 6 | Uniform Buffer Staging | ⏳ 0/5 |
 | 7 | Set*Internal Methods | ⏳ 0/9 |
@@ -108,4 +123,4 @@
 | 9 | Integration | ⏳ 0/5 |
 | 10 | Testing | ⏳ 0/4 |
 
-**Total**: 14/63 Complete (22%)
+**Total**: 27/74 Complete (36%)

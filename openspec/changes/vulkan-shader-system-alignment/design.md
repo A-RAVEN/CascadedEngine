@@ -30,13 +30,13 @@ VulkanRenderBackendNew的Shader系统存在以下架构差距：
 1. 扩展Vulkan ShaderLibrary，支持shader文件/程序/结构体的完整管理
 2. 实现VulkanShaderResourceBindingInfo，从反射数据构建descriptor set布局信息
 3. 完善VulkanShaderStruct，实现版本控制和uniform buffer staging
-4. 确保与D3D12后端API一致性
+4. 重构ShaderImporter_Vulkan，继承ResourceImporterFree，实现ImportResource目录扫描
+5. 确保与D3D12后端API一致性
 
 **Non-Goals:**
 1. 不实现shader热重载
-2. 不实现目录扫描导入（作为独立后续任务）
-3. 不修改D3D12后端
-4. 不添加compute shader以外的shader类型支持
+2. 不修改D3D12后端
+3. 不添加compute shader以外的shader类型支持
 
 ## Decisions
 
@@ -141,18 +141,176 @@ private:
 
 ### Decision 4: ConstructShaderDescriptorInfo实现
 
-**选择**: 在ShaderImporter_Vulkan中添加ConstructShaderDescriptorInfo函数
+**选择**: 实现为独立函数，不属于任何类
 
 **理由**:
 - 与D3D12的ConstructShaderDescriptorInfo对应
-- 复用现有的ExtractBindingsFromReflection逻辑
 - 生成VulkanShaderResourceBindingInfo用于descriptor set创建
+- 在ImportResource中调用，而非暴露为public API
 
 **流程**:
 1. 从ShaderReflectionData提取BindingInfo
 2. 遍历BindingHierarchy，收集cbuffer/image/buffer/sampler信息
 3. 构建DescriptorSetLayoutBinding数组
 4. 返回VulkanShaderResourceBindingInfo
+
+### Decision 5: ShaderLibrary继承结构重构
+
+**选择**: 将ShaderLibrary基类从VulkanSubobjectBase改为resource_management::TResource<ShaderLibrary>
+
+**理由**:
+- D3D12和旧版VulkanRenderBackend的ShaderLibrary都继承TResource
+- ShaderLibrary需要作为资源被ResourceManagingSystem管理
+- GetOrNewResource<ShaderLibrary>()需要TResource基类才能工作
+- ShaderLibrary应该是可序列化的资源，而非Vulkan运行时子对象
+
+**当前问题**:
+- VulkanRenderBackendNew的ShaderLibrary错误地继承VulkanSubobjectBase
+- 无法通过resourceManager->GetOrNewResource<ShaderLibrary>()获取
+- 与D3D12和旧版Vulkan架构不一致
+
+**正确设计**:
+```cpp
+// VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h
+#include <CAResource/IResource.h>
+
+class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
+{
+public:
+    // 数据成员与D3D12对齐
+    castl::unordered_map<cacore::PathHash, VulkanShaderFileInfo> m_ShaderFiles;
+    castl::unordered_map<cahash::sha256_hash::result_type, VulkanShaderCode> m_ShaderPrograms;
+    castl::unordered_map<cacore::NameHash, ShaderCompilerSlang::ShaderStructData> m_ShaderStructs;
+    castl::unordered_map<cacore::PathHash, ShaderCompilerSlang::ShaderStructData> m_ShaderRootStructs;
+
+    // 访问器方法
+    VulkanShaderFileInfo const* GetShaderFileInfo(cacore::PathHash const& pathHash) const;
+    VulkanShaderCode const* GetShaderCode(cahash::sha256_hash::result_type const& shaHash) const;
+    // ...
+};
+
+CA_REFLECTION(graphics_backend::ShaderLibrary
+    , m_ShaderFiles
+    , m_ShaderPrograms
+    , m_ShaderStructs
+    , m_ShaderRootStructs);
+```
+
+### Decision 6: VulkanShaderCode数据分离
+
+**选择**: 从VulkanShaderCode中移除vk::UniqueShaderModule，仅保留可序列化的SPIR-V字节码
+
+**理由**:
+- ShaderLibrary作为TResource应该是可序列化/反序列化的
+- vk::UniqueShaderModule是运行时Vulkan对象，不可序列化
+- vk::ShaderModule应该从spirvCode按需创建，由PipelineLibrary管理
+- 与D3D12版本一致：D3D12的ShaderCode仅存储ID3DBlob（字节码）
+
+**当前问题**:
+```cpp
+struct VulkanShaderCode
+{
+    ECompileShaderType shaderType;
+    vk::UniqueShaderModule shaderModule;    // ❌ 运行时对象，不可序列化
+    castl::vector<uint32_t> spirvCode;      // ✓ 可序列化
+};
+```
+
+**正确设计**:
+```cpp
+// 可序列化的ShaderCode（存储在ShaderLibrary中）
+struct VulkanShaderCode
+{
+    ECompileShaderType shaderType;
+    castl::vector<uint32_t> spirvCode;      // 仅保留SPIR-V字节码
+};
+
+// vk::ShaderModule的创建移至PipelineLibrary或其他运行时组件
+// 按需从spirvCode创建：vk::Device::createShaderModule()
+```
+
+**影响**:
+- ShaderLibrary::TryAquireShaderModule等方法需要重构或移除
+- PipelineLibrary需要从spirvCode创建vk::ShaderModule
+
+### Decision 7: ShaderImporter_Vulkan设计
+
+**选择**: 继承ResourceImporterFree，实现ImportResource方法
+
+**理由**:
+- 与D3D12ShaderResourceImporter保持一致的架构模式
+- ResourceImporterFree是资源导入的标准基类
+- ImportResource由ResourceManagingSystem调用，支持批量目录扫描
+
+**当前问题**:
+- 现有ShaderImporter_Vulkan继承VulkanSubobjectBase（错误）
+- 包含AI生成的fantasy接口：CompileFromSource、CompileFromSPIRV等
+- 缺少ImportResource核心方法
+
+**正确设计**:
+```cpp
+// ShaderImporter_Vulkan.h
+#include <CAResource/ResourceImporter.h>
+
+class ShaderImporter_Vulkan : public ResourceImporterFree
+{
+public:
+    virtual castl::string GetTags() const override { return "Vulkan;Slang"; }
+    virtual void ImportResource(
+        ResourceManagingSystem* resourceManager,
+        cafs::path const& sourcePath,
+        cafs::path const& destPath) override;
+
+    void SetCompiler(ShaderCompilerSlang::IShaderCompilerManager* compiler);
+    void Test();  // 调试用
+
+private:
+    ShaderCompilerSlang::IShaderCompilerManager* m_ShaderCompilerManager = nullptr;
+};
+
+// 独立函数（非类方法）
+VulkanShaderResourceBindingInfo ConstructShaderDescriptorInfo(
+    const char* pathName,
+    ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData);
+
+void IterateHierarchyElements(
+    ShaderCompilerSlang::ShaderReflectionData const* reflectionData,
+    castl::function<void(VulkanHierarchyElement const&)> callback);
+```
+
+**ImportResource流程** (参考D3D12):
+```
+ImportResource(resourceManager, sourcePath, destPath)
+│
+├─► for each .slang file in recursive_directory_iterator(sourcePath):
+│
+├─► pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared()
+│    └─► BeginCompileTask()
+│    └─► AddSourceFile()
+│    └─► SetTarget(eSpirV)  // 关键差异：Vulkan用SPIR-V
+│    └─► Compile()
+│    └─► GetResults()
+│    └─► EndCompileTask()
+│
+├─► shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>("VulkanShaderLibrary.shLib")
+│    └─► m_ShaderFiles[pathHash] = { reflectionData, shaderBindingInfo, entryPoints }
+│    └─► m_ShaderPrograms[shaHash] = { spirvCode, shaderModule, shaderType }
+│    └─► m_ShaderStructs[name] = structData
+│    └─► m_ShaderRootStructs[pathHash] = rootStructData
+│
+└─► shaderBindingInfo = ConstructShaderDescriptorInfo(pathName, reflectionData)
+```
+
+**需要删除的Fantasy接口**:
+| 接口 | 原因 |
+|------|------|
+| `CompileFromSource()` | 编译逻辑应在ImportResource内部 |
+| `CompileFromSPIRV()` | 不符合资源导入流程 |
+| `GetDescriptorSetLayoutBindings()` | 消费者从ShaderFileInfo获取 |
+| `GetPushConstantRanges()` | 同上 |
+| `CreateShaderModule()` | 应在ShaderLibrary中创建 |
+| `VulkanCompiledShaderInfo` | Fantasy结构体，不需要 |
+| `VulkanDescriptorBindingInfo` | 与ShaderLibrary中的重复 |
 
 ## Risks / Trade-offs
 
@@ -168,10 +326,10 @@ private:
 - **风险**: 不同shader的descriptor set布局可能不兼容
 - **缓解**: 使用相同的binding space映射策略，确保布局一致性
 
-### Trade-off: 不实现目录扫描
-- **权衡**: 当前仅支持手动编译，不支持自动目录扫描
-- **收益**: 减少实现范围，专注于核心功能
-- **代价**: 用户需要手动管理shader编译流程
+### Trade-off: ShaderImporter重构范围
+- **选择**: 重构ShaderImporter_Vulkan完全对齐D3D12模式
+- **收益**: 架构一致性，支持目录扫描导入
+- **代价**: 需要删除现有fantasy接口，重写ImportResource
 
 ## Migration Plan
 
