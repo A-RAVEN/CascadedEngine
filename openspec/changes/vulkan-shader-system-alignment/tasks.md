@@ -56,10 +56,10 @@
 
 ## 5. VulkanShaderStruct Version Control
 
-- [ ] 5.1 Add m_Version member variable
-- [ ] 5.2 Add m_MaxChildrenVersion mutable member
-- [ ] 5.3 Implement UpdateVersion() private method
-- [ ] 5.4 Implement ComputeMaxChildrenVersion() const method
+- [x] 5.1 Add m_Version member variable
+- [x] 5.2 Add m_MaxChildrenVersion mutable member
+- [x] 5.3 Implement UpdateVersion() private method
+- [x] 5.4 Implement ComputeMaxChildrenVersion() const method
 
 ## 6. VulkanShaderStruct Uniform Buffer Staging
 

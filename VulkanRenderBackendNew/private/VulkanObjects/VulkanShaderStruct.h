@@ -50,7 +50,14 @@ namespace graphics_backend
 		// Flush updates to GPU
 		void FlushUpdates();
 
+		// Version control
+		uint64_t ComputeMaxChildrenVersion() const;
+
 	private:
+		// Version control
+		uint64_t m_Version = 0;
+		mutable uint64_t m_MaxChildrenVersion = 0;
+		void UpdateVersion();
 		cacore::NameHash m_StructTypeName;
 
 		vk::DescriptorSetLayout m_DescriptorSetLayout;

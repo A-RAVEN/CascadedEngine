@@ -29,4 +29,8 @@ C++ (CMake build system): Follow standard conventions
 - 001-reorganize-subprojects: Added C++ (CMake build system) + CMake 3.x, vcpkg (for external dependencies)
 
 <!-- MANUAL ADDITIONS START -->
+## 工作规则
+
+- **禁止编译/配置**: 除非用户明确说明，不要尝试配置或编译此项目
+- **禁止自动执行后续任务**: 除非用户明确说明继续实行任务，禁止执行tasks中后续的任务
 <!-- MANUAL ADDITIONS END -->

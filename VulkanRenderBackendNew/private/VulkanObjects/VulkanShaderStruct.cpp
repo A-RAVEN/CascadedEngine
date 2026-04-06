@@ -94,6 +94,7 @@ namespace graphics_backend
 		update.data.resize(sizeInBytes);
 		memcpy(update.data.data(), pValue, sizeInBytes);
 		m_PendingUpdates.push_back(castl::move(update));
+		UpdateVersion();
 	}
 
 	void VulkanShaderStruct::SetImageInternal(cacore::NameHash const& name
@@ -107,6 +108,7 @@ namespace graphics_backend
 		update.imageHandle = imageHandle;
 		update.textureView = view;
 		m_PendingUpdates.push_back(castl::move(update));
+		UpdateVersion();
 	}
 
 	void VulkanShaderStruct::SetBufferInternal(cacore::NameHash const& name
@@ -171,5 +173,18 @@ namespace graphics_backend
 			}
 		}
 		m_PendingUpdates.clear();
+	}
+
+	void VulkanShaderStruct::UpdateVersion()
+	{
+		++m_Version;
+	}
+
+	uint64_t VulkanShaderStruct::ComputeMaxChildrenVersion() const
+	{
+		// TODO: When m_NameToSubStructs is added in Phase 7, iterate through sub-structs
+		// For now, just return our own version since we don't have sub-structs yet
+		m_MaxChildrenVersion = 0;
+		return m_Version;
 	}
 }
