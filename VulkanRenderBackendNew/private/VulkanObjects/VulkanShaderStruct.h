@@ -3,6 +3,7 @@
 #include <Utils/VulkanSubobjectBase.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAVector.h>
+#include <Compiler.h>
 
 namespace graphics_backend
 {
@@ -13,7 +14,7 @@ namespace graphics_backend
 		VulkanShaderStruct(VulkanShaderStruct&& other) noexcept = default;
 		VulkanShaderStruct& operator=(VulkanShaderStruct&& other) noexcept = default;
 
-		void Init(cacore::NameHash const& structType);
+		void Init(ShaderCompilerSlang::ShaderStructData const* pStructData);
 		virtual void Release() override;
 
 		// ShaderStruct interface
@@ -53,12 +54,25 @@ namespace graphics_backend
 		// Version control
 		uint64_t ComputeMaxChildrenVersion() const;
 
+		// Uniform buffer access (Phase 6)
+		void UpdateUniformBuffer(uint64_t uniformBufferVersion, void* pOutBuffer, uint32_t bufferSize, uint32_t offset) const;
+		ShaderCompilerSlang::ShaderStructData const* GetStructData() const { return p_StructData; }
+		uint64_t GetCBufferSize() const;
+
 	private:
 		// Version control
 		uint64_t m_Version = 0;
 		mutable uint64_t m_MaxChildrenVersion = 0;
 		void UpdateVersion();
 		cacore::NameHash m_StructTypeName;
+
+		// Struct data reference (Phase 6)
+		ShaderCompilerSlang::ShaderStructData const* p_StructData = nullptr;
+
+		// Uniform buffer staging (Phase 6)
+		castl::vector<uint8_t> m_StructLocalUniformStagingBuffer;
+		castl::unordered_map<cacore::NameHash, uint32_t> m_NameToUniformElementMetaID;
+		castl::vector<uint64_t> m_UniformElementOffsetInStagingBuffer;
 
 		vk::DescriptorSetLayout m_DescriptorSetLayout;
 		vk::PipelineLayout m_PipelineLayout;

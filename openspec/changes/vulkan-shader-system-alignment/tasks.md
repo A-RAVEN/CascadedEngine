@@ -63,11 +63,11 @@
 
 ## 6. VulkanShaderStruct Uniform Buffer Staging
 
-- [ ] 6.1 Add m_StructLocalUniformStagingBuffer member
-- [ ] 6.2 Add m_NameToUniformElementMetaID mapping
-- [ ] 6.3 Add m_UniformElementOffsetInStagingBuffer vector
-- [ ] 6.4 Initialize staging buffer in Init() based on ShaderStructData
-- [ ] 6.5 Implement UpdateUniformBuffer() method for GPU upload
+- [x] 6.1 Add m_StructLocalUniformStagingBuffer member
+- [x] 6.2 Add m_NameToUniformElementMetaID mapping
+- [x] 6.3 Add m_UniformElementOffsetInStagingBuffer vector
+- [x] 6.4 Initialize staging buffer in Init() based on ShaderStructData
+- [x] 6.5 Implement UpdateUniformBuffer() method for GPU upload
 
 ## 7. VulkanShaderStruct Set*Internal Methods
 
@@ -118,11 +118,11 @@
 | 2 | ShaderLibrary Extension | ✓ 8/8 |
 | 3 | Binding Info Construction | ✓ 8/8 |
 | 4 | ShaderImporter重构 | ✓ 14/14 |
-| 5 | Version Control | ⏳ 0/4 |
-| 6 | Uniform Buffer Staging | ⏳ 0/5 |
+| 5 | Version Control | ✓ 4/4 |
+| 6 | Uniform Buffer Staging | ✓ 5/5 |
 | 7 | Set*Internal Methods | ⏳ 0/9 |
 | 8 | Accessors | ⏳ 0/8 |
 | 9 | Integration | ⏳ 0/5 |
 | 10 | Testing | ⏳ 0/4 |
 
-**Total**: 41/76 Complete (54%)
+**Total**: 50/76 Complete (66%)
