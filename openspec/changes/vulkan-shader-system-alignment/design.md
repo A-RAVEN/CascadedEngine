@@ -79,6 +79,10 @@ struct VulkanDescriptorSetLayoutInfo {
     castl::vector<vk::DescriptorSetLayoutBinding> bindings;
     vk::DescriptorSetLayoutCreateInfo createInfo;
 };
+
+// ⚠️ 生命周期注意: createInfo.pBindings 指向 bindings.data()
+// 在使用 createInfo 创建 DescriptorSetLayout 前，必须确保 bindings 未被移动/重分配
+// 建议在实际创建时重建 createInfo，或保证 setLayoutInfo 生命周期稳定
 ```
 
 ### Decision 2: ShaderLibrary数据结构扩展
@@ -282,6 +286,13 @@ void IterateHierarchyElements(
 ```
 ImportResource(resourceManager, sourcePath, destPath)
 │
+├─► shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>()
+│    └─► ⚠️ 清空所有集合（避免重复导入时累积旧数据）:
+│         ├─► m_ShaderPrograms.clear()
+│         ├─► m_ShaderFiles.clear()
+│         ├─► m_ShaderStructs.clear()
+│         └─► m_ShaderRootStructs.clear()
+│
 ├─► for each .slang file in recursive_directory_iterator(sourcePath):
 │
 ├─► pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared()
@@ -292,9 +303,9 @@ ImportResource(resourceManager, sourcePath, destPath)
 │    └─► GetResults()
 │    └─► EndCompileTask()
 │
-├─► shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>("VulkanShaderLibrary.shLib")
+├─► 填充 ShaderLibrary 数据:
 │    └─► m_ShaderFiles[pathHash] = { reflectionData, shaderBindingInfo, entryPoints }
-│    └─► m_ShaderPrograms[shaHash] = { spirvCode, shaderModule, shaderType }
+│    └─► m_ShaderPrograms[shaHash] = { spirvCode, shaderType }
 │    └─► m_ShaderStructs[name] = structData
 │    └─► m_ShaderRootStructs[pathHash] = rootStructData
 │

@@ -240,14 +240,13 @@ namespace graphics_backend
 		}
 
 		// Build VulkanDescriptorSetLayoutInfo per set index
+		// Task 4.14 [P]: No longer store createInfo - use GetCreateInfo() on demand
 		for (auto& [setIndex, bindings] : setBindings)
 		{
 			VulkanDescriptorSetLayoutInfo setLayoutInfo{};
 			setLayoutInfo.setIndex = setIndex;
 			setLayoutInfo.bindings = castl::move(bindings);
-			setLayoutInfo.createInfo = vk::DescriptorSetLayoutCreateInfo{}
-				.setBindingCount((uint32_t)setLayoutInfo.bindings.size())
-				.setPBindings(setLayoutInfo.bindings.data());
+			// createInfo is rebuilt on demand via GetCreateInfo() to avoid dangling pointer
 			resourceBindingInfo.setLayoutInfos.push_back(castl::move(setLayoutInfo));
 		}
 
@@ -317,7 +316,12 @@ namespace graphics_backend
 		// Task 4.6: Get or create ShaderLibrary resource
 		cafs::path shaderLibraryPath = "VulkanShaderLibrary.shLib";
 		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath);
+
+		// Task 4.13 [P]: Clear all collections to avoid accumulating old data on re-import
 		shaderLibrary->m_ShaderPrograms.clear();
+		shaderLibrary->m_ShaderFiles.clear();
+		shaderLibrary->m_ShaderStructs.clear();
+		shaderLibrary->m_ShaderRootStructs.clear();
 
 		// Task 4.4: Directory traversal using recursive_directory_iterator
 		for (auto& p : cafs::recursive_directory_iterator(sourcePath))

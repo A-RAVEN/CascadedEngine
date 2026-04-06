@@ -51,6 +51,8 @@
 - [x] 4.10 调用ConstructShaderDescriptorInfo生成bindingInfo
 - [x] 4.11 删除fantasy接口：CompileFromSource, CompileFromSPIRV等
 - [x] 4.12 删除fantasy结构体：VulkanCompiledShaderInfo, VulkanDescriptorBindingInfo等
+- [x] 4.13 [P] 修复：清空所有ShaderLibrary集合（m_ShaderFiles, m_ShaderStructs, m_ShaderRootStructs）
+- [x] 4.14 [P] 修复：DescriptorSetLayoutCreateInfo的pBindings生命周期问题（在实际使用前重建createInfo或确保生命周期稳定）
 
 ## 5. VulkanShaderStruct Version Control
 
@@ -115,7 +117,7 @@
 | 1 | Data Structures | ✓ 6/6 |
 | 2 | ShaderLibrary Extension | ✓ 8/8 |
 | 3 | Binding Info Construction | ✓ 8/8 |
-| 4 | ShaderImporter重构 | ✓ 12/12 |
+| 4 | ShaderImporter重构 | ✓ 14/14 |
 | 5 | Version Control | ⏳ 0/4 |
 | 6 | Uniform Buffer Staging | ⏳ 0/5 |
 | 7 | Set*Internal Methods | ⏳ 0/9 |
@@ -123,4 +125,4 @@
 | 9 | Integration | ⏳ 0/5 |
 | 10 | Testing | ⏳ 0/4 |
 
-**Total**: 39/74 Complete (53%)
+**Total**: 41/76 Complete (54%)

@@ -6,11 +6,20 @@
 namespace graphics_backend
 {
 	// Task 1.1: Vulkan descriptor set layout info
+	// Task 4.14 [P]: Fixed pBindings lifetime issue - use GetCreateInfo() to rebuild on demand
 	struct VulkanDescriptorSetLayoutInfo
 	{
 		uint32_t setIndex;
 		castl::vector<vk::DescriptorSetLayoutBinding> bindings;
-		vk::DescriptorSetLayoutCreateInfo createInfo;
+
+		// Rebuild createInfo on demand - ensures pBindings always points to valid memory
+		// Call this immediately before creating DescriptorSetLayout
+		vk::DescriptorSetLayoutCreateInfo GetCreateInfo() const
+		{
+			return vk::DescriptorSetLayoutCreateInfo{}
+				.setBindingCount(static_cast<uint32_t>(bindings.size()))
+				.setPBindings(bindings.data());
+		}
 	};
 
 	// Task 1.2: Vulkan binding info types (mirrors D3D12 CBufferBindingInfo)
