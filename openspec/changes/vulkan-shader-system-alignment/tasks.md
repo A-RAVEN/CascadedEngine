@@ -39,18 +39,18 @@
 
 ## 4. ShaderImporter_Vulkan重构 (参考D3D12ShaderResourceImporter)
 
-- [ ] 4.1 修改基类：VulkanSubobjectBase → ResourceImporterFree
-- [ ] 4.2 添加GetTags()方法，返回"Vulkan;Slang"
-- [ ] 4.3 实现ImportResource()方法框架
-- [ ] 4.4 在ImportResource中实现目录遍历（recursive_directory_iterator）
-- [ ] 4.5 设置编译目标为eSpirV（而非eDXIL）
-- [ ] 4.6 获取ShaderLibrary：resourceManager->GetOrNewResource<ShaderLibrary>()
-- [ ] 4.7 填充m_ShaderFiles[pathHash]（reflectionData, shaderBindingInfo, entryPoints）
-- [ ] 4.8 填充m_ShaderPrograms[shaHash]（spirvCode, shaderType）
-- [ ] 4.9 填充m_ShaderStructs和m_ShaderRootStructs
-- [ ] 4.10 调用ConstructShaderDescriptorInfo生成bindingInfo
-- [ ] 4.11 删除fantasy接口：CompileFromSource, CompileFromSPIRV等
-- [ ] 4.12 删除fantasy结构体：VulkanCompiledShaderInfo, VulkanDescriptorBindingInfo等
+- [x] 4.1 修改基类：VulkanSubobjectBase → ResourceImporterFree
+- [x] 4.2 添加GetTags()方法，返回"Vulkan;Slang"
+- [x] 4.3 实现ImportResource()方法框架
+- [x] 4.4 在ImportResource中实现目录遍历（recursive_directory_iterator）
+- [x] 4.5 设置编译目标为eSpirV（而非eDXIL）
+- [x] 4.6 获取ShaderLibrary：resourceManager->GetOrNewResource<ShaderLibrary>()
+- [x] 4.7 填充m_ShaderFiles[pathHash]（reflectionData, shaderBindingInfo, entryPoints）
+- [x] 4.8 填充m_ShaderPrograms[shaHash]（spirvCode, shaderType）
+- [x] 4.9 填充m_ShaderStructs和m_ShaderRootStructs
+- [x] 4.10 调用ConstructShaderDescriptorInfo生成bindingInfo
+- [x] 4.11 删除fantasy接口：CompileFromSource, CompileFromSPIRV等
+- [x] 4.12 删除fantasy结构体：VulkanCompiledShaderInfo, VulkanDescriptorBindingInfo等
 
 ## 5. VulkanShaderStruct Version Control
 
@@ -115,7 +115,7 @@
 | 1 | Data Structures | ✓ 6/6 |
 | 2 | ShaderLibrary Extension | ✓ 8/8 |
 | 3 | Binding Info Construction | ✓ 8/8 |
-| 4 | ShaderImporter重构 | ⏳ 0/12 |
+| 4 | ShaderImporter重构 | ✓ 12/12 |
 | 5 | Version Control | ⏳ 0/4 |
 | 6 | Uniform Buffer Staging | ⏳ 0/5 |
 | 7 | Set*Internal Methods | ⏳ 0/9 |
@@ -123,4 +123,4 @@
 | 9 | Integration | ⏳ 0/5 |
 | 10 | Testing | ⏳ 0/4 |
 
-**Total**: 27/74 Complete (36%)
+**Total**: 39/74 Complete (53%)
