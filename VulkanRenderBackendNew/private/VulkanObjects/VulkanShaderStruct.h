@@ -48,9 +48,6 @@ namespace graphics_backend
 		// Get descriptor set for binding
 		vk::DescriptorSet GetDescriptorSet() const { return m_DescriptorSet; }
 
-		// Flush updates to GPU
-		void FlushUpdates();
-
 		// Version control
 		uint64_t ComputeMaxChildrenVersion() const;
 
@@ -79,21 +76,10 @@ namespace graphics_backend
 		vk::DescriptorPool m_DescriptorPool;
 		vk::DescriptorSet m_DescriptorSet;
 
-		// Pending updates
-		struct PendingUpdate
-		{
-			enum class Type { Value, Image, Buffer, Sampler, Struct };
-			Type type;
-			cacore::NameHash name;
-			uint32_t elementIndex;
-			castl::vector<uint8_t> data;
-			ImageHandle imageHandle;
-			GPUTextureView textureView;
-			BufferHandle bufferHandle;
-			TextureSamplerDescriptor samplerDesc;
-			castl::shared_ptr<ShaderStruct> subStruct;
-		};
-
-		castl::vector<PendingUpdate> m_PendingUpdates;
+		// Resource handle storage (Phase 7)
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> m_NameToImageHandles;
+		castl::unordered_map<cacore::NameHash, castl::vector<BufferHandle>> m_NameToBufferHandles;
+		castl::unordered_map<cacore::NameHash, castl::vector<TextureSamplerDescriptor>> m_NameToSamplerDescriptors;
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::shared_ptr<VulkanShaderStruct>>> m_NameToSubStructs;
 	};
 }

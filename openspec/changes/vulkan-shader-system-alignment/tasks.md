@@ -71,15 +71,15 @@
 
 ## 7. VulkanShaderStruct Set*Internal Methods
 
-- [ ] 7.1 Implement SetValueInternal() with staging buffer write
-- [ ] 7.2 Implement SetImageInternal() with handle storage
-- [ ] 7.3 Implement SetBufferInternal() with handle storage
-- [ ] 7.4 Implement SetSamplerInternal() with descriptor storage
-- [ ] 7.5 Implement SetStructInternal() with sub-struct storage
-- [ ] 7.6 Add m_NameToImageHandles map
-- [ ] 7.7 Add m_NameToBufferHandles map
-- [ ] 7.8 Add m_NameToSamplerDescriptors map
-- [ ] 7.9 Add m_NameToSubStructs map
+- [x] 7.1 Implement SetValueInternal() with staging buffer write
+- [x] 7.2 Implement SetImageInternal() with handle storage
+- [x] 7.3 Implement SetBufferInternal() with handle storage
+- [x] 7.4 Implement SetSamplerInternal() with descriptor storage
+- [x] 7.5 Implement SetStructInternal() with sub-struct storage
+- [x] 7.6 Add m_NameToImageHandles map
+- [x] 7.7 Add m_NameToBufferHandles map
+- [x] 7.8 Add m_NameToSamplerDescriptors map
+- [x] 7.9 Add m_NameToSubStructs map
 
 ## 8. VulkanShaderStruct Accessors
 
@@ -120,9 +120,9 @@
 | 4 | ShaderImporter重构 | ✓ 14/14 |
 | 5 | Version Control | ✓ 4/4 |
 | 6 | Uniform Buffer Staging | ✓ 5/5 |
-| 7 | Set*Internal Methods | ⏳ 0/9 |
+| 7 | Set*Internal Methods | ✓ 9/9 |
 | 8 | Accessors | ⏳ 0/8 |
 | 9 | Integration | ⏳ 0/5 |
 | 10 | Testing | ⏳ 0/4 |
 
-**Total**: 50/76 Complete (66%)
+**Total**: 59/76 Complete (78%)

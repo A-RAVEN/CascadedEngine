@@ -20,6 +20,24 @@ namespace graphics_backend
 		}
 		m_StructLocalUniformStagingBuffer.resize(offset);
 
+		// Initialize resource handle maps (Phase 7, matching D3D12 pattern)
+		for (auto& subStruct : pStructData->m_SubStructReferences)
+		{
+			m_NameToSubStructs[subStruct.m_Name].resize(subStruct.m_ElementCount);
+		}
+		for (auto& image : pStructData->m_Textures)
+		{
+			m_NameToImageHandles[image.m_Name].resize(image.m_ElementCount);
+		}
+		for (auto& sampler : pStructData->m_TextureSamplers)
+		{
+			m_NameToSamplerDescriptors[sampler].resize(1);
+		}
+		for (auto& buffer : pStructData->m_Buffers)
+		{
+			m_NameToBufferHandles[buffer.m_Name].resize(buffer.m_ElementCount);
+		}
+
 		// Create a basic descriptor set layout for now
 		// In a full implementation, this would be populated from shader reflection
 		vk::DescriptorSetLayoutCreateInfo layoutInfo{};
@@ -92,10 +110,13 @@ namespace graphics_backend
 			m_DescriptorSetLayout = nullptr;
 		}
 
-		m_PendingUpdates.clear();
 		m_StructLocalUniformStagingBuffer.clear();
 		m_NameToUniformElementMetaID.clear();
 		m_UniformElementOffsetInStagingBuffer.clear();
+		m_NameToSubStructs.clear();
+		m_NameToImageHandles.clear();
+		m_NameToBufferHandles.clear();
+		m_NameToSamplerDescriptors.clear();
 	}
 
 	void VulkanShaderStruct::SetValueInternal(cacore::NameHash const& name
@@ -124,13 +145,13 @@ namespace graphics_backend
 		, ImageHandle const& imageHandle, GPUTextureView const& view
 		, uint32_t elementIndex)
 	{
-		PendingUpdate update{};
-		update.type = PendingUpdate::Type::Image;
-		update.name = name;
-		update.elementIndex = elementIndex;
-		update.imageHandle = imageHandle;
-		update.textureView = view;
-		m_PendingUpdates.push_back(castl::move(update));
+		auto found = m_NameToImageHandles.find(name);
+		if (found != m_NameToImageHandles.end())
+		{
+			auto& imageList = found->second;
+			CA_ASSERT(imageList.size() > elementIndex, "");
+			imageList[elementIndex] = { imageHandle, view };
+		}
 		UpdateVersion();
 	}
 
@@ -138,12 +159,13 @@ namespace graphics_backend
 		, BufferHandle const& bufferHandle
 		, uint32_t elementIndex)
 	{
-		PendingUpdate update{};
-		update.type = PendingUpdate::Type::Buffer;
-		update.name = name;
-		update.elementIndex = elementIndex;
-		update.bufferHandle = bufferHandle;
-		m_PendingUpdates.push_back(castl::move(update));
+		auto found = m_NameToBufferHandles.find(name);
+		if (found != m_NameToBufferHandles.end())
+		{
+			auto& bufferList = found->second;
+			CA_ASSERT(bufferList.size() > elementIndex, "");
+			bufferList[elementIndex] = bufferHandle;
+		}
 		UpdateVersion();
 	}
 
@@ -151,12 +173,13 @@ namespace graphics_backend
 		, TextureSamplerDescriptor const& samplerDesc
 		, uint32_t elementIndex)
 	{
-		PendingUpdate update{};
-		update.type = PendingUpdate::Type::Sampler;
-		update.name = name;
-		update.elementIndex = elementIndex;
-		update.samplerDesc = samplerDesc;
-		m_PendingUpdates.push_back(castl::move(update));
+		auto found = m_NameToSamplerDescriptors.find(name);
+		if (found != m_NameToSamplerDescriptors.end())
+		{
+			auto& samplerList = found->second;
+			CA_ASSERT(samplerList.size() > elementIndex, "");
+			samplerList[elementIndex] = samplerDesc;
+		}
 		UpdateVersion();
 	}
 
@@ -164,41 +187,14 @@ namespace graphics_backend
 		, castl::shared_ptr<ShaderStruct> const& subStruct
 		, uint32_t elementIndex)
 	{
-		PendingUpdate update{};
-		update.type = PendingUpdate::Type::Struct;
-		update.name = name;
-		update.elementIndex = elementIndex;
-		update.subStruct = subStruct;
-		m_PendingUpdates.push_back(castl::move(update));
-		UpdateVersion();
-	}
-
-	void VulkanShaderStruct::FlushUpdates()
-	{
-		// Process pending updates and write to descriptor sets
-		// This is a simplified implementation - full version would handle all update types
-		for (auto const& update : m_PendingUpdates)
+		auto found = m_NameToSubStructs.find(name);
+		if (found != m_NameToSubStructs.end())
 		{
-			switch (update.type)
-			{
-			case PendingUpdate::Type::Value:
-				// Write to uniform buffer
-				break;
-			case PendingUpdate::Type::Image:
-				// Write image descriptor
-				break;
-			case PendingUpdate::Type::Buffer:
-				// Write buffer descriptor
-				break;
-			case PendingUpdate::Type::Sampler:
-				// Write sampler descriptor
-				break;
-			case PendingUpdate::Type::Struct:
-				// Handle nested struct
-				break;
-			}
+			auto& structList = found->second;
+			CA_ASSERT(structList.size() > elementIndex, "");
+			structList[elementIndex] = castl::static_pointer_cast<VulkanShaderStruct>(subStruct);
 		}
-		m_PendingUpdates.clear();
+		UpdateVersion();
 	}
 
 	void VulkanShaderStruct::UpdateVersion()
@@ -208,10 +204,18 @@ namespace graphics_backend
 
 	uint64_t VulkanShaderStruct::ComputeMaxChildrenVersion() const
 	{
-		// TODO: When m_NameToSubStructs is added in Phase 7, iterate through sub-structs
-		// For now, just return our own version since we don't have sub-structs yet
 		m_MaxChildrenVersion = 0;
-		return m_Version;
+		for (auto& pair : m_NameToSubStructs)
+		{
+			for (auto& pStruct : pair.second)
+			{
+				if (pStruct)
+				{
+					m_MaxChildrenVersion = castl::max(m_MaxChildrenVersion, pStruct->ComputeMaxChildrenVersion());
+				}
+			}
+		}
+		return castl::max(m_Version, m_MaxChildrenVersion);
 	}
 
 	// Phase 6.5: UpdateUniformBuffer implementation
@@ -238,8 +242,30 @@ namespace graphics_backend
 		// Update Child Structs
 		if (m_MaxChildrenVersion > uniformBufferVersion)
 		{
-			// TODO: When Phase 7 adds m_NameToSubStructs, implement sub-struct iteration
-			// For now, sub-structs are handled via PendingUpdate mechanism
+			for (auto& structRef : p_StructData->m_SubStructReferences)
+			{
+				auto found = m_NameToSubStructs.find(structRef.m_Name);
+				CA_ASSERT(found != m_NameToSubStructs.end(), "Sub Struct {} Not Found In Shader Struct {}", structRef.m_Name, p_StructData->m_TypeName);
+				if (found != m_NameToSubStructs.end())
+				{
+					auto& subStructList = found->second;
+					for (uint32_t elementID = 0; elementID < structRef.m_ElementCount; ++elementID)
+					{
+						CA_ASSERT(elementID < subStructList.size(), "Sub Struct {} In Shader Struct {} Has Not Been Set At Element {}", structRef.m_Name, p_StructData->m_TypeName, elementID);
+						if (elementID < subStructList.size())
+						{
+							auto& pSubStruct = subStructList[elementID];
+							if (pSubStruct)
+							{
+								pSubStruct->UpdateUniformBuffer(uniformBufferVersion
+									, pOutBuffer
+									, bufferSize
+									, offset + structRef.m_MemoryOffset + structRef.m_Stride * elementID);
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
