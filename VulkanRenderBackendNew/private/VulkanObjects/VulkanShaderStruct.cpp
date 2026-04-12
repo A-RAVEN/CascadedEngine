@@ -275,4 +275,39 @@ namespace graphics_backend
 			return 0;
 		return p_StructData->m_StructUniforms.m_MemorySize;
 	}
+
+	ETextureAccessType VulkanShaderStruct::GetTextureAccessType(cacore::NameHash const& textureName) const
+	{
+		if (p_StructData == nullptr)
+			return ETextureAccessType::eAccessType_Max;
+		for (auto& texture : p_StructData->m_Textures)
+		{
+			if (texture.m_Name == textureName)
+			{
+				switch (texture.m_RWType)
+				{
+				case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+					return ETextureAccessType::eSampled;
+				case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+				case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+					return ETextureAccessType::eUnorderedAccess;
+				}
+			}
+		}
+		return ETextureAccessType::eAccessType_Max;
+	}
+
+	ShaderCompilerSlang::EShaderResourceAccess VulkanShaderStruct::GetBufferRWType(cacore::NameHash const& bufferName) const
+	{
+		if (p_StructData == nullptr)
+			return ShaderCompilerSlang::EShaderResourceAccess::eUnknown;
+		for (auto& buffer : p_StructData->m_Buffers)
+		{
+			if (buffer.m_Name == bufferName)
+			{
+				return buffer.m_RWType;
+			}
+		}
+		return ShaderCompilerSlang::EShaderResourceAccess::eUnknown;
+	}
 }

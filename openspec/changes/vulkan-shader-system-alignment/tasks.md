@@ -83,14 +83,14 @@
 
 ## 8. VulkanShaderStruct Accessors
 
-- [ ] 8.1 Implement GetImageHandles() const
-- [ ] 8.2 Implement GetBufferHandles() const
-- [ ] 8.3 Implement GetSamplerDescriptors() const
-- [ ] 8.4 Implement GetSubStructs() const
-- [ ] 8.5 Implement GetStructData() const
-- [ ] 8.6 Implement GetCBufferSize() const
-- [ ] 8.7 Implement GetTextureAccessType() const
-- [ ] 8.8 Implement GetBufferRWType() const
+- [x] 8.1 Implement GetImageHandles() const
+- [x] 8.2 Implement GetBufferHandles() const
+- [x] 8.3 Implement GetSamplerDescriptors() const
+- [x] 8.4 Implement GetSubStructs() const
+- [x] 8.5 Implement GetStructData() const
+- [x] 8.6 Implement GetCBufferSize() const
+- [x] 8.7 Implement GetTextureAccessType() const
+- [x] 8.8 Implement GetBufferRWType() const
 
 ## 9. Integration
 
@@ -121,8 +121,8 @@
 | 5 | Version Control | ✓ 4/4 |
 | 6 | Uniform Buffer Staging | ✓ 5/5 |
 | 7 | Set*Internal Methods | ✓ 9/9 |
-| 8 | Accessors | ⏳ 0/8 |
+| 8 | Accessors | ✓ 8/8 |
 | 9 | Integration | ⏳ 0/5 |
 | 10 | Testing | ⏳ 0/4 |
 
-**Total**: 59/76 Complete (78%)
+**Total**: 67/76 Complete (88%)

@@ -4,6 +4,7 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAVector.h>
 #include <Compiler.h>
+#include <Common.h>
 
 namespace graphics_backend
 {
@@ -55,6 +56,14 @@ namespace graphics_backend
 		void UpdateUniformBuffer(uint64_t uniformBufferVersion, void* pOutBuffer, uint32_t bufferSize, uint32_t offset) const;
 		ShaderCompilerSlang::ShaderStructData const* GetStructData() const { return p_StructData; }
 		uint64_t GetCBufferSize() const;
+
+		// Resource accessors (Phase 8)
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> const& GetImageHandles() const { return m_NameToImageHandles; }
+		castl::unordered_map<cacore::NameHash, castl::vector<BufferHandle>> const& GetBufferHandles() const { return m_NameToBufferHandles; }
+		castl::unordered_map<cacore::NameHash, castl::vector<TextureSamplerDescriptor>> const& GetSamplerDescriptors() const { return m_NameToSamplerDescriptors; }
+		castl::unordered_map<cacore::NameHash, castl::vector<castl::shared_ptr<VulkanShaderStruct>>> const& GetSubStructs() const { return m_NameToSubStructs; }
+		ETextureAccessType GetTextureAccessType(cacore::NameHash const& textureName) const;
+		ShaderCompilerSlang::EShaderResourceAccess GetBufferRWType(cacore::NameHash const& bufferName) const;
 
 	private:
 		// Version control
