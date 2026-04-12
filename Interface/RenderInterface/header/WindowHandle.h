@@ -21,5 +21,6 @@ namespace graphics_backend
 	public:
 		virtual uint2 GetSizeSafe() const = 0;
 		virtual GPUTextureDescriptor const& GetBackbufferDescriptor() const = 0;
+		virtual bool IsValid() const { return true; }
 	};
 }

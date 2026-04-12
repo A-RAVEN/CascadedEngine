@@ -8,19 +8,19 @@ namespace graphics_backend
 	{
 		switch (format)
 		{
-		case ETextureFormat::eRGBA8: return vk::Format::eR8G8B8A8Unorm;
-		case ETextureFormat::eBGRA8: return vk::Format::eB8G8R8A8Unorm;
-		case ETextureFormat::eRGBA16Float: return vk::Format::eR16G16B16A16Sfloat;
-		case ETextureFormat::eRGBA32Float: return vk::Format::eR32G32B32A32Sfloat;
-		case ETextureFormat::eR8: return vk::Format::eR8Unorm;
-		case ETextureFormat::eRG8: return vk::Format::eR8G8Unorm;
-		case ETextureFormat::eR16Float: return vk::Format::eR16Sfloat;
-		case ETextureFormat::eR32Float: return vk::Format::eR32Sfloat;
-		case ETextureFormat::eRG16Float: return vk::Format::eR16G16Sfloat;
-		case ETextureFormat::eRG32Float: return vk::Format::eR32G32Sfloat;
-		case ETextureFormat::eDepth24Stencil8: return vk::Format::eD24UnormS8Uint;
-		case ETextureFormat::eDepth32: return vk::Format::eD32Sfloat;
-		case ETextureFormat::eDepth16: return vk::Format::eD16Unorm;
+		case ETextureFormat::E_R8G8B8A8_UNORM: return vk::Format::eR8G8B8A8Unorm;
+		case ETextureFormat::E_B8G8R8A8_UNORM: return vk::Format::eB8G8R8A8Unorm;
+		case ETextureFormat::E_R16G16B16A16_SFLOAT: return vk::Format::eR16G16B16A16Sfloat;
+		case ETextureFormat::E_R32G32B32A32_SFLOAT: return vk::Format::eR32G32B32A32Sfloat;
+		case ETextureFormat::E_R8_UNORM: return vk::Format::eR8Unorm;
+		case ETextureFormat::E_R8G8_UNORM: return vk::Format::eR8G8Unorm;
+		case ETextureFormat::E_R16_SFLOAT: return vk::Format::eR16Sfloat;
+		case ETextureFormat::E_R32_SFLOAT: return vk::Format::eR32Sfloat;
+		case ETextureFormat::E_R16G16_SFLOAT: return vk::Format::eR16G16Sfloat;
+		case ETextureFormat::E_R32G32_SFLOAT: return vk::Format::eR32G32Sfloat;
+		case ETextureFormat::E_D24_UNORM_S8_UINT: return vk::Format::eD24UnormS8Uint;
+		case ETextureFormat::E_D32_SFLOAT: return vk::Format::eD32Sfloat;
+		case ETextureFormat::E_D16_UNORM: return vk::Format::eD16Unorm;
 		default: return vk::Format::eR8G8B8A8Unorm;
 		}
 	}
@@ -32,7 +32,7 @@ namespace graphics_backend
 		case ETextureType::e1D: return vk::ImageType::e1D;
 		case ETextureType::e2D: return vk::ImageType::e2D;
 		case ETextureType::e3D: return vk::ImageType::e3D;
-		case ETextureType::eCube: return vk::ImageType::e2D;
+		case ETextureType::eCubeMap: return vk::ImageType::e2D;
 		default: return vk::ImageType::e2D;
 		}
 	}
@@ -54,10 +54,10 @@ namespace graphics_backend
 	{
 		switch (m_Descriptor.format)
 		{
-		case ETextureFormat::eDepth24Stencil8:
+		case ETextureFormat::E_D24_UNORM_S8_UINT:
 			return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
-		case ETextureFormat::eDepth32:
-		case ETextureFormat::eDepth16:
+		case ETextureFormat::E_D32_SFLOAT:
+		case ETextureFormat::E_D16_UNORM:
 			return vk::ImageAspectFlagBits::eDepth;
 		default:
 			return vk::ImageAspectFlagBits::eColor;
@@ -85,19 +85,19 @@ namespace graphics_backend
 		imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
 
 		// Add usage based on access type
-		if ((accessType & ETextureAccessTypeFlags::RenderTarget) != ETextureAccessTypeFlags::None)
+		if ((accessType & ETextureAccessType::eRT) != ETextureAccessTypeFlags{})
 		{
 			imageInfo.usage |= vk::ImageUsageFlagBits::eColorAttachment;
 		}
-		if ((accessType & ETextureAccessTypeFlags::DepthStencil) != ETextureAccessTypeFlags::None)
+		if ((accessType & ETextureAccessType::eDepthStencil) != ETextureAccessTypeFlags{})
 		{
 			imageInfo.usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
 		}
-		if ((accessType & ETextureAccessTypeFlags::Storage) != ETextureAccessTypeFlags::None)
+		if ((accessType & ETextureAccessType::eUnorderedAccess) != ETextureAccessTypeFlags{})
 		{
 			imageInfo.usage |= vk::ImageUsageFlagBits::eStorage;
 		}
-		if ((accessType & ETextureAccessTypeFlags::ShaderResource) != ETextureAccessTypeFlags::None)
+		if ((accessType & ETextureAccessType::eSampled) != ETextureAccessTypeFlags{})
 		{
 			imageInfo.usage |= vk::ImageUsageFlagBits::eSampled;
 		}
@@ -130,7 +130,7 @@ namespace graphics_backend
 		// Create image view
 		vk::ImageViewCreateInfo viewInfo{};
 		viewInfo.image = m_Image;
-		viewInfo.viewType = descriptor.textureType == ETextureType::eCube
+		viewInfo.viewType = descriptor.textureType == ETextureType::eCubeMap
 			? vk::ImageViewType::eCube
 			: (descriptor.layers > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D);
 		viewInfo.format = imageInfo.format;
@@ -141,7 +141,6 @@ namespace graphics_backend
 		viewInfo.subresourceRange.layerCount = descriptor.layers;
 
 		m_ImageView = GetDevice().createImageView(viewInfo);
-		VK_RESULT_CHECK(m_ImageView ? VK_SUCCESS : VK_ERROR_OUT_OF_DEVICE_MEMORY);
 
 		vmaDestroyAllocator(allocator);
 

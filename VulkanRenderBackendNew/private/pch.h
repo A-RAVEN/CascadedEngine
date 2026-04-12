@@ -9,7 +9,7 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CAAlgorithm.h>
-#include <CACore/CALog.h>
+#include <DebugUtils.h>
 #include <CACore/CAHash.h>
 
 // Interface headers

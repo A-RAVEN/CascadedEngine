@@ -53,7 +53,7 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryBitsKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
 		createInfo.pVertexInputState = &vertexInputState;
 		createInfo.pInputAssemblyState = &inputAssemblyState;
 
@@ -97,7 +97,7 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryBitsKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
 		createInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
 		createInfo.pStages = shaderStages.data();
 		createInfo.pViewportState = &viewportState;
@@ -128,11 +128,11 @@ namespace graphics_backend
 		auto device = GetDevice();
 
 		vk::GraphicsPipelineLibraryCreateInfoEXT libraryInfo{};
-		libraryInfo.flags = vk::GraphicsPipelineLibraryFlagBitsEXT::eFragmentShaders;
+		libraryInfo.flags = vk::GraphicsPipelineLibraryFlagBitsEXT::eFragmentShader;
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryBitsKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
 		createInfo.stageCount = 1;
 		createInfo.pStages = &fragmentShader;
 
@@ -167,7 +167,7 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryBitsKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
 		createInfo.pMultisampleState = &multisampleState;
 		createInfo.pDepthStencilState = depthStencilState;
 		createInfo.pColorBlendState = &colorBlendState;
@@ -222,7 +222,7 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryLinkInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLinkTimeOptimizationBitsKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLinkTimeOptimizationEXT;
 		createInfo.layout = layout;
 		createInfo.renderPass = renderPass;
 		createInfo.subpass = subpass;

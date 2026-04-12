@@ -7,9 +7,10 @@
 #include <VulkanObjects/VulkanShaderStruct.h>
 #include <GPUGraph/VulkanResourceBindingInstance.h>
 #include <ShaderLibrary/ShaderImporter_Vulkan.h>
-#include <Interface/ShaderCompiler/Compiler.h>
-#include <CACore/CATimer.h>
-#include <CACore/Hasher.h>
+#include <Compiler.h>
+#include <CATimer/Timer.h>
+#include <Hasher.h>
+#include <chrono>
 
 namespace graphics_backend
 {
@@ -52,8 +53,55 @@ namespace graphics_backend
 		}
 	}
 
-	// VulkanPassRWState implementation
-	bool VulkanPassRWState::Depends(VulkanPassRWState const& successor) const
+	// VulkanShaderResourceSet implementation (references D3D12 ShaderResourceSet::Init)
+	void VulkanShaderResourceSet::Init(RenderBackend_Vulkan* pApp, ShaderInfo const& info
+		, castl::vector<ShaderStructDic const*> const& structs)
+	{
+		shaderInfo = info;
+		shaderStructs = structs;
+		resourceDic.clear();
+
+		auto findShaderStructOfName = [&](cacore::NameHash const& inName) -> VulkanShaderStruct const*
+		{
+			for (auto pMap : structs)
+			{
+				auto& structMap = *pMap;
+				auto found = structMap.find(inName);
+				if (found != structMap.end())
+				{
+					return static_cast<VulkanShaderStruct const*>(found->second.get());
+				}
+			}
+			return nullptr;
+		};
+
+		auto pShaderFileInfo = pApp->GetShaderFileInfo(info);
+		if (pShaderFileInfo == nullptr)
+			return;
+
+		auto& reflectionData = pShaderFileInfo->reflectionData;
+		auto& bindingInfo = reflectionData.m_BindingInfo;
+		auto& rootHierarchy = bindingInfo.m_BindingDataHierarchies[bindingInfo.m_RootHierarchyID];
+
+		for (uint32_t hierarchyID : rootHierarchy.m_SubBindingHierarchies)
+		{
+			auto& hierarchy = bindingInfo.m_BindingDataHierarchies[hierarchyID];
+			auto sourceStruct = findShaderStructOfName(hierarchy.m_Name);
+			CA_ASSERT_BREAK(sourceStruct != nullptr, "Root Struct [{}] Not Found", hierarchy.m_Name);
+			resourceDic.insert(castl::make_pair(hierarchy.m_Name, sourceStruct));
+		}
+
+		// Compute hash
+		hash = 0;
+		cacore::hash_combine(hash, info.path.GetHash());
+		for (auto const& [name, structPtr] : resourceDic)
+		{
+			cacore::hash_combine(hash, name.GetHash());
+		}
+	}
+
+	// VulkanExecutorRWState implementation
+	bool VulkanExecutorRWState::Depends(VulkanExecutorRWState const& successor) const
 	{
 		for (auto& pair : imageRWStates)
 		{
@@ -90,7 +138,7 @@ namespace graphics_backend
 		return false;
 	}
 
-	void VulkanPassRWState::Append(VulkanPassRWState const& other)
+	void VulkanExecutorRWState::Append(VulkanExecutorRWState const& other)
 	{
 		batchResourceQueueTypes |= other.batchResourceQueueTypes;
 		for (auto pair : other.imageRWStates)
@@ -131,7 +179,7 @@ namespace graphics_backend
 		}
 	}
 
-	void VulkanPassRWState::SetImageRWState(ImageHandle const& image,
+	void VulkanExecutorRWState::SetImageRWState(ImageHandle const& image,
 		vk::PipelineStageFlags stages, vk::AccessFlags access,
 		vk::ImageLayout layout, EGPUQueueType queueType)
 	{
@@ -148,7 +196,7 @@ namespace graphics_backend
 		batchResourceQueueTypes |= static_cast<EGPUQueueTypeFlags>(queueType);
 	}
 
-	void VulkanPassRWState::SetBufferRWState(BufferHandle const& buffer,
+	void VulkanExecutorRWState::SetBufferRWState(BufferHandle const& buffer,
 		vk::PipelineStageFlags stages, vk::AccessFlags access, EGPUQueueType queueType)
 	{
 		VulkanResourceState newState{ access, stages, vk::ImageLayout::eUndefined, queueType, false };
@@ -164,7 +212,7 @@ namespace graphics_backend
 		batchResourceQueueTypes |= static_cast<EGPUQueueTypeFlags>(queueType);
 	}
 
-	void VulkanPassRWState::SetCBufferUsageState(VulkanShaderStruct const* pCBufferStruct,
+	void VulkanExecutorRWState::SetCBufferUsageState(VulkanShaderStruct const* pCBufferStruct,
 		vk::PipelineStageFlags stages, EGPUQueueType queueType)
 	{
 		auto found = cBufferUsageStates.find(pCBufferStruct);
@@ -250,21 +298,21 @@ namespace graphics_backend
 	// VulkanGPUExecutionBatch implementation
 	VulkanRenderStateBarriers& VulkanGPUExecutionBatch::GetAquireBarriers(EGPUQueueTypeFlags queueFlags)
 	{
-		if (queueFlags == EGPUQueueTypeFlags::Compute)
+		if (queueFlags == EGPUQueueType::eCompute)
 			return computeAquireBarriers;
 		return aquireBarriers;
 	}
 
 	VulkanRenderStateBarriers& VulkanGPUExecutionBatch::GetReleaseBarriers(EGPUQueueTypeFlags queueFlags)
 	{
-		if (queueFlags == EGPUQueueTypeFlags::Compute)
+		if (queueFlags == EGPUQueueType::eCompute)
 			return computeReleaseBarriers;
 		return releaseBarriers;
 	}
 
 	VulkanCBufferInitializeBarriers& VulkanGPUExecutionBatch::GetCBufferBarriers(EGPUQueueTypeFlags queueFlags)
 	{
-		if (queueFlags == EGPUQueueTypeFlags::Compute)
+		if (queueFlags == EGPUQueueType::eCompute)
 			return computeCBufferBarriers;
 		return cbufferBarriers;
 	}
@@ -317,7 +365,7 @@ namespace graphics_backend
 		CA_LOG_INFO("VulkanGraphExecutor released");
 	}
 
-	void VulkanGraphExecutor::CompileAndExecute(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
+	void VulkanGraphExecutor::CompileAndExecute(thread_management::TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
 	{
 		if (!graph)
 		{
@@ -325,12 +373,12 @@ namespace graphics_backend
 			return;
 		}
 
-		CA::Timer timer;
+		auto prepareStart = std::chrono::high_resolution_clock::now();
 
 		// Phase 1: Prepare
-		timer.Reset();
 		Prepare(*graph);
-		m_PrepareTime = timer.ElapsedMicroseconds();
+		m_PrepareTime = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - prepareStart).count();
 
 		// Phase 2: Build dependency-free batches
 		BuildDependencyFreeBatches(*graph);
@@ -348,9 +396,10 @@ namespace graphics_backend
 		BuildPipelineStates(*graph);
 
 		// Phase 7: Execute
-		timer.Reset();
+		auto executeStart = std::chrono::high_resolution_clock::now();
 		Execute(*graph);
-		m_ExecuteTime = timer.ElapsedMicroseconds();
+		m_ExecuteTime = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - executeStart).count();
 
 		// Apply external resource states
 		ApplyExternalResourceStates();
@@ -414,7 +463,7 @@ namespace graphics_backend
 			{
 				auto descriptor = GetDescriptor(graph, attachment);
 				m_LocalResourceManager.RegisterTemporaryTexture(
-					descriptor, ETextureAccessTypeFlags::RenderTarget, static_cast<uint32_t>(passID));
+					descriptor, ETextureAccessType::eRT, static_cast<uint32_t>(passID));
 
 				if (attachmentID == renderPass.GetDepthAttachmentIndex())
 				{
@@ -445,7 +494,7 @@ namespace graphics_backend
 						auto& indexBuffer = drawcall.GetIndexBuffer().indexBufferHandle;
 						auto descriptor = GetDescriptor(graph, indexBuffer);
 						m_LocalResourceManager.RegisterTemporaryBuffer(
-							descriptor, EBufferUsageFlags::IndexBuffer, static_cast<uint32_t>(passID));
+							descriptor, EBufferUsage::eIndexBuffer, static_cast<uint32_t>(passID));
 
 						passRWState.SetBufferRWState(indexBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
@@ -458,7 +507,7 @@ namespace graphics_backend
 						auto& vertBuffer = vertBuf.second;
 						auto descriptor = GetDescriptor(graph, vertBuffer);
 						m_LocalResourceManager.RegisterTemporaryBuffer(
-							descriptor, EBufferUsageFlags::VertexBuffer, static_cast<uint32_t>(passID));
+							descriptor, EBufferUsage::eVertexBuffer, static_cast<uint32_t>(passID));
 
 						passRWState.SetBufferRWState(vertBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
@@ -500,7 +549,7 @@ namespace graphics_backend
 			{
 				auto descriptor = GetDescriptor(graph, imgWrites.first);
 				m_LocalResourceManager.RegisterTemporaryTexture(
-					descriptor, ETextureAccessTypeFlags::None, static_cast<uint32_t>(passID));
+					descriptor, ETextureAccessTypeFlags{}, static_cast<uint32_t>(passID));
 
 				passRWState.SetImageRWState(imgWrites.first,
 					vk::PipelineStageFlagBits::eTransfer,
@@ -539,12 +588,12 @@ namespace graphics_backend
 		// Register internal graph resources
 		graph.GetBufferManager().Foreach([&](ResourceHandleKeyData const& handleKey, auto& desc)
 		{
-			m_LocalResourceManager.RegisterTemporaryBuffer(desc, EBufferUsageFlags::None, 0);
+			m_LocalResourceManager.RegisterTemporaryBuffer(desc, EBufferUsageFlags{}, 0);
 		});
 
 		graph.GetImageManager().Foreach([&](ResourceHandleKeyData const& handleKey, auto& desc)
 		{
-			m_LocalResourceManager.RegisterTemporaryTexture(desc, ETextureAccessTypeFlags::None, 0);
+			m_LocalResourceManager.RegisterTemporaryTexture(desc, ETextureAccessTypeFlags{}, 0);
 		});
 	}
 
@@ -552,6 +601,24 @@ namespace graphics_backend
 	{
 		// Collect shader resource bindings for each pass
 		// This creates VulkanResourceBindingInstance for each unique shader resource set
+		// References D3D12 GPUGraphExecutor::Prepare binding flow
+
+		auto createOrGetBindingInstance = [&](VulkanShaderResourceSet const& resourceSet)
+			-> VulkanResourceBindingInstance*
+		{
+			auto it = m_ShaderResourceInstances.find(resourceSet.hash);
+			if (it != m_ShaderResourceInstances.end())
+			{
+				return it->second.get();
+			}
+
+			auto bindingInstance = castl::make_shared<VulkanResourceBindingInstance>();
+			GetApp()->InitSubObj(bindingInstance.get());
+			bindingInstance->Init(resourceSet);
+
+			m_ShaderResourceInstances[resourceSet.hash] = bindingInstance;
+			return bindingInstance.get();
+		};
 
 		// Collect bindings for render passes
 		for (size_t passID = 0; passID < graph.GetRenderPasses().size(); ++passID)
@@ -564,12 +631,10 @@ namespace graphics_backend
 				auto& batch = renderPass.GetDrawCallBatches()[batchID];
 				auto& batchData = passData.drawcallBatchs[batchID];
 
-				// Get shader info
 				ShaderInfo const& shaderInfo = batch.pipelineStateDesc.m_ShaderInfo;
 				if (!shaderInfo.isValid())
 					continue;
 
-				// Collect shader structs from the batch and pass
 				castl::vector<ShaderStructDic const*> shaderStructs;
 				if (!batch.shaderStructs.empty())
 				{
@@ -580,40 +645,10 @@ namespace graphics_backend
 					shaderStructs.push_back(&renderPass.GetShaderStructs());
 				}
 
-				// Create hash key for shader binding
-				size_t bindingHash = 0;
-				cacore::hash_combine(bindingHash, shaderInfo.path.GetHash());
-				for (auto* structDic : shaderStructs)
-				{
-					for (auto const& [name, structPtr] : *structDic)
-					{
-						if (structPtr)
-						{
-							cacore::hash_combine(bindingHash, name.GetHash());
-						}
-					}
-				}
+				VulkanShaderResourceSet resourceSet;
+				resourceSet.Init(GetApp(), shaderInfo, shaderStructs);
 
-				// Check if we already have a binding instance for this key
-				auto it = m_ShaderResourceInstances.find(bindingHash);
-				if (it == m_ShaderResourceInstances.end())
-				{
-					// Create new binding instance
-					auto bindingInstance = castl::make_shared<VulkanResourceBindingInstance>();
-					bindingInstance->SetApp(GetApp());
-					bindingInstance->Init();
-
-					// TODO: Populate descriptor sets from shader structs
-					// This would require accessing the shader reflection data
-					// and creating appropriate descriptor set layouts
-
-					m_ShaderResourceInstances[bindingHash] = bindingInstance;
-					batchData.pResourceBindingInstance = bindingInstance.get();
-				}
-				else
-				{
-					batchData.pResourceBindingInstance = it->second.get();
-				}
+				batchData.pResourceBindingInstance = createOrGetBindingInstance(resourceSet);
 			}
 		}
 
@@ -628,12 +663,10 @@ namespace graphics_backend
 				auto& dispatch = computePass.dispatchs[dispatchID];
 				auto& dispatchData = passData.dispatchs[dispatchID];
 
-				// Get shader info
 				ShaderInfo const& shaderInfo = dispatch.m_ShaderInfo;
 				if (!shaderInfo.isValid())
 					continue;
 
-				// Collect shader structs from the dispatch and pass
 				castl::vector<ShaderStructDic const*> shaderStructs;
 				if (!dispatch.shaderStructs.empty())
 				{
@@ -644,36 +677,10 @@ namespace graphics_backend
 					shaderStructs.push_back(&computePass.shaderStructs);
 				}
 
-				// Create hash key for shader binding
-				size_t bindingHash = 0;
-				cacore::hash_combine(bindingHash, shaderInfo.path.GetHash());
-				for (auto* structDic : shaderStructs)
-				{
-					for (auto const& [name, structPtr] : *structDic)
-					{
-						if (structPtr)
-						{
-							cacore::hash_combine(bindingHash, name.GetHash());
-						}
-					}
-				}
+				VulkanShaderResourceSet resourceSet;
+				resourceSet.Init(GetApp(), shaderInfo, shaderStructs);
 
-				// Check if we already have a binding instance for this key
-				auto it = m_ShaderResourceInstances.find(bindingHash);
-				if (it == m_ShaderResourceInstances.end())
-				{
-					// Create new binding instance
-					auto bindingInstance = castl::make_shared<VulkanResourceBindingInstance>();
-					bindingInstance->SetApp(GetApp());
-					bindingInstance->Init();
-
-					m_ShaderResourceInstances[bindingHash] = bindingInstance;
-					dispatchData.pResourceBindingInstance = bindingInstance.get();
-				}
-				else
-				{
-					dispatchData.pResourceBindingInstance = it->second.get();
-				}
+				dispatchData.pResourceBindingInstance = createOrGetBindingInstance(resourceSet);
 			}
 		}
 	}
@@ -1475,13 +1482,7 @@ namespace graphics_backend
 			VmaAllocation stagingAllocation;
 			try
 			{
-				auto result = device.createBuffer(stagingBufferInfo);
-				if (result.result != vk::Result::eSuccess)
-				{
-					CA_LOG_ERR("VulkanGraphExecutor: Failed to create staging buffer");
-					continue;
-				}
-				stagingBuffer = result.value;
+				stagingBuffer = device.createBuffer(stagingBufferInfo);
 
 				// Allocate memory for staging buffer
 				auto memRequirements = device.getBufferMemoryRequirements(stagingBuffer);
@@ -1591,13 +1592,7 @@ namespace graphics_backend
 			VmaAllocation stagingAllocation;
 			try
 			{
-				auto result = device.createBuffer(stagingBufferInfo);
-				if (result.result != vk::Result::eSuccess)
-				{
-					CA_LOG_ERR("VulkanGraphExecutor: Failed to create image staging buffer");
-					continue;
-				}
-				stagingBuffer = result.value;
+				stagingBuffer = device.createBuffer(stagingBufferInfo);
 
 				auto memRequirements = device.getBufferMemoryRequirements(stagingBuffer);
 				VmaAllocationCreateInfo allocInfo{};
@@ -1840,7 +1835,7 @@ namespace graphics_backend
 		// 2. Get ShaderSourceInfo for SPIR-V target
 		// 3. Create shader module using ShaderImporter_Vulkan
 		CA_LOG_WARN("VulkanGraphExecutor: Shader module creation not yet implemented for path: {}",
-			shaderInfo.path.ToString().c_str());
+			shaderInfo.path.c_str());
 
 		m_ShaderModuleCache[hash] = nullptr;
 		return nullptr;
@@ -1865,14 +1860,20 @@ namespace graphics_backend
 
 		auto device = GetDevice();
 
-		// Create descriptor set layouts from reflection data
+		// Create descriptor set layouts from VulkanShaderResourceBindingInfo
+		// This uses the pre-computed setLayoutInfos from ConstructShaderDescriptorInfo
 		castl::vector<vk::DescriptorSetLayout> setLayouts;
-		auto& bindingInfo = reflectionData.m_BindingInfo;
 
-		// Group bindings by set
+		// Try to get VulkanShaderResourceBindingInfo from ShaderLibrary
+		// Fallback: build from reflection data if ShaderLibrary is not available
+		// TODO: Refactor to take VulkanShaderFileInfo directly instead of reflectionData
+		bool usedPrecomputedLayouts = false;
+
+		// For now, build from reflection data as before
+		// When full integration is complete, this should use shaderBindingInfo.setLayoutInfos
 		castl::unordered_map<uint32_t, castl::vector<vk::DescriptorSetLayoutBinding>> setBindings;
 
-		for (auto const& hierarchy : bindingInfo.m_BindingDataHierarchies)
+		for (auto const& hierarchy : reflectionData.m_BindingInfo.m_BindingDataHierarchies)
 		{
 			for (auto const& binding : hierarchy.m_Bindings)
 			{

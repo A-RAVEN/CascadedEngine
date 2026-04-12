@@ -8,7 +8,9 @@
 #include <CASTL/CASet.h>
 #include <CASTL/CADeque.h>
 #include <GPUGraph.h>
-#include <CACore/CATimer.h>
+#include <CATimer/Timer.h>
+
+namespace thread_management { class TaskScheduler; }
 
 namespace graphics_backend
 {
@@ -57,17 +59,17 @@ namespace graphics_backend
 		}
 	};
 
-	// Per-pass read/write state tracking
-	class VulkanPassRWState
+	// Per-pass read/write state tracking (Vulkan executor-specific)
+	class VulkanExecutorRWState
 	{
 	public:
 		castl::unordered_map<ImageHandle, VulkanResourceState> imageRWStates;
 		castl::unordered_map<BufferHandle, VulkanResourceState> bufferRWStates;
 		castl::unordered_map<VulkanShaderStruct const*, EGPUQueueTypeFlags> cBufferUsageStates;
-		EGPUQueueTypeFlags batchResourceQueueTypes = EGPUQueueTypeFlags::None;
+		EGPUQueueTypeFlags batchResourceQueueTypes = EGPUQueueTypeFlags{};
 
-		bool Depends(VulkanPassRWState const& successor) const;
-		void Append(VulkanPassRWState const& other);
+		bool Depends(VulkanExecutorRWState const& successor) const;
+		void Append(VulkanExecutorRWState const& other);
 
 		void SetImageRWState(ImageHandle const& image, vk::PipelineStageFlags stages,
 			vk::AccessFlags access, vk::ImageLayout layout, EGPUQueueType queueType);
@@ -81,13 +83,13 @@ namespace graphics_backend
 	class VulkanPassDependency
 	{
 	public:
-		VulkanPassRWState const& rwState;
+		VulkanExecutorRWState const& rwState;
 		uint32_t passID;
 		GPUGraph::EGraphStageType passType;
 		uint32_t predecessorCount = 0;
 		castl::vector<VulkanPassDependency*> successors;
 
-		VulkanPassDependency(VulkanPassRWState const& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
+		VulkanPassDependency(VulkanExecutorRWState const& rwState, uint32_t passID, GPUGraph::EGraphStageType passType)
 			: rwState(rwState), passID(passID), passType(passType) {}
 
 		bool DepsFree() const { return predecessorCount == 0; }
@@ -113,7 +115,7 @@ namespace graphics_backend
 	struct VulkanCBufferUsageData
 	{
 		castl::set<uint32_t> lifeTime;
-		EGPUQueueTypeFlags queueTypes = EGPUQueueTypeFlags::None;
+		EGPUQueueTypeFlags queueTypes = EGPUQueueTypeFlags{};
 
 		void Encapsule(uint32_t batchID, EGPUQueueTypeFlags flags) {
 			lifeTime.insert(batchID);
@@ -207,12 +209,12 @@ namespace graphics_backend
 		VulkanCBufferInitializeBarriers cbufferBarriers;
 		VulkanCBufferInitializeBarriers computeCBufferBarriers;
 
-		VulkanPassRWState batchRWStates;
+		VulkanExecutorRWState batchRWStates;
 		bool anyComputeQueueOperations = false;
 
-		EGPUQueueTypeFlags aquireBarriersEmitFenceQueues = EGPUQueueTypeFlags::None;
-		EGPUQueueTypeFlags bodyCommandsEmitFenceQueues = EGPUQueueTypeFlags::None;
-		EGPUQueueTypeFlags releaseBarriersEmitFenceQueues = EGPUQueueTypeFlags::None;
+		EGPUQueueTypeFlags aquireBarriersEmitFenceQueues = EGPUQueueTypeFlags{};
+		EGPUQueueTypeFlags bodyCommandsEmitFenceQueues = EGPUQueueTypeFlags{};
+		EGPUQueueTypeFlags releaseBarriersEmitFenceQueues = EGPUQueueTypeFlags{};
 
 		castl::set<uint32_t> computeWaitingDirectBatches;
 		castl::set<uint32_t> directWaitingComputeBatches;
@@ -231,6 +233,7 @@ namespace graphics_backend
 	public:
 		ShaderInfo shaderInfo;
 		castl::vector<ShaderStructDic const*> shaderStructs;
+		castl::unordered_map<cacore::NameHash, VulkanShaderStruct const*> resourceDic;
 		size_t hash = 0;
 
 		void Init(RenderBackend_Vulkan* pApp, ShaderInfo const& info,
@@ -252,7 +255,7 @@ namespace graphics_backend
 		virtual void Release() override;
 
 		// Main entry point
-		void CompileAndExecute(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph);
+		void CompileAndExecute(thread_management::TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph);
 
 	private:
 		// Phase 1: Prepare
@@ -293,10 +296,10 @@ namespace graphics_backend
 		VulkanGraphLocalResourceManager m_LocalResourceManager;
 
 		// Per-pass states
-		castl::vector<VulkanPassRWState> m_RasterPassRWStates;
-		castl::vector<VulkanPassRWState> m_ComputePassRWStates;
-		castl::vector<VulkanPassRWState> m_TransferPassRWStates;
-		VulkanPassRWState m_FinalizePassRWState;
+		castl::vector<VulkanExecutorRWState> m_RasterPassRWStates;
+		castl::vector<VulkanExecutorRWState> m_ComputePassRWStates;
+		castl::vector<VulkanExecutorRWState> m_TransferPassRWStates;
+		VulkanExecutorRWState m_FinalizePassRWState;
 
 		// GPU data per pass
 		castl::vector<VulkanRenderPassGPUData> m_RasterPassGPUData;

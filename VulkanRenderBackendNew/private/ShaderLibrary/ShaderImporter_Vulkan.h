@@ -3,15 +3,16 @@
 #include <CASTL/CAString.h>
 #include <CASTL/CAVector.h>
 #include <CACore/CAHash.h>
-#include <Interface/ShaderCompiler/header/Compiler.h>
+#include <Compiler.h>
 #include <ShaderLibrary/ShaderLibrary.h>
+
+namespace resource_management
+{
+	class ResourceManagingSystem;
+}
 
 namespace graphics_backend
 {
-	namespace resource_management
-	{
-		class ResourceManagingSystem;
-	}
 
 	// Task 3.1: Hierarchy element for IterateHierarchyElements helper
 	struct VulkanHierarchyElement
@@ -32,7 +33,7 @@ namespace graphics_backend
 		ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData);
 
 	// Task 4.1: Changed base class from VulkanSubobjectBase to ResourceImporterFree
-	class ShaderImporter_Vulkan : public resource_management::ResourceImporterFree
+	class ShaderImporter_Vulkan : public ::resource_management::ResourceImporterFree
 	{
 	public:
 		ShaderImporter_Vulkan() = default;
@@ -43,7 +44,7 @@ namespace graphics_backend
 
 		// Task 4.3: ImportResource method (main entry point following D3D12 pattern)
 		virtual void ImportResource(
-			resource_management::ResourceManagingSystem* resourceManager,
+			::resource_management::ResourceManagingSystem* resourceManager,
 			cafs::path const& sourcePath,
 			cafs::path const& destPath) override;
 

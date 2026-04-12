@@ -1,5 +1,6 @@
 #include <ResourceManagement/VulkanMemoryManager.h>
 #include <RenderBackend_Vulkan.h>
+#include <Utils/VulkanDebug.h>
 
 namespace graphics_backend
 {

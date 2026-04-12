@@ -129,6 +129,8 @@ namespace graphics_backend
 
 	void RenderBackend_Vulkan::Init(cacore::IModuleManager* pModuleManager)
 	{
+		p_ResourceManager = pModuleManager->GetInstance<resource_management::ResourceManagingSystem>();
+
 		vk::defaultDispatchLoaderDynamic.init();
 
 		vk::ApplicationInfo application_info(
@@ -286,8 +288,30 @@ namespace graphics_backend
 	{
 		auto shaderStruct = castl::make_shared<VulkanShaderStruct>();
 		InitSubObj(shaderStruct.get());
-		shaderStruct->Init(structType);
+
+		// Look up ShaderStructData from ShaderLibrary (references D3D12 pattern)
+		ShaderCompilerSlang::ShaderStructData const* pData = nullptr;
+		if (p_ResourceManager != nullptr)
+		{
+			auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("VulkanShaderLibrary.shLib");
+			if (shaderLibrary != nullptr)
+			{
+				pData = shaderLibrary->GetShaderStruct(structType);
+			}
+		}
+
+		shaderStruct->Init(pData);
 		return shaderStruct;
+	}
+
+	VulkanShaderFileInfo const* RenderBackend_Vulkan::GetShaderFileInfo(ShaderInfo const& shaderInfo)
+	{
+		if (p_ResourceManager == nullptr)
+			return nullptr;
+		auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("VulkanShaderLibrary.shLib");
+		if (shaderLibrary == nullptr)
+			return nullptr;
+		return shaderLibrary->GetShaderFileInfo(shaderInfo.path);
 	}
 	castl::shared_ptr<WindowHandle> RenderBackend_Vulkan::GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window)
 	{

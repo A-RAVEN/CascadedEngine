@@ -56,8 +56,8 @@ namespace graphics_backend
 		// Hash shader hashes
 		for (uint32_t i = 0; i < 8; ++i)
 		{
-			hash = cacore::hash_combine(hash, state.vertexShaderHash.hashVal.data[i]);
-			hash = cacore::hash_combine(hash, state.fragmentShaderHash.hashVal.data[i]);
+			hash = cacore::hash_combine(hash, state.vertexShaderHash.data[i]);
+			hash = cacore::hash_combine(hash, state.fragmentShaderHash.data[i]);
 		}
 
 		return hash;

@@ -9,7 +9,7 @@ namespace graphics_backend
 		m_BufferStates.clear();
 		m_TrackedImages.clear();
 		m_TrackedBuffers.clear();
-		m_QueueTypes = EGPUQueueTypeFlags::None;
+		m_QueueTypes = EGPUQueueTypeFlags{};
 	}
 
 	void VulkanPassRWState::Release()

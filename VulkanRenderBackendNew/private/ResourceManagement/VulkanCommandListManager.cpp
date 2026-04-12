@@ -1,6 +1,7 @@
 #include <ResourceManagement/VulkanCommandListManager.h>
 #include <RenderBackend_Vulkan.h>
 #include <VulkanQueue/QueueContext.h>
+#include <Utils/VulkanDebug.h>
 
 namespace graphics_backend
 {

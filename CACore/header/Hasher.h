@@ -6,6 +6,13 @@
 
 namespace cacore
 {
+    template<typename T>
+    inline size_t hash_combine(size_t seed, T const& val)
+    {
+        seed ^= std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+
     using namespace careflection;
 
     using default_hashclass = typename cahash::constexpr_fnvla_64_Hash;

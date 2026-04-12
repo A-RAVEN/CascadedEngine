@@ -1,7 +1,7 @@
 #include <VulkanObjects/VulkanWindowHandle.h>
 #include <RenderBackend_Vulkan.h>
 #include <VulkanQueue/QueueContext.h>
-#include <cawindow/IWindow.h>
+#include <CAWindow/WindowSystem.h>
 #include <Utils/VulkanDebug.h>
 
 namespace graphics_backend
@@ -50,7 +50,6 @@ namespace graphics_backend
 		surfaceInfo.hwnd = nullptr; // TODO: Get from m_Window
 
 		m_Surface = GetInstance().createWin32SurfaceKHR(surfaceInfo);
-		VK_RESULT_CHECK(m_Surface ? VK_SUCCESS : VK_ERROR_OUT_OF_DEVICE_MEMORY);
 #elif defined(VK_USE_PLATFORM_XCB_KHR)
 		// TODO: XCB surface creation
 #endif
@@ -118,7 +117,6 @@ namespace graphics_backend
 		swapchainInfo.oldSwapchain = nullptr;
 
 		m_Swapchain = device.createSwapchainKHR(swapchainInfo);
-		VK_RESULT_CHECK(m_Swapchain ? VK_SUCCESS : VK_ERROR_OUT_OF_DEVICE_MEMORY);
 
 		// Get swapchain images
 		m_SwapchainImages = device.getSwapchainImagesKHR(m_Swapchain);
@@ -126,7 +124,7 @@ namespace graphics_backend
 		// Update backbuffer descriptor
 		m_BackbufferDescriptor = GPUTextureDescriptor::Create(
 			m_Extent.width, m_Extent.height,
-			ETextureFormat::eBGRA8, // Map from vk::Format::eB8G8R8A8Unorm
+			ETextureFormat::E_B8G8R8A8_UNORM, // Map from vk::Format::eB8G8R8A8Unorm
 			ETextureType::e2D, 1, 1, EMultiSampleCount::e1
 		);
 

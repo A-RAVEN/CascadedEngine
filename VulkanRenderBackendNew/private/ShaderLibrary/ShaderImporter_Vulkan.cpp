@@ -57,7 +57,7 @@ namespace graphics_backend
 		auto& hierarchies = bindingInfo.m_BindingDataHierarchies;
 
 		// Map to track bindings per set index for building DescriptorSetLayoutInfo
-		castl::unordered_map<uint32_t, castl::vector<vk::DescriptorSetLayoutBinding>> setBindings;
+		castl::unordered_map<uint32_t, castl::vector<VulkanDescriptorBinding>> setBindings;
 
 		// Main hierarchy traversal following D3D12 pattern
 		{
@@ -117,12 +117,11 @@ namespace graphics_backend
 						, currentStructElementCount);
 
 					// Build DescriptorSetLayoutBinding for cbuffer
-					vk::DescriptorSetLayoutBinding layoutBinding{};
+					VulkanDescriptorBinding layoutBinding{};
 					layoutBinding.binding = cbufferInfo.bindingID;
-					layoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+					layoutBinding.descriptorType = static_cast<uint32_t>(vk::DescriptorType::eUniformBuffer);
 					layoutBinding.descriptorCount = cbufferInfo.elementCount;
-					layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
-					layoutBinding.pImmutableSamplers = nullptr;
+					layoutBinding.stageFlags = static_cast<uint32_t>(vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute);
 					setBindings[cbufferInfo.spaceID].push_back(layoutBinding);
 
 					resourceBindingInfo.totalDescriptorCount += cbufferInfo.elementCount;
@@ -158,14 +157,13 @@ namespace graphics_backend
 							resourceBindingInfo.imageInfos.push_back(imageInfo);
 
 							// Build DescriptorSetLayoutBinding for image
-							vk::DescriptorSetLayoutBinding layoutBinding{};
+							VulkanDescriptorBinding layoutBinding{};
 							layoutBinding.binding = bindingID;
-							layoutBinding.descriptorType = (binding.m_ResourceType == EShaderResourceType::eRWTexture)
+							layoutBinding.descriptorType = static_cast<uint32_t>((binding.m_ResourceType == EShaderResourceType::eRWTexture)
 								? vk::DescriptorType::eStorageImage
-								: vk::DescriptorType::eSampledImage;
+								: vk::DescriptorType::eSampledImage);
 							layoutBinding.descriptorCount = elementCount;
-							layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
-							layoutBinding.pImmutableSamplers = nullptr;
+							layoutBinding.stageFlags = static_cast<uint32_t>(vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute);
 							setBindings[bindingSpace].push_back(layoutBinding);
 
 							resourceBindingInfo.totalDescriptorCount += elementCount;
@@ -190,12 +188,11 @@ namespace graphics_backend
 							resourceBindingInfo.bufferInfos.push_back(bufferInfo);
 
 							// Build DescriptorSetLayoutBinding for buffer
-							vk::DescriptorSetLayoutBinding layoutBinding{};
+							VulkanDescriptorBinding layoutBinding{};
 							layoutBinding.binding = bindingID;
-							layoutBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+							layoutBinding.descriptorType = static_cast<uint32_t>(vk::DescriptorType::eStorageBuffer);
 							layoutBinding.descriptorCount = elementCount;
-							layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
-							layoutBinding.pImmutableSamplers = nullptr;
+							layoutBinding.stageFlags = static_cast<uint32_t>(vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute);
 							setBindings[bindingSpace].push_back(layoutBinding);
 
 							resourceBindingInfo.totalDescriptorCount += elementCount;
@@ -217,12 +214,11 @@ namespace graphics_backend
 							resourceBindingInfo.samplerInfos.push_back(samplerInfo);
 
 							// Build DescriptorSetLayoutBinding for sampler
-							vk::DescriptorSetLayoutBinding layoutBinding{};
+							VulkanDescriptorBinding layoutBinding{};
 							layoutBinding.binding = bindingID;
-							layoutBinding.descriptorType = vk::DescriptorType::eSampler;
+							layoutBinding.descriptorType = static_cast<uint32_t>(vk::DescriptorType::eSampler);
 							layoutBinding.descriptorCount = elementCount;
-							layoutBinding.stageFlags = vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute;
-							layoutBinding.pImmutableSamplers = nullptr;
+							layoutBinding.stageFlags = static_cast<uint32_t>(vk::ShaderStageFlagBits::eAllGraphics | vk::ShaderStageFlagBits::eCompute);
 							setBindings[bindingSpace].push_back(layoutBinding);
 
 							resourceBindingInfo.samplerDescriptorCount += elementCount;

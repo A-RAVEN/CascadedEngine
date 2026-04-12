@@ -17,31 +17,31 @@ namespace graphics_backend
 
 		// Convert usage flags to Vulkan buffer usage
 		vk::BufferUsageFlags vkUsageFlags{};
-		if ((usageFlags & EBufferUsageFlags::VertexBuffer) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eVertexBuffer) != EBufferUsageFlags{})
 		{
 			vkUsageFlags |= vk::BufferUsageFlagBits::eVertexBuffer;
 		}
-		if ((usageFlags & EBufferUsageFlags::IndexBuffer) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eIndexBuffer) != EBufferUsageFlags{})
 		{
 			vkUsageFlags |= vk::BufferUsageFlagBits::eIndexBuffer;
 		}
-		if ((usageFlags & EBufferUsageFlags::UniformBuffer) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eConstantBuffer) != EBufferUsageFlags{})
 		{
 			vkUsageFlags |= vk::BufferUsageFlagBits::eUniformBuffer;
 		}
-		if ((usageFlags & EBufferUsageFlags::StorageBuffer) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eStructuredBuffer) != EBufferUsageFlags{})
 		{
 			vkUsageFlags |= vk::BufferUsageFlagBits::eStorageBuffer;
 		}
-		if ((usageFlags & EBufferUsageFlags::TransferSrc) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eDataSrc) != EBufferUsageFlags{})
 		{
 			vkUsageFlags |= vk::BufferUsageFlagBits::eTransferSrc;
 		}
-		if ((usageFlags & EBufferUsageFlags::TransferDst) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eDataDst) != EBufferUsageFlags{})
 		{
 			vkUsageFlags |= vk::BufferUsageFlagBits::eTransferDst;
 		}
-		if ((usageFlags & EBufferUsageFlags::IndirectBuffer) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eIndirectBuffer) != EBufferUsageFlags{})
 		{
 			vkUsageFlags |= vk::BufferUsageFlagBits::eIndirectBuffer;
 		}
@@ -56,7 +56,7 @@ namespace graphics_backend
 		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
 		// CPU-accessible buffers
-		if ((usageFlags & EBufferUsageFlags::CpuAccess) != EBufferUsageFlags::None)
+		if ((usageFlags & EBufferUsage::eCpuAccess) != EBufferUsageFlags{})
 		{
 			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
 		}

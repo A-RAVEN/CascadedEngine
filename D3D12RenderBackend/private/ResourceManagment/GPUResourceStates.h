@@ -11,43 +11,13 @@
 
 namespace graphics_backend
 {
-	enum class EResourceUsage : uint32_t
-	{
-		eNone = 0,
-		eShaderResource = 1 << 0,
-		eShaderUnorderedAccess = 1 << 1,
-		eRenderTarget = 1 << 2,
-		eVertexInput = 1 << 3,
-		eIndexInput = 1 << 4,
-		eCopy = 1 << 5,
-		eConstantBuffer = 1 << 6,
-		eDepthStencilTarget = 1 << 7,
-		eInitialized = 1 << 8,
-		ePresent = 1 << 9,
-		eShaderInputs = eShaderResource | eShaderUnorderedAccess | eConstantBuffer,
-		eComputeQueueMask = eShaderResource | eShaderUnorderedAccess | eCopy | eConstantBuffer | eInitialized,
-		eAll = ~0,
-		eBitMax = 10,
-	};
-	enum class EGPUQueueType : uint32_t
-	{
-		eNone = 0,
-		eDirect = 1 << 0,
-		eCompute = 1 << 1,
-		eCopy = 1 << 2,
-	};
-
-	enum class EResourceViewType
-	{
-		eSRV,
-		eUAV,
-		eRTV,
-		eDSV,
-		eCBV,
-	};
+	// EResourceUsage, EGPUQueueType, EResourceViewType moved to Interface/RenderInterface/header/Common.h
+	using ::EResourceUsage;
+	using ::EResourceUsageFlags;
+	using ::EGPUQueueType;
+	using ::EGPUQueueTypeFlags;
+	using ::EResourceViewType;
 }
-CA_ENUM_FLAGS_NAMESPACE(EResourceUsage, graphics_backend);
-CA_ENUM_FLAGS_NAMESPACE(EGPUQueueType, graphics_backend);
 
 namespace graphics_backend
 {

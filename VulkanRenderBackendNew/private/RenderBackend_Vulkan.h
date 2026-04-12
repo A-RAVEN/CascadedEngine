@@ -9,6 +9,8 @@
 #include <VulkanObjectManaging/PipelineLayoutManager.h>
 #include <ResourceManagement/VulkanMemoryManager.h>
 #include <ResourceManagement/VulkanCommandListManager.h>
+#include <CAResource/ResourceManagingSystem.h>
+#include <ShaderLibrary/ShaderLibrary.h>
 #include <GPUGraph/VulkanGraphExecutor.h>
 #include <PipelineLibrary/VulkanPipelineLibrary.h>
 #include <PipelineLibrary/PipelineLibraryCache.h>
@@ -94,6 +96,11 @@ namespace graphics_backend
 		VulkanCommandListManager& GetCommandListManager() { return m_CommandListManager; }
 		VulkanCommandListManager const& GetCommandListManager() const { return m_CommandListManager; }
 
+		resource_management::ResourceManagingSystem* GetResourceManager() const { return p_ResourceManager; }
+
+		// Get shader file info from ShaderLibrary (references D3D12 pattern)
+		VulkanShaderFileInfo const* GetShaderFileInfo(ShaderInfo const& shaderInfo);
+
 		VulkanPipelineLibrary& GetPipelineLibrary() { return m_PipelineLibrary; }
 		VulkanPipelineLibrary const& GetPipelineLibrary() const { return m_PipelineLibrary; }
 		PipelineLibraryCache& GetPipelineLibraryCache() { return m_PipelineLibraryCache; }
@@ -115,6 +122,8 @@ namespace graphics_backend
 		VulkanCommandListManager m_CommandListManager;
 		VulkanPipelineLibrary m_PipelineLibrary;
 		PipelineLibraryCache m_PipelineLibraryCache;
+
+		resource_management::ResourceManagingSystem* p_ResourceManager = nullptr;
 
 		bool m_PipelineLibrarySupported = false;
 

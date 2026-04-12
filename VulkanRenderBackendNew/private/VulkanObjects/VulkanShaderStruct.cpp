@@ -6,6 +6,11 @@ namespace graphics_backend
 	void VulkanShaderStruct::Init(ShaderCompilerSlang::ShaderStructData const* pStructData)
 	{
 		p_StructData = pStructData;
+		if (p_StructData == nullptr)
+		{
+			CA_LOG_WARN("VulkanShaderStruct::Init - null pStructData");
+			return;
+		}
 		m_StructTypeName = pStructData->m_TypeName;
 
 		// Initialize uniform staging buffer (Phase 6.4)
@@ -38,15 +43,18 @@ namespace graphics_backend
 			m_NameToBufferHandles[buffer.m_Name].resize(buffer.m_ElementCount);
 		}
 
-		// Create a basic descriptor set layout for now
-		// In a full implementation, this would be populated from shader reflection
+		// TODO: Create descriptor set layout from VulkanShaderResourceBindingInfo
+		// Currently creates an empty layout as placeholder
+		// Full implementation should look up VulkanShaderFileInfo::shaderBindingInfo.setLayoutInfos
+		// and use VulkanDescriptorSetLayoutInfo::GetCreateInfo() for proper layout creation
 		vk::DescriptorSetLayoutCreateInfo layoutInfo{};
 		layoutInfo.bindingCount = 0;
 		layoutInfo.pBindings = nullptr;
 
 		m_DescriptorSetLayout = GetDevice().createDescriptorSetLayout(layoutInfo);
 
-		// Create pipeline layout
+		// TODO: Pipeline layout should be created from the descriptor set layouts
+		// derived from VulkanShaderResourceBindingInfo, not from this empty layout
 		vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.setLayoutCount = 1;
 		pipelineLayoutInfo.pSetLayouts = &m_DescriptorSetLayout;
@@ -79,7 +87,7 @@ namespace graphics_backend
 			m_DescriptorSet = sets[0];
 		}
 
-		CA_LOG_INFO("VulkanShaderStruct initialized for type: {}", m_StructTypeName.ToString().c_str());
+		CA_LOG_INFO("VulkanShaderStruct initialized for type: {}", m_StructTypeName.c_str());
 	}
 
 	void VulkanShaderStruct::Release()

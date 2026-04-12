@@ -17,8 +17,8 @@ namespace graphics_backend
 			GPUBufferDescriptor bufferDesc;
 			GPUTextureDescriptor textureDesc;
 		};
-		EBufferUsageFlags bufferUsage = EBufferUsageFlags::None;
-		ETextureAccessTypeFlags textureAccess = ETextureAccessTypeFlags::None;
+		EBufferUsageFlags bufferUsage = EBufferUsageFlags{};
+		ETextureAccessTypeFlags textureAccess = ETextureAccessTypeFlags{};
 		uint32_t firstUseBatch = UINT32_MAX;
 		uint32_t lastUseBatch = 0;
 		uint64_t resourceId = 0;

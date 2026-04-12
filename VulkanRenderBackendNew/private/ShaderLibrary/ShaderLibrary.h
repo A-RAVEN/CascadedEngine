@@ -2,23 +2,61 @@
 #include <CAResource/IResource.h>
 #include <Hasher.h>
 #include <Compiler.h>
+#include <Utils/VulkanIncludes.h>
 
 namespace graphics_backend
 {
+	// Task 1.1: Serializable descriptor binding (replaces vk::DescriptorSetLayoutBinding for reflection compatibility)
+	struct VulkanDescriptorBinding
+	{
+		uint32_t binding;
+		uint32_t descriptorType;  // vk::DescriptorType stored as uint32_t
+		uint32_t descriptorCount;
+		uint32_t stageFlags;      // vk::ShaderStageFlags stored as uint32_t
+
+		vk::DescriptorSetLayoutBinding ToVulkan() const
+		{
+			vk::DescriptorSetLayoutBinding result{};
+			result.binding = binding;
+			result.descriptorType = static_cast<vk::DescriptorType>(descriptorType);
+			result.descriptorCount = descriptorCount;
+			result.stageFlags = vk::ShaderStageFlags(stageFlags);
+			result.pImmutableSamplers = nullptr;
+			return result;
+		}
+
+		static VulkanDescriptorBinding FromVulkan(vk::DescriptorSetLayoutBinding const& vkBinding)
+		{
+			return VulkanDescriptorBinding{
+				vkBinding.binding,
+				static_cast<uint32_t>(vkBinding.descriptorType),
+				vkBinding.descriptorCount,
+				static_cast<uint32_t>(vkBinding.stageFlags)
+			};
+		}
+	};
+
 	// Task 1.1: Vulkan descriptor set layout info
 	// Task 4.14 [P]: Fixed pBindings lifetime issue - use GetCreateInfo() to rebuild on demand
 	struct VulkanDescriptorSetLayoutInfo
 	{
 		uint32_t setIndex;
-		castl::vector<vk::DescriptorSetLayoutBinding> bindings;
+		castl::vector<VulkanDescriptorBinding> bindings;
 
 		// Rebuild createInfo on demand - ensures pBindings always points to valid memory
 		// Call this immediately before creating DescriptorSetLayout
-		vk::DescriptorSetLayoutCreateInfo GetCreateInfo() const
+		// outBindings must outlive the returned createInfo
+		vk::DescriptorSetLayoutCreateInfo GetCreateInfo(castl::vector<vk::DescriptorSetLayoutBinding>& outBindings) const
 		{
+			outBindings.clear();
+			outBindings.reserve(bindings.size());
+			for (auto& b : bindings)
+			{
+				outBindings.push_back(b.ToVulkan());
+			}
 			return vk::DescriptorSetLayoutCreateInfo{}
-				.setBindingCount(static_cast<uint32_t>(bindings.size()))
-				.setPBindings(bindings.data());
+				.setBindingCount(static_cast<uint32_t>(outBindings.size()))
+				.setPBindings(outBindings.data());
 		}
 	};
 

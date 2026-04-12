@@ -43,7 +43,9 @@ namespace graphics_backend
 		virtual cacore::NameHash const& GetStructTypeName() const override { return m_StructTypeName; }
 
 		// Vulkan-specific methods
+		// TODO: These are placeholder implementations - descriptor set layout should be created from VulkanShaderResourceBindingInfo
 		vk::DescriptorSetLayout GetDescriptorSetLayout() const { return m_DescriptorSetLayout; }
+		// TODO: Pipeline layout should be created from VulkanShaderResourceBindingInfo, not independently
 		vk::PipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
 
 		// Get descriptor set for binding

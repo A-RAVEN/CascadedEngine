@@ -53,6 +53,8 @@ namespace cacore
 }
 
 #define CA_LOG(_log, ...) {cacore::log_with_location(std::source_location::current(), false, _log __VA_OPT__(, __VA_ARGS__ ));}
+#define CA_LOG_INFO(_log, ...) CA_LOG(_log __VA_OPT__(, __VA_ARGS__ ))
+#define CA_LOG_WARN(_log, ...) {cacore::style_log_with_location(fg(fmt::color::yellow), std::source_location::current(), false, _log __VA_OPT__(, __VA_ARGS__ ));}
 #define CA_LOG_IF( _condition , _log, ...) {if(_condition){CA_LOG(_log, __VA_ARGS__);}}
 #define CA_LOG_ERR(_log, ...) {cacore::error_with_location(std::source_location::current(), _log __VA_OPT__(, __VA_ARGS__ ));}
 #define CA_LOG_ERR_BREAK(_log, ...) {CA_LOG_ERR(_log __VA_OPT__(, __VA_ARGS__ ));__debugbreak();}

@@ -3,6 +3,7 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAVector.h>
 #include <ShaderResourceHandle.h>
+#include <Common.h>
 
 namespace graphics_backend
 {
@@ -66,6 +67,6 @@ namespace graphics_backend
 		castl::unordered_map<BufferHandle, PassResourceState> m_BufferStates;
 		castl::vector<ImageHandle> m_TrackedImages;
 		castl::vector<BufferHandle> m_TrackedBuffers;
-		EGPUQueueTypeFlags m_QueueTypes = EGPUQueueTypeFlags::None;
+		EGPUQueueTypeFlags m_QueueTypes = EGPUQueueType::eNone;
 	};
 }

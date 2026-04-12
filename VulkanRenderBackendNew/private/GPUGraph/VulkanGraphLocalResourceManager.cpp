@@ -99,13 +99,15 @@ namespace graphics_backend
 				bufferInfo.size = localResource.bufferDesc.SizeInByte();
 				bufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer;
 
-				auto bufferResult = GetDevice().createBuffer(bufferInfo);
-				if (bufferResult.result != vk::Result::eSuccess)
+				try
 				{
-					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create buffer");
+					managed.buffer = GetDevice().createBuffer(bufferInfo);
+				}
+				catch (vk::SystemError const& e)
+				{
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create buffer: {}", e.what());
 					return false;
 				}
-				managed.buffer = bufferResult.value;
 
 				// Bind to aliased memory (simplified - would use VMA with custom pool)
 				m_TotalMemoryUsed += bufferInfo.size;
@@ -126,13 +128,15 @@ namespace graphics_backend
 				imageInfo.usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eColorAttachment;
 				imageInfo.initialLayout = vk::ImageLayout::eUndefined;
 
-				auto imageResult = GetDevice().createImage(imageInfo);
-				if (imageResult.result != vk::Result::eSuccess)
+				try
 				{
-					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image");
+					managed.image = GetDevice().createImage(imageInfo);
+				}
+				catch (vk::SystemError const& e)
+				{
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image: {}", e.what());
 					return false;
 				}
-				managed.image = imageResult.value;
 
 				// Create image view
 				vk::ImageViewCreateInfo viewInfo{};
@@ -143,13 +147,15 @@ namespace graphics_backend
 				viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
 				viewInfo.subresourceRange.layerCount = imageInfo.arrayLayers;
 
-				auto viewResult = GetDevice().createImageView(viewInfo);
-				if (viewResult.result != vk::Result::eSuccess)
+				try
 				{
-					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image view");
+					managed.imageView = GetDevice().createImageView(viewInfo);
+				}
+				catch (vk::SystemError const& e)
+				{
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image view: {}", e.what());
 					return false;
 				}
-				managed.imageView = viewResult.value;
 
 				m_TotalMemoryUsed += imageInfo.extent.width * imageInfo.extent.height * 4;
 			}

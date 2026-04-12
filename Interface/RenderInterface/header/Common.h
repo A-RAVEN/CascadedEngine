@@ -173,6 +173,7 @@ enum class ETextureFormat : uint8_t
 	E_B8G8R8A8_UNORM,
 
 	E_R32_SFLOAT,
+	E_R32G32_SFLOAT,
 	E_R32G32B32A32_SFLOAT,
 	E_FLOAT_TYPE_CATEGORY_END,////FLoat Type End
 
@@ -188,8 +189,10 @@ enum class ETextureFormat : uint8_t
 	E_DEPTHSTENCIL_TYPE_CATEGORY_BEGIN,///Depth Stencil Type Begin
 	//仅深度
 	E_DEPTHONLY_TYPE_CATEGORY_BEGIN,///Depth Only Type Begin
+	E_D16_UNORM,
 	E_D32_SFLOAT,
 	E_DEPTHONLY_TYPE_CATEGORY_END,///Depth Only Type End
+	E_D24_UNORM_S8_UINT,
 	E_D32_SFLOAT_S8_UINT,
 	E_DEPTHSTENCIL_TYPE_CATEGORY_END,///Depth Stencil Type End
 
@@ -240,7 +243,9 @@ enum class EBufferUsage : uint16_t
 	eDataSrc = 1 << 4,
 	eDataDst = 1 << 5,
 	eUnorderedAccess = 1 << 6,
-	eMaxBit = 6
+	eIndirectBuffer = 1 << 7,
+	eCpuAccess = 1 << 8,
+	eMaxBit = 8
 };
 
 template <>
@@ -260,7 +265,8 @@ enum class ETextureAccessType : uint8_t
 	eUnorderedAccess = 1 << 3,
 	eTransferSrc = 1 << 4,
 	eTransferDst = 1 << 5,
-	eAccessType_Max = 5,
+	eDepthStencil = 1 << 6,
+	eAccessType_Max = 6,
 };
 
 template <>
@@ -271,6 +277,58 @@ struct uenum::TEnumTraits<ETextureAccessType>
 
 
 using ETextureAccessTypeFlags = uenum::EnumFlags<ETextureAccessType>;
+
+enum class EResourceUsage : uint32_t
+{
+	eNone = 0,
+	eShaderResource = 1 << 0,
+	eShaderUnorderedAccess = 1 << 1,
+	eRenderTarget = 1 << 2,
+	eVertexInput = 1 << 3,
+	eIndexInput = 1 << 4,
+	eCopy = 1 << 5,
+	eConstantBuffer = 1 << 6,
+	eDepthStencilTarget = 1 << 7,
+	eInitialized = 1 << 8,
+	ePresent = 1 << 9,
+	eShaderInputs = eShaderResource | eShaderUnorderedAccess | eConstantBuffer,
+	eComputeQueueMask = eShaderResource | eShaderUnorderedAccess | eCopy | eConstantBuffer | eInitialized,
+	eAll = ~0,
+	eBitMax = 10,
+};
+
+template <>
+struct uenum::TEnumTraits<EResourceUsage>
+{
+	static constexpr bool is_bitmask = true;
+};
+
+using EResourceUsageFlags = uenum::EnumFlags<EResourceUsage>;
+
+enum class EGPUQueueType : uint32_t
+{
+	eNone = 0,
+	eDirect = 1 << 0,
+	eCompute = 1 << 1,
+	eCopy = 1 << 2,
+};
+
+template <>
+struct uenum::TEnumTraits<EGPUQueueType>
+{
+	static constexpr bool is_bitmask = true;
+};
+
+using EGPUQueueTypeFlags = uenum::EnumFlags<EGPUQueueType>;
+
+enum class EResourceViewType
+{
+	eSRV,
+	eUAV,
+	eRTV,
+	eDSV,
+	eCBV,
+};
 
 enum class EAttachmentLoadOp
 {
