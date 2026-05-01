@@ -193,6 +193,15 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::Release()
 	{
+		auto device = GetDevice();
+		for (auto sampler : m_CreatedSamplers)
+		{
+			if (sampler)
+			{
+				device.destroySampler(sampler);
+			}
+		}
+		m_CreatedSamplers.clear();
 		m_DescriptorSets.clear();
 		m_PendingWrites.clear();
 		m_BufferInfos.clear();
@@ -204,31 +213,210 @@ namespace graphics_backend
 		p_ShaderFileInfo = nullptr;
 	}
 
-	void VulkanResourceBindingInstance::BuildResources(class VulkanGraphLocalResourceManager& resourceManager)
+	static vk::ShaderStageFlags ToShaderStageFlags(EShaderTypeFlags flags)
 	{
-		// TODO: Full implementation - register image/buffer/cbuffer resources into local resource manager
-		// References D3D12 GPUResourceBindingInstance::BuildResources
+		vk::ShaderStageFlags result{};
+		IterateShaderTypeFlags(flags, [&result](EShaderTypeMask mask)
+		{
+			switch (mask)
+			{
+			case EShaderTypeMask::eVert: result |= vk::ShaderStageFlagBits::eVertex; break;
+			case EShaderTypeMask::eFrag: result |= vk::ShaderStageFlagBits::eFragment; break;
+			case EShaderTypeMask::eComp: result |= vk::ShaderStageFlagBits::eCompute; break;
+			case EShaderTypeMask::eTessCtr: result |= vk::ShaderStageFlagBits::eTessellationControl; break;
+			case EShaderTypeMask::eTessEvl: result |= vk::ShaderStageFlagBits::eTessellationEvaluation; break;
+			case EShaderTypeMask::eGeom: result |= vk::ShaderStageFlagBits::eGeometry; break;
+			default: break;
+			}
+		});
+		return result;
 	}
 
-	void VulkanResourceBindingInstance::BuildDescriptors(vk::DescriptorPool pool)
+	void VulkanResourceBindingInstance::BuildResources(VulkanGraphLocalResourceManager& resourceManager, GPUGraph const& graph)
 	{
-		// TODO: Full implementation - allocate descriptor sets and write descriptors from binding elements
-		// References D3D12 GPUResourceBindingInstance::BuildDescriptors
 		if (p_ShaderFileInfo == nullptr)
 			return;
 
-		// Allocate descriptor sets from binding info
+		auto& shaderBindingInfo = p_ShaderFileInfo->shaderBindingInfo;
+
+		// 3.2: Allocate GPU buffers for CBuffer bindings
+		for (auto& cbuffer : m_CBufferBindings)
+			{
+			if (cbuffer.pCBufferStruct == nullptr)
+				continue;
+
+			uint64_t bufferSize = cbuffer.pCBufferStruct->GetCBufferSize();
+			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(1, static_cast<uint32_t>(bufferSize));
+			cbuffer.gpuBufferResourceId = resourceManager.AddBuffer(desc, EBufferUsage::eConstantBuffer, 0);
+			cbuffer.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(cbuffer.bindingInfo.usageMask));
+		}
+
+		// 3.3: Register image resources (fallback for unregistered handles)
+		for (auto& image : m_ImageBindings)
+		{
+			image.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(image.bindingInfo.usageMask));
+			for (auto& binding : image.bindings)
+			{
+				auto const& imageHandle = binding.first;
+				if (!imageHandle.IsValid())
+					continue;
+				if (resourceManager.GetTextureView(imageHandle))
+					continue;
+
+				auto descriptor = GetDescriptor(graph, imageHandle);
+				ETextureAccessTypeFlags accessType = (image.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
+					? ETextureAccessType::eUnorderedAccess : ETextureAccessType::eSampled;
+				resourceManager.RegisterTemporaryTexture(descriptor, accessType, 0);
+			}
+		}
+
+		// 3.4: Register buffer resources (fallback for unregistered handles)
+		for (auto& buffer : m_BufferBindings)
+		{
+			buffer.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(buffer.bindingInfo.usageMask));
+			for (auto& bufferHandle : buffer.bindings)
+			{
+				if (!bufferHandle.IsValid())
+					continue;
+				if (resourceManager.GetBuffer(bufferHandle))
+					continue;
+
+				auto descriptor = GetDescriptor(graph, bufferHandle);
+				EBufferUsageFlags bufferUsage = (buffer.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
+					? EBufferUsage::eUnorderedAccess : EBufferUsage::eStructuredBuffer;
+				uint64_t resourceId = resourceManager.RegisterTemporaryBuffer(descriptor, bufferUsage, 0);
+				resourceManager.RegisterBufferHandle(bufferHandle, resourceId);
+			}
+		}
+
+		// 3.5: Set usingStages for sampler bindings
+		for (auto& sampler : m_SamplerBindings)
+		{
+			sampler.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(sampler.bindingInfo.usageMask));
+		}
+	}
+
+	void VulkanResourceBindingInstance::BuildDescriptors(VulkanGraphExecutor& executor, vk::DescriptorPool pool)
+	{
+		if (p_ShaderFileInfo == nullptr)
+			return;
+
 		auto& shaderBindingInfo = p_ShaderFileInfo->shaderBindingInfo;
 		if (shaderBindingInfo.setLayoutInfos.empty())
 			return;
 
-		castl::vector<vk::DescriptorSetLayout> layouts;
+		// Clean up old samplers before rebuilding descriptors
+		auto device = GetDevice();
+		for (auto sampler : m_CreatedSamplers)
+		{
+			if (sampler)
+			{
+				device.destroySampler(sampler);
+			}
+		}
+		m_CreatedSamplers.clear();
+		m_DescriptorSets.clear();
+		m_PendingWrites.clear();
+		m_BufferInfos.clear();
+		m_ImageInfos.clear();
+
+		// 5.2: Allocate descriptor sets from cached layouts
+		castl::vector<castl::pair<uint32_t, vk::DescriptorSetLayout>> setLayoutPairs;
 		for (auto& setLayoutInfo : shaderBindingInfo.setLayoutInfos)
 		{
-			castl::vector<vk::DescriptorSetLayoutBinding> vkBindings;
-			auto createInfo = setLayoutInfo.GetCreateInfo(vkBindings);
-			// TODO: Create or retrieve cached descriptor set layout
+			vk::DescriptorSetLayout layout = executor.GetOrCreateDescriptorSetLayout(setLayoutInfo);
+			if (!layout)
+			{
+				CA_LOG_ERR("Failed to get or create descriptor set layout for set {}", setLayoutInfo.setIndex);
+				continue;
+			}
+			setLayoutPairs.push_back({ setLayoutInfo.setIndex, layout });
 		}
+
+		if (setLayoutPairs.empty())
+			return;
+
+		// Sort by setIndex to ensure correct ordering for allocation
+		castl::sort(setLayoutPairs.begin(), setLayoutPairs.end(),
+			[](auto const& a, auto const& b) { return a.first < b.first; });
+
+		if (!AllocateDescriptorSets(pool, setLayoutPairs))
+			return;
+
+		auto& localResourceManager = executor.GetLocalResourceManager();
+
+		// 5.3: Write CBuffer descriptors
+		for (auto& cbuffer : m_CBufferBindings)
+		{
+			if (cbuffer.gpuBufferResourceId == 0)
+				continue;
+
+			vk::Buffer buffer = localResourceManager.GetBuffer(cbuffer.gpuBufferResourceId);
+			if (!buffer)
+				continue;
+
+			uint64_t range = cbuffer.pCBufferStruct ? cbuffer.pCBufferStruct->GetCBufferSize() : 256;
+			SetUniformBuffer(cbuffer.bindingInfo.spaceID, cbuffer.bindingInfo.bindingID, buffer, 0, range);
+		}
+
+		// 5.4: Write Image descriptors
+		for (auto& image : m_ImageBindings)
+		{
+			if (image.bindings.empty())
+				continue;
+
+			vk::ImageView imageView = localResourceManager.GetTextureView(image.bindings[0].first);
+			if (!imageView)
+				continue;
+
+			vk::ImageLayout layout = image.resourceUsages == EResourceUsage::eShaderUnorderedAccess
+				? vk::ImageLayout::eGeneral
+				: vk::ImageLayout::eShaderReadOnlyOptimal;
+
+			if (image.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
+			{
+				SetStorageImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout);
+			}
+			else
+			{
+				// For sampled images, we need a sampler. Use a default sampler for now.
+				vk::SamplerCreateInfo samplerInfo{};
+				vk::Sampler defaultSampler = device.createSampler(samplerInfo);
+				m_CreatedSamplers.push_back(defaultSampler);
+				SetSampledImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout, defaultSampler);
+			}
+		}
+
+		// 5.5: Write Buffer descriptors
+		for (auto& buffer : m_BufferBindings)
+		{
+			if (buffer.bindings.empty())
+				continue;
+
+			vk::Buffer vkBuffer = localResourceManager.GetBuffer(buffer.bindings[0]);
+			if (!vkBuffer)
+				continue;
+
+			uint64_t bufferSize = 0; // We don't know the exact size from BufferHandle alone
+			SetStorageBuffer(buffer.bindingInfo.spaceID, buffer.bindingInfo.bindingID, vkBuffer, 0, VK_WHOLE_SIZE);
+		}
+
+		// 5.6: Write Sampler descriptors
+		for (auto& sampler : m_SamplerBindings)
+		{
+			if (sampler.samplerDescriptors.empty())
+				continue;
+
+			auto const& samplerDesc = sampler.samplerDescriptors[0];
+			vk::SamplerCreateInfo samplerInfo{};
+			// TODO: Map sampler descriptor parameters to Vulkan sampler create info
+			vk::Sampler vkSampler = device.createSampler(samplerInfo);
+			m_CreatedSamplers.push_back(vkSampler);
+			SetSampler(sampler.bindingInfo.spaceID, sampler.bindingInfo.bindingID, vkSampler);
+		}
+
+		// 5.7: Submit all pending writes
+		UpdateDescriptorSets();
 	}
 
 	void VulkanResourceBindingInstance::SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range)
@@ -301,6 +489,22 @@ namespace graphics_backend
 		m_PendingWrites.push_back(write);
 	}
 
+	castl::vector<castl::pair<uint32_t, vk::DescriptorSet>> VulkanResourceBindingInstance::GetDescriptorSetsSorted() const
+	{
+		castl::vector<castl::pair<uint32_t, vk::DescriptorSet>> result;
+		result.reserve(m_DescriptorSets.size());
+		for (auto& [setIndex, set] : m_DescriptorSets)
+		{
+			if (set)
+			{
+				result.push_back({ setIndex, set });
+			}
+		}
+		castl::sort(result.begin(), result.end(),
+			[](auto const& a, auto const& b) { return a.first < b.first; });
+		return result;
+	}
+
 	vk::DescriptorSet VulkanResourceBindingInstance::GetDescriptorSet(uint32_t set) const
 	{
 		auto it = m_DescriptorSets.find(set);
@@ -311,12 +515,19 @@ namespace graphics_backend
 		return nullptr;
 	}
 
-	bool VulkanResourceBindingInstance::AllocateDescriptorSets(vk::DescriptorPool pool, castl::vector<vk::DescriptorSetLayout> const& layouts)
+	bool VulkanResourceBindingInstance::AllocateDescriptorSets(vk::DescriptorPool pool, castl::vector<castl::pair<uint32_t, vk::DescriptorSetLayout>> const& setLayoutPairs)
 	{
-		if (layouts.empty())
+		if (setLayoutPairs.empty())
 			return true;
 
 		auto device = GetDevice();
+
+		castl::vector<vk::DescriptorSetLayout> layouts;
+		layouts.reserve(setLayoutPairs.size());
+		for (auto const& pair : setLayoutPairs)
+		{
+			layouts.push_back(pair.second);
+		}
 
 		vk::DescriptorSetAllocateInfo allocInfo{};
 		allocInfo.descriptorPool = pool;
@@ -328,7 +539,7 @@ namespace graphics_backend
 			auto sets = device.allocateDescriptorSets(allocInfo);
 			for (uint32_t i = 0; i < sets.size(); ++i)
 			{
-				m_DescriptorSets[i] = sets[i];
+				m_DescriptorSets[setLayoutPairs[i].first] = sets[i];
 			}
 			return true;
 		}

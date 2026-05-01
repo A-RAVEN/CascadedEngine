@@ -43,9 +43,10 @@ namespace graphics_backend
 		virtual cacore::NameHash const& GetStructTypeName() const override { return m_StructTypeName; }
 
 		// Vulkan-specific methods
-		// TODO: These are placeholder implementations - descriptor set layout should be created from VulkanShaderResourceBindingInfo
+		// NOTE: DescriptorSetLayout, PipelineLayout, DescriptorPool, and DescriptorSet
+		// creation is deferred to the BuildResources stage (next change).
+		// These getters currently return VK_NULL_HANDLE until BuildResources is implemented.
 		vk::DescriptorSetLayout GetDescriptorSetLayout() const { return m_DescriptorSetLayout; }
-		// TODO: Pipeline layout should be created from VulkanShaderResourceBindingInfo, not independently
 		vk::PipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
 
 		// Get descriptor set for binding
@@ -82,10 +83,10 @@ namespace graphics_backend
 		castl::unordered_map<cacore::NameHash, uint32_t> m_NameToUniformElementMetaID;
 		castl::vector<uint64_t> m_UniformElementOffsetInStagingBuffer;
 
-		vk::DescriptorSetLayout m_DescriptorSetLayout;
-		vk::PipelineLayout m_PipelineLayout;
-		vk::DescriptorPool m_DescriptorPool;
-		vk::DescriptorSet m_DescriptorSet;
+		vk::DescriptorSetLayout m_DescriptorSetLayout = nullptr;
+		vk::PipelineLayout m_PipelineLayout = nullptr;
+		vk::DescriptorPool m_DescriptorPool = nullptr;
+		vk::DescriptorSet m_DescriptorSet = nullptr;
 
 		// Resource handle storage (Phase 7)
 		castl::unordered_map<cacore::NameHash, castl::vector<castl::pair<ImageHandle, GPUTextureView>>> m_NameToImageHandles;

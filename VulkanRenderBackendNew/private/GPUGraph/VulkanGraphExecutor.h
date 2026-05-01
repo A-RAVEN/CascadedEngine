@@ -187,9 +187,9 @@ namespace graphics_backend
 	// CBuffer initialization barriers
 	struct VulkanCBufferInitializeBarriers
 	{
-		castl::vector<castl::pair<BufferHandle, VulkanShaderStruct const*>> cbufferData;
+		castl::vector<castl::pair<uint64_t, VulkanShaderStruct const*>> cbufferData;
 
-		void AddCBuffer(BufferHandle const& bufferHandle, VulkanShaderStruct const* shaderStruct);
+		void AddCBuffer(uint64_t resourceId, VulkanShaderStruct const* shaderStruct);
 		bool AnyBarrier() const { return !cbufferData.empty(); }
 	};
 
@@ -257,12 +257,19 @@ namespace graphics_backend
 		// Main entry point
 		void CompileAndExecute(thread_management::TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph);
 
+		// Resource manager access (public for VulkanResourceBindingInstance)
+		VulkanGraphLocalResourceManager& GetLocalResourceManager() { return m_LocalResourceManager; }
+
+		// Descriptor set layout cache access (public for VulkanResourceBindingInstance)
+		vk::DescriptorSetLayout GetOrCreateDescriptorSetLayout(VulkanDescriptorSetLayoutInfo const& setLayoutInfo);
+
 	private:
 		// Phase 1: Prepare
 		void Prepare(GPUGraph const& graph);
 		void InitArraySizes(GPUGraph const& graph);
 		void CollectResources(GPUGraph const& graph);
 		void CollectShaderBindings(GPUGraph const& graph);
+		void RegisterCBufferUsageStates(GPUGraph const& graph);
 
 		// Phase 2: Build dependency-free batches
 		void BuildDependencyFreeBatches(GPUGraph const& graph);
@@ -316,6 +323,9 @@ namespace graphics_backend
 		// Shader resource instances
 		castl::unordered_map<size_t, castl::shared_ptr<VulkanResourceBindingInstance>> m_ShaderResourceInstances;
 
+		// CBuffer resource ID mapping (VulkanShaderStruct* -> uint64_t resourceId)
+		castl::unordered_map<VulkanShaderStruct const*, uint64_t> m_CBufferResourceIdMap;
+
 		// Synchronization primitives
 		castl::vector<vk::Fence> m_Fences;
 		castl::vector<vk::Semaphore> m_Semaphores;
@@ -350,8 +360,8 @@ namespace graphics_backend
 		};
 		castl::vector<StagingBufferInfo> m_PendingStagingBuffers;
 
-		// Shader module cache (T085)
-		castl::unordered_map<size_t, vk::ShaderModule> m_ShaderModuleCache;
+		// Shader module cache (T085) — keyed by SHA-256 program hash
+		castl::unordered_map<cahash::sha256_hash::result_type, vk::ShaderModule> m_ShaderModuleCache;
 
 		// Pipeline layout cache (T086)
 		castl::unordered_map<size_t, vk::PipelineLayout> m_PipelineLayoutCache;
@@ -360,9 +370,10 @@ namespace graphics_backend
 		castl::unordered_map<size_t, vk::DescriptorSetLayout> m_DescriptorSetLayoutCache;
 		vk::DescriptorPool m_DescriptorPool = nullptr;
 
+
 		// Helper methods
-		vk::ShaderModule GetOrCreateShaderModule(ShaderInfo const& shaderInfo, vk::ShaderStageFlagBits stage);
-		vk::PipelineLayout GetOrCreatePipelineLayout(ShaderCompilerSlang::ShaderReflectionData const& reflectionData);
+		vk::ShaderModule GetOrCreateShaderModule(cahash::sha256_hash::result_type const& programHash);
+		vk::PipelineLayout GetOrCreatePipelineLayout(VulkanShaderResourceBindingInfo const& bindingInfo);
 		vk::RenderPass GetOrCreateRenderPass(RenderPassCacheKey const& key);
 		vk::Framebuffer GetOrCreateFramebuffer(vk::RenderPass renderPass, castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height);
 		void CleanupStagingBuffers();

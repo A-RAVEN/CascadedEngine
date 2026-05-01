@@ -41,6 +41,40 @@ namespace graphics_backend
 		return id;
 	}
 
+	uint64_t VulkanGraphLocalResourceManager::AddBuffer(GPUBufferDescriptor const& desc, EBufferUsageFlags usage, uint32_t batchIndex)
+	{
+		uint64_t id = RegisterTemporaryBuffer(desc, usage, batchIndex);
+
+		// Create the actual buffer resource immediately
+		// (since AddBuffer may be called after AllocateAliasedResources)
+		auto device = GetDevice();
+		ManagedGPUResource managed{};
+		managed.localResource = &m_LocalResources[id];
+
+		vk::BufferCreateInfo bufferInfo{};
+		bufferInfo.size = desc.SizeInByte();
+		bufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eUniformBuffer;
+		if (usage & EBufferUsage::eVertexBuffer)
+			bufferInfo.usage |= vk::BufferUsageFlagBits::eVertexBuffer;
+		if (usage & EBufferUsage::eIndexBuffer)
+			bufferInfo.usage |= vk::BufferUsageFlagBits::eIndexBuffer;
+		if (usage & EBufferUsage::eStructuredBuffer)
+			bufferInfo.usage |= vk::BufferUsageFlagBits::eStorageBuffer;
+
+		try
+		{
+			managed.buffer = device.createBuffer(bufferInfo);
+			m_TotalMemoryUsed += bufferInfo.size;
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create buffer in AddBuffer: {}", e.what());
+		}
+
+		m_Resources[id] = managed;
+		return id;
+	}
+
 	uint64_t VulkanGraphLocalResourceManager::RegisterTemporaryTexture(GPUTextureDescriptor const& desc, ETextureAccessTypeFlags access, uint32_t batchIndex)
 	{
 		uint64_t id = m_NextResourceId++;

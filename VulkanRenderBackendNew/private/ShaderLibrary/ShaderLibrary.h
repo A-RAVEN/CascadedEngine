@@ -58,6 +58,20 @@ namespace graphics_backend
 				.setBindingCount(static_cast<uint32_t>(outBindings.size()))
 				.setPBindings(outBindings.data());
 		}
+
+		size_t GetHash() const
+		{
+			size_t h = 0;
+			cacore::hash_combine(h, setIndex);
+			for (auto const& b : bindings)
+			{
+				cacore::hash_combine(h, b.binding);
+				cacore::hash_combine(h, b.descriptorType);
+				cacore::hash_combine(h, b.descriptorCount);
+				cacore::hash_combine(h, b.stageFlags);
+			}
+			return h;
+		}
 	};
 
 	// Task 1.2: Vulkan binding info types (mirrors D3D12 CBufferBindingInfo)
@@ -172,6 +186,7 @@ namespace graphics_backend
 		castl::vector<ProgramInfo> entryPointToShaderProgram;
 		ShaderCompilerSlang::ShaderReflectionData reflectionData;
 		VulkanShaderResourceBindingInfo shaderBindingInfo;
+		EShaderTypeFlags GetShaderStageUsage(uint32_t usageMask) const;
 		auto operator<=>(const VulkanShaderFileInfo&) const = default;
 	};
 

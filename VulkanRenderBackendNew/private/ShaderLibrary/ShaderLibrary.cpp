@@ -3,6 +3,18 @@
 
 namespace graphics_backend
 {
+	EShaderTypeFlags VulkanShaderFileInfo::GetShaderStageUsage(uint32_t usageMask) const
+	{
+		EShaderTypeFlags result = EShaderTypeMask::eNone;
+		for (uint32_t id = 0; id < entryPointToShaderProgram.size(); ++id)
+		{
+			if (usageMask & (1 << id))
+			{
+				result |= ECompileShaderTypeToMask(entryPointToShaderProgram[id].shaderType);
+			}
+		}
+		return result;
+	}
 	VulkanShaderFileInfo const* ShaderLibrary::GetShaderFileInfo(cacore::PathHash const& pathHash) const
 	{
 		auto it = m_ShaderFiles.find(pathHash);

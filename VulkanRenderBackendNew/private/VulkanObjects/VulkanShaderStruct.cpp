@@ -43,49 +43,9 @@ namespace graphics_backend
 			m_NameToBufferHandles[buffer.m_Name].resize(buffer.m_ElementCount);
 		}
 
-		// TODO: Create descriptor set layout from VulkanShaderResourceBindingInfo
-		// Currently creates an empty layout as placeholder
-		// Full implementation should look up VulkanShaderFileInfo::shaderBindingInfo.setLayoutInfos
-		// and use VulkanDescriptorSetLayoutInfo::GetCreateInfo() for proper layout creation
-		vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-		layoutInfo.bindingCount = 0;
-		layoutInfo.pBindings = nullptr;
-
-		m_DescriptorSetLayout = GetDevice().createDescriptorSetLayout(layoutInfo);
-
-		// TODO: Pipeline layout should be created from the descriptor set layouts
-		// derived from VulkanShaderResourceBindingInfo, not from this empty layout
-		vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-		pipelineLayoutInfo.setLayoutCount = 1;
-		pipelineLayoutInfo.pSetLayouts = &m_DescriptorSetLayout;
-
-		m_PipelineLayout = GetDevice().createPipelineLayout(pipelineLayoutInfo);
-
-		// Create descriptor pool
-		vk::DescriptorPoolSize poolSizes[] = {
-			{ vk::DescriptorType::eUniformBuffer, 100 },
-			{ vk::DescriptorType::eCombinedImageSampler, 100 },
-			{ vk::DescriptorType::eStorageBuffer, 100 },
-		};
-
-		vk::DescriptorPoolCreateInfo poolInfo{};
-		poolInfo.maxSets = 100;
-		poolInfo.poolSizeCount = 3;
-		poolInfo.pPoolSizes = poolSizes;
-
-		m_DescriptorPool = GetDevice().createDescriptorPool(poolInfo);
-
-		// Allocate descriptor set
-		vk::DescriptorSetAllocateInfo allocInfo{};
-		allocInfo.descriptorPool = m_DescriptorPool;
-		allocInfo.descriptorSetCount = 1;
-		allocInfo.pSetLayouts = &m_DescriptorSetLayout;
-
-		auto sets = GetDevice().allocateDescriptorSets(allocInfo);
-		if (!sets.empty())
-		{
-			m_DescriptorSet = sets[0];
-		}
+		// Descriptor object creation (DescriptorSetLayout, PipelineLayout, DescriptorPool, DescriptorSet)
+		// is deferred to the BuildResources stage, which belongs to a subsequent change.
+		// VulkanShaderStruct will not hold any descriptor Vulkan objects until BuildResources is implemented.
 
 		CA_LOG_INFO("VulkanShaderStruct initialized for type: {}", m_StructTypeName.c_str());
 	}
@@ -281,7 +241,8 @@ namespace graphics_backend
 	{
 		if (p_StructData == nullptr)
 			return 0;
-		return p_StructData->m_StructUniforms.m_MemorySize;
+		uint64_t size = p_StructData->m_StructUniforms.m_MemorySize;
+		return (size + 255) & ~255ULL;
 	}
 
 	ETextureAccessType VulkanShaderStruct::GetTextureAccessType(cacore::NameHash const& textureName) const

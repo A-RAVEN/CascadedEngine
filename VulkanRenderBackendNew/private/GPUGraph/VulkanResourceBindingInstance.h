@@ -10,6 +10,9 @@ namespace graphics_backend
 {
 	class VulkanShaderStruct;
 	class VulkanShaderResourceSet;
+	class VulkanGraphLocalResourceManager;
+	class VulkanGraphExecutor;
+	class GPUGraph;
 
 	// Binding element types (references D3D12 GPUResourceBindingInstance pattern)
 	struct CBufferBindingElement
@@ -17,6 +20,7 @@ namespace graphics_backend
 		uint32_t offset;
 		VulkanCBufferBindingInfo bindingInfo;
 		VulkanShaderStruct const* pCBufferStruct = nullptr;
+		uint64_t gpuBufferResourceId = 0;
 		vk::ShaderStageFlags usingStages;
 	};
 
@@ -57,11 +61,11 @@ namespace graphics_backend
 		void Init(VulkanShaderResourceSet const& resourceSet);
 		virtual void Release() override;
 
-		// Build resources into local resource manager (TODO: full implementation)
-		void BuildResources(class VulkanGraphLocalResourceManager& resourceManager);
+		// Build resources into local resource manager
+		void BuildResources(VulkanGraphLocalResourceManager& resourceManager, GPUGraph const& graph);
 
-		// Build descriptors - allocate and update descriptor sets (TODO: full implementation)
-		void BuildDescriptors(vk::DescriptorPool pool);
+		// Build descriptors - allocate and update descriptor sets
+		void BuildDescriptors(VulkanGraphExecutor& executor, vk::DescriptorPool pool);
 
 		// Set resources (low-level API for manual descriptor writes)
 		void SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range);
@@ -73,8 +77,11 @@ namespace graphics_backend
 		// Get descriptor set for a set index
 		vk::DescriptorSet GetDescriptorSet(uint32_t set) const;
 
-		// Allocate descriptor sets from pool
-		bool AllocateDescriptorSets(vk::DescriptorPool pool, castl::vector<vk::DescriptorSetLayout> const& layouts);
+		// Get all allocated descriptor sets sorted by set index
+		castl::vector<castl::pair<uint32_t, vk::DescriptorSet>> GetDescriptorSetsSorted() const;
+
+		// Allocate descriptor sets from pool (pairs: setIndex -> layout)
+		bool AllocateDescriptorSets(vk::DescriptorPool pool, castl::vector<castl::pair<uint32_t, vk::DescriptorSetLayout>> const& setLayoutPairs);
 
 		// Update descriptor sets on GPU
 		void UpdateDescriptorSets();
@@ -88,6 +95,9 @@ namespace graphics_backend
 		castl::vector<ImageBindingElement> const& GetImageBindings() const { return m_ImageBindings; }
 		castl::vector<BufferBindingElement> const& GetBufferBindings() const { return m_BufferBindings; }
 		castl::vector<SamplerBindingElement> const& GetSamplerBindings() const { return m_SamplerBindings; }
+
+		// Access shader file info
+		VulkanShaderFileInfo const* GetShaderFileInfo() const { return p_ShaderFileInfo; }
 
 	private:
 		// Binding elements populated from reflection
@@ -108,5 +118,6 @@ namespace graphics_backend
 		// Storage for descriptor info (must persist until update)
 		castl::vector<vk::DescriptorBufferInfo> m_BufferInfos;
 		castl::vector<vk::DescriptorImageInfo> m_ImageInfos;
+		castl::vector<vk::Sampler> m_CreatedSamplers;
 	};
 }

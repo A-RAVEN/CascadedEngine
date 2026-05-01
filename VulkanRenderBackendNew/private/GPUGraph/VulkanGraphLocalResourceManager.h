@@ -47,6 +47,9 @@ namespace graphics_backend
 		// Register a temporary buffer
 		uint64_t RegisterTemporaryBuffer(GPUBufferDescriptor const& desc, EBufferUsageFlags usage, uint32_t batchIndex);
 
+		// Add a buffer (wrapper around RegisterTemporaryBuffer)
+		uint64_t AddBuffer(GPUBufferDescriptor const& desc, EBufferUsageFlags usage, uint32_t batchIndex);
+
 		// Register a temporary texture
 		uint64_t RegisterTemporaryTexture(GPUTextureDescriptor const& desc, ETextureAccessTypeFlags access, uint32_t batchIndex);
 
