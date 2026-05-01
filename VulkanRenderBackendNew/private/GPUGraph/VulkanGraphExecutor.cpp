@@ -490,7 +490,7 @@ namespace graphics_backend
 			if (uniformBufferCount > 0)
 				poolSizes.push_back({ vk::DescriptorType::eUniformBuffer, uniformBufferCount });
 			if (sampledImageCount > 0)
-				poolSizes.push_back({ vk::DescriptorType::eCombinedImageSampler, sampledImageCount });
+				poolSizes.push_back({ vk::DescriptorType::eSampledImage, sampledImageCount });
 			if (storageBufferCount > 0)
 				poolSizes.push_back({ vk::DescriptorType::eStorageBuffer, storageBufferCount });
 			if (storageImageCount > 0)

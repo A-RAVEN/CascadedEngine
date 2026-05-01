@@ -405,11 +405,9 @@ namespace graphics_backend
 			}
 			else
 			{
-				// For sampled images, we need a sampler. Use LinearRepeat as default.
-				vk::SamplerCreateInfo samplerInfo = MakeSamplerCreateInfo(TextureSamplerDescriptor::LinearRepeat());
-				vk::Sampler defaultSampler = device.createSampler(samplerInfo);
-				m_CreatedSamplers.push_back(defaultSampler);
-				SetSampledImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout, defaultSampler);
+				if (shaderBindingInfo.samplerInfos.empty())
+					CA_LOG_WARN("SampledImage bound without corresponding SamplerBinding - configure sampler for correct behavior");
+				SetSampledImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout);
 			}
 		}
 
@@ -478,19 +476,19 @@ namespace graphics_backend
 		m_PendingWrites.push_back(write);
 	}
 
-	void VulkanResourceBindingInstance::SetSampledImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout, vk::Sampler sampler)
+	void VulkanResourceBindingInstance::SetSampledImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout)
 	{
 		auto it = m_DescriptorSets.find(set);
 		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
 
-		m_ImageInfos.push_back({ sampler, imageView, layout });
+		m_ImageInfos.push_back({ {}, imageView, layout });
 
 		vk::WriteDescriptorSet write{};
 		write.dstSet = it->second;
 		write.dstBinding = binding;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
-		write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+		write.descriptorType = vk::DescriptorType::eSampledImage;
 		write.pImageInfo = &m_ImageInfos.back();
 		m_PendingWrites.push_back(write);
 	}
