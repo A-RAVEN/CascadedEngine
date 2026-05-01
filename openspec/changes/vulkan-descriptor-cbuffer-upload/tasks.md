@@ -50,8 +50,8 @@
 
 ## 8. 审查发现的遗留问题 (2026-04-30)
 
-- [ ] 8.1 **Image fallback 注册缺少 RegisterTextureHandle** — [VulkanResourceBindingInstance.cpp:267](VulkanResourceBindingInstance.cpp#L267)。BuildResources 的 image fallback 路径只调用了 `RegisterTemporaryTexture` 但丢弃了返回值，缺少对应的 `RegisterTextureHandle` 调用。对比 Buffer fallback（line 283-284）正确地调用了 `RegisterBufferHandle`。这导致 fallback 注册的 image 的 `ImageHandle → resourceId` 映射永远不会建立，后续 `GetTextureView(ImageHandle)` 查询将返回 null
-- [ ] 8.2 **CombinedImageSampler 使用零初始化默认 Sampler** — [VulkanResourceBindingInstance.cpp:379-382](VulkanResourceBindingInstance.cpp#L379-L382)。vk::SamplerCreateInfo 全字段都是零值（magFilter/minFilter/addressMode 等），可能触发 Validation Layer 报错
-- [ ] 8.3 **TextureSamplerDescriptor 未映射到 vk::SamplerCreateInfo** — [VulkanResourceBindingInstance.cpp:407-409](VulkanResourceBindingInstance.cpp#L407-L409)。sampler.samplerDescriptors[0] 被读取但未将其 filter/anisotropy/addressMode 等参数映射到 vk::SamplerCreateInfo
-- [ ] 8.4 **SetUniformBuffer 在 key 不存在时 operator[] 静默插入 null DescriptorSet** — [VulkanResourceBindingInstance.cpp:423](VulkanResourceBindingInstance.cpp#L423)。若某个 binding 的 `spaceID` 在 AllocateDescriptorSets 中未被分配，`m_DescriptorSets[set]` 会插入默认值 null，传给 vkUpdateDescriptorSets 会导致未定义行为
-- [ ] 8.5 **RegisterCBufferUsageStates 中的死代码** — [VulkanGraphExecutor.cpp:573-574](VulkanGraphExecutor.cpp#L573-L574)。`pShaderFileInfo` 变量被赋值但从未被使用，循环体中只用到了 `cbuffer.pCBufferStruct`
+- [x] 8.1 **Image fallback 注册缺少 RegisterTextureHandle** — [VulkanResourceBindingInstance.cpp:267](VulkanResourceBindingInstance.cpp#L267)。BuildResources 的 image fallback 路径只调用了 `RegisterTemporaryTexture` 但丢弃了返回值，缺少对应的 `RegisterTextureHandle` 调用。对比 Buffer fallback（line 283-284）正确地调用了 `RegisterBufferHandle`。这导致 fallback 注册的 image 的 `ImageHandle → resourceId` 映射永远不会建立，后续 `GetTextureView(ImageHandle)` 查询将返回 null
+- [x] 8.2 **CombinedImageSampler 使用零初始化默认 Sampler** — [VulkanResourceBindingInstance.cpp:379-382](VulkanResourceBindingInstance.cpp#L379-L382)。vk::SamplerCreateInfo 全字段都是零值（magFilter/minFilter/addressMode 等），可能触发 Validation Layer 报错
+- [x] 8.3 **TextureSamplerDescriptor 未映射到 vk::SamplerCreateInfo** — [VulkanResourceBindingInstance.cpp:407-409](VulkanResourceBindingInstance.cpp#L407-L409)。sampler.samplerDescriptors[0] 被读取但未将其 filter/anisotropy/addressMode 等参数映射到 vk::SamplerCreateInfo
+- [x] 8.4 **SetUniformBuffer 在 key 不存在时 operator[] 静默插入 null DescriptorSet** — [VulkanResourceBindingInstance.cpp:423](VulkanResourceBindingInstance.cpp#L423)。若某个 binding 的 `spaceID` 在 AllocateDescriptorSets 中未被分配，`m_DescriptorSets[set]` 会插入默认值 null，传给 vkUpdateDescriptorSets 会导致未定义行为
+- [x] 8.5 **RegisterCBufferUsageStates 中的死代码** — [VulkanGraphExecutor.cpp:573-574](VulkanGraphExecutor.cpp#L573-L574)。`pShaderFileInfo` 变量被赋值但从未被使用，循环体中只用到了 `cbuffer.pCBufferStruct`

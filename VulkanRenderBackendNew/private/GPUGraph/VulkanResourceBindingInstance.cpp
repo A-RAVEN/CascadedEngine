@@ -266,7 +266,8 @@ namespace graphics_backend
 				auto descriptor = GetDescriptor(graph, imageHandle);
 				ETextureAccessTypeFlags accessType = (image.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
 					? ETextureAccessType::eUnorderedAccess : ETextureAccessType::eSampled;
-				resourceManager.RegisterTemporaryTexture(descriptor, accessType, 0);
+				uint64_t resourceId = resourceManager.RegisterTemporaryTexture(descriptor, accessType, 0);
+				resourceManager.RegisterTextureHandle(imageHandle, resourceId);
 			}
 		}
 
@@ -294,6 +295,31 @@ namespace graphics_backend
 		{
 			sampler.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(sampler.bindingInfo.usageMask));
 		}
+	}
+
+	// Convert TextureSamplerDescriptor to vk::SamplerCreateInfo
+	static vk::SamplerCreateInfo MakeSamplerCreateInfo(TextureSamplerDescriptor const& desc)
+	{
+		vk::SamplerCreateInfo info{};
+		info.magFilter = desc.magFilterMode == ETextureSamplerFilterMode::eLinear ? vk::Filter::eLinear : vk::Filter::eNearest;
+		info.minFilter = desc.minFilterMode == ETextureSamplerFilterMode::eLinear ? vk::Filter::eLinear : vk::Filter::eNearest;
+		info.mipmapMode = desc.mipmapFilterMode == ETextureSamplerFilterMode::eLinear ? vk::SamplerMipmapMode::eLinear : vk::SamplerMipmapMode::eNearest;
+
+		auto mapAddressMode = [](ETextureSamplerAddressMode mode) -> vk::SamplerAddressMode {
+			switch (mode)
+			{
+			case ETextureSamplerAddressMode::eRepeat:          return vk::SamplerAddressMode::eRepeat;
+			case ETextureSamplerAddressMode::eMirroredRepeat:  return vk::SamplerAddressMode::eMirroredRepeat;
+			case ETextureSamplerAddressMode::eClampToEdge:     return vk::SamplerAddressMode::eClampToEdge;
+			case ETextureSamplerAddressMode::eClampToBorder:   return vk::SamplerAddressMode::eClampToBorder;
+			default:                                           return vk::SamplerAddressMode::eRepeat;
+			}
+		};
+		info.addressModeU = mapAddressMode(desc.addressModeU);
+		info.addressModeV = mapAddressMode(desc.addressModeV);
+		info.addressModeW = mapAddressMode(desc.addressModeW);
+
+		return info;
 	}
 
 	void VulkanResourceBindingInstance::BuildDescriptors(VulkanGraphExecutor& executor, vk::DescriptorPool pool)
@@ -379,8 +405,8 @@ namespace graphics_backend
 			}
 			else
 			{
-				// For sampled images, we need a sampler. Use a default sampler for now.
-				vk::SamplerCreateInfo samplerInfo{};
+				// For sampled images, we need a sampler. Use LinearRepeat as default.
+				vk::SamplerCreateInfo samplerInfo = MakeSamplerCreateInfo(TextureSamplerDescriptor::LinearRepeat());
 				vk::Sampler defaultSampler = device.createSampler(samplerInfo);
 				m_CreatedSamplers.push_back(defaultSampler);
 				SetSampledImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout, defaultSampler);
@@ -408,8 +434,7 @@ namespace graphics_backend
 				continue;
 
 			auto const& samplerDesc = sampler.samplerDescriptors[0];
-			vk::SamplerCreateInfo samplerInfo{};
-			// TODO: Map sampler descriptor parameters to Vulkan sampler create info
+			vk::SamplerCreateInfo samplerInfo = MakeSamplerCreateInfo(samplerDesc);
 			vk::Sampler vkSampler = device.createSampler(samplerInfo);
 			m_CreatedSamplers.push_back(vkSampler);
 			SetSampler(sampler.bindingInfo.spaceID, sampler.bindingInfo.bindingID, vkSampler);
@@ -421,10 +446,13 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range)
 	{
+		auto it = m_DescriptorSets.find(set);
+		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
+
 		m_BufferInfos.push_back({ buffer, offset, range });
 
 		vk::WriteDescriptorSet write{};
-		write.dstSet = m_DescriptorSets[set];
+		write.dstSet = it->second;
 		write.dstBinding = binding;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
@@ -435,10 +463,13 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::SetStorageBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range)
 	{
+		auto it = m_DescriptorSets.find(set);
+		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
+
 		m_BufferInfos.push_back({ buffer, offset, range });
 
 		vk::WriteDescriptorSet write{};
-		write.dstSet = m_DescriptorSets[set];
+		write.dstSet = it->second;
 		write.dstBinding = binding;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
@@ -449,10 +480,13 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::SetSampledImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout, vk::Sampler sampler)
 	{
+		auto it = m_DescriptorSets.find(set);
+		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
+
 		m_ImageInfos.push_back({ sampler, imageView, layout });
 
 		vk::WriteDescriptorSet write{};
-		write.dstSet = m_DescriptorSets[set];
+		write.dstSet = it->second;
 		write.dstBinding = binding;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
@@ -463,10 +497,13 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::SetStorageImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout)
 	{
+		auto it = m_DescriptorSets.find(set);
+		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
+
 		m_ImageInfos.push_back({ {}, imageView, layout });
 
 		vk::WriteDescriptorSet write{};
-		write.dstSet = m_DescriptorSets[set];
+		write.dstSet = it->second;
 		write.dstBinding = binding;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
@@ -477,10 +514,13 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::SetSampler(uint32_t set, uint32_t binding, vk::Sampler sampler)
 	{
+		auto it = m_DescriptorSets.find(set);
+		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
+
 		m_ImageInfos.push_back({ sampler, {}, {} });
 
 		vk::WriteDescriptorSet write{};
-		write.dstSet = m_DescriptorSets[set];
+		write.dstSet = it->second;
 		write.dstBinding = binding;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
