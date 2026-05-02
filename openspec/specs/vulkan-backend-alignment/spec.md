@@ -25,8 +25,8 @@
 | 3 | Pipeline 创建 | Graphics + Compute Pipeline 完整流程 | P0 | - | ✅ 已完成 |
 | 4 | Descriptor 流程 | DescriptorPool → Allocate → Write → Bind | P0 | - | ✅ 已完成 |
 | 5 | CBuffer 流程 | ShaderStruct → staging upload → barrier | P0 | - | ✅ 已完成 |
-| 6 | **Compute Pass 资源注册** | CollectResources 中 Compute image/buffer 注册 | P0 | `vulkan-compute-pass-resources` | 🚧 Proposal |
-| 7 | **RenderPass 格式转换** | 消除硬编码 `eD32Sfloat` / `eR8G8B8A8Unorm` | P1 | 待创建 | ❌ 未开始 |
+| 6 | **Compute Pass 资源注册** | CollectResources 中 Compute image/buffer 注册 | P0 | `vulkan-compute-pass-resources` | ✅ 已完成 |
+| 7 | **RenderPass 格式转换** | 消除硬编码 `eD32Sfloat` / `eR8G8B8A8Unorm` | P1 | `fix-vulkan-renderpass-format-hardcoding` | ✅ 已完成 |
 
 ---
 
@@ -85,4 +85,5 @@
 |------|------|------|
 | 2026-05-01 | CBuffer + Descriptor 完成 | 关闭 Phase 1 项目 4-5 |
 | 2026-05-01 | Image Sampler 分离 | 修复 combined image sampler 问题 |
-| 2026-05-02 | Compute Pass 资源注册 | 创建 change proposal |
+| 2026-05-02 | Compute Pass 资源注册 | 关闭 Phase 1 项目 6 |
+| 2026-05-02 | RenderPass 格式转换 | 关闭 Phase 1 项目 7 |

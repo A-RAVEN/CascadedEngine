@@ -1,6 +1,6 @@
 # Vulkan后端 vs D3D12后端 对齐分析
 
-> 生成日期: 2026-04-12 | 更新: 2026-05-02 (基于 vulkan-descriptor-cbuffer-upload + fix-vulkan-image-sampler-separation + vulkan-cbuffer-manager 变更)
+> 生成日期: 2026-04-12 | 更新: 2026-05-02 (基于 vulkan-descriptor-cbuffer-upload + fix-vulkan-image-sampler-separation + vulkan-cbuffer-manager + vulkan-compute-pass-resources 变更)
 > 目标: 使 VulkanRenderBackendNew 在接口功能上向 D3D12RenderBackend 对齐
 
 ---
@@ -322,13 +322,12 @@ for each SamplerBinding:                        SetStorageBuffer()
 | `VulkanGraphExecutor.cpp` | `GetOrCreateShaderModule()` 返回 nullptr | 实现: 从 ShaderLibrary 加载 SPIR-V → vkCreateShaderModule |
 | `VulkanGraphExecutor.cpp` | Pipeline Layout 获取 | 实现: GetOrCreatePipelineLayout + GetOrCreateDescriptorSetLayout (cached) |
 | `VulkanGraphExecutor.cpp` | 完整管线创建 | 实现: PipelineLibrary GPL 路径 + 单体 fallback |
+| `VulkanGraphExecutor.cpp` | Compute Pass 资源注册 (CollectResources 中) | 实现: `RegisterComputeResources()` 遍历 dispatches → image/buffer bindings → SetImageRWState/SetBufferRWState + access→vk映射helper |
 
 ### 剩余 TODO / 未完成项
 
 | 位置 | TODO 内容 | 优先级 |
 |------|----------|--------|
-| `VulkanGraphExecutor.cpp` | Compute Pass 资源注册 (CollectResources 中) | 高 |
-| `VulkanGraphExecutor.cpp` | RenderPass 格式硬编码 (`eD32Sfloat`, `eR8G8B8A8Unorm`) | 中 |
 | `VulkanGraphExecutor.cpp` | `ApplyExternalResourceStates()` 空函数 | 中 |
 | Barrier 中 Queue Family | 始终 `VK_QUEUE_FAMILY_IGNORED`，跨队列同步缺失 | 中 |
 | Submit | 同步等待 (`UINT64_MAX`)，无跨队列 fence | 高 |

@@ -1680,12 +1680,12 @@ namespace graphics_backend
 			auto desc = GetDescriptor(graph, attachments[i]);
 			if (static_cast<int>(i) == rasterPass.GetDepthAttachmentIndex())
 			{
-				rpKey.depthFormat = vk::Format::eD32Sfloat; // TODO: Proper format conversion
+				rpKey.depthFormat = VulkanTexture::ConvertFormat(desc.format);
 				rpKey.hasDepth = true;
 			}
 			else
 			{
-				rpKey.colorFormats.push_back(vk::Format::eR8G8B8A8Unorm); // TODO: Proper format conversion
+				rpKey.colorFormats.push_back(VulkanTexture::ConvertFormat(desc.format));
 			}
 		}
 

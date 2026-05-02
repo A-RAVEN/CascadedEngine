@@ -17,6 +17,8 @@ tests/
 
 ## Commands
 
+- `/commit-from-propose`: 根据 OpenSpec proposal 和本地 git diff 生成中文 commit message 并提交。可选指定 change name
+
 # Add commands for C++ (CMake build system)
 
 ## Code Style

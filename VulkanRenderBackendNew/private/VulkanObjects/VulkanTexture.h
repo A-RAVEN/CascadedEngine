@@ -40,11 +40,11 @@ namespace graphics_backend
 		// Get aspects for depth/stencil
 		vk::ImageAspectFlags GetImageAspect() const;
 
-	private:
 		// Helper to convert texture format
 		static vk::Format ConvertFormat(ETextureFormat format);
 		static vk::ImageType ConvertTextureType(ETextureType type);
 		static vk::SampleCountFlagBits ConvertSampleCount(EMultiSampleCount samples);
+	private:
 
 		vk::Image m_Image;
 		vk::ImageView m_ImageView;
