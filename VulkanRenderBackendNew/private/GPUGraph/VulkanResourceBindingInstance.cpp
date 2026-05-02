@@ -1,5 +1,6 @@
 #include <GPUGraph/VulkanResourceBindingInstance.h>
 #include <GPUGraph/VulkanGraphExecutor.h>
+#include <GPUGraph/VulkanConstantBufferManager.h>
 #include <VulkanObjects/VulkanShaderStruct.h>
 #include <RenderBackend_Vulkan.h>
 
@@ -232,22 +233,20 @@ namespace graphics_backend
 		return result;
 	}
 
-	void VulkanResourceBindingInstance::BuildResources(VulkanGraphLocalResourceManager& resourceManager, GPUGraph const& graph)
+	void VulkanResourceBindingInstance::BuildResources(VulkanGraphLocalResourceManager& resourceManager, VulkanConstantBufferManager& cbufferManager, GPUGraph const& graph)
 	{
 		if (p_ShaderFileInfo == nullptr)
 			return;
 
 		auto& shaderBindingInfo = p_ShaderFileInfo->shaderBindingInfo;
 
-		// 3.2: Allocate GPU buffers for CBuffer bindings
+		// 3.2: Lookup CBuffer resource IDs (pre-registered in RegisterCBufferForAliasing)
 		for (auto& cbuffer : m_CBufferBindings)
-			{
+		{
 			if (cbuffer.pCBufferStruct == nullptr)
 				continue;
 
-			uint64_t bufferSize = cbuffer.pCBufferStruct->GetCBufferSize();
-			GPUBufferDescriptor desc = GPUBufferDescriptor::Create(1, static_cast<uint32_t>(bufferSize));
-			cbuffer.gpuBufferResourceId = resourceManager.AddBuffer(desc, EBufferUsage::eConstantBuffer, 0);
+			cbuffer.gpuBufferResourceId = cbufferManager.GetResourceId(cbuffer.pCBufferStruct);
 			cbuffer.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(cbuffer.bindingInfo.usageMask));
 		}
 

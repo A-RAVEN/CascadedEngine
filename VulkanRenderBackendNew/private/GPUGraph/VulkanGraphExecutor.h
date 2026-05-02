@@ -3,6 +3,7 @@
 #include <GPUGraph/VulkanGraphLocalResourceManager.h>
 #include <GPUGraph/VulkanPassRWState.h>
 #include <GPUGraph/VulkanResourceBindingInstance.h>
+#include <GPUGraph/VulkanConstantBufferManager.h>
 #include <CASTL/CAVector.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CASet.h>
@@ -269,7 +270,9 @@ namespace graphics_backend
 		void InitArraySizes(GPUGraph const& graph);
 		void CollectResources(GPUGraph const& graph);
 		void CollectShaderBindings(GPUGraph const& graph);
+		void RegisterComputeResources(GPUGraph const& graph);
 		void RegisterCBufferUsageStates(GPUGraph const& graph);
+		void RegisterCBufferForAliasing(GPUGraph const& graph);
 
 		// Phase 2: Build dependency-free batches
 		void BuildDependencyFreeBatches(GPUGraph const& graph);
@@ -301,6 +304,7 @@ namespace graphics_backend
 
 		// Resource managers
 		VulkanGraphLocalResourceManager m_LocalResourceManager;
+		VulkanConstantBufferManager m_ConstantBufferManager;
 
 		// Per-pass states
 		castl::vector<VulkanExecutorRWState> m_RasterPassRWStates;
@@ -322,9 +326,6 @@ namespace graphics_backend
 
 		// Shader resource instances
 		castl::unordered_map<size_t, castl::shared_ptr<VulkanResourceBindingInstance>> m_ShaderResourceInstances;
-
-		// CBuffer resource ID mapping (VulkanShaderStruct* -> uint64_t resourceId)
-		castl::unordered_map<VulkanShaderStruct const*, uint64_t> m_CBufferResourceIdMap;
 
 		// Synchronization primitives
 		castl::vector<vk::Fence> m_Fences;

@@ -11,6 +11,7 @@ namespace graphics_backend
 	class VulkanShaderStruct;
 	class VulkanShaderResourceSet;
 	class VulkanGraphLocalResourceManager;
+	class VulkanConstantBufferManager;
 	class VulkanGraphExecutor;
 	class GPUGraph;
 
@@ -62,7 +63,7 @@ namespace graphics_backend
 		virtual void Release() override;
 
 		// Build resources into local resource manager
-		void BuildResources(VulkanGraphLocalResourceManager& resourceManager, GPUGraph const& graph);
+		void BuildResources(VulkanGraphLocalResourceManager& resourceManager, VulkanConstantBufferManager& cbufferManager, GPUGraph const& graph);
 
 		// Build descriptors - allocate and update descriptor sets
 		void BuildDescriptors(VulkanGraphExecutor& executor, vk::DescriptorPool pool);

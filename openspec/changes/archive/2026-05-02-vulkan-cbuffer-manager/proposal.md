@@ -37,11 +37,19 @@ Pass 1: shader "Particle.hlsl" + TransformCB (同一个 struct 对象 &t)
 
 - **新增文件**: `VulkanRenderBackendNew/private/GPUGraph/VulkanConstantBufferManager.h/.cpp`
 - **修改文件**:
-  - `VulkanGraphExecutor.h/.cpp` — 新增 `m_ConstantBufferManager` 成员，调整 `CompileAndExecute` 阶段顺序
-  - `VulkanResourceBindingInstance.h/.cpp` — `BuildResources` 签名变更，不再直接调用 `AddBuffer`
+  - `VulkanGraphExecutor.h/.cpp` — 新增 `m_ConstantBufferManager` 成员，调整 `CompileAndExecute` 阶段顺序，修复 `RegisterCBufferForAliasing` 排序
+  - `VulkanResourceBindingInstance.h/.cpp` — `BuildResources` 签名变更，不再直接调用 `AddBuffer`，CBuffer 仅 lookup
   - `VulkanGraphLocalResourceManager.h/.cpp` — 可能需要暴露 `RegisterTemporaryBuffer` 用于 CBuffer 预注册
 - **不影响**: 应用层 API、ShaderStruct 接口、DescriptorSet 创建流程
 - **D3D12 对齐度**: 此前 D3D12 `GPUConstantBufferManager` 被标记为"未实现"，本次变更后对齐
+
+### 审查发现项 (2026-05-01)
+
+代码审查发现 `RegisterCBufferForAliasing` 存在排序 bug——在 `m_CBufferLifetimes` 被 `BuildResourceUsageRanges` 填充之前执行，导致 `MarkResourceUse` 从未被调用。此外：
+- `IterateResources` 方法无调用点，为死代码
+- CBuffer `GPUBufferDescriptor` 创建逻辑在 `RegisterCBufferForAliasing` 和 `BuildResources` 中重复
+
+修复任务见 tasks.md 第 7 节。
 
 ## Non-Goals
 

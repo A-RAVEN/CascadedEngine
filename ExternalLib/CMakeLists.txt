@@ -27,6 +27,7 @@ CPMAddPackage(
   GITHUB_REPOSITORY g-truc/glm
   OPTIONS
 	"GLM_BUILD_LIBRARY ON"
+        "BUILD_SHARED_LIBS OFF"
 )
 
 CPMAddPackage(

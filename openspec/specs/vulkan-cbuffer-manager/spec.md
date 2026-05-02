@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: VulkanConstantBufferManager SHALL provide unique ShaderStruct-to-resourceId mapping
 
@@ -82,3 +82,44 @@
 - **WHEN** 调用`VulkanGraphExecutor::Reset()`
 - **THEN** `m_ConstantBufferManager.Clear()`被调用
 - **AND** `m_CBufferResourceIdMap`不再存在
+
+---
+
+### Requirement: RegisterCBufferForAliasing SHALL execute after BuildResourceUsageRanges
+
+系统SHALL确保`RegisterCBufferForAliasing`在`BuildResourceUsageRanges`之后、`AllocateAliasedResources`之前执行，使CBuffer生命周期数据可用时正确传播到AliasingManager。
+
+#### Scenario: RegisterCBufferForAliasing读取已填充的lifetime
+- **WHEN** `RegisterCBufferForAliasing`遍历CBuffer并查找`m_CBufferLifetimes`
+- **THEN** `m_CBufferLifetimes`已被`BuildResourceUsageRanges`填充
+- **AND** `m_CBufferLifetimes.find(pStruct)`返回有效迭代器
+- **AND** `MarkResourceUse(resourceId, firstBatch)`被调用（firstBatch = lifeTime.begin()）
+- **AND** `MarkResourceUse(resourceId, lastBatch)`被调用（lastBatch = lifeTime.rbegin()）
+
+#### Scenario: CBuffer生命周期正确传播到aliasing
+- **WHEN** CBufferA仅在batch 0-2使用，CBufferB仅在batch 3-5使用
+- **THEN** aliasing分析判定两者生命周期不重叠
+- **AND** 可能被分配到同一aliasing slot的不同时间窗口
+
+---
+
+### Requirement: BuildResources SHALL only lookup CBuffer resourceIds
+
+`BuildResources`中CBuffer处理SHALL仅调用`GetResourceId`（lookup-only），不再调用`GetOrCreateResourceId`，因为所有CBuffer已在`RegisterCBufferForAliasing`中预注册。
+
+#### Scenario: BuildResources仅查找已有resourceId
+- **WHEN** 调用`BuildResources(cbufferManager, ...)`
+- **THEN** 对每个`CBufferBindingElement`调用`cbufferManager.GetResourceId`获取resourceId
+- **AND** 不调用`GetOrCreateResourceId`
+- **AND** 不创建`GPUBufferDescriptor`
+
+---
+
+### Requirement: VulkanConstantBufferManager SHALL NOT expose IterateResources
+
+`VulkanConstantBufferManager`SHALL不包含`IterateResources`方法，因当前无调用需求且生命周期信息已在`m_CBufferLifetimes`中维护。
+
+#### Scenario: IterateResources已移除
+- **WHEN** 查看`VulkanConstantBufferManager`的公开接口
+- **THEN** `IterateResources`不在方法列表中
+- **AND** 无对应的实现代码

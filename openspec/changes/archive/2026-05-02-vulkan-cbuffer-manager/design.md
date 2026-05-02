@@ -24,8 +24,10 @@ CompileAndExecute
 ```
 CompileAndExecute
   RegisterCBufferUsageStates  → m_CBufferLifetimes
-  RegisterCBufferResources    → NEW: VulkanConstantBufferManager 注册所有 CBuffer
-    → RegisterTemporaryBuffer (不分配, 只注册元数据到 AliasingManager)
+  BuildDependencyFreeBatches  → 将 pass 分组到 batches
+  BuildResourceUsageRanges    → 填充 m_CBufferLifetimes (batch ranges, queueTypes)
+  RegisterCBufferForAliasing  → NEW: 读取 m_CBufferLifetimes, 注册所有 CBuffer
+    → RegisterTemporaryBuffer + MarkResourceUse (不分配, 只注册元数据到 AliasingManager)
   AllocateAliasedResources    → 统一分配 (含 CBuffer)
   BuildResources              → 从 ConstantBufferManager 获取 resourceId (不分配)
   PrepareBatchResourceBarriers → 通过 ConstantBufferManager 查找
@@ -65,20 +67,22 @@ CompileAndExecute
 
 ### D3: CompileAndExecute 阶段调整
 
-**选择**: 在 `RegisterCBufferUsageStates` 之后、`AllocateAliasedResources` 之前插入新的 `RegisterCBufferForAliasing` 步骤
+**选择**: 在 `BuildResourceUsageRanges` 之后、`AllocateAliasedResources` 之前插入新的 `RegisterCBufferForAliasing` 步骤
 
 **顺序变更**:
 ```
 Before:                         After:
   RegisterCBufferUsageStates      RegisterCBufferUsageStates
-  BuildDependencyFreeBatches      RegisterCBufferForAliasing  ← NEW
-  BuildResourceUsageRanges        BuildDependencyFreeBatches
-  AllocateAliasedResources        BuildResourceUsageRanges
+  BuildDependencyFreeBatches      BuildDependencyFreeBatches
+  BuildResourceUsageRanges        BuildResourceUsageRanges
+  AllocateAliasedResources        RegisterCBufferForAliasing  ← NEW (排序修正)
   BuildResources                  AllocateAliasedResources
                                   BuildResources  ← 不再 Alloc, 仅 lookup
 ```
 
-**理由**: `AllocateAliasedResources` 遍历 `m_LocalResources` 为所有已注册资源分配 GPU 内存。CBuffer 必须在此步骤之前完成注册。
+**理由**: `AllocateAliasedResources` 遍历 `m_LocalResources` 为所有已注册资源分配 GPU 内存。CBuffer 必须在此步骤之前完成注册。同时，`RegisterCBufferForAliasing` 需要读取 `m_CBufferLifetimes`（由 `BuildResourceUsageRanges` 填充）来正确设置 `MarkResourceUse` 的范围，因此必须排在 `BuildResourceUsageRanges` 之后。
+
+**注意**: 原始设计将此步骤放在 `RegisterCBufferUsageStates` 之后（审查已发现这是一个 bug——`m_CBufferLifetimes` 在 `BuildResourceUsageRanges` 之前为空，导致 `MarkResourceUse` 永远不被调用）。
 
 ### D4: BuildResources 签名和行为变更
 
@@ -94,6 +98,18 @@ Before:                         After:
 1. `CompileAndExecute` 中填充 map 的循环 → 删除（已在 RegisterCBufferForAliasing 阶段处理）
 2. `PrepareBatchResourceBarriers` 中 `m_CBufferResourceIdMap.find(pStruct)` → `m_ConstantBufferManager.GetResourceId(pStruct)`
 3. `Reset()` 中 `m_CBufferResourceIdMap.clear()` → `m_ConstantBufferManager.Clear()`
+
+### D6: BuildResources 中的 CBuffer 职责简化
+
+**选择**: `BuildResources` 中对 CBuffer 仅调用 `GetResourceId`（lookup-only），不再调用 `GetOrCreateResourceId`
+
+**理由**: 所有 CBuffer 已在 `RegisterCBufferForAliasing` 阶段通过 `GetOrCreateResourceId` 预注册。`BuildResources` 中再次调用 `GetOrCreateResourceId` 虽然因 `shared_dic` 保证幂等，但语义不清晰——此时应只做查找。同时消除了 `GPUBufferDescriptor::Create` 在两处的重复代码。
+
+### D7: 移除 IterateResources
+
+**选择**: 从 `VulkanConstantBufferManager` 中删除 `IterateResources` 方法
+
+**理由**: 当前无调用点。CBuffer 生命周期信息已在 `VulkanGraphExecutor::m_CBufferLifetimes` 中维护，不需要通过 Manager 遍历。D3D12 的 `IterateResources` 用于不同的上下文（帧结束时释放 staging buffer），Vulkan 端有 `CleanupStagingBuffers` 替代。需求不存时保留方法只会增加维护负担。
 
 ## Risks / Trade-offs
 

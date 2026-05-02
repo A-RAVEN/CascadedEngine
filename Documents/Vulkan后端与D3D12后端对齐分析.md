@@ -1,6 +1,6 @@
 # Vulkan后端 vs D3D12后端 对齐分析
 
-> 生成日期: 2026-04-12 | 更新: 2026-05-01 (基于 vulkan-descriptor-cbuffer-upload 变更)
+> 生成日期: 2026-04-12 | 更新: 2026-05-02 (基于 vulkan-descriptor-cbuffer-upload + fix-vulkan-image-sampler-separation + vulkan-cbuffer-manager 变更)
 > 目标: 使 VulkanRenderBackendNew 在接口功能上向 D3D12RenderBackend 对齐
 
 ---
@@ -29,7 +29,7 @@
 │  ├── RootSignatureManager    │  ✅ CBuffer 上传已完整实现               │
 │  ├── SamplerManager          │  ✅ Pipeline + Layout 缓存已实现         │
 │  ├── MemoryManager (D3D12MA) │  ❌ No GPUFrameManager equivalent        │
-│  ├── CommandListManager      │  ❌ No GPUConstantBufferManager          │
+│  ├── CommandListManager      │  ✅ VulkanConstantBufferManager           │
 │  └── ShaderLibrary (D3D12)   │  ❌ No SamplerManager                    │
 └──────────────────────────────┴──────────────────────────────────────────┘
 ```
@@ -120,18 +120,19 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 
 | 维度 | D3D12 | Vulkan | 状态 |
 |------|-------|--------|------|
-| 类名 | `GPUConstantBufferManager` | **不存在独立类** | ⚠️ 部分对齐 |
-| 功能 | 收集 CBuffer 请求，统一分配 `BufferHandle`，跨 BindingInstance 复用 | 内联在 `VulkanGraphExecutor::CompileAndExecute` 中，通过 `m_CBufferResourceIdMap` 管理 | - |
-| Handle 管理 | `m_ConstantBufferHandles: map<ShaderStruct*, BufferHandle>` | `m_CBufferResourceIdMap: map<ShaderStruct*, uint64_t resourceId>` | ✅ 功能等效 |
-| BuildResources | `GPUConstantBufferManager::BuildResources()` 独立方法 | `VulkanResourceBindingInstance::BuildResources()` 中 foreach CBufferBindings | ✅ 功能等效 |
+| 类名 | `GPUConstantBufferManager` | `VulkanConstantBufferManager` | ✅ 已对齐 |
+| 功能 | 收集 CBuffer 请求，统一分配 `BufferHandle`，跨 BindingInstance 复用 | `VulkanConstantBufferManager` 通过 `shared_dic::get_or_create` 统一管理，跨 BindingInstance 复用 | ✅ 已对齐 |
+| Handle 管理 | `m_ConstantBufferHandles: shared_dic<ShaderStruct*, BufferHandle>` | `m_CBufferResources: shared_dic<ShaderStruct*, uint64_t>` | ✅ 功能等效 |
+| BuildResources | `GPUConstantBufferManager::BuildResources()` 独立方法 | 集成在 `GetOrCreateResourceId` 中，通过 `RegisterTemporaryBuffer` 参与 aliasing | ✅ 功能等效 |
+| Aliasing | CBuffer 参与 aliasing 内存复用 | CBuffer 在 `AllocateAliasedResources` 之前注册，参与 aliasing 内存复用 | ✅ 已对齐 |
+| IterateResources | `IterateResources(callback)` | `IterateResources(callback)` | ✅ 已对齐 |
+| Clear/Release | `Clear()` | `Clear()` + `Release()` | ✅ 已对齐 |
 
 **差异细节：**
-- D3D12: CBuffer 通过 `BufferHandle` 统一管理，与普通 Buffer 使用相同机制
-- Vulkan: CBuffer 通过 `uint64_t resourceId` (LocalResourceManager 内部 ID) 管理，不暴露 BufferHandle
-- D3D12: AllocateAliasedResources 接收 `cbufferLifeTimes` + `ConstantBufferManager`，直接在别名分配器中为 CBuffer 分配内存
-- Vulkan: CBuffer 在 BuildResources 阶段通过 `AddBuffer` 独立分配，不参与 aliasing
-
-**影响**: Vulkan 的 CBuffer 不参与 aliasing，每次新建独立的 GPU buffer，内存效率稍低但实现更简单。
+- D3D12: CBuffer 通过 `BufferHandle` 统一管理，分两步（GetConstantBufferHandle + BuildResources）
+- Vulkan: CBuffer 通过 `uint64_t resourceId` 管理，`GetOrCreateResourceId` 一步完成注册
+- 两者均使用 `shared_dic` 保证同一 ShaderStruct 只分配一次资源
+- 两者均在 aliasing 前注册 CBuffer 元数据，使 CBuffer 参与 aliasing 内存复用
 
 ---
 
@@ -170,7 +171,7 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 | 分配器 | `CPUDescriptorAllocatorSet` (CPU端描述符分配器，per-frame) | 无等效物 — 直接 `vkAllocateDescriptorSets` |
 | 描述符集 | Descriptor Table (连续 chunk) | `vk::DescriptorSet` (per-set) |
 | 写入方式 | `CopyDescriptorsSimple(CPU → GPU Heap)` | `vkUpdateDescriptorSets` (直接写入 DescriptorSet) |
-| Sampler 堆 | 独立 `GPUDescriptorHeap` (sampler heap) | Sampler 是 `combinedImageSampler` / `sampler` descriptor type |
+| Sampler 堆 | 独立 `GPUDescriptorHeap` (sampler heap) | Sampler 是独立的 `eSampler` descriptor type（image 使用 `eSampledImage`，分离管理） |
 | null descriptor | `ID3D12Device2::CreatePipelineState` 容忍 null | Vulkan 需要有效 Descriptor，当前用 CA_ASSERT_BREAK 防护 |
 
 **架构差异本质**:
@@ -333,7 +334,6 @@ for each SamplerBinding:                        SetStorageBuffer()
 | Submit | 同步等待 (`UINT64_MAX`)，无跨队列 fence | 高 |
 | Staging Buffer | 每次 transfer/CBuffer 上传独立创建，无复用机制 | 中 |
 | GPUFrameManager | 无帧管理子系统，无法多帧重叠 | 高 |
-| GPUConstantBufferManager | 无独立类，CBuffer 不参与 aliasing | 低 |
 | LinearMemoryManager | 无线性上传内存管理器 | 中 |
 | SamplerManager | 无独立 sampler 管理器，每帧重建 | 低 |
 | RunTestCode | 测试入口未实现 | 低 |
@@ -359,6 +359,4 @@ for each SamplerBinding:                        SetStorageBuffer()
 ### Phase 3: 架构完善
 1. **SamplerManager** — 独立管理 sampler 创建和缓存（优先级低）
 2. **ApplyExternalResourceStates** — 更新外部资源状态
-3. **GPUConstantBufferManager** — 独立管理 CBuffer，支持 aliasing
-4. **RunTestCode** — 实现测试入口
-5. **CBuffer Aliasing** — 让 CBuffer buffer 参与 `VulkanResourceAliasing`，与 D3D12 的 `AllocateAliasedResources(cbufferLifeTimes, ...)` 对齐
+3. **RunTestCode** — 实现测试入口

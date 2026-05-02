@@ -66,3 +66,56 @@ VulkanShaderResourceBindingInfo SHALL跟踪所需的descriptor总数，用于分
 #### Scenario: CBuffer映射
 - **WHEN** 资源类型为eCBuffer
 - **THEN** 映射到vk::DescriptorType::eUniformBuffer
+
+---
+
+### Requirement: Descriptor写入类型SHALL与DescriptorSetLayout声明一致
+
+系统在运行时写入descriptor时SHALL使用与DescriptorSetLayout声明一致的vk::DescriptorType。
+
+#### Scenario: SampledImage写入
+- **WHEN** ImageBinding的bindingInfo指示为sampled image（非UAV）
+- **THEN** descriptor写入使用vk::DescriptorType::eSampledImage
+- **AND** vk::DescriptorImageInfo仅需填充imageView和imageLayout字段
+- **AND** 不需要填充sampler字段
+
+#### Scenario: Sampler独立写入
+- **WHEN** SamplerBinding需要写入sampler descriptor
+- **THEN** descriptor写入使用vk::DescriptorType::eSampler
+- **AND** sampler由独立的SamplerBinding路径管理
+
+#### Scenario: Sampler未配置时产生警告
+- **WHEN** ImageBinding为sampled image（非UAV）但未找到对应的SamplerBinding
+- **THEN** 系统通过CA_LOG_WARN发出警告，提示开发者需要配置sampler
+- **AND** image descriptor仍然正常写入（sampler slot保持未绑定状态）
+
+#### Scenario: DescriptorPool计数一致
+- **WHEN** 创建VkDescriptorPool
+- **THEN** SampledImage descriptor的pool size使用VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+- **AND** 不包含VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+
+---
+
+### Requirement: Compute shader bindings SHALL expose access type for state registration
+
+`VulkanResourceBindingInstance`的Image和Buffer binding elements SHALL通过`bindingInfo.accessType`字段暴露SLANG shader reflection中的资源访问类型，供`RegisterComputeResources`使用。
+
+#### Scenario: Image binding暴露accessType
+- **WHEN** `VulkanResourceBindingInstance::Init`收集compute shader的image binding
+- **THEN** `ImageBindingElement::bindingInfo.accessType`包含SLANG reflection的`EShaderResourceAccess`（`eReadOnly` / `eWriteOnly` / `eReadWrite`）
+
+#### Scenario: Buffer binding暴露accessType
+- **WHEN** `VulkanResourceBindingInstance::Init`收集compute shader的buffer binding
+- **THEN** `BufferBindingElement::bindingInfo.accessType`包含SLANG reflection的`EShaderResourceAccess`
+
+### Requirement: Compute shader resource binding SHALL be staged with correct pipeline stage
+
+`VulkanResourceBindingInstance::BuildDescriptors` SHALL为compute shader的storage image和storage buffer使用正确的`vk::ImageLayout`（`eGeneral` for UAV, `eShaderReadOnlyOptimal` for SRV），与`RegisterComputeResources`中注册的layout一致。
+
+#### Scenario: Compute storage image descriptor layout
+- **WHEN** `BuildDescriptors`处理compute shader的storage image binding
+- **THEN** 使用`vk::ImageLayout::eGeneral`，与`RegisterComputeResources`注册的状态一致
+
+#### Scenario: Compute sampled image descriptor layout
+- **WHEN** `BuildDescriptors`处理compute shader的sampled image binding
+- **THEN** 使用`vk::ImageLayout::eShaderReadOnlyOptimal`，与`RegisterComputeResources`注册的状态一致

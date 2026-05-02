@@ -34,6 +34,40 @@ namespace graphics_backend
 		return result;
 	}
 
+	// ComputeAccessToVulkanAccess: EShaderResourceAccess → vk::AccessFlags
+	static vk::AccessFlags ComputeAccessToVulkanAccess(
+		ShaderCompilerSlang::EShaderResourceAccess access)
+	{
+		switch (access)
+		{
+		case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+			return vk::AccessFlagBits::eShaderRead;
+		case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+			return vk::AccessFlagBits::eShaderWrite;
+		case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+			return vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
+		default:
+			return vk::AccessFlags{};
+		}
+	}
+
+	// ComputeAccessToImageLayout: EShaderResourceAccess → vk::ImageLayout
+	static vk::ImageLayout ComputeAccessToImageLayout(
+		ShaderCompilerSlang::EShaderResourceAccess access)
+	{
+		switch (access)
+		{
+		case ShaderCompilerSlang::EShaderResourceAccess::eReadOnly:
+			return vk::ImageLayout::eShaderReadOnlyOptimal;
+		case ShaderCompilerSlang::EShaderResourceAccess::eWriteOnly:
+			return vk::ImageLayout::eGeneral;
+		case ShaderCompilerSlang::EShaderResourceAccess::eReadWrite:
+			return vk::ImageLayout::eGeneral;
+		default:
+			return vk::ImageLayout::eUndefined;
+		}
+	}
+
 	// Helper functions for getting descriptors
 	GPUTextureDescriptor GetDescriptor(GPUGraph const& graph, ImageHandle const& image)
 	{
@@ -381,6 +415,7 @@ namespace graphics_backend
 		CleanupCaches();
 
 		m_LocalResourceManager.Release();
+		m_ConstantBufferManager.Release();
 		m_ShaderResourceInstances.clear();
 		CA_LOG_INFO("VulkanGraphExecutor released");
 	}
@@ -406,23 +441,20 @@ namespace graphics_backend
 		// Phase 3: Build resource usage ranges
 		BuildResourceUsageRanges();
 
-		// Phase 4: Allocate aliased resources
+		// Phase 4: Register CBuffer resources for aliasing (must happen after BuildResourceUsageRanges
+		//          so m_CBufferLifetimes is populated, and before AllocateAliasedResources)
+		RegisterCBufferForAliasing(*graph);
+
+		// Phase 4.5: Allocate aliased resources (includes CBuffers registered above)
 		AllocateAliasedResources();
 
-		// Phase 4.5: Build resources (CBuffer GPU buffer allocation, image/buffer registration)
+		// Phase 5: Build resources (resolve CBuffer resource IDs from ConstantBufferManager,
+		//          register image/buffer handles — CBuffer allocation done in AllocateAliasedResources)
 		for (auto& [hash, instance] : m_ShaderResourceInstances)
 		{
 			if (instance)
 			{
-				instance->BuildResources(m_LocalResourceManager, *graph);
-				// Populate CBuffer resource ID map
-				for (auto& cbuffer : instance->GetCBufferBindings())
-				{
-					if (cbuffer.pCBufferStruct && cbuffer.gpuBufferResourceId != 0)
-					{
-						m_CBufferResourceIdMap[cbuffer.pCBufferStruct] = cbuffer.gpuBufferResourceId;
-					}
-				}
+				instance->BuildResources(m_LocalResourceManager, m_ConstantBufferManager, *graph);
 			}
 		}
 
@@ -553,7 +585,42 @@ namespace graphics_backend
 		InitArraySizes(graph);
 		CollectResources(graph);
 		CollectShaderBindings(graph);
+		RegisterComputeResources(graph);
 		RegisterCBufferUsageStates(graph);
+	}
+
+	void VulkanGraphExecutor::RegisterCBufferForAliasing(GPUGraph const& graph)
+	{
+		for (auto& [hash, instance] : m_ShaderResourceInstances)
+		{
+			if (!instance)
+				continue;
+
+			for (auto& cbuffer : instance->GetCBufferBindings())
+			{
+				if (!cbuffer.pCBufferStruct)
+					continue;
+
+				VulkanShaderStruct const* pStruct = cbuffer.pCBufferStruct;
+				uint64_t bufferSize = pStruct->GetCBufferSize();
+				GPUBufferDescriptor desc = GPUBufferDescriptor::Create(1, static_cast<uint32_t>(bufferSize));
+
+				uint64_t resourceId = m_ConstantBufferManager.GetOrCreateResourceId(
+					pStruct, m_LocalResourceManager, desc);
+
+				// Update lifetime from m_CBufferLifetimes
+				auto lifetimeIt = m_CBufferLifetimes.find(pStruct);
+				if (lifetimeIt != m_CBufferLifetimes.end())
+				{
+					auto const& lifeTime = lifetimeIt->second.lifeTime;
+					if (!lifeTime.empty())
+					{
+						m_LocalResourceManager.MarkResourceUse(resourceId, *lifeTime.begin());
+						m_LocalResourceManager.MarkResourceUse(resourceId, *lifeTime.rbegin());
+					}
+				}
+			}
+		}
 	}
 
 	void VulkanGraphExecutor::RegisterCBufferUsageStates(GPUGraph const& graph)
@@ -700,16 +767,6 @@ namespace graphics_backend
 					}
 				}
 			}
-		}
-
-		// Register compute pass resources
-		for (size_t passID = 0; passID < graph.GetComputePasses().size(); ++passID)
-		{
-			auto& computePass = graph.GetComputePasses()[passID];
-			auto& passRWState = m_ComputePassRWStates[passID];
-			EGPUQueueType queueType = computePass.asyncCompute ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
-
-			// TODO: Register compute shader resources
 		}
 
 		// Register transfer pass resources
@@ -865,6 +922,50 @@ namespace graphics_backend
 				resourceSet.Init(GetApp(), shaderInfo, shaderStructs);
 
 				dispatchData.pResourceBindingInstance = createOrGetBindingInstance(resourceSet);
+			}
+		}
+	}
+
+	void VulkanGraphExecutor::RegisterComputeResources(GPUGraph const& graph)
+	{
+		// Register image and buffer RW states for compute passes
+		// CBuffer states are handled by RegisterCBufferUsageStates separately
+		for (size_t passID = 0; passID < graph.GetComputePasses().size(); ++passID)
+		{
+			auto& computePass = graph.GetComputePasses()[passID];
+			auto& passRWState = m_ComputePassRWStates[passID];
+			EGPUQueueType queueType = computePass.asyncCompute ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
+
+			for (auto& dispatchData : m_ComputePassGPUData[passID].dispatchs)
+			{
+				auto* pBindingInstance = dispatchData.pResourceBindingInstance;
+				if (!pBindingInstance)
+					continue;
+
+				// Register image RW states
+				for (auto& imageBinding : pBindingInstance->GetImageBindings())
+				{
+					for (auto& [imageHandle, textureView] : imageBinding.bindings)
+					{
+						passRWState.SetImageRWState(imageHandle,
+							vk::PipelineStageFlagBits::eComputeShader,
+							ComputeAccessToVulkanAccess(imageBinding.bindingInfo.accessType),
+							ComputeAccessToImageLayout(imageBinding.bindingInfo.accessType),
+							queueType);
+					}
+				}
+
+				// Register buffer RW states
+				for (auto& bufferBinding : pBindingInstance->GetBufferBindings())
+				{
+					for (auto& bufferHandle : bufferBinding.bindings)
+					{
+						passRWState.SetBufferRWState(bufferHandle,
+							vk::PipelineStageFlagBits::eComputeShader,
+							ComputeAccessToVulkanAccess(bufferBinding.bindingInfo.accessType),
+							queueType);
+					}
+				}
 			}
 		}
 	}
@@ -1125,11 +1226,9 @@ namespace graphics_backend
 				continue;
 
 			VulkanShaderStruct const* pStruct = pair.first;
-			auto it = m_CBufferResourceIdMap.find(pStruct);
-			if (it == m_CBufferResourceIdMap.end())
+			uint64_t resourceId = m_ConstantBufferManager.GetResourceId(pStruct);
+			if (resourceId == 0)
 				continue;
-
-			uint64_t resourceId = it->second;
 			int initialBatchID = *cbufferUsage.lifeTime.begin();
 			auto& initialBatch = m_ExecutionBatches[initialBatchID];
 
@@ -2233,7 +2332,7 @@ namespace graphics_backend
 		m_ImageLifetimes.clear();
 		m_BufferLifetimes.clear();
 		m_CBufferLifetimes.clear();
-		m_CBufferResourceIdMap.clear();
+		m_ConstantBufferManager.Clear();
 		m_CurrentGraph.reset();
 
 		// 4.4: Destroy descriptor pool
