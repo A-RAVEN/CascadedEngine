@@ -321,7 +321,7 @@ namespace graphics_backend
 		return info;
 	}
 
-	void VulkanResourceBindingInstance::BuildDescriptors(VulkanGraphExecutor& executor, vk::DescriptorPool pool)
+	void VulkanResourceBindingInstance::BuildDescriptors(VulkanGraphLocalResourceManager& resourceManager, vk::DescriptorPool pool)
 	{
 		if (p_ShaderFileInfo == nullptr)
 			return;
@@ -349,7 +349,7 @@ namespace graphics_backend
 		castl::vector<castl::pair<uint32_t, vk::DescriptorSetLayout>> setLayoutPairs;
 		for (auto& setLayoutInfo : shaderBindingInfo.setLayoutInfos)
 		{
-			vk::DescriptorSetLayout layout = executor.GetOrCreateDescriptorSetLayout(setLayoutInfo);
+			vk::DescriptorSetLayout layout = GetApp()->GetOrCreateDescriptorSetLayout(setLayoutInfo);
 			if (!layout)
 			{
 				CA_LOG_ERR("Failed to get or create descriptor set layout for set {}", setLayoutInfo.setIndex);
@@ -368,15 +368,13 @@ namespace graphics_backend
 		if (!AllocateDescriptorSets(pool, setLayoutPairs))
 			return;
 
-		auto& localResourceManager = executor.GetLocalResourceManager();
-
 		// 5.3: Write CBuffer descriptors
 		for (auto& cbuffer : m_CBufferBindings)
 		{
 			if (cbuffer.gpuBufferResourceId == 0)
 				continue;
 
-			vk::Buffer buffer = localResourceManager.GetBuffer(cbuffer.gpuBufferResourceId);
+			vk::Buffer buffer = resourceManager.GetBuffer(cbuffer.gpuBufferResourceId);
 			if (!buffer)
 				continue;
 
@@ -390,7 +388,7 @@ namespace graphics_backend
 			if (image.bindings.empty())
 				continue;
 
-			vk::ImageView imageView = localResourceManager.GetTextureView(image.bindings[0].first);
+			vk::ImageView imageView = resourceManager.GetTextureView(image.bindings[0].first);
 			if (!imageView)
 				continue;
 
@@ -416,7 +414,7 @@ namespace graphics_backend
 			if (buffer.bindings.empty())
 				continue;
 
-			vk::Buffer vkBuffer = localResourceManager.GetBuffer(buffer.bindings[0]);
+			vk::Buffer vkBuffer = resourceManager.GetBuffer(buffer.bindings[0]);
 			if (!vkBuffer)
 				continue;
 

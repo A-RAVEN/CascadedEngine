@@ -9,6 +9,7 @@
 #include <VulkanObjectManaging/PipelineLayoutManager.h>
 #include <ResourceManagement/VulkanMemoryManager.h>
 #include <ResourceManagement/VulkanCommandListManager.h>
+#include <ResourceManagement/VulkanFrameManager.h>
 #include <CAResource/ResourceManagingSystem.h>
 #include <ShaderLibrary/ShaderLibrary.h>
 #include <GPUGraph/VulkanGraphExecutor.h>
@@ -16,6 +17,7 @@
 #include <PipelineLibrary/PipelineLibraryCache.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAVector.h>
+#include <Hasher.h>
 
 
 namespace graphics_backend
@@ -73,6 +75,22 @@ namespace graphics_backend
 			return m_PipelineLayoutContainer;
 		}
 
+		// Cross-frame cache accessors (moved from VulkanGraphExecutor)
+		vk::ShaderModule GetOrCreateShaderModule(cahash::sha256_hash::result_type const& programHash);
+		vk::PipelineLayout GetOrCreatePipelineLayout(VulkanShaderResourceBindingInfo const& bindingInfo);
+		vk::DescriptorSetLayout GetOrCreateDescriptorSetLayout(VulkanDescriptorSetLayoutInfo const& setLayoutInfo);
+
+		struct RenderPassCacheKey
+		{
+			castl::vector<vk::Format> colorFormats;
+			vk::Format depthFormat;
+			bool hasDepth;
+		};
+		vk::RenderPass GetOrCreateRenderPass(RenderPassCacheKey const& key);
+		vk::Framebuffer GetOrCreateFramebuffer(vk::RenderPass renderPass, castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height);
+
+		VulkanGPUFrameManager& GetGPUFrameManager() { return m_GPUFrameManager; }
+
 		template<typename T, typename...TArgs>
 		void InitSubObj(T* inoutObj, TArgs&...Args)
 		{
@@ -129,6 +147,16 @@ namespace graphics_backend
 
 		// Window handle tracking
 		castl::unordered_map<cawindow::IWindow*, castl::weak_ptr<WindowHandle>> m_WindowHandles;
+
+		// GPU Frame Manager (multi-frame pipelining)
+		VulkanGPUFrameManager m_GPUFrameManager;
+
+		// Cross-frame caches (moved from VulkanGraphExecutor)
+		castl::unordered_map<cahash::sha256_hash::result_type, vk::ShaderModule> m_ShaderModuleCache;
+		castl::unordered_map<size_t, vk::PipelineLayout> m_PipelineLayoutCache;
+		castl::unordered_map<size_t, vk::DescriptorSetLayout> m_DescriptorSetLayoutCache;
+		castl::unordered_map<size_t, vk::RenderPass> m_RenderPassCache;
+		castl::unordered_map<size_t, vk::Framebuffer> m_FramebufferCache;
 	};
 
 }

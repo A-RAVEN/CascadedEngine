@@ -10,8 +10,7 @@
 #include <CASTL/CADeque.h>
 #include <GPUGraph.h>
 #include <CATimer/Timer.h>
-
-namespace thread_management { class TaskScheduler; }
+#include <ResourceManagement/VulkanFrameManager.h>
 
 namespace graphics_backend
 {
@@ -41,7 +40,6 @@ namespace graphics_backend
 		}
 
 		bool CompatibleToCombine(VulkanResourceState const& other) const {
-			// Can combine if same queue type and compatible access
 			return queueType == other.queueType;
 		}
 
@@ -252,17 +250,14 @@ namespace graphics_backend
 		VulkanGraphExecutor() = default;
 		~VulkanGraphExecutor() = default;
 
-		void Init();
 		virtual void Release() override;
 
-		// Main entry point
-		void CompileAndExecute(thread_management::TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph);
+		// Main entry point (Task 3.1: new signature with PFrameContext&&)
+		void CompileAndExecute(castl::shared_ptr<GPUGraph> const& graph,
+			VulkanGPUFrameManager::PFrameContext&& frameContext);
 
 		// Resource manager access (public for VulkanResourceBindingInstance)
 		VulkanGraphLocalResourceManager& GetLocalResourceManager() { return m_LocalResourceManager; }
-
-		// Descriptor set layout cache access (public for VulkanResourceBindingInstance)
-		vk::DescriptorSetLayout GetOrCreateDescriptorSetLayout(VulkanDescriptorSetLayoutInfo const& setLayoutInfo);
 
 	private:
 		// Phase 1: Prepare
@@ -327,10 +322,6 @@ namespace graphics_backend
 		// Shader resource instances
 		castl::unordered_map<size_t, castl::shared_ptr<VulkanResourceBindingInstance>> m_ShaderResourceInstances;
 
-		// Synchronization primitives
-		castl::vector<vk::Fence> m_Fences;
-		castl::vector<vk::Semaphore> m_Semaphores;
-
 		// Current graph
 		castl::shared_ptr<GPUGraph> m_CurrentGraph;
 
@@ -342,42 +333,7 @@ namespace graphics_backend
 		int m_DirectFenceCounter = 0;
 		int m_ComputeFenceCounter = 0;
 
-		// Framebuffer/RenderPass caching (T088)
-		struct RenderPassCacheKey
-		{
-			castl::vector<vk::Format> colorFormats;
-			vk::Format depthFormat;
-			bool hasDepth;
-			auto operator<=>(RenderPassCacheKey const& other) const = default;
-		};
-		castl::unordered_map<size_t, vk::RenderPass> m_RenderPassCache;
-		castl::unordered_map<size_t, vk::Framebuffer> m_FramebufferCache;
-
-		// Staging buffer tracking (T089)
-		struct StagingBufferInfo
-		{
-			vk::Buffer buffer;
-			VmaAllocation allocation;
-		};
-		castl::vector<StagingBufferInfo> m_PendingStagingBuffers;
-
-		// Shader module cache (T085) — keyed by SHA-256 program hash
-		castl::unordered_map<cahash::sha256_hash::result_type, vk::ShaderModule> m_ShaderModuleCache;
-
-		// Pipeline layout cache (T086)
-		castl::unordered_map<size_t, vk::PipelineLayout> m_PipelineLayoutCache;
-
-		// Descriptor set layout cache (T087)
-		castl::unordered_map<size_t, vk::DescriptorSetLayout> m_DescriptorSetLayoutCache;
-		vk::DescriptorPool m_DescriptorPool = nullptr;
-
-
-		// Helper methods
-		vk::ShaderModule GetOrCreateShaderModule(cahash::sha256_hash::result_type const& programHash);
-		vk::PipelineLayout GetOrCreatePipelineLayout(VulkanShaderResourceBindingInfo const& bindingInfo);
-		vk::RenderPass GetOrCreateRenderPass(RenderPassCacheKey const& key);
-		vk::Framebuffer GetOrCreateFramebuffer(vk::RenderPass renderPass, castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height);
-		void CleanupStagingBuffers();
-		void CleanupCaches();
+		// Current frame context (Task 3.1: per-frame resource context)
+		VulkanGPUFrameManager::PFrameContext m_CurrentFrameContext;
 	};
 }

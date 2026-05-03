@@ -1,6 +1,7 @@
 #include <GPUGraph/VulkanGraphExecutor.h>
 #include <RenderBackend_Vulkan.h>
 #include <ResourceManagement/VulkanCommandListManager.h>
+#include <ResourceManagement/VulkanLinearMemoryManager.h>
 #include <VulkanObjects/VulkanBuffer.h>
 #include <VulkanObjects/VulkanTexture.h>
 #include <VulkanObjects/VulkanWindowHandle.h>
@@ -34,7 +35,7 @@ namespace graphics_backend
 		return result;
 	}
 
-	// ComputeAccessToVulkanAccess: EShaderResourceAccess → vk::AccessFlags
+	// ComputeAccessToVulkanAccess: EShaderResourceAccess -> vk::AccessFlags
 	static vk::AccessFlags ComputeAccessToVulkanAccess(
 		ShaderCompilerSlang::EShaderResourceAccess access)
 	{
@@ -51,7 +52,7 @@ namespace graphics_backend
 		}
 	}
 
-	// ComputeAccessToImageLayout: EShaderResourceAccess → vk::ImageLayout
+	// ComputeAccessToImageLayout: EShaderResourceAccess -> vk::ImageLayout
 	static vk::ImageLayout ComputeAccessToImageLayout(
 		ShaderCompilerSlang::EShaderResourceAccess access)
 	{
@@ -107,7 +108,7 @@ namespace graphics_backend
 		}
 	}
 
-	// VulkanShaderResourceSet implementation (references D3D12 ShaderResourceSet::Init)
+	// VulkanShaderResourceSet implementation
 	void VulkanShaderResourceSet::Init(RenderBackend_Vulkan* pApp, ShaderInfo const& info
 		, castl::vector<ShaderStructDic const*> const& structs)
 	{
@@ -164,13 +165,9 @@ namespace graphics_backend
 			if (found != successor.imageRWStates.end())
 			{
 				if (rwState.Write() || found->second.Write())
-				{
 					return true;
-				}
 				if (!rwState.CompatibleToCombine(found->second))
-				{
 					return true;
-				}
 			}
 		}
 		for (auto& pair : bufferRWStates)
@@ -180,13 +177,9 @@ namespace graphics_backend
 			if (found != successor.bufferRWStates.end())
 			{
 				if (rwState.Write() || found->second.Write())
-				{
 					return true;
-				}
 				if (!rwState.CompatibleToCombine(found->second))
-				{
 					return true;
-				}
 			}
 		}
 		return false;
@@ -199,37 +192,25 @@ namespace graphics_backend
 		{
 			auto found = imageRWStates.find(pair.first);
 			if (found == imageRWStates.end())
-			{
 				imageRWStates.insert(pair);
-			}
 			else
-			{
 				imageRWStates[pair.first].Combine(pair.second);
-			}
 		}
 		for (auto pair : other.bufferRWStates)
 		{
 			auto found = bufferRWStates.find(pair.first);
 			if (found == bufferRWStates.end())
-			{
 				bufferRWStates.insert(pair);
-			}
 			else
-			{
 				bufferRWStates[pair.first].Combine(pair.second);
-			}
 		}
 		for (auto pair : other.cBufferUsageStates)
 		{
 			auto found = cBufferUsageStates.find(pair.first);
 			if (found == cBufferUsageStates.end())
-			{
 				cBufferUsageStates.insert(pair);
-			}
 			else
-			{
 				cBufferUsageStates[pair.first] |= pair.second;
-			}
 		}
 	}
 
@@ -240,13 +221,9 @@ namespace graphics_backend
 		VulkanResourceState newState{ access, stages, layout, queueType, true };
 		auto found = imageRWStates.find(image);
 		if (found != imageRWStates.end())
-		{
 			found->second.Combine(newState);
-		}
 		else
-		{
 			imageRWStates.insert(castl::make_pair(image, newState));
-		}
 		batchResourceQueueTypes |= static_cast<EGPUQueueTypeFlags>(queueType);
 	}
 
@@ -256,13 +233,9 @@ namespace graphics_backend
 		VulkanResourceState newState{ access, stages, vk::ImageLayout::eUndefined, queueType, false };
 		auto found = bufferRWStates.find(buffer);
 		if (found != bufferRWStates.end())
-		{
 			found->second.Combine(newState);
-		}
 		else
-		{
 			bufferRWStates.insert(castl::make_pair(buffer, newState));
-		}
 		batchResourceQueueTypes |= static_cast<EGPUQueueTypeFlags>(queueType);
 	}
 
@@ -271,23 +244,17 @@ namespace graphics_backend
 	{
 		auto found = cBufferUsageStates.find(pCBufferStruct);
 		if (found != cBufferUsageStates.end())
-		{
 			found->second |= static_cast<EGPUQueueTypeFlags>(queueType);
-		}
 		else
-		{
 			cBufferUsageStates.insert(castl::make_pair(pCBufferStruct,
 				static_cast<EGPUQueueTypeFlags>(queueType)));
-		}
 	}
 
 	// VulkanPassDependency implementation
 	void VulkanPassDependency::RemoveSelfDeps()
 	{
 		for (VulkanPassDependency* dep : successors)
-		{
 			dep->predecessorCount--;
-		}
 	}
 
 	void VulkanPassDependency::CheckAddSuccessor(VulkanPassDependency* successor)
@@ -317,9 +284,7 @@ namespace graphics_backend
 			castl::vector<vk::ImageMemoryBarrier> barriers;
 			barriers.reserve(imageBarriers.size());
 			for (auto& ib : imageBarriers)
-			{
 				barriers.push_back(ib.barrier);
-			}
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eAllCommands,
 				vk::PipelineStageFlagBits::eAllCommands,
@@ -331,9 +296,7 @@ namespace graphics_backend
 			castl::vector<vk::BufferMemoryBarrier> barriers;
 			barriers.reserve(bufferBarriers.size());
 			for (auto& bb : bufferBarriers)
-			{
 				barriers.push_back(bb.barrier);
-			}
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eAllCommands,
 				vk::PipelineStageFlagBits::eAllCommands,
@@ -371,56 +334,24 @@ namespace graphics_backend
 		return cbufferBarriers;
 	}
 
-	// VulkanGraphExecutor implementation
-	void VulkanGraphExecutor::Init()
-	{
-		m_LocalResourceManager.Init();
-		m_RasterPassRWStates.clear();
-		m_ComputePassRWStates.clear();
-		m_TransferPassRWStates.clear();
-		m_ExecutionBatches.clear();
-		m_ShaderResourceInstances.clear();
-		CA_LOG_INFO("VulkanGraphExecutor initialized");
-	}
+	// ===================== VulkanGraphExecutor =====================
 
+	// Task 3.7: Release() now only releases frame-level resources (LocalResourceManager, CBufferManager, ShaderResourceInstances).
+	// Cross-frame caches lifecycle managed by RenderBackend_Vulkan. FrameContext reference released on exit.
 	void VulkanGraphExecutor::Release()
 	{
-		auto device = GetDevice();
-
-		// Wait for all fences
-		for (auto fence : m_Fences)
-		{
-			if (fence)
-			{
-				device.waitForFences(fence, VK_TRUE, UINT64_MAX);
-				device.destroyFence(fence);
-			}
-		}
-		m_Fences.clear();
-
-		// Destroy semaphores
-		for (auto semaphore : m_Semaphores)
-		{
-			if (semaphore)
-			{
-				device.destroySemaphore(semaphore);
-			}
-		}
-		m_Semaphores.clear();
-
-		// Cleanup staging buffers (T089)
-		CleanupStagingBuffers();
-
-		// Cleanup all caches (T088)
-		CleanupCaches();
-
 		m_LocalResourceManager.Release();
 		m_ConstantBufferManager.Release();
 		m_ShaderResourceInstances.clear();
+		m_CurrentFrameContext.reset();
 		CA_LOG_INFO("VulkanGraphExecutor released");
 	}
 
-	void VulkanGraphExecutor::CompileAndExecute(thread_management::TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
+	// Task 3.1: New signature — accepts PFrameContext&& for per-frame resources.
+	// Task 3.3a: Swapchain acquire moved here (Prepare phase), not in PresentWindows.
+	// Task 3.8: Clear descriptor set references before returning (pool will be reset on next Aquire).
+	void VulkanGraphExecutor::CompileAndExecute(castl::shared_ptr<GPUGraph> const& graph,
+		VulkanGPUFrameManager::PFrameContext&& frameContext)
 	{
 		if (!graph)
 		{
@@ -428,52 +359,14 @@ namespace graphics_backend
 			return;
 		}
 
+		m_CurrentFrameContext = std::move(frameContext);
+
 		auto prepareStart = std::chrono::high_resolution_clock::now();
 
 		// Phase 1: Prepare
 		Prepare(*graph);
-		m_PrepareTime = std::chrono::duration_cast<std::chrono::microseconds>(
-			std::chrono::high_resolution_clock::now() - prepareStart).count();
 
-		// Phase 2: Build dependency-free batches
-		BuildDependencyFreeBatches(*graph);
-
-		// Phase 3: Build resource usage ranges
-		BuildResourceUsageRanges();
-
-		// Phase 4: Register CBuffer resources for aliasing (must happen after BuildResourceUsageRanges
-		//          so m_CBufferLifetimes is populated, and before AllocateAliasedResources)
-		RegisterCBufferForAliasing(*graph);
-
-		// Phase 4.5: Allocate aliased resources (includes CBuffers registered above)
-		AllocateAliasedResources();
-
-		// Phase 5: Build resources (resolve CBuffer resource IDs from ConstantBufferManager,
-		//          register image/buffer handles — CBuffer allocation done in AllocateAliasedResources)
-		for (auto& [hash, instance] : m_ShaderResourceInstances)
-		{
-			if (instance)
-			{
-				instance->BuildResources(m_LocalResourceManager, m_ConstantBufferManager, *graph);
-			}
-		}
-
-		// Phase 5: Prepare batch resource barriers
-		PrepareBatchResourceBarriers(*graph);
-
-		// Phase 6: Build pipeline states
-		BuildPipelineStates(*graph);
-
-		// 4.1: Destroy old descriptor pool if exists
-		auto device = GetDevice();
-		if (m_DescriptorPool)
-		{
-			device.destroyDescriptorPool(m_DescriptorPool);
-			m_DescriptorPool = nullptr;
-		}
-
-		// 4.2-4.3: Count descriptors and create descriptor pool
-		if (!m_ShaderResourceInstances.empty())
+		// Task 3.2: After Prepare, compute descriptor pool requirements and ensure pool capacity
 		{
 			uint32_t maxSets = 0;
 			uint32_t uniformBufferCount = 0;
@@ -484,20 +377,13 @@ namespace graphics_backend
 
 			for (auto& [hash, instance] : m_ShaderResourceInstances)
 			{
-				if (!instance)
-					continue;
-
+				if (!instance) continue;
 				auto* pFileInfo = instance->GetShaderFileInfo();
 				if (pFileInfo)
-				{
 					maxSets += static_cast<uint32_t>(pFileInfo->shaderBindingInfo.setLayoutInfos.size());
-				}
 
 				for (auto& cbuffer : instance->GetCBufferBindings())
-				{
-					if (cbuffer.pCBufferStruct)
-						++uniformBufferCount;
-				}
+					if (cbuffer.pCBufferStruct) ++uniformBufferCount;
 
 				for (auto& image : instance->GetImageBindings())
 				{
@@ -508,14 +394,10 @@ namespace graphics_backend
 				}
 
 				for (auto& buffer : instance->GetBufferBindings())
-				{
 					++storageBufferCount;
-				}
 
 				for (auto& sampler : instance->GetSamplerBindings())
-				{
 					++samplerCount;
-				}
 			}
 
 			castl::vector<vk::DescriptorPoolSize> poolSizes;
@@ -530,33 +412,68 @@ namespace graphics_backend
 			if (samplerCount > 0)
 				poolSizes.push_back({ vk::DescriptorType::eSampler, samplerCount });
 
-			if (!poolSizes.empty() && maxSets > 0)
-			{
-				vk::DescriptorPoolCreateInfo poolInfo{};
-				poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-				poolInfo.maxSets = maxSets;
-				poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-				poolInfo.pPoolSizes = poolSizes.data();
+			auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
+			resourceManager.EnsurePoolCapacity(maxSets, poolSizes);
+		}
 
-				try
+		// Task 3.3a: Swapchain acquire — for each backbuffer, ensure window sync and acquire next image
+		if (!graph->GetFinalizePass().isEmpty())
+		{
+			uint32_t windowIdx = 0;
+			for (auto& backBufferImage : graph->GetFinalizePass().m_PresentBackBuffers)
+			{
+				VulkanWindowHandle* pWindow = backBufferImage.GetWindowPtr<VulkanWindowHandle>();
+				if (pWindow && pWindow->IsValid())
 				{
-					m_DescriptorPool = device.createDescriptorPool(poolInfo);
+					if (pWindow->NeedsRecreation())
+						pWindow->RecreateSwapchain();
+
+					m_CurrentFrameContext->EnsureWindowSync(windowIdx);
+					auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
+					pWindow->AcquireNextImage(sync.acquireSemaphore);
 				}
-				catch (vk::SystemError const& e)
-				{
-					CA_LOG_ERR("VulkanGraphExecutor: Failed to create descriptor pool: {}", e.what());
-				}
+				++windowIdx;
 			}
 		}
 
-		// Build descriptors for all binding instances
-		if (m_DescriptorPool)
+		m_PrepareTime = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - prepareStart).count();
+
+		// Phase 2: Build dependency-free batches
+		BuildDependencyFreeBatches(*graph);
+
+		// Phase 3: Build resource usage ranges
+		BuildResourceUsageRanges();
+
+		// Phase 4: Register CBuffer resources for aliasing
+		RegisterCBufferForAliasing(*graph);
+
+		// Phase 4.5: Allocate aliased resources
+		AllocateAliasedResources();
+
+		// Phase 5: Build resources (resolve CBuffer resource IDs etc.)
+		for (auto& [hash, instance] : m_ShaderResourceInstances)
 		{
-			for (auto& [hash, instance] : m_ShaderResourceInstances)
+			if (instance)
+				instance->BuildResources(m_LocalResourceManager, m_ConstantBufferManager, *graph);
+		}
+
+		// Prepare batch resource barriers
+		PrepareBatchResourceBarriers(*graph);
+
+		// Phase 6: Build pipeline states
+		BuildPipelineStates(*graph);
+
+		// Build descriptors from FrameContext descriptor pool
+		{
+			auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
+			vk::DescriptorPool pool = resourceManager.GetDescriptorPool();
+			if (pool)
 			{
-				if (instance)
+				for (auto& [hash, instance] : m_ShaderResourceInstances)
 				{
-					instance->BuildDescriptors(*this, m_DescriptorPool);
+					if (instance)
+						instance->BuildDescriptors(m_LocalResourceManager, pool);
 				}
 			}
 		}
@@ -573,7 +490,16 @@ namespace graphics_backend
 		// Present windows
 		PresentWindows(*graph);
 
-		// Reset for next frame
+		// Task 3.8: Clear descriptor set references (pool will be reset on next Aquire)
+		for (auto& [hash, instance] : m_ShaderResourceInstances)
+		{
+			if (instance)
+			{
+				instance->Release();
+			}
+		}
+
+		// Task 3.6: Reset frame-level temporary data
 		Reset();
 
 		CA_LOG_INFO("VulkanGraphExecutor: Prepare={}us, Execute={}us, Batches={}",
@@ -593,13 +519,11 @@ namespace graphics_backend
 	{
 		for (auto& [hash, instance] : m_ShaderResourceInstances)
 		{
-			if (!instance)
-				continue;
+			if (!instance) continue;
 
 			for (auto& cbuffer : instance->GetCBufferBindings())
 			{
-				if (!cbuffer.pCBufferStruct)
-					continue;
+				if (!cbuffer.pCBufferStruct) continue;
 
 				VulkanShaderStruct const* pStruct = cbuffer.pCBufferStruct;
 				uint64_t bufferSize = pStruct->GetCBufferSize();
@@ -608,7 +532,6 @@ namespace graphics_backend
 				uint64_t resourceId = m_ConstantBufferManager.GetOrCreateResourceId(
 					pStruct, m_LocalResourceManager, desc);
 
-				// Update lifetime from m_CBufferLifetimes
 				auto lifetimeIt = m_CBufferLifetimes.find(pStruct);
 				if (lifetimeIt != m_CBufferLifetimes.end())
 				{
@@ -625,7 +548,6 @@ namespace graphics_backend
 
 	void VulkanGraphExecutor::RegisterCBufferUsageStates(GPUGraph const& graph)
 	{
-		// Register CBuffer usage states for render passes
 		for (size_t passID = 0; passID < graph.GetRenderPasses().size(); ++passID)
 		{
 			auto& passData = m_RasterPassGPUData[passID];
@@ -634,20 +556,17 @@ namespace graphics_backend
 			for (auto& batchData : passData.drawcallBatchs)
 			{
 				auto* pBindingInstance = batchData.pResourceBindingInstance;
-				if (!pBindingInstance)
-					continue;
+				if (!pBindingInstance) continue;
 
 				for (auto& cbuffer : pBindingInstance->GetCBufferBindings())
 				{
-					if (!cbuffer.pCBufferStruct)
-						continue;
+					if (!cbuffer.pCBufferStruct) continue;
 					vk::PipelineStageFlags stages = vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader;
 					passRWState.SetCBufferUsageState(cbuffer.pCBufferStruct, stages, EGPUQueueType::eDirect);
 				}
 			}
 		}
 
-		// Register CBuffer usage states for compute passes
 		for (size_t passID = 0; passID < graph.GetComputePasses().size(); ++passID)
 		{
 			auto& computePass = graph.GetComputePasses()[passID];
@@ -658,13 +577,11 @@ namespace graphics_backend
 			for (auto& dispatchData : passData.dispatchs)
 			{
 				auto* pBindingInstance = dispatchData.pResourceBindingInstance;
-				if (!pBindingInstance)
-					continue;
+				if (!pBindingInstance) continue;
 
 				for (auto& cbuffer : pBindingInstance->GetCBufferBindings())
 				{
-					if (!cbuffer.pCBufferStruct)
-						continue;
+					if (!cbuffer.pCBufferStruct) continue;
 					vk::PipelineStageFlags stages = vk::PipelineStageFlagBits::eComputeShader;
 					passRWState.SetCBufferUsageState(cbuffer.pCBufferStruct, stages, queueType);
 				}
@@ -703,7 +620,6 @@ namespace graphics_backend
 
 	void VulkanGraphExecutor::CollectResources(GPUGraph const& graph)
 	{
-		// Register render pass attachments
 		for (size_t passID = 0; passID < graph.GetRenderPasses().size(); ++passID)
 		{
 			auto& renderPass = graph.GetRenderPasses()[passID];
@@ -735,7 +651,6 @@ namespace graphics_backend
 				++attachmentID;
 			}
 
-			// Register vertex and index buffers
 			for (auto& batch : renderPass.GetDrawCallBatches())
 			{
 				for (auto& drawcall : batch.m_DrawCalls)
@@ -746,11 +661,9 @@ namespace graphics_backend
 						auto descriptor = GetDescriptor(graph, indexBuffer);
 						m_LocalResourceManager.RegisterTemporaryBuffer(
 							descriptor, EBufferUsage::eIndexBuffer, static_cast<uint32_t>(passID));
-
 						passRWState.SetBufferRWState(indexBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
-							vk::AccessFlagBits::eIndexRead,
-							EGPUQueueType::eDirect);
+							vk::AccessFlagBits::eIndexRead, EGPUQueueType::eDirect);
 					}
 
 					for (auto& vertBuf : drawcall.GetVertexBuffers())
@@ -759,17 +672,14 @@ namespace graphics_backend
 						auto descriptor = GetDescriptor(graph, vertBuffer);
 						m_LocalResourceManager.RegisterTemporaryBuffer(
 							descriptor, EBufferUsage::eVertexBuffer, static_cast<uint32_t>(passID));
-
 						passRWState.SetBufferRWState(vertBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
-							vk::AccessFlagBits::eVertexAttributeRead,
-							EGPUQueueType::eDirect);
+							vk::AccessFlagBits::eVertexAttributeRead, EGPUQueueType::eDirect);
 					}
 				}
 			}
 		}
 
-		// Register transfer pass resources
 		for (size_t passID = 0; passID < graph.GetDataTransfers().size(); ++passID)
 		{
 			auto& transferPass = graph.GetDataTransfers()[passID];
@@ -778,12 +688,9 @@ namespace graphics_backend
 			for (auto& bufferWrites : transferPass.m_BufferDataUploads)
 			{
 				auto& uploadBuffer = bufferWrites.first;
-				auto descriptor = GetDescriptor(graph, uploadBuffer);
-
 				passRWState.SetBufferRWState(uploadBuffer,
 					vk::PipelineStageFlagBits::eTransfer,
-					vk::AccessFlagBits::eTransferWrite,
-					EGPUQueueType::eDirect);
+					vk::AccessFlagBits::eTransferWrite, EGPUQueueType::eDirect);
 			}
 
 			for (auto& imgWrites : transferPass.m_ImageDataUploads)
@@ -791,16 +698,13 @@ namespace graphics_backend
 				auto descriptor = GetDescriptor(graph, imgWrites.first);
 				m_LocalResourceManager.RegisterTemporaryTexture(
 					descriptor, ETextureAccessTypeFlags{}, static_cast<uint32_t>(passID));
-
 				passRWState.SetImageRWState(imgWrites.first,
 					vk::PipelineStageFlagBits::eTransfer,
 					vk::AccessFlagBits::eTransferWrite,
-					vk::ImageLayout::eTransferDstOptimal,
-					EGPUQueueType::eDirect);
+					vk::ImageLayout::eTransferDstOptimal, EGPUQueueType::eDirect);
 			}
 		}
 
-		// Register finalize pass resources
 		if (!graph.GetFinalizePass().isEmpty())
 		{
 			for (auto& img : graph.GetFinalizePass().m_ImageUsages)
@@ -808,30 +712,24 @@ namespace graphics_backend
 				auto descriptor = GetDescriptor(graph, img.first);
 				m_LocalResourceManager.RegisterTemporaryTexture(
 					descriptor, img.second, static_cast<uint32_t>(m_ExecutionBatches.size()));
-
 				m_FinalizePassRWState.SetImageRWState(img.first,
 					vk::PipelineStageFlagBits::eFragmentShader,
 					vk::AccessFlagBits::eShaderRead,
-					vk::ImageLayout::eShaderReadOnlyOptimal,
-					EGPUQueueType::eDirect);
+					vk::ImageLayout::eShaderReadOnlyOptimal, EGPUQueueType::eDirect);
 			}
-
 			for (auto& backBuffer : graph.GetFinalizePass().m_PresentBackBuffers)
 			{
 				m_FinalizePassRWState.SetImageRWState(backBuffer,
 					vk::PipelineStageFlagBits::eBottomOfPipe,
 					vk::AccessFlagBits::eNone,
-					vk::ImageLayout::ePresentSrcKHR,
-					EGPUQueueType::eDirect);
+					vk::ImageLayout::ePresentSrcKHR, EGPUQueueType::eDirect);
 			}
 		}
 
-		// Register internal graph resources
 		graph.GetBufferManager().Foreach([&](ResourceHandleKeyData const& handleKey, auto& desc)
 		{
 			m_LocalResourceManager.RegisterTemporaryBuffer(desc, EBufferUsageFlags{}, 0);
 		});
-
 		graph.GetImageManager().Foreach([&](ResourceHandleKeyData const& handleKey, auto& desc)
 		{
 			m_LocalResourceManager.RegisterTemporaryTexture(desc, ETextureAccessTypeFlags{}, 0);
@@ -840,28 +738,20 @@ namespace graphics_backend
 
 	void VulkanGraphExecutor::CollectShaderBindings(GPUGraph const& graph)
 	{
-		// Collect shader resource bindings for each pass
-		// This creates VulkanResourceBindingInstance for each unique shader resource set
-		// References D3D12 GPUGraphExecutor::Prepare binding flow
-
 		auto createOrGetBindingInstance = [&](VulkanShaderResourceSet const& resourceSet)
 			-> VulkanResourceBindingInstance*
 		{
 			auto it = m_ShaderResourceInstances.find(resourceSet.hash);
 			if (it != m_ShaderResourceInstances.end())
-			{
 				return it->second.get();
-			}
 
 			auto bindingInstance = castl::make_shared<VulkanResourceBindingInstance>();
 			GetApp()->InitSubObj(bindingInstance.get());
 			bindingInstance->Init(resourceSet);
-
 			m_ShaderResourceInstances[resourceSet.hash] = bindingInstance;
 			return bindingInstance.get();
 		};
 
-		// Collect bindings for render passes
 		for (size_t passID = 0; passID < graph.GetRenderPasses().size(); ++passID)
 		{
 			auto& renderPass = graph.GetRenderPasses()[passID];
@@ -873,27 +763,20 @@ namespace graphics_backend
 				auto& batchData = passData.drawcallBatchs[batchID];
 
 				ShaderInfo const& shaderInfo = batch.pipelineStateDesc.m_ShaderInfo;
-				if (!shaderInfo.isValid())
-					continue;
+				if (!shaderInfo.isValid()) continue;
 
 				castl::vector<ShaderStructDic const*> shaderStructs;
 				if (!batch.shaderStructs.empty())
-				{
 					shaderStructs.push_back(&batch.shaderStructs);
-				}
 				if (!renderPass.GetShaderStructs().empty())
-				{
 					shaderStructs.push_back(&renderPass.GetShaderStructs());
-				}
 
 				VulkanShaderResourceSet resourceSet;
 				resourceSet.Init(GetApp(), shaderInfo, shaderStructs);
-
 				batchData.pResourceBindingInstance = createOrGetBindingInstance(resourceSet);
 			}
 		}
 
-		// Collect bindings for compute passes
 		for (size_t passID = 0; passID < graph.GetComputePasses().size(); ++passID)
 		{
 			auto& computePass = graph.GetComputePasses()[passID];
@@ -905,22 +788,16 @@ namespace graphics_backend
 				auto& dispatchData = passData.dispatchs[dispatchID];
 
 				ShaderInfo const& shaderInfo = dispatch.m_ShaderInfo;
-				if (!shaderInfo.isValid())
-					continue;
+				if (!shaderInfo.isValid()) continue;
 
 				castl::vector<ShaderStructDic const*> shaderStructs;
 				if (!dispatch.shaderStructs.empty())
-				{
 					shaderStructs.push_back(&dispatch.shaderStructs);
-				}
 				if (!computePass.shaderStructs.empty())
-				{
 					shaderStructs.push_back(&computePass.shaderStructs);
-				}
 
 				VulkanShaderResourceSet resourceSet;
 				resourceSet.Init(GetApp(), shaderInfo, shaderStructs);
-
 				dispatchData.pResourceBindingInstance = createOrGetBindingInstance(resourceSet);
 			}
 		}
@@ -928,8 +805,6 @@ namespace graphics_backend
 
 	void VulkanGraphExecutor::RegisterComputeResources(GPUGraph const& graph)
 	{
-		// Register image and buffer RW states for compute passes
-		// CBuffer states are handled by RegisterCBufferUsageStates separately
 		for (size_t passID = 0; passID < graph.GetComputePasses().size(); ++passID)
 		{
 			auto& computePass = graph.GetComputePasses()[passID];
@@ -939,10 +814,8 @@ namespace graphics_backend
 			for (auto& dispatchData : m_ComputePassGPUData[passID].dispatchs)
 			{
 				auto* pBindingInstance = dispatchData.pResourceBindingInstance;
-				if (!pBindingInstance)
-					continue;
+				if (!pBindingInstance) continue;
 
-				// Register image RW states
 				for (auto& imageBinding : pBindingInstance->GetImageBindings())
 				{
 					for (auto& [imageHandle, textureView] : imageBinding.bindings)
@@ -955,7 +828,6 @@ namespace graphics_backend
 					}
 				}
 
-				// Register buffer RW states
 				for (auto& bufferBinding : pBindingInstance->GetBufferBindings())
 				{
 					for (auto& bufferHandle : bufferBinding.bindings)
@@ -1009,16 +881,10 @@ namespace graphics_backend
 			pendingDependencies.push_back(&passDeps.back());
 		}
 
-		// Build dependency graph
 		for (size_t prevPass = 0; prevPass < passDeps.size() - 1; ++prevPass)
-		{
 			for (size_t latterPass = prevPass + 1; latterPass < passDeps.size(); ++latterPass)
-			{
 				passDeps[prevPass].CheckAddSuccessor(&passDeps[latterPass]);
-			}
-		}
 
-		// Topological sort to create batches
 		while (!pendingDependencies.empty())
 		{
 			VulkanGPUExecutionBatch& newBatch = m_ExecutionBatches.emplace_back();
@@ -1034,7 +900,6 @@ namespace graphics_backend
 				{
 					depItr = pendingDependencies.erase(depItr);
 					passFreeDeps.push_back(dep);
-
 					newBatch.batchRWStates.Append(dep->rwState);
 
 					switch (dep->passType)
@@ -1063,9 +928,7 @@ namespace graphics_backend
 			}
 
 			for (VulkanPassDependency* dep : passFreeDeps)
-			{
 				dep->RemoveSelfDeps();
-			}
 		}
 	}
 
@@ -1077,19 +940,13 @@ namespace graphics_backend
 			auto& rwStates = batch.batchRWStates;
 
 			for (auto& imageRWState : rwStates.imageRWStates)
-			{
 				m_ImageLifetimes[imageRWState.first].Expand(batchID, imageRWState.second);
-			}
 
 			for (auto& bufferRWState : rwStates.bufferRWStates)
-			{
 				m_BufferLifetimes[bufferRWState.first].Expand(batchID, bufferRWState.second);
-			}
 
 			for (auto cbufferStruct : rwStates.cBufferUsageStates)
-			{
 				m_CBufferLifetimes[cbufferStruct.first].Encapsule(batchID, cbufferStruct.second);
-			}
 		}
 	}
 
@@ -1100,28 +957,10 @@ namespace graphics_backend
 
 	void VulkanGraphExecutor::PrepareBatchResourceBarriers(GPUGraph const& graph)
 	{
-		// Generate image barriers
 		for (auto& pair : m_ImageLifetimes)
 		{
 			ImageHandle const& image = pair.first;
-			VulkanResourceState cachedState;
-
-			if (image.IsIntternal())
-			{
-				cachedState = VulkanResourceState::InitializedState();
-			}
-			else if (image.GetType() == ImageHandle::ImageType::External)
-			{
-				VulkanTexture const* pImage = static_cast<VulkanTexture const*>(image.GetExternalManagedTexture().get());
-				// Get current state from texture
-				cachedState = VulkanResourceState::InitializedState();
-			}
-			else if (image.GetType() == ImageHandle::ImageType::Backbuffer)
-			{
-				VulkanWindowHandle const* pWindow = static_cast<VulkanWindowHandle const*>(image.GetWindowHandle().get());
-				cachedState = VulkanResourceState::InitializedState();
-			}
-
+			VulkanResourceState cachedState = VulkanResourceState::InitializedState();
 			VulkanResourceUsageRangeData const& usageRanges = pair.second;
 
 			for (int bid = 0; bid < usageRanges.states.size(); ++bid)
@@ -1137,9 +976,7 @@ namespace graphics_backend
 
 				if (lastState.accessFlags == currentState.accessFlags &&
 					lastState.imageLayout == currentState.imageLayout)
-				{
 					continue;
-				}
 
 				auto& currentBatch = m_ExecutionBatches[currentBatchID];
 
@@ -1170,12 +1007,10 @@ namespace graphics_backend
 			}
 		}
 
-		// Generate buffer barriers
 		for (auto& pair : m_BufferLifetimes)
 		{
 			BufferHandle const& buffer = pair.first;
 			VulkanResourceUsageRangeData const& usageRanges = pair.second;
-
 			VulkanResourceState cachedState = VulkanResourceState::InitializedState();
 
 			for (int bid = 0; bid < usageRanges.states.size(); ++bid)
@@ -1190,9 +1025,7 @@ namespace graphics_backend
 				VulkanResourceState const& lastState = isFirstState ? cachedState : usageRanges.states[bid - 1].state;
 
 				if (lastState.accessFlags == currentState.accessFlags)
-				{
 					continue;
-				}
 
 				auto& currentBatch = m_ExecutionBatches[currentBatchID];
 
@@ -1218,20 +1051,16 @@ namespace graphics_backend
 			}
 		}
 
-		// CBuffer initialization barriers
 		for (auto& pair : m_CBufferLifetimes)
 		{
 			auto& cbufferUsage = pair.second;
-			if (cbufferUsage.lifeTime.empty())
-				continue;
+			if (cbufferUsage.lifeTime.empty()) continue;
 
 			VulkanShaderStruct const* pStruct = pair.first;
 			uint64_t resourceId = m_ConstantBufferManager.GetResourceId(pStruct);
-			if (resourceId == 0)
-				continue;
+			if (resourceId == 0) continue;
 			int initialBatchID = *cbufferUsage.lifeTime.begin();
 			auto& initialBatch = m_ExecutionBatches[initialBatchID];
-
 			EGPUQueueTypeFlags queueFlags = cbufferUsage.queueTypes;
 			initialBatch.GetCBufferBarriers(queueFlags).AddCBuffer(resourceId, pStruct);
 		}
@@ -1243,44 +1072,25 @@ namespace graphics_backend
 		auto& pipelineLibrary = pApp->GetPipelineLibrary();
 		auto& pipelineLibraryCache = pApp->GetPipelineLibraryCache();
 
-		// Get ShaderLibrary
-		auto resourceManager = pApp->GetResourceManager();
-		auto shaderLibrary = (resourceManager != nullptr)
-			? resourceManager->GetOrLoadResource<ShaderLibrary>("VulkanShaderLibrary.shLib")
-			: nullptr;
-
-		// Build pipeline states for raster passes
 		for (size_t passID = 0; passID < graph.GetRenderPasses().size(); ++passID)
 		{
 			auto& rasterPass = graph.GetRenderPasses()[passID];
 			auto& rasterPassData = m_RasterPassGPUData[passID];
 
-			// Get render pass format info
 			auto const& attachments = rasterPass.GetAttachments();
-			if (attachments.empty())
-				continue;
-
-			GPUTextureDescriptor firstAttachmentDesc = GetDescriptor(graph, attachments[0]);
+			if (attachments.empty()) continue;
 
 			for (size_t batchID = 0; batchID < rasterPass.GetDrawCallBatches().size(); ++batchID)
 			{
 				auto& batch = rasterPass.GetDrawCallBatches()[batchID];
 				auto& batchData = rasterPassData.drawcallBatchs[batchID];
 
-				// Get shader info
 				ShaderInfo const& shaderInfo = batch.pipelineStateDesc.m_ShaderInfo;
-				if (!shaderInfo.isValid())
-					continue;
+				if (!shaderInfo.isValid()) continue;
 
-				// Get VulkanShaderFileInfo from ShaderLibrary
 				VulkanShaderFileInfo const* pFileInfo = pApp->GetShaderFileInfo(shaderInfo);
-				if (pFileInfo == nullptr)
-				{
-					CA_LOG_ERR("VulkanGraphExecutor: Failed to get shader file info for path: {}", shaderInfo.path.c_str());
-					continue;
-				}
+				if (pFileInfo == nullptr) continue;
 
-				// Find vertex and fragment program hashes and entry points
 				cahash::sha256_hash::result_type vertexProgramHash{};
 				cahash::sha256_hash::result_type fragmentProgramHash{};
 				cacore::NameHash vertexEntryPointName;
@@ -1304,23 +1114,11 @@ namespace graphics_backend
 					}
 				}
 
-				// Create shader modules
-				vk::ShaderModule vertexShaderModule = VK_NULL_HANDLE;
-				vk::ShaderModule fragmentShaderModule = VK_NULL_HANDLE;
+				vk::ShaderModule vertexShaderModule = hasVertex ? pApp->GetOrCreateShaderModule(vertexProgramHash) : nullptr;
+				vk::ShaderModule fragmentShaderModule = hasFragment ? pApp->GetOrCreateShaderModule(fragmentProgramHash) : nullptr;
 
-				if (hasVertex)
-				{
-					vertexShaderModule = GetOrCreateShaderModule(vertexProgramHash);
-				}
-				if (hasFragment)
-				{
-					fragmentShaderModule = GetOrCreateShaderModule(fragmentProgramHash);
-				}
+				vk::PipelineLayout pipelineLayout = pApp->GetOrCreatePipelineLayout(pFileInfo->shaderBindingInfo);
 
-				// Create pipeline layout from binding info
-				vk::PipelineLayout pipelineLayout = GetOrCreatePipelineLayout(pFileInfo->shaderBindingInfo);
-
-				// Build shader stages
 				vk::PipelineShaderStageCreateInfo vertexShaderStage{};
 				vertexShaderStage.stage = vk::ShaderStageFlagBits::eVertex;
 				vertexShaderStage.module = vertexShaderModule;
@@ -1331,48 +1129,33 @@ namespace graphics_backend
 				fragmentShaderStage.module = fragmentShaderModule;
 				fragmentShaderStage.pName = fragmentEntryPointName.c_str();
 
-				// Create graphics pipeline
 				if (pipelineLibrary.IsSupported())
 				{
-					// Vertex input state
 					vk::PipelineVertexInputStateCreateInfo vertexInputState{};
 					vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{};
 					inputAssemblyState.topology = vk::PrimitiveTopology::eTriangleList;
-					inputAssemblyState.primitiveRestartEnable = VK_FALSE;
 
-					// Viewport state (dynamic)
 					vk::PipelineViewportStateCreateInfo viewportState{};
 					viewportState.viewportCount = 1;
 					viewportState.scissorCount = 1;
 
-					// Rasterization state
 					vk::PipelineRasterizationStateCreateInfo rasterizationState{};
-					rasterizationState.depthClampEnable = VK_FALSE;
-					rasterizationState.rasterizerDiscardEnable = VK_FALSE;
 					rasterizationState.polygonMode = vk::PolygonMode::eFill;
 					rasterizationState.cullMode = vk::CullModeFlagBits::eBack;
 					rasterizationState.frontFace = vk::FrontFace::eClockwise;
 					rasterizationState.lineWidth = 1.0f;
 
-					// Multisample state
 					vk::PipelineMultisampleStateCreateInfo multisampleState{};
 					multisampleState.rasterizationSamples = vk::SampleCountFlagBits::e1;
-					multisampleState.sampleShadingEnable = VK_FALSE;
 
-					// Color blend state
 					vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-					colorBlendAttachment.blendEnable = VK_FALSE;
 					colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR |
-						vk::ColorComponentFlagBits::eG |
-						vk::ColorComponentFlagBits::eB |
-						vk::ColorComponentFlagBits::eA;
+						vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
 
 					vk::PipelineColorBlendStateCreateInfo colorBlendState{};
-					colorBlendState.logicOpEnable = VK_FALSE;
 					colorBlendState.attachmentCount = 1;
 					colorBlendState.pAttachments = &colorBlendAttachment;
 
-					// Create library parts
 					auto vertexInputLib = pipelineLibrary.CreateVertexInputLibrary(vertexInputState, inputAssemblyState);
 					auto preRasterLib = pipelineLibrary.CreatePreRasterizationLibrary(
 						vertexShaderStage, nullptr, nullptr, nullptr, viewportState, rasterizationState);
@@ -1380,7 +1163,6 @@ namespace graphics_backend
 					auto fragmentOutputLib = pipelineLibrary.CreateFragmentOutputLibrary(
 						multisampleState, nullptr, colorBlendState);
 
-					// Link pipeline
 					PipelineLibraryParts parts{};
 					parts.vertexInputLibrary = vertexInputLib;
 					parts.preRasterizationLibrary = preRasterLib;
@@ -1388,30 +1170,21 @@ namespace graphics_backend
 					parts.fragmentOutputLibrary = fragmentOutputLib;
 					parts.isComplete = true;
 
-					// Create a simple render pass for linking
-					// TODO: Use actual render pass from framebuffer
 					vk::RenderPass dummyRenderPass = VK_NULL_HANDLE;
-
 					batchData.pipeline = pipelineLibrary.LinkPipeline(parts, pipelineLayout, dummyRenderPass, 0);
 				}
 				else
 				{
-					// Fallback to monolithic pipeline creation
 					vk::GraphicsPipelineCreateInfo createInfo{};
 					createInfo.layout = pipelineLayout;
-					// TODO: Fill in all required state
-
 					batchData.pipeline = pipelineLibrary.CreateMonolithicPipeline(createInfo);
 				}
 
 				batchData.pipelineLayout = pipelineLayout;
-
-				// Store topology
 				batchData.topology = vk::PrimitiveTopology::eTriangleList;
 			}
 		}
 
-		// Build pipeline states for compute passes
 		for (size_t passID = 0; passID < graph.GetComputePasses().size(); ++passID)
 		{
 			auto& computePass = graph.GetComputePasses()[passID];
@@ -1422,20 +1195,12 @@ namespace graphics_backend
 				auto& dispatch = computePass.dispatchs[dispatchID];
 				auto& dispatchData = computePassData.dispatchs[dispatchID];
 
-				// Get shader info
 				ShaderInfo const& shaderInfo = dispatch.m_ShaderInfo;
-				if (!shaderInfo.isValid())
-					continue;
+				if (!shaderInfo.isValid()) continue;
 
-				// Get VulkanShaderFileInfo from ShaderLibrary
 				VulkanShaderFileInfo const* pFileInfo = pApp->GetShaderFileInfo(shaderInfo);
-				if (pFileInfo == nullptr)
-				{
-					CA_LOG_ERR("VulkanGraphExecutor: Failed to get shader file info for compute path: {}", shaderInfo.path.c_str());
-					continue;
-				}
+				if (pFileInfo == nullptr) continue;
 
-				// Find compute program hash and entry point
 				cahash::sha256_hash::result_type computeProgramHash{};
 				cacore::NameHash computeEntryPointName;
 				bool hasCompute = false;
@@ -1451,25 +1216,16 @@ namespace graphics_backend
 					}
 				}
 
-				if (!hasCompute)
-				{
-					CA_LOG_ERR("VulkanGraphExecutor: No compute shader found in file: {}", shaderInfo.path.c_str());
-					continue;
-				}
+				if (!hasCompute) continue;
 
-				// Create shader module
-				vk::ShaderModule computeShaderModule = GetOrCreateShaderModule(computeProgramHash);
+				vk::ShaderModule computeShaderModule = pApp->GetOrCreateShaderModule(computeProgramHash);
+				vk::PipelineLayout pipelineLayout = pApp->GetOrCreatePipelineLayout(pFileInfo->shaderBindingInfo);
 
-				// Create pipeline layout from binding info
-				vk::PipelineLayout pipelineLayout = GetOrCreatePipelineLayout(pFileInfo->shaderBindingInfo);
-
-				// Build compute shader stage
 				vk::PipelineShaderStageCreateInfo computeShaderStage{};
 				computeShaderStage.stage = vk::ShaderStageFlagBits::eCompute;
 				computeShaderStage.module = computeShaderModule;
 				computeShaderStage.pName = computeEntryPointName.c_str();
 
-				// Create compute pipeline
 				vk::ComputePipelineCreateInfo createInfo{};
 				createInfo.layout = pipelineLayout;
 				createInfo.stage = computeShaderStage;
@@ -1479,9 +1235,7 @@ namespace graphics_backend
 				{
 					auto result = device.createComputePipeline(nullptr, createInfo);
 					if (result.result == vk::Result::eSuccess)
-					{
 						dispatchData.pipeline = result.value;
-					}
 				}
 				catch (vk::SystemError const& e)
 				{
@@ -1493,116 +1247,62 @@ namespace graphics_backend
 		}
 	}
 
+	// Task 3.3: CommandBuffer from FrameContext's CommandListManager
 	void VulkanGraphExecutor::Execute(GPUGraph const& graph)
 	{
-		auto device = GetDevice();
-		auto& cmdListManager = GetApp()->GetCommandListManager();
-
-		// Record command buffers for each batch
 		for (auto& batch : m_ExecutionBatches)
-		{
 			RecordBatchCommands(batch, graph);
-		}
 
-		// Submit batches
 		SubmitBatches(graph);
 	}
 
+	// Task 3.3: Get CommandBuffer from FrameContext's CommandListManager
+	// Task 3.5: Staging buffer allocation via LinearMemoryManager
 	void VulkanGraphExecutor::RecordBatchCommands(VulkanGPUExecutionBatch& batch, GPUGraph const& graph)
 	{
-		auto& cmdListManager = GetApp()->GetCommandListManager();
+		auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
+		auto& cmdListManager = resourceManager.GetCommandListManager();
 
-		// Get command buffer for this batch
 		batch.directCommandBuffer = cmdListManager.GraphicsCommand();
 
 		vk::CommandBufferBeginInfo beginInfo{};
 		beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
 		batch.directCommandBuffer.begin(beginInfo);
 
-		// Execute aquire barriers
 		if (batch.aquireBarriers.AnyBarrier())
-		{
 			batch.aquireBarriers.ExecuteBarriers(batch.directCommandBuffer);
-		}
 
-		// 6.2-6.5: Upload CBuffer data via staging buffer
+		// Task 3.5: Upload CBuffer data via LinearMemoryManager staging buffer
 		auto device = GetDevice();
-		auto& memoryManager = GetApp()->GetMemoryManager();
 		auto cmdBuf = batch.directCommandBuffer;
+		auto& stagingManager = resourceManager.GetStagingMemoryManager();
 
 		auto uploadCBufferBarriers = [&](VulkanCBufferInitializeBarriers& cbufferBarriers)
 		{
-			if (!cbufferBarriers.AnyBarrier())
-				return;
+			if (!cbufferBarriers.AnyBarrier()) return;
 
 			for (auto& [resourceId, pStruct] : cbufferBarriers.cbufferData)
 			{
-				if (!pStruct)
-					continue;
+				if (!pStruct) continue;
 
 				vk::Buffer gpuBuffer = m_LocalResourceManager.GetBuffer(resourceId);
-				if (!gpuBuffer)
-					continue;
+				if (!gpuBuffer) continue;
 
 				uint64_t bufferSize = pStruct->GetCBufferSize();
-				if (bufferSize == 0)
-					continue;
+				if (bufferSize == 0) continue;
 
-				// Create staging buffer
-				vk::BufferCreateInfo stagingBufferInfo{};
-				stagingBufferInfo.size = bufferSize;
-				stagingBufferInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
-				stagingBufferInfo.sharingMode = vk::SharingMode::eExclusive;
+				auto stagingAlloc = stagingManager.AllocUploadStagingBuffer(bufferSize, 256);
+				if (!stagingAlloc.mappedPtr) continue;
 
-				vk::Buffer stagingBuffer;
-				VmaAllocation stagingAllocation;
-				try
-				{
-					stagingBuffer = device.createBuffer(stagingBufferInfo);
-					auto memRequirements = device.getBufferMemoryRequirements(stagingBuffer);
-					VmaAllocationCreateInfo allocInfo{};
-					allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+				pStruct->ComputeMaxChildrenVersion();
+				pStruct->UpdateUniformBuffer(0, stagingAlloc.mappedPtr, static_cast<uint32_t>(bufferSize), 0);
 
-					VkResult allocResult = vmaAllocateMemory(memoryManager.GetAllocator(),
-						reinterpret_cast<VkMemoryRequirements*>(&memRequirements),
-						&allocInfo, &stagingAllocation, nullptr);
-
-					if (allocResult != VK_SUCCESS)
-					{
-						device.destroyBuffer(stagingBuffer);
-						CA_LOG_ERR("VulkanGraphExecutor: Failed to allocate CBuffer staging memory");
-						continue;
-					}
-
-					vmaBindBufferMemory(memoryManager.GetAllocator(), stagingAllocation, stagingBuffer);
-
-					// Map and write data
-					void* pMappedData = nullptr;
-					vmaMapMemory(memoryManager.GetAllocator(), stagingAllocation, &pMappedData);
-					if (pMappedData)
-					{
-						pStruct->ComputeMaxChildrenVersion();
-						pStruct->UpdateUniformBuffer(0, pMappedData, static_cast<uint32_t>(bufferSize), 0);
-						vmaUnmapMemory(memoryManager.GetAllocator(), stagingAllocation);
-					}
-
-					// Track staging buffer for cleanup
-					m_PendingStagingBuffers.push_back({ stagingBuffer, stagingAllocation });
-				}
-				catch (vk::SystemError const& e)
-				{
-					CA_LOG_ERR("VulkanGraphExecutor: Exception creating CBuffer staging buffer: {}", e.what());
-					continue;
-				}
-
-				// Copy from staging to GPU buffer
 				vk::BufferCopy copyRegion{};
-				copyRegion.srcOffset = 0;
+				copyRegion.srcOffset = stagingAlloc.offset;
 				copyRegion.dstOffset = 0;
 				copyRegion.size = bufferSize;
-				cmdBuf.copyBuffer(stagingBuffer, gpuBuffer, 1, &copyRegion);
+				cmdBuf.copyBuffer(stagingAlloc.buffer, gpuBuffer, 1, &copyRegion);
 
-				// 6.4: Buffer memory barrier to ensure shader visibility
 				vk::BufferMemoryBarrier barrier{};
 				barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 				barrier.dstAccessMask = vk::AccessFlagBits::eUniformRead;
@@ -1623,29 +1323,17 @@ namespace graphics_backend
 		uploadCBufferBarriers(batch.cbufferBarriers);
 		uploadCBufferBarriers(batch.computeCBufferBarriers);
 
-		// Record render passes
 		for (int rasterPassID : batch.rasterPassRefs)
-		{
 			RecordRenderPass(batch, rasterPassID, graph);
-		}
 
-		// Record compute passes
 		for (int computePassID : batch.computePassRefs)
-		{
 			RecordComputePass(batch, computePassID, graph);
-		}
 
-		// Record transfer passes
 		for (int transferPassID : batch.transferPassRefs)
-		{
 			RecordTransferPass(batch, transferPassID, graph);
-		}
 
-		// Execute release barriers
 		if (batch.releaseBarriers.AnyBarrier())
-		{
 			batch.releaseBarriers.ExecuteBarriers(batch.directCommandBuffer);
-		}
 
 		batch.directCommandBuffer.end();
 	}
@@ -1656,25 +1344,20 @@ namespace graphics_backend
 		auto& rasterPass = graph.GetRenderPasses()[rasterPassID];
 		auto& rasterData = m_RasterPassGPUData[rasterPassID];
 		auto cmdBuf = batch.directCommandBuffer;
-		auto device = GetDevice();
 
 		auto const& attachments = rasterPass.GetAttachments();
-		if (attachments.empty())
-			return;
+		if (attachments.empty()) return;
 
 		GPUTextureDescriptor firstAttachmentDesc = GetDescriptor(graph, attachments[0]);
 
-		// Setup viewport and scissor
 		vk::Viewport viewport{ 0.0f, 0.0f, static_cast<float>(firstAttachmentDesc.width),
 			static_cast<float>(firstAttachmentDesc.height), 0.0f, 1.0f };
 		vk::Rect2D scissor{ {0, 0}, {firstAttachmentDesc.width, firstAttachmentDesc.height} };
 		cmdBuf.setViewport(0, viewport);
 		cmdBuf.setScissor(0, scissor);
 
-		// Build render pass cache key (T088)
-		RenderPassCacheKey rpKey;
-		bool hasDepth = rasterPass.HasDepthAttachment();
-
+		// Build render pass cache key
+		RenderBackend_Vulkan::RenderPassCacheKey rpKey;
 		for (size_t i = 0; i < attachments.size(); ++i)
 		{
 			auto desc = GetDescriptor(graph, attachments[i]);
@@ -1689,58 +1372,40 @@ namespace graphics_backend
 			}
 		}
 
-		// Get or create cached render pass (T088)
-		vk::RenderPass renderPass = GetOrCreateRenderPass(rpKey);
-		if (!renderPass)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to get/create render pass");
-			return;
-		}
+		vk::RenderPass renderPass = GetApp()->GetOrCreateRenderPass(rpKey);
+		if (!renderPass) return;
 
-		// Create framebuffer attachment views
 		castl::vector<vk::ImageView> attachmentViews;
 		for (auto& attachment : attachments)
 		{
 			vk::ImageView view = m_LocalResourceManager.GetTextureView(attachment);
-			if (view)
-			{
-				attachmentViews.push_back(view);
-			}
+			if (view) attachmentViews.push_back(view);
 		}
 
-		// Get or create cached framebuffer (T088)
-		vk::Framebuffer framebuffer = GetOrCreateFramebuffer(renderPass, attachmentViews,
+		vk::Framebuffer framebuffer = GetApp()->GetOrCreateFramebuffer(renderPass, attachmentViews,
 			firstAttachmentDesc.width, firstAttachmentDesc.height);
-		if (!framebuffer)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to get/create framebuffer");
-			return;
-		}
+		if (!framebuffer) return;
 
-		// Prepare clear values
 		castl::vector<vk::ClearValue> clearValues;
 		for (size_t i = 0; i < attachments.size(); ++i)
 		{
 			auto const& config = rasterPass.GetAttachmentConfig(i);
+			vk::ClearValue clearValue{};
 			if (static_cast<int>(i) == rasterPass.GetDepthAttachmentIndex())
 			{
-				vk::ClearValue clearValue{};
 				clearValue.depthStencil.depth = config.clearValue.depthStencil.depth;
 				clearValue.depthStencil.stencil = config.clearValue.depthStencil.stencil;
-				clearValues.push_back(clearValue);
 			}
 			else
 			{
-				vk::ClearValue clearValue{};
 				clearValue.color.float32[0] = config.clearValue.color.r;
 				clearValue.color.float32[1] = config.clearValue.color.g;
 				clearValue.color.float32[2] = config.clearValue.color.b;
 				clearValue.color.float32[3] = config.clearValue.color.a;
-				clearValues.push_back(clearValue);
 			}
+			clearValues.push_back(clearValue);
 		}
 
-		// Begin render pass
 		vk::RenderPassBeginInfo renderPassBegin{};
 		renderPassBegin.renderPass = renderPass;
 		renderPassBegin.framebuffer = framebuffer;
@@ -1751,19 +1416,14 @@ namespace graphics_backend
 
 		cmdBuf.beginRenderPass(renderPassBegin, vk::SubpassContents::eInline);
 
-		// Record draw calls
 		for (size_t batchID = 0; batchID < rasterPass.GetDrawCallBatches().size(); ++batchID)
 		{
 			auto& drawcallBatch = rasterPass.GetDrawCallBatches()[batchID];
 			auto& batchData = rasterData.drawcallBatchs[batchID];
 
-			// Bind pipeline
 			if (batchData.pipeline)
-			{
 				cmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.pipeline);
-			}
 
-			// 7.3: Bind all descriptor sets by consecutive set index groups
 			if (batchData.pResourceBindingInstance && batchData.pipelineLayout)
 			{
 				auto descriptorSets = batchData.pResourceBindingInstance->GetDescriptorSetsSorted();
@@ -1798,13 +1458,11 @@ namespace graphics_backend
 				}
 			}
 
-			// Record draw calls
 			for (size_t drawcallID = 0; drawcallID < drawcallBatch.m_DrawCalls.size(); ++drawcallID)
 			{
 				auto& drawcall = drawcallBatch.m_DrawCalls[drawcallID];
 				auto& drawInfo = drawcall.GetDrawInfo();
 
-				// Bind vertex buffers
 				auto const& vertBuffers = drawcall.GetVertexBuffers();
 				if (!vertBuffers.empty())
 				{
@@ -1820,20 +1478,14 @@ namespace graphics_backend
 						}
 					}
 					if (!vertexBuffers.empty())
-					{
 						cmdBuf.bindVertexBuffers(0, vertexBuffers, offsets);
-					}
 				}
 
-				// Handle per-drawcall viewport/scissor
 				auto const& vp = drawcall.GetViewPort();
 				if (vp.Valid())
 				{
-					vk::Viewport dynViewport{
-						static_cast<float>(vp->x), static_cast<float>(vp->y),
-						static_cast<float>(vp->width), static_cast<float>(vp->height),
-						0.0f, 1.0f
-					};
+					vk::Viewport dynViewport{ static_cast<float>(vp->x), static_cast<float>(vp->y),
+						static_cast<float>(vp->width), static_cast<float>(vp->height), 0.0f, 1.0f };
 					cmdBuf.setViewport(0, dynViewport);
 				}
 				auto const& sc = drawcall.GetScissor();
@@ -1845,7 +1497,6 @@ namespace graphics_backend
 
 				if (drawInfo.drawIndexed)
 				{
-					// Bind index buffer
 					auto const& indexBufferData = drawcall.GetIndexBuffer();
 					if (indexBufferData.IsValid())
 					{
@@ -1853,12 +1504,10 @@ namespace graphics_backend
 						if (indexBuffer)
 						{
 							vk::IndexType indexType = indexBufferData.indexBufferType == EIndexBufferType::e16
-								? vk::IndexType::eUint16
-								: vk::IndexType::eUint32;
+								? vk::IndexType::eUint16 : vk::IndexType::eUint32;
 							cmdBuf.bindIndexBuffer(indexBuffer, indexBufferData.indexBufferOffset, indexType);
 						}
 					}
-
 					cmdBuf.drawIndexed(drawInfo.indexCount, drawInfo.instanceCount,
 						drawInfo.indexOffset, drawInfo.vertexOffset, drawInfo.firstInstanceID);
 				}
@@ -1870,10 +1519,7 @@ namespace graphics_backend
 			}
 		}
 
-		// End render pass
 		cmdBuf.endRenderPass();
-
-		// Note: No need to destroy render pass and framebuffer - they're cached (T088)
 	}
 
 	void VulkanGraphExecutor::RecordComputePass(VulkanGPUExecutionBatch& batch,
@@ -1883,23 +1529,17 @@ namespace graphics_backend
 		auto& computeData = m_ComputePassGPUData[computePassID];
 		auto cmdBuf = batch.directCommandBuffer;
 
-		// Use compute command buffer if this is async compute, otherwise use direct
 		vk::CommandBuffer targetCmdBuf = batch.anyComputeQueueOperations && batch.computeCommandBuffer
-			? batch.computeCommandBuffer
-			: cmdBuf;
+			? batch.computeCommandBuffer : cmdBuf;
 
 		for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 		{
 			auto& dispatch = computePass.dispatchs[dispatchID];
 			auto& dispatchData = computeData.dispatchs[dispatchID];
 
-			// Bind compute pipeline
 			if (dispatchData.pipeline)
-			{
 				targetCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, dispatchData.pipeline);
-			}
 
-			// 7.4: Bind all descriptor sets by consecutive set index groups
 			if (dispatchData.pResourceBindingInstance && dispatchData.pipelineLayout)
 			{
 				auto descriptorSets = dispatchData.pResourceBindingInstance->GetDescriptorSetsSorted();
@@ -1934,14 +1574,10 @@ namespace graphics_backend
 				}
 			}
 
-			// Dispatch compute workgroups
 			if (dispatch.x > 0 && dispatch.y > 0 && dispatch.z > 0)
-			{
 				targetCmdBuf.dispatch(dispatch.x, dispatch.y, dispatch.z);
-			}
 		}
 
-		// Add memory barrier between compute and subsequent operations
 		if (!computePass.dispatchs.empty())
 		{
 			vk::MemoryBarrier memoryBarrier{};
@@ -1951,116 +1587,52 @@ namespace graphics_backend
 			targetCmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eComputeShader,
 				vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eTransfer,
-				vk::DependencyFlags{},
-				1, &memoryBarrier,
-				0, nullptr,
-				0, nullptr
-			);
+				vk::DependencyFlags{}, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
 		}
 	}
 
+	// Task 3.5: Image upload staging also via LinearMemoryManager
 	void VulkanGraphExecutor::RecordTransferPass(VulkanGPUExecutionBatch& batch,
 		uint32_t transferPassID, GPUGraph const& graph)
 	{
 		auto& transferPass = graph.GetDataTransfers()[transferPassID];
 		auto cmdBuf = batch.directCommandBuffer;
 		auto device = GetDevice();
-		auto& memoryManager = GetApp()->GetMemoryManager();
-
 		auto const& uploadDataHolder = graph.GetUploadDataHolder();
+		auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
+		auto& stagingManager = resourceManager.GetStagingMemoryManager();
 
-		// Record buffer uploads
+		// Record buffer uploads via LinearMemoryManager
 		for (auto& bufferUploads : transferPass.m_BufferDataUploads)
 		{
 			auto& [targetBufferHandle, dataRef] = bufferUploads;
 
-			// Get target buffer
 			vk::Buffer targetBuffer = m_LocalResourceManager.GetBuffer(targetBufferHandle);
-			if (!targetBuffer)
-			{
-				CA_LOG_WARN("VulkanGraphExecutor: Target buffer not found for upload");
-				continue;
-			}
+			if (!targetBuffer) continue;
 
-			// Get source data
 			void const* pSourceData = nullptr;
 			if (dataRef.copied && dataRef.dataIndex < uploadDataHolder.m_Data.size())
-			{
 				pSourceData = uploadDataHolder.GetPtr(dataRef.dataIndex);
-			}
 			else if (!dataRef.copied)
-			{
 				pSourceData = dataRef.pData;
-			}
 
-			if (!pSourceData || dataRef.dataSize == 0)
-			{
-				continue;
-			}
+			if (!pSourceData || dataRef.dataSize == 0) continue;
 
-			// Create staging buffer
-			vk::BufferCreateInfo stagingBufferInfo{};
-			stagingBufferInfo.size = dataRef.dataSize;
-			stagingBufferInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
-			stagingBufferInfo.sharingMode = vk::SharingMode::eExclusive;
+			auto stagingAlloc = stagingManager.AllocUploadStagingBuffer(dataRef.dataSize, 256);
+			if (!stagingAlloc.mappedPtr) continue;
 
-			vk::Buffer stagingBuffer;
-			VmaAllocation stagingAllocation;
-			try
-			{
-				stagingBuffer = device.createBuffer(stagingBufferInfo);
+			memcpy(stagingAlloc.mappedPtr, pSourceData, dataRef.dataSize);
 
-				// Allocate memory for staging buffer
-				auto memRequirements = device.getBufferMemoryRequirements(stagingBuffer);
-				VmaAllocationCreateInfo allocInfo{};
-				allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-				VkResult allocResult = vmaAllocateMemory(memoryManager.GetAllocator(),
-					reinterpret_cast<VkMemoryRequirements*>(&memRequirements),
-					&allocInfo, &stagingAllocation, nullptr);
-
-				if (allocResult != VK_SUCCESS)
-				{
-					device.destroyBuffer(stagingBuffer);
-					CA_LOG_ERR("VulkanGraphExecutor: Failed to allocate staging memory");
-					continue;
-				}
-
-				// Bind memory
-				vmaBindBufferMemory(memoryManager.GetAllocator(), stagingAllocation, stagingBuffer);
-
-				// Map and copy data to staging buffer
-				void* pMappedData = nullptr;
-				vmaMapMemory(memoryManager.GetAllocator(), stagingAllocation, &pMappedData);
-				if (pMappedData)
-				{
-					memcpy(pMappedData, pSourceData, dataRef.dataSize);
-					vmaUnmapMemory(memoryManager.GetAllocator(), stagingAllocation);
-				}
-
-				// Track staging buffer for cleanup (T089)
-				m_PendingStagingBuffers.push_back({ stagingBuffer, stagingAllocation });
-			}
-			catch (vk::SystemError const& e)
-			{
-				CA_LOG_ERR("VulkanGraphExecutor: Exception creating staging buffer: {}", e.what());
-				continue;
-			}
-
-			// Record copy command
 			vk::BufferCopy copyRegion{};
-			copyRegion.srcOffset = 0;
+			copyRegion.srcOffset = stagingAlloc.offset;
 			copyRegion.dstOffset = dataRef.dstOffset;
 			copyRegion.size = dataRef.dataSize;
+			cmdBuf.copyBuffer(stagingAlloc.buffer, targetBuffer, 1, &copyRegion);
 
-			cmdBuf.copyBuffer(stagingBuffer, targetBuffer, 1, &copyRegion);
-
-			// Add barrier to ensure copy completes before buffer is used
 			vk::BufferMemoryBarrier barrier{};
 			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 			barrier.dstAccessMask = vk::AccessFlagBits::eVertexAttributeRead |
-				vk::AccessFlagBits::eIndexRead |
-				vk::AccessFlagBits::eShaderRead;
+				vk::AccessFlagBits::eIndexRead | vk::AccessFlagBits::eShaderRead;
 			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.buffer = targetBuffer;
@@ -2070,91 +1642,32 @@ namespace graphics_backend
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eTransfer,
 				vk::PipelineStageFlagBits::eVertexInput | vk::PipelineStageFlagBits::eFragmentShader,
-				vk::DependencyFlags{},
-				0, nullptr,
-				1, &barrier,
-				0, nullptr
-			);
+				vk::DependencyFlags{}, 0, nullptr, 1, &barrier, 0, nullptr);
 		}
 
-		// Record image uploads
+		// Record image uploads via LinearMemoryManager
 		for (auto& imageUploads : transferPass.m_ImageDataUploads)
 		{
 			auto& [targetImageHandle, dataRef] = imageUploads;
 
-			// Get target image
 			vk::Image targetImage = m_LocalResourceManager.GetTexture(targetImageHandle);
-			if (!targetImage)
-			{
-				CA_LOG_WARN("VulkanGraphExecutor: Target image not found for upload");
-				continue;
-			}
+			if (!targetImage) continue;
 
-			// Get source data
 			void const* pSourceData = nullptr;
 			if (dataRef.copied && dataRef.dataIndex < uploadDataHolder.m_Data.size())
-			{
 				pSourceData = uploadDataHolder.GetPtr(dataRef.dataIndex);
-			}
 			else if (!dataRef.copied)
-			{
 				pSourceData = dataRef.pData;
-			}
 
-			if (!pSourceData || dataRef.dataSize == 0)
-			{
-				continue;
-			}
+			if (!pSourceData || dataRef.dataSize == 0) continue;
 
-			// Get image descriptor for dimensions
 			auto desc = GetDescriptor(graph, targetImageHandle);
 
-			// Create staging buffer for image data
-			vk::BufferCreateInfo stagingBufferInfo{};
-			stagingBufferInfo.size = dataRef.dataSize;
-			stagingBufferInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
+			auto stagingAlloc = stagingManager.AllocUploadStagingBuffer(dataRef.dataSize, 256);
+			if (!stagingAlloc.mappedPtr) continue;
 
-			vk::Buffer stagingBuffer;
-			VmaAllocation stagingAllocation;
-			try
-			{
-				stagingBuffer = device.createBuffer(stagingBufferInfo);
+			memcpy(stagingAlloc.mappedPtr, pSourceData, dataRef.dataSize);
 
-				auto memRequirements = device.getBufferMemoryRequirements(stagingBuffer);
-				VmaAllocationCreateInfo allocInfo{};
-				allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-				VkResult allocResult = vmaAllocateMemory(memoryManager.GetAllocator(),
-					reinterpret_cast<VkMemoryRequirements*>(&memRequirements),
-					&allocInfo, &stagingAllocation, nullptr);
-
-				if (allocResult != VK_SUCCESS)
-				{
-					device.destroyBuffer(stagingBuffer);
-					CA_LOG_ERR("VulkanGraphExecutor: Failed to allocate image staging memory");
-					continue;
-				}
-
-				vmaBindBufferMemory(memoryManager.GetAllocator(), stagingAllocation, stagingBuffer);
-
-				void* pMappedData = nullptr;
-				vmaMapMemory(memoryManager.GetAllocator(), stagingAllocation, &pMappedData);
-				if (pMappedData)
-				{
-					memcpy(pMappedData, pSourceData, dataRef.dataSize);
-					vmaUnmapMemory(memoryManager.GetAllocator(), stagingAllocation);
-				}
-
-				// Track staging buffer for cleanup (T089)
-				m_PendingStagingBuffers.push_back({ stagingBuffer, stagingAllocation });
-			}
-			catch (vk::SystemError const& e)
-			{
-				CA_LOG_ERR("VulkanGraphExecutor: Exception creating image staging buffer: {}", e.what());
-				continue;
-			}
-
-			// Transition image to transfer destination layout
 			vk::ImageMemoryBarrier transitionBarrier{};
 			transitionBarrier.oldLayout = vk::ImageLayout::eUndefined;
 			transitionBarrier.newLayout = vk::ImageLayout::eTransferDstOptimal;
@@ -2172,17 +1685,10 @@ namespace graphics_backend
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eTopOfPipe,
 				vk::PipelineStageFlagBits::eTransfer,
-				vk::DependencyFlags{},
-				0, nullptr,
-				0, nullptr,
-				1, &transitionBarrier
-			);
+				vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &transitionBarrier);
 
-			// Copy buffer to image
 			vk::BufferImageCopy copyRegion{};
-			copyRegion.bufferOffset = 0;
-			copyRegion.bufferRowLength = 0;
-			copyRegion.bufferImageHeight = 0;
+			copyRegion.bufferOffset = stagingAlloc.offset;
 			copyRegion.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
 			copyRegion.imageSubresource.mipLevel = 0;
 			copyRegion.imageSubresource.baseArrayLayer = 0;
@@ -2190,10 +1696,9 @@ namespace graphics_backend
 			copyRegion.imageOffset = vk::Offset3D{ 0, 0, 0 };
 			copyRegion.imageExtent = vk::Extent3D{ desc.width, desc.height, 1 };
 
-			cmdBuf.copyBufferToImage(stagingBuffer, targetImage,
+			cmdBuf.copyBufferToImage(stagingAlloc.buffer, targetImage,
 				vk::ImageLayout::eTransferDstOptimal, 1, &copyRegion);
 
-			// Transition image to shader read layout
 			vk::ImageMemoryBarrier shaderReadBarrier{};
 			shaderReadBarrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
 			shaderReadBarrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
@@ -2211,117 +1716,82 @@ namespace graphics_backend
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eTransfer,
 				vk::PipelineStageFlagBits::eFragmentShader,
-				vk::DependencyFlags{},
-				0, nullptr,
-				0, nullptr,
-				1, &shaderReadBarrier
-			);
+				vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &shaderReadBarrier);
 		}
 	}
 
+	// Task 3.4: SubmitBatches — no more waitForFences(UINT64_MAX), use window semaphores for last batch
 	void VulkanGraphExecutor::SubmitBatches(GPUGraph const& graph)
 	{
 		auto device = GetDevice();
 		auto const& queueContext = GetApp()->GetQueueContext();
 		auto queue = device.getQueue(queueContext.GetGraphicsQueueFamily(), 0);
+		auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
 
 		for (size_t i = 0; i < m_ExecutionBatches.size(); ++i)
 		{
 			auto& batch = m_ExecutionBatches[i];
 
-			// Create fence for this batch
-			vk::FenceCreateInfo fenceInfo{};
-			vk::Fence fence = device.createFence(fenceInfo);
-			m_Fences.push_back(fence);
-
-			// Create semaphore
-			vk::SemaphoreCreateInfo semaphoreInfo{};
-			vk::Semaphore semaphore = device.createSemaphore(semaphoreInfo);
-			m_Semaphores.push_back(semaphore);
-
-			// Submit
 			vk::SubmitInfo submitInfo{};
 			submitInfo.commandBufferCount = 1;
 			submitInfo.pCommandBuffers = &batch.directCommandBuffer;
-			submitInfo.signalSemaphoreCount = 1;
-			submitInfo.pSignalSemaphores = &semaphore;
 
-			queue.submit(submitInfo, fence);
-		}
+			bool isLastBatch = (i == m_ExecutionBatches.size() - 1);
 
-		// Wait for all fences
-		if (!m_Fences.empty())
-		{
-			device.waitForFences(m_Fences, VK_TRUE, UINT64_MAX);
-			device.resetFences(m_Fences);
+			if (isLastBatch && batch.hasFinalizePass)
+			{
+				uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
+				castl::vector<vk::Semaphore> waitSemaphores;
+				castl::vector<vk::Semaphore> signalSemaphores;
+				castl::vector<vk::PipelineStageFlags> waitStages;
+
+				for (uint32_t w = 0; w < windowCount; ++w)
+				{
+					auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
+					waitSemaphores.push_back(sync.acquireSemaphore);
+					signalSemaphores.push_back(sync.presentSemaphore);
+					waitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+				}
+
+				submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size());
+				submitInfo.pWaitSemaphores = waitSemaphores.data();
+				submitInfo.pWaitDstStageMask = waitStages.data();
+				submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
+				submitInfo.pSignalSemaphores = signalSemaphores.data();
+			}
+
+			queue.submit(submitInfo, resourceManager.GetDirectFence());
 		}
 	}
 
 	void VulkanGraphExecutor::ApplyExternalResourceStates()
 	{
-		// Update external resource states after execution
-		// This allows subsequent frames to know the current state
 	}
 
+	// PresentWindows: now uses per-window present semaphore from FrameContext
 	void VulkanGraphExecutor::PresentWindows(GPUGraph const& graph)
 	{
 		auto device = GetDevice();
 		auto const& queueContext = GetApp()->GetQueueContext();
 		auto presentQueue = device.getQueue(queueContext.GetGraphicsQueueFamily(), 0);
 
-		size_t semaphoreIndex = 0;
-
+		uint32_t windowIdx = 0;
 		for (auto& backBufferImage : graph.GetFinalizePass().m_PresentBackBuffers)
 		{
 			VulkanWindowHandle* pWindow = backBufferImage.GetWindowPtr<VulkanWindowHandle>();
-			if (!pWindow || !pWindow->IsValid())
-			{
-				CA_LOG_WARN("VulkanGraphExecutor: Invalid window handle for present");
-				continue;
-			}
+			if (!pWindow || !pWindow->IsValid()) continue;
 
-			// Check if swapchain needs recreation
 			if (pWindow->NeedsRecreation())
-			{
 				pWindow->RecreateSwapchain();
-			}
 
-			// Create acquire semaphore for this frame
-			vk::SemaphoreCreateInfo semaphoreInfo{};
-			vk::Semaphore acquireSemaphore = device.createSemaphore(semaphoreInfo);
-			vk::Semaphore renderFinishedSemaphore = device.createSemaphore(semaphoreInfo);
-
-			// Acquire next swapchain image
-			uint32_t imageIndex = pWindow->AcquireNextImage(acquireSemaphore);
-			if (pWindow->NeedsRecreation())
-			{
-				pWindow->RecreateSwapchain();
-				device.destroySemaphore(acquireSemaphore);
-				device.destroySemaphore(renderFinishedSemaphore);
-				continue;
-			}
-
-			// If we have completed execution batches, wait on the last batch's semaphore
-			vk::Semaphore waitSemaphore = renderFinishedSemaphore;
-			if (!m_Semaphores.empty() && semaphoreIndex < m_Semaphores.size())
-			{
-				waitSemaphore = m_Semaphores[semaphoreIndex];
-			}
-
-			// Present with proper synchronization
-			pWindow->Present(presentQueue, waitSemaphore);
-
-			// Clean up temporary semaphores
-			device.destroySemaphore(acquireSemaphore);
-			if (waitSemaphore == renderFinishedSemaphore)
-			{
-				device.destroySemaphore(renderFinishedSemaphore);
-			}
-
-			++semaphoreIndex;
+			auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
+			pWindow->Present(presentQueue, sync.presentSemaphore);
+			++windowIdx;
 		}
 	}
 
+	// Task 3.6: Reset() now only clears frame-level temporary data.
+	// m_Fences, m_Semaphores, m_DescriptorPool, m_PendingStagingBuffers REMOVED.
 	void VulkanGraphExecutor::Reset()
 	{
 		m_LocalResourceManager.ReleaseAllResources();
@@ -2333,397 +1803,9 @@ namespace graphics_backend
 		m_BufferLifetimes.clear();
 		m_CBufferLifetimes.clear();
 		m_ConstantBufferManager.Clear();
+		m_RasterPassGPUData.clear();
+		m_ComputePassGPUData.clear();
+		m_ShaderResourceInstances.clear();
 		m_CurrentGraph.reset();
-
-		// 4.4: Destroy descriptor pool
-		auto device = GetDevice();
-		if (m_DescriptorPool)
-		{
-			device.destroyDescriptorPool(m_DescriptorPool);
-			m_DescriptorPool = nullptr;
-		}
-
-		// Cleanup staging buffers (T089)
-		CleanupStagingBuffers();
-	}
-
-	// T085: Shader module creation from ShaderInfo
-	vk::ShaderModule VulkanGraphExecutor::GetOrCreateShaderModule(cahash::sha256_hash::result_type const& programHash)
-	{
-		// Check cache
-		auto it = m_ShaderModuleCache.find(programHash);
-		if (it != m_ShaderModuleCache.end())
-		{
-			return it->second;
-		}
-
-		// Get SPIR-V code from ShaderLibrary
-		auto pApp = GetApp();
-		auto resourceManager = pApp->GetResourceManager();
-		if (resourceManager == nullptr)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: No resource manager available for shader module creation");
-			return vk::ShaderModule(nullptr);
-		}
-
-		auto shaderLibrary = resourceManager->GetOrLoadResource<ShaderLibrary>("VulkanShaderLibrary.shLib");
-		if (shaderLibrary == nullptr)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to load ShaderLibrary for shader module creation");
-			return vk::ShaderModule(nullptr);
-		}
-
-		VulkanShaderCode const* shaderCode = shaderLibrary->GetShaderCode(programHash);
-		if (shaderCode == nullptr)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: ShaderCode not found for program hash: {}", programHash.toString());
-			return vk::ShaderModule(nullptr);
-		}
-
-		if (shaderCode->spirvCode.empty())
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: SPIR-V code is empty for program hash: {}", programHash.toString());
-			return vk::ShaderModule(nullptr);
-		}
-
-		// Create shader module from SPIR-V
-		auto device = GetDevice();
-		vk::ShaderModuleCreateInfo moduleInfo{};
-		moduleInfo.codeSize = shaderCode->spirvCode.size() * sizeof(uint32_t);
-		moduleInfo.pCode = shaderCode->spirvCode.data();
-
-		try
-		{
-			auto shaderModule = device.createShaderModule(moduleInfo);
-			m_ShaderModuleCache[programHash] = shaderModule;
-			CA_LOG_INFO("VulkanGraphExecutor: Created shader module ({} bytes SPIR-V)", moduleInfo.codeSize);
-			return shaderModule;
-		}
-		catch (vk::SystemError const& e)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to create shader module ({} bytes SPIR-V): {}", moduleInfo.codeSize, e.what());
-			// Don't cache nullptr — allow retry
-			return vk::ShaderModule(nullptr);
-		}
-	}
-
-	// T086: Descriptor set layout creation from VulkanDescriptorSetLayoutInfo
-	vk::DescriptorSetLayout VulkanGraphExecutor::GetOrCreateDescriptorSetLayout(VulkanDescriptorSetLayoutInfo const& setLayoutInfo)
-	{
-		size_t hash = setLayoutInfo.GetHash();
-
-		auto it = m_DescriptorSetLayoutCache.find(hash);
-		if (it != m_DescriptorSetLayoutCache.end())
-		{
-			return it->second;
-		}
-
-		auto device = GetDevice();
-		castl::vector<vk::DescriptorSetLayoutBinding> vkBindings;
-		auto createInfo = setLayoutInfo.GetCreateInfo(vkBindings);
-
-		try
-		{
-			auto descriptorSetLayout = device.createDescriptorSetLayout(createInfo);
-			m_DescriptorSetLayoutCache[hash] = descriptorSetLayout;
-			return descriptorSetLayout;
-		}
-		catch (vk::SystemError const& e)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to create descriptor set layout for set {}: {}",
-				setLayoutInfo.setIndex, e.what());
-			return vk::DescriptorSetLayout(nullptr);
-		}
-	}
-
-	// T086: Pipeline layout creation from VulkanShaderResourceBindingInfo
-	vk::PipelineLayout VulkanGraphExecutor::GetOrCreatePipelineLayout(VulkanShaderResourceBindingInfo const& bindingInfo)
-	{
-		// Generate cache key from binding info
-		// Hash includes: each set's setIndex + all binding's descriptorType, binding, descriptorCount, stageFlags
-		size_t hash = 0;
-		for (auto const& setLayoutInfo : bindingInfo.setLayoutInfos)
-		{
-			cacore::hash_combine(hash, setLayoutInfo.setIndex);
-			for (auto const& binding : setLayoutInfo.bindings)
-			{
-				cacore::hash_combine(hash, binding.descriptorType);
-				cacore::hash_combine(hash, binding.binding);
-				cacore::hash_combine(hash, binding.descriptorCount);
-				cacore::hash_combine(hash, binding.stageFlags);
-			}
-		}
-
-		// Check PipelineLayout cache
-		auto it = m_PipelineLayoutCache.find(hash);
-		if (it != m_PipelineLayoutCache.end())
-		{
-			return it->second;
-		}
-
-		auto device = GetDevice();
-
-		// Sort setLayoutInfos by setIndex to ensure correct ordering
-		castl::vector<VulkanDescriptorSetLayoutInfo const*> sortedSetLayouts;
-		sortedSetLayouts.reserve(bindingInfo.setLayoutInfos.size());
-		for (auto const& setLayoutInfo : bindingInfo.setLayoutInfos)
-		{
-			sortedSetLayouts.push_back(&setLayoutInfo);
-		}
-		castl::sort(sortedSetLayouts.begin(), sortedSetLayouts.end(),
-			[](VulkanDescriptorSetLayoutInfo const* a, VulkanDescriptorSetLayoutInfo const* b)
-			{
-				return a->setIndex < b->setIndex;
-			});
-
-		// Create DescriptorSetLayout for each set
-		castl::vector<vk::DescriptorSetLayout> setLayouts;
-		setLayouts.reserve(sortedSetLayouts.size());
-
-		for (auto const* pSetLayoutInfo : sortedSetLayouts)
-		{
-			auto descriptorSetLayout = GetOrCreateDescriptorSetLayout(*pSetLayoutInfo);
-			if (!descriptorSetLayout)
-			{
-				return vk::PipelineLayout(nullptr);
-			}
-			setLayouts.push_back(descriptorSetLayout);
-		}
-
-		// Create PipelineLayout from the assembled DescriptorSetLayouts
-		vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-		pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
-		pipelineLayoutInfo.pSetLayouts = setLayouts.data();
-
-		try
-		{
-			auto pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
-			m_PipelineLayoutCache[hash] = pipelineLayout;
-			CA_LOG_INFO("VulkanGraphExecutor: Created pipeline layout with {} sets", setLayouts.size());
-			return pipelineLayout;
-		}
-		catch (vk::SystemError const& e)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to create pipeline layout: {}", e.what());
-			return vk::PipelineLayout(nullptr);
-		}
-	}
-
-	// T088: RenderPass caching
-	vk::RenderPass VulkanGraphExecutor::GetOrCreateRenderPass(RenderPassCacheKey const& key)
-	{
-		// Create hash from key
-		size_t hash = 0;
-		for (auto const& fmt : key.colorFormats)
-		{
-			cacore::hash_combine(hash, static_cast<uint32_t>(fmt));
-		}
-		cacore::hash_combine(hash, static_cast<uint32_t>(key.depthFormat));
-		cacore::hash_combine(hash, key.hasDepth);
-
-		// Check cache
-		auto it = m_RenderPassCache.find(hash);
-		if (it != m_RenderPassCache.end())
-		{
-			return it->second;
-		}
-
-		auto device = GetDevice();
-
-		// Create attachment descriptions
-		castl::vector<vk::AttachmentDescription> attachments;
-		castl::vector<vk::AttachmentReference> colorRefs;
-		vk::AttachmentReference depthRef{};
-
-		for (size_t i = 0; i < key.colorFormats.size(); ++i)
-		{
-			vk::AttachmentDescription attachment{};
-			attachment.format = key.colorFormats[i];
-			attachment.samples = vk::SampleCountFlagBits::e1;
-			attachment.loadOp = vk::AttachmentLoadOp::eClear;
-			attachment.storeOp = vk::AttachmentStoreOp::eStore;
-			attachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-			attachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-			attachment.initialLayout = vk::ImageLayout::eColorAttachmentOptimal;
-			attachment.finalLayout = vk::ImageLayout::eColorAttachmentOptimal;
-			attachments.push_back(attachment);
-
-			colorRefs.push_back({ static_cast<uint32_t>(i), vk::ImageLayout::eColorAttachmentOptimal });
-		}
-
-		if (key.hasDepth)
-		{
-			vk::AttachmentDescription depthAttachment{};
-			depthAttachment.format = key.depthFormat;
-			depthAttachment.samples = vk::SampleCountFlagBits::e1;
-			depthAttachment.loadOp = vk::AttachmentLoadOp::eClear;
-			depthAttachment.storeOp = vk::AttachmentStoreOp::eStore;
-			depthAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-			depthAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-			depthAttachment.initialLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-			depthAttachment.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-			attachments.push_back(depthAttachment);
-
-			depthRef.attachment = static_cast<uint32_t>(attachments.size() - 1);
-			depthRef.layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-		}
-
-		// Create subpass
-		vk::SubpassDescription subpass{};
-		subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
-		subpass.colorAttachmentCount = static_cast<uint32_t>(colorRefs.size());
-		subpass.pColorAttachments = colorRefs.data();
-		if (key.hasDepth)
-		{
-			subpass.pDepthStencilAttachment = &depthRef;
-		}
-
-		// Create render pass
-		vk::RenderPassCreateInfo renderPassInfo{};
-		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-		renderPassInfo.pAttachments = attachments.data();
-		renderPassInfo.subpassCount = 1;
-		renderPassInfo.pSubpasses = &subpass;
-
-		try
-		{
-			auto renderPass = device.createRenderPass(renderPassInfo);
-			m_RenderPassCache[hash] = renderPass;
-			CA_LOG_INFO("VulkanGraphExecutor: Created cached render pass");
-			return renderPass;
-		}
-		catch (vk::SystemError const& e)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to create render pass: {}", e.what());
-			return nullptr;
-		}
-	}
-
-	// T088: Framebuffer caching
-	vk::Framebuffer VulkanGraphExecutor::GetOrCreateFramebuffer(vk::RenderPass renderPass,
-		castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height)
-	{
-		// Create hash from render pass and attachments
-		size_t hash = 0;
-		cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkRenderPass>(renderPass)));
-		for (auto const& view : attachments)
-		{
-			cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkImageView>(view)));
-		}
-		cacore::hash_combine(hash, width);
-		cacore::hash_combine(hash, height);
-
-		// Check cache
-		auto it = m_FramebufferCache.find(hash);
-		if (it != m_FramebufferCache.end())
-		{
-			return it->second;
-		}
-
-		auto device = GetDevice();
-
-		vk::FramebufferCreateInfo framebufferInfo{};
-		framebufferInfo.renderPass = renderPass;
-		framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-		framebufferInfo.pAttachments = attachments.data();
-		framebufferInfo.width = width;
-		framebufferInfo.height = height;
-		framebufferInfo.layers = 1;
-
-		try
-		{
-			auto framebuffer = device.createFramebuffer(framebufferInfo);
-			m_FramebufferCache[hash] = framebuffer;
-			CA_LOG_INFO("VulkanGraphExecutor: Created cached framebuffer");
-			return framebuffer;
-		}
-		catch (vk::SystemError const& e)
-		{
-			CA_LOG_ERR("VulkanGraphExecutor: Failed to create framebuffer: {}", e.what());
-			return nullptr;
-		}
-	}
-
-	// T089: Staging buffer cleanup
-	void VulkanGraphExecutor::CleanupStagingBuffers()
-	{
-		auto& memoryManager = GetApp()->GetMemoryManager();
-		auto device = GetDevice();
-
-		for (auto const& stagingInfo : m_PendingStagingBuffers)
-		{
-			if (stagingInfo.buffer)
-			{
-				device.destroyBuffer(stagingInfo.buffer);
-			}
-			if (stagingInfo.allocation)
-			{
-				vmaFreeMemory(memoryManager.GetAllocator(), stagingInfo.allocation);
-			}
-		}
-		m_PendingStagingBuffers.clear();
-	}
-
-	// Cleanup all caches
-	void VulkanGraphExecutor::CleanupCaches()
-	{
-		auto device = GetDevice();
-
-		// Cleanup render passes
-		for (auto const& [hash, renderPass] : m_RenderPassCache)
-		{
-			if (renderPass)
-			{
-				device.destroyRenderPass(renderPass);
-			}
-		}
-		m_RenderPassCache.clear();
-
-		// Cleanup framebuffers
-		for (auto const& [hash, framebuffer] : m_FramebufferCache)
-		{
-			if (framebuffer)
-			{
-				device.destroyFramebuffer(framebuffer);
-			}
-		}
-		m_FramebufferCache.clear();
-
-		// Cleanup shader modules
-		for (auto const& [hash, shaderModule] : m_ShaderModuleCache)
-		{
-			if (shaderModule)
-			{
-				device.destroyShaderModule(shaderModule);
-			}
-		}
-		m_ShaderModuleCache.clear();
-
-		// Cleanup pipeline layouts
-		for (auto const& [hash, pipelineLayout] : m_PipelineLayoutCache)
-		{
-			if (pipelineLayout)
-			{
-				device.destroyPipelineLayout(pipelineLayout);
-			}
-		}
-		m_PipelineLayoutCache.clear();
-
-		// Cleanup descriptor set layouts
-		for (auto const& [hash, setLayout] : m_DescriptorSetLayoutCache)
-		{
-			if (setLayout)
-			{
-				device.destroyDescriptorSetLayout(setLayout);
-			}
-		}
-		m_DescriptorSetLayoutCache.clear();
-
-		// Cleanup descriptor pool
-		if (m_DescriptorPool)
-		{
-			device.destroyDescriptorPool(m_DescriptorPool);
-			m_DescriptorPool = nullptr;
-		}
 	}
 }

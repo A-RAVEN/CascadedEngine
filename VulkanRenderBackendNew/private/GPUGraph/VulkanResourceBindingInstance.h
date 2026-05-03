@@ -66,7 +66,7 @@ namespace graphics_backend
 		void BuildResources(VulkanGraphLocalResourceManager& resourceManager, VulkanConstantBufferManager& cbufferManager, GPUGraph const& graph);
 
 		// Build descriptors - allocate and update descriptor sets
-		void BuildDescriptors(VulkanGraphExecutor& executor, vk::DescriptorPool pool);
+		void BuildDescriptors(VulkanGraphLocalResourceManager& resourceManager, vk::DescriptorPool pool);
 
 		// Set resources (low-level API for manual descriptor writes)
 		void SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range);

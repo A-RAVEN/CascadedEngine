@@ -42,3 +42,4 @@ rules:
     - Mark parallel tasks with [P]
     - Map tasks to user stories with [USx]
     - Keep tasks atomic and testable
+    - 最后一项必须是编译验证与修复：运行 build.bat，若失败则分析并修复直到 BUILD SUCCESSFUL

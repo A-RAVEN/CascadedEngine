@@ -36,9 +36,9 @@
 
 | # | 模块 | 差距 | 优先级 | 依赖 | 状态 |
 |---|------|------|--------|------|------|
-| 1 | **GPUFrameManager** | 无帧管理子系统，每次 ExecuteGraph 创建/销毁所有资源 | P0 | Phase 1 完成 | ❌ 未开始 |
-| 2 | **异步 Submit** | `SubmitBatches` 中 `waitForFences(UINT64_MAX)` 同步等待 | P0 | GPUFrameManager | ❌ 未开始 |
-| 3 | **LinearMemoryManager** | 每个 staging buffer 独立 VMA 分配，无复用 | P1 | - | ❌ 未开始 |
+| 1 | **GPUFrameManager** | 无帧管理子系统，每次 ExecuteGraph 创建/销毁所有资源 | P0 | Phase 1 完成 | ✅ 已完成 |
+| 2 | **异步 Submit** | `SubmitBatches` 中 `waitForFences(UINT64_MAX)` 同步等待 | P0 | GPUFrameManager | ✅ 已完成 |
+| 3 | **LinearMemoryManager** | 每个 staging buffer 独立 VMA 分配，无复用 | P1 | - | ✅ 已完成 |
 | 4 | **跨队列同步** | Barrier 始终 `VK_QUEUE_FAMILY_IGNORED` | P1 | GPUFrameManager | ❌ 未开始 |
 
 ### GPUFrameManager 细节

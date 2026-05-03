@@ -203,6 +203,10 @@ namespace graphics_backend
 		InitSubObj(&m_PipelineLibraryCache);
 		m_PipelineLibraryCache.Init();
 
+		// Init GPU Frame Manager
+		InitSubObj(&m_GPUFrameManager);
+		m_GPUFrameManager.Init();
+
 		CA_LOG_INFO("VulkanRenderBackend initialized successfully");
 	}
 	void RenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
@@ -213,15 +217,17 @@ namespace graphics_backend
 			return;
 		}
 
-		// Create graph executor
+		// Aquire frame context from GPUFrameManager (round-robin, waits for previous GPU work)
+		auto frameContext = m_GPUFrameManager.AquireFrameContext();
+
+		// Create graph executor (per-frame, like D3D12)
 		VulkanGraphExecutor executor;
 		InitSubObj(&executor);
-		executor.Init();
 
-		// Execute graph
-		executor.CompileAndExecute(scheduler, graph);
+		// Execute graph with frame context
+		executor.CompileAndExecute(graph, std::move(frameContext));
 
-		// Release executor
+		// Release executor (frame context auto-released by PFrameContext deleter)
 		executor.Release();
 	}
 	void RenderBackend_Vulkan::Release()
@@ -229,11 +235,44 @@ namespace graphics_backend
 		// Clear window handles
 		m_WindowHandles.clear();
 
+		// Release GPU Frame Manager
+		m_GPUFrameManager.Release();
+
 		// Release pipeline library cache
 		m_PipelineLibraryCache.Release();
 
 		// Release pipeline library
 		m_PipelineLibrary.Release();
+
+		// Cleanup cross-frame caches
+		{
+			auto device = m_Device;
+			for (auto& [hash, framebuffer] : m_FramebufferCache)
+			{
+				if (framebuffer) device.destroyFramebuffer(framebuffer);
+			}
+			m_FramebufferCache.clear();
+			for (auto& [hash, renderPass] : m_RenderPassCache)
+			{
+				if (renderPass) device.destroyRenderPass(renderPass);
+			}
+			m_RenderPassCache.clear();
+			for (auto& [hash, shaderModule] : m_ShaderModuleCache)
+			{
+				if (shaderModule) device.destroyShaderModule(shaderModule);
+			}
+			m_ShaderModuleCache.clear();
+			for (auto& [hash, pipelineLayout] : m_PipelineLayoutCache)
+			{
+				if (pipelineLayout) device.destroyPipelineLayout(pipelineLayout);
+			}
+			m_PipelineLayoutCache.clear();
+			for (auto& [hash, setLayout] : m_DescriptorSetLayoutCache)
+			{
+				if (setLayout) device.destroyDescriptorSetLayout(setLayout);
+			}
+			m_DescriptorSetLayoutCache.clear();
+		}
 
 		// Release command list manager
 		m_CommandListManager.Release();
@@ -356,6 +395,230 @@ namespace graphics_backend
 		}
 		return false;
 	}
+}
+
+// --- Cross-frame cache methods (moved from VulkanGraphExecutor) ---
+
+namespace graphics_backend
+{
+
+vk::ShaderModule RenderBackend_Vulkan::GetOrCreateShaderModule(cahash::sha256_hash::result_type const& programHash)
+{
+	auto it = m_ShaderModuleCache.find(programHash);
+	if (it != m_ShaderModuleCache.end())
+		return it->second;
+
+	if (p_ResourceManager == nullptr)
+		return vk::ShaderModule(nullptr);
+
+	auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("VulkanShaderLibrary.shLib");
+	if (shaderLibrary == nullptr)
+		return vk::ShaderModule(nullptr);
+
+	VulkanShaderCode const* shaderCode = shaderLibrary->GetShaderCode(programHash);
+	if (shaderCode == nullptr || shaderCode->spirvCode.empty())
+		return vk::ShaderModule(nullptr);
+
+	vk::ShaderModuleCreateInfo moduleInfo{};
+	moduleInfo.codeSize = shaderCode->spirvCode.size() * sizeof(uint32_t);
+	moduleInfo.pCode = shaderCode->spirvCode.data();
+
+	try
+	{
+		auto shaderModule = m_Device.createShaderModule(moduleInfo);
+		m_ShaderModuleCache[programHash] = shaderModule;
+		return shaderModule;
+	}
+	catch (vk::SystemError const& e)
+	{
+		CA_LOG_ERR("RenderBackend_Vulkan: Failed to create shader module: {}", e.what());
+		return vk::ShaderModule(nullptr);
+	}
+}
+
+vk::DescriptorSetLayout RenderBackend_Vulkan::GetOrCreateDescriptorSetLayout(VulkanDescriptorSetLayoutInfo const& setLayoutInfo)
+{
+	size_t hash = setLayoutInfo.GetHash();
+	auto it = m_DescriptorSetLayoutCache.find(hash);
+	if (it != m_DescriptorSetLayoutCache.end())
+		return it->second;
+
+	castl::vector<vk::DescriptorSetLayoutBinding> vkBindings;
+	auto createInfo = setLayoutInfo.GetCreateInfo(vkBindings);
+
+	try
+	{
+		auto layout = m_Device.createDescriptorSetLayout(createInfo);
+		m_DescriptorSetLayoutCache[hash] = layout;
+		return layout;
+	}
+	catch (vk::SystemError const& e)
+	{
+		CA_LOG_ERR("RenderBackend_Vulkan: Failed to create descriptor set layout: {}", e.what());
+		return vk::DescriptorSetLayout(nullptr);
+	}
+}
+
+vk::PipelineLayout RenderBackend_Vulkan::GetOrCreatePipelineLayout(VulkanShaderResourceBindingInfo const& bindingInfo)
+{
+	size_t hash = 0;
+	for (auto const& setLayoutInfo : bindingInfo.setLayoutInfos)
+	{
+		cacore::hash_combine(hash, setLayoutInfo.setIndex);
+		for (auto const& binding : setLayoutInfo.bindings)
+		{
+			cacore::hash_combine(hash, binding.descriptorType);
+			cacore::hash_combine(hash, binding.binding);
+			cacore::hash_combine(hash, binding.descriptorCount);
+			cacore::hash_combine(hash, binding.stageFlags);
+		}
+	}
+
+	auto it = m_PipelineLayoutCache.find(hash);
+	if (it != m_PipelineLayoutCache.end())
+		return it->second;
+
+	castl::vector<VulkanDescriptorSetLayoutInfo const*> sortedSetLayouts;
+	sortedSetLayouts.reserve(bindingInfo.setLayoutInfos.size());
+	for (auto const& setLayoutInfo : bindingInfo.setLayoutInfos)
+		sortedSetLayouts.push_back(&setLayoutInfo);
+	castl::sort(sortedSetLayouts.begin(), sortedSetLayouts.end(),
+		[](VulkanDescriptorSetLayoutInfo const* a, VulkanDescriptorSetLayoutInfo const* b)
+		{ return a->setIndex < b->setIndex; });
+
+	castl::vector<vk::DescriptorSetLayout> setLayouts;
+	for (auto const* pSetLayoutInfo : sortedSetLayouts)
+	{
+		auto layout = GetOrCreateDescriptorSetLayout(*pSetLayoutInfo);
+		if (!layout) return vk::PipelineLayout(nullptr);
+		setLayouts.push_back(layout);
+	}
+
+	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+	pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+	pipelineLayoutInfo.pSetLayouts = setLayouts.data();
+
+	try
+	{
+		auto pipelineLayout = m_Device.createPipelineLayout(pipelineLayoutInfo);
+		m_PipelineLayoutCache[hash] = pipelineLayout;
+		return pipelineLayout;
+	}
+	catch (vk::SystemError const& e)
+	{
+		CA_LOG_ERR("RenderBackend_Vulkan: Failed to create pipeline layout: {}", e.what());
+		return vk::PipelineLayout(nullptr);
+	}
+}
+
+vk::RenderPass RenderBackend_Vulkan::GetOrCreateRenderPass(RenderPassCacheKey const& key)
+{
+	size_t hash = 0;
+	for (auto const& fmt : key.colorFormats)
+		cacore::hash_combine(hash, static_cast<uint32_t>(fmt));
+	cacore::hash_combine(hash, static_cast<uint32_t>(key.depthFormat));
+	cacore::hash_combine(hash, key.hasDepth);
+
+	auto it = m_RenderPassCache.find(hash);
+	if (it != m_RenderPassCache.end())
+		return it->second;
+
+	castl::vector<vk::AttachmentDescription> attachments;
+	castl::vector<vk::AttachmentReference> colorRefs;
+	vk::AttachmentReference depthRef{};
+
+	for (size_t i = 0; i < key.colorFormats.size(); ++i)
+	{
+		vk::AttachmentDescription attachment{};
+		attachment.format = key.colorFormats[i];
+		attachment.samples = vk::SampleCountFlagBits::e1;
+		attachment.loadOp = vk::AttachmentLoadOp::eClear;
+		attachment.storeOp = vk::AttachmentStoreOp::eStore;
+		attachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+		attachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+		attachment.initialLayout = vk::ImageLayout::eColorAttachmentOptimal;
+		attachment.finalLayout = vk::ImageLayout::eColorAttachmentOptimal;
+		attachments.push_back(attachment);
+		colorRefs.push_back({ static_cast<uint32_t>(i), vk::ImageLayout::eColorAttachmentOptimal });
+	}
+
+	if (key.hasDepth)
+	{
+		vk::AttachmentDescription depthAttachment{};
+		depthAttachment.format = key.depthFormat;
+		depthAttachment.samples = vk::SampleCountFlagBits::e1;
+		depthAttachment.loadOp = vk::AttachmentLoadOp::eClear;
+		depthAttachment.storeOp = vk::AttachmentStoreOp::eStore;
+		depthAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+		depthAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+		depthAttachment.initialLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+		depthAttachment.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+		attachments.push_back(depthAttachment);
+		depthRef.attachment = static_cast<uint32_t>(attachments.size() - 1);
+		depthRef.layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+	}
+
+	vk::SubpassDescription subpass{};
+	subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+	subpass.colorAttachmentCount = static_cast<uint32_t>(colorRefs.size());
+	subpass.pColorAttachments = colorRefs.data();
+	if (key.hasDepth)
+		subpass.pDepthStencilAttachment = &depthRef;
+
+	vk::RenderPassCreateInfo renderPassInfo{};
+	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+	renderPassInfo.pAttachments = attachments.data();
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpass;
+
+	try
+	{
+		auto renderPass = m_Device.createRenderPass(renderPassInfo);
+		m_RenderPassCache[hash] = renderPass;
+		return renderPass;
+	}
+	catch (vk::SystemError const& e)
+	{
+		CA_LOG_ERR("RenderBackend_Vulkan: Failed to create render pass: {}", e.what());
+		return nullptr;
+	}
+}
+
+vk::Framebuffer RenderBackend_Vulkan::GetOrCreateFramebuffer(vk::RenderPass renderPass,
+	castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height)
+{
+	size_t hash = 0;
+	cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkRenderPass>(renderPass)));
+	for (auto const& view : attachments)
+		cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkImageView>(view)));
+	cacore::hash_combine(hash, width);
+	cacore::hash_combine(hash, height);
+
+	auto it = m_FramebufferCache.find(hash);
+	if (it != m_FramebufferCache.end())
+		return it->second;
+
+	vk::FramebufferCreateInfo framebufferInfo{};
+	framebufferInfo.renderPass = renderPass;
+	framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+	framebufferInfo.pAttachments = attachments.data();
+	framebufferInfo.width = width;
+	framebufferInfo.height = height;
+	framebufferInfo.layers = 1;
+
+	try
+	{
+		auto framebuffer = m_Device.createFramebuffer(framebufferInfo);
+		m_FramebufferCache[hash] = framebuffer;
+		return framebuffer;
+	}
+	catch (vk::SystemError const& e)
+	{
+		CA_LOG_ERR("RenderBackend_Vulkan: Failed to create framebuffer: {}", e.what());
+		return nullptr;
+	}
+}
+
 }
 
 CA_MODULE_INSTANCE(graphics_backend::CRenderBackend, graphics_backend::RenderBackend_Vulkan, RenderBackend_Vulkan);
