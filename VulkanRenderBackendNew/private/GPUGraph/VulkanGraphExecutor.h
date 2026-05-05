@@ -1,5 +1,6 @@
 #pragma once
 #include <Utils/VulkanSubobjectBase.h>
+#include <GPUGraph/VulkanResourceState.h>
 #include <GPUGraph/VulkanGraphLocalResourceManager.h>
 #include <GPUGraph/VulkanPassRWState.h>
 #include <GPUGraph/VulkanResourceBindingInstance.h>
@@ -22,41 +23,6 @@ namespace graphics_backend
 	// Get descriptor from image handle
 	GPUTextureDescriptor GetDescriptor(GPUGraph const& graph, ImageHandle const& image);
 	GPUBufferDescriptor GetDescriptor(GPUGraph const& graph, BufferHandle const& buffer);
-
-	// Resource state for Vulkan
-	struct VulkanResourceState
-	{
-		vk::AccessFlags accessFlags;
-		vk::PipelineStageFlags stageFlags;
-		vk::ImageLayout imageLayout;
-		EGPUQueueType queueType;
-		bool isImage;
-
-		bool Write() const {
-			return (accessFlags & (vk::AccessFlagBits::eColorAttachmentWrite |
-				vk::AccessFlagBits::eDepthStencilAttachmentWrite |
-				vk::AccessFlagBits::eShaderWrite |
-				vk::AccessFlagBits::eTransferWrite)) != vk::AccessFlags{};
-		}
-
-		bool CompatibleToCombine(VulkanResourceState const& other) const {
-			return queueType == other.queueType;
-		}
-
-		void Combine(VulkanResourceState const& other) {
-			accessFlags |= other.accessFlags;
-			stageFlags |= other.stageFlags;
-		}
-
-		bool hasDirectQueue() const { return queueType == EGPUQueueType::eDirect; }
-		bool hasComputeQueue() const { return queueType == EGPUQueueType::eCompute; }
-		bool isSharedBetweenQueues() const { return false; }
-
-		static VulkanResourceState InitializedState() {
-			return { vk::AccessFlagBits::eNone, vk::PipelineStageFlagBits::eTopOfPipe,
-				vk::ImageLayout::eUndefined, EGPUQueueType::eDirect, true };
-		}
-	};
 
 	// Per-pass read/write state tracking (Vulkan executor-specific)
 	class VulkanExecutorRWState

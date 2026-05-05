@@ -1,6 +1,7 @@
 #pragma once
 #include <GPUTexture.h>
 #include <Utils/VulkanSubobjectBase.h>
+#include <GPUGraph/VulkanResourceState.h>
 #include <vk_mem_alloc.h>
 
 namespace graphics_backend
@@ -29,6 +30,10 @@ namespace graphics_backend
 		vk::ImageLayout GetCurrentLayout() const { return m_CurrentLayout; }
 		void SetCurrentLayout(vk::ImageLayout layout) { m_CurrentLayout = layout; }
 
+		// Resource state accessors (aligned with D3D12 D3DImageObject)
+		void SetResourceState(VulkanResourceState const& state) { m_LastResourceState = state; }
+		VulkanResourceState const& GetResourceState() const { return m_LastResourceState; }
+
 		// Transition image layout
 		void TransitionLayout(vk::CommandBuffer cmdBuf, vk::ImageLayout newLayout
 			, vk::PipelineStageFlags srcStage = vk::PipelineStageFlagBits::eTopOfPipe
@@ -53,5 +58,7 @@ namespace graphics_backend
 		ETextureAccessTypeFlags m_AccessType{};
 		castl::string m_Name;
 		vk::ImageLayout m_CurrentLayout = vk::ImageLayout::eUndefined;
+		VulkanResourceState m_LastResourceState = { vk::AccessFlagBits::eNone, vk::PipelineStageFlagBits::eTopOfPipe,
+			vk::ImageLayout::eUndefined, EGPUQueueType::eDirect, true };
 	};
 }

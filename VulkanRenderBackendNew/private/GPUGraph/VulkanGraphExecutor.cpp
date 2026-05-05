@@ -1766,6 +1766,49 @@ namespace graphics_backend
 
 	void VulkanGraphExecutor::ApplyExternalResourceStates()
 	{
+		for (auto& pair : m_ImageLifetimes)
+		{
+			auto&& [image, resourceUsageRange] = pair;
+			if (!image.IsIntternal())
+			{
+				CA_ASSERT_BREAK(!resourceUsageRange.states.empty(), "Image {} Has Empty States", image.GetName());
+				auto& lastState = resourceUsageRange.states.back();
+				switch (image.GetType())
+				{
+				case ImageHandle::ImageType::External:
+				{
+					auto texturePtr = image.GetTexturePtr<VulkanTexture>();
+					texturePtr->SetResourceState(lastState.state);
+					break;
+				}
+				case ImageHandle::ImageType::Backbuffer:
+				{
+					auto pWindow = image.GetWindowPtr<VulkanWindowHandle>();
+					pWindow->ApplyCurrentBackBufferResourceState(lastState.state);
+					break;
+				}
+				}
+			}
+		}
+
+		for (auto& pair : m_BufferLifetimes)
+		{
+			auto&& [buffer, resourceUsageRange] = pair;
+			if (!buffer.IsIntternal())
+			{
+				CA_ASSERT_BREAK(!resourceUsageRange.states.empty(), "Buffer {} Has Empty States", buffer.GetName());
+				auto& lastState = resourceUsageRange.states.back();
+				switch (buffer.GetType())
+				{
+				case BufferHandle::BufferType::External:
+				{
+					auto bufPtr = buffer.GetBufferPtr<VulkanBuffer>();
+					bufPtr->SetResourceState(lastState.state);
+					break;
+				}
+				}
+			}
+		}
 	}
 
 	// PresentWindows: now uses per-window present semaphore from FrameContext

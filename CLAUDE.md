@@ -33,6 +33,6 @@ C++ (CMake build system): Follow standard conventions
 <!-- MANUAL ADDITIONS START -->
 ## 工作规则
 
-- **禁止编译/配置**: 除非用户明确说明，不要尝试配置或编译此项目
+- **禁止编译/配置**: 除非用户明确说明，不要尝试配置或编译此项目。但如果当前 OpenSpec change 的 tasks 中明确包含编译验证步骤（如 `build.bat`），可直接执行无需征询同意
 - **禁止自动执行后续任务**: 除非用户明确说明继续实行任务，禁止执行tasks中后续的任务
 <!-- MANUAL ADDITIONS END -->

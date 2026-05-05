@@ -1,6 +1,7 @@
 #pragma once
 #include <WindowHandle.h>
 #include <Utils/VulkanSubobjectBase.h>
+#include <GPUGraph/VulkanResourceState.h>
 #include <CASTL/CAVector.h>
 #include <memory>
 
@@ -47,6 +48,9 @@ namespace graphics_backend
 		// Check if window is valid
 		bool IsValid() const { return m_Surface && m_Swapchain; }
 
+		// Per-swapchain-image backbuffer resource state (aligned with D3D12 WindowContext)
+		void ApplyCurrentBackBufferResourceState(VulkanResourceState const& state);
+
 	private:
 		void CreateSurface();
 		void CreateSwapchain();
@@ -71,5 +75,7 @@ namespace graphics_backend
 
 		GPUTextureDescriptor m_BackbufferDescriptor{};
 		bool m_SwapchainOutdated = false;
+
+		castl::vector<VulkanResourceState> m_BackBufferResourceStates;
 	};
 }

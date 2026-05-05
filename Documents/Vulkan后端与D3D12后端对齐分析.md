@@ -1,6 +1,6 @@
 # Vulkan后端 vs D3D12后端 对齐分析
 
-> 生成日期: 2026-04-12 | 更新: 2026-05-02 (基于 vulkan-descriptor-cbuffer-upload + fix-vulkan-image-sampler-separation + vulkan-cbuffer-manager + vulkan-compute-pass-resources 变更)
+> 生成日期: 2026-04-12 | 更新: 2026-05-04 (基于 vulkan-renderpass-format-conversion + vulkan-gpu-frame-manager 变更)
 > 目标: 使 VulkanRenderBackendNew 在接口功能上向 D3D12RenderBackend 对齐
 
 ---
@@ -14,29 +14,35 @@
 │   D3D12RenderBackend         │   VulkanRenderBackendNew                 │
 ├──────────────────────────────┼──────────────────────────────────────────┤
 │  RenderBackend_D3D12         │  RenderBackend_Vulkan                    │
-│  ├── GPUFrameManager         │  ├── VulkanGraphExecutor                 │
-│  │   └── FrameContext        │  │   ├── VulkanGraphLocalResourceManager│
-│  │       └── FrameBoundResMgr│  │   └── VulkanResourceBindingInstance  │
-│  │           ├── Descriptor  │  │       (Init/BuildResources/           │
-│  │           ├── GPU Heaps   │  │        BuildDescriptors)             │
-│  │           ├── CmdListMgr  │  ├── VulkanPipelineLibrary              │
-│  │           ├── StagingMem  │  ├── PipelineLibraryCache               │
-│  │           ├── AliasedMem  │  ├── ShaderLibrary (Vulkan)             │
-│  │           └── Fences      │  ├── VulkanCommandListManager           │
-│  ├── D3D12GPUGraphExecutor   │  └── DescriptorPool (per-frame)         │
-│  ├── GPUPipelineManager      │                                        │
-│  ├── GPUComputePipelineMgr   │  ✅ Descriptor 流程已完整实现            │
-│  ├── RootSignatureManager    │  ✅ CBuffer 上传已完整实现               │
-│  ├── SamplerManager          │  ✅ Pipeline + Layout 缓存已实现         │
-│  ├── MemoryManager (D3D12MA) │  ❌ No GPUFrameManager equivalent        │
-│  ├── CommandListManager      │  ✅ VulkanConstantBufferManager           │
-│  └── ShaderLibrary (D3D12)   │  ❌ No SamplerManager                    │
+│  ├── GPUFrameManager         │  ├── VulkanGPUFrameManager               │
+│  │   └── FrameContext        │  │   └── VulkanFrameContext              │
+│  │       └── FrameBoundResMgr│  │       └── VulkanFrameBoundResourceMgr │
+│  │           ├── Descriptor  │  │           ├── VulkanCommandListMgr   │
+│  │           ├── GPU Heaps   │  │           ├── vk::DescriptorPool     │
+│  │           ├── CmdListMgr  │  │           ├── VulkanLinearMemoryMgr  │
+│  │           ├── StagingMem  │  │           └── Direct/Compute Fences  │
+│  │           ├── AliasedMem  │  ├── VulkanGraphExecutor (per-frame)    │
+│  │           └── Fences      │  │   ├── VulkanGraphLocalResourceManager│
+│  ├── D3D12GPUGraphExecutor   │  │   └── VulkanResourceBindingInstance  │
+│  ├── GPUPipelineManager      │  │       (Init/BuildResources/           │
+│  ├── GPUComputePipelineMgr   │  │        BuildDescriptors)             │
+│  ├── RootSignatureManager    │  ├── VulkanPipelineLibrary              │
+│  ├── SamplerManager          │  ├── PipelineLibraryCache               │
+│  ├── MemoryManager (D3D12MA) │  ├── ShaderLibrary (Vulkan)             │
+│  ├── CommandListManager      │  ├── VulkanConstantBufferManager         │
+│  └── ShaderLibrary (D3D12)   │                                        │
+│                               │  ✅ 帧管理子系统已完整实现               │
+│                               │  ✅ Descriptor 流程已完整实现            │
+│                               │  ✅ CBuffer 上传已完整实现               │
+│                               │  ✅ Pipeline + Layout 缓存已实现         │
+│                               │  ✅ LinearMemoryManager 已实现           │
+│                               │  ❌ No SamplerManager                    │
 └──────────────────────────────┴──────────────────────────────────────────┘
 ```
 
 ---
 
-## CompileAndExecute 阶段对比 (2026-05-01 更新)
+## CompileAndExecute 阶段对比 (2026-05-04 更新)
 
 ```
 D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
@@ -53,7 +59,7 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 
 [5] BuildDescriptors  ← 在 barrier 之前     [4] AllocateAliasedResources
 
-[6] PrepareBatchResourceBarriers             [4.5] BuildResources ← 新增
+[6] PrepareBatchResourceBarriers             [4.5] BuildResources ←
                                                  ├─ CBuffer GPU buffer 分配
 [7] BuildPipelineStates                          ├─ Image/Buffer fallback 注册
                                                  └─ 填充 CBufferResourceIdMap
@@ -64,22 +70,22 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
                                              [6] BuildPipelineStates
 [9] ApplyExternalResourceStates                  └─ PipelineLayout + DLL 缓存
 
-[10] PresentWindows                           [7] DescriptorPool 创建 (新增)
+[10] PresentWindows                           [7] DescriptorPool 创建
 
-[11] Reset                                    [8] BuildDescriptors (新增)
+[11] Reset                                    [8] BuildDescriptors
                                                    ├─ AllocateDescriptorSets
                                                    ├─ 写 binding (CBuffer/Image/Buffer/Sampler)
                                                    └─ UpdateDescriptorSets
 
                                               [9] Execute
-                                                   ├─ CBuffer staging upload
+                                                   ├─ CBuffer staging upload (LinearMemoryManager)
                                                    ├─ RecordRenderPass/ComputePass
                                                    │    └─ bindDescriptorSets (连续区间)
-                                                   └─ SubmitBatches (同步等待)
+                                                   └─ SubmitBatches (异步, 不再 waitForFences)
 
                                               [10] ApplyExternalResourceStates (空)
                                               [11] PresentWindows
-                                              [12] Reset
+                                              [12] Reset (FrameContext::Aquire 时等待上一帧 Fence)
 ```
 
 **关键排序差异:**
@@ -87,32 +93,36 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 - Vulkan: `BuildDescriptors` 在 `BuildPipelineStates` **之后** (因为 DescriptorSetLayout 必须从 PipelineLayout cache 中获取，而 Vulkan 中 DescriptorSetLayout 由 PipelineLayout 创建时一并生成)
 - 这个排序差异是合理的：D3D12 的 Descriptor Heap 独立于 RootSignature，可以先行分配；Vulkan 的 DescriptorSetLayout 内嵌在 PipelineLayout 中
 
+**同步模型差异:**
+- D3D12: 每帧通过 `FrameContext->Signal(DirectQ, ComputeQ)` 信号 Fence，`FrameContext->WaitForPreviousFrame()` 等待
+- Vulkan: `SubmitBatches()` 异步提交后 CPU 立即返回；GPU 同步推迟到 `FrameContext::Aquire()` 中 `waitForFences`，实现等效的 N 帧重叠流水线
+
 ---
 
 ## 第一部分: D3D12已实现但Vulkan尚未实现的功能
 
-### 1.1 帧管理子系统 (GPUFrameManager)
+### 1.1 帧管理子系统 (GPUFrameManager) ✅
 
 | 维度 | D3D12 | Vulkan | 状态 |
 |------|-------|--------|------|
-| 类名 | `GPUFrameManager` / `FrameContext` / `FrameBoundResourceManager` | **不存在** | ❌ 未实现 |
-| 功能 | 多帧重叠渲染，每帧独立资源分配器 | 所有资源在单次 ExecuteGraph 中创建/销毁 | - |
-| 同步 | 每帧独立 Fence (Direct + Compute)，`FrameContext->Signal()` | `SubmitBatches()` 中创建 Fence 并 `waitForFences(..., UINT64_MAX)` **同步等待** | - |
-| 资源 | 从 FrameContext 获取 DescriptorAllocator / GPUHeap / StagingMem / AliasedMem | 自管理，无帧间复用 | - |
+| 类名 | `GPUFrameManager` / `FrameContext` / `FrameBoundResourceManager` | `VulkanGPUFrameManager` / `VulkanFrameContext` / `VulkanFrameBoundResourceManager` | ✅ 已对齐 |
+| 功能 | 多帧重叠渲染，每帧独立资源分配器 | 环形缓冲区 N 帧上下文（默认 maxFrameCount=2），VulkanGraphExecutor 每帧重建 | ✅ 已对齐 |
+| 同步 | 每帧独立 Fence (Direct + Compute)，`FrameContext->Signal()` | VulkanFrameBoundResourceManager 持有 Direct/Compute Fence，SubmitBatches 异步提交，FrameContext::Aquire() 中 waitForFences | ✅ 已对齐 |
+| 资源 | 从 FrameContext 获取 DescriptorAllocator / GPUHeap / StagingMem / AliasedMem | VulkanFrameBoundResourceManager 持有 CommandListManager / DescriptorPool / LinearMemoryManager / Fences | ✅ 已对齐 |
 
-**具体缺失：**
+**具体实现：**
+- `VulkanGPUFrameManager`: 顶层管理器，持有 `maxFrameCount`（默认 2）个 `VulkanFrameContext` 的环形缓冲区。`AquireFrameContext()` 返回 `PFrameContext`（unique_ptr + custom deleter，析构时自动 Reset）
+- `VulkanFrameContext`: 每帧独立上下文，包含 `std::binary_semaphore` 进行线程同步，`VulkanFrameBoundResourceManager`，以及 per-window acquire/present semaphore pairs
+- `VulkanFrameBoundResourceManager`: 对应 D3D12 `FrameBoundResourceManager`，持有：
+  - `VulkanCommandListManager` — 命令列表管理器
+  - `vk::DescriptorPool` — 描述符池（动态扩容 `EnsurePoolCapacity`）
+  - `VulkanLinearMemoryManager` — 线性上传内存
+  - `vk::Fence` (Direct + Compute) — 队列 Fence
+- 跨帧缓存（`ShaderModule`/`RenderPass`/`Framebuffer`/`PipelineLayout`/`DescriptorSetLayout`）迁至 `RenderBackend_Vulkan` 持久持有，不随帧上下文回收
 
-- `FrameBoundResourceManager`: D3D12 每帧包含独立的：
-  - `CPUDescriptorAllocatorSet` — CPU端描述符分配器
-  - `GPUDescriptorHeap` (Resource + Sampler) — GPU描述符堆
-  - `CommandListManager` — 命令列表管理器
-  - `LinearMemoryManager` — 线性上传内存
-  - `AliasedMemoryAllocator` — 别名内存分配器
-  - `FrameLocalFences` — Direct/Compute 队列 Fence
-
-- `GPUFrameManager` 支持 `maxFrameCount` 配置，允许多帧同时渲染（帧重叠流水线）
-
-**影响**: Vulkan 当前是同步执行模式——`ExecuteGraph` 会阻塞直到 GPU 完成，无法实现多帧重叠。
+**差异细节：**
+- D3D12 `FrameBoundResourceManager` 包含 `AliasedMemoryAllocator` 和 `CPUDescriptorAllocatorSet`；Vulkan 的 aliasing 仍在 `VulkanGraphExecutor` 中管理，Descriptor 直接通过 `vkAllocateDescriptorSets` 分配
+- Vulkan 额外包含 per-window semaphore pair，修复 acquire/present 同步链
 
 ---
 
@@ -136,15 +146,20 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 
 ---
 
-### 1.3 LinearMemoryManager (线性上传内存)
+### 1.3 LinearMemoryManager (线性上传内存) ✅
 
 | 维度 | D3D12 | Vulkan | 状态 |
 |------|-------|--------|------|
-| 类名 | `LinearMemoryManager` | **不存在** | ❌ 未实现 |
-| 功能 | 从大块 upload heap 中线性分配上传内存 | 每次 transfer/CBuffer 上传都独立创建 staging buffer + VMA 分配 | - |
-| Staging 复用 | 帧内线性分配，帧末整体回收 | 每个 staging buffer 独立生命周期，通过 `m_PendingStagingBuffers` 追踪 | - |
+| 类名 | `LinearMemoryManager` | `VulkanLinearMemoryManager` | ✅ 已对齐 |
+| 功能 | 从大块 upload heap 中线性分配上传内存 | 从预分配 VMA staging page（默认 64MB）中线性分配，page 耗尽时自动扩容 | ✅ 已对齐 |
+| Staging 复用 | 帧内线性分配，帧末整体回收 | 帧内线性分配，`Reset()` 将所有 page offset 归零（内存保留） | ✅ 已对齐 |
+| 使用场景 | CBuffer 上传、buffer 数据上传、image 数据上传 | CBuffer staging upload + transfer pass (buffer/image data upload) | ✅ 已对齐 |
 
-**影响:** 每帧 CBuffer 上传中每个 ShaderStruct 都独立创建 staging buffer、分配 VMA 内存、创建/销毁 vk::Buffer。D3D12 则通过 `LinearMemoryManager::AllocUploadStagingBuffer()` 从预分配的大块内存中线性分配。
+**实现细节：**
+- 每个 Page 为 VMA 分配的 `vk::Buffer`，创建时带 `VMA_ALLOCATION_CREATE_MAPPED_BIT`，持久 mapped
+- `AllocUploadStagingBuffer(size, alignment)` 从当前 page 线性分配（带对齐），必要时分配新 page
+- `Reset()` 将所有 page 的 `currentOffset` 归零，page 本身不释放
+- 由 `VulkanFrameBoundResourceManager` 持有，帧末通过 `FrameContext::Reset()` 回收
 
 ---
 
@@ -186,9 +201,14 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 
 | 维度 | D3D12 | Vulkan | 状态 |
 |------|-------|--------|------|
-| 队列同步 | `BatchCommandExecutionRanges` + `FrameContext->Signal(DirectQ, ComputeQ)` | `SubmitBatches` 同步等待 | ❌ 未实现 |
-| Fence 管理 | 每帧独立 Direct/Compute Fence，精确等待/信号 | 创建 Fence → `waitForFences(..., UINT64_MAX)` → 下一帧开始前已确保完成 | - |
-| Queue Family 转换 | 隐式 (single queue family) | Barrier 中始终 `VK_QUEUE_FAMILY_IGNORED` | - |
+| 队列同步 | `BatchCommandExecutionRanges` + `FrameContext->Signal(DirectQ, ComputeQ)` | `SubmitBatches` 异步提交 + `FrameContext::Aquire()` 中 `waitForFences` | ✅ 已对齐 |
+| Fence 管理 | 每帧独立 Direct/Compute Fence，精确等待/信号 | `VulkanFrameBoundResourceManager` 持有 Direct/Compute Fence，SubmitBatches 异步 signal，Aquire 时等待 | ✅ 已对齐 |
+| Queue Family 转换 | 隐式 (single queue family) | Barrier 中始终 `VK_QUEUE_FAMILY_IGNORED` | ❌ 未实现 |
+
+**差异细节：**
+- 异步提交: `SubmitBatches()` 不再调用 `waitForFences(UINT64_MAX)`，CPU 提交所有批次后立即返回。GPU 同步推迟到下一轮该帧上下文被 `Aquire()` 时
+- 呈现同步: 最后一个批次使用 window acquire semaphore 作为等待、present semaphore 作为信号，替代 Fence 同步
+- Queue Family ownership transfer 仍未实现，barrier 始终使用 `VK_QUEUE_FAMILY_IGNORED`
 
 ---
 
@@ -230,8 +250,8 @@ PrepareBatchResourceBarriers:
   → batch.cbufferBarriers                        → batch.cbufferBarriers.AddCBuffer(resourceId, pStruct)
 
 Execute:                                    RecordBatchCommands:
-  CbufferInitializeBarriers()                  创建 staging buffer (VMA)
-    before barrier (NONE → COPY_DEST)          pStruct->UpdateUniformBuffer() → Map/Write/Unmap
+  CbufferInitializeBarriers()                  VulkanLinearMemoryManager::AllocUploadStagingBuffer()
+    before barrier (NONE → COPY_DEST)          pStruct->UpdateUniformBuffer() → Map/Write
   CBufferCopyInitialize():                     vkCmdCopyBuffer(staging → gpuBuffer)
     LinearMemoryManager::AllocUpload()         vkCmdPipelineBarrier(transfer → uniformRead)
     Map → UpdateUniformBuffer → Unmap
@@ -241,8 +261,8 @@ Execute:                                    RecordBatchCommands:
 ```
 
 **实现差异**:
-- D3D12 使用 `LinearMemoryManager` 线性分配 staging，Vulkan 每次 `vmaAllocateMemory`
-- D3D12 在 aliasing 时分配 CBuffer buffer，Vulkan 单独分配
+- D3D12 使用 `LinearMemoryManager` 线性分配 staging，Vulkan 同样使用 `VulkanLinearMemoryManager` 从预分配 VMA staging page 线性分配
+- D3D12 在 aliasing 时分配 CBuffer buffer，Vulkan 在 `BuildResources()` 中单独分配
 - D3D12 的 before/after barrier 是在同一个 batch 中分两阶段执行，Vulkan 只有 after barrier（从 transferWrite → uniformRead）
 
 ### 2.2 Descriptor 创建与写入 ✅
@@ -310,7 +330,18 @@ for each SamplerBinding:                        SetStorageBuffer()
 
 ## 第四部分: 已完成 vs 未完成 TODO 清单
 
-### 已完成的 TODO (vulkan-descriptor-cbuffer-upload 变更, 2026-05-01)
+### 已完成的 TODO (vulkan-renderpass-format-conversion + vulkan-gpu-frame-manager 变更, 2026-05-04)
+
+| 原位置 | 内容 | 新位置/实现 |
+|--------|------|-----------|
+| `VulkanGraphExecutor.cpp` | RenderPass 格式硬编码 (`eD32Sfloat`/`eR8G8B8A8Unorm`) | 从 `GPUTextureDescriptor` 通过 `VulkanTexture::ConvertFormat()` 动态转换，关闭 Phase 1 项目 7 |
+| `VulkanGraphExecutor.cpp` | `SubmitBatches` 同步等待 (`waitForFences(UINT64_MAX)`) | 异步提交: CPU 提交后立即返回，Fence 等待移至 `VulkanFrameContext::Aquire()` |
+| Staging Buffer | 每次 transfer/CBuffer 上传独立 VMA 分配/释放 | 新增 `VulkanLinearMemoryManager`: 预分配 64MB VMA staging page，线性分配 + 帧末 offset 归零 |
+| `RenderBackend_Vulkan` | 无帧管理子系统，无法多帧重叠 | 新增 `VulkanGPUFrameManager` + `VulkanFrameContext` + `VulkanFrameBoundResourceManager` 三层架构 |
+| `VulkanGraphExecutor.h` | 跨帧缓存 (ShaderModule/RenderPass/Framebuffer/PipelineLayout/DLL) 内嵌在 Executor | 迁移至 `RenderBackend_Vulkan` 持久持有，不随帧上下文回收 |
+| 交换链同步 | 无 per-window semaphore | 新增 `WindowSync` (acquire + present semaphore pair)，最后一个 batch 使用 semaphore 同步 |
+
+### 已完成 TODO (vulkan-descriptor-cbuffer-upload 变更, 2026-05-01)
 
 | 原位置 | 内容 | 新位置/实现 |
 |--------|------|-----------|
@@ -329,31 +360,28 @@ for each SamplerBinding:                        SetStorageBuffer()
 | 位置 | TODO 内容 | 优先级 |
 |------|----------|--------|
 | `VulkanGraphExecutor.cpp` | `ApplyExternalResourceStates()` 空函数 | 中 |
-| Barrier 中 Queue Family | 始终 `VK_QUEUE_FAMILY_IGNORED`，跨队列同步缺失 | 中 |
-| Submit | 同步等待 (`UINT64_MAX`)，无跨队列 fence | 高 |
-| Staging Buffer | 每次 transfer/CBuffer 上传独立创建，无复用机制 | 中 |
-| GPUFrameManager | 无帧管理子系统，无法多帧重叠 | 高 |
-| LinearMemoryManager | 无线性上传内存管理器 | 中 |
-| SamplerManager | 无独立 sampler 管理器，每帧重建 | 低 |
+| Barrier 中 Queue Family | 始终 `VK_QUEUE_FAMILY_IGNORED`，跨队列 ownership transfer 缺失 | 中 |
+| SamplerManager | 无独立 sampler 管理器，每帧在 BuildDescriptors 中重建 sampler | 低 |
 | RunTestCode | 测试入口未实现 | 低 |
 
 ---
 
-## 第五部分: 建议的对齐路径 (更新)
+## 第五部分: 建议的对齐路径 (2026-05-04 更新)
 
-### Phase 1: 核心功能补全 (使后端可用) — 大部分已完成 ✅
+### Phase 1: 核心功能补全 (使后端可用) — 全部完成 ✅
 1. ~~Shader Module 创建~~ ✅ (2026-05-01)
 2. ~~Pipeline Layout 正确获取~~ ✅ (2026-05-01)
 3. ~~完整管线创建流程~~ ✅ (2026-05-01)
 4. ~~Descriptor 完整流程~~ ✅ (2026-05-01)
 5. ~~CBuffer 初始化~~ ✅ (2026-05-01)
-6. RenderPass/Framebuffer 格式转换 — 消除硬编码
+6. ~~Compute Pass 资源注册~~ ✅ (2026-05-01)
+7. ~~RenderPass/Framebuffer 格式转换 — 消除硬编码~~ ✅ (2026-05-03)
 
-### Phase 2: 性能与同步
-1. **跨队列同步** — 正确处理 Queue Family ownership transfer
-2. **异步 CommandBuffer 提交** — 将 `SubmitBatches` 从同步等待改为异步
-3. **帧管理子系统** — 实现类似 `GPUFrameManager` 的多帧重叠架构
-4. **LinearMemoryManager** — 实现线性上传内存，减少 staging buffer 创建开销
+### Phase 2: 性能与同步 — 大部分完成 ✅
+1. **跨队列 Queue Family ownership transfer** — 正确处理 Queue Family ownership transfer（barrier 中 `VK_QUEUE_FAMILY_IGNORED` → 实际 queue family index）
+2. ~~异步 CommandBuffer 提交~~ ✅ (2026-05-03)
+3. ~~帧管理子系统~~ ✅ (2026-05-03)
+4. ~~LinearMemoryManager~~ ✅ (2026-05-03)
 
 ### Phase 3: 架构完善
 1. **SamplerManager** — 独立管理 sampler 创建和缓存（优先级低）

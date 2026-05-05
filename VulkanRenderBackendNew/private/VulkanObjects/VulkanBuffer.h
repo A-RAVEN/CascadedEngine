@@ -1,6 +1,7 @@
 #pragma once
 #include <GPUBuffer.h>
 #include <Utils/VulkanSubobjectBase.h>
+#include <GPUGraph/VulkanResourceState.h>
 #include <vk_mem_alloc.h>
 
 namespace graphics_backend
@@ -38,6 +39,10 @@ namespace graphics_backend
 		void SetPipelineStageFlags(vk::PipelineStageFlags flags) { m_PipelineStageFlags = flags; }
 		void SetAccessFlags(vk::AccessFlags flags) { m_AccessFlags = flags; }
 
+		// Resource state accessors (aligned with D3D12 D3DBufferObject)
+		void SetResourceState(VulkanResourceState const& state) { m_LastResourceState = state; }
+		VulkanResourceState const& GetResourceState() const { return m_LastResourceState; }
+
 	private:
 		vk::Buffer m_Buffer;
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;
@@ -49,5 +54,7 @@ namespace graphics_backend
 		vk::PipelineStageFlags m_PipelineStageFlags = vk::PipelineStageFlagBits::eTopOfPipe;
 		vk::AccessFlags m_AccessFlags = vk::AccessFlagBits::eNone;
 		void* m_MappedPtr = nullptr;
+		VulkanResourceState m_LastResourceState = { vk::AccessFlagBits::eNone, vk::PipelineStageFlagBits::eTopOfPipe,
+			vk::ImageLayout::eUndefined, EGPUQueueType::eDirect, false };
 	};
 }

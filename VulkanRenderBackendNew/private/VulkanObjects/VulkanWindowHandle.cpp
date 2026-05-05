@@ -121,6 +121,11 @@ namespace graphics_backend
 		// Get swapchain images
 		m_SwapchainImages = device.getSwapchainImagesKHR(m_Swapchain);
 
+		// Initialize per-swapchain-image backbuffer resource states
+		m_BackBufferResourceStates.resize(m_SwapchainImages.size(),
+			{ vk::AccessFlagBits::eNone, vk::PipelineStageFlagBits::eTopOfPipe,
+			  vk::ImageLayout::eUndefined, EGPUQueueType::eDirect, true });
+
 		// Update backbuffer descriptor
 		m_BackbufferDescriptor = GPUTextureDescriptor::Create(
 			m_Extent.width, m_Extent.height,
@@ -266,5 +271,13 @@ namespace graphics_backend
 		CreateImageViews();
 		m_SwapchainOutdated = false;
 		CA_LOG_INFO("Swapchain recreated");
+	}
+
+	void VulkanWindowHandle::ApplyCurrentBackBufferResourceState(VulkanResourceState const& state)
+	{
+		if (m_CurrentImageIndex < m_BackBufferResourceStates.size())
+		{
+			m_BackBufferResourceStates[m_CurrentImageIndex] = state;
+		}
 	}
 }
