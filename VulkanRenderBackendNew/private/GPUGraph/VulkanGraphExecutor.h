@@ -177,13 +177,6 @@ namespace graphics_backend
 		VulkanExecutorRWState batchRWStates;
 		bool anyComputeQueueOperations = false;
 
-		EGPUQueueTypeFlags aquireBarriersEmitFenceQueues = EGPUQueueTypeFlags{};
-		EGPUQueueTypeFlags bodyCommandsEmitFenceQueues = EGPUQueueTypeFlags{};
-		EGPUQueueTypeFlags releaseBarriersEmitFenceQueues = EGPUQueueTypeFlags{};
-
-		castl::set<uint32_t> computeWaitingDirectBatches;
-		castl::set<uint32_t> directWaitingComputeBatches;
-
 		VulkanRenderStateBarriers& GetAquireBarriers(EGPUQueueTypeFlags queueFlags);
 		VulkanRenderStateBarriers& GetReleaseBarriers(EGPUQueueTypeFlags queueFlags);
 		VulkanCBufferInitializeBarriers& GetCBufferBarriers(EGPUQueueTypeFlags queueFlags);
@@ -253,10 +246,13 @@ namespace graphics_backend
 		// Phase 7: Execute
 		void Execute(GPUGraph const& graph);
 
+		// QFOT helper: map EGPUQueueType to Vulkan queue family index
+		int GetQueueFamilyIndex(EGPUQueueType queueType) const;
+
 		// Helpers
 		void RecordBatchCommands(VulkanGPUExecutionBatch& batch, GPUGraph const& graph);
 		void RecordRenderPass(VulkanGPUExecutionBatch& batch, uint32_t rasterPassID, GPUGraph const& graph);
-		void RecordComputePass(VulkanGPUExecutionBatch& batch, uint32_t computePassID, GPUGraph const& graph);
+		void RecordComputePass(VulkanGPUExecutionBatch& batch, uint32_t computePassID, GPUGraph const& graph, bool asyncCompute);
 		void RecordTransferPass(VulkanGPUExecutionBatch& batch, uint32_t transferPassID, GPUGraph const& graph);
 		void SubmitBatches(GPUGraph const& graph);
 		void ApplyExternalResourceStates();
@@ -295,9 +291,9 @@ namespace graphics_backend
 		uint64_t m_PrepareTime = 0;
 		uint64_t m_ExecuteTime = 0;
 
-		// Fence counters for cross-queue sync
-		int m_DirectFenceCounter = 0;
-		int m_ComputeFenceCounter = 0;
+		// Cached queue family indices for QFOT
+		int m_GraphicsQueueFamily = static_cast<int>(vk::QueueFamilyIgnored);
+		int m_ComputeQueueFamily = static_cast<int>(vk::QueueFamilyIgnored);
 
 		// Current frame context (Task 3.1: per-frame resource context)
 		VulkanGPUFrameManager::PFrameContext m_CurrentFrameContext;

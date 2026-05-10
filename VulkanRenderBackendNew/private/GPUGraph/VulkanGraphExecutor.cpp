@@ -336,6 +336,16 @@ namespace graphics_backend
 
 	// ===================== VulkanGraphExecutor =====================
 
+	int VulkanGraphExecutor::GetQueueFamilyIndex(EGPUQueueType queueType) const
+	{
+		switch (queueType)
+		{
+		case EGPUQueueType::eDirect:   return m_GraphicsQueueFamily;
+		case EGPUQueueType::eCompute:  return m_ComputeQueueFamily;
+		default:                        return static_cast<int>(vk::QueueFamilyIgnored);
+		}
+	}
+
 	// Task 3.7: Release() now only releases frame-level resources (LocalResourceManager, CBufferManager, ShaderResourceInstances).
 	// Cross-frame caches lifecycle managed by RenderBackend_Vulkan. FrameContext reference released on exit.
 	void VulkanGraphExecutor::Release()
@@ -360,6 +370,13 @@ namespace graphics_backend
 		}
 
 		m_CurrentFrameContext = std::move(frameContext);
+
+		// Task 1.2: Cache queue family indices from QueueContext
+		{
+			auto const& queueContext = GetApp()->GetQueueContext();
+			m_GraphicsQueueFamily = queueContext.GetGraphicsQueueFamily();
+			m_ComputeQueueFamily = queueContext.GetComputeQueueFamily();
+		}
 
 		auto prepareStart = std::chrono::high_resolution_clock::now();
 
@@ -950,6 +967,23 @@ namespace graphics_backend
 		}
 	}
 
+	// Task 8.1: Map ETextureFormat to vk::ImageAspectFlags for barrier subresourceRange
+	static vk::ImageAspectFlags GetImageAspectMask(ImageHandle const& image, GPUGraph const& graph)
+	{
+		GPUTextureDescriptor desc = GetDescriptor(graph, image);
+		switch (desc.format)
+		{
+		case ETextureFormat::E_D24_UNORM_S8_UINT:
+		case ETextureFormat::E_D32_SFLOAT_S8_UINT:
+			return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+		case ETextureFormat::E_D32_SFLOAT:
+		case ETextureFormat::E_D16_UNORM:
+			return vk::ImageAspectFlagBits::eDepth;
+		default:
+			return vk::ImageAspectFlagBits::eColor;
+		}
+	}
+
 	void VulkanGraphExecutor::AllocateAliasedResources()
 	{
 		m_LocalResourceManager.AllocateAliasedResources();
@@ -961,6 +995,20 @@ namespace graphics_backend
 		{
 			ImageHandle const& image = pair.first;
 			VulkanResourceState cachedState = VulkanResourceState::InitializedState();
+
+			// Task 2.2: Read back cachedState from the resource object (align with D3D12)
+			switch (image.GetType())
+			{
+			case ImageHandle::ImageType::External:
+				cachedState = image.GetTexturePtr<VulkanTexture>()->GetResourceState();
+				break;
+			case ImageHandle::ImageType::Backbuffer:
+				cachedState = image.GetWindowPtr<VulkanWindowHandle>()->GetCurrentBackBufferResourceState();
+				break;
+			case ImageHandle::ImageType::Internal:
+				break;
+			}
+
 			VulkanResourceUsageRangeData const& usageRanges = pair.second;
 
 			for (int bid = 0; bid < usageRanges.states.size(); ++bid)
@@ -973,6 +1021,93 @@ namespace graphics_backend
 				int lastBatchID = isFirstState ? -1 : usageRanges.states[bid - 1].batchID;
 				bool stateHaveGap = isFirstState ? false : ((currentBatchID - lastBatchID) > 1);
 				VulkanResourceState const& lastState = isFirstState ? cachedState : usageRanges.states[bid - 1].state;
+
+				bool qfotNeeded = (lastState.queueType != currentState.queueType);
+
+				// Task 3.5 + Task 12.1: Cross-frame QFOT -- only acquire, no release. Skip Internal
+				if (qfotNeeded && isFirstState && image.GetType() != ImageHandle::ImageType::Internal)
+				{
+					int srcFamily = GetQueueFamilyIndex(lastState.queueType);
+					int dstFamily = GetQueueFamilyIndex(currentState.queueType);
+
+					auto& dstBatch = m_ExecutionBatches[currentBatchID];
+					VulkanRenderStateBarriers& acquireContainer =
+						(currentState.queueType == EGPUQueueType::eCompute)
+						? dstBatch.computeAquireBarriers : dstBatch.aquireBarriers;
+
+					vk::ImageMemoryBarrier acquireBarrier{};
+					acquireBarrier.srcAccessMask = {};
+					acquireBarrier.dstAccessMask = currentState.accessFlags;
+					acquireBarrier.oldLayout = lastState.imageLayout;
+					acquireBarrier.newLayout = currentState.imageLayout;
+					acquireBarrier.srcQueueFamilyIndex = srcFamily;
+					acquireBarrier.dstQueueFamilyIndex = dstFamily;
+					acquireBarrier.image = m_LocalResourceManager.GetTexture(image);
+					acquireBarrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
+					acquireBarrier.subresourceRange.baseMipLevel = 0;
+					acquireBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+					acquireBarrier.subresourceRange.baseArrayLayer = 0;
+					acquireBarrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+					acquireContainer.AddImageBarrier(image, acquireBarrier);
+				}
+
+				// QFOT release+acquire for non-first-state cross-queue transitions
+				if (qfotNeeded && !isFirstState)
+				{
+					int srcFamily = GetQueueFamilyIndex(lastState.queueType);
+					int dstFamily = GetQueueFamilyIndex(currentState.queueType);
+
+					// Release on src queue family
+					{
+						auto& srcBatch = m_ExecutionBatches[lastBatchID];
+						VulkanRenderStateBarriers& releaseContainer =
+							(lastState.queueType == EGPUQueueType::eCompute)
+							? srcBatch.computeReleaseBarriers : srcBatch.releaseBarriers;
+
+						vk::ImageMemoryBarrier releaseBarrier{};
+						releaseBarrier.srcAccessMask = lastState.accessFlags;
+						releaseBarrier.dstAccessMask = {};
+						releaseBarrier.oldLayout = lastState.imageLayout;
+						releaseBarrier.newLayout = lastState.imageLayout;
+						releaseBarrier.srcQueueFamilyIndex = srcFamily;
+						releaseBarrier.dstQueueFamilyIndex = dstFamily;
+						releaseBarrier.image = m_LocalResourceManager.GetTexture(image);
+						releaseBarrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
+						releaseBarrier.subresourceRange.baseMipLevel = 0;
+						releaseBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+						releaseBarrier.subresourceRange.baseArrayLayer = 0;
+						releaseBarrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+						releaseContainer.AddImageBarrier(image, releaseBarrier);
+					}
+
+					// Acquire on dst queue family
+					{
+						auto& dstBatch = m_ExecutionBatches[currentBatchID];
+						VulkanRenderStateBarriers& acquireContainer =
+							(currentState.queueType == EGPUQueueType::eCompute)
+							? dstBatch.computeAquireBarriers : dstBatch.aquireBarriers;
+
+						vk::ImageMemoryBarrier acquireBarrier{};
+						acquireBarrier.srcAccessMask = {};
+						acquireBarrier.dstAccessMask = currentState.accessFlags;
+						acquireBarrier.oldLayout = lastState.imageLayout;
+						acquireBarrier.newLayout = currentState.imageLayout;
+						acquireBarrier.srcQueueFamilyIndex = srcFamily;
+						acquireBarrier.dstQueueFamilyIndex = dstFamily;
+						acquireBarrier.image = m_LocalResourceManager.GetTexture(image);
+						acquireBarrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
+						acquireBarrier.subresourceRange.baseMipLevel = 0;
+						acquireBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+						acquireBarrier.subresourceRange.baseArrayLayer = 0;
+						acquireBarrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+						acquireContainer.AddImageBarrier(image, acquireBarrier);
+					}
+				}
+
+				// Task 11.3: Skip duplicate regular barrier if QFOT acquire already emitted; route by queueType
+				bool const qfotAcquireEmitted = qfotNeeded && (!isFirstState || image.GetType() != ImageHandle::ImageType::Internal);
+				if (qfotAcquireEmitted)
+					continue;
 
 				if (lastState.accessFlags == currentState.accessFlags &&
 					lastState.imageLayout == currentState.imageLayout)
@@ -988,21 +1123,28 @@ namespace graphics_backend
 				barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				barrier.image = m_LocalResourceManager.GetTexture(image);
-				barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+				barrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
 				barrier.subresourceRange.baseMipLevel = 0;
 				barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
 				barrier.subresourceRange.baseArrayLayer = 0;
 				barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
+				// Task 11.1/11.4: Route regular barrier by queueType
 				if (stateHaveGap)
 				{
 					auto& lastBatch = m_ExecutionBatches[lastBatchID];
-					lastBatch.releaseBarriers.AddImageBarrier(image, barrier);
-					currentBatch.aquireBarriers.AddImageBarrier(image, barrier);
+					VulkanRenderStateBarriers& releaseContainer = (lastState.queueType == EGPUQueueType::eCompute)
+						? lastBatch.computeReleaseBarriers : lastBatch.releaseBarriers;
+					VulkanRenderStateBarriers& acquireContainer = (currentState.queueType == EGPUQueueType::eCompute)
+						? currentBatch.computeAquireBarriers : currentBatch.aquireBarriers;
+					releaseContainer.AddImageBarrier(image, barrier);
+					acquireContainer.AddImageBarrier(image, barrier);
 				}
 				else
 				{
-					currentBatch.aquireBarriers.AddImageBarrier(image, barrier);
+					VulkanRenderStateBarriers& acquireContainer = (currentState.queueType == EGPUQueueType::eCompute)
+						? currentBatch.computeAquireBarriers : currentBatch.aquireBarriers;
+					acquireContainer.AddImageBarrier(image, barrier);
 				}
 			}
 		}
@@ -1012,6 +1154,10 @@ namespace graphics_backend
 			BufferHandle const& buffer = pair.first;
 			VulkanResourceUsageRangeData const& usageRanges = pair.second;
 			VulkanResourceState cachedState = VulkanResourceState::InitializedState();
+
+			// Task 2.2: Read back cachedState for External buffers
+			if (buffer.GetType() == BufferHandle::BufferType::External)
+				cachedState = buffer.GetBufferPtr<VulkanBuffer>()->GetResourceState();
 
 			for (int bid = 0; bid < usageRanges.states.size(); ++bid)
 			{
@@ -1023,6 +1169,77 @@ namespace graphics_backend
 				int lastBatchID = isFirstState ? -1 : usageRanges.states[bid - 1].batchID;
 				bool stateHaveGap = isFirstState ? false : ((currentBatchID - lastBatchID) > 1);
 				VulkanResourceState const& lastState = isFirstState ? cachedState : usageRanges.states[bid - 1].state;
+
+				bool qfotNeeded = (lastState.queueType != currentState.queueType);
+
+				// Task 3.5 + Task 12.2: Cross-frame QFOT for buffers -- only acquire, no release. Skip non-External
+				if (qfotNeeded && isFirstState && buffer.GetType() == BufferHandle::BufferType::External)
+				{
+					int srcFamily = GetQueueFamilyIndex(lastState.queueType);
+					int dstFamily = GetQueueFamilyIndex(currentState.queueType);
+
+					auto& dstBatch = m_ExecutionBatches[currentBatchID];
+					VulkanRenderStateBarriers& acquireContainer =
+						(currentState.queueType == EGPUQueueType::eCompute)
+						? dstBatch.computeAquireBarriers : dstBatch.aquireBarriers;
+
+					vk::BufferMemoryBarrier acquireBarrier{};
+					acquireBarrier.srcAccessMask = {};
+					acquireBarrier.dstAccessMask = currentState.accessFlags;
+					acquireBarrier.srcQueueFamilyIndex = srcFamily;
+					acquireBarrier.dstQueueFamilyIndex = dstFamily;
+					acquireBarrier.buffer = m_LocalResourceManager.GetBuffer(buffer);
+					acquireBarrier.offset = 0;
+					acquireBarrier.size = VK_WHOLE_SIZE;
+					acquireContainer.AddBufferBarrier(buffer, acquireBarrier);
+				}
+
+				// QFOT release+acquire for non-first-state cross-queue transitions
+				if (qfotNeeded && !isFirstState)
+				{
+					int srcFamily = GetQueueFamilyIndex(lastState.queueType);
+					int dstFamily = GetQueueFamilyIndex(currentState.queueType);
+
+					// Release on src queue family
+					{
+						auto& srcBatch = m_ExecutionBatches[lastBatchID];
+						VulkanRenderStateBarriers& releaseContainer =
+							(lastState.queueType == EGPUQueueType::eCompute)
+							? srcBatch.computeReleaseBarriers : srcBatch.releaseBarriers;
+
+						vk::BufferMemoryBarrier releaseBarrier{};
+						releaseBarrier.srcAccessMask = lastState.accessFlags;
+						releaseBarrier.dstAccessMask = {};
+						releaseBarrier.srcQueueFamilyIndex = srcFamily;
+						releaseBarrier.dstQueueFamilyIndex = dstFamily;
+						releaseBarrier.buffer = m_LocalResourceManager.GetBuffer(buffer);
+						releaseBarrier.offset = 0;
+						releaseBarrier.size = VK_WHOLE_SIZE;
+						releaseContainer.AddBufferBarrier(buffer, releaseBarrier);
+					}
+
+					// Acquire on dst queue family
+					{
+						auto& dstBatch = m_ExecutionBatches[currentBatchID];
+						VulkanRenderStateBarriers& acquireContainer =
+							(currentState.queueType == EGPUQueueType::eCompute)
+							? dstBatch.computeAquireBarriers : dstBatch.aquireBarriers;
+
+						vk::BufferMemoryBarrier acquireBarrier{};
+						acquireBarrier.srcAccessMask = {};
+						acquireBarrier.dstAccessMask = currentState.accessFlags;
+						acquireBarrier.srcQueueFamilyIndex = srcFamily;
+						acquireBarrier.dstQueueFamilyIndex = dstFamily;
+						acquireBarrier.buffer = m_LocalResourceManager.GetBuffer(buffer);
+						acquireBarrier.offset = 0;
+						acquireBarrier.size = VK_WHOLE_SIZE;
+						acquireContainer.AddBufferBarrier(buffer, acquireBarrier);
+					}
+				}
+
+				// Task 11.3: Skip duplicate regular barrier if QFOT acquire already emitted
+				if (qfotNeeded && (!isFirstState || buffer.GetType() == BufferHandle::BufferType::External))
+					continue;
 
 				if (lastState.accessFlags == currentState.accessFlags)
 					continue;
@@ -1038,15 +1255,22 @@ namespace graphics_backend
 				barrier.offset = 0;
 				barrier.size = VK_WHOLE_SIZE;
 
+				// Task 11.2/11.4: Route regular barrier by queueType
 				if (stateHaveGap)
 				{
 					auto& lastBatch = m_ExecutionBatches[lastBatchID];
-					lastBatch.releaseBarriers.AddBufferBarrier(buffer, barrier);
-					currentBatch.aquireBarriers.AddBufferBarrier(buffer, barrier);
+					VulkanRenderStateBarriers& releaseContainer = (lastState.queueType == EGPUQueueType::eCompute)
+						? lastBatch.computeReleaseBarriers : lastBatch.releaseBarriers;
+					VulkanRenderStateBarriers& acquireContainer = (currentState.queueType == EGPUQueueType::eCompute)
+						? currentBatch.computeAquireBarriers : currentBatch.aquireBarriers;
+					releaseContainer.AddBufferBarrier(buffer, barrier);
+					acquireContainer.AddBufferBarrier(buffer, barrier);
 				}
 				else
 				{
-					currentBatch.aquireBarriers.AddBufferBarrier(buffer, barrier);
+					VulkanRenderStateBarriers& acquireContainer = (currentState.queueType == EGPUQueueType::eCompute)
+						? currentBatch.computeAquireBarriers : currentBatch.aquireBarriers;
+					acquireContainer.AddBufferBarrier(buffer, barrier);
 				}
 			}
 		}
@@ -1066,7 +1290,7 @@ namespace graphics_backend
 		}
 	}
 
-	void VulkanGraphExecutor::BuildPipelineStates(GPUGraph const& graph)
+		void VulkanGraphExecutor::BuildPipelineStates(GPUGraph const& graph)
 	{
 		auto pApp = GetApp();
 		auto& pipelineLibrary = pApp->GetPipelineLibrary();
@@ -1262,22 +1486,10 @@ namespace graphics_backend
 	{
 		auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
 		auto& cmdListManager = resourceManager.GetCommandListManager();
-
-		batch.directCommandBuffer = cmdListManager.GraphicsCommand();
-
-		vk::CommandBufferBeginInfo beginInfo{};
-		beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-		batch.directCommandBuffer.begin(beginInfo);
-
-		if (batch.aquireBarriers.AnyBarrier())
-			batch.aquireBarriers.ExecuteBarriers(batch.directCommandBuffer);
-
-		// Task 3.5: Upload CBuffer data via LinearMemoryManager staging buffer
 		auto device = GetDevice();
-		auto cmdBuf = batch.directCommandBuffer;
 		auto& stagingManager = resourceManager.GetStagingMemoryManager();
 
-		auto uploadCBufferBarriers = [&](VulkanCBufferInitializeBarriers& cbufferBarriers)
+		auto uploadCBufferBarriers = [&](VulkanCBufferInitializeBarriers& cbufferBarriers, vk::CommandBuffer targetCmdBuf)
 		{
 			if (!cbufferBarriers.AnyBarrier()) return;
 
@@ -1301,7 +1513,7 @@ namespace graphics_backend
 				copyRegion.srcOffset = stagingAlloc.offset;
 				copyRegion.dstOffset = 0;
 				copyRegion.size = bufferSize;
-				cmdBuf.copyBuffer(stagingAlloc.buffer, gpuBuffer, 1, &copyRegion);
+				targetCmdBuf.copyBuffer(stagingAlloc.buffer, gpuBuffer, 1, &copyRegion);
 
 				vk::BufferMemoryBarrier barrier{};
 				barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
@@ -1312,7 +1524,7 @@ namespace graphics_backend
 				barrier.offset = 0;
 				barrier.size = bufferSize;
 
-				cmdBuf.pipelineBarrier(
+				targetCmdBuf.pipelineBarrier(
 					vk::PipelineStageFlagBits::eTransfer,
 					vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader,
 					vk::DependencyFlags{},
@@ -1320,14 +1532,51 @@ namespace graphics_backend
 			}
 		};
 
-		uploadCBufferBarriers(batch.cbufferBarriers);
-		uploadCBufferBarriers(batch.computeCBufferBarriers);
+		// Task 4.1: Determine if compute command buffer is needed
+		bool needsComputeCmdBuf = batch.computeAquireBarriers.AnyBarrier()
+			|| batch.computeReleaseBarriers.AnyBarrier()
+			|| batch.anyComputeQueueOperations
+			|| batch.computeCBufferBarriers.AnyBarrier();
+
+		if (needsComputeCmdBuf)
+		{
+			batch.computeCommandBuffer = cmdListManager.ComputeCommand();
+
+			vk::CommandBufferBeginInfo cBeginInfo{};
+			cBeginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
+			batch.computeCommandBuffer.begin(cBeginInfo);
+
+			// Task 4.2: computeAquireBarriers first on compute queue
+			if (batch.computeAquireBarriers.AnyBarrier())
+				batch.computeAquireBarriers.ExecuteBarriers(batch.computeCommandBuffer);
+
+			// Upload compute CBuffer data on compute command buffer
+			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.computeCommandBuffer);
+		}
+
+		// === Direct command buffer ===
+		batch.directCommandBuffer = cmdListManager.GraphicsCommand();
+
+		vk::CommandBufferBeginInfo beginInfo{};
+		beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
+		batch.directCommandBuffer.begin(beginInfo);
+
+		if (batch.aquireBarriers.AnyBarrier())
+			batch.aquireBarriers.ExecuteBarriers(batch.directCommandBuffer);
+
+		// Upload direct CBuffer data on direct command buffer
+		uploadCBufferBarriers(batch.cbufferBarriers, batch.directCommandBuffer);
+
+		// Task 4.4: If no compute cmd buf, upload compute CBuffer data on direct (fallback)
+		if (!needsComputeCmdBuf)
+			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.directCommandBuffer);
 
 		for (int rasterPassID : batch.rasterPassRefs)
 			RecordRenderPass(batch, rasterPassID, graph);
 
+		// RecordComputePass routes to computeCommandBuffer when available
 		for (int computePassID : batch.computePassRefs)
-			RecordComputePass(batch, computePassID, graph);
+			RecordComputePass(batch, computePassID, graph, graph.GetComputePasses()[computePassID].asyncCompute);
 
 		for (int transferPassID : batch.transferPassRefs)
 			RecordTransferPass(batch, transferPassID, graph);
@@ -1336,9 +1585,19 @@ namespace graphics_backend
 			batch.releaseBarriers.ExecuteBarriers(batch.directCommandBuffer);
 
 		batch.directCommandBuffer.end();
+
+		// === Finalize compute command buffer ===
+		if (needsComputeCmdBuf)
+		{
+			// Task 4.2: computeReleaseBarriers last on compute queue
+			if (batch.computeReleaseBarriers.AnyBarrier())
+				batch.computeReleaseBarriers.ExecuteBarriers(batch.computeCommandBuffer);
+
+			batch.computeCommandBuffer.end();
+		}
 	}
 
-	void VulkanGraphExecutor::RecordRenderPass(VulkanGPUExecutionBatch& batch,
+		void VulkanGraphExecutor::RecordRenderPass(VulkanGPUExecutionBatch& batch,
 		uint32_t rasterPassID, GPUGraph const& graph)
 	{
 		auto& rasterPass = graph.GetRenderPasses()[rasterPassID];
@@ -1523,14 +1782,14 @@ namespace graphics_backend
 	}
 
 	void VulkanGraphExecutor::RecordComputePass(VulkanGPUExecutionBatch& batch,
-		uint32_t computePassID, GPUGraph const& graph)
+		uint32_t computePassID, GPUGraph const& graph, bool asyncCompute)
 	{
 		auto& computePass = graph.GetComputePasses()[computePassID];
 		auto& computeData = m_ComputePassGPUData[computePassID];
-		auto cmdBuf = batch.directCommandBuffer;
 
-		vk::CommandBuffer targetCmdBuf = batch.anyComputeQueueOperations && batch.computeCommandBuffer
-			? batch.computeCommandBuffer : cmdBuf;
+		// Task 7.2: Per-pass routing -- asyncCompute && computeCmdBuf -> compute, else -> direct
+		vk::CommandBuffer targetCmdBuf = (asyncCompute && batch.computeCommandBuffer)
+			? batch.computeCommandBuffer : batch.directCommandBuffer;
 
 		for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 		{
@@ -1591,8 +1850,7 @@ namespace graphics_backend
 		}
 	}
 
-	// Task 3.5: Image upload staging also via LinearMemoryManager
-	void VulkanGraphExecutor::RecordTransferPass(VulkanGPUExecutionBatch& batch,
+		void VulkanGraphExecutor::RecordTransferPass(VulkanGPUExecutionBatch& batch,
 		uint32_t transferPassID, GPUGraph const& graph)
 	{
 		auto& transferPass = graph.GetDataTransfers()[transferPassID];
@@ -1725,46 +1983,164 @@ namespace graphics_backend
 	{
 		auto device = GetDevice();
 		auto const& queueContext = GetApp()->GetQueueContext();
-		auto queue = device.getQueue(queueContext.GetGraphicsQueueFamily(), 0);
+		auto graphicsQueue = device.getQueue(queueContext.GetGraphicsQueueFamily(), 0);
+		auto computeQueue = device.getQueue(queueContext.GetComputeQueueFamily(), 0);
 		auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
+
+		// Task 10.2: Extract window semaphore sync logic to lambda
+		auto applyWindowSync = [&](vk::SubmitInfo& submitInfo, bool isLastBatch, bool hasFinalizePass,
+			castl::vector<vk::Semaphore>& outWaitSems,
+			castl::vector<vk::Semaphore>& outSignalSems,
+			castl::vector<vk::PipelineStageFlags>& outWaitStages)
+		{
+			if (!(isLastBatch && hasFinalizePass)) return;
+			uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
+			for (uint32_t w = 0; w < windowCount; ++w)
+			{
+				auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
+				outWaitSems.push_back(sync.acquireSemaphore);
+				outSignalSems.push_back(sync.presentSemaphore);
+				outWaitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+			}
+			submitInfo.waitSemaphoreCount = static_cast<uint32_t>(outWaitSems.size());
+			submitInfo.pWaitSemaphores = outWaitSems.data();
+			submitInfo.pWaitDstStageMask = outWaitStages.data();
+			submitInfo.signalSemaphoreCount = static_cast<uint32_t>(outSignalSems.size());
+			submitInfo.pSignalSemaphores = outSignalSems.data();
+		};
 
 		for (size_t i = 0; i < m_ExecutionBatches.size(); ++i)
 		{
 			auto& batch = m_ExecutionBatches[i];
-
-			vk::SubmitInfo submitInfo{};
-			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &batch.directCommandBuffer;
-
 			bool isLastBatch = (i == m_ExecutionBatches.size() - 1);
 
-			if (isLastBatch && batch.hasFinalizePass)
-			{
-				uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
-				castl::vector<vk::Semaphore> waitSemaphores;
-				castl::vector<vk::Semaphore> signalSemaphores;
-				castl::vector<vk::PipelineStageFlags> waitStages;
+			bool hasComputeCmdBuf = batch.computeCommandBuffer != vk::CommandBuffer{};
+			bool hasDirectCmdBuf = batch.directCommandBuffer != vk::CommandBuffer{};
+			bool hasCrossQueueSync = hasComputeCmdBuf && hasDirectCmdBuf &&
+				(batch.computeAquireBarriers.AnyBarrier() || batch.computeReleaseBarriers.AnyBarrier());
 
-				for (uint32_t w = 0; w < windowCount; ++w)
+			if (hasCrossQueueSync)
+			{
+				vk::Semaphore crossQueueSemaphore = resourceManager.AllocCrossQueueSemaphore();
+
+				if (batch.computeAquireBarriers.AnyBarrier())
 				{
-					auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
-					waitSemaphores.push_back(sync.acquireSemaphore);
-					signalSemaphores.push_back(sync.presentSemaphore);
-					waitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+					// Direct->Compute QFOT: direct queue signals, compute queue waits
+					vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eComputeShader;
+
+					vk::SubmitInfo directSubmit{};
+					directSubmit.commandBufferCount = 1;
+					directSubmit.pCommandBuffers = &batch.directCommandBuffer;
+					directSubmit.signalSemaphoreCount = 1;
+					directSubmit.pSignalSemaphores = &crossQueueSemaphore;
+
+					// Task 10.1: Add window semaphore sync for last batch with finalize pass
+					castl::vector<vk::Semaphore> waitSems, signalSems;
+					castl::vector<vk::PipelineStageFlags> waitStages;
+					applyWindowSync(directSubmit, isLastBatch, batch.hasFinalizePass,
+						waitSems, signalSems, waitStages);
+
+					graphicsQueue.submit(directSubmit, resourceManager.GetDirectFence());
+
+					vk::SubmitInfo computeSubmit{};
+					computeSubmit.commandBufferCount = 1;
+					computeSubmit.pCommandBuffers = &batch.computeCommandBuffer;
+					computeSubmit.waitSemaphoreCount = 1;
+					computeSubmit.pWaitSemaphores = &crossQueueSemaphore;
+					computeSubmit.pWaitDstStageMask = &waitStage;
+					computeQueue.submit(computeSubmit, resourceManager.GetComputeFence());
+				}
+				else
+				{
+					// Compute->Direct QFOT: compute queue signals, direct queue waits
+					// Task 15.1: Use precise pipeline stages instead of eAllCommands
+					vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eVertexShader |
+						vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eColorAttachmentOutput;
+
+					vk::SubmitInfo computeSubmit{};
+					computeSubmit.commandBufferCount = 1;
+					computeSubmit.pCommandBuffers = &batch.computeCommandBuffer;
+					computeSubmit.signalSemaphoreCount = 1;
+					computeSubmit.pSignalSemaphores = &crossQueueSemaphore;
+					computeQueue.submit(computeSubmit, resourceManager.GetComputeFence());
+
+					vk::SubmitInfo directSubmit{};
+					directSubmit.commandBufferCount = 1;
+					directSubmit.pCommandBuffers = &batch.directCommandBuffer;
+
+					// Build wait semaphores starting with cross-queue semaphore
+					castl::vector<vk::Semaphore> waitSems = { crossQueueSemaphore };
+					castl::vector<vk::Semaphore> signalSems;
+					castl::vector<vk::PipelineStageFlags> waitStages = { waitStage };
+
+					// Task 10.2: Use lambda for window sync
+					if (isLastBatch && batch.hasFinalizePass)
+					{
+						uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
+						for (uint32_t w = 0; w < windowCount; ++w)
+						{
+							auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
+							waitSems.push_back(sync.acquireSemaphore);
+							signalSems.push_back(sync.presentSemaphore);
+							waitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+						}
+					}
+
+					directSubmit.waitSemaphoreCount = static_cast<uint32_t>(waitSems.size());
+					directSubmit.pWaitSemaphores = waitSems.data();
+					directSubmit.pWaitDstStageMask = waitStages.data();
+					directSubmit.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
+					directSubmit.pSignalSemaphores = signalSems.data();
+
+					graphicsQueue.submit(directSubmit, resourceManager.GetDirectFence());
+				}
+			}
+			else
+			{
+				// No cross-queue sync needed -- submit independently
+				if (hasComputeCmdBuf)
+				{
+					vk::SubmitInfo computeSubmitInfo{};
+					computeSubmitInfo.commandBufferCount = 1;
+					computeSubmitInfo.pCommandBuffers = &batch.computeCommandBuffer;
+					computeQueue.submit(computeSubmitInfo, resourceManager.GetComputeFence());
 				}
 
-				submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size());
-				submitInfo.pWaitSemaphores = waitSemaphores.data();
-				submitInfo.pWaitDstStageMask = waitStages.data();
-				submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
-				submitInfo.pSignalSemaphores = signalSemaphores.data();
+				if (hasDirectCmdBuf)
+				{
+					vk::SubmitInfo submitInfo{};
+					submitInfo.commandBufferCount = 1;
+					submitInfo.pCommandBuffers = &batch.directCommandBuffer;
+
+					// Task 10.2: Use lambda for window sync
+					castl::vector<vk::Semaphore> waitSems, signalSems;
+					castl::vector<vk::PipelineStageFlags> waitStages;
+					applyWindowSync(submitInfo, isLastBatch, batch.hasFinalizePass,
+						waitSems, signalSems, waitStages);
+
+					graphicsQueue.submit(submitInfo, resourceManager.GetDirectFence());
+				}
 			}
 
-			queue.submit(submitInfo, resourceManager.GetDirectFence());
+			// Task 6.3: Batch ordering -- wait for batch N to complete before submitting batch N+1
+			{
+				vk::Fence directFence = resourceManager.GetDirectFence();
+				if (directFence)
+				{
+					device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
+					device.resetFences(directFence);
+				}
+				vk::Fence computeFence = resourceManager.GetComputeFence();
+				if (computeFence)
+				{
+					device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
+					device.resetFences(computeFence);
+				}
+			}
 		}
 	}
 
-	void VulkanGraphExecutor::ApplyExternalResourceStates()
+		void VulkanGraphExecutor::ApplyExternalResourceStates()
 	{
 		for (auto& pair : m_ImageLifetimes)
 		{

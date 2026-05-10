@@ -50,6 +50,7 @@ namespace graphics_backend
 
 		// Per-swapchain-image backbuffer resource state (aligned with D3D12 WindowContext)
 		void ApplyCurrentBackBufferResourceState(VulkanResourceState const& state);
+		VulkanResourceState const& GetCurrentBackBufferResourceState() const;
 
 	private:
 		void CreateSurface();

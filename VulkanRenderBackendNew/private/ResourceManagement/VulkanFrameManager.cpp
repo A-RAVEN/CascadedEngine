@@ -41,6 +41,12 @@ namespace graphics_backend
 			device.destroyFence(m_ComputeFence);
 			m_ComputeFence = nullptr;
 		}
+		for (auto& sem : m_CrossQueueSemaphores)
+		{
+			if (sem)
+				device.destroySemaphore(sem);
+		}
+		m_CrossQueueSemaphores.clear();
 
 		m_StagingMemoryManager.Release();
 		m_CommandListManager.Release();
@@ -50,6 +56,20 @@ namespace graphics_backend
 	{
 		m_CommandListManager.Reset();
 		m_StagingMemoryManager.Reset();
+		m_CrossQueueSemaphoreIndex = 0;
+	}
+
+	vk::Semaphore VulkanFrameBoundResourceManager::AllocCrossQueueSemaphore()
+	{
+		if (m_CrossQueueSemaphoreIndex < static_cast<int>(m_CrossQueueSemaphores.size()))
+			return m_CrossQueueSemaphores[m_CrossQueueSemaphoreIndex++];
+
+		auto device = GetDevice();
+		vk::SemaphoreCreateInfo semInfo{};
+		vk::Semaphore sem = device.createSemaphore(semInfo);
+		m_CrossQueueSemaphores.push_back(sem);
+		m_CrossQueueSemaphoreIndex = static_cast<int>(m_CrossQueueSemaphores.size()) - 1;
+		return sem;
 	}
 
 	void VulkanFrameBoundResourceManager::CreateFences()

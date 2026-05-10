@@ -33,6 +33,8 @@ namespace graphics_backend
 		void EnsurePoolCapacity(uint32_t maxSets, castl::vector<vk::DescriptorPoolSize> const& poolSizes);
 		void CreateFences();
 		void ResetDescriptorPool();
+		vk::Semaphore AllocCrossQueueSemaphore();
+		vk::Semaphore AllocCrossQueueSemaphore();
 
 	private:
 		VulkanCommandListManager m_CommandListManager;
@@ -40,6 +42,8 @@ namespace graphics_backend
 		VulkanLinearMemoryManager m_StagingMemoryManager;
 		vk::Fence m_DirectFence = nullptr;
 		vk::Fence m_ComputeFence = nullptr;
+		castl::vector<vk::Semaphore> m_CrossQueueSemaphores;
+		int m_CrossQueueSemaphoreIndex = 0;
 
 		uint32_t m_CurrentMaxSets = 0;
 		castl::vector<vk::DescriptorPoolSize> m_CurrentPoolSizes;

@@ -280,4 +280,12 @@ namespace graphics_backend
 			m_BackBufferResourceStates[m_CurrentImageIndex] = state;
 		}
 	}
+
+	VulkanResourceState const& VulkanWindowHandle::GetCurrentBackBufferResourceState() const
+	{
+		if (m_CurrentImageIndex < m_BackBufferResourceStates.size())
+			return m_BackBufferResourceStates[m_CurrentImageIndex];
+		static VulkanResourceState s_Default = VulkanResourceState::InitializedState();
+		return s_Default;
+	}
 }
