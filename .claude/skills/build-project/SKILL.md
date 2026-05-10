@@ -1,6 +1,6 @@
 ---
 name: build-project
-description: Build the CascadedEngine project using build.bat. Invoked via /build command. Triggers on user requests like "build the project", "compile", "/build".
+description: Build the CascadedEngine project using build.py. Invoked via /build command. Triggers on user requests like "build the project", "compile", "/build".
 license: MIT
 metadata:
   author: cascaded-engine
@@ -21,17 +21,15 @@ Execute the CascadedEngine build script.
 
 ## Steps
 
-### 1. Verify build.bat exists
+### 1. Verify build.py exists
 
-Check `E:\Projects\CascadedEngine\build.bat` exists. If missing, report the error and suggest re-creating it.
+Check `E:\Projects\CascadedEngine\build.py` exists. If missing, report the error and suggest re-creating it.
 
 ### 2. Run build
 
 ```bash
-cmd.exe //c "E:\Projects\CascadedEngine\build.bat" 2>&1
+python build.py 2>&1
 ```
-
-The `//c` is MSYS2/Git Bash syntax to pass `/c` to the Windows cmd.exe without translation.
 
 Timeout: 600000ms (10 minutes) — the full build with all external dependencies can take a while.
 
@@ -57,4 +55,4 @@ If the user only modified a few files, suggest building only the relevant target
 cmake --build out/build/x64-relWithDebugInfo --target VulkanRenderBackend
 ```
 
-This requires the VS x64 environment and ninja in PATH (see build.bat for setup).
+This requires the VS x64 environment and ninja in PATH (see build.py for setup).

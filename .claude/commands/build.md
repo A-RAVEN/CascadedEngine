@@ -7,7 +7,7 @@ tags: [build, compile, ninja, cmake]
 
 # Build Project
 
-Run `build.bat` to configure CMake and compile all targets.
+Run `build.py` to configure CMake and compile all targets.
 
 ## Usage
 
