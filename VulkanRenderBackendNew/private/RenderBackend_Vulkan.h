@@ -13,6 +13,7 @@
 #include <CAResource/ResourceManagingSystem.h>
 #include <ShaderLibrary/ShaderLibrary.h>
 #include <GPUGraph/VulkanGraphExecutor.h>
+#include <GPUGraph/VulkanSamplerManager.h>
 #include <PipelineLibrary/VulkanPipelineLibrary.h>
 #include <PipelineLibrary/PipelineLibraryCache.h>
 #include <CASTL/CAUnorderedMap.h>
@@ -90,6 +91,8 @@ namespace graphics_backend
 		vk::Framebuffer GetOrCreateFramebuffer(vk::RenderPass renderPass, castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height);
 
 		VulkanGPUFrameManager& GetGPUFrameManager() { return m_GPUFrameManager; }
+	VulkanSamplerManager& GetSamplerManager() { return m_SamplerManager; }
+	VulkanSamplerManager const& GetSamplerManager() const { return m_SamplerManager; }
 
 		template<typename T, typename...TArgs>
 		void InitSubObj(T* inoutObj, TArgs&...Args)
@@ -150,6 +153,9 @@ namespace graphics_backend
 
 		// GPU Frame Manager (multi-frame pipelining)
 		VulkanGPUFrameManager m_GPUFrameManager;
+
+		// Sampler Manager (global sampler cache)
+		VulkanSamplerManager m_SamplerManager;
 
 		// Cross-frame caches (moved from VulkanGraphExecutor)
 		castl::unordered_map<cahash::sha256_hash::result_type, vk::ShaderModule> m_ShaderModuleCache;

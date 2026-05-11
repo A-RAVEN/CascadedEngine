@@ -194,15 +194,6 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::Release()
 	{
-		auto device = GetDevice();
-		for (auto sampler : m_CreatedSamplers)
-		{
-			if (sampler)
-			{
-				device.destroySampler(sampler);
-			}
-		}
-		m_CreatedSamplers.clear();
 		m_DescriptorSets.clear();
 		m_PendingWrites.clear();
 		m_BufferInfos.clear();
@@ -296,31 +287,6 @@ namespace graphics_backend
 		}
 	}
 
-	// Convert TextureSamplerDescriptor to vk::SamplerCreateInfo
-	static vk::SamplerCreateInfo MakeSamplerCreateInfo(TextureSamplerDescriptor const& desc)
-	{
-		vk::SamplerCreateInfo info{};
-		info.magFilter = desc.magFilterMode == ETextureSamplerFilterMode::eLinear ? vk::Filter::eLinear : vk::Filter::eNearest;
-		info.minFilter = desc.minFilterMode == ETextureSamplerFilterMode::eLinear ? vk::Filter::eLinear : vk::Filter::eNearest;
-		info.mipmapMode = desc.mipmapFilterMode == ETextureSamplerFilterMode::eLinear ? vk::SamplerMipmapMode::eLinear : vk::SamplerMipmapMode::eNearest;
-
-		auto mapAddressMode = [](ETextureSamplerAddressMode mode) -> vk::SamplerAddressMode {
-			switch (mode)
-			{
-			case ETextureSamplerAddressMode::eRepeat:          return vk::SamplerAddressMode::eRepeat;
-			case ETextureSamplerAddressMode::eMirroredRepeat:  return vk::SamplerAddressMode::eMirroredRepeat;
-			case ETextureSamplerAddressMode::eClampToEdge:     return vk::SamplerAddressMode::eClampToEdge;
-			case ETextureSamplerAddressMode::eClampToBorder:   return vk::SamplerAddressMode::eClampToBorder;
-			default:                                           return vk::SamplerAddressMode::eRepeat;
-			}
-		};
-		info.addressModeU = mapAddressMode(desc.addressModeU);
-		info.addressModeV = mapAddressMode(desc.addressModeV);
-		info.addressModeW = mapAddressMode(desc.addressModeW);
-
-		return info;
-	}
-
 	void VulkanResourceBindingInstance::BuildDescriptors(VulkanGraphLocalResourceManager& resourceManager, vk::DescriptorPool pool)
 	{
 		if (p_ShaderFileInfo == nullptr)
@@ -330,16 +296,6 @@ namespace graphics_backend
 		if (shaderBindingInfo.setLayoutInfos.empty())
 			return;
 
-		// Clean up old samplers before rebuilding descriptors
-		auto device = GetDevice();
-		for (auto sampler : m_CreatedSamplers)
-		{
-			if (sampler)
-			{
-				device.destroySampler(sampler);
-			}
-		}
-		m_CreatedSamplers.clear();
 		m_DescriptorSets.clear();
 		m_PendingWrites.clear();
 		m_BufferInfos.clear();
@@ -429,9 +385,7 @@ namespace graphics_backend
 				continue;
 
 			auto const& samplerDesc = sampler.samplerDescriptors[0];
-			vk::SamplerCreateInfo samplerInfo = MakeSamplerCreateInfo(samplerDesc);
-			vk::Sampler vkSampler = device.createSampler(samplerInfo);
-			m_CreatedSamplers.push_back(vkSampler);
+			vk::Sampler vkSampler = GetApp()->GetSamplerManager().GetOrCreateSampler(samplerDesc);
 			SetSampler(sampler.bindingInfo.spaceID, sampler.bindingInfo.bindingID, vkSampler);
 		}
 

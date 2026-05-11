@@ -119,6 +119,6 @@ namespace graphics_backend
 		// Storage for descriptor info (must persist until update)
 		castl::vector<vk::DescriptorBufferInfo> m_BufferInfos;
 		castl::vector<vk::DescriptorImageInfo> m_ImageInfos;
-		castl::vector<vk::Sampler> m_CreatedSamplers;
+	
 	};
 }

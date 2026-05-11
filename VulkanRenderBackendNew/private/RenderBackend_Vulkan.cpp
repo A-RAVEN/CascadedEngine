@@ -175,6 +175,9 @@ namespace graphics_backend
 		//Init Object Containers
 		InitSubObj(&m_DescriptorSetLayoutContainer);
 
+		// Init Sampler Manager
+		InitSubObj(&m_SamplerManager);
+
 		// Init Memory Manager
 		InitSubObj(&m_MemoryManager);
 		m_MemoryManager.Init();
@@ -276,6 +279,9 @@ namespace graphics_backend
 
 		// Release command list manager
 		m_CommandListManager.Release();
+
+		// Release sampler manager
+		m_SamplerManager.Release();
 
 		// Release memory manager
 		m_MemoryManager.Release();

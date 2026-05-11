@@ -60,8 +60,8 @@
 
 | # | 模块 | 差距 | 优先级 | 状态 |
 |---|------|------|--------|------|
-| 1 | SamplerManager | 无独立 sampler 管理器，每帧重建 sampler | P2 | ❌ 未开始 |
-| 2 | ApplyExternalResourceStates | 空函数，不更新外部资源状态 | P2 | ❌ 未开始 |
+| 1 | SamplerManager | 无独立 sampler 管理器，每帧重建 sampler | P2 | ✅ 已完成 |
+| 2 | ApplyExternalResourceStates | 空函数，不更新外部资源状态 | P2 | ✅ 已完成 |
 | 3 | RunTestCode | 测试入口未实现 | P3 | ❌ 未开始 |
 
 ---

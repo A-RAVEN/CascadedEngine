@@ -1,6 +1,6 @@
 # Vulkan后端 vs D3D12后端 对齐分析
 
-> 生成日期: 2026-04-12 | 更新: 2026-05-04 (基于 vulkan-renderpass-format-conversion + vulkan-gpu-frame-manager 变更)
+> 生成日期: 2026-04-12 | 更新: 2026-05-10 (基于 vulkan-apply-external-resource-states + vulkan-cross-queue-sync 变更)
 > 目标: 使 VulkanRenderBackendNew 在接口功能上向 D3D12RenderBackend 对齐
 
 ---
@@ -32,11 +32,12 @@
 │  ├── CommandListManager      │  ├── VulkanConstantBufferManager         │
 │  └── ShaderLibrary (D3D12)   │                                        │
 │                               │  ✅ 帧管理子系统已完整实现               │
-│                               │  ✅ Descriptor 流程已完整实现            │
-│                               │  ✅ CBuffer 上传已完整实现               │
+│                               │  ✅ Descriptor + CBuffer 流程已实现      │
 │                               │  ✅ Pipeline + Layout 缓存已实现         │
 │                               │  ✅ LinearMemoryManager 已实现           │
-│                               │  ❌ No SamplerManager                    │
+│                               │  ✅ ApplyExternalResourceStates 已实现   │
+│                               │  ✅ QFOT + CrossQueueSemaphore 已实现    │
+│                               │  ✅ VulkanSamplerManager                │
 └──────────────────────────────┴──────────────────────────────────────────┘
 ```
 
@@ -167,12 +168,12 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 
 | 维度 | D3D12 | Vulkan | 状态 |
 |------|-------|--------|------|
-| 类名 | `SamplerManager` (独立管理，全局缓存) | **不存在** | ❌ 未实现 |
-| Sampler 创建 | `SamplerManager::GetCPUHandle(desc)` → 全局缓存 + 返回 CPU descriptor | 内联在 `BuildDescriptors()` 中通过 `MakeSamplerCreateInfo()` + `device.createSampler()` 创建 | - |
-| 缓存 | 全局 sampler descriptor 到 CPU handle 的映射 | 无缓存，每次 BuildDescriptors 重建 sampler | - |
-| 生命周期 | SamplerManager 管理，跨帧复用 | 每帧在 BuildDescriptors 创建，Release() 销毁 | - |
+| 类名 | `SamplerManager` (独立管理，全局缓存) | `VulkanSamplerManager` (全局缓存) | ✅ 已对齐 |
+| Sampler 创建 | `SamplerManager::GetCPUHandle(desc)` → 全局缓存 + 返回 CPU descriptor | `VulkanSamplerManager::GetOrCreateSampler(desc)` → 全局缓存 + 返回 vk::Sampler | - |
+| 缓存 | 全局 sampler descriptor 到 CPU handle 的映射 | 全局 `shared_dic<TextureSamplerDescriptor, vk::Sampler>` 缓存 | - |
+| 生命周期 | SamplerManager 管理，跨帧复用 | VulkanSamplerManager 管理，跨帧复用 | - |
 
-**影响**: Vulkan 每帧重建 sampler 对象（然后在 Release 中 destroy），D3D12 的 sampler 全局缓存只在首次创建。不过 Vulkan 的 sampler 对象很轻量，实际开销不大。
+**影响**: 已修复 — VulkanSamplerManager 提供与 D3D12 等价的全局 sampler 缓存，sampler 只创建一次，跨帧复用至 backend 销毁。
 
 ---
 
@@ -203,12 +204,13 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 |------|-------|--------|------|
 | 队列同步 | `BatchCommandExecutionRanges` + `FrameContext->Signal(DirectQ, ComputeQ)` | `SubmitBatches` 异步提交 + `FrameContext::Aquire()` 中 `waitForFences` | ✅ 已对齐 |
 | Fence 管理 | 每帧独立 Direct/Compute Fence，精确等待/信号 | `VulkanFrameBoundResourceManager` 持有 Direct/Compute Fence，SubmitBatches 异步 signal，Aquire 时等待 | ✅ 已对齐 |
-| Queue Family 转换 | 隐式 (single queue family) | Barrier 中始终 `VK_QUEUE_FAMILY_IGNORED` | ❌ 未实现 |
+| Queue Family 转换 | 隐式 (single queue family) | `GetQueueFamilyIndex()` 缓存 Graphics/Compute queue family index，QFOT barrier 设置 `srcQueueFamilyIndex`/`dstQueueFamilyIndex` | ✅ 已对齐 |
 
 **差异细节：**
 - 异步提交: `SubmitBatches()` 不再调用 `waitForFences(UINT64_MAX)`，CPU 提交所有批次后立即返回。GPU 同步推迟到下一轮该帧上下文被 `Aquire()` 时
 - 呈现同步: 最后一个批次使用 window acquire semaphore 作为等待、present semaphore 作为信号，替代 Fence 同步
-- Queue Family ownership transfer 仍未实现，barrier 始终使用 `VK_QUEUE_FAMILY_IGNORED`
+- Queue Family Ownership Transfer (QFOT): `PrepareBatchResourceBarriers()` 中检测 `lastState.queueType != currentState.queueType` 时生成 release + acquire barrier，正确设置 queue family index；支持跨帧 QFOT（`isFirstState` 时仅生成 acquire）；barrier 按 queueType 路由到对应变体（`aquireBarriers`/`computeAquireBarriers` 等）；含 `GetImageAspectMask()` 辅助函数从 texture format 映射 aspect flags
+- Cross-queue semaphore: `VulkanFrameBoundResourceManager` 维护 semaphore 池 (`m_CrossQueueSemaphores`)，`AllocCrossQueueSemaphore()` 按需分配；`SubmitBatches()` 中信号/等待 semaphore 实现 batch 间跨队列同步
 
 ---
 
@@ -216,7 +218,7 @@ D3D12 CompileAndExecute:                     Vulkan CompileAndExecute:
 
 | 维度 | D3D12 | Vulkan | 状态 |
 |------|-------|--------|------|
-| 实现 | 遍历 `imageRanges` / `bufferRanges`，调用 `ApplyResourceState()` 更新外部资源 | **空函数** | ❌ 未实现 |
+| 实现 | 遍历 `imageRanges` / `bufferRanges`，调用 `ApplyResourceState()` 更新外部资源 | 遍历 `m_ImageLifetimes` → External texture 写回 `VulkanTexture::SetResourceState()`，Backbuffer 写回 `VulkanWindowHandle::ApplyCurrentBackBufferResourceState()`；遍历 `m_BufferLifetimes` → External buffer 写回 `VulkanBuffer::SetResourceState()` | ✅ 已对齐 |
 
 ---
 
@@ -330,6 +332,14 @@ for each SamplerBinding:                        SetStorageBuffer()
 
 ## 第四部分: 已完成 vs 未完成 TODO 清单
 
+### 已完成的 TODO (vulkan-apply-external-resource-states + vulkan-cross-queue-sync 变更, 2026-05-10)
+
+| 原位置 | 内容 | 新位置/实现 |
+|--------|------|-----------|
+| `VulkanGraphExecutor.cpp` | `ApplyExternalResourceStates()` 空函数 | 遍历 `m_ImageLifetimes`/`m_BufferLifetimes` → External 资源写回 `VulkanTexture::SetResourceState()` / `VulkanBuffer::SetResourceState()`，Backbuffer 写回 `VulkanWindowHandle::ApplyCurrentBackBufferResourceState()` |
+| `PrepareBatchResourceBarriers` 中 | Queue Family 始终 `VK_QUEUE_FAMILY_IGNORED` | 完整 QFOT：`GetQueueFamilyIndex()` 缓存 queue family index → QFOT 检测 (`lastState.queueType != currentState.queueType`) → release/acquire barrier 生成 → barrier 按 queueType 路由到对应变体 → `CrossQueueSemaphore` pool 管理 + `SubmitBatches` 跨队列同步 |
+| `VulkanWindowHandle` | 缺少 BackBuffer 状态查询 | `GetCurrentBackBufferResourceState()` 返回当前 swapchain image 的 `VulkanResourceState`，供 QFOT 跨帧检测 + `PrepareBatchResourceBarriers` 获取 cachedState |
+
 ### 已完成的 TODO (vulkan-renderpass-format-conversion + vulkan-gpu-frame-manager 变更, 2026-05-04)
 
 | 原位置 | 内容 | 新位置/实现 |
@@ -359,14 +369,11 @@ for each SamplerBinding:                        SetStorageBuffer()
 
 | 位置 | TODO 内容 | 优先级 |
 |------|----------|--------|
-| `VulkanGraphExecutor.cpp` | `ApplyExternalResourceStates()` 空函数 | 中 |
-| Barrier 中 Queue Family | 始终 `VK_QUEUE_FAMILY_IGNORED`，跨队列 ownership transfer 缺失 | 中 |
-| SamplerManager | 无独立 sampler 管理器，每帧在 BuildDescriptors 中重建 sampler | 低 |
 | RunTestCode | 测试入口未实现 | 低 |
 
 ---
 
-## 第五部分: 建议的对齐路径 (2026-05-04 更新)
+## 第五部分: 建议的对齐路径 (2026-05-10 更新)
 
 ### Phase 1: 核心功能补全 (使后端可用) — 全部完成 ✅
 1. ~~Shader Module 创建~~ ✅ (2026-05-01)
@@ -377,13 +384,13 @@ for each SamplerBinding:                        SetStorageBuffer()
 6. ~~Compute Pass 资源注册~~ ✅ (2026-05-01)
 7. ~~RenderPass/Framebuffer 格式转换 — 消除硬编码~~ ✅ (2026-05-03)
 
-### Phase 2: 性能与同步 — 大部分完成 ✅
-1. **跨队列 Queue Family ownership transfer** — 正确处理 Queue Family ownership transfer（barrier 中 `VK_QUEUE_FAMILY_IGNORED` → 实际 queue family index）
+### Phase 2: 性能与同步 — 全部完成 ✅
+1. ~~跨队列 Queue Family ownership transfer~~ ✅ (2026-05-09)
 2. ~~异步 CommandBuffer 提交~~ ✅ (2026-05-03)
 3. ~~帧管理子系统~~ ✅ (2026-05-03)
 4. ~~LinearMemoryManager~~ ✅ (2026-05-03)
 
 ### Phase 3: 架构完善
-1. **SamplerManager** — 独立管理 sampler 创建和缓存（优先级低）
-2. **ApplyExternalResourceStates** — 更新外部资源状态
-3. **RunTestCode** — 实现测试入口
+1. **ApplyExternalResourceStates** — ~~更新外部资源状态~~ ✅ (2026-05-05)
+2. **SamplerManager** — ~~独立管理 sampler 创建和缓存~~ ✅ (2026-05-10)
+3. **RunTestCode** — 实现测试入口（优先级低）
