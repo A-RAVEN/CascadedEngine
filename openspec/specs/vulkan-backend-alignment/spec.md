@@ -39,7 +39,7 @@
 | 1 | **GPUFrameManager** | 无帧管理子系统，每次 ExecuteGraph 创建/销毁所有资源 | P0 | Phase 1 完成 | ✅ 已完成 |
 | 2 | **异步 Submit** | `SubmitBatches` 中 `waitForFences(UINT64_MAX)` 同步等待 | P0 | GPUFrameManager | ✅ 已完成 |
 | 3 | **LinearMemoryManager** | 每个 staging buffer 独立 VMA 分配，无复用 | P1 | - | ✅ 已完成 |
-| 4 | **跨队列同步** | Barrier 始终 `VK_QUEUE_FAMILY_IGNORED` | P1 | GPUFrameManager | ❌ 未开始 |
+| 4 | **跨队列同步** | Barrier 始终 `VK_QUEUE_FAMILY_IGNORED` | P1 | GPUFrameManager | ✅ 已完成 |
 
 ### GPUFrameManager 细节
 
@@ -87,3 +87,5 @@
 | 2026-05-01 | Image Sampler 分离 | 修复 combined image sampler 问题 |
 | 2026-05-02 | Compute Pass 资源注册 | 关闭 Phase 1 项目 6 |
 | 2026-05-02 | RenderPass 格式转换 | 关闭 Phase 1 项目 7 |
+| 2026-05-09 | 跨队列同步 (QFOT) | 关闭 Phase 2 项目 4 |
+| 2026-05-11 | SamplerManager | 关闭 Phase 3 项目 1 |

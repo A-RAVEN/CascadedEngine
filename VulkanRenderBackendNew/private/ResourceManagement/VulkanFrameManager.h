@@ -34,7 +34,6 @@ namespace graphics_backend
 		void CreateFences();
 		void ResetDescriptorPool();
 		vk::Semaphore AllocCrossQueueSemaphore();
-		vk::Semaphore AllocCrossQueueSemaphore();
 
 	private:
 		VulkanCommandListManager m_CommandListManager;
