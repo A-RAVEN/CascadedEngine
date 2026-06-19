@@ -1,5 +1,6 @@
 #include <VulkanObjects/VulkanTexture.h>
 #include <RenderBackend_Vulkan.h>
+#include <ResourceManagement/VulkanMemoryManager.h>
 #include <Utils/VulkanDebug.h>
 
 namespace graphics_backend
@@ -106,25 +107,9 @@ namespace graphics_backend
 		VmaAllocationCreateInfo allocInfo{};
 		allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-		// Create allocator and allocate
-		VmaAllocatorCreateInfo vmaCreateInfo = {};
-		vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-		vmaCreateInfo.device = GetDevice();
-		vmaCreateInfo.instance = GetInstance();
-		vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
-
-		VmaAllocator allocator;
-		VkResult result = vmaCreateAllocator(&vmaCreateInfo, &allocator);
-		VK_RESULT_CHECK(result);
-
-		VkImage vkImage;
-		result = vmaCreateImage(allocator
-			, reinterpret_cast<VkImageCreateInfo const*>(&imageInfo)
-			, &allocInfo
-			, &vkImage
-			, &m_Allocation
-			, nullptr);
-		VK_RESULT_CHECK(result);
+		auto& memoryManager = GetApp()->GetMemoryManager();
+		vk::Image vkImage;
+		m_Allocation = memoryManager.AllocateImage(imageInfo, allocInfo, vkImage);
 		m_Image = vkImage;
 
 		// Create image view
@@ -142,8 +127,6 @@ namespace graphics_backend
 
 		m_ImageView = GetDevice().createImageView(viewInfo);
 
-		vmaDestroyAllocator(allocator);
-
 		m_CurrentLayout = vk::ImageLayout::eUndefined;
 		CA_LOG_INFO("VulkanTexture created: {}x{}, format={}", descriptor.width, descriptor.height, (int)descriptor.format);
 	}
@@ -160,17 +143,7 @@ namespace graphics_backend
 
 		if (m_Image && m_Allocation)
 		{
-			VmaAllocatorCreateInfo vmaCreateInfo = {};
-			vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-			vmaCreateInfo.device = device;
-			vmaCreateInfo.instance = GetInstance();
-			vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
-
-			VmaAllocator allocator;
-			vmaCreateAllocator(&vmaCreateInfo, &allocator);
-
-			vmaDestroyImage(allocator, m_Image, m_Allocation);
-			vmaDestroyAllocator(allocator);
+			GetApp()->GetMemoryManager().FreeImage(m_Image, m_Allocation);
 
 			m_Image = nullptr;
 			m_Allocation = VK_NULL_HANDLE;

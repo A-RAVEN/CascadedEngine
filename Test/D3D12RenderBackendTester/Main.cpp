@@ -648,8 +648,8 @@ int main(int argc, char* argv[])
 	g_ModuleManager = &moduleManager;
 	CA_ADD_MODULE(g_ModuleManager, TimerSystem_Impl);
 	CA_ADD_MODULE(g_ModuleManager, ThreadManager);
-	CA_ADD_MODULE(g_ModuleManager, D3D12RenderBackend);
-	//CA_ADD_MODULE(g_ModuleManager, VulkanRenderBackend);
+	//CA_ADD_MODULE(g_ModuleManager, D3D12RenderBackend);
+	CA_ADD_MODULE(g_ModuleManager, VulkanRenderBackend);
 	CA_ADD_MODULE(g_ModuleManager, ShaderCompilerSlang);
 	CA_ADD_MODULE(g_ModuleManager, WindowSystem);
 	CA_ADD_MODULE(g_ModuleManager, IOManager_FS);

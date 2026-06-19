@@ -28,6 +28,12 @@ namespace graphics_backend
 			, vk::Image& outImage
 			, VmaAllocationInfo* pAllocationInfo = nullptr);
 
+		// Raw memory allocation (for aliasing pools, etc.)
+		VmaAllocation AllocateMemory(VkMemoryRequirements const& memReq
+			, VmaAllocationCreateInfo const& allocInfo
+			, VmaAllocationInfo* pAllocationInfo = nullptr);
+		void FreeMemory(VmaAllocation allocation);
+
 		// Map/Unmap
 		void* MapMemory(VmaAllocation allocation);
 		void UnmapMemory(VmaAllocation allocation);

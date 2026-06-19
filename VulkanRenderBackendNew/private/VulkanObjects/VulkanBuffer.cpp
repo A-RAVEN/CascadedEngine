@@ -61,29 +61,9 @@ namespace graphics_backend
 			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
 		}
 
-		// Allocate through memory manager - we need to get it from the backend
-		auto device = GetDevice();
-
-		VmaAllocatorCreateInfo vmaCreateInfo = {};
-		vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-		vmaCreateInfo.device = device;
-		vmaCreateInfo.instance = GetInstance();
-		vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
-
-		// Create temporary allocator for now (should be centralized later)
-		VmaAllocator allocator;
-		VkResult result = vmaCreateAllocator(&vmaCreateInfo, &allocator);
-		VK_RESULT_CHECK(result);
-
-		VkBuffer vkBuffer;
-		result = vmaCreateBuffer(allocator
-			, reinterpret_cast<VkBufferCreateInfo const*>(&bufferInfo)
-			, &allocInfo
-			, &vkBuffer
-			, &m_Allocation
-			, &m_AllocationInfo);
-
-		VK_RESULT_CHECK(result);
+		auto& memoryManager = GetApp()->GetMemoryManager();
+		vk::Buffer vkBuffer;
+		m_Allocation = memoryManager.AllocateBuffer(bufferInfo, allocInfo, vkBuffer, &m_AllocationInfo);
 		m_Buffer = vkBuffer;
 
 		// Store mapped pointer if available
@@ -92,8 +72,6 @@ namespace graphics_backend
 			m_MappedPtr = m_AllocationInfo.pMappedData;
 		}
 
-		vmaDestroyAllocator(allocator);
-
 		CA_LOG_INFO("VulkanBuffer created: size={}, name={}", descriptor.SizeInByte(), m_Name.c_str());
 	}
 
@@ -101,19 +79,7 @@ namespace graphics_backend
 	{
 		if (m_Buffer)
 		{
-			// Need allocator to free - for now use device directly
-			// This should use VulkanMemoryManager
-			VmaAllocatorCreateInfo vmaCreateInfo = {};
-			vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-			vmaCreateInfo.device = GetDevice();
-			vmaCreateInfo.instance = GetInstance();
-			vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
-
-			VmaAllocator allocator;
-			vmaCreateAllocator(&vmaCreateInfo, &allocator);
-
-			vmaDestroyBuffer(allocator, m_Buffer, m_Allocation);
-			vmaDestroyAllocator(allocator);
+			GetApp()->GetMemoryManager().FreeBuffer(m_Buffer, m_Allocation);
 
 			m_Buffer = nullptr;
 			m_Allocation = VK_NULL_HANDLE;
@@ -134,41 +100,15 @@ namespace graphics_backend
 			return m_MappedPtr;
 		}
 
-		// Need to map manually
-		VmaAllocatorCreateInfo vmaCreateInfo = {};
-		vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-		vmaCreateInfo.device = GetDevice();
-		vmaCreateInfo.instance = GetInstance();
-		vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
-
-		VmaAllocator allocator;
-		vmaCreateAllocator(&vmaCreateInfo, &allocator);
-
-		void* pData = nullptr;
-		VkResult result = vmaMapMemory(allocator, m_Allocation, &pData);
-		VK_RESULT_CHECK(result);
-
-		vmaDestroyAllocator(allocator);
-		m_MappedPtr = pData;
-		return pData;
+		m_MappedPtr = GetApp()->GetMemoryManager().MapMemory(m_Allocation);
+		return m_MappedPtr;
 	}
 
 	void VulkanBuffer::Unmap()
 	{
 		if (m_MappedPtr && !m_AllocationInfo.pMappedData)
 		{
-			VmaAllocatorCreateInfo vmaCreateInfo = {};
-			vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-			vmaCreateInfo.device = GetDevice();
-			vmaCreateInfo.instance = GetInstance();
-			vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
-
-			VmaAllocator allocator;
-			vmaCreateAllocator(&vmaCreateInfo, &allocator);
-
-			vmaUnmapMemory(allocator, m_Allocation);
-			vmaDestroyAllocator(allocator);
-
+			GetApp()->GetMemoryManager().UnmapMemory(m_Allocation);
 			m_MappedPtr = nullptr;
 		}
 	}

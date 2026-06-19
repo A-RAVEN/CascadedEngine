@@ -1,6 +1,7 @@
 #include <ResourceManagement/VulkanMemoryManager.h>
 #include <RenderBackend_Vulkan.h>
 #include <Utils/VulkanDebug.h>
+#include <Utils/VulkanVMAUtils.h>
 
 namespace graphics_backend
 {
@@ -11,6 +12,10 @@ namespace graphics_backend
 		allocatorInfo.device = GetDevice();
 		allocatorInfo.instance = GetInstance();
 		allocatorInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
+
+		VmaVulkanFunctions vmaFuncs{};
+		FillVmaVulkanFunctions(vmaFuncs);
+		allocatorInfo.pVulkanFunctions = &vmaFuncs;
 
 		VkResult result = vmaCreateAllocator(&allocatorInfo, &m_Allocator);
 		VK_RESULT_CHECK(result);
@@ -75,6 +80,28 @@ namespace graphics_backend
 
 		outImage = image;
 		return allocation;
+	}
+
+	VmaAllocation VulkanMemoryManager::AllocateMemory(VkMemoryRequirements const& memReq
+		, VmaAllocationCreateInfo const& allocInfo
+		, VmaAllocationInfo* pAllocationInfo)
+	{
+		VmaAllocation allocation;
+		VkResult result = vmaAllocateMemory(m_Allocator, &memReq, &allocInfo, &allocation, pAllocationInfo);
+		if (result != VK_SUCCESS)
+		{
+			CA_LOG_ERR("Failed to allocate raw Vulkan memory: {}", (int)result);
+			return VK_NULL_HANDLE;
+		}
+		return allocation;
+	}
+
+	void VulkanMemoryManager::FreeMemory(VmaAllocation allocation)
+	{
+		if (allocation)
+		{
+			vmaFreeMemory(m_Allocator, allocation);
+		}
 	}
 
 	void* VulkanMemoryManager::MapMemory(VmaAllocation allocation)

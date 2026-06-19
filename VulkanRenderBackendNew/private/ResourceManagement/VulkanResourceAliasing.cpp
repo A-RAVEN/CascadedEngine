@@ -1,5 +1,6 @@
 #include <ResourceManagement/VulkanResourceAliasing.h>
 #include <RenderBackend_Vulkan.h>
+#include <ResourceManagement/VulkanMemoryManager.h>
 #include <algorithm>
 
 namespace graphics_backend
@@ -118,51 +119,33 @@ namespace graphics_backend
 		if (totalSize == 0)
 			return true;
 
-		// Create allocator
-		VmaAllocatorCreateInfo vmaCreateInfo = {};
-		vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-		vmaCreateInfo.device = GetDevice();
-		vmaCreateInfo.instance = GetInstance();
-		vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
+		auto& memoryManager = GetApp()->GetMemoryManager();
 
-		VmaAllocator allocator;
-		VkResult result = vmaCreateAllocator(&vmaCreateInfo, &allocator);
-		if (result != VK_SUCCESS)
-		{
-			CA_LOG_ERR("VulkanResourceAliasing: Failed to create VMA allocator");
-			return false;
-		}
-
-		// Allocate pool
 		VmaAllocationCreateInfo allocInfo{};
 		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 		allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
 		VkMemoryRequirements memReq{};
 		memReq.size = totalSize;
-		memReq.alignment = 256; // Default alignment
+		memReq.alignment = 256;
 		memReq.memoryTypeBits = 0xFFFFFFFF;
 
-		result = vmaAllocateMemory(allocator, &memReq, &allocInfo, &m_AliasedPoolAllocation, nullptr);
-		if (result != VK_SUCCESS)
+		m_AliasedPoolAllocation = memoryManager.AllocateMemory(memReq, allocInfo);
+		if (m_AliasedPoolAllocation == VK_NULL_HANDLE)
 		{
 			CA_LOG_ERR("VulkanResourceAliasing: Failed to allocate aliased pool of size {}", totalSize);
-			vmaDestroyAllocator(allocator);
 			return false;
 		}
 
-		// Map memory
-		result = vmaMapMemory(allocator, m_AliasedPoolAllocation, &m_AliasedPoolMappedPtr);
-		if (result != VK_SUCCESS)
+		m_AliasedPoolMappedPtr = memoryManager.MapMemory(m_AliasedPoolAllocation);
+		if (!m_AliasedPoolMappedPtr)
 		{
 			CA_LOG_ERR("VulkanResourceAliasing: Failed to map aliased pool");
-			vmaFreeMemory(allocator, m_AliasedPoolAllocation);
+			memoryManager.FreeMemory(m_AliasedPoolAllocation);
 			m_AliasedPoolAllocation = VK_NULL_HANDLE;
-			vmaDestroyAllocator(allocator);
 			return false;
 		}
 
-		vmaDestroyAllocator(allocator);
 		m_TotalAliasedSize = totalSize;
 		CA_LOG_INFO("VulkanResourceAliasing: Allocated aliased pool of size {}", totalSize);
 		return true;
@@ -173,25 +156,17 @@ namespace graphics_backend
 		if (m_AliasedPoolAllocation == VK_NULL_HANDLE)
 			return;
 
-		VmaAllocatorCreateInfo vmaCreateInfo = {};
-		vmaCreateInfo.physicalDevice = GetPhysicalDevice();
-		vmaCreateInfo.device = GetDevice();
-		vmaCreateInfo.instance = GetInstance();
-		vmaCreateInfo.vulkanApiVersion = VULKAN_API_VERSION_IN_USE;
-
-		VmaAllocator allocator;
-		vmaCreateAllocator(&vmaCreateInfo, &allocator);
+		auto& memoryManager = GetApp()->GetMemoryManager();
 
 		if (m_AliasedPoolMappedPtr)
 		{
-			vmaUnmapMemory(allocator, m_AliasedPoolAllocation);
+			memoryManager.UnmapMemory(m_AliasedPoolAllocation);
 			m_AliasedPoolMappedPtr = nullptr;
 		}
 
-		vmaFreeMemory(allocator, m_AliasedPoolAllocation);
+		memoryManager.FreeMemory(m_AliasedPoolAllocation);
 		m_AliasedPoolAllocation = VK_NULL_HANDLE;
 
-		vmaDestroyAllocator(allocator);
 		m_TotalAliasedSize = 0;
 		CA_LOG_INFO("VulkanResourceAliasing: Freed aliased pool");
 	}

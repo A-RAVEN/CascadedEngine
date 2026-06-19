@@ -34,8 +34,9 @@ namespace graphics_backend
 	{
 		if (m_Window)
 		{
-			// Get size from window - assuming IWindow has GetWidth/GetHeight
-			return uint2{ 800, 600 }; // Placeholder - should get from window
+			int width = 0, height = 0;
+			m_Window->GetWindowSize(width, height);
+			return uint2{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
 		}
 		return uint2{ 800, 600 };
 	}
@@ -44,12 +45,15 @@ namespace graphics_backend
 	{
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 		vk::Win32SurfaceCreateInfoKHR surfaceInfo{};
-		surfaceInfo.hinstance = GetModuleHandle(nullptr);
-		// Get HWND from window - this depends on IWindow interface
-		// For now, use placeholder
-		surfaceInfo.hwnd = nullptr; // TODO: Get from m_Window
+		surfaceInfo.hinstance = *static_cast<HINSTANCE*>(m_Window->GetWindowSystem()->GetSystemNativeHandle());
+		surfaceInfo.hwnd = *static_cast<HWND*>(m_Window->GetNativeWindowHandle());
 
 		m_Surface = GetInstance().createWin32SurfaceKHR(surfaceInfo);
+
+		if (!m_Surface)
+		{
+			CA_LOG_ERR("Failed to create Win32 Vulkan Surface");
+		}
 #elif defined(VK_USE_PLATFORM_XCB_KHR)
 		// TODO: XCB surface creation
 #endif
