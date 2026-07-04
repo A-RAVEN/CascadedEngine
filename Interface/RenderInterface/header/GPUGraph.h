@@ -600,8 +600,7 @@ namespace graphics_backend
 			eRenderPass,
 			eComputePass,
 			eTransferPass,
-			eFinalPass,
-			eSubGraph
+			eFinalPass
 		};
 
 		//Create a new render pass
@@ -637,13 +636,6 @@ namespace graphics_backend
 			return *this;
 		}
 		inline GPUGraph& Finalize(ImageHandle const& imageHandle, ETextureAccessType textureUsage);
-		inline GPUGraph& SubGraph(castl::shared_ptr<GPUGraph> const& subGraph)
-		{
-			m_StageTypes.push_back(EGraphStageType::eSubGraph);
-			m_PassIndices.push_back(m_SubGraphs.size());
-			m_SubGraphs.push_back(subGraph);
-			return *this;
-		}
 		template<typename TVector>
 		GPUGraph& AllocAndUploadBuffer(BufferHandle const& bufferHandle, TVector const& bufferVector)
 		{
@@ -681,7 +673,6 @@ namespace graphics_backend
 		GraphResourceManager<GPUTextureDescriptor> m_InternalImageManager;
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
 		//castl::vector<ImageHandle> m_PresentBackBuffers;
-		castl::vector<castl::shared_ptr<GPUGraph>> m_SubGraphs;
 	};
 
 	template<typename TSS, typename TSSRange>

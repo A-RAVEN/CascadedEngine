@@ -1,6 +1,7 @@
 #include <VulkanObjects/VulkanTexture.h>
 #include <RenderBackend_Vulkan.h>
 #include <ResourceManagement/VulkanMemoryManager.h>
+#include <ResourceManagement/VulkanCommandListManager.h>
 #include <Utils/VulkanDebug.h>
 
 namespace graphics_backend
@@ -216,7 +217,130 @@ namespace graphics_backend
 
 	void VulkanTexture::UploadData(void const* pData, uint64_t size)
 	{
-		// TODO: Implement staging buffer upload
-		CA_LOG_WARN("VulkanTexture::UploadData - staging buffer upload not implemented yet");
+		auto& memoryManager = GetApp()->GetMemoryManager();
+		auto& cmdListManager = GetApp()->GetCommandListManager();
+		auto& queueContext = const_cast<QueueContext&>(GetQueueContext());
+		auto device = GetDevice();
+
+		// Calculate bytes per pixel for the format
+		auto bytesPerPixel = [](ETextureFormat format) -> uint32_t {
+			switch (format)
+			{
+			case ETextureFormat::E_R8_UNORM: return 1;
+			case ETextureFormat::E_R8G8_UNORM:
+			case ETextureFormat::E_R16_UNORM:
+			case ETextureFormat::E_R16_SFLOAT: return 2;
+			case ETextureFormat::E_R8G8B8A8_UNORM:
+			case ETextureFormat::E_B8G8R8A8_UNORM:
+			case ETextureFormat::E_R16G16_SFLOAT:
+			case ETextureFormat::E_D16_UNORM: return 4;
+			case ETextureFormat::E_R32_SFLOAT:
+			case ETextureFormat::E_D24_UNORM_S8_UINT:
+			case ETextureFormat::E_D32_SFLOAT: return 4;
+			case ETextureFormat::E_R16G16B16A16_UNORM:
+			case ETextureFormat::E_R16G16B16A16_SFLOAT:
+			case ETextureFormat::E_R32G32_SFLOAT: return 8;
+			case ETextureFormat::E_R32G32B32A32_SFLOAT: return 16;
+			default: return 4;
+			}
+		};
+
+		uint32_t bpp = bytesPerPixel(m_Descriptor.format);
+		uint32_t width = m_Descriptor.width;
+		uint32_t height = m_Descriptor.height;
+		uint32_t mipLevels = m_Descriptor.mipLevels;
+		uint32_t arrayLayers = m_Descriptor.layers;
+		bool is3D = (m_Descriptor.textureType == ETextureType::e3D);
+
+		// Build buffer image copy regions and calculate total staging size
+		castl::vector<vk::BufferImageCopy> regions;
+		uint64_t bufferOffset = 0;
+
+		for (uint32_t layer = 0; layer < arrayLayers; ++layer)
+		{
+			uint32_t mipWidth = width;
+			uint32_t mipHeight = height;
+			uint32_t mipDepth = is3D ? m_Descriptor.layers : 1;
+
+			for (uint32_t mip = 0; mip < mipLevels; ++mip)
+			{
+				vk::BufferImageCopy region{};
+				region.bufferOffset = bufferOffset;
+				region.bufferRowLength = 0;       // tightly packed
+				region.bufferImageHeight = 0;     // tightly packed
+				region.imageSubresource.aspectMask = GetImageAspect();
+				region.imageSubresource.mipLevel = mip;
+				region.imageSubresource.baseArrayLayer = layer;
+				region.imageSubresource.layerCount = 1;
+				region.imageOffset = vk::Offset3D{ 0, 0, 0 };
+				region.imageExtent = vk::Extent3D(mipWidth, mipHeight, mipDepth);
+
+				regions.push_back(region);
+
+				bufferOffset += static_cast<uint64_t>(mipWidth) * mipHeight * mipDepth * bpp;
+				mipWidth = std::max<uint32_t>(1u, mipWidth / 2);
+				mipHeight = std::max<uint32_t>(1u, mipHeight / 2);
+				if (is3D) mipDepth = std::max<uint32_t>(1u, mipDepth / 2);
+			}
+		}
+
+		// Create staging buffer (HOST_VISIBLE + HOST_COHERENT)
+		vk::BufferCreateInfo stagingInfo{};
+		stagingInfo.size = bufferOffset;
+		stagingInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
+		stagingInfo.sharingMode = vk::SharingMode::eExclusive;
+
+		VmaAllocationCreateInfo stagingAllocInfo{};
+		stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+			VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+		VmaAllocationInfo stagingAllocResult{};
+		vk::Buffer stagingBuffer;
+		VmaAllocation stagingAlloc = memoryManager.AllocateBuffer(
+			stagingInfo, stagingAllocInfo, stagingBuffer, &stagingAllocResult);
+
+		// Copy data to staging buffer
+		if (stagingAllocResult.pMappedData)
+		{
+			memcpy(stagingAllocResult.pMappedData, pData, static_cast<size_t>(bufferOffset));
+		}
+
+		// Record copy command
+		vk::CommandBuffer cmdBuf = cmdListManager.AllocateCommandBuffer(cmdListManager.GetTransferPool());
+		cmdListManager.BeginCommandBuffer(cmdBuf);
+
+		// Transition to TRANSFER_DST_OPTIMAL for copy destination
+		vk::ImageLayout originalLayout = m_CurrentLayout;
+		TransitionLayout(cmdBuf, vk::ImageLayout::eTransferDstOptimal,
+			vk::PipelineStageFlagBits::eTopOfPipe,
+			vk::PipelineStageFlagBits::eTransfer);
+
+		// Copy buffer to image
+		cmdBuf.copyBufferToImage(stagingBuffer, m_Image,
+			vk::ImageLayout::eTransferDstOptimal,
+			static_cast<uint32_t>(regions.size()), regions.data());
+
+		// Transition back to original layout
+		TransitionLayout(cmdBuf, originalLayout,
+			vk::PipelineStageFlagBits::eTransfer,
+			vk::PipelineStageFlagBits::eBottomOfPipe);
+
+		cmdListManager.EndCommandBuffer(cmdBuf);
+
+		// Submit and wait for completion (synchronous upload)
+		vk::Fence fence = device.createFence(vk::FenceCreateInfo{});
+		queueContext.SubmitCommands(
+			queueContext.GetTransferQueueFamily(), 0,
+			cmdBuf,
+			fence);
+
+		vk::Result waitResult = device.waitForFences(fence, VK_TRUE, UINT64_MAX);
+		(void)waitResult;
+		device.destroyFence(fence);
+
+		// Cleanup
+		cmdListManager.FreeCommandBuffer(cmdListManager.GetTransferPool(), cmdBuf);
+		memoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
 	}
 }

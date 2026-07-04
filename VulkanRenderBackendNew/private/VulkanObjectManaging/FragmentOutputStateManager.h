@@ -17,11 +17,11 @@ namespace graphics_backend
 	};
 
 
-	class VertexInputStateManager : public VulkanSubobjectBase
+	class FragmentOutputStateManager : public VulkanSubobjectBase
 	{
 	public:
 		FragmentOutputState const& EnsureFragmentOutputState(FragmentOutputStateCache const& cacheData);
-		FragmentOutputState const& GetVertexInputState(TypedVKHashVal<FragmentOutputStateCache> const& hashVal) const;
+		FragmentOutputState const& GetFragmentOutputState(TypedVKHashVal<FragmentOutputStateCache> const& hashVal) const;
 	private:
 		castl::shared_dic<TypedVKHashVal<FragmentOutputStateCache>, FragmentOutputState> m_StateDesc;
 	};

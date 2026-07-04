@@ -1,6 +1,7 @@
 #include <VulkanObjects/VulkanBuffer.h>
 #include <RenderBackend_Vulkan.h>
 #include <ResourceManagement/VulkanMemoryManager.h>
+#include <ResourceManagement/VulkanCommandListManager.h>
 #include <Utils/VulkanDebug.h>
 
 namespace graphics_backend
@@ -123,9 +124,76 @@ namespace graphics_backend
 		}
 		else
 		{
-			// Need staging buffer for GPU-only memory
-			// TODO: Implement staging buffer upload
-			CA_LOG_WARN("VulkanBuffer::UploadData - staging buffer upload not implemented yet");
+			// Staging buffer upload for GPU-only (device-local) memory
+			auto& memoryManager = GetApp()->GetMemoryManager();
+			auto& cmdListManager = GetApp()->GetCommandListManager();
+			auto& queueContext = const_cast<QueueContext&>(GetQueueContext());
+			auto device = GetDevice();
+
+			// Create staging buffer (HOST_VISIBLE + HOST_COHERENT)
+			vk::BufferCreateInfo stagingInfo{};
+			stagingInfo.size = size;
+			stagingInfo.usage = vk::BufferUsageFlagBits::eTransferSrc;
+			stagingInfo.sharingMode = vk::SharingMode::eExclusive;
+
+			VmaAllocationCreateInfo stagingAllocInfo{};
+			stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+			stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+				VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+			VmaAllocationInfo stagingAllocResult{};
+			vk::Buffer stagingBuffer;
+			VmaAllocation stagingAlloc = memoryManager.AllocateBuffer(
+				stagingInfo, stagingAllocInfo, stagingBuffer, &stagingAllocResult);
+
+			// Copy data to staging buffer
+			if (stagingAllocResult.pMappedData)
+			{
+				memcpy(stagingAllocResult.pMappedData, pData, size);
+			}
+
+			// Record copy command
+			vk::CommandBuffer cmdBuf = cmdListManager.AllocateCommandBuffer(cmdListManager.GetTransferPool());
+			cmdListManager.BeginCommandBuffer(cmdBuf);
+
+			vk::BufferCopy copyRegion{};
+			copyRegion.srcOffset = 0;
+			copyRegion.dstOffset = offset;
+			copyRegion.size = size;
+			cmdBuf.copyBuffer(stagingBuffer, m_Buffer, copyRegion);
+
+			// Pipeline barrier: TRANSFER_WRITE → target buffer usage
+			vk::BufferMemoryBarrier barrier{};
+			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+			barrier.dstAccessMask = m_AccessFlags;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.buffer = m_Buffer;
+			barrier.offset = offset;
+			barrier.size = size;
+
+			cmdBuf.pipelineBarrier(
+				vk::PipelineStageFlagBits::eTransfer,
+				m_PipelineStageFlags,
+				vk::DependencyFlags{},
+				{}, barrier, {});
+
+			cmdListManager.EndCommandBuffer(cmdBuf);
+
+			// Submit and wait for completion (synchronous upload)
+			vk::Fence fence = device.createFence(vk::FenceCreateInfo{});
+			queueContext.SubmitCommands(
+				queueContext.GetTransferQueueFamily(), 0,
+				cmdBuf,
+				fence);
+
+			vk::Result waitResult = device.waitForFences(fence, VK_TRUE, UINT64_MAX);
+			(void)waitResult;
+			device.destroyFence(fence);
+
+			// Cleanup
+			cmdListManager.FreeCommandBuffer(cmdListManager.GetTransferPool(), cmdBuf);
+			memoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
 		}
 	}
 }

@@ -1,5 +1,6 @@
 #include <GPUGraph/VulkanGraphExecutor.h>
 #include <RenderBackend_Vulkan.h>
+#include <Utils/InterfaceTranslator.h>
 #include <ResourceManagement/VulkanCommandListManager.h>
 #include <ResourceManagement/VulkanLinearMemoryManager.h>
 #include <VulkanObjects/VulkanBuffer.h>
@@ -1353,33 +1354,37 @@ namespace graphics_backend
 				fragmentShaderStage.module = fragmentShaderModule;
 				fragmentShaderStage.pName = fragmentEntryPointName.c_str();
 
+				// Build pipeline state structs from DrawCallBatch data (shared between GPL and non-GPL paths)
+				auto const& inputAssemblyData = batch.pipelineStateDesc.m_InputAssemblyStates.Get();
+				auto const& pipelineStateData = batch.pipelineStateDesc.m_PipelineStates.Get();
+
+				vk::PipelineVertexInputStateCreateInfo vertexInputState{};
+				vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{};
+				inputAssemblyState.topology = ETopologyToVkTopology(inputAssemblyData.topology);
+
+				vk::PipelineViewportStateCreateInfo viewportState{};
+				viewportState.viewportCount = 1;
+				viewportState.scissorCount = 1;
+
+				vk::PipelineRasterizationStateCreateInfo rasterizationState{};
+				rasterizationState.polygonMode = EPolygonModeToVkPolygonMode(pipelineStateData.rasterizationStates.polygonMode);
+				rasterizationState.cullMode = ECullModeToVkCullModeFlags(pipelineStateData.rasterizationStates.cullMode);
+				rasterizationState.frontFace = EFrontFaceToVkFrontFace(pipelineStateData.rasterizationStates.frontFace);
+				rasterizationState.lineWidth = 1.0f;
+
+				vk::PipelineMultisampleStateCreateInfo multisampleState{};
+				multisampleState.rasterizationSamples = VulkanTexture::ConvertSampleCount(pipelineStateData.msCount);
+
+				vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
+				colorBlendAttachment.colorWriteMask = EColorChannelMaskToVkColorComponentFlags(
+					pipelineStateData.colorAttachments.attachmentBlendStates[0].channelMask);
+
+				vk::PipelineColorBlendStateCreateInfo colorBlendState{};
+				colorBlendState.attachmentCount = rasterPass.GetColorAttachmentCount();
+				colorBlendState.pAttachments = &colorBlendAttachment;
+
 				if (pipelineLibrary.IsSupported())
 				{
-					vk::PipelineVertexInputStateCreateInfo vertexInputState{};
-					vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{};
-					inputAssemblyState.topology = vk::PrimitiveTopology::eTriangleList;
-
-					vk::PipelineViewportStateCreateInfo viewportState{};
-					viewportState.viewportCount = 1;
-					viewportState.scissorCount = 1;
-
-					vk::PipelineRasterizationStateCreateInfo rasterizationState{};
-					rasterizationState.polygonMode = vk::PolygonMode::eFill;
-					rasterizationState.cullMode = vk::CullModeFlagBits::eBack;
-					rasterizationState.frontFace = vk::FrontFace::eClockwise;
-					rasterizationState.lineWidth = 1.0f;
-
-					vk::PipelineMultisampleStateCreateInfo multisampleState{};
-					multisampleState.rasterizationSamples = vk::SampleCountFlagBits::e1;
-
-					vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-					colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR |
-						vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-
-					vk::PipelineColorBlendStateCreateInfo colorBlendState{};
-					colorBlendState.attachmentCount = 1;
-					colorBlendState.pAttachments = &colorBlendAttachment;
-
 					auto vertexInputLib = pipelineLibrary.CreateVertexInputLibrary(vertexInputState, inputAssemblyState);
 					auto preRasterLib = pipelineLibrary.CreatePreRasterizationLibrary(
 						vertexShaderStage, nullptr, nullptr, nullptr, viewportState, rasterizationState);
@@ -1399,8 +1404,39 @@ namespace graphics_backend
 				}
 				else
 				{
+					// Build render pass for non-GPL monolithic pipeline
+					RenderBackend_Vulkan::RenderPassCacheKey rpKey;
+					auto const& attachments = rasterPass.GetAttachments();
+					for (size_t i = 0; i < attachments.size(); ++i)
+					{
+						auto desc = GetDescriptor(graph, attachments[i]);
+						if (static_cast<int>(i) == rasterPass.GetDepthAttachmentIndex())
+						{
+							rpKey.depthFormat = VulkanTexture::ConvertFormat(desc.format);
+							rpKey.hasDepth = true;
+						}
+						else
+						{
+							rpKey.colorFormats.push_back(VulkanTexture::ConvertFormat(desc.format));
+						}
+					}
+
+					vk::RenderPass renderPass = GetApp()->GetOrCreateRenderPass(rpKey);
+
+					vk::PipelineShaderStageCreateInfo stages[] = { vertexShaderStage, fragmentShaderStage };
+
 					vk::GraphicsPipelineCreateInfo createInfo{};
+					createInfo.stageCount = 2;
+					createInfo.pStages = stages;
+					createInfo.pVertexInputState = &vertexInputState;
+					createInfo.pInputAssemblyState = &inputAssemblyState;
+					createInfo.pViewportState = &viewportState;
+					createInfo.pRasterizationState = &rasterizationState;
+					createInfo.pMultisampleState = &multisampleState;
+					createInfo.pColorBlendState = &colorBlendState;
 					createInfo.layout = pipelineLayout;
+					createInfo.renderPass = renderPass;
+
 					batchData.pipeline = pipelineLibrary.CreateMonolithicPipeline(createInfo);
 				}
 

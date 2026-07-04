@@ -6,23 +6,23 @@
 
 namespace graphics_backend
 {
-	class FragmentOutputState : public VulkanSubobjectBase
+	class GeometryShaderState : public VulkanSubobjectBase
 	{
-		FragmentOutputStateCache m_StateCache;
+		GeometryShaderStates m_StateCache;
 		vk::Pipeline m_Library = nullptr;
 	public:
-		void Init(FragmentOutputStateCache const& stateDesc);
+		void Init(GeometryShaderStates const& stateDesc);
 		vk::Pipeline const& GetLibrary() const { return m_Library; }
-		FragmentOutputStateCache const& GetCache() const { return m_StateCache; }
+		GeometryShaderStates const& GetCache() const { return m_StateCache; }
 	};
 
 
-	class VertexInputStateManager : public VulkanSubobjectBase
+	class GeometryShaderStateManager : public VulkanSubobjectBase
 	{
 	public:
-		FragmentOutputState const& EnsureFragmentOutputState(FragmentOutputStateCache const& cacheData);
-		FragmentOutputState const& GetVertexInputState(TypedVKHashVal<FragmentOutputStateCache> const& hashVal) const;
+		GeometryShaderState const& EnsureGeometryShaderState(GeometryShaderStates const& cacheData);
+		GeometryShaderState const& GetGeometryShaderState(TypedVKHashVal<GeometryShaderStates> const& hashVal) const;
 	private:
-		castl::shared_dic<TypedVKHashVal<FragmentOutputStateCache>, FragmentOutputState> m_StateDesc;
+		castl::shared_dic<TypedVKHashVal<GeometryShaderStates>, GeometryShaderState> m_StateDesc;
 	};
 }
