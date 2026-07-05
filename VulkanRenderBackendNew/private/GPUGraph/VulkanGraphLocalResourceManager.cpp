@@ -108,6 +108,9 @@ namespace graphics_backend
 
 	bool VulkanGraphLocalResourceManager::AllocateAliasedResources()
 	{
+		// Propagate App pointer to aliasing manager child
+		GetApp()->InitSubObj(&m_AliasingManager);
+
 		// Analyze aliasing opportunities
 		m_AliasingManager.AnalyzeAndPlanAliasing();
 

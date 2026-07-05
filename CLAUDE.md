@@ -35,4 +35,5 @@ C++ (CMake build system): Follow standard conventions
 
 - **禁止编译/配置**: 除非用户明确说明，不要尝试配置或编译此项目。但如果当前 OpenSpec change 的 tasks 中明确包含编译验证步骤（如 `build.py`），可直接执行无需征询同意
 - **禁止自动执行后续任务**: 除非用户明确说明继续实行任务，禁止执行tasks中后续的任务
+- **禁止 sleep 轮询异步任务**: Workflow/Agent/Bash 异步任务完成后会自动发送通知，禁止用 `sleep N` 循环轮询等待
 <!-- MANUAL ADDITIONS END -->

@@ -12,3 +12,4 @@ CAAssets
 _deps
 /.vs/
 /out/
+__pycache__/

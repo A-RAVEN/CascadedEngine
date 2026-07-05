@@ -26,7 +26,7 @@ namespace graphics_backend
 		void SetApp(RenderBackend_Vulkan* app) {
 			pApp = app;
 		}
-		RenderBackend_Vulkan* pApp;
+		RenderBackend_Vulkan* pApp = nullptr;
 		friend class RenderBackend_Vulkan;
 	};
 }

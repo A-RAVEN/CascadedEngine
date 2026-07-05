@@ -15,6 +15,14 @@ namespace vk {
 	DispatchLoaderDynamic defaultDispatchLoaderDynamic;
 }
 
+// Task 4.1: Global validation log file + setter (exported for GetProcAddress in Main.cpp)
+static FILE* g_ValidationLogFile = nullptr;
+
+extern "C" __declspec(dllexport) void SetValidationLogFile(FILE* file)
+{
+	g_ValidationLogFile = file;
+}
+
 namespace graphics_backend
 {
 
@@ -114,7 +122,13 @@ namespace graphics_backend
 					}
 				}
 			}
-			CA_LOG_ERR("///////////////////\n{}\n///////////////////", messageStream.str());
+				// Task 4.3: Write to validation log file if set
+				if (g_ValidationLogFile)
+				{
+					fprintf(g_ValidationLogFile, "%s\n", messageStream.str().c_str());
+					fflush(g_ValidationLogFile);
+				}
+				CA_LOG_ERR("///////////////////\n{}\n///////////////////", messageStream.str());
 			if (messageSeverity == VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
 			{
 #if BREAK_ON_VULKAN_ERROR

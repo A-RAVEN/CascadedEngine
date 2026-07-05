@@ -1,8 +1,14 @@
-set(PROJECT_NAME D3D12RendererBackendTester)
+set(PROJECT_NAME GPUBackendTester)
 project (${PROJECT_NAME})
 
-file(GLOB_RECURSE Source_List "*.cpp")
-file(GLOB_RECURSE Header_List "*.h")
+set(Source_List
+	Main.cpp
+	STB_Impl.cpp
+	private/MiniDump.cpp
+)
+set(Header_List
+	private/MiniDump.h
+)
 
 add_executable(${PROJECT_NAME} ${Header_List} ${Source_List})
 
@@ -22,6 +28,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Jolt)
 target_link_libraries(${PROJECT_NAME} PRIVATE IOManager)
 target_link_libraries(${PROJECT_NAME} PRIVATE magic_enum)
 target_link_libraries(${PROJECT_NAME} PRIVATE IMGUIContext)
+target_link_libraries(${PROJECT_NAME} PRIVATE dbghelp)
 #target_link_libraries(${PROJECT_NAME} PRIVATE IOManager_FS)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)

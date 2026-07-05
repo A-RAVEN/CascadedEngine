@@ -74,7 +74,7 @@ add_subdirectory ("D3D12RenderBackend")
 
 # Test projects
 #add_subdirectory ("Test/VulkanRendererBackendTester")
-add_subdirectory ("Test/D3D12RenderBackendTester")
+add_subdirectory ("Test/GPUBackendTester")
 add_subdirectory ("Test/CoreTests")
 
 # Experimental projects

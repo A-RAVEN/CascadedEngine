@@ -166,3 +166,9 @@ namespace graphics_backend
 	};
 
 }
+
+// Task 4.2: Validation log setter — extern "C" for GetProcAddress from Main.cpp
+#include <stdio.h>
+extern "C" {
+	__declspec(dllexport) void SetValidationLogFile(FILE* file);
+}

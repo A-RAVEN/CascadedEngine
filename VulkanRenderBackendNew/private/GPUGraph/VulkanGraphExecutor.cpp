@@ -372,6 +372,10 @@ namespace graphics_backend
 
 		m_CurrentFrameContext = std::move(frameContext);
 
+		// Propagate App pointer to nested child subobjects
+		GetApp()->InitSubObj(&m_LocalResourceManager);
+		GetApp()->InitSubObj(&m_ConstantBufferManager);
+
 		// Task 1.2: Cache queue family indices from QueueContext
 		{
 			auto const& queueContext = GetApp()->GetQueueContext();
