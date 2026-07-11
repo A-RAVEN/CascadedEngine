@@ -438,7 +438,26 @@ namespace graphics_backend
 			resourceManager.EnsurePoolCapacity(maxSets, poolSizes);
 		}
 
-		// Task 3.3a: Swapchain acquire — for each backbuffer, ensure window sync and acquire next image
+		m_PrepareTime = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - prepareStart).count();
+
+		// Phase 2: Build dependency-free batches
+		BuildDependencyFreeBatches(*graph);
+
+		// Phase 3: Build resource usage ranges
+		BuildResourceUsageRanges();
+
+		// Phase 4: Register CBuffer resources for aliasing
+		RegisterCBufferForAliasing(*graph);
+
+		// Phase 4.5: Allocate aliased resources
+		if (!AllocateAliasedResources())
+		{
+			CA_LOG_ERR("VulkanGraphExecutor: AllocateAliasedResources failed, aborting frame");
+			return;
+		}
+
+		// Swapchain acquire — moved here to avoid acquiring images on frames that will abort
 		if (!graph->GetFinalizePass().isEmpty())
 		{
 			uint32_t windowIdx = 0;
@@ -457,21 +476,6 @@ namespace graphics_backend
 				++windowIdx;
 			}
 		}
-
-		m_PrepareTime = std::chrono::duration_cast<std::chrono::microseconds>(
-			std::chrono::high_resolution_clock::now() - prepareStart).count();
-
-		// Phase 2: Build dependency-free batches
-		BuildDependencyFreeBatches(*graph);
-
-		// Phase 3: Build resource usage ranges
-		BuildResourceUsageRanges();
-
-		// Phase 4: Register CBuffer resources for aliasing
-		RegisterCBufferForAliasing(*graph);
-
-		// Phase 4.5: Allocate aliased resources
-		AllocateAliasedResources();
 
 		// Phase 5: Build resources (resolve CBuffer resource IDs etc.)
 		for (auto& [hash, instance] : m_ShaderResourceInstances)
@@ -989,9 +993,9 @@ namespace graphics_backend
 		}
 	}
 
-	void VulkanGraphExecutor::AllocateAliasedResources()
+	bool VulkanGraphExecutor::AllocateAliasedResources()
 	{
-		m_LocalResourceManager.AllocateAliasedResources();
+		return m_LocalResourceManager.AllocateAliasedResources();
 	}
 
 	void VulkanGraphExecutor::PrepareBatchResourceBarriers(GPUGraph const& graph)
@@ -2159,6 +2163,7 @@ namespace graphics_backend
 						waitSems, signalSems, waitStages);
 
 					graphicsQueue.submit(submitInfo, resourceManager.GetDirectFence());
+					resourceManager.MarkFenceSubmitted();
 				}
 			}
 

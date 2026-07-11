@@ -235,7 +235,7 @@ namespace graphics_backend
 		void BuildResourceUsageRanges();
 
 		// Phase 4: Allocate aliased resources
-		void AllocateAliasedResources();
+		bool AllocateAliasedResources();
 
 		// Phase 5: Prepare batch resource barriers
 		void PrepareBatchResourceBarriers(GPUGraph const& graph);

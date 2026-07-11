@@ -16,8 +16,16 @@ namespace graphics_backend
 		CA_LOG_INFO("VulkanWindowHandle initialized");
 	}
 
+	VulkanWindowHandle::~VulkanWindowHandle()
+	{
+		Release();
+	}
+
 	void VulkanWindowHandle::Release()
 	{
+		if (m_Released) return;
+		m_Released = true;
+
 		CleanupSwapchain();
 
 		if (m_Surface)
@@ -274,6 +282,7 @@ namespace graphics_backend
 		CreateSwapchain();
 		CreateImageViews();
 		m_SwapchainOutdated = false;
+		m_Released = false;
 		CA_LOG_INFO("Swapchain recreated");
 	}
 

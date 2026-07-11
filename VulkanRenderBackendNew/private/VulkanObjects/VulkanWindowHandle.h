@@ -16,8 +16,9 @@ namespace graphics_backend
 	{
 	public:
 		VulkanWindowHandle() = default;
-		VulkanWindowHandle(VulkanWindowHandle&& other) noexcept = default;
-		VulkanWindowHandle& operator=(VulkanWindowHandle&& other) noexcept = default;
+		~VulkanWindowHandle();
+		VulkanWindowHandle(VulkanWindowHandle&&) = delete;
+		VulkanWindowHandle& operator=(VulkanWindowHandle&&) = delete;
 
 		void Init(castl::shared_ptr<cawindow::IWindow> window);
 		virtual void Release() override;
@@ -76,6 +77,7 @@ namespace graphics_backend
 
 		GPUTextureDescriptor m_BackbufferDescriptor{};
 		bool m_SwapchainOutdated = false;
+		bool m_Released = false;
 
 		castl::vector<VulkanResourceState> m_BackBufferResourceStates;
 	};

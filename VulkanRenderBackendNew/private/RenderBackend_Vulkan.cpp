@@ -249,7 +249,14 @@ namespace graphics_backend
 	}
 	void RenderBackend_Vulkan::Release()
 	{
-		// Clear window handles
+		// Release all window handles before destroying device/instance
+		for (auto& [window, weakHandle] : m_WindowHandles)
+		{
+			if (auto handle = weakHandle.lock())
+			{
+				static_cast<VulkanWindowHandle*>(handle.get())->Release();
+			}
+		}
 		m_WindowHandles.clear();
 
 		// Release GPU Frame Manager

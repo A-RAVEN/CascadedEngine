@@ -57,6 +57,7 @@ namespace graphics_backend
 		m_CommandListManager.Reset();
 		m_StagingMemoryManager.Reset();
 		m_CrossQueueSemaphoreIndex = 0;
+		m_FenceSubmitted = false;
 	}
 
 	vk::Semaphore VulkanFrameBoundResourceManager::AllocCrossQueueSemaphore()
@@ -186,18 +187,22 @@ namespace graphics_backend
 
 		if (!m_FirstFrame)
 		{
-			vk::Fence directFence = resourceManager.GetDirectFence();
-			if (directFence)
+			// Only wait for fences if they were actually submitted (previous frame may have aborted early)
+			if (resourceManager.IsFenceSubmitted())
 			{
-				device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
-				device.resetFences(directFence);
-			}
+				vk::Fence directFence = resourceManager.GetDirectFence();
+				if (directFence)
+				{
+					device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
+					device.resetFences(directFence);
+				}
 
-			vk::Fence computeFence = resourceManager.GetComputeFence();
-			if (computeFence)
-			{
-				device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
-				device.resetFences(computeFence);
+				vk::Fence computeFence = resourceManager.GetComputeFence();
+				if (computeFence)
+				{
+					device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
+					device.resetFences(computeFence);
+				}
 			}
 
 			resourceManager.ResetDescriptorPool();

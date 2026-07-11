@@ -126,6 +126,9 @@ LONG MiniDump::ApplicationCrashHandler(EXCEPTION_POINTERS* pException)
 	CreateDumpFile(szDumpFile, pException);
 
 	// Terminate process immediately (no message box — headless/CI safe)
+	// Flush buffered stdout/stderr before exit to preserve diagnostic output
+	fflush(stdout);
+	fflush(stderr);
 	TerminateProcess(GetCurrentProcess(), 1);
 
 	return EXCEPTION_EXECUTE_HANDLER;
