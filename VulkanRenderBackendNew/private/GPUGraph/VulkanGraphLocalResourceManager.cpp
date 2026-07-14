@@ -4,6 +4,104 @@
 #include <VulkanObjects/VulkanTexture.h>
 #include <VulkanObjects/VulkanWindowHandle.h>
 
+namespace
+{
+	using namespace graphics_backend;
+
+	static vk::ImageAspectFlags GetImageAspectMask(ETextureFormat format)
+	{
+		if (FormatHasStencil(format))
+			return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+		if (FormatHasDepth(format))
+			return vk::ImageAspectFlagBits::eDepth;
+		return vk::ImageAspectFlagBits::eColor;
+	}
+
+	static vk::ImageUsageFlags GetTextureImageUsage(ETextureAccessTypeFlags access)
+	{
+		vk::ImageUsageFlags usage{};
+		if (access & ETextureAccessType::eSampled)
+			usage |= vk::ImageUsageFlagBits::eSampled;
+		if (access & ETextureAccessType::eRT)
+			usage |= vk::ImageUsageFlagBits::eColorAttachment;
+		if (access & ETextureAccessType::eDepthStencil)
+			usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+		if (access & ETextureAccessType::eTransferSrc)
+			usage |= vk::ImageUsageFlagBits::eTransferSrc;
+		if (access & ETextureAccessType::eTransferDst)
+			usage |= vk::ImageUsageFlagBits::eTransferDst;
+		if (access & ETextureAccessType::eUnorderedAccess)
+			usage |= vk::ImageUsageFlagBits::eStorage;
+		if (usage == vk::ImageUsageFlags{})
+			usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eColorAttachment;
+		return usage;
+	}
+
+	static vk::BufferUsageFlags GetBufferUsageFlags(EBufferUsageFlags usage)
+	{
+		vk::BufferUsageFlags flags = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc;
+		if (usage & EBufferUsage::eVertexBuffer)
+			flags |= vk::BufferUsageFlagBits::eVertexBuffer;
+		if (usage & EBufferUsage::eIndexBuffer)
+			flags |= vk::BufferUsageFlagBits::eIndexBuffer;
+		if (usage & EBufferUsage::eStructuredBuffer)
+			flags |= vk::BufferUsageFlagBits::eStorageBuffer;
+		if (usage & EBufferUsage::eConstantBuffer)
+			flags |= vk::BufferUsageFlagBits::eUniformBuffer;
+		if (usage & EBufferUsage::eDataSrc)
+			flags |= vk::BufferUsageFlagBits::eTransferSrc;
+		if (usage & EBufferUsage::eDataDst)
+			flags |= vk::BufferUsageFlagBits::eTransferDst;
+		if (usage & EBufferUsage::eUnorderedAccess)
+			flags |= vk::BufferUsageFlagBits::eStorageBuffer;
+		return flags;
+	}
+
+	static uint64_t CalculateTextureSize(GPUTextureDescriptor const& desc)
+	{
+		uint32_t blockSize = GetFormatBlockSize(desc.format);
+		uint64_t totalSize = 0;
+		uint32_t w = desc.width;
+		uint32_t h = desc.height;
+		for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+		{
+			uint32_t mipW = castl::max(1u, w >> mip);
+			uint32_t mipH = castl::max(1u, h >> mip);
+			if (IsCompressedFormat(desc.format))
+			{
+				mipW = (mipW + 3) / 4;
+				mipH = (mipH + 3) / 4;
+			}
+			totalSize += mipW * mipH * blockSize;
+		}
+		totalSize *= desc.layers;
+		return totalSize;
+	}
+
+	// ---- Shared CreateInfo fillers (used by Phase A, Phase B, and AddBuffer) ----
+
+	static void FillBufferCreateInfo(GraphLocalResource const& resource, vk::BufferCreateInfo& bufferInfo)
+	{
+		bufferInfo.size = resource.bufferDesc.SizeInByte();
+		bufferInfo.usage = GetBufferUsageFlags(resource.bufferUsage);
+	}
+
+	static void FillImageCreateInfo(GraphLocalResource const& resource, vk::ImageCreateInfo& imageInfo)
+	{
+		imageInfo.imageType = vk::ImageType::e2D;
+		imageInfo.format = VulkanTexture::ConvertFormat(resource.textureDesc.format);
+		imageInfo.extent.width = resource.textureDesc.width;
+		imageInfo.extent.height = resource.textureDesc.height;
+		imageInfo.extent.depth = 1;
+		imageInfo.mipLevels = resource.textureDesc.mipLevels;
+		imageInfo.arrayLayers = resource.textureDesc.layers;
+		imageInfo.samples = vk::SampleCountFlagBits::e1;
+		imageInfo.tiling = vk::ImageTiling::eOptimal;
+		imageInfo.usage = GetTextureImageUsage(resource.textureAccess);
+		imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+	}
+}
+
 namespace graphics_backend
 {
 	void VulkanGraphLocalResourceManager::Init()
@@ -45,33 +143,16 @@ namespace graphics_backend
 	{
 		uint64_t id = RegisterTemporaryBuffer(desc, usage, batchIndex);
 
-		// Create the actual buffer resource immediately
-		// (since AddBuffer may be called after AllocateAliasedResources)
-		auto device = GetDevice();
-		ManagedGPUResource managed{};
-		managed.localResource = &m_LocalResources[id];
-
-		vk::BufferCreateInfo bufferInfo{};
-		bufferInfo.size = desc.SizeInByte();
-		bufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eUniformBuffer;
-		if (usage & EBufferUsage::eVertexBuffer)
-			bufferInfo.usage |= vk::BufferUsageFlagBits::eVertexBuffer;
-		if (usage & EBufferUsage::eIndexBuffer)
-			bufferInfo.usage |= vk::BufferUsageFlagBits::eIndexBuffer;
-		if (usage & EBufferUsage::eStructuredBuffer)
-			bufferInfo.usage |= vk::BufferUsageFlagBits::eStorageBuffer;
-
-		try
+		// If aliased pool is already allocated, bind immediately
+		if (m_AliasingManager.IsPoolAllocated())
 		{
-			managed.buffer = device.createBuffer(bufferInfo);
-			m_TotalMemoryUsed += bufferInfo.size;
+			if (!BindBufferToAliasedPool(id, m_AliasingManager.GetPoolDeviceMemory(), m_AliasingManager.GetMappedPtr()))
+			{
+				CA_LOG_WARN("VulkanGraphLocalResourceManager: AddBuffer failed to bind to aliased pool, resource {} may be unbound", id);
+			}
 		}
-		catch (vk::SystemError const& e)
-		{
-			CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create buffer in AddBuffer: {}", e.what());
-		}
+		// Otherwise: AllocateAliasedResources() will handle binding in Phase B
 
-		m_Resources[id] = managed;
 		return id;
 	}
 
@@ -86,8 +167,8 @@ namespace graphics_backend
 		resource.lastUseBatch = batchIndex;
 		resource.resourceId = id;
 
-		// Estimate texture size (simplified)
-		uint64_t texSize = desc.width * desc.height * 4 * desc.mipLevels * desc.layers;
+		// Calculate texture size based on format and mip chain
+		uint64_t texSize = CalculateTextureSize(desc);
 
 		m_AliasingManager.RegisterResource(id, {
 			batchIndex, batchIndex, texSize, 256, false
@@ -106,25 +187,151 @@ namespace graphics_backend
 		}
 	}
 
+	bool VulkanGraphLocalResourceManager::PhaseA_CreateTempResourcesAndGetReqs(castl::unordered_map<uint64_t, VkMemoryRequirements>& outMemReqs)
+	{
+		auto device = GetDevice();
+
+		for (auto const& [id, localResource] : m_LocalResources)
+		{
+			VkMemoryRequirements memReqs{};
+
+			if (localResource.type == GraphLocalResource::Type::Buffer)
+			{
+				vk::BufferCreateInfo bufferInfo{};
+				FillBufferCreateInfo(localResource, bufferInfo);
+
+				vk::Buffer tempBuffer;
+				try
+				{
+					tempBuffer = device.createBuffer(bufferInfo, nullptr);
+				}
+				catch (vk::SystemError const& e)
+				{
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Phase A failed to create temp buffer: {}", e.what());
+					return false;
+				}
+
+				vk::MemoryRequirements vkMemReqs = device.getBufferMemoryRequirements(tempBuffer);
+				memReqs.alignment = vkMemReqs.alignment;
+				memReqs.size = vkMemReqs.size;
+				memReqs.memoryTypeBits = vkMemReqs.memoryTypeBits;
+
+				device.destroyBuffer(tempBuffer);
+			}
+			else
+			{
+				vk::ImageCreateInfo imageInfo{};
+				FillImageCreateInfo(localResource, imageInfo);
+
+				vk::Image tempImage;
+				try
+				{
+					tempImage = device.createImage(imageInfo, nullptr);
+				}
+				catch (vk::SystemError const& e)
+				{
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Phase A failed to create temp image: {}", e.what());
+					return false;
+				}
+
+				vk::MemoryRequirements vkMemReqs = device.getImageMemoryRequirements(tempImage);
+				memReqs.alignment = vkMemReqs.alignment;
+				memReqs.size = vkMemReqs.size;
+				memReqs.memoryTypeBits = vkMemReqs.memoryTypeBits;
+
+				device.destroyImage(tempImage);
+			}
+
+			outMemReqs[id] = memReqs;
+		}
+
+		return true;
+	}
+
+	bool VulkanGraphLocalResourceManager::BindBufferToAliasedPool(uint64_t id, VkDeviceMemory deviceMemory, void* poolMappedPtr)
+	{
+		auto it = m_LocalResources.find(id);
+		if (it == m_LocalResources.end())
+			return false;
+
+		auto const& localResource = it->second;
+		auto aliasedAlloc = m_AliasingManager.GetAliasedAllocation(id);
+		auto device = GetDevice();
+
+		ManagedGPUResource managed{};
+		managed.localResource = &localResource;
+
+		vk::BufferCreateInfo bufferInfo{};
+		FillBufferCreateInfo(localResource, bufferInfo);
+
+		vk::Buffer rawBuffer;
+		try
+		{
+			rawBuffer = device.createBuffer(bufferInfo, nullptr);
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create buffer for aliased binding: {}", e.what());
+			return false;
+		}
+
+		// Get real alignment and compute aligned offset
+		vk::MemoryRequirements vkMemReqs = device.getBufferMemoryRequirements(rawBuffer);
+		uint64_t alignedOffset = (aliasedAlloc.offset + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
+
+		vk::DeviceMemory dm{ deviceMemory };
+		device.bindBufferMemory(rawBuffer, dm, alignedOffset);
+
+		managed.buffer = rawBuffer;
+		managed.aliasedOffset = alignedOffset;
+		managed.mappedPtr = poolMappedPtr
+			? static_cast<uint8_t*>(poolMappedPtr) + alignedOffset
+			: nullptr;
+
+		m_Resources[id] = managed;
+		m_TotalMemoryUsed += bufferInfo.size;
+		return true;
+	}
+
 	bool VulkanGraphLocalResourceManager::AllocateAliasedResources()
 	{
 		// Propagate App pointer to aliasing manager child
 		GetApp()->InitSubObj(&m_AliasingManager);
 
-		// Analyze aliasing opportunities
+		// Step 1: Initial analysis with estimated sizes
 		m_AliasingManager.AnalyzeAndPlanAliasing();
 
-		// Allocate pool for aliased resources
+		// Phase A: Create temp resources to get real memory requirements
+		castl::unordered_map<uint64_t, VkMemoryRequirements> realMemReqs;
+		if (!PhaseA_CreateTempResourcesAndGetReqs(realMemReqs))
+		{
+			CA_LOG_ERR("VulkanGraphLocalResourceManager: Phase A failed");
+			return false;
+		}
+
+		// Replan with real alignment and size from hardware
+		m_AliasingManager.ReplanWithRealAlignment(realMemReqs);
+
+		// Step 2: Allocate pool with corrected total size
 		if (!m_AliasingManager.AllocateAliasedPool(m_AliasingManager.GetTotalAliasedSize()))
 		{
 			CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to allocate aliased pool");
 			return false;
 		}
 
-		// Fixup allocations: AnalyzeAndPlanAliasing stored VK_NULL_HANDLE before pool was allocated
+		// Fixup allocations after pool allocation
 		m_AliasingManager.UpdateAliasedAllocationsMap();
 
-		// Create actual resources
+		// Get shared pool resources
+		VkDeviceMemory deviceMemory = m_AliasingManager.GetPoolDeviceMemory();
+		void* poolMappedPtr = m_AliasingManager.GetMappedPtr();
+		auto device = GetDevice();
+		auto rawDevice = static_cast<VkDevice>(device);
+
+		// Phase B: Create real resources bound to aliased pool
+		vk::DeviceMemory dm{ deviceMemory };
+		uint32_t poolMemTypeBit = 1u << m_AliasingManager.GetPoolMemoryType();
+
 		for (auto const& [id, localResource] : m_LocalResources)
 		{
 			ManagedGPUResource managed{};
@@ -134,74 +341,104 @@ namespace graphics_backend
 
 			if (localResource.type == GraphLocalResource::Type::Buffer)
 			{
-				// Create buffer
 				vk::BufferCreateInfo bufferInfo{};
-				bufferInfo.size = localResource.bufferDesc.SizeInByte();
-				bufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer;
+				FillBufferCreateInfo(localResource, bufferInfo);
 
-				try
-				{
-					managed.buffer = GetDevice().createBuffer(bufferInfo);
-				}
-				catch (vk::SystemError const& e)
-				{
+				vk::Buffer rawBuffer;
+				try { rawBuffer = device.createBuffer(bufferInfo, nullptr); }
+				catch (vk::SystemError const& e) {
 					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create buffer: {}", e.what());
 					return false;
 				}
 
-				// Bind to aliased memory (simplified - would use VMA with custom pool)
-				m_TotalMemoryUsed += bufferInfo.size;
+				vk::MemoryRequirements vkMemReqs = device.getBufferMemoryRequirements(rawBuffer);
+				uint64_t alignedOffset = (aliasedAlloc.offset + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
+
+				// --- Route A: Aliased pool binding (if memory type compatible) ---
+				if ((vkMemReqs.memoryTypeBits & poolMemTypeBit) != 0)
+				{
+					device.bindBufferMemory(rawBuffer, dm, alignedOffset);
+					managed.buffer = rawBuffer;
+					managed.aliasedOffset = alignedOffset;
+					managed.mappedPtr = poolMappedPtr
+						? static_cast<uint8_t*>(poolMappedPtr) + alignedOffset : nullptr;
+				}
+				else
+				{
+					// --- Route B: VMA standalone allocation (memory type incompatible with pool) ---
+					CA_LOG_INFO("VulkanGraphLocalResourceManager: Buffer allocated standalone (memory type incompatibility)");
+					device.destroyBuffer(rawBuffer);
+
+					auto& memManager = GetApp()->GetMemoryManager();
+					VmaAllocationCreateInfo vmaAllocInfo{};
+					vmaAllocInfo.usage = VMA_MEMORY_USAGE_UNKNOWN;
+					vmaAllocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+					vmaAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+					VmaAllocationInfo allocInfoOut{};
+					managed.allocation = memManager.AllocateBuffer(bufferInfo, vmaAllocInfo, managed.buffer, &allocInfoOut);
+					managed.mappedPtr = allocInfoOut.pMappedData;
+				}
 			}
 			else
 			{
-				// Create image
 				vk::ImageCreateInfo imageInfo{};
-				imageInfo.imageType = vk::ImageType::e2D;
-				imageInfo.format = vk::Format::eR8G8B8A8Unorm;
-				imageInfo.extent.width = localResource.textureDesc.width;
-				imageInfo.extent.height = localResource.textureDesc.height;
-				imageInfo.extent.depth = 1;
-				imageInfo.mipLevels = localResource.textureDesc.mipLevels;
-				imageInfo.arrayLayers = localResource.textureDesc.layers;
-				imageInfo.samples = vk::SampleCountFlagBits::e1;
-				imageInfo.tiling = vk::ImageTiling::eOptimal;
-				imageInfo.usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eColorAttachment;
-				imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+				FillImageCreateInfo(localResource, imageInfo);
 
-				try
-				{
-					managed.image = GetDevice().createImage(imageInfo);
-				}
-				catch (vk::SystemError const& e)
-				{
+				vk::Image rawImage;
+				try { rawImage = device.createImage(imageInfo, nullptr); }
+				catch (vk::SystemError const& e) {
 					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image: {}", e.what());
 					return false;
 				}
 
-				// Create image view
+				vk::MemoryRequirements vkMemReqs = device.getImageMemoryRequirements(rawImage);
+				uint64_t alignedOffset = (aliasedAlloc.offset + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
+
+				// --- Route A: Aliased pool binding ---
+				if ((vkMemReqs.memoryTypeBits & poolMemTypeBit) != 0)
+				{
+					device.bindImageMemory(rawImage, dm, alignedOffset);
+					managed.image = rawImage;
+					managed.aliasedOffset = alignedOffset;
+					managed.mappedPtr = poolMappedPtr
+						? static_cast<uint8_t*>(poolMappedPtr) + alignedOffset : nullptr;
+				}
+				else
+				{
+					// --- Route B: VMA standalone allocation ---
+					CA_LOG_INFO("VulkanGraphLocalResourceManager: Image allocated standalone (memory type incompatibility)");
+					device.destroyImage(rawImage);
+
+					auto& memManager = GetApp()->GetMemoryManager();
+					VmaAllocationCreateInfo vmaAllocInfo{};
+					vmaAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+					VmaAllocationInfo allocInfoOut{};
+					managed.allocation = memManager.AllocateImage(imageInfo, vmaAllocInfo, managed.image, &allocInfoOut);
+					managed.mappedPtr = nullptr;
+				}
+
+				// Create image view (common to both routes)
 				vk::ImageViewCreateInfo viewInfo{};
 				viewInfo.image = managed.image;
 				viewInfo.viewType = vk::ImageViewType::e2D;
 				viewInfo.format = imageInfo.format;
-				viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+				viewInfo.subresourceRange.aspectMask = GetImageAspectMask(localResource.textureDesc.format);
 				viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
 				viewInfo.subresourceRange.layerCount = imageInfo.arrayLayers;
 
-				try
-				{
-					managed.imageView = GetDevice().createImageView(viewInfo);
-				}
-				catch (vk::SystemError const& e)
-				{
+				try { managed.imageView = device.createImageView(viewInfo); }
+				catch (vk::SystemError const& e) {
 					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image view: {}", e.what());
 					return false;
 				}
-
-				m_TotalMemoryUsed += imageInfo.extent.width * imageInfo.extent.height * 4;
 			}
 
 			m_Resources[id] = managed;
 		}
+
+		m_TotalMemoryUsed = m_AliasingManager.GetTotalAliasedSize();
 
 		CA_LOG_INFO("VulkanGraphLocalResourceManager: Allocated {} resources, total memory: {}"
 			, m_Resources.size(), m_TotalMemoryUsed);
@@ -239,12 +476,22 @@ namespace graphics_backend
 	void VulkanGraphLocalResourceManager::ReleaseAllResources()
 	{
 		auto device = GetDevice();
+		auto& memManager = GetApp()->GetMemoryManager();
 
 		for (auto& [id, resource] : m_Resources)
 		{
 			if (resource.buffer)
 			{
-				device.destroyBuffer(resource.buffer);
+				if (resource.allocation)
+				{
+					// Standalone VMA allocation (fallback path)
+					memManager.FreeBuffer(resource.buffer, resource.allocation);
+				}
+				else
+				{
+					// Aliased pool binding — just destroy the handle
+					device.destroyBuffer(resource.buffer);
+				}
 			}
 			if (resource.imageView)
 			{
@@ -252,7 +499,14 @@ namespace graphics_backend
 			}
 			if (resource.image)
 			{
-				device.destroyImage(resource.image);
+				if (resource.allocation)
+				{
+					memManager.FreeImage(resource.image, resource.allocation);
+				}
+				else
+				{
+					device.destroyImage(resource.image);
+				}
 			}
 		}
 

@@ -25,6 +25,7 @@ namespace graphics_backend
 		void* mappedPtr;
 		uint64_t offset;
 		uint64_t size;
+		VkDeviceMemory deviceMemory = VK_NULL_HANDLE;
 	};
 
 	class VulkanResourceAliasing : public VulkanSubobjectBase
@@ -46,13 +47,22 @@ namespace graphics_backend
 		AliasedAllocation GetAliasedAllocation(uint64_t resourceId) const;
 
 		// Allocate aliased memory pool
-		bool AllocateAliasedPool(uint64_t totalSize);
+		bool AllocateAliasedPool(uint64_t totalSize, uint32_t memoryTypeBits = 0xFFFFFFFF);
 
 		// Free aliased memory pool
 		void FreeAliasedPool();
 
 		// Update aliased allocation map after pool allocation
 		void UpdateAliasedAllocationsMap();
+
+		// Replan with real memory requirements from hardware
+		void ReplanWithRealAlignment(castl::unordered_map<uint64_t, VkMemoryRequirements> const& realMemReqs);
+
+		// Query pool state
+		bool IsPoolAllocated() const { return m_AliasedPoolAllocation != VK_NULL_HANDLE; }
+		void* GetMappedPtr() const { return m_AliasedPoolMappedPtr; }
+		VkDeviceMemory GetPoolDeviceMemory() const { return m_AliasedPoolDeviceMemory; }
+		uint32_t GetPoolMemoryType() const { return m_AliasedPoolMemoryType; }
 
 		// Get total aliased memory size
 		uint64_t GetTotalAliasedSize() const { return m_TotalAliasedSize; }
@@ -71,6 +81,8 @@ namespace graphics_backend
 		castl::unordered_map<uint64_t, AliasedAllocation> m_AliasedAllocations;
 
 		VmaAllocation m_AliasedPoolAllocation = VK_NULL_HANDLE;
+		VkDeviceMemory m_AliasedPoolDeviceMemory = VK_NULL_HANDLE;
+		uint32_t m_AliasedPoolMemoryType = 0;
 		void* m_AliasedPoolMappedPtr = nullptr;
 		uint64_t m_TotalAliasedSize = 0;
 		uint64_t m_TotalUnaliasedSize = 0;

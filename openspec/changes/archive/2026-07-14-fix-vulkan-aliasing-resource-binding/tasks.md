@@ -1,17 +1,17 @@
 ## 1. 新增辅助函数（格式 & 内存基础设施）
 
-- [ ] 1.1 在 `Interface/RenderInterface/header/Common.h` 中实现 `GetFormatBlockSize(ETextureFormat)` 函数——内联 constexpr 函数，对枚举中每种格式返回正确的 bytes-per-pixel/block（RGBA8=4, RGB32=16, D24S8=4 等），fallback 返回 4
-- [ ] 1.2 在 `Interface/RenderInterface/header/Common.h` 中实现 `IsCompressedFormat(ETextureFormat)` 函数——constexpr 返回 `false`（当前 `ETextureFormat` 枚举不含 BCn 格式，保留框架以便后续扩展）
-- [ ] 1.3 在 `VulkanMemoryManager` 中新增 `void GetAllocationInfo(VmaAllocation allocation, VmaAllocationInfo* outInfo) const` 方法——内部调用 `vmaGetAllocationInfo(m_Allocator, allocation, outInfo)`，文件 `VulkanRenderBackendNew/private/ResourceManagement/VulkanMemoryManager.h` 和 `.cpp`
+- [x] 1.1 在 `Interface/RenderInterface/header/Common.h` 中实现 `GetFormatBlockSize(ETextureFormat)` 函数——内联 constexpr 函数，对枚举中每种格式返回正确的 bytes-per-pixel/block（RGBA8=4, RGB32=16, D24S8=4 等），fallback 返回 4
+- [x] 1.2 在 `Interface/RenderInterface/header/Common.h` 中实现 `IsCompressedFormat(ETextureFormat)` 函数——constexpr 返回 `false`（当前 `ETextureFormat` 枚举不含 BCn 格式，保留框架以便后续扩展）
+- [x] 1.3 在 `VulkanMemoryManager` 中新增 `void GetAllocationInfo(VmaAllocation allocation, VmaAllocationInfo* outInfo) const` 方法——内部调用 `vmaGetAllocationInfo(m_Allocator, allocation, outInfo)`，文件 `VulkanRenderBackendNew/private/ResourceManagement/VulkanMemoryManager.h` 和 `.cpp`
 
 ## 2. VulkanResourceAliasing 扩展
 
-- [ ] 2.1 在 `VulkanResourceAliasing::AliasedAllocation` 结构体中新增 `VkDeviceMemory deviceMemory = VK_NULL_HANDLE` 字段（`VulkanRenderBackendNew/private/ResourceManagement/VulkanResourceAliasing.h` 第 22-28 行）
-- [ ] 2.2 修改 `VulkanResourceAliasing::AllocateAliasedPool()`——在 `vmaAllocateMemory` 成功后调用 `memoryManager.GetAllocationInfo(m_AliasedPoolAllocation, &allocInfo)` 提取 `VkDeviceMemory`，遍历 `m_AliasedAllocations` 将所有 entry 的 `deviceMemory` 设置为 `allocInfo.deviceMemory`，并将 aliased pool 的 `deviceMemory` 也存入新增的成员 `m_AliasedPoolDeviceMemory`（`VulkanResourceAliasing.cpp`）
-- [ ] 2.3 在 `VulkanResourceAliasing` 中新增方法 `void ReplanWithRealAlignment(castl::unordered_map<uint64_t, VkMemoryRequirements> const& realMemReqs)`——用真实对齐和大小覆盖 `m_ResourceLifetimes` 中每个资源的 `alignment` 和 `size` 字段，重新运行贪心区间调度算法重新计算 `aliasedAlloc.offset` 和 `m_TotalAliasedSize`（`VulkanResourceAliasing.h` + `.cpp`）
-- [ ] 2.4 在 `VulkanResourceAliasing` 中新增 `bool IsPoolAllocated() const` 方法——返回 `m_AliasedPoolAllocation != VK_NULL_HANDLE`（`VulkanResourceAliasing.h`）
-- [ ] 2.5 在 `VulkanResourceAliasing` 中新增 `void* GetMappedPtr() const` 方法——返回 `m_AliasedPoolMappedPtr`（`VulkanResourceAliasing.h`）
-- [ ] 2.6 在 `VulkanResourceAliasing` 中新增 `VkDeviceMemory GetPoolDeviceMemory() const` 方法——返回 `m_AliasedPoolDeviceMemory`（`VulkanResourceAliasing.h`）
+- [x] 2.1 在 `VulkanResourceAliasing::AliasedAllocation` 结构体中新增 `VkDeviceMemory deviceMemory = VK_NULL_HANDLE` 字段（`VulkanRenderBackendNew/private/ResourceManagement/VulkanResourceAliasing.h` 第 22-28 行）
+- [x] 2.2 修改 `VulkanResourceAliasing::AllocateAliasedPool()`——在 `vmaAllocateMemory` 成功后调用 `memoryManager.GetAllocationInfo(m_AliasedPoolAllocation, &allocInfo)` 提取 `VkDeviceMemory`，遍历 `m_AliasedAllocations` 将所有 entry 的 `deviceMemory` 设置为 `allocInfo.deviceMemory`，并将 aliased pool 的 `deviceMemory` 也存入新增的成员 `m_AliasedPoolDeviceMemory`（`VulkanResourceAliasing.cpp`）
+- [x] 2.3 在 `VulkanResourceAliasing` 中新增方法 `void ReplanWithRealAlignment(castl::unordered_map<uint64_t, VkMemoryRequirements> const& realMemReqs)`——用真实对齐和大小覆盖 `m_ResourceLifetimes` 中每个资源的 `alignment` 和 `size` 字段，重新运行贪心区间调度算法重新计算 `aliasedAlloc.offset` 和 `m_TotalAliasedSize`（`VulkanResourceAliasing.h` + `.cpp`）
+- [x] 2.4 在 `VulkanResourceAliasing` 中新增 `bool IsPoolAllocated() const` 方法——返回 `m_AliasedPoolAllocation != VK_NULL_HANDLE`（`VulkanResourceAliasing.h`）
+- [x] 2.5 在 `VulkanResourceAliasing` 中新增 `void* GetMappedPtr() const` 方法——返回 `m_AliasedPoolMappedPtr`（`VulkanResourceAliasing.h`）
+- [x] 2.6 在 `VulkanResourceAliasing` 中新增 `VkDeviceMemory GetPoolDeviceMemory() const` 方法——返回 `m_AliasedPoolDeviceMemory`（`VulkanResourceAliasing.h`）
 
 ## 3. ManagedGPUResource 结构调整
 
@@ -60,5 +60,5 @@
 
 ## 11. 编译验证与修复
 
-- [ ] 11.1 运行 `build.py` 编译项目，若失败则分析编译错误并修复，直到 BUILD SUCCESSFUL
-- [ ] 11.2 验证 Vulkan Validation Layer 无 aspectMask 相关 VUID 错误（特别关注深度纹理场景）
+- [x] 11.1 运行 `build.py` 编译项目，若失败则分析编译错误并修复，直到 BUILD SUCCESSFUL
+- [x] 11.2 验证 Vulkan Validation Layer 无 aspectMask 相关 VUID 错误 → VUID-VkImageViewCreateInfo-image-01020 已消除；image/buffer 均正确绑定或走 VMA 独立分配 fallback。AllocateCommandBuffer crash 为预先存在的问题（Phase 2 fix-vulkan-batch-submit 范畴）

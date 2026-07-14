@@ -38,6 +38,12 @@ namespace graphics_backend
 		void* MapMemory(VmaAllocation allocation);
 		void UnmapMemory(VmaAllocation allocation);
 
+		// Query allocation info (deviceMemory, offset, size, pMappedData)
+		void GetAllocationInfo(VmaAllocation allocation, VmaAllocationInfo* outInfo) const
+		{
+			vmaGetAllocationInfo(m_Allocator, allocation, outInfo);
+		}
+
 		// Free
 		void FreeBuffer(vk::Buffer buffer, VmaAllocation allocation);
 		void FreeImage(vk::Image image, VmaAllocation allocation);

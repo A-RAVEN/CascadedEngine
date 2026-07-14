@@ -32,6 +32,7 @@ namespace graphics_backend
 		vk::ImageView imageView;
 		VmaAllocation allocation;
 		void* mappedPtr;
+		uint64_t aliasedOffset = 0;
 		GraphLocalResource const* localResource;
 	};
 
@@ -86,6 +87,12 @@ namespace graphics_backend
 		uint64_t GetTotalMemoryUsed() const { return m_TotalMemoryUsed; }
 
 	private:
+		// Phase A: create temp resources to query real memory requirements
+		bool PhaseA_CreateTempResourcesAndGetReqs(castl::unordered_map<uint64_t, VkMemoryRequirements>& outMemReqs);
+
+		// Phase B: bind a single buffer to aliased pool (shared with AddBuffer)
+		bool BindBufferToAliasedPool(uint64_t id, VkDeviceMemory deviceMemory, void* poolMappedPtr);
+
 		castl::unordered_map<uint64_t, GraphLocalResource> m_LocalResources;
 		castl::unordered_map<uint64_t, ManagedGPUResource> m_Resources;
 		VulkanResourceAliasing m_AliasingManager;

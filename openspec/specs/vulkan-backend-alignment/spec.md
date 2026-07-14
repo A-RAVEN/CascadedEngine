@@ -63,6 +63,12 @@
 | 1 | SamplerManager | 无独立 sampler 管理器，每帧重建 sampler | P2 | ✅ 已完成 |
 | 2 | ApplyExternalResourceStates | 空函数，不更新外部资源状态 | P2 | ✅ 已完成 |
 | 3 | RunTestCode | 测试入口未实现 | P3 | ❌ 未开始 |
+| 4 | Resource Aliasing | 别名资源未绑定到 aliased pool 的计算偏移 | P1 | `fix-vulkan-aliasing-resource-binding` | ✅ 已完成 |
+| 5 | ImageView AspectMask | ImageView `aspectMask` 硬编码为 `eColor` | P1 | `fix-vulkan-aliasing-resource-binding` | ✅ 已完成 |
+| 6 | Image Usage Flags | Image `usage` 硬编码 | P2 | `fix-vulkan-aliasing-resource-binding` | ✅ 已完成 |
+| 7 | Buffer Usage Flags | Buffer `usage` 硬编码 | P2 | `fix-vulkan-aliasing-resource-binding` | ✅ 已完成 |
+| 8 | mappedPtr Propagation | `mappedPtr` 未从 aliased pool 传播 | P2 | `fix-vulkan-aliasing-resource-binding` | ✅ 已完成 |
+| 9 | AddBuffer Aliasing | `AddBuffer()` 绕过 aliasing 系统 | P2 | `fix-vulkan-aliasing-resource-binding` | ✅ 已完成 |
 
 ---
 

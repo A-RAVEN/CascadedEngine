@@ -234,6 +234,36 @@ constexpr static bool IsUintFormat(ETextureFormat format)
 	return (format > ETextureFormat::E_UINT_TYPE_CATEGORY_BEGIN && format < ETextureFormat::E_UINT_TYPE_CATEGORY_END);
 }
 
+constexpr static uint32_t GetFormatBlockSize(ETextureFormat format)
+{
+	switch (format)
+	{
+	case ETextureFormat::E_R8_UNORM:               return 1;
+	case ETextureFormat::E_R8G8_UNORM:             return 2;
+	case ETextureFormat::E_R8G8B8A8_UNORM:         return 4;
+	case ETextureFormat::E_B8G8R8A8_UNORM:         return 4;
+	case ETextureFormat::E_R16_UNORM:
+	case ETextureFormat::E_R16_SFLOAT:             return 2;
+	case ETextureFormat::E_R16G16_SFLOAT:          return 4;
+	case ETextureFormat::E_R16G16B16A16_UNORM:
+	case ETextureFormat::E_R16G16B16A16_SFLOAT:    return 8;
+	case ETextureFormat::E_R32_SFLOAT:             return 4;
+	case ETextureFormat::E_R32G32_SFLOAT:          return 8;
+	case ETextureFormat::E_R32G32B32A32_SFLOAT:    return 16;
+	case ETextureFormat::E_D16_UNORM:              return 2;
+	case ETextureFormat::E_D32_SFLOAT:             return 4;
+	case ETextureFormat::E_D24_UNORM_S8_UINT:      return 4;
+	case ETextureFormat::E_D32_SFLOAT_S8_UINT:     return 8;
+	default:                                       return 4; // fallback to RGBA8
+	}
+}
+
+constexpr static bool IsCompressedFormat(ETextureFormat format)
+{
+	// BCn/DXT compressed formats are not yet in the ETextureFormat enum
+	return false;
+}
+
 enum class EBufferUsage : uint16_t
 {
 	eConstantBuffer = 1,

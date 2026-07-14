@@ -48,3 +48,61 @@
 - **THEN** `m_AliasedAllocations` 中所有条目的 `allocation` 字段为非 `VK_NULL_HANDLE`
 - **AND** 所有条目的 `mappedPtr` 字段为非 `nullptr`
 - **AND** 调用 `GetAliasedAllocation(resourceId)` 时返回的 `AliasedAllocation` 含有有效的 `allocation` 和 `mappedPtr`
+
+---
+
+以下 requirements 来自 `fix-vulkan-aliasing-resource-binding` (2026-07-14)：
+
+### Requirement: Aliased resources SHALL be bound to shared memory pool at computed offsets using two-phase realignment
+
+`VulkanGraphLocalResourceManager::AllocateAliasedResources()` SHALL 采用两阶段方法实现资源绑定：(Phase A) 先创建临时未绑定资源获取真实 `VkMemoryRequirements`（对齐+大小），用真实值重新规划 aliasing 偏移；(Phase B) 分配 pool 后将资源绑定到真实对齐的偏移位置。
+
+#### Scenario: Buffer 绑定到 aliased pool 偏移（两阶段方法）
+
+- **WHEN** `AllocateAliasedResources()` 执行 Phase A
+- **THEN** 系统为每个注册 buffer 创建临时 buffer（不绑定内存），通过 `vkGetBufferMemoryRequirements` 获取真实 `alignment` 和 `size`
+- **AND** 真实对齐值被传入 `VulkanResourceAliasing::ReplanWithRealAlignment()` 重新规划偏移
+- **AND** Phase A 临时 buffer handle 被立即 destroy
+- **WHEN** Phase B 执行，pool 已用修正后的 `m_TotalAliasedSize` 分配
+- **THEN** 系统再次创建正式 buffer，通过 `vkBindBufferMemory` 绑定到 aliased pool 的真实对齐偏移
+
+#### Scenario: 对齐不匹配时自动修正
+
+- **WHEN** 注册时使用估算 `alignment=256`，运行时返回 `alignment=65536`
+- **THEN** `ReplanWithRealAlignment()` 使用真实对齐重新计算偏移
+
+### Requirement: VmaAllocation SHALL be converted to VkDeviceMemory for binding
+
+`VulkanResourceAliasing::AliasedAllocation` SHALL 包含 `VkDeviceMemory deviceMemory` 字段。`vkBindBufferMemory` 和 `vkBindImageMemory` 调用 SHALL 使用该 `deviceMemory`。
+
+### Requirement: ManagedGPUResource SHALL track the aliased offset
+
+`ManagedGPUResource` 结构 SHALL 包含 `aliasedOffset` 字段。
+
+### Requirement: Texture format SHALL be dynamically resolved from descriptor
+
+`AllocateAliasedResources()` SHALL 使用 `VulkanTexture::ConvertFormat()` 转换为实际的 `vk::Format`，SHALL NOT 硬编码。
+
+### Requirement: Texture size estimation SHALL account for format block size and mip chain
+
+SHALL 基于格式 block size 和 mip chain 递进尺寸计算，使用 `GetFormatBlockSize` 和 `CalculateTextureSize`。
+
+### Requirement: ImageView aspectMask SHALL be derived from format type
+
+SHALL 根据格式类型动态设置：color→eColor, depth→eDepth, depth-stencil→eDepth|eStencil。
+
+### Requirement: Image usage flags SHALL be derived from textureAccess
+
+SHALL 根据 `localResource.textureAccess` 动态设置 `imageInfo.usage`。
+
+### Requirement: Buffer usage flags SHALL be derived from bufferUsage
+
+SHALL 根据 `localResource.bufferUsage` 动态设置 `bufferInfo.usage`。
+
+### Requirement: AddBuffer SHALL integrate with aliasing system
+
+`AddBuffer()` SHALL 在 pool 已分配时绑定到 pool；未分配时仅注册。
+
+### Requirement: GetFormatBlockSize and IsCompressedFormat SHALL be implemented
+
+代码库 SHALL 提供 `GetFormatBlockSize(ETextureFormat)` 和 `IsCompressedFormat(ETextureFormat)` 辅助函数。

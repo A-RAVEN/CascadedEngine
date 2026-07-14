@@ -121,12 +121,33 @@ namespace graphics_backend
 		{
 			alloc.allocation = m_AliasedPoolAllocation;
 			alloc.mappedPtr = m_AliasedPoolMappedPtr;
+			alloc.deviceMemory = m_AliasedPoolDeviceMemory;
 			++updatedCount;
 		}
 		CA_LOG_INFO("VulkanResourceAliasing: Updated {} aliased allocations with pool handle", updatedCount);
 	}
 
-	bool VulkanResourceAliasing::AllocateAliasedPool(uint64_t totalSize)
+	void VulkanResourceAliasing::ReplanWithRealAlignment(castl::unordered_map<uint64_t, VkMemoryRequirements> const& realMemReqs)
+	{
+		for (auto& [resourceId, lifetime] : m_ResourceLifetimes)
+		{
+			auto it = realMemReqs.find(resourceId);
+			if (it != realMemReqs.end())
+			{
+				lifetime.alignment = it->second.alignment;
+				lifetime.size = it->second.size;
+			}
+		}
+
+		// Clear previous plan and re-run scheduling with corrected sizes/alignments
+		m_AliasedAllocations.clear();
+		m_TotalAliasedSize = 0;
+		AnalyzeAndPlanAliasing();
+
+		CA_LOG_INFO("VulkanResourceAliasing: Replanned with real alignment, total aliased size: {}", m_TotalAliasedSize);
+	}
+
+	bool VulkanResourceAliasing::AllocateAliasedPool(uint64_t totalSize, uint32_t memoryTypeBits)
 	{
 		if (totalSize == 0)
 			return true;
@@ -142,7 +163,7 @@ namespace graphics_backend
 		VkMemoryRequirements memReq{};
 		memReq.size = totalSize;
 		memReq.alignment = 256;
-		memReq.memoryTypeBits = 0xFFFFFFFF;
+		memReq.memoryTypeBits = memoryTypeBits;
 
 		VmaAllocationInfo allocInfoOut{};
 		m_AliasedPoolAllocation = memoryManager.AllocateMemory(memReq, allocInfo, &allocInfoOut);
@@ -154,6 +175,8 @@ namespace graphics_backend
 
 		// VMA_ALLOCATION_CREATE_MAPPED_BIT guarantees pMappedData is filled when HOST_VISIBLE
 		m_AliasedPoolMappedPtr = allocInfoOut.pMappedData;
+		m_AliasedPoolDeviceMemory = allocInfoOut.deviceMemory;
+		m_AliasedPoolMemoryType = allocInfoOut.memoryType;
 		if (!m_AliasedPoolMappedPtr)
 		{
 			CA_LOG_ERR("VulkanResourceAliasing: Aliased pool allocated but pMappedData is null (unexpected)");
@@ -177,6 +200,8 @@ namespace graphics_backend
 		// VMA_ALLOCATION_CREATE_MAPPED_BIT persistent mapping is released by FreeMemory
 		memoryManager.FreeMemory(m_AliasedPoolAllocation);
 		m_AliasedPoolAllocation = VK_NULL_HANDLE;
+		m_AliasedPoolDeviceMemory = VK_NULL_HANDLE;
+		m_AliasedPoolMemoryType = 0;
 		m_AliasedPoolMappedPtr = nullptr;
 
 		m_TotalAliasedSize = 0;
