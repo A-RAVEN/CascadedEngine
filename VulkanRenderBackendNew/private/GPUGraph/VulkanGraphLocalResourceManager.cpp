@@ -121,6 +121,9 @@ namespace graphics_backend
 			return false;
 		}
 
+		// Fixup allocations: AnalyzeAndPlanAliasing stored VK_NULL_HANDLE before pool was allocated
+		m_AliasingManager.UpdateAliasedAllocationsMap();
+
 		// Create actual resources
 		for (auto const& [id, localResource] : m_LocalResources)
 		{

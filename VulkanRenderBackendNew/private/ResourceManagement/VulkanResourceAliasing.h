@@ -51,6 +51,9 @@ namespace graphics_backend
 		// Free aliased memory pool
 		void FreeAliasedPool();
 
+		// Update aliased allocation map after pool allocation
+		void UpdateAliasedAllocationsMap();
+
 		// Get total aliased memory size
 		uint64_t GetTotalAliasedSize() const { return m_TotalAliasedSize; }
 

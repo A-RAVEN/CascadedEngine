@@ -114,6 +114,18 @@ namespace graphics_backend
 		return {};
 	}
 
+	void VulkanResourceAliasing::UpdateAliasedAllocationsMap()
+	{
+		uint32_t updatedCount = 0;
+		for (auto& [resourceId, alloc] : m_AliasedAllocations)
+		{
+			alloc.allocation = m_AliasedPoolAllocation;
+			alloc.mappedPtr = m_AliasedPoolMappedPtr;
+			++updatedCount;
+		}
+		CA_LOG_INFO("VulkanResourceAliasing: Updated {} aliased allocations with pool handle", updatedCount);
+	}
+
 	bool VulkanResourceAliasing::AllocateAliasedPool(uint64_t totalSize)
 	{
 		if (totalSize == 0)
@@ -122,7 +134,9 @@ namespace graphics_backend
 		auto& memoryManager = GetApp()->GetMemoryManager();
 
 		VmaAllocationCreateInfo allocInfo{};
-		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.usage = VMA_MEMORY_USAGE_UNKNOWN;
+		allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+		allocInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 		allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
 		VkMemoryRequirements memReq{};
@@ -130,17 +144,19 @@ namespace graphics_backend
 		memReq.alignment = 256;
 		memReq.memoryTypeBits = 0xFFFFFFFF;
 
-		m_AliasedPoolAllocation = memoryManager.AllocateMemory(memReq, allocInfo);
+		VmaAllocationInfo allocInfoOut{};
+		m_AliasedPoolAllocation = memoryManager.AllocateMemory(memReq, allocInfo, &allocInfoOut);
 		if (m_AliasedPoolAllocation == VK_NULL_HANDLE)
 		{
 			CA_LOG_ERR("VulkanResourceAliasing: Failed to allocate aliased pool of size {}", totalSize);
 			return false;
 		}
 
-		m_AliasedPoolMappedPtr = memoryManager.MapMemory(m_AliasedPoolAllocation);
+		// VMA_ALLOCATION_CREATE_MAPPED_BIT guarantees pMappedData is filled when HOST_VISIBLE
+		m_AliasedPoolMappedPtr = allocInfoOut.pMappedData;
 		if (!m_AliasedPoolMappedPtr)
 		{
-			CA_LOG_ERR("VulkanResourceAliasing: Failed to map aliased pool");
+			CA_LOG_ERR("VulkanResourceAliasing: Aliased pool allocated but pMappedData is null (unexpected)");
 			memoryManager.FreeMemory(m_AliasedPoolAllocation);
 			m_AliasedPoolAllocation = VK_NULL_HANDLE;
 			return false;
@@ -158,14 +174,10 @@ namespace graphics_backend
 
 		auto& memoryManager = GetApp()->GetMemoryManager();
 
-		if (m_AliasedPoolMappedPtr)
-		{
-			memoryManager.UnmapMemory(m_AliasedPoolAllocation);
-			m_AliasedPoolMappedPtr = nullptr;
-		}
-
+		// VMA_ALLOCATION_CREATE_MAPPED_BIT persistent mapping is released by FreeMemory
 		memoryManager.FreeMemory(m_AliasedPoolAllocation);
 		m_AliasedPoolAllocation = VK_NULL_HANDLE;
+		m_AliasedPoolMappedPtr = nullptr;
 
 		m_TotalAliasedSize = 0;
 		CA_LOG_INFO("VulkanResourceAliasing: Freed aliased pool");
