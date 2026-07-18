@@ -28,7 +28,11 @@ namespace graphics_backend
 		transferPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 		m_TransferPool = device.createCommandPool(transferPoolInfo);
 
-		CA_LOG_INFO("VulkanCommandListManager initialized successfully");
+		CA_LOG_INFO("VulkanCommandListManager initialized successfully: "
+			"GraphicsPool={} (qf={}), ComputePool={} (qf={}), TransferPool={} (qf={})",
+			reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(m_GraphicsPool)), queueContext.GetGraphicsQueueFamily(),
+			reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(m_ComputePool)), queueContext.GetComputeQueueFamily(),
+			reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(m_TransferPool)), queueContext.GetTransferQueueFamily());
 	}
 
 	void VulkanCommandListManager::Release()
@@ -59,7 +63,11 @@ namespace graphics_backend
 	{
 		if (!m_GraphicsCommand)
 		{
+			fprintf(stderr, "[DIAG] GraphicsCommand: allocating from GraphicsPool\n");
+			fflush(stderr);
 			m_GraphicsCommand = AllocateCommandBuffer(m_GraphicsPool);
+			fprintf(stderr, "[DIAG] GraphicsCommand: allocation done\n");
+			fflush(stderr);
 		}
 		return m_GraphicsCommand;
 	}
@@ -68,7 +76,11 @@ namespace graphics_backend
 	{
 		if (!m_ComputeCommand)
 		{
+			fprintf(stderr, "[DIAG] ComputeCommand: allocating from ComputePool\n");
+			fflush(stderr);
 			m_ComputeCommand = AllocateCommandBuffer(m_ComputePool);
+			fprintf(stderr, "[DIAG] ComputeCommand: allocation done\n");
+			fflush(stderr);
 		}
 		return m_ComputeCommand;
 	}
@@ -77,7 +89,11 @@ namespace graphics_backend
 	{
 		if (!m_TransferCommand)
 		{
+			fprintf(stderr, "[DIAG] TransferCommand: allocating from TransferPool\n");
+			fflush(stderr);
 			m_TransferCommand = AllocateCommandBuffer(m_TransferPool);
+			fprintf(stderr, "[DIAG] TransferCommand: allocation done\n");
+			fflush(stderr);
 		}
 		return m_TransferCommand;
 	}
@@ -121,9 +137,55 @@ namespace graphics_backend
 		allocInfo.level = vk::CommandBufferLevel::ePrimary;
 		allocInfo.commandBufferCount = 1;
 
-		auto cmdBufs = GetDevice().allocateCommandBuffers(allocInfo);
-		VK_RESULT_CHECK(cmdBufs.size() > 0 ? VK_SUCCESS : VK_ERROR_OUT_OF_DEVICE_MEMORY);
-		return cmdBufs[0];
+		fprintf(stderr, "[DIAG] AllocateCommandBuffer ENTER pool=%zu\n",
+			(size_t)reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(pool)));
+		fflush(stderr);
+
+		try
+		{
+			auto cmdBufs = GetDevice().allocateCommandBuffers(allocInfo);
+			fprintf(stderr, "[DIAG] allocateCommandBuffers returned %zu buffers\n", cmdBufs.size());
+			fflush(stderr);
+			if (cmdBufs.empty())
+			{
+				CA_LOG_ERR("VulkanCommandListManager: allocateCommandBuffers returned empty vector, pool={}",
+					reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(pool)));
+				CA_LOG_ERR("  GraphicsPool={}, ComputePool={}, TransferPool={}",
+					reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(m_GraphicsPool)),
+					reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(m_ComputePool)),
+					reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(m_TransferPool)));
+				fflush(stdout);
+			}
+				fflush(stderr);
+			fprintf(stderr, "[DIAG] VK_RESULT_CHECK: empty=%d, size=%zu, cond=%d\n",
+				cmdBufs.empty() ? 1 : 0, cmdBufs.size(),
+				(!cmdBufs.empty() ? VK_SUCCESS : VK_ERROR_OUT_OF_DEVICE_MEMORY) == VK_SUCCESS ? 1 : 0);
+			fflush(stderr);
+			if (!cmdBufs.empty())
+			{
+				fprintf(stderr, "[DIAG] VK_RESULT_CHECK passed, returning buffer\n");
+				fflush(stderr);
+				return cmdBufs[0];
+			}
+			CA_LOG_ERR("VulkanCommandListManager: allocateCommandBuffers returned empty vector");
+			fflush(stdout);
+			__debugbreak();
+		}
+		catch (vk::SystemError const& e)
+		{
+			fprintf(stderr, "[DIAG] allocateCommandBuffers THREW: %s\n", e.what());
+			fflush(stderr);
+			CA_LOG_ERR("VulkanCommandListManager: allocateCommandBuffers threw exception: {} (pool={})",
+				e.what(), reinterpret_cast<uintptr_t>(static_cast<VkCommandPool>(pool)));
+			fflush(stdout);
+			throw;
+		}
+		catch (...)
+		{
+			fprintf(stderr, "[DIAG] allocateCommandBuffers THREW unknown exception\n");
+			fflush(stderr);
+			throw;
+		}
 	}
 
 	void VulkanCommandListManager::FreeCommandBuffer(vk::CommandPool pool, vk::CommandBuffer cmdBuf)

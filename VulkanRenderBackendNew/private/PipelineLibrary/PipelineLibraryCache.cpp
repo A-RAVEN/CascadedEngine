@@ -34,24 +34,56 @@ namespace graphics_backend
 		{
 			hash = cacore::hash_combine(hash, attr.location);
 			hash = cacore::hash_combine(hash, attr.binding);
-			hash = cacore::hash_combine(hash, attr.format);
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(attr.format));
 			hash = cacore::hash_combine(hash, attr.offset);
 		}
 
 		// Hash topology
 		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.topology));
 
-		// Hash blend attachments
+		// Hash blend attachments (all 8 fields)
 		for (auto const& blend : state.blendAttachments)
 		{
-			hash = cacore::hash_combine(hash, blend.colorWriteMask);
 			hash = cacore::hash_combine(hash, blend.blendEnable ? 1u : 0u);
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(blend.srcColorBlendFactor));
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(blend.dstColorBlendFactor));
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(blend.srcAlphaBlendFactor));
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(blend.dstAlphaBlendFactor));
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(blend.colorBlendOp));
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(blend.alphaBlendOp));
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(blend.colorWriteMask));
 		}
 
 		// Hash formats
 		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.depthFormat));
-		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.colorFormat));
+		for (auto const& fmt : state.colorFormats)
+			hash = cacore::hash_combine(hash, static_cast<uint32_t>(fmt));
 		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.sampleCount));
+
+		// Hash depth/stencil state
+		hash = cacore::hash_combine(hash, state.depthTestEnable ? 1u : 0u);
+		hash = cacore::hash_combine(hash, state.depthWriteEnable ? 1u : 0u);
+		hash = cacore::hash_combine(hash, state.stencilTestEnable ? 1u : 0u);
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.depthCompareOp));
+		// Hash stencil front (7 fields)
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilFront.failOp));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilFront.passOp));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilFront.depthFailOp));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilFront.compareOp));
+		hash = cacore::hash_combine(hash, state.stencilFront.compareMask);
+		hash = cacore::hash_combine(hash, state.stencilFront.writeMask);
+		hash = cacore::hash_combine(hash, state.stencilFront.reference);
+		// Hash stencil back (7 fields)
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilBack.failOp));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilBack.passOp));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilBack.depthFailOp));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.stencilBack.compareOp));
+		hash = cacore::hash_combine(hash, state.stencilBack.compareMask);
+		hash = cacore::hash_combine(hash, state.stencilBack.writeMask);
+		hash = cacore::hash_combine(hash, state.stencilBack.reference);
+
+		// Hash primitiveRestartEnable
+		hash = cacore::hash_combine(hash, state.primitiveRestartEnable ? 1u : 0u);
 
 		// Hash shader hashes
 		for (uint32_t i = 0; i < 8; ++i)

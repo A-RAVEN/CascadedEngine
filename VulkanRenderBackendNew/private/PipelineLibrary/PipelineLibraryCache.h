@@ -17,8 +17,19 @@ namespace graphics_backend
 		// Fragment output state
 		castl::vector<vk::PipelineColorBlendAttachmentState> blendAttachments;
 		vk::Format depthFormat;
-		vk::Format colorFormat;
+		castl::vector<vk::Format> colorFormats;
 		vk::SampleCountFlagBits sampleCount;
+
+		// Depth/stencil state
+		bool depthTestEnable = false;
+		bool depthWriteEnable = false;
+		bool stencilTestEnable = false;
+		vk::CompareOp depthCompareOp = vk::CompareOp::eAlways;
+		vk::StencilOpState stencilFront{};
+		vk::StencilOpState stencilBack{};
+
+		// Input assembly
+		bool primitiveRestartEnable = false;
 
 		// Shader hashes
 		VKHashVal vertexShaderHash;

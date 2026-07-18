@@ -41,7 +41,7 @@ namespace graphics_backend
 			pipelineCreateInfo.pNext = &libraryInfo;
 			pipelineCreateInfo.setPInputAssemblyState(&inputAssemblyInfo);
 			pipelineCreateInfo.setPVertexInputState(&vertexInputInfo);
-			m_VertexInputState = GetDevice().createGraphicsPipeline(nullptr, pipelineCreateInfo).value;
+			m_VertexInputState = GetDevice().createGraphicsPipeline(GetApp()->GetPipelineCache(), pipelineCreateInfo).value;
 		}
 	}
 }

@@ -73,4 +73,77 @@ namespace graphics_backend
 		}
 		return result;
 	}
+
+	constexpr vk::Format EVertexInputFormatToVkFormat(VertexInputFormat inFormat)
+	{
+		switch (inFormat)
+		{
+		case VertexInputFormat::eR32_SFloat: return vk::Format::eR32Sfloat;
+		case VertexInputFormat::eR32G32_SFloat: return vk::Format::eR32G32Sfloat;
+		case VertexInputFormat::eR32G32B32_SFloat: return vk::Format::eR32G32B32Sfloat;
+		case VertexInputFormat::eR32G32B32A32_SFloat: return vk::Format::eR32G32B32A32Sfloat;
+		case VertexInputFormat::eR8G8B8A8_UNorm: return vk::Format::eR8G8B8A8Unorm;
+		case VertexInputFormat::eR32_UInt: return vk::Format::eR32Uint;
+		case VertexInputFormat::eR32_SInt: return vk::Format::eR32Sint;
+		default: return vk::Format::eR32Sfloat;
+		}
+	}
+
+	constexpr vk::StencilOp EStencilOpToVkStencilOp(EStencilOp inStencilOp)
+	{
+		switch (inStencilOp)
+		{
+		case EStencilOp::eKeep: return vk::StencilOp::eKeep;
+		case EStencilOp::eReplace: return vk::StencilOp::eReplace;
+		case EStencilOp::eZero: return vk::StencilOp::eZero;
+		default: return vk::StencilOp::eKeep;
+		}
+	}
+
+	constexpr vk::CompareOp ECompareOpToVkCompareOp(ECompareOp inCompareOp)
+	{
+		switch (inCompareOp)
+		{
+		case ECompareOp::eAlways: return vk::CompareOp::eAlways;
+		case ECompareOp::eNever: return vk::CompareOp::eNever;
+		case ECompareOp::eLEqual: return vk::CompareOp::eLessOrEqual;
+		case ECompareOp::eGEqual: return vk::CompareOp::eGreaterOrEqual;
+		case ECompareOp::eLess: return vk::CompareOp::eLess;
+		case ECompareOp::eGreater: return vk::CompareOp::eGreater;
+		case ECompareOp::eEqual: return vk::CompareOp::eEqual;
+		case ECompareOp::eUnequal: return vk::CompareOp::eNotEqual;
+		default: return vk::CompareOp::eAlways;
+		}
+	}
+
+	constexpr vk::BlendFactor EBlendFactorToVkBlendFactor(EBlendFactor inBlendFactor)
+	{
+		switch (inBlendFactor)
+		{
+		case EBlendFactor::eZero: return vk::BlendFactor::eZero;
+		case EBlendFactor::eOne: return vk::BlendFactor::eOne;
+		case EBlendFactor::eSrcAlpha: return vk::BlendFactor::eSrcAlpha;
+		case EBlendFactor::eOneMinusSrcAlpha: return vk::BlendFactor::eOneMinusSrcAlpha;
+		case EBlendFactor::eDstAlpha: return vk::BlendFactor::eDstAlpha;
+		case EBlendFactor::eOneMinusDstAlpha: return vk::BlendFactor::eOneMinusDstAlpha;
+		case EBlendFactor::eSrcColor: return vk::BlendFactor::eSrcColor;
+		case EBlendFactor::eOneMinusSrcColor: return vk::BlendFactor::eOneMinusSrcColor;
+		case EBlendFactor::eDstColor: return vk::BlendFactor::eDstColor;
+		case EBlendFactor::eOneMinusDstColor: return vk::BlendFactor::eOneMinusDstColor;
+		default: return vk::BlendFactor::eZero;
+		}
+	}
+
+	constexpr vk::BlendOp EBlendOpToVkBlendOp(EBlendOp inBlendOp)
+	{
+		switch (inBlendOp)
+		{
+		case EBlendOp::eAdd: return vk::BlendOp::eAdd;
+		case EBlendOp::eSubtract: return vk::BlendOp::eSubtract;
+		case EBlendOp::eReverseSubtract: return vk::BlendOp::eReverseSubtract;
+		case EBlendOp::eMin: return vk::BlendOp::eMin;
+		case EBlendOp::eMax: return vk::BlendOp::eMax;
+		default: return vk::BlendOp::eAdd;
+		}
+	}
 }

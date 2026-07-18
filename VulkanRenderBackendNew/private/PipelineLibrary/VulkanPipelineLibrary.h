@@ -42,7 +42,8 @@ namespace graphics_backend
 		// Create vertex input interface library
 		vk::Pipeline CreateVertexInputLibrary(
 			vk::PipelineVertexInputStateCreateInfo const& vertexInputState,
-			vk::PipelineInputAssemblyStateCreateInfo const& inputAssemblyState);
+			vk::PipelineInputAssemblyStateCreateInfo const& inputAssemblyState,
+			vk::PipelineCache cache = nullptr);
 
 		// Create pre-rasterization shaders library
 		vk::Pipeline CreatePreRasterizationLibrary(
@@ -51,28 +52,34 @@ namespace graphics_backend
 			vk::PipelineShaderStageCreateInfo const* tessEvalShader,
 			vk::PipelineShaderStageCreateInfo const* geometryShader,
 			vk::PipelineViewportStateCreateInfo const& viewportState,
-			vk::PipelineRasterizationStateCreateInfo const& rasterizationState);
+			vk::PipelineRasterizationStateCreateInfo const& rasterizationState,
+			vk::PipelineDynamicStateCreateInfo const* pDynamicState = nullptr,
+			vk::PipelineCache cache = nullptr);
 
 		// Create fragment shader library
 		vk::Pipeline CreateFragmentLibrary(
-			vk::PipelineShaderStageCreateInfo const& fragmentShader);
+			vk::PipelineShaderStageCreateInfo const& fragmentShader,
+			vk::PipelineCache cache = nullptr);
 
 		// Create fragment output interface library
 		vk::Pipeline CreateFragmentOutputLibrary(
 			vk::PipelineMultisampleStateCreateInfo const& multisampleState,
 			vk::PipelineDepthStencilStateCreateInfo const* depthStencilState,
-			vk::PipelineColorBlendStateCreateInfo const& colorBlendState);
+			vk::PipelineColorBlendStateCreateInfo const& colorBlendState,
+			vk::PipelineCache cache = nullptr);
 
 		// Link full pipeline from libraries
 		vk::Pipeline LinkPipeline(
 			PipelineLibraryParts const& libraries,
 			vk::PipelineLayout layout,
 			vk::RenderPass renderPass,
-			uint32_t subpass);
+			uint32_t subpass,
+			vk::PipelineCache cache = nullptr);
 
 		// Create monolithic pipeline (fallback when library not supported)
 		vk::Pipeline CreateMonolithicPipeline(
-			vk::GraphicsPipelineCreateInfo const& createInfo);
+			vk::GraphicsPipelineCreateInfo const& createInfo,
+			vk::PipelineCache cache = nullptr);
 
 		// Get cached library parts
 		PipelineLibraryParts const* GetCachedLibrary(PipelineLibraryKey const& key) const;

@@ -364,6 +364,7 @@ namespace graphics_backend
 	void VulkanGraphExecutor::CompileAndExecute(castl::shared_ptr<GPUGraph> const& graph,
 		VulkanGPUFrameManager::PFrameContext&& frameContext)
 	{
+		CA_LOG_INFO("VulkanGraphExecutor: CompileAndExecute entry");
 		if (!graph)
 		{
 			CA_LOG_ERR("VulkanGraphExecutor: Null graph");
@@ -460,6 +461,8 @@ namespace graphics_backend
 		// Swapchain acquire — moved here to avoid acquiring images on frames that will abort
 		if (!graph->GetFinalizePass().isEmpty())
 		{
+			fprintf(stderr, "[DIAG] CompileAndExecute: acquiring swapchain images (count=%zu)\n",
+				graph->GetFinalizePass().m_PresentBackBuffers.size()); fflush(stderr);
 			uint32_t windowIdx = 0;
 			for (auto& backBufferImage : graph->GetFinalizePass().m_PresentBackBuffers)
 			{
@@ -472,9 +475,11 @@ namespace graphics_backend
 					m_CurrentFrameContext->EnsureWindowSync(windowIdx);
 					auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
 					pWindow->AcquireNextImage(sync.acquireSemaphore);
+					fprintf(stderr, "[DIAG] CompileAndExecute: AcquireNextImage[%u] done\n", windowIdx); fflush(stderr);
 				}
 				++windowIdx;
 			}
+			fprintf(stderr, "[DIAG] CompileAndExecute: swapchain acquire done\n"); fflush(stderr);
 		}
 
 		// Phase 5: Build resources (resolve CBuffer resource IDs etc.)
@@ -506,6 +511,7 @@ namespace graphics_backend
 
 		// Phase 7: Execute
 		auto executeStart = std::chrono::high_resolution_clock::now();
+		CA_LOG_INFO("VulkanGraphExecutor: Execute entry, batches={}", m_ExecutionBatches.size());
 		Execute(*graph);
 		m_ExecuteTime = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::high_resolution_clock::now() - executeStart).count();
@@ -1198,6 +1204,7 @@ namespace graphics_backend
 					acquireBarrier.srcQueueFamilyIndex = srcFamily;
 					acquireBarrier.dstQueueFamilyIndex = dstFamily;
 					acquireBarrier.buffer = m_LocalResourceManager.GetBuffer(buffer);
+					if (!acquireBarrier.buffer) continue;
 					acquireBarrier.offset = 0;
 					acquireBarrier.size = VK_WHOLE_SIZE;
 					acquireContainer.AddBufferBarrier(buffer, acquireBarrier);
@@ -1222,6 +1229,7 @@ namespace graphics_backend
 						releaseBarrier.srcQueueFamilyIndex = srcFamily;
 						releaseBarrier.dstQueueFamilyIndex = dstFamily;
 						releaseBarrier.buffer = m_LocalResourceManager.GetBuffer(buffer);
+						if (!releaseBarrier.buffer) continue;
 						releaseBarrier.offset = 0;
 						releaseBarrier.size = VK_WHOLE_SIZE;
 						releaseContainer.AddBufferBarrier(buffer, releaseBarrier);
@@ -1240,6 +1248,7 @@ namespace graphics_backend
 						acquireBarrier.srcQueueFamilyIndex = srcFamily;
 						acquireBarrier.dstQueueFamilyIndex = dstFamily;
 						acquireBarrier.buffer = m_LocalResourceManager.GetBuffer(buffer);
+						if (!acquireBarrier.buffer) continue;
 						acquireBarrier.offset = 0;
 						acquireBarrier.size = VK_WHOLE_SIZE;
 						acquireContainer.AddBufferBarrier(buffer, acquireBarrier);
@@ -1261,6 +1270,7 @@ namespace graphics_backend
 				barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				barrier.buffer = m_LocalResourceManager.GetBuffer(buffer);
+				if (!barrier.buffer) continue;
 				barrier.offset = 0;
 				barrier.size = VK_WHOLE_SIZE;
 
@@ -1299,11 +1309,26 @@ namespace graphics_backend
 		}
 	}
 
-		void VulkanGraphExecutor::BuildPipelineStates(GPUGraph const& graph)
+	void VulkanGraphExecutor::BuildPipelineStates(GPUGraph const& graph)
 	{
 		auto pApp = GetApp();
 		auto& pipelineLibrary = pApp->GetPipelineLibrary();
 		auto& pipelineLibraryCache = pApp->GetPipelineLibraryCache();
+		auto pipelineCache = pApp->GetPipelineCache();
+
+		// Helper to map StencilStates to VkStencilOpState
+		auto FillVkStencilOpState = [](DepthStencilStates::StencilStates const& src) -> vk::StencilOpState
+		{
+			vk::StencilOpState result{};
+			result.failOp = EStencilOpToVkStencilOp(src.failOp);
+			result.passOp = EStencilOpToVkStencilOp(src.passOp);
+			result.depthFailOp = EStencilOpToVkStencilOp(src.depthFailOp);
+			result.compareOp = ECompareOpToVkCompareOp(src.compareOp);
+			result.compareMask = src.compareMask;
+			result.writeMask = src.writeMask;
+			result.reference = src.reference;
+			return result;
+		};
 
 		for (size_t passID = 0; passID < graph.GetRenderPasses().size(); ++passID)
 		{
@@ -1362,17 +1387,92 @@ namespace graphics_backend
 				fragmentShaderStage.module = fragmentShaderModule;
 				fragmentShaderStage.pName = fragmentEntryPointName.c_str();
 
-				// Build pipeline state structs from DrawCallBatch data (shared between GPL and non-GPL paths)
 				auto const& inputAssemblyData = batch.pipelineStateDesc.m_InputAssemblyStates.Get();
 				auto const& pipelineStateData = batch.pipelineStateDesc.m_PipelineStates.Get();
 
+				// ===== Vertex Input State (deterministic single-pass algorithm) =====
 				vk::PipelineVertexInputStateCreateInfo vertexInputState{};
+				castl::vector<vk::VertexInputBindingDescription> vertexBindings;
+				castl::vector<vk::VertexInputAttributeDescription> vertexAttributes;
+				{
+					castl::vector<cacore::NameHash> seenSlotKeys;
+
+					if (!pFileInfo->reflectionData.m_VertexAttributes.empty())
+					{
+						if (batch.m_VertexInputDescs.empty())
+						{
+							CA_LOG_WARN("VulkanGraphExecutor: Shader has {} vertex attributes but batch has no vertex input descriptors",
+								pFileInfo->reflectionData.m_VertexAttributes.size());
+						}
+
+						for (auto const& reflAttr : pFileInfo->reflectionData.m_VertexAttributes)
+						{
+							cacore::NameHash semanticNameHash(reflAttr.m_SematicName);
+							auto slotIt = batch.m_VertexInputDescs.find(semanticNameHash);
+							if (slotIt == batch.m_VertexInputDescs.end())
+								continue;
+
+							auto const& slotDesc = slotIt->second.Get();
+
+							// Find or create deterministic binding index
+							int bindingIdx = -1;
+							for (size_t k = 0; k < seenSlotKeys.size(); ++k)
+							{
+								if (seenSlotKeys[k] == semanticNameHash)
+								{
+									bindingIdx = static_cast<int>(k);
+									break;
+								}
+							}
+							if (bindingIdx < 0)
+							{
+								bindingIdx = static_cast<int>(seenSlotKeys.size());
+								seenSlotKeys.push_back(semanticNameHash);
+
+								vk::VertexInputBindingDescription binding{};
+								binding.binding = static_cast<uint32_t>(bindingIdx);
+								binding.stride = slotDesc.stride;
+								binding.inputRate = slotDesc.perInstance
+									? vk::VertexInputRate::eInstance
+									: vk::VertexInputRate::eVertex;
+								vertexBindings.push_back(binding);
+							}
+
+							// Match attribute by semanticIndex
+							for (auto const& attr : slotDesc.attributes)
+							{
+								if (attr.sematicIndex == reflAttr.m_SematicIndex)
+								{
+									vk::VertexInputAttributeDescription vkAttr{};
+									vkAttr.location = reflAttr.m_Location;
+									vkAttr.binding = static_cast<uint32_t>(bindingIdx);
+									vkAttr.format = EVertexInputFormatToVkFormat(attr.format);
+									vkAttr.offset = attr.offset;
+									vertexAttributes.push_back(vkAttr);
+									break;
+								}
+							}
+						}
+					}
+
+					vertexInputState.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexBindings.size());
+					vertexInputState.pVertexBindingDescriptions = vertexBindings.data();
+					vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexAttributes.size());
+					vertexInputState.pVertexAttributeDescriptions = vertexAttributes.data();
+				}
+
 				vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{};
 				inputAssemblyState.topology = ETopologyToVkTopology(inputAssemblyData.topology);
 
 				vk::PipelineViewportStateCreateInfo viewportState{};
 				viewportState.viewportCount = 1;
 				viewportState.scissorCount = 1;
+
+				// ===== Dynamic State (VK_DYNAMIC_STATE_VIEWPORT + VK_DYNAMIC_STATE_SCISSOR) =====
+				vk::DynamicState dynamicStates[] = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+				vk::PipelineDynamicStateCreateInfo dynamicState{};
+				dynamicState.dynamicStateCount = 2;
+				dynamicState.pDynamicStates = dynamicStates;
 
 				vk::PipelineRasterizationStateCreateInfo rasterizationState{};
 				rasterizationState.polygonMode = EPolygonModeToVkPolygonMode(pipelineStateData.rasterizationStates.polygonMode);
@@ -1383,41 +1483,25 @@ namespace graphics_backend
 				vk::PipelineMultisampleStateCreateInfo multisampleState{};
 				multisampleState.rasterizationSamples = VulkanTexture::ConvertSampleCount(pipelineStateData.msCount);
 
-				vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-				colorBlendAttachment.colorWriteMask = EColorChannelMaskToVkColorComponentFlags(
-					pipelineStateData.colorAttachments.attachmentBlendStates[0].channelMask);
-
-				vk::PipelineColorBlendStateCreateInfo colorBlendState{};
-				colorBlendState.attachmentCount = rasterPass.GetColorAttachmentCount();
-				colorBlendState.pAttachments = &colorBlendAttachment;
-
-				if (pipelineLibrary.IsSupported())
+				// ===== Depth-Stencil State (shared between GPL and Monolithic) =====
+				vk::PipelineDepthStencilStateCreateInfo depthStencilState{};
 				{
-					auto vertexInputLib = pipelineLibrary.CreateVertexInputLibrary(vertexInputState, inputAssemblyState);
-					auto preRasterLib = pipelineLibrary.CreatePreRasterizationLibrary(
-						vertexShaderStage, nullptr, nullptr, nullptr, viewportState, rasterizationState);
-					auto fragmentLib = pipelineLibrary.CreateFragmentLibrary(fragmentShaderStage);
-					auto fragmentOutputLib = pipelineLibrary.CreateFragmentOutputLibrary(
-						multisampleState, nullptr, colorBlendState);
-
-					PipelineLibraryParts parts{};
-					parts.vertexInputLibrary = vertexInputLib;
-					parts.preRasterizationLibrary = preRasterLib;
-					parts.fragmentLibrary = fragmentLib;
-					parts.fragmentOutputLibrary = fragmentOutputLib;
-					parts.isComplete = true;
-
-					vk::RenderPass dummyRenderPass = VK_NULL_HANDLE;
-					batchData.pipeline = pipelineLibrary.LinkPipeline(parts, pipelineLayout, dummyRenderPass, 0);
+					auto const& ds = pipelineStateData.depthStencilStates;
+					depthStencilState.depthTestEnable = ds.depthTestEnable ? VK_TRUE : VK_FALSE;
+					depthStencilState.depthWriteEnable = ds.depthWriteEnable ? VK_TRUE : VK_FALSE;
+					depthStencilState.depthCompareOp = ECompareOpToVkCompareOp(ds.depthCompareOp);
+					depthStencilState.stencilTestEnable = ds.stencilTestEnable ? VK_TRUE : VK_FALSE;
+					depthStencilState.front = FillVkStencilOpState(ds.stencilStateFront);
+					depthStencilState.back = FillVkStencilOpState(ds.stencilStateBack);
 				}
-				else
+
+				// ===== RenderPass (shared between GPL and Monolithic) =====
+				RenderBackend_Vulkan::RenderPassCacheKey rpKey;
 				{
-					// Build render pass for non-GPL monolithic pipeline
-					RenderBackend_Vulkan::RenderPassCacheKey rpKey;
-					auto const& attachments = rasterPass.GetAttachments();
-					for (size_t i = 0; i < attachments.size(); ++i)
+					auto const& rpAttachments = rasterPass.GetAttachments();
+					for (size_t i = 0; i < rpAttachments.size(); ++i)
 					{
-						auto desc = GetDescriptor(graph, attachments[i]);
+						auto desc = GetDescriptor(graph, rpAttachments[i]);
 						if (static_cast<int>(i) == rasterPass.GetDepthAttachmentIndex())
 						{
 							rpKey.depthFormat = VulkanTexture::ConvertFormat(desc.format);
@@ -1428,28 +1512,110 @@ namespace graphics_backend
 							rpKey.colorFormats.push_back(VulkanTexture::ConvertFormat(desc.format));
 						}
 					}
+				}
+				vk::RenderPass renderPass = GetApp()->GetOrCreateRenderPass(rpKey);
 
-					vk::RenderPass renderPass = GetApp()->GetOrCreateRenderPass(rpKey);
+				// ===== MRT Blend State =====
+				uint32_t attachmentCount = rasterPass.GetColorAttachmentCount();
+				castl::vector<vk::PipelineColorBlendAttachmentState> blendAttachments;
+				blendAttachments.resize(attachmentCount);
+				for (uint32_t i = 0; i < attachmentCount; ++i)
+				{
+					auto const& src = pipelineStateData.colorAttachments.attachmentBlendStates[i];
+					auto& dst = blendAttachments[i];
+					dst.blendEnable = src.blendEnable ? VK_TRUE : VK_FALSE;
+					dst.srcColorBlendFactor = EBlendFactorToVkBlendFactor(src.sourceColorBlendFactor);
+					dst.dstColorBlendFactor = EBlendFactorToVkBlendFactor(src.destColorBlendFactor);
+					dst.srcAlphaBlendFactor = EBlendFactorToVkBlendFactor(src.sourceAlphaBlendFactor);
+					dst.dstAlphaBlendFactor = EBlendFactorToVkBlendFactor(src.destAlphaBlendFactor);
+					dst.colorBlendOp = EBlendOpToVkBlendOp(src.colorBlendOp);
+					dst.alphaBlendOp = EBlendOpToVkBlendOp(src.alphaBlendOp);
+					dst.colorWriteMask = EColorChannelMaskToVkColorComponentFlags(src.channelMask);
+				}
 
-					vk::PipelineShaderStageCreateInfo stages[] = { vertexShaderStage, fragmentShaderStage };
+				vk::PipelineColorBlendStateCreateInfo colorBlendState{};
+				colorBlendState.logicOpEnable = VK_FALSE;
+				colorBlendState.logicOp = vk::LogicOp::eClear;
+				colorBlendState.attachmentCount = attachmentCount;
+				colorBlendState.pAttachments = blendAttachments.data();
 
-					vk::GraphicsPipelineCreateInfo createInfo{};
-					createInfo.stageCount = 2;
-					createInfo.pStages = stages;
-					createInfo.pVertexInputState = &vertexInputState;
-					createInfo.pInputAssemblyState = &inputAssemblyState;
-					createInfo.pViewportState = &viewportState;
-					createInfo.pRasterizationState = &rasterizationState;
-					createInfo.pMultisampleState = &multisampleState;
-					createInfo.pColorBlendState = &colorBlendState;
-					createInfo.layout = pipelineLayout;
-					createInfo.renderPass = renderPass;
+				// Fill RenderStateCombination for cache lookup
+				RenderStateCombination stateCombo;
+				stateCombo.vertexBindings = vertexBindings;
+				stateCombo.vertexAttributes = vertexAttributes;
+				stateCombo.topology = inputAssemblyState.topology;
+				stateCombo.blendAttachments = blendAttachments;
+				stateCombo.depthFormat = rpKey.depthFormat;
+				stateCombo.colorFormats = rpKey.colorFormats;
+				stateCombo.sampleCount = multisampleState.rasterizationSamples;
+				stateCombo.depthTestEnable = pipelineStateData.depthStencilStates.depthTestEnable;
+				stateCombo.depthWriteEnable = pipelineStateData.depthStencilStates.depthWriteEnable;
+				stateCombo.stencilTestEnable = pipelineStateData.depthStencilStates.stencilTestEnable;
+				stateCombo.depthCompareOp = depthStencilState.depthCompareOp;
+				stateCombo.stencilFront = depthStencilState.front;
+				stateCombo.stencilBack = depthStencilState.back;
+				stateCombo.primitiveRestartEnable = inputAssemblyData.topology == ETopology::eTriangleStrip ||
+					inputAssemblyData.topology == ETopology::eLineStrip;
+				stateCombo.vertexShaderHash = vertexProgramHash;
+				if (hasFragment)
+					stateCombo.fragmentShaderHash = fragmentProgramHash;
 
-					batchData.pipeline = pipelineLibrary.CreateMonolithicPipeline(createInfo);
+				size_t cacheKey = pipelineLibraryCache.GenerateHashKey(stateCombo);
+				batchData.pipeline = pipelineLibraryCache.TryGetCachedPipeline(cacheKey);
+
+				if (!batchData.pipeline)
+				{
+					if (pipelineLibrary.IsSupported())
+					{
+						// ===== GPL Path =====
+						auto vertexInputLib = pipelineLibrary.CreateVertexInputLibrary(
+							vertexInputState, inputAssemblyState, pipelineCache);
+						auto preRasterLib = pipelineLibrary.CreatePreRasterizationLibrary(
+							vertexShaderStage, nullptr, nullptr, nullptr,
+							viewportState, rasterizationState, &dynamicState, pipelineCache);
+						auto fragmentLib = pipelineLibrary.CreateFragmentLibrary(
+							fragmentShaderStage, pipelineCache);
+						auto fragmentOutputLib = pipelineLibrary.CreateFragmentOutputLibrary(
+							multisampleState, &depthStencilState, colorBlendState, pipelineCache);
+
+						PipelineLibraryParts parts{};
+						parts.vertexInputLibrary = vertexInputLib;
+						parts.preRasterizationLibrary = preRasterLib;
+						parts.fragmentLibrary = fragmentLib;
+						parts.fragmentOutputLibrary = fragmentOutputLib;
+						parts.isComplete = true;
+
+						batchData.pipeline = pipelineLibrary.LinkPipeline(
+							parts, pipelineLayout, renderPass, 0, pipelineCache);
+					}
+					else
+					{
+						// ===== Monolithic Path =====
+						vk::PipelineShaderStageCreateInfo stages[] = { vertexShaderStage, fragmentShaderStage };
+
+						vk::GraphicsPipelineCreateInfo createInfo{};
+						createInfo.stageCount = 2;
+						createInfo.pStages = stages;
+						createInfo.pVertexInputState = &vertexInputState;
+						createInfo.pInputAssemblyState = &inputAssemblyState;
+						createInfo.pViewportState = &viewportState;
+						createInfo.pDynamicState = &dynamicState;
+						createInfo.pRasterizationState = &rasterizationState;
+						createInfo.pMultisampleState = &multisampleState;
+						createInfo.pDepthStencilState = &depthStencilState;
+						createInfo.pColorBlendState = &colorBlendState;
+						createInfo.layout = pipelineLayout;
+						createInfo.renderPass = renderPass;
+
+						batchData.pipeline = pipelineLibrary.CreateMonolithicPipeline(
+							createInfo, pipelineCache);
+					}
+
+					if (batchData.pipeline)
+						pipelineLibraryCache.CachePipeline(cacheKey, batchData.pipeline);
 				}
 
 				batchData.pipelineLayout = pipelineLayout;
-				batchData.topology = vk::PrimitiveTopology::eTriangleList;
 			}
 		}
 
@@ -1501,7 +1667,7 @@ namespace graphics_backend
 				auto device = GetDevice();
 				try
 				{
-					auto result = device.createComputePipeline(nullptr, createInfo);
+					auto result = device.createComputePipeline(pipelineCache, createInfo);
 					if (result.result == vk::Result::eSuccess)
 						dispatchData.pipeline = result.value;
 				}
@@ -1528,6 +1694,7 @@ namespace graphics_backend
 	// Task 3.5: Staging buffer allocation via LinearMemoryManager
 	void VulkanGraphExecutor::RecordBatchCommands(VulkanGPUExecutionBatch& batch, GPUGraph const& graph)
 	{
+		CA_LOG_INFO("VulkanGraphExecutor: RecordBatchCommands entry");
 		auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
 		auto& cmdListManager = resourceManager.GetCommandListManager();
 		auto device = GetDevice();
@@ -1599,24 +1766,35 @@ namespace graphics_backend
 		}
 
 		// === Direct command buffer ===
+		fprintf(stderr, "[DIAG] RecordBatchCommands: getting GraphicsCommand\n"); fflush(stderr);
 		batch.directCommandBuffer = cmdListManager.GraphicsCommand();
+		fprintf(stderr, "[DIAG] RecordBatchCommands: GraphicsCommand done, calling begin\n"); fflush(stderr);
 
 		vk::CommandBufferBeginInfo beginInfo{};
 		beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
 		batch.directCommandBuffer.begin(beginInfo);
+		fprintf(stderr, "[DIAG] RecordBatchCommands: begin done, checking barriers\n"); fflush(stderr);
 
 		if (batch.aquireBarriers.AnyBarrier())
 			batch.aquireBarriers.ExecuteBarriers(batch.directCommandBuffer);
 
+		fprintf(stderr, "[DIAG] RecordBatchCommands: aquire barriers done, uploading cbuffers\n"); fflush(stderr);
+
 		// Upload direct CBuffer data on direct command buffer
 		uploadCBufferBarriers(batch.cbufferBarriers, batch.directCommandBuffer);
+
+		fprintf(stderr, "[DIAG] RecordBatchCommands: direct cbuffers done, checking compute fallback\n"); fflush(stderr);
 
 		// Task 4.4: If no compute cmd buf, upload compute CBuffer data on direct (fallback)
 		if (!needsComputeCmdBuf)
 			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.directCommandBuffer);
 
+		fprintf(stderr, "[DIAG] RecordBatchCommands: compute fallback done, recording raster passes (count=%zu)\n", batch.rasterPassRefs.size()); fflush(stderr);
+
 		for (int rasterPassID : batch.rasterPassRefs)
 			RecordRenderPass(batch, rasterPassID, graph);
+
+		fprintf(stderr, "[DIAG] RecordBatchCommands: raster passes done\n"); fflush(stderr);
 
 		// RecordComputePass routes to computeCommandBuffer when available
 		for (int computePassID : batch.computePassRefs)
@@ -1644,6 +1822,7 @@ namespace graphics_backend
 		void VulkanGraphExecutor::RecordRenderPass(VulkanGPUExecutionBatch& batch,
 		uint32_t rasterPassID, GPUGraph const& graph)
 	{
+		fprintf(stderr, "[DIAG] RecordRenderPass ENTER passID=%u\n", rasterPassID); fflush(stderr);
 		auto& rasterPass = graph.GetRenderPasses()[rasterPassID];
 		auto& rasterData = m_RasterPassGPUData[rasterPassID];
 		auto cmdBuf = batch.directCommandBuffer;
@@ -1717,7 +1896,9 @@ namespace graphics_backend
 		renderPassBegin.clearValueCount = static_cast<uint32_t>(clearValues.size());
 		renderPassBegin.pClearValues = clearValues.data();
 
+		fprintf(stderr, "[DIAG] RecordRenderPass: calling beginRenderPass\n"); fflush(stderr);
 		cmdBuf.beginRenderPass(renderPassBegin, vk::SubpassContents::eInline);
+		fprintf(stderr, "[DIAG] RecordRenderPass: beginRenderPass done, batches=%zu\n", rasterPass.GetDrawCallBatches().size()); fflush(stderr);
 
 		for (size_t batchID = 0; batchID < rasterPass.GetDrawCallBatches().size(); ++batchID)
 		{

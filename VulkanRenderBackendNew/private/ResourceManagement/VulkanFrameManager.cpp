@@ -206,14 +206,17 @@ namespace graphics_backend
 			}
 
 			resourceManager.ResetDescriptorPool();
+			resourceManager.Reset();
 		}
 		else
 		{
 			m_FirstFrame = false;
 			resourceManager.CreateFences();
+			// First frame: skip Reset() — all state (command buffers, fence, semaphore index)
+			// is already default from Init(). Calling resetCommandPool on a never-used pool
+			// may cause driver-specific issues on some GPU implementations.
 		}
 
-		resourceManager.Reset();
 	}
 
 	void VulkanFrameContext::EnsureWindowSync(uint32_t index)

@@ -299,6 +299,7 @@ namespace graphics_backend
 		vk::Buffer stagingBuffer;
 		VmaAllocation stagingAlloc = memoryManager.AllocateBuffer(
 			stagingInfo, stagingAllocInfo, stagingBuffer, &stagingAllocResult);
+		if (!stagingBuffer || stagingAlloc == VK_NULL_HANDLE) return;
 
 		// Copy data to staging buffer
 		if (stagingAllocResult.pMappedData)

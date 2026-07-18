@@ -161,7 +161,6 @@ namespace graphics_backend
 		auto extensions = GetInstanceExtensionNames();
 		vk::InstanceCreateInfo instance_info({}, &application_info, g_validationLayers, extensions);
 
-#if !defined(NDEBUG)
 		vk::DebugUtilsMessengerCreateInfoEXT debugUtilsExt{ {},
 			vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
 			| vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
@@ -170,12 +169,9 @@ namespace graphics_backend
 			| vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
 			&debugUtilsMessengerCallback };
 		instance_info.setPNext(&debugUtilsExt);
-#endif
 		m_VulkanInstance = vk::createInstance(instance_info);
 		vk::defaultDispatchLoaderDynamic.init(m_VulkanInstance);
-#if !defined(NDEBUG)
 		m_DebugMessenger = m_VulkanInstance.createDebugUtilsMessengerEXT(debugUtilsExt);
-#endif
 		//Init Device
 		m_PhysicalDevice = m_VulkanInstance.enumeratePhysicalDevices().front();
 		InitSubObj(&m_QueueContext);
@@ -220,6 +216,39 @@ namespace graphics_backend
 		InitSubObj(&m_PipelineLibraryCache);
 		m_PipelineLibraryCache.Init();
 
+		// Init Pipeline Cache (try to load from disk)
+		{
+			vk::PipelineCacheCreateInfo cacheInfo{};
+			castl::vector<uint8_t> cacheData;
+			FILE* cacheFile = fopen("pipeline_cache.bin", "rb");
+			if (cacheFile)
+			{
+				fseek(cacheFile, 0, SEEK_END);
+				long fileSize = ftell(cacheFile);
+				fseek(cacheFile, 0, SEEK_SET);
+				if (fileSize > 0)
+				{
+					cacheData.resize(fileSize);
+					fread(cacheData.data(), 1, fileSize, cacheFile);
+					cacheInfo.initialDataSize = cacheData.size();
+					cacheInfo.pInitialData = cacheData.data();
+				}
+				fclose(cacheFile);
+			}
+			try
+			{
+				m_PipelineCache = m_Device.createPipelineCache(cacheInfo);
+			}
+			catch (vk::SystemError const& e)
+			{
+				CA_LOG_WARN("RenderBackend_Vulkan: Failed to load pipeline cache from disk, creating empty: {}", e.what());
+				cacheInfo.initialDataSize = 0;
+				cacheInfo.pInitialData = nullptr;
+				m_PipelineCache = m_Device.createPipelineCache(cacheInfo);
+			}
+			CA_LOG_INFO("RenderBackend_Vulkan: Pipeline cache created (loaded {} bytes from disk)", cacheData.size());
+		}
+
 		// Init GPU Frame Manager
 		InitSubObj(&m_GPUFrameManager);
 		m_GPUFrameManager.Init();
@@ -228,6 +257,7 @@ namespace graphics_backend
 	}
 	void RenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
 	{
+		CA_LOG_INFO("RenderBackend_Vulkan: ExecuteGraph entry");
 		if (!graph)
 		{
 			CA_LOG_WARN("RenderBackend_Vulkan::ExecuteGraph - null graph");
@@ -235,13 +265,16 @@ namespace graphics_backend
 		}
 
 		// Aquire frame context from GPUFrameManager (round-robin, waits for previous GPU work)
+		CA_LOG_INFO("RenderBackend_Vulkan: AquireFrameContext...");
 		auto frameContext = m_GPUFrameManager.AquireFrameContext();
+		CA_LOG_INFO("RenderBackend_Vulkan: AquireFrameContext done");
 
 		// Create graph executor (per-frame, like D3D12)
 		VulkanGraphExecutor executor;
 		InitSubObj(&executor);
 
 		// Execute graph with frame context
+		CA_LOG_INFO("RenderBackend_Vulkan: calling CompileAndExecute");
 		executor.CompileAndExecute(graph, std::move(frameContext));
 
 		// Release executor (frame context auto-released by PFrameContext deleter)
@@ -260,7 +293,33 @@ namespace graphics_backend
 		m_WindowHandles.clear();
 
 		// Release GPU Frame Manager
+		m_GPUFrameManager.WaitIdle();
 		m_GPUFrameManager.Release();
+
+		// Serialize pipeline cache to disk before destroying
+		if (m_PipelineCache)
+		{
+			try
+			{
+				auto cacheData = m_Device.getPipelineCacheData(m_PipelineCache);
+				if (!cacheData.empty())
+				{
+					FILE* cacheFile = fopen("pipeline_cache.bin", "wb");
+					if (cacheFile)
+					{
+						fwrite(cacheData.data(), 1, cacheData.size(), cacheFile);
+						fclose(cacheFile);
+						CA_LOG_INFO("RenderBackend_Vulkan: Pipeline cache serialized to disk ({} bytes)", cacheData.size());
+					}
+				}
+				m_Device.destroyPipelineCache(m_PipelineCache);
+				m_PipelineCache = nullptr;
+			}
+			catch (vk::SystemError const& e)
+			{
+				CA_LOG_WARN("RenderBackend_Vulkan: Failed to serialize pipeline cache: {}", e.what());
+			}
+		}
 
 		// Release pipeline library cache
 		m_PipelineLibraryCache.Release();
@@ -318,14 +377,12 @@ namespace graphics_backend
 			m_Device = nullptr;
 		}
 
-#if !defined(NDEBUG)
 		// Destroy debug messenger
 		if (m_DebugMessenger)
 		{
 			m_VulkanInstance.destroyDebugUtilsMessengerEXT(m_DebugMessenger);
 			m_DebugMessenger = nullptr;
 		}
-#endif
 
 		// Destroy instance
 		if (m_VulkanInstance)

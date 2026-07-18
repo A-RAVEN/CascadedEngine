@@ -38,7 +38,8 @@ namespace graphics_backend
 
 	vk::Pipeline VulkanPipelineLibrary::CreateVertexInputLibrary(
 		vk::PipelineVertexInputStateCreateInfo const& vertexInputState,
-		vk::PipelineInputAssemblyStateCreateInfo const& inputAssemblyState)
+		vk::PipelineInputAssemblyStateCreateInfo const& inputAssemblyState,
+		vk::PipelineCache cache)
 	{
 		if (!m_Supported)
 		{
@@ -59,7 +60,7 @@ namespace graphics_backend
 
 		try
 		{
-			auto pipeline = device.createGraphicsPipeline(nullptr, createInfo).value;
+			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
 			CA_LOG_INFO("VulkanPipelineLibrary: Created vertex input library");
 			return pipeline;
@@ -77,7 +78,9 @@ namespace graphics_backend
 		vk::PipelineShaderStageCreateInfo const* tessEvalShader,
 		vk::PipelineShaderStageCreateInfo const* geometryShader,
 		vk::PipelineViewportStateCreateInfo const& viewportState,
-		vk::PipelineRasterizationStateCreateInfo const& rasterizationState)
+		vk::PipelineRasterizationStateCreateInfo const& rasterizationState,
+		vk::PipelineDynamicStateCreateInfo const* pDynamicState,
+		vk::PipelineCache cache)
 	{
 		if (!m_Supported)
 		{
@@ -102,10 +105,11 @@ namespace graphics_backend
 		createInfo.pStages = shaderStages.data();
 		createInfo.pViewportState = &viewportState;
 		createInfo.pRasterizationState = &rasterizationState;
+		createInfo.pDynamicState = pDynamicState;
 
 		try
 		{
-			auto pipeline = device.createGraphicsPipeline(nullptr, createInfo).value;
+			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
 			CA_LOG_INFO("VulkanPipelineLibrary: Created pre-rasterization library");
 			return pipeline;
@@ -118,7 +122,8 @@ namespace graphics_backend
 	}
 
 	vk::Pipeline VulkanPipelineLibrary::CreateFragmentLibrary(
-		vk::PipelineShaderStageCreateInfo const& fragmentShader)
+		vk::PipelineShaderStageCreateInfo const& fragmentShader,
+		vk::PipelineCache cache)
 	{
 		if (!m_Supported)
 		{
@@ -138,7 +143,7 @@ namespace graphics_backend
 
 		try
 		{
-			auto pipeline = device.createGraphicsPipeline(nullptr, createInfo).value;
+			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
 			CA_LOG_INFO("VulkanPipelineLibrary: Created fragment library");
 			return pipeline;
@@ -153,7 +158,8 @@ namespace graphics_backend
 	vk::Pipeline VulkanPipelineLibrary::CreateFragmentOutputLibrary(
 		vk::PipelineMultisampleStateCreateInfo const& multisampleState,
 		vk::PipelineDepthStencilStateCreateInfo const* depthStencilState,
-		vk::PipelineColorBlendStateCreateInfo const& colorBlendState)
+		vk::PipelineColorBlendStateCreateInfo const& colorBlendState,
+		vk::PipelineCache cache)
 	{
 		if (!m_Supported)
 		{
@@ -174,7 +180,7 @@ namespace graphics_backend
 
 		try
 		{
-			auto pipeline = device.createGraphicsPipeline(nullptr, createInfo).value;
+			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
 			CA_LOG_INFO("VulkanPipelineLibrary: Created fragment output library");
 			return pipeline;
@@ -190,7 +196,8 @@ namespace graphics_backend
 		PipelineLibraryParts const& libraries,
 		vk::PipelineLayout layout,
 		vk::RenderPass renderPass,
-		uint32_t subpass)
+		uint32_t subpass,
+		vk::PipelineCache cache)
 	{
 		if (!m_Supported)
 		{
@@ -229,7 +236,7 @@ namespace graphics_backend
 
 		try
 		{
-			auto pipeline = device.createGraphicsPipeline(nullptr, createInfo).value;
+			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
 			CA_LOG_INFO("VulkanPipelineLibrary: Linked pipeline from {} libraries", librariesToLink.size());
 			return pipeline;
@@ -242,13 +249,14 @@ namespace graphics_backend
 	}
 
 	vk::Pipeline VulkanPipelineLibrary::CreateMonolithicPipeline(
-		vk::GraphicsPipelineCreateInfo const& createInfo)
+		vk::GraphicsPipelineCreateInfo const& createInfo,
+		vk::PipelineCache cache)
 	{
 		auto device = GetDevice();
 
 		try
 		{
-			auto pipeline = device.createGraphicsPipeline(nullptr, createInfo).value;
+			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
 			CA_LOG_INFO("VulkanPipelineLibrary: Created monolithic pipeline");
 			return pipeline;
