@@ -127,6 +127,8 @@ namespace graphics_backend
 		PipelineLibraryCache& GetPipelineLibraryCache() { return m_PipelineLibraryCache; }
 		PipelineLibraryCache const& GetPipelineLibraryCache() const { return m_PipelineLibraryCache; }
 
+		vk::PipelineCache const& GetPipelineCache() const { return m_PipelineCache; }
+
 		bool IsPipelineLibrarySupported() const { return m_PipelineLibrarySupported; }
 
 	private:
@@ -143,6 +145,7 @@ namespace graphics_backend
 		VulkanCommandListManager m_CommandListManager;
 		VulkanPipelineLibrary m_PipelineLibrary;
 		PipelineLibraryCache m_PipelineLibraryCache;
+		vk::PipelineCache m_PipelineCache;
 
 		resource_management::ResourceManagingSystem* p_ResourceManager = nullptr;
 

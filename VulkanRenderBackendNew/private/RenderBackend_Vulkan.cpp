@@ -8,14 +8,12 @@
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
 
-/// <summary>
-/// Default global dispatch loader for Vulkan functions
-/// </summary>
-namespace vk {
+// SDK 1.4+: defaultDispatchLoaderDynamic moved to vk::detail:: namespace
+namespace vk::detail {
 	DispatchLoaderDynamic defaultDispatchLoaderDynamic;
 }
 
-// Task 4.1: Global validation log file + setter (exported for GetProcAddress in Main.cpp)
+// Global validation log file + setter (exported for GetProcAddress in Main.cpp)
 static FILE* g_ValidationLogFile = nullptr;
 
 extern "C" __declspec(dllexport) void SetValidationLogFile(FILE* file)
@@ -145,7 +143,7 @@ namespace graphics_backend
 	{
 		p_ResourceManager = pModuleManager->GetInstance<resource_management::ResourceManagingSystem>();
 
-		vk::defaultDispatchLoaderDynamic.init();
+		VULKAN_HPP_DEFAULT_DISPATCHER.init();
 
 		vk::ApplicationInfo application_info(
 			"Test Backend"
@@ -170,7 +168,7 @@ namespace graphics_backend
 			&debugUtilsMessengerCallback };
 		instance_info.setPNext(&debugUtilsExt);
 		m_VulkanInstance = vk::createInstance(instance_info);
-		vk::defaultDispatchLoaderDynamic.init(m_VulkanInstance);
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanInstance);
 		m_DebugMessenger = m_VulkanInstance.createDebugUtilsMessengerEXT(debugUtilsExt);
 		//Init Device
 		m_PhysicalDevice = m_VulkanInstance.enumeratePhysicalDevices().front();
@@ -180,7 +178,7 @@ namespace graphics_backend
 		m_QueueContext.InitQueueCreationInfo(m_PhysicalDevice, queueCreationInfo);
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, deviceExts);
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
-		vk::defaultDispatchLoaderDynamic.init(m_Device);
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_Device);
 
 		//Init Object Containers
 		InitSubObj(&m_DescriptorSetLayoutContainer);
