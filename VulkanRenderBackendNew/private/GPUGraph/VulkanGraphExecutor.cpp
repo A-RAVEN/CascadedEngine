@@ -461,8 +461,6 @@ namespace graphics_backend
 		// Swapchain acquire — moved here to avoid acquiring images on frames that will abort
 		if (!graph->GetFinalizePass().isEmpty())
 		{
-			fprintf(stderr, "[DIAG] CompileAndExecute: acquiring swapchain images (count=%zu)\n",
-				graph->GetFinalizePass().m_PresentBackBuffers.size()); fflush(stderr);
 			uint32_t windowIdx = 0;
 			for (auto& backBufferImage : graph->GetFinalizePass().m_PresentBackBuffers)
 			{
@@ -475,11 +473,9 @@ namespace graphics_backend
 					m_CurrentFrameContext->EnsureWindowSync(windowIdx);
 					auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
 					pWindow->AcquireNextImage(sync.acquireSemaphore);
-					fprintf(stderr, "[DIAG] CompileAndExecute: AcquireNextImage[%u] done\n", windowIdx); fflush(stderr);
 				}
 				++windowIdx;
 			}
-			fprintf(stderr, "[DIAG] CompileAndExecute: swapchain acquire done\n"); fflush(stderr);
 		}
 
 		// Phase 5: Build resources (resolve CBuffer resource IDs etc.)
@@ -1771,35 +1767,28 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		}
 
 		// === Direct command buffer ===
-		fprintf(stderr, "[DIAG] RecordBatchCommands: getting GraphicsCommand\n"); fflush(stderr);
 		batch.directCommandBuffer = cmdListManager.GraphicsCommand();
-		fprintf(stderr, "[DIAG] RecordBatchCommands: GraphicsCommand done, calling begin\n"); fflush(stderr);
 
 		vk::CommandBufferBeginInfo beginInfo{};
 		beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
 		batch.directCommandBuffer.begin(beginInfo);
-		fprintf(stderr, "[DIAG] RecordBatchCommands: begin done, checking barriers\n"); fflush(stderr);
 
 		if (batch.aquireBarriers.AnyBarrier())
 			batch.aquireBarriers.ExecuteBarriers(batch.directCommandBuffer);
 
-		fprintf(stderr, "[DIAG] RecordBatchCommands: aquire barriers done, uploading cbuffers\n"); fflush(stderr);
 
 		// Upload direct CBuffer data on direct command buffer
 		uploadCBufferBarriers(batch.cbufferBarriers, batch.directCommandBuffer);
 
-		fprintf(stderr, "[DIAG] RecordBatchCommands: direct cbuffers done, checking compute fallback\n"); fflush(stderr);
 
 		// Task 4.4: If no compute cmd buf, upload compute CBuffer data on direct (fallback)
 		if (!needsComputeCmdBuf)
 			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.directCommandBuffer);
 
-		fprintf(stderr, "[DIAG] RecordBatchCommands: compute fallback done, recording raster passes (count=%zu)\n", batch.rasterPassRefs.size()); fflush(stderr);
 
 		for (int rasterPassID : batch.rasterPassRefs)
 			RecordRenderPass(batch, rasterPassID, graph);
 
-		fprintf(stderr, "[DIAG] RecordBatchCommands: raster passes done\n"); fflush(stderr);
 
 		// RecordComputePass routes to computeCommandBuffer when available
 		for (int computePassID : batch.computePassRefs)
@@ -1827,7 +1816,6 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		void VulkanGraphExecutor::RecordRenderPass(VulkanGPUExecutionBatch& batch,
 		uint32_t rasterPassID, GPUGraph const& graph)
 	{
-		fprintf(stderr, "[DIAG] RecordRenderPass ENTER passID=%u\n", rasterPassID); fflush(stderr);
 		auto& rasterPass = graph.GetRenderPasses()[rasterPassID];
 		auto& rasterData = m_RasterPassGPUData[rasterPassID];
 		auto cmdBuf = batch.directCommandBuffer;
@@ -1901,9 +1889,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		renderPassBegin.clearValueCount = static_cast<uint32_t>(clearValues.size());
 		renderPassBegin.pClearValues = clearValues.data();
 
-		fprintf(stderr, "[DIAG] RecordRenderPass: calling beginRenderPass\n"); fflush(stderr);
 		cmdBuf.beginRenderPass(renderPassBegin, vk::SubpassContents::eInline);
-		fprintf(stderr, "[DIAG] RecordRenderPass: beginRenderPass done, batches=%zu\n", rasterPass.GetDrawCallBatches().size()); fflush(stderr);
 
 		for (size_t batchID = 0; batchID < rasterPass.GetDrawCallBatches().size(); ++batchID)
 		{

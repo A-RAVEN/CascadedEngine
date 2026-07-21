@@ -197,6 +197,11 @@ namespace graphics_backend
 		castl::vector<uint32_t> spirvCode;
 	};
 
+	// NOTE: ShaderLibrary internal maps (m_ShaderPrograms, m_ShaderFiles, m_ShaderStructs,
+	// m_ShaderRootStructs) are NOT thread-safe. ImportResource clears and repopulates these
+	// maps during initialization. Do NOT access ShaderLibrary from multiple threads
+	// concurrently. Any future hot-reload or background-compilation feature MUST add
+	// synchronization before concurrent access.
 	class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
 	{
 	public:

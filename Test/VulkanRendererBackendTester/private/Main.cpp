@@ -1,3 +1,6 @@
+// Deprecated: not built (commented out in root CMakeLists.txt).
+// Path concatenation bug (lines 63-65) is left unfixed.
+// Use GPUBackendTester instead.
 #include <cstdlib>
 #define NOMINMAX
 #include <windows.h>

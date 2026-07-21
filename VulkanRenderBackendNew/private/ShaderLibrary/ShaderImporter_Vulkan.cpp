@@ -302,11 +302,37 @@ namespace graphics_backend
 		cafs::path const& sourcePath,
 		cafs::path const& destPath)
 	{
-		// Task 4.4: Check if source path exists
+		// NOTE: ShaderLibrary internal maps (m_ShaderPrograms, m_ShaderFiles, etc.) are NOT thread-safe.
+		// ImportResource MUST only be called during single-threaded initialization (before rendering begins).
+		// Any future hot-reload or background-compilation feature must add synchronization.
+
+		// Decision 2: Resolve the effective source directory with fallback
+		cafs::path effectiveSourcePath = sourcePath;
 		if (!cafs::exists(sourcePath))
 		{
-			CA_LOG("ShaderImporter_Vulkan: Source path does not exist: {}", sourcePath.generic_string());
-			return;
+			if (!m_SourceDirectory.empty() && cafs::exists(m_SourceDirectory))
+			{
+				CA_LOG("ShaderImporter_Vulkan: Source path does not exist: {}. Using fallback: {}",
+					sourcePath.generic_string(), m_SourceDirectory.generic_string());
+				effectiveSourcePath = m_SourceDirectory;
+			}
+			else if (m_SourceDirectory.empty())
+			{
+				CA_LOG_WARN("ShaderImporter_Vulkan: Source path does not exist: {} (no fallback configured, importer depends entirely on ScanSourceDirectory path)",
+					sourcePath.generic_string());
+				return;
+			}
+			else
+			{
+				CA_LOG_WARN("ShaderImporter_Vulkan: Both source path and fallback do not exist. sourcePath={}, fallback={}",
+					sourcePath.generic_string(), m_SourceDirectory.generic_string());
+				return;
+			}
+		}
+		else if (!m_SourceDirectory.empty() && sourcePath != m_SourceDirectory)
+		{
+			CA_LOG("ShaderImporter_Vulkan: Using sourcePath={} (fallback={} also configured but differs)",
+				sourcePath.generic_string(), m_SourceDirectory.generic_string());
 		}
 
 		// Task 4.6: Get or create ShaderLibrary resource
@@ -320,20 +346,20 @@ namespace graphics_backend
 		shaderLibrary->m_ShaderRootStructs.clear();
 
 		// Task 4.4: Directory traversal using recursive_directory_iterator
-		for (auto& p : cafs::recursive_directory_iterator(sourcePath))
+		for (auto& p : cafs::recursive_directory_iterator(effectiveSourcePath))
 		{
 			if (p.is_regular_file())
 			{
 				auto postfix = p.path().extension();
 				if (postfix == ".slang")
 				{
-					auto relative_path = cafs::relative(p.path(), sourcePath);
+					auto relative_path = cafs::relative(p.path(), effectiveSourcePath);
 					auto shaderpath = relative_path;
 					shaderpath.replace_extension("");
 
 					auto pCompiler = m_ShaderCompilerManager->AquireShaderCompilerShared();
 					pCompiler->BeginCompileTask();
-					pCompiler->AddInlcudePath(sourcePath.generic_string().c_str());
+					pCompiler->AddInlcudePath(effectiveSourcePath.generic_string().c_str());
 					pCompiler->AddSourceFile(p.path().generic_string().c_str());
 					pCompiler->EnableDebugInfo();
 

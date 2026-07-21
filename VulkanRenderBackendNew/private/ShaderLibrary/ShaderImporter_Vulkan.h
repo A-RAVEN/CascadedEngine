@@ -51,11 +51,20 @@ namespace graphics_backend
 		// Set compiler manager (following D3D12ShaderResourceImporter pattern)
 		void SetCompiler(ShaderCompilerSlang::IShaderCompilerManager* compiler);
 
+		// Set fallback source directory (Decision 2: bypasses CWD-dependent ScanSourceDirectory path)
+		void SetSourceDirectory(cafs::path const& path) { m_SourceDirectory = path; }
+
 		// Debug/test method
 		void Test();
 
 	private:
 		// IShaderCompilerManager instance
 		ShaderCompilerSlang::IShaderCompilerManager* m_ShaderCompilerManager = nullptr;
+
+		// Fallback source directory for .slang scanning (Decision 2+3)
+		// When ScanSourceDirectory passes a non-existent path (e.g., due to CWD-depth bug),
+		// ImportResource falls back to this directory if configured.
+		// Empty = no fallback; importer depends entirely on ScanSourceDirectory's sourcePath.
+		cafs::path m_SourceDirectory;
 	};
 }

@@ -338,7 +338,7 @@ void TestTriangleWithImageBuffer(TestContext& ctx)
 
 	//Submit
 	{
-		castl::string texturFile = ctx.resourcePath + "/Images/test.png";
+		castl::string texturFile = (std::filesystem::path(ctx.resourcePath.c_str()) / "Images" / "test.png").string();
 		int width, height, channels;
 		auto data = stbi_load(texturFile.c_str(), &width, &height, &channels, 4);
 		testTexture = ctx.pGPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(width, height
@@ -467,7 +467,7 @@ void TestDoublePass(TestContext& ctx)
 
 	//Submit
 	{
-		castl::string texturFile = ctx.resourcePath + "/Images/vulkanlogo.png";
+		castl::string texturFile = (std::filesystem::path(ctx.resourcePath.c_str()) / "Images" / "vulkanlogo.png").string();
 		int width, height, channels;
 		auto data = stbi_load(texturFile.c_str(), &width, &height, &channels, 4);
 		testTexture = ctx.pGPUBackend->CreateGPUTexture(GPUTextureDescriptor::Create(width, height
@@ -954,12 +954,36 @@ int main(int argc, char* argv[])
 	ctx.headlessFrames = headlessFrames;
 	ctx.headlessTimeout = headlessTimeout;
 
-	std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format };
-	std::filesystem::path rootPath = std::filesystem::absolute(rootPathFS);
+	// Decision 4: Derive project root from exe path via sentinel file traversal
+	// This replaces the fragile CWD-dependent "../../../../" which breaks at wrong CWD depths.
+	std::filesystem::path rootPath;
+	{
+		wchar_t exePath[MAX_PATH];
+		GetModuleFileNameW(NULL, exePath, MAX_PATH);
+		std::filesystem::path p(exePath);
+		p = p.parent_path();
+		bool found = false;
+		while (!p.empty() && p != p.root_path())
+		{
+			if (std::filesystem::exists(p / "CAResources") && std::filesystem::exists(p / "CLAUDE.md"))
+			{
+				rootPath = p;
+				found = true;
+				break;
+			}
+			p = p.parent_path();
+		}
+		if (!found)
+		{
+			std::cerr << "WARNING: Project root not found via exe path traversal, falling back to CWD-relative ../../../../" << std::endl;
+			std::filesystem::path rootPathFS{ "../../../../" , std::filesystem::path::format::native_format };
+			rootPath = std::filesystem::absolute(rootPathFS);
+		}
+	}
 
-	ctx.resourcePath = rootPath.string() + "CAResources";
-	ctx.assetPath = rootPath.string() + "CAAssets";
-	ctx.editorConfigPath = rootPath.string() + "EditorConfigs";
+	ctx.resourcePath = (rootPath / "CAResources").string();
+	ctx.assetPath = (rootPath / "CAAssets").string();
+	ctx.editorConfigPath = (rootPath / "EditorConfigs").string();
 
 	// ---- Headless: Enable Vulkan Validation Layer ----
 	if (headlessFrames > 0)

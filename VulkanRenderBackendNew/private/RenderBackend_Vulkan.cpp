@@ -5,6 +5,9 @@
 #include <VulkanObjects/VulkanWindowHandle.h>
 #include <VulkanObjects/VulkanShaderStruct.h>
 
+#include <windows.h>
+#include <filesystem>
+
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
 
@@ -151,6 +154,40 @@ namespace graphics_backend
 			{
 				m_ShaderImporter.SetCompiler(shaderCompiler);
 				p_ResourceImporter->AddImporter(&m_ShaderImporter);
+
+				// Decision 3: Configure fallback source directory by deriving project root from DLL path.
+				// This protects against CWD-dependent path resolution failures in ScanSourceDirectory.
+				HMODULE hModule = GetModuleHandleA("VulkanRenderBackend.dll");
+				if (hModule)
+				{
+					char dllPath[MAX_PATH];
+					DWORD len = GetModuleFileNameA(hModule, dllPath, MAX_PATH);
+					if (len > 0 && len < MAX_PATH)
+					{
+						std::filesystem::path p(dllPath);
+						p = p.parent_path(); // strip DLL filename
+						bool found = false;
+						for (int i = 0; i < 10 && !p.empty() && p != p.root_path(); ++i)
+						{
+							if (std::filesystem::exists(p / "CAResources"))
+							{
+								m_ShaderImporter.SetSourceDirectory(p / "CAResources");
+								CA_LOG("ShaderImporter_Vulkan: Fallback source directory set to {}", (p / "CAResources").string());
+								found = true;
+								break;
+							}
+							p = p.parent_path();
+						}
+						if (!found)
+						{
+							CA_LOG_WARN("ShaderImporter_Vulkan: Could not find CAResources/ by walking up from DLL path: {}", dllPath);
+						}
+					}
+				}
+				else
+				{
+					CA_LOG_WARN("ShaderImporter_Vulkan: GetModuleHandleA failed, no fallback source directory configured");
+				}
 			}
 		}
 
