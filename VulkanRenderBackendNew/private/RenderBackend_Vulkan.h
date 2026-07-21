@@ -12,6 +12,7 @@
 #include <ResourceManagement/VulkanFrameManager.h>
 #include <CAResource/ResourceManagingSystem.h>
 #include <ShaderLibrary/ShaderLibrary.h>
+#include <ShaderLibrary/ShaderImporter_Vulkan.h>
 #include <GPUGraph/VulkanGraphExecutor.h>
 #include <GPUGraph/VulkanSamplerManager.h>
 #include <PipelineLibrary/VulkanPipelineLibrary.h>
@@ -159,6 +160,9 @@ namespace graphics_backend
 
 		// Sampler Manager (global sampler cache)
 		VulkanSamplerManager m_SamplerManager;
+
+		// Shader importer (compiles .slang → SPIR-V on first import)
+		ShaderImporter_Vulkan m_ShaderImporter;
 
 		// Cross-frame caches (moved from VulkanGraphExecutor)
 		castl::unordered_map<cahash::sha256_hash::result_type, vk::ShaderModule> m_ShaderModuleCache;

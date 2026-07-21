@@ -13,3 +13,9 @@ _deps
 /.vs/
 /out/
 __pycache__/
+*.dmp
+*.bak
+*.bak2
+*.bak3
+*.bak5
+test_output/

@@ -143,6 +143,17 @@ namespace graphics_backend
 	{
 		p_ResourceManager = pModuleManager->GetInstance<resource_management::ResourceManagingSystem>();
 
+		// Register shader importer (compiles .slang → SPIR-V into VulkanShaderLibrary.shLib)
+		{
+			auto shaderCompiler = pModuleManager->GetInstance<ShaderCompilerSlang::IShaderCompilerManager>();
+			auto p_ResourceImporter = pModuleManager->GetInstance<resource_management::ResourceImportingSystem>();
+			if (shaderCompiler && p_ResourceImporter)
+			{
+				m_ShaderImporter.SetCompiler(shaderCompiler);
+				p_ResourceImporter->AddImporter(&m_ShaderImporter);
+			}
+		}
+
 		VULKAN_HPP_DEFAULT_DISPATCHER.init();
 
 		vk::ApplicationInfo application_info(
@@ -153,7 +164,7 @@ namespace graphics_backend
 			, VULKAN_API_VERSION_IN_USE);
 
 		const castl::vector<const char*> g_validationLayers{
-			 "VK_LAYER_KHRONOS_validation"
+			 
 		};
 
 		auto extensions = GetInstanceExtensionNames();

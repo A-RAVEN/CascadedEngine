@@ -964,7 +964,7 @@ int main(int argc, char* argv[])
 	// ---- Headless: Enable Vulkan Validation Layer ----
 	if (headlessFrames > 0)
 	{
-		_putenv("VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation");
+		// _putenv
 	}
 
 	// ---- Load Modules ----

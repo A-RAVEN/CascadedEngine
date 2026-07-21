@@ -661,8 +661,9 @@ namespace graphics_backend
 			for (auto& attachment : renderPass.GetAttachments())
 			{
 				auto descriptor = GetDescriptor(graph, attachment);
-				m_LocalResourceManager.RegisterTemporaryTexture(
+uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					descriptor, ETextureAccessType::eRT, static_cast<uint32_t>(passID));
+				if (attachment.IsIntternal()) m_LocalResourceManager.RegisterTextureHandle(attachment, resourceId);
 
 				if (attachmentID == renderPass.GetDepthAttachmentIndex())
 				{
@@ -691,8 +692,9 @@ namespace graphics_backend
 					{
 						auto& indexBuffer = drawcall.GetIndexBuffer().indexBufferHandle;
 						auto descriptor = GetDescriptor(graph, indexBuffer);
-						m_LocalResourceManager.RegisterTemporaryBuffer(
+uint64_t resourceId = 						m_LocalResourceManager.RegisterTemporaryBuffer(
 							descriptor, EBufferUsage::eIndexBuffer, static_cast<uint32_t>(passID));
+						if (indexBuffer.IsIntternal()) m_LocalResourceManager.RegisterBufferHandle(indexBuffer, resourceId);
 						passRWState.SetBufferRWState(indexBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
 							vk::AccessFlagBits::eIndexRead, EGPUQueueType::eDirect);
@@ -702,8 +704,9 @@ namespace graphics_backend
 					{
 						auto& vertBuffer = vertBuf.second;
 						auto descriptor = GetDescriptor(graph, vertBuffer);
-						m_LocalResourceManager.RegisterTemporaryBuffer(
+uint64_t resourceId = 						m_LocalResourceManager.RegisterTemporaryBuffer(
 							descriptor, EBufferUsage::eVertexBuffer, static_cast<uint32_t>(passID));
+						if (vertBuffer.IsIntternal()) m_LocalResourceManager.RegisterBufferHandle(vertBuffer, resourceId);
 						passRWState.SetBufferRWState(vertBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
 							vk::AccessFlagBits::eVertexAttributeRead, EGPUQueueType::eDirect);
@@ -728,8 +731,9 @@ namespace graphics_backend
 			for (auto& imgWrites : transferPass.m_ImageDataUploads)
 			{
 				auto descriptor = GetDescriptor(graph, imgWrites.first);
-				m_LocalResourceManager.RegisterTemporaryTexture(
+uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					descriptor, ETextureAccessTypeFlags{}, static_cast<uint32_t>(passID));
+				if (imgWrites.first.IsIntternal()) m_LocalResourceManager.RegisterTextureHandle(imgWrites.first, resourceId);
 				passRWState.SetImageRWState(imgWrites.first,
 					vk::PipelineStageFlagBits::eTransfer,
 					vk::AccessFlagBits::eTransferWrite,
@@ -742,8 +746,9 @@ namespace graphics_backend
 			for (auto& img : graph.GetFinalizePass().m_ImageUsages)
 			{
 				auto descriptor = GetDescriptor(graph, img.first);
-				m_LocalResourceManager.RegisterTemporaryTexture(
+uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					descriptor, img.second, static_cast<uint32_t>(m_ExecutionBatches.size()));
+				if (img.first.IsIntternal()) m_LocalResourceManager.RegisterTextureHandle(img.first, resourceId);
 				m_FinalizePassRWState.SetImageRWState(img.first,
 					vk::PipelineStageFlagBits::eFragmentShader,
 					vk::AccessFlagBits::eShaderRead,
