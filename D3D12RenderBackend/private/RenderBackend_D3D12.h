@@ -36,6 +36,7 @@ namespace graphics_backend
 		//	, castl::string const& appName
 		//	, castl::string const& engineName) override;
 		void Release() override;
+		void WaitIdle() override;
 		~RenderBackend_D3D12();
 		castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		bool AnyWindowRunning() override;

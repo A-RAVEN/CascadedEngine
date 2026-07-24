@@ -1,7 +1,6 @@
 #include<mimalloc.h>
 #include <cstdlib>
 #include <cstring>
-#include <atomic>
 #include <fstream>
 #include <chrono>
 #include <windows.h>
@@ -60,8 +59,6 @@ struct TestContext
 	castl::string assetPath;
 	castl::string resourcePath;
 	int headlessFrames = 0;
-	int headlessTimeout = 60;
-	std::atomic<bool> headlessTimedOut{false};
 };
 
 // ---- Test Functions ----
@@ -114,11 +111,11 @@ void TestSimpleTriangle(TestContext& ctx)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
-			if (ctx.headlessTimedOut.load()) break;
-			ctx.pWindowSystem->UpdateSystem();
+ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 	else
 	{
@@ -195,8 +192,7 @@ void TestTriangleWithConstantColor(TestContext& ctx)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
-			if (ctx.headlessTimedOut.load()) break;
-			ctx.pWindowSystem->UpdateSystem();
+ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 
@@ -209,6 +205,7 @@ void TestTriangleWithConstantColor(TestContext& ctx)
 				colorStructs[j]->SetValue(CANAME("color"), glm::vec3(1.0f, j * 0.5f, 0.0f) * (castl::cos(elapsedTime) * 0.5f + 0.5f));
 			}
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 	else
 	{
@@ -285,11 +282,11 @@ void TestTriangleWithStructuredBufferColor(TestContext& ctx)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
-			if (ctx.headlessTimedOut.load()) break;
-			ctx.pWindowSystem->UpdateSystem();
+ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 	else
 	{
@@ -403,11 +400,11 @@ void TestTriangleWithImageBuffer(TestContext& ctx)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
-			if (ctx.headlessTimedOut.load()) break;
-			ctx.pWindowSystem->UpdateSystem();
+ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 	else
 	{
@@ -563,11 +560,11 @@ void TestDoublePass(TestContext& ctx)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
-			if (ctx.headlessTimedOut.load()) break;
-			ctx.pWindowSystem->UpdateSystem();
+ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 	else
 	{
@@ -670,14 +667,14 @@ void TestComputeBuffer(TestContext& ctx)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
-			if (ctx.headlessTimedOut.load()) break;
-			auto elapsedTime = timer.now() - startTime;
+auto elapsedTime = timer.now() - startTime;
 			auto duration = castl::chrono::duration_cast<castl::chrono::duration<float>>(elapsedTime).count();
 			computeParams->SetValue(CANAME("time"), duration);
 			ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 	else
 	{
@@ -713,8 +710,7 @@ void TestIMGUI(TestContext& ctx)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
-			if (ctx.headlessTimedOut.load()) break;
-			ctx.pWindowSystem->UpdateSystem();
+ctx.pWindowSystem->UpdateSystem();
 
 			ctx.pIMGUIContext->UpdateIMGUI();
 
@@ -733,6 +729,7 @@ void TestIMGUI(TestContext& ctx)
 			}
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), frameGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 	else
 	{
@@ -952,7 +949,6 @@ int main(int argc, char* argv[])
 	// ---- Initialize TestContext ----
 	TestContext ctx;
 	ctx.headlessFrames = headlessFrames;
-	ctx.headlessTimeout = headlessTimeout;
 
 	// Decision 4: Derive project root from exe path via sentinel file traversal
 	// This replaces the fragile CWD-dependent "../../../../" which breaks at wrong CWD depths.
@@ -1058,16 +1054,6 @@ int main(int argc, char* argv[])
 	}
 
 	ctx.pImportingSystem->ScanSourceDirectory(ctx.resourcePath);
-
-	// ---- Headless Watchdog Thread ----
-	if (headlessFrames > 0)
-	{
-		std::thread watchdog([&ctx]() {
-			std::this_thread::sleep_for(std::chrono::seconds(ctx.headlessTimeout));
-			ctx.headlessTimedOut.store(true);
-		});
-		watchdog.detach();
-	}
 
 	// ---- JSON report setup ----
 	std::ofstream jsonFile;

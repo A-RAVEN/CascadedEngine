@@ -36,6 +36,7 @@ namespace graphics_backend
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) override;
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		virtual bool AnyWindowRunning() override;
+		virtual void WaitIdle() override;
 
 		vk::Instance const& GetVulkanInstance() const
 		{
@@ -85,8 +86,8 @@ namespace graphics_backend
 		struct RenderPassCacheKey
 		{
 			castl::vector<vk::Format> colorFormats;
-			vk::Format depthFormat;
-			bool hasDepth;
+			vk::Format depthFormat = vk::Format::eUndefined;
+			bool hasDepth = false;
 		};
 		vk::RenderPass GetOrCreateRenderPass(RenderPassCacheKey const& key);
 		vk::Framebuffer GetOrCreateFramebuffer(vk::RenderPass renderPass, castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height);

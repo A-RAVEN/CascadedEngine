@@ -795,7 +795,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				auto& batch = renderPass.GetDrawCallBatches()[batchID];
 				auto& batchData = passData.drawcallBatchs[batchID];
 
-				ShaderInfo const& shaderInfo = batch.pipelineStateDesc.m_ShaderInfo;
+				auto pipelineData = PipelineDescData::CombindDescData(renderPass.GetPipelineStates(), batch.pipelineStateDesc);
+				ShaderInfo const& shaderInfo = pipelineData.m_ShaderInfo;
 				if (!shaderInfo.isValid()) continue;
 
 				castl::vector<ShaderStructDic const*> shaderStructs;
@@ -1344,7 +1345,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				auto& batch = rasterPass.GetDrawCallBatches()[batchID];
 				auto& batchData = rasterPassData.drawcallBatchs[batchID];
 
-				ShaderInfo const& shaderInfo = batch.pipelineStateDesc.m_ShaderInfo;
+				auto pipelineData = PipelineDescData::CombindDescData(rasterPass.GetPipelineStates(), batch.pipelineStateDesc);
+				ShaderInfo const& shaderInfo = pipelineData.m_ShaderInfo;
 				if (!shaderInfo.isValid()) continue;
 
 				VulkanShaderFileInfo const* pFileInfo = pApp->GetShaderFileInfo(shaderInfo);
@@ -1373,6 +1375,12 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					}
 				}
 
+				if (!hasVertex || !hasFragment)
+				{
+					CA_LOG_WARN("VulkanGraphExecutor: Shader missing vertex or fragment entry point, skipping pipeline creation");
+					continue;
+				}
+
 				vk::ShaderModule vertexShaderModule = hasVertex ? pApp->GetOrCreateShaderModule(vertexProgramHash) : nullptr;
 				vk::ShaderModule fragmentShaderModule = hasFragment ? pApp->GetOrCreateShaderModule(fragmentProgramHash) : nullptr;
 
@@ -1388,8 +1396,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				fragmentShaderStage.module = fragmentShaderModule;
 				fragmentShaderStage.pName = fragmentEntryPointName.c_str();
 
-				auto const& inputAssemblyData = batch.pipelineStateDesc.m_InputAssemblyStates.Get();
-				auto const& pipelineStateData = batch.pipelineStateDesc.m_PipelineStates.Get();
+				auto const& inputAssemblyData = pipelineData.m_InputAssemblyStates.Get();
+				auto const& pipelineStateData = pipelineData.m_PipelineStates.Get();
 
 				// ===== Vertex Input State (deterministic single-pass algorithm) =====
 				vk::PipelineVertexInputStateCreateInfo vertexInputState{};
@@ -1497,7 +1505,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				}
 
 				// ===== RenderPass (shared between GPL and Monolithic) =====
-				RenderBackend_Vulkan::RenderPassCacheKey rpKey;
+				RenderBackend_Vulkan::RenderPassCacheKey rpKey{};
 				{
 					auto const& rpAttachments = rasterPass.GetAttachments();
 					for (size_t i = 0; i < rpAttachments.size(); ++i)
@@ -1832,7 +1840,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		cmdBuf.setScissor(0, scissor);
 
 		// Build render pass cache key
-		RenderBackend_Vulkan::RenderPassCacheKey rpKey;
+		RenderBackend_Vulkan::RenderPassCacheKey rpKey{};
 		for (size_t i = 0; i < attachments.size(); ++i)
 		{
 			auto desc = GetDescriptor(graph, attachments[i]);

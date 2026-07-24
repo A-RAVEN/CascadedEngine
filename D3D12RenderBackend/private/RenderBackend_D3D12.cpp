@@ -229,6 +229,12 @@ namespace graphics_backend
 		m_Factory = nullptr;
 	}
 
+	void RenderBackend_D3D12::WaitIdle()
+	{
+		// Stub: D3D12 backend currently has no headless GPU sync requirement.
+		// Full implementation would use fence signal + wait on the direct queue.
+	}
+
 	RenderBackend_D3D12::~RenderBackend_D3D12()
 	{
 		Release();

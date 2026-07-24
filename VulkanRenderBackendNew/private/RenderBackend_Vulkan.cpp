@@ -201,7 +201,7 @@ namespace graphics_backend
 			, VULKAN_API_VERSION_IN_USE);
 
 		const castl::vector<const char*> g_validationLayers{
-			 
+			"VK_LAYER_KHRONOS_validation"
 		};
 
 		auto extensions = GetInstanceExtensionNames();
@@ -504,6 +504,10 @@ namespace graphics_backend
 		m_WindowHandles[window.get()] = windowHandle;
 		return windowHandle;
 	}
+	void RenderBackend_Vulkan::WaitIdle()
+	{
+		m_Device.waitIdle();
+	}
 	bool RenderBackend_Vulkan::AnyWindowRunning()
 	{
 		for (auto it = m_WindowHandles.begin(); it != m_WindowHandles.end(); )
@@ -646,7 +650,8 @@ vk::RenderPass RenderBackend_Vulkan::GetOrCreateRenderPass(RenderPassCacheKey co
 	size_t hash = 0;
 	for (auto const& fmt : key.colorFormats)
 		cacore::hash_combine(hash, static_cast<uint32_t>(fmt));
-	cacore::hash_combine(hash, static_cast<uint32_t>(key.depthFormat));
+	if (key.hasDepth)
+		cacore::hash_combine(hash, static_cast<uint32_t>(key.depthFormat));
 	cacore::hash_combine(hash, key.hasDepth);
 
 	auto it = m_RenderPassCache.find(hash);

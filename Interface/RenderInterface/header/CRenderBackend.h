@@ -44,6 +44,7 @@ namespace graphics_backend
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) = 0;
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) = 0;
 		virtual bool AnyWindowRunning() = 0;
+		virtual void WaitIdle() = 0;
 		virtual void RunTestCode(){};
 	};
 }
