@@ -224,7 +224,17 @@ namespace graphics_backend
 		auto deviceExts = GetDeviceExtensionNames();
 		QueueContext::QueueCreationInfo queueCreationInfo{};
 		m_QueueContext.InitQueueCreationInfo(m_PhysicalDevice, queueCreationInfo);
+		// Vulkan 1.3 core features: dynamicRendering (required for GPL library renderPass=NULL)
+		vk::PhysicalDeviceVulkan13Features vulkan13Features{};
+		vulkan13Features.dynamicRendering = VK_TRUE;
+
+		// GPL extension feature
+		vk::PhysicalDeviceGraphicsPipelineLibraryFeaturesEXT gplFeatures{};
+		gplFeatures.graphicsPipelineLibrary = VK_TRUE;
+		gplFeatures.pNext = &vulkan13Features;
+
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, deviceExts);
+		deviceCreateInfo.pNext = &gplFeatures;
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_Device);
 

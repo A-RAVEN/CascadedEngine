@@ -54,7 +54,7 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR | vk::PipelineCreateFlagBits::eRetainLinkTimeOptimizationInfoEXT;
 		createInfo.pVertexInputState = &vertexInputState;
 		createInfo.pInputAssemblyState = &inputAssemblyState;
 
@@ -77,6 +77,7 @@ namespace graphics_backend
 		vk::PipelineShaderStageCreateInfo const* tessControlShader,
 		vk::PipelineShaderStageCreateInfo const* tessEvalShader,
 		vk::PipelineShaderStageCreateInfo const* geometryShader,
+		vk::PipelineLayout layout,
 		vk::PipelineViewportStateCreateInfo const& viewportState,
 		vk::PipelineRasterizationStateCreateInfo const& rasterizationState,
 		vk::PipelineDynamicStateCreateInfo const* pDynamicState,
@@ -100,9 +101,10 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR | vk::PipelineCreateFlagBits::eRetainLinkTimeOptimizationInfoEXT;
 		createInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
 		createInfo.pStages = shaderStages.data();
+		createInfo.layout = layout;
 		createInfo.pViewportState = &viewportState;
 		createInfo.pRasterizationState = &rasterizationState;
 		createInfo.pDynamicState = pDynamicState;
@@ -123,6 +125,8 @@ namespace graphics_backend
 
 	vk::Pipeline VulkanPipelineLibrary::CreateFragmentLibrary(
 		vk::PipelineShaderStageCreateInfo const& fragmentShader,
+		vk::PipelineLayout layout,
+		vk::PipelineDepthStencilStateCreateInfo const* pDepthStencilState,
 		vk::PipelineCache cache)
 	{
 		if (!m_Supported)
@@ -137,9 +141,11 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR | vk::PipelineCreateFlagBits::eRetainLinkTimeOptimizationInfoEXT;
 		createInfo.stageCount = 1;
 		createInfo.pStages = &fragmentShader;
+		createInfo.layout = layout;
+		createInfo.pDepthStencilState = pDepthStencilState;
 
 		try
 		{
@@ -173,7 +179,7 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
-		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
+		createInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR | vk::PipelineCreateFlagBits::eRetainLinkTimeOptimizationInfoEXT;
 		createInfo.pMultisampleState = &multisampleState;
 		createInfo.pDepthStencilState = depthStencilState;
 		createInfo.pColorBlendState = &colorBlendState;

@@ -51,6 +51,7 @@ namespace graphics_backend
 			vk::PipelineShaderStageCreateInfo const* tessControlShader,
 			vk::PipelineShaderStageCreateInfo const* tessEvalShader,
 			vk::PipelineShaderStageCreateInfo const* geometryShader,
+			vk::PipelineLayout layout,
 			vk::PipelineViewportStateCreateInfo const& viewportState,
 			vk::PipelineRasterizationStateCreateInfo const& rasterizationState,
 			vk::PipelineDynamicStateCreateInfo const* pDynamicState = nullptr,
@@ -59,6 +60,8 @@ namespace graphics_backend
 		// Create fragment shader library
 		vk::Pipeline CreateFragmentLibrary(
 			vk::PipelineShaderStageCreateInfo const& fragmentShader,
+			vk::PipelineLayout layout,
+			vk::PipelineDepthStencilStateCreateInfo const* pDepthStencilState = nullptr,
 			vk::PipelineCache cache = nullptr);
 
 		// Create fragment output interface library

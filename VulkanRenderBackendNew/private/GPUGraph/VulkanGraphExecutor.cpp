@@ -1581,9 +1581,10 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 							vertexInputState, inputAssemblyState, pipelineCache);
 						auto preRasterLib = pipelineLibrary.CreatePreRasterizationLibrary(
 							vertexShaderStage, nullptr, nullptr, nullptr,
-							viewportState, rasterizationState, &dynamicState, pipelineCache);
+							pipelineLayout,
+								viewportState, rasterizationState, &dynamicState, pipelineCache);
 						auto fragmentLib = pipelineLibrary.CreateFragmentLibrary(
-							fragmentShaderStage, pipelineCache);
+							fragmentShaderStage, pipelineLayout, &depthStencilState, pipelineCache);
 						auto fragmentOutputLib = pipelineLibrary.CreateFragmentOutputLibrary(
 							multisampleState, &depthStencilState, colorBlendState, pipelineCache);
 
