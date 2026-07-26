@@ -227,7 +227,6 @@ namespace graphics_backend
 		// Vulkan 1.3 core features: dynamicRendering (required for GPL library renderPass=NULL)
 		vk::PhysicalDeviceVulkan13Features vulkan13Features{};
 		vulkan13Features.dynamicRendering = VK_TRUE;
-
 		// GPL extension feature
 		vk::PhysicalDeviceGraphicsPipelineLibraryFeaturesEXT gplFeatures{};
 		gplFeatures.graphicsPipelineLibrary = VK_TRUE;
