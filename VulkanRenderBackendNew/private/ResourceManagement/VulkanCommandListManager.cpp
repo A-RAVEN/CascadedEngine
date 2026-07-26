@@ -55,26 +55,23 @@ namespace graphics_backend
 			m_TransferPool = nullptr;
 		}
 
-		m_AllocatedCommandBuffers.clear();
+		m_AllocatedGraphicsCmdBufs.clear();
+		m_AllocatedComputeCmdBufs.clear();
 		CA_LOG_INFO("VulkanCommandListManager released");
 	}
 
-	vk::CommandBuffer& VulkanCommandListManager::GraphicsCommand()
+	vk::CommandBuffer VulkanCommandListManager::GraphicsCommand()
 	{
-		if (!m_GraphicsCommand)
-		{
-			m_GraphicsCommand = AllocateCommandBuffer(m_GraphicsPool);
-		}
-		return m_GraphicsCommand;
+		auto cmdBuf = AllocateCommandBuffer(m_GraphicsPool);
+		m_AllocatedGraphicsCmdBufs.push_back(cmdBuf);
+		return cmdBuf;
 	}
 
-	vk::CommandBuffer& VulkanCommandListManager::ComputeCommand()
+	vk::CommandBuffer VulkanCommandListManager::ComputeCommand()
 	{
-		if (!m_ComputeCommand)
-		{
-			m_ComputeCommand = AllocateCommandBuffer(m_ComputePool);
-		}
-		return m_ComputeCommand;
+		auto cmdBuf = AllocateCommandBuffer(m_ComputePool);
+		m_AllocatedComputeCmdBufs.push_back(cmdBuf);
+		return cmdBuf;
 	}
 
 	vk::CommandBuffer& VulkanCommandListManager::TransferCommand()
@@ -101,6 +98,17 @@ namespace graphics_backend
 	void VulkanCommandListManager::Reset()
 	{
 		auto device = GetDevice();
+		// Free per-call allocated command buffers before resetting pools
+		if (m_GraphicsPool && !m_AllocatedGraphicsCmdBufs.empty())
+		{
+			device.freeCommandBuffers(m_GraphicsPool, m_AllocatedGraphicsCmdBufs);
+			m_AllocatedGraphicsCmdBufs.clear();
+		}
+		if (m_ComputePool && !m_AllocatedComputeCmdBufs.empty())
+		{
+			device.freeCommandBuffers(m_ComputePool, m_AllocatedComputeCmdBufs);
+			m_AllocatedComputeCmdBufs.clear();
+		}
 		if (m_GraphicsPool)
 		{
 			device.resetCommandPool(m_GraphicsPool);
@@ -113,8 +121,6 @@ namespace graphics_backend
 		{
 			device.resetCommandPool(m_TransferPool);
 		}
-		m_GraphicsCommand = nullptr;
-		m_ComputeCommand = nullptr;
 		m_TransferCommand = nullptr;
 	}
 

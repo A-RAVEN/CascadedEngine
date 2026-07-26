@@ -126,6 +126,7 @@ namespace graphics_backend
 	vk::Pipeline VulkanPipelineLibrary::CreateFragmentLibrary(
 		vk::PipelineShaderStageCreateInfo const& fragmentShader,
 		vk::PipelineLayout layout,
+		vk::RenderPass renderPass,
 		vk::PipelineDepthStencilStateCreateInfo const* pDepthStencilState,
 		vk::PipelineCache cache)
 	{
@@ -145,6 +146,7 @@ namespace graphics_backend
 		createInfo.stageCount = 1;
 		createInfo.pStages = &fragmentShader;
 		createInfo.layout = layout;
+		createInfo.renderPass = renderPass;
 		createInfo.pDepthStencilState = pDepthStencilState;
 
 		try
@@ -165,6 +167,7 @@ namespace graphics_backend
 		vk::PipelineMultisampleStateCreateInfo const& multisampleState,
 		vk::PipelineDepthStencilStateCreateInfo const* depthStencilState,
 		vk::PipelineColorBlendStateCreateInfo const& colorBlendState,
+		vk::RenderPass renderPass,
 		vk::PipelineCache cache)
 	{
 		if (!m_Supported)
@@ -183,6 +186,7 @@ namespace graphics_backend
 		createInfo.pMultisampleState = &multisampleState;
 		createInfo.pDepthStencilState = depthStencilState;
 		createInfo.pColorBlendState = &colorBlendState;
+		createInfo.renderPass = renderPass;
 
 		try
 		{

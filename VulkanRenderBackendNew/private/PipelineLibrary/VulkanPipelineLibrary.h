@@ -61,6 +61,7 @@ namespace graphics_backend
 		vk::Pipeline CreateFragmentLibrary(
 			vk::PipelineShaderStageCreateInfo const& fragmentShader,
 			vk::PipelineLayout layout,
+			vk::RenderPass renderPass,
 			vk::PipelineDepthStencilStateCreateInfo const* pDepthStencilState = nullptr,
 			vk::PipelineCache cache = nullptr);
 
@@ -69,6 +70,7 @@ namespace graphics_backend
 			vk::PipelineMultisampleStateCreateInfo const& multisampleState,
 			vk::PipelineDepthStencilStateCreateInfo const* depthStencilState,
 			vk::PipelineColorBlendStateCreateInfo const& colorBlendState,
+			vk::RenderPass renderPass,
 			vk::PipelineCache cache = nullptr);
 
 		// Link full pipeline from libraries

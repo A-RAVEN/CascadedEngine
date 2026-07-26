@@ -1404,7 +1404,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				castl::vector<vk::VertexInputBindingDescription> vertexBindings;
 				castl::vector<vk::VertexInputAttributeDescription> vertexAttributes;
 				{
-					castl::vector<cacore::NameHash> seenSlotKeys;
+					// D3D12-style: scan all streams for semantic match, binding index by stream name
+					castl::vector<cacore::NameHash> seenStreamKeys;
 
 					if (!pFileInfo->reflectionData.m_VertexAttributes.empty())
 					{
@@ -1417,49 +1418,57 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 						for (auto const& reflAttr : pFileInfo->reflectionData.m_VertexAttributes)
 						{
 							cacore::NameHash semanticNameHash(reflAttr.m_SematicName);
-							auto slotIt = batch.m_VertexInputDescs.find(semanticNameHash);
-							if (slotIt == batch.m_VertexInputDescs.end())
-								continue;
 
-							auto const& slotDesc = slotIt->second.Get();
-
-							// Find or create deterministic binding index
-							int bindingIdx = -1;
-							for (size_t k = 0; k < seenSlotKeys.size(); ++k)
+							// Scan all registered streams for matching semanticName + sematicIndex
+							bool found = false;
+							for (auto const& streamPair : batch.m_VertexInputDescs)
 							{
-								if (seenSlotKeys[k] == semanticNameHash)
+								auto const& slotDesc = streamPair.second.Get();
+								for (auto const& attr : slotDesc.attributes)
 								{
-									bindingIdx = static_cast<int>(k);
-									break;
-								}
-							}
-							if (bindingIdx < 0)
-							{
-								bindingIdx = static_cast<int>(seenSlotKeys.size());
-								seenSlotKeys.push_back(semanticNameHash);
+									if (attr.semanticName == semanticNameHash && attr.sematicIndex == reflAttr.m_SematicIndex)
+									{
+										// Find or create binding index by stream name (map key)
+										cacore::NameHash const& streamName = streamPair.first;
+										int bindingIdx = -1;
+										for (size_t k = 0; k < seenStreamKeys.size(); ++k)
+										{
+											if (seenStreamKeys[k] == streamName)
+											{
+												bindingIdx = static_cast<int>(k);
+												break;
+											}
+										}
+										if (bindingIdx < 0)
+										{
+											bindingIdx = static_cast<int>(seenStreamKeys.size());
+											seenStreamKeys.push_back(streamName);
 
-								vk::VertexInputBindingDescription binding{};
-								binding.binding = static_cast<uint32_t>(bindingIdx);
-								binding.stride = slotDesc.stride;
-								binding.inputRate = slotDesc.perInstance
-									? vk::VertexInputRate::eInstance
-									: vk::VertexInputRate::eVertex;
-								vertexBindings.push_back(binding);
-							}
+											vk::VertexInputBindingDescription binding{};
+											binding.binding = static_cast<uint32_t>(bindingIdx);
+											binding.stride = slotDesc.stride;
+											binding.inputRate = slotDesc.perInstance
+												? vk::VertexInputRate::eInstance
+												: vk::VertexInputRate::eVertex;
+											vertexBindings.push_back(binding);
+										}
 
-							// Match attribute by semanticIndex
-							for (auto const& attr : slotDesc.attributes)
-							{
-								if (attr.sematicIndex == reflAttr.m_SematicIndex)
-								{
-									vk::VertexInputAttributeDescription vkAttr{};
-									vkAttr.location = reflAttr.m_Location;
-									vkAttr.binding = static_cast<uint32_t>(bindingIdx);
-									vkAttr.format = EVertexInputFormatToVkFormat(attr.format);
-									vkAttr.offset = attr.offset;
-									vertexAttributes.push_back(vkAttr);
-									break;
+										vk::VertexInputAttributeDescription vkAttr{};
+										vkAttr.location = reflAttr.m_Location;
+										vkAttr.binding = static_cast<uint32_t>(bindingIdx);
+										vkAttr.format = EVertexInputFormatToVkFormat(attr.format);
+										vkAttr.offset = attr.offset;
+										vertexAttributes.push_back(vkAttr);
+										found = true;
+										break;
+									}
 								}
+								if (found) break;
+							}
+							if (!found)
+							{
+								CA_LOG_WARN("VulkanGraphExecutor: No vertex input found for shader attribute {}[{}]",
+									reflAttr.m_SematicName, reflAttr.m_SematicIndex);
 							}
 						}
 					}
@@ -1584,9 +1593,9 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 							pipelineLayout,
 								viewportState, rasterizationState, &dynamicState, pipelineCache);
 						auto fragmentLib = pipelineLibrary.CreateFragmentLibrary(
-							fragmentShaderStage, pipelineLayout, &depthStencilState, pipelineCache);
+							fragmentShaderStage, pipelineLayout, renderPass, &depthStencilState, pipelineCache);
 						auto fragmentOutputLib = pipelineLibrary.CreateFragmentOutputLibrary(
-							multisampleState, &depthStencilState, colorBlendState, pipelineCache);
+							multisampleState, &depthStencilState, colorBlendState, renderPass, pipelineCache);
 
 						PipelineLibraryParts parts{};
 						parts.vertexInputLibrary = vertexInputLib;
@@ -2213,31 +2222,66 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		auto& resourceManager = m_CurrentFrameContext->GetResourceManager();
 
 		// Task 10.2: Extract window semaphore sync logic to lambda
-		auto applyWindowSync = [&](vk::SubmitInfo& submitInfo, bool isLastBatch, bool hasFinalizePass,
+		// Pre-compute first batch that touches swapchain images (for acquire semaphore wait)
+		int firstSwapchainBatch = -1;
+		for (size_t idx = 0; idx < m_ExecutionBatches.size() && firstSwapchainBatch < 0; ++idx)
+		{
+			for (auto const& pair : m_ExecutionBatches[idx].batchRWStates.imageRWStates)
+			{
+				if (pair.first.GetType() == ImageHandle::ImageType::Backbuffer)
+				{
+					firstSwapchainBatch = static_cast<int>(idx);
+					break;
+				}
+			}
+		}
+
+		// Acquire semaphore wait: only on the first batch that touches swapchain images
+		auto addAcquireWait = [&](int batchIdx,
 			castl::vector<vk::Semaphore>& outWaitSems,
-			castl::vector<vk::Semaphore>& outSignalSems,
 			castl::vector<vk::PipelineStageFlags>& outWaitStages)
+		{
+			if (batchIdx != firstSwapchainBatch) return;
+			uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
+			for (uint32_t w = 0; w < windowCount; ++w)
+			{
+				auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
+				outWaitSems.push_back(sync.acquireSemaphore);
+				outWaitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+			}
+		};
+
+		// Present semaphore signal: only on the last batch with finalize pass
+		auto addPresentSignal = [&](bool isLastBatch, bool hasFinalizePass,
+			castl::vector<vk::Semaphore>& outSignalSems)
 		{
 			if (!(isLastBatch && hasFinalizePass)) return;
 			uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
 			for (uint32_t w = 0; w < windowCount; ++w)
 			{
 				auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
-				outWaitSems.push_back(sync.acquireSemaphore);
 				outSignalSems.push_back(sync.presentSemaphore);
-				outWaitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
 			}
-			submitInfo.waitSemaphoreCount = static_cast<uint32_t>(outWaitSems.size());
-			submitInfo.pWaitSemaphores = outWaitSems.data();
-			submitInfo.pWaitDstStageMask = outWaitStages.data();
-			submitInfo.signalSemaphoreCount = static_cast<uint32_t>(outSignalSems.size());
-			submitInfo.pSignalSemaphores = outSignalSems.data();
+		};
+
+		auto wireSubmitSync = [&](vk::SubmitInfo& submitInfo,
+			castl::vector<vk::Semaphore>& waitSems,
+			castl::vector<vk::Semaphore>& signalSems,
+			castl::vector<vk::PipelineStageFlags>& waitStages)
+		{
+			submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSems.size());
+			submitInfo.pWaitSemaphores = waitSems.empty() ? nullptr : waitSems.data();
+			submitInfo.pWaitDstStageMask = waitStages.empty() ? nullptr : waitStages.data();
+			submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
+			submitInfo.pSignalSemaphores = signalSems.empty() ? nullptr : signalSems.data();
 		};
 
 		for (size_t i = 0; i < m_ExecutionBatches.size(); ++i)
 		{
 			auto& batch = m_ExecutionBatches[i];
 			bool isLastBatch = (i == m_ExecutionBatches.size() - 1);
+			bool directSubmitted = false;
+			bool computeSubmitted = false;
 
 			bool hasComputeCmdBuf = batch.computeCommandBuffer != vk::CommandBuffer{};
 			bool hasDirectCmdBuf = batch.directCommandBuffer != vk::CommandBuffer{};
@@ -2256,16 +2300,16 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					vk::SubmitInfo directSubmit{};
 					directSubmit.commandBufferCount = 1;
 					directSubmit.pCommandBuffers = &batch.directCommandBuffer;
-					directSubmit.signalSemaphoreCount = 1;
-					directSubmit.pSignalSemaphores = &crossQueueSemaphore;
 
-					// Task 10.1: Add window semaphore sync for last batch with finalize pass
-					castl::vector<vk::Semaphore> waitSems, signalSems;
+					// Window sync: acquire wait + present signal + cross-queue signal
+					castl::vector<vk::Semaphore> waitSems, signalSems = { crossQueueSemaphore };
 					castl::vector<vk::PipelineStageFlags> waitStages;
-					applyWindowSync(directSubmit, isLastBatch, batch.hasFinalizePass,
-						waitSems, signalSems, waitStages);
+					addAcquireWait(static_cast<int>(i), waitSems, waitStages);
+					addPresentSignal(isLastBatch, batch.hasFinalizePass, signalSems);
+					wireSubmitSync(directSubmit, waitSems, signalSems, waitStages);
 
 					graphicsQueue.submit(directSubmit, resourceManager.GetDirectFence());
+					directSubmitted = true;
 
 					vk::SubmitInfo computeSubmit{};
 					computeSubmit.commandBufferCount = 1;
@@ -2274,6 +2318,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					computeSubmit.pWaitSemaphores = &crossQueueSemaphore;
 					computeSubmit.pWaitDstStageMask = &waitStage;
 					computeQueue.submit(computeSubmit, resourceManager.GetComputeFence());
+					computeSubmitted = true;
 				}
 				else
 				{
@@ -2288,36 +2333,22 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					computeSubmit.signalSemaphoreCount = 1;
 					computeSubmit.pSignalSemaphores = &crossQueueSemaphore;
 					computeQueue.submit(computeSubmit, resourceManager.GetComputeFence());
+					computeSubmitted = true;
 
 					vk::SubmitInfo directSubmit{};
 					directSubmit.commandBufferCount = 1;
 					directSubmit.pCommandBuffers = &batch.directCommandBuffer;
 
-					// Build wait semaphores starting with cross-queue semaphore
+					// Build wait semaphores: cross-queue first, then acquire if needed
 					castl::vector<vk::Semaphore> waitSems = { crossQueueSemaphore };
 					castl::vector<vk::Semaphore> signalSems;
 					castl::vector<vk::PipelineStageFlags> waitStages = { waitStage };
-
-					// Task 10.2: Use lambda for window sync
-					if (isLastBatch && batch.hasFinalizePass)
-					{
-						uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
-						for (uint32_t w = 0; w < windowCount; ++w)
-						{
-							auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
-							waitSems.push_back(sync.acquireSemaphore);
-							signalSems.push_back(sync.presentSemaphore);
-							waitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
-						}
-					}
-
-					directSubmit.waitSemaphoreCount = static_cast<uint32_t>(waitSems.size());
-					directSubmit.pWaitSemaphores = waitSems.data();
-					directSubmit.pWaitDstStageMask = waitStages.data();
-					directSubmit.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
-					directSubmit.pSignalSemaphores = signalSems.data();
+					addAcquireWait(static_cast<int>(i), waitSems, waitStages);
+					addPresentSignal(isLastBatch, batch.hasFinalizePass, signalSems);
+					wireSubmitSync(directSubmit, waitSems, signalSems, waitStages);
 
 					graphicsQueue.submit(directSubmit, resourceManager.GetDirectFence());
+					directSubmitted = true;
 				}
 			}
 			else
@@ -2329,6 +2360,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					computeSubmitInfo.commandBufferCount = 1;
 					computeSubmitInfo.pCommandBuffers = &batch.computeCommandBuffer;
 					computeQueue.submit(computeSubmitInfo, resourceManager.GetComputeFence());
+					computeSubmitted = true;
 				}
 
 				if (hasDirectCmdBuf)
@@ -2337,30 +2369,37 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					submitInfo.commandBufferCount = 1;
 					submitInfo.pCommandBuffers = &batch.directCommandBuffer;
 
-					// Task 10.2: Use lambda for window sync
 					castl::vector<vk::Semaphore> waitSems, signalSems;
 					castl::vector<vk::PipelineStageFlags> waitStages;
-					applyWindowSync(submitInfo, isLastBatch, batch.hasFinalizePass,
-						waitSems, signalSems, waitStages);
+					addAcquireWait(static_cast<int>(i), waitSems, waitStages);
+					addPresentSignal(isLastBatch, batch.hasFinalizePass, signalSems);
+					wireSubmitSync(submitInfo, waitSems, signalSems, waitStages);
 
 					graphicsQueue.submit(submitInfo, resourceManager.GetDirectFence());
 					resourceManager.MarkFenceSubmitted();
+					directSubmitted = true;
 				}
 			}
 
 			// Task 6.3: Batch ordering -- wait for batch N to complete before submitting batch N+1
 			{
-				vk::Fence directFence = resourceManager.GetDirectFence();
-				if (directFence)
+				if (directSubmitted)
 				{
-					device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
-					device.resetFences(directFence);
+					vk::Fence directFence = resourceManager.GetDirectFence();
+					if (directFence)
+					{
+						device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
+						device.resetFences(directFence);
+					}
 				}
-				vk::Fence computeFence = resourceManager.GetComputeFence();
-				if (computeFence)
+				if (computeSubmitted)
 				{
-					device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
-					device.resetFences(computeFence);
+					vk::Fence computeFence = resourceManager.GetComputeFence();
+					if (computeFence)
+					{
+						device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
+						device.resetFences(computeFence);
+					}
 				}
 			}
 		}

@@ -5,7 +5,12 @@
       "Bash(git mv:*)",
       "Bash(cmake --preset=x64-relWithDebugInfo)",
       "Bash(powershell -NoProfile -Command \"./.specify/scripts/powershell/setup-plan.ps1 -Json\")",
-      "Bash(powershell -ExecutionPolicy Bypass -File .specify/scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks)"
+      "Bash(powershell -ExecutionPolicy Bypass -File .specify/scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks)",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'E:\\\\Projects\\\\CascadedEngine\\\\build.bat' -Wait -NoNewWindow -RedirectStandardOutput 'E:\\\\Projects\\\\CascadedEngine\\\\_out.txt' -RedirectStandardError 'E:\\\\Projects\\\\CascadedEngine\\\\_err.txt'\")"
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "input=$(cat); ctx=$(echo \"$input\" | sed 's/.*\"used_percentage\":\\([0-9]*\\).*/\\1/'); model=$(echo \"$input\" | sed 's/.*\"display_name\":\"\\([^\"]*\\)\".*/\\1/'); cwd=$(echo \"$input\" | sed 's/.*\"cwd\":\"\\([^\"]*\\)\".*/\\1/'); echo \"上下文: ${ctx}%\"; echo \"模型: ${model}\"; echo \"工作路径: ${cwd}\""
   }
 }

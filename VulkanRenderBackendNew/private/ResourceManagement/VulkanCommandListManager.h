@@ -14,9 +14,9 @@ namespace graphics_backend
 		void Init();
 		virtual void Release() override;
 
-		// Get command buffer for graphics queue
-		vk::CommandBuffer& GraphicsCommand();
-		vk::CommandBuffer& ComputeCommand();
+		// Get command buffer for graphics queue (allocates a new one each call)
+		vk::CommandBuffer GraphicsCommand();
+		vk::CommandBuffer ComputeCommand();
 		vk::CommandBuffer& TransferCommand();
 
 		// Begin/End command buffer
@@ -39,10 +39,9 @@ namespace graphics_backend
 		vk::CommandPool m_ComputePool;
 		vk::CommandPool m_TransferPool;
 
-		vk::CommandBuffer m_GraphicsCommand;
-		vk::CommandBuffer m_ComputeCommand;
 		vk::CommandBuffer m_TransferCommand;
 
-		castl::vector<vk::CommandBuffer> m_AllocatedCommandBuffers;
+		castl::vector<vk::CommandBuffer> m_AllocatedGraphicsCmdBufs;
+		castl::vector<vk::CommandBuffer> m_AllocatedComputeCmdBufs;
 	};
 }
