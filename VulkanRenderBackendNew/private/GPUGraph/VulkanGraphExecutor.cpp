@@ -1846,8 +1846,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 		GPUTextureDescriptor firstAttachmentDesc = GetDescriptor(graph, attachments[0]);
 
-		vk::Viewport viewport{ 0.0f, 0.0f, static_cast<float>(firstAttachmentDesc.width),
-			static_cast<float>(firstAttachmentDesc.height), 0.0f, 1.0f };
+		vk::Viewport viewport{ 0.0f, static_cast<float>(firstAttachmentDesc.height), static_cast<float>(firstAttachmentDesc.width),
+			-static_cast<float>(firstAttachmentDesc.height), 0.0f, 1.0f };
 		vk::Rect2D scissor{ {0, 0}, {firstAttachmentDesc.width, firstAttachmentDesc.height} };
 		cmdBuf.setViewport(0, viewport);
 		cmdBuf.setScissor(0, scissor);
@@ -1980,8 +1980,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				auto const& vp = drawcall.GetViewPort();
 				if (vp.Valid())
 				{
-					vk::Viewport dynViewport{ static_cast<float>(vp->x), static_cast<float>(vp->y),
-						static_cast<float>(vp->width), static_cast<float>(vp->height), 0.0f, 1.0f };
+					vk::Viewport dynViewport{ static_cast<float>(vp->x), static_cast<float>(vp->y + vp->height),
+						static_cast<float>(vp->width), -static_cast<float>(vp->height), 0.0f, 1.0f };
 					cmdBuf.setViewport(0, dynViewport);
 				}
 				auto const& sc = drawcall.GetScissor();
