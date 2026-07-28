@@ -2,7 +2,9 @@
 
 Vulkan 后端并行审查发现 46 个已验证缺陷。经对抗验证审查，确认 18 critical+high 缺陷 + 审查新发现的 1 个遗漏项（pipelineLayout null check）为本 change 范围。修复按 6 个组组织：资源注册、空句柄防御、资源泄漏、同步修复、描述符管线、LinearMemoryManager 加固。
 
-`CollectResources` 是资源注册的核心入口。当前仅调用 `RegisterTemporary*`（建立临时 ResourceID），从未调用 `Register*Handle`（建立 Handle→ResourceID 映射）。这是所有后续 null handle 问题的根因。
+`CollectResources` 是资源注册的核心入口。~~当前仅调用 `RegisterTemporary*`，从未调用 `Register*Handle`~~ → **已修复**（commit 9f3fe542，tasks 1.1-1.5 完成）。剩余工作集中在空句柄防御、资源泄漏、同步、描述符安全和内存加固。
+
+**2026-07-29 基线审查**（26 agent 对抗验证，0 REFUTED）：行号全部对齐，发现 4.1 设计与现有架构冲突（已修订），4.2 已由局部 bool 实现，4.3 调用点从 6 减至 4（frame-3 修复删除了 Aquire 的 2 处），新增 3 个风险（physical device 空检查、WaitIdle 首帧 hang、Route A bind* 未包裹）。
 
 ## Goals / Non-Goals
 
@@ -38,15 +40,18 @@ Vulkan 后端并行审查发现 46 个已验证缺陷。经对抗验证审查，
 - **选择**：`m_BufferInfos.reserve(CBufferBindings.size() + BufferBindings.size())`；`m_ImageInfos.reserve(ImageBindings.size() + SamplerBindings.size())`
 - **理由**：vector push_back 重分配会使已存储的 `pBufferInfo`/`pImageInfo` 指针失效，这是最危险的 correctness bug
 
-### D4: Fence 双 bool 跟踪
+### D4: Fence 同步简化（修订，原方案：双 bool 拆分）
 
-- **选择**：`m_DirectFenceSubmitted` + `m_ComputeFenceSubmitted` 两个 bool，在每条提交路径设置对应标志；batch sync 仅 wait+reset 已提交的 fence；wait+reset 后清除标志
-- **理由**：两个 fence 独立提交，单个 bool 无法区分。跨 queue 路径也需要正确标记
+- **原方案**：`m_DirectFenceSubmitted` + `m_ComputeFenceSubmitted` 两个持久 bool
+- **问题**：SubmitBatches 已用局部 `directSubmitted`/`computeSubmitted`（line 2292-2293）实现了 per-batch sync（4.2 已完成）。持久 `m_FenceSubmitted` 仅被 `GPUFrameManager::WaitIdle` 使用，且 fence 创建时 unsignaled → 首帧 WaitIdle 的 waitForFences 永远等不到（hang）
+- **修订选择**：删除 `m_FenceSubmitted` / `MarkFenceSubmitted()` / `IsFenceSubmitted()`。`WaitIdle` 改为 `device.waitIdle()`（与 `RenderBackend_Vulkan::WaitIdle` 一致，简单且正确）
+- **理由**：双 bool 拆分解决的是不存在的问题（per-batch sync 已由局部变量覆盖），而 WaitIdle 的 fence-based 实现在首帧有 hang 风险
 
-### D5: AllocateAliasedResources 清理按 Route A/B 分支
+### D5: AllocateAliasedResources 清理按 Route A/B 分支（scope 扩展）
 
 - **选择**：检查 `managed.allocation` 是否非空。非空 → Route B（VMA 分配）→ `FreeImage/FreeBuffer`；空 → Route A（bindImageMemory）→ `device.destroyImage/destroyBuffer`
-- **理由**：两条路径的分配 API 不同，清理 API 也必须不同
+- **扩展**：Route A 的 `bindBufferMemory`（line 360）和 `bindImageMemory`（line 401）也需要 try-catch 包裹——审查发现这两个调用同样可抛 vk::SystemError，但原 task 仅覆盖 create* 调用
+- **理由**：两条路径的分配 API 不同，清理 API 也必须不同；bind* 是 Route A 独有的失败点
 
 ### D6: Init 部分失败用步进清理而非 Release()
 
@@ -58,6 +63,21 @@ Vulkan 后端并行审查发现 46 个已验证缺陷。经对抗验证审查，
 
 - **选择**：仅修 `maxLod = VK_LOD_CLAMP_NONE` + 映射 `boarderColor`（struct 中实际存在的字段）
 - **理由**：anisotropy/compare/minLod 等字段在 `TextureSamplerDescriptor` 中不存在，需先扩展 descriptor struct
+
+### D8: Init 物理设备空检查（审查新增）
+
+- **选择**：`enumeratePhysicalDevices()` 返回空列表时（无 GPU），不能直接 `.front()`（line 222，UB/crash），需检查并提前返回错误
+- **理由**：审查发现 `.front()` 无空检查。虽然实际部署不太可能无 GPU，但这是 UB 级别的缺陷
+
+### D9: 描述符 reserve 成员名对齐（审查修正）
+
+- **选择**：`m_BufferInfos.reserve(m_CBufferBindings.size() + m_BufferBindings.size())`；`m_ImageInfos.reserve(m_ImageBindings.size() + m_SamplerBindings.size())`
+- **理由**：原 D3 使用了不带 `m_` 前缀的名称，与实际成员变量不一致
+
+### D10: Sampler try-catch 位置（审查修正）
+
+- **选择**：try-catch 包在 `m_SamplerCache.get_or_create()` **外层**，不在 lambda 内
+- **理由**：lambda 内 catch 会导致 CASharedDic 缓存 null sampler（get_or_create 存储 lambda 返回值），后续调用命中缓存得到永久 null
 
 ## Risks / Trade-offs
 

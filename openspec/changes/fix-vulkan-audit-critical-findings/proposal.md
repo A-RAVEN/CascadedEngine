@@ -19,17 +19,15 @@
 
 ### C. 资源泄漏修复
 - `VulkanTexture::Init`：`createImageView` 抛异常时清理已分配的 VkImage/VMA
-- `AllocateAliasedResources` Phase B：imageView 创建失败时按 Route A/B 分支清理（Route A 用 device.destroyImage，Route B 用 VMA FreeImage）；buffer 创建失败时同样分支清理
+- `AllocateAliasedResources` Phase B：imageView 创建失败时按 Route A/B 分支清理（Route A 用 device.destroyImage，Route B 用 VMA FreeImage）；buffer 创建失败时同样分支清理。**扩展**：Route A 的 `bindBufferMemory`/`bindImageMemory` 也需 try-catch（审查新增）
 - `UploadData`（Buffer + Texture）：fence 创建失败时清理 staging buffer + command buffer
 - `VulkanResourceAliasing::FreeAliasedPool`：清除 `m_AliasedAllocations` 防止 use-after-free
 - `VulkanCommandListManager::Init`：部分命令池创建失败时清理已创建的池
-- `RenderBackend_Vulkan::Init`：部分初始化失败时步进清理已初始化的组件（不使用全量 Release()）
+- `RenderBackend_Vulkan::Init`：部分初始化失败时步进清理已初始化的组件（不使用全量 Release()）。**扩展**：`enumeratePhysicalDevices()` 返回空列表时不能 `.front()`（UB），需提前返回错误（审查新增）
 
-### D. 同步修复
-- 使用 `m_DirectFenceSubmitted` + `m_ComputeFenceSubmitted` 两个 bool 分别跟踪 fence 提交状态
-- Batch 同步仅 wait+reset 实际提交的 fence
-- fence wait+reset 后清除提交标记（Aquire 不阻塞）
-- `waitForFences` 返回值检查：覆盖全部 6 处调用（Buffer/Texture upload + SubmitBatches ×2 + FrameContext::Aquire ×2 + GPUFrameManager::WaitIdle ×2）
+### D. 同步修复（修订）
+- ~~使用 `m_DirectFenceSubmitted` + `m_ComputeFenceSubmitted` 两个 bool~~ → **修订**：SubmitBatches 已用局部 bool 实现 per-batch sync（4.2 已完成）。删除持久 `m_FenceSubmitted` / `MarkFenceSubmitted()` / `IsFenceSubmitted()`，`WaitIdle` 改为 `device.waitIdle()`（消除首帧 hang 风险，审查新增）
+- `waitForFences` 返回值检查：覆盖 **4 处**调用（Buffer/Texture upload + SubmitBatches ×2）。原 6 处中 FrameContext::Aquire 的 2 处已被 frame-3 修复删除。GPUFrameManager::WaitIdle 的 2 处在 4.1 重构中一并处理
 - `acquireNextImageKHR` / `presentKHR` 致命错误（DEVICE_LOST）传播
 
 ### E. 描述符与管线安全
@@ -60,6 +58,7 @@
 - `VulkanGraphExecutor.cpp` — CollectResources（注册）、PrepareBatchResourceBarriers（image null guard）、BuildPipelineStates（shader/renderPass/pipelineLayout null check）、RecordRenderPass（null pipeline guard）、RecordComputePass（null pipeline guard）、SubmitBatches（fence 双 bool + waitForFences 检查）、AllocUploadStagingBuffer（错误日志）
 - `VulkanGraphLocalResourceManager.cpp` — AllocateAliasedResources Phase B 泄漏修复（Route A/B 分支）
 - `VulkanResourceBindingInstance.cpp` — 描述符写入 reserve()
+- `VulkanSamplerManager.cpp` — maxLod 修复 + try-catch（外层）+ borderColor 映射
 - `VulkanResourceAliasing.cpp` — FreeAliasedPool stale 清理
 - `VulkanCommandListManager.cpp` — Init 部分失败清理
 - `VulkanLinearMemoryManager.cpp` — AllocatePage 验证 + 超大分配处理 + Reset 裁剪
