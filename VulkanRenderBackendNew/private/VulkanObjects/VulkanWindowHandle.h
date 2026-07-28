@@ -49,6 +49,9 @@ namespace graphics_backend
 		// Check if window is valid
 		bool IsValid() const { return m_Surface && m_Swapchain; }
 
+		// Swapchain image count (for per-image semaphore allocation)
+		uint32_t GetSwapchainImageCount() const { return static_cast<uint32_t>(m_SwapchainImages.size()); }
+
 		// Per-swapchain-image backbuffer resource state (aligned with D3D12 WindowContext)
 		void ApplyCurrentBackBufferResourceState(VulkanResourceState const& state);
 		VulkanResourceState const& GetCurrentBackBufferResourceState() const;

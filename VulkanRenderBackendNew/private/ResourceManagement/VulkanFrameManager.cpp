@@ -187,23 +187,12 @@ namespace graphics_backend
 
 		if (!m_FirstFrame)
 		{
-			// Only wait for fences if they were actually submitted (previous frame may have aborted early)
-			if (resourceManager.IsFenceSubmitted())
-			{
-				vk::Fence directFence = resourceManager.GetDirectFence();
-				if (directFence)
-				{
-					device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
-					device.resetFences(directFence);
-				}
-
-				vk::Fence computeFence = resourceManager.GetComputeFence();
-				if (computeFence)
-				{
-					device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
-					device.resetFences(computeFence);
-				}
-			}
+			// NOTE: Fence wait removed — SubmitBatches already does per-batch
+			// waitForFences + resetFences after every submit, so all GPU work
+			// (and semaphore consumptions) are guaranteed complete by frame end.
+			// Waiting here on an already-reset (unsignaled) fence would deadlock.
+			// TODO: For async frames-in-flight, restore fence wait here and remove
+			// the per-batch CPU serialization in SubmitBatches.
 
 			resourceManager.ResetDescriptorPool();
 			resourceManager.Reset();
@@ -219,9 +208,9 @@ namespace graphics_backend
 
 	}
 
-	void VulkanFrameContext::EnsureWindowSync(uint32_t index)
+	void VulkanFrameContext::EnsureWindowSync(uint32_t imageCount)
 	{
-		while (index >= m_WindowSyncs.size())
+		while (m_WindowSyncs.size() < imageCount)
 		{
 			auto device = GetDevice();
 			vk::SemaphoreCreateInfo semaphoreInfo{};

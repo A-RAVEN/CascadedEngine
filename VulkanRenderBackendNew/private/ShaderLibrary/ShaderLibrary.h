@@ -62,13 +62,13 @@ namespace graphics_backend
 		size_t GetHash() const
 		{
 			size_t h = 0;
-			cacore::hash_combine(h, setIndex);
+			h = cacore::hash_combine(h, setIndex);
 			for (auto const& b : bindings)
 			{
-				cacore::hash_combine(h, b.binding);
-				cacore::hash_combine(h, b.descriptorType);
-				cacore::hash_combine(h, b.descriptorCount);
-				cacore::hash_combine(h, b.stageFlags);
+				h = cacore::hash_combine(h, b.binding);
+				h = cacore::hash_combine(h, b.descriptorType);
+				h = cacore::hash_combine(h, b.descriptorCount);
+				h = cacore::hash_combine(h, b.stageFlags);
 			}
 			return h;
 		}

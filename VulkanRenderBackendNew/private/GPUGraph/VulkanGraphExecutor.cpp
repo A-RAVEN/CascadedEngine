@@ -149,10 +149,10 @@ namespace graphics_backend
 
 		// Compute hash
 		hash = 0;
-		cacore::hash_combine(hash, info.path.GetHash());
+		hash = cacore::hash_combine(hash, info.path.GetHash());
 		for (auto const& [name, structPtr] : resourceDic)
 		{
-			cacore::hash_combine(hash, name.GetHash());
+			hash = cacore::hash_combine(hash, name.GetHash());
 		}
 	}
 
@@ -470,9 +470,12 @@ namespace graphics_backend
 					if (pWindow->NeedsRecreation())
 						pWindow->RecreateSwapchain();
 
-					m_CurrentFrameContext->EnsureWindowSync(windowIdx);
+					// Per-swapchain-image semaphore allocation: grow to image count
+					m_CurrentFrameContext->EnsureWindowSync(pWindow->GetSwapchainImageCount());
+					// Use window-indexed acquire semaphore (free due to per-batch CPU serialization)
 					auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
 					pWindow->AcquireNextImage(sync.acquireSemaphore);
+					// acquiredImageIndex now stored in pWindow->GetCurrentImageIndex()
 				}
 				++windowIdx;
 			}
@@ -2237,29 +2240,35 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		}
 
 		// Acquire semaphore wait: only on the first batch that touches swapchain images
+		// Iterate over windows (not all sync entries) — only window-indexed acquire
+		// semaphores were signaled by AcquireNextImage; pushing unsignaled ones would hang.
 		auto addAcquireWait = [&](int batchIdx,
 			castl::vector<vk::Semaphore>& outWaitSems,
 			castl::vector<vk::PipelineStageFlags>& outWaitStages)
 		{
 			if (batchIdx != firstSwapchainBatch) return;
-			uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
-			for (uint32_t w = 0; w < windowCount; ++w)
+			auto const& finalizePass = graph.GetFinalizePass();
+			for (size_t w = 0; w < finalizePass.m_PresentBackBuffers.size(); ++w)
 			{
-				auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
+				auto const& sync = m_CurrentFrameContext->GetWindowSync(static_cast<uint32_t>(w));
 				outWaitSems.push_back(sync.acquireSemaphore);
 				outWaitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
 			}
 		};
 
 		// Present semaphore signal: only on the last batch with finalize pass
+		// Index by acquired swapchain image — each image's present semaphore is only
+		// re-signaled when that image is re-acquired (previous presentation retired).
 		auto addPresentSignal = [&](bool isLastBatch, bool hasFinalizePass,
 			castl::vector<vk::Semaphore>& outSignalSems)
 		{
 			if (!(isLastBatch && hasFinalizePass)) return;
-			uint32_t windowCount = m_CurrentFrameContext->GetWindowSyncCount();
-			for (uint32_t w = 0; w < windowCount; ++w)
+			auto const& finalizePass = graph.GetFinalizePass();
+			for (size_t w = 0; w < finalizePass.m_PresentBackBuffers.size(); ++w)
 			{
-				auto const& sync = m_CurrentFrameContext->GetWindowSync(w);
+				VulkanWindowHandle* pWindow = finalizePass.m_PresentBackBuffers[w].GetWindowPtr<VulkanWindowHandle>();
+				uint32_t imageIndex = pWindow->GetCurrentImageIndex();
+				auto const& sync = m_CurrentFrameContext->GetWindowSync(imageIndex);
 				outSignalSems.push_back(sync.presentSemaphore);
 			}
 		};
@@ -2452,14 +2461,13 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		}
 	}
 
-	// PresentWindows: now uses per-window present semaphore from FrameContext
+	// PresentWindows: uses per-swapchain-image present semaphore from FrameContext
 	void VulkanGraphExecutor::PresentWindows(GPUGraph const& graph)
 	{
 		auto device = GetDevice();
 		auto const& queueContext = GetApp()->GetQueueContext();
 		auto presentQueue = device.getQueue(queueContext.GetGraphicsQueueFamily(), 0);
 
-		uint32_t windowIdx = 0;
 		for (auto& backBufferImage : graph.GetFinalizePass().m_PresentBackBuffers)
 		{
 			VulkanWindowHandle* pWindow = backBufferImage.GetWindowPtr<VulkanWindowHandle>();
@@ -2468,9 +2476,10 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			if (pWindow->NeedsRecreation())
 				pWindow->RecreateSwapchain();
 
-			auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
+			// Index by acquired image so present waits on the same semaphore
+			// that SubmitBatches signaled for this image
+			auto const& sync = m_CurrentFrameContext->GetWindowSync(pWindow->GetCurrentImageIndex());
 			pWindow->Present(presentQueue, sync.presentSemaphore);
-			++windowIdx;
 		}
 	}
 

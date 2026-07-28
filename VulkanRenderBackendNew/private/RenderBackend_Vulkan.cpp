@@ -337,6 +337,18 @@ namespace graphics_backend
 	}
 	void RenderBackend_Vulkan::Release()
 	{
+		// Destroy framebuffers BEFORE window handles — framebuffers reference
+		// swapchain image views owned by window handles; destroying windows first
+		// would leave dangling view references in the framebuffers.
+		{
+			auto device = m_Device;
+			for (auto& [hash, framebuffer] : m_FramebufferCache)
+			{
+				if (framebuffer) device.destroyFramebuffer(framebuffer);
+			}
+			m_FramebufferCache.clear();
+		}
+
 		// Release all window handles before destroying device/instance
 		for (auto& [window, weakHandle] : m_WindowHandles)
 		{
@@ -382,14 +394,9 @@ namespace graphics_backend
 		// Release pipeline library
 		m_PipelineLibrary.Release();
 
-		// Cleanup cross-frame caches
+		// Cleanup cross-frame caches (framebuffers already destroyed above)
 		{
 			auto device = m_Device;
-			for (auto& [hash, framebuffer] : m_FramebufferCache)
-			{
-				if (framebuffer) device.destroyFramebuffer(framebuffer);
-			}
-			m_FramebufferCache.clear();
 			for (auto& [hash, renderPass] : m_RenderPassCache)
 			{
 				if (renderPass) device.destroyRenderPass(renderPass);
@@ -607,13 +614,13 @@ vk::PipelineLayout RenderBackend_Vulkan::GetOrCreatePipelineLayout(VulkanShaderR
 	size_t hash = 0;
 	for (auto const& setLayoutInfo : bindingInfo.setLayoutInfos)
 	{
-		cacore::hash_combine(hash, setLayoutInfo.setIndex);
+		hash = cacore::hash_combine(hash, setLayoutInfo.setIndex);
 		for (auto const& binding : setLayoutInfo.bindings)
 		{
-			cacore::hash_combine(hash, binding.descriptorType);
-			cacore::hash_combine(hash, binding.binding);
-			cacore::hash_combine(hash, binding.descriptorCount);
-			cacore::hash_combine(hash, binding.stageFlags);
+			hash = cacore::hash_combine(hash, binding.descriptorType);
+			hash = cacore::hash_combine(hash, binding.binding);
+			hash = cacore::hash_combine(hash, binding.descriptorCount);
+			hash = cacore::hash_combine(hash, binding.stageFlags);
 		}
 	}
 
@@ -658,10 +665,10 @@ vk::RenderPass RenderBackend_Vulkan::GetOrCreateRenderPass(RenderPassCacheKey co
 {
 	size_t hash = 0;
 	for (auto const& fmt : key.colorFormats)
-		cacore::hash_combine(hash, static_cast<uint32_t>(fmt));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(fmt));
 	if (key.hasDepth)
-		cacore::hash_combine(hash, static_cast<uint32_t>(key.depthFormat));
-	cacore::hash_combine(hash, key.hasDepth);
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(key.depthFormat));
+	hash = cacore::hash_combine(hash, key.hasDepth);
 
 	auto it = m_RenderPassCache.find(hash);
 	if (it != m_RenderPassCache.end())
@@ -732,11 +739,11 @@ vk::Framebuffer RenderBackend_Vulkan::GetOrCreateFramebuffer(vk::RenderPass rend
 	castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height)
 {
 	size_t hash = 0;
-	cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkRenderPass>(renderPass)));
+	hash = cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkRenderPass>(renderPass)));
 	for (auto const& view : attachments)
-		cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkImageView>(view)));
-	cacore::hash_combine(hash, width);
-	cacore::hash_combine(hash, height);
+		hash = cacore::hash_combine(hash, reinterpret_cast<uintptr_t>(static_cast<VkImageView>(view)));
+	hash = cacore::hash_combine(hash, width);
+	hash = cacore::hash_combine(hash, height);
 
 	auto it = m_FramebufferCache.find(hash);
 	if (it != m_FramebufferCache.end())

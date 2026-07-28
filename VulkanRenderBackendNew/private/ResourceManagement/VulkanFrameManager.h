@@ -63,7 +63,7 @@ namespace graphics_backend
 		void Aquire();
 		VulkanFrameBoundResourceManager& GetResourceManager() { return m_FrameBoundResourceManager; }
 
-		void EnsureWindowSync(uint32_t index);
+		void EnsureWindowSync(uint32_t imageCount);
 		WindowSync const& GetWindowSync(uint32_t index) const;
 		uint32_t GetWindowSyncCount() const { return static_cast<uint32_t>(m_WindowSyncs.size()); }
 
