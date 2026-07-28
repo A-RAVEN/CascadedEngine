@@ -55,4 +55,4 @@
 - [x] 10.1 `python build.py` 编译通过
 - [x] 10.2 `--headless 6` 运行 `TestSimpleTriangle`，validation log 为空（0 bytes），test status=pass。⚠️ 进程退出时 ThreadManager.DLL 有 teardown crash（pre-existing，非 Vulkan 后端问题，exit code 仍为 0）
 - [x] 10.3 回归测试：三个测试均 status=pass，6 帧渲染完成。发现的 VUID 均为 pre-existing（depth buffer 创建、descriptor type、multi-pass layout 等），与本次修改无关：TestTriangleWithConstantColor 有 08931/02251/01758/01209/02633；TestDoublePass 有 00337/08114/00344；TestTriangleWithImageBuffer 有 09600（纹理 layout，非 semaphore 问题）
-- [ ] 10.4 **MANUAL**：窗口显示三角形
+- [x] 10.4 **MANUAL**：窗口显示三角形
