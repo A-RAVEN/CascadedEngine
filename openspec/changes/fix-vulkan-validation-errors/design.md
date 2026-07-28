@@ -88,6 +88,36 @@ acquire wait 在 batch 2（submit #3），但 swapchain image 在 batch 1（subm
 
 - **[风险]** 传入 renderPass 后 PipelineLibraryCache 的 cache key 不含 renderPass handle → 不同 renderPass 的 pipeline 可能 cache 冲突 → **缓解**: 当前 cache key 已含 colorFormats/depthFormat/sampleCount，与 renderPass 的 attachment 配置一一对应；handle 不同但配置相同的 renderPass 是兼容的
 - **[风险]** semaphore wait 修改可能影响多 batch / 多 window 场景 → **缓解**: 当前只有单 window 场景；修法通过识别 swapchain image 操作精确定位 wait 位置，不影响无 swapchain 操作的 batch
+
+### Decision 5: 修复 hash_combine 返回值丢弃 ✅ 已完成
+
+**根因**：`cacore::hash_combine`（`CACore/header/Hasher.h:10-14`）是**值返回**函数（seed by value），但 `GetOrCreateFramebuffer`、`GetOrCreateRenderPass`、`GetOrCreatePipelineLayout`、`VulkanShaderResourceSet::Init`、`ShaderLibrary.h` 等调用点把它当 boost 引用版用，返回值丢弃 → 所有 cache key 都是 0。
+
+后果：`m_FramebufferCache` 全部碰撞 → frame 2 拿到 frame 1 的 framebuffer（绑着 image 0）→ 渲染到已 present 的 image → VUID-09600 + UNASSIGNED。
+
+**修法**（已实现）：19 行，3 个文件，所有调用点改为 `hash = cacore::hash_combine(hash, x);`。不改 `hash_combine` 本身（`PipelineLibraryCache` 已正确使用值返回契约）。
+
+### Decision 6: 修复 frame 3 死锁 ✅ 已完成
+
+**根因**：`SubmitBatches` per-batch `waitForFences + resetFences` 在帧末留下 unsignaled fence。`VulkanFrameContext::Aquire`（`VulkanFrameManager.cpp:188-206`）在 context 复用时（frame 3，2 个 frame context）`waitForFences(directFence, UINT64_MAX)` → unsignaled fence → 死锁。
+
+**修法**（已实现）：移除 `Aquire` 里的 fence wait（per-batch CPU 序列化已保证所有 GPU 工作完成，此 wait 冗余）。保留 TODO 注释：未来做 async frames-in-flight 时恢复。
+
+### Decision 7: 修复 present semaphore 复用（VUID-vkQueueSubmit-pSignalSemaphores-00067）
+
+**现象**（frame 4+）：`pSignalSemaphores[0] is being signaled, but it may still be in use by VkSwapchainKHR`。swapchain image 0 在 frame 1 被 present，frame 4 重新 acquire image 0 时，present semaphore（来自 frame context 0）被 re-signal，但 validation 认为它仍被 swapchain 使用。
+
+**根因**：当前 `WindowSync`（acquireSemaphore + presentSemaphore）按 **frame context** 分配（2 套），但 swapchain 有 3 个 image。binary semaphore 不能在被 swapchain 使用期间 re-signal。
+
+**修法**：`WindowSync` 改为按 **swapchain image index** 分配（`maxSwapchainImages` 套）。`EnsureWindowSync` 按 image count 扩展，`CompileAndExecute` 里用 `acquiredImageIndex` 索引对应的 semaphore 对。
+
+### Decision 8: 修复 teardown 销毁顺序
+
+**现象**：进程退出时 segfault（exit code 139）。
+
+**根因**：`RenderBackend_Vulkan::Release()` 先销毁 window handle（含 swapchain image view），再销毁 `m_FramebufferCache` 中的 framebuffer（引用那些 view）→ use-after-free。
+
+**修法**：在 `Release()` 中先销毁 `m_FramebufferCache` 所有 framebuffer，再销毁 window handle。
 - **[风险]** `CreateFragmentLibrary` 和 `CreateFragmentOutputLibrary` 的 API 变更影响所有调用方 → **缓解**: 当前只有 `VulkanGraphExecutor.cpp` GPL path 一个调用方
 - **[风险]** command buffer 改为每次分配可能增加 pool 碎片 → **缓解**: `Reset()` 统一 reset pool，每帧分配数量等于 batch 数（当前 3），开销可忽略
 - **[风险]** compute fence 死锁 → **已纳入 scope**（task 5）：unconditional `waitForFences(computeFence)` 在无 compute 的 batch 后死锁，阻塞所有验证。修法：仅在当 batch 有 compute submit 时 wait

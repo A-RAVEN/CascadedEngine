@@ -1,14 +1,18 @@
 ## Why
 
-Vulkan 后端 `TestSimpleTriangle` 存在多个 validation layer 问题。已修复 VUID-07904（vertex input lookup bug）。对抗验证发现 VUID-06055 的"修复"（添加 VkPipelineRenderingCreateInfo）实际上把 fragment output library 强制设为 dynamic-rendering 模式，导致 linked pipeline 的 renderPass=NULL → 引发 VUID-02684。06055 和 02684 是**同一根因**的两个症状：GPL library 创建时未传 VkRenderPass。此外 VUID-09600（image layout）的根因是 acquire semaphore 未被 wait（UNASSIGNED-non-acquired-swapchain-image-used），barrier 本身正确。
+Vulkan 后端 `TestSimpleTriangle` 存在多层 validation error 和运行时 bug。逐层修复后暴露更深层问题：第一层（vertex input / GPL renderPass）→ 第二层（command buffer 单例 / semaphore / fence）→ 第三层（hash 碰撞 / frame 3 死锁）→ 第四层（semaphore 复用 / teardown 顺序）。
 
 ## What Changes
 
-1. ~~修复 vertex input attribute lookup bug~~ ✅ 已完成（VUID-07904 消失）
-2. **GPL library 传入实际 VkRenderPass**（统一修复 VUID-06055 + VUID-02684）：`CreateFragmentLibrary` 和 `CreateFragmentOutputLibrary` 添加 `vk::RenderPass` 参数，创建时设 `createInfo.renderPass`。**回退** task 2.1 的 `VkPipelineRenderingCreateInfo`（renderPass 非 NULL 时 06055 前提不成立，不需要 rendering info）。linked pipeline 变为 renderpass pipeline，与 `beginRenderPass` 兼容
-3. **修复 command buffer 单例别名**：`VulkanCommandListManager::GraphicsCommand()` 返回同一个 VkCommandBuffer，所有 batch 共用 → 每个 batch 的 `begin()` 擦掉前一个的录制 → draw 从未执行。改为每次分配新 command buffer
-4. **修复 acquire semaphore wait**（统一修复 VUID-09600 + UNASSIGNED）：barrier 正确但 batch 1（含 swapchain barrier + draw）的 submit 未 wait acquire semaphore。预计算 `firstSwapchainBatch`（扫 `batchRWStates.imageRWStates` 找 Backbuffer），仅在该 batch 的 submit 上 wait
-5. **修复 compute fence 死锁**：`SubmitBatches` 每 batch 后 unconditional `waitForFences(computeFence)` 在无 compute 时死锁，阻塞所有测试验证。改为仅在有 compute submit 的 batch 后 wait
+1. ~~修复 vertex input attribute lookup bug~~ ✅（VUID-07904）
+2. ~~GPL library 传入实际 VkRenderPass~~ ✅（VUID-06055 + VUID-02684）
+3. ~~修复 command buffer 单例别名~~ ✅（draw 从未执行）
+4. ~~修复 acquire semaphore wait~~ ✅（VUID-09600 + UNASSIGNED，第一帧）
+5. ~~修复 compute fence 死锁~~ ✅（阻塞所有验证）
+6. ~~修复 `hash_combine` 返回值丢弃~~ ✅（framebuffer/renderpass/pipeline layout cache 全部 key=0 碰撞，frame 2+ 渲染到错误 swapchain image）
+7. ~~修复 frame 3 死锁~~ ✅（`Aquire` 里 redundant fence wait 在已 reset 的 fence 上死锁）
+8. **修复 present semaphore 复用**（VUID-vkQueueSubmit-pSignalSemaphores-00067）：当前 2 个 frame context 各 1 套 semaphore，但 swapchain 有 3 个 image。present semaphore 在 image 被重新 acquire 前就被 re-signal → 改为按 swapchain image index 分配 semaphore
+9. **修复 teardown 销毁顺序**：`Release()` 先销毁 window handle（含 image view）再销毁 framebuffer（引用那些 view）→ crash。改为先销毁 framebuffer cache
 
 ## Capabilities
 
@@ -20,6 +24,10 @@ Vulkan 后端 `TestSimpleTriangle` 存在多个 validation layer 问题。已修
 
 ## Impact
 
-- `VulkanRenderBackendNew/private/PipelineLibrary/VulkanPipelineLibrary.h/.cpp`：`CreateFragmentLibrary` + `CreateFragmentOutputLibrary` 添加 renderPass 参数；回退 VkPipelineRenderingCreateInfo
-- `VulkanRenderBackendNew/private/ResourceManagement/VulkanCommandListManager.cpp`：`GraphicsCommand()`/`ComputeCommand()` 从单例改为每次分配
-- `VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp`：GPL 调用点传入 renderPass；`SubmitBatches` semaphore wait 精确定位到 firstSwapchainBatch
+- `VulkanRenderBackendNew/private/PipelineLibrary/VulkanPipelineLibrary.h/.cpp`：renderPass 参数；回退 VkPipelineRenderingCreateInfo
+- `VulkanRenderBackendNew/private/ResourceManagement/VulkanCommandListManager.cpp`：per-call 分配
+- `VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp`：GPL 调用点；SubmitBatches semaphore/fence
+- `RenderBackend_Vulkan.cpp` + `VulkanGraphExecutor.cpp` + `ShaderLibrary.h`：hash_combine 返回值修复
+- `VulkanFrameManager.cpp`：移除 Aquire 里 redundant fence wait
+- `VulkanFrameManager.cpp/.h`：WindowSync 从 per-frame-context 改为 per-swapchain-image
+- `RenderBackend_Vulkan.cpp`：Release() 销毁顺序修复
