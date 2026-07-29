@@ -202,6 +202,12 @@ namespace graphics_backend
 	// maps during initialization. Do NOT access ShaderLibrary from multiple threads
 	// concurrently. Any future hot-reload or background-compilation feature MUST add
 	// synchronization before concurrent access.
+	//
+	// POINTER STABILITY: Get*() methods return raw pointers into these unordered_maps.
+	// These pointers are stable ONLY because the maps are never modified after
+	// ImportResource completes. Any insertion/erasure (including rehash) after
+	// pointers have been handed out will invalidate them. Do NOT modify these maps
+	// after initialization.
 	class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
 	{
 	public:

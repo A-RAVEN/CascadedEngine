@@ -24,14 +24,35 @@ namespace graphics_backend
 		info.addressModeV = mapAddressMode(desc.addressModeV);
 		info.addressModeW = mapAddressMode(desc.addressModeW);
 
+		info.maxLod = VK_LOD_CLAMP_NONE;
+
+		auto mapBorderColor = [](ETextureSamplerBorderColor color) -> vk::BorderColor {
+			switch (color)
+			{
+			case ETextureSamplerBorderColor::eTransparentBlack: return vk::BorderColor::eFloatTransparentBlack;
+			case ETextureSamplerBorderColor::eOpaqueBlack:      return vk::BorderColor::eFloatOpaqueBlack;
+			case ETextureSamplerBorderColor::eOpaqueWhite:      return vk::BorderColor::eFloatOpaqueWhite;
+			default:                                            return vk::BorderColor::eFloatTransparentBlack;
+			}
+		};
+		info.borderColor = mapBorderColor(desc.boarderColor);
+
 		return info;
 	}
 
 	vk::Sampler VulkanSamplerManager::GetOrCreateSampler(TextureSamplerDescriptor const& desc)
 	{
-		return m_SamplerCache.get_or_create(desc, [&]() -> vk::Sampler {
-			return GetDevice().createSampler(MakeSamplerCreateInfo(desc));
-		})->second;
+		try
+		{
+			return m_SamplerCache.get_or_create(desc, [&]() -> vk::Sampler {
+				return GetDevice().createSampler(MakeSamplerCreateInfo(desc));
+			})->second;
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("VulkanSamplerManager: Failed to create sampler: {}", e.what());
+			return VK_NULL_HANDLE;
+		}
 	}
 
 	void VulkanSamplerManager::Release()

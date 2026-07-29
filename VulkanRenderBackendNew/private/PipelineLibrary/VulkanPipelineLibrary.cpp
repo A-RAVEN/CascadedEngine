@@ -90,6 +90,12 @@ namespace graphics_backend
 
 		auto device = GetDevice();
 
+		if (!vertexShader.module)
+		{
+			CA_LOG_ERR("VulkanPipelineLibrary: Vertex shader module is null");
+			return nullptr;
+		}
+
 		castl::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 		shaderStages.push_back(vertexShader);
 		if (tessControlShader) shaderStages.push_back(*tessControlShader);
@@ -136,6 +142,12 @@ namespace graphics_backend
 		}
 
 		auto device = GetDevice();
+
+		if (!fragmentShader.module)
+		{
+			CA_LOG_ERR("VulkanPipelineLibrary: Fragment shader module is null");
+			return nullptr;
+		}
 
 		vk::GraphicsPipelineLibraryCreateInfoEXT libraryInfo{};
 		libraryInfo.flags = vk::GraphicsPipelineLibraryFlagBitsEXT::eFragmentShader;

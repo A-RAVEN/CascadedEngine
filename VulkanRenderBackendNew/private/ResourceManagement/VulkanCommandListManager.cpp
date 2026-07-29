@@ -14,19 +14,37 @@ namespace graphics_backend
 		vk::CommandPoolCreateInfo graphicsPoolInfo{};
 		graphicsPoolInfo.queueFamilyIndex = queueContext.GetGraphicsQueueFamily();
 		graphicsPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
-		m_GraphicsPool = device.createCommandPool(graphicsPoolInfo);
+		try { m_GraphicsPool = device.createCommandPool(graphicsPoolInfo); }
+		catch (vk::SystemError const& e) {
+			CA_LOG_ERR("VulkanCommandListManager: Failed to create graphics command pool: {}", e.what());
+			return;
+		}
 
 		// Create compute command pool
 		vk::CommandPoolCreateInfo computePoolInfo{};
 		computePoolInfo.queueFamilyIndex = queueContext.GetComputeQueueFamily();
 		computePoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
-		m_ComputePool = device.createCommandPool(computePoolInfo);
+		try { m_ComputePool = device.createCommandPool(computePoolInfo); }
+		catch (vk::SystemError const& e) {
+			CA_LOG_ERR("VulkanCommandListManager: Failed to create compute command pool: {}", e.what());
+			device.destroyCommandPool(m_GraphicsPool);
+			m_GraphicsPool = nullptr;
+			return;
+		}
 
 		// Create transfer command pool
 		vk::CommandPoolCreateInfo transferPoolInfo{};
 		transferPoolInfo.queueFamilyIndex = queueContext.GetTransferQueueFamily();
 		transferPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
-		m_TransferPool = device.createCommandPool(transferPoolInfo);
+		try { m_TransferPool = device.createCommandPool(transferPoolInfo); }
+		catch (vk::SystemError const& e) {
+			CA_LOG_ERR("VulkanCommandListManager: Failed to create transfer command pool: {}", e.what());
+			device.destroyCommandPool(m_ComputePool);
+			m_ComputePool = nullptr;
+			device.destroyCommandPool(m_GraphicsPool);
+			m_GraphicsPool = nullptr;
+			return;
+		}
 
 		CA_LOG_INFO("VulkanCommandListManager initialized successfully: "
 			"GraphicsPool={} (qf={}), ComputePool={} (qf={}), TransferPool={} (qf={})",

@@ -99,10 +99,11 @@ namespace graphics_backend
 		Page& newPage = m_Pages.back();
 		uint64_t alignedOffset = 0;
 
-		// If allocation is larger than a single page, we'd need a larger buffer
+		// If allocation is larger than a single page, fail — caller would memcpy out of bounds
 		if (size > newPage.size)
 		{
-			CA_LOG_WARN("VulkanLinearMemoryManager: Allocation size {} exceeds page size {}", size, m_PageSize);
+			CA_LOG_ERR("VulkanLinearMemoryManager: Allocation size {} exceeds page size {}, cannot allocate", size, m_PageSize);
+			return {};
 		}
 
 		newPage.currentOffset = alignedOffset + size;
@@ -116,6 +117,27 @@ namespace graphics_backend
 
 	void VulkanLinearMemoryManager::Reset()
 	{
+		// Trim old pages: AllocUploadStagingBuffer only probes m_Pages.back(),
+		// so pages before the last are dead weight. Keep at least 1 page.
+		if (m_Pages.size() > 1)
+		{
+			auto device = GetDevice();
+			auto& memoryManager = GetApp()->GetMemoryManager();
+			auto allocator = memoryManager.GetAllocator();
+
+			for (size_t i = 0; i + 1 < m_Pages.size(); ++i)
+			{
+				if (m_Pages[i].buffer)
+					device.destroyBuffer(m_Pages[i].buffer);
+				if (m_Pages[i].allocation)
+					vmaFreeMemory(allocator, m_Pages[i].allocation);
+			}
+
+			Page lastPage = m_Pages.back();
+			m_Pages.clear();
+			m_Pages.push_back(lastPage);
+		}
+
 		for (auto& page : m_Pages)
 		{
 			page.currentOffset = 0;

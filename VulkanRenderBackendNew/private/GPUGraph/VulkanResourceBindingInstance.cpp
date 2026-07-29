@@ -300,6 +300,8 @@ namespace graphics_backend
 		m_PendingWrites.clear();
 		m_BufferInfos.clear();
 		m_ImageInfos.clear();
+		m_BufferInfos.reserve(m_CBufferBindings.size() + m_BufferBindings.size());
+		m_ImageInfos.reserve(m_ImageBindings.size() + m_SamplerBindings.size());
 
 		// 5.2: Allocate descriptor sets from cached layouts
 		castl::vector<castl::pair<uint32_t, vk::DescriptorSetLayout>> setLayoutPairs;

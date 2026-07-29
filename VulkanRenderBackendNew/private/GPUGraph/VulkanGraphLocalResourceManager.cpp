@@ -357,7 +357,12 @@ namespace graphics_backend
 				// --- Route A: Aliased pool binding (if memory type compatible) ---
 				if ((vkMemReqs.memoryTypeBits & poolMemTypeBit) != 0)
 				{
-					device.bindBufferMemory(rawBuffer, dm, alignedOffset);
+					try { device.bindBufferMemory(rawBuffer, dm, alignedOffset); }
+					catch (vk::SystemError const& e) {
+						CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind buffer memory: {}", e.what());
+						device.destroyBuffer(rawBuffer);
+						return false;
+					}
 					managed.buffer = rawBuffer;
 					managed.aliasedOffset = alignedOffset;
 					managed.mappedPtr = poolMappedPtr
@@ -398,7 +403,12 @@ namespace graphics_backend
 				// --- Route A: Aliased pool binding ---
 				if ((vkMemReqs.memoryTypeBits & poolMemTypeBit) != 0)
 				{
-					device.bindImageMemory(rawImage, dm, alignedOffset);
+					try { device.bindImageMemory(rawImage, dm, alignedOffset); }
+					catch (vk::SystemError const& e) {
+						CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind image memory: {}", e.what());
+						device.destroyImage(rawImage);
+						return false;
+					}
 					managed.image = rawImage;
 					managed.aliasedOffset = alignedOffset;
 					managed.mappedPtr = poolMappedPtr
@@ -431,6 +441,10 @@ namespace graphics_backend
 				try { managed.imageView = device.createImageView(viewInfo); }
 				catch (vk::SystemError const& e) {
 					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image view: {}", e.what());
+					if (managed.allocation)
+						GetApp()->GetMemoryManager().FreeImage(managed.image, managed.allocation);
+					else
+						device.destroyImage(managed.image);
 					return false;
 				}
 			}

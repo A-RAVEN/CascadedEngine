@@ -57,7 +57,6 @@ namespace graphics_backend
 		m_CommandListManager.Reset();
 		m_StagingMemoryManager.Reset();
 		m_CrossQueueSemaphoreIndex = 0;
-		m_FenceSubmitted = false;
 	}
 
 	vk::Semaphore VulkanFrameBoundResourceManager::AllocCrossQueueSemaphore()
@@ -261,21 +260,7 @@ namespace graphics_backend
 
 	void VulkanGPUFrameManager::WaitIdle()
 	{
-		auto device = GetDevice();
-		for (auto& context : m_FrameContexts)
-		{
-			auto& resourceManager = context->GetResourceManager();
-			vk::Fence directFence = resourceManager.GetDirectFence();
-			if (directFence)
-			{
-				device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
-			}
-			vk::Fence computeFence = resourceManager.GetComputeFence();
-			if (computeFence)
-			{
-				device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
-			}
-		}
+		GetDevice().waitIdle();
 	}
 
 	void VulkanGPUFrameManager::Release()

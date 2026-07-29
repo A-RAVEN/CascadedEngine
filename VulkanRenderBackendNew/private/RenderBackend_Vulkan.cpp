@@ -219,7 +219,16 @@ namespace graphics_backend
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanInstance);
 		m_DebugMessenger = m_VulkanInstance.createDebugUtilsMessengerEXT(debugUtilsExt);
 		//Init Device
-		m_PhysicalDevice = m_VulkanInstance.enumeratePhysicalDevices().front();
+		auto physicalDevices = m_VulkanInstance.enumeratePhysicalDevices();
+		if (physicalDevices.empty())
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: No Vulkan physical devices found");
+			m_VulkanInstance.destroyDebugUtilsMessengerEXT(m_DebugMessenger);
+			m_VulkanInstance.destroy();
+			m_VulkanInstance = nullptr;
+			return;
+		}
+		m_PhysicalDevice = physicalDevices.front();
 		InitSubObj(&m_QueueContext);
 		auto deviceExts = GetDeviceExtensionNames();
 		QueueContext::QueueCreationInfo queueCreationInfo{};
@@ -234,6 +243,9 @@ namespace graphics_backend
 
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, deviceExts);
 		deviceCreateInfo.pNext = &gplFeatures;
+
+		try
+		{
 		m_Device = m_PhysicalDevice.createDevice(deviceCreateInfo);
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_Device);
 
@@ -307,6 +319,23 @@ namespace graphics_backend
 		// Init GPU Frame Manager
 		InitSubObj(&m_GPUFrameManager);
 		m_GPUFrameManager.Init();
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Init failed: {}", e.what());
+			// Stepped cleanup in reverse initialization order (no full Release())
+			if (m_PipelineCache) { m_Device.destroyPipelineCache(m_PipelineCache); m_PipelineCache = nullptr; }
+			m_PipelineLibraryCache.Release();
+			m_PipelineLibrary.Release();
+			m_CommandListManager.Release();
+			m_MemoryManager.Release();
+			m_SamplerManager.Release();
+			m_DescriptorSetLayoutContainer.Release();
+			if (m_Device) { m_Device.destroy(); m_Device = nullptr; }
+			if (m_DebugMessenger) { m_VulkanInstance.destroyDebugUtilsMessengerEXT(m_DebugMessenger); m_DebugMessenger = nullptr; }
+			if (m_VulkanInstance) { m_VulkanInstance.destroy(); m_VulkanInstance = nullptr; }
+			return;
+		}
 
 		CA_LOG_INFO("VulkanRenderBackend initialized successfully");
 	}

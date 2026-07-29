@@ -238,6 +238,12 @@ namespace graphics_backend
 			m_SwapchainOutdated = true;
 			return 0;
 		}
+		if (result.result == vk::Result::eErrorDeviceLost || result.result == vk::Result::eErrorSurfaceLostKHR)
+		{
+			CA_LOG_ERR("VulkanWindowHandle: acquireNextImageKHR fatal error: {}", vk::to_string(result.result));
+			m_SwapchainOutdated = true;
+			return 0;
+		}
 		m_CurrentImageIndex = result.value;
 		return result.value;
 	}
@@ -254,6 +260,11 @@ namespace graphics_backend
 		auto result = queue.presentKHR(presentInfo);
 		if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
 		{
+			m_SwapchainOutdated = true;
+		}
+		else if (result == vk::Result::eErrorDeviceLost || result == vk::Result::eErrorSurfaceLostKHR)
+		{
+			CA_LOG_ERR("VulkanWindowHandle: presentKHR fatal error: {}", vk::to_string(result));
 			m_SwapchainOutdated = true;
 		}
 	}

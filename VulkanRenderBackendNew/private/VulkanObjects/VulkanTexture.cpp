@@ -126,7 +126,18 @@ namespace graphics_backend
 		viewInfo.subresourceRange.baseArrayLayer = 0;
 		viewInfo.subresourceRange.layerCount = descriptor.layers;
 
-		m_ImageView = GetDevice().createImageView(viewInfo);
+		try
+		{
+			m_ImageView = GetDevice().createImageView(viewInfo);
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("VulkanTexture: Failed to create image view: {}", e.what());
+			GetApp()->GetMemoryManager().FreeImage(m_Image, m_Allocation);
+			m_Image = nullptr;
+			m_Allocation = VK_NULL_HANDLE;
+			return;
+		}
 
 		m_CurrentLayout = vk::ImageLayout::eUndefined;
 		CA_LOG_INFO("VulkanTexture created: {}x{}, format={}", descriptor.width, descriptor.height, (int)descriptor.format);
@@ -330,14 +341,22 @@ namespace graphics_backend
 		cmdListManager.EndCommandBuffer(cmdBuf);
 
 		// Submit and wait for completion (synchronous upload)
-		vk::Fence fence = device.createFence(vk::FenceCreateInfo{});
+		vk::Fence fence;
+		try { fence = device.createFence(vk::FenceCreateInfo{}); }
+		catch (vk::SystemError const& e) {
+			CA_LOG_ERR("VulkanTexture: Failed to create upload fence: {}", e.what());
+			cmdListManager.FreeCommandBuffer(cmdListManager.GetTransferPool(), cmdBuf);
+			memoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+			return;
+		}
 		queueContext.SubmitCommands(
 			queueContext.GetTransferQueueFamily(), 0,
 			cmdBuf,
 			fence);
 
 		vk::Result waitResult = device.waitForFences(fence, VK_TRUE, UINT64_MAX);
-		(void)waitResult;
+		if (waitResult != vk::Result::eSuccess)
+			CA_LOG_ERR("VulkanTexture: waitForFences failed: {}", vk::to_string(waitResult));
 		device.destroyFence(fence);
 
 		// Cleanup

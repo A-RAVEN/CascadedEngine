@@ -34,8 +34,6 @@ namespace graphics_backend
 		void CreateFences();
 		void ResetDescriptorPool();
 		vk::Semaphore AllocCrossQueueSemaphore();
-		void MarkFenceSubmitted() { m_FenceSubmitted = true; }
-		bool IsFenceSubmitted() const { return m_FenceSubmitted; }
 
 	private:
 		VulkanCommandListManager m_CommandListManager;
@@ -45,7 +43,6 @@ namespace graphics_backend
 		vk::Fence m_ComputeFence = nullptr;
 		castl::vector<vk::Semaphore> m_CrossQueueSemaphores;
 		int m_CrossQueueSemaphoreIndex = 0;
-		bool m_FenceSubmitted = false;
 
 		uint32_t m_CurrentMaxSets = 0;
 		castl::vector<vk::DescriptorPoolSize> m_CurrentPoolSizes;

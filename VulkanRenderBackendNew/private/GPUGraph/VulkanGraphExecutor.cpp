@@ -1063,6 +1063,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					acquireBarrier.srcQueueFamilyIndex = srcFamily;
 					acquireBarrier.dstQueueFamilyIndex = dstFamily;
 					acquireBarrier.image = m_LocalResourceManager.GetTexture(image);
+					if (!acquireBarrier.image) continue;
 					acquireBarrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
 					acquireBarrier.subresourceRange.baseMipLevel = 0;
 					acquireBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
@@ -1092,6 +1093,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 						releaseBarrier.srcQueueFamilyIndex = srcFamily;
 						releaseBarrier.dstQueueFamilyIndex = dstFamily;
 						releaseBarrier.image = m_LocalResourceManager.GetTexture(image);
+						if (!releaseBarrier.image) continue;
 						releaseBarrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
 						releaseBarrier.subresourceRange.baseMipLevel = 0;
 						releaseBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
@@ -1115,6 +1117,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 						acquireBarrier.srcQueueFamilyIndex = srcFamily;
 						acquireBarrier.dstQueueFamilyIndex = dstFamily;
 						acquireBarrier.image = m_LocalResourceManager.GetTexture(image);
+						if (!acquireBarrier.image) continue;
 						acquireBarrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
 						acquireBarrier.subresourceRange.baseMipLevel = 0;
 						acquireBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
@@ -1143,6 +1146,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				barrier.image = m_LocalResourceManager.GetTexture(image);
+				if (!barrier.image) continue;
 				barrier.subresourceRange.aspectMask = GetImageAspectMask(image, graph);
 				barrier.subresourceRange.baseMipLevel = 0;
 				barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
@@ -1384,10 +1388,20 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					continue;
 				}
 
-				vk::ShaderModule vertexShaderModule = hasVertex ? pApp->GetOrCreateShaderModule(vertexProgramHash) : nullptr;
-				vk::ShaderModule fragmentShaderModule = hasFragment ? pApp->GetOrCreateShaderModule(fragmentProgramHash) : nullptr;
+				vk::ShaderModule vertexShaderModule = pApp->GetOrCreateShaderModule(vertexProgramHash);
+				vk::ShaderModule fragmentShaderModule = pApp->GetOrCreateShaderModule(fragmentProgramHash);
+				if (!vertexShaderModule || !fragmentShaderModule)
+				{
+					CA_LOG_WARN("VulkanGraphExecutor: Failed to create shader module(s), skipping pipeline creation");
+					continue;
+				}
 
 				vk::PipelineLayout pipelineLayout = pApp->GetOrCreatePipelineLayout(pFileInfo->shaderBindingInfo);
+				if (!pipelineLayout)
+				{
+					CA_LOG_WARN("VulkanGraphExecutor: Failed to create pipeline layout, skipping pipeline creation");
+					continue;
+				}
 
 				vk::PipelineShaderStageCreateInfo vertexShaderStage{};
 				vertexShaderStage.stage = vk::ShaderStageFlagBits::eVertex;
@@ -1535,6 +1549,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					}
 				}
 				vk::RenderPass renderPass = GetApp()->GetOrCreateRenderPass(rpKey);
+				if (!renderPass)
+				{
+					CA_LOG_WARN("VulkanGraphExecutor: Failed to create render pass, skipping pipeline creation");
+					continue;
+				}
 
 				// ===== MRT Blend State =====
 				uint32_t attachmentCount = rasterPass.GetColorAttachmentCount();
@@ -1675,7 +1694,17 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				if (!hasCompute) continue;
 
 				vk::ShaderModule computeShaderModule = pApp->GetOrCreateShaderModule(computeProgramHash);
+				if (!computeShaderModule)
+				{
+					CA_LOG_WARN("VulkanGraphExecutor: Failed to create compute shader module, skipping pipeline creation");
+					continue;
+				}
 				vk::PipelineLayout pipelineLayout = pApp->GetOrCreatePipelineLayout(pFileInfo->shaderBindingInfo);
+				if (!pipelineLayout)
+				{
+					CA_LOG_WARN("VulkanGraphExecutor: Failed to create compute pipeline layout, skipping pipeline creation");
+					continue;
+				}
 
 				vk::PipelineShaderStageCreateInfo computeShaderStage{};
 				computeShaderStage.stage = vk::ShaderStageFlagBits::eCompute;
@@ -1917,8 +1946,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			auto& drawcallBatch = rasterPass.GetDrawCallBatches()[batchID];
 			auto& batchData = rasterData.drawcallBatchs[batchID];
 
-			if (batchData.pipeline)
-				cmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.pipeline);
+			if (!batchData.pipeline) continue;
+			cmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, batchData.pipeline);
 
 			if (batchData.pResourceBindingInstance && batchData.pipelineLayout)
 			{
@@ -2033,8 +2062,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			auto& dispatch = computePass.dispatchs[dispatchID];
 			auto& dispatchData = computeData.dispatchs[dispatchID];
 
-			if (dispatchData.pipeline)
-				targetCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, dispatchData.pipeline);
+			if (!dispatchData.pipeline) continue;
+			targetCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, dispatchData.pipeline);
 
 			if (dispatchData.pResourceBindingInstance && dispatchData.pipelineLayout)
 			{
@@ -2385,7 +2414,6 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					wireSubmitSync(submitInfo, waitSems, signalSems, waitStages);
 
 					graphicsQueue.submit(submitInfo, resourceManager.GetDirectFence());
-					resourceManager.MarkFenceSubmitted();
 					directSubmitted = true;
 				}
 			}
@@ -2397,7 +2425,9 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					vk::Fence directFence = resourceManager.GetDirectFence();
 					if (directFence)
 					{
-						device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
+						vk::Result waitResult = device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
+						if (waitResult != vk::Result::eSuccess)
+							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (direct) failed: {}", vk::to_string(waitResult));
 						device.resetFences(directFence);
 					}
 				}
@@ -2406,7 +2436,9 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					vk::Fence computeFence = resourceManager.GetComputeFence();
 					if (computeFence)
 					{
-						device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
+						vk::Result waitResult = device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
+						if (waitResult != vk::Result::eSuccess)
+							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (compute) failed: {}", vk::to_string(waitResult));
 						device.resetFences(computeFence);
 					}
 				}

@@ -204,6 +204,7 @@ namespace graphics_backend
 		m_AliasedPoolMemoryType = 0;
 		m_AliasedPoolMappedPtr = nullptr;
 
+		m_AliasedAllocations.clear();
 		m_TotalAliasedSize = 0;
 		CA_LOG_INFO("VulkanResourceAliasing: Freed aliased pool");
 	}

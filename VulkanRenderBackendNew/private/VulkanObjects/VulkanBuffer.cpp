@@ -182,14 +182,22 @@ namespace graphics_backend
 			cmdListManager.EndCommandBuffer(cmdBuf);
 
 			// Submit and wait for completion (synchronous upload)
-			vk::Fence fence = device.createFence(vk::FenceCreateInfo{});
+			vk::Fence fence;
+			try { fence = device.createFence(vk::FenceCreateInfo{}); }
+			catch (vk::SystemError const& e) {
+				CA_LOG_ERR("VulkanBuffer: Failed to create upload fence: {}", e.what());
+				cmdListManager.FreeCommandBuffer(cmdListManager.GetTransferPool(), cmdBuf);
+				memoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+				return;
+			}
 			queueContext.SubmitCommands(
 				queueContext.GetTransferQueueFamily(), 0,
 				cmdBuf,
 				fence);
 
 			vk::Result waitResult = device.waitForFences(fence, VK_TRUE, UINT64_MAX);
-			(void)waitResult;
+			if (waitResult != vk::Result::eSuccess)
+				CA_LOG_ERR("VulkanBuffer: waitForFences failed: {}", vk::to_string(waitResult));
 			device.destroyFence(fence);
 
 			// Cleanup
