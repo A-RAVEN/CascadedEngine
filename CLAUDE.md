@@ -34,6 +34,6 @@ C++ (CMake build system): Follow standard conventions
 ## 工作规则
 
 - **禁止编译/配置**: 除非用户明确说明，不要尝试配置或编译此项目。但如果当前 OpenSpec change 的 tasks 中明确包含编译验证步骤（如 `build.py`），可直接执行无需征询同意
-- **禁止自动执行后续任务**: 除非用户明确说明继续实行任务，禁止执行tasks中后续的任务
 - **禁止 sleep 轮询异步任务**: Workflow/Agent/Bash 异步任务完成后会自动发送通知，禁止用 `sleep N` 循环轮询等待
+- **审查闭环**: tasks 中最后一个任务必须是审查任务（Review & Adversarial Verify）。对刚完成的所有任务做正确性/完整性/诚实性审查，需开 workflow 做对抗验证。验证发现的新问题必须添加为新的 task（附加 `[AUDIT]` 前缀），然后追加一个新的审查任务，继续执行。循环直到审查无新问题或达到 3 轮。审查结果写入 tasks.md 末尾的 `## Review Log` 区域
 <!-- MANUAL ADDITIONS END -->

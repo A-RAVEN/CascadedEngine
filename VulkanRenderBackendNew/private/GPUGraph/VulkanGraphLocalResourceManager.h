@@ -93,6 +93,9 @@ namespace graphics_backend
 		// Phase B: bind a single buffer to aliased pool (shared with AddBuffer)
 		bool BindBufferToAliasedPool(uint64_t id, VkDeviceMemory deviceMemory, void* poolMappedPtr);
 
+		// Phase 2: bind all resources to physical memory at VirtualBlock offsets
+		bool BindResourcesToPhysicalMemory();
+
 		castl::unordered_map<uint64_t, GraphLocalResource> m_LocalResources;
 		castl::unordered_map<uint64_t, ManagedGPUResource> m_Resources;
 		VulkanResourceAliasing m_AliasingManager;

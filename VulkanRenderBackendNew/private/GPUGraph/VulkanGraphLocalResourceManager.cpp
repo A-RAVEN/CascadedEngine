@@ -184,6 +184,7 @@ namespace graphics_backend
 		{
 			it->second.firstUseBatch = castl::min(it->second.firstUseBatch, batchIndex);
 			it->second.lastUseBatch = castl::max(it->second.lastUseBatch, batchIndex);
+			m_AliasingManager.ExtendResourceLifetime(resourceId, it->second.firstUseBatch, it->second.lastUseBatch);
 		}
 	}
 
@@ -277,10 +278,36 @@ namespace graphics_backend
 
 		// Get real alignment and compute aligned offset
 		vk::MemoryRequirements vkMemReqs = device.getBufferMemoryRequirements(rawBuffer);
-		uint64_t alignedOffset = (aliasedAlloc.offset + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
+
+		// Fix F1: if resource was added after pool allocation (size==0 → not in plan),
+		// append to end of pool rather than silently binding at offset 0.
+		uint64_t alignedOffset;
+		if (aliasedAlloc.size == 0)
+		{
+			// New resource — place after all planned resources
+			uint64_t totalAliasedSize = m_AliasingManager.GetTotalAliasedSize();
+			alignedOffset = (totalAliasedSize + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
+			// Update the aliasing plan so this resource's offset is tracked
+			AliasedAllocation newAlloc{};
+			newAlloc.offset = alignedOffset;
+			newAlloc.size = vkMemReqs.size;
+			newAlloc.allocation = m_AliasingManager.IsPoolAllocated() ? m_AliasingManager.GetAliasedAllocation(id).allocation : VK_NULL_HANDLE;
+			newAlloc.mappedPtr = poolMappedPtr ? static_cast<uint8_t*>(poolMappedPtr) + alignedOffset : nullptr;
+			// Update via the internal map — RegisterLateResource exposes the offset tracking
+			m_AliasingManager.UpdateAliasedAllocationForLateResource(id, newAlloc, vkMemReqs.size);
+		}
+		else
+		{
+			alignedOffset = (aliasedAlloc.offset + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
+		}
 
 		vk::DeviceMemory dm{ deviceMemory };
-		device.bindBufferMemory(rawBuffer, dm, alignedOffset);
+		try { device.bindBufferMemory(rawBuffer, dm, alignedOffset); }
+		catch (vk::SystemError const& e) {
+			CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind late buffer memory: {}", e.what());
+			device.destroyBuffer(rawBuffer);
+			return false;
+		}
 
 		managed.buffer = rawBuffer;
 		managed.aliasedOffset = alignedOffset;
@@ -312,6 +339,88 @@ namespace graphics_backend
 		// Replan with real alignment and size from hardware
 		m_AliasingManager.ReplanWithRealAlignment(realMemReqs);
 
+		// === Try VirtualBlock two-phase path first (D3D12-equivalent aliasing) ===
+		// Create VirtualBlocks on first frame; subsequent frames reuse via ResetVirtualBlocks
+		if (!m_AliasingManager.GetBlockPool(0))
+		{
+			if (!m_AliasingManager.CreateVirtualBlocks())
+				{
+					m_AliasingManager.DestroyVirtualBlocks();
+					goto FALLBACK_SINGLE_POOL;
+				}
+		}
+		else
+		{
+			m_AliasingManager.ResetVirtualBlocks();
+		}
+		{
+			// Phase 1: Per-batch virtual allocation — aliasing core
+			uint32_t maxBatch = 0;
+			for (auto const& [id, resource] : m_LocalResources)
+			{
+				if (resource.lastUseBatch > maxBatch) maxBatch = resource.lastUseBatch;
+			}
+
+			// Build per-batch registry from lifetime data
+			castl::vector<castl::vector<uint64_t>> newOnBatch(maxBatch + 1);
+			castl::vector<castl::vector<uint64_t>> dyingAfterBatch(maxBatch + 1);
+
+			for (auto const& [id, resource] : m_LocalResources)
+			{
+				newOnBatch[resource.firstUseBatch].push_back(id);
+				dyingAfterBatch[resource.lastUseBatch].push_back(id);
+			}
+
+			for (uint32_t batch = 0; batch <= maxBatch; ++batch)
+			{
+				// Free resources whose lifetime ends after this batch
+				m_AliasingManager.FreeResourcesUpToBatch(batch);
+
+				// Allocate new resources for this batch
+				for (uint64_t resourceId : newOnBatch[batch])
+				{
+					auto rit = realMemReqs.find(resourceId);
+					if (rit == realMemReqs.end()) continue;
+
+					auto lit = m_LocalResources.find(resourceId);
+					if (lit == m_LocalResources.end()) continue;
+
+					bool isBuffer = (lit->second.type == GraphLocalResource::Type::Buffer);
+					uint64_t offset;
+					uint32_t blockIdx;
+					if (!m_AliasingManager.AllocResource(resourceId, rit->second.size, rit->second.alignment,
+						lit->second.firstUseBatch, lit->second.lastUseBatch, isBuffer,
+						offset, blockIdx))
+					{
+						CA_LOG_WARN("VulkanGraphLocalResourceManager: Virtual alloc failed for resource {}", resourceId);
+					}
+				}
+			}
+
+			// Phase 2: Commit physical memory
+			if (!m_AliasingManager.CommitVirtualAllocations())
+			{
+				CA_LOG_ERR("VulkanGraphLocalResourceManager: VirtualBlock commit failed, falling back to single-pool path");
+				m_AliasingManager.DestroyVirtualBlocks();
+				goto FALLBACK_SINGLE_POOL;
+			}
+
+			// Phase B: Bind resources to committed physical memory using virtual offsets
+			if (!BindResourcesToPhysicalMemory())
+			{
+				CA_LOG_ERR("VulkanGraphLocalResourceManager: Physical binding failed");
+				return false;
+			}
+
+			CA_LOG_INFO("VulkanGraphLocalResourceManager: Allocated {} resources via VirtualBlock aliasing"
+				, m_Resources.size());
+			return true;
+		}
+
+	FALLBACK_SINGLE_POOL:
+
+		// === Existing single-pool path (fallback / incremental adoption) ===
+
 		// Step 2: Allocate pool with corrected total size
 		if (!m_AliasingManager.AllocateAliasedPool(m_AliasingManager.GetTotalAliasedSize()))
 		{
@@ -326,7 +435,6 @@ namespace graphics_backend
 		VkDeviceMemory deviceMemory = m_AliasingManager.GetPoolDeviceMemory();
 		void* poolMappedPtr = m_AliasingManager.GetMappedPtr();
 		auto device = GetDevice();
-		auto rawDevice = static_cast<VkDevice>(device);
 
 		// Phase B: Create real resources bound to aliased pool
 		vk::DeviceMemory dm{ deviceMemory };
@@ -456,6 +564,92 @@ namespace graphics_backend
 
 		CA_LOG_INFO("VulkanGraphLocalResourceManager: Allocated {} resources, total memory: {}"
 			, m_Resources.size(), m_TotalMemoryUsed);
+		return true;
+	}
+
+	bool VulkanGraphLocalResourceManager::BindResourcesToPhysicalMemory()
+	{
+		auto device = GetDevice();
+		auto const& activeAllocs = m_AliasingManager.GetActiveVirtualAllocs();
+
+		for (auto const& [id, localResource] : m_LocalResources)
+		{
+			auto allocIt = activeAllocs.find(id);
+			if (allocIt == activeAllocs.end())
+				continue;
+
+			auto const& virtAlloc = allocIt->second;
+			auto const* blockPool = m_AliasingManager.GetBlockPool(virtAlloc.blockIndex);
+			if (!blockPool || !blockPool->deviceMemory)
+				continue;
+
+			ManagedGPUResource managed{};
+			managed.localResource = &localResource;
+			managed.aliasedOffset = virtAlloc.offset;
+			managed.mappedPtr = blockPool->mappedPtr
+				? static_cast<uint8_t*>(blockPool->mappedPtr) + virtAlloc.offset : nullptr;
+
+			if (localResource.type == GraphLocalResource::Type::Buffer)
+			{
+				vk::BufferCreateInfo bufferInfo{};
+				FillBufferCreateInfo(localResource, bufferInfo);
+
+				try { managed.buffer = device.createBuffer(bufferInfo, nullptr); }
+				catch (vk::SystemError const& e) {
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create buffer in Phase 2: {}", e.what());
+					return false;
+				}
+
+				vk::DeviceMemory dm{ blockPool->deviceMemory };
+				try { device.bindBufferMemory(managed.buffer, dm, virtAlloc.offset); }
+				catch (vk::SystemError const& e) {
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind buffer to virtual offset {}: {}",
+						virtAlloc.offset, e.what());
+					device.destroyBuffer(managed.buffer);
+					return false;
+				}
+			}
+			else
+			{
+				vk::ImageCreateInfo imageInfo{};
+				FillImageCreateInfo(localResource, imageInfo);
+
+				try { managed.image = device.createImage(imageInfo, nullptr); }
+				catch (vk::SystemError const& e) {
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image in Phase 2: {}", e.what());
+					return false;
+				}
+
+				vk::DeviceMemory dm{ blockPool->deviceMemory };
+				try { device.bindImageMemory(managed.image, dm, virtAlloc.offset); }
+				catch (vk::SystemError const& e) {
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind image to virtual offset {}: {}",
+						virtAlloc.offset, e.what());
+					device.destroyImage(managed.image);
+					return false;
+				}
+
+				// Create image view
+				vk::ImageViewCreateInfo viewInfo{};
+				viewInfo.image = managed.image;
+				viewInfo.viewType = vk::ImageViewType::e2D;
+				viewInfo.format = imageInfo.format;
+				viewInfo.subresourceRange.aspectMask = GetImageAspectMask(localResource.textureDesc.format);
+				viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
+				viewInfo.subresourceRange.layerCount = imageInfo.arrayLayers;
+
+				try { managed.imageView = device.createImageView(viewInfo); }
+				catch (vk::SystemError const& e) {
+					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to create image view in Phase 2: {}", e.what());
+					device.destroyImage(managed.image);
+					return false;
+				}
+			}
+
+			m_Resources[id] = managed;
+		}
+
+		m_TotalMemoryUsed = m_AliasingManager.GetTotalAliasedSize();
 		return true;
 	}
 
