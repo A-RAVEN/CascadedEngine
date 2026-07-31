@@ -2,6 +2,8 @@
 
 审计还发现了 13 个 medium 和 15 个 low 级别缺陷，虽不直接阻塞渲染管线，但涵盖性能退化、静默数据损坏、生产环境启动失败、缓存无限膨胀、未定义行为等问题。趁开发阶段一并修复，避免积累技术债务。
 
+<!-- Audited 2026-07-31 against baseline (post vulkan-resource-aliasing-full commit 93da7cf): 18/19 findings confirmed STILL_PRESENT, 1 OBSOLETE (3.4: m_AllocatedCommandBuffers dead code — member already refactored into m_AllocatedGraphicsCmdBufs + m_AllocatedComputeCmdBufs, both actively used). 0 ALREADY_FIXED. -->
+
 ## What Changes
 
 ### A. Barrier 与管线效率（medium）
@@ -47,7 +49,7 @@
 - `VulkanResourceAliasing.cpp` — ReplanWithRealAlignment（总大小重算）
 - `VulkanPipelineLibrary.cpp` — GPL LinkPipeline 失败清理
 - `RenderBackend_Vulkan.cpp` — 条件 validation layer、pipeline cache 双重保护、swapchain 缓存清除、fence 超时
-- `VulkanCommandListManager.cpp` — 空返回修复、死代码移除
+- `VulkanCommandListManager.cpp` — 空返回修复
 - `VulkanLinearMemoryManager.cpp` — push_back 异常安全
 - `VulkanMemoryManager.cpp` — out 参数初始化
 - `TextureSampler.h` — integerFormat bug 修复

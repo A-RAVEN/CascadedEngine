@@ -2,6 +2,8 @@
 
 审计发现的 28 个 medium/low 缺陷，不阻塞渲染链路但影响质量。分为四类：barrier 效率、错误路径、内存清理、API 正确性。修复简单直接，每个缺陷 ~3-5 行改动。
 
+<!-- 2026-07-31 baseline audit: 18/19 confirmed STILL_PRESENT, task 3.4 (m_AllocatedCommandBuffers dead code) OBSOLETE — removed from tasks. -->
+
 ## Goals / Non-Goals
 
 **Goals:**

@@ -1,6 +1,7 @@
 # Tasks: 修复 Vulkan 审计剩余缺陷
 
 **Change ID**: fix-vulkan-audit-remaining-findings
+<!-- Audited 2026-07-31 against baseline (post vulkan-resource-aliasing-full): 18/19 STILL_PRESENT, 1 OBSOLETE -->
 
 ---
 
@@ -26,8 +27,7 @@
 - [ ] 3.1 `VulkanResourceAliasing.cpp` — `ReplanWithRealAlignment`：结束前遍历所有 lifetime 重新计算 `m_TotalUnaliasedSize`（~line 28）【D-37】
 - [ ] 3.2 `VulkanGraphExecutor.cpp` — `BuildPipelineStates` GPL 路径：`LinkPipeline` 失败时销毁本次创建的 4 个 library part（~line 1570）【D-49】
 - [ ] 3.3 `RenderBackend_Vulkan.cpp` — swapchain 重建时清空 `m_FramebufferCache`（~line 341）【D-50】
-- [ ] 3.4 `VulkanCommandListManager.h` — 移除未使用的 `m_AllocatedCommandBuffers` 成员（~line 46）及相关 clear 调用【D-57】
-- [ ] 3.5 `VulkanLinearMemoryManager.cpp` — `AllocatePage`：`m_Pages.push_back(page)` 包在 try-catch 中，失败时 vmaDestroyBuffer（~line 68）【D-58】
+- [ ] 3.4 `VulkanLinearMemoryManager.cpp` — `AllocatePage`：`m_Pages.push_back(page)` 包在 try-catch 中，失败时 vmaDestroyBuffer（~line 68）【D-58】
 
 ## 4. API 字段正确性
 
@@ -37,3 +37,11 @@
 ## 5. 编译验证
 
 - [ ] 5.1 运行 `build.py`，确认 BUILD SUCCESSFUL
+
+## 6. 审查（Review & Adversarial Verify）
+
+- [ ] 6.1 对抗验证：对全部 18 个修复点做正确性/完整性/诚实性审查，开 workflow ≥3 票对抗验证，新发现的问题追加 `[AUDIT]` task。循环直到无新问题或 3 轮。结果写入 `## Review Log`
+
+---
+
+## Review Log
