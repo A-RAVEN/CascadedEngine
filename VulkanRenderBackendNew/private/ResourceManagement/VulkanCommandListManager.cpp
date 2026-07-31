@@ -169,6 +169,7 @@ namespace graphics_backend
 			CA_LOG_ERR("VulkanCommandListManager: allocateCommandBuffers returned empty vector");
 			fflush(stdout);
 			__debugbreak();
+			return vk::CommandBuffer{};
 		}
 		catch (vk::SystemError const& e)
 		{

@@ -290,6 +290,7 @@ namespace graphics_backend
 	void VulkanWindowHandle::RecreateSwapchain()
 	{
 		CleanupSwapchain();
+		GetApp()->ClearFramebufferCache(); // old framebuffers reference destroyed swapchain imageViews
 		CreateSwapchain();
 		CreateImageViews();
 		m_SwapchainOutdated = false;
@@ -309,7 +310,7 @@ namespace graphics_backend
 	{
 		if (m_CurrentImageIndex < m_BackBufferResourceStates.size())
 			return m_BackBufferResourceStates[m_CurrentImageIndex];
-		static VulkanResourceState s_Default = VulkanResourceState::InitializedState();
+		static VulkanResourceState s_Default = VulkanResourceState::InitializedImageState();
 		return s_Default;
 	}
 }

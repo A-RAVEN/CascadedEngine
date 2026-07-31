@@ -50,6 +50,7 @@ namespace graphics_backend
 		if (result != VK_SUCCESS)
 		{
 			CA_LOG_ERR("Failed to allocate Vulkan buffer: {}", (int)result);
+		outBuffer = vk::Buffer{};
 			return VK_NULL_HANDLE;
 		}
 
@@ -75,6 +76,7 @@ namespace graphics_backend
 		if (result != VK_SUCCESS)
 		{
 			CA_LOG_ERR("Failed to allocate Vulkan image: {}", (int)result);
+		outImage = vk::Image{};
 			return VK_NULL_HANDLE;
 		}
 

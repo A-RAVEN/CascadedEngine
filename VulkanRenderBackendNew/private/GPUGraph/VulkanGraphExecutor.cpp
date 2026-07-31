@@ -70,7 +70,41 @@ namespace graphics_backend
 		}
 	}
 
-	// Helper functions for getting descriptors
+			// AccessToPipelineStages: Map vk::AccessFlags → minimum vk::PipelineStageFlags
+		// Used by ExecuteBarriers to compute tight stage masks instead of eAllCommands.
+		static vk::PipelineStageFlags AccessToPipelineStages(vk::AccessFlags access)
+		{
+			vk::PipelineStageFlags stages{};
+			if (access & vk::AccessFlagBits::eIndirectCommandRead)
+				stages |= vk::PipelineStageFlagBits::eDrawIndirect;
+			if (access & (vk::AccessFlagBits::eIndexRead | vk::AccessFlagBits::eVertexAttributeRead))
+				stages |= vk::PipelineStageFlagBits::eVertexInput;
+			if (access & vk::AccessFlagBits::eUniformRead)
+				stages |= vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader;
+			if (access & vk::AccessFlagBits::eShaderRead)
+				stages |= vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader;
+			if (access & vk::AccessFlagBits::eShaderWrite)
+				stages |= vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader;
+			if (access & vk::AccessFlagBits::eColorAttachmentRead)
+				stages |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+			if (access & vk::AccessFlagBits::eColorAttachmentWrite)
+				stages |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+			if (access & vk::AccessFlagBits::eDepthStencilAttachmentRead)
+				stages |= vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
+			if (access & vk::AccessFlagBits::eDepthStencilAttachmentWrite)
+				stages |= vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
+			if (access & (vk::AccessFlagBits::eTransferRead | vk::AccessFlagBits::eTransferWrite))
+				stages |= vk::PipelineStageFlagBits::eTransfer;
+			if (access & (vk::AccessFlagBits::eHostRead | vk::AccessFlagBits::eHostWrite))
+				stages |= vk::PipelineStageFlagBits::eHost;
+			if (access & vk::AccessFlagBits::eMemoryRead)
+				stages |= vk::PipelineStageFlagBits::eAllCommands;
+			if (access & vk::AccessFlagBits::eMemoryWrite)
+				stages |= vk::PipelineStageFlagBits::eAllCommands;
+			return stages;
+		}
+
+// Helper functions for getting descriptors
 	GPUTextureDescriptor GetDescriptor(GPUGraph const& graph, ImageHandle const& image)
 	{
 		switch (image.GetType())
@@ -280,30 +314,37 @@ namespace graphics_backend
 
 	void VulkanRenderStateBarriers::ExecuteBarriers(vk::CommandBuffer cmdBuf)
 	{
-		if (!imageBarriers.empty())
+		if (imageBarriers.empty() && bufferBarriers.empty())
+			return;
+
+		// Collect all barriers and compute tight stage masks from access flags
+		castl::vector<vk::ImageMemoryBarrier> imgBarriers;
+		imgBarriers.reserve(imageBarriers.size());
+		castl::vector<vk::BufferMemoryBarrier> bufBarriers;
+		bufBarriers.reserve(bufferBarriers.size());
+
+		vk::PipelineStageFlags srcStage{};
+		vk::PipelineStageFlags dstStage{};
+
+		for (auto& ib : imageBarriers)
 		{
-			castl::vector<vk::ImageMemoryBarrier> barriers;
-			barriers.reserve(imageBarriers.size());
-			for (auto& ib : imageBarriers)
-				barriers.push_back(ib.barrier);
-			cmdBuf.pipelineBarrier(
-				vk::PipelineStageFlagBits::eAllCommands,
-				vk::PipelineStageFlagBits::eAllCommands,
-				vk::DependencyFlags{},
-				{}, {}, barriers);
+			imgBarriers.push_back(ib.barrier);
+			srcStage |= AccessToPipelineStages(ib.barrier.srcAccessMask);
+			dstStage |= AccessToPipelineStages(ib.barrier.dstAccessMask);
 		}
-		if (!bufferBarriers.empty())
+		for (auto& bb : bufferBarriers)
 		{
-			castl::vector<vk::BufferMemoryBarrier> barriers;
-			barriers.reserve(bufferBarriers.size());
-			for (auto& bb : bufferBarriers)
-				barriers.push_back(bb.barrier);
-			cmdBuf.pipelineBarrier(
-				vk::PipelineStageFlagBits::eAllCommands,
-				vk::PipelineStageFlagBits::eAllCommands,
-				vk::DependencyFlags{},
-				{}, barriers, {});
+			bufBarriers.push_back(bb.barrier);
+			srcStage |= AccessToPipelineStages(bb.barrier.srcAccessMask);
+			dstStage |= AccessToPipelineStages(bb.barrier.dstAccessMask);
 		}
+
+		// Merge image + buffer barriers into a single vkCmdPipelineBarrier call with tight stage masks
+		cmdBuf.pipelineBarrier(
+			srcStage ? srcStage : vk::PipelineStageFlagBits::eAllCommands,
+			dstStage ? dstStage : vk::PipelineStageFlagBits::eAllCommands,
+			vk::DependencyFlags{},
+			{}, bufBarriers, imgBarriers);
 	}
 
 	// VulkanCBufferInitializeBarriers implementation
@@ -382,6 +423,12 @@ namespace graphics_backend
 			auto const& queueContext = GetApp()->GetQueueContext();
 			m_GraphicsQueueFamily = queueContext.GetGraphicsQueueFamily();
 			m_ComputeQueueFamily = queueContext.GetComputeQueueFamily();
+		}
+
+		// Task 1.4: Validate compute queue availability for asyncCompute
+		if (m_ComputeQueueFamily == static_cast<int>(vk::QueueFamilyIgnored))
+		{
+			CA_LOG_WARN("VulkanGraphExecutor: No dedicated compute queue family available; asyncCompute will be degraded to synchronous");
 		}
 
 		auto prepareStart = std::chrono::high_resolution_clock::now();
@@ -603,7 +650,7 @@ namespace graphics_backend
 			auto& computePass = graph.GetComputePasses()[passID];
 			auto& passData = m_ComputePassGPUData[passID];
 			auto& passRWState = m_ComputePassRWStates[passID];
-			EGPUQueueType queueType = computePass.asyncCompute ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
+			EGPUQueueType queueType = (computePass.asyncCompute && m_ComputeQueueFamily != static_cast<int>(vk::QueueFamilyIgnored)) ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
 
 			for (auto& dispatchData : passData.dispatchs)
 			{
@@ -846,7 +893,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		{
 			auto& computePass = graph.GetComputePasses()[passID];
 			auto& passRWState = m_ComputePassRWStates[passID];
-			EGPUQueueType queueType = computePass.asyncCompute ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
+			EGPUQueueType queueType = (computePass.asyncCompute && m_ComputeQueueFamily != static_cast<int>(vk::QueueFamilyIgnored)) ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
 
 			for (auto& dispatchData : m_ComputePassGPUData[passID].dispatchs)
 			{
@@ -947,7 +994,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					case EGraphStageType::eComputePass:
 						newBatch.anyComputeQueueOperations =
 							newBatch.anyComputeQueueOperations ||
-							graph.GetComputePasses()[dep->passID].asyncCompute;
+							graph.GetComputePasses()[dep->passID].asyncCompute && m_ComputeQueueFamily != static_cast<int>(vk::QueueFamilyIgnored);
 						newBatch.computePassRefs.push_back(dep->passID);
 						break;
 					case EGraphStageType::eTransferPass:
@@ -1014,7 +1061,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		for (auto& pair : m_ImageLifetimes)
 		{
 			ImageHandle const& image = pair.first;
-			VulkanResourceState cachedState = VulkanResourceState::InitializedState();
+			VulkanResourceState cachedState = VulkanResourceState::InitializedImageState();
 
 			// Task 2.2: Read back cachedState from the resource object (align with D3D12)
 			switch (image.GetType())
@@ -1156,12 +1203,9 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				// Task 11.1/11.4: Route regular barrier by queueType
 				if (stateHaveGap)
 				{
-					auto& lastBatch = m_ExecutionBatches[lastBatchID];
-					VulkanRenderStateBarriers& releaseContainer = (lastState.queueType == EGPUQueueType::eCompute)
-						? lastBatch.computeReleaseBarriers : lastBatch.releaseBarriers;
+					// Same-queue gap: only need acquire barrier, skip redundant release
 					VulkanRenderStateBarriers& acquireContainer = (currentState.queueType == EGPUQueueType::eCompute)
 						? currentBatch.computeAquireBarriers : currentBatch.aquireBarriers;
-					releaseContainer.AddImageBarrier(image, barrier);
 					acquireContainer.AddImageBarrier(image, barrier);
 				}
 				else
@@ -1177,7 +1221,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		{
 			BufferHandle const& buffer = pair.first;
 			VulkanResourceUsageRangeData const& usageRanges = pair.second;
-			VulkanResourceState cachedState = VulkanResourceState::InitializedState();
+			VulkanResourceState cachedState = VulkanResourceState::InitializedBufferState();
 
 			// Task 2.2: Read back cachedState for External buffers
 			if (buffer.GetType() == BufferHandle::BufferType::External)
@@ -1286,12 +1330,9 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				// Task 11.2/11.4: Route regular barrier by queueType
 				if (stateHaveGap)
 				{
-					auto& lastBatch = m_ExecutionBatches[lastBatchID];
-					VulkanRenderStateBarriers& releaseContainer = (lastState.queueType == EGPUQueueType::eCompute)
-						? lastBatch.computeReleaseBarriers : lastBatch.releaseBarriers;
+					// Same-queue gap: only need acquire barrier, skip redundant release
 					VulkanRenderStateBarriers& acquireContainer = (currentState.queueType == EGPUQueueType::eCompute)
 						? currentBatch.computeAquireBarriers : currentBatch.aquireBarriers;
-					releaseContainer.AddBufferBarrier(buffer, barrier);
 					acquireContainer.AddBufferBarrier(buffer, barrier);
 				}
 				else
@@ -1628,6 +1669,17 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 						batchData.pipeline = pipelineLibrary.LinkPipeline(
 							parts, pipelineLayout, renderPass, 0, pipelineCache);
+
+						if (!batchData.pipeline)
+						{
+							// LinkPipeline failed: destroy intermediate library parts to prevent leaks
+							auto device = GetDevice();
+							if (vertexInputLib) device.destroyPipeline(vertexInputLib);
+							if (preRasterLib) device.destroyPipeline(preRasterLib);
+							if (fragmentLib) device.destroyPipeline(fragmentLib);
+							if (fragmentOutputLib) device.destroyPipeline(fragmentOutputLib);
+							CA_LOG_ERR("BuildPipelineStates: GPL LinkPipeline failed, destroyed library parts");
+						}
 					}
 					else
 					{
@@ -1766,7 +1818,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				if (bufferSize == 0) continue;
 
 				auto stagingAlloc = stagingManager.AllocUploadStagingBuffer(bufferSize, 256);
-				if (!stagingAlloc.mappedPtr) continue;
+				if (!stagingAlloc.mappedPtr) { CA_LOG_ERR("RecordBatchCommands: AllocUploadStagingBuffer failed for CBuffer"); continue; }
 
 				pStruct->ComputeMaxChildrenVersion();
 				pStruct->UpdateUniformBuffer(0, stagingAlloc.mappedPtr, static_cast<uint32_t>(bufferSize), 0);
@@ -1842,7 +1894,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 		// RecordComputePass routes to computeCommandBuffer when available
 		for (int computePassID : batch.computePassRefs)
-			RecordComputePass(batch, computePassID, graph, graph.GetComputePasses()[computePassID].asyncCompute);
+			RecordComputePass(batch, computePassID, graph, graph.GetComputePasses()[computePassID].asyncCompute && m_ComputeQueueFamily != static_cast<int>(vk::QueueFamilyIgnored));
 
 		for (int transferPassID : batch.transferPassRefs)
 			RecordTransferPass(batch, transferPassID, graph);
@@ -1901,10 +1953,16 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		if (!renderPass) return;
 
 		castl::vector<vk::ImageView> attachmentViews;
+		attachmentViews.reserve(attachments.size());
 		for (auto& attachment : attachments)
 		{
 			vk::ImageView view = m_LocalResourceManager.GetTextureView(attachment);
-			if (view) attachmentViews.push_back(view);
+			if (!view)
+			{
+				CA_LOG_WARN("RecordRenderPass: Skipping render pass due to null attachment ImageView");
+				return;
+			}
+			attachmentViews.push_back(view);
 		}
 
 		vk::Framebuffer framebuffer = GetApp()->GetOrCreateFramebuffer(renderPass, attachmentViews,
@@ -2103,7 +2161,25 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				targetCmdBuf.dispatch(dispatch.x, dispatch.y, dispatch.z);
 		}
 
-		if (!computePass.dispatchs.empty())
+		// Only inject memory barrier if compute pass actually writes to UAV/storage resources
+		bool hasUAVWrite = false;
+		if (computePassID < m_ComputePassRWStates.size())
+		{
+			auto& rwState = m_ComputePassRWStates[computePassID];
+			for (auto& [handle, state] : rwState.imageRWStates)
+			{
+				if (state.Write()) { hasUAVWrite = true; break; }
+			}
+			if (!hasUAVWrite)
+			{
+				for (auto& [handle, state] : rwState.bufferRWStates)
+				{
+					if (state.Write()) { hasUAVWrite = true; break; }
+				}
+			}
+		}
+
+		if (!computePass.dispatchs.empty() && hasUAVWrite)
 		{
 			vk::MemoryBarrier memoryBarrier{};
 			memoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
@@ -2143,7 +2219,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			if (!pSourceData || dataRef.dataSize == 0) continue;
 
 			auto stagingAlloc = stagingManager.AllocUploadStagingBuffer(dataRef.dataSize, 256);
-			if (!stagingAlloc.mappedPtr) continue;
+			if (!stagingAlloc.mappedPtr) { CA_LOG_ERR("RecordTransferPass: AllocUploadStagingBuffer failed for image upload"); continue; }
 
 			memcpy(stagingAlloc.mappedPtr, pSourceData, dataRef.dataSize);
 
@@ -2188,7 +2264,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			auto desc = GetDescriptor(graph, targetImageHandle);
 
 			auto stagingAlloc = stagingManager.AllocUploadStagingBuffer(dataRef.dataSize, 256);
-			if (!stagingAlloc.mappedPtr) continue;
+			if (!stagingAlloc.mappedPtr) { CA_LOG_ERR("RecordTransferPass: AllocUploadStagingBuffer failed for image upload"); continue; }
 
 			memcpy(stagingAlloc.mappedPtr, pSourceData, dataRef.dataSize);
 
@@ -2425,9 +2501,19 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					vk::Fence directFence = resourceManager.GetDirectFence();
 					if (directFence)
 					{
-						vk::Result waitResult = device.waitForFences(directFence, VK_TRUE, UINT64_MAX);
-						if (waitResult != vk::Result::eSuccess)
+						vk::Result waitResult = device.waitForFences(directFence, VK_TRUE, 5000000000ULL);
+						if (waitResult == vk::Result::eTimeout)
+						{
+							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (direct) timed out after 5s");
+						}
+						else if (waitResult == vk::Result::eErrorDeviceLost)
+						{
+							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (direct) DEVICE LOST");
+						}
+						else if (waitResult != vk::Result::eSuccess)
+						{
 							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (direct) failed: {}", vk::to_string(waitResult));
+						}
 						device.resetFences(directFence);
 					}
 				}
@@ -2436,9 +2522,19 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					vk::Fence computeFence = resourceManager.GetComputeFence();
 					if (computeFence)
 					{
-						vk::Result waitResult = device.waitForFences(computeFence, VK_TRUE, UINT64_MAX);
-						if (waitResult != vk::Result::eSuccess)
+						vk::Result waitResult = device.waitForFences(computeFence, VK_TRUE, 5000000000ULL);
+						if (waitResult == vk::Result::eTimeout)
+						{
+							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (compute) timed out after 5s");
+						}
+						else if (waitResult == vk::Result::eErrorDeviceLost)
+						{
+							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (compute) DEVICE LOST");
+						}
+						else if (waitResult != vk::Result::eSuccess)
+						{
 							CA_LOG_ERR("VulkanGraphExecutor: waitForFences (compute) failed: {}", vk::to_string(waitResult));
+						}
 						device.resetFences(computeFence);
 					}
 				}

@@ -32,9 +32,13 @@ namespace graphics_backend
 		bool hasComputeQueue() const { return queueType == EGPUQueueType::eCompute; }
 		bool isSharedBetweenQueues() const { return false; }
 
-		static VulkanResourceState InitializedState() {
+		static VulkanResourceState InitializedImageState() {
 			return { vk::AccessFlagBits::eNone, vk::PipelineStageFlagBits::eTopOfPipe,
 				vk::ImageLayout::eUndefined, EGPUQueueType::eDirect, true };
+		}
+		static VulkanResourceState InitializedBufferState() {
+			return { vk::AccessFlagBits::eNone, vk::PipelineStageFlagBits::eTopOfPipe,
+				vk::ImageLayout::eUndefined, EGPUQueueType::eDirect, false };
 		}
 	};
 }

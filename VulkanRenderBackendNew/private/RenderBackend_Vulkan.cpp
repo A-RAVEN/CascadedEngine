@@ -200,11 +200,14 @@ namespace graphics_backend
 			, 0
 			, VULKAN_API_VERSION_IN_USE);
 
+#ifndef NDEBUG
 		const castl::vector<const char*> g_validationLayers{
 			"VK_LAYER_KHRONOS_validation"
 		};
+#endif
 
 		auto extensions = GetInstanceExtensionNames();
+#ifndef NDEBUG
 		vk::InstanceCreateInfo instance_info({}, &application_info, g_validationLayers, extensions);
 
 		vk::DebugUtilsMessengerCreateInfoEXT debugUtilsExt{ {},
@@ -215,9 +218,22 @@ namespace graphics_backend
 			| vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
 			&debugUtilsMessengerCallback };
 		instance_info.setPNext(&debugUtilsExt);
-		m_VulkanInstance = vk::createInstance(instance_info);
+#else
+		vk::InstanceCreateInfo instance_info({}, &application_info, {}, extensions);
+#endif
+		try
+		{
+			m_VulkanInstance = vk::createInstance(instance_info);
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Failed to create Vulkan instance: {}", e.what());
+			return;
+		}
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanInstance);
+#ifndef NDEBUG
 		m_DebugMessenger = m_VulkanInstance.createDebugUtilsMessengerEXT(debugUtilsExt);
+#endif
 		//Init Device
 		auto physicalDevices = m_VulkanInstance.enumeratePhysicalDevices();
 		if (physicalDevices.empty())
@@ -311,7 +327,15 @@ namespace graphics_backend
 				CA_LOG_WARN("RenderBackend_Vulkan: Failed to load pipeline cache from disk, creating empty: {}", e.what());
 				cacheInfo.initialDataSize = 0;
 				cacheInfo.pInitialData = nullptr;
-				m_PipelineCache = m_Device.createPipelineCache(cacheInfo);
+				try
+				{
+					m_PipelineCache = m_Device.createPipelineCache(cacheInfo);
+				}
+				catch (vk::SystemError const& e2)
+				{
+					CA_LOG_ERR("RenderBackend_Vulkan: Failed to create empty pipeline cache: {}", e2.what());
+					m_PipelineCache = nullptr;
+				}
 			}
 			CA_LOG_INFO("RenderBackend_Vulkan: Pipeline cache created (loaded {} bytes from disk)", cacheData.size());
 		}
@@ -797,6 +821,18 @@ vk::Framebuffer RenderBackend_Vulkan::GetOrCreateFramebuffer(vk::RenderPass rend
 		CA_LOG_ERR("RenderBackend_Vulkan: Failed to create framebuffer: {}", e.what());
 		return nullptr;
 	}
+}
+
+void RenderBackend_Vulkan::ClearFramebufferCache()
+{
+	if (m_FramebufferCache.empty())
+		return;
+	for (auto& [hash, framebuffer] : m_FramebufferCache)
+	{
+		if (framebuffer) m_Device.destroyFramebuffer(framebuffer);
+	}
+	m_FramebufferCache.clear();
+	CA_LOG_INFO("RenderBackend_Vulkan: Framebuffer cache cleared");
 }
 
 }

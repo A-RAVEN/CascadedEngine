@@ -91,6 +91,7 @@ namespace graphics_backend
 		};
 		vk::RenderPass GetOrCreateRenderPass(RenderPassCacheKey const& key);
 		vk::Framebuffer GetOrCreateFramebuffer(vk::RenderPass renderPass, castl::vector<vk::ImageView> const& attachments, uint32_t width, uint32_t height);
+		void ClearFramebufferCache();
 
 		VulkanGPUFrameManager& GetGPUFrameManager() { return m_GPUFrameManager; }
 	VulkanSamplerManager& GetSamplerManager() { return m_SamplerManager; }

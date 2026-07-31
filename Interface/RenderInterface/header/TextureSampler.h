@@ -50,7 +50,7 @@ namespace graphics_backend
 			desc.addressModeV = addressMode;
 			desc.addressModeW = addressMode;
 			desc.boarderColor = boarderColor;
-			desc.integerFormat = false;
+			desc.integerFormat = integerFormat;
 			return desc;
 		}
 		static TextureSamplerDescriptor const& LinearClamp()

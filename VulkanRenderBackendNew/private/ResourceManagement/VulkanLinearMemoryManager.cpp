@@ -59,13 +59,22 @@ namespace graphics_backend
 			return;
 		}
 
-		Page page;
-		page.buffer = vk::Buffer(vkBuffer);
-		page.allocation = allocation;
-		page.mappedPtr = allocResultInfo.pMappedData;
-		page.size = m_PageSize;
-		page.currentOffset = 0;
-		m_Pages.push_back(page);
+		try
+		{
+			Page page;
+			page.buffer = vk::Buffer(vkBuffer);
+			page.allocation = allocation;
+			page.mappedPtr = allocResultInfo.pMappedData;
+			page.size = m_PageSize;
+			page.currentOffset = 0;
+			m_Pages.push_back(page);
+		}
+		catch (...)
+		{
+			vmaDestroyBuffer(allocator, vkBuffer, allocation);
+			CA_LOG_ERR("VulkanLinearMemoryManager: AllocatePage push_back failed, destroying buffer");
+			throw;
+		}
 	}
 
 	VulkanLinearMemoryManager::StagingAllocation VulkanLinearMemoryManager::AllocUploadStagingBuffer(

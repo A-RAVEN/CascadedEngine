@@ -156,6 +156,11 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 		m_TotalAliasedSize = 0;
 		AnalyzeAndPlanAliasing();
 
+		// Recalculate unaliased total after sizes may have been updated by real memory requirements
+		m_TotalUnaliasedSize = 0;
+		for (auto const& [id, lifetime] : m_ResourceLifetimes)
+			m_TotalUnaliasedSize += lifetime.size;
+
 		CA_LOG_INFO("VulkanResourceAliasing: Replanned with real alignment, total aliased size: {}", m_TotalAliasedSize);
 	}
 
