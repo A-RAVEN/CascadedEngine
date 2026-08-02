@@ -1,5 +1,7 @@
 #include <ResourceManagement/VulkanFrameManager.h>
 #include <RenderBackend_Vulkan.h>
+#include <Utils/VulkanDebug.h>
+#include <string>
 
 namespace graphics_backend
 {
@@ -68,7 +70,10 @@ namespace graphics_backend
 		vk::SemaphoreCreateInfo semInfo{};
 		vk::Semaphore sem = device.createSemaphore(semInfo);
 		m_CrossQueueSemaphores.push_back(sem);
-		m_CrossQueueSemaphoreIndex = static_cast<int>(m_CrossQueueSemaphores.size()) - 1;
+#ifndef NDEBUG
+		SetVKObjectDebugName(GetDevice(), sem, ("Semaphore:cq" + std::to_string(m_CrossQueueSemaphores.size() - 1)).c_str());
+#endif
+		m_CrossQueueSemaphoreIndex = static_cast<int>(m_CrossQueueSemaphores.size());
 		return sem;
 	}
 
@@ -77,11 +82,21 @@ namespace graphics_backend
 		auto device = GetDevice();
 		vk::FenceCreateInfo fenceInfo{};
 		m_DirectFence = device.createFence(fenceInfo);
+		SetVKObjectDebugName(GetDevice(), m_DirectFence, "Fence:direct");
 		m_ComputeFence = device.createFence(fenceInfo);
+		SetVKObjectDebugName(GetDevice(), m_ComputeFence, "Fence:compute");
 	}
 
 	void VulkanFrameBoundResourceManager::ResetDescriptorPool()
 	{
+		// vkResetDescriptorPool (Vulkan Spec §12.2.2):
+		//   "Resetting a descriptor pool destroys all descriptor sets allocated from
+		//    the pool and returns all pool resources to the available state."
+		// All previously allocated vkDescriptorSet handles become invalid, and any
+		// newly allocated sets from this pool start with blank (undefined) contents.
+		// This is why BuildDescriptors() must fully rewrite every descriptor set
+		// every frame — descriptor write caching is structurally infeasible under
+		// the current per-frame pool reset architecture.
 		if (m_DescriptorPool)
 		{
 			GetDevice().resetDescriptorPool(m_DescriptorPool);
@@ -193,6 +208,12 @@ namespace graphics_backend
 			// TODO: For async frames-in-flight, restore fence wait here and remove
 			// the per-batch CPU serialization in SubmitBatches.
 
+			// ResetDescriptorPool: vkResetDescriptorPool implicitly returns ALL descriptor
+			// sets in the pool to the initial state — their contents are discarded.
+			// Newly allocated sets are blank and require full vkUpdateDescriptorSets
+			// rewrite every frame. This is the root architectural constraint that
+			// makes descriptor write caching infeasible with the current per-frame
+			// pool reset strategy. See ResetDescriptorPool() method docs.
 			resourceManager.ResetDescriptorPool();
 			resourceManager.Reset();
 		}

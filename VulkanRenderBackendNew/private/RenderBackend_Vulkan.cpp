@@ -1,5 +1,6 @@
 #include <RenderBackend_Vulkan.h>
 #include <Utils/VulkanDebug.h>
+#include <string>
 #include <VulkanObjects/VulkanBuffer.h>
 #include <VulkanObjects/VulkanTexture.h>
 #include <VulkanObjects/VulkanWindowHandle.h>
@@ -123,13 +124,13 @@ namespace graphics_backend
 					}
 				}
 			}
-				// Task 4.3: Write to validation log file if set
-				if (g_ValidationLogFile)
-				{
-					fprintf(g_ValidationLogFile, "%s\n", messageStream.str().c_str());
-					fflush(g_ValidationLogFile);
-				}
-				CA_LOG_ERR("///////////////////\n{}\n///////////////////", messageStream.str());
+			// Task 4.3: Write to validation log file if set
+			if (g_ValidationLogFile)
+			{
+				fprintf(g_ValidationLogFile, "%s\n", messageStream.str().c_str());
+				fflush(g_ValidationLogFile);
+			}
+			CA_LOG_ERR("///////////////////\n{}\n///////////////////", messageStream.str());
 			if (messageSeverity == VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
 			{
 #if BREAK_ON_VULKAN_ERROR
@@ -629,6 +630,10 @@ vk::ShaderModule RenderBackend_Vulkan::GetOrCreateShaderModule(cahash::sha256_ha
 	try
 	{
 		auto shaderModule = m_Device.createShaderModule(moduleInfo);
+#ifndef NDEBUG
+		std::string smName = "ShaderMod:" + std::to_string(reinterpret_cast<uintptr_t>(static_cast<VkShaderModule>(shaderModule)));
+		SetVKObjectDebugName(m_Device, shaderModule, smName.c_str());
+#endif
 		m_ShaderModuleCache[programHash] = shaderModule;
 		return shaderModule;
 	}
@@ -704,6 +709,10 @@ vk::PipelineLayout RenderBackend_Vulkan::GetOrCreatePipelineLayout(VulkanShaderR
 	try
 	{
 		auto pipelineLayout = m_Device.createPipelineLayout(pipelineLayoutInfo);
+#ifndef NDEBUG
+		std::string plName = "PipelineLayout:" + std::to_string(hash);
+		SetVKObjectDebugName(m_Device, pipelineLayout, plName.c_str());
+#endif
 		m_PipelineLayoutCache[hash] = pipelineLayout;
 		return pipelineLayout;
 	}
@@ -778,6 +787,10 @@ vk::RenderPass RenderBackend_Vulkan::GetOrCreateRenderPass(RenderPassCacheKey co
 	try
 	{
 		auto renderPass = m_Device.createRenderPass(renderPassInfo);
+#ifndef NDEBUG
+		std::string rpName = "RenderPass:" + std::to_string(key.colorFormats.size()) + "c" + (key.hasDepth ? "+d" : "");
+		SetVKObjectDebugName(m_Device, renderPass, rpName.c_str());
+#endif
 		m_RenderPassCache[hash] = renderPass;
 		return renderPass;
 	}
@@ -813,6 +826,10 @@ vk::Framebuffer RenderBackend_Vulkan::GetOrCreateFramebuffer(vk::RenderPass rend
 	try
 	{
 		auto framebuffer = m_Device.createFramebuffer(framebufferInfo);
+#ifndef NDEBUG
+		std::string fbName = "Framebuf:" + std::to_string(width) + "x" + std::to_string(height);
+		SetVKObjectDebugName(m_Device, framebuffer, fbName.c_str());
+#endif
 		m_FramebufferCache[hash] = framebuffer;
 		return framebuffer;
 	}

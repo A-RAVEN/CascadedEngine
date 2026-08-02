@@ -57,6 +57,23 @@ namespace graphics_backend
 	{
 		auto device = GetDevice();
 
+		// Defensively free any outstanding command buffers before destroying pools.
+		// While vkDestroyCommandPool implicitly frees all pool-allocated command
+		// buffers, explicit cleanup is safer and makes the lifecycle explicit.
+		if (m_GraphicsPool && !m_AllocatedGraphicsCmdBufs.empty())
+		{
+			device.freeCommandBuffers(m_GraphicsPool, m_AllocatedGraphicsCmdBufs);
+		}
+		if (m_ComputePool && !m_AllocatedComputeCmdBufs.empty())
+		{
+			device.freeCommandBuffers(m_ComputePool, m_AllocatedComputeCmdBufs);
+		}
+		if (m_TransferPool && m_TransferCommand)
+		{
+			device.freeCommandBuffers(m_TransferPool, m_TransferCommand);
+			m_TransferCommand = nullptr;
+		}
+
 		if (m_GraphicsPool)
 		{
 			device.destroyCommandPool(m_GraphicsPool);
@@ -82,6 +99,7 @@ namespace graphics_backend
 	{
 		auto cmdBuf = AllocateCommandBuffer(m_GraphicsPool);
 		m_AllocatedGraphicsCmdBufs.push_back(cmdBuf);
+		SetVKObjectDebugName(GetDevice(), cmdBuf, "CmdBuf:Graphics");
 		return cmdBuf;
 	}
 
@@ -89,6 +107,7 @@ namespace graphics_backend
 	{
 		auto cmdBuf = AllocateCommandBuffer(m_ComputePool);
 		m_AllocatedComputeCmdBufs.push_back(cmdBuf);
+		SetVKObjectDebugName(GetDevice(), cmdBuf, "CmdBuf:Compute");
 		return cmdBuf;
 	}
 
@@ -97,6 +116,7 @@ namespace graphics_backend
 		if (!m_TransferCommand)
 		{
 			m_TransferCommand = AllocateCommandBuffer(m_TransferPool);
+			SetVKObjectDebugName(GetDevice(), m_TransferCommand, "CmdBuf:Transfer");
 		}
 		return m_TransferCommand;
 	}
@@ -115,6 +135,11 @@ namespace graphics_backend
 
 	void VulkanCommandListManager::Reset()
 	{
+		// CAUTION: Caller MUST ensure all GPU work using these command buffers
+		// has completed before invoking Reset(). VulkanFrameContext::Aquire()
+		// (VulkanFrameManager.cpp) documents that SubmitBatches performs
+		// per-batch waitForFences + resetFences, guaranteeing GPU completion
+		// before the frame-level Reset() is reached.
 		auto device = GetDevice();
 		// Free per-call allocated command buffers before resetting pools
 		if (m_GraphicsPool && !m_AllocatedGraphicsCmdBufs.empty())

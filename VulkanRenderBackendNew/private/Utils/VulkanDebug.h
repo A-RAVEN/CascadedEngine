@@ -10,6 +10,7 @@ namespace graphics_backend
 	template<typename T>
 	void SetVKObjectDebugName(vk::Device device, T vkObj, const char* name)
 	{
+#ifndef NDEBUG
 		if (device && vkObj && name)
 		{
 			using nativeType = typename T::NativeType;
@@ -21,6 +22,7 @@ namespace graphics_backend
 			nameInfo.pObjectName = name;
 			device.setDebugUtilsObjectNameEXT(nameInfo);
 		}
+#endif
 	}
 
 }

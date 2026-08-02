@@ -1,5 +1,7 @@
 #include <GPUGraph/VulkanResourceBindingInstance.h>
 #include <GPUGraph/VulkanGraphExecutor.h>
+#include <Utils/VulkanDebug.h>
+#include <string>
 #include <GPUGraph/VulkanConstantBufferManager.h>
 #include <VulkanObjects/VulkanShaderStruct.h>
 #include <RenderBackend_Vulkan.h>
@@ -289,6 +291,16 @@ namespace graphics_backend
 
 	void VulkanResourceBindingInstance::BuildDescriptors(VulkanGraphLocalResourceManager& resourceManager, vk::DescriptorPool pool)
 	{
+		// NOTE: Every frame, VulkanFrameContext::Aquire() calls vkResetDescriptorPool,
+		// which returns ALL descriptor sets in the pool to the initial (blank) state.
+		// Consequently, every vkDescriptorSet allocated from this pool is empty and
+		// requires full vkUpdateDescriptorSets rewrite — even if the underlying buffer/
+		// image/sampler handles are unchanged from the previous frame.
+		//
+		// TODO: future work — descriptor write caching can be implemented once the
+		// descriptor pool lifecycle is restructured to support cross-frame set reuse.
+		// See design.md D1 for three candidate strategies (FREE_DESCRIPTOR_SET_BIT +
+		// vkFreeDescriptorSets, cross-frame set reuse, or multi-pool rotation).
 		if (p_ShaderFileInfo == nullptr)
 			return;
 
@@ -531,6 +543,10 @@ namespace graphics_backend
 			for (uint32_t i = 0; i < sets.size(); ++i)
 			{
 				m_DescriptorSets[setLayoutPairs[i].first] = sets[i];
+#ifndef NDEBUG
+				std::string dsName = "DescSet:set" + std::to_string(setLayoutPairs[i].first);
+				SetVKObjectDebugName(device, sets[i], dsName.c_str());
+#endif
 			}
 			return true;
 		}

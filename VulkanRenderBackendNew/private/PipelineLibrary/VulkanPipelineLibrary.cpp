@@ -62,6 +62,7 @@ namespace graphics_backend
 		{
 			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
+			SetVKObjectDebugName(GetDevice(), pipeline, "Pipeline:VertexInput");
 			CA_LOG_INFO("VulkanPipelineLibrary: Created vertex input library");
 			return pipeline;
 		}
@@ -119,6 +120,7 @@ namespace graphics_backend
 		{
 			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
+			SetVKObjectDebugName(GetDevice(), pipeline, "Pipeline:PreRasterization");
 			CA_LOG_INFO("VulkanPipelineLibrary: Created pre-rasterization library");
 			return pipeline;
 		}
@@ -165,6 +167,7 @@ namespace graphics_backend
 		{
 			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
+			SetVKObjectDebugName(GetDevice(), pipeline, "Pipeline:Fragment");
 			CA_LOG_INFO("VulkanPipelineLibrary: Created fragment library");
 			return pipeline;
 		}
@@ -204,6 +207,7 @@ namespace graphics_backend
 		{
 			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
+			SetVKObjectDebugName(GetDevice(), pipeline, "Pipeline:FragmentOutput");
 			CA_LOG_INFO("VulkanPipelineLibrary: Created fragment output library");
 			return pipeline;
 		}
@@ -260,6 +264,7 @@ namespace graphics_backend
 		{
 			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
+			SetVKObjectDebugName(GetDevice(), pipeline, "Pipeline:Linked");
 			CA_LOG_INFO("VulkanPipelineLibrary: Linked pipeline from {} libraries", librariesToLink.size());
 			return pipeline;
 		}
@@ -280,6 +285,7 @@ namespace graphics_backend
 		{
 			auto pipeline = device.createGraphicsPipeline(cache, createInfo).value;
 			m_CreatedPipelines.push_back(pipeline);
+			SetVKObjectDebugName(GetDevice(), pipeline, "Pipeline:Monolithic");
 			CA_LOG_INFO("VulkanPipelineLibrary: Created monolithic pipeline");
 			return pipeline;
 		}
@@ -292,18 +298,16 @@ namespace graphics_backend
 
 	PipelineLibraryParts const* VulkanPipelineLibrary::GetCachedLibrary(PipelineLibraryKey const& key) const
 	{
-		for (auto const& [cacheKey, parts] : m_LibraryCache)
+		auto it = m_LibraryCache.find(key);
+		if (it != m_LibraryCache.end())
 		{
-			if (cacheKey == key)
-			{
-				return &parts;
-			}
+			return &it->second;
 		}
 		return nullptr;
 	}
 
 	void VulkanPipelineLibrary::CacheLibrary(PipelineLibraryKey const& key, PipelineLibraryParts const& parts)
 	{
-		m_LibraryCache.push_back({ key, parts });
+		m_LibraryCache.insert({ key, parts });
 	}
 }

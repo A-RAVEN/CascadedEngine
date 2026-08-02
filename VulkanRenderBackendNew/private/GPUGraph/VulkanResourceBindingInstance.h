@@ -52,6 +52,23 @@ namespace graphics_backend
 	};
 
 	// Shader resource binding for descriptor sets
+	//
+	// Descriptor Write Caching — Architectural Constraint:
+	//   Every frame, VulkanFrameContext::Aquire() calls vkResetDescriptorPool, which
+	//   returns ALL allocated descriptor sets to the initial (blank) state. Therefore,
+	//   BuildDescriptors() must perform full vkUpdateDescriptorSets on every set every
+	//   frame — comparing handles to skip writes would have ZERO benefit because blank
+	//   sets contain no valid descriptors.
+	//
+	//   Future work: descriptor write caching becomes viable once the pool lifecycle is
+	//   restructured. Three candidate strategies (none implemented yet):
+	//     A) VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT + vkFreeDescriptorSets
+	//        (note: current pool already uses this flag, but resetDescriptorPool still
+	//         invalidates all sets — pool must stop being reset per-frame)
+	//     B) Cross-frame descriptor set reuse (pool not reset, sets persist across frames)
+	//     C) Multi-pool rotation (N pools like swapchain images, each pool's sets live
+	//        for N frames before being recycled)
+	//   See design.md D1 for full analysis.
 	class VulkanResourceBindingInstance : public VulkanSubobjectBase
 	{
 	public:
