@@ -2,8 +2,9 @@
 """CascadedEngine build script with automatic MSVC environment setup.
 
 Usage:
-    python build.py                 # configure + build (all targets)
+    python build.py                 # configure + build (all targets, RelWithDebInfo)
     python build.py --no-configure  # build only (skip cmake configure)
+    python build.py --config Debug  # use the Debug configuration (validation layers enabled)
     python build.py TargetName      # build a specific target
 """
 
@@ -13,8 +14,16 @@ import subprocess
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
-BUILD_DIR = PROJECT_DIR / "out" / "build" / "x64-relWithDebugInfo"
-NINJA_FILE = BUILD_DIR / "build.ninja"
+
+# config name -> CMake preset name (preset sets binaryDir to out/build/<preset>)
+CONFIGS = {
+    "RelWithDebInfo": "x64-relWithDebugInfo",
+    "Debug": "x64-debug",
+}
+DEFAULT_CONFIG = "RelWithDebInfo"
+
+BUILD_DIR: Path | None = None
+NINJA_FILE: Path | None = None
 
 COMSPEC = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
 
@@ -71,6 +80,14 @@ def _write_bat(cmd: str, log_file: str | None = None) -> Path:
     cmake_bin = Path(r"C:\Program Files\CMake\bin")
     if cmake_bin.exists():
         lines.append(f'set "PATH={cmake_bin};%PATH%"')
+    # Ensure git is in PATH — CMake FetchContent/CPM runs git during configure
+    # (e.g. stb populate update step); sanitization removed it.
+    # Only Git\cmd is added: Git\mingw64\bin\git.exe fails to exec subcommands
+    # (submodule etc.) from a plain cmd environment (exit 123), while the
+    # cmd\git.exe shim resolves its real binary internally and works.
+    git_cmd = Path(r"C:\Program Files\Git\cmd")
+    if git_cmd.exists():
+        lines.append(f'set "PATH={git_cmd};%PATH%"')
     # Ensure MSVC compiler is in PATH (vcvars may fail silently in some environments)
     if msvc_bin and msvc_bin.exists():
         lines.append(f'set "PATH={msvc_bin};%PATH%"')
@@ -119,13 +136,20 @@ def configure() -> None:
     print("=" * 60)
     print("[1/2] Configuring CMake...")
     print("=" * 60)
+    # GIT_EXECUTABLE pinned to Git\cmd\git.exe: a stale cache entry pointing at
+    # Git\mingw64\bin\git.exe makes FetchContent's `git submodule update`
+    # fail with "submodule appears to be a git command" (that binary cannot
+    # exec subcommands from a plain cmd environment).
+    # Quoted: the path contains a space — without quotes cmd splits it and
+    # CMake misreads the tail ("Files/Git/...") as a source directory.
+    git = '"C:/Program Files/Git/cmd/git.exe"'
     # Check for init cache file
     init_cache = PROJECT_DIR / "_init_cache.cmake"
     if init_cache.exists():
-        run_msvc(f"cmake -S {PROJECT_DIR} -B {BUILD_DIR} -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -C {init_cache}",
+        run_msvc(f"cmake -S {PROJECT_DIR} -B {BUILD_DIR} -G Ninja -DCMAKE_BUILD_TYPE={config} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -C {init_cache} -DGIT_EXECUTABLE={git}",
                  "_build_configure.log")
     else:
-        run_msvc("cmake --preset x64-relWithDebugInfo", "_build_configure.log")
+        run_msvc(f"cmake --preset {CONFIGS[config]} -DGIT_EXECUTABLE={git}", "_build_configure.log")
 
 
 def patch_ninja() -> None:
@@ -168,11 +192,37 @@ def build(target: str | None = None) -> None:
 
 
 def main() -> None:
-    configure_step = "--no-configure" not in sys.argv
-    target = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
+    global config, BUILD_DIR, NINJA_FILE
+
+    # Consume --config <name> here so its value never reaches the
+    # target-argument scan below.
+    config = DEFAULT_CONFIG
+    args = []
+    i = 0
+    while i < len(sys.argv[1:]):
+        a = sys.argv[1:][i]
+        if a == "--config":
+            if i + 1 >= len(sys.argv[1:]) or sys.argv[1:][i + 1].startswith("--"):
+                print(f"ERROR: --config requires a value, one of: {list(CONFIGS)}")
+                sys.exit(1)
+            config = sys.argv[1:][i + 1]
+            i += 2
+            continue
+        args.append(a)
+        i += 1
+    if config not in CONFIGS:
+        print(f"ERROR: unknown config '{config}', expected one of: {list(CONFIGS)}")
+        sys.exit(1)
+
+    BUILD_DIR = PROJECT_DIR / "out" / "build" / CONFIGS[config]
+    NINJA_FILE = BUILD_DIR / "build.ninja"
+
+    configure_step = "--no-configure" not in args
+    target = next((a for a in args if not a.startswith("--")), None)
 
     print("=== CascadedEngine Build Script (Python) ===")
     print(f"  Visual Studio : {find_vs_path()}")
+    print(f"  Config        : {config} (preset {CONFIGS[config]})")
     print(f"  Build dir     : {BUILD_DIR}")
 
     if configure_step:
