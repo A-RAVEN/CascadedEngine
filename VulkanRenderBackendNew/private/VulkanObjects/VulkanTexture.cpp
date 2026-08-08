@@ -22,6 +22,7 @@ namespace graphics_backend
 		case ETextureFormat::E_R32G32_SFLOAT: return vk::Format::eR32G32Sfloat;
 		case ETextureFormat::E_D24_UNORM_S8_UINT: return vk::Format::eD24UnormS8Uint;
 		case ETextureFormat::E_D32_SFLOAT: return vk::Format::eD32Sfloat;
+		case ETextureFormat::E_D32_SFLOAT_S8_UINT: return vk::Format::eD32SfloatS8Uint;
 		case ETextureFormat::E_D16_UNORM: return vk::Format::eD16Unorm;
 		default: return vk::Format::eR8G8B8A8Unorm;
 		}
@@ -57,6 +58,7 @@ namespace graphics_backend
 		switch (m_Descriptor.format)
 		{
 		case ETextureFormat::E_D24_UNORM_S8_UINT:
+		case ETextureFormat::E_D32_SFLOAT_S8_UINT:
 			return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
 		case ETextureFormat::E_D32_SFLOAT:
 		case ETextureFormat::E_D16_UNORM:
@@ -64,6 +66,18 @@ namespace graphics_backend
 		default:
 			return vk::ImageAspectFlagBits::eColor;
 		}
+	}
+
+	// R4-3: aspect for the IMAGE VIEW — single bit for depth-stencil formats because the
+	// view is bound directly into sampled/storage descriptors
+	// (VUID-VkDescriptorImageInfo-imageView-01976: depth/stencil views used in descriptors
+	// must include exactly one aspect bit). Barriers keep using GetImageAspect() (the
+	// DEPTH|STENCIL combination is legal there, VUID-VkImageMemoryBarrier-image-03320).
+	vk::ImageAspectFlags VulkanTexture::GetImageViewAspect() const
+	{
+		if ((GetImageAspect() & vk::ImageAspectFlagBits::eStencil) != vk::ImageAspectFlags{})
+			return vk::ImageAspectFlagBits::eDepth;
+		return GetImageAspect();
 	}
 
 	void VulkanTexture::Init(GPUTextureDescriptor const& descriptor, ETextureAccessTypeFlags accessType)
@@ -84,6 +98,25 @@ namespace graphics_backend
 		imageInfo.tiling = vk::ImageTiling::eOptimal;
 		imageInfo.sharingMode = vk::SharingMode::eExclusive;
 		imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+		// A CUBE image view requires VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT on the image
+		// (VUID-VkImageViewCreateInfo-image-01003).
+		if (descriptor.textureType == ETextureType::eCubeMap)
+		{
+			// F10a/R3-4: VUID-VkImageCreateInfo-flags-08866 (arrayLayers >= 6) and
+			// VUID-VkImageCreateInfo-flags-08865 (square dimensions) apply to cube images,
+			// and VUID-VkImageViewCreateInfo-viewType-02960 requires a CUBE view's
+			// layerCount to be exactly 6 (this path creates a plain CUBE view, not
+			// CUBE_ARRAY) — refuse to create the invalid image instead of failing
+			// validation later.
+			if (descriptor.layers != 6 || descriptor.width != descriptor.height)
+			{
+				CA_LOG_ERR("VulkanTexture: eCubeMap requires layers==6 and square dimensions "
+					"(got layers={}, {}x{}) — refusing to create image",
+					descriptor.layers, descriptor.width, descriptor.height);
+				return;
+			}
+			imageInfo.flags |= vk::ImageCreateFlagBits::eCubeCompatible;
+		}
 		imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
 
 		// Add usage based on access type
@@ -120,7 +153,9 @@ namespace graphics_backend
 			? vk::ImageViewType::eCube
 			: (descriptor.layers > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D);
 		viewInfo.format = imageInfo.format;
-		viewInfo.subresourceRange.aspectMask = GetImageAspect();
+		// R4-3: view aspect must be single-bit for depth-stencil formats (the view is
+		// bound into sampled/storage descriptors, VUID-VkDescriptorImageInfo-imageView-01976).
+		viewInfo.subresourceRange.aspectMask = GetImageViewAspect();
 		viewInfo.subresourceRange.baseMipLevel = 0;
 		viewInfo.subresourceRange.levelCount = descriptor.mipLevels;
 		viewInfo.subresourceRange.baseArrayLayer = 0;
@@ -186,6 +221,50 @@ namespace graphics_backend
 		barrier.subresourceRange.baseArrayLayer = 0;
 		barrier.subresourceRange.layerCount = m_Descriptor.layers;
 
+		// R4-12/13: when the caller passes the default stages (TOP_OF_PIPE /
+		// BOTTOM_OF_PIPE) together with layout-derived access masks, the combination is
+		// illegal — those stages support NO access flags (access-support table). Derive
+		// the stage from the layout so srcStage/srcAccess and dstStage/dstAccess match.
+		if (srcStage == vk::PipelineStageFlagBits::eTopOfPipe)
+		{
+			switch (m_CurrentLayout)
+			{
+			case vk::ImageLayout::eTransferDstOptimal: srcStage = vk::PipelineStageFlagBits::eTransfer; break;
+			case vk::ImageLayout::eShaderReadOnlyOptimal: srcStage = vk::PipelineStageFlagBits::eVertexShader
+				| vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader; break;
+			case vk::ImageLayout::eColorAttachmentOptimal: srcStage = vk::PipelineStageFlagBits::eColorAttachmentOutput; break;
+			case vk::ImageLayout::eDepthStencilAttachmentOptimal: srcStage = vk::PipelineStageFlagBits::eEarlyFragmentTests
+				| vk::PipelineStageFlagBits::eLateFragmentTests; break;
+			default: break;
+			}
+		}
+		if (dstStage == vk::PipelineStageFlagBits::eBottomOfPipe)
+		{
+			switch (newLayout)
+			{
+			case vk::ImageLayout::eTransferDstOptimal: dstStage = vk::PipelineStageFlagBits::eTransfer; break;
+			case vk::ImageLayout::eShaderReadOnlyOptimal: dstStage = vk::PipelineStageFlagBits::eVertexShader
+				| vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader; break;
+			case vk::ImageLayout::eColorAttachmentOptimal: dstStage = vk::PipelineStageFlagBits::eColorAttachmentOutput; break;
+			case vk::ImageLayout::eDepthStencilAttachmentOptimal: dstStage = vk::PipelineStageFlagBits::eEarlyFragmentTests
+				| vk::PipelineStageFlagBits::eLateFragmentTests; break;
+			default: break;
+			}
+		}
+
+		// R5-3/4: when this barrier is recorded on the TRANSFER command buffer and the
+		// transfer family is a dedicated transfer-only family, graphics stages are
+		// unsupported (VUID-vkCmdPipelineBarrier-srcStageMask-06461 / dstStageMask-06462)
+		// and shader-access bits are not supported by TRANSFER. Degrade to TRANSFER stage
+		// + transfer-only access bits (cross-queue visibility is provided by the caller's
+		// host-side waitForFences serialization).
+		bool transferOnlyFamily = (GetQueueContext().GetTransferQueueFamily() != GetQueueContext().GetGraphicsQueueFamily());
+		if (transferOnlyFamily)
+		{
+			srcStage = vk::PipelineStageFlagBits::eTransfer;
+			dstStage = vk::PipelineStageFlagBits::eTransfer;
+		}
+
 		// Set access masks based on layout
 		switch (m_CurrentLayout)
 		{
@@ -196,7 +275,7 @@ namespace graphics_backend
 			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 			break;
 		case vk::ImageLayout::eShaderReadOnlyOptimal:
-			barrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
+			barrier.srcAccessMask = transferOnlyFamily ? vk::AccessFlagBits::eNone : vk::AccessFlagBits::eShaderRead;
 			break;
 		default:
 			barrier.srcAccessMask = vk::AccessFlagBits::eNone;
@@ -209,7 +288,7 @@ namespace graphics_backend
 			barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
 			break;
 		case vk::ImageLayout::eShaderReadOnlyOptimal:
-			barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+			barrier.dstAccessMask = transferOnlyFamily ? vk::AccessFlagBits::eNone : vk::AccessFlagBits::eShaderRead;
 			break;
 		case vk::ImageLayout::eColorAttachmentOptimal:
 			barrier.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
@@ -240,11 +319,11 @@ namespace graphics_backend
 			case ETextureFormat::E_R8_UNORM: return 1;
 			case ETextureFormat::E_R8G8_UNORM:
 			case ETextureFormat::E_R16_UNORM:
-			case ETextureFormat::E_R16_SFLOAT: return 2;
+			case ETextureFormat::E_R16_SFLOAT:
+			case ETextureFormat::E_D16_UNORM: return 2; // VK_FORMAT_D16_UNORM is 16-bit (2 bytes)
 			case ETextureFormat::E_R8G8B8A8_UNORM:
 			case ETextureFormat::E_B8G8R8A8_UNORM:
 			case ETextureFormat::E_R16G16_SFLOAT:
-			case ETextureFormat::E_D16_UNORM: return 4;
 			case ETextureFormat::E_R32_SFLOAT:
 			case ETextureFormat::E_D24_UNORM_S8_UINT:
 			case ETextureFormat::E_D32_SFLOAT: return 4;
@@ -267,6 +346,17 @@ namespace graphics_backend
 		castl::vector<vk::BufferImageCopy> regions;
 		uint64_t bufferOffset = 0;
 
+		// VUID-VkBufferImageCopy-aspectMask-09103: aspectMask must be a SINGLE bit.
+		// depth-stencil formats (e.g. D24S8) must copy depth and stencil separately;
+		// this upload path copies the depth aspect only (stencil stays zeroed).
+		vk::ImageAspectFlags copyAspect = GetImageAspect();
+		if ((copyAspect & vk::ImageAspectFlagBits::eStencil) != vk::ImageAspectFlags{})
+		{
+			copyAspect = vk::ImageAspectFlagBits::eDepth;
+			CA_LOG_WARN("VulkanTexture: UploadData copies depth aspect only for depth-stencil format {} (stencil not uploaded)",
+				static_cast<int>(m_Descriptor.format));
+		}
+
 		for (uint32_t layer = 0; layer < arrayLayers; ++layer)
 		{
 			uint32_t mipWidth = width;
@@ -279,7 +369,7 @@ namespace graphics_backend
 				region.bufferOffset = bufferOffset;
 				region.bufferRowLength = 0;       // tightly packed
 				region.bufferImageHeight = 0;     // tightly packed
-				region.imageSubresource.aspectMask = GetImageAspect();
+				region.imageSubresource.aspectMask = copyAspect;
 				region.imageSubresource.mipLevel = mip;
 				region.imageSubresource.baseArrayLayer = layer;
 				region.imageSubresource.layerCount = 1;
@@ -288,10 +378,43 @@ namespace graphics_backend
 
 				regions.push_back(region);
 
+				// F13a: VUID-vkCmdCopyBufferToImage-dstImage-07978 requires each region's
+				// bufferOffset to be a multiple of 4 for depth/stencil formats. The staging
+				// layout stays tightly packed (matching the caller's pData layout — padding
+				// here would desync the memcpy below and over-read pData); instead, reject
+				// uploads whose next offset would violate the alignment (2-byte texel
+				// formats like D16 with odd texel counts).
+				if (copyAspect != vk::ImageAspectFlagBits::eColor && (bufferOffset % 4) != 0)
+				{
+					CA_LOG_ERR("VulkanTexture: UploadData would produce a non-4-byte-aligned bufferOffset {} "
+						"for a depth/stencil copy (VUID-vkCmdCopyBufferToImage-dstImage-07978); aborting upload",
+						bufferOffset);
+					return;
+				}
 				bufferOffset += static_cast<uint64_t>(mipWidth) * mipHeight * mipDepth * bpp;
 				mipWidth = std::max<uint32_t>(1u, mipWidth / 2);
 				mipHeight = std::max<uint32_t>(1u, mipHeight / 2);
 				if (is3D) mipDepth = std::max<uint32_t>(1u, mipDepth / 2);
+			}
+		}
+
+		// F14a: VUID-vkCmdCopyBufferToImage-commandBuffer-07739 — copy of a non-color
+		// aspect (depth / depth-stencil) requires the command pool's queue family to
+		// support VK_QUEUE_GRAPHICS_BIT. Checked BEFORE allocating the staging buffer to
+		// avoid leaking it on the failure path. Single-universal-family devices fall back
+		// transfer → graphics (QueueContext), which passes; a dedicated transfer family
+		// would not.
+		if (copyAspect != vk::ImageAspectFlagBits::eColor)
+		{
+			auto queueFamilyProperties = GetPhysicalDevice().getQueueFamilyProperties();
+			int transferFamily = queueContext.GetTransferQueueFamily();
+			bool graphicsCapable = (transferFamily >= 0 && transferFamily < static_cast<int>(queueFamilyProperties.size()))
+				&& ((queueFamilyProperties[transferFamily].queueFlags & vk::QueueFlagBits::eGraphics) != vk::QueueFlags{});
+			if (!graphicsCapable)
+			{
+				CA_LOG_ERR("VulkanTexture: UploadData of non-color aspect requires a graphics-capable queue family, "
+					"but transfer family {} does not support graphics; skipping upload", transferFamily);
+				return;
 			}
 		}
 
@@ -333,14 +456,25 @@ namespace graphics_backend
 			vk::ImageLayout::eTransferDstOptimal,
 			static_cast<uint32_t>(regions.size()), regions.data());
 
-		// Transition back to original layout
-		TransitionLayout(cmdBuf, originalLayout,
+		// Transition back to original layout. A freshly created texture's original layout
+		// is UNDEFINED — transitioning TO UNDEFINED is illegal
+		// (VUID-VkImageMemoryBarrier-newLayout-01198); leave such textures in
+		// SHADER_READ_ONLY_OPTIMAL (the default sampled layout) instead.
+		vk::ImageLayout targetLayout = (originalLayout == vk::ImageLayout::eUndefined)
+			? vk::ImageLayout::eShaderReadOnlyOptimal
+			: originalLayout;
+		TransitionLayout(cmdBuf, targetLayout,
 			vk::PipelineStageFlagBits::eTransfer,
-			vk::PipelineStageFlagBits::eBottomOfPipe);
+			vk::PipelineStageFlagBits::eBottomOfPipe); // R5-4: default triggers the layout-derived stage (R4-13) / transfer-only degradation (R5-3)
 
 		cmdListManager.EndCommandBuffer(cmdBuf);
 
-		// Submit and wait for completion (synchronous upload)
+		// Submit and wait for completion (synchronous upload).
+		// R3-7: the copy runs on the transfer queue family — a barrier recorded here
+		// only synchronizes work WITHIN this queue; cross-queue visibility would
+		// require a semaphore signal/wait pair or queue-family ownership transfer.
+		// This upload is safe because waitForFences below serializes host-side before
+		// any consuming queue submits.
 		vk::Fence fence;
 		try { fence = device.createFence(vk::FenceCreateInfo{}); }
 		catch (vk::SystemError const& e) {

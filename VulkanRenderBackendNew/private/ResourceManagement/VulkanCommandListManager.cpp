@@ -10,9 +10,23 @@ namespace graphics_backend
 		auto device = GetDevice();
 		auto const& queueContext = GetQueueContext();
 
+		// Validate queue family indices before use: -1 (unset) would become 0xFFFFFFFF as
+		// uint32 in vkCreateCommandPool (VUID-vkCreateCommandPool-queueFamilyIndex-01937).
+		// QueueContext falls back to the graphics family on single-universal-family
+		// devices, so -1 here indicates a genuinely broken setup — refuse to init.
+		const int graphicsFamily = queueContext.GetGraphicsQueueFamily();
+		const int computeFamily = queueContext.GetComputeQueueFamily();
+		const int transferFamily = queueContext.GetTransferQueueFamily();
+		if (graphicsFamily < 0 || computeFamily < 0 || transferFamily < 0)
+		{
+			CA_LOG_ERR("VulkanCommandListManager: Invalid queue family index (graphics={}, compute={}, transfer={}); "
+				"refusing to create command pools", graphicsFamily, computeFamily, transferFamily);
+			return;
+		}
+
 		// Create graphics command pool
 		vk::CommandPoolCreateInfo graphicsPoolInfo{};
-		graphicsPoolInfo.queueFamilyIndex = queueContext.GetGraphicsQueueFamily();
+		graphicsPoolInfo.queueFamilyIndex = graphicsFamily;
 		graphicsPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 		try { m_GraphicsPool = device.createCommandPool(graphicsPoolInfo); }
 		catch (vk::SystemError const& e) {
@@ -22,7 +36,7 @@ namespace graphics_backend
 
 		// Create compute command pool
 		vk::CommandPoolCreateInfo computePoolInfo{};
-		computePoolInfo.queueFamilyIndex = queueContext.GetComputeQueueFamily();
+		computePoolInfo.queueFamilyIndex = computeFamily;
 		computePoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 		try { m_ComputePool = device.createCommandPool(computePoolInfo); }
 		catch (vk::SystemError const& e) {
@@ -34,7 +48,7 @@ namespace graphics_backend
 
 		// Create transfer command pool
 		vk::CommandPoolCreateInfo transferPoolInfo{};
-		transferPoolInfo.queueFamilyIndex = queueContext.GetTransferQueueFamily();
+		transferPoolInfo.queueFamilyIndex = transferFamily;
 		transferPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 		try { m_TransferPool = device.createCommandPool(transferPoolInfo); }
 		catch (vk::SystemError const& e) {

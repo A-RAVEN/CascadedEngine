@@ -86,11 +86,13 @@ namespace graphics_backend
 		void BuildDescriptors(VulkanGraphLocalResourceManager& resourceManager, vk::DescriptorPool pool);
 
 		// Set resources (low-level API for manual descriptor writes)
-		void SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range);
-		void SetStorageBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range);
-		void SetSampledImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout);
-		void SetStorageImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout);
-		void SetSampler(uint32_t set, uint32_t binding, vk::Sampler sampler);
+		// arrayElement: dstArrayElement — F42: array bindings (elementCount > 1) must be
+		// written element-by-element to match the layout's descriptorCount.
+		void SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range, uint32_t arrayElement = 0);
+		void SetStorageBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range, uint32_t arrayElement = 0);
+		void SetSampledImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout, uint32_t arrayElement = 0);
+		void SetStorageImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout, uint32_t arrayElement = 0);
+		void SetSampler(uint32_t set, uint32_t binding, vk::Sampler sampler, uint32_t arrayElement = 0);
 
 		// Get descriptor set for a set index
 		vk::DescriptorSet GetDescriptorSet(uint32_t set) const;

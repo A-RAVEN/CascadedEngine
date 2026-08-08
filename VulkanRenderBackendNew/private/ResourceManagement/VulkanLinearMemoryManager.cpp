@@ -99,21 +99,27 @@ namespace graphics_backend
 		}
 
 		// Need a new page
-		AllocatePage();
-		if (m_Pages.empty())
+		// F18: reject oversized allocations BEFORE allocating a fresh page — a new
+		// (up to 64MB) page would otherwise sit in m_Pages permanently unused.
+		if (size > m_PageSize)
 		{
+			CA_LOG_ERR("VulkanLinearMemoryManager: Allocation size {} exceeds page size {}, cannot allocate", size, m_PageSize);
+			return {};
+		}
+
+		// F18a: AllocatePage() can fail silently (VMA error). If the previous page was
+		// full, falling through to m_Pages.back() would return a STALE allocation
+		// reusing already-consumed staging memory — return failure instead.
+		size_t pageCountBefore = m_Pages.size();
+		AllocatePage();
+		if (m_Pages.size() <= pageCountBefore)
+		{
+			CA_LOG_ERR("VulkanLinearMemoryManager: AllocatePage failed (VMA), allocation of {} bytes aborted", size);
 			return {};
 		}
 
 		Page& newPage = m_Pages.back();
 		uint64_t alignedOffset = 0;
-
-		// If allocation is larger than a single page, fail — caller would memcpy out of bounds
-		if (size > newPage.size)
-		{
-			CA_LOG_ERR("VulkanLinearMemoryManager: Allocation size {} exceeds page size {}, cannot allocate", size, m_PageSize);
-			return {};
-		}
 
 		newPage.currentOffset = alignedOffset + size;
 		return {
@@ -126,6 +132,11 @@ namespace graphics_backend
 
 	void VulkanLinearMemoryManager::Reset()
 	{
+		// F19 PRECONDITION: rewinding page offsets reuses staging regions that GPU work
+		// may still reference. This is safe ONLY because the caller guarantees GPU
+		// completion before Reset() — VulkanFrameContext::Aquire() runs after
+		// SubmitBatches' per-batch waitForFences (single frame in flight). If async
+		// frames-in-flight are introduced, per-page fence tracking MUST be added here.
 		// Trim old pages: AllocUploadStagingBuffer only probes m_Pages.back(),
 		// so pages before the last are dead weight. Keep at least 1 page.
 		if (m_Pages.size() > 1)

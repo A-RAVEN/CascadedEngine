@@ -409,9 +409,15 @@ namespace graphics_backend
 										shaderCode.shaderType = program.shaderType;
 
 										// Convert SPIR-V data to uint32_t vector
+										// F44: vkCreateShaderModule requires codeSize to be a multiple of 4 —
+										// size the buffer up to the next 4-byte boundary and zero-pad.
+										// Copying dataSize bytes into a (dataSize/4)-element buffer would
+										// overflow when dataSize is not a multiple of 4.
 										size_t dataSize = program.data.size();
-										shaderCode.spirvCode.resize(dataSize / sizeof(uint32_t));
-										memcpy(shaderCode.spirvCode.data(), program.data.data(), dataSize);
+										size_t codeBytes = (dataSize + 3u) & ~size_t(3u);
+										shaderCode.spirvCode.assign(codeBytes / sizeof(uint32_t), 0u);
+										if (dataSize > 0)
+											memcpy(shaderCode.spirvCode.data(), program.data.data(), dataSize);
 
 										found = shaderLibrary->m_ShaderPrograms.insert(
 											castl::make_pair(shaHash, castl::move(shaderCode))).first;

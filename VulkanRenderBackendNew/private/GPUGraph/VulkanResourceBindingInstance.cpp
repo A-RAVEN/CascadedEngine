@@ -312,8 +312,20 @@ namespace graphics_backend
 		m_PendingWrites.clear();
 		m_BufferInfos.clear();
 		m_ImageInfos.clear();
-		m_BufferInfos.reserve(m_CBufferBindings.size() + m_BufferBindings.size());
-		m_ImageInfos.reserve(m_ImageBindings.size() + m_SamplerBindings.size());
+		// F42 audit fix: reserve by TOTAL ELEMENT count, not binding count — the
+		// per-element write loops below push image.bindings.size() /
+		// samplerDescriptors.size() / bindings.size() entries per binding. Reserving too
+		// little lets the vector reallocate mid-write, dangling the &back() pointers
+		// stored in pending writes (memory bug).
+		{
+			size_t bufferInfoCount = m_CBufferBindings.size();
+			for (auto const& b : m_BufferBindings) bufferInfoCount += b.bindings.size();
+			size_t imageInfoCount = 0;
+			for (auto const& img : m_ImageBindings) imageInfoCount += img.bindings.size();
+			for (auto const& smp : m_SamplerBindings) imageInfoCount += smp.samplerDescriptors.size();
+			m_BufferInfos.reserve(bufferInfoCount);
+			m_ImageInfos.reserve(imageInfoCount);
+		}
 
 		// 5.2: Allocate descriptor sets from cached layouts
 		castl::vector<castl::pair<uint32_t, vk::DescriptorSetLayout>> setLayoutPairs;
@@ -358,23 +370,37 @@ namespace graphics_backend
 			if (image.bindings.empty())
 				continue;
 
-			vk::ImageView imageView = resourceManager.GetTextureView(image.bindings[0].first);
-			if (!imageView)
-				continue;
+			bool isUAV = (image.resourceUsages == EResourceUsage::eShaderUnorderedAccess);
 
-			vk::ImageLayout layout = image.resourceUsages == EResourceUsage::eShaderUnorderedAccess
-				? vk::ImageLayout::eGeneral
-				: vk::ImageLayout::eShaderReadOnlyOptimal;
+			// F42: write EVERY array element — the layout declares descriptorCount =
+			// bindings.size(); writing only bindings[0] would mismatch it.
+			for (uint32_t elemIdx = 0; elemIdx < image.bindings.size(); ++elemIdx)
+			{
+				vk::ImageView imageView = resourceManager.GetTextureView(image.bindings[elemIdx].first);
+				if (!imageView)
+					continue;
 
-			if (image.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
-			{
-				SetStorageImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout);
-			}
-			else
-			{
-				if (shaderBindingInfo.samplerInfos.empty())
-					CA_LOG_WARN("SampledImage bound without corresponding SamplerBinding - configure sampler for correct behavior");
-				SetSampledImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout);
+				// R4-5: the descriptor's imageLayout MUST match the image's ACTUAL layout
+				// at sampling time (VUID-VkDescriptorImageInfo-imageLayout-00344). The
+				// barrier/layout-tracking chain transitions sampled images to
+				// SHADER_READ_ONLY_OPTIMAL everywhere (ComputeAccessToImageLayout,
+				// transfer-pass, finalize pass) — so the descriptor uses the same layout
+				// for all formats. Depth views are single-aspect (GetImageViewAspect /
+				// graph-local GetImageAspectMask) per VUID-VkDescriptorImageInfo-imageView-01976.
+				vk::ImageLayout layout = isUAV
+					? vk::ImageLayout::eGeneral
+					: vk::ImageLayout::eShaderReadOnlyOptimal;
+
+				if (isUAV)
+				{
+					SetStorageImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout, elemIdx);
+				}
+				else
+				{
+					if (shaderBindingInfo.samplerInfos.empty())
+						CA_LOG_WARN("SampledImage bound without corresponding SamplerBinding - configure sampler for correct behavior");
+					SetSampledImage(image.bindingInfo.spaceID, image.bindingInfo.bindingID, imageView, layout, elemIdx);
+				}
 			}
 		}
 
@@ -384,12 +410,15 @@ namespace graphics_backend
 			if (buffer.bindings.empty())
 				continue;
 
-			vk::Buffer vkBuffer = resourceManager.GetBuffer(buffer.bindings[0]);
-			if (!vkBuffer)
-				continue;
+			// F42: write every array element (same descriptorCount consistency as images).
+			for (uint32_t elemIdx = 0; elemIdx < buffer.bindings.size(); ++elemIdx)
+			{
+				vk::Buffer vkBuffer = resourceManager.GetBuffer(buffer.bindings[elemIdx]);
+				if (!vkBuffer)
+					continue;
 
-			uint64_t bufferSize = 0; // We don't know the exact size from BufferHandle alone
-			SetStorageBuffer(buffer.bindingInfo.spaceID, buffer.bindingInfo.bindingID, vkBuffer, 0, VK_WHOLE_SIZE);
+				SetStorageBuffer(buffer.bindingInfo.spaceID, buffer.bindingInfo.bindingID, vkBuffer, 0, VK_WHOLE_SIZE, elemIdx);
+			}
 		}
 
 		// 5.6: Write Sampler descriptors
@@ -398,16 +427,20 @@ namespace graphics_backend
 			if (sampler.samplerDescriptors.empty())
 				continue;
 
-			auto const& samplerDesc = sampler.samplerDescriptors[0];
-			vk::Sampler vkSampler = GetApp()->GetSamplerManager().GetOrCreateSampler(samplerDesc);
-			SetSampler(sampler.bindingInfo.spaceID, sampler.bindingInfo.bindingID, vkSampler);
+			// F42: write every array element (same descriptorCount consistency as images).
+			for (uint32_t elemIdx = 0; elemIdx < sampler.samplerDescriptors.size(); ++elemIdx)
+			{
+				auto const& samplerDesc = sampler.samplerDescriptors[elemIdx];
+				vk::Sampler vkSampler = GetApp()->GetSamplerManager().GetOrCreateSampler(samplerDesc);
+				SetSampler(sampler.bindingInfo.spaceID, sampler.bindingInfo.bindingID, vkSampler, elemIdx);
+			}
 		}
 
 		// 5.7: Submit all pending writes
 		UpdateDescriptorSets();
 	}
 
-	void VulkanResourceBindingInstance::SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range)
+	void VulkanResourceBindingInstance::SetUniformBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range, uint32_t arrayElement)
 	{
 		auto it = m_DescriptorSets.find(set);
 		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
@@ -417,14 +450,14 @@ namespace graphics_backend
 		vk::WriteDescriptorSet write{};
 		write.dstSet = it->second;
 		write.dstBinding = binding;
-		write.dstArrayElement = 0;
+		write.dstArrayElement = arrayElement;
 		write.descriptorCount = 1;
 		write.descriptorType = vk::DescriptorType::eUniformBuffer;
 		write.pBufferInfo = &m_BufferInfos.back();
 		m_PendingWrites.push_back(write);
 	}
 
-	void VulkanResourceBindingInstance::SetStorageBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range)
+	void VulkanResourceBindingInstance::SetStorageBuffer(uint32_t set, uint32_t binding, vk::Buffer buffer, vk::DeviceSize offset, vk::DeviceSize range, uint32_t arrayElement)
 	{
 		auto it = m_DescriptorSets.find(set);
 		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
@@ -434,14 +467,14 @@ namespace graphics_backend
 		vk::WriteDescriptorSet write{};
 		write.dstSet = it->second;
 		write.dstBinding = binding;
-		write.dstArrayElement = 0;
+		write.dstArrayElement = arrayElement;
 		write.descriptorCount = 1;
 		write.descriptorType = vk::DescriptorType::eStorageBuffer;
 		write.pBufferInfo = &m_BufferInfos.back();
 		m_PendingWrites.push_back(write);
 	}
 
-	void VulkanResourceBindingInstance::SetSampledImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout)
+	void VulkanResourceBindingInstance::SetSampledImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout, uint32_t arrayElement)
 	{
 		auto it = m_DescriptorSets.find(set);
 		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
@@ -451,14 +484,14 @@ namespace graphics_backend
 		vk::WriteDescriptorSet write{};
 		write.dstSet = it->second;
 		write.dstBinding = binding;
-		write.dstArrayElement = 0;
+		write.dstArrayElement = arrayElement;
 		write.descriptorCount = 1;
 		write.descriptorType = vk::DescriptorType::eSampledImage;
 		write.pImageInfo = &m_ImageInfos.back();
 		m_PendingWrites.push_back(write);
 	}
 
-	void VulkanResourceBindingInstance::SetStorageImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout)
+	void VulkanResourceBindingInstance::SetStorageImage(uint32_t set, uint32_t binding, vk::ImageView imageView, vk::ImageLayout layout, uint32_t arrayElement)
 	{
 		auto it = m_DescriptorSets.find(set);
 		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
@@ -468,14 +501,14 @@ namespace graphics_backend
 		vk::WriteDescriptorSet write{};
 		write.dstSet = it->second;
 		write.dstBinding = binding;
-		write.dstArrayElement = 0;
+		write.dstArrayElement = arrayElement;
 		write.descriptorCount = 1;
 		write.descriptorType = vk::DescriptorType::eStorageImage;
 		write.pImageInfo = &m_ImageInfos.back();
 		m_PendingWrites.push_back(write);
 	}
 
-	void VulkanResourceBindingInstance::SetSampler(uint32_t set, uint32_t binding, vk::Sampler sampler)
+	void VulkanResourceBindingInstance::SetSampler(uint32_t set, uint32_t binding, vk::Sampler sampler, uint32_t arrayElement)
 	{
 		auto it = m_DescriptorSets.find(set);
 		CA_ASSERT_BREAK(it != m_DescriptorSets.end(), "DescriptorSet not allocated for set {}", set);
@@ -485,7 +518,7 @@ namespace graphics_backend
 		vk::WriteDescriptorSet write{};
 		write.dstSet = it->second;
 		write.dstBinding = binding;
-		write.dstArrayElement = 0;
+		write.dstArrayElement = arrayElement;
 		write.descriptorCount = 1;
 		write.descriptorType = vk::DescriptorType::eSampler;
 		write.pImageInfo = &m_ImageInfos.back();

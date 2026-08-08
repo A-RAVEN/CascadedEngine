@@ -1,6 +1,7 @@
 #include <RenderBackend_Vulkan.h>
 #include <Utils/VulkanDebug.h>
 #include <string>
+#include <cstring>
 #include <VulkanObjects/VulkanBuffer.h>
 #include <VulkanObjects/VulkanTexture.h>
 #include <VulkanObjects/VulkanWindowHandle.h>
@@ -57,14 +58,33 @@ namespace graphics_backend
 		};
 	}
 
-	static castl::vector<const char*> GetDeviceExtensionNames()
+	static castl::vector<const char*> GetDeviceExtensionNames(bool includeGplLibraries)
 	{
-		return castl::vector<const char*>{
-			VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
+		castl::vector<const char*> extensions{
+			// VK_KHR_MAINTENANCE_4 removed: promoted to Vulkan 1.3 core, and no code path
+			// uses any maintenance4 command/feature. Requesting it is redundant dead config.
 			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-			VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
-			VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME,
 		};
+		// F1b: GPL extension names are requested ONLY when the selected device actually
+		// exposes them — requesting an unsupported extension makes vkCreateDevice return
+		// VK_ERROR_EXTENSION_NOT_PRESENT (hard init failure instead of monolithic fallback).
+		if (includeGplLibraries)
+		{
+			extensions.push_back(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+			extensions.push_back(VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME);
+		}
+		return extensions;
+	}
+
+	static bool DeviceHasExtension(vk::PhysicalDevice device, char const* extensionName)
+	{
+		auto deviceExtensions = device.enumerateDeviceExtensionProperties();
+		for (auto const& ext : deviceExtensions)
+		{
+			if (strcmp(ext.extensionName, extensionName) == 0)
+				return true;
+		}
+		return false;
 	}
 
 	VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT       messageSeverity,
@@ -245,18 +265,44 @@ namespace graphics_backend
 			m_VulkanInstance = nullptr;
 			return;
 		}
+		// F1a: capability-based device selection — prefer a device that exposes
+		// VK_EXT_graphics_pipeline_library instead of blindly taking front().
 		m_PhysicalDevice = physicalDevices.front();
+		for (auto const& candidate : physicalDevices)
+		{
+			if (DeviceHasExtension(candidate, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME))
+			{
+				m_PhysicalDevice = candidate;
+				break;
+			}
+		}
+		// F1b: only request GPL extensions on devices that expose them.
+		bool gplExtensionAvailable = DeviceHasExtension(m_PhysicalDevice, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME);
 		InitSubObj(&m_QueueContext);
-		auto deviceExts = GetDeviceExtensionNames();
+		auto deviceExts = GetDeviceExtensionNames(gplExtensionAvailable);
 		QueueContext::QueueCreationInfo queueCreationInfo{};
 		m_QueueContext.InitQueueCreationInfo(m_PhysicalDevice, queueCreationInfo);
-		// Vulkan 1.3 core features: dynamicRendering (required for GPL library renderPass=NULL)
+
+		// Feature enablement MUST follow a vkGetPhysicalDeviceFeatures2 query — enabling a
+		// feature the device does not support makes vkCreateDevice return
+		// VK_ERROR_FEATURE_NOT_PRESENT (vkCreateDevice refpage). dynamicRendering is a
+		// Vulkan 1.3 core feature (always supported at apiVersion 1.3), while
+		// graphicsPipelineLibrary is a mandatory feature of VK_EXT_graphics_pipeline_library
+		// (extension support implies feature support per spec Feature Requirements) — the
+		// query is kept defensively and gates m_PipelineLibrarySupported. Feature-unsupported
+		// devices fall back to the monolithic pipeline path (m_PipelineLibrarySupported=false).
 		vk::PhysicalDeviceVulkan13Features vulkan13Features{};
-		vulkan13Features.dynamicRendering = VK_TRUE;
-		// GPL extension feature
 		vk::PhysicalDeviceGraphicsPipelineLibraryFeaturesEXT gplFeatures{};
-		gplFeatures.graphicsPipelineLibrary = VK_TRUE;
 		gplFeatures.pNext = &vulkan13Features;
+		{
+			vk::PhysicalDeviceFeatures2 features2{};
+			features2.pNext = &gplFeatures;
+			m_PhysicalDevice.getFeatures2(&features2);
+			m_PipelineLibrarySupported = (gplFeatures.graphicsPipelineLibrary == VK_TRUE);
+			CA_LOG_INFO("RenderBackend_Vulkan: queried device features — graphicsPipelineLibrary={}, dynamicRendering={}",
+				static_cast<bool>(gplFeatures.graphicsPipelineLibrary),
+				static_cast<bool>(vulkan13Features.dynamicRendering));
+		}
 
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, deviceExts);
 		deviceCreateInfo.pNext = &gplFeatures;
@@ -280,17 +326,9 @@ namespace graphics_backend
 		InitSubObj(&m_CommandListManager);
 		m_CommandListManager.Init();
 
-		// Check for pipeline library support
-		auto deviceExtensions = m_PhysicalDevice.enumerateDeviceExtensionProperties();
-		for (auto const& ext : deviceExtensions)
-		{
-			if (strcmp(ext.extensionName, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME) == 0)
-			{
-				m_PipelineLibrarySupported = true;
-				CA_LOG_INFO("VK_EXT_graphics_pipeline_library supported");
-				break;
-			}
-		}
+		// Pipeline library support was determined above via vkGetPhysicalDeviceFeatures2
+		// (graphicsPipelineLibrary feature query) — feature support, not extension
+		// presence, gates the GPL path.
 
 		// Init Pipeline Library
 		InitSubObj(&m_PipelineLibrary);

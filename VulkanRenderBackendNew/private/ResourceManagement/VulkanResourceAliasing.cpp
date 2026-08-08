@@ -134,6 +134,10 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 			alloc.allocation = m_AliasedPoolAllocation;
 			alloc.mappedPtr = m_AliasedPoolMappedPtr;
 			alloc.deviceMemory = m_AliasedPoolDeviceMemory;
+			// F16a (unified): alloc.offset stays the IN-POOL planned offset (no block
+			// offset). Every GPU binding site adds GetPoolBlockOffset() itself, and every
+			// CPU mappedPtr = pMappedData + in-pool offset (pMappedData already includes
+			// the block offset). This keeps CPU/GPU views consistent on all paths.
 			++updatedCount;
 		}
 		CA_LOG_INFO("VulkanResourceAliasing: Updated {} aliased allocations with pool handle", updatedCount);
@@ -168,6 +172,8 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 	{
 		m_AliasedAllocations[resourceId] = alloc;
 		m_AliasedAllocations[resourceId].deviceMemory = m_AliasedPoolDeviceMemory;
+		// F16a (unified): offset stays in-pool (no block offset) — see
+		// UpdateAliasedAllocationsMap comment.
 		m_TotalAliasedSize = alloc.offset + alignedSize;
 	}
 
@@ -196,7 +202,7 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 
 		VkMemoryRequirements memReq{};
 		memReq.size = totalSize;
-		memReq.alignment = 256;
+		memReq.alignment = 4096; // R4-7: must cover resource alignment (images commonly require 4096)
 		memReq.memoryTypeBits = memoryTypeBits;
 
 		VmaAllocationInfo allocInfoOut{};
@@ -211,6 +217,10 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 		m_AliasedPoolMappedPtr = allocInfoOut.pMappedData;
 		m_AliasedPoolDeviceMemory = allocInfoOut.deviceMemory;
 		m_AliasedPoolMemoryType = allocInfoOut.memoryType;
+		// Preserve the allocation's offset inside its VkDeviceMemory block — it is NOT
+		// always 0 (only dedicated allocations start at block offset 0). Consumers bind
+		// at deviceMemory + (blockOffset + plannedOffset).
+		m_AliasedPoolBlockOffset = allocInfoOut.offset;
 		if (!m_AliasedPoolMappedPtr)
 		{
 			CA_LOG_ERR("VulkanResourceAliasing: Aliased pool allocated but pMappedData is null (unexpected)");
@@ -237,6 +247,7 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 		m_AliasedPoolDeviceMemory = VK_NULL_HANDLE;
 		m_AliasedPoolMemoryType = 0;
 		m_AliasedPoolMappedPtr = nullptr;
+		m_AliasedPoolBlockOffset = 0;
 
 		m_AliasedAllocations.clear();
 		m_TotalAliasedSize = 0;
@@ -260,15 +271,31 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 	bool VulkanResourceAliasing::CreateVirtualBlocks(uint64_t blockSize)
 	{
 		m_DefaultBlockSize = blockSize;
-		auto deviceProps = GetPhysicalDevice().getProperties();
+
+		// Query real memory properties — hardcoding types 0/1 breaks on devices with
+		// fewer memory types or where types 0/1 lack the needed properties.
+		auto memProps = GetPhysicalDevice().getMemoryProperties();
+		uint32_t bufferMemType = UINT32_MAX, imageMemType = UINT32_MAX;
+		for (uint32_t t = 0; t < memProps.memoryTypeCount; ++t)
+		{
+			vk::MemoryPropertyFlags flags = memProps.memoryTypes[t].propertyFlags;
+			if (bufferMemType == UINT32_MAX && (flags & vk::MemoryPropertyFlagBits::eHostVisible))
+				bufferMemType = t;
+			if (imageMemType == UINT32_MAX && (flags & vk::MemoryPropertyFlagBits::eDeviceLocal))
+				imageMemType = t;
+		}
+		if (bufferMemType == UINT32_MAX)
+			bufferMemType = 0;
+		if (imageMemType == UINT32_MAX)
+			imageMemType = bufferMemType;
+		const uint32_t chosenTypes[2] = { bufferMemType, imageMemType };
 
 		// Create VirtualBlock per memory type (simplified: one for buffers, one for images)
-		// In production, query VkPhysicalDeviceMemoryProperties for exact memoryTypeBits per resource type
-		for (uint32_t memType = 0; memType < 2; ++memType)
+		for (uint32_t poolIdx = 0; poolIdx < 2; ++poolIdx)
 		{
 			VirtualBlockPool pool;
-			pool.memoryTypeIndex = memType;
-			pool.isBufferPool = (memType == 0);
+			pool.memoryTypeIndex = chosenTypes[poolIdx];
+			pool.isBufferPool = (poolIdx == 0);
 
 			VmaVirtualBlockCreateInfo vbInfo{};
 			vbInfo.size = blockSize;
@@ -279,13 +306,13 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 			if (result != VK_SUCCESS)
 			{
 				CA_LOG_ERR("VulkanResourceAliasing: Failed to create VirtualBlock for memoryType {}: {}",
-					memType, static_cast<int>(result));
+					pool.memoryTypeIndex, static_cast<int>(result));
 				return false;
 			}
 
 			m_BlockPools.push_back(pool);
 			CA_LOG_INFO("VulkanResourceAliasing: Created VirtualBlock for memoryType {} (size={}MB, isBuffer={})",
-				memType, blockSize / (1024 * 1024), pool.isBufferPool);
+				pool.memoryTypeIndex, blockSize / (1024 * 1024), pool.isBufferPool);
 		}
 
 		return true;
@@ -293,6 +320,19 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 
 	void VulkanResourceAliasing::DestroyVirtualBlocks()
 	{
+		// VMA prerequisite: "Destroying a virtual block is only allowed after all
+		// virtual allocations within it are freed". vmaClearVirtualBlock releases every
+		// outstanding allocation; without it, destroying blocks holding live allocations
+		// triggers VMA internal errors (e.g. VK_ERROR_INITIALIZATION_FAILED / -8).
+		for (auto& pool : m_BlockPools)
+		{
+			if (pool.virtualBlock)
+			{
+				vmaClearVirtualBlock(pool.virtualBlock);
+			}
+		}
+		m_ActiveVirtualAllocs.clear();
+
 		for (auto& pool : m_BlockPools)
 		{
 			if (pool.virtualBlock)
@@ -307,7 +347,6 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 			}
 		}
 		m_BlockPools.clear();
-		m_ActiveVirtualAllocs.clear();
 		CA_LOG_INFO("VulkanResourceAliasing: Destroyed all VirtualBlocks");
 	}
 
@@ -410,13 +449,24 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 
 			VmaAllocationCreateInfo allocInfo{};
 			allocInfo.usage = VMA_MEMORY_USAGE_UNKNOWN;
-			allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-			allocInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+			// R5-8: the image pool's memory type is DEVICE_LOCAL (CreateVirtualBlocks) —
+			// requiring HOST_VISIBLE there fails on devices whose first device-local type
+			// is not host-visible (e.g. discrete GPUs with type0 = pure VRAM). Only the
+			// buffer pool needs host access.
+			if (pool.isBufferPool)
+			{
+				allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+				allocInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+				allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+			}
+			else
+			{
+				allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			}
 
 			VkMemoryRequirements memReq{};
 			memReq.size = peakSize;
-			memReq.alignment = 256;
+			memReq.alignment = 4096; // R4-7: must cover resource alignment (images commonly require 4096)
 			memReq.memoryTypeBits = 1u << pool.memoryTypeIndex;
 
 			VmaAllocationInfo allocInfoOut{};
@@ -430,9 +480,12 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 
 			pool.deviceMemory = allocInfoOut.deviceMemory;
 			pool.mappedPtr = allocInfoOut.pMappedData;
+			// F16a: preserve the allocation's offset inside its VkDeviceMemory block —
+			// bindings use deviceMemory + (blockOffset + virtAlloc.offset).
+			pool.blockOffset = allocInfoOut.offset;
 			pool.physicalSize = peakSize;
-			CA_LOG_INFO("VulkanResourceAliasing: Committed physical memory for block {}: {} bytes",
-				pool.memoryTypeIndex, peakSize);
+			CA_LOG_INFO("VulkanResourceAliasing: Committed physical memory for block {}: {} bytes (blockOffset={})",
+				pool.memoryTypeIndex, peakSize, pool.blockOffset);
 		}
 
 		return true;

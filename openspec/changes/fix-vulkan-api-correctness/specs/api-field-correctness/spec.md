@@ -2,14 +2,26 @@
 
 ### Requirement: 图像拷贝 aspectMask 必须为单 bit
 
-`VkBufferImageCopy.imageSubresource.aspectMask` SHALL 只包含单个 aspect bit（VUID-VkBufferImageCopy-aspectMask-09103）。depth-stencil 格式（如 `E_D24_UNORM_S8_UINT`）上传时 SHALL 为 depth 与 stencil 分别发起拷贝（各自单 bit），SHALL NOT 一次传入 `DEPTH|STENCIL` 双 bit。
+`VkBufferImageCopy.imageSubresource.aspectMask` SHALL 只包含单个 aspect bit（VUID-VkBufferImageCopy-aspectMask-09103）。depth-stencil 格式（如 `E_D24_UNORM_S8_UINT`）上传时 SHALL 使用 depth 单 bit（当前 `UploadData` 仅支持 depth 数据上传，stencil 不拷贝并输出告警；完整的 depth+stencil 分别拷贝留待未来实现），SHALL NOT 一次传入 `DEPTH|STENCIL` 双 bit。
 
 #### Scenario: D24S8 纹理拷贝
 
 - **GIVEN** `VulkanTexture::UploadData` 上传 `E_D24_UNORM_S8_UINT` 格式
 - **WHEN** 构建 `VkBufferImageCopy`
 - **THEN** aspectMask 为 `VK_IMAGE_ASPECT_DEPTH_BIT`（或 stencil，单 bit）
-- **AND** 验证层不报告 VUID-vkCmdCopyBufferToImage-aspectMask-09103
+- **AND** 验证层不报告 VUID-VkBufferImageCopy-aspectMask-09103
+
+### Requirement: 深度/模板拷贝需图形队列能力
+
+含 depth 或 stencil aspect 的 `vkCmdCopyBufferToImage` SHALL 在支持 `VK_QUEUE_GRAPHICS_BIT` 的队列族的命令池中记录（VUID-vkCmdCopyBufferToImage-commandBuffer-07739）。`VK_KHR_maintenance1` 不改变该要求（该扩展不包含 depth/stencil 拷贝放宽）。命令池队列族不支持 GRAPHICS 时，SHALL 拒绝该拷贝或改走 graphics 队列执行。
+
+#### Scenario: transfer 队列上深度拷贝被拒绝
+
+- **GIVEN** transfer 命令池的队列族不支持 `VK_QUEUE_GRAPHICS_BIT`
+- **WHEN** `VulkanTexture::UploadData` 需要执行 depth/stencil aspect 的 `vkCmdCopyBufferToImage`
+- **THEN** 不在该命令池记录该拷贝
+- **AND** 改走 graphics 队列执行，或输出诊断并跳过
+- **AND** 验证层不报告 VUID-vkCmdCopyBufferToImage-commandBuffer-07739
 
 ### Requirement: image barrier 的 newLayout 禁止 UNDEFINED
 

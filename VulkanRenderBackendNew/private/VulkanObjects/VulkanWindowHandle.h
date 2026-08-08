@@ -46,6 +46,11 @@ namespace graphics_backend
 		bool NeedsRecreation() const { return m_SwapchainOutdated; }
 		void RecreateSwapchain();
 
+		// F3a: set when this frame's acquireNextImageKHR threw (OUT_OF_DATE / DEVICE_LOST
+		// / SURFACE_LOST). The acquire semaphore was never signaled — consumers must skip
+		// waiting on it (and skip present) for this frame, or the GPU would hang.
+		bool IsAcquireFailed() const { return m_AcquireFailed; }
+
 		// Check if window is valid
 		bool IsValid() const { return m_Surface && m_Swapchain; }
 
@@ -80,6 +85,7 @@ namespace graphics_backend
 
 		GPUTextureDescriptor m_BackbufferDescriptor{};
 		bool m_SwapchainOutdated = false;
+		bool m_AcquireFailed = false;
 		bool m_Released = false;
 
 		castl::vector<VulkanResourceState> m_BackBufferResourceStates;

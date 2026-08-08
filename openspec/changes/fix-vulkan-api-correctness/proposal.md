@@ -12,7 +12,7 @@
 - **纹理上传**：VkBufferImageCopy.aspectMask 必须单 bit（D/S 分离）；barrier newLayout 禁止 UNDEFINED；CUBE view 需要 VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT；D16_UNORM bytesPerPixel=2；深度/模板拷贝需 graphics 队列族
 - **GPL 管线库**：PreRasterization 缺 pMultisampleState；tess 阶段缺 pTessellationState；VertexInputStateManager 的 GPL 分支缺 VK_PIPELINE_CREATE_LIBRARY_BIT；特性启用前须 getFeatures2 验证 + 运行时支持检查
 - **GraphExecutor barrier**：compute cmd buffer 上禁止使用 VERTEX/FRAGMENT 阶段（3 处）；transfer pass layout 状态跟踪与实际转换一致；upload barrier 同步域补齐 vertex/compute 阶段
-- **描述符**：descriptorCount=elementCount 的布局只写 bindings[0] → 按元素数写入；depth-stencil sampled 描述符避免 SHADER_READ_ONLY_OPTIMAL 深度布局
+- **描述符**：descriptorCount=elementCount 的布局只写 bindings[0] → 按元素数写入；depth-stencil sampled 描述符 aspect 单 bit + imageLayout 与实际布局（统一 SHADER_READ_ONLY_OPTIMAL）一致
 - **图像视图**：2D view + layerCount>1 违反 VUID-imageViewType-04973 → 用 2D_ARRAY 或 REMAINING_ARRAY_LAYERS
 - **生命周期**：pipeline 双销毁（Cache + m_CreatedPipelines）；window sync semaphore 索引（windowIdx vs imageIndex）统一；descriptor pool 重置前帧级 fence 等待
 - **杂项**：移除死扩展 VK_KHR_MAINTENANCE_4；memcpy 非 4 倍数超写；VMA fallback 失败检查；移除未定义 Init 声明
@@ -37,7 +37,7 @@
 
 ## Impact
 
-- 文件（13 个）：RenderBackend_Vulkan.cpp/.h、VulkanWindowHandle.cpp、QueueContext.cpp/.h、VulkanTexture.cpp、VulkanBuffer.cpp、VulkanResourceAliasing.cpp、VulkanLinearMemoryManager.cpp、VulkanCommandListManager.cpp、VulkanFrameManager.cpp、VulkanPipelineLibrary.cpp、PipelineLibraryCache.cpp、VertexInputStateManager.cpp、VulkanGraphExecutor.cpp、VulkanGraphLocalResourceManager.cpp、VulkanResourceBindingInstance.cpp、ShaderImporter_Vulkan.cpp、FragmentOutputStateManager.h、GeometryShaderStateManager.h
+- 文件（18 个）：RenderBackend_Vulkan.cpp/.h、VulkanWindowHandle.cpp、QueueContext.cpp/.h、VulkanTexture.cpp、VulkanBuffer.cpp、VulkanResourceAliasing.cpp、VulkanLinearMemoryManager.cpp、VulkanCommandListManager.cpp、VulkanFrameManager.cpp、VulkanPipelineLibrary.cpp、PipelineLibraryCache.cpp、VertexInputStateManager.cpp、VulkanGraphExecutor.cpp、VulkanGraphLocalResourceManager.cpp、VulkanResourceBindingInstance.cpp、ShaderImporter_Vulkan.cpp、FragmentOutputStateManager.h、GeometryShaderStateManager.h
 - 依赖：无新增依赖；使用现有 Vulkan 1.3 + VK_EXT_graphics_pipeline_library + VMA
 - 风险：barrier 阶段/状态机改动可能影响渲染正确性，需要 headless 多帧 + 非 headless 实测验证
 

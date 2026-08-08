@@ -34,7 +34,7 @@
 
 ### Requirement: VmaAllocation SHALL be converted to VkDeviceMemory for binding
 
-`VulkanResourceAliasing::AliasedAllocation` SHALL 包含 `VkDeviceMemory deviceMemory` 字段。`vkBindBufferMemory` 和 `vkBindImageMemory` 调用 SHALL 使用该 `deviceMemory`，并 SHALL 使用 `VmaAllocationInfo.offset` 作为绑定偏移（`deviceMemory + offset`），SHALL NOT 丢弃 offset 一律绑定到 `deviceMemory + 0`。`ManagedGPUResource.aliasedOffset` 等消费方 SHALL 与 VMA 返回的实际 offset 一致。
+`VulkanResourceAliasing::AliasedAllocation` SHALL 包含 `VkDeviceMemory deviceMemory` 字段。`vkBindBufferMemory` 和 `vkBindImageMemory` 调用 SHALL 使用该 `deviceMemory`，并 SHALL 使用 `VmaAllocationInfo.offset` 作为绑定偏移（`deviceMemory + offset`），SHALL NOT 丢弃 offset 一律绑定到 `deviceMemory + 0`。`ManagedGPUResource.aliasedOffset` 等消费方 SHALL 存储池内计划偏移（不含 VMA block offset；GPU 绑定在绑定处统一追加 `GetPoolBlockOffset()`，CPU 映射指针 `pMappedData` 已含 block offset），保证 CPU/GPU 视图一致。
 
 #### Scenario: 别名池内资源绑定偏移正确
 
@@ -65,7 +65,7 @@
 
 ### Requirement: 别名池绑定越界必须被拒绝
 
-`BindBufferToAliasedPool`（及等价 late 注册路径）SHALL 在计算出的 `alignedOffset >= GetTotalAliasedSize()` 时拒绝绑定：输出诊断日志并返回失败，SHALL NOT 调用 `vkBindBufferMemory` 绑定超出池大小的偏移。
+`BindBufferToAliasedPool`（及等价 late 注册路径）SHALL 在计算出的 `alignedOffset + vkMemReqs.size > GetTotalAliasedSize()`（即资源超出池大小）时拒绝绑定：输出诊断日志并返回失败，SHALL NOT 调用 `vkBindBufferMemory` 绑定超出池大小的偏移。
 
 #### Scenario: 池分配后注册新 buffer 且偏移越界
 

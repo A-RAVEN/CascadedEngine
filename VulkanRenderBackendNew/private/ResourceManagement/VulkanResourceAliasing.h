@@ -35,6 +35,10 @@ namespace graphics_backend
 		VmaAllocation physicalAllocation = VK_NULL_HANDLE; // Phase 2 physical memory (cross-frame reuse)
 		VkDeviceMemory deviceMemory = VK_NULL_HANDLE;
 		void* mappedPtr = nullptr;
+		// F16a: VmaAllocationInfo.offset of the physical allocation inside its
+		// VkDeviceMemory block (NOT always 0) — bindings must use deviceMemory +
+		// (blockOffset + virtAlloc.offset); mappedPtr already includes blockOffset.
+		uint64_t blockOffset = 0;
 		uint64_t physicalSize = 0;
 		uint32_t memoryTypeIndex = 0;
 		bool isBufferPool = true;
@@ -89,6 +93,8 @@ namespace graphics_backend
 		void* GetMappedPtr() const { return m_AliasedPoolMappedPtr; }
 		VkDeviceMemory GetPoolDeviceMemory() const { return m_AliasedPoolDeviceMemory; }
 		uint32_t GetPoolMemoryType() const { return m_AliasedPoolMemoryType; }
+		// F16a: pool allocation's offset inside its VkDeviceMemory block (for bindings)
+		uint64_t GetPoolBlockOffset() const { return m_AliasedPoolBlockOffset; }
 
 		// Get total aliased memory size
 		uint64_t GetTotalAliasedSize() const { return m_TotalAliasedSize; }
@@ -112,6 +118,10 @@ namespace graphics_backend
 		VkDeviceMemory m_AliasedPoolDeviceMemory = VK_NULL_HANDLE;
 		uint32_t m_AliasedPoolMemoryType = 0;
 		void* m_AliasedPoolMappedPtr = nullptr;
+		// VmaAllocationInfo.offset of the pool allocation within its VkDeviceMemory block.
+		// NOT always 0 (only dedicated allocations start at 0) — resource bindings must use
+		// deviceMemory + (blockOffset + plannedOffset), see UpdateAliasedAllocationsMap.
+		uint64_t m_AliasedPoolBlockOffset = 0;
 		uint64_t m_TotalAliasedSize = 0;
 		uint64_t m_TotalUnaliasedSize = 0;
 

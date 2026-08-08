@@ -105,6 +105,10 @@ namespace graphics_backend
 			vk::PipelineLayout pipelineLayout;
 			VulkanResourceBindingInstance const* pResourceBindingInstance = nullptr;
 			castl::vector<DrawCallGPUData> drawcalls;
+			// F37: deterministic vertex-stream binding order, filled by BuildPipelineStates
+			// (seenStreamKeys order) and consumed by RecordRenderPass so bindVertexBuffers
+			// indices match the pipeline's binding indices.
+			castl::vector<cacore::NameHash> vertexBindingStreamOrder;
 		};
 
 		castl::vector<DrawCallBatchGPUData> drawcallBatchs;
@@ -146,7 +150,7 @@ namespace graphics_backend
 		void AddBufferBarrier(BufferHandle const& handle, vk::BufferMemoryBarrier const& barrier);
 		bool IsEmpty() const { return imageBarriers.empty() && bufferBarriers.empty(); }
 		bool AnyBarrier() const { return !IsEmpty(); }
-		void ExecuteBarriers(vk::CommandBuffer cmdBuf);
+		void ExecuteBarriers(vk::CommandBuffer cmdBuf, bool computeOnly = false);
 	};
 
 	// CBuffer initialization barriers

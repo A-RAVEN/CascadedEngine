@@ -44,6 +44,8 @@ namespace graphics_backend
 
 		// Get aspects for depth/stencil
 		vk::ImageAspectFlags GetImageAspect() const;
+		// Single-bit view aspect (depth-stencil → DEPTH) for descriptor-bound views
+		vk::ImageAspectFlags GetImageViewAspect() const;
 
 		// Helper to convert texture format
 		static vk::Format ConvertFormat(ETextureFormat format);

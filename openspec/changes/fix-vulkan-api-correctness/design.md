@@ -8,7 +8,7 @@
 
 **Goals:**
 - 44 条 CONFIRMED finding 全部修复，每条修复以官方文档 VUID/前提为准绳
-- 消除测试崩溃的候选根因（别名池越界绑定、semaphore 索引错配、队列族 -1）
+- 消除测试崩溃的候选根因（F39 别名池越界绑定、F36 semaphore 索引错配、F20/F21 队列族 -1、F16 VMA allocation offset 丢失）
 - 修复后 headless 100 帧 + 非 headless 实测通过
 - 审查结论可追溯到 Review Log 中的 finding 编号
 
@@ -46,9 +46,9 @@
 **理由**：绑定 offset ≥ 池大小是 GPU 地址越界，直接产生设备崩溃/不可预测行为。
 **备选**：动态扩展池 —— 引入 per-batch 重新规划复杂度，超出本 change 范围。
 
-### D5: 纹理上传：aspectMask 单 bit + layout 修复
+### D5: 纹理上传：aspectMask 单 bit + layout 修复 + 队列族要求
 
-**决策**：VkBufferImageCopy.imageSubresource.aspectMask 按 depth/stencil 分离传单 bit（VUID-vkCmdCopyBufferToImage-aspectMask-09103）；上传后 barrier 的 newLayout 用目标布局而非原 layout（新纹理 UNDEFINED 时禁止 newLayout=UNDEFINED）；CUBE 视图创建前给 image flags 加 VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT；D16_UNORM bytesPerPixel 修正为 2。
+**决策**：VkBufferImageCopy.imageSubresource.aspectMask 按 depth/stencil 分离传单 bit（VUID-VkBufferImageCopy-aspectMask-09103，结构体级 VUID）；上传后 barrier 的 newLayout 用目标布局而非原 layout（新纹理 UNDEFINED 时禁止 newLayout=UNDEFINED）；CUBE 视图创建前给 image flags 加 VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT；D16_UNORM bytesPerPixel 修正为 2；深度/模板 aspect 的 vkCmdCopyBufferToImage 所在命令池队列族必须支持 VK_QUEUE_GRAPHICS_BIT（VUID-vkCmdCopyBufferToImage-commandBuffer-07739；VK_KHR_maintenance1 不改变该要求），不支持则拒绝或改走 graphics 队列。
 **理由**：全部有明确 VUID 或格式表支撑（[copies 章节](https://docs.vulkan.org/spec/latest/chapters/copies.html)、[VkImageMemoryBarrier](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageMemoryBarrier.html)）。
 
 ### D6: GPL 管线库：VUID 补全 + 运行时验证
@@ -62,7 +62,7 @@
 
 ### D7: compute cmd buffer 上的 barrier 阶段修正
 
-**决策**：3 处 compute cmd buffer 记录的 barrier（ExecuteBarriers 的 compute acquire/release、uploadCBufferBarriers、compute UAV barrier）的 stageMask 改为 COMPUTE_SHADER|TRANSFER|HOST 等 compute 族合法阶段，删除 VERTEX/FRAGMENT。
+**决策**：3 处 compute cmd buffer 记录的 barrier（ExecuteBarriers 的 compute acquire/release、uploadCBufferBarriers、compute UAV barrier）的 stageMask 改为 COMPUTE_SHADER|TRANSFER|HOST 等 compute 族合法阶段，删除 VERTEX/FRAGMENT。注意：ExecuteBarriers 的 stage mask 并非硬编码，而是由 `AccessToPipelineStages`（VulkanGraphExecutor.cpp:75-105）从 access flags 推导且与 graphics 队列共用（eShaderRead/eShaderWrite 映射出 VERTEX|FRAGMENT|COMPUTE）——修复需让该函数按目标队列族分支（compute 路径只产出 compute 族合法阶段），而非只改调用点。
 **理由**：compute-only 队列族不支持 VERTEX_SHADER/FRAGMENT_SHADER 阶段（[vkCmdPipelineBarrier](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdPipelineBarrier.html) stage 支持要求），违反即 UB/验证错误。
 **备选**：把这些 barrier 挪到 graphics 队列 —— 破坏现有 async compute 结构，否决。
 
@@ -81,12 +81,12 @@
 **决策**：present 与 acquire 统一按窗口位置（windowIdx）索引 GetWindowSync，不再用 GetCurrentImageIndex 索引 flat 数组；m_WindowSyncs 语义改为"每窗口一套 sync"。
 **理由**：imageIndex 在 multi-image 下与 flat 数组索引语义不一致，导致 semaphore 错配/死锁。
 
-### D11: 描述符写入数量匹配 + depth-stencil 采样布局
+### D11: 描述符写入数量匹配 + descriptor imageLayout 与实际布局一致
 
 **决策**：
 1. BuildDescriptors 对 elementCount>1 的绑定按元素逐个写 descriptorCount=1 或一次性写 descriptorCount=elementCount（与 layout 声明一致）；
-2. depth-stencil 格式的 sampled 绑定：view 的 aspectMask 只含对应单 bit（depth 或 stencil，随 layout），imageLayout 用 SHADER_READ_ONLY_OPTIMAL 仍不合法时改为 GENERAL 并检查格式的 sampled 支持。
-**理由**：descriptorCount 声明与写入不一致违反 [VkWriteDescriptorSet](https://vkdoc.net/man/VkWriteDescriptorSet) 要求；深度采样布局合法性依 VUID-VkDescriptorImageInfo-imageLayout-00344。
+2. 每个 `VkDescriptorImageInfo.imageLayout` SHALL 与图像在采样时刻的**实际布局**一致（VUID-VkDescriptorImageInfo-imageLayout-00344 的真实语义是"descriptor 的 imageLayout 必须匹配采样时图像各子资源的实际 VkImageLayout"，并非"depth 采样必须用某固定布局"）。depth-stencil 格式的 sampled 绑定：view 的 aspectMask 只含单 bit（VUID-VkDescriptorImageInfo-imageView-01976）；R5-4 最终方案：barrier 链对采样图像统一转换到 SHADER_READ_ONLY_OPTIMAL，描述符对所有非 UAV sampled 绑定统一写该布局（二者一致，满足 VUID-00344）。
+**理由**：descriptorCount 声明与写入不一致违反 [VkWriteDescriptorSet](https://vkdoc.net/man/VkWriteDescriptorSet) 要求；布局合法性与实际布局的一致性由 [VkDescriptorImageInfo](https://docs.vulkan.org/refpages/latest/refpages/source/VkDescriptorImageInfo.html) 的 VUID-VkDescriptorImageInfo-imageLayout-00344 约束。
 
 ### D12: 杂项清理
 

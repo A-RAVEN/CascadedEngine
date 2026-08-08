@@ -6,6 +6,30 @@
 
 namespace graphics_backend
 {
+	// Reverse of VulkanTexture::ConvertFormat for the formats a swapchain can present.
+	// The backbuffer descriptor must use the ACTUAL swapchain format — hardcoding
+	// B8G8R8A8 breaks when ChooseSurfaceFormat falls back to another format.
+	static ETextureFormat ConvertFromVkFormat(vk::Format format)
+	{
+		switch (format)
+		{
+		case vk::Format::eB8G8R8A8Unorm:
+		case vk::Format::eB8G8R8A8Srgb:
+			return ETextureFormat::E_B8G8R8A8_UNORM;
+		case vk::Format::eR8G8B8A8Unorm:
+		case vk::Format::eR8G8B8A8Srgb:
+			return ETextureFormat::E_R8G8B8A8_UNORM;
+		case vk::Format::eR16G16B16A16Sfloat: return ETextureFormat::E_R16G16B16A16_SFLOAT;
+		case vk::Format::eR32G32B32A32Sfloat: return ETextureFormat::E_R32G32B32A32_SFLOAT;
+		default:
+			// F8a: unknown swapchain format — warn instead of silently reporting a
+			// wrong format; the descriptor keeps the closest approximation.
+			CA_LOG_WARN("VulkanWindowHandle: Unmapped swapchain format {}, backbuffer descriptor approximated as B8G8R8A8_UNORM",
+				vk::to_string(format));
+			return ETextureFormat::E_B8G8R8A8_UNORM;
+		}
+	}
+
 	void VulkanWindowHandle::Init(castl::shared_ptr<cawindow::IWindow> window)
 	{
 		m_Window = window;
@@ -104,7 +128,19 @@ namespace graphics_backend
 		swapchainInfo.imageColorSpace = m_ColorSpace;
 		swapchainInfo.imageExtent = m_Extent;
 		swapchainInfo.imageArrayLayers = 1;
-		swapchainInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
+		// imageUsage must be a subset of supportedUsageFlags (VUID-VkSwapchainCreateInfoKHR-imageUsage-01275)
+		vk::ImageUsageFlags desiredUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
+		swapchainInfo.imageUsage = desiredUsage & capabilities.supportedUsageFlags;
+		if (swapchainInfo.imageUsage != desiredUsage)
+		{
+			CA_LOG_WARN("VulkanWindowHandle: imageUsage reduced from {} to {} (surface supports {})",
+				vk::to_string(desiredUsage), vk::to_string(swapchainInfo.imageUsage), vk::to_string(capabilities.supportedUsageFlags));
+		}
+		if (!swapchainInfo.imageUsage)
+		{
+			CA_LOG_ERR("VulkanWindowHandle: surface supports no usable image usage flags; falling back to eColorAttachment");
+			swapchainInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment & capabilities.supportedUsageFlags;
+		}
 
 		// Queue family indices
 		uint32_t graphicsFamily = queueContext.GetGraphicsQueueFamily();
@@ -123,7 +159,19 @@ namespace graphics_backend
 		}
 
 		swapchainInfo.preTransform = capabilities.currentTransform;
-		swapchainInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
+		// compositeAlpha must be a bit in supportedCompositeAlpha (VUID-VkSwapchainCreateInfoKHR-compositeAlpha-01281)
+		if (capabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eOpaque)
+		{
+			swapchainInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
+		}
+		else
+		{
+			// Fall back to the lowest supported bit — any single supported bit is legal.
+			uint32_t raw = static_cast<uint32_t>(capabilities.supportedCompositeAlpha);
+			swapchainInfo.compositeAlpha = static_cast<vk::CompositeAlphaFlagBitsKHR>(raw & (~raw + 1));
+			CA_LOG_WARN("VulkanWindowHandle: eOpaque compositeAlpha unsupported, falling back to {}",
+				vk::to_string(swapchainInfo.compositeAlpha));
+		}
 		swapchainInfo.presentMode = presentMode;
 		swapchainInfo.clipped = VK_TRUE;
 		swapchainInfo.oldSwapchain = nullptr;
@@ -138,10 +186,11 @@ namespace graphics_backend
 			{ vk::AccessFlagBits::eNone, vk::PipelineStageFlagBits::eTopOfPipe,
 			  vk::ImageLayout::eUndefined, EGPUQueueType::eDirect, true });
 
-		// Update backbuffer descriptor
+		// Update backbuffer descriptor — format MUST mirror the actual swapchain format
+		// m_Format (ChooseSurfaceFormat may fall back to availableFormats[0]).
 		m_BackbufferDescriptor = GPUTextureDescriptor::Create(
 			m_Extent.width, m_Extent.height,
-			ETextureFormat::E_B8G8R8A8_UNORM, // Map from vk::Format::eB8G8R8A8Unorm
+			ConvertFromVkFormat(m_Format),
 			ETextureType::e2D, 1, 1, EMultiSampleCount::e1
 		);
 
@@ -232,20 +281,41 @@ namespace graphics_backend
 
 	uint32_t VulkanWindowHandle::AcquireNextImage(vk::Semaphore semaphore, vk::Fence fence)
 	{
-		auto result = GetDevice().acquireNextImageKHR(m_Swapchain, UINT64_MAX, semaphore, fence);
-		if (result.result == vk::Result::eErrorOutOfDateKHR || result.result == vk::Result::eSuboptimalKHR)
+		// throwing-mode vulkan.hpp: the result-check whitelist for acquireNextImageKHR is
+		// {eSuccess, eTimeout, eNotReady, eSuboptimalKHR} — OUT_OF_DATE / SURFACE_LOST /
+		// DEVICE_LOST throw instead of returning, so they must be caught here or the
+		// swapchain-rebuild path would be unreachable dead code.
+		try
 		{
+			auto result = GetDevice().acquireNextImageKHR(m_Swapchain, UINT64_MAX, semaphore, fence);
+			m_CurrentImageIndex = result.value;
+			m_AcquireFailed = false;
+			return result.value;
+		}
+		catch (vk::OutOfDateKHRError const&)
+		{
+			// eSuboptimalKHR is in the throwing whitelist (returns normally) — only the
+			// error codes below throw.
+			// F3a: the acquire semaphore was NOT signaled — consumers must skip waiting
+			// on it this frame (IsAcquireFailed) or the GPU would hang.
 			m_SwapchainOutdated = true;
+			m_AcquireFailed = true;
 			return 0;
 		}
-		if (result.result == vk::Result::eErrorDeviceLost || result.result == vk::Result::eErrorSurfaceLostKHR)
+		catch (vk::DeviceLostError const& e)
 		{
-			CA_LOG_ERR("VulkanWindowHandle: acquireNextImageKHR fatal error: {}", vk::to_string(result.result));
+			CA_LOG_ERR("VulkanWindowHandle: acquireNextImageKHR device lost: {}", e.what());
 			m_SwapchainOutdated = true;
+			m_AcquireFailed = true;
 			return 0;
 		}
-		m_CurrentImageIndex = result.value;
-		return result.value;
+		catch (vk::SurfaceLostKHRError const& e)
+		{
+			CA_LOG_ERR("VulkanWindowHandle: acquireNextImageKHR surface lost: {}", e.what());
+			m_SwapchainOutdated = true;
+			m_AcquireFailed = true;
+			return 0;
+		}
 	}
 
 	void VulkanWindowHandle::Present(vk::Queue queue, vk::Semaphore waitSemaphore)
@@ -257,14 +327,29 @@ namespace graphics_backend
 		presentInfo.pSwapchains = &m_Swapchain;
 		presentInfo.pImageIndices = &m_CurrentImageIndex;
 
-		auto result = queue.presentKHR(presentInfo);
-		if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
+		// throwing-mode vulkan.hpp: presentKHR's result-check whitelist is
+		// {eSuccess, eSuboptimalKHR} — OUT_OF_DATE / SURFACE_LOST / DEVICE_LOST throw
+		// instead of returning, so they must be caught here or the rebuild path is dead code.
+		try
 		{
+			queue.presentKHR(presentInfo);
+		}
+		catch (vk::OutOfDateKHRError const&)
+		{
+			// eSuboptimalKHR is in the throwing whitelist (returns normally) — only the
+			// error codes below throw.
+			// 21.9 REVERTED (scope audit): m_AcquireFailed not set here — redundant;
+			// the next frame's acquire fails the same way and sets it itself.
 			m_SwapchainOutdated = true;
 		}
-		else if (result == vk::Result::eErrorDeviceLost || result == vk::Result::eErrorSurfaceLostKHR)
+		catch (vk::DeviceLostError const& e)
 		{
-			CA_LOG_ERR("VulkanWindowHandle: presentKHR fatal error: {}", vk::to_string(result));
+			CA_LOG_ERR("VulkanWindowHandle: presentKHR device lost: {}", e.what());
+			m_SwapchainOutdated = true;
+		}
+		catch (vk::SurfaceLostKHRError const& e)
+		{
+			CA_LOG_ERR("VulkanWindowHandle: presentKHR surface lost: {}", e.what());
 			m_SwapchainOutdated = true;
 		}
 	}
@@ -294,6 +379,8 @@ namespace graphics_backend
 		CreateSwapchain();
 		CreateImageViews();
 		m_SwapchainOutdated = false;
+		m_AcquireFailed = false; // R4-2: keep symmetric with m_SwapchainOutdated
+		m_CurrentImageIndex = 0; // R5-12: a stale index would alias into the new image array
 		m_Released = false;
 		CA_LOG_INFO("Swapchain recreated");
 	}

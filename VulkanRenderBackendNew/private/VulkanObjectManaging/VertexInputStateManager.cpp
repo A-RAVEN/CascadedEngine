@@ -27,7 +27,10 @@ namespace graphics_backend
 	{
 		m_StateCache = stateDesc;
 		//Note: Vertex Input State is part of Pipeline Creation in Vulkan
-		if (VULKAN_SUPPORT_PIPELINE_LIBRARY)
+		// Gated by BOTH compile-time constant and runtime device feature support —
+		// the extension may be absent on the runtime device even when compiled in
+		// (VK_EXT_graphics_pipeline_library feature query, see RenderBackend_Vulkan::Init).
+		if (VULKAN_SUPPORT_PIPELINE_LIBRARY && GetApp()->IsPipelineLibrarySupported())
 		{
 			vk::GraphicsPipelineLibraryCreateInfoEXT libraryInfo{};
 			libraryInfo.flags = vk::GraphicsPipelineLibraryFlagBitsEXT::eVertexInputInterface;
@@ -39,6 +42,11 @@ namespace graphics_backend
 
 			vk::GraphicsPipelineCreateInfo pipelineCreateInfo{};
 			pipelineCreateInfo.pNext = &libraryInfo;
+			// F29: a pipeline with a VkGraphicsPipelineLibraryCreateInfoEXT subset must set
+			// VK_PIPELINE_CREATE_LIBRARY_BIT_EXT. (VUID note: 06606 reads the opposite way —
+			// LIBRARY_BIT must NOT be set when the graphicsPipelineLibrary feature is
+			// disabled; this branch is gated by the runtime feature check, task 1.3.)
+			pipelineCreateInfo.flags = vk::PipelineCreateFlagBits::eLibraryKHR;
 			pipelineCreateInfo.setPInputAssemblyState(&inputAssemblyInfo);
 			pipelineCreateInfo.setPVertexInputState(&vertexInputInfo);
 			m_VertexInputState = GetDevice().createGraphicsPipeline(GetApp()->GetPipelineCache(), pipelineCreateInfo).value;

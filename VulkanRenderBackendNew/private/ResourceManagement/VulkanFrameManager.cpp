@@ -214,6 +214,13 @@ namespace graphics_backend
 			// rewrite every frame. This is the root architectural constraint that
 			// makes descriptor write caching infeasible with the current per-frame
 			// pool reset strategy. See ResetDescriptorPool() method docs.
+			//
+			// F22 PRECONDITION (frozen by design): vkResetDescriptorPool / resetCommandPool
+			// require no GPU work to be in flight on these resources. This holds because
+			// SubmitBatches performs per-batch waitForFences + resetFences, guaranteeing GPU
+			// completion before this frame-level Reset is reached. If async frames-in-flight
+			// are ever introduced (see TODO above), a frame-level fence wait MUST be
+			// restored here BEFORE the pool resets — do not remove the serialization first.
 			resourceManager.ResetDescriptorPool();
 			resourceManager.Reset();
 		}

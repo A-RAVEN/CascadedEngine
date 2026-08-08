@@ -17,14 +17,21 @@
 - **WHEN** `BuildDescriptors` 写入描述符
 - **THEN** `descriptorCount=1` 的写入即可，不重复写入
 
-### Requirement: 深度-模板采样描述符布局合法
+### Requirement: descriptor 的 imageLayout 必须与图像实际布局一致
 
-depth-stencil 格式纹理的 sampled 描述符，其 `VkDescriptorImageInfo.imageLayout` 与 view 的 `aspectMask` SHALL 合法：`VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` SHALL 仅用于非 depth 布局（该布局在 depth-stencil image 上对 sampled 描述符无效，见 VUID-VkDescriptorImageInfo-imageLayout-00344）；depth 采样 SHALL 使用 `VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL`（或 `GENERAL`），且 aspectMask 仅含实际采样的 aspect bit。
+每个 `VkDescriptorImageInfo.imageLayout` SHALL 与图像在采样时刻的实际 `VkImageLayout` 一致（VUID-VkDescriptorImageInfo-imageLayout-00344："descriptor 的 imageLayout 必须匹配采样时图像各子资源的实际布局"）。当前 barrier/布局跟踪链对采样图像统一转换到 `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL`（compute/transfer/finalize 路径），因此 `BuildDescriptors` SHALL 对所有非 UAV sampled 绑定统一写 `SHADER_READ_ONLY_OPTIMAL`（R5-4 最终方案，与实际布局一致）。depth-stencil 格式的 sampled 绑定：view 的 aspectMask SHALL 只含单个 aspect bit（depth 或 stencil 之一，VUID-VkDescriptorImageInfo-imageView-01976），SHALL NOT 同时含两个 bit。
 
 #### Scenario: 深度纹理采样绑定
 
-- **GIVEN** 纹理为 depth（或 depth-stencil）格式且被 sampled 绑定
+- **GIVEN** 纹理为 depth（或 depth-stencil）格式，被 sampled 绑定，barrier 链将其转换到 `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL`
 - **WHEN** `BuildDescriptors` 写入 `VkDescriptorImageInfo`
-- **THEN** `imageLayout` 为 `VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL`（或 `GENERAL`）
-- **AND** view 的 aspectMask 不含非法 bit 组合
-- **AND** 验证层不报告 VUID-VkDescriptorImageInfo-imageLayout-00344
+- **THEN** `imageLayout` 为 `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL`（与实际布局一致）
+- **AND** view 的 aspectMask 为 depth 单 bit（不含 stencil）
+- **AND** 验证层不报告 VUID-VkDescriptorImageInfo-imageLayout-00344 / imageView-01976
+
+#### Scenario: 布局转换目标与描述符同步
+
+- **GIVEN** 采样图像经 barrier 转换后的实际布局
+- **WHEN** `BuildDescriptors` 写入该图像的描述符
+- **THEN** `imageLayout` 与转换后的实际布局一致（当前统一为 `SHADER_READ_ONLY_OPTIMAL`）
+- **AND** 若未来布局跟踪链改变转换目标，描述符写入必须同步更新

@@ -103,6 +103,19 @@ namespace graphics_backend
 		if (tessEvalShader) shaderStages.push_back(*tessEvalShader);
 		if (geometryShader) shaderStages.push_back(*geometryShader);
 
+		// VUID-pRasterizationState-09039: a PRE_RASTERIZATION_SHADERS library must provide
+		// pMultisampleState (rasterization state is only valid with multisample state).
+		vk::PipelineMultisampleStateCreateInfo multisampleState{};
+		multisampleState.rasterizationSamples = vk::SampleCountFlagBits::e1;
+
+		// VUID-pStages-09022: a pipeline whose pStages includes a tessellation control
+		// stage must provide pTessellationState.
+		// F26a: VUID-VkPipelineTessellationStateCreateInfo-patchControlPoints-01214 —
+		// patchControlPoints must be > 0 (tessellation implies PATCH_LIST topology;
+		// 3 control points per patch is the conventional default).
+		vk::PipelineTessellationStateCreateInfo tessellationState{};
+		tessellationState.patchControlPoints = 3;
+
 		vk::GraphicsPipelineLibraryCreateInfoEXT libraryInfo{};
 		libraryInfo.flags = vk::GraphicsPipelineLibraryFlagBitsEXT::ePreRasterizationShaders;
 
@@ -114,6 +127,11 @@ namespace graphics_backend
 		createInfo.layout = layout;
 		createInfo.pViewportState = &viewportState;
 		createInfo.pRasterizationState = &rasterizationState;
+		createInfo.pMultisampleState = &multisampleState;
+		if (tessControlShader || tessEvalShader)
+		{
+			createInfo.pTessellationState = &tessellationState;
+		}
 		createInfo.pDynamicState = pDynamicState;
 
 		try
@@ -153,6 +171,17 @@ namespace graphics_backend
 
 		vk::GraphicsPipelineLibraryCreateInfoEXT libraryInfo{};
 		libraryInfo.flags = vk::GraphicsPipelineLibraryFlagBitsEXT::eFragmentShader;
+
+		// VUID-renderPass-09028: a fragment-shader-state pipeline whose subpass uses a
+		// depth/stencil attachment must provide a valid pDepthStencilState. Default to a
+		// disabled depth/stencil state when the caller passes null.
+		vk::PipelineDepthStencilStateCreateInfo defaultDepthStencil{};
+		if (!pDepthStencilState)
+		{
+			defaultDepthStencil.depthTestEnable = VK_FALSE;
+			defaultDepthStencil.depthWriteEnable = VK_FALSE;
+			pDepthStencilState = &defaultDepthStencil;
+		}
 
 		vk::GraphicsPipelineCreateInfo createInfo{};
 		createInfo.pNext = &libraryInfo;
@@ -248,6 +277,27 @@ namespace graphics_backend
 			CA_LOG_ERR("VulkanPipelineLibrary: No libraries to link");
 			return nullptr;
 		}
+
+		// F27: basic link-consistency validation. Full layout/renderPass identity between
+		// libraries and the link info (VUID-flags-06612 etc.) is not introspectable from
+		// pipeline handles, but the link parameters themselves must be coherent: a fragment
+		// library in the link requires a non-null renderPass (its subpass attachments are
+		// baked into the library), and the link layout must be valid.
+		if (layout == vk::PipelineLayout{})
+		{
+			CA_LOG_ERR("VulkanPipelineLibrary: LinkPipeline requires a valid pipeline layout");
+			return nullptr;
+		}
+		if (libraries.fragmentLibrary && !renderPass)
+		{
+			CA_LOG_ERR("VulkanPipelineLibrary: LinkPipeline: fragment library requires a non-null renderPass");
+			return nullptr;
+		}
+		// F27a (coverage note): the fragment-output library also bakes renderPass/subpass
+		// into the pipeline — a non-null renderPass is a hard requirement when it is in
+		// the link, and the link renderPass must match the library's. Pipeline handles
+		// cannot be introspected for renderPass identity, so this remains a documented
+		// caller contract rather than a runtime check.
 
 		vk::PipelineLibraryCreateInfoKHR libraryLinkInfo{};
 		libraryLinkInfo.libraryCount = static_cast<uint32_t>(librariesToLink.size());

@@ -10,8 +10,13 @@ namespace
 
 	static vk::ImageAspectFlags GetImageAspectMask(ETextureFormat format)
 	{
+		// F41: SINGLE aspect bit — the created view is the only view for the resource and
+		// is bound directly by sampled descriptors; a DEPTH|STENCIL combined view violates
+		// VUID-VkDescriptorImageInfo-imageView-01976 (depth/stencil image views used in
+		// descriptors must have a single aspect). Consequence: stencil access via this
+		// view is unavailable (a dedicated stencil view would be needed for that).
 		if (FormatHasStencil(format))
-			return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+			return vk::ImageAspectFlagBits::eDepth;
 		if (FormatHasDepth(format))
 			return vk::ImageAspectFlagBits::eDepth;
 		return vk::ImageAspectFlagBits::eColor;
@@ -287,6 +292,20 @@ namespace graphics_backend
 			// New resource — place after all planned resources
 			uint64_t totalAliasedSize = m_AliasingManager.GetTotalAliasedSize();
 			alignedOffset = (totalAliasedSize + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
+
+			// F39: reject out-of-range bindings BEFORE growing the plan. The pool was
+			// allocated for totalAliasedSize bytes; binding past it writes to an invalid
+			// GPU address (crash candidate). Check against the PRE-growth size —
+			// UpdateAliasedAllocationForLateResource below grows the tracked size to
+			// exactly alignedOffset+size, which would make this check always pass.
+			if (alignedOffset + vkMemReqs.size > totalAliasedSize)
+			{
+				CA_LOG_ERR("VulkanGraphLocalResourceManager: Buffer offset {} + size {} exceeds aliased pool size {}; refusing to bind",
+					alignedOffset, vkMemReqs.size, totalAliasedSize);
+				device.destroyBuffer(rawBuffer);
+				return false;
+			}
+
 			// Update the aliasing plan so this resource's offset is tracked
 			AliasedAllocation newAlloc{};
 			newAlloc.offset = alignedOffset;
@@ -298,11 +317,27 @@ namespace graphics_backend
 		}
 		else
 		{
+			// Planned resources: offset comes from the aliasing plan (≤ pool size by
+			// construction; VMA guarantees the block covers blockOffset+poolSize).
 			alignedOffset = (aliasedAlloc.offset + vkMemReqs.alignment - 1) & ~(vkMemReqs.alignment - 1);
 		}
 
+		// R5-6: VUID-vkBindBufferMemory-memory-01035 — the pool's memory type must be in
+		// the buffer's memoryTypeBits (mirrors the Phase B / Route A checks).
+		if ((vkMemReqs.memoryTypeBits & (1u << m_AliasingManager.GetPoolMemoryType())) == 0)
+		{
+			CA_LOG_ERR("VulkanGraphLocalResourceManager: Late buffer memory type {} incompatible "
+				"(memoryTypeBits={:#x}); refusing to bind", m_AliasingManager.GetPoolMemoryType(), vkMemReqs.memoryTypeBits);
+			device.destroyBuffer(rawBuffer);
+			return false;
+		}
+
 		vk::DeviceMemory dm{ deviceMemory };
-		try { device.bindBufferMemory(rawBuffer, dm, alignedOffset); }
+		// F16a: GPU-side binding must include the pool's block offset (the pool allocation
+		// may start mid-block); CPU-side mappedPtr = poolMappedPtr + alignedOffset already
+		// includes it, keeping CPU/GPU views consistent.
+		uint64_t gpuBindOffset = alignedOffset + m_AliasingManager.GetPoolBlockOffset();
+		try { device.bindBufferMemory(rawBuffer, dm, gpuBindOffset); }
 		catch (vk::SystemError const& e) {
 			CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind late buffer memory: {}", e.what());
 			device.destroyBuffer(rawBuffer);
@@ -392,7 +427,12 @@ namespace graphics_backend
 						lit->second.firstUseBatch, lit->second.lastUseBatch, isBuffer,
 						offset, blockIdx))
 					{
-						CA_LOG_WARN("VulkanGraphLocalResourceManager: Virtual alloc failed for resource {}", resourceId);
+						// R4-9: abort the frame like the fallback path does — continuing leaves
+						// the resource unbound (Phase B skips it), and downstream draws would
+						// reference a null buffer/image (validation error / crash).
+						CA_LOG_ERR("VulkanGraphLocalResourceManager: Virtual alloc failed for resource {}; aborting frame",
+							resourceId);
+						return false;
 					}
 				}
 			}
@@ -465,7 +505,11 @@ namespace graphics_backend
 				// --- Route A: Aliased pool binding (if memory type compatible) ---
 				if ((vkMemReqs.memoryTypeBits & poolMemTypeBit) != 0)
 				{
-					try { device.bindBufferMemory(rawBuffer, dm, alignedOffset); }
+					// F16a (unified): aliasedAlloc.offset is the IN-POOL offset; the GPU
+					// binding adds the pool's block offset (CPU mappedPtr below does NOT —
+					// poolMappedPtr already includes it).
+					uint64_t gpuBindOffset = alignedOffset + m_AliasingManager.GetPoolBlockOffset();
+					try { device.bindBufferMemory(rawBuffer, dm, gpuBindOffset); }
 					catch (vk::SystemError const& e) {
 						CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind buffer memory: {}", e.what());
 						device.destroyBuffer(rawBuffer);
@@ -490,6 +534,15 @@ namespace graphics_backend
 
 					VmaAllocationInfo allocInfoOut{};
 					managed.allocation = memManager.AllocateBuffer(bufferInfo, vmaAllocInfo, managed.buffer, &allocInfoOut);
+					// F43: vmaCreateBuffer failure leaves allocation null and buffer null —
+					// do not store the invalid resource or proceed to bind/update it.
+					if (managed.allocation == VK_NULL_HANDLE || !managed.buffer)
+					{
+						CA_LOG_ERR("VulkanGraphLocalResourceManager: Standalone buffer allocation failed (VMA)");
+						managed.allocation = VK_NULL_HANDLE;
+						managed.buffer = vk::Buffer{};
+						return false;
+					}
 					managed.mappedPtr = allocInfoOut.pMappedData;
 				}
 			}
@@ -511,7 +564,9 @@ namespace graphics_backend
 				// --- Route A: Aliased pool binding ---
 				if ((vkMemReqs.memoryTypeBits & poolMemTypeBit) != 0)
 				{
-					try { device.bindImageMemory(rawImage, dm, alignedOffset); }
+					// F16a (unified): in-pool offset + block offset on the GPU side only.
+					uint64_t gpuBindOffset = alignedOffset + m_AliasingManager.GetPoolBlockOffset();
+					try { device.bindImageMemory(rawImage, dm, gpuBindOffset); }
 					catch (vk::SystemError const& e) {
 						CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind image memory: {}", e.what());
 						device.destroyImage(rawImage);
@@ -534,13 +589,24 @@ namespace graphics_backend
 
 					VmaAllocationInfo allocInfoOut{};
 					managed.allocation = memManager.AllocateImage(imageInfo, vmaAllocInfo, managed.image, &allocInfoOut);
+					// F43: allocation failure must abort before the image-view creation below.
+					if (managed.allocation == VK_NULL_HANDLE || !managed.image)
+					{
+						CA_LOG_ERR("VulkanGraphLocalResourceManager: Standalone image allocation failed (VMA)");
+						managed.allocation = VK_NULL_HANDLE;
+						managed.image = vk::Image{};
+						return false;
+					}
 					managed.mappedPtr = nullptr;
 				}
 
 				// Create image view (common to both routes)
 				vk::ImageViewCreateInfo viewInfo{};
 				viewInfo.image = managed.image;
-				viewInfo.viewType = vk::ImageViewType::e2D;
+				// F40: VUID-VkImageViewCreateInfo-imageViewType-04973 — a 2D view with
+				// layerCount > 1 is illegal unless the image is a 2D-array layout; use
+				// 2D_ARRAY for multi-layer images.
+				viewInfo.viewType = (imageInfo.arrayLayers > 1) ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D;
 				viewInfo.format = imageInfo.format;
 				viewInfo.subresourceRange.aspectMask = GetImageAspectMask(localResource.textureDesc.format);
 				viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
@@ -600,8 +666,23 @@ namespace graphics_backend
 					return false;
 				}
 
+				// R4-8: VUID-vkBindBufferMemory-memory-01035 — the bound memory type must be
+				// in the buffer's memoryTypeBits; mirror the fallback path's Route A check.
+				{
+					vk::MemoryRequirements memReqs = device.getBufferMemoryRequirements(managed.buffer);
+					if ((memReqs.memoryTypeBits & (1u << blockPool->memoryTypeIndex)) == 0)
+					{
+						CA_LOG_ERR("VulkanGraphLocalResourceManager: Buffer memory type {} incompatible with block {} "
+							"(memoryTypeBits={:#x}); aborting frame", blockPool->memoryTypeIndex,
+							virtAlloc.blockIndex, memReqs.memoryTypeBits);
+						device.destroyBuffer(managed.buffer);
+						return false;
+					}
+				}
+
 				vk::DeviceMemory dm{ blockPool->deviceMemory };
-				try { device.bindBufferMemory(managed.buffer, dm, virtAlloc.offset); }
+				// F16a: physical block allocation may start mid-block — add its offset.
+				try { device.bindBufferMemory(managed.buffer, dm, blockPool->blockOffset + virtAlloc.offset); }
 				catch (vk::SystemError const& e) {
 					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind buffer to virtual offset {}: {}",
 						virtAlloc.offset, e.what());
@@ -620,8 +701,23 @@ namespace graphics_backend
 					return false;
 				}
 
+				// R4-8: VUID-vkBindImageMemory-memory-01047 — the bound memory type must be
+				// in the image's memoryTypeBits; mirror the fallback path's Route A check.
+				{
+					vk::MemoryRequirements memReqs = device.getImageMemoryRequirements(managed.image);
+					if ((memReqs.memoryTypeBits & (1u << blockPool->memoryTypeIndex)) == 0)
+					{
+						CA_LOG_ERR("VulkanGraphLocalResourceManager: Image memory type {} incompatible with block {} "
+							"(memoryTypeBits={:#x}); aborting frame", blockPool->memoryTypeIndex,
+							virtAlloc.blockIndex, memReqs.memoryTypeBits);
+						device.destroyImage(managed.image);
+						return false;
+					}
+				}
+
 				vk::DeviceMemory dm{ blockPool->deviceMemory };
-				try { device.bindImageMemory(managed.image, dm, virtAlloc.offset); }
+				// F16a: physical block allocation may start mid-block — add its offset.
+				try { device.bindImageMemory(managed.image, dm, blockPool->blockOffset + virtAlloc.offset); }
 				catch (vk::SystemError const& e) {
 					CA_LOG_ERR("VulkanGraphLocalResourceManager: Failed to bind image to virtual offset {}: {}",
 						virtAlloc.offset, e.what());
@@ -632,7 +728,9 @@ namespace graphics_backend
 				// Create image view
 				vk::ImageViewCreateInfo viewInfo{};
 				viewInfo.image = managed.image;
-				viewInfo.viewType = vk::ImageViewType::e2D;
+				// F40: VUID-VkImageViewCreateInfo-imageViewType-04973 — 2D view with
+				// layerCount>1 is illegal; use 2D_ARRAY for multi-layer images.
+				viewInfo.viewType = (imageInfo.arrayLayers > 1) ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D;
 				viewInfo.format = imageInfo.format;
 				viewInfo.subresourceRange.aspectMask = GetImageAspectMask(localResource.textureDesc.format);
 				viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;

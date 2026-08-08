@@ -164,9 +164,38 @@ namespace graphics_backend
 			cmdBuf.copyBuffer(stagingBuffer, m_Buffer, copyRegion);
 
 			// Pipeline barrier: TRANSFER_WRITE → target buffer usage
+			// F12: never rely on the default flags (eNone / TOP_OF_PIPE = empty sync scope).
+			// When the caller hasn't configured explicit target state, fall back to a
+			// meaningful default covering all common consumers (shader reads, attribute
+			// fetch, index reads).
+			vk::AccessFlags dstAccess = m_AccessFlags;
+			vk::PipelineStageFlags dstStage = m_PipelineStageFlags;
+			if (dstAccess == vk::AccessFlagBits::eNone)
+				dstAccess = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eIndexRead;
+			if (dstStage == vk::PipelineStageFlagBits::eTopOfPipe)
+			{
+				// F12a/R5-5: this barrier is recorded on the TRANSFER command buffer — on a
+				// dedicated transfer-only queue family, graphics stages (VERTEX/FRAGMENT
+				// shader etc.) are unsupported AND ALL_COMMANDS expands to the queue's
+				// supported stages (={TRANSFER}), which rejects shader-access bits. Use the
+				// graphics stages only when transfer shares the universal graphics family;
+				// otherwise degrade both stage and access to transfer-only semantics
+				// (cross-queue visibility is provided by the host-side waitForFences below).
+				if (queueContext.GetTransferQueueFamily() == queueContext.GetGraphicsQueueFamily())
+				{
+					dstStage = vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eVertexInput
+						| vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader;
+				}
+				else
+				{
+					dstStage = vk::PipelineStageFlagBits::eTransfer;
+					dstAccess = vk::AccessFlagBits::eTransferRead;
+				}
+			}
+
 			vk::BufferMemoryBarrier barrier{};
 			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-			barrier.dstAccessMask = m_AccessFlags;
+			barrier.dstAccessMask = dstAccess;
 			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.buffer = m_Buffer;
@@ -175,13 +204,18 @@ namespace graphics_backend
 
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eTransfer,
-				m_PipelineStageFlags,
+				dstStage,
 				vk::DependencyFlags{},
 				{}, barrier, {});
 
 			cmdListManager.EndCommandBuffer(cmdBuf);
 
-			// Submit and wait for completion (synchronous upload)
+			// Submit and wait for completion (synchronous upload).
+		// R3-7: the copy runs on the transfer queue family — a barrier recorded here
+		// only synchronizes work WITHIN this queue; cross-queue visibility would
+		// require a semaphore signal/wait pair or queue-family ownership transfer.
+		// This upload is safe because waitForFences below serializes host-side before
+		// any consuming queue submits.
 			vk::Fence fence;
 			try { fence = device.createFence(vk::FenceCreateInfo{}); }
 			catch (vk::SystemError const& e) {

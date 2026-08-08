@@ -87,7 +87,27 @@ namespace graphics_backend
 			}
 			m_QueueFamilyList.push_back(queueFamilyInfo);
 		}
+
+		// Single-universal-family devices (integrated GPUs, most discrete GPUs): the
+		// universal family is classified as graphics above, so no family ever matches the
+		// compute/transfer branches and both indices stay -1. Fall back to the graphics
+		// family — passing -1 downstream converts to 0xFFFFFFFF (uint32) in
+		// vkGetDeviceQueue / vkCreateCommandPool, which is an invalid queue family index.
+		if (m_ComputeQueueFamilyIndex < 0 && m_GraphicsQueueFamilyIndex >= 0)
+		{
+			m_ComputeQueueFamilyIndex = m_GraphicsQueueFamilyIndex;
+			m_ComputeStageMask = computeStageFlags;
+			CA_LOG("No dedicated compute family — falling back to graphics family {}", m_ComputeQueueFamilyIndex);
+		}
+		if (m_TransferQueueFamilyIndex < 0 && m_GraphicsQueueFamilyIndex >= 0)
+		{
+			m_TransferQueueFamilyIndex = m_GraphicsQueueFamilyIndex;
+			m_TransferStageMask = transferStageMask;
+			CA_LOG("No dedicated transfer family — falling back to graphics family {}", m_TransferQueueFamilyIndex);
+		}
 		CA_ASSERT(m_GraphicsQueueFamilyIndex >= 0, "Vulkan: No General Usage Queue Found!");
+		CA_ASSERT(m_ComputeQueueFamilyIndex >= 0 && m_TransferQueueFamilyIndex >= 0,
+			"Vulkan: Compute/Transfer queue family must be valid after fallback");
 	}
 
 	void QueueContext::Release()

@@ -124,15 +124,11 @@ namespace graphics_backend
 
 	void PipelineLibraryCache::ClearCache()
 	{
-		auto device = GetDevice();
-		for (auto& [key, pipeline] : m_PipelineCache)
-		{
-			if (pipeline)
-			{
-				device.destroyPipeline(pipeline);
-			}
-		}
+		// F24: this cache holds NON-OWNING references. Every pipeline stored here was
+		// created by VulkanPipelineLibrary (LinkPipeline / CreateMonolithicPipeline) and
+		// is already tracked in its m_CreatedPipelines for unified destruction at Release.
+		// Destroying them here too would double-destroy the same handles (vkDestroyPipeline).
 		m_PipelineCache.clear();
-		CA_LOG_INFO("PipelineLibraryCache: Cache cleared");
+		CA_LOG_INFO("PipelineLibraryCache: Cache cleared (references only, pipelines owned by VulkanPipelineLibrary)");
 	}
 }

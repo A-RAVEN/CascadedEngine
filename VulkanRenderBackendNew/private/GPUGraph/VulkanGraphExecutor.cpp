@@ -72,27 +72,48 @@ namespace graphics_backend
 
 			// AccessToPipelineStages: Map vk::AccessFlags → minimum vk::PipelineStageFlags
 		// Used by ExecuteBarriers to compute tight stage masks instead of eAllCommands.
-		static vk::PipelineStageFlags AccessToPipelineStages(vk::AccessFlags access)
+		// computeOnly=true for barriers recorded on the compute command buffer: a
+		// compute-only queue family does not support VERTEX_SHADER/FRAGMENT_SHADER stages,
+		// so shader-access flags map to COMPUTE_SHADER alone there.
+		static vk::PipelineStageFlags AccessToPipelineStages(vk::AccessFlags access, bool computeOnly = false)
 		{
 			vk::PipelineStageFlags stages{};
 			if (access & vk::AccessFlagBits::eIndirectCommandRead)
-				stages |= vk::PipelineStageFlagBits::eDrawIndirect;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eAllCommands
+					: vk::PipelineStageFlagBits::eDrawIndirect;
 			if (access & (vk::AccessFlagBits::eIndexRead | vk::AccessFlagBits::eVertexAttributeRead))
-				stages |= vk::PipelineStageFlagBits::eVertexInput;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eAllCommands
+					: vk::PipelineStageFlagBits::eVertexInput;
 			if (access & vk::AccessFlagBits::eUniformRead)
-				stages |= vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eComputeShader
+					: (vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader);
 			if (access & vk::AccessFlagBits::eShaderRead)
-				stages |= vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eComputeShader
+					: (vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader);
 			if (access & vk::AccessFlagBits::eShaderWrite)
-				stages |= vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eComputeShader
+					: (vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader);
 			if (access & vk::AccessFlagBits::eColorAttachmentRead)
-				stages |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eAllCommands
+					: vk::PipelineStageFlagBits::eColorAttachmentOutput;
 			if (access & vk::AccessFlagBits::eColorAttachmentWrite)
-				stages |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eAllCommands
+					: vk::PipelineStageFlagBits::eColorAttachmentOutput;
 			if (access & vk::AccessFlagBits::eDepthStencilAttachmentRead)
-				stages |= vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eAllCommands
+					: (vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests);
 			if (access & vk::AccessFlagBits::eDepthStencilAttachmentWrite)
-				stages |= vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
+				stages |= computeOnly
+					? vk::PipelineStageFlagBits::eAllCommands
+					: (vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests);
 			if (access & (vk::AccessFlagBits::eTransferRead | vk::AccessFlagBits::eTransferWrite))
 				stages |= vk::PipelineStageFlagBits::eTransfer;
 			if (access & (vk::AccessFlagBits::eHostRead | vk::AccessFlagBits::eHostWrite))
@@ -312,7 +333,7 @@ namespace graphics_backend
 		bufferBarriers.push_back({ handle, barrier });
 	}
 
-	void VulkanRenderStateBarriers::ExecuteBarriers(vk::CommandBuffer cmdBuf)
+	void VulkanRenderStateBarriers::ExecuteBarriers(vk::CommandBuffer cmdBuf, bool computeOnly)
 	{
 		if (imageBarriers.empty() && bufferBarriers.empty())
 			return;
@@ -329,14 +350,14 @@ namespace graphics_backend
 		for (auto& ib : imageBarriers)
 		{
 			imgBarriers.push_back(ib.barrier);
-			srcStage |= AccessToPipelineStages(ib.barrier.srcAccessMask);
-			dstStage |= AccessToPipelineStages(ib.barrier.dstAccessMask);
+			srcStage |= AccessToPipelineStages(ib.barrier.srcAccessMask, computeOnly);
+			dstStage |= AccessToPipelineStages(ib.barrier.dstAccessMask, computeOnly);
 		}
 		for (auto& bb : bufferBarriers)
 		{
 			bufBarriers.push_back(bb.barrier);
-			srcStage |= AccessToPipelineStages(bb.barrier.srcAccessMask);
-			dstStage |= AccessToPipelineStages(bb.barrier.dstAccessMask);
+			srcStage |= AccessToPipelineStages(bb.barrier.srcAccessMask, computeOnly);
+			dstStage |= AccessToPipelineStages(bb.barrier.dstAccessMask, computeOnly);
 		}
 
 		// Merge image + buffer barriers into a single vkCmdPipelineBarrier call with tight stage masks
@@ -508,6 +529,12 @@ namespace graphics_backend
 		// Swapchain acquire — moved here to avoid acquiring images on frames that will abort
 		if (!graph->GetFinalizePass().isEmpty())
 		{
+			// F36a/F36b: grow the window sync array to the WINDOW COUNT unconditionally —
+			// GetWindowSync is indexed by window position everywhere (acquire-wait and
+			// present), so the array must be sized even if every window is invalid.
+			m_CurrentFrameContext->EnsureWindowSync(
+				static_cast<uint32_t>(graph->GetFinalizePass().m_PresentBackBuffers.size()));
+
 			uint32_t windowIdx = 0;
 			for (auto& backBufferImage : graph->GetFinalizePass().m_PresentBackBuffers)
 			{
@@ -517,8 +544,6 @@ namespace graphics_backend
 					if (pWindow->NeedsRecreation())
 						pWindow->RecreateSwapchain();
 
-					// Per-swapchain-image semaphore allocation: grow to image count
-					m_CurrentFrameContext->EnsureWindowSync(pWindow->GetSwapchainImageCount());
 					// Use window-indexed acquire semaphore (free due to per-batch CPU serialization)
 					auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
 					pWindow->AcquireNextImage(sync.acquireSemaphore);
@@ -780,10 +805,13 @@ uint64_t resourceId = 						m_LocalResourceManager.RegisterTemporaryBuffer(
 uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					descriptor, ETextureAccessTypeFlags{}, static_cast<uint32_t>(passID));
 				if (imgWrites.first.IsIntternal()) m_LocalResourceManager.RegisterTextureHandle(imgWrites.first, resourceId);
+				// F35: the tracked layout must match what RecordTransferPass actually leaves
+				// the image in — its final inline transition ends at
+				// VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL (not TRANSFER_DST_OPTIMAL).
 				passRWState.SetImageRWState(imgWrites.first,
 					vk::PipelineStageFlagBits::eTransfer,
 					vk::AccessFlagBits::eTransferWrite,
-					vk::ImageLayout::eTransferDstOptimal, EGPUQueueType::eDirect);
+					vk::ImageLayout::eShaderReadOnlyOptimal, EGPUQueueType::eDirect);
 			}
 		}
 
@@ -1535,6 +1563,10 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 					vertexInputState.pVertexBindingDescriptions = vertexBindings.data();
 					vertexInputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexAttributes.size());
 					vertexInputState.pVertexAttributeDescriptions = vertexAttributes.data();
+
+					// F37: publish the binding order so RecordRenderPass binds vertex buffers
+					// in the same sequence (indices must match the pipeline's bindings).
+					batchData.vertexBindingStreamOrder = seenStreamKeys;
 				}
 
 				vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{};
@@ -1672,13 +1704,12 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 						if (!batchData.pipeline)
 						{
-							// LinkPipeline failed: destroy intermediate library parts to prevent leaks
-							auto device = GetDevice();
-							if (vertexInputLib) device.destroyPipeline(vertexInputLib);
-							if (preRasterLib) device.destroyPipeline(preRasterLib);
-							if (fragmentLib) device.destroyPipeline(fragmentLib);
-							if (fragmentOutputLib) device.destroyPipeline(fragmentOutputLib);
-							CA_LOG_ERR("BuildPipelineStates: GPL LinkPipeline failed, destroyed library parts");
+							// F25: do NOT destroy the library parts here — every Create*Library
+							// pushes its handle into VulkanPipelineLibrary::m_CreatedPipelines,
+							// which owns destruction at Release(). Destroying them here would
+							// double-destroy the same handles later.
+							CA_LOG_ERR("BuildPipelineStates: GPL LinkPipeline failed; library parts stay owned by "
+								"VulkanPipelineLibrary::Release");
 						}
 					}
 					else
@@ -1803,9 +1834,16 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		auto device = GetDevice();
 		auto& stagingManager = resourceManager.GetStagingMemoryManager();
 
-		auto uploadCBufferBarriers = [&](VulkanCBufferInitializeBarriers& cbufferBarriers, vk::CommandBuffer targetCmdBuf)
+		auto uploadCBufferBarriers = [&](VulkanCBufferInitializeBarriers& cbufferBarriers, vk::CommandBuffer targetCmdBuf, bool isComputeCmdBuf)
 		{
 			if (!cbufferBarriers.AnyBarrier()) return;
+
+			// F33: on the compute command buffer the dst stage must not include
+			// VERTEX_SHADER/FRAGMENT_SHADER (compute-only queue families don't support
+			// graphics stages) — COMPUTE_SHADER covers the uniform read there.
+			vk::PipelineStageFlags dstStages = isComputeCmdBuf
+				? vk::PipelineStageFlagBits::eComputeShader
+				: (vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader);
 
 			for (auto& [resourceId, pStruct] : cbufferBarriers.cbufferData)
 			{
@@ -1840,7 +1878,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 				targetCmdBuf.pipelineBarrier(
 					vk::PipelineStageFlagBits::eTransfer,
-					vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader,
+					dstStages,
 					vk::DependencyFlags{},
 					{}, barrier, {});
 			}
@@ -1862,10 +1900,10 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 			// Task 4.2: computeAquireBarriers first on compute queue
 			if (batch.computeAquireBarriers.AnyBarrier())
-				batch.computeAquireBarriers.ExecuteBarriers(batch.computeCommandBuffer);
+				batch.computeAquireBarriers.ExecuteBarriers(batch.computeCommandBuffer, true);
 
 			// Upload compute CBuffer data on compute command buffer
-			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.computeCommandBuffer);
+			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.computeCommandBuffer, true);
 		}
 
 		// === Direct command buffer ===
@@ -1880,12 +1918,12 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 
 		// Upload direct CBuffer data on direct command buffer
-		uploadCBufferBarriers(batch.cbufferBarriers, batch.directCommandBuffer);
+		uploadCBufferBarriers(batch.cbufferBarriers, batch.directCommandBuffer, false);
 
 
 		// Task 4.4: If no compute cmd buf, upload compute CBuffer data on direct (fallback)
 		if (!needsComputeCmdBuf)
-			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.directCommandBuffer);
+			uploadCBufferBarriers(batch.computeCBufferBarriers, batch.directCommandBuffer, false);
 
 
 		for (int rasterPassID : batch.rasterPassRefs)
@@ -1909,7 +1947,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		{
 			// Task 4.2: computeReleaseBarriers last on compute queue
 			if (batch.computeReleaseBarriers.AnyBarrier())
-				batch.computeReleaseBarriers.ExecuteBarriers(batch.computeCommandBuffer);
+				batch.computeReleaseBarriers.ExecuteBarriers(batch.computeCommandBuffer, true);
 
 			batch.computeCommandBuffer.end();
 		}
@@ -2049,19 +2087,38 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				auto const& vertBuffers = drawcall.GetVertexBuffers();
 				if (!vertBuffers.empty())
 				{
-					castl::vector<vk::Buffer> vertexBuffers;
-					castl::vector<vk::DeviceSize> offsets;
+					// F37/F37a: bind each stream at its EXPLICIT pipeline binding index
+					// (= position in batchData.vertexBindingStreamOrder, which matches
+					// BuildPipelineStates' seenStreamKeys). Binding a compacted list at
+					// firstBinding=0 would misalign indices when a drawcall lacks some
+					// streams from the order.
+					auto const& order = batchData.vertexBindingStreamOrder;
+					for (size_t oi = 0; oi < order.size(); ++oi)
+					{
+						auto it = vertBuffers.find(order[oi]);
+						if (it == vertBuffers.end()) continue;
+						vk::Buffer buffer = m_LocalResourceManager.GetBuffer(it->second);
+						if (!buffer) continue;
+						vk::DeviceSize zero = 0;
+						cmdBuf.bindVertexBuffers(static_cast<uint32_t>(oi), buffer, zero);
+					}
+					// Fallback: streams registered after pipeline build (absent from the
+					// order) append after the ordered slots, in map order.
+					uint32_t fallbackBinding = static_cast<uint32_t>(order.size());
 					for (auto const& [name, bufferHandle] : vertBuffers)
 					{
-						vk::Buffer buffer = m_LocalResourceManager.GetBuffer(bufferHandle);
-						if (buffer)
+						bool alreadyBound = false;
+						for (auto const& streamName : order)
 						{
-							vertexBuffers.push_back(buffer);
-							offsets.push_back(0);
+							if (streamName == name) { alreadyBound = true; break; }
 						}
+						if (alreadyBound) continue;
+						vk::Buffer buffer = m_LocalResourceManager.GetBuffer(bufferHandle);
+						if (!buffer) continue;
+						vk::DeviceSize zero = 0;
+						cmdBuf.bindVertexBuffers(fallbackBinding, buffer, zero);
+						++fallbackBinding;
 					}
-					if (!vertexBuffers.empty())
-						cmdBuf.bindVertexBuffers(0, vertexBuffers, offsets);
 				}
 
 				auto const& vp = drawcall.GetViewPort();
@@ -2185,9 +2242,12 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			memoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
 			memoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eTransferRead;
 
+			// F34: dst stage must not include FRAGMENT_SHADER when recorded on the compute
+			// command buffer (compute-only queue families don't support graphics stages).
+			// COMPUTE_SHADER | TRANSFER is legal on both direct and compute queues.
 			targetCmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eComputeShader,
-				vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eTransfer,
+				vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer,
 				vk::DependencyFlags{}, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
 		}
 	}
@@ -2239,9 +2299,13 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			barrier.offset = dataRef.dstOffset;
 			barrier.size = dataRef.dataSize;
 
+			// F38: dstAccessMask includes eShaderRead — cover ALL stages that perform it
+			// (VERTEX_SHADER / COMPUTE_SHADER read uniforms & buffers too, not just
+			// VERTEX_INPUT attribute fetch and FRAGMENT_SHADER).
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eTransfer,
-				vk::PipelineStageFlagBits::eVertexInput | vk::PipelineStageFlagBits::eFragmentShader,
+				vk::PipelineStageFlagBits::eVertexInput | vk::PipelineStageFlagBits::eVertexShader
+					| vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eComputeShader,
 				vk::DependencyFlags{}, 0, nullptr, 1, &barrier, 0, nullptr);
 		}
 
@@ -2313,9 +2377,13 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			shaderReadBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 			shaderReadBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
 
+			// R4-14: dstAccessMask includes eShaderRead — cover ALL stages that perform it
+			// (vertex/compute shaders sample textures too), mirroring the F38 fix on the
+			// buffer-upload barrier.
 			cmdBuf.pipelineBarrier(
 				vk::PipelineStageFlagBits::eTransfer,
-				vk::PipelineStageFlagBits::eFragmentShader,
+				vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader
+					| vk::PipelineStageFlagBits::eComputeShader,
 				vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &shaderReadBarrier);
 		}
 	}
@@ -2355,6 +2423,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			auto const& finalizePass = graph.GetFinalizePass();
 			for (size_t w = 0; w < finalizePass.m_PresentBackBuffers.size(); ++w)
 			{
+				VulkanWindowHandle* pWindow = finalizePass.m_PresentBackBuffers[w].GetWindowPtr<VulkanWindowHandle>();
+				// F3a/F36b: skip windows that never acquired this frame — null / invalid
+				// windows and acquire-failed windows all have an UNSIGNALED acquire
+				// semaphore; waiting on it would hang the GPU.
+				if (!pWindow || !pWindow->IsValid() || pWindow->IsAcquireFailed()) continue;
 				auto const& sync = m_CurrentFrameContext->GetWindowSync(static_cast<uint32_t>(w));
 				outWaitSems.push_back(sync.acquireSemaphore);
 				outWaitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -2362,8 +2435,10 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		};
 
 		// Present semaphore signal: only on the last batch with finalize pass
-		// Index by acquired swapchain image — each image's present semaphore is only
-		// re-signaled when that image is re-acquired (previous presentation retired).
+		// Index by WINDOW POSITION (w) — GetWindowSync's flat array is indexed by
+		// window position everywhere else (acquire at line 523, acquire-wait above).
+		// Indexing by GetCurrentImageIndex() here mismatched those and paired
+		// semaphores across windows / image slots.
 		auto addPresentSignal = [&](bool isLastBatch, bool hasFinalizePass,
 			castl::vector<vk::Semaphore>& outSignalSems)
 		{
@@ -2372,8 +2447,13 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			for (size_t w = 0; w < finalizePass.m_PresentBackBuffers.size(); ++w)
 			{
 				VulkanWindowHandle* pWindow = finalizePass.m_PresentBackBuffers[w].GetWindowPtr<VulkanWindowHandle>();
-				uint32_t imageIndex = pWindow->GetCurrentImageIndex();
-				auto const& sync = m_CurrentFrameContext->GetWindowSync(imageIndex);
+				// R3-1: mirror addAcquireWait's guard — a window whose acquire failed (or
+				// that is invalid) gets NO present from PresentWindows this frame, so its
+				// present semaphore must NOT be signaled here either: the binary semaphore
+				// would stay signaled across frames and re-signaling it next frame violates
+				// VUID-vkQueueSubmit-pSignalSemaphores-00067 (must be unsignaled at signal).
+				if (!pWindow || !pWindow->IsValid() || pWindow->IsAcquireFailed()) continue;
+				auto const& sync = m_CurrentFrameContext->GetWindowSync(static_cast<uint32_t>(w));
 				outSignalSems.push_back(sync.presentSemaphore);
 			}
 		};
@@ -2594,20 +2674,48 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 	{
 		auto device = GetDevice();
 		auto const& queueContext = GetApp()->GetQueueContext();
-		auto presentQueue = device.getQueue(queueContext.GetGraphicsQueueFamily(), 0);
+		// R5-10: vkQueuePresentKHR must run on a queue of a family that supports
+		// presentation for the surface (VUID-vkQueuePresentKHR-pSwapchains-01292) — on
+		// split-family devices the present family differs from the graphics family.
+		VulkanWindowHandle* pFirstWindow = graph.GetFinalizePass().m_PresentBackBuffers[0].GetWindowPtr<VulkanWindowHandle>();
+		int presentFamily = (pFirstWindow) ? queueContext.FindPresentQueueFamily(pFirstWindow->GetSurface()) : -1;
+		vk::Queue presentQueue = (presentFamily >= 0)
+			? device.getQueue(presentFamily, 0)
+			: device.getQueue(queueContext.GetGraphicsQueueFamily(), 0);
 
+		uint32_t windowIdx = 0;
 		for (auto& backBufferImage : graph.GetFinalizePass().m_PresentBackBuffers)
 		{
 			VulkanWindowHandle* pWindow = backBufferImage.GetWindowPtr<VulkanWindowHandle>();
-			if (!pWindow || !pWindow->IsValid()) continue;
+			if (!pWindow || !pWindow->IsValid())
+			{
+				// F36b: keep windowIdx aligned with m_PresentBackBuffers positions even for
+				// skipped windows — GetWindowSync is indexed by window position.
+				++windowIdx;
+				continue;
+			}
 
-			if (pWindow->NeedsRecreation())
-				pWindow->RecreateSwapchain();
+			// F3a: acquire failed this frame — no present was signaled for this window
+			// (SubmitBatches skipped it); present the same image again would wait on an
+			// unsignaled semaphore. Skip and let RecreateSwapchain handle the stale image.
+			if (pWindow->IsAcquireFailed())
+			{
+				++windowIdx;
+				continue;
+			}
 
-			// Index by acquired image so present waits on the same semaphore
-			// that SubmitBatches signaled for this image
-			auto const& sync = m_CurrentFrameContext->GetWindowSync(pWindow->GetCurrentImageIndex());
+			// R4-1: recreating HERE would destroy the swapchain this frame's acquire used
+			// and present with a stale image index — unreachable today (acquire loop
+			// recreates first and clears the flag; m_SwapchainOutdated implies
+			// m_AcquireFailed which is skipped above), so assert instead of acting.
+			CA_ASSERT(!pWindow->NeedsRecreation(),
+				"PresentWindows: NeedsRecreation must have been handled by the acquire loop");
+
+			// Index by WINDOW POSITION — consistent with SubmitBatches::addPresentSignal,
+			// which signaled this window's present semaphore this frame.
+			auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
 			pWindow->Present(presentQueue, sync.presentSemaphore);
+			++windowIdx;
 		}
 	}
 
