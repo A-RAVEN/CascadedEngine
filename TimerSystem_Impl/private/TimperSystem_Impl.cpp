@@ -235,6 +235,20 @@ namespace catimer
 	class TimerSystem_Impl : public TimerSystem, public TimerSystem_Editor
 	{
 	public:
+		// D5': null the global pointer when the instance gCPUTimer actually points at is
+		// destroyed. Two instances exist (static g_TimerSystem_Impl below + the factory
+		// heap instance created by LinkModules); the ==this guard nulls only the one being
+		// destroyed so the other (still valid) instance is left untouched. Without this,
+		// gCPUTimer dangles after the heap instance is released and any later CPUTimerScope
+		// from a shutting-down worker thread virtual-calls into freed memory.
+		~TimerSystem_Impl()
+		{
+			if (GetGlobalTimerSystem() == this)
+			{
+				SetGlobalTimerSystem(nullptr);
+			}
+		}
+
 		// 通过 TimerSystem_Editor 继承
 		virtual TimerData QueryHistories() override
 		{

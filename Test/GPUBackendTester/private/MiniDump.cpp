@@ -63,6 +63,49 @@ LONG MiniDump::ApplicationCrashHandler(EXCEPTION_POINTERS* pException)
 		WriteFile(hStderr, buffer, (DWORD)len, &written, NULL);
 	}
 
+	// Resolve the module containing the faulting address — decisive for identifying
+	// whether the crash is in our DLL, the Vulkan driver, or the CRT heap.
+	{
+		void* crashAddr = pException->ExceptionRecord->ExceptionAddress;
+		HMODULE hMod = NULL;
+		GetModuleHandleExA(
+			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			(LPCSTR)crashAddr, &hMod);
+		char modPath[MAX_PATH] = { 0 };
+		const char* modName = "unknown";
+		if (hMod)
+		{
+			DWORD nameLen = GetModuleFileNameA(hMod, modPath, MAX_PATH);
+			if (nameLen > 0)
+			{
+				modName = modPath;
+				for (DWORD j = nameLen; j > 0; --j)
+				{
+					if (modPath[j - 1] == '\\' || modPath[j - 1] == '/')
+					{
+						modName = &modPath[j];
+						break;
+					}
+				}
+			}
+		}
+		if (hMod)
+		{
+			// hMod == image base for a loaded module; RVA = faulting address - base.
+			len = snprintf(buffer, sizeof(buffer), "Module      : %s (base 0x%p, RVA 0x%08X)\n",
+				modName, hMod, (unsigned)((char*)crashAddr - (char*)hMod));
+		}
+		else
+		{
+			len = snprintf(buffer, sizeof(buffer), "Module      : %s (unresolved)\n", modName);
+		}
+		if (len > 0)
+		{
+			DWORD written = 0;
+			WriteFile(hStderr, buffer, (DWORD)len, &written, NULL);
+		}
+	}
+
 	// Capture call stack (up to 16 frames)
 	const int maxFrames = 16;
 	void* stackFrames[16];

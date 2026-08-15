@@ -177,14 +177,13 @@ namespace graphics_backend
 		m_Semaphore.release();
 
 		auto device = GetDevice();
-		for (auto& sync : m_WindowSyncs)
-		{
-			if (sync.acquireSemaphore)
-				device.destroySemaphore(sync.acquireSemaphore);
-			if (sync.presentSemaphore)
-				device.destroySemaphore(sync.presentSemaphore);
-		}
-		m_WindowSyncs.clear();
+		for (auto& sem : m_AcquireSemaphores)
+			if (sem) device.destroySemaphore(sem);
+		m_AcquireSemaphores.clear();
+		for (auto& sem : m_PresentSemaphores)
+			if (sem) device.destroySemaphore(sem);
+		m_PresentSemaphores.clear();
+		m_PresentImageCount = 0;
 	}
 
 	void VulkanFrameContext::Reset()
@@ -235,22 +234,39 @@ namespace graphics_backend
 
 	}
 
-	void VulkanFrameContext::EnsureWindowSync(uint32_t imageCount)
+	void VulkanFrameContext::EnsureWindowSync(uint32_t windowCount, uint32_t imageCount)
 	{
-		while (m_WindowSyncs.size() < imageCount)
+		auto device = GetDevice();
+		while (m_AcquireSemaphores.size() < windowCount)
 		{
-			auto device = GetDevice();
 			vk::SemaphoreCreateInfo semaphoreInfo{};
-			WindowSync sync;
-			sync.acquireSemaphore = device.createSemaphore(semaphoreInfo);
-			sync.presentSemaphore = device.createSemaphore(semaphoreInfo);
-			m_WindowSyncs.push_back(sync);
+			m_AcquireSemaphores.push_back(device.createSemaphore(semaphoreInfo));
+		}
+		// D3 uniform-imageCount invariant: m_PresentImageCount is one block stride shared by
+		// all windows. Different per-window swapchain image counts would alias present
+		// semaphores across windows (GetPresentSync(w0,1) collides with GetPresentSync(w1,0)),
+		// re-signaling a binary semaphore in flight → VUID-vkQueueSubmit-pSignalSemaphores-00067.
+		if (m_PresentImageCount != 0 && m_PresentImageCount != imageCount)
+		{
+			CA_ASSERT(false, "VulkanFrameContext: per-window swapchain imageCount differs; uniform imageCount assumed");
+		}
+		m_PresentImageCount = imageCount;
+		uint32_t needed = windowCount * imageCount;
+		while (m_PresentSemaphores.size() < needed)
+		{
+			vk::SemaphoreCreateInfo semaphoreInfo{};
+			m_PresentSemaphores.push_back(device.createSemaphore(semaphoreInfo));
 		}
 	}
 
-	WindowSync const& VulkanFrameContext::GetWindowSync(uint32_t index) const
+	vk::Semaphore VulkanFrameContext::GetAcquireSync(uint32_t windowIdx) const
 	{
-		return m_WindowSyncs[index];
+		return m_AcquireSemaphores[windowIdx];
+	}
+
+	vk::Semaphore VulkanFrameContext::GetPresentSync(uint32_t windowIdx, uint32_t imageIndex) const
+	{
+		return m_PresentSemaphores[windowIdx * m_PresentImageCount + imageIndex];
 	}
 
 	// --- VulkanGPUFrameManager ---

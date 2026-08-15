@@ -19,18 +19,30 @@ namespace catimer
 		CPUTimerScope(const char* pFunctionName, const char* pFilePath, uint32_t lineNumber, const char* pName)
 		{
 			cacheName = pName;
-			GetGlobalTimerSystem()->BeginEvent(pName, pFilePath, lineNumber);
+			// D5': gCPUTimer may be null during module teardown (TimerSystem module released
+			// before worker threads stop) — guard every deref so a scope in a shutting-down
+			// worker thread is a no-op instead of a virtual call on a freed instance.
+			if (TimerSystem* pTimer = GetGlobalTimerSystem())
+			{
+				pTimer->BeginEvent(pName, pFilePath, lineNumber);
+			}
 		}
 
 		CPUTimerScope(const char* pFunctionName, const char* pFilePath, uint32_t lineNumber)
 		{
 			cacheName = pFunctionName;
-			GetGlobalTimerSystem()->BeginEvent(pFunctionName, pFilePath, lineNumber);
+			if (TimerSystem* pTimer = GetGlobalTimerSystem())
+			{
+				pTimer->BeginEvent(pFunctionName, pFilePath, lineNumber);
+			}
 		}
 
 		~CPUTimerScope()
 		{
-			GetGlobalTimerSystem()->EndEvent(cacheName);
+			if (TimerSystem* pTimer = GetGlobalTimerSystem())
+			{
+				pTimer->EndEvent(cacheName);
+			}
 		}
 
 		CPUTimerScope(const CPUTimerScope&) = delete;
@@ -39,4 +51,4 @@ namespace catimer
 }
 #define MACRO_CONCAT_IMPL(x, y) x##y
 #define CPUTIMER_SCOPE(...)				catimer::CPUTimerScope MACRO_CONCAT_IMPL(profiler, __COUNTER__)(__FUNCTION__, __FILE__, __LINE__, __VA_ARGS__)
-#define TIMER_NEWFRAME()				catimer::GetGlobalTimerSystem()->NewFrame()
+#define TIMER_NEWFRAME()				do { if (catimer::TimerSystem* pTimer = catimer::GetGlobalTimerSystem()) pTimer->NewFrame(); } while (0)

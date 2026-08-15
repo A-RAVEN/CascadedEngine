@@ -108,7 +108,7 @@ namespace graphics_backend
     }
     void WindowContext::Present()
     {
-        m_Swapchain->Present(1, 0);
+        m_Swapchain->Present(0, 0);
         m_BackBufferIndex = m_Swapchain->GetCurrentBackBufferIndex();
     }
 }

@@ -1108,7 +1108,6 @@ int main(int argc, char* argv[])
 			errorMsg = "unknown exception";
 			std::cerr << "Test " << name << " threw unknown exception" << std::endl;
 		}
-
 		auto endTime = std::chrono::steady_clock::now();
 		auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
 

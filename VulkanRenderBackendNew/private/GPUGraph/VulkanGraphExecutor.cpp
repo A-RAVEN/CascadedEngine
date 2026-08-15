@@ -529,12 +529,10 @@ namespace graphics_backend
 		// Swapchain acquire — moved here to avoid acquiring images on frames that will abort
 		if (!graph->GetFinalizePass().isEmpty())
 		{
-			// F36a/F36b: grow the window sync array to the WINDOW COUNT unconditionally —
-			// GetWindowSync is indexed by window position everywhere (acquire-wait and
-			// present), so the array must be sized even if every window is invalid.
-			m_CurrentFrameContext->EnsureWindowSync(
-				static_cast<uint32_t>(graph->GetFinalizePass().m_PresentBackBuffers.size()));
-
+			// D3: acquire semaphores are per WINDOW POSITION, present semaphores per
+			// (window × swapchain image). EnsureWindowSync is called per valid window
+			// with its swapchain image count — arrays grow on demand and cover every
+			// position the acquire-wait / present loops index by window position.
 			uint32_t windowIdx = 0;
 			for (auto& backBufferImage : graph->GetFinalizePass().m_PresentBackBuffers)
 			{
@@ -544,9 +542,11 @@ namespace graphics_backend
 					if (pWindow->NeedsRecreation())
 						pWindow->RecreateSwapchain();
 
-					// Use window-indexed acquire semaphore (free due to per-batch CPU serialization)
-					auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
-					pWindow->AcquireNextImage(sync.acquireSemaphore);
+					m_CurrentFrameContext->EnsureWindowSync(windowIdx + 1, pWindow->GetSwapchainImageCount());
+
+					// Acquire semaphore is per-window (free due to per-batch CPU serialization).
+					vk::Semaphore acquireSem = m_CurrentFrameContext->GetAcquireSync(windowIdx);
+					pWindow->AcquireNextImage(acquireSem);
 					// acquiredImageIndex now stored in pWindow->GetCurrentImageIndex()
 				}
 				++windowIdx;
@@ -590,8 +590,12 @@ namespace graphics_backend
 		// Apply external resource states
 		ApplyExternalResourceStates();
 
-		// Present windows
-		PresentWindows(*graph);
+		// Present windows — reuse the acquire loop's isEmpty guard: a compute-only graph
+		// with an empty finalize pass must not index m_PresentBackBuffers[0] (OOB read).
+		if (!graph->GetFinalizePass().isEmpty())
+		{
+			PresentWindows(*graph);
+		}
 
 		// Task 3.8: Clear descriptor set references (pool will be reset on next Aquire)
 		for (auto& [hash, instance] : m_ShaderResourceInstances)
@@ -2428,17 +2432,15 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				// windows and acquire-failed windows all have an UNSIGNALED acquire
 				// semaphore; waiting on it would hang the GPU.
 				if (!pWindow || !pWindow->IsValid() || pWindow->IsAcquireFailed()) continue;
-				auto const& sync = m_CurrentFrameContext->GetWindowSync(static_cast<uint32_t>(w));
-				outWaitSems.push_back(sync.acquireSemaphore);
+				outWaitSems.push_back(m_CurrentFrameContext->GetAcquireSync(static_cast<uint32_t>(w)));
 				outWaitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
 			}
 		};
 
-		// Present semaphore signal: only on the last batch with finalize pass
-		// Index by WINDOW POSITION (w) — GetWindowSync's flat array is indexed by
-		// window position everywhere else (acquire at line 523, acquire-wait above).
-		// Indexing by GetCurrentImageIndex() here mismatched those and paired
-		// semaphores across windows / image slots.
+		// Present semaphore signal: only on the last batch with finalize pass.
+		// D3: index by (window position, ACQUIRED image index) — the present
+		// semaphore must be per swapchain image (VUID-00067); the acquire side
+		// remains window-position indexed.
 		auto addPresentSignal = [&](bool isLastBatch, bool hasFinalizePass,
 			castl::vector<vk::Semaphore>& outSignalSems)
 		{
@@ -2453,8 +2455,8 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				// would stay signaled across frames and re-signaling it next frame violates
 				// VUID-vkQueueSubmit-pSignalSemaphores-00067 (must be unsignaled at signal).
 				if (!pWindow || !pWindow->IsValid() || pWindow->IsAcquireFailed()) continue;
-				auto const& sync = m_CurrentFrameContext->GetWindowSync(static_cast<uint32_t>(w));
-				outSignalSems.push_back(sync.presentSemaphore);
+				outSignalSems.push_back(m_CurrentFrameContext->GetPresentSync(
+					static_cast<uint32_t>(w), pWindow->GetCurrentImageIndex()));
 			}
 		};
 
@@ -2711,10 +2713,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			CA_ASSERT(!pWindow->NeedsRecreation(),
 				"PresentWindows: NeedsRecreation must have been handled by the acquire loop");
 
-			// Index by WINDOW POSITION — consistent with SubmitBatches::addPresentSignal,
-			// which signaled this window's present semaphore this frame.
-			auto const& sync = m_CurrentFrameContext->GetWindowSync(windowIdx);
-			pWindow->Present(presentQueue, sync.presentSemaphore);
+			// Index by (window position, acquired image index) — consistent with
+			// SubmitBatches::addPresentSignal, which signaled this window's present
+			// semaphore for this exact image slot this frame.
+			vk::Semaphore presentSem = m_CurrentFrameContext->GetPresentSync(windowIdx, pWindow->GetCurrentImageIndex());
+			pWindow->Present(presentQueue, presentSem);
 			++windowIdx;
 		}
 	}

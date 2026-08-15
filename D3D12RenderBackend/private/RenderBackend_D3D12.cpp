@@ -215,13 +215,29 @@ namespace graphics_backend
 
 	void RenderBackend_D3D12::Release()
 	{
+		// D7: flush both queues (signal + wait) BEFORE releasing frame contexts and
+		// swapchains. The last Present is queued AFTER the frame's Signal
+		// (GPUGraphExecutor.cpp:2241→2245), so FrameContext::GPUWaitIdle (which waits the
+		// frame fence) does NOT cover the present — destroying a swapchain while its present
+		// is still in flight makes the D3D12 debug layer RaiseException(0x87D). WaitIdle
+		// signals a fresh value after the present and waits for it.
+		m_GPUFrameManager.WaitIdle();
 		m_GPUFrameManager.Release();
+
+		// D7: release window contexts (swapchain + backbuffers) while the device and the
+		// descriptor-allocator heaps are still alive — safe now that the queues (incl. the
+		// last present) are flushed. WindowContext's Release() only releases its frame
+		// semaphore; the swapchain and back buffers are freed by ~WindowContext, so clearing
+		// the map destroys them.
+		m_WindowContexts.clear();
+
 		m_SamplerManager.Release();
 		m_RootSignatureManager.Release();
 		m_PipelineManager.Release();
 		m_ComputePipelineManager.Release();
 		m_DescriptorAllocatorSet.Release();
 		m_MemoryManager.Release();
+
 		m_CommandQueue = nullptr;
 		m_ComputeQueue = nullptr;
 		m_Device = nullptr;

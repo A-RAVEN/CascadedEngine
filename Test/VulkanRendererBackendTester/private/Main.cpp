@@ -82,7 +82,10 @@ int main(int argc, char *argv[])
 	cacore::NameHash hash1 = "Test";
 
 	InitTimerSystem();
-	GetGlobalTimerSystem()->SetThreadName("Main");
+	if (catimer::TimerSystem* pTimer = catimer::GetGlobalTimerSystem())
+	{
+		pTimer->SetThreadName("Main");
+	}
 
 	TIMER_NEWFRAME();
 	//gCPUProfiler.Initialize(5, 1024);

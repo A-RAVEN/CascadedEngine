@@ -64,6 +64,11 @@ namespace cacore
 		m_Factories.clear();
 		m_FactoryInstances.clear();
 
+		// 实例对象已在上面释放循环中销毁；m_Instances 只是注册表（AddInstance 填充、
+		// RemoveInstance 无调用点），不随对象销毁清空。先清空再断言，避免
+		// CA_ASSERT_BREAK 恒触发 __debugbreak 导致退出阶段异常终止。
+		m_Instances.clear();
+
 		m_Modules.clear([&](auto path, auto mod)
 		{
 			mod.Shutdown(this);

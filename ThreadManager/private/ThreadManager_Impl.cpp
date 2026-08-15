@@ -184,6 +184,13 @@ namespace thread_management
 
     ThreadManager_Impl::~ThreadManager_Impl()
     {
+        // D5': TimerSystem is a STATIC lib — Set/GetGlobalTimerSystem/gCPUTimer are
+        // duplicated per module, so ~TimerSystem_Impl (in TimerSystem_Impl.DLL) only
+        // nulls ITS OWN copy and cannot see this DLL's. Null OUR copy before stopping
+        // workers: otherwise their CPUTimerScope("Idle") dtor reads a dangling pointer
+        // (set during Init/TryLink to the freed TimerSystem heap instance) and
+        // virtual-calls into freed memory (ThreadManager.DLL RVA ~0x3405C).
+        catimer::SetGlobalTimerSystem(nullptr);
         Stop();
     }
 
@@ -294,7 +301,7 @@ namespace thread_management
         return castl::shared_ptr<TaskScheduler>(newScheduler, [](TaskScheduler* pScheduler)
             {
                 pScheduler->WaitAll();
-				delete pScheduler;
+                delete pScheduler;
             });
     }
 
@@ -879,7 +886,9 @@ namespace thread_management
                 }
 
                 if (m_Stop || !m_OwningManager->IsRunning())
+                {
                     return;
+                }
 
                 for (auto queueID : m_Queues)
                 {

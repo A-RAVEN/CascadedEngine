@@ -3,6 +3,11 @@
 
 namespace graphics_backend
 {
+	void RootSignatureManager::Release()
+	{
+		m_RootSignatures.clear();
+	}
+
 	ComPtr<ID3D12RootSignature> RootSignatureManager::GetRootSignature(ComPtr<ID3DBlob> const& blob)
 	{
 		return m_RootSignatures.get_or_create(blob, [&](ComPtr<ID3DBlob> const& blb) ->ComPtr<ID3D12RootSignature>

@@ -9,12 +9,6 @@
 
 namespace graphics_backend
 {
-	struct WindowSync
-	{
-		vk::Semaphore acquireSemaphore;
-		vk::Semaphore presentSemaphore;
-	};
-
 	class VulkanFrameBoundResourceManager : public VulkanSubobjectBase
 	{
 	public:
@@ -60,14 +54,25 @@ namespace graphics_backend
 		void Aquire();
 		VulkanFrameBoundResourceManager& GetResourceManager() { return m_FrameBoundResourceManager; }
 
-		void EnsureWindowSync(uint32_t imageCount);
-		WindowSync const& GetWindowSync(uint32_t index) const;
-		uint32_t GetWindowSyncCount() const { return static_cast<uint32_t>(m_WindowSyncs.size()); }
+		// D3 (VUID-vkQueueSubmit-pSignalSemaphores-00067): present semaphores are
+		// per (window × swapchain image) — a binary present semaphore must not be
+		// re-signaled until its prior present consumed it; per-image slotting
+		// guarantees image i's semaphore is free when i is re-acquired. Acquire
+		// semaphores stay per-window (safe: consumed by the same frame's submit-wait
+		// under the per-frame CPU serialization in SubmitBatches).
+		void EnsureWindowSync(uint32_t windowCount, uint32_t imageCount);
+		vk::Semaphore GetAcquireSync(uint32_t windowIdx) const;
+		vk::Semaphore GetPresentSync(uint32_t windowIdx, uint32_t imageIndex) const;
+		uint32_t GetWindowSyncCount() const { return static_cast<uint32_t>(m_AcquireSemaphores.size()); }
 
 	private:
 		std::binary_semaphore m_Semaphore;
 		VulkanFrameBoundResourceManager m_FrameBoundResourceManager;
-		castl::vector<WindowSync> m_WindowSyncs;
+		castl::vector<vk::Semaphore> m_AcquireSemaphores;
+		castl::vector<vk::Semaphore> m_PresentSemaphores;
+		// Block stride for m_PresentSemaphores — uniform imageCount assumed across
+		// windows (swapchains in this codebase share the same minImageCount config).
+		uint32_t m_PresentImageCount = 0;
 		bool m_FirstFrame = true;
 	};
 

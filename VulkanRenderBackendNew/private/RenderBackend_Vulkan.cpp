@@ -2,6 +2,7 @@
 #include <Utils/VulkanDebug.h>
 #include <string>
 #include <cstring>
+#include <cstdio>
 #include <VulkanObjects/VulkanBuffer.h>
 #include <VulkanObjects/VulkanTexture.h>
 #include <VulkanObjects/VulkanWindowHandle.h>
@@ -429,6 +430,11 @@ namespace graphics_backend
 	}
 	void RenderBackend_Vulkan::Release()
 	{
+		// D1: GPU idle BEFORE any device-object destruction — in-flight present/acquire
+		// referencing swapchain imageViews (destroyed by window CleanupSwapchain) or
+		// framebuffers would otherwise be a use-after-free during their destruction.
+		m_GPUFrameManager.WaitIdle();
+
 		// Destroy framebuffers BEFORE window handles — framebuffers reference
 		// swapchain image views owned by window handles; destroying windows first
 		// would leave dangling view references in the framebuffers.
@@ -451,8 +457,7 @@ namespace graphics_backend
 		}
 		m_WindowHandles.clear();
 
-		// Release GPU Frame Manager
-		m_GPUFrameManager.WaitIdle();
+		// Release GPU Frame Manager (frame contexts: fences/semaphores/descriptor pool)
 		m_GPUFrameManager.Release();
 
 		// Serialize pipeline cache to disk before destroying

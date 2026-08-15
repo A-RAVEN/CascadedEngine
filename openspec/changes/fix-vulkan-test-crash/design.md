@@ -1,79 +1,125 @@
 ## Context
 
-`GPUBackendTester.exe` 退出阶段崩溃。事实与观察分层：
+`GPUBackendTester.exe` 退出阶段崩溃。经插桩实证 + 对抗验证（round 1 workflow: 32 findings/27 confirmed），根因状态如下：
 
-**已确认事实（可复核）：**
-1. **PRESENT semaphore 复用 VUID**：validation log 2 次 `VUID-vkQueueSubmit-pSignalSemaphores-00067`。语义：`pSubmits` 的 `pSignalSemaphores` 中每个 binary semaphore 被 signal 时必须已 unsignaled（[VkQueueSubmit](docs/vulkan-api-docs/refpages/vkQueueSubmit.md)）。触发的是 PRESENT semaphore 被重复 signal（swapchain image 已 present 未 re-acquire）。
-2. **mimalloc 假设已证伪**：EXE 仅 import `mi_version`（Main.cpp:814），无 `mi_malloc`/`mi_free`/new-delete 覆写；`MimallocImpl.cpp:1` 覆写被注释；`standard malloc is _not_ redirected`。EXE 与 Vulkan DLL 均走系统堆。**无跨模块堆不配对**。
-3. **VulkanRenderBackend.dll 链接线已含 mimalloc**：build.ninja:8015 的 DLL 链接命令含 `lib\mimalloc-debug.dll.lib`（经 CACore PUBLIC 传递），但 DLL 二进制无任何 `mi_*` 导入（符号被链接器丢弃）——"补链接 mimalloc"是 no-op，需区分"链接线含目标"与"二进制引用符号"两层。
-
-**会话观察（留存证据已被 d3d12 运行覆盖，不可复核）：**
-4. 2026-08-08：vulkan 交互 3578 帧后关窗、headless 200/4000 帧，均崩溃于 `VulkanWindowHandle released` 打印后、`VulkanRenderBackend released` 打印前（bash SIGSEGV/exit 139）。现存 `headless200_stdout.txt` 止于 `Submit Count:1444`；`TestSimpleTriangle.log` 被覆盖。**需重新确证**。
-5. D3D12 headless 200 帧：shader import 后（`Submit Count:1452`）SEH 触发但栈空。崩溃相位与 vulkan 不同，并列待查，不做"框架级问题"强结论。
+**已确认事实：**
+1. **headless 退出崩溃 = TimerSystem teardown UAF（根因已确立，见 D5'）**：崩溃模块 `ThreadManager.DLL` RVA `0x3405C`，worker 线程，Stop 期间。
+2. **VUID-00067 present semaphore 复用（D3）**：代码结构正确（对抗验证确认），实证验证待补。
+3. **mimalloc 假设已证伪**。
+4. **round 3（apply 实证）修正：TimerSystem 是 STATIC 库，gCPUTimer 每模块一份拷贝**——`~TimerSystem_Impl` 的 `==this` 置空对 worker 崩溃无效；有效修复是崩溃模块自身置空（详见 D5' 修复方向）。
+5. **round 3（apply 实证）新发现：d3d12 第二独立崩溃 `0x87D`**——D3D12 debug layer（D3D12SDKLayers）在 `~RenderBackend_D3D12` 成员析构期抛异常，基线被 0x3405C 掩盖，首次暴露（详见 D7）。
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 重新确证退出清理路径崩溃（插临时日志 + headless 复现），定位崩溃步骤
-- 修复确认的清理顺序问题（WaitIdle 前移）
-- 修复 PRESENT semaphore 复用 VUID
-- 回归：headless 200/4000 帧 + non-headless 手动关窗
+- **确立 ThreadManager teardown 期崩溃的真正根因**并修复
+- 保留 D3（对抗验证确认正确）+ 补实证验证与 uniform-imageCount 防护
+- D1 防御性保留；修 PresentWindows 空 finalize 越界
+- 回归：headless 1/200/4000 + non-headless + D3D12 双后端
 
 **Non-Goals:**
-- 不修改 GPU 资源生命周期管理架构（除非问题根因涉及）
-- 不引入新的调试基础设施（除非现有日志不足以定位）
+- 不改 ThreadManager 任务调度架构（除非根因涉及）
+- 不引入新的调试基础设施（除非必要）
 
 ## Decisions
 
-### D1: 退出清理路径崩溃定位 + 确定性顺序修复
+### D1: WaitIdle 前移（已实现，防御性保留）
 
-**已排除的候选**（代码顺序已证实安全）：
-- `m_GPUFrameManager.WaitIdle()`（:455）先于 `m_GPUFrameManager.Release()`（:456），`VulkanFrameContext::Release()` 的 fence/semaphore/descriptorPool 销毁有 GPU idle 保证——**不是首查对象**。
+实证修正：headless 路径 `Main.cpp:118` 在 windowHandle 析构前已显式 WaitIdle——headless 崩溃不是 present-in-flight UAF。D1 对 non-headless（手动关窗）仍正确：window 的 `CleanupSwapchain` 销毁 swapchain imageViews 前确保 GPU idle。
 
-**确定性修复（直接写入，非待验证候选）**：
-- 当前 `RenderBackend_Vulkan::Release()` 顺序为：framebuffer destroy（:435-442）→ window handle Release（:444-452）→ WaitIdle（:455）→ Release（:456）。
-- window 的 `CleanupSwapchain` 销毁 swapchain imageViews，发生在 WaitIdle **之前**。若 GPU 仍有 in-flight present/acquire，销毁 swapchain 属 UAF。
-- **修复**：将 `m_GPUFrameManager.WaitIdle()` 前移到 window 清理循环之前。此修复对 non-headless（手动关窗，GPU 可能有未完成 present）是必要修复；headless 场景测试器已在退出前 WaitIdle 兜底，非 headless 崩溃根因，但顺序修正无害且正确。
+**已实现**：`m_GPUFrameManager.WaitIdle()` 从 Release() window 循环后前移到函数顶部（framebuffer destroy 之前）。**已定案保留**（tasks 仅确认，不再开放决策）。
 
-**定位步骤**：
-1. 在 `RenderBackend_Vulkan::Release()` 每个销毁步骤间插入临时日志（window 清理后 → WaitIdle 前移后 → pipeline cache serialize → renderPass/shaderModule/pipelineLayout/setLayout destroy → commandList/sampler/memoryManager release → device destroy）
-2. headless 200 帧复现，确认崩溃步骤
-3. **插桩重点前移**：pipeline cache serialize/getPipelineCacheData（:458-481）、renderPass/shaderModule/pipelineLayout 等 cache destroy（:490-512）、`m_MemoryManager.Release()`（:521）
-4. 若插桩确认崩溃与顺序无关，才考虑 ASan/Application Verifier 捕获首次越界写（SEH 不触发表明栈损坏可能来自更早的运行期越界）
+### D2: mimalloc 排除（已复核确认）
 
-### D2: mimalloc 假设——已证伪，作为排除项
+dumpbin + 源码复核：EXE 仅 import `mi_version`，DLL 无 `mi_*` 引用，`MimallocImpl.cpp:1` 覆写被注释。两模块共用系统堆。**不做任何链接改动**。
 
-对抗验证（dumpbin + 二进制 grep + 源码）证实：
+### D3: PRESENT semaphore 按 (window × image) 分槽（已实现，对抗验证确认，实证待补）
 
-- `GPUBackendTester.exe`：仅 import `mi_version`（无 `mi_malloc`/`mi_free`/`mi_zalloc`，无 operator new/delete 覆写）→ new/delete/malloc/free 全走系统堆
-- `VulkanRenderBackend.dll`：无任何 `mi_*` 引用 → 系统堆
-- `MimallocImpl.cpp:1` 的 `mimalloc-new-delete.h` 覆写被注释
-- 运行日志：`standard malloc is _not_ redirected`
+**根因**：`VUID-vkQueueSubmit-pSignalSemaphores-00067` 由 PRESENT semaphore 被重复 signal 触发（validation layer 官方建议 per-image semaphore, index by acquired image）。
 
-**结论**：两模块共用同一 CRT（ucrtbase）堆，"跨 EXE↔DLL 堆不配对"前提不成立，**排除 mimalloc 为根因**。不做任何链接改动（DLL 链接线已含 mimalloc-debug.dll.lib，补链接是 no-op）。
+**实现**（拆数组）：`m_AcquireSemaphores`（每 window，逐帧串行化下安全）+ `m_PresentSemaphores`（每 window×image，索引 `[w*imageCount+i]`）；`EnsureWindowSync(windowCount, imageCount)` 重签名；executor 4 处索引更新；销毁点保持 `VulkanFrameContext::Release()`（在 WaitIdle 之后）。
 
-**遗留说明**：`mi_version()` 导入 + `mimalloc-redirect.dll` 随 mimalloc-debug.dll 传递加载是日志警告来源，但未导致实际堆分裂，与崩溃无关。
+**对抗验证结论（round 1）**：
+- ✅ 本地文档引用真实：`docs/vulkan-api-docs/refpages/vkQueueSubmit.md:127-131` 含 VUID-00067 且语义一致；`docs/vulkan-api-docs/spec/validusage.json:2605-2607` 一致
+- ✅ 索引公式与 `EnsureWindowSync` 覆盖安全（单窗口）；acquire per-window 在逐帧串行化（SubmitBatches waitForFences）下安全
+- ✅ `vkDestroySemaphore` VUID-05149 满足（WaitIdle 在销毁前，`RenderBackend_Vulkan.cpp:440`）
+- ⚠️ **实证短板**：最近 headless 运行 validation log 为 0 字节，"VUID 已消除"未经非空日志确认——需补一次 headless 运行（验证层启用、日志非空、0 个 VUID）复验
+- ⚠️ **uniform-imageCount 未校验前提**：`m_PresentImageCount` 单一 stride，多窗口 imageCount 不同时 present semaphore 跨 window 碰撞（`GetPresentSync(0,1)` 可能别名到 `GetPresentSync(1,0)`）。防护：EnsureWindowSync 断言各 window imageCount 一致，或按 window 存真实 block 偏移
+- ⚠️ **PresentWindows 空 finalize 越界**（`VulkanGraphExecutor.cpp:2678`）：`m_PresentBackBuffers[0]` 在 finalize pass 为空时越界——需复用 acquire 循环的 `isEmpty` 守卫（compute-only 图会崩）
 
-### D3: PRESENT semaphore 复用 VUID 修复
+### D5（已撤回）: scheduler-delete 竞态——对抗验证证伪
 
-**根因修正**：`VUID-vkQueueSubmit-pSignalSemaphores-00067` 由 **PRESENT semaphore** 在 `vkQueueSubmit` 的 `pSignalSemaphores` 中被重复 signal 触发（validation log 原文：swapchain image 已 present 但未 re-acquire）。不是 acquire semaphore 连续 signal。
+原假设：`NewScheduler()` deleter 的 `WaitAll()` 后 `delete` 与 worker 线程 race，scheduler 被删时 worker 仍在执行节点 → UAF。
 
-**现状**（对抗验证核对 `VulkanFrameManager.cpp`）：
-- `EnsureWindowSync`（:238-249）按窗口位置为每个 slot 创建 acquire+present 一对 semaphore
-- `VulkanFrameContext::Release()`（:180-187）销毁这些 semaphore
-- 索引按"窗口位置"，未按 swapchain image index——多个 swapchain image 复用同一对 semaphore，present 后未 re-acquire 即 re-signal
+**证伪证据链**（round 1 critical finding，已独立复核）：
+1. `RenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, ...)` **完全忽略 scheduler 参数**（函数体仅用 graph/frameManager/executor）；`VulkanGraphExecutor.cpp` 对 TaskScheduler/NewTask 零引用 → per-frame scheduler 恒空，从不入队节点
+2. worker 任务全部来自 `IOManager_FS::SubmitAndWait`（每次 1 个 task + 显式 WaitAll）；1445 次 scheduler deleter = 1444 次 IOManager + 1 次 per-frame
+3. 单任务下 `m_PendingTaskCount` 仅在该任务最后一次 `NotifyChildNodeFinish` 后才归零，delete 被计数 gate 串行化——D5 声称的窗口被覆盖
+4. D5 窗口（Execute_Internal 返回与 ReleaseSelf 之间）不访问 scheduler（ReleaseSelf 用 ThreadManager 的 allocator）
+5. **决定性**：崩溃发生在所有 scheduler 销毁之后（日志最后是 ~ThreadManager_Impl → Stop → CRASH）——无存活 scheduler，scheduler-delete UAF 物理上不可能
 
-**修复方案**：
-1. semaphore 归属保持在 `VulkanFrameContext`（与现 `m_WindowSyncs` 生命周期一致），**不**移到 `VulkanWindowHandle`（其 Release 在 RenderBackend_Vulkan.cpp:449 早于 WaitIdle :455，会破坏"先 WaitIdle 再销毁"顺序）
-2. 索引从"window 位置"改为"window × swapchain image 槽位"（如 `m_WindowSyncs[windowIdx * imageCount + imageIndex]`），每个 image 独立 acquire/present semaphore
-3. 销毁点保持 `VulkanFrameContext::Release()`（在 D1 前移的 WaitIdle 之后），符合 VUID-vkDestroySemaphore 前提
+**结论**：scheduler-delete 竞态**不成立**，zombie-defer 方案**撤回**（基于错误前提）。
 
-### D4: `-8` 内存分配失败（历史遗留，降级观察项）
+### D5'（新，已确立）: ThreadManager teardown 期 worker 崩溃 = TimerSystem 模块实例 teardown 顺序 UAF
 
-原 proposal（提交 `a90472a` 版本）记录 non-headless 多帧 `Failed to allocate raw Vulkan memory: -8`。当前测试（headless 200/4000 帧）未复现、无 `-8` 日志留存。**保留为低优先级观察项**，仅在上文 D1/D3 修复后仍出现时处理。
+**根因（workflow 调查 + 指令级确证，对抗验证 isReal=True）**：
+
+**机制链**：
+1. `GPUBackendTester` 按 `CA_ADD_MODULE` 注册序：**TimerSystem_Impl 先**（`Main.cpp:993`）、**ThreadManager 后**（`Main.cpp:994`）
+2. `~CAModuleManager` 按注册序**前向释放**（`CaModuleManager.cpp:60-63`）→ 先 `delete` 堆上 TimerSystem_Impl → 全局指针 `gCPUTimer`（`Interface/TimerSystem/private/Timer.cpp:4-12`，裸指针、从不置空）变为**悬垂**
+3. 再 `delete` ThreadManager_Impl → `~ThreadManager_Impl`（`ThreadManager_Impl.cpp:186-190`）→ `Stop()`（:313-328）→ `m_Running=false`、`worker.Stop()`（m_Stop=true+Notify）、join
+4. worker（tid 140904）从 `cv.wait`（:868）唤醒、离开内层块 → **`CPUTimerScope("Idle")` 析构**（`Interface/TimerSystem/header/CATimer/Timer.h:31-34`，先于 :889 `WorkLoop exit` fprintf）调用 `GetGlobalTimerSystem()->EndEvent()` → 对已释放 TimerSystem_Impl 的虚表做虚调用 → ACCESS_VIOLATION
+
+**指令级确证**：`ThreadManager.DLL RVA 0x3405C` = `~CPUTimerScope` 内 `mov rax,[rax+10h]`（读 vtable EndEvent 槽）；前一条 `mov rax,[rax]`（读 vptr）成功、`[rax+10h]` 失败 ⇒ `gCPUTimer` 是**非空悬垂指针**（指向已释放实例），非 null 场景。4 次运行（双后端）崩溃地址减基址后 RVA 全为 `0x3405C`。
+
+**这解释了全部现象**：双后端同偏移（公共 ThreadManager WorkLoop）、worker 线程、Stop 期间、`WorkLoop exit`=0（崩在 exit fprintf 之前）、确定性。
+
+**排除项**：H2（m_OwningManager 悬垂，join-before-free 保证）、H3（queue_locks 每次 clear 不跨迭代）、H4（543 exec==543 release 平衡、池持锁分析排除越界）、H5（模块单加载）、H6（队列 Stop 时为空）。
+
+**修复方向（round 3 apply 实证修订，顺序无关，覆盖所有消费者）**：
+
+1. **置空 gCPUTimer——必须命中崩溃模块自身的拷贝**（round 3 实证修正）：
+   - **round 2 方案的缺陷**：`~TimerSystem_Impl` 加 `==this` 守卫置空。实测（vulkan headless1）**无效**——TimerSystem 是 **STATIC 库**（`Interface/TimerSystem/CMakeLists.txt:6` `add_library(... STATIC ...)`），`gCPUTimer`/`SetGlobalTimerSystem`/`GetGlobalTimerSystem` 被**复制进每个链接它的模块**（ThreadManager.DLL、TimerSystem_Impl.DLL、GPUBackendTester.exe、VulkanRenderBackend.DLL、D3D12RenderBackend.DLL 各自一份 `.data`）。`~TimerSystem_Impl` 只清 **TimerSystem_Impl.DLL 自己的拷贝**（GPUBackendTester 场景下该拷贝从未被 Set → 恒 nullptr → `==this` 不命中）→ 碰不到 **ThreadManager.DLL 的悬垂拷贝**（worker 崩溃实际读的那份，由 Init/TryLink 指向堆实例）。
+   - **有效修复**：崩溃模块**自身**在 Stop 前置空——`~ThreadManager_Impl` 入口 `catimer::SetGlobalTimerSystem(nullptr)`（清 ThreadManager.DLL 拷贝；worker 从 cv.wait 唤醒后 `CPUTimerScope("Idle")` 析构见 null → 守卫跳过）。**实证**：置空后 vulkan headless1 **退出码 0、无崩溃、无新 dump**；d3d12 的 0x3405C worker 崩溃同样消失。
+   - **保留 `~TimerSystem_Impl` 的 `==this` 置空**作为防御（无害；处理"TimerSystem_Impl.DLL 拷贝曾指向自身堆实例"场景）。
+   - 双实例认知仍成立（静态 `g_TimerSystem_Impl` + 工厂堆实例），但 `==this` 守卫的作用域是"**该模块自身拷贝**指向的那个实例"。
+2. **全守卫**：所有 `GetGlobalTimerSystem()` 解引用点加 `if(auto* t = ...)`——CPUTimerScope 构造/析构（`Timer.h`）**且 `TIMER_NEWFRAME()`（`Timer.h:42`）与任何 `->SetThreadName` 调用**。**注意：guard 只对 null 有效；悬垂非空拷贝必须靠"源头置空"解决**——所以"全守卫"是兜底、不是主修复。
+3. **修 `~CAModuleManager:72` 的 m_Instances 断言**（已实现）：实例释放循环后 `m_Instances.clear()`，断言不再恒触发 `__debugbreak`。**实证**：退出不再因此中断。
+4. **验收标准**：headless 退出后**进程退出码 0 + 无新增 crash_*.dmp**（弃用 JSON exit_code——`Main.cpp:1175` closeJsonArray 先于 ctx 析构，检测不到 teardown 崩溃）。**注意：d3d12 需先修 D7 的 0x87D 才能满足此标准**。
+
+**明确不做 swap 注册序**：置空+全守卫是顺序无关的，不依赖"注册序==销毁序"这一未强制的不变式，也不留下悬垂指针。框架级 LIFO 逆序释放（`CaModuleManager.cpp:60-63`）更稳健但翻转隐式契约、需审计各模块析构，列为可选后续项。
+
+**决策依据**：根因已确立（指令级证据）+ round 2 对抗验证修订了修复方案。
+
+### D6（修正）: 节点池地址复用 vs "Finalize 重跑"（状态机缺执行态是真 bug）
+
+round 1 修正：marker 中"同一节点地址被反复 Execute_Internal"**更可能是池地址复用**（`TThreadSafePointerPool::Alloc` 复用空闲槽并 `Initialize_Internal`），而非 m_SubTasks 重入。但确认 **TaskNode 状态机缺陷是真 bug**：`m_Running` 只有 `ePrepare`/`eInvalid` 两个态、执行期间从不置执行态，`WaitingToRun` 对已执行未释放节点仍返回 true。列为独立观察项，本 change 不处理（避免基于错误解读追加无效修复）。
+
+### D7（新，round 3 apply 实证）: d3d12 第二独立崩溃 0x87D（D3D12 debug layer 成员析构期抛异常）
+
+**根因状态**：已定位到模块/阶段，具体触发对象待审。
+
+**现象**：修好 ThreadManager UAF（D5'）后，d3d12 headless1 退出码 1。`UNKNOWN_EXCEPTION (0x0000087D)`，异常地址 KERNELBASE.dll RVA `0xC1B6A`（RaiseException），调用栈 8 帧深在 **D3D12SDKLayers.dll**（debug layer）。确定性复现。
+
+**定位**（插桩实证，`[MM]`/`[D3D12REL]` 标记）：
+- `~CAModuleManager` 释放 factory 2（D3D12）期间，`RenderBackend_D3D12::Release()` **完整跑完**（step=0..7 全打印，含 `m_Device = nullptr`）
+- InfoQueue QueryInterface 成功（hr=0），但 **stored messages = 0**（无 ERROR/CORRUPTION 消息）
+- `SetBreakOnSeverity(ERROR/CORRUPTION, FALSE)` **无效**（0x87D 仍抛）→ **不是 break-on-error 机制**
+- 崩溃发生在 `[MM] release factory 2 done` **之前** → `Release()` 返回后、`~RenderBackend_D3D12` **成员析构期间**（某成员持有 D3D12 引用，设备最终引用归零时 debug layer 抛 0x87D）
+
+**排除项**：非 break-on-error；非 ThreadManager（0x3405C 已修）；与 vulkan 修复无关（改动不含 D3D12 行为变更，测试行为与基线一致 `Submit Count:1452`）。
+
+**根因假设**：某 D3D12 对象在 `Release()` 未被释放，其成员析构/设备最终析构时触发 debug layer 抛 0x87D——疑似 **D3D12 资源泄漏或设备析构时存活对象**。具体对象待定位。
+
+**基线关系**：d3d12 基线（`test_output/d3d12_headless1_stdout.txt`）同样崩在 0x3405C，**从未到达 D3D12 teardown** → 0x87D 为基线掩盖（baseline 中同样存在），本 change 首次暴露。按 CLAUDE.md 规则需 git stash 对比验证。
+
+**修复方向（待确认）**：定位 `~RenderBackend_D3D12` 成员析构中触发 debug layer 的对象（各 manager 的残留引用、D3D12MA、command list/allocator/descriptor heap 等），修复泄漏/释放顺序，使设备析构无存活对象。
 
 ## Risks / Trade-offs
 
-- [证据已丢失] 退出崩溃的确定性复现依赖重新插桩确认；现存日志被覆盖，无法复用旧观测
-- [栈损坏] SEH 不触发表明可能来自运行期越界写，若顺序修复无效需 ASan/AppVerifier
-- [链接改动] 本 change **不做** CACore 链接改动（mimalloc 排除），规避全量回归风险；若未来需要统一分配器另立 change
+- [D7 d3d12] d3d12 第二独立崩溃 0x87D（D3D12 debug layer 成员析构期抛异常）——根因对象待定位，修复前 d3d12 headless 无法满足验收（1.5/3.5）
+- [框架级] ThreadManager 是公共模块（Vulkan+D3D12 共用），修复影响面大，需双后端回归 + 对抗审查
+- [D3 实证] "VUID 已消除"待非空 validation log 复验
+- [已完成改动] D3/D1/MiniDump 已在工作树，审查需覆盖其正确性
+- [行为变化] 若修复涉及 Stop/teardown 顺序，影响所有模块退出路径
+- [构建范围] VulkanRendererBackendTester 不在默认构建（CMakeLists.txt:76 被注释），其 SetThreadName 守卫改动未编译验证
