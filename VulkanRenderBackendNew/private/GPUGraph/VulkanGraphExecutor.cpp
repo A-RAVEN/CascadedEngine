@@ -590,9 +590,13 @@ namespace graphics_backend
 		// Apply external resource states
 		ApplyExternalResourceStates();
 
-		// Present windows — reuse the acquire loop's isEmpty guard: a compute-only graph
-		// with an empty finalize pass must not index m_PresentBackBuffers[0] (OOB read).
-		if (!graph->GetFinalizePass().isEmpty())
+		// Present windows — only when there is at least one present backbuffer. A graph
+		// whose finalize pass has image usages but no present backbuffer (e.g. a plain
+		// Finalize(texture)) must not call PresentWindows: it indexes
+		// m_PresentBackBuffers[0] unconditionally. [AUDIT] the old guard used
+		// FinalizePass::isEmpty(), which is false whenever m_ImageUsages is non-empty, so
+		// it did NOT protect the [0] access on an empty m_PresentBackBuffers (OOB read).
+		if (!graph->GetFinalizePass().m_PresentBackBuffers.empty())
 		{
 			PresentWindows(*graph);
 		}
@@ -2679,7 +2683,13 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		// R5-10: vkQueuePresentKHR must run on a queue of a family that supports
 		// presentation for the surface (VUID-vkQueuePresentKHR-pSwapchains-01292) — on
 		// split-family devices the present family differs from the graphics family.
-		VulkanWindowHandle* pFirstWindow = graph.GetFinalizePass().m_PresentBackBuffers[0].GetWindowPtr<VulkanWindowHandle>();
+		// [AUDIT] defensive: only index [0] when present backbuffers exist — the caller
+		// guards this, but any direct caller must not OOB-read an empty vector. A null
+		// pFirstWindow falls through to the graphics queue below (harmless no-op).
+		auto const& presentBackBuffers = graph.GetFinalizePass().m_PresentBackBuffers;
+		VulkanWindowHandle* pFirstWindow = presentBackBuffers.empty()
+			? nullptr
+			: presentBackBuffers[0].GetWindowPtr<VulkanWindowHandle>();
 		int presentFamily = (pFirstWindow) ? queueContext.FindPresentQueueFamily(pFirstWindow->GetSurface()) : -1;
 		vk::Queue presentQueue = (presentFamily >= 0)
 			? device.getQueue(presentFamily, 0)

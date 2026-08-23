@@ -28,6 +28,7 @@ namespace graphics_backend
 	{
 	public:
 		RenderBackend_Vulkan() = default;
+		~RenderBackend_Vulkan();
 		void Init(cacore::IModuleManager* pModuleManager);
 		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) override;
 		virtual void Release() override;
@@ -153,6 +154,13 @@ namespace graphics_backend
 		resource_management::ResourceManagingSystem* p_ResourceManager = nullptr;
 
 		bool m_PipelineLibrarySupported = false;
+
+		// Backend-level idempotency guard (design D2): Release() must run its full teardown
+		// exactly once. Init() failure paths set this so the destructor's Release() skips the
+		// (already cleaned-up) members instead of double-destroying or null-derefing an
+		// un-initialized GPU frame manager via WaitIdle(). This is a different object from the
+		// per-window m_Released in VulkanWindowHandle — they do not conflict.
+		bool m_Released = false;
 
 		// Window handle tracking
 		castl::unordered_map<cawindow::IWindow*, castl::weak_ptr<WindowHandle>> m_WindowHandles;

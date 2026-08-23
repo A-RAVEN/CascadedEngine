@@ -33,6 +33,8 @@
 #include <stb_image.h>
 #include <CACore/CAModuleManager.h>
 #include <IMGUIContext/IMGUIContext.h>
+#include <crtdbg.h>
+#include <windows.h>
 #include "private/MiniDump.h"
 
 using namespace thread_management;
@@ -42,6 +44,33 @@ using namespace graphics_backend;
 using namespace cawindow;
 using namespace catimer;
 using namespace ca_io;
+
+// ---- CRT assert / error auto-dismiss hook ----
+// MessageBoxTimeout is exported by user32.dll (widely available on Windows); it
+// shows a message box that closes itself after `dwMilliseconds`, so a debug
+// assert/error is visible but never needs a human click to dismiss.
+extern "C" WINUSERAPI int WINAPI MessageBoxTimeoutA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType, WORD wLanguageId, DWORD dwMilliseconds);
+
+static int __cdecl AutoDismissAssertHook(int reportType, char* message, int* /*returnValue*/)
+{
+	if (reportType == _CRT_ASSERT || reportType == _CRT_ERROR)
+	{
+		const char* title = (reportType == _CRT_ASSERT)
+			? "Assertion Failed (auto-dismiss)"
+			: "Runtime Error (auto-dismiss)";
+		MessageBoxTimeoutA(nullptr,
+			message ? message : "(no message)",
+			title,
+			MB_OK | MB_ICONERROR | MB_SYSTEMMODAL,
+			0 /* languageId */,
+			4000 /* ms -> auto-close */);
+		// Mirror to stderr so headless runs keep a log record.
+		fprintf(stderr, "[CRT %s] %s\n", title, message ? message : "");
+	}
+	// Return TRUE = handled; suppress the default modal-and-wait dialog. The CRT
+	// still aborts afterwards (MiniDump::EnableAutoDump captures the crash).
+	return TRUE;
+}
 
 // ---- TestContext ----
 
@@ -125,6 +154,7 @@ ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 }
 
@@ -224,6 +254,7 @@ ctx.pWindowSystem->UpdateSystem();
 				colorStructs[j]->SetValue(CANAME("color"), glm::vec3(1.0f, j * 0.5f, 0.0f) * (castl::cos(elapsedTime) * 0.5f + 0.5f));
 			}
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 }
 
@@ -296,6 +327,7 @@ ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 }
 
@@ -414,6 +446,7 @@ ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 }
 
@@ -574,6 +607,7 @@ ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 }
 
@@ -687,6 +721,7 @@ auto elapsedTime = timer.now() - startTime;
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 }
 
@@ -754,6 +789,7 @@ ctx.pWindowSystem->UpdateSystem();
 			}
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), frameGraph);
 		}
+		ctx.pGPUBackend->WaitIdle();
 	}
 }
 
@@ -815,6 +851,15 @@ int main(int argc, char* argv[])
 
 	// Task 1.7: Enable crash handler early
 	MiniDump::EnableAutoDump(true);
+
+	// CRT assert/error dialogs: keep them VISIBLE but auto-dismiss. In a Debug
+	// build, assert() (incl. VMA_ASSERT) would otherwise pop a modal
+	// "Abort/Retry/Ignore" box that blocks forever until a human clicks it.
+	// AutoDismissAssertHook shows the message (MessageBoxTimeout, 4s) so a problem
+	// is still visible, then closes itself — no click needed. The CRT still aborts
+	// afterward and MiniDump::EnableAutoDump above captures the crash. _CRT_WARN
+	// is left at its default (no dialog).
+	_CrtSetReportHook2(0, AutoDismissAssertHook);
 
 	// ---- CLI Argument Parsing ----
 	castl::string backendName = "vulkan";

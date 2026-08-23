@@ -219,9 +219,10 @@ namespace graphics_backend
 		// swapchains. The last Present is queued AFTER the frame's Signal
 		// (GPUGraphExecutor.cpp:2241→2245), so FrameContext::GPUWaitIdle (which waits the
 		// frame fence) does NOT cover the present — destroying a swapchain while its present
-		// is still in flight makes the D3D12 debug layer RaiseException(0x87D). WaitIdle
+		// is still in flight makes the D3D12 debug layer report that a resource was destroyed
+		// while GPU work still references it. WaitIdle
 		// signals a fresh value after the present and waits for it.
-		m_GPUFrameManager.WaitIdle();
+		WaitIdle();
 		m_GPUFrameManager.Release();
 
 		// D7: release window contexts (swapchain + backbuffers) while the device and the
@@ -247,8 +248,12 @@ namespace graphics_backend
 
 	void RenderBackend_D3D12::WaitIdle()
 	{
-		// Stub: D3D12 backend currently has no headless GPU sync requirement.
-		// Full implementation would use fence signal + wait on the direct queue.
+		// Real implementation: flush both queues (direct + compute) by signaling a fresh
+		// fence value and waiting for it. The fresh value is signaled AFTER the last Present
+		// is queued (GPUGraphExecutor.cpp:2241→2245), so waiting covers the render work that
+		// precedes the present — on return the GPU is idle, and local D3D12 resources may be
+		// destroyed without the debug layer complaining that GPU work still references them.
+		m_GPUFrameManager.WaitIdle();
 	}
 
 	RenderBackend_D3D12::~RenderBackend_D3D12()

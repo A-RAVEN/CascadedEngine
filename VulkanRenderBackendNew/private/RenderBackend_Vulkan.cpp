@@ -250,6 +250,7 @@ namespace graphics_backend
 		catch (vk::SystemError const& e)
 		{
 			CA_LOG_ERR("RenderBackend_Vulkan: Failed to create Vulkan instance: {}", e.what());
+			m_Released = true;  // Init failed: destructor's Release() must not re-run cleanup
 			return;
 		}
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanInstance);
@@ -264,6 +265,7 @@ namespace graphics_backend
 			m_VulkanInstance.destroyDebugUtilsMessengerEXT(m_DebugMessenger);
 			m_VulkanInstance.destroy();
 			m_VulkanInstance = nullptr;
+			m_Released = true;  // Init failed: destructor's Release() must not re-run cleanup
 			return;
 		}
 		// F1a: capability-based device selection — prefer a device that exposes
@@ -389,15 +391,24 @@ namespace graphics_backend
 			CA_LOG_ERR("RenderBackend_Vulkan: Init failed: {}", e.what());
 			// Stepped cleanup in reverse initialization order (no full Release())
 			if (m_PipelineCache) { m_Device.destroyPipelineCache(m_PipelineCache); m_PipelineCache = nullptr; }
-			m_PipelineLibraryCache.Release();
-			m_PipelineLibrary.Release();
-			m_CommandListManager.Release();
-			m_MemoryManager.Release();
-			m_SamplerManager.Release();
-			m_DescriptorSetLayoutContainer.Release();
+			// G2/REL-2 (design D2 补遗): guard each subobject's Release() by whether it was
+			// initialized (pApp set). On an early exception (e.g. vkCreateDevice throws) the later
+			// subobjects were never InitSubObj'ed, so pApp is null and Release() would null-deref
+			// via GetDevice() (see VulkanCommandListManager::Release / VulkanPipelineLibrary::Release).
+			// GPU frame manager Release() is a safe no-op when m_FrameContexts is empty (never
+			// initialized), so no GetApp() guard is needed for it — but it was previously omitted
+			// entirely on this path, leaking the frame manager (REL-2).
+			if (m_PipelineLibraryCache.GetApp()) m_PipelineLibraryCache.Release();
+			if (m_PipelineLibrary.GetApp()) m_PipelineLibrary.Release();
+			if (m_CommandListManager.GetApp()) m_CommandListManager.Release();
+			if (m_MemoryManager.GetApp()) m_MemoryManager.Release();
+			if (m_SamplerManager.GetApp()) m_SamplerManager.Release();
+			if (m_DescriptorSetLayoutContainer.GetApp()) m_DescriptorSetLayoutContainer.Release();
+			m_GPUFrameManager.Release();
 			if (m_Device) { m_Device.destroy(); m_Device = nullptr; }
 			if (m_DebugMessenger) { m_VulkanInstance.destroyDebugUtilsMessengerEXT(m_DebugMessenger); m_DebugMessenger = nullptr; }
 			if (m_VulkanInstance) { m_VulkanInstance.destroy(); m_VulkanInstance = nullptr; }
+			m_Released = true;  // Init failed: destructor's Release() must not re-run cleanup
 			return;
 		}
 
@@ -428,12 +439,70 @@ namespace graphics_backend
 		// Release executor (frame context auto-released by PFrameContext deleter)
 		executor.Release();
 	}
+	RenderBackend_Vulkan::~RenderBackend_Vulkan()
+	{
+		// Mirror D3D12 (~RenderBackend_D3D12 calls Release()): without this destructor, Release()
+		// is never called, so the backend's vk::Device/vk::Instance and any backend-owned window
+		// surfaces are leaked. The module manager (CAModuleManager::~CAModuleManager) now destroys
+		// module instances in REVERSE registration order, so VulkanRenderBackend (index 2) is
+		// destroyed AFTER IMGUIContext (index 7): IMGUIContext's window handles are released while
+		// the backend is still alive (device valid), and this destructor then destroys the
+		// device/instance as the final teardown step (no device users remain). This is the fix that
+		// eliminates the forward-order UAF (backend freed before IMGUIContext destroyed its handles,
+		// whose CleanupSwapchain then deref'd the freed backend via GetDevice()).
+		//
+		// IMPORTANT: unlike D3D12, Vulkan's vk::* wrappers THROW vk::SystemError (e.g. a
+		// device-lost from vkDeviceWaitIdle during teardown). A throw escaping a noexcept
+		// destructor calls std::terminate -> abort. The destructor MUST swallow exceptions
+		// (the backend is being torn down; there is no caller to propagate to).
+		try
+		{
+			Release();
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan::~RenderBackend_Vulkan: Release() threw during teardown: {}", e.what());
+		}
+		catch (...)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan::~RenderBackend_Vulkan: Release() threw an unknown exception during teardown");
+		}
+	}
+
 	void RenderBackend_Vulkan::Release()
 	{
+		// Backend-level idempotency guard (design D2): Release() may be reached from the
+		// destructor, and on Init-failure the cleanup already ran. Prevents double-destroy and,
+		// critically, prevents the WaitIdle() at the top from null-derefing an un-initialized GPU
+		// frame manager (GetDevice() = pApp->GetVulkanDevice() with pApp unset) on the Init-fail
+		// path.
+		if (m_Released) return;
+		m_Released = true;
+
 		// D1: GPU idle BEFORE any device-object destruction — in-flight present/acquire
 		// referencing swapchain imageViews (destroyed by window CleanupSwapchain) or
 		// framebuffers would otherwise be a use-after-free during their destruction.
-		m_GPUFrameManager.WaitIdle();
+		// D6: guard GetApp() — m_GPUFrameManager may never have been InitSubObj'ed on a
+		// pre-device Init-failure path (then pApp is null and GetDevice() derefs it → NULL DEREF).
+		if (m_GPUFrameManager.GetApp())
+		{
+			// D2: vkDeviceWaitIdle returns VkResult, so it THROWS vk::SystemError on device-lost.
+			// Per-step try/catch (NOT a single outer catch): m_Released is already true above, so an
+			// outer catch would early-return on a second Release() and leave the window/device/instance
+			// teardown half-done. Catch here so we still proceed to window cleanup + device destroy.
+			try
+			{
+				m_GPUFrameManager.WaitIdle();
+			}
+			catch (vk::SystemError const& e)
+			{
+				CA_LOG_WARN("RenderBackend_Vulkan: Release() WaitIdle threw ({}); continuing", e.what());
+			}
+			catch (...)
+			{
+				CA_LOG_WARN("RenderBackend_Vulkan: Release() WaitIdle threw unknown; continuing");
+			}
+		}
 
 		// Destroy framebuffers BEFORE window handles — framebuffers reference
 		// swapchain image views owned by window handles; destroying windows first
@@ -489,7 +558,10 @@ namespace graphics_backend
 		m_PipelineLibraryCache.Release();
 
 		// Release pipeline library
-		m_PipelineLibrary.Release();
+		// D6: guard GetApp() — m_PipelineLibrary may never have been InitSubObj'ed on a
+		// pre-device Init-failure path (its Release() derefs pApp via GetDevice()).
+		if (m_PipelineLibrary.GetApp())
+			m_PipelineLibrary.Release();
 
 		// Cleanup cross-frame caches (framebuffers already destroyed above)
 		{
@@ -517,10 +589,14 @@ namespace graphics_backend
 		}
 
 		// Release command list manager
-		m_CommandListManager.Release();
+		// D6: guard GetApp() — m_CommandListManager may not be initialized on pre-device Init-fail.
+		if (m_CommandListManager.GetApp())
+			m_CommandListManager.Release();
 
 		// Release sampler manager
-		m_SamplerManager.Release();
+		// D6: guard GetApp() — m_SamplerManager may not be initialized on pre-device Init-fail.
+		if (m_SamplerManager.GetApp())
+			m_SamplerManager.Release();
 
 		// Release memory manager
 		m_MemoryManager.Release();
@@ -531,7 +607,22 @@ namespace graphics_backend
 		// Destroy device
 		if (m_Device)
 		{
-			m_Device.waitIdle();
+			// D2: vkDeviceWaitIdle returns VkResult → can throw vk::SystemError on device-lost (e.g.
+			// during teardown after a GPU fault). Per-step catch so device destroy still runs below
+			// (an uncaught throw here would skip m_Device.destroy() → leak, and m_Released is already
+			// true so a second Release() would early-return leaving it half-torn-down).
+			try
+			{
+				m_Device.waitIdle();
+			}
+			catch (vk::SystemError const& e)
+			{
+				CA_LOG_WARN("RenderBackend_Vulkan: Release() device.waitIdle threw ({}); continuing", e.what());
+			}
+			catch (...)
+			{
+				CA_LOG_WARN("RenderBackend_Vulkan: Release() device.waitIdle threw unknown; continuing");
+			}
 			m_Device.destroy();
 			m_Device = nullptr;
 		}

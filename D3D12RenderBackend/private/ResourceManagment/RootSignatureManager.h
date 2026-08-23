@@ -14,7 +14,8 @@ namespace graphics_backend
 		// ID3D12RootSignature (device child objects) survive RenderBackend_D3D12::Release()
 		// and are only released during ~RootSignatureManager member destruction — after the
 		// device was nulled, causing the device to be destroyed with live child objects →
-		// D3D12 debug layer RaiseException(0x87D).
+		// D3D12 debug layer reports that resources were destroyed while the device still
+		// references them.
 		void Release() override;
 		ComPtr<ID3D12RootSignature> GetRootSignature(ComPtr<ID3DBlob> const& blob);
 	private:

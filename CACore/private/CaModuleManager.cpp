@@ -57,7 +57,10 @@ namespace cacore
 
 	CAModuleManager::~CAModuleManager()
 	{
-		for (int i = 0; i < m_Factories.size(); ++i)
+		// 按注册序逆序销毁模块实例：后注册者（依赖者/device 使用者）先于先注册者
+		// （依赖/device 拥有者）被 delete，避免 device 使用者在其 device 拥有者已被
+		// 销毁后 deref 裸 pApp 回引（Vulkan 无引用计数 => teardown UAF）。
+		for (int i = static_cast<int>(m_Factories.size()) - 1; i >= 0; --i)
 		{
 			m_Factories[i]->ReleaseModuleInstance(m_FactoryInstances[i]);
 		}
