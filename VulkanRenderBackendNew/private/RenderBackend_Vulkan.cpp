@@ -486,7 +486,9 @@ namespace graphics_backend
 		// pre-device Init-failure path (then pApp is null and GetDevice() derefs it → NULL DEREF).
 		if (m_GPUFrameManager.GetApp())
 		{
-			// D2: vkDeviceWaitIdle returns VkResult, so it THROWS vk::SystemError on device-lost.
+			// D2: vkDeviceWaitIdle returns VkResult, so it THROWS vk::SystemError on any failure —
+			// VK_ERROR_DEVICE_LOST, VK_ERROR_OUT_OF_DEVICE_MEMORY, VK_ERROR_OUT_OF_HOST_MEMORY,
+			// VK_ERROR_UNKNOWN, VK_ERROR_VALIDATION_FAILED. The base-class catch below covers all of them.
 			// Per-step try/catch (NOT a single outer catch): m_Released is already true above, so an
 			// outer catch would early-return on a second Release() and leave the window/device/instance
 			// teardown half-done. Catch here so we still proceed to window cleanup + device destroy.
@@ -607,8 +609,9 @@ namespace graphics_backend
 		// Destroy device
 		if (m_Device)
 		{
-			// D2: vkDeviceWaitIdle returns VkResult → can throw vk::SystemError on device-lost (e.g.
-			// during teardown after a GPU fault). Per-step catch so device destroy still runs below
+			// D2: vkDeviceWaitIdle returns VkResult → can throw vk::SystemError (device-lost,
+			// out-of-device/host-memory, unknown, validation-failed; e.g. during teardown after a GPU
+			// fault). Per-step catch so device destroy still runs below
 			// (an uncaught throw here would skip m_Device.destroy() → leak, and m_Released is already
 			// true so a second Release() would early-return leaving it half-torn-down).
 			try
