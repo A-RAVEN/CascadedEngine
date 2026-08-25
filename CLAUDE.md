@@ -1,39 +1,38 @@
 ﻿# CascadedEngine Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-22
+> 技术栈 / 项目结构 / 常用命令。工作规则见下方「工作规则」节；构建 / 测试 / 调试见「构建 / 测试 / 调试」节。本文件人工维护，描述与当前代码库保持一致（2026-08-25）。
 
 ## Active Technologies
-- C++20 (CMake 3.12+, MSVC toolchain) (002-vulkan-backend-renderinterface)
-- N/A (GPU memory via VMA, no persistent storage) (002-vulkan-backend-renderinterface)
-
-- C++ (CMake build system) + CMake 3.x, vcpkg (for external dependencies) (001-reorganize-subprojects)
+- C++20（CMake 3.12+，MSVC / Ninja 工具链）；外部依赖经 CMake FetchContent 拉取（`CMake/ExternalProjects.cmake`），**非 vcpkg**。
 
 ## Project Structure
 
 ```text
-src/
-tests/
+CACore/                     模块框架（模块注册、逆向销毁）
+VulkanRenderBackendNew/     Vulkan 渲染后端（主）
+D3D12RenderBackend/         D3D12 渲染后端
+Interface/                  GPU 渲染接口（GPUBackend、WindowHandle 等）
+Test/                       GPUBackendTester / 各后端 Tester
+openspec/                   OpenSpec 变更与规格文档
+CAResources/ ShaderCompilerSlang/ ShaderProcessor/ WindowSystem/ IMGUIContext/ ...  其余模块
 ```
 
 ## Commands
 
 - `/commit-from-propose`: 根据 OpenSpec proposal 和本地 git diff 生成中文 commit message 并提交。可选指定 change name
 
-# Add commands for C++ (CMake build system)
-
 ## Code Style
 
-C++ (CMake build system): Follow standard conventions
+C++（CMake 构建）：遵循标准 C++ 约定。
 
 ## Recent Changes
-- 002-vulkan-backend-renderinterface: Added C++20 (CMake 3.12+, MSVC toolchain)
 
-- 001-reorganize-subprojects: Added C++ (CMake build system) + CMake 3.x, vcpkg (for external dependencies)
+变更记录以 OpenSpec 为准：已归档见 `openspec/changes/archive/`，进行中见 `openspec/changes/`。
 
 <!-- MANUAL ADDITIONS START -->
 ## 工作规则
 
-- **禁止编译/配置**: 除非用户明确说明，不要尝试配置或编译此项目。但如果当前 OpenSpec change 的 tasks 中明确包含编译验证步骤（如 `build.py`），可直接执行无需征询同意
+- **禁止编译/配置**: 除非用户明确说明，不要尝试配置或编译此项目。但构建的唯一合法路径是项目脚本 `python build.py`（见「构建」节）；若当前 OpenSpec change 的 tasks 明确包含编译验证步骤，可直接用 `build.py` 执行、无需征询同意
 - **禁止手动敲构建命令**: 构建只允许通过项目脚本（`python build.py` 等）执行，禁止手动敲 `ninja`/`cmake --build`/`cmake -S` 等构建命令。手动命令可以只构建部分目标（如只构建 tester 不构建被动态加载的 DLL），产生"测试跑的是旧产物"的不一致。脚本（build.py）保证全量构建所有目标。若现有脚本不满足需求（如缺少 Debug 配置），应扩展脚本而不是绕过脚本。
 - **禁止 sleep 轮询异步任务**: Workflow/Agent/Bash 异步任务完成后会自动发送通知，禁止用 `sleep N` 循环轮询等待
 - **审查闭环**: tasks 中最后一个任务必须是审查任务（Review & Adversarial Verify）。对刚完成的所有任务做正确性/完整性/诚实性审查，需开 workflow 做对抗验证。验证发现的新问题必须添加为新的 task（附加 `[AUDIT]` 前缀），然后追加一个新的审查任务，继续执行。循环直到审查无新问题或达到 3 轮。**审查必须做回归检查与去重**：每轮审查必须先核对上一轮已修复的问题是否在本轮回归（修复是否真正生效、是否被后续改动覆盖）；新增 [AUDIT] task 前必须先与 Review Log 中已处理的问题去重（按根因而非表象/行号判断同一问题），同一问题不得重复开 task 反复修改——若确认是上一轮已处理问题的回归，审查重点应转为"为何修复未生效/被覆盖"并补上缺失的验证，而不是推翻重改。审查结果写入 tasks.md 末尾的 `## Review Log` 区域。**重要：即使达到 3 轮上限停止，停下的那一刻交付的必须是审查结果报告，而不是"完成了第 N 个任务"之类的实现进度汇报。用户看到的最后一个输出应该是 Review Log。**
@@ -60,7 +59,7 @@ C++ (CMake build system): Follow standard conventions
 ### 测试（GPUBackendTester）
 - `Test/GPUBackendTester`，产物 `bin/GPUBackendTester.exe`。
 - CLI：`--backend vulkan|d3d12`、`--test <name>`、`--headless <N>`（N 帧后退出；headless 写 `test_output/*.log` + `result.json`）、`--headless-timeout <N>`、`--report <path>`、`--list`。不带 `--test` 顺序跑全部 7 个测试。
-- 退出码 0 = 正常；崩溃写 `crash_YYYYMMDD_HHMMSS.dmp`（当前目录）并在 stderr 打印异常码/模块 base/RVA/调用栈（tester 自带 MiniDump handler）。
+- 退出码 0 = 正常；崩溃写 `crash_YYYYMMDD_HHMMSS.dmp`（当前目录）并在 stderr 打印**异常名/异常码/异常地址 + 崩溃所在模块**（tester 自带 MiniDump handler；**逐帧调用栈符号化需用 `Tools/read_dump.py` 或 cdb**，见下）。
 
 ### 调试（读 crash dump）
 - **标准流程：先读 dump 到函数级根因，再谈处置决策**（不要把半成品根因抛给用户做 scope 决策）。
