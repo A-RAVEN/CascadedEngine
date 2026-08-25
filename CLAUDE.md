@@ -50,4 +50,22 @@ C++ (CMake build system): Follow standard conventions
   - API 语义是否与审查者描述一致
   对抗结果中需注明复查过的 URL 及其真实性结论。
 - **联网搜索必须用 MCP 工具**: 上述 API 文档验证禁止使用 WebSearch/WebFetch 工具，必须使用 MCP 工具（`web-reader` 的 `webReader`、`web-search-prime` 的 `web_search_prime`）进行搜索和抓取。
+
+## 构建 / 测试 / 调试
+
+### 构建
+- 只通过 `python build.py` 构建（见上"禁止手动敲构建命令"）。配置：`--config Debug`（启用 validation 层）或默认 RelWithDebInfo；`--no-configure` 跳过 cmake 配置。一般不手动指定单目标。
+- 产物在 `out/build/<preset>/bin/`：Debug → `x64-debug`，RelWithDebInfo → `x64-relWithDebugInfo`。
+
+### 测试（GPUBackendTester）
+- `Test/GPUBackendTester`，产物 `bin/GPUBackendTester.exe`。
+- CLI：`--backend vulkan|d3d12`、`--test <name>`、`--headless <N>`（N 帧后退出；headless 写 `test_output/*.log` + `result.json`）、`--headless-timeout <N>`、`--report <path>`、`--list`。不带 `--test` 顺序跑全部 7 个测试。
+- 退出码 0 = 正常；崩溃写 `crash_YYYYMMDD_HHMMSS.dmp`（当前目录）并在 stderr 打印异常码/模块 base/RVA/调用栈（tester 自带 MiniDump handler）。
+
+### 调试（读 crash dump）
+- **标准流程：先读 dump 到函数级根因，再谈处置决策**（不要把半成品根因抛给用户做 scope 决策）。
+- 通用工具：`python Tools/read_dump.py <dump.dmp> [--pdb-dir <dir>...]` —— 自动解析异常流/模块表/故障线程 CONTEXT/内存，符号化崩溃地址 + 调用栈（函数 + 源文件:行号）；PDB 搜索路径自动从 dump 内模块路径推导。
+- 符号化前置：验证 PDB 与崩溃二进制匹配（在 DLL 内找 `RSDS` 魔数后的 16 字节 GUID，再到 PDB 文件里搜索该字节序列）。
+- cdb（Windows SDK Debugging Tools，可选）：`cdb -z <dump.dmp> -y <pdb目录> -c "!analyze -v; q"`。
+- 技术细节（minidump 结构、dbghelp 用法、read_dump.py 原理）见 `docs/debugging.md`。
 <!-- MANUAL ADDITIONS END -->
