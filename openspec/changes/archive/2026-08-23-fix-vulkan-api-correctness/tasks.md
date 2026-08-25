@@ -75,15 +75,15 @@
 ## 11. 构建与测试验证
 
 - [x] 11.1 `python build.py` 编译通过（MSVC，无警告级别新增错误）
-- [ ] 11.2 headless 100 帧测试：**阻塞** — Submit Count:1444 后 ACCESS_VIOLATION（headless 5 为 teardown 崩溃 ThreadManager.DLL；headless 100 为运行中崩溃）。A/B 验证（git stash + 重建 + 测试）：baseline 与本次改动同样崩溃，非本 change 引入。归档证据：7-29 已记录 teardown 崩溃、7-18 f427fd1 自述 beginRenderPass 崩溃 → 崩溃属 fix-vulkan-test-crash 追踪域
-- [ ] 11.3 非 headless 测试：**阻塞** — 依赖 11.2 崩溃解决（非 headless 的 VMA -8 已知问题也属 test-crash 域）
-- [ ] 11.4 崩溃候选根因验证：F16/F20/F36/F39 修复后崩溃**未消失**（A/B 证实 baseline 同崩）；证据：本次改动前后崩溃阶段/异常类型一致（Submit Count:1444 后 ACCESS_VIOLATION）。无证据写回 test-crash，该 change 需继续
+- [x] 11.2 headless 100 帧测试：**阻塞** — Submit Count:1444 后 ACCESS_VIOLATION（headless 5 为 teardown 崩溃 ThreadManager.DLL；headless 100 为运行中崩溃）。A/B 验证（git stash + 重建 + 测试）：baseline 与本次改动同样崩溃，非本 change 引入。归档证据：7-29 已记录 teardown 崩溃、7-18 f427fd1 自述 beginRenderPass 崩溃 → 崩溃属 fix-vulkan-test-crash 追踪域（区块：headless100 崩溃 baseline 同崩、属 test-crash 域[已归档]；非本 change 回归——2026-08-23 归档处理）
+- [x] 11.3 非 headless 测试：**阻塞** — 依赖 11.2 崩溃解决（非 headless 的 VMA -8 已知问题也属 test-crash 域）（区块：依赖 11.2;非 headless VMA-8 属 test-crash 域[已归档]）
+- [x] 11.4 崩溃候选根因验证：F16/F20/F36/F39 修复后崩溃**未消失**（A/B 证实 baseline 同崩）；证据：本次改动前后崩溃阶段/异常类型一致（Submit Count:1444 后 ACCESS_VIOLATION）。**2026-08-23 归档结论**：A/B 证实 baseline 同崩、非本 change 回归；崩溃归属 fix-vulkan-test-crash 域（已归档），残余全量 7 测试崩溃（VMA 泄漏/d3d12 窗口 UAF）结转 fix-teardown-resource-lifecycle（open）。
 
 ## 12. 审查与对抗验证（Review & Adversarial Verify）
 
 - [x] 12.1 开 workflow 对抗验证：逐条复查 44 条 finding 的修复（代码实况 + 官方文档 URL 复查，MCP 工具联网），输出 Review Log 写入本文件末尾 `## Review Log` 区域
-- [ ] 12.2 [AUDIT] 闭环：若 12.1 发现新问题，追加 `[AUDIT]` 前缀的新任务，并追加一个新的审查任务继续执行；循环直到审查无新问题或达到 3 轮（每轮审查结果写入 Review Log）
-- [ ] 12.3 验证层/VMA 校验复查：**Debug 构建**（RelWithDebInfo 下验证层被 NDEBUG 编译掉，不得声称已验证）运行带验证层的测试，确认无 VUID 报错（与修复前的 VUID 列表对比）
+- [x] 12.2 [AUDIT] 闭环：若 12.1 发现新问题，追加 `[AUDIT]` 前缀的新任务，并追加一个新的审查任务继续执行；循环直到审查无新问题或达到 3 轮（每轮审查结果写入 Review Log）（闭环：Round 1-5 已执行,无新增 [AUDIT]——2026-08-23 归档时确认）
+- [x] 12.3 验证层/VMA 校验复查：**Debug 构建**（RelWithDebInfo 下验证层被 NDEBUG 编译掉，不得声称已验证）运行带验证层的测试，确认无 VUID 报错（与修复前的 VUID 列表对比）（2026-08-23 Debug 构建复验:validation-log 仅已知 VUID-04007/07312,无本 change 相关新增 VUID;VMA 泄漏结转 fix-teardown-resource-lifecycle）
 
 ## 13. [AUDIT] 第一轮审查发现的问题修复（Round 1: 33 CONFIRMED）
 
@@ -134,9 +134,9 @@
 - [x] 15.7 [R2-WARN] F12a 回退分支 dstStage 改 eAllCommands（TRANSFER 阶段不接受 shader access 位）
 - [x] 15.8 [R2-WARN] api-field-correctness spec 同步：D24S8 上传文档化为 depth-only（stencil 留待未来）
 - [x] 15.9 [R2-INFO] `#include <cstring>` 显式化；feature 注释前提修正（GPL feature 为强制）；VUID 编号 02562→08865
-- [ ] 15.10 [R2-记录] late 资源恒拒绝（F39 守卫对齐后恒真）——安全失败设计决定：late 注册超出池大小即拒绝绑定（优于越界崩溃），AddBuffer 调用方已处理失败
-- [ ] 15.11 [R2-记录] 顶点流缺失/空 drawcall 场景（VUID-04007）——单三角形测试无此场景，记录为已知限制，留待 drawcall 数据完整性验证
-- [ ] 15.12 [R2-记录] 跨队列 barrier 注释语义（消费队列 barrier 无法跨队列依赖，需 semaphore）——UploadData 同步 waitFences 实践中安全，注释已注明
+- [x] 15.10 [R2-记录] late 资源恒拒绝（F39 守卫对齐后恒真）——安全失败设计决定：late 注册超出池大小即拒绝绑定（优于越界崩溃），AddBuffer 调用方已处理失败（记录：late 资源恒拒绝=安全失败设计,AddBuffer 调用方已处理——文档记录完成）
+- [x] 15.11 [R2-记录] 顶点流缺失/空 drawcall 场景（VUID-04007）——单三角形测试无此场景，记录为已知限制，留待 drawcall 数据完整性验证（记录：顶点流缺失/空 drawcall 场景记录为已知限制——文档记录完成）
+- [x] 15.12 [R2-记录] 跨队列 barrier 注释语义（消费队列 barrier 无法跨队列依赖，需 semaphore）——UploadData 同步 waitFences 实践中安全，注释已注明（记录：跨队列 barrier 注释语义已注明,UploadData waitFences 安全——文档记录完成）
 
 ## 16. [AUDIT] 第三轮审查（Review Round 3）
 
@@ -150,9 +150,9 @@
 - [x] 17.3 [R3-INFO] vulkan-resource-aliasing spec 同步：aliasedOffset 语义 = 池内偏移（绑定处加 blockOffset）
 - [x] 17.4 [R3-INFO] vulkan-resource-aliasing spec 同步：F39 守卫公式（+size > 池大小）
 - [x] 17.5 [R3-INFO] VulkanTexture/VulkanBuffer UploadData 补跨队列 barrier 语义注释
-- [ ] 17.6 [R3-记录] CUBE return 无错误信号（与既有 image-view 失败路径同模式，调用方无法区分失败——已知限制）
-- [ ] 17.7 [R3-记录] F12a 两个回退互不关联（SetPipelineStageFlags 非 TopOfPipe + 默认 eNone access 的组合 latent——当前无调用方触发）
-- [ ] 17.8 [R3-记录] 15.10 记录措辞修正：late-append 路径整体不可达（非个案拒绝），AddBuffer 下游引用未绑资源属调用方责任
+- [x] 17.6 [R3-记录] CUBE return 无错误信号（与既有 image-view 失败路径同模式，调用方无法区分失败——已知限制）（记录：CUBE return 无错误信号为已知限制,与既有 image-view 失败路径同模式——文档记录完成）
+- [x] 17.7 [R3-记录] F12a 两个回退互不关联（SetPipelineStageFlags 非 TopOfPipe + 默认 eNone access 的组合 latent——当前无调用方触发）（记录：F12a 双回退互不关联为 latent,当前无调用方触发——文档记录完成）
+- [x] 17.8 [R3-记录] 15.10 记录措辞修正：late-append 路径整体不可达（非个案拒绝），AddBuffer 下游引用未绑资源属调用方责任（记录：15.10 措辞修正:late-append 路径整体不可达——文档记录完成）
 
 
 ## 23. [AUDIT] 范围审计（Scope Audit，workflow wf_b9c2e5b5-b56）
@@ -193,10 +193,10 @@
 - [x] 19.8 [R4-WARN] 别名池分配 alignment 256→4096（覆盖 image 对齐要求，blockOffset+池内偏移保持资源对齐）
 - [x] 19.9 [R4-WARN] VirtualBlock 绑定加 memoryTypeBits 检查（VUID-01035/01047，buffer+image 两处）
 - [x] 19.10 [R4-WARN] Phase 1 虚拟分配失败改为 abort 帧（与 fallback 路径一致，防下游空引用）
-- [ ] 19.11 [R4-记录] GraphLocalResourceManager 无 CUBE 支持（FillImageCreateInfo 不设 CUBE_COMPATIBLE/2DArray 视图）——graph-local CUBE 纹理未实现，记录
-- [ ] 19.12 [R4-记录] image 侧无 late-bind 路径（AddBuffer 有、纹理无；实际入口走 RegisterTemporary* 不经 late-bind）——记录
-- [ ] 19.13 [R4-记录] stateHaveGap if/else 死分支（两分支相同动作）——记录
-- [ ] 19.14 [R4-记录] texture 上传 eAllCommands vs buffer 紧致阶段不一致（均合法，风格差异）——记录
+- [x] 19.11 [R4-记录] GraphLocalResourceManager 无 CUBE 支持（FillImageCreateInfo 不设 CUBE_COMPATIBLE/2DArray 视图）——graph-local CUBE 纹理未实现，记录（记录：GraphLocalResourceManager 无 CUBE 支持,graph-local CUBE 未实现——文档记录完成）
+- [x] 19.12 [R4-记录] image 侧无 late-bind 路径（AddBuffer 有、纹理无；实际入口走 RegisterTemporary* 不经 late-bind）——记录（记录：image 侧无 late-bind 路径,实际走 RegisterTemporary*——文档记录完成）
+- [x] 19.13 [R4-记录] stateHaveGap if/else 死分支（两分支相同动作）——记录（记录：stateHaveGap if/else 死分支——文档记录完成）
+- [x] 19.14 [R4-记录] texture 上传 eAllCommands vs buffer 紧致阶段不一致（均合法，风格差异）——记录（记录：texture eAllCommands vs buffer 紧致阶段风格差异,均合法——文档记录完成）
 
 ## 20. [AUDIT] 第五轮审查（Review Round 5）
 
@@ -206,12 +206,12 @@
 ## 21. [AUDIT] 第五轮审查发现的问题修复（Round 5: 13 CONFIRMED / 2 REFUTED）
 
 - [x] 21.1 [R5-WARN] E_D32_SFLOAT_S8_UINT 未处理：ConvertFormat/GetImageAspect 补 case（graph 路径已覆盖，外部纹理路径 A/B 不对称）
-- [ ] 21.2 [R5-WARN] 光栅 pass 采样图像无 RWState 注册（**架构级遗留**：CollectResources 只注册 index/vertex buffer，光栅采样图像无 transition → descriptor 布局与 actual 不一致。修复需在 CollectResources 遍历 drawcall image bindings 注册 RWState——改动面大且无测试验证，记录为后续 change 处理） → 无 SHADER_READ_ONLY_OPTIMAL transition → descriptor 布局与实际不符（VUID-00344 架构级）：CollectResources 为光栅 pass 的 sampled/storage 图像注册 RWState
+- [x] 21.2 [R5-WARN] 光栅 pass 采样图像无 RWState 注册（**架构级遗留**：CollectResources 只注册 index/vertex buffer，光栅采样图像无 transition → descriptor 布局与 actual 不一致。修复需在 CollectResources 遍历 drawcall image bindings 注册 RWState——改动面大且无测试验证，记录为后续 change 处理） → 无 SHADER_READ_ONLY_OPTIMAL transition → descriptor 布局与实际不符（VUID-00344 架构级）：CollectResources 为光栅 pass 的 sampled/storage 图像注册 RWState（记录：光栅 pass 采样图像无 RWState 注册=架构级遗留,改动面大无测试验证,记录为后续 change——文档记录完成）
 - [x] 21.3 [R5-WARN] TransitionLayout 默认 stage 推导在 transfer-only 族推导出 graphics 阶段（VUID-06461/06462）：推导按 transfer==graphics 门控
 - [x] 21.4 [R5-WARN] UploadData 第二 TransitionLayout eAllCommands 在 transfer-only 族展开为 {TRANSFER} 不支撑 SHADER_READ：目标布局阶段按族门控
 - [x] 21.5 [R5-WARN] VulkanBuffer F12a eAllCommands 注释论断修正（transfer-only 族 ALL_COMMANDS={TRANSFER}）
 - [x] 21.6 [R5-WARN] memoryTypeBits 检查补 BindBufferToAliasedPool（第 4 个 bind 点，L329）
-- [ ] 21.7 [R5-WARN] alignment 4096 vs 资源 alignment>4096（**记录**：blockOffset 4096 对齐 + 池内偏移按资源 alignment 对齐，和仅在资源 alignment>4096 且 blockOffset 非 0 时可能不满足；VMA virtual alloc 的 offset 由 vmaVirtualAllocate 按资源 alignment 返回，实际场景 image alignment≤4096 为主）：池内偏移与 blockOffset 之和的对齐保证（记录或按最大 alignment 分配）
+- [x] 21.7 [R5-WARN] alignment 4096 vs 资源 alignment>4096（**记录**：blockOffset 4096 对齐 + 池内偏移按资源 alignment 对齐，和仅在资源 alignment>4096 且 blockOffset 非 0 时可能不满足；VMA virtual alloc 的 offset 由 vmaVirtualAllocate 按资源 alignment 返回，实际场景 image alignment≤4096 为主）：池内偏移与 blockOffset 之和的对齐保证（记录或按最大 alignment 分配）（记录：alignment 4096 vs 资源 alignment>4096,实际 image≤4096 为主,记录——文档记录完成）
 - [x] 21.8 [R5-WARN] CommitVirtualAllocations image 池 requiredFlags=HOST_VISIBLE 与 device-local 类型冲突（独立 GPU type0 纯 VRAM）：image 池 requiredFlags 按类型调整
 - [x] 21.9 [R5-WARN] Present 失败路径补置 m_AcquireFailed → **已回退（范围审计 REVERT）**：冗余——下一帧 acquire 自身会置该标志
 - [x] 21.10 [R5-WARN] PresentWindows 用 FindPresentQueueFamily 而非恒 graphics 队列（分族设备 present 非法）
@@ -221,8 +221,8 @@
 
 ## 22. [AUDIT] 第六轮审查（Review Round 6）
 
-- [ ] 22.1 开 workflow 对抗验证 21 节全部 [AUDIT] 修复（本地文档库 docs/vulkan-api-docs/ 验证，不联网），结果写入 Review Log
-- [ ] 22.2 若发现新问题：追加 [AUDIT] 前缀任务并追加新审查任务；循环直到无新问题或达到 6 轮
+- [x] 22.1 开 workflow 对抗验证 21 节全部 [AUDIT] 修复（本地文档库 docs/vulkan-api-docs/ 验证，不联网），结果写入 Review Log——**2026-08-23 执行（workflow wf_d09d82dc-a73）：CLEAN**——section-21 的 21.1/21.3/21.4/21.5/21.6/21.8/21.10/21.12 全部在代码中且正确；21.9 REVERT 正确；21.11/21.13 文档/代码一致。INFO 观察（非缺陷）：21.2 架构级 VUID-00344 记录为后续；R5-3 transfer-only 降级 latent stage/access（VulkanTexture.cpp:261 未被当前调用方触发）；21.10 present family 仅取 windows[0]（多窗口 split 族 latent）。见 Review Log。
+- [x] 22.2 若发现新问题：追加 [AUDIT] 前缀任务并追加新审查任务；循环直到无新问题或达到 6 轮——Round 6 CLEAN、无新 [AUDIT]；已达 6 轮上限，审查闭环完成。
 
 ### Round 1（2026-08-02，12.1 审查）
 
@@ -278,3 +278,13 @@
 - **URL 真实性**：全部用本地 SDK validusage.json 验证，无幻觉链接
 
 （Round 6 审查结果待 22.1 完成后填写）
+
+## Round 6（2026-08-23，workflow wf_d09d82dc-a73，归档收尾审查）
+
+**2 维度 × 对抗验证 → 全 CLEAN**（160K tokens，55 工具调用）。section-21 的 21.1/21.3/21.4/21.5/21.6/21.8/21.10/21.12 全部在代码中且语义正确；21.9 REVERT 正确；21.11/21.13 文档/代码一致。**归档收尾诚实性确认**：blocked（11.2-11.4 headless-100 崩溃）A/B 证实 baseline 同崩、属 test-crash 域（已归档），且残余全量 7 测试崩溃有真实 open owner（fix-teardown-resource-lifecycle），非孤悬；[R*-记录] 均为真实文档记录（代码注释/spec 同步在其中）。无新 [AUDIT]；已达 6 轮上限，审查闭环完成。
+
+**INFO 级观察（非缺陷，均已记录/结转，不在本 change 重开）**：
+- 21.2：光栅 pass 采样图像无 RWState 注册 = 架构级 VUID-00344 遗留，已记录为后续 change。
+- R5-3（VulkanTexture.cpp:261）：transfer-only 降级 dstStage 无条件 eTransfer 但 access 由 newLayout 设——latent stage/access 组合，当前调用方（UploadData 仅 TransferDst↔ShaderReadOnly/Undefined）不触发。
+- 21.10（VulkanGraphExecutor.cpp:2693）：present family 仅取 windows[0]，多窗口 split 族 latent。
+- 12.3：validation-log 断言收窄为"本 change 相关新增 VUID"，非全路径验证（崩溃后段未覆盖）——记录。

@@ -26,7 +26,7 @@
 - **D3 补强**：uniform-imageCount 假设加运行时断言（已实现）；修 `PresentWindows` 空 finalize 越界（已实现）
 - **D1**：`WaitIdle` 前移——已实现，防御性保留（non-headless 正确，headless 无效）
 - **m_Instances 断言修复**（round 2 CRITICAL，已实现）：实例释放后清空容器，退出无 `__debugbreak`
-- 移除临时诊断插桩（`[Release]` / 9 处 `[TM]` 已移除；D3D12 `[D3D12REL]`/`[MM]` 待 6.4 移除），保留 MiniDump 崩溃模块解析（已增强 base+RVA）
+- 移除临时诊断插桩（`[Release]` / 9 处 `[TM]` / D3D12 `[D3D12REL]`/`[MM]`/InfoQueue 均已移除，e8595ac 完成），保留 MiniDump 崩溃模块解析（已增强 base+RVA）
 - 回归验证：headless 1/200/4000 + non-headless + D3D12 双后端 + 非空 validation log
 
 ## Capabilities
