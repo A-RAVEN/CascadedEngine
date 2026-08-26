@@ -184,12 +184,14 @@ namespace cawindow
 	WindowSystem::~WindowSystem()
 	{
 		// Design D2: a window can OUTLIVE the WindowSystem — the tester / render-backend WindowHandle
-		// hold their own shared_ptr<IWindow> ref, so a window's owned ref (m_Windows) dropping in the
-		// WindowSystem dtor does NOT destroy the window. When that window is finally destroyed (last ref
-		// drops), GLFW dispatches window events (focus/close) into the static callbacks below, which deref
-		// s_WindowSystem. If the system is gone, that deref is a use-after-free (the d3d12 all-7 crash:
-		// WindowSystem_ImplGlfw_WindowFocusCallback → freed std::function, Rax=0xDDDD...). Null the global
-		// here so any late dispatch is a no-op. The callbacks also guard s_WindowSystem defensively.
+		// hold their own shared_ptr<IWindow> ref, so the window's owned ref (m_Windows) dropping in this
+		// dtor does NOT destroy the window. While that orphaned window is still alive, a window op
+		// (SetWindowPos/SetWindowSize -> WM_ACTIVATE -> focus) can fire the static
+		// WindowSystem_ImplGlfw_WindowFocusCallback, which derefs s_WindowSystem. If the system is
+		// already freed, that deref is a use-after-free (the d3d12 all-7 crash: focus callback -> freed
+		// std::function, Rax=0xDDDD...). Null the global here so ws is null and every callback (which
+		// guards `ws && ws->m_Xxx`) becomes a no-op. GLFW 3.4 zeroes callbacks on its own destroy
+		// (src/window.c: memset before _glfwDestroyWindowWin32), so a destroy-time dispatch is impossible.
 		s_WindowSystem = nullptr;
 	}
 	castl::weak_ptr<IWindow> WindowSystem::NewWindow(int width, int height, castl::string_view const& windowName, bool visible, bool focused, bool decorate, bool floating)

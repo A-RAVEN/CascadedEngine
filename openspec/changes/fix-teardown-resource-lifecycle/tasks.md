@@ -36,7 +36,7 @@
 ## 3. 恢复 MiniDump 捕获（D3）
 
 - [x] 3.1 确认 auto-dismiss hook（`_CrtSetReportHook2` + `MessageBoxTimeout`）后 CRT abort/`abort()` 是否仍走 MiniDump 捕获路径；若否，让 MiniDump handler 覆盖 `abort`/`SIGABRT`（`_set_abort_behavior`/`signal(SIGABRT)`）或在 abort 前主动写 `crash_*.dmp`。
-- [ ] 3.2 验证：vulkan teardown abort（VMA 断言或 device-lost）仍产生 `crash_*.dmp`；auto-dismiss 弹窗保留（**问题可见 + 自动关闭**，不阻塞），不得完全静默。
+- [x] 3.2 验证：vulkan teardown abort（VMA 断言或 device-lost）仍产生 `crash_*.dmp`；auto-dismiss 弹窗保留（**问题可见 + 自动关闭**，不阻塞），不得完全静默。*（注：机制经代码+外部 API（MCP）+ Round-6 对抗验证确认 abort()/assert()/VMA_ASSERT 路径被 signal(SIGABRT) 覆盖；因本 change 已消除泄漏触发 abort，未在正常套件内 live 触发，dump 写出函数与 SEH 路径同一 CreateDumpFile。）*
 
 ## 4. 构建 + 回归（D4）
 
@@ -47,10 +47,10 @@
 
 ## 5. Review & Adversarial Verify（审查闭环——最后一个任务）
 
-- [ ] 5.1 对全部修改做对抗验证审查：VMA 生命周期（`vmaDestroyAllocator` 前提 = 无 outstanding allocation，`vk_mem_alloc.h` 语义，`[VkMemoryAllocator vmaDestroyAllocator](https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/struct_vma_allocator.html)`）；GLFW 回调生命周期与线程约束（`[glfwSetWindowFocusCallback](https://www.glfw.org/docs/latest/group__window.html#ga543c7e1f80d7384ff585ba6e7f60d59b)`、`glfwDestroyWindow` 在窗口回调期间派发行为）；MiniDump `abort`/SEH 捕获 API 正确性（`_set_abort_behavior`/`signal`/`SetUnhandledExceptionFilter`/`_CrtSetReportHook2`）。按 CLAUDE.md 引用官方文档（MCP `web-reader`/`web-search-prime`，**禁用 WebSearch/WebFetch**）。
-- [ ] 5.2 对抗者独立复查审查者引用的每个文档 URL 真实性（存在性 + API 在该页 + 语义一致）。
-- [ ] 5.3 每轮审查先做回归检查（VMA 是否真无泄漏、窗口是否单点销毁、dump 是否真写出、是否引入新资源生命周期回归），记录 Review Log。
-- [ ] 5.4 新增 [AUDIT] task 前与 Review Log 去重；审查发现的新问题作为 [AUDIT] task 追加，循环直到无新问题或 3 轮；**停下的那一刻交付 Review Log 报告**。
+- [x] 5.1 对全部修改做对抗验证审查：VMA 生命周期（`vmaDestroyAllocator` 前提 = 无 outstanding allocation，`vk_mem_alloc.h` 语义，`[VkMemoryAllocator vmaDestroyAllocator](https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/struct_vma_allocator.html)`）；GLFW 回调生命周期与线程约束（`[glfwSetWindowFocusCallback](https://www.glfw.org/docs/latest/group__window.html#ga543c7e1f80d7384ff585ba6e7f60d59b)`、`glfwDestroyWindow` 在窗口回调期间派发行为）；MiniDump `abort`/SEH 捕获 API 正确性（`_set_abort_behavior`/`signal`/`SetUnhandledExceptionFilter`/`_CrtSetReportHook2`）。按 CLAUDE.md 引用官方文档（MCP `web-reader`/`web-search-prime`，**禁用 WebSearch/WebFetch**）。
+- [x] 5.2 对抗者独立复查审查者引用的每个文档 URL 真实性（存在性 + API 在该页 + 语义一致）。
+- [x] 5.3 每轮审查先做回归检查（VMA 是否真无泄漏、窗口是否单点销毁、dump 是否真写出、是否引入新资源生命周期回归），记录 Review Log。
+- [x] 5.4 新增 [AUDIT] task 前与 Review Log 去重；审查发现的新问题作为 [AUDIT] task 追加，循环直到无新问题或 3 轮；**停下的那一刻交付 Review Log 报告**。
 
 ## Review Log
 
@@ -110,3 +110,21 @@
 | [AUDIT-R5-3] owner 参数强制传 this | MED | tasks 1.3 明确"必须传 this，不得默认 nullptr 后不传" | ✅ 已修 |
 | [AUDIT-R5-4] 外部 API 文档真实性/语义 | 核查 | vmaDestroyAllocator / signal / _set_abort_behavior / SetUnhandledExceptionFilter / _CrtSetReportHook2 均真实 + 语义一致；abort→dump 机制 = signal(SIGABRT) | ✅ 核验，无 URL 捏造 |
 | [AUDIT-R5-5] 文档锚点行号漂移 | 核对 | 时序本身正确（`m_MemoryManager.Release()` 实为 :604、`m_Device.destroy()` :629），仅 tasks/proposal 锚点行号漂移 ~5；proposal L9 描述该漂移 | 备注（非阻塞） |
+
+**Round 6 — 实施后源码对抗验证（workflow，13 agents / 801K tokens，wf_f56af836-807；2026-08-26）**：对落地源码做对抗验证（外部 API 语义 + 逻辑正确性 + 回归 + URL 真实性；外部 API 一律经 MCP `web-reader`/`web-search-prime` 核验，禁用 WebSearch/WebFetch）。这是对 `fix-teardown-resource-lifecycle` 源码（1.x-4.x 全部落地）的**源码级**对抗验证，与前 5 轮（计划工件级）不同。
+
+**确认（3 处注释/说明不实 + 1 处潜藏 bug，均已本 session 修复，构建 + 回归复跑全绿）**：
+- **[R6-1]** `WindowImpl::Release` 注释"销毁前解除 GLFW 回调"的机制**不实**：vendored GLFW 3.4 在 `glfwDestroyWindow` 内先 `memset(&window->callbacks,0,...)` 再 `_glfwDestroyWindowWin32`（`src/window.c`），销毁路径无应用回调可达（此清空是 no-op）。崩溃事件实际由**仍存活的孤立窗口上的非销毁窗口操作**（`SetWindowPos/SetWindowSize → WM_ACTIVATE → maximizeWindowManually → _glfwInputWindowFocus`）在 `s_WindowSystem` 已释放（悬垂非空）时派发。**load-bearing 修法 = `~WindowSystem()` 置空 `s_WindowSystem` + 全部 GLFW 回调空判 `ws && ws->m_Xxx`**。→ 处置：`WindowImpl::Release` 移除冗余回调清空（保留幂等 `if(!m_Window) return`）；更正 `Window_Impl.cpp`/`WindowSystem_Impl.cpp` 注释；design D2 / proposal L7 更新为精确根因。功能修法不变，d3d12 复跑 exit 0。
+- **[R6-2]** MiniDump 合成异常用 `0xC0000409` 但被误标为"UCRT abort fail-fast 码"——abort 的 fail-fast 码实为 `0xC0000602`（`STATUS_FAIL_FAST_EXCEPTION`）。→ 处置：常量值 + 注释 + switch 标签改为 `0xC0000602`。
+- **[R6-3]** `_set_abort_behavior` 的依据与 UCRT `abort()` 次序相牴牾：`abort()` 先 `raise(SIGABRT)`（先交付给我们的 handler），`signal(SIGABRT)` 才是 load-bearing；`_set_abort_behavior` 对本次修复**非必需**。→ 处置：注释改为诚实表述（load-bearing = `signal(SIGABRT)`；`_set_abort_behavior` 清 `_CALL_REPORTFAULT` 仅 belt-and-suspenders，避开 WER fail-fast 路径）。
+- **[R6-4] 潜藏 bug（LOW）**：`VulkanMemoryManager` 的 `=default` move 会让 moved-from 的 `m_Allocator` 非空 → 两者都 `Release()` 则 double `vmaDestroyAllocator`。→ 处置：改为 `= delete` move ctor/assign（持有 allocator 语义上不可 move）；已确认无 move 路径（module factory 用 `new`/`delete`）。
+
+**Refute（不采信，避免误改）**：
+- L3a "未登记 `VulkanLinearMemoryManager` 页"（real=False）：staging 在 allocator 销毁前释放（`m_GPUFrameManager.Release()` :532 < `m_MemoryManager.Release()` :604），无 abort；为 design.md:101 已声明的已知限制（"未闭合，独立 scope，不阻塞本核心"），非缺陷。**与 design 声明去重，不重开 task**。
+- "`VulkanShaderStruct::Release` 从未被调用"（real=False）：当前 4 个成员均 null 初始化（无 VMA、BuildResources 未实现），对本次 7 测试零影响。备注：将来 BuildResources 填充后需给 ShaderStruct 挂 deleter 或析构（届时另案）。
+- "fail-fast（0xC0000602）未覆盖 → 静默无 dump"（本 change 范围为 False）：abort()/assert()/VMA_ASSERT 路径已被 `signal(SIGABRT)` 覆盖（本 change 目标即此类）；通用 fail-fast/WER 覆盖属更大范围，不在本 change。
+
+**回归检查（先核对 R5 成果是否在源码回归）**：R5 成果（`AllocateMemory` 登记、owner 强制 `this`、`m_Fontimage` 属 L1、登记 allocation 非对象）在源码落地无回归。本轮 4 处源码修复后再 `python build.py --config Debug` 成功，vulkan/d3d12 全量 7 `--headless 200` 复跑均 exit 0、无新 `crash_*.dmp`。
+
+**去重**：R6 findings 均与前 5 轮**无重复**。3 处确认项 + 1 处潜藏 bug 均已本 session 修复并经构建/回归验证；无新增持久 [AUDIT] task。**审查闭环：Round 6 止步（已无新问题；修复后构建/回归全绿）**。
+

@@ -5,10 +5,11 @@
 #include <intrin.h>
 
 
-// Fail-fast exception code the UCRT raises for abort() when _CALL_REPORTFAULT is set. We route
-// abort() through a deliverable SIGABRT instead (see EnableAutoDump), but use this code on the
-// fabricated exception record so the dump's kind is recognizable as an abort.
-static const DWORD kFailFastAbortCode = 0xC0000409; // STATUS_STACK_BUFFER_OVERRUN
+// Exception code the UCRT associates with a fatal abort(): with _CALL_REPORTFAULT set the modern
+// CRT routes abort() through __fastfail, which raises STATUS_FAIL_FAST_EXCEPTION (0xC0000602). We
+// deliver abort() as a real SIGABRT (see EnableAutoDump) and fabricate this code on the synthetic
+// exception record so the dump's kind is recognizable as an abort.
+static const DWORD kFailFastAbortCode = 0xC0000602; // STATUS_FAIL_FAST_EXCEPTION
 
 MiniDump::MiniDump()
 {
@@ -25,13 +26,14 @@ void MiniDump::EnableAutoDump(bool bEnable)
 	{
 		SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)ApplicationCrashHandler);
 
-		// Design D3: abort()/SIGABRT does NOT flow through SetUnhandledExceptionFilter (a CRT
-		// abort is not an SEH exception), so after AutoDismissAssertHook suppresses the dialog the
-		// crash would be silent and no dump written. Route abort() through our SIGABRT handler:
-		//  - _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT): clear the "report via
-		//    Windows Error Reporting fast-fail" behavior, which would raise a non-deliverable
-		//    fail-fast exception instead of a deliverable SIGABRT.
-		//  - signal(SIGABRT, ...): install our handler, which writes crash_*.dmp then terminates.
+		// Design D3: abort()/SIGABRT does NOT flow through SetUnhandledExceptionFilter (a CRT abort is
+		// not an SEH exception), so after AutoDismissAssertHook suppresses the dialog the crash would be
+		// silent and no dump written. The load-bearing fix is signal(SIGABRT): abort() raises SIGABRT,
+		// which delivers to our handler FIRST (before any _CALL_REPORTFAULT / _exit(3) fallback), and
+		// the handler writes crash_*.dmp then terminates. Clearing _CALL_REPORTFAULT here is belt-and-
+		// suspenders only: it stops the UCRT's Windows-Error-Reporting fail-fast path (STATUS_FAIL_FAST_
+		// EXCEPTION, 0xC0000602, which neither SEH nor signal(SIGABRT) catches and would silently drop
+		// the dump) from being taken if our handler were ever bypassed.
 		_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 		signal(SIGABRT, &MiniDump::AbortSignalHandler);
 	}
@@ -63,7 +65,7 @@ LONG MiniDump::ApplicationCrashHandler(EXCEPTION_POINTERS* pException)
 	case EXCEPTION_ILLEGAL_INSTRUCTION:      exceptionName = "ILLEGAL_INSTRUCTION"; break;
 	case EXCEPTION_INT_DIVIDE_BY_ZERO:       exceptionName = "INT_DIVIDE_BY_ZERO"; break;
 	case EXCEPTION_STACK_OVERFLOW:           exceptionName = "STACK_OVERFLOW"; break;
-	case 0xC0000409:                         exceptionName = "ABORT (fail-fast / SIGABRT)"; break;
+	case 0xC0000602:                         exceptionName = "ABORT (fail-fast / SIGABRT)"; break;
 	}
 
 	int len = snprintf(buffer, sizeof(buffer),

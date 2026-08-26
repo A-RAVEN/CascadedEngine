@@ -27,21 +27,14 @@ namespace cawindow
 		if (!m_Window)
 			return;
 
-		// Design D2: glfwDestroyWindow can dispatch window events (focus/close) synchronously into
-		// the GLFW callbacks registered by WindowSystem. If the WindowSystem is already destroyed
-		// (s_WindowSystem nulled), those callbacks no-op — but clearing the callbacks here is the
-		// direct fix: no event is dispatched to a freed WindowSystem / std::function member at all.
-		glfwSetWindowFocusCallback(m_Window, nullptr);
-		glfwSetCursorEnterCallback(m_Window, nullptr);
-		glfwSetCursorPosCallback(m_Window, nullptr);
-		glfwSetMouseButtonCallback(m_Window, nullptr);
-		glfwSetScrollCallback(m_Window, nullptr);
-		glfwSetKeyCallback(m_Window, nullptr);
-		glfwSetCharCallback(m_Window, nullptr);
-		glfwSetWindowCloseCallback(m_Window, nullptr);
-		glfwSetWindowPosCallback(m_Window, nullptr);
-		glfwSetWindowSizeCallback(m_Window, nullptr);
-
+		// Design D2: the d3d12 teardown UAF (Rax=0xDDD, freed std::function) is NOT caused by this
+		// destroy call — vendored GLFW 3.4 already removes every callback via
+		// memset(&window->callbacks, 0, ...) before _glfwDestroyWindowWin32 (src/window.c). The event
+		// is delivered by a concurrent non-destroy window op (SetWindowPos/SetWindowSize -> WM_ACTIVATE
+		// -> focus) on a window that outlives the WindowSystem, deref'ing the freed s_WindowSystem.
+		// The load-bearing fixes are: ~WindowSystem() nulls s_WindowSystem, and every GLFW callback
+		// guards `WindowSystem* ws = s_WindowSystem; if (ws && ws->m_Xxx)`. No event is dispatched to
+		// a freed std::function member because ws is null there. Idempotence still guards the destroy.
 		glfwDestroyWindow(m_Window);
 		m_Window = nullptr;
 	}

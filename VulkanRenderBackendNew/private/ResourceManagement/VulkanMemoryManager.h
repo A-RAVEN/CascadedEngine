@@ -10,8 +10,12 @@ namespace graphics_backend
 	{
 	public:
 		VulkanMemoryManager() = default;
-		VulkanMemoryManager(VulkanMemoryManager&& other) noexcept = default;
-		VulkanMemoryManager& operator=(VulkanMemoryManager&& other) noexcept = default;
+		// Owns a VMA allocator + the L3a allocation table. It must never be moved: a default move
+		// would leave the moved-from m_Allocator non-null, so both objects would vmaDestroyAllocator
+		// the same allocator (double-destroy). The backend holds it as a value member created by the
+		// module factory (new/delete), so it is never moved.
+		VulkanMemoryManager(VulkanMemoryManager&& other) noexcept = delete;
+		VulkanMemoryManager& operator=(VulkanMemoryManager&& other) noexcept = delete;
 
 		void Init();
 		virtual void Release() override;
