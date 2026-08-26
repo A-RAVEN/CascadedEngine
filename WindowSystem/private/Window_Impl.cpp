@@ -23,6 +23,25 @@ namespace cawindow
 
 	void WindowImpl::Release()
 	{
+		// L1-idempotence / Design D2: a second Release() must not glfwDestroyWindow(nullptr).
+		if (!m_Window)
+			return;
+
+		// Design D2: glfwDestroyWindow can dispatch window events (focus/close) synchronously into
+		// the GLFW callbacks registered by WindowSystem. If the WindowSystem is already destroyed
+		// (s_WindowSystem nulled), those callbacks no-op — but clearing the callbacks here is the
+		// direct fix: no event is dispatched to a freed WindowSystem / std::function member at all.
+		glfwSetWindowFocusCallback(m_Window, nullptr);
+		glfwSetCursorEnterCallback(m_Window, nullptr);
+		glfwSetCursorPosCallback(m_Window, nullptr);
+		glfwSetMouseButtonCallback(m_Window, nullptr);
+		glfwSetScrollCallback(m_Window, nullptr);
+		glfwSetKeyCallback(m_Window, nullptr);
+		glfwSetCharCallback(m_Window, nullptr);
+		glfwSetWindowCloseCallback(m_Window, nullptr);
+		glfwSetWindowPosCallback(m_Window, nullptr);
+		glfwSetWindowSizeCallback(m_Window, nullptr);
+
 		glfwDestroyWindow(m_Window);
 		m_Window = nullptr;
 	}

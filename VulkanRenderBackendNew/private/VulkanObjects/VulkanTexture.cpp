@@ -143,7 +143,9 @@ namespace graphics_backend
 
 		auto& memoryManager = GetApp()->GetMemoryManager();
 		vk::Image vkImage;
-		m_Allocation = memoryManager.AllocateImage(imageInfo, allocInfo, vkImage);
+		// owner=this: register the allocation with this object as owner, so the L3a teardown
+		// sweep can call owner->Release() and clear this object's m_Allocation (design D5).
+		m_Allocation = memoryManager.AllocateImage(imageInfo, allocInfo, vkImage, nullptr, this);
 		m_Image = vkImage;
 
 		// Create image view
@@ -180,11 +182,19 @@ namespace graphics_backend
 
 	void VulkanTexture::Release()
 	{
-		auto device = GetDevice();
+		// L1 idempotence: m_Allocation is the authoritative "is this alive" flag (design D5).
+		// Early-return when the L3a sweep already released this allocation and cleared it — this
+		// avoids double-free AND avoids deref'ing a GetDevice()/GetApp() whose pApp may already
+		// be torn down (the sweep runs before device destroy; a later object destruction must be
+		// a no-op). Image + allocation are created together and nulled together, so consistency holds.
+		if (m_Allocation == VK_NULL_HANDLE)
+			return;
 
 		if (m_ImageView)
 		{
-			device.destroyImageView(m_ImageView);
+			// GetDevice() only when there is actually a view to destroy (design D5: avoid
+			// unconditional GetDevice() that derefs a potentially-destroyed pApp, cpp:183).
+			GetDevice().destroyImageView(m_ImageView);
 			m_ImageView = nullptr;
 		}
 

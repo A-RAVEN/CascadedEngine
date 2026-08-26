@@ -10,6 +10,7 @@ namespace cawindow
 	{
 	public:
 		WindowSystem();
+		~WindowSystem();
 	public:
 		// 通过 IWindowSystem 继承
 		castl::weak_ptr<IWindow> NewWindow(int width, int height, castl::string_view const& windowName, bool visible, bool focused, bool decorate, bool floating) override;

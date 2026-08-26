@@ -10,8 +10,12 @@ namespace graphics_backend
 	{
 	public:
 		VulkanBuffer() = default;
-		VulkanBuffer(VulkanBuffer&& other) noexcept = default;
-		VulkanBuffer& operator=(VulkanBuffer&& other) noexcept = default;
+		// L1-defense (design D5 / [AUDIT-1]): objects are heap-built via `new` + custom deleter and
+		// never moved. Deleting the move ops closes the shallow-copy double-free hole where a
+		// moved-from object's m_Buffer/m_Allocation would still point at the moved-to object's
+		// allocation — two Releases would vmaDestroy the same allocation twice.
+		VulkanBuffer(VulkanBuffer&& other) noexcept = delete;
+		VulkanBuffer& operator=(VulkanBuffer&& other) noexcept = delete;
 
 		void Init(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags);
 		virtual void Release() override;

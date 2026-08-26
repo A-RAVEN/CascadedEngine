@@ -648,17 +648,23 @@ namespace graphics_backend
 	}
 	castl::shared_ptr<GPUBuffer> RenderBackend_Vulkan::CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags)
 	{
-		auto buffer = castl::make_shared<VulkanBuffer>();
-		InitSubObj(buffer.get());
-		buffer->Init(descriptor, usageFlags);
-		return buffer;
+		// L1 (design D5, [AUDIT-1]/[AUDIT-7]): object dies → its VMA allocation is released.
+		// std::make_shared has no deleter overload (castl::shared_ptr = std::shared_ptr), so a
+		// `new` + two-arg-deleter shared_ptr is required. The deleter keeps the concrete
+		// VulkanBuffer* (the GPUBuffer interface exposes no Release()), calls Release() to free the
+		// allocation, then deletes the object. The L3a sweep in VulkanMemoryManager::Release is
+		// complementary: it catches any allocation whose object is still alive at backend teardown.
+		VulkanBuffer* raw = new VulkanBuffer();
+		InitSubObj(raw);
+		raw->Init(descriptor, usageFlags);
+		return castl::shared_ptr<GPUBuffer>(raw, [](VulkanBuffer* p) { p->Release(); delete p; });
 	}
 	castl::shared_ptr<GPUTexture> RenderBackend_Vulkan::CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType)
 	{
-		auto texture = castl::make_shared<VulkanTexture>();
-		InitSubObj(texture.get());
-		texture->Init(inDescriptor, accessType);
-		return texture;
+		VulkanTexture* raw = new VulkanTexture();
+		InitSubObj(raw);
+		raw->Init(inDescriptor, accessType);
+		return castl::shared_ptr<GPUTexture>(raw, [](VulkanTexture* p) { p->Release(); delete p; });
 	}
 	castl::shared_ptr<ShaderStruct> RenderBackend_Vulkan::CreateShaderStruct(cacore::NameHash const& structType)
 	{

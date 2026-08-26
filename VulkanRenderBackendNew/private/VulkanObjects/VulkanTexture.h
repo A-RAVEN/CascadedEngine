@@ -10,8 +10,12 @@ namespace graphics_backend
 	{
 	public:
 		VulkanTexture() = default;
-		VulkanTexture(VulkanTexture&& other) noexcept = default;
-		VulkanTexture& operator=(VulkanTexture&& other) noexcept = default;
+		// L1-defense (design D5 / [AUDIT-1]): objects are heap-built via `new` + custom deleter and
+		// never moved. Deleting the move ops closes the shallow-copy double-free hole where a
+		// moved-from object's m_Image/m_Allocation would still point at the moved-to object's
+		// allocation — two Releases would vmaDestroy the same allocation twice.
+		VulkanTexture(VulkanTexture&& other) noexcept = delete;
+		VulkanTexture& operator=(VulkanTexture&& other) noexcept = delete;
 
 		void Init(GPUTextureDescriptor const& descriptor, ETextureAccessTypeFlags accessType);
 		virtual void Release() override;

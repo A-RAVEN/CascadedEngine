@@ -64,7 +64,9 @@ namespace graphics_backend
 
 		auto& memoryManager = GetApp()->GetMemoryManager();
 		vk::Buffer vkBuffer;
-		m_Allocation = memoryManager.AllocateBuffer(bufferInfo, allocInfo, vkBuffer, &m_AllocationInfo);
+		// owner=this: register the allocation with this object as owner, so the L3a teardown
+		// sweep can call owner->Release() and clear this object's m_Allocation (design D5).
+		m_Allocation = memoryManager.AllocateBuffer(bufferInfo, allocInfo, vkBuffer, &m_AllocationInfo, this);
 		m_Buffer = vkBuffer;
 
 		// Store mapped pointer if available
@@ -78,7 +80,10 @@ namespace graphics_backend
 
 	void VulkanBuffer::Release()
 	{
-		if (m_Buffer)
+		// L1 idempotence: m_Allocation is the authoritative "is this alive" flag (design D5).
+		// Early-return when the L3a sweep already released this allocation and cleared it — this
+		// avoids double-free AND avoids deref'ing a GetApp() whose pApp may already be torn down.
+		if (m_Allocation)
 		{
 			GetApp()->GetMemoryManager().FreeBuffer(m_Buffer, m_Allocation);
 

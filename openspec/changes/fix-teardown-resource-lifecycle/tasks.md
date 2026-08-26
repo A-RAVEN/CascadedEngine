@@ -4,13 +4,13 @@
 
 **修复 = 双层（L1 对象死即释放 + L3a 登记 VMA allocation 扫残留，见 design D5；用户拍板两点）**：① L1——GPU 资源的 `shared_ptr` 计数归零时对象必须自行正确释放其 VMA allocation（含 `m_Fontimage`）；② L3a——即使资源没被释放拖到 teardown，backend 收尾**必须能扫到并释放**它（登记 VMA allocation 而非 weak_ptr 对象，旧的 weak 方案扫不到死对象是 bug）。**D3D12 超范围声明（[AUDIT-10]）**：D3D12 同构 allocation 泄漏不在本 change 范围；**GAP-C**：`VulkanShaderStruct::Release()`（VulkanShaderStruct.cpp:55）无条件 `GetDevice()`，与 VulkanTexture.cpp:183 同类 pApp 悬垂隐患，建议并行补判成员非空的守卫。
 
-- [ ] 1.1 **L1 — 选型（方案 B 自定义 deleter）**：`RenderBackend_Vulkan::CreateGPUBuffer`/`CreateGPUTexture` 返回的 `shared_ptr` 装自定义 deleter，refcount 归零时调 `Release()` — **必须放弃 `make_shared`**[AUDIT-7]：`castl::shared_ptr`=**std::shared_ptr**（`CACore/CMakeLists.txt:55 USING_EASTL=0`、`CASharedPtr.h:7 #include <memory>`），`std::make_shared` **无带 deleter 重载**。实现改 `new` + 二参 deleter：`castl::shared_ptr<VulkanBuffer>(new VulkanBuffer(), [](VulkanBuffer* p){ p->Release(); delete p; })`（VulkanTexture 同理）。**注意**：旧后端 `CRenderBakend_Vulkan.cpp:30-33` 是"工厂返回裸指针 + deleter 调 `ReleaseGPUBuffer(p)`"，非 `new VulkanBuffer()+delete p`——勿作字面先例。若 `make_shared` 后再 `.get()`+二参构造 → 双所有权/双 delete；用别名构造虽共享 control-block 但沿用默认 deleter → 泄漏回归。**不采用方案 A（析构函数）**[AUDIT-1/H2]：类 default move 浅拷贝，双份析构各 Release → double-free。方案 B（deleter）对象 `new` 堆建、从不被 move，规避。
-- [ ] 1.2 **L1 — Release() 真幂等**：`VulkanBuffer`/`VulkanTexture` 的 `Release()` 改为**判 `m_Allocation`（VMA 持有句柄）而非判 handle，且无条件复位全部成员**——**保留现行 view→image 顺序**[AUDIT-8]（VulkanTexture.cpp:185 destroyImageView 先于 :191 FreeImage，正确）——
+- [x] 1.1 **L1 — 选型（方案 B 自定义 deleter）**：`RenderBackend_Vulkan::CreateGPUBuffer`/`CreateGPUTexture` 返回的 `shared_ptr` 装自定义 deleter，refcount 归零时调 `Release()` — **必须放弃 `make_shared`**[AUDIT-7]：`castl::shared_ptr`=**std::shared_ptr**（`CACore/CMakeLists.txt:55 USING_EASTL=0`、`CASharedPtr.h:7 #include <memory>`），`std::make_shared` **无带 deleter 重载**。实现改 `new` + 二参 deleter：`castl::shared_ptr<VulkanBuffer>(new VulkanBuffer(), [](VulkanBuffer* p){ p->Release(); delete p; })`（VulkanTexture 同理）。**注意**：旧后端 `CRenderBakend_Vulkan.cpp:30-33` 是"工厂返回裸指针 + deleter 调 `ReleaseGPUBuffer(p)`"，非 `new VulkanBuffer()+delete p`——勿作字面先例。若 `make_shared` 后再 `.get()`+二参构造 → 双所有权/双 delete；用别名构造虽共享 control-block 但沿用默认 deleter → 泄漏回归。**不采用方案 A（析构函数）**[AUDIT-1/H2]：类 default move 浅拷贝，双份析构各 Release → double-free。方案 B（deleter）对象 `new` 堆建、从不被 move，规避。
+- [x] 1.2 **L1 — Release() 真幂等**：`VulkanBuffer`/`VulkanTexture` 的 `Release()` 改为**判 `m_Allocation`（VMA 持有句柄）而非判 handle，且无条件复位全部成员**——**保留现行 view→image 顺序**[AUDIT-8]（VulkanTexture.cpp:185 destroyImageView 先于 :191 FreeImage，正确）——
   - `VulkanBuffer::Release()`：`if (m_Allocation) GetApp()->GetMemoryManager().FreeBuffer(m_Buffer, m_Allocation);` 然后 `m_Buffer=nullptr; m_Allocation=VK_NULL_HANDLE; m_MappedPtr=nullptr;`
   - `VulkanTexture::Release()`：头部 `if (m_Allocation==VK_NULL_HANDLE) return;`；`if (m_ImageView) GetDevice().destroyImageView(m_ImageView); if (m_Image && m_Allocation) GetApp()->GetMemoryManager().FreeImage(m_Image, m_Allocation);` 然后 `m_Image=nullptr; m_Allocation=VK_NULL_HANDLE; m_ImageView=nullptr;`（**view 在 image 之前**；`if(m_ImageView)` 分支才取 `GetDevice()`——把 :183 无条件 `auto device=GetDevice()` 移入该分支，防 pApp 悬垂）
   - 依据：VMA 保证 `vmaCreateBuffer`/`vmaCreateImage` 成功则句柄+allocation 成对，`m_Allocation` 非空蕴含句柄有效。
-- [ ] 1.3 **L3a — 登记 VMA allocation 表（核心）**：`VulkanMemoryManager` 增加 `m_Allocations: castl::unordered_map<VmaAllocation, AllocRecord>`（`AllocRecord{ Kind{Buffer|Image|Memory}; vk::Buffer buffer; vk::Image image; VulkanSubobjectBase* owner; }`）。登记：`AllocateBuffer`/`AllocateImage`/**`AllocateMemory`** 成功后 `m_Allocations[allocation] = {..., owner}`（**`Allocate*` 加 `owner` 参数，`VulkanBuffer::Init`/`VulkanTexture::Init` 必须传 `this`——不得默认 nullptr 后不传，否则 sweep 无法 `owner->Release()`、闭环破**；GraphLocal 裸资源/别名池/虚拟块物理分配传 nullptr=ownerless，kind=Memory）。**⚠️ Round-5 [AUDIT-R5-1]：`AllocateMemory` 也是分配路径，必须一并进表**（别名池 `VulkanResourceAliasing.cpp:209`、`virtual-block` 物理提交 `:473` 主 happy-path 均走 `AllocateMemory`；tasks 原只写 `AllocateBuffer`/`AllocateImage`，与 design D5 场景4「单个物理 `m_AliasedPoolAllocation` 进登记表（AllocateMemory ownerless）」不符——漏登记则 L3a sweep 兜不住该块、`vmaDestroyAllocator` 仍可能 outstanding）。摘除：`FreeBuffer`/`FreeImage`/**`FreeMemory`** 全改**幂等** `auto it=m_Allocations.find(alloc); if(it==end) return; [vmaDestroyBuffer/Image/vmaFreeMemory]; m_Allocations.erase(it);`（"是否已释放"真值存表，非对象成员）。
-- [ ] 1.4 **L3a — sweep 扫残留必释放**：`VulkanMemoryManager::Release()` 在 `vmaDestroyAllocator` **之前**（覆盖 1.3 登记的全部 kind，**含 kind=Memory——`AllocateMemory` 的别名池物理块/虚拟块物理提交**；[AUDIT-R5-1]）：
+- [x] 1.3 **L3a — 登记 VMA allocation 表（核心）**：`VulkanMemoryManager` 增加 `m_Allocations: castl::unordered_map<VmaAllocation, AllocRecord>`（`AllocRecord{ Kind{Buffer|Image|Memory}; vk::Buffer buffer; vk::Image image; VulkanSubobjectBase* owner; }`）。登记：`AllocateBuffer`/`AllocateImage`/**`AllocateMemory`** 成功后 `m_Allocations[allocation] = {..., owner}`（**`Allocate*` 加 `owner` 参数，`VulkanBuffer::Init`/`VulkanTexture::Init` 必须传 `this`——不得默认 nullptr 后不传，否则 sweep 无法 `owner->Release()`、闭环破**；GraphLocal 裸资源/别名池/虚拟块物理分配传 nullptr=ownerless，kind=Memory）。**⚠️ Round-5 [AUDIT-R5-1]：`AllocateMemory` 也是分配路径，必须一并进表**（别名池 `VulkanResourceAliasing.cpp:209`、`virtual-block` 物理提交 `:473` 主 happy-path 均走 `AllocateMemory`；tasks 原只写 `AllocateBuffer`/`AllocateImage`，与 design D5 场景4「单个物理 `m_AliasedPoolAllocation` 进登记表（AllocateMemory ownerless）」不符——漏登记则 L3a sweep 兜不住该块、`vmaDestroyAllocator` 仍可能 outstanding）。摘除：`FreeBuffer`/`FreeImage`/**`FreeMemory`** 全改**幂等** `auto it=m_Allocations.find(alloc); if(it==end) return; [vmaDestroyBuffer/Image/vmaFreeMemory]; m_Allocations.erase(it);`（"是否已释放"真值存表，非对象成员）。
+- [x] 1.4 **L3a — sweep 扫残留必释放**：`VulkanMemoryManager::Release()` 在 `vmaDestroyAllocator` **之前**（覆盖 1.3 登记的全部 kind，**含 kind=Memory——`AllocateMemory` 的别名池物理块/虚拟块物理提交**；[AUDIT-R5-1]）：
   ```
   // (a) 先快照 owner(只收集不改 map, 防 owner->Release() erase 迭代器失效)
   for (auto& [alloc,rec] : m_Allocations) if (rec.owner) owners.push_back(rec.owner);
@@ -20,30 +20,30 @@
   // (d) m_Allocations.clear(); 再 vmaDestroyAllocator
   ```
   用户要求②达成：**任何未释放的 allocation（无论对象死活）都在表里，sweep 必扫到释放**。扫残留必须早于 `vmaDestroyAllocator`（sweep 全程 `m_Allocator` 与 `device` 仍有效，因 backend Release :575 sweep < :581 device.destroy < :598 instance.destroy）。
-- [ ] 1.5 **L1+L3a double-free 消除（登记表幂等作唯一真值）**：所有释放路径（L1 deleter→`VulkanX::Release`→`Free*`，L3a sweep→`owner->Release()`→`Free*`）必经同一幂等 `Free*`（find-or-return→vmaDestroy→erase）。L3a 先 `owner->Release()` 清空对象 `m_Allocation` → 之后对象再死（deleter `Release()`）见 `m_Allocation==null` 直接 return → **不 double-free、不 deref 已销毁 pApp**。补回归用例：「对象活到 backend Release 后，被 L3a sweep 释放，其 deleter 二次 Release 成 no-op」。
-- [ ] 1.6 **GAP-C — VulkanShaderStruct 守卫**：`VulkanShaderStruct::Release()`（VulkanShaderStruct.cpp:55）现无条件 `GetDevice()`，与 VulkanTexture.cpp:183 同类 pApp 悬垂隐患。改为仅当确有可释放对象（成员非空）时才取 `GetApp()`/`GetDevice()`。
-- [ ] 1.7 **防御 — move 双释放纵深**：`VulkanBuffer`/`VulkanTexture` 的 `=default` move（VulkanBuffer.h:13-14）建议 `= delete` move ctor/assign（或自定义 move 置空源对象 m_Buffer/m_Allocation/m_Image/m_ImageView），封死浅拷贝双释放（配合登记表幂等）。
-- [ ] 1.8 **禁止**改 `VulkanMemoryManager::Release()` 去"容忍泄漏/禁断言"（掩盖非修复）；确认 `m_MemoryManager.Release()`（`vmaDestroyAllocator`）时 allocator 无 outstanding allocation，断言自然消失。
+- [x] 1.5 **L1+L3a double-free 消除（登记表幂等作唯一真值）**：所有释放路径（L1 deleter→`VulkanX::Release`→`Free*`，L3a sweep→`owner->Release()`→`Free*`）必经同一幂等 `Free*`（find-or-return→vmaDestroy→erase）。L3a 先 `owner->Release()` 清空对象 `m_Allocation` → 之后对象再死（deleter `Release()`）见 `m_Allocation==null` 直接 return → **不 double-free、不 deref 已销毁 pApp**。补回归用例：「对象活到 backend Release 后，被 L3a sweep 释放，其 deleter 二次 Release 成 no-op」。
+- [x] 1.6 **GAP-C — VulkanShaderStruct 守卫**：`VulkanShaderStruct::Release()`（VulkanShaderStruct.cpp:55）现无条件 `GetDevice()`，与 VulkanTexture.cpp:183 同类 pApp 悬垂隐患。改为仅当确有可释放对象（成员非空）时才取 `GetApp()`/`GetDevice()`。
+- [x] 1.7 **防御 — move 双释放纵深**：`VulkanBuffer`/`VulkanTexture` 的 `=default` move（VulkanBuffer.h:13-14）建议 `= delete` move ctor/assign（或自定义 move 置空源对象 m_Buffer/m_Allocation/m_Image/m_ImageView），封死浅拷贝双释放（配合登记表幂等）。
+- [x] 1.8 **禁止**改 `VulkanMemoryManager::Release()` 去"容忍泄漏/禁断言"（掩盖非修复）；确认 `m_MemoryManager.Release()`（`vmaDestroyAllocator`）时 allocator 无 outstanding allocation，断言自然消失。
 
 ## 2. 修复 d3d12 窗口销毁 UAF（D2 — 2026-08-23 修正根因）
 
 > **根因修正**：dump 栈非"`~shared_ptr<IWindow>` deleter→`glfwDestroyWindow` 双销毁"，而是 `WindowSystem_ImplGlfw_WindowFocusCallback`(WindowSystem_Impl.cpp:67) → `std::function` invoker（`std::_Func_class<IWindow*,bool>::operator()`，functional:930），`Rax=0xDDDDDDDDDDDDDDDD` = 回调函数对象已释放。即"销毁窗口时 GLFW 派发 window-focus 事件打到已释放的 `s_WindowSystem`/`m_WindowFocusCallback`"——逆序 teardown 中窗口销毁时序与回调对象生命周期错位。
 
-- [ ] 2.1 核对逆序 teardown 中窗口销毁与 GLFW 回调对象（`s_WindowSystem`/`m_WindowFocusCallback` 等 `std::function` 成员）的释放顺序：窗口是否在 `WindowSystem` 实例销毁前被销毁？销毁时 GLFW 是否仍持有指向已释放 `WindowSystem`/回调对象的引用？
-- [ ] 2.2 修法（按新根因）：保证窗口销毁（`glfwDestroyWindow`）发生在 `WindowSystem`（含其回调 `std::function` 成员）仍有效时；或在窗口销毁前解除 GLFW 对该窗口的回调（`glfwSetWindowFocusCallback(window, nullptr)` 等），避免销毁期间派发事件打到已释放接收者。`s_WindowSystem` 全局指针在 `WindowSystem` 析构时置空。
-- [ ] 2.3 防御兜底：`WindowImpl::Release()` 改为幂等（`if (m_Window) { glfwDestroyWindow(m_Window); m_Window=nullptr; }`），防重复销毁。**注意**：幂等只防重复销毁，不防"回调打到已释放接收者"，所以不能只靠幂等。
+- [x] 2.1 核对逆序 teardown 中窗口销毁与 GLFW 回调对象（`s_WindowSystem`/`m_WindowFocusCallback` 等 `std::function` 成员）的释放顺序：窗口是否在 `WindowSystem` 实例销毁前被销毁？销毁时 GLFW 是否仍持有指向已释放 `WindowSystem`/回调对象的引用？
+- [x] 2.2 修法（按新根因）：保证窗口销毁（`glfwDestroyWindow`）发生在 `WindowSystem`（含其回调 `std::function` 成员）仍有效时；或在窗口销毁前解除 GLFW 对该窗口的回调（`glfwSetWindowFocusCallback(window, nullptr)` 等），避免销毁期间派发事件打到已释放接收者。`s_WindowSystem` 全局指针在 `WindowSystem` 析构时置空。
+- [x] 2.3 防御兜底：`WindowImpl::Release()` 改为幂等（`if (m_Window) { glfwDestroyWindow(m_Window); m_Window=nullptr; }`），防重复销毁。**注意**：幂等只防重复销毁，不防"回调打到已释放接收者"，所以不能只靠幂等。
 
 ## 3. 恢复 MiniDump 捕获（D3）
 
-- [ ] 3.1 确认 auto-dismiss hook（`_CrtSetReportHook2` + `MessageBoxTimeout`）后 CRT abort/`abort()` 是否仍走 MiniDump 捕获路径；若否，让 MiniDump handler 覆盖 `abort`/`SIGABRT`（`_set_abort_behavior`/`signal(SIGABRT)`）或在 abort 前主动写 `crash_*.dmp`。
+- [x] 3.1 确认 auto-dismiss hook（`_CrtSetReportHook2` + `MessageBoxTimeout`）后 CRT abort/`abort()` 是否仍走 MiniDump 捕获路径；若否，让 MiniDump handler 覆盖 `abort`/`SIGABRT`（`_set_abort_behavior`/`signal(SIGABRT)`）或在 abort 前主动写 `crash_*.dmp`。
 - [ ] 3.2 验证：vulkan teardown abort（VMA 断言或 device-lost）仍产生 `crash_*.dmp`；auto-dismiss 弹窗保留（**问题可见 + 自动关闭**，不阻塞），不得完全静默。
 
 ## 4. 构建 + 回归（D4）
 
-- [ ] 4.1 `python build.py --config Debug` 全量构建成功（只经项目脚本）。
-- [ ] 4.2 vulkan 全量 7 测试 `--headless 1/200`：退出码 0 + 无新增 `crash_*.dmp` + validation-log 无新增错误（区分已知 IMGUI draw-bind VUID-04007/07312）。**必须用全量 7 测试**（真实触发路径），单测试 `--test` 仅作对照。
-- [ ] 4.3 d3d12 全量 7 测试 `--headless 200`：退出码 0 + 无新增 dump（窗口销毁修复验证）。
-- [ ] 4.4 验收：任何新 dump 用 `Tools/read_dump.py` 快读（cdb 交叉验证）。
+- [x] 4.1 `python build.py --config Debug` 全量构建成功（只经项目脚本）。
+- [x] 4.2 vulkan 全量 7 测试 `--headless 1/200`：退出码 0 + 无新增 `crash_*.dmp` + validation-log 无新增错误（区分已知 IMGUI draw-bind VUID-04007/07312）。**必须用全量 7 测试**（真实触发路径），单测试 `--test` 仅作对照。
+- [x] 4.3 d3d12 全量 7 测试 `--headless 200`：退出码 0 + 无新增 dump（窗口销毁修复验证）。
+- [x] 4.4 验收：任何新 dump 用 `Tools/read_dump.py` 快读（cdb 交叉验证）。
 
 ## 5. Review & Adversarial Verify（审查闭环——最后一个任务）
 

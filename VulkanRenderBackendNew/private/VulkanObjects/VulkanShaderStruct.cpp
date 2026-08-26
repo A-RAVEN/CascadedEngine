@@ -52,29 +52,30 @@ namespace graphics_backend
 
 	void VulkanShaderStruct::Release()
 	{
-		auto device = GetDevice();
-
+		// GAP-C (design D5 / [AUDIT-10]): only touch GetDevice() when there is actually a Vulkan
+		// object to destroy. An unconditional GetDevice() derefs pApp and would access a dangling
+		// pApp if this object is released after the backend is torn down.
 		if (m_DescriptorSet)
 		{
-			device.freeDescriptorSets(m_DescriptorPool, m_DescriptorSet);
+			GetDevice().freeDescriptorSets(m_DescriptorPool, m_DescriptorSet);
 			m_DescriptorSet = nullptr;
 		}
 
 		if (m_DescriptorPool)
 		{
-			device.destroyDescriptorPool(m_DescriptorPool);
+			GetDevice().destroyDescriptorPool(m_DescriptorPool);
 			m_DescriptorPool = nullptr;
 		}
 
 		if (m_PipelineLayout)
 		{
-			device.destroyPipelineLayout(m_PipelineLayout);
+			GetDevice().destroyPipelineLayout(m_PipelineLayout);
 			m_PipelineLayout = nullptr;
 		}
 
 		if (m_DescriptorSetLayout)
 		{
-			device.destroyDescriptorSetLayout(m_DescriptorSetLayout);
+			GetDevice().destroyDescriptorSetLayout(m_DescriptorSetLayout);
 			m_DescriptorSetLayout = nullptr;
 		}
 

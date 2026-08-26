@@ -1,6 +1,14 @@
 #include "MiniDump.h"
 #include <stdio.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <intrin.h>
 
+
+// Fail-fast exception code the UCRT raises for abort() when _CALL_REPORTFAULT is set. We route
+// abort() through a deliverable SIGABRT instead (see EnableAutoDump), but use this code on the
+// fabricated exception record so the dump's kind is recognizable as an abort.
+static const DWORD kFailFastAbortCode = 0xC0000409; // STATUS_STACK_BUFFER_OVERRUN
 
 MiniDump::MiniDump()
 {
@@ -16,6 +24,16 @@ void MiniDump::EnableAutoDump(bool bEnable)
 	if (bEnable)
 	{
 		SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)ApplicationCrashHandler);
+
+		// Design D3: abort()/SIGABRT does NOT flow through SetUnhandledExceptionFilter (a CRT
+		// abort is not an SEH exception), so after AutoDismissAssertHook suppresses the dialog the
+		// crash would be silent and no dump written. Route abort() through our SIGABRT handler:
+		//  - _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT): clear the "report via
+		//    Windows Error Reporting fast-fail" behavior, which would raise a non-deliverable
+		//    fail-fast exception instead of a deliverable SIGABRT.
+		//  - signal(SIGABRT, ...): install our handler, which writes crash_*.dmp then terminates.
+		_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+		signal(SIGABRT, &MiniDump::AbortSignalHandler);
 	}
 }
 
@@ -45,6 +63,7 @@ LONG MiniDump::ApplicationCrashHandler(EXCEPTION_POINTERS* pException)
 	case EXCEPTION_ILLEGAL_INSTRUCTION:      exceptionName = "ILLEGAL_INSTRUCTION"; break;
 	case EXCEPTION_INT_DIVIDE_BY_ZERO:       exceptionName = "INT_DIVIDE_BY_ZERO"; break;
 	case EXCEPTION_STACK_OVERFLOW:           exceptionName = "STACK_OVERFLOW"; break;
+	case 0xC0000409:                         exceptionName = "ABORT (fail-fast / SIGABRT)"; break;
 	}
 
 	int len = snprintf(buffer, sizeof(buffer),
@@ -175,6 +194,29 @@ LONG MiniDump::ApplicationCrashHandler(EXCEPTION_POINTERS* pException)
 	TerminateProcess(GetCurrentProcess(), 1);
 
 	return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void MiniDump::AbortSignalHandler(int /*signalNumber*/)
+{
+	// abort()/raise(SIGABRT) has no hardware exception record and does not trip the SEH filter.
+	// Fabricate a minimal EXCEPTION_RECORD + CONTEXT so the shared ApplicationCrashHandler (which
+	// produces the stderr text, module resolution, stack capture and dump write) gets valid
+	// EXCEPTION_POINTERS to hand to MiniDumpWriteDump. _ReturnAddress() points back into this TU —
+	// a valid address for GetModuleHandleExA(FROM_ADDRESS) and the backtrace walk. We terminate
+	// inside the handler, so we never fall through to the CRT's default abort termination.
+	EXCEPTION_RECORD record{};
+	record.ExceptionCode = kFailFastAbortCode;
+	record.ExceptionAddress = _ReturnAddress();
+	record.NumberParameters = 0;
+
+	CONTEXT context{};
+	RtlCaptureContext(&context);
+
+	EXCEPTION_POINTERS pointers{};
+	pointers.ExceptionRecord = &record;
+	pointers.ContextRecord = &context;
+
+	ApplicationCrashHandler(&pointers);
 }
 
 void MiniDump::CreateDumpFile(PATHTYPE strPath, EXCEPTION_POINTERS* pException)

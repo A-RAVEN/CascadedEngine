@@ -26,6 +26,49 @@ namespace graphics_backend
 	{
 		if (m_Allocator != VK_NULL_HANDLE)
 		{
+			// L3a (design D5, [AUDIT-R5-1]): sweep remaining allocations BEFORE destroying the
+			// allocator — vmaDestroyAllocator asserts if any allocation is still outstanding.
+			// Maintain the table as the single "is this freed?" authority at every step:
+			//  (a) snapshot owners (collect only — owner->Release() erases table entries, so an
+			//      iterator over m_Allocations would be invalidated mid-sweep).
+			//  (b) owner-live (count still >0, dragged to teardown) → virtual Release(): clears the
+			//      object's m_Allocation, then the idempotent Free* erases the table entry. The
+			//      object's later destruction then sees m_Allocation==null → no-op, no double-free,
+			//      no deref of a pApp/device already torn down.
+			//  (c) remaining ownerless (aliased pool physical block / virtual-block commit / raw /
+			//      graph-local) → idempotent Free* per kind.
+			if (!m_Allocations.empty())
+			{
+				castl::vector<VulkanSubobjectBase*> owners;
+				owners.reserve(m_Allocations.size());
+				for (auto& [alloc, rec] : m_Allocations)
+				{
+					if (rec.owner) owners.push_back(rec.owner);
+				}
+				for (auto* owner : owners)
+				{
+					owner->Release();
+				}
+
+				castl::vector<VmaAllocation> stale;
+				stale.reserve(m_Allocations.size());
+				for (auto& [alloc, rec] : m_Allocations)
+				{
+					stale.push_back(alloc);
+				}
+				for (auto alloc : stale)
+				{
+					auto it = m_Allocations.find(alloc);
+					if (it == m_Allocations.end()) continue;
+					switch (it->second.kind)
+					{
+					case Kind::Buffer: FreeBuffer(it->second.buffer, alloc); break;
+					case Kind::Image: FreeImage(it->second.image, alloc); break;
+					case Kind::Memory: FreeMemory(alloc); break;
+					}
+				}
+			}
+
 			vmaDestroyAllocator(m_Allocator);
 			m_Allocator = VK_NULL_HANDLE;
 			CA_LOG_INFO("VulkanMemoryManager released");
@@ -35,7 +78,8 @@ namespace graphics_backend
 	VmaAllocation VulkanMemoryManager::AllocateBuffer(vk::BufferCreateInfo const& bufferInfo
 		, VmaAllocationCreateInfo const& allocInfo
 		, vk::Buffer& outBuffer
-		, VmaAllocationInfo* pAllocationInfo)
+		, VmaAllocationInfo* pAllocationInfo
+		, VulkanSubobjectBase* owner)
 	{
 		VkBuffer buffer;
 		VmaAllocation allocation;
@@ -55,13 +99,15 @@ namespace graphics_backend
 		}
 
 		outBuffer = buffer;
+		m_Allocations[allocation] = { Kind::Buffer, buffer, vk::Image{}, owner };
 		return allocation;
 	}
 
 	VmaAllocation VulkanMemoryManager::AllocateImage(vk::ImageCreateInfo const& imageInfo
 		, VmaAllocationCreateInfo const& allocInfo
 		, vk::Image& outImage
-		, VmaAllocationInfo* pAllocationInfo)
+		, VmaAllocationInfo* pAllocationInfo
+		, VulkanSubobjectBase* owner)
 	{
 		VkImage image;
 		VmaAllocation allocation;
@@ -81,12 +127,14 @@ namespace graphics_backend
 		}
 
 		outImage = image;
+		m_Allocations[allocation] = { Kind::Image, vk::Buffer{}, image, owner };
 		return allocation;
 	}
 
 	VmaAllocation VulkanMemoryManager::AllocateMemory(VkMemoryRequirements const& memReq
 		, VmaAllocationCreateInfo const& allocInfo
-		, VmaAllocationInfo* pAllocationInfo)
+		, VmaAllocationInfo* pAllocationInfo
+		, VulkanSubobjectBase* owner)
 	{
 		VmaAllocation allocation;
 		VkResult result = vmaAllocateMemory(m_Allocator, &memReq, &allocInfo, &allocation, pAllocationInfo);
@@ -95,15 +143,16 @@ namespace graphics_backend
 			CA_LOG_ERR("Failed to allocate raw Vulkan memory: {}", (int)result);
 			return VK_NULL_HANDLE;
 		}
+		m_Allocations[allocation] = { Kind::Memory, vk::Buffer{}, vk::Image{}, owner };
 		return allocation;
 	}
 
 	void VulkanMemoryManager::FreeMemory(VmaAllocation allocation)
 	{
-		if (allocation)
-		{
-			vmaFreeMemory(m_Allocator, allocation);
-		}
+		auto it = m_Allocations.find(allocation);
+		if (it == m_Allocations.end()) return;
+		vmaFreeMemory(m_Allocator, allocation);
+		m_Allocations.erase(it);
 	}
 
 	void* VulkanMemoryManager::MapMemory(VmaAllocation allocation)
@@ -125,17 +174,23 @@ namespace graphics_backend
 
 	void VulkanMemoryManager::FreeBuffer(vk::Buffer buffer, VmaAllocation allocation)
 	{
+		auto it = m_Allocations.find(allocation);
+		if (it == m_Allocations.end()) return;
 		if (buffer && allocation)
 		{
 			vmaDestroyBuffer(m_Allocator, buffer, allocation);
 		}
+		m_Allocations.erase(it);
 	}
 
 	void VulkanMemoryManager::FreeImage(vk::Image image, VmaAllocation allocation)
 	{
+		auto it = m_Allocations.find(allocation);
+		if (it == m_Allocations.end()) return;
 		if (image && allocation)
 		{
 			vmaDestroyImage(m_Allocator, image, allocation);
 		}
+		m_Allocations.erase(it);
 	}
 }

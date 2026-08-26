@@ -29,5 +29,7 @@ private:
 
 	static LONG ApplicationCrashHandler(EXCEPTION_POINTERS* pException);
 
+	static void AbortSignalHandler(int signalNumber);
+
 	static void CreateDumpFile(PATHTYPE lpstrDumpFilePathName, EXCEPTION_POINTERS* pException);
 };

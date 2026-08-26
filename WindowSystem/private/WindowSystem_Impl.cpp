@@ -52,28 +52,31 @@ namespace cawindow
 	void WindowSystem_ImplGlfw_KeyCallback(GLFWwindow* window, int keycode, int scancode, int action, int mods)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_KeyCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_KeyCallback)
 		{
 			keycode = WindowSystem_ImplGlfw_TranslateUntranslatedKey(keycode, scancode);
-			s_WindowSystem->m_KeyCallback(windowHandle, keycode, scancode, action, mods);
+			ws->m_KeyCallback(windowHandle, keycode, scancode, action, mods);
 		}
 	}
 
 	void WindowSystem_ImplGlfw_WindowFocusCallback(GLFWwindow* window, int focused)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_WindowFocusCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_WindowFocusCallback)
 		{
-			s_WindowSystem->m_WindowFocusCallback(windowHandle, focused);
+			ws->m_WindowFocusCallback(windowHandle, focused);
 		}
 	}
 
 	void WindowSystem_ImplGlfw_CursorPosCallback(GLFWwindow* window, double x, double y)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_CursorPosCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_CursorPosCallback)
 		{
-			s_WindowSystem->m_CursorPosCallback(windowHandle, x, y);
+			ws->m_CursorPosCallback(windowHandle, x, y);
 		}
 	}
 
@@ -82,36 +85,40 @@ namespace cawindow
 	void WindowSystem_ImplGlfw_CursorEnterCallback(GLFWwindow* window, int entered)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_CursorEnterCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_CursorEnterCallback)
 		{
-			s_WindowSystem->m_CursorEnterCallback(windowHandle, entered);
+			ws->m_CursorEnterCallback(windowHandle, entered);
 		}
 	}
 
 	void WindowSystem_ImplGlfw_CharCallback(GLFWwindow* window, unsigned int c)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_CharCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_CharCallback)
 		{
-			s_WindowSystem->m_CharCallback(windowHandle, c);
+			ws->m_CharCallback(windowHandle, c);
 		}
 	}
 
 	void WindowSystem_ImplGlfw_MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_MouseButtonCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_MouseButtonCallback)
 		{
-			s_WindowSystem->m_MouseButtonCallback(windowHandle, button, action, mods);
+			ws->m_MouseButtonCallback(windowHandle, button, action, mods);
 		}
 	}
 
 	void WindowSystem_ImplGlfw_ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_ScrollCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_ScrollCallback)
 		{
-			s_WindowSystem->m_ScrollCallback(windowHandle, xoffset, yoffset);
+			ws->m_ScrollCallback(windowHandle, xoffset, yoffset);
 		}
 	}
 
@@ -119,9 +126,10 @@ namespace cawindow
 	static void WindowSystem_ImplGlfw_WindowCloseCallback(GLFWwindow* window)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_WindowCloseCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_WindowCloseCallback)
 		{
-			s_WindowSystem->m_WindowCloseCallback(windowHandle);
+			ws->m_WindowCloseCallback(windowHandle);
 		}
 	}
 
@@ -134,18 +142,20 @@ namespace cawindow
 	void WindowSystem_ImplGlfw_WindowPosCallback(GLFWwindow* window, int x, int y)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_WindowPosCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_WindowPosCallback)
 		{
-			s_WindowSystem->m_WindowPosCallback(windowHandle, x, y);
+			ws->m_WindowPosCallback(windowHandle, x, y);
 		}
 	}
 
 	void WindowSystem_ImplGlfw_WindowSizeCallback(GLFWwindow* window, int width, int height)
 	{
 		WindowImpl* windowHandle = reinterpret_cast<WindowImpl*>(glfwGetWindowUserPointer(window));
-		if (s_WindowSystem->m_WindowSizeCallback)
+		WindowSystem* ws = s_WindowSystem;
+		if (ws && ws->m_WindowSizeCallback)
 		{
-			s_WindowSystem->m_WindowSizeCallback(windowHandle, width, height);
+			ws->m_WindowSizeCallback(windowHandle, width, height);
 		}
 	}
 
@@ -170,6 +180,17 @@ namespace cawindow
 			CA_LOG_ERR("Win32 Instance Not Exist!");
 		}
 #endif
+	}
+	WindowSystem::~WindowSystem()
+	{
+		// Design D2: a window can OUTLIVE the WindowSystem — the tester / render-backend WindowHandle
+		// hold their own shared_ptr<IWindow> ref, so a window's owned ref (m_Windows) dropping in the
+		// WindowSystem dtor does NOT destroy the window. When that window is finally destroyed (last ref
+		// drops), GLFW dispatches window events (focus/close) into the static callbacks below, which deref
+		// s_WindowSystem. If the system is gone, that deref is a use-after-free (the d3d12 all-7 crash:
+		// WindowSystem_ImplGlfw_WindowFocusCallback → freed std::function, Rax=0xDDDD...). Null the global
+		// here so any late dispatch is a no-op. The callbacks also guard s_WindowSystem defensively.
+		s_WindowSystem = nullptr;
 	}
 	castl::weak_ptr<IWindow> WindowSystem::NewWindow(int width, int height, castl::string_view const& windowName, bool visible, bool focused, bool decorate, bool floating)
 	{
