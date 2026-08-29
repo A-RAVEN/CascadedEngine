@@ -83,7 +83,10 @@ namespace imgui_display
 		void Release();
 		void UpdateIMGUI();
 		void PrepareDrawData(GPUGraph* pRenderGraph);
-		void Draw(GPUGraph* pRenderGraph);
+		// captureTarget: when valid, the same IMGUI pass is also rendered into this external offscreen RT
+		// so a test harness can Readback it (the presented backbuffer has no eTransferSrc usage). Default
+		// (invalid) keeps the original single-target behavior.
+		void Draw(GPUGraph* pRenderGraph, ImageHandle captureTarget = ImageHandle());
 		void CustomTexture(ImVec2 const& offset, ImVec2 const& size, int id = 0);
 		void DrawView(int id = 0);
 		CRenderBackend* GetRenderBackend() const { return p_RenderBackend; }
@@ -96,7 +99,7 @@ namespace imgui_display
 		}
 	public:
 		void PrepareSingleViewGUIResources(ImGuiViewport* viewPort, GPUGraph* renderGraph);
-		void DrawSingleView(ImGuiViewport* viewPort, GPUGraph* renderGraph);
+		void DrawSingleView(ImGuiViewport* viewPort, GPUGraph* renderGraph, ImageHandle captureTarget);
 		void PrepareInitViewportContext(ImGuiViewport* viewPort, castl::shared_ptr<IWindow> const& pWindow, bool mainWindow = false);
 		void ReleaseViewportContext(ImGuiViewport* viewPort);
 

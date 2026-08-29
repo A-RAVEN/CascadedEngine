@@ -4,6 +4,7 @@
 #include <CATimer/Timer.h>
 #include <ResourceManagment/D3DImageObject.h>
 #include <ResourceManagment/D3DBufferObject.h>
+#include <ResourceManagment/GPUResourceStates.h>
 #include <Utils/InterfaceTranslation.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <GPUGraph/GPUGraphExecutor.h>
@@ -471,6 +472,386 @@ namespace graphics_backend
 			callback();
 		});
 	}
+
+	// --- add-render-readback: D3D12 GPU→host readback ---
+
+	// Bytes-per-pixel for the compact copy (image→tightly-packed; the visual-assert RT format
+	// E_R8G8B8A8_UNORM equals compact RGBA8). Format→canonical-RGBA conversion is a follow-up.
+	static uint32_t D3D12ReadbackBpp(ETextureFormat format)
+	{
+		switch (format)
+		{
+		case ETextureFormat::E_R8_UNORM: return 1;
+		case ETextureFormat::E_R8G8_UNORM:
+		case ETextureFormat::E_R16_UNORM:
+		case ETextureFormat::E_R16_SFLOAT: return 2;
+		case ETextureFormat::E_R8G8B8A8_UNORM:
+		case ETextureFormat::E_B8G8R8A8_UNORM:
+		case ETextureFormat::E_R16G16_SFLOAT:
+		case ETextureFormat::E_R32_SFLOAT:
+		case ETextureFormat::E_D24_UNORM_S8_UINT:
+		case ETextureFormat::E_D32_SFLOAT: return 4;
+		case ETextureFormat::E_R16G16B16A16_UNORM:
+		case ETextureFormat::E_R16G16B16A16_SFLOAT:
+		case ETextureFormat::E_R32G32_SFLOAT: return 8;
+		case ETextureFormat::E_R32G32B32A32_SFLOAT: return 16;
+		default: return 4;
+		}
+	}
+
+	// Block host until the GPU has passed `value` on `fence` (used by the synchronous readback).
+	static void WaitD3D12Fence(ID3D12Fence* fence, uint64_t value)
+	{
+		if (fence == nullptr) return;
+		HANDLE eventHandle = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+		fence->SetEventOnCompletion(value, eventHandle);
+		WaitForSingleObject(eventHandle, INFINITE);
+		CloseHandle(eventHandle);
+	}
+
+	// D3D12 readback token. The D3D12 path is SYNCHRONOUS (record → execute → signal → wait →
+	// copy into dst all happen inside Readback(), which releases its COM objects before returning),
+	// so the token holds only the copy metadata and is already filled → Wait() is a no-op. (The
+	// earlier per-call COM-lifetime design dangled a COM object in the async token; sync removes it.)
+	class D3D12ReadbackToken : public IReadbackToken
+	{
+	public:
+		D3D12ReadbackToken(RenderBackend_D3D12* backend, std::span<uint8_t> dst)
+			: m_Backend(backend), m_Dst(dst) {}
+		~D3D12ReadbackToken() override { Release(); }
+
+		void Wait() override
+		{
+			if (m_Filled) return;
+			WaitFence();
+			UINT8* pData = nullptr;
+			if (m_ReadbackResource && SUCCEEDED(m_ReadbackResource->Map(0, nullptr, reinterpret_cast<void**>(&pData)) && pData))
+			{
+				if (m_IsImage)
+				{
+					uint64_t srcStride = m_SrcRowPitch;            // padded (footprint) row
+					uint64_t dstStride = (uint64_t)m_Width * m_Bpp; // compact row
+					for (uint32_t r = 0; r < m_Height; ++r)
+					{
+						memcpy(m_Dst.data() + r * dstStride, pData + r * srcStride, static_cast<size_t>(dstStride));
+					}
+				}
+				else
+				{
+					size_t n = static_cast<size_t>(m_ByteSize);
+					if (n > m_Dst.size()) n = m_Dst.size();
+					memcpy(m_Dst.data(), pData, n);
+				}
+				m_ReadbackResource->Unmap(0, nullptr);
+			}
+			m_Filled = true;
+		}
+
+		bool IsReady() const override { return m_Filled; }
+		void Reset() override { Release(); }
+
+		// Synchronous readback + host-visible-buffer direct path: data already in dst, no COM
+		// staging to own. Wait() is a no-op (m_Filled=true).
+		void SetCompleted(uint64_t byteSize, bool isImage, uint32_t width, uint32_t height, uint32_t rowPitch)
+		{
+			m_ByteSize = byteSize; m_IsImage = isImage;
+			m_Width = width; m_Height = height; m_RowPitch = rowPitch; m_Filled = true;
+		}
+		void SetStaging(D3D12MA::Allocation* alloc, ID3D12Resource* resource,
+			ComPtr<ID3D12CommandAllocator>&& allocator, ComPtr<ID3D12GraphicsCommandList7>&& cmdList,
+			ComPtr<ID3D12Fence>&& fence, uint64_t fenceValue,
+			uint64_t byteSize, bool isImage, uint32_t width, uint32_t height, uint32_t bpp,
+			uint32_t rowPitch, uint64_t srcRowPitch)
+		{
+			m_ReadbackAlloc = alloc;
+			m_ReadbackResource = resource;
+			m_Allocator = std::move(allocator);
+			m_CommandList = std::move(cmdList);
+			m_Fence = std::move(fence);
+			m_FenceValue = fenceValue;
+			m_ByteSize = byteSize;
+			m_IsImage = isImage;
+			m_Width = width; m_Height = height; m_Bpp = bpp; m_RowPitch = rowPitch; m_SrcRowPitch = srcRowPitch;
+		}
+
+	private:
+		void WaitFence()
+		{
+			if (m_Fence)
+			{
+				HANDLE eventHandle = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+				m_Fence->SetEventOnCompletion(m_FenceValue, eventHandle);
+				WaitForSingleObject(eventHandle, INFINITE);
+				CloseHandle(eventHandle);
+			}
+		}
+
+		void Release()
+		{
+			WaitFence(); // ensure GPU is done with the READBACK buffer before releasing it (no UAF, no in-flight free)
+			// Release the COMMAND LIST before its ALLOCATOR (a command list holds a reference to its
+			// allocator; destroying the allocator first trips the D3D12 debug layer's live-reference check).
+			if (m_CommandList) { m_CommandList->Release(); m_CommandList = nullptr; }
+			if (m_Allocator) { m_Allocator->Release(); m_Allocator = nullptr; }
+			if (m_Fence) { m_Fence->Release(); m_Fence = nullptr; }
+			if (m_ReadbackAlloc) { m_ReadbackAlloc->Release(); m_ReadbackAlloc = nullptr; }
+			m_ReadbackResource = nullptr;
+		}
+
+		RenderBackend_D3D12* m_Backend;
+		std::span<uint8_t> m_Dst;
+		ComPtr<ID3D12CommandAllocator> m_Allocator;
+		ComPtr<ID3D12GraphicsCommandList7> m_CommandList;
+		D3D12MA::Allocation* m_ReadbackAlloc = nullptr; // READBACK buffer's allocation (released in Reset/dtor)
+		ID3D12Resource* m_ReadbackResource = nullptr;
+		ComPtr<ID3D12Fence> m_Fence;
+		uint64_t m_FenceValue = 0;
+		uint64_t m_ByteSize = 0;
+		bool m_IsImage = false;
+		uint32_t m_Width = 0, m_Height = 0, m_Bpp = 0;
+		uint64_t m_RowPitch = 0;   // compact row pitch (bytes per row in dst; returned to caller)
+		uint64_t m_SrcRowPitch = 0;// padded READBACK footprint row pitch (source copy stride)
+		bool m_Filled = false;
+	};
+
+	std::unique_ptr<IReadbackToken> RenderBackend_D3D12::Readback(ImageHandle const& image, std::span<uint8_t> dst)
+	{
+		if (image.GetType() != ImageHandle::ImageType::External)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) only supports External resources (got type {}); "
+				"graph-internal/backbuffer readback deferred", (int)image.GetType());
+			return nullptr;
+		}
+		D3DImageObject* img = image.GetTexturePtr<D3DImageObject>();
+		if (img == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) null D3DImageObject");
+			return nullptr;
+		}
+		auto const& desc = img->GetDescriptor();
+		uint32_t width = desc.width, height = desc.height, bpp = D3D12ReadbackBpp(desc.format);
+		uint32_t rowPitch = width * bpp;
+		uint64_t byteSize = (uint64_t)width * height * bpp;
+		if (dst.size() < byteSize)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+
+		ID3D12Resource* srcResource = img->GetGPUResource().GetResource();
+		D3D12_RESOURCE_DESC srcDesc = srcResource->GetDesc();
+
+		// READBACK buffer of the footprint size (row pitch 256 / placement 512 aligned by the API).
+		UINT64 totalBytes = 0, rowSize = 0; UINT numRows = 0;
+		D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+		m_Device->GetCopyableFootprints(&srcDesc, 0, 1, 0, &footprint, &numRows, &rowSize, &totalBytes);
+		GPUResource readback = m_MemoryManager.AllocReadbackStagingBuffer(totalBytes > 0 ? totalBytes : byteSize);
+		D3D12MA::Allocation* readbackAlloc = readback.GetAllocation();
+		ID3D12Resource* readbackResource = readback.GetResource();
+		if (readbackAlloc == nullptr || readbackResource == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) readback buffer alloc failed");
+			return nullptr;
+		}
+
+		// One-shot command allocator + graphics command list (infrequent capture) + signal fence.
+		ComPtr<ID3D12CommandAllocator> allocator;
+		ComPtr<ID3D12GraphicsCommandList7> cmdList;
+		ComPtr<ID3D12Fence> fence;
+		if (FAILED(m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)))
+			|| FAILED(m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&cmdList)))
+			|| FAILED(m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) cmd allocator/list/fence creation failed");
+			if (readback.GetAllocation()) readback.Release();
+			return nullptr;
+		}
+		uint64_t fenceValue = 1;
+
+		// Source → COPY_SOURCE (enhanced barrier, matching the engine's barrier model).
+		ResourceState const& srcState = img->GetResourceState();
+		ResourceBarrierUsageStates srcUsages = DetermineResourceBarrierUsageStates(srcState);
+		D3D12_TEXTURE_BARRIER toCopy{};
+		toCopy.AccessBefore = srcUsages.accessState;
+		toCopy.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+		toCopy.SyncBefore = srcUsages.barrierSync;
+		toCopy.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+		toCopy.LayoutBefore = srcUsages.layoutState;
+		toCopy.LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+		toCopy.pResource = srcResource;
+		toCopy.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+
+		D3D12_TEXTURE_BARRIER rest{};
+		rest.AccessBefore = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+		rest.AccessAfter = srcUsages.accessState;
+		rest.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+		rest.SyncAfter = srcUsages.barrierSync;
+		rest.LayoutBefore = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+		rest.LayoutAfter = srcUsages.layoutState;
+		rest.pResource = srcResource;
+		rest.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+
+		CD3DX12_BARRIER_GROUP g1(1, &toCopy);
+		cmdList->Barrier(1, &g1);
+
+		D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
+		dstLoc.pResource = readbackResource;
+		dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+		dstLoc.PlacedFootprint = footprint;
+		dstLoc.PlacedFootprint.Offset = 0;
+		D3D12_TEXTURE_COPY_LOCATION srcLoc = {};
+		srcLoc.pResource = srcResource;
+		srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		srcLoc.SubresourceIndex = 0;
+		cmdList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+
+		CD3DX12_BARRIER_GROUP g2(1, &rest);
+		cmdList->Barrier(1, &g2);
+		cmdList->Close();
+
+		ID3D12CommandList* cmdListRaw = cmdList.Get();
+		m_CommandQueue->ExecuteCommandLists(1, &cmdListRaw);
+		m_CommandQueue->Signal(fence.Get(), fenceValue);
+
+		// Synchronous completion: wait the GPU copy, then copy compact bytes from the READBACK
+		// buffer (row-by-row to drop the footprint's pitch padding) into dst.
+		WaitD3D12Fence(fence.Get(), fenceValue);
+		UINT8* pData = nullptr;
+		if (SUCCEEDED(readbackResource->Map(0, nullptr, reinterpret_cast<void**>(&pData))) && pData)
+		{
+			uint64_t srcStride = footprint.Footprint.RowPitch;
+			uint64_t dstStride = (uint64_t)width * bpp;
+			for (uint32_t r = 0; r < height; ++r)
+			{
+				memcpy(dst.data() + r * dstStride, pData + r * srcStride, static_cast<size_t>(dstStride));
+			}
+			readbackResource->Unmap(0, nullptr);
+		}
+		// Drop command list before allocator (list holds an allocator ref), then free READBACK buffer.
+		cmdList.Reset();
+		allocator.Reset();
+		fence.Reset();
+		readbackAlloc->Release();
+
+		auto token = std::make_unique<D3D12ReadbackToken>(this, dst);
+		token->SetCompleted(byteSize, true, width, height, rowPitch);
+		return token;
+	}
+
+	std::unique_ptr<IReadbackToken> RenderBackend_D3D12::Readback(BufferHandle const& buffer, std::span<uint8_t> dst)
+	{
+		if (buffer.GetType() != BufferHandle::BufferType::External)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(buffer) only supports External resources (got type {}); "
+				"graph-internal readback deferred", (int)buffer.GetType());
+			return nullptr;
+		}
+		D3DBufferObject* buf = buffer.GetBufferPtr<D3DBufferObject>();
+		if (buf == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(buffer) null D3DBufferObject");
+			return nullptr;
+		}
+		uint64_t byteSize = buf->GetDescriptor().SizeInByte();
+		if (dst.size() < byteSize)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(buffer) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+
+		auto token = std::make_unique<D3D12ReadbackToken>(this, dst);
+
+		// CPU-readable heap (UPLOAD/CPU-visible buffer) → direct map, no GPU copy.
+		ID3D12Resource* srcResource = buf->GetGPUResource().GetResource();
+		{
+			UINT8* pData = nullptr;
+			if (srcResource && SUCCEEDED(srcResource->Map(0, nullptr, reinterpret_cast<void**>(&pData)) && pData))
+			{
+				size_t n = static_cast<size_t>(byteSize);
+				if (n > dst.size()) n = dst.size();
+				memcpy(dst.data(), pData, n);
+				srcResource->Unmap(0, nullptr);
+				token->SetCompleted(byteSize, false, 0, 0, 0);
+				return token;
+			}
+		}
+		// srcResource->Map may return null (or fail) for a non-host-visible DEFAULT buffer → fall to GPU copy.
+		if (srcResource == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(buffer) null source resource");
+			return nullptr;
+		}
+
+		GPUResource readback = m_MemoryManager.AllocReadbackStagingBuffer(byteSize);
+		D3D12MA::Allocation* readbackAlloc = readback.GetAllocation();
+		ID3D12Resource* readbackResource = readback.GetResource();
+		if (readbackAlloc == nullptr || readbackResource == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(buffer) readback buffer alloc failed");
+			return nullptr;
+		}
+
+		ComPtr<ID3D12CommandAllocator> allocator;
+		ComPtr<ID3D12GraphicsCommandList7> cmdList;
+		ComPtr<ID3D12Fence> fence;
+		if (FAILED(m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)))
+			|| FAILED(m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&cmdList)))
+			|| FAILED(m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(buffer) cmd allocator/list/fence creation failed");
+			if (readback.GetAllocation()) readback.Release();
+			return nullptr;
+		}
+		uint64_t fenceValue = 1;
+
+		ResourceState const& srcState = buf->GetResourceState();
+		ResourceBarrierUsageStates srcUsages = DetermineResourceBarrierUsageStates(srcState);
+		D3D12_BUFFER_BARRIER toCopy{};
+		toCopy.AccessBefore = srcUsages.accessState;
+		toCopy.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+		toCopy.SyncBefore = srcUsages.barrierSync;
+		toCopy.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+		toCopy.pResource = srcResource;
+		toCopy.Offset = 0;
+		toCopy.Size = ULLONG_MAX;
+		D3D12_BUFFER_BARRIER rest{};
+		rest.AccessBefore = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+		rest.AccessAfter = srcUsages.accessState;
+		rest.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+		rest.SyncAfter = srcUsages.barrierSync;
+		rest.pResource = srcResource;
+		rest.Offset = 0;
+		rest.Size = ULLONG_MAX;
+
+		CD3DX12_BARRIER_GROUP g1(1, &toCopy);
+		cmdList->Barrier(1, &g1);
+		cmdList->CopyBufferRegion(srcResource, 0, readbackResource, 0, byteSize);
+		CD3DX12_BARRIER_GROUP g2(1, &rest);
+		cmdList->Barrier(1, &g2);
+		cmdList->Close();
+
+		ID3D12CommandList* cmdListRaw = cmdList.Get();
+		m_CommandQueue->ExecuteCommandLists(1, &cmdListRaw);
+		m_CommandQueue->Signal(fence.Get(), fenceValue);
+
+		WaitD3D12Fence(fence.Get(), fenceValue);
+		UINT8* pData = nullptr;
+		if (SUCCEEDED(readbackResource->Map(0, nullptr, reinterpret_cast<void**>(&pData))) && pData)
+		{
+			size_t n = static_cast<size_t>(byteSize);
+			if (n > dst.size()) n = dst.size();
+			memcpy(dst.data(), pData, n);
+			readbackResource->Unmap(0, nullptr);
+		}
+		cmdList.Reset();
+		allocator.Reset();
+		fence.Reset();
+		readbackAlloc->Release();
+
+		token->SetCompleted(byteSize, false, 0, 0, 0);
+		return token;
+	}
+
 	//CA_LIBRARY_INSTANCE_LOADING_FUNCTIONS(CRenderBackend, RenderBackend_D3D12)
 }
 

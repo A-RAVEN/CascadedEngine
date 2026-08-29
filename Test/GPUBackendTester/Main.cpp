@@ -17,6 +17,7 @@
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <stb_image.h>
+#include <stb_image_write.h>
 #include <thread>
 #include <CASTL/CAString.h>
 #include <CASTL/CAChrono.h>
@@ -88,7 +89,48 @@ struct TestContext
 	castl::string assetPath;
 	castl::string resourcePath;
 	int headlessFrames = 0;
+	int captureFrame = -1; // add-render-readback: read back this frame (index into headless loop) to PNG
+	castl::string backendName = "vulkan"; // which backend is running; tags capture PNG filenames
 };
+
+// ---- Capture helper (add-render-readback extension) ----
+// Create a caller-owned (External) offscreen RT sized to a render target; it is the only legal
+// readback source for the visual-assertion path (a presented swapchain backbuffer has no eTransferSrc
+// usage and its content is undefined post-present — see design D2/D5).
+static ImageHandle CreateCaptureRT(TestContext& ctx, uint32_t w, uint32_t h)
+{
+	auto tex = ctx.pGPUBackend->CreateGPUTexture(
+		GPUTextureDescriptor::Create(w, h, ETextureFormat::E_R8G8B8A8_UNORM),
+		ETextureAccessType::eTransferSrc | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
+	return ImageHandle(tex);
+}
+
+// Read back an external offscreen RT and export it to a backend-tagged PNG so vulkan/d3d12 outputs
+// coexist: <baseName>_<backend>.png. Returns false if the backend rejected the readback.
+static bool WriteReadbackPNG(TestContext& ctx, ImageHandle const& rt, int w, int h, char const* baseName)
+{
+	std::vector<uint8_t> px(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+	auto token = ctx.pGPUBackend->Readback(rt, px);
+	if (!token)
+	{
+		std::cerr << "[capture] " << baseName << ": Readback returned null token" << std::endl;
+		return false;
+	}
+	token->Wait();
+	bool nonEmpty = false;
+	for (auto b : px) { if (b != 0) { nonEmpty = true; break; } }
+	castl::string pngPath = castl::string("test_output/") + baseName + "_" + ctx.backendName + ".png";
+	stbi_write_png(pngPath.c_str(), w, h, 4, px.data(), w * 4);
+	std::cout << baseName << ": wrote " << pngPath.c_str()
+		<< " pixelBytes=" << px.size()
+		<< " nonEmpty=" << (nonEmpty ? "true" : "false") << std::endl;
+	if (!nonEmpty)
+	{
+		std::cerr << "[capture] " << baseName << ": capture is BLANK (nonEmpty=false) - render likely broken" << std::endl;
+		return false;
+	}
+	return true;
+}
 
 // ---- Test Functions ----
 
@@ -115,12 +157,17 @@ void TestSimpleTriangle(TestContext& ctx)
 
 	ImageHandle windowBackBuffer(windowHandle);
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
-	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
-		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
-		.Rast(
-			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5, 0, 1)))
+	// add-render-readback: render the same content to an external offscreen RT so we can screenshot it.
+	ImageHandle captureRT;
+	int capW = 0, capH = 0;
+	if (ctx.captureFrame >= 0)
+	{
+		auto backDesc = windowHandle->GetBackbufferDescriptor();
+		capW = backDesc.width; capH = backDesc.height;
+		captureRT = CreateCaptureRT(ctx, capW, capH);
+	}
+	auto renderContent = [&](ImageHandle target) {
+		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5f, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
 			.Batch
 			(
@@ -131,8 +178,15 @@ void TestSimpleTriangle(TestContext& ctx)
 					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
 					.Draw(testBuffer.size())
 				)
-			)
-		);
+			);
+	};
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.Rast(renderContent(windowBackBuffer));
+	if (ctx.captureFrame >= 0)
+		newGraph->Rast(renderContent(captureRT));
 	GPUFrame newFrame;
 	newFrame.pGraph = newGraph;
 
@@ -143,6 +197,8 @@ void TestSimpleTriangle(TestContext& ctx)
 ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestSimpleTriangle");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -155,6 +211,85 @@ ctx.pWindowSystem->UpdateSystem();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 		}
 		ctx.pGPUBackend->WaitIdle();
+	}
+}
+
+// add-render-readback: closed-loop validation — render a triangle to a SELF-BUILT offscreen RT
+// (External/caller-owned, design D2/D5: readback source must be an offscreen RT, not the
+// presented backbuffer) then Readback it, wait, export PNG + assert non-empty.
+void TestReadback(TestContext& ctx)
+{
+	auto newWindow = ctx.pWindowSystem->NewWindow(1024, 512, "TestReadback");
+	auto windowHandle = ctx.pGPUBackend->GetWindowHandle(newWindow.lock());
+	struct VertexStruct
+	{
+		std::array<float, 3> pos;
+		std::array<float, 3> color;
+	};
+	cacore::HashObj<VertexInputsDescriptor> descs = VertexInputsDescriptor::Create(sizeof(VertexStruct),
+		{
+			VertexAttribute::Create(offsetof(VertexStruct, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+			VertexAttribute::Create(offsetof(VertexStruct, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
+		}, false);
+
+	std::vector<VertexStruct> testBuffer = {
+		{{-0.9f, -0.9f, 0.25f }, {1.0f, 0.0f, 0.0f}},
+		{{0.9f, -0.9f, 0.25f }, {0.0f, 1.0f, 0.0f}},
+		{{0.0f, 0.9f, 0.25f }, {0.0f, 0.0f, 1.0f}},
+	};
+
+	// Self-built offscreen RT: caller-owned (External) + eTransferSrc so it's readable via readback.
+	uint32_t const RT_W = 256, RT_H = 256;
+	auto offscreenRT = ctx.pGPUBackend->CreateGPUTexture(
+		GPUTextureDescriptor::Create(RT_W, RT_H, ETextureFormat::E_R8G8B8A8_UNORM),
+		ETextureAccessType::eTransferSrc | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
+	ImageHandle rtImage(offscreenRT);
+
+	ImageHandle windowBackBuffer(windowHandle);
+	BufferHandle vbuffer(CANAME("ReadbackVertBuffer"));
+	// Render the triangle to BOTH the backbuffer (so the present semaphore signals normally —
+	// VUID-vkQueuePresentKHR-pWaitSemaphores-03268 requires signaled present semaphores) and the
+	// offscreen RT (the readback source). The offscreen pass is what we read back.
+	auto makeTrianglePass = [&](ImageHandle target) {
+		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0.2f, 0.0f, 0.2f, 1.0f)))
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
+			.Batch
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), descs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.Draw(testBuffer.size())
+				)
+			);
+	};
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.Rast(makeTrianglePass(windowBackBuffer))
+		.Rast(makeTrianglePass(rtImage));
+	GPUFrame newFrame;
+	newFrame.pGraph = newGraph;
+
+	bool captured = false;
+	int frames = ctx.headlessFrames > 0 ? ctx.headlessFrames : 1;
+	for (int i = 0; i < frames; ++i)
+	{
+		ctx.pWindowSystem->UpdateSystem();
+		auto scheduler = ctx.pThreadManager->NewScheduler();
+		ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+		if (i == ctx.captureFrame)
+		{
+			captured = WriteReadbackPNG(ctx, rtImage, RT_W, RT_H, "readback");
+		}
+	}
+	ctx.pGPUBackend->WaitIdle();
+	if (ctx.captureFrame >= 0 && !captured)
+	{
+		// closed-loop validation: a requested readback that produced a null/blank frame is a real failure.
+		throw std::runtime_error("TestReadback: requested capture frame " + std::to_string(ctx.captureFrame) + " but readback was null/blank");
 	}
 }
 
@@ -191,13 +326,16 @@ void TestTriangleWithConstantColor(TestContext& ctx)
 	ImageHandle depthBuffer(CANAME("WindowDepth"));
 	GPUTextureDescriptor depthTextureDesc = windowHandle->GetBackbufferDescriptor();
 	depthTextureDesc.format = ETextureFormat::E_D32_SFLOAT;
-	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-	newGraph->Present(windowBackBuffer)
-		.AllocImage(depthBuffer, depthTextureDesc)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
-		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
-		.Rast(
-			RenderPass::New(windowBackBuffer, depthBuffer, AttachmentConfig::Clear(), AttachmentConfig::ClearDepthStencil())
+	ImageHandle captureRT;
+	int capW = 0, capH = 0;
+	if (ctx.captureFrame >= 0)
+	{
+		auto backDesc = windowHandle->GetBackbufferDescriptor();
+		capW = backDesc.width; capH = backDesc.height;
+		captureRT = CreateCaptureRT(ctx, capW, capH);
+	}
+	auto renderContent = [&](ImageHandle target) {
+		return RenderPass::New(target, depthBuffer, AttachmentConfig::Clear(), AttachmentConfig::ClearDepthStencil())
 			.SetAttachmentConfig(0, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetDepthAttachmentConfig(AttachmentConfig::ClearDepthStencil())
 			.SetParam(CANAME("constantColorBlock"), pConstantColor)
@@ -211,8 +349,16 @@ void TestTriangleWithConstantColor(TestContext& ctx)
 					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
 					.Draw(testBuffer.size())
 				)
-			)
-		);
+			);
+	};
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocImage(depthBuffer, depthTextureDesc)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.Rast(renderContent(windowBackBuffer));
+	if (ctx.captureFrame >= 0)
+		newGraph->Rast(renderContent(captureRT));
 	GPUFrame newFrame;
 	newFrame.pGraph = newGraph;
 	castl::chrono::high_resolution_clock timer;
@@ -234,6 +380,8 @@ ctx.pWindowSystem->UpdateSystem();
 			{
 				colorStructs[j]->SetValue(CANAME("color"), glm::vec3(1.0f, j * 0.5f, 0.0f) * (castl::cos(elapsedTime) * 0.5f + 0.5f));
 			}
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestTriangleWithConstantColor");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -285,14 +433,16 @@ void TestTriangleWithStructuredBufferColor(TestContext& ctx)
 
 	ImageHandle windowBackBuffer(windowHandle);
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
-	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
-		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
-		.AllocBuffer(structuredColorBuffer, GPUBufferDescriptor::Create(1, sizeof(glm::vec3)))
-		.ScheduleData(structuredColorBuffer, &testColor, sizeof(testColor))
-		.Rast(
-			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
+	ImageHandle captureRT;
+	int capW = 0, capH = 0;
+	if (ctx.captureFrame >= 0)
+	{
+		auto backDesc = windowHandle->GetBackbufferDescriptor();
+		capW = backDesc.width; capH = backDesc.height;
+		captureRT = CreateCaptureRT(ctx, capW, capH);
+	}
+	auto renderContent = [&](ImageHandle target) {
+		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetParam(CANAME("structuredColorBlock"), pStructuredColor)
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithStructuredBufferColor") })
 			.Batch
@@ -304,8 +454,17 @@ void TestTriangleWithStructuredBufferColor(TestContext& ctx)
 					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
 					.Draw(testBuffer.size())
 				)
-			)
-		);
+			);
+	};
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(testBuffer.size(), sizeof(testBuffer[0])))
+		.ScheduleData(vbuffer, testBuffer.data(), testBuffer.size() * sizeof(testBuffer[0]))
+		.AllocBuffer(structuredColorBuffer, GPUBufferDescriptor::Create(1, sizeof(glm::vec3)))
+		.ScheduleData(structuredColorBuffer, &testColor, sizeof(testColor))
+		.Rast(renderContent(windowBackBuffer));
+	if (ctx.captureFrame >= 0)
+		newGraph->Rast(renderContent(captureRT));
 	GPUFrame newFrame;
 	newFrame.pGraph = newGraph;
 
@@ -316,6 +475,8 @@ void TestTriangleWithStructuredBufferColor(TestContext& ctx)
 ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestTriangleWithStructuredBufferColor");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -407,12 +568,16 @@ void TestTriangleWithImageBuffer(TestContext& ctx)
 
 	BufferHandle vbuffer(CANAME("TestVertBuffer"));
 	BufferHandle ibuffer(CANAME("TestIndicesBuffer"));
-	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-	newGraph->Present(windowBackBuffer)
-		.AllocAndUploadBuffer(vbuffer, testBuffer)
-		.AllocAndUploadBuffer(ibuffer, indicesBuffer)
-		.Rast(
-			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
+	ImageHandle captureRT;
+	int capW = 0, capH = 0;
+	if (ctx.captureFrame >= 0)
+	{
+		auto backDesc = windowHandle->GetBackbufferDescriptor();
+		capW = backDesc.width; capH = backDesc.height;
+		captureRT = CreateCaptureRT(ctx, capW, capH);
+	}
+	auto renderContent = [&](ImageHandle target) {
+		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestTriangleWithTextureSampling") })
 			.SetParam(CANAME("textureData"), imageStruct)
 			.Batch
@@ -425,8 +590,15 @@ void TestTriangleWithImageBuffer(TestContext& ctx)
 					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
 					.DrawIndexed(indicesBuffer.size())
 				)
-			)
-		);
+			);
+	};
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocAndUploadBuffer(vbuffer, testBuffer)
+		.AllocAndUploadBuffer(ibuffer, indicesBuffer)
+		.Rast(renderContent(windowBackBuffer));
+	if (ctx.captureFrame >= 0)
+		newGraph->Rast(renderContent(captureRT));
 
 	if (ctx.headlessFrames > 0)
 	{
@@ -435,6 +607,8 @@ void TestTriangleWithImageBuffer(TestContext& ctx)
 ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestTriangleWithImageBuffer");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -551,6 +725,32 @@ void TestDoublePass(TestContext& ctx)
 	blitStruct->SetImage(CANAME("testTexture"), pass0RT, GPUTextureView::CreateDefaultForRenderTarget());
 	blitStruct->SetSampler(CANAME("testSampler"), TextureSamplerDescriptor::LinearClamp());
 
+	ImageHandle captureRT;
+	int capW = 0, capH = 0;
+	if (ctx.captureFrame >= 0)
+	{
+		auto backDesc = windowHandle->GetBackbufferDescriptor();
+		capW = backDesc.width; capH = backDesc.height;
+		captureRT = CreateCaptureRT(ctx, capW, capH);
+	}
+	// The visible content is the final blit of pass0RT to the target; blitPass(target) can be
+	// emitted to both the backbuffer (present) and the captureRT (readback), sampling the same pass0RT.
+	auto blitPass = [&](ImageHandle target) {
+		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestBlitToScreenPass") })
+			.SetParam(CANAME("textureData"), blitStruct)
+			.Batch
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), blitpassDescs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), testVertexBuffer1)
+					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
+					.DrawIndexed(indicesBuffer.size())
+				)
+			);
+	};
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
 		//.AllocAndUploadBuffer(vbuffer, testBuffer)
@@ -572,22 +772,9 @@ void TestDoublePass(TestContext& ctx)
 				)
 			)
 		)
-		.Rast(
-			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
-			.SetShaderInfo({ CAPATH("Shaders/Test/TestBlitToScreenPass") })
-			.SetParam(CANAME("textureData"), blitStruct)
-			.Batch
-			(
-				DrawCallBatch::New()
-				.VertexStream(CANAME("TestVerticesInput"), blitpassDescs)
-				.DrawCall(
-					DrawCall::New()
-					.SetVertexBuffer(CANAME("TestVerticesInput"), testVertexBuffer1)
-					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
-					.DrawIndexed(indicesBuffer.size())
-				)
-			)
-		);
+		.Rast(blitPass(windowBackBuffer));
+	if (ctx.captureFrame >= 0)
+		newGraph->Rast(blitPass(captureRT));
 
 	if (ctx.headlessFrames > 0)
 	{
@@ -596,6 +783,8 @@ void TestDoublePass(TestContext& ctx)
 ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestDoublePass");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -671,15 +860,17 @@ void TestComputeBuffer(TestContext& ctx)
 	auto computeParams = ctx.pGPUBackend->CreateShaderStruct(CANAME("TestComputeBufferParams"));
 	computeParams->SetBuffer(CANAME("RWVertexBuffer"), vbuffer);
 
-	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
-	newGraph->Present(windowBackBuffer)
-		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(4, sizeof(float) * 3))
-		.Comp(ComputeBatch::New(true)
-			.SetParam(CANAME("computeParams"), computeParams)
-			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1))
-		)
-		.Rast(
-			RenderPass::New(windowBackBuffer, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
+	ImageHandle captureRT;
+	int capW = 0, capH = 0;
+	if (ctx.captureFrame >= 0)
+	{
+		auto backDesc = windowHandle->GetBackbufferDescriptor();
+		capW = backDesc.width; capH = backDesc.height;
+		captureRT = CreateCaptureRT(ctx, capW, capH);
+	}
+	// The compute pass runs once and fills vbuffer; both the backbuffer and captureRT rasters consume it.
+	auto renderContent = [&](ImageHandle target) {
+		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestNaiveTriangle") })
 			.Batch
 			(
@@ -691,8 +882,18 @@ void TestComputeBuffer(TestContext& ctx)
 					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
 					.DrawIndexed(indicesBuffer.size())
 				)
-			)
-		);
+			);
+	};
+	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
+	newGraph->Present(windowBackBuffer)
+		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(4, sizeof(float) * 3))
+		.Comp(ComputeBatch::New(true)
+			.SetParam(CANAME("computeParams"), computeParams)
+			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1))
+		)
+		.Rast(renderContent(windowBackBuffer));
+	if (ctx.captureFrame >= 0)
+		newGraph->Rast(renderContent(captureRT));
 
 	castl::chrono::high_resolution_clock timer;
 	auto startTime = timer.now();
@@ -707,6 +908,8 @@ auto elapsedTime = timer.now() - startTime;
 			ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestComputeBuffer");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -741,6 +944,15 @@ void TestIMGUI(TestContext& ctx)
 
 	auto windowHandle = ctx.pGPUBackend->GetWindowHandle(newWindow.lock());
 
+	ImageHandle captureRT;
+	int capW = 0, capH = 0;
+	if (ctx.captureFrame >= 0)
+	{
+		auto backDesc = windowHandle->GetBackbufferDescriptor();
+		capW = backDesc.width; capH = backDesc.height;
+		captureRT = CreateCaptureRT(ctx, capW, capH);
+	}
+
 	if (ctx.headlessFrames > 0)
 	{
 		for (int i = 0; i < ctx.headlessFrames; ++i)
@@ -755,7 +967,10 @@ ctx.pWindowSystem->UpdateSystem();
 
 			auto& contexts = ctx.pIMGUIContext->GetTextureViewContexts();
 
-			ctx.pIMGUIContext->Draw(frameGraph.get());
+			ImageHandle drawTarget;
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				drawTarget = captureRT;
+			ctx.pIMGUIContext->Draw(frameGraph.get(), drawTarget);
 
 			auto& presentSurfaces = ctx.pIMGUIContext->GetWindowHandles();
 			for (auto& surface : presentSurfaces)
@@ -763,6 +978,8 @@ ctx.pWindowSystem->UpdateSystem();
 				frameGraph->Present(ImageHandle(surface));
 			}
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), frameGraph);
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
+				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestIMGUI");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -868,6 +1085,7 @@ int main(int argc, char* argv[])
 	bool showHelp = false;
 	int headlessFrames = 0;
 	int headlessTimeout = 60;
+	int captureFrame = -1;
 	castl::string reportPath;
 
 	for (int i = 1; i < argc; ++i)
@@ -941,6 +1159,23 @@ int main(int argc, char* argv[])
 			}
 			reportPath = argv[++i];
 		}
+		else if (strcmp(argv[i], "--capture") == 0)
+		{
+			if (i + 1 >= argc)
+			{
+				std::cerr << "Error: --capture requires a frame index" << std::endl;
+				return 1;
+			}
+			++i;
+			char* end = nullptr;
+			long val = strtol(argv[i], &end, 10);
+			if (*end != '\0' || val < 0)
+			{
+				std::cerr << "Error: --capture value must be a non-negative integer, got: " << argv[i] << std::endl;
+				return 1;
+			}
+			captureFrame = static_cast<int>(val);
+		}
 		else
 		{
 			std::cerr << "Error: Unknown argument: " << argv[i] << std::endl;
@@ -961,6 +1196,7 @@ int main(int argc, char* argv[])
 		std::cout << "  --headless <N>             Run N frames then exit (headless mode)\n";
 		std::cout << "  --headless-timeout <N>     Headless timeout in seconds (default: 60)\n";
 		std::cout << "  --report <path>            Output test results as JSON (headless default: test_output/result.json)\n";
+		std::cout << "  --capture <N>              Read back headless frame N to test_output/<test>.png\n";
 		std::cout << "  --help                     Show this help message\n";
 		return 0;
 	}
@@ -975,6 +1211,7 @@ int main(int argc, char* argv[])
 		std::cout << "  TestTriangleWithImageBuffer\n";
 		std::cout << "  TestDoublePass\n";
 		std::cout << "  TestComputeBuffer\n";
+		std::cout << "  TestReadback\n";
 		std::cout << "  TestIMGUI\n";
 		return 0;
 	}
@@ -994,6 +1231,8 @@ int main(int argc, char* argv[])
 	// ---- Initialize TestContext ----
 	TestContext ctx;
 	ctx.headlessFrames = headlessFrames;
+	ctx.captureFrame = captureFrame;
+	ctx.backendName = backendName;
 
 	// Decision 4: Derive project root from exe path via sentinel file traversal
 	// This replaces the fragile CWD-dependent "../../../../" which breaks at wrong CWD depths.
@@ -1194,6 +1433,8 @@ int main(int argc, char* argv[])
 			runTestWithDiagnostics("TestDoublePass", TestDoublePass);
 		else if (strcmp(testName.c_str(), "TestComputeBuffer") == 0)
 			runTestWithDiagnostics("TestComputeBuffer", TestComputeBuffer);
+		else if (strcmp(testName.c_str(), "TestReadback") == 0)
+			runTestWithDiagnostics("TestReadback", TestReadback);
 		else if (strcmp(testName.c_str(), "TestIMGUI") == 0)
 			runTestWithDiagnostics("TestIMGUI", TestIMGUI);
 		else
@@ -1212,6 +1453,7 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestTriangleWithImageBuffer", TestTriangleWithImageBuffer);
 		runTestWithDiagnostics("TestDoublePass", TestDoublePass);
 		runTestWithDiagnostics("TestComputeBuffer", TestComputeBuffer);
+		runTestWithDiagnostics("TestReadback", TestReadback);
 		runTestWithDiagnostics("TestIMGUI", TestIMGUI);
 	}
 

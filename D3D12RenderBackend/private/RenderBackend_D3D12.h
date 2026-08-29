@@ -49,6 +49,10 @@ namespace graphics_backend
 
 		virtual void RunTestCode() override;
 
+		// add-render-readback: cross-backend GPU→host readback (implementation in RenderBackend_D3D12.cpp).
+		std::unique_ptr<IReadbackToken> Readback(ImageHandle const& image, std::span<uint8_t> dst) override;
+		std::unique_ptr<IReadbackToken> Readback(BufferHandle const& buffer, std::span<uint8_t> dst) override;
+
 		uint64_t GetCurrentFrameVersion() const
 		{
 			return m_ResourceVersion.load();

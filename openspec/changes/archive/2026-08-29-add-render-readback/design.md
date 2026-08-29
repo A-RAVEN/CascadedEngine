@@ -40,10 +40,9 @@
 ```cpp
 class IReadbackToken {
 public:
-    virtual void Wait() = 0;                 // 阻塞直到 GPU 系统将该读回写入 dst 完成
-    virtual bool IsReady() const = 0;        // 无阻塞查询（可选）
-    virtual uint64_t GetByteSize() const = 0;// 实际写入字节数
-    virtual void Reset() = 0;                // 归还内部 staging（见 D5 所有权）
+    virtual void Wait() = 0;          // 阻塞直到 GPU 系统将该读回写入 dst 完成
+    virtual bool IsReady() const = 0; // 无阻塞查询
+    virtual void Reset() = 0;         // 归还内部 staging/sync（幂等）
 };
 
 virtual std::unique_ptr<IReadbackToken> Readback(ImageHandle const&,  span<uint8_t> dst) = 0;
@@ -51,7 +50,7 @@ virtual std::unique_ptr<IReadbackToken> Readback(BufferHandle const&, span<uint8
 ```
 
 - **不**引入统一 resource handle（沿用现有 `ImageHandle`/`BufferHandle`，最小改动、复用具体类型语义）。
-- `dst` 所有权在调用者；大小须 ≥ 读回所需字节（读回字节数由接口元信息/`GetByteSize()` 说明）。**接口层须校验 `dst.size()` ≥ 所需字节，越界即报错拒绝**（载入 spec 的"载体过小"场景）。
+- `dst` 所有权在调用者；大小须 ≥ 读回所需字节。**所需字节由资源 descriptor 推导**：Image = `width*height*GetFormatBlockSize(format)`（紧凑）；Buffer = `descriptor.SizeInByte()`。**接口层须校验 `dst.size()` ≥ 所需字节，越界即报错拒绝**（载入 spec 的"载体过小"场景）。**token 不携带资源元数据**——width/height/format 由 `GPUTexture::GetDescriptor()`（/`GPUBuffer::GetDescriptor()`）随时可查，`GetFormatBlockSize(format)` 随时算 bpp；这些是贴图/资源自身属性，不跟随读回 handle。
 - `Wait()` 是唯一同步点；`Wait()` 后 `dst` 填好。
 - `Reset()` 与 `unique_ptr` RAII 的所有权**定死**（见 D5）：token 的析构**不**释放还在飞的 staging；`Reset()` 显式归还。二者不一致时以 D5 为准。
 
@@ -90,21 +89,19 @@ Image（External / Internal RT）
 
 **Image vs Buffer 差异**：Image 需 layout 转换 + pitch/格式处理；Buffer 是线性字节（无 pitch，size=字节数），host-visible 还能零拷贝直 map。
 
-### D5: Graph-internal 资源解析（架构关键，R1-4）
+### D5: Graph-internal 资源解析（实施时定稿 —— **读回只支持 External（调用者持有）资源；graph-internal 读回另立 change**）
 
-Internal 型 `ImageHandle`/`BufferHandle` 的资源由 graph executor 的 **local resource manager** 持有，栈上、`ExecuteGraph` 返回即析构。**读回 Internal 资源必须先让该资源以"后端可寻址"的身份活着。**
+Internal 型 `ImageHandle`/`BufferHandle` 的资源由 graph executor 的 **local resource manager** 持有，栈上、`ExecuteGraph` 返回即析构；两个后端都在 `ExecuteGraph` 返回**之前**清空 graph-local 资源映射表（Vulkan `ReleaseAllResources`、D3D12 `Reset`）。
 
-方向（二选一，**需拍板后定稿**，先记默认）：
-- **A（导出资源表，默认）**：`ExecuteGraph` 结束时把 `ResourceHandleKey → {后端资源句柄, layout, format, extent, 大小}` 导出到 `RenderBackend` 侧的一张存活表（后端持有），`Readback(InternalHandle)` 查表取资源。资源由表持有直至帧/图生命周期结束（引用计数或显式归还）。
-- **B（延长 local manager 生命周期）**：让 graph local resource manager 存活到 `Readback` 之后（或按 `ResourceHandleKey` 惰性重建资源）。
+**实施时确认（2026-08-28）**：读回是"把调用者给的资源拷贝到 CPU span"的**纯拷贝**，**不背资源生命周期**。调用者（tester）自己持有读回目标（External：`CreateGPUTexture`/`CreateGPUBuffer`），`Readback` 经 `GetTexturePtr<VulkanTexture>()`/`GetBufferPtr<D3DImageObject>()` 直解，资源 `shared_ptr` 终身有效 → **不需要 D5-A / D5-B**。D5-A（导出资源表）需在 `Release`/`Reset` 前抓表 + 所有权转移、D3D12 还要保 aliased frame-context 存活（真实 UAF 风险），其前提与代码不符；**graph-internal 读回（Internal handle）是一个独立的资源生命周期问题，不在本 change 范围**，从 `Readback` 的职责里剔除，另立 change。
 
-> A 更解耦：读回不依赖 graph executor 内部对象存亡；B 改动更小但把局部对象生命周期拉长。**默认 A，待 apply 时确认 `ExecuteGraph` 结束点与 graph local 资源表可导出性。**
+> 影响：`Readback(Internal Handle)` 报错拒绝（"只支持 External"）；读回源 = 调用者自建 External 离屏 RT / 外部 resources。graph-internal（含 compute 输出 buffer）读回**暂缓**。
 
 ### D3（载入原 D3）：载体内容形态（定死）
 
-- **Image → 紧凑 RGBA**（选项 B）：后端解码到 `w*h*4` 紧凑像素（去 pitch、swizzle/颜色空间到 RGBA），`dst` 即紧凑像素，`stbi_write_png` 一步到位。原始带 pitch 拷贝（选项 A）本 change 不提供（如需另案）。
-- **Buffer → 原始线性字节**：`dst` 收 buffer 字节（size = buffer byte 数），无 A/B 之分。
-- **接口元信息**：image 需把 `{宽度,高度,rowPitch,实际写入字节}` 暴露（供调用者解释 dst / `GetByteSize()`）。`GetByteSize()` 此处定死为"实际写入字节数"，消除原"extent*rowPitch 或紧凑像素"歧义。
+- **Image → 紧凑字节**：后端把图像按 `width*height*GetFormatBlockSize(format)` **紧凑**拷贝到 `dst`（去 pitch padding；`E_R8G8B8A8_UNORM` 即紧凑 RGBA8，`stbi_write_png` 一步到位）。原始带 pitch 拷贝（选项 A）本 change 不提供（如需另案）。
+- **Buffer → 原始线性字节**：`dst` 收 buffer 字节（size = `descriptor.SizeInByte()`），无 A/B 之分。
+- **载体元数据不在 token 上**：调用者解释 dst 所需的信息（width/height/format/字节数）**随时**由资源自身的 `GPUTexture::GetDescriptor()`（/`GPUBuffer::GetDescriptor()`）提供，bpp 经 `GetFormatBlockSize(format)` 计算——**不是读回 handle 的专属**。读回载体"紧凑字节"契约在此定死（消除"extent*rowPitch 或紧凑像素"歧义），无需 token 暴露 `{width,height,rowPitch,byteSize}`。
 
 ### D6: Vulkan 实现路径
 
@@ -118,6 +115,7 @@ Internal 型 `ImageHandle`/`BufferHandle` 的资源由 graph executor 的 **loca
 - **buffer**：`GetBufferPtr<D3D12BufferObject>()`（或经 graph 导出表）→ CPU 可达 heap 直 map；否则 `D3D12_HEAP_TYPE_READBACK` buffer + `CopyBufferRegion` + 资源 barrier（src `COPY_SOURCE`）+ fence。
 - **image**：`D3D12_HEAP_TYPE_READBACK`（`D3D12_HEAP_FLAG_NONE`）→ resource barrier（src `COPY_SOURCE`）→ `CopyTextureRegion`（dst rowPitch/slicePitch 对齐：`D3D12_TEXTURE_DATA_PITCH_ALIGNMENT=256`、`PLACEMENT_ALIGNMENT=512`）→ fence → map → memcpy → unmap。
 - **Graph-internal 资源**：经 D5 资源表解析。
+- **⚠️ 待修：D3D12 回读当前为同步兜底，需改为异步与 Vulkan 对齐**——实施时因异步 token 自管 per-call COM 生命周期悬垂（`ACCESS_VIOLATION`/`Rip=0x0`，见 Review Log Round 2 #3），暂以"读回函数内同步做完、token 不持 COM"规避；`Wait/IsReady/Reset` 在 D3D12 上为 no-op，造成跨端不对称。**改回异步的路线与验收口径见 `docs/TODO.md`（2026-08-28「D3D12 回读改为异步」条）**（优先复用引擎 `CommandListManager`/`FrameContext`，或正确修复 per-call COM 生命周期）。
 
 ### D8: 数据流（测试接入）
 
@@ -162,6 +160,6 @@ GPUBackendTester
 回滚：各点 `git revert`。
 
 ## Open Questions
-- ~~**D5 A vs B**~~ —— **已定 A（导出资源表）**，用户确认（2026-08-26）。若 apply 中确认 `ExecuteGraph` 结束点无法导出资源表，则回退 B（延长 local manager 生命周期）并记录。
-- **离屏 RT 由谁管**：tester 自建（每次 capture 建/复用）？默认 tester 自建（复用现有 `CreateGPUTexture`，经 task 1.5 加 `eTransferSrc`）。—— tester 集成时定。
+- ~~**D5 A vs B**~~ —— **已定：读回只支持 External（调用者持有）资源；graph-internal 读回不在本 change**（用户 2026-08-28 定向：读回=纯拷贝、不背资源生命周期）。实施时确认两个后端都在 `ExecuteGraph` 返回前清空 graph-local 表、D5-A 需在 `Release`/`Reset` 前抓表+所有权转移+D3D12 保 frame-context（真实 UAF 风险），故不做 D5；`Readback(Internal)` 报错拒绝，graph-internal 读回另立 change。
+- **离屏 RT 由谁管**：**已定 tester 自建（External）**——`TestReadback` 用 `CreateGPUTexture(desc, eTransferSrc|eTransferDst|eRT)` 自建离屏 RT，渲染后 `Readback` 读回。已落地。
 - **`--capture` 的离屏 RT 来源**：**已定——capture 帧渲染到自建离屏 RT**（带 `eTransferSrc|eTransferDst|eColorAttachment`），与 backbuffer 完全解耦。现有 7 测试**主 pass 仍渲染到 backbuffer 并正常 present**（headless 下窗口可见/正常关闭），仅 `--capture` 的指定帧额外走离屏 RT 路径（该帧渲到 RT 读回），不改变其它帧/测试的 present 行为。已在 D2/D8 明确。

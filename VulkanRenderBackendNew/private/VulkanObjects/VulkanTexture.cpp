@@ -136,6 +136,15 @@ namespace graphics_backend
 		{
 			imageInfo.usage |= vk::ImageUsageFlagBits::eSampled;
 		}
+		// add-render-readback: eTransferSrc lets this texture be read back via
+		// vkCmdCopyImageToBuffer (an offscreen RT must carry TRANSFER_SRC, else the copy is
+		// invalid — VUID-vkCmdCopyImageToBuffer-srcImage-00186). Matches
+		// VulkanGraphLocalResourceManager::GetTextureImageUsage. The enum bit already exists
+		// (Common.h); only this usage wiring was missing on the external CreateGPUTexture path.
+		if ((accessType & ETextureAccessType::eTransferSrc) != ETextureAccessTypeFlags{})
+		{
+			imageInfo.usage |= vk::ImageUsageFlagBits::eTransferSrc;
+		}
 
 		// Allocation info
 		VmaAllocationCreateInfo allocInfo{};

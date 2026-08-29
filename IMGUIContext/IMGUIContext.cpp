@@ -683,7 +683,7 @@ namespace imgui_display
 		}
 	}
 
-	void IMGUIContext::Draw(GPUGraph* pRenderGraph)
+	void IMGUIContext::Draw(GPUGraph* pRenderGraph, ImageHandle captureTarget)
 	{
 		auto& io = ImGui::GetIO();
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -692,7 +692,7 @@ namespace imgui_display
 			for (int i = 0; i < platform_io.Viewports.Size; i++)
 			{
 				ImGuiViewport* viewport = platform_io.Viewports[i];
-				DrawSingleView(viewport, pRenderGraph);
+				DrawSingleView(viewport, pRenderGraph, captureTarget);
 			}
 		}
 	}
@@ -824,41 +824,53 @@ namespace imgui_display
 		}
 	);
 
-	void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, GPUGraph* renderGraph)
+	void IMGUIContext::DrawSingleView(ImGuiViewport* viewPort, GPUGraph* renderGraph, ImageHandle captureTarget)
 	{
 		IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewPort->PlatformUserData;
 		if (!pUserData->m_Draw)
 			return;
 		auto backBuffer = p_RenderBackend->GetWindowHandle(pUserData->pWindowHandle);
 
-		auto renderPass = RenderPass::New(backBuffer, AttachmentConfig::Clear())
-			.Name(CANAME("IMGUI View"))
-			.SetPipelineState({ {}, {}, ColorAttachmentsBlendStates::AlphaTransparent()})
-			.SetParam(CANAME("imguiCommon"), pUserData->m_ShaderStruct)
-			.SetShaderInfo({"Shaders/Imgui"});
+		// Build the IMGUI pass targeting a given image. It is emitted to the window backbuffer always
+		// (so vkQueuePresent / present semaphores stay valid) and, when a capture target is supplied,
+		// also to an external offscreen RT that a test harness can Readback — the presented backbuffer
+		// has no eTransferSrc usage, so it cannot be a readback source (design D2/D5).
+		auto buildViewPass = [&](ImageHandle target) {
+			auto renderPass = RenderPass::New(target, AttachmentConfig::Clear())
+				.Name(CANAME("IMGUI View"))
+				.SetPipelineState({ {}, {}, ColorAttachmentsBlendStates::AlphaTransparent()})
+				.SetParam(CANAME("imguiCommon"), pUserData->m_ShaderStruct)
+				.SetShaderInfo({"Shaders/Imgui"});
 
-		for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
-		{
-			auto& sissors = pUserData->m_Sissors[i];
-			auto& indexDataOffset = pUserData->m_IndexDataOffsets[i];
-			auto bindings = pUserData->m_TextureBindings[i];
+			for (uint32_t i = 0; i < pUserData->m_IndexDataOffsets.size(); ++i)
+			{
+				auto& sissors = pUserData->m_Sissors[i];
+				auto& indexDataOffset = pUserData->m_IndexDataOffsets[i];
+				auto bindings = pUserData->m_TextureBindings[i];
 
-			renderPass.DrawCall
-			(
-				DrawCallBatch::New()
-				.SetParam(CANAME("imguiTextureBinding"), bindings)
-				.VertexStream(CANAME("ImguiVertexBuf"), vertexInputDesc)
-				.DrawCall
+				renderPass.DrawCall
 				(
-					DrawCall::New()
-					.SetIndexBuffer(EIndexBufferType::e16, pUserData->m_IndexBuffer, 0)
-					.SetVertexBuffer(CANAME("ImguiVertexBuf"), pUserData->m_VertexBuffer)
-					.Scissor(sissors.x, sissors.y, sissors.z, sissors.w)
-					.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset))
-				)
-			);
-		}
-		renderGraph->AddPass(renderPass);
+					DrawCallBatch::New()
+					.SetParam(CANAME("imguiTextureBinding"), bindings)
+					.VertexStream(CANAME("ImguiVertexBuf"), vertexInputDesc)
+					.DrawCall
+					(
+						DrawCall::New()
+						.SetIndexBuffer(EIndexBufferType::e16, pUserData->m_IndexBuffer, 0)
+						.SetVertexBuffer(CANAME("ImguiVertexBuf"), pUserData->m_VertexBuffer)
+						.Scissor(sissors.x, sissors.y, sissors.z, sissors.w)
+						.DrawIndexed(castl::get<2>(indexDataOffset), 1, castl::get<0>(indexDataOffset), castl::get<1>(indexDataOffset))
+					)
+				);
+			}
+			renderGraph->AddPass(renderPass);
+		};
+		buildViewPass(backBuffer);
+		// The capture RT is sized to the main window backbuffer; only the main viewport may draw into it
+		// (a secondary viewport would last-writer-wins the shared target and clip against the wrong size).
+		bool isMainViewport = (viewPort->Flags & ImGuiViewportFlags_CanHostOtherWindows) != 0;
+		if (captureTarget.IsValid() && isMainViewport)
+			buildViewPass(captureTarget);
 	}
 
 

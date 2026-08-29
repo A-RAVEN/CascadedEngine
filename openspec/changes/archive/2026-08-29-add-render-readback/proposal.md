@@ -15,10 +15,10 @@
 - **异步显式同步**："异步声明 + 显式 `Wait()` 确定可读"，不依赖引擎是否每帧 `waitIdle`。
 - **不追求零拷贝**：GPU 系统内部统一经 host-visible staging 中转 + 一次 memcpy 写入调用者 span。
 - **回调源 = 离屏/内部 RT 或外部资源（放弃直接读回 swapchain backbuffer）**：**Round-1 对抗验证 + 用户 portability 拍板确定**——① `--capture` 若在 `ExecuteGraph`（内已 Present）后读 backbuffer，读到的是已交给 presentation engine 的帧（invalid/UAF/帧漂移）；② **`eTransferSrc` 非平台保证**：swapchain `imageUsage = desiredUsage & supportedUsageFlags`，`vkCmdCopyImageToBuffer` 读它要求 `eTransferSrc`，而 `supportedUsageFlags` 在某些 surface 不含 → 该平台 backbuffer 读不了，**跨平台不可保证**。故视觉断言走**测试自建离屏 RT / 用户外部纹理**（self-created image usage 完全可控，`eTransferSrc` 一定能加 → 可保证），不从 presented backbuffer 读。
-- **补"读回贴图创建能力"（新硬前置）**：`VulkanTexture::Init(:120)` 现在只设 `eTransferDst|eSampled` + 按 accessType，**无 `eTransferSrc`**；`ETextureAccessType` 枚举也无此 flag。故当前任何离屏 RT/用户 texture 都读不了 —— 须给引擎加"创建带 `eTransferSrc` 的贴图"能力（`ETextureAccessType` 增 `eTransferSrc`/`eReadback`，或读回贴图专用创建路径）。
+- **补"读回贴图创建能力"（新硬前置）**：`ETextureAccessType::eTransferSrc` **枚举已存在**（`Common.h:296`）；但外部 `VulkanTexture::Init(:120)` 路径**未**给 `imageInfo.usage` 加 `eTransferSrc`（graph-local 路径已有）。故当前经 `CreateGPUTexture` 的离屏 RT/用户 texture 读不了 —— 补 `VulkanTexture::Init` 的 `eTransferSrc` 分支即可。
 - **Vulkan 后端**：buffer（host-visible 直 map；device-local 用 `vkCmdCopyBuffer` 到 host staging）+ image（布局 barrier + `vkCmdCopyImageToBuffer`）+ `waitForFences`。
 - **D3D12 后端**：`D3D12_HEAP_TYPE_READBACK` + `CopyBufferRegion`/`CopyTextureRegion` + 资源 barrier + fence。
-- **Graph-internal 资源读回解析（架构关键）**：Internal 型 ImageHandle/BufferHandle 的资源活在 graph executor 的 local manager（stack-local，`ExecuteGraph` 内即析构），`Readback` 需能解析到其后端资源——**须决策"延长 local manager 生命周期 / 导出资源表"**（Round-1 R1-4 强化，现对 buffer 同样成立）。
+- **读回只支持 External（调用者持有）资源；graph-internal 读回另立 change（定稿）**：两个后端都在 `ExecuteGraph` 返回前清空 graph-local 资源表，`Readback` 解析 Internal 涉及"延长生命周期 / 导出资源表"且 D3D12 有真实 UAF 风险。经用户 2026-08-28 定向（读回=纯拷贝、不背资源生命周期）：读回源 = **调用者自建/持有的 External 资源**（`CreateGPUTexture`/`CreateGPUBuffer`，`shared_ptr` 终身有效，`GetTexturePtr`/`GetBufferPtr` 直解，零生命周期负担）；`Readback(Internal/Backbuffer)` 报错拒绝。graph-internal（含 compute 输出 buffer）读回属独立生命周期问题，另立 change。
 - **测试接入**：GPUBackendTester 增加 `--capture <N>`（抓第 N 帧的离屏 RT），经 `stbi_write_png`（`STB_Impl.cpp` 已链接）导出 `test_output/*.png`；并提供 compute buffer 数值断言入口。
 
 ## Capabilities

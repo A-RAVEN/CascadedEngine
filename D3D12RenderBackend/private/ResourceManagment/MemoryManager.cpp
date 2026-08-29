@@ -77,6 +77,26 @@ namespace graphics_backend
 		return result;
 	}
 
+	GPUResource MemoryManager::AllocReadbackStagingBuffer(uint64_t bufferSize)
+	{
+		D3D12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_NONE);
+		D3D12MA::ALLOCATION_DESC allocationDesc = {};
+		allocationDesc.HeapType = D3D12_HEAP_TYPE_READBACK;
+
+		D3D12MA::Allocation* allocation;
+		HRESULT hr = m_Allocator->CreateResource(
+			&allocationDesc,
+			&resourceDesc,
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			NULL,
+			&allocation,
+			IID_NULL, NULL);
+
+		GPUResource result(this);
+		result.SetAllocation(allocation);
+		return result;
+	}
+
 	LinearMemoryManager::LinearMemoryManager(RenderBackend_D3D12* app) : D3D12SubobjectBase(app) 
 	{
 		app->OnDeviceInit([this]()

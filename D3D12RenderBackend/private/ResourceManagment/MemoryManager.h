@@ -20,6 +20,9 @@ namespace graphics_backend
 		D3D12MA::Allocation* AllocMemory(D3D12_RESOURCE_ALLOCATION_INFO const& allocationInfo, D3D12_HEAP_TYPE heapType);
 		GPUResource AllocGPUResource(D3D12_RESOURCE_DESC const& resourceDesc, D3D12_HEAP_TYPE heapType);
 		GPUResource AllocUploadStagingBuffer(uint64_t bufferSize);
+		// add-render-readback: host-readable GPU→CPU readback staging (READBACK heap). Mirrors
+		// AllocUploadStagingBuffer but with HEAP_TYPE_READBACK + initial COPY_DEST state.
+		GPUResource AllocReadbackStagingBuffer(uint64_t bufferSize);
 
 		ComPtr<D3D12MA::Allocator>& GetAllocator() { return m_Allocator; }
 		ComPtr<D3D12MA::Allocator> const& GetAllocator() const { return m_Allocator; }

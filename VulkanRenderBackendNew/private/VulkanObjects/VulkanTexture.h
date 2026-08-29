@@ -22,6 +22,10 @@ namespace graphics_backend
 
 		// GPUTexture interface
 		virtual GPUTextureDescriptor const& GetDescriptor() const override { return m_Descriptor; }
+		// readback (add-render-readback): access role determines the RT's layout role — an eRT
+		// texture rests in COLOR_ATTACHMENT_OPTIMAL (the graph executor tracks it as such), since
+		// the graph does NOT update VulkanTexture::m_CurrentLayout for external render targets.
+		ETextureAccessTypeFlags const& GetAccessType() const { return m_AccessType; }
 		virtual void SetName(castl::string const& name) override;
 		virtual castl::string const& GetName() const override { return m_Name; }
 

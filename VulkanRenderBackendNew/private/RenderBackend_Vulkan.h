@@ -38,6 +38,8 @@ namespace graphics_backend
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		virtual bool AnyWindowRunning() override;
 		virtual void WaitIdle() override;
+		std::unique_ptr<IReadbackToken> Readback(ImageHandle const& image, std::span<uint8_t> dst) override;
+		std::unique_ptr<IReadbackToken> Readback(BufferHandle const& buffer, std::span<uint8_t> dst) override;
 
 		vk::Instance const& GetVulkanInstance() const
 		{

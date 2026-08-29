@@ -995,6 +995,407 @@ void RenderBackend_Vulkan::ClearFramebufferCache()
 	CA_LOG_INFO("RenderBackend_Vulkan: Framebuffer cache cleared");
 }
 
+	// --- add-render-readback: Vulkan GPU→host readback ---
+
+	// Bytes-per-pixel for tightly-packed copy. For E_R8G8B8A8_UNORM (the visual-assert RT format)
+	// this equals compact RGBA8. Other formats copy their native tightly-packed bytes; the caller
+	// interprets via GetWidth/GetHeight/GetRowPitch. Format→canonical-RGBA conversion is a
+	// documented follow-up, not part of this pure-copy path.
+	static uint32_t GetReadbackBpp(ETextureFormat format)
+	{
+		switch (format)
+		{
+		case ETextureFormat::E_R8_UNORM: return 1;
+		case ETextureFormat::E_R8G8_UNORM:
+		case ETextureFormat::E_R16_UNORM:
+		case ETextureFormat::E_R16_SFLOAT:
+		case ETextureFormat::E_D16_UNORM: return 2;
+		case ETextureFormat::E_R8G8B8A8_UNORM:
+		case ETextureFormat::E_B8G8R8A8_UNORM:
+		case ETextureFormat::E_R16G16_SFLOAT:
+		case ETextureFormat::E_R32_SFLOAT:
+		case ETextureFormat::E_D24_UNORM_S8_UINT:
+		case ETextureFormat::E_D32_SFLOAT: return 4;
+		case ETextureFormat::E_R16G16B16A16_UNORM:
+		case ETextureFormat::E_R16G16B16A16_SFLOAT:
+		case ETextureFormat::E_R32G32_SFLOAT: return 8;
+		case ETextureFormat::E_R32G32B32A32_SFLOAT: return 16;
+		default: return 4;
+		}
+	}
+
+	// Owns the host staging + fence of one in-flight readback. Wait() fills the caller's dst;
+	// Reset()/dtor waits for the GPU and frees the staging (idempotent — exactly once, so a
+	// direct-mapped host-visible buffer path that never allocates staging is safe).
+	class VulkanReadbackToken : public IReadbackToken
+	{
+	public:
+		VulkanReadbackToken(RenderBackend_Vulkan* backend, std::span<uint8_t> dst)
+			: m_Backend(backend), m_Dst(dst) {}
+		~VulkanReadbackToken() override { ReleaseStaging(); }
+
+		void Wait() override
+		{
+			if (m_Filled) return;
+			auto device = m_Backend->GetVulkanDevice();
+			if (m_Fence)
+			{
+				device.waitForFences(m_Fence, VK_TRUE, UINT64_MAX);
+				device.destroyFence(m_Fence);
+				m_Fence = nullptr;
+			}
+			if (m_StagingAlloc && m_StageInfo.pMappedData)
+			{
+				size_t copyBytes = static_cast<size_t>(m_ByteSize);
+				if (copyBytes > m_Dst.size()) copyBytes = m_Dst.size();
+				memcpy(m_Dst.data(), m_StageInfo.pMappedData, copyBytes);
+			}
+			m_Filled = true;
+		}
+
+		bool IsReady() const override { return m_Filled; }
+		void Reset() override { ReleaseStaging(); }
+
+		void SetStaging(vk::CommandBuffer cmdBuffer, vk::Buffer buffer, VmaAllocation alloc, VmaAllocationInfo const& info,
+			vk::Fence fence, uint64_t byteSize, uint32_t width, uint32_t height, uint32_t rowPitch)
+		{
+			m_CmdBuffer = cmdBuffer;
+			m_StagingBuffer = buffer;
+			m_StagingAlloc = alloc;
+			m_StageInfo = info;
+			m_Fence = fence;
+			m_ByteSize = byteSize;
+			m_Width = width;
+			m_Height = height;
+			m_RowPitch = rowPitch;
+		}
+
+		// host-visible buffer readback: filled synchronously in Readback(), no staging/fence.
+		void SetDirectCompleted(uint64_t byteSize, uint32_t width, uint32_t height, uint32_t rowPitch)
+		{
+			m_ByteSize = byteSize;
+			m_Width = width;
+			m_Height = height;
+			m_RowPitch = rowPitch;
+			m_Filled = true;
+		}
+
+	private:
+		void ReleaseStaging()
+		{
+			// Free the command buffer only AFTER the GPU is done with it (fence waited); freeing a
+			// still-pending command buffer violates VUID-vkFreeCommandBuffers-pCommandBuffers-00047.
+			if (m_Fence)
+			{
+				auto device = m_Backend->GetVulkanDevice();
+				try { device.waitForFences(m_Fence, VK_TRUE, UINT64_MAX); } catch (...) {}
+				device.destroyFence(m_Fence);
+				m_Fence = nullptr;
+			}
+			if (m_CmdBuffer)
+			{
+				m_Backend->GetCommandListManager().FreeCommandBuffer(
+					m_Backend->GetCommandListManager().GetGraphicsPool(), m_CmdBuffer);
+				m_CmdBuffer = nullptr;
+			}
+			if (m_StagingAlloc)
+			{
+				m_Backend->GetMemoryManager().FreeBuffer(m_StagingBuffer, m_StagingAlloc);
+				m_StagingBuffer = nullptr;
+				m_StagingAlloc = VK_NULL_HANDLE;
+			}
+		}
+
+		RenderBackend_Vulkan* m_Backend;
+		std::span<uint8_t> m_Dst;
+		vk::CommandBuffer m_CmdBuffer{};
+		vk::Buffer m_StagingBuffer{};
+		VmaAllocation m_StagingAlloc = VK_NULL_HANDLE;
+		VmaAllocationInfo m_StageInfo{};
+		vk::Fence m_Fence{};
+		uint64_t m_ByteSize = 0;
+		uint32_t m_Width = 0, m_Height = 0, m_RowPitch = 0;
+		bool m_Filled = false;
+	};
+
+	std::unique_ptr<IReadbackToken> RenderBackend_Vulkan::Readback(ImageHandle const& image, std::span<uint8_t> dst)
+	{
+		// readback is a pure copy; only caller-owned External resources are resolvable here.
+		// Internal (graph-local) resources die with the graph executor, and backbuffer readback is
+		// explicitly out of scope (non-portable / post-present). Both error out clearly.
+		if (image.GetType() != ImageHandle::ImageType::External)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) only supports External resources (got type {}); "
+				"graph-internal/backbuffer readback deferred", (int)image.GetType());
+			return nullptr;
+		}
+		VulkanTexture* texture = image.GetTexturePtr<VulkanTexture>();
+		if (texture == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) null VulkanTexture");
+			return nullptr;
+		}
+		auto const& desc = texture->GetDescriptor();
+		uint32_t width = desc.width, height = desc.height;
+		uint32_t bpp = GetReadbackBpp(desc.format);
+		uint32_t rowPitch = width * bpp;
+		uint64_t byteSize = static_cast<uint64_t>(width) * height * bpp;
+		if (dst.size() < byteSize)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+
+		vk::Image srcImage = texture->GetImage();
+		// Layout the graph expects the RT in: the graph executor tracks an external render target's
+		// layout in its OWN state (COLOR_ATTACHMENT_OPTIMAL for an eRT), NOT in VulkanTexture::
+		// m_CurrentLayout (which the graph never updates for external RTs, so it stays UNDEFINED).
+		// Derive from the access role so the src barrier's oldLayout matches the graph's assumption
+		// (VUID-vkCmdPipelineBarrier-oldLayout-01197/-01189) and the rest layout stays consistent for
+		// the next frame's render. An eRT texture rests in COLOR_ATTACHMENT_OPTIMAL; a sampled texture
+		// in SHADER_READ_ONLY_OPTIMAL.
+		bool isRenderTarget = (texture->GetAccessType() & ETextureAccessType::eRT) != ETextureAccessTypeFlags{};
+		vk::ImageLayout srcLayout = isRenderTarget
+			? vk::ImageLayout::eColorAttachmentOptimal
+			: vk::ImageLayout::eShaderReadOnlyOptimal;
+
+		// Host staging buffer = TRANSFER_DST (copy target) + HOST_ACCESS_RANDOM (we read bytes back out).
+		vk::BufferCreateInfo stagingCI{};
+		stagingCI.size = byteSize;
+		stagingCI.usage = vk::BufferUsageFlagBits::eTransferDst;
+		stagingCI.sharingMode = vk::SharingMode::eExclusive;
+		VmaAllocationCreateInfo stagingAllocCI{};
+		stagingAllocCI.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocCI.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+		VmaAllocationInfo stagingInfo{};
+		vk::Buffer stagingBuffer;
+		VmaAllocation stagingAlloc = m_MemoryManager.AllocateBuffer(stagingCI, stagingAllocCI, stagingBuffer, &stagingInfo, nullptr);
+		if (!stagingBuffer || stagingAlloc == VK_NULL_HANDLE)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) failed to allocate staging buffer");
+			return nullptr;
+		}
+
+		auto device = m_Device;
+		vk::Fence fence;
+		try { fence = device.createFence(vk::FenceCreateInfo{}); }
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) createFence failed: {}", e.what());
+			m_MemoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+			return nullptr;
+		}
+
+		// Record on the GRAPHICS queue (supports all stages, unlike a dedicated transfer family).
+		vk::CommandBuffer cmd = m_CommandListManager.AllocateCommandBuffer(m_CommandListManager.GetGraphicsPool());
+		m_CommandListManager.BeginCommandBuffer(cmd);
+
+		// Layout barrier: srcLayout -> TRANSFER_SRC_OPTIMAL (the copy reads from it). Producer is the
+		// color attachment writer; consumer is the transfer read. We record on graphics queue so
+		// COLOR_ATTACHMENT_OUTPUT / all shader stages are valid (dedicated transfer family would not be).
+		vk::PipelineStageFlags srcStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+		vk::AccessFlags srcAccess = vk::AccessFlagBits::eColorAttachmentWrite;
+		if (srcLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
+		{
+			srcStage = vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eComputeShader;
+			srcAccess = vk::AccessFlagBits::eShaderRead;
+		}
+		else if (srcLayout != vk::ImageLayout::eColorAttachmentOptimal)
+		{
+			// eUndefined / transfer-own / unknown: no prior content to make visible (or undefined);
+			// treat as empty source sync (the caller guarantees prior work completed before readback).
+			srcStage = vk::PipelineStageFlagBits::eTransfer;
+			srcAccess = vk::AccessFlagBits::eNone;
+		}
+		vk::ImageMemoryBarrier toSrc{};
+		toSrc.oldLayout = srcLayout;
+		toSrc.newLayout = vk::ImageLayout::eTransferSrcOptimal;
+		toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.image = srcImage;
+		toSrc.subresourceRange.aspectMask = texture->GetImageAspect();
+		toSrc.subresourceRange.baseMipLevel = 0;
+		toSrc.subresourceRange.levelCount = desc.mipLevels;
+		toSrc.subresourceRange.baseArrayLayer = 0;
+		toSrc.subresourceRange.layerCount = desc.layers;
+		toSrc.srcAccessMask = srcAccess;
+		toSrc.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+		cmd.pipelineBarrier(srcStage, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, toSrc);
+
+		vk::BufferImageCopy region{};
+		region.bufferOffset = 0;
+		region.bufferRowLength = 0;       // tightly packed
+		region.bufferImageHeight = 0;
+		region.imageSubresource.aspectMask = texture->GetImageAspect();
+		region.imageSubresource.mipLevel = 0;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
+		region.imageOffset = vk::Offset3D{ 0, 0, 0 };
+		region.imageExtent = vk::Extent3D(width, height, 1);
+		cmd.copyImageToBuffer(srcImage, vk::ImageLayout::eTransferSrcOptimal, stagingBuffer, region);
+
+		// Restore the original layout so the engine's layout registry stays consistent with the GPU
+		// state (VUID-vkCmdPipelineBarrier-oldLayout-01197/-01189 — a later barrier must not assume an
+		// outdated old layout). A freshly-created (UNDEFINED) RT has no prior valid layout, so rest it
+		// in a real state (SHADER_READ_ONLY). Access/stage map to the target layout.
+		vk::ImageLayout restLayout = (srcLayout == vk::ImageLayout::eUndefined)
+			? vk::ImageLayout::eShaderReadOnlyOptimal : srcLayout;
+		vk::AccessFlags restAccess = vk::AccessFlagBits::eNone;
+		vk::PipelineStageFlags restStage = vk::PipelineStageFlagBits::eBottomOfPipe;
+		switch (restLayout)
+		{
+		case vk::ImageLayout::eColorAttachmentOptimal:
+			restAccess = vk::AccessFlagBits::eColorAttachmentWrite;
+			restStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+			break;
+		case vk::ImageLayout::eShaderReadOnlyOptimal:
+			restAccess = vk::AccessFlagBits::eShaderRead;
+			restStage = vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eComputeShader;
+			break;
+		case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+			restAccess = vk::AccessFlagBits::eDepthStencilAttachmentWrite | vk::AccessFlagBits::eDepthStencilAttachmentRead;
+			restStage = vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
+			break;
+		case vk::ImageLayout::eTransferDstOptimal:
+			restAccess = vk::AccessFlagBits::eTransferWrite;
+			restStage = vk::PipelineStageFlagBits::eTransfer;
+			break;
+		default:
+			break;
+		}
+		vk::ImageMemoryBarrier back{};
+		back.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
+		back.newLayout = restLayout;
+		back.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		back.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		back.image = srcImage;
+		back.subresourceRange = toSrc.subresourceRange;
+		back.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+		back.dstAccessMask = restAccess;
+		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, restStage, vk::DependencyFlags{}, {}, {}, back);
+		texture->SetCurrentLayout(restLayout);
+
+		m_CommandListManager.EndCommandBuffer(cmd);
+
+		try
+		{
+			m_QueueContext.SubmitCommands(m_QueueContext.GetGraphicsQueueFamily(), 0, cmd, fence);
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) submit failed: {}", e.what());
+			m_CommandListManager.FreeCommandBuffer(m_CommandListManager.GetGraphicsPool(), cmd);
+			m_MemoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+			device.destroyFence(fence);
+			return nullptr;
+		}
+		auto token = std::make_unique<VulkanReadbackToken>(this, dst);
+		token->SetStaging(cmd, stagingBuffer, stagingAlloc, stagingInfo, fence, byteSize, width, height, rowPitch);
+		return token;
+	}
+
+	std::unique_ptr<IReadbackToken> RenderBackend_Vulkan::Readback(BufferHandle const& buffer, std::span<uint8_t> dst)
+	{
+		if (buffer.GetType() != BufferHandle::BufferType::External)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(buffer) only supports External resources (got type {}); "
+				"graph-internal readback deferred", (int)buffer.GetType());
+			return nullptr;
+		}
+		VulkanBuffer* vbuf = buffer.GetBufferPtr<VulkanBuffer>();
+		if (vbuf == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(buffer) null VulkanBuffer");
+			return nullptr;
+		}
+		uint64_t byteSize = vbuf->GetDescriptor().SizeInByte();
+		if (dst.size() < byteSize)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(buffer) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+
+		auto token = std::make_unique<VulkanReadbackToken>(this, dst);
+
+		// Host-visible buffer: zero-copy direct map → memcpy → unmap (no GPU copy, no fence).
+		void* pMapped = vbuf->Map();
+		if (pMapped)
+		{
+			memcpy(dst.data(), pMapped, static_cast<size_t>(byteSize));
+			vbuf->Unmap();
+			token->SetDirectCompleted(byteSize, 0, 0, 0);
+			return token;
+		}
+
+		// Device-local buffer: host staging (TRANSFER_DST) + vkCmdCopyBuffer + fence.
+		vk::Buffer srcBuffer = vbuf->GetBuffer();
+		vk::BufferCreateInfo stagingCI{};
+		stagingCI.size = byteSize;
+		stagingCI.usage = vk::BufferUsageFlagBits::eTransferDst;
+		stagingCI.sharingMode = vk::SharingMode::eExclusive;
+		VmaAllocationCreateInfo stagingAllocCI{};
+		stagingAllocCI.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocCI.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+		VmaAllocationInfo stagingInfo{};
+		vk::Buffer stagingBuffer;
+		VmaAllocation stagingAlloc = m_MemoryManager.AllocateBuffer(stagingCI, stagingAllocCI, stagingBuffer, &stagingInfo, nullptr);
+		if (!stagingBuffer || stagingAlloc == VK_NULL_HANDLE)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(buffer) failed to allocate staging buffer");
+			return nullptr;
+		}
+
+		auto device = m_Device;
+		vk::Fence fence;
+		try { fence = device.createFence(vk::FenceCreateInfo{}); }
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(buffer) createFence failed: {}", e.what());
+			m_MemoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+			return nullptr;
+		}
+
+		vk::CommandBuffer cmd = m_CommandListManager.AllocateCommandBuffer(m_CommandListManager.GetGraphicsPool());
+		m_CommandListManager.BeginCommandBuffer(cmd);
+
+		// Make prior writes visible to the copy. Source = the writer stages (vertex/fragment/compute
+		// shader storage writes); consumer = transfer read. Recorded on graphics queue (valid there).
+		vk::BufferMemoryBarrier barrier{};
+		barrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite | vk::AccessFlagBits::eShaderRead;
+		barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.buffer = srcBuffer;
+		barrier.offset = 0;
+		barrier.size = byteSize;
+		cmd.pipelineBarrier(
+			vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eVertexShader,
+			vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, barrier, {});
+
+		vk::BufferCopy copy{};
+		copy.srcOffset = 0;
+		copy.dstOffset = 0;
+		copy.size = byteSize;
+		cmd.copyBuffer(srcBuffer, stagingBuffer, copy);
+
+		m_CommandListManager.EndCommandBuffer(cmd);
+
+		try
+		{
+			m_QueueContext.SubmitCommands(m_QueueContext.GetGraphicsQueueFamily(), 0, cmd, fence);
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(buffer) submit failed: {}", e.what());
+			m_CommandListManager.FreeCommandBuffer(m_CommandListManager.GetGraphicsPool(), cmd);
+			m_MemoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+			device.destroyFence(fence);
+			return nullptr;
+		}
+		token->SetStaging(cmd, stagingBuffer, stagingAlloc, stagingInfo, fence, byteSize, 0, 0, 0);
+		return token;
+	}
+
 }
 
 CA_MODULE_INSTANCE(graphics_backend::CRenderBackend, graphics_backend::RenderBackend_Vulkan, RenderBackend_Vulkan);
