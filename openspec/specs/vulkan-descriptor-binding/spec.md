@@ -1,3 +1,7 @@
+## Purpose
+
+Vulkan 描述符绑定：`VulkanResourceBindingInstance` 经 `BuildResources` 把绑定的 image/buffer/CBuffer 资源注册到 `VulkanGraphLocalResourceManager` 并为 CBuffer 分配 GPU buffer；经 `BuildDescriptors` 从 DescriptorPool 分配 DescriptorSet 并写入资源绑定信息（对已正确登记并绑定的图内资源必须写入、不得 `continue` 跳过，且引用资源须携带正确 usage 位）；`VulkanGraphExecutor` 创建 DescriptorPool、在正确阶段串联 BuildResources/BuildDescriptors、实现 CBuffer 初始化与上传、并绑定所有已分配的 DescriptorSet（而非仅 set 0）。
+
 ## Requirements
 
 ### Requirement: VulkanResourceBindingInstance SHALL实现BuildResources
@@ -31,14 +35,16 @@ VulkanResourceBindingInstance SHALL实现BuildResources方法，将绑定的imag
 
 ### Requirement: VulkanResourceBindingInstance SHALL实现BuildDescriptors
 
-VulkanResourceBindingInstance SHALL实现BuildDescriptors方法，从DescriptorPool分配DescriptorSet并写入资源绑定信息。
+VulkanResourceBindingInstance SHALL实现BuildDescriptors方法，从DescriptorPool分配DescriptorSet并写入资源绑定信息。对绑定到**已正确登记并绑定**的图内（Internal）资源的 Image/Buffer element，SHALL 写入描述符、不得因 Internal 类型未解析而 `continue` 跳过；所引用资源须携带正确 usage 位（buffer: `STORAGE_BUFFER`；图像: `eSampled`）。
 
 #### Scenario: BuildDescriptors接收VulkanGraphExecutor
+
 - **WHEN** 调用BuildDescriptors
 - **THEN** 方法签名为`void BuildDescriptors(VulkanGraphExecutor&, vk::DescriptorPool)`
 - **AND** executor用于访问DescriptorSetLayout缓存、LocalResourceManager（获取vk::Buffer/vk::ImageView）
 
 #### Scenario: 分配DescriptorSet
+
 - **WHEN** 调用BuildDescriptors且DescriptorPool有效
 - **THEN** 遍历pShaderFileInfo->shaderBindingInfo.setLayoutInfos，按setIndex排序
 - **AND** 对每个set通过executor的cache查找已缓存的DescriptorSetLayout
@@ -46,27 +52,32 @@ VulkanResourceBindingInstance SHALL实现BuildDescriptors方法，从DescriptorP
 - **AND** AllocateDescriptorSets内部按shader的setIndex（而非数组索引）作为key存入m_DescriptorSets
 
 #### Scenario: 写入CBuffer描述符
+
 - **WHEN** CBufferBindingElement有有效的gpuBufferResourceId
 - **THEN** 通过executor.GetLocalResourceManager().GetBuffer(resourceId)获取vk::Buffer
 - **AND** 创建vk::DescriptorBufferInfo（offset=0, range=GetCBufferSize()）
 - **AND** 调用SetUniformBuffer写入vk::WriteDescriptorSet
 
-#### Scenario: 写入Image描述符
-- **WHEN** ImageBindingElement有有效的ImageHandle
-- **THEN** 通过executor.GetLocalResourceManager().GetTextureView(imageHandle)获取vk::ImageView
-- **AND** 调用SetSampledImage或SetStorageImage写入vk::WriteDescriptorSet
+#### Scenario: 写入Image描述符（内建不跳过）
 
-#### Scenario: 写入Buffer描述符
-- **WHEN** BufferBindingElement有有效的BufferHandle
-- **THEN** 通过executor.GetLocalResourceManager().GetBuffer(bufferHandle)获取vk::Buffer
-- **AND** 调用SetStorageBuffer写入vk::WriteDescriptorSet
+- **WHEN** ImageBindingElement引用一个已正确登记并绑定的图内 `AllocImage` 或外部图像，`GetTextureView(imageHandle)` 返回有效 ImageView
+- **THEN** 调用SetSampledImage或SetStorageImage写入vk::WriteDescriptorSet，**不因 Internal 类型而跳过**（不触发 `if(!imageView) continue;`）
+- **AND** 被采样图像的 `VkImage` usage 含 `eSampled`（否则采样绑定报 `08114`）
+
+#### Scenario: 写入Buffer描述符（内建不跳过，含 usage）
+
+- **WHEN** BufferBindingElement引用一个已正确登记并绑定的图内 `AllocBuffer`，`GetBuffer(bufferHandle)` 返回有效 VkBuffer
+- **THEN** 调用SetStorageBuffer写入vk::WriteDescriptorSet，**不因 Internal 类型而跳过**（不触发 `if(!vkBuffer) continue;`）
+- **AND** 该 `VkBuffer` usage 含 `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`（否则 `eStorageBuffer` 写报 `00331`）
 
 #### Scenario: 写入Sampler描述符
+
 - **WHEN** SamplerBindingElement有有效的samplerDescriptor
 - **THEN** 创建vk::Sampler（从TextureSamplerDescriptor转换）
 - **AND** 调用SetSampler写入vk::WriteDescriptorSet
 
 #### Scenario: 提交Descriptor写入
+
 - **WHEN** 所有binding element处理完毕
 - **THEN** 调用UpdateDescriptorSets提交所有m_PendingWrites
 - **AND** m_DescriptorSets按set index填充完毕

@@ -1,31 +1,4 @@
-## Purpose
-
-GPU 图内（Internal）资源注册与句柄解析：`CollectResources` 将每个 `RegisterTemporary*` 调用点紧随配对 `Register*Handle` 建立 Handle→ResourceID 映射；图内资源生命周期由图内实际 shader 绑定使用推导（经 RWState → 生命周期表 head/end）而非硬编码 batch 0；被 shader 绑定的图内资源 SHALL 进入生命周期表并被物理绑定，使其 Handle 可解析到有效 VkBuffer/VkImage/ImageView 句柄；别名 offset 自 `vmaVirtualAllocate` 持久化，与 D3D12 语义对齐。
-
-## Requirements
-
-### Requirement: RegisterTemporary* 调用点必须配对 Register*Handle
-`CollectResources` 中每个 `RegisterTemporaryBuffer`/`RegisterTemporaryTexture` 调用点 SHALL 紧随其后调用对应的 `RegisterBufferHandle`/`RegisterTextureHandle`，利用已有的 `handleKey` 和返回的 `resourceId` 建立 Handle→ResourceID 映射。
-
-#### Scenario: Render pass attachment texture 注册
-- **WHEN** `CollectResources` 在 line 664 为 render pass attachment 调用 `RegisterTemporaryTexture`
-- **THEN** 系统随之调用 `RegisterTextureHandle(ImageHandle(handleKey), resourceId)`，后续 `GetTextureView(attachment)` 返回有效 ImageView
-
-#### Scenario: Index buffer 注册
-- **WHEN** `CollectResources` 在 line 694 为 index buffer 调用 `RegisterTemporaryBuffer`
-- **THEN** 系统随之调用 `RegisterBufferHandle(BufferHandle(handleKey), resourceId)`，后续 `RecordRenderPass` 中的 `bindIndexBuffer` 可获取有效 buffer
-
-#### Scenario: Vertex buffer 注册
-- **WHEN** `CollectResources` 在 line 705 的循环中为 vertex buffer 调用 `RegisterTemporaryBuffer`
-- **THEN** 系统随之调用 `RegisterBufferHandle`，后续 `bindVertexBuffers` 可获取有效 buffer
-
-#### Scenario: Transfer image 注册
-- **WHEN** `CollectResources` 在 line 731 为 transfer target image 调用 `RegisterTemporaryTexture`
-- **THEN** 系统随之调用 `RegisterTextureHandle`，后续 `RecordTransferPass` 可获取有效 VkImage
-
-#### Scenario: Finalize pass image 注册
-- **WHEN** `CollectResources` 在 line 745 为 finalize pass image 调用 `RegisterTemporaryTexture`
-- **THEN** 系统随之调用 `RegisterTextureHandle`，后续该 image 可通过 Handle 查询
+## MODIFIED Requirements
 
 ### Requirement: 图内资源生命周期由 shader 绑定使用推导且必须被绑定
 
@@ -75,3 +48,4 @@ GPU 图内（Internal）资源注册与句柄解析：`CollectResources` 将每�
 
 - **WHEN** D-C 后一个早期批次资源与一个后期批次资源被绑到同一 offset（时间不重叠别名）
 - **THEN** 二者使用间（至少一方写时）SHALL 有内存依赖（barrier scope 覆盖重叠范围），对 optimal-tiling image 的第二个别名 SHALL 从 `VK_IMAGE_LAYOUT_UNDEFINED` 过渡
+

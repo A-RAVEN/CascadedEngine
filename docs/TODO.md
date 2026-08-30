@@ -97,34 +97,14 @@
 
 ---
 
-## [2026-08-29] vulkan 后端"写描述符"路径缺陷（08114/00331）——待定位根因（fix-vulkan-render-* 基础）
+## [2026-08-30] vulkan 08114/00331 + D32 depth usage —— 已由 fix-vulkan-descriptor-registration 落地解决
 
-**状态：未修（根因未钉死）**
+**状态：已解决（2026-08-30，`fix-vulkan-descriptor-registration` 落地并归档）。**
 
-**现象**：一批测试绘图命中 `VUID-vkCmdDraw{Indexed}/-Dispatch-None-08114`（"bound descriptor set 从未经 vkUpdateDescriptorSets 更新"）与 `VUID-VkWriteDescriptorSet-descriptorType-00331`（descriptorType 写错）：
-- StructuredBufferColor（buffer 绑定）→ 画面全黑
-- DoublePass（`textureData.testTexture`=pass0RT 内部图像当纹理采样）→ 画面全黑（08114）
-- IMGUI（draw-bind 04007/07312 + 08114）→ 暗场+噪点
-- ComputeBuffer（dispatch 08114 + 00331）→ **画面反而字节一致**（说明 VUID 与"画面坏"非 1:1 因果）
+- **08114/00331**：D-A（RAST shader 绑定→RWState）+ D-B（MarkResourceUse 生命周期）+ D-C（持久 offset 绑所有 + per-pool 峰值）+ D1补全（顶层 Foreach insert-only 防 orphan）+ D2（BuildResources 兜底 inert）+ D3（usage 位）落地后，StructuredBufferColor/DoublePass/ComputeBuffer **08114/00331 = 0**，截图真实非黑；vulkan/d3d12 三对捕获字节一致；IMGUI 08114=0 属独立（外部字体图）。
+- **D32 depth 02251 / 01209 / 01758 / 02633 / 08931**：D-C bind-all 暴露后，已修 `CollectResources` depth attachment 用 `eDepthStencil`（非 `eRT`），ConstantColor 现仅剩 2× shader-code 08740（另案）。
+- **附带 barrier 缺陷（raster 不登记采样读 → 跨 pass 写→读未串行化）**：D-A 已让 raster shader 采样进 RWState → 写→读入生命周期/屏障链，已被覆盖。
 
-**对照（关键反例）**：ImageBuffer（上传 texture+sampler）**完全干净、字节一致**——后端能写对"上传纹理"的 descriptor。坏的集中在 **buffer 绑定 + 内部图形当纹理采样**。
+**审查闭环**：3 轮对抗验证（4 审查者 / 轮，逐 claim 投票）——第二轮修正 C10（跨别名内存依赖改诚实 submission-local 记录 + 移除不成立 compute 分支）、C11（IMGUI 归因更正）；第三轮收敛（mustFix 清空，bottomLine "TRUSTWORTHY and behaviorally COMPLETE"）。**诚实声明**：C10 跨别名内存依赖为 submission-local best-effort——真正跨批次内存依赖需提交模型改动（单 submit 全批次 / 批间 semaphore），超范围未 overclaim；跨批次正确性依赖既有 waitForFences 串行化 + 设备一致性。
 
-**根因尚未钉死**：需读 vulkan 后端 `ShaderStruct→vkUpdateDescriptorSets` 写出、descriptor pool 的 type/计数、内部(AllocImage)图像的 sampler 描述符是否只在当 color attachment 时写而没写 sampled 分支、以及 layout/set 反射 set·binding 是否对。（ComputeBuffer 有空 VUID 却渲染对，说明还要分辨"写了但 validation 报 type 错"与"真没写"。）
-
-**附带一个独立的 executor barrier 缺陷（深审确认，与 08114 不同）**：`VulkanGraphExecutor` 的 `CollectResources` 只登记 raster pass 的 **color/depth attachment + vertex/index buffer**，**不登记 drawcall 采样图像读**（`RegisterComputeResources` 有 `GetImageBindings()`，raster 无对应）。→ 同一内部图像**跨 pass 写→读未串行化**（`Depends()` 无边、无 write→read barrier）。DoublePass 的 pass0RT 写→blit 读即此。观测到的 DoublePass `08114` 是描述符 bug；此 barrier 是 **latent**（凡"先渲染到内部图再采样"的图都会踩）。
-
-**相关代码**：`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp`（`CollectResources` 740-794 缺 raster 采样分支、`Depends` 215-227、`RegisterComputeResources` 939-949 有采样登记）、ShaderStruct→descriptor 写出路径（待定位）、`VulkanGraphLocalResourceManager.cpp:30-31`。
-
----
-
-## [2026-08-29] vulkan D32_SFLOAT depth 图 usage 创建 bug（VUID-02251）——根因已钉死
-
-**状态：未修（根因已确认）**
-
-**现象**：TestTriangleWithConstantColor vulkan **只剩清屏色、无三角**（d3d12 蓝底+黑色三角，正常）。validation：`VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251`（D32_SFLOAT 不支持/usage 不对）+ `VUID-VkShaderModuleCreateInfo-pCode-08740`（DrawParameters 能力）。
-
-**根因**：D32_SFLOAT depth image 在 `CollectResources`（VulkanGraphExecutor.cpp:743-744）被当作 `ETextureAccessType::eRT` 注册 → 只映射成 `COLOR_ATTACHMENT` usage（VulkanGraphLocalResourceManager.cpp:30-31），**从不给 DEPTH_STENCIL_ATTACHMENT** → `vkGetPhysicalDeviceImageFormatProperties2` 报 `VK_ERROR_FORMAT_NOT_SUPPORTED` → `vkCreateImage` 失败 → depth ImageView 为 null → `RecordRenderPass` 整段跳过（"Skipping render pass due to null attachment ImageView"）→ 无三角。**与 descriptor 无关，是图像 usage/创建 bug**。
-
-**修法**：depth attachment 注册时给 `DEPTH_STENCIL_ATTACHMENT` usage（`VulkanGraphLocalResourceManager.cpp` 的 eRT→usage 映射需区分"是否为深度格式"，或 depth 走独立 accessType）。
-
-**相关代码**：`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp`（`CollectResources` 743-744）、`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphLocalResourceManager.cpp`（30-31 eRT→COLOR_ATTACHMENT 映射）。
+**归档**：`openspec/changes/archive/2026-08-30-fix-vulkan-descriptor-registration/`；delta spec 已同步主 spec。
