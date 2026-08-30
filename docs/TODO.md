@@ -4,6 +4,51 @@
 
 ---
 
+## [2026-08-30] IMGUI 字体渲染成白块（文字不可读）——Vulkan+D3D12 双端复现（IMGUIContext / 后端视图）
+
+**状态：未修（双后端均复现）**
+
+**问题**：TestIMGUI 的文字不显示，渲染成白色实心方块（菜单栏/左侧 tab 文字都变白块）。Vulkan / D3D12 截图一致（2026-08-30 重读确认两侧均白块）。双后端 validation 均干净（0 VUID）——是**静默渲染错误**，非 API 误用。
+
+**根因（通道错配：字形在 R、shader 读 A）**：
+- 字形用 `GetTexDataAsAlpha8` → 单通道 alpha8 存进 **R8_UNORM** 纹理（IMGUIContext.cpp:489-493），字形覆盖率在 **R** 通道。
+- ImGui shader 采样 `.aaaa`——读 **alpha** 通道（Imgui.slang:14）。
+- 桥接靠 `CreateDefaultForSampling(R8G8B8A8, SingleChannel(R))`（IMGUIContext.cpp:754）把 R 复制进 A。
+- **Vulkan 裂点（已钉死）**：`VulkanTexture.cpp:161-177` 创建 VkImageView 用 `viewInfo.format=图像格式(R8)` 且**不设 `viewInfo.components`**（无 VkComponentMapping）→ swizzle 被忽略 → 采样 R8 得 `(r,0,0,1)`，A=1 → `.aaaa`=1 → 恒白。
+- **D3D12 待细化**：`InterfaceTranslation.h:615-620` **有**把 swizzle 编码进 `Shader4ComponentMapping`（A→R），`Sanitize` 也不动 swizzle → 理论应正常；但截图仍白块。故 D3D12 机制存疑：可能同症状但另一路径/第二个原因，须确认。
+
+**修法候选**：
+- ① 后端尊重 swizzle：Vulkan 设 `viewInfo.components`（SingleChannel(R)→{R,R,R,R}）。D3D12 已做。
+- ② IMGUIContext 改 `GetTexDataAsRGBA32` + R8G8B8A8 纹理（标准 ImGui 做法，一处修双端，洗掉 swizzle 依赖）——**最省、最稳**。
+- ③ `Imgui.slang:14` `.aaaa`→`.rrrr`（字形在 R）。
+
+**注**：与「Vulkan 三角形缺失（clipspace z）」是两个独立根因（一个通道错配、一个 clip volume），均被上轮"只看非黑、3 对字节一致"的验收口径漏掉。
+
+**相关代码**：`IMGUIContext/IMGUIContext.cpp:456,489-497,750-754`、`CAResources/Shaders/Imgui.slang:11-14,52`、`Interface/RenderInterface/header/GPUTexture.h:64,124-145`、`VulkanRenderBackendNew/private/VulkanObjects/VulkanTexture.cpp:161-177`、`D3D12RenderBackend/private/Utils/InterfaceTranslation.h:607-621`。
+
+---
+
+## [2026-08-30] 暴露 enableDepthClamp（z-clip/z-clamp 开关）为 GPUGraph 级开关，统一双后端光栅化（vulkan 三角形缺失根因）
+
+**状态：未修（设计待做 + 双后端错配）**
+
+**问题**：TestTriangleWithConstantColor / TestTriangleWithStructuredBufferColor 在 **Vulkan** 上三角形消失（顶点 z=-0.25/0 被裁），**D3D12** 正常。根因是**光栅化"近平面 z-clip/Z-clamp"开关在双后端不一致**：
+- **Vulkan**：`VulkanGraphExecutor.cpp:1823-1831` 建 `VkPipelineRasterizationStateCreateInfo` 时**忽略接口 `enableDepthClamp`**，`depthClampEnable` 字段从未设（默认 `VK_FALSE`）→ **裁 z 面**（z<0 被裁掉）。且设备**未启用 `depthClamp` device feature**（启用后才可设 depthClampEnable=TRUE）。
+- **D3D12**：`GPUPipelineInstance.cpp:159` **硬编码 `DepthClipEnable = FALSE`**（不裁，z<0 也渲染）；`PipelineStatesObject.cpp:18-33` 用 `enableDepthClamp`→`DepthClipEnable`（**语义反相**：Vulkan 的 depthClamp 是 depth-clip 的反面，MCP 已核实）。
+- 接口字段 `RasterizerStates::enableDepthClamp`（`CPipelineStateObject.h:19`，默认 false）**本已存在**，但 Vulkan 忽略、D3D12 语义反相 + 硬编码→**实际未真正暴露、也未对齐**。
+
+**设计目标（统一上层接口，而非分叉取向）**：把"近平面 z-clip/z-clamp"定义为**一个上层 GPUGraph / PipelineState 字段**（沿用已有 `RasterizerStates::enableDepthClamp`，确认/补全到暴露面，避免只在内部结构里），**两个后端都忠实读取同一值**——值由上层一次性决定，两端照做即一致：
+
+- **Vulkan**：映射 `enableDepthClamp` → `depthClampEnable`（true=沿 z clamp 替代 clip），并**启用 `depthClamp` device feature**（否则 VUID）。当前是"忽略该字段、默认 clip"→ 需补映射 + feature。
+- **D3D12**：去掉 `GPUPipelineInstance.cpp:159` 硬编码 `DepthClipEnable=FALSE`，改由字段驱动，且**语义与 Vulkan 拉齐**（注意 inverse：Vulkan `depthClampEnable=true`(clamp) ≈ D3D12 `DepthClipEnable=false`(不 clip)，映射需反转）。
+- **关键**：一旦两端都读同一字段，就不存在"哪个后端对/选①还是②"——分叉根因正是"缺少统一上层字段、两端各自局部硬编码"。字段的**默认值**是另一个独立小事（单点决定，两端同值），不是二选一的两条路。
+
+**验收**：设置该上层字段 → 双后端对 z<0 几何行为完全一致；ConstantColor/StructuredBufferColor 双后端同步渲染或同步裁剪；无 VUID；`python build.py --config Debug` 通过。
+
+**相关代码**：`Interface/RenderInterface/header/CPipelineStateObject.h:16-19`、`D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.cpp:18-33`、`D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.cpp:155-159`、`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp:1823-1831`、`Test/GPUBackendTester/Main.cpp:309-313,422-426`、根因对比 `Test/GPUBackendTester` compute(RWVertexBuffer z=0.5)。
+
+---
+
 ## [2026-08-28] D3D12 回读改为异步，与 Vulkan 对齐（add-render-readback）
 
 **状态：未修（技术债）**
