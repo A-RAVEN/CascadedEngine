@@ -636,12 +636,18 @@ namespace graphics_backend
 	bool VulkanGraphLocalResourceManager::BindResourcesToPhysicalMemory()
 	{
 		auto device = GetDevice();
-		auto const& activeAllocs = m_AliasingManager.GetActiveVirtualAllocs();
+		// D-C: iterate the PERSISTENT virtual allocs (every resource that ever got a
+		// vmaVirtualAllocate), NOT m_ActiveVirtualAllocs. FreeResourcesUpToBatch prunes early-batch
+		// resources out of the active map, so binding only the active ones skips them entirely —
+		// that is the root cause of the shader-only-resource never getting a VkBuffer / 08114.
+		// The persistent set retains all of them so bind-all (aligned with D3D12
+		// CommitAliasedResources) creates a VkBuffer for every registered resource.
+		auto const& persistentAllocs = m_AliasingManager.GetPersistentVirtualAllocs();
 
 		for (auto const& [id, localResource] : m_LocalResources)
 		{
-			auto allocIt = activeAllocs.find(id);
-			if (allocIt == activeAllocs.end())
+			auto allocIt = persistentAllocs.find(id);
+			if (allocIt == persistentAllocs.end())
 				continue;
 
 			auto const& virtAlloc = allocIt->second;
@@ -840,6 +846,28 @@ namespace graphics_backend
 		{
 			m_TextureHandleToResource[handle] = resourceId;
 		}
+	}
+
+	bool VulkanGraphLocalResourceManager::IsBufferHandleRegistered(BufferHandle const& handle) const
+	{
+		return m_BufferHandleToResource.find(handle) != m_BufferHandleToResource.end();
+	}
+
+	bool VulkanGraphLocalResourceManager::IsTextureHandleRegistered(ImageHandle const& handle) const
+	{
+		return m_TextureHandleToResource.find(handle) != m_TextureHandleToResource.end();
+	}
+
+	uint64_t VulkanGraphLocalResourceManager::GetBufferHandleToResource(BufferHandle const& handle) const
+	{
+		auto it = m_BufferHandleToResource.find(handle);
+		return (it != m_BufferHandleToResource.end()) ? it->second : 0;
+	}
+
+	uint64_t VulkanGraphLocalResourceManager::GetTextureHandleToResource(ImageHandle const& handle) const
+	{
+		auto it = m_TextureHandleToResource.find(handle);
+		return (it != m_TextureHandleToResource.end()) ? it->second : 0;
 	}
 
 	vk::Buffer VulkanGraphLocalResourceManager::GetBuffer(BufferHandle const& handle) const

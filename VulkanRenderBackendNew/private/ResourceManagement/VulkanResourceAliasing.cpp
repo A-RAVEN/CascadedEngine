@@ -9,6 +9,7 @@ namespace graphics_backend
 	{
 		m_ResourceLifetimes.clear();
 		m_AliasedAllocations.clear();
+		m_PersistentVirtualAllocs.clear();
 		m_TotalAliasedSize = 0;
 		m_TotalUnaliasedSize = 0;
 		CA_LOG_INFO("VulkanResourceAliasing initialized");
@@ -20,6 +21,7 @@ namespace graphics_backend
 		DestroyVirtualBlocks();
 		m_ResourceLifetimes.clear();
 		m_AliasedAllocations.clear();
+		m_PersistentVirtualAllocs.clear();
 		CA_LOG_INFO("VulkanResourceAliasing released");
 	}
 
@@ -332,6 +334,7 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 			}
 		}
 		m_ActiveVirtualAllocs.clear();
+		m_PersistentVirtualAllocs.clear();
 
 		for (auto& pool : m_BlockPools)
 		{
@@ -381,6 +384,10 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 		alloc.endBatch = endBatch;
 		alloc.blockIndex = poolIndex;
 		m_ActiveVirtualAllocs[resourceId] = alloc;
+		// D-C: persist the {offset,size,blockIndex} so that after FreeResourcesUpToBatch prunes
+		// this resource out of m_ActiveVirtualAllocs (early-batch), BindResourcesToPhysicalMemory
+		// can still bind it and CommitVirtualAllocations can compute the correct per-pool peak.
+		m_PersistentVirtualAllocs[resourceId] = alloc;
 		outBlockIndex = poolIndex;
 		return true;
 	}
@@ -426,11 +433,22 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 	{
 		auto& memoryManager = GetApp()->GetMemoryManager();
 
-		for (auto& pool : m_BlockPools)
+		for (uint32_t poolIdx = 0; poolIdx < m_BlockPools.size(); ++poolIdx)
 		{
-			VmaStatistics stats{};
-			vmaGetVirtualBlockStatistics(pool.virtualBlock, &stats);
-			uint64_t peakSize = stats.allocationBytes;
+			auto& pool = m_BlockPools[poolIdx];
+
+			// D-C: peodpeak must be the HISTORIC peak = max(offset+size) over every resource ever
+			// allocated in this pool, NOT vmaGetVirtualBlockStatistics().allocationBytes (= the
+			// CURRENT live bytes). FreeResourcesUpToBatch frees early-batch allocs before this
+			// commit runs, so allocationBytes would under-report the total and overflow when
+			// bind-all writes to those early offsets. buffer pool = 0 / image pool = 1, matching
+			// D3D12's per-pool m_MaxSize (and not spilling into the smaller DEVICE_LOCAL image pool).
+			uint64_t peakSize = 0;
+			for (auto const& [id, alloc] : m_PersistentVirtualAllocs)
+			{
+				if (alloc.blockIndex == poolIdx)
+					peakSize = castl::max(peakSize, alloc.offset + alloc.size);
+			}
 			if (peakSize == 0)
 				continue;
 
@@ -501,7 +519,9 @@ void VulkanResourceAliasing::ExtendResourceLifetime(uint64_t resourceId, uint32_
 			}
 		}
 		m_ActiveVirtualAllocs.clear();
-		// Physical allocations preserved across frames
+		// D-C: persistent offsets are per-frame — cleared after the frame reuses the physical
+		// allocation. Physical allocations preserved across frames.
+		m_PersistentVirtualAllocs.clear();
 	}
 
 	VirtualBlockPool const* VulkanResourceAliasing::GetBlockPool(uint32_t blockIndex) const

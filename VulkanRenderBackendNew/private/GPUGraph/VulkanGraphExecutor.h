@@ -145,10 +145,20 @@ namespace graphics_backend
 	{
 		castl::vector<VulkanImageBarrier> imageBarriers;
 		castl::vector<VulkanBufferBarrier> bufferBarriers;
+		// Cross-alias memory dependencies (vkMemoryBarrier): two graph resources aliasing the same
+		// memory offset, used at non-overlapping batches with at least one write, benefit from a
+		// memory barrier at the later resource's first-use batch. NOTE (best-effort, submission-
+		// local): each batch is its OWN vkQueueSubmit, so this barrier only orders memory within
+		// one submit and does NOT span back to the previous batch. True cross-batch memory
+		// correctness rides on the same-queue waitForFences serialization (execution ordering) +
+		// device-local coherence. This field does NOT claim to establish a cross-submission
+		// dependency. See AddAliasedResourceMemoryDependencies() comment.
+		castl::vector<vk::MemoryBarrier> memoryBarriers;
 
 		void AddImageBarrier(ImageHandle const& handle, vk::ImageMemoryBarrier const& barrier);
 		void AddBufferBarrier(BufferHandle const& handle, vk::BufferMemoryBarrier const& barrier);
-		bool IsEmpty() const { return imageBarriers.empty() && bufferBarriers.empty(); }
+		void AddMemoryBarrier(vk::MemoryBarrier const& barrier);
+		bool IsEmpty() const { return imageBarriers.empty() && bufferBarriers.empty() && memoryBarriers.empty(); }
 		bool AnyBarrier() const { return !IsEmpty(); }
 		void ExecuteBarriers(vk::CommandBuffer cmdBuf, bool computeOnly = false);
 	};
@@ -228,9 +238,31 @@ namespace graphics_backend
 		void InitArraySizes(GPUGraph const& graph);
 		void CollectResources(GPUGraph const& graph);
 		void CollectShaderBindings(GPUGraph const& graph);
+		// Build handle→usage maps from shader bindings, so CollectResources can merge the
+		// shader-required usage (storage/sampled) into a graph resource that also plays a
+		// per-pass role (vertex/index/attachment). Runs AFTER CollectShaderBindings.
+		void BuildShaderUsageMaps();
+		// D-A: feed each RAST pass's shader SRV/UAV bindings into its RWState, so a resource that
+		// is only sampled/read by a raster shader (never an attachment/vertex/index) enters
+		// m_ImageLifetimes/m_BufferLifetimes. Mirrors RegisterComputeResources for the RAST path
+		// (and D3D12 addPassShaderInstancesResourcesRWStates L478). Runs AFTER CollectShaderBindings.
+		void RegisterRasterShaderResources(GPUGraph const& graph);
 		void RegisterComputeResources(GPUGraph const& graph);
 		void RegisterCBufferUsageStates(GPUGraph const& graph);
 		void RegisterCBufferForAliasing(GPUGraph const& graph);
+		// D-B: after BuildResourceUsageRanges fills m_*Lifetimes, extend every graph resource's
+		// firstUseBatch/lastUseBatch from its real lifetime (head/end of states) so aliasing no
+		// longer relies on the hardcoded batch 0 from the top-level Foreach. Requires the
+		// Get*HandleToResource accessors to map handle→resourceId.
+		void ExtendGraphResourceLifetimes();
+		// D-C cross-alias (best-effort, submission-local): detect graph resources that alias the same
+		// (blockIndex, offset) with non-overlapping lifetimes and insert a vkMemoryBarrier at the
+		// later alias's first-use batch. NOTE: each batch is its OWN vkQueueSubmit, so the barrier is
+		// submission-local — it does NOT establish a cross-submission dependency. True cross-batch
+		// memory correctness rides on same-queue waitForFences serialization (execution ordering) +
+		// device-local coherence. Kept as a harmless within-submission ordering; not claimed to be a
+		// cross-submission memory dependency.
+		void AddAliasedResourceMemoryDependencies();
 
 		// Phase 2: Build dependency-free batches
 		void BuildDependencyFreeBatches(GPUGraph const& graph);
@@ -287,6 +319,13 @@ namespace graphics_backend
 
 		// Shader resource instances
 		castl::unordered_map<size_t, castl::shared_ptr<VulkanResourceBindingInstance>> m_ShaderResourceInstances;
+
+		// Handle→shader-binding-usage maps (built by BuildShaderUsageMaps from binding instances).
+		// CollectResources ORs these into every registration site so a graph resource that is
+		// bound by a shader (storage buffer / sampled image) carries the correct usage even if
+		// it ALSO plays a per-pass role (vertex/index/attachment) that alone would miss it.
+		castl::unordered_map<BufferHandle, EBufferUsageFlags> m_BufferShaderUsage;
+		castl::unordered_map<ImageHandle, ETextureAccessTypeFlags> m_ImageShaderUsage;
 
 		// Current graph
 		castl::shared_ptr<GPUGraph> m_CurrentGraph;

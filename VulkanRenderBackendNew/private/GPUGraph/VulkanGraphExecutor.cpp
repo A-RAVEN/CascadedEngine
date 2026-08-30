@@ -333,9 +333,14 @@ namespace graphics_backend
 		bufferBarriers.push_back({ handle, barrier });
 	}
 
+	void VulkanRenderStateBarriers::AddMemoryBarrier(vk::MemoryBarrier const& barrier)
+	{
+		memoryBarriers.push_back(barrier);
+	}
+
 	void VulkanRenderStateBarriers::ExecuteBarriers(vk::CommandBuffer cmdBuf, bool computeOnly)
 	{
-		if (imageBarriers.empty() && bufferBarriers.empty())
+		if (imageBarriers.empty() && bufferBarriers.empty() && memoryBarriers.empty())
 			return;
 
 		// Collect all barriers and compute tight stage masks from access flags
@@ -343,6 +348,8 @@ namespace graphics_backend
 		imgBarriers.reserve(imageBarriers.size());
 		castl::vector<vk::BufferMemoryBarrier> bufBarriers;
 		bufBarriers.reserve(bufferBarriers.size());
+		castl::vector<vk::MemoryBarrier> memBarriers;
+		memBarriers.reserve(memoryBarriers.size());
 
 		vk::PipelineStageFlags srcStage{};
 		vk::PipelineStageFlags dstStage{};
@@ -359,13 +366,19 @@ namespace graphics_backend
 			srcStage |= AccessToPipelineStages(bb.barrier.srcAccessMask, computeOnly);
 			dstStage |= AccessToPipelineStages(bb.barrier.dstAccessMask, computeOnly);
 		}
+		for (auto& mb : memoryBarriers)
+		{
+			memBarriers.push_back(mb);
+			srcStage |= AccessToPipelineStages(mb.srcAccessMask, computeOnly);
+			dstStage |= AccessToPipelineStages(mb.dstAccessMask, computeOnly);
+		}
 
-		// Merge image + buffer barriers into a single vkCmdPipelineBarrier call with tight stage masks
+		// Merge memory + image + buffer barriers into a single vkCmdPipelineBarrier call with tight stage masks
 		cmdBuf.pipelineBarrier(
 			srcStage ? srcStage : vk::PipelineStageFlagBits::eAllCommands,
 			dstStage ? dstStage : vk::PipelineStageFlagBits::eAllCommands,
 			vk::DependencyFlags{},
-			{}, bufBarriers, imgBarriers);
+			memBarriers, bufBarriers, imgBarriers);
 	}
 
 	// VulkanCBufferInitializeBarriers implementation
@@ -516,6 +529,11 @@ namespace graphics_backend
 		// Phase 3: Build resource usage ranges
 		BuildResourceUsageRanges();
 
+		// D-B: extend graph-resource lifetimes from real use (head/end of states) so aliasing no
+		// longer hardcodes batch 0. Must run AFTER BuildResourceUsageRanges (states populated) and
+		// BEFORE AllocateAliasedResources (Phase 4.5).
+		ExtendGraphResourceLifetimes();
+
 		// Phase 4: Register CBuffer resources for aliasing
 		RegisterCBufferForAliasing(*graph);
 
@@ -620,10 +638,192 @@ namespace graphics_backend
 	void VulkanGraphExecutor::Prepare(GPUGraph const& graph)
 	{
 		InitArraySizes(graph);
-		CollectResources(graph);
+		// Build shader binding instances FIRST so CollectResources can see their usages
+		// (BuildShaderUsageMaps) when registering graph resources. This lets a resource that is
+		// both vertex-bound and shader-storage-bound get the union of usages, so the bound
+		// VkBuffer carries VK_BUFFER_USAGE_STORAGE_BUFFER_BIT (avoids 00331) and the handle
+		// resolves to a bound resource (avoids the BuildDescriptors skip-write / 08114).
 		CollectShaderBindings(graph);
+		BuildShaderUsageMaps();
+		CollectResources(graph);
+		// D-A: feed RAST shader SRV/UAV bindings into RWState. Collected AFTER CollectShaderBindings
+		// (so binding instances exist) and after BuildShaderUsageMaps. Runs regardless of
+		// CollectResources ordering — both write m_RasterPassRWStates via insert-or-Combine.
+		RegisterRasterShaderResources(graph);
 		RegisterComputeResources(graph);
 		RegisterCBufferUsageStates(graph);
+	}
+
+	void VulkanGraphExecutor::BuildShaderUsageMaps()
+	{
+		m_BufferShaderUsage.clear();
+		m_ImageShaderUsage.clear();
+
+		for (auto& [hash, instance] : m_ShaderResourceInstances)
+		{
+			if (!instance) continue;
+
+			for (auto const& binding : instance->GetBufferBindings())
+			{
+				EBufferUsageFlags usage = (binding.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
+					? EBufferUsage::eUnorderedAccess : EBufferUsage::eStructuredBuffer;
+				for (auto const& handle : binding.bindings)
+					m_BufferShaderUsage[handle] |= usage;
+			}
+
+			for (auto const& binding : instance->GetImageBindings())
+			{
+				ETextureAccessTypeFlags access = (binding.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
+					? ETextureAccessType::eUnorderedAccess : ETextureAccessType::eSampled;
+				for (auto const& [handle, view] : binding.bindings)
+					m_ImageShaderUsage[handle] |= access;
+			}
+		}
+	}
+
+	void VulkanGraphExecutor::RegisterRasterShaderResources(GPUGraph const& graph)
+	{
+		// D-A: for each RAST pass, feed every shader SRV/UAV binding into the pass RWState. This is
+		// the RAST analog of RegisterComputeResources: a graph resource bound ONLY by a raster
+		// shader (never an attachment/vertex/index) was previously missing from
+		// m_ImageLifetimes/m_BufferLifetimes, so it never got a lifetime nor a bound VkObject —
+		// that is the 缺口 A that D1/D3 alone cannot fix. Mirror D3D12
+		// addPassShaderInstancesResourcesRWStates (RAST L478): no Internal/External/Backbuffer
+		// filtering — external/backbuffer shader bindings only enter the lifetime tables (for
+		// barriers) and are never aliased (they're not in m_LocalResources).
+		for (size_t passID = 0; passID < graph.GetRenderPasses().size(); ++passID)
+		{
+			auto& passData = m_RasterPassGPUData[passID];
+			auto& passRWState = m_RasterPassRWStates[passID];
+
+			for (auto& batchData : passData.drawcallBatchs)
+			{
+				auto* pBindingInstance = batchData.pResourceBindingInstance;
+				if (!pBindingInstance) continue;
+
+				vk::PipelineStageFlags stages =
+					vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader;
+
+				for (auto& imageBinding : pBindingInstance->GetImageBindings())
+					for (auto& [imageHandle, textureView] : imageBinding.bindings)
+						passRWState.SetImageRWState(imageHandle, stages,
+							ComputeAccessToVulkanAccess(imageBinding.bindingInfo.accessType),
+							ComputeAccessToImageLayout(imageBinding.bindingInfo.accessType),
+							EGPUQueueType::eDirect);
+
+				for (auto& bufferBinding : pBindingInstance->GetBufferBindings())
+					for (auto& bufferHandle : bufferBinding.bindings)
+						passRWState.SetBufferRWState(bufferHandle, stages,
+							ComputeAccessToVulkanAccess(bufferBinding.bindingInfo.accessType),
+							EGPUQueueType::eDirect);
+			}
+		}
+	}
+
+	void VulkanGraphExecutor::ExtendGraphResourceLifetimes()
+	{
+		// D-B: after BuildResourceUsageRanges fills m_*Lifetimes, extend every registered graph
+		// resource's firstUseBatch/lastUseBatch from its REAL lifetime (head/end of states) instead
+		// of the hardcoded batch 0 from the top-level Foreach. This lets aliasing keep the resource
+		// alive across its true batch span (禁止提前释放/复用) and binds it correctly.
+		//
+		// Handle→resourceId: only possible via the Get*HandleToResource accessors (the executor has
+		// no handle→resourceId map; resourceId is a discarded local in the top-level Foreach).
+		// Guard: a lifetime entry can only exist if it was Expanded (non-empty states), but a
+		// defensive states.empty() skip mirrors the cbuffer precedent at cpp:683 and avoids
+		// front()/back() on an empty vector. External/Backbuffer handles map to 0 → skipped
+		// (they're never aliased, only barriered).
+		for (auto const& [image, usageRange] : m_ImageLifetimes)
+		{
+			if (usageRange.states.empty()) continue;
+			uint64_t resourceId = m_LocalResourceManager.GetTextureHandleToResource(image);
+			if (resourceId == 0) continue;
+			m_LocalResourceManager.MarkResourceUse(resourceId, usageRange.states.front().batchID);
+			m_LocalResourceManager.MarkResourceUse(resourceId, usageRange.states.back().batchID);
+		}
+
+		for (auto const& [buffer, usageRange] : m_BufferLifetimes)
+		{
+			if (usageRange.states.empty()) continue;
+			uint64_t resourceId = m_LocalResourceManager.GetBufferHandleToResource(buffer);
+			if (resourceId == 0) continue;
+			m_LocalResourceManager.MarkResourceUse(resourceId, usageRange.states.front().batchID);
+			m_LocalResourceManager.MarkResourceUse(resourceId, usageRange.states.back().batchID);
+		}
+	}
+
+	void VulkanGraphExecutor::AddAliasedResourceMemoryDependencies()
+	{
+		// D-C cross-alias memory dependency (BEST-EFFORT, SUBMISSION-LOCAL — see honest note).
+		// Two graph resources may alias the same (blockIndex, offset) memory range only if their
+		// live batches do NOT overlap (VMA only reuses a freed virtual slot for a later allocation).
+		// Per Vulkan memory aliasing + VMA resource_aliasing an access where at least one side writes
+		// requires a memory dependency between the earlier resource's last use and the later one's
+		// first use. We insert a vkMemoryBarrier at the later alias's first-use batch.
+		//
+		// HONEST LIMITATION (adversarial-verified): each batch is submitted as its OWN vkQueueSubmit
+		// (SubmitBatches, commandBufferCount=1) with a host waitForFences between batches. A
+		// pipeline barrier's first sync scope is limited to commands in the SAME submission, so this
+		// vkMemoryBarrier is SUBMISSION-LOCAL: it orders memory within one batch's submit, but does
+		// NOT span back to the previous batch's separate submission. A true cross-submission memory
+		// dependency would require either a single-submission-all-batches model or per-batch
+		// signal/wait semaphores — a submission-model change out of scope here. Actual cross-batch
+		// ordering/memory correctness in this codebase therefore rides on the same-queue
+		// waitForFences serialization (execution ordering) + device-local coherence. The barrier is
+		// kept because it is harmless (within-submission ordering) and spec-valid on the direct
+		// queue; it is NOT claimed to be a cross-submission dependency.
+		// For an optimal-tiling image, the later alias's first use transitions from
+		// VK_IMAGE_LAYOUT_UNDEFINED via its own image barrier (Internal image resources begin at
+		// eUndefined, so stale contents are discarded).
+		auto const& resources = m_LocalResourceManager.GetLocalResources();
+		auto const& persist = m_LocalResourceManager.GetPersistentVirtualAllocs();
+		if (persist.size() < 2)
+			return;
+
+		// Group resource ids by (blockIndex<<32 | offset): resources sharing a key alias the same memory.
+		castl::unordered_map<uint64_t, castl::vector<uint64_t>> groups;
+		for (auto const& [id, alloc] : persist)
+			groups[(static_cast<uint64_t>(alloc.blockIndex) << 32) | alloc.offset].push_back(id);
+
+		struct Item { uint64_t id; uint32_t first; uint32_t last; };
+		for (auto& [key, ids] : groups)
+		{
+			if (ids.size() < 2) continue;
+
+			castl::vector<Item> items;
+			items.reserve(ids.size());
+			for (uint64_t id : ids)
+			{
+				auto lit = resources.find(id);
+				if (lit == resources.end()) continue;
+				items.push_back({ id, lit->second.firstUseBatch, lit->second.lastUseBatch });
+			}
+			castl::sort(items.begin(), items.end(),
+				[](Item const& a, Item const& b) { return a.first < b.first; });
+
+			for (size_t i = 1; i < items.size(); ++i)
+			{
+				Item const& prev = items[i - 1];
+				Item const& cur = items[i];
+				// prev.last < cur.first => the two live windows do not overlap (prev freed before
+				// cur is allocated) => a genuine time-overlap-free alias on the same offset.
+				if (prev.last >= cur.first) continue;
+				if (cur.first >= m_ExecutionBatches.size()) continue;
+
+				vk::MemoryBarrier mem{};
+				mem.srcAccessMask = vk::AccessFlagBits::eMemoryWrite;
+				mem.dstAccessMask = vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite;
+
+				// Direct-queue: the direct command buffer is always created & submitted, and a
+				// compute pass with asyncCompute off runs on it too — so the barrier lands in
+				// batch.aquireBarriers (submission-local, spec-valid). We deliberately do NOT add to
+				// computeAquireBarriers: a compute-queue barrier cannot source a write performed on
+				// the graphics queue without a cross-queue semaphore (only present under
+				// hasCrossQueueSync), so that branch would be an ineffective/no-op dependency.
+				auto& batch = m_ExecutionBatches[cur.first];
+				batch.aquireBarriers.AddMemoryBarrier(mem);
+			}
+		}
 	}
 
 	void VulkanGraphExecutor::RegisterCBufferForAliasing(GPUGraph const& graph)
@@ -740,8 +940,15 @@ namespace graphics_backend
 			for (auto& attachment : renderPass.GetAttachments())
 			{
 				auto descriptor = GetDescriptor(graph, attachment);
-uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
-					descriptor, ETextureAccessType::eRT, static_cast<uint32_t>(passID));
+				// Depth attachments must carry DEPTH_STENCIL usage (not COLOR): a depth image
+				// registered with only eRT (-> VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) is invalid as
+				// a depth target — barriers/renderpass want DEPTH_STENCIL_ATTACHMENT_OPTIMAL and
+				// validation flags 01209/01758/02633/08931 once the image is actually BOUND
+				// (previously masked by 缺口 C binding gap; D-C bind-all exposed it).
+				ETextureAccessTypeFlags attachmentAccess = (attachmentID == renderPass.GetDepthAttachmentIndex())
+					? ETextureAccessType::eDepthStencil : ETextureAccessType::eRT;
+				uint64_t resourceId = m_LocalResourceManager.RegisterTemporaryTexture(
+					descriptor, (attachmentAccess | m_ImageShaderUsage[attachment]), static_cast<uint32_t>(passID));
 				if (attachment.IsIntternal()) m_LocalResourceManager.RegisterTextureHandle(attachment, resourceId);
 
 				if (attachmentID == renderPass.GetDepthAttachmentIndex())
@@ -772,7 +979,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 						auto& indexBuffer = drawcall.GetIndexBuffer().indexBufferHandle;
 						auto descriptor = GetDescriptor(graph, indexBuffer);
 uint64_t resourceId = 						m_LocalResourceManager.RegisterTemporaryBuffer(
-							descriptor, EBufferUsage::eIndexBuffer, static_cast<uint32_t>(passID));
+							descriptor, (EBufferUsageFlags(EBufferUsage::eIndexBuffer) | m_BufferShaderUsage[indexBuffer]), static_cast<uint32_t>(passID));
 						if (indexBuffer.IsIntternal()) m_LocalResourceManager.RegisterBufferHandle(indexBuffer, resourceId);
 						passRWState.SetBufferRWState(indexBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
@@ -784,7 +991,7 @@ uint64_t resourceId = 						m_LocalResourceManager.RegisterTemporaryBuffer(
 						auto& vertBuffer = vertBuf.second;
 						auto descriptor = GetDescriptor(graph, vertBuffer);
 uint64_t resourceId = 						m_LocalResourceManager.RegisterTemporaryBuffer(
-							descriptor, EBufferUsage::eVertexBuffer, static_cast<uint32_t>(passID));
+							descriptor, (EBufferUsageFlags(EBufferUsage::eVertexBuffer) | m_BufferShaderUsage[vertBuffer]), static_cast<uint32_t>(passID));
 						if (vertBuffer.IsIntternal()) m_LocalResourceManager.RegisterBufferHandle(vertBuffer, resourceId);
 						passRWState.SetBufferRWState(vertBuffer,
 							vk::PipelineStageFlagBits::eVertexInput,
@@ -811,7 +1018,7 @@ uint64_t resourceId = 						m_LocalResourceManager.RegisterTemporaryBuffer(
 			{
 				auto descriptor = GetDescriptor(graph, imgWrites.first);
 uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
-					descriptor, ETextureAccessTypeFlags{}, static_cast<uint32_t>(passID));
+					descriptor, m_ImageShaderUsage[imgWrites.first], static_cast<uint32_t>(passID));
 				if (imgWrites.first.IsIntternal()) m_LocalResourceManager.RegisterTextureHandle(imgWrites.first, resourceId);
 				// F35: the tracked layout must match what RecordTransferPass actually leaves
 				// the image in — its final inline transition ends at
@@ -829,7 +1036,7 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			{
 				auto descriptor = GetDescriptor(graph, img.first);
 uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
-					descriptor, img.second, static_cast<uint32_t>(m_ExecutionBatches.size()));
+					descriptor, (img.second | m_ImageShaderUsage[img.first]), static_cast<uint32_t>(m_ExecutionBatches.size()));
 				if (img.first.IsIntternal()) m_LocalResourceManager.RegisterTextureHandle(img.first, resourceId);
 				m_FinalizePassRWState.SetImageRWState(img.first,
 					vk::PipelineStageFlagBits::eFragmentShader,
@@ -847,11 +1054,29 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 		graph.GetBufferManager().Foreach([&](ResourceHandleKeyData const& handleKey, auto& desc)
 		{
-			m_LocalResourceManager.RegisterTemporaryBuffer(desc, EBufferUsageFlags{}, 0);
+			BufferHandle handle(handleKey);
+			// D1: register the Handle so a shader-bound graph buffer resolves to the BOUND
+			// resource (not a late BuildResources fallback). D3: OR in shader-binding usage so a
+			// structured/RW buffer carries STORAGE_BUFFER_BIT. Insert-only: never clobber a
+			// per-pass (vertex/index/attachment) registration that carries correct usage.
+			// D1 补全: skip handles ALREADY registered per-pass — never call RegisterTemporaryBuffer
+			// again (which would create a duplicate orphan resource that D-C "bind all" would bind
+			// as an extra VkObject / fragment the VirtualBlock plan). The per-pass registration
+			// already placed it in m_LocalResources with the correct usage + batch.
+			if (handle.IsIntternal() && m_LocalResourceManager.IsBufferHandleRegistered(handle))
+				return;
+			uint64_t resourceId = m_LocalResourceManager.RegisterTemporaryBuffer(desc, m_BufferShaderUsage[handle], 0);
+			if (handle.IsIntternal())
+				m_LocalResourceManager.RegisterBufferHandle(handle, resourceId);
 		});
 		graph.GetImageManager().Foreach([&](ResourceHandleKeyData const& handleKey, auto& desc)
 		{
-			m_LocalResourceManager.RegisterTemporaryTexture(desc, ETextureAccessTypeFlags{}, 0);
+			ImageHandle handle(handleKey);
+			if (handle.IsIntternal() && m_LocalResourceManager.IsTextureHandleRegistered(handle))
+				return;
+			uint64_t resourceId = m_LocalResourceManager.RegisterTemporaryTexture(desc, m_ImageShaderUsage[handle], 0);
+			if (handle.IsIntternal())
+				m_LocalResourceManager.RegisterTextureHandle(handle, resourceId);
 		});
 	}
 
@@ -1094,6 +1319,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 
 	void VulkanGraphExecutor::PrepareBatchResourceBarriers(GPUGraph const& graph)
 	{
+		// D-C cross-alias: insert vkMemoryBarrier dependencies at each aliased-resource transition
+		// BEFORE the per-resource image/buffer barriers are built, so the memory dependency and the
+		// layout transition are both present at the later alias's first-use batch.
+		AddAliasedResourceMemoryDependencies();
+
 		for (auto& pair : m_ImageLifetimes)
 		{
 			ImageHandle const& image = pair.first;

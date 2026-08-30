@@ -106,6 +106,13 @@ namespace graphics_backend
 		VirtualBlockPool const* GetBlockPool(uint32_t blockIndex) const;
 		castl::unordered_map<uint64_t, VirtualResourceAllocation> const& GetActiveVirtualAllocs() const { return m_ActiveVirtualAllocs; }
 
+		// Persistent (per-frame) record of EVERY resource's virtual allocation {offset,size,blockIndex}.
+		// Survives FreeResourcesUpToBatch (which only prunes m_ActiveVirtualAllocs, so early-batch
+		// resources are kept here). Used by BindResourcesToPhysicalMemory to bind ALL registered
+		// resources (not just the last-batch survivors) and by CommitVirtualAllocations to compute
+		// per-pool peak = max(offset+size) instead of live vmaGetVirtualBlockStatistics.allocationBytes.
+		castl::unordered_map<uint64_t, VirtualResourceAllocation> const& GetPersistentVirtualAllocs() const { return m_PersistentVirtualAllocs; }
+
 	private:
 		bool LifetimesOverlap(ResourceLifetime const& a, ResourceLifetime const& b) const;
 		void CalculateAliasingGroups();
@@ -127,7 +134,11 @@ namespace graphics_backend
 
 		// === Phase 1/2: VirtualBlock state ===
 		castl::vector<VirtualBlockPool> m_BlockPools;                         // per memoryType
-		castl::unordered_map<uint64_t, VirtualResourceAllocation> m_ActiveVirtualAllocs; // resourceId → virtual alloc
+		castl::unordered_map<uint64_t, VirtualResourceAllocation> m_ActiveVirtualAllocs; // resourceId → virtual alloc (pruned per-batch)
+		// resourceId → virtual alloc, surviving FreeResourcesUpToBatch. D-C: all resources that
+		// ever got a vmaVirtualAllocate keep their {offset,size,blockIndex} here so bind-all and
+		// per-pool peak work even after early-batch allocs are freed from m_ActiveVirtualAllocs.
+		castl::unordered_map<uint64_t, VirtualResourceAllocation> m_PersistentVirtualAllocs;
 		uint64_t m_DefaultBlockSize = 256 * 1024 * 1024;                       // 256 MB initial
 	};
 }

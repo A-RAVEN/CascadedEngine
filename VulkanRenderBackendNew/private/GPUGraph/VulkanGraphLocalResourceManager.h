@@ -74,6 +74,20 @@ namespace graphics_backend
 		void RegisterBufferHandle(BufferHandle const& handle, uint64_t resourceId);
 		void RegisterTextureHandle(ImageHandle const& handle, uint64_t resourceId);
 
+		// Insert-only guard: whether a handle is ALREADY mapped to a resource. Used by the
+		// top-level graph-resource Foreach so it never clobbers a per-pass registration that
+		// carries the correct (vertex/index/attachment/sampled) usage.
+		bool IsBufferHandleRegistered(BufferHandle const& handle) const;
+		bool IsTextureHandleRegistered(ImageHandle const& handle) const;
+
+		// Reverse lookup: resourceId for a registered handle, or 0 if not registered. D-B uses
+		// this (after BuildResourceUsageRanges fills m_*Lifetimes) to extend each graph resource's
+		// firstUseBatch/lastUseBatch with MarkResourceUse, so aliasing no longer relies on the
+		// hardcoded batch 0 from the top-level Foreach. External/Backbuffer handles aren't mapped,
+		// so they return 0 and are skipped (they're never aliased).
+		uint64_t GetBufferHandleToResource(BufferHandle const& handle) const;
+		uint64_t GetTextureHandleToResource(ImageHandle const& handle) const;
+
 		// Get buffer/texture by handle (looks up registered handles, falls back to external)
 		vk::Buffer GetBuffer(BufferHandle const& handle) const;
 		vk::Image GetTexture(ImageHandle const& handle) const;
@@ -85,6 +99,13 @@ namespace graphics_backend
 		// Get statistics
 		size_t GetResourceCount() const { return m_Resources.size(); }
 		uint64_t GetTotalMemoryUsed() const { return m_TotalMemoryUsed; }
+
+		// D-C cross-alias: expose the per-resource lifetimes and the persistent virtual allocs so
+		// the executor can (a) detect graph resources aliasing the same (blockIndex, offset) and
+		// (b) insert a vkMemoryBarrier at the later alias's first-use batch. GraphLocalResource has
+		// firstUseBatch/lastUseBatch/type; VirtualResourceAllocation has offset/blockIndex.
+		castl::unordered_map<uint64_t, GraphLocalResource> const& GetLocalResources() const { return m_LocalResources; }
+		castl::unordered_map<uint64_t, VirtualResourceAllocation> const& GetPersistentVirtualAllocs() const { return m_AliasingManager.GetPersistentVirtualAllocs(); }
 
 	private:
 		// Phase A: create temp resources to query real memory requirements

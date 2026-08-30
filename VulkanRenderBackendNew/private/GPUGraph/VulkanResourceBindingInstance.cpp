@@ -243,7 +243,14 @@ namespace graphics_backend
 			cbuffer.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(cbuffer.bindingInfo.usageMask));
 		}
 
-		// 3.3: Register image resources (fallback for unregistered handles)
+		// 3.3: Resolve image bindings. After D-A/D-B/D-C/D1 every shader-bound graph (Internal)
+		// resource is pre-registered AND physically bound during AllocateAliasedResources (Phase
+		// 4.5), so GetTextureView already returns non-null. The old unconditional fallback —
+		// RegisterTemporaryTexture + RegisterTextureHandle — ran in Phase 5 and created a resource
+		// born at batch 0 AFTER aliasing planning, so it was never bound; the descriptor write still
+		// skipped (08114). D2: make it inert — do NOT create a Phase-5 dead resource. External
+		// handles resolve via GetTextureView's external fallback (non-null → continue), so the only
+		// way to reach here is a genuine pre-registration gap → record + explicitly skip.
 		for (auto& image : m_ImageBindings)
 		{
 			image.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(image.bindingInfo.usageMask));
@@ -255,15 +262,14 @@ namespace graphics_backend
 				if (resourceManager.GetTextureView(imageHandle))
 					continue;
 
-				auto descriptor = GetDescriptor(graph, imageHandle);
-				ETextureAccessTypeFlags accessType = (image.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
-					? ETextureAccessType::eUnorderedAccess : ETextureAccessType::eSampled;
-				uint64_t resourceId = resourceManager.RegisterTemporaryTexture(descriptor, accessType, 0);
-				resourceManager.RegisterTextureHandle(imageHandle, resourceId);
+				CA_LOG_WARN("VulkanResourceBindingInstance: image handle not bound; skipping descriptor "
+					"(expected pre-bound by D1/D-A/D-B/D-C in Phase 4.5)");
 			}
 		}
 
-		// 3.4: Register buffer resources (fallback for unregistered handles)
+		// 3.4: Resolve buffer bindings — same D2 rationale as images: after the Phase 4.5 binding
+		// every shader-bound graph buffer is bound, so GetBuffer returns non-null. The old fallback
+		// registered a Phase-5 batch-0 resource that was never bound → 08114. Make it inert.
 		for (auto& buffer : m_BufferBindings)
 		{
 			buffer.usingStages = ToShaderStageFlags(p_ShaderFileInfo->GetShaderStageUsage(buffer.bindingInfo.usageMask));
@@ -274,11 +280,8 @@ namespace graphics_backend
 				if (resourceManager.GetBuffer(bufferHandle))
 					continue;
 
-				auto descriptor = GetDescriptor(graph, bufferHandle);
-				EBufferUsageFlags bufferUsage = (buffer.resourceUsages == EResourceUsage::eShaderUnorderedAccess)
-					? EBufferUsage::eUnorderedAccess : EBufferUsage::eStructuredBuffer;
-				uint64_t resourceId = resourceManager.RegisterTemporaryBuffer(descriptor, bufferUsage, 0);
-				resourceManager.RegisterBufferHandle(bufferHandle, resourceId);
+				CA_LOG_WARN("VulkanResourceBindingInstance: buffer handle not bound; skipping descriptor "
+					"(expected pre-bound by D1/D-A/D-B/D-C in Phase 4.5)");
 			}
 		}
 
