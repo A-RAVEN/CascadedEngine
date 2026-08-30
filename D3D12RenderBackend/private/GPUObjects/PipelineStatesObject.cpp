@@ -28,7 +28,9 @@ namespace graphics_backend
 			dstRasterizerState.DepthBias = 0.0f;
 			//dstRasterizerState.DepthBiasClamp = rasterizerSate.depthBiasClamp;
 			//dstRasterizerState.SlopeScaledDepthBias = rasterizerSate.slopeScaledDepthBias;
-			dstRasterizerState.DepthClipEnable = srcRasterizerState.enableDepthClamp;
+			// unify-depth-clamp-switch: same inverse mapping as GPUPipelineInstance (Vulkan depth-clamp
+			// is the opposite of D3D depth-clip-enable) so both D3D pipeline paths behave identically.
+			dstRasterizerState.DepthClipEnable = srcRasterizerState.enableDepthClamp ? FALSE : TRUE;
 			dstRasterizerState.AntialiasedLineEnable = FALSE;
 			dstRasterizerState.ForcedSampleCount = 0;
 			dstRasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;

@@ -30,7 +30,9 @@
 
 ## [2026-08-30] 暴露 enableDepthClamp（z-clip/z-clamp 开关）为 GPUGraph 级开关，统一双后端光栅化（vulkan 三角形缺失根因）
 
-**状态：未修（设计待做 + 双后端错配）**
+**状态：已解决（2026-08-30，`unify-depth-clamp-switch` 落地并归档 → `openspec/changes/archive/2026-08-30-unify-depth-clamp-switch/`）**
+
+**结果**：统一 `RasterizerStates::enableDepthClamp`（默认 false = 标准近平面裁剪），双后端一致实现——Vulkan 映射 `depthClampEnable` + 设备启用 `depthClamp` feature；D3D12 去硬编码、`DepthClipEnable = !enableDepthClamp`（双路径一致）；ConstantColor/StructuredBufferColor 顶点 z 改 ≥0。`python build.py --config Debug` 通过，双后端 8 测试 exit 0，ConstantColor/StructuredBufferColor 双端渲染出三角形且字节一致，无新增 VUID。对抗验证 11/11 全票（mustFix 空）。主 spec `openspec/specs/pipeline-depth-clamp/spec.md` 已同步（valid）。**遗留**：[AUDIT-1] 覆盖缺口——clamp 正向路径（enableDepthClamp=true）未被任何测试运行时触达，仅代码审+MCP 语义核实，可补一条真 clamp 渲染测试（非必须）。
 
 **问题**：TestTriangleWithConstantColor / TestTriangleWithStructuredBufferColor 在 **Vulkan** 上三角形消失（顶点 z=-0.25/0 被裁），**D3D12** 正常。根因是**光栅化"近平面 z-clip/Z-clamp"开关在双后端不一致**：
 - **Vulkan**：`VulkanGraphExecutor.cpp:1823-1831` 建 `VkPipelineRasterizationStateCreateInfo` 时**忽略接口 `enableDepthClamp`**，`depthClampEnable` 字段从未设（默认 `VK_FALSE`）→ **裁 z 面**（z<0 被裁掉）。且设备**未启用 `depthClamp` device feature**（启用后才可设 depthClampEnable=TRUE）。

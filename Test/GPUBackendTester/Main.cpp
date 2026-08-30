@@ -307,9 +307,9 @@ void TestTriangleWithConstantColor(TestContext& ctx)
 		}, false);
 
 	std::vector<VertexStruct> testBuffer = {
-		{{-0.25f, -0.25f, -0.25f }},
-		{{0.25f, -0.25f, -0.25f }},
-		{{0.0f, 0.5f, 0.0f }},
+		{{-0.25f, -0.25f, 0.25f }},
+		{{0.25f, -0.25f, 0.25f }},
+		{{0.0f, 0.5f, 0.5f }},
 	};
 
 	castl::shared_ptr<ShaderStruct> pConstantColor = ctx.pGPUBackend->CreateShaderStruct(CANAME("ConstantColor"));
@@ -420,9 +420,9 @@ void TestTriangleWithStructuredBufferColor(TestContext& ctx)
 		}, false);
 
 	std::vector<VertexStruct> testBuffer = {
-		{{-0.25f, -0.25f, -0.25f }},
-		{{0.25f, -0.25f, -0.25f }},
-		{{0.0f, 0.5f, 0.0f }},
+		{{-0.25f, -0.25f, 0.25f }},
+		{{0.25f, -0.25f, 0.25f }},
+		{{0.0f, 0.5f, 0.5f }},
 	};
 
 	BufferHandle structuredColorBuffer(CANAME("StructuredColorBuffer"));

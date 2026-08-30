@@ -294,6 +294,7 @@ namespace graphics_backend
 		// (extension support implies feature support per spec Feature Requirements) — the
 		// query is kept defensively and gates m_PipelineLibrarySupported. Feature-unsupported
 		// devices fall back to the monolithic pipeline path (m_PipelineLibrarySupported=false).
+		vk::PhysicalDeviceFeatures deviceFeatures{};
 		vk::PhysicalDeviceVulkan13Features vulkan13Features{};
 		vk::PhysicalDeviceGraphicsPipelineLibraryFeaturesEXT gplFeatures{};
 		gplFeatures.pNext = &vulkan13Features;
@@ -301,6 +302,9 @@ namespace graphics_backend
 			vk::PhysicalDeviceFeatures2 features2{};
 			features2.pNext = &gplFeatures;
 			m_PhysicalDevice.getFeatures2(&features2);
+			// unify-depth-clamp-switch: enable the base depthClamp feature (used by depthClampEnable=true in
+			// VulkanGraphExecutor). Copy what the device supports so a non-supporting device keeps it off.
+			deviceFeatures.depthClamp = features2.features.depthClamp;
 			m_PipelineLibrarySupported = (gplFeatures.graphicsPipelineLibrary == VK_TRUE);
 			CA_LOG_INFO("RenderBackend_Vulkan: queried device features — graphicsPipelineLibrary={}, dynamicRendering={}",
 				static_cast<bool>(gplFeatures.graphicsPipelineLibrary),
@@ -309,6 +313,7 @@ namespace graphics_backend
 
 		vk::DeviceCreateInfo deviceCreateInfo({}, queueCreationInfo.queueCreateInfoList, {}, deviceExts);
 		deviceCreateInfo.pNext = &gplFeatures;
+		deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 
 		try
 		{

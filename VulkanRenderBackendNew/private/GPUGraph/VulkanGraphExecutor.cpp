@@ -1825,6 +1825,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				rasterizationState.cullMode = ECullModeToVkCullModeFlags(pipelineStateData.rasterizationStates.cullMode);
 				rasterizationState.frontFace = EFrontFaceToVkFrontFace(pipelineStateData.rasterizationStates.frontFace);
 				rasterizationState.lineWidth = 1.0f;
+				// unify-depth-clamp-switch: honor the shared enableDepthClamp field. true = depth-clamp
+				// (render z<0 clamped to z=0) instead of clipping primitives to the z planes; false (default)
+				// = standard near-plane clipping (z<0 culled). Requires the depthClamp device feature enabled
+				// (VUID-VkPipelineRasterizationStateCreateInfo-depthClampEnable-00782).
+				rasterizationState.depthClampEnable = pipelineStateData.rasterizationStates.enableDepthClamp ? VK_TRUE : VK_FALSE;
 
 				vk::PipelineMultisampleStateCreateInfo multisampleState{};
 				multisampleState.rasterizationSamples = VulkanTexture::ConvertSampleCount(pipelineStateData.msCount);

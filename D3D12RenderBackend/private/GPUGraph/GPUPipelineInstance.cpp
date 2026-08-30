@@ -156,7 +156,10 @@ namespace graphics_backend
 		psoDesc.RasterizerState.CullMode = ECullModeToD3D12CullMode(rasterizeStates.cullMode);
 		psoDesc.RasterizerState.FrontCounterClockwise = rasterizeStates.frontFace == EFrontFace::eCounterClockWise
 			? TRUE : FALSE; // 顶点顺序是否为逆时针
-		psoDesc.RasterizerState.DepthClipEnable = FALSE;
+		// unify-depth-clamp-switch: DepthClipEnable is the inverse of enableDepthClamp (Vulkan
+		// depthClampEnable is the opposite of D3D depth-clip-enable). true=clamp => DepthClipEnable=FALSE
+		// (no z-near clip); false (default)=clip => DepthClipEnable=TRUE. Aligns with VulkanGraphExecutor.
+		psoDesc.RasterizerState.DepthClipEnable = rasterizeStates.enableDepthClamp ? FALSE : TRUE;
 
 		// --------------------------
 		// Blending
