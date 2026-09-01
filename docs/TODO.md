@@ -20,7 +20,18 @@
 - 输出命名：`test_output/IMGUI_<backend>_viewport<N>.png`（每个副窗一张）。
 - 之后用 PIL 量化：非背景像素包围盒相对窗口 (0,0) 的位移 → 区分"大副窗偏移" vs "~1px 均匀平移"，据此定位根因（并可验证"改掉 `Imgui.slang:43 +2/Size` 是否消除"）。
 
-**状态：计划（未实现）**——用户指示先记 TODO、先不动代码。
+**状态：已实现（2026-09-01，commit `0c0a6e5` 落地捕获能力）**——逐窗口回读已跑通，**副窗偏移已实测**（见下方实测结论），根因定位到 Vulkan 后端，另案排查。
+
+**实测结论（双端 headless 同布局，`--headless 8 --capture 5` 逐窗 PNG）**：headless 确实产出 2~3 个 viewport（主窗 + 副窗）。PIL 量化：
+- **viewport0（主窗）**：vulkan 与 d3d12 **字节一致**（内容 bbox `(1,1,1023,511)`）——主窗正确。
+- **副窗**：d3d12 内容 bbox `(1,1,...)` 正确；**vulkan 内容偏移到 `(61,61)` = `(副窗pos − 主窗pos) + ~1px`**（此前另一布局偏移 `(349,341)` 同样吻合该公式）。
+- **关键（排除 shader 数据）**：instrument 证实 ImGui 顶点 `vtx0 = meshScalePos.zw + 标题栏19px`、`displayPos == meshScalePos.zw == imguipos`，且**双端完全一致**——shader 拿到的 pos 就是本 viewport 自身 pos（副窗 389,418）。故偏移**不是** IMGUI 数据/顶点/shader 参数问题，而是 **Vulkan 后端在绘制时给副窗内容额外加了 `(副窗pos−主窗pos)`** → 根因在 `VulkanRenderBackendNew`（per-viewport 常量/视图/顶点绑定或 pass viewport 映射）。
+
+**落地说明**：采用方案②（每窗相同尺寸 readable RT 镜像回读）；未用方案①③（engine `Readback` 仅支持 External 资源 + swapchain backbuffer 无 eTransferSrc，D2/D5 已排除）。输出 `test_output/TestIMGUI_<backend>_viewport<N>.png`（N=0 主窗）。后续排查根因时临时加的 `vp-dbg`（`PrepareSingleViewGUIResources` 每帧 stderr 一行的顶点 dump）已移除。
+
+**✅ 根因已定位（2026-09-01，workflow 对抗验证，源级核实）——Vulkan 后端常量绑定去重 bug，非 IMGUI 数据/shader 问题**：
+`VulkanShaderResourceSet::Init`（`VulkanGraphExecutor.cpp:205-211`）去重 hash 只由 **shader path hash + 各绑定名 name.GetHash()** 组成，**忽略 per-viewport 的 `VulkanShaderStruct*` 指针**。而所有 ImGui viewport 用同一 shader path（"Shaders/Imgui"）+ 同一绑定名（"imguiCommon"/"imguiTextureBinding"）→ 每 viewport 的 `resourceSet.hash` **完全相同** → `createOrGetBindingInstance`（`:1085-1096`）按 hash 命中的是**首个（main）** `VulkanResourceBindingInstance` → 该实例冻结的 `pCBufferStruct` = **main 的** shader struct（`VulkanResourceBindingInstance.cpp:135`）→ `UpdateUniformBuffer`（`:2091-2105`）从 main struct 上传常量 → 每个副窗 pass 绑定的都是 **main 的 `IMGUIScale_Pos`**（其 `.zw`=main_pos）。shader `TransformIMGUIVertex=(inVert - IMGUIScale_Pos.zw)*xy - 1`（`Imgui.slang:19`）于是**用 main_pos 减每个副窗自己的正确顶点** → 内容精确偏移 `(副窗pos − 主窗pos)`（实测 (61,61)/(349,341) 均吻合）。关键：`operator==` 仅 `hash==hash`（`VulkanGraphExecutor.h:214-215`），无法区分 viewport；D3D12 正确因其 `ShaderResourceSet` 用 `operator<=> = default` 比较了 per-viewport struct 指针（`GPUResourceBindingInstance.h:27-33`）→ 各 viewport 独立 binding instance。
+**修法方向**：① 最小——`:208-210` hash 循环内 `hash_combine(hash, reinterpret_cast<size_t>(structPtr))`，让不同 struct 指针的 pass 哈希分歧（同 pass 复用同指针仍共享）；② 更稳——仿 D3D12，让 `operator==`/map key 比较完整 `resourceDic`（含 struct 指针），或 `m_ShaderResourceInstances` 以完整对象做 key。**影响面是泛化的**：任何"同 shader path + 同绑定名但不同 per-pass struct 指针"的 pass 都会被错误合并绑定首个 pass 的常量（非仅 IMGUI）——建议按 backend 语义正确性立 change，勿当一时 patch。
 
 **相关代码**：`IMGUIContext/IMGUIContext.cpp:827-874`（`DrawSingleView`/`buildViewPass`/`IsMainViewport` 捕获门控）、`Test/GPUBackendTester/Main.cpp`（`WriteReadbackPNG`/`--capture`）、引擎 `Readback`/`IReadbackToken`（add-render-readback）、`VulkanRenderBackendNew/private/VulkanObjects/VulkanWindowHandle.cpp`（backbuffer/swapchain image，需加 eTransferSrc 或建 readable 副本）。
 

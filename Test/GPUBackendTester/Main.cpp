@@ -995,7 +995,8 @@ ctx.pWindowSystem->UpdateSystem();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), frameGraph);
 			if (ctx.captureFrame >= 0 && i == ctx.captureFrame)
 			{
-				// One PNG per window: TestIMGUI_<backend>_viewport<N>.png (N=0 is the main window).
+				// One PNG per window: TestIMGUI_viewport<N>_<backend>.png (N=0 is the main window);
+				// WriteReadbackPNG appends "_<backend>", so the base name carries the viewport index.
 				for (size_t v = 0; v < captureRTs.size(); ++v)
 				{
 					char base[64];
