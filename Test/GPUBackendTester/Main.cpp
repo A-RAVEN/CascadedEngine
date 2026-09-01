@@ -942,19 +942,20 @@ void TestIMGUI(TestContext& ctx)
 
 
 
-	auto windowHandle = ctx.pGPUBackend->GetWindowHandle(newWindow.lock());
-
-	ImageHandle captureRT;
-	int capW = 0, capH = 0;
-	if (ctx.captureFrame >= 0)
-	{
-		auto backDesc = windowHandle->GetBackbufferDescriptor();
-		capW = backDesc.width; capH = backDesc.height;
-		captureRT = CreateCaptureRT(ctx, capW, capH);
-	}
+	// Per-window capture: at the capture frame we mirror EVERY drawn window's IMGUI content into a
+	// same-size readable RT (the real windows are still opened + presented), then Readback each so the
+	// secondary-viewport offset becomes measurable pixel data. The RT is sized to ITS OWN window so the
+	// NDC->framebuffer mapping matches the presented surface — the observed offset is a vertex-positioning
+	// artifact, and a same-size mirror reproduces it (the engine can't Readback a swapchain backbuffer:
+	// D2/D5 — no eTransferSrc).
 
 	if (ctx.headlessFrames > 0)
 	{
+		// capture-frame bookkeeping: captureRTs[k] <-> drawn viewport #k, in the same order
+		// GetWindowHandles() built them (which is the order Draw() mirrors per-viewport).
+		castl::vector<ImageHandle> captureRTs;
+		std::vector<std::pair<int, int>> captureDims;
+
 		for (int i = 0; i < ctx.headlessFrames; ++i)
 		{
 ctx.pWindowSystem->UpdateSystem();
@@ -967,10 +968,24 @@ ctx.pWindowSystem->UpdateSystem();
 
 			auto& contexts = ctx.pIMGUIContext->GetTextureViewContexts();
 
-			ImageHandle drawTarget;
-			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
-				drawTarget = captureRT;
-			ctx.pIMGUIContext->Draw(frameGraph.get(), drawTarget);
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame)
+			{
+				// All platform viewports now exist (UpdateIMGUI/UpdatePlatformWindows ran); dump their geometry.
+				std::cerr << "[imgui-diag] === viewport layout at capture frame ===" << std::endl;
+				ctx.pIMGUIContext->LogViewports();
+
+				captureRTs.clear(); captureDims.clear();
+				auto& surfaces = ctx.pIMGUIContext->GetWindowHandles();
+				for (auto& surface : surfaces)
+				{
+					auto const& d = surface->GetBackbufferDescriptor();
+					captureRTs.push_back(CreateCaptureRT(ctx, d.width, d.height));
+					captureDims.push_back(std::make_pair((int)d.width, (int)d.height));
+				}
+				std::cerr << "[imgui-diag] capture frame: " << captureRTs.size() << " window(s)" << std::endl;
+			}
+
+			ctx.pIMGUIContext->Draw(frameGraph.get(), captureRTs);
 
 			auto& presentSurfaces = ctx.pIMGUIContext->GetWindowHandles();
 			for (auto& surface : presentSurfaces)
@@ -978,8 +993,16 @@ ctx.pWindowSystem->UpdateSystem();
 				frameGraph->Present(ImageHandle(surface));
 			}
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), frameGraph);
-			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
-				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestIMGUI");
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame)
+			{
+				// One PNG per window: TestIMGUI_<backend>_viewport<N>.png (N=0 is the main window).
+				for (size_t v = 0; v < captureRTs.size(); ++v)
+				{
+					char base[64];
+					snprintf(base, sizeof(base), "TestIMGUI_viewport%zu", v);
+					WriteReadbackPNG(ctx, captureRTs[v], captureDims[v].first, captureDims[v].second, base);
+				}
+			}
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}

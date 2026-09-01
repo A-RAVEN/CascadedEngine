@@ -9,6 +9,7 @@
 #include <CACore/CAModuleImplementation.h>
 #include <stb_image_write.h>
 #include <stb_image.h>
+#include <iostream>
 
 namespace imgui_display
 {
@@ -692,8 +693,73 @@ namespace imgui_display
 			for (int i = 0; i < platform_io.Viewports.Size; i++)
 			{
 				ImGuiViewport* viewport = platform_io.Viewports[i];
-				DrawSingleView(viewport, pRenderGraph, captureTarget);
+				// Original single-target capture: only the main viewport (CanHostOtherWindows) draws into
+				// the shared main-window-sized RT; a secondary viewport would last-writer-wins + clip wrong.
+				bool isMainViewport = (viewport->Flags & ImGuiViewportFlags_CanHostOtherWindows) != 0;
+				ImageHandle target = (captureTarget.IsValid() && isMainViewport) ? captureTarget : ImageHandle();
+				DrawSingleView(viewport, pRenderGraph, target);
 			}
+		}
+	}
+
+	void IMGUIContext::Draw(GPUGraph* pRenderGraph, castl::vector<ImageHandle> const& captureTargets)
+	{
+		auto& io = ImGui::GetIO();
+		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+		{
+			ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+			// Drawn viewports consume capture targets 1:1, in the SAME order GetWindowHandles() built
+			// m_WindowHandles (both iterate platform_io.Viewports and skip !m_Draw). Track a running
+			// "drawn" index so a minimized/empty viewport doesn't shift the alignment.
+			size_t drawn = 0;
+			for (int i = 0; i < platform_io.Viewports.Size; i++)
+			{
+				ImGuiViewport* viewport = platform_io.Viewports[i];
+				IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewport->PlatformUserData;
+				ImageHandle target;
+				if (pUserData->m_Draw && drawn < captureTargets.size())
+					target = captureTargets[drawn];
+				DrawSingleView(viewport, pRenderGraph, target);
+				if (pUserData->m_Draw)
+					++drawn;
+			}
+		}
+	}
+
+	void IMGUIContext::LogViewports() const
+	{
+		auto& io = ImGui::GetIO();
+		if (!(io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
+		{
+			std::cerr << "[imgui] ViewportsEnable not set; no platform viewports" << std::endl;
+			return;
+		}
+		ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+		for (int i = 0; i < platform_io.Viewports.Size; i++)
+		{
+			ImGuiViewport* viewport = platform_io.Viewports[i];
+			IMGUIViewportContext* pUserData = (IMGUIViewportContext*)viewport->PlatformUserData;
+			int posX = 0, posY = 0, sizeX = 0, sizeY = 0;
+			uint32_t bbW = 0, bbH = 0;
+			if (pUserData && pUserData->pWindowHandle)
+				pUserData->pWindowHandle->GetWindowPos(posX, posY);
+			if (pUserData && pUserData->pWindowHandle)
+				pUserData->pWindowHandle->GetWindowSize(sizeX, sizeY);
+			if (pUserData && pUserData->pWindowSurface)
+			{
+				auto const& d = pUserData->pWindowSurface->GetBackbufferDescriptor();
+				bbW = d.width; bbH = d.height;
+			}
+			bool isMain = (viewport->Flags & ImGuiViewportFlags_CanHostOtherWindows) != 0;
+			bool minimized = (viewport->Flags & ImGuiViewportFlags_IsMinimized) != 0;
+			std::cerr << "[imgui] viewport[" << i << "] main=" << (isMain ? 1 : 0)
+				<< " minimized=" << (minimized ? 1 : 0)
+				<< " draw=" << (pUserData ? (pUserData->m_Draw ? 1 : 0) : 0)
+				<< " imguipos=(" << (int)viewport->Pos.x << "," << (int)viewport->Pos.y << ")"
+				<< " imguisize=(" << (int)viewport->Size.x << "," << (int)viewport->Size.y << ")"
+				<< " windowpos=(" << posX << "," << posY << ")"
+				<< " windowsize=(" << sizeX << "," << sizeY << ")"
+				<< " backbuffer=(" << bbW << "x" << bbH << ")" << std::endl;
 		}
 	}
 
@@ -866,10 +932,11 @@ namespace imgui_display
 			renderGraph->AddPass(renderPass);
 		};
 		buildViewPass(backBuffer);
-		// The capture RT is sized to the main window backbuffer; only the main viewport may draw into it
-		// (a secondary viewport would last-writer-wins the shared target and clip against the wrong size).
-		bool isMainViewport = (viewPort->Flags & ImGuiViewportFlags_CanHostOtherWindows) != 0;
-		if (captureTarget.IsValid() && isMainViewport)
+		// When a capture target is supplied (per-viewport, sized to THIS window's backbuffer), mirror the
+		// same IMGUI pass into it so a test harness can Readback the pixel-accurate content of this window.
+		// The readback target must be same-size as the backbuffer — the offset we want to observe is a
+		// vertex-positioning artifact in the NDC->framebuffer mapping, and a same-size target reproduces it.
+		if (captureTarget.IsValid())
 			buildViewPass(captureTarget);
 	}
 

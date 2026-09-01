@@ -85,8 +85,18 @@ namespace imgui_display
 		void PrepareDrawData(GPUGraph* pRenderGraph);
 		// captureTarget: when valid, the same IMGUI pass is also rendered into this external offscreen RT
 		// so a test harness can Readback it (the presented backbuffer has no eTransferSrc usage). Default
-		// (invalid) keeps the original single-target behavior.
+		// (invalid) keeps the original single-target behavior. The RT MUST be sized to the MAIN window
+		// backbuffer; only the main viewport (CanHostOtherWindows) draws into it.
 		void Draw(GPUGraph* pRenderGraph, ImageHandle captureTarget = ImageHandle());
+		// Per-viewport capture: captureTargets[k] is the readable RT the K-TH DRAWN viewport is mirrored
+		// into, in the same order as GetWindowHandles(). Each RT must be sized to its own viewport's windows
+		// backbuffer so the NDC->framebuffer mapping matches the real (presented) surface — the offset is a
+		// vertex-positioning artifact, so a same-size mirror reproduces it faithfully. Every drawn viewport
+		// consumes exactly one target; minimized/empty viewports consume none.
+		void Draw(GPUGraph* pRenderGraph, castl::vector<ImageHandle> const& captureTargets);
+		// Diagnostics: print one line per ImGui platform viewport (index/flags/pos/size/backbuffer) so a
+		// headless capture run yields a text record of how many windows existed and each window's geometry.
+		void LogViewports() const;
 		void CustomTexture(ImVec2 const& offset, ImVec2 const& size, int id = 0);
 		void DrawView(int id = 0);
 		CRenderBackend* GetRenderBackend() const { return p_RenderBackend; }
