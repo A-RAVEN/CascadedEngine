@@ -6,6 +6,23 @@
 
 namespace graphics_backend
 {
+	namespace
+	{
+		// fix-imgui-font-whitebox D1: mirror the proven EColorChannel -> vk::ComponentSwizzle mapping
+		// from the legacy VulkanRenderBackend/InterfaceTranslator.h so swizzle semantics match.
+		constexpr vk::ComponentSwizzle ChannelToComponentSwizzle(EColorChannel channel)
+		{
+			switch (channel)
+			{
+			case EColorChannel::eR: return vk::ComponentSwizzle::eR;
+			case EColorChannel::eG: return vk::ComponentSwizzle::eG;
+			case EColorChannel::eB: return vk::ComponentSwizzle::eB;
+			case EColorChannel::eA: return vk::ComponentSwizzle::eA;
+			default: return vk::ComponentSwizzle::eIdentity;
+			}
+		}
+	}
+
 	vk::Format VulkanTexture::ConvertFormat(ETextureFormat format)
 	{
 		switch (format)
@@ -189,6 +206,51 @@ namespace graphics_backend
 		CA_LOG_INFO("VulkanTexture created: {}x{}, format={}", descriptor.width, descriptor.height, (int)descriptor.format);
 	}
 
+	vk::ComponentMapping VulkanTexture::ConvertComponentMapping(GPUTextureSwizzle const& swizzle)
+	{
+		vk::ComponentMapping result{};
+		result.r = ChannelToComponentSwizzle(swizzle.r);
+		result.g = ChannelToComponentSwizzle(swizzle.g);
+		result.b = ChannelToComponentSwizzle(swizzle.b);
+		result.a = ChannelToComponentSwizzle(swizzle.a);
+		return result;
+	}
+
+	vk::ImageView VulkanTexture::GetOrCreateSampledImageView(GPUTextureView const& view) const
+	{
+		// Identity swizzle (the default GPUTextureSwizzle::Create()) reuses the Init-time m_ImageView
+		// — no new view, zero behavior change for the unswizzled common path.
+		if (view.swizzle == GPUTextureSwizzle::Create())
+			return m_ImageView;
+
+		auto it = m_SwizzleSampledViews.find(view);
+		if (it != m_SwizzleSampledViews.end())
+			return it->second;
+
+		vk::ImageViewCreateInfo viewInfo{};
+		viewInfo.image = m_Image;
+		viewInfo.viewType = m_Descriptor.textureType == ETextureType::eCubeMap
+			? vk::ImageViewType::eCube
+			: (m_Descriptor.layers > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D);
+		viewInfo.format = ConvertFormat(m_Descriptor.format);
+		// D1: apply the requested swizzle (SingleChannel(R) -> every output channel reads source R,
+		// so .aaaa returns the glyph coverage instead of the single-channel implicit A=1).
+		viewInfo.components = ConvertComponentMapping(view.swizzle);
+		viewInfo.subresourceRange.aspectMask = GetImageViewAspect();
+		viewInfo.subresourceRange.baseMipLevel = view.baseMip;
+		// 0 / ~0u (VK_REMAINING_MIP_LEVELS) mean "all remaining" -> clamp to the descriptor's mips
+		// (mirrors the Init-time view); a specific subregion count is honored as-is.
+		viewInfo.subresourceRange.levelCount =
+			(view.mipCount == 0 || view.mipCount == ~0u) ? m_Descriptor.mipLevels : view.mipCount;
+		viewInfo.subresourceRange.baseArrayLayer = view.baseLayer;
+		viewInfo.subresourceRange.layerCount =
+			(view.layerCount == 0 || view.layerCount == ~0u) ? m_Descriptor.layers : view.layerCount;
+
+		vk::ImageView swizzleView = GetDevice().createImageView(viewInfo);
+		m_SwizzleSampledViews.emplace(view, swizzleView);
+		return swizzleView;
+	}
+
 	void VulkanTexture::Release()
 	{
 		// L1 idempotence: m_Allocation is the authoritative "is this alive" flag (design D5).
@@ -198,6 +260,14 @@ namespace graphics_backend
 		// a no-op). Image + allocation are created together and nulled together, so consistency holds.
 		if (m_Allocation == VK_NULL_HANDLE)
 			return;
+
+		// D1: destroy lazily-created swizzle views (all views free before the image+allocation).
+		for (auto const& [swizzleViewKey, swizzleView] : m_SwizzleSampledViews)
+		{
+			if (swizzleView)
+				GetDevice().destroyImageView(swizzleView);
+		}
+		m_SwizzleSampledViews.clear();
 
 		if (m_ImageView)
 		{

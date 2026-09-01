@@ -92,6 +92,10 @@ namespace graphics_backend
 		vk::Buffer GetBuffer(BufferHandle const& handle) const;
 		vk::Image GetTexture(ImageHandle const& handle) const;
 		vk::ImageView GetTextureView(ImageHandle const& handle) const;
+		// fix-imgui-font-whitebox D1: resolve a sampled view honoring the bound GPUTextureView's
+		// swizzle (threaded from VulkanResourceBindingInstance). Handle-only callers default to an
+		// identity view via the one-arg overload.
+		vk::ImageView GetTextureView(ImageHandle const& handle, GPUTextureView const& view) const;
 
 		// Release all resources
 		void ReleaseAllResources();

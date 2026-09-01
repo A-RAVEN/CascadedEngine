@@ -379,7 +379,12 @@ namespace graphics_backend
 			// bindings.size(); writing only bindings[0] would mismatch it.
 			for (uint32_t elemIdx = 0; elemIdx < image.bindings.size(); ++elemIdx)
 			{
-				vk::ImageView imageView = resourceManager.GetTextureView(image.bindings[elemIdx].first);
+				// D1: sampled descriptors honor the bound swizzle (IMGUI font SingleChannel(R) reads R on
+				// .aaaa). Storage (UAV) descriptors MUST use identity components (VkComponentMapping must
+				// be identity for storage image descriptors), so only the sampled path threads the view.
+				vk::ImageView imageView = isUAV
+					? resourceManager.GetTextureView(image.bindings[elemIdx].first)
+					: resourceManager.GetTextureView(image.bindings[elemIdx].first, image.bindings[elemIdx].second);
 				if (!imageView)
 					continue;
 

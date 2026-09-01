@@ -1,5 +1,6 @@
 #pragma once
 #include <GPUTexture.h>
+#include <CASTL/CAUnorderedMap.h>
 #include <Utils/VulkanSubobjectBase.h>
 #include <GPUGraph/VulkanResourceState.h>
 #include <vk_mem_alloc.h>
@@ -32,6 +33,12 @@ namespace graphics_backend
 		// Vulkan-specific methods
 		vk::Image GetImage() const { return m_Image; }
 		vk::ImageView GetImageView() const { return m_ImageView; }
+		// fix-imgui-font-whitebox D1: honor a requested sampled-image-view swizzle. Identity reuses
+		// m_ImageView; a non-identity swizzle derives (and caches) a view with the matching
+		// vk::ComponentMapping so a single-channel texture with SingleChannel(R) reads R on .aaaa
+		// (before: identity components -> eR8Unorm samples (R,0,0,1), so .aaaa reads A=1 -> white).
+		static vk::ComponentMapping ConvertComponentMapping(GPUTextureSwizzle const& swizzle);
+		vk::ImageView GetOrCreateSampledImageView(GPUTextureView const& view) const;
 		VmaAllocation GetAllocation() const { return m_Allocation; }
 
 		// Image layout management
@@ -63,6 +70,8 @@ namespace graphics_backend
 
 		vk::Image m_Image;
 		vk::ImageView m_ImageView;
+		// D1: lazily-created sampled views for non-identity swizzles (identity reuses m_ImageView).
+		mutable castl::unordered_map<GPUTextureView, vk::ImageView> m_SwizzleSampledViews;
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;
 		GPUTextureDescriptor m_Descriptor{};
 		ETextureAccessTypeFlags m_AccessType{};

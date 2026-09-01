@@ -4,6 +4,56 @@
 
 ---
 
+## [2026-09-01] 观测 Vulkan IMGUI 多窗口副窗偏移——逐窗口回读 RT（新增捕获能力，待实现）
+
+**类型：工程任务 / 观测手段**（解决"副窗偏移从未被观测到"的根本障碍；见下条 [2026-08-31] 多窗口偏移调查）
+
+**目的**：当前 headless 捕获被门控到**主 viewport**（`IMGUIContext.cpp:871-873` `IsMainViewport`），副窗根本不写 PNG；而副窗偏移只在实时多窗口出现，无法观测 → 一直在盲区推断。需要新增**逐窗口读回**能力，把"肉眼只见的现象"变成"PIL 可量化的数据"。
+
+**关键约束（用户明确）**：
+- **禁止用隐藏/离屏窗口捕获**——不能用当前那种"主窗尺寸的共享 `captureRT` offscreen"。因为该偏移**与窗口/swapchain 相关**，隐藏离屏 RT 复现不出每窗的 swapchain 行为。
+- 必须**真正打开窗口**，并在**每个真实窗口**上**回读写到该窗口的 RT/backbuffer 图像**（每 viewport 的呈现目标），逐窗写成 PNG。
+
+**方案要点**：
+- 逐 viewport 建立读回通道，读回**该 viewport 真正呈现的 RT**（而非主窗尺寸的共享 offscreen）。
+- 技术难点：swapchain backbuffer 通常**无 eTransferSrc** 用法（无法直接拷贝读回），需择一：① 给该窗口 swapchain image 加 `ETRANSFER_SRC`（若 surface 支持）后直接读回；或 ② 为每窗建一个**与窗口同尺寸**的 readable RT，将 IMGUI 内容同时渲染到该 RT 再读回（尺寸=每窗、geometry 复用真实窗口）；或 ③ present 后 `vkCmdCopyImage` 到 readable staging + Readback。
+- 输出命名：`test_output/IMGUI_<backend>_viewport<N>.png`（每个副窗一张）。
+- 之后用 PIL 量化：非背景像素包围盒相对窗口 (0,0) 的位移 → 区分"大副窗偏移" vs "~1px 均匀平移"，据此定位根因（并可验证"改掉 `Imgui.slang:43 +2/Size` 是否消除"）。
+
+**状态：计划（未实现）**——用户指示先记 TODO、先不动代码。
+
+**相关代码**：`IMGUIContext/IMGUIContext.cpp:827-874`（`DrawSingleView`/`buildViewPass`/`IsMainViewport` 捕获门控）、`Test/GPUBackendTester/Main.cpp`（`WriteReadbackPNG`/`--capture`）、引擎 `Readback`/`IReadbackToken`（add-render-readback）、`VulkanRenderBackendNew/private/VulkanObjects/VulkanWindowHandle.cpp`（backbuffer/swapchain image，需加 eTransferSrc 或建 readable 副本）。
+
+**验收**：跑交互式（或能产副窗的 headless 场景）+ 逐副窗 PNG → 在副窗图上能 PIL 量化出偏移，从而锁定根因 / 验证修复。
+
+---
+
+## [2026-08-31] Vulkan IMGUI 多窗口副窗偏移（GUI 未与窗口对齐，D3D12 正常）
+
+**状态：未修（真因未定位；多轮证伪，静态分析已穷尽，需运行时插桩测量，见下方 Round-2 结论）**
+
+**问题**：IMGUI 多窗口绘制时，主窗正常，其余副窗的 GUI 内容相对其窗口发生偏移/未对齐；D3D12 后端全部正常。headless 截图无法复现（`IMGUIContext.cpp:871-873` 捕获只门控主 viewport），只在交互式多窗口出现。
+
+**已证伪（不要再查这几条）**：
+- ① `-viewPort->Pos` 过度偏移：✗ 排除——IMGUI 顶点+ClipRect 是**全局坐标**，`draw_data->DisplayPos==viewport->Pos` 对所有 viewport 成立（`imgui.cpp:5650-5651`），是规范 IMGUI 契约；D3D12 用同一共享代码正常，不能作 Vulkan-only 原因。**此减法必须保留**。
+- ② Vulkan 负高默认 viewport（`VulkanGraphExecutor.cpp:2211` `{0,H,W,-H}`）：✗ 排除——与 D3D12 正高 `{0,0,W,H}`（`InterfaceTranslation.h:787`）映射 NDC→framebuffer 完全等价；IMGUI 只设 scissor 不设 viewport，无 double-flip。
+- ③ 共享 framebuffer / 主窗描述符：✗ 排除——每个副窗独立 acquire+render+present 到自己的 swapchain（`VulkanGraphExecutor.cpp:135-136,561,2277,2934-2966`；`VulkanWindowHandle.cpp`）。
+- ④ 与 IMGUI 字体白块修复相关：✗ 无关——字体修复只碰 image-view swizzle（采样颜色），git diff 证实不碰 viewport/scissor/swapchain；位置偏移不可能由纹理 swizzle 引起。
+
+**⚠ Round-2（2026-09-01）证伪「逻辑 vs 物理尺寸分裂」假设**（此前中置信）：进程是 **Per-Monitor-V2 DPI-aware**——GLFW 3.4 `_glfwInitWin32` 强制 `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`（`glfw-src/src/win32_init.c:692`，经 `glfwInit()` `WindowSystem_Impl.cpp:167`）；无 manifest（`CMakeLists.txt:26-28` `/MANIFEST:NO`）。PERV2 下 `glfwGetWindowSize==glfwGetFramebufferSize==GetClientRect==物理px==swapchain currentExtent`（`win32_window.c:1663-1672,1740-1743`）→ ImGui `viewPort->Size`（`IMGUIContext.cpp:559-566,:723`）与 `m_Extent`（`VulkanWindowHandle.cpp:268-280`）两端读**同一个物理值**，`DisplayFramebufferScale=(1,1)`（`:647`）**是正确的**。且主/副窗共享同一 IMGUI graph + Vulkan raster 路径——若分裂存在主窗也偏，主窗正常 ⇒ 无分裂。
+
+**Round-2 其它证伪**：
+- ①「顶点缺失 DisplayPos 平移」✗ 读错文件——`imgui.hlsl` 是**死代码**（全仓无引用），实际用 `Imgui.slang` 且 `:19` `TransformIMGUIVertex=(inVert-IMGUIScale_Pos.zw)*IMGUIScale_Pos.xy-1.0` **确实含平移**（`.zw`=viewport->Pos）。
+- ②「swapchain 重建滞后 ImGui resize」✗ 真实但**瞬态自愈**（`m_Extent` 仅 `CreateSwapchain` 写，`RecreateSwapchain` 仅由**上一帧** OutOfDate 触发 `VulkanWindowHandle.cpp:301,343,375-386`；`VulkanGraphExecutor.cpp:560-561` 帧首检查），最多差一帧，无持续偏移。
+- ③「scissor clamp 缺失是偏移」✗ scissor 只**裁剪不移位**；ImGui 嵌套 `PushClipRect(intersect=true)` 已保证每命令 ClipRect ⊆ viewport rect（`imgui.cpp:4950,7956,8209`；`imgui_draw.cpp:619-634`），永不越界 ⇒ VUID moot。
+- ④「`Imgui.slang:43` `+IMGUIScale_Pos.xy`」✗ 是 **~1px 均匀平移、跨双端、主副皆同**（shared shader），非副窗专属大偏移；真实但次要。
+
+**Honest 结论**：静态分析已穷尽——真因不在尺寸分裂/顶点平移/scissor/swapchain 时序/`+2/Size` nudge 任一，**无法从静态代码定性**。且**从未捕获偏移量级**（headless capture 门控主 viewport `IMGUIContext.cpp:869-873`），无法区分"大副窗偏移"vs"~1px 均匀平移"。**下一步必须运行时插桩**：逐副窗记录 `viewport->Pos/Size`、`glfwGetFramebufferSize`、Vulkan surface `currentExtent`/`m_Extent`、per-drawcall scissor，并对比**呈现场景图像实际尺寸 vs 窗口 client 尺寸**（多帧）。
+
+**相关代码**：`IMGUIContext/IMGUIContext.cpp:647,723,749,781,861,871-873`、`CAResources/Shaders/Imgui.slang:12-15,43-44`、`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp:2209-2215,2374-2379`、`VulkanRenderBackendNew/private/VulkanObjects/VulkanWindowHandle.cpp:114,268-280,375`、`WindowSystem/private/Window_Impl.cpp:67-69`、参照 `_deps/imgui-src/backends/imgui_impl_vulkan.cpp:486-521,614-621`。
+
+---
+
 ## [2026-08-30] IMGUI 字体渲染成白块（文字不可读）——Vulkan+D3D12 双端复现（IMGUIContext / 后端视图）
 
 **状态：未修（双后端均复现）**

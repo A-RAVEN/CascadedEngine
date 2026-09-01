@@ -947,6 +947,13 @@ namespace graphics_backend
 
 	vk::ImageView VulkanGraphLocalResourceManager::GetTextureView(ImageHandle const& handle) const
 	{
+		// fix-imgui-font-whitebox D1: handle-only callers (validation / deterministic checks) resolve
+		// an identity view; the swizzle-carrying overload is what descriptor bind time actually uses.
+		return GetTextureView(handle, GPUTextureView::Create());
+	}
+
+	vk::ImageView VulkanGraphLocalResourceManager::GetTextureView(ImageHandle const& handle, GPUTextureView const& view) const
+	{
 		if (!handle.IsValid())
 			return nullptr;
 
@@ -965,7 +972,10 @@ namespace graphics_backend
 			VulkanTexture const* pTexture = handle.GetTexturePtr<VulkanTexture>();
 			if (pTexture)
 			{
-				return pTexture->GetImageView();
+				// D1: resolve a view honoring the bound GPUTextureView swizzle. The IMGUIContext font
+				// binds SingleChannel(eR); without this an eR8Unorm identity view samples (R,0,0,1),
+				// so .aaaa reads A=1 -> solid white.
+				return pTexture->GetOrCreateSampledImageView(view);
 			}
 			break;
 		}
