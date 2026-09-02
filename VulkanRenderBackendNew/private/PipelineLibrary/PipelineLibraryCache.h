@@ -31,6 +31,16 @@ namespace graphics_backend
 		// Input assembly
 		bool primitiveRestartEnable = false;
 
+		// Rasterization state. These drive vk::PipelineRasterizationStateCreateInfo behavior (and thus
+		// the resulting VkPipeline): polygon mode, face culling, front-face winding, and depth clamp.
+		// lineWidth is NOT included - the backend hardcodes lineWidth = 1.0f (VulkanGraphExecutor.cpp:1839)
+		// and never reads a per-pass value, so including it would add a dimension that never varies.
+		// discardRasterization / depth-bias are not yet mapped to Vulkan either (same rationale).
+		vk::PolygonMode polygonMode = vk::PolygonMode::eFill;
+		vk::CullModeFlags cullMode = vk::CullModeFlagBits::eNone;
+		vk::FrontFace frontFace = vk::FrontFace::eCounterClockwise;
+		bool depthClampEnable = false;
+
 		// Shader hashes
 		VKHashVal vertexShaderHash;
 		VKHashVal fragmentShaderHash;

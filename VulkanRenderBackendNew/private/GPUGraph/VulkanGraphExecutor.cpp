@@ -202,13 +202,21 @@ namespace graphics_backend
 			resourceDic.insert(castl::make_pair(hierarchy.m_Name, sourceStruct));
 		}
 
-		// Compute hash
+		// Compute hash. Includes each [binding-name → per-pass shader-struct] pair (not just the
+		// binding names), so two passes that share shader path + binding names but carry different
+		// shader-struct pointers get different hashes. XOR-combine is order-independent, so "equal
+		// set ⇒ equal hash" holds by construction regardless of resourceDic's unordered iteration
+		// order (which the design specifically guards against: two content-equal resource sets must
+		// not hash differently due to bucket layout).
 		hash = 0;
 		hash = cacore::hash_combine(hash, info.path.GetHash());
+		size_t structPairsHash = 0;
 		for (auto const& [name, structPtr] : resourceDic)
 		{
-			hash = cacore::hash_combine(hash, name.GetHash());
+			size_t pairHash = cacore::hash_combine(cacore::hash_combine(0, name.GetHash()), structPtr);
+			structPairsHash ^= pairHash;
 		}
+		hash = cacore::hash_combine(hash, structPairsHash);
 	}
 
 	// VulkanExecutorRWState implementation
@@ -479,7 +487,7 @@ namespace graphics_backend
 			uint32_t storageImageCount = 0;
 			uint32_t samplerCount = 0;
 
-			for (auto& [hash, instance] : m_ShaderResourceInstances)
+			for (auto& [resourceSet, instance] : m_ShaderResourceInstances)
 			{
 				if (!instance) continue;
 				auto* pFileInfo = instance->GetShaderFileInfo();
@@ -572,7 +580,7 @@ namespace graphics_backend
 		}
 
 		// Phase 5: Build resources (resolve CBuffer resource IDs etc.)
-		for (auto& [hash, instance] : m_ShaderResourceInstances)
+		for (auto& [resourceSet, instance] : m_ShaderResourceInstances)
 		{
 			if (instance)
 				instance->BuildResources(m_LocalResourceManager, m_ConstantBufferManager, *graph);
@@ -590,7 +598,7 @@ namespace graphics_backend
 			vk::DescriptorPool pool = resourceManager.GetDescriptorPool();
 			if (pool)
 			{
-				for (auto& [hash, instance] : m_ShaderResourceInstances)
+				for (auto& [resourceSet, instance] : m_ShaderResourceInstances)
 				{
 					if (instance)
 						instance->BuildDescriptors(m_LocalResourceManager, pool);
@@ -620,7 +628,7 @@ namespace graphics_backend
 		}
 
 		// Task 3.8: Clear descriptor set references (pool will be reset on next Aquire)
-		for (auto& [hash, instance] : m_ShaderResourceInstances)
+		for (auto& [resourceSet, instance] : m_ShaderResourceInstances)
 		{
 			if (instance)
 			{
@@ -659,7 +667,7 @@ namespace graphics_backend
 		m_BufferShaderUsage.clear();
 		m_ImageShaderUsage.clear();
 
-		for (auto& [hash, instance] : m_ShaderResourceInstances)
+		for (auto& [resourceSet, instance] : m_ShaderResourceInstances)
 		{
 			if (!instance) continue;
 
@@ -828,7 +836,7 @@ namespace graphics_backend
 
 	void VulkanGraphExecutor::RegisterCBufferForAliasing(GPUGraph const& graph)
 	{
-		for (auto& [hash, instance] : m_ShaderResourceInstances)
+		for (auto& [resourceSet, instance] : m_ShaderResourceInstances)
 		{
 			if (!instance) continue;
 
@@ -1085,14 +1093,18 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		auto createOrGetBindingInstance = [&](VulkanShaderResourceSet const& resourceSet)
 			-> VulkanResourceBindingInstance*
 		{
-			auto it = m_ShaderResourceInstances.find(resourceSet.hash);
+			// Look up by the full content key (not only resourceSet.hash): two passes with equal hash
+			// but different per-pass structs must NOT collapse onto the first instance. operator==
+			// compares the resourceDic content, so a hash-only lookup here would still bind the wrong
+			// constants (the bug this change fixes).
+			auto it = m_ShaderResourceInstances.find(resourceSet);
 			if (it != m_ShaderResourceInstances.end())
 				return it->second.get();
 
 			auto bindingInstance = castl::make_shared<VulkanResourceBindingInstance>();
 			GetApp()->InitSubObj(bindingInstance.get());
 			bindingInstance->Init(resourceSet);
-			m_ShaderResourceInstances[resourceSet.hash] = bindingInstance;
+			m_ShaderResourceInstances[resourceSet] = bindingInstance;
 			return bindingInstance.get();
 		};
 
@@ -1912,6 +1924,14 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				stateCombo.stencilBack = depthStencilState.back;
 				stateCombo.primitiveRestartEnable = inputAssemblyData.topology == ETopology::eTriangleStrip ||
 					inputAssemblyData.topology == ETopology::eLineStrip;
+				// Copy rasterization state from the converted vk struct (same convention as topology/
+				// sampleCount/depthCompareOp/stencil above). Without these the cache key would miss
+				// cullMode/frontFace/polygonMode/depthClampEnable and two passes sharing a shader but
+				// differing in rasterization would bind the first-built VkPipeline.
+				stateCombo.polygonMode = rasterizationState.polygonMode;
+				stateCombo.cullMode = rasterizationState.cullMode;
+				stateCombo.frontFace = rasterizationState.frontFace;
+				stateCombo.depthClampEnable = rasterizationState.depthClampEnable ? true : false;
 				stateCombo.vertexShaderHash = vertexProgramHash;
 				if (hasFragment)
 					stateCombo.fragmentShaderHash = fragmentProgramHash;

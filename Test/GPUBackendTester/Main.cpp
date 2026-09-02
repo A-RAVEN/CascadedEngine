@@ -733,6 +733,45 @@ void TestDoublePass(TestContext& ctx)
 		capW = backDesc.width; capH = backDesc.height;
 		captureRT = CreateCaptureRT(ctx, capW, capH);
 	}
+	// Bug-fix regression (pipeline-cache surface): two passes share the SAME shader
+	// ("TestNaiveTriangle") but use DIFFERENT rasterization (CullFront vs CullBack). The cache-key fix
+	// must give each pass its OWN VkPipeline so culling is honored independently. A single triangle is
+	// rendered twice; CullFront and CullBack are complementary (one keeps the face, the other culls it),
+	// so the two captures DIFFER when the fix works. Without the fix both passes would bind the
+	// first-built pipeline (same cache key → CullFront) and the captures would MATCH.
+	struct CullVertex { std::array<float, 3> pos; };
+	cacore::HashObj<VertexInputsDescriptor> cullDescs = VertexInputsDescriptor::Create(sizeof(CullVertex),
+		{ VertexAttribute::Create(offsetof(CullVertex, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")) }, false);
+	std::vector<CullVertex> cullTri = {
+		{{-0.5f, -0.5f, 0.0f}},
+		{{ 0.5f, -0.5f, 0.0f}},
+		{{ 0.0f,  0.5f, 0.0f}},
+	};
+	BufferHandle cullBuffer(CANAME("CullTestBuffer"));
+
+	ImageHandle cullFrontRT, cullBackRT;
+	if (ctx.captureFrame >= 0)
+	{
+		cullFrontRT = CreateCaptureRT(ctx, capW, capH);
+		cullBackRT = CreateCaptureRT(ctx, capW, capH);
+	}
+	auto cullTriangle = [&](ImageHandle target, RasterizerStates const& rast) {
+		CPipelineStateObject pso;
+		pso.rasterizationStates = rast;
+		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestNaiveTriangle") })
+			.SetPipelineState(pso)
+			.Batch
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), cullDescs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), cullBuffer)
+					.Draw(cullTri.size())
+				)
+			);
+	};
 	// The visible content is the final blit of pass0RT to the target; blitPass(target) can be
 	// emitted to both the backbuffer (present) and the captureRT (readback), sampling the same pass0RT.
 	auto blitPass = [&](ImageHandle target) {
@@ -755,6 +794,8 @@ void TestDoublePass(TestContext& ctx)
 	newGraph->Present(windowBackBuffer)
 		//.AllocAndUploadBuffer(vbuffer, testBuffer)
 		//.AllocAndUploadBuffer(ibuffer, indicesBuffer)
+		.AllocBuffer(cullBuffer, GPUBufferDescriptor::Create(cullTri.size(), sizeof(cullTri[0])))
+		.ScheduleData(cullBuffer, cullTri.data(), cullTri.size() * sizeof(cullTri[0]))
 		.AllocImage(pass0RT, GPUTextureDescriptor::Create(windowWidth, windowHeight, ETextureFormat::E_R8G8B8A8_UNORM))
 		.Rast(
 			RenderPass::New(pass0RT, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 1, 0, 1)))
@@ -774,7 +815,11 @@ void TestDoublePass(TestContext& ctx)
 		)
 		.Rast(blitPass(windowBackBuffer));
 	if (ctx.captureFrame >= 0)
+	{
 		newGraph->Rast(blitPass(captureRT));
+		newGraph->Rast(cullTriangle(cullFrontRT, RasterizerStates::CullFront()));
+		newGraph->Rast(cullTriangle(cullBackRT, RasterizerStates::CullBack()));
+	}
 
 	if (ctx.headlessFrames > 0)
 	{
@@ -785,6 +830,10 @@ ctx.pWindowSystem->UpdateSystem();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
 				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestDoublePass");
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && cullFrontRT.IsValid())
+				WriteReadbackPNG(ctx, cullFrontRT, capW, capH, "TestDoublePass_cullFront");
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && cullBackRT.IsValid())
+				WriteReadbackPNG(ctx, cullBackRT, capW, capH, "TestDoublePass_cullBack");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -859,17 +908,30 @@ void TestComputeBuffer(TestContext& ctx)
 	BufferHandle vbuffer1(CANAME("ParallelGeometryBuffer"));
 	auto computeParams = ctx.pGPUBackend->CreateShaderStruct(CANAME("TestComputeBufferParams"));
 	computeParams->SetBuffer(CANAME("RWVertexBuffer"), vbuffer);
+	// Bug-fix regression (compute surface): the SAME shader path ("TestComputeVertexBuffer") is used by
+	// TWO dispatches, each carrying a DIFFERENT per-dispatch shader struct (computeParams vs
+	// computeParams2) that binds a DIFFERENT RW buffer and a DIFFERENT `time` constant. The dedup-key
+	// fix must give each dispatch its own binding instance so dispatch1's constant (and buffer) does
+	// NOT leak into dispatch2. Without the fix, the second dispatch collapses onto the first instance
+	// and writes vbuffer (dispatch1's buffer) instead of vbuffer1, leaving vbuffer1 undefined.
+	auto computeParams2 = ctx.pGPUBackend->CreateShaderStruct(CANAME("TestComputeBufferParams"));
+	computeParams2->SetBuffer(CANAME("RWVertexBuffer"), vbuffer1);
 
 	ImageHandle captureRT;
+	ImageHandle captureRT2;
 	int capW = 0, capH = 0;
 	if (ctx.captureFrame >= 0)
 	{
 		auto backDesc = windowHandle->GetBackbufferDescriptor();
 		capW = backDesc.width; capH = backDesc.height;
 		captureRT = CreateCaptureRT(ctx, capW, capH);
+		// captureRT2 mirrors dispatch2's output (vbuffer1) so we can verify it was written independently
+		// with its own `time` constant.
+		captureRT2 = CreateCaptureRT(ctx, capW, capH);
 	}
-	// The compute pass runs once and fills vbuffer; both the backbuffer and captureRT rasters consume it.
-	auto renderContent = [&](ImageHandle target) {
+	// The compute passes run once and fill vbuffer (dispatch1) + vbuffer1 (dispatch2); the backbuffer
+	// and each capture RT raster their respective buffer.
+	auto renderContent = [&](ImageHandle target, BufferHandle const& vb) {
 		return RenderPass::New(target, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0, 1, 1)))
 			.SetShaderInfo({ CAPATH("Shaders/Test/TestNaiveTriangle") })
 			.Batch
@@ -878,7 +940,7 @@ void TestComputeBuffer(TestContext& ctx)
 				.VertexStream(CANAME("TestVerticesInput"), descs)
 				.DrawCall(
 					DrawCall::New()
-					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vb)
 					.SetIndexBuffer(EIndexBufferType::e32, testIndexBuffer)
 					.DrawIndexed(indicesBuffer.size())
 				)
@@ -887,13 +949,19 @@ void TestComputeBuffer(TestContext& ctx)
 	castl::shared_ptr<GPUGraph> newGraph = castl::make_shared<GPUGraph>();
 	newGraph->Present(windowBackBuffer)
 		.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(4, sizeof(float) * 3))
+		.AllocBuffer(vbuffer1, GPUBufferDescriptor::Create(4, sizeof(float) * 3))
 		.Comp(ComputeBatch::New(true)
-			.SetParam(CANAME("computeParams"), computeParams)
-			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1))
+			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1)
+				.SetParam(CANAME("computeParams"), computeParams))
+			.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1)
+				.SetParam(CANAME("computeParams"), computeParams2))
 		)
-		.Rast(renderContent(windowBackBuffer));
+		.Rast(renderContent(windowBackBuffer, vbuffer));
 	if (ctx.captureFrame >= 0)
-		newGraph->Rast(renderContent(captureRT));
+	{
+		newGraph->Rast(renderContent(captureRT, vbuffer));
+		newGraph->Rast(renderContent(captureRT2, vbuffer1));
+	}
 
 	castl::chrono::high_resolution_clock timer;
 	auto startTime = timer.now();
@@ -905,11 +973,14 @@ void TestComputeBuffer(TestContext& ctx)
 auto elapsedTime = timer.now() - startTime;
 			auto duration = castl::chrono::duration_cast<castl::chrono::duration<float>>(elapsedTime).count();
 			computeParams->SetValue(CANAME("time"), duration);
+			computeParams2->SetValue(CANAME("time"), duration + 1.0f);
 			ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);
 			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT.IsValid())
 				WriteReadbackPNG(ctx, captureRT, capW, capH, "TestComputeBuffer");
+			if (ctx.captureFrame >= 0 && i == ctx.captureFrame && captureRT2.IsValid())
+				WriteReadbackPNG(ctx, captureRT2, capW, capH, "TestComputeBuffer_d1");
 		}
 		ctx.pGPUBackend->WaitIdle();
 	}
@@ -920,6 +991,7 @@ auto elapsedTime = timer.now() - startTime;
 			auto elapsedTime = timer.now() - startTime;
 			auto duration = castl::chrono::duration_cast<castl::chrono::duration<float>>(elapsedTime).count();
 			computeParams->SetValue(CANAME("time"), duration);
+			computeParams2->SetValue(CANAME("time"), duration + 1.0f);
 			ctx.pWindowSystem->UpdateSystem();
 			auto scheduler = ctx.pThreadManager->NewScheduler();
 			ctx.pGPUBackend->ExecuteGraph(scheduler.get(), newGraph);

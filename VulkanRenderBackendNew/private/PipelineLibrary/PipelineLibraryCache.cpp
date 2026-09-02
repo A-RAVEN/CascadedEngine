@@ -85,6 +85,15 @@ namespace graphics_backend
 		// Hash primitiveRestartEnable
 		hash = cacore::hash_combine(hash, state.primitiveRestartEnable ? 1u : 0u);
 
+		// Hash rasterization state. Without these, two passes that share a shader but differ in
+		// cullMode/frontFace/polygonMode/depthClampEnable would collide on the same key and bind the
+		// first-built VkPipeline (wrong culling/front-face/depth-clamp). lineWidth is omitted because
+		// the backend hardcodes it to 1.0f and never reads a per-pass value.
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.polygonMode));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.cullMode));
+		hash = cacore::hash_combine(hash, static_cast<uint32_t>(state.frontFace));
+		hash = cacore::hash_combine(hash, state.depthClampEnable ? 1u : 0u);
+
 		// Hash shader hashes
 		for (uint32_t i = 0; i < 8; ++i)
 		{

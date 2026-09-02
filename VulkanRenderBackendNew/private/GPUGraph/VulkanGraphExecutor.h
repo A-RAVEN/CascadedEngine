@@ -211,10 +211,56 @@ namespace graphics_backend
 		void Init(RenderBackend_Vulkan* pApp, ShaderInfo const& info,
 			castl::vector<ShaderStructDic const*> const& structs);
 
+		// Content-based equality: two resource sets are the same when they share the shader path
+		// AND the same [binding-name → per-pass shader-struct] mapping. Previously this was
+		// hash-only, which collapsed every viewport/dispatch that shared shader path + binding names
+		// (e.g. all ImGui viewport passes) onto the FIRST instance, binding the wrong per-pass
+		// constants. Folding the struct pointer is what lets secondary viewports get their own
+		// instance (see createOrGetBindingInstance). Mirrors ShaderResourceSet in
+		// GPUResourceBindingInstance.h:27-33 (content key, includes per-viewport struct pointer).
 		bool operator==(VulkanShaderResourceSet const& other) const {
-			return hash == other.hash;
+			if (shaderInfo.path != other.shaderInfo.path)
+				return false;
+			if (resourceDic.size() != other.resourceDic.size())
+				return false;
+			for (auto const& [name, structPtr] : resourceDic)
+			{
+				auto found = other.resourceDic.find(name);
+				if (found == other.resourceDic.end() || found->second != structPtr)
+					return false;
+			}
+			return true;
 		}
 	};
+
+	} // namespace graphics_backend
+
+	// Redirect cacore::hash through the cached `hash` member instead of reflection-visiting the
+	// unordered_map member (whose iteration order is unspecified): hashing an unordered_map
+	// member-by-member would hash equal-content sets differently depending on bucket layout.
+	// NOTE: the primary cacore::custom_hash_trait is in the global cacore namespace, so the
+	// specialization must live there too (a graphics_backend::cacore::custom_hash_trait would be a
+	// DIFFERENT template the hasher never consults).
+	namespace cacore
+	{
+		template<>
+		struct custom_hash_trait<graphics_backend::VulkanShaderResourceSet>
+		{
+			constexpr static void hash(graphics_backend::VulkanShaderResourceSet const& obj, auto& hasher)
+			{
+				hasher.hash(obj.hash);
+			}
+		};
+	}
+
+	namespace graphics_backend
+	{
+	// Map-key support: equality is content-based (operator==) and the hash folds the `hash` member,
+	// which Init computes as a pure function of path + resourceDic content. Equal content ⇒ equal
+	// hash by construction, satisfying the unordered_map key contract. Mirrors the ShaderResourceSet
+	// static_asserts in GPUResourceBindingInstance.h:34-35.
+	static_assert(cacore::equal_test<VulkanShaderResourceSet>, "VulkanShaderResourceSet Cannot Equal");
+	static_assert(cacore::hashable<VulkanShaderResourceSet>, "VulkanShaderResourceSet Not Hashable");
 
 	// Main graph executor
 	class VulkanGraphExecutor : public VulkanSubobjectBase
@@ -317,8 +363,11 @@ namespace graphics_backend
 		castl::unordered_map<BufferHandle, VulkanResourceUsageRangeData> m_BufferLifetimes;
 		castl::unordered_map<VulkanShaderStruct const*, VulkanCBufferUsageData> m_CBufferLifetimes;
 
-		// Shader resource instances
-		castl::unordered_map<size_t, castl::shared_ptr<VulkanResourceBindingInstance>> m_ShaderResourceInstances;
+		// Shader resource instances, keyed by the per-pass shader resource set (content key that
+		// includes the per-pass shader-struct pointers). Keyed by VulkanShaderResourceSet rather than
+		// its raw size_t hash so two passes that share shader path + binding names but carry
+		// different per-pass structs get distinct instances (fixes the IMGUI multi-window offset).
+		castl::unordered_map<VulkanShaderResourceSet, castl::shared_ptr<VulkanResourceBindingInstance>> m_ShaderResourceInstances;
 
 		// Handle→shader-binding-usage maps (built by BuildShaderUsageMaps from binding instances).
 		// CollectResources ORs these into every registration site so a graph resource that is

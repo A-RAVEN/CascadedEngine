@@ -1,114 +1,38 @@
 # TODO
 
 > 单一待办清单。以后有**未完成 / 需后续处理**的事项都记在这里，按「`## [日期] 标题（所属 change/模块）`」追加，标注：状态、问题、为何、改法、验收口径、相关代码。完成即删除该条（或标记已解决）。
+>
+> 本文件已按「待办 / 已解决记录」两段重排（2026-09-02），**待办**在上便于一眼看清还剩什么；已解决条目保留供追溯，不再占待办视野。
 
 ---
 
-## [2026-09-01] 观测 Vulkan IMGUI 多窗口副窗偏移——逐窗口回读 RT（新增捕获能力，待实现）
+# 待办（未解决 / 需后续处理）
 
-**类型：工程任务 / 观测手段**（解决"副窗偏移从未被观测到"的根本障碍；见下条 [2026-08-31] 多窗口偏移调查）
+## [2026-09-02] IMGUI 字体 D2 加固：规范字体上传（AA 灰阶 + 去 swizzle 依赖）｜`fix-imgui-font-whitebox` deferred follow-up
 
-**目的**：当前 headless 捕获被门控到**主 viewport**（`IMGUIContext.cpp:871-873` `IsMainViewport`），副窗根本不写 PNG；而副窗偏移只在实时多窗口出现，无法观测 → 一直在盲区推断。需要新增**逐窗口读回**能力，把"肉眼只见的现象"变成"PIL 可量化的数据"。
+**类型：变更内 deferred 跟进**（`fix-imgui-font-whitebox` 任务 3.1 / 3.2，明确"本轮不做"）
 
-**关键约束（用户明确）**：
-- **禁止用隐藏/离屏窗口捕获**——不能用当前那种"主窗尺寸的共享 `captureRT` offscreen"。因为该偏移**与窗口/swapchain 相关**，隐藏离屏 RT 复现不出每窗的 swapchain 行为。
-- 必须**真正打开窗口**，并在**每个真实窗口**上**回读写到该窗口的 RT/backbuffer 图像**（每 viewport 的呈现目标），逐窗写成 PNG。
+**问题**：D1（Vulkan 图像视图 honor swizzle，commit `034dcb4`）已让**白块**消失（white=97=字形，与 d3d12 一致），但链路仍是 "`GetTexDataAsAlpha8`(R 单通道) → `E_R8_UNORM` 纹理 → `SingleChannel(R)` swizzle" 的脆弱路径，且**无正常 AA 灰阶**。
 
-**方案要点**：
-- 逐 viewport 建立读回通道，读回**该 viewport 真正呈现的 RT**（而非主窗尺寸的共享 offscreen）。
-- 技术难点：swapchain backbuffer 通常**无 eTransferSrc** 用法（无法直接拷贝读回），需择一：① 给该窗口 swapchain image 加 `ETRANSFER_SRC`（若 surface 支持）后直接读回；或 ② 为每窗建一个**与窗口同尺寸**的 readable RT，将 IMGUI 内容同时渲染到该 RT 再读回（尺寸=每窗、geometry 复用真实窗口）；或 ③ present 后 `vkCmdCopyImage` 到 readable staging + Readback。
-- 输出命名：`test_output/IMGUI_<backend>_viewport<N>.png`（每个副窗一张）。
-- 之后用 PIL 量化：非背景像素包围盒相对窗口 (0,0) 的位移 → 区分"大副窗偏移" vs "~1px 均匀平移"，据此定位根因（并可验证"改掉 `Imgui.slang:43 +2/Size` 是否消除"）。
+**改法**（规范 ImGui 做法）：
+- `IMGUIContext/IMGUIContext.cpp:489` `GetTexDataAsAlpha8` → `GetTexDataAsRGBA32`
+- `:491-493` 纹理 `E_R8_UNORM` → `E_R8G8B8A8_UNORM`
+- `:496` 上传大小 `texW*texH*4`
+- `:754` 采样 view swizzle `SingleChannel(eR)` → **不再保留**（identity 语义；否则 RGBA 读 R=255 仍是白块）
+- 仅改模块版（TestIMGUI 链接的是它）
 
-**状态：已实现（2026-09-01，commit `0c0a6e5` 落地捕获能力）**——逐窗口回读已跑通，**副窗偏移已实测**（见下方实测结论），根因定位到 Vulkan 后端，另案排查。
-
-**实测结论（双端 headless 同布局，`--headless 8 --capture 5` 逐窗 PNG）**：headless 确实产出 2~3 个 viewport（主窗 + 副窗）。PIL 量化：
-- **viewport0（主窗）**：vulkan 与 d3d12 **字节一致**（内容 bbox `(1,1,1023,511)`）——主窗正确。
-- **副窗**：d3d12 内容 bbox `(1,1,...)` 正确；**vulkan 内容偏移到 `(61,61)` = `(副窗pos − 主窗pos) + ~1px`**（此前另一布局偏移 `(349,341)` 同样吻合该公式）。
-- **关键（排除 shader 数据）**：instrument 证实 ImGui 顶点 `vtx0 = meshScalePos.zw + 标题栏19px`、`displayPos == meshScalePos.zw == imguipos`，且**双端完全一致**——shader 拿到的 pos 就是本 viewport 自身 pos（副窗 389,418）。故偏移**不是** IMGUI 数据/顶点/shader 参数问题，而是 **Vulkan 后端在绘制时给副窗内容额外加了 `(副窗pos−主窗pos)`** → 根因在 `VulkanRenderBackendNew`（per-viewport 常量/视图/顶点绑定或 pass viewport 映射）。
-
-**落地说明**：采用方案②（每窗相同尺寸 readable RT 镜像回读）；未用方案①③（engine `Readback` 仅支持 External 资源 + swapchain backbuffer 无 eTransferSrc，D2/D5 已排除）。输出 `test_output/TestIMGUI_<backend>_viewport<N>.png`（N=0 主窗）。后续排查根因时临时加的 `vp-dbg`（`PrepareSingleViewGUIResources` 每帧 stderr 一行的顶点 dump）已移除。
-
-**✅ 根因已定位（2026-09-01，workflow 对抗验证，源级核实）——Vulkan 后端常量绑定去重 bug，非 IMGUI 数据/shader 问题**：
-`VulkanShaderResourceSet::Init`（`VulkanGraphExecutor.cpp:205-211`）去重 hash 只由 **shader path hash + 各绑定名 name.GetHash()** 组成，**忽略 per-viewport 的 `VulkanShaderStruct*` 指针**。而所有 ImGui viewport 用同一 shader path（"Shaders/Imgui"）+ 同一绑定名（"imguiCommon"/"imguiTextureBinding"）→ 每 viewport 的 `resourceSet.hash` **完全相同** → `createOrGetBindingInstance`（`:1085-1096`）按 hash 命中的是**首个（main）** `VulkanResourceBindingInstance` → 该实例冻结的 `pCBufferStruct` = **main 的** shader struct（`VulkanResourceBindingInstance.cpp:135`）→ `UpdateUniformBuffer`（`:2091-2105`）从 main struct 上传常量 → 每个副窗 pass 绑定的都是 **main 的 `IMGUIScale_Pos`**（其 `.zw`=main_pos）。shader `TransformIMGUIVertex=(inVert - IMGUIScale_Pos.zw)*xy - 1`（`Imgui.slang:19`）于是**用 main_pos 减每个副窗自己的正确顶点** → 内容精确偏移 `(副窗pos − 主窗pos)`（实测 (61,61)/(349,341) 均吻合）。关键：`operator==` 仅 `hash==hash`（`VulkanGraphExecutor.h:214-215`），无法区分 viewport；D3D12 正确因其 `ShaderResourceSet` 用 `operator<=> = default` 比较了 per-viewport struct 指针（`GPUResourceBindingInstance.h:27-33`）→ 各 viewport 独立 binding instance。
-**修法方向**：① 最小——`:208-210` hash 循环内 `hash_combine(hash, reinterpret_cast<size_t>(structPtr))`，让不同 struct 指针的 pass 哈希分歧（同 pass 复用同指针仍共享）；② 更稳——仿 D3D12，让 `operator==`/map key 比较完整 `resourceDic`（含 struct 指针），或 `m_ShaderResourceInstances` 以完整对象做 key。**影响面是泛化的**：任何"同 shader path + 同绑定名但不同 per-pass struct 指针"的 pass 都会被错误合并绑定首个 pass 的常量（非仅 IMGUI）——建议按 backend 语义正确性立 change，勿当一时 patch。
-
-**相关代码**：`IMGUIContext/IMGUIContext.cpp:827-874`（`DrawSingleView`/`buildViewPass`/`IsMainViewport` 捕获门控）、`Test/GPUBackendTester/Main.cpp`（`WriteReadbackPNG`/`--capture`）、引擎 `Readback`/`IReadbackToken`（add-render-readback）、`VulkanRenderBackendNew/private/VulkanObjects/VulkanWindowHandle.cpp`（backbuffer/swapchain image，需加 eTransferSrc 或建 readable 副本）。
-
-**验收**：跑交互式（或能产副窗的 headless 场景）+ 逐副窗 PNG → 在副窗图上能 PIL 量化出偏移，从而锁定根因 / 验证修复。
+**验收**：双端 headless 渲染出正常字形 + 出现正常 AA 灰阶；vulkan/d3d12 字节收敛；无新增 VUID。
+**注**：落地时务必把 swizzle 改 identity（否则 RGBA 读 R=255 仍白）。done 后记录 AA 观察 + swizzle 一致性（`docs/TODO.md` 该 entry 移除）。
 
 ---
 
-## [2026-08-31] Vulkan IMGUI 多窗口副窗偏移（GUI 未与窗口对齐，D3D12 正常）
+## [2026-07-12] vulkan-gpu-queries：Vulkan GPU 查询体系（OpenSpec change，0/13，未开始）
 
-**状态：未修（真因未定位；多轮证伪，静态分析已穷尽，需运行时插桩测量，见下方 Round-2 结论）**
+**状态：未开始（0/13；2026-07-12 建立后未推进，疑似搁置/废弃，待用户拍板）**
 
-**问题**：IMGUI 多窗口绘制时，主窗正常，其余副窗的 GUI 内容相对其窗口发生偏移/未对齐；D3D12 后端全部正常。headless 截图无法复现（`IMGUIContext.cpp:871-873` 捕获只门控主 viewport），只在交互式多窗口出现。
-
-**已证伪（不要再查这几条）**：
-- ① `-viewPort->Pos` 过度偏移：✗ 排除——IMGUI 顶点+ClipRect 是**全局坐标**，`draw_data->DisplayPos==viewport->Pos` 对所有 viewport 成立（`imgui.cpp:5650-5651`），是规范 IMGUI 契约；D3D12 用同一共享代码正常，不能作 Vulkan-only 原因。**此减法必须保留**。
-- ② Vulkan 负高默认 viewport（`VulkanGraphExecutor.cpp:2211` `{0,H,W,-H}`）：✗ 排除——与 D3D12 正高 `{0,0,W,H}`（`InterfaceTranslation.h:787`）映射 NDC→framebuffer 完全等价；IMGUI 只设 scissor 不设 viewport，无 double-flip。
-- ③ 共享 framebuffer / 主窗描述符：✗ 排除——每个副窗独立 acquire+render+present 到自己的 swapchain（`VulkanGraphExecutor.cpp:135-136,561,2277,2934-2966`；`VulkanWindowHandle.cpp`）。
-- ④ 与 IMGUI 字体白块修复相关：✗ 无关——字体修复只碰 image-view swizzle（采样颜色），git diff 证实不碰 viewport/scissor/swapchain；位置偏移不可能由纹理 swizzle 引起。
-
-**⚠ Round-2（2026-09-01）证伪「逻辑 vs 物理尺寸分裂」假设**（此前中置信）：进程是 **Per-Monitor-V2 DPI-aware**——GLFW 3.4 `_glfwInitWin32` 强制 `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`（`glfw-src/src/win32_init.c:692`，经 `glfwInit()` `WindowSystem_Impl.cpp:167`）；无 manifest（`CMakeLists.txt:26-28` `/MANIFEST:NO`）。PERV2 下 `glfwGetWindowSize==glfwGetFramebufferSize==GetClientRect==物理px==swapchain currentExtent`（`win32_window.c:1663-1672,1740-1743`）→ ImGui `viewPort->Size`（`IMGUIContext.cpp:559-566,:723`）与 `m_Extent`（`VulkanWindowHandle.cpp:268-280`）两端读**同一个物理值**，`DisplayFramebufferScale=(1,1)`（`:647`）**是正确的**。且主/副窗共享同一 IMGUI graph + Vulkan raster 路径——若分裂存在主窗也偏，主窗正常 ⇒ 无分裂。
-
-**Round-2 其它证伪**：
-- ①「顶点缺失 DisplayPos 平移」✗ 读错文件——`imgui.hlsl` 是**死代码**（全仓无引用），实际用 `Imgui.slang` 且 `:19` `TransformIMGUIVertex=(inVert-IMGUIScale_Pos.zw)*IMGUIScale_Pos.xy-1.0` **确实含平移**（`.zw`=viewport->Pos）。
-- ②「swapchain 重建滞后 ImGui resize」✗ 真实但**瞬态自愈**（`m_Extent` 仅 `CreateSwapchain` 写，`RecreateSwapchain` 仅由**上一帧** OutOfDate 触发 `VulkanWindowHandle.cpp:301,343,375-386`；`VulkanGraphExecutor.cpp:560-561` 帧首检查），最多差一帧，无持续偏移。
-- ③「scissor clamp 缺失是偏移」✗ scissor 只**裁剪不移位**；ImGui 嵌套 `PushClipRect(intersect=true)` 已保证每命令 ClipRect ⊆ viewport rect（`imgui.cpp:4950,7956,8209`；`imgui_draw.cpp:619-634`），永不越界 ⇒ VUID moot。
-- ④「`Imgui.slang:43` `+IMGUIScale_Pos.xy`」✗ 是 **~1px 均匀平移、跨双端、主副皆同**（shared shader），非副窗专属大偏移；真实但次要。
-
-**Honest 结论**：静态分析已穷尽——真因不在尺寸分裂/顶点平移/scissor/swapchain 时序/`+2/Size` nudge 任一，**无法从静态代码定性**。且**从未捕获偏移量级**（headless capture 门控主 viewport `IMGUIContext.cpp:869-873`），无法区分"大副窗偏移"vs"~1px 均匀平移"。**下一步必须运行时插桩**：逐副窗记录 `viewport->Pos/Size`、`glfwGetFramebufferSize`、Vulkan surface `currentExtent`/`m_Extent`、per-drawcall scissor，并对比**呈现场景图像实际尺寸 vs 窗口 client 尺寸**（多帧）。
-
-**相关代码**：`IMGUIContext/IMGUIContext.cpp:647,723,749,781,861,871-873`、`CAResources/Shaders/Imgui.slang:12-15,43-44`、`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp:2209-2215,2374-2379`、`VulkanRenderBackendNew/private/VulkanObjects/VulkanWindowHandle.cpp:114,268-280,375`、`WindowSystem/private/Window_Impl.cpp:67-69`、参照 `_deps/imgui-src/backends/imgui_impl_vulkan.cpp:486-521,614-621`。
-
----
-
-## [2026-08-30] IMGUI 字体渲染成白块（文字不可读）——Vulkan+D3D12 双端复现（IMGUIContext / 后端视图）
-
-**状态：未修（双后端均复现）**
-
-**问题**：TestIMGUI 的文字不显示，渲染成白色实心方块（菜单栏/左侧 tab 文字都变白块）。Vulkan / D3D12 截图一致（2026-08-30 重读确认两侧均白块）。双后端 validation 均干净（0 VUID）——是**静默渲染错误**，非 API 误用。
-
-**根因（通道错配：字形在 R、shader 读 A）**：
-- 字形用 `GetTexDataAsAlpha8` → 单通道 alpha8 存进 **R8_UNORM** 纹理（IMGUIContext.cpp:489-493），字形覆盖率在 **R** 通道。
-- ImGui shader 采样 `.aaaa`——读 **alpha** 通道（Imgui.slang:14）。
-- 桥接靠 `CreateDefaultForSampling(R8G8B8A8, SingleChannel(R))`（IMGUIContext.cpp:754）把 R 复制进 A。
-- **Vulkan 裂点（已钉死）**：`VulkanTexture.cpp:161-177` 创建 VkImageView 用 `viewInfo.format=图像格式(R8)` 且**不设 `viewInfo.components`**（无 VkComponentMapping）→ swizzle 被忽略 → 采样 R8 得 `(r,0,0,1)`，A=1 → `.aaaa`=1 → 恒白。
-- **D3D12 待细化**：`InterfaceTranslation.h:615-620` **有**把 swizzle 编码进 `Shader4ComponentMapping`（A→R），`Sanitize` 也不动 swizzle → 理论应正常；但截图仍白块。故 D3D12 机制存疑：可能同症状但另一路径/第二个原因，须确认。
-
-**修法候选**：
-- ① 后端尊重 swizzle：Vulkan 设 `viewInfo.components`（SingleChannel(R)→{R,R,R,R}）。D3D12 已做。
-- ② IMGUIContext 改 `GetTexDataAsRGBA32` + R8G8B8A8 纹理（标准 ImGui 做法，一处修双端，洗掉 swizzle 依赖）——**最省、最稳**。
-- ③ `Imgui.slang:14` `.aaaa`→`.rrrr`（字形在 R）。
-
-**注**：与「Vulkan 三角形缺失（clipspace z）」是两个独立根因（一个通道错配、一个 clip volume），均被上轮"只看非黑、3 对字节一致"的验收口径漏掉。
-
-**相关代码**：`IMGUIContext/IMGUIContext.cpp:456,489-497,750-754`、`CAResources/Shaders/Imgui.slang:11-14,52`、`Interface/RenderInterface/header/GPUTexture.h:64,124-145`、`VulkanRenderBackendNew/private/VulkanObjects/VulkanTexture.cpp:161-177`、`D3D12RenderBackend/private/Utils/InterfaceTranslation.h:607-621`。
-
----
-
-## [2026-08-30] 暴露 enableDepthClamp（z-clip/z-clamp 开关）为 GPUGraph 级开关，统一双后端光栅化（vulkan 三角形缺失根因）
-
-**状态：已解决（2026-08-30，`unify-depth-clamp-switch` 落地并归档 → `openspec/changes/archive/2026-08-30-unify-depth-clamp-switch/`）**
-
-**结果**：统一 `RasterizerStates::enableDepthClamp`（默认 false = 标准近平面裁剪），双后端一致实现——Vulkan 映射 `depthClampEnable` + 设备启用 `depthClamp` feature；D3D12 去硬编码、`DepthClipEnable = !enableDepthClamp`（双路径一致）；ConstantColor/StructuredBufferColor 顶点 z 改 ≥0。`python build.py --config Debug` 通过，双后端 8 测试 exit 0，ConstantColor/StructuredBufferColor 双端渲染出三角形且字节一致，无新增 VUID。对抗验证 11/11 全票（mustFix 空）。主 spec `openspec/specs/pipeline-depth-clamp/spec.md` 已同步（valid）。**遗留**：[AUDIT-1] 覆盖缺口——clamp 正向路径（enableDepthClamp=true）未被任何测试运行时触达，仅代码审+MCP 语义核实，可补一条真 clamp 渲染测试（非必须）。
-
-**问题**：TestTriangleWithConstantColor / TestTriangleWithStructuredBufferColor 在 **Vulkan** 上三角形消失（顶点 z=-0.25/0 被裁），**D3D12** 正常。根因是**光栅化"近平面 z-clip/Z-clamp"开关在双后端不一致**：
-- **Vulkan**：`VulkanGraphExecutor.cpp:1823-1831` 建 `VkPipelineRasterizationStateCreateInfo` 时**忽略接口 `enableDepthClamp`**，`depthClampEnable` 字段从未设（默认 `VK_FALSE`）→ **裁 z 面**（z<0 被裁掉）。且设备**未启用 `depthClamp` device feature**（启用后才可设 depthClampEnable=TRUE）。
-- **D3D12**：`GPUPipelineInstance.cpp:159` **硬编码 `DepthClipEnable = FALSE`**（不裁，z<0 也渲染）；`PipelineStatesObject.cpp:18-33` 用 `enableDepthClamp`→`DepthClipEnable`（**语义反相**：Vulkan 的 depthClamp 是 depth-clip 的反面，MCP 已核实）。
-- 接口字段 `RasterizerStates::enableDepthClamp`（`CPipelineStateObject.h:19`，默认 false）**本已存在**，但 Vulkan 忽略、D3D12 语义反相 + 硬编码→**实际未真正暴露、也未对齐**。
-
-**设计目标（统一上层接口，而非分叉取向）**：把"近平面 z-clip/z-clamp"定义为**一个上层 GPUGraph / PipelineState 字段**（沿用已有 `RasterizerStates::enableDepthClamp`，确认/补全到暴露面，避免只在内部结构里），**两个后端都忠实读取同一值**——值由上层一次性决定，两端照做即一致：
-
-- **Vulkan**：映射 `enableDepthClamp` → `depthClampEnable`（true=沿 z clamp 替代 clip），并**启用 `depthClamp` device feature**（否则 VUID）。当前是"忽略该字段、默认 clip"→ 需补映射 + feature。
-- **D3D12**：去掉 `GPUPipelineInstance.cpp:159` 硬编码 `DepthClipEnable=FALSE`，改由字段驱动，且**语义与 Vulkan 拉齐**（注意 inverse：Vulkan `depthClampEnable=true`(clamp) ≈ D3D12 `DepthClipEnable=false`(不 clip)，映射需反转）。
-- **关键**：一旦两端都读同一字段，就不存在"哪个后端对/选①还是②"——分叉根因正是"缺少统一上层字段、两端各自局部硬编码"。字段的**默认值**是另一个独立小事（单点决定，两端同值），不是二选一的两条路。
-
-**验收**：设置该上层字段 → 双后端对 z<0 几何行为完全一致；ConstantColor/StructuredBufferColor 双后端同步渲染或同步裁剪；无 VUID；`python build.py --config Debug` 通过。
-
-**相关代码**：`Interface/RenderInterface/header/CPipelineStateObject.h:16-19`、`D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.cpp:18-33`、`D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.cpp:155-159`、`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.cpp:1823-1831`、`Test/GPUBackendTester/Main.cpp:309-313,422-426`、根因对比 `Test/GPUBackendTester` compute(RWVertexBuffer z=0.5)。
+**内容**：Vulkan 完全缺 GPU 查询体系。新增 `vk::QueryPool` + `vkCmdWriteTimestamp`/`vkCmdBeginQuery`/`vkCmdEndQuery`/`vkCmdCopyQueryPoolResults`，盖 Timestamp（profiling）、Occlusion、Pipeline Statistics；暴露给引擎 profiling 层。对齐 D3D12 的 `D3D12_QUERY_HEAP`。
+**决策点**：① 照做 → 从 `/opsx:apply vulkan-gpu-queries` 真开干；② 废弃 → 归档 change；③ 暂缓 → 保留现状但明确"非近期优先级"。
+**相关**：`openspec/changes/vulkan-gpu-queries/`（proposal/design/tasks 齐，0 实现）。
 
 ---
 
@@ -167,7 +91,7 @@
 
 ## [2026-08-28] review workflow 确认的另两条读回缺陷（4 条 MED 中本文件已含 2 条）
 
-> 背景：对本读回实现跑了对抗式 review workflow（27 agents），确认 4 条 MED。其中「bpp 单一事实来源」已在上面压缩条目、`D3D12 异步`已在第一条；本条目补剩余 2 条。测试过的 RGBA8 视读回路径本身可靠，这些是**边界/契约**缺陷。
+> 背景：对本读回实现跑了对抗式 review workflow（27 agents），确认 4 条 MED。其中「bpp 单一事实来源」已在上方压缩条目、`D3D12 异步`已在上面第一条；本条目补剩余 2 条。测试过的 RGBA8 视读回路径本身可靠，这些是**边界/契约**缺陷。
 
 **缺陷 A：载体硬编码 base mip / base layer，无 subresource 选择器；multisample 未 resolve**（MED）
 - `Readback(ImageHandle)` 只拷 `mip0/layer0`：Vulkan 硬编码 `imageSubresource.mipLevel=0, baseArrayLayer=0, layerCount=1`；D3D12 `SubresourceIndex=0`。
@@ -185,23 +109,67 @@
 
 ---
 
+## [2026-08-30] capture 的 2 条 LOW（GPUBackendTester 截图扩展收尾）
+
+**状态：未修（LOW，从已解决的 capture 4 问题条目中摘出的剩余项）**
+
+- **LOW-1**：`--capture` 不带 `--headless` 时**静默 noop**（无任何提示）——capture 只对 headless 生效，非 headless 下用户可能以为截了图。
+- **LOW-2**：capture 帧号**越界无提示**——请求的 capture 帧号超出运行帧数时静默不写。
+
+**改法**：① 非 headless + 带 capture 时打 stderr 提示"capture 仅 headless 生效"；② capture 帧越界时 stderr 警告/拒绝。**验收**：跑测试无意外截图、越界有告警。
+**相关**：`Test/GPUBackendTester/Main.cpp`（`--capture`/`--headless` 解析、`WriteReadbackPNG`）。
+
+---
+
+# 已解决记录（保留供追溯；对应条目上移至待办后此区为空可清理）
+
+## [2026-09-01] 观测 Vulkan IMGUI 多窗口副窗偏移——逐窗口回读 RT（新增捕获能力）｜✅已解决
+
+**状态：已解决（2026-09-02，`fix-vulkan-dedup-key-identity` 修复并归档 → `openspec/changes/archive/2026-09-02-fix-vulkan-dedup-key-identity/`，commit `41ffdbd`）**
+
+> 本条记录"观测能力 + 根因定位"全过程（含多轮证伪）。根因已被上述 change 以内容键修复，下列细节保留供追溯，非新待办。
+
+**结果**：
+- **观测能力**：逐窗口回读已落地（每窗同尺寸 readable RT 镜像回读 + `--capture`，输出 `test_output/TestIMGUI_<backend>_viewport<N>.png`），副窗偏移首次被 PIL 量化（`(61,61)`/`(349,341)` = 副窗pos−主窗pos）。headless 不再是盲区。
+- **根因（Vulkan 后端）**：`VulkanShaderResourceSet::Init` 去重 hash 忽略 per-viewport `VulkanShaderStruct*`；所有 ImGui viewport 共享 shader path（"Shaders/Imgui"）+ 绑定名（imguiCommon/imguiTextureBinding）→ hash 合并到 **main** 实例 → 绑定 main 的 `IMGUIScale_Pos` → 副窗内容偏移 `(副窗pos−主窗pos)`。
+- **修法**：改为**内容键**（`operator==` 比较 path + resourceDic 的 [name→structPtr]；hash 加入 structPtr；`m_ShaderResourceInstances` 以完整 `VulkanShaderResourceSet` 为 key）。修复后副窗 v1/v2 vulkan≡d3d12 字节一致（meanDiff 0.000），偏移消除、测试回归通过。
+- **遗留**：交互式关窗时 VUID-09600/01282（本 change 触碰面外，疑似交互式布局/teardown），未在本 change 触达，另案（见「vulkan 显示异常」历史）——如需定论做 baseline 验证。
+- 多轮证伪细节（Round-2 等）见归档 change 的 design/tasks.md。
+
+---
+
+## [2026-08-31] Vulkan IMGUI 多窗口副窗偏移（GUI 未与窗口对齐，D3D12 正常）｜✅已解决
+
+**状态：已解决（2026-09-02，与上方 [2026-09-01] 同根同源——均被 `fix-vulkan-dedup-key-identity` 修复**）
+
+> 此前"真因未定位（静态分析穷尽）"，被 [2026-09-01] 的运行插桩推翻——真因 = Vulkan 后端常量绑定去重错误（见上条）。修复后副窗内容与 d3d12 字节一致，偏移消除。
+> 已证伪项（视图 Pos 过度偏移/负高 viewport/共享 framebuffer/字体修复相关/逻辑-物理尺寸分裂 等）见归档 change 的 design.md；为避免 TODO 冗余，本条收敛到"已解决"。
+
+---
+
+## [2026-08-30] IMGUI 字体渲染成白块（文字不可读）｜✅已解决（D1）
+
+**状态：已解决（D1，`fix-imgui-font-whitebox`，未归档；D2 见待办 [2026-09-02]）**
+
+**结果**：根因是 Vulkan 采样图像视图丢失接口 `GPUTextureSwizzle::SingleChannel(eR)`（未翻译成 `vk::ComponentMapping`）→ R8 视图按 identity 采样得 `(R,0,0,1)`，`Imgui.slang:14` `.aaaa` 读到 A=1 → 覆盖率恒 1 → 白块。**修正**：此前"双端均复现"是缩略图目测误判——D3D12 的细字形被当成白块，D3D12 实为正常（`Shader4ComponentMapping` 已正确）。
+- **D1（已修，commit `034dcb4`）**：Vulkan 创建采样视图应用 swizzle（`viewInfo.components`），`SingleChannel` 在 `.aaaa` 读到 R 覆盖率；`VulkanGraphLocalResourceManager::GetTextureView` 增重载接收 view swizzle；绑定处传入。`TestIMGUI_vulkan.png` white=97（=d3d12，非原 233 实心块），渲染出 "Options" 字形，无新增 VUID。
+- **D2（未做 → 待办）**：规范字体上传 `GetTexDataAsRGBA32` + `E_R8G8B8A8_UNORM` + identity swizzle（得到 AA 灰阶），见待办 [2026-09-02]。
+
+---
+
+## [2026-08-30] 暴露 enableDepthClamp（z-clip/z-clamp 开关）为 GPUGraph 级开关，统一双后端光栅化
+
+**状态：已解决（2026-08-30，`unify-depth-clamp-switch` 落地并归档 → `openspec/changes/archive/2026-08-30-unify-depth-clamp-switch/`）**
+
+**结果**：统一 `RasterizerStates::enableDepthClamp`（默认 false = 标准近平面裁剪），双后端一致实现——Vulkan 映射 `depthClampEnable` + 设备启用 `depthClamp` feature；D3D12 去硬编码、`DepthClipEnable = !enableDepthClamp`（双路径一致）；ConstantColor/StructuredBufferColor 顶点 z 改 ≥0。`python build.py --config Debug` 通过，双后端 8 测试 exit 0，ConstantColor/StructuredBufferColor 双端渲染出三角形且字节一致，无新增 VUID。对抗验证 11/11 全票（mustFix 空）。主 spec `openspec/specs/pipeline-depth-clamp/spec.md` 已同步（valid）。**遗留**：[AUDIT-1] 覆盖缺口——clamp 正向路径（enableDepthClamp=true）未被任何测试运行时触达，仅代码审+MCP 语义核实，可补一条真 clamp 渲染测试（非必须）。
+
+---
+
 ## [2026-08-29] 截图功能的 4 个 capture 代码问题（GPUBackendTester 截图扩展）
 
 **状态：已解决（2026-08-29，A 修复落地）**
 
-**结果**：① `WriteReadbackPNG` 在 null/空白时 `return false` 并打 stderr（vulkan ConstantColor 实测输出 `[capture] ... capture is BLANK (nonEmpty=false)`）；② TestReadback 在"请求了 capture 但读到 null/空白"时 `throw`（兑现 assert，读回验证失败即 fail）；③ TestIMGUI 赋值行补 `captureRT.IsValid()`；④ IMGUIContext::DrawSingleView 用 `ImGuiViewportFlags_CanHostOtherWindows` 门控到主 viewport（此 imgui 版本无 IsMainWindow）。重编译通过，双后端 8 测试 exit 0、4 对字节一致不变。剩余："capture 不带 headless 静默 noop" + "capture 帧越界无提示" 两条 LOW 未列入本条，留待后续。
-
-**背景**：给全部 GPUBackendTester 测试加截图（`--capture` 逐测试写 `test_output/<测试名>_<后端>.png`）。经对抗式深审（15 agents）确认 4 个问题，均为**捕获代码自身**的质量/健壮性问题（非后端 bug、非 capture 引起的渲染错误）。
-
-**问题**：
-1. **`WriteReadbackPNG` 的 bool 返回在 7 处调用点被丢弃**（只 TestReadback 检查）：null-token 或空白帧时 `--capture` 的失败被静默吞掉，`result.json` 的 status/exit code 不反映。
-2. **TestReadback 注释承诺"assert non-empty"，但从不 assert**：`nonEmpty` 只 print 不抛/不返回失败，**空白帧被当成成功**。
-3. **TestIMGUI `drawTarget = captureRT` 没加 `captureRT.IsValid()` 守卫**（读回行有、赋值行没有）——不一致，内部 IsValid 兜底故无崩溃。
-4. **IMGUI capture 目标（captureRT 按主窗尺寸建）被传给每个 viewport 的 DrawSingleView**：多 viewport 下每个 pass `eClear` 后各自画 → **last-writer-wins**，只留最后一个 viewport，且 clip 不对。单窗口测试 dormant，多 viewport 是隐患。
-
-**修法**：① helper 在 null/空白时 `return false` 并打印原因；② TestReadback 在"请求了 capture 但得到的帧为 null/空白"时 `throw`（兑现 assert 承诺，读回验证测试真正 fail）；③ TestIMGUI 赋值行补 `captureRT.IsValid()`；④ IMGUIContext::DrawSingleView 的 capture pass 用 `viewPort->Flags & ImGuiViewportFlags_IsMainWindow` 门控到主 viewport。
-
-**相关代码**：`Test/GPUBackendTester/Main.cpp`（`WriteReadbackPNG`/`TestReadback`/各测试 capture 调用）、`IMGUIContext/IMGUIContext.cpp`（`Draw`/`DrawSingleView`）。
+**结果**：① `WriteReadbackPNG` 在 null/空白时 `return false` 并打 stderr（vulkan ConstantColor 实测输出 `[capture] ... capture is BLANK (nonEmpty=false)`）；② TestReadback 在"请求了 capture 但读到 null/空白"时 `throw`（兑现 assert，读回验证失败即 fail）；③ TestIMGUI 赋值行补 `captureRT.IsValid()`；④ IMGUIContext::DrawSingleView 用 `ImGuiViewportFlags_CanHostOtherWindows` 门控到主 viewport（此 imgui 版本无 IsMainWindow）。重编译通过，双后端 8 测试 exit 0、4 对字节一致不变。**剩余 2 条 LOW 已摘出 → 待办 [2026-08-30] capture 2 条 LOW。**
 
 ---
 
