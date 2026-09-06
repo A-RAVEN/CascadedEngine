@@ -109,7 +109,8 @@ static ImageHandle CreateCaptureRT(TestContext& ctx, uint32_t w, uint32_t h)
 // coexist: <baseName>_<backend>.png. Returns false if the backend rejected the readback.
 static bool WriteReadbackPNG(TestContext& ctx, ImageHandle const& rt, int w, int h, char const* baseName)
 {
-	std::vector<uint8_t> px(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+	// Carrier size = the SOLE public source GetImageByteSize (do NOT derive W*H*4 by hand).
+	std::vector<uint8_t> px(static_cast<size_t>(GetImageByteSize(w, h, ETextureFormat::E_R8G8B8A8_UNORM)));
 	auto token = ctx.pGPUBackend->Readback(rt, px);
 	if (!token)
 	{
@@ -290,6 +291,30 @@ void TestReadback(TestContext& ctx)
 	{
 		// closed-loop validation: a requested readback that produced a null/blank frame is a real failure.
 		throw std::runtime_error("TestReadback: requested capture frame " + std::to_string(ctx.captureFrame) + " but readback was null/blank");
+	}
+
+	// add-render-readback hardening: Readback(image) must REJECT an unsupported subresource (return a
+	// null token) instead of silently truncating to mip0/layer0 — the headline behavioral change. A
+	// multi-mip image was previously copy-truncated to mip0; now it is explicitly rejected. (Other
+	// reject categories — multi-layer / MSAA / non-2D / depth-stencil multi-aspect — are gated by the
+	// same descriptor checks and verified statically; constructing those RTs risks backend creation
+	// pitfalls orthogonal to the readback logic.) Run unconditionally so it is covered in non-capture runs.
+	{
+		auto mmRT = ctx.pGPUBackend->CreateGPUTexture(
+			GPUTextureDescriptor::Create(64, 64, ETextureFormat::E_R8G8B8A8_UNORM, ETextureType::e2D, 1, 2),
+			ETextureAccessType::eTransferSrc | ETextureAccessType::eTransferDst | ETextureAccessType::eRT);
+		// Carrier size = GetImageByteSize (sole public source), even for a reject case.
+		std::vector<uint8_t> mmPx(static_cast<size_t>(GetImageByteSize(64, 64, ETextureFormat::E_R8G8B8A8_UNORM)));
+		auto mmTok = ctx.pGPUBackend->Readback(ImageHandle(mmRT), mmPx);
+		if (mmTok)
+		{
+			// closed-loop validation: a multi-mip image MUST be rejected (null token), never silently
+			// truncated to mip0. If the subresource gate regresses, this is a real failure (hard-fail,
+			// mirroring the capture throw at the top of this function) — a soft stderr print would let
+			// the gate regress unnoticed because runTestWithDiagnostics still returns pass.
+			throw std::runtime_error("TestReadback: multi-mip readback should return null token but got a valid token (subresource gate regressed)");
+		}
+		std::cout << "[reject] multi-mip readback -> null token OK" << std::endl;
 	}
 }
 

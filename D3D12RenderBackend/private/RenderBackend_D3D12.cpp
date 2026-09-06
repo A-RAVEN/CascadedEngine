@@ -475,30 +475,6 @@ namespace graphics_backend
 
 	// --- add-render-readback: D3D12 GPU→host readback ---
 
-	// Bytes-per-pixel for the compact copy (image→tightly-packed; the visual-assert RT format
-	// E_R8G8B8A8_UNORM equals compact RGBA8). Format→canonical-RGBA conversion is a follow-up.
-	static uint32_t D3D12ReadbackBpp(ETextureFormat format)
-	{
-		switch (format)
-		{
-		case ETextureFormat::E_R8_UNORM: return 1;
-		case ETextureFormat::E_R8G8_UNORM:
-		case ETextureFormat::E_R16_UNORM:
-		case ETextureFormat::E_R16_SFLOAT: return 2;
-		case ETextureFormat::E_R8G8B8A8_UNORM:
-		case ETextureFormat::E_B8G8R8A8_UNORM:
-		case ETextureFormat::E_R16G16_SFLOAT:
-		case ETextureFormat::E_R32_SFLOAT:
-		case ETextureFormat::E_D24_UNORM_S8_UINT:
-		case ETextureFormat::E_D32_SFLOAT: return 4;
-		case ETextureFormat::E_R16G16B16A16_UNORM:
-		case ETextureFormat::E_R16G16B16A16_SFLOAT:
-		case ETextureFormat::E_R32G32_SFLOAT: return 8;
-		case ETextureFormat::E_R32G32B32A32_SFLOAT: return 16;
-		default: return 4;
-		}
-	}
-
 	// Block host until the GPU has passed `value` on `fence` (used by the synchronous readback).
 	static void WaitD3D12Fence(ID3D12Fence* fence, uint64_t value)
 	{
@@ -629,12 +605,39 @@ namespace graphics_backend
 			return nullptr;
 		}
 		auto const& desc = img->GetDescriptor();
-		uint32_t width = desc.width, height = desc.height, bpp = D3D12ReadbackBpp(desc.format);
+		uint32_t width = desc.width, height = desc.height;
+		// Carrier byte size = the single public source (Common.h). Non-zero means "size computable",
+		// NOT "readback accepts it" — acceptability is the support set below.
+		uint64_t byteSize = GetImageByteSize(width, height, desc.format);
+		if (byteSize == 0)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) format {} unsupported (no compact layout / compressed / unknown)",
+				(int)desc.format);
+			return nullptr;
+		}
+		if (IsDepthStencilFormat(desc.format) && !IsDepthOnlyFormat(desc.format))
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) depth-stencil multi-aspect format {} "
+				"unsupported (needs aspect/plane selection + row alignment; single-depth accepted)", (int)desc.format);
+			return nullptr;
+		}
+		// Compact block size (internal intermediate) — drives the compact row stride below.
+		uint32_t bpp = GetFormatBlockSize(desc.format);
 		uint32_t rowPitch = width * bpp;
-		uint64_t byteSize = (uint64_t)width * height * bpp;
 		if (dst.size() < byteSize)
 		{
 			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+		// Subresource narrowing: the copy is hardcoded to subresource 0; anything else would be silently
+		// truncated. Only single-mip / single-layer / non-MSAA / 2D is supported.
+		// desc.samples is EMultiSampleCount (enum class, e1=0) — compare against e1, never ==1 />1.
+		if (desc.mipLevels > 1 || desc.layers > 1
+			|| desc.samples != EMultiSampleCount::e1 || desc.textureType != ETextureType::e2D)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) only supports single-mip/single-layer/non-MSAA/2D "
+				"(got mip={} layer={} samples={} type={})",
+				desc.mipLevels, desc.layers, (int)desc.samples, (int)desc.textureType);
 			return nullptr;
 		}
 

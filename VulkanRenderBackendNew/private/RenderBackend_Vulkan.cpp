@@ -1002,33 +1002,6 @@ void RenderBackend_Vulkan::ClearFramebufferCache()
 
 	// --- add-render-readback: Vulkan GPU→host readback ---
 
-	// Bytes-per-pixel for tightly-packed copy. For E_R8G8B8A8_UNORM (the visual-assert RT format)
-	// this equals compact RGBA8. Other formats copy their native tightly-packed bytes; the caller
-	// interprets via GetWidth/GetHeight/GetRowPitch. Format→canonical-RGBA conversion is a
-	// documented follow-up, not part of this pure-copy path.
-	static uint32_t GetReadbackBpp(ETextureFormat format)
-	{
-		switch (format)
-		{
-		case ETextureFormat::E_R8_UNORM: return 1;
-		case ETextureFormat::E_R8G8_UNORM:
-		case ETextureFormat::E_R16_UNORM:
-		case ETextureFormat::E_R16_SFLOAT:
-		case ETextureFormat::E_D16_UNORM: return 2;
-		case ETextureFormat::E_R8G8B8A8_UNORM:
-		case ETextureFormat::E_B8G8R8A8_UNORM:
-		case ETextureFormat::E_R16G16_SFLOAT:
-		case ETextureFormat::E_R32_SFLOAT:
-		case ETextureFormat::E_D24_UNORM_S8_UINT:
-		case ETextureFormat::E_D32_SFLOAT: return 4;
-		case ETextureFormat::E_R16G16B16A16_UNORM:
-		case ETextureFormat::E_R16G16B16A16_SFLOAT:
-		case ETextureFormat::E_R32G32_SFLOAT: return 8;
-		case ETextureFormat::E_R32G32B32A32_SFLOAT: return 16;
-		default: return 4;
-		}
-	}
-
 	// Owns the host staging + fence of one in-flight readback. Wait() fills the caller's dst;
 	// Reset()/dtor waits for the GPU and frees the staging (idempotent — exactly once, so a
 	// direct-mapped host-visible buffer path that never allocates staging is safe).
@@ -1051,9 +1024,18 @@ void RenderBackend_Vulkan::ClearFramebufferCache()
 			}
 			if (m_StagingAlloc && m_StageInfo.pMappedData)
 			{
+				// Defense against the caller shrinking/reallocating dst between Readback() and Wait():
+				// reject rather than silently clamp (clamping writes partial data that looks like success).
 				size_t copyBytes = static_cast<size_t>(m_ByteSize);
-				if (copyBytes > m_Dst.size()) copyBytes = m_Dst.size();
-				memcpy(m_Dst.data(), m_StageInfo.pMappedData, copyBytes);
+				if (copyBytes > m_Dst.size())
+				{
+					CA_LOG_ERR("VulkanReadbackToken::Wait() dst shrank: {} < {} bytes; skipping write "
+						"(contract: keep dst alive & unchanged until Wait() returns)", m_Dst.size(), copyBytes);
+				}
+				else
+				{
+					memcpy(m_Dst.data(), m_StageInfo.pMappedData, copyBytes);
+				}
 			}
 			m_Filled = true;
 		}
@@ -1142,12 +1124,40 @@ void RenderBackend_Vulkan::ClearFramebufferCache()
 		}
 		auto const& desc = texture->GetDescriptor();
 		uint32_t width = desc.width, height = desc.height;
-		uint32_t bpp = GetReadbackBpp(desc.format);
-		uint32_t rowPitch = width * bpp;
-		uint64_t byteSize = static_cast<uint64_t>(width) * height * bpp;
+		// Carrier byte size = the single public source (Common.h). Non-zero means "size computable",
+		// NOT "readback accepts it" — acceptability is the support set below.
+		uint64_t byteSize = GetImageByteSize(width, height, desc.format);
+		if (byteSize == 0)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) format {} unsupported (no compact layout / compressed / unknown)",
+				(int)desc.format);
+			return nullptr;
+		}
+		// Depth+stencil multi-aspect (D24S8 / D32S8) has a computable packed size but needs per-aspect /
+		// per-plane selection + row alignment, and depth/stencil value interpretation is format semantics
+		// (this change does NOT claim readback support). Single-depth D16/D32 (single aspect) IS accepted.
+		if (IsDepthStencilFormat(desc.format) && !IsDepthOnlyFormat(desc.format))
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) depth-stencil multi-aspect format {} "
+				"unsupported (needs aspect/plane selection + row alignment; single-depth accepted)", (int)desc.format);
+			return nullptr;
+		}
+		// Compact row stride — an INTERNAL intermediate, NOT the public carrier-size source.
+		uint32_t rowPitch = width * GetFormatBlockSize(desc.format);
 		if (dst.size() < byteSize)
 		{
 			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+		// Subresource narrowing: the copy below hardcodes {mip0, layer0, 1}; anything else would be
+		// silently truncated. Only single-mip / single-layer / non-MSAA / 2D is supported.
+		// desc.samples is EMultiSampleCount (enum class, e1=0) — compare against e1, never ==1 />1.
+		if (desc.mipLevels > 1 || desc.layers > 1
+			|| desc.samples != EMultiSampleCount::e1 || desc.textureType != ETextureType::e2D)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(image) only supports single-mip/single-layer/non-MSAA/2D "
+				"(got mip={} layer={} samples={} type={})",
+				desc.mipLevels, desc.layers, (int)desc.samples, (int)desc.textureType);
 			return nullptr;
 		}
 

@@ -35,13 +35,17 @@ namespace graphics_backend
 
 	// GPU→host readback token (add-render-readback). Readback() declares a copy of a GPU resource
 	// into the caller's CPU span; Wait() is the ONLY sync point, after which dst is filled.
-	// The carrier is FIXED and documented: image → width*height*bpp tightly-packed bytes (compact
-	// RGBA for E_R8G8B8A8_UNORM, no pitch padding); buffer → descriptor.SizeInByte() raw bytes. The
-	// caller derives width/height/format from the resource's own descriptor (GPUTexture::GetDescriptor
-	// / GPUBuffer::GetDescriptor, queryable ANYTIME) and bpp via GetFormatBlockSize(format). The token
-	// carries NO resource metadata — only the sync/ownership handle (Wait/IsReady/Reset). The concrete
-	// backend owns the staging/sync it allocates and frees it in Reset()/dtor (idempotent). Caller owns
-	// + keeps dst alive until Wait().
+	// The carrier is FIXED and documented: image → GetImageByteSize(width,height,format) tightly-packed
+	// bytes (compact, no pitch padding; e.g. width*height*4 for E_R8G8B8A8_UNORM); buffer →
+	// descriptor.SizeInByte() raw bytes. GetImageByteSize (Common.h) is the SOLE public carrier-size
+	// source — callers SHALL NOT derive it as width*height*GetFormatBlockSize(format) (that per-pixel
+	// block size is an internal intermediate for compact row strides; its `default=4` silently invents
+	// a size for unknown formats). Caller derives width/height/format from the resource's own descriptor
+	// (GPUTexture::GetDescriptor / GPUBuffer::GetDescriptor, queryable ANYTIME). The token carries NO
+	// resource metadata — only the sync/ownership handle (Wait/IsReady/Reset). The concrete backend owns
+	// the staging/sync it allocates and frees it in Reset()/dtor (idempotent). Caller owns dst and MUST
+	// keep the memory it refers to alive AND its size unchanged until Wait() returns — do not resize or
+	// release the backing container before Wait() (the backend rejects a shrunken dst rather than over/under-write).
 	class IReadbackToken
 	{
 	public:
@@ -71,10 +75,14 @@ namespace graphics_backend
 		virtual void RunTestCode(){};
 
 		// add-render-readback: cross-backend GPU→host readback. Read the given resource's bytes
-		// into the caller's span. dst must be >= the resource's byte size (checked by the backend;
-		// out-of-bounds is rejected). Caller keeps dst alive until Wait(). Implementation is
-		// backend-specific (Vulkan vkCmdCopyImageToBuffer/vkCmdCopyBuffer + staging + fence;
-		// D3D12 CopyTextureRegion/CopyBufferRegion + READBACK + fence).
+		// into the caller's span. For an image, dst must be >= GetImageByteSize(width,height,format);
+		// for a buffer, >= descriptor.SizeInByte(). The backend checks dst.size() before writing and
+		// rejects out-of-bounds. The caller keeps the memory dst refers to alive, and its size
+		// unchanged, until Wait() returns (must not resize/release the backing container before Wait).
+		// Implementation is backend-specific (Vulkan vkCmdCopyImageToBuffer/vkCmdCopyBuffer + staging +
+		// fence; D3D12 CopyTextureRegion/CopyBufferRegion + READBACK + fence). Only single-mip /
+		// single-layer / non-MSAA / 2D external images and external buffers are supported; other images
+		// and unsupported formats are rejected with a null token.
 		virtual std::unique_ptr<IReadbackToken> Readback(ImageHandle const& image, std::span<uint8_t> dst) = 0;
 		virtual std::unique_ptr<IReadbackToken> Readback(BufferHandle const& buffer, std::span<uint8_t> dst) = 0;
 	};

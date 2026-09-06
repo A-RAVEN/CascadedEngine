@@ -264,6 +264,52 @@ constexpr static bool IsCompressedFormat(ETextureFormat format)
 	return false;
 }
 
+// Sole PUBLIC source for "how many bytes does a tightly-packed copy of this image need" (readback
+// carrier size). Callers MUST NOT derive it as width*height*GetFormatBlockSize(format) — that exposes
+// the per-pixel block size (an INTERNAL intermediate, used only for compact row-strides), and runs
+// GetFormatBlockSize's `default=4` for unknown formats, silently inventing W*H*4 for e.g. an INT/INT
+// format. Non-zero means "the size is computable (has a compact layout)", NOT "Readback() accepts it" —
+// acceptability is gated separately (a depth+stencil multi-aspect format has a computable packed size
+// but is readback-rejected). No compact layout → 0.
+constexpr static uint64_t GetImageByteSize(uint32_t width, uint32_t height, ETextureFormat format)
+{
+	// Gate first: only formats with a known, compactly-copyable layout are size-computable.
+	// (Guard against GetFormatBlockSize's `default=4` for any format not in this list.)
+	switch (format)
+	{
+	case ETextureFormat::E_R8_UNORM:
+	case ETextureFormat::E_R8G8_UNORM:
+	case ETextureFormat::E_R8G8B8A8_UNORM:
+	case ETextureFormat::E_B8G8R8A8_UNORM:
+	case ETextureFormat::E_R16_UNORM:
+	case ETextureFormat::E_R16_SFLOAT:
+	case ETextureFormat::E_R16G16_SFLOAT:
+	case ETextureFormat::E_R16G16B16A16_UNORM:
+	case ETextureFormat::E_R16G16B16A16_SFLOAT:
+	case ETextureFormat::E_R32_SFLOAT:
+	case ETextureFormat::E_R32G32_SFLOAT:
+	case ETextureFormat::E_R32G32B32A32_SFLOAT:
+	case ETextureFormat::E_D16_UNORM:
+	case ETextureFormat::E_D32_SFLOAT:
+	case ETextureFormat::E_D24_UNORM_S8_UINT:
+	case ETextureFormat::E_D32_SFLOAT_S8_UINT:
+		break; // known, compactly-copyable layout
+	default:
+		return 0; // INT/UINT/INVALID/compressed(not in enum): no compact (pixel-linear) layout
+	}
+
+	// Compressed formats are BLOCK-linear (ceil(W/blockW)*ceil(H/blockH)*blockBytes + D3D12 256-row
+	// alignment), NOT pixel-linear W*H*bpp, and need a block decoder to be meaningful. Compressed
+	// formats are not in ETextureFormat yet (IsCompressedFormat is always false), so this branch is a
+	// recorded target — unreachable today, but kept so a future compressed format never gets W*H*bpp.
+	if (IsCompressedFormat(format))
+	{
+		return 0;
+	}
+
+	return static_cast<uint64_t>(width) * height * GetFormatBlockSize(format);
+}
+
 enum class EBufferUsage : uint16_t
 {
 	eConstantBuffer = 1,
