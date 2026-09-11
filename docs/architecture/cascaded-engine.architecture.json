@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "CascadedEngine 架构总览",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "runtime-path", "label": "运行时主路径", "focus": ["tester", "rendering", "vulkan", "d3d12", "gpu"], "note": "从 CLI 入口到 GPU 驱动：抽象接口 + 两套可替换后端实现。" },
+      { "id": "codegen", "label": "构建期 CodeGen", "focus": ["build_py", "codegen", "cacore"], "note": "libclang 只在构建期作为 sidecar 运行，引擎本身保持纯 MSVC。" },
+      { "id": "support", "label": "支撑模块", "focus": ["cacore", "shader", "window", "rendering"], "note": "核心库与平台服务如何被渲染抽象层复用。" }
+    ]
+  },
+  "components": [
+    {
+      "id": "build_py", "type": "backend", "label": "build.py", "sublabel": "统一构建入口",
+      "tag": "configure → patch_ninja → codegen → build",
+      "pos": [110, 90], "size": [210, 70]
+    },
+    {
+      "id": "codegen", "type": "backend", "label": "CodeGen.exe", "sublabel": "libclang 18.1.8 sidecar",
+      "tag": "不进入引擎编译图",
+      "pos": [400, 90], "size": [220, 70]
+    },
+    {
+      "id": "tester", "type": "frontend", "label": "GPUBackendTester", "sublabel": "CLI 测试入口",
+      "tag": "--backend vulkan|d3d12 --headless N",
+      "pos": [110, 290], "size": [190, 70]
+    },
+    {
+      "id": "rendering", "type": "backend", "label": "Rendering", "sublabel": "RenderInterface 抽象层",
+      "tag": "GPUBackend · ShaderResourceHandle",
+      "pos": [360, 290], "size": [200, 70]
+    },
+    {
+      "id": "vulkan", "type": "backend", "label": "VulkanRenderBackend", "sublabel": "MODULE（运行时加载）",
+      "tag": "Vulkan 1.3 + VMA",
+      "pos": [660, 235], "size": [210, 66]
+    },
+    {
+      "id": "d3d12", "type": "backend", "label": "D3D12RenderBackend", "sublabel": "MODULE（运行时加载）",
+      "tag": "D3D12 + D3D12MA",
+      "pos": [660, 370], "size": [210, 66]
+    },
+    {
+      "id": "gpu", "type": "external", "label": "GPU 驱动", "sublabel": "显卡厂商实现",
+      "tag": "Vulkan / D3D12 运行时",
+      "pos": [1040, 290], "size": [180, 70]
+    },
+    {
+      "id": "cacore", "type": "backend", "label": "CACore", "sublabel": "模块框架与元数据",
+      "tag": "CA_REFLECTION · HashObj · 逆向销毁",
+      "pos": [160, 470], "size": [180, 66]
+    },
+    {
+      "id": "shader", "type": "backend", "label": "ShaderCompilerSlang", "sublabel": "Slang 着色器编译",
+      "tag": "→ SPIR-V / DXIL",
+      "pos": [370, 470], "size": [180, 66]
+    },
+    {
+      "id": "window", "type": "backend", "label": "WindowSystem", "sublabel": "窗口与输入",
+      "tag": "WindowHandle 抽象",
+      "pos": [660, 470], "size": [190, 66]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "构建期 · CodeGen sidecar", "wraps": ["build_py", "codegen"], "pad": 20 },
+    { "kind": "region", "label": "引擎运行时 · 纯 MSVC（引擎不链接 libclang）", "wraps": ["tester", "rendering", "vulkan", "d3d12", "cacore", "shader", "window"], "pad": 20 }
+  ],
+  "connections": [
+    { "id": "build-py-calls-codegen", "from": "build_py", "to": "codegen", "label": "调用 sidecar", "variant": "emphasis", "fromSide": "right", "toSide": "left", "route": "straight" },
+    { "id": "codegen-emits-metadata", "from": "codegen", "to": "cacore", "label": "生成 TypeDescriptor 头", "variant": "dashed", "fromSide": "bottom", "toSide": "left", "via": [[510, 198], [60, 198], [60, 503]], "labelAt": [290, 198] },
+    { "id": "tester-uses-backend", "from": "tester", "to": "rendering", "label": "请求 GPUBackend", "variant": "emphasis", "fromSide": "right", "toSide": "left", "route": "straight", "labelAt": [250, 385] },
+    { "id": "rendering-vulkan-impl", "from": "rendering", "to": "vulkan", "label": "Vulkan 实现", "variant": "dashed" },
+    { "id": "rendering-d3d12-impl", "from": "rendering", "to": "d3d12", "label": "D3D12 实现", "variant": "dashed", "labelAt": [590, 458] },
+    { "id": "vulkan-to-driver", "from": "vulkan", "to": "gpu", "label": "Vulkan API 调用" },
+    { "id": "d3d12-to-driver", "from": "d3d12", "to": "gpu", "label": "D3D12 API 调用" },
+    { "id": "cacore-feeds-rendering", "from": "cacore", "to": "rendering", "label": "反射 · 哈希 · 模块注册" },
+    { "id": "rendering-uses-shader", "from": "rendering", "to": "shader", "label": "编译着色器", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelAt": [500, 420] },
+    { "id": "rendering-uses-window", "from": "rendering", "to": "window", "label": "窗口与表面", "fromSide": "right", "toSide": "top", "via": [[640, 325], [640, 445], [755, 445]], "labelAt": [697, 452] }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "双后端 · 同一抽象",
+      "items": [
+        "Vulkan 与 D3D12 后端都是 MODULE，运行时按名加载",
+        "两者都链接 Rendering，共同实现 GPUBackend",
+        "GPUBackendTester 用 --backend 切换验证等价性"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "构建期 CodeGen",
+      "items": [
+        "build.py 在 patch_ninja() 与 build() 之间调用 sidecar",
+        "libclang 只链到 sidecar，引擎产物无 libclang.dll",
+        "导出 compile_commands.json，喂每模块 include/define"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "核心与依赖",
+      "items": [
+        "CACore：模块注册 · CA_REFLECTION 反射 · HashObj 哈希",
+        "平台服务：IMGUIContext · TimerSystem · IOManager_FS",
+        "依赖经 CPM 拉取：VMA · D3D12MA · DirectXTex · fmt"
+      ]
+    }
+  ]
+}
