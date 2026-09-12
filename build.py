@@ -11,6 +11,9 @@ Usage:
 import os
 import sys
 import subprocess
+import json
+import re
+import shlex
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -24,6 +27,15 @@ DEFAULT_CONFIG = "RelWithDebInfo"
 
 BUILD_DIR: Path | None = None
 NINJA_FILE: Path | None = None
+
+# Phase-1 annotated interop types for the build-time codegen step (engine migration is out of scope;
+# generated headers land in out/build/<preset>/codegen/ as pipeline proof). Each entry: header path
+# (relative to PROJECT_DIR, the file the sidecar parses), the type name, and the CMake module root that
+# owns it (used to pick that module's compile env from compile_commands.json).
+CODEGEN_ANNOTATED = [
+    ("Interface/RenderInterface/header/ShaderResourceHandle.h", "ImageHandle", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/ShaderResourceHandle.h", "BufferHandle", "Interface/RenderInterface"),
+]
 
 COMSPEC = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
 
@@ -181,6 +193,89 @@ def patch_ninja() -> None:
     NINJA_FILE.write_text(text, encoding="utf-8")
 
 
+def codegen() -> None:
+    """Build-time CodeGen step (openspec engine-codegen-framework task 4.1): run the libclang sidecar
+    over the annotated interop headers, feeding each owning module's exact compile env (include dirs +
+    defines) so libclang lays the types out correctly. Runs in the MSVC environment (via run_msvc so it
+    inherits vcvars + sanitized PATH). Non-fatal on empty whitelist / missing env (never blocks build).
+
+    Phase-1 manifest: the interop handles registered via CA_CODEGEN_REGISTER (task 2.2), each with its
+    owning module root (used to pick that module's env from compile_commands.json). Engine migration
+    is OUT of scope, so generated headers go under out/build/<preset>/codegen/ — proof of pipeline, not
+    yet consumed.
+    """
+    print()
+    print("=" * 60)
+    print("[1.5] CodeGen: generating reflection headers for annotated types...")
+    print("=" * 60)
+
+    # The sidecar is a CMake build target; ensure it is built first (idempotent). It is a standalone
+    # tool, not an engine DLL the tester loads — building it here is safe and does NOT cause the
+    # "stale product" inconsistency the build.py single-target warning cares about.
+    run_msvc(f"cmake --build {BUILD_DIR} --target CodeGen", "_build_codegen_tool.log")
+
+    cc_file = BUILD_DIR / "compile_commands.json"
+    if not cc_file.exists():
+        print("  [WARN] compile_commands.json not found; codegen step skipped (configure must export it).")
+        return
+    entries = json.loads(cc_file.read_text(encoding="utf-8"))
+
+    gen_dir = BUILD_DIR / "codegen"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    sid = str(BUILD_DIR / "bin" / "CodeGen.exe")
+    env_by_root = _compile_env_by_root(entries)
+
+    for rel_header, type_name, owner_root in CODEGEN_ANNOTATED:
+        env = env_by_root.get(owner_root)
+        if not env:
+            print(f"  [WARN] no compile env found for module '{owner_root}'; skipping {type_name}")
+            continue
+        out_file = gen_dir / f"{type_name}.Reflection.h"
+        cmd = [sid, rel_header, type_name, *env, "--emit-reflection", "-o", str(out_file)]
+        try:
+            r = subprocess.run(cmd, cwd=str(PROJECT_DIR), capture_output=True, text=True)
+        except FileNotFoundError:
+            print(f"  [WARN] codegen sidecar not found: {sid}; skipping codegen step")
+            return
+        if r.returncode != 0:
+            print(f"  [WARN] CodeGen '{type_name}' exit {r.returncode}: {r.stderr.strip()}")
+            continue
+        print(f"  generated {out_file}")
+
+
+def _msvc_to_clang_env(command: str) -> list[str]:
+    """Translate an MSVC cl.exe compile command into the libclang args needed to *parse* a header:
+    keep include dirs (/I, -I) and defines (/D, -D) and the language standard; drop the source file,
+    output/pch/optimization/warning flags that are meaningless or harmful to a parse-only invocation."""
+    tokens = shlex.split(command, posix=False)
+    args: list[str] = []
+    for raw in tokens:
+        t = raw.strip('"')  # shlex(posix=False) keeps quote chars; strip so the arg is a bare path/def
+        # /I and /D (MSVC slash-form) get the SAME len>2 guard as -I/-D (dash-form): a bare '/I' or '/D'
+        # (len 2) would otherwise emit a malformed empty '-I'/'-D' arg to libclang (AUDIT-5).
+        if (t.startswith('/I') and len(t) > 2) or (t.startswith('-I') and len(t) > 2):
+            args.append('-I' + t[2:])
+        elif (t.startswith('/D') and len(t) > 2) or (t.startswith('-D') and len(t) > 2):
+            args.append('-D' + t[2:])
+        elif t.startswith('/std:') or t.startswith('-std:'):
+            args.append('-std=' + t[5:])
+        # everything else is MSVC-only (output, pch, warns, opt, /Yc /Yu /Fp /Fo /Fd, -c <file>) -> drop
+    return args
+
+
+def _compile_env_by_root(entries: list[dict]) -> dict[str, list[str]]:
+    """For each owning module root, pick ONE representative TU (a compile_commands entry whose source
+    file lives under that root) and return that TU's normalized clang env. Never merges across roots
+    (avoids the CA_STATIC_BUILD 0/1 union conflict + include-root-order sensitivity)."""
+    by_root: dict[str, list[str]] = {}
+    for e in entries:
+        f = e.get("file", "").replace("\\", "/")
+        for _, _, root in CODEGEN_ANNOTATED:
+            if root in f and root not in by_root:
+                by_root[root] = _msvc_to_clang_env(e.get("command", "") or "")
+    return by_root
+
+
 def build(target: str | None = None) -> None:
     print()
     print("=" * 60)
@@ -228,6 +323,7 @@ def main() -> None:
     if configure_step:
         configure()
         patch_ninja()
+        codegen()
     build(target)
 
     print()

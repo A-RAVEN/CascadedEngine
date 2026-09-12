@@ -6,6 +6,7 @@
 #include <CASTL/CAString.h>
 #include <unordered_map>
 #include <CASTL/CASharedPtr.h>
+#include <cstdio>
 #include <glm/glm.hpp>
 #include <mimalloc.h>
 
@@ -205,12 +206,40 @@ void TestAllocation()
 
 }
 
+// Task 5.2 runtime TypeRegistry check (defined in EmitReflectionTest.cpp).
+bool RunTypeRegistryTest();
+// Task 6.1 generated serialization roundtrip check (defined in GeneratedSerializerTest.cpp).
+bool RunGeneratedSerializationTest();
+// Task 6.2 generated hash/equality check (defined in GeneratedHashTest.cpp).
+bool RunGeneratedHashTest();
+
 int main(int argc, char* argv[])
 {
 	//TestHash();
 	//TestHash1();
 	//TestHash2();
 	TestAllocation();
-	
+
+	if (!RunTypeRegistryTest())
+	{
+		std::puts("TypeRegistry test FAILED (task 5.2)");
+		return 1;
+	}
+	std::puts("CodeGen TypeRegistry test PASSED (task 5.2)");
+
+	if (!RunGeneratedSerializationTest())
+	{
+		std::puts("Generated serialization test FAILED (task 6.1)");
+		return 1;
+	}
+	std::puts("CodeGen serialization test PASSED (task 6.1)");
+
+	if (!RunGeneratedHashTest())
+	{
+		std::puts("Generated hash test FAILED (task 6.2)");
+		return 1;
+	}
+	std::puts("CodeGen hash test PASSED (task 6.2)");
+
 	return 0;
 }

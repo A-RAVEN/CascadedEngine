@@ -50,6 +50,15 @@ C++（CMake 构建）：遵循标准 C++ 约定。
   对抗结果中需注明复查过的 URL 及其真实性结论。
 - **联网搜索必须用 MCP 工具**: 上述 API 文档验证禁止使用 WebSearch/WebFetch 工具，必须使用 MCP 工具（`web-reader` 的 `webReader`、`web-search-prime` 的 `web_search_prime`）进行搜索和抓取。
 
+## TODO 设计文档
+
+- **位置与命名**: `TODO/` 下，一份文档记录一个探索主题，用 `<序号>-<kebab-case>.md` 命名，序号递增。目录索引见 `TODO/README.md`。
+- **TODO ≠ spec**: TODO 是探索/设计笔记（讨论、权衡、待确认点），**不是** OpenSpec 规格。规格只在 `openspec/changes/` 与 `openspec/specs/`。TODO 是"种子"。
+- **升级路径**: 只有当某篇 TODO 文档成熟到"决策收敛、未决问题能写成 proposal 的 design"时，才用 `/opsx:propose` 建 OpenSpec change 并把该文档**标记已升级**；否则继续留在 TODO 演进，**不建 change**。
+- **文档结构**: 每篇头部元信息（`状态`：探索中 / 待确认 / 可转 proposal（标注 READY FOR PROPOSAL）/ 已废弃；`日期`；`关联`）；正文含：背景与目标、现状核实、关键决策轴与结论、已核实事实（带来源 file:line / URL）、**被反驳/排除的结论**、对抗验证结论、未决问题、升级建议。
+- **更新规则**: 思考结论变化时**修改原文档**（更新状态、合回修正），不另开重复文档；每轮对抗验证后把修正合回原文档；未决问题维护在文档"未决问题"节。
+- **诚实要求**: 记录被驳回/待确认的结论，不粉饰；未决问题不假装已定。凡涉及外部 API（hostfxr/Mono/NativeAOT 等）的文档论点，照常经 MCP 工具联网核实（见上「联网搜索必须用 MCP 工具」）。
+
 ## 构建 / 测试 / 调试
 
 ### 构建

@@ -23,6 +23,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Build-time CodeGen sidecar needs each module's exact compile env (include dirs + defines) to parse
+# annotated headers with correct layout (see openspec engine-codegen-framework design Migration Plan
+# step 1). compile_commands.json is the per-TU source of truth for that env; build.py's codegen() step
+# reads it. Must be set before add_subdirectory so it applies to every target.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_EXE_LINKER_FLAGS    "${CMAKE_EXE_LINKER_FLAGS} /MANIFEST:NO")
 set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} /MANIFEST:NO")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /MANIFEST:NO")
@@ -49,6 +55,9 @@ SET(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR}/installed)
 
 # External Project Help
 add_subdirectory ("ExternalLib")
+
+# Build-time CodeGen tool (libclang-based type-table extractor; engine does NOT link libclang)
+add_subdirectory ("Tools/CodeGen")
 
 # 包含子项目。
 #add_subdirectory ("CASTL")
