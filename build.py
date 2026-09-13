@@ -28,14 +28,34 @@ DEFAULT_CONFIG = "RelWithDebInfo"
 BUILD_DIR: Path | None = None
 NINJA_FILE: Path | None = None
 
-# Phase-1 annotated interop types for the build-time codegen step (engine migration is out of scope;
-# generated headers land in out/build/<preset>/codegen/ as pipeline proof). Each entry: header path
-# (relative to PROJECT_DIR, the file the sidecar parses), the type name, and the CMake module root that
-# owns it (used to pick that module's compile env from compile_commands.json).
+# Codegen manifest: header (relative to PROJECT_DIR, the file the sidecar parses), the type name, and
+# the CMake module root that owns it (used to pick that module's compile env from compile_commands.json).
+# This change registers NO project type (proposal Non-goals / tasks 9.15+9.25): the manifest points at
+# the self-contained fixture under Tools/CodeGen/ so the build-time path still has a subject without
+# coupling to engine headers. The generated file is byte-compared against the committed golden, so this
+# entry checks something real (that the compile_commands-derived env produces the same output as the
+# hand-written include flags used by the golden test) instead of emitting an unconsumed file.
 CODEGEN_ANNOTATED = [
-    ("Interface/RenderInterface/header/ShaderResourceHandle.h", "ImageHandle", "Interface/RenderInterface"),
-    ("Interface/RenderInterface/header/ShaderResourceHandle.h", "BufferHandle", "Interface/RenderInterface"),
+    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen"),
 ]
+
+# Committed goldens (same content the golden-diff test uses); compared byte-for-byte after generation.
+CODEGEN_GOLDEN_DIR = PROJECT_DIR / "Tools" / "CodeGen" / "generated"
+
+# Every emitter gets its own build-time generation + byte-comparison (goal terminal state 1, last
+# paragraph). Before this, only the reflection emitter was driven from build.py, so the serialization
+# and hash emitters were never exercised at build time: rewriting either of them and NOT regenerating
+# its committed golden left both GeneratedSerializerTest and GeneratedHashTest passing, and the build
+# reported success — i.e. two thirds of the "generation chain" had no build-time evidence at all.
+CODEGEN_EMITTERS = [
+    ("--emit-reflection", "Reflection"),
+    ("--emit-serialization", "Serialization"),
+    ("--emit-hash", "Hash"),
+]
+
+# Extra include roots the sidecar needs on top of the module env: the fixtures include CodeGenMeta.h,
+# which lives in CACore/header and is NOT on the CodeGen tool's own include path.
+CODEGEN_EXTRA_INCLUDES = ["CACore/header"]
 
 COMSPEC = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
 
@@ -193,16 +213,22 @@ def patch_ninja() -> None:
     NINJA_FILE.write_text(text, encoding="utf-8")
 
 
-def codegen() -> None:
+def codegen() -> list[str]:
     """Build-time CodeGen step (openspec engine-codegen-framework task 4.1): run the libclang sidecar
-    over the annotated interop headers, feeding each owning module's exact compile env (include dirs +
-    defines) so libclang lays the types out correctly. Runs in the MSVC environment (via run_msvc so it
-    inherits vcvars + sanitized PATH). Non-fatal on empty whitelist / missing env (never blocks build).
+    over the annotated headers, feeding each owning module's exact compile env (include dirs + defines)
+    so libclang lays the types out correctly. Runs in the MSVC environment (via run_msvc so it inherits
+    vcvars + sanitized PATH).
 
-    Phase-1 manifest: the interop handles registered via CA_CODEGEN_REGISTER (task 2.2), each with its
-    owning module root (used to pick that module's env from compile_commands.json). Engine migration
-    is OUT of scope, so generated headers go under out/build/<preset>/codegen/ — proof of pipeline, not
-    yet consumed.
+    Returns a list of human-readable failures; the caller turns a non-empty list into a non-zero build
+    exit (task 9.9: a real tool failure and a success must NOT be indistinguishable). **An empty
+    manifest is a legitimate configuration, not a failure** (task 3.3: empty whitelist => EXIT 0, no
+    output, must not block the build). Everything abnormal - sidecar missing, sidecar non-zero exit,
+    no compile env for a module, missing compile_commands.json - is a failure.
+
+    Manifest (tasks 9.15 / 9.25): this change registers NO project type, so the manifest points at the
+    self-contained fixture under Tools/CodeGen/. The generated file is byte-compared against the
+    committed golden, so the entry checks a real property (the compile_commands-derived env produces
+    the same bytes as the hand-written flags the golden test uses) instead of emitting an unused file.
     """
     print()
     print("=" * 60)
@@ -216,43 +242,80 @@ def codegen() -> None:
 
     cc_file = BUILD_DIR / "compile_commands.json"
     if not cc_file.exists():
-        print("  [WARN] compile_commands.json not found; codegen step skipped (configure must export it).")
-        return
+        return [f"compile_commands.json not found at {cc_file} (configure must export it)"]
     entries = json.loads(cc_file.read_text(encoding="utf-8"))
+
+    if not CODEGEN_ANNOTATED:
+        print("  manifest is empty: nothing to generate (legitimate configuration, not a failure)")
+        return []
 
     gen_dir = BUILD_DIR / "codegen"
     gen_dir.mkdir(parents=True, exist_ok=True)
-    sid = str(BUILD_DIR / "bin" / "CodeGen.exe")
+    sid = BUILD_DIR / "bin" / "CodeGen.exe"
     env_by_root = _compile_env_by_root(entries)
+    extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES]
+    failures: list[str] = []
 
     for rel_header, type_name, owner_root in CODEGEN_ANNOTATED:
         env = env_by_root.get(owner_root)
         if not env:
-            print(f"  [WARN] no compile env found for module '{owner_root}'; skipping {type_name}")
+            failures.append(f"no compile env for module '{owner_root}' (type {type_name})")
             continue
-        out_file = gen_dir / f"{type_name}.Reflection.h"
-        cmd = [sid, rel_header, type_name, *env, "--emit-reflection", "-o", str(out_file)]
-        try:
-            r = subprocess.run(cmd, cwd=str(PROJECT_DIR), capture_output=True, text=True)
-        except FileNotFoundError:
-            print(f"  [WARN] codegen sidecar not found: {sid}; skipping codegen step")
-            return
-        if r.returncode != 0:
-            print(f"  [WARN] CodeGen '{type_name}' exit {r.returncode}: {r.stderr.strip()}")
-            continue
-        print(f"  generated {out_file}")
+        if not sid.exists():
+            failures.append(f"codegen sidecar not found: {sid}")
+            break
+        for emit_flag, suffix in CODEGEN_EMITTERS:
+            out_file = gen_dir / f"{type_name}.{suffix}.h"
+            cmd = [str(sid), rel_header, type_name, *env, *extra,
+                   emit_flag, "-o", str(out_file)]
+            try:
+                r = subprocess.run(cmd, cwd=str(PROJECT_DIR), capture_output=True, text=True)
+            except FileNotFoundError:
+                failures.append(f"codegen sidecar not found: {sid}")
+                break
+            if r.returncode != 0:
+                failures.append(
+                    f"CodeGen '{type_name}' {emit_flag} exit {r.returncode}: {r.stderr.strip()}")
+                continue
+            golden = CODEGEN_GOLDEN_DIR / out_file.name
+            if not golden.exists():
+                failures.append(f"CodeGen '{type_name}' {emit_flag}: no golden at {golden} to "
+                                f"compare against")
+                continue
+            if out_file.read_bytes() != golden.read_bytes():
+                failures.append(
+                    f"CodeGen '{type_name}' {emit_flag}: generated {out_file} differs byte-for-byte "
+                    f"from golden {golden} — the compile_commands-derived env does NOT reproduce the "
+                    f"golden test's hand-written flags")
+                continue
+            print(f"  generated {out_file} (matches golden)")
+        if not sid.exists():
+            break
+
+    return failures
 
 
 def _msvc_to_clang_env(command: str) -> list[str]:
     """Translate an MSVC cl.exe compile command into the libclang args needed to *parse* a header:
     keep include dirs (/I, -I) and defines (/D, -D) and the language standard; drop the source file,
-    output/pch/optimization/warning flags that are meaningless or harmful to a parse-only invocation."""
+    output/pch/optimization/warning flags that are meaningless or harmful to a parse-only invocation.
+
+    Task 9.4: `/MDd` (and `/MTd`) must NOT simply be dropped. cl.exe defines `_DEBUG` and
+    `_ITERATOR_DEBUG_LEVEL=2` implicitly for those runtimes, and dropping the flag dropped those macros
+    too, so libclang laid the types out with the RELEASE STL rules. Measured with Tools/CodeGen/
+    TestStdLayout.h: `tail` sits at byte 40 under /MD rules and at byte 48 under /MDd rules (debug STL
+    gives std::string a _Container_proxy*, +8 bytes) — i.e. every offset after a std::string was wrong.
+    """
     tokens = shlex.split(command, posix=False)
     args: list[str] = []
+    debug_runtime = False
     for raw in tokens:
         t = raw.strip('"')  # shlex(posix=False) keeps quote chars; strip so the arg is a bare path/def
+        if t.lower() in ("/mdd", "/mtd"):
+            debug_runtime = True
+            continue
         # /I and /D (MSVC slash-form) get the SAME len>2 guard as -I/-D (dash-form): a bare '/I' or '/D'
-        # (len 2) would otherwise emit a malformed empty '-I'/'-D' arg to libclang (AUDIT-5).
+        # (len 2) would otherwise emit a malformed empty '-I'/'-D' arg to libclang (AUDIT-2).
         if (t.startswith('/I') and len(t) > 2) or (t.startswith('-I') and len(t) > 2):
             args.append('-I' + t[2:])
         elif (t.startswith('/D') and len(t) > 2) or (t.startswith('-D') and len(t) > 2):
@@ -260,6 +323,11 @@ def _msvc_to_clang_env(command: str) -> list[str]:
         elif t.startswith('/std:') or t.startswith('-std:'):
             args.append('-std=' + t[5:])
         # everything else is MSVC-only (output, pch, warns, opt, /Yc /Yu /Fp /Fo /Fd, -c <file>) -> drop
+
+    if debug_runtime:
+        for d in ("_DEBUG", "_ITERATOR_DEBUG_LEVEL=2"):
+            if not any(a.upper() == ('-D' + d).upper() for a in args):
+                args.append('-D' + d)
     return args
 
 
@@ -323,8 +391,23 @@ def main() -> None:
     if configure_step:
         configure()
         patch_ninja()
-        codegen()
+    # Task 9.13: codegen runs on BOTH paths. It used to sit inside the configure branch, so the
+    # documented incremental path (`--no-configure`) silently consumed stale generated headers — or,
+    # as measured, silently regenerated nothing at all after a generated file was deleted.
+    # It needs compile_commands.json, which a previous configure leaves on disk; if that file is
+    # missing, codegen() reports it and the build fails with a codegen-specific message (task 9.9),
+    # never a bare C1083.
+    codegen_failures = codegen()
     build(target)
+
+    if codegen_failures:
+        print()
+        print("=" * 60)
+        print(f"CODEGEN FAILED ({len(codegen_failures)}) — build not reported as successful")
+        for msg in codegen_failures:
+            print(f"  - {msg}")
+        print("=" * 60)
+        sys.exit(1)
 
     print()
     print("=" * 60)

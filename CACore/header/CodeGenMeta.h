@@ -101,9 +101,13 @@ namespace cacore::codegen
         static constexpr const CodeGenFieldInfo* fields() { return nullptr; }
     };
 
-    // Build-time ABI guard: asserts the generated metadata agrees with the existing
-    // `careflection::CATypeDescriptor<T>` where the type is reflected. Drift → build error,
-    // catching stale generated output against the source-of-truth reflection before it ships.
+    // Build-time ABI guard. What it ACTUALLY asserts (and nothing more): the generated descriptor's
+    // field count equals `careflection::CATypeDescriptor<T>::member_count`, plus a non-null check on the
+    // generated type name (an "is the generated header included at all" test — it does NOT compare the
+    // name's CONTENT, and it does NOT compare offsets). Drift in the field count → build error, catching
+    // stale generated output against the source-of-truth reflection before it ships. Field-name or offset
+    // drift is NOT caught here: names are checked at runtime (`strcmp` in the consumer test) and offsets
+    // are resolved by the generated code's own `offsetof`, i.e. by the compiler, at the point of use.
     // (Silently passes for types that are NOT CA_REFLECTION'd — nothing to compare against.)
     template<typename T>
     constexpr void static_assert_abi_consistency() noexcept

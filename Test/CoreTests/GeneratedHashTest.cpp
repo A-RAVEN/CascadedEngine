@@ -34,25 +34,45 @@ bool RunGeneratedHashTest()
     EmitSample a{ 1, 2.0f, false, 3.0 };
     EmitSample b{ 1, 2.0f, false, 3.0 };
     if (hashOf(a) != hashOf(b) || !Trait::equal(a, b))
-    { std::puts("HASH FAIL: identical objects diverged"); return false; }
+    {
+        std::printf("HASH FAIL: identical objects diverged (hashA=%llu hashB=%llu equal=%d)\n",
+                    (unsigned long long)hashOf(a), (unsigned long long)hashOf(b),
+                    (int)Trait::equal(a, b));
+        return false;
+    }
 
     // 2) -0.0 vs +0.0 -> same hash + equal (float normalization).
     EmitSample nzA{ 1, -0.0f, false, 3.0 };
     EmitSample nzB{ 1, +0.0f, false, 3.0 };
     if (hashOf(nzA) != hashOf(nzB) || !Trait::equal(nzA, nzB))
-    { std::puts("HASH FAIL: -0.0/+0.0 diverged"); return false; }
+    {
+        std::printf("HASH FAIL: -0.0/+0.0 diverged (hashNeg=%llu hashPos=%llu equal=%d)\n",
+                    (unsigned long long)hashOf(nzA), (unsigned long long)hashOf(nzB),
+                    (int)Trait::equal(nzA, nzB));
+        return false;
+    }
 
     // 3) NaN vs NaN -> same hash + equal (canonical NaN).
     const float nanf = std::numeric_limits<float>::quiet_NaN();
     EmitSample na{ 1, nanf, false, 3.0 };
     EmitSample nb{ 1, nanf, false, 3.0 };
     if (hashOf(na) != hashOf(nb) || !Trait::equal(na, nb))
-    { std::puts("HASH FAIL: NaN diverged"); return false; }
+    {
+        std::printf("HASH FAIL: NaN diverged (hashA=%llu hashB=%llu equal=%d)\n",
+                    (unsigned long long)hashOf(na), (unsigned long long)hashOf(nb),
+                    (int)Trait::equal(na, nb));
+        return false;
+    }
 
     // 4) Different value -> different hash + not equal.
     EmitSample c{ 1, 9.0f, false, 3.0 };
     if (hashOf(a) == hashOf(c) || Trait::equal(a, c))
-    { std::puts("HASH FAIL: distinct values collided"); return false; }
+    {
+        std::printf("HASH FAIL: distinct values collided (hashA=%llu hashC=%llu equal=%d)\n",
+                    (unsigned long long)hashOf(a), (unsigned long long)hashOf(c),
+                    (int)Trait::equal(a, c));
+        return false;
+    }
 
     std::puts("CodeGen hash/equality test PASSED (task 6.2)");
     return true;

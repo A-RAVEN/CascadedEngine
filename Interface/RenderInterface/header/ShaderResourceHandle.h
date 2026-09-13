@@ -3,7 +3,6 @@
 #include "GPUBuffer.h"
 #include "WindowHandle.h"
 #include <Hasher.h>
-#include <CodeGenMeta.h>
 #include <CASTL/CAMutex.h>
 
 namespace graphics_backend
@@ -179,8 +178,3 @@ namespace graphics_backend
 
 CA_REFLECTION(graphics_backend::ImageHandle, m_Key, m_ExternalManagedTexture, m_Backbuffer, m_Type);
 CA_REFLECTION(graphics_backend::BufferHandle, m_Key, m_ExternalManagedBuffer, m_Type);
-
-// CodeGen discovery: these interop-facing handles cross the C++/C# boundary, so the CodeGen tool
-// must parse them (fields/base/methods are extracted via libclang). Greppable, MSVC-safe no-op.
-CA_CODEGEN_REGISTER("graphics_backend::ImageHandle");
-CA_CODEGEN_REGISTER("graphics_backend::BufferHandle");

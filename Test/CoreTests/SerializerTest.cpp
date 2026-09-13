@@ -220,26 +220,42 @@ int main(int argc, char* argv[])
 	//TestHash2();
 	TestAllocation();
 
+	// All three generated-code checks run on EVERY invocation and are reported individually: the
+	// aggregate exit code is what fails the build, but the log must show which of them went red and
+	// which stayed green in the SAME run (goal item 1: each assertion class needs its own red state,
+	// observed while the other two are still passing). Returning early on the first failure — the old
+	// behaviour — made that observation impossible.
+	bool allOk = true;
+
 	if (!RunTypeRegistryTest())
 	{
 		std::puts("TypeRegistry test FAILED (task 5.2)");
-		return 1;
+		allOk = false;
 	}
-	std::puts("CodeGen TypeRegistry test PASSED (task 5.2)");
+	else
+	{
+		std::puts("CodeGen TypeRegistry test PASSED (task 5.2)");
+	}
 
 	if (!RunGeneratedSerializationTest())
 	{
 		std::puts("Generated serialization test FAILED (task 6.1)");
-		return 1;
+		allOk = false;
 	}
-	std::puts("CodeGen serialization test PASSED (task 6.1)");
+	else
+	{
+		std::puts("CodeGen serialization test PASSED (task 6.1)");
+	}
 
 	if (!RunGeneratedHashTest())
 	{
 		std::puts("Generated hash test FAILED (task 6.2)");
-		return 1;
+		allOk = false;
 	}
-	std::puts("CodeGen hash test PASSED (task 6.2)");
+	else
+	{
+		std::puts("CodeGen hash test PASSED (task 6.2)");
+	}
 
-	return 0;
+	return allOk ? 0 : 1;
 }

@@ -21,3 +21,8 @@ __pycache__/
 test_output/
 imgui.ini
 pipeline_cache.bin
+# Review-round scratch: per-round evidence dumps, probe scripts, snapshots (not deliverables).
+.review_tmp/
+_synth.json
+vc140.pdb
+*_rerun.log

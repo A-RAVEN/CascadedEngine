@@ -41,6 +41,13 @@ namespace
         std::vector<std::pair<std::string, CXCursor>>* out;
     };
 
+    /** Last path component — lets us compare file spellings that may be absolute or relative. */
+    std::string baseName(const std::string& path)
+    {
+        const std::size_t slash = path.find_last_of("/\\");
+        return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+
     enum CXChildVisitResult collectStructs(CXCursor cursor, CXCursor /*parent*/, CXClientData data)
     {
         auto* ctx  = static_cast<CollectCtx*>(data);
@@ -55,15 +62,32 @@ namespace
         return CXChildVisit_Recurse;
     }
 
+    struct FieldSink
+    {
+        std::vector<Field>* fields       = nullptr;
+        // Task 9.1: the OUTER-class annotation channel (CA_REFLECTION / CA_REFLECT written at namespace
+        // scope) is a zero-intrusion text scan; the code it emits names members directly, so it can only
+        // serve types whose members are ALL public. Extraction (printing the type table) is still fine for
+        // private members — only EMITTING compilable code is refused. See the guard before the emitters.
+        bool                sawNonPublic = false;
+    };
+
     enum CXChildVisitResult collectFields(CXCursor cursor, CXCursor /*parent*/, CXClientData data)
     {
-        auto* fields = static_cast<std::vector<Field>*>(data);
+        auto* sink = static_cast<FieldSink*>(data);
         if (clang_getCursorKind(cursor) == CXCursor_FieldDecl)
         {
             CXString sName = clang_getCursorSpelling(cursor);
             CXType   type  = clang_getCursorType(cursor);
             CXString sType = clang_getTypeSpelling(type);
             long long bits = clang_Cursor_getOffsetOfField(cursor);
+
+            // CX_CXXInvalidAccessSpecifier is deliberately NOT treated as non-public: it shows up for
+            // constructs libclang does not classify, and the fixtures' public struct members must not
+            // trip the guard (verified by the 9.1 oracle's regression half).
+            const CX_CXXAccessSpecifier access = clang_getCXXAccessSpecifier(cursor);
+            if (access == CX_CXXPrivate || access == CX_CXXProtected)
+                sink->sawNonPublic = true;
 
             Field f;
             f.name       = clang_getCString(sName);
@@ -73,7 +97,7 @@ namespace
 
             clang_disposeString(sName);
             clang_disposeString(sType);
-            fields->push_back(std::move(f));
+            sink->fields->push_back(std::move(f));
         }
         return CXChildVisit_Continue;
     }
@@ -615,15 +639,47 @@ int main(int argc, char** argv)
         return 4; // negative: an unmarked struct in a header that HAS marked types is not extracted.
     }
 
-    FILE* out = outPath ? std::fopen(outPath, "w") : stdout;
-    if (!out)
+    // "No half-written artifact" (goal item 2): emit into a sibling temp file and rename it onto the
+    // requested path only after the emission actually succeeded. Before this, `-o` was opened with "w"
+    // BEFORE the parse, so every non-zero exit (parse failure / type-not-found / refusal) left a 0-byte
+    // file behind — and it also truncated any pre-existing content at that path. Measured red state of
+    // the old code:
+    //   CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-reflection -o <p>
+    //   -> exit 5, and <p> exists with size 0.
+    const bool  outIsFile = outPath != nullptr;
+    std::string tmpPath;
+    FILE*       out = stdout;
+    if (outIsFile)
     {
-        std::fprintf(stderr, "CodeGen: cannot open output '%s'\n", outPath);
-        return 2;
+        tmpPath = std::string(outPath) + ".tmp";
+        out     = std::fopen(tmpPath.c_str(), "w");
+        if (!out)
+        {
+            std::fprintf(stderr, "CodeGen: cannot open output '%s'\n", outPath);
+            return 2;
+        }
     }
-    const bool outIsFile = outPath != nullptr;
-    // Lambda so we close the file exactly once on every emit path (stdout stays open).
-    auto closeOut = [&] { if (outIsFile) std::fclose(out); };
+    // Success path: close, then move the temp file onto the requested path.
+    // NOTE: std::rename does NOT replace an existing destination on Windows (MSVC fails with EEXIST),
+    // so the destination must be removed first. Ignoring that — the first version of this code did —
+    // left the PREVIOUS file in place while the tool still exited 0, so a caller comparing the file it
+    // asked for would happily compare stale bytes. Hence: remove, rename, and report failure loudly.
+    auto commitOut = [&] {
+        if (!outIsFile) return;
+        std::fclose(out);
+        std::remove(outPath);
+        if (std::rename(tmpPath.c_str(), outPath) != 0)
+            std::fprintf(stderr,
+                "CodeGen: could not move '%s' onto '%s' — the requested output was NOT written\n",
+                tmpPath.c_str(), outPath);
+    };
+    // Failure path: close and delete the temp file — the requested path is never created, and a
+    // pre-existing file at that path keeps its old content.
+    auto abortOut = [&] {
+        if (!outIsFile) return;
+        std::fclose(out);
+        std::remove(tmpPath.c_str());
+    };
 
     // Task 6b.3 dual-mode: if the type is declared via `CA_REFLECTION(Type, a, b)` (the
     // unmigrated-engine + external transition channel), emit a fields-ONLY declaration-order table
@@ -642,12 +698,13 @@ int main(int argc, char** argv)
                 for (const std::string& m : members)
                     ef.push_back({ m, {}, "TypeKind::None" });
                 emitTypeDescriptor(ef, qname, out);
-                closeOut();
+                commitOut();
                 return 0;
             }
             std::printf("%s %zu\n", typeName, members.size());
             for (const std::string& m : members)
                 std::printf("  field %s\n", m.c_str());
+            abortOut(); // nothing was written to the output path -> leave no artifact behind
             return 0;
         }
     }
@@ -667,12 +724,15 @@ int main(int argc, char** argv)
     if (err != CXError_Success)
     {
         std::fprintf(stderr, "libclang: parse failed (error=%d) for '%s'\n", static_cast<int>(err), filePath);
+        abortOut();
         clang_disposeIndex(index);
         return 1;
     }
 
     // Find the struct/class by the (last, unqualified) spelling. Enough for a first proof where the
     // whitelisted type name is unique; later may switch to USR/qualified matching for disambiguation.
+    // NOTE: this runs BEFORE the fidelity gate below, because the gate's refusal report has to name
+    // which members were degraded — that needs the type's field list.
     std::vector<std::pair<std::string, CXCursor>> structs;
     CollectCtx collect{ &structs };
     clang_visitChildren(clang_getTranslationUnitCursor(tu), collectStructs, &collect);
@@ -691,31 +751,136 @@ int main(int argc, char** argv)
     if (!found)
     {
         std::fprintf(stderr, "libclang: type '%s' not found in '%s'\n", typeName, filePath);
+        abortOut();
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 3;
     }
 
+    FieldSink sink;
     std::vector<Field> fields;
-    clang_visitChildren(target, collectFields, &fields);
+    sink.fields = &fields;
+    clang_visitChildren(target, collectFields, &sink);
 
-    // Deterministic output: declaration order via visitChildren is already deterministic; sorting by
-    // offset additionally guards against any iteration reordering across runs.
-    std::sort(fields.begin(), fields.end(),
-              [](const Field& a, const Field& b) { return a.offsetBytes < b.offsetBytes; });
+    // Task 9.5b: fidelity gate — PROPERTY-based, never based on which flags were passed.
+    // Measured truth (instrumented run; evidence file .review_tmp/9.5b-diagdump.txt):
+    //   * a COMPLETE environment produces NO fatal diagnostic — only a `#pragma once in main file`
+    //     warning, the MSVC STL1000 static_assert error inside yvals_core.h, and two unexpanded-pack
+    //     errors inside CACore/header/Reflection.h. Those are benign for layout, so an absolute count of
+    //     error-severity diagnostics can never be the gate: it would reject every legitimate input.
+    //   * a DEGRADED environment (`-nostdinc++ -nostdinc`, `-nostdlibinc`, or a cross `--target` with
+    //     SDK-only `-isystem`) produces a FATAL diagnostic — "'cstddef' file not found" inside the
+    //     included framework header — after which the translation unit is truncated and every member
+    //     past that point is silently reported with offset 0 and type `int`.
+    // Hence the property gated here is: **the parse reached the end of the file we were asked to parse**.
+    // A fatal diagnostic anywhere in the include chain means it did not, so the table cannot be trusted.
+    // The gate reads diagnostics only — it never inspects the argument list.
+    {
+        const std::string want     = baseName(filePath);
+        const unsigned    n        = clang_getNumDiagnostics(tu);
+        unsigned          inHeader = 0;
+        std::string       fatalMsg;
+        for (unsigned i = 0; i < n; ++i)
+        {
+            CXDiagnostic d   = clang_getDiagnostic(tu, i);
+            const int    sev = static_cast<int>(clang_getDiagnosticSeverity(d));
+            if (sev >= CXDiagnostic_Fatal && fatalMsg.empty())
+            {
+                CXString msg = clang_formatDiagnostic(d, clang_defaultDiagnosticDisplayOptions());
+                const char* c = clang_getCString(msg);
+                fatalMsg = (c != nullptr) ? c : "(unformattable)";
+                clang_disposeString(msg);
+            }
+            if (sev >= CXDiagnostic_Error)
+            {
+                CXSourceLocation loc = clang_getDiagnosticLocation(d);
+                CXFile file = nullptr;
+                unsigned line = 0, col = 0, offset = 0;
+                clang_getExpansionLocation(loc, &file, &line, &col, &offset);
+                if (file != nullptr)
+                {
+                    CXString fn = clang_getFileName(file);
+                    const char* cstr = clang_getCString(fn);
+                    const bool same = (cstr != nullptr) && (baseName(cstr) == want);
+                    clang_disposeString(fn);
+                    if (same) ++inHeader;
+                }
+            }
+            clang_disposeDiagnostic(d);
+        }
+        if (!fatalMsg.empty() || inHeader > 0)
+        {
+            std::fprintf(stderr,
+                "CodeGen: refusing to extract from '%s' — the compile environment fed to this tool is "
+                "incomplete, so the parsed AST is truncated and the type table would be silently wrong. "
+                "Fidelity cannot be judged by the exit code.\n",
+                filePath);
+            if (!fatalMsg.empty())
+                std::fprintf(stderr, "  unresolved include (fatal): %s\n", fatalMsg.c_str());
+            if (inHeader > 0)
+                std::fprintf(stderr, "  %u error-level diagnostic(s) inside the parsed header itself\n",
+                             inHeader);
+            // Name the members whose layout information is missing. Measured signature of the truncated
+            // parse: a member that is NOT the first one reports offset 0 (it has no layout at all).
+            std::string degraded;
+            for (std::size_t k = 1; k < fields.size(); ++k)
+            {
+                if (fields[k].offsetBytes == 0)
+                {
+                    if (!degraded.empty()) degraded += ", ";
+                    degraded += fields[k].name;
+                }
+            }
+            if (!degraded.empty())
+                std::fprintf(stderr,
+                    "  degraded members of '%s' (reported offset 0 although not the first member): %s\n",
+                    typeName, degraded.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 6;
+        }
+    }
+
+    // Emit in DECLARATION order — that is what clang_visitChildren already gives us, and it is the order
+    // the emitters must use (task 9.5a). There is deliberately NO sort by offsetBytes here: the extracted
+    // offset is produced by a config-sensitive parse (a degenerate env collapses every offset to 0), so
+    // deriving the emission order from it would make the output depend on an unverified value — and with
+    // all-zero offsets the old offset comparator was a no-op anyway (measured). Declaration order is
+    // reproducible run to run, which is what the determinism oracle actually needs.
 
     // Task 5.1 reflection / Task 6.1 serialization emitter: the qualified name comes from the AST
     // (or an explicit --qualified-name override) — the CA_REFLECT marker has no type name, so the tool
     // derives it from where the type actually lives. Both share the per-field metadata.
     const std::string qname =
         qualifiedNameOverride.empty() ? buildQualifiedName(target) : qualifiedNameOverride;
+
+    // Task 9.1: refuse to EMIT for a type with non-public members on the outer-class channel. Emitting
+    // would produce a header that names private members (offsetof on them) and therefore cannot compile
+    // — the old behaviour emitted it anyway and the failure surfaced far away, as C2248 in some consumer
+    // TU. Extraction (no --emit-*) above this point is untouched: printing the type table for a private
+    // type is legitimate and stays exit 0.
+    if ((emitSerialization || emitHash || emitReflection) && sink.sawNonPublic)
+    {
+        std::fprintf(stderr,
+            "CodeGen: refusing to emit for '%s' — it has non-public members and the outer-class "
+            "annotation channel (CA_REFLECTION / CA_REFLECT at namespace scope) can only serve types "
+            "whose members are all public. Use an in-class annotation (macro inside the class body, "
+            "expanding to a friend declaration) instead.\n",
+            qname.c_str());
+        abortOut();
+        clang_disposeTranslationUnit(tu);
+        clang_disposeIndex(index);
+        return 5;
+    }
+
     std::vector<EmitField> ef;
     for (const Field& f : fields)
         ef.push_back({ f.name, f.typeName, fieldTypeKindEnum(static_cast<CXTypeKind>(f.typeKind)) });
     if (emitSerialization)
     {
         emitCodeGenSerializer(ef, qname, out);
-        closeOut();
+        commitOut();
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 0;
@@ -723,7 +888,7 @@ int main(int argc, char** argv)
     if (emitHash)
     {
         emitHashTrait(ef, qname, out);
-        closeOut();
+        commitOut();
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 0;
@@ -731,7 +896,7 @@ int main(int argc, char** argv)
     if (emitReflection)
     {
         emitTypeDescriptor(ef, qname, out);
-        closeOut();
+        commitOut();
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 0;
@@ -746,6 +911,7 @@ int main(int argc, char** argv)
     if (!options.empty())
         std::printf("# options: %s\n", options.c_str());
 
+    abortOut(); // no --emit-*: the table went to stdout, so the output path stays untouched
     clang_disposeTranslationUnit(tu);
     clang_disposeIndex(index);
     return 0;

@@ -14,6 +14,7 @@
 
 #include <CodeGenMeta.h>
 #include <CodeGenTypeRegistry.h>
+#include <cstdio>
 #include <cstring>
 #include "TestEmit.h"                        // codegen_demo::EmitSample (Tools/CodeGen on include path)
 #include "generated/EmitSample.Reflection.h"  // emitter output (Tools/CodeGen/generated)
@@ -58,6 +59,23 @@ bool RunTypeRegistryTest()
     ok = ok && got->fieldCount == 4;
     ok = ok && got->name != nullptr && std::strcmp(got->name, "codegen_demo::EmitSample") == 0;
     ok = ok && got->fields != nullptr && std::strcmp(got->fields[0].name, "a") == 0;
+
+    if (!ok)
+    {
+        // Report THIS assertion's own expectation versus what the emitted table actually carries. A bare
+        // "FAILED" line is not enough: four other checks in this same function feed the same `ok`, so
+        // without the expected/actual values a red state caused by a different check is indistinguishable
+        // from one caused by the field-name check (goal item 1: each red state must carry its own value).
+        const char* gotType = (got != nullptr && got->name != nullptr) ? got->name : "(null)";
+        const char* gotF0 =
+            (got != nullptr && got->fields != nullptr && got->fields[0].name != nullptr)
+                ? got->fields[0].name
+                : "(null)";
+        std::printf(
+            "TypeRegistry detail: typeName expected \"codegen_demo::EmitSample\", got \"%s\"; "
+            "fields[0].name expected \"a\", got \"%s\"; fieldCount=%zu (expected 4)\n",
+            gotType, gotF0, got != nullptr ? got->fieldCount : static_cast<std::size_t>(0));
+    }
 
     // Negative oracle: an unregistered name must resolve to null.
     const bool negativeOk = cacore::codegen::TypeRegistry::find("no_such_type") == nullptr;

@@ -55,8 +55,18 @@ namespace cacore::codegen
 // -----------------------------------------------------------------------------
 static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fieldCount == 3,
     "model: fieldCount must be 3");
-static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fields()[0].offset == offsetof(CodeGenProbe, a),
-    "model: field[0].offset must equal offsetof(Probe, a)");
+// Task 9.3: the previous assert here compared `fields()[0].offset` against `offsetof(CodeGenProbe, a)`
+// — but that is exactly the expression the descriptor's initialiser already used two screens up, so the
+// assert was a tautology: it could not fail no matter what the descriptor contained. Replaced with
+// INDEPENDENT numeric expectations taken from the MSVC x64 layout of { int a; float b; bool c; }.
+// Falsifiability: change any `arr[i]` initialiser in the descriptor above to a wrong number and this
+// translation unit stops compiling (verified by temporarily setting arr[1] to 3 — see Round 22 log).
+static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fields()[0].offset == 0,
+    "model: field[0] (int a) must be at byte 0");
+static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fields()[1].offset == 4,
+    "model: field[1] (float b) must be at byte 4");
+static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fields()[2].offset == 8,
+    "model: field[2] (bool c) must be at byte 8");
 static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fields()[0].kind == TypeKind::Int,
     "model: field[0].kind");
 static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fields()[1].kind == TypeKind::Float,
