@@ -64,8 +64,11 @@ namespace cacore::codegen
         return (static_cast<uint32_t>(value) & static_cast<uint32_t>(flag)) != 0;
     }
 
-    // One member of a reflected aggregate. `name`/`typeName` are runtime-readable C strings
-    // (stable across builds; drift becomes a regenerated build error, not silent corruption).
+    // One member of a reflected aggregate. `name`/`typeName` are runtime-readable C strings.
+    // ⚠ Honest scope (2026-09-13): what catches drift is the build-time byte-comparison of each generated
+    // header against its committed golden (build.py), plus the field-count ABI guard below. A changed
+    // member NAME is not caught at compile time at all — the only name check is a runtime `strcmp` in the
+    // consumer test; offsets are resolved by the generated code's own `offsetof`, i.e. by the compiler.
     struct CodeGenFieldInfo
     {
         const char*  name;      // member name, e.g. "model"

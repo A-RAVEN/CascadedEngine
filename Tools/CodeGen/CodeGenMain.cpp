@@ -3,7 +3,8 @@
 //
 // Takes a header file + a type name, parses it with libclang (the real C++ front end — we are
 // NOT hand-writing a parser), finds the struct/class of that name, and emits a deterministic
-// linear field table (one line per field, sorted by byte offset):
+// linear field table (one line per field, in DECLARATION order — task 9.5a removed the sort by
+// extracted byte offset, which was built on a value a degenerate environment silently collapses to 0):
 //
 //     field <name> <offsetBytes> <typeSpelling> <CXTypeKind>
 //
@@ -279,8 +280,8 @@ namespace
     }
 
     // Emit a readable, constexpr TypeDescriptor<T> specialization (the shape the ABI guard / runtime
-    // readers consume). Deterministic: field order is byte-offset-sorted upstream, so the same input
-    // always yields the same bytes.
+    // readers consume). Deterministic: the field list arrives in DECLARATION order and is emitted as-is
+    // (no sort — see task 9.5a), so the same input always yields the same bytes.
     void emitTypeDescriptor(const std::vector<EmitField>& fields, const std::string& qname, FILE* out)
     {
         std::fprintf(out,
@@ -321,7 +322,7 @@ namespace
     }
 
     // --- Task 6.1: serialization emitter. Generates a `CodeGenSerializer<T>` that (de)serializes the
-    // reflected type field-by-field in DECLARATION ORDER (the offset-sorted order the type table uses,
+    // reflected type field-by-field in DECLARATION ORDER (the order the type table carries,
     // which matches CA_REFLECTION's member order). It is a PARALLEL, data-driven exit distinct from the
     // runtime `careflection`/`visit_members` path (which Serialization.h keeps using). Gated on the
     // `serializable` marker option (design AUDIT-4, decided 2026-09-08): only emitted for serializable
@@ -659,19 +660,32 @@ int main(int argc, char** argv)
             return 2;
         }
     }
-    // Success path: close, then move the temp file onto the requested path.
+    // Success path: close, then move the temp file onto the requested path. Returns FALSE when the
+    // requested path could not actually be written — the caller MUST turn that into a non-zero exit.
+    // (Found by the 9.12 adversarial review: the first version printed to stderr and still returned 0, so
+    // a target that could not be replaced — a directory, a read-only file, or a file opened by another
+    // process — kept its PREVIOUS content, left a `.tmp` behind, and exited 0. build.py only echoes
+    // stderr when the exit code is non-zero, so the whole thing was invisible in the build log.)
     // NOTE: std::rename does NOT replace an existing destination on Windows (MSVC fails with EEXIST),
-    // so the destination must be removed first. Ignoring that — the first version of this code did —
-    // left the PREVIOUS file in place while the tool still exited 0, so a caller comparing the file it
-    // asked for would happily compare stale bytes. Hence: remove, rename, and report failure loudly.
-    auto commitOut = [&] {
-        if (!outIsFile) return;
-        std::fclose(out);
+    // so the destination must be removed first.
+    auto commitOut = [&]() -> bool {
+        if (!outIsFile) return true;
+        if (std::fclose(out) != 0)
+        {
+            std::fprintf(stderr, "CodeGen: could not flush '%s' — output not committed\n", tmpPath.c_str());
+            std::remove(tmpPath.c_str());
+            return false;
+        }
         std::remove(outPath);
         if (std::rename(tmpPath.c_str(), outPath) != 0)
+        {
             std::fprintf(stderr,
                 "CodeGen: could not move '%s' onto '%s' — the requested output was NOT written\n",
                 tmpPath.c_str(), outPath);
+            std::remove(tmpPath.c_str());
+            return false;
+        }
+        return true;
     };
     // Failure path: close and delete the temp file — the requested path is never created, and a
     // pre-existing file at that path keeps its old content.
@@ -698,7 +712,8 @@ int main(int argc, char** argv)
                 for (const std::string& m : members)
                     ef.push_back({ m, {}, "TypeKind::None" });
                 emitTypeDescriptor(ef, qname, out);
-                commitOut();
+                if (!commitOut())
+                    return 7; // nothing to dispose yet: the text channel runs before the index exists
                 return 0;
             }
             std::printf("%s %zu\n", typeName, members.size());
@@ -880,7 +895,12 @@ int main(int argc, char** argv)
     if (emitSerialization)
     {
         emitCodeGenSerializer(ef, qname, out);
-        commitOut();
+        if (!commitOut())
+        {
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 7;
+        }
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 0;
@@ -888,7 +908,12 @@ int main(int argc, char** argv)
     if (emitHash)
     {
         emitHashTrait(ef, qname, out);
-        commitOut();
+        if (!commitOut())
+        {
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 7;
+        }
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 0;
@@ -896,7 +921,12 @@ int main(int argc, char** argv)
     if (emitReflection)
     {
         emitTypeDescriptor(ef, qname, out);
-        commitOut();
+        if (!commitOut())
+        {
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 7;
+        }
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 0;

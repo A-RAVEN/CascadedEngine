@@ -295,7 +295,7 @@
   - **② 临时移走 `compile_commands.json`** → **exit 1**，日志 `compile_commands.json not found at …(configure must export it)`。
   - **③ 改名 / 删除 `CodeGen.exe` —— 该分支实测不可达，Oracle 据此更正**：`codegen()` 第一步就 `cmake --build <build dir> --target CodeGen`，删掉 exe 后 ninja **把它重新链出来**（`[1/1] Linking CXX executable bin\CodeGen.exe`），随后三个 emitter 全部 `(matches golden)`、`BUILD SUCCESSFUL`（exit 0）—— 即 `if not sid.exists()` 与 `except FileNotFoundError` 是**构建成功后的后置校验**，正常路径够不到（Round 10 的 D7 已预告，本轮实测确认）。**改写后的 Oracle（点名同一条异常路径所在的层面，不得改写成非异常路径）**：让 **CodeGen 目标本身构建失败**（在 `Tools/CodeGen/CodeGenMain.cpp` 末尾追加一行非法 C++）→ `python build.py --config Debug --no-configure CodeGen` 必须 **exit 1** 且日志含编译错误行与 `ERROR: command failed (exit 1)`（实测：`error C2059: syntax error: 'this'`）。
 
-- [ ] 9.10 **[AUDIT] 最终提交 + 清理仓库根遗留**（⚠ 2026-09-08 收窄：原条目把"基线提交"与"清理遗留"**两个不相干的根因捆在一条**、且排在 §9 第 10 位 → 9.1–9.9 全落在无前置版本可对比的树里）：**基线提交已完成**（`1b9c6cb`，见本节文首"已完成"）。本条只剩：在 §9 其余条目落地后**提交返工改动**，并处理仓库根遗留。
+- [x] 9.10 **[AUDIT] 最终提交 + 清理仓库根遗留**（✅ 已执行 2026-09-13：返工提交 `7a8edda`；`_synth.json` / `vc140.pdb` / `d3d12_rerun.log` / `vulkan_rerun.log` **删除**，`.review_tmp/` **入 `.gitignore`**，两项均写进提交信息；`CLAUDE.md` 显式随该提交一起交；`.claude/workflows/` 不删不裹入并写进提交信息；提交后 `git status --porcelain` 只剩 `.claude/workflows/` 一项未跟踪。⚠ 遗留：`9.29`–`9.34` 与两个未跑的审查任务意味着**还会有后续提交**）（⚠ 2026-09-08 收窄：原条目把"基线提交"与"清理遗留"**两个不相干的根因捆在一条**、且排在 §9 第 10 位 → 9.1–9.9 全落在无前置版本可对比的树里）：**基线提交已完成**（`1b9c6cb`，见本节文首"已完成"）。本条只剩：在 §9 其余条目落地后**提交返工改动**，并处理仓库根遗留。
   **遗留清单**（`git status` 实测）：`_synth.json`、`vc140.pdb`、`d3d12_rerun.log`、`vulkan_rerun.log`、`.review_tmp/`（联网核查落下的 HTML 缓存）、`.claude/workflows/`（跨多个 change 的脚本，**不属于本 change**）。
   **Oracle**：① `git log` 含本 change 的**返工**提交；② `git status --porcelain` **无未预期遗留** —— 明确：**9.12 把 Review Log 写回 `tasks.md` 属预期改动**，不得据此判失败（原写"仅剩有意忽略项"会被其后的 9.12 **自我作废**，Round 9 已改）；③ **`_synth.json` / `vc140.pdb` / `d3d12_rerun.log` / `vulkan_rerun.log` / `.review_tmp/` 这 5 项**删除或入 `.gitignore`（二者择一，并在提交信息里说明选了哪个）；④ **`.claude/workflows/` 不在本条处置范围内** —— 它含 **24 个未跟踪脚本**、分属其他 change（`imgui-multiwin-*`、`vulkan-*`、`readback-*`、`csharp-scripting-*` 等），**既不得删除**（未跟踪 ⇒ git 无法恢复，删了就永久没了），**也不得裹入**本次提交；只在提交信息里写明"未处置，属另一笔账"。
   ⚠ **`CLAUDE.md` 的归属须明写**：`git status` 同时显示 ` M CLAUDE.md`（本轮新增的"审查闭环用 goal 驱动"那条规则），它**既不在上列 5 项内、也不是 §9 任何任务的产物** → 本条必须**显式声明**它随本次提交一起交（推荐）或**明确留在工作区**，**不得**让它落在"预期/未预期"的真空里。
@@ -313,7 +313,7 @@
   **Oracle**：① 引用的**行号一律改为引文锚点**（见本节引用规约，**含 `build.py`**），签名描述与 libclang 官方头文件一致；② MCP 声明在**上列 8 处**逐处改毕（**逐条列出改了什么**，不接受「与实测一致」这类自证式口径）；③ **每个被引用的 URL 标注实际所用工具**。
   ⚠ **证据强度须诚实标注（Round 9 复审指出）**：现有材料只有 Round 6 的**自述**「无 MCP 工具」（**无落盘测量记录**），**不能证明 Round 5 的 MCP 声明为假**。⚠ **2026-09-12 更正（原文自相矛盾）**：原文写"改法二选一：改为**不可验证的中性表述**，或注明「该轮工具实况**无法回溯**」"，紧接着又说"**不得**把它改写成另一个同样无证据的断言" —— **前半句正是后半句禁止的东西**（"不可回溯/不可验证"本身就是无证据断言）。**唯一合格改法**：只陈述**可核事实**（例：「本行所述工具**无落盘证据**；已知 Round 6 全部 agent 无 MCP web 工具」），并逐 URL 标注实际所用工具。。**不得**把它改写成另一个同样无证据的断言。
 
-- [ ] 9.12 **Review & Adversarial Verify（返工后 · 强制最后）**：对 §9 全部已落地条目开 workflow 做对抗验证：正确性 / 完整性 / 诚实性 / **回归去重**；外部 API 核查须引用真实 URL，且对抗者**独立复查每个 URL 的真实性**。
+- [x] 9.12 **Review & Adversarial Verify（返工后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-12`，5 agents / 20 条候选 / 保留 11 条；回归清单六项逐项给出命令与输出；结论与新开任务见 Review Log Round 24 与 §10）：对 §9 全部已落地条目开 workflow 做对抗验证：正确性 / 完整性 / 诚实性 / **回归去重**；外部 API 核查须引用真实 URL，且对抗者**独立复查每个 URL 的真实性**。
   **回归核对必须先做**（一律按引文 grep，**不读 Review Log 就下结论不算**）：
   - Round 5 的 AUDIT-4 / AUDIT-5 / AUDIT-6 处置是否**真正落到正文**（9.3 / 9.6 的核心）
   - Round 4 的三条机制归因是否已改为**实测归因**（9.7）
@@ -375,23 +375,49 @@
 - [ ] 9.23 **Review & Adversarial Verify（第 14 轮后 · 强制最后）**：对 §9.17–9.22 已落地条目开 workflow 做对抗验证，**三条固定提示词照抄第 14 轮**：① 反例构造（*对每一条修复，在暂存副本上构造一个「原缺陷仍存在、而新判据通过」的状态；只要能构造出来，就按 high 报为假绿。不得修改仓库*）；② 空转轮判据（*本 change 交付代码，一轮未改任何代码文件即按 high 报空转轮*）；③ **`docs/failed-approaches.md` 作为固定输入**，结论与其中某条实质相同的必须给出"这次哪里不同"的可核证据。
   **回归核对（先做）**：第 14 轮记录的 7 条 false_green 是否真关闭 —— 逐条给命令与真实输出；**并且**本轮新写的锚点必须**先在坏锚点上跑红**（`git grep -n -F` 零命中）再在新锚点上跑绿。
 
-- [ ] 9.24 **[AUDIT] 判据必须锚在「属性」上、并限定作用对象**（第 15 轮对抗验证给出的**根因级**发现）：连续两轮的判据被喂绿，共同根因不是某一条写错，而是判据的**形态** —— ① 只认**字面串**（禁"不可回溯"三个字，换个说法"无从考证"即逃逸）；② 只认**修复自己写下的措辞**（白名单里的词就是本轮新写的词 → 对当前树恒红、对缺陷恒绿）；③ **作用域没限定到所指文件**（`git grep -F` 全仓跑，四份制品自己写的同一句话就把它喂绿；实测锚点自检的 10 处命中**全在四份变更文档里**）；④ **验证对象错位**（拿 `out/build/<cfg>/codegen/` 当对象 —— 那是 codegen 自己 mkdir 的 pipeline 副本，**被构建真正 include 的是 `Test/CoreTests/EmitReflectionTest.cpp` 里 include 的那个生成头**，而那个目录在 codegen 静默 no-op 时**恰好是空的**，于是"删掉再重跑"永远无事发生）。
+- [x] 9.24 **[AUDIT] 判据必须锚在「属性」上、并限定作用对象**（✅ 已执行 2026-09-13：本轮全部判据按三件套写；本条目自己两次写错的判据（`9.25` 的措辞判据与单行字面串判据）已当场改正并留档；`9.28` 交付的 `Tools/spin_check.py` 即「限定作用对象 + 与措辞无关」的机械判据）（第 15 轮对抗验证给出的**根因级**发现）：连续两轮的判据被喂绿，共同根因不是某一条写错，而是判据的**形态** —— ① 只认**字面串**（禁"不可回溯"三个字，换个说法"无从考证"即逃逸）；② 只认**修复自己写下的措辞**（白名单里的词就是本轮新写的词 → 对当前树恒红、对缺陷恒绿）；③ **作用域没限定到所指文件**（`git grep -F` 全仓跑，四份制品自己写的同一句话就把它喂绿；实测锚点自检的 10 处命中**全在四份变更文档里**）；④ **验证对象错位**（拿 `out/build/<cfg>/codegen/` 当对象 —— 那是 codegen 自己 mkdir 的 pipeline 副本，**被构建真正 include 的是 `Test/CoreTests/EmitReflectionTest.cpp` 里 include 的那个生成头**，而那个目录在 codegen 静默 no-op 时**恰好是空的**，于是"删掉再重跑"永远无事发生）。
   **要求（判据三件套）**：每条判据必须写清 —— **作用对象**（哪个文件 / 哪个**被消费**的产物）、**要判的属性**（不是字符串命中）、**红态实测输出**（缺陷仍在时的真实输出）。先跑红再跑绿；**只贴绿不算证据**。**判据自检必须限定到所指文件**（`git grep -n -F "<引文>" -- <目标文件>`），并把该限定写进 CLAUDE.md 的锚点规则。
 - [x] 9.25 **[AUDIT] `CODEGEN_ANNOTATED` 未改之前，范围变更的表述与树不符**（承接 §9.15 的实测更正）：实测删掉那 2 行注册宏后，`CodeGen` 对 `ImageHandle` / `BufferHandle` 仍 **exit 0 并各产出一份反射头**（1282 B / 1124 B）—— 因为同文件里本就有的 `CA_REFLECTION(...)` 让工具的白名单照样命中。**结论：只删注册宏 ≠ "不注册任何项目类型"。**
-  **判据**：① 清单按 9.15 的甲/乙改掉后，重跑同一条命令，两个类型**不再产出文件**（红态 = 改之前：仍产出）；② **该标注现已解除**（2026-09-13）：清单已改为只指自包含 fixture，故范围变更块与 `proposal.md` 的 Non-goal 与树相符。**判据（事后态，两条都可命令复现、不依赖任何措辞）**：a) `git grep -n -F 'CODEGEN_ANNOTATED = [("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen")]' -- build.py` **命中**；b) `Get-ChildItem out/build/x64-debug/codegen` **不含** `ImageHandle.*` / `BufferHandle.*`。
-    ⚠ **本判据初版写错过（当场改正）**：原写"`proposal.md` 内 grep `与树不符` 零命中" —— 实测**命中 1 处**，因为改写后的句子本身引用了那个旧说法（「原为「与树不符」」）。**拿被纠正的旧措辞当判据，正是本轮反复打击的形态**，故换成上面两条与措辞无关的事实判据。
-  ✅ **已实测（2026-09-13）**：① 现清单下重跑，`out/build/x64-debug/codegen/` 只剩 `EmitSample.{Reflection,Serialization,Hash}.h` 三份，两个项目类型**不再产出**；② 判据 a) 命中、b) 成立。
+  **判据**：① 清单按 9.15 的甲/乙改掉后，重跑同一条命令，两个类型**不再产出文件**（红态 = 改之前：仍产出）；② **该标注现已解除**（2026-09-13）：清单已改为只指自包含 fixture，故范围变更块与 `proposal.md` 的 Non-goal 与树相符。**判据（事后态，两条都可命令复现、不依赖任何措辞）**：a) `Select-String -Path build.py -Pattern '^CODEGEN_ANNOTATED' -Context 0,3` 显示的清单**只有** `("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen")` 一条；b) `Get-ChildItem out/build/x64-debug/codegen` **不含** `ImageHandle.*` / `BufferHandle.*`。
+    ⚠ **本判据写错过两次，均当场改正并留档**：初版写"`proposal.md` 内 grep `与树不符` 零命中" —— 实测**命中 1 处**，因为改写后的句子本身引用了那个旧说法（「原为「与树不符」」）；二版把 a) 写成一条 `git grep -F 'CODEGEN_ANNOTATED = […]'` 单行串 —— 实测 **0 命中**，因为 `build.py` 里那个赋值是**三行**（`CODEGEN_ANNOTATED = [` / 元组行 / `]`）。**用被纠正的旧措辞、或用一个在盘上不存在的字面串当判据，正是本轮反复打击的形态**；现判据改成分行显示 + 目录列举，两条都已实跑。
+  ✅ **已实测（2026-09-13）**：① 现清单下重跑，`out/build/x64-debug/codegen/` 只剩 `EmitSample.{Reflection,Serialization,Hash}.h` 三份，两个项目类型**不再产出**；② 判据 a) 与 b) 均已实跑通过。
 - [x] 9.26 **[AUDIT] 引用真实性：逐 URL 标注实际所用工具 + 结论必须有落盘证据**：① 四份制品共 10 行含 URL，**只有 Round 6 的 URL 表那 4 行带"实际所用工具"列**，Round 5 的四处与 `design.md` / `proposal.md` 各一处**都没有标注**；② "Round 6 全部 agent 无 MCP web 工具"这句被反复当**事实**引用，但盘上**找不到测量记录**（只有探测脚本、无输出）。
   **判据**：每个含 URL 的行都带"实际所用工具"；那句"无 MCP 工具"要么补落盘证据，要么降级为"**无落盘证据**"。
 - [ ] 9.27 **Review & Adversarial Verify（第 15 轮后 · 强制最后）**：对 §9.24–9.26 及第 15 轮全部改动开 workflow 做对抗验证。三条固定提示词照抄（反例构造 / 空转轮判据 / 台账作为固定输入且**举证责任在提出方**），并**先做回归核对**：第 15 轮记的 6 条 false_green 是否真关闭 —— 逐条给**作用对象 + 属性 + 红态输出**三件套，**不接受只有绿**。
 
-- [ ] 9.28 **[AUDIT] 判据必须重写为「属性判据」并用真实前态交出红态**（第 16 轮对抗验证的**根因级**发现；同类问题**第 4 次**复发）：第 16 轮的三类判据实测**都能被同一批手法绕过**，而缺陷原样在位 —— ① 把整段工具标注换成一句"（已复查）"→ 仍全绿；② 在已标注行**行尾追加未标注 URL** → 仍全绿（判据的作用对象是"行"而不是"每个 URL"）；③ 只删掉 `均**无**` 的两个星号就由红转绿（**两个星号决定红绿**）；④ 把同一句断言**搬进被豁免的任务块** → 全绿；⑤ 只把 `- [ ]` 改成 `- [x]`（正文一字未改）→ 转红；⑥ 把 CLAUDE.md 的规则**明文废止但保留字面串** → 三条检查仍全过；⑦ 在 `proposal.md` 插入**编造且从未复查**的 URL → 仍全绿。
+- [x] 9.28 **[AUDIT] 判据必须重写为「属性判据」并用真实前态交出红态**（✅ 已执行 2026-09-13：四类断言的红态**全部取自真实前态**（`HEAD:Tools/CodeGen/CodeGenMain.cpp`）或生成器侧注入，无一是合成副本；「同批必做」的空转轮判据已由 `Tools/spin_check.py` 落地并交出两侧实测。⚠ 但本轮对抗验证又证明**同一根因第 5 次复发**：我自己新写的 `9.25` 判据一个用了被纠正的旧措辞、一个用了盘上不存在的字面串 —— 已开 `9.35` 续审）（第 16 轮对抗验证的**根因级**发现；同类问题**第 4 次**复发）：第 16 轮的三类判据实测**都能被同一批手法绕过**，而缺陷原样在位 —— ① 把整段工具标注换成一句"（已复查）"→ 仍全绿；② 在已标注行**行尾追加未标注 URL** → 仍全绿（判据的作用对象是"行"而不是"每个 URL"）；③ 只删掉 `均**无**` 的两个星号就由红转绿（**两个星号决定红绿**）；④ 把同一句断言**搬进被豁免的任务块** → 全绿；⑤ 只把 `- [ ]` 改成 `- [x]`（正文一字未改）→ 转红；⑥ 把 CLAUDE.md 的规则**明文废止但保留字面串** → 三条检查仍全过；⑦ 在 `proposal.md` 插入**编造且从未复查**的 URL → 仍全绿。
   **要求**：① 每条判据的作用对象**降到最小单位**（每个 URL / 每条断言各判一次），不得以"行"为单位；② **禁止**用"行内含某词"作豁免；③ **红态必须取自真实前态**（在合成副本上制造的红态**不算证据** —— 第 16 轮已实测合成红态下判据照样 PASS）；④ 每条判据都要交出"**缺陷在位时变红**"的真实输出，只贴绿不算。
   **同批必做**：把空转轮判据从 `git diff -w --numstat`（无 pathspec、以索引为基准、对暂存改动盲）改为**对固定交付物清单（`.h/.hpp/.cpp/.py`，排除 `out/build`、`.review_tmp`）逐文件内容哈希**比对轮初/轮末，快照写到**不与非本轮快照撞名**的独立路径，并交出两侧实测：纯文档轮输出空集、真实代码改动轮输出非空。
   ⚠ **下一轮必须先做代码侧**（本条与文档侧余项都不得再挤掉它）：`build.py` 的 `CODEGEN_ANNOTATED`、9.11③（`build.py` 注释里的 AUDIT 号）、`CACore/header/CodeGenMeta.h` 两处过度声称的注释。
   ✅ **已执行（2026-09-13）**：上述三处代码侧**全部落盘** —— ① 清单口径已定并改好（见 §9.15）；② `build.py` 里 `/I` `/D` 守卫的注释 AUDIT 号已由 `(AUDIT-5)` 改为 `(AUDIT-2)`；③ `CodeGenMeta.h` 两处过度声称的注释已改（不再声称比对 offset / 名字内容）。判据：`git grep -n "AUDIT-5" -- build.py` 零命中。
   ✅ **同批必做（空转轮判据）已落地（2026-09-13）**：新增可复跑工具 `Tools/spin_check.py` —— 按**固定交付物后缀清单**（`.h/.hpp/.hh/.cpp/.cxx/.cc/.py/.cmake/.def`，排除 `out/`、`.review_tmp/`、`.claude/`）逐文件算 **SHA256**，与轮初快照比对，**完全不依赖 git 索引状态**；快照写到 `.review_tmp/spin/<轮次 id>.{start,end}.json`（id 自带唯一性，不与非本轮快照撞名）。
     **两侧实测**（原始输出：`.review_tmp/spin-check-evidence.txt`）：**纯文档轮** → `deliverables changed: 0`（空集）；**真代码轮**（改 `Tools/spin_check.py` 一行）→ `deliverables changed: 1 / modified: Tools/spin_check.py`（非空）。
+
+## 10. Round 24 对抗验证开出的新任务（[AUDIT] · 2026-09-13）
+
+> 来源：`9.12` 的 workflow 对抗验证（`adversarial-review-9-12`，20 条候选 / 保留 11 条 / 复核者剔除 8 条并实测反驳 1 条）。
+> 其中 4 条**已当场修掉**（`commitOut` 失败退出码、`CodeGenMeta.h:68` 注释、`CodeGenMain.cpp` 三处排序注释、`9.25` 判据），此处只登记**尚未执行**的 6 条 + 续接的审查任务。
+
+- [ ] 9.29 **[AUDIT] 规范条款与实现不符：codegen 的调用位置**（medium）：`spec.md` 的 REQ「build.py 接入 codegen 步骤」仍写"即 `if configure_step:` 分支内**依次调用** `configure()`、`patch_ninja()`、`codegen()` —— 三行独立语句"，而**同一 Requirement 的 `--no-configure` Scenario** 与实现都说 `codegen()` **已移出该分支**（`build.py` 里 `codegen_failures = codegen()` 零缩进）。同款失效描述还在 `design.md` 的 `## Migration Plan` 第 1 步与本文档 §4.1。
+  **Oracle**：三处改成与实现一致的**单一**表述（codegen 在 `patch_ninja()` 之后、`build(target)` 之前；configure 与 `--no-configure` **两条路径都执行**）；判据 = `git grep -n "分支内依次调用" -- design.md proposal.md specs/codegen-framework/spec.md tasks.md` 零命中，且 `git grep -n "if configure_step" -- design.md specs/codegen-framework/spec.md tasks.md` 不再出现"codegen 在其中"的说法。
+
+- [ ] 9.30 **[AUDIT] `CA_REFLECTION` 文本通道对 `--emit-serialization` / `--emit-hash` 静默无操作**（medium）：实测 `CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-serialization -o <p>` → **exit 0、`<p>` 不存在**（`--emit-hash` 同），只有 `--emit-reflection` 会写文件；代码里该分支只判 `if (emitReflection) …`，另两个标志一次都没被读。而 `build.py` 对清单里每个条目**依次跑三个 emitter**，故任何文本通道条目会以**裸 Python traceback** 失败 —— 违反 9.9/9.13 自订的"异常必须以 codegen 专属错误失败"。
+  **Oracle**：二者择一并落盘 —— ① 文本通道按成员名支持三个 emitter；**或** ② 明确拒绝：遇这两个标志时打印"该通道不支持此 emitter"并**非零退出**。判据：修前 exit 0 且文件不存在；修后要么文件存在且含对应特化，要么 exit ≠ 0 且 stderr 点名该标志。
+
+- [ ] 9.31 **[AUDIT] `serializable` 门控未实现而文档声称已消费**（medium）：实测对只写 `CA_REFLECT(ui)` 的类型跑 `--emit-serialization` → **exit 0 且产出 `CodeGenSerializer<T>`**；全仓 `serializable` 的唯一消费点是把它打印到 stdout。而 `design.md` 与该 emitter 的注释都写"仅 `serializable` 标记的类型发射序列化代码（`so serializable is actually consumed here`）"。
+  **Oracle**：二者择一并落盘 —— ① 实现门控（未标记者不发射，并按 9.1 风格非零退出）；**或** ② 把 design 与该注释改成"options 目前只被文本携带与打印，尚未门控任何 emitter"并注明归属后续 task。判据：用只带 `ui` 的夹具跑 `--emit-serialization`，行为与所选方案一致。
+
+- [ ] 9.32 **[AUDIT] 6.1 的"字段顺序"断言恒真**（medium）：`Test/CoreTests/GeneratedSerializerTest.cpp` 的 `orderOk = (buffer.size() == expectedBytes) && (fieldCount == 4)` —— 字节总数与字段顺序无关，`fieldCount` 又是本 TU 里的常量自比；`deserialize` 按同一顺序回读，故把发射顺序整体倒序或任意置换，两项判据**仍为真**。
+  **Oracle**：把顺序判据锚到**每个字段在缓冲区里的字节位置**（各字段取值互不相同、尺寸各异：断言 `a` 在 0、`b` 在 4、`c` 在 8、`d` 在 9），或直接断言发射顺序与 `TypeDescriptor<T>::fields()` 逐项同名；删掉常量自比。**红态**：把 golden 的字段排列整体倒序后，新判据必须变红（旧判据仍绿），两侧都给原始输出。
+
+- [ ] 9.33 **[AUDIT] 文档引用的证据文件被同一次提交 `.gitignore` 排除**（medium）：`tasks.md` 有 17 处、`CodeGenMain.cpp` 有 1 处引用 `.review_tmp/…`，而 `7a8edda` 把 `.review_tmp/` 写入 `.gitignore` —— 第三方在该提交上取不到这些"证据"。
+  **Oracle**：二者择一并落盘 —— ① 把最小集证据（9.5b 三份合计不足 11 KB、红态与 spin 证据）落到仓库内（如 `openspec/changes/engine-codegen-framework/evidence/`）；**或** ② 把条目里的文件路径引用改写成"命令 + 预期输出"对。判据：全仓 `git grep -n "\.review_tmp/"` 的每一处命中，要么文件已入库，要么该处已不含路径引用。
+
+- [ ] 9.34 **[AUDIT] `9.9` 的引文与证据文件对不上 + 一处"实测"无落盘**（low）：`9.9` 的 ✅ 引 `CODEGEN FAILED (1)`，而它点名的证据文件对该用例记的是 `(3)`；改写后的 Oracle 里"（实测：`error C2059` …）"在全仓（含 `.review_tmp`）**无任何落盘记录**。
+  **Oracle**：① 引文改成证据文件里的真实行；② `C2059` 那条要么真跑一次并把输出落盘、在文中标注路径，要么删掉"（实测…）"只保留对失败行为的要求。
+
+- [ ] 9.35 **Review & Adversarial Verify（Round 24 后 · 强制最后）**：对 §9.29–9.34 已落地条目开 workflow 做对抗验证。三条固定提示词照抄：① 反例构造（*对每一条修复，在暂存副本上构造一个「原缺陷仍存在、而新判据通过」的状态；只要能构造出来，就按 high 报为假绿。不得修改仓库*）；② 空转轮判据（*本 change 交付代码；用 `python Tools/spin_check.py start/end <轮次>` 判定该轮是否改了交付物，输出为空集即按 high 报空转轮*）；③ **`docs/failed-approaches.md` 作为固定输入**，结论与其中某条实质相同的必须给出"这次哪里不同"的可核证据。
+  **另需在本轮补跑**：`9.23`（§9.17–9.22 的对抗验证）与 `9.27`（§9.24–9.26 的对抗验证）—— Round 24 只跑了 `9.12`。
 
 ## Review Log
 
@@ -1124,3 +1150,52 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 **D. 净进展检查（不许粉饰）**：本轮**只动了 `tasks.md` 与两个规则文件**，**交付物零改动** → **按"交付物"口径，本轮不是进展轮，是记账轮**。记账是必须做的，但**它不能算作 change 的推进** —— 两件事分开说。
 
 **E. 排队中（用户禁止动代码期间不做）**：`9.5b` 的四步收尾 —— ① 让脚手架打出诊断真身 → ② 据此修守卫判断条件 → ③ **删脚手架** → ④ 两侧验证并当场勾选。
+
+### Round 24（2026-09-13）—— goal 执行轮：保真门控落盘、三 emitter 构建期对拍、四类断言的红态（提交 `7a8edda`）
+
+> **触发**：用户下达"开始执行 goal"。工作分解与逐条验收口径全部取自本文档 §9。
+> **⚠ 本轮结束时的状态**：`9.12` 的对抗验证**已跑并报了 11 条实质缺陷**，其中 4 条当场修掉、7 条**已开成新的 `[AUDIT]` 任务（9.29–9.34）尚未执行**；`9.23` / `9.27` 两个审查任务**未跑**。**故本 change 未完成**，本轮不是收尾轮。
+
+**A. 本轮真正改动的交付物**（`git show --stat 7a8edda`：17 files changed, 1427 insertions(+), 190 deletions(-)）
+
+| 文件 | 改动 |
+|---|---|
+| `Tools/CodeGen/CodeGenMain.cpp` | 保真门控改**属性判据**（fatal 诊断 → exit 6，报告指名未解析 include 与退化字段）；删 `[DIAGDUMP]` 脚手架；输出改「先写临时文件、成功才改名」；`commitOut()` 失败改为**非零退出（7）** |
+| `build.py` | 三个 emitter（reflection / serialization / hash）**各自**在构建期生成并与入库 golden 逐字节对拍 |
+| `Test/CoreTests/*.cpp` | 三个运行时检查改为**同一次运行全部执行并各自报告**；名字断言打印期望值；哈希断言打印实际哈希 |
+| `Tools/CodeGen/TestStdLayout.h` | 新增布局敏感夹具（`/MD` vs `/MDd` 机制） |
+| `Tools/spin_check.py` | 新增：按**固定交付物清单逐文件 SHA256** 做轮初/轮末比对（替代不可靠的 `git diff -w --numstat`） |
+| `CACore/header/CodeGenMeta.h` | ABI guard 与 `CodeGenFieldInfo` 两处注释改为**如实范围**（不比名字内容、不比 offset） |
+| 四份变更文档 | 状态断言与树对齐（proposal 的 Non-goal、spec 的私有成员场景、design 的迁移计划、tasks §4.3/§9.5b/§9.9/§9.13/§9.15/§9.16/§9.25） |
+
+**B. 落盘的实测（全部有原始输出，路径见各条目）**
+
+| 条目 | 判据 | 结果 |
+|---|---|---|
+| 9.5b | 保真门控四侧 | 含 `-nostdinc` 拼写 + 环境喂满 → **exit 0**；`-nostdinc++ -nostdinc` / `-nostdlibinc` / 跨 `--target` 仅 SDK `-isystem` → **均 exit 6**，报告逐字给出 `'cstddef' file not found` 与退化字段 `key, tail` |
+| 9.5b 红态 | 真实前态 `HEAD:Tools/CodeGen/CodeGenMain.cpp` | 同一条残缺命令 **exit 0**、stderr 全空、输出退化表 |
+| 9.1 | 拒发 + 提取分离 | `--emit-reflection` → **exit 5**；去掉 `--emit-reflection` → exit 0 且 `pub 12 / m_a 16 / m_b 20 / m_c 24` |
+| 9.9 | 异常输入 | 未标注类型 → exit 1（`exit 4 … refusing to extract`）；缺 `compile_commands.json` → exit 1；**③ 改名 exe 实测够不到该分支**（ninja 重新链出）→ Oracle 已改写为「让 CodeGen 目标构建失败」并实测 `error C2059` + exit 1 |
+| 9.13 | `--no-configure` | 删生成物后重跑 → **exit 0**、重新生成且与 golden 逐字节一致（1104 B） |
+| 4.2 / 9.16 | 缺 golden / ABI 漂移 | 缺 golden → exit 1 `C1083`；漂移（`CA_REFLECTION` 少一个成员）→ exit 1 `C2338: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'` |
+| 3 / 9.4 | 配置保真 | 夹具 `tail`：`/MD` **40** vs `/MDd` **48**；`_msvc_to_clang_env`：`/MD`→`[]`、`/MDd`/`/MTd`→两个宏 |
+| 终态 1 | 四类断言各自的红态 | **A 名字**（生成器写 `x%s` → `expected "a", got "xa"`）、**B 序列化**（丢末字段 → `roundtrip=0 orderOk=0 bytes=9`）、**C 哈希**（去掉浮点归一 → `-0.0/+0.0 diverged`）、**D 偏移**（`arr[1]`→3 → `C2338 … must be at byte 4`）；前三类均由**生成器侧**驱动、构建期对拍先红（`CODEGEN FAILED (1)`），同一次运行里另外两类仍 PASSED；四类两两不同，且**均已还原并复绿** |
+| 9.24 / 9.28 | 空转轮判据 | `Tools/spin_check.py` 两侧实测：纯文档轮 `deliverables changed: 0`；真代码轮 `1 / modified: Tools/spin_check.py` |
+
+**C. `9.12` 对抗验证（workflow `adversarial-review-9-12`，5 agents）—— 20 条候选，复核后保留 11 条**
+
+- **当场修掉 4 条**：
+  1. **`commitOut()` 失败仍 `return 0`**（high）—— 目标不可替换（目录 / 只读 / 被占用）时旧内容保留、`.tmp` 残留、却 exit 0，而 `build.py` 只在非零退出时回显 stderr，构建日志里完全看不见。**改法**：`commitOut()` 返回 `bool` 并检查 `fclose`/`rename`，失败即 `return 7` 且清掉 `.tmp`。**红→绿实测**：只读目标 → 修前 exit 0 + 旧内容 + `.tmp` 残留；修后 **exit 7**、旧内容保留（确实没写成）、**无 `.tmp`**；正常路径仍 exit 0 / 1104 B。
+  2. **`CodeGenMeta.h:68` 第二处过度声称**（medium）—— "drift becomes a regenerated build error" 未改；已改为如实范围（字段数漂移由 byte 对拍 + guard 接住；**名字漂移编译期不接**）。
+  3. **`CodeGenMain.cpp` 三处过时注释**（low）—— 仍写"字段表按字节偏移排序"，与 9.5a 的"无排序、按声明序"矛盾；已改。
+  4. **`9.25` 的判据 a) 在盘上不命中**（medium）—— 我写的单行 `git grep -F` 串在 `build.py` 里不存在（该赋值是三行）；已改为 `Select-String … -Context 0,3` 与目录列举，并把**两次写错都留档**在该条内。
+- **已开成新任务、尚未执行（见 §9 的 9.29–9.34）**：spec/design/tasks 的 configure 分支描述与实现不符（medium）｜`CA_REFLECTION` 文本通道遇 `--emit-serialization`/`--emit-hash` 静默 exit 0 且不产文件（medium）｜`serializable` 门控未实现而文档声称已消费（medium）｜6.1 的"字段顺序"断言恒真（medium）｜证据文件被 `.gitignore` 排除而文档引用它（medium）｜9.9 引文与证据文件对不上、`C2059` 无落盘（low）。
+- 复核者剔除 8 条（重复 / 措辞偏好 / 纸面无法排除），并**实测反驳**了一条建议（"把布局敏感夹具接进字节对拍"—— 实测该夹具在两个口径下三个 emitter 产物哈希完全相同，只有提取输出不同，故其红态判据从写下即不可失败）。
+
+**D. 本轮未做（如实登记，不得计为完成）**
+
+1. `9.23`、`9.27` 两个审查任务**未跑**（本轮只跑了 `9.12` 一轮）。
+2. `9.29`–`9.34` 六条新任务**未执行**。
+3. 按本文档"审查闭环"规则，须在 §9 末尾续一个**针对 9.29–9.34 的新审查任务（9.35）**，并继续循环。
+
+**E. 净进展检查**：本轮**改了交付物**（6 个代码/脚本文件 + 1 个新工具 + 4 份文档），按"交付物"口径**不是空转轮**；但按"清单做完"口径**远未完成**（§9 仍有 9 条未勾选，其中 6 条是本轮新开的）。
