@@ -716,6 +716,20 @@ int main(int argc, char** argv)
                     return 7; // nothing to dispose yet: the text channel runs before the index exists
                 return 0;
             }
+            // Task 9.30: the text channel carries member NAMES only — no types, no kinds — so it cannot
+            // feed the serialization/hash emitters honestly (a generated hash could not tell a float
+            // from a double, so it could not normalize either). Before this it printed the table, wrote
+            // NO file and still exited 0: a silent no-op that a caller could mistake for success.
+            if (emitSerialization || emitHash)
+            {
+                std::fprintf(stderr,
+                    "CodeGen: the CA_REFLECTION text channel does not support %s — it carries member "
+                    "names only (no types/kinds), so the generated code would be unsound. Use "
+                    "--emit-reflection for this channel, or annotate the type with CA_REFLECT.\n",
+                    emitHash ? "--emit-hash" : "--emit-serialization");
+                abortOut();
+                return 8;
+            }
             std::printf("%s %zu\n", typeName, members.size());
             for (const std::string& m : members)
                 std::printf("  field %s\n", m.c_str());
@@ -887,6 +901,27 @@ int main(int argc, char** argv)
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 5;
+    }
+
+    // Task 9.31: the `serializable` marker option is what the design says gates this emitter
+    // ("only types marked `serializable` get serialization code"). It was never read: ANY annotated type
+    // got a `CodeGenSerializer<T>` specialization, so the documented gate did not exist. Read the
+    // marker text now and refuse when the option is absent.
+    if (emitSerialization)
+    {
+        const std::string opts = scanMarkerOptions(source, typeName);
+        if (opts.find("serializable") == std::string::npos)
+        {
+            std::fprintf(stderr,
+                "CodeGen: refusing --emit-serialization for '%s' — the type's CA_REFLECT marker does not "
+                "carry the `serializable` option (marker options seen: '%s'). Add `serializable` to the "
+                "marker, or emit reflection only.\n",
+                qname.c_str(), opts.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 9;
+        }
     }
 
     std::vector<EmitField> ef;

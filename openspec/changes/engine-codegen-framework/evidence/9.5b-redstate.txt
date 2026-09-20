@@ -1,0 +1,4 @@
+﻿# 9.5b red state, measured on the real pre-state: HEAD:Tools/CodeGen/CodeGenMain.cpp, 2026-09-13 17:57:18
+backup sha256 (fixed source kept in .review_tmp/probe/CodeGenMain.fixed.cpp): DEAF7C1D8B92CE786EEB5186C5F5BC6DFF71244DC121AE7FFF8F1261F3EEA128
+artifact exists: True ; size: 0
+restore check: True  (DEAF7C1D8B92CE786EEB5186C5F5BC6DFF71244DC121AE7FFF8F1261F3EEA128)

@@ -57,12 +57,12 @@
 
 #### Scenario: 与注解漂移（**不在本 change 实现范围**）
 - **WHEN** 生成物与源码注解**漂移**（字段增删）
-- **THEN** 本条**不在本 change 实现范围** —— 本 change **未安排**任何演练"漂移 → build error"的任务，故**不声称**该兜底成立。**注意措辞**：接住漂移的机制确实存在（`static_assert_abi_consistency` 断言生成字段数等于 `CATypeDescriptor<T>::member_count`），且**演练对象也在**（入库的 `Tools/CodeGen/generated/EmitSample.Reflection.h` 的 `fieldCount = 4`，与已实例化该 guard 的 `Test/CoreTests/EmitReflectionTest.cpp`）—— **缺的不是对象，是执行它的任务**。
+- **THEN** **真实类型**的漂移方向**不在本 change 实现范围**（本 change 不接线任何项目类型，见 proposal 的 Non-goals）；**但本 change 内的合成样本已实测跑通该路径** —— 改注解的成员数后 `python build.py --config Debug --no-configure CoreTests` 以 `error C2338: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'` 失败（见 tasks 的 9.16）。**注意措辞**：接住漂移的机制是 `static_assert_abi_consistency`，它**只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是非空检查）。
 - **AND** 该 guard **只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是"生成头是否存在"的非空检查，**不做名字内容比对**）；**既不校验名字内容、也不校验 offset**。名字漂移与 offset 漂移**同样不在本 change 的覆盖范围**。
 - **AND** 归属：随"真实类型正式接线"的**后续 change** 处理（本 change 不接线任何项目类型，见 proposal 的 Non-goals）。
 
 ### Requirement: build.py 接入 codegen 步骤
-`build.py` SHALL 在 configure 步骤内、`patch_ninja()` 调用**之后**、引擎编译（`build(target)`）**之前**调用 codegen sidecar（即 `if configure_step:` 分支内**依次调用** `configure()`、`patch_ninja()`、`codegen()` —— 三行独立语句，后随 `build(target)`），且该步骤在 MSVC 环境下运行（继承 vcvars 与 sanitized PATH）。**本要求按引文定位实现位置，不写行号**（`build.py` 会被后续任务改动，行号必漂）。
+`build.py` SHALL 在 `patch_ninja()` 调用**之后**、引擎编译（`build(target)`）**之前**调用 codegen sidecar —— **configure 与 `--no-configure` 两条路径都要执行**（即 `codegen_failures = codegen()` 是**零缩进**的独立语句，位于 `if configure_step:` 块**之外**；任务 9.13 前它在块内，`--no-configure` 增量构建因此从不跑 codegen），且该步骤在 MSVC 环境下运行（继承 vcvars 与 sanitized PATH）。**本要求按引文定位实现位置，不写行号**（`build.py` 会被后续任务改动，行号必漂）。
 
 #### Scenario: 构建顺序正确
 - **WHEN** 执行 `python build.py`（无 `--no-configure`）

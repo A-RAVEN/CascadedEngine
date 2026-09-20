@@ -1,0 +1,102 @@
+﻿# 9.5b / 9.1 / 3.1 verification (new gate + temp-file output), 2026-09-13 17:58:12
+
+==========================================================================
+### C1 control (complete env)    [expect ok -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header
+exit: 0
+--- stdout ---
+StdLayout 3
+  field head 0 int 17
+  field key 8 std::string 119
+  field tail 40 int 17
+# options: serializable
+--- stderr ---
+
+==========================================================================
+### C2 has -nostdinc spelling but env complete    [expect ok -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdinc++ -nostdinc -isystem C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um
+exit: 0
+--- stdout ---
+StdLayout 3
+  field head 0 int 17
+  field key 8 std::string 119
+  field tail 40 int 17
+# options: serializable
+--- stderr ---
+
+==========================================================================
+### C3 -nostdinc++ -nostdinc (degraded)    [expect nonzero -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdinc++ -nostdinc
+exit: 6
+--- stdout ---
+--- stderr ---
+CodeGen: refusing to extract from 'Tools/CodeGen/TestStdLayout.h' â€” the compile environment fed to this tool is incomplete, so the parsed AST is truncated and the type table would be silently wrong. Fidelity cannot be judged by the exit code.
+  unresolved include (fatal): CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstddef' file not found
+  degraded members of 'StdLayout' (reported offset 0 although not the first member): key, tail
+
+==========================================================================
+### C4 -nostdlibinc (degraded, no such substring)    [expect nonzero -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdlibinc
+exit: 6
+--- stdout ---
+--- stderr ---
+CodeGen: refusing to extract from 'Tools/CodeGen/TestStdLayout.h' â€” the compile environment fed to this tool is incomplete, so the parsed AST is truncated and the type table would be silently wrong. Fidelity cannot be judged by the exit code.
+  unresolved include (fatal): CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstddef' file not found
+  degraded members of 'StdLayout' (reported offset 0 although not the first member): key, tail
+
+==========================================================================
+### C5 --target=linux + SDK-only isystem    [expect nonzero -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header --target=x86_64-unknown-linux-gnu -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared
+exit: 6
+--- stdout ---
+--- stderr ---
+CodeGen: refusing to extract from 'Tools/CodeGen/TestStdLayout.h' â€” the compile environment fed to this tool is incomplete, so the parsed AST is truncated and the type table would be silently wrong. Fidelity cannot be judged by the exit code.
+  unresolved include (fatal): CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstddef' file not found
+  degraded members of 'StdLayout' (reported offset 0 although not the first member): key, tail
+
+==========================================================================
+### C6 regression TestExternal (text channel)    [expect ok -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header
+exit: 0
+--- stdout ---
+CodeGenExternal 2
+  field a
+  field b
+--- stderr ---
+
+==========================================================================
+### C7 regression extraction (private type table)    [expect ok -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header
+exit: 0
+--- stdout ---
+PrivateLike 4
+  field pub 12 int 17
+  field m_a 16 int 17
+  field m_b 20 float 21
+  field m_c 24 double 22
+# options: serializable
+--- stderr ---
+
+==========================================================================
+### C8 refuse-emit with -o (no artifact)    [expect nonzero -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\probe\private_emit.h
+exit: 5
+--- stdout ---
+--- stderr ---
+CodeGen: refusing to emit for 'codegen_private_test::PrivateLike' â€” it has non-public members and the outer-class annotation channel (CA_REFLECTION / CA_REFLECT at namespace scope) can only serve types whose members are all public. Use an in-class annotation (macro inside the class body, expanding to a friend declaration) instead.
+artifact exists: False ; leftover .tmp: False -> PASS
+
+==========================================================================
+### C9a determinism run 1    [expect ok -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\probe\det1.h
+exit: 0
+--- stdout ---
+--- stderr ---
+
+==========================================================================
+### C9b determinism run 2    [expect ok -> PASS]
+cmd: CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\probe\det2.h
+exit: 0
+--- stdout ---
+--- stderr ---
+determinism: 791A9AA0D471AE42113283BA37E055EE2D26D0AD16142301FCFA363788397F1F / 791A9AA0D471AE42113283BA37E055EE2D26D0AD16142301FCFA363788397F1F same=True

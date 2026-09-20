@@ -1,0 +1,53 @@
+# r26 gate verification (9.30 / 9.31), 2026-09-20 11:03:57
+
+== PRE-STATE = HEAD:Tools/CodeGen/CodeGenMain.cpp (no gates) ==
+
+### PRE  9.30 text channel + --emit-serialization
+cmd: CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\ext_ser.h
+exit: 0
+--- stdout ---
+CodeGenExternal 2
+  field a
+  field b
+--- stderr ---
+
+artifact exists: False
+
+### PRE  9.31 type without `serializable` + --emit-serialization
+cmd: CodeGen.exe .review_tmp/probe/uisample.h NoSer -I CACore/header -I Tools/CodeGen --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\noser_ser.h
+exit: 0
+--- stdout ---
+
+--- stderr ---
+
+artifact exists: True
+artifact contains CodeGenSerializer<audit_ns::NoSer>: True
+
+== POST-STATE = worktree (gates in place) ==
+
+### POST 9.30 text channel + --emit-serialization
+cmd: CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\ext_ser.h
+exit: 8
+--- stdout ---
+
+--- stderr ---
+CodeGen: the CA_REFLECTION text channel does not support --emit-serialization — it carries member names only (no types/kinds), so the generated code would be unsound. Use --emit-reflection for this channel, or annotate the type with CA_REFLECT.
+artifact exists: False
+
+### POST 9.31 type without `serializable` + --emit-serialization
+cmd: CodeGen.exe .review_tmp/probe/uisample.h NoSer -I CACore/header -I Tools/CodeGen --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\noser_ser.h
+exit: 9
+--- stdout ---
+
+--- stderr ---
+CodeGen: refusing --emit-serialization for 'audit_ns::NoSer' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'ui'). Add `serializable` to the marker, or emit reflection only.
+artifact exists: False
+
+### POST control: EmitSample (has `serializable`)
+cmd: CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\ok_ser.h
+exit: 0
+--- stdout ---
+
+--- stderr ---
+
+control artifact exists: True

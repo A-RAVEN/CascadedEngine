@@ -1,0 +1,102 @@
+=== 9.5b ????(??:[DIAGDUMP] ??????)===
+
+======================================================================
+### C1 ??(????)
+??: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header
+
+???: 0
+--- ?? ---
+CodeGen.exe : [DIAGDUMP] #0 sev=2 file=Tools/CodeGen/TestStdLayout.h line=10 :: Tools/CodeGen/TestStdLayout.h:10:9: war
+ning: #pragma once in main file [-Wpragma-once-outside-header]
+At line:13 char:9
++   $so = & $exe @($c.a) 2>&1 | Out-String
++         ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([DIAGDUMP] #0 s...outside-header]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[DIAGDUMP] #1 sev=3 file=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\yvals_
+core.h line=925 :: C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\yvals_core.h
+:925:1: error: static assertion failed: error STL1000: Unexpected compiler version, expected Clang 19.0.0 or newer.
+[DIAGDUMP] #2 sev=3 file=CACore/header\Reflection.h line=47 :: CACore/header\Reflection.h:47:16: error: expression cont
+ains unexpanded parameter pack 'N'
+[DIAGDUMP] #3 sev=3 file=CACore/header\Reflection.h line=47 :: CACore/header\Reflection.h:47:45: error: expected expres
+sion
+[DIAGDUMP] #4 sev=2 file=CACore/header\Reflection.h line=263 :: CACore/header\Reflection.h:263:70: warning: template ar
+gument for template type parameter must be a type; omitted 'typename' is a Microsoft extension [-Wmicrosoft-template]
+StdLayout 3
+  field head 0 int 17
+  field key 8 std::string 119
+  field tail 40 int 17
+# options: serializable
+
+
+======================================================================
+### C2 -nostdinc++ -nostdinc(????:???)
+??: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdinc++ -nostdinc
+
+???: 0
+--- ?? ---
+CodeGen.exe : [DIAGDUMP] #0 sev=2 file=(null) line=0 :: warning: argument unused during compilation: '-nostdinc++' [-Wu
+nused-command-line-argument]
+At line:13 char:9
++   $so = & $exe @($c.a) 2>&1 | Out-String
++         ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([DIAGDUMP] #0 s...-line-argument]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[DIAGDUMP] #1 sev=2 file=Tools/CodeGen/TestStdLayout.h line=10 :: Tools/CodeGen/TestStdLayout.h:10:9: warning: #pragma 
+once in main file [-Wpragma-once-outside-header]
+[DIAGDUMP] #2 sev=4 file=CACore/header\CodeGenMeta.h line=16 :: CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstdde
+f' file not found
+StdLayout 3
+  field head 0 int 17
+  field key 0 int 17
+  field tail 0 int 17
+# options: serializable
+
+
+======================================================================
+### C3 -nostdlibinc(????)
+??: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdlibinc
+
+???: 0
+--- ?? ---
+CodeGen.exe : [DIAGDUMP] #0 sev=2 file=Tools/CodeGen/TestStdLayout.h line=10 :: Tools/CodeGen/TestStdLayout.h:10:9: war
+ning: #pragma once in main file [-Wpragma-once-outside-header]
+At line:13 char:9
++   $so = & $exe @($c.a) 2>&1 | Out-String
++         ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([DIAGDUMP] #0 s...outside-header]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[DIAGDUMP] #1 sev=4 file=CACore/header\CodeGenMeta.h line=16 :: CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstdde
+f' file not found
+StdLayout 3
+  field head 0 int 17
+  field key 0 int 17
+  field tail 0 int 17
+# options: serializable
+
+
+======================================================================
+### C4 --target=linux + SDK isystem(?????)
+??: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header --target=x86_64-unknown-linux-gnu -isystem C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/ucrt -isystem C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um -isystem C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/shared
+
+???: 0
+--- ?? ---
+CodeGen.exe : [DIAGDUMP] #0 sev=2 file=Tools/CodeGen/TestStdLayout.h line=10 :: Tools/CodeGen/TestStdLayout.h:10:9: war
+ning: #pragma once in main file [-Wpragma-once-outside-header]
+At line:13 char:9
++   $so = & $exe @($c.a) 2>&1 | Out-String
++         ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([DIAGDUMP] #0 s...outside-header]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[DIAGDUMP] #1 sev=4 file=CACore/header\CodeGenMeta.h line=16 :: CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstdde
+f' file not found
+StdLayout 3
+  field head 0 int 17
+  field key 0 int 17
+  field tail 0 int 17
+# options: serializable
+

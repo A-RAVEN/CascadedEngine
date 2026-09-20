@@ -1,0 +1,113 @@
+# round evidence, 2026-09-13 18:09:36
+
+==============================================================================
+### 3. config fidelity (/MD vs /MDd STL layout)
+
+==============================================================================
+### 3a  /MD rules (no _ITERATOR_DEBUG_LEVEL)
+cmd: E:\Projects\CascadedEngine\out\build\x64-debug\bin\CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header
+exit: 0
+StdLayout 3
+  field head 0 int 17
+  field key 8 std::string 119
+  field tail 40 int 17
+
+==============================================================================
+### 3b  /MDd rules (-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2)
+cmd: E:\Projects\CascadedEngine\out\build\x64-debug\bin\CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2
+exit: 0
+StdLayout 3
+  field head 0 int 17
+  field key 8 std::string 119
+  field tail 48 int 17
+--- 3c  _msvc_to_clang_env (function level, called directly) ---
+  in : cl.exe /nologo /c foo.cpp /MD /I inc
+  out: []
+  in : cl.exe /nologo /c foo.cpp /MDd /I inc
+  out: ['-D_DEBUG', '-D_ITERATOR_DEBUG_LEVEL=2']
+  in : cl.exe /nologo /c foo.cpp /MTd /I inc
+  out: ['-D_DEBUG', '-D_ITERATOR_DEBUG_LEVEL=2']
+  in : cl.exe /nologo /c foo.cpp /MDd /D_ITERATOR_DEBUG_LEVEL=2 /I inc
+  out: ['-D_ITERATOR_DEBUG_LEVEL=2', '-D_DEBUG']
+
+==============================================================================
+### 9.9  build.py must fail loudly on an abnormal codegen input
+build.py sha256 before: 0691599827AFBB681839BA02B3FF2167230DBF6CA3F3F007D7794634EEF3B662
+
+==============================================================================
+### 9.9(1) manifest points at an un-annotated type
+cmd: C:\Users\76956\AppData\Local\Programs\Python\Python310\python.exe build.py --config Debug --no-configure CoreTests
+exit: 1
+CODEGEN FAILED (3) — build not reported as successful
+  - CodeGen 'NotAnnotatedAnywhere' --emit-reflection exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract
+  - CodeGen 'NotAnnotatedAnywhere' --emit-serialization exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract
+  - CodeGen 'NotAnnotatedAnywhere' --emit-hash exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract
+build.py sha256 after restore: 33CCB4609562FD9774CFF7F536B2C630FEA553EAC2F43A7892F024EAB46405E3  (identical: True)
+
+==============================================================================
+### 9.9(2) compile_commands.json missing
+cmd: C:\Users\76956\AppData\Local\Programs\Python\Python310\python.exe build.py --config Debug --no-configure CoreTests
+exit: 1
+CODEGEN FAILED (1) — build not reported as successful
+  - compile_commands.json not found at E:\Projects\CascadedEngine\out\build\x64-debug\compile_commands.json (configure must export it)
+deleted the sidecar just before this run: E:\Projects\CascadedEngine\out\build\x64-debug\bin\CodeGen.exe (exists: False)
+
+==============================================================================
+### 9.9(3a) delete CodeGen.exe -> is the 'sidecar not found' branch reachable?
+cmd: C:\Users\76956\AppData\Local\Programs\Python\Python310\python.exe build.py --config Debug --no-configure CoreTests
+exit: 0
+[1/1] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+sidecar exists after the run: True
+
+==============================================================================
+### 4.2  removing the committed generated header must break the build
+
+==============================================================================
+### 4.2  golden moved away
+cmd: C:\Users\76956\AppData\Local\Programs\Python\Python310\python.exe build.py --config Debug --no-configure CoreTests
+exit: 1
+E:\Projects\CascadedEngine\Test\CoreTests\EmitReflectionTest.cpp(20): fatal error C1083: Cannot open include file: 'generated/EmitSample.Reflection.h': No such file or directory
+
+==============================================================================
+### 9.13  --no-configure must regenerate a deleted generated header
+deleted: E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (exists now: False)
+
+==============================================================================
+### 9.13  --no-configure after deleting the pipeline copy
+cmd: C:\Users\76956\AppData\Local\Programs\Python\Python310\python.exe build.py --config Debug --no-configure CoreTests
+exit: 0
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+regenerated: True  size=1104
+
+==============================================================================
+### 9.16  drift between the type and its CA_REFLECTION list must be caught
+
+==============================================================================
+### 9.16  member_count(3) != generated fieldCount(4)
+cmd: C:\Users\76956\AppData\Local\Programs\Python\Python310\python.exe build.py --config Debug --no-configure CoreTests
+exit: 1
+E:\Projects\CascadedEngine\CACore\header\CodeGenMeta.h(114): error C2338: static assertion failed: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'
+E:\Projects\CascadedEngine\Test\CoreTests\EmitReflectionTest.cpp(33): note: see reference to function template instantiation 'void cacore::codegen::static_assert_abi_consistency<codegen_demo::EmitSample>(void) noexcept' being compiled
+E:\Projects\CascadedEngine\Test\CoreTests\EmitReflectionTest.cpp(35): error C2338: static assertion failed: 'task-5.1: emitted fieldCount must equal CA_REFLECTION member_count (4)'
+
+==============================================================================
+### final green: CoreTests
+cmd: C:\Users\76956\AppData\Local\Programs\Python\Python310\python.exe build.py --config Debug --no-configure CoreTests
+exit: 0
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+CoreTests exit=0
+CodeGen TypeRegistry test PASSED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)

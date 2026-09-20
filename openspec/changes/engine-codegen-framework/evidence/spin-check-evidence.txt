@@ -1,0 +1,10 @@
+﻿# spin_check 两侧实测，18:13:13
+
+== 侧 A：纯文档轮（只改 tasks.md 一句话）==
+round demo-doc: snapshot taken over 368 deliverable files -> E:\Projects\CascadedEngine\.review_tmp\spin\demo-doc.start.json
+deliverables changed: 0
+
+== 侧 B：真代码轮（改 Tools/spin_check.py 一行）==
+round demo-code: snapshot taken over 368 deliverable files -> E:\Projects\CascadedEngine\.review_tmp\spin\demo-code.start.json
+deliverables changed: 1
+  modified: Tools/spin_check.py

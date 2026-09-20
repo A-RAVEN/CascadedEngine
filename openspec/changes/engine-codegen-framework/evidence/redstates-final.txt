@@ -1,0 +1,225 @@
+# four assertion-class red states, 2026-09-13 18:06:03
+pre-flight: undo any leftover injection from an interrupted run
+ Test/CoreTests/CodeGenMetaTest.cpp |  14 ++-
+ Tools/CodeGen/CodeGenMain.cpp      | 202 +++++++++++++++++++++++++++++++++----
+ 2 files changed, 196 insertions(+), 20 deletions(-)
+
+--- [pre-flight] restore + green re-verification ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/2] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenMetaTest.cpp.obj
+[2/2] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+CoreTests exit=0 exe mtime=18:06:25
+CodeGen TypeRegistry test PASSED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)
+
+==============================================================================
+### A-name (reflection emitter writes the wrong field names)
+--- generator diff in place ---
+ Tools/CodeGen/CodeGenMain.cpp | 206 ++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 186 insertions(+), 20 deletions(-)
+--- build.py CodeGen step (expect CODEGEN FAILED for THIS emitter only) ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+CODEGEN FAILED (1) — build not reported as successful
+  - CodeGen 'EmitSample' --emit-reflection: generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h differs byte-for-byte from golden E:\Projects\CascadedEngine\Tools\CodeGen\generated\EmitSample.Reflection.h — the compile_commands-derived env does NOT reproduce the golden test's hand-written flags
+--- broken output promoted to golden: EmitSample.Reflection.h ---
+--- CoreTests build ---
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/2] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\EmitReflectionTest.cpp.obj
+[2/2] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+--- CoreTests run: exit=1 exe mtime=18:06:46 ---
+TypeRegistry detail: typeName expected "codegen_demo::EmitSample", got "codegen_demo::EmitSample"; fields[0].name expected "a", got "xa"; fieldCount=4 (expected 4)
+TypeRegistry test FAILED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)
+
+--- [A-name (reflection emitter writes the wrong field names)] restore + green re-verification ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/3] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenMetaTest.cpp.obj
+[2/3] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\EmitReflectionTest.cpp.obj
+[3/3] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+CoreTests exit=0 exe mtime=18:07:07
+CodeGen TypeRegistry test PASSED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)
+
+==============================================================================
+### B-serialization (generator drops the last field)
+--- generator diff in place ---
+ Tools/CodeGen/CodeGenMain.cpp | 206 ++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 186 insertions(+), 20 deletions(-)
+--- build.py CodeGen step (expect CODEGEN FAILED for THIS emitter only) ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+CODEGEN FAILED (1) — build not reported as successful
+  - CodeGen 'EmitSample' --emit-serialization: generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h differs byte-for-byte from golden E:\Projects\CascadedEngine\Tools\CodeGen\generated\EmitSample.Serialization.h — the compile_commands-derived env does NOT reproduce the golden test's hand-written flags
+--- broken output promoted to golden: EmitSample.Serialization.h ---
+--- CoreTests build ---
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/2] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedSerializerTest.cpp.obj
+[2/2] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+--- CoreTests run: exit=1 exe mtime=18:07:25 ---
+CodeGen TypeRegistry test PASSED (task 5.2)
+Generated serialization FAILED (task 6.1): roundtrip=0 orderOk=0 bytes=9
+Generated serialization test FAILED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)
+
+--- [B-serialization (generator drops the last field)] restore + green re-verification ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/3] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenMetaTest.cpp.obj
+[2/3] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedSerializerTest.cpp.obj
+[3/3] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+CoreTests exit=0 exe mtime=18:07:42
+CodeGen TypeRegistry test PASSED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)
+
+==============================================================================
+### C-hash (generator drops float normalization)
+--- generator diff in place ---
+ Tools/CodeGen/CodeGenMain.cpp | 204 ++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 185 insertions(+), 19 deletions(-)
+--- build.py CodeGen step (expect CODEGEN FAILED for THIS emitter only) ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+CODEGEN FAILED (1) — build not reported as successful
+  - CodeGen 'EmitSample' --emit-hash: generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h differs byte-for-byte from golden E:\Projects\CascadedEngine\Tools\CodeGen\generated\EmitSample.Hash.h — the compile_commands-derived env does NOT reproduce the golden test's hand-written flags
+--- broken output promoted to golden: EmitSample.Hash.h ---
+--- CoreTests build ---
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/2] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedHashTest.cpp.obj
+[2/2] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+--- CoreTests run: exit=1 exe mtime=18:08:03 ---
+CodeGen TypeRegistry test PASSED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+HASH FAIL: -0.0/+0.0 diverged (hashNeg=12427568022531051556 hashPos=18376965799035843748 equal=1)
+Generated hash test FAILED (task 6.2)
+
+--- [C-hash (generator drops float normalization)] restore + green re-verification ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/3] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenMetaTest.cpp.obj
+[2/3] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedHashTest.cpp.obj
+[3/3] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+CoreTests exit=0 exe mtime=18:08:25
+CodeGen TypeRegistry test PASSED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)
+
+==============================================================================
+### D-offset (compile-time static_assert; injection is in the test source itself)
+ Test/CoreTests/CodeGenMetaTest.cpp | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+--- CoreTests build (expect C2338) ---
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/2] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenMetaTest.cpp.obj
+FAILED: Test/CoreTests/CMakeFiles/CoreTests.dir/CodeGenMetaTest.cpp.obj 
+E:\Projects\CascadedEngine\Test\CoreTests\CodeGenMetaTest.cpp(66): error C2338: static assertion failed: 'model: field[1] (float b) must be at byte 4'
+
+--- [D-offset] restore + green re-verification ---
+[1/2] Building CXX object Tools\CodeGen\CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+[2/2] Linking CXX executable bin\CodeGen.exe
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+BUILD SUCCESSFUL
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Reflection.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Serialization.h (matches golden)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\EmitSample.Hash.h (matches golden)
+[1/2] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenMetaTest.cpp.obj
+[2/2] Linking CXX executable bin\CoreTests.exe
+BUILD SUCCESSFUL
+CoreTests exit=0 exe mtime=18:08:55
+CodeGen TypeRegistry test PASSED (task 5.2)
+CodeGen serialization roundtrip PASSED (task 6.1)
+CodeGen serialization test PASSED (task 6.1)
+CodeGen hash/equality test PASSED (task 6.2)
+CodeGen hash test PASSED (task 6.2)
+
+==============================================================================
+### final state
+ M CLAUDE.md
+M  Interface/RenderInterface/header/ShaderResourceHandle.h
+ M Test/CoreTests/CodeGenMetaTest.cpp
+ M Test/CoreTests/EmitReflectionTest.cpp
+ M Test/CoreTests/GeneratedHashTest.cpp
+ M Test/CoreTests/SerializerTest.cpp
+ M Tools/CodeGen/CodeGenMain.cpp
+ M build.py
+ M openspec/changes/engine-codegen-framework/design.md
+ M openspec/changes/engine-codegen-framework/proposal.md
+ M openspec/changes/engine-codegen-framework/specs/codegen-framework/spec.md
+ M openspec/changes/engine-codegen-framework/tasks.md
+?? .claude/workflows/
+?? .review_tmp/
+?? Tools/CodeGen/TestStdLayout.h
+?? _synth.json
+?? d3d12_rerun.log
+?? docs/failed-approaches.md
+?? vc140.pdb
+?? vulkan_rerun.log
