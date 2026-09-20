@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -167,16 +168,113 @@ namespace
         return false;
     }
 
-    std::string scanMarkerOptions(const std::string& text, const std::string& typeName)
+    /** Task 9.54 + 9.55: the two views of the source that the textual scans consume.
+
+        Every marker in this tool is found by scanning source TEXT, and the earlier version blanked only
+        the two comment spellings — so a marker spelling inside a STRING literal was read as a real
+        annotation, and a string containing the block-comment opener silently deleted a real annotation
+        (both measured on the 035a795 and c10b8654 binaries). Two spellings also escaped the first fix: a
+        line comment continued with a backslash (translation phase 2 splices the lines, so the next line
+        is still comment text) and a string inside a marker's own option list.
+
+        `noComments` blanks comment bytes only: the scan of CA_CODEGEN_REGISTER("Name") needs the string
+        CONTENTS (the name is inside the literal), so it cannot consume a literal-blanked view.
+        `codeOnly` blanks comment bytes AND the inside of string/char literals: this is what decides where
+        a marker or a type definition is, and what the marker option text is read from.
+
+        Newlines are never blanked, so line structure stays valid for the line-oriented scans. */
+    struct SourceViews
+    {
+        std::string noComments;
+        std::string codeOnly;
+    };
+
+    SourceViews stripText(const std::string& text)
+    {
+        SourceViews v{ text, text };
+        bool inLine = false, inBlock = false;
+        for (std::size_t i = 0; i < text.size(); ++i)
+        {
+            const char c = text[i];
+            const char n = (i + 1 < text.size()) ? text[i + 1] : '\0';
+
+            if (inLine)
+            {
+                // A backslash directly before the newline splices the lines, so the comment CONTINUES on
+                // the next line. Missing this made a comment able to hide the following line from the
+                // marker scan (measured: an unannotated type received a specialization).
+                if (c == '\\' && (n == '\n' || n == '\r'))
+                {
+                    v.noComments[i] = v.codeOnly[i] = ' ';
+                    if (n == '\r') { v.noComments[i + 1] = v.codeOnly[i + 1] = ' '; ++i; }
+                    // the '\n' that follows is kept as a newline but must not end the comment
+                    if (i + 1 < text.size() && text[i + 1] == '\n') { v.noComments[i + 1] = ' '; ++i; }
+                    continue;
+                }
+                if (c == '\n') inLine = false;
+                else if (c != '\r') v.noComments[i] = v.codeOnly[i] = ' ';
+                continue;
+            }
+            if (inBlock)
+            {
+                if (c == '*' && n == '/')
+                {
+                    v.noComments[i] = v.codeOnly[i] = v.noComments[i + 1] = v.codeOnly[i + 1] = ' ';
+                    ++i;
+                    inBlock = false;
+                }
+                else if (c != '\n' && c != '\r')
+                {
+                    v.noComments[i] = v.codeOnly[i] = ' ';
+                }
+                continue;
+            }
+            if (c == '/' && n == '/') { v.noComments[i] = v.codeOnly[i] = v.noComments[i + 1] = v.codeOnly[i + 1] = ' '; ++i; inLine = true; continue; }
+            if (c == '/' && n == '*') { v.noComments[i] = v.codeOnly[i] = v.noComments[i + 1] = v.codeOnly[i + 1] = ' '; ++i; inBlock = true; continue; }
+
+            // Raw string literal: R"delim( ... )delim" — the delimiters are kept, the body is blanked.
+            if (c == 'R' && n == '"')
+            {
+                std::size_t d = i + 2;
+                while (d < text.size() && text[d] != '(' && text[d] != '\n' && d - i < 20) ++d;
+                if (d < text.size() && text[d] == '(')
+                {
+                    const std::string delim = text.substr(i + 2, d - i - 2);
+                    const std::string closer = ")" + delim + "\"";
+                    const std::size_t end = text.find(closer, d + 1);
+                    const std::size_t stop = (end == std::string::npos) ? text.size() : end;
+                    for (std::size_t k = d + 1; k < stop; ++k)
+                        if (text[k] != '\n' && text[k] != '\r') v.codeOnly[k] = ' ';
+                    i = (end == std::string::npos) ? text.size() - 1 : end + closer.size() - 1;
+                    continue;
+                }
+            }
+            if (c == '"' || c == '\'')
+            {
+                std::size_t j = i + 1;
+                for (; j < text.size(); ++j)
+                {
+                    if (text[j] == '\\') { ++j; continue; }
+                    if (text[j] == c || text[j] == '\n') break;
+                }
+                for (std::size_t k = i + 1; k < j && k < text.size(); ++k)
+                    if (text[k] != '\n' && text[k] != '\r') v.codeOnly[k] = ' ';
+                // the closing quote (or the newline) stays visible; skip the literal
+                i = (j < text.size()) ? j : text.size() - 1;
+                continue;
+            }
+        }
+        return v;
+    }
+
+    /** Task 9.50③: every `CA_REFLECT(...)` with BALANCED parentheses, spanning lines. Returns
+        (offset of the matching ')', option text). The old per-line scan looked for a ')' on the SAME
+        line, so a marker written across lines read back empty. */
+    std::vector<std::pair<std::size_t, std::string>> collectMarkers(const std::string& text)
     {
         const char* marker = "CA_REFLECT(";
         const std::size_t markerLen = std::strlen(marker);
-        std::string currentMarker;
-        std::size_t pos = 0;
-        // Task 9.50③: collect every `CA_REFLECT(...)` with BALANCED parentheses and let it span lines.
-        // The old per-line scan looked for a `)` on the SAME line, so a marker written across lines read
-        // back empty and the `serializable` gate refused a type that IS marked.
-        std::vector<std::pair<std::size_t, std::string>> markers; // (offset of matching ')', options)
+        std::vector<std::pair<std::size_t, std::string>> markers;
         for (std::size_t m = text.find(marker); m != std::string::npos;
              m = text.find(marker, m + markerLen))
         {
@@ -189,55 +287,110 @@ namespace
                 else if (text[i] == ')') --depth;
             }
             if (depth != 0)
-                break; // unbalanced source: give up rather than guess
+            {
+                // Task 9.55: one unbalanced parenthesis used to discard EVERY marker ("give up rather
+                // than guess"), which turned a stray character into a refusal of every annotated type in
+                // the file. Skip the malformed marker instead of abandoning the ones after it.
+                std::fprintf(stderr,
+                    "CodeGen: warning: unbalanced parentheses in a CA_REFLECT marker at offset %zu; "
+                    "skipping that marker\n", m);
+                continue;
+            }
             const std::size_t close = i - 1;
             markers.emplace_back(close, trim(text.substr(open, close - open)));
         }
+        return markers;
+    }
 
-        std::size_t appliedUpTo = 0; // index into `markers`: everything before it has been applied
-        while (pos < text.size())
+    /** Task 9.55: where each named `struct`/`class` DEFINITION starts (offset of the keyword).
+
+        The old code decided "is this line a definition?" with a same-line text heuristic (`{` before `;`
+        on that line), so a definition written as `struct` / name / `{ ... };` on three lines matched
+        nothing and the marker leaked past it to the next type (measured: an unmarked type inherited the
+        previous type's `serializable`). Deciding it by scanning forward from the NAME for a `{` before
+        the next `;` needs no line structure at all. */
+    struct DefinitionStart
+    {
+        std::size_t offset;
+        std::string name;
+    };
+
+    std::vector<DefinitionStart> findDefinitionStarts(const std::string& code)
+    {
+        std::vector<DefinitionStart> out;
+        for (const char* kw : { "struct", "class" })
         {
-            std::size_t nl = text.find('\n', pos);
-            std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-            const std::size_t lineEnd = (nl == std::string::npos) ? text.size() : nl;
-            const std::size_t brace = line.find('{');
-            const std::size_t semi  = line.find(';');
-            const bool declarationOnly =
-                (semi != std::string::npos) && (brace == std::string::npos || semi < brace);
-            const bool mentionsType = line.find("struct " + typeName) != std::string::npos ||
-                                      line.find("class " + typeName) != std::string::npos;
-            // A marker is "consumed" by the first DEFINITION that follows it. Take the nearest preceding
-            // marker whose closing ')' is before this line; a definition of ANOTHER type consumes it too
-            // (task 9.50: otherwise the marker leaked to every later unmarked definition in the file).
-            const bool otherTypeDefinition =
-                (line.find("struct ") != std::string::npos || line.find("class ") != std::string::npos) &&
-                !declarationOnly;
-            // Apply each marker exactly ONCE, when its closing ')' has been passed. (The first version
-            // re-applied the whole list on every line, which undid the "consumed by another type" clearing
-            // in the very next statement — measured: the unmarked `D1` following a marked `D0` still passed.)
-            while (appliedUpTo < markers.size() && markers[appliedUpTo].first < lineEnd)
+            const std::size_t len = std::strlen(kw);
+            for (std::size_t m = code.find(kw); m != std::string::npos; m = code.find(kw, m + len))
             {
-                if (!markers[appliedUpTo].second.empty())
-                    currentMarker = markers[appliedUpTo].second;
-                ++appliedUpTo;
+                if (m > 0 && (std::isalnum(static_cast<unsigned char>(code[m - 1])) || code[m - 1] == '_'))
+                    continue; // e.g. `mystruct`
+                if (m > 0 && code[m - 1] == ':')
+                    continue; // `enum struct` / qualified use
+                std::size_t s = m + len;
+                while (s < code.size() && (code[s] == ' ' || code[s] == '\t' || code[s] == '\n' || code[s] == '\r'))
+                    ++s;
+                std::size_t e = s;
+                while (e < code.size() &&
+                       (std::isalnum(static_cast<unsigned char>(code[e])) || code[e] == '_'))
+                    ++e;
+                if (e == s)
+                    continue; // anonymous struct/union: no name to bind
+                const std::string name = code.substr(s, e - s);
+                // Definition? Scan forward; skip any parenthesised attribute / macro argument list.
+                bool isDefinition = false;
+                for (std::size_t k = e; k < code.size(); ++k)
+                {
+                    const char ch = code[k];
+                    if (ch == '{') { isDefinition = true; break; }
+                    if (ch == ';' || ch == '}') break;
+                    if (ch == '(')
+                    {
+                        int d = 1;
+                        for (++k; k < code.size() && d > 0; ++k)
+                        {
+                            if (code[k] == '(') ++d;
+                            else if (code[k] == ')') --d;
+                        }
+                        --k;
+                    }
+                }
+                if (isDefinition)
+                    out.push_back({ m, name });
             }
-            if (mentionsType)
-            {
-                // A FORWARD declaration (`struct Foo;`) must NOT bind. Everything else — `struct Foo {`,
-                // `struct Foo` with the brace on the NEXT line, `struct Foo : Base` — is the definition.
-                if (!declarationOnly && !currentMarker.empty())
-                    return trim(currentMarker);
-                // else: a forward declaration — keep scanning; the marker may still follow it
-            }
-            else if (otherTypeDefinition)
-            {
-                currentMarker.clear(); // consumed by a different type's definition
-            }
-            if (nl == std::string::npos)
-                break;
-            pos = nl + 1;
         }
-        return {};
+        std::sort(out.begin(), out.end(),
+                  [](const DefinitionStart& a, const DefinitionStart& b) { return a.offset < b.offset; });
+        return out;
+    }
+
+    /** Marker -> definition binding, by OFFSET rather than by line. Each marker binds to the FIRST
+        definition that starts after its closing ')'; the nearest marker before a definition wins; a
+        definition of a different type consumes the marker, so it cannot leak to the next one. */
+    std::map<std::string, std::string> bindMarkersToTypes(const std::string& code /* = codeOnly view */)
+    {
+        std::map<std::string, std::string> bound; // definition name -> option text
+        const auto markers = collectMarkers(code);
+        const auto defs    = findDefinitionStarts(code);
+        for (const auto& mk : markers)
+        {
+            for (const auto& d : defs)
+            {
+                if (d.offset > mk.first)
+                {
+                    bound[d.name] = mk.second;
+                    break;
+                }
+            }
+        }
+        return bound;
+    }
+
+    std::string scanMarkerOptions(const std::string& codeOnly, const std::string& typeName)
+    {
+        const auto bound = bindMarkersToTypes(codeOnly);
+        const auto it = bound.find(typeName);
+        return (it == bound.end()) ? std::string() : trim(it->second);
     }
 
     // --- Task 6b.3: CA_REFLECTION(Type, a, b) macro -> fields-ONLY (declaration-order member names).
@@ -548,8 +701,9 @@ namespace
         return false;
     }
 
-    std::vector<std::string> buildWhitelist(const std::string& text)
+    std::vector<std::string> buildWhitelist(const SourceViews& views)
     {
+        const std::string& text = views.noComments; // the register channel needs string CONTENTS intact
         std::vector<std::string> wl;
         std::size_t pos = 0;
         while (pos < text.size())
@@ -579,39 +733,6 @@ namespace
                 }
             }
 
-            // (b) CA_REFLECT(...) -- associated type is the struct/class body AFTER this marker line.
-            {
-                const char* mk = "CA_REFLECT(";
-                std::size_t m = line.find(mk);
-                if (m != std::string::npos)
-                {
-                    std::size_t p = nl == std::string::npos ? text.size() : nl + 1;
-                    while (p < text.size())
-                    {
-                        std::size_t n2 = text.find('\n', p);
-                        const std::string l2 = text.substr(p, n2 == std::string::npos ? std::string::npos : n2 - p);
-                        for (const char* kw : { "struct", "class" })
-                        {
-                            std::size_t k = l2.find(kw);
-                            if (k != std::string::npos)
-                            {
-                                std::size_t s = k + std::strlen(kw);
-                                while (s < l2.size() && (l2[s] == ' ' || l2[s] == '\t')) ++s;
-                                std::size_t e = s;
-                                while (e < l2.size() &&
-                                       (std::isalnum(static_cast<unsigned char>(l2[e])) || l2[e] == '_' || l2[e] == ':'))
-                                    ++e;
-                                if (e > s)
-                                    wl.push_back(l2.substr(s, e - s));
-                                break; // one type name per matched struct/class line
-                            }
-                        }
-                        if (n2 == std::string::npos) break;
-                        p = n2 + 1;
-                    }
-                }
-            }
-
             // (c) CA_REFLECTION(Type, a, b)
             {
                 const char* mk = "CA_REFLECTION(";
@@ -634,6 +755,13 @@ namespace
             if (nl == std::string::npos) break;
             pos = nl + 1;
         }
+
+        // (b) CA_REFLECT(...) -- task 9.55: the annotated type is whatever definition the marker binds
+        // to, decided by OFFSET on the comment-and-literal-blanked view. The old version walked the lines
+        // after the marker line looking for `struct`/`class` with a same-line name, so a definition split
+        // across lines was missed entirely and the marker leaked to the next type.
+        for (const auto& kv : bindMarkersToTypes(views.codeOnly))
+            wl.push_back(kv.first);
 
         // Dedup, preserving first occurrence.
         std::vector<std::string> out;
@@ -707,7 +835,12 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "CodeGen: cannot read '%s'\n", filePath);
         return 2;
     }
-    const std::vector<std::string> whitelist = buildWhitelist(source);
+    // Task 9.54 + 9.55: two views of the source, both with comments blanked; `codeOnly` additionally
+    // blanks the inside of string and char literals. A marker named only inside a comment or a string
+    // must not count as an annotation, a stray parenthesis in either must not unbalance the marker scan,
+    // and a literal containing `/*` must not be able to delete a real annotation.
+    const SourceViews views = stripText(source);
+    const std::vector<std::string> whitelist = buildWhitelist(views);
     if (whitelist.empty())
     {
         std::fprintf(stderr, "CodeGen: no annotated types (empty whitelist) in '%s'; nothing to generate\n", filePath);
@@ -782,7 +915,7 @@ int main(int argc, char** argv)
     // unmigrated-engine + external transition channel), emit a fields-ONLY declaration-order table
     // from the macro's member list. This never edits the type and needs no libclang.
     {
-        std::vector<std::string> members = scanCA_REFLECTIONList(source, typeName);
+        std::vector<std::string> members = scanCA_REFLECTIONList(views.noComments, typeName);
         if (!members.empty())
         {
             const std::string qname = qualifiedNameOverride.empty() ? typeName : qualifiedNameOverride;
@@ -876,6 +1009,24 @@ int main(int argc, char** argv)
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 3;
+    }
+    // Task 9.55 (found by the round-32 adversarial review): preferring the definition cursor was not
+    // enough. When the translation unit contains only a FORWARD declaration, `found` is true and
+    // `foundDefinition` is false, and the tool still emitted a metadata table asserting
+    // `fieldCount = 0` for a type it never saw defined — the same "empty artifact, exit 0" shape task
+    // 9.50① was opened for, in a file whose generated header itself says the type must be fully defined.
+    // Refuse instead of emitting a table that cannot be right.
+    if (!foundDefinition)
+    {
+        std::fprintf(stderr,
+            "CodeGen: refusing to emit for '%s' — only a DECLARATION of it exists in '%s', not a "
+            "definition, so its member list would be emitted as empty. Include the header that defines "
+            "the type (or pass that header as the input).\n",
+            typeName, filePath);
+        abortOut();
+        clang_disposeTranslationUnit(tu);
+        clang_disposeIndex(index);
+        return 11;
     }
 
     FieldSink sink;
@@ -1019,7 +1170,7 @@ int main(int argc, char** argv)
     // marker text now and refuse when the option is absent.
     if (emitSerialization)
     {
-        const std::string opts = scanMarkerOptions(source, typeName);
+        const std::string opts = scanMarkerOptions(views.codeOnly, typeName);
         if (!hasMarkerOption(opts, "serializable"))
         {
             std::fprintf(stderr,
@@ -1082,7 +1233,7 @@ int main(int argc, char** argv)
         std::printf("  field %s %zu %s %d\n", f.name.c_str(), f.offsetBytes, f.typeName.c_str(), f.typeKind);
 
     // Task 6b.2: carry CA_REFLECT marker options (from source text) into the output.
-    const std::string options = scanMarkerOptions(source, typeName);
+    const std::string options = scanMarkerOptions(views.codeOnly, typeName);
     if (!options.empty())
         std::printf("# options: %s\n", options.c_str());
 

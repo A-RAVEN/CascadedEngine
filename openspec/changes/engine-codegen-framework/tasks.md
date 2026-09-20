@@ -473,13 +473,25 @@
   ② **选项值被丢掉**：`serializable=0` / `serializable=false` 实测**照样通过门控**并产出序列化特化（解析时 `tok.substr(0, eq)` 把值整段丢了）。
   ③ **标记按行解析**：`CA_REFLECT(` 跨行书写时整段读空 → 已标 `serializable` 的类型被**误拒 exit 9**（正是本条要修的那类误拒）。
   **Oracle**：① 类型解析**优先取有类体的定义游标**（不是同名第一个）；② 选项解析成 `name=value`，只在**值为真**时算命中（或对 `=` 形式一律拒绝），并补 `serializable=0` 夹具；③ `CA_REFLECT(...)` 的括号配对**跨行扫描**后再切分，补多行标记夹具；④ **Oracle 必须断言产物内容**（字段数/字段名列表 == 源定义），**不得只看 exit 0 + 产物存在**；三个夹具入库进 `evidence/fixtures/`，各交红→绿。
-- [ ] 9.51 **[AUDIT] 9.42 的红态没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）：`evidence/r28-gates.txt` 首行自述 **AFTER state**，六条记录**全是改动后**；"红态"只由 `tasks.md` 里一句括注声称；指向前向声明那份夹具**从未在任何二进制上跑过**（全仓 `git grep -F fwd_then_marker` 只命中该证据文件与 tasks.md）。
+- [x] 9.51 **[AUDIT] 9.42 的红态没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）（✅ 已修 2026-09-20，红态已落盘且来自真实历史二进制，证据 `evidence/r28-gates.txt`）：按本条目 Oracle 的第一条分支重建了改动前的 `CodeGen.exe` —— `git checkout 4091aa0 -- Tools/CodeGen/CodeGenMain.cpp` → `python build.py --config Debug --no-configure CodeGen` → 拷出 `CodeGen.exe` 与该目录的 `libclang.dll` → 还原源码并重建（源码 blob `35163bd`、exe SHA256 `4fbb538c…` 都写进证据头；重建配方也在头里）。同六条命令在该二进制上的**原始输出与退出码**：`9.42a` 前向声明在前 → **exit 9 误拒**（应 exit 0）、`9.42b` `nonserializable` → **exit 0 放行**（应 exit 9）、`9.42c` 注释里的 `serializable` → **exit 0 放行**（应 exit 9）、`9.42` 对照组 → exit 0、`9.43a` 文本通道两标志 → **exit 0**（应 exit 8）、`9.43b` AST 两标志 → **exit 0**（应 exit 10）—— **5 条红、1 条对照绿**。**两份回归夹具已真正跑过**：`evidence/fixtures/fwd_then_marker.h` 与 `nonserializable.h`（外加 `comment_mention.h`）在 BEFORE 与 AFTER 两侧都由同一条命令组执行，命令、退出码、产物有无、stdout/stderr 全文落盘。为使红态可被第三方复现，全部测量改由 `evidence/regen_codegen_evidence.py` **生成**（不再手抄一行），头里写明每个二进制的身份与重建方式。**附带实测**：`fwd_then_marker.h` 的红态不止 exit 9 —— 在 `71c4413` 上"前向声明在前"会让类型解析取到**声明**游标，字段表读出 `Same 0`（空产物）却仍 exit 0，这一条同样落盘（`evidence/r31-950.txt` 的 BEFORE-B2 段）。
   **Oracle**：另建改动前的二进制（如 `git show 4091aa0:Tools/CodeGen/CodeGenMain.cpp` 单独编出——**不违反"只经 build.py 构建"**：把它并回源码树后用 `build.py` 出一版，或按项目入口说明），跑同六条命令把**原始输出与退出码**并入 `r28-gates.txt`；若不重建，**在条目里明写"红态系推导、未落盘"**。
-- [ ] 9.52 **[AUDIT] 证据的可复现性与自相矛盾**（medium + low，9.49 保留项）：
-  ① `r28-gates.txt` 六条命令的**输入全是 `.review_tmp/probe/*.h`**，该目录被 `.gitignore` 排除 → "干净检出能跑出该输出"不成立；**处置**：改用已入库的 `evidence/fixtures/` 路径重跑覆盖（实测同一条对照命令在 fixtures 路径下 exit 0 且 SHA256 一致），并加**自检**：证据文件里的输入路径必须存在于仓库内。
-  ② `evidence/r29-scripts-rerun.txt` **同一份文件里两段互相矛盾**（前段记"路径崩/FileNotFoundError"，后段记"能跑但 exit 1、6 条字符串断言"），**没有任何标注说哪段过期**；且中文检查名被写成 `?`（67 个），文件自身 TOTAL 合计 **7** 个 FAILED 而列名只有 **6** 条。
+- [x] 9.52 **[AUDIT] 证据的可复现性与自相矛盾**（medium + low，9.49 保留项）（✅ 已修 2026-09-20）：
+  ① 六条命令的输入**全部换成仓库内已入库的** `evidence/fixtures/*.h`，同一条对照命令在新路径下重跑后退出码与产物与旧记录一致（`9.42 control` → exit 0 且有产物）。新增**程序化自检** `python Tools/spin_check.py evidence`：它读 `evidence/*.txt` 里以 `cmd:` 开头的行，抽出**输入**路径（跳过程序自身、`-o` 后的输出路径、`.exe`、绝对路径、`out/`、无分隔符的裸文件名、以及带空格绝对路径被切碎的残片），逐个跑 `git ls-files --error-unmatch`。**红→绿**：改前 **exit 1**（`r28-gates.txt` 3 条 + `r26-gates.txt` 2 条指向 `.review_tmp/probe/`；门控实测该目录下 4 个文件含命令、48 条输入路径、**5 条不在库**），改后 **exit 0**（6 个含命令的文件、**210 条输入路径、0 条不在库**）。顺带修掉同类缺陷：`r26-gates.txt` 的 `uisample.h` 也换成 `evidence/fixtures/uisample.h`，并为其重建前态二进制（`9ee7278`，blob `f1a4223`）重跑 BEFORE/AFTER 两段。⚠ **本段先前写的两个数字已按实测订正**（9.53 复核者指出）：旧稿写的"全仓 19 条不在库"复现不出（那是 `.review_tmp` 字符串在该目录里的**出现次数**，含 `-o` 输出路径与 spin 快照路径，门控按设计跳过），旧稿写的"5 个含命令的文件、122 条输入路径"是 ② 落地**之前**的快照，现已过期。
+  ② `evidence/r29-scripts-rerun.txt` 由 `evidence/rerun_scripts.py` **一次性生成**，取代原先互相矛盾且无过期标注的三段：六个脚本在同一趟里跑完，输出**按 UTF-8 字节直接落盘**（中文检查名里的 `?` 由 67 个降到 1 个），**汇总的失败条数由程序从正文数出来**（7 条，逐条列出，与正文逐条对齐，不再出现"TOTAL 7 而正文 6 条"）。"可从任意目录跑"补上实测：仓库根与子目录 `openspec/changes/engine-codegen-framework` 两侧**退出码与失败行完全一致**。
   **Oracle**：重跑时**按 UTF-8 直写文件**（不经控制台捕获），删掉或明确标注过期段，让正文失败条数与证据 TOTAL **逐条对齐**；并说明"可从任意目录跑"只验证过"从仓库根跑"，或补一条从子目录的实测。
-- [ ] 9.53 **Review & Adversarial Verify（Round 30 后 · 强制最后）**：对 §9.50–§9.52 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。
+- [x] 9.54 **[AUDIT] 标记扫描把注释当成代码**（high，2026-09-20 本轮自测发现，✅ 已修，红→绿见 `evidence/r31-950.txt`）：为 9.50③ 造"跨行标记"夹具时暴露 —— 标记是靠**扫描源文本**找的，而只有**选项串**做了剥注释（9.42c），**标记本身没有**，于是注释既能**伪造**标记、也能**摧毁**标记扫描。实测（`035a795` 二进制）：① `evidence/fixtures/comment_marker.h`（唯一提到标记的地方是注释、类型本身没有标注）→ `--emit-serialization` **exit 0 且写出了序列化特化**，未标注类型拿到了特化；② `evidence/fixtures/comment_paren.h`（注释里提到标记并带一个**未配对**的 `(`）→ 括号配对扫描从注释那处开始、到文件尾都不平衡，`if (depth != 0) break;` 令**整段标记收集放弃**，真正单行标注的类型被 **exit 9 误拒**。**修法**：新增 `stripComments()`（注释字节换成空格、保留换行与偏移），`buildWhitelist` / `scanCA_REFLECTIONList` / `scanMarkerOptions` 三处文本扫描全部改吃这份文本。**红→绿**（同一组夹具、同一条命令组）：`035a795` 上 `9.54a` **FAIL (artifact=True)**、`9.54b` **FAIL (got 0)**；修好的二进制上两条 **PASS**（`no-artifact` / `got 2`），同时 9.50 的八条全绿、三份构建期 golden 对拍仍逐字节相同。**另一处诚实订正**：`evidence/r31-950.txt` 的 `Multi` 行在旧二进制上"通过"是**假绿** —— 逐行扫描把 `Zero2` 的 `serializable = false` 泄漏给了 `Multi`，该夹具因此**从未真正考过跨行标记**；隔离夹具是 `multiline_marker.h`（跨行标记为文件里第一个）。**已同步记入 `docs/failed-approaches.md` 第 17 行。**
+  **Oracle**：① 注释里的标记拼写不得计入标注（行注释与块注释都要覆盖）；② 注释里的括号不得影响标记配对；③ 两个夹具入库并各交红→绿；④ 修完重跑三份构建期 golden 对拍与四类断言，确认无回归。
+- [x] 9.53 **Review & Adversarial Verify（Round 32 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-53`，3 个对抗角度 + 1 名独立复核者，共 4 个 agent；**结论：不合格**，17 条保留、0 条被驳回；结论与去重后的处置见 Review Log Round 32）：对 §9.50–§9.54 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。复核对每条都自己重跑了命令，并另行确认：五个历史二进制的 SHA256 与证据头逐一对上、19 条 AFTER 命令重跑 0 处不符、`git status` 与开跑时逐字节相同（未改动仓库）。
+- [x] 9.55 **[AUDIT] 9.54 的修法自带新洞 + 9.50 的两条修法仍是"按排版判定"**（high ×4，2026-09-20 由 9.53 的对抗验证发现，✅ 已修；红→绿见 `evidence/r31-950.txt` 的 BEFORE-B4 段与 AFTER-B5 段，共 17 条断言全绿）：
+  ① **字符串字面量完全没被处理**（9.54 只抹注释）：`"CA_REFLECT(serializable)"` 被当成真标注，**未标注**类型照样拿到序列化特化（与 9.54a 的红态一字不差）；更糟的是字符串里的块注释起始符会把**真标注**一起抹掉 —— 这是**相对 9.54 之前的回归**（同一夹具旧二进制产出 2 条成员调用，9.54 之后变成空名单）。
+  ② **行尾反斜杠续行的注释**：C++ 翻译阶段 2 会把两行拼接，下一行仍是注释内容；9.54 的抹空器只认裸换行，于是那行被当代码 → 未标注类型拿到特化。MSVC 自己的预处理器对同一段文字给 `warning C4010`。
+  ③ **括号配对扫描遇一处不等配就整体放弃**（`if (depth != 0) break;`）：真标注被 exit 9 误拒。9.54d 的夹具只是碰巧被"注释被抹空"救下，字符串形态照样触发。
+  ④ **9.50①"优先取定义游标"只是优先**：整个 TU 里只有前向声明时，仍然产出 `fieldCount = 0` 的空表并 exit 0（正是 9.50① 要关的红态）。**9.50④ 的"定义消费标记"是同一行文本启发式**：关键字、类型名、花括号分三行书写时判据不成立，标记泄漏给下一个无标记类型（同一文件写成单行则正确拒绝）。
+  **修法**（全部落在 `Tools/CodeGen/CodeGenMain.cpp`）：① 用一次扫描产出**两个视图** —— `noComments`（只抹注释，供需要字符串内容的 `CA_CODEGEN_REGISTER` 通道用）与 `codeOnly`（注释 + 字符串/字符字面量内部一起抹空，供标记与类型定义判定用），并处理原始字符串与续行；② 括号不等配的标记**跳过该条**（打警告）而不是放弃全部；③ 标记与类型定义改为**按偏移绑定**：先扫出每个具名 `struct`/`class` 定义的位置（从名字往后找 `{` 或 `;`，与排版无关），每条标记绑到它后面**第一个**定义，最近的标记胜出，别的类型的定义会消费掉它；④ 光标选择后若**没有见到定义**（`exit 11`）即拒发并指名类型。
+  **红态**（B4 = 只含 9.54 修法的二进制，worktree blob `209e23b`）：`9.55a/b` 产出特化（artifact=True）、`9.55c/d` 计数 0（一条被抹掉、一条被误拒）、`9.55e` 产出 0 字段空表、`9.55f` 放行无标记类型 —— **6 条红**；同一组命令在 B5 上 **17 条全 PASS**，三份构建期 golden 仍逐字节相同，`CoreTests.exe` 四类断言全 PASSED（exit 0）。**行为变更如实登记**：无标记类型现在报 `exit 4`（未标注）而不是 `exit 9`（标记缺 `serializable`），因为标记根本不再绑到它；两者都是拒绝，证据按实测记录。
+  **另一处订正**：9.52 的 `python Tools/spin_check.py evidence` 门控被复核者用**普通写法**绕过（`-I.review_tmp/probe` 这种把值贴在标志后的写法、`./` 前缀、`../` 逃出仓库、带引号路径），已全部补上并于本轮实测：同一批恶意 `cmd:` 行**红 → 绿**（5 条不在库 → 0）。`docs/failed-approaches.md` 第 18、19 行记录了这两类失败方案。
+  **Oracle**：① 字符串字面量、续行注释里的标记拼写都不得计入标注；② 注释/字符串里的括号不得影响标记配对，且一处坏括号不得让别的标记一起失效；③ 只有声明没有定义的类型不得被发射；④ 标记不得越过任何排版形式的定义；⑤ 上述每条都有入库夹具与红→绿；⑥ 修完重跑三份 golden 对拍与 `CoreTests.exe`。
+- [ ] 9.56 **Review & Adversarial Verify（Round 33 后 · 强制最后）**：对 §9.50–§9.55 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。⚠ 特别要求：9.55 的两条修法（字面量抹空、按偏移绑定）本身是新的判定逻辑，须按反例构造逐条试break。
 
 ## Review Log
 
@@ -1442,3 +1454,71 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 **D. 收尾比对**：见下一段的 `queue end r31` / `spin end r31` 原始输出（本轮**改了交付物**：`Tools/CodeGen/CodeGenMain.cpp`）。
 
 **E. 本轮定性**：**未关完** —— 剩 `9.51`（红态落盘 + 两份夹具回归）、`9.52`（证据可复现性与自相矛盾）、`9.53`（对 9.50–9.52 的审查任务）。goal **保持 active 不标完成**。
+
+
+### Round 32（2026-09-20）—— 关掉 9.51 / 9.52，跑 9.53（判**不合格**），并当场修掉它打出的 9.55（high ×4）
+
+**A. 开工（两条 start 都跑，原始输出）**
+
+```
+queue r32: 76 items total, 4 OPEN at round start (frozen -> .review_tmp\spin\r32.queue.start.json)
+  OPEN  9.2   9.2 ~~**[AUDIT] 真实类型接线 + ABI guard 实例化**~~ **【已作废 · 2026-09-08】**：…
+  OPEN  9.51  9.51 **[AUDIT] 9.42 的红态没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）：…
+  OPEN  9.52  9.52 **[AUDIT] 证据的可复现性与自相矛盾**（medium + low，9.49 保留项）：…
+  OPEN  9.53  9.53 **Review & Adversarial Verify（Round 30 后 · 强制最后）**：…
+
+spin r32: snapshot taken over 443 deliverable files -> .review_tmp\spin\r32.spin.start.json
+```
+
+逐条可执行性：`9.51`、`9.52` 可执行（都做掉了）；`9.53` 可执行（依赖 9.51/9.52 落地，本轮落地后即跑，做掉了）；`9.2` **已作废**（2026-09-08 的范围决策：本 change 不注册任何项目类型，真实类型接线不复存在）。**没有一条"被挡住"**。
+
+**B. 9.51 + 9.52：红态落盘与证据可复现**
+
+1. **四个历史二进制，全部用 `build.py` 编出**，源码 blob、exe SHA256、重建配方写进证据头：`9ee7278`（9.30/9.31 之前）、`4091aa0`（9.42/9.43 之前）、`71c4413`（9.50 之前）、`035a795`（9.54 之前）、以及只含 9.54 修法的那版（B4）。9.42/9.43 六条命令在 `4091aa0` 上实测 **5 条红**（`9.42a` exit 9 误拒、`9.42b/c` exit 0 放行、`9.43a/b` exit 0 静默丢弃），对照组绿；`evidence/fixtures/fwd_then_marker.h` 与 `nonserializable.h` 第一次真正跑在二进制上。
+2. **证据不再手抄**：新增 `evidence/regen_codegen_evidence.py`，把命令、退出码、产物有无、stdout/stderr、以及**从产物里数出来的计数**一次写成 UTF-8 文件；三个前态段 + 一个当前段由它生成。
+3. **可复现性门控**：新增 `python Tools/spin_check.py evidence`，检查证据 `cmd:` 行里的输入路径是否被 git 跟踪。**红 → 绿**：改前 exit 1（2 个文件、5 条不在库）→ 改后 exit 0（6 个文件、210 条输入路径、0 条不在库）。`r26-gates.txt` 的同类缺陷一并修掉。
+4. **`r29-scripts-rerun.txt` 重写**：由 `evidence/rerun_scripts.py` 单次生成，UTF-8 直写（中文检查名的 `?` 由 67 个降到 1 个），汇总的失败条数**由程序从正文数出**（7 条，逐条列出），并从仓库根与子目录各跑一遍，两侧退出码与失败行完全一致。
+5. **本轮自测发现的 9.54**（标记扫描把注释当代码）：`comment_marker.h` 让未标注类型拿到特化、`comment_paren.h` 让真标注被 exit 9 误拒；修法为"注释字节抹空后再扫"，两条红→绿落盘。
+
+**C. 9.53 的结论：不合格**（workflow `adversarial-review-9-53`，3 个对抗角度 + 1 名独立复核者，4 个 agent；17 条保留、0 条被驳回）
+复核者逐条自己重跑命令，并独立确认：五个历史二进制的 SHA256 与证据头逐一对上、19 条 AFTER 命令重跑 0 处不符、`git status` 与开跑时逐字节相同。四条 high 全部打在**上一轮的修法自己**身上：
+1. **续行注释**（行尾反斜杠让下一行仍是注释）里的标记被当成真标注 → 未标注类型拿到特化（9.54a 的红态原样复现）；
+2. **字符串字面量完全没被处理** → 字符串能伪造标注、能让**真标注被抹掉**（相对 9.54 之前是**回归**）、能让括号配对整体放弃；
+3. **9.50①"优先取定义游标"只是优先** → 整个 TU 只有前向声明时仍产出 `fieldCount = 0` 的空表并 exit 0；
+4. **9.50④"定义消费标记"是同一行文本启发式** → 关键字/名字/花括号分三行书写时标记泄漏给下一个无标记类型。
+另有 medium：`spin_check.py evidence` 可被普通写法绕过（`-I<dir>` 贴写、`./`、`../`、带引号）；证据生成器的 `no-artifact` 在"真标注被抹掉"时也会 PASS、`count=` 不校验产物属于哪个类型；`Multi` 那条"假绿"标注被过度推广到 B3 段；重建配方还原的是 HEAD 而不是当前段所用的源码；本轮 Review Log 缺失（当时正在写）；low：`9.52①` 里"19 条不在库"复现不出、"122 条"已过期，`--source` 是操作者手打的、不是测量值。
+
+**D. 9.55：按结论当场修（high ×4 + medium）**
+
+`Tools/CodeGen/CodeGenMain.cpp`：① 一次扫描产出**两个视图**（`noComments` 只抹注释，供需要字符串内容的注册通道；`codeOnly` 连字符串/字符字面量内部一起抹，供标记与定义判定），并处理原始字符串与**续行注释**；② 括号不等配的标记**跳过该条**而不是放弃全部；③ 标记与类型定义改为**按偏移绑定**（先扫出每个具名 `struct`/`class` 定义的位置：从名字往后找 `{` 或 `;`，与排版无关；每条标记绑到其后第一个定义，最近的胜出，别的类型的定义会消费掉它）；④ 光标选择后**没见过定义**即 `exit 11` 拒发并指名类型。
+**红 → 绿**：新增 6 个夹具（`linesplice_comment.h` / `string_marker.h` / `string_blockcomment.h` / `paren_in_string.h` / `only_declared.h` / `only_declared_registered.h`），连同原有的 11 条共 **17 条**。B4（只含 9.54 修法）上 **6 条红**（`9.55a/b` 产出特化、`9.55c/d` 计数 0、`9.55e` 产出 0 字段空表、`9.55f` 放行无标记类型）；B5 上 **17 条全 PASS**。三份构建期 golden 仍逐字节相同，`CoreTests.exe` 四类断言全 PASSED、exit 0。**如实登记一处行为变更**：无标记类型现在报 `exit 4`（未标注）而不是 `exit 9`，因为标记不再绑到它。
+另修：`Tools/spin_check.py` 的四条绕过写法（同一批恶意 `cmd:` 行 5 条不在库 → 0）；`regen_codegen_evidence.py` 的 `no-artifact` 追加"stderr 必须含 empty whitelist"、`count=` 追加"产物首行必须点名该类型"、`--source-commit` 打印 `git rev-parse` 实测的 blob、`built from` 明标"操作者声明、非本脚本测量"；`rerun_scripts.py` 的每段加注"cmd 行相对仓库根书写、实际执行的是绝对路径"。`docs/failed-approaches.md` 补第 18、19 行。
+
+**E. 收尾比对（两条 end 的原始输出）**
+
+```
+queue r32: closed this round: 3
+  CLOSED 9.51
+  CLOSED 9.52
+  CLOSED 9.53
+still open (was open at start, still unchecked): 1
+  STILL-OPEN 9.2  9.2 …**【已作废 · 2026-09-08】**…
+opened by this round: 1
+  NEW-OPEN 9.56  9.56 **Review & Adversarial Verify（Round 33 后 · 强制最后）**…
+OPEN-COUNT 2
+（退出码 1）
+
+spin r32: deliverables changed: 18
+  modified: Tools/CodeGen/CodeGenMain.cpp
+  modified: Tools/spin_check.py
+  modified: evidence/r26-gates.txt, r28-gates.txt, r29-scripts-rerun.txt, r31-950.txt
+  added:    evidence/regen_codegen_evidence.py, evidence/rerun_scripts.py
+  added:    evidence/fixtures/{comment_marker,comment_paren,linesplice_comment,multiline_marker,
+            only_declared,only_declared_registered,paren_in_string,split_definition,
+            string_blockcomment,string_marker}.h
+```
+
+`still open` 里只剩 `9.2`（**已作废**，其作废来自 2026-09-08 的范围决策，不是执行者自封）与新开的 `9.56`（审查任务，必须等本轮产物落地后再跑，正是"串行、老的先跑"的下一棒）。
+
+**F. 本轮定性**：**未关完** —— 本轮关掉 9.51/9.52 并按 9.53 的结论关掉 9.55；队列剩 1 条作废项 + 1 条新审查任务 `9.56`。goal **保持 active 不标完成**，下一轮从 `9.56` 开始。
+**相比上轮，实质变化是什么**：上轮结束时代码里存在 6 处可复现的判定缺陷（含 9.54 修法自身引入的回归），且它们的红态全都不在盘上；本轮结束时 `Tools/CodeGen/CodeGenMain.cpp` 的判定逻辑已改（两个文本视图、按偏移绑定、声明即拒发），17 条断言在真实历史二进制上红、在当前二进制上全绿，红态与绿态都可由 `evidence/regen_codegen_evidence.py` 重新生成，证据的输入路径由 `python Tools/spin_check.py evidence` 强制在库。

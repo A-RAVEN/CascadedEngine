@@ -1,83 +1,531 @@
-# 9.46: evidence scripts re-run from the repo root after adding the bootstrap
-
-===== verify_round1.py exit=1 =====
-    return (ROOT / rel).read_text(encoding="utf-8")
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors) as f:
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
-    return self._accessor.open(self, mode, buffering, encoding, errors,
-FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
-
-===== verify_round2.py exit=1 =====
-    return (ROOT / REL[key]).read_text(encoding="utf-8")
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors) as f:
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
-    return self._accessor.open(self, mode, buffering, encoding, errors,
-FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
-
-===== verify_round3.py exit=1 =====
-    def rd(k): return FILES[k].read_text(encoding="utf-8")
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors) as f:
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
-    return self._accessor.open(self, mode, buffering, encoding, errors,
-FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
-
-===== verify_round18.py exit=1 =====
-    return (ROOT / REL[k]).read_text(encoding="utf-8")
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors) as f:
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
-    return self._accessor.open(self, mode, buffering, encoding, errors,
-FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
-
-===== check_codegen_failure.py exit=1 =====
-  cmake --build E:\Projects\CascadedEngine\openspec\changes\engine-codegen-framework\out\build\x64-debug --target CodeGen
-Error: E:/Projects/CascadedEngine/openspec/changes/engine-codegen-framework/out/build/x64-debug is not a directory
+# Generated evidence for task 9.52(2): the six archived evidence scripts re-run in one pass, with the
+# output written straight to this file as UTF-8 bytes.
+#
+# What was wrong before. This file used to hold THREE sections recorded at different moments — a
+# `FileNotFoundError` stage, a cp1252 `UnicodeEncodeError` stage, and a "runs, but exit 1" stage — with
+# nothing saying which was superseded; the Chinese check names had been destroyed (67 `?` characters);
+# and the file's own TOTAL said 7 failures while the body named 6.
+#
+# What replaces it. `evidence/rerun_scripts.py` runs all six scripts as subprocesses in ONE pass,
+# captures their bytes and decodes them as UTF-8 (each script reconfigures its own stdout/stderr to
+# UTF-8, which is what keeps the Chinese names intact), and COUNTS the failure lines from the captured
+# text. The summary at the bottom of each section is therefore computed from the body it summarises and
+# cannot drift away from it.
+#
+# The working directory is a parameter, so "runs from any directory" is measured twice below instead of
+# asserted: once from the repository root, once from a subdirectory.
+#
+# Historical note, kept on purpose, because it explains why some checks fail and why that is currently
+# acceptable: the four `verify_round*.py` scripts assert on WORDING that later revisions changed
+# deliberately (they look for phrases such as "no live build.py:<line> citation" or "REQ#build.py does
+# not write line numbers"). A failure there is NOT evidence about the current tree — the current tree's
+# checks live in the change's `tasks.md` and Review Log. `check_codegen_failure.py` and
+# `check_emit_order.py` execute real code paths and are expected to exit 0.
+#
 
 
-ERROR: command failed (exit 1)
-  Bat file kept at: E:\Projects\CascadedEngine\_build_run.bat
+## run with the working directory set to the repository root
 
-===== check_emit_order.py exit=1 =====
-    with Popen(*popenargs, **kwargs) as process:
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 966, in __init__
-    self._execute_child(args, executable, preexec_fn, close_fds,
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1435, in _execute_child
-    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
-FileNotFoundError: [WinError 2] \u7cfb\u7edf\u627e\u4e0d\u5230\u6307\u5b9a\u7684\u6587\u4ef6\u3002
+# the cmd lines below are written RELATIVE TO THE REPOSITORY ROOT, so that the same line
+# reads the same in every section. The process actually executed an ABSOLUTE script path with
+# the working directory named in this heading; copying a cmd line into a shell that sits in
+# that working directory would fail, because the path would be resolved twice.
 
-# after fixing ROOT to the repo root (parents[4]), 11:25:24
+===== verify_round1.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round1.py
+exit: 1
+lines containing FAILED: 3
+--- output ---
+========================================================================
+1. build.py 行号引用（规约禁止；例外只允许「转述被纠正的对象」）
+========================================================================
+[FAIL] no live build.py:<line> citation
+        total=10 live=3
+          live tasks.md:449: - [x] 9.39 **[AUDIT] §9 内仍活的行号引用**（medium，✅ 已修 2026-09-13）：产品正文里对 **§9 会改动的文件**写行号的**活引用**已清零 —— 实测改动前有 **3 处**：`CodeGenMetaTest.c
+          live tasks.md:460: - [x] 9.45 **[AUDIT] 9.29 留下活的行号锚点**（low，9.35 保留项）：`tasks.md` 的 9.29 条目与 Round 26 表格各有一处 `codegen_failures = codegen()`（**逐字引文，不写行
+          live tasks.md:1370: | **9.45** | 产品正文里的 `build.py:400` 活锚点换成逐字引文（4 处） | 产品正文命中 **0** |
+          exempt tasks.md:204: > **⚠ 引用规约（本节强制）**：**禁止用行号定位被本节任务会改动的任何文件** —— 具体包括 `tasks.md` 其他部分、`build.py`（9.9 / 9.13 会改）、`CodeGenMain.cpp
+          exempt tasks.md:304: - [x] 9.11 **[AUDIT] 产物引用精度 + 工具声明诚实化**（低危合并项）：① **（已于 2026-09-12 修复）** `spec` 的 REQ「build.py 接入 codegen 步骤」与 
+          exempt tasks.md:365: - [x] 9.18 **[AUDIT] 因本轮修复而变假的"现在时"陈述必须同批改掉**（本文档自己已立此规：「不得出现"尚未合回"这类在本条执行完即变为假的句子」）：实测 3 处仍在新事实下说旧话 —— §9.11②
+          exempt tasks.md:443: - [x] 9.37 **[AUDIT] 9.17 的两处「逐字引文」今天仍非逐字**（high，✅ 已修 2026-09-13）：两处都换成**从所指文件复制的逐字串**并当场验证 —— `CXErrorCode er
+          exempt tasks.md:959: - 未修：9.11 的引用行号（`build.py:230`/`:231` 等；实测真实调用点在 `if configure_step:` 内的连续三行 `configure()` / `patch_ninja()` /
+          exempt tasks.md:973: | 9.11① 行号 → 引文锚点 | spec / design / proposal / §4.1 四处的 `build.py:230`/`:231` 等改为**结构描述** | `grep 'build\.py:\
+          exempt tasks.md:1321: | 9.37 | 两处坏锚点改逐字串（含 §3.1 的第 3 个站点） | `CXErrorCode err = clang_parseTranslationUnit2(` 命中源码；`lines.append(f'se
 
-===== verify_round1.py exit=1 =====
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode characters in position 12-37: character maps to <undefined>
+========================================================================
+2. clang_parseTranslationUnit2 签名（不得再声称「返回 TU、错误码在 out-param」）
+========================================================================
+[PASS] no un-corrected reversed signature claim
+        (none)
 
-===== verify_round2.py exit=1 =====
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode characters in position 12-13: character maps to <undefined>
+========================================================================
+3. MCP 工具声明（8 处须改毕；不得再有无保留的「MCP 核到」）
+========================================================================
+[PASS] no unqualified 'MCP 核' claim
+        (none)
+[PASS] all enumerated MCP sites annotated
+        ① 文首: ok
+        ② §8.1 任务行: ok
+        ④ Round5 范围行: ok
+        ⑤ Round5 核查结论: ok
+        ⑥ Round5 表格行: ok
+        ⑧ Round6 正文: ok
 
-===== verify_round3.py exit=1 =====
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode character '\u2460' in position 11: character maps to <undefined>
+========================================================================
+4. spec.md 的规范性修正
+========================================================================
+[FAIL] REQ#build.py 不再写行号
+[PASS] --no-configure 分支已补
+[PASS] 漂移方向已标注为不在本 change 范围
+[PASS] 「（如实现支持）」只剩被引用的删除记录
+        - **THEN** 类型表**只**含数据字段；`methods()` / `enumInfo()` / `baseClass()` **不在本 change 实现范围**，故本条**不构成**可验收的 SHALL（原文的"（如实现支持）"是**不可能失败的验收条款**，已删除 —— 见 tasks §9.8）。
+[PASS] 抽取范围已收窄为字段-only
+[PASS] 两条通道按可见性划分已写入
 
-===== verify_round18.py exit=1 =====
-  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode character '\u2460' in position 10: character maps to <undefined>
+========================================================================
+5. /MDd 配置局限（须落 §4.3 正文 + design 迁移计划，且排除 §8.1/§9 自身）
+========================================================================
+[PASS] §4.3 段内命中
+        /MDd=7 _Container_proxy=1
+[FAIL] design 迁移计划命中
+        /MDd=4 _Container_proxy=0
 
-===== check_codegen_failure.py exit=0 =====
-codegen() returned: ['compile_commands.json not found at E:\\Projects\\CascadedEngine\\out\\build\\x64-debug\\compile_commands.json (configure must export it)'] | ALL 3 CASES PASSED: failures are returned (main() turns them into exit 1), | empty manifest stays non-fatal.
+========================================================================
+6. 结构完整性
+========================================================================
+[PASS] Review Log 之后无其它二级标题
+        last h2 = ## Review Log
+[PASS] 代码围栏成对
+        fence markers = 6
 
-===== check_emit_order.py exit=0 =====
-CodeGenOuter     exit=0  emitted=['n', 'y']  declared=['n', 'y']  ORDER_MATCHES=True | EmitSample       exit=0  emitted=['a', 'b', 'c', 'd']  declared=['a', 'b', 'c', 'd']  ORDER_MATCHES=True | RESULT: PASS - emission follows declaration order
+========================================================================
+TOTAL 14 checks, 3 FAILED
+  FAILED: no live build.py:<line> citation
+  FAILED: REQ#build.py 不再写行号
+  FAILED: design 迁移计划命中
+========================================================================
 
-# after adding utf-8 stdout reconfigure, 11:25:47
+===== verify_round2.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round2.py
+exit: 1
+lines containing FAILED: 1
+--- output ---
+[PASS] 9.19 字段-only 收窄已在全仓同类站点同步
+        hits=7 un-whitelisted=0
+        
+          ok  design: - *字面 `[[careflection::...]]` attribute* → **不用**：MSVC 会报 **C5030 警告**（[develope
+          ok  design: - **CA_REFLECT（引擎新标注）**：标记宏作 **discovery**（"这个类型跨界"，grep 可得 + 可带 options）；**extr
+          ok  design: 生成产物是**一条线性数组**，每个字段 `{name, offset, type, kind, flags}`。⚠ **`offset` 的单位是字节**（与
+          ok  proposal: 一次解析、四条出路的 **统一 CodeGen 框架**能同时解决 4 个痛点：**反射（002）、C# 绑定（001）、序列化、哈希+相等（003）**。它们
+          ok  proposal: - **标注形态 = 标记宏 + libclang AST 自动爬**：用 attribute 风格的**标记宏** `CA_REFLECT(...)`（可带 
+          ok  spec(ok-block): 类型表只覆盖数据字段（方法 / 枚举 / 基类不在本 change 范围）
+[PASS] 9.20 漂移方向已声明为「不在本 change 实现范围」
+[PASS] 9.20 同段不再保留未加标注的规范性漂移分句
+        (none)
+[PASS] 9.20 不再用「无演练对象」这类弱措辞
+        (none)
+[PASS] 9.20 归属不指向已作废的 §9.2
+        (none)
+[PASS] 9.21 不用「不可回溯」这类不可证伪措辞
+        (none)
+[PASS] 9.22 去掉了「要么…要么…」分支式条款
+[PASS] 9.22 单一可核结果 + 实现状态与红态证据并存
+[PASS] 9.17 引文锚点逐字可 git grep -F 命中
+        all 6 anchors hit
+[PASS] 9.17 转述必须显式标注（省略号引文不得冒充逐字）
+        (no such quote)
+[PASS] 9.18 无「修复后仍说旧话」的现在时假陈述
+        (none)
+[FAIL] 回归：第 14 轮的 14 条判据仍全绿
+        TOTAL 14 checks, 3 FAILED
 
-===== verify_round1.py exit=1 =====
-  FAILED: REQ#build.py ????? |   FAILED: design ?????? | ========================================================================
+TOTAL 12 checks, 1 FAILED
+  FAILED: 回归：第 14 轮的 14 条判据仍全绿
 
-===== verify_round2.py exit=1 =====
-        TOTAL 14 checks, 3 FAILED | TOTAL 12 checks, 1 FAILED |   FAILED: ??:? 14 ?? 14 ??????
+===== verify_round3.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round3.py
+exit: 1
+lines containing FAILED: 2
+--- output ---
+[PASS] 9.26① tasks: URL 行数不少于基线（防「删行即通过」）
+        url_lines=8 floor=8
+[PASS] 9.26① tasks: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=8 unannotated=0
+        
+          ok  - ✅ **confirm-correct** — `clang_parseTranslationUnit2` 签名/参数/out-param 错误码约定全部正确(`CXError
+          ok  - ✅ **confirm-correct** — `clang_Cursor_getOffsetOfField` 返回**位(bits)**,代码 `/8` 换字节**正确**。
+          ok  - ✅ **confirm-correct** — `set(CMAKE_EXPORT_COMPILE_COMMANDS ON)`(`CMakeLists.txt:30`)是官方机
+          ok  | **AUDIT-1 · libclang 不完整布局"返回 0"是 API 错** | `clang_Cursor_getOffsetOfField` 对不完整布局返回**负哨
+          ok  | `https://docs.hdoc.io/hdoc/llvm-project/f78EF220BD02D2E87.html` | 是 | 是 | 是 | harness `w
+          ok  | `https://raw.githubusercontent.com/llvm/llvm-project/release/20.x/clang/include/clang-c/
+          ok  | `https://cmake.org/cmake/help/latest/variable/CMAKE_EXPORT_COMPILE_COMMANDS.html` | 是 | 
+          ok  | `https://cmake.org/cmake/help/latest/prop_tgt/EXPORT_COMPILE_COMMANDS.html` | 是 | 是 | n/
+[PASS] 9.26① design: URL 行数不少于基线（防「删行即通过」）
+        url_lines=1 floor=1
+[PASS] 9.26① design: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=1 unannotated=0
+        
+          ok  - *字面 `[[careflection::...]]` attribute* → **不用**：MSVC 会报 **C5030 警告**（[developercommunity
+[PASS] 9.26① proposal: URL 行数不少于基线（防「删行即通过」）
+        url_lines=1 floor=1
+[PASS] 9.26① proposal: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=1 unannotated=0
+        
+          ok  - **不用字面 `[[careflection::...]]` attribute**：MSVC 会报 C5030 警告（[developercommunity](https:/
+[PASS] 9.26① spec: URL 行数不少于基线（防「删行即通过」）
+        url_lines=0 floor=0
+[PASS] 9.26① spec: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=0 unannotated=0
+[PASS] 9.26② 「Round 6 无 MCP 工具」已标注为无落盘测量记录
+        > **范围**：对 1-7 全部 task 的对抗验证(正确性/完整性/诚实性/回归去重) + **外部 API 用 MCP 联网核查**(libclang C API / CMake 文档,引用真实 URL)。⚠ **工具声明无落盘证据可核**：本行原写「MCP 工具 = `web_search
+          **未发现捏造或死链**。⚠ **流程诚实问题（已由 §9.11④ 处置 · 2026-09-12）**：Round 5 的范围行称其使用 MCP 工具 `web_search_prime`/`webReader` 且「未用 WebSearch/WebFetch」，而本轮记录称**所有 agent 
+          3. **同一句话里"实测"二字不成立**：`tasks.md` 的 Round 5 范围行仍把 Round 6 的自述写成"**实测**该轮 agent 均无 MCP web 工具"。**已改为"该轮的记录/自述（无落盘测量记录）"**。
+[PASS] 9.24 判据三件套（作用对象/属性/红态）已写进 CLAUDE.md
+[PASS] 9.24 锚点自检必须限定目标文件（禁止全仓 grep）已写进 CLAUDE.md
+[PASS] 9.24 空转轮判据改为轮界逐文件哈希（原 git diff --name-only 被判不可靠）
+[FAIL] 回归：verify_round1.py 仍全绿
+        TOTAL 14 checks, 3 FAILED
+[FAIL] 回归：verify_round2.py 仍全绿
+        TOTAL 12 checks, 1 FAILED
 
-===== verify_round3.py exit=1 =====
-TOTAL 14 checks, 2 FAILED |   FAILED: ??:verify_round1.py ??? |   FAILED: ??:verify_round2.py ???
+TOTAL 14 checks, 2 FAILED
+  FAILED: 回归：verify_round1.py 仍全绿
+  FAILED: 回归：verify_round2.py 仍全绿
 
-===== verify_round18.py exit=1 =====
-[PASS] 9.7?????? union???????(???????) | TOTAL 7 checks, 1 FAILED |   FAILED: 9.7 design: ???????????????
+===== verify_round18.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round18.py
+exit: 1
+lines containing FAILED: 1
+--- output ---
+[PASS] 9.6① §6.2 不再**断言**生成 `operator==`（引用旧措辞处须带更正标注），且点名真实 API
+        无未标注断言 | 真实 API 已点名
+[PASS] 9.6② §6.2 不再**断言**「布局不同仍哈希相等」为已做实证（引用处须带更正标注）
+        无未标注断言
+[PASS] 9.6③ §8.1 合计状态行逐条如实（旧句若引用须带更正标注，且须逐条列 AUDIT 状态）
+        无未标注的旧句 | AUDIT 逐条: ['AUDIT-1', 'AUDIT-2', 'AUDIT-3', 'AUDIT-4', 'AUDIT-5', 'AUDIT-6', 'AUDIT-7']
+[PASS] 9.7 tasks: 写明「保真度不能靠退出码判定」
+[FAIL] 9.7 design: 写明「保真度不能靠退出码判定」
+[PASS] 9.7 Round 4 段：三条机制断言均已带实测更正标注
+        2026-09-12 出现 5 次；'归因已作废' 在
+[PASS] 9.7④「绝不喂全 union」规则仍被保留（不得被一并删掉）
+
+TOTAL 7 checks, 1 FAILED
+  FAILED: 9.7 design: 写明「保真度不能靠退出码判定」
+
+===== check_codegen_failure.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/check_codegen_failure.py
+exit: 0
+lines containing FAILED: 0
+--- output ---
+== case 1: manifest names a type the fixture does not annotate (sidecar must exit != 0) ==
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug --target CodeGen
+ninja: no work to do.
+
+codegen() returned: ["CodeGen 'NotAnnotatedAnywhere' --emit-reflection exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract", "CodeGen 'NotAnnotatedAnywhere' --emit-serialization exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract", "CodeGen 'NotAnnotatedAnywhere' --emit-hash exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract"]
+
+== case 2: empty manifest is a legitimate configuration, not a failure ==
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug --target CodeGen
+ninja: no work to do.
+
+  manifest is empty: nothing to generate (legitimate configuration, not a failure)
+codegen() returned: []
+
+== case 3: missing compile_commands.json must be a failure ==
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug --target CodeGen
+ninja: no work to do.
+
+codegen() returned: ['compile_commands.json not found at E:\\Projects\\CascadedEngine\\out\\build\\x64-debug\\compile_commands.json (configure must export it)']
+
+ALL 3 CASES PASSED: failures are returned (main() turns them into exit 1),
+empty manifest stays non-fatal.
+
+===== check_emit_order.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/check_emit_order.py
+exit: 0
+lines containing FAILED: 0
+--- output ---
+CodeGenSample    exit=0  emitted=['a', 'b', 'c', 'd']  declared=['a', 'b', 'c', 'd']  ORDER_MATCHES=True
+CodeGenOuter     exit=0  emitted=['n', 'y']  declared=['n', 'y']  ORDER_MATCHES=True
+EmitSample       exit=0  emitted=['a', 'b', 'c', 'd']  declared=['a', 'b', 'c', 'd']  ORDER_MATCHES=True
+
+RESULT: PASS - emission follows declaration order
+
+## SUMMARY
+scripts run: 6
+scripts with a non-zero exit: 4 -> verify_round1.py, verify_round2.py, verify_round3.py, verify_round18.py
+lines containing FAILED, counted from the captured output: 7
+  verify_round1.py: FAILED: no live build.py:<line> citation
+  verify_round1.py: FAILED: REQ#build.py 不再写行号
+  verify_round1.py: FAILED: design 迁移计划命中
+  verify_round2.py: FAILED: 回归：第 14 轮的 14 条判据仍全绿
+  verify_round3.py: FAILED: 回归：verify_round1.py 仍全绿
+  verify_round3.py: FAILED: 回归：verify_round2.py 仍全绿
+  verify_round18.py: FAILED: 9.7 design: 写明「保真度不能靠退出码判定」
+
+## run with the working directory set to the subdirectory openspec/changes/engine-codegen-framework (NOT the repo root)
+
+# the cmd lines below are written RELATIVE TO THE REPOSITORY ROOT, so that the same line
+# reads the same in every section. The process actually executed an ABSOLUTE script path with
+# the working directory named in this heading; copying a cmd line into a shell that sits in
+# that working directory would fail, because the path would be resolved twice.
+
+===== verify_round1.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round1.py
+exit: 1
+lines containing FAILED: 3
+--- output ---
+========================================================================
+1. build.py 行号引用（规约禁止；例外只允许「转述被纠正的对象」）
+========================================================================
+[FAIL] no live build.py:<line> citation
+        total=10 live=3
+          live tasks.md:449: - [x] 9.39 **[AUDIT] §9 内仍活的行号引用**（medium，✅ 已修 2026-09-13）：产品正文里对 **§9 会改动的文件**写行号的**活引用**已清零 —— 实测改动前有 **3 处**：`CodeGenMetaTest.c
+          live tasks.md:460: - [x] 9.45 **[AUDIT] 9.29 留下活的行号锚点**（low，9.35 保留项）：`tasks.md` 的 9.29 条目与 Round 26 表格各有一处 `codegen_failures = codegen()`（**逐字引文，不写行
+          live tasks.md:1370: | **9.45** | 产品正文里的 `build.py:400` 活锚点换成逐字引文（4 处） | 产品正文命中 **0** |
+          exempt tasks.md:204: > **⚠ 引用规约（本节强制）**：**禁止用行号定位被本节任务会改动的任何文件** —— 具体包括 `tasks.md` 其他部分、`build.py`（9.9 / 9.13 会改）、`CodeGenMain.cpp
+          exempt tasks.md:304: - [x] 9.11 **[AUDIT] 产物引用精度 + 工具声明诚实化**（低危合并项）：① **（已于 2026-09-12 修复）** `spec` 的 REQ「build.py 接入 codegen 步骤」与 
+          exempt tasks.md:365: - [x] 9.18 **[AUDIT] 因本轮修复而变假的"现在时"陈述必须同批改掉**（本文档自己已立此规：「不得出现"尚未合回"这类在本条执行完即变为假的句子」）：实测 3 处仍在新事实下说旧话 —— §9.11②
+          exempt tasks.md:443: - [x] 9.37 **[AUDIT] 9.17 的两处「逐字引文」今天仍非逐字**（high，✅ 已修 2026-09-13）：两处都换成**从所指文件复制的逐字串**并当场验证 —— `CXErrorCode er
+          exempt tasks.md:959: - 未修：9.11 的引用行号（`build.py:230`/`:231` 等；实测真实调用点在 `if configure_step:` 内的连续三行 `configure()` / `patch_ninja()` /
+          exempt tasks.md:973: | 9.11① 行号 → 引文锚点 | spec / design / proposal / §4.1 四处的 `build.py:230`/`:231` 等改为**结构描述** | `grep 'build\.py:\
+          exempt tasks.md:1321: | 9.37 | 两处坏锚点改逐字串（含 §3.1 的第 3 个站点） | `CXErrorCode err = clang_parseTranslationUnit2(` 命中源码；`lines.append(f'se
+
+========================================================================
+2. clang_parseTranslationUnit2 签名（不得再声称「返回 TU、错误码在 out-param」）
+========================================================================
+[PASS] no un-corrected reversed signature claim
+        (none)
+
+========================================================================
+3. MCP 工具声明（8 处须改毕；不得再有无保留的「MCP 核到」）
+========================================================================
+[PASS] no unqualified 'MCP 核' claim
+        (none)
+[PASS] all enumerated MCP sites annotated
+        ① 文首: ok
+        ② §8.1 任务行: ok
+        ④ Round5 范围行: ok
+        ⑤ Round5 核查结论: ok
+        ⑥ Round5 表格行: ok
+        ⑧ Round6 正文: ok
+
+========================================================================
+4. spec.md 的规范性修正
+========================================================================
+[FAIL] REQ#build.py 不再写行号
+[PASS] --no-configure 分支已补
+[PASS] 漂移方向已标注为不在本 change 范围
+[PASS] 「（如实现支持）」只剩被引用的删除记录
+        - **THEN** 类型表**只**含数据字段；`methods()` / `enumInfo()` / `baseClass()` **不在本 change 实现范围**，故本条**不构成**可验收的 SHALL（原文的"（如实现支持）"是**不可能失败的验收条款**，已删除 —— 见 tasks §9.8）。
+[PASS] 抽取范围已收窄为字段-only
+[PASS] 两条通道按可见性划分已写入
+
+========================================================================
+5. /MDd 配置局限（须落 §4.3 正文 + design 迁移计划，且排除 §8.1/§9 自身）
+========================================================================
+[PASS] §4.3 段内命中
+        /MDd=7 _Container_proxy=1
+[FAIL] design 迁移计划命中
+        /MDd=4 _Container_proxy=0
+
+========================================================================
+6. 结构完整性
+========================================================================
+[PASS] Review Log 之后无其它二级标题
+        last h2 = ## Review Log
+[PASS] 代码围栏成对
+        fence markers = 6
+
+========================================================================
+TOTAL 14 checks, 3 FAILED
+  FAILED: no live build.py:<line> citation
+  FAILED: REQ#build.py 不再写行号
+  FAILED: design 迁移计划命中
+========================================================================
+
+===== verify_round2.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round2.py
+exit: 1
+lines containing FAILED: 1
+--- output ---
+[PASS] 9.19 字段-only 收窄已在全仓同类站点同步
+        hits=7 un-whitelisted=0
+        
+          ok  design: - *字面 `[[careflection::...]]` attribute* → **不用**：MSVC 会报 **C5030 警告**（[develope
+          ok  design: - **CA_REFLECT（引擎新标注）**：标记宏作 **discovery**（"这个类型跨界"，grep 可得 + 可带 options）；**extr
+          ok  design: 生成产物是**一条线性数组**，每个字段 `{name, offset, type, kind, flags}`。⚠ **`offset` 的单位是字节**（与
+          ok  proposal: 一次解析、四条出路的 **统一 CodeGen 框架**能同时解决 4 个痛点：**反射（002）、C# 绑定（001）、序列化、哈希+相等（003）**。它们
+          ok  proposal: - **标注形态 = 标记宏 + libclang AST 自动爬**：用 attribute 风格的**标记宏** `CA_REFLECT(...)`（可带 
+          ok  spec(ok-block): 类型表只覆盖数据字段（方法 / 枚举 / 基类不在本 change 范围）
+[PASS] 9.20 漂移方向已声明为「不在本 change 实现范围」
+[PASS] 9.20 同段不再保留未加标注的规范性漂移分句
+        (none)
+[PASS] 9.20 不再用「无演练对象」这类弱措辞
+        (none)
+[PASS] 9.20 归属不指向已作废的 §9.2
+        (none)
+[PASS] 9.21 不用「不可回溯」这类不可证伪措辞
+        (none)
+[PASS] 9.22 去掉了「要么…要么…」分支式条款
+[PASS] 9.22 单一可核结果 + 实现状态与红态证据并存
+[PASS] 9.17 引文锚点逐字可 git grep -F 命中
+        all 6 anchors hit
+[PASS] 9.17 转述必须显式标注（省略号引文不得冒充逐字）
+        (no such quote)
+[PASS] 9.18 无「修复后仍说旧话」的现在时假陈述
+        (none)
+[FAIL] 回归：第 14 轮的 14 条判据仍全绿
+        TOTAL 14 checks, 3 FAILED
+
+TOTAL 12 checks, 1 FAILED
+  FAILED: 回归：第 14 轮的 14 条判据仍全绿
+
+===== verify_round3.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round3.py
+exit: 1
+lines containing FAILED: 2
+--- output ---
+[PASS] 9.26① tasks: URL 行数不少于基线（防「删行即通过」）
+        url_lines=8 floor=8
+[PASS] 9.26① tasks: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=8 unannotated=0
+        
+          ok  - ✅ **confirm-correct** — `clang_parseTranslationUnit2` 签名/参数/out-param 错误码约定全部正确(`CXError
+          ok  - ✅ **confirm-correct** — `clang_Cursor_getOffsetOfField` 返回**位(bits)**,代码 `/8` 换字节**正确**。
+          ok  - ✅ **confirm-correct** — `set(CMAKE_EXPORT_COMPILE_COMMANDS ON)`(`CMakeLists.txt:30`)是官方机
+          ok  | **AUDIT-1 · libclang 不完整布局"返回 0"是 API 错** | `clang_Cursor_getOffsetOfField` 对不完整布局返回**负哨
+          ok  | `https://docs.hdoc.io/hdoc/llvm-project/f78EF220BD02D2E87.html` | 是 | 是 | 是 | harness `w
+          ok  | `https://raw.githubusercontent.com/llvm/llvm-project/release/20.x/clang/include/clang-c/
+          ok  | `https://cmake.org/cmake/help/latest/variable/CMAKE_EXPORT_COMPILE_COMMANDS.html` | 是 | 
+          ok  | `https://cmake.org/cmake/help/latest/prop_tgt/EXPORT_COMPILE_COMMANDS.html` | 是 | 是 | n/
+[PASS] 9.26① design: URL 行数不少于基线（防「删行即通过」）
+        url_lines=1 floor=1
+[PASS] 9.26① design: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=1 unannotated=0
+        
+          ok  - *字面 `[[careflection::...]]` attribute* → **不用**：MSVC 会报 **C5030 警告**（[developercommunity
+[PASS] 9.26① proposal: URL 行数不少于基线（防「删行即通过」）
+        url_lines=1 floor=1
+[PASS] 9.26① proposal: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=1 unannotated=0
+        
+          ok  - **不用字面 `[[careflection::...]]` attribute**：MSVC 会报 C5030 警告（[developercommunity](https:/
+[PASS] 9.26① spec: URL 行数不少于基线（防「删行即通过」）
+        url_lines=0 floor=0
+[PASS] 9.26① spec: 每个 URL 行都带工具标注或无落盘声明
+        url_lines=0 unannotated=0
+[PASS] 9.26② 「Round 6 无 MCP 工具」已标注为无落盘测量记录
+        > **范围**：对 1-7 全部 task 的对抗验证(正确性/完整性/诚实性/回归去重) + **外部 API 用 MCP 联网核查**(libclang C API / CMake 文档,引用真实 URL)。⚠ **工具声明无落盘证据可核**：本行原写「MCP 工具 = `web_search
+          **未发现捏造或死链**。⚠ **流程诚实问题（已由 §9.11④ 处置 · 2026-09-12）**：Round 5 的范围行称其使用 MCP 工具 `web_search_prime`/`webReader` 且「未用 WebSearch/WebFetch」，而本轮记录称**所有 agent 
+          3. **同一句话里"实测"二字不成立**：`tasks.md` 的 Round 5 范围行仍把 Round 6 的自述写成"**实测**该轮 agent 均无 MCP web 工具"。**已改为"该轮的记录/自述（无落盘测量记录）"**。
+[PASS] 9.24 判据三件套（作用对象/属性/红态）已写进 CLAUDE.md
+[PASS] 9.24 锚点自检必须限定目标文件（禁止全仓 grep）已写进 CLAUDE.md
+[PASS] 9.24 空转轮判据改为轮界逐文件哈希（原 git diff --name-only 被判不可靠）
+[FAIL] 回归：verify_round1.py 仍全绿
+        TOTAL 14 checks, 3 FAILED
+[FAIL] 回归：verify_round2.py 仍全绿
+        TOTAL 12 checks, 1 FAILED
+
+TOTAL 14 checks, 2 FAILED
+  FAILED: 回归：verify_round1.py 仍全绿
+  FAILED: 回归：verify_round2.py 仍全绿
+
+===== verify_round18.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/verify_round18.py
+exit: 1
+lines containing FAILED: 1
+--- output ---
+[PASS] 9.6① §6.2 不再**断言**生成 `operator==`（引用旧措辞处须带更正标注），且点名真实 API
+        无未标注断言 | 真实 API 已点名
+[PASS] 9.6② §6.2 不再**断言**「布局不同仍哈希相等」为已做实证（引用处须带更正标注）
+        无未标注断言
+[PASS] 9.6③ §8.1 合计状态行逐条如实（旧句若引用须带更正标注，且须逐条列 AUDIT 状态）
+        无未标注的旧句 | AUDIT 逐条: ['AUDIT-1', 'AUDIT-2', 'AUDIT-3', 'AUDIT-4', 'AUDIT-5', 'AUDIT-6', 'AUDIT-7']
+[PASS] 9.7 tasks: 写明「保真度不能靠退出码判定」
+[FAIL] 9.7 design: 写明「保真度不能靠退出码判定」
+[PASS] 9.7 Round 4 段：三条机制断言均已带实测更正标注
+        2026-09-12 出现 5 次；'归因已作废' 在
+[PASS] 9.7④「绝不喂全 union」规则仍被保留（不得被一并删掉）
+
+TOTAL 7 checks, 1 FAILED
+  FAILED: 9.7 design: 写明「保真度不能靠退出码判定」
+
+===== check_codegen_failure.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/check_codegen_failure.py
+exit: 0
+lines containing FAILED: 0
+--- output ---
+== case 1: manifest names a type the fixture does not annotate (sidecar must exit != 0) ==
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug --target CodeGen
+ninja: no work to do.
+
+codegen() returned: ["CodeGen 'NotAnnotatedAnywhere' --emit-reflection exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract", "CodeGen 'NotAnnotatedAnywhere' --emit-serialization exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract", "CodeGen 'NotAnnotatedAnywhere' --emit-hash exit 4: CodeGen: type 'NotAnnotatedAnywhere' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract"]
+
+== case 2: empty manifest is a legitimate configuration, not a failure ==
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug --target CodeGen
+ninja: no work to do.
+
+  manifest is empty: nothing to generate (legitimate configuration, not a failure)
+codegen() returned: []
+
+== case 3: missing compile_commands.json must be a failure ==
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug --target CodeGen
+ninja: no work to do.
+
+codegen() returned: ['compile_commands.json not found at E:\\Projects\\CascadedEngine\\out\\build\\x64-debug\\compile_commands.json (configure must export it)']
+
+ALL 3 CASES PASSED: failures are returned (main() turns them into exit 1),
+empty manifest stays non-fatal.
+
+===== check_emit_order.py =====
+cmd: python openspec/changes/engine-codegen-framework/evidence/check_emit_order.py
+exit: 0
+lines containing FAILED: 0
+--- output ---
+CodeGenSample    exit=0  emitted=['a', 'b', 'c', 'd']  declared=['a', 'b', 'c', 'd']  ORDER_MATCHES=True
+CodeGenOuter     exit=0  emitted=['n', 'y']  declared=['n', 'y']  ORDER_MATCHES=True
+EmitSample       exit=0  emitted=['a', 'b', 'c', 'd']  declared=['a', 'b', 'c', 'd']  ORDER_MATCHES=True
+
+RESULT: PASS - emission follows declaration order
+
+## SUMMARY
+scripts run: 6
+scripts with a non-zero exit: 4 -> verify_round1.py, verify_round2.py, verify_round3.py, verify_round18.py
+lines containing FAILED, counted from the captured output: 7
+  verify_round1.py: FAILED: no live build.py:<line> citation
+  verify_round1.py: FAILED: REQ#build.py 不再写行号
+  verify_round1.py: FAILED: design 迁移计划命中
+  verify_round2.py: FAILED: 回归：第 14 轮的 14 条判据仍全绿
+  verify_round3.py: FAILED: 回归：verify_round1.py 仍全绿
+  verify_round3.py: FAILED: 回归：verify_round2.py 仍全绿
+  verify_round18.py: FAILED: 9.7 design: 写明「保真度不能靠退出码判定」

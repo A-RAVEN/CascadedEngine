@@ -12,12 +12,18 @@ Two subcommands, both designed so the FACTS come from a program instead of from 
            is still open. This exists because the "did the round do everything it could?" check used to
            depend on the agent quoting the list from memory — and memory is exactly what shrinks.
 
+  evidence — read the CHANGE's evidence files and check that every INPUT path a recorded command
+           consumes is a TRACKED repository file. This exists because a previous evidence file recorded
+           its commands against `.review_tmp/probe/*.h`, a gitignored directory: the measurements were
+           real, but "a clean checkout reproduces this output" was false, and nothing said so.
+
 Usage
 -----
     python Tools/spin_check.py spin  start <round-id>
     python Tools/spin_check.py spin  end   <round-id>
     python Tools/spin_check.py queue start <round-id>
     python Tools/spin_check.py queue end   <round-id>
+    python Tools/spin_check.py evidence [<evidence-dir>]
 
 Snapshots land in `.review_tmp/spin/<round-id>.{spin,queue}.{start,end}.json` — a `.review_tmp/` path that
 is gitignored, and an id chosen per round so a previous round's snapshot cannot be mistaken for this one.
@@ -26,17 +32,22 @@ is gitignored, and an id chosen per round so a previous round's snapshot cannot 
 by the agent as blocked/voided in the conversation; 1 when unchecked items remain that the tool cannot
 see a reason for. The tool cannot read the agent's reasons, so it prints `still open: N` and the caller
 (and the user) decides — but the NUMBER and the LIST are the program's, not the agent's.
+
+`evidence` exit code: 0 when every recorded input path is tracked by git; 1 when at least one is not
+(typically a path under a gitignored directory, or a machine-local absolute path).
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SNAP = REPO / ".review_tmp" / "spin"
+EVIDENCE = REPO / "openspec" / "changes" / "engine-codegen-framework" / "evidence"
 TASKS = REPO / "openspec" / "changes" / "engine-codegen-framework" / "tasks.md"
 
 # Deliverable file types for THIS change (engine-codegen-framework delivers code + build glue).
@@ -153,6 +164,110 @@ def queue(mode: str, round_id: str) -> int:
     return 1 if still_open else 0
 
 
+def _tracked(rel: str) -> bool:
+    r = subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel],
+                       cwd=str(REPO), capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def _input_paths(cmd_line: str) -> list[str]:
+    """Input paths a recorded command consumes.
+
+    Skipped on purpose, and why (the gate would otherwise be noise instead of a gate):
+      * the first token — that is the program being run, not a file it reads;
+      * the token after `-o` — that is the OUTPUT path, machine-local by design;
+      * `*.exe` — build products, which the build never commits;
+      * absolute paths (a drive letter or a leading slash) — machine-local by definition, and the
+        whitespace split below shreds `C:\\Program Files (x86)\\...` into fragments anyway;
+      * anything under `out/` — build tree;
+      * a token with NO path separator — a bare file name is ambiguous (and would make `python foo.py`
+        fail even when an identically named tracked file exists elsewhere);
+      * a token whose FIRST path segment is not an entry in the repository — that is a leftover
+        fragment of a space-containing absolute path (`Files\\Microsoft`, `Kits\\10\\...`).
+
+    Counted, not skipped (the round-32 adversarial review showed each of these could hide an out-of-repo
+    input from an earlier version of this gate):
+      * an include directory written ATTACHED to its flag, e.g. `-I.review_tmp/probe`;
+      * a quoted path (`".review_tmp/probe/my fixture.h"` — the split may leave a fragment, which is
+        reported as not tracked, which is the truthful outcome);
+      * a path written with a `./` prefix;
+      * a path that escapes the repository (`../probe/x.h`) — that can never be a tracked repo file, so
+        it is reported as not tracked instead of being silently dropped.
+    """
+    toks = cmd_line.split()
+    if not toks:
+        return []
+    top = {p.name for p in REPO.iterdir()}
+    attach_flags = ("-I", "-isystem", "-iquote", "-idirafter", "-include")
+    out: list[str] = []
+    skip_next = False
+    for i, raw in enumerate(toks):
+        if i == 0:
+            continue
+        if skip_next:
+            skip_next = False
+            continue
+        if raw == "-o":
+            skip_next = True
+            continue
+        t = raw.strip('"')
+        if raw.startswith("-"):
+            for flag in attach_flags:
+                if t.startswith(flag) and len(t) > len(flag):
+                    t = t[len(flag):]        # `-I<dir>` with the value attached
+                    break
+            else:
+                continue                      # a plain flag, not a path
+        if t.lower().endswith(".exe"):
+            continue
+        if re.match(r"^[A-Za-z]:[\\/]", t) or t.startswith("/") or t.startswith("\\\\"):
+            continue
+        if re.match(r"^out[\\/]", t) or "/out/" in t or "\\out\\" in t:
+            continue
+        if not re.search(r"[\\/]", t):
+            continue
+        norm = t[2:] if t.startswith("./") else t
+        if norm.startswith(".."):
+            out.append(t)                     # escapes the repo -> can never be tracked
+            continue
+        first = re.split(r"[\\/]", norm)[0]
+        if first not in top:
+            continue
+        out.append(t)
+    return out
+
+
+def evidence(evidence_dir: Path) -> int:
+    files = sorted(evidence_dir.glob("*.txt"))
+    if not files:
+        print(f"no evidence .txt files under {evidence_dir}")
+        return 2
+    checked = failed = total_paths = 0
+    for f in files:
+        lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        cmds = [l.split(":", 1)[1].strip() for l in lines if l.lower().startswith("cmd:")]
+        if not cmds:
+            print(f"  {f.name}: no `cmd:` line (not covered by this gate)")
+            continue
+        checked += 1
+        bad: list[str] = []
+        n = 0
+        for c in cmds:
+            for p in _input_paths(c):
+                n += 1
+                total_paths += 1
+                if not _tracked(p):
+                    bad.append(p)
+        state = "OK" if not bad else f"NOT-IN-REPO {len(bad)}"
+        print(f"  {f.name}: {len(cmds)} cmd line(s), {n} input path(s) -> {state}")
+        for p in bad:
+            print(f"      not tracked by git: {p}")
+        failed += len(bad)
+    print(f"evidence: {checked} file(s) with `cmd:` lines, {total_paths} input path(s), "
+          f"{failed} not tracked by git")
+    return 1 if failed else 0
+
+
 def main() -> int:
     # Task titles are Chinese; a cp1252 console would crash on them (measured), so force UTF-8 output.
     for stream in (sys.stdout, sys.stderr):
@@ -160,6 +275,9 @@ def main() -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+    if len(sys.argv) >= 2 and sys.argv[1] == "evidence":
+        target = Path(sys.argv[2]) if len(sys.argv) > 2 else EVIDENCE
+        return evidence(target)
     if len(sys.argv) != 4 or sys.argv[1] not in ("spin", "queue") or sys.argv[2] not in ("start", "end"):
         print(__doc__)
         return 2
