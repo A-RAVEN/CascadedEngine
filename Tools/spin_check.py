@@ -170,71 +170,108 @@ def _tracked(rel: str) -> bool:
     return r.returncode == 0
 
 
-def _input_paths(cmd_line: str) -> list[str]:
-    """Input paths a recorded command consumes.
+def _input_paths(cmd_line: str) -> tuple[list[str], dict]:
+    """Input paths a recorded command consumes, plus a tally of what was skipped and why.
 
-    Skipped on purpose, and why (the gate would otherwise be noise instead of a gate):
+    Skipped on purpose (each reason is COUNTED and printed, so the summary cannot read as full coverage
+    when it is not — a round-33 adversarial review showed the earlier version printed only the number of
+    checked paths, while silently dropping whole classes of them):
       * the first token — that is the program being run, not a file it reads;
       * the token after `-o` — that is the OUTPUT path, machine-local by design;
       * `*.exe` — build products, which the build never commits;
-      * absolute paths (a drive letter or a leading slash) — machine-local by definition, and the
-        whitespace split below shreds `C:\\Program Files (x86)\\...` into fragments anyway;
+      * absolute paths — machine-local by definition. Absolute Windows paths are masked out BEFORE the
+        whitespace split, because `C:\\Program Files (x86)\\...` would otherwise be shredded into
+        fragments that look like repository-relative paths;
       * anything under `out/` — build tree;
-      * a token with NO path separator — a bare file name is ambiguous (and would make `python foo.py`
-        fail even when an identically named tracked file exists elsewhere);
-      * a token whose FIRST path segment is not an entry in the repository — that is a leftover
-        fragment of a space-containing absolute path (`Files\\Microsoft`, `Kits\\10\\...`).
+      * a token with NO path separator — a bare file name is ambiguous (`python verify_round1.py` names
+        eight different files in this repository).
 
-    Counted, not skipped (the round-32 adversarial review showed each of these could hide an out-of-repo
-    input from an earlier version of this gate):
+    Counted, not skipped (each of these could hide an out-of-repo input):
       * an include directory written ATTACHED to its flag, e.g. `-I.review_tmp/probe`;
-      * a quoted path (`".review_tmp/probe/my fixture.h"` — the split may leave a fragment, which is
-        reported as not tracked, which is the truthful outcome);
+      * a quoted path;
       * a path written with a `./` prefix;
-      * a path that escapes the repository (`../probe/x.h`) — that can never be a tracked repo file, so
-        it is reported as not tracked instead of being silently dropped.
+      * a path that escapes the repository (`../probe/x.h`);
+      * a path whose first segment is not an entry of the repository at all, e.g. `probe/secret.h` — that
+        cannot be a tracked file, so it is reported as not-tracked rather than dropped.
     """
+    tally = {"after -o": 0, "absolute (outside the repo)": 0, "exe": 0, "out/": 0, "flag": 0,
+             "no separator": 0}
+    attach_flags = ("-I", "-isystem", "-iquote", "-idirafter", "-include")
     toks = cmd_line.split()
     if not toks:
-        return []
-    top = {p.name for p in REPO.iterdir()}
-    attach_flags = ("-I", "-isystem", "-iquote", "-idirafter", "-include")
+        return [], tally
     out: list[str] = []
     skip_next = False
-    for i, raw in enumerate(toks):
-        if i == 0:
-            continue
-        if skip_next:
-            skip_next = False
-            continue
+    seen_positional = False
+    i = 1  # toks[0] is the program being run, never an input it reads
+    while i < len(toks):
+        raw = toks[i]
+        i += 1
         if raw == "-o":
             skip_next = True
             continue
+        if skip_next:
+            skip_next = False
+            tally["after -o"] += 1
+            continue
         t = raw.strip('"')
+        # An absolute Windows path may contain spaces, so the whitespace split shreds it. Re-join the
+        # following tokens until the accumulated path is an existing FILE, ends in a known file
+        # extension, or the next token is a flag. (A path that really is one token is left alone, so the
+        # positional arguments that follow it stay separate.)
+        if re.match(r"^[A-Za-z]:[\\/]", t):
+            while (i < len(toks) and not toks[i].startswith("-")
+                   and not Path(t).is_file()
+                   and not re.search(r"\.(h|hpp|hh|cpp|cxx|cc|py|md|txt|json|cmake|exe|dll)$", t, re.I)):
+                t = t + " " + toks[i]
+                i += 1
         if raw.startswith("-"):
+            t = raw.strip('"')
             for flag in attach_flags:
                 if t.startswith(flag) and len(t) > len(flag):
-                    t = t[len(flag):]        # `-I<dir>` with the value attached
+                    t = t[len(flag):].lstrip("=")  # `-I<dir>` / `-isystem=<dir>`
                     break
             else:
-                continue                      # a plain flag, not a path
-        if t.lower().endswith(".exe"):
+                tally["flag"] += 1
+                continue
+        # The FIRST positional argument of a recorded command is what the program was told to read, so
+        # it is an input whatever its spelling (a bare `myfixture.h` names no repository file).
+        first_positional = not seen_positional
+        if first_positional:
+            seen_positional = True
+        if t.lower().endswith(".exe") and not first_positional:
+            tally["exe"] += 1
             continue
-        if re.match(r"^[A-Za-z]:[\\/]", t) or t.startswith("/") or t.startswith("\\\\"):
+        m_abs = re.match(r"^([A-Za-z]):[\\/](.*)$", t)
+        if m_abs:
+            # An absolute path that points INSIDE the repository is a repository-relative path written
+            # the long way; one that points outside (SDK headers, the compiler) is machine-local.
+            drive_rel = (m_abs.group(1) + ":/" + m_abs.group(2).replace("\\", "/"))
+            root = REPO.as_posix()
+            if drive_rel.lower().startswith(root.lower() + "/"):
+                out.append(drive_rel[len(root) + 1:])
+            else:
+                tally["absolute (outside the repo)"] += 1
+            continue
+        if t.startswith("/") or t.startswith("\\\\"):
+            tally["absolute (outside the repo)"] += 1
             continue
         if re.match(r"^out[\\/]", t) or "/out/" in t or "\\out\\" in t:
-            continue
+            if not first_positional:
+                tally["out/"] += 1
+                continue
         if not re.search(r"[\\/]", t):
+            if first_positional:
+                out.append(t)
+            else:
+                tally["no separator"] += 1
             continue
         norm = t[2:] if t.startswith("./") else t
         if norm.startswith(".."):
-            out.append(t)                     # escapes the repo -> can never be tracked
-            continue
-        first = re.split(r"[\\/]", norm)[0]
-        if first not in top:
+            out.append(t)  # escapes the repository -> can never be tracked
             continue
         out.append(t)
-    return out
+    return out, tally
 
 
 def evidence(evidence_dir: Path) -> int:
@@ -242,7 +279,7 @@ def evidence(evidence_dir: Path) -> int:
     if not files:
         print(f"no evidence .txt files under {evidence_dir}")
         return 2
-    checked = failed = total_paths = 0
+    checked = failed = total_paths = skipped_total = 0
     for f in files:
         lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
         cmds = [l.split(":", 1)[1].strip() for l in lines if l.lower().startswith("cmd:")]
@@ -252,19 +289,29 @@ def evidence(evidence_dir: Path) -> int:
         checked += 1
         bad: list[str] = []
         n = 0
+        tally: dict = {}
         for c in cmds:
-            for p in _input_paths(c):
+            paths, t = _input_paths(c)
+            for k, v in t.items():
+                tally[k] = tally.get(k, 0) + v
+                skipped_total += v
+            for p in paths:
                 n += 1
                 total_paths += 1
                 if not _tracked(p):
                     bad.append(p)
         state = "OK" if not bad else f"NOT-IN-REPO {len(bad)}"
-        print(f"  {f.name}: {len(cmds)} cmd line(s), {n} input path(s) -> {state}")
+        skipped = ", ".join(f"{v} {k}" for k, v in sorted(tally.items()) if v)
+        print(f"  {f.name}: {len(cmds)} cmd line(s), {n} input path(s) -> {state}"
+              f"{'   [skipped: ' + skipped + ']' if skipped else ''}")
         for p in bad:
             print(f"      not tracked by git: {p}")
         failed += len(bad)
     print(f"evidence: {checked} file(s) with `cmd:` lines, {total_paths} input path(s), "
           f"{failed} not tracked by git")
+    if skipped_total:
+        print("  note: tokens skipped above are NOT inputs (flags, the program, -o targets, bare file "
+              "names); they are printed so the count is not read as full coverage")
     return 1 if failed else 0
 
 

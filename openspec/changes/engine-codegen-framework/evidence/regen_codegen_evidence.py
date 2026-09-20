@@ -90,10 +90,34 @@ CONTENT = [
     ("9.55d a parenthesis inside a string in an earlier marker must not abandon every marker",
      f"{FIX}/paren_in_string.h", "ParenStr", ["--emit-serialization"], "count=s.serialize(obj.=2"),
     ("9.55e a type that is only DECLARED must not be emitted with zero fields",
-     f"{FIX}/only_declared.h", "OnlyDeclared", ["--emit-reflection"], "no-artifact"),
+     f"{FIX}/only_declared.h", "OnlyDeclared", ["--emit-reflection"], "refuse-no-artifact"),
     ("9.55e2 control: a REGISTERED type that is only declared must be refused",
      f"{FIX}/only_declared_registered.h", "OnlyDeclared", ["--emit-reflection"],
      "refuse-no-artifact"),
+    ("9.57a an annotation inside a disabled #if 0 branch must not count as an annotation",
+     f"{FIX}/ifzero.h", "Evil", ["--emit-serialization"], "no-artifact"),
+    ("9.57b an annotation under an #ifdef of a name defined nowhere must not count",
+     f"{FIX}/ifdef_fake.h", "IfDef", ["--emit-serialization"], "no-artifact"),
+    ("9.57c control: the else branch of a disabled #if IS active and its annotation counts",
+     f"{FIX}/ifzero_else.h", "ElseOk", ["--emit-serialization"], "count=s.serialize(obj.=2"),
+    ("9.57d the `class` of `enum class` must not consume the annotation",
+     f"{FIX}/enumclass.h", "Key", ["--emit-serialization"], "count=s.serialize(obj.=2"),
+    ("9.57e an attribute before the type name must not become the type name",
+     f"{FIX}/attributes.h", "Aligned", ["--emit-serialization"], "count=s.serialize(obj.=2"),
+    ("9.57f an export macro before the type name must not become the type name",
+     f"{FIX}/attributes.h", "Exported", ["--emit-serialization"], "count=s.serialize(obj.=2"),
+    ("9.57g a function-local struct of the same name must not be pooled with the global one",
+     f"{FIX}/local_shadow.h", "Foo", ["--emit-serialization"], "count=s.serialize(obj.=2"),
+    ("9.57h an annotation on a DECLARATION must not travel to the next type",
+     f"{FIX}/leak_declared.h", "Victim", ["--emit-serialization"], "exit-nonzero"),
+    ("9.57i the annotated but only-declared type itself must be refused",
+     f"{FIX}/leak_declared.h", "Declared", ["--emit-serialization"], "refuse-no-artifact"),
+    ("9.57j a string-borne CA_REFLECTION spelling must not count as an annotation",
+     f"{FIX}/string_refl.h", "StrRefl", ["--emit-reflection"], "no-artifact"),
+    ("9.57k a string-borne CA_CODEGEN_REGISTER spelling must not register anything",
+     f"{FIX}/string_register.h", "Ghost", ["--emit-serialization"], "no-artifact"),
+    ("9.57l control: a real registration of a fully defined type still works",
+     f"{FIX}/register_definition.h", "RegOK", ["--emit-reflection"], "count=fieldCount = 2=1"),
     ("9.55f an unmarked type after a definition split over three lines must be refused",
      f"{FIX}/split_definition.h", "Split1", ["--emit-serialization"], "exit-nonzero"),
     ("control: EmitSample serialization emits 4 member calls", "Tools/CodeGen/TestEmit.h",
@@ -217,8 +241,8 @@ def render(meta: dict, results: list[dict]) -> str:
                 lines.append("  (empty)")
         if r["artifact"]:
             body = r["body"].splitlines()
-            lines.append(f"artifact body (first {min(40, len(body))} of {len(body)} lines):")
-            for line in body[:40]:
+            lines.append(f"artifact body (first {min(12, len(body))} of {len(body)} lines):")
+            for line in body[:12]:
                 lines.append("  " + line)
         lines.append("")
     passed = sum(1 for r in results if r["verdict"].startswith("PASS"))

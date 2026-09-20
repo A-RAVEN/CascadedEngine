@@ -24,6 +24,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -56,6 +57,14 @@ namespace
         CXCursorKind kind = clang_getCursorKind(cursor);
         if (kind == CXCursor_StructDecl || kind == CXCursor_ClassDecl)
         {
+            // Task 9.57: only types declared at namespace scope (or at file scope) are candidates. The
+            // visitor recurses into functions, so a helper struct declared INSIDE a function used to be
+            // pooled with the namespace-level type of the same name; the tool then emitted the local
+            // struct's member list for the annotated global type (measured: `Foo 1 / field inner` for a
+            // global `Foo { int a; int b; }` that carried the annotation).
+            const CXCursorKind parentKind = clang_getCursorKind(clang_getCursorSemanticParent(cursor));
+            if (parentKind != CXCursor_TranslationUnit && parentKind != CXCursor_Namespace)
+                return CXChildVisit_Continue;
             CXString spelling = clang_getCursorSpelling(cursor);
             ctx->out->emplace_back(clang_getCString(spelling), cursor);
             clang_disposeString(spelling);
@@ -189,7 +198,123 @@ namespace
         std::string codeOnly;
     };
 
-    SourceViews stripText(const std::string& text)
+    /** Task 9.57: text inside an INACTIVE preprocessor branch is not code either.
+        The comment/literal blanker (tasks 9.54/9.55) had no notion of preprocessor conditionals, so an
+        annotation written under `#if 0` counted as a real annotation and an unmarked type received a
+        generated serializer (measured on the 9.55 binary, blob 206a605: `#if 0 ... CA_REFLECT(serializable)
+        ... #endif` above an unmarked struct -> exit 0 with a specialization).
+
+        Only conditions that are DECIDABLE from the file text plus the -D flags on the command line are
+        decided; anything else (`#if SOME_MACRO`) leaves its branch treated as code, which can only make
+        the tool more conservative, never silently drop a real annotation. Names introduced by an active
+        `#define` are folded in as the scan walks forward. */
+    void blankInactivePreprocessor(SourceViews& v, const std::string& text,
+                                   const std::set<std::string>& cliDefines)
+    {
+        struct Level
+        {
+            bool known  = true;  // was the condition decidable?
+            bool active = false; // is the current branch active?
+            bool taken  = false; // has an active branch already been chosen in this chain?
+        };
+        std::set<std::string> defined = cliDefines;
+        std::vector<Level> stack;
+        const auto regionActive = [&stack] {
+            for (const Level& l : stack)
+                if (l.known && !l.active)
+                    return false;
+            return true;
+        };
+        const auto firstWord = [](const std::string& s) {
+            std::size_t a = 0;
+            while (a < s.size() && std::isspace(static_cast<unsigned char>(s[a]))) ++a;
+            std::size_t b = a;
+            while (b < s.size() && (std::isalnum(static_cast<unsigned char>(s[b])) || s[b] == '_')) ++b;
+            return s.substr(a, b - a);
+        };
+
+        std::size_t pos = 0;
+        while (pos < text.size())
+        {
+            const std::size_t nl      = text.find('\n', pos);
+            const std::size_t lineEnd = (nl == std::string::npos) ? text.size() : nl;
+            std::size_t p = pos;
+            while (p < lineEnd && (text[p] == ' ' || text[p] == '\t' || text[p] == '\r')) ++p;
+            const bool blankThisLine = !regionActive();
+
+            if (p < lineEnd && text[p] == '#')
+            {
+                std::size_t d = p + 1;
+                while (d < lineEnd && (text[d] == ' ' || text[d] == '\t')) ++d;
+                const std::size_t ds = d;
+                while (d < lineEnd && std::isalpha(static_cast<unsigned char>(text[d]))) ++d;
+                const std::string dir  = text.substr(ds, d - ds);
+                const std::string rest = trim(text.substr(d, lineEnd - d));
+
+                if (dir == "if" || dir == "ifdef" || dir == "ifndef")
+                {
+                    Level l;
+                    if (dir == "ifdef")
+                        l.active = defined.count(firstWord(rest)) > 0;
+                    else if (dir == "ifndef")
+                        l.active = defined.count(firstWord(rest)) == 0;
+                    else if (rest == "0")
+                        l.active = false;
+                    else if (rest == "1")
+                        l.active = true;
+                    else
+                        l.known = false; // undecidable here: keep the branch as code
+                    l.taken = l.active || !l.known;
+                    stack.push_back(l);
+                }
+                else if (dir == "elif")
+                {
+                    if (!stack.empty())
+                    {
+                        Level& l = stack.back();
+                        if (!l.known)           { l.active = true; }
+                        else if (l.taken)       { l.active = false; }
+                        else if (rest == "0")   { l.active = false; }
+                        else if (rest == "1")   { l.active = true; l.taken = true; }
+                        else                    { l.known = false; l.active = true; }
+                    }
+                }
+                else if (dir == "else")
+                {
+                    if (!stack.empty())
+                    {
+                        Level& l = stack.back();
+                        if (!l.known)     l.active = true;
+                        else if (l.taken) l.active = false;
+                        else              { l.active = true; l.taken = true; }
+                    }
+                }
+                else if (dir == "endif")
+                {
+                    if (!stack.empty()) stack.pop_back();
+                }
+                else if (dir == "define" && regionActive())
+                {
+                    defined.insert(firstWord(rest));
+                }
+                else if (dir == "undef" && regionActive())
+                {
+                    defined.erase(firstWord(rest));
+                }
+            }
+
+            if (blankThisLine)
+            {
+                for (std::size_t k = pos; k < lineEnd; ++k)
+                    if (text[k] != '\n' && text[k] != '\r')
+                        v.noComments[k] = v.codeOnly[k] = ' ';
+            }
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+    }
+
+    SourceViews stripText(const std::string& text, const std::set<std::string>& cliDefines = {})
     {
         SourceViews v{ text, text };
         bool inLine = false, inBlock = false;
@@ -264,6 +389,7 @@ namespace
                 continue;
             }
         }
+        blankInactivePreprocessor(v, text, cliDefines);
         return v;
     }
 
@@ -302,49 +428,64 @@ namespace
         return markers;
     }
 
-    /** Task 9.55: where each named `struct`/`class` DEFINITION starts (offset of the keyword).
+    /** Task 9.55 + 9.57: where each `struct`/`class` type INTRODUCER starts, and whether it introduces a
+        definition or only a declaration.
 
-        The old code decided "is this line a definition?" with a same-line text heuristic (`{` before `;`
-        on that line), so a definition written as `struct` / name / `{ ... };` on three lines matched
-        nothing and the marker leaked past it to the next type (measured: an unmarked type inherited the
-        previous type's `serializable`). Deciding it by scanning forward from the NAME for a `{` before
-        the next `;` needs no line structure at all. */
-    struct DefinitionStart
+        Two defects of the first version (both measured on the 9.55 binary, blob 206a605):
+          * it took the identifier IMMEDIATELY after the keyword as the type name, so an attribute or an
+            export macro in between (`struct alignas(8) Aligned`, `struct CA_FAKE_API Exported`) produced a
+            phantom type named `alignas` / `CA_FAKE_API`: the marker bound to the phantom and the real,
+            correctly annotated type was refused as "not annotated";
+          * it looked for the literal tokens `struct`/`class` anywhere, so the `class` of `enum class Color`
+            became a phantom definition that ate the marker of the type below it.
+        The name is now the LAST identifier before the body brace, the base-clause colon or the semicolon
+        (contextual keywords are skipped), `([[ ... ]])` and `(...)` groups are stepped over, and an
+        `enum struct` / `enum class` is not a type introducer.
+
+        Declarations are returned as well: an annotation followed by `struct X;` belongs to X, not to the
+        next definition (measured: the marker leaked past the declaration and an UNMARKED type received a
+        specialization). */
+    struct TypeIntroducer
     {
         std::size_t offset;
         std::string name;
+        bool        isDefinition;
     };
 
-    std::vector<DefinitionStart> findDefinitionStarts(const std::string& code)
+    std::vector<TypeIntroducer> findTypeIntroducers(const std::string& code)
     {
-        std::vector<DefinitionStart> out;
+        std::vector<TypeIntroducer> out;
+        const auto isWordChar = [](char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+        };
         for (const char* kw : { "struct", "class" })
         {
             const std::size_t len = std::strlen(kw);
             for (std::size_t m = code.find(kw); m != std::string::npos; m = code.find(kw, m + len))
             {
-                if (m > 0 && (std::isalnum(static_cast<unsigned char>(code[m - 1])) || code[m - 1] == '_'))
+                if (m > 0 && isWordChar(code[m - 1]))
                     continue; // e.g. `mystruct`
                 if (m > 0 && code[m - 1] == ':')
-                    continue; // `enum struct` / qualified use
-                std::size_t s = m + len;
-                while (s < code.size() && (code[s] == ' ' || code[s] == '\t' || code[s] == '\n' || code[s] == '\r'))
-                    ++s;
-                std::size_t e = s;
-                while (e < code.size() &&
-                       (std::isalnum(static_cast<unsigned char>(code[e])) || code[e] == '_'))
-                    ++e;
-                if (e == s)
-                    continue; // anonymous struct/union: no name to bind
-                const std::string name = code.substr(s, e - s);
-                // Definition? Scan forward; skip any parenthesised attribute / macro argument list.
-                bool isDefinition = false;
-                for (std::size_t k = e; k < code.size(); ++k)
+                    continue; // `::struct` is not a thing, but `: struct` in a base clause is handled below
+                // `enum struct` / `enum class`: look back over whitespace for the preceding word.
+                {
+                    std::size_t b = m;
+                    while (b > 0 && std::isspace(static_cast<unsigned char>(code[b - 1]))) --b;
+                    std::size_t a = b;
+                    while (a > 0 && isWordChar(code[a - 1])) --a;
+                    if (code.substr(a, b - a) == "enum")
+                        continue;
+                }
+
+                std::string name;
+                std::size_t k        = m + len;
+                bool        isDefinition = false;
+                bool        done     = false;
+                while (k < code.size() && !done)
                 {
                     const char ch = code[k];
-                    if (ch == '{') { isDefinition = true; break; }
-                    if (ch == ';' || ch == '}') break;
-                    if (ch == '(')
+                    if (std::isspace(static_cast<unsigned char>(ch))) { ++k; continue; }
+                    if (ch == '(') // macro / attribute argument list (e.g. __declspec(dllexport))
                     {
                         int d = 1;
                         for (++k; k < code.size() && d > 0; ++k)
@@ -352,33 +493,55 @@ namespace
                             if (code[k] == '(') ++d;
                             else if (code[k] == ')') --d;
                         }
-                        --k;
+                        continue;
                     }
+                    if (ch == '[' && k + 1 < code.size() && code[k + 1] == '[') // [[...]] attribute
+                    {
+                        const std::size_t close = code.find("]]", k + 2);
+                        k = (close == std::string::npos) ? code.size() : close + 2;
+                        continue;
+                    }
+                    if (ch == '{') { isDefinition = true; done = true; continue; }
+                    if (ch == ';' || ch == '}' || ch == ':') { done = true; continue; }
+                    if (isWordChar(ch))
+                    {
+                        std::size_t e = k;
+                        while (e < code.size() && isWordChar(code[e])) ++e;
+                        const std::string word = code.substr(k, e - k);
+                        // Contextual keywords that may follow the type name.
+                        if (word != "final" && word != "sealed")
+                            name = word;
+                        k = e;
+                        continue;
+                    }
+                    ++k; // anything else (e.g. `=` in a defaulted template arg): step over
                 }
-                if (isDefinition)
-                    out.push_back({ m, name });
+                if (name.empty())
+                    continue; // anonymous struct/union: nothing to bind by name
+                out.push_back({ m, name, isDefinition });
             }
         }
         std::sort(out.begin(), out.end(),
-                  [](const DefinitionStart& a, const DefinitionStart& b) { return a.offset < b.offset; });
+                  [](const TypeIntroducer& a, const TypeIntroducer& b) { return a.offset < b.offset; });
         return out;
     }
 
-    /** Marker -> definition binding, by OFFSET rather than by line. Each marker binds to the FIRST
-        definition that starts after its closing ')'; the nearest marker before a definition wins; a
-        definition of a different type consumes the marker, so it cannot leak to the next one. */
+    /** Marker -> introducer binding, by OFFSET rather than by line. Each marker binds to the FIRST
+        `struct`/`class` introducer (declaration or definition) that starts after its closing ')'; the
+        nearest marker before an introducer wins; an introducer of a different type consumes the marker,
+        so it cannot leak to the next one. */
     std::map<std::string, std::string> bindMarkersToTypes(const std::string& code /* = codeOnly view */)
     {
-        std::map<std::string, std::string> bound; // definition name -> option text
+        std::map<std::string, std::string> bound; // type name -> option text
         const auto markers = collectMarkers(code);
-        const auto defs    = findDefinitionStarts(code);
+        const auto types   = findTypeIntroducers(code);
         for (const auto& mk : markers)
         {
-            for (const auto& d : defs)
+            for (const auto& t : types)
             {
-                if (d.offset > mk.first)
+                if (t.offset > mk.first)
                 {
-                    bound[d.name] = mk.second;
+                    bound[t.name] = mk.second;
                     break;
                 }
             }
@@ -703,18 +866,26 @@ namespace
 
     std::vector<std::string> buildWhitelist(const SourceViews& views)
     {
-        const std::string& text = views.noComments; // the register channel needs string CONTENTS intact
+        // Task 9.57: the SPELLING of a discovery macro must be looked for in the literal-blanked view, so
+        // that a macro name inside a string literal does not create an annotation. The register channel
+        // still reads the quoted name out of the comment-only view, at the offset where the spelling was
+        // found — the two views have identical length and offsets (this was measured: a
+        // CA_REFLECTION(...) spelling inside a string produced a reflection table with two members for a
+        // three-member type, and dropped the third member silently).
+        const std::string& spellings = views.codeOnly;
+        const std::string& text      = views.noComments;
         std::vector<std::string> wl;
         std::size_t pos = 0;
         while (pos < text.size())
         {
             std::size_t nl = text.find('\n', pos);
             const std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+            const std::string lineSpell = spellings.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
 
             // (a) CA_CODEGEN_REGISTER("QualifiedName")
             {
                 const char* mk = "CA_CODEGEN_REGISTER(";
-                std::size_t m = line.find(mk);
+                std::size_t m = lineSpell.find(mk);
                 if (m != std::string::npos)
                 {
                     std::size_t open = m + std::strlen(mk);
@@ -736,7 +907,7 @@ namespace
             // (c) CA_REFLECTION(Type, a, b)
             {
                 const char* mk = "CA_REFLECTION(";
-                std::size_t m = line.find(mk);
+                std::size_t m = lineSpell.find(mk);
                 if (m != std::string::npos)
                 {
                     std::size_t open = m + std::strlen(mk);
@@ -756,8 +927,8 @@ namespace
             pos = nl + 1;
         }
 
-        // (b) CA_REFLECT(...) -- task 9.55: the annotated type is whatever definition the marker binds
-        // to, decided by OFFSET on the comment-and-literal-blanked view. The old version walked the lines
+        // (b) CA_REFLECT(...) -- tasks 9.55/9.57: the annotated type is whatever type introducer the
+        // marker binds to, decided by OFFSET on the literal-blanked view. The old version walked the lines
         // after the marker line looking for `struct`/`class` with a same-line name, so a definition split
         // across lines was missed entirely and the marker leaked to the next type.
         for (const auto& kv : bindMarkersToTypes(views.codeOnly))
@@ -835,11 +1006,25 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "CodeGen: cannot read '%s'\n", filePath);
         return 2;
     }
-    // Task 9.54 + 9.55: two views of the source, both with comments blanked; `codeOnly` additionally
-    // blanks the inside of string and char literals. A marker named only inside a comment or a string
-    // must not count as an annotation, a stray parenthesis in either must not unbalance the marker scan,
-    // and a literal containing `/*` must not be able to delete a real annotation.
-    const SourceViews views = stripText(source);
+    // Task 9.54 + 9.55 + 9.57: two views of the source, both with comments and INACTIVE preprocessor
+    // branches blanked; `codeOnly` additionally blanks the inside of string and char literals. A marker
+    // named only inside a comment, a string or a disabled `#if` branch must not count as an annotation, a
+    // stray parenthesis in any of them must not unbalance the marker scan, and a literal containing the
+    // block-comment opener must not be able to delete a real annotation.
+    // Task 9.57: names defined on the command line count as defined for `#ifdef` / `#ifndef`.
+    std::set<std::string> cliDefines;
+    for (const char* a : clangArgs)
+    {
+        const std::string s = a;
+        if (s.rfind("-D", 0) == 0 && s.size() > 2)
+        {
+            std::string name = s.substr(2);
+            const std::size_t eq = name.find('=');
+            if (eq != std::string::npos) name = name.substr(0, eq);
+            cliDefines.insert(name);
+        }
+    }
+    const SourceViews views = stripText(source, cliDefines);
     const std::vector<std::string> whitelist = buildWhitelist(views);
     if (whitelist.empty())
     {
@@ -915,7 +1100,7 @@ int main(int argc, char** argv)
     // unmigrated-engine + external transition channel), emit a fields-ONLY declaration-order table
     // from the macro's member list. This never edits the type and needs no libclang.
     {
-        std::vector<std::string> members = scanCA_REFLECTIONList(views.noComments, typeName);
+        std::vector<std::string> members = scanCA_REFLECTIONList(views.codeOnly, typeName);
         if (!members.empty())
         {
             const std::string qname = qualifiedNameOverride.empty() ? typeName : qualifiedNameOverride;
