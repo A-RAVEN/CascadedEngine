@@ -54,3 +54,10 @@ CodeGen serialization roundtrip PASSED (task 6.1)
 CodeGen serialization test PASSED (task 6.1)
 CodeGen hash/equality test PASSED (task 6.2)
 CodeGen hash test PASSED (task 6.2)
+
+
+== 9.48 附注（2026-09-13）==
+本文件原本只落了**新判据**在倒序状态下的输出（`ORDER FAILED` + `roundtrip=1 orderOk=0 bytes=17`）。
+**旧判据（总字节数 == 4+4+1+8 与局部常量 `fieldCount == 4`）在该状态下的绿态是推导出来的、未落盘** ——
+推导依据：倒序发射不改变总字节数，且 `roundtrip=1` 已由同一次运行证实，故旧判据两个合取项都为真。
+**明写：该绿态未实测**，不得当作已测证据引用。

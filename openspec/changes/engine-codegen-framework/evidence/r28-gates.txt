@@ -1,0 +1,38 @@
+# r28 gate verification (9.42 / 9.43) ? AFTER state, 2026-09-20 11:22:54
+# BEFORE-state measurements for the same commands are recorded in tasks.md 9.42/9.43 (from the 9.35 adversarial review).
+
+### 9.42a forward decl first + marked type
+cmd: CodeGen.exe .review_tmp/probe/fwd_then_marker.h Same -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\o1.h
+exit: 0
+artifact: True
+stderr: 
+
+### 9.42b nonserializable
+cmd: CodeGen.exe .review_tmp/probe/nonserializable.h NoSer2 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\o2.h
+exit: 9
+artifact: False
+stderr: CodeGen: refusing --emit-serialization for 'audit_ns::NoSer2' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'nonserializable'). Add `serializable` to the marker, or emit reflection only.
+
+### 9.42c serializable only inside a comment
+cmd: CodeGen.exe .review_tmp/probe/comment_mention.h NoSer4 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\o3.h
+exit: 9
+artifact: False
+stderr: CodeGen: refusing --emit-serialization for 'audit_ns::NoSer4' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'ui /* serializable */'). Add `serializable` to the marker, or emit reflection only.
+
+### 9.42 control: real serializable option
+cmd: CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\o4.h
+exit: 0
+artifact: True
+stderr: 
+
+### 9.43a text channel: reflection + serialization
+cmd: CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\probe\o5.h
+exit: 8
+artifact: False
+stderr: CodeGen: the CA_REFLECTION text channel does not support --emit-serialization — it carries member names only (no types/kinds), so the generated code would be unsound. Use --emit-reflection for this channel, or annotate the type with CA_REFLECT.
+
+### 9.43b AST path: serialization + hash
+cmd: CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization --emit-hash -o E:\Projects\CascadedEngine\.review_tmp\probe\o6.h
+exit: 10
+artifact: False
+stderr: CodeGen: refusing — 2 emitter flags in one run; --emit-reflection / --emit-serialization / --emit-hash are mutually exclusive per invocation. Invoke the tool once per emitter (build.py already does).

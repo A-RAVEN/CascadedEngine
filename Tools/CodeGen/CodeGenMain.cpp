@@ -124,6 +124,42 @@ namespace
         return s.substr(a, b - a + 1);
     }
 
+    /** Task 9.42: a marker option must be matched as a WHOLE option. The old check was
+        `opts.find("serializable")`, which also accepted `nonserializable` and a mention inside a
+        comment — i.e. the gate could be satisfied without asking for serialization at all.
+        Comments are stripped, options are split on commas, and the part before `=` is compared. */
+    bool hasMarkerOption(const std::string& options, const std::string& want)
+    {
+        std::string s;
+        bool inLine = false, inBlock = false;
+        for (std::size_t i = 0; i < options.size(); ++i)
+        {
+            const char c = options[i];
+            const char n = (i + 1 < options.size()) ? options[i + 1] : '\0';
+            if (inLine) { if (c == '\n') inLine = false; continue; }
+            if (inBlock) { if (c == '*' && n == '/') { inBlock = false; ++i; } continue; }
+            if (c == '/' && n == '/') { inLine = true; ++i; continue; }
+            if (c == '/' && n == '*') { inBlock = true; ++i; continue; }
+            s.push_back(c);
+        }
+        std::size_t start = 0;
+        while (start <= s.size())
+        {
+            const std::size_t comma = s.find(',', start);
+            std::string tok = trim(s.substr(
+                start, comma == std::string::npos ? std::string::npos : comma - start));
+            const std::size_t eq = tok.find('=');
+            if (eq != std::string::npos)
+                tok = trim(tok.substr(0, eq));
+            if (tok == want)
+                return true;
+            if (comma == std::string::npos)
+                break;
+            start = comma + 1;
+        }
+        return false;
+    }
+
     std::string scanMarkerOptions(const std::string& text, const std::string& typeName)
     {
         const char* marker = "CA_REFLECT(";
@@ -144,11 +180,31 @@ namespace
                 if (close != std::string::npos)
                     currentMarker = trim(l.substr(open, close - open));
             }
-            // type declaration reached (nearest preceding marker wins)?
-            if (l.find("struct " + typeName) != std::string::npos ||
-                l.find("class " + typeName) != std::string::npos)
+            // Type DEFINITION reached (nearest preceding marker wins). Task 9.42: a FORWARD declaration
+            // (`struct Foo;`) must NOT bind — binding to it returned an empty marker and made the
+            // `serializable` gate refuse a type that IS marked (measured: forward decl above the marker
+            // → exit 9 "marker options seen: ''").
+            const bool mentionsType = l.find("struct " + typeName) != std::string::npos ||
+                                      l.find("class " + typeName) != std::string::npos;
+            if (mentionsType)
             {
-                return trim(currentMarker);
+                // A FORWARD declaration is the only thing that must not bind (`struct Foo;`). Everything
+                // else — `struct Foo {`, `struct Foo` with the brace on the NEXT line, `struct Foo : Base`
+                // — is the definition. (First attempt required a `{` on the same line, which broke the
+                // K&R style used by the fixtures: the marker read back empty and the build-time golden
+                // compare for the serialization emitter failed immediately.)
+                const std::size_t brace = l.find('{');
+                const std::size_t semi  = l.find(';');
+                const bool declarationOnly =
+                    (semi != std::string::npos) && (brace == std::string::npos || semi < brace);
+                // Bind ONLY when a marker has already been seen. Otherwise keep scanning: the mention may
+                // be a forward declaration on a line where the line-level heuristic misfires (measured:
+                // `namespace x { struct Same; }` puts the brace BEFORE the semicolon, so it looked like a
+                // definition and bound an EMPTY marker → the `serializable` gate then refused a type that
+                // IS marked). With no marker seen yet there is nothing to bind anyway.
+                if (!declarationOnly && !currentMarker.empty())
+                    return trim(currentMarker);
+                // else: a forward declaration — keep scanning; the marker may still follow it
             }
             if (nl == std::string::npos)
                 break;
@@ -703,6 +759,20 @@ int main(int argc, char** argv)
         if (!members.empty())
         {
             const std::string qname = qualifiedNameOverride.empty() ? typeName : qualifiedNameOverride;
+            // Task 9.30 + 9.43: this channel supports ONLY --emit-reflection. Any request that includes
+            // serialization/hash is refused. The check must come FIRST: with `--emit-reflection
+            // --emit-serialization` the reflection branch used to return before it, so the unsupported
+            // flag was silently dropped and the run still exited 0.
+            if (emitSerialization || emitHash)
+            {
+                std::fprintf(stderr,
+                    "CodeGen: the CA_REFLECTION text channel does not support %s — it carries member "
+                    "names only (no types/kinds), so the generated code would be unsound. Use "
+                    "--emit-reflection for this channel, or annotate the type with CA_REFLECT.\n",
+                    emitHash ? "--emit-hash" : "--emit-serialization");
+                abortOut();
+                return 8;
+            }
             if (emitReflection)
             {
                 // For this channel only the member NAMES are known, so offset comes from offsetof at
@@ -715,20 +785,6 @@ int main(int argc, char** argv)
                 if (!commitOut())
                     return 7; // nothing to dispose yet: the text channel runs before the index exists
                 return 0;
-            }
-            // Task 9.30: the text channel carries member NAMES only — no types, no kinds — so it cannot
-            // feed the serialization/hash emitters honestly (a generated hash could not tell a float
-            // from a double, so it could not normalize either). Before this it printed the table, wrote
-            // NO file and still exited 0: a silent no-op that a caller could mistake for success.
-            if (emitSerialization || emitHash)
-            {
-                std::fprintf(stderr,
-                    "CodeGen: the CA_REFLECTION text channel does not support %s — it carries member "
-                    "names only (no types/kinds), so the generated code would be unsound. Use "
-                    "--emit-reflection for this channel, or annotate the type with CA_REFLECT.\n",
-                    emitHash ? "--emit-hash" : "--emit-serialization");
-                abortOut();
-                return 8;
             }
             std::printf("%s %zu\n", typeName, members.size());
             for (const std::string& m : members)
@@ -903,6 +959,24 @@ int main(int argc, char** argv)
         return 5;
     }
 
+    // Task 9.43: exactly one emitter per run. Before this, `--emit-serialization --emit-hash` emitted
+    // only the first one, dropped the other and exited 0 (measured: 1203 B, no `custom_hash_trait`).
+    {
+        const int emitterCount = (emitReflection ? 1 : 0) + (emitSerialization ? 1 : 0) + (emitHash ? 1 : 0);
+        if (emitterCount > 1)
+        {
+            std::fprintf(stderr,
+                "CodeGen: refusing — %d emitter flags in one run; --emit-reflection / --emit-serialization "
+                "/ --emit-hash are mutually exclusive per invocation. Invoke the tool once per emitter "
+                "(build.py already does).\n",
+                emitterCount);
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 10;
+        }
+    }
+
     // Task 9.31: the `serializable` marker option is what the design says gates this emitter
     // ("only types marked `serializable` get serialization code"). It was never read: ANY annotated type
     // got a `CodeGenSerializer<T>` specialization, so the documented gate did not exist. Read the
@@ -910,7 +984,7 @@ int main(int argc, char** argv)
     if (emitSerialization)
     {
         const std::string opts = scanMarkerOptions(source, typeName);
-        if (opts.find("serializable") == std::string::npos)
+        if (!hasMarkerOption(opts, "serializable"))
         {
             std::fprintf(stderr,
                 "CodeGen: refusing --emit-serialization for '%s' — the type's CA_REFLECT marker does not "
