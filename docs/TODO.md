@@ -125,7 +125,7 @@
 
 ## [2026-09-01] 观测 Vulkan IMGUI 多窗口副窗偏移——逐窗口回读 RT（新增捕获能力）｜✅已解决
 
-**状态：已解决（2026-09-02，`fix-vulkan-dedup-key-identity` 修复并归档 → `openspec/changes/archive/2026-09-02-fix-vulkan-dedup-key-identity/`，commit `41ffdbd`）**
+**状态：已解决（2026-09-02，`fix-vulkan-dedup-key-identity` 修复并归档 → `openspec/changes/archive/2026-09-02-fix-vulkan-dedup-key-identity/`，commit `c3cbc49`）**
 
 > 本条记录"观测能力 + 根因定位"全过程（含多轮证伪）。根因已被上述 change 以内容键修复，下列细节保留供追溯，非新待办。
 

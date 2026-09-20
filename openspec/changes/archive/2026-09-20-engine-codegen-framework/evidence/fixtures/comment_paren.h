@@ -4,7 +4,7 @@
 // parenthesis, and that parenthesis is never closed inside the comment. The struct below IS properly
 // annotated on one line, so it must be accepted.
 //
-// Measured on the 035a795 binary before the fix: the balanced-parenthesis collector started at the
+// Measured on the caa8643 binary before the fix: the balanced-parenthesis collector started at the
 // occurrence inside this comment, ran to the end of the file without ever balancing, and gave up
 // entirely -- so the real annotation was never collected, the option list read back empty, and the
 // tool refused a type that is annotated (exit 9). After the fix the comment bytes are blanked out

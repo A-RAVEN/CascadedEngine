@@ -10,7 +10,7 @@
 #
 # The BEFORE section is a measurement on a HISTORICAL binary; the rebuild recipe, the full binary table and
 # the honesty boundary (measured executable hash, declared binary-to-revision link, B4/B5/B6 not rebuildable
-# from the repository) are in `r28-gates.txt`, same header. B0 = Tools/CodeGen/CodeGenMain.cpp at 9ee7278,
+# from the repository) are in `r28-gates.txt`, same header. B0 = Tools/CodeGen/CodeGenMain.cpp at ac2cb3b,
 # before the 9.30/9.31 gates existed. B7 = the current binary.
 #
 # Expectations are the POST-FIX ones, so a FAIL verdict in the BEFORE section IS the red state.
@@ -26,16 +26,16 @@
 #
 # ==================== set=r26 — tasks 9.30 and 9.31 ====================
 
-### BEFORE - B0 (9ee7278): neither gate exists yet
+### BEFORE - B0 (ac2cb3b): neither gate exists yet
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
-binary: .review_tmp/step7/bin9ee7278/CodeGen.exe
+binary: .review_tmp/step7/binac2cb3b/CodeGen.exe
 binary sha256: 13a8d5d29a783eee71b6fbf8c721b47892de9ce22964454237ab932cf9311543
-built from (DECLARED by the operator, not measured by this script): B0 = 9ee7278, blob f1a4223 (before the 9.30/9.31 gates existed)
-measured source blob of 9ee7278: f1a4223ad47d26b191e43660b659ce20d5986a6e
+built from (DECLARED by the operator, not measured by this script): B0 = ac2cb3b, blob f1a4223 (before the 9.30/9.31 gates existed)
+measured source blob of ac2cb3b: f1a4223ad47d26b191e43660b659ce20d5986a6e
 worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: be72785b57cd0c956552483fbe8c9ad99a35c685
 
 --- 9.30 text channel + --emit-serialization
-cmd: .review_tmp/step7/bin9ee7278/CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
+cmd: .review_tmp/step7/binac2cb3b/CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
 exit: 0
 artifact: False
 verdict: FAIL
@@ -47,7 +47,7 @@ stderr:
   (empty)
 
 --- 9.31 annotation without the serializable option + --emit-serialization
-cmd: .review_tmp/step7/bin9ee7278/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/uisample.h NoSer -I CACore/header -I Tools/CodeGen --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
+cmd: .review_tmp/step7/binac2cb3b/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/uisample.h NoSer -I CACore/header -I Tools/CodeGen --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -70,7 +70,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- control: EmitSample (carries the serializable option)
-cmd: .review_tmp/step7/bin9ee7278/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
+cmd: .review_tmp/step7/binac2cb3b/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
 exit: 0
 artifact: True
 verdict: PASS (got 4, artifact names the type: True)

@@ -1,7 +1,7 @@
 ### BEFORE - the state before task 9.62: the CA_REFLECTION channel was still decided by reading source text
 binary: .review_tmp/step7/bin959/CodeGen.exe
 binary sha256: a341222d2be4bd6a246bb2d23c7351ffa6a459a6345ce724125bbd431a9841c8
-built from (DECLARED): the 9.59 build, blob 92769e6 (the state committed as 5bafbb3)
+built from (DECLARED): the 9.59 build, blob 92769e6 (the state committed as a5f6675)
 property: an annotation the preprocessor did NOT perform must not make a type deliverable
 
 --- channel CA_REFLECT

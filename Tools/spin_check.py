@@ -16,6 +16,10 @@ Two subcommands, both designed so the FACTS come from a program instead of from 
            consumes is a TRACKED repository file. This exists because a previous evidence file recorded
            its commands against `.review_tmp/probe/*.h`, a gitignored directory: the measurements were
            real, but "a clean checkout reproduces this output" was false, and nothing said so.
+           A recorded path that the ARCHIVE MOVE relocated (`openspec/changes/<name>/…` ->
+           `openspec/changes/archive/<date>-<name>/…`) is followed to its new home and counted as
+           `relocated by archiving`, not as a failure — the command lines keep the text they were run
+           with, because editing the record so that a checker turns green is editing the measurement.
 
 Usage
 -----
@@ -33,8 +37,9 @@ by the agent as blocked/voided in the conversation; 1 when unchecked items remai
 see a reason for. The tool cannot read the agent's reasons, so it prints `still open: N` and the caller
 (and the user) decides — but the NUMBER and the LIST are the program's, not the agent's.
 
-`evidence` exit code: 0 when every recorded input path is tracked by git; 1 when at least one is not
-(typically a path under a gitignored directory, or a machine-local absolute path).
+`evidence` exit code: 0 when every recorded input path is tracked by git (at its recorded path, or at the
+path the archive move gave it); 1 when at least one is not (typically a path under a gitignored directory,
+or a machine-local absolute path).
 """
 from __future__ import annotations
 
@@ -47,13 +52,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SNAP = REPO / ".review_tmp" / "spin"
-EVIDENCE = REPO / "openspec" / "changes" / "archive" / "2026-09-20-engine-codegen-framework" / "evidence"
-TASKS = REPO / "openspec" / "changes" / "archive" / "2026-09-20-engine-codegen-framework" / "tasks.md"
+ARCHIVE = REPO / "openspec" / "changes" / "archive"
+EVIDENCE = ARCHIVE / "2026-09-20-engine-codegen-framework" / "evidence"
+TASKS = ARCHIVE / "2026-09-20-engine-codegen-framework" / "tasks.md"
 
 # Deliverable file types for THIS change (engine-codegen-framework delivers code + build glue).
 # `.txt` is included because the build glue is `CMakeLists.txt` — without it a round that ONLY edited a
 # CMakeLists.txt was reported as `deliverables changed: 0`, i.e. a false spin round (found by the 9.27
-# adversarial review; commit 1b9c6cb really did touch three CMakeLists.txt files).
+# adversarial review; commit a23b633 really did touch three CMakeLists.txt files).
 SUFFIXES = {".h", ".hpp", ".hh", ".cpp", ".cxx", ".cc", ".py", ".cmake", ".txt", ".def"}
 EXCLUDE_DIRS = {"out", ".git", ".review_tmp", ".claude", "node_modules", ".vs"}
 
@@ -170,6 +176,27 @@ def _tracked(rel: str) -> bool:
     return r.returncode == 0
 
 
+def _relocated_by_archive(rel: str) -> str | None:
+    """The tracked path a recorded input moved to when its change was archived, else None.
+
+    Archiving a finished change moves `openspec/changes/<name>/…` under
+    `openspec/changes/archive/<date>-<name>/…`. The evidence files keep their command lines exactly as
+    they were run (measured 2026-09-20: 39 distinct fixtures recorded under the pre-archive path), so the
+    gate follows the move instead of the record being rewritten to make the gate green.
+    """
+    parts = rel.replace("\\", "/").split("/")
+    if len(parts) < 4 or parts[0] != "openspec" or parts[1] != "changes" or parts[2] == "archive":
+        return None
+    tail = parts[3:]
+    for d in sorted(p for p in ARCHIVE.iterdir() if p.is_dir() and p.name.endswith("-" + parts[2])):
+        cand = d.joinpath(*tail)
+        if cand.is_file():
+            moved = cand.relative_to(REPO).as_posix()
+            if _tracked(moved):
+                return moved
+    return None
+
+
 def _input_paths(cmd_line: str) -> tuple[list[str], dict]:
     """Input paths a recorded command consumes, plus a tally of what was skipped and why.
 
@@ -279,7 +306,7 @@ def evidence(evidence_dir: Path) -> int:
     if not files:
         print(f"no evidence .txt files under {evidence_dir}")
         return 2
-    checked = failed = total_paths = skipped_total = 0
+    checked = failed = total_paths = skipped_total = relocated_total = 0
     for f in files:
         lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
         cmds = [l.split(":", 1)[1].strip() for l in lines if l.lower().startswith("cmd:")]
@@ -288,6 +315,8 @@ def evidence(evidence_dir: Path) -> int:
             continue
         checked += 1
         bad: list[str] = []
+        moved: dict[str, str] = {}
+        extra = 0
         n = 0
         tally: dict = {}
         for c in cmds:
@@ -298,17 +327,35 @@ def evidence(evidence_dir: Path) -> int:
             for p in paths:
                 n += 1
                 total_paths += 1
-                if not _tracked(p):
+                if _tracked(p):
+                    continue
+                twin = _relocated_by_archive(p)
+                if twin:
+                    relocated_total += 1
+                    if p in moved:
+                        extra += 1
+                    else:
+                        moved[p] = twin
+                else:
                     bad.append(p)
         state = "OK" if not bad else f"NOT-IN-REPO {len(bad)}"
         skipped = ", ".join(f"{v} {k}" for k, v in sorted(tally.items()) if v)
+        notes = ([f"relocated by archiving: {sum(1 for _ in moved) + extra}"] if moved else []) \
+            + ([f"skipped: {skipped}"] if skipped else [])
         print(f"  {f.name}: {len(cmds)} cmd line(s), {n} input path(s) -> {state}"
-              f"{'   [skipped: ' + skipped + ']' if skipped else ''}")
+              f"{'   [' + '; '.join(notes) + ']' if notes else ''}")
+        for old, new in list(moved.items())[:3]:
+            print(f"      relocated by archiving: {old} -> {new}")
+        if len(moved) > 3:
+            print(f"      ... and {len(moved) - 3} more relocated path(s)")
         for p in bad:
             print(f"      not tracked by git: {p}")
         failed += len(bad)
     print(f"evidence: {checked} file(s) with `cmd:` lines, {total_paths} input path(s), "
-          f"{failed} not tracked by git")
+          f"{failed} not tracked by git, {relocated_total} relocated by archiving")
+    if relocated_total:
+        print("  note: `relocated by archiving` paths were checked at their post-archive location; the "
+              "command lines keep the pre-archive text they were run with")
     if skipped_total:
         print("  note: tokens skipped above are NOT inputs (flags, the program, -o targets, bare file "
               "names); they are printed so the count is not read as full coverage")

@@ -5,8 +5,8 @@
 # names the requested type. "exit 0 and a file exists" is not, and never was, an acceptable assertion.
 #
 # Six sections, because five code states are being indicted and one section cannot isolate them:
-#   BEFORE - B2 (71c4413): the 9.42/9.43 gates exist, nothing later does.
-#   BEFORE - B3 (035a795): 9.50 landed; 9.54, 9.55, 9.57 and 9.59 did not.
+#   BEFORE - B2 (80fb96a): the 9.42/9.43 gates exist, nothing later does.
+#   BEFORE - B3 (caa8643): 9.50 landed; 9.54, 9.55, 9.57 and 9.59 did not.
 #   BEFORE - B4: plus the 9.54 fix (what the 9.55 fixes were written against).
 #   BEFORE - B5: plus the 9.54 and 9.55 fixes (what the 9.57 fixes were written against).
 #   BEFORE - B6: plus the 9.54, 9.55 and 9.57 fixes. THIS is the state the round-34 review measured: the
@@ -41,16 +41,16 @@
 #
 # ==================== set=content — tasks 9.50, 9.54, 9.55, 9.57 and 9.59 ====================
 
-### BEFORE - B2 (71c4413)
+### BEFORE - B2 (80fb96a)
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
-binary: .review_tmp/step7/bin71c4413/CodeGen.exe
+binary: .review_tmp/step7/bin80fb96a/CodeGen.exe
 binary sha256: ca77ef04eec296a4211ceaa5021633e02e0dec6ceb226e0b0be0f8b08443e0f1
-built from (DECLARED by the operator, not measured by this script): B2 = 71c4413, blob 0e9f1a4 (9.42/9.43 landed; 9.50/9.54/9.55/9.57/9.59 did not)
-measured source blob of 71c4413: 0e9f1a4d972b8b33b6b0920898660039edf005a8
+built from (DECLARED by the operator, not measured by this script): B2 = 80fb96a, blob 0e9f1a4 (9.42/9.43 landed; 9.50/9.54/9.55/9.57/9.59 did not)
+measured source blob of 80fb96a: 0e9f1a4d972b8b33b6b0920898660039edf005a8
 worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: 92769e6e433ea566da5b64fe8a7338330a969984
 
 --- 9.50a forward declaration first: field table must have 2 fields
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/fwd_then_marker.h Same -I CACore/header -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/fwd_then_marker.h Same -I CACore/header -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
 exit: 0
 artifact: False
 verdict: FAIL
@@ -61,7 +61,7 @@ stderr:
   (empty)
 
 --- 9.50b serializable = 0 must be refused
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h Zero1 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h Zero1 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -84,7 +84,7 @@ artifact body (first 12 of 30 lines):
   
 
 --- 9.50c serializable = false must be refused
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h Zero2 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h Zero2 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -107,7 +107,7 @@ artifact body (first 12 of 30 lines):
   
 
 --- 9.50d marker spanning several lines (FIRST marker in its file) must be accepted
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/multiline_marker.h ML -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case3.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/multiline_marker.h ML -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case3.h
 exit: 9
 artifact: False
 verdict: FAIL (got 0, artifact names the type: False)
@@ -117,7 +117,7 @@ stderr:
   CodeGen: refusing --emit-serialization for 'audit_ns::ML' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: ''). Add `serializable` to the marker, or emit reflection only.
 
 --- 9.50e D0 marked, D1 unmarked: D1 must be refused
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h D1 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case4.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h D1 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case4.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -140,7 +140,7 @@ artifact body (first 12 of 30 lines):
   
 
 --- 9.50f D0 itself must still be accepted
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h D0 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case5.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h D0 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case5.h
 exit: 0
 artifact: True
 verdict: PASS
@@ -163,7 +163,7 @@ artifact body (first 12 of 30 lines):
   
 
 --- 9.54a an annotation mentioned ONLY inside a comment must not count as an annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_marker.h NotAnnotated -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case6.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_marker.h NotAnnotated -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case6.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -186,7 +186,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.54b an unbalanced parenthesis inside a comment must not unbalance the real annotation scan
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_paren.h Paren -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case7.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_paren.h Paren -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case7.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -209,7 +209,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.55a an annotation inside a backslash-spliced line comment must not count as an annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/linesplice_comment.h Spliced -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case8.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/linesplice_comment.h Spliced -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case8.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -232,7 +232,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.55b an annotation spelling inside a string literal must not count as an annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_marker.h FromString -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case9.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_marker.h FromString -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case9.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -255,7 +255,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.55c a string containing the block-comment opener must not delete a REAL annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_blockcomment.h StrBlock -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case10.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_blockcomment.h StrBlock -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case10.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -278,7 +278,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.55d a parenthesis inside a string in an earlier marker must not abandon every marker
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/paren_in_string.h ParenStr -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case11.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/paren_in_string.h ParenStr -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case11.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -301,7 +301,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.55e a type that is only DECLARED must not be emitted with zero fields
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/only_declared.h OnlyDeclared -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case12.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/only_declared.h OnlyDeclared -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case12.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -324,7 +324,7 @@ artifact body (first 12 of 15 lines):
       static constexpr std::size_t              fieldCount = 0;
 
 --- 9.55e2 control: a REGISTERED type that is only declared must be refused
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/only_declared_registered.h OnlyDeclared -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case13.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/only_declared_registered.h OnlyDeclared -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case13.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -347,7 +347,7 @@ artifact body (first 12 of 15 lines):
       static constexpr std::size_t              fieldCount = 0;
 
 --- 9.57a an annotation inside a disabled #if 0 branch must not count as an annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/ifzero.h Evil -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case14.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/ifzero.h Evil -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case14.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -370,7 +370,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.57b an annotation under an #ifdef of a name defined nowhere must not count
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/ifdef_fake.h IfDef -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case15.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/ifdef_fake.h IfDef -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case15.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -393,7 +393,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.57c control: the else branch of a disabled #if IS active and its annotation counts
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/ifzero_else.h ElseOk -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case16.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/ifzero_else.h ElseOk -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case16.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -416,7 +416,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.57d the `class` of `enum class` must not consume the annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/enumclass.h Key -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case17.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/enumclass.h Key -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case17.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -439,7 +439,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.57e an attribute before the type name must not become the type name
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/attributes.h Aligned -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case18.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/attributes.h Aligned -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case18.h
 exit: 4
 artifact: False
 verdict: FAIL (got 0, artifact names the type: False)
@@ -449,7 +449,7 @@ stderr:
   CodeGen: type 'Aligned' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract
 
 --- 9.57f an export macro before the type name must not become the type name
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/attributes.h Exported -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case19.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/attributes.h Exported -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case19.h
 exit: 4
 artifact: False
 verdict: FAIL (got 0, artifact names the type: False)
@@ -459,7 +459,7 @@ stderr:
   CodeGen: type 'Exported' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract
 
 --- 9.57g a function-local struct of the same name must not be pooled with the global one
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/local_shadow.h Foo -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case20.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/local_shadow.h Foo -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case20.h
 exit: 0
 artifact: True
 verdict: FAIL (got 1, artifact names the type: True)
@@ -482,7 +482,7 @@ artifact body (first 12 of 30 lines):
   
 
 --- 9.57h an annotation on a DECLARATION must not travel to the next type
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/leak_declared.h Victim -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case21.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/leak_declared.h Victim -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case21.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -505,7 +505,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.57i the annotated but only-declared type itself must be refused
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/leak_declared.h Declared -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case22.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/leak_declared.h Declared -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case22.h
 exit: 9
 artifact: False
 verdict: PASS (artifact=False)
@@ -515,7 +515,7 @@ stderr:
   CodeGen: refusing --emit-serialization for 'audit_ns::Declared' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: ''). Add `serializable` to the marker, or emit reflection only.
 
 --- 9.57j a string-borne CA_REFLECTION spelling must not count as an annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_refl.h StrRefl -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case23.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_refl.h StrRefl -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case23.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -538,7 +538,7 @@ artifact body (first 12 of 21 lines):
       static constexpr std::size_t              fieldCount = 3;
 
 --- 9.57k a string-borne CA_CODEGEN_REGISTER spelling must not register anything
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_register.h Ghost -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case24.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/string_register.h Ghost -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case24.h
 exit: 4
 artifact: False
 verdict: FAIL (artifact=False)
@@ -548,7 +548,7 @@ stderr:
   CodeGen: type 'Ghost' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract
 
 --- 9.57l control: a real registration of a fully defined type still works
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/register_definition.h RegOK -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case25.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/register_definition.h RegOK -I CACore/header --emit-reflection -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case25.h
 exit: 0
 artifact: True
 verdict: PASS (got 1, artifact names the type: True)
@@ -571,7 +571,7 @@ artifact body (first 12 of 20 lines):
       static constexpr std::size_t              fieldCount = 2;
 
 --- 9.55f an unmarked type after a definition split over three lines must be refused
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/split_definition.h Split1 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case26.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/split_definition.h Split1 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case26.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -594,7 +594,7 @@ artifact body (first 12 of 30 lines):
   
 
 --- 9.59a a dead branch whose directive carries a trailing comment must stay dead
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/if0_trailing_comment.h If0Comment -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case27.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/if0_trailing_comment.h If0Comment -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case27.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -617,7 +617,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.59b a directive inside a comment must not disarm a real annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_directive.h CommentDirective -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case28.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_directive.h CommentDirective -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case28.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -640,7 +640,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.59c a marker spelling in an UNUSED macro definition body must not count
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/define_body.h DefineBody -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case29.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/define_body.h DefineBody -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case29.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -663,7 +663,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.59d an identifier containing the `class` keyword must not swallow the annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/classify_identifier.h ClassifyId -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case30.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/classify_identifier.h ClassifyId -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case30.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -686,7 +686,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.59e a bare `struct Other` use must not swallow the annotation
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/elaborated_use.h ElaboratedUse -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case31.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/elaborated_use.h ElaboratedUse -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case31.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -709,7 +709,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.59f a template argument must not make the unmarked namesake deliverable
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/template_default_arg.h Victim -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case32.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/template_default_arg.h Victim -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case32.h
 exit: 4
 artifact: False
 verdict: PASS
@@ -719,7 +719,7 @@ stderr:
   CodeGen: type 'Victim' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract
 
 --- 9.59g `#elif 0` after an undecidable condition is dead in every configuration
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/elif_zero.h ElifZero -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case33.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/elif_zero.h ElifZero -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case33.h
 exit: 0
 artifact: True
 verdict: FAIL (artifact=True)
@@ -742,7 +742,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.59h a macro the compiler environment defines must be honoured
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/env_defined_macro.h EnvMacro -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case34.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/env_defined_macro.h EnvMacro -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case34.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -765,7 +765,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- control: EmitSample serialization emits 4 member calls
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case35.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case35.h
 exit: 0
 artifact: True
 verdict: PASS (got 4, artifact names the type: True)
@@ -788,7 +788,7 @@ artifact body (first 12 of 36 lines):
   
 
 --- control: Multi in r31-cases.h is CONFOUNDED pre-fix (a PASS here is a false green: the per-line scan leaks Zero2's options into Multi)
-cmd: .review_tmp/step7/bin71c4413/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h Multi -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case36.h
+cmd: .review_tmp/step7/bin80fb96a/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/r31-cases.h Multi -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case36.h
 exit: 0
 artifact: True
 verdict: PASS (got 2, artifact names the type: True)
@@ -812,12 +812,12 @@ artifact body (first 12 of 32 lines):
 
 TOTAL 37 cases, 15 PASS, 22 FAIL
 
-### BEFORE - B3 (035a795)
+### BEFORE - B3 (caa8643)
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
 binary: .review_tmp/step7/binHEAD/CodeGen.exe
 binary sha256: ad7e3df81849ea22bd4407585bf9c9fe51e91753291936277c955998d05f24f4
-built from (DECLARED by the operator, not measured by this script): B3 = 035a795, blob 6ad9693 (9.50 landed; 9.54/9.55/9.57/9.59 did not)
-measured source blob of 035a795: 6ad9693c50760c3a4e68373e459ba0a386edb220
+built from (DECLARED by the operator, not measured by this script): B3 = caa8643, blob 6ad9693 (9.50 landed; 9.54/9.55/9.57/9.59 did not)
+measured source blob of caa8643: 6ad9693c50760c3a4e68373e459ba0a386edb220
 worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: 92769e6e433ea566da5b64fe8a7338330a969984
 
 --- 9.50a forward declaration first: field table must have 2 fields
@@ -1524,7 +1524,7 @@ TOTAL 37 cases, 17 PASS, 20 FAIL
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
 binary: .review_tmp/step7/binFixed/CodeGen.exe
 binary sha256: c10b86541184b7056befa39ff9ac349f1ca3a08d8e142c25fdd719d28b00dcf7
-built from (DECLARED by the operator, not measured by this script): B4 = 035a795 plus the 9.54 fix, uncommitted at the time; worktree blob 209e23b
+built from (DECLARED by the operator, not measured by this script): B4 = caa8643 plus the 9.54 fix, uncommitted at the time; worktree blob 209e23b
 worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: 92769e6e433ea566da5b64fe8a7338330a969984
 
 --- 9.50a forward declaration first: field table must have 2 fields
@@ -2218,7 +2218,7 @@ TOTAL 37 cases, 18 PASS, 19 FAIL
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
 binary: .review_tmp/step7/bin955/CodeGen.exe
 binary sha256: 950b3222fa93d2cf95e22d785fdd2a0fcfa7095bc92956e53dc29f81f1829b95
-built from (DECLARED by the operator, not measured by this script): B5 = 035a795 plus the 9.54 and 9.55 fixes, uncommitted at the time; worktree blob 206a605
+built from (DECLARED by the operator, not measured by this script): B5 = caa8643 plus the 9.54 and 9.55 fixes, uncommitted at the time; worktree blob 206a605
 worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: 92769e6e433ea566da5b64fe8a7338330a969984
 
 --- 9.50a forward declaration first: field table must have 2 fields
@@ -2860,7 +2860,7 @@ TOTAL 37 cases, 23 PASS, 14 FAIL
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
 binary: .review_tmp/step7/bin957/CodeGen.exe
 binary sha256: c17e9e0ad7274a19e55ca26dca7e4b8ee347c29806f75fd3d8dad70685860e55
-built from (DECLARED by the operator, not measured by this script): B6 = 035a795 plus the 9.54, 9.55 and 9.57 fixes, uncommitted at the time; worktree blob fd403f6
+built from (DECLARED by the operator, not measured by this script): B6 = caa8643 plus the 9.54, 9.55 and 9.57 fixes, uncommitted at the time; worktree blob fd403f6
 worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: 92769e6e433ea566da5b64fe8a7338330a969984
 
 --- 9.50a forward declaration first: field table must have 2 fields

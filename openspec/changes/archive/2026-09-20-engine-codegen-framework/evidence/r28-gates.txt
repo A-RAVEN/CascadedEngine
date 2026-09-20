@@ -34,13 +34,13 @@
 # The expectations are the POST-FIX ones, so a FAIL verdict in a BEFORE section IS the red state.
 #
 # Binary identities (sha256 of the executable):
-#   B0 = 9ee7278, blob f1a4223ad47d26b191e43660b659ce20d5986a6e
+#   B0 = ac2cb3b, blob f1a4223ad47d26b191e43660b659ce20d5986a6e
 #        exe 13a8d5d29a783eee71b6fbf8c721b47892de9ce22964454237ab932cf9311543   (before 9.30/9.31)
-#   B1 = 4091aa0, blob 35163bdfbcfe12ea77e8a20861ed1021088a630a
+#   B1 = 39cd088, blob 35163bdfbcfe12ea77e8a20861ed1021088a630a
 #        exe 4fbb538cd43b775dcfa010ac3b4ef8c95c6a9e00893c6cc97e7effb2230c0dd8   (before 9.42/9.43)
-#   B2 = 71c4413, blob 0e9f1a4d972b8b33b6b0920898660039edf005a8
+#   B2 = 80fb96a, blob 0e9f1a4d972b8b33b6b0920898660039edf005a8
 #        exe ca77ef04eec296a4211ceaa5021633e02e0dec6ceb226e0b0be0f8b08443e0f1   (before 9.50)
-#   B3 = 035a795, blob 6ad9693c50760c3a4e68373e459ba0a386edb220
+#   B3 = caa8643, blob 6ad9693c50760c3a4e68373e459ba0a386edb220
 #        exe ad7e3df81849ea22bd4407585bf9c9fe51e91753291936277c955998d05f24f4   (before 9.54)
 #   B4 = +9.54 fix, worktree blob 209e23b9cfb89d63c8e72f3ca26e3f21466f7d5c
 #        exe c10b86541184b7056befa39ff9ac349f1ca3a08d8e142c25fdd719d28b00dcf7   (before 9.55)
@@ -63,16 +63,16 @@
 #
 # ============ set=gates — tasks 9.42 (whole-option match) and 9.43 (one emitter per run) ============
 
-### BEFORE - B1 (4091aa0): the two gates do not exist yet
+### BEFORE - B1 (39cd088): the two gates do not exist yet
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
-binary: .review_tmp/step7/bin4091aa0/CodeGen.exe
+binary: .review_tmp/step7/bin39cd088/CodeGen.exe
 binary sha256: 4fbb538cd43b775dcfa010ac3b4ef8c95c6a9e00893c6cc97e7effb2230c0dd8
-built from (DECLARED by the operator, not measured by this script): B1 = 4091aa0, blob 35163bd (before the 9.42/9.43 gates existed)
-measured source blob of 4091aa0: 35163bdfbcfe12ea77e8a20861ed1021088a630a
+built from (DECLARED by the operator, not measured by this script): B1 = 39cd088, blob 35163bd (before the 9.42/9.43 gates existed)
+measured source blob of 39cd088: 35163bdfbcfe12ea77e8a20861ed1021088a630a
 worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: be72785b57cd0c956552483fbe8c9ad99a35c685
 
 --- 9.42a forward declaration first + marked type
-cmd: .review_tmp/step7/bin4091aa0/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/fwd_then_marker.h Same -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
+cmd: .review_tmp/step7/bin39cd088/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/fwd_then_marker.h Same -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
 exit: 9
 artifact: False
 verdict: FAIL
@@ -82,7 +82,7 @@ stderr:
   CodeGen: refusing --emit-serialization for 'audit_ns::Same' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: ''). Add `serializable` to the marker, or emit reflection only.
 
 --- 9.42b marker option 'nonserializable'
-cmd: .review_tmp/step7/bin4091aa0/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/nonserializable.h NoSer2 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
+cmd: .review_tmp/step7/bin39cd088/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/nonserializable.h NoSer2 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -105,7 +105,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.42c 'serializable' only inside a comment
-cmd: .review_tmp/step7/bin4091aa0/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_mention.h NoSer4 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
+cmd: .review_tmp/step7/bin39cd088/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_mention.h NoSer4 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -128,7 +128,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.42 control: real serializable option
-cmd: .review_tmp/step7/bin4091aa0/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case3.h
+cmd: .review_tmp/step7/bin39cd088/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case3.h
 exit: 0
 artifact: True
 verdict: PASS
@@ -151,7 +151,7 @@ artifact body (first 12 of 36 lines):
   
 
 --- 9.43a text channel: reflection + serialization
-cmd: .review_tmp/step7/bin4091aa0/CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case4.h
+cmd: .review_tmp/step7/bin39cd088/CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case4.h
 exit: 0
 artifact: True
 verdict: FAIL
@@ -174,7 +174,7 @@ artifact body (first 12 of 20 lines):
       static constexpr std::size_t              fieldCount = 2;
 
 --- 9.43b AST path: serialization + hash
-cmd: .review_tmp/step7/bin4091aa0/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization --emit-hash -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case5.h
+cmd: .review_tmp/step7/bin39cd088/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization --emit-hash -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case5.h
 exit: 0
 artifact: True
 verdict: FAIL
