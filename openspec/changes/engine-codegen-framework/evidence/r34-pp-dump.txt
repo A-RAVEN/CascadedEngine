@@ -1,0 +1,38 @@
+# The temporary diagnostic that decided task 9.59 (recorded, then deleted from the tool).
+#
+# WHY: three review rounds in a row (9.50, 9.54, 9.55, 9.57) each closed one spelling by which a
+# raw-source text scan could be fooled, and each time a neighbouring spelling reopened the same class
+# (docs/failed-approaches.md rows 17, 18, 20). Before writing a fourth enumeration, the question was
+# whether the ANNOTATION QUESTION can be answered by the preprocessor instead of by scanning text. A
+# temporary `[DIAGDUMP]` block was added to CodeGenMain.cpp behind the environment variable
+# CODEGEN_PP_DUMP: it parsed with CXTranslationUnit_DetailedPreprocessingRecord and printed every
+# CXCursor_MacroExpansion (name, line, byte offset, byte extent) and every file/namespace-scope
+# struct/class with its byte offset, then it was deleted again (the goal's condition 4 prescribes exactly
+# this order: print the truth first, record it, then act on it).
+#
+# MEASURED TRUTH (the two lines that mattered; `file=MAIN` marks the file being parsed):
+#
+#   CodeGen.exe evidence/fixtures/fwd_then_marker.h Same -I CACore/header      (CODEGEN_PP_DUMP=1)
+#     [DIAGDUMP] MacroExpansion   CA_REFLECT   line=6  off=99  extent=[99,123)  file=MAIN
+#     -> exactly ONE macro expansion for the marker, with a byte extent, in the file being parsed.
+#        Everything else in the 41232-line dump belongs to the MSVC headers.
+#
+#   CodeGen.exe evidence/fixtures/ifzero.h Evil -I CACore/header               (CODEGEN_PP_DUMP=1)
+#     [DIAGDUMP] file=openspec/changes/engine-codegen-framework/evidence/fixtures/ifzero.h
+#     -> eight lines in total, i.e. NO CA_REFLECT expansion at all: the marker sits in a branch the
+#        preprocessor did not include, so clang never reports an invocation for it.
+#
+# That is the property the text scanner kept getting wrong and the preprocessor gets right by
+# construction: the set of macro invocations is exactly the set the compiler saw. The same probe on
+# comment_marker.h (marker only inside a comment) printed no expansion either.
+#
+# CONSEQUENCE: task 9.59 replaced the decision. `collectAnnotations` now binds each REAL invocation to the
+# first file/namespace-scope type that follows it, and the whitelist/gate/options all read that binding.
+# The text machinery (two blanked views, the preprocessor-conditional blanker, the introducer name walk)
+# was deleted, except for the CA_REFLECTION channel, which is not a macro in this tool's world and
+# therefore has no invocation to report - that single channel still reads blanked text, and the limit is
+# stated in CodeGenMain.cpp and in tasks.md 9.59.
+#
+# Raw dumps kept outside the repository (they are 41k lines of MSVC header noise):
+#   .review_tmp/step7/pp1.txt   fwd_then_marker.h dump
+#   .review_tmp/step7/pp2.txt   ifzero.h dump

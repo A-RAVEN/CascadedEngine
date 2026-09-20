@@ -1,0 +1,86 @@
+# Round 34 (task 9.59): the terminal conditions that must be RE-MEASURED, and the temporary
+# diagnostic that decided the mechanism change.
+#
+# Goal terminal condition 3 (configuration fidelity) and condition 4 (a degraded environment must be
+# refused) must be re-run in the round that claims them. The raw output below was produced by
+# `python .review_tmp/step7/tc34.py` against the CURRENT build
+# (out/build/x64-debug/bin/CodeGen.exe, source blob 92769e6) and is pasted verbatim.
+#
+# What it shows:
+#   condition 3: `tail` is 40 under the default environment and 48 with -D_DEBUG
+#                -D_ITERATOR_DEBUG_LEVEL=2, i.e. the two rules really do produce different layouts; and
+#                build.py's _msvc_to_clang_env maps /MDd and /MTd to exactly those two defines (/MD to
+#                nothing), so the mapping that feeds the sidecar is measured, not assumed.
+#   condition 4: the complete environment exits 0; the DEGENERATE spelling that still has the -nostdinc
+#                substring but a complete environment (every STL root fed with -isystem) also exits 0;
+#                the three equivalent degenerations WITHOUT that substring each exit 6 and print a report
+#                naming the include that could not be resolved and the members whose types degraded
+#                (key, tail -> reported as int at offset 0). The judgement is about the PROPERTY
+#                (<string> unreachable), not about which flags appear on the command line.
+#
+# ============================== raw output ==============================
+========== terminal condition 3: configuration fidelity ==========
+--- A: default env (/MD-like)
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header
+exit: 0
+  out| StdLayout 3
+  out|   field head 0 int 17
+  out|   field key 8 std::string 119
+  out|   field tail 40 int 17
+  out| # options: serializable
+--- B: /MDd-like env
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2
+exit: 0
+  out| StdLayout 3
+  out|   field head 0 int 17
+  out|   field key 8 std::string 119
+  out|   field tail 48 int 17
+  out| # options: serializable
+  -> tail under A: ['  field tail 40 int 17']
+  -> tail under B: ['  field tail 48 int 17']
+  -> different: True
+  _msvc_to_clang_env('cl.exe /nologo /MD /c foo.cpp') -> []
+  _msvc_to_clang_env('cl.exe /nologo /MDd /c foo.cpp') -> ['-D_DEBUG', '-D_ITERATOR_DEBUG_LEVEL=2']
+  _msvc_to_clang_env('cl.exe /nologo /MTd /c foo.cpp') -> ['-D_DEBUG', '-D_ITERATOR_DEBUG_LEVEL=2']
+
+========== terminal condition 4: a degraded environment must be refused ==========
+--- C1 complete env (control)
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header
+exit: 0
+  out| StdLayout 3
+  out|   field head 0 int 17
+  out|   field key 8 std::string 119
+  out|   field tail 40 int 17
+  out| # options: serializable
+  want 0: PASS
+--- C2 has the -nostdinc spelling but env complete
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdinc++ -nostdinc -isystem C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um
+exit: 0
+  out| StdLayout 3
+  out|   field head 0 int 17
+  out|   field key 8 std::string 119
+  out|   field tail 40 int 17
+  out| # options: serializable
+  want 0: PASS
+--- C3 -nostdinc++ -nostdinc (degraded)
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdinc++ -nostdinc
+exit: 6
+  err| CodeGen: refusing to extract from 'Tools/CodeGen/TestStdLayout.h' � the compile environment fed to this tool is incomplete, so the parsed AST is truncated and the type table would be silently wrong. F
+  err|   unresolved include (fatal): CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstddef' file not found
+  err|   degraded members of 'StdLayout' (reported offset 0 although not the first member): key, tail
+  want nonzero: PASS
+--- C4 -nostdlibinc (degraded, no such substring)
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header -nostdlibinc
+exit: 6
+  err| CodeGen: refusing to extract from 'Tools/CodeGen/TestStdLayout.h' � the compile environment fed to this tool is incomplete, so the parsed AST is truncated and the type table would be silently wrong. F
+  err|   unresolved include (fatal): CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstddef' file not found
+  err|   degraded members of 'StdLayout' (reported offset 0 although not the first member): key, tail
+  want nonzero: PASS
+--- C5 --target=linux + SDK-only -isystem
+cmd: CodeGen.exe Tools/CodeGen/TestStdLayout.h StdLayout -I CACore/header --target=x86_64-unknown-linux-gnu -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um -isystem C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\shared
+exit: 6
+  err| CodeGen: refusing to extract from 'Tools/CodeGen/TestStdLayout.h' � the compile environment fed to this tool is incomplete, so the parsed AST is truncated and the type table would be silently wrong. F
+  err|   unresolved include (fatal): CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstddef' file not found
+  err|   degraded members of 'StdLayout' (reported offset 0 although not the first member): key, tail
+  want nonzero: PASS
+condition 4 as a whole: PASS

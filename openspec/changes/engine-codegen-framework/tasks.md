@@ -83,7 +83,7 @@
   - **① 负面门控**：`CodeGen TestNested.h CodeGenNested`（该头含标注 `CodeGenOuter` + 未标注 `CodeGenNested`）→ **exit=4**，stderr "type 'CodeGenNested' is not annotated... refusing to extract"（未被标注的类型不提取，negative 成立；用 TestNested 内的未标注类型验证，避免新建含标注+未标注并存的 fixture）。
   - **③ 正面回归**：`CodeGen TestStruct.h CodeGenSample -I CACore/header` → `CodeGenSample 4` + `# options: serializable, min = 0`；`CodeGen TestEmit.h EmitSample --emit-reflection` → 与 golden `Tools/CodeGen/generated/EmitSample.Reflection.h` **diff 为空（GOLDEN MATCH）**；`CodeGen TestExternal.h CodeGenExternal`（CA_REFLECTION-only）→ `CodeGenExternal 2` + field a/b。
   - **真实 interop 匹配**（⚠ **已作废 · 2026-09-12**：该注册宏已随范围变更删除，`git grep -n CA_CODEGEN_REGISTER -- Interface` 现为零命中。原文保留为历史记录，勿再据此认为树里存在该标注）：`Interface/RenderInterface/header/ShaderResourceHandle.h:185` `CA_CODEGEN_REGISTER("graphics_backend::ImageHandle")`；`CodeGen ... ImageHandle`（未限定名）经**限定名 tail 匹配**（`unqualifiedName("graphics_backend::ImageHandle")=="ImageHandle"`）→ **exit=0**（非 4），正常进入 AST 路径。
-  - **设计语义**：门控为**纯文本扫描**（不依赖 libclang attribute），对齐 D2"标过了才生成"；`isWhitelisted` 匹配 `target==QN`（精确）或 `unqualified(target)==unqualified(QN)`（双向限定名 tail 匹配），`--qualified-name=` override 也作为候选参与。
+  - **设计语义（2026-09-20 订正）**：门控**不再是纯文本扫描** —— "哪些类型被标注"由 libclang 的详细预处理记录给出，即预处理器**真正展开过**的宏调用；每条标注绑定到其后第一个**文件/命名空间级**类型（task 9.59，锚点：`CXTranslationUnit_DetailedPreprocessingRecord`，判据 `git grep -n -F "CXTranslationUnit_DetailedPreprocessingRecord" -- Tools/CodeGen/CodeGenMain.cpp` 命中）。标注的**选项**仍取该调用区间内的文本，不经 libclang attribute，对齐 D2"标过了才生成"。**一处例外照实写**：`CA_REFLECTION` 在本工具的世界里**不是宏**（`CACore/header/CodeGenMeta.h` 只定义 `CA_REFLECT` 与 `CA_CODEGEN_REGISTER`），该通道按设计仍是文本通道，读"注释与字符串字面量已抹空"的文本；因此**被禁用预处理分支里的 `CA_REFLECTION` 拼写仍会被当成标注**，这是本 change 已知未覆盖的方向。`isWhitelisted` 匹配 `target==QN`（精确）或 `unqualified(target)==unqualified(QN)`（双向限定名 tail 匹配），`--qualified-name=` override 也作为候选参与。
   - ⚠ **范围诚实**：3.3 只落地"门控 + 空名单"；不含 offset 质量（ImageHandle 现 offset 全 0 系前向声明不完整 parse，归 **4.3** 在真实 include set 下处理），不含"hook 侧不阻断"（归 **4.1**）。
   ⚠ **RC-G 调和（2026-09-07）**：②"空白名单"＝**无任何标记类型的独立工程**——该配置下**无生成源被接线**，故不存在"缺失接线源"问题，与 4.2 的"缺失接线源→报错"**不冲突**（两种配置互斥：无标注工程→空名单 case；标准标注工程→白名单非空、走正常接线 = ③）。⚠ **2026-09-12 更正**：括号内原写"2.2 已注册 ImageHandle 等"**已随范围变更作废**；"标准标注工程"今后应读作"有 `Tools/CodeGen/` 下 fixture 被标注的工程"。
 
@@ -503,7 +503,14 @@
   **红→绿**：新增 10 个夹具（`ifzero.h` / `ifdef_fake.h` / `ifzero_else.h` / `enumclass.h` / `attributes.h` / `local_shadow.h` / `leak_declared.h` / `string_refl.h` / `string_register.h` / `register_definition.h`，含两条"活性对照"：`#else` 分支仍算、真实登记仍产出），断言从 17 条扩到 **29 条**；B5（只含 9.55 修法）上 **10 条红**、B6 上 **29 条全 PASS**。三份构建期 golden 仍逐字节相同，`CoreTests.exe` 五条 PASSED、exit 0。
   **同轮修掉的 medium**：`python Tools/spin_check.py evidence` 的覆盖面被复核者用**五种普通写法**绕过（裸文件名、指向仓库内的绝对路径、第一段不是仓库目录的相对路径、`-isystem=<dir>`、带引号路径），现全部判红；跳过项按原因**计数并打印**（此前只打"检查了多少条"，读起来像全覆盖）。`only_declared_registered.h` 缺 `CA_CODEGEN_REGISTER(...)` 的分号（不是合法 C++，会让保真门控先报 exit 6），已补。
   **Oracle**：① 位于非活动预处理分支里的标注不得计入标注，活动分支（含 `#else`）仍要计入；② `enum struct`/`enum class` 不得消费标注；③ 关键字与名字之间的属性/宏不得成为类型名，且幻影名不得进标注表；④ 同名的函数内局部类型不得被当成交付目标；⑤ 只声明不定义时标注不得穿过去；⑥ 字符串里的标注拼写在任何一条通道都不得算数，而真实登记仍要能读出引号里的名字；⑦ 上述每条都有入库夹具、在只含上一轮修法的二进制上变红、在当前二进制上变绿；⑧ 修完重跑三份 golden 对拍与 `CoreTests.exe`。
-- [ ] 9.58 **Review & Adversarial Verify（Round 34 后 · 强制最后）**：对 §9.50–§9.57 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。⚠ 特别要求：9.57 新增的**预处理器条件判定**与**类型引入点扫描**是这一轮全新的判定逻辑，必须逐条试break（尤其是条件嵌套、`#else`/`#elif` 链、判不了的条件的保守性，以及引入点取名的各种写法）。
+- [x] 9.58 **Review & Adversarial Verify（Round 34 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-58`，3 个对抗角度 + 1 名独立复核者，4 个 agent；**结论：不合格**，14 条保留、0 条被驳回；处置见 Review Log Round 34）：对 §9.50–§9.57 已落地条目开 workflow 做对抗验证；三条固定提示词照抄。**复核者对我明确提出的"是否同一个根因复发"这个问题的回答是：是同一个根因**，并给出证据：第 32 轮记录"9.55 的修法自带 6 条红"、第 33 轮四条 high 全打在 9.55 刚写的文本判定逻辑上、本轮三条 high 全打在 9.57 刚写的条件判定逻辑上，另有"宏定义体里的标注拼写被当真标注"一例；同时确认已记录的 45 条命令逐条重跑 **0 处不符**（绿态是真的，缺陷都在夹具集之外）。
+- [x] 9.59 **[AUDIT] 停止逐种拼法打补丁：把"哪些类型被标注"的判定从扫源文本换成问预处理器**（high ×3 + medium ×2，2026-09-20 由 9.58 的对抗验证发现；✅ 已修，红→绿见 `evidence/r31-950.txt` 的 BEFORE-B6 段与 AFTER-B7 段，共 **37 条**断言）：
+  **审查实测的红态**（都发生在 9.57 那版二进制上，命令与输出全文在 `evidence/r31-950.txt` BEFORE-B6 段）：① `#if 0 // 说明` 这种最常见的写法让"死分支"重新算代码，**未标注类型拿到序列化特化**；② 注释或原始字符串里出现一行 `#if 0`，就把其后**真标注**整段抹掉，工具 exit 0 且不产出任何代码（第 32 轮修好的"字符串抹掉真标注"换了个机制又回来）；③ `#ifdef <名字>` 只要不在 `-D` 列表里就被判假并删掉真标注，而同一段代码写成 `#if defined(...)` 反而保留——记录里"判不了的按代码保留，只可能更保守"是**假断言**；④ 还有四条 medium：`#elif 0` 被当成活代码、`defined()` 从不查 `-D` 列表、`-D X`（分开写）不进定义表、关键字匹配右边没有词边界（`classify` 里冒出个 `introducer` 叫 `ify`）。
+  **修法（换机制，不是再补一种拼法）**：用 `CXTranslationUnit_DetailedPreprocessingRecord` 让 libclang 报出**它真正展开过的每一个宏调用**（`CXCursor_MacroExpansion`，带字节区间），标注 = 这些真实调用之一，绑定到其后第一个**文件/命名空间级**类型；只读 clang 给出的区间内的字节。注释、字符串、被禁用的预处理分支、没用到的 `#define` 体、`classify` 这类子串**在原理上就不可能**出现在这个集合里。删掉整套文本判定机器（两个抹空视图、预处理器条件抹空、引入点取名与声明/定义区分），代码因此变短。**保留一处并按属性说明**：`CA_REFLECTION` 在本工具的世界里**不是宏**（`CodeGenMeta.h` 只定义 `CA_REFLECT` 与 `CA_CODEGEN_REGISTER`），这条通道按设计就是文本通道，仍读"注释与字符串已抹空"的文本——因此**被禁用分支里的 `CA_REFLECTION` 拼写仍会被当成标注**，这条限制写在代码注释与本节里。
+  **先打真身再动手**：新增临时诊断（环境变量触发的 `[DIAGDUMP]`），实测 `fwd_then_marker.h` 上**恰好一条** `CA_REFLECT` 展开（`line=6 off=99 extent=[99,123) file=MAIN`），而 `ifzero.h` 上**一条都没有**；输出落盘为 `evidence/r34-pp-dump.txt`（原始 4 万行在 `.review_tmp/step7/pp*.txt`），据此换机制，**然后删除**该诊断块。
+  **红→绿**：新增 8 个入库夹具（`if0_trailing_comment.h` / `comment_directive.h` / `define_body.h` / `classify_identifier.h` / `elaborated_use.h` / `template_default_arg.h` / `elif_zero.h` / `env_defined_macro.h`），断言从 29 条扩到 **37 条**；B6（只含 9.57 修法）上 **8 条红**，B7 上 **37 条全 PASS**。另有一组 18 条的对抗探针（审查用过的每个反例各一条，`.review_tmp/step7/probe59.py`）**18/18 通过**。三份构建期 golden 仍逐字节相同；`python build.py --config Debug` 退出码 0；`CoreTests.exe` 五条 PASSED、exit 0；终态条件 3/4 **在本轮二进制上重测通过**（`evidence/r34-conditions.txt`：`tail` 40 vs 48、`/MDd`→`-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`、完整环境 exit 0 / 三种等价残缺均 exit 6 且指名无法解析的 include 与退化的字段）。`docs/failed-approaches.md` 补第 22、23 行。
+  **Oracle**：① 非活动分支里的标注不得计入，活动分支（含 `#else`）必须计入，**表达式怎么拼写都要成立**（尾随注释、`(0)`、`false`、`0L`、续行）；② 注释/字符串里的指令或标注拼写都不得影响判定；③ 没用到的宏定义体、仅仅包含关键字的标识符、`struct X` 的裸用法、模板实参都不得冒充标注；④ 环境已定义的宏必须被承认，`-D` 分开写与连写等价；⑤ 上述每条都有入库夹具、在只含上一轮修法的二进制上变红、在当前二进制上变绿；⑥ 修完重跑三份 golden 对拍、`CoreTests.exe` 与终态条件 3/4。
+- [x] ~~9.60 **Review & Adversarial Verify（Round 35 后）**~~ **【已作废 · 2026-09-20 · 用户裁定】**：本条原要求"对 §9.50–§9.59 开 workflow 做对抗验证"。**用户于 2026-09-20 明令：不再要求在 tasks 结尾做审查 workflow、也不再要求"发现新问题就追加修复任务 + 再追加新审查任务"的循环** —— 理由是该流程多轮下来没有收敛，"和空转无异"。据此本条**作废**，不再执行；`CLAUDE.md` 的「审查闭环」一节已同步改写为"按需"。**已执行的审查条目（9.12 / 9.23 / 9.27 / 9.35 / 9.49 / 9.53 / 9.56 / 9.58）的结论照旧有效**，各自有 Review Log；本条作废**不影响**它们。已落地的代码与证据（9.50–9.59）不因本条作废而改变。
 
 ## Review Log
 
@@ -1585,3 +1592,60 @@ spin r33: deliverables changed: 17
 **E. 本轮定性**：**未关完** —— 关掉 9.56，并按它的结论关掉 9.57；剩 1 条作废项 + 1 条新审查任务 `9.58`。goal **保持 active 不标完成**，下一轮从 `9.58` 开始。
 **相比上轮，实质变化是什么**：`Tools/CodeGen/CodeGenMain.cpp` 的判定逻辑第三次改写（预处理器条件抹空、引入点取名与声明/定义区分、光标只认文件/命名空间级），断言从 17 条扩到 29 条，B5 上 10 条红 → B6 上 29 条全绿；证据门控从"可被五种普通写法绕过"变成"五种写法全部判红且跳过项按原因计数"。**记账缺口同时补齐**：Round 31 缺失的收尾数字已补记（改用快照实测值并标明是补记），Round 32 正文里两处对不上的数字已订正。
 **⚠ 待裁定状态（如实登记，未经用户确认）**：`build.py` 里那份"要生成哪些类型"的清单（`CODEGEN_ANNOTATED`，当前只有一条 `("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen")`）**由执行者裁定为指向自包含夹具，用户尚未确认**；本节与 9.15 的正文都已写明这一点，不得读作用户已确认。
+
+
+### Round 34（2026-09-20）—— 跑 9.58（判**不合格**，并明确回答"同一根因复发"），据此**换机制**修成 9.59
+
+**A. 开工（两条 start 都跑，原始输出）**
+
+```
+queue r34: 81 items total, 2 OPEN at round start (frozen -> .review_tmp\spin\r34.queue.start.json)
+  OPEN  9.2   9.2 ~~**[AUDIT] 真实类型接线 + ABI guard 实例化**~~ **【已作废 · 2026-09-08】**：…
+  OPEN  9.58  9.58 **Review & Adversarial Verify（Round 34 后 · 强制最后）**：…
+
+spin r34: snapshot taken over 465 deliverable files -> .review_tmp\spin\r34.spin.start.json
+```
+
+逐条可执行性：`9.58` 可执行（本轮做掉）；`9.2` **已作废**。**没有一条"被挡住"**。
+
+**B. 9.58 的结论：不合格**（workflow `adversarial-review-9-58`，3 个角度 + 独立复核者；14 条保留、0 条被驳回）
+三条 high 全部打在 9.57 刚写的判定逻辑上（`#if 0 // 注释` 让死分支复活、注释/原始字符串里的 `#if 0` 抹掉真标注、`#ifdef` 只查自己的 `-D` 列表而 `#if defined(...)` 保留），四条 medium（`#elif 0`、`defined()` 从不查 `-D`、`-D X` 分开写、关键字匹配右边没有词边界导致 `classify` 里冒出 `ify`）。复核者同时确认：已记录的 45 条命令逐条重跑 **0 处不符**、证据文件里的二进制 SHA256 与 TOTAL 逐条核对通过、`git status` 与开跑时逐字节相同。
+**我明确问了"这是不是同一个根因复发"**，回答是**是**：第 32 轮记录"9.55 的修法自带 6 条红"、第 33 轮四条 high 打 9.55、本轮三条 high 打 9.57，红态计数 6 → 10 → 再加 3；根因就是台账第 17/18/20 行那条——**用扫源文本的方式决定"哪段是代码"**，而台账"何时可以重新考虑"一栏早就写了"改用 libclang 属性/预处理输出，整类退役"。
+
+**C. 9.59：换机制，不再补拼法**
+
+1. **先打真身**：加临时 `[DIAGDUMP]`（环境变量触发），实测 `fwd_then_marker.h` 上**恰好一条** `CA_REFLECT` 宏展开（`line=6 off=99 extent=[99,123) file=MAIN`），`ifzero.h` 上**一条都没有**；落盘 `evidence/r34-pp-dump.txt`，**然后删掉**该诊断块。
+2. **换判定**：解析时带 `CXTranslationUnit_DetailedPreprocessingRecord`，标注 = clang 报告的**真实宏调用**（`CXCursor_MacroExpansion`，带字节区间），绑定到其后第一个文件/命名空间级类型；只读 clang 给出的区间内的字节。注释、字符串、被禁用的分支、没用到的 `#define` 体、`classify` 这类子串**原理上进不了这个集合**。
+3. **删掉整套文本机器**：两个抹空视图、预处理器条件抹空、类型引入点取名与声明/定义区分全部删除（代码净变短）。
+4. **一处按其属性保留并写明**：`CA_REFLECTION` 在本工具世界里**不是宏**（`CodeGenMeta.h` 只定义 `CA_REFLECT`、`CA_CODEGEN_REGISTER`），按设计就是文本通道，仍读"注释与字符串已抹空"的文本；**被禁用分支里的 `CA_REFLECTION` 拼写仍算标注**——这条限制写在代码注释与本轮条目里。
+
+**D. 红 → 绿**
+
+```
+新增 8 个入库夹具；断言 29 条 → 37 条
+B6（只含 9.57 修法）：8 条红        B7（本轮）：37 条全 PASS
+六个前态段逐版收敛：22 → 20 → 19 → 14 → 8 → 0 条 FAIL
+对抗探针（审查用过的每个反例各一条）18/18 通过
+三份构建期 golden 仍逐字节相同；python build.py --config Debug 退出码 0
+CoreTests.exe 五条 PASSED、exit 0
+终态条件 3/4 在本轮二进制上重测通过（evidence/r34-conditions.txt）
+```
+
+**E. 收尾比对（两条 end 的原始输出）**
+
+```
+queue r34: closed this round: 1   -> CLOSED 9.58
+           still open: 1          -> 9.2【已作废 · 2026-09-08】
+           opened by this round: 1 -> 9.60（对新机制的对抗验证）
+           OPEN-COUNT 2 （退出码 1）
+
+spin r34: deliverables changed: 15
+  modified: Tools/CodeGen/CodeGenMain.cpp, evidence/regen_codegen_evidence.py,
+            evidence/r26-gates.txt, r28-gates.txt, r31-950.txt
+  added:    evidence/fixtures/{if0_trailing_comment,comment_directive,define_body,
+            classify_identifier,elaborated_use,template_default_arg,elif_zero,
+            env_defined_macro}.h, evidence/r34-conditions.txt, evidence/r34-pp-dump.txt
+```
+
+**F. 本轮定性**：**未关完** —— 关掉 9.58 并按它的结论关掉 9.59；剩 1 条作废项 + 1 条新审查任务 `9.60`。goal **保持 active 不标完成**，下一轮从 `9.60` 开始。
+**相比上轮，实质变化是什么**：**判定机制换了，不是又补一种拼法。** 代码里"哪些类型被标注"不再由我写的文本扫描决定，而由 clang 报告的宏展开决定；整套文本判定机器被删除，`Tools/CodeGen/CodeGenMain.cpp` 净变短；审查连续三轮用过的每个反例各配一个入库夹具（37 条断言，上一轮是 29 条），并且这 37 条在只含上一轮修法的二进制上 8 条红、在当前二进制上全绿。

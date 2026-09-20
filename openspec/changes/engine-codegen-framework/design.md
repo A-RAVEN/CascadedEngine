@@ -61,13 +61,13 @@ Phase 1 不改运行时反射行为。生成快照会与源码漂移 → 用**�
 
 ### D5：ParserLibrary 最小扩展 —— 枚举/函数补提取（**本 change 不实现，属后续阶段**）；per-member 选项不经 libclang attribute
 `ParserLibrary` 目前 **skip 枚举与函数**（`parser.cpp:189-192`：`EnumDecl`/`FunctionDecl` 为 `empty break`；无 `EnumConstantDecl` 处理）。只有在 C# 侧需要**构建期枚举值表**时才需扩；若只当 4 字节句柄则不扩（magic_enum 已在 C++ 侧护 runtime 值，`uenum.h:4`）。Phase 1（反射 emitter）暂不扩，留作未决点，C# 绑定阶段（Phase 3）再定。⚠ **本 change 不实现枚举 / 函数补提取** —— 工具侧当前没有任何 `EnumDecl` / `FunctionDecl` / `BaseSpecifier` 处理（判据：`git grep -n -E "EnumDecl|FunctionDecl|BaseSpecifier" -- Tools/CodeGen` 零命中）。
-**关键**：per-member / per-type 的 attribute **选项**（如 `serializable`、`min=0`、`marshal(as=...)`）走**标记宏 `CA_REFLECT(...)` 的文本参数**（grep 读取），**不依赖 libclang 自定义命名空间 attribute 支持**（libclang 那层弱，见 D1）。AST 只负责爬 class 体结构（**本 change 只取字段**），attribute 语义参数由标记宏文本侧携带。
+**关键**：per-member / per-type 的 attribute **选项**（如 `serializable`、`min=0`、`marshal(as=...)`）走**标记宏 `CA_REFLECT(...)` 的文本参数**（读取该宏**调用**的实参字节），**不依赖 libclang 自定义命名空间 attribute 支持**（libclang 那层弱，见 D1）。AST 只负责爬 class 体结构（**本 change 只取字段**），attribute 语义参数由标记宏文本侧携带。⚠ **哪些类型被标注**这件事不靠文本判断：工具用 libclang 的详细预处理记录取"预处理器**真正展开过**的宏调用"，注释、字符串、被禁用的 `#if` 分支、没用到的 `#define` 体因此都不算标注（task 9.59；`CA_REFLECTION` 通道例外，它不是宏，见 spec 的对应 REQ）。
 
 ## Risks / Trade-offs
 
 - **[树边界] CodeGen 工具在 CACodeGen tree、引擎在 CascadedEngine tree** → Phase 1 用"预编译 sidecar 由 `build.py` 调"（最便宜，无引擎 CMake 改动）；不 `add_subdirectory` LLVM。若将来要自含引擎，再改 add_subdirectory（膨胀引擎 CMake）。
 - **[生成源码扛过 `patch_ninja`]** `build.py` 的 `patch_ninja()`（按引文定位，不写行号）会重写 `build.ninja`；生成的源码规则受该重写与 sanitized PATH 影响 → 需实测 hook，不能假设。作为 tasks 的验收点。
-- **[attribute 选项走标记宏文本]** per-member/per-type 的 attribute **选项**由 `CA_REFLECT(...)` 文本参数携带（grep 解析），不经 libclang attribute → 需定义这些选项的语法/语义（如 `serializable, min=0, marshal(as=...)`），作为 codegen 输入契约，见 Open Question #5。
+- **[attribute 选项走标记宏文本]** per-member/per-type 的 attribute **选项**由 `CA_REFLECT(...)` 调用处的实参字节携带（读取 clang 报告的**调用区间**内的文本），不经 libclang attribute → 需定义这些选项的语法/语义（如 `serializable, min=0, marshal(as=...)`），作为 codegen 输入契约，见 Open Question #5。
 - **[一致性漂移]** 生成快照 vs CA_REFLECTION → 用 D4 的构建期 ABI assert 兜底。
 - **[新增构建期依赖]** 复用 CACodeGen libclang 意味着引擎 build 依赖 CACodeGen 树/或一份 vendored 拷贝 → 见树边界风险；运行时依赖不变（引擎不链接 libclang）。
 

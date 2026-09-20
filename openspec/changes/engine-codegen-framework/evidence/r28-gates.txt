@@ -1,10 +1,66 @@
+# Generated evidence for the CodeGen gates (tasks 9.42 / 9.43). Written by
+# `evidence/regen_codegen_evidence.py`; nothing below is hand-transcribed — the script records the exact
+# argv, the exit code, whether the `-o` path was left behind, the full stdout/stderr, and, where a case
+# expects output, a count taken from the artifact plus a check that the artifact names the requested type.
+#
+# Why it was rewritten (task 9.52): the previous version recorded its commands against
+# `.review_tmp/probe/*.h`, a gitignored scratch directory, so "a clean checkout reproduces this output"
+# was false. Every input below is a tracked repository file; `python Tools/spin_check.py evidence`
+# enforces that for the whole evidence directory.
+#
+# Why it has BEFORE sections (task 9.51): the previous version said in its own first line that every record
+# was an AFTER state, so the red states existed only as a sentence in tasks.md. Each BEFORE section is a
+# measurement on a HISTORICAL binary, rebuilt like this:
+#
+#     git checkout <commit> -- Tools/CodeGen/CodeGenMain.cpp
+#     python build.py --config Debug --no-configure CodeGen
+#     copy out\build\x64-debug\bin\CodeGen.exe  <dir>\CodeGen.exe
+#     copy out\build\x64-debug\bin\libclang.dll <dir>\libclang.dll
+#     git checkout <the commit that carries the wanted fix> -- Tools/CodeGen/CodeGenMain.cpp
+#     python build.py --config Debug --no-configure CodeGen
+#
+# Two cautions about that recipe: the restore step must name the source you actually want (restoring HEAD is
+# only right once the fix is committed), and restoring a saved copy with `copy` keeps the old timestamp, so
+# ninja decides there is nothing to rebuild — touch the source or check it out (docs/failed-approaches.md
+# row 16).
+#
+# HONESTY BOUNDARY: each executable is identified by a MEASURED SHA256; the source it was built from is
+# DECLARED by the operator (words plus a blob hash), with `git rev-parse <rev>:Tools/CodeGen/CodeGenMain.cpp`
+# printed when a revision was supplied. The link "this executable came from that revision" is therefore
+# documented, not measured. B4, B5 and B6 were worktrees whose source was never committed, so their blobs
+# exist only as dangling objects: every recorded ROW can be replayed from the binary copies under
+# `.review_tmp/step7/`, but those three binaries cannot be rebuilt from the repository.
+#
+# The expectations are the POST-FIX ones, so a FAIL verdict in a BEFORE section IS the red state.
+#
+# Binary identities (sha256 of the executable):
+#   B0 = 9ee7278, blob f1a4223ad47d26b191e43660b659ce20d5986a6e
+#        exe 13a8d5d29a783eee71b6fbf8c721b47892de9ce22964454237ab932cf9311543   (before 9.30/9.31)
+#   B1 = 4091aa0, blob 35163bdfbcfe12ea77e8a20861ed1021088a630a
+#        exe 4fbb538cd43b775dcfa010ac3b4ef8c95c6a9e00893c6cc97e7effb2230c0dd8   (before 9.42/9.43)
+#   B2 = 71c4413, blob 0e9f1a4d972b8b33b6b0920898660039edf005a8
+#        exe ca77ef04eec296a4211ceaa5021633e02e0dec6ceb226e0b0be0f8b08443e0f1   (before 9.50)
+#   B3 = 035a795, blob 6ad9693c50760c3a4e68373e459ba0a386edb220
+#        exe ad7e3df81849ea22bd4407585bf9c9fe51e91753291936277c955998d05f24f4   (before 9.54)
+#   B4 = +9.54 fix, worktree blob 209e23b9cfb89d63c8e72f3ca26e3f21466f7d5c
+#        exe c10b86541184b7056befa39ff9ac349f1ca3a08d8e142c25fdd719d28b00dcf7   (before 9.55)
+#   B5 = +9.55 fix, worktree blob 206a6050436d97bae97beebb4f9a29fe750a754e
+#        exe 950b3222fa93d2cf95e22d785fdd2a0fcfa7095bc92956e53dc29f81f1829b95   (before 9.57)
+#   B6 = +9.57 fix, worktree blob fd403f6d84586573951e24aaa6902055bba358d9
+#        exe c17e9e0ad7274a19e55ca26dca7e4b8ee347c29806f75fd3d8dad70685860e55   (before 9.59)
+#   B7 = +9.59 fix (the annotation decision now comes from the preprocessor), worktree blob
+#        92769e6e433ea566da5b64fe8a7338330a969984
+#        exe a341222d2be4bd6a246bb2d23c7351ffa6a459a6345ce724125bbd431a9841c8   (current)
+#
+# ============ set=gates — tasks 9.42 (whole-option match) and 9.43 (one emitter per run) ============
+
 ### BEFORE - B1 (4091aa0): the two gates do not exist yet
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
 binary: .review_tmp/step7/bin4091aa0/CodeGen.exe
 binary sha256: 4fbb538cd43b775dcfa010ac3b4ef8c95c6a9e00893c6cc97e7effb2230c0dd8
 built from (DECLARED by the operator, not measured by this script): B1 = 4091aa0, blob 35163bd (before the 9.42/9.43 gates existed)
 measured source blob of 4091aa0: 35163bdfbcfe12ea77e8a20861ed1021088a630a
-worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: fd403f6d84586573951e24aaa6902055bba358d9
+worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: 92769e6e433ea566da5b64fe8a7338330a969984
 
 --- 9.42a forward declaration first + marked type
 cmd: .review_tmp/step7/bin4091aa0/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/fwd_then_marker.h Same -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
@@ -133,15 +189,15 @@ artifact body (first 12 of 36 lines):
 
 TOTAL 6 cases, 1 PASS, 5 FAIL
 
-### AFTER - B6 build: both gates in place
+### AFTER - B7 build: both gates in place
 # expectations are the POST-FIX ones: in a BEFORE run a FAIL verdict IS the red state
-binary: .review_tmp/step7/bin957/CodeGen.exe
-binary sha256: c17e9e0ad7274a19e55ca26dca7e4b8ee347c29806f75fd3d8dad70685860e55
-built from (DECLARED by the operator, not measured by this script): B6 = worktree after the 9.54, 9.55 and 9.57 fixes, blob fd403f6
-worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: fd403f6d84586573951e24aaa6902055bba358d9
+binary: .review_tmp/step7/bin959/CodeGen.exe
+binary sha256: a341222d2be4bd6a246bb2d23c7351ffa6a459a6345ce724125bbd431a9841c8
+built from (DECLARED by the operator, not measured by this script): B7 = worktree after the 9.54, 9.55, 9.57 and 9.59 fixes, blob 92769e6
+worktree Tools/CodeGen/CodeGenMain.cpp blob at write time: 92769e6e433ea566da5b64fe8a7338330a969984
 
 --- 9.42a forward declaration first + marked type
-cmd: .review_tmp/step7/bin957/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/fwd_then_marker.h Same -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
+cmd: .review_tmp/step7/bin959/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/fwd_then_marker.h Same -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case0.h
 exit: 0
 artifact: True
 verdict: PASS
@@ -164,7 +220,7 @@ artifact body (first 12 of 32 lines):
   
 
 --- 9.42b marker option 'nonserializable'
-cmd: .review_tmp/step7/bin957/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/nonserializable.h NoSer2 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
+cmd: .review_tmp/step7/bin959/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/nonserializable.h NoSer2 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case1.h
 exit: 9
 artifact: False
 verdict: PASS
@@ -174,17 +230,17 @@ stderr:
   CodeGen: refusing --emit-serialization for 'audit_ns::NoSer2' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'nonserializable'). Add `serializable` to the marker, or emit reflection only.
 
 --- 9.42c 'serializable' only inside a comment
-cmd: .review_tmp/step7/bin957/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_mention.h NoSer4 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
+cmd: .review_tmp/step7/bin959/CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/comment_mention.h NoSer4 -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case2.h
 exit: 9
 artifact: False
 verdict: PASS
 stdout:
   (empty)
 stderr:
-  CodeGen: refusing --emit-serialization for 'audit_ns::NoSer4' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'ui'). Add `serializable` to the marker, or emit reflection only.
+  CodeGen: refusing --emit-serialization for 'audit_ns::NoSer4' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'ui /* serializable */'). Add `serializable` to the marker, or emit reflection only.
 
 --- 9.42 control: real serializable option
-cmd: .review_tmp/step7/bin957/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case3.h
+cmd: .review_tmp/step7/bin959/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case3.h
 exit: 0
 artifact: True
 verdict: PASS
@@ -207,7 +263,7 @@ artifact body (first 12 of 36 lines):
   
 
 --- 9.43a text channel: reflection + serialization
-cmd: .review_tmp/step7/bin957/CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case4.h
+cmd: .review_tmp/step7/bin959/CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection --emit-serialization -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case4.h
 exit: 8
 artifact: False
 verdict: PASS
@@ -217,7 +273,7 @@ stderr:
   CodeGen: the CA_REFLECTION text channel does not support --emit-serialization — it carries member names only (no types/kinds), so the generated code would be unsound. Use --emit-reflection for this channel, or annotate the type with CA_REFLECT.
 
 --- 9.43b AST path: serialization + hash
-cmd: .review_tmp/step7/bin957/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization --emit-hash -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case5.h
+cmd: .review_tmp/step7/bin959/CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serialization --emit-hash -o E:\Projects\CascadedEngine\.review_tmp\evidence_out\case5.h
 exit: 10
 artifact: False
 verdict: PASS
