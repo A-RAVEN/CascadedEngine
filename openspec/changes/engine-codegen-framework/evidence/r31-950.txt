@@ -1,0 +1,34 @@
+# 9.50 verification (content assertions), 2026-09-20 11:45:42
+
+### 9.50a fwd-decl first -> Same 2
+exit=0 (expect zero) verdict=PASS content=True
+Same 2
+  field a 0 int 17
+  field b 4 float 21
+# options: serializable
+
+### 9.50b serializable=0 -> refused
+exit=9 (expect nonzero) verdict=PASS content=True
+CodeGen: refusing --emit-serialization for 'audit_ns::Zero1' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'serializable = 0'). Add `serializable` to the marker, or emit reflection only.
+
+### 9.50c serializable=false -> refused
+exit=9 (expect nonzero) verdict=PASS content=True
+CodeGen: refusing --emit-serialization for 'audit_ns::Zero2' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: 'serializable = false'). Add `serializable` to the marker, or emit reflection only.
+
+### 9.50d multi-line marker -> accepted
+exit=0 (expect zero) verdict=PASS content=True
+
+
+### 9.50e D0 marked, D1 unmarked -> refused
+exit=9 (expect nonzero) verdict=PASS content=True
+CodeGen: refusing --emit-serialization for 'audit_ns::D1' — the type's CA_REFLECT marker does not carry the `serializable` option (marker options seen: ''). Add `serializable` to the marker, or emit reflection only.
+
+### 9.50f D0 itself still accepted
+exit=0 (expect zero) verdict=PASS content=True
+
+
+### control EmitSample
+exit=0 (expect zero) verdict=PASS content=True
+
+
+content counts: EmitSample=4 (expect 4); Multi=2 (expect 2)

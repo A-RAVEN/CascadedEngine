@@ -124,10 +124,11 @@ namespace
         return s.substr(a, b - a + 1);
     }
 
-    /** Task 9.42: a marker option must be matched as a WHOLE option. The old check was
-        `opts.find("serializable")`, which also accepted `nonserializable` and a mention inside a
-        comment — i.e. the gate could be satisfied without asking for serialization at all.
-        Comments are stripped, options are split on commas, and the part before `=` is compared. */
+    /** Task 9.42 + 9.50②: match a marker option as a WHOLE `name[=value]` pair.
+        - the old check was `opts.find("serializable")` (substring: `nonserializable` passed, a mention
+          inside a comment passed);
+        - `serializable=0` / `serializable=false` must NOT count as requesting serialization — the value
+          is now parsed and only a truthy one is a hit. */
     bool hasMarkerOption(const std::string& options, const std::string& want)
     {
         std::string s;
@@ -149,10 +150,16 @@ namespace
             std::string tok = trim(s.substr(
                 start, comma == std::string::npos ? std::string::npos : comma - start));
             const std::size_t eq = tok.find('=');
-            if (eq != std::string::npos)
-                tok = trim(tok.substr(0, eq));
-            if (tok == want)
-                return true;
+            std::string name = (eq == std::string::npos) ? tok : trim(tok.substr(0, eq));
+            const std::string value = (eq == std::string::npos) ? std::string() : trim(tok.substr(eq + 1));
+            if (name == want)
+            {
+                if (eq == std::string::npos)
+                    return true;                       // bare flag
+                std::string v = value;
+                for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                return v == "true" || v == "1" || v == "yes" || v == "on";
+            }
             if (comma == std::string::npos)
                 break;
             start = comma + 1;
@@ -166,45 +173,65 @@ namespace
         const std::size_t markerLen = std::strlen(marker);
         std::string currentMarker;
         std::size_t pos = 0;
+        // Task 9.50③: collect every `CA_REFLECT(...)` with BALANCED parentheses and let it span lines.
+        // The old per-line scan looked for a `)` on the SAME line, so a marker written across lines read
+        // back empty and the `serializable` gate refused a type that IS marked.
+        std::vector<std::pair<std::size_t, std::string>> markers; // (offset of matching ')', options)
+        for (std::size_t m = text.find(marker); m != std::string::npos;
+             m = text.find(marker, m + markerLen))
+        {
+            const std::size_t open = m + markerLen;
+            int depth = 1;
+            std::size_t i = open;
+            for (; i < text.size() && depth > 0; ++i)
+            {
+                if (text[i] == '(') ++depth;
+                else if (text[i] == ')') --depth;
+            }
+            if (depth != 0)
+                break; // unbalanced source: give up rather than guess
+            const std::size_t close = i - 1;
+            markers.emplace_back(close, trim(text.substr(open, close - open)));
+        }
+
+        std::size_t appliedUpTo = 0; // index into `markers`: everything before it has been applied
         while (pos < text.size())
         {
             std::size_t nl = text.find('\n', pos);
             std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-            std::string l = line; // keep raw for marker lookup on any column
-            // marker present?
-            std::size_t m = l.find(marker);
-            if (m != std::string::npos)
+            const std::size_t lineEnd = (nl == std::string::npos) ? text.size() : nl;
+            const std::size_t brace = line.find('{');
+            const std::size_t semi  = line.find(';');
+            const bool declarationOnly =
+                (semi != std::string::npos) && (brace == std::string::npos || semi < brace);
+            const bool mentionsType = line.find("struct " + typeName) != std::string::npos ||
+                                      line.find("class " + typeName) != std::string::npos;
+            // A marker is "consumed" by the first DEFINITION that follows it. Take the nearest preceding
+            // marker whose closing ')' is before this line; a definition of ANOTHER type consumes it too
+            // (task 9.50: otherwise the marker leaked to every later unmarked definition in the file).
+            const bool otherTypeDefinition =
+                (line.find("struct ") != std::string::npos || line.find("class ") != std::string::npos) &&
+                !declarationOnly;
+            // Apply each marker exactly ONCE, when its closing ')' has been passed. (The first version
+            // re-applied the whole list on every line, which undid the "consumed by another type" clearing
+            // in the very next statement — measured: the unmarked `D1` following a marked `D0` still passed.)
+            while (appliedUpTo < markers.size() && markers[appliedUpTo].first < lineEnd)
             {
-                std::size_t open = m + markerLen;
-                std::size_t close = l.find(')', open);
-                if (close != std::string::npos)
-                    currentMarker = trim(l.substr(open, close - open));
+                if (!markers[appliedUpTo].second.empty())
+                    currentMarker = markers[appliedUpTo].second;
+                ++appliedUpTo;
             }
-            // Type DEFINITION reached (nearest preceding marker wins). Task 9.42: a FORWARD declaration
-            // (`struct Foo;`) must NOT bind — binding to it returned an empty marker and made the
-            // `serializable` gate refuse a type that IS marked (measured: forward decl above the marker
-            // → exit 9 "marker options seen: ''").
-            const bool mentionsType = l.find("struct " + typeName) != std::string::npos ||
-                                      l.find("class " + typeName) != std::string::npos;
             if (mentionsType)
             {
-                // A FORWARD declaration is the only thing that must not bind (`struct Foo;`). Everything
-                // else — `struct Foo {`, `struct Foo` with the brace on the NEXT line, `struct Foo : Base`
-                // — is the definition. (First attempt required a `{` on the same line, which broke the
-                // K&R style used by the fixtures: the marker read back empty and the build-time golden
-                // compare for the serialization emitter failed immediately.)
-                const std::size_t brace = l.find('{');
-                const std::size_t semi  = l.find(';');
-                const bool declarationOnly =
-                    (semi != std::string::npos) && (brace == std::string::npos || semi < brace);
-                // Bind ONLY when a marker has already been seen. Otherwise keep scanning: the mention may
-                // be a forward declaration on a line where the line-level heuristic misfires (measured:
-                // `namespace x { struct Same; }` puts the brace BEFORE the semicolon, so it looked like a
-                // definition and bound an EMPTY marker → the `serializable` gate then refused a type that
-                // IS marked). With no marker seen yet there is nothing to bind anyway.
+                // A FORWARD declaration (`struct Foo;`) must NOT bind. Everything else — `struct Foo {`,
+                // `struct Foo` with the brace on the NEXT line, `struct Foo : Base` — is the definition.
                 if (!declarationOnly && !currentMarker.empty())
                     return trim(currentMarker);
                 // else: a forward declaration — keep scanning; the marker may still follow it
+            }
+            else if (otherTypeDefinition)
+            {
+                currentMarker.clear(); // consumed by a different type's definition
             }
             if (nl == std::string::npos)
                 break;
@@ -824,14 +851,23 @@ int main(int argc, char** argv)
 
     CXCursor target{};
     bool found = false;
+    bool foundDefinition = false;
+    // Task 9.50①: prefer the DEFINITION cursor. The old loop took the FIRST same-named cursor, which for
+    // a forward declaration (`struct Same;` above the marker) is a declaration with no members — the tool
+    // then emitted an EMPTY specialization and still exited 0 (measured: `Same 0`, zero fields).
     for (auto& pr : structs)
     {
-        if (pr.first == typeName)
+        if (pr.first != typeName)
+            continue;
+        const bool isDefinition = clang_isCursorDefinition(pr.second) != 0;
+        if (!found || (isDefinition && !foundDefinition))
         {
-            target = pr.second;
-            found  = true;
-            break;
+            target          = pr.second;
+            found           = true;
+            foundDefinition = isDefinition;
         }
+        if (foundDefinition)
+            break;
     }
     if (!found)
     {

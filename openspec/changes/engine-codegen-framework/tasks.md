@@ -465,8 +465,21 @@
   ④ **计数订正（并写明口径）**：按本条目记录的抽取命令（`\.review_tmp/([A-Za-z0-9_\-]+\.(txt|py|json))`）实测 **8 个唯一名字**，`evidence/` 下现有 **17 个文件** + `fixtures/` 26 个。9.35 复审报的"11 名"出自**更宽的正则**（它把 `probe/xxx.h` 这类带子目录的引用也算进去了）—— 故判据必须**连正则一起写明**，否则"8 还是 11"不可复核。原文写的"14 文件"是当时快照的数字，现已过时。：被引用的夹具与前态源码（`uisample.h`、`CodeGenMain.fixed.cpp`）**不在库**；脚本搬到 `evidence/` 后原位跑即崩（`FileNotFoundError`）；计数写错（8 名/14 文件，实为 **11 名/15 文件**）。**Oracle**：夹具与四个前态快照入库；脚本改为向上查找仓库根；Oracle 改成"**干净检出**能跑出该输出"；订正计数；交红（现状跑不起来）→绿。
 - [x] 9.47 **[AUDIT] 9.34 的证据是 UTF-16LE**（low，9.35 保留项）：`evidence/codegen-target-build-failure.txt` 首字节 `FF FE`、含 1666 个 NUL，`git grep` 读不到。**Oracle**：另存 UTF-8（或补 UTF-8 副本并注明以它为准），并用 `git grep -c C2059 -- <该文件>` 断言非空（现状 exit 1）。 （✅ 已修 2026-09-13）`evidence/codegen-target-build-failure.txt` 由 UTF-16LE 转成 UTF-8（1666 字符）；判据实跑：`git grep -c C2059 -- <该文件>` 由 **exit 1 变 1 命中**。
 - [x] 9.48 **[AUDIT] 9.32 的"旧判据全绿"是推导、未落盘**（low，9.35 保留项）：`evidence/r26-order.txt` 只有新判据的 `ORDER FAILED`，没有旧判据在该倒序状态下的运行记录。**Oracle**：补跑旧判据并入该文件（须出现重新编译行），或明写"该绿态系推导、未落盘"。 （✅ 已修 2026-09-13）按 Oracle 的第二条分支**明写**：旧判据在倒序状态下的绿态是**推导、未实测**（推导依据已写进 `evidence/r26-order.txt` 的附注），不得当已测证据引用。
-- [ ] 9.49 **Review & Adversarial Verify（Round 27 后 · 强制最后）**：对 §9.42–9.48 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— 用 `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。：9.24 要求把 `-- <目标文件>` 限定写进**锚点规则**，实际只落在「修复即断言」一节；锚点规则那条仍只写 `git grep -n -F` 自检。
+- [x] 9.49 **Review & Adversarial Verify（Round 27 后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-49b`，3 角度 + 复核，12 条候选 → **保留 10 条（3 high）→ 判不合格**；第一次跑时复核者未返回结论、按规则不计执行，本轮重跑取到结论。结论与新开条目见 Review Log Round 30）：对 §9.42–9.48 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— 用 `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。：9.24 要求把 `-- <目标文件>` 限定写进**锚点规则**，实际只落在「修复即断言」一节；锚点规则那条仍只写 `git grep -n -F` 自检。
   **Oracle**：把"必须加 `-- <目标文件>`"并进 CLAUDE.md 的「引用锚点必须逐字可 grep」那一条，并在同处给出会失败的红态（全仓 grep 被四份文档自己写下的同一句话喂绿）。
+
+- [x] 9.50 **[AUDIT] 9.42 的门控仍有三处真缺陷（含"绿态其实是错产物"）**（✅ 已修 2026-09-13，四处改动 + 七项内容断言探测全过，证据 `evidence/r31-950.txt`）：① **类型解析改为优先取定义游标**（`clang_isCursorDefinition`；旧逻辑取同名第一个 = 前向声明 → 空特化）；② **选项解析成 `name=value`，只在值为真时算命中**（`serializable=0`/`=false` 现在被拒）；③ **标记括号跨行配对**（`(`/`)` 平衡扫描，不再按行找 `)`）；④ **标记只贴一次、被别的类型定义消费即清空**（旧逻辑每行重贴，把清空立刻抹掉 → 未标类型照样通过）。**探测（含内容断言，不再只看 exit 0 + 产物存在）**：前向声明在前 → exit 0 且表输出 **`Same 2`**（红态 `Same 0`）；`serializable=0`/`=false` → **exit 9**（红态 exit 0 且产出特化）；跨行标记 → **exit 0**（红态 exit 9 误拒）；D0 有标记、D1 无标记 → **exit 9**（红态漏过）；D0 自己 → exit 0；对照 `EmitSample` → exit 0 且**恰 4 条** `s.serialize(obj.X)`、`Multi` **恰 2 条**；三份构建期 golden 对拍全绿。（high ×3，9.49 保留项）：
+  ① **类型解析取错游标**：`collectStructs` 只收 `StructDecl`/`ClassDecl` 且遇同名即停，**不分辨"前向声明"与"定义"** —— 实测 `fwd_then_marker.h` 跑出 `Same 0`（**0 字段**）、`# options: serializable`、exit 0：产物是个**空特化**。而 9.42 的 Oracle 只查"exit 0 + 产物存在"，**空产物照样算绿**。
+  ② **选项值被丢掉**：`serializable=0` / `serializable=false` 实测**照样通过门控**并产出序列化特化（解析时 `tok.substr(0, eq)` 把值整段丢了）。
+  ③ **标记按行解析**：`CA_REFLECT(` 跨行书写时整段读空 → 已标 `serializable` 的类型被**误拒 exit 9**（正是本条要修的那类误拒）。
+  **Oracle**：① 类型解析**优先取有类体的定义游标**（不是同名第一个）；② 选项解析成 `name=value`，只在**值为真**时算命中（或对 `=` 形式一律拒绝），并补 `serializable=0` 夹具；③ `CA_REFLECT(...)` 的括号配对**跨行扫描**后再切分，补多行标记夹具；④ **Oracle 必须断言产物内容**（字段数/字段名列表 == 源定义），**不得只看 exit 0 + 产物存在**；三个夹具入库进 `evidence/fixtures/`，各交红→绿。
+- [ ] 9.51 **[AUDIT] 9.42 的红态没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）：`evidence/r28-gates.txt` 首行自述 **AFTER state**，六条记录**全是改动后**；"红态"只由 `tasks.md` 里一句括注声称；指向前向声明那份夹具**从未在任何二进制上跑过**（全仓 `git grep -F fwd_then_marker` 只命中该证据文件与 tasks.md）。
+  **Oracle**：另建改动前的二进制（如 `git show 4091aa0:Tools/CodeGen/CodeGenMain.cpp` 单独编出——**不违反"只经 build.py 构建"**：把它并回源码树后用 `build.py` 出一版，或按项目入口说明），跑同六条命令把**原始输出与退出码**并入 `r28-gates.txt`；若不重建，**在条目里明写"红态系推导、未落盘"**。
+- [ ] 9.52 **[AUDIT] 证据的可复现性与自相矛盾**（medium + low，9.49 保留项）：
+  ① `r28-gates.txt` 六条命令的**输入全是 `.review_tmp/probe/*.h`**，该目录被 `.gitignore` 排除 → "干净检出能跑出该输出"不成立；**处置**：改用已入库的 `evidence/fixtures/` 路径重跑覆盖（实测同一条对照命令在 fixtures 路径下 exit 0 且 SHA256 一致），并加**自检**：证据文件里的输入路径必须存在于仓库内。
+  ② `evidence/r29-scripts-rerun.txt` **同一份文件里两段互相矛盾**（前段记"路径崩/FileNotFoundError"，后段记"能跑但 exit 1、6 条字符串断言"），**没有任何标注说哪段过期**；且中文检查名被写成 `?`（67 个），文件自身 TOTAL 合计 **7** 个 FAILED 而列名只有 **6** 条。
+  **Oracle**：重跑时**按 UTF-8 直写文件**（不经控制台捕获），删掉或明确标注过期段，让正文失败条数与证据 TOTAL **逐条对齐**；并说明"可从任意目录跑"只验证过"从仓库根跑"，或补一条从子目录的实测。
+- [ ] 9.53 **Review & Adversarial Verify（Round 30 后 · 强制最后）**：对 §9.50–§9.52 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。
 
 ## Review Log
 
@@ -1381,3 +1394,51 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 **D. 收尾（`queue end r29`）**：`closed this round: 1`（9.46）｜`still open: 2`（**9.2 已作废** / 9.49）｜`OPEN-COUNT 2`｜**退出码 1**。`spin end r29`：**`deliverables changed: 33`**（6 个脚本 + 26 个夹具 + 重跑输出）→ **不是空转轮**。
 
 **E. 本轮定性**：**未关完**（剩 9.49 一条审查任务），goal **保持 active 不标完成**。
+
+
+### Round 30（2026-09-13）—— 重跑 9.49：**有结论了，判不合格**（3 high 全打在 9.42 的修法上）
+
+**A. 开工**：`queue start r30` → **2 条未勾选**（9.2 已作废 / 9.49）｜`spin start r30` → **441 个交付物**。
+
+**B. 9.49 的结论（workflow `adversarial-review-9-49b`，3 角度 + 复核，12 条候选 → 保留 10 条）**：
+⚠ **第一次跑（Round 29）时复核者没返回结论（`verdict: null`），按规则不计执行；本轮重跑取到结论。** 复核者独立实跑核实了 9 条事实，其中三条 high：
+1. **9.42 的"绿态"其实是错产物** —— `fwd_then_marker.h` 跑出 `Same 0`（**0 字段**）却 exit 0：类型解析取的是**前向声明游标**（`collectStructs` 不分辨声明与定义），而 Oracle 只查"exit 0 + 产物存在"，**空产物照样算绿**。
+2. **`serializable=0` / `serializable=false` 照样通过门控**（解析时把 `=` 后的值整段丢掉）。
+3. **跨行书写的 `CA_REFLECT(...)` 被读空** → 已标 `serializable` 的类型**误拒 exit 9**（正是本条要修的那类误拒）。
+另有 medium：9.42 的红态**没落盘**（证据文件只有 AFTER 状态）、两份回归夹具没跑齐、**标记会留给后面所有无标记的定义**、证据命令的输入路径 `/.review_tmp/probe/` 不在库里、`r29-scripts-rerun.txt` 新旧两段自相矛盾且失败条数对不上。
+
+**C. 处置**：按根因去重后 **新开 9.50（三条 high 合并）／9.51（红态落盘）／9.52（证据可复现性与自相矛盾）**，并续 **9.53** 作为对它们的审查任务（串行：9.49 已关，才允许开）。
+
+**D. 收尾比对（`queue end r30`，补勾 9.49 之前跑的原始数字）**：`closed this round: 0`｜`still open: 2`（**9.2 已作废** / 9.49）｜`OPEN-COUNT 2`｜**退出码 1**。`spin end r30`：**`deliverables changed: 0`** —— 本轮只跑了审查与记账、**没有改交付物**，按规则**这是空转轮**（补勾 9.49 后队列剩 9.50–9.53）。
+
+**E. 本轮定性**：**未关完 + 空转轮**（交付物 0 改动）—— 如实申报，goal **保持 active 不标完成**，下一轮从 `9.50` 开始。
+
+
+### Round 31（2026-09-13）—— 关掉 9.50：门控三处真缺陷 + 标记泄漏（含"绿态其实是错产物"）
+
+**A. 开工**：`queue start r31` → **5 条未勾选**（9.2 已作废 / 9.50 / 9.51 / 9.52 / 9.53）｜`spin start r31` → **441 个交付物**。
+
+**B. 9.50 的四处代码改动（`Tools/CodeGen/CodeGenMain.cpp`）**
+1. **类型解析优先取定义游标**：`clang_isCursorDefinition` 为真者优先 —— 旧逻辑取"同名第一个"，对前向声明就是**没有成员**的那个，于是产出**空特化**还 exit 0。
+2. **选项按 `name=value` 解析、值为真才算命中**：`serializable=0` / `serializable=false` 现在**被拒**（旧逻辑把 `=` 后面的值整段丢掉）。
+3. **标记括号跨行配对**：改成对整段文本做平衡括号扫描，跨行书写的 `CA_REFLECT(...)` 不再读空。
+4. **标记只贴一次、被别的类型定义消费即清空**：旧逻辑每行把整张标记表重贴一遍，把"消费即清空"当场抹掉 —— 于是**未标 `serializable` 的类型照样通过**。⚠ 这一条是**我自己在写第 3、4 步时引入、又在同一轮里被探测抓出来**的（首次跑 9.50e 得 `exit 0`，改掉"重贴"后才 `exit 9`）。
+
+**C. 探测结果（`evidence/r31-950.txt`，**内容断言**，不再只看 exit 0 + 产物存在）**
+
+| 用例 | 期望 | 实测 | 红态（改动前） |
+|---|---|---|---|
+| 前向声明在前 + `CA_REFLECT(serializable)` | exit 0 且表输出 `Same 2` | **exit 0，`Same 2`** | `Same 0`（空特化）却 exit 0 |
+| `serializable = 0` | 非零 | **exit 9** | exit 0 且产出特化 |
+| `serializable = false` | 非零 | **exit 9** | 同上 |
+| 跨行 `CA_REFLECT(⏎ serializable ⏎)` | exit 0 | **exit 0** | exit 9（误拒） |
+| D0 有标记、D1 无标记，请求 D1 | 非零 | **exit 9** | exit 0（漏过） |
+| 同上，请求 D0 自己 | exit 0 | **exit 0** | — |
+| 对照 `EmitSample` | exit 0 且 **4 条** `s.serialize(obj.X)` | **exit 0，4 条** | — |
+| 对照 `Multi` | 2 条 | **2 条** | — |
+
+⚠ **两次探测工具自身的坑**（都当场修掉）：① 函数参数名用了 `$args`（PowerShell 自动变量）→ 命令行为空、所有用例都报 exit 2；② 证据脚本里 `$o`/`$er` 为 null（用例无 stderr）时 `.TrimEnd()` 抛错。
+
+**D. 收尾比对**：见下一段的 `queue end r31` / `spin end r31` 原始输出（本轮**改了交付物**：`Tools/CodeGen/CodeGenMain.cpp`）。
+
+**E. 本轮定性**：**未关完** —— 剩 `9.51`（红态落盘 + 两份夹具回归）、`9.52`（证据可复现性与自相矛盾）、`9.53`（对 9.50–9.52 的审查任务）。goal **保持 active 不标完成**。
