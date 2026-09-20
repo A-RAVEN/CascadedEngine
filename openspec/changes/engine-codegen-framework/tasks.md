@@ -458,7 +458,11 @@
 - [x] 9.43 **[AUDIT] 未支持的 emitter 标志组合被静默丢弃**（medium + low，9.35 保留项）：实测 `--emit-reflection --emit-serialization` → **exit 0**，产物与只给 `--emit-reflection` **逐字节相同**；AST 通道 `--emit-serialization --emit-hash` → exit 0，后者被丢弃、产物无 `custom_hash_trait`。**Oracle**：分派前校验标志组合（同一类型只允许一个 emitter，冲突即**非零退出**并点名标志），或按请求逐个发射；两种组合各加回归，交红→绿。 （✅ 已修 2026-09-13）① 文本通道的"不支持即拒"检查**提到 `if (emitReflection)` 之前**；② AST 路径新增标志组合校验（>1 个 emitter 即拒）。**绿态实测**：`--emit-reflection --emit-serialization`（文本通道）→ **exit 8**；`--emit-serialization --emit-hash`（AST）→ **exit 10**（红态：两者都 exit 0、后一个标志被静默丢弃）。
 - [x] 9.44 **[AUDIT] 9.29 的判据是短语匹配**（medium，9.35 保留项）：`proposal.md` 里"codegen 在 **configure 步骤内**"那句仍在（与实现相反），而判据串"分支内依次调用"在该文件 **0 命中**。**Oracle**：判据改**属性断言**（四份制品凡称 codegen 在 configure 分支/步骤**内**即判红）+ 改掉该行；交红→绿。 （✅ 已修 2026-09-13）`proposal.md` 的"仅在 configure 步骤内"已改成"`patch_ninja()` 之后、引擎编译之前；两条路径都执行，不在 `if configure_step:` 块内"。**判据改成属性断言**：四份制品凡称 codegen 在 configure 分支/步骤**内**即判红 —— 实测该文件命中数 **1 → 0**。
 - [x] 9.45 **[AUDIT] 9.29 留下活的行号锚点**（low，9.35 保留项）：`tasks.md` 的 9.29 条目与 Round 26 表格各有一处 `codegen_failures = codegen()`（**逐字引文，不写行号**），违反 §9 引用规约，也与 9.39 的"活行号引用已清零"矛盾。**Oracle**：删 `:400`，只留逐字引文 `codegen_failures = codegen()`；判据 = 产品正文对该文件 `:数字` 零命中。 （✅ 已修 2026-09-13）产品正文里的 `build.py:400` 活锚点已清零（4 处全换成逐字引文 `codegen_failures = codegen()`）；判据实跑：产品正文命中 **0**（余下的只在 9.45 自身描述里）。
-- [ ] 9.46 **[AUDIT] 9.33 的证据只数了名字、没执行 Oracle**（high，9.35 保留项）：被引用的夹具与前态源码（`uisample.h`、`CodeGenMain.fixed.cpp`）**不在库**；脚本搬到 `evidence/` 后原位跑即崩（`FileNotFoundError`）；计数写错（8 名/14 文件，实为 **11 名/15 文件**）。**Oracle**：夹具与四个前态快照入库；脚本改为向上查找仓库根；Oracle 改成"**干净检出**能跑出该输出"；订正计数；交红（现状跑不起来）→绿。
+- [x] 9.46 **[AUDIT] 9.33 的证据只数了名字、没执行 Oracle**（high，✅ 已修 2026-09-13）：
+  ① **夹具与前态快照已入库**：`evidence/fixtures/`（**26 个文件**，含 `uisample.h`、`fwd_then_marker.h`、`nonserializable.h`、`comment_mention.h`、`CodeGenMain.fixed.cpp`、`CodeGenMain.base.cpp` 等）；
+  ② **脚本已能从任意目录跑**：六个脚本各加一段引导（从 `__file__` 向上找同时含 `build.py` 与 `.git` 的目录 → `chdir` + 进 `sys.path`），并把写死的 `ROOT = Path(__file__).resolve().parent.parent` 改成 `parents[4]`（它们在 `.review_tmp/` 时该表达式正好是仓库根，搬到 `evidence/` 后指向了 `openspec/changes`）；另补 `stdout/stderr` 的 UTF-8 重配置（否则中文输出在 cp1252 控制台上崩）。
+  ③ **Oracle 已改成"干净检出能跑出该输出"并实跑**：`evidence/r29-scripts-rerun.txt` 记录六个脚本的**实际退出码与输出** —— `check_codegen_failure.py` **exit 0**、`check_emit_order.py` **exit 0**（打印 `ORDER_MATCHES=True` 等真实结果）；四个 `verify_round*.py` **能跑但 exit 1**，它们失败的 6 条检查**全部是"对已改写措辞的字符串断言"**（`no live build.py:<line> citation`、`REQ#build.py 不再写行号`、`design 迁移计划命中`、`第 14 轮的 14 条判据仍全绿`、`verify_round1/2 仍全绿`、`9.7 design: 写明「保真度不能靠退出码判定」`）—— **它们的 FAILED 不构成对当前树的证据**（当前树的判据在 §9 与 Review Log 里）。**明写：这四条历史探针的结论已过期，不得引用其 PASS。**
+  ④ **计数订正（并写明口径）**：按本条目记录的抽取命令（`\.review_tmp/([A-Za-z0-9_\-]+\.(txt|py|json))`）实测 **8 个唯一名字**，`evidence/` 下现有 **17 个文件** + `fixtures/` 26 个。9.35 复审报的"11 名"出自**更宽的正则**（它把 `probe/xxx.h` 这类带子目录的引用也算进去了）—— 故判据必须**连正则一起写明**，否则"8 还是 11"不可复核。原文写的"14 文件"是当时快照的数字，现已过时。：被引用的夹具与前态源码（`uisample.h`、`CodeGenMain.fixed.cpp`）**不在库**；脚本搬到 `evidence/` 后原位跑即崩（`FileNotFoundError`）；计数写错（8 名/14 文件，实为 **11 名/15 文件**）。**Oracle**：夹具与四个前态快照入库；脚本改为向上查找仓库根；Oracle 改成"**干净检出**能跑出该输出"；订正计数；交红（现状跑不起来）→绿。
 - [x] 9.47 **[AUDIT] 9.34 的证据是 UTF-16LE**（low，9.35 保留项）：`evidence/codegen-target-build-failure.txt` 首字节 `FF FE`、含 1666 个 NUL，`git grep` 读不到。**Oracle**：另存 UTF-8（或补 UTF-8 副本并注明以它为准），并用 `git grep -c C2059 -- <该文件>` 断言非空（现状 exit 1）。 （✅ 已修 2026-09-13）`evidence/codegen-target-build-failure.txt` 由 UTF-16LE 转成 UTF-8（1666 字符）；判据实跑：`git grep -c C2059 -- <该文件>` 由 **exit 1 变 1 命中**。
 - [x] 9.48 **[AUDIT] 9.32 的"旧判据全绿"是推导、未落盘**（low，9.35 保留项）：`evidence/r26-order.txt` 只有新判据的 `ORDER FAILED`，没有旧判据在该倒序状态下的运行记录。**Oracle**：补跑旧判据并入该文件（须出现重新编译行），或明写"该绿态系推导、未落盘"。 （✅ 已修 2026-09-13）按 Oracle 的第二条分支**明写**：旧判据在倒序状态下的绿态是**推导、未实测**（推导依据已写进 `evidence/r26-order.txt` 的附注），不得当已测证据引用。
 - [ ] 9.49 **Review & Adversarial Verify（Round 27 后 · 强制最后）**：对 §9.42–9.48 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— 用 `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。：9.24 要求把 `-- <目标文件>` 限定写进**锚点规则**，实际只落在「修复即断言」一节；锚点规则那条仍只写 `git grep -n -F` 自检。
@@ -1360,3 +1364,20 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 **D. 剩余清单（置顶进下一轮）**：`9.46`（high：9.33 的证据只数了名字没跑 Oracle —— 夹具与前态快照不在库、脚本换位置即崩、计数写错）→ 做完才能跑 `9.49`（对 9.42–9.48 的审查任务；按串行规则它是唯一未执行的审查任务）。`9.2` 已作废。
 
 **E. 本轮定性**：**未关完**（9 条关掉 6 条，剩 9.46 与 9.49），goal **保持 active 不标完成**。
+
+
+### Round 29（2026-09-13）—— 关掉 9.46（证据可用性）；9.49 跑了但复核者未返回结论 → **不算执行**
+
+**A. 开工**：`queue start r29` → **3 条未勾选**（9.2 已作废 / 9.46 / 9.49）｜`spin start r29` → **414 个交付物**。
+
+**B. 关掉 9.46（high）—— "证据只数了名字、没执行 Oracle"**，四件事都做了：
+1. **夹具与前态快照入库**：`evidence/fixtures/`（**26 个文件**，含 `uisample.h` / `fwd_then_marker.h` / `nonserializable.h` / `comment_mention.h` / `CodeGenMain.fixed.cpp` / `CodeGenMain.base.cpp`）。
+2. **六个脚本从任意目录可跑**：各加"从 `__file__` 向上找含 `build.py` 与 `.git` 的目录 → chdir + 进 sys.path"的引导；把写死的 `ROOT = Path(__file__).resolve().parent.parent` 改成 `parents[4]`（该表达式在 `.review_tmp/` 时正好是仓库根，搬进 `evidence/` 后指向了 `openspec/changes`）；并补 `stdout/stderr` 的 UTF-8 重配置（否则中文输出在 cp1252 控制台上直接崩）。
+3. **Oracle 改成"干净检出能跑出该输出"并实跑**，结果落盘 `evidence/r29-scripts-rerun.txt`：`check_codegen_failure.py` **exit 0**、`check_emit_order.py` **exit 0**（打印 `ORDER_MATCHES=True` 等真实结果）；四个 `verify_round*.py` **能跑但 exit 1**，失败的是 6 条**对已改写措辞的字符串断言**（`no live build.py:<line> citation`、`REQ#build.py 不再写行号`、`design 迁移计划命中`、`第 14 轮的 14 条判据仍全绿`、`verify_round1/2 仍全绿`、`9.7 design: 写明「保真度不能靠退出码判定」`）。⚠ **明写：这四个历史探针的结论已过期，不得引用其 PASS 或 FAIL 作为当前树的证据。**
+4. **计数订正并写明口径**：按条目里记的正则 `\.review_tmp/([A-Za-z0-9_\-]+\.(txt|py|json))` 实测 **8 个唯一名字**；`evidence/` 现 **17 个文件** + `fixtures/` 26 个。9.35 复审报的"11 名"出自**更宽的正则**（它把 `probe/xxx.h` 这类带子目录的引用也算进去）—— **判据必须连正则一起写**，否则数字不可复核；原文"14 文件"是当时快照，已过时。
+
+**C. 9.49 跑了，但不算执行（如实登记）**：workflow `adversarial-review-9-49` 的三个角度**都跑完了**（共报出 **15 条候选**），但**汇总复核的那一步没有返回结论**（返回值为 `verdict: null`）。按证据口径，**没有结论就不等于通过** —— 因此 **9.49 保持未勾选**，下一轮重跑（它是当前**唯一**未执行的审查任务，符合"串行、老的先跑"）。
+
+**D. 收尾（`queue end r29`）**：`closed this round: 1`（9.46）｜`still open: 2`（**9.2 已作废** / 9.49）｜`OPEN-COUNT 2`｜**退出码 1**。`spin end r29`：**`deliverables changed: 33`**（6 个脚本 + 26 个夹具 + 重跑输出）→ **不是空转轮**。
+
+**E. 本轮定性**：**未关完**（剩 9.49 一条审查任务），goal **保持 active 不标完成**。

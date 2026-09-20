@@ -1,3 +1,21 @@
+# --- Bootstrap (task 9.46) ---------------------------------------------------------------
+# This script was archived out of .review_tmp/ for the record. Resolve the repository root from
+# this file's own location (not from the current directory) and put it on sys.path, so a clean
+# checkout can run it from anywhere.
+import os as _os, sys as _sys
+from pathlib import Path as _Path
+_here = _Path(__file__).resolve()
+for _p in [_here.parent, *_here.parents]:
+    if (_p / "build.py").exists() and (_p / ".git").exists():
+        _os.chdir(_p)
+        _sys.path.insert(0, str(_p))
+        try:
+            _sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            _sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+        break
+# --- end bootstrap ----------------------------------------------------------------------
 """Round 18 (goal 2, round 1/3) criteria for tasks 9.6 and 9.7.
 
 Each check states its 作用对象 / 属性 / 红态 (CLAUDE.md 判据三件套).
@@ -11,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[4]  # 9.46: archived under <repo>/openspec/changes/<change>/evidence
 ALT = None
 if "--root" in sys.argv:
     ALT = (ROOT / sys.argv[sys.argv.index("--root") + 1]).resolve()

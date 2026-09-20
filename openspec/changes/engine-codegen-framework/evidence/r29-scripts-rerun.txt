@@ -1,0 +1,83 @@
+# 9.46: evidence scripts re-run from the repo root after adding the bootstrap
+
+===== verify_round1.py exit=1 =====
+    return (ROOT / rel).read_text(encoding="utf-8")
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
+    return self._accessor.open(self, mode, buffering, encoding, errors,
+FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
+
+===== verify_round2.py exit=1 =====
+    return (ROOT / REL[key]).read_text(encoding="utf-8")
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
+    return self._accessor.open(self, mode, buffering, encoding, errors,
+FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
+
+===== verify_round3.py exit=1 =====
+    def rd(k): return FILES[k].read_text(encoding="utf-8")
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
+    return self._accessor.open(self, mode, buffering, encoding, errors,
+FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
+
+===== verify_round18.py exit=1 =====
+    return (ROOT / REL[k]).read_text(encoding="utf-8")
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1132, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\pathlib.py", line 1117, in open
+    return self._accessor.open(self, mode, buffering, encoding, errors,
+FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Projects\\CascadedEngine\\openspec\\changes\\engine-codegen-framework\\openspec\\changes\\engine-codegen-framework\\tasks.md'
+
+===== check_codegen_failure.py exit=1 =====
+  cmake --build E:\Projects\CascadedEngine\openspec\changes\engine-codegen-framework\out\build\x64-debug --target CodeGen
+Error: E:/Projects/CascadedEngine/openspec/changes/engine-codegen-framework/out/build/x64-debug is not a directory
+
+
+ERROR: command failed (exit 1)
+  Bat file kept at: E:\Projects\CascadedEngine\_build_run.bat
+
+===== check_emit_order.py exit=1 =====
+    with Popen(*popenargs, **kwargs) as process:
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 966, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1435, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+FileNotFoundError: [WinError 2] \u7cfb\u7edf\u627e\u4e0d\u5230\u6307\u5b9a\u7684\u6587\u4ef6\u3002
+
+# after fixing ROOT to the repo root (parents[4]), 11:25:24
+
+===== verify_round1.py exit=1 =====
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode characters in position 12-37: character maps to <undefined>
+
+===== verify_round2.py exit=1 =====
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode characters in position 12-13: character maps to <undefined>
+
+===== verify_round3.py exit=1 =====
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode character '\u2460' in position 11: character maps to <undefined>
+
+===== verify_round18.py exit=1 =====
+  File "C:\Users\76956\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode |     return codecs.charmap_encode(input,self.errors,encoding_table)[0] | UnicodeEncodeError: 'charmap' codec can't encode character '\u2460' in position 10: character maps to <undefined>
+
+===== check_codegen_failure.py exit=0 =====
+codegen() returned: ['compile_commands.json not found at E:\\Projects\\CascadedEngine\\out\\build\\x64-debug\\compile_commands.json (configure must export it)'] | ALL 3 CASES PASSED: failures are returned (main() turns them into exit 1), | empty manifest stays non-fatal.
+
+===== check_emit_order.py exit=0 =====
+CodeGenOuter     exit=0  emitted=['n', 'y']  declared=['n', 'y']  ORDER_MATCHES=True | EmitSample       exit=0  emitted=['a', 'b', 'c', 'd']  declared=['a', 'b', 'c', 'd']  ORDER_MATCHES=True | RESULT: PASS - emission follows declaration order
+
+# after adding utf-8 stdout reconfigure, 11:25:47
+
+===== verify_round1.py exit=1 =====
+  FAILED: REQ#build.py ????? |   FAILED: design ?????? | ========================================================================
+
+===== verify_round2.py exit=1 =====
+        TOTAL 14 checks, 3 FAILED | TOTAL 12 checks, 1 FAILED |   FAILED: ??:? 14 ?? 14 ??????
+
+===== verify_round3.py exit=1 =====
+TOTAL 14 checks, 2 FAILED |   FAILED: ??:verify_round1.py ??? |   FAILED: ??:verify_round2.py ???
+
+===== verify_round18.py exit=1 =====
+[PASS] 9.7?????? union???????(???????) | TOTAL 7 checks, 1 FAILED |   FAILED: 9.7 design: ???????????????

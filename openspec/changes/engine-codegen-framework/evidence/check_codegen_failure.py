@@ -1,3 +1,21 @@
+# --- Bootstrap (task 9.46) ---------------------------------------------------------------
+# This script was archived out of .review_tmp/ for the record. Resolve the repository root from
+# this file's own location (not from the current directory) and put it on sys.path, so a clean
+# checkout can run it from anywhere.
+import os as _os, sys as _sys
+from pathlib import Path as _Path
+_here = _Path(__file__).resolve()
+for _p in [_here.parent, *_here.parents]:
+    if (_p / "build.py").exists() and (_p / ".git").exists():
+        _os.chdir(_p)
+        _sys.path.insert(0, str(_p))
+        try:
+            _sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            _sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+        break
+# --- end bootstrap ----------------------------------------------------------------------
 """Executable check for task 9.9: a codegen failure must be *returned*, not swallowed.
 
 Before the fix, codegen() returned None and every abnormal path printed [WARN] and continued,
@@ -8,7 +26,7 @@ Usage: python .review_tmp/check_codegen_failure.py
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[4]  # 9.46: archived under <repo>/openspec/changes/<change>/evidence
 sys.path.insert(0, str(ROOT))
 import build  # noqa: E402
 
