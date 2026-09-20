@@ -1,0 +1,98 @@
+### BEFORE - the state before task 9.62: the CA_REFLECTION channel was still decided by reading source text
+binary: .review_tmp/step7/bin959/CodeGen.exe
+binary sha256: a341222d2be4bd6a246bb2d23c7351ffa6a459a6345ce724125bbd431a9841c8
+built from (DECLARED): the 9.59 build, blob 92769e6 (the state committed as 5bafbb3)
+property: an annotation the preprocessor did NOT perform must not make a type deliverable
+
+--- channel CA_REFLECT
+  line comment           OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  block comment          OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  string literal         OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  raw string literal     OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  spliced line comment   OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if 0                  OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if (0)                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if false              OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #ifdef undefined       OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  unused #define body    OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #elif 0                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  REAL USE (positive)    OK   exit=0 artifact=True
+
+--- channel CA_CODEGEN_REGISTER
+  line comment           OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  block comment          OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  string literal         OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  raw string literal     OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  spliced line comment   OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if 0                  OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if (0)                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if false              OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #ifdef undefined       OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  unused #define body    OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #elif 0                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  REAL USE (positive)    OK   exit=0 artifact=True
+
+--- channel CA_REFLECTION
+  line comment           OK   exit=4 artifact=False  stderr=CodeGen: type 'Target' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECT
+  block comment          OK   exit=4 artifact=False  stderr=CodeGen: type 'Target' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECT
+  string literal         OK   exit=4 artifact=False  stderr=CodeGen: type 'Target' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECT
+  raw string literal     OK   exit=4 artifact=False  stderr=CodeGen: type 'Target' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECT
+  spliced line comment   RED  exit=0 artifact=True  (the spelling REGISTERED the type: an artifact was written)
+  #if 0                  RED  exit=0 artifact=True  (the spelling REGISTERED the type: an artifact was written)
+  #if (0)                RED  exit=0 artifact=True  (the spelling REGISTERED the type: an artifact was written)
+  #if false              RED  exit=0 artifact=True  (the spelling REGISTERED the type: an artifact was written)
+  #ifdef undefined       RED  exit=0 artifact=True  (the spelling REGISTERED the type: an artifact was written)
+  unused #define body    RED  exit=0 artifact=True  (the spelling REGISTERED the type: an artifact was written)
+  #elif 0                RED  exit=0 artifact=True  (the spelling REGISTERED the type: an artifact was written)
+  REAL USE (positive)    OK   exit=0 artifact=True
+
+matrix: 11 spellings x 3 channels + 3 positive cells; cells whose property does NOT hold: 7
+### AFTER - task 9.62: all three channels are decided by the preprocessor
+binary: .review_tmp/step7/bin962/CodeGen.exe
+binary sha256: 9bd5dddc3e5f16552c380e4d00d6fcb6f7cd521d9b0c3805da2b3d8c023db025
+built from (DECLARED): worktree after task 9.62
+property: an annotation the preprocessor did NOT perform must not make a type deliverable
+
+--- channel CA_REFLECT
+  line comment           OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  block comment          OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  string literal         OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  raw string literal     OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  spliced line comment   OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if 0                  OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if (0)                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if false              OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #ifdef undefined       OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  unused #define body    OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #elif 0                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  REAL USE (positive)    OK   exit=0 artifact=True
+
+--- channel CA_CODEGEN_REGISTER
+  line comment           OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  block comment          OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  string literal         OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  raw string literal     OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  spliced line comment   OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if 0                  OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if (0)                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if false              OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #ifdef undefined       OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  unused #define body    OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #elif 0                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  REAL USE (positive)    OK   exit=0 artifact=True
+
+--- channel CA_REFLECTION
+  line comment           OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  block comment          OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  string literal         OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  raw string literal     OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  spliced line comment   OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if 0                  OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if (0)                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #if false              OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #ifdef undefined       OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  unused #define body    OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  #elif 0                OK   exit=0 artifact=False  stderr=CodeGen: no annotated types (empty whitelist) in 'E:\Projects\CascadedEngine\openspec\chan
+  REAL USE (positive)    OK   exit=0 artifact=True
+
+matrix: 11 spellings x 3 channels + 3 positive cells; cells whose property does NOT hold: 0

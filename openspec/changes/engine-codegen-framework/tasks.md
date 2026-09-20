@@ -83,7 +83,7 @@
   - **① 负面门控**：`CodeGen TestNested.h CodeGenNested`（该头含标注 `CodeGenOuter` + 未标注 `CodeGenNested`）→ **exit=4**，stderr "type 'CodeGenNested' is not annotated... refusing to extract"（未被标注的类型不提取，negative 成立；用 TestNested 内的未标注类型验证，避免新建含标注+未标注并存的 fixture）。
   - **③ 正面回归**：`CodeGen TestStruct.h CodeGenSample -I CACore/header` → `CodeGenSample 4` + `# options: serializable, min = 0`；`CodeGen TestEmit.h EmitSample --emit-reflection` → 与 golden `Tools/CodeGen/generated/EmitSample.Reflection.h` **diff 为空（GOLDEN MATCH）**；`CodeGen TestExternal.h CodeGenExternal`（CA_REFLECTION-only）→ `CodeGenExternal 2` + field a/b。
   - **真实 interop 匹配**（⚠ **已作废 · 2026-09-12**：该注册宏已随范围变更删除，`git grep -n CA_CODEGEN_REGISTER -- Interface` 现为零命中。原文保留为历史记录，勿再据此认为树里存在该标注）：`Interface/RenderInterface/header/ShaderResourceHandle.h:185` `CA_CODEGEN_REGISTER("graphics_backend::ImageHandle")`；`CodeGen ... ImageHandle`（未限定名）经**限定名 tail 匹配**（`unqualifiedName("graphics_backend::ImageHandle")=="ImageHandle"`）→ **exit=0**（非 4），正常进入 AST 路径。
-  - **设计语义（2026-09-20 订正）**：门控**不再是纯文本扫描** —— "哪些类型被标注"由 libclang 的详细预处理记录给出，即预处理器**真正展开过**的宏调用；每条标注绑定到其后第一个**文件/命名空间级**类型（task 9.59，锚点：`CXTranslationUnit_DetailedPreprocessingRecord`，判据 `git grep -n -F "CXTranslationUnit_DetailedPreprocessingRecord" -- Tools/CodeGen/CodeGenMain.cpp` 命中）。标注的**选项**仍取该调用区间内的文本，不经 libclang attribute，对齐 D2"标过了才生成"。**一处例外照实写**：`CA_REFLECTION` 在本工具的世界里**不是宏**（`CACore/header/CodeGenMeta.h` 只定义 `CA_REFLECT` 与 `CA_CODEGEN_REGISTER`），该通道按设计仍是文本通道，读"注释与字符串字面量已抹空"的文本；因此**被禁用预处理分支里的 `CA_REFLECTION` 拼写仍会被当成标注**，这是本 change 已知未覆盖的方向。`isWhitelisted` 匹配 `target==QN`（精确）或 `unqualified(target)==unqualified(QN)`（双向限定名 tail 匹配），`--qualified-name=` override 也作为候选参与。
+  - **设计语义（2026-09-20 订正）**：门控**不再是纯文本扫描** —— "哪些类型被标注"由 libclang 的详细预处理记录给出，即预处理器**真正展开过**的宏调用；每条标注绑定到其后第一个**文件/命名空间级**类型（task 9.59，锚点：`CXTranslationUnit_DetailedPreprocessingRecord`，判据 `git grep -n -F "CXTranslationUnit_DetailedPreprocessingRecord" -- Tools/CodeGen/CodeGenMain.cpp` 命中）。标注的**选项**仍取该调用区间内的文本，不经 libclang attribute，对齐 D2"标过了才生成"。**订正（2026-09-20，task 9.61）**：`CA_REFLECTION` **是宏** —— `CACore/header/Reflection.h:82` 有 `#define CA_REFLECTION(Type, ...)`，仓库里 22 个文件在用它；此前写的"它不是宏"是错的，成立的说法只是"工具自己那份夹具没有 include 定义它的头"。该通道自 task 9.62 起与另外两条同路：**只有预处理器真正展开过这次调用才算标注**，成员名仍取这次调用的实参字节。`isWhitelisted` 匹配 `target==QN`（精确）或 `unqualified(target)==unqualified(QN)`（双向限定名 tail 匹配），`--qualified-name=` override 也作为候选参与。
   - ⚠ **范围诚实**：3.3 只落地"门控 + 空名单"；不含 offset 质量（ImageHandle 现 offset 全 0 系前向声明不完整 parse，归 **4.3** 在真实 include set 下处理），不含"hook 侧不阻断"（归 **4.1**）。
   ⚠ **RC-G 调和（2026-09-07）**：②"空白名单"＝**无任何标记类型的独立工程**——该配置下**无生成源被接线**，故不存在"缺失接线源"问题，与 4.2 的"缺失接线源→报错"**不冲突**（两种配置互斥：无标注工程→空名单 case；标准标注工程→白名单非空、走正常接线 = ③）。⚠ **2026-09-12 更正**：括号内原写"2.2 已注册 ImageHandle 等"**已随范围变更作废**；"标准标注工程"今后应读作"有 `Tools/CodeGen/` 下 fixture 被标注的工程"。
 
@@ -506,12 +506,23 @@
 - [x] 9.58 **Review & Adversarial Verify（Round 34 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-58`，3 个对抗角度 + 1 名独立复核者，4 个 agent；**结论：不合格**，14 条保留、0 条被驳回；处置见 Review Log Round 34）：对 §9.50–§9.57 已落地条目开 workflow 做对抗验证；三条固定提示词照抄。**复核者对我明确提出的"是否同一个根因复发"这个问题的回答是：是同一个根因**，并给出证据：第 32 轮记录"9.55 的修法自带 6 条红"、第 33 轮四条 high 全打在 9.55 刚写的文本判定逻辑上、本轮三条 high 全打在 9.57 刚写的条件判定逻辑上，另有"宏定义体里的标注拼写被当真标注"一例；同时确认已记录的 45 条命令逐条重跑 **0 处不符**（绿态是真的，缺陷都在夹具集之外）。
 - [x] 9.59 **[AUDIT] 停止逐种拼法打补丁：把"哪些类型被标注"的判定从扫源文本换成问预处理器**（high ×3 + medium ×2，2026-09-20 由 9.58 的对抗验证发现；✅ 已修，红→绿见 `evidence/r31-950.txt` 的 BEFORE-B6 段与 AFTER-B7 段，共 **37 条**断言）：
   **审查实测的红态**（都发生在 9.57 那版二进制上，命令与输出全文在 `evidence/r31-950.txt` BEFORE-B6 段）：① `#if 0 // 说明` 这种最常见的写法让"死分支"重新算代码，**未标注类型拿到序列化特化**；② 注释或原始字符串里出现一行 `#if 0`，就把其后**真标注**整段抹掉，工具 exit 0 且不产出任何代码（第 32 轮修好的"字符串抹掉真标注"换了个机制又回来）；③ `#ifdef <名字>` 只要不在 `-D` 列表里就被判假并删掉真标注，而同一段代码写成 `#if defined(...)` 反而保留——记录里"判不了的按代码保留，只可能更保守"是**假断言**；④ 还有四条 medium：`#elif 0` 被当成活代码、`defined()` 从不查 `-D` 列表、`-D X`（分开写）不进定义表、关键字匹配右边没有词边界（`classify` 里冒出个 `introducer` 叫 `ify`）。
-  **修法（换机制，不是再补一种拼法）**：用 `CXTranslationUnit_DetailedPreprocessingRecord` 让 libclang 报出**它真正展开过的每一个宏调用**（`CXCursor_MacroExpansion`，带字节区间），标注 = 这些真实调用之一，绑定到其后第一个**文件/命名空间级**类型；只读 clang 给出的区间内的字节。注释、字符串、被禁用的预处理分支、没用到的 `#define` 体、`classify` 这类子串**在原理上就不可能**出现在这个集合里。删掉整套文本判定机器（两个抹空视图、预处理器条件抹空、引入点取名与声明/定义区分），代码因此变短。**保留一处并按属性说明**：`CA_REFLECTION` 在本工具的世界里**不是宏**（`CodeGenMeta.h` 只定义 `CA_REFLECT` 与 `CA_CODEGEN_REGISTER`），这条通道按设计就是文本通道，仍读"注释与字符串已抹空"的文本——因此**被禁用分支里的 `CA_REFLECTION` 拼写仍会被当成标注**，这条限制写在代码注释与本节里。
+  **修法（换机制，不是再补一种拼法）**：用 `CXTranslationUnit_DetailedPreprocessingRecord` 让 libclang 报出**它真正展开过的每一个宏调用**（`CXCursor_MacroExpansion`，带字节区间），标注 = 这些真实调用之一，绑定到其后第一个**文件/命名空间级**类型；只读 clang 给出的区间内的字节。注释、字符串、被禁用的预处理分支、没用到的 `#define` 体、`classify` 这类子串**在原理上就不可能**出现在这个集合里。删掉整套文本判定机器（两个抹空视图、预处理器条件抹空、引入点取名与声明/定义区分），代码因此变短。**当时保留了一处文本判定并按属性说明**（⚠ **那段说明本身是错的，见 task 9.61**）：它写的是"`CA_REFLECTION` 在本工具的世界里不是宏"，实测为假 —— 它是宏（`CACore/header/Reflection.h:82`），只是当时的夹具没有 include 定义它的头。这条文本通道连同它的两条活缺陷（`#if 0` 分支里注册、未使用的宏定义体里注册幻影名）已由 **task 9.62** 删除。
   **先打真身再动手**：新增临时诊断（环境变量触发的 `[DIAGDUMP]`），实测 `fwd_then_marker.h` 上**恰好一条** `CA_REFLECT` 展开（`line=6 off=99 extent=[99,123) file=MAIN`），而 `ifzero.h` 上**一条都没有**；输出落盘为 `evidence/r34-pp-dump.txt`（原始 4 万行在 `.review_tmp/step7/pp*.txt`），据此换机制，**然后删除**该诊断块。
   **红→绿**：新增 8 个入库夹具（`if0_trailing_comment.h` / `comment_directive.h` / `define_body.h` / `classify_identifier.h` / `elaborated_use.h` / `template_default_arg.h` / `elif_zero.h` / `env_defined_macro.h`），断言从 29 条扩到 **37 条**；B6（只含 9.57 修法）上 **8 条红**，B7 上 **37 条全 PASS**。另有一组 18 条的对抗探针（审查用过的每个反例各一条，`.review_tmp/step7/probe59.py`）**18/18 通过**。三份构建期 golden 仍逐字节相同；`python build.py --config Debug` 退出码 0；`CoreTests.exe` 五条 PASSED、exit 0；终态条件 3/4 **在本轮二进制上重测通过**（`evidence/r34-conditions.txt`：`tail` 40 vs 48、`/MDd`→`-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`、完整环境 exit 0 / 三种等价残缺均 exit 6 且指名无法解析的 include 与退化的字段）。`docs/failed-approaches.md` 补第 22、23 行。
   **Oracle**：① 非活动分支里的标注不得计入，活动分支（含 `#else`）必须计入，**表达式怎么拼写都要成立**（尾随注释、`(0)`、`false`、`0L`、续行）；② 注释/字符串里的指令或标注拼写都不得影响判定；③ 没用到的宏定义体、仅仅包含关键字的标识符、`struct X` 的裸用法、模板实参都不得冒充标注；④ 环境已定义的宏必须被承认，`-D` 分开写与连写等价；⑤ 上述每条都有入库夹具、在只含上一轮修法的二进制上变红、在当前二进制上变绿；⑥ 修完重跑三份 golden 对拍、`CoreTests.exe` 与终态条件 3/4。
-- [x] ~~9.60 **Review & Adversarial Verify（Round 35 后）**~~ **【已作废 · 2026-09-20 · 用户裁定】**：本条原要求"对 §9.50–§9.59 开 workflow 做对抗验证"。**用户于 2026-09-20 明令：不再要求在 tasks 结尾做审查 workflow、也不再要求"发现新问题就追加修复任务 + 再追加新审查任务"的循环** —— 理由是该流程多轮下来没有收敛，"和空转无异"。据此本条**作废**，不再执行；`CLAUDE.md` 的「审查闭环」一节已同步改写为"按需"。**已执行的审查条目（9.12 / 9.23 / 9.27 / 9.35 / 9.49 / 9.53 / 9.56 / 9.58）的结论照旧有效**，各自有 Review Log；本条作废**不影响**它们。已落地的代码与证据（9.50–9.59）不因本条作废而改变。
+- [x] 9.60 ~~**Review & Adversarial Verify（Round 35 后）**~~ **【已作废 · 2026-09-20 · 用户裁定】**：本条原要求"对 §9.50–§9.59 开 workflow 做对抗验证"。**用户于 2026-09-20 明令：不再要求在 tasks 结尾做审查 workflow、也不再要求"发现新问题就追加修复任务 + 再追加新审查任务"的循环** —— 理由是该流程多轮下来没有收敛，"和空转无异"。据此本条**作废**，不再执行；`CLAUDE.md` 的「审查闭环」一节已同步改写为"按需"。**已执行的审查条目（9.12 / 9.23 / 9.27 / 9.35 / 9.49 / 9.53 / 9.56 / 9.58）的结论照旧有效**，各自有 Review Log；本条作废**不影响**它们。已落地的代码与证据（9.50–9.59）不因本条作废而改变。
+- [x] 9.61 **订正一处事实错误：`CA_REFLECTION` 是宏，"它不是宏"是我写错的**（2026-09-20 用户要求控制灾害扩大的盘点中发现）：我在三处写了"`CA_REFLECTION` 在本工具的世界里不是宏"（`Tools/CodeGen/CodeGenMain.cpp` 的注释、本文件 9.59 条目、`design.md`）。**实测反证**：`git grep -n "define CA_REFLECTION"` 命中 `CACore/header/Reflection.h:82`，且仓库里有 **22 个** `.h`/`.cpp` 在使用 `CA_REFLECTION(`。真正成立的说法只有一句：**工具自己那份夹具没有 include 定义该宏的头**，所以在那一个翻译单元里它不是宏。**为什么必须改**：这句话是上一轮"保留文本通道"的唯一理由，理由错了，后面 9.62 的判断就失去依据；留着它会让后来者以为这条通道"天然只能是文本"。
+  **Oracle**：① 三处旧说法逐字清零 —— `git grep -n -F "不是宏" -- Tools/CodeGen/CodeGenMain.cpp` 与 `git grep -n -F "不是宏" -- <四份文档>` **必须零命中**，并贴出改前的命中行与命令输出；② 新写法逐字可 grep（从目标文件复制，带 `-- <所指文件>` 限定）：`CACore/header/Reflection.h:82` 的 `#define CA_REFLECTION(Type, ...)`、22 这个数字要能用一条命令复现；③ `python build.py --config Debug` 仍退出码 0（只改注释与文档，行为不变）。
+  （✅ 已执行 2026-09-20，证据见 `evidence/r35-matrix.txt`）**结果**：三处断言全部改成事实句 —— 现在写的是"`CA_REFLECTION` **是宏**，定义在 `CACore/header/Reflection.h:82`；此前写的'它不是宏'是错的，成立的只是'当时那份夹具没有 include 定义它的头'"。**判据实跑**：`git grep -n -F "#define CA_REFLECTION(Type, ...)" -- CACore/header/Reflection.h` 命中该行；`git grep -l "CA_REFLECTION(" -- "*.h" "*.cpp" | Measure-Object` 得 **22**；旧断言句式在三份文件里已不存在（剩下的命中全部是"此前写的 X 是错的"这种**引用并否证**的写法，见下面贴出的命令输出）。`python build.py --config Debug` 退出码 0。
+- [x] 9.62 **删掉最后一个"读源码文本"的判定：让 `CA_REFLECTION` 也由编译器报告的宏展开决定**（2026-09-20 实测的两条活缺陷）：
+  **现在的红态（在当前二进制 `out/build/x64-debug/bin/CodeGen.exe` 上实测，退出码与产物都在）**：① 把 `CA_REFLECTION(Ghost, a, b)` 写进 `#if 0` 分支、而 `Ghost` 本身没有任何标注 → 查询 `Ghost` **退出码 0 并返回完整字段表**（`Ghost 2 / field a / field b`）；② 把同样的拼写写进一个**从未使用**的 `#define REG(T) CA_REFLECTION(T, x)` 宏体 → 注册出一个**幻影类型**，名字就是宏参数 `T`，对它 `--emit-reflection` **退出码 0 并写出产物**。同样写法对 `CA_REFLECT` 通道**已经不算数**（实测 exit 0、无产物）——洞只在第三条通道。
+  **修法**：删掉 `blankCommentsAndLiterals` 与 `scanCA_REFLECTIONUses` 这套文本扫描；`CA_REFLECTION` 与另外两条通道走同一条路 —— **只有 clang 报告了这次宏展开才算标注**，成员名仍从这次调用的字节区间里读。工具自己的夹具（`Tools/CodeGen/TestExternal.h`）要像仓库里那 22 处真实用法一样**先有宏定义再使用**（现在它是"用了未定义的宏"的非法单元）；真实项目头本来就 include `Reflection.h`，对它们唯一的变化是文本路径变成死代码并被删除。
+  **Oracle**：① 上面两条红态**在当前二进制上先复现为红**（命令与输出落盘），修完在同一命令上变绿 —— `#if 0` 里的拼写必须让该类型走"无标注"分支（退出码与产物都与同文件去掉该分支时一致），宏体里的幻影名**不得**被注册（查询该名字不得产出产物）；② 真实用法仍然工作：`CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection` 仍产出成员表（`a`、`b` 两行），且 9.30 的拒绝路径仍为 exit 8；③ 三条通道合起来**不再有任何一处按源码文本决定"这是不是标注"**（判据：删掉的两个函数名在 `Tools/CodeGen/CodeGenMain.cpp` 里零命中）；④ 37 条内容断言、`r26`/`r28` 两组、三份构建期 golden 对拍、`python build.py --config Debug`、`CoreTests.exe` 全部保持绿；⑤ 夹具改动入库，BEFORE 段（含缺陷的那一版）与 AFTER 段由 `evidence/regen_codegen_evidence.py` 生成。
+  （✅ 已执行 2026-09-20）**改了什么**：`Tools/CodeGen/CodeGenMain.cpp` 删除 `blankCommentsAndLiterals` 与 `scanCA_REFLECTIONUses` 及调用它们的合并块（净删 3817 字符）；三条通道现在只有一条路 —— 标注必须是一次**预处理器真正展开过的宏调用**。`Tools/CodeGen/TestExternal.h` 补上宏定义（像仓库里那 22 处真实用法一样，用到宏的头先有定义），它原来是一个"用了未定义宏"的非法翻译单元。**判据实跑**：`git grep -n -F "blankCommentsAndLiterals" -- Tools/CodeGen/CodeGenMain.cpp` 与 `scanCA_REFLECTIONUses` 同一命令均**零命中**；`CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection` 仍产出 `a`、`b` 两行（9.30 的拒绝路径仍是 exit 8，见 `evidence/r26-gates.txt` 的 AFTER-B8 段）；`evidence/r31-950.txt` 的 AFTER-B8 段 37 条全绿；`r26`/`r28` 两组全绿；三份构建期 golden 逐字节相同；`python build.py --config Debug` 退出码 0；`CoreTests.exe` 五条 PASSED。
+- [x] 9.63 **改掉"每个洞配一只新夹具"的验收方式：同一性质 × 一批输入，三个通道一起量**（根因记录在 `docs/failed-approaches.md` 第 18、20、22 行；这是四轮打回的直接原因）：四轮里每轮都为当轮新发现的拼法造一只夹具，于是"绿"只等于"这一只夹具过了"，同一性质换个入口照样破。本条要求建**一张矩阵**：行 = "不该被当成标注的写法"（注释、字符串、续行注释、`#if 0`、`#if (0)`、`#if false`、未使用的宏定义体、仅包含关键字的标识符如 `classify`、`struct X` 的裸用法、模板实参、仅声明未定义），列 = 三条通道（`CA_REFLECT` / `CA_CODEGEN_REGISTER` / `CA_REFLECTION`），每格一条命令与它的真实退出码/产物，**修复前逐格的红/绿与修复后逐格的结果都落盘**。
+  **Oracle**：① 矩阵由程序生成并执行（不是手抄），输出落盘成证据文件（放在 `openspec/changes/engine-codegen-framework/evidence/` 下，输入夹具入库）；② 矩阵里**每一条"不该算标注"的写法在三条通道上都必须是"不算"**，任何一格反例必须在同一份输出里可见；③ 矩阵里同时要有**正向格**（真实标注必须仍然生效），否则判据恒真；④ 该矩阵可以直接跑出 9.61/9.62 之前的红格（把当前二进制当作前态，命令与输出一起贴）。
 
+  （✅ 已执行 2026-09-20，产出 `evidence/regen_annotation_matrix.py` + `evidence/r35-matrix.txt` + `evidence/fixtures/matrix/`）**矩阵**：11 种"不是代码"的写法 × 3 条通道 + 3 个正向格 = **36 格**，由程序生成夹具、执行、逐格记录退出码与是否写出产物。**每格只有在确实跑到判定环节时才算数** —— 只判"没产物"不算证据，因为解析失败同样不写产物；这一点是第一版矩阵自己的假绿（把两条本来由 `CodeGenMeta.h` 定义的宏又定义了一遍，整列因为解析失败而"全过"），在本条执行中当场发现并修掉。**前态实测**（`5bafbb3` 那一版二进制 = `evidence/r35-matrix.txt` 的 BEFORE 段）：**7 格红，全部落在 `CA_REFLECTION` 一列** —— 续行注释、`#if 0`、`#if (0)`、`#if false`、`#ifdef` 未定义名、未使用的宏定义体、`#elif 0`，每格都是"拼写被当成标注，写出了产物"。**当前二进制**：**36 格全过**（0 格红）。三份构建期 golden 仍逐字节相同，`python build.py --config Debug` 退出码 0，`CoreTests.exe` 五条 PASSED，两个终态条件在本轮二进制上重测通过。
 ## Review Log
 
 ### Round 1（2026-09-07）—— 排序/依赖结构对抗验证（workflow `verify-codegen-tasks-order`，24 agents / 154 tool-calls / 97.6w tokens）
@@ -1617,7 +1628,7 @@ spin r34: snapshot taken over 465 deliverable files -> .review_tmp\spin\r34.spin
 1. **先打真身**：加临时 `[DIAGDUMP]`（环境变量触发），实测 `fwd_then_marker.h` 上**恰好一条** `CA_REFLECT` 宏展开（`line=6 off=99 extent=[99,123) file=MAIN`），`ifzero.h` 上**一条都没有**；落盘 `evidence/r34-pp-dump.txt`，**然后删掉**该诊断块。
 2. **换判定**：解析时带 `CXTranslationUnit_DetailedPreprocessingRecord`，标注 = clang 报告的**真实宏调用**（`CXCursor_MacroExpansion`，带字节区间），绑定到其后第一个文件/命名空间级类型；只读 clang 给出的区间内的字节。注释、字符串、被禁用的分支、没用到的 `#define` 体、`classify` 这类子串**原理上进不了这个集合**。
 3. **删掉整套文本机器**：两个抹空视图、预处理器条件抹空、类型引入点取名与声明/定义区分全部删除（代码净变短）。
-4. **一处按其属性保留并写明**：`CA_REFLECTION` 在本工具世界里**不是宏**（`CodeGenMeta.h` 只定义 `CA_REFLECT`、`CA_CODEGEN_REGISTER`），按设计就是文本通道，仍读"注释与字符串已抹空"的文本；**被禁用分支里的 `CA_REFLECTION` 拼写仍算标注**——这条限制写在代码注释与本轮条目里。
+4. **一处按其属性保留并写明（⚠ 该说明已被 task 9.61 订正为错）**：当时写的是"`CA_REFLECTION` 在本工具世界里不是宏"—— **实测为假**，它是宏（`CACore/header/Reflection.h:82`）。这条文本通道已由 **task 9.62** 删除，两条活缺陷（`#if 0` 分支里注册、未使用的宏定义体里注册幻影名）随之消失。
 
 **D. 红 → 绿**
 
@@ -1649,3 +1660,34 @@ spin r34: deliverables changed: 15
 
 **F. 本轮定性**：**未关完** —— 关掉 9.58 并按它的结论关掉 9.59；剩 1 条作废项 + 1 条新审查任务 `9.60`。goal **保持 active 不标完成**，下一轮从 `9.60` 开始。
 **相比上轮，实质变化是什么**：**判定机制换了，不是又补一种拼法。** 代码里"哪些类型被标注"不再由我写的文本扫描决定，而由 clang 报告的宏展开决定；整套文本判定机器被删除，`Tools/CodeGen/CodeGenMain.cpp` 净变短；审查连续三轮用过的每个反例各配一个入库夹具（37 条断言，上一轮是 29 条），并且这 37 条在只含上一轮修法的二进制上 8 条红、在当前二进制上全绿。
+
+### Round 35（2026-09-20）—— 用户裁定停用强制审查后，按盘点结果执行 9.61 / 9.62 / 9.63
+
+**A. 开工（两条 start）**：`queue r35: 83 items total, 2 OPEN`（9.2 已作废 / 9.60）｜`spin r35: snapshot taken over 475 deliverable files`。逐条可执行性：9.60 起初可执行、随后**被用户裁定作废**；9.2 已作废。**没有一条"被挡住"**。
+
+**B. 规则变更（用户裁定，2026-09-20）**：不再要求在 `tasks.md` 结尾做审查 workflow，也不再要求"发现新问题就追加修复任务 + 再追加新审查任务"的循环（理由：多轮不收敛，"和空转无异"）。`CLAUDE.md` 的「审查闭环」已改写为**按需**并保留旧规则原文作历史记录；9.60 据此**作废**（保留条目正文，不改写成"完成"）。用户随后要求把这些修复项写进 tasks（9.61/9.62/9.63），再要求直接执行。
+
+**C. 盘点（用户要求"控制灾害扩大"）实测出的问题**：① **一处事实错误** —— 我在三处写了"`CA_REFLECTION` 不是宏"，实测为假（`CACore/header/Reflection.h:82` 有定义，仓库里 22 个文件在用它；成立的只是"当时那份夹具没有 include 定义它的头"）；② **两条活缺陷** —— 把 `CA_REFLECTION(...)` 写进 `#if 0` 分支会让一个没有任何标注的类型拿到完整字段表（退出码 0），写进从未使用的 `#define` 宏体会注册出以宏参数为名的幻影类型（退出码 0 且写出产物）；同样写法用在 `CA_REFLECT` 通道上**已经不算数** —— 洞只在第三条通道。
+
+**D. 执行结果**
+- **9.61**：三处断言改成事实句，并给出可核锚点（`#define CA_REFLECTION(Type, ...)` 命中 `Reflection.h:82`；`22` 由一条命令复现）。旧句式剩下的命中**全部是「此前写的 X 是错的」这种引用并否证**的写法。
+- **9.62**：删除 `blankCommentsAndLiterals` 与 `scanCA_REFLECTIONUses` 及合并块（净删 3817 字符），三条通道只剩一条路 —— 标注必须是一次**预处理器真正展开过的宏调用**；`Tools/CodeGen/TestExternal.h` 补上宏定义（原先它是"用了未定义宏"的非法翻译单元）。
+- **9.63**：新增矩阵工具 `evidence/regen_annotation_matrix.py`，**11 种"不是代码"的写法 × 3 条通道 + 3 个正向格 = 36 格**，由程序生成夹具、执行、逐格记录。**前态（`5bafbb3` 那一版二进制）7 格红，全部在 `CA_REFLECTION` 一列**；**当前二进制 36 格全过**（证据 `evidence/r35-matrix.txt`，BEFORE/AFTER 两段）。矩阵自身的第一版**因为把两条已由 `CodeGenMeta.h` 定义的宏又定义了一遍**而整列假绿（解析失败同样不写产物），当场发现并改成"每格必须确实跑到判定环节才算数"。
+- 回归：`python build.py --config Debug` 退出码 0、三份 golden 逐字节相同、`CoreTests.exe` 五条 PASSED、`r26` 3/3、`r28` 6/6、内容断言 37/37、证据门控 632 条输入路径 0 条不在库。
+
+**E. 收尾比对（两条 end 的原始输出）**
+
+```
+queue r35: closed this round: 1  -> CLOSED 9.60（按用户裁定作废）
+           still open: 1         -> 9.2【已作废 · 2026-09-08】
+           OPEN-COUNT 1
+（本轮新开的 9.61/9.62/9.63 在同一轮内执行完毕并勾选）
+
+spin r35: deliverables changed: 40
+  modified: Tools/CodeGen/CodeGenMain.cpp, Tools/CodeGen/TestExternal.h,
+            evidence/r26-gates.txt, r28-gates.txt, r31-950.txt
+  added:    evidence/regen_annotation_matrix.py, evidence/r35-matrix.txt,
+            evidence/fixtures/matrix/（36 个夹具）
+```
+
+**F. 本轮定性**：**未关完**（剩 9.2 一条已作废条目）。**未做的验证如实写明**：这一版**没有再开独立对抗审查**（用户明令停掉），所以"36 格全过"只证明这 36 格；我**不声称**这一版没有别的盲区。按新规则，是否需要一次独立复核由用户决定。

@@ -359,83 +359,6 @@ namespace
         return bound;
     }
 
-    /** Task 9.59, honest boundary: the CA_REFLECTION channel stays a TEXT channel.
-        `CA_REFLECTION(Type, a, b)` is not a macro in this tool's world — CACore/header/CodeGenMeta.h
-        defines only CA_REFLECT and CA_CODEGEN_REGISTER, and the channel exists precisely for library
-        types whose annotation lives in a header the tool does not compile (design D2: "the tool reads
-        this macro's member list from the source text"). The preprocessor therefore cannot report an
-        invocation, so this ONE channel still parses text — with comments and string/char literal
-        interiors blanked (task 9.57), which is what keeps a spelling inside a string or a comment from
-        registering a type. Residual, documented limit: a CA_REFLECTION spelling inside a DISABLED
-        preprocessor branch is still read as an annotation. Only this channel has that limit; the
-        CA_REFLECT and CA_CODEGEN_REGISTER decisions are taken from the preprocessor. */
-    std::string blankCommentsAndLiterals(const std::string& text)
-    {
-        std::string out = text;
-        bool inLine = false, inBlock = false;
-        for (std::size_t i = 0; i < out.size(); ++i)
-        {
-            const char c = out[i];
-            const char n = (i + 1 < out.size()) ? out[i + 1] : '\0';
-            if (inLine)
-            {
-                if (c == '\\' && (n == '\n' || n == '\r')) { out[i] = ' '; continue; }
-                if (c == '\n') inLine = false;
-                else if (c != '\r') out[i] = ' ';
-                continue;
-            }
-            if (inBlock)
-            {
-                if (c == '*' && n == '/') { out[i] = out[i + 1] = ' '; ++i; inBlock = false; }
-                else if (c != '\n' && c != '\r') out[i] = ' ';
-                continue;
-            }
-            if (c == '/' && n == '/') { out[i] = out[i + 1] = ' '; ++i; inLine = true; continue; }
-            if (c == '/' && n == '*') { out[i] = out[i + 1] = ' '; ++i; inBlock = true; continue; }
-            if (c == '"' || c == '\'')
-            {
-                std::size_t j = i + 1;
-                for (; j < out.size(); ++j)
-                {
-                    if (out[j] == '\\') { ++j; continue; }
-                    if (out[j] == c || out[j] == '\n') break;
-                }
-                for (std::size_t k = i + 1; k < j && k < out.size(); ++k)
-                    if (out[k] != '\n' && out[k] != '\r') out[k] = ' ';
-                i = (j < out.size()) ? j : out.size() - 1;
-            }
-        }
-        return out;
-    }
-
-    /** The CA_REFLECTION(Type, a, b) declarations in a file, from the blanked view above.
-        Returns (type name as written, argument text after it). */
-    std::vector<std::pair<std::string, std::string>> scanCA_REFLECTIONUses(const std::string& code)
-    {
-        const char* mk = "CA_REFLECTION(";
-        const std::size_t mkLen = std::strlen(mk);
-        std::vector<std::pair<std::string, std::string>> out;
-        for (std::size_t m = code.find(mk); m != std::string::npos; m = code.find(mk, m + mkLen))
-        {
-            const std::size_t open = m + mkLen;
-            int depth = 1;
-            std::size_t i = open;
-            for (; i < code.size() && depth > 0; ++i)
-            {
-                if (code[i] == '(') ++depth;
-                else if (code[i] == ')') --depth;
-            }
-            if (depth != 0)
-                continue; // a malformed one is skipped, not fatal for the others
-            const std::string args = trim(code.substr(open, i - 1 - open));
-            const std::size_t comma = args.find(',');
-            const std::string first = trim(comma == std::string::npos ? args : args.substr(0, comma));
-            if (!first.empty())
-                out.emplace_back(first, args);
-        }
-        return out;
-    }
-
     std::string scanMarkerOptions(const std::map<std::string, AnnotationBinding>& bound,
                                   const std::string& typeName)
     {
@@ -898,16 +821,7 @@ int main(int argc, char** argv)
         for (AnnotationUse& u : uses)
             u.args = invocationArgs(source, u);
     }
-    std::map<std::string, AnnotationBinding> bound = bindAnnotations(uses, occurrences);
-    // The one channel the preprocessor cannot report (see blankCommentsAndLiterals): CA_REFLECTION is not
-    // a macro here, so its uses are read from the blanked text and merged into the same binding map. The
-    // text is blanked first, so a spelling inside a comment or a string literal does not register a type.
-    {
-        const std::string code = blankCommentsAndLiterals(source);
-        for (const auto& u : scanCA_REFLECTIONUses(code))
-            if (bound.find(u.first) == bound.end())
-                bound[u.first] = { "CA_REFLECTION", u.second, CXCursor{}, false };
-    }
+    const std::map<std::string, AnnotationBinding> bound = bindAnnotations(uses, occurrences);
     if (bound.empty())
     {
         std::fprintf(stderr, "CodeGen: no annotated types (empty whitelist) in '%s'; nothing to generate\n", filePath);

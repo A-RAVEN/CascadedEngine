@@ -61,7 +61,7 @@ Phase 1 不改运行时反射行为。生成快照会与源码漂移 → 用**�
 
 ### D5：ParserLibrary 最小扩展 —— 枚举/函数补提取（**本 change 不实现，属后续阶段**）；per-member 选项不经 libclang attribute
 `ParserLibrary` 目前 **skip 枚举与函数**（`parser.cpp:189-192`：`EnumDecl`/`FunctionDecl` 为 `empty break`；无 `EnumConstantDecl` 处理）。只有在 C# 侧需要**构建期枚举值表**时才需扩；若只当 4 字节句柄则不扩（magic_enum 已在 C++ 侧护 runtime 值，`uenum.h:4`）。Phase 1（反射 emitter）暂不扩，留作未决点，C# 绑定阶段（Phase 3）再定。⚠ **本 change 不实现枚举 / 函数补提取** —— 工具侧当前没有任何 `EnumDecl` / `FunctionDecl` / `BaseSpecifier` 处理（判据：`git grep -n -E "EnumDecl|FunctionDecl|BaseSpecifier" -- Tools/CodeGen` 零命中）。
-**关键**：per-member / per-type 的 attribute **选项**（如 `serializable`、`min=0`、`marshal(as=...)`）走**标记宏 `CA_REFLECT(...)` 的文本参数**（读取该宏**调用**的实参字节），**不依赖 libclang 自定义命名空间 attribute 支持**（libclang 那层弱，见 D1）。AST 只负责爬 class 体结构（**本 change 只取字段**），attribute 语义参数由标记宏文本侧携带。⚠ **哪些类型被标注**这件事不靠文本判断：工具用 libclang 的详细预处理记录取"预处理器**真正展开过**的宏调用"，注释、字符串、被禁用的 `#if` 分支、没用到的 `#define` 体因此都不算标注（task 9.59；`CA_REFLECTION` 通道例外，它不是宏，见 spec 的对应 REQ）。
+**关键**：per-member / per-type 的 attribute **选项**（如 `serializable`、`min=0`、`marshal(as=...)`）走**标记宏 `CA_REFLECT(...)` 的文本参数**（读取该宏**调用**的实参字节），**不依赖 libclang 自定义命名空间 attribute 支持**（libclang 那层弱，见 D1）。AST 只负责爬 class 体结构（**本 change 只取字段**），attribute 语义参数由标记宏文本侧携带。⚠ **哪些类型被标注**这件事不靠文本判断：工具用 libclang 的详细预处理记录取"预处理器**真正展开过**的宏调用"，注释、字符串、被禁用的 `#if` 分支、没用到的 `#define` 体因此都不算标注（task 9.59；`CA_REFLECTION` 通道自 task 9.62 起同路 —— 该宏定义在 `CACore/header/Reflection.h:82`，用到它的头必须先有该定义）。
 
 ## Risks / Trade-offs
 
