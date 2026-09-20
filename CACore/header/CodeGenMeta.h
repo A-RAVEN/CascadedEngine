@@ -11,7 +11,7 @@
 // It stays cargo-culted from `careflection` conventions (types prefixed CA_/CodeGen_ using
 // `cacore::codegen`), but is NOT metaprogramming: generated data, not template tricks.
 //
-// Design ref: openspec/changes/engine-codegen-framework/design.md (D3 线性类型表, D4 ABI guard).
+// Design ref: openspec/changes/archive/2026-09-20-engine-codegen-framework/design.md (D3 线性类型表, D4 ABI guard).
 
 #include <cstddef>
 #include <cstdint>

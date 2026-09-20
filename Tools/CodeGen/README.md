@@ -384,7 +384,7 @@ are mutually exclusive per invocation. Invoke the tool once per emitter (build.p
 ### 8. 标注没带 `serializable` → 9
 
 ```
-CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/uisample.h NoSer -I CACore/header -I Tools/CodeGen --emit-serialization
+CodeGen.exe openspec/changes/archive/2026-09-20-engine-codegen-framework/evidence/fixtures/uisample.h NoSer -I CACore/header -I Tools/CodeGen --emit-serialization
 ```
 ```
 [exit 9]
@@ -412,12 +412,12 @@ cannot be judged by the exit code.
 ### 10. 类型只有声明没有定义 → 11
 
 ```
-CodeGen.exe openspec/changes/engine-codegen-framework/evidence/fixtures/only_declared_registered.h OnlyDeclared -I CACore/header --emit-reflection
+CodeGen.exe openspec/changes/archive/2026-09-20-engine-codegen-framework/evidence/fixtures/only_declared_registered.h OnlyDeclared -I CACore/header --emit-reflection
 ```
 ```
 [exit 11]
 CodeGen: refusing to emit for 'OnlyDeclared' — only a DECLARATION of it exists in
-'openspec/changes/engine-codegen-framework/evidence/fixtures/only_declared_registered.h', not a
+'openspec/changes/archive/2026-09-20-engine-codegen-framework/evidence/fixtures/only_declared_registered.h', not a
 definition, so its member list would be emitted as empty. Include the header that defines the type (or
 pass that header as the input).
 ```
@@ -441,7 +441,7 @@ libclang 的位置由 CMake 变量 `CALIB_CLANG_DIR` 给出（默认指向 vendo
 - 单元测试（运行期断言，消费入库的生成头）：`Test/CoreTests/` —— `EmitReflectionTest.cpp`（字段名逐字）、
   `GeneratedSerializerTest.cpp`（序列化往返）、`GeneratedHashTest.cpp`（哈希/相等）、`CodeGenMetaTest.cpp`
   （字节偏移的独立数值）。
-- 工具行为的实测证据：`openspec/changes/engine-codegen-framework/evidence/` —— 其中
+- 工具行为的实测证据：`openspec/changes/archive/2026-09-20-engine-codegen-framework/evidence/` —— 其中
   `regen_codegen_evidence.py` 按固定用例组生成 `r26-gates.txt` / `r28-gates.txt` / `r31-950.txt`，
   `regen_annotation_matrix.py` 生成 `r35-matrix.txt`（"不是代码的写法" × 三条通道的矩阵）。
 - 证据里的输入路径必须能在仓库里找到，由 `python Tools/spin_check.py evidence` 强制。

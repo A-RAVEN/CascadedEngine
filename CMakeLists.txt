@@ -24,7 +24,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Build-time CodeGen sidecar needs each module's exact compile env (include dirs + defines) to parse
-# annotated headers with correct layout (see openspec engine-codegen-framework design Migration Plan
+# annotated headers with correct layout (see the archived change design: openspec/changes/archive/2026-09-20-engine-codegen-framework/design.md, Migration Plan
 # step 1). compile_commands.json is the per-TU source of truth for that env; build.py's codegen() step
 # reads it. Must be set before add_subdirectory so it applies to every target.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

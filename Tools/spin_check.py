@@ -47,8 +47,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SNAP = REPO / ".review_tmp" / "spin"
-EVIDENCE = REPO / "openspec" / "changes" / "engine-codegen-framework" / "evidence"
-TASKS = REPO / "openspec" / "changes" / "engine-codegen-framework" / "tasks.md"
+EVIDENCE = REPO / "openspec" / "changes" / "archive" / "2026-09-20-engine-codegen-framework" / "evidence"
+TASKS = REPO / "openspec" / "changes" / "archive" / "2026-09-20-engine-codegen-framework" / "tasks.md"
 
 # Deliverable file types for THIS change (engine-codegen-framework delivers code + build glue).
 # `.txt` is included because the build glue is `CMakeLists.txt` — without it a round that ONLY edited a
