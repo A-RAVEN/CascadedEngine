@@ -268,18 +268,23 @@ struct TypeDescriptor<game::Stats>
 
 | 码 | 含义 | 谁的错 |
 |---|---|---|
-| 0 | 成功；或"该文件没有任何被标注的类型"（此时**不写任何产物**） | — |
+| 0 | 成功；或"该文件**解析干净**且没有任何被标注的类型"（此时**不写任何产物**） | — |
 | 1 | libclang 解析失败 | 输入/参数 |
 | 2 | 用法错误、读不到输入、打不开输出 | 调用方 |
 | 3 | 在这个翻译单元里找不到该类型 | 输入 |
 | 4 | 该类型没有被标注（而文件里有别的被标注类型） | 输入 |
 | 5 | 拒绝发射：类型含非公有成员，而类外通道只能服务全公有类型 | 输入 |
-| 6 | 拒绝提取：编译环境残缺，AST 被截断（报错会指名未解析的 include 与退化的字段） | 环境/参数 |
+| 6 | 拒绝提取：解析不可信 —— 环境残缺导致 AST 被截断，**或文件本身有错误级诊断（语法错误、include 找不到、标记宏未定义）**。报错会指名未解析的 include 与诊断条数 | 环境/输入 |
 | 7 | 输出没能提交（`.tmp` 写不进或改名失败） | 环境 |
 | 8 | `CA_REFLECTION` 通道不支持 `--emit-serialization` / `--emit-hash` | 调用方 |
 | 9 | 请求了 `--emit-serialization`，但标注没带 `serializable` 选项 | 输入 |
 | 10 | 一次调用给了不止一个发射标志 | 调用方 |
 | 11 | 只找到该类型的**声明**、没有定义（成员表会是空的，所以拒发） | 输入 |
+
+> ⚠ 退出码 0 的第二种情况（"没有标注"）在旧版本里**掩盖过解析失败**：文件有语法错误、include 找不到、
+> 或标记宏没定义时，标注列表同样是空的，旧版本照样返回 0 并打印 `no annotated types`，于是错误的编译
+> 环境看起来和"干净的文件"一模一样。现在诊断检查跑在"空标注"这条提前返回**之前**：只要有错误级诊断或
+> 未解析的 include，就是退出码 6。
 
 ## 五、调用示例（每条都在本机实跑过，输出逐字照抄）
 
@@ -424,10 +429,55 @@ pass that header as the input).
 
 ## 六、构建期怎么用它
 
-`build.py` 的 `codegen()` 步骤：先构建 `CodeGen` 目标，再从 `compile_commands.json` 取出该模块的**真实编译
-环境**（include 目录 + `/D` 宏，`/MDd` 会转成 `-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`），对清单里的每个类型
-**分别**跑三个发射标志，把产物与入库的 `Tools/CodeGen/generated/EmitSample.{Reflection,Serialization,Hash}.h`
-**逐字节对拍**，任一不一致或工具非零退出即**构建失败**。清单为空是合法配置（不阻断构建）。
+`build.py` 的 `codegen()` 步骤（排在所有编译之前）：先构建 `CodeGen` 目标，再按**接入清单**逐条生成，
+把产物与**该条目自己的入库目录**逐字节对拍，任一不一致或工具非零退出即**构建失败**。清单为空是合法配置
+（不阻断构建）。
+
+### 接入清单：四列
+
+```python
+CODEGEN_ANNOTATED = [
+    # (头文件, 类型名, 所属模块根目录, 生成物入库目录)
+    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen", "Tools/CodeGen/generated"),
+    ("Interface/RenderInterface/header/GPUBuffer.h", "GPUBufferDescriptor", "Interface",
+     "Interface/RenderInterface/generated"),
+]
+```
+
+- **第三列**（模块根）决定用谁的编译环境解析这个头；它是一个**目录前缀**，按路径段匹配仓库相对路径，
+  构建树 `out/`（FetchContent 拉下来的第三方）整体排除。
+- **第四列**（入库目录）是**每条自己的**：产物进 `out/build/<配置>/codegen/`，再与这一列指向的入库文件
+  逐字节对拍。写错成不存在的目录 → 构建失败并点名。
+
+### 编译环境怎么来的（不手写任何头文件清单）
+
+从 `compile_commands.json` 推导，规则三条：
+
+1. **include 目录取该模块全部编译单元的并集**。单取一条会漏：实测 `Interface` 单条最多 12 个、并集 13 个，
+   `Test` 21 / 22。
+2. **宏只允许来自单一条编译单元**。同一模块里出现多套宏时**拒绝构建**并列出这些宏，不替调用方挑一套
+   （实测 `Test` 有两套，其中一套带 Jolt 系列宏）。
+3. **保留预编译头的强制包含**：编译单元用了 `/FI` + `/Yu` 时，它们指向的头文件会作为 `-include <文件>`
+   传给 libclang（实测 `Interface` 的 `cmake_pch.hxx`）。另外 `/MDd` 会转成
+   `-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`（否则 STL 布局按 release 规则算，`std::string` 之后的偏移全错）。
+
+### 已接入的真实类型（可照着加第二个）
+
+`graphics_backend::GPUBufferDescriptor`（`Interface/RenderInterface/header/GPUBuffer.h`）是清单里第一个真实
+引擎类型，接线一共四处：
+
+1. **头文件**：加 `#include "CodeGenMeta.h"`，并在类型定义**之前**写 `CA_REFLECT(serializable)`
+   （标记必须是真实宏调用 —— 工具靠预处理器判定，不扫源码文本）。
+2. **清单**：按上面四列加一条。
+3. **生成物入库**：`Interface/RenderInterface/generated/GPUBufferDescriptor.{Reflection,Serialization,Hash}.h`，
+   生成后复制进去（`build.py` 只写 build 目录，**从不改源码树**）。
+4. **消费与断言**：`Interface/RenderInterface/private/GPUBufferDescriptorReflection.cpp` include 生成头，
+   写 `CA_REFLECTION(graphics_backend::GPUBufferDescriptor, count, stride);`，并断言字段数、每个字段的
+   `offsetof`、类型名与成员名，最后实例化框架自带的 `cacore::codegen::static_assert_abi_consistency<T>()`。
+   该目录通过 `target_include_directories(${PROJECT_NAME} PRIVATE generated)` 进 include 路径。
+
+这四处做完之后有三种失败都会**在构建期**报出来：删掉入库的生成头（对拍或编译失败）、改了类型没重新生成
+（逐字节不一致）、入库文件被换成别的类型的产物（编译期断言失败）。
 
 libclang 的位置由 CMake 变量 `CALIB_CLANG_DIR` 给出（默认指向 vendored LLVM）；该目录下没有
 `bin/x64/libclang.dll` 时 CodeGen 目标不会构建。

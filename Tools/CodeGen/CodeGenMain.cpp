@@ -660,6 +660,55 @@ namespace
 
 } // namespace
 
+// Task 1.2: the diagnostic scan, factored out so it can also run BEFORE the "no annotated types" early
+// return. Measured defect it fixes: a syntax error, an unresolvable `#include`, and a marker macro that
+// was never defined all produced ZERO annotations, and the tool then printed "no annotated types (empty
+// whitelist)" and exited 0 — so a broken parse was indistinguishable from a clean header that has
+// nothing to generate, and a wrong compile environment looked like success.
+struct DiagnosticScan
+{
+    std::string fatalMsg;      // first fatal diagnostic (unresolved include and friends)
+    unsigned    inHeader = 0;  // error-level diagnostics inside the file we were asked to parse
+
+    bool untrustworthy() const { return !fatalMsg.empty() || inHeader > 0; }
+};
+
+static DiagnosticScan scanDiagnostics(CXTranslationUnit tu, const std::string& filePath)
+{
+    DiagnosticScan scan;
+    const std::string want = baseName(filePath);
+    const unsigned    n    = clang_getNumDiagnostics(tu);
+    for (unsigned i = 0; i < n; ++i)
+    {
+        CXDiagnostic d   = clang_getDiagnostic(tu, i);
+        const int    sev = static_cast<int>(clang_getDiagnosticSeverity(d));
+        if (sev >= CXDiagnostic_Fatal && scan.fatalMsg.empty())
+        {
+            CXString msg = clang_formatDiagnostic(d, clang_defaultDiagnosticDisplayOptions());
+            const char* c = clang_getCString(msg);
+            scan.fatalMsg = (c != nullptr) ? c : "(unformattable)";
+            clang_disposeString(msg);
+        }
+        if (sev >= CXDiagnostic_Error)
+        {
+            CXSourceLocation loc = clang_getDiagnosticLocation(d);
+            CXFile file = nullptr;
+            unsigned line = 0, col = 0, offset = 0;
+            clang_getExpansionLocation(loc, &file, &line, &col, &offset);
+            if (file != nullptr)
+            {
+                CXString fn = clang_getFileName(file);
+                const char* cstr = clang_getCString(fn);
+                const bool same = (cstr != nullptr) && (baseName(cstr) == want);
+                clang_disposeString(fn);
+                if (same) ++scan.inHeader;
+            }
+        }
+        clang_disposeDiagnostic(d);
+    }
+    return scan;
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3)
@@ -824,6 +873,26 @@ int main(int argc, char** argv)
     const std::map<std::string, AnnotationBinding> bound = bindAnnotations(uses, occurrences);
     if (bound.empty())
     {
+        // Task 1.2: an EMPTY annotation list is only legitimate when the parse actually succeeded, so the
+        // diagnostic scan runs BEFORE this early return. Measured before the fix: syntax_error.h,
+        // missing_include.h and undefined_marker.h (evidence/fixtures/) all exited 0 with "no annotated
+        // types", which is why a wrong compile environment could look exactly like a clean header.
+        const DiagnosticScan scan = scanDiagnostics(tu, filePath);
+        if (scan.untrustworthy())
+        {
+            std::fprintf(stderr,
+                "CodeGen: refusing to report an empty annotation list for '%s' — the parse produced "
+                "errors, so \"no annotated types\" cannot be trusted.\n", filePath);
+            if (!scan.fatalMsg.empty())
+                std::fprintf(stderr, "  unresolved include (fatal): %s\n", scan.fatalMsg.c_str());
+            if (scan.inHeader > 0)
+                std::fprintf(stderr, "  %u error-level diagnostic(s) inside the parsed header itself\n",
+                             scan.inHeader);
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 6; // same meaning as the fidelity gate below: the parse cannot be trusted
+        }
         std::fprintf(stderr, "CodeGen: no annotated types (empty whitelist) in '%s'; nothing to generate\n", filePath);
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
@@ -964,38 +1033,11 @@ int main(int argc, char** argv)
     // A fatal diagnostic anywhere in the include chain means it did not, so the table cannot be trusted.
     // The gate reads diagnostics only — it never inspects the argument list.
     {
-        const std::string want     = baseName(filePath);
-        const unsigned    n        = clang_getNumDiagnostics(tu);
-        unsigned          inHeader = 0;
-        std::string       fatalMsg;
-        for (unsigned i = 0; i < n; ++i)
-        {
-            CXDiagnostic d   = clang_getDiagnostic(tu, i);
-            const int    sev = static_cast<int>(clang_getDiagnosticSeverity(d));
-            if (sev >= CXDiagnostic_Fatal && fatalMsg.empty())
-            {
-                CXString msg = clang_formatDiagnostic(d, clang_defaultDiagnosticDisplayOptions());
-                const char* c = clang_getCString(msg);
-                fatalMsg = (c != nullptr) ? c : "(unformattable)";
-                clang_disposeString(msg);
-            }
-            if (sev >= CXDiagnostic_Error)
-            {
-                CXSourceLocation loc = clang_getDiagnosticLocation(d);
-                CXFile file = nullptr;
-                unsigned line = 0, col = 0, offset = 0;
-                clang_getExpansionLocation(loc, &file, &line, &col, &offset);
-                if (file != nullptr)
-                {
-                    CXString fn = clang_getFileName(file);
-                    const char* cstr = clang_getCString(fn);
-                    const bool same = (cstr != nullptr) && (baseName(cstr) == want);
-                    clang_disposeString(fn);
-                    if (same) ++inHeader;
-                }
-            }
-            clang_disposeDiagnostic(d);
-        }
+        // Task 1.2: the scan itself lives in scanDiagnostics() (shared with the empty-annotation check
+        // above); this gate keeps only the fidelity-specific reporting below.
+        const DiagnosticScan scan     = scanDiagnostics(tu, filePath);
+        const std::string&   fatalMsg = scan.fatalMsg;
+        const unsigned       inHeader = scan.inHeader;
         if (!fatalMsg.empty() || inHeader > 0)
         {
             std::fprintf(stderr,

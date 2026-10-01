@@ -1,0 +1,117 @@
+# r0-defects.txt — 写 proposal 时实测到的缺陷（红态），本 change 必须先修掉它们
+#
+# 复现方式（在仓库根跑；fixture 与脚本都已入库，路径相对仓库根）：
+#   cmd: python openspec/changes/wire-codegen-real-type/evidence/fixtures/probe_defects.py
+#
+# 下面整段是上面这条命令的**原样输出**（2026-09-20 实测，x64-debug 配置）：
+
+=== 缺陷 A：模块根是怎么匹配的 ===
+  'Interface' 命中的第一条编译单元: E:/Projects/CascadedEngine/out/build/x64-debug/_deps/assimp-src/code/CApi/CInterfaceIOWrapper.cpp
+  它带的前 8 个宏/目录参数: ['-DASSIMP_BUILD_DLL_EXPORT', '-DASSIMP_BUILD_NO_C4D_IMPORTER', '-DASSIMP_BUILD_NO_M3D_EXPORTER', '-DASSIMP_BUILD_NO_M3D_IMPORTER', '-DASSIMP_BUILD_NO_USD_IMPORTER', '-DASSIMP_IMPORTER_GLTF_USE_OPEN3DGC=1', '-DMINIZ_USE_UNALIGNED_LOADS_AND_STORES=0', '-DNOMINMAX=1']
+  build.py 为此推导出的参数个数: 38；含 -ICACore/header: False
+
+=== 缺陷 B：解析失败被报告成「没有标注」 ===
+  valid_no_annotations.h   exit=0 artifact=False  CodeGen: no annotated types (empty whitelist) in 'openspec\changes\wire-codegen-real-type\...
+  syntax_error.h           exit=0 artifact=False  CodeGen: no annotated types (empty whitelist) in 'openspec\changes\wire-codegen-real-type\...
+  missing_include.h        exit=0 artifact=False  CodeGen: no annotated types (empty whitelist) in 'openspec\changes\wire-codegen-real-type\...
+  undefined_marker.h       exit=0 artifact=False  CodeGen: no annotated types (empty whitelist) in 'openspec\changes\wire-codegen-real-type\...
+
+# 结论：
+#   * 缺陷 A：`build.py` 用子串匹配挑编译单元 —— 原样引文：`if root in f and root not in by_root:`
+#     （在 `build.py`，可 grep 到）。模块根 `Interface` 因此命中第三方 assimp 的源文件
+#     `CInterfaceIOWrapper.cpp`，推导出的 38 个参数全是 assimp 的（`-std=c++17`、assimp 宏与目录），
+#     且**不含** `-ICACore/header`。
+#   * 缺陷 B：四个 fixture 的退出码**全是 0**，其中包括语法错误、include 找不到、标记宏未定义三种
+#     明确失败的情况。判定空清单的提前返回在诊断/保真门控之前 —— 该分支打印的正是
+#     `no annotated types (empty whitelist)`（在 `Tools/CodeGen/CodeGenMain.cpp`，可 grep 到）。
+#   * 两者叠加：环境一旦串错，工具会说「没有标注」并成功退出 —— 接真实类型时构建会照常通过、
+#     生成物却不存在（假绿）。修正后的判定见 design.md 的 D7 / D8。
+
+##############################################################################
+# AFTER —— 任务 1.1 / 1.2 修完之后的同一命令输出（2026-09-20，同一配置 x64-debug）
+#   cmd: python openspec/changes/wire-codegen-real-type/evidence/fixtures/probe_defects.py
+##############################################################################
+
+=== 缺陷 A：模块根是怎么匹配的 ===
+  根 'Interface': 4 个编译单元；前 3 个: ['Interface/TimerSystem/private/Timer.cpp', 'Interface/IOManager/private/IOManager.cpp', 'Interface/RenderInterface/private/ThreadData.cpp']
+  根 'CACore': 6 个编译单元；前 3 个: ['CACore/private/CAModuleImplementation.cpp', 'CACore/private/CaModuleManager.cpp', 'CACore/private/EASTL_Implementations.cpp']
+  根 'Tools/CodeGen': 1 个编译单元；前 3 个: ['Tools/CodeGen/CodeGenMain.cpp']
+  编译单元总数 580；落在 out/ 构建树里的 500（这些一律不算本仓库模块）
+  Interface 推导出的参数个数: 16；含 -ICACore/header: True；含 assimp 宏: False
+
+=== 缺陷 B：解析失败被报告成「没有标注」 ===
+  valid_no_annotations.h   exit=0 artifact=False OK  CodeGen: no annotated types (empty whitelist) in 'openspec\changes\wir
+  syntax_error.h           exit=6 artifact=False OK  CodeGen: refusing to report an empty annotation list for 'openspec\cha
+  missing_include.h        exit=6 artifact=False OK  CodeGen: refusing to report an empty annotation list for 'openspec\cha
+  undefined_marker.h       exit=6 artifact=False OK  CodeGen: refusing to report an empty annotation list for 'openspec\cha
+
+# 结论：
+#   * 缺陷 A 已修：模块根按「仓库相对路径的目录前缀」匹配（`_rel_to_repo` + `_tus_for_root`），
+#     `out/` 构建树整体排除。`Interface` 现在选中它自己的 4 个编译单元，推导出的 16 个参数里
+#     有 `-ICACore/header`、没有任何 assimp 宏。
+#     修的过程中踩到一个坑并已修：第一版按「第一段路径」分组，把清单里的两段根 `Tools/CodeGen`
+#     漏掉，构建直接报 `no compile env for module 'Tools/CodeGen'`。
+#   * 缺陷 B 已修：诊断扫描（`scanDiagnostics()`）现在跑在「标注为空」这条提前返回之前；
+#     语法错误 / include 找不到 / 标记宏未定义三种情况全部 exit 6 并打印
+#     `refusing to report an empty annotation list`，而确实没有标注的合法文件仍 exit 0。
+#   * 任务 1.3 的根因证据见下（工具内一次性 [DIAGDUMP]，已在使用后删除）。
+
+##############################################################################
+# 任务 1.3 —— 根因的直接证据（工具内一次性 [DIAGDUMP]，抄下输出后已删除并重新构建）
+#
+# 做法：在字段收集处临时加一行 fprintf 打印 clang 报的类型种类，构建后跑下面这条命令，抄下输出
+#       再删掉那一行并重新构建。夹具是入库的：
+#   cmd: CodeGen.exe openspec/changes/wire-codegen-real-type/evidence/fixtures/type_kinds.h TypeKinds -I CACore/header --emit-reflection -o <临时输出>
+#
+# 原样输出（2026-09-20，x64-debug）：
+[DIAGDUMP] field=spelled_uint spelled=unsigned int CXTypeKind=9
+[DIAGDUMP] field=typedef_uint spelled=uint32_t CXTypeKind=119
+[DIAGDUMP] field=spelled_ull spelled=unsigned long long CXTypeKind=11
+[DIAGDUMP] field=typedef_ull spelled=uint64_t CXTypeKind=119
+# exit=0
+#
+# 结论：clang 报的种类就是根因 —— 9 = CXType_UInt（直接写 `unsigned int`），11 = CXType_ULongLong，
+# 而 119 = CXType_Elaborated（`uint32_t` / `uint64_t` 这类别名写法）。分类器只对前两者有分支，
+# 119 落进 `default: return "TypeKind::Opaque"`。修法是判定前取规范化类型（见 codegen-container-semantics）。
+# 收尾：诊断行已删除、工具已重新构建；删除后同一条命令仍 exit 0 且不再打印 DIAGDUMP。
+
+##############################################################################
+# 任务 2.1 / 2.2 / 2.3 —— 编译环境推导（并集、宏不唯一即拒绝、保留预编译头）
+#   cmd: python openspec/changes/wire-codegen-real-type/evidence/fixtures/probe_env.py
+##############################################################################
+
+=== 2.1 include 目录：单条编译单元 vs 整个模块的并集 ===
+  CACore                   编译单元=  6 单条最多=  6 并集=  6
+  Interface                编译单元=  4 单条最多= 12 并集= 13
+  VulkanRenderBackendNew   编译单元= 26 单条最多= 16 并集= 16
+  Test                     编译单元=  8 单条最多= 21 并集= 22
+  Tools/CodeGen            编译单元=  1 单条最多=  0 并集=  0
+
+=== 2.2 宏集合不唯一的模块必须被拒绝 ===
+  Interface    -> 通过
+  CACore       -> 通过
+  Test         -> 拒绝：module 'Test' has 2 different macro sets across its 8 compile unit(s): {-DFMT_SHARED, -DJPH_CROSS_PLATFORM_DET…
+
+=== 2.3 预编译头的强制包含被保留 ===
+  Interface    -> 23 个参数；-include ['cmake_pch.hxx']；摘要：env 'Interface': 4 compile unit(s), 13 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  CACore       -> 13 个参数；-include []；摘要：env 'CACore': 6 compile unit(s), 6 include dir(s), 6 macro(s), 0 forced include(s)
+
+# 2.3 的解析检查（原 Oracle 写"仍返回 exit 0"，实测是**恒假的判据**，已按实测改写）：
+#   cmd: CodeGen.exe Interface/RenderInterface/header/ShaderResourceHandle.h ShaderResourceHandle <Interface 环境> --emit-reflection -o <临时输出>
+#   带 PCH：  exit 4  CodeGen: type 'ShaderResourceHandle' is not annotated …
+#   不带 PCH：exit 4  同上
+# 原因：该头自己的包含链上就有 `CA_REFLECTION(...)` 标注，标注列表永远不为空，所以走不到
+# "空标注 → exit 0"那条路。判据改成"不是解析失败（0 或 4，不得是 1/6）且两次一致"。
+
+##############################################################################
+# 任务 2.4 —— 生成物入库目录改成清单第 4 列；红态是把该列指向不存在的目录
+#   cmd: python build.py --config Debug --no-configure CoreTests      （清单第 4 列临时改成 Tools/CodeGen/NO_SUCH_DIR）
+##############################################################################
+CODEGEN FAILED (3) — build not reported as successful
+  - CodeGen 'EmitSample' --emit-reflection: no golden at E:\Projects\CascadedEngine\Tools\CodeGen\NO_SUCH_DIR\EmitSample.Reflection.h to compare against
+  - CodeGen 'EmitSample' --emit-serialization: no golden at E:\Projects\CascadedEngine\Tools\CodeGen\NO_SUCH_DIR\EmitSample.Serialization.h to compare against
+  - CodeGen 'EmitSample' --emit-hash: no golden at E:\Projects\CascadedEngine\Tools\CodeGen\NO_SUCH_DIR\EmitSample.Hash.h to compare against
+# exit=1；改回 Tools/CodeGen/generated 后构建通过，三个产物都打印 matches golden。
+
+
+

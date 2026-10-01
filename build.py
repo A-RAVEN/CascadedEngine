@@ -36,11 +36,18 @@ NINJA_FILE: Path | None = None
 # entry checks something real (that the compile_commands-derived env produces the same output as the
 # hand-written include flags used by the golden test) instead of emitting an unconsumed file.
 CODEGEN_ANNOTATED = [
-    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen"),
+    # (header, type, owner root, committed generated dir)
+    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen", "Tools/CodeGen/generated"),
+    # Task 3.2: the FIRST real engine type on this list. `Interface` is a module root, and the
+    # generated files land in the owning module's directory so the consumer TU includes them from a
+    # stable path (`target_include_directories(... PRIVATE generated)`).
+    ("Interface/RenderInterface/header/GPUBuffer.h", "GPUBufferDescriptor", "Interface",
+     "Interface/RenderInterface/generated"),
 ]
 
-# Committed goldens (same content the golden-diff test uses); compared byte-for-byte after generation.
-CODEGEN_GOLDEN_DIR = PROJECT_DIR / "Tools" / "CodeGen" / "generated"
+# Task 2.4: the committed generated directory is PER ENTRY now (the 4th column above). The old global
+# constant is gone: with a second type in a different module, one shared golden dir would collide by
+# file name and silently compare the wrong artifact.
 
 # Every emitter gets its own build-time generation + byte-comparison (goal terminal state 1, last
 # paragraph). Before this, only the reflection emitter was driven from build.py, so the serialization
@@ -252,15 +259,20 @@ def codegen() -> list[str]:
     gen_dir = BUILD_DIR / "codegen"
     gen_dir.mkdir(parents=True, exist_ok=True)
     sid = BUILD_DIR / "bin" / "CodeGen.exe"
-    env_by_root = _compile_env_by_root(entries)
+    try:
+        env_by_root = _compile_env_by_root(entries)
+    except EnvError as exc:
+        # Task 2.2: a module whose compile units disagree about the macros is refused, not guessed at.
+        return [str(exc)]
     extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES]
     failures: list[str] = []
 
-    for rel_header, type_name, owner_root in CODEGEN_ANNOTATED:
+    for rel_header, type_name, owner_root, committed_dir in CODEGEN_ANNOTATED:
         env = env_by_root.get(owner_root)
         if not env:
             failures.append(f"no compile env for module '{owner_root}' (type {type_name})")
             continue
+        golden_dir = PROJECT_DIR / committed_dir
         if not sid.exists():
             failures.append(f"codegen sidecar not found: {sid}")
             break
@@ -277,7 +289,7 @@ def codegen() -> list[str]:
                 failures.append(
                     f"CodeGen '{type_name}' {emit_flag} exit {r.returncode}: {r.stderr.strip()}")
                 continue
-            golden = CODEGEN_GOLDEN_DIR / out_file.name
+            golden = golden_dir / out_file.name
             if not golden.exists():
                 failures.append(f"CodeGen '{type_name}' {emit_flag}: no golden at {golden} to "
                                 f"compare against")
@@ -285,20 +297,29 @@ def codegen() -> list[str]:
             if out_file.read_bytes() != golden.read_bytes():
                 failures.append(
                     f"CodeGen '{type_name}' {emit_flag}: generated {out_file} differs byte-for-byte "
-                    f"from golden {golden} — the compile_commands-derived env does NOT reproduce the "
-                    f"golden test's hand-written flags")
+                    f"from the committed copy {golden}. Two causes, and the diff tells them apart: "
+                    f"(a) the annotated type or its environment changed and the committed file was not "
+                    f"regenerated — regenerate it and commit the result; (b) the committed file is not "
+                    f"this type's output at all (swapped/copied from elsewhere)")
                 continue
-            print(f"  generated {out_file} (matches golden)")
+            print(f"  generated {out_file} (matches golden {golden})")
         if not sid.exists():
             break
 
     return failures
 
 
-def _msvc_to_clang_env(command: str) -> list[str]:
-    """Translate an MSVC cl.exe compile command into the libclang args needed to *parse* a header:
-    keep include dirs (/I, -I) and defines (/D, -D) and the language standard; drop the source file,
-    output/pch/optimization/warning flags that are meaningless or harmful to a parse-only invocation.
+class EnvError(Exception):
+    """A module's compile units disagree about their macros — refuse instead of guessing (task 2.2)."""
+
+
+def _msvc_env_parts(command: str) -> dict:
+    """Split an MSVC cl.exe command into the parts a parse-only libclang run needs.
+
+    Keeps include dirs (`/I`, `-I`), defines (`/D`, `-D`), the language standard, and — new in task
+    2.3 — the FORCED INCLUDE / precompiled header (`/FI<file>`, `/Yu<file>`, `/Yc<file>`). Dropping
+    `/FI`+`/Yu` silently dropped the macros a module's PCH header defines (measured: `Interface` and
+    `ThreadManager` both point them at CMake's `cmake_pch.hxx`); they now become `-include <file>`.
 
     Task 9.4: `/MDd` (and `/MTd`) must NOT simply be dropped. cl.exe defines `_DEBUG` and
     `_ITERATOR_DEBUG_LEVEL=2` implicitly for those runtimes, and dropping the flag dropped those macros
@@ -307,7 +328,10 @@ def _msvc_to_clang_env(command: str) -> list[str]:
     gives std::string a _Container_proxy*, +8 bytes) — i.e. every offset after a std::string was wrong.
     """
     tokens = shlex.split(command, posix=False)
-    args: list[str] = []
+    includes: list[str] = []
+    defines: list[str] = []
+    forced: list[str] = []
+    std: str | None = None
     debug_runtime = False
     for raw in tokens:
         t = raw.strip('"')  # shlex(posix=False) keeps quote chars; strip so the arg is a bare path/def
@@ -317,30 +341,139 @@ def _msvc_to_clang_env(command: str) -> list[str]:
         # /I and /D (MSVC slash-form) get the SAME len>2 guard as -I/-D (dash-form): a bare '/I' or '/D'
         # (len 2) would otherwise emit a malformed empty '-I'/'-D' arg to libclang (AUDIT-2).
         if (t.startswith('/I') and len(t) > 2) or (t.startswith('-I') and len(t) > 2):
-            args.append('-I' + t[2:])
+            includes.append('-I' + t[2:])
         elif (t.startswith('/D') and len(t) > 2) or (t.startswith('-D') and len(t) > 2):
-            args.append('-D' + t[2:])
+            defines.append('-D' + t[2:])
         elif t.startswith('/std:') or t.startswith('-std:'):
-            args.append('-std=' + t[5:])
-        # everything else is MSVC-only (output, pch, warns, opt, /Yc /Yu /Fp /Fo /Fd, -c <file>) -> drop
+            std = '-std=' + t[5:]
+        elif (t.startswith('/FI') and len(t) > 3) or (t.startswith('/Yu') and len(t) > 3) \
+                or (t.startswith('/Yc') and len(t) > 3):
+            forced.append(t[3:])
+        # everything else is MSVC-only (output, warns, opt, /Fp /Fo /Fd, -c <file>) -> drop
 
     if debug_runtime:
         for d in ("_DEBUG", "_ITERATOR_DEBUG_LEVEL=2"):
-            if not any(a.upper() == ('-D' + d).upper() for a in args):
-                args.append('-D' + d)
+            if not any(a.upper() == ('-D' + d).upper() for a in defines):
+                defines.append('-D' + d)
+    return {"includes": includes, "defines": defines, "std": std, "forced": forced}
+
+
+def _msvc_to_clang_env(command: str) -> list[str]:
+    """Flat clang argv for one compile command (thin wrapper over _msvc_env_parts)."""
+    p = _msvc_env_parts(command)
+    args = list(p["includes"]) + list(p["defines"])
+    if p["std"]:
+        args.append(p["std"])
+    for f in p["forced"]:
+        args += ["-include", f]
+    return args
+
+
+def _rel_to_repo(file_str: str) -> str | None:
+    """Repo-relative posix path for a compile_commands entry's source file, or None if it is outside.
+
+    Why this exists (task 1.1): the previous lookup was `if root in f` — a SUBSTRING test on the
+    absolute path. Measured consequence: the module root `Interface` matched
+    `out/build/x64-debug/_deps/assimp-src/code/CApi/CInterfaceIOWrapper.cpp` (assimp's own file), so the
+    environment fed to libclang for `Interface` was assimp's (`-std=c++17`, assimp defines, no
+    `-ICACore/header`). Matching is now by PATH SEGMENT against the repo root, and the build tree
+    (`out/`) is excluded.
+    """
+    if not file_str:
+        return None
+    try:
+        return Path(file_str.replace("\\", "/")).resolve().relative_to(PROJECT_DIR).as_posix()
+    except ValueError:
+        return None
+
+
+def _tus_for_root(entries: list[dict], root: str) -> list[str]:
+    """Compile units owned by `root` (a repo-relative DIRECTORY prefix, path-segment safe).
+
+    The manifest's owner root is a directory such as `Tools/CodeGen`, so the match is
+    `rel == root` or `rel.startswith(root + "/")` — never a substring test. Build-tree sources
+    (`out/...`) are excluded: that tree holds every FetchContent dependency, and their file names
+    contain module-like substrings (`CInterfaceIOWrapper.cpp` matched the root `Interface` before).
+    """
+    want = root.replace("\\", "/").strip("/")
+    out: list[str] = []
+    for e in entries:
+        rel = _rel_to_repo(e.get("file", ""))
+        if rel is None or rel.startswith("out/"):
+            continue
+        if rel == want or rel.startswith(want + "/"):
+            out.append(rel)
+    return out
+
+
+def _env_for_root(entries: list[dict], root: str) -> list[str]:
+    """Clang argv for parsing a header owned by `root`, and a one-line summary on stdout.
+
+    Task 2.1: include dirs are the UNION across the root's compile units. Measured reason: the single
+    "representative TU" that was used before missed include dirs other units of the same module carry
+    (5 of them for `Interface` under the old, wrong root match).
+    Task 2.2: macros must be IDENTICAL across the root's units; a second set means the answer would
+    depend on which unit was picked, so the module is refused instead of guessed at.
+    Task 2.3: the forced include / precompiled header the unit used (`/FI`, `/Yu`, `/Yc`) is kept.
+    """
+    want = root.replace("\\", "/").strip("/")
+    includes: list[str] = []
+    forced: list[str] = []
+    std: str | None = None
+    define_sets: dict[frozenset, list[str]] = {}
+    tus = 0
+    for e in entries:
+        rel = _rel_to_repo(e.get("file", ""))
+        if rel is None or rel.startswith("out/"):
+            continue
+        if not (rel == want or rel.startswith(want + "/")):
+            continue
+        tus += 1
+        parts = _msvc_env_parts(e.get("command", "") or "")
+        for inc in parts["includes"]:
+            if inc not in includes:
+                includes.append(inc)
+        for fi in parts["forced"]:
+            if fi not in forced:
+                forced.append(fi)
+        if std is None:
+            std = parts["std"]
+        define_sets.setdefault(frozenset(parts["defines"]), parts["defines"])
+
+    if not tus:
+        return []
+    if len(define_sets) > 1:
+        detail = " | ".join("{" + ", ".join(sorted(d)) + "}" for d in define_sets)
+        raise EnvError(
+            f"module '{root}' has {len(define_sets)} different macro sets across its {tus} compile "
+            f"unit(s): {detail} — pick one compile unit for this entry instead of letting the tool guess")
+    defines = next(iter(define_sets.values()))
+
+    args = list(includes) + list(defines)
+    if std:
+        args.append(std)
+    for f in forced:
+        args += ["-include", f]
+    print(f"  env '{root}': {tus} compile unit(s), {len(includes)} include dir(s), "
+          f"{len(defines)} macro(s), {len(forced)} forced include(s)"
+          + (f" [{', '.join(Path(f).name for f in forced)}]" if forced else ""))
     return args
 
 
 def _compile_env_by_root(entries: list[dict]) -> dict[str, list[str]]:
-    """For each owning module root, pick ONE representative TU (a compile_commands entry whose source
-    file lives under that root) and return that TU's normalized clang env. Never merges across roots
-    (avoids the CA_STATIC_BUILD 0/1 union conflict + include-root-order sensitivity)."""
+    """Clang argv per manifest owner root (see _env_for_root for the three tasks this implements).
+
+    Never merges ACROSS roots: the archived change measured a `CA_STATIC_BUILD` 0/1 conflict between
+    modules, which is why each root is derived on its own.
+    """
     by_root: dict[str, list[str]] = {}
-    for e in entries:
-        f = e.get("file", "").replace("\\", "/")
-        for _, _, root in CODEGEN_ANNOTATED:
-            if root in f and root not in by_root:
-                by_root[root] = _msvc_to_clang_env(e.get("command", "") or "")
+    for entry in CODEGEN_ANNOTATED:
+        root = entry[2]
+        if root in by_root:
+            continue
+        env = _env_for_root(entries, root)
+        if env:
+            by_root[root] = env
     return by_root
 
 
