@@ -48,6 +48,10 @@ namespace cacore::codegen
         Serializable = 1u << 0,   // include in [de]serialization
         HashInclude  = 1u << 1,   // include in semantic hash / equality
         KeyMember    = 1u << 2,   // part of the identity key (affects == in FullCompare mode)
+        Container    = 1u << 3,   // the member is a container (vector / map / set / string / array …)
+        Unordered    = 1u << 4,   // …whose traversal order is unspecified (unordered_map / unordered_set)
+        Wrapper      = 1u << 5,   // the member (or its element) is a wrapper — recorded, NOT a refusal
+        HasOpaqueElement = 1u << 6 // element is a raw pointer / managed pointer / handle
     };
 
     [[nodiscard]] constexpr FieldFlags operator|(FieldFlags a, FieldFlags b) noexcept
@@ -76,6 +80,12 @@ namespace cacore::codegen
         std::size_t  offset;    // sizeof/alignment-stable byte offset (offsetof)
         TypeKind     kind;      // semantic kind (see TypeKind)
         FieldFlags   flags;     // per-member metadata (see FieldFlags)
+        // Container members only (FieldFlags::Container): the element description (for a map, the
+        // MAPPED type) and, for maps, the key description. Both point at a one-entry static table the
+        // emitter generates alongside; their `offset` is 0 because they are not members of the parent
+        // type. Non-container members leave both nullptr. (codegen-container-semantics task 2.2)
+        const CodeGenFieldInfo* key     = nullptr;
+        const CodeGenFieldInfo* element = nullptr;
     };
 
     // One reflected aggregate (struct/class). `fields` points at a contiguous, declaration-order

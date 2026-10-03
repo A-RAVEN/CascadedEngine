@@ -13,8 +13,8 @@ struct TypeDescriptor<graphics_backend::GPUBufferDescriptor>
 
     static constexpr const CodeGenFieldInfo* fields() { return arr; }
     static constexpr CodeGenFieldInfo arr[2] = {
-        { "count", "uint64_t", offsetof(graphics_backend::GPUBufferDescriptor, count), TypeKind::Opaque, FieldFlags::HashInclude },
-        { "stride", "uint64_t", offsetof(graphics_backend::GPUBufferDescriptor, stride), TypeKind::Opaque, FieldFlags::HashInclude },
+        { "count", "uint64_t", offsetof(graphics_backend::GPUBufferDescriptor, count), TypeKind::UInt, FieldFlags::HashInclude, nullptr, nullptr },
+        { "stride", "uint64_t", offsetof(graphics_backend::GPUBufferDescriptor, stride), TypeKind::UInt, FieldFlags::HashInclude, nullptr, nullptr },
     };
 };
 } // namespace cacore::codegen

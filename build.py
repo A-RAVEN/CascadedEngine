@@ -6,6 +6,11 @@ Usage:
     python build.py --no-configure  # build only (skip cmake configure)
     python build.py --config Debug  # use the Debug configuration (validation layers enabled)
     python build.py TargetName      # build a specific target
+    python build.py --commit-generated
+                                    # ALSO write the codegen output into its committed directory
+                                    # (<owner dir>/generated/). Without this flag the build never
+                                    # touches the source tree: it only byte-compares and fails on a
+                                    # mismatch (task 2.4 / design D10 of codegen-container-semantics)
 """
 
 import os
@@ -14,6 +19,7 @@ import subprocess
 import json
 import re
 import shlex
+import shutil
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -36,14 +42,28 @@ NINJA_FILE: Path | None = None
 # entry checks something real (that the compile_commands-derived env produces the same output as the
 # hand-written include flags used by the golden test) instead of emitting an unconsumed file.
 CODEGEN_ANNOTATED = [
-    # (header, type, owner root, committed generated dir)
-    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen", "Tools/CodeGen/generated"),
-    # Task 3.2: the FIRST real engine type on this list. `Interface` is a module root, and the
-    # generated files land in the owning module's directory so the consumer TU includes them from a
-    # stable path (`target_include_directories(... PRIVATE generated)`).
-    ("Interface/RenderInterface/header/GPUBuffer.h", "GPUBufferDescriptor", "Interface",
-     "Interface/RenderInterface/generated"),
+    # (header, type, owner directory) — task 2.4 / design D10: the committed copy lives in
+    # `<owner directory>/generated/`, derived from this row instead of being spelled out again.
+    # The owner directory is a repo-relative directory PREFIX (see _tus_for_root), so its granularity
+    # decides where the headers land: `Tools/CodeGen` -> Tools/CodeGen/generated,
+    # `Interface/RenderInterface` -> Interface/RenderInterface/generated.
+    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen"),
+    # Task 1.1 of codegen-container-semantics: the classification fixture (typedef vs keyword spellings).
+    ("Tools/CodeGen/TestKinds.h", "Kinds", "Tools/CodeGen"),
+    # Task 2.3 of codegen-container-semantics: the container fixture, consumed by a real engine target
+    # (Interface/RenderInterface/private/TestContainerAssertions.cpp).
+    ("Interface/RenderInterface/private/TestContainer.h", "Containers", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/private/TestContainer.h", "HasFloat", "Interface/RenderInterface"),
+    # Task 5.1: the wrapper fixture needs `Hasher.h` -> `<sha256.h>`, which only CACore's compile units carry.
+    ("CACore/private/TestWrapper.h", "Holder", "CACore"),
+    # Task 3.2 of the archived wire-codegen-real-type change: the first real engine type.
+    ("Interface/RenderInterface/header/GPUBuffer.h", "GPUBufferDescriptor", "Interface/RenderInterface"),
 ]
+
+
+def codegen_generated_dir(owner_root: str) -> Path:
+    """Committed directory for one manifest row: `<owner root>/generated/` (design D10)."""
+    return PROJECT_DIR / owner_root.replace("\\", "/").strip("/") / "generated"
 
 # Task 2.4: the committed generated directory is PER ENTRY now (the 4th column above). The old global
 # constant is gone: with a second type in a different module, one shared golden dir would collide by
@@ -220,7 +240,7 @@ def patch_ninja() -> None:
     NINJA_FILE.write_text(text, encoding="utf-8")
 
 
-def codegen() -> list[str]:
+def codegen(commit_generated: bool = False) -> list[str]:
     """Build-time CodeGen step (openspec engine-codegen-framework task 4.1): run the libclang sidecar
     over the annotated headers, feeding each owning module's exact compile env (include dirs + defines)
     so libclang lays the types out correctly. Runs in the MSVC environment (via run_msvc so it inherits
@@ -267,12 +287,12 @@ def codegen() -> list[str]:
     extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES]
     failures: list[str] = []
 
-    for rel_header, type_name, owner_root, committed_dir in CODEGEN_ANNOTATED:
+    for rel_header, type_name, owner_root in CODEGEN_ANNOTATED:
         env = env_by_root.get(owner_root)
         if not env:
             failures.append(f"no compile env for module '{owner_root}' (type {type_name})")
             continue
-        golden_dir = PROJECT_DIR / committed_dir
+        golden_dir = codegen_generated_dir(owner_root)
         if not sid.exists():
             failures.append(f"codegen sidecar not found: {sid}")
             break
@@ -290,19 +310,28 @@ def codegen() -> list[str]:
                     f"CodeGen '{type_name}' {emit_flag} exit {r.returncode}: {r.stderr.strip()}")
                 continue
             golden = golden_dir / out_file.name
+            # Task 2.4 / design D10: WITHOUT --commit-generated the build never touches the source
+            # tree; it only compares. WITH it, the freshly generated file becomes the committed copy.
+            if commit_generated:
+                golden.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(out_file, golden)
+                print(f"  generated {out_file} -> committed {golden}")
+                continue
             if not golden.exists():
-                failures.append(f"CodeGen '{type_name}' {emit_flag}: no golden at {golden} to "
-                                f"compare against")
+                failures.append(
+                    f"CodeGen '{type_name}' {emit_flag}: no committed copy at {golden} — run "
+                    f"`python build.py --config {config} --commit-generated` to write it")
                 continue
             if out_file.read_bytes() != golden.read_bytes():
                 failures.append(
                     f"CodeGen '{type_name}' {emit_flag}: generated {out_file} differs byte-for-byte "
                     f"from the committed copy {golden}. Two causes, and the diff tells them apart: "
                     f"(a) the annotated type or its environment changed and the committed file was not "
-                    f"regenerated — regenerate it and commit the result; (b) the committed file is not "
-                    f"this type's output at all (swapped/copied from elsewhere)")
+                    f"regenerated — run `python build.py --config {config} --commit-generated` and "
+                    f"commit the result; (b) the committed file is not this type's output at all "
+                    f"(swapped/copied from elsewhere)")
                 continue
-            print(f"  generated {out_file} (matches golden {golden})")
+            print(f"  generated {out_file} (matches committed {golden})")
         if not sid.exists():
             break
 
@@ -514,6 +543,9 @@ def main() -> None:
     NINJA_FILE = BUILD_DIR / "build.ninja"
 
     configure_step = "--no-configure" not in args
+    # Task 2.4 / design D10: writing the committed copies is an EXPLICIT act; a plain build never
+    # modifies the source tree.
+    commit_generated = "--commit-generated" in args
     target = next((a for a in args if not a.startswith("--")), None)
 
     print("=== CascadedEngine Build Script (Python) ===")
@@ -530,7 +562,7 @@ def main() -> None:
     # It needs compile_commands.json, which a previous configure leaves on disk; if that file is
     # missing, codegen() reports it and the build fails with a codegen-specific message (task 9.9),
     # never a bare C1083.
-    codegen_failures = codegen()
+    codegen_failures = codegen(commit_generated)
     build(target)
 
     if codegen_failures:

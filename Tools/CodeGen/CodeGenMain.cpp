@@ -37,6 +37,32 @@ namespace
         std::string typeName;
         std::size_t offsetBytes;
         int         typeKind; // CXTypeKind
+        // Task 2.1: container facts, recognized structurally (see analyzeContainer).
+        bool        isContainer = false;
+        bool        containerUnordered = false;
+        bool        containerIsMap = false;
+        bool        containerIsSet = false;
+        bool        containerIsMultiKey = false;
+        bool        containerIsBitPacked = false;
+        std::string keyTypeName;          // map only
+        int         keyKind = 0;          // map only
+        std::string elementTypeName;      // direct element type spelling (map: the mapped type)
+        int         elementKind = 0;      // CXTypeKind of the (canonicalized) element
+        bool        elementIsContainer = false;
+        bool        elementIsOpaque = false;         // raw pointer / handle-ish
+        bool        elementIsManagedPointer = false; // shared_ptr / unique_ptr
+        // Task 3.2 (1): non-empty when the element is a STRUCT whose own fields hold an unordered
+        // container that the generated recursion cannot reach. "<成员名> (<容器名>)".
+        std::string elementUnstableInside;
+        bool        elementIsWrapper = false;   // Task 2.2: recorded only, never opaque
+        bool        keyNotDefault = false;       // Task 4.1 (4)
+        bool        sortSideNotOrdered = false; // Task 4.1 (1)
+        bool        elementNotDefault = false;
+        // Task 2.2: for `int a[2][3]` the element is `int[3]`, and THIS is its own element (`int`).
+        std::string element2TypeName;
+        int         element2Kind = 0;
+        bool        element2IsContainer = false;
+        bool        keyIsWrapper = false;
     };
 
     struct CollectCtx
@@ -49,6 +75,403 @@ namespace
     {
         const std::size_t slash = path.find_last_of("/\\");
         return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+
+    /**
+     * libclang keeps an elaborated-type wrapper around class template specializations even AFTER
+     * clang_getCanonicalType (measured: `std::vector<unsigned>` reports CXType_Elaborated 105 with
+     * canonicalization, so a plain `kind == CXType_Record` test never fires and every container looked
+     * like a non-container). Strip that wrapper — and any attributed wrapper — before asking questions
+     * about the record.
+     */
+    CXType stripElaborated(CXType t)
+    {
+        for (int i = 0; i < 8; ++i)
+        {
+            if (t.kind == CXType_Elaborated)
+                t = clang_Type_getNamedType(t);
+            else if (t.kind == CXType_Attributed)
+                t = clang_Type_getModifiedType(t);
+            else
+                break;
+        }
+        return t;
+    }
+
+    /** Does the record declare a member with this name (method, typedef, field — any kind)? */
+    bool recordHasMember(CXType record, const char* name)
+    {
+        const CXCursor decl = clang_getTypeDeclaration(record);
+        if (clang_Cursor_isNull(decl))
+            return false;
+        struct Ctx
+        {
+            const char* want;
+            bool        found;
+        } ctx{ name, false };
+        clang_visitChildren(
+            decl,
+            [](CXCursor c, CXCursor, CXClientData data) -> CXChildVisitResult {
+                auto* ctx = static_cast<Ctx*>(data);
+                CXString sp = clang_getCursorSpelling(c);
+                const char* s = clang_getCString(sp);
+                if (s != nullptr && std::strcmp(s, ctx->want) == 0)
+                    ctx->found = true;
+                clang_disposeString(sp);
+                // RECURSE, not Continue: for a class template specialization the members live inside
+                // the templated class declaration that hangs under the template declaration, so a
+                // non-recursing visit only ever saw the template parameters (measured: hasSize=0 for
+                // `std::vector<unsigned>` even though its canonical type IS a CXType_Record).
+                return ctx->found ? CXChildVisit_Break : CXChildVisit_Recurse;
+            },
+            &ctx);
+        return ctx.found;
+    }
+
+    bool looksLikeManagedPointer(CXType canonical)
+    {
+        CXString sp = clang_getTypeSpelling(canonical);
+        const char* s = clang_getCString(sp);
+        const bool managed = (s != nullptr) &&
+                             (std::strstr(s, "shared_ptr") != nullptr || std::strstr(s, "unique_ptr") != nullptr);
+        clang_disposeString(sp);
+        return managed;
+    }
+
+    /** Base name of a canonical type spelling: `std::vector<unsigned int>` -> `vector`. */
+    std::string canonicalBaseName(CXType canon)
+    {
+        CXString sp = clang_getTypeSpelling(canon);
+        const char* c = clang_getCString(sp);
+        std::string s = (c != nullptr) ? c : "";
+        clang_disposeString(sp);
+        const std::size_t lt = s.find('<');
+        if (lt != std::string::npos)
+            s = s.substr(0, lt);
+        const std::size_t colon = s.rfind("::");
+        if (colon != std::string::npos)
+            s = s.substr(colon + 2);
+        while (!s.empty() && (s.back() == ' ' || s.back() == '>'))
+            s.pop_back();
+        return s;
+    }
+
+    /**
+     * Task 2.1: containers are recognized STRUCTURALLY — exactly the rule the runtime uses
+     * (`is_size_container`: a `size()` member plus a `value_type`), never by container name, because
+     * `castl::X` reaches every `std::` / `eastl::` name through `using namespace`.
+     * `bucket_count()` marks the unordered ones; `mapped_type` marks maps. Nothing here reads the
+     * source text: all of it is the canonical type's own declaration.
+     *
+     * ⚠ MEASURED LIMIT (2026-10-02): probing the members with libclang cursors does NOT work here —
+     * `clang_getTypeDeclaration` on a canonical class-template specialization does not expose its
+     * members (`recordHasMember` returned 0 for `std::vector<unsigned>` even when the visitor recursed,
+     * and the canonical kind is CXType_Record 105, i.e. the type itself is fine). So the recognition is
+     * a list of canonical BASE NAMES (`vector`, `map`, `unordered_set`, …), which is stable because the
+     * canonical spelling is `std::…` / `eastl::…`, never the `castl::…` alias. The runtime-side rule is
+     * kept aligned by the parity assertion in the tests (task 2.5), not by this probe.
+     */
+    const char* const kContainerNames[] = {
+        "vector", "array", "string", "basic_string", "deque", "list",
+        "map", "multimap", "set", "multiset",
+        "unordered_map", "unordered_multimap", "unordered_set", "unordered_multiset",
+    };
+
+    bool isContainerType(CXType canonical)
+    {
+        const CXType t = stripElaborated(canonical);
+        if (t.kind != CXType_Record)
+            return false;
+        const std::string base = canonicalBaseName(t);
+        for (const char* n : kContainerNames)
+            if (base == n)
+                return true;
+        return false;
+    }
+
+    /* Task 4.1 (1): does the type carry an ordering operator? The canonical write order for an unordered
+     * container needs a strict weak order on the sorting side. `operator<=>` counts: the engine's real
+     * key types (NameHash, PathHash, CAHash::result_type) define ONLY `<=>` and no `operator<`, so a
+     * criterion that insists on `operator<` would reject every real key type.
+     */
+    struct OrderWalk
+    {
+        bool found = false;
+    };
+
+    CXChildVisitResult orderWalkVisitor(CXCursor c, CXCursor, CXClientData data)
+    {
+        auto* w = static_cast<OrderWalk*>(data);
+        CXString sp = clang_getCursorSpelling(c);
+        const char* sc = clang_getCString(sp);
+        const std::string name = (sc != nullptr) ? sc : "";
+        clang_disposeString(sp);
+        if (name.rfind("operator", 0) == 0 && name.find('<') != std::string::npos ||
+            name.rfind("operator", 0) == 0 && name.find('>') != std::string::npos)
+        {
+            w->found = true;
+            return CXChildVisit_Break;
+        }
+        return CXChildVisit_Continue;
+    }
+
+    bool hasOrderingOperator(CXType type)
+    {
+        const CXType canon = stripElaborated(clang_getCanonicalType(type));
+        if (canon.kind != CXType_Record)
+            return true;                     // scalars, pointers, enums all compare
+        if (isContainerType(canon))
+            return true;                     // the container brings its own comparator
+        const CXCursor decl = clang_getTypeDeclaration(canon);
+        if (clang_Cursor_isNull(decl))
+            return true;                     // cannot inspect -> do not refuse
+        OrderWalk w;
+        clang_visitChildren(decl, orderWalkVisitor, &w);
+        return w.found;
+    }
+
+    /* Task 4.1 (4): can a value of this type be built with `T t{}`? The generated reader does exactly
+     * that before reading into it, so a key / element type without a usable default constructor would
+     * make the emitted code fail to compile. Records that cannot be inspected are assumed fine.
+     */
+    struct CtorWalk
+    {
+        bool hasAny     = false;
+        bool hasDefault = false;
+    };
+
+    CXChildVisitResult ctorWalkVisitor(CXCursor c, CXCursor, CXClientData data)
+    {
+        auto* w = static_cast<CtorWalk*>(data);
+        if (clang_getCursorKind(c) == CXCursor_Constructor)
+        {
+            w->hasAny = true;
+            if (clang_Cursor_getNumArguments(c) == 0 && !clang_CXXMethod_isDeleted(c))
+                w->hasDefault = true;
+        }
+        return CXChildVisit_Continue;
+    }
+
+    bool isDefaultConstructible(CXType type)
+    {
+        const CXType canon = stripElaborated(clang_getCanonicalType(type));
+        if (canon.kind != CXType_Record)
+            return true;
+        if (isContainerType(canon))
+            return true;
+        const CXCursor decl = clang_getTypeDeclaration(canon);
+        if (clang_Cursor_isNull(decl))
+            return true;
+        CtorWalk w;
+        clang_visitChildren(decl, ctorWalkVisitor, &w);
+        return !w.hasAny || w.hasDefault;
+    }
+
+    /* Task 2.2: the second level of a nested description. For `vector<vector<int>>` the element is
+     * `vector<int>`; this fills in that container's OWN element (`int`), so the table expresses two
+     * levels. For maps the value type is the element (index 1), for everything else index 0.
+     */
+    void describeElementOfContainer(CXType container, std::string& typeName, int& kind, bool& isContainer)
+    {
+        const CXType c    = stripElaborated(clang_getCanonicalType(container));
+        const int    argc = clang_Type_getNumTemplateArguments(c);
+        if (argc <= 0)
+            return;
+        const std::string base = canonicalBaseName(c);
+        const int         idx  = (base.find("map") != std::string::npos && argc >= 2) ? 1 : 0;
+        const CXType      arg  = clang_Type_getTemplateArgumentAsType(c, idx);
+        CXString          sp   = clang_getTypeSpelling(arg);
+        const char*       sc   = clang_getCString(sp);
+        typeName               = (sc != nullptr) ? sc : "";
+        clang_disposeString(sp);
+        kind        = static_cast<int>(stripElaborated(clang_getCanonicalType(arg)).kind);
+        isContainer = isContainerType(arg);
+    }
+
+    /* Task 2.2: the engine's wrappers. Detection is BY NAME because what makes them wrappers -- the old
+     * runtime's `managed_wrapper_traits` specialization -- is not visible to libclang. The three names are
+     * the ones the design names (D3); a new wrapper type has to be added here, which is a known boundary.
+     */
+    const char* const kWrapperNames[] = { "NameHash", "PathHash", "HashObj" };
+
+    bool looksLikeWrapper(CXType type)
+    {
+        CXString    sp   = clang_getTypeSpelling(stripElaborated(clang_getCanonicalType(type)));
+        const char* c    = clang_getCString(sp);
+        std::string name = (c != nullptr) ? c : "";
+        clang_disposeString(sp);
+        for (const char* n : kWrapperNames)
+        {
+            const std::string part = std::string("::") + n;
+            if (name.rfind(n, 0) == 0 || name.find(part) != std::string::npos)
+                return true;
+        }
+        return false;
+    }
+
+    std::string findUnorderedInside(CXType type, int depth);
+
+    struct UnorderedWalk
+    {
+        std::string found;
+    };
+
+    CXChildVisitResult unorderedWalkVisitor(CXCursor c, CXCursor, CXClientData data)
+    {
+        auto* w = static_cast<UnorderedWalk*>(data);
+        if (!w->found.empty())
+            return CXChildVisit_Break;
+        if (clang_getCursorKind(c) != CXCursor_FieldDecl)
+            return CXChildVisit_Continue;
+        const std::string hit = findUnorderedInside(clang_getCursorType(c), 1);
+        if (!hit.empty())
+        {
+            CXString n = clang_getCursorSpelling(c);
+            const char* nc = clang_getCString(n);
+            w->found = std::string((nc != nullptr) ? nc : "?") + " (" + hit + ")";
+            clang_disposeString(n);
+            return CXChildVisit_Break;
+        }
+        return CXChildVisit_Continue;
+    }
+
+    /* Task 3.2 (1): can the generated code reproduce this element byte-for-byte? Only when every
+     * unordered container inside it is reachable by the generated recursion. A STRUCT element's fields
+     * are not reachable: the generated reader has no way to continue another type's generated reader
+     * (measured -- Serialization.h keeps `serializer::buffer` and `deserializer::m_Offset` private and
+     * offers no offset accessor), so such an element would still be written in traversal order. This
+     * returns the offending field, e.g. "m (unordered_map)", or "" when nothing was found. Records
+     * whose declaration is not in this translation unit cannot be inspected -- that limit is written
+     * down in the design's known-boundary list.
+     */
+    std::string findUnorderedInside(CXType type, int depth)
+    {
+        if (depth > 3)
+            return "";
+        CXType canon = stripElaborated(clang_getCanonicalType(type));
+        if (canon.kind == CXType_ConstantArray || canon.kind == CXType_IncompleteArray)
+            return findUnorderedInside(clang_getArrayElementType(canon), depth + 1);
+        if (canon.kind != CXType_Record)
+            return "";
+        const std::string base = canonicalBaseName(canon);
+        if (base.rfind("unordered_", 0) == 0)
+            return base;
+        const CXCursor decl = clang_getTypeDeclaration(canon);
+        if (clang_Cursor_isNull(decl))
+            return "";
+        UnorderedWalk w;
+        clang_visitChildren(decl, unorderedWalkVisitor, &w);
+        return w.found;
+    }
+
+    void analyzeContainer(CXType spelled, Field& f)
+    {
+        const CXType canon = stripElaborated(clang_getCanonicalType(spelled));
+        if (canon.kind == CXType_ConstantArray || canon.kind == CXType_IncompleteArray)
+        {
+            // Task 2.2 / 3.2 (3): a C array is a container by EXTENT. Its element is the type with one
+            // dimension removed, so `int a[2][3]` reports `int[3]`, and recursion reaches `int`.
+            f.isContainer             = true;
+            const CXType   element    = clang_getArrayElementType(canon);
+            CXString       elementSp  = clang_getTypeSpelling(element);
+            const char*    elementC   = clang_getCString(elementSp);
+            f.elementTypeName         = (elementC != nullptr) ? elementC : "";
+            clang_disposeString(elementSp);
+            const CXType elementCanon = stripElaborated(clang_getCanonicalType(element));
+            f.elementKind             = static_cast<int>(elementCanon.kind);
+            f.elementIsContainer      = (elementCanon.kind == CXType_ConstantArray) ||
+                                        (elementCanon.kind == CXType_IncompleteArray) ||
+                                        isContainerType(elementCanon);
+            if (elementCanon.kind == CXType_ConstantArray || elementCanon.kind == CXType_IncompleteArray)
+            {
+                const CXType inner   = clang_getArrayElementType(elementCanon);
+                CXString     innerSp = clang_getTypeSpelling(inner);
+                const char*  innerC  = clang_getCString(innerSp);
+                f.element2TypeName   = (innerC != nullptr) ? innerC : "";
+                clang_disposeString(innerSp);
+                f.element2Kind = static_cast<int>(stripElaborated(clang_getCanonicalType(inner)).kind);
+            }
+            f.elementIsOpaque         = (elementCanon.kind == CXType_Pointer);
+            if (!f.elementIsContainer && elementCanon.kind == CXType_Record)
+                f.elementUnstableInside = findUnorderedInside(elementCanon, 0);
+            return;
+        }
+        const std::string base = canonicalBaseName(canon);
+        bool known = false;
+        for (const char* n : kContainerNames)
+            if (base == n) { known = true; break; }
+        if (!known)
+            return;
+        f.isContainer         = true;
+        f.containerUnordered  = (base.rfind("unordered_", 0) == 0);
+        f.containerIsMap      = (base.find("map") != std::string::npos);
+        f.containerIsSet      = (base.find("set") != std::string::npos);
+        f.containerIsMultiKey = (base.find("multi") != std::string::npos);
+
+        const int argCount = clang_Type_getNumTemplateArguments(canon);
+        if (argCount <= 0)
+            return;
+        const auto argAt = [canon](int i) {
+            const CXType spelledArg = clang_Type_getTemplateArgumentAsType(canon, i);
+            CXString     sp         = clang_getTypeSpelling(spelledArg);
+            const char*  c          = clang_getCString(sp);
+            std::string  name       = (c != nullptr) ? c : "";
+            clang_disposeString(sp);
+            return std::make_pair(name, stripElaborated(clang_getCanonicalType(spelledArg)));
+        };
+
+        if (f.containerIsMap && argCount >= 2)
+        {
+            const auto k = argAt(0);
+            const auto v = argAt(1);
+            f.keyTypeName = k.first;
+            f.keyKind     = static_cast<int>(k.second.kind);
+            f.elementTypeName = v.first;
+            f.elementKind     = static_cast<int>(v.second.kind);
+            f.elementIsContainer = isContainerType(v.second);
+            f.keyIsWrapper     = looksLikeWrapper(k.second);
+            f.elementIsWrapper = looksLikeWrapper(v.second);
+            f.elementNotDefault = !isDefaultConstructible(v.second);
+            if (f.containerUnordered && !hasOrderingOperator(v.second))
+                f.sortSideNotOrdered = true;
+            if (f.containerUnordered && !hasOrderingOperator(k.second))
+                f.sortSideNotOrdered = true;
+            f.keyNotDefault     = !isDefaultConstructible(k.second);
+            if (f.elementIsContainer)
+            {
+                bool secondIsContainer = false;
+                describeElementOfContainer(v.second, f.element2TypeName, f.element2Kind, secondIsContainer);
+                f.element2IsContainer = secondIsContainer;
+            }
+            if (!f.elementIsContainer && v.second.kind == CXType_Record)
+                f.elementUnstableInside = findUnorderedInside(v.second, 0);
+        }
+        else
+        {
+            const auto e = argAt(0);
+            f.elementTypeName = e.first;
+            f.elementKind     = static_cast<int>(e.second.kind);
+            f.elementIsContainer = isContainerType(e.second);
+            f.elementIsWrapper = looksLikeWrapper(e.second);
+            f.elementNotDefault = !isDefaultConstructible(e.second);
+            if (f.containerUnordered && !hasOrderingOperator(e.second))
+                f.sortSideNotOrdered = true;
+            if (f.elementIsContainer)
+            {
+                bool secondIsContainer = false;
+                describeElementOfContainer(e.second, f.element2TypeName, f.element2Kind, secondIsContainer);
+                f.element2IsContainer = secondIsContainer;
+            }
+            if (!f.elementIsContainer && e.second.kind == CXType_Record)
+                f.elementUnstableInside = findUnorderedInside(e.second, 0);
+            // `vector<bool>` is the bitset-backed odd one out: its elements are proxies, so the
+            // runtime's `for (auto& item : object)` cannot be instantiated (measured MSVC C2440).
+            if (base == "vector" && e.second.kind == CXType_Bool)
+                f.containerIsBitPacked = true;
+        }
+        f.elementIsOpaque         = (f.elementKind == CXType_Pointer);
+        f.elementIsManagedPointer = looksLikeManagedPointer(clang_getCanonicalType(
+            clang_Type_getTemplateArgumentAsType(canon, f.containerIsMap ? 1 : 0)));
     }
 
     enum CXChildVisitResult collectStructs(CXCursor cursor, CXCursor /*parent*/, CXClientData data)
@@ -104,7 +527,8 @@ namespace
             f.name       = clang_getCString(sName);
             f.typeName   = clang_getCString(sType);
             f.offsetBytes = bits > 0 ? static_cast<std::size_t>(bits) / 8u : 0u;
-            f.typeKind   = static_cast<int>(type.kind);
+            f.typeKind   = static_cast<int>(clang_getCanonicalType(type).kind);
+            analyzeContainer(type, f);   // Task 2.1: container facts, recognized structurally
 
             clang_disposeString(sName);
             clang_disposeString(sType);
@@ -404,7 +828,33 @@ namespace
         std::string name;     // member name, e.g. "a"
         std::string typeName; // spelled C++ type, e.g. "float"; empty => emit nullptr (unknown type)
         std::string kindName; // semantic TypeKind::X enum-name string
+        // Task 2.2: container facts copied from the analysis, emitted as flags + element/key tables.
+        bool        isContainer = false;
+        bool        unordered = false;
+        bool        bitPacked = false;
+        bool        hasOpaqueElement = false;
+        bool        wrapper = false;
+        std::string element2TypeName;
+        std::string element2KindName;
+        bool        element2IsContainer = false;
+        bool        isWrapper = false;
+        std::string keyTypeName;
+        std::string keyKindName;
+        std::string elementTypeName;
+        std::string elementKindName;
+        bool        elementIsContainer = false;
     };
+
+    std::string reflectionFlags(const EmitField& f)
+    {
+        std::string flags = "FieldFlags::HashInclude";
+        if (f.isContainer)          flags += " | FieldFlags::Container";
+        if (f.unordered)            flags += " | FieldFlags::Unordered";
+        if (f.hasOpaqueElement)     flags += " | FieldFlags::HasOpaqueElement";
+        if (f.wrapper)              flags += " | FieldFlags::Wrapper";
+        if (f.isWrapper)            flags += " | FieldFlags::Wrapper";
+        return flags;
+    }
 
     // Map a libclang CXTypeKind to the semantic cacore::codegen::TypeKind enum NAME.
     const char* fieldTypeKindEnum(CXTypeKind k)
@@ -431,6 +881,8 @@ namespace
             case CXType_Enum:                 return "TypeKind::Enum";
             case CXType_Record:               return "TypeKind::Struct";
             case CXType_Pointer:              return "TypeKind::Opaque";
+            case CXType_ConstantArray:
+            case CXType_IncompleteArray:      return "TypeKind::Array";
             default:                          return "TypeKind::Opaque";
         }
     }
@@ -495,18 +947,58 @@ namespace
         }
         else
         {
+            // Task 2.2: one-entry descriptor tables for container members. `offset` is 0 because an
+            // element is not a member of the parent type; `name` is the role ("key" / "value").
+            for (const EmitField& f : fields)
+            {
+                if (!f.isContainer)
+                    continue;
+                std::string elemFlags = "FieldFlags::HashInclude";
+                if (f.elementIsContainer) elemFlags += " | FieldFlags::Container";
+                if (!f.keyTypeName.empty())
+                    std::fprintf(out,
+                        "    static constexpr CodeGenFieldInfo key_%s[1] = {\n"
+                        "        { \"key\", \"%s\", 0, %s, FieldFlags::HashInclude },\n    };\n",
+                        f.name.c_str(), f.keyTypeName.c_str(), f.keyKindName.c_str());
+                const bool elemIsArray = (f.elementKindName == "TypeKind::Array");
+                std::string elem2Flags = "FieldFlags::HashInclude";
+                if (f.element2IsContainer) elem2Flags += " | FieldFlags::Container";
+                if (!f.element2TypeName.empty())
+                    std::fprintf(out,
+                        "    static constexpr CodeGenFieldInfo elem2_%s[1] = {\n"
+                        "        { \"value\", \"%s\", 0, %s, %s },\n    };\n",
+                        f.name.c_str(), f.element2TypeName.c_str(), f.element2KindName.c_str(),
+                        elem2Flags.c_str());
+                if (!f.element2TypeName.empty())
+                    std::fprintf(out,
+                        "    static constexpr CodeGenFieldInfo elem_%s[1] = {\n"
+                        "        { \"value\", \"%s\", 0, %s, %s, nullptr, elem2_%s },\n    };\n",
+                        f.name.c_str(), f.elementTypeName.c_str(), f.elementKindName.c_str(),
+                        elemFlags.c_str(), f.name.c_str());
+                else
+                    std::fprintf(out,
+                        "    static constexpr CodeGenFieldInfo elem_%s[1] = {\n"
+                        "        { \"value\", \"%s\", 0, %s, %s },\n    };\n",
+                        f.name.c_str(), f.elementTypeName.c_str(), f.elementKindName.c_str(),
+                        elemFlags.c_str());
+            }
             std::fprintf(out, "\n    static constexpr const CodeGenFieldInfo* fields() { return arr; }\n");
             std::fprintf(out, "    static constexpr CodeGenFieldInfo arr[%zu] = {\n", fields.size());
             for (const EmitField& f : fields)
             {
+                const std::string flags = reflectionFlags(f);
+                const std::string keyPtr = f.keyTypeName.empty() ? "nullptr" : ("key_" + f.name);
+                const std::string elemPtr = f.isContainer ? ("elem_" + f.name) : "nullptr";
                 if (f.typeName.empty())
                     std::fprintf(out,
-                        "        { \"%s\", nullptr, offsetof(%s, %s), %s, FieldFlags::HashInclude },\n",
-                        f.name.c_str(), qname.c_str(), f.name.c_str(), f.kindName.c_str());
+                        "        { \"%s\", nullptr, offsetof(%s, %s), %s, %s, %s, %s },\n",
+                        f.name.c_str(), qname.c_str(), f.name.c_str(), f.kindName.c_str(),
+                        flags.c_str(), keyPtr.c_str(), elemPtr.c_str());
                 else
                     std::fprintf(out,
-                        "        { \"%s\", \"%s\", offsetof(%s, %s), %s, FieldFlags::HashInclude },\n",
-                        f.name.c_str(), f.typeName.c_str(), qname.c_str(), f.name.c_str(), f.kindName.c_str());
+                        "        { \"%s\", \"%s\", offsetof(%s, %s), %s, %s, %s, %s },\n",
+                        f.name.c_str(), f.typeName.c_str(), qname.c_str(), f.name.c_str(),
+                        f.kindName.c_str(), flags.c_str(), keyPtr.c_str(), elemPtr.c_str());
             }
             std::fprintf(out, "    };\n");
         }
@@ -523,29 +1015,165 @@ namespace
     // consumer TU must have CodeGenMeta.h + Serialization.h on the include path, and the type defined.
     void emitCodeGenSerializer(const std::vector<EmitField>& fields, const std::string& qname, FILE* out)
     {
+        const bool anyUnordered = std::any_of(fields.begin(), fields.end(), [](const EmitField& f) {
+            return f.isContainer && f.unordered && !f.bitPacked;
+        });
+        const bool anyContainer = std::any_of(fields.begin(), fields.end(),
+                                              [](const EmitField& f) { return f.isContainer; });
         std::fprintf(out,
             "// Generated by CodeGen serialization emitter for %s.\n"
             "// Requires: the type is defined + CodeGenMeta.h + Serialization.h on the include path.\n"
             "// Deterministic: declaration-order field traversal, same input => same bytes.\n"
+            "// Unordered containers are flattened and sorted before writing (task 3.1), and every\n"
+            "// container is cleared before reading (task 3.4), so the bytes and the read-back result\n"
+            "// depend on the CONTENT only — never on the insertion history of the container.\n"
             "#pragma once\n"
             "\n"
             "#include \"CodeGenMeta.h\"\n"
             "#include \"Serialization.h\"\n"
+            "%s%s%s"
             "\n",
-            qname.c_str());
+            qname.c_str(),
+            anyUnordered ? "#include <algorithm>   // std::sort for the canonical container order\n" : "",
+            anyUnordered ? "#include <utility>     // std::pair for the flattened map entries\n" : "",
+            (anyUnordered || anyContainer) ? "#include <type_traits> // the container traits below\n"
+                                             "#include <vector>      // the flattened array itself\n"
+                                           : "");
         std::fprintf(out, "namespace cacore::codegen\n{\n");
-        std::fprintf(out, "template<typename T> struct CodeGenSerializer;  // primary template\n");
-        std::fprintf(out, "\n");
-        std::fprintf(out, "template<>\n");
-        std::fprintf(out, "struct CodeGenSerializer<%s>\n{\n", qname.c_str());
+        if (anyContainer)
+        {
+            // Container IO is STRUCTURAL recursion over the container type itself, so it covers
+            // arbitrary nesting (`vector<vector<int>>`, `map<K, set<V>>`, `T m[2][3]`) with no
+            // per-type metadata. The old runtime cannot do this: its read path has no branch for
+            // "element is itself a container" and asserts (measured: Serialization.h static
+            // assertion 'Wrong'), which is why container IO belongs to the generated code.
+            std::fprintf(out,
+                "template<typename T, typename = void> struct CGIsUnordered : std::false_type {};\n"
+                "template<typename T> struct CGIsUnordered<T, std::void_t<decltype(std::declval<T const&>().bucket_count())>> : std::true_type {};\n"
+                "template<typename T, typename = void> struct CGIsMapLike : std::false_type {};\n"
+                "template<typename T> struct CGIsMapLike<T, std::void_t<typename T::mapped_type>> : std::true_type {};\n"
+                "template<typename T> struct CGIsContainer\n"
+                "    : std::integral_constant<bool, careflection::containerStates<T>::is_container_with_size> {};\n"
+                "// map/set expose pair<const K, V>: the flattened array needs an assignable element\n"
+                "template<typename T, typename = void> struct CGFlat { using type = T; };\n"
+                "template<typename T> struct CGFlat<T, std::void_t<typename T::first_type, typename T::second_type>>\n"
+                "{\n"
+                "    using type = std::pair<std::remove_const_t<typename T::first_type>, typename T::second_type>;\n"
+                "};\n"
+                "\n"
+                "template<typename ByteBuffer, typename E> void cgWriteValue(::cacore::serializer<ByteBuffer>& s, E const& e);\n"
+                "template<typename ByteBuffer, typename E> void cgReadValue(::cacore::deserializer<ByteBuffer>& d, E& e);\n"
+                "template<typename ByteBuffer, typename C> void cgWriteContainer(::cacore::serializer<ByteBuffer>& s, C const& c);\n"
+                "template<typename ByteBuffer, typename C> void cgReadContainer(::cacore::deserializer<ByteBuffer>& d, C& c);\n"
+                "\n"
+                "// Writes the element count, then every element - sorted first when the container's traversal\n"
+                "// order is unspecified, so the bytes depend on the CONTENT only.\n"
+                "template<typename ByteBuffer, typename C>\n"
+                "void cgWriteContainerSized(::cacore::serializer<ByteBuffer>& s, C const& c)\n"
+                "{\n"
+                "    using E0 = typename C::value_type;\n"
+                "    using E = typename CGFlat<E0>::type;  // map value_type carries a const key\n"
+                "    if constexpr (CGIsUnordered<C>::value)\n"
+                "    {\n"
+                "        std::vector<E> flat(c.begin(), c.end());\n"
+                "        std::sort(flat.begin(), flat.end(), [](E const& a, E const& b) {\n"
+                "            if constexpr (CGIsMapLike<C>::value) return a.first < b.first;\n"
+                "            else return a < b; });\n"
+                "        s.serialize(static_cast<unsigned long long>(flat.size()));\n"
+                "        for (auto const& e : flat) cgWriteValue(s, e);\n"
+                "    }\n"
+                "    else\n"
+                "    {\n"
+                "        s.serialize(static_cast<unsigned long long>(c.size()));\n"
+                "        for (auto const& e : c) cgWriteValue(s, e);\n"
+                "    }\n"
+                "}\n"
+                "\n"
+                "// C arrays (including every extra dimension) are written as (extent, elements), which is exactly\n"
+                "// the multi-dimension shape the disk contract describes.\n"
+                "template<typename ByteBuffer, typename C>\n"
+                "void cgWriteContainer(::cacore::serializer<ByteBuffer>& s, C const& c)\n"
+                "{\n"
+                "    if constexpr (std::is_array_v<C>)\n"
+                "    {\n"
+                "        s.serialize(static_cast<unsigned long long>(std::extent_v<C>));\n"
+                "        for (auto const& e : c) cgWriteValue(s, e);\n"
+                "    }\n"
+                "    else cgWriteContainerSized(s, c);\n"
+                "}\n"
+                "\n"
+                "template<typename ByteBuffer, typename E>\n"
+                "void cgWriteValue(::cacore::serializer<ByteBuffer>& s, E const& e)\n"
+                "{\n"
+                "    if constexpr (std::is_array_v<E>) cgWriteContainer(s, e);\n"
+                "    else if constexpr (CGIsContainer<E>::value) cgWriteContainer(s, e);\n"
+                "    else if constexpr (CGIsMapLike<std::remove_cv_t<E>>::value == false && requires { e.first; e.second; })\n"
+                "    { cgWriteValue(s, e.first); cgWriteValue(s, e.second); }\n"
+                "    else s.serialize(e);\n"
+                "}\n"
+                "\n"
+                "// Clears the target first, then rebuilds it from the payload alone: the result must depend on the\n"
+                "// payload only, never on whatever the target happened to hold before.\n"
+                "template<typename ByteBuffer, typename C>\n"
+                "void cgReadContainerSized(::cacore::deserializer<ByteBuffer>& d, C& c)\n"
+                "{\n"
+                "    c.clear();\n"
+                "    unsigned long long n = 0;\n"
+                "    d.deserialize(n);\n"
+                "    for (unsigned long long i = 0; i < n; ++i)\n"
+                "    {\n"
+                "        using E = typename C::value_type;\n"
+                "        if constexpr (CGIsMapLike<C>::value)\n"
+                "        {\n"
+                "            using K = std::remove_const_t<typename E::first_type>;\n"
+                "            using V = typename E::second_type;\n"
+                "            K k{}; V v{}; cgReadValue(d, k); cgReadValue(d, v);\n"
+                "            c.insert(std::make_pair(std::move(k), std::move(v)));\n"
+                "        }\n"
+                "        else\n"
+                "        {\n"
+                "            E e{}; cgReadValue(d, e); c.insert(c.end(), std::move(e));\n"
+                "        }\n"
+                "    }\n"
+                "}\n"
+                "\n"
+                "template<typename ByteBuffer, typename C>\n"
+                "void cgReadContainer(::cacore::deserializer<ByteBuffer>& d, C& c)\n"
+                "{\n"
+                "    if constexpr (std::is_array_v<C>)\n"
+                "    {\n"
+                "        unsigned long long n = 0;\n"
+                "        d.deserialize(n);\n"
+                "        for (unsigned long long i = 0; i < n && i < std::extent_v<C>; ++i) cgReadValue(d, c[i]);\n"
+                "    }\n"
+                "    else cgReadContainerSized(d, c);\n"
+                "}\n"
+                "\n"
+                "template<typename ByteBuffer, typename E>\n"
+                "void cgReadValue(::cacore::deserializer<ByteBuffer>& d, E& e)\n"
+                "{\n"
+                "    if constexpr (std::is_array_v<E>) cgReadContainer(d, e);\n"
+                "    else if constexpr (CGIsContainer<E>::value) cgReadContainer(d, e);\n"
+                "    else if constexpr (requires { e.first; e.second; })\n"
+                "    { cgReadValue(d, e.first); cgReadValue(d, e.second); }\n"
+                "    else d.deserialize(e);\n"
+                "}\n"
+                "\n");
+        }
+        std::fprintf(out, "template<typename T> struct CodeGenSerializer;  // primary template\n\n");
+        std::fprintf(out, "template<>\nstruct CodeGenSerializer<%s>\n{\n", qname.c_str());
         std::fprintf(out, "    using Obj = %s;\n", qname.c_str());
-        std::fprintf(out,
-            "    template<typename ByteBuffer>\n"
-            "    static void serialize(Obj const& obj, ByteBuffer& buffer)\n"
-            "    {\n"
-            "        ::cacore::serializer<ByteBuffer> s(buffer);  // one instance carries offset\n");
+        std::fprintf(out, "    template<typename ByteBuffer>\n    static void serialize(Obj const& obj, ByteBuffer& buffer)\n    {\n");
+        std::fprintf(out, "        ::cacore::serializer<ByteBuffer> s(buffer);  // one instance carries offset\n");
         for (const EmitField& f : fields)
-            std::fprintf(out, "        s.serialize(obj.%s);\n", f.name.c_str());
+        {
+            // Task 3.1 / 3.2: every container (ordered or not, nested or not) is written by the
+            // emitted structural writer, which sorts unordered containers at every level.
+            if (f.isContainer && !f.bitPacked)
+                std::fprintf(out, "        cgWriteContainer(s, obj.%s);\n", f.name.c_str());
+            else
+                std::fprintf(out, "        s.serialize(obj.%s);\n", f.name.c_str());
+        }
         std::fprintf(out,
             "    }\n"
             "    template<typename ByteBuffer>\n"
@@ -553,7 +1181,14 @@ namespace
             "    {\n"
             "        ::cacore::deserializer<ByteBuffer> d(buffer);  // one instance carries offset\n");
         for (const EmitField& f : fields)
-            std::fprintf(out, "        d.deserialize(obj.%s);\n", f.name.c_str());
+        {
+            // Task 3.4 / 3.2: the structural reader clears the target first and rebuilds it from the
+            // payload alone — and it recurses, which the old runtime's reader cannot do.
+            if (f.isContainer && !f.bitPacked)
+                std::fprintf(out, "        cgReadContainer(d, obj.%s);\n", f.name.c_str());
+            else
+                std::fprintf(out, "        d.deserialize(obj.%s);\n", f.name.c_str());
+        }
         std::fprintf(out,
             "    }\n"
             "};\n");
@@ -576,8 +1211,101 @@ namespace
             "\n"
             "#include \"Hasher.h\"\n"
             "#include <limits>\n"
+            "#include <algorithm>\n"
+            "#include <iterator>\n"
+            "#include <type_traits>\n"
+            "#include <utility>\n"
+            "#include <vector>\n"
             "\n",
             qname.c_str());
+        const bool anyContainer = std::any_of(fields.begin(), fields.end(),
+            [](const EmitField& f) { return f.isContainer; });
+        if (anyContainer)
+        {
+            // Task 3.3 / 3.2: a container's hash must not depend on its traversal order, and each
+            // element must be hashed by ITS OWN specialization -- `h.hash(element)` takes the
+            // trivially copyable shortcut and never reaches the element's trait (measured; see the
+            // design record), and floats inside a container bypass the -0.0 / NaN normalization.
+            std::fprintf(out,
+                "template<typename T, typename = void> struct CGHashIsUnordered : std::false_type {};\n"
+                "template<typename T> struct CGHashIsUnordered<T, std::void_t<decltype(std::declval<T const&>().bucket_count())>> : std::true_type {};\n"
+                "template<typename T, typename = void> struct CGHashIsMapLike : std::false_type {};\n"
+                "template<typename T> struct CGHashIsMapLike<T, std::void_t<typename T::mapped_type>> : std::true_type {};\n"
+                "template<typename T> struct CGHashIsContainer\n"
+                "    : std::integral_constant<bool, careflection::containerStates<T>::is_container_with_size> {};\n"
+                "template<typename T, typename = void> struct CGHashFlat { using type = T; };\n"
+                "template<typename T> struct CGHashFlat<T, std::void_t<typename T::first_type, typename T::second_type>>\n"
+                "{\n"
+                "    using type = std::pair<std::remove_const_t<typename T::first_type>, typename T::second_type>;\n"
+                "};\n"
+                "\n"
+                "// Container equality: `std::equal` would compare the ROWS of a multi-dimensional C\n"
+                "// array by address (array-to-pointer decay), so arrays recurse element-wise.\n"
+                "template<typename C> bool cgEqualContainer(C const& a, C const& b)\n"
+                "{\n"
+                "    if constexpr (std::is_array_v<C>)\n"
+                "    {\n"
+                "        for (std::size_t i = 0; i < std::extent_v<C>; ++i)\n"
+                "            if (!cgEqualContainer(a[i], b[i])) return false;\n"
+                "        return true;\n"
+                "    }\n"
+                "    else return a == b;\n"
+                "}\n"
+                "template<typename H, typename C> void cgHashContainer(H& h, C const& c);\n"
+                "template<typename H, typename E> void cgHashContainerValue(H& h, E const& e)\n"
+                "{\n"
+                "    using V = std::remove_cvref_t<E>;\n"
+                "    if constexpr (std::is_same_v<V, float>)\n"
+                "    { float v = e; if (v == 0.0f) v = 0.0f; else if (v != v) v = std::numeric_limits<float>::quiet_NaN(); h.hash_raw(&v, sizeof(v)); }\n"
+                "    else if constexpr (std::is_same_v<V, double>)\n"
+                "    { double v = e; if (v == 0.0) v = 0.0; else if (v != v) v = std::numeric_limits<double>::quiet_NaN(); h.hash_raw(&v, sizeof(v)); }\n"
+                "    else if constexpr (std::is_array_v<V>) cgHashContainer(h, e);\n"
+                "    else if constexpr (CGHashIsContainer<V>::value) cgHashContainer(h, e);\n"
+                "    else if constexpr (cacore::has_custom_hash_func<V, H>) cacore::custom_hash_trait<V>::hash(e, h);\n"
+                "    else h.hash(e);\n"
+                "}\n"
+                "\n"
+                "template<typename H, typename C>\n"
+                "void cgHashContainerSized(H& h, C const& c)\n"
+                "{\n"
+                "    using E0 = typename C::value_type;\n"
+                "    using E = typename CGHashFlat<E0>::type;\n"
+                "    if constexpr (CGHashIsUnordered<C>::value)\n"
+                "    {\n"
+                "        std::vector<E> flat(c.begin(), c.end());\n"
+                "        std::sort(flat.begin(), flat.end(), [](E const& a, E const& b) {\n"
+                "            if constexpr (CGHashIsMapLike<C>::value) return a.first < b.first;\n"
+                "            else return a < b; });\n"
+                "        h.hash(static_cast<unsigned long long>(flat.size()));\n"
+                "        for (auto const& e : flat)\n"
+                "        {\n"
+                "            if constexpr (CGHashIsMapLike<C>::value) { cgHashContainerValue(h, e.first); cgHashContainerValue(h, e.second); }\n"
+                "            else cgHashContainerValue(h, e);\n"
+                "        }\n"
+                "    }\n"
+                "    else\n"
+                "    {\n"
+                "        h.hash(static_cast<unsigned long long>(c.size()));\n"
+                "        for (auto const& e : c)\n"
+                "        {\n"
+                "            if constexpr (CGHashIsMapLike<C>::value) { cgHashContainerValue(h, e.first); cgHashContainerValue(h, e.second); }\n"
+                "            else cgHashContainerValue(h, e);\n"
+                "        }\n"
+                "    }\n"
+                "}\n"
+                "\n"
+                "template<typename H, typename C>\n"
+                "void cgHashContainer(H& h, C const& c)\n"
+                "{\n"
+                "    if constexpr (std::is_array_v<C>)\n"
+                "    {\n"
+                "        h.hash(static_cast<unsigned long long>(std::extent_v<C>));\n"
+                "        for (auto const& e : c) cgHashContainerValue(h, e);\n"
+                "    }\n"
+                "    else cgHashContainerSized(h, c);\n"
+                "}\n"
+                "\n");
+        }
         std::fprintf(out, "namespace cacore\n{\n");
         std::fprintf(out, "template<typename T> struct custom_hash_trait;\n"); // ensure primary is declared
         std::fprintf(out, "template<>\n");
@@ -589,7 +1317,11 @@ namespace
             "    {\n");
         for (const EmitField& f : fields)
         {
-            if (f.kindName == "TypeKind::Float")
+            if (f.isContainer)
+            {
+                std::fprintf(out, "        cgHashContainer(h, obj.%s);\n", f.name.c_str());
+            }
+            else if (f.kindName == "TypeKind::Float")
             {
                 std::fprintf(out,
                     "        { float v = obj.%s; if (v == 0.0f) v = 0.0f; else if (v != v) v = std::numeric_limits<float>::quiet_NaN(); h.hash_raw(&v, sizeof(v)); }\n",
@@ -620,6 +1352,14 @@ namespace
                     "        if (!(a.%s == b.%s || (a.%s != a.%s && b.%s != b.%s))) return false;\n",
                     f.name.c_str(), f.name.c_str(),
                     f.name.c_str(), f.name.c_str(),
+                    f.name.c_str(), f.name.c_str());
+            }
+            else if (f.isContainer)
+            {
+                // Task 3.2: `a.arr != b.arr` on a C array compares ADDRESSES (array-to-pointer decay),
+                // so container members are compared element-wise over both full ranges.
+                std::fprintf(out,
+                    "        if (!cgEqualContainer(a.%s, b.%s)) return false;\n",
                     f.name.c_str(), f.name.c_str());
             }
             else
@@ -1143,9 +1883,166 @@ int main(int argc, char** argv)
         }
     }
 
+    // Task 4.1 (1): the canonical order of an unordered container needs `<` on the sorting side. A type
+    // with no ordering operator at all has none, so the promised "same bytes for the same content" could
+    // not be delivered. (The criterion accepts `operator<=>`; see hasOrderingOperator.)
+    if (emitSerialization || emitHash)
+    {
+        for (const Field& f : fields)
+        {
+            if (!f.sortSideNotOrdered)
+                continue;
+            std::fprintf(stderr,
+                "CodeGen: refusing %s for '%s' — member '%s': an unordered container is sorted before it "
+                "is written, but its sorting side has no ordering operator (neither `operator<` nor "
+                "`operator<=>`), so the canonical order is undefined. Give the type an ordering operator, "
+                "or use an ordered container with an explicit comparator.\n",
+                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
+                qname.c_str(), f.name.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 17;
+        }
+    }
+
+    // Task 4.1 (4): the generated reader builds each key / element with `T t{}` before reading into it,
+    // so a type without a usable default constructor cannot be read back. Refuse rather than emit code
+    // that does not compile.
+    if (emitSerialization || emitHash)
+    {
+        for (const Field& f : fields)
+        {
+            if (!(f.keyNotDefault || f.elementNotDefault))
+                continue;
+            std::fprintf(stderr,
+                "CodeGen: refusing %s for '%s' — member '%s': the %s type '%s' has no usable default "
+                "constructor, and the generated reader builds a value with `T t{}` before reading into "
+                "it. Give the type a default constructor, or use a container of a type that has one.\n",
+                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
+                qname.c_str(), f.name.c_str(),
+                (f.keyNotDefault ? "key" : "element"),
+                (f.keyNotDefault ? f.keyTypeName.c_str() : f.elementTypeName.c_str()));
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 16;
+        }
+    }
+
+    // Task 4.1 (2): a container whose element is a raw pointer, a managed pointer or a handle cannot be
+    // written faithfully - the old runtime ignores such elements, so the payload silently loses data.
+    // Refuse when serialization or hashing is requested instead of shipping a lossy stream.
+    if (emitSerialization || emitHash)
+    {
+        for (const Field& f : fields)
+        {
+            if (!(f.isContainer && (f.elementIsOpaque || f.elementIsManagedPointer)))
+                continue;
+            std::fprintf(stderr,
+                "CodeGen: refusing %s for '%s' — member '%s' is a container whose element is a raw or "
+                "managed pointer: the old runtime does not write pointer elements, so the stream would "
+                "silently lose them. Store values (or an index/handle plus a table on the side).\n",
+                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
+                qname.c_str(), f.name.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 15;
+        }
+    }
+
+    // Task 4.1 (3): a duplicate-key container (`multimap` / `multiset` / the unordered variants) has no
+    // canonical order among equal keys, and this change deliberately does not invent a secondary sort
+    // key, so the canonical write order is undefined. Refuse instead of writing an order-dependent stream.
+    if (emitSerialization || emitHash)
+    {
+        for (const Field& f : fields)
+        {
+            if (!f.containerIsMultiKey)
+                continue;
+            std::fprintf(stderr,
+                "CodeGen: refusing %s for '%s' — member '%s' is a duplicate-key container ('%s'): equal "
+                "keys have no canonical order, and this generator does not define a secondary sort key. "
+                "Use a unique-key container, or serialize a container of key/value pairs instead.\n",
+                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
+                qname.c_str(), f.name.c_str(), f.typeName.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 14;
+        }
+    }
+
+    // Task 2.1 / 4.1 (5): a bit-packed container (`vector<bool>`) satisfies the structural criterion
+    // (it has `size()` and `value_type`) but not the old runtime's `for (auto& item : object)` loop:
+    // the iterator yields a proxy object and `auto&` cannot bind to it, so instantiating the emitted
+    // code is a hard compile error (C2440). Refuse instead of emitting code that cannot compile.
+    if (emitSerialization || emitHash)
+    {
+        for (const Field& f : fields)
+        {
+            if (!f.containerIsBitPacked)
+                continue;
+            std::fprintf(stderr,
+                "CodeGen: refusing %s for '%s' — member '%s' is a bit-packed container ('%s'): its "
+                "elements are stored packed, so the old runtime's element loop cannot bind a reference to "
+                "them. Use a container of bytes (or widen the element type) instead.\n",
+                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
+                qname.c_str(), f.name.c_str(), f.typeName.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 13;
+        }
+    }
+
+    // Task 3.2 (1): a container element that is a STRUCT holding an unordered container cannot be
+    // written in canonical order by the generated recursion (see findUnorderedInside), so refuse the
+    // serialization emitter instead of shipping code whose bytes depend on insertion order.
+    if (emitSerialization || emitHash)
+    {
+        for (const Field& f : fields)
+        {
+            if (f.elementUnstableInside.empty())
+                continue;
+            std::fprintf(stderr,
+                "CodeGen: refusing %s for '%s' — member '%s' is a container whose element "
+                "type '%s' itself holds the unordered container '%s'. The generated code cannot recurse into "
+                "another type's fields (the old runtime keeps its read cursor private), so that element would "
+                "be written in traversal order and the bytes would depend on insertion history. Either give the "
+                "element type its own ordering-free shape (no unordered container inside), or drop the member "
+                "from the serialized set.\n",
+                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
+                qname.c_str(), f.name.c_str(), f.elementTypeName.c_str(), f.elementUnstableInside.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 12;
+        }
+    }
+
     std::vector<EmitField> ef;
     for (const Field& f : fields)
-        ef.push_back({ f.name, f.typeName, fieldTypeKindEnum(static_cast<CXTypeKind>(f.typeKind)) });
+    {
+        EmitField e{ f.name, f.typeName, fieldTypeKindEnum(static_cast<CXTypeKind>(f.typeKind)) };
+        e.isContainer        = f.isContainer;
+        e.unordered          = f.containerUnordered;
+        e.bitPacked          = f.containerIsBitPacked;
+        e.hasOpaqueElement   = f.elementIsOpaque || f.elementIsManagedPointer;
+        e.wrapper            = f.elementIsWrapper || f.keyIsWrapper;
+        e.element2TypeName   = f.element2TypeName;
+        e.element2IsContainer = f.element2IsContainer;
+        e.element2KindName   = f.element2TypeName.empty()
+                                   ? ""
+                                   : fieldTypeKindEnum(static_cast<CXTypeKind>(f.element2Kind));
+        e.keyTypeName        = f.keyTypeName;
+        e.keyKindName        = f.keyTypeName.empty() ? "" : fieldTypeKindEnum(static_cast<CXTypeKind>(f.keyKind));
+        e.elementTypeName    = f.elementTypeName;
+        e.elementKindName    = f.elementTypeName.empty() ? "" : fieldTypeKindEnum(static_cast<CXTypeKind>(f.elementKind));
+        e.elementIsContainer = f.elementIsContainer;
+        ef.push_back(e);
+    }
     if (emitSerialization)
     {
         emitCodeGenSerializer(ef, qname, out);
@@ -1188,7 +2085,16 @@ int main(int argc, char** argv)
 
     std::printf("%s %zu\n", typeName, fields.size());
     for (const Field& f : fields)
-        std::printf("  field %s %zu %s %d\n", f.name.c_str(), f.offsetBytes, f.typeName.c_str(), f.typeKind);
+        std::printf("  field %s %zu %s %d container=%d unordered=%d map=%d set=%d multikey=%d "
+                    "bitpacked=%d key=%s keyKind=%d element=%s "
+                    "elementKind=%d elemContainer=%d elemOpaque=%d elemManagedPtr=%d\n",
+                    f.name.c_str(), f.offsetBytes, f.typeName.c_str(), f.typeKind,
+                    f.isContainer ? 1 : 0, f.containerUnordered ? 1 : 0, f.containerIsMap ? 1 : 0,
+                    f.containerIsSet ? 1 : 0, f.containerIsMultiKey ? 1 : 0,
+                    f.containerIsBitPacked ? 1 : 0, f.keyTypeName.c_str(), f.keyKind,
+                    f.elementTypeName.c_str(), f.elementKind,
+                    f.elementIsContainer ? 1 : 0, f.elementIsOpaque ? 1 : 0,
+                    f.elementIsManagedPointer ? 1 : 0);
 
     // Task 6b.2: carry CA_REFLECT marker options (from source text) into the output.
     const std::string options = scanMarkerOptions(bound, typeName);

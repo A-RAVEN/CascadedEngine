@@ -1,4 +1,4 @@
-//
+﻿//
 // GeneratedSerializerTest.cpp — task 6.1: the CodeGen serialization emitter.
 //
 // Proves the emitted `CodeGenSerializer<T>` round-trips a reflected type field-by-field in declaration
@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include "TestEmit.h"
-#include "generated/EmitSample.Serialization.h"
+#include "EmitSample.Serialization.h"
 
 bool RunGeneratedSerializationTest()
 {
@@ -61,3 +61,4 @@ bool RunGeneratedSerializationTest()
     std::puts("CodeGen serialization roundtrip PASSED (task 6.1)");
     return true;
 }
+

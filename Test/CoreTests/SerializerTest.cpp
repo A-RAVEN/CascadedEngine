@@ -212,6 +212,8 @@ bool RunTypeRegistryTest();
 bool RunGeneratedSerializationTest();
 // Task 6.2 generated hash/equality check (defined in GeneratedHashTest.cpp).
 bool RunGeneratedHashTest();
+bool RunGeneratedContainerTest();
+bool RunGeneratedHashContainerTest();
 
 int main(int argc, char* argv[])
 {
@@ -255,6 +257,17 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("CodeGen hash test PASSED (task 6.2)");
+	}
+
+	if (!RunGeneratedContainerTest())
+	{
+		std::puts("Generated container test FAILED (task 3.1 / 3.4)");
+		allOk = false;
+	}
+	if (!RunGeneratedHashContainerTest())
+	{
+		std::puts("Generated container hash test FAILED (task 3.2 / 3.3)");
+		allOk = false;
 	}
 
 	return allOk ? 0 : 1;

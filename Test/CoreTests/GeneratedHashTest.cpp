@@ -1,4 +1,4 @@
-//
+﻿//
 // GeneratedHashTest.cpp — task 6.2: the CodeGen hash/equality emitter.
 //
 // Proves the emitted `cacore::custom_hash_trait<T>` (the hook the existing `aggregateHasher` already
@@ -12,7 +12,7 @@
 #include <cstdio>
 #include <limits>
 #include "TestEmit.h"
-#include "generated/EmitSample.Hash.h"
+#include "EmitSample.Hash.h"
 
 bool RunGeneratedHashTest()
 {
@@ -77,3 +77,4 @@ bool RunGeneratedHashTest()
     std::puts("CodeGen hash/equality test PASSED (task 6.2)");
     return true;
 }
+

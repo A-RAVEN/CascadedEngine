@@ -13,10 +13,10 @@ struct TypeDescriptor<codegen_demo::EmitSample>
 
     static constexpr const CodeGenFieldInfo* fields() { return arr; }
     static constexpr CodeGenFieldInfo arr[4] = {
-        { "a", "int", offsetof(codegen_demo::EmitSample, a), TypeKind::Int, FieldFlags::HashInclude },
-        { "b", "float", offsetof(codegen_demo::EmitSample, b), TypeKind::Float, FieldFlags::HashInclude },
-        { "c", "bool", offsetof(codegen_demo::EmitSample, c), TypeKind::Bool, FieldFlags::HashInclude },
-        { "d", "double", offsetof(codegen_demo::EmitSample, d), TypeKind::Double, FieldFlags::HashInclude },
+        { "a", "int", offsetof(codegen_demo::EmitSample, a), TypeKind::Int, FieldFlags::HashInclude, nullptr, nullptr },
+        { "b", "float", offsetof(codegen_demo::EmitSample, b), TypeKind::Float, FieldFlags::HashInclude, nullptr, nullptr },
+        { "c", "bool", offsetof(codegen_demo::EmitSample, c), TypeKind::Bool, FieldFlags::HashInclude, nullptr, nullptr },
+        { "d", "double", offsetof(codegen_demo::EmitSample, d), TypeKind::Double, FieldFlags::HashInclude, nullptr, nullptr },
     };
 };
 } // namespace cacore::codegen

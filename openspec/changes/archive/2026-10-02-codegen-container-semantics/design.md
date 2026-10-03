@@ -34,7 +34,9 @@
 
 ### D2 容器按结构与运行时同口径识别
 
-规范化后如果是记录类型，查它有没有 `size()` 与 `value_type`：两个都有就是容器（与运行时 `is_size_container` 同口径）；C 数组按 extent 认。**不按名字列白名单**，因为 `castl` 经 `using namespace std` / `eastl` 透出全部名字（见 Context）。⚠ 元素描述取**直接元素类型**：运行时的 `containerInfo` 对多维 C 数组用 `remove_all_extents` 取到最内层类型、长度只取第一维（实测 `int[2][3]` 报元素 `int`、长度 2），而写出的字节是分层的（先 2、再每个 `int[3]` 各写 3 与 3 个 int）。照抄运行时会让元素描述与真实字节不符，所以要按维度逐层描述，并在 README 的磁盘契约里写明多维数组的嵌套形状。判据：同一个 TU 里断言"工具认出的容器集合"与"运行时 `containerStates<T>::is_container_with_size`"一致。
+规范化后如果是记录类型，查它有没有 `size()` 与 `value_type`：两个都有就是容器（与运行时 `is_size_container` 同口径）；C 数组按 extent 认。**不按名字列白名单**，因为 `castl` 经 `using namespace std` / `eastl` 透出全部名字（见 Context）。
+
+⚠ **实现时改了判据（2026-10-02 实测）**：原本打算用 libclang 游标去探"有没有 `size()` 与 `value_type`"，**实测探不到** —— `std::vector<unsigned>` 的规范化类型确实是 `CXType_Record`（105），但 `clang_getTypeDeclaration` 对类模板特化不暴露成员（访问器加递归后 `hasSize` 仍是 0）。改用**规范化后的基名**列表（`vector` / `array` / `string` / `basic_string` / `deque` / `list` / `map` / `multimap` / `set` / `multiset` / `unordered_*`）：规范化拼写一定是 `std::…` / `eastl::…`，不会是 `castl::…` 别名，所以这条判据不受别名影响；与运行时口径的一致性由 2.5 的编译期对照断言（表的 `Container` 标志 ⇔ `containerStates<T>::is_container_with_size`）保证，而不是靠工具侧的探针。⚠ 元素描述取**直接元素类型**：运行时的 `containerInfo` 对多维 C 数组用 `remove_all_extents` 取到最内层类型、长度只取第一维（实测 `int[2][3]` 报元素 `int`、长度 2），而写出的字节是分层的（先 2、再每个 `int[3]` 各写 3 与 3 个 int）。照抄运行时会让元素描述与真实字节不符，所以要按维度逐层描述，并在 README 的磁盘契约里写明多维数组的嵌套形状。判据：同一个 TU 里断言"工具认出的容器集合"与"运行时 `containerStates<T>::is_container_with_size`"一致。
 
 ### D3 字段表补一层元素描述（不动 `TypeKind`）
 
@@ -49,6 +51,8 @@
 ⚠ **"逐层"是初稿漏掉的**：初稿只处理"直接是容器类型的成员"，而元素本身是无序容器时（`vector<Inner>`，`Inner` 里有 `unordered_map`）生成代码会把整个元素交给旧运行时按遍历顺序写。实测：两个只有内层插入顺序不同的对象写出 112 字节、首个不同字节在第 20 字节、哈希 `c188763afb62ef98` 与 `1020e97f4c8baf58` 不同，而生成的相等判断说"内容相等"。
 
 **定下来的做法（第二轮对抗验证后改写过一次）**：**按元素描述递归摊平**，不依赖"元素类型有没有生成序列化器" —— 容器类型永远拿不到生成序列化器，初稿那句"元素类型自己也有生成序列化器时就调用它"对 `vector<unordered_map<...>>`、`unordered_map<u, unordered_map<...>>`、`unordered_map m[2]` 这三种形状根本落不下来（实测三者同内容不同插入顺序时仍然 bytesEqual=0，firstDiff 分别是 16 / 20 / 16）。只有确实递归不了的形状才进拒绝路径。
+
+⚠ **落地时按本表最后一行括号里的第二选项办（2026-10-02 实测）**：递归摊平覆盖了"元素本身是容器"和"C 数组的元素是容器"这两类（`cgWriteContainer` / `cgReadContainer` 递归 + C 数组按"先 extent、再逐个元素"），但**结构体元素**这一类做不到 —— 递归摊平要求生成代码能进到那个结构体的字段里，而它拿不到旧运行时的游标（`serializer` 的缓冲区、`deserializer` 的偏移都在 `private:` 段且无取用方法）。所以这一类按本表写的"**或加一位标志并入拒绝**"办：`--emit-serialization` 与 `--emit-hash` 遇到"容器的元素是内含无序容器的结构体"时**非零退出（11）**并点名成员、元素类型与那个无序容器；工具在扫描到的头文件里递归查元素的字段（深度上限 3）来判断，元素类型不在本次扫描头文件里时看不到字段、按"未发现"放行 —— 这是本 change 的已知边界。
 
 **重复键容器不支持**：`multimap` / `multiset` / `unordered_multimap` / `unordered_multiset` 里同键项之间没有规范顺序，本 change 不规定二级排序键，直接拒绝（见 D6）。
 
@@ -147,3 +151,5 @@
 | 按位存储容器（`castl::vector<bool>`）满足结构判据却过不了旧运行时的 `for (auto& item : object)` | 实测 MSVC `error C2440`；工具仍 exit 0 出码 | D3/D6 新增第 ⑤ 条拒绝路径 |
 | spec 与 tasks 对"反射豁免哪几条"互补（②/④ 互换）；且清单会让三个发射器全跑 | spec「①②③ 不受影响」vs tasks 4.2「①③④ 不受影响」；`build.py` 每条固定跑三个发射器、任一非零即 `sys.exit(1)` | D6 末尾写明**清单里的类型必须三个发射器都能出**；4.2 统一口径 |
 | **读侧两个类混成一句**：生成代码走 `cacore::deserializer`（`reserve`→`push_back`→`insert`→`resize`），且**个数不为 0 时不清空目标** | 探针：读进 3 元素目标后 size=5；个数=0 的载荷读进 1 元素目标后 size=1；`clear` 只在 `batch_deserializer` | Context 与 tasks 3.4 按实际分支改写，读回场景补"非空目标"一条 |
+
+⚠ **已知边界（任务 4.2）**：**接入清单没有 per-entry 发射器选择** —— `build.py` 对每条清单条目固定跑三个发射器，任一次非零退出即整体构建失败，所以**只能出反射、出不了序列化或哈希的类型不能进清单**（例如含指针元素的类型：`--emit-reflection` 成功、`--emit-serialization` 退出码 15）。要让这类类型也用上生成物，只能直接调用工具，不能走清单。

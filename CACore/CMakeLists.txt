@@ -51,6 +51,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC HashLib)
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt)
 target_link_libraries(${PROJECT_NAME} PUBLIC magic_enum)
 target_include_directories(${PROJECT_NAME} PUBLIC header)
+# CodeGen output for CACore types (e.g. the task 5.1 wrapper fixture)
+target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/CACore/generated)
 target_include_directories(${PROJECT_NAME} INTERFACE header)
 target_compile_definitions(${PROJECT_NAME} INTERFACE USING_EASTL=0)
 

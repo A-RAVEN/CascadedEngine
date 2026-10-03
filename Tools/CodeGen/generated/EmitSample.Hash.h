@@ -5,6 +5,11 @@
 
 #include "Hasher.h"
 #include <limits>
+#include <algorithm>
+#include <iterator>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace cacore
 {

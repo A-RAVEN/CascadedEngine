@@ -45,7 +45,7 @@
 
 ### Requirement: 无序容器的序列化与哈希必须走规范顺序
 
-对无序容器（`unordered_map` / `unordered_set`），生成的代码 MUST 在写出与哈希之前把内容摊平成**按规范顺序排好的元素数组**（`map` 按 key、`set` 按元素本身），再按数组的形状写出 / 累加哈希。读回来 MUST 以逐个插入的方式还原，且与写入顺序无关。有序容器（`vector` / `array` / `string` / `deque` / `list` / `map` / `set`）的行为 MUST NOT 改变。
+对无序容器（`unordered_map` / `unordered_set`），生成的代码 MUST 在写出与哈希之前把内容摊平成**按规范顺序排好的元素数组**（`map` 按 key、`set` 按元素本身），再按数组的形状写出 / 累加哈希。读回来 MUST 以逐个插入的方式还原，且与写入顺序无关。有序容器（`vector` / `array` / `string` / `deque` / `list` / `map` / `set`）**不排序**：写出的字节与改动前逐字节相同（任务 3.5 对拍）。有序容器与无序容器一样，**元素按值参与哈希**（元素用自己的哈希特化，浮点先规范化 —— 见下面「元素里的浮点也要按值参与哈希」），所以有序容器里含浮点时，哈希值与改动前**允许不同**：这是 D5 定下来的"所有容器一视同仁、不留例外"，不是行为回退。
 
 #### Scenario: 插入顺序不影响写出的字节
 
@@ -62,10 +62,13 @@
 - **WHEN** 两个 `unordered_map` 内容不同（多一对、少一对、或值不同）各写一次
 - **THEN** 字节不同且哈希不同 —— 这是防止"顺序无关"判据恒真的对照组
 
-#### Scenario: 嵌套的无序容器同样稳定
+#### Scenario: 元素是内含无序容器的结构体时必须拒绝
 
-- **WHEN** 两个对象的**内层**无序容器插入顺序不同（例如 `struct Inner { castl::unordered_map<unsigned, unsigned> m; }; struct Outer { castl::vector<Inner> items; };`，只让 `items[0].m` 的插入顺序不同）
-- **THEN** 两份产物逐字节相同且哈希相同；生成代码按**元素描述递归摊平**（不依赖"元素类型有没有生成序列化器" —— 容器类型永远拿不到生成序列化器）。实测现状：112 字节、首个不同字节在第 20 字节、哈希 `c188763afb62ef98` 与 `1020e97f4c8baf58` —— 这条是初稿漏掉的层级
+- **WHEN** 容器的元素是**结构体**，而该结构体（逐层展开后）含无序容器，例如 `struct Inner { castl::unordered_map<unsigned, unsigned> m; }; struct Outer { castl::vector<Inner> items; };`
+- **THEN** 生成序列化与哈希的调用 MUST 非零退出，并在 stderr 点名**成员名**、**元素类型**与**那个无序容器**；MUST NOT 输出"看着能编译、字节却随插入历史变化"的代码
+- **理由（实测限制）**：这类元素只能由生成代码递归写出其字段，而生成代码拿不到旧运行时的读写游标 —— `cacore::serializer` 的缓冲区与 `cacore::deserializer` 的偏移都在 `private:` 段且没有公开取用方法（`CACore/header/Serialization.h`），所以既不能把当前缓冲区交给元素类型的生成序列化器，也不能在正确偏移上新建一个反序列化器。design 的失败方案表对这个形状写的是「逐层摊平（**或加一位标志并入拒绝**）」，本 change 取拒绝
+- **对照组**：元素是结构体但内部只有标量与**有序**容器时（如 `struct Plain { unsigned a; castl::map<unsigned,int> ordered; };`）MUST 照常出码（exit 0）—— 拒绝不得误伤普通结构体元素
+- **已知边界**：元素类型若不在本次扫描的头文件里，工具看不到它的字段、无法判定，此时按"未发现"放行
 
 #### Scenario: 元素本身就是容器时同样稳定
 

@@ -1,4 +1,4 @@
-//
+﻿//
 // EmitReflectionTest.cpp — task 5.1 verification: the reflection EMITTER's output actually compiles,
 // and its fieldCount agrees with the source-of-truth CA_REFLECTION via the ABI guard (non-vacuous).
 //
@@ -17,7 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include "TestEmit.h"                        // codegen_demo::EmitSample (Tools/CodeGen on include path)
-#include "generated/EmitSample.Reflection.h"  // emitter output (Tools/CodeGen/generated)
+#include "EmitSample.Reflection.h"  // emitter output (Tools/CodeGen/generated)
 
 // Source-of-truth reflection for the SAME type: the ABI guard compares the generated descriptor to
 // this, so it must be a real (non-vacuous) pair — has_type_desc<EmitSample> is true because
@@ -86,4 +86,5 @@ bool RunTypeRegistryTest()
 
     return ok && negativeOk && cleared;
 }
+
 
