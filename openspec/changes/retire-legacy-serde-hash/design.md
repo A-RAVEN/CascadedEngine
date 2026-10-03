@@ -17,15 +17,15 @@
 - 生成物自带一套读写与哈希设施，**不再引用**那三份旧头里的任何符号。
 - 落盘字节与现在**逐字节一致**，使每一步迁移都能用"新旧两套写同一对象、比字节"来验收。
 - "容器里装结构体"这类递归形状由生成代码支持，撤除退出码 12 的拒绝口。
-- 让生成的新哈希在既有调用点生效，且不改那 60 处 `HashObj<...>` 调用点。
+- 让生成的新哈希在既有调用点生效，且不改那 70 处 `HashObj<...>` 调用点（实测计数）。
 - 工具能标注嵌套类型；D3D12 的推导环境补全。
-- 终态可核：三份旧头不再被任何生成物或引擎代码引用，可以删除而构建通过。
+- 终态可核，完成条件按 proposal 里那三条**同时**成立来判：① 生成物与生产代码对符号表零引用（扫描范围、排除清单、`命中行数 == 白名单行数` 都写死）；② 三份旧头在**文件系统**上不存在（改名 / `git rm --cached` / 搬进新头都不算）且构建与 `CoreTests` 用例数不少于开工前；③ 旧实现指纹零命中，且三份旧头是删除而不是改名搬迁。
 
 **Non-Goals:**
 
-- 不改旧运行时的语义来迎合新系统（唯一例外是 `Hasher.h` 的两行分派顺序）。
+- 不改旧运行时的**运行时语义**来迎合新系统（唯一例外是 `Hasher.h` 的两行分派顺序）。工具自身的旧通道、文档示例、测试夹具、引擎自身类型源码的改动属于 D8 / D9 的处置范围，不算改旧运行时语义。
 - 不支持按位存储容器（`vector<bool>`），也不为重复键容器定义二级排序 —— 这两条保持拒绝。
-- 不迁移不在当前构建内的模块：`CAResource`、旧 `VulkanRenderBackend`、`Test/VulkanRendererBackendTester`（实测各 0 个编译单元）。
+- 不迁移不在当前构建内的模块：`CAResource`、旧 `VulkanRenderBackend`、`Test/VulkanRendererBackendTester`（实测各 0 个编译单元），因此完成条件的扫描范围也把它们排除在外（排除清单写死在脚本里，不是"看着办"）。
 - 不保证新旧哈希值相同（这是本 change 的目的之一：按字段算，避免 padding 与 `-0.0`）。
 
 ## Decisions
@@ -51,7 +51,19 @@
 
 把"有自定义特化"提到"平凡可拷贝"之前，使生成的特化在 `HashObj<...>` / `aggregateHasher` 既有调用点生效。
 
-**理由与安全性**：已逐个核对四个既有特化，其类型都不是平凡可拷贝（见 Context），所以调换不改动任何既有哈希值。**会变的**是迁移过来的 POD 类型：从"整块字节（含 padding）"变成"按字段" —— 这正是目的；今天没有任何哈希值落盘，进程内字典会自洽重算。
+**理由与安全性**：构建内共**五个**既有特化，逐条核对如下（每个宿主都在它自己的编译单元里加一条 `static_assert(!std::is_trivially_copyable_v<宿主>)`，判据写成代码而不是叙述）：
+
+| 特化所在 | 宿主 | 为什么不是平凡可拷贝 |
+|---|---|---|
+| `Hasher.h` | `HashObj<...>` | 第 199 行自己写了拷贝构造、第 208 行自己写了拷贝赋值 |
+| `Hasher.h` | `NameHash` | 第 523 行自己写了拷贝构造 |
+| `Hasher.h` | `PathHash` | 第 364 行自己写了拷贝构造 |
+| `D3D12RenderBackend/private/D3D12Includes.h` | `ComPtr<ID3DBlob>` | 有析构（Release） |
+| `VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.h` | `graphics_backend::VulkanShaderResourceSet` | 成员含 `castl::unordered_map` |
+
+（第六处 `custom_hash_trait<resource_management::ShaderResrouce>` 在 `Test/VulkanRendererBackendTester`，该模块 0 个编译单元，不在本 change 范围。）
+
+所以调换不改动任何既有哈希值。**会变的**是迁移过来的 POD 类型：从"整块字节（含 padding）"变成"按字段" —— 这正是目的；今天没有任何哈希值写到磁盘，进程内字典会自洽重算。
 
 ### D4 相等比较一并接入
 
@@ -81,6 +93,19 @@
 - **含指针 / 托管指针成员的类型**（老后端 `VulkanPipelineObject`）：生成期拒绝保持不变，迁移方式是把要落盘的部分提取成一个值语义的数据结构（句柄写名字或索引 + 旁表），而不是让序列化器去写进程内地址。
 
 **理由**：这两类靠"加个标记"迁不动，必须先把取舍写死，否则"完全替代"里会留一个静默丢数据的口子。
+
+### D9 四类旧用的处置（不处置则完成条件不可能成立）
+
+对抗验证数出来：`CA_REFLECTION` 在非归档区有 115 处，其中四类不属于"迁移引擎类型"，必须单独定：
+
+| 旧用 | 现状读数 | 处置 |
+|---|---|---|
+| 工具自身：`CA_REFLECTION` 的文本通道与识别逻辑 | `Tools/CodeGen/CodeGenMain.cpp` 命中（识别宏名、只支持反射的通道、退出码 8） | 随完成条件一起删除；删除后 `--emit-*` 只剩新标记通道，`README` 的"三条通道"章节与退出码 8 同步改掉 |
+| 文档与示例 | `Tools/CodeGen/README.md`、`examples/reflection_channel.h`、`TestExternal.h` | 随文档收尾任务一起改；示例改成新标记写法并实跑留输出 |
+| 测试夹具 | `Test/CoreTests` 里 6 个文件（含 ABI 守卫用例 `CodeGenMetaTest.cpp`） | 逐个迁移到新标记；**用例数不许减少**（收尾判据里逐条列名对账） |
+| 类模板描述符：`CACore/header/uenum.h` 的 `CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask)` | 引擎里 `EnumFlags<` 39 处使用；工具现在明确不支持类模板（`CodeGenMain.cpp` 注释写明类内 / 模板类型不是投递目标） | 先给一条任务尝试迁移（判据能失败）；若实测不可行，在本 change 内交出实测证据，并把它写成**唯一保留项**：完成条件的符号表里把 `CA_REFLECTION_TEMPLATE` 单列，允许它在 `uenum.h` 里存在，但要求 `CA_REFLECTION`（非模板形态）仍为零 |
+
+**理由**：这四类不写清，"全仓零引用"要么不可达、要么靠删测试与删文档凑出来；写清之后每条都有归属，收尾判据才可能既严格又能达成。
 
 ## Risks / Trade-offs
 

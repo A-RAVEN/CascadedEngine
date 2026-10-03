@@ -6,6 +6,13 @@
 
 同一个文件里 MUST NOT 同时出现老宏与新标记 —— 实测那样工具会走只支持反射的文本通道，序列化与哈希一律非零退出。
 
+**这条豁免与总完成条件的关系要写清**：消费方 `.cpp` 里为 ABI 守卫保留的老宏，是"生成物与生产代码零引用"这条判据的**唯一豁免**，并且 MUST 逐行白名单化（`命中行数 == 白名单行数`，多一行即红）。基线里那条"保留 `CA_REFLECTION` 运行时语义"的要求，在本 change 的范围内收窄为"只保留消费方 `.cpp` 的 ABI 守卫这一种用法"；收尾时必须同步改基线 `openspec/specs/codegen-framework/spec.md` 里对应的要求，不能只在 change 工件里说。
+
+#### Scenario: 豁免不许被拿来兜底
+
+- **WHEN** 除白名单那一处之外，任何引擎源码或生成物里再出现老宏 / `CATypeDescriptor`
+- **THEN** 零引用判据红（命中行数大于白名单行数），必须先把那处迁掉或显式加进白名单并说明它守的是哪个生成表
+
 #### Scenario: 迁移后 ABI 守卫仍然生效
 
 - **WHEN** 迁完某个类型后，把生成表里的字段数与老描述符的成员数改成不一致
@@ -47,9 +54,9 @@
 
 ### Requirement: 迁移必须逐类型可核，且不得留下静默不生效的钩子
 
-每迁一个类型，MUST 交出三样：① 该类型进接入清单后三个发射器都为 0 的读数；② 生成物被**真实目标的编译单元** include 并断言的证据；③ 新旧两套写同一对象字节相同的对拍（或说明为何该类型不适用）。
+每迁一个类型，MUST 交出三样：① 该类型进接入清单后三个发射器都为 0 的读数；② 生成物被**真实目标的编译单元** include 并断言的证据；③ 新旧两套写同一对象字节相同的对拍。**"不适用"不是逃生口**：说某类型不适用第③样，MUST 同时交出它的形状读数（同一类型在探针里被拒的退出码 + stderr 点名的那一行），否则按未完成算。
 
-MUST NOT 出现"迁移完成、但生成的特化在实际调用点不生效"的状态（例如哈希分派顺序没改就宣称哈希已迁移）。
+MUST NOT 出现"迁移完成、但生成的特化在实际调用点不生效"的状态（例如哈希分派顺序没改就宣称哈希已迁移）。判断"生效"的地方 MUST 是**既有调用点**，不是只在测试里直接调生成的特化：至少点名两个跨模块的真实调用点（例如 `D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.h` 里的 `HashObj<CPipelineStateObject>`），在其所在编译单元里断言该类型的特化可见（`cacore::has_custom_hash_func<该类型, cacore::aggregateHasher<>>` 为真），并做"填充字节改成不同值后哈希不变"的断言；只在夹具上绿不算完成。
 
 #### Scenario: 类型迁移的验收三件套
 
@@ -76,5 +83,6 @@ MUST NOT 出现"迁移完成、但生成的特化在实际调用点不生效"的
 
 #### Scenario: 解析该模块的头不再失败
 
-- **WHEN** 用推导环境对 `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 请求反射
-- **THEN** 退出码 0（现状是 6，附 `directx/d3dx12.h` 找不到 —— 判据在改动前为红）
+- **WHEN** 用推导环境对 `D3D12RenderBackend/private/D3D12Includes.h`（该文件内部没有老宏标注，所以会真正走 libclang 解析与诊断检查）请求反射
+- **THEN** 退出码 0；**改动之前实测为 6**，stderr 逐字含 `unresolved include (fatal): D3D12RenderBackend/private/D3D12Includes.h:11:10: fatal error: 'directx/d3dx12.h' file not found`
+- **反例（原判据写错的地方）**：不要拿 `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 当这条的红态 —— 它自己在文件末尾带老宏标注，工具会走只支持反射的文本通道并直接 `exit 0`，解析是否可信根本没被检查（已实测）

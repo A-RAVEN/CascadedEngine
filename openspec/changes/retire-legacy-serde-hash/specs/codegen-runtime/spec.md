@@ -66,11 +66,24 @@ CodeGen 生成的序列化代码 MUST NOT 依赖任何"把读位置藏在对象�
 - **WHEN** 两个对象内容相同，但 padding 字节或无序容器的插入顺序不同
 - **THEN** 相等判断为真**且**哈希相同；两者不一致即判为失败
 
-### Requirement: 旧的三份头可以删除
+### Requirement: 旧的三份头必须真正消失，且旧实现不许改名留下
 
-本 change 的完成条件是：`Reflection.h`、`Serialization.h`、`Hasher.h` 不再被任何生成物或引擎代码引用，可以从仓库删除而全量构建通过。注意"可以删除"MUST 以全仓符号搜索为依据，MUST NOT 以"迁移清单看起来做完了"为依据。
+本 change MUST 以三条**同时**成立作为完成条件：
 
-#### Scenario: 删除后构建仍然通过
+1. **生成物与生产代码零引用**：检查脚本对生成物目录（`Tools/CodeGen/generated/`、`Interface/RenderInterface/generated/`、`CACore/generated/`）与引擎源码（后缀 `.h/.hpp/.cpp/.cxx`，排除 `openspec/`、`out/`、脚本自身）逐符号扫描，命中 0 行。符号表 MUST 固定为：`cacore::serializer`、`cacore::deserializer`、`cacore::batch_deserializer`、`cacore::aggregateHasher`、`cacore::custom_hash_trait`、`cacore::has_custom_hash_func`、`careflection::containerStates`、`careflection::managed_wrapper_traits`、`CATypeDescriptor`、`CA_REFLECTION`。脚本 MUST 打印"扫描 N 个文件、命中 0 行"，且 N 与开工时那次红态运行的 N 相同。
+2. **三份旧头在文件系统上不存在**：用文件系统枚举确认 `CACore/header/Reflection.h`、`Serialization.h`、`Hasher.h` 三个路径都不存在。**改名、`git rm --cached`、搬到新头、移出 include 路径都不算**；随后 `python build.py --config Debug` → `BUILD SUCCESSFUL`，`CoreTests.exe` 退出码 0 且用例名逐条列出、总数不少于开工前。
+3. **旧实现指纹零命中**：`visit_members`、`CATypeMemberDesc`、`containerInfo`、`SubmitAndWait`、`Object must be trivially copyable`、`hash_one`、`managed_pointer_traits` 命中 0 行；并用 `git log --diff-filter=R --name-status` 确认三份旧头是删除而不是改名 / 搬迁。
 
-- **WHEN** 三份头被删除（或移出 include 路径）后跑全量构建与已有测试
-- **THEN** 构建成功、测试全绿。判据在本 change 开始时为红（三份头仍被大量引用）
+**唯一豁免**：消费方 `.cpp` 里为 ABI 守卫保留的老宏。豁免 MUST 写成逐行白名单（现状只有 `Interface/RenderInterface/private/GPUBufferDescriptorReflection.cpp` 一处），判据是 `命中行数 == 白名单行数`，多一行即红；白名单每行要写明它守的是哪个生成表。
+
+`CA_REFLECTION_TEMPLATE`（`CACore/header/uenum.h` 的类模板描述符）单独处理：先给一条任务尝试迁移；实测不可行时允许它在 `uenum.h` 里保留，但 MUST 交出实测证据，且非模板形态的 `CA_REFLECTION` 仍须为零。
+
+#### Scenario: 三条判据在本 change 开始时都为红
+
+- **WHEN** 对开工时的代码跑这三条检查
+- **THEN** 三条都失败，并各自给出可复现的数字：符号扫描的命中行数与扫描文件数、三份旧头的存在、指纹扫描的命中行数
+
+#### Scenario: 改名、移出 include 路径、删测试都不能通过
+
+- **WHEN** 只把旧机制改名（符号换名字但实现不变）、把三份头移出 include 路径、或删掉依赖旧宏的测试用例
+- **THEN** 三条判据里至少一条变红：指纹扫描命中、文件系统枚举仍能找到三份头、或 `CoreTests` 用例数少于开工前

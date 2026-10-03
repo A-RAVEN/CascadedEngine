@@ -15,33 +15,35 @@
 ## 2. 新运行时：哈希与容器判据
 
 - [ ] 2.1 新运行时提供哈希对象（同样的 `hash_raw` / `hash(值)` / `getHash` 形状）与自有的特化检测
-  **怎么算做完**：生成物改用新对象后，既有哈希用例读数不变（`CoreTests.exe` 退出码 0）
+  **怎么算做完**：生成物改用新对象后，既有哈希用例读数不变（`CoreTests.exe` 退出码 0）；**改之前**：把新哈希对象从新头里拿掉，生成物所在的编译单元立刻编译失败（哈希用例现在直接调生成的特化，不经过旧驱动，所以"用例通过"本身不是新运行时的判据 —— 必须补这条编译期红态）
 - [ ] 2.2 新运行时自有容器判据（有 `size()` 与 `value_type`，或 C 数组按 extent），与字段表的容器标志同口径
-  **怎么算做完**：编译期断言"表里带 `Container` 标志 ⇔ 新判据为真"，对夹具八个成员逐个成立；对照组成员为假
+  **怎么算做完**：编译期断言"表里带 `Container` 标志 ⇔ 新判据为真"，对夹具八个成员逐个成立；对照组成员为假；**改之前**：断言指向旧 `careflection::containerStates`，把旧头从 include 路径移走即编译失败
 - [ ] 2.3 容器元素的哈希规则（无序容器先排规范顺序、元素显式调用自身特化、浮点先规范化）迁移到新运行时
-  **怎么算做完**：`CodeGen nested container + element hash PASSED` 与 `CodeGen container serialization PASSED` 两条用例保持通过；`CoreTests.exe` 退出码 0
+  **怎么算做完**：`CodeGen nested container + element hash PASSED` 与 `CodeGen container serialization PASSED` 两条用例保持通过、`CoreTests.exe` 退出码 0，**并且**生成物里三个旧钩子（`cacore::custom_hash_trait` / `cacore::has_custom_hash_func` / `careflection::containerStates`）零命中 —— 只贴用例通过不算做完（那两条用例现在直接调生成的特化，不经过旧钩子）
 
 ## 3. 生成物切到新运行时
 
 - [ ] 3.1 序列化发射器改为发新写/读对象的入口（缓冲区 + 显式位置），不再构造 `cacore::serializer` / `deserializer`
-  **怎么算做完**：生成物里 `git grep -n -F "::cacore::serializer" -- <生成物目录>` 零命中；同一对象的字节与改动前逐字节相同（对拍）
+  **怎么算做完**：生成物里 `git grep -n -F "::cacore::serializer" -- Tools/CodeGen/generated Interface/RenderInterface/generated CACore/generated` 与 `::cacore::deserializer` 都零命中（打印"扫描 N 个文件、命中 0 行"），同一对象的字节与改动前逐字节相同（对拍）；**不许**用 `out/build/.../codegen` 当扫描目标 —— 那个目录被 gitignore、今天就是零命中，用它当判据等于恒真
 - [ ] 3.2 哈希发射器改为发新运行时的特化模板与容器判据
-  **怎么算做完**：生成物里 `cacore::custom_hash_trait` / `cacore::has_custom_hash_func` / `careflection::containerStates` 三个符号零命中（带文件限定）
-- [ ] 3.3 五个旧符号的零引用判据固化成一条可跑的命令（脚本或测试），纳入构建
-  **怎么算做完**：该判据在 3.1/3.2 完成前为红（现在每个符号都有命中），完成后为绿
+  **怎么算做完**：生成物里 `cacore::custom_hash_trait` / `cacore::has_custom_hash_func` / `careflection::containerStates` 三个符号零命中（限定到上面三个入库目录）
+- [ ] 3.3 撤除"元素是内含无序容器的结构体"这条拒绝（`elementUnstableInside` 守卫与 `return 12`），递归读写接手这个形状
+  **怎么算做完**：10.6 的那个夹具在改动前是 `exit 12` + stderr 点名成员 / 元素类型 / 内层无序容器，改动后 `exit 0` 且往返一致、两个只有内层插入顺序不同的对象字节逐字节相同；只改发射器入口、守卫还留着不算做完
+- [ ] 3.4 把三条收尾判据固化成一条可跑的命令 `Tools/CodeGen/check_legacy_symbols.py`：① 逐符号扫描（生成物三个入库目录 + 引擎源码后缀白名单），打印"扫描 N 个文件、命中 0 行"；② 文件系统枚举确认三份旧头不存在；③ 旧实现指纹（`visit_members`、`CATypeMemberDesc`、`containerInfo`、`SubmitAndWait`、`Object must be trivially copyable`、`hash_one`、`managed_pointer_traits`）零命中
+  **怎么算做完**：脚本自己写死扫描范围、排除清单（`openspec/`、`out/`、脚本自身）与那一行 ABI 守卫白名单，并按 `命中行数 == 白名单行数` 判定；**改之前**：三个符号各给出真实命中行数与扫描文件数（今天必红），脚本自身与归档目录不许被算成命中；把它接进 `build.py` 的 codegen 段，漏迁移由构建挡住
 
 ## 4. 哈希接进既有调用点
 
 - [ ] 4.1 调换 `Hasher.h` 的分派顺序，让"有自定义特化"优先于"平凡可拷贝"
   **怎么算做完**：拿一个平凡可拷贝的探针类型配生成的特化，断言"旧入口算出的哈希 == 按字段算的哈希"；**改之前**：两者不等（整块字节 vs 按字段）
-- [ ] 4.2 验证四个既有特化的行为不变
-  **怎么算做完**：`HashObj<...>` / `NameHash` / `PathHash` / `ComPtr<ID3DBlob>` 各取一值求哈希，结果与改动前一致；**改之前**：若哪个宿主类型其实是平凡可拷贝，这里就会红 —— 那时必须先处理它再继续
-- [ ] 4.3 让相等判断与哈希同源（生成特化的 `equal` 在既有比较点生效）
-  **怎么算做完**：两个内容相同但 padding / 内层插入顺序不同的对象，"相等为真"与"哈希相同"同时成立；只改哈希不改比较时该判据为红
+- [ ] 4.2 程序化枚举构建内**全部**既有哈希特化，逐个验证行为不变，并对每个宿主加编译期断言
+  **怎么算做完**：用 `git grep -n -F "struct custom_hash_trait"` 枚举（当前实测 **5 个**：`HashObj` / `NameHash` / `PathHash` / `ComPtr<ID3DBlob>` / `graphics_backend::VulkanShaderResourceSet`），每个宿主所在编译单元加 `static_assert(!std::is_trivially_copyable_v<宿主>)`，并给出改动前后各取一值的哈希读数；**改之前**：断言写下去就该成立 —— 哪一个不成立，就说明调换顺序会改它的哈希值，必须先在 design 里改结论、再动 `Hasher.h`。清单写进 design 的 D3 表格，不许在 tasks 里另写一个数
+- [ ] 4.3 让相等判断与哈希同源（生成特化的 `equal` 在**既有比较点**生效）
+  **怎么算做完**：点名两个真实调用点（例如 `D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.h` 的 `HashObj<CPipelineStateObject>`、`Interface/RenderInterface/header/ShaderResourceHandle.h` 里以 `HashObj<...>` 为键的字典），在其所在编译单元断言"内容相同但 padding / 内层插入顺序不同的两个对象：相等为真且哈希相同"；**不许**只在 `Test/CoreTests/GeneratedHashContainerTest.cpp` 里直接调生成的特化就算完成 —— 那里今天就是绿的
 - [ ] 4.4 写一条"填充字节不同不影响哈希"的用例（防止退回整块字节）
   **怎么算做完**：把对象里两个字段之间的填充字节改成不同值，哈希不变；**改之前**：走整块字节时哈希会变
-- [ ] 4.5 设计里"`HashObj` 的比较走哪条路"这一条按实测结论落定，并把结论写进 design
-  **怎么算做完**：design 里那段有对应的读数引用（哪个调用点、什么命令、什么输出）
+- [ ] 4.5 把 4.2 / 4.3 的实测读数补齐到 design（哪一行、什么命令、什么输出），使 design 的 D3 / D4 结论可回溯
+  **怎么算做完**：design 的 D3 表格与 D4 一段都指向具体命令与读数；它们不是验收判据（判据在 4.2 / 4.3），这条只做记账
 
 ## 5. 定长数组（无 `clear()`）
 
@@ -57,9 +59,13 @@
 - [ ] 6.1 标记能标注嵌套类型（`DepthStencilStates::StencilStates`、`cahash::sha256_hash::result_type`）
   **怎么算做完**：两个类型三个发射器全为 0；**改之前**：现状是 4（类型未标注，附命令与 output）
 - [ ] 6.2 类型名解析口径统一并写进 README（工具按最后一个非限定名查找；命令行与清单怎么写，文档里给可跑示例）
-  **怎么算做完**：README 里的命令原样跑，全部成功；`verify_readme.py` 0 处不符
+  **怎么算做完**：`git grep -n -F "<解析口径原文>" -- Tools/CodeGen/README.md` 命中（带文件限定），README 里的命令原样跑全部成功，`verify_readme.py` 0 处不符；只跑 `verify_readme.py`（今天就是 0 处不符）不算
 - [ ] 6.3 补齐 `D3D12RenderBackend` 的推导环境
-  **怎么算做完**：对 `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 请求反射，退出码 0；**改之前**：现状是 6，附 `directx/d3dx12.h` 找不到的原文
+  **怎么算做完**：对 `D3D12RenderBackend/private/D3D12Includes.h`（该文件内部没有老宏标注，会真正走 libclang 解析与诊断检查）请求反射，退出码 0；**改之前**：实测是 6，stderr 逐字含 `unresolved include (fatal): D3D12RenderBackend/private/D3D12Includes.h:11:10: fatal error: 'directx/d3dx12.h' file not found`。⚠ 不许拿 `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 当这条的红态：它自己在文件末尾带老宏标注，工具会走只支持反射的文本通道并直接 `exit 0`（已实测），拿它当判据等于恒真
+- [ ] 6.4 迁移 `CACore/header/uenum.h` 的类模板描述符 `CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask)`
+  **怎么算做完**：先尝试把它迁到新系统（引擎里 `EnumFlags<` 有 39 处使用，迁移后这些用法必须照常编译与求哈希）；**判据能失败**：给出"改动前该模板描述符存在、改动后不再需要"的两个读数；若实测不可行（工具现在明确不支持类模板），在本 change 内交出实测输出与原因，并把它写进完成条件的**唯一保留项**（只允许 `CA_REFLECTION_TEMPLATE` 留在 `uenum.h`，非模板形态的 `CA_REFLECTION` 仍须为零），不许默默留着了事
+- [ ] 6.5 处置工具自身、README 与示例里的旧通道
+  **怎么算做完**：`Tools/CodeGen/CodeGenMain.cpp` 里 `CA_REFLECTION` 的识别逻辑与只支持反射的文本通道随完成条件删除（删除后 `--emit-*` 只剩新标记通道）；`Tools/CodeGen/README.md` 的"三条通道"章节、退出码 8、`examples/reflection_channel.h`、`TestExternal.h` 同步改掉并实跑留输出；**改之前**：逐处给出命中行数（今天是红的）
 
 ## 7. 两类形状的规则做完
 
@@ -79,24 +85,24 @@
 - [ ] 8.3 迁 `ShaderLibrary`（VulkanRenderBackendNew），四个无序映射全部可出码
   **怎么算做完**：三个发射器为 0；生成物在该模块的真实编译单元里被 include 并断言
 - [ ] 8.4 迁 `ShaderLibrary`（D3D12RenderBackend），依赖 6.3
-  **怎么算做完**：三个发射器为 0（在 6.3 之前是 6）
+  **怎么算做完**：三个发射器为 0（在 6.3 之前是 6）；再补 10.4 的消费单元断言与新旧字节对拍，三样齐了才算（规格里"三样"没有"或"）
 - [ ] 8.5 迁 `ImageHandle` / `BufferHandle`，依赖 7.1
-  **怎么算做完**：三个发射器为 0；**改之前**：现状三个都是 5（成员非 public）
+  **怎么算做完**：三个发射器为 0；**改之前**：现状三个都是 5（成员非 public）；再补 10.4 的消费单元断言与新旧字节对拍
 - [ ] 8.6 处理含指针 / 句柄成员的类型（老后端 `VulkanPipelineObject` 一类）：按 7.2 的替代做法改结构或显式排除，并在 design 里记下结论
-  **怎么算做完**：该类要么三个发射器为 0，要么在 design 的已知边界里有一条带实测读数的排除理由
+  **怎么算做完**：要么三个发射器为 0 且三样验收齐备；要么在 design 的已知边界里给出一条**带红态读数**的排除理由（同一类型在探针里被拒的退出码 + stderr 点名的那一行）。只写"记为已知边界"不算
 
 ## 9. 删除旧头与收尾
 
 - [ ] 9.1 把 `NameHash` / `PathHash` / `HashObj` 等宿主类型从 `Hasher.h` 搬到新头，更新全部 include 点
-  **怎么算做完**：全量构建通过；`git grep -n "#include \"Hasher.h\""` 的命中点逐个改到新头，零遗漏
-- [ ] 9.2 把旧哈希驱动（`aggregateHasher` 等）的 11 处调用点与 `managed_wrapper_traits` 的 15 处使用点逐条判定并迁移
-  **怎么算做完**：每条都有"改哪儿、依据什么"的记录；改完这些符号在全仓零引用
+  **怎么算做完**：全量构建通过；`git grep -n -F "#include <Hasher.h>"`（尖括号是真实写法，引号写法今天 0 命中、永远绿，不许用它当判据）的命中点逐个改到新头，零遗漏；**改之前**：先贴出这条命令的命中行数与文件数（实测 40 行以上、含 `CACore/header/uenum.h`）
+- [ ] 9.2 把旧哈希驱动（`aggregateHasher` 等）与 `managed_wrapper_traits` 的每一处使用点逐条判定并迁移，判据是可跑断言而不是叙述
+  **怎么算做完**：每个符号给出"改动前命中行数 → 改动后 0 行"的两次读数（命令与输出都贴）；"每条都有记录"这种自述不算验收
 - [ ] 9.3 删除 `Reflection.h` / `Serialization.h` / `Hasher.h`
-  **怎么算做完**：删除后 `python build.py --config Debug` → `BUILD SUCCESSFUL`、`CoreTests.exe` 退出码 0；**改之前**：在本 change 开始时删这三份头必然构建失败（附第一次失败输出）
-- [ ] 9.4 全仓符号零引用判据（完成条件）
-  **怎么算做完**：`git grep` 逐符号零命中：`cacore::serializer`、`cacore::deserializer`、`batch_deserializer`、`aggregateHasher`、`custom_hash_trait`、`careflection::containerStates`、`managed_wrapper_traits`、`CATypeDescriptor`、`CA_REFLECTION`（排除归档目录）
-- [ ] 9.5 对外文档收尾：新运行时的能力边界、接口、退出码变化（12 撤除）、迁移做法
-  **怎么算做完**：README 里每条命令原样可跑；`verify_readme.py` 0 处不符
+  **怎么算做完**：文件系统枚举确认三个路径不存在（不是 `git rm --cached`、不是改名、不是搬进新头）；随后 `python build.py --config Debug` → `BUILD SUCCESSFUL`、`CoreTests.exe` 退出码 0 且用例名逐条列出、总数不少于开工前；**改之前**：在本 change 开始时删这三份头必然构建失败（附第一次失败输出）
+- [ ] 9.4 三条收尾判据全绿（完成条件本体）
+  **怎么算做完**：`python Tools/CodeGen/check_legacy_symbols.py` 打印"扫描 N 个文件、命中 0 行"且 N 与开工时红态那次相同；三份旧头文件系统枚举不存在；旧实现指纹零命中；ABI 守卫白名单满足 `命中行数 == 白名单行数`；`git log --diff-filter=R --name-status` 证明三份旧头是被删除而不是改名搬迁
+- [ ] 9.5 对外文档收尾：新运行时的能力边界、接口、退出码变化（12 撤除、8 随旧通道删除）、迁移做法
+  **怎么算做完**：README 里每条命令原样可跑；`verify_readme.py` 0 处不符；退出码表与 7.3 那张表逐行一致
 
 ## 10. 测试与判据（本 change 必须新增的）
 
@@ -104,11 +110,13 @@
   **怎么算做完**：`CoreTests.exe` 退出码 0 且该用例的每一条断言都有独立读数；**改之前**：新读写实现之前，`截断载荷` 与 `填充字节` 两条必然失败（前者无长度校验、后者走整块字节）
 - [ ] 10.2 对每一种格式规则各加一条"新旧两套写同一对象、字节逐字节相同"的对拍用例（标量、字符串、无序容器、有序容器、定长数组、嵌套结构体各一个夹具）
   **怎么算做完**：六条对拍全绿；**改之前**：新读写与旧运行时在任一规则上不一致时，对应那条变红（实现前它们无从比较，故先写出旧侧的期望字节）
-- [ ] 10.3 新增 `Tools/CodeGen/check_legacy_symbols.py`：逐符号搜 `cacore::serializer` / `cacore::deserializer` / `batch_deserializer` / `aggregateHasher` / `custom_hash_trait` / `careflection::containerStates` / `managed_wrapper_traits` / `CATypeDescriptor` / `CA_REFLECTION`，列出命中文件与行号，命中即退出码 1
-  **怎么算做完**：本 change 开始时跑它为红（现状每个符号都有命中，附输出）；3.x、9.x 做完后为绿；把它接进 `build.py` 的 codegen 段，使漏迁移会被构建挡住
+- [ ] 10.3 新增 `Tools/CodeGen/check_legacy_symbols.py`：脚本顶部写死一份符号表（`cacore::serializer` / `cacore::deserializer` / `cacore::batch_deserializer` / `cacore::aggregateHasher` / `cacore::custom_hash_trait` / `cacore::has_custom_hash_func` / `careflection::containerStates` / `careflection::managed_wrapper_traits` / `CATypeDescriptor` / `CA_REFLECTION`）、一份路径排除清单（`openspec/`、`out/`、脚本自身）与那一行 ABI 守卫白名单，列出命中文件与行号，命中数大于白名单数即退出码 1；另附 `--fingerprints` 模式扫旧实现指纹（`visit_members` / `CATypeMemberDesc` / `containerInfo` / `SubmitAndWait` / `Object must be trivially copyable` / `hash_one` / `managed_pointer_traits`）与 `--files-exist` 模式用文件系统枚举查三份旧头
+  **怎么算做完**：本 change 开始时跑它为红并打印"扫描 N 个文件、命中 M 行"（三个数字都要贴）；3.x、9.x 做完后为绿且 N 不变；把它接进 `build.py` 的 codegen 段，使漏迁移会被构建挡住；脚本自己不许被算成命中（否则一接进构建就永久挡住）
 - [ ] 10.4 每个迁移类型配一个真实目标里的消费单元断言（照 `TestContainerAssertions.cpp` / `TestWrapperAssertions.cpp` 的做法：字段标志、元素描述、偏移、ABI 守卫）
   **怎么算做完**：删掉入库生成物后该目标编译失败（红），恢复后构建成功（绿）；断言本身在字段表被改错时变红
-- [ ] 10.5 拒绝形状的读数逐条留档：退出码 + stderr 点名成员；退出码 12 撤除后，同一个夹具改为"出码成功 + 往返一致"的读数
+- [ ] 10.5 拒绝形状的读数逐条留档：退出码 + stderr 点名成员、涉事类型与原因；退出码 12 撤除后，10.7 那个夹具改为"出码成功 + 往返一致"的读数
   **怎么算做完**：每条都有改动前与改动后两个读数，缺一不算完成
 - [ ] 10.6 一条"生成物被真实目标消费"的判据（沿用既有做法：删掉入库生成物即构建失败，并给出加 `--commit-generated` 的提示）
   **怎么算做完**：实测删一份入库生成物 → 构建失败并打印提示（附原文）；恢复后构建成功
+- [ ] 10.7 新增"容器里装结构体"的夹具并入库：按被撤除的那条拒绝所描述的形状（`struct Inner { castl::unordered_map<unsigned,unsigned> m; }; struct Outer { castl::vector<Inner> items; };`）造一个真实夹具，进接入清单、生成物入库、加消费单元断言
+  **怎么算做完**：**改之前**：同一夹具请求序列化 → `exit 12` + stderr 点名成员、元素类型与内层无序容器；**改之后**：`exit 0`，往返内容一致，且两个只有内层插入顺序不同的对象字节逐字节相同。这个夹具是 3.3、10.1（往返那一条）与 10.5 共同的指称对象，先有它再谈撤除
