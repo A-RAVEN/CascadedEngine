@@ -1,6 +1,6 @@
 # Task List: engine-codegen-framework
 
-> 依据：specs/codegen-framework/spec.md（5 条 Requirement）。task 标准见 TODO/004 §3（单 agent 一次完成 + 真 oracle + 命名真实文件 + 先提交可对比的对照数据 + 无假前提 + 收尾强制 Review closure）。
+> 依据：specs/codegen-framework/spec.md（5 条 Requirement）。任务标准见 TODO/004 §3（单 agent 一次完成 + 验收要求要真能失败 + 命名真实文件 + 先提交可对比的对照数据 + 无假前提 + 收尾强制写审查记录）。
 > **术语约定（2026-09-08）**：本文档不使用"基线/baseline"一词。指**代码状态**时写明具体提交——`c05d7d6` = apply 本 change **之前**；`a23b633` = apply **之后、修 bug 之前**。指**测试对照数据**时写明"VUID 验证日志 / PNG / 崩溃文件"（被 git-ignore、未入库）。
 > **⚠ 范围变更（2026-09-08）：本 change 不注册任何项目类型。** 原 2.2 曾把 `ImageHandle`/`BufferHandle` 注册进 CodeGen（在 `Interface/RenderInterface/header/ShaderResourceHandle.h` 加了 2 行 `CA_CODEGEN_REGISTER`）。该决定**已撤销**：
 > - **理由**：CodeGen 尚未正式接入项目；让验证引用真实项目类型会**增加耦合**（真实头一改、测试即断），且真实类型多为**私有成员**，不符合"零侵入通道只服务全 public 类型"的规则（见 Review Log Round 7）。
@@ -47,21 +47,21 @@
 ## 1. 共享 core：线性类型模型
 
 - [x] 1.1 在 `CACore/header/`（`Reflection.h` 同层）新增 `CodeGenMeta.h`：定义线性类型模型 `CodeGenTypeInfo { name, kind, fields: FieldInfo[] }`，`FieldInfo { name, offset, type, kind, flags }`，`TypeKind` 枚举——全部为**数据**（非元编程）。
-  **Oracle**: 单元测试构造一个已知结构体（如 `{float x; int y; char c;}`）的类型表，`static_assert` 字段数=3 且每字段 `name/offset/kind` 可用；断点可读、不依赖模板技巧。✅ 已验证：`CoreTests/CodeGenMetaTest.cpp` 静态断言全过（`python build.py --config Debug CoreTests` = SUCCESSFUL）。
+  **怎么算做完**: 单元测试构造一个已知结构体（如 `{float x; int y; char c;}`）的类型表，`static_assert` 字段数=3 且每字段 `name/offset/kind` 可用；断点可读、不依赖模板技巧。✅ 已验证：`CoreTests/CodeGenMetaTest.cpp` 静态断言全过（`python build.py --config Debug CoreTests` = SUCCESSFUL）。
 
 - [x] 1.2 定义 emitter 产物视图 `TypeDescriptor<T>`（线性数组 + `member_count`），并加**构建期 ABI guard**：把生成元数据与现有 `CATypeDescriptor<T>`（`CACore/header/Reflection.h:82-90`）的 `member_count` 对比（`static_assert_abi_consistency` **只断言** `fieldCount == member_count`；第二条 `name != nullptr` 是"生成头是否存在"的**非空检查**、**不做名字内容比对**；**不比 offset**），drift 即 build error。
-  **Oracle**: 对**已接线**的合成 golden（`Tools/CodeGen/generated/EmitSample.Reflection.h` + `Test/CoreTests/EmitReflectionTest.cpp`，guard 在该 TU 里实例化）生成后 `static_assert(生成 member_count == ::CATypeDescriptor<T>::member_count)` 通过；**改 golden 的 `fieldCount` 字面量（4 → 3/5）→ 编译失败**。⚠ **2026-09-12 更正主体**：原文写"对真实类型（如 `ImageHandle`）"—— 但本 change **不注册任何项目类型**（见文首范围变更块），且实测**全仓 0 个 TU include 生成头** → 该断言在 `ImageHandle` 上**不可失败**（真值为 `4` 是写死在生成头里的字面量，无任何编译期校验消费它）。✅ 已验证：`static_assert_abi_consistency<CodeGenProbe>()` ABI guard 编译通过（guard 即 build error 机制）。
+  **怎么算做完**: 对**已接线**的合成 golden（`Tools/CodeGen/generated/EmitSample.Reflection.h` + `Test/CoreTests/EmitReflectionTest.cpp`，guard 在该 TU 里实例化）生成后 `static_assert(生成 member_count == ::CATypeDescriptor<T>::member_count)` 通过；**改 golden 的 `fieldCount` 字面量（4 → 3/5）→ 编译失败**。⚠ **2026-09-12 更正主体**：原文写"对真实类型（如 `ImageHandle`）"—— 但本 change **不注册任何项目类型**（见文首范围变更块），且实测**全仓 0 个 TU include 生成头** → 该断言在 `ImageHandle` 上**不可失败**（真值为 `4` 是写死在生成头里的字面量，无任何编译期校验消费它）。✅ 已验证：`static_assert_abi_consistency<CodeGenProbe>()` ABI guard 编译通过（guard 即 build error 机制）。
 
 ## 2. discovery：标记宏 + MSVC no-op（演进：CA_CODEGEN_REGISTER → CA_REFLECT）
 
 > **设计演进（2026-09-06，见 design D2 / Open Question #5）**：引擎自有类型最终用 attribute 风格的**标记宏 `CA_REFLECT(...)`**（可带 `serializable`/`ui`/`min=0` 等 options）+ libclang AST 自动爬 class 体；`CA_CODEGEN_REGISTER("QualifiedName")`（本 change 已实现的最小形态）只是无 options 的 discovery 前置。`CA_REFLECTION` 保留为**外部库非侵入通道**。**不用字面 `[[careflection::...]]`/`[[clang::annotate]]`**（MSVC C5030 警告 + libclang 自定义命名空间 attribute 弱 + `[[clang::annotate]]` AST 可见性 bug，见 design D1）。
 
 - [x] 2.1 加 `CA_CODEGEN_REGISTER("QualifiedName")` 宏（`CACore/header/CodeGenMeta.h` 内定义）：MSVC 下展开为无害静态断言（不引编译错误），codegen 工具凭源码 token grep 提取白名单。**禁止**用 `[[clang::annotate]]`（C5030 已核实为警告，见 design D1 & proposal What Changes）。
-  **Oracle**: 含该宏的一个 TU 经 `python build.py` 编译通过；`grep -n CA_CODEGEN_REGISTER <header>` 能命中 token。✅ 已验证：`CodeGenMetaTest.cpp` 含该宏编译通过；`grep` 命中（字符串字面量设计，规避 `::` 限定名 token 拼接）。
+  **怎么算做完**: 含该宏的一个 TU 经 `python build.py` 编译通过；`grep -n CA_CODEGEN_REGISTER <header>` 能命中 token。✅ 已验证：`CodeGenMetaTest.cpp` 含该宏编译通过；`grep` 命中（字符串字面量设计，规避 `::` 限定名 token 拼接）。
   ⚠ **本 task 仅"discovery 前置"（grep 可得宏）**；工具侧**白名单门控（消费该宏、只 emit 标记类型）**归 **3.3**，此处不重复（按根因去重）。
 
 - [x] 2.2 用真实 interop 类型注册进白名单并**被 codegen 识别**（`ImageHandle`/`BufferHandle`，`Interface/RenderInterface/header/ShaderResourceHandle.h` 已加 `CA_CODEGEN_REGISTER("graphics_backend::ImageHandle")` 等，经 `python build.py --config Debug Rendering` = SUCCESSFUL 编译通过）。
-  **Oracle（收窄为原子项——仅"positive 识别"）**: 该类型被 codegen 识别（生成物含此类型名）。✅ `CodeGen.exe Interface/RenderInterface/header/ShaderResourceHandle.h ImageHandle -I CACore/header -I <header>` → 第一行 `ImageHandle 4`（名字 + 4 字段名被提取）。
+  **验收要求（收窄为原子项——仅"positive 识别"）**: 该类型被 codegen 识别（生成物含此类型名）。✅ `CodeGen.exe Interface/RenderInterface/header/ShaderResourceHandle.h ImageHandle -I CACore/header -I <header>` → 第一行 `ImageHandle 4`（名字 + 4 字段名被提取）。
   ⚠ **本 task 只覆盖"注册 + 识别(positive)"**；其原 oracle 的三项经拆分**各自归位**（按根因去重，勿重复验证）：
   - **negative（未注册类型不被提取，即 marker 门控）** → **3.3 白名单门控**（工具侧实现 + 验证）。
   - **offset/kind 质量（真实 include set）** → **4.3 offset-quality 回归**（依赖 4.1 喂真实 include set）。
@@ -71,20 +71,20 @@
 ## 3. parser：libclang（复用 CACodeGen CLANG_LIB）接入独立 CodeGen 工具
 
 - [x] 3.1 建独立 CodeGen 可执行工具，链接 `CLANG_LIB`（`E:/Projects/CACodeGen/ExternalLibraries/LLVM` 的 `bin/x64/libclang.dll` + `lib/x64/libclang.lib`，`<CALIB_CLANG_DIR>` 可覆盖），对目标类型做 cursor 解析产出类型表；**engine 不链接 libclang**（`Tools/CodeGen/CMakeLists.txt` 独立 target；`CLANG_LIB` 为非引擎的 imported target）。
-  **Oracle**: 解析一个已知测试头，断言产出的类型表字段数/offset 正确（真值断言，非 exit 0）。✅ 已验证：`CodeGen.exe Tools/CodeGen/TestStruct.h CodeGenSample` → `CodeGenSample 4` + `a:0 int / b:4 float / c:8 bool / d:16 double`（CXTypeKind 17/21/3/22），offset 逐底正确；`python build.py --config Debug CodeGen` = SUCCESSFUL。⚠ 期间修 3 个 libclang API 错误：`CX_CursorKind`→`CXCursorKind`、`clang_getTypeKind(x)`→`x.kind`、`clang_parseTranslationUnit`→`clang_parseTranslationUnit2(&tu)`（⚠ **2026-09-12 更正**：此处原写"该函数的真实签名返回 CXTranslationUnit，错误码在 out-param"，**写反了** —— 真实签名是**返回 `CXErrorCode`、TU 经 out-param `out_TU` 带出**，与代码里的 调用一致（**逐字首行**：`CXErrorCode err = clang_parseTranslationUnit2(`，从 `Tools/CodeGen/CodeGenMain.cpp` 复制））。
+  **怎么算做完**: 解析一个已知测试头，断言产出的类型表字段数/offset 正确（真值断言，非 exit 0）。✅ 已验证：`CodeGen.exe Tools/CodeGen/TestStruct.h CodeGenSample` → `CodeGenSample 4` + `a:0 int / b:4 float / c:8 bool / d:16 double`（CXTypeKind 17/21/3/22），offset 逐底正确；`python build.py --config Debug CodeGen` = SUCCESSFUL。⚠ 期间修 3 个 libclang API 错误：`CX_CursorKind`→`CXCursorKind`、`clang_getTypeKind(x)`→`x.kind`、`clang_parseTranslationUnit`→`clang_parseTranslationUnit2(&tu)`（⚠ **2026-09-12 更正**：此处原写"该函数的真实签名返回 CXTranslationUnit，错误码在 out-param"，**写反了** —— 真实签名是**返回 `CXErrorCode`、TU 经 out-param `out_TU` 带出**，与代码里的 调用一致（**逐字首行**：`CXErrorCode err = clang_parseTranslationUnit2(`，从 `Tools/CodeGen/CodeGenMain.cpp` 复制））。
 
 - [x] 3.2 类型表→确定性输出（内存实体）供 emitter 消费。
-  **Oracle**: 同一注解跑两次，产物逐字节一致（确定性——防编译期随机/未初始化 padding 混入）。✅ 已验证：`CodeGen.exe` 对 `TestStruct.h CodeGenSample` 跑两次，`diff` 为空（IDENTICAL）；按 offset 排序进一步防迭代重排。⚠ 生产需加 POST_BUILD `copy_if_different` 把 libclang.dll 拷到 exe 旁，否则运行期 load 不到（MSYS PATH 不生效），已加。
+  **怎么算做完**: 同一注解跑两次，产物逐字节一致（确定性——防编译期随机/未初始化 padding 混入）。✅ 已验证：`CodeGen.exe` 对 `TestStruct.h CodeGenSample` 跑两次，`diff` 为空（IDENTICAL）；按 offset 排序进一步防迭代重排。⚠ 生产需加 POST_BUILD `copy_if_different` 把 libclang.dll 拷到 exe 旁，否则运行期 load 不到（MSYS PATH 不生效），已加。
 
-- [x] 3.3 **白名单门控**（discovery 语义在工具侧落地，对应 design D2"标过了才生成"）：`CodeGenMain.cpp` 读取 `CA_CODEGEN_REGISTER("QN")` / `CA_REFLECT(...)` / `CA_REFLECTION(Type,...)` 标记，**只发射被标记的类型**，未标记类型不提取（negative）；**空白名单 → EXIT 0 + 不生成文件**。当前工具是"按 CLI 命名 spelling 匹配"，全文无 `CA_CODEGEN_REGISTER` 消费点、无空名单路径（见 speculative：CodeGenMain.cpp 按 argv[2] matching + type-not-found return 3）。
-  **Oracle**: ① 喂"标记类型 + 未标记类型"并存的头 → 工具只输出标记类型、未标记类型**不提取**（负面）；② 喂无任何标记的头 → **EXIT 0**、不生成文件（spec："WHEN 空白名单运行 codegen THEN EXIT 0 且不生成文件"，spec.md:34-36）；③ 仅标记类型正常发射（正面回归）。
+- [x] 3.3 **白名单门控**（discovery 语义在工具侧做完，对应 design D2"标过了才生成"）：`CodeGenMain.cpp` 读取 `CA_CODEGEN_REGISTER("QN")` / `CA_REFLECT(...)` / `CA_REFLECTION(Type,...)` 标记，**只发射被标记的类型**，未标记类型不提取（negative）；**空白名单 → EXIT 0 + 不生成文件**。当前工具是"按 CLI 命名 spelling 匹配"，全文无 `CA_CODEGEN_REGISTER` 消费点、无空名单路径（见 speculative：CodeGenMain.cpp 按 argv[2] matching + type-not-found return 3）。
+  **怎么算做完**: ① 喂"标记类型 + 未标记类型"并存的头 → 工具只输出标记类型、未标记类型**不提取**（负面）；② 喂无任何标记的头 → **EXIT 0**、不生成文件（spec："WHEN 空白名单运行 codegen THEN EXIT 0 且不生成文件"，spec.md:34-36）；③ 仅标记类型正常发射（正面回归）。
   ✅ 已验证（`CodeGenMain.cpp` 加 `buildWhitelist`/`isWhitelisted`/`unqualifiedName`，`python build.py --config Debug CodeGen` = BUILD SUCCESSFUL；exit 码为返回码：成功=0 / 文件不可读=2 / 未被标注类型=4 / libclang type-not-found=3）：
   - **② 空白名单**：`CodeGen TestNoMarkers.h PlainA -o /tmp/noout.h`（新增 `Tools/CodeGen/TestNoMarkers.h`，仅无标注 struct）→ **exit=0**，`/tmp/noout.h` **未创建**（无输入时不生成文件、不阻断 build）。⚠ 关键实现细节：空名单判断**在 `-o` 开文件之前**返回（未打开 out），故 `-o` 不产空文件。
   - **① 负面门控**：`CodeGen TestNested.h CodeGenNested`（该头含标注 `CodeGenOuter` + 未标注 `CodeGenNested`）→ **exit=4**，stderr "type 'CodeGenNested' is not annotated... refusing to extract"（未被标注的类型不提取，negative 成立；用 TestNested 内的未标注类型验证，避免新建含标注+未标注并存的 fixture）。
   - **③ 正面回归**：`CodeGen TestStruct.h CodeGenSample -I CACore/header` → `CodeGenSample 4` + `# options: serializable, min = 0`；`CodeGen TestEmit.h EmitSample --emit-reflection` → 与 golden `Tools/CodeGen/generated/EmitSample.Reflection.h` **diff 为空（GOLDEN MATCH）**；`CodeGen TestExternal.h CodeGenExternal`（CA_REFLECTION-only）→ `CodeGenExternal 2` + field a/b。
   - **真实 interop 匹配**（⚠ **已作废 · 2026-09-12**：该注册宏已随范围变更删除，`git grep -n CA_CODEGEN_REGISTER -- Interface` 现为零命中。原文保留为历史记录，勿再据此认为树里存在该标注）：`Interface/RenderInterface/header/ShaderResourceHandle.h:185` `CA_CODEGEN_REGISTER("graphics_backend::ImageHandle")`；`CodeGen ... ImageHandle`（未限定名）经**限定名 tail 匹配**（`unqualifiedName("graphics_backend::ImageHandle")=="ImageHandle"`）→ **exit=0**（非 4），正常进入 AST 路径。
   - **设计语义（2026-09-20 订正）**：门控**不再是纯文本扫描** —— "哪些类型被标注"由 libclang 的详细预处理记录给出，即预处理器**真正展开过**的宏调用；每条标注绑定到其后第一个**文件/命名空间级**类型（task 9.59，锚点：`CXTranslationUnit_DetailedPreprocessingRecord`，判据 `git grep -n -F "CXTranslationUnit_DetailedPreprocessingRecord" -- Tools/CodeGen/CodeGenMain.cpp` 命中）。标注的**选项**仍取该调用区间内的文本，不经 libclang attribute，对齐 D2"标过了才生成"。**订正（2026-09-20，task 9.61）**：`CA_REFLECTION` **是宏** —— `CACore/header/Reflection.h:82` 有 `#define CA_REFLECTION(Type, ...)`，**引擎侧**（排除 `Tools/`、`Test/`、`openspec/`）实测 **9 个文件**在用它；此前写的"它不是宏"是错的，成立的说法只是"工具自己那份夹具没有 include 定义它的头"。该通道自 task 9.62 起与另外两条同路：**只有预处理器真正展开过这次调用才算标注**，成员名仍取这次调用的实参字节。`isWhitelisted` 匹配 `target==QN`（精确）或 `unqualified(target)==unqualified(QN)`（双向限定名 tail 匹配），`--qualified-name=` override 也作为候选参与。
-  - ⚠ **范围诚实**：3.3 只落地"门控 + 空名单"；不含 offset 质量（ImageHandle 现 offset 全 0 系前向声明不完整 parse，归 **4.3** 在真实 include set 下处理），不含"hook 侧不阻断"（归 **4.1**）。
+  - ⚠ **范围诚实**：3.3 只做完"门控 + 空名单"；不含 offset 质量（ImageHandle 现 offset 全 0 系前向声明不完整 parse，归 **4.3** 在真实 include set 下处理），不含"hook 侧不阻断"（归 **4.1**）。
   ⚠ **RC-G 调和（2026-09-07）**：②"空白名单"＝**无任何标记类型的独立工程**——该配置下**无生成源被接线**，故不存在"缺失接线源"问题，与 4.2 的"缺失接线源→报错"**不冲突**（两种配置互斥：无标注工程→空名单 case；标准标注工程→白名单非空、走正常接线 = ③）。⚠ **2026-09-12 更正**：括号内原写"2.2 已注册 ImageHandle 等"**已随范围变更作废**；"标准标注工程"今后应读作"有 `Tools/CodeGen/` 下 fixture 被标注的工程"。
 
 ## 4. build.py 接入 codegen 步骤
@@ -97,19 +97,19 @@
   - **④ 生成**：`out/build/x64-debug/codegen/ImageHandle.Reflection.h` + `BufferHandle.Reflection.h`（`TypeDescriptor<graphics_backend::ImageHandle>`，字段名/类型名正确、`offsetof` 兜底运行时偏移）。
   - **⑤ 空名单/无环境 → 非致命**：`codegen()` 对缺 `compile_commands.json`、缺 per-module 环境、sidecar 缺省均 `print(WARN)` 后 `return`/`continue`，**不阻断 build**；sidecar 侧空名单 EXIT 0 由 3.3 兜底。
   - ⚠ 实现注意：`CMAKE_EXPORT_COMPILE_COMMANDS ON` 需**置于 add_subdirectory 之前**（已放于：`CMakeLists.txt:25-30` 全局区）；`shlex.split(posix=False)` 保留引号 → `_msvc_to_clang_env` 内 `raw.strip('"')` 去引号（否则 `-I"C:\path"` 带引号传给 sidecar 成坏路径）。
-  **Oracle**: `python build.py --config Debug` 日志显示 codegen 在 configure/patch_ninja 之后、engine 编译之前；构建产物**不含** libclang.dll 依赖（证明 engine 纯 MSVC）；sidecar 收到 **per-module 编译环境**（机制：build.py 经 `set(CMAKE_EXPORT_COMPILE_COMMANDS ON)` 读 `compile_commands.json`，取**拥有该头文件的 target** 那条命令的 include + define 喂给 sidecar，**绝不喂全 union**、**绝不加 MSVC stdlib `-isystem`**——见 Review Log Round 4）；`collectFields/offset` 正确性用布局可完整类型 `Tools/CodeGen/TestPrivate.h` 验证 pub 12 / m_a 16 / m_b 20 / m_c 24 全对，且 `ImageHandle` 摄取期 offset 实测 **0/120/136/152**（见 4.3）；空白名单（无标记）时 build 正常通过（EXIT 0 非致命，对应 spec 空白名单场景）。
+  **怎么算做完**: `python build.py --config Debug` 日志显示 codegen 在 configure/patch_ninja 之后、engine 编译之前；构建产物**不含** libclang.dll 依赖（证明 engine 纯 MSVC）；sidecar 收到 **per-module 编译环境**（机制：build.py 经 `set(CMAKE_EXPORT_COMPILE_COMMANDS ON)` 读 `compile_commands.json`，取**拥有该头文件的 target** 那条命令的 include + define 喂给 sidecar，**绝不喂全 union**、**绝不加 MSVC stdlib `-isystem`**——见 Review Log Round 4）；`collectFields/offset` 正确性用布局可完整类型 `Tools/CodeGen/TestPrivate.h` 验证 pub 12 / m_a 16 / m_b 20 / m_c 24 全对，且 `ImageHandle` 摄取期 offset 实测 **0/120/136/152**（见 4.3）；空白名单（无标记）时 build 正常通过（EXIT 0 非致命，对应 spec 空白名单场景）。
   ⚠ **实现要点（Round 4 实证，勿再踩）**：① 喂"拥有头文件的 target"的 per-module 项目 include+define（dash 形式 `-D`，非 MSVC `/D`）；② **不喂全 union**（`CA_STATIC_BUILD 0/1` 冲突宏 + 多个 `ShaderLibrary.h` 同名 basename + include-root 顺序敏感）；③ **不加 `-isystem` MSVC 工具链 STL**（⚠ **2026-09-08 按实测更正**：原文的"clang 消费不了 VC include/SDK、实测 parse 失败；clang 内置头即可"**两条都不成立** —— 实测把 vcvars 全部 INCLUDE 以 `-isystem` 喂入**可以正常 parse**、且布局与不喂**逐字段相同**；vendored LLVM 树**递归 0 个 `stddef.h`**。**该规则的真实理由是"喂了多余、且引入 include-root 顺序风险"，不是"会失败"**）；④ MSVC→clang 归一化：`/I`→`-I`、`/D`→`-D`、`/std:c++20`→`-std=c++20`，strip `/Zi /MDd /EHsc /W3 /WX- /wdNNN /analyze /Fo /Fd /Yc /Yu /Fp`；⑤ 生成的 `TypeDescriptor` 用 `offsetof`（运行时权威），ABI guard 兜底。
   ⚠ **RC-G 调和**："空白名单时 build 正常通过"指**无任何标注类型的独立工程**（无生成源接线、无"缺失源"），与 4.2 的"已接线生成源缺失→报错"**互斥配置**、非同一构建同时成立（见 3.3 RC-G note）；标准标注工程白名单非空，走正常接线。
 
 - [x] 4.2 生成源以**显式方式纳入构建**（禁 `file(GLOB_RECURSE)`——避免对"文件缺失"也通过，见 TODO/004 §3.6）。**诚实前提：本 change 生成的产物全部是头文件**（`TypeDescriptor<T>` / `hash_trait` / 序列化特化——模板必须活在头文件里），故"纳入构建"＝**显式 include 路径 + `#include`**，缺失即编译错误（非静默）；**若任一 emitter 未来产出 .cpp，则须用显式 `target_sources`（禁 GLOB `*.cpp`）**——RC-F 去重。
-  **Oracle**: **header 情形**：删除已接线生成的 `Tools/CodeGen/generated/EmitSample.Reflection.h` → `EmitReflectionTest.cpp` 编译失败（缺失生成头＝构建错误，由显式 `#include` 捕获，非 file(GLOB) 静默跳过）。**.cpp 情形（若未来存在）**：删除 `target_sources` 里显式命名的 .cpp → 非静默通过。当前无 .cpp，仅 header 情形可测（如实声明）；6.x（序列化/哈希）生成源同按此——若产出 .cpp 用显式 `target_sources`。
+  **怎么算做完**: **header 情形**：删除已接线生成的 `Tools/CodeGen/generated/EmitSample.Reflection.h` → `EmitReflectionTest.cpp` 编译失败（缺失生成头＝构建错误，由显式 `#include` 捕获，非 file(GLOB) 静默跳过）。**.cpp 情形（若未来存在）**：删除 `target_sources` 里显式命名的 .cpp → 非静默通过。当前无 .cpp，仅 header 情形可测（如实声明）；6.x（序列化/哈希）生成源同按此——若产出 .cpp 用显式 `target_sources`。
   ✅ 已验证（`Test/CoreTests/CMakeLists.txt:16` 显式 `target_include_directories(... Tools/CodeGen)` + `EmitReflectionTest.cpp:19` 显式 `#include "generated/EmitSample.Reflection.h"`——**非 GLOB**；生成头无任何 GLOB 匹配）：
   - **删头 → 编译错误（非静默）**：`mv EmitSample.Reflection.h → .bak` → `python build.py --config Debug --no-configure CoreTests` → `EmitReflectionTest.cpp(19): fatal error C1083: Cannot open include file: 'generated/EmitSample.Reflection.h'`（cl.exe 命令行含显式 `-IE:\Projects\CascadedEngine\Tools\CodeGen`）——**缺失生成头＝构建错误，由显式 `#include` 捕获，非 GLOB 静默跳过**。
   - **还原 → 干净通过**：`mv .bak → EmitSample.Reflection.h` → `python build.py --config Debug --no-configure CoreTests` = **BUILD SUCCESSFUL**。
   - **.cpp 情形**：当前无生成 .cpp（本 change 生成物全为头文件——`TypeDescriptor<T>`/`hash_trait`/序列化特化均须在 h 中），故如实声明"仅 header 情形可测"；若 6.x 未来产 .cpp 则按 `target_sources`（禁 GLOB `*.cpp`）。
 
 - [x] 4.3 **offset-quality 回归**（从 2.2 拆出的"真实 include set 下 offset/kind 非 0"）——**纯验证、原子**：用**布局可完整类型** `Tools/CodeGen/TestPrivate.h` 作 offset 正确性的**可证伪控制用例**（基类 + 私有成员，全能被 libclang 布局），并**重跑 `ImageHandle`**（per-module include+define 喂入，见 4.1/Review Log Round 4），确认 `offset/typeKind` 非全 0 且与真值吻合，证明 `collectFields` 正确、非半成品。**不含门控 / 空名单**（分别归 3.3 与 3.3+4.1），与门控分开。
-  **Oracle**: ① 控制：`CodeGen Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header` → `pub 12 / m_a 16 / m_b 20 / m_c 24`（真值断言，非 exit 0）；② 真实：`ImageHandle` 以 per-module 环境喂入 → `m_Key 0 / m_ExternalManagedTexture 120 / m_Backbuffer 136 / m_Type 152`（`ResourceHandleKey` 在该配置下占 **0–119 = 120 字节**；⚠ **2026-09-12 更正**：原写"128B"**与同一行的 `120` 自相矛盾** —— 128 是 `/MDd` 下的值，两数**分属不同配置**，口径见 §9.4 / 9.6），typeKind 合理（119=Unexposed/Opaque 表示模板）；③ 确定性：同一输入跑两次 `diff` 为空。证据：Round 4 已实测 `PrivateLike 4：pub 12 / m_a 16 / m_b 20 / m_c 24`、`ImageHandle 4：0/120/136/152`。
+  **怎么算做完**: ① 控制：`CodeGen Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header` → `pub 12 / m_a 16 / m_b 20 / m_c 24`（真值断言，非 exit 0）；② 真实：`ImageHandle` 以 per-module 环境喂入 → `m_Key 0 / m_ExternalManagedTexture 120 / m_Backbuffer 136 / m_Type 152`（`ResourceHandleKey` 在该配置下占 **0–119 = 120 字节**；⚠ **2026-09-12 更正**：原写"128B"**与同一行的 `120` 自相矛盾** —— 128 是 `/MDd` 下的值，两数**分属不同配置**，口径见 §9.4 / 9.6），typeKind 合理（119=Unexposed/Opaque 表示模板）；③ 确定性：同一输入跑两次 `diff` 为空。证据：Round 4 已实测 `PrivateLike 4：pub 12 / m_a 16 / m_b 20 / m_c 24`、`ImageHandle 4：0/120/136/152`。
   ✅ 已验证：`CodeGen Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header` → `pub 12 / m_a 16 / m_b 20 / m_c 24`；`CodeGen ... ImageHandle <compile_commands-derived per-module env>` → `0 / 120 / 136 / 152`（两次独立复测得相同结果，确定性成立）。控制用例证明 `collectFields`/`clang_Cursor_getOffsetOfField` 布局逻辑正确（非"只知 0"的半成品）、真实类型在 per-module env 下 offset 非 0 且口径稳定。
   ✅ **已修（2026-09-13，原写「本 change 未修」）**：`build.py` 的 `_msvc_to_clang_env` 遇 `/MDd`、`/MTd` 补出 `-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`，提取期偏移不再是 `/MD` 口径。**本轮重测**：夹具 `Tools/CodeGen/TestStdLayout.h` 的 `tail` 在 `/MD` 规则下 **40**、`/MDd` 规则下 **48**；函数级 `_msvc_to_clang_env('cl.exe … /MDd …')` → `['-D_DEBUG', '-D_ITERATOR_DEBUG_LEVEL=2']`（`/MD` → `[]`）。上面两组 `120/136/152` vs `128/144/160` 保留为**修复前的历史测量**，仍须写明配置口径。
   **判据（可执行 · 站点限定）**：`## 4.` 与 `## 5.` 两个标题之间命中 `/MDd` 与 `_Container_proxy`，且 `design.md` 的 `## Migration Plan` 段内命中同一表述 —— **排除 §8.1 的状态行与 §9 自身的引文行**（裸 grep 这两处也会命中，属恒绿写法）。
@@ -117,7 +117,7 @@
 ## 5. 反射 emitter（先证明价值——Phase 1 主交付）
 
 - [x] 5.1 反射 emitter：从类型表生成可读的 `TypeDescriptor<T>`（线性数组，含 `name/offset/type/kind/flags`，暴露 `constexpr` 数据）。
-  **Oracle**: 生成代码 **snapshot 对比**已提交 golden 文件（'generates expected code'，见 TODO/004 §3.2）；接入后真实类型 `member_count` 与现有 `CATypeDescriptor<T>` 吻合（复用 1.2 ABA guard）。
+  **怎么算做完**: 生成代码 **snapshot 对比**已提交 golden 文件（'generates expected code'，见 TODO/004 §3.2）；接入后真实类型 `member_count` 与现有 `CATypeDescriptor<T>` 吻合（复用 1.2 ABA guard）。
   ✅ 已验证双 half：
   ① **generates expected code**：`CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample --emit-reflection -I CACore/header` 与已提交 golden `Tools/CodeGen/generated/EmitSample.Reflection.h` **diff 为空**（GOLDEN MATCH）；同一输入跑两次 `diff` = **IDENTICAL**（确定性）。
   ② **接入后 member_count 吻合（非空洞 ABI guard）**：`Test/CoreTests/EmitReflectionTest.cpp` include 该 golden + `CA_REFLECTION(codegen_demo::EmitSample, a, b, c, d)` + `static_assert_abi_consistency<...>()`，经 `python build.py --config Debug CoreTests` = **BUILD SUCCESSFUL**（has_type_desc 需 `type != nullptr_t`，故为真实比较，drift 即 build error）。
@@ -130,7 +130,7 @@
   - 0 字段类型 → 发射 `fields()` 返回 `nullptr` 且无 `arr[]`（空数组非法，已守卫）。
 
 - [x] 5.2 可选 runtime `name→TypeDescriptor*` 注册表（inspector/脚本用，复用 `IModuleManager` 的按名解析）。
-  **Oracle**: 按名查找返回正确 descriptor；未注册名返回空（负断言）。
+  **怎么算做完**: 按名查找返回正确 descriptor；未注册名返回空（负断言）。
   ✅ 已验证：新增 `CACore/header/CodeGenTypeRegistry.h`（独立可选头，`TypeRegistry`：`registerType`/`find`/`clear` + `template<T> registerTypeDescriptor<T>()`，复用 IModuleManager 按名解析 idiom：名→指针、miss 返 nullptr）。`Test/CoreTests/EmitReflectionTest.cpp` 加 `RunTypeRegistryTest()`，从 `SerializerTest.cpp::main` 调用：
   - `registerTypeDescriptor<codegen_demo::EmitSample>()` → `find("codegen_demo::EmitSample")` 返回**非空**，`fieldCount==4`、`name` 匹配、`fields[0].name=="a"`；
   - `find("no_such_type")` → **nullptr**（负断言）；
@@ -143,7 +143,7 @@
 ## 6. 序列化 + 哈希 emitter（同 proposal · 二次 apply 批次）
 
 - [x] 6.1 序列化 emitter：从同一类型表生成 [反]序列化代码（第三个出口，永不错位）。
-  **Oracle**: 对已知类型序列化往返做 **field-ORDER** 断言（经 `CATypeDescriptor` 顺序，见 TODO/004 §4 陷阱——**禁 `byte-identical`**，padding/容器前缀不同）；`roundtrip(field)==field`。
+  **怎么算做完**: 对已知类型序列化往返做 **field-ORDER** 断言（经 `CATypeDescriptor` 顺序，见 TODO/004 §4 陷阱——**禁 `byte-identical`**，padding/容器前缀不同）；`roundtrip(field)==field`。
   ✅ 已验证（`CodeGenMain.cpp` 加 `--emit-serialization` + `emitCodeGenSerializer` → 从类型表按**声明顺序**生成 `CodeGenSerializer<T>`（`serialize/deserialize` 各逐字段、单实例携带 offset）；`design.md` OQ#5/AUDIT-4 定案：`serializable` 门控序列化 emitter。测试 `Test/CoreTests/GeneratedSerializerTest.cpp` + golden `Tools/CodeGen/generated/EmitSample.Serialization.h`，接进 `SerializerTest.cpp::main`）：
   - **roundtrip(field)==field**：`EmitSample{10,3.5f,true,7.25}` → `CodeGenSerializer<EmitSample>::serialize` → `deserialize` → 四字段逐值相等（`out.a==in.a && ... `）= **PASS**。
   - **field-ORDER**：buffer 字节数 = `int(4)+float(4)+bool(1)+double(8)=17`（声明顺序 a/b/c/d → 非 byte-identical 比较，而是字段顺序探测）。
@@ -152,7 +152,7 @@
   - ⚠ 实现要点（修复 2 处）：① 生成头须先声明主模板 `template<typename T> struct CodeGenSerializer;` 才能特化（否则 C2447/C2027）；② 逐字段 (de)serialize 须用**同一个** `serializer/deserializer` 实例（携带 offset），若用自由函数 `::cacore::deserialize(buffer, obj.field)` 每次新建 offset=0 → 所有字段读 buffer 头（roundtrip 塌）——改用 `::cacore::serializer<ByteBuffer> s(buffer); s.serialize(obj.field); ...`。
 
 - [x] 6.2 哈希+相等 emitter：生成 `custom_hash_trait<Type>::hash` + 值相等 `equal`（⚠ **2026-09-12 更正**：原文写"值相等 `operator==`"—— **与产物不符**；产物里的真实签名是 `static bool equal(Obj const&, Obj const&)`，见 `Tools/CodeGen/generated/EmitSample.Hash.h`）（同一字段遍历、padding/布局无关、浮点 -0.0/NaN 归一）。
-  **Oracle**: 真值对 `hash(a)==hash(b) && equal(a,b)`（⚠ 用产物的**真实 API** `equal`，不是 `operator==`）；负零 `-0.0`/`+0.0` 与 NaN 归一处相等；**禁 raw-bytes**。⚠ **2026-09-12 更正**：原文写"含 padding 结构体『逻辑相等但布局不同』仍哈希相等" —— **该实证从未做过**，它是**论证**（由"字段级哈希 + 浮点归一"在语义上蕴含，见下方 ✅ 第 4 条），**不是演示**；本条不再把它写成验收标准。**不**迁移现有 `HashObj` SHA256 语义（Non-goal，见 proposal）。
+  **怎么算做完**: 真值对 `hash(a)==hash(b) && equal(a,b)`（⚠ 用产物的**真实 API** `equal`，不是 `operator==`）；负零 `-0.0`/`+0.0` 与 NaN 归一处相等；**禁 raw-bytes**。⚠ **2026-09-12 更正**：原文写"含 padding 结构体『逻辑相等但布局不同』仍哈希相等" —— **该实证从未做过**，它是**论证**（由"字段级哈希 + 浮点归一"在语义上蕴含，见下方 ✅ 第 4 条），**不是演示**；本条不再把它写成验收标准。**不**迁移现有 `HashObj` SHA256 语义（Non-goal，见 proposal）。
   ✅ 已验证（`CodeGenMain.cpp` 加 `--emit-hash` + `emitHashTrait` → 生成 `cacore::custom_hash_trait<T>`，含 `hash(Obj const&, hasher_t&)` + `equal(Obj const&, Obj const&)`；golden `Tools/CodeGen/generated/EmitSample.Hash.h`；测试 `Test/CoreTests/GeneratedHashTest.cpp`，接进 `SerializerTest.cpp::main`）：
   - **hash(a)==hash(b) && a==b**（第 1/4 例）：`{1,2.0f,false,3.0}` 同值→同哈希+equal；`{1,9.0f,false,3.0}` 异值→异哈希+不等。PASS。
   - **-0.0/+0.0 归一处相等**（第 2 例）：`{1,-0.0f,false,3.0}` 与 `{1,+0.0f,false,3.0}` → 同哈希 + equal（生成 hash 里 `if (v == 0.0f) v = 0.0f;` 归一 `-0.0→+0.0`；equal 里 `a.b==b.b` 对 `-0.0==+0.0` 为 true）。PASS。
@@ -167,22 +167,22 @@
 > **诚实前提**：现 `CodeGenMain.cpp` 是 **AST-only**（无 grep/ifstream、无 `CA_REFLECT`/`CA_REFLECTION` 处理、按类型名 spelling 匹配）+ **不递归**进嵌套成员。以下 6b.x 是**新增**这些能力的向前任务，各自原子。
 
 - [x] 6b.1 在 `CACore/header/CodeGenMeta.h` 加 `CA_REFLECT(...)` 标记宏：接受 **options 列表**（`serializable`/`ui`/`min=0`/`marshal(as=...)`），MSVC 下展开为无害 no-op（无符号）、可 grep、可与 `CA_CODEGEN_REGISTER` 并存。
-  **Oracle**: 在 `Test/CoreTests/CodeGenMetaTest.cpp` 给 `CodeGenProbe` 前加一行 `CA_REFLECT(serializable, ui)`，该 TU 经 `python build.py --config Debug CoreTests` 编译通过；`grep -n "CA_REFLECT(" Test/CoreTests/CodeGenMetaTest.cpp` 命中**使用点**（非定义头）。✅ 已验证：`BUILD SUCCESSFUL` + `grep -n "CA_REFLECT(" Test/CoreTests/CodeGenMetaTest.cpp` **有命中**（**按 grep 自定位、不写行号**）。⚠ 修一处：宏须带尾分号（`static_assert(...)` 后接 `struct` 缺 `;` → C2143，已修）。
+  **怎么算做完**: 在 `Test/CoreTests/CodeGenMetaTest.cpp` 给 `CodeGenProbe` 前加一行 `CA_REFLECT(serializable, ui)`，该 TU 经 `python build.py --config Debug CoreTests` 编译通过；`grep -n "CA_REFLECT(" Test/CoreTests/CodeGenMetaTest.cpp` 命中**使用点**（非定义头）。✅ 已验证：`BUILD SUCCESSFUL` + `grep -n "CA_REFLECT(" Test/CoreTests/CodeGenMetaTest.cpp` **有命中**（**按 grep 自定位、不写行号**）。⚠ 修一处：宏须带尾分号（`static_assert(...)` 后接 `struct` 缺 `;` → C2143，已修）。
 
 - [x] 6b.2 CodeGen 工具从源码**文本**读取标记宏 options（grep `CA_REFLECT(`，解析键值），并把 options **带进工具的输出**（扩展输出，加一行 `# options:`）。
-  **Oracle**: 喂一个带 options 的标记头，断言工具输出**包含 options 键值**（如 `serializable`、`min=0`），同一输入跑两次产物逐字节一致（确定性）。**不**依赖 libclang 自定义命名空间 attribute。✅ 已验证：`CodeGen.exe TestStruct.h CodeGenSample -I CACore/header` → 输出末尾 `# options: serializable, min = 0`（从源码文本提取）；`diff` 两次 = IDENTICAL。⚠ `TestStruct.h` 需 `#include "CodeGenMeta.h"`（否则宏未定义，libclang 解析错）。
+  **怎么算做完**: 喂一个带 options 的标记头，断言工具输出**包含 options 键值**（如 `serializable`、`min=0`），同一输入跑两次产物逐字节一致（确定性）。**不**依赖 libclang 自定义命名空间 attribute。✅ 已验证：`CodeGen.exe TestStruct.h CodeGenSample -I CACore/header` → 输出末尾 `# options: serializable, min = 0`（从源码文本提取）；`diff` 两次 = IDENTICAL。⚠ `TestStruct.h` 需 `#include "CodeGenMeta.h"`（否则宏未定义，libclang 解析错）。
 
 - [x] 6b.3 工具新增 **CA_REFLECTION grep → 字段-only** 路径：读取 `CA_REFLECTION(Type, a, b)` 宏文本的成员清单，产出字段-only 表（declaration order）。**独立 task**，不改 AST 路径。
-  **Oracle**: 喂一个 `CA_REFLECTION(Sample, a, b)` 源，工具输出 `Sample 2` + 声明顺序 `a, b`；确定性。✅ 已验证：`CodeGen.exe TestExternal.h CodeGenExternal` → `CodeGenExternal 2` + `field a/b`（无 libclang）；`diff` = IDENTICAL；**回归**：`CodeGenSample` 仍 AST 路径（fields + options）。⚠ CA_REFLECTION 路径在 libclang fallback 之前匹配，故 TestExternal.h 不需要 include 宏（纯文本 grep）。
+  **怎么算做完**: 喂一个 `CA_REFLECTION(Sample, a, b)` 源，工具输出 `Sample 2` + 声明顺序 `a, b`；确定性。✅ 已验证：`CodeGen.exe TestExternal.h CodeGenExternal` → `CodeGenExternal 2` + `field a/b`（无 libclang）；`diff` = IDENTICAL；**回归**：`CodeGenSample` 仍 AST 路径（fields + options）。⚠ CA_REFLECTION 路径在 libclang fallback 之前匹配，故 TestExternal.h 不需要 include 宏（纯文本 grep）。
 
 - [x] 6b.4 明确**嵌套成员 = 1 字段**（不递归展平，显式定语义）：一个含嵌套 struct 成员 + 基础类型的标记类型，工具按顶层字段列出（嵌套成员记为 1 个字段、offset 为其在父类中 offset）。
-  **Oracle**: 一个 `{ Nested n; int x; }` 类型，工具产 **fieldCount == 2**（`n` 一个字段 + `x`）、`n` 的 offset 为 0（nested 在父类中的偏移）、`x` 的 offset 正确；跑两次 `diff` 为空。✅ 已验证：`CodeGen.exe TestNested.h CodeGenOuter -I CACore/header` → `CodeGenOuter 2` + `field n 0 CodeGenNested 119`（未展平进 x）+ `field y 4 int 17`；`diff` = IDENTICAL。
+  **怎么算做完**: 一个 `{ Nested n; int x; }` 类型，工具产 **fieldCount == 2**（`n` 一个字段 + `x`）、`n` 的 offset 为 0（nested 在父类中的偏移）、`x` 的 offset 正确；跑两次 `diff` 为空。✅ 已验证：`CodeGen.exe TestNested.h CodeGenOuter -I CACore/header` → `CodeGenOuter 2` + `field n 0 CodeGenNested 119`（未展平进 x）+ `field y 4 int 17`；`diff` = IDENTICAL。
 
 ## 7. 编译验证与修复
 
 - [x] 7.1 `python build.py --config Debug` 全量构建至 SUCCESSFUL；若失败分析并修复。
   ✅ 已验证：`python build.py --config Debug`（无 target，全量）→ **BUILD SUCCESSFUL**（47/47 targets，含 `VulkanRenderBackend.dll` / `D3D12RenderBackend.dll` / `CodeGen.exe`）。构建日志的 warning 全部来自 `D3D12RenderBackend/private/ResourceManagment/*`（`C4996 codecvt 弃用`/`C4244 窄化`/`C4172 返回局部地址`/`C4715` 等——**既有引擎代码，非本 change 改动**，`/WX-` 非错误故不阻断）。本 change 新增的 codegen 工具 + 生成代码编译无错误。
-- [x] 7.2 `python build.py`（RelWithDebInfo）+ 现有 GPUBackendTester headless 回归（vulkan/d3d12），确认**无运行时行为变化**。**Oracle 为自洽可证伪断言**（不依赖不可提交的历史 VUID 验证日志——test_output 被 git-ignore，见 TODO/004 §3.4）：① 构建成功；② 引擎产物**不含 libclang.dll 依赖**（证明 codegen 是纯构建期 addon、零运行时链接 → 运行时行为不变）；③ headless vulkan + d3d12 各跑 **exit 0 / 无崩溃**，`result.json` status == 'pass'。
+- [x] 7.2 `python build.py`（RelWithDebInfo）+ 现有 GPUBackendTester headless 回归（vulkan/d3d12），确认**无运行时行为变化**。**验收要求 为自洽可证伪断言**（不依赖不可提交的历史 VUID 验证日志——test_output 被 git-ignore，见 TODO/004 §3.4）：① 构建成功；② 引擎产物**不含 libclang.dll 依赖**（证明 codegen 是纯构建期 addon、零运行时链接 → 运行时行为不变）；③ headless vulkan + d3d12 各跑 **exit 0 / 无崩溃**，`result.json` status == 'pass'。
   ✅ 已验证（`python build.py` = BUILD SUCCESSFUL，RelWithDebInfo 59/59；`python build.py --config Debug` = BUILD SUCCESSFUL）：
   - **① 构建**：RelWithDebInfo + Debug 全量 BUILD SUCCESSFUL。
   - **② 无 libclang.dll**：dumpbin /dependents → `GPUBackendTester.exe`/`VulkanRenderBackend.dll`/`D3D12RenderBackend.dll` **均无 libclang.dll 依赖**（codegen 是纯构建期 addon，engine 零运行时链接）。
@@ -196,18 +196,18 @@
 - [x] 8.1 开 workflow 对刚完成的 1-7 所有 task 做对抗验证：正确性 / 完整性 / 诚实性 / **回归去重**（核对上一 task 修复是否回归）+ **外部 API 用 MCP 核查**（libclang C API、CMake 文档，引用真实 URL；⚠ **本行所述工具无落盘证据可核** —— 已知 Round 6 的**记录**称其 agent 无 MCP web 工具（**该记录本身无落盘测量证据**），见 §9.11④）；发现新问题以 `[AUDIT-]` 前缀追加 task，循环 ≤3 轮；每轮先回归检查+去重（按根因，不按行号）。结论写 tasks.md 末尾 `## Review Log` 区域。
   ✅ 已执行（workflow `adversarial-review-codegen-81`，27 agents / 288 tool-calls / 140.9w tokens，外部 API 网核 —— ⚠ **本行所述工具无落盘证据可核**（已知 Round 6 的**记录**称其 agent 无 MCP web 工具 —— **该记录无落盘测量证据**，见 §9.11④））：确认 **22 条**（外部 API 7 条 confirm-correct + 7 条真实缺陷 AUDIT-1..7（**处置状态逐条见本行末**）+ honest-limit 若干）。外部 API **用法全部正确**（libclang 函数签名/枚举名/out-param、CMake `CMAKE_EXPORT_COMPILE_COMMANDS`、compile_commands.json 格式、`/std:c++20`→`-std=c++20`、丢 MSVC-only flag）——已引真实 URL。真实缺陷多为 **API 表述精度 + 文档过度声称**（AUDIT-1 "不完整布局返回0"→实为负 `CXTypeLayoutError` 被 `bits>0` 伪饰;AUDIT-4 "对比 offset"→实只场 `fieldCount`;AUDIT-5 "padding 演示"→实为论证+`equal` 非 `operator==`;AUDIT-6 "128B/与真值吻合"→实测 120B 且缺独立交叉验证;AUDIT-7 d3d12 "同二进制"→实为 header 重编但 no-op 等价）+ **1 处 latent 代码守卫**（AUDIT-2 `/I` `/D` `len>2`,已修 —— 位置见 `build.py` 的 `_msvc_to_clang_env` 中 `/I` `-I` `/D` `-D` 四条分支）+ **2 诚实局限**（AUDIT-3 丢 `/MDd` 不复现 debug-STL 布局;hook 仅 exit-0 门控 offset 未断言）。**逐条处置状态（2026-09-12 改写 —— 原文写"7 条真实缺陷已修…全部修正合回 design/tasks"，该句为假）**：**AUDIT-1**＝已就地更正（该 API 返回负哨兵，被 `bits > 0` 守卫抹平为 0）；**AUDIT-2**＝**代码已修**（`build.py` 的 `_msvc_to_clang_env` 四条分支守卫）；**AUDIT-3**＝由 §9.14 落盘（`/MDd` 局限已写进 §4.3 与 design 迁移计划）；**AUDIT-4 / AUDIT-5 / AUDIT-6**＝由 §9.6 落盘（站点：§1.2 正文与验收标准、§6.2 标题与验收标准、§4.3 正文、design 的 D4 与 Open Question #3、spec 的 REQ#5）；**AUDIT-7**＝重述（结论不变）。
 ⚠ **本行的"收敛"结论随后被推翻**：Round 6 判定 Round 5 的"无新增实质结构缺陷、3 轮内收敛"**不成立**（发现 RC-F1/F2/F4/F5 等实质缺陷），详见 Round 6 与 `### Round 10 附`。**不要据本行认为已闭环。**
-  **Oracle**: Review Log 中有逐条对抗结论 + 复查过的文档 URL 及其真实性结论；最后一个可见输出是 Review Log（非"完成第 N 个 task"）。
+  **怎么算做完**: Review Log 中有逐条对抗结论 + 复查过的文档 URL 及其真实性结论；最后一个可见输出是 Review Log（非"完成第 N 个 task"）。
 
 ## 9. 返工任务（[AUDIT] · 2026-09-08 起；同日按"范围变更"与对抗复审 findings 重写）
 
 > **来源**：Round 6 对抗验证（workflow `adversarial-review-codegen-status`）发现的 RC-F1..F10；Round 7 的范围变更（本 change 不注册任何项目类型）；本节本身又经一次对抗复审（workflow `adversarial-review-rework-tasks`，17 agents），**本版是按其 findings 修正后的结果**。
-> **⚠ 引用规约（本节强制）**：**禁止用行号定位被本节任务会改动的任何文件** —— 具体包括 `tasks.md` 其他部分、`build.py`（9.9 / 9.13 会改）、`CodeGenMain.cpp`（9.5a 会改）、`CodeGenMetaTest.cpp`（9.3 会改）、`ShaderResourceHandle.h`（9.15 会改）、`specs/codegen-framework/spec.md`（9.3 / 9.8 / 9.11 / 9.13 都会改）。行号随每次编辑漂移 —— 已实际发生两次（§9 插入后其内部指向 Review Log 的行号整体错位 +46；范围变更块插入后又整体错位 +9）。一律改用 **「章节标题 / 函数名 + 逐字引文片段」** 定位，用 grep 找。**两个例外**：① **转述既有错误文本**时出现的行号（如 9.11① 引用 spec 里那句 `build.py:230`/`:231` **本身**）是**被纠正的对象**，不算定位引用；② 引用**本节确不改动**的文件（`Tools/CodeGen/` 下的 fixture、根 `CMakeLists.txt`、`Test/CoreTests/CMakeLists.txt`）可写行号。
+> **⚠ 引用规约（本节强制）**：**禁止用行号定位被本节任务会改动的任何文件** —— 具体包括 `tasks.md` 其他部分、`build.py`（9.9 / 9.13 会改）、`CodeGenMain.cpp`（9.5a 会改）、`CodeGenMetaTest.cpp`（9.3 会改）、`ShaderResourceHandle.h`（9.15 会改）、`specs/codegen-framework/spec.md`（9.3 / 9.8 / 9.11 / 9.13 都会改）。行号随每次编辑对不上 —— 已实际发生两次（§9 插入后其内部指向 Review Log 的行号整体错位 +46；范围变更块插入后又整体错位 +9）。一律改用 **「章节标题 / 函数名 + 逐字引文片段」** 定位，用 grep 找。**两个例外**：① **转述既有错误文本**时出现的行号（如 9.11① 引用 spec 里那句 `build.py:230`/`:231` **本身**）是**被纠正的对象**，不算定位引用；② 引用**本节确不改动**的文件（`Tools/CodeGen/` 下的 fixture、根 `CMakeLists.txt`、`Test/CoreTests/CMakeLists.txt`）可写行号。
 > **根因去重声明**：以下按**根因**归位，与 Review Log 已处理的条目不重复。标注为"**回归处置**"的条目（9.3 / 9.6）**不重复开 task 反复重改**，重点是**把已宣布的修复真正落到正文**并补上缺失的验证。
 > **与范围变更的关系**：本 change **不注册任何项目类型**（见文首范围变更块）→ 依赖真实类型 `ImageHandle` 的条目**作废或改用自包含 fixture**。全部验证只用 `Tools/CodeGen/` 下的 fixture，**不引用任何项目头文件**。
-> **已完成、不再设任务**：基线提交 `a23b633`（apply 之后的完整状态）已落地，且当时**显式排除**了仓库根遗留文件（`git add` 逐个点名，未用 `git add -A`）—— Round 7 复审提出的"基线提交（9.0）"**已被该提交满足**，故本节不再重复设此项。
+> **已完成、不再设任务**：基线提交 `a23b633`（apply 之后的完整状态）已做完，且当时**显式排除**了仓库根遗留文件（`git add` 逐个点名，未用 `git add -A`）—— Round 7 复审提出的"基线提交（9.0）"**已被该提交满足**，故本节不再重复设此项。
 > **执行序（2026-09-08，**Round 10 修正依赖冲突**）**：`9.15（范围变更的代码处置 · **必须最前**）→ 9.1 → 9.3 → 9.5a → 9.5c → 9.13 → 9.8 → 9.9 → 9.11 → **9.4** → **9.5b** ⚠ → **9.7** ⚠ → 9.14 → 9.16 → 9.6（合计状态行最后写）→ 9.10（提交返工 + 清理）→ 9.12（Review · 最后 · 强制）`。
-> ⚠ **本次修正的依赖冲突（Round 9 复审发现）**：9.5b 的 Oracle 要求"用能退化的 fixture 复现"，而**现树 6 个 fixture 在 4 种 partial env 下字段表逐字节相同**（实测），唯一可退化的 `TestStdLayout.h` 由 **9.4** 创建 → **9.5b 必须排在 9.4 之后**（原序把它排在 9.4 之前，与它自己的 Oracle 矛盾）。**9.7** 同因：它要求"实测缺 builtin 头 → exit 0 但表退化"，该复现对象同样来自 9.4。
-> **⚠ Round 8 记录的四处残留 —— 已于 Round 9 逐条处理（留档，勿重复开 task）**：① 9.10 的"工作区干净"断言被其后的 **9.12 自我作废** → **已改**：9.10 的 oracle 放宽为"无**未预期**遗留"，并写明"9.12 把 Review Log 写回 `tasks.md` 属**预期**改动"；② 9.3 的同义反复断言只写在 ⚠ 里、其 Oracle 不覆盖代码那半边 → **已改**：oracle 增补一条对 `Test/CoreTests/CodeGenMetaTest.cpp` 的可失败判据（实测该文件 里的 `arr[]` 初值**逐字**是 `offsetof(CodeGenProbe, a)`、、而**同一文件里旧的断言**又拿同一个 `offsetof` 去比（**转述**：原文已删，现为 Task 9.3 的注释），**确为同义反复**）；③ 引文锚点规约原先只约束"本文档内部" → **已扩**为约束"本节任务会改动的**任何**文件"（含 `build.py`，因 9.9 / 9.13 会改它）；④ 9.11④ 的 MCP 站点写错 → **已改**：实测真实站点为**文首**、**§8.1 任务行**、**Review Log Round 5 范围行**、**Round 6 正文**（**§7 内一条 MCP 提法都没有**，原写"§7 的任务行"是错的）。
+> ⚠ **本次修正的依赖冲突（Round 9 复审发现）**：9.5b 的 验收要求 要求"用能退化的 fixture 复现"，而**现树 6 个 fixture 在 4 种 partial env 下字段表逐字节相同**（实测），唯一可退化的 `TestStdLayout.h` 由 **9.4** 创建 → **9.5b 必须排在 9.4 之后**（原序把它排在 9.4 之前，与它自己的 验收要求 矛盾）。**9.7** 同因：它要求"实测缺 builtin 头 → exit 0 但表退化"，该复现对象同样来自 9.4。
+> **⚠ Round 8 记录的四处残留 —— 已于 Round 9 逐条处理（留档，勿重复开 task）**：① 9.10 的"工作区干净"断言被其后的 **9.12 自我作废** → **已改**：9.10 的 oracle 放宽为"无**未预期**遗留"，并写明"9.12 把 Review Log 写回 `tasks.md` 属**预期**改动"；② 9.3 的同义反复断言只写在 ⚠ 里、其 验收要求 不覆盖代码那半边 → **已改**：oracle 增补一条对 `Test/CoreTests/CodeGenMetaTest.cpp` 的可失败判据（实测该文件 里的 `arr[]` 初值**逐字**是 `offsetof(CodeGenProbe, a)`、、而**同一文件里旧的断言**又拿同一个 `offsetof` 去比（**转述**：原文已删，现为 Task 9.3 的注释），**确为同义反复**）；③ 引文锚点规约原先只约束"本文档内部" → **已扩**为约束"本节任务会改动的**任何**文件"（含 `build.py`，因 9.9 / 9.13 会改它）；④ 9.11④ 的 MCP 站点写错 → **已改**：实测真实站点为**文首**、**§8.1 任务行**、**Review Log Round 5 范围行**、**Round 6 正文**（**§7 内一条 MCP 提法都没有**，原写"§7 的任务行"是错的）。
 > **前置关系**：9.4 是"任何 emitter 依赖提取期 offset"的前置；**9.3 与 9.6 都要改同一行"合计状态"，该行由 9.6 单独负责，9.3 不得改**（否则两处写入互相作废）。
 
 - [x] 9.1 **[AUDIT] 类外（非侵入式）通道遇非 public 成员时必须拒绝发射**（⚠ 2026-09-08 按新范围重写）：原"C2248 访问权模型"随范围收缩失效，改为加一道**作用域明确的**防御性拒绝。
@@ -215,72 +215,72 @@
   - **类外标注**（`CA_REFLECTION(...)`、以及现形态的 `CA_REFLECT(...)` —— 纯文本、编译器 no-op）：**仅支持全 public 成员**的类型。含任何非 public 成员时，**工具必须非零退出**并说明"该类型需改用类内标注"，**不得产出编译不过的代码**。
   - **类内标注**（计划中：宏写在 class 体内、展开成 `friend` 声明）：**私有成员是正常的，必须照常发射** —— **不得**把上面的拒绝规则套到它身上。这正是类内标注存在的理由，也是"替换旧反射宏"的落点。
   - **务必区分"提取"与"发射"**：`TestPrivate.h` 的**提取**（产出类型表 / 打印 offset）对私有成员是**合法且必须保留**的（类型表是数据，不需要访问权）；被拒绝的**只是**发射"会点名私有成员的可编译代码"这一件事。
-  **Oracle**: ① 现状 `CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-reflection` → exit 0，且产出一份对私有成员发**点名式**代码的头文件；修复后**同一条命令**必须**非零退出**并给出"需改用类内标注"的提示；② **回归（不得误伤）**：全 public fixture（`TestStruct.h` / `TestEmit.h` / `TestNested.h`）仍正常发射；`TestPrivate.h` 的**不发射**调用（仅打印类型表）仍 exit 0 且 offset 不变（`pub 12 / m_a 16 / m_b 20 / m_c 24`）；③ 对抗项：grep 证明未用 `#define private public` / `-fno-access-control` / 无差别 `friend class` 绕过。
-  ⚠ **可延后 / 待补**：本 change 内无任何私有成员类型被**注册**，该坏产物不会实际产生，此条属**防御性**。**类内标注通道尚未实现**（现 `CA_REFLECT` 是类外 no-op、不展开成 friend），故"类内标注 + 私有成员必须正常发射"的**正向用例待该通道落地后补验**；本条**只约束类外通道，不对类内通道施加任何限制**。
+  **怎么算做完**: ① 现状 `CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-reflection` → exit 0，且产出一份对私有成员发**点名式**代码的头文件；修复后**同一条命令**必须**非零退出**并给出"需改用类内标注"的提示；② **回归（不得误伤）**：全 public fixture（`TestStruct.h` / `TestEmit.h` / `TestNested.h`）仍正常发射；`TestPrivate.h` 的**不发射**调用（仅打印类型表）仍 exit 0 且 offset 不变（`pub 12 / m_a 16 / m_b 20 / m_c 24`）；③ 对抗项：grep 证明未用 `#define private public` / `-fno-access-control` / 无差别 `friend class` 绕过。
+  ⚠ **可延后 / 待补**：本 change 内无任何私有成员类型被**注册**，该坏产物不会实际产生，此条属**防御性**。**类内标注通道尚未实现**（现 `CA_REFLECT` 是类外 no-op、不展开成 friend），故"类内标注 + 私有成员必须正常发射"的**正向用例待该通道做完后补验**；本条**只约束类外通道，不对类内通道施加任何限制**。
 
-- [ ] 9.2 ~~**[AUDIT] 真实类型接线 + ABI guard 实例化**~~ **【已作废 · 2026-09-08】**：原条目要求把 `out/build/<cfg>/codegen` 接入拥有真实类型头的引擎 target，使 `spec REQ#5` 的"缺失/漂移 → build error"对真实类型生效。**随范围变更（本 change 不注册任何项目类型）该接线不再存在**，条目作废。
-  **替代与诚实记录**：REQ#5 的强制点在本 change 内**仅由合成 golden 承担**（`Test/CoreTests/CMakeLists.txt:16` + `EmitReflectionTest.cpp:19`，已在 4.2 验证）；**对真实类型的接线与 ABI guard 实例化，随"正式接入项目"的后续 change 处理**。即：本 change **未在真实类型上兑现 REQ#5 的漂移兜底**，此为已知局限而非已达成项。
+- [ ] 9.2 ~~**[AUDIT] 真实类型接线 + ABI guard 实例化**~~ **【已作废 · 2026-09-08】**：原条目要求把 `out/build/<cfg>/codegen` 接入拥有真实类型头的引擎 target，使 `spec REQ#5` 的"缺失/对不上 → build error"对真实类型生效。**随范围变更（本 change 不注册任何项目类型）该接线不再存在**，条目作废。
+  **替代与诚实记录**：REQ#5 的强制点在本 change 内**仅由合成 golden 承担**（`Test/CoreTests/CMakeLists.txt:16` + `EmitReflectionTest.cpp:19`，已在 4.2 验证）；**对真实类型的接线与 ABI guard 实例化，随"正式接入项目"的后续 change 处理**。即：本 change **未在真实类型上兑现 REQ#5 的对不上兜底**，此为已知局限而非已达成项。
 
 - [x] 9.3 **[AUDIT] ABI guard 诚实化**（**回归处置：AUDIT-4 的修复从未落盘**）：`CACore/header/CodeGenMeta.h` 的 `static_assert_abi_consistency` **只比** `fieldCount == ::CATypeDescriptor<T>::member_count` 与 `name != nullptr`，**从不比 offset**。但正文仍宣称比 offset，共五处（**按引文 grep，勿按行号**）：
   - §1.2 正文：「把生成元数据与…的 `member_count`/offset 对比，drift 即 build error」
-  - §1.2 **Oracle**：「人为改 offset → 编译失败」
+  - §1.2 **怎么算做完**：「人为改 offset → 编译失败」
   - `design.md` **D4**：「把 codegen 元数据与…`member_count`/offset 对比」
   - `design.md` **Open Question #3**：「`member_count`/offset 的 assert」
   - `specs/codegen-framework/spec.md` 的 REQ「生成源码以显式源清单纳入构建」Scenario：「经 `member_count`/offset ABI 校验（ABI guard）失败」← **规范性验收条款**
-  **Oracle**：① 上述正文改为**与实现的真实断言一致**的表述 —— 实现**只有**两条：`TypeDescriptor<T>::fieldCount == ::CATypeDescriptor<T>::member_count`、以及 `TypeDescriptor<T>::name != nullptr`（**一个"生成头是否存在"的非空检查，不做任何名字内容比对**）；且整体包在 `if constexpr (careflection::has_type_desc<T>)` 内，**对只标 `CA_REFLECT` 而无 `CA_REFLECTION` 的类型是空操作**。⚠ **不得**把正文写成"对比 `fieldCount` + `name`"（Round 10 首版即如此，**与前一句同类的过度声称**）：全仓 `git grep -n "CATypeDescriptor<.*>::name"` **零命中** —— 编译期**没有任何名字比较**；本 change 唯一的名字校验是**运行期** `strcmp`（`Test/CoreTests/EmitReflectionTest.cpp` 里那条），且**不比 offset**。判据：`git grep -n "CATypeDescriptor<.*>::name"` 为空，**且**五处正文均不出现"与类型名 / 对比类型名 / 只校验…类型名"这类表述；② **代码侧**：`Test/CoreTests/CodeGenMetaTest.cpp` 里那条**同义反复断言**（实测 里的 `arr[]` 初值（**逐字引文**：`offsetof(CodeGenProbe, a)`） 拿 `offsetof` 充当初值、里旧的同义反复断言（**转述**，原文已删） 又断言它等于**同一个** `offsetof`）必须删除，换成**带独立数值期望**的判据 —— 例如 `static_assert(TypeDescriptor<CodeGenProbe>::fields()[1].offset == 4)` 与 `fields()[2].offset == 8`（数值取自 MSVC x64 下 `int`/`float`/`bool` 的真实布局，**独立于描述符自身**）。**可失败性判据**：把该 TU 里 `arr[1]` 的 `offsetof(CodeGenProbe, b)` 改成 `3` → 修复前**编译通过**（现无任何断言覆盖 `arr[1]`/`arr[2]` 的 offset），修复后**必须编译失败**。
+  **怎么算做完**：① 上述正文改为**与实现的真实断言一致**的表述 —— 实现**只有**两条：`TypeDescriptor<T>::fieldCount == ::CATypeDescriptor<T>::member_count`、以及 `TypeDescriptor<T>::name != nullptr`（**一个"生成头是否存在"的非空检查，不做任何名字内容比对**）；且整体包在 `if constexpr (careflection::has_type_desc<T>)` 内，**对只标 `CA_REFLECT` 而无 `CA_REFLECTION` 的类型是空操作**。⚠ **不得**把正文写成"对比 `fieldCount` + `name`"（Round 10 首版即如此，**与前一句同类的过度声称**）：全仓 `git grep -n "CATypeDescriptor<.*>::name"` **零命中** —— 编译期**没有任何名字比较**；本 change 唯一的名字校验是**运行期** `strcmp`（`Test/CoreTests/EmitReflectionTest.cpp` 里那条），且**不比 offset**。判据：`git grep -n "CATypeDescriptor<.*>::name"` 为空，**且**五处正文均不出现"与类型名 / 对比类型名 / 只校验…类型名"这类表述；② **代码侧**：`Test/CoreTests/CodeGenMetaTest.cpp` 里那条**同义反复断言**（实测 里的 `arr[]` 初值（**逐字引文**：`offsetof(CodeGenProbe, a)`） 拿 `offsetof` 充当初值、里旧的同义反复断言（**转述**，原文已删） 又断言它等于**同一个** `offsetof`）必须删除，换成**带独立数值期望**的判据 —— 例如 `static_assert(TypeDescriptor<CodeGenProbe>::fields()[1].offset == 4)` 与 `fields()[2].offset == 8`（数值取自 MSVC x64 下 `int`/`float`/`bool` 的真实布局，**独立于描述符自身**）。**可失败性判据**：把该 TU 里 `arr[1]` 的 `offsetof(CodeGenProbe, b)` 改成 `3` → 修复前**编译通过**（现无任何断言覆盖 `arr[1]`/`arr[2]` 的 offset），修复后**必须编译失败**。
   ⚠ **禁止**把判据写成"篡改**生成头**里的 offset 字面量"（Round 9 首版就是这么写的，**不可执行**）：实测 5 个生成产物的 offset 初值**全部是 `offsetof(T, f)`、不存在任何 offset 字面量**，且 `CodeGenMetaTest.cpp` **不 include 任何生成头** —— 篡改生成头对它"是否编译通过"**零影响**。若要覆盖"生成头 → 消费它的 TU"这一层，须在**已 include golden 的** `Test/CoreTests/EmitReflectionTest.cpp` 里另加一条独立数值断言，并说明"篡改 golden 的 `arr[1]` 初值即编译失败"。
   ⚠ **明确删除原先的"选项②"**（原写「或新增一条真正的 offset 断言 `static_assert(生成 offset == offsetof(T,f))`」）—— **该断言是同义反复**：生成头里 `arr[i].offset` 的初值**本来就是** `offsetof(T, f)`（见 `out/build/<cfg>/codegen/ImageHandle.Reflection.h` 与 `Tools/CodeGen/generated/EmitSample.Reflection.h`），自己等于自己，**任何偏移错误都测不出来**。树里已有同款假断言在跑（`Test/CoreTests/CodeGenMetaTest.cpp` 中拿 `offsetof` 断言 `offsetof`），一并修掉。
   ⚠ **本条不得改"合计状态行"**（**§8.1 正文的 ✅ 行**「7 条真实缺陷[AUDIT-1..7]已修」—— 原写"§7.2 末"**是错的**：§7 内没有这一行，该行在 §8.1；9.6 已更正，本条 Round 10 同步）—— 该行由 **9.6 单独负责**，两边都写会互相作废。
 
 - [x] 9.4 **[AUDIT] 提取期配置保真（`/MDd` → `_DEBUG`/`_ITERATOR_DEBUG_LEVEL=2`）**（⚠ 2026-09-08 按范围变更改为"fixture 可验"）：`build.py` 的 `_msvc_to_clang_env` 只保留 `/I` `/D` `/std:`，**`/MDd` 被 strip**，cl.exe 隐式的 `_DEBUG`/`_ITERATOR_DEBUG_LEVEL=2` 传不到 libclang → 工具算的是 **`/MD` 布局**（`ImageHandle` 实测 `m_Key` 的下一字段在 `120`），而 `/MDd` 真值是 `128`（差 8 字节 = debug STL 给 `std::string` 加的 `_Container_proxy*`）。
   **改用自包含 fixture 验证**（**不引用任何项目头文件**）：新增 `Tools/CodeGen/TestStdLayout.h`，成员含 `std::string`（其 `sizeof` 随 `_ITERATOR_DEBUG_LEVEL` 变化 —— 正是本 bug 的机制）。
-  **Oracle**：① **机制可证** —— 同一 fixture，不带 / 带 `-D_ITERATOR_DEBUG_LEVEL=2` 两次运行，**偏移必须不同**（若相同，说明该宏对本 fixture 的布局没有影响，则本条的机制前提不成立，**须先重查再改代码**）；② **修复** —— `_msvc_to_clang_env` 对含 `/MDd` 的编译命令产出含 `-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`（纯函数级断言，直接调该函数或从构建日志核对）；③ **回归** —— 全 public 的 `TestStruct.h` / `TestEmit.h` 产物逐字节不变。
+  **怎么算做完**：① **机制可证** —— 同一 fixture，不带 / 带 `-D_ITERATOR_DEBUG_LEVEL=2` 两次运行，**偏移必须不同**（若相同，说明该宏对本 fixture 的布局没有影响，则本条的机制前提不成立，**须先重查再改代码**）；② **修复** —— `_msvc_to_clang_env` 对含 `/MDd` 的编译命令产出含 `-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`（纯函数级断言，直接调该函数或从构建日志核对）；③ **回归** —— 全 public 的 `TestStruct.h` / `TestEmit.h` 产物逐字节不变。
   ⚠ **诚实边界（不得省略）**：**hook 端到端那一段（读 `compile_commands.json` → 取某 target 的环境 → 喂给 sidecar）在本 change 内仍无演练对象** —— 因为不注册任何项目类型（见 Round 7）。本条的 ①②③ 只覆盖「宏 → 布局」与「命令 → 宏」两段，**「target → 命令」那一段未验**。
   ⚠ **顺序**：本条是"任何 emitter 改用提取期 offset（字面量）"的**前置** —— 字面量一旦算错就是写死的错数据，而今天靠 `offsetof` 由编译器兜底。
   ✅ **已执行（2026-09-13）**：`build.py` 的 `_msvc_to_clang_env` 遇 `/MDd` / `/MTd` 时补出 `-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`（命令里已定义则不重复追加）；新增夹具 `Tools/CodeGen/TestStdLayout.h`（含 `std::string` 成员）。**实测三件套**：① **机制** —— `tail` 偏移 **40（/MD 规则）vs 48（/MDd 规则）**；② **函数级** —— `/MD` → 两个宏都没有，`/MDd`、`/MTd` → 两个都有，重复定义场景不产生重复参数；③ **回归** —— `python build.py --config Debug --no-configure` **全量通过**，生成物与入库 golden **逐字节一致**。⚠ 诚实边界照旧：**`target → 命令` 那一段在本 change 内仍无演练对象**。
 
 - [x] 9.5a **[AUDIT] 发射顺序改为按声明序（与未验证的提取期 offset 解耦）**：`CodeGenMain.cpp` 里用 `std::sort(..., offsetBytes <)` 把**发射顺序**建立在**未经验证的**提取期偏移上（退化 env 下可全 0：实测 `-nostdinc++ -nostdinc` → EXIT 0 且所有偏移为 0）。→ 删除该排序，或改 `std::stable_sort`（声明序本由 `clang_visitChildren` 的遍历顺序天然给出）。三条根因分开，本条只管"顺序"。
-  **Oracle**（⚠ Round 9 重写、Round 10 再修：原"≥33 字段 fixture"方案**作废**）：① **判据必须落在"排序键"上，不能落在一个函数名上** —— 修复前 `Select-String -Path Tools/CodeGen/CodeGenMain.cpp -Pattern 'offsetBytes'` 在**决定字段发射顺序的那处调用**必须命中（实测为 `std::sort(..., a.offsetBytes < b.offsetBytes)`）；修复后**同一处**必须**不再出现 `offsetBytes`**（注：`offsetBytes` 在字段定义与打印处仍会出现，故判据须限定在该调用处；更简的写法是直接断言 `Select-String -Pattern 'std::sort\s*\('` **零命中**）。
+  **怎么算做完**（⚠ Round 9 重写、Round 10 再修：原"≥33 字段 fixture"方案**作废**）：① **判据必须落在"排序键"上，不能落在一个函数名上** —— 修复前 `Select-String -Path Tools/CodeGen/CodeGenMain.cpp -Pattern 'offsetBytes'` 在**决定字段发射顺序的那处调用**必须命中（实测为 `std::sort(..., a.offsetBytes < b.offsetBytes)`）；修复后**同一处**必须**不再出现 `offsetBytes`**（注：`offsetBytes` 在字段定义与打印处仍会出现，故判据须限定在该调用处；更简的写法是直接断言 `Select-String -Pattern 'std::sort\s*\('` **零命中**）。
     ⚠ **禁止**写成"`std::sort` 零命中 **或改为 `std::stable_sort`**"（Round 9 首版即如此，**假绿**）：`'std::stable_sort'.Contains('std::sort')` 为 **False**，该分支可以**原样保留按 `offsetBytes` 排序的比较器**而判据照样转绿 —— 等于修没修都过；「保留一条注释」也无法验收。
   ② **回归** —— `TestStruct.h` / `TestEmit.h` / `TestNested.h` 的产物**逐字节不变**（须**点名命令与类型名**：`CodeGen.exe Tools/CodeGen/TestStruct.h CodeGenSample -I CACore/header`；`TestNested.h` 的标注类型是 **`CodeGenOuter`**，**不是** `CodeGenNested` —— 后者未标注，实测 **exit 4**，按原名写判据会因命令错而失败）。
   ⚠ **为何废弃 fixture 方案（实测依据，勿再走回头路）**：退化 env 对**自包含标量 fixture 不产生任何扰动** —— `TestStruct.h` 在 `-nostdinc++ -nostdinc` 下仍给出 `a 0 / b 4 / c 8 / d 16`、`TestPrivate.h` 仍给出 `pub 12 / m_a 16 / m_b 20 / m_c 24`，**与非退化运行逐字节相同**；且偏移正确时"按偏移排序"与声明序**恒等**，全塌成 0 时全假比较器**也不移动元素** → 任何这类 fixture 的断言**修复前后都成立**，属恒真断言。「≥33 字段 / `_ISORT_MAX`」的论证因此是**红鲱鱼**，一并删除。
 
 - [x] 9.5b **[AUDIT] 保真门控以"诊断"为准，禁止以 `TypeKind::None` 为准**：partial env 下工具会**静默产出退化的表**（实测：`ImageHandle` 在 `-DWIN32 -D_WINDOWS` 下 `m_Key` 退化成 `"int"` / `TypeKind::Int`，真值是 `ResourceHandleKey`），**exit 0 + stderr 空**，现有任何检查都发现不了。门控应改读**相对参照 env 新引入的** error 级诊断，或**仅统计定位于被解析头文件内**的诊断 —— **不得**直接用 `clang_getNumDiagnostics` 的**绝对非零值**：实测正常路径**必然**消费 MSVC STL 的 `yvals_core.h`，其 `static_assert(false, ...)`（STL1000：编译器版本不匹配）在 libclang 18.1.8 下**恒被触发**，绝对计数恒 > 0 —— 用绝对非零当门控会**拒绝每一个合法输入**，把 9.1/4.3/5.1 的回归全部打死。（工具当前以 `displayDiagnostics=0` 创建 index、把所有诊断丢掉，这正是它现在静默的原因。）
   ⚠ **明令禁止**把触发条件写成 `TypeKind::None`：**AST 路径永远不会产生 `None`**（`fieldTypeKindEnum` 的 `default` 分支返回 `Opaque`），而 `None` 恰恰是 **`CA_REFLECTION` 文本通道的合法输出**（该通道 exit 0 是设计行为、有 golden）。用 `None` 当门控 = **抓不到要抓的案子，还会误杀一条已文档化的通道**。
-  **Oracle**：① partial env（**必须点名复现用的 fixture 与确切命令行**）→ **非零退出**（现状 exit 0 + stderr 空）。⚠ **现树 6 个 fixture 没有一个能复现退化**（实测 `-nostdinc++ -nostdinc`、`-DWIN32 -D_WINDOWS`、`-I <不存在的目录>`、完全不传 `-I` 四种 partial env 下字段表**逐字节相同** —— 它们全部自包含、不引用外部类型）→ **本条须排在 9.4 之后**，并以 9.4 新建的 `Tools/CodeGen/TestStdLayout.h`（成员含 `std::string`；partial env 下 STL 头不可达 → 类型塌成 `int`）作为复现对象；若坚持排在 9.4 之前，须在本条**点名另一个能退化的 fixture**，否则本条**无演练对象**；
+  **怎么算做完**：① partial env（**必须点名复现用的 fixture 与确切命令行**）→ **非零退出**（现状 exit 0 + stderr 空）。⚠ **现树 6 个 fixture 没有一个能复现退化**（实测 `-nostdinc++ -nostdinc`、`-DWIN32 -D_WINDOWS`、`-I <不存在的目录>`、完全不传 `-I` 四种 partial env 下字段表**逐字节相同** —— 它们全部自包含、不引用外部类型）→ **本条须排在 9.4 之后**，并以 9.4 新建的 `Tools/CodeGen/TestStdLayout.h`（成员含 `std::string`；partial env 下 STL 头不可达 → 类型塌成 `int`）作为复现对象；若坚持排在 9.4 之前，须在本条**点名另一个能退化的 fixture**，否则本条**无演练对象**；
   ② **回归**：`CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header`（**必须带类型名** —— 不带时实测 **exit 4** 并打印 `type '-I' is not annotated`，判据会因命令写错而失败）→ exit 0，stdout 为 `CodeGenExternal 2` / `field a` / `field b`；
   ③ 通道选择一致性（**本条前提已更正**）：同一类型的两种 CLI 拼写产物**逐字节一致** —— 实测可比的是「位置参数用未限定名 `EmitSample`」vs「位置参数同前 + `--qualified-name=codegen_demo::EmitSample`」：两者产物 **SHA256 相同**（`791A9AA0D471AE42…`，各 1104 B）。⚠ **原写"限定名与未限定名两种拼写"的前提为假**（实测把限定名当位置参数 → **exit 3**，不是"走另一通道"）—— 该更正同时兑现 Round 10 的 D10。
   ✅ **已执行（2026-09-13）—— 根因查明、已修、脚手架已删**：
   - **诊断真身（先用现场脚手架打出并落盘留证：`.review_tmp/9.5b-diagdump.txt`）**：残缺环境下 libclang 打的是 **fatal 级**诊断 `'cstddef' file not found`，而它**定位于被包含的框架头 `CACore/header\CodeGenMeta.h`**，**不在被解析头文件里** —— 旧守卫按"文件名 == 被解析文件"过滤，**必然漏掉它**。这正是此前"原因未查明"的那个原因。（另实测：完整环境下**没有任何 fatal 诊断**，只有 `#pragma once in main file` 警告、STL1000 的 `static_assert` **error** 与 `Reflection.h` 的两条 error —— 故**绝对计数**永远不能当门控。）
   - **修法（属性判据，不看参数名）**：`sev >= CXDiagnostic_Fatal` 即视为解析被截断 → **exit 6**；拒发报告指名**未解析的 include** 与**退化的字段**，逐字为 `unresolved include (fatal): CACore/header\CodeGenMeta.h:16:10: fatal error: 'cstddef' file not found` / `degraded members of 'StdLayout' (reported offset 0 although not the first member): key, tail`。
   - **四侧实测**（命令与原始输出：`.review_tmp/9.5b-verify.txt`）：① 含 `-nostdinc` 拼写但用 `-isystem` 把 STL 各根喂满 → **exit 0**（判据不认拼写）；② `-nostdinc++ -nostdinc` → **exit 6**；③ `-nostdlibinc`（不含该子串）→ **exit 6**；④ `--target=x86_64-unknown-linux-gnu` + 仅 SDK `-isystem`（不靠参数名）→ **exit 6**。回归：`TestExternal.h CodeGenExternal` → exit 0 且输出 `CodeGenExternal 2 / field a / field b`；`TestPrivate.h PrivateLike` 提取 → exit 0 且 `pub 12 / m_a 16 / m_b 20 / m_c 24`；完整环境对照 → exit 0，`python build.py --config Debug` 全绿、生成物与入库 golden 逐字节一致。
-  - **修前红态（取自真实前态 `HEAD:Tools/CodeGen/CodeGenMain.cpp`，非合成副本）**：同一条残缺命令 **exit 0**、stderr 全空、输出退化表（`field key 0 int` / `field tail 0 int`）；证据 `.review_tmp/9.5b-redstate.txt`。
+  - **修前改之前（取自真实前态 `HEAD:Tools/CodeGen/CodeGenMain.cpp`，非合成副本）**：同一条残缺命令 **exit 0**、stderr 全空、输出退化表（`field key 0 int` / `field tail 0 int`）；证据 `.review_tmp/9.5b-redstate.txt`。
   - **脚手架已删**：`git grep -n DIAGDUMP -- Tools/CodeGen` **零命中**（删前输出已落盘，见上）。⚠ 附带查实：该脚手架此前**从未编译成功过**（用了 libclang 里不存在的 `clang_getEmptyString`），这正是"二进制里没有 DIAGDUMP"的原因；本轮先修好仪器才拿到真身。
 
 - [x] 9.5c **[AUDIT] bit-field 语义先定后改**：`CodeGenMeta.h` 把 offset 定义为 `offsetof` 的**字节**偏移，而 `CodeGenMain.cpp` 是 `bits > 0 ? bits/8 : 0` —— bit-field 的偏移非字节对齐，两个位域会**塌到同一个 byte offset**。
-  **Oracle**：二者择一并落盘 —— ① 明确定义 offset 为字节，并在文档留一句"bit-field 按字节粒度合并，已知局限"；**或** ② 让工具对含 bit-field 的标注类型**拒绝**（非零退出）。**不得**在语义未定的前提下要求"不再塌成同一 offset"（原 9.5 的写法正是如此，**根本无法验收**）。
+  **怎么算做完**：二者择一并落盘 —— ① 明确定义 offset 为字节，并在文档留一句"bit-field 按字节粒度合并，已知局限"；**或** ② 让工具对含 bit-field 的标注类型**拒绝**（非零退出）。**不得**在语义未定的前提下要求"不再塌成同一 offset"（原 9.5 的写法正是如此，**根本无法验收**）。
   ✅ **已执行（2026-09-13，选①）**：`specs/codegen-framework/spec.md` 的 REQ「统一 CodeGen 流水线」与 `design.md` 的 **D3** 均已写明 **`offset` 的单位是「字节」**（与 `offsetof` 同口径），并写明**已知局限「bit-field 按字节粒度合并」**（相邻位域会落在同一个字节偏移上）—— 同时明说本 change **不拒绝**含位域的类型、**也不声称**能区分它们。**未采用②**（拒绝发射）。
 
 - [x] 9.6 **[AUDIT] Round-5 处置真正合回产物**（**回归处置：AUDIT-5 / AUDIT-6 的修复从未落盘**）：Round 5 把这两条的处置写进了 Review Log，**被点名的正文一字未改**。站点如下（**按引文 grep，勿按行号**）：
   - §6.2 标题：「生成 `custom_hash_trait<Type>::hash` + 值相等 **`operator==`**」→ 产物实际是 `static bool equal(Obj const&, Obj const&)`（见 `Tools/CodeGen/generated/EmitSample.Hash.h`），标题与 oracle 里的 `a==b` **均不成立**
-  - §6.2 **Oracle**：「含 padding 结构体『逻辑相等但布局不同』仍哈希相等」→ **从未做过该实证**
+  - §6.2 **怎么算做完**：「含 padding 结构体『逻辑相等但布局不同』仍哈希相等」→ **从未做过该实证**
   - §4.3 正文：「（`ResourceHandleKey` **128B** + shared_ptr×2 + ImageType）」← 与**同一行**的 `m_Key 0 / … 120` **自相矛盾**（128 ≠ 120）
   - Round 4「实证补充」段：「（`ResourceHandleKey` **128B** + shared_ptr 16B×2 + ImageType 4B）」（⚠ 该段**位于 `## Review Log` 内**，不是正文）
   - **§8.1 正文的合计状态行**（原写"§7.2 末"—— Round 8 实测 **§7.2 并无此行，该行在 §8.1**）：「7 条真实缺陷[AUDIT-1..7]**已修**…全部修正**合回** design/tasks 或如实记录于 Review Log Round 5」← **该句为假**（AUDIT-4/5/6 均未合回）。⚠ 引文须**逐字**：目标行写的是"**合回**"（**无"已"**）—— Round 9 首版引成"已合回"，**grep 不到**（带"已"的那行在 Round 6 表格内）
-  **Oracle**：① 上述修正必须命中**非 §9 自身**的行 —— Round 8 复审实测：原 5 条引文中有 **3 条只在 §9 内部命中**（`值相等` + `operator==`、`含 padding 结构体`、`ResourceHandleKey` + `128B`），**等于没定位**，必须改为能在正文命中；② 对**位于 Review Log 内**的那一条（Round 4 实证补充），**只要求就地追加更正注记**（"已由 §9 更正 / 配置口径见 §4.3"）—— 因为它**不可能**满足"落在正文"的要求，**Oracle 不得对 Log 内的行提出正文级要求**；③ §6.2 命名真实 API（`hash` + `equal`），且不再承诺未做过的"布局不同 struct"实证；④ 合计状态行改为**逐条如实**：`AUDIT-2=代码已修`、`AUDIT-4/5/6=由 §9 落盘（列站点）`、`AUDIT-3=由 9.14 处置` —— **不得出现"尚未合回"这类在本条执行完即变为假的句子**。
+  **怎么算做完**：① 上述修正必须命中**非 §9 自身**的行 —— Round 8 复审实测：原 5 条引文中有 **3 条只在 §9 内部命中**（`值相等` + `operator==`、`含 padding 结构体`、`ResourceHandleKey` + `128B`），**等于没定位**，必须改为能在正文命中；② 对**位于 Review Log 内**的那一条（Round 4 实证补充），**只要求就地追加更正注记**（"已由 §9 更正 / 配置口径见 §4.3"）—— 因为它**不可能**满足"落在正文"的要求，**验收要求 不得对 Log 内的行提出正文级要求**；③ §6.2 命名真实 API（`hash` + `equal`），且不再承诺未做过的"布局不同 struct"实证；④ 合计状态行改为**逐条如实**：`AUDIT-2=代码已修`、`AUDIT-4/5/6=由 §9 落盘（列站点）`、`AUDIT-3=由 9.14 处置` —— **不得出现"尚未合回"这类在本条执行完即变为假的句子**。
   ⚠ **合计状态行的唯一归属是本条**（9.3 不得改，两边写会互相作废）；**数字口径以 9.4 为准**（x64-debug = 128、`/MD` = 120，**必须写明配置**，不得裸写"真值/与真值吻合"）。
 
 - [x] 9.7 **[AUDIT] Round-4 机制叙述事实性更正**（**换掉以 `exit 0` 为依据的"证据"**）：Round 4 有三条机制断言被后续实测反驳，而它们当时被写成"已核实"，并被后面的条目当作可信任依据引用（**按引文 grep，勿按行号**）：
   - Round 4 表格行：「`ImageHandle`…+`_WINDOWS`/`USING_EASTL=0` define → `128/144/160`」← **归因错误**：该 define 集**本来就在** per-module env 里，且给的是 `120/136/152`；真正决定 `128/144/160` 的是 `_DEBUG` / `_ITERATOR_DEBUG_LEVEL=2`
   - Round 4「实证补充」段 + §4.1 实现要点③ + `design.md` 迁移计划第 1 步：「clang **内置头即可**」（**逐字引文** —— ⚠ Round 9 首版引成"clang **自带 builtin 头**即可满足这些类型"，该串**只在 `## Review Log` 内命中**，按它 grep **找不到** §4.1 与 `design.md` 两个正文站点）← 实测 vendored LLVM 树递归 **0 个 `stddef.h`**；`-nostdinc++ -nostdinc` 会把整张表塌成 `0/0/0/0`
   - 同处：「加 `-isystem` MSVC STL 实测 parse 失败」← 实测把 vcvars 的全部 INCLUDE 以 `-isystem` 喂入**可以正常 parse**（且布局与不喂**逐字段相同** —— 即"可 parse"与"布局正确"是两回事）
-  **Oracle**：上述站点改为**实测归因**（写明 `_DEBUG`/IDL=2 才是决定者；写明工具在缺 builtin 头时**同样 exit 0 但表退化** → **保真度不能靠退出码判定**）。
+  **怎么算做完**：上述站点改为**实测归因**（写明 `_DEBUG`/IDL=2 才是决定者；写明工具在缺 builtin 头时**同样 exit 0 但表退化** → **保真度不能靠退出码判定**）。
   ⚠ **禁止把"能正常 parse（exit 0）"当作证据** —— 那正是本节反复打击的"恒真断言"。证据必须是**可辨别的量**：偏移不同 / parse 失败 / 诊断数非零。
   ✅ **保留**：「绝不喂全 union」这条规则**独立成立**（`CA_STATIC_BUILD 0/1` 冲突宏、同名 basename、include-root 顺序敏感），与上面三条归因错误无关，**不得一并删掉**。
 
 - [x] 9.8 **[AUDIT] spec 抽取范围收窄（消除不可证伪 SHALL）**：`specs/codegen-framework/spec.md` 的 REQ「反射标注用标记宏自动爬取…」SHALL libclang 提取「成员名/type/offset/**方法/枚举/基类**」，但工具里**没有**任何 `BaseSpecifier|EnumDecl|EnumConstant|FunctionDecl|CXXMethod` 处理；同一 REQ 里的「（如实现支持）」是**不可能失败的验收条款**，`design.md` 的 **D5** 同样列了可选表。
   ⚠ **更正一处事实错误**：本节早先写的"工具**唯一** cursor 过滤是 `CXCursor_FieldDecl`"**是错的** —— 树里有**三处** cursor 过滤：类型发现、**成员过滤**（`CXCursor_FieldDecl`）、命名空间/结构体发现。准确表述是「**对目标 cursor 所应用的唯一成员过滤**是 `CXCursor_FieldDecl`」。实质性结论不变（确无方法/枚举/基类处理）。
-  **Oracle**：二者择一并落盘 —— ① 收窄 spec 为**字段-only**，并补上"两条标注通道按成员可见性划分"的规则；**或** ② 实现 `EnumDecl` / `BaseSpecifier` 提取。收窄后 spec 中**不存在无代码支撑的 SHALL**。
+  **怎么算做完**：二者择一并落盘 —— ① 收窄 spec 为**字段-only**，并补上"两条标注通道按成员可见性划分"的规则；**或** ② 实现 `EnumDecl` / `BaseSpecifier` 提取。收窄后 spec 中**不存在无代码支撑的 SHALL**。
 
 - [x] 9.9 **[AUDIT] codegen 失败不得静默（含**非退出码**路径）**：`build.py` 的 codegen 步骤对下列情况**全部**只 `print(WARN)` 后放过，**构建仍然报成功**：
   - sidecar 非零退出（`print(WARN)` + `continue`）
@@ -288,16 +288,16 @@
   - 取不到某模块的编译环境（`continue`）
   - `CodeGen.exe` 不存在（`return`）
   `codegen()` 的返回值**未被使用**，构建末尾**无条件**打印成功 → 真实工具故障与成功在**构建退出码上不可区分**。
-  **Oracle**：① 注入 sidecar 退出码 4 / 1 / 3；② **临时移走 `compile_commands.json`**；③ **临时改名 `CodeGen.exe`** —— 三种输入下，日志与**构建退出码**都必须反映失败，不再出现无条件的成功行。（诚实边界：WARN 已带出 stderr，故非"完全静默"；但"退出码不可区分"这一点是实的。）
+  **怎么算做完**：① 注入 sidecar 退出码 4 / 1 / 3；② **临时移走 `compile_commands.json`**；③ **临时改名 `CodeGen.exe`** —— 三种输入下，日志与**构建退出码**都必须反映失败，不再出现无条件的成功行。（诚实边界：WARN 已带出 stderr，故非"完全静默"；但"退出码不可区分"这一点是实的。）
   ⚠ **与"空白名单不阻断 build"的关系**：空名单是**合法**配置（EXIT 0、不产文件），**不得**被本条改成失败；本条规定的是**异常**路径。
   ✅ **已执行并实测（2026-09-13）**（原始输出：`.review_tmp/round-evidence.txt`）：
   - **① 清单指向未标注类型** → `python build.py --config Debug --no-configure CoreTests` **exit 1**，日志逐字为 `CODEGEN FAILED (3) — build not reported as successful`，随后三条 `CodeGen 'NotAnnotatedAnywhere' --emit-reflection/--emit-serialization/--emit-hash exit 4: … is not annotated … refusing to extract`（原文此处误记为 `FAILED (1)`，2026-09-13 由 9.34 按证据文件更正）。
   - **② 临时移走 `compile_commands.json`** → **exit 1**，日志 `compile_commands.json not found at …(configure must export it)`。
-  - **③ 改名 / 删除 `CodeGen.exe` —— 该分支实测不可达，Oracle 据此更正**：`codegen()` 第一步就 `cmake --build <build dir> --target CodeGen`，删掉 exe 后 ninja **把它重新链出来**（`[1/1] Linking CXX executable bin\CodeGen.exe`），随后三个 emitter 全部 `(matches golden)`、`BUILD SUCCESSFUL`（exit 0）—— 即 `if not sid.exists()` 与 `except FileNotFoundError` 是**构建成功后的后置校验**，正常路径够不到（Round 10 的 D7 已预告，本轮实测确认）。**改写后的 Oracle（点名同一条异常路径所在的层面，不得改写成非异常路径）**：让 **CodeGen 目标本身构建失败**（在 `Tools/CodeGen/CodeGenMain.cpp` 末尾追加一行非法 C++）→ `python build.py --config Debug --no-configure CodeGen` 必须 **exit 1** 且日志含编译错误行与 `ERROR: command failed (exit 1)` —— **实测已落盘**：`openspec/changes/engine-codegen-framework/evidence/codegen-target-build-failure.txt`（该次 `python build.py --config Debug --no-configure CodeGen` **exit=1**，文件内含 `FAILED: Tools/CodeGen/CMakeFiles/CodeGen.dir/CodeGenMain.cpp.obj` 与 `error C2059` 行；探针已还原并复绿）。
+  - **③ 改名 / 删除 `CodeGen.exe` —— 该分支实测不可达，验收要求 据此更正**：`codegen()` 第一步就 `cmake --build <build dir> --target CodeGen`，删掉 exe 后 ninja **把它重新链出来**（`[1/1] Linking CXX executable bin\CodeGen.exe`），随后三个 emitter 全部 `(matches golden)`、`BUILD SUCCESSFUL`（exit 0）—— 即 `if not sid.exists()` 与 `except FileNotFoundError` 是**构建成功后的后置校验**，正常路径够不到（Round 10 的 D7 已预告，本轮实测确认）。**改写后的 验收要求（点名同一条异常路径所在的层面，不得改写成非异常路径）**：让 **CodeGen 目标本身构建失败**（在 `Tools/CodeGen/CodeGenMain.cpp` 末尾追加一行非法 C++）→ `python build.py --config Debug --no-configure CodeGen` 必须 **exit 1** 且日志含编译错误行与 `ERROR: command failed (exit 1)` —— **实测已落盘**：`openspec/changes/engine-codegen-framework/evidence/codegen-target-build-failure.txt`（该次 `python build.py --config Debug --no-configure CodeGen` **exit=1**，文件内含 `FAILED: Tools/CodeGen/CMakeFiles/CodeGen.dir/CodeGenMain.cpp.obj` 与 `error C2059` 行；探针已还原并复绿）。
 
-- [x] 9.10 **[AUDIT] 最终提交 + 清理仓库根遗留**（✅ 已执行 2026-09-13：返工提交 `e7eed3b`；`_synth.json` / `vc140.pdb` / `d3d12_rerun.log` / `vulkan_rerun.log` **删除**，`.review_tmp/` **入 `.gitignore`**，两项均写进提交信息；`CLAUDE.md` 显式随该提交一起交；`.claude/workflows/` 不删不裹入并写进提交信息；提交后 `git status --porcelain` 只剩 `.claude/workflows/` 一项未跟踪。⚠ 遗留：`9.29`–`9.34` 与两个未跑的审查任务意味着**还会有后续提交**）（⚠ 2026-09-08 收窄：原条目把"基线提交"与"清理遗留"**两个不相干的根因捆在一条**、且排在 §9 第 10 位 → 9.1–9.9 全落在无前置版本可对比的树里）：**基线提交已完成**（`a23b633`，见本节文首"已完成"）。本条只剩：在 §9 其余条目落地后**提交返工改动**，并处理仓库根遗留。
+- [x] 9.10 **[AUDIT] 最终提交 + 清理仓库根遗留**（✅ 已执行 2026-09-13：返工提交 `e7eed3b`；`_synth.json` / `vc140.pdb` / `d3d12_rerun.log` / `vulkan_rerun.log` **删除**，`.review_tmp/` **入 `.gitignore`**，两项均写进提交信息；`CLAUDE.md` 显式随该提交一起交；`.claude/workflows/` 不删不裹入并写进提交信息；提交后 `git status --porcelain` 只剩 `.claude/workflows/` 一项未跟踪。⚠ 遗留：`9.29`–`9.34` 与两个未跑的审查任务意味着**还会有后续提交**）（⚠ 2026-09-08 收窄：原条目把"基线提交"与"清理遗留"**两个不相干的根因捆在一条**、且排在 §9 第 10 位 → 9.1–9.9 全落在无前置版本可对比的树里）：**基线提交已完成**（`a23b633`，见本节文首"已完成"）。本条只剩：在 §9 其余条目做完后**提交返工改动**，并处理仓库根遗留。
   **遗留清单**（`git status` 实测）：`_synth.json`、`vc140.pdb`、`d3d12_rerun.log`、`vulkan_rerun.log`、`.review_tmp/`（联网核查落下的 HTML 缓存）、`.claude/workflows/`（跨多个 change 的脚本，**不属于本 change**）。
-  **Oracle**：① `git log` 含本 change 的**返工**提交；② `git status --porcelain` **无未预期遗留** —— 明确：**9.12 把 Review Log 写回 `tasks.md` 属预期改动**，不得据此判失败（原写"仅剩有意忽略项"会被其后的 9.12 **自我作废**，Round 9 已改）；③ **`_synth.json` / `vc140.pdb` / `d3d12_rerun.log` / `vulkan_rerun.log` / `.review_tmp/` 这 5 项**删除或入 `.gitignore`（二者择一，并在提交信息里说明选了哪个）；④ **`.claude/workflows/` 不在本条处置范围内** —— 它含 **24 个未跟踪脚本**、分属其他 change（`imgui-multiwin-*`、`vulkan-*`、`readback-*`、`csharp-scripting-*` 等），**既不得删除**（未跟踪 ⇒ git 无法恢复，删了就永久没了），**也不得裹入**本次提交；只在提交信息里写明"未处置，属另一笔账"。
+  **怎么算做完**：① `git log` 含本 change 的**返工**提交；② `git status --porcelain` **无未预期遗留** —— 明确：**9.12 把 Review Log 写回 `tasks.md` 属预期改动**，不得据此判失败（原写"仅剩有意忽略项"会被其后的 9.12 **自我作废**，Round 9 已改）；③ **`_synth.json` / `vc140.pdb` / `d3d12_rerun.log` / `vulkan_rerun.log` / `.review_tmp/` 这 5 项**删除或入 `.gitignore`（二者择一，并在提交信息里说明选了哪个）；④ **`.claude/workflows/` 不在本条处置范围内** —— 它含 **24 个未跟踪脚本**、分属其他 change（`imgui-multiwin-*`、`vulkan-*`、`readback-*`、`csharp-scripting-*` 等），**既不得删除**（未跟踪 ⇒ git 无法恢复，删了就永久没了），**也不得裹入**本次提交；只在提交信息里写明"未处置，属另一笔账"。
   ⚠ **`CLAUDE.md` 的归属须明写**：`git status` 同时显示 ` M CLAUDE.md`（本轮新增的"审查闭环用 goal 驱动"那条规则），它**既不在上列 5 项内、也不是 §9 任何任务的产物** → 本条必须**显式声明**它随本次提交一起交（推荐）或**明确留在工作区**，**不得**让它落在"预期/未预期"的真空里。
   ⚠ **位置约束**：本条必须排在 9.11 **之后**（否则 9.11 还要改 `tasks.md`/`spec.md`）；且**不得**要求"提交后工作区绝对干净"—— 9.12 会在其后写回 Review Log。
 
@@ -310,26 +310,26 @@
   ⑥ 同 Round 表格行「(MCP 核到官方 clang-c/Index.h 原句 …)」
   ⑦ 同 Round「外部 API 文档核查已完成(本轮,MCP 核真实 URL,见上)」
   ⑧ Round 6 正文「须 9.11 处置」段
-  **Oracle**：① 引用的**行号一律改为引文锚点**（见本节引用规约，**含 `build.py`**），签名描述与 libclang 官方头文件一致；② MCP 声明在**上列 8 处**逐处改毕（**逐条列出改了什么**，不接受「与实测一致」这类自证式口径）；③ **每个被引用的 URL 标注实际所用工具**。
+  **怎么算做完**：① 引用的**行号一律改为引文锚点**（见本节引用规约，**含 `build.py`**），签名描述与 libclang 官方头文件一致；② MCP 声明在**上列 8 处**逐处改毕（**逐条列出改了什么**，不接受「与实测一致」这类自证式口径）；③ **每个被引用的 URL 标注实际所用工具**。
   ⚠ **证据强度须诚实标注（Round 9 复审指出）**：现有材料只有 Round 6 的**自述**「无 MCP 工具」（**无落盘测量记录**），**不能证明 Round 5 的 MCP 声明为假**。⚠ **2026-09-12 更正（原文自相矛盾）**：原文写"改法二选一：改为**不可验证的中性表述**，或注明「该轮工具实况**无法回溯**」"，紧接着又说"**不得**把它改写成另一个同样无证据的断言" —— **前半句正是后半句禁止的东西**（"不可回溯/不可验证"本身就是无证据断言）。**唯一合格改法**：只陈述**可核事实**（例：「本行所述工具**无落盘证据**；已知 Round 6 全部 agent 无 MCP web 工具」），并逐 URL 标注实际所用工具。。**不得**把它改写成另一个同样无证据的断言。
 
-- [x] 9.12 **Review & Adversarial Verify（返工后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-12`，5 agents / 20 条候选 / 保留 11 条；回归清单六项逐项给出命令与输出；结论与新开任务见 Review Log Round 24 与 §10）：对 §9 全部已落地条目开 workflow 做对抗验证：正确性 / 完整性 / 诚实性 / **回归去重**；外部 API 核查须引用真实 URL，且对抗者**独立复查每个 URL 的真实性**。
+- [x] 9.12 **Review & Adversarial Verify（返工后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-12`，5 agents / 20 条候选 / 保留 11 条；回归清单六项逐项给出命令与输出；结论与新开任务见 Review Log Round 24 与 §10）：对 §9 全部已做完条目开 workflow 做对抗验证：正确性 / 完整性 / 诚实性 / **回归去重**；外部 API 核查须引用真实 URL，且对抗者**独立复查每个 URL 的真实性**。
   **回归核对必须先做**（一律按引文 grep，**不读 Review Log 就下结论不算**）：
   - Round 5 的 AUDIT-4 / AUDIT-5 / AUDIT-6 处置是否**真正落到正文**（9.3 / 9.6 的核心）
   - Round 4 的三条机制归因是否已改为**实测归因**（9.7）
   - `120/136/152` 是否已从"x64-debug 真值"的表述中清除、且**写明配置**（9.4 / 9.6）
   - **9.15 的代码处置是否落盘**：`git grep -n CA_CODEGEN_REGISTER -- Interface` 零命中、`build.py` 清单与所选方案一致
-  - **9.16 的漂移方向**：有可执行验证，或被明确标注"本 change 未覆盖"
+  - **9.16 的对不上方向**：有可执行验证，或被明确标注"本 change 未覆盖"
   - **本节自检**：§9 内**零**「本文档/`build.py` + 行号」式引用（引文锚点规约）；所有锚点引文**可被 grep 命中**
-  **Oracle**：① 上述各项回归各有 grep 证据；② **9.1 的修复未削弱访问控制**（无 `#define private public` / `-fno-access-control` / 无差别 friend）；③ 本 change **不再引用任何项目头文件**做验证 —— 判据：`Tools/CodeGen/` 下各 fixture 的 `#include` **只允许**框架头 `CodeGenMeta.h`（它位于 `CACore/header`），**不得**出现引擎类型头（`Interface/` 等）。⚠ 原写法"grep fixture 的 `#include`"会**误报** —— 每个标注 fixture 都必须 include `CodeGenMeta.h`（见 `TestStruct.h` / `TestEmit.h` / `TestNested.h` / `TestPrivate.h`）；④ Review Log 有逐条对抗结论 + 复查过的 URL 及其真实性结论；⑤ **最后一个可见输出是 Review Log**。
-  ⚠ **原 oracle 第②条已删除**（原文为"真实类型 TU 编译 exit 0，且删头 / 漂移均报错"）—— 随 9.2 作废，本 change 不接线真实类型。
+  **怎么算做完**：① 上述各项回归各有 grep 证据；② **9.1 的修复未削弱访问控制**（无 `#define private public` / `-fno-access-control` / 无差别 friend）；③ 本 change **不再引用任何项目头文件**做验证 —— 判据：`Tools/CodeGen/` 下各 fixture 的 `#include` **只允许**框架头 `CodeGenMeta.h`（它位于 `CACore/header`），**不得**出现引擎类型头（`Interface/` 等）。⚠ 原写法"grep fixture 的 `#include`"会**误报** —— 每个标注 fixture 都必须 include `CodeGenMeta.h`（见 `TestStruct.h` / `TestEmit.h` / `TestNested.h` / `TestPrivate.h`）；④ Review Log 有逐条对抗结论 + 复查过的 URL 及其真实性结论；⑤ **最后一个可见输出是 Review Log**。
+  ⚠ **原 oracle 第②条已删除**（原文为"真实类型 TU 编译 exit 0，且删头 / 对不上均报错"）—— 随 9.2 作废，本 change 不接线真实类型。
 
 - [x] 9.13 **[AUDIT] `--no-configure` 下 codegen 不激活**（Round 7 复审实测确认）：`build.py` 里 `codegen()` 的**唯一调用点**位于 `if configure_step:` 分支内（`configure_step = "--no-configure" not in args`），故 `python build.py --no-configure`（文档化的增量构建路径）**从不跑 codegen**。当前无害（不注册任何类型），但**一旦接线真实类型，增量构建就会静默消费陈旧生成头**；且 `codegen()` 自身在缺环境 / 缺 sidecar 时也走 WARN 放过路径（那部分归 9.9）。
-  **Oracle**：① 删除 `out/build/<cfg>/codegen/` 下任一生成物后执行 `python build.py --config Debug --no-configure <target>` —— **要么**该生成物被重新生成（时间戳更新、内容与全量构建一致），**要么**以 **codegen 专属**的错误信息失败（**不得**是裸 `C1083`）；② `spec` 的 REQ「build.py 接入 codegen 步骤」Scenario 补上 `--no-configure` 分支（现文自限"无 `--no-configure`"，对该路径沉默）。
+  **怎么算做完**：① 删除 `out/build/<cfg>/codegen/` 下任一生成物后执行 `python build.py --config Debug --no-configure <target>` —— **要么**该生成物被重新生成（时间戳更新、内容与全量构建一致），**要么**以 **codegen 专属**的错误信息失败（**不得**是裸 `C1083`）；② `spec` 的 REQ「build.py 接入 codegen 步骤」Scenario 补上 `--no-configure` 分支（现文自限"无 `--no-configure`"，对该路径沉默）。
   ✅ **已执行并实测（2026-09-13）**：删掉 `out/build/x64-debug/codegen/EmitSample.Reflection.h` 后执行 `python build.py --config Debug --no-configure CoreTests` → **exit 0**，日志出现三个 emitter 的 `generated … (matches golden)`（含被删那一份：重新生成、**1104 B**、与入库 golden 逐字节一致）；spec 的该 Scenario 已补 `--no-configure` 分支并标为"已通过"。
 
 - [x] 9.14 **[AUDIT] AUDIT-3 处置归属**（"仅记录在 Review Log"＝未落盘本身）：Round 5 要求把"丢 `/MDd` 不复现 debug-STL 布局"这条局限**写进 §4.3 正文与 design**；Round 6 复核判定它**仅存在于 Review Log**。9.3 只认领 AUDIT-4、9.6 只认领 AUDIT-5/6 —— **AUDIT-3 无人认领**，而 9.6 的原措辞还把它写成"AUDIT-3＝仅 Review Log 记录的诚实局限"（**那正是未落盘本身**）。
-  **Oracle**：二者择一并落盘 —— ① 在 §4.3 正文与 design 写入该局限（含"丢 `/MDd` 时偏移为 `/MD` 布局"的**实测数字 + 配置标注**）；**或** ② 明确声明该局限**已被 9.4 取代**，并在同一站点给出 9.4 的派生宏与实测证据。验收：**站点限定** —— 必须命中 **§4.3 正文**与 **`design.md` 迁移计划**两处，并**排除** §8.1 的状态行与本节自身的引文行（Round 8 实测：裸 grep 该关键词在 §8.1 状态行与本条自身行**已命中** → 原写法**恒绿**）。若选 ②，**须排在 9.4 之后**（在现执行序位置上 9.4 的派生宏与数字尚不存在）。
+  **怎么算做完**：二者择一并落盘 —— ① 在 §4.3 正文与 design 写入该局限（含"丢 `/MDd` 时偏移为 `/MD` 布局"的**实测数字 + 配置标注**）；**或** ② 明确声明该局限**已被 9.4 取代**，并在同一站点给出 9.4 的派生宏与实测证据。验收：**站点限定** —— 必须命中 **§4.3 正文**与 **`design.md` 迁移计划**两处，并**排除** §8.1 的状态行与本节自身的引文行（Round 8 实测：裸 grep 该关键词在 §8.1 状态行与本条自身行**已命中** → 原写法**恒绿**）。若选 ②，**须排在 9.4 之后**（在现执行序位置上 9.4 的派生宏与数字尚不存在）。
 
 - [x] 9.15 **[AUDIT] 落盘"范围变更"的代码处置**（Round 8 复审确认：该动作**只写在散文里、没有任何任务认领** → 本节多处前提与当前树不符）：`Interface/RenderInterface/header/ShaderResourceHandle.h` 的两行 `CA_CODEGEN_REGISTER` **仍在**（`git grep -n CA_CODEGEN_REGISTER -- Interface` 实测命中 `:185`/`:186`）；`build.py` 的 `CODEGEN_ANNOTATED` **仍列** `ImageHandle`/`BufferHandle`。因此文首范围变更块与 §9 里"本 change 不注册任何项目类型"的表述**与当前树不符**，且 9.9① / 9.13① 的验证对象**悬空**。
   **✅ 已全部完成（2026-09-13）**：
@@ -351,46 +351,46 @@
     - **若选甲，建议只留一条**（`TestEmit.h` / `EmitSample`，它已有入库 golden），并把"生成完与 golden **逐字节对拍**"作为失败判据 —— 这样该清单检查的是"编译环境管道算出的产物 == 手工参数算出的产物"，**这一段今天没有任何测试覆盖**，不是重复用例。
     - **若选乙**：9.9 / 9.13 的失败须改为**人工注入**（临时把清单设为一条指向不存在头文件的条目）来构造。
     - **判据（无论选哪个）**：`Select-String -Path build.py -Pattern '^CODEGEN_ANNOTATED' -Context 0,3` 显示的清单与最终选择一致。**（2026-09-13 更正）** 原文末句"且**该选择必须先由用户确认，不得由执行者自行挑一个**"**作废** —— 该选择已由执行者裁定（选甲），不再上呈用户；提交信息与 Review Log 须**如实写明"该项由执行者裁定、未经用户确认"**，**不得声称已获用户确认**。
-  **Oracle**：① `git grep -n CA_CODEGEN_REGISTER -- Interface` **零命中**；② **该文件必须完整还原为 apply 前**（`c05d7d6`）—— 本次对它共加 **6 行**：`#include <CodeGenMeta.h>`、一个空行、**2 行注释**、以及 2 行注册宏；**只删注册宏还原不了**（`CA_REFLECTION` 定义在 `CACore/header/Reflection.h`，删掉注册宏后那个 include 即成死引用）。判据：**`git diff c05d7d6 --stat -- Interface` 为空**。⚠ **必须写基准 `c05d7d6`** —— 不写基准时 `git diff --stat` 比的是**工作区 vs index**，只要 `git add` 过就会"为空"，判据会**假通过**（Round 9 复审实测）；③ `Select-String -Path build.py -Pattern '^CODEGEN_ANNOTATED' -Context 0,3` 显示的清单与所选方案一致；④ **若选乙而未同条改写 9.9① / 9.13①，视为未完成**。
+  **怎么算做完**：① `git grep -n CA_CODEGEN_REGISTER -- Interface` **零命中**；② **该文件必须完整还原为 apply 前**（`c05d7d6`）—— 本次对它共加 **6 行**：`#include <CodeGenMeta.h>`、一个空行、**2 行注释**、以及 2 行注册宏；**只删注册宏还原不了**（`CA_REFLECTION` 定义在 `CACore/header/Reflection.h`，删掉注册宏后那个 include 即成死引用）。判据：**`git diff c05d7d6 --stat -- Interface` 为空**。⚠ **必须写基准 `c05d7d6`** —— 不写基准时 `git diff --stat` 比的是**工作区 vs index**，只要 `git add` 过就会"为空"，判据会**假通过**（Round 9 复审实测）；③ `Select-String -Path build.py -Pattern '^CODEGEN_ANNOTATED' -Context 0,3` 显示的清单与所选方案一致；④ **若选乙而未同条改写 9.9① / 9.13①，视为未完成**。
 
-- [x] 9.16 **[AUDIT] REQ#5 的"漂移"方向无验证归属**（Round 8 复审确认）：9.2 作废后，`spec` 的 REQ「生成源码以显式源清单纳入构建」Scenario 仍**规范性**要求"与注解漂移 → 经 ABI 校验失败；均非静默"，而 4.2 只验了**缺失**方向（删生成头 → `C1083`）—— **"漂移"方向在本 change 内没有任何任务演练**，§9 也没有条目接住它。
-  **Oracle**：二者择一并落盘 —— ① 新增一条**冒烟**：对已提交的 golden `Tools/CodeGen/generated/EmitSample.Reflection.h` **改字段数**（增/删一条 `arr[]` 初始化项，或改 `fieldCount` 字面量），跑 `python build.py --config Debug --no-configure CoreTests` → **必须构建失败**（由 `static_assert_abi_consistency` 的 `fieldCount == member_count` 接住），且失败信息指向 ABI 漂移；**或** ② 在 spec 中把该 Scenario 的"漂移"方向**明确标注为本 change 未覆盖**，并给出理由与后续归属。
+- [x] 9.16 **[AUDIT] REQ#5 的"对不上"方向无验证归属**（Round 8 复审确认）：9.2 作废后，`spec` 的 REQ「生成源码以显式源清单纳入构建」Scenario 仍**规范性**要求"与注解对不上 → 经 ABI 校验失败；均非静默"，而 4.2 只验了**缺失**方向（删生成头 → `C1083`）—— **"对不上"方向在本 change 内没有任何任务演练**，§9 也没有条目接住它。
+  **怎么算做完**：二者择一并落盘 —— ① 新增一条**冒烟**：对已提交的 golden `Tools/CodeGen/generated/EmitSample.Reflection.h` **改字段数**（增/删一条 `arr[]` 初始化项，或改 `fieldCount` 字面量），跑 `python build.py --config Debug --no-configure CoreTests` → **必须构建失败**（由 `static_assert_abi_consistency` 的 `fieldCount == member_count` 接住），且失败信息指向 ABI 对不上；**或** ② 在 spec 中把该 Scenario 的"对不上"方向**明确标注为本 change 未覆盖**，并给出理由与后续归属。
   ⚠ **禁止**写成"改一个**字段名**"（Round 9 首版即如此，**是死分支**）：编译期**没有任何名字内容检查** —— guard **只断言 `fieldCount == member_count`**，第二条 `name != nullptr` 只是非空检查（**不比对名字内容**），把 `"a"` 改成 `"z"` **照样编译通过**；唯一的名字校验是**运行期** `strcmp`，而本 oracle 的命令**只构建、不运行** → 执行者会看到构建成功，**误判"ABI guard 坏了"**。
   ⚠ **不得**只写"由 `fieldCount == member_count` 结构上会接住"这类**论证**而不给可执行验证 —— 那正是本轮反复打击的"论证当实证"。
-  ✅ **已执行并实测（2026-09-13）**：漂移注入 = 把 `Test/CoreTests/EmitReflectionTest.cpp` 的 `CA_REFLECTION(codegen_demo::EmitSample, a, b, c, d);` 改成 3 个成员（生成物 `fieldCount` 仍为 4）→ `python build.py --config Debug --no-configure CoreTests` **exit 1**，逐字报 `CACore\header\CodeGenMeta.h(114): error C2338: static assertion failed: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'`。⚠ **另一条更早的拦截线（本轮新建）**：直接改**入库 golden** 的 `fieldCount` 会先被**构建期三份逐字节对拍**拦下（`CODEGEN FAILED (1) … differs byte-for-byte from golden`）—— 两条线都在，本条验的是 ABI guard 那一条。
+  ✅ **已执行并实测（2026-09-13）**：对不上注入 = 把 `Test/CoreTests/EmitReflectionTest.cpp` 的 `CA_REFLECTION(codegen_demo::EmitSample, a, b, c, d);` 改成 3 个成员（生成物 `fieldCount` 仍为 4）→ `python build.py --config Debug --no-configure CoreTests` **exit 1**，逐字报 `CACore\header\CodeGenMeta.h(114): error C2338: static assertion failed: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'`。⚠ **另一条更早的拦截线（本轮新建）**：直接改**入库 golden** 的 `fieldCount` 会先被**构建期三份逐字节对拍**拦下（`CODEGEN FAILED (1) … differs byte-for-byte from golden`）—— 两条线都在，本条验的是 ABI guard 那一条。
 
-- [x] 9.17 **[AUDIT] 引文锚点必须能逐字 grep 命中**（**规则级处置 —— 同类问题第 3 次复发**）：第 14 轮把 `build.py` 行号换成"引文锚点"后，对抗验证实测**多条锚点在所指文件里 grep 不到** —— 它们是**转述形态**而非原文：`configure(); patch_ninja(); codegen()` 在 `build.py` 里是**三行独立调用**、`build()` 的真身是 `build(target)`、`set "CC=...cl.exe"` 带省略号（**真身在 `build.py` 里是这一行**：`lines.append(f'set "CC={msvc_bin}\\cl.exe"')` —— 逐字复制，可直接 grep；原文写的 `set "CC={<path>}\cl.exe"` 在盘上 0 命中）⚠ 转述结束：`set "CC=...cl.exe"`（带省略号）\\cl.exe"`）、`fieldCount == member_count` 的真身带 `TypeDescriptor<T>::` 与 `::CATypeDescriptor<T>::` 前缀。**判据**：对每一处引文锚点跑 `git grep -n -F "<锚点原文>"`，**必须命中**；零命中即坏锚点。**红态（已实测）**：修前对上述 4 条跑该判据 → 全部 **0 命中**。
-  **规则级处置（不得只改实例）**：把"写锚点的方式"写死 —— ① 锚点必须**从目标文件里复制**，不得手写转述；② 写完**立刻**跑 `git grep -n -F` 自检（**必须限定到所指文件** —— 全仓 grep 会被四份制品自己写的同一句话喂绿），零命中就重取；③ 该自检本身要能失败（先贴 0 命中的红态）。规则落点见 9.18 与 CLAUDE.md。
+- [x] 9.17 **[AUDIT] 引文锚点必须能逐字 grep 命中**（**规则级处置 —— 同类问题第 3 次复发**）：第 14 轮把 `build.py` 行号换成"引文锚点"后，对抗验证实测**多条锚点在所指文件里 grep 不到** —— 它们是**转述形态**而非原文：`configure(); patch_ninja(); codegen()` 在 `build.py` 里是**三行独立调用**、`build()` 的真身是 `build(target)`、`set "CC=...cl.exe"` 带省略号（**真身在 `build.py` 里是这一行**：`lines.append(f'set "CC={msvc_bin}\\cl.exe"')` —— 逐字复制，可直接 grep；原文写的 `set "CC={<path>}\cl.exe"` 在盘上 0 命中）⚠ 转述结束：`set "CC=...cl.exe"`（带省略号）\\cl.exe"`）、`fieldCount == member_count` 的真身带 `TypeDescriptor<T>::` 与 `::CATypeDescriptor<T>::` 前缀。**判据**：对每一处引文锚点跑 `git grep -n -F "<锚点原文>"`，**必须命中**；零命中即坏锚点。**改之前（已实测）**：修前对上述 4 条跑该判据 → 全部 **0 命中**。
+  **规则级处置（不得只改实例）**：把"写锚点的方式"写死 —— ① 锚点必须**从目标文件里复制**，不得手写转述；② 写完**立刻**跑 `git grep -n -F` 自检（**必须限定到所指文件** —— 全仓 grep 会被四份制品自己写的同一句话喂绿），零命中就重取；③ 该自检本身要能失败（先贴 0 命中的改之前）。规则落点见 9.18 与 CLAUDE.md。
   **本文档的简写约定（2026-09-12 补）**：`fieldCount == member_count` 是**简写**，源码逐字真身为 `TypeDescriptor<T>::fieldCount == ::CATypeDescriptor<T>::member_count`（`CACore/header/CodeGenMeta.h`）。**凡使用该简写处一律是转述、非逐字引文**（该约定即为兑现本条的"转述必须标注"）。
 - [x] 9.18 **[AUDIT] 因本轮修复而变假的"现在时"陈述必须同批改掉**（本文档自己已立此规：「不得出现"尚未合回"这类在本条执行完即变为假的句子」）：实测 3 处仍在新事实下说旧话 —— §9.11② 称"§3.1 把 `clang_parseTranslationUnit2` 的签名**写反**"、Review Log 的 RC-F9 行同款、§9.11① 称"`spec` 的 REQ 与 §4.1 正文**仍写** `build.py:230`/`:231` 之间"（实测这三份文件对该串 **0 命中**）。
   **判据**：三处改为事实句（过去时 + 已修 + 引文锚点）；`Select-String -Path design.md,proposal.md,specs/codegen-framework/spec.md -Pattern 'build\.py:\d+'` 零命中，且 §9.11① 的措辞与该结果一致。
 - [x] 9.19 **[AUDIT] 单站点修复必须做全仓同类扫描**：第 14 轮把 spec 的抽取范围收窄为字段-only，**design 与 proposal 里的同类承诺一处没动**（`design.md` 的 D1 / D2 / D3 / D5 四处、`proposal.md` 的 Why 与 What Changes 两处，仍写"方法/枚举/基类由 libclang 自动提取"，并称其为"本 change 要架的底盘""核心收益"）。
   **判据**：`git grep -n -E "方法 ?/ ?枚举 ?/ ?基类|methods\(\)|enumInfo\(\)|baseClass\(\)"` 的命中行**逐条落在白名单内**（白名单 = spec 的两句免责 + §9.8 的引文行 + `CACore/header/CodeGenMeta.h` 的 "Future emitters may add" 注 + D5 / Open Question #2 的延后句，用**逐字引文**列出）；任一白名单外的命中即失败。
-- [x] 9.20 **[AUDIT] 范围排除不得用"验证状态"的措辞顶替**：第 14 轮把 spec 的"漂移"方向写成"**无演练对象 / 不声称已验证**"，而 §9.16 要求的是"**明确标注为本 change 未覆盖**"；且该理由**本身为假** —— 演练对象存在（`Tools/CodeGen/generated/EmitSample.Reflection.h` 的 `fieldCount = 4`，加 `Test/CoreTests/EmitReflectionTest.cpp` 里已接线的 `static_assert_abi_consistency`），§1.2 自己就把它当**已接线**样本用。同时归属指针指向 **§9.2（已作废条目）**。
-  **判据**：spec 的 REQ「生成源码以显式源清单纳入构建」段内出现"**不在本 change 实现范围**"（spec 自己的惯用语，见其 REQ#1 的两个 Scenario），同段**不再保留未加标注的规范性漂移分句**；归属指向活的承接方（后续接线 change），不得指向已作废条目或指向提出该要求的那条任务本身。
+- [x] 9.20 **[AUDIT] 范围排除不得用"验证状态"的措辞顶替**：第 14 轮把 spec 的"对不上"方向写成"**无演练对象 / 不声称已验证**"，而 §9.16 要求的是"**明确标注为本 change 未覆盖**"；且该理由**本身为假** —— 演练对象存在（`Tools/CodeGen/generated/EmitSample.Reflection.h` 的 `fieldCount = 4`，加 `Test/CoreTests/EmitReflectionTest.cpp` 里已接线的 `static_assert_abi_consistency`），§1.2 自己就把它当**已接线**样本用。同时归属指针指向 **§9.2（已作废条目）**。
+  **判据**：spec 的 REQ「生成源码以显式源清单纳入构建」段内出现"**不在本 change 实现范围**"（spec 自己的惯用语，见其 REQ#1 的两个 Scenario），同段**不再保留未加标注的规范性对不上分句**；归属指向活的承接方（后续接线 change），不得指向已作废条目或指向提出该要求的那条任务本身。
 - [x] 9.21 **[AUDIT] 修"过度声称"不得换成另一句无证据的话**：第 14 轮把 Round 5 的"MCP 核到"改成"该轮工具实况**不可回溯**" —— 这又是一条**没有证据支撑**的断言（与台账 #9 / #10 同族：换了说法、同一类错）。对抗者另指出现有改法在站点③④⑤⑥ 只换来一个无法证伪的说法，并未给出可核事实。
   **判据**：改为**只陈述可核事实**（例："本行所述工具**无落盘证据**；Round 6 的**记录**称无 MCP web 工具（**无落盘测量记录**）"），并**逐 URL 标注实际核查工具**；全文不得出现"不可回溯"这类无法证伪的措辞。
 - [x] 9.22 **[AUDIT] 为未实现路径写的验收条款不得用"或"式分支**：第 14 轮给 spec 新增的 `--no-configure` 场景写成"**要么**重新生成、**要么**以 codegen 专属错误失败"，而 `build.py` 的 `codegen()` 唯一调用点仍在 `if configure_step:` 内 —— **两条分支都不会发生**，判据因此不可失败（对抗验证实测：代码零改动时该判据恒绿）。
-  **判据**：改成**单一可核结果**（例："该路径下 codegen 步骤**确实执行过**，日志出现 `[1.5] CodeGen`"），并写明**它在实现前必然为红**（红态即现状，须附实测输出）。
-- [x] 9.23 **Review & Adversarial Verify（第 14 轮后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-23`，4 agents / 15 条候选 / 保留 7 条（3 high）；结论与新开条目见 Round 25）：对 §9.17–9.22 已落地条目开 workflow 做对抗验证，**三条固定提示词照抄第 14 轮**：① 反例构造（*对每一条修复，在暂存副本上构造一个「原缺陷仍存在、而新判据通过」的状态；只要能构造出来，就按 high 报为假绿。不得修改仓库*）；② 空转轮判据（*本 change 交付代码，一轮未改任何代码文件即按 high 报空转轮*）；③ **`docs/failed-approaches.md` 作为固定输入**，结论与其中某条实质相同的必须给出"这次哪里不同"的可核证据。
+  **判据**：改成**单一可核结果**（例："该路径下 codegen 步骤**确实执行过**，日志出现 `[1.5] CodeGen`"），并写明**它在实现前必然为红**（改之前即现状，须附实测输出）。
+- [x] 9.23 **Review & Adversarial Verify（第 14 轮后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-23`，4 agents / 15 条候选 / 保留 7 条（3 high）；结论与新开条目见 Round 25）：对 §9.17–9.22 已做完条目开 workflow 做对抗验证，**三条固定提示词照抄第 14 轮**：① 反例构造（*对每一条修复，在暂存副本上构造一个「原缺陷仍存在、而新判据通过」的状态；只要能构造出来，就按 high 报为假绿。不得修改仓库*）；② 空转轮判据（*本 change 交付代码，一轮未改任何代码文件即按 high 报空转轮*）；③ **`docs/failed-approaches.md` 作为固定输入**，结论与其中某条实质相同的必须给出"这次哪里不同"的可核证据。
   **回归核对（先做）**：第 14 轮记录的 7 条 false_green 是否真关闭 —— 逐条给命令与真实输出；**并且**本轮新写的锚点必须**先在坏锚点上跑红**（`git grep -n -F` 零命中）再在新锚点上跑绿。
 
 - [x] 9.24 **[AUDIT] 判据必须锚在「属性」上、并限定作用对象**（✅ 已执行 2026-09-13：本轮全部判据按三件套写；本条目自己两次写错的判据（`9.25` 的措辞判据与单行字面串判据）已当场改正并留档；`9.28` 交付的 `Tools/spin_check.py` 即「限定作用对象 + 与措辞无关」的机械判据）（第 15 轮对抗验证给出的**根因级**发现）：连续两轮的判据被喂绿，共同根因不是某一条写错，而是判据的**形态** —— ① 只认**字面串**（禁"不可回溯"三个字，换个说法"无从考证"即逃逸）；② 只认**修复自己写下的措辞**（白名单里的词就是本轮新写的词 → 对当前树恒红、对缺陷恒绿）；③ **作用域没限定到所指文件**（`git grep -F` 全仓跑，四份制品自己写的同一句话就把它喂绿；实测锚点自检的 10 处命中**全在四份变更文档里**）；④ **验证对象错位**（拿 `out/build/<cfg>/codegen/` 当对象 —— 那是 codegen 自己 mkdir 的 pipeline 副本，**被构建真正 include 的是 `Test/CoreTests/EmitReflectionTest.cpp` 里 include 的那个生成头**，而那个目录在 codegen 静默 no-op 时**恰好是空的**，于是"删掉再重跑"永远无事发生）。
-  **要求（判据三件套）**：每条判据必须写清 —— **作用对象**（哪个文件 / 哪个**被消费**的产物）、**要判的属性**（不是字符串命中）、**红态实测输出**（缺陷仍在时的真实输出）。先跑红再跑绿；**只贴绿不算证据**。**判据自检必须限定到所指文件**（`git grep -n -F "<引文>" -- <目标文件>`），并把该限定写进 CLAUDE.md 的锚点规则。
+  **要求（三条一起交）**：每条验收要求必须写清 —— **作用对象**（哪个文件 / 哪个**被消费**的产物）、**要判的属性**（不是字符串命中）、**改之前的实测输出**（缺陷仍在时的真实输出）。先让它失败、再让它通过；**只贴通过的那一侧不算证据**。**验收自检必须限定到所指文件**（`git grep -n -F "<引文>" -- <目标文件>`），并把该限定写进 CLAUDE.md 的锚点规则。
 - [x] 9.25 **[AUDIT] `CODEGEN_ANNOTATED` 未改之前，范围变更的表述与树不符**（承接 §9.15 的实测更正）：实测删掉那 2 行注册宏后，`CodeGen` 对 `ImageHandle` / `BufferHandle` 仍 **exit 0 并各产出一份反射头**（1282 B / 1124 B）—— 因为同文件里本就有的 `CA_REFLECTION(...)` 让工具的白名单照样命中。**结论：只删注册宏 ≠ "不注册任何项目类型"。**
-  **判据**：① 清单按 9.15 的甲/乙改掉后，重跑同一条命令，两个类型**不再产出文件**（红态 = 改之前：仍产出）；② **该标注现已解除**（2026-09-13）：清单已改为只指自包含 fixture，故范围变更块与 `proposal.md` 的 Non-goal 与树相符。**判据（事后态，两条都可命令复现、不依赖任何措辞）**：a) `Select-String -Path build.py -Pattern '^CODEGEN_ANNOTATED' -Context 0,3` 显示的清单**只有** `("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen")` 一条；b) **正向断言（9.40 改写：原为"目录不含 `ImageHandle.*` / `BufferHandle.*`"的否定列举 —— 目录为空或不存在时同样通过，且只覆盖一个 preset，实测 `out/build/x64-relWithDebugInfo/codegen` 里当时还留着那两个类型的陈旧产物）**：删掉**所有 preset** 的 `out/build/*/codegen` 目录后重跑 `python build.py --config Debug --no-configure CoreTests`，`out/build/x64-debug/codegen` 下**恰好**是三份 `EmitSample.{Reflection,Serialization,Hash}.h`，且与 `Tools/CodeGen/generated/` 下同名文件**逐字节相同**（`Get-FileHash` 比对）。
+  **判据**：① 清单按 9.15 的甲/乙改掉后，重跑同一条命令，两个类型**不再产出文件**（改之前 = 改之前：仍产出）；② **该标注现已解除**（2026-09-13）：清单已改为只指自包含 fixture，故范围变更块与 `proposal.md` 的 Non-goal 与树相符。**判据（事后态，两条都可命令复现、不依赖任何措辞）**：a) `Select-String -Path build.py -Pattern '^CODEGEN_ANNOTATED' -Context 0,3` 显示的清单**只有** `("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen")` 一条；b) **正向断言（9.40 改写：原为"目录不含 `ImageHandle.*` / `BufferHandle.*`"的否定列举 —— 目录为空或不存在时同样通过，且只覆盖一个 preset，实测 `out/build/x64-relWithDebugInfo/codegen` 里当时还留着那两个类型的陈旧产物）**：删掉**所有 preset** 的 `out/build/*/codegen` 目录后重跑 `python build.py --config Debug --no-configure CoreTests`，`out/build/x64-debug/codegen` 下**恰好**是三份 `EmitSample.{Reflection,Serialization,Hash}.h`，且与 `Tools/CodeGen/generated/` 下同名文件**逐字节相同**（`Get-FileHash` 比对）。
     ⚠ **本判据写错过两次，均当场改正并留档**：初版写"`proposal.md` 内 grep `与树不符` 零命中" —— 实测**命中 1 处**，因为改写后的句子本身引用了那个旧说法（「原为「与树不符」」）；二版把 a) 写成一条 `git grep -F 'CODEGEN_ANNOTATED = […]'` 单行串 —— 实测 **0 命中**，因为 `build.py` 里那个赋值是**三行**（`CODEGEN_ANNOTATED = [` / 元组行 / `]`）。**用被纠正的旧措辞、或用一个在盘上不存在的字面串当判据，正是本轮反复打击的形态**；现判据改成分行显示 + 目录列举，两条都已实跑。
   ✅ **已实测（2026-09-13）**：① 现清单下重跑，`out/build/x64-debug/codegen/` 只剩 `EmitSample.{Reflection,Serialization,Hash}.h` 三份，两个项目类型**不再产出**；② 判据 a) 与 b) 均已实跑通过。
 - [x] 9.26 **[AUDIT] 引用真实性：逐 URL 标注实际所用工具 + 结论必须有落盘证据**：① 四份制品共 10 行含 URL，**只有 Round 6 的 URL 表那 4 行带"实际所用工具"列**，Round 5 的四处与 `design.md` / `proposal.md` 各一处**都没有标注**；② "Round 6 全部 agent 无 MCP web 工具"这句被反复当**事实**引用，但盘上**找不到测量记录**（只有探测脚本、无输出）。
   **判据**：每个含 URL 的行都带"实际所用工具"；那句"无 MCP 工具"要么补落盘证据，要么降级为"**无落盘证据**"。
-- [x] 9.27 **Review & Adversarial Verify（第 15 轮后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-27`，3 agents / 10 条候选 / 保留 7 条（2 high）；结论见 Round 25 §E）：对 §9.24–9.26 及第 15 轮全部改动开 workflow 做对抗验证。三条固定提示词照抄（反例构造 / 空转轮判据 / 台账作为固定输入且**举证责任在提出方**），并**先做回归核对**：第 15 轮记的 6 条 false_green 是否真关闭 —— 逐条给**作用对象 + 属性 + 红态输出**三件套，**不接受只有绿**。
+- [x] 9.27 **Review & Adversarial Verify（第 15 轮后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-27`，3 agents / 10 条候选 / 保留 7 条（2 high）；结论见 Round 25 §E）：对 §9.24–9.26 及第 15 轮全部改动开 workflow 做对抗验证。三条固定提示词照抄（反例构造 / 空转轮判据 / 台账作为固定输入且**举证责任在提出方**），并**先做回归核对**：第 15 轮记的 6 条 false_green 是否真关闭 —— 逐条给**作用对象 + 属性 + 改之前输出**三件套，**不接受只有绿**。
 
-- [x] 9.28 **[AUDIT] 判据必须重写为「属性判据」并用真实前态交出红态**（✅ 已执行 2026-09-13：四类断言的红态**全部取自真实前态**（`HEAD:Tools/CodeGen/CodeGenMain.cpp`）或生成器侧注入，无一是合成副本；「同批必做」的空转轮判据已由 `Tools/spin_check.py` 落地并交出两侧实测。⚠ 但本轮对抗验证又证明**同一根因第 5 次复发**：我自己新写的 `9.25` 判据一个用了被纠正的旧措辞、一个用了盘上不存在的字面串 —— 已开 `9.35` 续审）（第 16 轮对抗验证的**根因级**发现；同类问题**第 4 次**复发）：第 16 轮的三类判据实测**都能被同一批手法绕过**，而缺陷原样在位 —— ① 把整段工具标注换成一句"（已复查）"→ 仍全绿；② 在已标注行**行尾追加未标注 URL** → 仍全绿（判据的作用对象是"行"而不是"每个 URL"）；③ 只删掉 `均**无**` 的两个星号就由红转绿（**两个星号决定红绿**）；④ 把同一句断言**搬进被豁免的任务块** → 全绿；⑤ 只把 `- [ ]` 改成 `- [x]`（正文一字未改）→ 转红；⑥ 把 CLAUDE.md 的规则**明文废止但保留字面串** → 三条检查仍全过；⑦ 在 `proposal.md` 插入**编造且从未复查**的 URL → 仍全绿。
-  **要求**：① 每条判据的作用对象**降到最小单位**（每个 URL / 每条断言各判一次），不得以"行"为单位；② **禁止**用"行内含某词"作豁免；③ **红态必须取自真实前态**（在合成副本上制造的红态**不算证据** —— 第 16 轮已实测合成红态下判据照样 PASS）；④ 每条判据都要交出"**缺陷在位时变红**"的真实输出，只贴绿不算。
+- [x] 9.28 **[AUDIT] 判据必须重写为「属性判据」并用真实前态交出改之前**（✅ 已执行 2026-09-13：四类断言的改之前**全部取自真实前态**（`HEAD:Tools/CodeGen/CodeGenMain.cpp`）或生成器侧注入，无一是合成副本；「同批必做」的空转轮判据已由 `Tools/spin_check.py` 做完并交出两侧实测。⚠ 但本轮对抗验证又证明**同一根因第 5 次复发**：我自己新写的 `9.25` 判据一个用了被纠正的旧措辞、一个用了盘上不存在的字面串 —— 已开 `9.35` 续审）（第 16 轮对抗验证的**根因级**发现；同类问题**第 4 次**复发）：第 16 轮的三类判据实测**都能被同一批手法绕过**，而缺陷原样在位 —— ① 把整段工具标注换成一句"（已复查）"→ 仍全绿；② 在已标注行**行尾追加未标注 URL** → 仍全绿（判据的作用对象是"行"而不是"每个 URL"）；③ 只删掉 `均**无**` 的两个星号就由红转绿（**两个星号决定红绿**）；④ 把同一句断言**搬进被豁免的任务块** → 全绿；⑤ 只把 `- [ ]` 改成 `- [x]`（正文一字未改）→ 转红；⑥ 把 CLAUDE.md 的规则**明文废止但保留字面串** → 三条检查仍全过；⑦ 在 `proposal.md` 插入**编造且从未复查**的 URL → 仍全绿。
+  **要求**：① 每条验收要求的作用对象**降到最小单位**（每个 URL / 每条断言各判一次），不得以"行"为单位；② **禁止**用"行内含某词"作豁免；③ **改之前的实测必须取自真实的前一个版本**（在合成副本上造出来的失败状态**不算证据** —— 第 16 轮已实测：合成状态下验收照样通过）；④ 每条验收要求都要交出"**缺陷还在时它失败**"的真实输出，只贴通过的那一侧不算。
   **同批必做**：把空转轮判据从 `git diff -w --numstat`（无 pathspec、以索引为基准、对暂存改动盲）改为**对固定交付物清单（`.h/.hpp/.cpp/.py`，排除 `out/build`、`.review_tmp`）逐文件内容哈希**比对轮初/轮末，快照写到**不与非本轮快照撞名**的独立路径，并交出两侧实测：纯文档轮输出空集、真实代码改动轮输出非空。
   ⚠ **下一轮必须先做代码侧**（本条与文档侧余项都不得再挤掉它）：`build.py` 的 `CODEGEN_ANNOTATED`、9.11③（`build.py` 注释里的 AUDIT 号）、`CACore/header/CodeGenMeta.h` 两处过度声称的注释。
   ✅ **已执行（2026-09-13）**：上述三处代码侧**全部落盘** —— ① 清单口径已定并改好（见 §9.15）；② `build.py` 里 `/I` `/D` 守卫的注释 AUDIT 号已由 `(AUDIT-5)` 改为 `(AUDIT-2)`；③ `CodeGenMeta.h` 两处过度声称的注释已改（不再声称比对 offset / 名字内容）。判据：`git grep -n "AUDIT-5" -- build.py` 零命中。
-  ✅ **同批必做（空转轮判据）已落地（2026-09-13）**：新增可复跑工具 `Tools/spin_check.py` —— 按**固定交付物后缀清单**（`.h/.hpp/.hh/.cpp/.cxx/.cc/.py/.cmake/.def`，排除 `out/`、`.review_tmp/`、`.claude/`）逐文件算 **SHA256**，与轮初快照比对，**完全不依赖 git 索引状态**；快照写到 `.review_tmp/spin/<轮次 id>.{start,end}.json`（id 自带唯一性，不与非本轮快照撞名）。
+  ✅ **同批必做（空转轮判据）已做完（2026-09-13）**：新增可复跑工具 `Tools/spin_check.py` —— 按**固定交付物后缀清单**（`.h/.hpp/.hh/.cpp/.cxx/.cc/.py/.cmake/.def`，排除 `out/`、`.review_tmp/`、`.claude/`）逐文件算 **SHA256**，与轮初快照比对，**完全不依赖 git 索引状态**；快照写到 `.review_tmp/spin/<轮次 id>.{start,end}.json`（id 自带唯一性，不与非本轮快照撞名）。
     **两侧实测**（原始输出：`.review_tmp/spin-check-evidence.txt`）：**纯文档轮** → `deliverables changed: 0`（空集）；**真代码轮**（改 `Tools/spin_check.py` 一行）→ `deliverables changed: 1 / modified: Tools/spin_check.py`（非空）。
 
 ## 10. Round 24 对抗验证开出的新任务（[AUDIT] · 2026-09-13）
@@ -399,29 +399,29 @@
 > 其中 4 条**已当场修掉**（`commitOut` 失败退出码、`CodeGenMeta.h:68` 注释、`CodeGenMain.cpp` 三处排序注释、`9.25` 判据），此处只登记**尚未执行**的 6 条 + 续接的审查任务。
 
 - [x] 9.29 **[AUDIT] 规范条款与实现不符：codegen 的调用位置**（medium，✅ 已修 2026-09-13）：四处已改成与实现一致的单一表述 —— `spec.md` 的 REQ、`design.md` 的 Migration Plan 第 1 步、本文档 §4.1、以及 9.11① 的位置括注；均写明 **`patch_ninja()` 之后、`build(target)` 之前，configure 与 `--no-configure` 两条路径都执行，该调用不在 `if configure_step:` 块内**，并给出逐字真身 `codegen_failures = codegen()`（实测命中 `codegen_failures = codegen()`（**逐字引文，不写行号**））。**判据实跑**：`spec.md`/`design.md` 产品正文里「分支内…依次调用」**零命中**；`tasks.md` 产品正文仅剩 9.29 自身引用旧措辞的两行（属逐字引文行）。：`spec.md` 的 REQ「build.py 接入 codegen 步骤」仍写"即 `if configure_step:` 分支内**依次调用** `configure()`、`patch_ninja()`、`codegen()` —— 三行独立语句"，而**同一 Requirement 的 `--no-configure` Scenario** 与实现都说 `codegen()` **已移出该分支**（`build.py` 里 `codegen_failures = codegen()` 零缩进）。同款失效描述还在 `design.md` 的 `## Migration Plan` 第 1 步与本文档 §4.1。
-  **Oracle**：三处改成与实现一致的**单一**表述（codegen 在 `patch_ninja()` 之后、`build(target)` 之前；configure 与 `--no-configure` **两条路径都执行**）；判据 = `git grep -n "分支内依次调用" -- design.md proposal.md specs/codegen-framework/spec.md tasks.md` 零命中，且 `git grep -n "if configure_step" -- design.md specs/codegen-framework/spec.md tasks.md` 不再出现"codegen 在其中"的说法。
+  **怎么算做完**：三处改成与实现一致的**单一**表述（codegen 在 `patch_ninja()` 之后、`build(target)` 之前；configure 与 `--no-configure` **两条路径都执行**）；判据 = `git grep -n "分支内依次调用" -- design.md proposal.md specs/codegen-framework/spec.md tasks.md` 零命中，且 `git grep -n "if configure_step" -- design.md specs/codegen-framework/spec.md tasks.md` 不再出现"codegen 在其中"的说法。
 
 - [x] 9.30 **[AUDIT] `CA_REFLECTION` 文本通道对 `--emit-serialization` / `--emit-hash` 静默无操作**（medium，✅ 已修 2026-09-13：见 Round 26 的红→绿）：实测 `CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-serialization -o <p>` → **exit 0、`<p>` 不存在**（`--emit-hash` 同），只有 `--emit-reflection` 会写文件；代码里该分支只判 `if (emitReflection) …`，另两个标志一次都没被读。而 `build.py` 对清单里每个条目**依次跑三个 emitter**，故任何文本通道条目会以**裸 Python traceback** 失败 —— 违反 9.9/9.13 自订的"异常必须以 codegen 专属错误失败"。
-  **Oracle**：二者择一并落盘 —— ① 文本通道按成员名支持三个 emitter；**或** ② 明确拒绝：遇这两个标志时打印"该通道不支持此 emitter"并**非零退出**。判据：修前 exit 0 且文件不存在；修后要么文件存在且含对应特化，要么 exit ≠ 0 且 stderr 点名该标志。
+  **怎么算做完**：二者择一并落盘 —— ① 文本通道按成员名支持三个 emitter；**或** ② 明确拒绝：遇这两个标志时打印"该通道不支持此 emitter"并**非零退出**。判据：修前 exit 0 且文件不存在；修后要么文件存在且含对应特化，要么 exit ≠ 0 且 stderr 点名该标志。
 
 - [x] 9.31 **[AUDIT] `serializable` 门控未实现而文档声称已消费**（medium，✅ 已修 2026-09-13：见 Round 26 的红→绿）：实测对只写 `CA_REFLECT(ui)` 的类型跑 `--emit-serialization` → **exit 0 且产出 `CodeGenSerializer<T>`**；全仓 `serializable` 的唯一消费点是把它打印到 stdout。而 `design.md` 与该 emitter 的注释都写"仅 `serializable` 标记的类型发射序列化代码（`so serializable is actually consumed here`）"。
-  **Oracle**：二者择一并落盘 —— ① 实现门控（未标记者不发射，并按 9.1 风格非零退出）；**或** ② 把 design 与该注释改成"options 目前只被文本携带与打印，尚未门控任何 emitter"并注明归属后续 task。判据：用只带 `ui` 的夹具跑 `--emit-serialization`，行为与所选方案一致。
+  **怎么算做完**：二者择一并落盘 —— ① 实现门控（未标记者不发射，并按 9.1 风格非零退出）；**或** ② 把 design 与该注释改成"options 目前只被文本携带与打印，尚未门控任何 emitter"并注明归属后续 task。判据：用只带 `ui` 的夹具跑 `--emit-serialization`，行为与所选方案一致。
 
 - [x] 9.32 **[AUDIT] 6.1 的"字段顺序"断言恒真**（medium，✅ 已修 2026-09-13：见 Round 26 的红→绿 —— 倒序发射时 `roundtrip=1 orderOk=0 bytes=17`，旧判据全绿、新判据变红）：`Test/CoreTests/GeneratedSerializerTest.cpp` 的 `orderOk = (buffer.size() == expectedBytes) && (fieldCount == 4)` —— 字节总数与字段顺序无关，`fieldCount` 又是本 TU 里的常量自比；`deserialize` 按同一顺序回读，故把发射顺序整体倒序或任意置换，两项判据**仍为真**。
-  **Oracle**：把顺序判据锚到**每个字段在缓冲区里的字节位置**（各字段取值互不相同、尺寸各异：断言 `a` 在 0、`b` 在 4、`c` 在 8、`d` 在 9），或直接断言发射顺序与 `TypeDescriptor<T>::fields()` 逐项同名；删掉常量自比。**红态**：把 golden 的字段排列整体倒序后，新判据必须变红（旧判据仍绿），两侧都给原始输出。
+  **怎么算做完**：把顺序判据锚到**每个字段在缓冲区里的字节位置**（各字段取值互不相同、尺寸各异：断言 `a` 在 0、`b` 在 4、`c` 在 8、`d` 在 9），或直接断言发射顺序与 `TypeDescriptor<T>::fields()` 逐项同名；删掉常量自比。**改之前**：把 golden 的字段排列整体倒序后，新判据必须变红（旧判据仍绿），两侧都给原始输出。
 
 - [x] 9.33 **[AUDIT] 文档引用的证据文件被同一次提交 `.gitignore` 排除**（medium，✅ 已修 2026-09-13）：证据原文已入库到 `openspec/changes/engine-codegen-framework/evidence/` —— 判据实跑结果：`tasks.md` 里引用的 `.review_tmp/<name>.<ext>` 共 **8 个名字，`evidence/` 下同名文件缺少数 = 0**（14 个文件入库，含 6 个探针脚本）。`.review_tmp/` 仍是本地工作副本（被 gitignore），**需要原文时以 `evidence/` 下的同名文件为准**。：`tasks.md` 有 17 处、`CodeGenMain.cpp` 有 1 处引用 `.review_tmp/…`，而 `e7eed3b` 把 `.review_tmp/` 写入 `.gitignore` —— 第三方在该提交上取不到这些"证据"。
-  **Oracle**：二者择一并落盘 —— ① 把最小集证据（9.5b 三份合计不足 11 KB、红态与 spin 证据）落到仓库内（如 `openspec/changes/engine-codegen-framework/evidence/`）；**或** ② 把条目里的文件路径引用改写成"命令 + 预期输出"对。判据：全仓 `git grep -n "\.review_tmp/"` 的每一处命中，要么文件已入库，要么该处已不含路径引用。
+  **怎么算做完**：二者择一并落盘 —— ① 把最小集证据（9.5b 三份合计不足 11 KB、改之前与 spin 证据）落到仓库内（如 `openspec/changes/engine-codegen-framework/evidence/`）；**或** ② 把条目里的文件路径引用改写成"命令 + 预期输出"对。判据：全仓 `git grep -n "\.review_tmp/"` 的每一处命中，要么文件已入库，要么该处已不含路径引用。
 
-- [x] 9.34 **[AUDIT] `9.9` 的引文与证据文件对不上 + 一处"实测"无落盘**（low，✅ 已修 2026-09-13）：① `9.9` 的 ① 引文已按证据文件改成逐字真实行（`CODEGEN FAILED (3)` + 三条 `exit 4`，原误记 `FAILED (1)`）；② `C2059` 那条已**真跑并把输出落盘**到 `evidence/codegen-target-build-failure.txt`（exit=1，含 `FAILED: …CodeGenMain.cpp.obj` 与 `error C2059`），文中已标注该路径。：`9.9` 的 ✅ 引 `CODEGEN FAILED (1)`，而它点名的证据文件对该用例记的是 `(3)`；改写后的 Oracle 里"（实测：`error C2059` …）"在全仓（含 `.review_tmp`）**无任何落盘记录**。
-  **Oracle**：① 引文改成证据文件里的真实行；② `C2059` 那条要么真跑一次并把输出落盘、在文中标注路径，要么删掉"（实测…）"只保留对失败行为的要求。
+- [x] 9.34 **[AUDIT] `9.9` 的引文与证据文件对不上 + 一处"实测"无落盘**（low，✅ 已修 2026-09-13）：① `9.9` 的 ① 引文已按证据文件改成逐字真实行（`CODEGEN FAILED (3)` + 三条 `exit 4`，原误记 `FAILED (1)`）；② `C2059` 那条已**真跑并把输出落盘**到 `evidence/codegen-target-build-failure.txt`（exit=1，含 `FAILED: …CodeGenMain.cpp.obj` 与 `error C2059`），文中已标注该路径。：`9.9` 的 ✅ 引 `CODEGEN FAILED (1)`，而它点名的证据文件对该用例记的是 `(3)`；改写后的 验收要求 里"（实测：`error C2059` …）"在全仓（含 `.review_tmp`）**无任何落盘记录**。
+  **怎么算做完**：① 引文改成证据文件里的真实行；② `C2059` 那条要么真跑一次并把输出落盘、在文中标注路径，要么删掉"（实测…）"只保留对失败行为的要求。
 
-- [x] 9.35 **Review & Adversarial Verify（Round 24 后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-35`，4 agents / 14 条候选 / 复核后**保留 9 条（3 high）**，判**不合格**；结论与新开条目见 Round 27）：对 §9.29–9.34 已落地条目开 workflow 做对抗验证。三条固定提示词照抄：① 反例构造（*对每一条修复，在暂存副本上构造一个「原缺陷仍存在、而新判据通过」的状态；只要能构造出来，就按 high 报为假绿。不得修改仓库*）；② 空转轮判据 + 队列核对（*本 change 交付代码；用 `python Tools/spin_check.py spin start/end <轮次>` 判定该轮是否改了交付物，输出为空集即按 high 报空转轮；用 `python Tools/spin_check.py queue start/end <轮次>` 判定该轮是否关完了开工时可执行的条目 —— `still open` 里存在未被标成"被挡住 / 已作废"的条目，即按 high 报"未关完却报完成"*）；③ **`docs/failed-approaches.md` 作为固定输入**，结论与其中某条实质相同的必须给出"这次哪里不同"的可核证据。
+- [x] 9.35 **Review & Adversarial Verify（Round 24 后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-35`，4 agents / 14 条候选 / 复核后**保留 9 条（3 high）**，判**不合格**；结论与新开条目见 Round 27）：对 §9.29–9.34 已做完条目开 workflow 做对抗验证。三条固定提示词照抄：① 反例构造（*对每一条修复，在暂存副本上构造一个「原缺陷仍存在、而新判据通过」的状态；只要能构造出来，就按 high 报为假绿。不得修改仓库*）；② 空转轮判据 + 队列核对（*本 change 交付代码；用 `python Tools/spin_check.py spin start/end <轮次>` 判定该轮是否改了交付物，输出为空集即按 high 报空转轮；用 `python Tools/spin_check.py queue start/end <轮次>` 判定该轮是否关完了开工时可执行的条目 —— `still open` 里存在未被标成"被挡住 / 已作废"的条目，即按 high 报"未关完却报完成"*）；③ **`docs/failed-approaches.md` 作为固定输入**，结论与其中某条实质相同的必须给出"这次哪里不同"的可核证据。
   **另需在本轮补跑**：`9.23`（§9.17–9.22 的对抗验证）与 `9.27`（§9.24–9.26 的对抗验证）—— Round 24 只跑了 `9.12`。
 
 - [x] 9.36 **[AUDIT] 措辞类判据必须改成属性判据（9.19 与 9.21 的判据形态**本身就是缺陷**）**（high，✅ 已修 2026-09-13，见本条目末尾的判据与红绿）：这两条已勾选，但它们的绿灯靠「**行内含某词即豁免**」—— 实测把原缺陷句逐字复制到制品里、只加一句「（后续阶段扩展位）」即 PASS；9.21 的判据「全文不得出现『不可回溯』」**在盘上为假**（`git grep -c -F 不可回溯 -- tasks.md` = **7**，其中写下该判据的那一行自己就命中），其绿灯靠一份**没写进任务**的关键词豁免表。
-  **Oracle**：① 两条判据重写为**属性断言**（"新增的『方法/枚举/基类自动提取』承诺必须变红"、"每个含 URL 的行必须给出可核记录路径，或明写『无落盘记录』"），**取消按词豁免**；② 9.19 要求逐字列出的白名单**真的写进文档**；③ 先交新判据在**当前树**上的红态（当前树仍含越界句 → 必须红），再交修好后的绿态。
-  ✅ **已执行（2026-09-13）—— 判据、红态、绿态、白名单如下**：
+  **怎么算做完**：① 两条判据重写为**属性断言**（"新增的『方法/枚举/基类自动提取』承诺必须变红"、"每个含 URL 的行必须给出可核记录路径，或明写『无落盘记录』"），**取消按词豁免**；② 9.19 要求逐字列出的白名单**真的写进文档**；③ 先交新判据在**当前树**上的改之前（当前树仍含越界句 → 必须红），再交修好后的绿态。
+  ✅ **已执行（2026-09-13）—— 判据、改之前、绿态、白名单如下**：
   **① 新判据（逐句判、取消按词豁免）**：作用对象 = `proposal.md` / `design.md` / `specs/codegen-framework/spec.md` 的正文；属性 = **任何断言 libclang 提取/爬取非字段成员（方法 / 枚举 / 基类）的句子，必须同时带范围限定**。
   ```powershell
   Select-String -Path proposal.md,design.md,specs/codegen-framework/spec.md -Pattern '方法|枚举|基类' |
@@ -429,7 +429,7 @@
     Where-Object { $_.Line -notmatch '只提取数据字段|只取字段|不在本 change 实现范围|不在实现范围|本 change 不实现|不是本 SHALL|不在本 SHALL' }
   # 期望：零命中；有命中即红
   ```
-  **红态（真实前态 = 本次改动前的树，实测 2 处命中）**：`design.md` 的 D5 **标题**（"ParserLibrary 最小扩展 —— 枚举/函数补提取"）**没有范围限定**；另一处同段正文是**判据限定词集合太窄**造成的误报（该行本就写着"⚠ 本 change 不实现枚举 / 函数补提取"）。**处置**：标题补上"（**本 change 不实现，属后续阶段**）"，并把"本 change 不实现"补进限定词。**绿态**：同一条命令重跑 **零命中**。
+  **改之前（真实前态 = 本次改动前的树，实测 2 处命中）**：`design.md` 的 D5 **标题**（"ParserLibrary 最小扩展 —— 枚举/函数补提取"）**没有范围限定**；另一处同段正文是**判据限定词集合太窄**造成的误报（该行本就写着"⚠ 本 change 不实现枚举 / 函数补提取"）。**处置**：标题补上"（**本 change 不实现，属后续阶段**）"，并把"本 change 不实现"补进限定词。**绿态**：同一条命令重跑 **零命中**。
   ⚠ **旧判据（9.21）为何必红**：原判据"全文不得出现『不可回溯』" —— 实测 `git grep -c -F 不可回溯 -- tasks.md` = **7**，**写下该判据的那一行自己就命中**，其绿灯靠一份**没写进任务**的关键词豁免表。
   **② 9.19 的白名单（逐字列出，取代按词豁免）** —— 允许出现"非字段成员提取"字样的站点**只有**这几处，其余一律判红：
   1. `proposal.md` What Changes：「⚠ **本 change 只提取数据字段**：方法 / 枚举 / 基类**不在实现范围**」；
@@ -438,60 +438,60 @@
   4. `design.md` D5 的标题与正文（**现已各带**「本 change 不实现，属后续阶段」限定）；
   5. `CACore/header/CodeGenMeta.h` 的 "Future emitters may add" 注（**非本仓文档正文**，仅登记，不参与本判据）；
   6. 本文档 §9.8 / 9.19 / 9.36 自身引用该措辞的**逐字引文行**。
-  **③ 9.21 的新判据（属性判据）**：**每个含 URL 的行**都必须带「实际所用工具：…」或明写「**无落盘证据 / 无落盘记录**」。**实跑**：三份产品文档里含 URL 的行共 **2 行**（`proposal.md` 的 What Changes、`design.md` 的 D1），**两行都已带该标注** → 绿；红态即"删掉标注"（旧的词表判据下删掉仍绿）。
+  **③ 9.21 的新判据（属性判据）**：**每个含 URL 的行**都必须带「实际所用工具：…」或明写「**无落盘证据 / 无落盘记录**」。**实跑**：三份产品文档里含 URL 的行共 **2 行**（`proposal.md` 的 What Changes、`design.md` 的 D1），**两行都已带该标注** → 绿；改之前即"删掉标注"（旧的词表判据下删掉仍绿）。
 
-- [x] 9.37 **[AUDIT] 9.17 的两处「逐字引文」今天仍非逐字**（high，✅ 已修 2026-09-13）：两处都换成**从所指文件复制的逐字串**并当场验证 —— `CXErrorCode err = clang_parseTranslationUnit2(`（命中 `Tools/CodeGen/CodeGenMain.cpp`）与 `lines.append(f'set "CC={msvc_bin}\\cl.exe"')`（命中 `build.py:127`）；同一处坏引用在 §3.1 的 Oracle 里还有第 3 个站点，一并改掉。原写的 `clang_parseTranslationUnit2(&tu)` 与 `set "CC={<path>}\cl.exe"` 在盘上**均 0 命中**（红态：`git grep -F` 输出为空）。
-  **Oracle**：两条锚点改成**从所指文件复制**的逐字串，或显式标注"这是转述、非逐字引文"；改完对每条跑 `git grep -n -F "<锚点>" -- <所指文件>` 必须命中，并把**改前的 0 命中输出**一起贴上（红→绿）。
+- [x] 9.37 **[AUDIT] 9.17 的两处「逐字引文」今天仍非逐字**（high，✅ 已修 2026-09-13）：两处都换成**从所指文件复制的逐字串**并当场验证 —— `CXErrorCode err = clang_parseTranslationUnit2(`（命中 `Tools/CodeGen/CodeGenMain.cpp`）与 `lines.append(f'set "CC={msvc_bin}\\cl.exe"')`（命中 `build.py:127`）；同一处坏引用在 §3.1 的 验收要求 里还有第 3 个站点，一并改掉。原写的 `clang_parseTranslationUnit2(&tu)` 与 `set "CC={<path>}\cl.exe"` 在盘上**均 0 命中**（改之前：`git grep -F` 输出为空）。
+  **怎么算做完**：两条锚点改成**从所指文件复制**的逐字串，或显式标注"这是转述、非逐字引文"；改完对每条跑 `git grep -n -F "<锚点>" -- <所指文件>` 必须命中，并把**改前的 0 命中输出**一起贴上（红→绿）。
 
-- [x] 9.38 **[AUDIT] 范围排除的理由已被本 change 实测推翻，但只改了一处**（medium，✅ 已修 2026-09-13）：`proposal.md` 与 `spec.md` 两处已改成与树一致的事实句 —— 明确"真实类型接线仍不在本 change 范围"，同时写明 `static_assert_abi_consistency` **本 change 已实例化**、漂移路径**已实测跑通**（9.16 的 `C2338`），不再声称"未安排演练"。：9.20 只改了 `spec.md` 一段；`proposal.md` 里"对真实类型的接线、ABI guard 实例化随后续 change"与 `spec.md` 里"未安排漂移演练"**仍在**，而 `Test/CoreTests/EmitReflectionTest.cpp` 本 change **已经实例化**了该 guard、9.16 也**已跑出** `C2338`。
-  **Oracle**：按 9.19 做**全仓同类扫描**（不只扫 spec 单个 REQ 段），把与树不符的那几句改成事实句；判据扫四份制品正文，并交出逐条命令与真实输出。
+- [x] 9.38 **[AUDIT] 范围排除的理由已被本 change 实测推翻，但只改了一处**（medium，✅ 已修 2026-09-13）：`proposal.md` 与 `spec.md` 两处已改成与树一致的事实句 —— 明确"真实类型接线仍不在本 change 范围"，同时写明 `static_assert_abi_consistency` **本 change 已实例化**、对不上路径**已实测跑通**（9.16 的 `C2338`），不再声称"未安排演练"。：9.20 只改了 `spec.md` 一段；`proposal.md` 里"对真实类型的接线、ABI guard 实例化随后续 change"与 `spec.md` 里"未安排对不上演练"**仍在**，而 `Test/CoreTests/EmitReflectionTest.cpp` 本 change **已经实例化**了该 guard、9.16 也**已跑出** `C2338`。
+  **怎么算做完**：按 9.19 做**全仓同类扫描**（不只扫 spec 单个 REQ 段），把与树不符的那几句改成事实句；判据扫四份制品正文，并交出逐条命令与真实输出。
 
 - [x] 9.39 **[AUDIT] §9 内仍活的行号引用**（medium，✅ 已修 2026-09-13）：产品正文里对 **§9 会改动的文件**写行号的**活引用**已清零 —— 实测改动前有 **3 处**：`CodeGenMetaTest.cpp` 的 `:46-48`/`:58`（§9.3 与 §8.1 残留说明各一处）与 `CodeGenMetaTest.cpp:22`（§6b.1 的 ✅）。**处置**：前两处换成**逐字引文**（`offsetof(CodeGenProbe, a)`）或标注**转述**，第三处改成「按 grep 自定位、不写行号」。**判据（实跑）**：`Select-String tasks.md -Pattern '[A-Za-z_]+\.(cpp|h|md|py|txt|json):[0-9]+'` 在**产品正文**里的余下命中**全部**属于下述两类，逐条核过：① §9 引用规约**自身**描述该禁令的那一行（204）；② **逐字引文行**（9.11① 引 `build.py:230`/`:231`、9.15 引 `:185`/`:186` 两处、9.18 列举站点）—— 按 goal 的定义，§9 的逐字引文行不排除**引用旧文本**；③ 引用**§9 确不改动**的文件（`CMakeLists.txt`、`Test/CoreTests/CMakeLists.txt`、`Hasher.h`、`EmitReflectionTest.cpp`）按本节规约**允许**写行号。：`tasks.md` 里对 `Test/CoreTests/CodeGenMetaTest.cpp` 的 `:46-48` / `:58` 引用已失准（该文件 `:58` 现在是 Task 9.3 的注释，断言已移到 `:64-69`），而 §9 自己的引用规约**明禁**对该文件写行号。
-  **Oracle**：把这些行号换成逐字引文（如 `offsetof(CodeGenProbe, b)`）加属性描述；全量扫描 §9 的产品正文，交出零命中的 `git grep -n -E "<文件名>:[0-9]+" -- <四份文档>` 输出。
+  **怎么算做完**：把这些行号换成逐字引文（如 `offsetof(CodeGenProbe, b)`）加属性描述；全量扫描 §9 的产品正文，交出零命中的 `git grep -n -E "<文件名>:[0-9]+" -- <四份文档>` 输出。
 
-- [x] 9.40 **[AUDIT] 9.25 的判据 b) 不可能失败**（high，✅ 已修 2026-09-13）：判据 b) 已由"否定列举"改成**正向断言**；实跑结果 —— 清掉 `out/build/*/codegen`（两个 preset）后重跑 `python build.py --config Debug --no-configure CoreTests` → `BUILD SUCCESSFUL`，`out/build/x64-debug/codegen` 下**恰好三份**，三份与 `Tools/CodeGen/generated/` 同名文件 `Get-FileHash` **全部相同**（旧判据在"目录为空"时同样通过，红态成立）。：它做的是**否定列举**（"`out/build/x64-debug/codegen` 目录**不含** `ImageHandle.*` / `BufferHandle.*`"）—— 目录**为空或根本不存在**时同样通过；且**只覆盖一个 preset**（实测 `out/build/x64-relWithDebugInfo/codegen` 里此刻**仍有**那两个类型的产物），只有绿、没有红态。
-  **Oracle**：改成**正向断言** —— 清掉**全部 preset** 的 codegen 目录后重跑构建，产物**恰为三份** `EmitSample.{Reflection,Serialization,Hash}.h` 且与 `Tools/CodeGen/generated/` 下同名文件**逐字节相同**；先交出改前在"两个项目类型仍被生成"状态下的红态（或明写该红态已不可复现及原因）。
+- [x] 9.40 **[AUDIT] 9.25 的判据 b) 不可能失败**（high，✅ 已修 2026-09-13）：判据 b) 已由"否定列举"改成**正向断言**；实跑结果 —— 清掉 `out/build/*/codegen`（两个 preset）后重跑 `python build.py --config Debug --no-configure CoreTests` → `BUILD SUCCESSFUL`，`out/build/x64-debug/codegen` 下**恰好三份**，三份与 `Tools/CodeGen/generated/` 同名文件 `Get-FileHash` **全部相同**（旧判据在"目录为空"时同样通过，改之前成立）。：它做的是**否定列举**（"`out/build/x64-debug/codegen` 目录**不含** `ImageHandle.*` / `BufferHandle.*`"）—— 目录**为空或根本不存在**时同样通过；且**只覆盖一个 preset**（实测 `out/build/x64-relWithDebugInfo/codegen` 里此刻**仍有**那两个类型的产物），只有绿、没有改之前。
+  **怎么算做完**：改成**正向断言** —— 清掉**全部 preset** 的 codegen 目录后重跑构建，产物**恰为三份** `EmitSample.{Reflection,Serialization,Hash}.h` 且与 `Tools/CodeGen/generated/` 下同名文件**逐字节相同**；先交出改前在"两个项目类型仍被生成"状态下的改之前（或明写该改之前已不可复现及原因）。
 
 - [x] 9.41 **[AUDIT] CLAUDE.md 锚点规则缺「限定到所指文件」**（low，✅ 已修 2026-09-13）：CLAUDE.md 的「引用锚点必须逐字可 grep」那条已把自检命令改成 `git grep -n -F "<引文>" -- <所指文件>`，并写明**不带上限定的全仓 grep 会被四份变更文档自己写下的同一句话喂绿**（实测一次自检 10 处命中全部落在文档里）。
 
-- [x] 9.42 **[AUDIT] `serializable` 门控绑错行 + 子串匹配**（high，9.35 保留项）：实测 —— ① 类型名先出现在**前向声明**时，`CA_REFLECT(serializable)` 被判成"没有选项" → **exit 9 误拒**（`--emit-reflection` 同文件却 exit 0）；② 选项写成 `nonserializable`、或把 `serializable` 写进注释，**一律放行**（源码用 `opts.find("serializable")`）。**Oracle**：① 标记只绑到**带 `{` 的定义行**（或改用 AST 游标位置）；② 选项按逗号切分、剥注释后与标识符**整词比较**，不用 `find`；③ 两个夹具（前向声明版 / `nonserializable` 版）入库当回归，各交红→绿。 （✅ 已修 2026-09-13）门控改为**绑定带 `{`/继承的定义行、且只在已扫到标记时才绑**，选项按逗号切分+剥注释+**整词比较**。**绿态实测**（`evidence/r28-gates.txt`）：前向声明在前 + `CA_REFLECT(serializable)` → **exit 0 且有产物**（红态：exit 9 误拒）；`nonserializable` → **exit 9**、注释里的 `serializable` → **exit 9**（红态：两者都 exit 0 且产出特化）；对照组 `EmitSample` → exit 0。⚠ 修法第一版过严（要求 `{` 同行）把大括号换行的写法也判成前向声明 → 序列化构建期对拍立刻红，已收窄。
-- [x] 9.43 **[AUDIT] 未支持的 emitter 标志组合被静默丢弃**（medium + low，9.35 保留项）：实测 `--emit-reflection --emit-serialization` → **exit 0**，产物与只给 `--emit-reflection` **逐字节相同**；AST 通道 `--emit-serialization --emit-hash` → exit 0，后者被丢弃、产物无 `custom_hash_trait`。**Oracle**：分派前校验标志组合（同一类型只允许一个 emitter，冲突即**非零退出**并点名标志），或按请求逐个发射；两种组合各加回归，交红→绿。 （✅ 已修 2026-09-13）① 文本通道的"不支持即拒"检查**提到 `if (emitReflection)` 之前**；② AST 路径新增标志组合校验（>1 个 emitter 即拒）。**绿态实测**：`--emit-reflection --emit-serialization`（文本通道）→ **exit 8**；`--emit-serialization --emit-hash`（AST）→ **exit 10**（红态：两者都 exit 0、后一个标志被静默丢弃）。
-- [x] 9.44 **[AUDIT] 9.29 的判据是短语匹配**（medium，9.35 保留项）：`proposal.md` 里"codegen 在 **configure 步骤内**"那句仍在（与实现相反），而判据串"分支内依次调用"在该文件 **0 命中**。**Oracle**：判据改**属性断言**（四份制品凡称 codegen 在 configure 分支/步骤**内**即判红）+ 改掉该行；交红→绿。 （✅ 已修 2026-09-13）`proposal.md` 的"仅在 configure 步骤内"已改成"`patch_ninja()` 之后、引擎编译之前；两条路径都执行，不在 `if configure_step:` 块内"。**判据改成属性断言**：四份制品凡称 codegen 在 configure 分支/步骤**内**即判红 —— 实测该文件命中数 **1 → 0**。
-- [x] 9.45 **[AUDIT] 9.29 留下活的行号锚点**（low，9.35 保留项）：`tasks.md` 的 9.29 条目与 Round 26 表格各有一处 `codegen_failures = codegen()`（**逐字引文，不写行号**），违反 §9 引用规约，也与 9.39 的"活行号引用已清零"矛盾。**Oracle**：删 `:400`，只留逐字引文 `codegen_failures = codegen()`；判据 = 产品正文对该文件 `:数字` 零命中。 （✅ 已修 2026-09-13）产品正文里的 `build.py:400` 活锚点已清零（4 处全换成逐字引文 `codegen_failures = codegen()`）；判据实跑：产品正文命中 **0**（余下的只在 9.45 自身描述里）。
-- [x] 9.46 **[AUDIT] 9.33 的证据只数了名字、没执行 Oracle**（high，✅ 已修 2026-09-13）：
+- [x] 9.42 **[AUDIT] `serializable` 门控绑错行 + 子串匹配**（high，9.35 保留项）：实测 —— ① 类型名先出现在**前向声明**时，`CA_REFLECT(serializable)` 被判成"没有选项" → **exit 9 误拒**（`--emit-reflection` 同文件却 exit 0）；② 选项写成 `nonserializable`、或把 `serializable` 写进注释，**一律放行**（源码用 `opts.find("serializable")`）。**怎么算做完**：① 标记只绑到**带 `{` 的定义行**（或改用 AST 游标位置）；② 选项按逗号切分、剥注释后与标识符**整词比较**，不用 `find`；③ 两个夹具（前向声明版 / `nonserializable` 版）入库当回归，各交红→绿。 （✅ 已修 2026-09-13）门控改为**绑定带 `{`/继承的定义行、且只在已扫到标记时才绑**，选项按逗号切分+剥注释+**整词比较**。**绿态实测**（`evidence/r28-gates.txt`）：前向声明在前 + `CA_REFLECT(serializable)` → **exit 0 且有产物**（改之前：exit 9 误拒）；`nonserializable` → **exit 9**、注释里的 `serializable` → **exit 9**（改之前：两者都 exit 0 且产出特化）；对照组 `EmitSample` → exit 0。⚠ 修法第一版过严（要求 `{` 同行）把大括号换行的写法也判成前向声明 → 序列化构建期对拍立刻红，已收窄。
+- [x] 9.43 **[AUDIT] 未支持的 emitter 标志组合被静默丢弃**（medium + low，9.35 保留项）：实测 `--emit-reflection --emit-serialization` → **exit 0**，产物与只给 `--emit-reflection` **逐字节相同**；AST 通道 `--emit-serialization --emit-hash` → exit 0，后者被丢弃、产物无 `custom_hash_trait`。**怎么算做完**：分派前校验标志组合（同一类型只允许一个 emitter，冲突即**非零退出**并点名标志），或按请求逐个发射；两种组合各加回归，交红→绿。 （✅ 已修 2026-09-13）① 文本通道的"不支持即拒"检查**提到 `if (emitReflection)` 之前**；② AST 路径新增标志组合校验（>1 个 emitter 即拒）。**绿态实测**：`--emit-reflection --emit-serialization`（文本通道）→ **exit 8**；`--emit-serialization --emit-hash`（AST）→ **exit 10**（改之前：两者都 exit 0、后一个标志被静默丢弃）。
+- [x] 9.44 **[AUDIT] 9.29 的判据是短语匹配**（medium，9.35 保留项）：`proposal.md` 里"codegen 在 **configure 步骤内**"那句仍在（与实现相反），而判据串"分支内依次调用"在该文件 **0 命中**。**怎么算做完**：判据改**属性断言**（四份制品凡称 codegen 在 configure 分支/步骤**内**即判红）+ 改掉该行；交红→绿。 （✅ 已修 2026-09-13）`proposal.md` 的"仅在 configure 步骤内"已改成"`patch_ninja()` 之后、引擎编译之前；两条路径都执行，不在 `if configure_step:` 块内"。**判据改成属性断言**：四份制品凡称 codegen 在 configure 分支/步骤**内**即判红 —— 实测该文件命中数 **1 → 0**。
+- [x] 9.45 **[AUDIT] 9.29 留下活的行号锚点**（low，9.35 保留项）：`tasks.md` 的 9.29 条目与 Round 26 表格各有一处 `codegen_failures = codegen()`（**逐字引文，不写行号**），违反 §9 引用规约，也与 9.39 的"活行号引用已清零"矛盾。**怎么算做完**：删 `:400`，只留逐字引文 `codegen_failures = codegen()`；判据 = 产品正文对该文件 `:数字` 零命中。 （✅ 已修 2026-09-13）产品正文里的 `build.py:400` 活锚点已清零（4 处全换成逐字引文 `codegen_failures = codegen()`）；判据实跑：产品正文命中 **0**（余下的只在 9.45 自身描述里）。
+- [x] 9.46 **[AUDIT] 9.33 的证据只数了名字、没执行 验收要求**（high，✅ 已修 2026-09-13）：
   ① **夹具与前态快照已入库**：`evidence/fixtures/`（**26 个文件**，含 `uisample.h`、`fwd_then_marker.h`、`nonserializable.h`、`comment_mention.h`、`CodeGenMain.fixed.cpp`、`CodeGenMain.base.cpp` 等）；
   ② **脚本已能从任意目录跑**：六个脚本各加一段引导（从 `__file__` 向上找同时含 `build.py` 与 `.git` 的目录 → `chdir` + 进 `sys.path`），并把写死的 `ROOT = Path(__file__).resolve().parent.parent` 改成 `parents[4]`（它们在 `.review_tmp/` 时该表达式正好是仓库根，搬到 `evidence/` 后指向了 `openspec/changes`）；另补 `stdout/stderr` 的 UTF-8 重配置（否则中文输出在 cp1252 控制台上崩）。
-  ③ **Oracle 已改成"干净检出能跑出该输出"并实跑**：`evidence/r29-scripts-rerun.txt` 记录六个脚本的**实际退出码与输出** —— `check_codegen_failure.py` **exit 0**、`check_emit_order.py` **exit 0**（打印 `ORDER_MATCHES=True` 等真实结果）；四个 `verify_round*.py` **能跑但 exit 1**，它们失败的 6 条检查**全部是"对已改写措辞的字符串断言"**（`no live build.py:<line> citation`、`REQ#build.py 不再写行号`、`design 迁移计划命中`、`第 14 轮的 14 条判据仍全绿`、`verify_round1/2 仍全绿`、`9.7 design: 写明「保真度不能靠退出码判定」`）—— **它们的 FAILED 不构成对当前树的证据**（当前树的判据在 §9 与 Review Log 里）。**明写：这四条历史探针的结论已过期，不得引用其 PASS。**
-  ④ **计数订正（并写明口径）**：按本条目记录的抽取命令（`\.review_tmp/([A-Za-z0-9_\-]+\.(txt|py|json))`）实测 **8 个唯一名字**，`evidence/` 下现有 **17 个文件** + `fixtures/` 26 个。9.35 复审报的"11 名"出自**更宽的正则**（它把 `probe/xxx.h` 这类带子目录的引用也算进去了）—— 故判据必须**连正则一起写明**，否则"8 还是 11"不可复核。原文写的"14 文件"是当时快照的数字，现已过时。：被引用的夹具与前态源码（`uisample.h`、`CodeGenMain.fixed.cpp`）**不在库**；脚本搬到 `evidence/` 后原位跑即崩（`FileNotFoundError`）；计数写错（8 名/14 文件，实为 **11 名/15 文件**）。**Oracle**：夹具与四个前态快照入库；脚本改为向上查找仓库根；Oracle 改成"**干净检出**能跑出该输出"；订正计数；交红（现状跑不起来）→绿。
-- [x] 9.47 **[AUDIT] 9.34 的证据是 UTF-16LE**（low，9.35 保留项）：`evidence/codegen-target-build-failure.txt` 首字节 `FF FE`、含 1666 个 NUL，`git grep` 读不到。**Oracle**：另存 UTF-8（或补 UTF-8 副本并注明以它为准），并用 `git grep -c C2059 -- <该文件>` 断言非空（现状 exit 1）。 （✅ 已修 2026-09-13）`evidence/codegen-target-build-failure.txt` 由 UTF-16LE 转成 UTF-8（1666 字符）；判据实跑：`git grep -c C2059 -- <该文件>` 由 **exit 1 变 1 命中**。
-- [x] 9.48 **[AUDIT] 9.32 的"旧判据全绿"是推导、未落盘**（low，9.35 保留项）：`evidence/r26-order.txt` 只有新判据的 `ORDER FAILED`，没有旧判据在该倒序状态下的运行记录。**Oracle**：补跑旧判据并入该文件（须出现重新编译行），或明写"该绿态系推导、未落盘"。 （✅ 已修 2026-09-13）按 Oracle 的第二条分支**明写**：旧判据在倒序状态下的绿态是**推导、未实测**（推导依据已写进 `evidence/r26-order.txt` 的附注），不得当已测证据引用。
-- [x] 9.49 **Review & Adversarial Verify（Round 27 后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-49b`，3 角度 + 复核，12 条候选 → **保留 10 条（3 high）→ 判不合格**；第一次跑时复核者未返回结论、按规则不计执行，本轮重跑取到结论。结论与新开条目见 Review Log Round 30）：对 §9.42–9.48 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— 用 `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。：9.24 要求把 `-- <目标文件>` 限定写进**锚点规则**，实际只落在「修复即断言」一节；锚点规则那条仍只写 `git grep -n -F` 自检。
-  **Oracle**：把"必须加 `-- <目标文件>`"并进 CLAUDE.md 的「引用锚点必须逐字可 grep」那一条，并在同处给出会失败的红态（全仓 grep 被四份文档自己写下的同一句话喂绿）。
+  ③ **验收要求 已改成"干净检出能跑出该输出"并实跑**：`evidence/r29-scripts-rerun.txt` 记录六个脚本的**实际退出码与输出** —— `check_codegen_failure.py` **exit 0**、`check_emit_order.py` **exit 0**（打印 `ORDER_MATCHES=True` 等真实结果）；四个 `verify_round*.py` **能跑但 exit 1**，它们失败的 6 条检查**全部是"对已改写措辞的字符串断言"**（`no live build.py:<line> citation`、`REQ#build.py 不再写行号`、`design 迁移计划命中`、`第 14 轮的 14 条判据仍全绿`、`verify_round1/2 仍全绿`、`9.7 design: 写明「保真度不能靠退出码判定」`）—— **它们的 FAILED 不构成对当前树的证据**（当前树的判据在 §9 与 Review Log 里）。**明写：这四条历史探针的结论已过期，不得引用其 PASS。**
+  ④ **计数订正（并写明口径）**：按本条目记录的抽取命令（`\.review_tmp/([A-Za-z0-9_\-]+\.(txt|py|json))`）实测 **8 个唯一名字**，`evidence/` 下现有 **17 个文件** + `fixtures/` 26 个。9.35 复审报的"11 名"出自**更宽的正则**（它把 `probe/xxx.h` 这类带子目录的引用也算进去了）—— 故判据必须**连正则一起写明**，否则"8 还是 11"不可复核。原文写的"14 文件"是当时快照的数字，现已过时。：被引用的夹具与前态源码（`uisample.h`、`CodeGenMain.fixed.cpp`）**不在库**；脚本搬到 `evidence/` 后原位跑即崩（`FileNotFoundError`）；计数写错（8 名/14 文件，实为 **11 名/15 文件**）。**怎么算做完**：夹具与四个前态快照入库；脚本改为向上查找仓库根；验收要求 改成"**干净检出**能跑出该输出"；订正计数；交红（现状跑不起来）→绿。
+- [x] 9.47 **[AUDIT] 9.34 的证据是 UTF-16LE**（low，9.35 保留项）：`evidence/codegen-target-build-failure.txt` 首字节 `FF FE`、含 1666 个 NUL，`git grep` 读不到。**怎么算做完**：另存 UTF-8（或补 UTF-8 副本并注明以它为准），并用 `git grep -c C2059 -- <该文件>` 断言非空（现状 exit 1）。 （✅ 已修 2026-09-13）`evidence/codegen-target-build-failure.txt` 由 UTF-16LE 转成 UTF-8（1666 字符）；判据实跑：`git grep -c C2059 -- <该文件>` 由 **exit 1 变 1 命中**。
+- [x] 9.48 **[AUDIT] 9.32 的"旧判据全绿"是推导、未落盘**（low，9.35 保留项）：`evidence/r26-order.txt` 只有新判据的 `ORDER FAILED`，没有旧判据在该倒序状态下的运行记录。**怎么算做完**：补跑旧判据并入该文件（须出现重新编译行），或明写"该绿态系推导、未落盘"。 （✅ 已修 2026-09-13）按 验收要求 的第二条分支**明写**：旧判据在倒序状态下的绿态是**推导、未实测**（推导依据已写进 `evidence/r26-order.txt` 的附注），不得当已测证据引用。
+- [x] 9.49 **Review & Adversarial Verify（Round 27 后 · 强制最后）**（✅ 已执行 2026-09-13：workflow `adversarial-review-9-49b`，3 角度 + 复核，12 条候选 → **保留 10 条（3 high）→ 判不合格**；第一次跑时复核者未返回结论、按规则不计执行，本轮重跑取到结论。结论与新开条目见 Review Log Round 30）：对 §9.42–9.48 已做完条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— 用 `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。：9.24 要求把 `-- <目标文件>` 限定写进**锚点规则**，实际只落在「修复即断言」一节；锚点规则那条仍只写 `git grep -n -F` 自检。
+  **怎么算做完**：把"必须加 `-- <目标文件>`"并进 CLAUDE.md 的「引用锚点必须逐字可 grep」那一条，并在同处给出会失败的改之前（全仓 grep 被四份文档自己写下的同一句话喂绿）。
 
-- [x] 9.50 **[AUDIT] 9.42 的门控仍有三处真缺陷（含"绿态其实是错产物"）**（✅ 已修 2026-09-13，四处改动 + 七项内容断言探测全过，证据 `evidence/r31-950.txt`）：① **类型解析改为优先取定义游标**（`clang_isCursorDefinition`；旧逻辑取同名第一个 = 前向声明 → 空特化）；② **选项解析成 `name=value`，只在值为真时算命中**（`serializable=0`/`=false` 现在被拒）；③ **标记括号跨行配对**（`(`/`)` 平衡扫描，不再按行找 `)`）；④ **标记只贴一次、被别的类型定义消费即清空**（旧逻辑每行重贴，把清空立刻抹掉 → 未标类型照样通过）。**探测（含内容断言，不再只看 exit 0 + 产物存在）**：前向声明在前 → exit 0 且表输出 **`Same 2`**（红态 `Same 0`）；`serializable=0`/`=false` → **exit 9**（红态 exit 0 且产出特化）；跨行标记 → **exit 0**（红态 exit 9 误拒）；D0 有标记、D1 无标记 → **exit 9**（红态漏过）；D0 自己 → exit 0；对照 `EmitSample` → exit 0 且**恰 4 条** `s.serialize(obj.X)`、`Multi` **恰 2 条**；三份构建期 golden 对拍全绿。（high ×3，9.49 保留项）：
-  ① **类型解析取错游标**：`collectStructs` 只收 `StructDecl`/`ClassDecl` 且遇同名即停，**不分辨"前向声明"与"定义"** —— 实测 `fwd_then_marker.h` 跑出 `Same 0`（**0 字段**）、`# options: serializable`、exit 0：产物是个**空特化**。而 9.42 的 Oracle 只查"exit 0 + 产物存在"，**空产物照样算绿**。
+- [x] 9.50 **[AUDIT] 9.42 的门控仍有三处真缺陷（含"绿态其实是错产物"）**（✅ 已修 2026-09-13，四处改动 + 七项内容断言探测全过，证据 `evidence/r31-950.txt`）：① **类型解析改为优先取定义游标**（`clang_isCursorDefinition`；旧逻辑取同名第一个 = 前向声明 → 空特化）；② **选项解析成 `name=value`，只在值为真时算命中**（`serializable=0`/`=false` 现在被拒）；③ **标记括号跨行配对**（`(`/`)` 平衡扫描，不再按行找 `)`）；④ **标记只贴一次、被别的类型定义消费即清空**（旧逻辑每行重贴，把清空立刻抹掉 → 未标类型照样通过）。**探测（含内容断言，不再只看 exit 0 + 产物存在）**：前向声明在前 → exit 0 且表输出 **`Same 2`**（改之前 `Same 0`）；`serializable=0`/`=false` → **exit 9**（改之前 exit 0 且产出特化）；跨行标记 → **exit 0**（改之前 exit 9 误拒）；D0 有标记、D1 无标记 → **exit 9**（改之前漏过）；D0 自己 → exit 0；对照 `EmitSample` → exit 0 且**恰 4 条** `s.serialize(obj.X)`、`Multi` **恰 2 条**；三份构建期 golden 对拍全绿。（high ×3，9.49 保留项）：
+  ① **类型解析取错游标**：`collectStructs` 只收 `StructDecl`/`ClassDecl` 且遇同名即停，**不分辨"前向声明"与"定义"** —— 实测 `fwd_then_marker.h` 跑出 `Same 0`（**0 字段**）、`# options: serializable`、exit 0：产物是个**空特化**。而 9.42 的 验收要求 只查"exit 0 + 产物存在"，**空产物照样算绿**。
   ② **选项值被丢掉**：`serializable=0` / `serializable=false` 实测**照样通过门控**并产出序列化特化（解析时 `tok.substr(0, eq)` 把值整段丢了）。
   ③ **标记按行解析**：`CA_REFLECT(` 跨行书写时整段读空 → 已标 `serializable` 的类型被**误拒 exit 9**（正是本条要修的那类误拒）。
-  **Oracle**：① 类型解析**优先取有类体的定义游标**（不是同名第一个）；② 选项解析成 `name=value`，只在**值为真**时算命中（或对 `=` 形式一律拒绝），并补 `serializable=0` 夹具；③ `CA_REFLECT(...)` 的括号配对**跨行扫描**后再切分，补多行标记夹具；④ **Oracle 必须断言产物内容**（字段数/字段名列表 == 源定义），**不得只看 exit 0 + 产物存在**；三个夹具入库进 `evidence/fixtures/`，各交红→绿。
-- [x] 9.51 **[AUDIT] 9.42 的红态没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）（✅ 已修 2026-09-20，红态已落盘且来自真实历史二进制，证据 `evidence/r28-gates.txt`）：按本条目 Oracle 的第一条分支重建了改动前的 `CodeGen.exe` —— `git checkout 39cd088 -- Tools/CodeGen/CodeGenMain.cpp` → `python build.py --config Debug --no-configure CodeGen` → 拷出 `CodeGen.exe` 与该目录的 `libclang.dll` → 还原源码并重建（源码 blob `35163bd`、exe SHA256 `4fbb538c…` 都写进证据头；重建配方也在头里）。同六条命令在该二进制上的**原始输出与退出码**：`9.42a` 前向声明在前 → **exit 9 误拒**（应 exit 0）、`9.42b` `nonserializable` → **exit 0 放行**（应 exit 9）、`9.42c` 注释里的 `serializable` → **exit 0 放行**（应 exit 9）、`9.42` 对照组 → exit 0、`9.43a` 文本通道两标志 → **exit 0**（应 exit 8）、`9.43b` AST 两标志 → **exit 0**（应 exit 10）—— **5 条红、1 条对照绿**。**两份回归夹具已真正跑过**：`evidence/fixtures/fwd_then_marker.h` 与 `nonserializable.h`（外加 `comment_mention.h`）在 BEFORE 与 AFTER 两侧都由同一条命令组执行，命令、退出码、产物有无、stdout/stderr 全文落盘。为使红态可被第三方复现，全部测量改由 `evidence/regen_codegen_evidence.py` **生成**（不再手抄一行），头里写明每个二进制的身份与重建方式。**附带实测**：`fwd_then_marker.h` 的红态不止 exit 9 —— 在 `80fb96a` 上"前向声明在前"会让类型解析取到**声明**游标，字段表读出 `Same 0`（空产物）却仍 exit 0，这一条同样落盘（`evidence/r31-950.txt` 的 BEFORE-B2 段）。
-  **Oracle**：另建改动前的二进制（如 `git show 39cd088:Tools/CodeGen/CodeGenMain.cpp` 单独编出——**不违反"只经 build.py 构建"**：把它并回源码树后用 `build.py` 出一版，或按项目入口说明），跑同六条命令把**原始输出与退出码**并入 `r28-gates.txt`；若不重建，**在条目里明写"红态系推导、未落盘"**。
+  **怎么算做完**：① 类型解析**优先取有类体的定义游标**（不是同名第一个）；② 选项解析成 `name=value`，只在**值为真**时算命中（或对 `=` 形式一律拒绝），并补 `serializable=0` 夹具；③ `CA_REFLECT(...)` 的括号配对**跨行扫描**后再切分，补多行标记夹具；④ **验收要求 必须断言产物内容**（字段数/字段名列表 == 源定义），**不得只看 exit 0 + 产物存在**；三个夹具入库进 `evidence/fixtures/`，各交红→绿。
+- [x] 9.51 **[AUDIT] 9.42 的改之前没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）（✅ 已修 2026-09-20，改之前已落盘且来自真实历史二进制，证据 `evidence/r28-gates.txt`）：按本条目 验收要求 的第一条分支重建了改动前的 `CodeGen.exe` —— `git checkout 39cd088 -- Tools/CodeGen/CodeGenMain.cpp` → `python build.py --config Debug --no-configure CodeGen` → 拷出 `CodeGen.exe` 与该目录的 `libclang.dll` → 还原源码并重建（源码 blob `35163bd`、exe SHA256 `4fbb538c…` 都写进证据头；重建配方也在头里）。同六条命令在该二进制上的**原始输出与退出码**：`9.42a` 前向声明在前 → **exit 9 误拒**（应 exit 0）、`9.42b` `nonserializable` → **exit 0 放行**（应 exit 9）、`9.42c` 注释里的 `serializable` → **exit 0 放行**（应 exit 9）、`9.42` 对照组 → exit 0、`9.43a` 文本通道两标志 → **exit 0**（应 exit 8）、`9.43b` AST 两标志 → **exit 0**（应 exit 10）—— **5 条红、1 条对照绿**。**两份回归夹具已真正跑过**：`evidence/fixtures/fwd_then_marker.h` 与 `nonserializable.h`（外加 `comment_mention.h`）在 BEFORE 与 AFTER 两侧都由同一条命令组执行，命令、退出码、产物有无、stdout/stderr 全文落盘。为使改之前可被第三方复现，全部测量改由 `evidence/regen_codegen_evidence.py` **生成**（不再手抄一行），头里写明每个二进制的身份与重建方式。**附带实测**：`fwd_then_marker.h` 的改之前不止 exit 9 —— 在 `80fb96a` 上"前向声明在前"会让类型解析取到**声明**游标，字段表读出 `Same 0`（空产物）却仍 exit 0，这一条同样落盘（`evidence/r31-950.txt` 的 BEFORE-B2 段）。
+  **怎么算做完**：另建改动前的二进制（如 `git show 39cd088:Tools/CodeGen/CodeGenMain.cpp` 单独编出——**不违反"只经 build.py 构建"**：把它并回源码树后用 `build.py` 出一版，或按项目入口说明），跑同六条命令把**原始输出与退出码**并入 `r28-gates.txt`；若不重建，**在条目里明写"改之前系推导、未落盘"**。
 - [x] 9.52 **[AUDIT] 证据的可复现性与自相矛盾**（medium + low，9.49 保留项）（✅ 已修 2026-09-20）：
-  ① 六条命令的输入**全部换成仓库内已入库的** `evidence/fixtures/*.h`，同一条对照命令在新路径下重跑后退出码与产物与旧记录一致（`9.42 control` → exit 0 且有产物）。新增**程序化自检** `python Tools/spin_check.py evidence`：它读 `evidence/*.txt` 里以 `cmd:` 开头的行，抽出**输入**路径（跳过程序自身、`-o` 后的输出路径、`.exe`、绝对路径、`out/`、无分隔符的裸文件名、以及带空格绝对路径被切碎的残片），逐个跑 `git ls-files --error-unmatch`。**红→绿**：改前 **exit 1**（`r28-gates.txt` 3 条 + `r26-gates.txt` 2 条指向 `.review_tmp/probe/`；门控实测该目录下 4 个文件含命令、48 条输入路径、**5 条不在库**），改后 **exit 0**（6 个含命令的文件、**210 条输入路径、0 条不在库**）。顺带修掉同类缺陷：`r26-gates.txt` 的 `uisample.h` 也换成 `evidence/fixtures/uisample.h`，并为其重建前态二进制（`ac2cb3b`，blob `f1a4223`）重跑 BEFORE/AFTER 两段。⚠ **本段先前写的两个数字已按实测订正**（9.53 复核者指出）：旧稿写的"全仓 19 条不在库"复现不出（那是 `.review_tmp` 字符串在该目录里的**出现次数**，含 `-o` 输出路径与 spin 快照路径，门控按设计跳过），旧稿写的"5 个含命令的文件、122 条输入路径"是 ② 落地**之前**的快照，现已过期。
+  ① 六条命令的输入**全部换成仓库内已入库的** `evidence/fixtures/*.h`，同一条对照命令在新路径下重跑后退出码与产物与旧记录一致（`9.42 control` → exit 0 且有产物）。新增**程序化自检** `python Tools/spin_check.py evidence`：它读 `evidence/*.txt` 里以 `cmd:` 开头的行，抽出**输入**路径（跳过程序自身、`-o` 后的输出路径、`.exe`、绝对路径、`out/`、无分隔符的裸文件名、以及带空格绝对路径被切碎的残片），逐个跑 `git ls-files --error-unmatch`。**红→绿**：改前 **exit 1**（`r28-gates.txt` 3 条 + `r26-gates.txt` 2 条指向 `.review_tmp/probe/`；门控实测该目录下 4 个文件含命令、48 条输入路径、**5 条不在库**），改后 **exit 0**（6 个含命令的文件、**210 条输入路径、0 条不在库**）。顺带修掉同类缺陷：`r26-gates.txt` 的 `uisample.h` 也换成 `evidence/fixtures/uisample.h`，并为其重建前态二进制（`ac2cb3b`，blob `f1a4223`）重跑 BEFORE/AFTER 两段。⚠ **本段先前写的两个数字已按实测订正**（9.53 复核者指出）：旧稿写的"全仓 19 条不在库"复现不出（那是 `.review_tmp` 字符串在该目录里的**出现次数**，含 `-o` 输出路径与 spin 快照路径，门控按设计跳过），旧稿写的"5 个含命令的文件、122 条输入路径"是 ② 做完**之前**的快照，现已过期。
   ② `evidence/r29-scripts-rerun.txt` 由 `evidence/rerun_scripts.py` **一次性生成**，取代原先互相矛盾且无过期标注的三段：六个脚本在同一趟里跑完，输出**按 UTF-8 字节直接落盘**（中文检查名里的 `?` 由 67 个降到 1 个），**汇总的失败条数由程序从正文数出来**（7 条，逐条列出，与正文逐条对齐，不再出现"TOTAL 7 而正文 6 条"）。"可从任意目录跑"补上实测：仓库根与子目录 `openspec/changes/engine-codegen-framework` 两侧**退出码与失败行完全一致**。
-  **Oracle**：重跑时**按 UTF-8 直写文件**（不经控制台捕获），删掉或明确标注过期段，让正文失败条数与证据 TOTAL **逐条对齐**；并说明"可从任意目录跑"只验证过"从仓库根跑"，或补一条从子目录的实测。
+  **怎么算做完**：重跑时**按 UTF-8 直写文件**（不经控制台捕获），删掉或明确标注过期段，让正文失败条数与证据 TOTAL **逐条对齐**；并说明"可从任意目录跑"只验证过"从仓库根跑"，或补一条从子目录的实测。
 - [x] 9.54 **[AUDIT] 标记扫描把注释当成代码**（high，2026-09-20 本轮自测发现，✅ 已修，红→绿见 `evidence/r31-950.txt`）：为 9.50③ 造"跨行标记"夹具时暴露 —— 标记是靠**扫描源文本**找的，而只有**选项串**做了剥注释（9.42c），**标记本身没有**，于是注释既能**伪造**标记、也能**摧毁**标记扫描。实测（`caa8643` 二进制）：① `evidence/fixtures/comment_marker.h`（唯一提到标记的地方是注释、类型本身没有标注）→ `--emit-serialization` **exit 0 且写出了序列化特化**，未标注类型拿到了特化；② `evidence/fixtures/comment_paren.h`（注释里提到标记并带一个**未配对**的 `(`）→ 括号配对扫描从注释那处开始、到文件尾都不平衡，`if (depth != 0) break;` 令**整段标记收集放弃**，真正单行标注的类型被 **exit 9 误拒**。**修法**：新增 `stripComments()`（注释字节换成空格、保留换行与偏移），`buildWhitelist` / `scanCA_REFLECTIONList` / `scanMarkerOptions` 三处文本扫描全部改吃这份文本。**红→绿**（同一组夹具、同一条命令组）：`caa8643` 上 `9.54a` **FAIL (artifact=True)**、`9.54b` **FAIL (got 0)**；修好的二进制上两条 **PASS**（`no-artifact` / `got 2`），同时 9.50 的八条全绿、三份构建期 golden 对拍仍逐字节相同。**另一处诚实订正**：`evidence/r31-950.txt` 的 `Multi` 行在旧二进制上"通过"是**假绿** —— 逐行扫描把 `Zero2` 的 `serializable = false` 泄漏给了 `Multi`，该夹具因此**从未真正考过跨行标记**；隔离夹具是 `multiline_marker.h`（跨行标记为文件里第一个）。**已同步记入 `docs/failed-approaches.md` 第 17 行。**
-  **Oracle**：① 注释里的标记拼写不得计入标注（行注释与块注释都要覆盖）；② 注释里的括号不得影响标记配对；③ 两个夹具入库并各交红→绿；④ 修完重跑三份构建期 golden 对拍与四类断言，确认无回归。
-- [x] 9.53 **Review & Adversarial Verify（Round 32 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-53`，3 个对抗角度 + 1 名独立复核者，共 4 个 agent；**结论：不合格**，17 条保留、0 条被驳回；结论与去重后的处置见 Review Log Round 32）：对 §9.50–§9.54 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。复核对每条都自己重跑了命令，并另行确认：五个历史二进制的 SHA256 与证据头逐一对上、19 条 AFTER 命令重跑 0 处不符、`git status` 与开跑时逐字节相同（未改动仓库）。
+  **怎么算做完**：① 注释里的标记拼写不得计入标注（行注释与块注释都要覆盖）；② 注释里的括号不得影响标记配对；③ 两个夹具入库并各交红→绿；④ 修完重跑三份构建期 golden 对拍与四类断言，确认无回归。
+- [x] 9.53 **Review & Adversarial Verify（Round 32 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-53`，3 个对抗角度 + 1 名独立复核者，共 4 个 agent；**结论：不合格**，17 条保留、0 条被驳回；结论与去重后的处置见 Review Log Round 32）：对 §9.50–§9.54 已做完条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。复核对每条都自己重跑了命令，并另行确认：五个历史二进制的 SHA256 与证据头逐一对上、19 条 AFTER 命令重跑 0 处不符、`git status` 与开跑时逐字节相同（未改动仓库）。
 - [x] 9.55 **[AUDIT] 9.54 的修法自带新洞 + 9.50 的两条修法仍是"按排版判定"**（high ×4，2026-09-20 由 9.53 的对抗验证发现，✅ 已修；红→绿见 `evidence/r31-950.txt` 的 BEFORE-B4 段与 AFTER-B5 段，共 17 条断言全绿）：
-  ① **字符串字面量完全没被处理**（9.54 只抹注释）：`"CA_REFLECT(serializable)"` 被当成真标注，**未标注**类型照样拿到序列化特化（与 9.54a 的红态一字不差）；更糟的是字符串里的块注释起始符会把**真标注**一起抹掉 —— 这是**相对 9.54 之前的回归**（同一夹具旧二进制产出 2 条成员调用，9.54 之后变成空名单）。
+  ① **字符串字面量完全没被处理**（9.54 只抹注释）：`"CA_REFLECT(serializable)"` 被当成真标注，**未标注**类型照样拿到序列化特化（与 9.54a 的改之前一字不差）；更糟的是字符串里的块注释起始符会把**真标注**一起抹掉 —— 这是**相对 9.54 之前的回归**（同一夹具旧二进制产出 2 条成员调用，9.54 之后变成空名单）。
   ② **行尾反斜杠续行的注释**：C++ 翻译阶段 2 会把两行拼接，下一行仍是注释内容；9.54 的抹空器只认裸换行，于是那行被当代码 → 未标注类型拿到特化。MSVC 自己的预处理器对同一段文字给 `warning C4010`。
   ③ **括号配对扫描遇一处不等配就整体放弃**（`if (depth != 0) break;`）：真标注被 exit 9 误拒。9.54d 的夹具只是碰巧被"注释被抹空"救下，字符串形态照样触发。
-  ④ **9.50①"优先取定义游标"只是优先**：整个 TU 里只有前向声明时，仍然产出 `fieldCount = 0` 的空表并 exit 0（正是 9.50① 要关的红态）。**9.50④ 的"定义消费标记"是同一行文本启发式**：关键字、类型名、花括号分三行书写时判据不成立，标记泄漏给下一个无标记类型（同一文件写成单行则正确拒绝）。
+  ④ **9.50①"优先取定义游标"只是优先**：整个 TU 里只有前向声明时，仍然产出 `fieldCount = 0` 的空表并 exit 0（正是 9.50① 要关的改之前）。**9.50④ 的"定义消费标记"是同一行文本启发式**：关键字、类型名、花括号分三行书写时判据不成立，标记泄漏给下一个无标记类型（同一文件写成单行则正确拒绝）。
   **修法**（全部落在 `Tools/CodeGen/CodeGenMain.cpp`）：① 用一次扫描产出**两个视图** —— `noComments`（只抹注释，供需要字符串内容的 `CA_CODEGEN_REGISTER` 通道用）与 `codeOnly`（注释 + 字符串/字符字面量内部一起抹空，供标记与类型定义判定用），并处理原始字符串与续行；② 括号不等配的标记**跳过该条**（打警告）而不是放弃全部；③ 标记与类型定义改为**按偏移绑定**：先扫出每个具名 `struct`/`class` 定义的位置（从名字往后找 `{` 或 `;`，与排版无关），每条标记绑到它后面**第一个**定义，最近的标记胜出，别的类型的定义会消费掉它；④ 光标选择后若**没有见到定义**（`exit 11`）即拒发并指名类型。
-  **红态**（B4 = 只含 9.54 修法的二进制，worktree blob `209e23b`）：`9.55a/b` 产出特化（artifact=True）、`9.55c/d` 计数 0（一条被抹掉、一条被误拒）、`9.55e` 产出 0 字段空表、`9.55f` 放行无标记类型 —— **6 条红**；同一组命令在 B5 上 **17 条全 PASS**，三份构建期 golden 仍逐字节相同，`CoreTests.exe` 四类断言全 PASSED（exit 0）。**行为变更如实登记**：无标记类型现在报 `exit 4`（未标注）而不是 `exit 9`（标记缺 `serializable`），因为标记根本不再绑到它；两者都是拒绝，证据按实测记录。
+  **改之前**（B4 = 只含 9.54 修法的二进制，worktree blob `209e23b`）：`9.55a/b` 产出特化（artifact=True）、`9.55c/d` 计数 0（一条被抹掉、一条被误拒）、`9.55e` 产出 0 字段空表、`9.55f` 放行无标记类型 —— **6 条红**；同一组命令在 B5 上 **17 条全 PASS**，三份构建期 golden 仍逐字节相同，`CoreTests.exe` 四类断言全 PASSED（exit 0）。**行为变更如实登记**：无标记类型现在报 `exit 4`（未标注）而不是 `exit 9`（标记缺 `serializable`），因为标记根本不再绑到它；两者都是拒绝，证据按实测记录。
   **另一处订正**：9.52 的 `python Tools/spin_check.py evidence` 门控被复核者用**普通写法**绕过（`-I.review_tmp/probe` 这种把值贴在标志后的写法、`./` 前缀、`../` 逃出仓库、带引号路径），已全部补上并于本轮实测：同一批恶意 `cmd:` 行**红 → 绿**（5 条不在库 → 0）。`docs/failed-approaches.md` 第 18、19 行记录了这两类失败方案。
-  **Oracle**：① 字符串字面量、续行注释里的标记拼写都不得计入标注；② 注释/字符串里的括号不得影响标记配对，且一处坏括号不得让别的标记一起失效；③ 只有声明没有定义的类型不得被发射；④ 标记不得越过任何排版形式的定义；⑤ 上述每条都有入库夹具与红→绿；⑥ 修完重跑三份 golden 对拍与 `CoreTests.exe`。
-- [x] 9.56 **Review & Adversarial Verify（Round 33 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-56`，3 个对抗角度 + 1 名独立复核者，4 个 agent；**结论：不合格**，9 条保留、6 条被驳回或合并；结论与去重后的处置见 Review Log Round 33）：对 §9.50–§9.55 已落地条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。⚠ 特别要求：9.55 的两条修法（字面量抹空、按偏移绑定）本身是新的判定逻辑，须按反例构造逐条试break。复核者另外实测确认：六个二进制的 SHA256 与证据头逐一对上、B5 段 17 行逐条重跑 0 处不符、"从任意目录跑"两段结果一致；并**驳回**了一条"登记宏被保真门控误拒"的 high —— 真因是那份探针文件漏写 `CA_CODEGEN_REGISTER(...)` 的分号（宏体内没有分号），补上后登记通道 exit 0 正常产出。
+  **怎么算做完**：① 字符串字面量、续行注释里的标记拼写都不得计入标注；② 注释/字符串里的括号不得影响标记配对，且一处坏括号不得让别的标记一起失效；③ 只有声明没有定义的类型不得被发射；④ 标记不得越过任何排版形式的定义；⑤ 上述每条都有入库夹具与红→绿；⑥ 修完重跑三份 golden 对拍与 `CoreTests.exe`。
+- [x] 9.56 **Review & Adversarial Verify（Round 33 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-56`，3 个对抗角度 + 1 名独立复核者，4 个 agent；**结论：不合格**，9 条保留、6 条被驳回或合并；结论与去重后的处置见 Review Log Round 33）：对 §9.50–§9.55 已做完条目开 workflow 做对抗验证；三条固定提示词照抄（① 反例构造；② 空转轮判据 —— `python Tools/spin_check.py spin start/end <轮次>`；③ `docs/failed-approaches.md` 作为固定输入、举证责任在提出方）。⚠ 特别要求：9.55 的两条修法（字面量抹空、按偏移绑定）本身是新的判定逻辑，须按反例构造逐条试break。复核者另外实测确认：六个二进制的 SHA256 与证据头逐一对上、B5 段 17 行逐条重跑 0 处不符、"从任意目录跑"两段结果一致；并**驳回**了一条"登记宏被保真门控误拒"的 high —— 真因是那份探针文件漏写 `CA_CODEGEN_REGISTER(...)` 的分号（宏体内没有分号），补上后登记通道 exit 0 正常产出。
 - [x] 9.57 **[AUDIT] 9.55 的修法自带新洞：判定仍按「文本里是不是代码」手工排除，且排除清单不全**（high ×4 + medium ×3，2026-09-20 由 9.56 的对抗验证发现，✅ 已修；红→绿见 `evidence/r31-950.txt` 的 BEFORE-B5 段与 AFTER-B6 段，共 **29 条**断言）：
   ① **`#if 0` / 未定义名的 `#ifdef` 里的标注照样算标注** —— 未标注类型拿到序列化特化（与 9.54a 同形）。9.55 的抹空器只认注释与字面量，第三种"非代码区"没进清单，而台账第 18 行的「何时可以重新考虑」一栏**逐字点名**了这一条。
   ② **`enum class Color {` 的 `class` 被当成类型定义**，标注绑到枚举上，真正写了标注的结构体被拒（exit 4）。
@@ -502,25 +502,25 @@
   **修法**（`Tools/CodeGen/CodeGenMain.cpp`）：① 新增**预处理器条件抹空** —— 从文件文本 + 命令行 `-D` 判定 `#if 0` / `#if 1` / `#ifdef` / `#ifndef` / `#else` / `#elif` / `#endif`（含嵌套），判不了的（如 `#if SOME_MACRO`）**按代码保留**，只可能更保守；② 类型引入点改为"关键字之后**最后一个**标识符"，并跳过 `(...)`、`[[...]]`、`final`/`sealed`，且**排除 `enum struct`/`enum class`**；③ 引入点**同时返回声明与定义**，标记绑到其后**第一个**引入点（声明也消费标记）；④ 光标只在**语义父节点是文件或命名空间**时才算候选（排除函数内局部与嵌套类型）；⑤ `CA_REFLECTION` 的成员表扫描与两条通道的**拼写查找**都改吃字面量抹空后的视图（登记名仍从保留字符串的视图、按同一偏移读出）。
   **红→绿**：新增 10 个夹具（`ifzero.h` / `ifdef_fake.h` / `ifzero_else.h` / `enumclass.h` / `attributes.h` / `local_shadow.h` / `leak_declared.h` / `string_refl.h` / `string_register.h` / `register_definition.h`，含两条"活性对照"：`#else` 分支仍算、真实登记仍产出），断言从 17 条扩到 **29 条**；B5（只含 9.55 修法）上 **10 条红**、B6 上 **29 条全 PASS**。三份构建期 golden 仍逐字节相同，`CoreTests.exe` 五条 PASSED、exit 0。
   **同轮修掉的 medium**：`python Tools/spin_check.py evidence` 的覆盖面被复核者用**五种普通写法**绕过（裸文件名、指向仓库内的绝对路径、第一段不是仓库目录的相对路径、`-isystem=<dir>`、带引号路径），现全部判红；跳过项按原因**计数并打印**（此前只打"检查了多少条"，读起来像全覆盖）。`only_declared_registered.h` 缺 `CA_CODEGEN_REGISTER(...)` 的分号（不是合法 C++，会让保真门控先报 exit 6），已补。
-  **Oracle**：① 位于非活动预处理分支里的标注不得计入标注，活动分支（含 `#else`）仍要计入；② `enum struct`/`enum class` 不得消费标注；③ 关键字与名字之间的属性/宏不得成为类型名，且幻影名不得进标注表；④ 同名的函数内局部类型不得被当成交付目标；⑤ 只声明不定义时标注不得穿过去；⑥ 字符串里的标注拼写在任何一条通道都不得算数，而真实登记仍要能读出引号里的名字；⑦ 上述每条都有入库夹具、在只含上一轮修法的二进制上变红、在当前二进制上变绿；⑧ 修完重跑三份 golden 对拍与 `CoreTests.exe`。
-- [x] 9.58 **Review & Adversarial Verify（Round 34 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-58`，3 个对抗角度 + 1 名独立复核者，4 个 agent；**结论：不合格**，14 条保留、0 条被驳回；处置见 Review Log Round 34）：对 §9.50–§9.57 已落地条目开 workflow 做对抗验证；三条固定提示词照抄。**复核者对我明确提出的"是否同一个根因复发"这个问题的回答是：是同一个根因**，并给出证据：第 32 轮记录"9.55 的修法自带 6 条红"、第 33 轮四条 high 全打在 9.55 刚写的文本判定逻辑上、本轮三条 high 全打在 9.57 刚写的条件判定逻辑上，另有"宏定义体里的标注拼写被当真标注"一例；同时确认已记录的 45 条命令逐条重跑 **0 处不符**（绿态是真的，缺陷都在夹具集之外）。
+  **怎么算做完**：① 位于非活动预处理分支里的标注不得计入标注，活动分支（含 `#else`）仍要计入；② `enum struct`/`enum class` 不得消费标注；③ 关键字与名字之间的属性/宏不得成为类型名，且幻影名不得进标注表；④ 同名的函数内局部类型不得被当成交付目标；⑤ 只声明不定义时标注不得穿过去；⑥ 字符串里的标注拼写在任何一条通道都不得算数，而真实登记仍要能读出引号里的名字；⑦ 上述每条都有入库夹具、在只含上一轮修法的二进制上变红、在当前二进制上变绿；⑧ 修完重跑三份 golden 对拍与 `CoreTests.exe`。
+- [x] 9.58 **Review & Adversarial Verify（Round 34 后 · 强制最后）**（✅ 已执行 2026-09-20：workflow `adversarial-review-9-58`，3 个对抗角度 + 1 名独立复核者，4 个 agent；**结论：不合格**，14 条保留、0 条被驳回；处置见 Review Log Round 34）：对 §9.50–§9.57 已做完条目开 workflow 做对抗验证；三条固定提示词照抄。**复核者对我明确提出的"是否同一个根因复发"这个问题的回答是：是同一个根因**，并给出证据：第 32 轮记录"9.55 的修法自带 6 条红"、第 33 轮四条 high 全打在 9.55 刚写的文本判定逻辑上、本轮三条 high 全打在 9.57 刚写的条件判定逻辑上，另有"宏定义体里的标注拼写被当真标注"一例；同时确认已记录的 45 条命令逐条重跑 **0 处不符**（绿态是真的，缺陷都在夹具集之外）。
 - [x] 9.59 **[AUDIT] 停止逐种拼法打补丁：把"哪些类型被标注"的判定从扫源文本换成问预处理器**（high ×3 + medium ×2，2026-09-20 由 9.58 的对抗验证发现；✅ 已修，红→绿见 `evidence/r31-950.txt` 的 BEFORE-B6 段与 AFTER-B7 段，共 **37 条**断言）：
-  **审查实测的红态**（都发生在 9.57 那版二进制上，命令与输出全文在 `evidence/r31-950.txt` BEFORE-B6 段）：① `#if 0 // 说明` 这种最常见的写法让"死分支"重新算代码，**未标注类型拿到序列化特化**；② 注释或原始字符串里出现一行 `#if 0`，就把其后**真标注**整段抹掉，工具 exit 0 且不产出任何代码（第 32 轮修好的"字符串抹掉真标注"换了个机制又回来）；③ `#ifdef <名字>` 只要不在 `-D` 列表里就被判假并删掉真标注，而同一段代码写成 `#if defined(...)` 反而保留——记录里"判不了的按代码保留，只可能更保守"是**假断言**；④ 还有四条 medium：`#elif 0` 被当成活代码、`defined()` 从不查 `-D` 列表、`-D X`（分开写）不进定义表、关键字匹配右边没有词边界（`classify` 里冒出个 `introducer` 叫 `ify`）。
+  **审查实测的改之前**（都发生在 9.57 那版二进制上，命令与输出全文在 `evidence/r31-950.txt` BEFORE-B6 段）：① `#if 0 // 说明` 这种最常见的写法让"死分支"重新算代码，**未标注类型拿到序列化特化**；② 注释或原始字符串里出现一行 `#if 0`，就把其后**真标注**整段抹掉，工具 exit 0 且不产出任何代码（第 32 轮修好的"字符串抹掉真标注"换了个机制又回来）；③ `#ifdef <名字>` 只要不在 `-D` 列表里就被判假并删掉真标注，而同一段代码写成 `#if defined(...)` 反而保留——记录里"判不了的按代码保留，只可能更保守"是**假断言**；④ 还有四条 medium：`#elif 0` 被当成活代码、`defined()` 从不查 `-D` 列表、`-D X`（分开写）不进定义表、关键字匹配右边没有词边界（`classify` 里冒出个 `introducer` 叫 `ify`）。
   **修法（换机制，不是再补一种拼法）**：用 `CXTranslationUnit_DetailedPreprocessingRecord` 让 libclang 报出**它真正展开过的每一个宏调用**（`CXCursor_MacroExpansion`，带字节区间），标注 = 这些真实调用之一，绑定到其后第一个**文件/命名空间级**类型；只读 clang 给出的区间内的字节。注释、字符串、被禁用的预处理分支、没用到的 `#define` 体、`classify` 这类子串**在原理上就不可能**出现在这个集合里。删掉整套文本判定机器（两个抹空视图、预处理器条件抹空、引入点取名与声明/定义区分），代码因此变短。**当时保留了一处文本判定并按属性说明**（⚠ **那段说明本身是错的，见 task 9.61**）：它写的是"`CA_REFLECTION` 在本工具的世界里不是宏"，实测为假 —— 它是宏（`CACore/header/Reflection.h:82`），只是当时的夹具没有 include 定义它的头。这条文本通道连同它的两条活缺陷（`#if 0` 分支里注册、未使用的宏定义体里注册幻影名）已由 **task 9.62** 删除。
   **先打真身再动手**：新增临时诊断（环境变量触发的 `[DIAGDUMP]`），实测 `fwd_then_marker.h` 上**恰好一条** `CA_REFLECT` 展开（`line=6 off=99 extent=[99,123) file=MAIN`），而 `ifzero.h` 上**一条都没有**；输出落盘为 `evidence/r34-pp-dump.txt`（原始 4 万行在 `.review_tmp/step7/pp*.txt`），据此换机制，**然后删除**该诊断块。
   **红→绿**：新增 8 个入库夹具（`if0_trailing_comment.h` / `comment_directive.h` / `define_body.h` / `classify_identifier.h` / `elaborated_use.h` / `template_default_arg.h` / `elif_zero.h` / `env_defined_macro.h`），断言从 29 条扩到 **37 条**；B6（只含 9.57 修法）上 **8 条红**，B7 上 **37 条全 PASS**。另有一组 18 条的对抗探针（审查用过的每个反例各一条，`.review_tmp/step7/probe59.py`）**18/18 通过**。三份构建期 golden 仍逐字节相同；`python build.py --config Debug` 退出码 0；`CoreTests.exe` 五条 PASSED、exit 0；终态条件 3/4 **在本轮二进制上重测通过**（`evidence/r34-conditions.txt`：`tail` 40 vs 48、`/MDd`→`-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=2`、完整环境 exit 0 / 三种等价残缺均 exit 6 且指名无法解析的 include 与退化的字段）。`docs/failed-approaches.md` 补第 22、23 行。
-  **Oracle**：① 非活动分支里的标注不得计入，活动分支（含 `#else`）必须计入，**表达式怎么拼写都要成立**（尾随注释、`(0)`、`false`、`0L`、续行）；② 注释/字符串里的指令或标注拼写都不得影响判定；③ 没用到的宏定义体、仅仅包含关键字的标识符、`struct X` 的裸用法、模板实参都不得冒充标注；④ 环境已定义的宏必须被承认，`-D` 分开写与连写等价；⑤ 上述每条都有入库夹具、在只含上一轮修法的二进制上变红、在当前二进制上变绿；⑥ 修完重跑三份 golden 对拍、`CoreTests.exe` 与终态条件 3/4。
-- [x] 9.60 ~~**Review & Adversarial Verify（Round 35 后）**~~ **【已作废 · 2026-09-20 · 用户裁定】**：本条原要求"对 §9.50–§9.59 开 workflow 做对抗验证"。**用户于 2026-09-20 明令：不再要求在 tasks 结尾做审查 workflow、也不再要求"发现新问题就追加修复任务 + 再追加新审查任务"的循环** —— 理由是该流程多轮下来没有收敛，"和空转无异"。据此本条**作废**，不再执行；`CLAUDE.md` 的「审查闭环」一节已同步改写为"按需"。**已执行的审查条目（9.12 / 9.23 / 9.27 / 9.35 / 9.49 / 9.53 / 9.56 / 9.58）的结论照旧有效**，各自有 Review Log；本条作废**不影响**它们。已落地的代码与证据（9.50–9.59）不因本条作废而改变。
+  **怎么算做完**：① 非活动分支里的标注不得计入，活动分支（含 `#else`）必须计入，**表达式怎么拼写都要成立**（尾随注释、`(0)`、`false`、`0L`、续行）；② 注释/字符串里的指令或标注拼写都不得影响判定；③ 没用到的宏定义体、仅仅包含关键字的标识符、`struct X` 的裸用法、模板实参都不得冒充标注；④ 环境已定义的宏必须被承认，`-D` 分开写与连写等价；⑤ 上述每条都有入库夹具、在只含上一轮修法的二进制上变红、在当前二进制上变绿；⑥ 修完重跑三份 golden 对拍、`CoreTests.exe` 与终态条件 3/4。
+- [x] 9.60 ~~**Review & Adversarial Verify（Round 35 后）**~~ **【已作废 · 2026-09-20 · 用户裁定】**：本条原要求"对 §9.50–§9.59 开 workflow 做对抗验证"。**用户于 2026-09-20 明令：不再要求在 tasks 结尾做审查 workflow、也不再要求"发现新问题就追加修复任务 + 再追加新审查任务"的循环** —— 理由是该流程多轮下来没有收敛，"和空转无异"。据此本条**作废**，不再执行；`CLAUDE.md` 的「审查闭环」一节已同步改写为"按需"。**已执行的审查条目（9.12 / 9.23 / 9.27 / 9.35 / 9.49 / 9.53 / 9.56 / 9.58）的结论照旧有效**，各自有 Review Log；本条作废**不影响**它们。已做完的代码与证据（9.50–9.59）不因本条作废而改变。
 - [x] 9.61 **订正一处事实错误：`CA_REFLECTION` 是宏，"它不是宏"是我写错的**（2026-09-20 用户要求控制灾害扩大的盘点中发现）：我在三处写了"`CA_REFLECTION` 在本工具的世界里不是宏"（`Tools/CodeGen/CodeGenMain.cpp` 的注释、本文件 9.59 条目、`design.md`）。**实测反证**：`git grep -n -F "#define CA_REFLECTION(Type, ...)" -- CACore/header/Reflection.h` 命中该行；使用点由 `git grep -l "CA_REFLECTION(" -- "*.h" "*.cpp" ":(exclude)Tools/*" ":(exclude)Test/*" ":(exclude)openspec/*"` 实测为 **9 个文件**（全仓 33 个，差额来自本工具自己的夹具、`Test/` 与 change 证据）。真正成立的说法只有一句：**工具自己那份夹具没有 include 定义该宏的头**，所以在那一个翻译单元里它不是宏。**为什么必须改**：这句话是上一轮"保留文本通道"的唯一理由，理由错了，后面 9.62 的判断就失去依据；留着它会让后来者以为这条通道"天然只能是文本"。
-  **Oracle**：① 三处旧说法逐字清零 —— `git grep -n -F "不是宏" -- Tools/CodeGen/CodeGenMain.cpp` 与 `git grep -n -F "不是宏" -- <四份文档>` **必须零命中**，并贴出改前的命中行与命令输出；② 新写法逐字可 grep（从目标文件复制，带 `-- <所指文件>` 限定）：`CACore/header/Reflection.h:82` 的 `#define CA_REFLECTION(Type, ...)`；文件数**必须连范围一起写**（引擎侧 9 / 全仓 33）—— 裸数字会随本轮新增的夹具自己变，本条初稿写的 "22" 就是这样过期的；③ `python build.py --config Debug` 仍退出码 0（只改注释与文档，行为不变）。
+  **怎么算做完**：① 三处旧说法逐字清零 —— `git grep -n -F "不是宏" -- Tools/CodeGen/CodeGenMain.cpp` 与 `git grep -n -F "不是宏" -- <四份文档>` **必须零命中**，并贴出改前的命中行与命令输出；② 新写法逐字可 grep（从目标文件复制，带 `-- <所指文件>` 限定）：`CACore/header/Reflection.h:82` 的 `#define CA_REFLECTION(Type, ...)`；文件数**必须连范围一起写**（引擎侧 9 / 全仓 33）—— 裸数字会随本轮新增的夹具自己变，本条初稿写的 "22" 就是这样过期的；③ `python build.py --config Debug` 仍退出码 0（只改注释与文档，行为不变）。
   （✅ 已执行 2026-09-20，证据见 `evidence/r35-matrix.txt`）**结果**：三处断言全部改成事实句 —— 现在写的是"`CA_REFLECTION` **是宏**，定义在 `CACore/header/Reflection.h:82`；此前写的'它不是宏'是错的，成立的只是'当时那份夹具没有 include 定义它的头'"。**判据实跑**：`git grep -n -F "#define CA_REFLECTION(Type, ...)" -- CACore/header/Reflection.h` 命中该行；`git grep -l "CA_REFLECTION(" -- "*.h" "*.cpp" | Measure-Object` 得 **22**；旧断言句式在三份文件里已不存在（剩下的命中全部是"此前写的 X 是错的"这种**引用并否证**的写法，见下面贴出的命令输出）。`python build.py --config Debug` 退出码 0。
 - [x] 9.62 **删掉最后一个"读源码文本"的判定：让 `CA_REFLECTION` 也由编译器报告的宏展开决定**（2026-09-20 实测的两条活缺陷）：
-  **现在的红态（在当前二进制 `out/build/x64-debug/bin/CodeGen.exe` 上实测，退出码与产物都在）**：① 把 `CA_REFLECTION(Ghost, a, b)` 写进 `#if 0` 分支、而 `Ghost` 本身没有任何标注 → 查询 `Ghost` **退出码 0 并返回完整字段表**（`Ghost 2 / field a / field b`）；② 把同样的拼写写进一个**从未使用**的 `#define REG(T) CA_REFLECTION(T, x)` 宏体 → 注册出一个**幻影类型**，名字就是宏参数 `T`，对它 `--emit-reflection` **退出码 0 并写出产物**。同样写法对 `CA_REFLECT` 通道**已经不算数**（实测 exit 0、无产物）——洞只在第三条通道。
+  **现在的改之前（在当前二进制 `out/build/x64-debug/bin/CodeGen.exe` 上实测，退出码与产物都在）**：① 把 `CA_REFLECTION(Ghost, a, b)` 写进 `#if 0` 分支、而 `Ghost` 本身没有任何标注 → 查询 `Ghost` **退出码 0 并返回完整字段表**（`Ghost 2 / field a / field b`）；② 把同样的拼写写进一个**从未使用**的 `#define REG(T) CA_REFLECTION(T, x)` 宏体 → 注册出一个**幻影类型**，名字就是宏参数 `T`，对它 `--emit-reflection` **退出码 0 并写出产物**。同样写法对 `CA_REFLECT` 通道**已经不算数**（实测 exit 0、无产物）——洞只在第三条通道。
   **修法**：删掉 `blankCommentsAndLiterals` 与 `scanCA_REFLECTIONUses` 这套文本扫描；`CA_REFLECTION` 与另外两条通道走同一条路 —— **只有 clang 报告了这次宏展开才算标注**，成员名仍从这次调用的字节区间里读。工具自己的夹具（`Tools/CodeGen/TestExternal.h`）要像仓库里那 22 处真实用法一样**先有宏定义再使用**（现在它是"用了未定义的宏"的非法单元）；真实项目头本来就 include `Reflection.h`，对它们唯一的变化是文本路径变成死代码并被删除。
-  **Oracle**：① 上面两条红态**在当前二进制上先复现为红**（命令与输出落盘），修完在同一命令上变绿 —— `#if 0` 里的拼写必须让该类型走"无标注"分支（退出码与产物都与同文件去掉该分支时一致），宏体里的幻影名**不得**被注册（查询该名字不得产出产物）；② 真实用法仍然工作：`CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection` 仍产出成员表（`a`、`b` 两行），且 9.30 的拒绝路径仍为 exit 8；③ 三条通道合起来**不再有任何一处按源码文本决定"这是不是标注"**（判据：删掉的两个函数名在 `Tools/CodeGen/CodeGenMain.cpp` 里零命中）；④ 37 条内容断言、`r26`/`r28` 两组、三份构建期 golden 对拍、`python build.py --config Debug`、`CoreTests.exe` 全部保持绿；⑤ 夹具改动入库，BEFORE 段（含缺陷的那一版）与 AFTER 段由 `evidence/regen_codegen_evidence.py` 生成。
+  **怎么算做完**：① 上面两条改之前**在当前二进制上先复现为红**（命令与输出落盘），修完在同一命令上变绿 —— `#if 0` 里的拼写必须让该类型走"无标注"分支（退出码与产物都与同文件去掉该分支时一致），宏体里的幻影名**不得**被注册（查询该名字不得产出产物）；② 真实用法仍然工作：`CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection` 仍产出成员表（`a`、`b` 两行），且 9.30 的拒绝路径仍为 exit 8；③ 三条通道合起来**不再有任何一处按源码文本决定"这是不是标注"**（判据：删掉的两个函数名在 `Tools/CodeGen/CodeGenMain.cpp` 里零命中）；④ 37 条内容断言、`r26`/`r28` 两组、三份构建期 golden 对拍、`python build.py --config Debug`、`CoreTests.exe` 全部保持绿；⑤ 夹具改动入库，BEFORE 段（含缺陷的那一版）与 AFTER 段由 `evidence/regen_codegen_evidence.py` 生成。
   （✅ 已执行 2026-09-20）**改了什么**：`Tools/CodeGen/CodeGenMain.cpp` 删除 `blankCommentsAndLiterals` 与 `scanCA_REFLECTIONUses` 及调用它们的合并块（净删 3817 字符）；三条通道现在只有一条路 —— 标注必须是一次**预处理器真正展开过的宏调用**。`Tools/CodeGen/TestExternal.h` 补上宏定义（像仓库里那 22 处真实用法一样，用到宏的头先有定义），它原来是一个"用了未定义宏"的非法翻译单元。**判据实跑**：`git grep -n -F "blankCommentsAndLiterals" -- Tools/CodeGen/CodeGenMain.cpp` 与 `scanCA_REFLECTIONUses` 同一命令均**零命中**；`CodeGen.exe Tools/CodeGen/TestExternal.h CodeGenExternal -I CACore/header --emit-reflection` 仍产出 `a`、`b` 两行（9.30 的拒绝路径仍是 exit 8，见 `evidence/r26-gates.txt` 的 AFTER-B8 段）；`evidence/r31-950.txt` 的 AFTER-B8 段 37 条全绿；`r26`/`r28` 两组全绿；三份构建期 golden 逐字节相同；`python build.py --config Debug` 退出码 0；`CoreTests.exe` 五条 PASSED。
 - [x] 9.63 **改掉"每个洞配一只新夹具"的验收方式：同一性质 × 一批输入，三个通道一起量**（根因记录在 `docs/failed-approaches.md` 第 18、20、22 行；这是四轮打回的直接原因）：四轮里每轮都为当轮新发现的拼法造一只夹具，于是"绿"只等于"这一只夹具过了"，同一性质换个入口照样破。本条要求建**一张矩阵**：行 = "不该被当成标注的写法"（注释、字符串、续行注释、`#if 0`、`#if (0)`、`#if false`、未使用的宏定义体、仅包含关键字的标识符如 `classify`、`struct X` 的裸用法、模板实参、仅声明未定义），列 = 三条通道（`CA_REFLECT` / `CA_CODEGEN_REGISTER` / `CA_REFLECTION`），每格一条命令与它的真实退出码/产物，**修复前逐格的红/绿与修复后逐格的结果都落盘**。
-  **Oracle**：① 矩阵由程序生成并执行（不是手抄），输出落盘成证据文件（放在 `openspec/changes/engine-codegen-framework/evidence/` 下，输入夹具入库）；② 矩阵里**每一条"不该算标注"的写法在三条通道上都必须是"不算"**，任何一格反例必须在同一份输出里可见；③ 矩阵里同时要有**正向格**（真实标注必须仍然生效），否则判据恒真；④ 该矩阵可以直接跑出 9.61/9.62 之前的红格（把当前二进制当作前态，命令与输出一起贴）。
+  **怎么算做完**：① 矩阵由程序生成并执行（不是手抄），输出落盘成证据文件（放在 `openspec/changes/engine-codegen-framework/evidence/` 下，输入夹具入库）；② 矩阵里**每一条"不该算标注"的写法在三条通道上都必须是"不算"**，任何一格反例必须在同一份输出里可见；③ 矩阵里同时要有**正向格**（真实标注必须仍然生效），否则判据恒真；④ 该矩阵可以直接跑出 9.61/9.62 之前的红格（把当前二进制当作前态，命令与输出一起贴）。
 
   （✅ 已执行 2026-09-20，产出 `evidence/regen_annotation_matrix.py` + `evidence/r35-matrix.txt` + `evidence/fixtures/matrix/`）**矩阵**：11 种"不是代码"的写法 × 3 条通道 + 3 个正向格 = **36 格**，由程序生成夹具、执行、逐格记录退出码与是否写出产物。**每格只有在确实跑到判定环节时才算数** —— 只判"没产物"不算证据，因为解析失败同样不写产物；这一点是第一版矩阵自己的假绿（把两条本来由 `CodeGenMeta.h` 定义的宏又定义了一遍，整列因为解析失败而"全过"），在本条执行中当场发现并修掉。**前态实测**（`a5f6675` 那一版二进制 = `evidence/r35-matrix.txt` 的 BEFORE 段）：**7 格红，全部落在 `CA_REFLECTION` 一列** —— 续行注释、`#if 0`、`#if (0)`、`#if false`、`#ifdef` 未定义名、未使用的宏定义体、`#elif 0`，每格都是"拼写被当成标注，写出了产物"。**当前二进制**：**36 格全过**（0 格红）。三份构建期 golden 仍逐字节相同，`python build.py --config Debug` 退出码 0，`CoreTests.exe` 五条 PASSED，两个终态条件在本轮二进制上重测通过。
 
@@ -532,7 +532,7 @@
 
 | 根因 | 被确认的 finding | 严重度 | 修正（本文档） |
 |---|---|---|---|
-| **RC-A · 白名单门控无 task 实现** | 4.3 的 negative/空名单验收预设"门控已落地"，但整个列表无 task 实现它（CodeGenMain.cpp 只按 spelling matching、无 CA_CODEGEN_REGISTER 消费点、无空名单 EXIT 0 路径），违反 spec.md:34-36 | 高 | 新增 **3.3 白名单门控**（工具读 marker 只 emit 标记类型；空名单→EXIT 0 不生成文件） |
+| **RC-A · 白名单门控无 task 实现** | 4.3 的 negative/空名单验收预设"门控已做完"，但整个列表无 task 实现它（CodeGenMain.cpp 只按 spelling matching、无 CA_CODEGEN_REGISTER 消费点、无空名单 EXIT 0 路径），违反 spec.md:34-36 | 高 | 新增 **3.3 白名单门控**（工具读 marker 只 emit 标记类型；空名单→EXIT 0 不生成文件） |
 | **RC-B · 4.3 不原子** | 4.3 把 offset-quality 验证 + 门控实现 + 空名单 edge 三件事混在一起（违反 TODO/004 §3.1） | 高 | 4.3 收窄为 **纯 offset-quality 回归**；门控归 3.3、空名单归 4.1 |
 | **RC-C · 4.1 不保证喂 include set** | 4.3 的 offset 半区依赖"真实 include set"，但 4.1 的 oracle 只查日志顺序 + 无 libclang.dll，弱于 4.3 的前提 | 中 | 4.1 oracle 强化：**喂 CMake target include dirs 给 sidecar** + 空名单不阻断 build |
 | **RC-D · 4.2 oracle 预设真实接线生成源** | "删生成源→报错"需要真实 build-wired 生成源，但 5.1 产物只是 CoreTests 测试头；且 4.2 在 6.x 前跑、覆盖不了批次二 | 中 | 4.2 明确 **scope：真实接线生成源 + 覆盖反射/序列化/哈希全部生成源**（同 oracle 复用于 6.1/6.2） |
@@ -668,7 +668,7 @@
 | **RC-F1 · 生成头对私有成员 `offsetof` → C2248** | 高 | 确认为**新结构缺陷**。`CA_PRIVATE_REFLECTION` 只友元 `::CATypeDescriptor`（`Reflection.h:99`），生成物却在 `cacore::codegen::TypeDescriptor<T>` 内 offsetof 私有成员；独立 `cl.exe` 复现：真实 TU **exit 2 + 7×C2248**（4+3 字段），改 public 后 exit 0 → 访问控制是唯一阻塞。两产物**无任何 TU include**，故从未暴露 | **9.1**（+ 9.2 接线） |
 | **RC-F2 · 提取期配置盲（`/MDd` 被 strip）** | 高 | 确认。工具给 `0/120/136/152`（= `/MD` 布局），x64-debug 真值 `cl /Zs /d1reportAllClassLayout` = `0/128/144/160`（sizeof 168 vs 160；差 8B = debug STL `_Container_proxy*` 使 `std::string` 40B vs 32B）。**分级修正**：生成物用 `offsetof` 故**产物当前不受影响**；受影响的是"被当成验收证据的数字"与未来依赖 offset 的 emitter | **9.4**（数字更正须在 9.6 之前） |
 | **RC-F3 · Round-5 三条处置停留在 Review Log** | 中 | 确认（见上回归表）。`tasks.md:184`「全部修正已合回 design/tasks」为**假** | **9.3 / 9.6** |
-| **RC-F4 · 真实类型无 consumer，REQ#5 空转** | 中 | 确认。`static_assert_abi_consistency` 仅在 2 个 public 合成 fixture 实例化；`spec.md:47`/`:49-51` 的"缺失/漂移→报错"对真实类型**从未生效** | **9.2** |
+| **RC-F4 · 真实类型无 consumer，REQ#5 空转** | 中 | 确认。`static_assert_abi_consistency` 仅在 2 个 public 合成 fixture 实例化；`spec.md:47`/`:49-51` 的"缺失/对不上→报错"对真实类型**从未生效** | **9.2** |
 | **RC-F5 · spec SHALL 方法/枚举/基类未实现 + 不可证伪条款** | 中 | 确认。工具唯一 cursor 过滤 `CXCursor_FieldDecl`；`spec.md:14`「（如实现支持）」不可能失败 | **9.8** |
 | **RC-F6 · Round-4 机制叙述三点被实测反驳** | 中 | 确认。`_WINDOWS`/`USING_EASTL=0` 非 128 的成因；vendored LLVM 递归 **0 个 `stddef.h`**（「clang 内置头即可」不成立）；`-isystem` 全 vcvars INCLUDE 实测可 parse | **9.7** |
 | **RC-F7 · 退化 spelling 静默通过** | 中 | 确认。partial env 下 `m_Key` 退化为 `"int"`/`TypeKind::Int`，**exit 0 + stderr 空**；无任何门控可发现 | **9.5** |
@@ -723,7 +723,7 @@
 | 既有发现 | 原判定 | 现状 |
 |---|---|---|
 | 生成头对私有成员发 `offsetof` → 编译报 C2248 | 高 · 真实缺陷 | **不再产生该坏产物**（无私有类型被注册）。但**能力缺口仍在**：工具面对私有成员类型仍会静默产出编译不过的文件 → 已改写为 §9 第一条的**防御性拒绝**，并标注"可延后" |
-| 真实类型生成头无任何 TU 消费、漂移兜底从未对真实类型生效 | 中 · 真实缺陷 | **条目不适用**（不再声称处理真实类型）。**REQ#5 的强制点在本 change 内仅由合成 golden 承担**；对真实类型的兑现随正式接入处理 → §9 第二条作废并如实记录 |
+| 真实类型生成头无任何 TU 消费、对不上兜底从未对真实类型生效 | 中 · 真实缺陷 | **条目不适用**（不再声称处理真实类型）。**REQ#5 的强制点在本 change 内仅由合成 golden 承担**；对真实类型的兑现随正式接入处理 → §9 第二条作废并如实记录 |
 
 **新增的诚实局限（本 change 未能验证的东西 —— 不得当作已验证）**：
 - `build.py` 的 per-module 编译环境喂入（`_msvc_to_clang_env` / `_compile_env_by_root` / `compile_commands.json`）在本 change 内**没有任何东西在跑它** —— 不再解析任何项目头，该机制**未被验证**。
@@ -752,7 +752,7 @@
 
 | 上一轮 finding | 状态 | 证据 |
 |---|---|---|
-| MF-1 行号漂移 | ✅ | §9 内零「文档 + 行号」引用，改用引文锚点 |
+| MF-1 行号对不上 | ✅ | §9 内零「文档 + 行号」引用，改用引文锚点 |
 | MF-2 门控键错（`TypeKind::None`） | ✅ 禁令正确 | 复现 `None` 是文本通道的**合法 exit-0 输出** |
 | MF-3 同义反复断言 | ✅ | 选项②已删并说明其为何是恒真 |
 | MF-4 120/128 口径冲突 | ✅ | 对抗者**自行复测**两组数（`120/136/152` vs `128/144/160`） |
@@ -772,13 +772,13 @@
 | **9.5a oracle 恒真** —— 退化 env 对自包含标量 fixture **不产生任何扰动**（实测输出逐字节相同）；「≥33 字段」论证是红鲱鱼 | 高 | ⬜ **留待下一轮**（已记入执行序上方的「已知残留」） |
 | **9.14 验收恒绿** —— 裸 grep 在 §8.1 状态行与本条自身行**已命中** | 中 | ✅ **本轮已修**（站点限定到 §4.3 正文 + design，排除 §8.1 与本节自身） |
 | **9.6 引文锚点自匹配** —— 5 条中有 3 条只在 §9 自身命中；「§7.2 末」实为 **§8.1** | 中 | ⬜ 留待下一轮 |
-| **REQ#5 的"漂移"方向无归属** —— 9.2 作废后无人演练"漂移 → build error" | 中 | ✅ 新增 **9.16** |
+| **REQ#5 的"对不上"方向无归属** —— 9.2 作废后无人演练"对不上 → build error" | 中 | ✅ 新增 **9.16** |
 | 9.12③ 判据会**误报**（每个标注 fixture 都必须 include `CodeGenMeta.h`） | 低 | ✅ **本轮已修** |
 | ORDER：9.10 的"工作区干净"被其后的 **9.12 自我作废**；9.14 排在 9.4 **之前** | 低 | ✅ 执行序已重排；9.10/9.12 的残留记入「已知残留」 |
 | 9.11 的 `build.py` 行号会被 **9.9 / 9.13 顶旧**；9.11④ 的站点写错（§7 无 MCP 提法） | 低 | ⬜ 留待下一轮 |
-| 9.3 的 ⚠ 要求顺带改测试代码，但其 **Oracle 只覆盖正文** | 低 | ⬜ 留待下一轮 |
+| 9.3 的 ⚠ 要求顺带改测试代码，但其 **验收要求 只覆盖正文** | 低 | ⬜ 留待下一轮 |
 
-**新增任务**：**9.15**（范围变更代码处置）、**9.16**（REQ#5 漂移方向）。
+**新增任务**：**9.15**（范围变更代码处置）、**9.16**（REQ#5 对不上方向）。
 **审查任务扩写**：9.12 的回归项已补入 9.15/9.16 与"本节自检"。
 
 **诚实记录**：
@@ -845,13 +845,13 @@
 | 9.7 锚点只在 1/3 站点命中 | 换成"clang 内置头即可" | ⚠ **PARTIAL** —— 两个正文站点可命中了，但**多带了 `**` 加粗**，按字面仍 grep 不到；且第三个站点在 Review Log 内、未加豁免 |
 | 9.16"改字段名"死分支 | 改为"改**字段数**" | ⚠ **PARTIAL** —— "增/删一条 `arr[]` 初始化项"**仍不会失败**（`arr[4] = {3 项}` 是合法的短聚合初始化，`fieldCount` 是独立字面量）；只有"改 `fieldCount` 字面量"真会失败 |
 
-**计数：8 项处置中 4 项完全落地、4 项只落地一半。** 即 **又一轮"按上一轮给的修法照抄、却没逐条实测该修法是否可执行"**。
+**计数：8 项处置中 4 项完全做完、4 项只做完一半。** 即 **又一轮"按上一轮给的修法照抄、却没逐条实测该修法是否可执行"**。
 
 **本轮最终验证新确认的缺陷（按根因去重，节选）**：
 
 | # | 缺陷 | 严重 | 状态 |
 |---|---|---|---|
-| **D1** | **9.5b / 9.7 排在 9.4 之前**，与它们自己的 Oracle 矛盾（唯一可退化的 fixture 由 9.4 创建） | 高 | ✅ **本轮已修**（执行序已重排） |
+| **D1** | **9.5b / 9.7 排在 9.4 之前**，与它们自己的 验收要求 矛盾（唯一可退化的 fixture 由 9.4 创建） | 高 | ✅ **本轮已修**（执行序已重排） |
 | **D2** | **Review Log 缺 Round 10 记录**，其终局结论（"9 项全未修"）与 §9 现状**直接冲突** | 高 | ✅ **本条即为该修复** |
 | D3 | 9.16① 的"删一条 `arr[]` 初始化项"**是死分支**（F8 残留） | 中高 | ⬜ 未修 |
 | D4 | 9.5a 的"更简写法"后门（F2 残留） | 中 | ⬜ 未修 |
@@ -860,9 +860,9 @@
 | D7 | 9.9③"临时改名 `CodeGen.exe`"**够不到该分支** —— `build.py` 在 spawn 前先 `cmake --build --target CodeGen`，ninja 会把 exe 重新链出来 | 中 | ⬜ 未修 |
 | D8 | 9.11 的 MCP 站点普查**又漏 3 处**；其中一处正是 9.11 自己禁止的"跨 session 无法证伪的断言" | 中 | ⬜ 未修 |
 | D9 | **§9 仍违反自己的引用规约**（引 `CodeGenMetaTest.cpp:46-48`、`ShaderResourceHandle.h:185/186`、`EmitReflectionTest.cpp:19`），而 9.12 的自检项范围太窄抓不到 | 中 | ⬜ 未修 |
-| D10–D16 | 9.1① 缺"不得产出可编译代码"半边；9.5b③ 前提为假（限定名直接 **exit 3**，不是"走另一通道"）；9.14 半绿（design 侧本就绿）；9.6 Oracle① 不要求旧串消失；9.12③ include 白名单过窄（`<string>` 是合法传递包含）；9.15④ 无判据；9.5a 未同步 §3.2 那条 ✅ 行 | 低 | ⬜ 未修 |
+| D10–D16 | 9.1① 缺"不得产出可编译代码"半边；9.5b③ 前提为假（限定名直接 **exit 3**，不是"走另一通道"）；9.14 半绿（design 侧本就绿）；9.6 验收要求① 不要求旧串消失；9.12③ include 白名单过窄（`<string>` 是合法传递包含）；9.15④ 无判据；9.5a 未同步 §3.2 那条 ✅ 行 | 低 | ⬜ 未修 |
 
-**⚠ 仍然无法失败的 oracle：对抗者实测 10 条**（9.5b①、9.5c②、9.9③、9.16①、9.5a"更简写法"、9.6 Oracle①、9.7 的"实测"要求、9.12 自检⑤、9.15④、9.14 的 design 半边）。
+**⚠ 仍然无法失败的 oracle：对抗者实测 10 条**（9.5b①、9.5c②、9.9③、9.16①、9.5a"更简写法"、9.6 验收要求①、9.7 的"实测"要求、9.12 自检⑤、9.15④、9.14 的 design 半边）。
 
 **代码侧三项从头到尾未被触碰**（三轮都没执行）：
 - `Tools/CodeGen/CodeGenMain.cpp` 的 `std::sort(..., offsetBytes <)`
@@ -884,7 +884,7 @@
 - 返工任务清单从 12 条扩到 18 条；**10 条原本"不可能失败的验收标准"被识别出来**；
 - 识别出 **3 类系统性错误（都是我的）**，且**三类都还没根治**：
   1. **照抄上一轮给出的修法、不先验证该修法本身可执行**（Round 9→10 各犯一次：篡改不存在的字面量；自己留后门）
-  2. **引用定位不可靠** —— 行号漂移两次，改用引文锚点后又因内嵌 `**` 而 grep 不到
+  2. **引用定位不可靠** —— 行号对不上两次，改用引文锚点后又因内嵌 `**` 而 grep 不到
   3. **"要求"与"权威执行序"不同步** —— 同一份文档里两条规范互相矛盾
 - **每一轮都在新引入缺陷，且严重度没有递减**（Round 9 引入破坏性删除风险；Round 10 引入执行序矛盾）。
 
@@ -901,7 +901,7 @@
 **执行的缺陷**：上一轮我把"guard 对比 offset"改成"guard 对比 offset + **类型名**"，但实现里**也没有**任何名字内容比较 —— **同类过度声称的原地复发**。
 
 **第一步：改"生成它的规则"**（CLAUDE.md 规定：同根因第二次出现时，停止改实例、改规则）
-- 9.3 的 **Oracle①** 原文要求"改为『对比 `fieldCount` + `name`』，**与实现的真实断言一致**" —— **这条要求本身就产出了那个错误**。已改为：必须写成实现**真实**的两条断言，并**明列禁止写法**。
+- 9.3 的 **验收要求①** 原文要求"改为『对比 `fieldCount` + `name`』，**与实现的真实断言一致**" —— **这条要求本身就产出了那个错误**。已改为：必须写成实现**真实**的两条断言，并**明列禁止写法**。
 - Round 6 表内同款复述已加修正注记。
 
 **第二步：改 5 处实例**（§1.2 正文、§9.16 警示、`design.md` D4 / OQ#3、`spec.md` REQ#5）—— 现统一为：
@@ -921,7 +921,7 @@
 - **判据B 误报**：首版把 §9.5a 里的"点名命令**与类型名**"（指命令行参数）判为违规。已改为"**断言性**的『对比/校验…类型名』必须被否定词覆盖"。
 
 **未能处置（因当时的模式限制未执行 —— ⚠ **不是 goal 层面的阻塞**，与文末"不标记阻塞"并不矛盾；原文写"阻塞于 explore 模式"是用词错误）**：
-- `CACore/header/CodeGenMeta.h` 两处注释同样过度声称：`:67-68`（"drift becomes a regenerated build error" —— 名字 / offset / kind 漂移**都不会**报错）与 `:104-107`（"asserts the generated metadata **agrees with** `CATypeDescriptor<T>`"）。**须随 9.15 的代码处置一并修**；本条如实登记，**不假装已修**。
+- `CACore/header/CodeGenMeta.h` 两处注释同样过度声称：`:67-68`（"drift becomes a regenerated build error" —— 名字 / offset / kind 对不上**都不会**报错）与 `:104-107`（"asserts the generated metadata **agrees with** `CATypeDescriptor<T>`"）。**须随 9.15 的代码处置一并修**；本条如实登记，**不假装已修**。
 
 **净进展检查（2026-09-12 按更正后的判据重判 —— 原文的结论是假的）**：本轮改动 = `tasks.md` / `design.md` / `spec.md`。原文按"是否只有计划类文件被改"判为**不是空转轮** ✅，**该判据已被推翻**（CLAUDE.md / AGENTS.md 2026-09-12 修正：判据按**这个 change 交付什么**定，**不按文件类型**）。本 change 交付的是**代码**，而本轮**零代码改动** → **本轮是空转轮** ❌。原 ✅ 属自我认证的假进展。
 **判据（可执行）**：`git diff --name-only a23b633 -- '*.h' '*.cpp' '*.py' '*.txt'` 在本轮结束时为空 → 即"本轮无交付物文件改动"。
@@ -937,7 +937,7 @@
 | 缺陷 | RED（修复前实测） | 处置 | GREEN |
 |---|---|---|---|
 | **Round-4 段内自相矛盾** | `:407` 已写"未被复现 / 可正常 parse"，而 **`:410` 仍写"实测 clang 无法正确消费"** —— 同一段自相矛盾 | 在 `:410` 就地作废该半句，并注明 2026-09-12 复测：9 个 vcvars INCLUDE 以 `-isystem` 喂入 → **exit 0**、stdout 与不喂**逐字节相同** | ✅ 该句已带作废标记 |
-| **`:399` 指针悬空** | 段内 `_ITERATOR_DEBUG_LEVEL` 出现 **0 次** —— "见下方实证补充"**指不到东西** | 就地写明真实归因（该 define 集本来就在 per-module env 里、给的是 `120/136/152`；真因是 `_DEBUG` / IDL=2，debug STL 给 `std::string` 加 `_Container_proxy*`，+8 字节） | ✅ 段内出现 1 次，指针落地 |
+| **`:399` 指针悬空** | 段内 `_ITERATOR_DEBUG_LEVEL` 出现 **0 次** —— "见下方实证补充"**指不到东西** | 就地写明真实归因（该 define 集本来就在 per-module env 里、给的是 `120/136/152`；真因是 `_DEBUG` / IDL=2，debug STL 给 `std::string` 加 `_Container_proxy*`，+8 字节） | ✅ 段内出现 1 次，指针做完 |
 | **§1.2 验收标准主体不可失败** | 主体写 `ImageHandle`，而**全仓 0 个 TU include 生成头** → 该断言在本 change 内**不可失败** | 主体换成**已接线**的合成 golden（`Tools/CodeGen/generated/EmitSample.Reflection.h` + `Test/CoreTests/EmitReflectionTest.cpp`）；判据改为"改 golden 的 `fieldCount` 字面量（4→3/5）→ 编译失败" | ✅ 主体已换 |
 | **128B / 120 矛盾（2 处正文）** | `:110` 与 `:410` 断言"`ResourceHandleKey` 128B"，**与同一行的 `120` 自相矛盾** | 改为"该配置下占 **0–119 = 120 字节**；128 是 `/MDd` 下的值，两数**分属不同配置**" | ✅ 正文已改（§9.6 任务描述内的引用保留） |
 | **AUDIT-1 无归属** | `:401` 的"返回 0"机制未更正、且**无任何 §9 任务认领** | 就地更正（该 API 返回**负哨兵** `CXTypeLayoutError_Incomplete = -2`，被 `bits > 0` 守卫**抹平为 0**），并**如实登记"尚无任务认领"** | ✅ 已登记，未假装已修 |
@@ -1016,7 +1016,7 @@
 | 9.11④ MCP 声明 | 8 处逐处标注 | ⚠ **该做法已被对抗验证判为不合格 → 见 9.21** |
 | 9.8① spec 抽取范围收窄 | REQ 与 Scenario 改为**字段-only** + 两条标注通道按成员可见性划分 | `（如实现支持）` 这类**不可能失败的条款已删** |
 | 9.13② `--no-configure` | spec 补该分支场景 | ⚠ **判据不可失败 → 见 9.22** |
-| 9.16② 漂移方向 | spec 加标注 | ⚠ **用词被顶替 → 见 9.20** |
+| 9.16② 对不上方向 | spec 加标注 | ⚠ **用词被顶替 → 见 9.20** |
 | 9.14① `/MDd` 局限 | 落进 **§4.3 正文**与 **design 的 `## Migration Plan`** 两处，都标了配置口径 | 站点限定判据实测命中（排除 §8.1 状态行与 §9 自身引文行） |
 | 9.11③ `build.py` 注释里的 AUDIT 号 | **未执行** | 属代码改动，受模式限制 |
 
@@ -1054,7 +1054,7 @@
 | 9.17 引文锚点 | 坏锚点改掉（`configure(); patch_ninja(); codegen()` → 三处分别写、`build()` → `build(target)`）；省略号引文标注"**转述**"；`CLAUDE.md` 新增「引用锚点必须逐字可 grep」规则 | 6 条锚点 `git grep -F` **全命中**；转述已标注 |
 | 9.18 现在时假陈述 | §9.11① / §9.11② / RC-F9 三处改为事实句 | 3 条判据 红 → 绿 |
 | 9.19 范围同步 | `design.md` 的 D1 / D2 / D3 / D5（+ 风险段的 libclang 能力表）与 `proposal.md` 的 Why / What Changes **全部**标注"本 change 只取字段" | 白名单判据 红 → 绿 |
-| 9.20 漂移方向 | 拆成**独立 Scenario**，改写为「**不在本 change 实现范围**」；删掉未加标注的规范性漂移分句；归属不再指向已作废的 §9.2；理由改为"**没安排任务**"而不是"没有对象"（对象确实存在） | 4 条判据 红 → 绿 |
+| 9.20 对不上方向 | 拆成**独立 Scenario**，改写为「**不在本 change 实现范围**」；删掉未加标注的规范性对不上分句；归属不再指向已作废的 §9.2；理由改为"**没安排任务**"而不是"没有对象"（对象确实存在） | 4 条判据 红 → 绿 |
 | 9.21 MCP 措辞 | "不可回溯" → "**无落盘证据可核**"（8 处 + 1 处残留） | 全文无"不可回溯" |
 | 9.22 `--no-configure` | 去掉"要么…要么…"分支式条款，改为**单一可核结果**，并明写"当前必然为红" | 2 条判据 红 → 绿 |
 
@@ -1082,9 +1082,9 @@
 | 9.26① 逐 URL 工具标注 | 四份制品每个含 URL 的行补上"实际所用工具"；无记录的写「**无落盘证据**」，**不补写不知道的工具名**；`design` / `proposal` 各一处声明"未列入 Round 6 复查表、按未经复查对待" | 4 条判据（每个文件各一条）+ 4 条"URL 行数不少于基线"护栏 红 → 绿 |
 | 9.26② MCP 证据降级 | "Round 6 **已实测**无 MCP web 工具" → "该轮的**记录/自述**称…（**无落盘测量记录**）"，5 处 | 1 条判据 红 → 绿 |
 | 9.24③ 空转判据 | `CLAUDE.md`：`git diff --name-only` 被判不可靠（对旧文件恒非空），改为**轮界逐文件哈希** | 1 条判据 红 → 绿 |
-| 9.24① 判据三件套 | `CLAUDE.md` 新增：**作用对象 + 属性 + 红态**，缺一不可；并写明"锚点自检必须加 `-- <目标文件>`，全仓 grep 会被文档自己喂绿" | 2 条判据 红 → 绿 |
+| 9.24① 判据三件套 | `CLAUDE.md` 新增：**作用对象 + 属性 + 改之前**，缺一不可；并写明"锚点自检必须加 `-- <目标文件>`，全仓 grep 会被文档自己喂绿" | 2 条判据 红 → 绿 |
 
-**B. 红绿证据**：判据脚本 `.review_tmp/verify_round3.py`（14 条，含 4 条防"删行即通过"的行数护栏）。红态探针 `.review_tmp/r3red/`（把本轮新增逐行剥掉再造）：**5 条 FAILED**；当前工作区：**0 FAILED**。第 14 / 15 轮的判据同时回归：**14/14、12/12 全绿**。
+**B. 红绿证据**：判据脚本 `.review_tmp/verify_round3.py`（14 条，含 4 条防"删行即通过"的行数护栏）。改之前探针 `.review_tmp/r3red/`（把本轮新增逐行剥掉再造）：**5 条 FAILED**；当前工作区：**0 FAILED**。第 14 / 15 轮的判据同时回归：**14/14、12/12 全绿**。
 
 **C. 对抗验证（workflow `verify-codegen-artifacts-r16`，6 agents）**：**5/5 条主张被判假绿**，汇总给出 4 条根因（3 high + 1 low）。其中**三条是我自己的事实性错误，已就地更正**：
 
@@ -1093,7 +1093,7 @@
 3. **同一句话里"实测"二字不成立**：`tasks.md` 的 Round 5 范围行仍把 Round 6 的自述写成"**实测**该轮 agent 均无 MCP web 工具"。**已改为"该轮的记录/自述（无落盘测量记录）"**。
 4. **spec 里那条对私有成员"必须非零退出"的 SHALL 实测为红却未标注**（`CodeGen.exe ... TestPrivate.h PrivateLike --emit-reflection` → **exit 0** 且照发 `offsetof`），与同文件 `--no-configure` 那条标了"当前必然为红"不一致。**已补上"本场景当前为红"标注**。
 
-另有一条**根因级**发现（判据形态问题，同类第 4 次复发）→ **已立为 9.28**。可核的逃逸手法包括：把整段工具标注换成"（已复查）"仍全绿、**行尾追加未标注 URL** 仍全绿（判据作用对象是"行"不是"URL"）、**只删两个星号**即由红转绿、把断言**搬进被豁免的任务块**即全绿、规则**明文废止但保留字面串**三条检查仍全过、插入**编造 URL** 仍全绿。9.28 同时要求：**红态必须取自真实前态**（本轮已实测合成红态下判据照样 PASS），并把空转判据写成可执行的哈希比对（含"纯文档轮空集 / 代码轮非空"两侧输出），且**下一轮先做代码侧**。
+另有一条**根因级**发现（判据形态问题，同类第 4 次复发）→ **已立为 9.28**。可核的逃逸手法包括：把整段工具标注换成"（已复查）"仍全绿、**行尾追加未标注 URL** 仍全绿（判据作用对象是"行"不是"URL"）、**只删两个星号**即由红转绿、把断言**搬进被豁免的任务块**即全绿、规则**明文废止但保留字面串**三条检查仍全过、插入**编造 URL** 仍全绿。9.28 同时要求：**改之前必须取自真实前态**（本轮已实测合成改之前下判据照样 PASS），并把空转判据写成可执行的哈希比对（含"纯文档轮空集 / 代码轮非空"两侧输出），且**下一轮先做代码侧**。
 ⚠ **本轮自查时当场又撞上同一根因（如实记录）**：我自己的 14 条判据里，有 3 条对本轮**新增的 Review Log 文字**报了**假阳性** —— 因为那段文字在**引述被否掉的措辞**（"不可回溯""方法/枚举/基类"）。处置是把判据的作用域从"整份文件"收窄到"产品正文 + 任务块"（**排除 Review Log 这类描述性/历史性文字**），并在脚本里注明理由。**这正好是 9.28 说的"字符串判据 + 作用对象错位"的又一例**，不是我修好了它。
 
 **D. 净进展检查**：本轮改动 = `tasks.md` / `design.md` / `proposal.md` / `spec.md` / `CLAUDE.md` —— **全是文档与规则**。本 change 交付**代码**，本轮**零代码改动**（工作区唯一的 `.h` 差异是**第 13 轮**做的还原，`git diff c05d7d6 --stat -- Interface` 为空）→ **本轮是空转轮** ❌。
@@ -1122,18 +1122,18 @@
 
 **（同日追加）两个 goal 的交接（如实登记）**：
 - 旧 goal `goal-82045c1f-…` 以 **`complete`** 关闭（revision 3）—— ⚠ **此"complete"不是"目标达成"**，而是**作废/腾槽位**：harness 规定**新建 goal 的前置条件是旧 goal 处于 `complete`**，而从 `blocked` 无其它出口（`pause` 要求 `active`、`resume` 要求未耗尽轮次）。它的 `blocked_reason` 停在"轮次耗尽"，**没能写成本轮要求的"因某轮未执行"** —— 那个状态已不可修改，故准确原因以本节为准。
-- 新 goal `goal-9908840f-…` 已创建（3 轮上限，armed）。**objective 内嵌了用户新加的闸门**：每轮必须至少把一条任务从「未做」推进到「已做」并附红态证据，**做不到就立刻 `blocked` 中断**。
+- 新 goal `goal-9908840f-…` 已创建（3 轮上限，armed）。**objective 内嵌了用户新加的闸门**：每轮必须至少把一条任务从「未做」推进到「已做」并附改之前证据，**做不到就立刻 `blocked` 中断**。
 - **对读者的提醒**：本节之后若看到 `complete` 字样，**一律按"关闭"读，不按"达成"读**。
 
 ### Round 18（2026-09-12）—— 新 goal 第 1 轮：真正执行条目（**勾选数 0 → 12**）
 
-> **本轮受新闸门约束**：objective 要求"每轮至少把一条任务从「未做」推进到「已做」并附红态证据，做不到就立刻中断"。本轮**做到了**，故 goal 保持 active。
+> **本轮受新闸门约束**：objective 要求"每轮至少把一条任务从「未做」推进到「已做」并附改之前证据，做不到就立刻中断"。本轮**做到了**，故 goal 保持 active。
 
 **A. 本轮真正新做的工作（不是记账）**
 
 | 条目 | 改了什么 | 判据（红 → 绿） |
 |---|---|---|
-| **9.6** 剩余三站点 | ① §6.2 标题把"值相等 `operator==`"改为**产物的真实 API** `equal(Obj const&, Obj const&)`；② §6.2 验收标准里"含 padding 结构体『逻辑相等但布局不同』仍哈希相等"**降级为论证**（该实证从未做过）；③ **§8.1 合计状态行**从"7 条真实缺陷已修…全部修正合回"改为**逐条如实**（AUDIT-1/2/3/4/5/6/7 各自状态），并注明"3 轮内收敛"随后被 Round 6 推翻 | 3 条判据：**红 3 FAILED → 绿 3 PASS**（红态取自本轮开工前的快照 `.review_tmp/r1pre`） |
+| **9.6** 剩余三站点 | ① §6.2 标题把"值相等 `operator==`"改为**产物的真实 API** `equal(Obj const&, Obj const&)`；② §6.2 验收标准里"含 padding 结构体『逻辑相等但布局不同』仍哈希相等"**降级为论证**（该实证从未做过）；③ **§8.1 合计状态行**从"7 条真实缺陷已修…全部修正合回"改为**逐条如实**（AUDIT-1/2/3/4/5/6/7 各自状态），并注明"3 轮内收敛"随后被 Round 6 推翻 | 3 条判据：**红 3 FAILED → 绿 3 PASS**（改之前取自本轮开工前的快照 `.review_tmp/r1pre`） |
 | **9.7** 补充站点 | `design.md` 迁移计划补写「**保真度不能靠退出码判定**」—— 工具缺 builtin 头时**同样 exit 0 但整表塌成 `0/0/0/0`**，故退出码在这里是恒真断言，判保真度只能看偏移值/parse 失败/诊断数 | 1 条判据：**红 FAILED → 绿 PASS**；另 3 条复核项（Round 4 三条归因均已带更正标注、`绝不喂全 union` 规则保留）本就绿，作回归护栏 |
 
 判据脚本：`.review_tmp/verify_round18.py`（7 条，**全绿**）；对开工前快照 **4 FAILED**。
@@ -1161,9 +1161,9 @@
 | `build.py` | ① `CODEGEN_ANNOTATED` 从"两个项目类型"改为**一条自包含 fixture**（`Tools/CodeGen/TestEmit.h` / `EmitSample`），彻底落实范围变更；② 新增 `CODEGEN_EXTRA_INCLUDES = ["CACore/header"]`（fixture 要 include `CodeGenMeta.h`）；③ 生成后与**入库 golden 逐字节对拍**，不一致即失败（让该清单真的在检查"编译环境管道算出的产物 == 手工参数算出的产物"）；④ **失败不再静默**：`codegen()` 返回失败列表，`main()` 非空即打印 `CODEGEN FAILED (n)` 并 `sys.exit(1)`，**不再打印无条件的 BUILD SUCCESSFUL**；**空清单保持非致命**（合法配置）；⑤ `/I` `/D` 守卫的注释 AUDIT 号 `(AUDIT-5)` → `(AUDIT-2)` |
 | `Tools/CodeGen/CodeGenMain.cpp` | 删掉按 `offsetBytes` 的 `std::sort` —— 发射顺序改为**声明序**（`clang_visitChildren` 天然给出），不再依赖一个配置敏感、可全塌成 0 的未验证值 |
 
-**B. 判据（红态先跑，全部实跑）**
+**B. 判据（改之前先跑，全部实跑）**
 
-| 判据 | 红态（修复前） | 绿态（现在） |
+| 判据 | 改之前（修复前） | 绿态（现在） |
 |---|---|---|
 | 9.9 失败是否被返回 | `git show a23b633:build.py` 实测：`def codegen() -> None:`、两条 `[WARN] ... skipping codegen step`、裸调 `codegen()`、**无条件** `print("BUILD SUCCESSFUL")` | `def codegen() -> list[str]:` + `codegen_failures = codegen()` + `if codegen_failures:` → `CODEGEN FAILED (n) — build not reported as successful` + `sys.exit(1)` |
 | 9.9 行为（三例，`.review_tmp/check_codegen_failure.py`） | —— | ① 清单写一个未被标注的类型 → 返回 `["CodeGen 'NotAnnotatedAnywhere' exit 4: ... refusing to extract"]`；② **空清单 → 返回 `[]`（非致命）**；③ 移走 `compile_commands.json` → 返回 `["compile_commands.json not found ..."]`。**三例全过** |
@@ -1178,7 +1178,7 @@
 **D. 净进展检查**：本轮改动含 **`build.py` 与 `Tools/CodeGen/CodeGenMain.cpp` 两个交付物文件**（外加 `tasks.md` 与两处规则文件）→ **本轮不是空转轮** ✅ —— **这是 Round 11 以来第一次成立**。判据：`git diff --name-only a23b633 -- '*.cpp' '*.py'` 现在列出这两个文件（修前只有那个被还原的 `.h`）。
 
 **E. 仍未做（按闸门属下一轮）**：`9.1`（生成器遇非 public 成员须非零退出）、`9.13①`（`--no-configure` 下 codegen 根本不执行 —— 已知，未修）、`9.3` 的代码半边（测试里那条同义反复断言）、`9.4`（`/MDd` → `_DEBUG`/IDL 派生宏）、`9.5b`（以诊断数为门控）、`9.5c` 选项①、`9.24`/`9.28` 的其余部分、`9.10`（提交与清理）、以及三个"代码做完才跑"的审查任务（`9.12`/`9.23`/`9.27`）。
-⚠ **一处诚实说明**：清单口径（甲/乙）用户始终没裁；我按 §9.15 **标注为"推荐"的甲**（指向 fixture）落地，并保留"与 golden 对拍"以避免造出重复用例 —— **这一项是可逆的**，说一声即可换。
+⚠ **一处诚实说明**：清单口径（甲/乙）用户始终没裁；我按 §9.15 **标注为"推荐"的甲**（指向 fixture）做完，并保留"与 golden 对拍"以避免造出重复用例 —— **这一项是可逆的**，说一声即可换。
 
 ### Round 21（2026-09-13）—— 继续改代码：`--no-configure` 下 codegen 激活 + 生成器拒发非 public 成员（goal round 3/3）
 
@@ -1189,9 +1189,9 @@
 | `build.py` | 把 `codegen()` **移出 `if configure_step:` 分支** —— 增量构建路径（`--no-configure`）现在也跑 codegen；缺 `compile_commands.json` 时以 **codegen 专属错误**失败（非裸 `C1083`） | 9.13① |
 | `Tools/CodeGen/CodeGenMain.cpp` | `collectFields` 改用 `FieldSink`（带 `sawNonPublic` 标志），用 `clang_getCXXAccessSpecifier` 判定成员可见性；**发射前**若该类型含非 public 成员 → 打印"需改用类内标注"的说明并 **`return 5`**（非零退出）。**提取路径不受影响**（打印类型表仍是 exit 0） | 9.1 |
 
-**B. 判据（红态先跑，全部实跑）**
+**B. 判据（改之前先跑，全部实跑）**
 
-| 判据 | 红态（修前实测） | 绿态（修后实测） |
+| 判据 | 改之前（修前实测） | 绿态（修后实测） |
 |---|---|---|
 | 9.13：`--no-configure` 是否跑 codegen | 删掉生成物后跑 `python build.py --config Debug --no-configure CoreTests` → **无 `[1.5] CodeGen` 段**、生成物 **`exists? False`（未被重新生成）**，而构建报 **BUILD SUCCESSFUL** | 同一条命令 → 出现 `[1.5] CodeGen` 段、`generated ... (matches golden)`、生成物 **`exists? True`**、构建成功 |
 | 9.1：私有成员类型发射 | 修前 `--emit-reflection` 对 `PrivateLike` **exit 0 并照发 `offsetof`**（台账第 1 条记的形态） | **exit 5** + stderr：`CodeGen: refusing to emit for 'codegen_private_test::PrivateLike' — it has non-public members ... Use an in-class annotation ...` |
@@ -1205,7 +1205,7 @@
 **判据**：`git diff --name-only a23b633 -- '*.cpp' '*.py'` 命中这两个文件；`git diff --numstat a23b633 -- build.py Tools/CodeGen/CodeGenMain.cpp` 非空。
 
 **E. 剩余（13 → 11 条，全部是代码或"代码做完才跑"的审查）**：`9.3` 的代码半边（测试里那条同义反复断言）、`9.4`（`/MDd` → `_DEBUG`/`IDL` 派生宏）、`9.5b`（以诊断数门控）、`9.5c` 选项①、`9.24`/`9.28` 的其余部分、`9.10`（提交与仓库根清理）、以及三个审查任务 `9.12`/`9.23`/`9.27`；`9.2` 为**已作废**条目（无需执行）。
-⚠ **诚实边界（不得省略）**：`9.1` 的类内标注通道**仍未实现**（现 `CA_REFLECT` 是类外 no-op、不展开成 friend），故其**正向用例**（类内标注 + 私有成员必须照常发射）**仍待该通道落地后补验**；本轮只落地了"类外通道必须拒绝"这半边。另外，被拒绝时 `-o` 会留下一个**空文件**（已 `closeOut()`，未写入内容）—— 非零退出是本条契约，但空产物这一点如实记录。
+⚠ **诚实边界（不得省略）**：`9.1` 的类内标注通道**仍未实现**（现 `CA_REFLECT` 是类外 no-op、不展开成 friend），故其**正向用例**（类内标注 + 私有成员必须照常发射）**仍待该通道做完后补验**；本轮只做完了"类外通道必须拒绝"这半边。另外，被拒绝时 `-o` 会留下一个**空文件**（已 `closeOut()`，未写入内容）—— 非零退出是本条契约，但空产物这一点如实记录。
 **收尾**：goal **3/3 轮次耗尽**，**不标记完成**（剩余 11 条未做完）；同一阻塞条件不存在（本轮及上一轮都在正常执行代码），故也**不标记阻塞**。**最后可见输出 = 本 Review Log。**
 
 ### Round 22（2026-09-13）—— 继续改代码：拆掉那条"不可能失败"的断言（+ 回答"为什么停"）
@@ -1221,7 +1221,7 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 
 **C. 判据（红绿两侧都实跑）**
 
-| 判据 | 红态 | 绿态 |
+| 判据 | 改之前 | 绿态 |
 |---|---|---|
 | 覆盖范围 | `git show a23b633:Test/CoreTests/CodeGenMetaTest.cpp` 里 `fields()[N].offset` 断言**只有 `[0]` 一条**，且它是 `offsetof` 比 `offsetof`（同义反复）；`[1]`/`[2]` **零覆盖** | 三条独立数值断言 `[0]==0` / `[1]==4` / `[2]==8` |
 | **可失败性**（这条才是关键） | 按旧断言，把 `arr[1]` 的初始化改成错值**照样编译通过**（没有任何断言覆盖它） | 实测：把 `arr[1]` 的初始化改成 `3` → `error C2338: static assertion failed: 'model: field[1] (float b) must be at byte 4'`，**构建 exit=1**；改回后 **BUILD SUCCESSFUL** |
@@ -1256,7 +1256,7 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 
 **E. 排队中（用户禁止动代码期间不做）**：`9.5b` 的四步收尾 —— ① 让脚手架打出诊断真身 → ② 据此修守卫判断条件 → ③ **删脚手架** → ④ 两侧验证并当场勾选。
 
-### Round 24（2026-09-13）—— goal 执行轮：保真门控落盘、三 emitter 构建期对拍、四类断言的红态（提交 `e7eed3b`）
+### Round 24（2026-09-13）—— goal 执行轮：保真门控落盘、三 emitter 构建期对拍、四类断言的改之前（提交 `e7eed3b`）
 
 > **触发**：用户下达"开始执行 goal"。工作分解与逐条验收口径全部取自本文档 §9。
 > **⚠ 本轮结束时的状态**：`9.12` 的对抗验证**已跑并报了 11 条实质缺陷**，其中 4 条当场修掉、7 条**已开成新的 `[AUDIT]` 任务（9.29–9.34）尚未执行**；`9.23` / `9.27` 两个审查任务**未跑**。**故本 change 未完成**，本轮不是收尾轮。
@@ -1278,24 +1278,24 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 | 条目 | 判据 | 结果 |
 |---|---|---|
 | 9.5b | 保真门控四侧 | 含 `-nostdinc` 拼写 + 环境喂满 → **exit 0**；`-nostdinc++ -nostdinc` / `-nostdlibinc` / 跨 `--target` 仅 SDK `-isystem` → **均 exit 6**，报告逐字给出 `'cstddef' file not found` 与退化字段 `key, tail` |
-| 9.5b 红态 | 真实前态 `HEAD:Tools/CodeGen/CodeGenMain.cpp` | 同一条残缺命令 **exit 0**、stderr 全空、输出退化表 |
+| 9.5b 改之前 | 真实前态 `HEAD:Tools/CodeGen/CodeGenMain.cpp` | 同一条残缺命令 **exit 0**、stderr 全空、输出退化表 |
 | 9.1 | 拒发 + 提取分离 | `--emit-reflection` → **exit 5**；去掉 `--emit-reflection` → exit 0 且 `pub 12 / m_a 16 / m_b 20 / m_c 24` |
-| 9.9 | 异常输入 | 未标注类型 → exit 1（`exit 4 … refusing to extract`）；缺 `compile_commands.json` → exit 1；**③ 改名 exe 实测够不到该分支**（ninja 重新链出）→ Oracle 已改写为「让 CodeGen 目标构建失败」并实测 `error C2059` + exit 1 |
+| 9.9 | 异常输入 | 未标注类型 → exit 1（`exit 4 … refusing to extract`）；缺 `compile_commands.json` → exit 1；**③ 改名 exe 实测够不到该分支**（ninja 重新链出）→ 验收要求 已改写为「让 CodeGen 目标构建失败」并实测 `error C2059` + exit 1 |
 | 9.13 | `--no-configure` | 删生成物后重跑 → **exit 0**、重新生成且与 golden 逐字节一致（1104 B） |
-| 4.2 / 9.16 | 缺 golden / ABI 漂移 | 缺 golden → exit 1 `C1083`；漂移（`CA_REFLECTION` 少一个成员）→ exit 1 `C2338: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'` |
+| 4.2 / 9.16 | 缺 golden / ABI 对不上 | 缺 golden → exit 1 `C1083`；对不上（`CA_REFLECTION` 少一个成员）→ exit 1 `C2338: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'` |
 | 3 / 9.4 | 配置保真 | 夹具 `tail`：`/MD` **40** vs `/MDd` **48**；`_msvc_to_clang_env`：`/MD`→`[]`、`/MDd`/`/MTd`→两个宏 |
-| 终态 1 | 四类断言各自的红态 | **A 名字**（生成器写 `x%s` → `expected "a", got "xa"`）、**B 序列化**（丢末字段 → `roundtrip=0 orderOk=0 bytes=9`）、**C 哈希**（去掉浮点归一 → `-0.0/+0.0 diverged`）、**D 偏移**（`arr[1]`→3 → `C2338 … must be at byte 4`）；前三类均由**生成器侧**驱动、构建期对拍先红（`CODEGEN FAILED (1)`），同一次运行里另外两类仍 PASSED；四类两两不同，且**均已还原并复绿** |
+| 终态 1 | 四类断言各自的改之前 | **A 名字**（生成器写 `x%s` → `expected "a", got "xa"`）、**B 序列化**（丢末字段 → `roundtrip=0 orderOk=0 bytes=9`）、**C 哈希**（去掉浮点归一 → `-0.0/+0.0 diverged`）、**D 偏移**（`arr[1]`→3 → `C2338 … must be at byte 4`）；前三类均由**生成器侧**驱动、构建期对拍先红（`CODEGEN FAILED (1)`），同一次运行里另外两类仍 PASSED；四类两两不同，且**均已还原并复绿** |
 | 9.24 / 9.28 | 空转轮判据 | `Tools/spin_check.py` 两侧实测：纯文档轮 `deliverables changed: 0`；真代码轮 `1 / modified: Tools/spin_check.py` |
 
 **C. `9.12` 对抗验证（workflow `adversarial-review-9-12`，5 agents）—— 20 条候选，复核后保留 11 条**
 
 - **当场修掉 4 条**：
   1. **`commitOut()` 失败仍 `return 0`**（high）—— 目标不可替换（目录 / 只读 / 被占用）时旧内容保留、`.tmp` 残留、却 exit 0，而 `build.py` 只在非零退出时回显 stderr，构建日志里完全看不见。**改法**：`commitOut()` 返回 `bool` 并检查 `fclose`/`rename`，失败即 `return 7` 且清掉 `.tmp`。**红→绿实测**：只读目标 → 修前 exit 0 + 旧内容 + `.tmp` 残留；修后 **exit 7**、旧内容保留（确实没写成）、**无 `.tmp`**；正常路径仍 exit 0 / 1104 B。
-  2. **`CodeGenMeta.h:68` 第二处过度声称**（medium）—— "drift becomes a regenerated build error" 未改；已改为如实范围（字段数漂移由 byte 对拍 + guard 接住；**名字漂移编译期不接**）。
+  2. **`CodeGenMeta.h:68` 第二处过度声称**（medium）—— "drift becomes a regenerated build error" 未改；已改为如实范围（字段数对不上由 byte 对拍 + guard 接住；**名字对不上编译期不接**）。
   3. **`CodeGenMain.cpp` 三处过时注释**（low）—— 仍写"字段表按字节偏移排序"，与 9.5a 的"无排序、按声明序"矛盾；已改。
   4. **`9.25` 的判据 a) 在盘上不命中**（medium）—— 我写的单行 `git grep -F` 串在 `build.py` 里不存在（该赋值是三行）；已改为 `Select-String … -Context 0,3` 与目录列举，并把**两次写错都留档**在该条内。
 - **已开成新任务、尚未执行（见 §9 的 9.29–9.34）**：spec/design/tasks 的 configure 分支描述与实现不符（medium）｜`CA_REFLECTION` 文本通道遇 `--emit-serialization`/`--emit-hash` 静默 exit 0 且不产文件（medium）｜`serializable` 门控未实现而文档声称已消费（medium）｜6.1 的"字段顺序"断言恒真（medium）｜证据文件被 `.gitignore` 排除而文档引用它（medium）｜9.9 引文与证据文件对不上、`C2059` 无落盘（low）。
-- 复核者剔除 8 条（重复 / 措辞偏好 / 纸面无法排除），并**实测反驳**了一条建议（"把布局敏感夹具接进字节对拍"—— 实测该夹具在两个口径下三个 emitter 产物哈希完全相同，只有提取输出不同，故其红态判据从写下即不可失败）。
+- 复核者剔除 8 条（重复 / 措辞偏好 / 纸面无法排除），并**实测反驳**了一条建议（"把布局敏感夹具接进字节对拍"—— 实测该夹具在两个口径下三个 emitter 产物哈希完全相同，只有提取输出不同，故其改之前判据从写下即不可失败）。
 
 **D. 本轮未做（如实登记，不得计为完成）**
 
@@ -1316,9 +1316,9 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 
 | 保留项 | 处置 |
 |---|---|
-| high：**9.19 与 9.21 的判据靠「行内含某词即豁免」**；9.21 的判据「全文不得出现『不可回溯』」**在盘上为假**（写下它的那一行自己就命中，实测 7 处），绿灯靠一份**没写进任务**的豁免表 | 新开 **9.36**（判据改属性断言 + 白名单逐字入库 + 先交红态） |
+| high：**9.19 与 9.21 的判据靠「行内含某词即豁免」**；9.21 的判据「全文不得出现『不可回溯』」**在盘上为假**（写下它的那一行自己就命中，实测 7 处），绿灯靠一份**没写进任务**的豁免表 | 新开 **9.36**（判据改属性断言 + 白名单逐字入库 + 先交改之前） |
 | high：**9.17 的两处「逐字引文」今天仍非逐字**（`clang_parseTranslationUnit2(&tu)` 在 `CodeGenMain.cpp` 0 命中；自称"真身"的 `set(CMAKE_EXPORT_COMPILE_COMMANDS ON)` 变体在 `build.py` 0 命中） | 新开 **9.37**（改成从所指文件复制的逐字串，或标注"转述"；交红→绿） |
-| medium：**9.20 只改了 spec 一段**，`proposal.md` 与 `spec.md` 里"guard 实例化 / 漂移演练随后续 change"仍在，而本 change 已实例化并已跑出 `C2338` | 新开 **9.38**（全仓同类扫描） |
+| medium：**9.20 只改了 spec 一段**，`proposal.md` 与 `spec.md` 里"guard 实例化 / 对不上演练随后续 change"仍在，而本 change 已实例化并已跑出 `C2338` | 新开 **9.38**（全仓同类扫描） |
 | medium：**§9 内对 `CodeGenMetaTest.cpp` 的行号引用仍活且已失准**，而 §9 自己的规约明禁写行号 | 新开 **9.39**（换逐字引文 + 零命中判据） |
 | medium：9.17 的替换描述（"`if configure_step:` 分支内依次调用三行"）与实现相反，且 **9.29 的点名清单漏 `design.md` 与 `tasks.md` §4.1 两处** | **并入 9.29**（扩大点名范围） |
 | high：三/四个审查任务同时挂着、违反串行规则 | **本条即其修复**：本轮跑了最老的 9.23；`9.27`、`9.35` 按串行继续 |
@@ -1337,7 +1337,7 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 | **`spin_check.py queue` 永远返回 0**，而它自己的 docstring 承诺"还有未勾条目时退出 1" —— 一个**不可能触发的闸门** | **已修**：`still_open` 非空即 `return 1`；并在代码里明写它**只读复选框**、是记账闸门而非工作量证明 |
 | **交付物后缀清单漏 `.txt`** → 只改 `CMakeLists.txt` 的一轮会被报成 `deliverables changed: 0`（**假空转轮**） | **已修**：`SUFFIXES` 补入 `.txt`（依据：`a23b633` 真的改了三处 `CMakeLists.txt`） |
 
-其余保留项 → **新开 9.40**（9.25 的判据 b) 在"目录为空"时同样通过，且只覆盖一个 preset，只有绿没有红态）；9.26 的"按行判定 URL"与 9.36 同根因 → **并入 9.36**；CLAUDE 第 92 行的锚点规则仍缺 `-- <目标文件>` 限定 → **并入 9.24 的收尾**（记在这里，下一轮补）。
+其余保留项 → **新开 9.40**（9.25 的判据 b) 在"目录为空"时同样通过，且只覆盖一个 preset，只有绿没有改之前）；9.26 的"按行判定 URL"与 9.36 同根因 → **并入 9.36**；CLAUDE 第 92 行的锚点规则仍缺 `-- <目标文件>` 限定 → **并入 9.24 的收尾**（记在这里，下一轮补）。
 
 **F. ⚠ 本轮自查出的两处问题（如实登记，含一处我先前的错误描述）**：
 1. **我漏跑了 `spin start`**，于是 `spin end r25` 报 `no spin start snapshot`，**本轮"交付物动了几项"无法用工具测量**。可核事实：本轮改了 `Tools/spin_check.py`（3 处：编码、queue 退出码、`.txt` 后缀）与 `tasks.md`（记账）。
@@ -1360,7 +1360,7 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 | 9.33 | 新增 `openspec/changes/engine-codegen-framework/evidence/`（14 个文件） | 文档引用的 8 个 `.review_tmp/<名字>` **全部**在 `evidence/` 下有同名文件（缺少数 0） |
 | 9.34 | `9.9` 的引文 + `C2059` 落盘 | 引文改成证据文件里的逐字行（`CODEGEN FAILED (3)` + 三条 `exit 4`）；`C2059` 探针重跑并落盘 `evidence/codegen-target-build-failure.txt`（exit=1） |
 | 9.37 | 两处坏锚点改逐字串（含 §3.1 的第 3 个站点） | `CXErrorCode err = clang_parseTranslationUnit2(` 命中源码；`lines.append(f'set "CC={msvc_bin}\\cl.exe"')` 命中 `build.py:127`；原写法两串**均 0 命中** |
-| 9.38 | `proposal.md` + `spec.md` 的范围排除理由 | 改成事实句：真实类型接线仍不在范围，但 guard **已实例化**、漂移路径**已实测跑通**（9.16 的 `C2338`） |
+| 9.38 | `proposal.md` + `spec.md` 的范围排除理由 | 改成事实句：真实类型接线仍不在范围，但 guard **已实例化**、对不上路径**已实测跑通**（9.16 的 `C2338`） |
 | 9.40 | `9.25` 判据 b) 由**否定列举**改**正向断言** | 清掉两个 preset 的 codegen 目录后重跑：**恰好三份**、与入库 golden `Get-FileHash` **全部相同**（旧判据在目录为空时同样通过） |
 | 9.41 | `CLAUDE.md` 锚点规则补 `-- <所指文件>` 限定 | 规则文本已含该限定与"全仓 grep 会被文档自己写的同一句话喂绿"的实测依据 |
 
@@ -1375,7 +1375,7 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 **A. 开工**：`queue start r27` → **4 条未勾选**（9.2 已作废 / 9.35 / 9.36 / 9.39）｜`spin start r27` → **413 个交付物**。
 
 **B. 关掉的两条**
-- **9.36**：判据改成**属性判据**（逐句判、取消按词豁免）。**红态（真实前态，实测 2 处命中）**：`design.md` 的 **D5 标题**"枚举/函数补提取"没有范围限定（另一处是同段正文，属判据限定词太窄的误报 —— 那行本就写着"⚠ 本 change 不实现枚举 / 函数补提取"）。**处置**：标题补"（**本 change 不实现，属后续阶段**）"+ 限定词补全 → **绿态零命中**。9.19 要求的**白名单已逐字写进该条**（六类站点）。9.21 的新判据（每个含 URL 的行必须带工具标注或明写"无落盘证据"）**实跑**：三份产品文档含 URL 行共 **2 行，缺标注 0 行**。
+- **9.36**：判据改成**属性判据**（逐句判、取消按词豁免）。**改之前（真实前态，实测 2 处命中）**：`design.md` 的 **D5 标题**"枚举/函数补提取"没有范围限定（另一处是同段正文，属判据限定词太窄的误报 —— 那行本就写着"⚠ 本 change 不实现枚举 / 函数补提取"）。**处置**：标题补"（**本 change 不实现，属后续阶段**）"+ 限定词补全 → **绿态零命中**。9.19 要求的**白名单已逐字写进该条**（六类站点）。9.21 的新判据（每个含 URL 的行必须带工具标注或明写"无落盘证据"）**实跑**：三份产品文档含 URL 行共 **2 行，缺标注 0 行**。
 - **9.39**：产品正文里对 §9 会改动的文件的**活行号引用清零** —— 改动前 3 处（`CodeGenMetaTest.cpp` 的 `:46-48`/`:58` 与 `:22`），已换成逐字引文/转述或"按 grep 自定位"。
 
 **C. 9.35 对抗验证（`adversarial-review-9-35`，4 agents / 14 条候选 / 保留 9 条，3 high）→ 判「不合格」**，**新开 9.42–9.48、并续 9.49**：
@@ -1386,16 +1386,16 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 | 9.30 的拒绝**只在单标志时成立**：`--emit-reflection --emit-serialization` 时反射分支先返回 → 未支持的标志被静默丢弃、exit 0；AST 通道给两个 emitter 标志时第二个也被静默丢弃 | medium + low | **9.43** |
 | 9.29 的判据是短语匹配：`proposal.md` 里"在 configure 步骤内"那句仍在，判据零命中 | medium | **9.44** |
 | 9.29 留下活的行号锚点 `codegen_failures = codegen()`（**逐字引文，不写行号**）（与 9.39 的"已清零"自相矛盾） | low | **9.45** |
-| 9.33 的 ✅ **只数名字没执行 Oracle**：被引用的夹具与前态源码不在库、判据脚本换位置即崩、计数写错（8 名/14 文件，实为 11 名/15 文件） | high | **9.46** |
+| 9.33 的 ✅ **只数名字没执行 验收要求**：被引用的夹具与前态源码不在库、判据脚本换位置即崩、计数写错（8 名/14 文件，实为 11 名/15 文件） | high | **9.46** |
 | 9.34 落盘的证据是 **UTF-16LE**（1666 个 NUL），`git grep` 读不到 → 引文↔证据互校做不了 | low | **9.47** |
-| 9.32 的 Oracle 要求"新旧两侧都给原始输出"，落盘只有新判据一侧，"旧判据全绿"是推导不是实测 | low | **9.48** |
+| 9.32 的 验收要求 要求"新旧两侧都给原始输出"，落盘只有新判据一侧，"旧判据全绿"是推导不是实测 | low | **9.48** |
 | —— | —— | **9.49** = 对 9.42–9.48 的审查任务（按串行规则，9.35 已关，才允许开） |
 
 **D. 收尾比对**：`closed this round: 2`（9.36 / 9.39）｜`still open: 2`（9.2 已作废 / 9.35 本轮关掉前的快照）｜`opened by this round: 0`（新条目在收尾后写入）。`spin end r27` / 最终计数见下一段落盘。
 
 **E. 净进展与本轮定性（⚠ 我先前写错，按工具输出当场改正）**：`python Tools/spin_check.py spin end r27` 输出 **`deliverables changed: 0`** —— 本轮只改了 `.md`（`tasks.md` / `design.md` / `proposal.md` / `spec.md`），按本 change 的定义（交付物 = 代码 + 构建粘合）**这是空转轮**。我初稿写的是"本轮改了交付物"，**与工具输出相反，已更正**。按 goal 的规则：`spin end` 报 0 而本轮号称有进展 → **按空转轮处理**。→ 本轮**正确表述**是：**关掉 2 条文档类条目 + 跑完最后一个审查任务（结论不合格）+ 开出 7 条新工作项，交付物零改动**；goal **保持 active**，不得标完成。
 
-**F. 收尾比对原始输出（`queue end r27`）**：`closed this round: 3`（9.35 / 9.36 / 9.39）｜`still open: 1`（**9.2 已作废**）｜`opened by this round: 8`（9.42–9.49）｜**`OPEN-COUNT 9`**｜**退出码 1**。`spin end r27`：**`deliverables changed: 0`**。→ **本轮未关完**，剩余清单 = 9.42–9.49（其中 9.49 是审查任务，须等 9.42–9.48 落地后再跑）。
+**F. 收尾比对原始输出（`queue end r27`）**：`closed this round: 3`（9.35 / 9.36 / 9.39）｜`still open: 1`（**9.2 已作废**）｜`opened by this round: 8`（9.42–9.49）｜**`OPEN-COUNT 9`**｜**退出码 1**。`spin end r27`：**`deliverables changed: 0`**。→ **本轮未关完**，剩余清单 = 9.42–9.49（其中 9.49 是审查任务，须等 9.42–9.48 做完后再跑）。
 
 ### Round 28（2026-09-13）—— 关掉 6 条：门控绑定/整词匹配、标志组合、四处文档与证据
 
@@ -1410,14 +1410,14 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 | **9.44** | `proposal.md` 的"仅在 configure 步骤内"改成事实句 | 该文件命中 **1 → 0** |
 | **9.45** | 产品正文里的 `build.py:400` 活锚点换成逐字引文（4 处） | 产品正文命中 **0** |
 | **9.47** | `evidence/codegen-target-build-failure.txt` 由 **UTF-16LE 转 UTF-8** | `git grep -c C2059 -- <该文件>`：**exit 1 → 1 命中** |
-| **9.48** | 按 Oracle 第二条分支**明写**"旧判据的绿态是推导、未实测" | 附注写入 `evidence/r26-order.txt` |
+| **9.48** | 按 验收要求 第二条分支**明写**"旧判据的绿态是推导、未实测" | 附注写入 `evidence/r26-order.txt` |
 
 ⚠ **9.42 的修法第一版过严**（要求 `{` 与 `struct 名` 同行），把"大括号换行"的常见写法也判成前向声明 → 标记读空、`--emit-serialization` 被误拒 → **构建期三份对拍立刻报 `CODEGEN FAILED (1)`**；已收窄复绿。
 
 **C. 收尾比对（`queue end r28`）**：`closed this round: 6`（9.42/9.43/9.44/9.45/9.47/9.48）｜`still open: 3`（**9.2 已作废** / 9.46 / 9.49）｜`OPEN-COUNT 3`｜**退出码 1**。
 **`spin end r28`**：**`deliverables changed: 4`** —— `Tools/CodeGen/CodeGenMain.cpp`（代码）+ 3 个证据文件 → **不是空转轮**（与 Round 27 的 0 项形成对照）。
 
-**D. 剩余清单（置顶进下一轮）**：`9.46`（high：9.33 的证据只数了名字没跑 Oracle —— 夹具与前态快照不在库、脚本换位置即崩、计数写错）→ 做完才能跑 `9.49`（对 9.42–9.48 的审查任务；按串行规则它是唯一未执行的审查任务）。`9.2` 已作废。
+**D. 剩余清单（置顶进下一轮）**：`9.46`（high：9.33 的证据只数了名字没跑 验收要求 —— 夹具与前态快照不在库、脚本换位置即崩、计数写错）→ 做完才能跑 `9.49`（对 9.42–9.48 的审查任务；按串行规则它是唯一未执行的审查任务）。`9.2` 已作废。
 
 **E. 本轮定性**：**未关完**（9 条关掉 6 条，剩 9.46 与 9.49），goal **保持 active 不标完成**。
 
@@ -1426,10 +1426,10 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 
 **A. 开工**：`queue start r29` → **3 条未勾选**（9.2 已作废 / 9.46 / 9.49）｜`spin start r29` → **414 个交付物**。
 
-**B. 关掉 9.46（high）—— "证据只数了名字、没执行 Oracle"**，四件事都做了：
+**B. 关掉 9.46（high）—— "证据只数了名字、没执行 验收要求"**，四件事都做了：
 1. **夹具与前态快照入库**：`evidence/fixtures/`（**26 个文件**，含 `uisample.h` / `fwd_then_marker.h` / `nonserializable.h` / `comment_mention.h` / `CodeGenMain.fixed.cpp` / `CodeGenMain.base.cpp`）。
 2. **六个脚本从任意目录可跑**：各加"从 `__file__` 向上找含 `build.py` 与 `.git` 的目录 → chdir + 进 sys.path"的引导；把写死的 `ROOT = Path(__file__).resolve().parent.parent` 改成 `parents[4]`（该表达式在 `.review_tmp/` 时正好是仓库根，搬进 `evidence/` 后指向了 `openspec/changes`）；并补 `stdout/stderr` 的 UTF-8 重配置（否则中文输出在 cp1252 控制台上直接崩）。
-3. **Oracle 改成"干净检出能跑出该输出"并实跑**，结果落盘 `evidence/r29-scripts-rerun.txt`：`check_codegen_failure.py` **exit 0**、`check_emit_order.py` **exit 0**（打印 `ORDER_MATCHES=True` 等真实结果）；四个 `verify_round*.py` **能跑但 exit 1**，失败的是 6 条**对已改写措辞的字符串断言**（`no live build.py:<line> citation`、`REQ#build.py 不再写行号`、`design 迁移计划命中`、`第 14 轮的 14 条判据仍全绿`、`verify_round1/2 仍全绿`、`9.7 design: 写明「保真度不能靠退出码判定」`）。⚠ **明写：这四个历史探针的结论已过期，不得引用其 PASS 或 FAIL 作为当前树的证据。**
+3. **验收要求 改成"干净检出能跑出该输出"并实跑**，结果落盘 `evidence/r29-scripts-rerun.txt`：`check_codegen_failure.py` **exit 0**、`check_emit_order.py` **exit 0**（打印 `ORDER_MATCHES=True` 等真实结果）；四个 `verify_round*.py` **能跑但 exit 1**，失败的是 6 条**对已改写措辞的字符串断言**（`no live build.py:<line> citation`、`REQ#build.py 不再写行号`、`design 迁移计划命中`、`第 14 轮的 14 条判据仍全绿`、`verify_round1/2 仍全绿`、`9.7 design: 写明「保真度不能靠退出码判定」`）。⚠ **明写：这四个历史探针的结论已过期，不得引用其 PASS 或 FAIL 作为当前树的证据。**
 4. **计数订正并写明口径**：按条目里记的正则 `\.review_tmp/([A-Za-z0-9_\-]+\.(txt|py|json))` 实测 **8 个唯一名字**；`evidence/` 现 **17 个文件** + `fixtures/` 26 个。9.35 复审报的"11 名"出自**更宽的正则**（它把 `probe/xxx.h` 这类带子目录的引用也算进去）—— **判据必须连正则一起写**，否则数字不可复核；原文"14 文件"是当时快照，已过时。
 
 **C. 9.49 跑了，但不算执行（如实登记）**：workflow `adversarial-review-9-49` 的三个角度**都跑完了**（共报出 **15 条候选**），但**汇总复核的那一步没有返回结论**（返回值为 `verdict: null`）。按证据口径，**没有结论就不等于通过** —— 因此 **9.49 保持未勾选**，下一轮重跑（它是当前**唯一**未执行的审查任务，符合"串行、老的先跑"）。
@@ -1445,12 +1445,12 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 
 **B. 9.49 的结论（workflow `adversarial-review-9-49b`，3 角度 + 复核，12 条候选 → 保留 10 条）**：
 ⚠ **第一次跑（Round 29）时复核者没返回结论（`verdict: null`），按规则不计执行；本轮重跑取到结论。** 复核者独立实跑核实了 9 条事实，其中三条 high：
-1. **9.42 的"绿态"其实是错产物** —— `fwd_then_marker.h` 跑出 `Same 0`（**0 字段**）却 exit 0：类型解析取的是**前向声明游标**（`collectStructs` 不分辨声明与定义），而 Oracle 只查"exit 0 + 产物存在"，**空产物照样算绿**。
+1. **9.42 的"绿态"其实是错产物** —— `fwd_then_marker.h` 跑出 `Same 0`（**0 字段**）却 exit 0：类型解析取的是**前向声明游标**（`collectStructs` 不分辨声明与定义），而 验收要求 只查"exit 0 + 产物存在"，**空产物照样算绿**。
 2. **`serializable=0` / `serializable=false` 照样通过门控**（解析时把 `=` 后的值整段丢掉）。
 3. **跨行书写的 `CA_REFLECT(...)` 被读空** → 已标 `serializable` 的类型**误拒 exit 9**（正是本条要修的那类误拒）。
-另有 medium：9.42 的红态**没落盘**（证据文件只有 AFTER 状态）、两份回归夹具没跑齐、**标记会留给后面所有无标记的定义**、证据命令的输入路径 `/.review_tmp/probe/` 不在库里、`r29-scripts-rerun.txt` 新旧两段自相矛盾且失败条数对不上。
+另有 medium：9.42 的改之前**没落盘**（证据文件只有 AFTER 状态）、两份回归夹具没跑齐、**标记会留给后面所有无标记的定义**、证据命令的输入路径 `/.review_tmp/probe/` 不在库里、`r29-scripts-rerun.txt` 新旧两段自相矛盾且失败条数对不上。
 
-**C. 处置**：按根因去重后 **新开 9.50（三条 high 合并）／9.51（红态落盘）／9.52（证据可复现性与自相矛盾）**，并续 **9.53** 作为对它们的审查任务（串行：9.49 已关，才允许开）。
+**C. 处置**：按根因去重后 **新开 9.50（三条 high 合并）／9.51（改之前落盘）／9.52（证据可复现性与自相矛盾）**，并续 **9.53** 作为对它们的审查任务（串行：9.49 已关，才允许开）。
 
 **D. 收尾比对（`queue end r30`，补勾 9.49 之前跑的原始数字）**：`closed this round: 0`｜`still open: 2`（**9.2 已作废** / 9.49）｜`OPEN-COUNT 2`｜**退出码 1**。`spin end r30`：**`deliverables changed: 0`** —— 本轮只跑了审查与记账、**没有改交付物**，按规则**这是空转轮**（补勾 9.49 后队列剩 9.50–9.53）。
 
@@ -1469,7 +1469,7 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 
 **C. 探测结果（`evidence/r31-950.txt`，**内容断言**，不再只看 exit 0 + 产物存在）**
 
-| 用例 | 期望 | 实测 | 红态（改动前） |
+| 用例 | 期望 | 实测 | 改之前（改动前） |
 |---|---|---|---|
 | 前向声明在前 + `CA_REFLECT(serializable)` | exit 0 且表输出 `Same 2` | **exit 0，`Same 2`** | `Same 0`（空特化）却 exit 0 |
 | `serializable = 0` | 非零 | **exit 9** | exit 0 且产出特化 |
@@ -1484,7 +1484,7 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 
 **D. 收尾比对（**Round 33 补记**：原文只写了"见下一段"，而下一段并没有这段输出 —— 环顾全仓 `queue end r31` 只有那一处指针）**：当时冻结的快照给出 —— `r31.queue.start.json` 76 条、开工未勾 **5**（9.2 / 9.50 / 9.51 / 9.52 / 9.53）；`r31.queue.end.json` 76 条、结束未勾 **4**，即本轮只关掉了 **9.50**；`r31.spin.start.json` **441** 个交付物 → `r31.spin.end.json` **443** 个。本轮**改了交付物**：`Tools/CodeGen/CodeGenMain.cpp`。
 
-**E. 本轮定性**：**未关完** —— 剩 `9.51`（红态落盘 + 两份夹具回归）、`9.52`（证据可复现性与自相矛盾）、`9.53`（对 9.50–9.52 的审查任务）。goal **保持 active 不标完成**。
+**E. 本轮定性**：**未关完** —— 剩 `9.51`（改之前落盘 + 两份夹具回归）、`9.52`（证据可复现性与自相矛盾）、`9.53`（对 9.50–9.52 的审查任务）。goal **保持 active 不标完成**。
 
 
 ### Round 32（2026-09-20）—— 关掉 9.51 / 9.52，跑 9.53（判**不合格**），并当场修掉它打出的 9.55（high ×4）
@@ -1494,16 +1494,16 @@ harness 把 goal 标成了 `blocked / round-limit`（`roundsStarted=3`，`maxGoa
 ```
 queue r32: 76 items total, 4 OPEN at round start (frozen -> .review_tmp\spin\r32.queue.start.json)
   OPEN  9.2   9.2 ~~**[AUDIT] 真实类型接线 + ABI guard 实例化**~~ **【已作废 · 2026-09-08】**：…
-  OPEN  9.51  9.51 **[AUDIT] 9.42 的红态没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）：…
+  OPEN  9.51  9.51 **[AUDIT] 9.42 的改之前没落盘 + 两份回归夹具没跑齐**（medium，9.49 保留项）：…
   OPEN  9.52  9.52 **[AUDIT] 证据的可复现性与自相矛盾**（medium + low，9.49 保留项）：…
   OPEN  9.53  9.53 **Review & Adversarial Verify（Round 30 后 · 强制最后）**：…
 
 spin r32: snapshot taken over 443 deliverable files -> .review_tmp\spin\r32.spin.start.json
 ```
 
-逐条可执行性：`9.51`、`9.52` 可执行（都做掉了）；`9.53` 可执行（依赖 9.51/9.52 落地，本轮落地后即跑，做掉了）；`9.2` **已作废**（2026-09-08 的范围决策：本 change 不注册任何项目类型，真实类型接线不复存在）。**没有一条"被挡住"**。
+逐条可执行性：`9.51`、`9.52` 可执行（都做掉了）；`9.53` 可执行（依赖 9.51/9.52 做完，本轮做完后即跑，做掉了）；`9.2` **已作废**（2026-09-08 的范围决策：本 change 不注册任何项目类型，真实类型接线不复存在）。**没有一条"被挡住"**。
 
-**B. 9.51 + 9.52：红态落盘与证据可复现**
+**B. 9.51 + 9.52：改之前落盘与证据可复现**
 
 1. **五个历史二进制，全部用 `build.py` 编出**，源码 blob、exe SHA256、重建配方写进证据头：`ac2cb3b`（9.30/9.31 之前）、`39cd088`（9.42/9.43 之前）、`80fb96a`（9.50 之前）、`caa8643`（9.54 之前）、以及只含 9.54 修法的那版（B4）。9.42/9.43 六条命令在 `39cd088` 上实测 **5 条红**（`9.42a` exit 9 误拒、`9.42b/c` exit 0 放行、`9.43a/b` exit 0 静默丢弃），对照组绿；`evidence/fixtures/fwd_then_marker.h` 与 `nonserializable.h` 第一次真正跑在二进制上。
 2. **证据不再手抄**：新增 `evidence/regen_codegen_evidence.py`，把命令、退出码、产物有无、stdout/stderr、以及**从产物里数出来的计数**一次写成 UTF-8 文件；三个前态段 + 一个当前段由它生成。
@@ -1513,7 +1513,7 @@ spin r32: snapshot taken over 443 deliverable files -> .review_tmp\spin\r32.spin
 
 **C. 9.53 的结论：不合格**（workflow `adversarial-review-9-53`，3 个对抗角度 + 1 名独立复核者，4 个 agent；17 条保留、0 条被驳回）
 复核者逐条自己重跑命令，并独立确认：五个历史二进制的 SHA256 与证据头逐一对上、**该轮当时** 17 条 AFTER 命令重跑 0 处不符（数字经 Round 33 复核订正：旧稿误写 19）、`git status` 与开跑时逐字节相同。四条 high 全部打在**上一轮的修法自己**身上：
-1. **续行注释**（行尾反斜杠让下一行仍是注释）里的标记被当成真标注 → 未标注类型拿到特化（9.54a 的红态原样复现）；
+1. **续行注释**（行尾反斜杠让下一行仍是注释）里的标记被当成真标注 → 未标注类型拿到特化（9.54a 的改之前原样复现）；
 2. **字符串字面量完全没被处理** → 字符串能伪造标注、能让**真标注被抹掉**（相对 9.54 之前是**回归**）、能让括号配对整体放弃；
 3. **9.50①"优先取定义游标"只是优先** → 整个 TU 只有前向声明时仍产出 `fieldCount = 0` 的空表并 exit 0；
 4. **9.50④"定义消费标记"是同一行文本启发式** → 关键字/名字/花括号分三行书写时标记泄漏给下一个无标记类型。
@@ -1549,10 +1549,10 @@ spin r32: deliverables changed: 18
             string_blockcomment,string_marker}.h
 ```
 
-`still open` 里只剩 `9.2`（**已作废**，其作废来自 2026-09-08 的范围决策，不是执行者自封）与新开的 `9.56`（审查任务，必须等本轮产物落地后再跑，正是"串行、老的先跑"的下一棒）。
+`still open` 里只剩 `9.2`（**已作废**，其作废来自 2026-09-08 的范围决策，不是执行者自封）与新开的 `9.56`（审查任务，必须等本轮产物做完后再跑，正是"串行、老的先跑"的下一棒）。
 
 **F. 本轮定性**：**未关完** —— 本轮关掉 9.51/9.52 并按 9.53 的结论关掉 9.55；队列剩 1 条作废项 + 1 条新审查任务 `9.56`。goal **保持 active 不标完成**，下一轮从 `9.56` 开始。
-**相比上轮，实质变化是什么**：上轮结束时代码里存在 6 处可复现的判定缺陷（含 9.54 修法自身引入的回归），且它们的红态全都不在盘上；本轮结束时 `Tools/CodeGen/CodeGenMain.cpp` 的判定逻辑已改（两个文本视图、按偏移绑定、声明即拒发），17 条断言在真实历史二进制上红、在当前二进制上全绿，红态与绿态都可由 `evidence/regen_codegen_evidence.py` 重新生成，证据的输入路径由 `python Tools/spin_check.py evidence` 强制在库。
+**相比上轮，实质变化是什么**：上轮结束时代码里存在 6 处可复现的判定缺陷（含 9.54 修法自身引入的回归），且它们的改之前全都不在盘上；本轮结束时 `Tools/CodeGen/CodeGenMain.cpp` 的判定逻辑已改（两个文本视图、按偏移绑定、声明即拒发），17 条断言在真实历史二进制上红、在当前二进制上全绿，改之前与绿态都可由 `evidence/regen_codegen_evidence.py` 重新生成，证据的输入路径由 `python Tools/spin_check.py evidence` 强制在库。
 
 
 ### Round 33（2026-09-20）—— 跑 9.56（判**不合格**：四条 high 又打在 9.55 自己的修法上），当场修成 9.57
@@ -1622,7 +1622,7 @@ spin r34: snapshot taken over 465 deliverable files -> .review_tmp\spin\r34.spin
 
 **B. 9.58 的结论：不合格**（workflow `adversarial-review-9-58`，3 个角度 + 独立复核者；14 条保留、0 条被驳回）
 三条 high 全部打在 9.57 刚写的判定逻辑上（`#if 0 // 注释` 让死分支复活、注释/原始字符串里的 `#if 0` 抹掉真标注、`#ifdef` 只查自己的 `-D` 列表而 `#if defined(...)` 保留），四条 medium（`#elif 0`、`defined()` 从不查 `-D`、`-D X` 分开写、关键字匹配右边没有词边界导致 `classify` 里冒出 `ify`）。复核者同时确认：已记录的 45 条命令逐条重跑 **0 处不符**、证据文件里的二进制 SHA256 与 TOTAL 逐条核对通过、`git status` 与开跑时逐字节相同。
-**我明确问了"这是不是同一个根因复发"**，回答是**是**：第 32 轮记录"9.55 的修法自带 6 条红"、第 33 轮四条 high 打 9.55、本轮三条 high 打 9.57，红态计数 6 → 10 → 再加 3；根因就是台账第 17/18/20 行那条——**用扫源文本的方式决定"哪段是代码"**，而台账"何时可以重新考虑"一栏早就写了"改用 libclang 属性/预处理输出，整类退役"。
+**我明确问了"这是不是同一个根因复发"**，回答是**是**：第 32 轮记录"9.55 的修法自带 6 条红"、第 33 轮四条 high 打 9.55、本轮三条 high 打 9.57，改之前计数 6 → 10 → 再加 3；根因就是台账第 17/18/20 行那条——**用扫源文本的方式决定"哪段是代码"**，而台账"何时可以重新考虑"一栏早就写了"改用 libclang 属性/预处理输出，整类退役"。
 
 **C. 9.59：换机制，不再补拼法**
 

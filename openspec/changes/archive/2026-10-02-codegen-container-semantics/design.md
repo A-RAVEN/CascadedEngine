@@ -8,7 +8,7 @@
 - **无序容器的字节与哈希不确定**：哈希那条路是 `hash_one(元素个数)` 之后，若元素平凡可拷贝且有 `data()` 就整块算，否则**按遍历顺序逐个算** —— `unordered_map` / `unordered_set` 的遍历顺序与插入历史有关，于是"内容相等"的两个对象哈希不同，而生成的相等判断是内容比较。
 - **容器里的指针静默丢数据**：指针在写侧是 `//ignore`、读侧置 `nullptr`，`vector<T*>` 会写出"个数 + 一串空元素"，不报错。
 - **引擎里的容器用量**（grep 计数）：`vector` 609、`string` 294、`unordered_map` 187、`deque` 41、`array` 38、`set` 10、`map` 10、`list` 6、`unordered_set` 5。**引擎源码里 `multimap` / `multiset` 用量为 0，但它们可达** —— `CAContainerBase.h` 的 `using namespace std;` / `eastl` 把名字全透出来，`castl::unordered_multimap` / `unordered_multiset` 另有显式别名；初稿写成"`castl` 里没有这两个容器"，是错的，第二轮的工件里已一并改掉。
-- **`castl` 是开放集合**：`CAContainerBase.h` 里逐字是 `using namespace eastl;` 与 `using namespace std;`，所以 `castl::X` 对 std（或 eastl）的**每一个**名字都成立；`castl::unordered_map` / `unordered_multimap` 另有显式别名声明。结论：按名字硬列容器一定随 `USING_EASTL` 漂移，**并且"castl 不提供某某容器"这种断言不能靠翻 castl 头文件得出**（初稿的"castl 没有 multimap / multiset"就是这么错的，实测 `castl::multimap` / `castl::multiset` 都能编译、工具 exit 0）。
+- **`castl` 是开放集合**：`CAContainerBase.h` 里逐字是 `using namespace eastl;` 与 `using namespace std;`，所以 `castl::X` 对 std（或 eastl）的**每一个**名字都成立；`castl::unordered_map` / `unordered_multimap` 另有显式别名声明。结论：按名字硬列容器一定随 `USING_EASTL` 对不上，**并且"castl 不提供某某容器"这种断言不能靠翻 castl 头文件得出**（初稿的"castl 没有 multimap / multiset"就是这么错的，实测 `castl::multimap` / `castl::multiset` 都能编译、工具 exit 0）。
 
 ## Goals / Non-Goals
 
@@ -52,7 +52,7 @@
 
 **定下来的做法（第二轮对抗验证后改写过一次）**：**按元素描述递归摊平**，不依赖"元素类型有没有生成序列化器" —— 容器类型永远拿不到生成序列化器，初稿那句"元素类型自己也有生成序列化器时就调用它"对 `vector<unordered_map<...>>`、`unordered_map<u, unordered_map<...>>`、`unordered_map m[2]` 这三种形状根本落不下来（实测三者同内容不同插入顺序时仍然 bytesEqual=0，firstDiff 分别是 16 / 20 / 16）。只有确实递归不了的形状才进拒绝路径。
 
-⚠ **落地时按本表最后一行括号里的第二选项办（2026-10-02 实测）**：递归摊平覆盖了"元素本身是容器"和"C 数组的元素是容器"这两类（`cgWriteContainer` / `cgReadContainer` 递归 + C 数组按"先 extent、再逐个元素"），但**结构体元素**这一类做不到 —— 递归摊平要求生成代码能进到那个结构体的字段里，而它拿不到旧运行时的游标（`serializer` 的缓冲区、`deserializer` 的偏移都在 `private:` 段且无取用方法）。所以这一类按本表写的"**或加一位标志并入拒绝**"办：`--emit-serialization` 与 `--emit-hash` 遇到"容器的元素是内含无序容器的结构体"时**非零退出（11）**并点名成员、元素类型与那个无序容器；工具在扫描到的头文件里递归查元素的字段（深度上限 3）来判断，元素类型不在本次扫描头文件里时看不到字段、按"未发现"放行 —— 这是本 change 的已知边界。
+⚠ **做完时按本表最后一行括号里的第二选项办（2026-10-02 实测）**：递归摊平覆盖了"元素本身是容器"和"C 数组的元素是容器"这两类（`cgWriteContainer` / `cgReadContainer` 递归 + C 数组按"先 extent、再逐个元素"），但**结构体元素**这一类做不到 —— 递归摊平要求生成代码能进到那个结构体的字段里，而它拿不到旧运行时的游标（`serializer` 的缓冲区、`deserializer` 的偏移都在 `private:` 段且无取用方法）。所以这一类按本表写的"**或加一位标志并入拒绝**"办：`--emit-serialization` 与 `--emit-hash` 遇到"容器的元素是内含无序容器的结构体"时**非零退出（11）**并点名成员、元素类型与那个无序容器；工具在扫描到的头文件里递归查元素的字段（深度上限 3）来判断，元素类型不在本次扫描头文件里时看不到字段、按"未发现"放行 —— 这是本 change 的已知边界。
 
 **重复键容器不支持**：`multimap` / `multiset` / `unordered_multimap` / `unordered_multiset` 里同键项之间没有规范顺序，本 change 不规定二级排序键，直接拒绝（见 D6）。
 
@@ -100,16 +100,16 @@
 
 - [字段表结构变更会让现有生成物字节改变] → **两个条目的六份入库产物**都要重新生成并入库，这是预期内的变更；改分类那一步（D1）单独先做，按条目核对（`EmitSample` 三份不变，真实类型那份的 `uint64_t` 会从 `Opaque` 变 `UInt`）。
 - [摊平排序引入额外拷贝] → 先做副本版，测试里量一次大容器（例如 10 万个键）的开销；超标再改成只排下标。
-- [工具的容器口径与运行时漂移] → D2 的判据要求同一个 TU 里对拍两侧结论。
+- [工具的容器口径与运行时对不上] → D2 的判据要求同一个 TU 里对拍两侧结论。
 - [新拒绝路径可能把本来能用的类型挡在外面] → 拒绝只针对"会静默出错"的组合（指针键、指针元素、无序容器无比较键）；有序容器与含普通元素的容器不受影响。
 - [退出码增加，文档与自检脚本要同步] → `verify_readme.py` 会逐条跑文档里的命令，新增退出码必须在同一次提交里写进 README。
 
 ## Migration Plan
 
-0. **顺序依赖已满足**：`wire-codegen-real-type` 已落地并归档（`openspec/changes/archive/2026-10-01-wire-codegen-real-type`）—— 四列清单、按模块并集推 include、宏不唯一即拒绝、预编译头补 `-include`、真实类型 `GPUBufferDescriptor` 都在位。反过来做会让那边"既有黄金样本逐字节不变"的要求自相矛盾，所以这一步的顺序不能反。
+0. **顺序依赖已满足**：`wire-codegen-real-type` 已做完并归档（`openspec/changes/archive/2026-10-01-wire-codegen-real-type`）—— 四列清单、按模块并集推 include、宏不唯一即拒绝、预编译头补 `-include`、真实类型 `GPUBufferDescriptor` 都在位。反过来做会让那边"既有黄金样本逐字节不变"的要求自相矛盾，所以这一步的顺序不能反。
 1. **只做 D1**（分类规范化），然后**按条目核对入库产物**：`EmitSample` 三份应当逐字节不变（成员是 `int` / `float` / `bool` / `double`）；真实类型那份 `Interface/RenderInterface/generated/GPUBufferDescriptor.Reflection.h` **会变**（两个 `uint64_t` 从 `Opaque` 变 `UInt`），必须重新生成并入库之后构建才会回到绿 —— 第二轮对抗验证发现初稿只提了 `EmitSample`，照它执行第一步就会撞上构建失败，且没有任何任务负责刷新那份文件。
 2. **做 D2 / D3**（容器识别 + 元素描述），此时表结构变了 → 重新生成并入库黄金样本；补分类与元素描述的编译期断言。
-3. **做 D4 / D5 / D6**（规范顺序、哈希一致、三条拒绝路径），每条配红态实测。
+3. **做 D4 / D5 / D6**（规范顺序、哈希一致、三条拒绝路径），每条配改之前实测。
 4. **D7 与文档**：包装器标记、README 的容器规则与磁盘格式契约。
 5. 回滚：四步各自独立成提交，任何一步出问题都能单独回退；D1 之前的产物与行为是回退点。
 
@@ -137,7 +137,7 @@
 
 ## 对抗验证记录（第二轮，2026-10-01）
 
-上一轮是在 `wire-codegen-real-type` **落地之前**做的；这一轮针对"落地之后的真实代码 + 四份工件"再跑一次五路对抗验证，改掉的仍是**错事实与漏覆盖**：
+上一轮是在 `wire-codegen-real-type` **做完之前**做的；这一轮针对"做完之后的真实代码 + 四份工件"再跑一次五路对抗验证，改掉的仍是**错事实与漏覆盖**：
 
 | 这一轮发现 | 实测证据 | 现在怎么写 |
 |---|---|---|

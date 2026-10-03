@@ -16,8 +16,8 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 
 #### Scenario: 两条标注通道按成员可见性划分
 - **WHEN** 被标注类型含**非 public** 成员
-- **THEN** **类外**标注通道（`CA_REFLECTION(...)`、以及现形态的 `CA_REFLECT(...)` —— 纯文本、编译器 no-op）SHALL **非零退出**并提示"该类型需改用类内标注"，**不得产出编译不过的代码**；而**类内**标注通道（宏写在 class 体内、展开为 `friend` 声明）对私有成员**照常发射** —— 私有成员在该通道是正常的。⚠ **类内通道尚未实现**，其正向用例待该通道落地后补验（见 tasks §9.1）。
-- **AND** ✅ **实现状态（2026-09-13）：已通过** —— 实测 `CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-reflection` → **exit 5**，stderr 为 `CodeGen: refusing to emit for 'codegen_private_test::PrivateLike' — it has non-public members … Use an in-class annotation …`；同命令**去掉** `--emit-reflection`（仅提取类型表）仍 **exit 0** 且 offset 不变（`pub 12 / m_a 16 / m_b 20 / m_c 24`）—— 提取与发射的区分成立；全 public 的 fixture 照常发射。**修前红态（实测）**：同一条命令 **exit 0** 并照常对私有成员发射 `offsetof`（即台账第 1 条记的那个形态）。⚠ **类内标注通道尚未实现**，其正向用例待该通道落地后补验（见 tasks §9.1）。
+- **THEN** **类外**标注通道（`CA_REFLECTION(...)`、以及现形态的 `CA_REFLECT(...)` —— 纯文本、编译器 no-op）SHALL **非零退出**并提示"该类型需改用类内标注"，**不得产出编译不过的代码**；而**类内**标注通道（宏写在 class 体内、展开为 `friend` 声明）对私有成员**照常发射** —— 私有成员在该通道是正常的。⚠ **类内通道尚未实现**，其正向用例待该通道做完后补验（见 tasks §9.1）。
+- **AND** ✅ **实现状态（2026-09-13）：已通过** —— 实测 `CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-reflection` → **exit 5**，stderr 为 `CodeGen: refusing to emit for 'codegen_private_test::PrivateLike' — it has non-public members … Use an in-class annotation …`；同命令**去掉** `--emit-reflection`（仅提取类型表）仍 **exit 0** 且 offset 不变（`pub 12 / m_a 16 / m_b 20 / m_c 24`）—— 提取与发射的区分成立；全 public 的 fixture 照常发射。**修前改之前（实测）**：同一条命令 **exit 0** 并照常对私有成员发射 `offsetof`（即台账第 1 条记的那个形态）。⚠ **类内标注通道尚未实现**，其正向用例待该通道做完后补验（见 tasks §9.1）。
 
 ### Requirement: 反射标注用标记宏自动爬取 + 未迁移/外部走非侵入通道
 系统 SHALL 提供 attribute 风格的**标记宏** `CA_REFLECT(...)`（可带 `serializable`/`ui`/`min=0` 等 options），由 libclang 从 **class 体 AST 自动提取**成员名 / type / offset（作者**不手写成员清单**）；⚠ **本 change 只提取数据字段** —— 方法 / 枚举 / 基类**不在实现范围**（工具侧无 `FunctionDecl` / `EnumDecl` / `BaseSpecifier` 处理，见 tasks §9.8），故不在本 SHALL 内；未迁移引擎类型与外部库类型 SHALL 仍可用 `CA_REFLECTION(Type, 成员...)` **非侵入式**声明（命名空间作用域、不改类型源码），两者喂**同一张类型表**、同一批 emitter。系统 SHALL NOT 依赖字面 `[[careflection::...]]` 或 `[[clang::annotate]]` attribute 作元数据载体（MSVC C5030 警告 / libclang 读自定义命名空间 attribute 弱 / `[[clang::annotate]]` AST 可见性 bug）。**本 change 以示例类型证明管道；引擎自有类型从 CA_REFLECTION 迁移到 CA_REFLECT 属后续 task，不在此 SHALL**。
@@ -56,10 +56,10 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 - **WHEN** 生成源文件缺失
 - **THEN** 构建以失败而非静默通过：缺失生成头 → 经显式 `#include` 报编译错误；缺失生成 .cpp → 经显式 `target_sources` 报构建错误。**该方向已验**（4.2：删生成头 → `C1083`）。
 
-#### Scenario: 与注解漂移（**不在本 change 实现范围**）
-- **WHEN** 生成物与源码注解**漂移**（字段增删）
-- **THEN** **真实类型**的漂移方向**不在本 change 实现范围**（本 change 不接线任何项目类型，见 proposal 的 Non-goals）；**但本 change 内的合成样本已实测跑通该路径** —— 改注解的成员数后 `python build.py --config Debug --no-configure CoreTests` 以 `error C2338: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'` 失败（见 tasks 的 9.16）。**注意措辞**：接住漂移的机制是 `static_assert_abi_consistency`，它**只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是非空检查）。
-- **AND** 该 guard **只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是"生成头是否存在"的非空检查，**不做名字内容比对**）；**既不校验名字内容、也不校验 offset**。名字漂移与 offset 漂移**同样不在本 change 的覆盖范围**。
+#### Scenario: 与注解对不上（**不在本 change 实现范围**）
+- **WHEN** 生成物与源码注解**对不上**（字段增删）
+- **THEN** **真实类型**的对不上方向**不在本 change 实现范围**（本 change 不接线任何项目类型，见 proposal 的 Non-goals）；**但本 change 内的合成样本已实测跑通该路径** —— 改注解的成员数后 `python build.py --config Debug --no-configure CoreTests` 以 `error C2338: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'` 失败（见 tasks 的 9.16）。**注意措辞**：接住对不上的机制是 `static_assert_abi_consistency`，它**只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是非空检查）。
+- **AND** 该 guard **只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是"生成头是否存在"的非空检查，**不做名字内容比对**）；**既不校验名字内容、也不校验 offset**。名字对不上与 offset 对不上**同样不在本 change 的覆盖范围**。
 - **AND** 归属：随"真实类型正式接线"的**后续 change** 处理（本 change 不接线任何项目类型，见 proposal 的 Non-goals）。
 
 ### Requirement: build.py 接入 codegen 步骤
@@ -72,7 +72,7 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 #### Scenario: `--no-configure` 的增量构建也须走 codegen
 - **WHEN** 执行 `python build.py --no-configure <target>`（文档化的增量构建路径）
 - **THEN** codegen 步骤**确实执行过**：构建日志出现 `[1.5] CodeGen` 段；且删除 `out/build/<cfg>/codegen/` 下任一生成物后重跑，该生成物**被重新生成**，内容与全量构建**逐字节一致**。（单一结果，不留"要么…要么…"的分支 —— 分支式条款无法失败。）
-- **AND** ✅ **实现状态（2026-09-13）：已通过** —— `codegen()` 已移出 `if configure_step:` 分支。**实测（先删掉生成物）**：`python build.py --config Debug --no-configure CoreTests` → 日志出现 `[1.5] CodeGen` 段、生成物**被重新生成**且与入库 golden **逐字节一致**、构建成功。**修前红态（实测）**：同一条命令既无 `[1.5] CodeGen` 段、生成物**也未被重新生成**，而构建照样报 BUILD SUCCESSFUL —— 正是本条要禁止的静默。原文本条曾被写成"无 `--no-configure`"、对该路径沉默，该自限已解除。
+- **AND** ✅ **实现状态（2026-09-13）：已通过** —— `codegen()` 已移出 `if configure_step:` 分支。**实测（先删掉生成物）**：`python build.py --config Debug --no-configure CoreTests` → 日志出现 `[1.5] CodeGen` 段、生成物**被重新生成**且与入库 golden **逐字节一致**、构建成功。**修前改之前（实测）**：同一条命令既无 `[1.5] CodeGen` 段、生成物**也未被重新生成**，而构建照样报 BUILD SUCCESSFUL —— 正是本条要禁止的静默。原文本条曾被写成"无 `--no-configure`"、对该路径沉默，该自限已解除。
 
 ### Requirement: 生成物必须被真实引擎目标消费
 
@@ -88,7 +88,7 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 - **WHEN** 删除或改名入库的生成头 `Interface/RenderInterface/generated/GPUBufferDescriptor.Reflection.h`，再构建
 - **THEN** 消费该头的编译单元以"找不到文件"失败，构建整体失败（不得静默通过）
 
-#### Scenario: 注解漂移时构建失败
+#### Scenario: 注解对不上时构建失败
 
 - **WHEN** 改动 `graphics_backend::GPUBufferDescriptor` 的成员（增删或改名）而不重新生成
 - **THEN** `build.py` 的逐字节对拍失败并点名该文件与不一致的原因，构建整体失败
@@ -134,7 +134,7 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 #### Scenario: 文件有语法错误且没有标注
 
 - **WHEN** 输入头文件里存在语法错误（如 `struct Broken { int a }` 缺分号）且文件里没有任何标注
-- **THEN** 工具非零退出并报出该文件的错误级诊断，**不得**返回 exit 0「no annotated types」（当前实现返回 exit 0，为本 requirement 要修掉的红态）
+- **THEN** 工具非零退出并报出该文件的错误级诊断，**不得**返回 exit 0「no annotated types」（当前实现返回 exit 0，为本 requirement 要修掉的改之前）
 
 #### Scenario: include 找不到且没有标注
 

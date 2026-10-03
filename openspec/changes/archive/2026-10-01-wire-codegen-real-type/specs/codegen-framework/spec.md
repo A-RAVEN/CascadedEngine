@@ -14,7 +14,7 @@
 - **WHEN** 删除或改名入库的生成头 `Interface/RenderInterface/generated/GPUBufferDescriptor.Reflection.h`，再构建
 - **THEN** 消费该头的编译单元以"找不到文件"失败，构建整体失败（不得静默通过）
 
-#### Scenario: 注解漂移时构建失败
+#### Scenario: 注解对不上时构建失败
 
 - **WHEN** 改动 `graphics_backend::GPUBufferDescriptor` 的成员（增删或改名）而不重新生成
 - **THEN** `build.py` 的逐字节对拍失败并点名该文件与不一致的原因，构建整体失败
@@ -60,7 +60,7 @@
 #### Scenario: 文件有语法错误且没有标注
 
 - **WHEN** 输入头文件里存在语法错误（如 `struct Broken { int a }` 缺分号）且文件里没有任何标注
-- **THEN** 工具非零退出并报出该文件的错误级诊断，**不得**返回 exit 0「no annotated types」（当前实现返回 exit 0，为本 requirement 要修掉的红态）
+- **THEN** 工具非零退出并报出该文件的错误级诊断，**不得**返回 exit 0「no annotated types」（当前实现返回 exit 0，为本 requirement 要修掉的改之前）
 
 #### Scenario: include 找不到且没有标注
 
