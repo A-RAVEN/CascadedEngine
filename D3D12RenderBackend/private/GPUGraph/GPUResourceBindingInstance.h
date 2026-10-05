@@ -6,6 +6,7 @@
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <CACore/CASharedDic.h>
 #include <ShaderLibrary/ShaderLibrary.h>
+#include <CodeGenHash.h>   // 末尾那份手写哈希特化要用 `cacore::codegen::hasher` 的本体
 /// <summary>
 /// Shader Resource Binding Instance With 
 /// </summary>
@@ -137,4 +138,31 @@ namespace graphics_backend
 		ShaderResourceInstanceDic m_ResourceInstances;
 	};
 
+}
+
+// `ShaderResourceSet` 是哈希键（`shared_dic<ShaderResourceSet, …>`），但它**不能进生成表**：`resourceDic`
+// 是"名字 → 结构体指针"的映射，指针（哪怕只是容器的元素）是工具明令拒绝的形状。按设计给的第二条路
+// 手写一份哈希特化：算的是 shader 信息与**资源名集合**，指针地址不进哈希 —— 地址是进程内的东西，进了
+// 哈希只会让同一个资源集在不同进程算出不同的桶。名字的顺序不影响结果（每个名字单独算一遍再异或），
+// 所以"插入顺序不同"不会改变哈希，与生成代码对无序容器的口径一致。判等仍走 `operator<=>`（含指针），
+// 所以哈希相同不会把两个不同的资源集判成同一个。
+namespace cacore::codegen
+{
+	template<>
+	struct custom_hash_trait<graphics_backend::ShaderResourceSet>
+	{
+		static void hash(graphics_backend::ShaderResourceSet const& obj, auto& hasher)
+		{
+			hasher.hash(obj.shaderInfo);
+			hasher.hash(static_cast<std::uint64_t>(obj.resourceDic.size()));
+			std::uint64_t nameHashXor = 0;
+			for (auto const& entry : obj.resourceDic)
+			{
+				::cacore::codegen::hasher<> nameHasher;   // 参数名就叫 hasher，这里必须写全限定名
+				nameHasher.hash(entry.first);
+				nameHashXor ^= static_cast<std::uint64_t>(nameHasher.getHash());
+			}
+			hasher.hash_raw(&nameHashXor, sizeof(nameHashXor));
+		}
+	};
 }

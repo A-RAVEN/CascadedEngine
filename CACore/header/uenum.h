@@ -1,6 +1,6 @@
 #pragma once
 #include <type_traits>
-#include <Hasher.h>
+#include <HashKeys.h>
 #include "CodeGenTraits.h"
 #include <magic_enum/magic_enum.hpp>
 

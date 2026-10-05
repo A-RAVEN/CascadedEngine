@@ -331,11 +331,12 @@ struct TypeDescriptor<game::Inventory>
 ```cpp
 #include "game/Player.h"                        // 类型定义
 #include "CodeGenMeta.h"                        // 描述符接口
-#include "generated/Player.Reflection.h"        // 生成物（放最后）
+#include "Player.Reflection.h"                  // 生成物（放最后；它住在构建目录的 codegen/<归属目录>/ 下，
+                                                // 那个目录由 CMake 的 target_include_directories 加进包含路径）
 ```
 
 真实例子见 `Test/CoreTests/EmitReflectionTest.cpp`、`GeneratedSerializerTest.cpp`、`GeneratedHashTest.cpp`
-——它们 `#include "generated/EmitSample.*.h"`，并对生成的表做运行期断言。
+——它们 `#include "EmitSample.Reflection.h"` 这类生成物，并对生成的表做运行期断言。
 
 ## 四、退出码
 
@@ -449,6 +450,13 @@ struct TypeDescriptor<game::Inventory>
 `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 的 `ShaderSetData`（一个非拥有的反向指针成员），
 它的处置是**不进接入清单、不生成代码**。
 
+**包装类型的成员是空指针时写什么**（`wrapper_traits<T>::get_data` 的实现决定，实测于 2026-10-05）：
+`ComPtr<ID3DBlob>` 那类包装成员在**空指针**时写一段**空载荷**（`uint64 0`，8 字节），读回来是一个 0 字节的
+对象，不是"什么都没写" —— 于是"写→读→再写"的字节稳定。**注意这与老的一侧不同**：老运行时把指针成员整段
+跳过（一个字节都不写），所以含这类成员的类型的磁盘字节与老格式**不一致**，这是本 change 有意为之
+（7.2 / D8：含指针成员不许静默丢数据）。实现包装特化时**必须判空**：不判空就是解引用空指针，
+实测会让进程访问违例（退出码 `0xC0000005`）。
+
 只请求 `--emit-reflection` 时以上都不受影响（字段表照出）。注意 `build.py` 的接入清单**没有**按条目
 选择发射器的能力：每条清单条目固定跑三个发射器，任一次非零退出即整体构建失败，所以只能出反射的类型
 不能进清单。
@@ -494,7 +502,7 @@ struct TypeDescriptor<codegen_demo::EmitSample>
 {
     static constexpr const char*              name       = "codegen_demo::EmitSample";
     static constexpr std::size_t              fieldCount = 4;
-    ...（此处截断，完整产物由 build.py 与入库 golden 逐字节对拍）
+    ...（此处截断；完整产物由 build.py 每次构建现场生成并核对名单）
 ```
 
 ### 3. 发射序列化特化到文件
@@ -506,8 +514,8 @@ CodeGen.exe Tools/CodeGen/TestEmit.h EmitSample -I CACore/header --emit-serializ
 [exit 0]                     （无 stdout / stderr；产物写在 -o 给的那个路径）
 ```
 产物里每个字段一行 `cgWriteValue(w, obj.<成员>);`，`EmitSample` 有 4 个成员，所以恰好 4 行。
-`build.py` 会把这份产物与入库的 `Tools/CodeGen/generated/EmitSample.Serialization.h` **逐字节对拍**，
-不一致即构建失败。
+`build.py` 每次构建现场生成这份产物（落在构建目录），并核对工具报出的 `CodeGen wrote:` 名单 —— 少了哪一份
+或工具非零退出，构建就失败。**生成物不进源码树**：仓库里没有 `generated/` 目录，也没有"入库副本"可对拍。
 
 ### 4. 类型没被标注 → 4
 
@@ -526,10 +534,7 @@ CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-refl
 ```
 ```
 [exit 5]
-CodeGen: refusing to emit for 'codegen_private_test::PrivateLike' — it has non-public members, and the
-generated code reads members by name from outside the class (an in-class marker does not change that
-access check). Make them public, or give the generated code friend access through the private-member
-entry point.
+CodeGen: refusing to emit for 'codegen_private_test::PrivateLike' — it has non-public members, and the generated code reads members by name from outside the class (an in-class marker does not change that access check). Make them public, or put `CA_CODEGEN_FRIEND(PrivateLike);` inside the class body (it friends the four generated entry points — the equivalent of the old `CA_PRIVATE_REFLECTION`).
 ```
 同一条命令**去掉** `--emit-reflection`（只取字段表）是 exit 0 —— 提取与发射的区分成立。
 
@@ -615,8 +620,9 @@ EmitSample.Hash.h            1310
 ## 六、构建期怎么用它
 
 `build.py` 的 `codegen()` 步骤（排在所有编译之前）：先构建 `CodeGen` 目标，再按**接入清单**逐条生成，
-把产物与**该条目自己的入库目录**逐字节对拍，任一不一致或工具非零退出即**构建失败**。清单为空是合法配置
-（不阻断构建）。**输入与入库副本都没变的条目会跳过**（省掉一次 libclang 解析），见下一节。
+逐条核对工具报出的产物名单，任一不一致或工具非零退出即**构建失败**。产物落在构建目录
+（`out/build/<预设>/codegen/<归属目录>/`），**源码树里没有生成物**。清单为空是合法配置（不阻断构建）。
+**输入没变的条目会跳过**（省掉一次 libclang 解析），见下一节。
 
 ### 构建开关与「跳过没变的条目」
 
@@ -626,8 +632,8 @@ EmitSample.Hash.h            1310
 | `--no-configure` | 完全不 configure（从前就有） |
 | `--codegen-all` | 忽略账本，清单里每一条都重跑（等价于从前的行为，排查用） |
 
-**已删除的两个开关**：`--no-codegen`（跳过整个生成段）与 `--commit-generated`（把新生成物写进入库目录）
-随「生成物入库」一起没了 —— 生成物只落构建目录、每次构建现场生成，既没有「只编译、不生成」这条快路，
+**已删除的两个开关**：`--no-codegen`（跳过整个生成段）与 `--commit-generated`（把新生成物写回源码树的入库目录）
+随「生成物改为只落构建目录」一起没了 —— 生成物只落构建目录、每次构建现场生成，既没有「只编译、不生成」这条快路，
 也没有「写回仓库」这个动作。**传了会直接报错退出**（退出码 1），不会被当成普通构建悄悄跑过去。
 
 **账本**：`out/build/<预设>/codegen.stamp.json`。清单每一行按**这些输入**算指纹 —— 工具二进制、被解析的
@@ -689,20 +695,38 @@ CODEGEN_ANNOTATED = [
 ### 已接入的真实类型（可照着加第二个）
 
 `graphics_backend::GPUBufferDescriptor`（`Interface/RenderInterface/header/GPUBuffer.h`）是清单里第一个真实
-引擎类型，接线一共四处：
+引擎类型。接线一共四处（**生成物不进源码树**：它们落在构建目录的 `codegen/<归属目录>/` 下）：
 
 1. **头文件**：加 `#include "CodeGenMeta.h"`，并在类型定义**之前**写 `CA_REFLECT(serializable)`
-   （标记必须是真实宏调用 —— 工具靠预处理器判定，不扫源码文本）。
-2. **清单**：按上面四列加一条。
-3. **生成物入库**：`Interface/RenderInterface/generated/GPUBufferDescriptor.{Reflection,Serialization,Hash}.h`，
-   生成后复制进去（`build.py` 只写 build 目录，**从不改源码树**）。
-4. **消费与断言**：`Interface/RenderInterface/private/GPUBufferDescriptorReflection.cpp` include 生成头，
-   写 `CA_REFLECTION(graphics_backend::GPUBufferDescriptor, count, stride);`，并断言字段数、每个字段的
-   `offsetof`、类型名与成员名，最后实例化框架自带的 `cacore::codegen::static_assert_abi_consistency<T>()`。
-   该目录通过 `target_include_directories(${PROJECT_NAME} PRIVATE generated)` 进 include 路径。
+   （标记必须是真实宏调用 —— 工具靠预处理器判定，不扫源码文本）。成员是私有的就再在类体里写
+   `CA_CODEGEN_FRIEND(类型名)`：它把四个生成入口（`TypeDescriptor` / `CodeGenSerializer` / `CodeGenEqual` /
+   `custom_hash_trait`）加成友元 —— 入口在类内时不用写这一行。
+2. **接入清单**：`build.py` 的 `CODEGEN_ANNOTATED` 按四列加一条（头文件、类型名、归属目录、产出目录）；
+   归属目录同时决定"用谁的编译环境解析"和"产物落在构建目录的哪一格"。
+3. **消费方要看得见生成物**：在**类型自己的头**末尾（或消费方的编译单元里）include 三份产物 ——
+   `"<类型>.Reflection.h"` / `".Serialization.h"` / `".Hash.h"`。`cacore::HashObj<T>` 与
+   `std::unordered_map<…, cacore::hash<T>>` 在**实例化**时就要看到哈希特化，少一份那一层就会退回
+   "整块字节"或直接编不过。归属模块的 `codegen` 目录必须在 `target_include_directories(... PUBLIC)` 里，
+   别的模块才拿得到（`Interface/RenderInterface/CMakeLists.txt` 就是这么写的）。
+4. **消费单元里断言**：字段条数、每个字段的 `offsetof` 偏移、容器标志与元素描述、以及
+   `cacore::codegen::has_custom_hash_func<T, cacore::codegen::hasher<>>`（"既有哈希入口看得到生成的特化"）。
+   样板：`Interface/RenderInterface/private/CPipelineStateObjectAssertions.cpp`、
+   `D3D12RenderBackend/private/ShaderLibrary/ShaderLibraryCodeGenAssertions.cpp`。
 
-这四处做完之后有三种失败都会**在构建期**报出来：删掉入库的生成头（对拍或编译失败）、改了类型没重新生成
-（逐字节不一致）、入库文件被换成别的类型的产物（编译期断言失败）。
+**加不进去清单的类型，用两份手写特化顶上**（设计里给的第二条路）：
+
+- **指针 / 托管指针成员**（`castl::shared_ptr`、`ComPtr<T>`…）：序列化侧按 7.2 的替代做法改结构（句柄存
+  名字或索引 + 一张随对象落盘的旁表），**不要**让生成代码去写进程内地址。真要保留这个类型当哈希键，
+  就手写 `cacore::codegen::custom_hash_trait<T>`：只算值语义的那几个字段，指针按**地址**或干脆不算
+  （地址是进程内的东西，进了哈希只会让同一个对象在不同进程落到不同的桶）。实例：
+  `Interface/RenderInterface/header/ShaderResourceHandle.h` 的 `ImageHandle` / `BufferHandle`。
+- **头本身过不了解析门**（文件里有错误级诊断：语法错误、找不到的 include、老宏判不出常量表达式…）：
+  同样手写 `custom_hash_trait`，把"能不能当键"与"能不能落盘"分开。实例：
+  `D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.h` 的三个键类型、`Interface/RenderInterface/
+  header/GPUGraph.h` 的 `ViewRectData`。
+
+这四处做完之后有三种失败都会**在构建期**报出来：生成物没写出来（`CodeGen wrote:` 名单对不上）、改了类型
+没重新生成（逐字节不一致）、消费方看不到特化（编译期断言失败或直接编不过）。
 
 libclang 的位置由 CMake 变量 `CALIB_CLANG_DIR` 给出（默认指向 vendored LLVM）；该目录下没有
 `bin/x64/libclang.dll` 时 CodeGen 目标不会构建。
@@ -713,10 +737,70 @@ libclang 的位置由 CMake 变量 `CALIB_CLANG_DIR` 给出（默认指向 vendo
   并把它与文档里标注的退出码对比（0 处不符即通过）。改了工具行为就顺手跑它，别让文档烂掉。
 - 第三节那两段示例头文件本体在 `Tools/CodeGen/examples/`（`reflect.h` / `register.h`），可以直接复制改动、
   也可以直接拿来跑上面的命令；第二节那条类型名口径的样板是 `Tools/CodeGen/examples/nested.h`。
-- 单元测试（运行期断言，消费入库的生成头）：`Test/CoreTests/` —— `EmitReflectionTest.cpp`（字段名逐字）、
+- 单元测试（运行期断言，消费生成的表头）：`Test/CoreTests/` —— `EmitReflectionTest.cpp`（字段名逐字）、
   `GeneratedSerializerTest.cpp`（序列化往返）、`GeneratedHashTest.cpp`（哈希/相等）、`CodeGenMetaTest.cpp`
   （字节偏移的独立数值）。
 - 工具行为的实测证据：`openspec/changes/archive/2026-09-20-engine-codegen-framework/evidence/` —— 其中
   `regen_codegen_evidence.py` 按固定用例组生成 `r26-gates.txt` / `r28-gates.txt` / `r31-950.txt`，
   `regen_annotation_matrix.py` 生成 `r35-matrix.txt`（"不是代码的写法" × 三条通道的矩阵）。
 - 证据里的输入路径必须能在仓库里找到，由 `python Tools/spin_check.py evidence` 强制。
+
+## 八、收尾扫描：旧序列化 / 哈希设施的符号与指纹
+
+`Tools/CodeGen/check_legacy_symbols.py` 是**给"删旧设施"这类收尾用的**扫描器：它回答"旧设施在产物里是不是
+真的没了"。三条判据一次跑完，也可以分开跑：
+
+```
+python Tools/CodeGen/check_legacy_symbols.py                 # 三条一起跑
+python Tools/CodeGen/check_legacy_symbols.py --symbols       # 只扫符号
+python Tools/CodeGen/check_legacy_symbols.py --fingerprints  # 只扫旧实现指纹
+python Tools/CodeGen/check_legacy_symbols.py --files-exist   # 只查三份旧头在不在
+```
+
+- **扫描范围**：引擎源码（后缀白名单 `.h/.hpp/.hh/.hxx/.inl/.cpp/.cxx/.cc/.c/.py`）**加上构建目录里的生成物**
+  （`out/build/*/codegen/**/*.h`）；跳过 `openspec/`、`out/`（生成物那份另算）、`_deps/`、`.review_tmp/`、
+  `.claude/`、`build/` 与脚本自己。
+- **判的是什么**：一份写死的符号表（旧设施对外露出的限定名，如 `cacore::serializer`、`cacore::aggregateHasher`、
+  `CATypeDescriptor`）与一份旧实现指纹表（旧运行时实现里那几句特征话：`visit_members`、`CATypeMemberDesc`、
+  `containerInfo`、`Submit Count:`、`Object must be trivially copyable`、`hash_one`、`managed_pointer_traits`）。
+  注释里出现限定名**照样算命中** —— 判据是"这些名字在产物里彻底消失"。
+- **退出码**：`0` = 三条判据都为零（打印 `扫描 N 个文件、命中 0 行`）；`1` = 有命中没被白名单放行（逐条打印
+  `文件:行号: [符号] 原文`）；`2` = 用法错 / 找不到仓库根。
+- **白名单**：脚本顶部 `ABI_GUARD_WHITELIST`，每条 =（仓库相对路径，该行去掉首尾空白后的原文）。终点是**空表**：
+  需要临时放行时加一条并写清原因，别让判据静默通过。
+
+本机实跑（2026-10-05，本 change 收尾时）：
+
+```
+$ python Tools/CodeGen/check_legacy_symbols.py
+== 逐符号扫描（源码 + 构建目录里的生成物） ==
+扫描 505 个文件、命中 0 行
+== 旧实现指纹 ==
+扫描 505 个文件、命中 0 行
+== 三份旧头必须不存在 ==
+  CACore/header/Reflection.h: 不存在
+  CACore/header/Serialization.h: 不存在
+  CACore/header/Hasher.h: 不存在
+
+扫描 505 个文件、命中 0 行
+$ echo $?
+0
+```
+
+命中时它会变成这样（同一天、删旧头之前的一次实跑，退出码 1）：
+
+```
+== 逐符号扫描（源码 + 构建目录里的生成物） ==
+扫描 606 个文件、命中 63 行
+  CACore/header/CodeGenMeta.h:128: [CATypeDescriptor] // 私有成员的友元入口。老系统里对应的是 …
+== 旧实现指纹 ==
+扫描 606 个文件、命中 64 行
+== 三份旧头必须不存在 ==
+  CACore/header/Reflection.h: 仍然存在
+  …
+命中 130 行（白名单 0 条）
+```
+
+> ⚠ 一条实测出来的坑：指纹表里**不要**放接口自己的方法名（例如 `SubmitAndWait` 是 `ca_io::WBatch` / `IOBatch`
+> 的方法，随接口一起留着），否则判据永远清不到 0。要放就放旧实现独有的东西 —— 旧序列化器那句
+> `Submit Count:` 调试打印就是这样一条：全仓只有它的 `finalize()` 里有。

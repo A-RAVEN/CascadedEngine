@@ -7,7 +7,8 @@
 // `equal` treats -0.0/+0.0 and NaN/NaN as equal.
 //
 #include <CodeGenHash.h>
-#include <Hasher.h>   // 三个哈希键类型（NameHash / PathHash / HashObj）在新头里
+#include <HashKeys.h>   // 三个哈希键类型（NameHash / PathHash / HashObj）在新头里
+#include <ShaderResourceHandle.h>   // 两个资源句柄（哈希键）与它们的手写哈希特化
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -129,6 +130,55 @@ bool RunGeneratedHashTest()
     {
         std::puts("Generated hash dispatch FAILED (dispatch order / padding)");
         return false;
+    }
+
+    // ---- 两个资源句柄（`ImageHandle` / `BufferHandle`）是**哈希键**，不是落盘载荷：它们各有一个
+    // `castl::shared_ptr` 成员，指针成员是工具明令拒绝的形状（实测探针：给两个类补上 `CA_REFLECT` 与
+    // `CA_CODEGEN_FRIEND` 之后，`--emit-all` 对 ImageHandle 报 `exit 15 … member 'm_ExternalManagedTexture'
+    // is a managed pointer ('castl::shared_ptr<GPUTexture>') …`、对 BufferHandle 报同一形状的 15 并点名
+    // `m_ExternalManagedBuffer`）。所以它们按设计给的第二条路在头里手写了 `custom_hash_trait`。
+    // 这里钉住那条规则的语义：键相同 → 哈希相同（指针地址不进哈希）、键不同 → 哈希不同。
+    {
+        // 编译期：既有入口必须看得到那两份手写特化（少一份这一行就编不过）。
+        static_assert(cacore::codegen::has_custom_hash_func<graphics_backend::BufferHandle,
+                                                            cacore::codegen::hasher<>>,
+                      "哈希入口看不到 BufferHandle 的手写特化");
+        static_assert(cacore::codegen::has_custom_hash_func<graphics_backend::ImageHandle,
+                                                            cacore::codegen::hasher<>>,
+                      "哈希入口看不到 ImageHandle 的手写特化");
+
+        // 句柄都用**不经过 `Unique()`** 的构造路径：`Unique` 会碰 `ThreadID::Get()` /
+        // `ThreadLocalID::Get()`（实现在 Rendering 模块里，CoreTests 不链接那个库）。
+        // 键相同（都是 `Default()`）+ 类型不同 → 哈希必须不同；两个默认句柄 → 哈希相同。
+        const graphics_backend::BufferHandle bufferA;
+        const graphics_backend::BufferHandle bufferB;
+        const graphics_backend::BufferHandle bufferExternal(castl::shared_ptr<graphics_backend::GPUBuffer>{});
+        const graphics_backend::ImageHandle imageA;
+        const graphics_backend::ImageHandle imageB;
+        const graphics_backend::ImageHandle imageExternal(castl::shared_ptr<graphics_backend::GPUTexture>{});
+
+        auto hashOfHandle = [](auto const& handle)
+        {
+            cacore::codegen::hasher<> hasher;
+            hasher.hash(handle);
+            return static_cast<unsigned long long>(hasher.getHash());
+        };
+        const auto bufferHashA = hashOfHandle(bufferA);
+        const auto imageHashA = hashOfHandle(imageA);
+        const bool handleSameKeySameHash = bufferHashA == hashOfHandle(bufferB) && imageHashA == hashOfHandle(imageB);
+        const bool handleTypeDiffers = bufferHashA != hashOfHandle(bufferExternal) &&
+                                       imageHashA != hashOfHandle(imageExternal);
+        const bool handleKindsDiffer = bufferHashA != imageHashA;
+
+        std::printf("CodeGen resource handles hash keys = %d (同键同位 → 相同 = %d, 同键不同类型 → 不同 = %d, "
+                    "两种句柄不同 = %d)\n",
+                    (handleSameKeySameHash && handleTypeDiffers && handleKindsDiffer) ? 1 : 0,
+                    handleSameKeySameHash ? 1 : 0, handleTypeDiffers ? 1 : 0, handleKindsDiffer ? 1 : 0);
+        if (!handleSameKeySameHash || !handleTypeDiffers || !handleKindsDiffer)
+        {
+            std::puts("Generated hash of resource handles FAILED");
+            return false;
+        }
     }
 
     std::puts("CodeGen hash/equality test PASSED");

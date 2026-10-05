@@ -1,5 +1,5 @@
 #pragma once
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CAFunctional.h>

@@ -2,9 +2,9 @@
 //
 // CodeGenHash.h — CodeGen 自有的哈希运行时。
 //
-// 它取代旧哈希设施（`Hasher.h` 里的 `cacore::aggregateHasher` / `custom_hash_trait` /
-// `has_custom_hash_func`）在生成物里的角色。生成物提供的特化是 `cacore::codegen::custom_hash_trait<T>`，
-// 驱动它的是这里的哈希对象，两者都在这个头里，不再引用旧头里的任何符号。
+// 它取代旧哈希设施（那套"把对象解包成成员再逐个算"的运行时，随旧头一起退场）在生成物里的角色。
+// 生成物提供的特化是 `cacore::codegen::custom_hash_trait<T>`，驱动它的是这里的哈希对象，两者都在这个
+// 头里，不再引用旧头里的任何符号。
 //
 // 三条规则，与生成的哈希发射器同口径：
 //

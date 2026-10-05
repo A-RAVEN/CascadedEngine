@@ -235,23 +235,30 @@ namespace graphics_backend
 
 	} // namespace graphics_backend
 
-	// Redirect cacore::hash through the cached `hash` member instead of reflection-visiting the
-	// unordered_map member (whose iteration order is unspecified): hashing an unordered_map
-	// member-by-member would hash equal-content sets differently depending on bucket layout.
-	// NOTE: the primary cacore::custom_hash_trait is in the global cacore namespace, so the
-	// specialization must live there too (a graphics_backend::cacore::custom_hash_trait would be a
-	// DIFFERENT template the hasher never consults).
-	namespace cacore
+	// 这个宿主的哈希直接走它缓存好的 `hash` 成员，而不是去逐个成员遍历那个 unordered_map
+	// （遍历顺序不定：内容相同的两个集合会因桶布局不同算出不同哈希）。
+	// 规则挂在 `cacore::codegen` 这一侧：`cacore::hash<T>` 由 `codegen::hasher` 驱动，它只问
+	// `cacore::codegen::custom_hash_trait` —— 少这一份，这个键就会撞上"没有生成代码、也没有自定义
+	// 特化"的硬拒绝。**必须写在下面那个 `dispatch_branch_unchanged` 断言之前**：那条断言会实例化
+	// 这份主模板，晚于它的显式特化编不过。
+	namespace cacore::codegen
 	{
 		template<>
 		struct custom_hash_trait<graphics_backend::VulkanShaderResourceSet>
 		{
-			constexpr static void hash(graphics_backend::VulkanShaderResourceSet const& obj, auto& hasher)
+			static void hash(graphics_backend::VulkanShaderResourceSet const& obj, auto& hasher)
 			{
 				hasher.hash(obj.hash);
 			}
 		};
+	}
 
+	namespace cacore
+	{
+		// 这里原先还有一份旧命名空间的 `custom_hash_trait<graphics_backend::VulkanShaderResourceSet>`：
+		// 老哈希驱动 2026-10-05 退场之后没人再读它（`cacore::hash` 现在由 `codegen::hasher` 驱动，
+		// 只认上面 `cacore::codegen` 那一份），所以删掉，只留这条判据。
+		//
 		// 调换哈希分派顺序的安全性判据（宿主不是平凡可拷贝，且两个顺序选中同一条分支）。
 		// 这个宿主内含 unordered_map，本来就不是平凡可拷贝；这一行把它钉住。
 		static_assert(!std::is_trivially_copyable_v<graphics_backend::VulkanShaderResourceSet> &&

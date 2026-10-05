@@ -60,6 +60,12 @@ CODEGEN_ANNOTATED = [
     ("Tools/CodeGen/TestEmit.h", "EmitSample", "Test/CoreTests"),
     # The classification fixture (typedef vs keyword spellings).
     ("Tools/CodeGen/TestKinds.h", "Kinds", "Test/CoreTests"),
+    # 私有成员 + 类内友元入口（`CA_CODEGEN_FRIEND`）：出码要成功，而且消费单元里要能编译 ——
+    # 后者才证明那四条 friend 声明真的把访问权开了。
+    ("Tools/CodeGen/TestPrivate.h", "FriendLike", "Test/CoreTests"),
+    # 8.7 的 TResource 对拍夹具：这个头 include `CAResource/IResource.h`，所以它依赖 CoreTests 那条
+    # `CAGeneralReourceSystem_Interface`（给 Test/CoreTests 的环境带来 `GeneralResources/header`）。
+    ("Tools/CodeGen/TestResource.h", "NewRes", "Test/CoreTests"),
     # The container fixture, consumed by a real engine target
     # (Interface/RenderInterface/private/TestContainerAssertions.cpp).
     ("Interface/RenderInterface/private/TestContainer.h", "Containers", "Interface/RenderInterface"),
@@ -76,6 +82,23 @@ CODEGEN_ANNOTATED = [
     ("Interface/RenderInterface/header/CPipelineStateObject.h", "SingleColorAttachmentBlendStates", "Interface/RenderInterface"),
     ("Interface/RenderInterface/header/CPipelineStateObject.h", "ColorAttachmentsBlendStates", "Interface/RenderInterface"),
     ("Interface/RenderInterface/header/CPipelineStateObject.h", "CPipelineStateObject", "Interface/RenderInterface"),
+    # 顶点输入描述：它们当哈希键用（`HashObj<VertexInputsDescriptor>` 是 D3D12 GPUGraph 那几个映射的键），
+    # 换哈希驱动时是过不了新驱动的两个宿主之一（另一个是 `ResourceHandleKeyData`），所以要生成特化。
+    ("Interface/RenderInterface/header/CVertexInputDescriptor.h", "VertexAttribute", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/CVertexInputDescriptor.h", "VertexInputsDescriptor", "Interface/RenderInterface"),
+    # 句柄的键（值语义；两个句柄类自己有 `shared_ptr` 成员、进不了生成表，在头里手写哈希特化）。
+    ("Interface/RenderInterface/header/ShaderResourceHandle.h", "ResourceHandleKeyData", "Interface/RenderInterface"),
+    # 换哈希驱动时逐个量出来的"要当键用、却还没标注"的宿主（built 目标里一共就这几个）：
+    # `HashObj<InputAssemblyStates>` / `HashObj<RectSate>` / `HashObj<ViewRectData>` /
+    # `HashObj<TextureSamplerDescriptor>` / `shared_dic<ShaderInfo, …>`。
+    ("Interface/RenderInterface/header/CVertexInputDescriptor.h", "InputAssemblyStates", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/CPipelineStateObject.h", "RectSate", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/TextureSampler.h", "TextureSamplerDescriptor", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/ShaderProvider.h", "ShaderInfo", "Interface/RenderInterface"),
+    # ⚠ `ViewRectData`（`GPUGraph.h`）与 `GPUPipelineInstance.h` 那三个键类型**今天进不了清单**：
+    # 工具解析这两个头时拒收（exit 6），头本身/它 include 的文件里有错误级诊断（那是本轮之前实测的读数；
+    # 头里那几行老宏随后已经删掉了）。所以这四个键类型改用**手写哈希特化**
+    # （写在各自头里，见 `GPUGraph.h` / `GPUPipelineInstance.h` 末尾的 `custom_hash_trait` 特化）。
     # SHA-256 摘要（ShaderLibrary 的键类型）：嵌套在 cahash::sha256_hash 里。
     # ShaderCompiler 的数据模型：ShaderLibrary 的映射值类型（ShaderStructData 等）在它里面，
     # 编译环境取自 ShaderCompilerSlang 的编译单元（唯一包含它的编译单元）。

@@ -123,6 +123,21 @@ so the stream would silently lose it, and writing the address itself means nothi
 
 **何时可以重新考虑**：等它真的要落盘时，按上面那条把可落盘的部分提成值语义结构（句柄写名字或索引 + 旁表）。
 
+**已知边界：两个资源句柄（`graphics_backend::ImageHandle` / `BufferHandle`）是哈希键、不是落盘载荷**（2026-10-05 实测记录；它们**不加标记、不进接入清单**，清单里只有它们的键类型 `ResourceHandleKeyData`）。红态读数是探针（临时给两个类补 `CA_REFLECT` 与 `CA_CODEGEN_FRIEND`，走 `build.py` 的真实编译环境）里工具自己报的两行：
+
+```
+CodeGen 'ImageHandle' --emit-all exit 15: CodeGen: refusing --emit-serialization for 'graphics_backend::ImageHandle' —
+member 'm_ExternalManagedTexture' is a managed pointer ('castl::shared_ptr<GPUTexture>'): the old runtime does not write
+pointer members, so the stream would silently lose it, and writing the address itself means nothing after a restart.
+Store the value, or store a name / index into a table that is serialized alongside.
+CodeGen 'BufferHandle' --emit-all exit 15: … member 'm_ExternalManagedBuffer' is a managed pointer
+('castl::shared_ptr<GPUBuffer>') … （同一句话）
+```
+
+排除理由（不是"看着不行就算了"）：两个类各有一个 `castl::shared_ptr` 成员（外加 `ImageHandle` 的 `m_Backbuffer`），那是工具明令拒绝的形状（7.2），而这两个指针是**运行期缓存** —— 由后端在创建时填进去、别的模块只读（`GetExternalManagedTexture()` / `GetExternalManagedBuffer()`），落盘没有意义。**它们确实需要的只有"当哈希键"**：`std::unordered_map<BufferHandle, BufferResourceAllocationInfo>` 这类字典到处在用。所以按设计给的第二条路，在 `Interface/RenderInterface/header/ShaderResourceHandle.h` 末尾手写两份 `cacore::codegen::custom_hash_trait`（算键 + 类型 + 指针**地址**），并在 `Test/CoreTests/GeneratedHashTest.cpp` 里钉住语义：`CodeGen resource handles hash keys = 1 (同键同位 → 相同 = 1, 同键不同类型 → 不同 = 1, 两种句柄不同 = 1)`。**"能不能当键"与"能不能落盘"是两件事** —— 这也是本条的结论：句柄不需要序列化代码。
+
+**何时可以重新考虑**：等某个句柄真的要落盘时，按上面那条把可落盘的部分（键 + 类型）提成值语义、指针改用旁表索引；那时才需要给它加标记并进接入清单。
+
 ### D9 四类旧用的处置（不处置则完成条件不可能成立）
 
 对抗验证数出来：`CA_REFLECTION` 在非归档区有 115 处，其中四类不属于"迁移引擎类型"，必须单独定：

@@ -2,7 +2,7 @@
 #include <CASTL/CAVector.h>
 #include <CASTL/CAString.h>
 #include <CASTL/CASharedPtr.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 namespace thread_management
 {
 	class ThreadManager_Impl;

@@ -1,5 +1,5 @@
 #pragma once
-#include <Hasher.h>   // 必须在 CAUnorderedSet.h 之前：castl::unordered_set 的默认参数是 cacore::hash<Key>
+#include <HashKeys.h>   // 必须在 CAUnorderedSet.h 之前：castl::unordered_set 的默认参数是 cacore::hash<Key>
 #include <CASTL/CAUnorderedSet.h>
 #include <CAResource/IResource.h>
 #include <Common.h>

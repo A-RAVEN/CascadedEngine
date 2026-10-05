@@ -9,7 +9,7 @@ verbatim from the repository root, and checks two things:
 2. the **text** the document shows for that command really comes out of the tool.
 
 (2) was added after the 2026-10-04 adversarial review measured a README whose serialization / hash product
-snippets still said `#include "Serialization.h"` / `::cacore::serializer` / `custom_hash_trait` while the
+snippets still said `#include "Serialization.h"` / the old `cacore` serializer / the old trait template while the
 emitters had moved to `CodeGenSerialization.h` / `::cacore::codegen::writer` / `CodeGenEqual` — every example
 still exited with the documented code, so checking exit codes alone was blind to it.
 

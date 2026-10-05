@@ -1,4 +1,5 @@
 #pragma once
+#include <cassert>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CADeque.h>
 #include <CASTL/CAList.h>

@@ -5,10 +5,15 @@
 #include <ResourceManagment/GPUResourceStates.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <CACore/CASharedDic.h>
+#include <CodeGenMeta.h>
 #include "GPUResourceBindingInstance.h"
 
 namespace graphics_backend
 {
+	// 这三个类型都是哈希键（`shared_dic<GPUPipelineStateKey, …>`、`HashObj<InputAssemblyStates>`）。
+	// 它们**不进接入清单**：解析这个头（它 include 了 `GPUGraph.h`）时工具拒收（exit 6）——
+	// 头本身或它 include 的文件里有错误级诊断，其中 `Interface/RenderInterface/header/ShaderBindingBuilder.h`
+	// 里那几行老宏每行报 6 条。所以按设计给的第二条路，在本文件末尾手写哈希特化。
 	struct VertexInputBindingData
 	{
 		//Alias Of D3D12_INPUT_ELEMENT_DESC
@@ -142,4 +147,49 @@ namespace graphics_backend
 		castl::shared_dic<GPUPipelineStateKey, GPUPipelineInstance> m_SharedDic;
 	};
 
+}
+
+// 三个键类型的手写哈希特化（为什么手写见类型定义那里的注释）。口径与生成代码一致：按声明顺序逐字段，
+// `HashObj<…>` 成员算它包着的对象（新运行时的 `custom_hash_trait<HashObj<…>>` 就是这么做的），
+// 容器走新运行时的容器规则（顺序无关）。
+namespace cacore::codegen
+{
+	template<>
+	struct custom_hash_trait<graphics_backend::VertexInputBindingData::InputElementDesc>
+	{
+		static void hash(graphics_backend::VertexInputBindingData::InputElementDesc const& obj, auto& hasher)
+		{
+			hasher.hash(obj.SemanticName);
+			hasher.hash(obj.SemanticIndex);
+			hasher.hash(obj.Format);
+			hasher.hash(obj.InputSlot);
+			hasher.hash(obj.AlignedByteOffset);
+			hasher.hash(obj.InputSlotClass);
+			hasher.hash(obj.InstanceDataStepRate);
+		}
+	};
+
+	template<>
+	struct custom_hash_trait<graphics_backend::VertexInputBindingData>
+	{
+		static void hash(graphics_backend::VertexInputBindingData const& obj, auto& hasher)
+		{
+			hasher.hash(obj.inoutBindingNameToIndex);
+			hasher.hash(obj.outVertexAttributes);
+		}
+	};
+
+	template<>
+	struct custom_hash_trait<graphics_backend::GPUPipelineStateKey>
+	{
+		static void hash(graphics_backend::GPUPipelineStateKey const& obj, auto& hasher)
+		{
+			hasher.hash(obj.m_ShaderInfo);
+			hasher.hash(obj.m_PipelineStates);
+			hasher.hash(obj.m_InputAssemblyStates);
+			hasher.hash(obj.m_AttachmentFormats);
+			hasher.hash(obj.m_DepthFormat);
+			hasher.hash(obj.m_VertexInputBindingData);
+		}
+	};
 }

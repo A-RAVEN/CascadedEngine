@@ -3,7 +3,7 @@
 #include <CASTL/CADeque.h>
 #include <CASTL/CAString.h>
 #include <CASTL/CAChrono.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 namespace catimer
 {
 	using TimerType = castl::chrono::high_resolution_clock;

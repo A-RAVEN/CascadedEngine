@@ -1,6 +1,6 @@
 #pragma once
 #include "Platform.h"
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <CASTL/CAString.h>
 #include <CASTL/CASharedPtr.h>
 #include "DebugUtils.h"

@@ -2,7 +2,7 @@
 #include <CASTL/CAString.h>
 #include <CASTL/CAArrayRef.h>
 #include <CASTL/CAFunctional.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <CATimer/Timer.h>
 
 namespace thread_management

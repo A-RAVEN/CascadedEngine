@@ -1,7 +1,7 @@
 #pragma once
 #include <Utils/D3D12SubobjectBase.h>
 #include <Utils/TypeTraits.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <CASTL/CAMutex.h>
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAFunctional.h>

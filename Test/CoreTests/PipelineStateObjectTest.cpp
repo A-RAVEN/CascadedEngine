@@ -3,15 +3,15 @@
 //
 // 三件事：
 //   ① 字节对拍：生成代码写出来的字节，与**旧运行时**写出来的字节逐字节相同。
-//      旧的一侧在这里是写死的期望值 —— 它是 2026-10-03 用旧运行时（`cacore::serializer`
-//      加那几行 `CA_REFLECTION` 描述符，描述符只活在那次测量的临时相里）实测出来的 301 个字节，
+//      旧的一侧在这里是写死的期望值 —— 它是 2026-10-03 用旧序列化器（加几行老描述符，
+//      描述符只活在那次测量的临时相里）实测出来的 301 个字节，
 //      原始读数见本次改动说明。旧头删除之后这条用例仍然能跑，这正是它写死字面量的原因。
 //   ② 往返：把同一串字节读回来，内容与写出去的一致。
 //   ③ 既有哈希调用点用的是新特化：内容相同、填充字节不同的两个对象，既有入口算出的哈希相同、
 //      `HashObj` 判等为真（哈希按字段算，不是按整块字节）。
 //
 #include <CPipelineStateObject.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -75,10 +75,10 @@ namespace
 
 bool RunPipelineStateObjectTest()
 {
-    // 判据③的前半段是编译期的：既有入口（`aggregateHasher`）必须看得到生成的特化。
+    // 判据③的前半段是编译期的：哈希入口（`cacore::HashObj` 内部用的那个哈希对象）必须看得到生成的特化。
     // 这一行就是"生成的特化在实际调用点生效"的机器可核形式 —— 生成头没被 include 时它编译不过。
-    static_assert(cacore::codegen::has_custom_hash_func<CPipelineStateObject, cacore::aggregateHasher<>>,
-                  "既有哈希入口看不到 CPipelineStateObject 的生成特化：4.3 的『生效』不成立");
+    static_assert(cacore::codegen::has_custom_hash_func<CPipelineStateObject, cacore::codegen::hasher<>>,
+                  "哈希入口看不到 CPipelineStateObject 的生成特化：4.3 的『生效』不成立");
 
     const CPipelineStateObject pso = makeObject();
 
@@ -133,8 +133,8 @@ bool RunPipelineStateObjectTest()
                              paddedA.msCount == paddedB.msCount;
     const bool paddingDiffers = std::memcmp(&paddedA, &paddedB, sizeof(CPipelineStateObject)) != 0;
 
-    cacore::aggregateHasher<> hasherA;
-    cacore::aggregateHasher<> hasherB;
+    cacore::codegen::hasher<> hasherA;
+    cacore::codegen::hasher<> hasherB;
     hasherA.hash(paddedA);
     hasherB.hash(paddedB);
     const bool hashIgnoresPadding = hasherA.getHash() == hasherB.getHash();
@@ -146,7 +146,7 @@ bool RunPipelineStateObjectTest()
     // 对照：内容改一个字节，哈希与判等都必须变 —— 否则上面两条是空的。
     CPipelineStateObject changed = pso;
     changed.rasterizationStates.lineWidth = 9.0f;
-    cacore::aggregateHasher<> hasherC;
+    cacore::codegen::hasher<> hasherC;
     hasherC.hash(changed);
     const bool controlDiffers = hasherC.getHash() != hasherA.getHash() &&
                                 !(cacore::HashObj<CPipelineStateObject>{ changed } == keyA);

@@ -1,6 +1,7 @@
 #pragma once
 #include <CASTL/CAString.h>
-#include <Hasher.h>
+#include <HashKeys.h>
+#include <CodeGenMeta.h>
 #include <Compiler.h>
 
 struct ShaderSourceInfo
@@ -12,6 +13,8 @@ struct ShaderSourceInfo
 	auto operator<=>(const ShaderSourceInfo&) const = default;
 };
 
+// 也是哈希键（`shared_dic<ShaderInfo, GPUComputePipelineInstance>`）：换驱动之后必须自己有生成特化。
+CA_REFLECT(serializable)
 struct ShaderInfo
 {
 	cacore::PathHash path;
@@ -31,3 +34,8 @@ struct IShaderSet
 	virtual ShaderCompilerSlang::ShaderReflectionData const& GetShaderReflectionData(ShaderCompilerSlang::EShaderTargetType shaderTargetType) const = 0;
 	virtual castl::string GetUniqueName() const = 0;
 };
+
+// `ShaderInfo` 的生成物（哈希特化是给 `cacore::hash<ShaderInfo>` / `HashObj<ShaderInfo>` 用的）。
+#include "ShaderInfo.Reflection.h"
+#include "ShaderInfo.Serialization.h"
+#include "ShaderInfo.Hash.h"

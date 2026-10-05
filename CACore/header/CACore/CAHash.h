@@ -2,7 +2,6 @@
 #include <sha256.h>
 #include <komihash.h>
 #include <CASTL/CAString.h>
-#include "Reflection.h"
 #include "CodeGenMeta.h"
 
 namespace cahash

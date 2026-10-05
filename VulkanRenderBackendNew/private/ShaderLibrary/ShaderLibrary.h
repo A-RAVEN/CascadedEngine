@@ -1,6 +1,6 @@
 #pragma once
 #include <CAResource/IResource.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <CodeGenMeta.h>
 #include <Compiler.h>
 #include <Utils/VulkanIncludes.h>

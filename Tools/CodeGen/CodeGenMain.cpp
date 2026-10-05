@@ -453,11 +453,38 @@ namespace
         // serve types whose members are ALL public. Extraction (printing the type table) is still fine for
         // private members — only EMITTING compilable code is refused. See the guard before the emitters.
         bool                sawNonPublic = false;
+        // 类里有没有把生成的入口加成友元（`CA_CODEGEN_FRIEND(T)` 展开出来的那四条 friend 声明）。
+        // 有它的时候，生成代码按成员名读私有成员是合法的，上面那条拒绝就该放行。
+        bool                sawCodegenFriend = false;
     };
 
     enum CXChildVisitResult collectFields(CXCursor cursor, CXCursor /*parent*/, CXClientData data)
     {
         auto* sink = static_cast<FieldSink*>(data);
+        // 类内的友元声明：`CA_CODEGEN_FRIEND(T)` 展开成四条 `friend struct ::cacore::codegen::X<T>;`，
+        // libclang 把它们报成 FriendDecl。判据取"被友元化的那个类型的拼写里点没点名四个入口之一" ——
+        // 读的是 AST，不做源码文本扫描（文本扫描对注释、字符串、`#if 0` 都不可靠，见 README 第三节）。
+        // 两个拼写都查：有些 clang 版本把名字放在游标拼写上，有些放在类型拼写上。
+        if (clang_getCursorKind(cursor) == CXCursor_FriendDecl)
+        {
+            // libclang 的 C API 对"友元的是谁"几乎不给信息：游标拼写、类型拼写、`clang_getCursorReferenced`
+            // 全是空的（实测 usr 只有 `c:`）。所以用 `clang_getCursorPrettyPrinted` 把这条声明打印出来 ——
+            // 打印的是**这条声明自己**的源码形态（宏调用处就打印宏调用，展开后的声明就打印展开后的样子），
+            // 不是对整份文件做文本扫描。
+            CXPrintingPolicy policy = clang_getCursorPrintingPolicy(cursor);
+            CXString         pretty = clang_getCursorPrettyPrinted(cursor, policy);
+            const char*      prettyText = clang_getCString(pretty);
+            const std::string text = prettyText ? prettyText : "";
+            clang_disposeString(pretty);
+            clang_PrintingPolicy_dispose(policy);
+            if (text.find("CA_CODEGEN_FRIEND") != std::string::npos ||
+                text.find("codegen::TypeDescriptor") != std::string::npos ||
+                text.find("codegen::CodeGenSerializer") != std::string::npos ||
+                text.find("codegen::CodeGenEqual") != std::string::npos ||
+                text.find("codegen::custom_hash_trait") != std::string::npos)
+                sink->sawCodegenFriend = true;
+            return CXChildVisit_Continue;
+        }
         if (clang_getCursorKind(cursor) == CXCursor_FieldDecl)
         {
             CXString sName = clang_getCursorSpelling(cursor);
@@ -1651,14 +1678,20 @@ int main(int argc, char** argv)
     // — the old behaviour emitted it anyway and the failure surfaced far away, as C2248 in some consumer
     // TU. Extraction (no --emit-*) above this point is untouched: printing the type table for a private
     // type is legitimate and stays exit 0.
-    if ((emitSerialization || emitHash || emitReflection) && sink.sawNonPublic)
+    //
+    // 例外：类里写了 `CA_CODEGEN_FRIEND(T)`（展开成四条 friend 声明，把生成的四个入口加成友元）时放行 ——
+    // 那种情况下生成代码读私有成员是合法的，正是老系统 `CA_PRIVATE_REFLECTION` 的等价物。
+    if ((emitSerialization || emitHash || emitReflection) && sink.sawNonPublic && !sink.sawCodegenFriend)
     {
         std::fprintf(stderr,
             "CodeGen: refusing to emit for '%s' — it has non-public members, and the generated code "
             "reads members by name from outside the class (an in-class marker does not change that "
-            "access check). Make them public, or give the generated code friend access through the "
-            "private-member entry point.\n",
-            qname.c_str());
+            "access check). Make them public, or put `CA_CODEGEN_FRIEND(%s);` inside the class body "
+            "(it friends the four generated entry points — the equivalent of the old "
+            "`CA_PRIVATE_REFLECTION`).\n",
+            // 第二个 `%s` 要的是**类型名**（宏里就写它）。原先这里传的是 libclang 的类型游标 `CXCursor`
+            // （一个结构体）——变参传递会把它的头几字节当成 `char*`，实测打出来是个控制字符 `\x02`。
+            qname.c_str(), typeName);
         abortOut();
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);

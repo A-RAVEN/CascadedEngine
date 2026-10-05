@@ -22,7 +22,7 @@
 #define VULKAN_API_VERSION_IN_USE VK_API_VERSION_1_3
 
 #include <CACore/CAHash.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 
 using VKHashVal = cahash::hash256;
 
@@ -34,6 +34,21 @@ struct TypedVKHashVal
 	VKHashVal hashVal;
 	auto operator<=>(TypedVKHashVal const& other) const = default;
 };
+
+// `TypedVKHashVal<T>` 是哈希键链上的一环（`PipelineLayoutCache::descriptorSetLayouts` 的元素），
+// 它是个值语义的包装：算它包着的哈希值。手写而不进生成表 —— 这个头把整套 Vulkan 头拖进来，不是
+// 生成器能解析的目标；设计给的替代做法就是写一份 `custom_hash_trait` 特化。
+namespace cacore::codegen
+{
+	template<typename T>
+	struct custom_hash_trait<TypedVKHashVal<T>>
+	{
+		static void hash(TypedVKHashVal<T> const& obj, auto& hasher)
+		{
+			hasher.hash(obj.hashVal);
+		}
+	};
+}
 
 template<typename T>
 TypedVKHashVal<T> VKHashFunc(T const& obj)

@@ -11,7 +11,7 @@
 #include <ShaderLibrary/ShaderImporter_Vulkan.h>
 #include <Compiler.h>
 #include <CATimer/Timer.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <chrono>
 
 namespace graphics_backend

@@ -3,6 +3,7 @@
 #include <RenderBackend_D3D12.h>
 #include <codecvt>
 #include <CACore/CAFormat.h>
+#include <iostream>   // 旧头删掉之后要自己带（本文件用了 castl::cout / std::cerr）
 
 namespace graphics_backend
 {

@@ -2,7 +2,7 @@
 // TestEmit.h — the *emitter* demo type for task 5.1 (reflection emitter).
 //
 // Unlike the 6b test headers, this type is meant to prove the reflection EMITTER end-to-end:
-// it carries ONLY the CA_REFLECT marker (no CA_REFLECTION member list), so the CodeGen tool takes
+// it carries ONLY the CA_REFLECT marker (no old-style member list), so the CodeGen tool takes
 // the libclang AST path and gets the FULL metadata (name / type / offset / semantic kind) — exactly
 // what the author would NOT want to hand-write. The tool's --emit-reflection mode produces a
 // TypeDescriptor<codegen_demo::EmitSample> specialization from that table (the emitter's main job).

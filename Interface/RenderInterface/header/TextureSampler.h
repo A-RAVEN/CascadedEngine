@@ -1,5 +1,6 @@
 #pragma once
-#include <Hasher.h>
+#include <HashKeys.h>
+#include <CodeGenMeta.h>
 
 namespace graphics_backend
 {
@@ -24,6 +25,9 @@ namespace graphics_backend
 		eOpaqueWhite,
 	};
 
+	// 哈希键（`TextureSamplerDescriptorObj = cacore::HashObj<TextureSamplerDescriptor>`，也是
+	// `shared_dic` 的键）：换驱动之后必须自己有生成特化。
+	CA_REFLECT(serializable)
 	struct TextureSamplerDescriptor
 	{
 	public:
@@ -82,3 +86,8 @@ namespace graphics_backend
 
 	using TextureSamplerDescriptorObj = cacore::HashObj<TextureSamplerDescriptor>;
 }
+
+// `TextureSamplerDescriptor` 的生成物（哈希特化给 `cacore::hash` / `HashObj` 用）。
+#include "TextureSamplerDescriptor.Reflection.h"
+#include "TextureSamplerDescriptor.Serialization.h"
+#include "TextureSamplerDescriptor.Hash.h"

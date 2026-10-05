@@ -2,7 +2,9 @@
 #include "GPUTexture.h"
 #include "GPUBuffer.h"
 #include "WindowHandle.h"
-#include <Hasher.h>
+#include <HashKeys.h>
+#include <CodeGenHashFwd.h>
+#include <CodeGenMeta.h>
 #include <CASTL/CAMutex.h>
 
 namespace graphics_backend
@@ -20,6 +22,10 @@ namespace graphics_backend
 	};
 
 
+	// 句柄的键：它本身是**值语义**（`NameHash` + 两个 uint32），没有指针成员，所以它走生成表 ——
+	// `ResourceHandleKey = HashObj<ResourceHandleKeyData, FullCompare>` 要当哈希键用，换驱动之后
+	// 必须自己有生成特化（新驱动对没标注、也没自定义特化的类类型是硬拒绝）。
+	CA_REFLECT(serializable)
 	struct ResourceHandleKeyData
 	{
 		cacore::NameHash name;
@@ -113,7 +119,6 @@ namespace graphics_backend
 		castl::shared_ptr<WindowHandle> m_Backbuffer;
 		ImageType m_Type;
 
-		CA_PRIVATE_REFLECTION(ImageHandle);
 	};
 
 	class BufferHandle
@@ -172,9 +177,45 @@ namespace graphics_backend
 		castl::shared_ptr<GPUBuffer> m_ExternalManagedBuffer;
 		BufferType m_Type;
 
-		CA_PRIVATE_REFLECTION(BufferHandle);
 	};
 }
 
-CA_REFLECTION(graphics_backend::ImageHandle, m_Key, m_ExternalManagedTexture, m_Backbuffer, m_Type);
-CA_REFLECTION(graphics_backend::BufferHandle, m_Key, m_ExternalManagedBuffer, m_Type);
+// 句柄键的生成物（反射 / 序列化 / 哈希）：消费方（本模块的 `Rendering` 与各后端）在实例化
+// `HashObj<ResourceHandleKeyData>` 与 `std::unordered_map<…, cacore::hash<…>>` 时就要看到它。
+#include "ResourceHandleKeyData.Reflection.h"
+#include "ResourceHandleKeyData.Serialization.h"
+#include "ResourceHandleKeyData.Hash.h"
+
+// 这两个句柄是**哈希键**（`std::unordered_map<BufferHandle, …>` 之类），而它们**不能进生成表**：
+// 两个类各有一个 `castl::shared_ptr` 成员，那是工具明令拒绝的形状（托管指针成员，退出码 15），
+// 所以它们没有 `CA_REFLECT`、也不该有 —— 要落盘就得先按 7.2 改结构（那是另一条任务）。
+//
+// 但"能不能当哈希键"与"能不能落盘"是两件事：这里按设计给的第二条路手写一份哈希特化
+// （"给它加标记生成特化，**或者**给它写一个 custom_hash_trait 特化"）。算的口径与老驱动那份
+// 描述符一致：键 + 两个指针成员的**地址** + 类型；不再经过老反射，所以文件末尾那两行老宏
+// 可以删掉 —— 那两行正是 CodeGen 解析这个头时的 12 条错误级诊断的来源。
+namespace cacore::codegen
+{
+	template<>
+	struct custom_hash_trait<graphics_backend::ImageHandle>
+	{
+		static void hash(graphics_backend::ImageHandle const& obj, auto& hasher)
+		{
+			hasher.hash(obj.GetKey());
+			hasher.hash(obj.GetExternalManagedTexture().get());
+			hasher.hash(obj.GetWindowHandle().get());
+			hasher.hash(obj.GetType());
+		}
+	};
+
+	template<>
+	struct custom_hash_trait<graphics_backend::BufferHandle>
+	{
+		static void hash(graphics_backend::BufferHandle const& obj, auto& hasher)
+		{
+			hasher.hash(obj.GetKey());
+			hasher.hash(obj.GetExternalManagedBuffer().get());
+			hasher.hash(obj.GetType());
+		}
+	};
+}

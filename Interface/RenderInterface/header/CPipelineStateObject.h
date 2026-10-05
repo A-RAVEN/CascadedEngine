@@ -1,10 +1,11 @@
 #pragma once
 #include <CASTL/CAArray.h>
 //#include <uhash.h>
-#include <Reflection.h>
 #include "CodeGenMeta.h"
 #include "Common.h"
 
+// 也是哈希键（`HashObj<RectSate>`，出现在 GPUGraph 的视图矩形描述里）。
+CA_REFLECT(serializable)
 struct RectSate
 {
 	uint32_t x;
@@ -143,3 +144,9 @@ public:
 
 	auto operator<=>(const CPipelineStateObject&) const = default;
 };
+
+// `RectSate` 的生成物（哈希特化给 `HashObj<RectSate>` 用；上面那五个类型的生成物由消费方自己 include，
+// 见 `Interface/RenderInterface/private/CPipelineStateObjectAssertions.cpp` 与 `PipelineStateObjectTest.cpp`）。
+#include "RectSate.Reflection.h"
+#include "RectSate.Serialization.h"
+#include "RectSate.Hash.h"

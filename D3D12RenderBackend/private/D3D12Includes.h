@@ -11,8 +11,7 @@
 #include <directx/d3dx12.h>
 #include <wrl.h>
 #include <d3dcompiler.h>
-#include <Reflection.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 
 #define D3D12MA_USING_DIRECTX_HEADERS 1
 #include <D3D12MemAlloc.h>
@@ -51,6 +50,11 @@ namespace cacore::codegen
 
 		static inner_type get_data(ComPtr<ID3DBlob> const& obj)
 		{
+			// 空指针 = 没有内容，写成一段空载荷；**不许**在这里解引用 —— 实测（把 D3D12 `ShaderCode` 的
+			// `data` 置空以后写一遍）解引用会让进程访问违例（退出码 0xC0000005）。读回来是一个 0 字节的
+			// blob，且"写→读→再写"字节不变。
+			if (obj == nullptr)
+				return inner_type{};
 			castl::vector<uint8_t> result(obj->GetBufferSize());
 			memcpy(result.data(), obj->GetBufferPointer(), obj->GetBufferSize());
 			return result;
@@ -77,55 +81,5 @@ namespace cacore::codegen
 			}
 			hasher.hash_raw(obj->GetBufferPointer(), obj->GetBufferSize());
 		}
-	};
-}
-
-// 过渡期：旧运行时（`visit_members` / `managed_pointer_traits`）还需要这三块 —— 含 `ComPtr<ID3DBlob>` 成员的
-// 老式类型走老路时靠它们把成员当"托管包装 / 托管指针"。新侧对应物是下面 `cacore::codegen` 里那两块；
-// 等 9.3 删掉三份旧头时，这三块随老路一起删。
-namespace cacore
-{
-	template<>
-	struct custom_hash_trait<ComPtr<ID3DBlob>>
-	{
-		constexpr static void hash(ComPtr<ID3DBlob> const& obj, auto& hasher)
-		{
-			if (obj == nullptr)
-			{
-				hasher.hash_one<uint64_t>(0);
-				return;
-			}
-			hasher.hash_raw(obj->GetBufferPointer(), obj->GetBufferSize());
-		}
-	};
-}
-
-namespace careflection
-{
-	template<>
-	struct managed_wrapper_traits<ComPtr<ID3DBlob>>
-	{
-		constexpr static bool is_managed_wrapper = true;
-		using inner_type = castl::vector<uint8_t>;
-		static inner_type get_data(ComPtr<ID3DBlob> const& obj) {
-			castl::vector<uint8_t> result(obj->GetBufferSize());
-			memcpy(result.data(), obj->GetBufferPointer(), obj->GetBufferSize());
-			return result;
-		}
-		static void set_data(ComPtr<ID3DBlob>& obj, castl::vector<uint8_t> const& data) {
-			D3DCreateBlob(data.size(), &obj);
-			memcpy(obj->GetBufferPointer(), data.data(), obj->GetBufferSize());
-		}
-	};
-
-	template<typename T>
-	struct managed_pointer_traits<ComPtr<T>>
-	{
-		constexpr static bool is_managed_pointer = true;
-		using pointer_type = ComPtr<T>;
-		using pointee_type = T;
-		constexpr static T const* get_pointer(pointer_type const& ptr) { return ptr.Get(); }
-		constexpr static T* get_pointer(pointer_type& ptr) { return ptr.Get(); }
-		constexpr static void set_pointer_null(pointer_type& ptr) { ptr = nullptr; }
 	};
 }

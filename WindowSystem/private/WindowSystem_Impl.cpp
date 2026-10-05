@@ -1,6 +1,7 @@
 //#include <LibraryExportCommon.h>
 #include "WindowSystem_Impl.h"
 #include "Window_Impl.h"
+#include <iostream>   // 旧头（`Reflection.h` 那几份）删掉之后要自己带：本文件用了 `std::cerr`
 #include <DebugUtils.h>
 #include <CASTL/CAAlgorithm.h>
 #define CA_IMPLEMENT_MODULE 1

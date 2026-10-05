@@ -2,7 +2,7 @@
 #include <CASTL/CAString.h>
 #include <CASTL/CAVector.h>
 #include <DebugUtils.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 
 enum class EShaderBindingNumericType
 {
@@ -56,7 +56,6 @@ public:
 
 	auto operator <=>(const ShaderBindingDescriptor&) const = default;
 };
-CA_REFLECTION(ShaderBindingDescriptor, numericType, count, x, y);
 
 
 struct ShaderTextureDescriptor
@@ -80,7 +79,6 @@ public:
 	auto operator <=>(const ShaderTextureDescriptor&) const = default;
 
 };
-CA_REFLECTION(ShaderTextureDescriptor, numericType, channels, count, dimension, isRW);
 
 
 class ShaderConstantsBuilder
@@ -156,9 +154,7 @@ public:
 protected:
 	castl::string m_Name;
 	castl::vector<castl::pair<castl::string, ShaderBindingDescriptor>> m_NumericDescriptors;
-	CA_PRIVATE_REFLECTION(ShaderConstantsBuilder);
 };
-CA_REFLECTION(ShaderConstantsBuilder, m_Name, m_NumericDescriptors);
 
 
 class ShaderBindingBuilder
@@ -295,9 +291,7 @@ protected:
 	castl::vector<castl::string> m_TextureSamplers;
 	castl::vector<castl::string> m_StructuredBuffers;
 
-	CA_PRIVATE_REFLECTION(ShaderBindingBuilder);
 };
-CA_REFLECTION(ShaderBindingBuilder, m_SpaceName, m_ConstantBufferDescriptors, m_TextureDescriptors, m_TextureSamplers, m_StructuredBuffers);
 
 
 class ShaderBindingDescriptorList
@@ -306,5 +300,4 @@ public:
 	ShaderBindingDescriptorList(std::initializer_list<ShaderBindingBuilder> binding_sets) : shaderBindingDescs(binding_sets) {}
 	castl::vector<ShaderBindingBuilder> shaderBindingDescs;
 };
-CA_REFLECTION(ShaderBindingDescriptorList, shaderBindingDescs);
 

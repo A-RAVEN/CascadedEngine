@@ -2,13 +2,20 @@
 #include <CASTL/CAVector.h>
 #include <CASTL/CATuple.h>
 #include "Common.h"
+#include <CodeGenMeta.h>
 
+// 这个类型也是哈希键（`HashObj<InputAssemblyStates>` 出现在 D3D12 / Vulkan 的管线状态键里）。
+CA_REFLECT(serializable)
 struct InputAssemblyStates
 {
 	ETopology topology = ETopology::eTriangleList;
 	auto operator<=>(const InputAssemblyStates&) const = default;
 };
 
+// 这两个类型要当哈希键用（`castl::unordered_map<cacore::NameHash, cacore::HashObj<VertexInputsDescriptor>>`
+// 之类），所以必须走生成代码：新运行时的哈希对象对"没标注、也没有自定义特化"的类类型是硬拒绝，
+// 而老驱动会退回结构化绑定接着算 —— 换驱动时它们就是过不去的宿主。
+CA_REFLECT(serializable)
 struct VertexAttribute
 {
 	uint32_t offset;
@@ -23,6 +30,7 @@ struct VertexAttribute
 	}
 };
 
+CA_REFLECT(serializable)
 struct VertexInputsDescriptor
 {
 	uint32_t stride = 0;
@@ -36,6 +44,20 @@ struct VertexInputsDescriptor
 		return { stride, perInstance, attributes };
 	}
 };
+
+// 生成物：上面两个类型各自的反射 / 序列化 / 哈希特化。接在这里（类型定义之后）而不是让每个消费方自己
+// 记一遍 —— `HashObj<T>` 与 `std::unordered_map<…, cacore::hash<T>>` 在**实例化**时就要看到这些特化，
+// 少一个那一层就会退回"整块字节"或直接编不过（实测：D3D12 / Vulkan 的 GPUGraph 与 IMGUIContext 都在
+// 这一层断过）。本模块的生成物目录是 PUBLIC include，所以消费方拿得到这几份头。
+#include "VertexAttribute.Reflection.h"
+#include "VertexAttribute.Serialization.h"
+#include "VertexAttribute.Hash.h"
+#include "VertexInputsDescriptor.Reflection.h"
+#include "VertexInputsDescriptor.Serialization.h"
+#include "VertexInputsDescriptor.Hash.h"
+#include "InputAssemblyStates.Reflection.h"
+#include "InputAssemblyStates.Serialization.h"
+#include "InputAssemblyStates.Hash.h"
 //
 //class CVertexInputDescriptor
 //{

@@ -5,9 +5,8 @@
 // Every claim below is printed with its two readings, and the "old path" reading is printed next to it:
 // that expression (`h.hash(<container>)`) is exactly what the generated code used before this change,
 // so the printed pair is the before/after of the same measurement, taken in one run.
-#include <Serialization.h>
 #include <CodeGenMeta.h>
-#include <Hasher.h>
+#include <HashKeys.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>

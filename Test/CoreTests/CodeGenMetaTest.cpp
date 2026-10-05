@@ -4,7 +4,7 @@
 // This is deliberately a static_assert-only test (no int main — CoreTests has its main in
 // SerializerTest.cpp). It forces the compiler to instantiate TypeDescriptor<CodeGenProbe> and
 // the ABI guard, so ANY drift between the generated metadata and the source-of-truth
-// CA_REFLECTION becomes a HARD build error (the task-1.2 oracle), not a runtime surprise.
+// CA_REFLECT marker becomes a HARD build error (the task-1.2 oracle), not a runtime surprise.
 //
 // It also exercises the CA_CODEGEN_REGISTER discovery macro at namespace scope.
 

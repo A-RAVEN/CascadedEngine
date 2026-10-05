@@ -1,7 +1,6 @@
 // The generated container code must produce the SAME bytes
 // for the same content regardless of insertion history, must differ when the content differs, and must
 // read back into a container whose old elements were cleared first.
-#include <Serialization.h>
 #include <CodeGenMeta.h>
 #include <CASTL/CAVector.h>
 #include <cstdint>
@@ -54,6 +53,32 @@ namespace
     {
         return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size()) == 0);
     }
+
+    // 十六进制文本 → 字节（期望值写成十六进制，见下面 `kOldVecHex` 那几行）。
+    castl::vector<uint8_t> hexToBytes(const char* hex)
+    {
+        castl::vector<uint8_t> out;
+        int high = -1;
+        for (const char* p = hex; *p != '\0'; ++p)
+        {
+            const char c = *p;
+            int value = -1;
+            if (c >= '0' && c <= '9')
+                value = c - '0';
+            else if (c >= 'a' && c <= 'f')
+                value = c - 'a' + 10;
+            else
+                continue;
+            if (high < 0)
+                high = value;
+            else
+            {
+                out.push_back(static_cast<uint8_t>((high << 4) | value));
+                high = -1;
+            }
+        }
+        return out;
+    }
 } // namespace
 
 bool RunGeneratedContainerTest()
@@ -92,45 +117,26 @@ bool RunGeneratedContainerTest()
                            back.uset.size() == a.uset.size() && back.uset.count(999u) == 0 &&
                            back.vec.size() == a.vec.size() && back.umap.count(1u) == 1;
 
-    // The OLD expression (what the generated code emitted before this change) reads
-    // straight into the target and never clears it — the two readings below are the failing state.
-    Containers legacy{};
-    legacy.vec.push_back(999u);
-    legacy.vec.push_back(999u);
-    legacy.vec.push_back(999u);
-    {
-        cacore::deserializer<castl::vector<uint8_t>> d(ba);
-        d.deserialize(legacy.vec);
-    }
-    Containers emptyPayload{};
-    const castl::vector<uint8_t> be = write(emptyPayload);
-    Containers legacyEmpty{};
-    legacyEmpty.vec.push_back(999u);
-    {
-        cacore::deserializer<castl::vector<uint8_t>> d(be);
-        d.deserialize(legacyEmpty.vec);
-    }
-    const bool oldPathKeeps = legacy.vec.size() != a.vec.size() && legacy.vec[0] == 999u;
-    const bool oldPathEmpty = legacyEmpty.vec.size() == 1u;
-
-    // The ordered members (vector / map / string) must produce the same bytes as before this
-    // change. "Before" = the expression the generated code used to emit (`s.serialize(obj.x)` straight
-    // into the old runtime), evaluated here on the SAME object in the SAME run.
-    const auto oldPath = [](const auto& member) {
-        castl::vector<uint8_t> buffer;
-        cacore::serializer<castl::vector<uint8_t>> s(buffer);
-        s.serialize(member);
-        return buffer;
-    };
+    // The OLD read path (read straight into the target, never clear it) is gone with the old runtime:
+    // it used to be demonstrated right here (`size=5 (was 2)`, empty payload into 1 element) and that
+    // reading is kept in the change's artifacts. What must hold now is the line above (`readClean`).
     const auto newPath = [](const auto& member) {
         castl::vector<uint8_t> buffer;
         cacore::codegen::writer<castl::vector<uint8_t>> w(buffer);
         cacore::codegen::cgWriteContainer(w, member);
         return buffer;
     };
-    const bool orderedSame = sameBytes(oldPath(a.vec), newPath(a.vec)) &&
-                             sameBytes(oldPath(a.omap), newPath(a.omap)) &&
-                             sameBytes(oldPath(a.label), newPath(a.label));
+
+    // The ordered members (vector / map / string) must produce the same bytes as before this
+    // change. "Before" = the old runtime's own bytes for the SAME object, measured once on
+    // 2026-10-05 and written down here as expectations (the old headers are gone now):
+    //   vector{1,2} → 长度 2 + 两个元素；map{4:40} → 长度 1 + 键值对；string "ordered" → 长度 + 内容。
+    const char* const kOldVecHex = "02000000000000000100000002000000";
+    const char* const kOldOMapHex = "01000000000000000400000028000000";
+    const char* const kOldLabelHex = "07000000000000006f726465726564";
+    const bool orderedSame = sameBytes(hexToBytes(kOldVecHex), newPath(a.vec)) &&
+                             sameBytes(hexToBytes(kOldOMapHex), newPath(a.omap)) &&
+                             sameBytes(hexToBytes(kOldLabelHex), newPath(a.label));
 
     // ---- 「容器里装结构体」，而且元素内部还有遍历顺序不确定的容器。
     // 撤除那条拒绝之前，对同一个形状请求序列化是 `exit 12` 并在 stderr 里点名成员、元素类型与内层
@@ -175,9 +181,7 @@ bool RunGeneratedContainerTest()
     std::printf("CodeGen container control differs = %d\n", controlDiffers ? 1 : 0);
     std::printf("CodeGen container read-back clean = %d\n", readClean ? 1 : 0);
     std::printf("CodeGen ordered members match the old path = %d (vector/map/string)\n", orderedSame ? 1 : 0);
-    std::printf("CodeGen old read path keeps stale elements: size=%zu (was %zu), empty payload into 1 element = %zu\n",
-                legacy.vec.size(), a.vec.size(), legacyEmpty.vec.size());
-    const bool ok = stableBytes && controlDiffers && readClean && oldPathKeeps && oldPathEmpty && orderedSame &&
+    const bool ok = stableBytes && controlDiffers && readClean && orderedSame &&
                     outerStable && outerRead && outerControl;
     if (ok)
         std::puts("CodeGen container serialization PASSED");

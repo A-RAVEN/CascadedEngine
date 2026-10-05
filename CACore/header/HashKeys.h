@@ -1,19 +1,22 @@
 #pragma once
-#include "Reflection.h"
-#include <CACore/CAHash.h>
-#include <CASTL/CAFileSystem.h>
-#include <CACore/CALiteralString.h>
-#include "CodeGenHashFwd.h"   // 过渡期：旧哈希设施里要用到新运行时的前置声明（特化检测）
-// 三个哈希键类型（NameHash / PathHash / HashObj）还在这里：它们的 UpdateHash 走 `cacore::hash`
-// → `aggregateHasher` → 老反射，而老驱动就住在下面 —— 两者现在分不开（分开时实测报
-// `use of undefined type 'cacore::hash<...>'`）。等旧驱动随旧头一起删掉，再谈搬去新头。
+//
+// HashKeys.h —— 宿主哈希类型：`NameHash` / `PathHash` / `HashObj` 与它们要用的那点东西。
+//
+// 这些类型是**保留**的（引擎到处在用它们当字典键），与"随旧头一起删掉"的旧哈希驱动分开住：
+// `cacore::hash<T>` 的取值现在由 `cacore::codegen::hasher` 承担（见下面 `hash` 的注释），旧驱动
+// （`aggregateHasher` 那套）留在 `Hasher.h` 里等 9.3 删掉。本头**不依赖**那三份待删的头。
 #include <CACore/CAHash.h>
 #include <CASTL/CAFileSystem.h>
 #include <CASTL/CAString.h>
 #include <CACore/CALiteralString.h>
-#include "CodeGenHash.h"   // 需要 codegen::hasher 本体（不只是一句声明）：本文件的 hash 结构就用它算值
+#include "CodeGenHashFwd.h"  // 先来这份轻的：它只带 `CodeGenTraits.h`（`wrapper_traits` / `pointer_traits`
+                            // 的主模板）。顺序重要 —— 本头会被 `CodeGenHash.h` 那条链反过来包含，
+                            // 主模板没先声明的话，下面那几份特化会报 "undeclared template struct"。
+#include "CodeGenHash.h"    // `hash` / `hashable` 的取值用 codegen::hasher 本体，不只是一句声明
 
 #include <type_traits>
+#include <cstddef>
+#include <functional>
 
 namespace cacore
 {
@@ -26,9 +29,8 @@ namespace cacore
         castl::hash<T>{}(t);
     };
 
-    // `cacore::hash<T, Alg>` 的定义在 `Hasher.h`（旧驱动那一侧）：非标注类型要靠它走老反射算哈希。
-    // 这里只前置声明 —— 三个键类型的成员函数是模板，实例化时才需要看到定义，而那时消费方已经
-    // include 了 `Hasher.h`。这样新头不必反过来依赖旧驱动。
+    // `cacore::hash<T, Alg>` 的定义在本文件下面（`hash` 那个结构）：非标注类型要靠它走老反射算哈希。
+    // 这里留一句前置声明只是为了下面三个键类型能先用名字。
     template<typename T, typename hashAlg>
     struct hash;
 
@@ -41,6 +43,16 @@ namespace cacore
 		FullCompare,
         SHA256
     };
+
+    // 把两个哈希值揉在一起的小工具（Vulkan 的 `ShaderLibrary` 拿它拼自己那个 `GetHash()`）。
+    // 它原来住在 `Hasher.h` 里，与"要删的旧驱动"无关，所以随宿主类型一起搬到本头。
+    template<typename T>
+    inline size_t hash_combine(size_t seed, T const& val)
+    {
+        seed ^= std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+
 
     template<typename ObjType, EHashObjCompareMode CompareMode = EHashObjCompareMode::SHA256, typename hashAlg = default_hashclass>
     struct HashObj
@@ -457,7 +469,8 @@ namespace cacore
         result_type m_HashValue;
         castl::string m_Name;
     };
-}
+
+} // namespace cacore
 
 namespace cacore::codegen
 {
@@ -523,160 +536,12 @@ namespace cacore::codegen
     };
 }
 
-
 namespace cacore
 {
-    template<typename T>
-    inline size_t hash_combine(size_t seed, T const& val)
-    {
-        seed ^= std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        return seed;
-    }
-
-    using namespace careflection;
-
-
-    template<typename T>
-    struct custom_hash_trait
-    {
-        //constexpr void hash(T const&, hasher& h)
-    };
-
-    template<typename T, typename hasher>
-    concept has_custom_hash_func = requires(T t, hasher h)
-    {
-        custom_hash_trait<T>::hash(t, h);
-    };
-
-
-
-    template <typename hashAlg = default_hashclass>
-    class aggregateHasher
-    {
-    public:
-        using result_type = typename hashAlg::result_type;
-        hashAlg alg = {};
-
-		result_type getHash() const noexcept
-		{
-			return static_cast<result_type>(alg);
-		}
-
-        result_type getHash() noexcept
-        {
-            return static_cast<result_type>(alg);
-        }
-
-        constexpr void hash_raw(const void* data, size_t size)
-        {
-            alg(data, size);
-        }
-
-        template<typename Obj>
-        constexpr void hash_one(const Obj& object)
-        {
-            using objType = std::remove_cvref_t<decltype(object)>;
-            static_assert(std::is_trivially_copyable_v<objType>, "Object must be trivially copyable");
-            hash_raw(&object, sizeof(objType));
-        }
-
-        template<typename Obj>
-        constexpr void hash_range(const Obj* object, size_t size)
-        {
-            using objType = std::remove_cvref_t<decltype(object)>;
-            static_assert(std::is_trivially_copyable_v<objType>, "Object must be trivially copyable");
-			size_t count = sizeof(objType) * size;
-			//castl::cout << castl::to_string(count) << castl::endl;
-			//castl::cout << castl::to_string(size) << castl::endl;
-            hash_raw(object, count);
-        }
-
-        template<typename Obj>
-        constexpr void inline hash(const Obj& object)
-        {
-            using objType = std::remove_cvref_t<decltype(object)>;
-
-
-            // 分派顺序是「有自定义特化」优先于「平凡可拷贝」。
-            // 原来"平凡可拷贝"排第一，纯 POD 类型永远轮不到自己的特化（不报错、静默不生效）；
-            // 生成物提供的特化住在 cacore::codegen 里（新运行时），所以这里先问新运行时，再问
-            // 旧设施里既有的那几个特化。两个顺序都不会改变既有宿主走哪条分支 —— 见下面
-            // `dispatch_branch_unchanged` 与每个宿主自己那一行的编译期断言。
-            if constexpr (codegen::has_custom_hash_func<objType, std::remove_cvref_t<decltype(*this)>>)
-            {
-                //生成物给出的特化（新运行时）
-                codegen::custom_hash_trait<objType>::hash(object, *this);
-            }
-            else if constexpr (has_custom_hash_func<objType, std::remove_cvref_t<decltype(*this)>>)
-			{
-				//自定义哈希函数
-                custom_hash_trait<objType>::hash(object, *this);
-				//ca_hash(object, *this);
-			}
-            else if constexpr (std::is_trivially_copyable_v<objType>)
-            {
-                //直接对对象内存算哈希值
-                hash_one(object);
-            }
-            else if constexpr (managed_pointer_traits<objType>::is_managed_pointer)
-            {
-                //对指针地址算哈希值
-                hash_one(reinterpret_cast<uint64_t>(managed_pointer_traits<objType>::get_pointer(object)));
-            }
-            else if constexpr (std::is_pointer_v<objType>)
-            {
-                //对指针地址算哈希值
-                hash_one(reinterpret_cast<uint64_t>(object));
-            }
-            else if constexpr (std::is_fundamental_v<objType> || std::is_enum_v<objType>)
-            {
-                hash_one(object);
-            }
-            else if constexpr (containerStates<objType>::is_container_with_size)
-            {
-                hash_container_with_size(object);
-            }
-            else if constexpr (has_std_hash<objType>)
-            {
-                //使用标准哈希函数
-                hash_one(std::hash<objType>{}(object));
-            }
-            else if constexpr (std::is_class_v<objType>)
-            {
-                visit_members(object, [this](auto &&...items) CONSTEXPR_INLINE_LAMBDA{
-                    (hash(items), ...);
-                    }); //解包结构体
-            }
-        }
-    private:
-
-        template<typename Obj>
-        constexpr void hash_container_with_size(const Obj& object)
-        {
-            using objType = std::remove_cvref_t<decltype(object)>;
-            using arrElemType = containerInfo<objType>::elementType;
-            uint64_t objSize = containerInfo<objType>::container_size(object);
-            hash_one(objSize);
-            if constexpr (std::is_trivially_copyable_v<arrElemType> && containerStates<objType>::has_data)
-            {
-                hash_raw(object.data(), objSize * sizeof(arrElemType));
-            }
-            else
-            {
-                for (auto& item : object)
-                {
-                    hash(item);
-                }
-            }
-        }
-
-  
-    };
-
     template<typename T, typename hashAlg = default_hashclass>
     concept hashable = requires (T const& obj)
     {
-        aggregateHasher<hashAlg>{}.hash(obj);
+        codegen::hasher<hashAlg>{}.hash(obj);
     } || has_std_hash<T>;
 
     template<typename T, typename hashAlg = default_hashclass>
@@ -692,109 +557,33 @@ namespace cacore
             }
             else
             {
-                aggregateHasher<hashAlg> hasher;
+                // 驱动换成新运行时的哈希对象：旧驱动（`aggregateHasher`）随旧头一起退场，而
+                // `hash` / `hashable` / 三个键类型是要保留、要搬进新头的，不能反过来依赖待删的头。
+                // 两者对同一个宿主算出的值相同 —— 两条路的第一个分支都是"生成物给的特化"。
+                codegen::hasher<hashAlg> hasher;
                 hasher.hash(obj);
                 return static_cast<result_type>(hasher.alg);
             }
         }
     };
 
-
-
-
     // 调换分派顺序的安全性判据 —— 对某个宿主，两个顺序选中同一条分支。
     //   * 调换前：平凡可拷贝优先（trivial ? 1 : custom ? 2 : 0）
     //   * 调换后：自定义特化优先（custom ? 2 : trivial ? 1 : 0）
     // 两条式子相等 ⇔ 这个宿主的哈希值不会因为调换而改变。写成一个 constexpr 判据，而不是叙述，
     // 因为"某个宿主其实可以平凡拷贝"这种事会在加成员 / 改拷贝构造时悄悄发生。
-    template<typename Host, typename Hasher = aggregateHasher<>>
+    // 默认的哈希对象是新运行时的那个 —— `hash<T>` 现在由它驱动，两者必须问同一套特化。
+    template<typename Host, typename Hasher = codegen::hasher<>>
     constexpr bool dispatch_branch_unchanged() noexcept
     {
         constexpr bool trivial = std::is_trivially_copyable_v<Host>;
-        constexpr bool custom  = has_custom_hash_func<Host, Hasher>;
+        constexpr bool custom  = codegen::has_custom_hash_func<Host, Hasher>;
         constexpr int  before  = trivial ? 1 : (custom ? 2 : 0);
         constexpr int  after   = custom ? 2 : (trivial ? 1 : 0);
         return before == after;
     }
 
-
-
-	//struct PathHash : public HashObj<castl::string, EHashObjCompareMode::FullCompare, default_hashclass>
- //   {
- //   public:
- //       PathHash() = default;
-	//	PathHash(const char* str) : HashObj(cafs::path(str).generic_string()) {}
- //       PathHash(castl::string const& str) : HashObj(cafs::path(str).generic_string()) {}
- //       PathHash(cafs::path const& path) : HashObj(path.generic_string()) {}
- //       PathHash& operator=(PathHash const& other)
- //       {
- //           HashObj::operator=(other);
- //           return *this;
- //       }
-
- //       auto operator<=>(PathHash const& b) const
- //       {
- //           return HashObj::operator<=>(b);
- //       }
-
-	//	operator castl::string() const noexcept
- //       {
- //           return Get();
- //       }
- //       friend struct careflection::managed_wrapper_traits<PathHash>;
-
- //       template <char... c>
- //       static constexpr PathHash const& StaticPathHash() {
- //           constexpr static std::size_t n = sizeof...(c);
- //           constexpr static const char data[n] = { c... };
- //           static const PathHash pathHash(data);
- //           return pathHash;
- //       };
-
- //       template <castl::string_literal str, size_t... N>
- //       static constexpr PathHash const& StaticPathHashInternal(castl::index_sequence<N...>) {
- //           return StaticPathHash<str.get_char<N>()...>();
- //       }
-
- //       template <castl::string_literal str>
- //       static constexpr PathHash const& Static() {
- //           return StaticPathHashInternal<str>(std::make_index_sequence<str.count>{});
- //       }
-
- //   };
-
-
-
-
-
-    template<typename ObjType, EHashObjCompareMode CompareMode, typename hashAlg>
-    struct custom_hash_trait<HashObj<ObjType, CompareMode, hashAlg>>
-    {
-        constexpr static void hash(HashObj<ObjType, CompareMode, hashAlg> const&obj, auto& hasher)
-        {
-            hasher.hash(obj.Get());
-        }
-    };
-
-    template<>
-    struct custom_hash_trait<NameHash>
-    {
-        constexpr static void hash(NameHash const& obj, auto& hasher)
-        {
-            hasher.hash_raw(obj.Get().data(), obj.Get().size());
-        }
-    };
-
-    template<>
-    struct custom_hash_trait<PathHash>
-    {
-        constexpr static void hash(PathHash const& obj, auto& hasher)
-        {
-            hasher.hash_raw(obj.Get().data(), obj.Get().size());
-        }
-    };
-
-}
+} // namespace cacore
 
 namespace std
 {
@@ -831,37 +620,8 @@ constexpr auto format_as(cacore::PathHash const& pathHash) {
 	return pathHash.Get();
 }
 
-namespace careflection
-{
+// 这里原先还有三份**旧命名空间**的托管包装规则（`HashObj` / `PathHash` / `NameHash` 各一份）：
+// 那是**旧运行时**序列化"含这三个类型成员的结构体"时用的规则。旧头（`Reflection.h` 等三份）删掉之后
+// 主模板不存在了，它们也没有使用者 —— 新运行时的对应物是上面 `namespace cacore::codegen` 里那几份
+// `wrapper_traits`。
 
-    template<typename ObjType, cacore::EHashObjCompareMode CompareMode, typename hashAlg>
-    struct managed_wrapper_traits<cacore::HashObj<ObjType, CompareMode, hashAlg>>
-    {
-        constexpr static bool is_managed_wrapper = true;
-        using inner_type = ObjType;
-        constexpr static ObjType const& get_data(cacore::HashObj<ObjType, CompareMode, hashAlg> const& obj) { return obj.Get(); }
-        constexpr static void set_data(cacore::HashObj<ObjType, CompareMode, hashAlg>& obj, ObjType const& data) { obj = cacore::HashObj<ObjType, CompareMode, hashAlg>{ data }; }
-    };
-
-    template<>
-    struct managed_wrapper_traits<cacore::PathHash>
-    {
-        constexpr static bool is_managed_wrapper = true;
-        using inner_type = castl::string;
-        constexpr static castl::string get_data(cacore::PathHash const& obj) { return obj.string(); }
-        constexpr static void set_data(cacore::PathHash& obj, castl::string const& data) { obj = cacore::PathHash( data ); }
-    };
-
-    template<>
-    struct managed_wrapper_traits<cacore::NameHash>
-    {
-        constexpr static bool is_managed_wrapper = true;
-        using inner_type = castl::string;
-        constexpr static castl::string get_data(cacore::NameHash const& obj) { return obj.string(); }
-        constexpr static void set_data(cacore::NameHash& obj, castl::string const& data) { obj = cacore::NameHash{ data }; }
-    };
-}
-
-// 新运行时（生成代码）要的规则：这三个类型各自包着什么、哈希怎么算。
-// 与上面那份 `careflection::managed_wrapper_traits` 是同一件事，只是宿主换成新运行时；
-// 旧头被删掉时上面那份随它消失，这一份留着。

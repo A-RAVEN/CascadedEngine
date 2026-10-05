@@ -4,6 +4,7 @@
 #include <CASTL/CAChrono.h>
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
+#include <iostream>   // 旧头删掉之后要自己带（本文件用了 castl::cout / std::cerr）
 
 namespace thread_management
 {

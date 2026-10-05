@@ -125,6 +125,36 @@ namespace cacore::codegen
 } // namespace cacore::codegen
 
 // ---------------------------------------------------------------------------------------------
+// 私有成员的友元入口。老系统里对应的是一个只友元旧描述符模板的宏（`CA_PRIVATE_REFLECTION`）；
+// 新系统有四个入口，所以四条都要友元 —— 生成代码是按成员名直接读写的，少给哪一个，那个发射器的产物
+// 就会在消费单元里被访问权挡住（C2248）。
+//
+// 用法：写在**类体里面**（和 `friend` 声明一样的位置），例如
+//     CA_REFLECT(serializable)
+//     class ImageHandle
+//     {
+//         CA_CODEGEN_FRIEND(ImageHandle);
+//         uint64_t m_Id;
+//     };
+// 工具读的是 AST 里的 friend 声明（`CXCursor_FriendDecl`），不做源码文本扫描；类里没有这一行时，
+// 含私有成员的类型在发射时仍然以退出码 5 拒绝。
+//
+// 三个前置声明只为让 `friend struct ...<Type>;` 合法；它们的定义分别在 CodeGenSerialization.h /
+// CodeGenHash.h / CodeGenHashFwd.h，模板参数表与这里逐字一致。
+namespace cacore::codegen
+{
+    template<typename T> struct CodeGenSerializer;
+    template<typename T> struct CodeGenEqual;
+    template<typename T> struct custom_hash_trait;
+} // namespace cacore::codegen
+
+#define CA_CODEGEN_FRIEND(Type)                                     \
+    friend struct ::cacore::codegen::TypeDescriptor<Type>;          \
+    friend struct ::cacore::codegen::CodeGenSerializer<Type>;       \
+    friend struct ::cacore::codegen::CodeGenEqual<Type>;            \
+    friend struct ::cacore::codegen::custom_hash_trait<Type>
+
+// ---------------------------------------------------------------------------------------------
 // Discovery macro. The engine compiles with MSVC, so we deliberately do NOT use literal
 // `[[careflection::...]]` / `[[clang::annotate]]` attributes: MSVC warns C5030 for unknown-attribute
 // namespaces (verified: non-fatal under /WX-, but noisy per-use), and libclang's C API reads

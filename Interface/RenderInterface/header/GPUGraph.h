@@ -5,6 +5,7 @@
 #include "CPipelineStateObject.h"
 #include "ShaderProvider.h"
 #include "ShaderResourceHandle.h"
+#include <CodeGenMeta.h>
 #include <DebugUtils.h>
 #include <CASTL/CAFunctional.h>
 #include <CASTL/CAUnorderedMap.h>
@@ -79,6 +80,9 @@ namespace graphics_backend
 		bool IsValid() const { return indexBufferHandle.IsValid(); }
 	};
 
+	// 也是哈希键（`HashObj<ViewRectData>`，D3D12 的 GPUGraphExecutor 里按视图矩形查表）。
+	// 它**不进接入清单**：解析这个头的编译环境今天过不了工具的保真门（见 `build.py` 清单里那条注释），
+	// 所以按设计给的第二条路在文件末尾手写一份哈希特化。
 	struct ViewRectData
 	{
 		int x;
@@ -860,4 +864,21 @@ namespace graphics_backend
 		return *this;
 	}
 
+}
+
+// `ViewRectData` 的哈希特化（手写：这个头今天进不了接入清单，见类型定义那里的注释）。
+// 口径与生成代码一致：逐个字段算，`int` 直接按字节，顺序按声明顺序。
+namespace cacore::codegen
+{
+	template<>
+	struct custom_hash_trait<graphics_backend::ViewRectData>
+	{
+		static void hash(graphics_backend::ViewRectData const& obj, auto& hasher)
+		{
+			hasher.hash(obj.x);
+			hasher.hash(obj.y);
+			hasher.hash(obj.width);
+			hasher.hash(obj.height);
+		}
+	};
 }
