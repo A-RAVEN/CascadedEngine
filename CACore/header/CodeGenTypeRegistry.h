@@ -1,7 +1,6 @@
 #pragma once
 //
-// CodeGenTypeRegistry.h — OPTIONAL runtime type registry for the CodeGen metadata model (design D3,
-// task 5.2). Resolves a runtime type-name string to that type's linear CodeGenTypeInfo, for
+// CodeGenTypeRegistry.h — OPTIONAL runtime type registry for the CodeGen metadata model. Resolves a runtime type-name string to that type's linear CodeGenTypeInfo, for
 // inspector / scripting tools that need to introspect a type by name. Mirrors the by-name resolution
 // idiom of IModuleManager::GetInstance(NameHash) — a key→pointer dictionary that returns null on a
 // miss — but keyed by plain string so it stays a self-contained optional helper (NOT the module

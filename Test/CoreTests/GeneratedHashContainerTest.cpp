@@ -1,4 +1,4 @@
-// codegen-container-semantics tasks 3.2 / 3.3: containers nested inside containers (and C arrays of
+// Containers nested inside containers (and C arrays of
 // containers) must produce the SAME bytes and the SAME hash for the same content regardless of the
 // insertion order at ANY level; container elements must be hashed by their own specialization.
 //
@@ -14,6 +14,8 @@
 #include "TestContainer.h"
 #include "Containers.Serialization.h"
 #include "Containers.Hash.h"
+// 容器里装结构体：元素的读写由它自己的生成代码接手，所以这里必须能看到它。
+#include "HasFloat.Serialization.h"
 #include "HasFloat.Hash.h"
 
 namespace
@@ -35,8 +37,8 @@ namespace
 
     unsigned long long hashOf(const Containers& c)
     {
-        cacore::aggregateHasher<> h;
-        cacore::custom_hash_trait<Containers>::hash(c, h);
+        cacore::codegen::hasher<> h;
+        cacore::codegen::custom_hash_trait<Containers>::hash(c, h);
         return static_cast<unsigned long long>(h.getHash());
     }
 } // namespace
@@ -64,7 +66,7 @@ bool RunGeneratedHashContainerTest()
     }
     const bool nestedBytes = sameBytes(write(a), write(b));
     const bool nestedHash  = hashOf(a) == hashOf(b);
-    const bool nestedEqual = cacore::custom_hash_trait<Containers>::equal(a, b);
+    const bool nestedEqual = cacore::codegen::custom_hash_trait<Containers>::equal(a, b);
 
     // The control: one different value deep inside must change both readings.
     Containers other = b;
@@ -76,10 +78,10 @@ bool RunGeneratedHashContainerTest()
     Containers n{};
     p.floatMap.emplace(1u, 0.0f);
     n.floatMap.emplace(1u, -0.0f);
-    const bool floatEqual = cacore::custom_hash_trait<Containers>::equal(p, n);
+    const bool floatEqual = cacore::codegen::custom_hash_trait<Containers>::equal(p, n);
     const bool floatHash  = hashOf(p) == hashOf(n);
-    cacore::aggregateHasher<> oldPathA;
-    cacore::aggregateHasher<> oldPathB;
+    cacore::codegen::hasher<> oldPathA;
+    cacore::codegen::hasher<> oldPathB;
     oldPathA.hash(p.floatMap);   // what the generated code used to emit
     oldPathB.hash(n.floatMap);
     const unsigned long long oldFloatA = static_cast<unsigned long long>(oldPathA.getHash());
@@ -90,10 +92,10 @@ bool RunGeneratedHashContainerTest()
     Containers en{};
     ep.floats.push_back(codegen_containers::HasFloat{ 0.0f });
     en.floats.push_back(codegen_containers::HasFloat{ -0.0f });
-    const bool elementEqual = cacore::custom_hash_trait<Containers>::equal(ep, en);
+    const bool elementEqual = cacore::codegen::custom_hash_trait<Containers>::equal(ep, en);
     const bool elementHash  = hashOf(ep) == hashOf(en);
-    cacore::aggregateHasher<> rawA;
-    cacore::aggregateHasher<> rawB;
+    cacore::codegen::hasher<> rawA;
+    cacore::codegen::hasher<> rawB;
     rawA.hash(ep.floats[0]);     // what the generated code used to emit
     rawB.hash(en.floats[0]);
     const unsigned long long rawElementA = static_cast<unsigned long long>(rawA.getHash());
@@ -109,6 +111,6 @@ bool RunGeneratedHashContainerTest()
     const bool ok = nestedBytes && nestedHash && nestedEqual && nestedControl &&
                     floatEqual && floatHash && elementEqual && elementHash;
     if (ok)
-        std::puts("CodeGen nested container + element hash PASSED (task 3.2 / 3.3)");
+        std::puts("CodeGen nested container + element hash PASSED");
     return ok;
 }

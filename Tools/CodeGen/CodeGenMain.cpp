@@ -3,12 +3,12 @@
 //
 // Takes a header file + a type name, parses it with libclang (the real C++ front end — we are
 // NOT hand-writing a parser), finds the struct/class of that name, and emits a deterministic
-// linear field table (one line per field, in DECLARATION order — task 9.5a removed the sort by
+// linear field table (one line per field, in DECLARATION order — removed the sort by
 // extracted byte offset, which was built on a value a degenerate environment silently collapses to 0):
 //
 //     field <name> <offsetBytes> <typeSpelling> <CXTypeKind>
 //
-// This is the proof-of-pipeline for task 3.1/3.2: parse -> cursor traversal -> type table, and
+// This is the proof-of-pipeline for parse -> cursor traversal -> type table, and
 // the output is deterministic (same input => same output, so re-emission is byte-identical).
 // Later emitters (reflection/serialization/hash) consume this table to generate C++ / C# code.
 //
@@ -37,7 +37,7 @@ namespace
         std::string typeName;
         std::size_t offsetBytes;
         int         typeKind; // CXTypeKind
-        // Task 2.1: container facts, recognized structurally (see analyzeContainer).
+        // container facts, recognized structurally (see analyzeContainer).
         bool        isContainer = false;
         bool        containerUnordered = false;
         bool        containerIsMap = false;
@@ -51,14 +51,13 @@ namespace
         bool        elementIsContainer = false;
         bool        elementIsOpaque = false;         // raw pointer / handle-ish
         bool        elementIsManagedPointer = false; // shared_ptr / unique_ptr
-        // Task 3.2 (1): non-empty when the element is a STRUCT whose own fields hold an unordered
-        // container that the generated recursion cannot reach. "<成员名> (<容器名>)".
-        std::string elementUnstableInside;
-        bool        elementIsWrapper = false;   // Task 2.2: recorded only, never opaque
-        bool        keyNotDefault = false;       // Task 4.1 (4)
-        bool        sortSideNotOrdered = false; // Task 4.1 (1)
+        bool        elementIsWrapper = false;   // recorded only, never opaque
+        bool        memberIsOpaque = false;          // the member ITSELF is a raw pointer
+        bool        memberIsManagedPointer = false;  // the member ITSELF is a shared_ptr / unique_ptr
+        bool        keyNotDefault = false;       // (4)
+        bool        sortSideNotOrdered = false; // (1)
         bool        elementNotDefault = false;
-        // Task 2.2: for `int a[2][3]` the element is `int[3]`, and THIS is its own element (`int`).
+        // for `int a[2][3]` the element is `int[3]`, and THIS is its own element (`int`).
         std::string element2TypeName;
         int         element2Kind = 0;
         bool        element2IsContainer = false;
@@ -157,7 +156,7 @@ namespace
     }
 
     /**
-     * Task 2.1: containers are recognized STRUCTURALLY — exactly the rule the runtime uses
+     * containers are recognized STRUCTURALLY — exactly the rule the runtime uses
      * (`is_size_container`: a `size()` member plus a `value_type`), never by container name, because
      * `castl::X` reaches every `std::` / `eastl::` name through `using namespace`.
      * `bucket_count()` marks the unordered ones; `mapped_type` marks maps. Nothing here reads the
@@ -169,7 +168,7 @@ namespace
      * and the canonical kind is CXType_Record 105, i.e. the type itself is fine). So the recognition is
      * a list of canonical BASE NAMES (`vector`, `map`, `unordered_set`, …), which is stable because the
      * canonical spelling is `std::…` / `eastl::…`, never the `castl::…` alias. The runtime-side rule is
-     * kept aligned by the parity assertion in the tests (task 2.5), not by this probe.
+     * kept aligned by the parity assertion in the tests, not by this probe.
      */
     const char* const kContainerNames[] = {
         "vector", "array", "string", "basic_string", "deque", "list",
@@ -189,7 +188,7 @@ namespace
         return false;
     }
 
-    /* Task 4.1 (1): does the type carry an ordering operator? The canonical write order for an unordered
+    /* (1): does the type carry an ordering operator? The canonical write order for an unordered
      * container needs a strict weak order on the sorting side. `operator<=>` counts: the engine's real
      * key types (NameHash, PathHash, CAHash::result_type) define ONLY `<=>` and no `operator<`, so a
      * criterion that insists on `operator<` would reject every real key type.
@@ -230,7 +229,7 @@ namespace
         return w.found;
     }
 
-    /* Task 4.1 (4): can a value of this type be built with `T t{}`? The generated reader does exactly
+    /* (4): can a value of this type be built with `T t{}`? The generated reader does exactly
      * that before reading into it, so a key / element type without a usable default constructor would
      * make the emitted code fail to compile. Records that cannot be inspected are assumed fine.
      */
@@ -267,7 +266,7 @@ namespace
         return !w.hasAny || w.hasDefault;
     }
 
-    /* Task 2.2: the second level of a nested description. For `vector<vector<int>>` the element is
+    /* the second level of a nested description. For `vector<vector<int>>` the element is
      * `vector<int>`; this fills in that container's OWN element (`int`), so the table expresses two
      * levels. For maps the value type is the element (index 1), for everything else index 0.
      */
@@ -288,9 +287,10 @@ namespace
         isContainer = isContainerType(arg);
     }
 
-    /* Task 2.2: the engine's wrappers. Detection is BY NAME because what makes them wrappers -- the old
-     * runtime's `managed_wrapper_traits` specialization -- is not visible to libclang. The three names are
-     * the ones the design names (D3); a new wrapper type has to be added here, which is a known boundary.
+    /* the engine's wrappers. Detection is BY NAME because what makes them wrappers -- the runtime's
+     * wrapper-trait specialization (`cacore::codegen::wrapper_traits`) -- is not visible to libclang
+     * through its C API. The three names are the ones the engine actually uses today; a new wrapper
+     * type has to be added here, which is a known boundary.
      */
     const char* const kWrapperNames[] = { "NameHash", "PathHash", "HashObj" };
 
@@ -309,67 +309,12 @@ namespace
         return false;
     }
 
-    std::string findUnorderedInside(CXType type, int depth);
-
-    struct UnorderedWalk
-    {
-        std::string found;
-    };
-
-    CXChildVisitResult unorderedWalkVisitor(CXCursor c, CXCursor, CXClientData data)
-    {
-        auto* w = static_cast<UnorderedWalk*>(data);
-        if (!w->found.empty())
-            return CXChildVisit_Break;
-        if (clang_getCursorKind(c) != CXCursor_FieldDecl)
-            return CXChildVisit_Continue;
-        const std::string hit = findUnorderedInside(clang_getCursorType(c), 1);
-        if (!hit.empty())
-        {
-            CXString n = clang_getCursorSpelling(c);
-            const char* nc = clang_getCString(n);
-            w->found = std::string((nc != nullptr) ? nc : "?") + " (" + hit + ")";
-            clang_disposeString(n);
-            return CXChildVisit_Break;
-        }
-        return CXChildVisit_Continue;
-    }
-
-    /* Task 3.2 (1): can the generated code reproduce this element byte-for-byte? Only when every
-     * unordered container inside it is reachable by the generated recursion. A STRUCT element's fields
-     * are not reachable: the generated reader has no way to continue another type's generated reader
-     * (measured -- Serialization.h keeps `serializer::buffer` and `deserializer::m_Offset` private and
-     * offers no offset accessor), so such an element would still be written in traversal order. This
-     * returns the offending field, e.g. "m (unordered_map)", or "" when nothing was found. Records
-     * whose declaration is not in this translation unit cannot be inspected -- that limit is written
-     * down in the design's known-boundary list.
-     */
-    std::string findUnorderedInside(CXType type, int depth)
-    {
-        if (depth > 3)
-            return "";
-        CXType canon = stripElaborated(clang_getCanonicalType(type));
-        if (canon.kind == CXType_ConstantArray || canon.kind == CXType_IncompleteArray)
-            return findUnorderedInside(clang_getArrayElementType(canon), depth + 1);
-        if (canon.kind != CXType_Record)
-            return "";
-        const std::string base = canonicalBaseName(canon);
-        if (base.rfind("unordered_", 0) == 0)
-            return base;
-        const CXCursor decl = clang_getTypeDeclaration(canon);
-        if (clang_Cursor_isNull(decl))
-            return "";
-        UnorderedWalk w;
-        clang_visitChildren(decl, unorderedWalkVisitor, &w);
-        return w.found;
-    }
-
     void analyzeContainer(CXType spelled, Field& f)
     {
         const CXType canon = stripElaborated(clang_getCanonicalType(spelled));
         if (canon.kind == CXType_ConstantArray || canon.kind == CXType_IncompleteArray)
         {
-            // Task 2.2 / 3.2 (3): a C array is a container by EXTENT. Its element is the type with one
+            // / 3.2 (3): a C array is a container by EXTENT. Its element is the type with one
             // dimension removed, so `int a[2][3]` reports `int[3]`, and recursion reaches `int`.
             f.isContainer             = true;
             const CXType   element    = clang_getArrayElementType(canon);
@@ -392,8 +337,6 @@ namespace
                 f.element2Kind = static_cast<int>(stripElaborated(clang_getCanonicalType(inner)).kind);
             }
             f.elementIsOpaque         = (elementCanon.kind == CXType_Pointer);
-            if (!f.elementIsContainer && elementCanon.kind == CXType_Record)
-                f.elementUnstableInside = findUnorderedInside(elementCanon, 0);
             return;
         }
         const std::string base = canonicalBaseName(canon);
@@ -432,8 +375,10 @@ namespace
             f.keyIsWrapper     = looksLikeWrapper(k.second);
             f.elementIsWrapper = looksLikeWrapper(v.second);
             f.elementNotDefault = !isDefaultConstructible(v.second);
-            if (f.containerUnordered && !hasOrderingOperator(v.second))
-                f.sortSideNotOrdered = true;
+            // 只有**参与排序的那一侧**需要全序：map 的规范顺序按**键**排（生成的比较器就是
+            // `a.first < b.first`），值不参与排序，所以值没有排序算子不算问题。
+            // 这一条以前把值那侧也算进来，结果是引擎里真实的 `unordered_map<sha256 摘要, VulkanShaderCode>`
+            // 被拒（值是个带向量的结构体，没有排序算子），而它本来完全写得出来。
             if (f.containerUnordered && !hasOrderingOperator(k.second))
                 f.sortSideNotOrdered = true;
             f.keyNotDefault     = !isDefaultConstructible(k.second);
@@ -443,8 +388,6 @@ namespace
                 describeElementOfContainer(v.second, f.element2TypeName, f.element2Kind, secondIsContainer);
                 f.element2IsContainer = secondIsContainer;
             }
-            if (!f.elementIsContainer && v.second.kind == CXType_Record)
-                f.elementUnstableInside = findUnorderedInside(v.second, 0);
         }
         else
         {
@@ -462,8 +405,6 @@ namespace
                 describeElementOfContainer(e.second, f.element2TypeName, f.element2Kind, secondIsContainer);
                 f.element2IsContainer = secondIsContainer;
             }
-            if (!f.elementIsContainer && e.second.kind == CXType_Record)
-                f.elementUnstableInside = findUnorderedInside(e.second, 0);
             // `vector<bool>` is the bitset-backed odd one out: its elements are proxies, so the
             // runtime's `for (auto& item : object)` cannot be instantiated (measured MSVC C2440).
             if (base == "vector" && e.second.kind == CXType_Bool)
@@ -480,18 +421,26 @@ namespace
         CXCursorKind kind = clang_getCursorKind(cursor);
         if (kind == CXCursor_StructDecl || kind == CXCursor_ClassDecl)
         {
-            // Task 9.57: only types declared at namespace scope (or at file scope) are candidates. The
-            // visitor recurses into functions, so a helper struct declared INSIDE a function used to be
-            // pooled with the namespace-level type of the same name; the tool then emitted the local
-            // struct's member list for the annotated global type (measured: `Foo 1 / field inner` for a
-            // global `Foo { int a; int b; }` that carried the annotation).
+            // Candidate types: file scope, namespace scope, and types nested inside another
+            // struct/class (a nested type is a real delivery target — the engine annotates
+            // `DepthStencilStates::StencilStates` and `cahash::sha256_hash::result_type`).
+            // A type declared INSIDE A FUNCTION is still excluded: the visitor recurses into
+            // functions, and a helper struct declared there used to be pooled with the namespace-level
+            // type of the same name; the tool then emitted the local struct's member list for the
+            // annotated global type (measured: `Foo 1 / field inner` for a global
+            // `Foo { int a; int b; }` that carried the annotation).
             const CXCursorKind parentKind = clang_getCursorKind(clang_getCursorSemanticParent(cursor));
-            if (parentKind != CXCursor_TranslationUnit && parentKind != CXCursor_Namespace)
-                return CXChildVisit_Continue;
-            CXString spelling = clang_getCursorSpelling(cursor);
-            ctx->out->emplace_back(clang_getCString(spelling), cursor);
-            clang_disposeString(spelling);
-            return CXChildVisit_Continue; // do not recurse into nested decls (top-level sufficient)
+            const bool scoped = parentKind == CXCursor_TranslationUnit || parentKind == CXCursor_Namespace ||
+                                parentKind == CXCursor_StructDecl || parentKind == CXCursor_ClassDecl;
+            if (scoped)
+            {
+                CXString spelling = clang_getCursorSpelling(cursor);
+                ctx->out->emplace_back(clang_getCString(spelling), cursor);
+                clang_disposeString(spelling);
+            }
+            // Recurse either way: a nested type is declared INSIDE its enclosing class body, so
+            // not descending would hide exactly the types this branch now accepts.
+            return CXChildVisit_Recurse;
         }
         return CXChildVisit_Recurse;
     }
@@ -499,7 +448,7 @@ namespace
     struct FieldSink
     {
         std::vector<Field>* fields       = nullptr;
-        // Task 9.1: the OUTER-class annotation channel (CA_REFLECTION / CA_REFLECT written at namespace
+        // the OUTER-class annotation channel (`CA_REFLECT` written before the type, i.e. at namespace
         // scope) is a zero-intrusion text scan; the code it emits names members directly, so it can only
         // serve types whose members are ALL public. Extraction (printing the type table) is still fine for
         // private members — only EMITTING compilable code is refused. See the guard before the emitters.
@@ -528,7 +477,12 @@ namespace
             f.typeName   = clang_getCString(sType);
             f.offsetBytes = bits > 0 ? static_cast<std::size_t>(bits) / 8u : 0u;
             f.typeKind   = static_cast<int>(clang_getCanonicalType(type).kind);
-            analyzeContainer(type, f);   // Task 2.1: container facts, recognized structurally
+            analyzeContainer(type, f);   // container facts, recognized structurally
+            // Does the member ITSELF (not its element) point at something? `shared_ptr<T>` / `unique_ptr<T>`
+            // are records, so the kind test alone misses them — the spelling test covers those.
+            const CXType canonicalMember = clang_getCanonicalType(type);
+            f.memberIsOpaque             = (canonicalMember.kind == CXType_Pointer);
+            f.memberIsManagedPointer     = looksLikeManagedPointer(canonicalMember);
 
             clang_disposeString(sName);
             clang_disposeString(sType);
@@ -537,7 +491,7 @@ namespace
         return CXChildVisit_Continue;
     }
 
-    // --- Task 6b.2: read CA_REFLECT marker options from the source TEXT (not libclang attributes).
+    // --- read CA_REFLECT marker options from the source TEXT (not libclang attributes).
     // libclang's C API reads custom-namespaced attributes only weakly, so the marker macro's option
     // list travels as text for the tool to grep. The associated type is the class body FOLLOWING the
     // nearest preceding `CA_REFLECT(...)` line (textual association). Deterministic.
@@ -558,7 +512,7 @@ namespace
         return s.substr(a, b - a + 1);
     }
 
-    /** Task 9.42 + 9.50②: match a marker option as a WHOLE `name[=value]` pair.
+    /** + 9.50②: match a marker option as a WHOLE `name[=value]` pair.
         - the old check was `opts.find("serializable")` (substring: `nonserializable` passed, a mention
           inside a comment passed);
         - `serializable=0` / `serializable=false` must NOT count as requesting serialization — the value
@@ -601,9 +555,9 @@ namespace
         return false;
     }
 
-    /** Task 9.59: WHICH TYPES ARE ANNOTATED is now answered by the preprocessor, not by scanning text.
+    /** WHICH TYPES ARE ANNOTATED is now answered by the preprocessor, not by scanning text.
 
-        Three review rounds in a row (tasks 9.50, 9.54, 9.55, 9.57) each closed one spelling by which a
+        Three review rounds in a row each closed one spelling by which a
         text scan could be fooled and each time a neighbouring spelling reopened the same defect class:
         a marker inside a comment, then inside a string, then inside a line-spliced comment, then inside
         disabled preprocessor branches, then inside a `#define` body, then `#if 0` with a trailing
@@ -621,7 +575,7 @@ namespace
 
     struct AnnotationUse
     {
-        std::string macro; // CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION
+        std::string macro; // CA_REFLECT / CA_CODEGEN_REGISTER
         std::string args;  // invocation text between the first '(' and the matching ')'
         std::size_t begin = 0;
         std::size_t end   = 0; // one past the invocation
@@ -668,7 +622,7 @@ namespace
             const char* cname = clang_getCString(sp);
             const std::string name = cname ? cname : "";
             clang_disposeString(sp);
-            if ((name == "CA_REFLECT" || name == "CA_CODEGEN_REGISTER" || name == "CA_REFLECTION") &&
+            if ((name == "CA_REFLECT" || name == "CA_CODEGEN_REGISTER") &&
                 cursorIsInMainFile(cursor, ctx->filePath))
             {
                 CXSourceRange r = clang_getCursorExtent(cursor);
@@ -684,13 +638,15 @@ namespace
         if (kind == CXCursor_StructDecl || kind == CXCursor_ClassDecl ||
             kind == CXCursor_ClassTemplate || kind == CXCursor_ClassTemplatePartialSpecialization)
         {
-            // Only file-scope and namespace-scope types: a struct declared inside a function or nested in
-            // another class is not a delivery target (task 9.57). Class templates are recorded as well, so
-            // that a file which annotates ONLY a template is not reported as "no annotated types";
-            // extracting one still fails later, because the target search knows only struct/class cursors.
+            // Candidate types: file scope, namespace scope, and types nested inside another
+            // struct/class. A type declared inside a FUNCTION is not a delivery target.
+            // Class templates are recorded as well, so that a file which annotates ONLY a template is not
+            // reported as "no annotated types"; extracting one still fails later, because the target
+            // search knows only struct/class cursors.
             const CXCursorKind parentKind = clang_getCursorKind(clang_getCursorSemanticParent(cursor));
-            if ((parentKind == CXCursor_TranslationUnit || parentKind == CXCursor_Namespace) &&
-                cursorIsInMainFile(cursor, ctx->filePath))
+            const bool scoped = parentKind == CXCursor_TranslationUnit || parentKind == CXCursor_Namespace ||
+                                parentKind == CXCursor_StructDecl || parentKind == CXCursor_ClassDecl;
+            if (scoped && cursorIsInMainFile(cursor, ctx->filePath))
             {
                 CXString sp = clang_getCursorSpelling(cursor);
                 const char* cname = clang_getCString(sp);
@@ -705,7 +661,9 @@ namespace
                         { offset, name, cursor, clang_isCursorDefinition(cursor) != 0 });
                 }
             }
-            return CXChildVisit_Continue; // do not descend into nested declarations
+            // Recurse: a nested type is declared inside its enclosing class body, so not descending
+            // would hide exactly the types the branch above now accepts.
+            return CXChildVisit_Recurse;
         }
         return CXChildVisit_Recurse;
     }
@@ -742,11 +700,9 @@ namespace
 
     /** A type is annotated when a real annotation invocation is followed by its declaration.
 
-        Two of the three channels carry the annotated type's NAME instead of sitting next to its
-        definition, so they resolve by name: `CA_REFLECTION(Type, a, b)` names the type as its first
-        argument (measured: Tools/CodeGen/TestExternal.h declares the member list and no struct at all),
-        and `CA_CODEGEN_REGISTER("Qualified.Name")` names it inside the string literal. Only `CA_REFLECT`
-        binds to the type declaration that follows the invocation. */
+        `CA_CODEGEN_REGISTER("Qualified.Name")` carries the annotated type's NAME instead of sitting next to
+        its definition, so it resolves by name (the string literal); `CA_REFLECT` binds to the type
+        declaration that follows the invocation. */
     std::map<std::string, AnnotationBinding> bindAnnotations(const std::vector<AnnotationUse>& uses,
                                                              const std::vector<TypeOccurrence>& types)
     {
@@ -754,12 +710,7 @@ namespace
         for (const AnnotationUse& u : uses)
         {
             std::string named;
-            if (u.macro == "CA_REFLECTION")
-            {
-                const std::size_t comma = u.args.find(',');
-                named = trim(comma == std::string::npos ? u.args : u.args.substr(0, comma));
-            }
-            else if (u.macro == "CA_CODEGEN_REGISTER")
+            if (u.macro == "CA_CODEGEN_REGISTER")
             {
                 const std::size_t q1 = u.args.find('"');
                 const std::size_t q2 = (q1 == std::string::npos) ? std::string::npos : u.args.find('"', q1 + 1);
@@ -790,37 +741,7 @@ namespace
         return (it == bound.end() || it->second.macro != "CA_REFLECT") ? std::string() : it->second.args;
     }
 
-    /** Task 6b.3 + 9.59: the CA_REFLECTION(Type, a, b) member list, taken from the invocation the
-        preprocessor reported (not from a text search). The first argument names the type; the rest are the
-        member names in declaration order. */
-    std::vector<std::string> scanCA_REFLECTIONList(const std::map<std::string, AnnotationBinding>& bound,
-                                                   const std::string& typeName)
-    {
-        for (const auto& kv : bound)
-        {
-            if (kv.second.macro != "CA_REFLECTION")
-                continue;
-            std::vector<std::string> parts;
-            std::string cur;
-            for (char c : kv.second.args)
-            {
-                if (c == ',') { parts.push_back(trim(cur)); cur.clear(); }
-                else cur += c;
-            }
-            parts.push_back(trim(cur));
-            if (!parts.empty() && unqualifiedName(parts[0]) == unqualifiedName(typeName))
-            {
-                std::vector<std::string> members;
-                for (std::size_t i = 1; i < parts.size(); ++i)
-                    if (!parts[i].empty())
-                        members.push_back(parts[i]);
-                return members; // the first matching declaration wins
-            }
-        }
-        return {};
-    }
-
-    // --- Task 5.1: reflection emitter. The tool does NOT link CodeGenMeta.h (it is a pure
+    // --- reflection emitter. The tool does NOT link CodeGenMeta.h (it is a pure
     // libclang text producer, not part of the engine build), so it emits *enum-NAME strings*
     // (e.g. "TypeKind::Int") and relies on the consumer TU to resolve them against cacore::codegen.
     struct EmitField
@@ -828,7 +749,7 @@ namespace
         std::string name;     // member name, e.g. "a"
         std::string typeName; // spelled C++ type, e.g. "float"; empty => emit nullptr (unknown type)
         std::string kindName; // semantic TypeKind::X enum-name string
-        // Task 2.2: container facts copied from the analysis, emitted as flags + element/key tables.
+        // container facts copied from the analysis, emitted as flags + element/key tables.
         bool        isContainer = false;
         bool        unordered = false;
         bool        bitPacked = false;
@@ -926,7 +847,7 @@ namespace
 
     // Emit a readable, constexpr TypeDescriptor<T> specialization (the shape the ABI guard / runtime
     // readers consume). Deterministic: the field list arrives in DECLARATION order and is emitted as-is
-    // (no sort — see task 9.5a), so the same input always yields the same bytes.
+    // (no sort — see ), so the same input always yields the same bytes.
     void emitTypeDescriptor(const std::vector<EmitField>& fields, const std::string& qname, FILE* out)
     {
         std::fprintf(out,
@@ -947,7 +868,7 @@ namespace
         }
         else
         {
-            // Task 2.2: one-entry descriptor tables for container members. `offset` is 0 because an
+            // one-entry descriptor tables for container members. `offset` is 0 because an
             // element is not a member of the parent type; `name` is the role ("key" / "value").
             for (const EmitField& f : fields)
             {
@@ -1006,342 +927,81 @@ namespace
         std::fprintf(out, "} // namespace cacore::codegen\n");
     }
 
-    // --- Task 6.1: serialization emitter. Generates a `CodeGenSerializer<T>` that (de)serializes the
-    // reflected type field-by-field in DECLARATION ORDER (the order the type table carries,
-    // which matches CA_REFLECTION's member order). It is a PARALLEL, data-driven exit distinct from the
-    // runtime `careflection`/`visit_members` path (which Serialization.h keeps using). Gated on the
-    // `serializable` marker option (design AUDIT-4, decided 2026-09-08): only emitted for serializable
-    // types, so `serializable` is actually consumed here. Fragments, like the reflection emitter — the
-    // consumer TU must have CodeGenMeta.h + Serialization.h on the include path, and the type defined.
+    // --- Serialization emitter. Generates a `CodeGenSerializer<T>` that (de)serializes the
+    // reflected type field-by-field in DECLARATION ORDER (the order the type table carries).
+    // The generated code is a thin specialization over the
+    // CodeGen-owned runtime (CACore/header/CodeGenSerialization.h): the writer appends, the reader carries
+    // an EXPLICIT position reference, so the generated code can hand its position to another type's
+    // generated code and keep reading — which is what makes "a container of structs" expressible.
+    // Gated on the `serializable` marker option
+    // (design AUDIT-4, decided 2026-09-08): only emitted for serializable types.
     void emitCodeGenSerializer(const std::vector<EmitField>& fields, const std::string& qname, FILE* out)
     {
-        const bool anyUnordered = std::any_of(fields.begin(), fields.end(), [](const EmitField& f) {
-            return f.isContainer && f.unordered && !f.bitPacked;
-        });
-        const bool anyContainer = std::any_of(fields.begin(), fields.end(),
-                                              [](const EmitField& f) { return f.isContainer; });
         std::fprintf(out,
             "// Generated by CodeGen serialization emitter for %s.\n"
-            "// Requires: the type is defined + CodeGenMeta.h + Serialization.h on the include path.\n"
+            "// Requires: the type is defined + CodeGenSerialization.h on the include path.\n"
             "// Deterministic: declaration-order field traversal, same input => same bytes.\n"
-            "// Unordered containers are flattened and sorted before writing (task 3.1), and every\n"
-            "// container is cleared before reading (task 3.4), so the bytes and the read-back result\n"
-            "// depend on the CONTENT only — never on the insertion history of the container.\n"
+            "// Unordered containers are flattened and sorted before writing, so the bytes depend on the\n"
+            "// CONTENT only - never on the insertion history of the container.\n"
             "#pragma once\n"
             "\n"
-            "#include \"CodeGenMeta.h\"\n"
-            "#include \"Serialization.h\"\n"
-            "%s%s%s"
-            "\n",
-            qname.c_str(),
-            anyUnordered ? "#include <algorithm>   // std::sort for the canonical container order\n" : "",
-            anyUnordered ? "#include <utility>     // std::pair for the flattened map entries\n" : "",
-            (anyUnordered || anyContainer) ? "#include <type_traits> // the container traits below\n"
-                                             "#include <vector>      // the flattened array itself\n"
-                                           : "");
-        std::fprintf(out, "namespace cacore::codegen\n{\n");
-        if (anyContainer)
-        {
-            // Container IO is STRUCTURAL recursion over the container type itself, so it covers
-            // arbitrary nesting (`vector<vector<int>>`, `map<K, set<V>>`, `T m[2][3]`) with no
-            // per-type metadata. The old runtime cannot do this: its read path has no branch for
-            // "element is itself a container" and asserts (measured: Serialization.h static
-            // assertion 'Wrong'), which is why container IO belongs to the generated code.
-            std::fprintf(out,
-                "template<typename T, typename = void> struct CGIsUnordered : std::false_type {};\n"
-                "template<typename T> struct CGIsUnordered<T, std::void_t<decltype(std::declval<T const&>().bucket_count())>> : std::true_type {};\n"
-                "template<typename T, typename = void> struct CGIsMapLike : std::false_type {};\n"
-                "template<typename T> struct CGIsMapLike<T, std::void_t<typename T::mapped_type>> : std::true_type {};\n"
-                "template<typename T> struct CGIsContainer\n"
-                "    : std::integral_constant<bool, careflection::containerStates<T>::is_container_with_size> {};\n"
-                "// map/set expose pair<const K, V>: the flattened array needs an assignable element\n"
-                "template<typename T, typename = void> struct CGFlat { using type = T; };\n"
-                "template<typename T> struct CGFlat<T, std::void_t<typename T::first_type, typename T::second_type>>\n"
-                "{\n"
-                "    using type = std::pair<std::remove_const_t<typename T::first_type>, typename T::second_type>;\n"
-                "};\n"
-                "\n"
-                "template<typename ByteBuffer, typename E> void cgWriteValue(::cacore::serializer<ByteBuffer>& s, E const& e);\n"
-                "template<typename ByteBuffer, typename E> void cgReadValue(::cacore::deserializer<ByteBuffer>& d, E& e);\n"
-                "template<typename ByteBuffer, typename C> void cgWriteContainer(::cacore::serializer<ByteBuffer>& s, C const& c);\n"
-                "template<typename ByteBuffer, typename C> void cgReadContainer(::cacore::deserializer<ByteBuffer>& d, C& c);\n"
-                "\n"
-                "// Writes the element count, then every element - sorted first when the container's traversal\n"
-                "// order is unspecified, so the bytes depend on the CONTENT only.\n"
-                "template<typename ByteBuffer, typename C>\n"
-                "void cgWriteContainerSized(::cacore::serializer<ByteBuffer>& s, C const& c)\n"
-                "{\n"
-                "    using E0 = typename C::value_type;\n"
-                "    using E = typename CGFlat<E0>::type;  // map value_type carries a const key\n"
-                "    if constexpr (CGIsUnordered<C>::value)\n"
-                "    {\n"
-                "        std::vector<E> flat(c.begin(), c.end());\n"
-                "        std::sort(flat.begin(), flat.end(), [](E const& a, E const& b) {\n"
-                "            if constexpr (CGIsMapLike<C>::value) return a.first < b.first;\n"
-                "            else return a < b; });\n"
-                "        s.serialize(static_cast<unsigned long long>(flat.size()));\n"
-                "        for (auto const& e : flat) cgWriteValue(s, e);\n"
-                "    }\n"
-                "    else\n"
-                "    {\n"
-                "        s.serialize(static_cast<unsigned long long>(c.size()));\n"
-                "        for (auto const& e : c) cgWriteValue(s, e);\n"
-                "    }\n"
-                "}\n"
-                "\n"
-                "// C arrays (including every extra dimension) are written as (extent, elements), which is exactly\n"
-                "// the multi-dimension shape the disk contract describes.\n"
-                "template<typename ByteBuffer, typename C>\n"
-                "void cgWriteContainer(::cacore::serializer<ByteBuffer>& s, C const& c)\n"
-                "{\n"
-                "    if constexpr (std::is_array_v<C>)\n"
-                "    {\n"
-                "        s.serialize(static_cast<unsigned long long>(std::extent_v<C>));\n"
-                "        for (auto const& e : c) cgWriteValue(s, e);\n"
-                "    }\n"
-                "    else cgWriteContainerSized(s, c);\n"
-                "}\n"
-                "\n"
-                "template<typename ByteBuffer, typename E>\n"
-                "void cgWriteValue(::cacore::serializer<ByteBuffer>& s, E const& e)\n"
-                "{\n"
-                "    if constexpr (std::is_array_v<E>) cgWriteContainer(s, e);\n"
-                "    else if constexpr (CGIsContainer<E>::value) cgWriteContainer(s, e);\n"
-                "    else if constexpr (CGIsMapLike<std::remove_cv_t<E>>::value == false && requires { e.first; e.second; })\n"
-                "    { cgWriteValue(s, e.first); cgWriteValue(s, e.second); }\n"
-                "    else s.serialize(e);\n"
-                "}\n"
-                "\n"
-                "// Clears the target first, then rebuilds it from the payload alone: the result must depend on the\n"
-                "// payload only, never on whatever the target happened to hold before.\n"
-                "template<typename ByteBuffer, typename C>\n"
-                "void cgReadContainerSized(::cacore::deserializer<ByteBuffer>& d, C& c)\n"
-                "{\n"
-                "    c.clear();\n"
-                "    unsigned long long n = 0;\n"
-                "    d.deserialize(n);\n"
-                "    for (unsigned long long i = 0; i < n; ++i)\n"
-                "    {\n"
-                "        using E = typename C::value_type;\n"
-                "        if constexpr (CGIsMapLike<C>::value)\n"
-                "        {\n"
-                "            using K = std::remove_const_t<typename E::first_type>;\n"
-                "            using V = typename E::second_type;\n"
-                "            K k{}; V v{}; cgReadValue(d, k); cgReadValue(d, v);\n"
-                "            c.insert(std::make_pair(std::move(k), std::move(v)));\n"
-                "        }\n"
-                "        else\n"
-                "        {\n"
-                "            E e{}; cgReadValue(d, e); c.insert(c.end(), std::move(e));\n"
-                "        }\n"
-                "    }\n"
-                "}\n"
-                "\n"
-                "template<typename ByteBuffer, typename C>\n"
-                "void cgReadContainer(::cacore::deserializer<ByteBuffer>& d, C& c)\n"
-                "{\n"
-                "    if constexpr (std::is_array_v<C>)\n"
-                "    {\n"
-                "        unsigned long long n = 0;\n"
-                "        d.deserialize(n);\n"
-                "        for (unsigned long long i = 0; i < n && i < std::extent_v<C>; ++i) cgReadValue(d, c[i]);\n"
-                "    }\n"
-                "    else cgReadContainerSized(d, c);\n"
-                "}\n"
-                "\n"
-                "template<typename ByteBuffer, typename E>\n"
-                "void cgReadValue(::cacore::deserializer<ByteBuffer>& d, E& e)\n"
-                "{\n"
-                "    if constexpr (std::is_array_v<E>) cgReadContainer(d, e);\n"
-                "    else if constexpr (CGIsContainer<E>::value) cgReadContainer(d, e);\n"
-                "    else if constexpr (requires { e.first; e.second; })\n"
-                "    { cgReadValue(d, e.first); cgReadValue(d, e.second); }\n"
-                "    else d.deserialize(e);\n"
-                "}\n"
-                "\n");
-        }
-        std::fprintf(out, "template<typename T> struct CodeGenSerializer;  // primary template\n\n");
-        std::fprintf(out, "template<>\nstruct CodeGenSerializer<%s>\n{\n", qname.c_str());
-        std::fprintf(out, "    using Obj = %s;\n", qname.c_str());
-        std::fprintf(out, "    template<typename ByteBuffer>\n    static void serialize(Obj const& obj, ByteBuffer& buffer)\n    {\n");
-        std::fprintf(out, "        ::cacore::serializer<ByteBuffer> s(buffer);  // one instance carries offset\n");
-        for (const EmitField& f : fields)
-        {
-            // Task 3.1 / 3.2: every container (ordered or not, nested or not) is written by the
-            // emitted structural writer, which sorts unordered containers at every level.
-            if (f.isContainer && !f.bitPacked)
-                std::fprintf(out, "        cgWriteContainer(s, obj.%s);\n", f.name.c_str());
-            else
-                std::fprintf(out, "        s.serialize(obj.%s);\n", f.name.c_str());
-        }
-        std::fprintf(out,
-            "    }\n"
+            "#include \"CodeGenSerialization.h\"\n"
+            "\n"
+            "namespace cacore::codegen\n"
+            "{\n"
+            "template<>\n"
+            "struct CodeGenSerializer<%s>\n"
+            "{\n"
+            "    using Obj = %s;\n"
             "    template<typename ByteBuffer>\n"
-            "    static void deserialize(Obj& obj, ByteBuffer const& buffer)\n"
+            "    static void serialize(Obj const& obj, ByteBuffer& buffer)\n"
             "    {\n"
-            "        ::cacore::deserializer<ByteBuffer> d(buffer);  // one instance carries offset\n");
+            "        ::cacore::codegen::writer<ByteBuffer> w(buffer);\n",
+            qname.c_str(), qname.c_str(), qname.c_str());
         for (const EmitField& f : fields)
-        {
-            // Task 3.4 / 3.2: the structural reader clears the target first and rebuilds it from the
-            // payload alone — and it recurses, which the old runtime's reader cannot do.
-            if (f.isContainer && !f.bitPacked)
-                std::fprintf(out, "        cgReadContainer(d, obj.%s);\n", f.name.c_str());
-            else
-                std::fprintf(out, "        d.deserialize(obj.%s);\n", f.name.c_str());
-        }
+            std::fprintf(out, "        cgWriteValue(w, obj.%s);\n", f.name.c_str());
         std::fprintf(out,
             "    }\n"
-            "};\n");
-        std::fprintf(out, "} // namespace cacore::codegen\n");
+            "    // The read position is an explicit parameter: this entry can be called in the middle of a\n"
+            "    // stream, and it leaves `position` where it stopped so the caller keeps reading.\n"
+            "    template<typename ByteBuffer>\n"
+            "    static bool deserialize(Obj& obj, ByteBuffer const& buffer, std::size_t& position)\n"
+            "    {\n"
+            "        ::cacore::codegen::reader_t<ByteBuffer> r(buffer, position);\n");
+        for (const EmitField& f : fields)
+            std::fprintf(out, "        if (!cgReadValue(r, obj.%s)) return false;\n", f.name.c_str());
+        std::fprintf(out,
+            "        return r.ok();\n"
+            "    }\n"
+            "};\n"
+            "} // namespace cacore::codegen\n");
     }
 
-    // --- Task 6.2: hash + equality emitter. Generates a `custom_hash_trait<T>` (the hook the existing
-    // `aggregateHasher` already calls via `has_custom_hash_func`) plus a field-wise `equal`. It hashes
-    // EACH FIELD in declaration order, NOT the whole struct raw bytes (=> padding/layout independent),
-    // and normalizes floats (map -0.0 -> +0.0 and every NaN -> a canonical NaN) so hash(-0.0)==hash(+0.0)
-    // and NaN hashes stably. `operator==`-equivalent semantics: float fields compare `==` OR both-NaN.
-    // Non-goal: does NOT migrate the existing HashObj semantic (per proposal), it's a generated trait.
+    // --- Hash + equality emitter. Generates a `custom_hash_trait<T>` (the hook the CodeGen
+    // hasher calls) plus a `CodeGenEqual<T>` (the same-source equality: whatever the hash walks, the
+    // equality walks). It hashes EACH FIELD in declaration order, NOT the whole struct's raw bytes
+    // (=> padding/layout independent), and normalizes floats (-0.0 -> +0.0, every NaN -> a canonical NaN).
+    // All of that already lives in the runtime's `cgHashContainerValue` / `cgEqualContainer` /
+    // `cgEqualValue`, so the emitted file is a thin specialization.
     void emitHashTrait(const std::vector<EmitField>& fields, const std::string& qname, FILE* out)
     {
         std::fprintf(out,
             "// Generated by CodeGen hash/equality emitter for %s.\n"
             "// Field-wise (padding/layout independent), floats normalized (-0.0=+0.0, NaN canonical).\n"
-            "// Requires: type defined + Hasher.h on the include path. Deterministic (declaration order).\n"
+            "// Requires: type defined + CodeGenHash.h on the include path. Deterministic (declaration order).\n"
             "#pragma once\n"
             "\n"
-            "#include \"Hasher.h\"\n"
-            "#include <limits>\n"
-            "#include <algorithm>\n"
-            "#include <iterator>\n"
-            "#include <type_traits>\n"
-            "#include <utility>\n"
-            "#include <vector>\n"
-            "\n",
-            qname.c_str());
-        const bool anyContainer = std::any_of(fields.begin(), fields.end(),
-            [](const EmitField& f) { return f.isContainer; });
-        if (anyContainer)
-        {
-            // Task 3.3 / 3.2: a container's hash must not depend on its traversal order, and each
-            // element must be hashed by ITS OWN specialization -- `h.hash(element)` takes the
-            // trivially copyable shortcut and never reaches the element's trait (measured; see the
-            // design record), and floats inside a container bypass the -0.0 / NaN normalization.
-            std::fprintf(out,
-                "template<typename T, typename = void> struct CGHashIsUnordered : std::false_type {};\n"
-                "template<typename T> struct CGHashIsUnordered<T, std::void_t<decltype(std::declval<T const&>().bucket_count())>> : std::true_type {};\n"
-                "template<typename T, typename = void> struct CGHashIsMapLike : std::false_type {};\n"
-                "template<typename T> struct CGHashIsMapLike<T, std::void_t<typename T::mapped_type>> : std::true_type {};\n"
-                "template<typename T> struct CGHashIsContainer\n"
-                "    : std::integral_constant<bool, careflection::containerStates<T>::is_container_with_size> {};\n"
-                "template<typename T, typename = void> struct CGHashFlat { using type = T; };\n"
-                "template<typename T> struct CGHashFlat<T, std::void_t<typename T::first_type, typename T::second_type>>\n"
-                "{\n"
-                "    using type = std::pair<std::remove_const_t<typename T::first_type>, typename T::second_type>;\n"
-                "};\n"
-                "\n"
-                "// Container equality: `std::equal` would compare the ROWS of a multi-dimensional C\n"
-                "// array by address (array-to-pointer decay), so arrays recurse element-wise.\n"
-                "template<typename C> bool cgEqualContainer(C const& a, C const& b)\n"
-                "{\n"
-                "    if constexpr (std::is_array_v<C>)\n"
-                "    {\n"
-                "        for (std::size_t i = 0; i < std::extent_v<C>; ++i)\n"
-                "            if (!cgEqualContainer(a[i], b[i])) return false;\n"
-                "        return true;\n"
-                "    }\n"
-                "    else return a == b;\n"
-                "}\n"
-                "template<typename H, typename C> void cgHashContainer(H& h, C const& c);\n"
-                "template<typename H, typename E> void cgHashContainerValue(H& h, E const& e)\n"
-                "{\n"
-                "    using V = std::remove_cvref_t<E>;\n"
-                "    if constexpr (std::is_same_v<V, float>)\n"
-                "    { float v = e; if (v == 0.0f) v = 0.0f; else if (v != v) v = std::numeric_limits<float>::quiet_NaN(); h.hash_raw(&v, sizeof(v)); }\n"
-                "    else if constexpr (std::is_same_v<V, double>)\n"
-                "    { double v = e; if (v == 0.0) v = 0.0; else if (v != v) v = std::numeric_limits<double>::quiet_NaN(); h.hash_raw(&v, sizeof(v)); }\n"
-                "    else if constexpr (std::is_array_v<V>) cgHashContainer(h, e);\n"
-                "    else if constexpr (CGHashIsContainer<V>::value) cgHashContainer(h, e);\n"
-                "    else if constexpr (cacore::has_custom_hash_func<V, H>) cacore::custom_hash_trait<V>::hash(e, h);\n"
-                "    else h.hash(e);\n"
-                "}\n"
-                "\n"
-                "template<typename H, typename C>\n"
-                "void cgHashContainerSized(H& h, C const& c)\n"
-                "{\n"
-                "    using E0 = typename C::value_type;\n"
-                "    using E = typename CGHashFlat<E0>::type;\n"
-                "    if constexpr (CGHashIsUnordered<C>::value)\n"
-                "    {\n"
-                "        std::vector<E> flat(c.begin(), c.end());\n"
-                "        std::sort(flat.begin(), flat.end(), [](E const& a, E const& b) {\n"
-                "            if constexpr (CGHashIsMapLike<C>::value) return a.first < b.first;\n"
-                "            else return a < b; });\n"
-                "        h.hash(static_cast<unsigned long long>(flat.size()));\n"
-                "        for (auto const& e : flat)\n"
-                "        {\n"
-                "            if constexpr (CGHashIsMapLike<C>::value) { cgHashContainerValue(h, e.first); cgHashContainerValue(h, e.second); }\n"
-                "            else cgHashContainerValue(h, e);\n"
-                "        }\n"
-                "    }\n"
-                "    else\n"
-                "    {\n"
-                "        h.hash(static_cast<unsigned long long>(c.size()));\n"
-                "        for (auto const& e : c)\n"
-                "        {\n"
-                "            if constexpr (CGHashIsMapLike<C>::value) { cgHashContainerValue(h, e.first); cgHashContainerValue(h, e.second); }\n"
-                "            else cgHashContainerValue(h, e);\n"
-                "        }\n"
-                "    }\n"
-                "}\n"
-                "\n"
-                "template<typename H, typename C>\n"
-                "void cgHashContainer(H& h, C const& c)\n"
-                "{\n"
-                "    if constexpr (std::is_array_v<C>)\n"
-                "    {\n"
-                "        h.hash(static_cast<unsigned long long>(std::extent_v<C>));\n"
-                "        for (auto const& e : c) cgHashContainerValue(h, e);\n"
-                "    }\n"
-                "    else cgHashContainerSized(h, c);\n"
-                "}\n"
-                "\n");
-        }
-        std::fprintf(out, "namespace cacore\n{\n");
-        std::fprintf(out, "template<typename T> struct custom_hash_trait;\n"); // ensure primary is declared
-        std::fprintf(out, "template<>\n");
-        std::fprintf(out, "struct custom_hash_trait<%s>\n{\n", qname.c_str());
-        std::fprintf(out, "    using Obj = %s;\n", qname.c_str());
-        std::fprintf(out,
-            "    template<typename hasher_t>\n"
-            "    static void hash(Obj const& obj, hasher_t& h)\n"
-            "    {\n");
-        for (const EmitField& f : fields)
-        {
-            if (f.isContainer)
-            {
-                std::fprintf(out, "        cgHashContainer(h, obj.%s);\n", f.name.c_str());
-            }
-            else if (f.kindName == "TypeKind::Float")
-            {
-                std::fprintf(out,
-                    "        { float v = obj.%s; if (v == 0.0f) v = 0.0f; else if (v != v) v = std::numeric_limits<float>::quiet_NaN(); h.hash_raw(&v, sizeof(v)); }\n",
-                    f.name.c_str());
-            }
-            else if (f.kindName == "TypeKind::Double")
-            {
-                std::fprintf(out,
-                    "        { double v = obj.%s; if (v == 0.0) v = 0.0; else if (v != v) v = std::numeric_limits<double>::quiet_NaN(); h.hash_raw(&v, sizeof(v)); }\n",
-                    f.name.c_str());
-            }
-            else
-            {
-                std::fprintf(out, "        h.hash(obj.%s);\n", f.name.c_str());
-            }
-        }
-        std::fprintf(out,
-            "    }\n"
+            "#include \"CodeGenHash.h\"\n"
+            "\n"
+            "namespace cacore::codegen\n"
+            "{\n"
+            "template<>\n"
+            "struct CodeGenEqual<%s>\n"
+            "{\n"
+            "    using Obj = %s;\n"
             "    static bool equal(Obj const& a, Obj const& b)\n"
-            "    {\n");
+            "    {\n",
+            qname.c_str(), qname.c_str(), qname.c_str());
         for (const EmitField& f : fields)
         {
             if (f.kindName == "TypeKind::Float" || f.kindName == "TypeKind::Double")
@@ -1356,28 +1016,49 @@ namespace
             }
             else if (f.isContainer)
             {
-                // Task 3.2: `a.arr != b.arr` on a C array compares ADDRESSES (array-to-pointer decay),
-                // so container members are compared element-wise over both full ranges.
+                // `a.arr != b.arr` on a C array compares ADDRESSES (array-to-pointer decay), so container
+                // members are compared element-wise over both full ranges.
                 std::fprintf(out,
                     "        if (!cgEqualContainer(a.%s, b.%s)) return false;\n",
                     f.name.c_str(), f.name.c_str());
             }
             else
             {
-                std::fprintf(out, "        if (a.%s != b.%s) return false;\n", f.name.c_str(), f.name.c_str());
+                // Same source as the hash: a nested annotated type compares through ITS generated equal,
+                // a scalar through `==`.
+                std::fprintf(out, "        if (!cgEqualValue(a.%s, b.%s)) return false;\n",
+                             f.name.c_str(), f.name.c_str());
             }
         }
-        std::fprintf(out, "        return true;\n    }\n};\n");
-        std::fprintf(out, "} // namespace cacore\n");
+        std::fprintf(out,
+            "        return true;\n"
+            "    }\n"
+            "};\n"
+            "\n"
+            "template<>\n"
+            "struct custom_hash_trait<%s>\n"
+            "{\n"
+            "    using Obj = %s;\n"
+            "    template<typename hasher_t>\n"
+            "    static void hash(Obj const& obj, hasher_t& h)\n"
+            "    {\n",
+            qname.c_str(), qname.c_str());
+        for (const EmitField& f : fields)
+            std::fprintf(out, "        cgHashContainerValue(h, obj.%s);\n", f.name.c_str());
+        std::fprintf(out,
+            "    }\n"
+            "    static bool equal(Obj const& a, Obj const& b) { return CodeGenEqual<%s>::equal(a, b); }\n"
+            "};\n"
+            "} // namespace cacore::codegen\n",
+            qname.c_str());
     }
 
-    // --- Task 3.3: whitelist gating (design D2 "标过了才生成").
+    // --- whitelist gating ("标过了才生成").
     // The tool must NOT reflect every struct it parses — only types that carry a discovery marker.
     // We scan the SOURCE TEXT (not libclang attributes, which libclang's C API reads weakly) for the
-    // three marker forms and build the whitelist of "cross-the-boundary" type names:
+    // two marker forms and build the whitelist of "cross-the-boundary" type names:
     //   (a) CA_CODEGEN_REGISTER("QualifiedName")   -- string-literal arg (so :: is fine)
     //   (b) CA_REFLECT(...)                         -- type is the class/struct body FOLLOWING the marker
-    //   (c) CA_REFLECTION(Type, a, b)               -- first comma-arg is the type name
     // Empty whitelist => nothing is annotated => EXIT 0 + no file (the spec's "空名单不阻断 build"
     // config). A non-empty whitelist whose CLI target is NOT in it => the type was not marked => refuse
     // to extract (the negative gate). Deterministic: pure text scan, no cursor/metadata.
@@ -1400,7 +1081,7 @@ namespace
 
 } // namespace
 
-// Task 1.2: the diagnostic scan, factored out so it can also run BEFORE the "no annotated types" early
+// the diagnostic scan, factored out so it can also run BEFORE the "no annotated types" early
 // return. Measured defect it fixes: a syntax error, an unresolvable `#include`, and a marker macro that
 // was never defined all produced ZERO annotations, and the tool then printed "no annotated types (empty
 // whitelist)" and exited 0 — so a broken parse was indistinguishable from a clean header that has
@@ -1409,6 +1090,14 @@ struct DiagnosticScan
 {
     std::string fatalMsg;      // first fatal diagnostic (unresolved include and friends)
     unsigned    inHeader = 0;  // error-level diagnostics inside the file we were asked to parse
+
+    // The error-level diagnostics themselves, formatted, in order (capped). Without these the gate
+    // could only say "the environment is incomplete" — the one thing the reader needs is WHICH line and
+    // WHAT the compiler said.
+    std::vector<std::string> headerErrors;
+    // 同一批错误，但不限文件：被解析的头 include 的生成头 / 引擎头里的第一处错误往往才是根因
+    // （实测：`too many errors emitted, stopping now` 时，头内计数恒为 0，只看 headerErrors 什么都看不到）。
+    std::vector<std::string> anyErrors;
 
     bool untrustworthy() const { return !fatalMsg.empty() || inHeader > 0; }
 };
@@ -1431,6 +1120,13 @@ static DiagnosticScan scanDiagnostics(CXTranslationUnit tu, const std::string& f
         }
         if (sev >= CXDiagnostic_Error)
         {
+            if (scan.anyErrors.size() < 5)
+            {
+                CXString msg = clang_formatDiagnostic(d, clang_defaultDiagnosticDisplayOptions());
+                const char* c = clang_getCString(msg);
+                scan.anyErrors.push_back((c != nullptr) ? c : "(unformattable)");
+                clang_disposeString(msg);
+            }
             CXSourceLocation loc = clang_getDiagnosticLocation(d);
             CXFile file = nullptr;
             unsigned line = 0, col = 0, offset = 0;
@@ -1441,7 +1137,17 @@ static DiagnosticScan scanDiagnostics(CXTranslationUnit tu, const std::string& f
                 const char* cstr = clang_getCString(fn);
                 const bool same = (cstr != nullptr) && (baseName(cstr) == want);
                 clang_disposeString(fn);
-                if (same) ++scan.inHeader;
+                if (same)
+                {
+                    ++scan.inHeader;
+                    if (scan.headerErrors.size() < 5)
+                    {
+                        CXString msg = clang_formatDiagnostic(d, clang_defaultDiagnosticDisplayOptions());
+                        const char* c = clang_getCString(msg);
+                        scan.headerErrors.push_back((c != nullptr) ? c : "(unformattable)");
+                        clang_disposeString(msg);
+                    }
+                }
             }
         }
         clang_disposeDiagnostic(d);
@@ -1449,23 +1155,52 @@ static DiagnosticScan scanDiagnostics(CXTranslationUnit tu, const std::string& f
     return scan;
 }
 
+// Everything this parse actually READ, as libclang saw it. In the three-products mode it is printed as
+// `CodeGen deps: <path>` lines so build.py can hash those files into its "inputs unchanged" ledger.
+//
+// Why bother: the emitted bytes depend on the WHOLE include closure, not on the one header the manifest
+// names. Editing a header that a manifest header includes (but that is not itself in the manifest) used to
+// leave the ledger saying "nothing changed" -> the row was skipped -> the compiler kept consuming the
+// previous products while the build reported success. Re-deriving the list from the source text would be a
+// second, weaker copy of the preprocessor, so it comes from libclang instead.
+struct InclusionCollector
+{
+    std::vector<std::string>* paths;
+};
+
+void collectInclusion(CXFile includedFile, CXSourceLocation* /*stack*/, unsigned /*depth*/,
+                      CXClientData clientData)
+{
+    auto* collector = static_cast<InclusionCollector*>(clientData);
+    CXString name = clang_getFileName(includedFile);
+    const char* text = clang_getCString(name);
+    if (text != nullptr && *text != '\0')
+        collector->paths->push_back(text);
+    clang_disposeString(name);
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3)
     {
         std::fprintf(stderr,
-            "usage: CodeGen <file.h> <TypeName> [--emit-reflection] [--qualified-name=<qn>] [-o <out>] [clang-arg ...]\n");
+            "usage: CodeGen <file.h> <TypeName> [--emit-reflection] [--qualified-name=<qn>] [-o <out>] [clang-arg ...]\n"
+            "       CodeGen <file.h> <TypeName> --emit-all --out-dir <dir> [--qualified-name=<qn>] [clang-arg ...]\n");
         return 2;
     }
 
     const char* filePath = argv[1];
     const char* typeName = argv[2];
 
-    // Task 5.1/6.1: codegen flags (pulled out of the clang-arg list so they are never fed to libclang).
+    // codegen flags (pulled out of the clang-arg list so they are never fed to libclang).
     bool        emitReflection    = false;
     bool        emitSerialization = false;
     bool        emitHash          = false;
+    // `--emit-all` asks for all three products out of ONE parse. The three flags above stay the way to ask
+    // for exactly one; the two forms are mutually exclusive (see the check below).
+    bool        emitAll           = false;
     const char* outPath           = nullptr;
+    const char* outDir            = nullptr;
     std::string qualifiedNameOverride;
     std::vector<const char*> clangArgs;
     for (int i = 3; i < argc; ++i)
@@ -1483,10 +1218,23 @@ int main(int argc, char** argv)
         {
             emitHash = true;
         }
+        else if (a == "--emit-all")
+        {
+            emitAll = true;
+        }
         else if (a == "-o")
         {
             if (i + 1 < argc)
                 outPath = argv[++i];
+        }
+        else if (a == "--out-dir")
+        {
+            if (i + 1 < argc)
+                outDir = argv[++i];
+        }
+        else if (a.rfind("--out-dir=", 0) == 0)
+        {
+            outDir = argv[i] + 10;
         }
         else if (a == "--qualified-name")
         {
@@ -1503,8 +1251,63 @@ int main(int argc, char** argv)
         }
     }
 
-    // Task 3.3 whitelist gating (design D2 "标过了才生成"): only emit a type that carries a discovery
-    // marker (CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION). Empty whitelist => EXIT 0 + no file
+    // Argument consistency for the three-products mode, settled before any parse work (it costs seconds to
+    // parse and nothing here needs the parse). `--emit-all` writes three files named after the type, so a
+    // single `-o` path cannot name them; the two ways of naming outputs must not be mixed.
+    {
+        const int explicitEmitters = (emitReflection ? 1 : 0) + (emitSerialization ? 1 : 0) + (emitHash ? 1 : 0);
+        // `--out-dir=` 与 `-o ''` 给的是**非空指针的空串**：只判指针的话两道守卫都会放行，产物会被拼成
+        // "/<Type>.Reflection.h" 写进**当前盘符的根目录**（实测退出码还是 0，调用方完全看不出来）。
+        // 空值一律按"缺值"处理，先于下面几条配对检查报出来，信息才说得清是哪一个参数空的。
+        if (outDir != nullptr && *outDir == '\0')
+        {
+            std::fprintf(stderr, "CodeGen: --out-dir needs a non-empty directory name.\n");
+            return 2;
+        }
+        if (outPath != nullptr && *outPath == '\0')
+        {
+            std::fprintf(stderr, "CodeGen: -o needs a non-empty output path.\n");
+            return 2;
+        }
+        if (emitAll && explicitEmitters > 0)
+        {
+            std::fprintf(stderr,
+                "CodeGen: refusing — --emit-all already asks for all three products, so it cannot be "
+                "combined with --emit-reflection / --emit-serialization / --emit-hash.\n");
+            return 10;
+        }
+        if (emitAll && !outDir)
+        {
+            std::fprintf(stderr,
+                "CodeGen: --emit-all needs --out-dir <dir> — it writes three products "
+                "(<Type>.Reflection.h / <Type>.Serialization.h / <Type>.Hash.h), which one -o path "
+                "cannot name.\n");
+            return 2;
+        }
+        if (outDir && !emitAll)
+        {
+            std::fprintf(stderr,
+                "CodeGen: --out-dir only applies together with --emit-all; use -o <file> for a single "
+                "emitter.\n");
+            return 2;
+        }
+        if (outDir && outPath)
+        {
+            std::fprintf(stderr, "CodeGen: --out-dir and -o are mutually exclusive.\n");
+            return 2;
+        }
+        // Turn the three flags on so EVERY gate below (the non-public-member refusal, the `serializable`
+        // marker check, total order, default constructor, bit-packed elements) applies exactly as it does
+        // when the emitters are asked for one at a time. Expanding later would silently skip the gates that
+        // sit between here and the emission tail.
+        if (emitAll)
+        {
+            emitReflection = emitSerialization = emitHash = true;
+        }
+    }
+
+    // whitelist gating ("标过了才生成"): only emit a type that carries a discovery
+    // marker (CA_REFLECT / CA_CODEGEN_REGISTER). Empty whitelist => EXIT 0 + no file
     // (spec "空名单不阻断 build"); non-empty whitelist + unannotated target => refuse (negative).
     const std::string source = readFile(filePath);
     if (source.empty())
@@ -1512,13 +1315,13 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "CodeGen: cannot read '%s'\n", filePath);
         return 2;
     }
-    // Task 9.54 + 9.55 + 9.57: two views of the source, both with comments and INACTIVE preprocessor
+    // + 9.55 + 9.57: two views of the source, both with comments and INACTIVE preprocessor
     // branches blanked; `codeOnly` additionally blanks the inside of string and char literals. A marker
     // named only inside a comment, a string or a disabled `#if` branch must not count as an annotation, a
     // stray parenthesis in any of them must not unbalance the marker scan, and a literal containing the
     // block-comment opener must not be able to delete a real annotation.
-    // Task 9.57: names defined on the command line count as defined for `#ifdef` / `#ifndef`.
-    // Task 9.59: the annotation question is answered AFTER the parse, from the preprocessor's own list of
+    // names defined on the command line count as defined for `#ifdef` / `#ifndef`.
+    // the annotation question is answered AFTER the parse, from the preprocessor's own list of
     // macro invocations (see collectAnnotations). Nothing is opened before that decision, so an
     // unannotated file still leaves no artifact.
 
@@ -1580,6 +1383,12 @@ int main(int argc, char** argv)
     std::vector<const char*> args;
     args.push_back("-xc++"); // treat input as C++, not inferred by extension
     args.push_back("-std=c++20");
+    // MSVC 的 STL 在 clang 身份下会检查编译器版本（`yvals_core.h`：`__clang_major__ < 19` 就
+    // `_EMIT_STL_ERROR(STL1000, ...)`），而本仓库 vendored 的 libclang 比它旧。这个开关是 STL 自己
+    // 留的口子（`_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH`）：关掉那条检查，STL 头照常解析。
+    // 本工具只**解析**、不编译、不链接，布局由模块的真实编译环境（/MDd + 迭代器调试等级）决定，
+    // 所以这里放行是安全的；不放行的话，凡是含 STL 类型的头都解析不了。
+    args.push_back("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH");
     for (const char* a : clangArgs)
         args.push_back(a);
 
@@ -1597,7 +1406,22 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Task 9.59: WHICH TYPES ARE ANNOTATED comes from the preprocessor. collectAnnotations walks the
+    // In the three-products mode stdout carries nothing else, so the dependency list goes there: build.py
+    // reads it to decide whether this manifest row may be skipped next time. Sorted and de-duplicated,
+    // because the ledger compares the whole set and libclang's visit order is not part of any contract.
+    if (outDir != nullptr)
+    {
+        std::vector<std::string> deps;
+        InclusionCollector          collector{ &deps };
+        clang_getInclusions(tu, collectInclusion, &collector);
+        std::sort(deps.begin(), deps.end());
+        deps.erase(std::unique(deps.begin(), deps.end()), deps.end());
+        for (const std::string& dep : deps)
+            std::printf("CodeGen deps: %s\n", dep.c_str());
+        std::fflush(stdout);
+    }
+
+    // WHICH TYPES ARE ANNOTATED comes from the preprocessor. collectAnnotations walks the
     // translation unit for the macro INVOCATIONS clang actually performed plus every file-scope and
     // namespace-scope struct/class in the file being parsed; an annotation binds to the first type that
     // follows it. A marker inside a comment, a string, a disabled preprocessor branch or an unused
@@ -1613,7 +1437,7 @@ int main(int argc, char** argv)
     const std::map<std::string, AnnotationBinding> bound = bindAnnotations(uses, occurrences);
     if (bound.empty())
     {
-        // Task 1.2: an EMPTY annotation list is only legitimate when the parse actually succeeded, so the
+        // an EMPTY annotation list is only legitimate when the parse actually succeeded, so the
         // diagnostic scan runs BEFORE this early return. Measured before the fix: syntax_error.h,
         // missing_include.h and undefined_marker.h (evidence/fixtures/) all exited 0 with "no annotated
         // types", which is why a wrong compile environment could look exactly like a clean header.
@@ -1648,55 +1472,12 @@ int main(int argc, char** argv)
     if (!targetWhitelisted)
     {
         std::fprintf(stderr,
-            "CodeGen: type '%s' is not annotated (use CA_REFLECT / CA_CODEGEN_REGISTER / CA_REFLECTION); refusing to extract\n",
+            "CodeGen: type '%s' is not annotated (use CA_REFLECT or CA_CODEGEN_REGISTER); refusing to extract\n",
             typeName);
         abortOut();
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         return 4; // negative: an unmarked struct in a header that HAS marked types is not extracted.
-    }
-
-    // Task 6b.3 dual-mode: if the type is declared via `CA_REFLECTION(Type, a, b)` (the
-    // unmigrated-engine + external transition channel), emit a fields-ONLY declaration-order table
-    // from the macro's member list. This never edits the type and needs no libclang.
-    {
-        std::vector<std::string> members = scanCA_REFLECTIONList(bound, typeName);
-        if (!members.empty())
-        {
-            const std::string qname = qualifiedNameOverride.empty() ? typeName : qualifiedNameOverride;
-            // Task 9.30 + 9.43: this channel supports ONLY --emit-reflection. Any request that includes
-            // serialization/hash is refused. The check must come FIRST: with `--emit-reflection
-            // --emit-serialization` the reflection branch used to return before it, so the unsupported
-            // flag was silently dropped and the run still exited 0.
-            if (emitSerialization || emitHash)
-            {
-                std::fprintf(stderr,
-                    "CodeGen: the CA_REFLECTION text channel does not support %s — it carries member "
-                    "names only (no types/kinds), so the generated code would be unsound. Use "
-                    "--emit-reflection for this channel, or annotate the type with CA_REFLECT.\n",
-                    emitHash ? "--emit-hash" : "--emit-serialization");
-                abortOut();
-                return 8;
-            }
-            if (emitReflection)
-            {
-                // For this channel only the member NAMES are known, so offset comes from offsetof at
-                // compile time and the type/kind are genuinely unknown (TypeKind::None + nullptr
-                // typeName). Honest: the CA_REFLECTION macro carries no type/cursor info (design D2).
-                std::vector<EmitField> ef;
-                for (const std::string& m : members)
-                    ef.push_back({ m, {}, "TypeKind::None" });
-                emitTypeDescriptor(ef, qname, out);
-                if (!commitOut())
-                    return 7; // nothing to dispose yet: the text channel runs before the index exists
-                return 0;
-            }
-            std::printf("%s %zu\n", typeName, members.size());
-            for (const std::string& m : members)
-                std::printf("  field %s\n", m.c_str());
-            abortOut(); // nothing was written to the output path -> leave no artifact behind
-            return 0;
-        }
     }
 
     // Find the struct/class by the (last, unqualified) spelling. Enough for a first proof where the
@@ -1709,22 +1490,31 @@ int main(int argc, char** argv)
 
     CXCursor target{};
     bool found = false;
+    bool foundInMain = false;
     bool foundDefinition = false;
-    // Task 9.50①: prefer the DEFINITION cursor. The old loop took the FIRST same-named cursor, which for
-    // a forward declaration (`struct Same;` above the marker) is a declaration with no members — the tool
-    // then emitted an EMPTY specialization and still exited 0 (measured: `Same 0`, zero fields).
+    // 选择口径，按优先级：
+    //   ① **主文件里的定义** —— 被解析的那份头才是"要出码的类型"所在的地方。同名类型在被 include 的
+    //      头里很常见（实测：`result_type` 在 sha256 / komihash / STL 里都有），取第一个会取错，
+    //      生成物里就会出现裸名字（`struct TypeDescriptor<result_type>`）而不是限定名；
+    //   ② 主文件里的声明、被 include 的头里的定义（老行为：优先定义，避免前置声明被当成空类型）；
+    //   ③ 其它。
     for (auto& pr : structs)
     {
         if (pr.first != typeName)
             continue;
         const bool isDefinition = clang_isCursorDefinition(pr.second) != 0;
-        if (!found || (isDefinition && !foundDefinition))
+        const bool inMain = cursorIsInMainFile(pr.second, filePath);
+        const bool better = !found
+                            || (inMain && !foundInMain)
+                            || (inMain == foundInMain && isDefinition && !foundDefinition);
+        if (better)
         {
             target          = pr.second;
             found           = true;
+            foundInMain     = inMain;
             foundDefinition = isDefinition;
         }
-        if (foundDefinition)
+        if (foundInMain && foundDefinition)
             break;
     }
     if (!found)
@@ -1735,7 +1525,28 @@ int main(int argc, char** argv)
         clang_disposeIndex(index);
         return 3;
     }
-    // Task 9.55 (found by the round-32 adversarial review): preferring the definition cursor was not
+    // 诊断开关（`set CODEGEN_TRACE_TARGET=1`）：把"到底选中了哪个游标"打出来。
+    // 同名类型在一个 TU 里可以有很多（`result_type` 在 sha256 / komihash / STL 里都有），
+    // 出问题时唯一想知道的就是这一条 —— 选中的是哪个文件哪一行、算出来的限定名是什么。
+    if (std::getenv("CODEGEN_TRACE_TARGET") != nullptr)
+    {
+        unsigned line = 0, column = 0, offset = 0;
+        CXFile file = nullptr;
+        clang_getFileLocation(clang_getCursorLocation(target), &file, &line, &column, &offset);
+        std::string where = "(no file)";
+        if (file != nullptr)
+        {
+            CXString fn = clang_getFileName(file);
+            const char* c = clang_getCString(fn);
+            if (c != nullptr) where = c;
+            clang_disposeString(fn);
+        }
+        std::fprintf(stderr, "CodeGen trace: '%s' -> %s:%u  qualified='%s'  definition=%d\n",
+                     typeName, where.c_str(), line,
+                     buildQualifiedName(target).c_str(),
+                     static_cast<int>(clang_isCursorDefinition(target)));
+    }
+    // (found by the round-32 adversarial review): preferring the definition cursor was not
     // enough. When the translation unit contains only a FORWARD declaration, `found` is true and
     // `foundDefinition` is false, and the tool still emitted a metadata table asserting
     // `fieldCount = 0` for a type it never saw defined — the same "empty artifact, exit 0" shape task
@@ -1759,7 +1570,7 @@ int main(int argc, char** argv)
     sink.fields = &fields;
     clang_visitChildren(target, collectFields, &sink);
 
-    // Task 9.5b: fidelity gate — PROPERTY-based, never based on which flags were passed.
+    // fidelity gate — PROPERTY-based, never based on which flags were passed.
     // Measured truth (instrumented run; evidence file .review_tmp/9.5b-diagdump.txt):
     //   * a COMPLETE environment produces NO fatal diagnostic — only a `#pragma once in main file`
     //     warning, the MSVC STL1000 static_assert error inside yvals_core.h, and two unexpanded-pack
@@ -1773,7 +1584,7 @@ int main(int argc, char** argv)
     // A fatal diagnostic anywhere in the include chain means it did not, so the table cannot be trusted.
     // The gate reads diagnostics only — it never inspects the argument list.
     {
-        // Task 1.2: the scan itself lives in scanDiagnostics() (shared with the empty-annotation check
+        // the scan itself lives in scanDiagnostics() (shared with the empty-annotation check
         // above); this gate keeps only the fidelity-specific reporting below.
         const DiagnosticScan scan     = scanDiagnostics(tu, filePath);
         const std::string&   fatalMsg = scan.fatalMsg;
@@ -1788,8 +1599,18 @@ int main(int argc, char** argv)
             if (!fatalMsg.empty())
                 std::fprintf(stderr, "  unresolved include (fatal): %s\n", fatalMsg.c_str());
             if (inHeader > 0)
-                std::fprintf(stderr, "  %u error-level diagnostic(s) inside the parsed header itself\n",
+            {
+                std::fprintf(stderr, "  %u error-level diagnostic(s) inside the parsed header itself:\n",
                              inHeader);
+                for (const std::string& msg : scan.headerErrors)
+                    std::fprintf(stderr, "    %s\n", msg.c_str());
+            }
+            if (scan.headerErrors.empty() && !scan.anyErrors.empty())
+            {
+                std::fprintf(stderr, "  前几条错误（不在被解析的头里，多半来自它 include 的文件）:\n");
+                for (const std::string& msg : scan.anyErrors)
+                    std::fprintf(stderr, "    %s\n", msg.c_str());
+            }
             // Name the members whose layout information is missing. Measured signature of the truncated
             // parse: a member that is NOT the first one reports offset 0 (it has no layout at all).
             std::string degraded;
@@ -1813,19 +1634,19 @@ int main(int argc, char** argv)
     }
 
     // Emit in DECLARATION order — that is what clang_visitChildren already gives us, and it is the order
-    // the emitters must use (task 9.5a). There is deliberately NO sort by offsetBytes here: the extracted
+    // the emitters must use. There is deliberately NO sort by offsetBytes here: the extracted
     // offset is produced by a config-sensitive parse (a degenerate env collapses every offset to 0), so
     // deriving the emission order from it would make the output depend on an unverified value — and with
     // all-zero offsets the old offset comparator was a no-op anyway (measured). Declaration order is
     // reproducible run to run, which is what the determinism oracle actually needs.
 
-    // Task 5.1 reflection / Task 6.1 serialization emitter: the qualified name comes from the AST
+    // reflection / serialization emitter: the qualified name comes from the AST
     // (or an explicit --qualified-name override) — the CA_REFLECT marker has no type name, so the tool
     // derives it from where the type actually lives. Both share the per-field metadata.
     const std::string qname =
         qualifiedNameOverride.empty() ? buildQualifiedName(target) : qualifiedNameOverride;
 
-    // Task 9.1: refuse to EMIT for a type with non-public members on the outer-class channel. Emitting
+    // refuse to EMIT for a type with non-public members on the outer-class channel. Emitting
     // would produce a header that names private members (offsetof on them) and therefore cannot compile
     // — the old behaviour emitted it anyway and the failure surfaced far away, as C2248 in some consumer
     // TU. Extraction (no --emit-*) above this point is untouched: printing the type table for a private
@@ -1833,10 +1654,10 @@ int main(int argc, char** argv)
     if ((emitSerialization || emitHash || emitReflection) && sink.sawNonPublic)
     {
         std::fprintf(stderr,
-            "CodeGen: refusing to emit for '%s' — it has non-public members and the outer-class "
-            "annotation channel (CA_REFLECTION / CA_REFLECT at namespace scope) can only serve types "
-            "whose members are all public. Use an in-class annotation (macro inside the class body, "
-            "expanding to a friend declaration) instead.\n",
+            "CodeGen: refusing to emit for '%s' — it has non-public members, and the generated code "
+            "reads members by name from outside the class (an in-class marker does not change that "
+            "access check). Make them public, or give the generated code friend access through the "
+            "private-member entry point.\n",
             qname.c_str());
         abortOut();
         clang_disposeTranslationUnit(tu);
@@ -1844,16 +1665,19 @@ int main(int argc, char** argv)
         return 5;
     }
 
-    // Task 9.43: exactly one emitter per run. Before this, `--emit-serialization --emit-hash` emitted
-    // only the first one, dropped the other and exited 0 (measured: 1203 B, no `custom_hash_trait`).
+    // exactly one emitter per run — either one specific flag, or `--emit-all` for all three out of a single
+    // parse. Before this check existed, `--emit-serialization --emit-hash` emitted only the first one,
+    // dropped the other and exited 0 (measured: 1203 B, no `custom_hash_trait`).
+    // `emitAll` is excluded because it has already turned all three flags on above (and asking it together
+    // with a specific flag was refused earlier) — counting those three here would refuse the mode itself.
     {
         const int emitterCount = (emitReflection ? 1 : 0) + (emitSerialization ? 1 : 0) + (emitHash ? 1 : 0);
-        if (emitterCount > 1)
+        if (emitterCount > 1 && !emitAll)
         {
             std::fprintf(stderr,
                 "CodeGen: refusing — %d emitter flags in one run; --emit-reflection / --emit-serialization "
-                "/ --emit-hash are mutually exclusive per invocation. Invoke the tool once per emitter "
-                "(build.py already does).\n",
+                "/ --emit-hash are mutually exclusive per invocation. Invoke the tool once per emitter, or "
+                "ask for all three at once with --emit-all --out-dir <dir>.\n",
                 emitterCount);
             abortOut();
             clang_disposeTranslationUnit(tu);
@@ -1862,7 +1686,7 @@ int main(int argc, char** argv)
         }
     }
 
-    // Task 9.31: the `serializable` marker option is what the design says gates this emitter
+    // the `serializable` marker option is what the design says gates this emitter
     // ("only types marked `serializable` get serialization code"). It was never read: ANY annotated type
     // got a `CodeGenSerializer<T>` specialization, so the documented gate did not exist. Read the
     // marker text now and refuse when the option is absent.
@@ -1883,7 +1707,7 @@ int main(int argc, char** argv)
         }
     }
 
-    // Task 4.1 (1): the canonical order of an unordered container needs `<` on the sorting side. A type
+    // (1): the canonical order of an unordered container needs `<` on the sorting side. A type
     // with no ordering operator at all has none, so the promised "same bytes for the same content" could
     // not be delivered. (The criterion accepts `operator<=>`; see hasOrderingOperator.)
     if (emitSerialization || emitHash)
@@ -1906,7 +1730,7 @@ int main(int argc, char** argv)
         }
     }
 
-    // Task 4.1 (4): the generated reader builds each key / element with `T t{}` before reading into it,
+    // (4): the generated reader builds each key / element with `T t{}` before reading into it,
     // so a type without a usable default constructor cannot be read back. Refuse rather than emit code
     // that does not compile.
     if (emitSerialization || emitHash)
@@ -1930,7 +1754,32 @@ int main(int argc, char** argv)
         }
     }
 
-    // Task 4.1 (2): a container whose element is a raw pointer, a managed pointer or a handle cannot be
+    // (2a): a member that IS a pointer (`int* p`, `shared_ptr<T> p`) is refused for the same reason, one
+    // level up: the old runtime never wrote a pointer member (the payload silently lost it), while the
+    // new runtime has no such skip, so the generated code would write the address itself - meaningless
+    // across runs. Refuse instead, and name the member.
+    if (emitSerialization || emitHash)
+    {
+        for (const Field& f : fields)
+        {
+            if (!(f.memberIsOpaque || f.memberIsManagedPointer))
+                continue;
+            std::fprintf(stderr,
+                "CodeGen: refusing %s for '%s' — member '%s' is a %s pointer ('%s'): the old runtime does "
+                "not write pointer members, so the stream would silently lose it, and writing the address "
+                "itself means nothing after a restart. Store the value, or store a name / index into a "
+                "table that is serialized alongside.\n",
+                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
+                qname.c_str(), f.name.c_str(),
+                (f.memberIsManagedPointer ? "managed" : "raw"), f.typeName.c_str());
+            abortOut();
+            clang_disposeTranslationUnit(tu);
+            clang_disposeIndex(index);
+            return 15;
+        }
+    }
+
+    // (2): a container whose element is a raw pointer, a managed pointer or a handle cannot be
     // written faithfully - the old runtime ignores such elements, so the payload silently loses data.
     // Refuse when serialization or hashing is requested instead of shipping a lossy stream.
     if (emitSerialization || emitHash)
@@ -1952,7 +1801,7 @@ int main(int argc, char** argv)
         }
     }
 
-    // Task 4.1 (3): a duplicate-key container (`multimap` / `multiset` / the unordered variants) has no
+    // (3): a duplicate-key container (`multimap` / `multiset` / the unordered variants) has no
     // canonical order among equal keys, and this change deliberately does not invent a secondary sort
     // key, so the canonical write order is undefined. Refuse instead of writing an order-dependent stream.
     if (emitSerialization || emitHash)
@@ -1974,7 +1823,7 @@ int main(int argc, char** argv)
         }
     }
 
-    // Task 2.1 / 4.1 (5): a bit-packed container (`vector<bool>`) satisfies the structural criterion
+    // / 4.1 (5): a bit-packed container (`vector<bool>`) satisfies the structural criterion
     // (it has `size()` and `value_type`) but not the old runtime's `for (auto& item : object)` loop:
     // the iterator yields a proxy object and `auto&` cannot bind to it, so instantiating the emitted
     // code is a hard compile error (C2440). Refuse instead of emitting code that cannot compile.
@@ -1994,31 +1843,6 @@ int main(int argc, char** argv)
             clang_disposeTranslationUnit(tu);
             clang_disposeIndex(index);
             return 13;
-        }
-    }
-
-    // Task 3.2 (1): a container element that is a STRUCT holding an unordered container cannot be
-    // written in canonical order by the generated recursion (see findUnorderedInside), so refuse the
-    // serialization emitter instead of shipping code whose bytes depend on insertion order.
-    if (emitSerialization || emitHash)
-    {
-        for (const Field& f : fields)
-        {
-            if (f.elementUnstableInside.empty())
-                continue;
-            std::fprintf(stderr,
-                "CodeGen: refusing %s for '%s' — member '%s' is a container whose element "
-                "type '%s' itself holds the unordered container '%s'. The generated code cannot recurse into "
-                "another type's fields (the old runtime keeps its read cursor private), so that element would "
-                "be written in traversal order and the bytes would depend on insertion history. Either give the "
-                "element type its own ordering-free shape (no unordered container inside), or drop the member "
-                "from the serialized set.\n",
-                (emitSerialization ? "--emit-serialization" : "--emit-hash"),
-                qname.c_str(), f.name.c_str(), f.elementTypeName.c_str(), f.elementUnstableInside.c_str());
-            abortOut();
-            clang_disposeTranslationUnit(tu);
-            clang_disposeIndex(index);
-            return 12;
         }
     }
 
@@ -2043,40 +1867,87 @@ int main(int argc, char** argv)
         e.elementIsContainer = f.elementIsContainer;
         ef.push_back(e);
     }
-    if (emitSerialization)
+    // Which products this invocation writes. Without `--emit-all` that is exactly one, as before; with it,
+    // all three out of a single parse. The file names are the ones `build.py` expects: `<Type>.<Emitter>.h`
+    // under `--out-dir`, and every emitter writes the same bytes it writes in single-emitter mode — the
+    // three-products mode changes how many times the header is parsed, not what comes out.
+    if (emitSerialization || emitHash || emitReflection)
     {
-        emitCodeGenSerializer(ef, qname, out);
-        if (!commitOut())
+        const char* suffixes[3] = { "Reflection", "Serialization", "Hash" };
+        // Products this run already committed. On a later failure they are removed, so a failed invocation
+        // never leaves a partial set behind for the next run to mistake for a complete one.
+        std::vector<std::string> written;
+        for (int k = 0; k < 3; ++k)
         {
-            clang_disposeTranslationUnit(tu);
-            clang_disposeIndex(index);
-            return 7;
-        }
-        clang_disposeTranslationUnit(tu);
-        clang_disposeIndex(index);
-        return 0;
-    }
-    if (emitHash)
-    {
-        emitHashTrait(ef, qname, out);
-        if (!commitOut())
-        {
-            clang_disposeTranslationUnit(tu);
-            clang_disposeIndex(index);
-            return 7;
-        }
-        clang_disposeTranslationUnit(tu);
-        clang_disposeIndex(index);
-        return 0;
-    }
-    if (emitReflection)
-    {
-        emitTypeDescriptor(ef, qname, out);
-        if (!commitOut())
-        {
-            clang_disposeTranslationUnit(tu);
-            clang_disposeIndex(index);
-            return 7;
+            const bool wanted = (k == 0) ? emitReflection : (k == 1) ? emitSerialization : emitHash;
+            if (!wanted)
+                continue;
+            FILE*       sink = out;
+            std::string finalPath;
+            std::string tmpProduct;
+            if (outDir)
+            {
+                finalPath  = std::string(outDir) + "/" + typeName + "." + suffixes[k] + ".h";
+                tmpProduct = finalPath + ".tmp";
+                sink       = std::fopen(tmpProduct.c_str(), "w");
+                if (!sink)
+                {
+                    std::fprintf(stderr, "CodeGen: cannot open output '%s'\n", tmpProduct.c_str());
+                    for (const std::string& p : written)
+                        std::remove(p.c_str());
+                    clang_disposeTranslationUnit(tu);
+                    clang_disposeIndex(index);
+                    return 2;
+                }
+            }
+            if (k == 0)
+                emitTypeDescriptor(ef, qname, sink);
+            else if (k == 1)
+                emitCodeGenSerializer(ef, qname, sink);
+            else
+                emitHashTrait(ef, qname, sink);
+            bool ok = true;
+            if (outDir)
+            {
+                // Same temp-then-rename rule as `-o`: the requested path is only replaced after the product
+                // was written out in full. std::rename does not replace an existing destination on Windows,
+                // so the destination is removed first.
+                ok = (std::fclose(sink) == 0);
+                if (ok)
+                {
+                    std::remove(finalPath.c_str());
+                    ok = (std::rename(tmpProduct.c_str(), finalPath.c_str()) == 0);
+                }
+                if (ok)
+                {
+                    written.push_back(finalPath);
+                    // Tell the caller WHAT this run actually wrote, on stdout, next to the `CodeGen deps:`
+                    // lines. build.py needs it because the products live in a directory that the parsed
+                    // headers themselves #include from (see the include-path change): it can no longer
+                    // delete the old products before the run to detect "exited 0 but wrote nothing",
+                    // because that deletion is exactly what made the parse fail.
+                    std::printf("CodeGen wrote: %s\n", finalPath.c_str());
+                }
+                else
+                {
+                    std::fprintf(stderr,
+                        "CodeGen: could not move '%s' onto '%s' — the requested output was NOT written\n",
+                        tmpProduct.c_str(), finalPath.c_str());
+                    std::remove(tmpProduct.c_str());
+                }
+            }
+            else
+            {
+                ok = commitOut();
+            }
+            if (!ok)
+            {
+                for (const std::string& p : written)
+                    std::remove(p.c_str());
+                clang_disposeTranslationUnit(tu);
+                clang_disposeIndex(index);
+                return 7;
+            }
         }
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
@@ -2096,7 +1967,7 @@ int main(int argc, char** argv)
                     f.elementIsContainer ? 1 : 0, f.elementIsOpaque ? 1 : 0,
                     f.elementIsManagedPointer ? 1 : 0);
 
-    // Task 6b.2: carry CA_REFLECT marker options (from source text) into the output.
+    // carry CA_REFLECT marker options (from source text) into the output.
     const std::string options = scanMarkerOptions(bound, typeName);
     if (!options.empty())
         std::printf("# options: %s\n", options.c_str());

@@ -1,4 +1,4 @@
-// codegen-container-semantics task 5.1: a wrapper (`NameHash`) inside a container must be ACCEPTED and
+// A wrapper (`NameHash`) inside a container must be ACCEPTED and
 // only recorded — it must NOT be treated as opaque, because that is what would reject the engine's real
 // types (`ShaderLibrary` has a `vector<NameHash>` on its value chain). The assertions below are the
 // measured contradiction of the rejected "wrapper counts as opaque -> refuse" implementation.
@@ -26,12 +26,12 @@ namespace
 
     static_assert(has_flag(field("names")->flags, FieldFlags::Container), "'names' must be a container");
     static_assert(!has_flag(field("names")->flags, FieldFlags::HasOpaqueElement),
-                  "a wrapper element must NOT be opaque (task 5.1)");
+                  "a wrapper element must NOT be opaque");
     static_assert(has_flag(field("names")->flags, FieldFlags::Wrapper),
-                  "a wrapper element must be RECORDED as a wrapper (task 2.2)");
+                  "a wrapper element must be RECORDED as a wrapper");
     static_assert(has_flag(field("byName")->flags, FieldFlags::Container), "'byName' must be a container");
     static_assert(!has_flag(field("byName")->flags, FieldFlags::HasOpaqueElement),
-                  "a wrapper key must NOT be opaque (task 5.1)");
+                  "a wrapper key must NOT be opaque");
     // The control: a raw pointer element IS opaque, so the flag above is not vacuous.
     static_assert(has_flag(field("byName")->flags, FieldFlags::Wrapper), "a wrapper key must be recorded too");
 }

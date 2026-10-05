@@ -2,6 +2,7 @@
 #include <CASTL/CAArray.h>
 //#include <uhash.h>
 #include <Reflection.h>
+#include "CodeGenMeta.h"
 #include "Common.h"
 
 struct RectSate
@@ -13,6 +14,7 @@ struct RectSate
 	auto operator<=>(const RectSate&) const = default;
 };
 
+CA_REFLECT(serializable)
 struct RasterizerStates
 {
 public:
@@ -47,8 +49,10 @@ public:
 	}
 };
 
+CA_REFLECT(serializable)
 struct DepthStencilStates
 {
+	CA_REFLECT(serializable)
 	struct StencilStates
 	{
 		EStencilOp failOp = EStencilOp::eKeep;
@@ -82,6 +86,7 @@ struct DepthStencilStates
 	}
 };
 
+CA_REFLECT(serializable)
 struct SingleColorAttachmentBlendStates
 {
 	bool blendEnable = false;
@@ -105,6 +110,7 @@ struct SingleColorAttachmentBlendStates
 	}
 };
 
+CA_REFLECT(serializable)
 struct ColorAttachmentsBlendStates
 {
 	castl::array<SingleColorAttachmentBlendStates, 8> attachmentBlendStates = {};
@@ -126,6 +132,7 @@ struct ColorAttachmentsBlendStates
 /// Pipeline States That May Share During One Pass
 /// Pure Data Struct, Not The Real One Used In Backend API
 /// </summary>
+CA_REFLECT(serializable)
 class CPipelineStateObject
 {
 public:
@@ -136,37 +143,3 @@ public:
 
 	auto operator<=>(const CPipelineStateObject&) const = default;
 };
-
-CA_REFLECTION(RasterizerStates
-	, enableDepthClamp
-	, discardRasterization
-	, cullMode
-	, frontFace
-	, polygonMode
-	, lineWidth);
-CA_REFLECTION(DepthStencilStates::StencilStates
-	, failOp
-	, passOp
-	, depthFailOp
-	, compareOp
-	, compareMask
-	, writeMask
-	, reference);
-CA_REFLECTION(DepthStencilStates
-	, depthTestEnable
-	, depthWriteEnable
-	, depthCompareOp
-	, stencilTestEnable
-	, stencilStateFront
-	, stencilStateBack);
-CA_REFLECTION(SingleColorAttachmentBlendStates
-	, blendEnable
-	, channelMask
-	, sourceColorBlendFactor
-	, destColorBlendFactor
-	, sourceAlphaBlendFactor
-	, destAlphaBlendFactor
-	, colorBlendOp
-	, alphaBlendOp);
-CA_REFLECTION(ColorAttachmentsBlendStates, attachmentBlendStates);
-CA_REFLECTION(CPipelineStateObject, depthStencilStates, rasterizationStates, colorAttachments, msCount);

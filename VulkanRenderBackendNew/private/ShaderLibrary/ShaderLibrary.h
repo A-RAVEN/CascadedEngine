@@ -1,12 +1,14 @@
 #pragma once
 #include <CAResource/IResource.h>
 #include <Hasher.h>
+#include <CodeGenMeta.h>
 #include <Compiler.h>
 #include <Utils/VulkanIncludes.h>
 
 namespace graphics_backend
 {
 	// Task 1.1: Serializable descriptor binding (replaces vk::DescriptorSetLayoutBinding for reflection compatibility)
+	CA_REFLECT(serializable)
 	struct VulkanDescriptorBinding
 	{
 		uint32_t binding;
@@ -38,6 +40,7 @@ namespace graphics_backend
 
 	// Task 1.1: Vulkan descriptor set layout info
 	// Task 4.14 [P]: Fixed pBindings lifetime issue - use GetCreateInfo() to rebuild on demand
+	CA_REFLECT(serializable)
 	struct VulkanDescriptorSetLayoutInfo
 	{
 		uint32_t setIndex;
@@ -75,6 +78,7 @@ namespace graphics_backend
 	};
 
 	// Task 1.2: Vulkan binding info types (mirrors D3D12 CBufferBindingInfo)
+	CA_REFLECT(serializable)
 	struct VulkanCBufferBindingInfo
 	{
 		uint32_t spaceID;
@@ -85,6 +89,7 @@ namespace graphics_backend
 	};
 
 	// Task 1.2: Vulkan image binding info
+	CA_REFLECT(serializable)
 	struct VulkanImageBindingInfo
 	{
 		ShaderCompilerSlang::EShaderResourceType resourceType;
@@ -102,6 +107,7 @@ namespace graphics_backend
 	};
 
 	// Task 1.2: Vulkan buffer binding info
+	CA_REFLECT(serializable)
 	struct VulkanBufferBindingInfo
 	{
 		ShaderCompilerSlang::EShaderResourceType resourceType;
@@ -119,6 +125,7 @@ namespace graphics_backend
 	};
 
 	// Task 1.2: Vulkan sampler binding info
+	CA_REFLECT(serializable)
 	struct VulkanSamplerBindingInfo
 	{
 		uint32_t spaceID;
@@ -129,6 +136,7 @@ namespace graphics_backend
 	};
 
 	// Task 1.3: Vulkan struct binding info with sub-struct references
+	CA_REFLECT(serializable)
 	struct VulkanStructBindingInfo
 	{
 		static VulkanStructBindingInfo Create(cacore::NameHash const& name, uint32_t elementCount)
@@ -156,6 +164,7 @@ namespace graphics_backend
 	};
 
 	// Task 1.4: Aggregating all binding info types
+	CA_REFLECT(serializable)
 	struct VulkanShaderResourceBindingInfo
 	{
 		uint32_t totalDescriptorCount;
@@ -174,9 +183,11 @@ namespace graphics_backend
 	};
 
 	// Task 1.5: Vulkan shader file info
+	CA_REFLECT(serializable)
 	struct VulkanShaderFileInfo
 	{
-		struct ProgramInfo
+		CA_REFLECT(serializable)
+	struct ProgramInfo
 		{
 			cacore::NameHash entryPointName;
 			cahash::sha256_hash::result_type programHash;
@@ -191,6 +202,7 @@ namespace graphics_backend
 	};
 
 	// Task 1.6: Vulkan shader code (serializable, no runtime vk::ShaderModule)
+	CA_REFLECT(serializable)
 	struct VulkanShaderCode
 	{
 		ECompileShaderType shaderType;
@@ -208,6 +220,7 @@ namespace graphics_backend
 	// ImportResource completes. Any insertion/erasure (including rehash) after
 	// pointers have been handed out will invalidate them. Do NOT modify these maps
 	// after initialization.
+	CA_REFLECT(serializable)
 	class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
 	{
 	public:
@@ -220,13 +233,49 @@ namespace graphics_backend
 		VulkanShaderCode const* GetShaderCode(cahash::sha256_hash::result_type const& shaHash) const;
 		ShaderCompilerSlang::ShaderStructData const* GetShaderStruct(cacore::NameHash const& nameHash) const;
 		ShaderCompilerSlang::ShaderStructData const* GetShaderRootStruct(cacore::PathHash const& pathHash) const;
-
-		friend struct CATypeDescriptor<ShaderLibrary>;
 	};
 }
 
-CA_REFLECTION(graphics_backend::ShaderLibrary
-	, m_ShaderFiles
-	, m_ShaderPrograms
-	, m_ShaderStructs
-	, m_ShaderRootStructs);
+// CodeGen 生成物：上面这些类型各自的反射 / 序列化 / 哈希特化。接在这里（类型定义之后）而不是让每个
+// 消费方自己记一遍 —— `TResource<T>` 的读写与 `HashObj<T>` 的哈希在**实例化**时就需要看到这些类型的
+// 全部特化（包括它们成员用到的类型），少一个，那一层就会退回"整块字节"或直接编不过。
+#include "ShaderLibrary.Reflection.h"
+#include "ShaderLibrary.Serialization.h"
+#include "ShaderLibrary.Hash.h"
+#include "VulkanShaderCode.Reflection.h"
+#include "VulkanShaderCode.Serialization.h"
+#include "VulkanShaderCode.Hash.h"
+#include "VulkanShaderFileInfo.Reflection.h"
+#include "VulkanShaderFileInfo.Serialization.h"
+#include "VulkanShaderFileInfo.Hash.h"
+#include "ProgramInfo.Reflection.h"
+#include "ProgramInfo.Serialization.h"
+#include "ProgramInfo.Hash.h"
+#include "VulkanShaderResourceBindingInfo.Reflection.h"
+#include "VulkanShaderResourceBindingInfo.Serialization.h"
+#include "VulkanShaderResourceBindingInfo.Hash.h"
+#include "VulkanDescriptorSetLayoutInfo.Reflection.h"
+#include "VulkanDescriptorSetLayoutInfo.Serialization.h"
+#include "VulkanDescriptorSetLayoutInfo.Hash.h"
+#include "VulkanDescriptorBinding.Reflection.h"
+#include "VulkanDescriptorBinding.Serialization.h"
+#include "VulkanDescriptorBinding.Hash.h"
+#include "VulkanCBufferBindingInfo.Reflection.h"
+#include "VulkanCBufferBindingInfo.Serialization.h"
+#include "VulkanCBufferBindingInfo.Hash.h"
+#include "VulkanImageBindingInfo.Reflection.h"
+#include "VulkanImageBindingInfo.Serialization.h"
+#include "VulkanImageBindingInfo.Hash.h"
+#include "VulkanBufferBindingInfo.Reflection.h"
+#include "VulkanBufferBindingInfo.Serialization.h"
+#include "VulkanBufferBindingInfo.Hash.h"
+#include "VulkanSamplerBindingInfo.Reflection.h"
+#include "VulkanSamplerBindingInfo.Serialization.h"
+#include "VulkanSamplerBindingInfo.Hash.h"
+#include "VulkanStructBindingInfo.Reflection.h"
+#include "VulkanStructBindingInfo.Serialization.h"
+#include "VulkanStructBindingInfo.Hash.h"
+// cahash::sha256_hash::result_type 是上面那两个映射的键：它的特化也得在这里可见。
+#include "result_type.Reflection.h"
+#include "result_type.Serialization.h"
+#include "result_type.Hash.h"

@@ -1,7 +1,23 @@
-﻿#include "GPUPipelineInstance.h"
+#include "GPUPipelineInstance.h"
 #include <Utils/InterfaceTranslation.h>
 #include <RenderBackend_D3D12.h>
 #include <D3D12Debug.h>
+
+// 既有哈希调用点就在本编译单元里（`m_PipelineStates = pipelineDesc.m_PipelineStates;` 会算哈希，
+// 那个成员的类型是 `cacore::HashObj<CPipelineStateObject>`）。要让哈希按字段算，本单元必须看得到
+// 生成的特化 —— 只 include 顶层那一个不够，嵌套成员类型各自的特化也得看得见，
+// 否则它们会退回"整块字节"（填充字节一变哈希就变）。
+#include "StencilStates.Hash.h"
+#include "DepthStencilStates.Hash.h"
+#include "RasterizerStates.Hash.h"
+#include "SingleColorAttachmentBlendStates.Hash.h"
+#include "ColorAttachmentsBlendStates.Hash.h"
+#include "CPipelineStateObject.Hash.h"
+
+static_assert(cacore::codegen::has_custom_hash_func<CPipelineStateObject, cacore::codegen::hasher<>>,
+              "既有哈希入口看不到 CPipelineStateObject 的生成特化：哈希会退回整块字节");
+static_assert(cacore::codegen::has_custom_hash_func<RasterizerStates, cacore::codegen::hasher<>>,
+              "既有哈希入口看不到 RasterizerStates 的生成特化：它的填充字节会进哈希");
 
 namespace graphics_backend
 {

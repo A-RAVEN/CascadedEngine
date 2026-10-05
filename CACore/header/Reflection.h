@@ -44,7 +44,7 @@ namespace castruct_name
 
     template <CAStringLiteral str, size_t... N>
     constexpr auto CreateStructNameInternal(std::index_sequence<N...>) {
-        return CAStructName<str.GetChar<N>()...>{};
+        return CAStructName<str.template GetChar<N>()...>{};
     }
 
     template <CAStringLiteral str>

@@ -2,11 +2,9 @@
 //
 // CodeGenMeta.h — linear, data-driven metadata model for the engine CodeGen framework.
 //
-// Contrast with the existing macro/template reflection (`Reflection.h`): that system is
-// fields-only + compile-time-only (member names live as CATypeMemberDesc tuple types, and
-// the only runtime reader `log_reflection` is dead via an early `return;`). This header holds
-// the *data-first* model that the CodeGen tool emits and reflection/serialization/hash emitters
-// consume: plain arrays of structs, runtime-readable type/member names, readable at a breakpoint.
+// The model is *data-first*: plain arrays of structs holding runtime-readable type/member names and
+// byte offsets, readable at a breakpoint. The CodeGen tool emits these tables; the reflection /
+// serialization / hash emitters consume them.
 //
 // It stays cargo-culted from `careflection` conventions (types prefixed CA_/CodeGen_ using
 // `cacore::codegen`), but is NOT metaprogramming: generated data, not template tricks.
@@ -15,9 +13,6 @@
 
 #include <cstddef>
 #include <cstdint>
-// The ABI guard compares generated metadata against the existing reflection descriptor, so we
-// need its declarations (`::CATypeDescriptor<T>` + `careflection::has_type_desc<T>`).
-#include "Reflection.h"
 
 namespace cacore::codegen
 {
@@ -83,7 +78,7 @@ namespace cacore::codegen
         // Container members only (FieldFlags::Container): the element description (for a map, the
         // MAPPED type) and, for maps, the key description. Both point at a one-entry static table the
         // emitter generates alongside; their `offset` is 0 because they are not members of the parent
-        // type. Non-container members leave both nullptr. (codegen-container-semantics task 2.2)
+        // type. Non-container members leave both nullptr.
         const CodeGenFieldInfo* key     = nullptr;
         const CodeGenFieldInfo* element = nullptr;
     };
@@ -101,9 +96,8 @@ namespace cacore::codegen
 
     // ------------------------------------------------------------------------------------
     // Emitter output view. The CodeGen reflection emitter specializes this for each annotated
-    // type, producing constexpr static data (a linear array) instead of a std::tuple of template
-    // types. Parallel in intent to `careflection::CATypeDescriptor<T>` (Reflection.h:58/82-99),
-    // but data-first and runtime-readable.
+    // type, producing constexpr static data (a linear array) instead of a tuple of template
+    // types: data-first and runtime-readable.
     // ------------------------------------------------------------------------------------
     template<typename T>
     struct TypeDescriptor
@@ -115,25 +109,17 @@ namespace cacore::codegen
     };
 
     // Build-time ABI guard. What it ACTUALLY asserts (and nothing more): the generated descriptor's
-    // field count equals `careflection::CATypeDescriptor<T>::member_count`, plus a non-null check on the
-    // generated type name (an "is the generated header included at all" test — it does NOT compare the
-    // name's CONTENT, and it does NOT compare offsets). Drift in the field count → build error, catching
-    // stale generated output against the source-of-truth reflection before it ships. Field-name or offset
-    // drift is NOT caught here: names are checked at runtime (`strcmp` in the consumer test) and offsets
-    // are resolved by the generated code's own `offsetof`, i.e. by the compiler, at the point of use.
-    // (Silently passes for types that are NOT CA_REFLECTION'd — nothing to compare against.)
+    // type name is non-null (an "is the generated header included at all" test —— it does NOT compare
+    // the name's CONTENT, and it does NOT compare offsets). Field-count / field-name / offset drift is
+    // checked by the consumer-unit assertion files, which compare against written-down expected values
+    // (`CPipelineStateObjectAssertions.cpp`, the two `ShaderLibraryCodeGenAssertions.cpp`): those fail
+    // to compile when the generated table and the expectation disagree.
     template<typename T>
     constexpr void static_assert_abi_consistency() noexcept
     {
-        if constexpr (careflection::has_type_desc<T>)
-        {
-            static_assert(
-                TypeDescriptor<T>::fieldCount == ::CATypeDescriptor<T>::member_count,
-                "CodeGen ABI drift: generated field count != CA_REFLECTION member count");
-            static_assert(
-                TypeDescriptor<T>::name != nullptr,
-                "CodeGen ABI drift: generated type has no name");
-        }
+        static_assert(
+            TypeDescriptor<T>::name != nullptr,
+            "CodeGen ABI drift: generated type has no name (the generated header is not visible here)");
     }
 
 } // namespace cacore::codegen
@@ -148,14 +134,14 @@ namespace cacore::codegen
 // The argument is a STRING LITERAL of the fully-qualified type name (so `::`-qualified names are
 // fine — no identifier token-pasting). It expands to an always-true static_assert whose message
 // embeds the name, giving the CodeGen tool a stable greppable token it extracts at build time, and
-// compiling as a zero-cost no-op under MSVC. Design D2: `CA_REFLECT(...)` (with options) will be
+// compiling as a zero-cost no-op under MSVC. `CA_REFLECT(...)` (with options) will be
 // the forward marker; this is its minimal no-options precursor.
 // ---------------------------------------------------------------------------------------------
 #define CA_CODEGEN_REGISTER(QualifiedName) \
     static_assert(true, "CA_CODEGEN_REGISTER:" QualifiedName)
 
 // ---------------------------------------------------------------------------------------------
-// CA_REFLECT — the FORWARD marker for engine-owned types (design D2). Attribute-style: takes an
+// CA_REFLECT — the FORWARD marker for engine-owned types. Attribute-style: takes an
 // options list (e.g. serializable, ui, min=0, marshal(as=...)) but NO type name — the associated
 // type is determined by the CodeGen tool as the class body FOLLOWING this marker (textual
 // association; the marker is a no-op that carries its options as text for grep). MSVC-safe no-op

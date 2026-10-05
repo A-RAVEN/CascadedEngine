@@ -27,6 +27,9 @@ file(GLOB_RECURSE Header_List "*.h")
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 target_link_libraries(${PROJECT_NAME} PRIVATE d3d12.lib dxgi dxguid d3dcompiler)
 target_include_directories(${PROJECT_NAME} PRIVATE "private")
+# CodeGen 生成物（build.py 的 codegen 段在所有编译之前生成）：出仓之后在构建目录里，本模块自己的类型
+# 要能被本模块消费。
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/codegen/D3D12RenderBackend)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)

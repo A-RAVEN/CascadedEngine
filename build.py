@@ -6,11 +6,9 @@ Usage:
     python build.py --no-configure  # build only (skip cmake configure)
     python build.py --config Debug  # use the Debug configuration (validation layers enabled)
     python build.py TargetName      # build a specific target
-    python build.py --commit-generated
-                                    # ALSO write the codegen output into its committed directory
-                                    # (<owner dir>/generated/). Without this flag the build never
-                                    # touches the source tree: it only byte-compares and fails on a
-                                    # mismatch (task 2.4 / design D10 of codegen-container-semantics)
+
+生成物只落构建目录（`out/build/<预设>/codegen/<模块>/`），源码树里没有生成代码：既没有"写回仓库"的开关，
+也没有"与入库副本逐字节对拍"这一步。
 """
 
 import os
@@ -20,9 +18,23 @@ import json
 import re
 import shlex
 import shutil
+import hashlib
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
+
+# The build log is read back and printed verbatim (run_msvc). Compiler diagnostics and static_assert
+# messages can contain non-ASCII text, and the default console encoding on Windows (cp1252 / cp936)
+# cannot represent it: `print()` then raised UnicodeEncodeError INSIDE the error-reporting path, so the
+# real compile error was replaced by a Python traceback and the log file stayed behind on disk.
+# Measured 2026-10-03: a failing CoreTests compile printed
+#   UnicodeEncodeError: 'charmap' codec can't encode characters in position 2150-2169
+# instead of the C2248 diagnostic. Force UTF-8 on both streams; characters the console still cannot
+# represent are replaced rather than raising.
+for _stream in (sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # config name -> CMake preset name (preset sets binaryDir to out/build/<preset>)
 CONFIGS = {
@@ -36,53 +48,135 @@ NINJA_FILE: Path | None = None
 
 # Codegen manifest: header (relative to PROJECT_DIR, the file the sidecar parses), the type name, and
 # the CMake module root that owns it (used to pick that module's compile env from compile_commands.json).
-# This change registers NO project type (proposal Non-goals / tasks 9.15+9.25): the manifest points at
-# the self-contained fixture under Tools/CodeGen/ so the build-time path still has a subject without
-# coupling to engine headers. The generated file is byte-compared against the committed golden, so this
-# entry checks something real (that the compile_commands-derived env produces the same output as the
-# hand-written include flags used by the golden test) instead of emitting an unconsumed file.
+# The manifest points at the self-contained fixture under Tools/CodeGen/ so the build-time path still has a
+# subject without coupling to engine headers. 产物落构建目录、并且真的被编译单元消费（CoreTests 里断言它），
+# 所以这一行查的是真东西 —— 不是生成一份没人读的文件。
 CODEGEN_ANNOTATED = [
-    # (header, type, owner directory) — task 2.4 / design D10: the committed copy lives in
-    # `<owner directory>/generated/`, derived from this row instead of being spelled out again.
-    # The owner directory is a repo-relative directory PREFIX (see _tus_for_root), so its granularity
-    # decides where the headers land: `Tools/CodeGen` -> Tools/CodeGen/generated,
-    # `Interface/RenderInterface` -> Interface/RenderInterface/generated.
-    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Tools/CodeGen"),
-    # Task 1.1 of codegen-container-semantics: the classification fixture (typedef vs keyword spellings).
-    ("Tools/CodeGen/TestKinds.h", "Kinds", "Tools/CodeGen"),
-    # Task 2.3 of codegen-container-semantics: the container fixture, consumed by a real engine target
+    # (header, type, owner directory): 归属目录是**真正编译（消费）这个类型**的模块，它同时决定两件事：
+    # 用谁的编译环境解析（见 _env_for_root），以及产物落在构建目录的 `codegen/<归属目录，/ 换成 _>/`。
+    # 两个自包含夹具的头文件放在 Tools/CodeGen/ 下，但产物是被 Test/CoreTests 的编译单元 include 的，
+    # 所以归属写 Test/CoreTests。写"头文件所在的目录"会推不出环境 —— 生成器已经是独立工程，引擎的
+    # compile_commands.json 里没有它的编译单元，那样只能靠一张手写的借用表，而基线规格禁止手写清单。
+    ("Tools/CodeGen/TestEmit.h", "EmitSample", "Test/CoreTests"),
+    # The classification fixture (typedef vs keyword spellings).
+    ("Tools/CodeGen/TestKinds.h", "Kinds", "Test/CoreTests"),
+    # The container fixture, consumed by a real engine target
     # (Interface/RenderInterface/private/TestContainerAssertions.cpp).
     ("Interface/RenderInterface/private/TestContainer.h", "Containers", "Interface/RenderInterface"),
     ("Interface/RenderInterface/private/TestContainer.h", "HasFloat", "Interface/RenderInterface"),
-    # Task 5.1: the wrapper fixture needs `Hasher.h` -> `<sha256.h>`, which only CACore's compile units carry.
+    # 容器里装结构体（结构体内部还有无序容器）——撤除退出码 12 那条拒绝的指称对象。
+    ("Interface/RenderInterface/private/TestContainer.h", "Inner", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/private/TestContainer.h", "Outer", "Interface/RenderInterface"),
+    # 定长数组（castl::array / C 数组）：读取路径按位置覆写，不调用 clear()。
+    ("Interface/RenderInterface/private/TestContainer.h", "FixedArrays", "Interface/RenderInterface"),
+    # CPipelineStateObject 一族（含嵌套类型 StencilStates 与 castl::array 成员）。
+    ("Interface/RenderInterface/header/CPipelineStateObject.h", "RasterizerStates", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/CPipelineStateObject.h", "DepthStencilStates", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/CPipelineStateObject.h", "StencilStates", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/CPipelineStateObject.h", "SingleColorAttachmentBlendStates", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/CPipelineStateObject.h", "ColorAttachmentsBlendStates", "Interface/RenderInterface"),
+    ("Interface/RenderInterface/header/CPipelineStateObject.h", "CPipelineStateObject", "Interface/RenderInterface"),
+    # SHA-256 摘要（ShaderLibrary 的键类型）：嵌套在 cahash::sha256_hash 里。
+    # ShaderCompiler 的数据模型：ShaderLibrary 的映射值类型（ShaderStructData 等）在它里面，
+    # 编译环境取自 ShaderCompilerSlang 的编译单元（唯一包含它的编译单元）。
+    ("Interface/ShaderCompiler/header/Compiler.h", "UniformElement", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderStructUniforms", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "BufferData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderTextureData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "SubStructReference", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderStructData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderResourceBinding", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderBindingHierarchy", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderSpaceResourceStats", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "BindingDesc", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "BufferBindingDesc", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderSpaceInfo", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderBindingInfo", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "UniformGroup", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "UniformBufferData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderResourceGroups", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "TextureData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "SamplerData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderBufferData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderBindingSpaceData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderVertexAttributeData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderReflectionData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderProgramData", "ShaderCompilerSlang"),
+    ("Interface/ShaderCompiler/header/Compiler.h", "ShaderCompileTargetResult", "ShaderCompilerSlang"),
+    ("CACore/header/CACore/CAHash.h", "result_type", "CACore", "cahash::sha256_hash::result_type"),
+    # ShaderLibrary（Vulkan 后端）：四个无序映射，以及它们装的那一整条数据链。
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "ShaderLibrary", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanShaderCode", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanShaderFileInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "ProgramInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanShaderResourceBindingInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanDescriptorSetLayoutInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanDescriptorBinding", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanCBufferBindingInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanImageBindingInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanBufferBindingInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanSamplerBindingInfo", "VulkanRenderBackendNew"),
+    ("VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h", "VulkanStructBindingInfo", "VulkanRenderBackendNew"),
+    # ShaderLibrary（D3D12 后端）：同一族的另一份实现，含 ComPtr<ID3DBlob> 成员。
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "ShaderLibrary", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "ShaderSourceKey", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "CBufferBindingInfo", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "ImageBindingInfo", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "BufferBindingInfo", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "SamplerBindingInfo", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "StructBindingInfos", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "ShaderResourceBindingInfo", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "ShaderFileInfo", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "ProgramInfo", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h", "ShaderCode", "D3D12RenderBackend"),
+    # ShaderSetData 故意不在清单里：它有一个非拥有的指针成员（`reflectionData`），指针成员在发序列化 /
+    # 哈希时会被工具拒绝（退出码 15，点名该成员），而这个类型只是 `GetShaderCodes()` 的临时返回值、
+    # 不参与落盘。原因与红态读数记在 change 的 design「已知边界」一节。
+    # The wrapper fixture needs `Hasher.h` -> `<sha256.h>`, which only CACore's compile units carry.
     ("CACore/private/TestWrapper.h", "Holder", "CACore"),
-    # Task 3.2 of the archived wire-codegen-real-type change: the first real engine type.
+    # The first real engine type.
     ("Interface/RenderInterface/header/GPUBuffer.h", "GPUBufferDescriptor", "Interface/RenderInterface"),
 ]
 
 
 def codegen_generated_dir(owner_root: str) -> Path:
-    """Committed directory for one manifest row: `<owner root>/generated/` (design D10)."""
-    return PROJECT_DIR / owner_root.replace("\\", "/").strip("/") / "generated"
+    """这个归属目录的产物落点：**构建目录**里的 `codegen/<模块>/`（模块名 = 归属目录把 `/` 换成 `_`）。"""
+    return BUILD_DIR / "codegen" / owner_root.replace("\\", "/").strip("/").replace("/", "_")
 
-# Task 2.4: the committed generated directory is PER ENTRY now (the 4th column above). The old global
-# constant is gone: with a second type in a different module, one shared golden dir would collide by
-# file name and silently compare the wrong artifact.
+# 每个产物都在构建期生成，并**逐份确认工具真的写出了它**（`CodeGen wrote:` 名单）。从前只有反射发射器
+# 由 build.py 驱动，序列化与哈希两个发射器在构建期完全没跑过：改写它们却不重新生成入库副本，
+# GeneratedSerializerTest 与 GeneratedHashTest 照样过、构建照样绿 —— 三分之二的生成链当时没有任何构建期证据。
+# 这一列是产物的**文件名中段**：`<类型名>.Reflection.h`；顺序就是打印与比对的顺序。工具那边一次调用
+# 把三份全出（`--emit-all --out-dir`），所以这里不再有"发射标志"这一列。
+CODEGEN_PRODUCTS = ["Reflection", "Serialization", "Hash"]
 
-# Every emitter gets its own build-time generation + byte-comparison (goal terminal state 1, last
-# paragraph). Before this, only the reflection emitter was driven from build.py, so the serialization
-# and hash emitters were never exercised at build time: rewriting either of them and NOT regenerating
-# its committed golden left both GeneratedSerializerTest and GeneratedHashTest passing, and the build
-# reported success — i.e. two thirds of the "generation chain" had no build-time evidence at all.
-CODEGEN_EMITTERS = [
-    ("--emit-reflection", "Reflection"),
-    ("--emit-serialization", "Serialization"),
-    ("--emit-hash", "Hash"),
-]
+# 生成段的并发上限：每个 CodeGen.exe 实测常驻约 80 MB，8 个约 640 MB；再多就是跟编译抢内存与磁盘。
+# 实际取 min(条目数, 本值, 逻辑核数 / 4)，见 codegen() 第二遍。
+CODEGEN_MAX_WORKERS = 8
 
-# Extra include roots the sidecar needs on top of the module env: the fixtures include CodeGenMeta.h,
-# which lives in CACore/header and is NOT on the CodeGen tool's own include path.
-CODEGEN_EXTRA_INCLUDES = ["CACore/header"]
+# 生成器在三份产物模式下把它这一次**真正读过的文件**打成这样的行（见 CodeGenMain.cpp 的
+# InclusionCollector）。build.py 把这些文件逐个算哈希进账本 —— 只哈希清单里那一个头是不够的。
+CODEGEN_DEPS_PREFIX = "CodeGen deps: "
+CODEGEN_WROTE_PREFIX = "CodeGen wrote: "
+
+# 冷启动占位。清单里有不少行的头会**直接 include 别的行的生成物**（`Interface/ShaderCompiler/header/
+# Compiler.h` 一个头就 include 了 48 份），而生成它自己又必须先解析那个头 —— 构建目录是空的时候这是个
+# 死循环。实测：把 `ShaderCompilerSlang` 的 72 份产物挪走再构建，**47 行**以退出码 6 失败（不是那一个
+# 模块的 24 行），因为失败会顺着 include 链扩散。
+# 处置：登记一行要跑的时候，先给它的三份产物放一个占位文件（只在"文件不存在或还是占位内容"时放），
+# 让别的行的 `#include` 解析得到；真正的产物随后由工具用改名覆盖它。失败的行的占位文件会被删掉，
+# 免得空头留在包含路径上让编译阶段看到莫名其妙的东西。
+CODEGEN_PLACEHOLDER = "// CodeGen 占位文件：冷启动时先让 #include 找得到，成功的产物会覆盖它。\n"
+
+# Extra include roots the sidecar needs on top of the module env:
+#   CACore/header          — the fixtures include CodeGenMeta.h, which lives in CACore/header and is NOT on
+#                            the CodeGen tool's own include path.
+#   Tools/CodeGen/clang_shim — a parse-time shim for the headers vendored libclang is missing. Its
+#                            `cpuid.h` covers the `#include <cpuid.h>` that the Windows SDK's DirectXMath.h
+#                            takes under clang's identity (`cpuid.h` is a clang RESOURCE header, and the
+#                            vendored LLVM here ships no resource dir). Without it, parsing the D3D12
+#                            module's own headers fails with exit 6.
+CODEGEN_EXTRA_INCLUDES = ["CACore/header", "Tools/CodeGen/clang_shim"]
 
 COMSPEC = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
 
@@ -156,7 +250,7 @@ def _write_bat(cmd: str, log_file: str | None = None) -> Path:
     lines.append(f'{PROJECT_DIR.drive}')
     lines.append(f'cd /d "{PROJECT_DIR}"')
     if log_file:
-        lines.append(f'{cmd} >> "{PROJECT_DIR / log_file}" 2>&1')
+        lines.append(f'{cmd} > "{PROJECT_DIR / log_file}" 2>&1')
     else:
         lines.append(cmd)
     lines.append("exit /b %ERRORLEVEL%")
@@ -178,17 +272,121 @@ def run_msvc(cmd: str, log_file: str | None = None) -> None:
 
     if log_file:
         log_path = PROJECT_DIR / log_file
-        if log_path.exists():
-            print(log_path.read_text(encoding="utf-8", errors="replace"))
-            log_path.unlink()
-        else:
-            print(f"  [WARNING] Log file not found: {log_file}")
+        # The log is deleted whether or not printing it worked. It used to be
+        # `print(...)` followed by `unlink()`: one failed print (a console encoding error) skipped the
+        # deletion, the bat APPENDED to the leftover file on every later run, and every subsequent build
+        # printed its own diagnostics on top of the previous run's — which is how a stale error message
+        # from an already-fixed file kept looking like the current failure.
+        try:
+            if log_path.exists():
+                print(log_path.read_text(encoding="utf-8", errors="replace"))
+            else:
+                print(f"  [WARNING] Log file not found: {log_file}")
+        finally:
+            log_path.unlink(missing_ok=True)
 
     if result.returncode != 0:
         print(f"\nERROR: command failed (exit {result.returncode})")
         print(f"  Bat file kept at: {bat}")
         sys.exit(result.returncode)
     bat.unlink(missing_ok=True)
+
+
+def _sha256_file(path: Path) -> str:
+    """文件内容指纹，给 codegen 段"输入没变就跳过"用。文件不存在返回空串 —— 空串不等于任何真实指纹，
+    所以「入库的生成物被删掉」这种情况不会被当成"没变"。"""
+    if not path.is_file():
+        return ""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _sha256_file_cached(path: Path, cache: dict) -> str:
+    """`_sha256_file` 的带缓存版本：同一次构建里同一个文件只算一次。
+
+    依赖名单在几十行之间大量重叠（实测 Vulkan 那一行就拉进 125 个仓库内的头），不缓存的话每一行都要
+    把整套标准库重算一遍。
+    """
+    key = str(path)
+    if key not in cache:
+        cache[key] = _sha256_file(path)
+    return cache[key]
+
+
+def _dir_listing_hash(path: Path, cache: dict) -> str:
+    """目录的**名字清单**哈希：只看这个目录下有哪些文件，不看内容。
+
+    它防的是"新加一个同名头，把原来被读到的那个挡住" —— 依赖名单里存的是上一轮读过的路径，新文件出现
+    不会改变那些路径的内容，只看名单发现不了。按名字清单判、不按修改时间判：`git checkout`、复制文件、
+    切分支都会刷新时间，按时间判会把用不上这个头的行也一起重跑。
+    """
+    key = str(path)
+    if key in cache:
+        return cache[key]
+    try:
+        names = sorted(entry.name for entry in path.iterdir())
+    except OSError:
+        names = ["<unreadable>"]
+    cache[key] = hashlib.sha256("\x00".join(names).encode("utf-8")).hexdigest()
+    return cache[key]
+
+
+def _include_dirs(env: list) -> list:
+    """编译环境里的包含目录（`-I<dir>` / `/I<dir>`），相对路径按仓库根解开。"""
+    dirs: list = []
+    for arg in env:
+        for prefix in ("-I", "/I"):
+            if arg.startswith(prefix) and len(arg) > len(prefix):
+                path = Path(arg[len(prefix):])
+                dirs.append(path if path.is_absolute() else PROJECT_DIR / path)
+                break
+    return dirs
+
+
+def _codegen_row_fingerprint(tool_fp: str, header_path: Path, env_fp: str, dep_paths: list,
+                             include_dirs: list, outputs: dict, cache: dict) -> dict:
+    """一条清单的全部输入：工具二进制、被解析的头、**生成器真正读过的每个文件**、编译环境、包含目录的
+    名字清单、上一轮的产物。
+
+    是一个**普通函数、不是循环里的闭包**：登记要跑的条目时先把参数存下来，记账发生在并发跑完之后，
+    闭包那时看到的会是循环最后一次赋的值（即最后一行的路径），指纹就会张冠李戴。
+
+    `deps` 是本条的要害：产物字节由整条包含链决定。只哈希清单里那一个文件的话，改它 include 的依赖头
+    会被判"没变"而跳过 —— 编译继续吃上一轮的产物，构建却报成功（实测 63 行里有 62 行会这样被跳过）。
+    """
+    return {
+        "tool": tool_fp,
+        "header": _sha256_file_cached(header_path, cache),
+        "env": env_fp,
+        "deps": {p: _sha256_file_cached(Path(p), cache) for p in dep_paths},
+        "dirs": {str(d): _dir_listing_hash(d, cache) for d in include_dirs},
+        "out": {s: _sha256_file_cached(p, cache) for s, p in outputs.items()},
+    }
+
+
+def configure_inputs_changed() -> str:
+    """CMake 的配置输入里，有没有比 build.ninja 更新的。返回文件名 = 该重配；返回空串 = 可以跳过。
+
+    判据是文件的修改时间，不是"我记得上次配过"：新增或改过任何 `CMakeLists.txt` / `*.cmake` /
+    `CMakePresets.json` 都会让这里返回文件名，于是照旧重配。
+    """
+    if not NINJA_FILE.exists():
+        return "build.ninja 不存在"
+    ninja_mtime = NINJA_FILE.stat().st_mtime
+    candidates = [PROJECT_DIR / "CMakePresets.json"]
+    for pattern in ("CMakeLists.txt", "*.cmake"):
+        for p in PROJECT_DIR.rglob(pattern):
+            parts = p.parts
+            if "out" in parts or "_deps" in parts or ".git" in parts:
+                continue
+            candidates.append(p)
+    for p in candidates:
+        if p.is_file() and p.stat().st_mtime > ninja_mtime:
+            return str(p.relative_to(PROJECT_DIR))
+    return ""
 
 
 def configure() -> None:
@@ -240,22 +438,21 @@ def patch_ninja() -> None:
     NINJA_FILE.write_text(text, encoding="utf-8")
 
 
-def codegen(commit_generated: bool = False) -> list[str]:
-    """Build-time CodeGen step (openspec engine-codegen-framework task 4.1): run the libclang sidecar
+def codegen(force: bool = False) -> list[str]:
+    """Build-time CodeGen step: run the libclang sidecar
     over the annotated headers, feeding each owning module's exact compile env (include dirs + defines)
     so libclang lays the types out correctly. Runs in the MSVC environment (via run_msvc so it inherits
     vcvars + sanitized PATH).
 
     Returns a list of human-readable failures; the caller turns a non-empty list into a non-zero build
-    exit (task 9.9: a real tool failure and a success must NOT be indistinguishable). **An empty
-    manifest is a legitimate configuration, not a failure** (task 3.3: empty whitelist => EXIT 0, no
+    exit (a real tool failure and a success must NOT be indistinguishable). **An empty
+    manifest is a legitimate configuration, not a failure** (empty whitelist => EXIT 0, no
     output, must not block the build). Everything abnormal - sidecar missing, sidecar non-zero exit,
-    no compile env for a module, missing compile_commands.json - is a failure.
+    no compile env for a module, missing compile_commands.json, tool reporting it wrote fewer products
+    than the row expects - is a failure.
 
-    Manifest (tasks 9.15 / 9.25): this change registers NO project type, so the manifest points at the
-    self-contained fixture under Tools/CodeGen/. The generated file is byte-compared against the
-    committed golden, so the entry checks a real property (the compile_commands-derived env produces
-    the same bytes as the hand-written flags the golden test uses) instead of emitting an unused file.
+    产物只落构建目录（`out/build/<预设>/codegen/<模块>/`），**源码树里没有生成代码**，所以这里没有"写回
+    仓库"的动作，也没有"与入库副本逐字节对拍"：入库副本正是"改了类型忘了重新生成"的温床。
     """
     print()
     print("=" * 60)
@@ -265,7 +462,27 @@ def codegen(commit_generated: bool = False) -> list[str]:
     # The sidecar is a CMake build target; ensure it is built first (idempotent). It is a standalone
     # tool, not an engine DLL the tester loads — building it here is safe and does NOT cause the
     # "stale product" inconsistency the build.py single-target warning cares about.
-    run_msvc(f"cmake --build {BUILD_DIR} --target CodeGen", "_build_codegen_tool.log")
+    #
+    # 先看要不要问 ninja：问一次（含 vcvars 环境准备）实测几秒，占了"什么都不改"那次构建的一大半。判据是
+    # 修改时间 —— 工具自己的源文件与它的 CMakeLists 都比 CodeGen.exe 旧时，ninja 只会回一句
+    # "no work to do"，那就干脆不问；任何一样更新了（比如改了 CodeGenMain.cpp）都照旧问。
+    # ⚠ 判据里**不包含任何 build.ninja**。曾经盯的是引擎的 `NINJA_FILE`，后来又改成工具那棵树的
+    # `out/build/codegen-tool/build.ninja` —— 两个都不对：它们由 configure 重写，而"ninja 说没活干"时
+    # 它们不会跟着变新，于是这条跳过**永远不再成立**（实测：连续两次构建都不打印跳过）。build.ninja 不是
+    # 工具的源输入，源输入只有那些 .cpp/.h/.txt/.cmake。
+    sid_path = BUILD_DIR / "bin" / "CodeGen.exe"
+    tool_build_dir = PROJECT_DIR / "out" / "build" / "codegen-tool"
+    tool_inputs = [p for p in (PROJECT_DIR / "Tools" / "CodeGen").rglob("*")
+                   if p.is_file() and p.suffix in (".cpp", ".h", ".hpp", ".txt", ".cmake")]
+    if sid_path.exists() and all(p.stat().st_mtime <= sid_path.stat().st_mtime for p in tool_inputs if p.exists()):
+        print("  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)",
+              flush=True)
+    else:
+        run_msvc(f"cmake -S {PROJECT_DIR / 'Tools' / 'CodeGen'} -B {tool_build_dir} -G Ninja "
+                 f"-DCMAKE_BUILD_TYPE={config} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "
+                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={BUILD_DIR / 'bin'}",
+                 "_build_codegen_configure.log")
+        run_msvc(f"cmake --build {tool_build_dir}", "_build_codegen_tool.log")
 
     cc_file = BUILD_DIR / "compile_commands.json"
     if not cc_file.exists():
@@ -282,64 +499,227 @@ def codegen(commit_generated: bool = False) -> list[str]:
     try:
         env_by_root = _compile_env_by_root(entries)
     except EnvError as exc:
-        # Task 2.2: a module whose compile units disagree about the macros is refused, not guessed at.
+        # A module whose compile units disagree about the macros is refused, not guessed at.
         return [str(exc)]
     extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES]
     failures: list[str] = []
 
-    for rel_header, type_name, owner_root in CODEGEN_ANNOTATED:
+    # 「输入没变就跳过」的账本。键是清单那一行（含限定名列），值是把这一行的**全部输入**与**现有产物**
+    # 一起算成的指纹：工具二进制、被解析的头、**生成器真正读过的每个文件**、编译环境、包含目录的名字
+    # 清单、入库副本、上一轮的产物。少算哪一样，都会让"改了东西却继续用旧产物"变成静默的假绿 ——
+    # 依赖名单那一项就是为此加的（实测：清单里 10 份头全都 include 了别的头，Vulkan 那份拉进 125 个）。
+    # 全量重跑（`--codegen-all`）不读账本，行为与从前一致。
+    stamp_path = BUILD_DIR / "codegen.stamp.json"
+    stamp: dict = {}
+    if not force and stamp_path.exists():
+        try:
+            stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            stamp = {}
+    fresh_stamp: dict = {}
+    tool_fp = _sha256_file(sid)
+    # 工具二进制进了指纹：改一行 CodeGenMain.cpp 就等于"所有条目的输入都变了"，下一轮全量重生成。
+    # 这是**故意保留**的安全规则 —— 试跑一条来推断"发射行为没变"曾实现过，实测被否决（见
+    # docs/failed-approaches.md），因为它把"生成器改坏了"的唯一信号从"全量重跑"降成"一条样本"。
+    skipped = 0
+    ran = 0
+    file_hashes: dict = {}   # 同一次构建里同一个文件只哈希一次（依赖名单在行与行之间高度重叠）
+
+    # 第一遍：按清单顺序判定要跑哪些条目，并把每一行的输入固化下来。判定必须串行（账本读取与"老布局
+    # 搬迁"都动文件系统），而且它很便宜；昂贵的是第二遍的解析。
+    plan: list[dict] = []
+    for index, row in enumerate(CODEGEN_ANNOTATED):
+        # 清单的第 4 列是可选的「限定名」：工具按**最后一个非限定名**查找类型，而同一个 TU 里同名的
+        # 类型很常见（实测：`result_type` 在 sha256 / komihash / STL 里都有）。带上这一列时，工具用
+        # 它作为生成物里的类型名（`--qualified-name=`），避免生成的代码写上裸名字。
+        rel_header, type_name, owner_root = row[0], row[1], row[2]
+        qualified = row[3] if len(row) > 3 else None
         env = env_by_root.get(owner_root)
         if not env:
             failures.append(f"no compile env for module '{owner_root}' (type {type_name})")
             continue
-        golden_dir = codegen_generated_dir(owner_root)
         if not sid.exists():
             failures.append(f"codegen sidecar not found: {sid}")
             break
-        for emit_flag, suffix in CODEGEN_EMITTERS:
-            out_file = gen_dir / f"{type_name}.{suffix}.h"
-            cmd = [str(sid), rel_header, type_name, *env, *extra,
-                   emit_flag, "-o", str(out_file)]
+
+        env_fp = hashlib.sha256("\x00".join([*env, *extra, qualified or ""]).encode("utf-8")).hexdigest()
+        header_path = PROJECT_DIR / rel_header
+        # 产物按模块分目录：`out/build/<预设>/codegen/` 是所有条目共用的，而文件名只用类型名 ——
+        # 清单里 `ShaderLibrary` 在 Vulkan 与 D3D12 各有一个、`ProgramInfo` 也是，两条会写同一个文件、
+        # 互相覆盖（实测后果：账本里有一方的产物哈希永远对不上，每次构建都白重跑 4 条、51 秒）。
+        out_dir = gen_dir / owner_root.replace("/", "_").replace("\\", "_")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        row_key = json.dumps([rel_header, type_name, owner_root, qualified], ensure_ascii=False)
+        outputs = {sfx: out_dir / f"{type_name}.{sfx}.h" for sfx in CODEGEN_PRODUCTS}
+        # 老布局（产物直接躺在 codegen/ 根下、同名类型互相覆盖）里属于这一条的文件挪进新目录：
+        # 换个路径不该让账本全部作废。挪进来的若不是这一条的产物（撞名的那种情况），下面照旧会重跑它。
+        for sfx, new_path in outputs.items():
+            legacy = gen_dir / f"{type_name}.{sfx}.h"
+            if not new_path.exists() and legacy.exists():
+                try:
+                    legacy.replace(new_path)
+                except OSError:
+                    pass
+
+        # 这一行的包含目录：编译环境里的那些 + 两个固定的额外根。目录的**名字清单**进指纹，用来发现
+        # "新加一个同名头把旧头挡住"——依赖名单里存的是上一轮读过的路径，看不出新文件。
+        include_dirs = _include_dirs(env) + _include_dirs(extra)
+
+        cached = stamp.get(row_key)
+        if not force and cached is not None:
+            # 这一轮没跑工具，拿不到新的依赖名单，所以用**账本里记的那一份**重算：逐个文件比对内容哈希，
+            # 少一个、改一个、目录里多出或少了文件，都算"输入变了"，这一行重跑。
+            cached_deps = sorted((cached.get("deps") or {}))
+            fp_args = (tool_fp, header_path, env_fp, cached_deps, include_dirs, outputs, file_hashes)
+            if cached == _codegen_row_fingerprint(*fp_args) and all(cached["out"].values()):
+                fresh_stamp[row_key] = cached
+                skipped += 1
+                continue
+        # 要跑的条目在这里只**登记**，不启动 —— 跑是第二遍的事（并发），账本与失败汇总留在第三遍
+        # （按清单顺序）。登记时先放占位文件：别的行要解析的头可能 include 这一行的产物，
+        # 而第二遍是并发跑的，谁先谁后没有保证（见 CODEGEN_PLACEHOLDER 的注释）。
+        for out_path in outputs.values():
             try:
-                r = subprocess.run(cmd, cwd=str(PROJECT_DIR), capture_output=True, text=True)
+                if not out_path.exists() or out_path.read_text(encoding="utf-8", errors="replace") == CODEGEN_PLACEHOLDER:
+                    out_path.write_text(CODEGEN_PLACEHOLDER, encoding="utf-8")
+            except OSError:
+                pass   # 放不下占位不影响正确性：那一行的解析会以退出码 6 报出来
+        plan.append({
+            "index": index,
+            "rel_header": rel_header,
+            "type_name": type_name,
+            "qualified": qualified,
+            "env": env,
+            "out_dir": out_dir,
+            "outputs": outputs,
+            "row_key": row_key,
+            "header_path": header_path,
+            "env_fp": env_fp,
+            "include_dirs": include_dirs,
+            "dep_paths": [],      # 由 run_row 从工具的输出里填
+            "fp_cache": file_hashes,
+        })
+
+    # 第二遍：并发跑。上限 = min(条目数, CODEGEN_MAX_WORKERS, 逻辑核数 / 4)，每个进程实测常驻约 80 MB，
+    # 32 逻辑核上取到 8。开工先打印用了几个，读数与日志对得上。
+    ran = len(plan)
+    run_failures: list[list[str]] = [[] for _ in plan]
+    if plan:
+        cores = os.cpu_count() or 4
+        workers = max(1, min(len(plan), CODEGEN_MAX_WORKERS, max(1, cores // 4)))
+        print(f"  codegen: 并发 {workers} 条（逻辑核 {cores}，上限 {CODEGEN_MAX_WORKERS}）", flush=True)
+
+        def run_row_inner(entry: dict) -> list[str]:
+            """跑一条清单：起**一次** CodeGen.exe（`--emit-all`，一次解析出三份产物），逐份对拍。"""
+            row_failures: list[str] = []
+            type_name = entry["type_name"]
+            # 进度行打在**开始**时并立刻刷盘：重定向到日志时要能看出是"在推进"还是"卡住了"（实测为此
+            # 误判过一次）。序号取清单序号 —— 并发下开始顺序仍是清单顺序，所以日志里是递增的。
+            print(f"  [{entry['index'] + 1}/{len(CODEGEN_ANNOTATED)}] {type_name}", flush=True)
+            # **不先删上一轮的产物**：产物所在的那个目录本身就在解析的包含路径上（`Compiler.h` 直接
+            # `#include "UniformElement.Serialization.h"`），先删就会让这一行的解析当场找不到文件
+            # （实测：`--emit-all exit 6 … 'UniformElement.Serialization.h' file not found`）。
+            # "工具退出码 0 却没写出产物"改用工具自己报的 `CodeGen wrote:` 名单来判断 —— 那比"先删掉
+            # 再看有没有"更准，也不用动消费者读的那个目录。
+            cmd = [str(sid), entry["rel_header"], type_name, *entry["env"], *extra,
+                   "--emit-all", "--out-dir", str(entry["out_dir"])]
+            if entry["qualified"]:
+                cmd.append(f"--qualified-name={entry['qualified']}")
+            # 诊断开关：把真正传给工具的命令行打出来（排查"清单里写了、生成物却没变"这类问题用）。
+            if os.environ.get("CODEGEN_TRACE_CMD"):
+                print("  cmd: " + " ".join(cmd), flush=True)
+            try:
+                proc = subprocess.run(cmd, cwd=str(PROJECT_DIR), capture_output=True,
+                                      text=True, encoding="utf-8", errors="replace")
             except FileNotFoundError:
-                failures.append(f"codegen sidecar not found: {sid}")
-                break
-            if r.returncode != 0:
-                failures.append(
-                    f"CodeGen '{type_name}' {emit_flag} exit {r.returncode}: {r.stderr.strip()}")
-                continue
-            golden = golden_dir / out_file.name
-            # Task 2.4 / design D10: WITHOUT --commit-generated the build never touches the source
-            # tree; it only compares. WITH it, the freshly generated file becomes the committed copy.
-            if commit_generated:
-                golden.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(out_file, golden)
-                print(f"  generated {out_file} -> committed {golden}")
-                continue
-            if not golden.exists():
-                failures.append(
-                    f"CodeGen '{type_name}' {emit_flag}: no committed copy at {golden} — run "
-                    f"`python build.py --config {config} --commit-generated` to write it")
-                continue
-            if out_file.read_bytes() != golden.read_bytes():
-                failures.append(
-                    f"CodeGen '{type_name}' {emit_flag}: generated {out_file} differs byte-for-byte "
-                    f"from the committed copy {golden}. Two causes, and the diff tells them apart: "
-                    f"(a) the annotated type or its environment changed and the committed file was not "
-                    f"regenerated — run `python build.py --config {config} --commit-generated` and "
-                    f"commit the result; (b) the committed file is not this type's output at all "
-                    f"(swapped/copied from elsewhere)")
-                continue
-            print(f"  generated {out_file} (matches committed {golden})")
-        if not sid.exists():
-            break
+                return [f"codegen sidecar not found: {sid}"]
+            if proc.returncode != 0:
+                # 一次调用覆盖三份产物，所以失败也只报一条：工具非零退出时它已经把这一行写出的产物
+                # 清掉了，三份一个都不会留下。
+                if proc.returncode >= 0xC0000000:
+                    # 这不是工具自己的退出码，是 Windows 的异常码（0xC0000135 = 找不到 DLL）。实测：
+                    # 把 `out/build/<预设>/bin/libclang.dll` 挪走再强制全量生成，63 行全是这个码、
+                    # stderr 是空的 —— 光印一个数字等于什么都没说，所以这里把最可能的原因点出来。
+                    return [f"CodeGen 起不来（{type_name}）：退出码 {proc.returncode} "
+                            f"(0x{proc.returncode:08X}) 是 Windows 的异常码，不是工具自己的退出码。"
+                            f"多半是 `CodeGen.exe` 旁边缺 `libclang.dll` —— 检查 "
+                            f"{sid.parent / 'libclang.dll'} 在不在，以及 CALIB_CLANG_DIR 指向的目录"]
+                return [f"CodeGen '{type_name}' --emit-all exit {proc.returncode}: "
+                        f"{(proc.stderr or '').strip()}"]
+            # 工具报出它这一次真正读过的文件；这些文件进账本（下一轮按它们逐个比对内容哈希）。
+            entry["dep_paths"] = [line[len(CODEGEN_DEPS_PREFIX):].strip()
+                                  for line in (proc.stdout or "").splitlines()
+                                  if line.startswith(CODEGEN_DEPS_PREFIX)]
+            if not entry["dep_paths"]:
+                # 拿不到名单就**不许记账**：记了就等于把"改了依赖头也不重跑"这个洞固化下来。
+                return [f"CodeGen '{type_name}' --emit-all: 工具没有报出它读过的文件"
+                        f"（没有 `{CODEGEN_DEPS_PREFIX}` 行）—— 拒绝为这一行记账，下次仍会重跑"]
+            # 工具报出它这一次真正写出的产物（路径按 `/` 拼，这里统一成平台写法再比）。
+            wrote = {str(Path(line[len(CODEGEN_WROTE_PREFIX):].strip()))
+                     for line in (proc.stdout or "").splitlines()
+                     if line.startswith(CODEGEN_WROTE_PREFIX)}
+            absent = [str(entry["outputs"][s]) for s in CODEGEN_PRODUCTS
+                      if str(entry["outputs"][s]) not in wrote]
+            if absent:
+                return [f"CodeGen '{type_name}' --emit-all: 工具退出码 0，却没有写出这些产物："
+                        f"{', '.join(absent)} —— 多半是这个类型的标注被删了"]
+            for suffix in CODEGEN_PRODUCTS:
+                out_file = entry["outputs"][suffix]
+                if not out_file.exists():
+                    row_failures.append(f"CodeGen '{type_name}' {suffix}: 工具说它写出了 {out_file}，"
+                                        f"但那个文件不在磁盘上")
+                    continue
+                print(f"  generated {out_file} ({out_file.stat().st_size} B)", flush=True)
+            return row_failures
+
+        def run_row(entry: dict) -> list[str]:
+            """一行里出的任何岔子都要收敛成"这一行失败"，绝不能让异常穿出去。
+
+            异常穿过 `ThreadPoolExecutor.map` 的后果实测过：**还没开始的行被整体取消**（64 行只跑了 11 行），
+            构建以裸 Python traceback 结束，连 `CODEGEN FAILED` 汇总都不打印 —— 用户看到的是别人的栈，
+            不是"哪一行、为什么"。所以这里兜住一切，交给第三遍按清单顺序汇总。
+            """
+            try:
+                return run_row_inner(entry)
+            except Exception as exc:  # noqa: BLE001 — 兜住的正是"意料之外"
+                return [f"CodeGen '{entry['type_name']}' 这一行出错：{type(exc).__name__}: {exc}"
+                        f"（工具退出码 0 却没写出产物时多半是这个类型的标注被删了）"]
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            # map 保序：结果按清单顺序回来，写在下面第三遍。
+            run_failures = list(pool.map(run_row, plan))
+
+    # 第三遍：按清单顺序汇总失败并记账 —— 日志与账本的顺序都不随并发调度变。
+    for entry, entry_failures in zip(plan, run_failures):
+        failures.extend(entry_failures)
+        if entry_failures:
+            # 失败的行走之前放过占位文件；工具没能覆盖它，就把它删掉 —— 空的生成头留在包含路径上，
+            # 只会让后面的编译阶段报出跟真正原因无关的错。
+            for out_path in entry["outputs"].values():
+                try:
+                    if out_path.exists() and out_path.read_text(encoding="utf-8", errors="replace") == CODEGEN_PLACEHOLDER:
+                        out_path.unlink()
+                except OSError:
+                    pass
+            continue
+        # 只在这一行**没有任何失败**时记账：否则失败报过一次之后，下一轮就会因为"输入没变"被跳过，
+        # 缺陷从此静默。
+        fresh_stamp[entry["row_key"]] = _codegen_row_fingerprint(
+            tool_fp, entry["header_path"], entry["env_fp"], entry["dep_paths"],
+            entry["include_dirs"], entry["outputs"], entry["fp_cache"])
+
+    try:
+        stamp_path.write_text(json.dumps(fresh_stamp, ensure_ascii=False, sort_keys=True),
+                              encoding="utf-8")
+    except OSError as exc:
+        print(f"  (账本写不进去：{exc} —— 下次仍会全量重跑，不影响正确性)")
+    print(f"  codegen: 重跑 {ran} 条、跳过 {skipped} 条（输入没变的那些）")
 
     return failures
 
 
 class EnvError(Exception):
-    """A module's compile units disagree about their macros — refuse instead of guessing (task 2.2)."""
+    """A module's compile units disagree about their macros — refuse instead of guessing."""
 
 
 def _msvc_env_parts(command: str) -> dict:
@@ -350,13 +730,26 @@ def _msvc_env_parts(command: str) -> dict:
     `/FI`+`/Yu` silently dropped the macros a module's PCH header defines (measured: `Interface` and
     `ThreadManager` both point them at CMake's `cmake_pch.hxx`); they now become `-include <file>`.
 
-    Task 9.4: `/MDd` (and `/MTd`) must NOT simply be dropped. cl.exe defines `_DEBUG` and
+    `/MDd` (and `/MTd`) must NOT simply be dropped. cl.exe defines `_DEBUG` and
     `_ITERATOR_DEBUG_LEVEL=2` implicitly for those runtimes, and dropping the flag dropped those macros
     too, so libclang laid the types out with the RELEASE STL rules. Measured with Tools/CodeGen/
     TestStdLayout.h: `tail` sits at byte 40 under /MD rules and at byte 48 under /MDd rules (debug STL
     gives std::string a _Container_proxy*, +8 bytes) — i.e. every offset after a std::string was wrong.
     """
     tokens = shlex.split(command, posix=False)
+    # `/external:I <path>` (the separated form) → `/external:I<path>`, so the loop below has one shape
+    # to handle. cl.exe accepts both spellings.
+    joined: list[str] = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i].strip('"')
+        if t in ("/external:I", "-external:I") and i + 1 < len(tokens):
+            joined.append(t + tokens[i + 1].strip('"'))
+            i += 2
+            continue
+        joined.append(tokens[i])
+        i += 1
+    tokens = joined
     includes: list[str] = []
     defines: list[str] = []
     forced: list[str] = []
@@ -371,6 +764,14 @@ def _msvc_env_parts(command: str) -> dict:
         # (len 2) would otherwise emit a malformed empty '-I'/'-D' arg to libclang (AUDIT-2).
         if (t.startswith('/I') and len(t) > 2) or (t.startswith('-I') and len(t) > 2):
             includes.append('-I' + t[2:])
+        # `/external:I<path>` counts as an include dir: CMake adds SYSTEM include dirs that way, and the
+        # D3D12 module gets DirectX-Headers (`directx/d3dx12.h`) only through it. Dropping it made the
+        # derived env unable to parse that module's own headers (measured: exit 6, `'directx/d3dx12.h'
+        # file not found`). `/external:W0` / `/external:anglebrackets` are modes, not paths — the prefix
+        # check below keeps them out.
+        elif (t.startswith('/external:I') and len(t) > len('/external:I')) or \
+             (t.startswith('-external:I') and len(t) > len('-external:I')):
+            includes.append('-I' + t[len('/external:I'):])
         elif (t.startswith('/D') and len(t) > 2) or (t.startswith('-D') and len(t) > 2):
             defines.append('-D' + t[2:])
         elif t.startswith('/std:') or t.startswith('-std:'):
@@ -401,7 +802,7 @@ def _msvc_to_clang_env(command: str) -> list[str]:
 def _rel_to_repo(file_str: str) -> str | None:
     """Repo-relative posix path for a compile_commands entry's source file, or None if it is outside.
 
-    Why this exists (task 1.1): the previous lookup was `if root in f` — a SUBSTRING test on the
+    Why this exists: the previous lookup was `if root in f` — a SUBSTRING test on the
     absolute path. Measured consequence: the module root `Interface` matched
     `out/build/x64-debug/_deps/assimp-src/code/CApi/CInterfaceIOWrapper.cpp` (assimp's own file), so the
     environment fed to libclang for `Interface` was assimp's (`-std=c++17`, assimp defines, no
@@ -438,12 +839,12 @@ def _tus_for_root(entries: list[dict], root: str) -> list[str]:
 def _env_for_root(entries: list[dict], root: str) -> list[str]:
     """Clang argv for parsing a header owned by `root`, and a one-line summary on stdout.
 
-    Task 2.1: include dirs are the UNION across the root's compile units. Measured reason: the single
+    Include dirs are the UNION across the root's compile units. Measured reason: the single
     "representative TU" that was used before missed include dirs other units of the same module carry
     (5 of them for `Interface` under the old, wrong root match).
-    Task 2.2: macros must be IDENTICAL across the root's units; a second set means the answer would
+    Macros must be IDENTICAL across the root's units; a second set means the answer would
     depend on which unit was picked, so the module is refused instead of guessed at.
-    Task 2.3: the forced include / precompiled header the unit used (`/FI`, `/Yu`, `/Yc`) is kept.
+    The forced include / precompiled header the unit used (`/FI`, `/Yu`, `/Yc`) is kept.
     """
     want = root.replace("\\", "/").strip("/")
     includes: list[str] = []
@@ -542,10 +943,19 @@ def main() -> None:
     BUILD_DIR = PROJECT_DIR / "out" / "build" / CONFIGS[config]
     NINJA_FILE = BUILD_DIR / "build.ninja"
 
+    # 两个开关随「生成物入库」一起删除，**传了就明确拒绝**。不这么写的话它们是**静默通过**的：下面逐个吃
+    # 参数、只认自己认识的那几个，其余一律忽略（`git grep -n -F "unknown" -- build.py` 零命中），于是
+    # 习惯了 `--no-codegen` 的人会以为「只编译不生成」，实际构建照常生成，什么提示都没有。
+    removed = [a for a in args if a in ("--no-codegen", "--commit-generated")]
+    if removed:
+        print(f"ERROR: {removed[0]} 已随「生成物入库」一起删除 —— 生成物只落构建目录、每次构建现场生成，")
+        print("       既没有「只编译、不生成」这条快路，也没有「把产物写回仓库」这个动作。")
+        print("       要强制全量生成用 --codegen-all。")
+        sys.exit(1)
+
     configure_step = "--no-configure" not in args
-    # Task 2.4 / design D10: writing the committed copies is an EXPLICIT act; a plain build never
-    # modifies the source tree.
-    commit_generated = "--commit-generated" in args
+    force_configure = "--configure" in args
+    codegen_all = "--codegen-all" in args
     target = next((a for a in args if not a.startswith("--")), None)
 
     print("=== CascadedEngine Build Script (Python) ===")
@@ -553,24 +963,53 @@ def main() -> None:
     print(f"  Config        : {config} (preset {CONFIGS[config]})")
     print(f"  Build dir     : {BUILD_DIR}")
 
+    if configure_step and not force_configure:
+        changed = configure_inputs_changed()
+        if changed:
+            print(f"  (CMake 配置输入变了：{changed} —— 重新 configure)")
+        else:
+            print("  (CMake 配置输入都没动 —— 跳过 configure，要强制重配就加 --configure)")
+            configure_step = False
+
+    total_start = time.perf_counter()
+    configure_seconds = codegen_seconds = build_seconds = 0.0
+
     if configure_step:
+        started = time.perf_counter()
         configure()
         patch_ninja()
-    # Task 9.13: codegen runs on BOTH paths. It used to sit inside the configure branch, so the
-    # documented incremental path (`--no-configure`) silently consumed stale generated headers — or,
-    # as measured, silently regenerated nothing at all after a generated file was deleted.
-    # It needs compile_commands.json, which a previous configure leaves on disk; if that file is
-    # missing, codegen() reports it and the build fails with a codegen-specific message (task 9.9),
-    # never a bare C1083.
-    codegen_failures = codegen(commit_generated)
+        configure_seconds = time.perf_counter() - started
+    # codegen 每次构建都跑（在没有"入库副本"之后，这是唯一的产物来源）。它需要 compile_commands.json，
+    # 上一次 configure 会把它留在盘上；文件不在时 codegen() 会报出来，构建以"生成段"专属的信息失败，
+    # 不会掉成一句光秃秃的 C1083。
+    started = time.perf_counter()
+    try:
+        codegen_failures = codegen(force=codegen_all)
+    except Exception as exc:  # noqa: BLE001 — 生成段的任何意外都要报成"生成失败"，不是裸 traceback
+        codegen_failures = [f"生成段意外出错：{type(exc).__name__}: {exc}"]
+    codegen_seconds = time.perf_counter() - started
+    if codegen_failures:
+        # Printed BEFORE the build: `build()` exits on the first compile error, and the report used to sit
+        # after it — so when codegen and the compile both failed, the codegen list (the actionable one: a
+        # tool refusal names the member and the reason) was never shown at all.
+        print()
+        print("=" * 60)
+        print(f"CODEGEN FAILED ({len(codegen_failures)}) — the generated headers are not in the state this "
+              f"build expects")
+        for msg in codegen_failures:
+            print(f"  - {msg}")
+        print("=" * 60)
+    started = time.perf_counter()
     build(target)
+    build_seconds = time.perf_counter() - started
+    print()
+    print(f"  [耗时] configure {configure_seconds:.1f}s / codegen {codegen_seconds:.1f}s / "
+          f"编译 {build_seconds:.1f}s / 合计 {time.perf_counter() - total_start:.1f}s")
 
     if codegen_failures:
         print()
         print("=" * 60)
         print(f"CODEGEN FAILED ({len(codegen_failures)}) — build not reported as successful")
-        for msg in codegen_failures:
-            print(f"  - {msg}")
         print("=" * 60)
         sys.exit(1)
 

@@ -2,6 +2,21 @@
 #include <Utils/InterfaceTranslation.h>
 #include <D3D12Debug.h>
 
+// 第二个既有哈希调用点：`PipelineStatesDesc::pipelineStates` 是 `HashObj<CPipelineStateObject>`
+// （本文件下面 `pipelineStateDesc.pipelineStates.Get()` 就在用它）。这里同样必须看得到生成的特化，
+// 而且是**每一个成员类型**的特化 —— 少一个，那一层就退回"整块字节"，填充字节会进哈希。
+#include "StencilStates.Hash.h"
+#include "DepthStencilStates.Hash.h"
+#include "RasterizerStates.Hash.h"
+#include "SingleColorAttachmentBlendStates.Hash.h"
+#include "ColorAttachmentsBlendStates.Hash.h"
+#include "CPipelineStateObject.Hash.h"
+
+static_assert(cacore::codegen::has_custom_hash_func<CPipelineStateObject, cacore::codegen::hasher<>>,
+              "既有哈希入口看不到 CPipelineStateObject 的生成特化：哈希会退回整块字节");
+static_assert(cacore::codegen::has_custom_hash_func<ColorAttachmentsBlendStates, cacore::codegen::hasher<>>,
+              "既有哈希入口看不到 ColorAttachmentsBlendStates 的生成特化：它的填充字节会进哈希");
+
 namespace graphics_backend
 {
 	PipelineStates::PipelineStates(RenderBackend_D3D12* app) : D3D12SubobjectBase(app)

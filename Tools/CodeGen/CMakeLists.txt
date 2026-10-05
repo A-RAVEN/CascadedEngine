@@ -1,3 +1,8 @@
+# 独立工程：引擎那棵构建树里不再有 CodeGen 目标，build.py 用 out/build/codegen-tool 单独配/编它。
+# 生成文件是先决条件 —— 工具必须先建好、先跑，引擎的 configure/编译与它无关。
+cmake_minimum_required(VERSION 3.12)
+project(CodeGen CXX)
+
 # Build-time CodeGen tool: extracts a linear type table from annotated C++ types using libclang.
 #
 # libclang is a *build-time* parser dependency for this tool ONLY. The engine itself does NOT link

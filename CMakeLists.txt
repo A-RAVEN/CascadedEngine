@@ -1,4 +1,4 @@
-﻿# CMakeList.txt: 顶层 CMake 项目文件，在此处执行全局配置
+# CMakeList.txt: 顶层 CMake 项目文件，在此处执行全局配置
 # 并包含子项目。
 #
 cmake_minimum_required (VERSION 3.12)
@@ -57,7 +57,8 @@ SET(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR}/installed)
 add_subdirectory ("ExternalLib")
 
 # Build-time CodeGen tool (libclang-based type-table extractor; engine does NOT link libclang)
-add_subdirectory ("Tools/CodeGen")
+# CodeGen 工具不在这里：它是独立工程（Tools/CodeGen/CMakeLists.txt 自带 project()），由 build.py 在自己
+# 的构建目录 out/build/codegen-tool 里先建、先跑，再编译引擎。引擎不链接 libclang，也不该因为工具而重建。
 
 # 包含子项目。
 #add_subdirectory ("CASTL")

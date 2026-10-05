@@ -1,4 +1,4 @@
-﻿#include "ShaderImporter_D12.h"
+#include "ShaderImporter_D12.h"
 #include <CAResource/ResourceManagingSystem.h>
 #include <CASTL/CAUnorderedSet.h>
 #include <CAResource/IResource.h>
@@ -347,7 +347,6 @@ namespace graphics_backend
 		{
 			return;
 		}
-		castl::cout << CATypeDescriptor<ShaderLibrary>::member_count << castl::endl;
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> shaderPrograms;
 
 		cafs::path shaderLibraryPath = "D3D12ShaderLibrary.shLib";
@@ -397,7 +396,7 @@ namespace graphics_backend
 									{
 										ShaderCode shaderCode;
 										//shaderCode.data = program.data;
-										careflection::managed_wrapper_traits<ComPtr<ID3DBlob>>::set_data(shaderCode.data, program.data);
+										cacore::codegen::wrapper_traits<ComPtr<ID3DBlob>>::set_data(shaderCode.data, program.data);
 										shaderCode.shaderType = program.shaderType;
 										found = shaderLibrary->m_ShaderPrograms.insert(castl::make_pair(shaHash, shaderCode)).first;
 									}

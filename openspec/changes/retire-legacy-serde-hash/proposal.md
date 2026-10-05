@@ -23,11 +23,11 @@
 
 **完成条件（可核、能失败）**：下面三条**同时**成立才算完成 ——
 
-1. **生成物与生产代码零引用**：`Tools/CodeGen/check_legacy_symbols.py` 对生成物目录（`Tools/CodeGen/generated/`、`Interface/RenderInterface/generated/`、`CACore/generated/`）与引擎源码（后缀 `.h/.hpp/.cpp/.cxx`，排除 `openspec/`、`out/`、脚本自身、以及下面第 3 条的白名单文件）逐符号扫描，命中 0 行；符号表固定为：`cacore::serializer`、`cacore::deserializer`、`cacore::batch_deserializer`、`cacore::aggregateHasher`、`cacore::custom_hash_trait`、`cacore::has_custom_hash_func`、`careflection::containerStates`、`careflection::managed_wrapper_traits`、`CATypeDescriptor`、`CA_REFLECTION`、`CA_REFLECTION_TEMPLATE`。脚本必须打印"扫描 N 个文件、命中 0 行"，且 N 与本 change 开工时那次红态运行的 N 相同。
+1. **生成物与生产代码零引用**：`Tools/CodeGen/check_legacy_symbols.py` 对生成物（**构建目录** `out/build/<预设>/codegen/<模块>/`；源码树里的 `generated/` 目录已由 `improve-build-time` 删除）与引擎源码（后缀 `.h/.hpp/.cpp/.cxx`，排除 `openspec/`、`out/`、脚本自身、以及下面第 3 条的白名单文件）逐符号扫描，命中 0 行；符号表固定为：`cacore::serializer`、`cacore::deserializer`、`cacore::batch_deserializer`、`cacore::aggregateHasher`、`cacore::custom_hash_trait`、`cacore::has_custom_hash_func`、`careflection::containerStates`、`careflection::managed_wrapper_traits`、`CATypeDescriptor`、`CA_REFLECTION`、`CA_REFLECTION_TEMPLATE`。脚本必须打印"扫描 N 个文件、命中 0 行"，且 **N 不为 0**（N=0 就是扫到了空集；脚本在找不到任何生成物目录时会直接以退出码 2 报错）。
 2. **三份旧头在文件系统上不存在**：用文件系统枚举（不是 `git ls-files`）确认 `CACore/header/Reflection.h`、`Serialization.h`、`Hasher.h` 三个路径都不存在（`git rm --cached`、改名、搬进新头都不算），且 `python build.py --config Debug` → `BUILD SUCCESSFUL`、`CoreTests.exe` 退出码 0 且用例数不少于开工前（逐条列出用例名）。
 3. **旧实现不许换个名字留下**：扫描旧实现的指纹（`visit_members`、`CATypeMemberDesc`、`containerInfo`、`SubmitAndWait`、`Object must be trivially copyable`、`hash_one`、`managed_pointer_traits`），命中 0 行；并用 `git log --diff-filter=R --name-status` 断言三份旧头是**删除**而不是改名 / 搬迁。
 
-**唯一的豁免**：消费方 `.cpp` 里为 ABI 守卫保留的老宏（现状只有 `Interface/RenderInterface/private/GPUBufferDescriptorReflection.cpp`）。豁免写成逐行白名单：`命中行数 == 白名单行数`，多一行即红；白名单里每一行都必须写明它守的是哪个生成表。
+**唯一的豁免（2026-10-04 修正：收尾时必须为 0 行）**：原计划给"消费方 `.cpp` 里为 ABI 守卫保留的老宏"留一份逐行白名单。实测这条留不住 —— 那个宏（`CA_REFLECTION`）和它建出来的 `CATypeDescriptor` 都定义在 `Reflection.h` 里，而 `Reflection.h` 正是第 2 条要求从文件系统上消失的头；头一删，消费方那几行就编译不过。所以收尾口径改成：**白名单必须是 0 行**，消费单元的 ABI 断言改成"与写死的期望值比"（字段数、字段名、`offsetof` 逐个断言 —— `CPipelineStateObjectAssertions.cpp` 与两个 `ShaderLibraryCodeGenAssertions.cpp` 已经是这个写法），`CodeGenMeta.h` 里 `static_assert_abi_consistency<T>()` 中"与老描述符比字段数"的那一支随之删除。这批工作量记在 tasks 的 9.6。
 
 ## Capabilities
 

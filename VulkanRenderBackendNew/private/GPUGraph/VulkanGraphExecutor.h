@@ -251,6 +251,12 @@ namespace graphics_backend
 				hasher.hash(obj.hash);
 			}
 		};
+
+		// 调换哈希分派顺序的安全性判据（宿主不是平凡可拷贝，且两个顺序选中同一条分支）。
+		// 这个宿主内含 unordered_map，本来就不是平凡可拷贝；这一行把它钉住。
+		static_assert(!std::is_trivially_copyable_v<graphics_backend::VulkanShaderResourceSet> &&
+		              cacore::dispatch_branch_unchanged<graphics_backend::VulkanShaderResourceSet>(),
+		              "VulkanShaderResourceSet 的哈希值会因调换分派顺序而改变");
 	}
 
 	namespace graphics_backend
@@ -271,7 +277,7 @@ namespace graphics_backend
 
 		virtual void Release() override;
 
-		// Main entry point (Task 3.1: new signature with PFrameContext&&)
+		// Main entry point (new signature with PFrameContext&&)
 		void CompileAndExecute(castl::shared_ptr<GPUGraph> const& graph,
 			VulkanGPUFrameManager::PFrameContext&& frameContext);
 
@@ -387,7 +393,7 @@ namespace graphics_backend
 		int m_GraphicsQueueFamily = static_cast<int>(vk::QueueFamilyIgnored);
 		int m_ComputeQueueFamily = static_cast<int>(vk::QueueFamilyIgnored);
 
-		// Current frame context (Task 3.1: per-frame resource context)
+		// Current frame context (per-frame resource context)
 		VulkanGPUFrameManager::PFrameContext m_CurrentFrameContext;
 	};
 }

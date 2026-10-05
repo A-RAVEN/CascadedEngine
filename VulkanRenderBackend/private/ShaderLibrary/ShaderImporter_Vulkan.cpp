@@ -14,7 +14,6 @@ namespace graphics_backend
 		{
 			return;
 		}
-		castl::cout << CATypeDescriptor<ShaderLibrary>::member_count << castl::endl;
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> shaderPrograms;
 
 		cafs::path shaderLibraryPath = "VKShaderLibrary.shLib";

@@ -112,8 +112,8 @@ void TestHash()
 void TestHash1()
 {
 	cacore::HashObj<TestStruct2> testStructIn = TestStruct2{ 1.0f, 2.0f };
-	constexpr bool has_hash = cacore::has_custom_hash_func<cacore::HashObj<TestStruct2>, cacore::aggregateHasher<>>;
-	constexpr bool has_hash1 = cacore::has_custom_hash_func<TestStruct2, cacore::aggregateHasher<>>;
+	constexpr bool has_hash = cacore::has_custom_hash_func<cacore::HashObj<TestStruct2>, cacore::codegen::hasher<>>;
+	constexpr bool has_hash1 = cacore::has_custom_hash_func<TestStruct2, cacore::codegen::hasher<>>;
 	castl::unordered_map<cacore::HashObj<TestStruct2>, int> tstMap3;
 	tstMap3.insert({ testStructIn, 3 });
 
@@ -206,14 +206,20 @@ void TestAllocation()
 
 }
 
-// Task 5.2 runtime TypeRegistry check (defined in EmitReflectionTest.cpp).
+// runtime TypeRegistry check (defined in EmitReflectionTest.cpp).
 bool RunTypeRegistryTest();
-// Task 6.1 generated serialization roundtrip check (defined in GeneratedSerializerTest.cpp).
+// generated serialization roundtrip check (defined in GeneratedSerializerTest.cpp).
 bool RunGeneratedSerializationTest();
-// Task 6.2 generated hash/equality check (defined in GeneratedHashTest.cpp).
+// generated hash/equality check (defined in GeneratedHashTest.cpp).
 bool RunGeneratedHashTest();
 bool RunGeneratedContainerTest();
 bool RunGeneratedHashContainerTest();
+// CodeGen 自有读写运行时的判据（定义在 CodeGenRuntimeTest.cpp）。
+bool RunCodeGenRuntimeTest();
+// 真实类型（CPipelineStateObject 一族）的迁移判据（定义在 PipelineStateObjectTest.cpp）。
+bool RunPipelineStateObjectTest();
+
+
 
 int main(int argc, char* argv[])
 {
@@ -231,42 +237,54 @@ int main(int argc, char* argv[])
 
 	if (!RunTypeRegistryTest())
 	{
-		std::puts("TypeRegistry test FAILED (task 5.2)");
+		std::puts("TypeRegistry test FAILED");
 		allOk = false;
 	}
 	else
 	{
-		std::puts("CodeGen TypeRegistry test PASSED (task 5.2)");
+		std::puts("CodeGen TypeRegistry test PASSED");
 	}
 
 	if (!RunGeneratedSerializationTest())
 	{
-		std::puts("Generated serialization test FAILED (task 6.1)");
+		std::puts("Generated serialization test FAILED");
 		allOk = false;
 	}
 	else
 	{
-		std::puts("CodeGen serialization test PASSED (task 6.1)");
+		std::puts("CodeGen serialization test PASSED");
 	}
 
 	if (!RunGeneratedHashTest())
 	{
-		std::puts("Generated hash test FAILED (task 6.2)");
+		std::puts("Generated hash test FAILED");
 		allOk = false;
 	}
 	else
 	{
-		std::puts("CodeGen hash test PASSED (task 6.2)");
+		std::puts("CodeGen hash test PASSED");
 	}
 
 	if (!RunGeneratedContainerTest())
 	{
-		std::puts("Generated container test FAILED (task 3.1 / 3.4)");
+		std::puts("Generated container test FAILED");
 		allOk = false;
 	}
 	if (!RunGeneratedHashContainerTest())
 	{
-		std::puts("Generated container hash test FAILED (task 3.2 / 3.3)");
+		std::puts("Generated container hash test FAILED");
+		allOk = false;
+	}
+
+	if (!RunCodeGenRuntimeTest())
+	{
+		std::puts("CodeGen runtime read/write test FAILED");
+		allOk = false;
+	}
+
+	if (!RunPipelineStateObjectTest())
+	{
+		std::puts("CPipelineStateObject migration test FAILED");
 		allOk = false;
 	}
 

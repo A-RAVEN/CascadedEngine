@@ -6,7 +6,7 @@
 // the ABI guard, so ANY drift between the generated metadata and the source-of-truth
 // CA_REFLECTION becomes a HARD build error (the task-1.2 oracle), not a runtime surprise.
 //
-// It also exercises the CA_CODEGEN_REGISTER discovery macro (task 2.1) at namespace scope.
+// It also exercises the CA_CODEGEN_REGISTER discovery macro at namespace scope.
 
 #include <CodeGenMeta.h>
 #include <cstddef>
@@ -20,8 +20,8 @@ namespace
     // CA_REFLECT marker: attribute-style (options, no type name). This TU includes CodeGenMeta.h
     // and is compiled by CoreTests, proving the marker compiles as a no-op under MSVC (task 6b.1).
     CA_REFLECT(serializable, ui)
-    // A probe aggregate, reflected by BOTH the existing macro system (for ABI comparison) and
-    // a hand-written TypeDescriptor specialization that simulates the emitter output.
+    // A probe aggregate: the CodeGen marker above is what the tool would parse, and the hand-written
+    // TypeDescriptor specialization below simulates the emitter output for this unit.
     struct CodeGenProbe
     {
         int   a;
@@ -30,7 +30,6 @@ namespace
     };
 } // namespace
 
-CA_REFLECTION(CodeGenProbe, a, b, c);
 CA_CODEGEN_REGISTER("CodeGenProbe");
 
 namespace cacore::codegen
@@ -51,11 +50,11 @@ namespace cacore::codegen
 } // namespace cacore::codegen
 
 // -----------------------------------------------------------------------------
-// Task 1.1 — metadata model is linear data, fields read back by name/offset/kind/flags.
+// the metadata model is linear data, fields read back by name/offset/kind/flags.
 // -----------------------------------------------------------------------------
 static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fieldCount == 3,
     "model: fieldCount must be 3");
-// Task 9.3: the previous assert here compared `fields()[0].offset` against `offsetof(CodeGenProbe, a)`
+// The previous assert here compared `fields()[0].offset` against `offsetof(CodeGenProbe, a)`
 // — but that is exactly the expression the descriptor's initialiser already used two screens up, so the
 // assert was a tautology: it could not fail no matter what the descriptor contained. Replaced with
 // INDEPENDENT numeric expectations taken from the MSVC x64 layout of { int a; float b; bool c; }.
@@ -84,16 +83,16 @@ static_assert(!cacore::codegen::has_flag(FieldFlags::Serializable | FieldFlags::
 static_assert(FieldFlags::None == static_cast<FieldFlags>(0), "flags: None must be zero");
 
 // -----------------------------------------------------------------------------
-// Task 1.2 — TypeDescriptor view + build-time ABI guard.
-// The guard compares the generated fieldCount against CA_REFLECTION's member_count. If either the
-// generated descriptor or the CA_REFLECTION changes so they disagree, the static_assert inside
-// static_assert_abi_consistency fires => this file fails to compile (drift = build error).
+// the TypeDescriptor view + build-time ABI guard.
+// 期望值是**写死**的：生成的 fieldCount 必须是 3（`CodeGenProbe` 有 3 个成员）。改了类型却没重新生成、
+// 或者生成表和这里对不上，这条断言就红。守卫本身（`static_assert_abi_consistency`）只检查生成的名字非空，
+// 也就是"生成头到底有没有被看见"。
 // -----------------------------------------------------------------------------
-static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fieldCount == ::CATypeDescriptor<CodeGenProbe>::member_count,
-    "abi-guard precheck: generated 3 must equal CA_REFLECTION 3");
+static_assert(cacore::codegen::TypeDescriptor<CodeGenProbe>::fieldCount == 3,
+    "abi-guard precheck: generated fieldCount for CodeGenProbe must be 3");
 namespace { [[maybe_unused]] constexpr bool force_abi_guard_instantiation =
     (cacore::codegen::static_assert_abi_consistency<CodeGenProbe>(), true); }
 
-// Task 2.1 — CA_CODEGEN_REGISTER("QualifiedName") expands to a greppable, references-free
+// CA_CODEGEN_REGISTER("QualifiedName") expands to a greppable, references-free
 // static_assert; including this TU (which calls the macro, deps: CACore) proves it compiles under
 // MSVC. The qualification "CodeGenProbe" is the discovery string the CodeGen tool greps for.

@@ -1,6 +1,7 @@
 #pragma once
 #include <type_traits>
 #include <Hasher.h>
+#include "CodeGenTraits.h"
 #include <magic_enum/magic_enum.hpp>
 
 template<typename T>
@@ -138,8 +139,29 @@ namespace uenum
 	};
 
 }
-template<EnumConcept TEnumClass>
-CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask);
+
+// `EnumFlags` 是位掩码：它的值就是那一个成员 `m_mask`。这条包装规则就是它的读写规则 ——
+// 写它包着的掩码，读回来也是这个掩码；字节与老的逐成员写法逐字节相同。
+// 放在这里（宿主类型旁边）而不是运行时里：运行时不该认识引擎里的具体类型。
+namespace cacore::codegen
+{
+	template<EnumConcept TEnumClass>
+	struct wrapper_traits<uenum::EnumFlags<TEnumClass>>
+	{
+		static constexpr bool is_wrapper = true;
+		using inner_type = typename uenum::EnumFlags<TEnumClass>::MaskType;
+
+		static constexpr inner_type get_data(uenum::EnumFlags<TEnumClass> const& flags) noexcept
+		{
+			return flags.m_mask;
+		}
+
+		static constexpr void set_data(uenum::EnumFlags<TEnumClass>& flags, inner_type mask) noexcept
+		{
+			flags.m_mask = mask;
+		}
+	};
+}
 
 // bitwise operators
 template <EnumConcept TEnumClass>

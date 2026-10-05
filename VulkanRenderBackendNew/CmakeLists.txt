@@ -30,6 +30,9 @@ add_library(VulkanHPP INTERFACE)
 target_include_directories(VulkanHPP INTERFACE $ENV{VK_SDK_PATH}/Include)
 
 target_include_directories(${PROJECT_NAME} PRIVATE "private")
+# CodeGen 生成物（build.py 的 codegen 段在所有编译之前生成）：出仓之后在构建目录里，本模块自己的类型
+# 要能被本模块消费。
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/codegen/VulkanRenderBackendNew)
 target_link_libraries(${PROJECT_NAME} PRIVATE VulkanHPP)
 #target_link_libraries(${PROJECT_NAME} PRIVATE volk)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)

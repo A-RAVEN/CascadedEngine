@@ -1,4 +1,4 @@
-// Task 1.1 of codegen-container-semantics: the field classifier must canonicalize the type before
+// The field classifier must canonicalize the type before
 // choosing a TypeKind, otherwise every typedef spelling falls into TypeKind::Opaque.
 //
 // Pinned to Tools/CodeGen/TestKinds.h, whose four members spell the same two types two ways. Measured

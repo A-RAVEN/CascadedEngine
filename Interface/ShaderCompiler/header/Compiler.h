@@ -2,6 +2,7 @@
 #include <Common.h>
 #include <CASTL/CASharedPtr.h>
 #include <CASTL/CAUnorderedMap.h>
+#include <CodeGenMeta.h>   // CA_REFLECT 标记宏
 
 namespace ShaderCompilerSlang
 {
@@ -34,6 +35,7 @@ namespace ShaderCompilerSlang
 	};
 
 	//某个数值：scalar，vector，matrix，也可能是某个结构体
+	CA_REFLECT(serializable)
 	struct UniformElement
 	{
 		cacore::NameHash m_TypeName;
@@ -65,6 +67,7 @@ namespace ShaderCompilerSlang
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderStructUniforms
 	{
 		//TODO: Make Struct Local Memory Size
@@ -93,6 +96,7 @@ namespace ShaderCompilerSlang
 
 	
 
+	CA_REFLECT(serializable)
 	struct BufferData
 	{
 		cacore::NameHash m_Name;
@@ -100,6 +104,7 @@ namespace ShaderCompilerSlang
 		uint32_t m_ElementCount;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderTextureData
 	{
 		cacore::NameHash m_Name;
@@ -108,6 +113,7 @@ namespace ShaderCompilerSlang
 	};
 
 	//子结构引用，和StructUniform中的Element不同，这里是另一个binding，只是逻辑上是子结构体
+	CA_REFLECT(serializable)
 	struct SubStructReference
 	{
 		cacore::NameHash m_Name;
@@ -120,6 +126,7 @@ namespace ShaderCompilerSlang
 		uint32_t m_Stride;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderStructData
 	{
 		cacore::NameHash m_TypeName;
@@ -185,6 +192,7 @@ namespace ShaderCompilerSlang
 	};
 
 	//对应到实际的Resource，比如Buffer，Texture，Sampler
+	CA_REFLECT(serializable)
 	struct ShaderResourceBinding
 	{
 		uint32_t m_BindingSpace;
@@ -198,6 +206,7 @@ namespace ShaderCompilerSlang
 	};
 
 	//对应到某个Struct,Struct本身可能是数组，所以也有ElementCount
+	CA_REFLECT(serializable)
 	struct ShaderBindingHierarchy
 	{
 		cacore::NameHash m_Name;
@@ -213,14 +222,17 @@ namespace ShaderCompilerSlang
 	};
 
 
+	CA_REFLECT(serializable)
 	struct ShaderSpaceResourceStats
 	{
+		CA_REFLECT(serializable)
 		struct BindingDesc
 		{
 			int32_t bindingID;
 			uint32_t elementCount;
 		};
 
+		CA_REFLECT(serializable)
 		struct BufferBindingDesc
 		{
 			int32_t bindingID;
@@ -243,6 +255,7 @@ namespace ShaderCompilerSlang
 
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderSpaceInfo
 	{
 		uint32_t m_SpaceID;
@@ -250,6 +263,7 @@ namespace ShaderCompilerSlang
 		ShaderSpaceResourceStats m_ResourceStats;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderBindingInfo
 	{
 		castl::vector<ShaderBindingHierarchy> m_BindingDataHierarchies;
@@ -318,6 +332,7 @@ namespace ShaderCompilerSlang
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct UniformGroup
 	{
 		castl::string m_Name;
@@ -343,6 +358,7 @@ namespace ShaderCompilerSlang
 		};
 	};
 
+	CA_REFLECT(serializable)
 	struct UniformBufferData
 	{
 		uint32_t m_BindingIndex;
@@ -377,6 +393,7 @@ namespace ShaderCompilerSlang
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderResourceGroups
 	{
 		castl::string m_Name;
@@ -393,6 +410,7 @@ namespace ShaderCompilerSlang
 
 
 
+	CA_REFLECT(serializable)
 	struct TextureData
 	{
 		uint32_t m_BindingIndex;
@@ -401,6 +419,7 @@ namespace ShaderCompilerSlang
 		castl::string m_Name;
 	};
 
+	CA_REFLECT(serializable)
 	struct SamplerData
 	{
 		uint32_t m_BindingIndex;
@@ -408,6 +427,7 @@ namespace ShaderCompilerSlang
 		castl::string m_Name;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderBufferData
 	{
 		uint32_t m_BindingIndex;
@@ -416,6 +436,7 @@ namespace ShaderCompilerSlang
 		castl::string m_Name;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderBindingSpaceData
 	{
 	public:
@@ -490,7 +511,7 @@ namespace ShaderCompilerSlang
 		void AddBufferToResourceGroup(int32_t groupID, ShaderBufferData const& bufferData)
 		{
 			EnsureDefaultResourceGroup(groupID);
-			CA_ASSERT(groupID >= 0, "groupID must be valid");
+			CA_ASSERT(groupID >= 0, "{}", "groupID must be valid");
 			m_Buffers.push_back(bufferData);
 			m_ResourceGroups[groupID].m_Buffers.push_back(m_Buffers.size() - 1);
 		}
@@ -498,7 +519,7 @@ namespace ShaderCompilerSlang
 		void AddTextureToResourceGroup(int32_t groupID, TextureData const& textureData)
 		{
 			EnsureDefaultResourceGroup(groupID);
-			CA_ASSERT(groupID >= 0, "groupID must be valid");
+			CA_ASSERT(groupID >= 0, "{}", "groupID must be valid");
 			m_Textures.push_back(textureData);
 			m_ResourceGroups[groupID].m_Textures.push_back(m_Textures.size() - 1);
 		}
@@ -506,7 +527,7 @@ namespace ShaderCompilerSlang
 		void AddSamplerToResourceGroup(int32_t groupID, SamplerData const& samplerData)
 		{
 			EnsureDefaultResourceGroup(groupID);
-			CA_ASSERT(groupID >= 0, "groupID must be valid");
+			CA_ASSERT(groupID >= 0, "{}", "groupID must be valid");
 			m_Samplers.push_back(samplerData);
 			m_ResourceGroups[groupID].m_Samplers.push_back(m_Samplers.size() - 1);
 		}
@@ -533,6 +554,7 @@ namespace ShaderCompilerSlang
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderVertexAttributeData
 	{
 		castl::string m_Name;
@@ -541,6 +563,7 @@ namespace ShaderCompilerSlang
 		uint32_t m_Location;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderReflectionData
 	{
 	public:
@@ -576,6 +599,7 @@ namespace ShaderCompilerSlang
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderProgramData
 	{
 		ECompileShaderType shaderType;
@@ -583,6 +607,7 @@ namespace ShaderCompilerSlang
 		castl::string entryPointName;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderCompileTargetResult
 	{
 		EShaderTargetType targetType;
@@ -622,3 +647,54 @@ namespace ShaderCompilerSlang
 	};
 
 }
+// CodeGen 生成物：上面这些类型各自的反射 / 序列化 / 哈希特化。接在这里（类型定义之后），
+// 这样任何 include 了这个头的编译单元都能看到这些类型的全部特化（包括它们成员用到的类型）——
+// 生成的相等比较要按类型逐层调用下一层的生成代码，少一个就退回 `operator==`，而没有 `operator==` 的类型会直接编不过。
+#include "UniformElement.Serialization.h"
+#include "UniformElement.Hash.h"
+#include "ShaderStructUniforms.Serialization.h"
+#include "ShaderStructUniforms.Hash.h"
+#include "BufferData.Serialization.h"
+#include "BufferData.Hash.h"
+#include "ShaderTextureData.Serialization.h"
+#include "ShaderTextureData.Hash.h"
+#include "SubStructReference.Serialization.h"
+#include "SubStructReference.Hash.h"
+#include "ShaderStructData.Serialization.h"
+#include "ShaderStructData.Hash.h"
+#include "ShaderResourceBinding.Serialization.h"
+#include "ShaderResourceBinding.Hash.h"
+#include "ShaderBindingHierarchy.Serialization.h"
+#include "ShaderBindingHierarchy.Hash.h"
+#include "ShaderSpaceResourceStats.Serialization.h"
+#include "ShaderSpaceResourceStats.Hash.h"
+#include "BindingDesc.Serialization.h"
+#include "BindingDesc.Hash.h"
+#include "BufferBindingDesc.Serialization.h"
+#include "BufferBindingDesc.Hash.h"
+#include "ShaderSpaceInfo.Serialization.h"
+#include "ShaderSpaceInfo.Hash.h"
+#include "ShaderBindingInfo.Serialization.h"
+#include "ShaderBindingInfo.Hash.h"
+#include "UniformGroup.Serialization.h"
+#include "UniformGroup.Hash.h"
+#include "UniformBufferData.Serialization.h"
+#include "UniformBufferData.Hash.h"
+#include "ShaderResourceGroups.Serialization.h"
+#include "ShaderResourceGroups.Hash.h"
+#include "TextureData.Serialization.h"
+#include "TextureData.Hash.h"
+#include "SamplerData.Serialization.h"
+#include "SamplerData.Hash.h"
+#include "ShaderBufferData.Serialization.h"
+#include "ShaderBufferData.Hash.h"
+#include "ShaderBindingSpaceData.Serialization.h"
+#include "ShaderBindingSpaceData.Hash.h"
+#include "ShaderVertexAttributeData.Serialization.h"
+#include "ShaderVertexAttributeData.Hash.h"
+#include "ShaderReflectionData.Serialization.h"
+#include "ShaderReflectionData.Hash.h"
+#include "ShaderProgramData.Serialization.h"
+#include "ShaderProgramData.Hash.h"
+#include "ShaderCompileTargetResult.Serialization.h"
+#include "ShaderCompileTargetResult.Hash.h"

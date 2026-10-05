@@ -1,12 +1,15 @@
 #pragma once
+#include <Hasher.h>   // 必须在 CAUnorderedSet.h 之前：castl::unordered_set 的默认参数是 cacore::hash<Key>
 #include <CASTL/CAUnorderedSet.h>
 #include <CAResource/IResource.h>
 #include <Common.h>
+#include <CodeGenMeta.h>
 #include <Compiler.h>
 #include <D3D12Includes.h>
 
 namespace graphics_backend
 {
+	CA_REFLECT(serializable)
 	struct ShaderSourceKey
 	{
 		cacore::PathHash path;
@@ -14,6 +17,7 @@ namespace graphics_backend
 		auto operator<=>(const ShaderSourceKey&) const = default;
 	};
 
+	CA_REFLECT(serializable)
 	struct CBufferBindingInfo
 	{
 		uint32_t spaceID;
@@ -24,6 +28,7 @@ namespace graphics_backend
 		cacore::NameHash cbufferStructName;
 	};
 
+	CA_REFLECT(serializable)
 	struct ImageBindingInfo
 	{
 		ShaderCompilerSlang::EShaderResourceType resourceType;
@@ -41,6 +46,7 @@ namespace graphics_backend
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct BufferBindingInfo
 	{
 		ShaderCompilerSlang::EShaderResourceType resourceType;
@@ -58,6 +64,7 @@ namespace graphics_backend
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct SamplerBindingInfo
 	{
 		uint32_t spaceID;
@@ -68,6 +75,7 @@ namespace graphics_backend
 		cacore::NameHash samplerBindingName;
 	};
 
+	CA_REFLECT(serializable)
 	struct StructBindingInfos
 	{
 		static StructBindingInfos Create(cacore::NameHash const& name, uint32_t elementCount)
@@ -94,6 +102,7 @@ namespace graphics_backend
 		castl::vector<uint32_t> samplerRefs;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderResourceBindingInfo
 	{
 		uint32_t resourceDescCount;
@@ -113,9 +122,11 @@ namespace graphics_backend
 		}
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderFileInfo
 	{
-		struct ProgramInfo
+		CA_REFLECT(serializable)
+	struct ProgramInfo
 		{
 			cacore::NameHash entryPointName;
 			cahash::sha256_hash::result_type programHash;
@@ -129,6 +140,7 @@ namespace graphics_backend
 		auto operator<=>(const ShaderFileInfo&) const = default;
 	};
 
+	CA_REFLECT(serializable)
 	struct ShaderCode
 	{
 		ECompileShaderType shaderType;
@@ -136,6 +148,11 @@ namespace graphics_backend
 		castl::unordered_set<ShaderSourceKey> sourceKeys;
 	};
 
+	// 这个类型**故意不加标注**：它有一个非拥有的反向指针成员 `reflectionData`（指向某个
+	// `ShaderFileInfo` 里的那份数据），而指针成员在发序列化 / 哈希时会被工具拒绝（退出码 15，
+	// stderr 点名 `reflectionData`）—— 老运行时对指针是"直接跳过"（数据静默丢失），新运行时不会跳过。
+	// 它本身只是 `GetShaderCodes()` 的临时返回值，不参与落盘，也不出现在 `ShaderLibrary` 的成员里，
+	// 所以正确的处置是不给它生成代码，而不是让它带着一个写不出意义的成员进接入清单。
 	struct ShaderSetData
 	{
 		ComPtr<ID3DBlob> vertexShader;
@@ -144,7 +161,8 @@ namespace graphics_backend
 		ShaderCompilerSlang::ShaderReflectionData const* reflectionData;
 	};
 
-	class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
+	CA_REFLECT(serializable)
+class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
 	{
 	public:
 		castl::unordered_map<cacore::PathHash, ShaderFileInfo> m_ShaderFiles;
@@ -153,13 +171,46 @@ namespace graphics_backend
 		castl::unordered_map<cacore::PathHash, ShaderCompilerSlang::ShaderStructData> m_ShaderRootStructs;
 		ShaderFileInfo const* GetShaderFileInfo(cacore::PathHash const& path) const;
 		ShaderCode const* GetShaderCode(cahash::sha256_hash::result_type const& shaHash) const;
-		friend struct CATypeDescriptor<ShaderLibrary>;
 	};
 }
 
-
-CA_REFLECTION(graphics_backend::ShaderLibrary
-	, m_ShaderFiles
-	, m_ShaderPrograms
-	, m_ShaderStructs
-	, m_ShaderRootStructs);
+// CodeGen 生成物：上面这些类型各自的反射 / 序列化 / 哈希特化。接在这里（类型定义之后）而不是让每个
+// 消费方自己记一遍 —— `TResource<T>` 的读写与 `HashObj<T>` 的哈希在**实例化**时就需要看到这些类型的
+// 全部特化（包括它们成员用到的类型），少一个，那一层就会退回"整块字节"或直接编不过。
+#include "ShaderLibrary.Reflection.h"
+#include "ShaderLibrary.Serialization.h"
+#include "ShaderLibrary.Hash.h"
+#include "ShaderSourceKey.Reflection.h"
+#include "ShaderSourceKey.Serialization.h"
+#include "ShaderSourceKey.Hash.h"
+#include "CBufferBindingInfo.Reflection.h"
+#include "CBufferBindingInfo.Serialization.h"
+#include "CBufferBindingInfo.Hash.h"
+#include "ImageBindingInfo.Reflection.h"
+#include "ImageBindingInfo.Serialization.h"
+#include "ImageBindingInfo.Hash.h"
+#include "BufferBindingInfo.Reflection.h"
+#include "BufferBindingInfo.Serialization.h"
+#include "BufferBindingInfo.Hash.h"
+#include "SamplerBindingInfo.Reflection.h"
+#include "SamplerBindingInfo.Serialization.h"
+#include "SamplerBindingInfo.Hash.h"
+#include "StructBindingInfos.Reflection.h"
+#include "StructBindingInfos.Serialization.h"
+#include "StructBindingInfos.Hash.h"
+#include "ShaderResourceBindingInfo.Reflection.h"
+#include "ShaderResourceBindingInfo.Serialization.h"
+#include "ShaderResourceBindingInfo.Hash.h"
+#include "ShaderFileInfo.Reflection.h"
+#include "ShaderFileInfo.Serialization.h"
+#include "ShaderFileInfo.Hash.h"
+#include "ProgramInfo.Reflection.h"
+#include "ProgramInfo.Serialization.h"
+#include "ProgramInfo.Hash.h"
+#include "ShaderCode.Reflection.h"
+#include "ShaderCode.Serialization.h"
+#include "ShaderCode.Hash.h"
+// cahash::sha256_hash::result_type 是上面那两个映射的键：它的特化也得在这里可见。
+#include "result_type.Reflection.h"
+#include "result_type.Serialization.h"
+#include "result_type.Hash.h"

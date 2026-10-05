@@ -32,7 +32,7 @@
 
 ### D1 新运行时自带游标，读写都是显式参数
 
-新增一对读写对象：写对象只持有缓冲区、只会往后追加（无位置状态）；读对象持有字节起点、长度与"已读位置"，位置作为显式参数在调用链上传递。生成物的序列化入口改为接收缓冲区（写）或缓冲区加位置引用（读），不再构造旧的 `serializer` / `deserializer`。
+新增一对读写对象：写对象只持有缓冲区、只会往后追加（无位置状态）；读对象持有字节起点、长度与"已读位置"，位置作为显式参数从一个类型的读代码传到另一个类型的读代码。生成物的序列化入口改为接收缓冲区（写）或缓冲区加位置引用（读），不再构造旧的 `serializer` / `deserializer`。
 
 **理由**：递归调用别的类型的生成代码只需要"当前位置"，而这正是旧类私有掉的唯一信息。**验收**：同一对象用新旧两套各写一遍，字节必须相同（迁移期这条判据能失败）。
 
@@ -55,9 +55,9 @@
 
 | 特化所在 | 宿主 | 为什么不是平凡可拷贝 |
 |---|---|---|
-| `Hasher.h` | `HashObj<...>` | 第 199 行自己写了拷贝构造、第 208 行自己写了拷贝赋值 |
-| `Hasher.h` | `NameHash` | 第 523 行自己写了拷贝构造 |
-| `Hasher.h` | `PathHash` | 第 364 行自己写了拷贝构造 |
+| `Hasher.h` | `HashObj<...>` | 自己写了拷贝构造 `HashObj(HashObj const& hashObj) : m_Object(hashObj.m_Object)` 与拷贝赋值 `constexpr HashObj& operator=(HashObj const& other)` |
+| `Hasher.h` | `NameHash` | 自己写了拷贝构造 `constexpr NameHash(NameHash const& nameHash) : m_Name(nameHash.m_Name)` |
+| `Hasher.h` | `PathHash` | 自己写了拷贝构造 `constexpr PathHash(PathHash const& pathHash) : m_Name(pathHash.m_Name)` |
 | `D3D12RenderBackend/private/D3D12Includes.h` | `ComPtr<ID3DBlob>` | 有析构（Release） |
 | `VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.h` | `graphics_backend::VulkanShaderResourceSet` | 成员含 `castl::unordered_map` |
 
@@ -65,11 +65,27 @@
 
 所以调换不改动任何既有哈希值。**会变的**是迁移过来的 POD 类型：从"整块字节（含 padding）"变成"按字段" —— 这正是目的；今天没有任何哈希值写到磁盘，进程内字典会自洽重算。
 
+**4.2 的读数（命令原样可跑，输出逐字照抄）**：
+
+- `git grep -n -F "struct custom_hash_trait" -- "*.h" "*.cpp"` —— 引擎手写的特化 5 处：`CACore/header/Hasher.h`（`HashObj<ObjType, CompareMode, hashAlg>` / `NameHash` / `PathHash`）、`D3D12RenderBackend/private/D3D12Includes.h`（`ComPtr<ID3DBlob>`）、`VulkanRenderBackendNew/private/GPUGraph/VulkanGraphExecutor.h`（`graphics_backend::VulkanShaderResourceSet`）。同一条命令还会命中生成物与工具自己（都是本 change 新加的，不算"既有"）。
+- `git grep -n -F "dispatch_branch_unchanged<" -- "*.h" "*.cpp"` —— 5 条编译期断言，各自钉在宿主所在的编译单元：`Hasher.h` 里 `NameHash` / `PathHash` / `HashObj<int>` 三行、`D3D12Includes.h` 里 `ComPtr<ID3DBlob>` 一行、`VulkanGraphExecutor.h` 里 `VulkanShaderResourceSet` 一行。判据不是"与调换前相等"这种复现不了的说法：`dispatch_branch_unchanged<宿主>()` 把"调换前选中哪条分支"（`trivial ? 1 : (custom ? 2 : 0)`）与"调换后选中哪条分支"（`custom ? 2 : (trivial ? 1 : 0)`）各算一遍再比，相等才编译得过。
+- `out/build/x64-debug/bin/CoreTests.exe` 打印的三个既有宿主的哈希值（调换后实测，供以后对照）：
+  `CodeGen legacy hash host NameHash     = 11718336935620011197`
+  `CodeGen legacy hash host PathHash     = 12386457803575074623`
+  `CodeGen legacy hash host HashObj<int> = 7869321708915449410`
+- 分派顺序调换确实生效了：`CodeGen legacy hash entry uses the generated trait = 1 (legacy=15402126173295036644 fieldwise=15402126173295036644)` —— 走旧入口算出来的值与按字段算出来的值相等。
+
 ### D4 相等比较一并接入
 
 `HashObj<...>` 的比较也必须走生成特化的 `equal`，否则会出现"哈希按字段、比较按字节"的错配（同一内容被判不等、或反之）。
 
 **理由**：只改哈希不改比较，等于把一个更隐蔽的不一致引进缓存键。**验收**：构造"内容相同但 padding 或插入顺序不同"的两个对象，断言"相等判断为真"与"哈希相同"同时成立。
+
+**4.3 的读数（命令原样可跑，输出逐字照抄）**：
+
+- `git grep -n -F "has_custom_hash_func<" -- "*.cpp"` —— 两个真实既有调用点各带编译期断言：`D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.cpp`（`CPipelineStateObject` 一行、`RasterizerStates` 一行）、`D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.cpp`（`CPipelineStateObject` 一行、`ColorAttachmentsBlendStates` 一行）。断言失败的状态就是"既有哈希入口看不到生成的特化、退回整块字节"。
+- 运行期（`CoreTests.exe`）：`CPipelineStateObject hash ignores padding = 1 (fields equal = 1, overall bytes differ = 1, HashObj equal = 1, control differs = 1)` —— 两个对象字段全同、整体字节不同（填充不同），`HashObj` 判等为真且哈希相同；对照组（字段不同）为假。
+- 填充字节那条的独立读数：`CodeGen hash ignores padding = 1 (padding differs = 1, fields equal = 1, raw bytes differ = 1)`。
 
 ### D5 嵌套类型的标注与类型名解析
 
@@ -94,6 +110,19 @@
 
 **理由**：这两类靠"加个标记"迁不动，必须先把取舍写死，否则"完全替代"里会留一个静默丢数据的口子。
 
+**已知边界：`graphics_backend::ShaderSetData` 排除在接入清单之外**（2026-10-04 实测记录；它不加标记、不生成代码，清单行与三份生成物都已删掉）。红态读数是工具自己报的那两行：
+
+```
+CodeGen 'ShaderSetData' --emit-serialization exit 15: CodeGen: refusing --emit-serialization for
+'graphics_backend::ShaderSetData' — member 'reflectionData' is a raw pointer
+('const ShaderCompilerSlang::ShaderReflectionData *'): the old runtime does not write pointer members,
+so the stream would silently lose it, and writing the address itself means nothing after a restart.
+```
+
+排除理由（不是"看着不行就算了"）：`reflectionData` 是**非拥有**的反向指针（`result.reflectionData = &fileInfo->reflectionData;`，`D3D12RenderBackend/private/RenderBackend_D3D12.cpp`），落盘没有意义；而这个类型只是 `GetShaderCodes()` 的临时返回值，不是 `ShaderLibrary` 的成员，也没有被任何其它已标注类型的成员引用 —— 它本来就不需要生成序列化 / 哈希。**同类形状的普查（2026-10-04 实测）**：迁移过的 6 个头（`CPipelineStateObject.h`、`Compiler.h`、两个 `ShaderLibrary.h`、`TestContainer.h`、`TestWrapper.h`）里带标记的类型共 **59 个**，全部在接入清单里、三个发射器都是 0 —— 也就是说，除了被排除的 `ShaderSetData`，没有第二个带指针成员的已标注类型。任务里点名的 `VulkanPipelineObject` 只出现在旧后端 `VulkanRenderBackend`，而该模块在本构建里有 **0 个编译单元**（`compile_commands.json` 实测），按规格本就不在迁移范围内，所以它既不用改结构、也不需要排除读数。
+
+**何时可以重新考虑**：等它真的要落盘时，按上面那条把可落盘的部分提成值语义结构（句柄写名字或索引 + 旁表）。
+
 ### D9 四类旧用的处置（不处置则完成条件不可能成立）
 
 对抗验证数出来：`CA_REFLECTION` 在非归档区有 115 处，其中四类不属于"迁移引擎类型"，必须单独定：
@@ -103,7 +132,8 @@
 | 工具自身：`CA_REFLECTION` 的文本通道与识别逻辑 | `Tools/CodeGen/CodeGenMain.cpp` 命中（识别宏名、只支持反射的通道、退出码 8） | 随完成条件一起删除；删除后 `--emit-*` 只剩新标记通道，`README` 的"三条通道"章节与退出码 8 同步改掉 |
 | 文档与示例 | `Tools/CodeGen/README.md`、`examples/reflection_channel.h`、`TestExternal.h` | 随文档收尾任务一起改；示例改成新标记写法并实跑留输出 |
 | 测试夹具 | `Test/CoreTests` 里 6 个文件（含 ABI 守卫用例 `CodeGenMetaTest.cpp`） | 逐个迁移到新标记；**用例数不许减少**（收尾判据里逐条列名对账） |
-| 类模板描述符：`CACore/header/uenum.h` 的 `CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask)` | 引擎里 `EnumFlags<` 39 处使用；工具现在明确不支持类模板（`CodeGenMain.cpp` 注释写明类内 / 模板类型不是投递目标） | 先给一条任务尝试迁移（判据能失败）；若实测不可行，在本 change 内交出实测证据，并把它写成**唯一保留项**：完成条件的符号表里把 `CA_REFLECTION_TEMPLATE` 单列，允许它在 `uenum.h` 里存在，但要求 `CA_REFLECTION`（非模板形态）仍为零 |
+| 类模板描述符：`CACore/header/uenum.h` 的 `CA_REFLECTION_TEMPLATE(uenum::EnumFlags<TEnumClass>, m_mask)` | 尝试后**已删除**（2026-10-04 实测）：`git grep -F "CA_REFLECTION_TEMPLATE" -- CACore/header/uenum.h` 命中 0 行、全量构建 `BUILD SUCCESSFUL`、`CoreTests.exe` 9 条全过；`EnumFlags` 的用法实测 8 行 / 3 个文件（旧记录写的"39 处"不准） | **不需要保留项**：新系统用 `uenum.h` 里的 `wrapper_traits<uenum::EnumFlags<TEnumClass>>` 覆盖它，生成物里这类成员就是 `cgWriteValue(w, obj.shaderTypeFlags)`。于是符号表里 `CA_REFLECTION_TEMPLATE` 与 `CA_REFLECTION` 一样要求归零（剩下的命中只是 `Reflection.h` 的宏定义本身，随 9.3 消失） |
+| 三个哈希键类型的去处：`NameHash` / `PathHash` / `HashObj`（它们与旧设施同住 `Hasher.h`） | 搬到新头 `CACore/header/HashKeys.h`（2026-10-04 落地）：`Hasher.h` 838 → 323 行，里面这三个类型的定义命中 0；30 个 include 点改道到新头，只剩旧式用例 `SerializerTest.cpp` 还引 `Hasher.h`（10.x 替换） | 新头**只** include `CodeGenHashFwd.h` + `CACore/CAHash.h` + CASTL 字符串 + `CALiteralString.h`：一开始写成 include `CodeGenHash.h`，那会把整套序列化运行时拖进每份被标注的头的 include 图，工具的每次解析都变重（实测那次全量构建的 codegen 段明显拉长）。特化只需要主模板的声明，Fwd 版正好够 |
 
 **理由**：这四类不写清，"全仓零引用"要么不可达、要么靠删测试与删文档凑出来；写清之后每条都有归属，收尾判据才可能既严格又能达成。
 

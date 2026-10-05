@@ -70,7 +70,7 @@ CodeGen 生成的序列化代码 MUST NOT 依赖任何"把读位置藏在对象�
 
 本 change MUST 以三条**同时**成立作为完成条件：
 
-1. **生成物与生产代码零引用**：检查脚本对生成物目录（`Tools/CodeGen/generated/`、`Interface/RenderInterface/generated/`、`CACore/generated/`）与引擎源码（后缀 `.h/.hpp/.cpp/.cxx`，排除 `openspec/`、`out/`、脚本自身）逐符号扫描，命中 0 行。符号表 MUST 固定为：`cacore::serializer`、`cacore::deserializer`、`cacore::batch_deserializer`、`cacore::aggregateHasher`、`cacore::custom_hash_trait`、`cacore::has_custom_hash_func`、`careflection::containerStates`、`careflection::managed_wrapper_traits`、`CATypeDescriptor`、`CA_REFLECTION`。脚本 MUST 打印"扫描 N 个文件、命中 0 行"，且 N 与开工时那次红态运行的 N 相同。
+1. **生成物与生产代码零引用**：检查脚本对生成物（**构建目录** `out/build/<预设>/codegen/<模块>/`；源码树里的 `generated/` 目录已由 `improve-build-time` 删除）与引擎源码（后缀 `.h/.hpp/.cpp/.cxx`，排除 `openspec/`、`out/`、脚本自身）逐符号扫描，命中 0 行。符号表 MUST 固定为：`cacore::serializer`、`cacore::deserializer`、`cacore::batch_deserializer`、`cacore::aggregateHasher`、`cacore::custom_hash_trait`、`cacore::has_custom_hash_func`、`careflection::containerStates`、`careflection::managed_wrapper_traits`、`CATypeDescriptor`、`CA_REFLECTION`。脚本 MUST 打印"扫描 N 个文件、命中 0 行"，且 **N MUST NOT 为 0**（扫到空集就是恒真；脚本在找不到任何生成物目录时 MUST 以退出码 2 报错，MUST NOT 把空集当成"0 命中"）。
 2. **三份旧头在文件系统上不存在**：用文件系统枚举确认 `CACore/header/Reflection.h`、`Serialization.h`、`Hasher.h` 三个路径都不存在。**改名、`git rm --cached`、搬到新头、移出 include 路径都不算**；随后 `python build.py --config Debug` → `BUILD SUCCESSFUL`，`CoreTests.exe` 退出码 0 且用例名逐条列出、总数不少于开工前。
 3. **旧实现指纹零命中**：`visit_members`、`CATypeMemberDesc`、`containerInfo`、`SubmitAndWait`、`Object must be trivially copyable`、`hash_one`、`managed_pointer_traits` 命中 0 行；并用 `git log --diff-filter=R --name-status` 确认三份旧头是删除而不是改名 / 搬迁。
 

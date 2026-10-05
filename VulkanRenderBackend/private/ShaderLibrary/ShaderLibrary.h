@@ -46,7 +46,6 @@ namespace graphics_backend
 		castl::unordered_map<cacore::PathHash, ShaderCompilerSlang::ShaderStructData> m_ShaderRootStructs;
 		ShaderFileInfo const* GetShaderFileInfo(cacore::PathHash const& path) const;
 		ShaderCode const* GetShaderCode(cahash::sha256_hash::result_type const& shaHash) const;
-		friend struct CATypeDescriptor<ShaderLibrary>;
 	};
 }
 

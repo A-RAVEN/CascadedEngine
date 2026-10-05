@@ -3,6 +3,7 @@
 #include <komihash.h>
 #include <CASTL/CAString.h>
 #include "Reflection.h"
+#include "CodeGenMeta.h"
 
 namespace cahash
 {
@@ -11,6 +12,7 @@ namespace cahash
         SHA256 shaState;
     public:
 
+        CA_REFLECT(serializable)
         struct result_type
         {
             unsigned char data[32];
@@ -147,4 +149,3 @@ namespace cahash
 
 }
 
-CA_REFLECTION(cahash::sha256_hash::result_type, data);

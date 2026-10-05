@@ -1,15 +1,15 @@
-﻿//
-// GeneratedHashTest.cpp — task 6.2: the CodeGen hash/equality emitter.
 //
-// Proves the emitted `cacore::custom_hash_trait<T>` (the hook the existing `aggregateHasher` already
-// calls via `has_custom_hash_func`) hashes each field in declaration order (NOT raw whole-struct bytes,
+// GeneratedHashTest.cpp — the CodeGen hash/equality emitter.
+//
+// Proves the emitted `cacore::codegen::custom_hash_trait<T>` (the hook the CodeGen hasher calls via
+// `has_custom_hash_func`) hashes each field in declaration order (NOT raw whole-struct bytes,
 // => padding/layout independent) and normalizes floats: hash(-0.0)==hash(+0.0), NaN hashes stably, and
-// `equal` treats -0.0/+0.0 and NaN/NaN as equal. Non-goal preserved: this does NOT migrate the existing
-// HashObj semantic — it's a generated trait exercised directly.
+// `equal` treats -0.0/+0.0 and NaN/NaN as equal.
 //
-#include <Hasher.h>
-#include <CodeGenMeta.h>
+#include <CodeGenHash.h>
+#include <Hasher.h>   // 三个哈希键类型（NameHash / PathHash / HashObj）在新头里
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include "TestEmit.h"
 #include "EmitSample.Hash.h"
@@ -17,15 +17,16 @@
 bool RunGeneratedHashTest()
 {
     using EmitSample = codegen_demo::EmitSample;
-    using Trait = cacore::custom_hash_trait<EmitSample>;
+    using Trait = cacore::codegen::custom_hash_trait<EmitSample>;
 
-    // Drive the GENERATED trait directly. NOTE: `cacore::hash<EmitSample>` would BYPASS it because
-    // aggregateHasher::hash checks std::is_trivially_copyable_v FIRST and raw-hashes the whole struct
-    // (that raw-bytes path is exactly what 6.2's generated field-wise hash replaces). So we invoke the
-    // generated custom_hash_trait for the assertions; the integration nuance is documented in tasks 6.2.
+    // 判据之一：生成的特化必须由**新运行时**的哈希对象驱动 —— 把 CodeGenHash.h 里的
+    // 哈希对象拿掉，这一行编译不过。
+    static_assert(cacore::codegen::has_custom_hash_func<EmitSample, cacore::codegen::hasher<>>,
+                  "生成的特化对 CodeGen 自己的哈希对象不可见：新哈希运行时没有接上");
+
     auto hashOf = [](EmitSample const& o)
     {
-        cacore::aggregateHasher<cacore::default_hashclass> hasher;
+        cacore::codegen::hasher<> hasher;
         Trait::hash(o, hasher);
         return hasher.getHash();
     };
@@ -74,7 +75,63 @@ bool RunGeneratedHashTest()
         return false;
     }
 
-    std::puts("CodeGen hash/equality test PASSED (task 6.2)");
+    // ---- **入口**（`cacore::codegen::hasher`）必须走生成的特化，而不是"整块字节"那条捷径。
+    // 这就是分派顺序的判据：如果哈希对象把"平凡可拷贝"排在自定义特化前面，这一行算出来的就是
+    // 整块字节（含填充）的哈希，与按字段算的值不等 —— 判据在那个状态下为红。
+    auto legacyEntryHash = [](EmitSample const& o)
+    {
+        cacore::codegen::hasher<> hasher;
+        hasher.hash(o);
+        return hasher.getHash();
+    };
+    const bool legacyMatchesFieldwise = legacyEntryHash(a) == hashOf(a);
+
+    // ---- 两个字段之间的填充字节改成不同值，哈希不变（防止退回整块字节）。
+    // `EmitSample` 的布局是 a@0（4 字节）、b@4（4）、c@8（1）、填充@9..15、d@16（8），共 24 字节。
+    EmitSample padA{ 1, 2.0f, true, 3.0 };
+    EmitSample padB = padA;
+    for (std::size_t i = 9; i < 16; ++i)
+    {
+        reinterpret_cast<unsigned char*>(&padA)[i] = 0xAA;
+        reinterpret_cast<unsigned char*>(&padB)[i] = 0x55;
+    }
+    const bool paddingDiffers = std::memcmp(&padA, &padB, sizeof(EmitSample)) != 0;
+    const bool fieldsEqual = padA.a == padB.a && padA.b == padB.b && padA.c == padB.c && padA.d == padB.d;
+    const bool hashIgnoresPadding = legacyEntryHash(padA) == legacyEntryHash(padB);
+    // 对照：同两个对象走"整块字节"那条路会得到不同的哈希 —— 证明上面那条不是因为填充没写进去。
+    cacore::codegen::hasher<> rawA;
+    cacore::codegen::hasher<> rawB;
+    rawA.hash_raw(&padA, sizeof(EmitSample));
+    rawB.hash_raw(&padB, sizeof(EmitSample));
+    const bool rawBytesDiffer = rawA.getHash() != rawB.getHash();
+
+    std::printf("CodeGen legacy hash entry uses the generated trait = %d (legacy=%llu fieldwise=%llu)\n",
+                legacyMatchesFieldwise ? 1 : 0, (unsigned long long)legacyEntryHash(a),
+                (unsigned long long)hashOf(a));
+    std::printf("CodeGen hash ignores padding = %d (padding differs = %d, fields equal = %d, raw bytes differ = %d)\n",
+                hashIgnoresPadding ? 1 : 0, paddingDiffers ? 1 : 0, fieldsEqual ? 1 : 0, rawBytesDiffer ? 1 : 0);
+
+    // ---- 构建内 5 个既有哈希特化里，能在本编译单元取到值的这 3 个各给一个读数。
+    // 改动前后走的是同一条分支（各宿主文件里的 `dispatch_branch_unchanged` 断言钉住这一点），
+    // 所以这两个读数必须逐字相同。另外两个宿主（`ComPtr<ID3Blob>` / `VulkanShaderResourceSet`）
+    // 在自己的模块里，读数就是那两行编译期断言本身。
+    auto printLegacyHostHash = [](const char* name, auto const& host)
+    {
+        cacore::codegen::hasher<> hasher;
+        hasher.hash(host);
+        std::printf("CodeGen legacy hash host %-12s = %llu\n", name,
+                    (unsigned long long)hasher.getHash());
+    };
+    printLegacyHostHash("NameHash", cacore::NameHash("codegen-probe"));
+    printLegacyHostHash("PathHash", cacore::PathHash("dir/codegen-probe.txt"));
+    printLegacyHostHash("HashObj<int>", cacore::HashObj<int>(7));
+    if (!legacyMatchesFieldwise || !hashIgnoresPadding || !paddingDiffers || !fieldsEqual || !rawBytesDiffer)
+    {
+        std::puts("Generated hash dispatch FAILED (dispatch order / padding)");
+        return false;
+    }
+
+    std::puts("CodeGen hash/equality test PASSED");
     return true;
 }
 
