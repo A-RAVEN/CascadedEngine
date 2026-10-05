@@ -3,33 +3,6 @@
 ## Purpose
 TBD - created by archiving change engine-codegen-framework. Update Purpose after archive.
 ## Requirements
-### Requirement: 统一 CodeGen 流水线从 annotated 头产出可读生成代码
-系统 SHALL 提供一条统一 CodeGen 流水线：解析带 annotation 的 C++ 头文件，产出**线性类型表**（`{name, offset, type, kind, flags}` 数据，而非元编程），并由一个 emitter 生成可读的反射代码（`TypeDescriptor<T>` 线性数组）。同一张类型表 SHALL 可供后续序列化 / 哈希 emitter 复用。⚠ **`offset` 的单位定义为「字节」**（与 `offsetof` 同口径 —— 任务 9.5c 选①）。**已知局限（明写在规格里，不留悬空）**：**bit-field 按字节粒度合并** —— 位域偏移并非字节对齐，相邻位域会落在同一个字节偏移上；本 change **不拒绝**含 bit-field 的类型，也**不声称**能区分它们（未采用"含位域即拒绝发射"的方案②）。
-
-#### Scenario: 解析一个 annotated 类型并生成线性描述
-- **WHEN** 一个用 CA_* 标注的 C++ 类型（如含 `name/offset/type` 的字段）被 pipelined 解析
-- **THEN** 生成的反射代码是线性数组，每个字段暴露 `name`, `offset`, `type`, `kind`, `flags`，且对同一注解展开两次产物逐字节一致
-
-#### Scenario: 类型表只覆盖数据字段（方法 / 枚举 / 基类不在本 change 范围）
-- **WHEN** 被解析类型包含方法 / 枚举 / 基类
-- **THEN** 类型表**只**含数据字段；`methods()` / `enumInfo()` / `baseClass()` **不在本 change 实现范围**，故本条**不构成**可验收的 SHALL（原文的"（如实现支持）"是**不可能失败的验收条款**，已删除 —— 见 tasks §9.8）。
-
-#### Scenario: 两条标注通道按成员可见性划分
-- **WHEN** 被标注类型含**非 public** 成员
-- **THEN** **类外**标注通道（`CA_REFLECTION(...)`、以及现形态的 `CA_REFLECT(...)` —— 纯文本、编译器 no-op）SHALL **非零退出**并提示"该类型需改用类内标注"，**不得产出编译不过的代码**；而**类内**标注通道（宏写在 class 体内、展开为 `friend` 声明）对私有成员**照常发射** —— 私有成员在该通道是正常的。⚠ **类内通道尚未实现**，其正向用例待该通道做完后补验（见 tasks §9.1）。
-- **AND** ✅ **实现状态（2026-09-13）：已通过** —— 实测 `CodeGen.exe Tools/CodeGen/TestPrivate.h PrivateLike -I CACore/header --emit-reflection` → **exit 5**，stderr 为 `CodeGen: refusing to emit for 'codegen_private_test::PrivateLike' — it has non-public members … Use an in-class annotation …`；同命令**去掉** `--emit-reflection`（仅提取类型表）仍 **exit 0** 且 offset 不变（`pub 12 / m_a 16 / m_b 20 / m_c 24`）—— 提取与发射的区分成立；全 public 的 fixture 照常发射。**修前改之前（实测）**：同一条命令 **exit 0** 并照常对私有成员发射 `offsetof`（即台账第 1 条记的那个形态）。⚠ **类内标注通道尚未实现**，其正向用例待该通道做完后补验（见 tasks §9.1）。
-
-### Requirement: 反射标注用标记宏自动爬取 + 未迁移/外部走非侵入通道
-系统 SHALL 提供 attribute 风格的**标记宏** `CA_REFLECT(...)`（可带 `serializable`/`ui`/`min=0` 等 options），由 libclang 从 **class 体 AST 自动提取**成员名 / type / offset（作者**不手写成员清单**）；⚠ **本 change 只提取数据字段** —— 方法 / 枚举 / 基类**不在实现范围**（工具侧无 `FunctionDecl` / `EnumDecl` / `BaseSpecifier` 处理，见 tasks §9.8），故不在本 SHALL 内；未迁移引擎类型与外部库类型 SHALL 仍可用 `CA_REFLECTION(Type, 成员...)` **非侵入式**声明（命名空间作用域、不改类型源码），两者喂**同一张类型表**、同一批 emitter。系统 SHALL NOT 依赖字面 `[[careflection::...]]` 或 `[[clang::annotate]]` attribute 作元数据载体（MSVC C5030 警告 / libclang 读自定义命名空间 attribute 弱 / `[[clang::annotate]]` AST 可见性 bug）。**本 change 以示例类型证明管道；引擎自有类型从 CA_REFLECTION 迁移到 CA_REFLECT 属后续 task，不在此 SHALL**。
-
-#### Scenario: 标记宏标 type 自动反射
-- **WHEN** 一个 `CA_REFLECT(...)` 标注的示例类型被 pipelined 解析
-- **THEN** libclang 从 class 体 AST 提取**数据字段**（含**未在标记宏里手写**的成员），且生成类型表字段数 == `::CATypeDescriptor<Type>::member_count`（ABI guard 通过，绑定到既有反射源而非循环复用同一工具）
-
-#### Scenario: 未迁移/外部类型非侵入反射
-- **WHEN** 一个类型仅以 `CA_REFLECTION(Type, a, b)` 声明（未改类型源码）
-- **THEN** 该类型进入字段-only 表，以声明顺序产出 `a, b`（offset 由生成代码 `offsetof` 兜底）
-
 ### Requirement: parser 元数据来源为 libclang，引擎保持纯 MSVC
 系统 SHALL 用 libclang（复用 CACodeGen 的 CLANG_LIB）作为元数据来源；引擎 SHALL 保持纯 MSVC 编译，CodeGen 作为**独立构建期工具**运行，**不进入**引擎 CMake 编译图，引擎 SHALL NOT 链接 libclang。
 
@@ -251,52 +224,6 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 - **WHEN** 序列化 `castl::vector<int>` / `castl::map<int, int>` / `castl::string`
 - **THEN** 写出的形状与改动前一致（元素个数 + 按容器自身顺序逐个写），既有黄金样本不需要改动
 
-### Requirement: 会静默出错的容器组合必须被拒绝
-
-下列组合 MUST 让工具以非零退出码拒绝出码，并在 stderr 点名成员与原因，MUST NOT 静默产出会丢数据的代码：① **参与排序的那一侧**没有全序（`map` 的键、`set` 的元素；`map` 的值不参与排序，不检查；判据须接受 `operator<=>`，含 NaN 的键判不出全序）；② 容器元素含**裸指针 / 托管指针（`shared_ptr` / `unique_ptr`）/ 句柄**且请求的是序列化产物；③ **重复键容器**（`multimap` / `multiset` / `unordered_multimap` / `unordered_multiset` —— `castl` 经 `using namespace std` / `eastl` 透出这些名字，它们是可达的）；④ 容器的键或元素**不可默认构造**（旧运行时的 pair 支持要求元素可默认构造）；⑤ **按位存储的容器**（`castl::vector<bool>` 一类：满足结构判据，却过不了旧运行时的逐元素循环）。
-
-**包装器不在拒绝清单里**（`NameHash` / `PathHash` / `HashObj` 只记录，见字段表要求）。仅请求反射产物时，①②③④⑤ 都不受影响。⚠ **接入清单口径**：`build.py` 对每条清单条目固定跑三个发射器、任一次非零即整体构建失败，所以**进清单的类型必须三个发射器都能出**；只能出反射的类型不进清单（工具本身仍允许对它单独请求反射）。
-
-#### Scenario: 指针作元素时序列化被拒绝
-
-- **WHEN** 对含 `castl::vector<int*>` 或 `castl::vector<castl::shared_ptr<T>>` 成员的已标注类型请求 `--emit-serialization`
-- **THEN** 工具非零退出，点名该成员路径与"元素含指针 / 托管指针，写出会丢数据"；同一类型的 `--emit-reflection` 仍然成功
-
-#### Scenario: 指针作键时被拒绝
-
-- **WHEN** 对含 `castl::unordered_map<int*, int>` 成员的已标注类型请求序列化或哈希
-- **THEN** 工具非零退出并说明"键没有全序，写出的字节不可能稳定"
-
-#### Scenario: 重复键容器被拒绝，且判据可按名判定
-
-- **WHEN** 成员类型是 `std::multiset<int>` 或 `castl::multimap<int, int>`（实测 `castl::multimap` 可用，且 `set` 与 `multiset` 的运行时特征完全相同、结构上分不开）
-- **THEN** 工具非零退出并说明"重复键容器没有规范顺序、本版本不支持"；判据取**规范化后的类型名**（`std::` / `eastl::` 形式），因此不受 `USING_EASTL` 开关影响
-
-#### Scenario: 元素不可默认构造时被拒绝
-
-- **WHEN** 容器的元素类型没有默认构造函数（如 `struct NoDef { int v; explicit NoDef(int); };` 放进 `castl::vector`）
-- **THEN** 工具非零退出并说明原因；实测现状是照样出码，然后在消费方编译时才撞 `static assertion failed: 'object incompatible for reflection'`（写侧）与 `'Wrong'`（读侧）
-
-#### Scenario: 包装器元素必须放行，不得被当成不透明
-
-- **WHEN** 容器的元素或键是包装器（`cacore::NameHash` / `cacore::PathHash` / `cacore::HashObj`），例如引擎里真实存在的 `castl::unordered_map<cacore::NameHash, ShaderStructData>` 与 `castl::vector<cacore::NameHash>`
-- **THEN** 类型带 `Wrapper` 记录但**不触发任何拒绝**，序列化产物照常生成（旧运行时用 `managed_wrapper_traits` 解包读写）；只有裸指针 / 托管指针 / 句柄才触发 ②
-
-#### Scenario: 排序的比较判据必须接受 `operator<=>`
-
-- **WHEN** 键或元素类型只提供了 `operator<=>`（引擎真实键类型 `NameHash` / `PathHash` / `CAHash::result_type` 都是这种）
-- **THEN** 工具必须认定它有全序（C++20 里 `a < b` 会重写为 `(a <=> b) < 0`）；实测现状是这些头文件里 `operator<(` 零命中，按 `<` 判定会把引擎唯一的落盘资源类型整份误拒
-
-#### Scenario: 全序判不出来的键必须拒绝
-
-- **WHEN** 键是浮点且含 NaN（两个 NaN 互为"等价"但 `==` 为假，排序给不出稳定次序）
-- **THEN** 工具拒绝出码并点名该键，不得按"能编译过 `a < b`"就放行；实测现状：两个 NaN 键的 `unordered_map` 摊平并 `std::sort` 后写出字节仍不同（首个不同字节在第 8）
-
-#### Scenario: 按位存储的容器被拒绝
-
-- **WHEN** 容器是按位存储的（`castl::vector<bool>` 一类）
-- **THEN** 工具非零退出并点名该成员 —— 它满足"有 `size()` 且有 `value_type`"这条结构判据，但旧运行时的 `for (auto& item : object)` 绑不上按位代理，消费方一实例化就编译失败（实测 MSVC `error C2440`）；实测现状是工具 exit 0 照常出码
-
 ### Requirement: 容器的磁盘形状是对外契约
 
 `Tools/CodeGen/README.md` MUST 写明容器成员在磁盘上的形状（先写元素个数、再按规范顺序逐个写元素；`map` 写的是键值对数组）以及排序规则与拒绝条件，供外部使用者按此解析生成的数据。
@@ -305,3 +232,65 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 
 - **WHEN** 运行 `python Tools/CodeGen/verify_readme.py`
 - **THEN** 文档里新增的容器示例命令逐条执行且退出码与文档一致（0 处不符）；用 grep 能在 README 里找到"无序容器按排序后的数组写出"这条规则
+
+### Requirement: 生成物不再调用旧运行时（原「统一 CodeGen 流水线从 annotated 头产出可读生成代码」的能力边界收窄）
+
+生成的序列化与哈希代码 MUST 由 CodeGen 自己的运行时驱动：读写自带游标、容器判据与哈希钩子都来自新运行时，MUST NOT 引用 `cacore::serializer`、`cacore::deserializer`、`careflection::containerStates`、`cacore::custom_hash_trait`、`cacore::has_custom_hash_func`。
+
+序列化入口 MUST 接收缓冲区（写）或缓冲区加显式读位置（读），使生成代码能在流中间调用另一个类型的生成代码。
+
+#### Scenario: 生成物零引用旧符号
+
+- **WHEN** 对仓库里所有生成物逐个搜上面五个符号
+- **THEN** 零命中（带文件限定）；现状每个符号都被引用，故该判据在改动前为红
+
+#### Scenario: 递归形状不再被拒绝
+
+- **WHEN** 容器的元素是另一个已标注的结构体，且该结构体内部含无序容器
+- **THEN** 出码成功、往返一致、字节与插入顺序无关；`3.2` 里那条"元素是内含无序容器的结构体必须拒绝（退出码 12）"的场景**作废**
+
+### Requirement: 拒绝清单收窄（原「会静默出错的容器组合必须被拒绝」）
+
+下列拒绝 MUST 保留：参与排序的一侧没有全序（退出码 17）、元素是裸指针或托管指针（15）、重复键容器（14）、键或元素不可默认构造（16）、按位存储容器（13）。每条拒绝的非零退出 MUST 在 stderr 里**点名成员名、涉事的类型（元素类型 / 键类型 / 容器类型）与原因** —— 这句是从基线里那条被收窄的要求搬过来的，不许在收窄时丢掉。
+
+**撤除**：元素是"内部含无序容器的结构体"（原退出码 12）—— 递归读写做完后这个形状由生成代码支持。
+
+**作废**：本条原先那条「元素是内含无序容器的结构体时必须拒绝 / 生成序列化与哈希的调用 MUST 非零退出」的 Scenario，**自本条改写后作废**，不再保留 —— 递归读写做完之后这个形状由生成代码支持（见上面「撤除」）。
+
+**新增**：含非 public 成员的类型要么提供 friend 入口（照 `Tools/CodeGen/README.md` 的写法），要么保持拒绝（5）；含指针成员的类型保持拒绝，README 里写明替代做法。
+
+#### Scenario: 拒绝集合逐条与 README 的退出码表一致
+
+- **WHEN** 对每个拒绝形状跑一次探针，并把退出码与 `Tools/CodeGen/README.md` 的退出码表逐条对照
+- **THEN** 逐条一致；退出码 12 从表里删除，且已有一条"同样的夹具现在出码成功"的读数
+
+#### Scenario: 撤除 12 之后，原来那条夹具要改成能通过
+
+- **WHEN** 用改前触发退出码 12 的那个夹具（`struct Inner { castl::unordered_map<unsigned,unsigned> m; }; struct Outer { castl::vector<Inner> items; };` 这一形状）在改动后再跑一次
+- **THEN** 出码成功、往返一致，且两个只有内层插入顺序不同的对象写出的字节逐字节相同；"改前 exit 12 + stderr 点名"与"改后 exit 0 + 往返一致"两个读数都要留档
+
+### Requirement: 反射标注通道支持嵌套类型（原「反射标注用标记宏自动爬取」）
+
+标记 MUST 能标注命名空间作用域之外的嵌套类型（`DepthStencilStates::StencilStates`、`cahash::sha256_hash::result_type`）。类型名的解析口径（短名或全名）MUST 在 README 里写明并与命令行、接入清单一致。
+
+#### Scenario: 嵌套类型三个发射器都成功
+
+- **WHEN** 对上述两个嵌套类型请求三个发射器
+- **THEN** 全部退出码 0；现状是 4（类型未标注），故判据在改动前为红
+
+#### Scenario: 环境能解析 D3D12 自己的头
+
+- **WHEN** 用推导环境解析 `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h`
+- **THEN** 退出码 0；现状是 6（`directx/d3dx12.h` 找不到）
+
+### Requirement: 容器读写不再要求容器有 `clear()`
+
+无序容器仍然 MUST 在读之前清空并按规范顺序重建；但**定长数组**（没有 `clear()` 的类型，如 `castl::array`）MUST 按位置逐个覆写，并在读之前校验载荷长度与 extent 一致 —— MUST NOT 因为没有 `clear()` 就拒绝出码。
+
+（本条是从基线里那条「读进非空目标时先清空（**已定死，不留选择**）」的 Scenario 收窄出来的：那条场景把"清空"写成了所有容器读路径的前提，而定长数组没有 `clear()`；收窄之后"先清空"只对无序容器成立，定长数组走按位置覆写。它是一条**新增**要求，不是改名 —— 基线里没有同名的 Requirement 可改。）
+
+#### Scenario: 含 `castl::array` 的真实类型可出码
+
+- **WHEN** 对含 `castl::array<T, N>` 成员的类型请求序列化并在真实目标里实例化读路径
+- **THEN** 编译通过、往返一致；不再走"没有 `clear()` 就拒绝"这条路
+

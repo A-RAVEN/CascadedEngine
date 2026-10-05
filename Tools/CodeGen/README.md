@@ -644,21 +644,24 @@ EmitSample.Hash.h            1310
 
 ### 构建耗时：三档，照着跑就能复现
 
-同一个机器、同一个构建目录，跑下面三条命令，看末尾那行 `[耗时]`（本机 Debug 预设，2026-10-05 实测）：
+同一个机器、同一个构建目录，跑下面三条命令，看末尾那行 `[耗时]`（本机 Debug 预设；**2026-10-05 收尾时重测**，清单这时是 **72 条**）：
 
-1. **全量**（忽略账本，63 条全跑）：`python build.py --config Debug --codegen-all`
-   → `codegen: 重跑 63 条、跳过 0 条`，`[耗时] configure 0.0s / codegen 49.1s / 编译 49.9s / 合计 99.0s`
-2. **改一个被标注的头**（例如给 `Interface/RenderInterface/header/GPUBuffer.h` 加一行注释）：
-   `python build.py --config Debug`
-   → `codegen: 重跑 1 条、跳过 62 条`，`[耗时] configure 0.0s / codegen 5.4s / 编译 55.2s / 合计 60.6s`
-   （大头是**重编受影响的那些编译单元**，不是生成）
-3. **什么都不改**：`python build.py --config Debug`
-   → `codegen: 重跑 0 条、跳过 63 条`，`[耗时] configure 0.0s / codegen 1.5s / 编译 2.8s / 合计 4.3s`
+1. **全量**（忽略账本，72 条全跑）：`python build.py --config Debug --codegen-all`
+   → `codegen: 重跑 72 条、跳过 0 条`，`[耗时] configure 0.0s / codegen 46.4s / 编译 37.0s / 合计 83.3s`
+   （同一天更早一次、清单还是 63 条时是 `codegen 49.1s / 合计 99.0s` —— 条数多了、生成段反而更快，因为那次编译段要重编的单元更多。）
+2. **从零**（清掉构建目录里除 `_deps/` 之外的全部内容，再 `python build.py --config Debug --offline-fetch`）：
+   → `codegen: 重跑 72 条、跳过 0 条`，`[耗时] configure 23.2s / codegen 52.7s / 编译 99.3s / 合计 175.3s`
+   （configure 那 23 秒里有 20 秒是主配置，其余是各外部依赖的再生成；`--offline-fetch` 见 `CLAUDE.md` 的「构建」节。）
+3. **改一个被标注的头**（例如给 `Interface/RenderInterface/header/GPUBuffer.h` 加一行注释）：`python build.py --config Debug`
+   → `codegen: 重跑 1 条、跳过 71 条`，耗时大头是**重编受影响的那些编译单元**，不是生成。
+   ⚠ 这一档的秒数没有在收尾时重测（改头文件要动工作区，测完还得逐字节还原）；上一次实测（同日、别的东西不变）是 `codegen 5.4s / 编译 55.2s / 合计 60.6s` —— 引用时请连日期一起引。
+4. **什么都不改**：`python build.py --config Debug`
+   → `codegen: 重跑 0 条、跳过 72 条`，`[耗时] configure 0.0s / codegen 1.7s / 编译 2.9s / 合计 4.6s`
 
 对照（同一台机器、同一天，成对读数）：
 
 - 全量：**49.1 秒**（并发 8 条）对 **149.0 秒**（把 `CODEGEN_MAX_WORKERS` 临时压到 1）—— 同一份代码、同一批输入，差 99.9 秒；
-- 调用次数：现在每个类型**一次**（63 次），从前是三次（189 次）；
+- 调用次数：现在每个类型**一次**（72 次），从前是三次（原来 63 条时是 189 次）；
 - 从前行与行之间是**串行**的：`git show HEAD:build.py` 的内层 `for emit_flag, suffix in CODEGEN_EMITTERS:` 一行跑完三次再跑下一行，任何时刻只有 1 个进程在跑。
 
 ### 接入清单：四列

@@ -207,7 +207,8 @@
   - ② 三份旧头文件系统枚举：`CACore/header/Reflection.h` / `Serialization.h` / `Hasher.h` **都不存在**（扫描器 `--files-exist` 逐条打印，`Test-Path` 也是 False）。
   - ③ 旧实现指纹 **0 行**（`visit_members` / `CATypeMemberDesc` / `containerInfo` / `Submit Count:` / `Object must be trivially copyable` / `hash_one` / `managed_pointer_traits`）。
   - ④ **ABI 守卫白名单 0 条**：脚本里 `ABI_GUARD_WHITELIST: tuple[tuple[str, str], ...] = ()`（空表），所以"命中数 > 白名单数"这条判据现在等价于"命中必须是 0"。
-  - ⑤ 删除而不是改名：`git status --porcelain -- CACore/header/Reflection.h CACore/header/Serialization.h CACore/header/Hasher.h` 输出三行 **` D`**（工作区删除，不是 `R` 改名）。**⚠ 条目原文要求的是 `git log --diff-filter=R --name-status`** —— 那需要先有一次提交才看得到；按本仓库的规矩（只有用户明确要求才 commit）这三个删除还没提交，所以这里先用 `git status` 的 ` D` 作读数，提交之后应补跑一次 `git log --diff-filter=R --name-status -- CACore/header/` 确认它不把这三份头列为改名。
+  - ⑤ 删除而不是改名（**提交之后补跑的读数，2026-10-05，提交 `3dd3585`**）：`git log --no-renames --diff-filter=D --name-status -1 -- CACore/header/` → `D CACore/header/Hasher.h` / `D CACore/header/Reflection.h` / `D CACore/header/Serialization.h`（三条都是删除），同一提交里 `git show --no-renames --name-status HEAD -- CACore/header/HashKeys.h` → `A`（新头是**新增**）；文件系统枚举三份路径也都不存在；`Test-Path` 三个 False。
+    **⚠ 如实记一处与条目字面的偏差**：条目原文说的是"`git log --diff-filter=R --name-status` 证明三份旧头是被删除而不是改名"。**默认开着改名检测时这条命令会输出一行 `R061 CACore/header/Hasher.h → CACore/header/HashKeys.h`** —— 那是 git 的**相似度启发式**在配对（`HashKeys.h` 里有 61% 的字节来自 `Hasher.h`，因为三个宿主类型的代码块整体搬了过去），不是"旧头换个名字继续存在"：关掉改名检测（`--no-renames`）之后同一提交报的就是上面那三条 `D` + 一条 `A`；而且 `Hasher.h` 剩下的部分（旧驱动 `aggregateHasher` 那套）是真的删掉了，没有被搬走。**判据的字面（`--diff-filter=R` 输出为空）达不到，判据的意图（三份旧设施不靠改名活着）成立** —— 记在这里，不粉饰。提交前那条 `git status --porcelain` 的三行 ` D` 读数也保留在上面。
   - 另：全量构建 `BUILD SUCCESSFUL`、`CoreTests.exe` 退出码 0 且 12 条用例逐条 PASSED（同 9.3 的读数）。
   **怎么算做完**：`python Tools/CodeGen/check_legacy_symbols.py` 打印"扫描 N 个文件、命中 0 行"，且 **N MUST NOT 为 0**、并与上一次跑同一条命令的 N 相同（同一批产物下这个数必须稳定）；三份旧头文件系统枚举不存在；旧实现指纹零命中；**ABI 守卫白名单必须是 0 行**（2026-10-04 修正：原来打算给消费方 `.cpp` 的老宏留逐行白名单，但那个宏与 `CATypeDescriptor` 都定义在 `Reflection.h` 里，头一删就编译不过 —— 所以改成终态 0 行，那批断言改成与写死的期望值比，见 9.6）；`git log --diff-filter=R --name-status` 证明三份旧头是被删除而不是改名搬迁
 - [x] 9.5 对外文档收尾：新运行时的能力边界、接口、退出码变化（12 撤除、8 随旧通道删除）、迁移做法
@@ -299,24 +300,56 @@
 
 > 这一节的来路：48 条全勾完之后我如实报了"没跑到的四件事"（tester 一次没跑、没做过从零重建、改动还没提交、8.5 判据是我改过的版本），用户回"都要做，你先加tasks"。所以这一节是**补验证**，不是补功能。8.5 那条（判据修订）不在这里 —— 它的依据与改前改后都已经写进 8.5 自己的条目与 `design.md` 的「已知边界」。
 
-- [ ] 11.1 跑 `GPUBackendTester.exe`：两个后端各一遍，逐测试留读数
-  **怎么算做完**：① `GPUBackendTester.exe --list` 逐条列出测试名并贴出来 —— 2026-10-05 实测是 **8 个**（`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI`），而 `CLAUDE.md` 的「构建 / 测试 / 调试」节写的是"顺序跑全部 **7** 个测试" —— 数字对不上，按实测改文档（并在这一条里留下改前 / 改后原文）；② `--backend vulkan` 与 `--backend d3d12` 各跑一遍（`--headless <N> --headless-timeout <N> --report <path>`），贴**退出码**、`result.json` 里逐测试的结果、以及 `test_output/*.log` 的尾部；③ 有崩溃就读 `crash_*.dmp`（`python Tools/read_dump.py <dump> --pdb-dir <dir>`）并给出函数级根因，不许只说"跑挂了"。
-  **改之前**：本 change 全程**一次都没跑过 tester**，渲染后端那部分只有编译期覆盖（`CPipelineStateObjectAssertions.cpp` / 两个 `ShaderLibraryCodeGenAssertions.cpp` / `GPUBufferDescriptorReflection.cpp`）。
-  **已知噪声**（不是本条的失败条件，但要说明）：`--list` 在 stderr 上会打 `mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll` 与一条 `standard malloc is _not_ redirected!` 警告 —— 那是环境里的 mimalloc 加载顺序问题，与本 change 无关；贴日志时把它标出来，别当成 tester 失败。
+- [x] 11.1 跑 `GPUBackendTester.exe`：两个后端各一遍，逐测试留读数
+  **实测（2026-10-05，两个后端都全过）**：
+  - `GPUBackendTester.exe --list` → 退出码 0，逐条列出 **8 个**测试：`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI`。**`CLAUDE.md` 的「测试」节原来写的是"顺序跑全部 7 个测试"，已按实测改成 8 个并把这条读数与测试名一起写进去**（改前那句原文见本条下面的引用）。
+  - **Vulkan**：`GPUBackendTester.exe --backend vulkan --headless 10 --report %TEMP%\vulkan-result.json` → 退出码 **0**；报告里 8 条全是 `"status":"pass"`、`"exit_code":0`，耗时 143 / 93 / 46 / 73 / 59 / 54 / 51 / 128 ms；日志尾部是 `ShaderImporter_Vulkan: Import complete. Files=15, Programs=28, Structs=17, RootStructs=15`。
+  - **D3D12**：同参数换 `--backend d3d12` → 退出码 **0**；8 条同样全 `"status":"pass"`，耗时 55 / 42 / 36 / 59 / 58 / 49 / 38 / 139 ms。
+  - **没有崩溃**：两次都没有 `crash_*.dmp`，所以没走 `read_dump.py` 那条路。
+  - `--headless 10` 这个取值不是我编的：归档规格 `openspec/changes/archive/2026-07-05-gpu-backend-tester-diagnostics/specs/test-output/spec.md` 里就是 `GPUBackendTester.exe --headless 10 --report result.json`。**stderr 噪声**：两次 stderr 上都有 `mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll` 与 `standard malloc is _not_ redirected!` 警告（环境里的加载顺序问题，与本次改动无关，tester 本身退出码 0、8 条全过）。
+  **怎么算做完**：① `GPUBackendTester.exe --list` 逐条列出测试名并贴出来 —— 2026-10-05 实测是 **8 个**（…），而 `CLAUDE.md` 的「构建 / 测试 / 调试」节写的是"顺序跑全部 **7** 个测试" —— 数字对不上，按实测改文档（并在这一条里留下改前 / 改后原文：改前那句是「不带 `--test` 顺序跑全部 7 个测试」，改后是「不带 `--test` 顺序跑全部 **8** 个测试（2026-10-05 用 `--list` 实测：…）」）；② 两个后端各跑一遍并贴退出码、`result.json`、日志尾部；③ 有崩溃就读 dump。
 
-- [ ] 11.2 从零重建（保留已经拉好的依赖源码）
-  **怎么算做完**：清掉 `out/build/x64-debug` 下**除 `_deps/` 以外**的全部内容（`bin` / `lib` / `codegen` / `codegen.stamp.json` / `compile_commands.json` / `build.ninja` / `CMakeCache.txt` / 各模块目录都删；`_deps/` 里是已经拉好的依赖**源码**，离线机器重新拉不了，所以留着 —— 这一条要写清"哪些留着、为什么"），然后 `python build.py --config Debug` 从零 configure + 全量 codegen + 全量编译 → `BUILD SUCCESSFUL`；随后 `CoreTests.exe` 退出码 0、12 条用例逐条 PASSED，`python Tools/CodeGen/check_legacy_symbols.py` 仍是 `扫描 505 个文件、命中 0 行`；贴三段耗时（configure / codegen / 编译）与"输入没变"那次（**3.5 s**）的对照。
-  **前置（必须先定，见 11.4）**：这台机器连不上 `github.com:443`，而 `stb` 用 `GIT_TAG master`，configure 每次都会去 `git fetch` → `fatal: unable to access 'https://github.com/nothings/stb.git/': Could not connect to server`。现在的绕法是手改 `out/build/x64-debug/CMakeCache.txt` 两处（把 `FETCHCONTENT_UPDATES_DISCONNECTED:BOOL=OFF` 改成 `ON`、补一行 `FETCHCONTENT_SOURCE_DIR_STB:PATH=<构建目录>/_deps/stb-src`）—— 而**这份 cache 正是本条要删掉的东西**，所以不先把离线开关做成可复现的东西，本条跑不动。
+- [x] 11.2 从零重建（保留已经拉好的依赖源码）
+  **怎么算做完**：清掉 `out/build/x64-debug` 下**除 `_deps/` 以外**的全部内容（`bin` / `lib` / `codegen` / `codegen.stamp.json` / `compile_commands.json` / `build.ninja` / `CMakeCache.txt` / 各模块目录都删；`_deps/` 里是已经拉好的依赖**源码**，离线机器重新拉不了，所以留着 —— 这一条要写清"哪些留着、为什么"），然后 `python build.py --config Debug` 从零 configure + 全量 codegen + 全量编译 → `BUILD SUCCESSFUL`；随后 `CoreTests.exe` 退出码 0、12 条用例逐条 PASSED，`python Tools/CodeGen/check_legacy_symbols.py` 仍是 `扫描 505 个文件、命中 0 行`；贴三段耗时（configure / codegen / 编译）与"输入没变"那次的对照。
+  **实测（2026-10-05）**：把 `out/build/x64-debug` 清到**只剩 `_deps/`**（删掉 **9746 个文件**：`bin` / `lib` / `codegen` / `codegen.stamp.json` / `compile_commands.json` / `build.ninja` / `CMakeCache.txt` / 各模块目录 / `.ninja_deps` / `.ninja_log` 全在里面；留着 `_deps/` 是因为它装的是**已经拉好的依赖源码**，这台机器连不上 github、重新拉不了；`_deps/` 下的 `<包>-build/` 也一并留着，所以 assimp / slang / jolt 这些外部依赖不重编），然后 `python build.py --config Debug --offline-fetch` 一次跑通：
+  `[耗时] configure 23.2s / codegen 52.7s / 编译 99.3s / 合计 175.3s` → **`BUILD SUCCESSFUL`**（configure 段里那串 `Configuring done (0.1s)/Generating done` 是各外部依赖的再生成，主配置那段是 20.0 s）。
+  随后的验证：`CoreTests.exe` 退出码 **0**、**12 条**用例逐条 PASSED；`python Tools/CodeGen/check_legacy_symbols.py` 退出码 0、仍是 `扫描 505 个文件、命中 0 行`；什么都不改再构建一次 → `configure 0.0s / codegen 1.7s / 编译 2.9s / 合计 4.6s`（与 175.3 s 的对照就是本条要的"从零 vs 增量"两个读数）。
+  **前置**：需要 `--offline-fetch`（11.4 加的），否则 configure 会去 `git fetch` stb 而失败 —— 本条正是那个开关"从零可复现"的证明。
   **改之前**：最近几次构建都是增量的；最后一次全量重跑 codegen 是 `--codegen-all`（`codegen: 重跑 65 条、跳过 0 条`），那之后清单又加了 8 行，所以那份读数已经过期。
 
-- [ ] 11.3 提交这批改动，并补 9.4 欠的那条读数
+- [x] 11.3 提交这批改动，并补 9.4 欠的那条读数
+  **实测（2026-10-05，用户"交一下git作为基线"）**：提交 **`3dd3585`**（分支 `002-vulkan-backend-renderinterface`，父提交 `f9ae605`），`git show --stat HEAD` → **175 files changed, 2222 insertions(+), 14655 deletions(-)**（暂存区分类：66 改 / 1 改名配对（见下）/ 103 删 / 5 新增；另 1 个新增文件 `Test/CoreTests/ShaderLibraryBytesTest.cpp` 与那 6 个未跟踪文件里的其余 5 个同批进入）。提交后 `git status --porcelain` **空**（工作区干净）。提交信息按仓库惯例（`feat(codegen): …` + 分节正文 + 末尾验证读数），没有加工具署名 trailer —— 与上一提交 `f9ae605` 的形态一致。
+  **9.4 欠的那条读数已补跑并写进 9.4 条目**：`git log --no-renames --diff-filter=D --name-status -1 -- CACore/header/` → 三份旧头逐条 `D`；`git show --no-renames --name-status HEAD -- CACore/header/HashKeys.h` → `A`。**同时如实记了一处与原文的偏差**：默认改名检测会把 `Hasher.h` 与新头配成 `R061`（相似度启发式，不是旧头换名存活），9.4 条目里写清了两个口径的读数与为什么会这样。
   **怎么算做完**：用户已明确"都要做" → 提交当前工作区（分支 `002-vulkan-backend-renderinterface`；2026-10-05 实测 `git status --porcelain` **176 条**：66 改 / 104 删 / 6 未跟踪，其中 104 删 = 三份旧头 + 两个死目录的 101 个文件），提交信息写清这批改了什么（删三份旧头与其全部使用者、删两个不参与构建的旧后端 / tester 目录、测试里"老的一侧"改成写死的期望字节、新增宿主哈希类型新头与收尾扫描器）；提交后跑 `git log --diff-filter=R --name-status -- CACore/header/` 并贴输出，确认三份旧头**不是**被改名搬迁，把这段读数补进 9.4 条目（那里现在留的是 `git status` 的 ` D` 读数 + 一句"提交后补跑"）。
   **改之前**：9.4 的第五条读数只有 `git status --porcelain` 的 ` D`，达不到条目原文要求的 `git log --diff-filter=R`。
 
-- [ ] 11.4 定下离线 configure 的做法（二选一，写进工件后再动手）
-  **怎么算做完**：选一条并留下可核证据 —— **甲案**：把离线开关做成 `build.py` 的显式选项（例如 `--offline-fetch`，它给 configure 传 `-DFETCHCONTENT_UPDATES_DISCONNECTED=ON -DFETCHCONTENT_SOURCE_DIR_STB=<build>/_deps/stb-src`），并在 `CLAUDE.md` 的「构建」节写一行"本机连不上 github 时怎么配"；判据：删掉 `CMakeCache.txt` 之后 `python build.py --config Debug --offline-fetch` 一次跑通，且**不带这个开关时行为不变**（两次输出都贴）。**乙案**：不改脚本，改为在 11.2 的条目里写清"手改哪两行、什么条件下必须重打"，判据是照着手改能跑通、且写清它为什么只是环境绕行而不是仓库改动。
-  **溯源**：仓库规矩「禁止手动敲构建命令 / 若现有脚本不满足需求，应扩展脚本而不是绕过脚本」偏向甲案；但改 `build.py` 是构建工具链的改动，与本 change（退役 serde / hash）不同主题 —— 所以要么按甲案做，要么明确记成"另开一个 change"，不许含混过去。
-  **改之前**：现在只有一份**没写进任何工件**的手改 cache（我在验证过程中做的），换个构建目录就复现不了。
+- [x] 11.4 定下离线 configure 的做法（二选一，写进工件后再动手）
+  **选定：甲案**（理由见下面"溯源"）——`build.py` 新增 `--offline-fetch`。改动只有三处：模块文档串的用法行与说明、`configure(offline_fetch: bool = False)` 里给 configure 追加 `-DFETCHCONTENT_UPDATES_DISCONNECTED=ON -DFETCHCONTENT_SOURCE_DIR_STB=<构建目录>/_deps/stb-src`（并打印一行"离线模式：…"）、`main()` 里读 `--offline-fetch` 并传下去。**不带这个开关时命令行一个字符都不变**。
+  **实测（2026-10-05，判据两条都取到）**：① **删掉 `CMakeCache.txt` 之后一次跑通**：按 11.2 把 `out/build/x64-debug` 清到只剩 `_deps/`（9746 个文件删掉，`CMakeCache.txt` 随之消失），`python build.py --config Debug --offline-fetch` → 打印 `离线模式：不跑依赖的 update 步；stb 用本地源码 …\_deps\stb-src`，configure 23.2 s 一次成功、**`BUILD SUCCESSFUL`**，全程没有手改过任何 cache；② **不带开关时行为不变**：同一次构建之后什么都不改再跑 `python build.py --config Debug`（不带开关）→ `configure 0.0s / codegen 1.7s / 编译 2.9s / 合计 4.6s`、`BUILD SUCCESSFUL`（与从前的"输入没变就跳过 configure"完全一致）；而带不带开关的唯一区别就是那两句 `-D` —— 不带时本机 configure 仍会因网络失败，这正是**改动之前**的读数（`fatal: unable to access 'https://github.com/nothings/stb.git/': Could not connect to server`，贴在本条历史里）。
+  **溯源**：仓库规矩「禁止手动敲构建命令 / 若现有脚本不满足需求，应扩展脚本而不是绕过脚本」偏向甲案；11.2 的验收（从零 configure）本身就要求离线开关可复现，而乙案（只写手改步骤）做不到——手改的那两行在清掉 cache 之后就没了。**改动落在构建工具链上、与"退役 serde / hash"不同主题这件事我不掩饰**：它之所以进这个 change，是因为它是本 change 收尾验证（11.2）的前置，且只有 3 行；`CLAUDE.md` 的「构建」节里写了它的用法（见 11.5）。
 
-- [ ] 11.5 把上面几条改动的"对外说法"同步到文档
+- [x] 11.5 把上面几条改动的"对外说法"同步到文档
+  **实测（2026-10-05）**：
+  - `CLAUDE.md` 的「构建」节：加上 `--offline-fetch` 的用法与它到底做了什么（跳过依赖的 update 步 + `stb` 用 `<构建目录>/_deps/stb-src` 的本地源码；只有 `stb` 用 `GIT_TAG master` 才每次都要联网），并附从零构建与无改动构建的两个读数（175.3 s / 4.6 s）。
+  - `CLAUDE.md` 的「测试」节：测试条数 **7 → 8**（附 8 个测试名与"2026-10-05 用 `--list` 实测"），另把 `--headless-timeout` 标成"被解析但当前未消费"（这条来自 `TODO/004-codegen-proposal-decomposition.md` 的实测记录）。
+  - `Tools/CodeGen/README.md` 的「构建耗时」节：整段按收尾重测的数字重写（清单 **72 条**：`--codegen-all` → `codegen 46.4s / 编译 37.0s / 合计 83.3s`；从零 → `configure 23.2s / codegen 52.7s / 编译 99.3s / 合计 175.3s`；什么都不改 → `codegen 1.7s / 编译 2.9s / 合计 4.6s`），并**明写"改一个被标注的头"那一档本次没有重测**（要动工作区再逐字节还原），只留上一次的秒数 + 日期，引用时要连日期一起引；对照段里"63 条 → 189 次调用"那两处也按 72 条更新了。
+  - 改完 `python Tools/CodeGen/verify_readme.py` → `README: 20 documented command(s) run, **0 mismatch(es)**`，退出码 0。
   **怎么算做完**：11.1 若改了 `CLAUDE.md` 的测试条数，贴改前 / 改后；11.2 若产出新的耗时读数，替换 `Tools/CodeGen/README.md`「构建耗时：三档」里过期的那几行（或注明取数日期）；11.4 定下的离线做法落到 `CLAUDE.md` 的「构建」节；改完跑 `python Tools/CodeGen/verify_readme.py`，要 0 处不符。
+
+## 归档时发现并就地修掉的一处工件问题（2026-10-05，记在这里而不是只留在对话里）
+
+`openspec archive retire-legacy-serde-hash --yes` 第一次跑**中止且没有改任何文件**，原文：
+
+```
+codegen-framework MODIFIED failed for header "### Requirement: 生成物不再调用旧运行时（原「统一 CodeGen 流水线从 annotated 头产出可读生成代码」的能力边界收窄）" - not found
+Aborted. No files were changed.
+```
+
+**根因**：这个 change 的 `specs/codegen-framework/spec.md` 里四条 `## MODIFIED Requirements` 的标题都写成了"新名字（原「旧名字」）"—— 用标题表达改名。而打包器 `dist/core/specs-apply.js` 按**标题精确匹配**基线里的 Requirement，顺序是 RENAMED → REMOVED → MODIFIED → ADDED，并且明文校验"有改名时 MODIFIED 必须引用**新**标题"。所以改名必须单独写成 `## RENAMED Requirements` 的 `- FROM:` / `- TO:` 两条，MODIFIED 才能用新标题去改。
+
+**改前 / 改后**（只动标题的承载方式，正文一字未改，除第 2 条见下）：
+- 改前：`## MODIFIED Requirements` 下四条，标题分别是「生成物不再调用旧运行时（原「统一 CodeGen 流水线…」…）」「容器读写不再要求容器有 `clear()`（原「读回来先清空目标容器」…）」「拒绝清单收窄（原「会静默出错的容器组合必须被拒绝」）」「反射标注通道支持嵌套类型（原「反射标注用标记宏自动爬取」）」。
+- 改后：新增 `## RENAMED Requirements` 三条 `- FROM: 旧标题` / `- TO: 新标题`（`统一 CodeGen 流水线从 annotated 头产出可读生成代码` → 「生成物不再调用旧运行时（…）」；`会静默出错的容器组合必须被拒绝` → 「拒绝清单收窄（…）」；`反射标注用标记宏自动爬取 + 未迁移/外部走非侵入通道` → 「反射标注通道支持嵌套类型（…）」）；前三条留在 MODIFIED（标题不变），**第 2 条移进 `## ADDED Requirements`** 并把标题里的"（原「读回来先清空目标容器」的适用范围收窄）"去掉、改在正文里说明它从哪条场景收窄而来 —— 因为 `读回来先清空目标容器` 在基线里根本**不是一条 Requirement**（它是 `无序容器的序列化与哈希必须走规范顺序` 里的一个 Scenario，`openspec/specs/codegen-framework/spec.md` 的 `#### Scenario: 读进非空目标时先清空`），没有可改名的对象，只能按新增要求落。
+
+**结果（打包器自己的读数）**：`codegen-framework`：`+1 added / ~3 modified / →3 renamed`；`codegen-runtime`：`+6 added`（新建能力）；`codegen-type-migration`：`+6 added`（新建能力）；`Totals: + 13, ~ 3, - 0, → 3`；`Change 'retire-legacy-serde-hash' archived as '2026-10-05-retire-legacy-serde-hash'`。三份受影响的能力各自 `openspec validate <cap>` → `is valid`（`--all` 里另有 37 个历史 `vulkan-*` 规格报"缺 `## Purpose` 段"，那些文件本 change 一个字都没动，`git status` 可核）。
+**另**：合并进基线的那段"作废基线场景"原本是写给 delta 的（里面自称"基线 `openspec/specs/…` 里那条…收尾时必须回到基线文件里标注"），合并之后它自己就在基线文件里、成了自指句；已就地改成直陈句「本条原先那条 … 的 Scenario，自本条改写后作废，不再保留」。

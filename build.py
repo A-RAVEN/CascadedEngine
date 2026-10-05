@@ -6,6 +6,13 @@ Usage:
     python build.py --no-configure  # build only (skip cmake configure)
     python build.py --config Debug  # use the Debug configuration (validation layers enabled)
     python build.py TargetName      # build a specific target
+    python build.py --offline-fetch # configure 时不去碰依赖的远端（本机连不上 github 时用）
+
+`--offline-fetch` 做两件事：给 configure 传 `FETCHCONTENT_UPDATES_DISCONNECTED=ON`（跳过每个依赖的
+update 步 —— 那一步是 `git fetch`，本机连不上 github 时会以
+`fatal: unable to access 'https://github.com/…': Could not connect to server` 失败），并把
+`FETCHCONTENT_SOURCE_DIR_STB` 指向已经拉好的 `<构建目录>/_deps/stb-src`（`stb` 用的是 `GIT_TAG master`，
+只有它每次 configure 都要联网）。不带这个开关时行为与从前完全一样。
 
 生成物只落构建目录（`out/build/<预设>/codegen/<模块>/`），源码树里没有生成代码：既没有"写回仓库"的开关，
 也没有"与入库副本逐字节对拍"这一步。
@@ -412,7 +419,7 @@ def configure_inputs_changed() -> str:
     return ""
 
 
-def configure() -> None:
+def configure(offline_fetch: bool = False) -> None:
     print("=" * 60)
     print("[1/2] Configuring CMake...")
     print("=" * 60)
@@ -423,13 +430,22 @@ def configure() -> None:
     # Quoted: the path contains a space — without quotes cmd splits it and
     # CMake misreads the tail ("Files/Git/...") as a source directory.
     git = '"C:/Program Files/Git/cmd/git.exe"'
+    # `--offline-fetch`：本机连不上 github 时用。`FETCHCONTENT_UPDATES_DISCONNECTED=ON` 跳过每个依赖的
+    # update 步（就是那次 `git fetch`），`FETCHCONTENT_SOURCE_DIR_STB` 让 stb 直接用已经拉好的源码 ——
+    # 只有它用 `GIT_TAG master`，每次 configure 都会联网。两句都写在这里，别再手改 CMakeCache.txt。
+    offline = ""
+    if offline_fetch:
+        stb_src = BUILD_DIR / "_deps" / "stb-src"
+        offline = (" -DFETCHCONTENT_UPDATES_DISCONNECTED=ON"
+                   f" -DFETCHCONTENT_SOURCE_DIR_STB={stb_src}")
+        print(f"  离线模式：不跑依赖的 update 步；stb 用本地源码 {stb_src}")
     # Check for init cache file
     init_cache = PROJECT_DIR / "_init_cache.cmake"
     if init_cache.exists():
-        run_msvc(f"cmake -S {PROJECT_DIR} -B {BUILD_DIR} -G Ninja -DCMAKE_BUILD_TYPE={config} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -C {init_cache} -DGIT_EXECUTABLE={git}",
+        run_msvc(f"cmake -S {PROJECT_DIR} -B {BUILD_DIR} -G Ninja -DCMAKE_BUILD_TYPE={config} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -C {init_cache} -DGIT_EXECUTABLE={git}{offline}",
                  "_build_configure.log")
     else:
-        run_msvc(f"cmake --preset {CONFIGS[config]} -DGIT_EXECUTABLE={git}", "_build_configure.log")
+        run_msvc(f"cmake --preset {CONFIGS[config]} -DGIT_EXECUTABLE={git}{offline}", "_build_configure.log")
 
 
 def patch_ninja() -> None:
@@ -979,6 +995,7 @@ def main() -> None:
     configure_step = "--no-configure" not in args
     force_configure = "--configure" in args
     codegen_all = "--codegen-all" in args
+    offline_fetch = "--offline-fetch" in args
     target = next((a for a in args if not a.startswith("--")), None)
 
     print("=== CascadedEngine Build Script (Python) ===")
@@ -999,7 +1016,7 @@ def main() -> None:
 
     if configure_step:
         started = time.perf_counter()
-        configure()
+        configure(offline_fetch=offline_fetch)
         patch_ninja()
         configure_seconds = time.perf_counter() - started
     # codegen 每次构建都跑（在没有"入库副本"之后，这是唯一的产物来源）。它需要 compile_commands.json，
