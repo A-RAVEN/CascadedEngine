@@ -9,9 +9,26 @@
 #include <CodeGenHash.h>
 #include <HashKeys.h>   // 三个哈希键类型（NameHash / PathHash / HashObj）在新头里
 #include <ShaderResourceHandle.h>   // 两个资源句柄（哈希键）与它们的手写哈希特化
+#include <GPUGraph.h>               // graphics_backend::ViewRectData（键类型，见 tasks 4.1~4.5）
+#include <GPUGraph/GPUPipelineInstance.h>   // graphics_backend::GPUPipelineStateKey / VertexInputBindingData
+// ⚠ 上面两个头只给**类型定义**；它们的哈希链上还有别的类型，而 `hasher::hash<T>` 会看特化在不在：
+// 特化不可见时 `CPipelineStateObject` 这类「平凡可拷贝」的宿主会退化成"整块按字节"，于是同一个
+// `hasher::hash<CPipelineStateObject>` 在本编译单元与 `PipelineStateObjectTest.cpp` 里成了**两个不同的实例**，
+// 链接器合并弱符号之后整个二进制的该类型哈希会变成整块口径（实测：那条 `hash ignores padding` 判据由 1 掉成 0）。
+// 消费方要把这条链上用到生成物的类型自己 include 一遍 —— 与
+// `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 末尾那段生成物 include 同一个道理。
+#include "CPipelineStateObject.Hash.h"
+#include "RasterizerStates.Hash.h"
+#include "DepthStencilStates.Hash.h"
+#include "StencilStates.Hash.h"
+#include "SingleColorAttachmentBlendStates.Hash.h"
+#include "ColorAttachmentsBlendStates.Hash.h"
+#include "ShaderInfo.Hash.h"
+#include "InputAssemblyStates.Hash.h"
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 #include "TestEmit.h"
 #include "EmitSample.Hash.h"
 
@@ -177,6 +194,146 @@ bool RunGeneratedHashTest()
         if (!handleSameKeySameHash || !handleTypeDiffers || !handleKindsDiffer)
         {
             std::puts("Generated hash of resource handles FAILED");
+            return false;
+        }
+    }
+
+    // ============================================================================================
+    // 四个键类型的哈希读数（`tasks.md` 4.1）：**经既有入口** `cacore::hash<T>` 取，不是直接调特化。
+    // 迁移前先把它们打印出来当期望值；迁移之后（4.3~4.6）同一段代码必须算出同一组数，并升级成断言。
+    // ============================================================================================
+    {
+        using namespace graphics_backend;
+
+        const ViewRectData viewRect{ 1, 2, 3, 4 };
+
+        VertexInputBindingData::InputElementDesc element{};
+        element.SemanticName = cacore::NameHash("POSITION");
+        element.SemanticIndex = 0;
+        element.Format = DXGI_FORMAT_R32G32B32_FLOAT;
+        element.InputSlot = 0;
+        element.AlignedByteOffset = 0;
+        element.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+        element.InstanceDataStepRate = 0;
+
+        VertexInputBindingData binding{};
+        binding.inoutBindingNameToIndex.push_back(cacore::NameHash("POSITION"));
+        binding.outVertexAttributes.push_back(element);
+
+        GPUPipelineStateKey key{};
+        key.m_AttachmentFormats.push_back(ETextureFormat::E_R8G8B8A8_UNORM);
+        key.m_DepthFormat = ETextureFormat::E_R8G8B8A8_UNORM;
+        key.m_VertexInputBindingData = binding;
+
+        const unsigned long long hashViewRect =
+            (unsigned long long)cacore::hash<ViewRectData>{}(viewRect);
+        const unsigned long long hashElement =
+            (unsigned long long)cacore::hash<VertexInputBindingData::InputElementDesc>{}(element);
+        const unsigned long long hashBinding =
+            (unsigned long long)cacore::hash<VertexInputBindingData>{}(binding);
+        const unsigned long long hashKey =
+            (unsigned long long)cacore::hash<GPUPipelineStateKey>{}(key);
+
+        std::printf("CodeGen key hash readings (ViewRectData / InputElementDesc / "
+                    "VertexInputBindingData / GPUPipelineStateKey) = %llu / %llu / %llu / %llu\n",
+                    hashViewRect, hashElement, hashBinding, hashKey);
+
+        // 迁移守卫（tasks 4.3~4.6）：这些值先在迁移**之前**实测出来、落在
+        // `evidence/parse-gate-readings.md` 第十二节；换成生成物之后必须逐位相等。
+        // 期望值一个字都不许手算 —— 改这四个类型的成员时必须重测。
+        const unsigned long long expectedViewRect = 9566659391000707361ULL;
+        const bool viewRectUnchanged = hashViewRect == expectedViewRect;
+        std::printf("CodeGen key hash unchanged (ViewRectData) = %d (期望 %llu，实得 %llu)\n",
+                    viewRectUnchanged ? 1 : 0, expectedViewRect, hashViewRect);
+        if (!viewRectUnchanged)
+        {
+            std::puts("Generated hash of ViewRectData CHANGED after migration");
+            return false;
+        }
+
+        const unsigned long long expectedPipelineStateKey = 17773842414398720855ULL;
+        const bool pipelineStateKeyUnchanged = hashKey == expectedPipelineStateKey;
+        std::printf("CodeGen key hash unchanged (GPUPipelineStateKey) = %d (期望 %llu，实得 %llu)\n",
+                    pipelineStateKeyUnchanged ? 1 : 0, expectedPipelineStateKey, hashKey);
+        if (!pipelineStateKeyUnchanged)
+        {
+            std::puts("Generated hash of GPUPipelineStateKey CHANGED after migration");
+            return false;
+        }
+
+        const unsigned long long expectedElement = 7588715830773829420ULL;
+        const bool elementUnchanged = hashElement == expectedElement;
+        std::printf("CodeGen key hash unchanged (InputElementDesc) = %d (期望 %llu，实得 %llu)\n",
+                    elementUnchanged ? 1 : 0, expectedElement, hashElement);
+        if (!elementUnchanged)
+        {
+            std::puts("Generated hash of InputElementDesc CHANGED after migration");
+            return false;
+        }
+
+        const unsigned long long expectedBinding = 17516807725481476295ULL;
+        const bool bindingUnchanged = hashBinding == expectedBinding;
+        std::printf("CodeGen key hash unchanged (VertexInputBindingData) = %d (期望 %llu，实得 %llu)\n",
+                    bindingUnchanged ? 1 : 0, expectedBinding, hashBinding);
+        if (!bindingUnchanged)
+        {
+            std::puts("Generated hash of VertexInputBindingData CHANGED after migration");
+            return false;
+        }
+
+        // ============================================================================================
+        // 4.6 反向对照 —— 证明上面四条"值没变"不是恒真：
+        //   ① 改一个字段 → 经既有入口取到的哈希必须**变**（哈希跟着内容走，既不是常量、也不是算地址）；
+        //   ② 外层类型的**尾部填充**改成别的字节 → 哈希必须**不变**（字段级口径，填充不进哈希）。
+        //      这四个类型里没有尾部填充的，打印出来的字节数是 0、这一条对它不适用；填充不变性另有既有判据
+        //      （`PipelineStateObjectTest.cpp` 的 `RasterizerStates` 有 2 字节内部填充，那条一直在跑）。
+        // ============================================================================================
+        ViewRectData changedViewRect = viewRect;
+        changedViewRect.width += 1;
+        VertexInputBindingData::InputElementDesc changedElement = element;
+        changedElement.SemanticIndex += 1;
+        VertexInputBindingData changedBinding = binding;
+        changedBinding.inoutBindingNameToIndex.push_back(cacore::NameHash("POSITION2"));
+        GPUPipelineStateKey changedKey = key;
+        changedKey.m_DepthFormat = ETextureFormat::E_R16_SFLOAT;
+
+        const bool contentChanges = cacore::hash<ViewRectData>{}(changedViewRect) != hashViewRect &&
+                                    cacore::hash<VertexInputBindingData::InputElementDesc>{}(changedElement) != hashElement &&
+                                    cacore::hash<VertexInputBindingData>{}(changedBinding) != hashBinding &&
+                                    cacore::hash<GPUPipelineStateKey>{}(changedKey) != hashKey;
+
+        auto tailPaddingIgnored = [](auto const& original, std::size_t lastMemberEnd, std::size_t& tailOut)
+        {
+            using T = std::remove_cvref_t<decltype(original)>;
+            tailOut = sizeof(T) > lastMemberEnd ? sizeof(T) - lastMemberEnd : 0;
+            if (tailOut == 0)
+                return true;   // 没有尾部填充，这一条对它不适用
+            T copy = original;
+            std::memset(reinterpret_cast<unsigned char*>(&copy) + lastMemberEnd, 0xAB, tailOut);
+            return cacore::hash<T>{}(copy) == cacore::hash<T>{}(original);
+        };
+
+        std::size_t tailViewRect = 0;
+        std::size_t tailElement = 0;
+        std::size_t tailBinding = 0;
+        std::size_t tailKey = 0;
+        using Element = VertexInputBindingData::InputElementDesc;
+        const bool padViewRect = tailPaddingIgnored(viewRect, offsetof(ViewRectData, height) + sizeof(int), tailViewRect);
+        const bool padElement = tailPaddingIgnored(element, offsetof(Element, InstanceDataStepRate) + sizeof(UINT), tailElement);
+        const bool padBinding = tailPaddingIgnored(binding, offsetof(VertexInputBindingData, outVertexAttributes) +
+                                                              sizeof(castl::vector<Element>), tailBinding);
+        const bool padKey = tailPaddingIgnored(key, offsetof(GPUPipelineStateKey, m_VertexInputBindingData) +
+                                                        sizeof(VertexInputBindingData), tailKey);
+
+        std::printf("CodeGen key hash controls = %d (改一个字段 → 哈希变 = %d；尾部填充改成别的字节 → 哈希不变 = %d；"
+                    "尾部填充字节数 ViewRectData=%zu InputElementDesc=%zu VertexInputBindingData=%zu GPUPipelineStateKey=%zu)\n",
+                    (contentChanges && padViewRect && padElement && padBinding && padKey) ? 1 : 0,
+                    contentChanges ? 1 : 0,
+                    (padViewRect && padElement && padBinding && padKey) ? 1 : 0,
+                    tailViewRect, tailElement, tailBinding, tailKey);
+        if (!contentChanges || !padViewRect || !padElement || !padBinding || !padKey)
+        {
+            std::puts("Generated hash controls for the migrated keys FAILED");
             return false;
         }
     }

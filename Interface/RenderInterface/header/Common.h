@@ -369,7 +369,9 @@ enum class EResourceUsage : uint32_t
 	ePresent = 1 << 9,
 	eShaderInputs = eShaderResource | eShaderUnorderedAccess | eConstantBuffer,
 	eComputeQueueMask = eShaderResource | eShaderUnorderedAccess | eCopy | eConstantBuffer | eInitialized,
-	eAll = ~0,
+	// `~0` 是 int 的 -1：固定底层类型为 uint32_t 时，标准要求每个枚举值都能在该类型里表示，
+	// clang 会按标准报窄化（MSVC 放行）。写成能表示的等值形式，位模式仍是 32 位全 1。
+	eAll = 0xFFFFFFFFu,
 	eBitMax = 10,
 };
 

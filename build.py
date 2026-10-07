@@ -102,10 +102,14 @@ CODEGEN_ANNOTATED = [
     ("Interface/RenderInterface/header/CPipelineStateObject.h", "RectSate", "Interface/RenderInterface"),
     ("Interface/RenderInterface/header/TextureSampler.h", "TextureSamplerDescriptor", "Interface/RenderInterface"),
     ("Interface/RenderInterface/header/ShaderProvider.h", "ShaderInfo", "Interface/RenderInterface"),
-    # ⚠ `ViewRectData`（`GPUGraph.h`）与 `GPUPipelineInstance.h` 那三个键类型**今天进不了清单**：
-    # 工具解析这两个头时拒收（exit 6），头本身/它 include 的文件里有错误级诊断（那是本轮之前实测的读数；
-    # 头里那几行老宏随后已经删掉了）。所以这四个键类型改用**手写哈希特化**
-    # （写在各自头里，见 `GPUGraph.h` / `GPUPipelineInstance.h` 末尾的 `custom_hash_trait` 特化）。
+    # 曾经进不了清单的四个键类型 —— 解析它们那两个头时工具会以 exit 6 拒收（头自身或链上有错误级诊断）。
+    # 那些诊断已经清掉（`openspec/changes/archive/2026-10-07-clear-codegen-parse-blockers/` 记录了每一处的红态与绿态读数），
+    # 所以它们和别的键类型一样进生成表，手写 `custom_hash_trait` 特化随之删除。
+    ("Interface/RenderInterface/header/GPUGraph.h", "ViewRectData", "Interface/RenderInterface"),
+    ("D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.h", "GPUPipelineStateKey", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.h", "VertexInputBindingData", "D3D12RenderBackend"),
+    ("D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.h", "InputElementDesc", "D3D12RenderBackend",
+     "graphics_backend::VertexInputBindingData::InputElementDesc"),
     # SHA-256 摘要（ShaderLibrary 的键类型）：嵌套在 cahash::sha256_hash 里。
     # ShaderCompiler 的数据模型：ShaderLibrary 的映射值类型（ShaderStructData 等）在它里面，
     # 编译环境取自 ShaderCompilerSlang 的编译单元（唯一包含它的编译单元）。
@@ -207,6 +211,18 @@ CODEGEN_PLACEHOLDER = "// CodeGen 占位文件：冷启动时先让 #include 找
 #                            vendored LLVM here ships no resource dir). Without it, parsing the D3D12
 #                            module's own headers fails with exit 6.
 CODEGEN_EXTRA_INCLUDES = ["CACore/header", "Tools/CodeGen/clang_shim"]
+
+# Extra DEFINES for the sidecar's parse (never for the engine build):
+#   _CRT_USE_BUILTIN_OFFSETOF — the UCRT `stddef.h` expands `offsetof` to the
+#   null-pointer-dereference form whenever `_MSC_VER` is defined (`#if defined _MSC_VER &&
+#   !defined _CRT_USE_BUILTIN_OFFSETOF`), and clang defines `_MSC_VER` on MSVC targets. MSVC folds
+#   that pattern itself, clang cannot: every generated `static constexpr CodeGenFieldInfo arr[…]`
+#   that uses `offsetof` then fails with "constexpr variable … must be initialized by a constant
+#   expression" (measured: two errors without the define, exit 0 with it). Defining the macro makes
+#   `offsetof` expand to `__builtin_offsetof`, which is what clang's own `stddef.h` uses.
+#   Measured on the parse path only — the generated products keep saying `offsetof`, so MSVC's
+#   compilation of them is unchanged.
+CODEGEN_EXTRA_DEFINES = ["-D_CRT_USE_BUILTIN_OFFSETOF"]
 
 COMSPEC = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
 
@@ -540,7 +556,7 @@ def codegen(force: bool = False) -> list[str]:
     except EnvError as exc:
         # A module whose compile units disagree about the macros is refused, not guessed at.
         return [str(exc)]
-    extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES]
+    extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES] + list(CODEGEN_EXTRA_DEFINES)
     failures: list[str] = []
 
     # 「输入没变就跳过」的账本。键是清单那一行（含限定名列），值是把这一行的**全部输入**与**现有产物**

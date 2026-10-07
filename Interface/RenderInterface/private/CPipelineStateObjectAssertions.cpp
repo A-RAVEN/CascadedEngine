@@ -7,6 +7,7 @@
 #include <CPipelineStateObject.h>
 #include <CVertexInputDescriptor.h>
 #include <ShaderResourceHandle.h>
+#include <GPUGraph.h>
 #include <CodeGenMeta.h>
 #include <HashKeys.h>
 
@@ -132,6 +133,20 @@ namespace
     static_assert(TypeDescriptor<graphics_backend::ResourceHandleKeyData>::fields()[2].offset ==
                       offsetof(graphics_backend::ResourceHandleKeyData, threadID),
                   "字段表第 2 条不是 threadID");
+
+    // ⑦ `ViewRectData`（`GPUGraph.h`）：它原来因为解析门进不了生成表、只能手写哈希特化，现在由生成物提供。
+    //    它也是哈希键（`HashObj<ViewRectData>`，D3D12 的 GPUGraphExecutor 按视图矩形查表），
+    //    所以字段表与哈希特化两条都要在。
+    using ViewRect = graphics_backend::ViewRectData;
+    static_assert(TypeDescriptor<ViewRect>::fieldCount == 4, "ViewRectData 的字段表条数不是 4");
+    static_assert(TypeDescriptor<ViewRect>::fields()[0].offset == offsetof(ViewRect, x),
+                  "字段表第 0 条不是 x");
+    static_assert(TypeDescriptor<ViewRect>::fields()[1].offset == offsetof(ViewRect, y),
+                  "字段表第 1 条不是 y");
+    static_assert(TypeDescriptor<ViewRect>::fields()[2].offset == offsetof(ViewRect, width),
+                  "字段表第 2 条不是 width");
+    static_assert(TypeDescriptor<ViewRect>::fields()[3].offset == offsetof(ViewRect, height),
+                  "字段表第 3 条不是 height");
 } // namespace
 
 // ④ 哈希调用点（本模块 `GPUGraph.h` 的 `HashObj<CPipelineStateObject>`，它内部走这个哈希对象）必须
@@ -144,6 +159,8 @@ static_assert(cacore::codegen::has_custom_hash_func<VertexInputsDescriptor, caco
               "哈希入口看不到 VertexInputsDescriptor 的生成特化");
 static_assert(cacore::codegen::has_custom_hash_func<VertexAttribute, cacore::codegen::hasher<>>,
               "哈希入口看不到 VertexAttribute 的生成特化");
+static_assert(cacore::codegen::has_custom_hash_func<graphics_backend::ViewRectData, cacore::codegen::hasher<>>,
+              "哈希入口看不到 ViewRectData 的生成特化");
 
 template bool cacore::codegen::CodeGenSerializer<CPipelineStateObject>::deserialize<Bytes>(
     CPipelineStateObject&, Bytes const&, std::size_t&);

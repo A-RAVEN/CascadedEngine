@@ -644,24 +644,24 @@ EmitSample.Hash.h            1310
 
 ### 构建耗时：三档，照着跑就能复现
 
-同一个机器、同一个构建目录，跑下面三条命令，看末尾那行 `[耗时]`（本机 Debug 预设；**2026-10-05 收尾时重测**，清单这时是 **72 条**）：
+同一个机器、同一个构建目录，跑下面三条命令，看末尾那行 `[耗时]`（本机 Debug 预设；**2026-10-05 收尾时重测**，清单这时是 **76 条** —— 比上一轮多出四个键类型：`ViewRectData`、`GPUPipelineStateKey`、`VertexInputBindingData`、`InputElementDesc`，它们原来因为解析门只能手写哈希特化）：
 
-1. **全量**（忽略账本，72 条全跑）：`python build.py --config Debug --codegen-all`
-   → `codegen: 重跑 72 条、跳过 0 条`，`[耗时] configure 0.0s / codegen 46.4s / 编译 37.0s / 合计 83.3s`
+1. **全量**（忽略账本，76 条全跑）：`python build.py --config Debug --codegen-all`
+   → `codegen: 重跑 76 条、跳过 0 条`，`[耗时] configure 0.0s / codegen 40.6s / 编译 42.9s / 合计 83.5s`
    （同一天更早一次、清单还是 63 条时是 `codegen 49.1s / 合计 99.0s` —— 条数多了、生成段反而更快，因为那次编译段要重编的单元更多。）
 2. **从零**（清掉构建目录里除 `_deps/` 之外的全部内容，再 `python build.py --config Debug --offline-fetch`）：
-   → `codegen: 重跑 72 条、跳过 0 条`，`[耗时] configure 23.2s / codegen 52.7s / 编译 99.3s / 合计 175.3s`
-   （configure 那 23 秒里有 20 秒是主配置，其余是各外部依赖的再生成；`--offline-fetch` 见 `CLAUDE.md` 的「构建」节。）
+   → `codegen: 重跑 76 条、跳过 0 条`，`[耗时] configure 52.3s / codegen 39.3s / 编译 97.5s / 合计 189.1s`
+   （configure 那 52 秒里大部分是主配置与各外部依赖的再生成；`--offline-fetch` 见 `CLAUDE.md` 的「构建」节。）
 3. **改一个被标注的头**（例如给 `Interface/RenderInterface/header/GPUBuffer.h` 加一行注释）：`python build.py --config Debug`
-   → `codegen: 重跑 1 条、跳过 71 条`，耗时大头是**重编受影响的那些编译单元**，不是生成。
+   → `codegen: 重跑 1 条、跳过 75 条`，耗时大头是**重编受影响的那些编译单元**，不是生成。
    ⚠ 这一档的秒数没有在收尾时重测（改头文件要动工作区，测完还得逐字节还原）；上一次实测（同日、别的东西不变）是 `codegen 5.4s / 编译 55.2s / 合计 60.6s` —— 引用时请连日期一起引。
 4. **什么都不改**：`python build.py --config Debug`
-   → `codegen: 重跑 0 条、跳过 72 条`，`[耗时] configure 0.0s / codegen 1.7s / 编译 2.9s / 合计 4.6s`
+   → `codegen: 重跑 0 条、跳过 76 条`，`[耗时] configure 0.0s / codegen 1.3s / 编译 2.1s / 合计 3.5s`
 
 对照（同一台机器、同一天，成对读数）：
 
 - 全量：**49.1 秒**（并发 8 条）对 **149.0 秒**（把 `CODEGEN_MAX_WORKERS` 临时压到 1）—— 同一份代码、同一批输入，差 99.9 秒；
-- 调用次数：现在每个类型**一次**（72 次），从前是三次（原来 63 条时是 189 次）；
+- 调用次数：现在每个类型**一次**（76 次），从前是三次（原来 63 条时是 189 次）；
 - 从前行与行之间是**串行**的：`git show HEAD:build.py` 的内层 `for emit_flag, suffix in CODEGEN_EMITTERS:` 一行跑完三次再跑下一行，任何时刻只有 1 个进程在跑。
 
 ### 接入清单：四列
@@ -807,3 +807,34 @@ $ echo $?
 > ⚠ 一条实测出来的坑：指纹表里**不要**放接口自己的方法名（例如 `SubmitAndWait` 是 `ca_io::WBatch` / `IOBatch`
 > 的方法，随接口一起留着），否则判据永远清不到 0。要放就放旧实现独有的东西 —— 旧序列化器那句
 > `Submit Count:` 调试打印就是这样一条：全仓只有它的 `finalize()` 里有。
+
+## 九、解析期垫片与解析环境里的两个额外开关
+
+工具解析引擎头时，`build.py` 会在模块自己的编译环境之外再喂两样东西：额外 include 根
+（`CODEGEN_EXTRA_INCLUDES`）与额外宏（`CODEGEN_EXTRA_DEFINES`）。**两者都只作用于解析**，
+不进入引擎的编译，也不改变任何生成物的文本。
+
+### 垫片 `Tools/CodeGen/clang_shim/cpuid.h`
+
+| 项 | 内容 |
+|---|---|
+| 替代的头 | `cpuid.h` —— 它是 **clang 自带的资源头**（跟着 LLVM 装在 `lib/clang/<版本>/include` 里） |
+| 为什么仓库里需要它 | 本仓库 vendored 的那份 libclang（`CALIB_CLANG_DIR` 指向的目录）只带了 `bin/` + `lib/` + `include/clang-c`，**没有资源目录**；而 Windows SDK 的 `DirectXMath.h` 在 clang 身份下会 `#include <cpuid.h>`。缺了它，解析 D3D12 模块自己的头会以 `fatal error: 'cpuid.h' file not found` 失败（退出码 6） |
+| 边界 | **只让 include 过得去**：里面只有"把名字补上"的最小定义，**不参与任何布局计算** —— 生成字段表里的偏移仍然由被解析的真实类型决定。引擎本体只用 MSVC 编译，永远看不到这个头 |
+| 不许做什么 | **不许定义编译器自带的函数**：`__cpuid` 在 MSVC 目标上是 clang 的内建，定义它会报 `definition of builtin function '__cpuid'`。需要 GCC 形状的名字时用**宏**，且参数个数按**真实调用点**给 —— `DirectXMathMisc.inl` 在 clang 身份下调用的是 6 个参数的 `__cpuid_count(7, 0, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3])` |
+
+### `-D_CRT_USE_BUILTIN_OFFSETOF`
+
+UCRT 的 `stddef.h` 在 `_MSC_VER` 下把 `offsetof` 展开成空指针解引用形式
+（`#if defined _MSC_VER && !defined _CRT_USE_BUILTIN_OFFSETOF`），而 clang 在 MSVC 目标上**也定义 `_MSC_VER`**。
+MSVC 自己会折叠那个模式，clang 不会 —— 于是生成物里的 `static constexpr CodeGenFieldInfo arr[…]` 会报
+`constexpr variable … must be initialized by a constant expression`。定义这个宏之后 `offsetof` 展开成
+`__builtin_offsetof`（clang 自带的 `stddef.h` 走的正是这一支），解析即干净。实测：不加它 `exit=6`
+（`constexpr variable 'offA' …` 与 `constexpr variable 'oneWithOffset' …` 两条），加了 `exit=0`。
+
+### 红线：不许用"把门调松"的开关换通过
+
+解析环境里 MUST NOT 出现 `-ferror-limit`（抬高错误上限）、`-w` / `-Wno-error`（把错误降级）这类开关。
+"链上干净"的判据**不是**工具退出码为 0：include 链里的错误单独不触发拒收，而且在门没被触发时一条都不打印。
+可复核的做法是自己给工具传 `-ferror-limit=1`（链上任何一条错误都会升级成致命诊断，原文就会被打印出来），
+要求**一条错误级诊断都没有**；把错误数从 20 压到 19 也能让那句致命消失，但链上还是脏的。

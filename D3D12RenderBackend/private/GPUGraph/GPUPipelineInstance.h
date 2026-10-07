@@ -11,12 +11,13 @@
 namespace graphics_backend
 {
 	// 这三个类型都是哈希键（`shared_dic<GPUPipelineStateKey, …>`、`HashObj<InputAssemblyStates>`）。
-	// 它们**不进接入清单**：解析这个头（它 include 了 `GPUGraph.h`）时工具拒收（exit 6）——
-	// 头本身或它 include 的文件里有错误级诊断，其中 `Interface/RenderInterface/header/ShaderBindingBuilder.h`
-	// 里那几行老宏每行报 6 条。所以按设计给的第二条路，在本文件末尾手写哈希特化。
+	// 它们曾经因为解析门（工具 exit 6）进不了接入清单、只能手写哈希特化；那个门已经修好，
+	// 所以它们的哈希特化全部由 CodeGen 生成，生成物在本文件末尾 include。
+	CA_REFLECT(serializable)
 	struct VertexInputBindingData
 	{
 		//Alias Of D3D12_INPUT_ELEMENT_DESC
+		CA_REFLECT(serializable)
 		struct InputElementDesc
 		{
 			cacore::NameHash SemanticName;
@@ -56,6 +57,7 @@ namespace graphics_backend
 		auto operator<=>(VertexInputBindingData const& other) const = default;
 	};
 
+	CA_REFLECT(serializable)
 	struct GPUPipelineStateKey
 	{
 		void Init(RenderBackend_D3D12* app
@@ -149,47 +151,17 @@ namespace graphics_backend
 
 }
 
-// 三个键类型的手写哈希特化（为什么手写见类型定义那里的注释）。口径与生成代码一致：按声明顺序逐字段，
-// `HashObj<…>` 成员算它包着的对象（新运行时的 `custom_hash_trait<HashObj<…>>` 就是这么做的），
-// 容器走新运行时的容器规则（顺序无关）。
-namespace cacore::codegen
-{
-	template<>
-	struct custom_hash_trait<graphics_backend::VertexInputBindingData::InputElementDesc>
-	{
-		static void hash(graphics_backend::VertexInputBindingData::InputElementDesc const& obj, auto& hasher)
-		{
-			hasher.hash(obj.SemanticName);
-			hasher.hash(obj.SemanticIndex);
-			hasher.hash(obj.Format);
-			hasher.hash(obj.InputSlot);
-			hasher.hash(obj.AlignedByteOffset);
-			hasher.hash(obj.InputSlotClass);
-			hasher.hash(obj.InstanceDataStepRate);
-		}
-	};
+// 三个键类型的哈希特化已全部由 CodeGen 生成（生成物在本文件末尾 include），这里不再手写。
 
-	template<>
-	struct custom_hash_trait<graphics_backend::VertexInputBindingData>
-	{
-		static void hash(graphics_backend::VertexInputBindingData const& obj, auto& hasher)
-		{
-			hasher.hash(obj.inoutBindingNameToIndex);
-			hasher.hash(obj.outVertexAttributes);
-		}
-	};
-
-	template<>
-	struct custom_hash_trait<graphics_backend::GPUPipelineStateKey>
-	{
-		static void hash(graphics_backend::GPUPipelineStateKey const& obj, auto& hasher)
-		{
-			hasher.hash(obj.m_ShaderInfo);
-			hasher.hash(obj.m_PipelineStates);
-			hasher.hash(obj.m_InputAssemblyStates);
-			hasher.hash(obj.m_AttachmentFormats);
-			hasher.hash(obj.m_DepthFormat);
-			hasher.hash(obj.m_VertexInputBindingData);
-		}
-	};
-}
+// 这三个键类型的生成物（归属目录 `D3D12RenderBackend`，产物在构建目录的 `codegen/D3D12RenderBackend/`）。
+// 消费方自己记一遍 —— `shared_dic<GPUPipelineStateKey, …>` / `cacore::hash<T>` 在**实例化**时就要看到这些特化，
+// 看不到时"平凡可拷贝"的宿主会退化成整块按字节（同一类型的两个不同实例在链接期合并，口径由链接器定）。
+#include "GPUPipelineStateKey.Reflection.h"
+#include "GPUPipelineStateKey.Serialization.h"
+#include "GPUPipelineStateKey.Hash.h"
+#include "VertexInputBindingData.Reflection.h"
+#include "VertexInputBindingData.Serialization.h"
+#include "VertexInputBindingData.Hash.h"
+#include "InputElementDesc.Reflection.h"
+#include "InputElementDesc.Serialization.h"
+#include "InputElementDesc.Hash.h"

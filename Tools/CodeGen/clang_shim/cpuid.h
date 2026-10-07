@@ -10,25 +10,19 @@
 // 这个文件里只放"让 include 过得去"的最小定义：它**不参与任何布局计算**，生成的字段表里的偏移仍然
 // 由被解析的真实类型决定。引擎本体只用 MSVC 编译，不会看到这个头。
 //
+// ⚠ 不许在这里定义 clang 自带的函数：`__cpuid` 是 clang 的内建（MSVC 目标上就有），定义它会报
+// `definition of builtin function '__cpuid'`；DirectXMath 在 `defined(__cpuid)` 为假时走的
+// `__cpuid(CPUInfo, 0)` 正好就是那个内建的形状，不需要我们提供。需要 GCC 形状的名字时用宏，
+// 且参数个数按**真实调用点**给 —— `DirectXMathMisc.inl` 在 clang 身份下调用的是 6 个参数的
+// `__cpuid_count(7, 0, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3])`。
+//
 // 用法：build.py 把它作为额外 include 根（`CODEGEN_EXTRA_INCLUDES`）传给工具。
+// 复核：`python openspec/changes/archive/2026-10-07-clear-codegen-parse-blockers/evidence/probe_shim_shape.py`
+// （三种形状 × AVX2 开关 + 四种隔离上下文），以及同目录的 `probe_chain_clean.py`。
 
-static inline void __cpuid(int out[4], int) noexcept
-{
-    out[0] = out[1] = out[2] = out[3] = 0;
-}
-
-static inline void __cpuid_count(int, int, int out[4]) noexcept
-{
-    out[0] = out[1] = out[2] = out[3] = 0;
-}
-
-static inline unsigned long long __get_cpuid_max(unsigned, unsigned*) noexcept
-{
-    return 0;
-}
-
-static inline int __get_cpuid(unsigned, unsigned out[4]) noexcept
-{
-    out[0] = out[1] = out[2] = out[3] = 0;
-    return 0;
-}
+#define __cpuid_count(level, count, a, b, c, d)                  \
+    do {                                                         \
+        int r_[4] = {0};                                         \
+        __cpuidex(r_, (level), (count));                         \
+        (a) = r_[0]; (b) = r_[1]; (c) = r_[2]; (d) = r_[3];      \
+    } while (0)

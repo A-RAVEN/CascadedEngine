@@ -19,6 +19,73 @@ static_assert(cacore::codegen::has_custom_hash_func<CPipelineStateObject, cacore
 static_assert(cacore::codegen::has_custom_hash_func<RasterizerStates, cacore::codegen::hasher<>>,
               "既有哈希入口看不到 RasterizerStates 的生成特化：它的填充字节会进哈希");
 
+// `GPUPipelineStateKey`：本文件的 `GPUPipelineManager::m_SharedDic`（`shared_dic<GPUPipelineStateKey, …>`）
+// 就是它的既有调用点。它原来靠手写哈希特化，现在由生成物提供 —— 字段表与哈希特化两条都要在，
+// 且字段表要逐条与真实布局对得上（偏移用编译器给的 `offsetof`）。
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::GPUPipelineStateKey>::fieldCount == 6,
+              "GPUPipelineStateKey 的字段表条数不是 6");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::GPUPipelineStateKey>::fields()[0].offset ==
+                  offsetof(graphics_backend::GPUPipelineStateKey, m_ShaderInfo),
+              "字段表第 0 条不是 m_ShaderInfo");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::GPUPipelineStateKey>::fields()[1].offset ==
+                  offsetof(graphics_backend::GPUPipelineStateKey, m_PipelineStates),
+              "字段表第 1 条不是 m_PipelineStates");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::GPUPipelineStateKey>::fields()[2].offset ==
+                  offsetof(graphics_backend::GPUPipelineStateKey, m_InputAssemblyStates),
+              "字段表第 2 条不是 m_InputAssemblyStates");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::GPUPipelineStateKey>::fields()[3].offset ==
+                  offsetof(graphics_backend::GPUPipelineStateKey, m_AttachmentFormats),
+              "字段表第 3 条不是 m_AttachmentFormats");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::GPUPipelineStateKey>::fields()[4].offset ==
+                  offsetof(graphics_backend::GPUPipelineStateKey, m_DepthFormat),
+              "字段表第 4 条不是 m_DepthFormat");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::GPUPipelineStateKey>::fields()[5].offset ==
+                  offsetof(graphics_backend::GPUPipelineStateKey, m_VertexInputBindingData),
+              "字段表第 5 条不是 m_VertexInputBindingData");
+static_assert(cacore::codegen::has_custom_hash_func<graphics_backend::GPUPipelineStateKey,
+                                                    cacore::codegen::hasher<>>,
+              "既有哈希入口看不到 GPUPipelineStateKey 的生成特化：哈希会退回整块字节");
+
+// `VertexInputBindingData` 与它内部的 `InputElementDesc`（嵌套类型）：同一批迁移，判据同上。
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::VertexInputBindingData>::fieldCount == 2,
+              "VertexInputBindingData 的字段表条数不是 2");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::VertexInputBindingData>::fields()[0].offset ==
+                  offsetof(graphics_backend::VertexInputBindingData, inoutBindingNameToIndex),
+              "字段表第 0 条不是 inoutBindingNameToIndex");
+static_assert(cacore::codegen::TypeDescriptor<graphics_backend::VertexInputBindingData>::fields()[1].offset ==
+                  offsetof(graphics_backend::VertexInputBindingData, outVertexAttributes),
+              "字段表第 1 条不是 outVertexAttributes");
+static_assert(cacore::codegen::has_custom_hash_func<graphics_backend::VertexInputBindingData,
+                                                    cacore::codegen::hasher<>>,
+              "既有哈希入口看不到 VertexInputBindingData 的生成特化：哈希会退回整块字节");
+
+using InputElementDesc = graphics_backend::VertexInputBindingData::InputElementDesc;
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fieldCount == 7,
+              "InputElementDesc 的字段表条数不是 7");
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fields()[0].offset ==
+                  offsetof(InputElementDesc, SemanticName),
+              "字段表第 0 条不是 SemanticName");
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fields()[1].offset ==
+                  offsetof(InputElementDesc, SemanticIndex),
+              "字段表第 1 条不是 SemanticIndex");
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fields()[2].offset ==
+                  offsetof(InputElementDesc, Format),
+              "字段表第 2 条不是 Format");
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fields()[3].offset ==
+                  offsetof(InputElementDesc, InputSlot),
+              "字段表第 3 条不是 InputSlot");
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fields()[4].offset ==
+                  offsetof(InputElementDesc, AlignedByteOffset),
+              "字段表第 4 条不是 AlignedByteOffset");
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fields()[5].offset ==
+                  offsetof(InputElementDesc, InputSlotClass),
+              "字段表第 5 条不是 InputSlotClass");
+static_assert(cacore::codegen::TypeDescriptor<InputElementDesc>::fields()[6].offset ==
+                  offsetof(InputElementDesc, InstanceDataStepRate),
+              "字段表第 6 条不是 InstanceDataStepRate");
+static_assert(cacore::codegen::has_custom_hash_func<InputElementDesc, cacore::codegen::hasher<>>,
+              "既有哈希入口看不到 InputElementDesc 的生成特化：哈希会退回整块字节");
+
 namespace graphics_backend
 {
 

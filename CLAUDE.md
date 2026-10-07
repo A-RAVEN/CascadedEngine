@@ -129,7 +129,7 @@ C++（CMake 构建）：遵循标准 C++ 约定。
 ## 构建 / 测试 / 调试
 
 ### 构建
-- 只通过 `python build.py` 构建（见上"禁止手动敲构建命令"）。配置：`--config Debug`（启用 validation 层）或默认 RelWithDebInfo；`--no-configure` 跳过 cmake 配置；`--offline-fetch` 在本机连不上 github 时用（configure 不去碰依赖的远端 —— 跳过每个依赖的 update 步，并让 `stb` 用 `<构建目录>/_deps/stb-src` 那份已经拉好的源码；只有 `stb` 用 `GIT_TAG master`、每次 configure 都要联网）。从零构建（清掉构建目录里除 `_deps/` 之外的东西）实测：`--offline-fetch` 一次跑通，configure 23.2s / codegen 52.7s / 编译 99.3s / 合计 175.3s；什么都不改再构建则 4.6s（2026-10-05 实测）。一般不手动指定单目标。
+- 只通过 `python build.py` 构建（见上"禁止手动敲构建命令"）。配置：`--config Debug`（启用 validation 层）或默认 RelWithDebInfo；`--no-configure` 跳过 cmake 配置；`--offline-fetch` 在本机连不上 github 时用（configure 不去碰依赖的远端 —— 跳过每个依赖的 update 步，并让 `stb` 用 `<构建目录>/_deps/stb-src` 那份已经拉好的源码；只有 `stb` 用 `GIT_TAG master`、每次 configure 都要联网）。从零构建（清掉构建目录里除 `_deps/` 之外的东西）实测：`--offline-fetch` 一次跑通，configure 52.3s / codegen 39.3s / 编译 97.5s / 合计 189.1s（接入清单此时 76 条、76 条全跑）；什么都不改再构建则 3.5s（2026-10-05 实测，三档读数在 `Tools/CodeGen/README.md` 的「构建耗时」一节）。一般不手动指定单目标。
 - 产物在 `out/build/<preset>/bin/`：Debug → `x64-debug`，RelWithDebInfo → `x64-relWithDebugInfo`。
 
 ### 测试（GPUBackendTester）

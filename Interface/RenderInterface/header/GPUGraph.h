@@ -81,8 +81,9 @@ namespace graphics_backend
 	};
 
 	// 也是哈希键（`HashObj<ViewRectData>`，D3D12 的 GPUGraphExecutor 里按视图矩形查表）。
-	// 它**不进接入清单**：解析这个头的编译环境今天过不了工具的保真门（见 `build.py` 清单里那条注释），
-	// 所以按设计给的第二条路在文件末尾手写一份哈希特化。
+	// 它的哈希特化由 CodeGen 生成（生成物在本文件末尾 include）：解析这个头曾经过不了工具的保真门，
+	// 那件事已经修掉，所以这一条不再手写。
+	CA_REFLECT(serializable)
 	struct ViewRectData
 	{
 		int x;
@@ -220,7 +221,10 @@ namespace graphics_backend
 
 		inline DrawCallBatch& SetParam(cacore::NameHash const& name, castl::shared_ptr<ShaderStruct> const& shaderStruct)
 		{
-			CA_ASSERT_BREAK(shaderStruct != nullptr, "Shader Struct Is Null When Setting Param:{}", name);
+			// `fmt` 没有 `cacore::NameHash` 的格式化器 —— 这里原来直接把 `name` 传给格式串，只在
+			// 这个内联成员函数**被实例化**的编译单元里才会炸（`fmt/base.h` 的
+			// `type_is_unformattable_for<const cacore::NameHash, char>`）。传它能格式化的文本。
+			CA_ASSERT_BREAK(shaderStruct != nullptr, "Shader Struct Is Null When Setting Param:{}", name.string());
 			shaderStructs[name] = shaderStruct;
 			return *this;
 		}
@@ -685,8 +689,8 @@ namespace graphics_backend
 		castl::deque<castl::shared_ptr<ShaderStruct>> shaderStructs;
 		for (castl::shared_ptr<ShaderStruct> const& shaderStruct : inShaderStructRange)
 		{
-			CA_ASSERT_BREAK(shaderStruct.second != nullptr, "Shader Struct Is Null, Why!?");
-			shaderStructs.push_back(shaderStruct.second);
+			CA_ASSERT_BREAK(shaderStruct != nullptr, "Shader Struct Is Null, Why!?");
+			shaderStructs.push_back(shaderStruct);
 		}
 		/*auto& drawcallBatchs = renderPass.GetDrawCallBatches();
 		for (auto& batch : drawcallBatchs)
@@ -866,19 +870,9 @@ namespace graphics_backend
 
 }
 
-// `ViewRectData` 的哈希特化（手写：这个头今天进不了接入清单，见类型定义那里的注释）。
-// 口径与生成代码一致：逐个字段算，`int` 直接按字节，顺序按声明顺序。
-namespace cacore::codegen
-{
-	template<>
-	struct custom_hash_trait<graphics_backend::ViewRectData>
-	{
-		static void hash(graphics_backend::ViewRectData const& obj, auto& hasher)
-		{
-			hasher.hash(obj.x);
-			hasher.hash(obj.y);
-			hasher.hash(obj.width);
-			hasher.hash(obj.height);
-		}
-	};
-}
+// `ViewRectData` 的生成物（归属目录 `Interface/RenderInterface`，产物在构建目录的 `codegen/Interface_RenderInterface/`）。
+// 消费方自己记一遍 —— `HashObj<T>` / `cacore::hash<T>` 在**实例化**时就要看到这些特化，看不到时
+// "平凡可拷贝"的宿主会退化成整块按字节（同一类型的两个不同实例在链接期合并，口径由链接器定）。
+#include "ViewRectData.Reflection.h"
+#include "ViewRectData.Serialization.h"
+#include "ViewRectData.Hash.h"
