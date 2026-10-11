@@ -23,3 +23,32 @@
 
 - **WHEN** 复核命令行接口
 - **THEN** `Tools/CodeGen/README.md` 的接口表、退出码表与示例 MUST 反映"一次调用写一份文件"；"一次给两个不同的发射标志 → 退出码 10" 这条既有规则 MUST 保持；README 里的命令原样可跑（`verify_readme.py` 0 处不符）
+
+### Requirement: 生成段并行执行多个类型
+
+生成段 MUST 并行处理多个类型，并发上限 MUST 有界且可解释（不与编译争抢内存与磁盘到互相拖慢）。失败消息与账本写入 MUST 按清单顺序汇总，保证输出稳定可读。改动前的实现是**纯串行**（`git show HEAD:build.py` 的内层循环每行顺序起 3 个进程，任何时刻只有 1 个进程）。
+
+#### Scenario: 并发确实在跑
+
+- **WHEN** 生成段执行期间观察进程
+- **THEN** MUST 同时存在多个 `CodeGen.exe` 进程（数量大于 3，贴读数）
+
+#### Scenario: 全量重生成明显变快
+
+- **WHEN** 在同一台机器上，先把并发上限压到 1 跑一次全量、再按上限跑一次全量
+- **THEN** 后者的生成段耗时 MUST 明显低于前者；**两条 `[耗时]` 行与其差值都要贴**，并写进 README。MUST NOT 拿一个没有日志留档的历史数字（例如旧的 469.4 秒）当基线
+
+#### Scenario: 某一行失败不许拖垮整段
+
+- **WHEN** 某一行在比对产物时抛错（例如工具退出码 0 却没有写出产物）
+- **THEN** 构建 MUST 以 codegen 的失败信息结束（MUST NOT 是裸的 Python traceback），其余行 MUST 照常跑完，账本 MUST NOT 因这次异常被截断重写
+
+#### Scenario: 不许预删产物
+
+- **WHEN** 复核生成段在跑工具之前对产物目录做了什么
+- **THEN** MUST NOT 先删掉这一行的产物 —— 产物目录本身在被解析头的包含路径上（`Compiler.h` 直接 `#include "UniformElement.codegen.h"`），先删会让解析当场失败；"工具退出码 0 却没写产物" MUST 用工具自己报出的写出名单（`CodeGen wrote: <路径>`）判断，缺一份即这一行失败
+
+#### Scenario: 空的产物目录也能一次构建成功
+
+- **WHEN** 把整个 `out/build/<预设>/codegen/` 删掉，然后跑一次 `python build.py --config Debug`（等价于新克隆的第一次构建）
+- **THEN** MUST 一次成功（`BUILD SUCCESSFUL`），MUST NOT 需要"再跑一次就好" —— 清单里有生成头被别的头直接 `#include`（`Interface/ShaderCompiler/header/Compiler.h` 一个头就是 24 份，改造前同一个头是 48 份），所以生成段 MUST 在跑之前先给每份产物放占位文件（只在缺失或仍是占位内容时放），失败的行的占位文件 MUST 被删掉

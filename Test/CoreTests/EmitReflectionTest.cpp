@@ -2,22 +2,21 @@
 // EmitReflectionTest.cpp — the reflection emitter's output actually compiles,
 // and its fieldCount agrees with the number written down here by hand (non-vacuous).
 //
-// The emitted `generated/EmitSample.Reflection.h` is produced by running the CodeGen tool with
-// --emit-reflection on Tools/CodeGen/TestEmit.h (commit it as the golden). Including it here — after
-// the type is fully defined — must compile, and static_assert_abi_consistency<codegen_demo::EmitSample>()
-// must PASS (it checks the generated name is non-null, i.e. the generated header is visible here).
-// The field count is checked against the literal 4 below: if the emitter and the type drift apart,
-// this TU is a hard build error.
+// `EmitSample.codegen.h`（一个类型一份，反射 / 序列化 / 哈希三节都在里面）是 `CodeGen.exe` 在构建期按
+// `--emit-all --out-dir` 现场生成的，住在构建目录里，源码树里没有入库副本。放在这里 include —— 类型定义
+// 之后 —— 必须能编译，且 `static_assert_abi_consistency<codegen_demo::EmitSample>()` 必须通过
+// （它断言生成的名字非空，即"这一份生成物在本编译单元里可见"）。
+// 字段数与下面那个字面量 4 对齐：发射器与类型一旦漂移，这个编译单元就是硬错误。
 //
-// The "generates expected code" (golden snapshot) half is verified by diffing the fresh tool
-// output against the committed golden.
+// "生成的代码符合预期"这一半不再靠入库黄金样本对拍 —— 生成物只落构建目录、每次构建现场生成，对拍的是
+// `-o` 单节输出与改造前同名产物的字节（本 change 的 228 次对拍），以及下面这些字段数断言。
 
 #include <CodeGenMeta.h>
 #include <CodeGenTypeRegistry.h>
 #include <cstdio>
 #include <cstring>
 #include "TestEmit.h"                        // codegen_demo::EmitSample (Tools/CodeGen on include path)
-#include "EmitSample.Reflection.h"  // emitter output (Tools/CodeGen/generated)
+#include "EmitSample.codegen.h"     // generator output (构建目录的 codegen/Test_CoreTests/)
 
 namespace
 {

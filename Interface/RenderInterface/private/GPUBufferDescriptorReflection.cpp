@@ -9,8 +9,8 @@
 //   * the type name and the member names in the table match the source (compile-time string compare —
 //     the engine's own ABI guard does NOT check names).
 #include <GPUBuffer.h>                        // graphics_backend::GPUBufferDescriptor (the real type)
-#include "GPUBufferDescriptor.Reflection.h"   // generator output: `generated/` is on this target's
-                                              // include path (no relative path needed)
+#include "GPUBufferDescriptor.codegen.h"      // generator output (build tree; `codegen/<模块>/` is on this
+                                              // target's include path, so no relative path is needed)
 #include <CodeGenMeta.h>                      // cacore::codegen::TypeDescriptor + the ABI guard
 
 namespace

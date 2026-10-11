@@ -147,6 +147,4 @@ public:
 
 // `RectSate` 的生成物（哈希特化给 `HashObj<RectSate>` 用；上面那五个类型的生成物由消费方自己 include，
 // 见 `Interface/RenderInterface/private/CPipelineStateObjectAssertions.cpp` 与 `PipelineStateObjectTest.cpp`）。
-#include "RectSate.Reflection.h"
-#include "RectSate.Serialization.h"
-#include "RectSate.Hash.h"
+#include "RectSate.codegen.h"

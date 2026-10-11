@@ -156,12 +156,6 @@ namespace graphics_backend
 // 这三个键类型的生成物（归属目录 `D3D12RenderBackend`，产物在构建目录的 `codegen/D3D12RenderBackend/`）。
 // 消费方自己记一遍 —— `shared_dic<GPUPipelineStateKey, …>` / `cacore::hash<T>` 在**实例化**时就要看到这些特化，
 // 看不到时"平凡可拷贝"的宿主会退化成整块按字节（同一类型的两个不同实例在链接期合并，口径由链接器定）。
-#include "GPUPipelineStateKey.Reflection.h"
-#include "GPUPipelineStateKey.Serialization.h"
-#include "GPUPipelineStateKey.Hash.h"
-#include "VertexInputBindingData.Reflection.h"
-#include "VertexInputBindingData.Serialization.h"
-#include "VertexInputBindingData.Hash.h"
-#include "InputElementDesc.Reflection.h"
-#include "InputElementDesc.Serialization.h"
-#include "InputElementDesc.Hash.h"
+#include "GPUPipelineStateKey.codegen.h"
+#include "VertexInputBindingData.codegen.h"
+#include "InputElementDesc.codegen.h"

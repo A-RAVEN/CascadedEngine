@@ -87,7 +87,5 @@ namespace graphics_backend
 	using TextureSamplerDescriptorObj = cacore::HashObj<TextureSamplerDescriptor>;
 }
 
-// `TextureSamplerDescriptor` 的生成物（哈希特化给 `cacore::hash` / `HashObj` 用）。
-#include "TextureSamplerDescriptor.Reflection.h"
-#include "TextureSamplerDescriptor.Serialization.h"
-#include "TextureSamplerDescriptor.Hash.h"
+// `TextureSamplerDescriptor` 的生成物（一份 `<类型>.codegen.h`；哈希特化给 `cacore::hash` / `HashObj` 用）。
+#include "TextureSamplerDescriptor.codegen.h"

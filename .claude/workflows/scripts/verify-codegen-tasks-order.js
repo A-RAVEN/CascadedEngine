@@ -55,7 +55,7 @@ const DIMS = [
   {
     key: 'rcf-header-cpp',
     prompt: `${base}
-DIMENSION: verify RC-F fix. Decide whether spec REQ#5 (${SPEC}, "生成源码以显式源清单纳入构建" + Scenario "缺失生成文件被构建捕获") and task 4.2 (${TASKS}) now REFLECT the header-only reality honestly AND their oracles are RUNNABLE/falsifiable: (a) header case → delete the wired generated header EmitSample.Reflection.h → build error via #include (real, not vacuous); (b) .cpp case → explicit target_sources rule stated for future; (c) no leftover text still claims target_sources applies to a header artifact OR claims a .cpp being verified when none exists. Flag any remaining mismatch. Cite file:line.`,
+DIMENSION: verify RC-F fix. Decide whether spec REQ#5 (${SPEC}, "生成源码以显式源清单纳入构建" + Scenario "缺失生成文件被构建捕获") and task 4.2 (${TASKS}) now REFLECT the header-only reality honestly AND their oracles are RUNNABLE/falsifiable: (a) header case → delete the wired generated header EmitSample.codegen.h → build error via #include (real, not vacuous); (b) .cpp case → explicit target_sources rule stated for future; (c) no leftover text still claims target_sources applies to a header artifact OR claims a .cpp being verified when none exists. Flag any remaining mismatch. Cite file:line.`,
   },
   {
     key: 'rcg-empty-whitelist',

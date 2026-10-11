@@ -11,36 +11,17 @@
 #include <CodeGenMeta.h>
 #include <HashKeys.h>
 
-#include "StencilStates.Reflection.h"
-#include "DepthStencilStates.Reflection.h"
-#include "RasterizerStates.Reflection.h"
-#include "SingleColorAttachmentBlendStates.Reflection.h"
-#include "ColorAttachmentsBlendStates.Reflection.h"
-#include "CPipelineStateObject.Reflection.h"
-#include "VertexAttribute.Reflection.h"
-#include "VertexInputsDescriptor.Reflection.h"
-#include "ResourceHandleKeyData.Reflection.h"
-
-#include "StencilStates.Serialization.h"
-#include "DepthStencilStates.Serialization.h"
-#include "RasterizerStates.Serialization.h"
-#include "SingleColorAttachmentBlendStates.Serialization.h"
-#include "ColorAttachmentsBlendStates.Serialization.h"
-#include "CPipelineStateObject.Serialization.h"
-#include "VertexAttribute.Serialization.h"
-#include "VertexInputsDescriptor.Serialization.h"
-#include "ResourceHandleKeyData.Serialization.h"
-
-// 哈希那一侧：既有调用点要用上生成的特化，本单元就必须看到**每一个**成员类型的特化。
-#include "StencilStates.Hash.h"
-#include "DepthStencilStates.Hash.h"
-#include "RasterizerStates.Hash.h"
-#include "SingleColorAttachmentBlendStates.Hash.h"
-#include "ColorAttachmentsBlendStates.Hash.h"
-#include "CPipelineStateObject.Hash.h"
-#include "VertexAttribute.Hash.h"
-#include "VertexInputsDescriptor.Hash.h"
-#include "ResourceHandleKeyData.Hash.h"
+// 生成物：这九个类型各自的 `<类型>.codegen.h`（一个类型一份，反射 / 序列化 / 哈希三节都在里面）。
+// 既有调用点要用上生成的特化，本单元就必须看到**每一个**成员类型的特化。
+#include "StencilStates.codegen.h"
+#include "DepthStencilStates.codegen.h"
+#include "RasterizerStates.codegen.h"
+#include "SingleColorAttachmentBlendStates.codegen.h"
+#include "ColorAttachmentsBlendStates.codegen.h"
+#include "CPipelineStateObject.codegen.h"
+#include "VertexAttribute.codegen.h"
+#include "VertexInputsDescriptor.codegen.h"
+#include "ResourceHandleKeyData.codegen.h"
 
 namespace
 {

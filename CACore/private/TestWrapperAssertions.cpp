@@ -3,9 +3,7 @@
 // types (`ShaderLibrary` has a `vector<NameHash>` on its value chain). The assertions below are the
 // measured contradiction of the rejected "wrapper counts as opaque -> refuse" implementation.
 #include "TestWrapper.h"
-#include "Holder.Reflection.h"
-#include "Holder.Serialization.h"
-#include "Holder.Hash.h"
+#include "Holder.codegen.h"
 #include <CodeGenMeta.h>
 
 namespace

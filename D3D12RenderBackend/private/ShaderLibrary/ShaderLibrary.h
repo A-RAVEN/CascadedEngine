@@ -174,43 +174,20 @@ class ShaderLibrary : public resource_management::TResource<ShaderLibrary>
 	};
 }
 
-// CodeGen 生成物：上面这些类型各自的反射 / 序列化 / 哈希特化。接在这里（类型定义之后）而不是让每个
-// 消费方自己记一遍 —— `TResource<T>` 的读写与 `HashObj<T>` 的哈希在**实例化**时就需要看到这些类型的
-// 全部特化（包括它们成员用到的类型），少一个，那一层就会退回"整块字节"或直接编不过。
-#include "ShaderLibrary.Reflection.h"
-#include "ShaderLibrary.Serialization.h"
-#include "ShaderLibrary.Hash.h"
-#include "ShaderSourceKey.Reflection.h"
-#include "ShaderSourceKey.Serialization.h"
-#include "ShaderSourceKey.Hash.h"
-#include "CBufferBindingInfo.Reflection.h"
-#include "CBufferBindingInfo.Serialization.h"
-#include "CBufferBindingInfo.Hash.h"
-#include "ImageBindingInfo.Reflection.h"
-#include "ImageBindingInfo.Serialization.h"
-#include "ImageBindingInfo.Hash.h"
-#include "BufferBindingInfo.Reflection.h"
-#include "BufferBindingInfo.Serialization.h"
-#include "BufferBindingInfo.Hash.h"
-#include "SamplerBindingInfo.Reflection.h"
-#include "SamplerBindingInfo.Serialization.h"
-#include "SamplerBindingInfo.Hash.h"
-#include "StructBindingInfos.Reflection.h"
-#include "StructBindingInfos.Serialization.h"
-#include "StructBindingInfos.Hash.h"
-#include "ShaderResourceBindingInfo.Reflection.h"
-#include "ShaderResourceBindingInfo.Serialization.h"
-#include "ShaderResourceBindingInfo.Hash.h"
-#include "ShaderFileInfo.Reflection.h"
-#include "ShaderFileInfo.Serialization.h"
-#include "ShaderFileInfo.Hash.h"
-#include "ProgramInfo.Reflection.h"
-#include "ProgramInfo.Serialization.h"
-#include "ProgramInfo.Hash.h"
-#include "ShaderCode.Reflection.h"
-#include "ShaderCode.Serialization.h"
-#include "ShaderCode.Hash.h"
+// CodeGen 生成物：上面这些类型各自的 `<类型>.codegen.h`（一个类型一份，反射 / 序列化 / 哈希三节都在
+// 里面）。接在这里（类型定义之后）而不是让每个消费方自己记一遍 —— `TResource<T>` 的读写与 `HashObj<T>`
+// 的哈希在**实例化**时就需要看到这些类型的全部特化（包括它们成员用到的类型），少一个，那一层就会退回
+// "整块字节"或直接编不过。
+#include "ShaderLibrary.codegen.h"
+#include "ShaderSourceKey.codegen.h"
+#include "CBufferBindingInfo.codegen.h"
+#include "ImageBindingInfo.codegen.h"
+#include "BufferBindingInfo.codegen.h"
+#include "SamplerBindingInfo.codegen.h"
+#include "StructBindingInfos.codegen.h"
+#include "ShaderResourceBindingInfo.codegen.h"
+#include "ShaderFileInfo.codegen.h"
+#include "ProgramInfo.codegen.h"
+#include "ShaderCode.codegen.h"
 // cahash::sha256_hash::result_type 是上面那两个映射的键：它的特化也得在这里可见。
-#include "result_type.Reflection.h"
-#include "result_type.Serialization.h"
-#include "result_type.Hash.h"
+#include "result_type.codegen.h"

@@ -236,46 +236,21 @@ namespace graphics_backend
 	};
 }
 
-// CodeGen 生成物：上面这些类型各自的反射 / 序列化 / 哈希特化。接在这里（类型定义之后）而不是让每个
-// 消费方自己记一遍 —— `TResource<T>` 的读写与 `HashObj<T>` 的哈希在**实例化**时就需要看到这些类型的
-// 全部特化（包括它们成员用到的类型），少一个，那一层就会退回"整块字节"或直接编不过。
-#include "ShaderLibrary.Reflection.h"
-#include "ShaderLibrary.Serialization.h"
-#include "ShaderLibrary.Hash.h"
-#include "VulkanShaderCode.Reflection.h"
-#include "VulkanShaderCode.Serialization.h"
-#include "VulkanShaderCode.Hash.h"
-#include "VulkanShaderFileInfo.Reflection.h"
-#include "VulkanShaderFileInfo.Serialization.h"
-#include "VulkanShaderFileInfo.Hash.h"
-#include "ProgramInfo.Reflection.h"
-#include "ProgramInfo.Serialization.h"
-#include "ProgramInfo.Hash.h"
-#include "VulkanShaderResourceBindingInfo.Reflection.h"
-#include "VulkanShaderResourceBindingInfo.Serialization.h"
-#include "VulkanShaderResourceBindingInfo.Hash.h"
-#include "VulkanDescriptorSetLayoutInfo.Reflection.h"
-#include "VulkanDescriptorSetLayoutInfo.Serialization.h"
-#include "VulkanDescriptorSetLayoutInfo.Hash.h"
-#include "VulkanDescriptorBinding.Reflection.h"
-#include "VulkanDescriptorBinding.Serialization.h"
-#include "VulkanDescriptorBinding.Hash.h"
-#include "VulkanCBufferBindingInfo.Reflection.h"
-#include "VulkanCBufferBindingInfo.Serialization.h"
-#include "VulkanCBufferBindingInfo.Hash.h"
-#include "VulkanImageBindingInfo.Reflection.h"
-#include "VulkanImageBindingInfo.Serialization.h"
-#include "VulkanImageBindingInfo.Hash.h"
-#include "VulkanBufferBindingInfo.Reflection.h"
-#include "VulkanBufferBindingInfo.Serialization.h"
-#include "VulkanBufferBindingInfo.Hash.h"
-#include "VulkanSamplerBindingInfo.Reflection.h"
-#include "VulkanSamplerBindingInfo.Serialization.h"
-#include "VulkanSamplerBindingInfo.Hash.h"
-#include "VulkanStructBindingInfo.Reflection.h"
-#include "VulkanStructBindingInfo.Serialization.h"
-#include "VulkanStructBindingInfo.Hash.h"
+// CodeGen 生成物：上面这些类型各自的 `<类型>.codegen.h`（一个类型一份，反射 / 序列化 / 哈希三节都在
+// 里面）。接在这里（类型定义之后）而不是让每个消费方自己记一遍 —— `TResource<T>` 的读写与 `HashObj<T>`
+// 的哈希在**实例化**时就需要看到这些类型的全部特化（包括它们成员用到的类型），少一个，那一层就会退回
+// "整块字节"或直接编不过。
+#include "ShaderLibrary.codegen.h"
+#include "VulkanShaderCode.codegen.h"
+#include "VulkanShaderFileInfo.codegen.h"
+#include "ProgramInfo.codegen.h"
+#include "VulkanShaderResourceBindingInfo.codegen.h"
+#include "VulkanDescriptorSetLayoutInfo.codegen.h"
+#include "VulkanDescriptorBinding.codegen.h"
+#include "VulkanCBufferBindingInfo.codegen.h"
+#include "VulkanImageBindingInfo.codegen.h"
+#include "VulkanBufferBindingInfo.codegen.h"
+#include "VulkanSamplerBindingInfo.codegen.h"
+#include "VulkanStructBindingInfo.codegen.h"
 // cahash::sha256_hash::result_type 是上面那两个映射的键：它的特化也得在这里可见。
-#include "result_type.Reflection.h"
-#include "result_type.Serialization.h"
-#include "result_type.Hash.h"
+#include "result_type.codegen.h"

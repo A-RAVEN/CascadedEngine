@@ -17,20 +17,14 @@
 #include <cstring>
 #include <string>
 
-#include "StencilStates.Serialization.h"
-#include "DepthStencilStates.Serialization.h"
-#include "RasterizerStates.Serialization.h"
-#include "SingleColorAttachmentBlendStates.Serialization.h"
-#include "ColorAttachmentsBlendStates.Serialization.h"
-#include "CPipelineStateObject.Serialization.h"
-// 哈希那一侧，本编译单元必须看到**每一个**成员类型的生成特化：只 include 顶层那一个，
-// 嵌套成员就会退回到"整块字节"那条路（填充一变哈希就变）。这一点由下面第一条读数钉住。
-#include "StencilStates.Hash.h"
-#include "DepthStencilStates.Hash.h"
-#include "RasterizerStates.Hash.h"
-#include "SingleColorAttachmentBlendStates.Hash.h"
-#include "ColorAttachmentsBlendStates.Hash.h"
-#include "CPipelineStateObject.Hash.h"
+#include "StencilStates.codegen.h"
+#include "DepthStencilStates.codegen.h"
+#include "RasterizerStates.codegen.h"
+#include "SingleColorAttachmentBlendStates.codegen.h"
+#include "ColorAttachmentsBlendStates.codegen.h"
+#include "CPipelineStateObject.codegen.h"
+// 一个类型一份产物里反射 / 序列化 / 哈希三节都在，所以"成员类型的特化"这件事只需要记一行：
+// 少 include 一个类型，嵌套成员就会退回到"整块字节"那条路（填充一变哈希就变）。这一点由下面第一条读数钉住。
 
 namespace
 {

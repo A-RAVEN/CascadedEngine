@@ -7,32 +7,34 @@
 #include <Compiler.h>     // 22 个类型的定义 + 它们的生成头（Compiler.h 逐个 include）
 #include <CodeGenMeta.h>  // TypeDescriptor
 
-// `Compiler.h` 只 include 了这些类型的 `.Serialization.h` / `.Hash.h`，**没有** include `.Reflection.h` ——
-// 所以描述符表要自己带进来，否则 `TypeDescriptor<T>` 落在主模板上（fieldCount 0），下面每一条都会红。
-#include "UniformElement.Reflection.h"
-#include "ShaderStructUniforms.Reflection.h"
-#include "BufferData.Reflection.h"
-#include "ShaderTextureData.Reflection.h"
-#include "SubStructReference.Reflection.h"
-#include "ShaderStructData.Reflection.h"
-#include "ShaderResourceBinding.Reflection.h"
-#include "ShaderBindingHierarchy.Reflection.h"
-#include "ShaderSpaceResourceStats.Reflection.h"
-#include "BindingDesc.Reflection.h"
-#include "BufferBindingDesc.Reflection.h"
-#include "ShaderSpaceInfo.Reflection.h"
-#include "ShaderBindingInfo.Reflection.h"
-#include "UniformGroup.Reflection.h"
-#include "UniformBufferData.Reflection.h"
-#include "ShaderResourceGroups.Reflection.h"
-#include "TextureData.Reflection.h"
-#include "SamplerData.Reflection.h"
-#include "ShaderBufferData.Reflection.h"
-#include "ShaderBindingSpaceData.Reflection.h"
-#include "ShaderVertexAttributeData.Reflection.h"
-#include "ShaderReflectionData.Reflection.h"
-#include "ShaderProgramData.Reflection.h"
-#include "ShaderCompileTargetResult.Reflection.h"
+// `Compiler.h` 现在 include 的是这 24 个类型各自的 `<类型>.codegen.h`（一次调用出的那一份，反射 /
+// 序列化 / 哈希三节都在里面），所以描述符表其实已经随它进来了；这里仍然逐个再 include 一遍，是为了让
+// 本文件的断言**不依赖** `Compiler.h` 那一串 include —— 那边少一个类型时，红要红在这条断言上，而不是
+// 变成"描述符悄悄落回主模板（fieldCount 0）"。
+#include "UniformElement.codegen.h"
+#include "ShaderStructUniforms.codegen.h"
+#include "BufferData.codegen.h"
+#include "ShaderTextureData.codegen.h"
+#include "SubStructReference.codegen.h"
+#include "ShaderStructData.codegen.h"
+#include "ShaderResourceBinding.codegen.h"
+#include "ShaderBindingHierarchy.codegen.h"
+#include "ShaderSpaceResourceStats.codegen.h"
+#include "BindingDesc.codegen.h"
+#include "BufferBindingDesc.codegen.h"
+#include "ShaderSpaceInfo.codegen.h"
+#include "ShaderBindingInfo.codegen.h"
+#include "UniformGroup.codegen.h"
+#include "UniformBufferData.codegen.h"
+#include "ShaderResourceGroups.codegen.h"
+#include "TextureData.codegen.h"
+#include "SamplerData.codegen.h"
+#include "ShaderBufferData.codegen.h"
+#include "ShaderBindingSpaceData.codegen.h"
+#include "ShaderVertexAttributeData.codegen.h"
+#include "ShaderReflectionData.codegen.h"
+#include "ShaderProgramData.codegen.h"
+#include "ShaderCompileTargetResult.codegen.h"
 
 namespace
 {

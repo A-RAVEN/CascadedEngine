@@ -12,9 +12,7 @@
 // --emit-reflection` → exit 5）。
 #include "TestPrivate.h"
 
-#include "FriendLike.Reflection.h"
-#include "FriendLike.Serialization.h"
-#include "FriendLike.Hash.h"
+#include "FriendLike.codegen.h"
 
 #include <CodeGenMeta.h>
 #include <CodeGenSerialization.h>

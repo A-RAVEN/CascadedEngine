@@ -873,6 +873,4 @@ namespace graphics_backend
 // `ViewRectData` 的生成物（归属目录 `Interface/RenderInterface`，产物在构建目录的 `codegen/Interface_RenderInterface/`）。
 // 消费方自己记一遍 —— `HashObj<T>` / `cacore::hash<T>` 在**实例化**时就要看到这些特化，看不到时
 // "平凡可拷贝"的宿主会退化成整块按字节（同一类型的两个不同实例在链接期合并，口径由链接器定）。
-#include "ViewRectData.Reflection.h"
-#include "ViewRectData.Serialization.h"
-#include "ViewRectData.Hash.h"
+#include "ViewRectData.codegen.h"

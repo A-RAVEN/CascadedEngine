@@ -7,12 +7,12 @@
 #include <cstdio>
 #include <cstring>
 #include "TestContainer.h"
-#include "Containers.Serialization.h"
-// 容器里装结构体（`vector<HasFloat>` 与 `vector<Inner>`）：元素的读写由它自己的生成代码接手
-// 所以这两个元素的生成头必须在这里可见。
-#include "HasFloat.Serialization.h"
-#include "Inner.Serialization.h"
-#include "Outer.Serialization.h"
+#include "Containers.codegen.h"
+// 容器里装结构体（`vector<HasFloat>` 与 `vector<Inner>`）：元素的读写由它自己的生成代码接手，
+// 所以这两个元素的生成物（各自一份 `<类型>.codegen.h`）必须在这里可见。
+#include "HasFloat.codegen.h"
+#include "Inner.codegen.h"
+#include "Outer.codegen.h"
 
 namespace
 {

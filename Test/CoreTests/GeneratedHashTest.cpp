@@ -17,20 +17,20 @@
 // 链接器合并弱符号之后整个二进制的该类型哈希会变成整块口径（实测：那条 `hash ignores padding` 判据由 1 掉成 0）。
 // 消费方要把这条链上用到生成物的类型自己 include 一遍 —— 与
 // `D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 末尾那段生成物 include 同一个道理。
-#include "CPipelineStateObject.Hash.h"
-#include "RasterizerStates.Hash.h"
-#include "DepthStencilStates.Hash.h"
-#include "StencilStates.Hash.h"
-#include "SingleColorAttachmentBlendStates.Hash.h"
-#include "ColorAttachmentsBlendStates.Hash.h"
-#include "ShaderInfo.Hash.h"
-#include "InputAssemblyStates.Hash.h"
+#include "CPipelineStateObject.codegen.h"
+#include "RasterizerStates.codegen.h"
+#include "DepthStencilStates.codegen.h"
+#include "StencilStates.codegen.h"
+#include "SingleColorAttachmentBlendStates.codegen.h"
+#include "ColorAttachmentsBlendStates.codegen.h"
+#include "ShaderInfo.codegen.h"
+#include "InputAssemblyStates.codegen.h"
 #include <cstdio>
 #include <cstring>
 #include <limits>
 #include <type_traits>
 #include "TestEmit.h"
-#include "EmitSample.Hash.h"
+#include "EmitSample.codegen.h"
 
 bool RunGeneratedHashTest()
 {

@@ -180,11 +180,10 @@ namespace graphics_backend
 	};
 }
 
-// 句柄键的生成物（反射 / 序列化 / 哈希）：消费方（本模块的 `Rendering` 与各后端）在实例化
-// `HashObj<ResourceHandleKeyData>` 与 `std::unordered_map<…, cacore::hash<…>>` 时就要看到它。
-#include "ResourceHandleKeyData.Reflection.h"
-#include "ResourceHandleKeyData.Serialization.h"
-#include "ResourceHandleKeyData.Hash.h"
+// 句柄键的生成物（一份 `ResourceHandleKeyData.codegen.h`：反射 / 序列化 / 哈希三节）：消费方
+// （本模块的 `Rendering` 与各后端）在实例化 `HashObj<ResourceHandleKeyData>` 与
+// `std::unordered_map<…, cacore::hash<…>>` 时就要看到它。
+#include "ResourceHandleKeyData.codegen.h"
 
 // 这两个句柄是**哈希键**（`std::unordered_map<BufferHandle, …>` 之类），而它们**不能进生成表**：
 // 两个类各有一个 `castl::shared_ptr` 成员，那是工具明令拒绝的形状（托管指针成员，退出码 15），

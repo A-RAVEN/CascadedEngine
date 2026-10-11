@@ -11,11 +11,9 @@
 #include <cstdio>
 #include <cstring>
 #include "TestContainer.h"
-#include "Containers.Serialization.h"
-#include "Containers.Hash.h"
+#include "Containers.codegen.h"
 // 容器里装结构体：元素的读写由它自己的生成代码接手，所以这里必须能看到它。
-#include "HasFloat.Serialization.h"
-#include "HasFloat.Hash.h"
+#include "HasFloat.codegen.h"
 
 namespace
 {

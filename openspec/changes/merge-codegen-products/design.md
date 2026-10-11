@@ -8,8 +8,10 @@
 在冷启动时解析得到）、跑一次 `--emit-all`、按工具打印的 `CodeGen wrote: ` 名单**逐个核对三份都写出来了**、
 把它们的存在性记进账本 `codegen.stamp.json`、失败的行的占位文件删掉。
 
-消费侧：**26 个源码文件、270 行** include（`Reflection` 80 / `Serialization` 89 / `Hash` 101）。
-按"文件 × 类型"配对算，合并后是 **138 行**。26 个文件里 12 个含三节、6 个含两节、8 个含一节。
+消费侧：**26 个源码文件、267 行** include（`Reflection` 79 / `Serialization` 88 / `Hash` 100）。
+按"文件 × 类型"配对算，合并后是 **137 行**。26 个文件里 12 个含三节、4 个含两节、1 个混合、9 个只含一节。
+（这一组是执行时实测的读数。成文时写的是 270 / 80 / 89 / 101、138 与"12-6-8"，那是施工中途取的数、
+收尾没重量，误差 3 行 / 1 行的根因与逐项读数见 `evidence/baseline-products.md` 的「1.3」一节。）
 
 **这件事已经出过一次事故**：漏 include 一份生成物 → 同一个类型的哈希在那个编译单元里走了另一条分支 →
 链接期合并后整个二进制的该类型哈希口径被换掉（`clear-codegen-parse-blockers` 的 design D10，含改前/改后读数
@@ -22,7 +24,7 @@
 - 一个类型在构建目录里只有**一份**生成物：`<类型名>.codegen.h`，含这次请求的节（反射 / 序列化 / 哈希）。
 - 每节正文与改造前**由同一段发射代码产出**（判据：用 `-o` 单节输出与改造前的同名产物逐字节比，76 × 3 = 228 次全同）。
 - 命令行的搭配关系与拒绝语义一个都不动（含 `--out-dir` 只与 `--emit-all` 搭配这条）。
-- 26 个消费文件的 include 从 270 行收到 138 行；源码树里旧后缀**零命中**；所有 preset 的构建目录里旧命名产物**零残留**。
+- 26 个消费文件的 include 从 267 行收到 137 行；源码树里旧后缀**零命中**；所有 preset 的构建目录里旧命名产物**零残留**。
 
 **Non-Goals:**
 
@@ -100,10 +102,13 @@ CodeGen: --out-dir only applies together with --emit-all; use -o <file> for a si
 
 ### D8 被本改动推翻的既有判据要同改
 
-`openspec/changes/clear-codegen-parse-blockers/evidence/probe_parse_gate.py` 里逐字写着
-`PRODUCTS_EXPECTED = 3`（第 36 行），绿态判据是"四个类型各写出 3 份产物"。合并成一份之后它必然报
+`openspec/changes/archive/2026-10-07-clear-codegen-parse-blockers/evidence/probe_parse_gate.py` 里逐字写着
+`PRODUCTS_EXPECTED = 3`，绿态判据是"四个类型各写出 3 份产物"。合并成一份之后它必然报
 `只写出 1 份产物（应为 3 份）`。这是**本改动造成的失效**，必须同改（改成一份，并把"产物份数"这条判据
 与"不出现 `no annotated types`"一起保留）。顺手把该文件的注释里"三份"字样改掉。
+另有一条**归档**造成的失效（不是本改动）：同一个文件里逐字写着 `REPO = Path(__file__).resolve().parents[4]`，
+那个层数是按归档前的位置（`openspec/changes/<change>/evidence/`）写的，归档之后落到 `openspec/` 而不是
+仓库根，跑之前要改回来。
 
 ### D9 回滚与工作区重叠（原稿那句会毁掉上一份成果）
 

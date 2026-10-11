@@ -12,8 +12,7 @@
 // 批用探针接管（`WriteBatchStub` / `ReadBatchStub`），不碰文件系统。
 #include "TestResource.h"
 
-#include "NewRes.Reflection.h"
-#include "NewRes.Serialization.h"
+#include "NewRes.codegen.h"
 
 #include <CodeGenSerialization.h>
 #include <cstdio>

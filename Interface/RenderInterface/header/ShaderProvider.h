@@ -35,7 +35,6 @@ struct IShaderSet
 	virtual castl::string GetUniqueName() const = 0;
 };
 
-// `ShaderInfo` 的生成物（哈希特化是给 `cacore::hash<ShaderInfo>` / `HashObj<ShaderInfo>` 用的）。
-#include "ShaderInfo.Reflection.h"
-#include "ShaderInfo.Serialization.h"
-#include "ShaderInfo.Hash.h"
+// `ShaderInfo` 的生成物（一份 `<类型>.codegen.h`：反射 / 序列化 / 哈希三节；哈希特化是给
+// `cacore::hash<ShaderInfo>` / `HashObj<ShaderInfo>` 用的）。
+#include "ShaderInfo.codegen.h"

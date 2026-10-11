@@ -4,10 +4,12 @@ CodeGen 现在**每个类型出三份头文件**（`<类型名>.Reflection.h` / 
 就是 **228 份产物、386,180 字节（377 KB）、7,497 行**，全部落在构建目录的 `codegen/<模块>/` 下。代价不是磁盘，
 是**每个使用点都要自己记住"该 include 哪几份"**：
 
-- 源码里 **26 个文件、270 行** include 在干这件事（`Reflection` 80 行、`Serialization` 89 行、`Hash` 101 行）；
-- 按"一个文件里一个类型一行"算，合并之后是 **138 行**（现在 270 行里有 132 行是同一个类型被拆成两三次写）；
-- 26 个文件里 **12 个含三种节、6 个含两种、8 个只含一种**（例如 `Interface/ShaderCompiler/header/Compiler.h`
+- 源码里 **26 个文件、267 行** include 在干这件事（`Reflection` 79 行、`Serialization` 88 行、`Hash` 100 行）；
+- 按"一个文件里一个类型一行"算，合并之后是 **137 行**（现在 267 行里有 130 行是同一个类型被拆成两三次写）；
+- 26 个文件里 **12 个含三种节、4 个含两种、1 个混合、9 个只含一种**（例如 `Interface/ShaderCompiler/header/Compiler.h`
   是"序列化 + 哈希"两节，`D3D12RenderBackend/private/GPUGraph/GPUPipelineInstance.cpp` 只要哈希一项）。
+  （这一组是执行时实测的读数。成文时写的是 270 / 80 / 89 / 101、138 与"12-6-8"，那是施工中途取的数、
+  收尾没重量，读数与误差根因见 `evidence/baseline-products.md`。）
 
 这个"记住 include 哪几份"的判断**已经出过一次事故**：`clear-codegen-parse-blockers` 那一轮里，一个编译单元
 漏 include 了一份生成物，于是同一个类型的哈希在它里面走了另一条分支，链接期合并之后**整个二进制的该类型
@@ -31,7 +33,7 @@ CodeGen 现在**每个类型出三份头文件**（`<类型名>.Reflection.h` / 
 - **旧命名的三份产物必须清掉，而且要覆盖所有 preset 的 codegen 目录**（`out/build/*/codegen/`）：只清新产物
   所在的目录，别的预设里留着的旧文件在下一次构建那个预设时仍会被 include 到 —— 那正是"改了新文件、编的却是
   旧文件"的假绿。
-- **消费点从 270 行收到 138 行**：26 个文件逐个改（12 个含三节的各删两行、6 个含两节的各删一行、8 个含一节的只改名字）。
+- **消费点从 267 行收到 137 行**：26 个文件逐个改（12 个三节文件里每个类型删两行、4 个两节文件加 1 个混合文件里每个类型删一行、9 个单节文件只改名字）。
 - **把被本改动推翻的既有判据一起改掉**：`clear-codegen-parse-blockers` 的
   `evidence/probe_parse_gate.py` 里逐字写着 `PRODUCTS_EXPECTED = 3`，合并成一份之后它的绿态判据永远红；
   它属于"本改动造成的失效"，必须同改。
@@ -80,17 +82,17 @@ change 增量**一起算进去 —— 它们随时会变成基线。
   用法文本、`--emit-all` 的报错文本。判定逻辑不动。
 - 构建脚本（1 个文件）：`build.py` —— `CODEGEN_PRODUCTS`、`outputs` 映射、占位文件、`absent` 核对、
   每份存在性检查、账本 `codegen.stamp.json` 的 `out` 映射、**所有 preset 的旧产物清理**。
-- 消费点（26 个文件，270 行 → 138 行）：12 个含三节（`CPipelineStateObject.h`、`CVertexInputDescriptor.h`、
+- 消费点（26 个文件，267 行 → 137 行）：12 个含三节（`CPipelineStateObject.h`、`CVertexInputDescriptor.h`、
   `GPUGraph.h`、`ShaderProvider.h`、`ShaderResourceHandle.h`、`TextureSampler.h`、两个 `ShaderLibrary.h`、
   `GPUPipelineInstance.h`、`CPipelineStateObjectAssertions.cpp`、`TestWrapperAssertions.cpp`、`FriendLikeTest.cpp`）、
-  6 个含两节（`Compiler.h`、`TestContainerAssertions.cpp`、`ShaderStructsCodeGenAssertions.cpp`、
-  `GeneratedHashContainerTest.cpp`、`PipelineStateObjectTest.cpp`、`ResourceBatchTest.cpp`）、
-  8 个含一节（两个 `*PipelineStates*`、`GPUBufferDescriptorReflection.cpp`、四个 `Test/CoreTests/*`、
-  `GeneratedSerializerTest.cpp`）。
-- 既有判据（1 个文件）：`openspec/changes/clear-codegen-parse-blockers/evidence/probe_parse_gate.py` 的
-  `PRODUCTS_EXPECTED = 3` 要改成一份。
+  4 个含两节加 1 个混合（`Compiler.h`、`GeneratedHashContainerTest.cpp`、`PipelineStateObjectTest.cpp`、
+  `ResourceBatchTest.cpp`；`TestContainerAssertions.cpp` 里三节类型与单节类型混着）、
+  9 个含一节（两个 `*PipelineStates*`、`GPUBufferDescriptorReflection.cpp`、`ShaderStructsCodeGenAssertions.cpp`、
+  四个 `Test/CoreTests/*`、`GeneratedSerializerTest.cpp`）。
+- 既有判据（1 个文件）：`openspec/changes/archive/2026-10-07-clear-codegen-parse-blockers/evidence/probe_parse_gate.py`
+  的 `PRODUCTS_EXPECTED = 3` 要改成一份（该 change 已归档、路径跟着变；脚本里写死的那层目录深度也要一起改回来）。
 - 文档（2 个文件）：`Tools/CodeGen/README.md`（必须）、`CLAUDE.md`（先核）。
-- 读数变化：产物件数 **228 → 76**；源码 include 行 **270 → 138**；
+- 读数变化：产物件数 **228 → 76**；源码 include 行 **267 → 137**；
   合并后这 26 个编译单元平均**每个多解析 9.3 KB**（合计 247,253 字节 —— 它们本来没解析的那几节，
   按产物实际字节算；相对运行时那 853 行头文件，这个量级可忽略）。
 - **执行前提（重要）**：本 change 要改的文件与 `clear-codegen-parse-blockers` **未提交的改动重叠**

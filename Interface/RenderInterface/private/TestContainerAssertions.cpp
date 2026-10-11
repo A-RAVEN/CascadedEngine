@@ -2,14 +2,11 @@
 // inside a real engine target (`Rendering`), not merely byte-compared against a committed copy. The
 // main spec requires exactly this: "generated code SHALL be #included by at least one compile unit of a
 // real engine target, with a compile-time assertion on the generated table".
-#include "TestContainer.h"        // codegen_containers::Containers (private/, same target)
-#include "Containers.Reflection.h" // generator output (generated/, on this target's include path)
-#include "Inner.Reflection.h"      // 容器里装结构体
-#include "Outer.Reflection.h"
-#include "Inner.Serialization.h"   // 元素自己的生成代码：递归读写的落脚点
-#include "Outer.Serialization.h"
-#include "FixedArrays.Reflection.h"
-#include "FixedArrays.Serialization.h"
+#include "TestContainer.h"          // codegen_containers::Containers (private/, same target)
+#include "Containers.codegen.h"     // generator output (build tree, on this target's include path)
+#include "Inner.codegen.h"          // 容器里装结构体；元素自己的生成代码（递归读写的落脚点）也在这一份里
+#include "Outer.codegen.h"
+#include "FixedArrays.codegen.h"
 #include <CodeGenMeta.h>          // cacore::codegen::TypeDescriptor + FieldFlags
 #include <CodeGenSerialization.h> // 新运行时自有的容器判据（不再引用旧运行时那份）
 
@@ -142,9 +139,9 @@ namespace
                   cacore::codegen::isUnorderedContainer<decltype(I{}.m)>::value,
                   "the runtime must agree that Inner::m is an unordered container");
     static_assert(cacore::codegen::hasGeneratedSerializer<O, std::vector<unsigned char>>::value,
-                  "Outer must have generated serialization (this file includes Outer.Serialization.h)");
+                  "Outer must have generated serialization (this file includes Outer.codegen.h)");
     static_assert(cacore::codegen::hasGeneratedSerializer<I, std::vector<unsigned char>>::value,
-                  "Inner must have generated serialization (this file includes Inner.Serialization.h)");
+                  "Inner must have generated serialization (this file includes Inner.codegen.h)");
 }
 
 // 定长数组（`castl::array` / C 数组）：在真实目标里**实例化**生成的读路径。

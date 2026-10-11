@@ -45,19 +45,13 @@ struct VertexInputsDescriptor
 	}
 };
 
-// 生成物：上面两个类型各自的反射 / 序列化 / 哈希特化。接在这里（类型定义之后）而不是让每个消费方自己
-// 记一遍 —— `HashObj<T>` 与 `std::unordered_map<…, cacore::hash<T>>` 在**实例化**时就要看到这些特化，
-// 少一个那一层就会退回"整块字节"或直接编不过（实测：D3D12 / Vulkan 的 GPUGraph 与 IMGUIContext 都在
-// 这一层断过）。本模块的生成物目录是 PUBLIC include，所以消费方拿得到这几份头。
-#include "VertexAttribute.Reflection.h"
-#include "VertexAttribute.Serialization.h"
-#include "VertexAttribute.Hash.h"
-#include "VertexInputsDescriptor.Reflection.h"
-#include "VertexInputsDescriptor.Serialization.h"
-#include "VertexInputsDescriptor.Hash.h"
-#include "InputAssemblyStates.Reflection.h"
-#include "InputAssemblyStates.Serialization.h"
-#include "InputAssemblyStates.Hash.h"
+// 生成物：上面两个类型各自的 `<类型>.codegen.h`（反射 / 序列化 / 哈希在一份里）。接在这里（类型定义
+// 之后）而不是让每个消费方自己记一遍 —— `HashObj<T>` 与 `std::unordered_map<…, cacore::hash<T>>` 在
+// **实例化**时就要看到这些特化，少一个那一层就会退回"整块字节"或直接编不过（实测：D3D12 / Vulkan 的
+// GPUGraph 与 IMGUIContext 都在这一层断过）。本模块的生成物目录是 PUBLIC include，所以消费方拿得到。
+#include "VertexAttribute.codegen.h"
+#include "VertexInputsDescriptor.codegen.h"
+#include "InputAssemblyStates.codegen.h"
 //
 //class CVertexInputDescriptor
 //{

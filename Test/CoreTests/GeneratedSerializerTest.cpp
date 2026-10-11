@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <cstring>
 #include "TestEmit.h"
-#include "EmitSample.Serialization.h"
+#include "EmitSample.codegen.h"
 
 bool RunGeneratedSerializationTest()
 {

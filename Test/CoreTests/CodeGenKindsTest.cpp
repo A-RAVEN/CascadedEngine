@@ -5,7 +5,7 @@
 // before the fix: the two keyword spellings were TypeKind::UInt while `uint32_t` / `uint64_t` were
 // TypeKind::Opaque. These assertions are what turned that into a build failure.
 #include "TestKinds.h"          // codegen_kinds::Kinds (Tools/CodeGen on this target's include path)
-#include "Kinds.Reflection.h"   // generator output (Tools/CodeGen/generated)
+#include "Kinds.codegen.h"      // generator output (构建目录的 codegen/Test_CoreTests/，不是仓库里的目录)
 
 namespace
 {

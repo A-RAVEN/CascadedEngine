@@ -177,27 +177,66 @@ def codegen_generated_dir(owner_root: str) -> Path:
     """这个归属目录的产物落点：**构建目录**里的 `codegen/<模块>/`（模块名 = 归属目录把 `/` 换成 `_`）。"""
     return BUILD_DIR / "codegen" / owner_root.replace("\\", "/").strip("/").replace("/", "_")
 
+
+# 合并成"一个类型一份产物"之前的三个文件名中段。它们要被清掉，而不是与新产物共存。
+CODEGEN_LEGACY_SUFFIXES = (".Reflection.h", ".Serialization.h", ".Hash.h")
+
+
+def cleanup_legacy_codegen_products() -> tuple[int, int, list[str]]:
+    """生成段开工前清掉旧命名的产物：`out/build/*/codegen/**/<类型名>.{Reflection,Serialization,Hash}.h`。
+
+    覆盖**所有预设**：只清当前预设的话，别的预设里留着的旧文件会在下一次构建那个预设时仍被 `#include`
+    到 —— 那正是"改了新文件、编的却是旧文件"的假绿。
+
+    为什么"先清再生成"是安全的（而 2026-10-10 那次教训说"不许先删产物"）：那次不许删的是**当时正被别的头
+    include 的产物**，删掉会让解析当场找不到文件（`--emit-all exit 6 … file not found`）；这里删的是旧命名，
+    源码树里已经没有它们的消费者（26 个消费点在同一次改动里全改成 `<类型名>.codegen.h`）。反过来，万一
+    漏改一个 `#include`，它会因为"文件不存在"**当场失败**，而不是静默吃上一轮的旧文件。
+
+    边界：只清旧命名的三份，**不做整目录 GC** —— 新文件名那边的孤儿产物（某个类型从清单里删掉之后留下的
+    `<类型名>.codegen.h`）不在这里处理，理由与后果写在 change 的 design D5。
+
+    返回 (删掉几份, 扫过几个预设的 codegen 目录, 删不掉的路径)。
+    """
+    removed = 0
+    presets = 0
+    leftovers: list[str] = []
+    build_root = PROJECT_DIR / "out" / "build"
+    if build_root.exists():
+        for codegen_dir in sorted(build_root.glob("*/codegen")):
+            presets += 1
+            for name in CODEGEN_LEGACY_SUFFIXES:
+                for stale in codegen_dir.rglob(f"*{name}"):
+                    try:
+                        stale.unlink()
+                        removed += 1
+                    except OSError:
+                        leftovers.append(str(stale))
+    return removed, presets, leftovers
+
 # 每个产物都在构建期生成，并**逐份确认工具真的写出了它**（`CodeGen wrote:` 名单）。从前只有反射发射器
 # 由 build.py 驱动，序列化与哈希两个发射器在构建期完全没跑过：改写它们却不重新生成入库副本，
 # GeneratedSerializerTest 与 GeneratedHashTest 照样过、构建照样绿 —— 三分之二的生成链当时没有任何构建期证据。
-# 这一列是产物的**文件名中段**：`<类型名>.Reflection.h`；顺序就是打印与比对的顺序。工具那边一次调用
-# 把三份全出（`--emit-all --out-dir`），所以这里不再有"发射标志"这一列。
-CODEGEN_PRODUCTS = ["Reflection", "Serialization", "Hash"]
+# 这一列是产物的**文件名中段**，现在只有一项 —— 一个类型一份 `<类型名>.codegen.h`（反射 / 序列化 / 哈希
+# 三节都在同一个文件里，工具那边一次 `--emit-all --out-dir` 调用写出它）。保留"名单"这个形状，是因为下面
+# 几处都是按名单逐份核对存在性、逐份算哈希；从前它是三个后缀（`.Reflection.h` / `.Serialization.h` /
+# `.Hash.h`），合并之后"这一行该写几份"这件事只剩一个答案。
+CODEGEN_PRODUCTS = ["codegen"]
 
 # 生成段的并发上限：每个 CodeGen.exe 实测常驻约 80 MB，8 个约 640 MB；再多就是跟编译抢内存与磁盘。
 # 实际取 min(条目数, 本值, 逻辑核数 / 4)，见 codegen() 第二遍。
 CODEGEN_MAX_WORKERS = 8
 
-# 生成器在三份产物模式下把它这一次**真正读过的文件**打成这样的行（见 CodeGenMain.cpp 的
-# InclusionCollector）。build.py 把这些文件逐个算哈希进账本 —— 只哈希清单里那一个头是不够的。
+# 生成器把它这一次**真正读过的文件**打成这样的行（见 CodeGenMain.cpp 的 InclusionCollector）。
+# build.py 把这些文件逐个算哈希进账本 —— 只哈希清单里那一个头是不够的。
 CODEGEN_DEPS_PREFIX = "CodeGen deps: "
 CODEGEN_WROTE_PREFIX = "CodeGen wrote: "
 
 # 冷启动占位。清单里有不少行的头会**直接 include 别的行的生成物**（`Interface/ShaderCompiler/header/
-# Compiler.h` 一个头就 include 了 48 份），而生成它自己又必须先解析那个头 —— 构建目录是空的时候这是个
-# 死循环。实测：把 `ShaderCompilerSlang` 的 72 份产物挪走再构建，**47 行**以退出码 6 失败（不是那一个
-# 模块的 24 行），因为失败会顺着 include 链扩散。
-# 处置：登记一行要跑的时候，先给它的三份产物放一个占位文件（只在"文件不存在或还是占位内容"时放），
+# Compiler.h` 一个头就 include 了 24 份），而生成它自己又必须先解析那个头 —— 构建目录是空的时候这是个
+# 死循环。实测（那是在"一个类型一份产物"之前测的，当时 ShaderCompilerSlang 名下有 72 份）：把它的产物
+# 挪走再构建，**47 行**以退出码 6 失败（不是那一个模块的 24 行），因为失败会顺着 include 链扩散。
+# 处置：登记一行要跑的时候，先给它那一份产物放一个占位文件（只在"文件不存在或还是占位内容"时放），
 # 让别的行的 `#include` 解析得到；真正的产物随后由工具用改名覆盖它。失败的行的占位文件会被删掉，
 # 免得空头留在包含路径上让编译阶段看到莫名其妙的东西。
 CODEGEN_PLACEHOLDER = "// CodeGen 占位文件：冷启动时先让 #include 找得到，成功的产物会覆盖它。\n"
@@ -558,6 +597,12 @@ def codegen(force: bool = False) -> list[str]:
         return [str(exc)]
     extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES] + list(CODEGEN_EXTRA_DEFINES)
     failures: list[str] = []
+    legacy_removed, legacy_presets, legacy_left = cleanup_legacy_codegen_products()
+    print(f"  codegen: 清掉旧命名的产物 {legacy_removed} 份（扫过 {legacy_presets} 个预设的 codegen 目录）",
+          flush=True)
+    if legacy_left:
+        failures.append("清不掉这些旧命名的产物（它们会让「所有预设里旧后缀 0 份」这条判据不成立）："
+                        + ", ".join(legacy_left))
 
     # 「输入没变就跳过」的账本。键是清单那一行（含限定名列），值是把这一行的**全部输入**与**现有产物**
     # 一起算成的指纹：工具二进制、被解析的头、**生成器真正读过的每个文件**、编译环境、包含目录的名字
@@ -665,15 +710,16 @@ def codegen(force: bool = False) -> list[str]:
         print(f"  codegen: 并发 {workers} 条（逻辑核 {cores}，上限 {CODEGEN_MAX_WORKERS}）", flush=True)
 
         def run_row_inner(entry: dict) -> list[str]:
-            """跑一条清单：起**一次** CodeGen.exe（`--emit-all`，一次解析出三份产物），逐份对拍。"""
+            """跑一条清单：起**一次** CodeGen.exe（`--emit-all`，一次解析出一份含三节的产物），再核对它。"""
             row_failures: list[str] = []
             type_name = entry["type_name"]
             # 进度行打在**开始**时并立刻刷盘：重定向到日志时要能看出是"在推进"还是"卡住了"（实测为此
             # 误判过一次）。序号取清单序号 —— 并发下开始顺序仍是清单顺序，所以日志里是递增的。
             print(f"  [{entry['index'] + 1}/{len(CODEGEN_ANNOTATED)}] {type_name}", flush=True)
             # **不先删上一轮的产物**：产物所在的那个目录本身就在解析的包含路径上（`Compiler.h` 直接
-            # `#include "UniformElement.Serialization.h"`），先删就会让这一行的解析当场找不到文件
-            # （实测：`--emit-all exit 6 … 'UniformElement.Serialization.h' file not found`）。
+            # `#include "UniformElement.codegen.h"`），先删就会让这一行的解析当场找不到文件
+            # （实测：`--emit-all exit 6 … 'UniformElement.Serialization.h' file not found` —— 那条读数
+            # 是在"一个类型一份产物"之前取的，当时那个头 include 的是旧的三个文件名）。
             # "工具退出码 0 却没写出产物"改用工具自己报的 `CodeGen wrote:` 名单来判断 —— 那比"先删掉
             # 再看有没有"更准，也不用动消费者读的那个目录。
             cmd = [str(sid), entry["rel_header"], type_name, *entry["env"], *extra,
@@ -689,8 +735,8 @@ def codegen(force: bool = False) -> list[str]:
             except FileNotFoundError:
                 return [f"codegen sidecar not found: {sid}"]
             if proc.returncode != 0:
-                # 一次调用覆盖三份产物，所以失败也只报一条：工具非零退出时它已经把这一行写出的产物
-                # 清掉了，三份一个都不会留下。
+                # 一次调用只写一份产物，所以失败也只报一条：工具非零退出时那一份还没提交
+                # （它先写 `.tmp`，全部写完才改名），磁盘上不会留下半成品。
                 if proc.returncode >= 0xC0000000:
                     # 这不是工具自己的退出码，是 Windows 的异常码（0xC0000135 = 找不到 DLL）。实测：
                     # 把 `out/build/<预设>/bin/libclang.dll` 挪走再强制全量生成，63 行全是这个码、

@@ -2,8 +2,8 @@
 
 用法（在仓库根执行）：
 
-    python openspec/changes/clear-codegen-parse-blockers/evidence/probe_parse_gate.py
-    python openspec/changes/clear-codegen-parse-blockers/evidence/probe_parse_gate.py --expect green
+    python openspec/changes/archive/2026-10-07-clear-codegen-parse-blockers/evidence/probe_parse_gate.py
+    python openspec/changes/archive/2026-10-07-clear-codegen-parse-blockers/evidence/probe_parse_gate.py --expect green
 
 它做三件事：
 
@@ -13,7 +13,8 @@
 3. 跑三个对照（两个已经在接入清单里的行、一个 D3D12 模块自己的头），证明"环境本身是好的"，
    被拒不是缺 include 那一类问题。
 
-**绿态判据不只看退出码**：`--expect green` 要求四个目标类型**退出码为 0 且各写出 3 份产物**，
+**绿态判据不只看退出码**：`--expect green` 要求四个目标类型**退出码为 0 且各写出一份产物**
+（`merge-codegen-products` 之后一个类型只有一份 `<类型名>.codegen.h`；在那之前是三份），
 并且 stderr 里不出现 `no annotated types` —— 工具在"这个头里一条标注都没有"时也会 exit 0 且一份产物都不写，
 只看退出码会把"标注丢了"判成通过。
 
@@ -31,9 +32,12 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-REPO = Path(__file__).resolve().parents[4]
+# 归档把这个文件往下挪了一层（`openspec/changes/archive/<日期>-<change>/evidence/`），所以仓库根是
+# parents[5]；归档之前它在 `openspec/changes/<change>/evidence/` 下，那时是 parents[4]。
+REPO = Path(__file__).resolve().parents[5]
 CONFIG_DIR = "x64-debug"
-PRODUCTS_EXPECTED = 3
+# 一个类型一份产物（`<类型名>.codegen.h`，反射 / 序列化 / 哈希三节）。合并之前这里是 3：三份产物。
+PRODUCTS_EXPECTED = 1
 
 # (归属模块, 头文件（仓库相对路径）, 类型名)
 TARGETS = [
@@ -47,7 +51,7 @@ TARGETS = [
      "InputElementDesc"),
 ]
 
-# 对照：预期"解析干净"的头。注意它们不产出 3 份产物（要么出 3 份、要么是空名单），所以单独一组判定。
+# 对照：预期"解析干净"的头。注意它们不产出这一份产物（要么出一份、要么是空名单），所以单独一组判定。
 CONTROLS = [
     ("Interface/RenderInterface", "Interface/RenderInterface/header/ShaderResourceHandle.h",
      "ResourceHandleKeyData"),
@@ -97,7 +101,7 @@ def green_problem(result):
 def main():
     parser = argparse.ArgumentParser(description="解析门探针")
     parser.add_argument("--expect", choices=["red", "green"], default="red",
-                        help="red = 期望四个目标类型被拒（动工之前）；green = 期望四个都 exit 0 且各出 3 份产物（修完之后）")
+                        help="red = 期望四个目标类型被拒（动工之前）；green = 期望四个都 exit 0 且各出一份产物（修完之后）")
     args = parser.parse_args()
 
     spec = importlib.util.spec_from_file_location("build_script", REPO / "build.py")
