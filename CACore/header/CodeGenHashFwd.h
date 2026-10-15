@@ -7,6 +7,7 @@
 // 定义与容器规则在 CodeGenHash.h，宿主类型自己的特化写在类型旁边。
 
 #include "CodeGenTraits.h"
+#include <type_traits>
 
 namespace cacore::codegen
 {
@@ -21,3 +22,28 @@ namespace cacore::codegen
         custom_hash_trait<T>::hash(t, h);
     };
 }
+
+// 「这个类型按整块字节算哈希」的**显式声明**。写一行就够：自家类型写在类型自己的头里，第三方类型写在模块的
+// Includes 头里（范例：`D3D12RenderBackend/private/D3D12Includes.h`、`VulkanRenderBackendNew/private/Utils/
+// VulkanIncludes.h` 里那两处）。
+//
+// ⚠ 写在**全局作用域**（某个 namespace 之外）：宏体里要开 `namespace cacore::codegen { … }`，写在别人的
+// namespace 里会把它嵌进去，特化就落错地方了。
+//
+// ⚠ 只有"没有填充字节、也没有多种表示的成员"才成立：含 `float` / `double` 的类型会被下面那条断言挡住
+// （`-0.0` 与 `+0.0` 字节不同、NaN 有多种表示，而字段级那条路会把它们归一）—— 那种类型应该进接入清单。
+#define CA_HASH_BY_BYTES(Type)                                                                        \
+    static_assert(::std::has_unique_object_representations_v<Type>,                                    \
+                  "CA_HASH_BY_BYTES: 这个类型有填充字节或有多种表示的成员（例如 float / double），"    \
+                  "按整块字节算哈希会把这些字节也算进去；请改用 CA_REFLECT 生成字段级特化");           \
+    namespace cacore::codegen                                                                          \
+    {                                                                                                  \
+        template<>                                                                                     \
+        struct custom_hash_trait<Type>                                                                 \
+        {                                                                                              \
+            static void hash(Type const& obj, auto& hasher)                                            \
+            {                                                                                          \
+                hasher.hash_raw(&obj, sizeof(Type));                                                   \
+            }                                                                                          \
+        };                                                                                             \
+    }

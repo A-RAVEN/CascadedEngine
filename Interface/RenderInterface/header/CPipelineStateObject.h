@@ -145,6 +145,19 @@ public:
 	auto operator<=>(const CPipelineStateObject&) const = default;
 };
 
-// `RectSate` 的生成物（哈希特化给 `HashObj<RectSate>` 用；上面那五个类型的生成物由消费方自己 include，
-// 见 `Interface/RenderInterface/private/CPipelineStateObjectAssertions.cpp` 与 `PipelineStateObjectTest.cpp`）。
+// 这七个类型的生成物都在这里 include —— **包括 `CPipelineStateObject` 自己的**。
+//
+// ⚠ 原来这里只 include `RectSate` 一份，其余"交给消费方自己 include"，那是错的：只要别处用到
+// `cacore::HashObj<CPipelineStateObject>`（例如 `Interface/RenderInterface/header/GPUGraph.h` 里的
+// `PipelineDescData::m_PipelineStates`），生成代码就会顺着成员一路哈希下去，
+// `CGHashContainerValue(h, obj.depthStencilStates)` 会要 `DepthStencilStates` 的特化 ——
+// 而那个特化只有"消费方恰好 include 了它"才在。实测（`require-explicit-hash-source` 的探针）：
+// 关掉运行时的隐式兜底后，**37 个编译单元**因此编不过，其中 **32 个**缺的正是这几个成员类型的特化；
+// 而这 37 个在改之前**编得过**，靠的是"平凡可拷贝就悄悄按整块字节"那条兜底。
 #include "RectSate.codegen.h"
+#include "CPipelineStateObject.codegen.h"
+#include "DepthStencilStates.codegen.h"
+#include "RasterizerStates.codegen.h"
+#include "StencilStates.codegen.h"
+#include "SingleColorAttachmentBlendStates.codegen.h"
+#include "ColorAttachmentsBlendStates.codegen.h"

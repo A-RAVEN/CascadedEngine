@@ -82,6 +82,17 @@
 
 三份清单、逐条命令与真实输出都贴进 change 的证据文件；清单是"这次要加几行声明"的唯一来源。
 
+**探针已跑（2026-10-11，读数在 `evidence/hash-source-inventory.md`）**，结果与写这份设计时的预期不同，写在这里备查：
+
+| 类别 | 实测 | 处置 |
+|---|---|---|
+| ① 待"按字节"声明 | `graphics_backend::GPUTextureView`（3 个站点） | 按 3.1 补声明 |
+| ② 特化存在却看不见 | `PipelineLayoutCache` / `VertexInputStatesCache` / `DescriptorSetLayoutCache`（各 1 个站点） | 它们的特化写在 `VulkanRenderBackendNew/private/PipelineStates/` 下、使用点看不见 → 按 3.2 补可见性 |
+| ③ 已在接入清单里却退化 | `DepthStencilStates`（**32 个站点 / 37 个编译单元**） | 根因是 `CPipelineStateObject.h` 只 include 了 `RectSate.codegen.h`、其余"交给消费方"；补上五个成员类型的产物后 **37 → 6** → 按 3.3 办 |
+
+两条给后续任务的教训（都留在证据文件里）：**认类型必须看实例化链的最内层**（第一帧会误判成 `CPipelineStateObject`）；
+**"补 include 的位置"这条本次没有得到结论**（两种放法在原样状态下读数相同），不许当结论写进实现。
+
 ### D7 盘点脚本（辅助判据，不是主保证）
 
 `Tools/CodeGen/` 下加一支脚本，扫出引擎里当键用的类型并逐个输出算法来源（生成物 / 手写声明 / 内置档 / **无**），无来源时非零退出；形状照 `Tools/CodeGen/check_legacy_symbols.py`，并配一节对外文档（用法、退出码、示例与真实输出）。

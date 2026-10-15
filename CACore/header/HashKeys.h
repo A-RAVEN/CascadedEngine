@@ -550,20 +550,13 @@ namespace cacore
         using result_type = hashAlg::result_type;
         constexpr result_type operator()(const T& obj) const noexcept
         {
-            if constexpr (has_std_hash<T> && std::is_same_v<result_type, size_t>)
-            {
-                //使用标准哈希函数
-                return std::hash<T>{}(obj);
-            }
-            else
-            {
-                // 驱动换成新运行时的哈希对象：旧驱动（`aggregateHasher`）随旧头一起退场，而
-                // `hash` / `hashable` / 三个键类型是要保留、要搬进新头的，不能反过来依赖待删的头。
-                // 两者对同一个宿主算出的值相同 —— 两条路的第一个分支都是"生成物给的特化"。
-                codegen::hasher<hashAlg> hasher;
-                hasher.hash(obj);
-                return static_cast<result_type>(hasher.alg);
-            }
+            // 分派只有一条链：新运行时的哈希对象。**不再**有"结果类型是 size_t 就优先 std::hash"那一支 ——
+            // 那会让同一个类型在两个入口（这里与 `hasher::hash<T>`）走不同来源，而 `std::hash` 只给哈希、
+            // 不给相等：两个来源分家就会出现"相等说一样、哈希说不一样"。要么有生成 / 手写特化，要么有
+            // 显式的按字节声明（`CA_HASH_BY_BYTES`），要么编译不过。
+            codegen::hasher<hashAlg> hasher;
+            hasher.hash(obj);
+            return static_cast<result_type>(hasher.alg);
         }
     };
 

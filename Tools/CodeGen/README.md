@@ -852,3 +852,88 @@ MSVC 自己会折叠那个模式，clang 不会 —— 于是生成物里的 `st
 "链上干净"的判据**不是**工具退出码为 0：include 链里的错误单独不触发拒收，而且在门没被触发时一条都不打印。
 可复核的做法是自己给工具传 `-ferror-limit=1`（链上任何一条错误都会升级成致命诊断，原文就会被打印出来），
 要求**一条错误级诊断都没有**；把错误数从 20 压到 19 也能让那句致命消失，但链上还是脏的。
+
+## 十、哈希键的来源盘点：`check_hash_sources.py`
+
+### 它做什么 / 不做什么
+
+**做**：扫出引擎里"当哈希键用"的类型，逐个打印它的**算法来源**；有来源不明的就非零退出并逐个点名。
+这是 `require-explicit-hash-source` 那次改动的配套检查 —— 那次把运行时里"平凡可拷贝就悄悄按整块字节"
+这条隐式兜底删掉了，从那以后每个会被求哈希的类型都必须有一个**显式**来源：
+
+| 来源 | 是什么 |
+|---|---|
+| 生成物 | 类型名在 `build.py` 的接入清单 `CODEGEN_ANNOTATED` 里（构建期由 CodeGen 出字段级特化） |
+| 手写声明 | 源码里看得见 `custom_hash_trait<该类型>` 或 `CA_HASH_BY_BYTES(该类型)` |
+| 内置档 | 标量 / 枚举、指针与句柄、容器、包装类型，或该名字在某个模块的 `*Includes.h` 里出现过（第三方类型在那里声明） |
+| 无 | **来源不明** —— 这正是要抓的 |
+
+**不做**（边界，必须一起看）：
+
+- 它是**按写法扫**的：只认 `HashObj<X>` / `cacore::hash<X>` / `cacore::hash_256<X>` / `unordered_map<X,` /
+  `unordered_set<X,` / `shared_dic<X,` / `HashDictionary<X,` 这几种拼写。**扫不到**：容器元素位置上的类型
+  （`castl::vector<X>`）、手写特化体内部 `hasher.hash(obj.member)` 里的成员类型、别名与宏包一层的写法、
+  以及"写了但拼错"的名字。
+- 它**不编译**，所以也判不出"这个类型到底会不会被实例化"。真正的保证来自编译器：漏了来源的类型会在
+  **用到它的那个编译单元**里当场静态断言失败（错误信息里点名类型与三条出路）。
+- 注释里的写法不算数（行尾 `//` 之后整段忽略）：**例外清单**要能被"把某一行注释掉"验证成红色。
+
+### 参数
+
+| 参数 | 作用 |
+|---|---|
+| 无 | 只打印汇总与来源不明的那些（CI 用的就是这一档） |
+| `--list-all` | 把每个键类型与它的来源都列出来（排查用） |
+
+### 退出码
+
+| 码 | 含义 |
+|---|---|
+| 0 | 每个键类型都有来源（例外清单里的条目会**逐条打印**出来） |
+| 1 | 有来源不明的键类型：逐个打印类型名与它出现在哪个文件 |
+| 2 | 判据自身失效：找不到 `build.py` 里的接入清单，或一个源码文件都扫不到 |
+
+### 例外清单 `hash_source_exceptions.txt`
+
+一行一个 `类型名  # 理由`。**往这里加一行等于当众宣布"这个类型今天仍然没有来源"**，所以每条都要写清
+为什么、谁来收尾；每次运行都会把它逐条打印出来。当前只有一条（`PipelineStateDesc`：它唯一的用户
+`PipelineStatesDic` 是死代码，补它要连带三个没有特化、也没有清单行的类型）。
+
+### 直接复制运行的示例（本机实跑，输出逐字照抄）
+
+```
+> python Tools/CodeGen/check_hash_sources.py
+扫描 270 个文件、命中 0 个来源不明的键类型
+例外 1 个（hash_source_exceptions.txt，逐条列出）：
+  PipelineStateDesc：例外：唯一的用户 PipelineStatesDic 是死代码；补它要连带 ShaderStateDescriptor / CRenderPassInfo / D3DVertexBindingSlot，另立改动（出现在 D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h）
+清单 74 个类型；键类型共 35 个
+> echo %ERRORLEVEL%
+0
+```
+
+`--list-all` 的表长这样（前几行）：
+
+```
+> python Tools/CodeGen/check_hash_sources.py --list-all
+扫描 270 个文件、命中 0 个来源不明的键类型
+  手写声明     BufferHandle                                 6 处
+  生成物      CPipelineStateObject                         4 处
+  手写声明     ComPtr                                       1 处
+  内置档      ResourceHandleKey                            1 处
+```
+
+把某个声明注释掉（例如 `Interface/RenderInterface/header/GPUTexture.h` 里那份
+`custom_hash_trait<::graphics_backend::GPUTextureView>`）之后，它立刻变红 —— 这条自检是
+**本 change 的判据之一**，实测输出：
+
+```
+> python Tools/CodeGen/check_hash_sources.py
+扫描 270 个文件、命中 1 个来源不明的键类型
+  来源不明: GPUTextureView（出现在 D3D12RenderBackend/private/ResourceManagment/GPUResourceStates.h, VulkanRenderBackendNew/private/VulkanObjects/VulkanTexture.h）
+例外 1 个（hash_source_exceptions.txt，逐条列出）：
+  PipelineStateDesc：…
+清单 74 个类型；键类型共 35 个
+> echo %ERRORLEVEL%
+1
+```
+

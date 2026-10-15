@@ -338,6 +338,32 @@ bool RunGeneratedHashTest()
         }
     }
 
+    // 两个入口必须走同一条链、对同一个对象算出同一个值（`require-explicit-hash-source` D5）：
+    // `cacore::hash<T>`（键的老入口）与 `cacore::codegen::hasher<>`（新运行时的哈希对象）。
+    // 以前 `cacore::hash<T>` 在"结果类型是 size_t 且有 std::hash 可用"时优先 `std::hash`，两条链顺序不同；
+    // 现在只有一条链。藏掉任一类型的生成物会让**两个入口一起**编译失败 —— 那条构建期读数是"一起失败"的
+    // 直接证据（`CodeGenHash.h` 里那句静态断言），见 change 的 evidence。
+    {
+        auto twoEntriesAgree = [](const char* name, auto const& host)
+        {
+            cacore::codegen::hasher<> h;
+            h.hash(host);
+            const auto viaHasher = (unsigned long long)h.getHash();
+            const auto viaKeyEntry = (unsigned long long)cacore::hash<std::remove_cvref_t<decltype(host)>>{}(host);
+            std::printf("CodeGen two entries %-20s = %llu / %llu\n", name, viaHasher, viaKeyEntry);
+            return viaHasher == viaKeyEntry;
+        };
+        if (!twoEntriesAgree("NameHash", cacore::NameHash("codegen-probe"))
+            || !twoEntriesAgree("PathHash", cacore::PathHash("dir/codegen-probe.txt"))
+            || !twoEntriesAgree("HashObj<int>", cacore::HashObj<int>(7))
+            || !twoEntriesAgree("EmitSample", EmitSample{ 1, 2.0f, false, 3.0 })
+            || !twoEntriesAgree("CPipelineStateObject", CPipelineStateObject{}))
+        {
+            std::puts("Generated hash two-entry check FAILED");
+            return false;
+        }
+    }
+
     std::puts("CodeGen hash/equality test PASSED");
     return true;
 }

@@ -1,0 +1,13 @@
+# 来源不明的键类型：例外清单
+#
+# 一行一个：`类型名  # 理由（谁收尾）`。只有"本仓库定义、却没有任何显式来源"的键类型才写在这里；
+# 每次跑 `python Tools/CodeGen/check_hash_sources.py` 都会把这里的条目**逐条打印出来**，
+# 所以往这里加一行等于当众宣布"这个类型今天仍然没有来源"。
+#
+#   D3DVertexBindingData / D3DVertexBindingSlot / PipelineStateDesc（D3D12 的管线状态键链）
+#   / ShaderStateDescriptor / CRenderPassInfo  这一整条链都没有特化、也没在接入清单里。
+#   实测：这条链唯一的用户是 `D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h` 末尾那个
+#   `using PipelineStatesDic = HashDictionary<PipelineStateDesc, PipelineStates>;`，而它**从来没有被实例化**
+#   （全仓零调用点）。也就是说今天不会静默算错，只在有人真用那个字典时当场编不过。
+#   补它要把整条链的特化都写完（含 CRenderPassInfo 的成员），属于另一次改动；本 change 只把它**翻出来**。
+PipelineStateDesc  # 例外：唯一的用户 PipelineStatesDic 是死代码；补它要连带 ShaderStateDescriptor / CRenderPassInfo / D3DVertexBindingSlot，另立改动

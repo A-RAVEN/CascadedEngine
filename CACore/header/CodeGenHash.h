@@ -142,12 +142,7 @@ namespace cacore::codegen
             {
                 custom_hash_trait<objType>::hash(object, *this);
             }
-            // 2. 标量与平凡可拷贝的类型：直接按字节。
-            else if constexpr (std::is_trivially_copyable_v<objType>)
-            {
-                hash_raw(&object, sizeof(objType));
-            }
-            // 3. 句柄：按它持有的指针地址算。
+            // 2. 句柄：按它持有的指针地址算。
             else if constexpr (pointer_traits<objType>::is_pointer_handle)
             {
                 const std::uint64_t address = reinterpret_cast<std::uint64_t>(pointer_traits<objType>::get_pointer(object));
@@ -162,26 +157,27 @@ namespace cacore::codegen
             {
                 hash_raw(&object, sizeof(objType));
             }
-            // 4. 容器：先排规范顺序。
+            // 3. 容器：先排规范顺序。
             else if constexpr (isContainer<objType>::value)
             {
                 cgHashContainer(*this, object);
             }
-            // 5. 包装类型：算它包着的东西。
+            // 4. 包装类型：算它包着的东西。
             else if constexpr (wrapper_traits<objType>::is_wrapper)
             {
                 hash(wrapper_traits<objType>::get_data(object));
             }
-            else if constexpr (has_std_hash<objType>)
-            {
-                const auto standardHash = castl::hash<objType>{}(object);
-                hash_raw(&standardHash, sizeof(standardHash));
-            }
             else
             {
+                // 走到这里说明这个类型**没有可用的来源**：没有生成/手写特化、不是容器 / 包装 / 标量 / 指针，
+                // 也没有按字节的显式声明。以前这里会"平凡可拷贝就悄悄按整块字节"，于是"某个编译单元看不见特化"
+                // 与"这个类型本来就该按字节"长得一模一样，链接期合并弱符号之后整个二进制的口径被换掉而没有
+                // 任何诊断。现在必须是编译错误，而且要说清三条出路。
                 static_assert(sizeof(objType) == 0,
-                              "这个类型没有生成代码、没有自定义哈希特化、也不是容器 / 包装 / 标量。"
-                              "给它加 CA_REFLECT 标记并生成哈希特化，或者给它写一个 custom_hash_trait 特化。");
+                              "这个类型没有可用的哈希来源：没有生成代码、没有手写的 custom_hash_trait 特化，"
+                              "也不是容器 / 包装 / 标量 / 指针。三条出路：① 给它加 CA_REFLECT 标记并生成字段级特化；"
+                              "② 给它写一个 custom_hash_trait 特化；③ 它确实该按整块字节算（没有填充字节、"
+                              "也没有 float/double 成员）时，用 CA_HASH_BY_BYTES(类型) 显式声明它。");
             }
         }
     };

@@ -153,3 +153,29 @@ namespace graphics_backend
 		virtual castl::string const& GetName() const = 0;
 	};
 }
+
+// `graphics_backend::GPUTextureView` 与它的 `GPUTextureSwizzle` 都是哈希键（`castl::unordered_map<GPUTextureView, …>`）。
+//
+// `GPUTextureSwizzle`：四个 `EColorChannel`，没有填充字节 → 按整块字节算是对的（下面那条断言就是读数）。
+CA_HASH_BY_BYTES(::graphics_backend::GPUTextureSwizzle)
+
+// `GPUTextureView` **不能**按整块字节算：读数是 `std::has_unique_object_representations_v` 为**假**
+// （`ETextureAspect` 与后面的 `uint32_t` 之间有填充字节）—— 实测把它写成 `CA_HASH_BY_BYTES` 时，
+// 宏里那条断言当场把构建挡住。而它的 `operator<=>` 是按成员比的，按字节算会让"成员相等、填充不同"的
+// 两个 view 落到不同的桶里。所以按声明顺序逐字段手写特化（这是本 change 说的第 ② 条出路）。
+namespace cacore::codegen
+{
+	template<>
+	struct custom_hash_trait<::graphics_backend::GPUTextureView>
+	{
+		static void hash(::graphics_backend::GPUTextureView const& obj, auto& hasher)
+		{
+			hasher.hash(obj.aspect);
+			hasher.hash(obj.baseMip);
+			hasher.hash(obj.mipCount);
+			hasher.hash(obj.baseLayer);
+			hasher.hash(obj.layerCount);
+			hasher.hash(obj.swizzle);
+		}
+	};
+}
