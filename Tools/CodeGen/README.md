@@ -463,7 +463,7 @@ struct TypeDescriptor<game::Inventory>
 选择发射器的能力：每条清单条目固定跑一次 `--emit-all`（三节一起、写一份产物），任一次非零退出即整体构建失败，所以只能出反射的类型
 不能进清单。
 
-## 五、调用示例（每条都在本机实跑过，输出逐字照抄）
+## 六、调用示例（每条都在本机实跑过，输出逐字照抄）
 
 ### 1. 打印字段表（不带发射标志）
 
@@ -620,7 +620,7 @@ CodeGen wrote: .review_tmp/readme/emit-all/EmitSample.codegen.h
 四种用法错误各自拒绝（退出码即上表）：`--emit-all` 没配 `--out-dir` → **2**；`--out-dir` 没配 `--emit-all`
 → **2**；`--emit-all` 与某个具体发射标志同时给 → **10**；一次给两个具体发射标志 → **10**（见示例 6）。
 
-## 六、构建期怎么用它
+## 七、构建期怎么用它
 
 `build.py` 的 `codegen()` 步骤（排在所有编译之前）：先构建 `CodeGen` 目标，再按**接入清单**逐条生成，
 逐条核对工具报出的产物名单，任一不一致或工具非零退出即**构建失败**。产物落在构建目录
@@ -748,7 +748,7 @@ CODEGEN_ANNOTATED = [
 libclang 的位置由 CMake 变量 `CALIB_CLANG_DIR` 给出（默认指向 vendored LLVM）；该目录下没有
 `bin/x64/libclang.dll` 时 CodeGen 目标不会构建。
 
-## 七、验证与证据在哪儿
+## 八、验证与证据在哪儿
 
 - **本文档的示例本身是可核的**：`python Tools/CodeGen/verify_readme.py` 会逐条读出上面那些命令、原样跑一遍，
   并把它与文档里标注的退出码对比（0 处不符即通过）。改了工具行为就顺手跑它，别让文档烂掉。
@@ -762,7 +762,7 @@ libclang 的位置由 CMake 变量 `CALIB_CLANG_DIR` 给出（默认指向 vendo
   `regen_annotation_matrix.py` 生成 `r35-matrix.txt`（"不是代码的写法" × 三条通道的矩阵）。
 - 证据里的输入路径必须能在仓库里找到，由 `python Tools/spin_check.py evidence` 强制。
 
-## 八、收尾扫描：旧序列化 / 哈希设施的符号与指纹
+## 九、收尾扫描：旧序列化 / 哈希设施的符号与指纹
 
 `Tools/CodeGen/check_legacy_symbols.py` 是**给"删旧设施"这类收尾用的**扫描器：它回答"旧设施在产物里是不是
 真的没了"。三条判据一次跑完，也可以分开跑：
@@ -822,7 +822,7 @@ $ echo $?
 > 的方法，随接口一起留着），否则判据永远清不到 0。要放就放旧实现独有的东西 —— 旧序列化器那句
 > `Submit Count:` 调试打印就是这样一条：全仓只有它的 `finalize()` 里有。
 
-## 九、解析期垫片与解析环境里的两个额外开关
+## 十、解析期垫片与解析环境里的两个额外开关
 
 工具解析引擎头时，`build.py` 会在模块自己的编译环境之外再喂两样东西：额外 include 根
 （`CODEGEN_EXTRA_INCLUDES`）与额外宏（`CODEGEN_EXTRA_DEFINES`）。**两者都只作用于解析**，
@@ -853,7 +853,7 @@ MSVC 自己会折叠那个模式，clang 不会 —— 于是生成物里的 `st
 可复核的做法是自己给工具传 `-ferror-limit=1`（链上任何一条错误都会升级成致命诊断，原文就会被打印出来），
 要求**一条错误级诊断都没有**；把错误数从 20 压到 19 也能让那句致命消失，但链上还是脏的。
 
-## 十、哈希键的来源盘点：`check_hash_sources.py`
+## 十一、哈希键的来源盘点：`check_hash_sources.py`
 
 ### 它做什么 / 不做什么
 
@@ -936,4 +936,35 @@ MSVC 自己会折叠那个模式，clang 不会 —— 于是生成物里的 `st
 > echo %ERRORLEVEL%
 1
 ```
+
+## 十二、单节发射开关与旧符号守卫：为什么留着（**不许当旧账删**）
+
+旧反射 / 序列化 / 哈希设施已经退场（`Reflection.h` / `Serialization.h` / `Hasher.h` 三个路径都不存在，
+`CA_REFLECTION` / `CATypeDescriptor` 在源码树里 0 处）。收拾那段过渡期时，下面两样**看着像旧账、其实不是**，
+它们各有职责 —— 删掉会让某条判据当场失效：
+
+**① 单节发射开关**：`--emit-reflection` / `--emit-serialization` / `--emit-hash` 与 `-o <文件>`。
+
+- 它承载的判据：`openspec/specs/codegen-framework/spec.md` 里那条「一个类型一次调用出一份产物（三节）」
+  要求三节由**同一段发射代码**产出，判据就是"`-o` 的单节输出与改造前那三份同名产物逐字节相同
+  （76 个类型 × 3 节 = 228 次）"。
+- 删了会怎样：这条"合并没有改内容"的判据没有执行装置了 —— 剩下只能比对合并后那一份文件的整体字节，
+  分不清"哪一节变了"。
+- 现状：`build.py` 走的是 `--emit-all --out-dir`（一次解析出一份 `<类型名>.codegen.h`），单节开关只在
+  复核与文档示例里用；第二节与第六节里的示例就是它。
+
+**② 旧符号守卫**：`Tools/CodeGen/check_legacy_symbols.py`。
+
+- 它做什么：对**生成物**（构建目录 `out/build/<预设>/codegen/`）与**引擎源码**逐符号扫描
+  `cacore::serializer` / `cacore::deserializer` / `batch_deserializer` / `aggregateHasher` /
+  `custom_hash_trait` / `has_custom_hash_func` / `careflection::containerStates` /
+  `managed_wrapper_traits` / `CATypeDescriptor` / `CA_REFLECTION`，命中必须 **0 行**；另有一套旧实现指纹。
+- 三个退出码：**0** = 每条判据都为 0（正常）；**1** = 有命中且没被白名单放行（红）；**2** = 用法错或
+  找不到仓库根（判据自身失效，不当成通过）。
+- 删了会怎样：旧设施"回流"没有任何东西拦着 —— 谁再把 `custom_hash_trait` 或 `CA_REFLECTION` 写回源码树，
+  构建照样绿。
+
+**自查**：这两样都不是"迁移期的临时装置"（那种是 `build.py` 里按后缀清旧产物的那段，它已经在
+`retire-transitional-leftovers` 里删掉了，因为源码树与构建目录里都没有旧命名产物可清）。判断标准是
+**"删掉它，有没有一条判据会失去执行装置"** —— 有就留着，没有才是旧账。
 

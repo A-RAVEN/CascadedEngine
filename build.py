@@ -178,42 +178,6 @@ def codegen_generated_dir(owner_root: str) -> Path:
     return BUILD_DIR / "codegen" / owner_root.replace("\\", "/").strip("/").replace("/", "_")
 
 
-# 合并成"一个类型一份产物"之前的三个文件名中段。它们要被清掉，而不是与新产物共存。
-CODEGEN_LEGACY_SUFFIXES = (".Reflection.h", ".Serialization.h", ".Hash.h")
-
-
-def cleanup_legacy_codegen_products() -> tuple[int, int, list[str]]:
-    """生成段开工前清掉旧命名的产物：`out/build/*/codegen/**/<类型名>.{Reflection,Serialization,Hash}.h`。
-
-    覆盖**所有预设**：只清当前预设的话，别的预设里留着的旧文件会在下一次构建那个预设时仍被 `#include`
-    到 —— 那正是"改了新文件、编的却是旧文件"的假绿。
-
-    为什么"先清再生成"是安全的（而 2026-10-10 那次教训说"不许先删产物"）：那次不许删的是**当时正被别的头
-    include 的产物**，删掉会让解析当场找不到文件（`--emit-all exit 6 … file not found`）；这里删的是旧命名，
-    源码树里已经没有它们的消费者（26 个消费点在同一次改动里全改成 `<类型名>.codegen.h`）。反过来，万一
-    漏改一个 `#include`，它会因为"文件不存在"**当场失败**，而不是静默吃上一轮的旧文件。
-
-    边界：只清旧命名的三份，**不做整目录 GC** —— 新文件名那边的孤儿产物（某个类型从清单里删掉之后留下的
-    `<类型名>.codegen.h`）不在这里处理，理由与后果写在 change 的 design D5。
-
-    返回 (删掉几份, 扫过几个预设的 codegen 目录, 删不掉的路径)。
-    """
-    removed = 0
-    presets = 0
-    leftovers: list[str] = []
-    build_root = PROJECT_DIR / "out" / "build"
-    if build_root.exists():
-        for codegen_dir in sorted(build_root.glob("*/codegen")):
-            presets += 1
-            for name in CODEGEN_LEGACY_SUFFIXES:
-                for stale in codegen_dir.rglob(f"*{name}"):
-                    try:
-                        stale.unlink()
-                        removed += 1
-                    except OSError:
-                        leftovers.append(str(stale))
-    return removed, presets, leftovers
-
 # 每个产物都在构建期生成，并**逐份确认工具真的写出了它**（`CodeGen wrote:` 名单）。从前只有反射发射器
 # 由 build.py 驱动，序列化与哈希两个发射器在构建期完全没跑过：改写它们却不重新生成入库副本，
 # GeneratedSerializerTest 与 GeneratedHashTest 照样过、构建照样绿 —— 三分之二的生成链当时没有任何构建期证据。
@@ -597,12 +561,6 @@ def codegen(force: bool = False) -> list[str]:
         return [str(exc)]
     extra = [f"-I{p}" for p in CODEGEN_EXTRA_INCLUDES] + list(CODEGEN_EXTRA_DEFINES)
     failures: list[str] = []
-    legacy_removed, legacy_presets, legacy_left = cleanup_legacy_codegen_products()
-    print(f"  codegen: 清掉旧命名的产物 {legacy_removed} 份（扫过 {legacy_presets} 个预设的 codegen 目录）",
-          flush=True)
-    if legacy_left:
-        failures.append("清不掉这些旧命名的产物（它们会让「所有预设里旧后缀 0 份」这条判据不成立）："
-                        + ", ".join(legacy_left))
 
     # 「输入没变就跳过」的账本。键是清单那一行（含限定名列），值是把这一行的**全部输入**与**现有产物**
     # 一起算成的指纹：工具二进制、被解析的头、**生成器真正读过的每个文件**、编译环境、包含目录的名字

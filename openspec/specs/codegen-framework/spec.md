@@ -1,7 +1,7 @@
 # codegen-framework Specification
 
 ## Purpose
-TBD - created by archiving change engine-codegen-framework. Update Purpose after archive.
+CodeGen 这条流水线本身：解析用 libclang 而引擎保持纯 MSVC、生成的源码以显式清单纳入构建且只落构建目录、`build.py` 的接入位置与执行顺序、解析环境按模块推导且不猜宏、解析失败不得被报告成「没有标注」、字段种类与容器的判定规则与磁盘形状契约、三个发射器的标注通道（含嵌套类型）与拒绝清单。
 ## Requirements
 ### Requirement: parser 元数据来源为 libclang，引擎保持纯 MSVC
 
@@ -36,26 +36,18 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 - **WHEN** libclang 不可用（`CALIB_CLANG_DIR` 指向的目录里没有 `libclang.dll`）
 - **THEN** 构建 MUST 在生成段失败并说清"生成用的程序没建起来、怎么配 libclang 路径"，MUST NOT 报成引擎编译错误
 
-### Requirement: 保留 CA_REFLECTION 运行时语义
-系统 SHALL 保留现有 CA_REFLECTION 的运行时行为（序列化 + 每帧哈希走 `visit_members`），生成元数据 SHALL 是**加法**，不替换、不改变现有反射路径。
-
-#### Scenario: 关键路径行为不变
-- **WHEN** 插入 codegen 生成元数据后跑现有 tester（`--headless`）
-- **THEN** 构建成功且引擎产物**不含 libclang.dll 依赖**（证明 codegen 为纯构建期 addon、零运行时链接 → 现有反射运行时路径不变）；headless vulkan/d3d12 各 exit 0 / 无崩溃，`result.json` status == 'pass'。
-  > 注：`test_output/` 被 git-ignore、VUID 验证日志不可提交（TODO/004 §3.4），故本条取**自洽可证伪断言**；若需严格"无新增 VUID vs 历史验证日志"diff，须前置"提交对照数据" task（可选强化，非本条验收门槛）。——RC-H 调和
-
 ### Requirement: 生成源码以显式源清单纳入构建
-系统 SHALL 用**显式方式**纳入生成的源文件（非 `file(GLOB_RECURSE)`）：生成的**头文件**经显式 include 路径 + `#include` 纳入；生成的 **.cpp**（若存在）经显式 `target_sources` 纳入（禁 `file(GLOB_RECURSE *.cpp)`）。生成的反射代码 SHALL 与现有 `CATypeDescriptor<T>` 做构建期一致性校验。——RC-F 调和（诚实前提：本 change 生成物为头文件）。⚠ **该"一致性校验"的实际范围**：**只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另有一条 `name != nullptr` 的非空检查），**不比名字内容、不比 offset** —— 详见下一个 Scenario。
+系统 SHALL 用**显式方式**纳入生成的源文件（非 `file(GLOB_RECURSE)`）：生成的**头文件**经显式 include 路径 + `#include` 纳入；生成的 **.cpp**（若存在）经显式 `target_sources` 纳入（禁 `file(GLOB_RECURSE *.cpp)`）。生成的反射代码 SHALL 与 **ABI 守卫**做构建期校验，而守卫的**实际范围** MUST 写在对外文档里：它**只**断言生成描述符的类型名非空（"生成头到底有没有被包含进来"），**不比名字内容、不比字段数、不比 offset**。字段数 / 字段名 / offset 的漂移由**消费单元的断言文件**对着**写死的期望值**比对（`Interface/RenderInterface/private/CPipelineStateObjectAssertions.cpp`、两个 `ShaderLibraryCodeGenAssertions.cpp`），生成表与期望值对不上时那些断言编译不过。旧的一致校验对象（`CATypeDescriptor<T>` 与它的 `member_count`）已随旧头删除，MUST NOT 再作为**校验对象**出现在任何要求或实现里；`Tools/CodeGen/check_legacy_symbols.py` 的守卫符号表与解释这段历史的注释句除外 —— 它们列出这些名字是守卫的职责。
 
 #### Scenario: 缺失生成文件被构建捕获
+
 - **WHEN** 生成源文件缺失
 - **THEN** 构建以失败而非静默通过：缺失生成头 → 经显式 `#include` 报编译错误；缺失生成 .cpp → 经显式 `target_sources` 报构建错误。**该方向已验**（4.2：删生成头 → `C1083`）。
 
-#### Scenario: 与注解对不上（**不在本 change 实现范围**）
-- **WHEN** 生成物与源码注解**对不上**（字段增删）
-- **THEN** **真实类型**的对不上方向**不在本 change 实现范围**（本 change 不接线任何项目类型，见 proposal 的 Non-goals）；**但本 change 内的合成样本已实测跑通该路径** —— 改注解的成员数后 `python build.py --config Debug --no-configure CoreTests` 以 `error C2338: 'CodeGen ABI drift: generated field count != CA_REFLECTION member count'` 失败（见 tasks 的 9.16）。**注意措辞**：接住对不上的机制是 `static_assert_abi_consistency`，它**只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是非空检查）。
-- **AND** 该 guard **只**断言生成字段数等于 `CATypeDescriptor<T>::member_count`（另一条 `name != nullptr` 是"生成头是否存在"的非空检查，**不做名字内容比对**）；**既不校验名字内容、也不校验 offset**。名字对不上与 offset 对不上**同样不在本 change 的覆盖范围**。
-- **AND** 归属：随"真实类型正式接线"的**后续 change** 处理（本 change 不接线任何项目类型，见 proposal 的 Non-goals）。
+#### Scenario: 与注解对不上时消费单元先红
+
+- **WHEN** 生成表与源码注解**对不上**（字段增删、改名、偏移变化）
+- **THEN** 消费单元的断言文件编译失败（`error C2338`）并点名对不上的那一条；`static_assert_abi_consistency<T>()` 只负责"生成头没被包含进来"这一种情况，MUST NOT 被当成字段级的漂移守卫。
 
 ### Requirement: build.py 接入 codegen 步骤
 `build.py` SHALL 在 `patch_ninja()` 调用**之后**、引擎编译（`build(target)`）**之前**调用 codegen sidecar —— **configure 与 `--no-configure` 两条路径都要执行**（即 `codegen_failures = codegen()` 是**零缩进**的独立语句，位于 `if configure_step:` 块**之外**；任务 9.13 前它在块内，`--no-configure` 增量构建因此从不跑 codegen），且该步骤在 MSVC 环境下运行（继承 vcvars 与 sanitized PATH）。**本要求按引文定位实现位置，不写行号**（`build.py` 会被后续任务改动，行号必漂）。
@@ -190,8 +182,7 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 - **THEN** 表的元素描述给出的是**直接元素类型**（`int[3]`）而不是最内层的 `int`，并且 README 的磁盘契约写明"先写第一维、再逐个写内层数组"（运行时 `containerInfo` 取的是最内层类型，照抄会让描述与真实字节不符）
 
 ### Requirement: 无序容器的序列化与哈希必须走规范顺序
-
-对无序容器（`unordered_map` / `unordered_set`），生成的代码 MUST 在写出与哈希之前把内容摊平成**按规范顺序排好的元素数组**（`map` 按 key、`set` 按元素本身），再按数组的形状写出 / 累加哈希。读回来 MUST 以逐个插入的方式还原，且与写入顺序无关。有序容器（`vector` / `array` / `string` / `deque` / `list` / `map` / `set`）**不排序**：写出的字节与改动前逐字节相同（任务 3.5 对拍）。有序容器与无序容器一样，**元素按值参与哈希**（元素用自己的哈希特化，浮点先规范化 —— 见下面「元素里的浮点也要按值参与哈希」），所以有序容器里含浮点时，哈希值与改动前**允许不同**：这是 D5 定下来的"所有容器一视同仁、不留例外"，不是行为回退。
+对无序容器（`unordered_map` / `unordered_set`），生成的代码 MUST 在写出与哈希之前把内容摊平成**按规范顺序排好的元素数组**（`map` 按 key、`set` 按元素本身），再按数组的形状写出 / 累加哈希。读回来 MUST 以逐个插入的方式还原，且与写入顺序无关。有序容器（`vector` / `array` / `string` / `deque` / `list` / `map` / `set`）**不排序**：写出的字节与改动前逐字节相同（任务 3.5 对拍）。有序容器与无序容器一样，**元素按值参与哈希**（元素用自己的哈希特化，浮点先规范化 —— 见下面「元素里的浮点也要按值参与哈希」），所以有序容器里含浮点时，哈希值与改动前**允许不同**：这是"所有容器一视同仁、不留例外"定下来的口径，不是行为回退。容器的元素是**结构体**（逐层展开后含无序容器）时，生成代码 MUST 把当前读位置交给该元素类型自己的生成代码并继续往后读 —— MUST NOT 以非零退出码拒绝这个形状（旧运行时拿不到读写游标时的拒绝路径已随旧头删除，见 `codegen-runtime` 的「生成物的读写必须自带游标」）。
 
 #### Scenario: 插入顺序不影响写出的字节
 
@@ -208,12 +199,11 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 - **WHEN** 两个 `unordered_map` 内容不同（多一对、少一对、或值不同）各写一次
 - **THEN** 字节不同且哈希不同 —— 这是防止"顺序无关"判据恒真的对照组
 
-#### Scenario: 元素是内含无序容器的结构体时必须拒绝
+#### Scenario: 元素是内含无序容器的结构体时逐层交给元素自己
 
 - **WHEN** 容器的元素是**结构体**，而该结构体（逐层展开后）含无序容器，例如 `struct Inner { castl::unordered_map<unsigned, unsigned> m; }; struct Outer { castl::vector<Inner> items; };`
-- **THEN** 生成序列化与哈希的调用 MUST 非零退出，并在 stderr 点名**成员名**、**元素类型**与**那个无序容器**；MUST NOT 输出"看着能编译、字节却随插入历史变化"的代码
-- **理由（实测限制）**：这类元素只能由生成代码递归写出其字段，而生成代码拿不到旧运行时的读写游标 —— `cacore::serializer` 的缓冲区与 `cacore::deserializer` 的偏移都在 `private:` 段且没有公开取用方法（`CACore/header/Serialization.h`），所以既不能把当前缓冲区交给元素类型的生成序列化器，也不能在正确偏移上新建一个反序列化器。design 的失败方案表对这个形状写的是「逐层摊平（**或加一位标志并入拒绝**）」，本 change 取拒绝
-- **对照组**：元素是结构体但内部只有标量与**有序**容器时（如 `struct Plain { unsigned a; castl::map<unsigned,int> ordered; };`）MUST 照常出码（exit 0）—— 拒绝不得误伤普通结构体元素
+- **THEN** 生成代码在读到该元素时把自己持有的读位置交给 `Inner` 的生成代码，读完后位置继续往后；同一内容、不同内层插入顺序的两个对象写出的字节逐字节相同、读回内容与写出内容一致；MUST NOT 输出"看着能编译、字节却随插入历史变化"的代码，MUST NOT 以非零退出码拒绝这一形状
+- **对照组**：元素是结构体但内部只有标量与**有序**容器时（如 `struct Plain { unsigned a; castl::map<unsigned,int> ordered; };`）MUST 同样出码（exit 0）
 - **已知边界**：元素类型若不在本次扫描的头文件里，工具看不到它的字段、无法判定，此时按"未发现"放行
 
 #### Scenario: 元素本身就是容器时同样稳定
@@ -224,12 +214,12 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 #### Scenario: 元素里的浮点也要按值参与哈希
 
 - **WHEN** 两个 `castl::unordered_map<uint32_t, float>` 内容只差在 `+0.0f` 与 `-0.0f`
-- **THEN** 生成的相等判断为真时两个哈希必须相同。实测现状：相等判断为真（`==` 成立）而哈希不同（`1a2742e842fb0203` 与 `1a27c2e842fbdb83`），因为浮点规范化只写在顶层字段那一层；本 change 把规范化**递归到元素**（元素按值参与哈希），不再整块按字节算
+- **THEN** 生成的相等判断为真时两个哈希必须相同。实测现状：相等判断为真（`==` 成立）而哈希不同（`1a2742e842fb0203` 与 `1a27c2e842fbdb83`），因为浮点规范化只写在顶层字段那一层；本要求把规范化**递归到元素**（元素按值参与哈希），不再整块按字节算
 
 #### Scenario: 有序容器里的浮点同样按值参与哈希（**已定死，不列为例外**）
 
 - **WHEN** 有序容器含浮点且两个对象只差 `+0.0f` / `-0.0f`，例如引擎里真实存在的 `castl::vector<castl::vector<float>>`
-- **THEN** 相等判断为真时哈希必须相同 —— 所有容器（有序无序一视同仁）都按元素显式调用元素类型的哈希特化，不因为"这个 change 只谈无序容器"就把它留成例外。实测现状：`vector<float>` 同内容不同哈希（`5f242d39c2422be4` 与 `5f23ad39c2415264`）
+- **THEN** 相等判断为真时哈希必须相同 —— 所有容器（有序无序一视同仁）都按元素显式调用元素类型的哈希特化。实测现状：`vector<float>` 同内容不同哈希（`5f242d39c2422be4` 与 `5f23ad39c2415264`）
 
 #### Scenario: 读回来的内容与写入一致（空目标）
 
@@ -239,7 +229,7 @@ TBD - created by archiving change engine-codegen-framework. Update Purpose after
 #### Scenario: 读进非空目标时先清空（**已定死，不留选择**）
 
 - **WHEN** 把同样的字节读进一个**已经有元素**的容器
-- **THEN** 生成代码 MUST 先清空该容器再读（可用的前提是 `containerStates<T>::has_clear`；没有 `clear()` 的容器进拒绝路径），使读回来的内容**只由载荷决定**。依据：实测生成代码走的是 `cacore::deserializer`，它**不清空**目标容器（读进 3 元素目标后 size=5；元素个数为 0 的载荷读进 1 元素目标后 size 仍是 1，`clear` 只写在 `cacore::batch_deserializer` 里），而"还原"这个说法只有在清空之后才成立
+- **THEN** 生成代码 MUST 先清空该容器再读，使读回来的内容**只由载荷决定**。依据（新运行时）：`CACore/header/CodeGenSerialization.h` 的容器读取路径按"容器有没有 `clear()`"分派 —— 有 `clear()` 的先清空（`if constexpr (hasClear<C>::value) c.clear();`），没有 `clear()` 的定长数组先校验载荷长度与 extent 一致、再按位置逐个覆写。旧运行时"不清空目标容器"的那条依据已随 `cacore::deserializer` 删除。
 
 #### Scenario: 有序容器的产物不变
 

@@ -1,7 +1,7 @@
 # build-throughput Specification
 
 ## Purpose
-TBD - created by archiving change improve-build-time. Update Purpose after archive.
+CodeGen 生成段的构建成本：三个场景的耗时读数、按类型并行生成、生成器变更时的全量重生成、「输入没变就跳过」的判据必须覆盖生成器真正读过的每个文件、进度实时可见，以及「一个类型只解析一次、一次出一份产物」。
 ## Requirements
 ### Requirement: 构建耗时按三个场景测量并留读数
 

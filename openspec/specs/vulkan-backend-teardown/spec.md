@@ -1,7 +1,7 @@
 # vulkan-backend-teardown Specification
 
 ## Purpose
-TBD - created by archiving change fix-vulkan-headless-window-teardown. Update Purpose after archive.
+Vulkan 后端的销毁语义：析构必须触发 `Release` 释放自有资源、`Release` 幂等且初始化失败时不双重销毁、对初始化失败与设备未建时的空指针鲁棒，以及设备使用者的释放顺序由模块逆序销毁保证。
 ## Requirements
 ### Requirement: 后端析构触发 Release 释放自有资源
 `RenderBackend_Vulkan` SHALL 提供显式析构 `~RenderBackend_Vulkan()`，其体内调用 `Release()`（镜像 D3D12 `~RenderBackend_D3D12{ Release(); }`），使 backend 拥有的 `vk::Device`/`vk::Instance`/各 manager/窗口 surface 在销毁时被释放，而非原先因无析构调 `Release()` 而泄漏为死代码。

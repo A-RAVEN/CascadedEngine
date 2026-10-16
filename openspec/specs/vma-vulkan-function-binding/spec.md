@@ -1,7 +1,7 @@
 # vma-vulkan-function-binding Specification
 
 ## Purpose
-TBD - created by archiving change fix-vma-null-function-pointer. Update Purpose after archive.
+VulkanMemoryAllocator 与 Vulkan 函数指针的绑定：初始化时把函数指针交给 VMA（否则 VMA 会在空指针上崩），提供一个可复用的填充工具，并统一走 `VulkanMemoryManager` 的持久 allocator。
 ## Requirements
 ### Requirement: VMA 初始化时获得 Vulkan 函数指针
 

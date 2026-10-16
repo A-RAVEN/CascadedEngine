@@ -60,68 +60,145 @@
 
 ---
 
-## [2026-08-28] 压缩/复杂格式读回载体 & bpp 设计原则（add-render-readback 扩展边界）
-
-**类型：设计边界 / 原则**（当前 `ETextureFormat` 无压缩格式，README 路径不触发；但因 `GetReadbackBpp` fallback=4，将来加格式会**静默读错** → 部分属待修）
-
-**背景**：当前读回把载体锁死成「单平面、非压缩、像素线性、base mip/layer」。对压缩/多平面格式，这套是**错误概念**——不是换个 bpp 的事，是载体结构不同。
-
-**原则 1：压缩格式读回 = "块线性"（block-linear）载体，不是像素线性**
-- 压缩格式**没有 per-pixel 布局**：像素编码在块内，不能按 `W*H*bpp` 寻址。
-- 真正大小 = `ceil(W/blockW)*ceil(H/blockH)*blockBytes`（再叠 D3D12 256 对齐）；buffer 里"一行"是**一行块**。
-- ASTC 块尺寸可变(4~12)且存在数据/footer，**不能由 W/H 推导**；PVRTC 是 superblock、非简单栅格。
-- 解释需要 **format + 块尺寸 + 图像尺寸**，用**块解码器**（bcdec 等）还原；`stbi_write_png` 写不了（视觉断言对压缩不适用）。
-
-**原则 2：block 参数是独立于贴图分辨率的正交轴**
-- 分辨类（width/height/mips/layers）→ **贴图 descriptor**；block 类（blockW/blockH/blockBytes/是否块压缩）→ **格式属性**（format→查表）。两者**不可互推**。
-- 但会在**计算 footprint 时结合**：总字节/行距 = f(分辨率, blockInfo)。独立 ≠ 永不结合。
-
-**原则 3：公开面 = 单一尺寸查询 `GetImageByteSize(width,height,format)`，不暴露 `GetBytesPerPixel`**
-- 调用者需要的是「读回该贴图要多少字节」（分配 dst），**不是**「每像素几字节」标量。
-- bpp 只是非压缩 `W*H*bpp` 的**内部中间量**；压缩格式 bpp 只是压缩比率统计、无布局意义 → **不暴露公开 `GetBytesPerPixel`**。
-- format（来自 `GetDescriptor()`）作为「怎么解释这坨字节」的键（像素线性 vs 块线性、用哪个解码器）。
-
-**待修（防将来静默读错，review workflow 确认 MED）**：
-- `GetReadbackBpp`（Vulkan）/`D3D12ReadbackBpp`（D3D12）是私有、与 `GetFormatBlockSize` 重复且**已分叉**——`E_D32_SFLOAT_S8_UINT` 现为 `GetFormatBlockSize=8` vs 后端 fallback=4。
-- 应：① 让 `GetImageByteSize` 成为**唯一事实来源**（内部分支压缩/非压缩）；② 未支持格式**显式报错/断言**（非静默 fallback=4）；③ 补 `E_D32_SFLOAT_S8_UINT` case。
-
-**相关**：`Interface/RenderInterface/header/Common.h`（`GetFormatBlockSize`）、`VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp`（`GetReadbackBpp`）、`D3D12RenderBackend/private/RenderBackend_D3D12.cpp`（`D3D12ReadbackBpp`）。
-
----
-
-## [2026-08-28] review workflow 确认的另两条读回缺陷（4 条 MED 中本文件已含 2 条）
-
-> 背景：对本读回实现跑了对抗式 review workflow（27 agents），确认 4 条 MED。其中「bpp 单一事实来源」已在上方压缩条目、`D3D12 异步`已在上面第一条；本条目补剩余 2 条。测试过的 RGBA8 视读回路径本身可靠，这些是**边界/契约**缺陷。
-
-**缺陷 A：载体硬编码 base mip / base layer，无 subresource 选择器；multisample 未 resolve**（MED）
-- `Readback(ImageHandle)` 只拷 `mip0/layer0`：Vulkan 硬编码 `imageSubresource.mipLevel=0, baseArrayLayer=0, layerCount=1`；D3D12 `SubresourceIndex=0`。
-- `samples>1` 的 MSAA 未 `vkCmdResolveImage` / D3D12 resolve 就直接拷原始 pattern → 读到的是 MSAA 样本而非解析后图像。
-- 后果：多 mip / 多 layer / MSAA 贴图**静默截断/读错**，且调用者无从得知（无参数、无 token 元数据）。
-- **修法**：① 把支持范围**收窄**为「单层、单 mip、非 MSAA 的 2D」并对其余**显式拒绝**（同 Internal handle 的报错），或 ② 给 `Readback` 加 subresource 选择器（mip/layer/aspect）+ 让调用者能得知拷的是哪个 subresource；MSAA 用 `vkCmdResolveImage`/D3D12 resolve 或拒绝。
-
-**缺陷 B：token 持裸 `std::span` 非 owning，异步写无 RAII 绑定 → dst UAF 隐患**（MED）
-- `std::unique_ptr<IReadbackToken>` 内部存裸 `std::span<uint8_t> m_Dst`；异步 Vulkan 路径在 `Wait()` 里才 `memcpy(m_Dst.data(), ...)`。
-- 调用者若在 `Readback()` 与 `Wait()` 之间 resize/free 底层容器（如 growable `std::vector`），`Wait()` 会写进**已释放/已重分配内存**（UAF）。
-- 契约只靠一句 prose「调用者保持 dst 存活直至 Wait()」，无 RAII 绑定、无检测。
-- **修法**：① 加重契约（在 token 持有期由调用者保证 dst 不动，README/接口注释明确），或 ② token 在 `Readback()` 时把数据**拷到自己持有的一份**（代价：多一次 memcpy），从根上消除异步写悬垂。
-
-**相关代码**：`Interface/RenderInterface/header/CRenderBackend.h`（`IReadbackToken`/`Readback`）、`VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp`（`VulkanReadbackToken`/`Readback`）、`D3D12RenderBackend/private/RenderBackend_D3D12.cpp`。
-
----
-
 ## [2026-08-30] capture 的 2 条 LOW（GPUBackendTester 截图扩展收尾）
 
 **状态：未修（LOW，从已解决的 capture 4 问题条目中摘出的剩余项）**
 
+**2026-10-15 复核**：LOW-2 在 `TestReadback` 这条路径上**已不再静默** —— `Test/GPUBackendTester/Main.cpp:290-293` 在"请求了 capture 却没拿到帧"时 `throw std::runtime_error("TestReadback: requested capture frame … but readback was null/blank")`；其余测试的越界帧号仍静默不写，LOW-1 也仍未修。
+
 - **LOW-1**：`--capture` 不带 `--headless` 时**静默 noop**（无任何提示）——capture 只对 headless 生效，非 headless 下用户可能以为截了图。
-- **LOW-2**：capture 帧号**越界无提示**——请求的 capture 帧号超出运行帧数时静默不写。
+- **LOW-2**：capture 帧号**越界无提示**——请求的 capture 帧号超出运行帧数时静默不写（`TestReadback` 除外，见上）。
 
 **改法**：① 非 headless + 带 capture 时打 stderr 提示"capture 仅 headless 生效"；② capture 帧越界时 stderr 警告/拒绝。**验收**：跑测试无意外截图、越界有告警。
 **相关**：`Test/GPUBackendTester/Main.cpp`（`--capture`/`--headless` 解析、`WriteReadbackPNG`）。
 
 ---
 
+## [2026-10-15] 哈希来源盘点脚本扫不到三类位置｜`require-explicit-hash-source` 后续
+
+**状态：未修（工具边界；今天靠编译器兜底）**
+
+**问题**：`Tools/CodeGen/check_hash_sources.py` 按**写法**扫（`HashObj<X>` / `cacore::hash<X>` / `unordered_map<X,` / `HashDictionary<X,` 等）。**扫不到**三处：① 容器元素位置（`castl::vector<X>`）；② 手写特化体里 `hasher.hash(obj.<成员>)` 的成员类型；③ 宏包一层与别名。
+**实测**：本 change 收尾时 `vk::VertexInputBindingDescription` / `vk::VertexInputAttributeDescription` / `vk::PushConstantRange` 三个类型是**编译器**报出来的，脚本同一状态报 `命中 0 个来源不明的键类型`（把 `CA_HASH_BY_BYTES(::vk::PushConstantRange)` 注释掉，脚本仍报 0）。
+**改法**：把上述三类位置扫进去（至少 `castl::vector<X>` 与 `hasher.hash(obj.member)`）。
+**验收口径**：注释掉 `VulkanRenderBackendNew/private/Utils/VulkanIncludes.h` 里那一行声明，脚本必须**非零退出并点名 `vk::PushConstantRange`**（今天只有编译器报红）。
+**相关**：`Tools/CodeGen/check_hash_sources.py`、`Tools/CodeGen/README.md` 第十一节（边界已写明）、`openspec/changes/archive/2026-10-15-require-explicit-hash-source/`。
+
+---
+
+## [2026-10-15] PipelineStateDesc 那条链没有哈希来源（盘点脚本的例外清单）｜`require-explicit-hash-source` 后续
+
+**状态：未修（今天不会静默算错：有人真用那个字典就当场编不过）**
+
+**问题**：`PipelineStateDesc` 与它的成员链（`D3DVertexBindingSlot` / `D3DVertexBindingData` / `ShaderStateDescriptor` / `CRenderPassInfo`）既没进接入清单、也没有手写特化。它唯一的用户是 `D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h` 末尾的 `using PipelineStatesDic = HashDictionary<PipelineStateDesc, PipelineStates>;`，而它**全仓零调用点**（死代码），所以挂在盘点脚本的例外清单上。
+**改法**：补齐这条链的字段级特化（`PipelineStateDesc` 的成员含 `HashObj<…>` 与容器）。
+**验收口径**：`Tools/CodeGen/hash_source_exceptions.txt` 清空、`python Tools/CodeGen/check_hash_sources.py` 仍 `命中 0`、`python build.py --config Debug` → `BUILD SUCCESSFUL`。
+**相关**：`D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h`、`Interface/RenderInterface/header/CNativeRenderPassInfo.h`、`Tools/CodeGen/hash_source_exceptions.txt`。
+
+---
+
+## [2026-10-15] 纹理视图与 subresource 的 4 条潜伏项（fix-imgui-font-whitebox 收尾记录）｜`fix-imgui-font-whitebox`
+
+**状态：未修（该 change 收尾节原话：「非阻塞 latent 改进项（non-regression，列作记录，均未触达、可后续单独改）」）**
+
+**问题**（四条，逐字摘该 change 收尾）：
+1. `GetTextureView(handle, view)` 仅 External 纹理 honor swizzle；graph-local/Internal 注册 handle 仍走 identity `resource->imageView`（丢弃 swizzle）→ 将来 Internal 单通道采样不会 swizzle。
+2. `VulkanTexture.cpp:240,247` 的 `baseMip` / `baseLayer` 未 clamp（只有 `mipCount`/`layerCount` 做了 0/~0u clamp）→ 潜伏 `VUID-01718/06725`。
+3. identity 短路返回全范围 `m_ImageView`，忽略携带的 subresource range（与既有行为一致，未触发）。
+4. 审查侧引用的 VUID 编号有差异（01762 vs 12397，format-must-match-image）——非代码缺陷。
+
+**验收口径**：Internal 纹理传 swizzle 时采样结果与 External 一致；`baseMip/baseLayer` 越界输入被 clamp 且不再出 `VUID-01718/06725`；双端 8 测试 `exit 0`。
+**相关**：`VulkanRenderBackendNew/private/VulkanObjects/VulkanTexture.cpp`、`VulkanRenderBackendNew/private/VulkanObjects/VulkanGraphLocalResourceManager.*`、`openspec/changes/fix-imgui-font-whitebox/tasks.md`（收尾节）。
+
+---
+
+## [2026-10-15] `Tools/spin_check.py` 把待办清单路径写死在已归档的 change 上｜工具
+
+**状态：未修（轮界"可执行队列"装置对新 change 完全失效）**
+
+**问题**：`Tools/spin_check.py:57` 逐字 `TASKS = ARCHIVE / "2026-09-20-engine-codegen-framework" / "tasks.md"`。实测 `python Tools/spin_check.py queue start 1` 读出来的是那份老清单的 **86 条**，与当前 change 的 `tasks.md` 无关；`queue end` 同理。
+**改法**：给它加"按 change 名"的参数（或读 `openspec list` 里进行中的那个）；`evidence` 子命令与 `ARCHIVE` 的相对路径也要一起看。
+**验收口径**：对某个进行中的 change 跑 `queue start`，打印的未勾条目与该 change 的 `tasks.md` 逐条一致；不存在该 change 时非零退出。
+**相关**：`Tools/spin_check.py`、`openspec/changes/require-explicit-hash-source`（本次会话就是因为它读不到本 change，只能人工贴表）。
+
+---
+
+## [2026-10-15] 21 处 workflow 脚本引用已归档（不存在）的 change 路径｜`.claude/workflows/scripts`
+
+**状态：未修（悬空引用；脚本一跑就读空文件）**
+
+**问题**：14 个 `.claude/workflows/scripts/*.js` 里共 **21 处** `openspec/changes/<名字>/…` 指向已归档的 change（`engine-codegen-framework` 7 处、`harden-readback-carrier` 6 处、`fix-vulkan-dedup-key-identity` 4 处、`fix-vulkan-descriptor-registration` 2 处、`unify-depth-clamp-switch` 2 处），逐条 `Test-Path` 均为假。
+**改法**：路径补上 `archive/<日期>-` 前缀（真路径可查 `openspec/changes/archive/`），或把这些一次性脚本删掉。
+**验收口径**：把这些脚本里出现的每个 `openspec/changes/...` 路径逐个 `Test-Path`，全部为真。
+**相关**：`.claude/workflows/scripts/`（`audit-readback-*.js`、`imgui-multiwin-*.js`、`review-codegen-marker-attribute-design.js`、`verify-codegen-tasks-order.js`、`verify-dedup-impl.js`、`unify-depth-clamp-*.js`、`tasks-adversarial-vote.js`、`vulkan-descriptor-adversarial-verify.js`）。
+
+---
+
+## [2026-10-15] `test_output/` 跨运行不清理，不同后端的日志串味｜`Test/GPUBackendTester`
+
+**状态：未修（会影响"按后端读验证日志"这件事）**
+
+**问题**：测试器只建目录不删除（`Test/GPUBackendTester/Main.cpp:1349` 只有 `createDirectoryIfNeeded("test_output")`）。实测：连跑 vulkan 与 d3d12 之后，`test_output/TestTriangleWithConstantColor_validation.log` 的时间是 **22:34:52（vulkan 写的）**，而 d3d12 自己的 `TestTriangleWithConstantColor.log` 是 22:34:54 —— 于是 d3d12 的快照里带着 vulkan 的 `VUID-VkShaderModuleCreateInfo-pCode-08740`，读日志会把上一条后端的错误算到这一条头上。
+**改法**：headless 跑测前清 `test_output/`（或按后端分子目录）。
+**验收口径**：连续跑完两个后端后，`test_output/` 里每个文件的时间都落在本次运行区间内；不再出现跨后端的同名残留。
+**相关**：`Test/GPUBackendTester/Main.cpp`（`test_output/` 写入路径、`--report`）。
+
+---
+
+## [2026-10-15] `Tools/CodeGen/README.md` 有两个「## 五、」｜文档
+
+**状态：未修（纯文档，引用章节号会指错）**
+
+**问题**：第 369 行 `## 五、容器：识别规则、磁盘形状与拒绝条件`、第 466 行 `## 五、调用示例（每条都在本机实跑过，输出逐字照抄）`。
+**改法**：后一个改成「六、」并把其后章节号顺延（其后的「六、构建期怎么用它」等一起动）。
+**验收口径**：`Select-String -LiteralPath "Tools\CodeGen\README.md" -Pattern '^## '` 出来的章节号无重复；`python Tools/CodeGen/verify_readme.py` 仍 `0 mismatch(es)`。
+**相关**：`Tools/CodeGen/README.md`。
+
+---
+
+## [2026-10-15] 全局规则文件里仍写着旧产物名（仓库外）｜`~/.dsh/AGENTS.md`
+
+**状态：未修（不在本仓库，改不改由你定）**
+
+**问题**：`~/.dsh/AGENTS.md:143` 逐字：生成的 `` `<类型>.{Reflection,Serialization,Hash}.h` ``。现状是产物已合成**一份** `<类型>.codegen.h`（`merge-codegen-products` 那次改的：一个类型一份产物，三个 section 在同一个文件里）。
+**改法**：把那一行改成 `<类型>.codegen.h`。
+**验收口径**：该文件里 `Reflection,Serialization,Hash` 这个字样不再出现。
+**相关**：`~/.dsh/AGENTS.md`（全局，10 节版）；`openspec/changes/archive/2026-10-15-merge-codegen-products/`。
+
+---
+
+## [2026-10-15] `Experimental/DotNetHost` 原型被注释在构建外（C# 那条线的起点）｜`TODO/` 第 2 步
+
+**状态：待判（不是缺陷，是 Phase 2 的第一块料）**
+
+**问题**：`CMakeLists.txt:91` 逐字 `#add_subdirectory ("Experimental/DotNetHost")`，目录里只有 2 个文件（`private/CSharpHost.cpp` + `CMakeLists.txt`，2026-03-22，`nethost` + hostfxr 委托加载）。本机已有 .NET 8.0.6 / 8.0.23 / 9.0.12 / 10.0.2 与 `hostfxr.dll`。
+**改法**：开 `csharp-hostfxr-bootstrap` 时**第一步**判它：当年为什么被注掉、加载方式是否还成立、要不要按 `TODO/001-004` 的设计重写。
+**验收口径**：写进该 change 的 design（原型复用 / 废弃 + 依据），或明确删除 `Experimental/DotNetHost`。
+**相关**：`Experimental/DotNetHost/`、`CMakeLists.txt:91`、`TODO/README.md`（第 2 步）、`TODO/001-csharp-scripting-framework.md`。
+
+---
+
 # 已解决记录（保留供追溯；对应条目上移至待办后此区为空可清理）
+
+## [2026-08-28] 压缩/复杂格式读回载体 & bpp 设计原则（add-render-readback 扩展边界）｜✅已解决
+
+**状态：已解决（2026-10-10，`harden-readback-carrier` 落地并归档 → `openspec/changes/archive/2026-10-10-harden-readback-carrier/`；归档提交 `fb41fa4`）**
+
+**它原来要什么**：三条原则（压缩格式读回是**块线性**载体、block 参数与分辨率正交、公开面只有单一尺寸查询 `GetImageByteSize` 而不暴露每像素 bpp）+ 一个"待修"块（私有的 `GetReadbackBpp` / `D3D12ReadbackBpp` 与 `GetFormatBlockSize` 重复且已分叉、`E_D32_SFLOAT_S8_UINT` 8 vs 4、未知格式静默 fallback=4）。
+
+**结果（2026-10-15 复核）**：`GetImageByteSize` 成了唯一公开来源 —— 今天 `GetImageByteSize` 10 处、`GetReadbackBpp` 与 `D3D12ReadbackBpp` **各 0 处**；未支持格式（压缩 / 深度-模板 multi-aspect / 无紧凑布局）**显式拒绝**并返回 null token（`D3D12RenderBackend/private/RenderBackend_D3D12.cpp:614`、`:620` 的报错），不再静默回 4；三条原则随该 change 写进主 spec `openspec/specs/resource-readback/spec.md`。
+
+---
+
+## [2026-08-28] review workflow 确认的另两条读回缺陷｜✅已解决
+
+**状态：已解决（同一次 `harden-readback-carrier`，2026-10-10；归档提交 `fb41fa4`）**
+
+- **缺陷 A（载体硬编码 mip0/layer0、MSAA 未 resolve）**：走的是原「修法 ①」——支持范围收窄为「单 mip、单 layer、非 MSAA、`ETextureType::e2D`」，其余**显式拒绝**：`D3D12RenderBackend/private/RenderBackend_D3D12.cpp:638` 报错原文以 `Readback(image) only supports single-mip/single-layer/non-MSAA/2D` 开头；接口注释同步（`Interface/RenderInterface/header/CRenderBackend.h:83-85`）。
+- **缺陷 B（token 持裸 span → dst UAF 隐患）**：走的是原「修法 ①」——契约写死在接口注释（`CRenderBackend.h:44-48` 逐字含 `Caller owns dst and MUST keep the memory it refers to alive AND its size unchanged until Wait() returns`），后端在写入前**防御性校验 `dst.size()`**（`RenderBackend_D3D12.cpp:629` 与 `:761` 的 `dst too small` 报错）。
+- **未选「修法 ②」**（token 自己拷一份）：多一次 memcpy 不值，契约 + 校验已能挡住越界写。
+
+---
 
 ## [2026-09-01] 观测 Vulkan IMGUI 多窗口副窗偏移——逐窗口回读 RT（新增捕获能力）｜✅已解决
 

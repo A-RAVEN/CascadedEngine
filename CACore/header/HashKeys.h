@@ -2,9 +2,10 @@
 //
 // HashKeys.h —— 宿主哈希类型：`NameHash` / `PathHash` / `HashObj` 与它们要用的那点东西。
 //
-// 这些类型是**保留**的（引擎到处在用它们当字典键），与"随旧头一起删掉"的旧哈希驱动分开住：
-// `cacore::hash<T>` 的取值现在由 `cacore::codegen::hasher` 承担（见下面 `hash` 的注释），旧驱动
-// （`aggregateHasher` 那套）留在 `Hasher.h` 里等 9.3 删掉。本头**不依赖**那三份待删的头。
+// 这些类型是**保留**的（引擎到处在用它们当字典键），与旧哈希驱动分开住：`cacore::hash<T>` 的取值现在由
+// `cacore::codegen::hasher` 承担（见下面 `hash` 的注释）；旧驱动（`aggregateHasher` 那一套）已随
+// `CACore/header/Hasher.h` 一起删除（`retire-legacy-serde-hash`，2026-10-05 归档），连同
+// `Serialization.h` / `Reflection.h` —— 那三个路径现在都不存在，本头不依赖它们。
 #include <CACore/CAHash.h>
 #include <CASTL/CAFileSystem.h>
 #include <CASTL/CAString.h>
