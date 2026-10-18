@@ -968,3 +968,71 @@ MSVC 自己会折叠那个模式，clang 不会 —— 于是生成物里的 `st
 `retire-transitional-leftovers` 里删掉了，因为源码树与构建目录里都没有旧命名产物可清）。判断标准是
 **"删掉它，有没有一条判据会失去执行装置"** —— 有就留着，没有才是旧账。
 
+## 十三、可绑定面：C++ 接口形状 → C ABI 的投影规则
+
+**它做什么**：把"哪些接口方法能给 C# 用、用什么形状过界"写成一张**逐方法可核**的表，并配一个对账脚本。
+**它不做什么**：不生成任何绑定代码（绑定生成器是后续 change 的事），也**不改任何接口签名** —— 投影由生成器承担，
+C++ 接口保持易用（`castl::vector` / `castl::string` / `castl::shared_ptr` / `castl::function` 照写）。
+把复杂结构翻成 blittable 是生成代码的活，不是接口作者的活。
+
+### 边界上只允许三类形状
+
+blittable 标量与结构体、`T const* + 数量`（视图）、不透明句柄（定宽整数 + 代际号）。
+**容器类型与模板类型永不出现在 C ABI 面**：`castl::vector` / `map` / `unordered_map` / `set` / `string` 只在 C++ 接口面存在。
+
+### 投影矩阵
+
+| C++ 接口里写的 | 投影成 | 拷贝 | 谁分配 |
+|---|---|---|---|
+| 定宽整数 / `bool` / `enum class` / flags | 同名定宽类型（`bool` → `int32`） | 无 | — |
+| blittable 结构体（值或 `const&`） | `<T>C const*`（布局镜像 + 清单自检） | 无 | 调用方 |
+| `castl::string const&` / 返回 `castl::string` | `char const* + uint64 len`（UTF-8，不要求 NUL） | 有 | 写入方 |
+| `castl::string_view`（返回） | 两段式 `get_len()` + `copy_to(dst, cap)` | 有 | 调用方给缓冲区 |
+| `castl::vector<T> const&`，T blittable | `TC const* + count` | 一次 | 调用方 |
+| `castl::vector<T>&`（输出） | `TC* dst + cap` → 返回所需数（两段式） | 一次 | 调用方 |
+| `castl::vector<T>`，T 非 blittable | `uint8_t const* + len`（序列化块） | 一次 | 调用方 |
+| `map` / `unordered_map` / `set` | 摊平成 `(K*, V*, count)` 或序列化块 | 一次 | 调用方 |
+| `castl::shared_ptr<T>` / `std::unique_ptr<T>`（返回） | `uint64` 句柄（句柄表持智能指针）+ 配对 `release`（独占语义释放即作废） | 无 | 生成器 |
+| `castl::shared_ptr<T>`（参数） | `uint64` 句柄 → 反查 | 无 | 生成器 |
+| `castl::weak_ptr<T>` | 不投影（弱引用语义在 C# 侧没有对应物）→ 改成句柄或 id | — | — |
+| `T const&` / `T&` 出参 | `TC const*` / `TC*` | 视 T | — |
+| `castl::function<Ret(Args...)>` 回调 | 函数指针 + `void* user`（保活表 + 注销句柄） | 无 | 生成器 |
+| 会抛异常的方法 | 生成器 try/catch → 错误码 + 文本 | — | — |
+
+统一规则：**元素里含 `string` / 容器 / 指针 ⇒ 一律降到序列化块**，并在生成期日志里逐条说明。
+
+### 四类不可投影（必须点名，不许静默生成）
+
+① 模板方法 / 泛型接口；② 所有权不明的裸指针；③ 依赖隐式转换的重载；④ **语义越界**（技术上绑得了，但脚本不该调：
+模块初始化期的依赖注入、销毁整个后端之类）。前三类是"绑不了"，第四类是"不许绑"，都必须写进审计表并给出改法建议。
+
+### 热路径：加法式快路重载
+
+每帧多次调用、且参数是容器的方法，允许在接口上**另加**一个零拷贝重载（`...Span(T const* , count)`），
+默认实现包装成容器调易用版本；**不许反过来删掉易用版本**。
+
+### 对账脚本：`check_bindable_audit.py`
+
+做什么：解析被审计接口头里的**纯虚方法**（按类体、剥注释、跳过纯虚析构），与审计表逐条对账。
+审计表在 `openspec/changes/**/evidence/bindable-audit.md`（归档后仍在 `**/evidence/` 下，脚本用通配找）。
+
+`--list` 打印逐条对账结果。
+
+退出码：**0** = 对账通过；**1** = 有对不上的地方（缺审计行 / 僵尸行 / 不可绑却没有理由，逐条打印并点名）；**2** = 判据自身失效（找不到审计表或某个接口头）。
+
+```powershell
+python Tools/CodeGen/check_bindable_audit.py
+```
+```
+扫描 7 个接口、对账 60 条方法、命中 0 处问题（审计表：openspec\changes\csharp-bindable-surface\evidence\bindable-audit.md）
+[exit 0]
+```
+
+**已知限制（醒目）**：
+
+- 审计范围只有 7 个接口（`CRenderBackend` / `IReadbackToken` / `IWindow` / `IWindowSystem` / `IShaderCompilerManager` / `IOManager` / `IResource`）。
+  `GPUGraph` / `IMGUIContext` / `IOBatch` / `WBatch` / `IShaderCompiler` **尚未审计** —— 每帧热路径恰恰在这几个上面，所以"需快路"清单目前是**空的**（不是规则失效）。
+- 脚本按**纯虚方法名**对账，**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
+- 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。
+
+
