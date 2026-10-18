@@ -133,8 +133,11 @@ C++（CMake 构建）：遵循标准 C++ 约定。
 - 产物在 `out/build/<preset>/bin/`：Debug → `x64-debug`，RelWithDebInfo → `x64-relWithDebugInfo`。
 
 ### 测试（GPUBackendTester）
+
+> 测试分层、命名、红态构造要求、现有测试清单与「改完必须跑的最小集合」见 **`docs/testing.md`**。新功能必须在三层里至少一层留下一条能变红的断言；只贴日志不算测试。
+
 - `Test/GPUBackendTester`，产物 `bin/GPUBackendTester.exe`。
-- CLI：`--backend vulkan|d3d12`、`--test <name>`、`--headless <N>`（N 帧后退出；headless 写 `test_output/*.log` + `result.json`）、`--headless-timeout <N>`（被解析但当前未消费）、`--report <path>`、`--list`。不带 `--test` 顺序跑全部 **8** 个测试（2026-10-05 用 `--list` 实测：`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI`；此前这里写的是 7 个）。
+- CLI：`--backend vulkan|d3d12`、`--test <name>`、`--headless <N>`（N 帧后退出；headless 写 `test_output/*.log` + `result.json`）、`--headless-timeout <N>`（被解析但当前未消费）、`--report <path>`、`--list`。不带 `--test` 顺序跑全部 **9** 个测试（2026-10-18 用 `--list` 实测：`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost`；此前这里是 8 个）。
 - 退出码 0 = 正常；崩溃写 `crash_YYYYMMDD_HHMMSS.dmp`（当前目录）并在 stderr 打印**异常名/异常码/异常地址 + 崩溃所在模块**（tester 自带 MiniDump handler；**逐帧调用栈符号化需用 `Tools/read_dump.py` 或 cdb**，见下）。
 
 ### 调试（读 crash dump）

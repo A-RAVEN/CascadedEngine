@@ -167,18 +167,19 @@
 
 ---
 
-## [2026-10-15] `Experimental/DotNetHost` 原型被注释在构建外（C# 那条线的起点）｜`TODO/` 第 2 步
+# 已解决记录（保留供追溯；对应条目上移至待办后此区为空可清理）
 
-**状态：待判（不是缺陷，是 Phase 2 的第一块料）**
+## [2026-10-15] `Experimental/DotNetHost` 原型被注释在构建外（C# 那条线的起点）｜✅已解决
 
-**问题**：`CMakeLists.txt:91` 逐字 `#add_subdirectory ("Experimental/DotNetHost")`，目录里只有 2 个文件（`private/CSharpHost.cpp` + `CMakeLists.txt`，2026-03-22，`nethost` + hostfxr 委托加载）。本机已有 .NET 8.0.6 / 8.0.23 / 9.0.12 / 10.0.2 与 `hostfxr.dll`。
-**改法**：开 `csharp-hostfxr-bootstrap` 时**第一步**判它：当年为什么被注掉、加载方式是否还成立、要不要按 `TODO/001-004` 的设计重写。
-**验收口径**：写进该 change 的 design（原型复用 / 废弃 + 依据），或明确删除 `Experimental/DotNetHost`。
-**相关**：`Experimental/DotNetHost/`、`CMakeLists.txt:91`、`TODO/README.md`（第 2 步）、`TODO/001-csharp-scripting-framework.md`。
+**状态：已解决（2026-10-18，`csharp-hostfxr-bootstrap` 的任务 1.1 判 + 1.6 删）**
+
+**它原来要什么**：判掉那个被 `CMakeLists.txt:91` 注释在构建外的原型（2 个文件：`private/CSharpHost.cpp` 79 行 + `CMakeLists.txt` 34 行）—— 复用还是废弃，要给依据。
+
+**判定结论（`openspec/changes/csharp-hostfxr-bootstrap/evidence/prototype-verdict.md`）**：读到 **113 行**、覆盖 **5 项**（nethost 定位 / 三导出获取 / initialize_for_runtime_config / get_runtime_delegate / close）、缺 **7 项**。关键是它**从没跑通过"加载并调用"这半截**（`main` 只调 `load_hostfxr()`；`get_dotnet_load_assembly` 1 处定义、0 处调用），且 nethost 路径写死成 Host pack `8.0.4`（本机没这个版本）。结论 = **搬加载序列进 `CSharpHost` 模块，删目录**。
+
+**结果**：`Experimental/DotNetHost/` 已删、根 `CMakeLists.txt` 第 91 行的注释已删；加载序列搬进 `CSharpHost/private/CSharpHost.cpp`（nethost 定位改用 CMake glob 取已装 Host pack，实测取到 10.0.2）。同 change 的 1.5 已跑通端到端：`[托管侧] 托管侧已启动：ABI 版本 1、函数表 24 字节` + `加载耗时 = 44 ms` + `Tick #1` 回值一致。
 
 ---
-
-# 已解决记录（保留供追溯；对应条目上移至待办后此区为空可清理）
 
 ## [2026-08-28] 压缩/复杂格式读回载体 & bpp 设计原则（add-render-readback 扩展边界）｜✅已解决
 

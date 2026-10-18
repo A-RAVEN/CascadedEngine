@@ -69,6 +69,7 @@ add_subdirectory ("Interface/TimerSystem")
 add_subdirectory ("Interface/IOManager")
 add_subdirectory ("Interface/RenderInterface")
 add_subdirectory ("Interface/ShaderCompiler")
+add_subdirectory ("Interface/ScriptHost")
 
 # Core implementations
 add_subdirectory ("TimerSystem_Impl")
@@ -78,6 +79,9 @@ add_subdirectory ("GeneralResources")
 add_subdirectory ("IOManager_FS")
 add_subdirectory ("ShaderCompilerSlang")
 
+# C# 宿主（把 CoreCLR 拉进本进程；手写壳，见 openspec/changes/.../csharp-hostfxr-bootstrap）
+add_subdirectory ("CSharpHost")
+
 # Render backends
 add_subdirectory ("VulkanRenderBackendNew")
 add_subdirectory ("D3D12RenderBackend")
@@ -86,6 +90,3 @@ add_subdirectory ("D3D12RenderBackend")
 #add_subdirectory ("Test/VulkanRendererBackendTester")
 add_subdirectory ("Test/GPUBackendTester")
 add_subdirectory ("Test/CoreTests")
-
-# Experimental projects
-#add_subdirectory ("Experimental/DotNetHost")

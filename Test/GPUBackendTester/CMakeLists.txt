@@ -28,6 +28,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Jolt)
 target_link_libraries(${PROJECT_NAME} PRIVATE IOManager)
 target_link_libraries(${PROJECT_NAME} PRIVATE magic_enum)
 target_link_libraries(${PROJECT_NAME} PRIVATE IMGUIContext)
+target_link_libraries(${PROJECT_NAME} PRIVATE ScriptHost)
 target_link_libraries(${PROJECT_NAME} PRIVATE dbghelp)
 #target_link_libraries(${PROJECT_NAME} PRIVATE IOManager_FS)
 

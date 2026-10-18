@@ -7,6 +7,7 @@ Usage:
     python build.py --config Debug  # use the Debug configuration (validation layers enabled)
     python build.py TargetName      # build a specific target
     python build.py --offline-fetch # configure 时不去碰依赖的远端（本机连不上 github 时用）
+    python build.py --without-managed # 显式跳过托管侧（C#）：产物目录里不会有 Scripting.Managed.dll
 
 `--offline-fetch` 做两件事：给 configure 传 `FETCHCONTENT_UPDATES_DISCONNECTED=ON`（跳过每个依赖的
 update 步 —— 那一步是 `git fetch`，本机连不上 github 时会以
@@ -976,6 +977,47 @@ def build(target: str | None = None) -> None:
     run_msvc(f"cmake --build {BUILD_DIR}{t}", "_build_build.log")
 
 
+def build_managed() -> None:
+    """编托管侧（C# 手写壳）并把产物拷到 bin 目录 —— 与 CSharpHost.dll 同目录，hostfxr 按路径找程序集。
+
+    缺 .NET SDK 时**必须失败**：静默跳过会让构建看起来成功、其实引擎里没有 C# 可用。
+    要走"明知没有托管侧"的路，用显式开关 --without-managed（跳过提示在 main 里打印）。
+    """
+    dotnet = shutil.which("dotnet")
+    if dotnet is None:
+        raise RuntimeError(
+            "缺少 .NET SDK：PATH 里找不到 dotnet 命令。装 .NET 8/9/10 SDK 后重试，"
+            "或用 --without-managed 显式跳过托管侧。"
+        )
+    csproj = PROJECT_DIR / "Scripting" / "Managed" / "Scripting.Managed.csproj"
+    if not csproj.is_file():
+        raise RuntimeError(f"缺少托管工程：{csproj} 不存在")
+
+    out_dir = BUILD_DIR / "managed"
+    configuration = "Debug" if config == "Debug" else "Release"
+    print()
+    print("=" * 60)
+    print(f"[托管侧] dotnet build -c {configuration} → {out_dir}")
+    print("=" * 60)
+    completed = subprocess.run(
+        [dotnet, "build", str(csproj), "-c", configuration, "-o", str(out_dir)],
+        cwd=str(PROJECT_DIR),
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"dotnet build 失败，退出码 {completed.returncode}")
+
+    bin_dir = BUILD_DIR / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    copied = []
+    for name in ("Scripting.Managed.dll", "Scripting.Managed.runtimeconfig.json", "Scripting.Managed.deps.json"):
+        source = out_dir / name
+        if not source.is_file():
+            raise RuntimeError(f"托管构建没有产出 {name}（在 {out_dir} 下找不到）")
+        shutil.copy2(source, bin_dir / name)
+        copied.append(name)
+    print(f"  [托管侧] 已拷到 {bin_dir}：{', '.join(copied)}")
+
+
 def main() -> None:
     global config, BUILD_DIR, NINJA_FILE
 
@@ -1016,6 +1058,7 @@ def main() -> None:
     force_configure = "--configure" in args
     codegen_all = "--codegen-all" in args
     offline_fetch = "--offline-fetch" in args
+    without_managed = "--without-managed" in args
     target = next((a for a in args if not a.startswith("--")), None)
 
     print("=== CascadedEngine Build Script (Python) ===")
@@ -1062,9 +1105,26 @@ def main() -> None:
     started = time.perf_counter()
     build(target)
     build_seconds = time.perf_counter() - started
+
+    started = time.perf_counter()
+    if without_managed:
+        print()
+        print("  已跳过托管侧，C# 不可用（--without-managed）：产物目录里不会有 Scripting.Managed.dll")
+    else:
+        try:
+            build_managed()
+        except Exception as exc:  # noqa: BLE001 — 托管侧任何失败都要报成"构建失败"，不是裸 traceback
+            print()
+            print("=" * 60)
+            print(f"托管侧构建失败：{exc}")
+            print("=" * 60)
+            sys.exit(1)
+    managed_seconds = time.perf_counter() - started
+
     print()
     print(f"  [耗时] configure {configure_seconds:.1f}s / codegen {codegen_seconds:.1f}s / "
-          f"编译 {build_seconds:.1f}s / 合计 {time.perf_counter() - total_start:.1f}s")
+          f"编译 {build_seconds:.1f}s / 托管侧 {managed_seconds:.1f}s / "
+          f"合计 {time.perf_counter() - total_start:.1f}s")
 
     if codegen_failures:
         print()

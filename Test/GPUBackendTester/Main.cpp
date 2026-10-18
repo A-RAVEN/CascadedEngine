@@ -1,4 +1,5 @@
 #include<mimalloc.h>
+#include <ScriptHost/IScriptHost.h>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -1180,6 +1181,46 @@ static void closeJsonArray(std::ofstream& jsonFile, bool isFirst)
 
 // ---- Entry Point ----
 
+// 层 ②：C# 宿主可用性（docs/testing.md 的两层测试里的第 ② 层）。
+// 只断言进程内状态；"坏的时候会不会响"由 Tools/check_csharp_host_failures.py 在层 ③ 覆盖。
+// 怎么把它弄红：把 Host.cs 里 Tick 的 `return s_tickCount;` 改成 `return 0;` —— 只有这一条会红。
+void TestScriptHost(TestContext& ctx)
+{
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		throw std::runtime_error("IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		throw std::runtime_error(std::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+	if (pScriptHost->LastError()[0] != '\0')
+	{
+		throw std::runtime_error(std::string("托管侧可用但 LastError 非空：") + pScriptHost->LastError());
+	}
+
+	int32_t first = pScriptHost->Tick(0.016);
+	if (first != 1)
+	{
+		throw std::runtime_error("第一次跨边界 Tick 期望回值 1，实际 " + std::to_string(first));
+	}
+
+	int32_t second = pScriptHost->Tick(0.016);
+	if (second != 2)
+	{
+		throw std::runtime_error("第二次跨边界 Tick 期望回值 2（证明状态在托管侧保留了），实际 " +
+			std::to_string(second));
+	}
+
+	if (pScriptHost->LastError()[0] != '\0')
+	{
+		throw std::runtime_error(std::string("两次 Tick 之后 LastError 非空：") + pScriptHost->LastError());
+	}
+
+	CA_LOG("TestScriptHost 通过：IsAvailable=true、Tick 回值 1 → 2、LastError 为空");
+}
+
 int main(int argc, char* argv[])
 {
 	// Task 1.7 + 3.4: Must be first line BEFORE any I/O
@@ -1334,6 +1375,7 @@ int main(int argc, char* argv[])
 		std::cout << "  TestComputeBuffer\n";
 		std::cout << "  TestReadback\n";
 		std::cout << "  TestIMGUI\n";
+		std::cout << "  TestScriptHost\n";
 		return 0;
 	}
 
@@ -1417,8 +1459,25 @@ int main(int argc, char* argv[])
 	CA_ADD_MODULE(ctx.pModuleManager, IOManager_FS);
 	CA_ADD_MODULE(ctx.pModuleManager, CAGeneralReourceSystem);
 	CA_ADD_MODULE(ctx.pModuleManager, IMGUIContext);
+	CA_ADD_MODULE(ctx.pModuleManager, CSharpHost);
 
 	ctx.pModuleManager->LinkModules();
+
+	// C# 宿主模块：先打一行"能不能取到 IScriptHost"（csharp-hostfxr-bootstrap 任务 1.2 的验收读数）。
+	// 跨边界调用的真正断言在 TestScriptHost 里（docs/testing.md 的第 ② 层），这里不再自己调 Tick ——
+	// 那会让托管侧的 Tick 计数提前走一格，测试里的"第一次 Tick 应为 1"就对不上了。
+	if (auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>())
+	{
+		CA_LOG("IScriptHost 已取到：IsAvailable = {}", pScriptHost->IsAvailable() ? "true" : "false");
+		if (!pScriptHost->IsAvailable())
+		{
+			CA_LOG_ERR("托管侧不可用：{}", pScriptHost->LastError());
+		}
+	}
+	else
+	{
+		CA_LOG("IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
 
 	// Task 4.4: Get SetValidationLogFile function pointer from Vulkan DLL
 	using SetValidationLogFileFn = void(*)(FILE*);
@@ -1558,6 +1617,8 @@ int main(int argc, char* argv[])
 			runTestWithDiagnostics("TestReadback", TestReadback);
 		else if (strcmp(testName.c_str(), "TestIMGUI") == 0)
 			runTestWithDiagnostics("TestIMGUI", TestIMGUI);
+		else if (strcmp(testName.c_str(), "TestScriptHost") == 0)
+			runTestWithDiagnostics("TestScriptHost", TestScriptHost);
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -1576,10 +1637,18 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestComputeBuffer", TestComputeBuffer);
 		runTestWithDiagnostics("TestReadback", TestReadback);
 		runTestWithDiagnostics("TestIMGUI", TestIMGUI);
+		runTestWithDiagnostics("TestScriptHost", TestScriptHost);
 	}
 
 	// Task 2.5: Close JSON array
 	closeJsonArray(jsonFile, jsonFirst);
+
+	// 托管运行时的关闭由 CSharpHost 实例的析构负责（在模块被卸载之前），这里只打一行读数
+	if (auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>())
+	{
+		CA_LOG("引擎：托管侧在退出前的状态 IsAvailable = {}（关闭由模块析构负责）",
+			pScriptHost->IsAvailable() ? "true" : "false");
+	}
 
 	return EXIT_SUCCESS;
 }

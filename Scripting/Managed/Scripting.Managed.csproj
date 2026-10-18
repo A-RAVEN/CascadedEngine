@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    托管侧手写壳。它由引擎的 CSharpHost 模块加载（framework-dependent 的 JIT 形态），
+    不是可直接运行的 exe：EnableDynamicLoading 让构建产出 runtimeconfig.json，供 hostfxr 使用。
+    这里不放任何生成的绑定 —— 绑定由 csharp-bindings-generator 产出后编进来。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>LatestMinor</RollForward>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Scripting.Managed</AssemblyName>
+    <RootNamespace>Scripting.Managed</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>
