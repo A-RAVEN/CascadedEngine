@@ -1,0 +1,4 @@
+# 托管侧的本地构建产物：dotnet build 会在工程目录下留 bin/ 与 obj/。
+# 真正的交付产物由 build.py 拷到 out/build/<预设>/bin/（那里整体被根 .gitignore 忽略）。
+bin/
+obj/
