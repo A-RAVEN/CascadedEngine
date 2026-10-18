@@ -8,18 +8,33 @@
 - **THEN** 生成的 C++ thunk 数量、名字顺序 MUST 与 C# 包装里的方法数量、名字顺序逐条相同（比对脚本给出条数与逐条差异）
 
 ### Requirement: 生成的 C ABI 面只允许审计表规定的形状
-生成器 MUST 只按 `csharp-bindable-surface` 的投影矩阵出形状：blittable 标量与结构体、`T const* + 数量`、不透明句柄、`char const* + len`。生成的 C ABI 签名里 MUST NOT 出现容器类型（`castl::vector` / `map` / `string` 等）、模板、`shared_ptr` / `unique_ptr` / `weak_ptr`、C++ 引用。
+生成器 MUST 只按 `csharp-bindable-surface` 的投影矩阵出形状：blittable 标量与结构体、`T const* + 数量`、不透明句柄、`char const* + len`、以及**函数指针 + `void* user`**（回调那一行；`user` 只作不透明令牌，生成代码 MUST NOT 解引用它）。生成的 C ABI 签名里 MUST NOT 出现容器类型（`castl::vector` / `map` / `string` 等）、模板、`shared_ptr` / `unique_ptr` / `weak_ptr`、C++ 引用。
 
 #### Scenario: 签名里出现容器类型即算不合格
 - **WHEN** 扫描生成的 `<接口>.Bindings.cpp` 里所有 `extern "C"` 声明
-- **THEN** 命中容器类型名或模板尖括号的数量 MUST 为 0（脚本给命中数与命中行）
+- **THEN** 容器类型名、模板尖括号、`shared_ptr`/`unique_ptr`/`weak_ptr`、C++ `&` 引用的命中数 MUST 全为 0（脚本逐类给命中数与命中行）
 
-### Requirement: 函数表版本化且只允许追加
-生成的函数表 MUST 是带 `abi_version` 与 `size` 的结构体，由 `extern "C"` 的取表函数填充并返回实际大小。新版本 MUST 只在末尾追加字段（旧字段顺序与类型不变），旧托管侧按自己的 `size` 校验 MUST 仍然通过；新托管侧遇到更小的 `size` MUST 拒绝。
+### Requirement: 回调必须带保活与注销，异常必须转成错误码
+矩阵里"回调"那一行 MUST 生成：函数指针 + `void* user` + 一张保活表 + 注册时返回的注销句柄；注销后同一句柄再注册 MUST 报错而不是复用。矩阵里"会抛异常的方法" MUST 在生成的 thunk 里 try/catch，并 MUST 转成"错误码 + 一条文本"返回；MUST NOT 让异常穿过 C ABI。
 
-#### Scenario: 追加字段后旧版本仍可加载
-- **WHEN** 用 v1 的期望大小去校验 v2 的表（v2 只在末尾多一个字段）
-- **THEN** 校验通过并把 v2 多出来的字段标成"不可用"，而不是整体拒绝
+#### Scenario: 注销后再注册必须报错
+- **WHEN** 注册一个回调、注销它、再用同一句柄注册
+- **THEN** 第二次注册 MUST 返回错误码并命名为"句柄已失效"
+
+#### Scenario: 抛异常的方法只回错误码与文本
+- **WHEN** 调用一个在实现里抛异常的已绑定方法
+- **THEN** 调用方 MUST 收到非零错误码与一条非空文本，进程 MUST NOT 崩溃、异常 MUST NOT 穿出 thunk
+
+### Requirement: 函数表版本化，且本 change 只做"版本相等"校验
+生成的函数表 MUST 是带 `abi_version` 与 `size` 的结构体，由 `extern "C"` 的取表函数填充并返回实际大小；取表函数的签名 MUST 让调用方把自己的版本与大小传进来（`GetApi(uint32 version, uint32 size, <表>* out)`），引擎侧 MUST 只写调用方 `size` 与真实表大小中较小的那一段，并 MUST 回填自己真实的大小。**本 change 只要求"版本相等 + 大小相等"这一档**（与已落地的 `Scripting/Managed/Host.cs` 校验口径一致）；"旧侧按自己较小的 size 也能通过"的追加兼容 MUST NOT 写进本 change 的验收 —— 在 `GetApi(out)` 这种只有出参的签名下它不成立（引擎不知道调用方缓冲区多大，写下去就越界）。
+
+#### Scenario: 版本或大小不等必须拒绝
+- **WHEN** 用错误的 `abi_version` 或错误的 `size` 调取表函数
+- **THEN** MUST 返回 0（表示拒绝）且 MUST NOT 往调用方缓冲区里写超出其 `size` 的字节
+
+#### Scenario: 相等时通过并回填真实大小
+- **WHEN** 用正确的版本与大小调取表函数
+- **THEN** MUST 返回真实表大小，且调用方缓冲区里的字段与生成物逐项一致
 
 ### Requirement: 句柄分配与释放由生成物负责，且带代际号
 生成的句柄 MUST 同时编码序号与代际号；释放 MUST 让代际号进位，使旧句柄 MUST 被识别为失效而不是命中新对象。返回智能指针的方法 MUST 生成配对的释放函数；接口参数里的智能指针 MUST 反查句柄表。MUST NOT 生成"句柄背后的内存由托管侧 free/delete"这种跨边界所有权。
@@ -58,7 +73,7 @@
 - **THEN** 该接口的产物文件数 MUST 为 0，且日志的"跳过"清单里 MUST 列出它
 
 ### Requirement: 每个矩阵行必须有 conformance 夹具
-生成器 MUST 让**投影矩阵的每一行**都能指到一个夹具接口（矩阵在 `Tools/CodeGen/README.md` 第十三节，14 行数据），并 MUST 有脚本按行打印"矩阵行 → 夹具"映射、断言每一行恰好对应一个夹具、且该夹具生成的 C ABI 签名逐字符合矩阵里写的形状。MUST NOT 用"矩阵行数与夹具数相等"作为判据 —— 那在缺行、多出重复夹具时会同时成立而假绿。
+生成器 MUST 让**投影矩阵的每一行**都能指到一个夹具接口（矩阵在 `Tools/CodeGen/README.md` 第十三节，14 行数据），并 MUST 有脚本按行打印"矩阵行 → 夹具"映射、断言每一行恰好对应一个夹具、且该夹具生成的 C ABI 签名逐字符合矩阵里写的形状。矩阵里"不投影"的那一行（`weak_ptr`）MUST 用**拒绝夹具**：断言生成器非零退出并点名该行；"会抛异常"那一行 MUST 断言"错误码 + 文本"这种输出，而不是比对签名。MUST NOT 用"矩阵行数与夹具数相等"作为判据 —— 那在缺行、多出重复夹具时会同时成立而假绿。
 
 #### Scenario: 矩阵每一行都能指到一个夹具
 - **WHEN** 跑 conformance 脚本
