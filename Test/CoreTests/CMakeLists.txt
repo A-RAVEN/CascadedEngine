@@ -1,4 +1,4 @@
-set(PROJECT_NAME CoreTests)
+﻿set(PROJECT_NAME CoreTests)
 project (${PROJECT_NAME})
 
 file(GLOB_RECURSE Source_List "*.cpp")
@@ -21,7 +21,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
 # (Tools/CodeGen/TestEmit.h) + the emitted reflection next to the fixtures' OWNER module. 归属目录决定产物
 # 落在哪：夹具的头在 Tools/CodeGen 下，但消费它的编译单元在这个模块里，所以产物跟着这个模块走 ——
 # 出仓之后它在构建目录的 `codegen/Test_CoreTests/`，源码树里没有 `generated/` 了。
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/Tools/CodeGen ${CMAKE_BINARY_DIR}/codegen/Test_CoreTests ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/private ${CMAKE_BINARY_DIR}/codegen/Interface_RenderInterface ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/header)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/Tools/CodeGen ${CMAKE_BINARY_DIR}/codegen/Test_CoreTests ${CMAKE_BINARY_DIR}/codegen/bindings ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/private ${CMAKE_BINARY_DIR}/codegen/Interface_RenderInterface ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/header)
 
 # D3D12 后端的真实类型（`graphics_backend::ShaderLibrary`，在 `D3D12RenderBackend/private` 下）也要有新旧字节
 # 对拍：借它的私有头与它的生成物目录，把这个类型编进来。只用到头里的定义与生成的序列化入口，不调用那个

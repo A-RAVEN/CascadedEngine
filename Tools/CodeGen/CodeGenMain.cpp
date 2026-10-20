@@ -1231,6 +1231,1534 @@ void collectInclusion(CXFile includedFile, CXSourceLocation* /*stack*/, unsigned
     clang_disposeString(name);
 }
 
+// =============================================================================================
+// 绑定发射器（`--emit-binding`）：把被 `CA_BIND` 标注的接口投影成 C ABI 声明 + C# 声明。
+// 规矩见 openspec/specs/csharp-bindable-surface/spec.md 与 Tools/CodeGen/README.md 第十三节。
+// 这一段只出**签名**（任务 2.1）：thunk 实现、版本化函数表、句柄表、布局清单在后续任务接。
+// =============================================================================================
+namespace bindemit
+{
+    std::string toStd(CXString value)
+    {
+        const char* text = clang_getCString(value);
+        std::string result = text != nullptr ? text : "";
+        clang_disposeString(value);
+        return result;
+    }
+
+    std::string trimCopy(std::string value)
+    {
+        const std::size_t begin = value.find_first_not_of(" \t\r\n");
+        if (begin == std::string::npos)
+        {
+            return {};
+        }
+        const std::size_t end = value.find_last_not_of(" \t\r\n");
+        return value.substr(begin, end - begin + 1);
+    }
+
+    std::string bareType(std::string spelling)
+    {
+        spelling = trimCopy(std::move(spelling));
+        for (;;)
+        {
+            if (spelling.rfind("const ", 0) == 0)
+            {
+                spelling = trimCopy(spelling.substr(6));
+                continue;
+            }
+            if (!spelling.empty() && (spelling.back() == '&' || spelling.back() == '*'))
+            {
+                const char last = spelling.back();
+                spelling.pop_back();
+                spelling = trimCopy(spelling);
+                if (last == '&' && !spelling.empty() && spelling.back() == '&')
+                {
+                    spelling.pop_back();
+                    spelling = trimCopy(spelling);
+                }
+                continue;
+            }
+            break;
+        }
+        return spelling;
+    }
+
+    bool isScalarType(std::string const& bare)
+    {
+        static const char* const scalars[] = {
+            "int8_t", "uint8_t", "int16_t", "uint16_t", "int32_t", "uint32_t",
+            "int64_t", "uint64_t", "float", "double", "bool", "size_t",
+            // 真实接口里写的是 C 的原生类型（`int` / `unsigned int` / `char` …），一样按定宽整数投影
+            "int", "unsigned", "unsigned int", "long", "unsigned long", "short", "char",
+        };
+        for (char const* scalar : scalars)
+        {
+            if (bare == scalar)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasPrefix(std::string const& text, char const* prefix)
+    {
+        return text.rfind(prefix, 0) == 0;
+    }
+
+    struct MethodSignature
+    {
+        std::string name;
+        std::string returnSpelling;
+        int returnKind = 0;                                        // CXTypeKind 的取值，用来认枚举
+        std::vector<std::pair<std::string, std::string>> params;   // （类型拼写，形参名）
+        std::vector<int> paramKinds;
+        bool isConst = false;
+    };
+
+    struct InterfaceShape
+    {
+        std::string name;
+        std::string qualifiedName; // 带命名空间的完整拼写，用于 static_cast
+        std::vector<MethodSignature> methods;
+    };
+
+    struct ClassCollector
+    {
+        std::vector<std::string> const* wanted = nullptr;
+        std::vector<InterfaceShape>* sink = nullptr;
+    };
+
+    struct MethodCollector
+    {
+        std::vector<MethodSignature>* sink = nullptr;
+    };
+
+    bool hasMethodNamed(std::vector<MethodSignature> const& methods, MethodSignature const& candidate)
+    {
+        for (MethodSignature const& method : methods)
+        {
+            if (method.name != candidate.name || method.params.size() != candidate.params.size())
+            {
+                continue;
+            }
+            bool sameTypes = true;
+            for (std::size_t i = 0; i < method.params.size(); ++i)
+            {
+                if (method.params[i].first != candidate.params[i].first)
+                {
+                    sameTypes = false;
+                    break;
+                }
+            }
+            if (sameTypes)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    CXChildVisitResult collectMethods(CXCursor cursor, CXCursor, CXClientData data)
+    {
+        auto* collector = static_cast<MethodCollector*>(data);
+        if (clang_getCursorKind(cursor) != CXCursor_CXXMethod ||
+            clang_CXXMethod_isPureVirtual(cursor) == 0u)
+        {
+            return CXChildVisit_Continue;
+        }
+
+        MethodSignature method;
+        method.name = toStd(clang_getCursorSpelling(cursor));
+        if (method.name.empty() || method.name[0] == '~')
+        {
+            return CXChildVisit_Continue;
+        }
+        method.isConst = clang_CXXMethod_isConst(cursor) != 0u;
+
+
+        const CXType functionType = clang_getCursorType(cursor);
+        method.returnSpelling = toStd(clang_getTypeSpelling(clang_getResultType(functionType)));
+        method.returnKind = static_cast<int>(clang_getCanonicalType(clang_getResultType(functionType)).kind);
+
+        const int count = clang_Cursor_getNumArguments(cursor);
+        for (int index = 0; index < count; ++index)
+        {
+            const CXCursor argument = clang_Cursor_getArgument(cursor, static_cast<unsigned>(index));
+            const CXType argumentCXType = clang_getCursorType(argument);
+            const std::string argumentType = toStd(clang_getTypeSpelling(argumentCXType));
+            const std::string argumentName = toStd(clang_getCursorSpelling(argument));
+            method.params.emplace_back(argumentType, argumentName);
+            method.paramKinds.push_back(static_cast<int>(clang_getCanonicalType(argumentCXType).kind));
+        }
+        // 前向声明与定义会被访问两次：同名同参的方法只收一次（此时形参已填好）
+        if (hasMethodNamed(*collector->sink, method))
+        {
+            return CXChildVisit_Continue;
+        }
+        collector->sink->push_back(std::move(method));
+        return CXChildVisit_Continue;
+    }
+
+
+    CXChildVisitResult collectClasses(CXCursor cursor, CXCursor, CXClientData data)
+    {
+        auto* collector = static_cast<ClassCollector*>(data);
+        if (clang_getCursorKind(cursor) == CXCursor_ClassDecl || clang_getCursorKind(cursor) == CXCursor_StructDecl)
+        {
+            const std::string name = toStd(clang_getCursorSpelling(cursor));
+            for (std::string const& wanted : *collector->wanted)
+            {
+                if (name == wanted)
+                {
+                    // 同一个接口可能被访问多次（前向声明 + 定义）：只收一次
+                    bool alreadyCollected = false;
+                    for (InterfaceShape const& existing : *collector->sink)
+                    {
+                        if (existing.name == name)
+                        {
+                            alreadyCollected = true;
+                            break;
+                        }
+                    }
+                    if (alreadyCollected)
+                    {
+                        return CXChildVisit_Recurse;
+                    }
+                    InterfaceShape shape;
+                    shape.name = name;
+                    // 带命名空间的完整拼写（thunk 里 static_cast 要用它；只写短名在命名空间里编不过）。
+                    // libclang 的类型拼写在这里只给短名，所以自己沿"语义父"把命名空间串起来。
+                    {
+                        std::string prefix;
+                        for (CXCursor parent = clang_getCursorSemanticParent(cursor);
+                             !clang_Cursor_isNull(parent) &&
+                             clang_getCursorKind(parent) == CXCursor_Namespace;
+                             parent = clang_getCursorSemanticParent(parent))
+                        {
+                            prefix = toStd(clang_getCursorSpelling(parent)) + "::" + prefix;
+                        }
+                        shape.qualifiedName = prefix + name;
+                    }
+                    MethodCollector methods;
+                    methods.sink = &shape.methods;
+                    clang_visitChildren(cursor, collectMethods, &methods);
+                    collector->sink->push_back(std::move(shape));
+                    break;
+                }
+            }
+            return CXChildVisit_Recurse;
+        }
+        return CXChildVisit_Recurse;
+    }
+
+    // 从源码文本里读 `CA_BIND`（与之后的 class/struct 名字）。与 CA_REFLECT 同一条通道：按文本认。
+    std::string readWholeFile(const char* path)
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            return {};
+        }
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+
+    // 从源码文本里读 `CA_BIND`（紧跟着的 class/struct 名字）与 `CA_BIND_SKIP(方法, "理由")`。
+    struct BoundMarker
+    {
+        std::string interfaceName;
+        bool isTemplate = false;
+        std::map<std::string, std::string> skipReasons;  // 方法 → 理由（空串 = 没写理由）
+    };
+
+    std::vector<BoundMarker> scanBoundMarkers(std::string const& text)
+    {
+        std::vector<BoundMarker> markers;
+        std::size_t position = 0;
+        bool pendingBind = false;
+        bool pendingTemplate = false;
+        while (position < text.size())
+        {
+            const std::size_t lineEnd = text.find('\n', position);
+            std::string line = text.substr(position, lineEnd == std::string::npos ? std::string::npos
+                                                                                : lineEnd - position);
+            position = lineEnd == std::string::npos ? text.size() : lineEnd + 1;
+
+            if (line.find("template") != std::string::npos)
+            {
+                pendingTemplate = true;
+            }
+            if (line.find("CA_BIND(") != std::string::npos)
+            {
+                pendingBind = true;
+                continue;
+            }
+            // 排除：紧跟在本接口之后、下一个 CA_BIND 之前出现
+            const std::size_t skipAt = line.find("CA_BIND_SKIP(");
+            if (skipAt != std::string::npos && !markers.empty())
+            {
+                const std::size_t open = line.find('(', skipAt);
+                const std::size_t close = line.find(')', open);
+                const std::string inside =
+                    (open != std::string::npos && close != std::string::npos)
+                        ? line.substr(open + 1, close - open - 1)
+                        : std::string();
+                const std::size_t comma = inside.find(',');
+                const std::string method = trimCopy(comma == std::string::npos ? inside
+                                                                              : inside.substr(0, comma));
+                std::string reason = trimCopy(comma == std::string::npos ? std::string()
+                                                                         : inside.substr(comma + 1));
+                if (reason == "\"\"" || reason == "\"," || reason.empty())
+                {
+                    reason.clear(); // 没写理由，后面按错误报
+                }
+                markers.back().skipReasons[method] = reason;
+                continue;
+            }
+            if (!pendingBind)
+            {
+                continue;
+            }
+            const bool isTemplateLine = pendingTemplate;
+            const std::size_t classAt = line.find("class ");
+            const std::size_t structAt = line.find("struct ");
+            if (classAt == std::string::npos && structAt == std::string::npos)
+            {
+                // `template <typename T>` 与 `class X` 常常分两行：模板标记先记下，继续等 class 行
+                continue;
+            }
+            const bool isClass = classAt != std::string::npos;
+            const std::size_t at = isClass ? classAt : structAt;
+            std::size_t nameBegin = at + (isClass ? 6u : 7u);
+            while (nameBegin < line.size() && line[nameBegin] == ' ')
+            {
+                ++nameBegin;
+            }
+            std::size_t nameEnd = nameBegin;
+            while (nameEnd < line.size() &&
+                   (std::isalnum(static_cast<unsigned char>(line[nameEnd])) || line[nameEnd] == '_' ||
+                    line[nameEnd] == ':'))
+            {
+                ++nameEnd;
+            }
+            std::string name = line.substr(nameBegin, nameEnd - nameBegin);
+            const std::size_t colon = name.rfind("::");
+            if (colon != std::string::npos)
+            {
+                name = name.substr(colon + 2);
+            }
+            if (!name.empty())
+            {
+                BoundMarker marker;
+                marker.interfaceName = name;
+                marker.isTemplate = isTemplateLine;
+                markers.push_back(std::move(marker));
+            }
+            pendingBind = false;
+            pendingTemplate = false;
+        }
+        return markers;
+    }
+
+    struct Projected
+    {
+        std::string type;
+        std::string name;
+    };
+
+    struct MirrorField
+    {
+        std::string name;
+        std::string cType;
+        uint64_t offsetBytes = 0;
+    };
+
+    struct MirrorType
+    {
+        std::string cppName;   // C++ 侧结构体名（例如 BindScalarThing）
+        std::string cName;     // C 侧镜像名（例如 BindScalarThingC）
+        uint64_t sizeBytes = 0;
+        std::vector<MirrorField> fields;
+        bool ok = true;
+        std::string whyNot;
+    };
+
+    struct MirrorCollector
+    {
+        std::set<std::string> const* wanted = nullptr;
+        std::vector<MirrorType>* sink = nullptr;
+    };
+
+    // 游标的完整名字（含命名空间）：镜像断言要对着真实类型做，短名在命名空间里找不到（C2065）。
+    std::string qualifiedCursorName(CXCursor cursor)
+    {
+        std::string prefix;
+        for (CXCursor parent = clang_getCursorSemanticParent(cursor);
+             !clang_Cursor_isNull(parent) && clang_getCursorKind(parent) == CXCursor_Namespace;
+             parent = clang_getCursorSemanticParent(parent))
+        {
+            prefix = toStd(clang_getCursorSpelling(parent)) + "::" + prefix;
+        }
+        return prefix + toStd(clang_getCursorSpelling(cursor));
+    }
+
+    CXChildVisitResult collectMirrorTypes(CXCursor cursor, CXCursor, CXClientData data)
+    {
+        auto* collector = static_cast<MirrorCollector*>(data);
+        const CXCursorKind kind = clang_getCursorKind(cursor);
+        if (kind != CXCursor_StructDecl && kind != CXCursor_ClassDecl)
+        {
+            return CXChildVisit_Recurse;
+        }
+        // 只收**定义**：前向声明那一次访问拿不到形参，收到就会生成空签名（实测把 16 条方法弄成 32 条、
+        // 对拍多出 18 处不符）
+        if (clang_isCursorDefinition(cursor) == 0)
+        {
+            return CXChildVisit_Recurse;
+        }
+        const std::string name = toStd(clang_getCursorSpelling(cursor));
+        if (collector->wanted->find(name) == collector->wanted->end())
+        {
+            return CXChildVisit_Recurse;
+        }
+
+        MirrorType mirror;
+        mirror.cppName = qualifiedCursorName(cursor);
+        mirror.cName = name + "C";
+        const long long size = clang_Type_getSizeOf(clang_getCursorType(cursor));
+        if (size <= 0)
+        {
+            mirror.ok = false;
+            mirror.whyNot = "取不到大小（不完整的类型？）";
+            collector->sink->push_back(std::move(mirror));
+            return CXChildVisit_Recurse;
+        }
+        mirror.sizeBytes = static_cast<uint64_t>(size);
+
+        struct FieldWalk
+        {
+            MirrorType* mirror;
+        } walk{ &mirror };
+        clang_visitChildren(
+            cursor,
+            [](CXCursor fieldCursor, CXCursor, CXClientData fieldData) {
+                auto* state = static_cast<FieldWalk*>(fieldData);
+                if (clang_getCursorKind(fieldCursor) == CXCursor_CXXMethod)
+                {
+                    // 有方法的类型不是"纯数据"，不可能是 C 侧镜像（实测：IWindowSystem 被当成镜像，
+                    // 生成的 static_assert 当场炸）
+                    state->mirror->ok = false;
+                    state->mirror->whyNot = "类型带方法（不是纯数据结构）";
+                    return CXChildVisit_Continue;
+                }
+                if (clang_getCursorKind(fieldCursor) != CXCursor_FieldDecl)
+                {
+                    return CXChildVisit_Continue;
+                }
+                MirrorField field;
+                field.name = toStd(clang_getCursorSpelling(fieldCursor));
+                field.cType = toStd(clang_getTypeSpelling(clang_getCursorType(fieldCursor)));
+                const long long bitOffset = clang_Cursor_getOffsetOfField(fieldCursor);
+                field.offsetBytes = bitOffset > 0 ? static_cast<uint64_t>(bitOffset) / 8u : 0u;
+                state->mirror->fields.push_back(std::move(field));
+                return CXChildVisit_Continue;
+            },
+            &walk);
+
+        // 只覆盖"成员全是标量"的结构体；别的情况**明说跳过**，不猜布局。
+        for (MirrorField const& field : mirror.fields)
+        {
+            if (!isScalarType(bareType(field.cType)))
+            {
+                mirror.ok = false;
+                mirror.whyNot = "成员 " + field.name + " 的类型是 " + field.cType + "（非标量，布局清单暂不覆盖）";
+                break;
+            }
+        }
+        collector->sink->push_back(std::move(mirror));
+        return CXChildVisit_Recurse;
+    }
+
+    // 生成布局清单：C++ 侧结构体的镜像 + `static_assert(sizeof/offsetof)`，外加 C# 侧的同源常量。
+    // 静态断言是关键：只有"两份同源常量互相比较"时，生成器算错布局会让两侧一起错、自检照样绿。
+    void emitLayoutManifest(std::string* cpp, std::string* cs, std::vector<MirrorType> const& mirrors)
+    {
+        for (MirrorType const& mirror : mirrors)
+        {
+            if (!mirror.ok)
+            {
+                *cpp += "// 布局清单跳过 " + mirror.cppName + "：" + mirror.whyNot + "\n";
+                continue;
+            }
+            *cpp += "typedef struct " + mirror.cName + " {\n";
+            for (MirrorField const& field : mirror.fields)
+            {
+                *cpp += "    " + field.cType + " " + field.name + ";\n";
+            }
+            *cpp += "} " + mirror.cName + ";\n";
+            // 关键：断言要**对着 C++ 侧的真实类型**做。只比"镜像 vs 镜像自己算出来的常量"是假判据 ——
+            // 生成器算错布局时两边一起错、照样绿；只有把真实类型拉进来，头里改了字段而不重新生成才会红。
+            *cpp += "static_assert(sizeof(" + mirror.cppName + ") == " + std::to_string(mirror.sizeBytes) +
+                    ", \"布局清单与 C++ 侧不一致：\" \"" + mirror.cppName + " 的真实大小变了，重新生成绑定\");\n";
+            for (MirrorField const& field : mirror.fields)
+            {
+                *cpp += "static_assert(offsetof(" + mirror.cppName + ", " + field.name + ") == " +
+                        std::to_string(field.offsetBytes) + ", \"布局清单与 C++ 侧不一致：\" \"" +
+                        mirror.cppName + "." + field.name + " 的真实偏移变了，重新生成绑定\");\n";
+            }
+            *cpp += "static_assert(sizeof(" + mirror.cName + ") == " + std::to_string(mirror.sizeBytes) +
+                    ", \"镜像结构体与清单不一致：\" \"" + mirror.cName + " 的大小\");\n";
+            for (MirrorField const& field : mirror.fields)
+            {
+                *cpp += "static_assert(offsetof(" + mirror.cName + ", " + field.name + ") == " +
+                        std::to_string(field.offsetBytes) + ", \"布局清单与 C++ 侧不一致：\" \"" +
+                        mirror.cName + "." + field.name + " 的偏移\");\n";
+            }
+            *cpp += "\n";
+            *cs += "        // 布局清单（与 C++ 侧同源常量；不一致由 C++ 的 static_assert 先兜住）\n";
+            *cs += "        public const int " + mirror.cName + "_Size = " +
+                   std::to_string(mirror.sizeBytes) + ";\n";
+            for (MirrorField const& field : mirror.fields)
+            {
+                *cs += "        public const int " + mirror.cName + "_" + field.name + "_Offset = " +
+                       std::to_string(field.offsetBytes) + ";\n";
+            }
+        }
+    }
+
+    struct UnboundCollector
+    {
+        std::vector<std::string> const* bound = nullptr;
+        std::vector<std::string>* sink = nullptr;
+        std::string mainFile;   // 输入头的文件名（小写、正斜杠），只报这个文件里声明的接口
+    };
+
+    CXChildVisitResult collectUnboundInterfaces(CXCursor cursor, CXCursor, CXClientData data)
+    {
+        auto* collector = static_cast<UnboundCollector*>(data);
+        const CXCursorKind kind = clang_getCursorKind(cursor);
+        if ((kind == CXCursor_ClassDecl || kind == CXCursor_StructDecl) &&
+            clang_isCursorDefinition(cursor) != 0)
+        {
+            // 有没有纯虚方法（= 是不是接口）
+            bool hasPureVirtual = false;
+            clang_visitChildren(
+                cursor,
+                [](CXCursor member, CXCursor, CXClientData flagData) {
+                    if (clang_getCursorKind(member) == CXCursor_CXXMethod &&
+                        clang_CXXMethod_isPureVirtual(member) != 0u)
+                    {
+                        *static_cast<bool*>(flagData) = true;
+                        return CXChildVisit_Break;
+                    }
+                    return CXChildVisit_Continue;
+                },
+                &hasPureVirtual);
+            const std::string name = toStd(clang_getCursorSpelling(cursor));
+            // 只报**本文件里声明的**接口：否则标准库那些抽象类（memory_resource / _Ref_count_base）
+            // 会把跳过清单刷满，真正要看的那一条反而被埋掉
+            // 只报**本文件里声明的**接口：否则标准库那些抽象类（memory_resource / _Ref_count_base）
+            // 会把跳过清单刷满，真正要看的那一条反而被埋掉
+            CXSourceLocation location = clang_getCursorLocation(cursor);
+            CXFile declFile = nullptr;
+            clang_getSpellingLocation(location, &declFile, nullptr, nullptr, nullptr);
+            std::string declPath = declFile != nullptr ? toStd(clang_getFileName(declFile)) : std::string();
+            for (char& character : declPath)
+            {
+                if (character == '\\') { character = '/'; }
+                character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+            }
+            const bool inMainFile = !declPath.empty() && !collector->mainFile.empty() &&
+                                    declPath.size() >= collector->mainFile.size() &&
+                                    declPath.compare(declPath.size() - collector->mainFile.size(),
+                                                     collector->mainFile.size(), collector->mainFile) == 0;
+            const bool isBound = std::find(collector->bound->begin(), collector->bound->end(), name) !=
+                                 collector->bound->end();
+            if (hasPureVirtual && !isBound && inMainFile)
+            {
+                collector->sink->push_back(name);
+            }
+        }
+        return CXChildVisit_Recurse;
+    }
+    int paramKindFor(MethodSignature const& method, std::size_t index)
+    {
+        return index < method.paramKinds.size() ? method.paramKinds[index] : 0;
+    }
+
+    // C ABI 类型 → C# 类型。认得的逐个映射；认不得的（镜像结构体、函数指针）先按 `void*` 走 ——
+    // 真实映射与布局清单在任务 2.5 接，这里的桩是**可见的**（不是悄悄给个错类型）。
+    std::string toCSharpType(std::string const& cType)
+    {
+        if (cType == "void")
+        {
+            return "void";
+        }
+        if (cType == "int32_t" || cType == "int")
+        {
+            return "int";
+        }
+        if (cType == "uint32_t")
+        {
+            return "uint";
+        }
+        if (cType == "uint64_t")
+        {
+            return "ulong";
+        }
+        if (cType == "uint8_t")
+        {
+            return "byte";
+        }
+        if (cType == "float")
+        {
+            return "float";
+        }
+        if (cType == "double")
+        {
+            return "double";
+        }
+        if (cType == "void*")
+        {
+            return "void*";
+        }
+        if (cType == "char const*" || cType == "char*")
+        {
+            return "byte*";
+        }
+        if (cType == "uint8_t const*")
+        {
+            return "byte*";
+        }
+        if (!cType.empty() && cType.back() == '*')
+        {
+            std::string inner = cType.substr(0, cType.size() - 1);
+            while (!inner.empty() && inner.back() == ' ')
+            {
+                inner.pop_back();
+            }
+            if (inner.size() > 6 && inner.compare(inner.size() - 6, 6, " const") == 0)
+            {
+                inner = inner.substr(0, inner.size() - 6);
+            }
+            // 结构体镜像按字节指针走；标量指针按对应标量走
+            return toCSharpType(trimCopy(inner)) + "*";
+        }
+        return "void*";
+    }
+
+    // 把一条方法投影成 C ABI 的（参数们, 返回类型）。返回 false 表示该形状必须被拒绝。
+    bool projectMethod(MethodSignature const& method, std::vector<Projected>* params, std::string* returnType,
+                       std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn)
+    {
+        *needsTwoStep = false;
+        *isHandleReturn = false;
+        params->clear();
+        *returnType = "void";
+
+        for (auto const& param : method.params)
+        {
+            const std::string spelling = trimCopy(param.first);
+            const std::string bare = bareType(spelling);
+            const std::string name = param.second.empty() ? std::string("arg") : param.second;
+
+            if (hasPrefix(bare, "castl::weak_ptr") || hasPrefix(bare, "std::weak_ptr"))
+            {
+                *rejectReason = "② 所有权不明裸指针：weak_ptr 的弱引用语义在 C# 侧没有对应物（不投影）";
+                return false;
+            }
+            if (hasPrefix(bare, "castl::shared_ptr") || hasPrefix(bare, "std::shared_ptr") ||
+                hasPrefix(bare, "std::unique_ptr"))
+            {
+                params->push_back({"uint64_t", name + "Handle"});
+                continue;
+            }
+            if (hasPrefix(bare, "castl::string_view") || hasPrefix(bare, "std::string_view") ||
+                bare == "castl::string" || bare == "std::string")
+            {
+                params->push_back({"char const*", name});
+                params->push_back({"uint64_t", name + "Len"});
+                continue;
+            }
+            if (hasPrefix(bare, "castl::vector") || hasPrefix(bare, "std::vector"))
+            {
+                const std::size_t open = bare.find('<');
+                const std::size_t close = bare.rfind('>');
+                const std::string element = (open != std::string::npos && close != std::string::npos && close > open)
+                                                ? bareType(bare.substr(open + 1, close - open - 1))
+                                                : std::string();
+                const bool isOut = spelling.find('&') != std::string::npos &&
+                                   spelling.find("const") == std::string::npos;
+                if (isScalarType(element) || element == "BindScalarThing" || element == "MonitorInfo")
+                {
+                    if (isOut)
+                    {
+                        params->push_back({element + "C*", name + "Dst"});
+                        params->push_back({"uint64_t", name + "Cap"});
+                    }
+                    else
+                    {
+                        params->push_back({element + "C const*", name});
+                        params->push_back({"uint64_t", name + "Count"});
+                    }
+                }
+                else
+                {
+                    params->push_back({"uint8_t const*", name + "Bytes"});
+                    params->push_back({"uint64_t", name + "Len"});
+                }
+                continue;
+            }
+            if (hasPrefix(bare, "castl::unordered_map") || hasPrefix(bare, "castl::map") ||
+                hasPrefix(bare, "castl::set") || hasPrefix(bare, "std::unordered_map"))
+            {
+                const std::size_t open = bare.find('<');
+                const std::size_t close = bare.rfind('>');
+                const std::string inside = (open != std::string::npos && close != std::string::npos && close > open)
+                                               ? bare.substr(open + 1, close - open - 1)
+                                               : std::string();
+                const std::size_t comma = inside.find(',');
+                const std::string key = trimCopy(comma == std::string::npos ? inside : inside.substr(0, comma));
+                const std::string value = trimCopy(comma == std::string::npos ? std::string()
+                                                                             : inside.substr(comma + 1));
+                // 标量键/值不带镜像后缀（`uint32_t const*`），只有记录类型才加 `C`
+                const auto mirror = [](std::string const& t) { return isScalarType(t) ? t : t + "C"; };
+                params->push_back({mirror(key) + " const*", name + "Keys"});
+                if (!value.empty())
+                {
+                    params->push_back({mirror(value) + " const*", name + "Values"});
+                }
+                params->push_back({"uint64_t", name + "Count"});
+                continue;
+            }
+            if (hasPrefix(bare, "castl::function") || hasPrefix(bare, "std::function"))
+            {
+                params->push_back({"void (*)(void*, uint32_t, float)", name});
+                params->push_back({"void*", name + "User"});
+                continue;
+            }
+            // `T&`（无 const）是出参 ⇒ 指针；`T const&` 是入参 ⇒ 走各自的形状分支（别再按指针写）
+            const bool isOutRef = spelling.find('&') != std::string::npos &&
+                                  spelling.find("const") == std::string::npos;
+            if (isScalarType(bare))
+            {
+                params->push_back({isOutRef ? bare + "*" : (bare == "bool" ? "int32_t" : bare), name});
+                continue;
+            }
+            // 裸指针按不透明指针原样透传（`void*` 就是 `void*`，别拼成 `voidC const*`）
+            if (!bare.empty() && bare.back() == '*' || bare == "void")
+            {
+                params->push_back({spelling.find('*') != std::string::npos ? bareType(spelling) + "*" : "void*", name});
+                continue;
+            }
+            // 枚举按定宽整数投影（矩阵第 1 行）；CXTypeKind 与 params 同序，用规范类型的 kind 认
+            if (paramKindFor(method, static_cast<std::size_t>(&param - method.params.data())) ==
+                static_cast<int>(CXType_Enum))
+            {
+                params->push_back({isOutRef ? "int32_t*" : "int32_t", name});
+                continue;
+            }
+            if (spelling.find('&') != std::string::npos && spelling.find("const") == std::string::npos)
+            {
+                params->push_back({bare + "C*", name + "Out"});
+                continue;
+            }
+            params->push_back({bare + "C const*", name});
+        }
+
+        const std::string returnBare = bareType(method.returnSpelling);
+        if (returnBare.empty() || returnBare == "void")
+        {
+            *returnType = "void";
+        }
+        else if (hasPrefix(returnBare, "castl::weak_ptr") || hasPrefix(returnBare, "std::weak_ptr"))
+        {
+            *rejectReason = "② 所有权不明裸指针：weak_ptr 的弱引用语义在 C# 侧没有对应物（不投影）";
+            return false;
+        }
+        else if (hasPrefix(returnBare, "castl::shared_ptr") || hasPrefix(returnBare, "std::shared_ptr") ||
+                 hasPrefix(returnBare, "std::unique_ptr"))
+        {
+            *returnType = "uint64_t";
+            *isHandleReturn = true;
+        }
+        else if (hasPrefix(returnBare, "castl::string_view") || hasPrefix(returnBare, "std::string_view") ||
+                 returnBare == "castl::string" || returnBare == "std::string" ||
+                 hasPrefix(returnBare, "castl::vector"))
+        {
+            *returnType = "void"; // 两段式：由伴生函数拷出
+            *needsTwoStep = true;
+        }
+        else if (method.returnKind == static_cast<int>(CXType_Enum))
+        {
+            *returnType = "int32_t";
+        }
+        else if (isScalarType(returnBare))
+        {
+            *returnType = returnBare == "bool" ? "int32_t" : returnBare;
+        }
+        else
+        {
+            *returnType = returnBare + "C";
+        }
+        return true;
+    }
+
+    int run(const char* filePath, const char* outDir, const std::vector<const char*>& clangArgs,
+            const std::string& auditScriptPath, unsigned handleIndexBits, unsigned handleGenerationBits)
+    {
+        const std::string sourceText = readWholeFile(filePath);
+        const std::vector<BoundMarker> markers = scanBoundMarkers(sourceText);
+        std::vector<std::string> bound;
+        bound.reserve(markers.size());
+        for (BoundMarker const& marker : markers)
+        {
+            bound.push_back(marker.interfaceName);
+        }
+        if (bound.empty())
+        {
+            std::fprintf(stderr, "CodeGen: --emit-binding found no CA_BIND marker in '%s'.\n", filePath);
+            return 1;
+        }
+
+        // ① 模板/泛型 与"排除没写理由"只看源码文本就够了，必须在解析**之前**判 ——
+        // 模板夹具本身就不是合法声明（宏展开成 static_assert 会插在 template 与 class 之间），
+        // 先解析只会得到一个与类别无关的 parse error。
+        {
+            int earlyRejections = 0;
+            for (BoundMarker const& marker : markers)
+            {
+                if (marker.isTemplate)
+                {
+                    std::fprintf(stderr, "CodeGen: 拒绝 %s —— ① 模板/泛型：绑定对象不能是模板类\n",
+                                 marker.interfaceName.c_str());
+                    ++earlyRejections;
+                }
+                for (auto const& skip : marker.skipReasons)
+                {
+                    if (skip.second.empty())
+                    {
+                        std::fprintf(stderr,
+                                     "CodeGen: 拒绝 %s::%s —— 排除必须写理由（CA_BIND_SKIP(方法, \"理由\")）\n",
+                                     marker.interfaceName.c_str(), skip.first.c_str());
+                        ++earlyRejections;
+                    }
+                }
+            }
+            if (earlyRejections > 0)
+            {
+                return 1;
+            }
+        }
+        std::vector<const char*> args;
+        args.push_back("-std=c++20");
+        args.push_back("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH");
+        for (const char* argument : clangArgs)
+        {
+            args.push_back(argument);
+        }
+
+        CXIndex index = clang_createIndex(1, 0);
+        CXTranslationUnit unit = nullptr;
+        const CXErrorCode error = clang_parseTranslationUnit2(
+            index, filePath, args.data(), static_cast<int>(args.size()), nullptr, 0,
+            CXTranslationUnit_DetailedPreprocessingRecord, &unit);
+        if (error != CXError_Success || unit == nullptr)
+        {
+            std::fprintf(stderr, "CodeGen: libclang parse failed (error=%d) for '%s'\n",
+                         static_cast<int>(error), filePath);
+            clang_disposeIndex(index);
+            return 3;
+        }
+
+        // 诊断逐条打出来便于定位；但只有**错误及以上**才拒绝继续 —— 警告（例如 `#pragma once in main
+        // file`）在绑定模式下是正常的，按警告拒会让批量跑不通。
+        const unsigned diagnosticCount = clang_getNumDiagnostics(unit);
+        unsigned errorCount = 0;
+        for (unsigned i = 0; i < diagnosticCount; ++i)
+        {
+            CXDiagnostic diagnostic = clang_getDiagnostic(unit, i);
+            CXString text = clang_formatDiagnostic(diagnostic, clang_defaultDiagnosticDisplayOptions());
+            std::fprintf(stderr, "  libclang: %s\n", clang_getCString(text));
+            clang_disposeString(text);
+            if (clang_getDiagnosticSeverity(diagnostic) >= CXDiagnostic_Error)
+            {
+                ++errorCount;
+            }
+            clang_disposeDiagnostic(diagnostic);
+        }
+        if (errorCount > 0)
+        {
+            clang_disposeTranslationUnit(unit);
+            clang_disposeIndex(index);
+            std::fprintf(stderr, "CodeGen: 绑定解析有 %u 条错误诊断，拒绝继续 —— 先把头里的错误修掉。\n",
+                         errorCount);
+            return 3;
+        }
+
+        std::vector<InterfaceShape> shapes;
+        ClassCollector collector;
+        collector.wanted = &bound;
+        collector.sink = &shapes;
+        clang_visitChildren(clang_getTranslationUnitCursor(unit), collectClasses, &collector);
+
+        // ---- 审计表核对（任务 2.7）：子进程调 check_bindable_audit.py --json ----
+        // CodeGen 是 C++、审计脚本是 Python，跨语言没有 import；这里只认它的 JSON 输出。
+        {
+            std::string scriptPath = auditScriptPath;
+            if (scriptPath.empty())
+            {
+                std::string base = filePath != nullptr ? std::string(filePath) : std::string();
+                const std::size_t slash = base.find_last_of("/\\");
+                scriptPath = (slash == std::string::npos ? std::string(".") : base.substr(0, slash)) +
+                             "/check_bindable_audit.py";
+            }
+            // `2>&1`：脚本自己会点名"缺少审计行：…"，把它一起收进来，非零退出时才有话可说
+            const std::string command = "python \"" + scriptPath + "\" --json 2>&1";
+            std::string auditOutput;
+            int auditExit = -1;
+            FILE* pipe = _popen(command.c_str(), "r");
+            if (pipe != nullptr)
+            {
+                char buffer[4096];
+                while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr)
+                {
+                    auditOutput += buffer;
+                }
+                auditExit = _pclose(pipe);
+            }
+            if (auditOutput.empty() || auditOutput.find('{') == std::string::npos)
+            {
+                std::fprintf(stderr,
+                             "CodeGen: 找不到 python 或审计脚本没有产出 JSON（命令：%s）—— 绑定生成前必须核对审计表\n"
+                             "  shell/脚本原话：%s\n",
+                             command.c_str(), auditOutput.c_str());
+                return 1;
+            }
+            // 解析 `"接口::方法"`（methods 字段里全是这种串）
+            std::set<std::string> auditedMethods;
+            std::set<std::string> auditedInterfaces;
+            for (std::size_t i = 0; i < auditOutput.size();)
+            {
+                const std::size_t open = auditOutput.find('"', i);
+                if (open == std::string::npos)
+                {
+                    break;
+                }
+                const std::size_t close = auditOutput.find('"', open + 1);
+                if (close == std::string::npos)
+                {
+                    break;
+                }
+                const std::string token = auditOutput.substr(open + 1, close - open - 1);
+                if (token.find("::") != std::string::npos)
+                {
+                    auditedMethods.insert(token);
+                }
+                else if (!token.empty() && token != "interfaces" && token != "methods")
+                {
+                    auditedInterfaces.insert(token);
+                }
+                i = close + 1;
+            }
+            if (auditedMethods.empty())
+            {
+                std::fprintf(stderr, "CodeGen: 审计脚本的 --json 输出里没有方法清单（退出码 %d）\n", auditExit);
+                return 1;
+            }
+            int missingAudit = 0;
+            for (const std::string& name : bound)
+            {
+                if (auditedInterfaces.find(name) == auditedInterfaces.end())
+                {
+                    std::fprintf(stderr, "CodeGen: 跳过审计核对 %s —— 它不在审计表覆盖的接口清单里\n", name.c_str());
+                }
+            }
+            for (InterfaceShape const& shape : shapes)
+            {
+                for (MethodSignature const& method : shape.methods)
+                {
+                    // 审计表只覆盖真实接口；夹具接口不在表里时**明说跳过**，不是静默放行
+                    if (auditedInterfaces.find(shape.name) == auditedInterfaces.end())
+                    {
+                        continue;
+                    }
+                    const std::string key = shape.name + "::" + method.name;
+                    if (auditedMethods.find(key) == auditedMethods.end())
+                    {
+                        std::fprintf(stderr, "CodeGen: 拒绝 %s —— 缺少审计结论（审计表里没有这一行）\n",
+                                     key.c_str());
+                        ++missingAudit;
+                    }
+                }
+            }
+            if (auditExit != 0)
+            {
+                // 把脚本自己的话打出来（它会点名哪个方法缺审计行 / 哪一行是对不上的）
+                std::fprintf(stderr, "CodeGen: 拒绝 —— 审计表对账不绿（脚本退出码 %d）：\n%s\n", auditExit,
+                             auditOutput.c_str());
+                return 1;
+            }
+            if (missingAudit > 0)
+            {
+                return 1;
+            }
+        }
+        // 布局清单要覆盖哪些结构体：把每条方法先投影一遍（纯函数），收投影后类型里以 `C` 结尾的名字。
+        std::set<std::string> wantedMirrors;
+        {
+            auto noteType = [&wantedMirrors](std::string const& projectedType) {
+                std::string bare = projectedType;
+                while (!bare.empty() && (bare.back() == '*' || bare.back() == ' '))
+                {
+                    bare.pop_back();
+                }
+                if (bare.size() > 6 && bare.compare(bare.size() - 6, 6, " const") == 0)
+                {
+                    bare = bare.substr(0, bare.size() - 6);
+                }
+                if (bare.size() > 1 && bare.back() == 'C' && !isScalarType(bare))
+                {
+                    wantedMirrors.insert(bare.substr(0, bare.size() - 1));
+                }
+            };
+            for (InterfaceShape const& shape : shapes)
+            {
+                for (MethodSignature const& method : shape.methods)
+                {
+                    std::vector<Projected> params;
+                    std::string returnType;
+                    std::string rejectReason;
+                    bool needsTwoStep = false;
+                    bool isHandleReturn = false;
+                    if (!projectMethod(method, &params, &returnType, &rejectReason, &needsTwoStep, &isHandleReturn))
+                    {
+                        continue;
+                    }
+                    noteType(returnType);
+                    for (Projected const& projected : params)
+                    {
+                        noteType(projected.type);
+                    }
+                }
+            }
+        }
+
+        std::vector<MirrorType> mirrors;
+        if (!wantedMirrors.empty())
+        {
+            MirrorCollector mirrorCollector;
+            mirrorCollector.wanted = &wantedMirrors;
+            mirrorCollector.sink = &mirrors;
+            clang_visitChildren(clang_getTranslationUnitCursor(unit), collectMirrorTypes, &mirrorCollector);
+            // 同一个结构体会被访问多次（前向声明 + 定义），按名字去重
+            std::vector<MirrorType> unique;
+            std::set<std::string> seen;
+            for (MirrorType& mirror : mirrors)
+            {
+                if (seen.insert(mirror.cppName).second)
+                {
+                    unique.push_back(std::move(mirror));
+                }
+            }
+            mirrors = std::move(unique);
+        }
+
+        // 任务 2.8：把"有纯虚方法但没写 CA_BIND"的接口列出来（不生成、不报错，但必须可见）
+        {
+            std::vector<std::string> unbound;
+            UnboundCollector unboundCollector;
+            unboundCollector.bound = &bound;
+            unboundCollector.sink = &unbound;
+            unboundCollector.mainFile = [&] {
+                std::string name = filePath != nullptr ? std::string(filePath) : std::string();
+                const std::size_t slash = name.find_last_of("/\\");
+                if (slash != std::string::npos) { name = name.substr(slash + 1); }
+                for (char& character : name) { character = static_cast<char>(std::tolower(static_cast<unsigned char>(character))); }
+                return name;
+            }();
+            clang_visitChildren(clang_getTranslationUnitCursor(unit), collectUnboundInterfaces,
+                                &unboundCollector);
+            for (const std::string& name : unbound)
+            {
+                std::fprintf(stderr, "CodeGen: 跳过 %s —— 没有 CA_BIND 标注（不生成绑定）\n", name.c_str());
+            }
+        }
+
+        // 诊断：逐接口打印收集到的方法名（重复收集会在这里一眼看出来）
+        for (InterfaceShape const& shape : shapes)
+        {
+            std::string methodNames;
+            for (MethodSignature const& method : shape.methods)
+            {
+                methodNames += method.name + " ";
+            }
+            std::fprintf(stderr, "  [接口] %s → %zu 条：%s\n", shape.name.c_str(), shape.methods.size(),
+                         methodNames.c_str());
+        }
+
+        clang_disposeTranslationUnit(unit);
+        clang_disposeIndex(index);
+
+        int rejected = 0;
+        int methodsTotal = 0;
+        int products = 0;
+        // ---- 拒绝口径（任务 2.6）：只有 ① 模板与 ③ 隐式转换重载自动判；② ④ 必须带理由排除 ----
+        std::map<std::string, BoundMarker const*> markerByName;
+        for (BoundMarker const& marker : markers)
+        {
+            markerByName[marker.interfaceName] = &marker;
+        }
+        std::map<std::string, std::set<std::string>> skippedMethods;
+        for (auto const& entry : markerByName)
+        {
+            BoundMarker const& marker = *entry.second;
+            if (marker.isTemplate)
+            {
+                std::fprintf(stderr, "CodeGen: 拒绝 %s —— ① 模板/泛型：绑定对象不能是模板类\n",
+                             marker.interfaceName.c_str());
+                ++rejected;
+            }
+            for (auto const& skip : marker.skipReasons)
+            {
+                if (skip.second.empty())
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝 %s::%s —— 排除必须写理由（CA_BIND_SKIP(方法, \"理由\")）\n",
+                                 marker.interfaceName.c_str(), skip.first.c_str());
+                    ++rejected;
+                }
+                else
+                {
+                    std::fprintf(stderr, "CodeGen: 排除 %s::%s —— %s\n", marker.interfaceName.c_str(),
+                                 skip.first.c_str(), skip.second.c_str());
+                    skippedMethods[marker.interfaceName].insert(skip.first);
+                }
+            }
+        }
+        // ③：同一接口里两条方法投影成**同一个 C ABI 签名**（典型是 `int32_t` 与 `bool` 的重载）
+        for (InterfaceShape const& shape : shapes)
+        {
+            std::map<std::string, std::string> seenSignatures;
+            for (MethodSignature const& method : shape.methods)
+            {
+                // 带理由排除的方法：不出绑定（理由上面已经逐条打过日志），也别再让它走一次投影
+                {
+                    auto skipped = skippedMethods.find(shape.name);
+                    if (skipped != skippedMethods.end() && skipped->second.count(method.name) > 0)
+                    {
+                        continue;
+                    }
+                }
+                std::vector<Projected> params;
+                std::string returnType;
+                std::string rejectReason;
+                bool needsTwoStep = false;
+                bool isHandleReturn = false;
+                if (!projectMethod(method, &params, &returnType, &rejectReason, &needsTwoStep, &isHandleReturn))
+                {
+                    continue;
+                }
+                std::string key = method.name + "|" + returnType + "(";
+                for (Projected const& projected : params)
+                {
+                    key += projected.type + ",";
+                }
+                key += ")";
+                auto existing = seenSignatures.find(key);
+                if (existing != seenSignatures.end())
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝 %s::%s 与 %s —— ③ 依赖隐式转换的重载：两者投影成同一个 C ABI 签名\n",
+                                 shape.name.c_str(), method.name.c_str(), existing->second.c_str());
+                    ++rejected;
+                }
+                else
+                {
+                    seenSignatures[key] = method.name;
+                }
+            }
+        }
+        for (InterfaceShape const& shape : shapes)
+        {
+            std::string cpp;
+            cpp += "// 由 CodeGen --emit-binding 生成，勿手改。\n#pragma once\n#include <stdint.h>\n#include <stddef.h>\n#include <string.h>\n";
+            // 接口自己的声明从哪来：写源头的文件名（用基名，靠调用方的 include 目录解析）。
+            // 真实接口（例如 IWindow）在模块自己的头目录里，构建时那条目录一定在 include 路径上。
+            {
+                std::string base = filePath != nullptr ? std::string(filePath) : std::string();
+                const std::size_t slash = base.find_last_of("/\\");
+                if (slash != std::string::npos)
+                {
+                    base = base.substr(slash + 1);
+                }
+                cpp += "#include \"" + base + "\"\n";
+            }
+            cpp += "\n";
+            std::string cs;
+            cs += "// 由 CodeGen --emit-binding 生成，勿手改。\n";
+            cs += "using System.Runtime.InteropServices;\n\n";
+            cs += "namespace Scripting.Generated.Bindings\n{\n";
+            cs += "    /// <summary>" + shape.name + " 的句柄：C 侧是不透明 uint64，0 表示无效</summary>\n";
+            cs += "    [StructLayout(LayoutKind.Sequential)]\n";
+            cs += "    public readonly struct " + shape.name + "Handle\n    {\n";
+            cs += "        public readonly ulong Raw;\n";
+            cs += "        public " + shape.name + "Handle(ulong raw) { Raw = raw; }\n";
+            cs += "        public bool IsValid => Raw != 0UL;\n";
+            cs += "    }\n\n";
+            cs += "    internal static unsafe class " + shape.name + "Bindings\n    {\n";
+
+            cs += "        public static delegate* unmanaged<void*, int> LastErrorCode;\n";
+            cs += "        public static delegate* unmanaged<void*, byte*, ulong, int> LastErrorText;\n";
+
+            int emitted = 0;
+            // 每个接口一对错误通道：托管侧靠它把"异常 → 错误码 + 文本"读回来（异常绝不穿过 C ABI）。
+            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorCode(void* self);\n";
+            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorText(void* self, char* dst, uint64_t cap);\n";
+            // 布局清单（任务 2.5）：镜像结构体 + 编译期断言。必须**在方法声明的循环之前**发出 ——
+            // 声明里会用到镜像类型，放在后面就是"先用后定义"（实测 C4430 / C2378）。
+            emitLayoutManifest(&cpp, &cs, mirrors);
+            std::string tableFields;   // 函数表里的成员声明
+            std::string tableInit;     // 函数表的初始化列表
+            std::string thunkDefs;     // thunk 实现
+            std::string externDefs;    // 导出入口（extern "C" 的定义）
+            std::string lateDefs;      // 必须排在句柄表实现之后的定义（Release 之类）
+            for (MethodSignature const& method : shape.methods)
+            {
+                // 带理由排除的方法：不出绑定（理由上面已经逐条打过日志），也别再让它走一次投影
+                {
+                    auto skipped = skippedMethods.find(shape.name);
+                    if (skipped != skippedMethods.end() && skipped->second.count(method.name) > 0)
+                    {
+                        continue;
+                    }
+                }
+                std::vector<Projected> params;
+                std::string returnType;
+                std::string rejectReason;
+                bool needsTwoStep = false;
+                bool isHandleReturn = false;
+                if (!projectMethod(method, &params, &returnType, &rejectReason, &needsTwoStep, &isHandleReturn))
+                {
+                    std::fprintf(stderr, "CodeGen: 拒绝 %s::%s —— %s\n", shape.name.c_str(),
+                                 method.name.c_str(), rejectReason.c_str());
+                    ++rejected;
+                    continue;
+                }
+                std::string signature = returnType + " " + shape.name + "_" + method.name + "(void* self";
+                for (Projected const& projected : params)
+                {
+                    signature += ", " + projected.type + " " + projected.name;
+                }
+                signature += ");";
+                cpp += "extern \"C\" " + signature + "\n";
+
+                // 两段式伴生：先问长度、再拷出来（矩阵里 string / string_view / 容器返回那一行）
+                if (needsTwoStep)
+                {
+                    cpp += "extern \"C\" uint64_t " + shape.name + "_" + method.name + "Len(void* self);\n";
+                    cpp += "extern \"C\" void " + shape.name + "_Copy" + method.name +
+                           "(void* self, char* dst, uint64_t cap);\n";
+                }
+                // 句柄的配对释放（矩阵里智能指针返回那一行）：定义成查表 + 代际进位
+                if (isHandleReturn)
+                {
+                    cpp += "extern \"C\" void " + shape.name + "_Release" + method.name +
+                           "(void* self, uint64_t handle);\n";
+                    lateDefs += "extern \"C\" void " + shape.name + "_Release" + method.name +
+                                "(void*, uint64_t handle)\n{\n    " + shape.name +
+                                "_releaseHandle(handle);\n}\n";
+                }
+
+                // C# 侧的真实签名：`delegate* unmanaged<参数…, 返回>`
+                {
+                    std::string delegate = "        public static delegate* unmanaged<";
+                    delegate += "void*";
+                    for (Projected const& projected : params)
+                    {
+                        delegate += ", " + toCSharpType(projected.type);
+                    }
+                    delegate += ", " + toCSharpType(returnType) + "> " + method.name + ";\n";
+                    cs += delegate;
+                }
+                ++emitted;
+
+                // 函数表成员：句柄作首参（`void* self`），其余按投影后的类型串起来（不含形参名）
+                std::string paramTypes = "void*";
+                for (Projected const& projected : params)
+                {
+                    paramTypes += ", " + projected.type;
+                }
+                tableFields += "    " + returnType + " (*" + method.name + ")(" + paramTypes + ");\n";
+                tableInit += "    &" + shape.name + "_thunk_" + method.name + ",\n";
+
+                // thunk 实现：先只覆盖"参数全是标量、返回是 void 或同名标量"的形状；
+                // 其它形状（容器 / 两段式 / 句柄 / 回调 / 出参）留给 2.4 / 2.5，这里必须是可见的桩。
+                thunkDefs += "static " + returnType + " " + shape.name + "_thunk_" + method.name + "(void* self";
+                for (Projected const& projected : params)
+                {
+                    thunkDefs += ", " + projected.type + " " + projected.name;
+                }
+                thunkDefs += ")\n{\n";
+                bool simpleShape = true;
+                for (Projected const& projected : params)
+                {
+                    // 允许"标量出参指针"（`int32_t* outX` 这种）：调用时解引用即可，不算复杂形状
+                    std::string bareParam = projected.type;
+                    if (!bareParam.empty() && bareParam.back() == '*')
+                    {
+                        bareParam.pop_back();
+                        if (!isScalarType(trimCopy(bareParam)))
+                        {
+                            simpleShape = false;
+                        }
+                        continue;
+                    }
+                    if (bareParam.find('*') != std::string::npos)
+                    {
+                        simpleShape = false;
+                    }
+                }
+                const bool scalarReturn = returnType == "void" || returnType == "int32_t" ||
+                                          returnType == "uint32_t" || returnType == "uint64_t" ||
+                                          returnType == "float";
+                // 句柄返回：保活 + 登记；句柄参数：反查（失效就置错误码，不崩）
+                if (isHandleReturn)
+                {
+                    thunkDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    thunkDefs += "    auto result = object->" + method.name + "(";
+                    bool firstArgument = true;
+                    for (Projected const& projected : params)
+                    {
+                        thunkDefs += (firstArgument ? "" : ", ") + projected.name;
+                        firstArgument = false;
+                    }
+                    thunkDefs += ");\n";
+                    thunkDefs += "    if (!result) { " + shape.name +
+                                 "_setError(1002, \"实现返回了空指针\"); return 0u; }\n";
+                    thunkDefs += "    " + shape.name + "_keepAlive.push_back(result);\n";
+                    thunkDefs += "    return " + shape.name + "_registerHandle(" + shape.name +
+                                 "_keepAlive.back().get());\n";
+                }
+                else if (simpleShape && scalarReturn && bareType(method.returnSpelling) == returnType)
+                {
+                    thunkDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    std::string call = "object->" + method.name + "(";
+                    bool first = true;
+                    for (Projected const& projected : params)
+                    {
+                        // 出参指针：解引用传回去（`*outX`）；标量：原样传
+                        const bool isOutPointer = !projected.type.empty() && projected.type.back() == '*' &&
+                                                  isScalarType(trimCopy(projected.type.substr(0, projected.type.size() - 1)));
+                        call += (first ? "" : ", ") + (isOutPointer ? "*" + projected.name : projected.name);
+                        first = false;
+                    }
+                    call += ")";
+                    if (returnType == "void")
+                    {
+                        thunkDefs += "    " + call + ";\n";
+                    }
+                    else
+                    {
+                        thunkDefs += "    return " + call + ";\n";
+                    }
+                }
+                else
+                {
+                    thunkDefs += "    /* 形状由 2.4 / 2.5 接：容器 / 两段式 / 句柄 / 回调 / 出参 */\n";
+                    if (returnType != "void")
+                    {
+                        thunkDefs += "    return {};   // 零值（标量、指针、镜像结构体都成立）\n";
+                    }
+                }
+                thunkDefs += "}\n\n";
+
+                // 导出入口：`extern "C"` 的那一层只是把参数原样转给 thunk（声明在上面，定义在这里）
+                externDefs += "extern \"C\" " + returnType + " " + shape.name + "_" + method.name +
+                              "(void* self";
+                for (Projected const& projected : params)
+                {
+                    externDefs += ", " + projected.type + " " + projected.name;
+                }
+                externDefs += ")\n{\n";
+                {
+                    std::string callArguments = "self";
+                    for (Projected const& projected : params)
+                    {
+                        callArguments += ", " + projected.name;
+                    }
+                    if (returnType == "void")
+                    {
+                        externDefs += "    " + shape.name + "_thunk_" + method.name + "(" + callArguments +
+                                      ");\n";
+                    }
+                    else
+                    {
+                        externDefs += "    return " + shape.name + "_thunk_" + method.name + "(" +
+                                      callArguments + ");\n";
+                    }
+                }
+                externDefs += "}\n\n";
+            }
+            cpp += "\n";
+            // ---- 版本化函数表 + 取表函数（任务 2.2）----
+            // 校验口径：**版本相等且大小相等**才通过（与已落地的 Scripting/Managed/Host.cs 一致）；
+            // 不符时一个字节都不写、返回 0。`GetApi` 把调用方的 size 收进来，就是为了"只写它给的那一段"。
+            // 布局清单已在本文件开头发出（镜像类型必须先于声明）
+            cpp += "typedef struct " + shape.name + "Api_v1 {\n";
+            cpp += "    uint32_t abi_version;\n";
+            cpp += "    uint32_t size;\n";
+            cpp += tableFields;
+            cpp += "} " + shape.name + "Api_v1;\n\n";
+            // 句柄表与错误通道的**数据**必须定义在 thunk 之前（thunk 里要用），实现体可以放在后面 ——
+            // 这里先把类型、两张表与三个 helper 的前置声明吐出来，避免"先用后定义"。
+            cpp += "static const uint32_t " + shape.name + "_HANDLE_INDEX_BITS = " + std::to_string(handleIndexBits) + "u;\n";
+            cpp += "static const uint32_t " + shape.name + "_HANDLE_GEN_BITS = " + std::to_string(handleGenerationBits) + "u;\n";
+            cpp += "static const int32_t " + shape.name + "_ERROR_STALE_HANDLE = 1001;\n";
+            cpp += "typedef struct " + shape.name + "HandleEntry { void* object; uint32_t generation; } " +
+                   shape.name + "HandleEntry;\n";
+            cpp += "static std::vector<" + shape.name + "HandleEntry> " + shape.name + "_handles;\n";
+            cpp += "static std::vector<std::shared_ptr<void>> " + shape.name + "_keepAlive;\n";
+            cpp += "static void " + shape.name + "_setError(int32_t code, char const* text);\n";
+            cpp += "static uint64_t " + shape.name + "_registerHandle(void* object);\n";
+            cpp += "static void " + shape.name + "_releaseHandle(uint64_t handle);\n\n";
+            cpp += thunkDefs;
+            cpp += externDefs;
+            // 表头（abi_version / size）之后每个成员都是 8 字节对齐的函数指针：偏移 = 8 + 8 × 序号。
+            // C# 侧要靠这些常量定位成员，所以同时给出 static_assert 把偏移钉死在编译期。
+            {
+                // 表里只放**真正生成出来**的方法：带理由排除的那些不在表里（否则 offsetof 指向一个
+                // 不存在的成员 —— 实测 IWindow.GetWindowSystem 报 C2039 / C2618）
+                std::vector<MethodSignature const*> tableMethods;
+                for (MethodSignature const& method : shape.methods)
+                {
+                    auto skipped = skippedMethods.find(shape.name);
+                    if (skipped != skippedMethods.end() && skipped->second.count(method.name) > 0)
+                    {
+                        continue;
+                    }
+                    std::vector<Projected> probeParams;
+                    std::string probeReturn;
+                    std::string probeReason;
+                    bool probeTwoStep = false;
+                    bool probeHandle = false;
+                    if (!projectMethod(method, &probeParams, &probeReturn, &probeReason, &probeTwoStep,
+                                       &probeHandle))
+                    {
+                        continue;
+                    }
+                    tableMethods.push_back(&method);
+                }
+                unsigned memberIndex = 0;
+                cs += "        // 函数表布局（与 C++ 侧同源常量；不一致由 C++ 的 static_assert 先兜住）\n";
+                cs += "        public const int " + shape.name + "Api_v1_Size = 8 + 8 * " +
+                      std::to_string(tableMethods.size()) + ";\n";
+                for (MethodSignature const* method : tableMethods)
+                {
+                    cpp += "static_assert(offsetof(" + shape.name + "Api_v1, " + method->name + ") == " +
+                           std::to_string(8u + 8u * memberIndex) + ", \"函数表成员偏移变了：\" \"" +
+                           shape.name + "." + method->name + "\");\n";
+                    cs += "        public const int " + shape.name + "Api_v1_" + method->name + " = " +
+                          std::to_string(8u + 8u * memberIndex) + ";\n";
+                    ++memberIndex;
+                }
+                cpp += "\n";
+            }
+            cpp += "static " + shape.name + "Api_v1 const " + shape.name + "_api = {\n";
+            cpp += "    1u, (uint32_t)sizeof(" + shape.name + "Api_v1),\n";
+            cpp += tableInit;
+            cpp += "};\n\n";
+            cpp += "extern \"C\" uint32_t " + shape.name + "_GetApi(uint32_t version, uint32_t size, " +
+                   shape.name + "Api_v1* out)\n{\n";
+            cpp += "    const uint32_t realSize = (uint32_t)sizeof(" + shape.name + "Api_v1);\n";
+            cpp += "    if (version != 1u || size != realSize || out == nullptr)\n    {\n        return 0u;\n    }\n";
+            cpp += "    ::memcpy(out, &" + shape.name + "_api, realSize);\n";
+            cpp += "    return realSize;\n}\n\n";
+            // ---- 错误通道 + 句柄表（任务 2.4）----
+            // 句柄 = 低 <INDEX> 位序号 + 高 <GEN> 位代际（位数在 2.9 变成参数，这里先用默认 48/16）。
+            // `Release` 让代际进位 ⇒ 旧句柄立刻失效；失效时置错误码 1001 并留一条文本。
+            cpp += "static int32_t " + shape.name + "_lastErrorCode = 0;\n";
+            cpp += "static char " + shape.name + "_lastErrorText[256] = { 0 };\n";
+            cpp += "static void " + shape.name + "_setError(int32_t code, char const* text)\n{\n";
+            cpp += "    " + shape.name + "_lastErrorCode = code;\n";
+            cpp += "    if (text != nullptr)\n    {\n";
+            cpp += "        ::memcpy(" + shape.name + "_lastErrorText, text, ::strlen(text) + 1u);\n";
+            cpp += "    }\n}\n";
+            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorCode(void*)\n{\n    return " +
+                   shape.name + "_lastErrorCode;\n}\n";
+            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorText(void*, char* dst, uint64_t cap)\n{\n";
+            cpp += "    const std::size_t length = ::strlen(" + shape.name + "_lastErrorText);\n";
+            cpp += "    const std::size_t copied = (cap > 0u) ? ((length < cap - 1u) ? length : cap - 1u) : 0u;\n";
+            cpp += "    if (cap > 0u)\n    {\n        ::memcpy(dst, " + shape.name +
+                   "_lastErrorText, copied);\n        dst[copied] = 0;\n    }\n    return (int32_t)copied;\n}\n\n";
+            cpp += "static uint64_t " + shape.name + "_registerHandle(void* object)\n{\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    uint64_t index = 1u;\n";
+            cpp += "    while (index <= indexMask && index < " + shape.name + "_handles.size() + 1u)\n    {\n";
+            cpp += "        if (" + shape.name + "_handles[index - 1u].object == nullptr) { break; }\n";
+            cpp += "        ++index;\n    }\n";
+            cpp += "    if (index > indexMask) { return 0u; }\n";
+            cpp += "    if (index > " + shape.name + "_handles.size())\n    {\n        " + shape.name +
+                   "_handles.push_back({ nullptr, 0u });\n    }\n";
+            cpp += "    " + shape.name + "_handles[index - 1u].object = object;\n";
+            cpp += "    return (static_cast<uint64_t>(" + shape.name + "_handles[index - 1u].generation) << " +
+                   shape.name + "_HANDLE_INDEX_BITS) | index;\n}\n";
+            cpp += "static void* " + shape.name + "_lookupHandle(uint64_t handle)\n{\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    const uint64_t index = handle & indexMask;\n";
+            cpp += "    const uint64_t generation = handle >> " + shape.name + "_HANDLE_INDEX_BITS;\n";
+            cpp += "    if (index == 0u || index > " + shape.name + "_handles.size()) { return nullptr; }\n";
+            cpp += "    auto const& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    if (entry.object == nullptr || entry.generation != generation) { return nullptr; }\n";
+            cpp += "    return entry.object;\n}\n";
+            cpp += "static void " + shape.name + "_releaseHandle(uint64_t handle)\n{\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    const uint64_t index = handle & indexMask;\n";
+            cpp += "    if (" + shape.name + "_lookupHandle(handle) == nullptr)\n    {\n        " + shape.name +
+                   "_setError(" + shape.name + "_ERROR_STALE_HANDLE, \"stale handle\");\n        return;\n    }\n";
+            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    entry.object = nullptr;\n";
+            cpp += "    entry.generation = (entry.generation + 1u) & ((1u << " + shape.name +
+                   "_HANDLE_GEN_BITS) - 1u);\n";
+            cpp += "    " + shape.name + "_lastErrorCode = 0;\n}\n\n";
+            cpp += lateDefs;
+            cs += "    }\n}\n";
+            methodsTotal += emitted;
+            if (emitted == 0)
+            {
+                continue;
+            }
+
+            const std::string cppPath = std::string(outDir) + "/" + shape.name + ".Bindings.cpp";
+            const std::string csPath = std::string(outDir) + "/" + shape.name + ".Bindings.cs";
+            std::ofstream cppOut(cppPath, std::ios::binary);
+            cppOut << cpp;
+            if (!cppOut)
+            {
+                std::fprintf(stderr, "CodeGen: cannot write '%s'\n", cppPath.c_str());
+                return 2;
+            }
+            std::ofstream csOut(csPath, std::ios::binary);
+            csOut << cs;
+            if (!csOut)
+            {
+                std::fprintf(stderr, "CodeGen: cannot write '%s'\n", csPath.c_str());
+                return 2;
+            }
+            ++products;
+        }
+
+        std::fprintf(stderr, "绑定：接口 %zu 个 / 方法 %d 条 / 产物 %d 个 / 拒绝 %d 条\n",
+                     shapes.size(), methodsTotal, products, rejected);
+        if (rejected > 0)
+        {
+            return 1;
+        }
+        // 没有产物不等于失败：整个接口的方法都被带理由排除掉时，0 个产物是正确的
+        return 0;
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3)
@@ -1253,9 +2781,22 @@ int main(int argc, char** argv)
     // three flags above stay the way to ask for exactly one section; the two forms are mutually exclusive
     // (see the check below).
     bool        emitAll           = false;
+    // `--emit-binding`：绑定发射器（一次处理整个头里所有 `CA_BIND` 接口，不需要 <TypeName> 参数）。
+    bool        emitBinding       = false;
+    // 绑定模式不需要 <TypeName>，所以 `--emit-binding` 通常落在 argv[2] 上，而下面的参数循环从 argv[3]
+    // 开始 —— 不在这里先认一次，那个标志会被当成类型名吃掉，模式永远进不去（实测：报出的是
+    // "--out-dir only applies together with --emit-all" 这条无关的守卫）。
+    if (std::string(typeName) == "--emit-binding")
+    {
+        emitBinding = true;
+    }
     const char* outPath           = nullptr;
     const char* outDir            = nullptr;
     std::string qualifiedNameOverride;
+    std::string auditScript;   // --audit-script：审计脚本路径（默认取头文件同目录）
+    // 句柄位宽（任务 2.9）：序号位默认 48、代际位默认 16，合法范围由"两者之和不超过 64"约束
+    unsigned    handleIndexBits  = 48u;
+    unsigned    handleGenerationBits = 16u;
     std::vector<const char*> clangArgs;
     for (int i = 3; i < argc; ++i)
     {
@@ -1275,6 +2816,23 @@ int main(int argc, char** argv)
         else if (a == "--emit-all")
         {
             emitAll = true;
+        }
+        else if (a == "--emit-binding")
+        {
+            emitBinding = true;
+        }
+        else if (a == "--handle-index-bits")
+        {
+            if (i + 1 < argc) handleIndexBits = static_cast<unsigned>(std::strtoul(argv[++i], nullptr, 10));
+        }
+        else if (a == "--handle-generation-bits")
+        {
+            if (i + 1 < argc) handleGenerationBits = static_cast<unsigned>(std::strtoul(argv[++i], nullptr, 10));
+        }
+        else if (a == "--audit-script")
+        {
+            if (i + 1 < argc)
+                auditScript = argv[++i];
         }
         else if (a == "-o")
         {
@@ -1303,6 +2861,30 @@ int main(int argc, char** argv)
         {
             clangArgs.push_back(argv[i]);
         }
+    }
+
+    // 绑定发射器走自己的分支：它按 `CA_BIND` 扫描整个头、一次出多份产物，不需要 <TypeName> 参数。
+    // 放在 `--emit-all` 的一致性检查之前，因为那几条检查只对反射/序列化/哈希三节有意义。
+    if (emitBinding)
+    {
+        if (outDir == nullptr || *outDir == '\0')
+        {
+            std::fprintf(stderr, "CodeGen: --emit-binding needs a non-empty --out-dir.\n");
+            return 2;
+        }
+        // 句柄位宽的合法性（任务 2.9）：两项都至少 1 位，且加起来不超过 64
+        if (handleIndexBits < 1u || handleGenerationBits < 1u || handleIndexBits + handleGenerationBits > 64u)
+        {
+            std::fprintf(stderr,
+                         "CodeGen: 句柄位宽非法（--handle-index-bits %u、--handle-generation-bits %u）："
+                         "两项都至少 1 位，且和不超过 64\n",
+                         handleIndexBits, handleGenerationBits);
+            return 2;
+        }
+        const int bindingResult =
+            bindemit::run(filePath, outDir, clangArgs, auditScript, handleIndexBits, handleGenerationBits);
+        std::fprintf(stderr, "CodeGen: --emit-binding 返回 %d\n", bindingResult);
+        return bindingResult;
     }
 
     // Argument consistency for `--emit-all`, settled before any parse work (it costs seconds to parse and

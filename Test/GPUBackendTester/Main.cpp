@@ -1,4 +1,4 @@
-#include<mimalloc.h>
+﻿#include<mimalloc.h>
 #include <ScriptHost/IScriptHost.h>
 #include <cstdlib>
 #include <cstring>
@@ -140,6 +140,17 @@ void TestSimpleTriangle(TestContext& ctx)
 {
 	auto newWindow = ctx.pWindowSystem->NewWindow(1024, 512, "Hello Triangle");
 	auto windowHandle = ctx.pGPUBackend->GetWindowHandle(newWindow.lock());
+
+	// 端到端（csharp-bindings-generator 任务 3.2）：把窗口登记给 CSharpHost，并打出 C++ 侧的
+	// GetWindowSize 读数 —— 托管侧在第一次 Tick 时会取同一张表、调同一个方法，两处尺寸必须逐字一致。
+	if (auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>())
+	{
+		pScriptHost->SetInterfaceInstance(1, newWindow.lock().get());
+		int cppWidth = 0;
+		int cppHeight = 0;
+		newWindow.lock()->GetWindowSize(cppWidth, cppHeight);
+		CA_LOG("C++ 侧窗口尺寸 = {} x {}（托管侧稍后会用同一张表读一次）", cppWidth, cppHeight);
+	}
 	struct VertexStruct
 	{
 		std::array<float, 3> pos;

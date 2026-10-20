@@ -1,4 +1,4 @@
-# CodeGen —— 把带标注的 C++ 类型变成代码的构建期工具
+﻿# CodeGen —— 把带标注的 C++ 类型变成代码的构建期工具
 
 `Tools/CodeGen/CodeGenMain.cpp` 编译出的 `CodeGen.exe` 是一个**命令行工具**：给它一个头文件和一个类型名，
 它用 libclang 解析该类型，读出**声明顺序的字段表**，再按请求发射三选一的代码片段（反射描述符 / 序列化
@@ -72,6 +72,10 @@ CodeGen.exe <file.h> <TypeName> --emit-all --out-dir <目录> [交给 libclang �
 | `--qualified-name=<qn>` 或 `--qualified-name <qn>` | 覆盖发射进代码里的限定名 |
 | `-o <路径>` | 写文件（先写同名 `.tmp`，成功后改名覆盖；失败时**不留残渣**）。省略则写标准输出 |
 | `--out-dir <目录>` 或 `--out-dir=<目录>` | 与 `--emit-all` 搭配：写**一份** `<目录>/<TypeName>.codegen.h`（先写 `.tmp`，全部写完才改名覆盖；目录必须已存在）。节顺序固定为**反射 → 序列化 → 哈希**，文件头注释 / `#pragma once` / 运行时头的 `#include` 各只出现一次。单独给某个发射标志时不能用它 —— 那种情况用 `-o <路径>`，文件名由调用方自己取 |
+| `--emit-binding` | 绑定发射器：按头里的 `CA_BIND` 标注，把整份头里所有被标注接口投影成 `<接口>.Bindings.cpp` + `<接口>.Bindings.cs`（一次调用处理一个头，不需要 `<TypeName>`）。见「十四、绑定发射器」 |
+| `--audit-script <路径>` | 只配 `--emit-binding`：审计脚本路径（默认取**输入头所在目录**下的 `check_bindable_audit.py`）。生成前会以子进程调它，接口不在审计表覆盖清单里时打"跳过审计核对" |
+| `--handle-index-bits <n>` | 只配 `--emit-binding`：句柄里**序号位**的位数，默认 **48**。合法范围：至少 1 位，且与 `--handle-generation-bits` 之和不超过 **64**；越界时退出码 **2** 并说明 |
+| `--handle-generation-bits <n>` | 只配 `--emit-binding`：句柄里**代际位**的位数，默认 **16**。合法范围同上。`release` 后代际号进位，旧句柄立刻失效 |
 | 其余参数 | 原样交给 libclang，例如 `-I CACore/header`、`-std=c++20`、`-D...` |
 
 **发射标志互斥**：`--emit-reflection` / `--emit-serialization` / `--emit-hash` 在**一次调用里只允许给一个**；
@@ -1034,5 +1038,42 @@ python Tools/CodeGen/check_bindable_audit.py
   `GPUGraph` / `IMGUIContext` / `IOBatch` / `WBatch` / `IShaderCompiler` **尚未审计** —— 每帧热路径恰恰在这几个上面，所以"需快路"清单目前是**空的**（不是规则失效）。
 - 脚本按**纯虚方法名**对账，**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
 - 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。
+## 十四、绑定发射器（`--emit-binding`）
 
+**做什么**：按头里的 `CA_BIND` 标注，把每个被标注接口投影成两份产物 —— `<接口>.Bindings.cpp`（thunk、版本化函数表、`GetApi(version, size, out)`、句柄表、错误通道、布局清单的编译期断言）与 `<接口>.Bindings.cs`（`delegate* unmanaged<…>` 声明、句柄结构体、布局常量）。投影规则见 `openspec/specs/csharp-bindable-surface/spec.md` 与本文第十三节。
 
+**不做什么**：不生成模板/泛型、`castl::weak_ptr`、以及"所有权不明裸指针"的绑定（这类必须用 `CA_BIND_SKIP(方法, "理由")` 排除，工具只打印、退出码 0）；不改任何接口签名；不负责把函数表送进托管侧（那是消费方的事）。
+
+**退出码**：`0` = 全部生成（含"所有方法都被带理由排除"这种空产物的情况）；`1` = 有拒绝（① 模板类、③ 依赖隐式转换的重载、②/④ 的排除没写理由、缺审计结论、审计表本身不绿）；`2` = 参数问题（缺 `--out-dir`、句柄位宽非法）；`3` = libclang 解析失败或解析出错误诊断。
+
+**示例一：一个被带理由排除的接口（退出码 0，不出产物）**
+
+```powershell
+CodeGen.exe Tools/CodeGen/BindableShapes.Reject.h --emit-binding --out-dir .review_tmp --audit-script Tools/CodeGen/check_bindable_audit.py -ICACore/header -ITools/CodeGen/clang_shim -xc++
+```
+
+真实输出（节选，顺序与实际一致）：
+
+```text
+CodeGen: 跳过审计核对 IBindRow11Reject —— 它不在审计表覆盖的接口清单里
+CodeGen: 排除 IBindRow11Reject::PeekThing —— "② 所有权不明裸指针：weak_ptr 的弱引用语义在 C# 侧没有对应物（不投影）"
+绑定：接口 1 个 / 方法 0 条 / 产物 0 个 / 拒绝 0 条
+```
+
+**示例二：隐式转换重载（退出码 1，什么都不写）**
+
+```powershell
+CodeGen.exe Tools/CodeGen/BindableShapes.RejectOverload.h --emit-binding --out-dir .review_tmp --audit-script Tools/CodeGen/check_bindable_audit.py -ICACore/header -ITools/CodeGen/clang_shim -xc++
+```
+
+真实输出（节选）：
+
+```text
+CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转换的重载：两者投影成同一个 C ABI 签名
+```
+
+**三条实测前提**（不满足会得到看着莫名其妙的错）：
+
+1. **必须传 `-xc++`** —— `.h` 不传会被 libclang 当 C 解析，直接 `libclang parse failed (error=4)`；
+2. **`-I` 要覆盖这个头依赖的全部目录**：`CACore/header` 只够最简的夹具，真实接口（`IWindow`）还要它模块自己的头目录与第三方目录。`build.py` 不手写这些 —— 它从编译数据库里借一个已经能编这个头的编译单元；
+3. **`--out-dir` 必须已存在**（工具不建目录），且产物会**覆盖**同名文件。

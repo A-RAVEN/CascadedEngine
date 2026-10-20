@@ -5,6 +5,8 @@
 // 任何一步失败都必须把"找过哪些路径 / 版本号"写进 LastError，由调用方打日志 —— 不许静默降级。
 #include <CACore/CAModuleManager.h>
 #include <ScriptHost/IScriptHost.h>
+// 生成的绑定产物：提供 IWindow_GetApi 与 IWindowApi_v1（本 TU 编译它，模块自己就带表）
+#include "IWindow.Bindings.cpp"
 
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
@@ -31,9 +33,19 @@ namespace cs_script
 		uint32_t size;
 		void (*log)(int level, uint8_t const* utf8, uint64_t len);
 		int32_t (*echo)(int32_t value);
+		// --- v2 追加（csharp-bindings-generator 任务 3.2）---
+		// 取"接口函数表 + 实例指针"：id 见 CSharpHost/README.md 的编号表（1 = IWindow）；
+		// version/size 是托管侧期望的值，成功后 out 填表、*instanceOut 填实例，返回真实表大小；
+		// 版本或大小不符时返回 0 且**一个字节都不写**（与生成的 GetApi 同一口径）。
+		uint32_t (*get_interface_api)(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
+									  void** instanceOut);
 	};
 
-	static constexpr uint32_t s_engineApiVersion = 1;
+	// 引擎侧约定的接口编号（托管侧 Host.cs 必须用同一组数字）
+	static constexpr uint32_t s_interfaceIdWindow = 1;
+
+
+	static constexpr uint32_t s_engineApiVersion = 2;
 
 	class CSharpHost final : public IScriptHost
 	{
@@ -51,6 +63,14 @@ namespace cs_script
 			}
 		}
 
+		// 把接口实例登记进来（任务 3.2 的"登记一行"）：编号 1 = IWindow
+		void SetInterfaceInstance(uint32_t interfaceId, void* instance) override
+		{
+			if (interfaceId < 8u)
+			{
+				s_interfaceInstances[interfaceId] = instance;
+			}
+		}
 		// 模块 link 阶段（所有模块都登记完之后）被调用一次
 		void Init(cacore::IModuleManager* pModuleManager)
 		{
@@ -116,6 +136,8 @@ namespace cs_script
 		// 第一版把它写成 LoadRuntime() 里的局部变量，Boot 之后表就失效了，Tick 里一读就是野指针（实测崩在
 		// Scripting.Managed.Host.Tick，退出码 0xC0000005）。改成成员。
 		EngineApi m_api{};
+		// 被登记的接口实例（下标就是接口编号；0 号不用）
+		void* m_interfaceInstances[8] = {};
 
 		void LoadRuntime()
 		{
@@ -160,6 +182,9 @@ namespace cs_script
 			api.size = static_cast<uint32_t>(sizeof(EngineApi));
 			api.log = &CSharpHost::OnManagedLog;
 			api.echo = &CSharpHost::OnManagedEcho;
+			api.get_interface_api = &CSharpHost::OnGetInterfaceApi;
+			CA_LOG("CSharpHost：引擎侧 OnGetInterfaceApi 的地址 = {:X}，函数表 {} 字节",
+				reinterpret_cast<uintptr_t>(&CSharpHost::OnGetInterfaceApi), api.size);
 
 			int32_t bootResult = m_boot(&api);
 			if (bootResult != 0)
@@ -468,6 +493,39 @@ namespace cs_script
 			return value + 1;
 		}
 
+		// 托管侧取"接口函数表 + 实例"的入口（csharp-bindings-generator 任务 3.2）。
+		// 版本/大小不符、或实例没登记，就返回 0 且**一个字节都不写** —— 与生成出来的 GetApi 同一口径。
+		static uint32_t OnGetInterfaceApi(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
+										  void** instanceOut)
+		{
+			if (s_instance == nullptr || interfaceId != s_interfaceIdWindow || interfaceId >= 8u)
+			{
+				return 0u;
+			}
+			// `size == 0` 是"探针调用"：托管侧还不知道表有多大，先问一句（不写任何内存）。
+			// 这一条必须排在 `out == nullptr` 之前 —— 探针调用本来就不给缓冲区（实测漏了这层判断，
+			// 探针永远返回 0）。
+			if (size == 0u)
+			{
+				return static_cast<uint32_t>(sizeof(IWindowApi_v1));
+			}
+			void* instance = s_interfaceInstances[interfaceId];
+			if (instance == nullptr || out == nullptr)
+			{
+				return 0u;
+			}
+			const uint32_t realSize = IWindow_GetApi(version, size, static_cast<IWindowApi_v1*>(out));
+			if (realSize == 0u)
+			{
+				return 0u;
+			}
+			if (instanceOut != nullptr)
+			{
+				*instanceOut = instance;
+			}
+			return realSize;
+		}
+
 		using BootFn = int32_t (*)(EngineApi*);
 		using TickFn = int32_t (*)(double);
 
@@ -495,11 +553,16 @@ namespace cs_script
 		// TryRelease 被调用时，管理器里的实例可能已经先被释放了（实测 GetInstance 返回空），
 		// 所以模块自己留一份指针 —— 它由本模块 new、也由本模块管，指针生命周期就是模块生命周期。
 		static CSharpHost* s_instance;
+
+		// 被登记的接口实例（下标就是接口编号；0 号不用）。用 **static**：登记方与读取方可能不是同一个
+		// 实例（实测 tester 拿到的 IScriptHost* 与 s_instance 不是同一个 ⇒ 成员数组读不到）。
+		static void* s_interfaceInstances[8];
 	};
 
 	int32_t CSharpHost::s_echoCalls = 0;
 	bool CSharpHost::s_shuttingDown = false;
 	CSharpHost* CSharpHost::s_instance = nullptr;
+void* CSharpHost::s_interfaceInstances[8] = {};
 }
 
 // 框架对三个导出都是可选查找（CaModuleManager.cpp 里取地址后判空才调），而 CA_MODULE_INSTANCE 宏

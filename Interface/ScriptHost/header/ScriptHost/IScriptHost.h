@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <stdint.h>
 
 // 引擎与托管侧（C#）之间唯一的手写接口。
@@ -20,6 +20,11 @@ namespace cs_script
 
 		// 关闭：释放运行时句柄与程序集引用（由模块的 TryRelease 调用；可重复调）
 		virtual void Shutdown() = 0;
+
+		// 把某个接口的实例登记给托管侧（任务 3.2 的"登记一行"）。
+		// `interfaceId` 是引擎侧约定的编号：**1 = IWindow**（见 CSharpHost/README.md 的表）。
+		// 托管侧通过函数表里的 get_interface_instance / get_interface_api 拿到它。
+		virtual void SetInterfaceInstance(uint32_t interfaceId, void* instance) = 0;
 
 		virtual ~IScriptHost() = default;
 	};

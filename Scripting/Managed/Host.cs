@@ -15,6 +15,10 @@ namespace Scripting.Managed
         public uint Size;
         public delegate* unmanaged<int, byte*, ulong, void> Log;
         public delegate* unmanaged<int, int> Echo;
+        // --- v2 追加（csharp-bindings-generator 任务 3.2）---
+        // 取"接口函数表 + 实例"：size 传 0 是探针调用（只回真实大小）；成功后 out 里是表、
+        // instanceOut 里是实例，返回真实表大小；版本/大小不符返回 0 且一个字节都不写。
+        public delegate* unmanaged<uint, uint, uint, void*, void**, uint> GetInterfaceApi;
     }
 
     /// <summary>
@@ -25,7 +29,7 @@ namespace Scripting.Managed
     public static unsafe class Host
     {
         // 与 C++ 侧必须逐字一致
-        private const uint ExpectedAbiVersion = 1;
+        private const uint ExpectedAbiVersion = 2;
 
         private static EngineApi* s_api;
         private static int s_tickCount;
@@ -67,7 +71,7 @@ namespace Scripting.Managed
                     return ErrAbiSize;
                 }
 
-                if (api->Log == null || api->Echo == null)
+                if (api->Log == null || api->Echo == null || api->GetInterfaceApi == null)
                 {
                     s_lastError = "函数表里有空指针（Log / Echo 至少有一个是空的）";
                     return ErrAbiNull;
@@ -77,6 +81,7 @@ namespace Scripting.Managed
                 s_lastError = string.Empty;
 
                 LogLine($"托管侧已启动：ABI 版本 {api->AbiVersion}、函数表 {api->Size} 字节");
+                LogLine($"托管侧看到的 get_interface_api 地址 = {((long)api->GetInterfaceApi):X}");
                 s_lastEcho = api->Echo(42);
                 LogLine($"回调引擎 Echo(42) 得到 {s_lastEcho}");
                 return Ok;
@@ -110,6 +115,10 @@ namespace Scripting.Managed
 
                 s_tickCount++;
                 LogLine($"Tick #{s_tickCount}：dt = {deltaSeconds:F3} 秒");
+                if (s_tickCount == 1)
+                {
+                    ProbeWindowSize();
+                }
                 return s_tickCount; // 回值就是本次是第几次 Tick，引擎侧据此逐字比对
             }
             catch (Exception ex)
@@ -118,6 +127,64 @@ namespace Scripting.Managed
                 LogLine(s_lastError); // 文本必须回到引擎侧，否则只剩一个光秃秃的错误码
                 return ErrException;
             }
+        }
+
+        // 接口编号（与 CSharpHost.cpp 的 s_interfaceIdWindow 一致）
+        private const uint InterfaceIdWindow = 1;
+        // 生成物 Scripting.Generated.Bindings.IWindowBindings 里的常量（由 CodeGen --emit-binding 写出）
+        private const int WindowApiSize = 8 + 8 * 22;
+        private const int WindowApiGetWindowSize = 56;
+        private const int WindowApiTableVersion = 1;
+        private static bool s_windowProbed;
+
+        /// <summary>
+        /// 端到端（任务 3.2）：取 IWindow 的函数表与实例，调 GetWindowSize，把两个读数打进日志。
+        /// 引擎侧在同一时刻也打一份，两边逐字比对。
+        /// </summary>
+        private static void ProbeWindowSize()
+        {
+            if (s_windowProbed)
+            {
+                return;
+            }
+
+            uint realSize = s_api->GetInterfaceApi(InterfaceIdWindow, WindowApiTableVersion, 0, null, null);
+            if (realSize == 0)
+            {
+                // 实例可能还没登记（引擎侧的窗口在第一个测试里才建出来）：**不置成功标志**，下一帧再试
+                if (s_tickCount <= 1)
+                {
+                    LogLine("取 IWindow 函数表失败：探针调用返回 0（实例尚未登记，下一帧重试）");
+                }
+                return;
+            }
+            s_windowProbed = true;
+            if (realSize != (uint)WindowApiSize)
+            {
+                LogLine($"[托管侧] 函数表大小不符：引擎 {realSize} 字节，托管侧 {WindowApiSize} 字节");
+                return;
+            }
+
+            byte* buffer = stackalloc byte[WindowApiSize];
+            void* instance = null;
+            uint written = s_api->GetInterfaceApi(InterfaceIdWindow, WindowApiTableVersion, realSize, buffer,
+                                                  &instance);
+            if (written != realSize || instance == null)
+            {
+                LogLine($"[托管侧] 取 IWindow 函数表失败：写入 {written} 字节、实例 {(long)instance}");
+                return;
+            }
+
+            var getWindowSize = (delegate* unmanaged<void*, int*, int*, void>)*(void**)(buffer + WindowApiGetWindowSize);
+            if (getWindowSize == null)
+            {
+                LogLine("[托管侧] GetWindowSize 在函数表里是空指针");
+                return;
+            }
+            int width = 0;
+            int height = 0;
+            getWindowSize(instance, &width, &height);
+            LogLine($"[托管侧] 窗口尺寸 = {width} x {height}");
         }
 
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>

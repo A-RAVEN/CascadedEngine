@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """对账：被审计接口里的每个纯虚方法，是否都在审计表里有且只有一行。
 
 审计表在 openspec/changes/**/evidence/bindable-audit.md（归档后仍在 **/evidence/ 下，所以用通配找，
@@ -10,6 +10,7 @@
   2 = 判据自身失效（找不到审计表或某个接口头），此时退出码 1 没有意义
 """
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -143,6 +144,7 @@ def table_rows(audit: Path):
 def main() -> int:
     parser = argparse.ArgumentParser(description="对账可绑定面审计表与接口头里的纯虚方法")
     parser.add_argument("--list", action="store_true", help="打印逐条对账结果")
+    parser.add_argument("--json", dest="json_mode", action="store_true", help="机器可读输出（给绑定发射器用）")
     args = parser.parse_args()
 
     repo = find_repo_root(Path(__file__).resolve())
@@ -214,6 +216,20 @@ def main() -> int:
             )
 
     total_expected = sum(expected.values())
+    if args.json_mode:
+        # 给 CodeGen 的绑定发射器用（任务 2.7）：它不能 import Python，只能拿子进程的输出去比对。
+        # 字段含义：methods = 头文件里存在、**必须有审计结论**的方法（"接口::方法"）；
+        # problems = 对账发现的问题，非空即非零退出；ok = 是否全绿。
+        payload = {
+            "interfaces": list(INTERFACES),
+            "methods": sorted(f"{key[0]}::{key[1]}" for key in expected),
+            "total": total_expected,
+            "problems": problems,
+            "ok": not problems,
+        }
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0 if not problems else 1
+
     print(
         f"扫描 {len(INTERFACES)} 个接口、对账 {total_expected} 条方法、命中 {len(problems)} 处问题"
         f"（审计表：{audit.relative_to(repo)}）"

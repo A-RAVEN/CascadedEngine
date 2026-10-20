@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """CascadedEngine build script with automatic MSVC environment setup.
 
 Usage:
@@ -1018,6 +1018,77 @@ def build_managed() -> None:
     print(f"  [托管侧] 已拷到 {bin_dir}：{', '.join(copied)}")
 
 
+# ---------------------------------------------------------------------------------------------
+# 绑定生成（csharp-bindings-generator 任务 2.10）：一次 `--emit-binding` 处理一个头，产物落
+# `out/build/<preset>/codegen/bindings/`。与托管侧**无关**（产物是 C++ 与 C# 源码，不需要 .NET），
+# 所以 `--without-managed` 时照样跑，只打一行说明。
+# ---------------------------------------------------------------------------------------------
+CODEGEN_BINDINGS = [
+    # (头文件, 日志标签, 必须出现的产物前缀)。夹具那份也要生成 —— CoreTests 的三个绑定用例直接
+    # `#include` 它们，构建时不生成就会 C1083（实测过一次：只生成 IWindow，夹具产物被我删掉后构建红）。
+    ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow", ["IWindow"]),
+    ("Tools/CodeGen/BindableShapes.h", "夹具 BindableShapes", ["IBindRow01", "IBindRow02", "IBindRow09"]),
+]
+
+
+def build_bindings() -> list[str]:
+    """跑绑定发射器。返回失败列表（空 = 全绿）。"""
+    if not CODEGEN_BINDINGS:
+        return []
+    tool = BUILD_DIR / "bin" / "CodeGen.exe"
+    if not tool.is_file():
+        return [f"绑定：找不到 {tool}"]
+    cc_file = BUILD_DIR / "compile_commands.json"
+    if not cc_file.is_file():
+        return [f"绑定：找不到 {cc_file}（configure 必须导出编译数据库）"]
+    entries = json.loads(cc_file.read_text(encoding="utf-8"))
+    out_dir = BUILD_DIR / "codegen" / "bindings"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = Path(__file__).resolve().parent
+    script = repo_root / "Tools" / "CodeGen" / "check_bindable_audit.py"
+    failures: list[str] = []
+    for header, name, expected in CODEGEN_BINDINGS:
+        header_path = Path(header)
+        # 该头所属模块的一个编译单元：用它那条命令里的 -I，和 codegen 的取法一致
+        module = header_path.parts[0]
+        # 先找"同一个模块"的编译单元；夹具这种放在 Tools/ 下的头没有自己的 TU，退到 CoreTests 的
+        # 编译单元（它带了 CASTL 与 sha256 那些第三方 include，实测缺了就解析失败 exit 3）
+        env = next((e for e in entries if module in Path(e["file"]).parts), None)
+        if env is None:
+            env = next((e for e in entries if Path(e["file"]).as_posix().startswith("Test/CoreTests/")),
+                       None)
+        if env is None:
+            # 夹具这种没有自己 TU 的头：**借一个已经能编它的 TU**（BindingsGetApiTest 就是 include 夹具
+            # 产物的那个）。不要把所有 TU 的 -I 并起来 —— 命令行会超长，libclang 静默少收 include，
+            # 报的是莫名其妙的 `sha256.h not found`。
+            env = next((e for e in entries
+                        if Path(e["file"]).name == "BindingsGetApiTest.cpp"), None)
+        dirs = _include_dirs(env["command"].split()) if env else []
+        seen_dirs: set[str] = set()
+        includes = []
+        for d in dirs:
+            if d in seen_dirs:
+                continue
+            seen_dirs.add(d)
+            includes.append(f"-I{str(Path(d)).replace(chr(92), '/')}")
+        includes += ["-ICACore/header", "-ITools/CodeGen/clang_shim"]
+        cmd = [str(tool), header, "--emit-binding", "--out-dir", str(out_dir),
+               "--audit-script", str(script)] + includes + ["-xc++"]
+        print(f"  [绑定] {name} ← {header}", flush=True)
+        proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            failures.append(f"绑定 {name} 失败（exit {proc.returncode}）：{detail[:800]}")
+            continue
+        produced = sorted(f"{stem}.Bindings.*" for stem in expected)
+        produced = [pat for pat in produced
+                    if any(out_dir.glob(pat))]
+        print(f"    [绑定] 产物：{', '.join(produced) if produced else '（无）'}", flush=True)
+        if not produced:
+            failures.append(f"绑定 {name} 退出码 0，却没有产物 {name}.Bindings.cpp / .cs")
+    return failures
+
 def main() -> None:
     global config, BUILD_DIR, NINJA_FILE
 
@@ -1091,6 +1162,11 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001 — 生成段的任何意外都要报成"生成失败"，不是裸 traceback
         codegen_failures = [f"生成段意外出错：{type(exc).__name__}: {exc}"]
     codegen_seconds = time.perf_counter() - started
+    try:
+        binding_failures = build_bindings()
+    except Exception as exc:  # noqa: BLE001 — 绑定段的意外同样按"生成失败"报
+        binding_failures = [f"绑定段意外出错：{type(exc).__name__}: {exc}"]
+    codegen_failures.extend(binding_failures)
     if codegen_failures:
         # Printed BEFORE the build: `build()` exits on the first compile error, and the report used to sit
         # after it — so when codegen and the compile both failed, the codegen list (the actionable one: a

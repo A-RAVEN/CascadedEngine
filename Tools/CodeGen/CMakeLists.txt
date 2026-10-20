@@ -1,4 +1,4 @@
-# 独立工程：引擎那棵构建树里不再有 CodeGen 目标，build.py 用 out/build/codegen-tool 单独配/编它。
+﻿# 独立工程：引擎那棵构建树里不再有 CodeGen 目标，build.py 用 out/build/codegen-tool 单独配/编它。
 # 生成文件是先决条件 —— 工具必须先建好、先跑，引擎的 configure/编译与它无关。
 cmake_minimum_required(VERSION 3.12)
 project(CodeGen CXX)
@@ -25,6 +25,9 @@ set_property(TARGET CLANG_LIB PROPERTY IMPORTED_IMPLIB  "${CALIB_CLANG_DIR}/lib/
 
 add_executable(CodeGen CodeGenMain.cpp)
 target_link_libraries(CodeGen PRIVATE CLANG_LIB)
+# `/utf-8`：源码是 UTF-8，但 MSVC 默认按系统码页解释窄字符串字面量 —— 源码里的 `—` 会变成 `?`，
+# README 里逐字记录的那几句就此对不上（实测 verify_readme.py 报 5 处 text 不符）。
+target_compile_options(CodeGen PRIVATE /utf-8)
 set_property(TARGET CodeGen PROPERTY CXX_STANDARD 20)
 
 # Copy the runtime libclang.dll alongside the tool so a fresh build runs without PATH gymnastics.

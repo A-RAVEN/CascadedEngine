@@ -1,4 +1,4 @@
-// 新运行时的用例都在各自文件里，这个文件只剩测试入口与一个分配烟测。
+﻿// 新运行时的用例都在各自文件里，这个文件只剩测试入口与一个分配烟测。
 //
 // 原先这里还有一整套**旧运行时**的夹具与用例（`TestStruct0/1/2/3`、`TestHash*`、`TestSerialize0`）：
 // 它们测的是旧序列化 / 反序列化与旧哈希驱动那条已经退场的路，而且 `TestHash*` 与 `TestSerialize0`
@@ -64,6 +64,10 @@ bool RunFriendLikeTest();
 bool RunResourceBatchTest();
 // D3D12 后端 `graphics_backend::ShaderLibrary` 的新老字节对拍（定义在 ShaderLibraryBytesTest.cpp）。
 bool RunShaderLibraryBytesTest();
+bool RunBindingsGetApiTest();
+bool RunBindingsHandleTest();
+bool RunBindingsLayoutTest();
+bool RunWindowBindingsCompileTest();
 
 
 
@@ -77,6 +81,50 @@ int main(int argc, char* argv[])
 	// observed while the other two are still passing). Returning early on the first failure — the old
 	// behaviour — made that observation impossible.
 	bool allOk = true;
+
+	// `IWindow` 的绑定产物能被编译并链接（csharp-bindings-generator 任务 2.10）
+	if (!RunWindowBindingsCompileTest())
+	{
+		std::puts("Window bindings compile test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Window bindings compile test PASSED");
+	}
+
+	// 布局清单：镜像结构体与 C++ 侧的真实布局一致（csharp-bindings-generator 任务 2.5）
+	if (!RunBindingsLayoutTest())
+	{
+		std::puts("Bindings layout manifest test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings layout manifest test PASSED");
+	}
+
+	// 句柄表：序号 + 代际、配对释放、失效报错（csharp-bindings-generator 任务 2.4）
+	if (!RunBindingsHandleTest())
+	{
+		std::puts("Bindings handle table test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings handle table test PASSED");
+	}
+
+	// 绑定函数表的取表校验（csharp-bindings-generator 任务 2.2）
+	if (!RunBindingsGetApiTest())
+	{
+		std::puts("Bindings GetApi test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings GetApi test PASSED");
+	}
 
 	if (!RunTypeRegistryTest())
 	{

@@ -179,3 +179,17 @@ namespace cacore::codegen
 // ---------------------------------------------------------------------------------------------
 #define CA_REFLECT(...) \
     static_assert(true, "CA_REFLECT(" #__VA_ARGS__ ")");
+
+// ---------------------------------------------------------------------------------------------
+// CA_BIND — 标在**接口类**上，告诉 CodeGen 的绑定发射器"这个接口要给 C# 用"（规矩见
+// openspec/specs/csharp-bindable-surface/spec.md 与 Tools/CodeGen/README.md 第十三节）。
+// 与 CA_REFLECT 一样是"文本标记 + 编译期 no-op"：工具按源码文本认它，编译器这里什么也不做。
+//
+// CA_BIND_SKIP(方法名, "理由") —— 逐方法排除。它**必须带理由**：工具对"排除但没写理由"单独报错。
+// 用法与退出码见 Tools/CodeGen/README.md 的发射器一节。
+// ---------------------------------------------------------------------------------------------
+#define CA_BIND(...) \
+    static_assert(true, "CA_BIND(" #__VA_ARGS__ ")");
+
+#define CA_BIND_SKIP(MethodName, Reason) \
+    static_assert(true, "CA_BIND_SKIP(" #MethodName ", " Reason ")");

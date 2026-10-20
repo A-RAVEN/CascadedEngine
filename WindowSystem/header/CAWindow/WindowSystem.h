@@ -3,9 +3,12 @@
 #include <CASTL/CASharedPtr.h>
 #include <CASTL/CAFunctional.h>
 #include <CAUtils.h>
+#include <CodeGenMeta.h>
 namespace cawindow
 {
 	class IWindowSystem;
+	// 绑定：`IWindow` 是第一个真正接到 C# 的接口（规矩见 Tools/CodeGen/README.md 第十三节）。
+	CA_BIND()
 	class IWindow
 	{
 	public:
@@ -33,6 +36,10 @@ namespace cawindow
 		virtual bool IsKeyTriggered(int keycode) const = 0;
 		virtual bool IsMouseDown(int mousecode) const = 0;
 		virtual bool IsMouseUp(int mousecode) const = 0;
+
+		// 排除必须写理由（② 所有权不明裸指针）。这行标记放在**所有方法声明之后** —— 夹在方法之间
+		// 会把审计脚本"virtual … ;"的扫描切断（实测：对账从 60 条掉到 59 条，报"僵尸行"）。
+		CA_BIND_SKIP(GetWindowSystem, "② 所有权不明裸指针：返回 IWindowSystem 实例且无所有权说明")
 	};
 
 	using FloatRect = cacore::Rect<float>;
