@@ -8,6 +8,48 @@
 
 # 待办（未解决 / 需后续处理）
 
+## [2026-10-20] 绑定发射器（`--emit-binding`）不足以支撑「C# 创建窗口」：10 处桩、句柄不回收、判据恒绿｜`csharp-bindings-generator` 归档后遗留
+
+**状态**：未修。该 change 已归档（提交 `05e483b`）。归档时声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的。
+
+**问题一：形状层 —— `IWindow` 函数表 22 个槽里 10 个是桩。** 桩 = 函数体只有 `return {};   // 零值（标量、指针、镜像结构体都成立）`，连 `self` 都不碰，调用方拿到 0 却以为是真结果。
+- `bool` 返回一律落桩。判「能直出」的条件写的是 `bareType(method.returnSpelling) == returnType`，而 `bool` 会投影成 `int32_t`，两者永不相等。实测 8 个：`WindowShouldClose` / `GetWindowFocus` / `GetWindowMinimized` / `GetKeyState` / `IsKeyDown` / `IsKeyTriggered` / `IsMouseDown` / `IsMouseUp`。
+- `void*` 返回被吞：`bareType("void*")` 剥掉指针变 `"void"`，`GetNativeWindowHandle` 在表里是 `void (*)(void*)`，调用发生了但返回值丢掉。
+- 字符串入参 thunk 是空体：`SetWindowName` 签名对（`char const*, uint64_t`），函数体只有桩注释。
+- 两段式只发声明不发实现：`IWindow_GetWindowNameLen` 与 `IWindow_CopyGetWindowName` 在整个生成物里各只有 1 处（第 23、24 行的声明），没有函数体、不进函数表；`Tools/CodeGen/check_bindings.py` 的伴生跳过规则让它们永远不算不符。
+- `castl::function` 参数一律投影成固定签名 `void (*)(void*, uint32_t, float)`，与真实回调签名无关（`IWindowSystem` 的 10 个 setter 因此绑不了）。
+- `weak_ptr` 返回 / 入参整体拒绝，`IWindowSystem::NewWindow` 死在这条上。
+- 结构体镜像只收「成员全是标量」的类型，`MonitorInfo` 里的 `cacore::Rect<float>` 会被标跳过，而 `GetMonitor` 仍投影成 `MonitorInfoC` ⇒ 引用一个不存在的类型。
+- 兜底那行不分 const，可写出参 `Foo*` 与入参 `Foo const&` 都出 `FooC const*`。
+
+**问题二：句柄与生命周期。**
+- `keepAlive` 只增不减：`releaseHandle` 清表项 + 加代次，但不从 `keepAlive` 删元素 ⇒ 对象永不析构、`use_count()` 永不回 1 ⇒ `WindowSystem_Impl.cpp` 的回收条件 `use_count() == 1 && WindowShouldClose()` 永不成立，窗口永不回收。
+- 伴生 `ReleaseXxx` 只在「接口里有句柄入参方法」时才生成；`IWindow` 没有这种参数 ⇒ 窗口句柄没有释放入口。
+- 句柄入参的反查根本没实现：`lookupHandle` 定义了但 `IBindRow09` 里零引用，注释却写着「句柄参数：反查（失效就置错误码，不崩）」。
+- 错误码 1001 只有「重复释放」一条真路径；「对象已死、句柄还在」因上一条永不发生。
+- 错误状态是每接口一份 static 全局（`IWindow_lastErrorCode`），`LastErrorCode(void*)` 的 `self` 被忽略；`setError` 往 `char[256]` 里 `memcpy(strlen+1)` 不检查长度。
+- 只有 1001 / 1002 两个码，没有「未实现」这一类，桩返回的 0 与真 0 不可区分。
+
+**问题三：判据恒绿 —— 这是根因，不是附属问题。**
+- `python build.py` 与 `Tools/CodeGen/check_bindings.py` 都看不出桩：后者逐行比的是 `extern "C"` 签名文本，桩和真实现的签名**逐字相同**。
+- 生成器自报「方法 22 条 / 拒绝 0 条」，把 10 条桩算成成功投影。
+- 生成的 `.cs` 从没编进任何工程：`git grep "Scripting.Generated.Bindings"` 只命中 `Scripting/Managed/Host.cs` 的一句注释和发射器自己写命名空间那一行，没有任何工程或脚本引用它；常数 `8 + 8 * 22`、`56` 是手抄的。
+- 夹具 14 个 `IBindRowNN` 全是合成的，没有第二个真实接口 —— `MonitorInfo` 嵌套、`string_view` 入参这些形状只有真实接口才碰得到。
+
+**改法（三批，顺序不能换）。**
+1. 先把判据改成能看出桩：生成物里数桩标记，没被列进忽略清单的桩 ⇒ 构建退出码非 0；伴生函数（`_GetWindowNameLen` / `_CopyXxx`）不再被对拍跳过，进对拍就得有函数体；生成的 `.cs` 真编进托管工程。
+2. 补形状：`bool` 返回走真路径、`void*` 返回保留、字符串入参 thunk 补实现、两段式补实现、可写出参不标 const。
+3. 句柄与创建：`keepAlive` 能回收、导出释放入口、句柄入参反查、`weak_ptr` 换成弱句柄投影，再接 `IWindowSystem` 与托管侧。
+
+**验收口径（每条都能失败）。**
+- 第 1 批：拿今天的生成物跑新守卫，必须报 10 处桩并以非 0 退出；修完后 0 处、退出码 0。
+- 第 2 批：夹具里每个形状写一条**行为**断言（例如 `WindowShouldClose` 在窗口已关闭时返回 1、未关闭时返回 0），今天的代码会在「已关闭返回 1」这条上红。
+- 第 3 批：C# 调 `NewWindow(800, 600)` 得非 0 句柄 → 用句柄 `GetWindowSize` 读回 `800 x 600` → C++ 侧 `GetWindowCount()` 由 9 变 10 → C# 调 `CloseWindow()` → 下一帧 `WindowShouldClose` 为真 → `GetWindowCount()` 回到 9。今天的代码在第一步就红（`NewWindow` 压根没进表）。
+
+**相关代码**：`Tools/CodeGen/CodeGenMain.cpp`（`projectMethod` / thunk 生成 / `collectMirrorTypes`）、`Tools/CodeGen/check_bindings.py`、`WindowSystem/header/CAWindow/WindowSystem.h`、`WindowSystem/private/WindowSystem_Impl.cpp`、`CSharpHost/private/CSharpHost.cpp`、`Scripting/Managed/Host.cs`。
+
+---
+
 ## [2026-09-02] IMGUI 字体 D2 加固：规范字体上传（AA 灰阶 + 去 swizzle 依赖）｜`fix-imgui-font-whitebox` deferred follow-up
 
 **类型：变更内 deferred 跟进**（`fix-imgui-font-whitebox` 任务 3.1 / 3.2，明确"本轮不做"）
