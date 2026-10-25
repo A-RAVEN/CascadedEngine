@@ -105,11 +105,17 @@ int main(int argc, char* argv[])
 		std::puts("Bindings layout manifest test PASSED");
 	}
 
-	// 弱句柄：登记不抬高引用计数、对象被回收后旧句柄报 1001（csharp-window-creation 任务 1.4）
+	// 弱句柄：登记不抬高引用计数、对象被回收后旧句柄报 1001（`csharp-window-creation` 任务 1.4）
 	if (!RunBindingsWeakHandleTest())
 	{
 		std::puts("Bindings weak handle test FAILED");
-		return false;
+		// 任务 5.9：这里原来写的是 `return false;` —— 在 `int main` 里等于退 0，
+		// 于是"只看退出码"的判据永远绿。改成置 allOk，让退出码真的变红。
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings weak handle test PASSED");
 	}
 
 	// 句柄表：序号 + 代际、配对释放、失效报错（csharp-bindings-generator 任务 2.4）

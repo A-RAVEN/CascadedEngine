@@ -50,28 +50,29 @@ namespace
 
 bool RunBindingsGetApiTest()
 {
-	const uint32_t realSize = static_cast<uint32_t>(sizeof(IBindRow01Api_v1));
-	IBindRow01Api_v1 table;
+	const uint32_t realSize = static_cast<uint32_t>(sizeof(IBindRow01Api_v2));
+	IBindRow01Api_v2 table;
 	std::memset(&table, 0xCD, sizeof(table));
 
 	// ① 正确的版本与大小
-	const uint32_t returned = IBindRow01_GetApi(1u, realSize, &table);
+	const uint32_t returned = IBindRow01_GetApi(2u, realSize, &table);
 	if (returned != realSize)
 	{
 		std::printf("  GetApi 正确调用：期望返回 %u，实际 %u\n", realSize, returned);
 		return false;
 	}
-	if (table.abi_version != 1u || table.size != realSize)
+	if (table.abi_version != 2u || table.size != realSize)
 	{
-		std::printf("  表头不符：abi_version=%u（期望 1）、size=%u（期望 %u）\n", table.abi_version,
+		std::printf("  表头不符：abi_version=%u（期望 2）、size=%u（期望 %u）\n", table.abi_version,
 		            table.size, realSize);
 		return false;
 	}
 
-	// ② 版本不对：返回 0 且缓冲区不被写
-	IBindRow01Api_v1 untouchedForVersion;
+	// ② 版本不对：返回 0 且缓冲区不被写。用 1u —— 那是错误通道进表之前的版本号
+	//    （`csharp-window-creation` 任务 5.10 把版本从 1 升到 2），这条同时证明旧产物会被拦。
+	IBindRow01Api_v2 untouchedForVersion;
 	std::memset(&untouchedForVersion, 0xCD, sizeof(untouchedForVersion));
-	if (IBindRow01_GetApi(2u, realSize, &untouchedForVersion) != 0u)
+	if (IBindRow01_GetApi(1u, realSize, &untouchedForVersion) != 0u)
 	{
 		std::puts("  GetApi 版本不符时没有返回 0");
 		return false;
@@ -84,9 +85,9 @@ bool RunBindingsGetApiTest()
 	}
 
 	// ③ 大小不对：同样返回 0 且不写
-	IBindRow01Api_v1 untouchedForSize;
+	IBindRow01Api_v2 untouchedForSize;
 	std::memset(&untouchedForSize, 0xCD, sizeof(untouchedForSize));
-	if (IBindRow01_GetApi(1u, realSize - 8u, &untouchedForSize) != 0u)
+	if (IBindRow01_GetApi(2u, realSize - 8u, &untouchedForSize) != 0u)
 	{
 		std::puts("  GetApi 大小不符时没有返回 0");
 		return false;

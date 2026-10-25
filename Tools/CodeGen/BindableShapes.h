@@ -181,4 +181,62 @@ namespace ca_bind_fixture
 		virtual void MayThrow(int32_t value) = 0;
 		virtual ~IBindRow14() = default;
 	};
+
+	// ---- 第二张矩阵（C++ 声明 → 托管表面）的六行 conformance 夹具，任务 5.7 ----
+	// 前五行与「C++ → C ABI」那张表共用接口，但**判据在生成出来的 `.cs` 上**：每行断言一条
+	// 具体的表面签名（`public bool GetFlag()` 之类）。第六行额外要求被指向的接口本身也可绑。
+
+	// 行 ①：`bool` 返回 → 托管侧还是 `bool`（C ABI 是 `int32_t`，表面要还原回来）
+	CA_BIND()
+	class IBindRow16
+	{
+	public:
+		virtual bool GetFlag() = 0;
+		virtual ~IBindRow16() = default;
+	};
+
+	// 行 ②：`T&` 出参 → 元组返回值；顺带覆盖 `void` 返回与 `int`/`float` 这两个"本来就同名"的形状
+	CA_BIND()
+	class IBindRow17
+	{
+	public:
+		virtual void GetPair(int& outA, float& outB) = 0;
+		virtual ~IBindRow17() = default;
+	};
+
+	// 行 ③：`castl::string const&` 入参 → `string`（C ABI 是 `char const* + uint64_t` 两段）
+	CA_BIND()
+	class IBindRow18
+	{
+	public:
+		virtual void SetTitle(castl::string const& title) = 0;
+		virtual ~IBindRow18() = default;
+	};
+
+	// 行 ④：`castl::string_view` 返回 → `string`（两段式伴生拼回来）
+	CA_BIND()
+	class IBindRow19
+	{
+	public:
+		virtual castl::string_view GetLabel() const = 0;
+		virtual ~IBindRow19() = default;
+	};
+
+	// 行 ⑤：`void*` → `IntPtr`（C ABI 是不透明 `uint64_t` 令牌）
+	CA_BIND()
+	class IBindRow20
+	{
+	public:
+		virtual void* GetToken() = 0;
+		virtual ~IBindRow20() = default;
+	};
+
+	// 行 ⑥：`castl::weak_ptr<T>` 返回 → 同名接口引用；`T` 本身必须是可绑接口（这里指向 ①的接口）
+	CA_BIND()
+	class IBindRow21
+	{
+	public:
+		virtual castl::weak_ptr<IBindRow16> GetFlagOwner() = 0;
+		virtual ~IBindRow21() = default;
+	};
 }

@@ -50,7 +50,7 @@ bool RunBindingsWeakHandleTest()
 		std::printf("  弱句柄抬高了引用计数：%ld → %ld（它应当只观察、不持有）\n", before, after);
 		return false;
 	}
-	if (IBindRow11_ResolveHandle(handle) != owner.m_owned.get())
+	if (IBindRow11_ResolveHandle(&owner, handle) != owner.m_owned.get())
 	{
 		std::puts("  弱句柄解析出来的指针与实现持有的对象不一致");
 		return false;
@@ -64,7 +64,7 @@ bool RunBindingsWeakHandleTest()
 		std::puts("  见证者没有过期 —— 对象其实还活着，下面的 1001 不能当证据");
 		return false;
 	}
-	if (IBindRow11_ResolveHandle(handle) != nullptr)
+	if (IBindRow11_ResolveHandle(&owner, handle) != nullptr)
 	{
 		std::puts("  对象已析构，弱句柄仍然给出了指针");
 		return false;

@@ -38,10 +38,20 @@
 #include <crtdbg.h>
 #include <windows.h>
 #include "private/MiniDump.h"
-// 生成的 C ABI 入口（任务 2.8）：要验「对象被回收后旧句柄报 1001」，必须**从 C ABI 拿到句柄** ——
-// C++ 侧的 `NewWindow` 只回弱指针，句柄只在生成物那层存在。
-#include "IWindowSystem.Bindings.cpp"
-#include "IWindow.Bindings.cpp"
+// 生成的 C ABI 入口已经从这个文件里退场（`csharp-window-creation` 任务 5.5）：端到端那一圈
+// 由托管侧走**生成的表面**（`IWindow` / `IWindowSystem`）完成，C ABI 入口只在
+// `Test/CoreTests` 的绑定用例里直接对着产物验。
+#include "FakeWindowSystem.h"
+
+// 实例名（`csharp-window-creation` 任务 5.4）：登记与查找都带这一维 —— 同一个接口可以并存
+// 多份实现。真实的窗口系统实例名必须与 `CA_MODULE_INSTANCE(cawindow::IWindowSystem,
+// cawindow::WindowSystem, WindowSystem_GLFW)` 的第三个参数逐字一致。
+namespace
+{
+	constexpr char const* kWindowInstanceName = "Window";
+	constexpr char const* kRealWindowSystemInstanceName = "WindowSystem_GLFW";
+	constexpr char const* kFakeWindowSystemInstanceName = "FakeWindowSystem";
+}
 
 using namespace thread_management;
 using namespace resource_management;
@@ -149,11 +159,11 @@ void TestSimpleTriangle(TestContext& ctx)
 	// GetWindowSize 读数 —— 托管侧在第一次 Tick 时会取同一张表、调同一个方法，两处尺寸必须逐字一致。
 	if (auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>())
 	{
-		pScriptHost->SetInterfaceInstance(1, newWindow.lock().get());
-		// 编号 2 也必须登记（`csharp-window-creation` 任务 3.3 实测发现）：`s_interfaceInstances`
-		// 是进程级 static，跑全量时这个测试先登记了编号 1，之后 TestScriptHost 的 Tick 就会一路走到
-		// 托管侧的编号 2 探针上；那里取不到实例就会写 `s_lastError`，把 TestScriptHost 判红。
-		pScriptHost->SetInterfaceInstance(2, ctx.pWindowSystem);
+		pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, newWindow.lock().get());
+		// 编号 2 也必须登记（`csharp-window-creation` 任务 3.3 实测发现）：登记表是进程级 static，
+		// 跑全量时这个测试先登记了编号 1，之后 TestScriptHost 的 Tick 就会一路走到托管侧的编号 2
+		// 探针上；那里取不到实例就会写 `s_lastError`，把 TestScriptHost 判红。
+		pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
 		int cppWidth = 0;
 		int cppHeight = 0;
 		newWindow.lock()->GetWindowSize(cppWidth, cppHeight);
@@ -1272,14 +1282,16 @@ void TestCSharpWindow(TestContext& ctx)
 	}
 	auto window = newWindow.lock();
 
-	pScriptHost->SetInterfaceInstance(1, window.get());
-	pScriptHost->SetInterfaceInstance(2, ctx.pWindowSystem);
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, window.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
 
 	int cppWidth = 0;
 	int cppHeight = 0;
 	window->GetWindowSize(cppWidth, cppHeight);
 	CA_LOG("C++ 侧窗口尺寸 = {} x {}（托管侧随后用同一张表读一次；不登记实例这一段读不到）", cppWidth,
 	       cppHeight);
+	// 任务 5.4：这一份实现归属哪个窗口系统，必须在窗口还活着的时候读（下面 `window.reset()` 之后就没了）
+	void* const realWindowOwner = window->GetWindowSystem();
 
 	pScriptHost->Tick(0.016);
 	if (pScriptHost->LastError()[0] != '\0')
@@ -1325,45 +1337,89 @@ void TestCSharpWindow(TestContext& ctx)
 			std::to_string(countAfterCreate) + "、回收后 " + std::to_string(countAfterUpdate) + "）");
 	}
 
-	// 句柄版（1.4 挪过来的判别性用例 + 2.8 最后一条）：从 C ABI 拿弱句柄 → 解出 self →
-	// 用它调 `GetWindowSize` 读回 800x600 → 由引擎自己回收（**全程不调任何释放入口**）→
-	// 旧句柄必须解析失败且错误码 1001。这条必须绕开 ReleaseHandle：走释放的话 1001 来自代际进位。
+	// 任务 5.5：**表面建的窗口**走一整圈 —— 托管侧在第三次 Tick 里 `NewWindow` → 读尺寸 → 关窗 →
+	// `Dispose`，引擎侧只看得到这里的计数：建出来的那一个让计数 +1，泵帧 + UpdateSystem 之后回 0。
+	// 这一段刻意不再裸调 C ABI 入口（建窗 / 解句柄 / 读尺寸 / 关窗 / 读错误码 全部改由托管表面做）——
+	// 那几条入口由 `Test/CoreTests` 的绑定用例直接对着产物验，这里只验"两侧读数一致"。
+	pScriptHost->Tick(0.016);
+	int32_t const countAfterSurfaceTick = ctx.pWindowSystem->GetWindowCount();
+	ctx.pWindowSystem->UpdateSystem();
+	int32_t const countAfterSurfaceUpdate = ctx.pWindowSystem->GetWindowCount();
+	CA_LOG("表面建窗计数：Tick #3 之后 {} / UpdateSystem 之后 {}（托管侧在这一次 Tick 里建窗 + 读尺寸 + 关窗 + 释放）",
+	       countAfterSurfaceTick, countAfterSurfaceUpdate);
+	if (pScriptHost->LastError()[0] != '\0')
 	{
-		uint64_t const handle = IWindowSystem_NewWindow(ctx.pWindowSystem, 800, 600, "Handle Window",
-		                                                13u, 1, 1, 1, 0);
-		void* const resolved = IWindowSystem_ResolveHandle(handle);
-		if (handle == 0u || resolved == nullptr)
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "表面建窗那一次 Tick 之后 LastError 非空：%s",
+		              pScriptHost->LastError());
+		throw std::runtime_error("E_SURFACE_WINDOW");
+	}
+	if (countAfterSurfaceTick != countBaseline + 1)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+		              "托管侧通过表面建的窗口没有出现在计数里：Tick #3 之后 = %d、基线 = %d（期望 +1）",
+		              countAfterSurfaceTick, countBaseline);
+		throw std::runtime_error("E_SURFACE_COUNT");
+	}
+	if (countAfterSurfaceUpdate != countBaseline)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+		              "表面建的窗口没有被回收：UpdateSystem 之后计数 = %d、基线 = %d（期望回基线）",
+		              countAfterSurfaceUpdate, countBaseline);
+		throw std::runtime_error("E_SURFACE_RECYCLE");
+	}
+
+	// 任务 5.4：同一个接口登记**两份实现**，按实例名各取各的，互不影响。
+	// 判据三条：① 按名取到的指针就是各自那一份；② 第二份上的窗口 `GetWindowSystem()` 回它自己
+	// （指针相等）；③ 第一份不受影响 —— 按第一个实例名取到的仍是它，默认那一份也是它。
+	// 失败细节一律写进 `g_errorDetail`、只抛短码（同上）。
+	{
+		fake_window::System fakeSystem;
+		pScriptHost->SetInterfaceInstance(2, kFakeWindowSystemInstanceName, &fakeSystem);
+		void* const realByName = pScriptHost->GetInterfaceInstance(2, kRealWindowSystemInstanceName);
+		void* const fakeByName = pScriptHost->GetInterfaceInstance(2, kFakeWindowSystemInstanceName);
+		if (realByName != ctx.pWindowSystem || fakeByName != &fakeSystem)
 		{
-			throw std::runtime_error("C ABI 建窗没有拿到可用句柄");
+			std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+			              "按实例名取实例取错了：真实那份 = %p（期望 %p）、第二份 = %p（期望 %p）", realByName,
+			              static_cast<void*>(ctx.pWindowSystem), fakeByName, static_cast<void*>(&fakeSystem));
+			throw std::runtime_error("E_INSTANCE_NAME");
 		}
-		int width = 0;
-		int height = 0;
-		IWindow_GetWindowSize(resolved, &width, &height);
-		if (width != 800 || height != 600)
+		if (pScriptHost->GetInterfaceInstance(2, nullptr) != ctx.pWindowSystem)
 		{
-			throw std::runtime_error("用句柄解出的 self 调 GetWindowSize 读回 " + std::to_string(width) + " x " +
-				std::to_string(height) + "，期望 800 x 600");
+			std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+			              "默认那一份被第二份登记影响了（应仍是最先登记的真实窗口系统 %p，实际 %p）",
+			              static_cast<void*>(ctx.pWindowSystem), pScriptHost->GetInterfaceInstance(2, nullptr));
+			throw std::runtime_error("E_INSTANCE_DEFAULT");
 		}
-		IWindow_CloseWindow(resolved);
-		ctx.pWindowSystem->UpdateSystem();
-		if (IWindowSystem_ResolveHandle(handle) != nullptr)
+		auto fakeWindow = fakeSystem.NewWindow(320, 240, "Fake Window", true, true, true, false).lock();
+		if (!fakeWindow)
 		{
-			throw std::runtime_error("窗口已被回收，旧弱句柄仍然解出了指针");
+			throw std::runtime_error("E_FAKE_WINDOW");
 		}
-		if (IWindowSystem_LastErrorCode(ctx.pWindowSystem) != 1001)
+		if (fakeWindow->GetWindowSystem() != &fakeSystem)
 		{
-			throw std::runtime_error("旧句柄解析失败后错误码应为 1001，实际 " +
-				std::to_string(IWindowSystem_LastErrorCode(ctx.pWindowSystem)));
+			std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+			              "第二份上的窗口，GetWindowSystem() 回的是 %p，期望第二份 %p",
+			              static_cast<void*>(fakeWindow->GetWindowSystem()), static_cast<void*>(&fakeSystem));
+			throw std::runtime_error("E_FAKE_OWNER");
 		}
-		CA_LOG("句柄版读数：解出 self → GetWindowSize 800 x 600 → 关窗 → UpdateSystem → "
-		       "ResolveHandle 返回空、错误码 1001");
+		if (realWindowOwner != ctx.pWindowSystem)
+		{
+			std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+			              "第一份上的窗口，GetWindowSystem() 回的是 %p，期望第一份 %p —— 两份实现串了",
+			              realWindowOwner, static_cast<void*>(ctx.pWindowSystem));
+			throw std::runtime_error("E_REAL_OWNER");
+		}
+		CA_LOG("多实例读数：按名取到真实 = {} / 第二份 = {}；第二份窗口的 GetWindowSystem() 指向第二份，"
+		       "第一份与默认那一份都不受影响",
+		       static_cast<void const*>(realByName), static_cast<void const*>(fakeByName));
 	}
 
 	// 任务 4.2 的第二条：**未知接口编号不许静默返回 0**。
 	// 造一次 `interfaceId = 9` 的取表调用：返回值必须是 0，且 `LastError()` 里必须说明原因。
 	// 9 用的是"当前没有接线的编号"，不是某个将来要用的具体接口。
 	{
-		uint32_t const rejected = pScriptHost->GetInterfaceApiForTest(9u, 1u, 0u, nullptr, nullptr);
+		uint32_t const rejected = pScriptHost->GetInterfaceApiForTest(9u, nullptr, 1u, 0u, nullptr, nullptr);
 		if (rejected != 0u)
 		{
 			throw std::runtime_error("未知接口编号 9 竟然取表成功（返回 " + std::to_string(rejected) + "）");

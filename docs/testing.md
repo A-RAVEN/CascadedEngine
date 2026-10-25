@@ -38,9 +38,19 @@
 
 `check_legacy_symbols.py`（旧符号守卫）、`check_hash_sources.py`（哈希来源盘点）、`check_bindable_audit.py`（可绑定面审计对账）、`verify_readme.py`（README 里的命令逐条重跑）、`read_dump.py`（读崩溃转储）、`spin_check.py`（轮界进度检查）。它们自己就是"进程级断言"的样板：跑别人的程序，只看**退出码 + 输出里的可核子串**。
 
-**绑定发射器的判据在另一个目录，但已经接进构建**：`Tools/CodeGen/check_bindings.py` 做四件事 —— 期望签名逐行对拍（含 `IWindow` 的 21 条）、C++/C# 两侧方法集合对齐、**结构桩判据**（剥注释后看 thunk 有没有真调实现；真实接口桩数必须 0、夹具只打印）、**覆盖率下限**（thunk 数必须等于期望文件里的独立清单）。它由 `build.py` 在绑定生成之后调用并传 `--product-dir`，非零退出直接让构建失败，stdout 逐行转发（所以"夹具桩数"那行每次构建都看得见）。行为断言落在 `Test/CoreTests/BindingsGetApiTest.cpp` 与 `WindowBindingsCompileTest.cpp`（第 ① 层），跑法见第 25–30 行的 `CoreTests.exe`。
+**绑定发射器的判据在另一个目录，但已经接进构建**：`Tools/CodeGen/check_bindings.py` 做六件事 —— 期望签名逐行对拍、C++/C# **两层对齐**（native 字段层 + 托管表面层）、**结构桩判据**（剥注释后看 thunk 有没有真调实现；真实接口桩数必须 0、夹具只打印）、**覆盖率下限**（thunk 数必须等于期望文件里的独立清单）、**托管表面判据**（`public` 类型里不许出现 `delegate*` / `void*` / `ulong`，表面成员数必须等于「接口头里的纯虚方法数 − `CA_BIND_SKIP` 数」）、**第二张矩阵的六行 conformance**（每行断言生成出来的整条签名）。它由 `build.py` 在绑定生成之后调用并传 `--product-dir`，非零退出直接让构建失败，stdout 逐行转发（所以"夹具桩数"那行每次构建都看得见）。行为断言落在 `Test/CoreTests/`（第 ① 层）：`BindingsGetApiTest.cpp`（取表握手）、`BindingsHandleTest.cpp`（强/弱/借用三类句柄、代际回绕、并发、1002 的触发与清零反例）、`BindingsWeakHandleTest.cpp`（弱引用不抬高计数、对象析构后 1001）、`WindowBindingsCompileTest.cpp`（`IWindow` 产物编译 + 借用句柄 + 句柄发行者 + 1001）。
 
-**跨边界端到端落在第 ② 层**：`Test/GPUBackendTester` 的 `TestCSharpWindow` 是唯一真的把「C++ 建窗 → C ABI 句柄 → 托管侧读同一张函数表」走通的用例。它自己登记两个接口实例（编号 1 = `IWindow`、编号 2 = `IWindowSystem`），断言两侧窗口尺寸逐字相同、`GetWindowCount` 基线 +1 与 `UpdateSystem` 之后回基线、以及对象被回收后旧弱句柄 `ResolveHandle` 返回空且错误码 1001。跑法：`GPUBackendTester.exe --backend vulkan --test TestCSharpWindow --headless 30`，读数在 `test_output/TestCSharpWindow.log`，判定在 `test_output/result.json` 的 `status`。注意 `main` **永远返回 `EXIT_SUCCESS`**，所以退出码不是判定依据，必须看 `result.json`。
+**托管表面这一层由谁把守**（`csharp-window-creation` 任务 5.2/5.6/5.7，三条互相独立的判据）：
+
+| 判据 | 位置 | 它抓的是 |
+|---|---|---|
+| `check_surface()` | `check_bindings.py`，每次构建都跑 | 表面类型在不在、名字是不是逐字照抄、`public` 类型里有没有 native 细节（`delegate*`/`void*`/`ulong`）、表面成员数对不对（期望数从**接口头**算，不从产物读） |
+| `check_surface_matrix()` | 同上 | 第二张矩阵六行各自的**整条签名**（`public bool GetFlag()` 之类）—— 只比名字抓不住 `bool`→`int` |
+| `SurfaceSignatureCheck.cs` | `Scripting/Managed/`，编进 `Scripting.Managed` | 28 条 `Func<>`/`Action<>` 赋值：签名映射错就是**编译错误** |
+
+`check_error_codes()` 另管错误码：产物里的 `<接口>_ERROR_*` 常量与所有 `_setError` 的码逐个对 `design.md` D13 的码表，裸字面量直接红。
+
+**跨边界端到端落在第 ② 层**：`Test/GPUBackendTester` 的 `TestCSharpWindow` 是唯一真的把「C++ 建窗 → 托管表面 → 引擎侧对账」走通的用例。C++ 侧只负责建窗、登记两个实例（编号 1 = `IWindow`、编号 2 = `IWindowSystem`，实例名见 `CSharpHost/README.md`）并读计数；读数与断言全在托管侧走生成的表面（`GetWindowSize` 回元组、`WindowShouldClose` 回 `bool`、`GetWindowCount` 回 `int`、`NewWindow` + `Dispose` 一整圈、异常码 1001 与"失败之后成功调用不抛"）。跑法：`GPUBackendTester.exe --backend vulkan --test TestCSharpWindow --headless 30`，读数在 `test_output/TestCSharpWindow.log`（基线留了一份在 `openspec/changes/csharp-window-creation/evidence/`），判定在 `test_output/result.json` 的 `status`。注意 `main` **永远返回 `EXIT_SUCCESS`**，所以退出码不是判定依据，必须看 `result.json`。
 
 ## C#Host 的测试怎么做（本规范的第一份应用样板）
 

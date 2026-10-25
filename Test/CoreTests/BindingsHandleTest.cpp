@@ -24,6 +24,10 @@ namespace
 	public:
 		castl::shared_ptr<ca_bind_fixture::BindScalarThing> AcquireThing() override
 		{
+			if (returnNull)
+			{
+				return nullptr;   // 任务 5.8：1002（实现返回空指针）的触发器
+			}
 			auto thing = castl::make_shared<ca_bind_fixture::BindScalarThing>();
 			thing->id = 7u;
 			thing->weight = 1.5f;
@@ -57,7 +61,7 @@ bool RunBindingsHandleTest()
 		}
 		// 再登记一个弱句柄：断言两类能共存于同一张表（不抬高引用计数由 1.4 单独验）
 		std::shared_ptr<void> keep(&object, [](void*) {});
-		const uint64_t weakHandle = IBindRow09_registerWeakHandle(std::weak_ptr<void>(keep));
+		const uint64_t weakHandle = IBindRow09_registerWeakHandle(&object, std::weak_ptr<void>(keep));
 		const std::size_t weakSlot = static_cast<std::size_t>((weakHandle & indexMask) - 1ull);
 		if (weakHandle == 0u || weakSlot >= IBindRow09_handles.size() ||
 			IBindRow09_handles[weakSlot].kind != 2u)
@@ -65,7 +69,7 @@ bool RunBindingsHandleTest()
 			std::puts("  弱句柄没有登记进同一张表（kind 应为 2）");
 			return false;
 		}
-		IBindRow09_releaseHandle(weakHandle);
+		IBindRow09_releaseHandle(&object, weakHandle);
 	}
 
 	// ② 有效句柄释放一次：成功且错误码回到 0
@@ -98,7 +102,7 @@ bool RunBindingsHandleTest()
 	}
 	// ③' 任务 1.3：泛用解析入口对已失效的句柄必须返回空 + 1001
 	// （它是 C# 侧"用句柄调方法"的唯一通路：所有方法入口的第一个参数都是 `void* self`）
-	if (IBindRow09_ResolveHandle(handle) != nullptr)
+	if (IBindRow09_ResolveHandle(&object, handle) != nullptr)
 	{
 		std::puts("  ResolveHandle 对已失效的句柄仍然返回了指针");
 		return false;
@@ -164,7 +168,7 @@ bool RunBindingsHandleTest()
 			std::puts("  代际回绕：同一个句柄数字被重新发了出去（旧句柄会复活）");
 			return false;
 		}
-		if (IBindRow09_ResolveHandle(firstHandle) != nullptr)
+		if (IBindRow09_ResolveHandle(&object, firstHandle) != nullptr)
 		{
 			std::puts("  代际回绕之后最早的句柄又复活了（退休机制没生效）");
 			return false;
@@ -193,7 +197,7 @@ bool RunBindingsHandleTest()
 						++failures;
 						return;
 					}
-					if (IBindRow09_ResolveHandle(handle) == nullptr)
+					if (IBindRow09_ResolveHandle(&object, handle) == nullptr)
 					{
 						++failures;
 					}
@@ -213,11 +217,35 @@ bool RunBindingsHandleTest()
 		}
 		for (uint64_t handle : lastHandles)
 		{
-			if (handle != 0u && IBindRow09_ResolveHandle(handle) != nullptr)
+			if (handle != 0u && IBindRow09_ResolveHandle(&object, handle) != nullptr)
 			{
 				std::puts("  并发用例：已释放的句柄仍然能解析出指针");
 				return false;
 			}
+		}
+	}
+
+	// ---- 任务 5.8：1002（实现返回空指针）的触发与码断言，外加"失败之后成功调用必须清零" ----
+	{
+		FakeRow09 nullObject;
+		nullObject.returnNull = true;
+		const uint64_t zeroHandle = IBindRow09_AcquireThing(&nullObject);
+		if (zeroHandle != 0u)
+		{
+			std::puts("  实现返回空指针时应当拿到 0 句柄");
+			return false;
+		}
+		if (IBindRow09_LastErrorCode(&nullObject) != IBindRow09_ERROR_NULL_POINTER)
+		{
+			std::printf("  实现返回空指针时应报 1002，实际 %d\n", IBindRow09_LastErrorCode(&nullObject));
+			return false;
+		}
+		// 反例（D11 的"入口先清零"）：同一个实例紧接着一次成功调用，码必须回到 0
+		nullObject.returnNull = false;
+		if (IBindRow09_AcquireThing(&nullObject) == 0u || IBindRow09_LastErrorCode(&nullObject) != 0)
+		{
+			std::puts("  失败之后紧接着的成功调用没有把错误码清回 0");
+			return false;
 		}
 	}
 

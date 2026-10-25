@@ -1041,11 +1041,48 @@ python Tools/CodeGen/check_bindable_audit.py
 - 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。
 ## 十四、绑定发射器（`--emit-binding`）
 
-**做什么**：按头里的 `CA_BIND` 标注，把每个被标注接口投影成两份产物 —— `<接口>.Bindings.cpp`（thunk、版本化函数表、`GetApi(version, size, out)`、句柄表、错误通道、布局清单的编译期断言）与 `<接口>.Bindings.cs`（`delegate* unmanaged<…>` 声明、句柄结构体、布局常量）。投影规则见 `openspec/specs/csharp-bindable-surface/spec.md` 与本文第十三节。
+**做什么**：按头里的 `CA_BIND` 标注，把每个被标注接口投影成两份产物 —— `<接口>.Bindings.cpp`（thunk、版本化函数表、`GetApi(version, size, out)`、共用句柄表、错误通道、布局清单的编译期断言）与 `<接口>.Bindings.cs`（`delegate* unmanaged<…>` 声明、偏移常量、以及**给使用者用的托管表面** `<接口>` 类）。投影规则见 `openspec/specs/csharp-bindable-surface/spec.md` 与本文第十三节、下文的两张矩阵。
 
 **不做什么**：不生成模板/泛型，也不生成"所有权不明裸指针"的绑定（这类必须用 `CA_BIND_SKIP(方法, "理由")` 排除，工具只打印、退出码 0）；回调参数本轮未实现，带 `castl::function` 参数的方法**没写排除就会被拒绝**（退出码 1，见第十四节规则）；不改任何接口签名；不负责把函数表送进托管侧（那是消费方的事）。
 
-**弱句柄、释放与解析（第十四节规则，`csharp-window-creation` 之后）**：`castl::weak_ptr<T>` 返回**不再被拒绝**，它投影成 `uint64` 弱句柄 —— 句柄表里存弱引用、**不抬高** `use_count()`，对象析构后 `lock()` 失败即按 1001 判失效。每个被绑定接口另外导出两个泛用入口：`<接口>_ReleaseHandle(void* self, uint64_t handle)` 释放、`<接口>_ResolveHandle(uint64_t handle)` 把句柄解回对象指针（失败返回空并置 1001）—— 后者是**必需**的，因为所有方法入口的第一个参数都是 `void* self`，没有任何一个收定宽句柄。释放时句柄表会同时放掉强引用与弱引用并让代际进位：**只清表项、不放强引用**会让对象永不析构（`use_count() == 1` 永远不成立，窗口永不回收）。
+**弱句柄、释放与解析（第十四节规则，`csharp-window-creation` 之后）**：`castl::weak_ptr<T>` 返回**不再被拒绝**，它投影成 `uint64` 弱句柄 —— 句柄表里存弱引用、**不抬高** `use_count()`，对象析构后 `lock()` 失败即按 1001 判失效。返回 `T*`（`T` 是另一个已 `CA_BIND` 的接口）投影成**借用句柄**（kind 4）：只存裸指针、不持有，存活见证者是发行它的那个对象。每个被绑定接口另外导出两个泛用入口：`<接口>_ReleaseHandle(void* self, uint64_t handle)` 释放、`<接口>_ResolveHandle(void* self, uint64_t handle)` 把句柄解回对象指针（失败返回空并置 1001）；两者都在函数表里（`ResolveHandle` / `ReleaseHandle` 两个槽），托管侧靠它们做 `Dispose`。**句柄表是进程级唯一一张**（不是每接口一张）：句柄 = 代际 + 序号，而每个接口的序号都从 1 开始，两张独立的表会发出数字完全相同的句柄 —— 把 A 表的句柄交给 B 表的释放入口，B 表会命中同号的活项并销毁一个无关对象。表项带接口标签，标签不符一律按 1001 拒。释放时表项会同时放掉强引用与弱引用并让代际进位：**只清表项、不放强引用**会让对象永不析构（`use_count() == 1` 永远不成立，窗口永不回收）。
+
+### 两张矩阵
+
+绑定要过两道投影，各有一张矩阵。（本文第十三节那张是**第一张**：C++ 接口形状 → C ABI。）
+
+**第二张：C++ 声明 → 托管表面**（六行，`csharp-window-creation` 任务 5.7 的口径；每行都有一个
+conformance 夹具，判据在 `Tools/CodeGen/check_bindings.py` 的 `check_surface_matrix()` 里，
+断的是**生成出来的整条签名**）：
+
+| C++ 接口里写的 | 托管表面（`public sealed class <接口>`）上长什么样 | 夹具 |
+|---|---|---|
+| `bool` 返回 | `bool`（C ABI 是 `int32_t`，表面还原回来） | `IBindRow16::GetFlag` |
+| `T&` 出参 | 元组返回值，例如 `(int A, float B) GetPair()` | `IBindRow17::GetPair` |
+| `castl::string const&` 入参 | `string`（C ABI 是 `char const* + uint64_t` 两段） | `IBindRow18::SetTitle` |
+| `castl::string_view` 返回 | `string`（两段式伴生拼回来） | `IBindRow19::GetLabel` |
+| `void*` | `IntPtr`（C ABI 是不透明 `uint64_t` 令牌） | `IBindRow20::GetToken` |
+| `castl::weak_ptr<T>` 返回 | 同名接口引用（`T`），句柄已失效即抛 | `IBindRow21::GetFlagOwner` |
+
+`void` / `float` / `int` 这类"本来就同名"的形状不单列行，由上面第 ②③ 行的夹具覆盖（`void` 返回、
+`int&` / `float&` 出参）。**错误码不是矩阵行**：它不进表面（表面方法没有返回值可判，失败就是抛
+`<接口>Exception`，异常带的 `Code` 见下面那张码表）。
+
+**表面里不许出现的东西**（判据是 `check_surface()`，按**类作用域**数，不按整文件 grep）：
+
+- `delegate*`（函数指针）、`void*`、`ulong`（句柄）—— 这些**只许**待在 `internal` 的
+  `<接口>Bindings` / `<接口>Lease` / `<接口>Calls` 三层里；
+- `public` 类型里也不许出现它们：`<接口>Handle` 结构体因此是 `internal` 的。
+
+**错误码（`csharp-window-creation` 任务 5.8 的码表，唯一来源是生成物里的具名常量）**：
+
+| 码 | 生成物里的常量 | 谁会写它 |
+|---|---|---|
+| 1001 | `<接口>_ERROR_STALE_HANDLE` | `ResolveHandle` / `ReleaseHandle`（句柄失效、或不属于本接口）、弱句柄背后对象已析构、借用句柄的见证者已销毁 |
+| 1002 | `<接口>_ERROR_NULL_POINTER` | 登记强/弱/借用句柄时实现返回了空指针 |
+
+生成物里**不许出现裸字面量**；`check_bindings.py` 的 `check_error_codes()` 把产物里所有
+`<接口>_ERROR_*` 常量与所有 `_setError` 的码逐个对这张表，对不上即红。
 
 **退出码**：`0` = 全部生成（含"所有方法都被带理由排除"这种空产物的情况）；`1` = 有拒绝（① 模板类、③ 依赖隐式转换的重载、②/④ 的排除没写理由、缺审计结论、审计表本身不绿）；`2` = 参数问题（缺 `--out-dir`、句柄位宽非法）；`3` = libclang 解析失败或解析出错误诊断。
 

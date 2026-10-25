@@ -1888,9 +1888,13 @@ namespace bindemit
         return "void*";
     }
 
+    // 已标记 CA_BIND 的接口名（`run` 里填）。`projectMethod` 用它判"返回的是不是另一个可绑定
+    // 接口的裸指针" —— 那种情况投成**借用句柄**（任务 5.3 / design D9），其余 `T*` 仍按 ② 拒绝。
+    std::set<std::string> g_bindableInterfaceNames;
+
     // 把一条方法投影成 C ABI 的（参数们, 返回类型）。返回 false 表示该形状必须被拒绝。
     bool projectMethod(MethodSignature const& method, std::vector<Projected>* params, std::string* returnType,
-                       std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn)
+std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn)
     {
         *needsTwoStep = false;
         *isHandleReturn = false;
@@ -2023,6 +2027,16 @@ namespace bindemit
         else if (returnIsVoidPointer)
         {
             *returnType = "uint64_t";
+        }
+        else if (!returnBare.empty() && returnBare.back() != '*' &&
+                 method.returnSpelling.find('*') != std::string::npos &&
+                 g_bindableInterfaceNames.count(unqualifiedName(returnBare)) > 0)
+        {
+            // 返回**另一个可绑定接口**的裸指针（`IWindow::GetWindowSystem()` 就是这种，任务 5.3 /
+            // design D9）：所有权在模块，本质是借用 —— 投成借用句柄（kind 4），释放只清槽、不销毁。
+            // 其它 `T*` 仍按 ② 拒绝：没有"这是借用"的说明就不许静默绑成裸地址。
+            *returnType = "uint64_t";
+            *isHandleReturn = true;
         }
         else if (!returnBare.empty() && returnBare.back() != '*' &&
                  method.returnSpelling.find('*') != std::string::npos)
@@ -2164,6 +2178,13 @@ namespace bindemit
         collector.wanted = &bound;
         collector.sink = &shapes;
         clang_visitChildren(clang_getTranslationUnitCursor(unit), collectClasses, &collector);
+        // 接口名清单：`projectMethod` 用它判"返回的是不是另一个可绑定接口的裸指针"（借用句柄，
+        // 任务 5.3 / design D9）。必须是**全部**被 CA_BIND 标记的接口，不是只算这份文件里的。
+        g_bindableInterfaceNames.clear();
+        for (InterfaceShape const& shape : shapes)
+        {
+            g_bindableInterfaceNames.insert(shape.name);
+        }
 
         // ---- 审计表核对（任务 2.7）：子进程调 check_bindable_audit.py --json ----
         // CodeGen 是 C++、审计脚本是 Python，跨语言没有 import；这里只认它的 JSON 输出。
@@ -2442,10 +2463,52 @@ namespace bindemit
                 }
             }
         }
+        // ---- 共用句柄表（任务 5.11 / design D12 乙）：整个进程一张，表项带接口标签 ----
+        // 每个接口的产物 `#include "BindingHandleTable.h"`（相对包含 —— 它与产物同目录，
+        // 调用方不需要为它多开一条 include 路径）。写成 inline 函数里的函数级 static，
+        // 保证"一个进程只有一份表"（普通 static 会按翻译单元各来一份）。
+        {
+            std::string table;
+            table += "// 由 CodeGen --emit-binding 生成，勿手改。\n";
+            table += "// 进程级句柄表：**所有接口共用这一张**，表项带接口标签。\n";
+            table += "// 为什么不能每个接口一张：句柄 = (代际 << 48) | 序号，而每个接口的序号都从 1 开始，\n";
+            table += "// 两张独立的表会发出**数字完全相同**的句柄；把 A 表的句柄交给 B 表的释放入口，B 表会\n";
+            table += "// 命中一个同号的活项并把它清掉 —— 销毁的是一个无关对象（实测，见 tasks.md 5.11）。\n";
+            table += "#pragma once\n";
+            table += "#include <stdint.h>\n#include <memory>\n#include <mutex>\n#include <vector>\n\n";
+            table += "namespace cascaded_bindings\n{\n";
+            table += "    struct HandleEntry\n    {\n";
+            table += "        void const* object;          // 对象指针（弱/借用句柄可能是空或已失效）\n";
+            table += "        uint32_t generation;         // 代际：释放一次进位一次，旧句柄因此失效\n";
+            table += "        uint32_t kind;               // 0 空 / 1 强 / 2 弱 / 3 已退休 / 4 借用\n";
+            table += "        void const* interfaceTag;    // 发行它的那个接口（每个产物一个独有地址）\n";
+            table += "        bool hasWitness;             // 借用句柄：有没有拿到存活见证者\n";
+            table += "        std::shared_ptr<void> strong; // 强句柄：生成物持有强引用\n";
+            table += "        std::weak_ptr<void> weak;     // 弱句柄：只观察；借用句柄：见证者\n";
+            table += "    };\n\n";
+            table += "    // 表**故意不析构**：它是带 shared_ptr / weak_ptr 的静态容器，进程退出时别的静态\n";
+            table += "    // （CRT 的锁与堆）可能已经拆了，实测会在 dynamic atexit destructor 里 ACCESS_VIOLATION。\n";
+            table += "    inline std::vector<HandleEntry>& HandleTable()\n    {\n";
+            table += "        static std::vector<HandleEntry>& table = *new std::vector<HandleEntry>();\n";
+            table += "        return table;\n    }\n";
+            table += "    // 所有读写都在这一把锁里（任务 4.3）。递归是因为释放内部会调一次查表。\n";
+            table += "    inline std::recursive_mutex& HandleMutex()\n    {\n";
+            table += "        static std::recursive_mutex& mutex = *new std::recursive_mutex();\n";
+            table += "        return mutex;\n    }\n";
+            table += "}\n";
+            const std::string tablePath = std::string(outDir) + "/BindingHandleTable.h";
+            std::ofstream tableOut(tablePath, std::ios::binary);
+            tableOut << table;
+            if (!tableOut)
+            {
+                std::fprintf(stderr, "CodeGen: cannot write '%s'\n", tablePath.c_str());
+                return 2;
+            }
+        }
         for (InterfaceShape const& shape : shapes)
         {
             std::string cpp;
-            cpp += "// 由 CodeGen --emit-binding 生成，勿手改。\n#pragma once\n#include <stdint.h>\n#include <stddef.h>\n#include <string.h>\n#include <mutex>\n";
+            cpp += "// 由 CodeGen --emit-binding 生成，勿手改。\n#pragma once\n#include <stdint.h>\n#include <stddef.h>\n#include <string.h>\n#include <mutex>\n#include <vector>\n";
             // 接口自己的声明从哪来：写源头的文件名（用基名，靠调用方的 include 目录解析）。
             // 真实接口（例如 IWindow）在模块自己的头目录里，构建时那条目录一定在 include 路径上。
             {
@@ -2457,35 +2520,70 @@ namespace bindemit
                 }
                 cpp += "#include \"" + base + "\"\n";
             }
+            // 共用句柄表放在接口头**之后**：`check_bindings.py` 用"产物里第一条 `#include "..."`
+            // 找接口头（要按它读纯虚方法），抢在它前面会把那条判据读成空表。
+            cpp += "#include \"BindingHandleTable.h\"\n";
             cpp += "\n";
             std::string cs;
             cs += "// 由 CodeGen --emit-binding 生成，勿手改。\n";
+            cs += "using System;\n";
             cs += "using System.Runtime.InteropServices;\n\n";
             cs += "namespace Scripting.Generated.Bindings\n{\n";
             cs += "    /// <summary>" + shape.name + " 的句柄：C 侧是不透明 uint64，0 表示无效</summary>\n";
             cs += "    [StructLayout(LayoutKind.Sequential)]\n";
-            cs += "    public readonly struct " + shape.name + "Handle\n    {\n";
+            // 句柄类型是 native 细节（任务 5.2 验收②：public 类型里不许出现 ulong 句柄），降为 internal
+            cs += "    internal readonly struct " + shape.name + "Handle\n    {\n";
             cs += "        public readonly ulong Raw;\n";
             cs += "        public " + shape.name + "Handle(ulong raw) { Raw = raw; }\n";
             cs += "        public bool IsValid => Raw != 0UL;\n";
             cs += "    }\n\n";
             cs += "    internal static unsafe class " + shape.name + "Bindings\n    {\n";
 
-            cs += "        public static delegate* unmanaged<void*, int> LastErrorCode;\n";
-            cs += "        public static delegate* unmanaged<void*, byte*, ulong, int> LastErrorText;\n";
+            // 错误通道**不再是这两个裸字段**（任务 5.10 / design D11）：它们是"声明了但全仓
+            // 没有一处赋值"的空指针，托管侧根本读不到。现在两个槽进了函数表，生成物里只剩
+            // 契约常量 `<接口>Api_v2_last_error_code` / `<接口>Api_v2_last_error_text`。
 
             int emitted = 0;
             // 每个接口一对错误通道：托管侧靠它把"异常 → 错误码 + 文本"读回来（异常绝不穿过 C ABI）。
             cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorCode(void* self);\n";
             cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorText(void* self, char* dst, uint64_t cap);\n";
+            // 句柄的解析/释放也要进表（任务 5.2）：托管表面的 `Dispose` 与"解出 self"都靠它 ——
+            // 这两个入口不在表里，托管侧连函数地址都拿不到（它啃不动 DLL 里的导出符号名）。
+            cpp += "extern \"C\" void* " + shape.name + "_ResolveHandle(void* self, uint64_t handle);\n";
+            cpp += "extern \"C\" void " + shape.name + "_ReleaseHandle(void* self, uint64_t handle);\n";
             // 布局清单（任务 2.5）：镜像结构体 + 编译期断言。必须**在方法声明的循环之前**发出 ——
             // 声明里会用到镜像类型，放在后面就是"先用后定义"（实测 C4430 / C2378）。
             emitLayoutManifest(&cpp, &cs, mirrors);
-            std::string tableFields;   // 函数表里的成员声明
-            std::string tableInit;     // 函数表的初始化列表
+            // 函数表用一个**槽列表**描述，而不是边循环边拼字符串：表头那四个槽（错误通道 + 句柄
+            // 解析/释放）与两段式伴生的两个槽都不是"接口方法"，但都要进表，只有列表才排得一致。
+            struct TableSlot
+            {
+                std::string name;   // 表里的成员名（与 C ABI 入口同名，C++ 与 C# 两侧靠它对齐）
+                std::string member; // 结构体里的完整成员声明
+                std::string init;   // 初始化表达式
+                std::string csType; // C# 侧 delegate* 的泛型参数表（最后一项是返回类型）
+            };
+            std::vector<TableSlot> tableSlots;
+            tableSlots.push_back({"LastErrorCode", "int32_t (*LastErrorCode)(void* self)",
+                                  "&" + shape.name + "_readErrorCode", "void*, int"});
+            tableSlots.push_back({"LastErrorText", "void (*LastErrorText)(void* self, char* dst, uint64_t cap)",
+                                  "&" + shape.name + "_readErrorText", "void*, byte*, ulong, void"});
+            tableSlots.push_back({"ResolveHandle", "void* (*ResolveHandle)(void* self, uint64_t handle)",
+                                  "&" + shape.name + "_ResolveHandle", "void*, ulong, void*"});
+            tableSlots.push_back({"ReleaseHandle", "void (*ReleaseHandle)(void* self, uint64_t handle)",
+                                  "&" + shape.name + "_ReleaseHandle", "void*, ulong, void"});
             std::string thunkDefs;     // thunk 实现
             std::string externDefs;    // 导出入口（extern "C" 的定义）
             std::string lateDefs;      // 必须排在句柄表实现之后的定义（Release 之类）
+            struct SurfaceMethod
+            {
+                MethodSignature const* method = nullptr;
+                std::vector<Projected> params;
+                std::string returnType;
+                bool needsTwoStep = false;
+                bool isHandleReturn = false;
+            };
+            std::vector<SurfaceMethod> surfaceMethods;
             for (MethodSignature const& method : shape.methods)
             {
                 // 带理由排除的方法：不出绑定（理由上面已经逐条打过日志），也别再让它走一次投影
@@ -2508,6 +2606,9 @@ namespace bindemit
                     ++rejected;
                     continue;
                 }
+                // 托管表面（任务 5.2 / 5.6）要按**原始 C++ 声明**出成员，所以这里把投影结果连
+                // 同原始签名一起收起来，循环结束后统一发射。
+                surfaceMethods.push_back({&method, params, returnType, needsTwoStep, isHandleReturn});
                 // 两段式（字符串返回）：只发两个伴生，**不发**直出入口、不进函数表、不发直出 thunk。
                 // 三个都不发才自洽 —— 只删表槽会让空体 thunk 留着被桩判据算成桩，整段排除又会把
                 // 刚发的伴生声明一起删掉（任务 2.5 / design D5）。
@@ -2523,10 +2624,13 @@ namespace bindemit
                     // 两个伴生**各自独立**取一次实现的值：不依赖跨调用的暂存状态
                     lateDefs += "extern \"C\" uint64_t " + shape.name + "_" + method.name +
                                 "Len(void* self)\n{\n";
+                    // 两个伴生也是"入口"：不先清就会把上一次调用的失败码算到这次头上
+                    lateDefs += "    " + shape.name + "_clearError(self);\n";
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
                     lateDefs += "    return static_cast<uint64_t>(object->" + method.name + "().size());\n}\n";
                     lateDefs += "extern \"C\" void " + shape.name + "_Copy" + method.name +
                                 "(void* self, char* dst, uint64_t cap)\n{\n";
+                    lateDefs += "    " + shape.name + "_clearError(self);\n";
                     // 容量是无符号的：`cap - 1` 在 0 时会下溢成最大值，必须先判
                     lateDefs += "    if (cap == 0u || dst == nullptr) { return; }\n";
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
@@ -2535,6 +2639,15 @@ namespace bindemit
                     lateDefs += "    const std::size_t copied = (length < cap - 1u) ? length : cap - 1u;\n";
                     lateDefs += "    ::memcpy(dst, value.data(), copied);\n";
                     lateDefs += "    dst[copied] = 0;\n}\n";
+                    // 两段式伴生也进表（任务 5.2）：托管表面的 `string GetXxx()` 两段都得能调到，
+                    // 而它们只是导出符号、不在表里 —— 托管侧拿不到地址。
+                    tableSlots.push_back({method.name + "Len", "uint64_t (*" + method.name + "Len)(void* self)",
+                                          "&" + shape.name + "_" + method.name + "Len", "void*, ulong"});
+                    tableSlots.push_back({"Copy" + method.name,
+                                          "void (*Copy" + method.name +
+                                              ")(void* self, char* dst, uint64_t cap)",
+                                          "&" + shape.name + "_Copy" + method.name,
+                                          "void*, byte*, ulong, void"});
                     continue;
                 }
                 std::string signature = returnType + " " + shape.name + "_" + method.name + "(void* self";
@@ -2557,32 +2670,27 @@ namespace bindemit
                 {
                     cpp += "extern \"C\" void " + shape.name + "_Release" + method.name +
                            "(void* self, uint64_t handle);\n";
+                    // 配对释放也按 self 记错误码（任务 5.10）：释放失败要能归到调用它的那个实例
                     lateDefs += "extern \"C\" void " + shape.name + "_Release" + method.name +
-                                "(void*, uint64_t handle)\n{\n    " + shape.name +
-                                "_releaseHandle(handle);\n}\n";
+                                "(void* self, uint64_t handle)\n{\n    " + shape.name +
+                                "_clearError(self);\n    " + shape.name +
+                                "_releaseHandle(self, handle);\n}\n";
                 }
 
-                // C# 侧的真实签名：`delegate* unmanaged<参数…, 返回>`
-                {
-                    std::string delegate = "        public static delegate* unmanaged<";
-                    delegate += "void*";
-                    for (Projected const& projected : params)
-                    {
-                        delegate += ", " + toCSharpType(projected.type);
-                    }
-                    delegate += ", " + toCSharpType(returnType) + "> " + method.name + ";\n";
-                    cs += delegate;
-                }
                 ++emitted;
 
                 // 函数表成员：句柄作首参（`void* self`），其余按投影后的类型串起来（不含形参名）
                 std::string paramTypes = "void*";
+                std::string csParamTypes = "void*";
                 for (Projected const& projected : params)
                 {
                     paramTypes += ", " + projected.type;
+                    csParamTypes += ", " + toCSharpType(projected.type);
                 }
-                tableFields += "    " + returnType + " (*" + method.name + ")(" + paramTypes + ");\n";
-                tableInit += "    &" + shape.name + "_thunk_" + method.name + ",\n";
+                tableSlots.push_back({method.name,
+                                      returnType + " (*" + method.name + ")(" + paramTypes + ")",
+                                      "&" + shape.name + "_thunk_" + method.name,
+                                      csParamTypes + ", " + toCSharpType(returnType)});
 
                 // thunk 实现：先只覆盖"参数全是标量、返回是 void 或同名标量"的形状；
                 // 其它形状（容器 / 两段式 / 句柄 / 回调 / 出参）留给 2.4 / 2.5，这里必须是可见的桩。
@@ -2592,6 +2700,9 @@ namespace bindemit
                     thunkDefs += ", " + projected.type + " " + projected.name;
                 }
                 thunkDefs += ")\n{\n";
+                // 每个 thunk 入口先清一次（任务 5.10）：读到 0 只可能表示"这次调用没出错"。
+                // 上一次失败留下的码不会粘在这里 —— D8 的误抛就是粘出来的。
+                thunkDefs += "    " + shape.name + "_clearError(self);\n";
                 bool simpleShape = true;
                 for (Projected const& projected : params)
                 {
@@ -2680,7 +2791,7 @@ namespace bindemit
                     }
                     call += ")";
                     thunkDefs += "    return " + shape.name +
-                                 "_registerWeakHandle(std::weak_ptr<void>(" + call + "));\n";
+                                 "_registerWeakHandle(self, std::weak_ptr<void>(" + call + "));\n";
                 }
                 else if (stringCallable && hasStringParam && returnType == "void" && isDirectReturn)
                 {
@@ -2725,6 +2836,48 @@ namespace bindemit
                     call += ")";
                     thunkDefs += "    " + call + ";\n";
                 }
+                // 借用句柄（任务 5.3 / design D9）：返回的是另一个可绑定接口的裸指针 ——
+                // 只登记裸指针、不持有；见证者是发行它的 `self`（它没了这个借用指针就不再担保）
+                else if (isHandleReturn && g_bindableInterfaceNames.count(unqualifiedName(directReturnBare)) > 0)
+                {
+                    thunkDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    std::string borrowCall = "static_cast<void*>(object->" + method.name + "(";
+                    std::size_t borrowCursor = 0;
+                    bool borrowFirst = true;
+                    for (auto const& parameter : method.params)
+                    {
+                        const std::string bare = bareType(parameter.first);
+                        const bool stringish = hasPrefix(bare, "castl::string_view") ||
+                                               hasPrefix(bare, "std::string_view") ||
+                                               bare == "castl::string" || bare == "std::string";
+                        std::string argument;
+                        if (stringish)
+                        {
+                            const std::string pointerName =
+                                borrowCursor < params.size() ? params[borrowCursor].name : "arg";
+                            const std::string lengthName = borrowCursor + 1 < params.size()
+                                                               ? params[borrowCursor + 1].name
+                                                               : "argLen";
+                            const bool wantsString = (bare == "castl::string" || bare == "std::string");
+                            argument = (wantsString ? "castl::string(" : "castl::string_view(") +
+                                       pointerName + ", " + lengthName + ")";
+                            borrowCursor += 2;
+                        }
+                        else
+                        {
+                            if (borrowCursor >= params.size())
+                            {
+                                break;
+                            }
+                            argument = params[borrowCursor].name;
+                            borrowCursor += 1;
+                        }
+                        borrowCall += (borrowFirst ? "" : ", ") + argument;
+                        borrowFirst = false;
+                    }
+                    borrowCall += "))";
+                    thunkDefs += "    return " + shape.name + "_registerBorrowedHandle(self, " + borrowCall + ");\n";
+                }
                 // 句柄返回：保活 + 登记；句柄参数：反查（失效就置错误码，不崩）
                 else if (isHandleReturn)
                 {
@@ -2738,8 +2891,9 @@ namespace bindemit
                     }
                     thunkDefs += ");\n";
                     thunkDefs += "    if (!result) { " + shape.name +
-                                 "_setError(1002, \"实现返回了空指针\"); return 0u; }\n";
-                    thunkDefs += "    return " + shape.name + "_registerStrongHandle(std::shared_ptr<void>(result));\n";
+                                 "_setError(self, " + shape.name + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
+                    thunkDefs += "    return " + shape.name +
+                                 "_registerStrongHandle(self, std::shared_ptr<void>(result));\n";
                 }
                 else if (simpleShape && scalarReturn && isDirectReturn)
                 {
@@ -2851,173 +3005,220 @@ namespace bindemit
             // 校验口径：**版本相等且大小相等**才通过（与已落地的 Scripting/Managed/Host.cs 一致）；
             // 不符时一个字节都不写、返回 0。`GetApi` 把调用方的 size 收进来，就是为了"只写它给的那一段"。
             // 布局清单已在本文件开头发出（镜像类型必须先于声明）
-            cpp += "typedef struct " + shape.name + "Api_v1 {\n";
+            // 版本从 1 升到 2（任务 5.10）：表头在 abi_version / size 之后多两个错误通道槽。
+            // 两侧 `GetApi` 的"版本相等且大小相等"双校验因此自然拦住上一版产物 —— 不需要
+            // 另加一条兼容判断，旧表拿到新版本号直接返回 0。
+            cpp += "typedef struct " + shape.name + "Api_v2 {\n";
             cpp += "    uint32_t abi_version;\n";
             cpp += "    uint32_t size;\n";
-            cpp += tableFields;
-            cpp += "} " + shape.name + "Api_v1;\n\n";
+            // 表头之后是四个非方法槽（错误通道两槽 + 句柄解析/释放两槽），再是方法与两段式伴生。
+            // 顺序全靠 tableSlots，C++ 的 static_assert 与 C# 的偏移常量都从同一份列表算出来。
+            for (TableSlot const& slot : tableSlots)
+            {
+                cpp += "    " + slot.member + ";\n";
+            }
+            cpp += "} " + shape.name + "Api_v2;\n\n";
             // 句柄表与错误通道的**数据**必须定义在 thunk 之前（thunk 里要用），实现体可以放在后面 ——
             // 这里先把类型、两张表与三个 helper 的前置声明吐出来，避免"先用后定义"。
             cpp += "static const uint32_t " + shape.name + "_HANDLE_INDEX_BITS = " + std::to_string(handleIndexBits) + "u;\n";
             cpp += "static const uint32_t " + shape.name + "_HANDLE_GEN_BITS = " + std::to_string(handleGenerationBits) + "u;\n";
             cpp += "static const int32_t " + shape.name + "_ERROR_STALE_HANDLE = 1001;\n";
-            // 句柄表：**一张表**装两种句柄（强引用 / 弱引用）。
-            // 旧实现是两张平行容器（`_handles` 按空槽分配 + `_keepAlive` 按下标追加），
-            // 两者下标不是一回事，而 `releaseHandle` 只清前者 —— 对象因此永不析构
-            // （`WindowSystem` 的回收条件 `use_count() == 1` 永不成立）。合成一张之后，
-            // 释放时 `strong` / `weak` 一起清，代际进位，一个动作完成四件事。
-            cpp += "typedef struct " + shape.name + "HandleEntry { void const* object; uint32_t generation; "
-                   "uint32_t kind; std::shared_ptr<void> strong; std::weak_ptr<void> weak; } " +
-                   shape.name + "HandleEntry;\n";
-            cpp += "// kind: 0 = 空槽，1 = 强句柄（生成物持有强引用），2 = 弱句柄（只观察，不抬高 use_count）\n";
-            // 句柄表**故意不析构**：它是带 `shared_ptr` / `weak_ptr` 的静态容器，进程退出时它会在
-            // 别的静态（CRT 的锁与堆）之后才被销毁，实测在 `dynamic atexit destructor` 里
-            // ACCESS_VIOLATION（`IWindowSystem_handles` 那条栈）。挂在一块永不释放的堆对象上，
-            // 生存期就到进程结束为止 —— 写成"引用绑定到 new"，所有使用处仍是 `X_handles[...]`。
-            cpp += "static std::vector<" + shape.name + "HandleEntry>& " + shape.name +
-                   "_handles = *new std::vector<" + shape.name + "HandleEntry>();\n";
-
-            // 句柄表的所有读写都在这把锁里（任务 4.3）：egister* / lookupHandle / eleaseHandle。
-            // 用递归互斥量是因为 eleaseHandle 内部会调一次 lookupHandle。
-            cpp += "static std::recursive_mutex " + shape.name + "_handleMutex;\n";            cpp += "static void " + shape.name + "_setError(int32_t code, char const* text);\n";
-            cpp += "static uint64_t " + shape.name + "_registerStrongHandle(std::shared_ptr<void> object);\n";
-            cpp += "static uint64_t " + shape.name + "_registerWeakHandle(std::weak_ptr<void> object);\n";
+            // 错误码一律具名（任务 5.8）：裸字面量散在生成物里时，`check_error_codes()` 只能靠
+            // 逐个数字去猜，改一个码就漏一处。码表在 design.md 的 D13。
+            cpp += "static const int32_t " + shape.name + "_ERROR_NULL_POINTER = 1002;\n";
+            // 错误状态按 **self（实例）** 分槽（任务 5.10 / design D11）：以前是每接口一份
+            // static 全局，`LastErrorCode(void*)` 直接把 self 丢掉，于是两个实例会串台，
+            // 而且一次失败之后紧接着一次成功的调用读到的仍是上一次的码（D8 会误抛）。
+            // 键用 self 指针：每个模块实例、每个窗口对象的 self 都不同，接口这一维由
+            // "每个接口一份生成物"本身保证，所以 `(接口, 实例)` 落下来就是 `(本文件, self)`。
+            cpp += "typedef struct " + shape.name + "ErrorSlot { void const* self; int32_t code; char text[256]; } " +
+                   shape.name + "ErrorSlot;\n";
+            // 与句柄表同一口径：挂在永不释放的堆对象上，避开静态析构顺序（实测过崩溃）
+            cpp += "static std::vector<" + shape.name + "ErrorSlot>& " + shape.name +
+                   "_errorSlots = *new std::vector<" + shape.name + "ErrorSlot>();\n";
+            cpp += "static std::recursive_mutex " + shape.name + "_errorMutex;\n";
+            // 句柄表是**进程级唯一一张**（任务 5.11 / design D12 乙）：所有接口共用，表项带接口标签。
+            // 为什么不能每接口一张：句柄 = (代际 << 48) | 序号，而每个接口的序号都从 1 开始，两张独立
+            // 的表会发出**数字完全相同**的句柄；把 A 表的句柄交给 B 表的释放入口，B 表会命中一个同号
+            // 的活项并把它清掉 —— 销毁的是一个无关对象（实测，口径见 tasks.md 5.11）。
+            cpp += "// 本接口在共用句柄表里的标签：一个本翻译单元独有的静态对象地址，跨接口不会撞\n";
+            cpp += "static int const " + shape.name + "_HANDLE_TAG = 0;\n";
+            // 兼容既有读写点（CoreTests 直接读表项的 kind / strong）：类型换成共用的那个
+            cpp += "static std::vector<cascaded_bindings::HandleEntry>& " + shape.name +
+                   "_handles = cascaded_bindings::HandleTable();\n";
+            const std::string handleMutexName = "cascaded_bindings::HandleMutex()";
+            // 错误通道的转发声明必须排在 thunk 之前（thunk 入口第一句就是 clearError）。
+            // 槽的键是 self：错误码只对"这次调用的那个实例"有意义。
+            cpp += "static " + shape.name + "ErrorSlot& " + shape.name + "_errorSlotLocked(void const* self);\n";
+            cpp += "static void " + shape.name + "_clearError(void const* self);\n";
+            cpp += "static void " + shape.name + "_setError(void const* self, int32_t code, char const* text);\n";
+            cpp += "static int32_t " + shape.name + "_readErrorCode(void* self);\n";
+            cpp += "static void " + shape.name + "_readErrorText(void* self, char* dst, uint64_t cap);\n";
+            cpp += "static uint64_t " + shape.name + "_registerStrongHandle(void const* owner, std::shared_ptr<void> object);\n";
+            cpp += "static uint64_t " + shape.name + "_registerWeakHandle(void const* owner, std::weak_ptr<void> object);\n";
+            cpp += "static uint64_t " + shape.name + "_registerBorrowedHandle(void const* issuer, void* object);\n";
             cpp += "static void* " + shape.name + "_lookupHandle(uint64_t handle);\n";
-            cpp += "static void " + shape.name + "_releaseHandle(uint64_t handle);\n\n";
+            cpp += "static void " + shape.name + "_releaseHandle(void const* owner, uint64_t handle);\n\n";
             cpp += thunkDefs;
             cpp += externDefs;
-            // 表头（abi_version / size）之后每个成员都是 8 字节对齐的函数指针：偏移 = 8 + 8 × 序号。
-            // C# 侧要靠这些常量定位成员，所以同时给出 static_assert 把偏移钉死在编译期。
+            // 表头（abi_version / size）之后每个槽都是 8 字节对齐的函数指针：
+            // 偏移 = 表头字节数 + 8 × 槽序号。C# 侧要靠这些常量定位成员，所以同时用 static_assert
+            // 把偏移钉死在编译期；两侧的数都从同一份 `tableSlots` 算出来。
             {
-                // 表里只放**真正生成出来**的方法：带理由排除的那些不在表里（否则 offsetof 指向一个
-                // 不存在的成员 —— 实测 IWindow.GetWindowSystem 报 C2039 / C2618）
-                std::vector<MethodSignature const*> tableMethods;
-                for (MethodSignature const& method : shape.methods)
-                {
-                    auto skipped = skippedMethods.find(shape.name);
-                    if (skipped != skippedMethods.end() && skipped->second.count(method.name) > 0)
-                    {
-                        continue;
-                    }
-                    std::vector<Projected> probeParams;
-                    std::string probeReturn;
-                    std::string probeReason;
-                    bool probeTwoStep = false;
-                    bool probeHandle = false;
-                    if (!projectMethod(method, &probeParams, &probeReturn, &probeReason, &probeTwoStep,
-                                       &probeHandle))
-                    {
-                        continue;
-                    }
-                    // 两段式（字符串返回）不进函数表：这里也必须排除，否则下方按 tableMethods
-                    // 生成的 `static_assert(offsetof(...))` 会引用一个不存在的成员（实测 C2039）。
-                    if (probeTwoStep)
-                    {
-                        const std::string probeBare = bareType(method.returnSpelling);
-                        if (hasPrefix(probeBare, "castl::string_view") ||
-                            hasPrefix(probeBare, "std::string_view") ||
-                            probeBare == "castl::string" || probeBare == "std::string")
-                        {
-                            continue;
-                        }
-                    }
-                    tableMethods.push_back(&method);
-                }
+                // 偏移 = 8 + 8 × 槽序号：表头只有 abi_version(4) + size(4) 这 8 字节，之后每个槽
+                // （四个非方法槽在前、方法与两段式伴生在后）都是 8 字节的函数指针，紧挨着排。
+                const unsigned tableHeaderBytes = 8u;
                 unsigned memberIndex = 0;
                 cs += "        // 函数表布局（与 C++ 侧同源常量；不一致由 C++ 的 static_assert 先兜住）\n";
-                cs += "        public const int " + shape.name + "Api_v1_Size = 8 + 8 * " +
-                      std::to_string(tableMethods.size()) + ";\n";
-                for (MethodSignature const* method : tableMethods)
+                cs += "        public const int " + shape.name + "Api_v2_Size = " +
+                      std::to_string(tableHeaderBytes) + " + 8 * " + std::to_string(tableSlots.size()) + ";\n";
+                for (TableSlot const& slot : tableSlots)
                 {
-                    cpp += "static_assert(offsetof(" + shape.name + "Api_v1, " + method->name + ") == " +
-                           std::to_string(8u + 8u * memberIndex) + ", \"函数表成员偏移变了：\" \"" +
-                           shape.name + "." + method->name + "\");\n";
-                    cs += "        public const int " + shape.name + "Api_v1_" + method->name + " = " +
-                          std::to_string(8u + 8u * memberIndex) + ";\n";
+                    // 托管侧的字段声明也从这里出：一个槽一行 `delegate* unmanaged<…>`
+                    cs += "        public static delegate* unmanaged<" + slot.csType + "> " + slot.name + ";\n";
+                    cpp += "static_assert(offsetof(" + shape.name + "Api_v2, " + slot.name + ") == " +
+                           std::to_string(tableHeaderBytes + 8u * memberIndex) +
+                           ", \"函数表成员偏移变了：\" \"" + shape.name + "." + slot.name + "\");\n";
+                    cs += "        public const int " + shape.name + "Api_v2_" + slot.name + " = " +
+                          std::to_string(tableHeaderBytes + 8u * memberIndex) + ";\n";
                     ++memberIndex;
                 }
                 cpp += "\n";
             }
-            cpp += "static " + shape.name + "Api_v1 const " + shape.name + "_api = {\n";
-            cpp += "    1u, (uint32_t)sizeof(" + shape.name + "Api_v1),\n";
-            cpp += tableInit;
+            cpp += "static " + shape.name + "Api_v2 const " + shape.name + "_api = {\n";
+            cpp += "    2u, (uint32_t)sizeof(" + shape.name + "Api_v2),\n";
+            // 四个非方法槽按 tableSlots 的顺序紧跟在表头后面
+            for (TableSlot const& slot : tableSlots)
+            {
+                cpp += "    " + slot.init + ",\n";
+            }
             cpp += "};\n\n";
             cpp += "extern \"C\" uint32_t " + shape.name + "_GetApi(uint32_t version, uint32_t size, " +
-                   shape.name + "Api_v1* out)\n{\n";
-            cpp += "    const uint32_t realSize = (uint32_t)sizeof(" + shape.name + "Api_v1);\n";
-            cpp += "    if (version != 1u || size != realSize || out == nullptr)\n    {\n        return 0u;\n    }\n";
+                   shape.name + "Api_v2* out)\n{\n";
+            cpp += "    const uint32_t realSize = (uint32_t)sizeof(" + shape.name + "Api_v2);\n";
+            cpp += "    if (version != 2u || size != realSize || out == nullptr)\n    {\n        return 0u;\n    }\n";
             cpp += "    ::memcpy(out, &" + shape.name + "_api, realSize);\n";
             cpp += "    return realSize;\n}\n\n";
             // ---- 错误通道 + 句柄表（任务 2.4）----
             // 句柄 = 低 <INDEX> 位序号 + 高 <GEN> 位代际（位数在 2.9 变成参数，这里先用默认 48/16）。
             // `Release` 让代际进位 ⇒ 旧句柄立刻失效；失效时置错误码 1001 并留一条文本。
-            cpp += "static int32_t " + shape.name + "_lastErrorCode = 0;\n";
-            cpp += "static char " + shape.name + "_lastErrorText[256] = { 0 };\n";
-            cpp += "static void " + shape.name + "_setError(int32_t code, char const* text)\n{\n";
-            cpp += "    " + shape.name + "_lastErrorCode = code;\n";
+            // ---- 错误状态：按 self 分槽（任务 5.10 / design D11）----
+            // 每个槽一个自述文本（最多 255 字节 + NUL），`text` 里永远留一个 NUL。
+            cpp += "static " + shape.name + "ErrorSlot& " + shape.name + "_errorSlotLocked(void const* self)\n{\n";
+            cpp += "    for (auto& slot : " + shape.name + "_errorSlots)\n    {\n";
+            cpp += "        if (slot.self == self) { return slot; }\n    }\n";
+            cpp += "    " + shape.name + "_errorSlots.push_back({self, 0, {0}});\n";
+            cpp += "    return " + shape.name + "_errorSlots.back();\n}\n";
+            cpp += "static void " + shape.name + "_clearError(void const* self)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
+            cpp += "    " + shape.name + "ErrorSlot& slot = " + shape.name + "_errorSlotLocked(self);\n";
+            cpp += "    slot.code = 0;\n    slot.text[0] = 0;\n}\n";
+            cpp += "static void " + shape.name + "_setError(void const* self, int32_t code, char const* text)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
+            cpp += "    " + shape.name + "ErrorSlot& slot = " + shape.name + "_errorSlotLocked(self);\n";
+            cpp += "    slot.code = code;\n    slot.text[0] = 0;\n";
             cpp += "    if (text != nullptr)\n    {\n";
-            cpp += "        ::memcpy(" + shape.name + "_lastErrorText, text, ::strlen(text) + 1u);\n";
-            cpp += "    }\n}\n";
-            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorCode(void*)\n{\n    return " +
-                   shape.name + "_lastErrorCode;\n}\n";
-            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorText(void*, char* dst, uint64_t cap)\n{\n";
-            cpp += "    const std::size_t length = ::strlen(" + shape.name + "_lastErrorText);\n";
-            cpp += "    const std::size_t copied = (cap > 0u) ? ((length < cap - 1u) ? length : cap - 1u) : 0u;\n";
-            cpp += "    if (cap > 0u)\n    {\n        ::memcpy(dst, " + shape.name +
-                   "_lastErrorText, copied);\n        dst[copied] = 0;\n    }\n    return (int32_t)copied;\n}\n\n";
-            cpp += "static uint64_t " + shape.name + "_registerStrongHandle(std::shared_ptr<void> object)\n{\n";
-            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_handleMutex);\n";
-            cpp += "    if (!object) { " + shape.name + "_setError(1002, \"实现返回了空指针\"); return 0u; }\n";
+            // 文本长度必须夹住：旧的 `memcpy(strlen + 1)` 在文本超过 255 字节时写穿整个槽
+            cpp += "        const std::size_t room = sizeof(slot.text) - 1u;\n";
+            cpp += "        const std::size_t length = (::strlen(text) < room) ? ::strlen(text) : room;\n";
+            cpp += "        ::memcpy(slot.text, text, length);\n        slot.text[length] = 0;\n    }\n}\n";
+            cpp += "static int32_t " + shape.name + "_readErrorCode(void* self)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
+            cpp += "    return " + shape.name + "_errorSlotLocked(self).code;\n}\n";
+            cpp += "static void " + shape.name + "_readErrorText(void* self, char* dst, uint64_t cap)\n{\n";
+            cpp += "    if (cap == 0u || dst == nullptr) { return; }\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
+            cpp += "    const " + shape.name + "ErrorSlot& slot = " + shape.name + "_errorSlotLocked(self);\n";
+            cpp += "    const std::size_t length = ::strlen(slot.text);\n";
+            cpp += "    const std::size_t copied = (length < cap - 1u) ? length : cap - 1u;\n";
+            cpp += "    ::memcpy(dst, slot.text, copied);\n    dst[copied] = 0;\n}\n";
+            // 旧的独立入口保留（既有 CoreTests 与 C ABI 用户还在调），但**必须转发到同一份状态**：
+            // 否则"从这里读不到错误、只有表里读得到"会把同一次失败读成两个数。
+            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorCode(void* self)\n{\n    return " +
+                   shape.name + "_readErrorCode(self);\n}\n";
+            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorText(void* self, char* dst, uint64_t cap)\n{\n";
+            cpp += "    " + shape.name + "_readErrorText(self, dst, cap);\n";
+            cpp += "    return (dst != nullptr && cap > 0u) ? (int32_t)::strlen(dst) : 0;\n}\n\n";
+            // ---- 句柄表的实现（所有接口共用一张表，任务 5.11 / design D12 乙）----
+            cpp += "static cascaded_bindings::HandleEntry* " + shape.name + "_claimSlotLocked()\n{\n";
             cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    uint64_t index = 1u;\n";
             cpp += "    while (index <= indexMask && index < " + shape.name + "_handles.size() + 1u)\n    {\n";
-            cpp += "        if (" + shape.name + "_handles[index - 1u].kind == 0u) { break; }\n";
-            cpp += "        ++index;\n    }\n";
-            cpp += "    if (index > indexMask) { return 0u; }\n";
-            cpp += "    if (index > " + shape.name + "_handles.size())\n    {\n        " + shape.name +
-                   "_handles.push_back({});\n    }\n";
-            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
-            cpp += "    entry.object = object.get();\n    entry.kind = 1u;\n    entry.strong = object;\n";
-            cpp += "    entry.weak.reset();\n";
-            cpp += "    return (static_cast<uint64_t>(entry.generation) << " +
-                   shape.name + "_HANDLE_INDEX_BITS) | index;\n}\n";
-            cpp += "static uint64_t " + shape.name + "_registerWeakHandle(std::weak_ptr<void> object)\n{\n";
-            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_handleMutex);\n";
-            cpp += "    if (object.expired()) { " + shape.name + "_setError(1002, \"实现返回了空指针\"); return 0u; }\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
-            cpp += "    uint64_t index = 1u;\n";
-            cpp += "    while (index <= indexMask && index < " + shape.name + "_handles.size() + 1u)\n    {\n";
-            cpp += "        if (" + shape.name + "_handles[index - 1u].kind == 0u) { break; }\n";
-            cpp += "        ++index;\n    }\n";
-            cpp += "    if (index > indexMask) { return 0u; }\n";
-            cpp += "    if (index > " + shape.name + "_handles.size())\n    {\n        " + shape.name +
-                   "_handles.push_back({});\n    }\n";
-            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "        if (" + shape.name + "_handles[index - 1u].kind == 0u) { break; }\n        ++index;\n    }\n";
+            cpp += "    if (index > indexMask) { return nullptr; }\n";
+            cpp += "    if (index > " + shape.name + "_handles.size()) { " + shape.name + "_handles.push_back({}); }\n";
+            cpp += "    return &" + shape.name + "_handles[index - 1u];\n}\n";
+            cpp += "static uint64_t " + shape.name +
+                   "_handleOfLocked(cascaded_bindings::HandleEntry const* entry)\n{\n";
+            cpp += "    const uint64_t index = static_cast<uint64_t>(entry - " + shape.name +
+                   "_handles.data()) + 1u;\n";
+            cpp += "    return (static_cast<uint64_t>(entry->generation) << " + shape.name +
+                   "_HANDLE_INDEX_BITS) | index;\n}\n";
+            cpp += "static uint64_t " + shape.name + "_registerStrongHandle(void const* owner, std::shared_ptr<void> object)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
+            cpp += "    if (!object) { " + shape.name + "_setError(owner, " + shape.name + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
+            cpp += "    cascaded_bindings::HandleEntry* entry = " + shape.name + "_claimSlotLocked();\n";
+            cpp += "    if (entry == nullptr) { return 0u; }\n";
+            cpp += "    entry->object = object.get();\n    entry->kind = 1u;\n    entry->hasWitness = false;\n";
+            cpp += "    entry->interfaceTag = &" + shape.name + "_HANDLE_TAG;\n";
+            cpp += "    entry->strong = object;\n    entry->weak.reset();\n";
+            cpp += "    return " + shape.name + "_handleOfLocked(entry);\n}\n";
+            cpp += "static uint64_t " + shape.name + "_registerWeakHandle(void const* owner, std::weak_ptr<void> object)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
+            cpp += "    if (object.expired()) { " + shape.name + "_setError(owner, " + shape.name + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
+            cpp += "    cascaded_bindings::HandleEntry* entry = " + shape.name + "_claimSlotLocked();\n";
+            cpp += "    if (entry == nullptr) { return 0u; }\n";
             // 弱句柄不持有强引用，所以 object 先写 weak 换出来的指针；对象一死 lookup 就失败
-            cpp += "    entry.object = object.lock().get();\n    entry.kind = 2u;\n    entry.weak = object;\n";
-            cpp += "    entry.strong.reset();\n";
-            cpp += "    return (static_cast<uint64_t>(entry.generation) << " +
-                   shape.name + "_HANDLE_INDEX_BITS) | index;\n}\n";
+            cpp += "    entry->object = object.lock().get();\n    entry->kind = 2u;\n    entry->hasWitness = false;\n";
+            cpp += "    entry->interfaceTag = &" + shape.name + "_HANDLE_TAG;\n";
+            cpp += "    entry->weak = object;\n    entry->strong.reset();\n";
+            cpp += "    return " + shape.name + "_handleOfLocked(entry);\n}\n";
+            // 借用句柄（任务 5.3 / design D9）：只存裸指针、不持有；存活见证者是**发行它的那个对象**
+            // 在共用表里的弱引用。为什么用发行者当见证者：生成物手上只有实现给的裸指针，观测不到被借
+            // 对象自己的生死；宁可早一步判失效（安全侧），也不要解出一个悬垂指针。
+            cpp += "static uint64_t " + shape.name + "_registerBorrowedHandle(void const* issuer, void* object)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
+            cpp += "    if (object == nullptr) { " + shape.name + "_setError(issuer, " + shape.name + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
+            cpp += "    cascaded_bindings::HandleEntry* entry = " + shape.name + "_claimSlotLocked();\n";
+            cpp += "    if (entry == nullptr) { return 0u; }\n";
+            cpp += "    entry->object = object;\n    entry->kind = 4u;\n    entry->hasWitness = false;\n";
+            cpp += "    entry->interfaceTag = &" + shape.name + "_HANDLE_TAG;\n";
+            cpp += "    entry->strong.reset();\n    entry->weak.reset();\n";
+            cpp += "    for (auto const& other : " + shape.name + "_handles)\n    {\n";
+            cpp += "        if (other.object != issuer) { continue; }\n";
+            cpp += "        if (other.kind == 1u) { entry->weak = other.strong; }\n";
+            cpp += "        else if (other.kind == 2u) { entry->weak = other.weak; }\n";
+            cpp += "        if (!entry->weak.expired()) { entry->hasWitness = true; break; }\n";
+            cpp += "    }\n";
+            cpp += "    return " + shape.name + "_handleOfLocked(entry);\n}\n";
             cpp += "static void* " + shape.name + "_lookupHandle(uint64_t handle)\n{\n";
             cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = handle & indexMask;\n";
             cpp += "    const uint64_t generation = handle >> " + shape.name + "_HANDLE_INDEX_BITS;\n";
             cpp += "    if (index == 0u || index > " + shape.name + "_handles.size()) { return nullptr; }\n";
-            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    auto const& entry = " + shape.name + "_handles[index - 1u];\n";
             cpp += "    /* kind 3 = 已退休的槽：代际回绕过，永不再分配 */\n    if (entry.kind == 0u || entry.kind == 3u || entry.generation != generation) { return nullptr; }\n";
-            // 弱句柄：每次取用都 lock 一次，对象已析构就判失效（1001）
+            // 标签校验（任务 5.11）：数字相同、但属于别的接口的句柄，**不许**在这里命中
+            cpp += "    if (entry.interfaceTag != &" + shape.name + "_HANDLE_TAG) { return nullptr; }\n";
+            // 弱句柄：每次取用都 lock 一次，对象已析构就判失效。
+            // 这里**不写错误码**：错误槽按 self 分，而查表函数不知道调用方是谁 ——
+            // 由两个入口（`ResolveHandle` / `releaseHandle`）各自按自己的 self 置码。
             cpp += "    if (entry.kind == 2u)\n    {\n";
             cpp += "        auto locked = entry.weak.lock();\n";
-            cpp += "        if (!locked) { " + shape.name + "_setError(" + shape.name +
-                   "_ERROR_STALE_HANDLE, \"stale handle\"); return nullptr; }\n";
+            cpp += "        if (!locked) { return nullptr; }\n";
             cpp += "        return locked.get();\n    }\n";
+            // 借用句柄：有见证者就按它判；没有见证者（发行者当时不在表里）就不做存活判断
+            cpp += "    if (entry.kind == 4u)\n    {\n";
+            cpp += "        if (entry.hasWitness && entry.weak.expired()) { return nullptr; }\n";
+            cpp += "        return const_cast<void*>(entry.object);\n    }\n";
             cpp += "    return const_cast<void*>(entry.object);\n}\n";
-            cpp += "static void " + shape.name + "_releaseHandle(uint64_t handle)\n{\n";
-            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_handleMutex);\n";
+            cpp += "static void " + shape.name + "_releaseHandle(void const* owner, uint64_t handle)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
             cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = handle & indexMask;\n";
+            // 释放走一次 lookup：标签不符 / 已失效都在这里被挡下来，错误码归调用方那个实例
             cpp += "    if (" + shape.name + "_lookupHandle(handle) == nullptr)\n    {\n        " + shape.name +
-                   "_setError(" + shape.name + "_ERROR_STALE_HANDLE, \"stale handle\");\n        return;\n    }\n";
+                   "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"stale handle\");\n        return;\n    }\n";
             cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
             // 释放 = 表项清空 + 强/弱引用一起放掉 + 代际进位（旧句柄因此被判 stale）
             cpp += "    entry.kind = 0u;\n    entry.object = nullptr;\n";
@@ -3028,23 +3229,442 @@ namespace bindemit
             cpp += "    const uint32_t nextGeneration = (entry.generation + 1u) & ((1u << " + shape.name +
                    "_HANDLE_GEN_BITS) - 1u);\n";
             cpp += "    if (nextGeneration == 0u) { entry.kind = 3u; }\n";
-            cpp += "    entry.generation = nextGeneration;\n";
-            cpp += "    " + shape.name + "_lastErrorCode = 0;\n}\n\n";
+            cpp += "    entry.generation = nextGeneration;\n}\n\n";
             // 每接口两个泛用入口（任务 1.3）：`ResolveHandle` 是必需的 —— C ABI 面所有方法入口
             // 的第一个参数都是 `void* self`，没有任何一个收定宽句柄；没有它，C# 拿到句柄之后
             // 没有任何办法用它调方法，"旧句柄报 1001" 这条验收也写不出来。
+            // 任务 5.10：`ResolveHandle` 也收 `self` —— 它是最常失败的那个入口，不给自己就没法
+            // 把 1001 记到"哪个实例失败了"上（错误槽按 self 分）。
             cpp += "extern \"C\" void " + shape.name + "_ReleaseHandle(void* self, uint64_t handle)\n{\n";
-            cpp += "    (void)self;\n    " + shape.name + "_releaseHandle(handle);\n}\n\n";
-            cpp += "extern \"C\" void* " + shape.name + "_ResolveHandle(uint64_t handle)\n{\n";
-            cpp += "    return " + shape.name + "_lookupHandle(handle);\n}\n\n";
+            cpp += "    " + shape.name + "_clearError(self);\n";
+            cpp += "    " + shape.name + "_releaseHandle(self, handle);\n}\n\n";
+            cpp += "extern \"C\" void* " + shape.name + "_ResolveHandle(void* self, uint64_t handle)\n{\n";
+            cpp += "    " + shape.name + "_clearError(self);\n";
+            cpp += "    void* object = " + shape.name + "_lookupHandle(handle);\n";
+            cpp += "    if (object == nullptr) { " + shape.name + "_setError(self, " + shape.name +
+                   "_ERROR_STALE_HANDLE, \"stale handle\"); }\n";
+            cpp += "    return object;\n}\n\n";
             cpp += lateDefs;
-            cs += "    }\n}\n";
-            methodsTotal += emitted;
-            if (emitted == 0)
+            // ================= 托管表面（任务 5.2 / 5.6）=================
+            // 三层：
+            //   `<I>Bindings`（internal）—— 函数表 + 偏移常量 + Bind + ThrowIfFailed；
+            //   `<I>Lease`（internal）—— 一个表面对象背后的 native 资源（self + 句柄 + 发行者的释放入口）；
+            //   `<I>`（public sealed）—— 只镜像原声明的签名，方法体一行转给 `<I>Calls`。
+            // 指针、句柄、delegate* 一律不出现在 public 类型里（验收②）：公开类里连 `void*` 的字样都没有。
             {
-                continue;
-            }
+                const std::string bindingsName = shape.name + "Bindings";
+                const std::string leaseName = shape.name + "Lease";
+                const std::string callsName = shape.name + "Calls";
 
+                auto toSurface = [](std::string const& bare, bool pointer) -> std::string
+                {
+                    if (bare == "void")
+                    {
+                        return pointer ? "IntPtr" : "void";
+                    }
+                    if (bare == "bool")
+                    {
+                        return "bool";
+                    }
+                    if (bare == "float")
+                    {
+                        return "float";
+                    }
+                    if (bare == "double")
+                    {
+                        return "double";
+                    }
+                    if (bare == "int" || bare == "int32_t")
+                    {
+                        return "int";
+                    }
+                    if (bare == "uint32_t" || bare == "unsigned" || bare == "unsigned int")
+                    {
+                        return "uint";
+                    }
+                    if (bare == "int64_t" || bare == "long")
+                    {
+                        return "long";
+                    }
+                    if (bare == "uint64_t" || bare == "unsigned long")
+                    {
+                        return "ulong";
+                    }
+                    if (hasPrefix(bare, "castl::string_view") || hasPrefix(bare, "std::string_view") ||
+                        bare == "castl::string" || bare == "std::string")
+                    {
+                        return "string";
+                    }
+                    // 其余就是已绑定接口的名字（借用/弱引用返回） —— 表面用同名类型，逐字照抄
+                    // 认不出来的类型返回空串，调用方会**跳过这一条并打印原因**（不许静默降级）
+                    return std::string();
+                };
+                auto innerOfWeak = [](std::string const& bare) -> std::string
+                {
+                    for (char const* prefix : {"castl::weak_ptr<", "std::weak_ptr<", "castl::shared_ptr<",
+                                               "std::shared_ptr<", "std::unique_ptr<"})
+                    {
+                        if (hasPrefix(bare, prefix))
+                        {
+                            std::string inner = bare.substr(std::strlen(prefix));
+                            if (!inner.empty() && inner.back() == '>')
+                            {
+                                inner.pop_back();
+                            }
+                            return trimCopy(inner);
+                        }
+                    }
+                    return std::string();
+                };
+                auto capitalize = [](std::string const& text) -> std::string
+                {
+                    if (text.empty())
+                    {
+                        return text;
+                    }
+                    std::string out = text;
+                    out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
+                    return out;
+                };
+
+                // ---- 表绑定 + 错误检查（仍在 <-I>Bindings 里）----
+                cs += "        public static void Bind(byte* table)\n        {\n";
+                {
+                    unsigned slotIndex = 0;
+                    for (TableSlot const& slot : tableSlots)
+                    {
+                        cs += "            " + slot.name + " = (delegate* unmanaged<" + slot.csType +
+                              ">)*(void**)(table + " + std::to_string(8u + 8u * slotIndex) + ");\n";
+                        ++slotIndex;
+                    }
+                }
+                cs += "        }\n";
+                cs += "        public static void ThrowIfFailed(void* self)\n        {\n";
+                cs += "            if (LastErrorCode == null) { return; }\n";
+                cs += "            int code = LastErrorCode(self);\n";
+                cs += "            if (code == 0) { return; }\n";
+                cs += "            throw new " + shape.name + "Exception(code, ReadError(self));\n        }\n";
+                cs += "        private static string ReadError(void* self)\n        {\n";
+                cs += "            if (LastErrorText == null) { return string.Empty; }\n";
+                cs += "            byte* buffer = stackalloc byte[256];\n";
+                cs += "            LastErrorText(self, buffer, 256UL);\n";
+                cs += "            return System.Runtime.InteropServices.Marshal.PtrToStringUTF8((IntPtr)buffer) ?? string.Empty;\n";
+                cs += "        }\n";
+
+                // ---- 每个方法的调用壳（managed 签名，指针全留在这层）----
+                cs += "    }\n\n"; // 关掉 <-I>Bindings：以下三个类型都是**平级**的 internal/public 类型
+                // ---- 异常类型 ----
+                cs += "    /// <summary>" + shape.name + " 的失败：Code 是 C ABI 的错误码</summary>\n";
+                cs += "    public sealed class " + shape.name + "Exception : Exception\n    {\n";
+                cs += "        public " + shape.name +
+                      "Exception(int code, string message) : base(message + \"（错误码 \" + code + \"）\")\n";
+                cs += "        {\n            Code = code;\n        }\n";
+                cs += "        public int Code { get; }\n    }\n\n";
+
+                // ---- 资源租约（internal：native 细节都在这层）----
+                cs += "    /// <summary>表面对象背后的 native 资源：对象指针 + 句柄 + 发行它的那个接口的释放入口</summary>\n";
+                cs += "    internal sealed unsafe class " + leaseName + "\n    {\n";
+                cs += "        public void* Self;\n        public ulong Handle;\n        public void* ReleaseSelf;\n";
+                cs += "        public delegate* unmanaged<void*, ulong, void> Release;\n";
+                cs += "        public void Dispose()\n        {\n";
+                cs += "            if (Handle != 0UL && Release != null) { Release(ReleaseSelf, Handle); }\n";
+                cs += "            Handle = 0UL;\n            Self = null;\n            ReleaseSelf = null;\n";
+                cs += "            Release = null;\n        }\n    }\n\n";
+                cs += "    /// <summary>表面方法的真正调用体：指针、句柄、string 的编解码都在这层（internal）</summary>\n";
+                cs += "    internal static unsafe class " + callsName + "\n    {\n";
+                std::string surfaceClass;
+                surfaceClass += "    public sealed class " + shape.name + " : IDisposable\n    {\n";
+                surfaceClass += "        internal " + shape.name + "(" + leaseName + " lease) { m_lease = lease; }\n";
+                surfaceClass += "        private readonly " + leaseName + " m_lease;\n";
+                surfaceClass += "        /// <summary>释放这个对象持有的句柄（对应的 native 对象由实现决定是否销毁）</summary>\n";
+                surfaceClass += "        public void Dispose() { m_lease.Dispose(); }\n";
+
+                for (SurfaceMethod const& surface : surfaceMethods)
+                {
+                    MethodSignature const& method = *surface.method;
+                    const std::string bare = bareType(method.returnSpelling);
+                    const bool returnPointer = method.returnSpelling.find('*') != std::string::npos;
+                    const bool stringTwoStep = surface.needsTwoStep &&
+                                               (hasPrefix(bare, "castl::string_view") ||
+                                                hasPrefix(bare, "std::string_view") || bare == "castl::string" ||
+                                                bare == "std::string");
+                    const std::string weakInner = innerOfWeak(bare);
+                    // 返回的是"另一个接口的对象"吗？弱引用（`weak_ptr<T>`）与借用裸指针（`T*`）都算，
+                    // 表面给同名接口对象；夹具里指向非接口类型的句柄不算（下面会跳过并打印原因）。
+                    std::string surfaceObjectName;
+                    if (!weakInner.empty())
+                    {
+                        surfaceObjectName = unqualifiedName(weakInner);
+                    }
+                    else if (surface.isHandleReturn && returnPointer && bare != "void" && !bare.empty())
+                    {
+                        surfaceObjectName = unqualifiedName(bare);
+                    }
+                    if (!surfaceObjectName.empty() &&
+                        g_bindableInterfaceNames.count(surfaceObjectName) == 0)
+                    {
+                        surfaceObjectName.clear();
+                    }
+                    // 返回类型：两段式字符串 → string；弱/借用句柄 → 同名接口；其余按表面类型映射
+                    std::string surfaceReturn;
+                    if (stringTwoStep)
+                    {
+                        surfaceReturn = "string";
+                    }
+                    else if (!surfaceObjectName.empty())
+                    {
+                        surfaceReturn = surfaceObjectName;
+                    }
+                    else
+                    {
+                        surfaceReturn = toSurface(bare, returnPointer);
+                    }
+                    // 认不出来的返回类型 ⇒ 这一条不进表面（打印原因，不静默跳过）
+                    bool supported = !surfaceReturn.empty();
+
+                    // 形参：出参收进元组返回值，字符串/布尔各自有 ABI 形状
+                    struct SurfaceParam
+                    {
+                        std::string type;
+                        std::string name;
+                        bool isOut = false;
+                        bool isString = false;
+                        bool isBool = false;
+                    };
+                    std::vector<SurfaceParam> surfaceParams;
+                    std::vector<std::string> tupleParts;
+                    std::size_t cursor = 0;
+                    for (auto const& parameter : method.params)
+                    {
+                        const std::string paramBare = bareType(parameter.first);
+                        const bool isString = hasPrefix(paramBare, "castl::string_view") ||
+                                              hasPrefix(paramBare, "std::string_view") ||
+                                              paramBare == "castl::string" || paramBare == "std::string";
+                        const bool isOutRef = parameter.first.find('&') != std::string::npos &&
+                                              parameter.first.find("const") == std::string::npos;
+                        if (isString)
+                        {
+                            surfaceParams.push_back({"string", parameter.second, false, true, false});
+                            cursor += 2;
+                            continue;
+                        }
+                        if (isOutRef)
+                        {
+                            SurfaceParam outParam;
+                            outParam.type = toSurface(paramBare, false);
+                            if (outParam.type.empty())
+                            {
+                                supported = false;
+                                break;
+                            }
+                            outParam.name = parameter.second;
+                            outParam.isOut = true;
+                            surfaceParams.push_back(outParam);
+                            std::string element = parameter.second;
+                            if (hasPrefix(element, "out") && element.size() > 3)
+                            {
+                                element = element.substr(3);
+                            }
+                            tupleParts.push_back(outParam.type + " " + capitalize(element));
+                            cursor += 1;
+                            continue;
+                        }
+                        SurfaceParam scalar;
+                        scalar.type = toSurface(paramBare, false);
+                        if (scalar.type.empty())
+                        {
+                            supported = false;
+                            break;
+                        }
+                        scalar.name = parameter.second;
+                        scalar.isBool = paramBare == "bool";
+                        surfaceParams.push_back(scalar);
+                        cursor += 1;
+                    }
+                    // 返回值：出参在场就换成元组（只有一个出参时不套元组）
+                    std::string callReturn = surfaceReturn;
+                    if (tupleParts.size() == 1)
+                    {
+                        callReturn = tupleParts[0];
+                    }
+                    else if (!tupleParts.empty())
+                    {
+                        callReturn = "(";
+                        for (std::size_t i = 0; i < tupleParts.size(); ++i)
+                        {
+                            callReturn += (i == 0 ? "" : ", ") + tupleParts[i];
+                        }
+                        callReturn += ")";
+                    }
+                    if (!supported)
+                    {
+                        std::fprintf(stderr,
+                                     "[托管表面] 跳过 %s::%s —— 返回/形参里有本轮不映射的形状（原始拼写：%s）\n",
+                                     shape.name.c_str(), method.name.c_str(), method.returnSpelling.c_str());
+                        continue;
+                    }
+
+                    // ---- `<I>Calls.<M>` ----
+                    std::string signature = method.name + "(" + leaseName + " lease";
+                    std::string surfaceSignature = method.name + "(";
+                    for (std::size_t i = 0; i < surfaceParams.size(); ++i)
+                    {
+                        if (surfaceParams[i].isOut)
+                        {
+                            continue;
+                        }
+                        const std::string tail = surfaceParams[i].type + " " + surfaceParams[i].name;
+                        signature += ", " + tail;
+                        surfaceSignature += (surfaceSignature.back() == '(' ? "" : ", ") + tail;
+                    }
+                    signature += ")";
+                    surfaceSignature += ")";
+
+                    cs += "        public static " + callReturn + " " + signature + "\n        {\n";
+                    // 出参先声明局部量，ABI 收它们的地址
+                    for (SurfaceParam const& param : surfaceParams)
+                    {
+                        if (param.isOut)
+                        {
+                            cs += "            " + param.type + " " + param.name + " = default;\n";
+                        }
+                        else if (param.isString)
+                        {
+                            cs += "            byte[] " + param.name + "Bytes = System.Text.Encoding.UTF8.GetBytes(" +
+                                  param.name + ");\n";
+                        }
+                    }
+                    // ABI 实参（与投影后的 params 顺序一致）
+                    std::string abiArgs = "lease.Self";
+                    std::size_t abiCursor = 0;
+                    for (SurfaceParam const& param : surfaceParams)
+                    {
+                        if (param.isString)
+                        {
+                            abiArgs += ", " + param.name + "Ptr, (ulong)" + param.name + "Bytes.Length";
+                            abiCursor += 2;
+                            continue;
+                        }
+                        if (param.isOut)
+                        {
+                            abiArgs += ", &" + param.name;
+                            abiCursor += 1;
+                            continue;
+                        }
+                        abiArgs += ", " + (param.isBool ? "(" + param.name + " ? 1 : 0)" : param.name);
+                        abiCursor += 1;
+                    }
+                    (void)abiCursor;
+
+                    std::string callBody;
+                    const std::string throwLine = "            " + bindingsName +
+                                                  ".ThrowIfFailed(lease.Self);\n";
+                    if (stringTwoStep)
+                    {
+                        callBody += "            ulong length = " + bindingsName + "." + method.name +
+                                    "Len(lease.Self);\n";
+                        callBody += throwLine;
+                        callBody += "            if (length == 0UL) { return string.Empty; }\n";
+                        callBody += "            byte[] buffer = new byte[(int)length + 1];\n";
+                        callBody += "            fixed (byte* bufferPtr = buffer) { " + bindingsName + ".Copy" +
+                                    method.name + "(lease.Self, bufferPtr, (ulong)buffer.Length); }\n";
+                        callBody += throwLine;
+                        callBody += "            return System.Text.Encoding.UTF8.GetString(buffer, 0, (int)length);\n";
+                    }
+                    else if (!surfaceObjectName.empty())
+                    {
+                        // 弱引用 / 借用：C ABI 给的是句柄，这里换成同名接口的表面对象
+                        callBody += "            ulong handle = " + bindingsName + "." + method.name + "(" + abiArgs +
+                                    ");\n";
+                        callBody += throwLine;
+                        callBody += "            void* self = " + bindingsName + ".ResolveHandle(lease.Self, handle);\n";
+                        callBody += throwLine;
+                        callBody += "            if (self == null) { throw new " + shape.name +
+                                    "Exception(1001, \"句柄已失效\"); }\n";
+                        callBody += "            return new " + surfaceObjectName + "(new " + surfaceObjectName +
+                                    "Lease { Self = self, Handle = handle, "
+                                    "ReleaseSelf = lease.Self, Release = " + bindingsName + ".ReleaseHandle });\n";
+                    }
+                    else if (!tupleParts.empty())
+                    {
+                        callBody += "            " + bindingsName + "." + method.name + "(" + abiArgs + ");\n";
+                        callBody += throwLine;
+                        callBody += "            return (";
+                        bool firstOut = true;
+                        for (SurfaceParam const& param : surfaceParams)
+                        {
+                            if (!param.isOut)
+                            {
+                                continue;
+                            }
+                            callBody += (firstOut ? "" : ", ") + param.name;
+                            firstOut = false;
+                        }
+                        callBody += ");\n";
+                    }
+                    else if (surface.returnType == "void")
+                    {
+                        callBody += "            " + bindingsName + "." + method.name + "(" + abiArgs + ");\n";
+                        callBody += throwLine;
+                    }
+                    else if (surface.returnType == "uint64_t")
+                    {
+                        // `void*` → 不透明令牌 → IntPtr
+                        callBody += "            ulong value = " + bindingsName + "." + method.name + "(" + abiArgs +
+                                    ");\n";
+                        callBody += throwLine;
+                        callBody += "            return (IntPtr)(void*)value;\n";
+                    }
+                    else
+                    {
+                        callBody += "            " + toCSharpType(surface.returnType) + " result = " + bindingsName + "." +
+                                    method.name + "(" + abiArgs + ");\n";
+                        callBody += throwLine;
+                        if (bare == "bool")
+                        {
+                            callBody += "            return result != 0;\n";
+                        }
+                        else
+                        {
+                            callBody += "            return result;\n";
+                        }
+                    }
+                    // 字符串入参：`fixed` 包住整段调用体（可能有多个字符串入参，从后往前包）
+                    for (auto it = surfaceParams.rbegin(); it != surfaceParams.rend(); ++it)
+                    {
+                        if (!it->isString)
+                        {
+                            continue;
+                        }
+                        callBody = "            fixed (byte* " + it->name + "Ptr = " + it->name + "Bytes)\n            {\n" +
+                                   callBody + "            }\n";
+                    }
+                    cs += callBody;
+                    cs += "        }\n\n";
+
+                    // ---- 表面方法：一行转发 ----
+                    surfaceClass += "        public " + callReturn + " " + surfaceSignature + "\n        {\n";
+                    surfaceClass += (callReturn == "void" ? "            " : "            return ") + callsName + "." +
+                                    method.name + "(m_lease";
+                    for (SurfaceParam const& param : surfaceParams)
+                    {
+                        if (!param.isOut)
+                        {
+                            surfaceClass += ", " + param.name;
+                        }
+                    }
+                    surfaceClass += ");\n        }\n";
+                }
+                surfaceClass += "    }\n";
+                cs += "    }\n"; // 关掉 <I>Calls
+                cs += surfaceClass;
+            }
+            cs += "}\n";   // 关掉 namespace（各类型都是平级的，`<I>Bindings` 早在上面的块里关掉了）
+            methodsTotal += emitted;
+            // 一条进表方法都没有的接口（两段式字符串返回、或被 CA_BIND_SKIP 全排除）**也要落地**。
+            // 以前这里是 `if (emitted == 0) continue;` —— 产物目录不清空，上一轮的旧文件就留在原地，
+            // 判据读的是那几个字节，于是"这次一个字都没生成"与"生成得完全正确"在磁盘上长得一样。
+            // 实测：`IBindRow04` 的两个两段式伴生因此从来没被真正生成过，判据却一直是绿的。
             const std::string cppPath = std::string(outDir) + "/" + shape.name + ".Bindings.cpp";
             const std::string csPath = std::string(outDir) + "/" + shape.name + ".Bindings.cs";
             std::ofstream cppOut(cppPath, std::ios::binary);

@@ -21,18 +21,23 @@ namespace cs_script
 		// 关闭：释放运行时句柄与程序集引用（由模块的 TryRelease 调用；可重复调）
 		virtual void Shutdown() = 0;
 
-		// 把某个接口的实例登记给托管侧（任务 3.2 的"登记一行"）。
-		// `interfaceId` 是引擎侧约定的编号：**1 = IWindow**（见 CSharpHost/README.md 的表）。
-		// 托管侧通过函数表里的 get_interface_instance / get_interface_api 拿到它。
-		virtual void SetInterfaceInstance(uint32_t interfaceId, void* instance) = 0;
+		// 把某个接口的**某个实例**登记给托管侧：编号定接口，实例名定"同一接口的第几份实现"。
+		// 同一对 (编号, 实例名) 再登记就是覆盖；不同实例名并存 —— 模块管理器那边本来就是
+		// `接口类型 → { 实例名 → 实例 }`，宿主这一层以前只按编号取、隐含"每接口一个实例"
+		// （`csharp-window-creation` 任务 5.4 / design D10）。托管侧通过函数表里的
+		// get_interface_api 按同一对 (编号, 实例名) 拿到它。
+		virtual void SetInterfaceInstance(uint32_t interfaceId, char const* instanceName, void* instance) = 0;
+
+		// 按 (编号, 实例名) 取回登记过的实例指针；没登记过返回空。
+		virtual void* GetInterfaceInstance(uint32_t interfaceId, char const* instanceName) const = 0;
 
 		// **只给测试用**：直接调一次跨边界的取表入口（`EngineApi::get_interface_api`）。
 		// 存在的理由：那个入口平时只有托管侧能拿到，而"未知接口编号必须报错、不许静默返回 0"
 		// 这条判据需要一个能在引擎侧造出这次调用的入口（`csharp-window-creation` 任务 4.2）。
 		// 返回值与 `EngineApi::get_interface_api` 同义：0 = 失败（原因在 `LastError()` 里）。
 		// 生产代码 MUST NOT 调用它。
-		virtual uint32_t GetInterfaceApiForTest(uint32_t interfaceId, uint32_t version, uint32_t size,
-		                                        void* out, void** instanceOut) = 0;
+		virtual uint32_t GetInterfaceApiForTest(uint32_t interfaceId, char const* instanceName, uint32_t version,
+		                                        uint32_t size, void* out, void** instanceOut) = 0;
 
 		virtual ~IScriptHost() = default;
 	};

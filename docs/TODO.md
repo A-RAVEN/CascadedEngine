@@ -8,6 +8,20 @@
 
 # 待办（未解决 / 需后续处理）
 
+## [2026-10-25] CodeGen 重编之后第一次全量跑，`VulkanCBufferBindingInfo` 会以退出码 6 失败｜构建系统（跨 change）
+
+**状态**：待修（不阻塞：再跑一次构建就过）。
+
+**问题**：`Tools/CodeGen/CodeGenMain.cpp` 一改，工具二进制就重编，随后 76 条反射规则**全部**重跑（日志里 `codegen: 重跑 76 条、跳过 0 条`）。这一轮里 `ShaderLibrary.h` 的解析在 `VulkanShaderFileInfo.codegen.h` 落盘之前发生，于是报
+`unresolved include (fatal): VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h:245:10: fatal error: 'VulkanShaderFileInfo.codegen.h' file not found`，
+工具按"编译环境不完整"拒绝出码（退出码 6），构建失败。第二次跑（`重跑 5 条、跳过 71 条`）就成功。
+
+**为何**：增量判据只按"输入有没有变"排序，没有把"某条规则的头文件是另一条规则的产物"这条依赖写进去；平时只重跑少数几条，碰不到这个顺序。
+
+**改法**：把产品之间的依赖登记进 `build.py` 的 codegen 规则（或让 CodeGen 在解析失败且缺的是自己产出的头时先补跑那条）。**验收**：改 `Tools/CodeGen/CodeGenMain.cpp` 的注释触发工具重编，之后一次构建就 `BUILD SUCCESSFUL`（今天要两次）。
+
+**相关代码**：`build.py` 的 codegen 段、`Tools/CodeGen/CodeGenMain.cpp` 的 `--emit-all` 分派、日志里的 `[54/76] VulkanShaderFileInfo` / `[72/76] ShaderFileInfo` 两行。
+
 ## [2026-10-20] 绑定发射器（`--emit-binding`）不足以支撑「C# 创建窗口」：10 处桩、句柄不回收、判据恒绿｜`csharp-bindings-generator` 归档后遗留
 
 **状态**：**形状层已修**（`binding-stub-and-shapes`，进行中）；句柄层与托管侧仍未修，留给后继 change。该 change 归档时（提交 `05e483b`）声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的。
@@ -27,7 +41,7 @@
 
 **问题二：句柄与生命周期（`csharp-window-creation` 已修三条，见下）。**
 - **句柄入参的反查根本没实现**：`lookupHandle` 定义了但 `IBindRow09` 里零引用，注释却写着「句柄参数：反查（失效就置错误码，不崩）」。（本 change 只加了 `ResolveHandle` 这个**新入口**，"接口参数里的 `shared_ptr` / `weak_ptr` 反查"仍未实现。）
-- 错误状态是每接口一份 static 全局（`IWindow_lastErrorCode`），`LastErrorCode(void*)` 的 `self` 被忽略；`setError` 往 `char[256]` 里 `memcpy(strlen+1)` 不检查长度。
+- ~~错误状态是每接口一份 static 全局（`IWindow_lastErrorCode`），`LastErrorCode(void*)` 的 `self` 被忽略~~ —— **已在 `csharp-window-creation` 任务 5.10 修掉**：错误通道进 `IWindowApi_v2`（两个槽），状态按 `self` 分槽，每个 thunk 入口先清零；`setError` 的 `memcpy` 也改成夹住 255 字节。
 
 **本轮新发现的三条（`csharp-window-creation` 收尾时实测到的）：**
 

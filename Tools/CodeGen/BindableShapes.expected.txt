@@ -34,6 +34,7 @@ IWindow|void IWindow_SetWindowName(void* self, char const* name, uint64_t nameLe
 IWindow|void IWindow_SetWindowAlpha(void* self, float alpha)
 IWindow|float IWindow_GetDpiScale(void* self)
 IWindow|uint64_t IWindow_GetNativeWindowHandle(void* self)
+IWindow|uint64_t IWindow_GetWindowSystem(void* self)
 IWindow|int32_t IWindow_GetKeyState(void* self, int keycode, int state)
 IWindow|float IWindow_GetMouseX(void* self)
 IWindow|float IWindow_GetMouseY(void* self)

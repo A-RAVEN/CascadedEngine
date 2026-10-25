@@ -1,10 +1,28 @@
 # CSharpHost：把托管运行时（C#）接进引擎的宿主模块
 
-**它做什么**：在一个普通引擎模块的初始化阶段，把 .NET 运行时（CoreCLR）拉进本进程、加载 `Scripting.Managed.dll`、拿到托管侧 `Boot` / `Tick` 两个入口，并每帧调一次 `Tick`；同时把一张函数表交给托管侧，让它能回调引擎的日志与 `echo`。
+**它做什么**：在一个普通引擎模块的初始化阶段，把 .NET 运行时（CoreCLR）拉进本进程、加载 `Scripting.Managed.dll`、拿到托管侧 `Boot` / `Tick` 两个入口，并每帧调一次 `Tick`；同时把一张函数表交给托管侧，让它能回调引擎的日志、`echo`，以及按"接口编号 + 实例名"取引擎接口的函数表。
+
+函数表（`EngineApi`）当前是 **v4**、40 字节，字段顺序就是 ABI、只许在末尾追加：
+
+| 字段 | 从哪一版起 | 作用 |
+|---|---|---|
+| `abi_version` / `size` | v1 | 两侧握手：版本与大小都必须相等 |
+| `log` / `echo` | v1 | 引擎回调（日志、echo 自检） |
+| `get_interface_api` | v2（v4 加实例名参数） | 按 (接口编号, 实例名) 取该接口的函数表与实例；`size == 0` 是"只问大小"的探针调用 |
+| `window_interface_id` / `window_system_interface_id` | v3 | 接口编号由引擎侧单向下发，托管侧不手抄 |
+
+接口编号表（编号由引擎下发，这里只是给它一个可读的名字）：
+
+| 编号 | 接口 | 实例名（本仓库现有的那份） |
+|---|---|---|
+| 1 | `cawindow::IWindow` | `Window` |
+| 2 | `cawindow::IWindowSystem` | `WindowSystem_GLFW` |
+
+同一个接口可以登记多份实现，靠实例名区分；实例名传 `nullptr` = 该接口**默认那一份**（最先登记的）。登记与查找都走 `IScriptHost::SetInterfaceInstance` / `GetInterfaceInstance`，两边必须用同一对 (编号, 实例名)。
 
 **它不做什么**：
 
-- **不生成任何绑定**：函数表里只有 `{ abi_version, size, log, echo }` 四项。哪个引擎接口能调、用什么形状过界，属于 `openspec/specs/csharp-bindable-surface/spec.md` 的规矩，实现留给 `csharp-bindings-generator`。
+- **不生成任何绑定**：绑定产物由 `Tools/CodeGen`（`--emit-binding`）生成、由本模块 `#include` 进同一个翻译单元；哪个引擎接口能调、用什么形状过界，属于 `openspec/specs/csharp-bindable-surface/spec.md` 的规矩。
 - **不做 AOT**：现在是 framework-dependent 的 JIT 形态（`runtimeconfig.json` 指向 `Microsoft.NETCore.App`）。
 - **不建线程、不做热重载、不支持多脚本程序集**：`Boot` / `Tick` 都在引擎主线程上被调用。
 
@@ -38,7 +56,7 @@ python build.py --config Debug
 | 托管程序集缺失 | `CSharpHost 初始化失败（退出码 3）：解析托管入口 Boot 失败，返回 -2146233079（程序集 …\bin\Scripting.Managed.dll）；找过的路径：…\hostfxr.dll、…\Scripting.Managed.runtimeconfig.json` |
 | 配置路径不存在 | `CSharpHost 初始化失败（退出码 3）：找不到托管侧的 runtimeconfig.json：…\bad.runtimeconfig.json；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、…\bad.runtimeconfig.json` |
 | 配置要的运行时版本本机没有 | `hostfxr_initialize_for_runtime_config 返回 -2147450730（…；配置里要的框架版本：7.0.0；本机已装的运行时版本：10.0.2、8.0.23、8.0.6、9.0.12）` |
-| 函数表 ABI 版本不符 | `[托管侧] ABI 版本不符：引擎 2，托管侧期望 1` + `托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 2、函数表 24 字节；0 = 成功）` |
+| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 5（真实值 4）` + `[托管侧] ABI 版本不符：引擎 5，托管侧期望 4` + `托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 5、函数表 40 字节；0 = 成功）` |
 | 托管方法抛异常 | `[托管侧] Tick 抛异常：InvalidOperationException: …` + 引擎侧收到错误码 **4**；进程**不崩** |
 
 ## 关闭
@@ -57,9 +75,9 @@ Select-String -LiteralPath $env:TEMP\csharp.out -Pattern '托管侧|IScriptHost|
 实测输出（节选）：
 
 ```
-[托管侧] 托管侧已启动：ABI 版本 1、函数表 24 字节
+[托管侧] 托管侧已启动：ABI 版本 4、函数表 40 字节
 [托管侧] 回调引擎 Echo(42) 得到 43
-CSharpHost：托管运行时已就绪（加载耗时 = 44 ms；函数表 24 字节，ABI v1）
+CSharpHost：托管运行时已就绪（加载耗时 = 34 ms；函数表 40 字节，ABI v4）
 IScriptHost 已取到：IsAvailable = true
 [托管侧] Tick #1：dt = 0.016 秒
 托管侧 Tick #1 回值 1（引擎侧计数与之一致）
@@ -68,7 +86,7 @@ IScriptHost 已取到：IsAvailable = true
 
 **已知限制（醒目）**：
 
-- 函数表只有四项，**没有任何引擎接口能被 C# 调用** —— 那是下一个 change（`csharp-bindings-generator`）的事。
+- 托管侧只认每个接口的**默认实例**（`get_interface_api` 的实例名传 `nullptr`）；按名寻址目前只有引擎与测试在用 —— 同一个接口的多份实现要能被脚本分别拿到，还得等托管表面的那一轮（`csharp-window-creation` 任务 5.6）。
 - 阻塞调用（`WaitIdle`、回读的 `Wait`）若从托管侧发起会卡住引擎主线程；现在的托管侧只做日志与计数，不碰这些。
 - 托管侧只在主线程被调用；线程拓扑、多脚本、热重载都不在本 change 的范围。
 - `nethost` 找不到时构建不失败、运行期报错 —— 这是有意的（让缺 .NET 的机器也能编引擎），但意味着"构建成功"不等于"C# 可用"。

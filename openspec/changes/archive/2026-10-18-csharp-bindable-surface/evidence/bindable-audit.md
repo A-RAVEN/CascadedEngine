@@ -50,7 +50,7 @@
 | `IWindow::SetWindowAlpha` | `float` | `float` | 无 | — | 可绑 | 浮点按值 | 不失败 |
 | `IWindow::GetDpiScale` | `const`，返回 `float` | `float` | 无 | — | 可绑 | 浮点按值 | 不失败 |
 | `IWindow::GetNativeWindowHandle` | 返回 `void*` | `uint64`（不透明令牌） | 无 | — | 可绑 | 语义是"借出的窗口句柄"，C# 只能当不透明数、不得解引用 | 不失败 |
-| `IWindow::GetWindowSystem` | 返回 `IWindowSystem*`（裸指针，自引用/工厂语义不明） | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明裸指针类：返回接口实例裸指针、所有权与生命周期都不明。建议删掉这个自引用，或在登记表里给它分配句柄 | 不暴露（无入口） |
+| `IWindow::GetWindowSystem` | 返回 `IWindowSystem*`（裸指针，自引用/工厂语义不明） | `uint64`（**借用句柄**） | 无 | — | 可绑 | 2026-10-25 改判：返回的是**已 `CA_BIND` 接口**的裸指针，所有权在模块、本质是借用 ⇒ 投成借用句柄（kind 4），释放只清槽不销毁。见 `csharp-window-creation` 任务 5.3 / design D9 | 解出的指针不可用时报 1001 |
 | `IWindow::GetKeyState` | `int` + `int` → `bool` | `int32, int32` → `int32` | 无 | — | 可绑 | 布尔用 `int32` | 不失败 |
 | `IWindow::GetMouseX` | `const`，返回 `float` | `float` | 无 | — | 可绑 | 浮点按值 | 不失败 |
 | `IWindow::GetMouseY` | `const`，返回 `float` | `float` | 无 | — | 可绑 | 浮点按值 | 不失败 |
@@ -83,20 +83,20 @@
 | `IResource::Serialize` | `ca_io::WBatch*`（另一个接口的裸指针） | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明裸指针类：参数是 `WBatch` 接口实例且没有所有权说明。建议改成 `uint64 wbatch 句柄`（由 `IOManager::WriteBatch` 产出、共用同一张句柄表），在此之前不暴露 | 不暴露（无入口） |
 | `IResource::Deserialize` | `ca_io::IOBatch*`（另一个接口的裸指针） | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明裸指针类：同上，`IOBatch` 句柄化后再暴露 | 不暴露（无入口） |
 
-## 汇总：不可绑清单（8 条）
+## 汇总：不可绑清单（6 条 + 2 条已移出）
 
 | 接口::方法 | 属于哪一类不可投影 | 处置建议 | 归属哪个后续 change |
 |---|---|---|---|
 | `CRenderBackend::ExecuteGraph` | ② 所有权不明的裸指针（+ `shared_ptr` 参数） | 拆成"建图（返回句柄）+ 提交（引擎决定 scheduler）" | `csharp-bindings-generator`（改接口形状） |
 | `CRenderBackend::Release` | ④ 语义越界 | 不暴露；脚本只能释放自己创建的句柄 | 无（规则即结论） |
 | `CRenderBackend::GetWindowHandle` | ② 所有权不明的裸指针（`shared_ptr<IWindow>` 参数没有对应句柄） | 改成接收引擎分配的窗口 id | `csharp-bindings-generator` |
-| `IWindow::GetWindowSystem` | ② 所有权不明的裸指针（自引用工厂） | 删掉自引用，或改成句柄 | `csharp-bindings-generator` |
+| ~~`IWindow::GetWindowSystem`~~ | **已移出不可绑清单**（2026-10-25） | 改判为可绑的借用句柄，见主表那一行 | `csharp-window-creation` |
 | ~~`IWindowSystem::NewWindow`~~ | **已移出不可绑清单**（2026-10-20） | 改判为可绑的弱句柄，见主表那一行 | `csharp-window-creation` |
 | `IOManager::Initialize` | ④ 语义越界 | 不暴露 | 无（规则即结论） |
 | `IResource::Serialize` | ② 所有权不明的裸指针（`WBatch*`） | `WBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 | `IResource::Deserialize` | ② 所有权不明的裸指针（`IOBatch*`） | `IOBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 
-**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 7 个接口里**暂无实例**（依据：60 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 5 条（`ExecuteGraph` / `GetWindowHandle` / `GetWindowSystem` / `Serialize` / `Deserialize`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"，见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
+**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 7 个接口里**暂无实例**（依据：60 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 4 条（`ExecuteGraph` / `GetWindowHandle` / `Serialize` / `Deserialize`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"；**`GetWindowSystem` 也已移出** —— 它返回的是已 `CA_BIND` 接口的裸指针，2026-10-25 起改判为可绑的"借用句柄"；两者都见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
 
 ## 汇总：需快路清单（0 条）
 

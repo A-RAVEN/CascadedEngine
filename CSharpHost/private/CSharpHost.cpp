@@ -5,7 +5,7 @@
 // 任何一步失败都必须把"找过哪些路径 / 版本号"写进 LastError，由调用方打日志 —— 不许静默降级。
 #include <CACore/CAModuleManager.h>
 #include <ScriptHost/IScriptHost.h>
-// 生成的绑定产物：提供 IWindow_GetApi 与 IWindowApi_v1（本 TU 编译它，模块自己就带表）
+// 生成的绑定产物：提供 IWindow_GetApi 与 IWindowApi_v2（本 TU 编译它，模块自己就带表）
 #include "IWindow.Bindings.cpp"
 // 第二份产物（`csharp-window-creation` 任务 2.4）：`IWindowSystem` 的函数表与取表入口。
 // 两份产物在同一个 TU 里不冲突 —— 各自的符号前缀不同（`IWindow_*` / `IWindowSystem_*`）。
@@ -17,6 +17,7 @@
 #include <chrono>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -40,8 +41,9 @@ namespace cs_script
 		// 取"接口函数表 + 实例指针"：id 见 CSharpHost/README.md 的编号表（1 = IWindow）；
 		// version/size 是托管侧期望的值，成功后 out 填表、*instanceOut 填实例，返回真实表大小；
 		// 版本或大小不符时返回 0 且**一个字节都不写**（与生成的 GetApi 同一口径）。
-		uint32_t (*get_interface_api)(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
-									  void** instanceOut);
+		// --- v4（任务 5.4）：多一个 instanceName，同一个接口的多份实现靠它区分 ---
+		uint32_t (*get_interface_api)(uint32_t interfaceId, char const* instanceName, uint32_t version,
+									  uint32_t size, void* out, void** instanceOut);
 		// --- v3 追加（任务 4.2）：接口编号由引擎侧单向下发，托管侧不再手抄 ---
 		uint32_t window_interface_id;
 		uint32_t window_system_interface_id;
@@ -50,16 +52,45 @@ namespace cs_script
 	// 引擎侧约定的接口编号（托管侧 Host.cs 必须用同一组数字）
 	static constexpr uint32_t s_interfaceIdWindow = 1;
 	static constexpr uint32_t s_interfaceIdWindowSystem = 2;
+	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
+	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会
+	// **覆盖**第一份 —— 两个 window system 并存时 `GetInterfaceInstance` 张冠李戴。
+	struct InterfaceInstanceEntry
+	{
+		uint32_t id;
+		std::string name;
+		void* instance;
+	};
+	// 挂在永不释放的堆对象上：与绑定产物里的句柄表同一口径，避开静态析构顺序。
+	static std::vector<InterfaceInstanceEntry>& InterfaceInstances()
+	{
+		static std::vector<InterfaceInstanceEntry>& table = *new std::vector<InterfaceInstanceEntry>();
+		return table;
+	}
+	static std::mutex& InterfaceInstanceMutex()
+	{
+		static std::mutex& mutex = *new std::mutex();
+		return mutex;
+	}
+	// 实例名允许为空（= 该接口的"默认那一份"），但不许是悬空指针：拷成 std::string 存起来。
+	static std::string SafeInstanceName(char const* name)
+	{
+		return name == nullptr ? std::string() : std::string(name);
+	}
 	// 函数表大小从**审计表里的方法条数**算，不从生成物读 —— 读生成物等于用被检查物证明它自己。
 	// `IWindowSystem` 进表 5 个：NewWindow / GetWindowCount / GetMonitorCount / UpdateSystem /
 	// GetSystemNativeHandle（其余 11 条在头里用 CA_BIND_SKIP 排除）。
-	static_assert(sizeof(IWindowSystemApi_v1) == 8u + 8u * 5u,
-	              "IWindowSystem 函数表应当正好 5 个方法（表头 8 字节 + 每个方法 8 字节）");
+	// 表头只有 abi_version(4) + size(4) 这 8 字节，之后每个槽 8 字节：4 个非方法槽（错误通道两槽、
+	// 句柄解析/释放两槽）+ 5 个方法槽 = 9 槽 ⇒ 8 + 8 × 9 = 80。
+	static_assert(sizeof(IWindowSystemApi_v2) == 8u + 8u * 9u,
+	              "IWindowSystem 函数表应当正好 5 个方法（4 个表头槽 + 每个方法槽 8 字节）");
 
 
-	// v3：`EngineApi` 末尾追加两个接口编号（任务 4.2）。加字段就升版本 —— 托管侧的 `size`
+	// v3 起：`EngineApi` 末尾追加两个接口编号（任务 4.2）。加字段就升版本 —— 托管侧的 `size`
 	// 与 `abi_version` 两道校验都靠它拦住"一边加字段另一边没加"。
-	static constexpr uint32_t s_engineApiVersion = 3;
+	// v4（任务 5.4）：`get_interface_api` 多一个 `instanceName` 参数。字段没增，但那个**函数指针
+	// 的签名变了**，size 校验抓不到签名，只有版本号能拦 —— 所以照样升一版。
+	static constexpr uint32_t s_engineApiVersion = 4;
 
 	class CSharpHost final : public IScriptHost
 	{
@@ -77,19 +108,58 @@ namespace cs_script
 			}
 		}
 
-		// 把接口实例登记进来（任务 3.2 的"登记一行"）：编号 1 = IWindow
-		void SetInterfaceInstance(uint32_t interfaceId, void* instance) override
+		// 把接口实例登记进来（任务 3.2 的"登记一行"，任务 5.4 起带实例名这一维）：
+		// 编号定接口、实例名定"同一接口的第几份实现"。同一对 (编号, 实例名) 再登记就是覆盖。
+		void SetInterfaceInstance(uint32_t interfaceId, char const* instanceName, void* instance) override
 		{
-			if (interfaceId < 8u)
+			std::lock_guard<std::mutex> guard(InterfaceInstanceMutex());
+			auto& table = InterfaceInstances();
+			const std::string name = SafeInstanceName(instanceName);
+			for (auto& entry : table)
 			{
-				s_interfaceInstances[interfaceId] = instance;
+				if (entry.id == interfaceId && entry.name == name)
+				{
+					entry.instance = instance;
+					return;
+				}
 			}
+			table.push_back({interfaceId, name, instance});
 		}
-		uint32_t GetInterfaceApiForTest(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
-		                                void** instanceOut) override
+
+		void* GetInterfaceInstance(uint32_t interfaceId, char const* instanceName) const override
+		{
+			std::lock_guard<std::mutex> guard(InterfaceInstanceMutex());
+			auto& table = InterfaceInstances();
+			// `instanceName == nullptr` = 该接口的**默认那一份**（最先登记的那一条）。
+			// 托管侧眼下只认默认那一份：它拿不到实例名（名字是引擎侧选的）。按名寻址是
+			// 引擎与测试的入口，也是"同一接口多份实现"能被分开取到的唯一办法。
+			if (instanceName == nullptr)
+			{
+				for (auto const& entry : table)
+				{
+					if (entry.id == interfaceId)
+					{
+						return entry.instance;
+					}
+				}
+				return nullptr;
+			}
+			const std::string name = SafeInstanceName(instanceName);
+			for (auto const& entry : table)
+			{
+				if (entry.id == interfaceId && entry.name == name)
+				{
+					return entry.instance;
+				}
+			}
+			return nullptr;
+		}
+
+		uint32_t GetInterfaceApiForTest(uint32_t interfaceId, char const* instanceName, uint32_t version,
+		                                uint32_t size, void* out, void** instanceOut) override
 		{
 			// 只给测试用：把跨边界的那个入口原样转一次（任务 4.2 要造出"未知编号"这次调用）
-			return OnGetInterfaceApi(interfaceId, version, size, out, instanceOut);
+			return OnGetInterfaceApi(interfaceId, instanceName, version, size, out, instanceOut);
 		}
 
 		// 模块 link 阶段（所有模块都登记完之后）被调用一次
@@ -560,8 +630,8 @@ namespace cs_script
 
 		// 托管侧取"接口函数表 + 实例"的入口（csharp-bindings-generator 任务 3.2）。
 		// 版本/大小不符、或实例没登记，就返回 0 且**一个字节都不写** —— 与生成出来的 GetApi 同一口径。
-		static uint32_t OnGetInterfaceApi(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
-										  void** instanceOut)
+		static uint32_t OnGetInterfaceApi(uint32_t interfaceId, char const* instanceName, uint32_t version,
+										  uint32_t size, void* out, void** instanceOut)
 		{
 			if (s_instance == nullptr)
 			{
@@ -571,12 +641,9 @@ namespace cs_script
 			// 返回 0，加第 9 个接口时既不报错也不提示，调用方只看到"取表失败"。
 			if (interfaceId != s_interfaceIdWindow && interfaceId != s_interfaceIdWindowSystem)
 			{
-				if (s_instance != nullptr)
-				{
-					s_instance->m_lastError =
-						"未知接口编号 " + std::to_string(interfaceId) +
-						"：当前只接线了 1 = IWindow、2 = IWindowSystem（上界 8 是 CSharpHost 自己的约定）";
-				}
+				s_instance->m_lastError =
+					"未知接口编号 " + std::to_string(interfaceId) +
+					"：当前只接线了 1 = IWindow、2 = IWindowSystem";
 				return 0u;
 			}
 			// `size == 0` 是"探针调用"：托管侧还不知道表有多大，先问一句（不写任何内存）。
@@ -586,19 +653,27 @@ namespace cs_script
 			{
 				if (interfaceId == s_interfaceIdWindow)
 				{
-					return static_cast<uint32_t>(sizeof(IWindowApi_v1));
+					return static_cast<uint32_t>(sizeof(IWindowApi_v2));
 				}
-				return static_cast<uint32_t>(sizeof(IWindowSystemApi_v1));
+				return static_cast<uint32_t>(sizeof(IWindowSystemApi_v2));
 			}
-			void* instance = s_interfaceInstances[interfaceId];
-			if (instance == nullptr || out == nullptr)
+			// 按 (编号, 实例名) 取实例（任务 5.4）：取不到也要说出来，不许又是一个静默 0
+			void* instance = s_instance->GetInterfaceInstance(interfaceId, instanceName);
+			if (instance == nullptr)
+			{
+				s_instance->m_lastError =
+					"接口编号 " + std::to_string(interfaceId) + " 下没有登记实例名 \"" +
+					SafeInstanceName(instanceName) + "\"（登记与查找必须用同一对编号 + 实例名）";
+				return 0u;
+			}
+			if (out == nullptr)
 			{
 				return 0u;
 			}
 			const uint32_t realSize =
 				interfaceId == s_interfaceIdWindow
-					? IWindow_GetApi(version, size, static_cast<IWindowApi_v1*>(out))
-					: IWindowSystem_GetApi(version, size, static_cast<IWindowSystemApi_v1*>(out));
+					? IWindow_GetApi(version, size, static_cast<IWindowApi_v2*>(out))
+					: IWindowSystem_GetApi(version, size, static_cast<IWindowSystemApi_v2*>(out));
 			if (realSize == 0u)
 			{
 				return 0u;
@@ -642,16 +717,11 @@ namespace cs_script
 		// TryRelease 被调用时，管理器里的实例可能已经先被释放了（实测 GetInstance 返回空），
 		// 所以模块自己留一份指针 —— 它由本模块 new、也由本模块管，指针生命周期就是模块生命周期。
 		static CSharpHost* s_instance;
-
-		// 被登记的接口实例（下标就是接口编号；0 号不用）。用 **static**：登记方与读取方可能不是同一个
-		// 实例（实测 tester 拿到的 IScriptHost* 与 s_instance 不是同一个 ⇒ 成员数组读不到）。
-		static void* s_interfaceInstances[8];
 	};
 
 	int32_t CSharpHost::s_echoCalls = 0;
 	bool CSharpHost::s_shuttingDown = false;
 	CSharpHost* CSharpHost::s_instance = nullptr;
-void* CSharpHost::s_interfaceInstances[8] = {};
 }
 
 // 框架对三个导出都是可选查找（CaModuleManager.cpp 里取地址后判空才调），而 CA_MODULE_INSTANCE 宏

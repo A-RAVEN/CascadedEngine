@@ -1,29 +1,10 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Scripting.Generated.Bindings;
 
 namespace Scripting.Managed
 {
-    /// <summary>
-    /// 引擎交给托管侧的函数表。字段顺序与宽度就是 ABI —— 只许在末尾追加。
-    /// 对应 C++ 侧的同名结构体（CSharpHost/private/CSharpHost.cpp）。
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe struct EngineApi
-    {
-        public uint AbiVersion;
-        public uint Size;
-        public delegate* unmanaged<int, byte*, ulong, void> Log;
-        public delegate* unmanaged<int, int> Echo;
-        // --- v2 追加（csharp-bindings-generator 任务 3.2）---
-        // 取"接口函数表 + 实例"：size 传 0 是探针调用（只回真实大小）；成功后 out 里是表、
-        // instanceOut 里是实例，返回真实表大小；版本/大小不符返回 0 且一个字节都不写。
-        public delegate* unmanaged<uint, uint, uint, void*, void**, uint> GetInterfaceApi;
-        // --- v3 追加（任务 4.2）：编号由引擎侧下发，这里不再手抄 ---
-        public uint WindowInterfaceId;
-        public uint WindowSystemInterfaceId;
-    }
-
     /// <summary>
     /// 托管侧手写壳：被引擎调用的入口、ABI 自检、异常→错误码的唯一关口。
     /// 所有入口都是 [UnmanagedCallersOnly] 静态方法，且都被 try/catch 包住 ——
@@ -32,7 +13,7 @@ namespace Scripting.Managed
     public static unsafe class Host
     {
         // 与 C++ 侧必须逐字一致
-        private const uint ExpectedAbiVersion = 3;
+        private const uint ExpectedAbiVersion = 4;
 
         private static EngineApi* s_api;
         private static int s_tickCount;
@@ -118,13 +99,21 @@ namespace Scripting.Managed
 
                 s_tickCount++;
                 LogLine($"Tick #{s_tickCount}：dt = {deltaSeconds:F3} 秒");
-                if (s_tickCount == 1)
-                {
-                    ProbeWindowSize();
-                }
+                EnsureBound();
+                ProbeWindowSize();
+                ProbeExceptionMapping();
                 // 关窗读数每帧都要读：第 1 帧窗口还开着（0），引擎侧关窗后再 tick 一次才是 1。
                 // 放进 `s_tickCount == 1` 里就只剩一个 0 —— 实测过，那一版日志里没有第二次读数。
-                ProbeWindowClose();
+                // 一旦读到"该关了"，就说明引擎侧马上要把它回收掉：此后不再碰旧窗口的 self，
+                // 下一次 Tick 改走"表面建窗"探针（`csharp-window-creation` 任务 5.5）。
+                if (s_engineWindowClosed)
+                {
+                    ProbeSurfaceWindow();
+                }
+                else
+                {
+                    ProbeWindowClose();
+                }
                 return s_tickCount; // 回值就是本次是第几次 Tick，引擎侧据此逐字比对
             }
             catch (Exception ex)
@@ -135,129 +124,168 @@ namespace Scripting.Managed
             }
         }
 
-        // 函数表大小与成员偏移**不再手抄**（`csharp-window-creation` 任务 2.6）：一律读生成物里的常量。
-        // 手抄的表大小在 `IWindowApi_v1` 从 22 个成员变 21 个之后就错了，实测日志里报
-        // 「函数表大小不符：引擎 176 字节，托管侧 184 字节」并直接返回，探针从来没真正跑过。
-        private const int WindowApiSize = Scripting.Generated.Bindings.IWindowBindings.IWindowApi_v1_Size;
-        private const int WindowApiGetWindowSize =
-            Scripting.Generated.Bindings.IWindowBindings.IWindowApi_v1_GetWindowSize;
-        private const int WindowApiTableVersion = 1;
-        // 编号 2 = IWindowSystem（任务 2.7 的判别条件用得到它）
+        // 托管侧只用**生成出来的表面**（`csharp-window-creation` 任务 5.5）：不再手抄偏移常量、不再把
+        // `delegate*` 取出来自己转。表版本 = 2（任务 5.10 的错误通道两槽 + 5.2 的句柄解析/释放两槽都在表头）。
+        private const int WindowApiTableVersion = 2;
+        // 编号由引擎侧单向下发（任务 4.2），实例名传 null = 该接口默认那一份（任务 5.4）
         private static uint InterfaceIdWindow => s_api->WindowInterfaceId;
         private static uint InterfaceIdSystem => s_api->WindowSystemInterfaceId;
-        private const int WindowSystemApiSize = Scripting.Generated.Bindings.IWindowSystemBindings.IWindowSystemApi_v1_Size;
-        private const int WindowSystemApiGetWindowCount =
-            Scripting.Generated.Bindings.IWindowSystemBindings.IWindowSystemApi_v1_GetWindowCount;
         private static bool s_windowProbed;
-        private static void* s_windowInstance;
-        private static delegate* unmanaged<void*, int> s_windowShouldClose;
-        private const int WindowApiWindowShouldClose = Scripting.Generated.Bindings.IWindowBindings.IWindowApi_v1_WindowShouldClose;
+        private static IWindow s_window;
+        private static IWindowSystem s_system;
+        private static void* s_boundWindowInstance;
+        private static bool s_surfaceWindowProbed;
+        private static bool s_engineWindowClosed;
+        private static bool s_exceptionProbed;
 
         /// <summary>
-        /// 端到端（任务 3.2）：取 IWindow 的函数表与实例，调 GetWindowSize，把两个读数打进日志。
-        /// 引擎侧在同一时刻也打一份，两边逐字比对。
-        /// </summary>
-        /// <summary>
-        /// 每帧读一次 WindowShouldClose（任务 2.8）。引擎侧在关窗前后各 tick 一次，
+        /// 每帧读一次 `WindowShouldClose`（任务 2.8）。引擎侧在关窗前后各 tick 一次，
         /// 两个读数都必须为真 —— 少了这段，托管侧那条读数根本不存在。
         /// </summary>
         private static void ProbeWindowClose()
         {
-            if (s_windowInstance == null || s_windowShouldClose == null)
+            if (s_window == null)
             {
                 return;
             }
-            int shouldClose = s_windowShouldClose(s_windowInstance);
-            LogLine($"[托管侧] WindowShouldClose = {shouldClose}");
+            // 表面把 `int32_t` 还原成 `bool`（矩阵第 1 行）—— 这里拿到的就是 bool
+            bool shouldClose = s_window.WindowShouldClose();
+            LogLine($"[托管侧] WindowShouldClose = {(shouldClose ? 1 : 0)}");
+            if (shouldClose)
+            {
+                // 引擎侧接下来会把它自己的窗口回收掉，那时 `s_window` 的 self 就悬空了 ——
+                // 从此不再碰它（下一次 Tick 改走"表面建窗"探针）。
+                s_engineWindowClosed = true;
+            }
         }
 
-        private static void ProbeWindowSize()
+        /// <summary>
+        /// 每帧对一次"当前默认实例是谁"：引擎换窗口（或第一次登记）时在这里**重新绑定**。
+        /// 为什么必须对：登记表是进程级 static，全量跑时前一个测试先登记了它自己的窗口，
+        /// 托管侧一旦在那一帧绑死，后面就一直在读一个已经被回收的对象（实测：读数来自悬空 self）。
+        /// </summary>
+        private static void EnsureBound()
         {
-            if (s_windowProbed)
+            uint windowSize = s_api->GetInterfaceApi(InterfaceIdWindow, null, WindowApiTableVersion, 0, null, null);
+            if (windowSize == 0)
             {
-                return;
-            }
-
-            uint realSize = s_api->GetInterfaceApi(InterfaceIdWindow, WindowApiTableVersion, 0, null, null);
-            if (realSize == 0)
-            {
-                // 实例可能还没登记（引擎侧的窗口在第一个测试里才建出来）：**不置成功标志**，下一帧再试
-                if (s_tickCount <= 1)
+                if (!s_windowProbed && s_tickCount <= 1)
                 {
                     LogLine("取 IWindow 函数表失败：探针调用返回 0（实例尚未登记，下一帧重试）");
                 }
                 return;
             }
-            s_windowProbed = true;
-            if (realSize != (uint)WindowApiSize)
+            byte* windowTable = stackalloc byte[(int)windowSize];
+            void* windowInstance = null;
+            uint windowWritten = s_api->GetInterfaceApi(InterfaceIdWindow, null, WindowApiTableVersion, windowSize,
+                                                       windowTable, &windowInstance);
+            if (windowWritten != windowSize || windowInstance == null)
             {
-                LogLine($"[托管侧] 函数表大小不符：引擎 {realSize} 字节，托管侧 {WindowApiSize} 字节");
+                LogLine($"[托管侧] 取 IWindow 函数表失败：写入 {windowWritten} 字节、实例 {(long)windowInstance}");
                 return;
             }
-
-            byte* buffer = stackalloc byte[WindowApiSize];
-            void* instance = null;
-            uint written = s_api->GetInterfaceApi(InterfaceIdWindow, WindowApiTableVersion, realSize, buffer,
-                                                  &instance);
-            if (written != realSize || instance == null)
+            if (windowInstance == s_boundWindowInstance && s_windowProbed)
             {
-                LogLine($"[托管侧] 取 IWindow 函数表失败：写入 {written} 字节、实例 {(long)instance}");
                 return;
             }
+            IWindowBindings.Bind(windowTable);
+            s_window = new IWindow(new IWindowLease { Self = windowInstance });
+            s_boundWindowInstance = windowInstance;
+            // 绑到新实例 = 引擎又建了一个窗口：三个一次性标志一起复位
+            s_windowProbed = false;
+            s_engineWindowClosed = false;
+            s_surfaceWindowProbed = false;
 
-            var getWindowSize = (delegate* unmanaged<void*, int*, int*, void>)*(void**)(buffer + WindowApiGetWindowSize);
-            if (getWindowSize == null)
-            {
-                LogLine("[托管侧] GetWindowSize 在函数表里是空指针");
-                return;
-            }
-            int width = 0;
-            int height = 0;
-            getWindowSize(instance, &width, &height);
-            LogLine($"[托管侧] 窗口尺寸 = {width} x {height}");
-
-            // 关窗读数（任务 2.8）：把函数指针与实例存下来，之后每帧读一次 WindowShouldClose。
-            // 引擎侧在关闭窗口前后各 tick 一次，两侧的读数必须一致。
-            s_windowInstance = instance;
-            s_windowShouldClose =
-                (delegate* unmanaged<void*, int>)*(void**)(buffer + WindowApiWindowShouldClose);
-
-            // 编号 2 = IWindowSystem（任务 2.7 的判别条件）。取不到表、大小不符、或
-            // GetWindowCount 回 0，都把原因写进 LastError —— 引擎侧那条测试靠 LastError 非空判红。
-            // 没有这一段，把 `SetInterfaceInstance(2, …)` 删掉测试照样绿（实测过）。
-            uint systemRealSize = s_api->GetInterfaceApi(InterfaceIdSystem, WindowApiTableVersion, 0, null, null);
-            if (systemRealSize == 0)
+            uint systemSize = s_api->GetInterfaceApi(InterfaceIdSystem, null, WindowApiTableVersion, 0, null, null);
+            if (systemSize == 0)
             {
                 s_lastError = "取 IWindowSystem 函数表失败：探针调用返回 0（实例未登记）";
                 return;
             }
-            if (systemRealSize != (uint)WindowSystemApiSize)
-            {
-                s_lastError = $"IWindowSystem 函数表大小不符：引擎 {systemRealSize} 字节、托管侧 {WindowSystemApiSize} 字节";
-                return;
-            }
-            byte* systemBuffer = stackalloc byte[WindowSystemApiSize];
+            byte* systemTable = stackalloc byte[(int)systemSize];
             void* systemInstance = null;
-            uint systemWritten = s_api->GetInterfaceApi(InterfaceIdSystem, WindowApiTableVersion, systemRealSize,
-                                                        systemBuffer, &systemInstance);
-            if (systemWritten != systemRealSize || systemInstance == null)
+            uint systemWritten = s_api->GetInterfaceApi(InterfaceIdSystem, null, WindowApiTableVersion, systemSize,
+                                                        systemTable, &systemInstance);
+            if (systemWritten != systemSize || systemInstance == null)
             {
                 s_lastError = $"取 IWindowSystem 函数表失败：写入 {systemWritten} 字节、实例 {(long)systemInstance}";
                 return;
             }
-            var getWindowCount =
-                (delegate* unmanaged<void*, int>)*(void**)(systemBuffer + WindowSystemApiGetWindowCount);
-            if (getWindowCount == null)
+            IWindowSystemBindings.Bind(systemTable);
+            s_system = new IWindowSystem(new IWindowSystemLease { Self = systemInstance });
+        }
+
+        /// <summary>
+        /// 异常映射（任务 5.8）：造一次失败 → 表面 MUST 抛 `<接口>Exception` 且 `Code` 等于码表里的值；
+        /// 紧接着一次必成功的调用 MUST NOT 抛（每个入口先清错误码，D11）。
+        /// 触发手段用表里的 `ReleaseHandle` 槽：拿一个从没发出去的句柄去释放，它按码表写 1001。
+        /// </summary>
+        private static void ProbeExceptionMapping()
+        {
+            if (!s_windowProbed || s_exceptionProbed)
             {
-                s_lastError = "GetWindowCount 在 IWindowSystem 函数表里是空指针";
                 return;
             }
-            int windowCount = getWindowCount(systemInstance);
+            s_exceptionProbed = true;
+            IWindowBindings.ReleaseHandle(s_boundWindowInstance, 0xDEADBEEFUL);
+            try
+            {
+                IWindowBindings.ThrowIfFailed(s_boundWindowInstance);
+                s_lastError = "一次失败调用之后，表面没有抛异常";
+            }
+            catch (IWindowException ex)
+            {
+                LogLine($"[托管侧] 异常码读数：{ex.GetType().Name} 的 Code = {ex.Code}（码表里 1001 = 句柄不可用）");
+                if (ex.Code != 1001)
+                {
+                    s_lastError = $"抛出的异常码是 {ex.Code}，码表里应当是 1001";
+                }
+            }
+            // 反向用例：上一次失败之后紧接着一次成功调用 —— 错误码按 self 清零，这里 MUST NOT 抛
+            var (width, height) = s_window.GetWindowSize();
+            LogLine($"[托管侧] 失败之后紧接着成功调用：{width} x {height}（没有抛）");
+        }
+
+        private static void ProbeWindowSize()
+        {
+            if (s_windowProbed || s_window == null)
+            {
+                return;
+            }
+            s_windowProbed = true;
+
+            // 读数全走表面（任务 5.5）：出参 → 元组（矩阵第 2 行）、`int` 仍是 `int`
+            var (width, height) = s_window.GetWindowSize();
+            LogLine($"[托管侧] 窗口尺寸 = {width} x {height}");
+
+            int windowCount = s_system.GetWindowCount();
             LogLine($"[托管侧] IWindowSystem::GetWindowCount = {windowCount}");
             if (windowCount <= 0)
             {
                 s_lastError = $"IWindowSystem::GetWindowCount 回值 {windowCount}，期望至少 1（引擎侧已建窗）";
             }
+        }
+
+        /// <summary>
+        /// 表面建的窗口走一整圈（任务 5.5）：`NewWindow`（弱引用 → 表面对象）→ 读尺寸 → 关窗 → `Dispose`。
+        /// 引擎侧在第三次 Tick 之前把自己的窗口收掉，所以这一圈不会打乱前面那三读数。
+        /// </summary>
+        private static void ProbeSurfaceWindow()
+        {
+            if (!s_windowProbed || s_surfaceWindowProbed)
+            {
+                return;
+            }
+            s_surfaceWindowProbed = true;
+            IWindow created = s_system.NewWindow(320, 240, "托管侧建的窗口", true, true, true, false);
+            var (width, height) = created.GetWindowSize();
+            LogLine($"[托管侧] 表面建窗读数 = {width} x {height}（期望 320 x 240）");
+            if (width != 320 || height != 240)
+            {
+                s_lastError = $"表面建的窗口尺寸读到 {width} x {height}，期望 320 x 240";
+            }
+            created.CloseWindow();
+            created.Dispose();
         }
 
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>
