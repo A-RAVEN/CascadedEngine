@@ -108,3 +108,27 @@
 ## Open Questions
 
 - 夹具里那 6 个未覆盖的桩要不要也在这一轮做掉？倾向不做：容器投影涉及"谁分配 + 数量怎么回填"，与"C# 能调 `IWindow`"没有关系，硬塞进来会让这个 change 变成两件事。
+
+## 任务 5.1 的落地口径（2026-10-25 加）
+
+**为什么是 5 个而不是 7 个。** 5.1 的正文当时写"实测 7 个、第 7 个尚未定位"。差额不是漏了谁，是这一轮里两处改判把它俩移出了"桩"的统计：
+
+- `IBindRow13::SetCallback` —— 任务 2.2 给它加了 `CA_BIND_SKIP`（带 `castl::function` 参数的方法**不写排除就让生成器非零退出**），它整条不再进函数表，也就不再有 thunk 可数；
+- `IBindRow03::GetName` / `IBindRow04::GetNameView` 这类两段式字符串返回 —— 任务 2.5 让它们**不发直出 thunk**、改发两个伴生，同样不再计入方法槽。
+
+所以现在能数到的就是五个：`IBindRow02::GetThing` / `IBindRow05::SetThings` / `IBindRow06::GetThings` / `IBindRow07::SetNested` / `IBindRow08::SetMapping`。判据读数：`夹具接口 21 个、桩数 5 个`。
+
+**这一轮修好两个，剩三个留桩，各自理由如下**（这就是 5.1 验收③要的"修不掉必须写在这里"）：
+
+| 残留的桩 | 为什么这一轮不改 |
+|---|---|
+| `IBindRow06::GetThings`（`castl::vector<T>&` **出参**） | C ABI 是 `dst + cap` 两段式，而"调用方给的容量不够时怎么办"没有定过协议（截断 = 静默降级，抛错 = C ABI 没有异常通道）。定协议要连错误码一起设计，超出这个 change 的范围。**曾经误把它按入参生成过一版**：那样会把实现填好的 vector 丢掉、调用方的 `dst` 一个字节都写不到，属于静默丢数据 —— 所以判据改成只认 `const&`（入参），出参继续留桩。 |
+| `IBindRow07::SetNested`（元素含 `castl::string`，非 blittable） | C ABI 是"序列化块"（`uint8_t const* + len`），要先有一份容器序列化格式（与 CodeGen 的序列化产物对齐），不是逐个字段赋值能解决的。 |
+| `IBindRow08::SetMapping`（`castl::unordered_map`） | C ABI 摊平成 `(K*, V*, count)`，但 `unordered_map` **不保证遍历顺序**，而键重复时"后写覆盖先写"这条语义也得写清楚。这两点没定之前，生成出来的 thunk 只能保证"能编过"，不能保证"和 C++ 侧看到的是同一份数据"。 |
+
+**修好的两个**（矩阵第 2 行与第 5 行，判据读数从 `桩数 5 个` 变 `桩数 3 个`）：
+
+- `IBindRow02::GetThing`（镜像结构体**按值返回**）：thunk 按 `mirrors` 里的字段名逐成员从 `<T>C` 搭出 `T`、调实现、再逐成员搬回 `<T>C`。实测生成体：`ca_bind_fixture::BindScalarThing valueCpp{}; valueCpp.id = value->id; …`
+- `IBindRow05::SetThings`（**容器入参** `castl::vector<T> const&`）：thunk 按 `(T const* + count)` 逐元素搭回 `castl::vector<T>` 再调实现。实测生成体：`converted.reserve(...)` + 逐元素 `item.id = things[index].id; …`
+
+**回调那一类（`SetCallback`）**：2.2 已经把它改成"带理由排除"，不是"留桩"，所以 5.1 原文里"三类各修一个"的第三类在本轮是**关闭**状态（理由写在代码里，由生成器强制），不是"没做完"。

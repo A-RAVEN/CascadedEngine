@@ -1128,4 +1128,15 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 4. **字符串入参从 `char const* + len` 造临时量** —— 实现要 `castl::string` 就 `castl::string(ptr, len)`，要 `string_view` 就 `castl::string_view(ptr, len)`，再把临时量传给实现。
 5. **两段式只发两个伴生** —— `_Len` 返回 `object->M().size()`，`_Copy` 自己再取一次实现的值、按 `min(cap - 1, size)` 截断并补零；**容量 0 时一个字节都不写**（无符号下溢会写满整段）。这类方法**不进函数表、不发 `extern "C"` 直出入口、不发直出 thunk** —— 三个都不发才自洽。
 
-**夹具里还有三类形状本轮未覆盖**：容器（`SetThings` / `GetThings` / `SetNested` / `SetMapping`）、镜像按值返回（`GetThing`）、回调（`SetCallback`）。它们生成的 thunk 仍是桩；`check_bindings.py` 对**夹具**只打印桩数、不判定，对**被绑定到托管侧的真实接口**桩数必须为 0。`build.py` 每次构建会把那一行夹具桩数打进日志，别让它悄悄涨。
+**夹具里还剩三类形状未覆盖**（2026-10-25 更新：这一轮修好了两类，桩数从 5 降到 3）：
+
+| 形状 | 现在什么状态 | 为什么 |
+|---|---|---|
+| 容器**入参**（`IBindRow05::SetThings`） | **已实现**：thunk 按 `(T const* + count)` 逐元素搭回 `castl::vector<T>` 再调实现 | — |
+| 镜像结构体**按值返回**（`IBindRow02::GetThing`） | **已实现**：thunk 按镜像的字段名逐成员从 `<T>C` 搭出 `T`、调实现、再逐成员搬回 | — |
+| 容器**出参**（`IBindRow06::GetThings`） | 仍留桩 | C ABI 是 `dst + cap` 两段式，"容量不够怎么办"没有定协议（截断＝静默降级、抛错＝C ABI 没有异常通道）；定协议要连错误码一起设计 |
+| 元素含 `castl::string` 的容器（`IBindRow07::SetNested`） | 仍留桩 | C ABI 是序列化块 `(uint8_t const* + len)`，要先有容器序列化格式 |
+| `unordered_map`（`IBindRow08::SetMapping`） | 仍留桩 | 摊平成 `(K*, V*, count)`，但遍历顺序不保证、重复键的覆盖语义也没定 |
+| 回调（`IBindRow13::SetCallback`） | **不是桩**：任务 2.2 起由 `CA_BIND_SKIP` 带理由排除，生成器强制 | — |
+
+`check_bindings.py` 对**夹具**只打印桩数、不判定，对**被绑定到托管侧的真实接口**桩数必须为 0。`build.py` 每次构建会把那一行夹具桩数打进日志（现在是 `桩数 3 个`），别让它悄悄涨。

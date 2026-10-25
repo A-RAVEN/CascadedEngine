@@ -2524,6 +2524,30 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn)
             // 找接口头（要按它读纯虚方法），抢在它前面会把那条判据读成空表。
             cpp += "#include \"BindingHandleTable.h\"\n";
             cpp += "\n";
+            // 任务 5.1 的两个小工具：把短名补成接口所在命名空间里的限定名；按 C++ 名或 C 镜像名查镜像类型。
+            auto qualify = [&shape](std::string const& shortName) -> std::string
+            {
+                if (shortName.find("::") != std::string::npos)
+                {
+                    return shortName;
+                }
+                const std::size_t split = shape.qualifiedName.rfind("::");
+                return split == std::string::npos ? shortName
+                                                  : shape.qualifiedName.substr(0, split + 2) + shortName;
+            };
+            auto findMirrorByCpp = [&mirrors](std::string const& name) -> MirrorType const*
+            {
+                for (MirrorType const& mirror : mirrors)
+                {
+                    // `cppName` 是**带命名空间的全名**（`ca_bind_fixture::BindScalarThing`），
+                    // 而接口里写的短名不带命名空间 —— 两边都要按短名比。
+                    if (unqualifiedName(mirror.cppName) == name || mirror.cName == name)
+                    {
+                        return &mirror;
+                    }
+                }
+                return nullptr;
+            };
             std::string cs;
             cs += "// 由 CodeGen --emit-binding 生成，勿手改。\n";
             cs += "using System;\n";
@@ -2609,6 +2633,35 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn)
                 // 托管表面（任务 5.2 / 5.6）要按**原始 C++ 声明**出成员，所以这里把投影结果连
                 // 同原始签名一起收起来，循环结束后统一发射。
                 surfaceMethods.push_back({&method, params, returnType, needsTwoStep, isHandleReturn});
+                // ---- 任务 5.1：两类"成员级映射"形状要先在这里认出元素类型 ----
+                // 镜像结构体按值返回：C 侧 `<T>C`、C++ 侧 `T`，靠 mirrors 里的字段名逐成员搭桥。
+                const MirrorType* mirrorReturn = findMirrorByCpp(bareType(method.returnSpelling));
+                if (mirrorReturn != nullptr && returnType != mirrorReturn->cName)
+                {
+                    // 只有"投影结果就是那个镜像类型"才算这一类（其余形状走下面的分支）
+                    mirrorReturn = nullptr;
+                }
+                // 容器入参：唯一形参是 **`castl::vector<T> const&`**（入参），且 T 能对上镜像类型。
+                // **只认 const&**：非 const 的 `vector<T>&` 是**出参**（`dst + cap` 两段式），
+                // 它的协议（容量不够怎么办、要不要报错）本轮没定，按出参当入参生成会把调用方的
+                // 目标缓冲静默丢空 —— 所以那种形状仍然留桩，理由写在 design.md。
+                const MirrorType* containerIn = nullptr;
+                if (method.params.size() == 1 &&
+                    method.params[0].first.find("const") != std::string::npos)
+                {
+                    const std::string paramBare = bareType(method.params[0].first);
+                    const std::size_t open = paramBare.find('<');
+                    const std::size_t close = paramBare.rfind('>');
+                    if (hasPrefix(paramBare, "castl::vector") && open != std::string::npos &&
+                        close != std::string::npos && close > open)
+                    {
+                        containerIn = findMirrorByCpp(trimCopy(paramBare.substr(open + 1, close - open - 1)));
+                        if (params.size() != 2)
+                        {
+                            containerIn = nullptr;
+                        }
+                    }
+                }
                 // 两段式（字符串返回）：只发两个伴生，**不发**直出入口、不进函数表、不发直出 thunk。
                 // 三个都不发才自洽 —— 只删表槽会让空体 thunk 留着被桩判据算成桩，整段排除又会把
                 // 刚发的伴生声明一起删掉（任务 2.5 / design D5）。
@@ -2962,6 +3015,62 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn)
                     {
                         thunkDefs += "    return " + call + ";\n";
                     }
+                }
+                // 镜像结构体**按值返回**（矩阵第 2 行，`IBindRow02::GetThing`）：C 侧是 `<T>C`，
+                // C++ 侧是 `T` —— thunk 要按字段名逐成员搭进去、再逐成员搬出来（任务 5.1）
+                else if (mirrorReturn != nullptr)
+                {
+                    thunkDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    // 入参：镜像 `T const*` → C++ `T`
+                    std::vector<std::string> arguments;
+                    for (auto const& parameter : method.params)
+                    {
+                        const std::string paramBare = bareType(parameter.first);
+                        const MirrorType* paramMirror = findMirrorByCpp(paramBare);
+                        if (paramMirror == nullptr)
+                        {
+                            arguments.clear();
+                            break;
+                        }
+                        const std::string localName = parameter.second + "Cpp";
+                        thunkDefs += "    " + qualify(paramMirror->cppName) + " " + localName + "{};\n";
+                        for (MirrorField const& field : paramMirror->fields)
+                        {
+                            thunkDefs += "    " + localName + "." + field.name + " = " + parameter.second + "->" +
+                                         field.name + ";\n";
+                        }
+                        arguments.push_back(localName);
+                    }
+                    std::string call = "object->" + method.name + "(";
+                    for (std::size_t i = 0; i < arguments.size(); ++i)
+                    {
+                        call += (i == 0 ? "" : ", ") + arguments[i];
+                    }
+                    call += ")";
+                    thunkDefs += "    " + qualify(mirrorReturn->cppName) + " result = " + call + ";\n";
+                    thunkDefs += "    " + mirrorReturn->cName + " out{};\n";
+                    for (MirrorField const& field : mirrorReturn->fields)
+                    {
+                        thunkDefs += "    out." + field.name + " = result." + field.name + ";\n";
+                    }
+                    thunkDefs += "    return out;\n";
+                }
+                // 容器入参（矩阵第 5 行，`IBindRow05::SetThings`）：C 侧是 `T const* + count`，
+                // C++ 侧是 `castl::vector<T> const&` —— 逐元素从镜像搭回原类型（任务 5.1）
+                else if (containerIn != nullptr && method.params.size() == 1 && returnType == "void")
+                {
+                    thunkDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    thunkDefs += "    castl::vector<" + qualify(containerIn->cppName) + "> converted;\n";
+                    thunkDefs += "    converted.reserve(static_cast<std::size_t>(" + params[1].name + "));\n";
+                    thunkDefs += "    for (uint64_t index = 0u; index < " + params[1].name + "; ++index)\n    {\n";
+                    thunkDefs += "        " + qualify(containerIn->cppName) + " item{};\n";
+                    for (MirrorField const& field : containerIn->fields)
+                    {
+                        thunkDefs += "        item." + field.name + " = " + params[0].name + "[index]." + field.name +
+                                     ";\n";
+                    }
+                    thunkDefs += "        converted.push_back(item);\n    }\n";
+                    thunkDefs += "    object->" + method.name + "(converted);\n";
                 }
                 else
                 {
