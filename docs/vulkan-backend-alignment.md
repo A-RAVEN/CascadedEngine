@@ -1,5 +1,8 @@
 # Vulkan后端 D3D12 对齐路线图
 
+> 2026-10-25 从 `openspec/specs/vulkan-backend-alignment/spec.md` 移到 `docs/`：这份是后端对齐路线图（按阶段排的差距清单），
+> 不是能力规范 —— 放在 `openspec/specs/` 下会让 `openspec validate --all` 永远报"缺 Purpose / 缺 Requirements"。
+
 **Version**: 1.0
 **Created**: 2026-05-02
 **Status**: Active

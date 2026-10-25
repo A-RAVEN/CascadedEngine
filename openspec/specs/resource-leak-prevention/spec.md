@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束每条失败路径上的资源回收：纹理创建失败要清掉已分配的 VkImage、别名资源失败要按 Route A/B 分支清理、上传失败要清 staging、池释放要清分配记录、命令池部分失败要清理、RenderBackend 初始化要逐步清理。
+
+## Requirements
 
 ### Requirement: 纹理创建失败时清理已分配的 VkImage
 `VulkanTexture::Init` SHALL 在 `createImageView` 抛出异常时，清理已分配的 VkImage 和 VmaAllocation。

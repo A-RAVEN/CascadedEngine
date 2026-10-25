@@ -1,5 +1,8 @@
 # CascadedEngine 项目基线规范
 
+> 2026-10-25 从 `openspec/specs/project-baseline/spec.md` 移到 `docs/`：这份是子项目索引，不是能力规范 ——
+> 放在 `openspec/specs/` 下会让 `openspec validate --all` 永远报"缺 Purpose / 缺 Requirements"。
+
 **Version**: 1.0
 **Created**: 2026-03-27
 **Status**: Baseline

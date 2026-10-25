@@ -1,3 +1,7 @@
+## Purpose
+
+约束着色器库管理的内容：着色器文件信息、编译后的程序、shader struct 定义三份数据都由它管，`VulkanShaderFileInfo` 要装全绑定信息。
+
 ## Requirements
 
 ### Requirement: ShaderLibrary SHALL manage shader file information

@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束计算着色器资源的读写状态登记：image / buffer 的 RW 状态都要登记、访问类型到 Vulkan 标志的映射要有统一入口、登记必须落在 Prepare 阶段，并与 D3D12 后端的做法对齐。
+
+## Requirements
 
 ### Requirement: System SHALL register compute shader image RW states
 

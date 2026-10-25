@@ -1,3 +1,7 @@
+## Purpose
+
+约束 `VulkanShaderStruct` 的行为：版本控制、uniform buffer 的 staging、五类 `Set*Internal` 的写入口、以及从 CBuffer 初始化 barrier 上传数据。
+
 ## Requirements
 
 ### Requirement: VulkanShaderStruct SHALL implement version control

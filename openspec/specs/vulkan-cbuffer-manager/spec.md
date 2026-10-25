@@ -1,3 +1,7 @@
+## Purpose
+
+约束常量缓冲区的管理方式：ShaderStruct 到资源编号的映射必须唯一、必须按帧划分、必须参与别名内存分配，`BuildResources` 只做查表不再分配 GPU 缓冲。
+
 ## Requirements
 
 ### Requirement: VulkanConstantBufferManager SHALL provide unique ShaderStruct-to-resourceId mapping

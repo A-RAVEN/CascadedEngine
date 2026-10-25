@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束 Vulkan 调试命名：资源对象必须能设置 Debug 名称、Debug Utils 扩展的可用性要先检查、`SetVKObjectDebugName` 要作为统一入口。
+
+## Requirements
 
 ### Requirement: 所有 Vulkan 资源对象可设置 Debug 名称
 

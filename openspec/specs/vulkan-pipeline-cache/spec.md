@@ -1,3 +1,7 @@
+## Purpose
+
+约束管线缓存的键：凡是决定 `VkPipeline` 构造结果的光栅化状态，都必须进缓存键。
+
 ## Requirements
 
 ### Requirement: Vulkan pipeline cache key SHALL include the rasterization state that drives VkPipeline construction

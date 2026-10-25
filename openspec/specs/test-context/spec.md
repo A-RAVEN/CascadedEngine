@@ -5,7 +5,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束测试上下文的结构与调用约定：`TestContext` 的成员、统一的测试函数签名、空指针保护、headless 参数透传。
+
+## Requirements
 
 ### Requirement: TestContext 结构体
 

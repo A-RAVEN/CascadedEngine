@@ -1,3 +1,7 @@
+## Purpose
+
+约束 `build.py` 的输出可见性与失败判定：cmake / ninja 的完整输出要落日志并回显、构建结果以退出码为准、configure 与 build 的日志分开、日志文件缺失时容错、没有网络时 configure 失败要给出明确错误。
+
 ## Requirements
 
 ### Requirement: CMake 输出可见

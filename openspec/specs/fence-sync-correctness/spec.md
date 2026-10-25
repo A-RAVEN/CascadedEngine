@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束 fence 与同步的正确性：Direct / Compute 两条提交路径必须用各自独立的标志跟踪、批量同步只等已提交的 fence、`waitForFences` 的返回值要全量检查、swapchain 的致命错误要向上传播。
+
+## Requirements
 
 ### Requirement: 双 bool 独立跟踪 fence 提交状态
 系统 SHALL 使用 `m_DirectFenceSubmitted` 和 `m_ComputeFenceSubmitted` 两个独立标志跟踪 DirectFence 和 ComputeFence 的提交状态。每个提交路径 SHALL 只设置对应 fence 的标志。

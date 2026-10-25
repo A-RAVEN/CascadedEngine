@@ -1,3 +1,7 @@
+## Purpose
+
+约束着色器资源绑定的构建：从反射数据建绑定信息、描述符计数与布局绑定要跟着走、Slang 的资源类型要映射到 Vulkan 描述符类型、写入类型要与布局声明一致、compute 的资源要带访问类型与正确的管线阶段、去重键要含每次 pass 的 shader-struct 身份。
+
 ## Requirements
 
 ### Requirement: System SHALL construct VulkanShaderResourceBindingInfo from reflection data

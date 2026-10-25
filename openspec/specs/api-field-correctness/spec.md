@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束 Vulkan 资源状态与采样器描述符的字段语义：初始状态必须按 Image / Buffer 分别构造，`integerFormat` 必须如实传递到采样器描述符。
+
+## Requirements
 
 ### Requirement: InitializedState 拆分为 Image/Buffer 工厂
 `VulkanResourceState` SHALL 提供 `InitializedImageState()` 和 `InitializedBufferState()` 两个独立工厂函数，各返回语义正确的 `isImage` 字段值。

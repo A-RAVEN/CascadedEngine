@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束各条失败路径上的行为：attachment 为空时跳过整个 render pass、命令缓冲区拿到空向量时明确返回、validation layer 只在 debug 构建启用、VMA 与 staging 分配失败要留痕、管线缓存要双重保护、等待 fence 必须有有限超时。
+
+## Requirements
 
 ### Requirement: Null attachment 时跳过整个 render pass
 `RecordRenderPass` SHALL 在任一 attachment 的 `GetTextureView` 返回 null 时跳过整个 render pass，而非构建不完整的 attachment 列表。

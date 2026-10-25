@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束帧管理这一层：多帧上下文的轮转、单帧资源的生命周期、每帧可复用资源的管理、staging 的线性分配、图执行的异步提交，以及 CBuffer staging 走线性分配。
+
+## Requirements
 
 ### Requirement: VulkanGPUFrameManager 管理多帧上下文
 系统 SHALL 提供 `VulkanGPUFrameManager` 类，管理 N 个 `VulkanFrameContext` 的轮转调度，N 由 `maxFrameCount` 参数指定（默认 2，最小 1）。

@@ -5,7 +5,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束 `GPUBackendTester.exe` 的命令行选择：backend 的选择与取值校验、初始化失败的处理、测试列举与按名运行、headless 帧数与超时保护、validation layer 开关、帮助信息。
+
+## Requirements
 
 ### Requirement: Backend 选择
 

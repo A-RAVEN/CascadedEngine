@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+约束屏障系统在解析不到资源时的行为：拿不到 buffer / image 就跳过该条 barrier，绝不把空句柄传进 `vkCmdPipelineBarrier`。
+
+## Requirements
 
 ### Requirement: 屏障系统跳过无法解析的 buffer
 当 `m_LocalResourceManager.GetBuffer(BufferHandle)` 返回 `nullptr`（VK_NULL_HANDLE）时，资源屏障系统 SHALL 跳过该 buffer 的 barrier 创建，不得将 null handle 传入 `vkCmdPipelineBarrier`。

@@ -12,7 +12,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束全局 sampler 缓存：同一份 `TextureSamplerDescriptor` 全局只创建一次 `vk::Sampler` 并跨帧复用，生命周期由这个管理器统一持有，`BuildDescriptors` 从它取用。
+
+## Requirements
 
 ### Requirement: Sampler 全局缓存
 

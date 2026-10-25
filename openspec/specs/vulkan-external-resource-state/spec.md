@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束外部资源（窗口后缓冲等）的最终状态回写：texture / buffer / window handle 都要能存下帧末状态，内部资源必须跳过这条路径。
+
+## Requirements
 
 ### Requirement: VulkanTexture 存储资源最终状态
 VulkanTexture SHALL 提供 `SetResourceState(VulkanResourceState)` 和 `GetResourceState()` 方法，以支持帧末状态写回。`m_LastResourceState` 初始化为 `{ eNone, eTopOfPipe, eUndefined, EGPUQueueType::eDirect, true }`，与现有 `m_CurrentLayout = eUndefined` 保持一致。

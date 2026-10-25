@@ -1,3 +1,7 @@
+## Purpose
+
+约束 `vk::ShaderModule` 的创建与缓存：按 SHA-256 哈希做键、缓存类型与入参都用这个哈希、构建管线状态时从缓存取用。
+
 ## Requirements
 
 ### Requirement: VulkanGraphExecutor SHALL创建并缓存vk::ShaderModule

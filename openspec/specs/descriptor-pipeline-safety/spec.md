@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束描述符写入与管线记录的安全边界：写描述符前必须固定容器、采样器的 `maxLod` 与 `borderColor` 要按约定映射、`GetOrCreateSampler` 与 ShaderLibrary 的指针稳定性要保证、空管线的 compute pass 必须挡住。
+
+## Requirements
 
 ### Requirement: 描述符写入指针稳定性
 `VulkanResourceBindingInstance::BuildDescriptors` SHALL 在写入循环前对 `m_BufferInfos` 和 `m_ImageInfos` 显式调用 `reserve()`，防止 vector 重分配使 `WriteDescriptorSet::pBufferInfo`/`pImageInfo` 指针失效。

@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束内存缓存与清理的一致性：重新规划后总大小必须跟着更新、GPL 链接失败要清理 library parts、swapchain 重建要清依赖缓存、失效的成员必须删掉、`push_back` 要有异常安全。
+
+## Requirements
 
 ### Requirement: ReplanWithRealAlignment 更新总大小
 `ReplanWithRealAlignment` SHALL 在更新各资源 lifetime.size 后，重新计算 `m_TotalUnaliasedSize` 为所有更新后 lifetime 大小的总和。

@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束窗口句柄接入 Vulkan 的方式：从 `IWindow` 取原生句柄与真实尺寸、Surface 创建失败要可诊断、析构要释放 Vulkan 资源、禁止移动语义。
+
+## Requirements
 
 ### Requirement: VulkanWindowHandle 从 IWindow 获取原生窗口句柄
 

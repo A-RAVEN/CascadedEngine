@@ -5,7 +5,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束 Vulkan 命令缓冲区的分配：frame context 的三个命令池重置后都要能分配出 Primary 命令缓冲区，分配失败要输出诊断信息，命令池必须由正确的 Device 创建与使用。
+
+## Requirements
 
 ### Requirement: FrameContext 命令池可成功分配命令缓冲区
 

@@ -5,7 +5,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束测试产物的形状：每条测试的 JSON 结果条目、按测试分开的 Application 日志、按测试分开的 Vulkan validation 日志。
+
+## Requirements
 
 ### Requirement: JSON 测试结果报告
 

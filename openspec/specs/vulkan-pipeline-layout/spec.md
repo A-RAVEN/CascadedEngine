@@ -1,3 +1,7 @@
+## Purpose
+
+约束描述符集布局与管线布局的构建：从着色器资源绑定信息构建 DescriptorSetLayout、再从它构建 PipelineLayout，并且构建过程要能产出缓存键。
+
 ## Requirements
 
 ### Requirement: VulkanGraphExecutor SHALL从VulkanShaderResourceBindingInfo构建DescriptorSetLayout

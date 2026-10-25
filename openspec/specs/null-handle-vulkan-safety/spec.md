@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束空句柄在 Vulkan 调用点上的行为：ShaderModule / RenderPass / PipelineLayout 拿不到就跳过，空管线的 pass 必须挡住，staging 分配要检查，管线库的 shader module 要验证。
+
+## Requirements
 
 ### Requirement: ShaderModule null 检查
 `GetOrCreateShaderModule` 返回值 SHALL 在传入管线创建 API 前进行 null 检查。若返回 null，管线创建 SHALL 被跳过。

@@ -1,3 +1,9 @@
+## Purpose
+
+约束跨队列（Direct ↔ Compute）资源的所有权转移：该生成 QFOT barrier 对的场合必须生成、同队列族内不许生成、与 accessMask 变化和 stateHaveGap 的判定各自独立、跨帧与 external 资源的状态要能读回，并覆盖 compute 与 per-pass 命令缓冲区的路由。
+
+## Requirements
+
 ### Requirement: 跨队列资源所有权转移
 当资源的 `VulkanResourceState::queueType` 在相邻 batch 间发生变化时（Direct ↔ Compute），系统 SHALL 生成 Queue Family Ownership Transfer (QFOT) barrier pair，即 release barrier（在 src batch）和 acquire barrier（在 dst batch），正确设置 `srcQueueFamilyIndex` 和 `dstQueueFamilyIndex` 为实际的 queue family index。Barrier SHALL 路由到与 src/dst queue family 对应的变体容器。
 

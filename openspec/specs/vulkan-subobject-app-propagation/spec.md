@@ -5,7 +5,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束 Vulkan 子对象（pipeline / descriptor 相关结构）拿到有效 App 指针这条链路，避免延迟到创建期才发现 App 为空。
+
+## Requirements
 
 ### Requirement: VulkanGraphExecutor 子对象获得有效 App 指针
 

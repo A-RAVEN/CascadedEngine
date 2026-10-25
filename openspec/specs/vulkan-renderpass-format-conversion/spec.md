@@ -6,6 +6,10 @@
 
 ---
 
+## Purpose
+
+约束 RenderPass 构建时的附件格式转换：缓存键里的格式必须由 `VulkanTexture::ConvertFormat()` 从描述符算出来，不许硬编码。
+
 ## Requirements
 
 ### Requirement: RenderPass 构建时正确转换 attachment 格式

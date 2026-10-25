@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束屏障批次的效率口径：`ExecuteBarriers` 必须取最紧的 stage mask 并合并调用，计算 pass 的 barrier 必须有明确条件，同队列内冗余的 release 必须消除，compute 队列族必须校验有效性。
+
+## Requirements
 
 ### Requirement: ExecuteBarriers 使用最紧 stage mask 并合并调用
 `ExecuteBarriers` SHALL 从各 barrier 的 `VulkanResourceState::stageFlags` 收集最紧的 src/dst stage mask（按位或），并将所有 image barrier 和 buffer barrier 合并为单次 `vkCmdPipelineBarrier` 调用。

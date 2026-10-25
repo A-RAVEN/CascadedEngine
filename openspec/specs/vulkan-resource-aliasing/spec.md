@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+约束别名内存这一层：池的内存类型要与 `vmaAllocateMemory` 兼容、支持持久映射、分配句柄要传播到已分析条目、两阶段对齐后按偏移绑定、纹理格式要能从描述符解析、尺寸估算要含块大小与 mip 链，纹理与缓冲的用法标志要能从描述推导。
+
+## Requirements
 
 ### Requirement: Aliased Pool 使用与 vmaAllocateMemory 兼容的 VMA 内存类型
 
@@ -75,34 +79,79 @@
 
 `VulkanResourceAliasing::AliasedAllocation` SHALL 包含 `VkDeviceMemory deviceMemory` 字段。`vkBindBufferMemory` 和 `vkBindImageMemory` 调用 SHALL 使用该 `deviceMemory`。
 
+#### Scenario: 绑定内存时用的是转换出来的 VkDeviceMemory
+
+- **WHEN** 池分配完成后对某个已分析条目执行 `vkBindBufferMemory`
+- **THEN** 传进去的 memory 句柄来自该条目的 `AliasedAllocation::deviceMemory`（由 `VmaAllocation` 转换而来），不是临时量或别的条目的句柄
+
 ### Requirement: ManagedGPUResource SHALL track the aliased offset
 
 `ManagedGPUResource` 结构 SHALL 包含 `aliasedOffset` 字段。
+
+#### Scenario: 资源记着自己被绑到了池里的哪个偏移
+
+- **WHEN** 某个 buffer 或 texture 完成别名绑定
+- **THEN** 它的 `ManagedGPUResource::aliasedOffset` 等于实际绑定的字节偏移
 
 ### Requirement: Texture format SHALL be dynamically resolved from descriptor
 
 `AllocateAliasedResources()` SHALL 使用 `VulkanTexture::ConvertFormat()` 转换为实际的 `vk::Format`，SHALL NOT 硬编码。
 
+#### Scenario: 别名纹理的格式来自描述符
+
+- **WHEN** 为某个纹理描述符构建别名分配
+- **THEN** 写进 `imageInfo.format` 的值等于 `VulkanTexture::ConvertFormat(descriptor.format)`，代码里没有硬编码的 `vk::Format`
+
 ### Requirement: Texture size estimation SHALL account for format block size and mip chain
 
 SHALL 基于格式 block size 和 mip chain 递进尺寸计算，使用 `GetFormatBlockSize` 和 `CalculateTextureSize`。
+
+#### Scenario: 压缩格式与 mip 链都计入尺寸估算
+
+- **WHEN** 估算一个带完整 mip 链的压缩格式纹理的别名尺寸
+- **THEN** 结果等于按 block size 逐 mip 递进累加出来的值，与 `CalculateTextureSize` 的返回值一致
 
 ### Requirement: ImageView aspectMask SHALL be derived from format type
 
 SHALL 根据格式类型动态设置：color→eColor, depth→eDepth, depth-stencil→eDepth|eStencil。
 
+#### Scenario: 三类格式各取各的 aspectMask
+
+- **WHEN** 为颜色、深度、深度模板三类格式分别创建 image view
+- **THEN** `aspectMask` 分别是 `eColor`、`eDepth`、`eDepth | eStencil`
+
 ### Requirement: Image usage flags SHALL be derived from textureAccess
 
 SHALL 根据 `localResource.textureAccess` 动态设置 `imageInfo.usage`。
+
+#### Scenario: 用法标志跟着 textureAccess 走
+
+- **WHEN** 两个别名纹理的 `textureAccess` 不同
+- **THEN** 它们 `imageInfo.usage` 也不同，且分别对应各自的访问方式（不是同一个写死的值）
 
 ### Requirement: Buffer usage flags SHALL be derived from bufferUsage
 
 SHALL 根据 `localResource.bufferUsage` 动态设置 `bufferInfo.usage`。
 
+#### Scenario: 用法标志跟着 bufferUsage 走
+
+- **WHEN** 两个别名缓冲区的 `bufferUsage` 不同
+- **THEN** 它们 `bufferInfo.usage` 也不同，且分别对应各自的用途（不是同一个写死的值）
+
 ### Requirement: AddBuffer SHALL integrate with aliasing system
 
 `AddBuffer()` SHALL 在 pool 已分配时绑定到 pool；未分配时仅注册。
 
+#### Scenario: 池已分配就直接绑、没分配就只登记
+
+- **WHEN** 在池已分配之后再 `AddBuffer()`
+- **THEN** 新 buffer 立刻绑定到池的对应偏移；而在池分配之前 `AddBuffer()` 只把它登记进待分析列表，不做绑定
+
 ### Requirement: GetFormatBlockSize and IsCompressedFormat SHALL be implemented
 
 代码库 SHALL 提供 `GetFormatBlockSize(ETextureFormat)` 和 `IsCompressedFormat(ETextureFormat)` 辅助函数。
+
+#### Scenario: 压缩与非压缩格式的判定
+
+- **WHEN** 对同一组格式逐个调用 `IsCompressedFormat` 与 `GetFormatBlockSize`
+- **THEN** 压缩格式（例如 BC 系列）返回 `true` 且 block size 为其块字节数，非压缩格式（例如 `eR8G8B8A8Unorm`）返回 `false` 且 block size 为 1

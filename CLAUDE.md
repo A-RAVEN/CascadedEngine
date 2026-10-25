@@ -29,14 +29,16 @@ CAResources/ ShaderCompilerSlang/ ShaderProcessor/ WindowSystem/ IMGUIContext/ .
 
 | 要找 / 要写什么 | 在哪 | 说明 |
 |---|---|---|
-| **这条要求到底存不存在** | `openspec/specs/<能力>/spec.md` | **已生效的规范只有这里算数**。50 个能力目录，一个能力一份 `spec.md`，`### Requirement` + `#### Scenario`。C# 相关三份：`csharp-bindable-surface`（跨界的形状规矩）、`csharp-bindings`（生成器两侧产物规矩）、`csharp-host`（宿主与运行时） |
+| **这条要求到底存不存在** | `openspec/specs/<能力>/spec.md` | **已生效的规范只有这里算数**。49 个能力目录，一个能力一份 `spec.md`，`### Requirement` + `#### Scenario`。C# 相关三份：`csharp-bindable-surface`（跨界的形状规矩）、`csharp-bindings`（生成器两侧产物规矩）、`csharp-host`（宿主与运行时）。**索引 / 路线图不算规范**，别往这里放（放进来 `openspec validate --all` 会一直红） |
 | **正在做的改动** | `openspec/changes/<change>/` | `proposal.md` / `design.md` / `specs/` / `tasks.md`（`tasks.md` 是唯一进度事实源，`- [ ]`/`- [x]`） |
-| **做完的改动** | `openspec/changes/archive/<日期>-<change>/` | 现有 62 个；里面的 `evidence/` 放实测记录（例如唯一一份可绑定面审计表 `…csharp-bindable-surface/evidence/bindable-audit.md`） |
+| **做完的改动** | `openspec/changes/archive/<日期>-<change>/` | 现有 64 个；里面的 `evidence/` 放实测记录（例如唯一一份可绑定面审计表 `…csharp-bindable-surface/evidence/bindable-audit.md`） |
 | **设计笔记 / 探索结论（还没成 spec）** | `TODO/<序号>-<kebab>.md` | 索引在 `TODO/README.md`。C# 绑定这套的原始目标与决策在 `TODO/001-csharp-scripting-framework.md`（"生成 C# 函数和包装""IDisposable 包装"这些要求最早写在这里）。状态栏写明是否已达 proposal 水位 |
 | **测试怎么写、分几层、现有几条** | `docs/testing.md` | 三层：① CoreTests ② GPUBackendTester ③ `Tools/check_*.py` + `Tools/CodeGen/check_*.py`。新功能至少在一层留一条能变红的断言 |
 | **跨 change 的待办账** | `docs/TODO.md` | **只放跨 change 的账**；某个 change 范围内的未修项写回它自己的 `tasks.md`（用户 2026-10-25 裁定） |
 | **试过并失败的做法** | `docs/failed-approaches.md` | 提方案前先读；同一条重提要给出"这次哪里不同" |
 | **读崩溃转储** | `docs/debugging.md` | 配套 `Tools/read_dump.py` |
+| **子项目清单：每个模块是什么、怎么依赖** | `docs/project-baseline.md` | 子项目索引（原 `openspec/specs/project-baseline/spec.md`，2026-10-25 移到 `docs/` —— 它是索引不是能力规范） |
+| **Vulkan 后端还差 D3D12 哪些** | `docs/vulkan-backend-alignment.md` | 按阶段排的对齐路线图与差距清单（原 `openspec/specs/vulkan-backend-alignment/spec.md`，同一天移到 `docs/`） |
 | **工作规则为什么这么定** | `docs/agent-rules-rationale.md` | 本文件「工作规则」一节的扩展：事故记录、旧规则原文、七问推导、判据三件套。**改规则时条文改本文件、理由补那份** |
 | **对外文档（给使用者看）** | 与代码同目录 | `Tools/CodeGen/README.md`（生成器的能力边界、参数、退出码、示例 + 真实输出）、`CSharpHost/README.md`（接口编号表、环境变量表）、`docs/vulkan-api-docs/README.md` |
 

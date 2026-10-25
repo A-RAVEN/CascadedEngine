@@ -5,7 +5,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束崩溃现场的可诊断性：崩溃时自动生成 MiniDump、文本调用栈要能读出来、现有 MiniDump 代码要复用。
+
+## Requirements
 
 ### Requirement: MiniDump 自动生成
 

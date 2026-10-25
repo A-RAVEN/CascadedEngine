@@ -5,7 +5,11 @@
 
 ---
 
-## ADDED Requirements
+## Purpose
+
+约束命令缓冲区的分配：frame context 的命令池必须能成功分配出命令缓冲区，分配失败要能诊断，命令池必须由正确的 Device 创建与使用。
+
+## Requirements
 
 ### Requirement: Command buffer 分配成功
 
