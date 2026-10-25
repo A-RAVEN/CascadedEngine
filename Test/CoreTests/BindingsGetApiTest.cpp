@@ -111,5 +111,25 @@ bool RunBindingsGetApiTest()
 		return false;
 	}
 
+	// 任务 2.1：上面那条 `GetBool(&object, true) != 0` 对**桩也成立**（桩返回 0、FakeRow01::GetBool(true)
+	// 也返回 0，两个 0 相等），所以它造不出红态。这里补"实现返回真 ⇒ C ABI 读到 1"这一半：
+	// 传 false 时实现返回 !false = true，桩只会返回 0，这条在桩上必红。
+	if (table.GetBool(&object, false) != 1)
+	{
+		std::puts("  通过函数表调用 GetBool（false 应回 1）不对 —— 桩会在这里露馅");
+		return false;
+	}
+
+	// 任务 2.2：枚举必须经函数表读到真值（只靠"thunk 里有 static_cast"这种文本判据，
+	// 写成 `static_cast<int32_t>(object->GetMode(mode)); return {};` 也能骗过）。
+	for (int32_t mode = 0; mode < 3; ++mode)
+	{
+		if (table.GetMode(&object, mode) != mode)
+		{
+			std::puts("  通过函数表调用 GetMode 回值不对（枚举没有真的走实现）");
+			return false;
+		}
+	}
+
 	return true;
 }

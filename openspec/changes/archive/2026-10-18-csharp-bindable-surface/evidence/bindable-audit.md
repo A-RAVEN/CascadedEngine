@@ -58,10 +58,10 @@
 | `IWindow::IsKeyTriggered` | `int` → `bool` | `int32` → `int32` | 无 | — | 可绑 | 布尔用 `int32` | 不失败 |
 | `IWindow::IsMouseDown` | `int` → `bool` | `int32` → `int32` | 无 | — | 可绑 | 布尔用 `int32` | 不失败 |
 | `IWindow::IsMouseUp` | `int` → `bool` | `int32` → `int32` | 无 | — | 可绑 | 布尔用 `int32` | 不失败 |
-| `IWindowSystem::NewWindow` | `castl::weak_ptr<IWindow>` 返回 | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明裸指针类：`weak_ptr` 的"观察但不拥有"语义在 C# 侧没有对应物（只靠句柄表达不了弱引用；句柄失效与窗口销毁是两件事）。建议改成返回窗口 id（`uint64`）并由登记表管生命周期 | 不暴露（无入口） |
+| `IWindowSystem::NewWindow` | `castl::weak_ptr<IWindow>` 返回 | `uint64`（**弱句柄**：句柄表存弱引用，不抬高 `use_count`；对象析构后旧句柄按 1001 判失效） | 无 | 投影层持弱引用 | 可绑 | 原判 ② 有误：② 的定义是所有权不明的**裸指针**，`weak_ptr` 不是裸指针；弱引用语义可以由代际号 + `lock()` 表达（`csharp-window-creation` 1.4 已实现并在夹具上验过） | 错误码（1002 空指针 / 1001 句柄失效） |
 | `IWindowSystem::GetWindowCount` | `const`，返回 `int` | `int32` | 无 | — | 可绑 | `int` 钉成 `int32_t` | 不失败 |
 | `IWindowSystem::GetMonitorCount` | `const`，返回 `int` | `int32` | 无 | — | 可绑 | 同上 | 不失败 |
-| `IWindowSystem::GetMonitor` | `const`，`int` → `MonitorInfo`（实测：两个 `FloatRect` + 一个 `float`，blittable） | `int32` → `MonitorInfoC`（按值镜像 + 布局自检） | 无 | — | 可绑 | 镜像按值传；无效 id 用错误码报，不许静默返回零值 | 错误码（无效 id） |
+| `IWindowSystem::GetMonitor` | `const`，`int` → `MonitorInfo`（实测：两个 `FloatRect` + 一个 `float`，blittable） | `int32` → `MonitorInfoC`（按值镜像 + 布局自检） | 无 | — | 可绑 | 镜像按值传；无效 id 用错误码报，不许静默返回零值。**备注（2026-10-20）：本轮未实现** —— `MonitorInfo` 的成员是 `cacore::Rect<float>` 这个模板实例化类型，布局镜像只收"成员全是标量"的结构体，所以 `csharp-window-creation` 里用 `CA_BIND_SKIP` 排除它；可绑性本身不变 | 错误码（无效 id） |
 | `IWindowSystem::UpdateSystem` | 无参 | `void` | 无 | — | 可绑 | 每帧调一次的事件泵，由引擎调；脚本调也不破坏语义（幂等） | 不失败 |
 | `IWindowSystem::SetWindowFocusCallback` | `castl::function<void(IWindow*, bool)>` 回调 | 函数指针 + `void* user`；回调首参改成窗口 id（`uint64`） | 无 | 投影层保活表 | 可绑 | 回调形状按投影矩阵：函数指针 + 保活 + 注册时返回注销句柄；回调签名里不许出现 `IWindow*` | 错误码（保活表满 / 重复注册） |
 | `IWindowSystem::SetCursorEnterCallback` | `castl::function<void(IWindow*, bool)>` | 同上 | 无 | 投影层保活表 | 可绑 | 同上 | 错误码 |
@@ -91,12 +91,12 @@
 | `CRenderBackend::Release` | ④ 语义越界 | 不暴露；脚本只能释放自己创建的句柄 | 无（规则即结论） |
 | `CRenderBackend::GetWindowHandle` | ② 所有权不明的裸指针（`shared_ptr<IWindow>` 参数没有对应句柄） | 改成接收引擎分配的窗口 id | `csharp-bindings-generator` |
 | `IWindow::GetWindowSystem` | ② 所有权不明的裸指针（自引用工厂） | 删掉自引用，或改成句柄 | `csharp-bindings-generator` |
-| `IWindowSystem::NewWindow` | ② 所有权不明的裸指针（`weak_ptr` 语义无处安放） | 改成返回窗口 id（`uint64`）+ 登记表管生命周期 | `csharp-bindings-generator` |
+| ~~`IWindowSystem::NewWindow`~~ | **已移出不可绑清单**（2026-10-20） | 改判为可绑的弱句柄，见主表那一行 | `csharp-window-creation` |
 | `IOManager::Initialize` | ④ 语义越界 | 不暴露 | 无（规则即结论） |
 | `IResource::Serialize` | ② 所有权不明的裸指针（`WBatch*`） | `WBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 | `IResource::Deserialize` | ② 所有权不明的裸指针（`IOBatch*`） | `IOBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 
-**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 7 个接口里**暂无实例**（依据：60 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 6 条（`ExecuteGraph` / `GetWindowHandle` / `GetWindowSystem` / `NewWindow` / `Serialize` / `Deserialize`）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
+**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 7 个接口里**暂无实例**（依据：60 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 5 条（`ExecuteGraph` / `GetWindowHandle` / `GetWindowSystem` / `Serialize` / `Deserialize`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"，见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
 
 ## 汇总：需快路清单（0 条）
 

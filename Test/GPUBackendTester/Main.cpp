@@ -1,4 +1,4 @@
-﻿#include<mimalloc.h>
+#include<mimalloc.h>
 #include <ScriptHost/IScriptHost.h>
 #include <cstdlib>
 #include <cstring>
@@ -38,6 +38,10 @@
 #include <crtdbg.h>
 #include <windows.h>
 #include "private/MiniDump.h"
+// 生成的 C ABI 入口（任务 2.8）：要验「对象被回收后旧句柄报 1001」，必须**从 C ABI 拿到句柄** ——
+// C++ 侧的 `NewWindow` 只回弱指针，句柄只在生成物那层存在。
+#include "IWindowSystem.Bindings.cpp"
+#include "IWindow.Bindings.cpp"
 
 using namespace thread_management;
 using namespace resource_management;
@@ -146,6 +150,10 @@ void TestSimpleTriangle(TestContext& ctx)
 	if (auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>())
 	{
 		pScriptHost->SetInterfaceInstance(1, newWindow.lock().get());
+		// 编号 2 也必须登记（`csharp-window-creation` 任务 3.3 实测发现）：`s_interfaceInstances`
+		// 是进程级 static，跑全量时这个测试先登记了编号 1，之后 TestScriptHost 的 Tick 就会一路走到
+		// 托管侧的编号 2 探针上；那里取不到实例就会写 `s_lastError`，把 TestScriptHost 判红。
+		pScriptHost->SetInterfaceInstance(2, ctx.pWindowSystem);
 		int cppWidth = 0;
 		int cppHeight = 0;
 		newWindow.lock()->GetWindowSize(cppWidth, cppHeight);
@@ -1151,6 +1159,12 @@ static void createDirectoryIfNeeded(const char* path)
 	CreateDirectoryA(path, NULL);
 }
 
+// 失败详情放在**静态缓冲**里（任务 4.4）：这个可执行文件里长 std::string 的堆缓冲在
+// 异常抛出与捕获之间会被释放掉（实测 e.what() 拿到 32 个 0xDD = MSVC debug 堆的"已释放"填充，
+// 而短于 SSO 阈值的消息完全正常），根因是 mimalloc 与 ucrtbase 两个堆同时存在：
+//   mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+// 所以跨 catch 边界只传一句短码，详细文字走这块静态内存，appendJsonResult 直接按 char* 写出。
+static char g_errorDetail[512] = {};
 static void appendJsonResult(std::ofstream& jsonFile, bool& isFirst,
 	const char* testName, const char* status,
 	long long durationMs, int exitCode, const char* error)
@@ -1232,10 +1246,143 @@ void TestScriptHost(TestContext& ctx)
 	CA_LOG("TestScriptHost 通过：IsAvailable=true、Tick 回值 1 → 2、LastError 为空");
 }
 
+// 端到端：C# 侧建窗（`csharp-window-creation` 任务 2.7）。
+// 与 TestScriptHost 的区别是它**真的建一个窗口**并把两个实例都登记给 CSharpHost：
+// 编号 1 = IWindow（IWindow 的方法表）、编号 2 = IWindowSystem（NewWindow / GetWindowCount 那张表）。
+// 不登记实例时 `OnGetInterfaceApi` 一律返回 0，托管侧只能读到「写入 0 字节、实例 0」——
+// 所以「登记过」本身就是这条测试要证明的东西。
+void TestCSharpWindow(TestContext& ctx)
+{
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		throw std::runtime_error("IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		throw std::runtime_error(std::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// 基线必须在建窗**之前**读，否则「比基线 +1」这句话没有对照。
+	int32_t const countBaseline = ctx.pWindowSystem->GetWindowCount();
+	auto newWindow = ctx.pWindowSystem->NewWindow(800, 600, "CSharp Window");
+	if (newWindow.expired())
+	{
+		throw std::runtime_error("IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	auto window = newWindow.lock();
+
+	pScriptHost->SetInterfaceInstance(1, window.get());
+	pScriptHost->SetInterfaceInstance(2, ctx.pWindowSystem);
+
+	int cppWidth = 0;
+	int cppHeight = 0;
+	window->GetWindowSize(cppWidth, cppHeight);
+	CA_LOG("C++ 侧窗口尺寸 = {} x {}（托管侧随后用同一张表读一次；不登记实例这一段读不到）", cppWidth,
+	       cppHeight);
+
+	pScriptHost->Tick(0.016);
+	if (pScriptHost->LastError()[0] != '\0')
+	{
+		// 先把跨边界的文字拷成**具名** std::string 再拼、再抛（任务 4.4）：
+		// 直接写成 `std::runtime_error(std::string("…") + pScriptHost->LastError())` 时，
+		// 异常里的消息在出口处已经变成 0xDD（MSVC debug 堆的"已释放"填充），
+		// 实测 `e.what()` 与结果文件里的 error 字段都是乱码，而 LastError() 自己返回的
+		// 62 字节是对的（`E5 8F 96 …` = "取 IWin…"）。分开写让临时量的生命周期明确。
+		// 实测：短于 SSO 阈值的消息正常显示，长的变成 0xDD —— 根因是 mimalloc 与 ucrtbase
+		// 两个堆共存（启动时那句 `mimalloc-redirect.dll seems to be initialized after ucrtbase.dll`）。
+		// 所以跨 catch 边界只抛一句短码，详细文字走静态缓冲 `g_errorDetail`，报告直接按 char* 写出。
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "建窗 + Tick 之后 LastError 非空：%s",
+		              pScriptHost->LastError());
+		throw std::runtime_error("E_HANDLE_TABLE");
+	}
+
+	CA_LOG("TestCSharpWindow 通过：窗口已登记（编号 1 = IWindow、编号 2 = IWindowSystem），"
+	       "两侧尺寸读数见 test_output/TestCSharpWindow.log");
+
+	// 任务 2.8：关窗与回收。回收**只发生在 `UpdateSystem` 里**，不显式调它就永远回不到基线。
+	int32_t const countAfterCreate = ctx.pWindowSystem->GetWindowCount();
+	window->CloseWindow();
+	bool const shouldCloseCpp = window->WindowShouldClose();
+	// 回收条件是 `use_count() == 1 && WindowShouldClose()` —— 测试自己手里这条 shared_ptr
+	// 就是"多出来的那一个"：不放掉它，计数永远回不到基线（实测：不放掉 → 建窗后 1、回收后仍 1）。
+	window.reset();
+	CA_LOG("关窗：建窗后计数 = {}、C++ 侧 WindowShouldClose = {}（泵帧前，两侧都应为真）",
+	       countAfterCreate, shouldCloseCpp ? 1 : 0);
+	pScriptHost->Tick(0.016);
+	int32_t const countAfterPump = ctx.pWindowSystem->GetWindowCount();
+	ctx.pWindowSystem->UpdateSystem();
+	int32_t const countAfterUpdate = ctx.pWindowSystem->GetWindowCount();
+	CA_LOG("关窗后计数：基线 {} → 建窗后 {} / 泵帧后 {} / UpdateSystem 之后 {}", countBaseline, countAfterCreate, countAfterPump,
+	       countAfterUpdate);
+	if (!shouldCloseCpp)
+	{
+		throw std::runtime_error("CloseWindow 之后 C++ 侧 WindowShouldClose 仍为假");
+	}
+	if (countAfterUpdate >= countAfterCreate)
+	{
+		throw std::runtime_error("UpdateSystem 之后窗口计数没有回落（建窗后 " +
+			std::to_string(countAfterCreate) + "、回收后 " + std::to_string(countAfterUpdate) + "）");
+	}
+
+	// 句柄版（1.4 挪过来的判别性用例 + 2.8 最后一条）：从 C ABI 拿弱句柄 → 解出 self →
+	// 用它调 `GetWindowSize` 读回 800x600 → 由引擎自己回收（**全程不调任何释放入口**）→
+	// 旧句柄必须解析失败且错误码 1001。这条必须绕开 ReleaseHandle：走释放的话 1001 来自代际进位。
+	{
+		uint64_t const handle = IWindowSystem_NewWindow(ctx.pWindowSystem, 800, 600, "Handle Window",
+		                                                13u, 1, 1, 1, 0);
+		void* const resolved = IWindowSystem_ResolveHandle(handle);
+		if (handle == 0u || resolved == nullptr)
+		{
+			throw std::runtime_error("C ABI 建窗没有拿到可用句柄");
+		}
+		int width = 0;
+		int height = 0;
+		IWindow_GetWindowSize(resolved, &width, &height);
+		if (width != 800 || height != 600)
+		{
+			throw std::runtime_error("用句柄解出的 self 调 GetWindowSize 读回 " + std::to_string(width) + " x " +
+				std::to_string(height) + "，期望 800 x 600");
+		}
+		IWindow_CloseWindow(resolved);
+		ctx.pWindowSystem->UpdateSystem();
+		if (IWindowSystem_ResolveHandle(handle) != nullptr)
+		{
+			throw std::runtime_error("窗口已被回收，旧弱句柄仍然解出了指针");
+		}
+		if (IWindowSystem_LastErrorCode(ctx.pWindowSystem) != 1001)
+		{
+			throw std::runtime_error("旧句柄解析失败后错误码应为 1001，实际 " +
+				std::to_string(IWindowSystem_LastErrorCode(ctx.pWindowSystem)));
+		}
+		CA_LOG("句柄版读数：解出 self → GetWindowSize 800 x 600 → 关窗 → UpdateSystem → "
+		       "ResolveHandle 返回空、错误码 1001");
+	}
+
+	// 任务 4.2 的第二条：**未知接口编号不许静默返回 0**。
+	// 造一次 `interfaceId = 9` 的取表调用：返回值必须是 0，且 `LastError()` 里必须说明原因。
+	// 9 用的是"当前没有接线的编号"，不是某个将来要用的具体接口。
+	{
+		uint32_t const rejected = pScriptHost->GetInterfaceApiForTest(9u, 1u, 0u, nullptr, nullptr);
+		if (rejected != 0u)
+		{
+			throw std::runtime_error("未知接口编号 9 竟然取表成功（返回 " + std::to_string(rejected) + "）");
+		}
+		std::string const hostError = pScriptHost->LastError();
+		if (hostError.find("未知接口编号") == std::string::npos)
+		{
+			throw std::runtime_error("未知接口编号 9 被静默拒绝：LastError() 里没有说明，实际内容 = \"" + hostError +
+			                         "\"");
+		}
+		CA_LOG("未知接口编号读数：返回 0、LastError = {}", pScriptHost->LastError());
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	// Task 1.7 + 3.4: Must be first line BEFORE any I/O
 	std::ios::sync_with_stdio(false);
+
 
 	mi_version();
 
@@ -1387,6 +1534,7 @@ int main(int argc, char* argv[])
 		std::cout << "  TestReadback\n";
 		std::cout << "  TestIMGUI\n";
 		std::cout << "  TestScriptHost\n";
+		std::cout << "  TestCSharpWindow\n";
 		return 0;
 	}
 
@@ -1602,8 +1750,10 @@ int main(int argc, char* argv[])
 		}
 
 		// Task 2.3: Write JSON result
+		// 失败详情优先取静态缓冲（见 `g_errorDetail` 那段注释：长字符串走堆会在 catch 前被释放）
 		appendJsonResult(jsonFile, jsonFirst, name, status, durationMs, exitCode,
-			errorMsg.empty() ? nullptr : errorMsg.c_str());
+			g_errorDetail[0] != '\0' ? g_errorDetail : (errorMsg.empty() ? nullptr : errorMsg.c_str()));
+		g_errorDetail[0] = '\0';
 
 		return (exitCode == 0);
 	};
@@ -1629,7 +1779,14 @@ int main(int argc, char* argv[])
 		else if (strcmp(testName.c_str(), "TestIMGUI") == 0)
 			runTestWithDiagnostics("TestIMGUI", TestIMGUI);
 		else if (strcmp(testName.c_str(), "TestScriptHost") == 0)
-			runTestWithDiagnostics("TestScriptHost", TestScriptHost);
+	{
+		runTestWithDiagnostics("TestScriptHost", TestScriptHost);
+		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
+	}
+	else if (strcmp(testName.c_str(), "TestCSharpWindow") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -1649,6 +1806,7 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestReadback", TestReadback);
 		runTestWithDiagnostics("TestIMGUI", TestIMGUI);
 		runTestWithDiagnostics("TestScriptHost", TestScriptHost);
+		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
 	}
 
 	// Task 2.5: Close JSON array

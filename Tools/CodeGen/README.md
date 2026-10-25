@@ -1,4 +1,4 @@
-﻿# CodeGen —— 把带标注的 C++ 类型变成代码的构建期工具
+# CodeGen —— 把带标注的 C++ 类型变成代码的构建期工具
 
 `Tools/CodeGen/CodeGenMain.cpp` 编译出的 `CodeGen.exe` 是一个**命令行工具**：给它一个头文件和一个类型名，
 它用 libclang 解析该类型，读出**声明顺序的字段表**，再按请求发射三选一的代码片段（反射描述符 / 序列化
@@ -991,6 +991,7 @@ blittable 标量与结构体、`T const* + 数量`（视图）、不透明句柄
 | 定宽整数 / `bool` / `enum class` / flags | 同名定宽类型（`bool` → `int32`） | 无 | — |
 | blittable 结构体（值或 `const&`） | `<T>C const*`（布局镜像 + 清单自检） | 无 | 调用方 |
 | `castl::string const&` / 返回 `castl::string` | `char const* + uint64 len`（UTF-8，不要求 NUL） | 有 | 写入方 |
+| `castl::string_view const&`（入参） | `char const* + uint64 len`，thunk 里造临时 `string_view` 再传给实现 | 有 | 调用方 |
 | `castl::string_view`（返回） | 两段式 `get_len()` + `copy_to(dst, cap)` | 有 | 调用方给缓冲区 |
 | `castl::vector<T> const&`，T blittable | `TC const* + count` | 一次 | 调用方 |
 | `castl::vector<T>&`（输出） | `TC* dst + cap` → 返回所需数（两段式） | 一次 | 调用方 |
@@ -998,7 +999,7 @@ blittable 标量与结构体、`T const* + 数量`（视图）、不透明句柄
 | `map` / `unordered_map` / `set` | 摊平成 `(K*, V*, count)` 或序列化块 | 一次 | 调用方 |
 | `castl::shared_ptr<T>` / `std::unique_ptr<T>`（返回） | `uint64` 句柄（句柄表持智能指针）+ 配对 `release`（独占语义释放即作废） | 无 | 生成器 |
 | `castl::shared_ptr<T>`（参数） | `uint64` 句柄 → 反查 | 无 | 生成器 |
-| `castl::weak_ptr<T>` | 不投影（弱引用语义在 C# 侧没有对应物）→ 改成句柄或 id | — | — |
+| `castl::weak_ptr<T>` | `uint64` **弱句柄**（句柄表存弱引用，不抬高 `use_count`；对象析构后旧句柄按 1001 判失效） | 无 | 生成器（只观察） |
 | `T const&` / `T&` 出参 | `TC const*` / `TC*` | 视 T | — |
 | `castl::function<Ret(Args...)>` 回调 | 函数指针 + `void* user`（保活表 + 注销句柄） | 无 | 生成器 |
 | 会抛异常的方法 | 生成器 try/catch → 错误码 + 文本 | — | — |
@@ -1042,7 +1043,9 @@ python Tools/CodeGen/check_bindable_audit.py
 
 **做什么**：按头里的 `CA_BIND` 标注，把每个被标注接口投影成两份产物 —— `<接口>.Bindings.cpp`（thunk、版本化函数表、`GetApi(version, size, out)`、句柄表、错误通道、布局清单的编译期断言）与 `<接口>.Bindings.cs`（`delegate* unmanaged<…>` 声明、句柄结构体、布局常量）。投影规则见 `openspec/specs/csharp-bindable-surface/spec.md` 与本文第十三节。
 
-**不做什么**：不生成模板/泛型、`castl::weak_ptr`、以及"所有权不明裸指针"的绑定（这类必须用 `CA_BIND_SKIP(方法, "理由")` 排除，工具只打印、退出码 0）；不改任何接口签名；不负责把函数表送进托管侧（那是消费方的事）。
+**不做什么**：不生成模板/泛型，也不生成"所有权不明裸指针"的绑定（这类必须用 `CA_BIND_SKIP(方法, "理由")` 排除，工具只打印、退出码 0）；回调参数本轮未实现，带 `castl::function` 参数的方法**没写排除就会被拒绝**（退出码 1，见第十四节规则）；不改任何接口签名；不负责把函数表送进托管侧（那是消费方的事）。
+
+**弱句柄、释放与解析（第十四节规则，`csharp-window-creation` 之后）**：`castl::weak_ptr<T>` 返回**不再被拒绝**，它投影成 `uint64` 弱句柄 —— 句柄表里存弱引用、**不抬高** `use_count()`，对象析构后 `lock()` 失败即按 1001 判失效。每个被绑定接口另外导出两个泛用入口：`<接口>_ReleaseHandle(void* self, uint64_t handle)` 释放、`<接口>_ResolveHandle(uint64_t handle)` 把句柄解回对象指针（失败返回空并置 1001）—— 后者是**必需**的，因为所有方法入口的第一个参数都是 `void* self`，没有任何一个收定宽句柄。释放时句柄表会同时放掉强引用与弱引用并让代际进位：**只清表项、不放强引用**会让对象永不析构（`use_count() == 1` 永远不成立，窗口永不回收）。
 
 **退出码**：`0` = 全部生成（含"所有方法都被带理由排除"这种空产物的情况）；`1` = 有拒绝（① 模板类、③ 依赖隐式转换的重载、②/④ 的排除没写理由、缺审计结论、审计表本身不绿）；`2` = 参数问题（缺 `--out-dir`、句柄位宽非法）；`3` = libclang 解析失败或解析出错误诊断。
 
@@ -1056,7 +1059,7 @@ CodeGen.exe Tools/CodeGen/BindableShapes.Reject.h --emit-binding --out-dir .revi
 
 ```text
 CodeGen: 跳过审计核对 IBindRow11Reject —— 它不在审计表覆盖的接口清单里
-CodeGen: 排除 IBindRow11Reject::PeekThing —— "② 所有权不明裸指针：weak_ptr 的弱引用语义在 C# 侧没有对应物（不投影）"
+CodeGen: 排除 IBindRow11Reject::PeekRawThing —— "② 所有权不明裸指针：返回裸指针且没有所有权说明（不投影）"
 绑定：接口 1 个 / 方法 0 条 / 产物 0 个 / 拒绝 0 条
 ```
 
@@ -1077,3 +1080,15 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 1. **必须传 `-xc++`** —— `.h` 不传会被 libclang 当 C 解析，直接 `libclang parse failed (error=4)`；
 2. **`-I` 要覆盖这个头依赖的全部目录**：`CACore/header` 只够最简的夹具，真实接口（`IWindow`）还要它模块自己的头目录与第三方目录。`build.py` 不手写这些 —— 它从编译数据库里借一个已经能编这个头的编译单元；
 3. **`--out-dir` 必须已存在**（工具不建目录），且产物会**覆盖**同名文件。
+
+### 返回值投影的五条规则（tunk 里怎么调实现）
+
+这五条是"生成的 thunk 到底有没有真调实现"的分界线，写错一条就会得到"签名对、调用恒返回零"的桩：
+
+1. **`bool` 走 `? 1 : 0`** —— `bool` 投影成 `int32_t`，不能直接 `return true/false`，也不能靠"类型文本相等"判断能否直出（`bool` 与 `int32_t` 永不相等，旧判据把 8 个 `bool` 方法全判成了桩）。thunk 生成 `return object->M() ? 1 : 0;`。
+2. **枚举走 `static_cast<int32_t>`** —— `enum class` 不能隐式转 `int32_t`；**参数方向**也要转回去（`static_cast<ca_bind_fixture::EBindMode>(mode)`），而且 libclang 给的是**非限定**拼写，生成物在全局作用域，必须按接口自己的命名空间补前缀。
+3. **`void*` 投影成 `uint64_t` 不透明令牌** —— thunk 里 `reinterpret_cast<uint64_t>(object->M())`。只认 `void*` 这一种拼写：其它 `T*` 返回必须由作者写 `CA_BIND_SKIP` 排除，不许被静默绑成裸地址。
+4. **字符串入参从 `char const* + len` 造临时量** —— 实现要 `castl::string` 就 `castl::string(ptr, len)`，要 `string_view` 就 `castl::string_view(ptr, len)`，再把临时量传给实现。
+5. **两段式只发两个伴生** —— `_Len` 返回 `object->M().size()`，`_Copy` 自己再取一次实现的值、按 `min(cap - 1, size)` 截断并补零；**容量 0 时一个字节都不写**（无符号下溢会写满整段）。这类方法**不进函数表、不发 `extern "C"` 直出入口、不发直出 thunk** —— 三个都不发才自洽。
+
+**夹具里还有三类形状本轮未覆盖**：容器（`SetThings` / `GetThings` / `SetNested` / `SetMapping`）、镜像按值返回（`GetThing`）、回调（`SetCallback`）。它们生成的 thunk 仍是桩；`check_bindings.py` 对**夹具**只打印桩数、不判定，对**被绑定到托管侧的真实接口**桩数必须为 0。`build.py` 每次构建会把那一行夹具桩数打进日志，别让它悄悄涨。

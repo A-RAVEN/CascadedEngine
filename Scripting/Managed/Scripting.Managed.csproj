@@ -19,4 +19,29 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
+  <!--
+    生成的绑定（`csharp-window-creation` 任务 2.5）：把 CodeGen 产出的 `<接口>.Bindings.cs` 编进来。
+    产物目录不写死 —— 由构建脚本按当前配置传 `CascadedBindingDir`（默认值只作本地手工 build 用）。
+    缺目录时**主动报错**：少了它，托管侧会静默少生成一整套 API 类，而编译照样通过。
+  -->
+  <PropertyGroup>
+    <CascadedBindingDir Condition="'$(CascadedBindingDir)' == ''">$(MSBuildThisFileDirectory)..\..\out\build\x64-debug\codegen\bindings</CascadedBindingDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <CascadedBindingFile Include="$(CascadedBindingDir)\*.Bindings.cs" />
+  </ItemGroup>
+
+  <Target Name="CascadedCheckBindings" BeforeTargets="BeforeCompile">
+    <Error Condition="!Exists('$(CascadedBindingDir)')"
+           Text="找不到生成的绑定目录 $(CascadedBindingDir) —— 先跑 python build.py（它会把 --emit-binding 的产物写到那里），或显式传 /p:CascadedBindingDir=&lt;目录&gt;" />
+    <Error Condition="'@(CascadedBindingFile)' == ''"
+           Text="$(CascadedBindingDir) 里没有任何 *.Bindings.cs —— 绑定没有生成，托管侧不能凭空编译" />
+    <Message Importance="high" Text="生成的绑定：@(CascadedBindingFile->'%(Filename)%(Extension)', '、')" />
+  </Target>
+
+  <ItemGroup>
+    <Compile Include="@(CascadedBindingFile)" />
+  </ItemGroup>
+
 </Project>

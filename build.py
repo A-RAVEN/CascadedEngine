@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """CascadedEngine build script with automatic MSVC environment setup.
 
 Usage:
@@ -999,8 +999,13 @@ def build_managed() -> None:
     print("=" * 60)
     print(f"[托管侧] dotnet build -c {configuration} → {out_dir}")
     print("=" * 60)
+    # 生成的绑定目录按**当前构建目录**传进去（工程文件里的默认值只给手工 dotnet build 用）：
+    # 不传的话 RelWithDebInfo 也会去读 x64-debug 那一份，构建出来的托管壳带错版本的函数表。
+    binding_dir = BUILD_DIR / "codegen" / "bindings"
+    print(f"[托管侧] CascadedBindingDir = {binding_dir}", flush=True)
     completed = subprocess.run(
-        [dotnet, "build", str(csproj), "-c", configuration, "-o", str(out_dir)],
+        [dotnet, "build", str(csproj), "-c", configuration, "-o", str(out_dir),
+         f"-p:CascadedBindingDir={binding_dir}"],
         cwd=str(PROJECT_DIR),
     )
     if completed.returncode != 0:
@@ -1026,7 +1031,7 @@ def build_managed() -> None:
 CODEGEN_BINDINGS = [
     # (头文件, 日志标签, 必须出现的产物前缀)。夹具那份也要生成 —— CoreTests 的三个绑定用例直接
     # `#include` 它们，构建时不生成就会 C1083（实测过一次：只生成 IWindow，夹具产物被我删掉后构建红）。
-    ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow", ["IWindow"]),
+    ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow", ["IWindow", "IWindowSystem"]),
     ("Tools/CodeGen/BindableShapes.h", "夹具 BindableShapes", ["IBindRow01", "IBindRow02", "IBindRow09"]),
 ]
 
@@ -1081,12 +1086,16 @@ def build_bindings() -> list[str]:
             detail = (proc.stderr or proc.stdout or "").strip()
             failures.append(f"绑定 {name} 失败（exit {proc.returncode}）：{detail[:800]}")
             continue
-        produced = sorted(f"{stem}.Bindings.*" for stem in expected)
-        produced = [pat for pat in produced
-                    if any(out_dir.glob(pat))]
-        print(f"    [绑定] 产物：{', '.join(produced) if produced else '（无）'}", flush=True)
-        if not produced:
-            failures.append(f"绑定 {name} 退出码 0，却没有产物 {name}.Bindings.cpp / .cs")
+        # 逐条核：期望清单里**每一个**接口都必须有产物。
+        # 旧写法先过滤掉不存在的、再判断"过滤后是否为空"，只要有一个存在就放行 ——
+        # `IWindowSystem` 没产出时构建照样绿（实测过一次）。
+        missing = [stem for stem in expected if not any(out_dir.glob(f"{stem}.Bindings.*"))]
+        present = [stem for stem in expected if stem not in missing]
+        print(f"    [绑定] 产物：{', '.join(present) if present else '（无）'}", flush=True)
+        if missing:
+            failures.append(
+                f"绑定 {name} 退出码 0，但缺少这些接口的产物：{', '.join(missing)}"
+                f"（生成器自报的接口数见上面 [接口] 行）")
     return failures
 
 def main() -> None:
@@ -1167,6 +1176,26 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001 — 绑定段的意外同样按"生成失败"报
         binding_failures = [f"绑定段意外出错：{type(exc).__name__}: {exc}"]
     codegen_failures.extend(binding_failures)
+    # 绑定判据（binding-stub-and-shapes 任务 2.8）：签名对拍 + 两侧对齐 + 结构桩 + 覆盖率。
+    # 产物目录由这里传进去，脚本里不再留第二份硬编码路径；stdout 原样转发，
+    # 否则判据打印的夹具桩数会被吞掉（调用方就再也看不见那 7 个未覆盖的桩）。
+    product_dir = BUILD_DIR / "codegen" / "bindings"
+    print(f"  [绑定判据] check_bindings.py --product-dir {product_dir}", flush=True)
+    try:
+        verdict = subprocess.run(
+            [sys.executable, str(PROJECT_DIR / "Tools" / "CodeGen" / "check_bindings.py"),
+             "--product-dir", str(product_dir)],
+            cwd=str(PROJECT_DIR), capture_output=True, text=True,
+            encoding="utf-8", errors="replace")
+        for line in (verdict.stdout or "").splitlines():
+            print(f"    {line}", flush=True)
+        for line in (verdict.stderr or "").splitlines():
+            print(f"    {line}", flush=True)
+        if verdict.returncode != 0:
+            codegen_failures.append(
+                f"绑定判据失败（退出码 {verdict.returncode}）：见上面 check_bindings.py 的输出")
+    except Exception as exc:  # noqa: BLE001
+        codegen_failures.append(f"绑定判据跑不起来：{type(exc).__name__}: {exc}")
     if codegen_failures:
         # Printed BEFORE the build: `build()` exits on the first compile error, and the report used to sit
         # after it — so when codegen and the compile both failed, the codegen list (the actionable one: a

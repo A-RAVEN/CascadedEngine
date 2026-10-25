@@ -12,13 +12,14 @@ namespace ca_bind_fixture
 {
 	struct BindScalarThing;
 
-	// 第 11 行：castl::weak_ptr ⇒ 不投影（生成器必须拒绝，归第 ② 类）
+	// 第 11 行现在在 `BindableShapes.h` 里是**正向**的弱句柄夹具。这一份改成守"② 类必须写理由"：
+	// 返回裸指针、没有所有权说明 ⇒ 必须显式排除，且理由要写清是哪一类。
 	CA_BIND()
 	class IBindRow11Reject
 	{
 	public:
-		CA_BIND_SKIP(PeekThing, "② 所有权不明裸指针：weak_ptr 的弱引用语义在 C# 侧没有对应物（不投影）")
-		virtual castl::weak_ptr<BindScalarThing> PeekThing() = 0;
+		CA_BIND_SKIP(PeekRawThing, "② 所有权不明裸指针：返回裸指针且没有所有权说明（不投影）")
+		virtual BindScalarThing* PeekRawThing() = 0;
 		virtual ~IBindRow11Reject() = default;
 	};
 }

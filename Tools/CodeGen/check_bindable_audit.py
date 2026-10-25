@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """对账：被审计接口里的每个纯虚方法，是否都在审计表里有且只有一行。
 
 审计表在 openspec/changes/**/evidence/bindable-audit.md（归档后仍在 **/evidence/ 下，所以用通配找，
@@ -111,6 +111,18 @@ def header_methods(repo: Path, interface: str):
     return names
 
 
+SKIP_RE = re.compile(r'CA_BIND_SKIP\s*\(\s*(\w+)\s*,\s*"([^"]*)"\s*\)')
+
+
+def header_skips(repo: Path, interface: str) -> dict[str, str]:
+    """{方法名: 排除理由} —— 从接口头里读 `CA_BIND_SKIP(方法, "理由")`。"""
+    path = repo / INTERFACES[interface]
+    if not path.is_file():
+        return {}
+    body = class_body(strip_comments(path.read_text(encoding="utf-8", errors="replace")), interface)
+    return {match.group(1): match.group(2) for match in SKIP_RE.finditer(body)}
+
+
 def table_rows(audit: Path):
     """只解析主表：从 `| 接口::方法 |` 表头开始，到下一个 `## ` 标题为止。"""
     lines = audit.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -185,6 +197,7 @@ def main() -> int:
         return 2
 
     actual = {}
+    skips_cache: dict[str, dict[str, str]] = {}
     for row in rows:
         key = (row["interface"], row["method"])
         actual[key] = actual.get(key, 0) + 1
@@ -198,6 +211,18 @@ def main() -> int:
             if len(reason) < 8 or reason in {"—", "-", "无"}:
                 problems.append(
                     f"不可绑但没有理由或建议：{row['interface']}::{row['method']}"
+                )
+        # 表里说"可绑"、代码里却被 CA_BIND_SKIP 排除 ⇒ 理由必须写"本轮未实现"。
+        # 这一条守的是"把范围裁剪伪装成形状规则"：拿 ①–④ 当借口（语义越界之类）却不说
+        # 这一轮没做，读表的人就分不清"永远绑不了"和"这轮没做"。
+        if len(row["cells"]) >= 7 and row["cells"][5] == "可绑":
+            if row["interface"] not in skips_cache:
+                skips_cache[row["interface"]] = header_skips(repo, row["interface"])
+            skip_reason = skips_cache[row["interface"]].get(row["method"])
+            if skip_reason is not None and "本轮未实现" not in skip_reason:
+                problems.append(
+                    f"可绑却被排除、理由里却没写「本轮未实现」："
+                    f"{row['interface']}::{row['method']} —— 现有理由：{skip_reason}"
                 )
 
     missing = []

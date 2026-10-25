@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // 绑定发射器的 conformance 夹具：投影矩阵 14 行，一行一个夹具接口。
 // 矩阵本身在 Tools/CodeGen/README.md 第十三节（14 行数据）。这里只放形状，不放实现 ——
 // 生成器对每个接口产出 <接口>.Bindings.cpp / .cs，期望的 C ABI 签名逐字写在
@@ -149,8 +149,28 @@ namespace ca_bind_fixture
 	class IBindRow13
 	{
 	public:
+		// 回调参数本轮不投影（任务 2.2）：生成器对没排除的回调方法直接拒绝
+		CA_BIND_SKIP(SetCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
 		virtual void SetCallback(castl::function<void(uint32_t, float)> callback) = 0;
 		virtual ~IBindRow13() = default;
+	};
+
+	// 第 15 行（新增）：`castl::string_view const&` 入参 —— `IWindowSystem::NewWindow` 的名字参数就是这种形状
+	CA_BIND()
+	class IBindRow15
+	{
+	public:
+		virtual void SetTitle(castl::string_view const& title) = 0;
+		virtual ~IBindRow15() = default;
+	};
+
+	// 第 11 行：`castl::weak_ptr` 返回 ⇒ **弱句柄**（不抬高引用计数，对象析构后旧句柄报 1001）
+	CA_BIND()
+	class IBindRow11
+	{
+	public:
+		virtual castl::weak_ptr<BindScalarThing> PeekThing() = 0;
+		virtual ~IBindRow11() = default;
 	};
 
 	// 第 14 行：会抛异常的方法 ⇒ thunk 里 try/catch，返回"错误码 + 文本"

@@ -122,3 +122,65 @@
 
 - 弱句柄的错误码沿用 1001（句柄已失效）还是新增一个"背后对象已析构"的码？倾向前者：C# 侧看到的行为一样，都是"这个句柄不能再用了"。
 - `UpdateSystem()` 该不该进函数表：审计表结论是可绑（"每帧调一次的事件泵，由引擎调；脚本调也不破坏语义"），但脚本自己泵事件会让引擎侧的帧节奏与脚本的调用次数耦合。本 change 先按可绑放进去，若实测出问题再收紧。
+
+## 返工决策（2026-10-25 加，对应 tasks.md 第 5 节）
+
+以下四条是**用户在验收阶段打回**之后补的：`IWindow` 的 C ABI 面虽然通了，但托管侧拿到的是 `public static delegate* unmanaged<…>` 加偏移常量，用起来是 C 风格；用户的要求是**托管表面镜像原始 C++ 接口声明**（`WindowSystem.h` 里 `IWindow` 那份），C ABI 连同错误码、句柄、`uint64` 全部退成 `internal` 实现细节。
+
+### D7 两张投影矩阵，而不是一张
+
+现有投影矩阵只描述「C++ 声明 → C ABI」。返工要加第二张「**C++ 声明 → 托管表面**」，两张同源、同一次生成：
+
+- `bool` 返回：C ABI 是 `int32_t`（0/1），托管表面还原成 `bool`；
+- `T&` 出参：C ABI 是 `T*`，托管表面按 C# 惯例给元组返回值（例如 `(int Width, int Height) GetWindowSize()`）；
+- `castl::string const&` / `string_view`：C ABI 是 `char const* + len`（两段式用两个伴生），托管表面还原成 `string`；
+- `void*`：C ABI 是 `uint64` 令牌，托管表面还原成 `IntPtr`；
+- 错误码：**只存在于 C ABI**，托管表面按"失败即抛"处理（原声明没有错误通道，镜像之后就不能让使用者看到错误码）。
+
+拒绝理由：手写包装层能更快达标，但那等于把已生效规范里「两侧由同一次生成产出」作废，且下一次改接口又要手改一遍。
+
+### D8 表面失败一律抛异常，异常类型由生成器产出
+
+C ABI 的错误码在托管表面**不可见**。生成器为每个接口产出一个 `<接口>Exception`（带 `Code` 与来自 `LastErrorText` 的 `Message`），表面方法调用后检查错误码、非 0 即抛。拒绝理由：让使用者逐调用判返回值，等于把 C 风格原样搬到 C#，与"镜像原接口"矛盾（原接口没有返回值可判）。
+
+### D9 "借用句柄"：非拥有的裸指针返回可以绑，不再一律拒绝
+
+`IWindow::GetWindowSystem()` 返回 `IWindowSystem*`，所有权在引擎（模块生命周期）。现在的做法是把它判成 ② 类整体排除，但镜像要求它必须出现在表面上。改法：句柄表新增一种 kind（借用：只存裸指针，`ReleaseHandle` 只清槽不销毁），把"所有权不明的裸指针返回"从"必须拒绝"改成"必须显式声明为借用"。
+
+拒绝理由：让 `GetWindowSystem()` 继续缺席，则托管表面与原声明不同形，"镜像"这条要求当场就不成立。
+
+### D10 同接口多实例：登记要带实例名这一维
+
+`CAModuleManager` 的实例表是 `接口类型 → { 实例名 → void* }`，同一接口可以注册多个实现（`CA_MODULE_INSTANCE(TInterface, TImplemented, InstanceName)` 的第三个参数就是实例名；仓库里已经这么用：`RenderBackend_D3D12` / `IOManager_FS` / `ShaderCompilerManager_Slang`）。当前 `SetInterfaceInstance(uint32 id, void*)` 只按"接口编号"定位，**隐含假设每个接口只有一个实例**，两个 window system 并存时 `GetWindowSystem()` 会张冠李戴。改法：登记与查找都加实例名这一维（`接口名 + 实例名 → 实例`），编号只作为兼容旧调用点的糖。
+
+拒绝理由：本 change 早段就提过这个场景（Vulkan 与 D3D12 同时注册），留成已知缺陷比现在多做一点更贵。
+
+### D11 错误通道必须搬进函数表，且每次调用前清零
+
+**问题（实测）**：D8 要求"表面方法失败即抛、异常带 `Code` 与 `LastErrorText`"，但托管侧**根本读不到这两个值**：
+
+- `LastErrorCode` / `LastErrorText` 是模块里的独立 `extern "C"` 函数（`IWindow.Bindings.cpp` 声明在第 9–10 行、定义在第 364–377 行），**不在函数表里**；
+- `CSharpHost.dll` 的导出表实测只有 `TryInit` 与 `TryRelease`（`dumpbin /exports` → `2 number of functions`），所以托管侧连符号都拿不到；
+- 生成的 `.cs` 里 `LastErrorCode` / `LastErrorText` 是 `public static` 字段，全仓 `git grep "LastErrorCode\s*="` **零命中** —— 从没被赋值，调用就是空指针；
+- 错误码是**每接口一份 static 全局**、`LastErrorCode(void* self)` 直接丢弃 `self`；方法 thunk 既不置错也不清零（产物里唯一的清零点在 `releaseHandle` 尾部）。所以一次 `ResolveHandle` 失败写下 1001 之后，紧接着一次完全成功的调用在表面看来也是"错误码 1001"，D8 就会误抛。
+
+**改法**：`IWindowApi_v2` 的表头在 `abi_version` / `size` 之后加两个槽 —— `int32_t (*last_error_code)(void* self)` 与 `void (*last_error_text)(void* self, char* dst, uint64_t cap)`，并且：
+
+1. **每个方法 thunk 入口先清一次错误码**（`<接口>_lastErrorCode = 0;`），保证读到的只能是"这次调用写的"；
+2. **错误码按实例分槽**（与 D10 一起落）：key 是 `(接口, 实例)`，不是接口级的 static 全局；
+3. 版本升到 2，两侧的 `GetApi` 校验（version + size 双相等）自然拦住旧产物。
+
+拒绝理由：只给那两个函数加 `__declspec(dllexport)` 保持现状 —— 跨模块导出的仍是单实例 static 全局，D10 一落地就串台，而且"上次残留"的问题一个都解决不了。
+
+### D12 表面对象的 `Dispose` 必须用"发行者"的 release
+
+**问题（实测）**：句柄表是**每接口一份独立的 static 表**（`IWindow_handles` 与 `IWindowSystem_handles`），两张表的索引都从 1 开始、代际初值都是 0，所以**头几个句柄的数值完全相同**。而 `lookupHandle` 只比对「索引 + 代际」，不认"这个句柄是哪张表发的"。于是把 A 表的句柄交给 B 表的 `releaseHandle`，会在 B 表里命中同号活项、把它清掉并让代际进位 —— **销毁的是一个无关对象**。5.2/5.6 要求每个表面类各自 `Dispose` 调 `ReleaseHandle`，正好踩这个坑。
+
+**改法（二选一，实现时选定并写进本条）**：
+
+- **甲**：表面对象额外持有"发行者"的两个函数指针（`resolve` 与 `release`），由 `NewWindow` / `GetWindowSystem` 的 thunk 回填；`Dispose` 用发行者的那一对；
+- **乙**：两张表合成**一张进程级表**，表项带接口类型标签，`release` 时校验标签。
+
+配套：借用句柄（D9）**没有存活检测**（`lookupHandle` 对非弱句柄直接返回指针），宿主销毁后旧借用句柄会解出悬垂指针 —— 必须补一条判据（借用句柄额外存一个弱引用见证者，或规定宿主销毁时必须由宿主注销该句柄）。
+
+拒绝理由：靠"约定两个接口的句柄不要混用"——没有判据能守住约定，而这里踩错的后果是静默销毁别人的对象。

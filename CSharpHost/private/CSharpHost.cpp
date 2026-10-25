@@ -7,6 +7,9 @@
 #include <ScriptHost/IScriptHost.h>
 // 生成的绑定产物：提供 IWindow_GetApi 与 IWindowApi_v1（本 TU 编译它，模块自己就带表）
 #include "IWindow.Bindings.cpp"
+// 第二份产物（`csharp-window-creation` 任务 2.4）：`IWindowSystem` 的函数表与取表入口。
+// 两份产物在同一个 TU 里不冲突 —— 各自的符号前缀不同（`IWindow_*` / `IWindowSystem_*`）。
+#include "IWindowSystem.Bindings.cpp"
 
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
@@ -39,13 +42,24 @@ namespace cs_script
 		// 版本或大小不符时返回 0 且**一个字节都不写**（与生成的 GetApi 同一口径）。
 		uint32_t (*get_interface_api)(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
 									  void** instanceOut);
+		// --- v3 追加（任务 4.2）：接口编号由引擎侧单向下发，托管侧不再手抄 ---
+		uint32_t window_interface_id;
+		uint32_t window_system_interface_id;
 	};
 
 	// 引擎侧约定的接口编号（托管侧 Host.cs 必须用同一组数字）
 	static constexpr uint32_t s_interfaceIdWindow = 1;
+	static constexpr uint32_t s_interfaceIdWindowSystem = 2;
+	// 函数表大小从**审计表里的方法条数**算，不从生成物读 —— 读生成物等于用被检查物证明它自己。
+	// `IWindowSystem` 进表 5 个：NewWindow / GetWindowCount / GetMonitorCount / UpdateSystem /
+	// GetSystemNativeHandle（其余 11 条在头里用 CA_BIND_SKIP 排除）。
+	static_assert(sizeof(IWindowSystemApi_v1) == 8u + 8u * 5u,
+	              "IWindowSystem 函数表应当正好 5 个方法（表头 8 字节 + 每个方法 8 字节）");
 
 
-	static constexpr uint32_t s_engineApiVersion = 2;
+	// v3：`EngineApi` 末尾追加两个接口编号（任务 4.2）。加字段就升版本 —— 托管侧的 `size`
+	// 与 `abi_version` 两道校验都靠它拦住"一边加字段另一边没加"。
+	static constexpr uint32_t s_engineApiVersion = 3;
 
 	class CSharpHost final : public IScriptHost
 	{
@@ -71,6 +85,13 @@ namespace cs_script
 				s_interfaceInstances[interfaceId] = instance;
 			}
 		}
+		uint32_t GetInterfaceApiForTest(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
+		                                void** instanceOut) override
+		{
+			// 只给测试用：把跨边界的那个入口原样转一次（任务 4.2 要造出"未知编号"这次调用）
+			return OnGetInterfaceApi(interfaceId, version, size, out, instanceOut);
+		}
+
 		// 模块 link 阶段（所有模块都登记完之后）被调用一次
 		void Init(cacore::IModuleManager* pModuleManager)
 		{
@@ -101,7 +122,37 @@ namespace cs_script
 			return value;
 		}
 
-		char const* LastError() const override { return m_lastError.c_str(); }
+		char const* LastError() const override
+		{
+			// 托管侧的失败原因必须**每次问一遍**：它是另一侧进程内的静态字段，引擎侧自己看不见。
+			// 以前这里直接返回 m_lastError，而它只在初始化失败时被写过 —— 于是"托管侧出错了"这件事
+			// 在引擎侧永远读不到（实测：反向用例怎么改都绿）。
+			//
+			// 返回的是**固定数组**而不是 std::string::c_str()：调用方常把指针存起来稍后再用
+			// （测试框架就是先拿 `char const*`、失败时再写进报告）。返回 c_str() 的话，下一次
+			// 调用一旦重新赋值就可能重新分配，之前那个指针就悬空了 —— 实测报告里的 error 字段
+			// 是 24 个 0xDD（MSVC debug 堆的"已释放"填充），就是这么来的。
+			if (m_lastErrorFn != nullptr)
+			{
+				char buffer[512] = {};
+				const int32_t got = m_lastErrorFn(buffer, static_cast<int32_t>(sizeof(buffer)));
+				if (got > 0)
+				{
+					m_lastError = buffer;
+				}
+			}
+			// **每一侧的错误都走这一个出口**（任务 4.2）：托管侧刚才写了就覆盖，没写就保留
+			// 引擎侧自己记的那条（例如"未知接口编号 9"）。每次调用都从 `m_lastError` 拷到固定数组。
+			if (!m_lastError.empty())
+			{
+				std::size_t const length = m_lastError.size() < sizeof(m_lastErrorText) - 1u
+				                               ? m_lastError.size()
+				                               : sizeof(m_lastErrorText) - 1u;
+				std::memcpy(m_lastErrorText, m_lastError.c_str(), length);
+				m_lastErrorText[length] = '\0';
+			}
+			return m_lastErrorText;
+		}
 
 		void Shutdown() override
 		{
@@ -183,6 +234,10 @@ namespace cs_script
 			api.log = &CSharpHost::OnManagedLog;
 			api.echo = &CSharpHost::OnManagedEcho;
 			api.get_interface_api = &CSharpHost::OnGetInterfaceApi;
+			// 接口编号的**唯一来源**（任务 4.2）：托管侧不再手抄一份，而是从这里拿。
+			// 加字段必须同时改托管侧镜像与 `s_engineApiVersion`，否则 `size` 校验会拦下来。
+			api.window_interface_id = s_interfaceIdWindow;
+			api.window_system_interface_id = s_interfaceIdWindowSystem;
 			CA_LOG("CSharpHost：引擎侧 OnGetInterfaceApi 的地址 = {:X}，函数表 {} 字节",
 				reinterpret_cast<uintptr_t>(&CSharpHost::OnGetInterfaceApi), api.size);
 
@@ -298,6 +353,16 @@ namespace cs_script
 			{
 				Fail("解析托管入口 Tick 失败，返回 " + std::to_string(rc));
 				return false;
+			}
+
+			// 失败原因的出口（`csharp-window-creation` 任务 2.7）：托管侧把它写成静态字段，
+			// 只有这一个函数能取出来；解析失败**不算致命** —— 只是拿不到细节文本，功能照旧。
+			rc = m_loadAssembly(assemblyPath.c_str(), typeName.c_str(), L"GetLastError",
+				UNMANAGEDCALLERSONLY_METHOD, nullptr,
+				reinterpret_cast<void**>(&m_lastErrorFn));
+			if (rc != 0)
+			{
+				m_lastErrorFn = nullptr;
 			}
 			return true;
 		}
@@ -498,8 +563,20 @@ namespace cs_script
 		static uint32_t OnGetInterfaceApi(uint32_t interfaceId, uint32_t version, uint32_t size, void* out,
 										  void** instanceOut)
 		{
-			if (s_instance == nullptr || interfaceId != s_interfaceIdWindow || interfaceId >= 8u)
+			if (s_instance == nullptr)
 			{
+				return 0u;
+			}
+			// 未知编号**不许静默**（`csharp-window-creation` 任务 4.2）：以前这里 `>= 8u` 直接
+			// 返回 0，加第 9 个接口时既不报错也不提示，调用方只看到"取表失败"。
+			if (interfaceId != s_interfaceIdWindow && interfaceId != s_interfaceIdWindowSystem)
+			{
+				if (s_instance != nullptr)
+				{
+					s_instance->m_lastError =
+						"未知接口编号 " + std::to_string(interfaceId) +
+						"：当前只接线了 1 = IWindow、2 = IWindowSystem（上界 8 是 CSharpHost 自己的约定）";
+				}
 				return 0u;
 			}
 			// `size == 0` 是"探针调用"：托管侧还不知道表有多大，先问一句（不写任何内存）。
@@ -507,14 +584,21 @@ namespace cs_script
 			// 探针永远返回 0）。
 			if (size == 0u)
 			{
-				return static_cast<uint32_t>(sizeof(IWindowApi_v1));
+				if (interfaceId == s_interfaceIdWindow)
+				{
+					return static_cast<uint32_t>(sizeof(IWindowApi_v1));
+				}
+				return static_cast<uint32_t>(sizeof(IWindowSystemApi_v1));
 			}
 			void* instance = s_interfaceInstances[interfaceId];
 			if (instance == nullptr || out == nullptr)
 			{
 				return 0u;
 			}
-			const uint32_t realSize = IWindow_GetApi(version, size, static_cast<IWindowApi_v1*>(out));
+			const uint32_t realSize =
+				interfaceId == s_interfaceIdWindow
+					? IWindow_GetApi(version, size, static_cast<IWindowApi_v1*>(out))
+					: IWindowSystem_GetApi(version, size, static_cast<IWindowSystemApi_v1*>(out));
 			if (realSize == 0u)
 			{
 				return 0u;
@@ -528,12 +612,17 @@ namespace cs_script
 
 		using BootFn = int32_t (*)(EngineApi*);
 		using TickFn = int32_t (*)(double);
+		// 把托管侧的失败原因拷出来（0 = 没有错误，正数 = 写入的字节数）
+		using LastErrorFn = int32_t (*)(char*, int32_t);
 
 		bool m_bootSucceeded = false;
 		BootFn m_boot = nullptr;
 		TickFn m_tick = nullptr;
+		LastErrorFn m_lastErrorFn = nullptr;
 		int32_t m_expectedTick = 0;
-		std::string m_lastError;
+		mutable std::string m_lastError;
+		// LastError() 返回它：固定数组，指针永远有效（内容可被下一次调用覆盖，但不会悬空）
+		mutable char m_lastErrorText[512] = {};
 		std::vector<std::string> m_foundPaths;
 		std::string m_envConfigPath;
 

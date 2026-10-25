@@ -50,3 +50,22 @@
 
 - **WHEN** 跑托管侧建窗那条测试，抓它的日志文件
 - **THEN** 里面 MUST 各出现一行带托管侧前缀的窗口尺寸读数与一行引擎侧的窗口尺寸读数，两行数值 MUST 相同；任一行缺失即算不合格
+
+### Requirement: 托管侧表面必须镜像原始 C++ 接口声明
+
+生成的托管产物 MUST 让使用者看到**与原始 C++ 接口声明同形**的表面：**类型名逐字相同**（`IWindow` → 名为 `IWindow` 的类型；MUST NOT 去掉 `I` 前缀、MUST NOT 加后缀、MUST NOT 维护任何改名表）；方法名相同；参数个数与语义相同（`T&` 出参 → 按 C# 惯例给出参或元组返回值、`castl::string const&` / `castl::string_view` → `string`、`void*` → `IntPtr`、`bool` → `bool`）；返回类型语义相同；`castl::weak_ptr<T>` 返回 → 可空的对象引用。该表面里 MUST NOT 出现 `delegate* unmanaged`、`void*`、`uint64` 句柄、错误码参数或错误码返回值 —— 这些只允许留在 `internal` 的 native 层。
+
+#### Scenario: 表面与声明逐方法对拍
+
+- **WHEN** 从 `WindowSystem/header/CAWindow/WindowSystem.h` 取出 `IWindow` 的每个纯虚方法与 `IWindowSystem` 的每个未排除方法，按投影表转成期望的 C# 签名，再与生成的 `.cs` 逐条比对
+- **THEN** 每条方法的名字、参数个数、参数种类与返回种类 MUST 全部相符；把 `.cs` 里任一方法改成同名的 `public static delegate* unmanaged<…>` 字段 MUST 让这条判据报错并点名该条
+
+### Requirement: 同接口的多个实现必须可区分
+
+引擎侧支持同一接口注册多个实现（`CAModuleManager` 的实例表是 `接口类型 → { 实例名 → void* }`）。托管侧登记与查找接口实例时 MUST 带上实例名这一维，MUST NOT 只按"接口编号"定位；`IWindow::GetWindowSystem()` 这类"返回本对象所属的那个实现"的方法 MUST 还原到发出该调用的那一个实例上，两个 window system 同时注册时 MUST NOT 张冠李戴。
+
+#### Scenario: 两个实现并存时不串台
+
+- **WHEN** 把同一个接口的两个实现分别以不同实例名登记，再对第二个实例上的窗口调 `GetWindowSystem()`
+- **THEN** 返回的 MUST 是第二个实例；按第一个实例名登记的那一份 MUST 不受影响
+

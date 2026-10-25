@@ -38,6 +38,10 @@
 
 `check_legacy_symbols.py`（旧符号守卫）、`check_hash_sources.py`（哈希来源盘点）、`check_bindable_audit.py`（可绑定面审计对账）、`verify_readme.py`（README 里的命令逐条重跑）、`read_dump.py`（读崩溃转储）、`spin_check.py`（轮界进度检查）。它们自己就是"进程级断言"的样板：跑别人的程序，只看**退出码 + 输出里的可核子串**。
 
+**绑定发射器的判据在另一个目录，但已经接进构建**：`Tools/CodeGen/check_bindings.py` 做四件事 —— 期望签名逐行对拍（含 `IWindow` 的 21 条）、C++/C# 两侧方法集合对齐、**结构桩判据**（剥注释后看 thunk 有没有真调实现；真实接口桩数必须 0、夹具只打印）、**覆盖率下限**（thunk 数必须等于期望文件里的独立清单）。它由 `build.py` 在绑定生成之后调用并传 `--product-dir`，非零退出直接让构建失败，stdout 逐行转发（所以"夹具桩数"那行每次构建都看得见）。行为断言落在 `Test/CoreTests/BindingsGetApiTest.cpp` 与 `WindowBindingsCompileTest.cpp`（第 ① 层），跑法见第 25–30 行的 `CoreTests.exe`。
+
+**跨边界端到端落在第 ② 层**：`Test/GPUBackendTester` 的 `TestCSharpWindow` 是唯一真的把「C++ 建窗 → C ABI 句柄 → 托管侧读同一张函数表」走通的用例。它自己登记两个接口实例（编号 1 = `IWindow`、编号 2 = `IWindowSystem`），断言两侧窗口尺寸逐字相同、`GetWindowCount` 基线 +1 与 `UpdateSystem` 之后回基线、以及对象被回收后旧弱句柄 `ResolveHandle` 返回空且错误码 1001。跑法：`GPUBackendTester.exe --backend vulkan --test TestCSharpWindow --headless 30`，读数在 `test_output/TestCSharpWindow.log`，判定在 `test_output/result.json` 的 `status`。注意 `main` **永远返回 `EXIT_SUCCESS`**，所以退出码不是判定依据，必须看 `result.json`。
+
 ## C#Host 的测试怎么做（本规范的第一份应用样板）
 
 **已实现（2026-10-18，`csharp-hostfxr-bootstrap` 的 5.1–5.3）**：下面两层都在跑，红态都构造过。实测读数：

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -19,6 +19,9 @@ namespace Scripting.Managed
         // 取"接口函数表 + 实例"：size 传 0 是探针调用（只回真实大小）；成功后 out 里是表、
         // instanceOut 里是实例，返回真实表大小；版本/大小不符返回 0 且一个字节都不写。
         public delegate* unmanaged<uint, uint, uint, void*, void**, uint> GetInterfaceApi;
+        // --- v3 追加（任务 4.2）：编号由引擎侧下发，这里不再手抄 ---
+        public uint WindowInterfaceId;
+        public uint WindowSystemInterfaceId;
     }
 
     /// <summary>
@@ -29,7 +32,7 @@ namespace Scripting.Managed
     public static unsafe class Host
     {
         // 与 C++ 侧必须逐字一致
-        private const uint ExpectedAbiVersion = 2;
+        private const uint ExpectedAbiVersion = 3;
 
         private static EngineApi* s_api;
         private static int s_tickCount;
@@ -119,6 +122,9 @@ namespace Scripting.Managed
                 {
                     ProbeWindowSize();
                 }
+                // 关窗读数每帧都要读：第 1 帧窗口还开着（0），引擎侧关窗后再 tick 一次才是 1。
+                // 放进 `s_tickCount == 1` 里就只剩一个 0 —— 实测过，那一版日志里没有第二次读数。
+                ProbeWindowClose();
                 return s_tickCount; // 回值就是本次是第几次 Tick，引擎侧据此逐字比对
             }
             catch (Exception ex)
@@ -129,18 +135,42 @@ namespace Scripting.Managed
             }
         }
 
-        // 接口编号（与 CSharpHost.cpp 的 s_interfaceIdWindow 一致）
-        private const uint InterfaceIdWindow = 1;
-        // 生成物 Scripting.Generated.Bindings.IWindowBindings 里的常量（由 CodeGen --emit-binding 写出）
-        private const int WindowApiSize = 8 + 8 * 22;
-        private const int WindowApiGetWindowSize = 56;
+        // 函数表大小与成员偏移**不再手抄**（`csharp-window-creation` 任务 2.6）：一律读生成物里的常量。
+        // 手抄的表大小在 `IWindowApi_v1` 从 22 个成员变 21 个之后就错了，实测日志里报
+        // 「函数表大小不符：引擎 176 字节，托管侧 184 字节」并直接返回，探针从来没真正跑过。
+        private const int WindowApiSize = Scripting.Generated.Bindings.IWindowBindings.IWindowApi_v1_Size;
+        private const int WindowApiGetWindowSize =
+            Scripting.Generated.Bindings.IWindowBindings.IWindowApi_v1_GetWindowSize;
         private const int WindowApiTableVersion = 1;
+        // 编号 2 = IWindowSystem（任务 2.7 的判别条件用得到它）
+        private static uint InterfaceIdWindow => s_api->WindowInterfaceId;
+        private static uint InterfaceIdSystem => s_api->WindowSystemInterfaceId;
+        private const int WindowSystemApiSize = Scripting.Generated.Bindings.IWindowSystemBindings.IWindowSystemApi_v1_Size;
+        private const int WindowSystemApiGetWindowCount =
+            Scripting.Generated.Bindings.IWindowSystemBindings.IWindowSystemApi_v1_GetWindowCount;
         private static bool s_windowProbed;
+        private static void* s_windowInstance;
+        private static delegate* unmanaged<void*, int> s_windowShouldClose;
+        private const int WindowApiWindowShouldClose = Scripting.Generated.Bindings.IWindowBindings.IWindowApi_v1_WindowShouldClose;
 
         /// <summary>
         /// 端到端（任务 3.2）：取 IWindow 的函数表与实例，调 GetWindowSize，把两个读数打进日志。
         /// 引擎侧在同一时刻也打一份，两边逐字比对。
         /// </summary>
+        /// <summary>
+        /// 每帧读一次 WindowShouldClose（任务 2.8）。引擎侧在关窗前后各 tick 一次，
+        /// 两个读数都必须为真 —— 少了这段，托管侧那条读数根本不存在。
+        /// </summary>
+        private static void ProbeWindowClose()
+        {
+            if (s_windowInstance == null || s_windowShouldClose == null)
+            {
+                return;
+            }
+            int shouldClose = s_windowShouldClose(s_windowInstance);
+            LogLine($"[托管侧] WindowShouldClose = {shouldClose}");
+        }
+
         private static void ProbeWindowSize()
         {
             if (s_windowProbed)
@@ -185,10 +215,75 @@ namespace Scripting.Managed
             int height = 0;
             getWindowSize(instance, &width, &height);
             LogLine($"[托管侧] 窗口尺寸 = {width} x {height}");
+
+            // 关窗读数（任务 2.8）：把函数指针与实例存下来，之后每帧读一次 WindowShouldClose。
+            // 引擎侧在关闭窗口前后各 tick 一次，两侧的读数必须一致。
+            s_windowInstance = instance;
+            s_windowShouldClose =
+                (delegate* unmanaged<void*, int>)*(void**)(buffer + WindowApiWindowShouldClose);
+
+            // 编号 2 = IWindowSystem（任务 2.7 的判别条件）。取不到表、大小不符、或
+            // GetWindowCount 回 0，都把原因写进 LastError —— 引擎侧那条测试靠 LastError 非空判红。
+            // 没有这一段，把 `SetInterfaceInstance(2, …)` 删掉测试照样绿（实测过）。
+            uint systemRealSize = s_api->GetInterfaceApi(InterfaceIdSystem, WindowApiTableVersion, 0, null, null);
+            if (systemRealSize == 0)
+            {
+                s_lastError = "取 IWindowSystem 函数表失败：探针调用返回 0（实例未登记）";
+                return;
+            }
+            if (systemRealSize != (uint)WindowSystemApiSize)
+            {
+                s_lastError = $"IWindowSystem 函数表大小不符：引擎 {systemRealSize} 字节、托管侧 {WindowSystemApiSize} 字节";
+                return;
+            }
+            byte* systemBuffer = stackalloc byte[WindowSystemApiSize];
+            void* systemInstance = null;
+            uint systemWritten = s_api->GetInterfaceApi(InterfaceIdSystem, WindowApiTableVersion, systemRealSize,
+                                                        systemBuffer, &systemInstance);
+            if (systemWritten != systemRealSize || systemInstance == null)
+            {
+                s_lastError = $"取 IWindowSystem 函数表失败：写入 {systemWritten} 字节、实例 {(long)systemInstance}";
+                return;
+            }
+            var getWindowCount =
+                (delegate* unmanaged<void*, int>)*(void**)(systemBuffer + WindowSystemApiGetWindowCount);
+            if (getWindowCount == null)
+            {
+                s_lastError = "GetWindowCount 在 IWindowSystem 函数表里是空指针";
+                return;
+            }
+            int windowCount = getWindowCount(systemInstance);
+            LogLine($"[托管侧] IWindowSystem::GetWindowCount = {windowCount}");
+            if (windowCount <= 0)
+            {
+                s_lastError = $"IWindowSystem::GetWindowCount 回值 {windowCount}，期望至少 1（引擎侧已建窗）";
+            }
         }
 
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>
         public static string LastError => s_lastError;
+
+        /// <summary>
+        /// 把最近一次失败原因拷给引擎（`csharp-window-creation` 任务 2.7）。返回写入的字节数，
+        /// 0 表示没有错误。没有这个导出，引擎侧的 LastError() 永远读到空串 ——
+        /// 所有「托管侧报错 ⇒ 测试变红」的判据都会恒绿（实测过）。
+        /// </summary>
+        [System.Runtime.InteropServices.UnmanagedCallersOnly]
+        public static int GetLastError(byte* dst, int cap)
+        {
+            if (dst == null || cap <= 0 || s_lastError.Length == 0)
+            {
+                return 0;
+            }
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(s_lastError);
+            int count = bytes.Length < cap - 1 ? bytes.Length : cap - 1;
+            for (int index = 0; index < count; ++index)
+            {
+                dst[index] = bytes[index];
+            }
+            dst[count] = 0;
+            return count;
+        }
 
         private static void LogVia(EngineApi* api, string text)
         {

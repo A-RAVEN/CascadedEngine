@@ -10,24 +10,28 @@
 
 ## [2026-10-20] 绑定发射器（`--emit-binding`）不足以支撑「C# 创建窗口」：10 处桩、句柄不回收、判据恒绿｜`csharp-bindings-generator` 归档后遗留
 
-**状态**：未修。该 change 已归档（提交 `05e483b`）。归档时声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的。
+**状态**：**形状层已修**（`binding-stub-and-shapes`，进行中）；句柄层与托管侧仍未修，留给后继 change。该 change 归档时（提交 `05e483b`）声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的。
 
-**问题一：形状层 —— `IWindow` 函数表 22 个槽里 10 个是桩。** 桩 = 函数体只有 `return {};   // 零值（标量、指针、镜像结构体都成立）`，连 `self` 都不碰，调用方拿到 0 却以为是真结果。
-- `bool` 返回一律落桩。判「能直出」的条件写的是 `bareType(method.returnSpelling) == returnType`，而 `bool` 会投影成 `int32_t`，两者永不相等。实测 8 个：`WindowShouldClose` / `GetWindowFocus` / `GetWindowMinimized` / `GetKeyState` / `IsKeyDown` / `IsKeyTriggered` / `IsMouseDown` / `IsMouseUp`。
-- `void*` 返回被吞：`bareType("void*")` 剥掉指针变 `"void"`，`GetNativeWindowHandle` 在表里是 `void (*)(void*)`，调用发生了但返回值丢掉。
-- 字符串入参 thunk 是空体：`SetWindowName` 签名对（`char const*, uint64_t`），函数体只有桩注释。
-- 两段式只发声明不发实现：`IWindow_GetWindowNameLen` 与 `IWindow_CopyGetWindowName` 在整个生成物里各只有 1 处（第 23、24 行的声明），没有函数体、不进函数表；`Tools/CodeGen/check_bindings.py` 的伴生跳过规则让它们永远不算不符。
+**问题一：形状层 —— 已修，留档说明当时是什么样。** 归档时 `IWindow` 的函数表 22 个槽里有 10 个桩（桩 = 函数体只有 `return {};   // 零值…`，连 `self` 都不碰）。现在这四条已改掉：
+- 所有 `bool` 返回当时都落成桩 —— 判「能直出」的条件已从 `bareType(returnSpelling) == returnType` 换成显式集合，thunk 生成 `return object->M() ? 1 : 0;`。8 个 `bool` 槽全是真实现了。
+- `void*` 的返回值当时被丢掉 —— 现在投影成 `uint64_t` 不透明令牌，thunk 里 `reinterpret_cast`（只认 `void*` 这一种拼写，其它 `T*` 返回会被拒绝并要求写理由）。
+- 字符串入参的 thunk 当时是空体 —— `SetWindowName` 现在从 `(char const*, uint64_t)` 造 `castl::string` 再调实现。
+- 两段式当时只发声明、不发实现 —— 两个伴生各有实现体（容量 0 时一个字节都不写），且这类方法**不再进函数表、不发直出入口**，`IWindowApi_v1` 从 22 个成员变 21 个。
+
+**仍未修（本 change 明确不做）：**
 - `castl::function` 参数一律投影成固定签名 `void (*)(void*, uint32_t, float)`，与真实回调签名无关（`IWindowSystem` 的 10 个 setter 因此绑不了）。
-- `weak_ptr` 返回 / 入参整体拒绝，`IWindowSystem::NewWindow` 死在这条上。
 - 结构体镜像只收「成员全是标量」的类型，`MonitorInfo` 里的 `cacore::Rect<float>` 会被标跳过，而 `GetMonitor` 仍投影成 `MonitorInfoC` ⇒ 引用一个不存在的类型。
 - 兜底那行不分 const，可写出参 `Foo*` 与入参 `Foo const&` 都出 `FooC const*`。
+- **夹具里三类形状仍是桩（实测 7 个，不是 6）** —— 容器 4 个（`IBindRow05::SetThings` / `IBindRow06::GetThings` / `IBindRow07::SetNested` / `IBindRow08::SetMapping`）、镜像按值返回 1 个（`IBindRow02::GetThing`）、回调 1 个（`IBindRow13::SetCallback`），外加 1 个非这套清单里的（`IBindRow01` 之外的第 7 个，需要再定位）。桩判据对夹具只打印不判定（`build.py` 每次构建会把这一行打进日志）。**这条已按 2026-10-25 用户要求搬到 `openspec/changes/binding-stub-and-shapes/tasks.md` 的 5.1，本文件不再跟踪。**
+- ~~`Scripting/Managed/Host.cs:135` 手抄的表大小~~ —— **已在 `csharp-window-creation` 任务 2.6 修掉**：托管侧现在读生成物里的 `IWindowBindings.IWindowApi_v1_Size`，`TestScriptHost` 日志里「函数表大小不符」从 1 命中变 0 命中。
 
-**问题二：句柄与生命周期。**
-- `keepAlive` 只增不减：`releaseHandle` 清表项 + 加代次，但不从 `keepAlive` 删元素 ⇒ 对象永不析构、`use_count()` 永不回 1 ⇒ `WindowSystem_Impl.cpp` 的回收条件 `use_count() == 1 && WindowShouldClose()` 永不成立，窗口永不回收。
-- 伴生 `ReleaseXxx` 只在「接口里有句柄入参方法」时才生成；`IWindow` 没有这种参数 ⇒ 窗口句柄没有释放入口。
-- 句柄入参的反查根本没实现：`lookupHandle` 定义了但 `IBindRow09` 里零引用，注释却写着「句柄参数：反查（失效就置错误码，不崩）」。
-- 错误码 1001 只有「重复释放」一条真路径；「对象已死、句柄还在」因上一条永不发生。
+**问题二：句柄与生命周期（`csharp-window-creation` 已修三条，见下）。**
+- **句柄入参的反查根本没实现**：`lookupHandle` 定义了但 `IBindRow09` 里零引用，注释却写着「句柄参数：反查（失效就置错误码，不崩）」。（本 change 只加了 `ResolveHandle` 这个**新入口**，"接口参数里的 `shared_ptr` / `weak_ptr` 反查"仍未实现。）
 - 错误状态是每接口一份 static 全局（`IWindow_lastErrorCode`），`LastErrorCode(void*)` 的 `self` 被忽略；`setError` 往 `char[256]` 里 `memcpy(strlen+1)` 不检查长度。
+
+**本轮新发现的三条（`csharp-window-creation` 收尾时实测到的）：**
+
+（这三条已按 2026-10-25 用户要求搬到 `openspec/changes/csharp-window-creation/tasks.md` 的 4.1–4.3 去跟踪，本文件不再留条目 —— 它们是那个 change 范围内的未修项，`TODO.md` 只放跨 change 的账。）
 - 只有 1001 / 1002 两个码，没有「未实现」这一类，桩返回的 0 与真 0 不可区分。
 
 **问题三：判据恒绿 —— 这是根因，不是附属问题。**
@@ -38,11 +42,11 @@
 
 **改法（三批，顺序不能换）。**
 1. 先把判据改成能看出桩：生成物里数桩标记，没被列进忽略清单的桩 ⇒ 构建退出码非 0；伴生函数（`_GetWindowNameLen` / `_CopyXxx`）不再被对拍跳过，进对拍就得有函数体；生成的 `.cs` 真编进托管工程。
-2. 补形状：`bool` 返回走真路径、`void*` 返回保留、字符串入参 thunk 补实现、两段式补实现、可写出参不标 const。
+2. ~~补形状~~：已做（`bool` / 枚举 / `void*` / 字符串入参 / 两段式）。枚举那一条还多两步：`enum class` 不能隐式转 `int32_t`，而且**参数方向**要转回去、枚举名要补命名空间前缀（libclang 给的是非限定拼写）。
 3. 句柄与创建：`keepAlive` 能回收、导出释放入口、句柄入参反查、`weak_ptr` 换成弱句柄投影，再接 `IWindowSystem` 与托管侧。
 
 **验收口径（每条都能失败）。**
-- 第 1 批：拿今天的生成物跑新守卫，必须报 10 处桩并以非 0 退出；修完后 0 处、退出码 0。
+- 第 1 批：~~改之前应当是 10 处桩~~ —— 已兑现：新增的结构桩判据在改之前报 `IWindow` 桩 10 个、改完报 0 个；变异用例（把某个槽改回桩）能把它打回 8 并点名 `IWindow::WindowShouldClose`。
 - 第 2 批：夹具里每个形状写一条**行为**断言（例如 `WindowShouldClose` 在窗口已关闭时返回 1、未关闭时返回 0），今天的代码会在「已关闭返回 1」这条上红。
 - 第 3 批：C# 调 `NewWindow(800, 600)` 得非 0 句柄 → 用句柄 `GetWindowSize` 读回 `800 x 600` → C++ 侧 `GetWindowCount()` 由 9 变 10 → C# 调 `CloseWindow()` → 下一帧 `WindowShouldClose` 为真 → `GetWindowCount()` 回到 9。今天的代码在第一步就红（`NewWindow` 压根没进表）。
 

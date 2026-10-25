@@ -1,4 +1,4 @@
-﻿// 新运行时的用例都在各自文件里，这个文件只剩测试入口与一个分配烟测。
+// 新运行时的用例都在各自文件里，这个文件只剩测试入口与一个分配烟测。
 //
 // 原先这里还有一整套**旧运行时**的夹具与用例（`TestStruct0/1/2/3`、`TestHash*`、`TestSerialize0`）：
 // 它们测的是旧序列化 / 反序列化与旧哈希驱动那条已经退场的路，而且 `TestHash*` 与 `TestSerialize0`
@@ -66,6 +66,7 @@ bool RunResourceBatchTest();
 bool RunShaderLibraryBytesTest();
 bool RunBindingsGetApiTest();
 bool RunBindingsHandleTest();
+bool RunBindingsWeakHandleTest();
 bool RunBindingsLayoutTest();
 bool RunWindowBindingsCompileTest();
 
@@ -102,6 +103,13 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("Bindings layout manifest test PASSED");
+	}
+
+	// 弱句柄：登记不抬高引用计数、对象被回收后旧句柄报 1001（csharp-window-creation 任务 1.4）
+	if (!RunBindingsWeakHandleTest())
+	{
+		std::puts("Bindings weak handle test FAILED");
+		return false;
 	}
 
 	// 句柄表：序号 + 代际、配对释放、失效报错（csharp-bindings-generator 任务 2.4）
