@@ -29,6 +29,7 @@ CAResources/ ShaderCompilerSlang/ ShaderProcessor/ WindowSystem/ IMGUIContext/ .
 
 | 要找 / 要写什么 | 在哪 | 说明 |
 |---|---|---|
+| **项目往哪走：现在哪个阶段、下一个阶段做什么** | `docs/ROADMAP.md` | 只记阶段与方向，**不记任务**（任务在 `tasks.md`）、不记欠账（在 `docs/TODO.md`）。产品目标那一格现在是空的，补它只需要一句话 |
 | **这条要求到底存不存在** | `openspec/specs/<能力>/spec.md` | **已生效的规范只有这里算数**。49 个能力目录，一个能力一份 `spec.md`，`### Requirement` + `#### Scenario`。C# 相关三份：`csharp-bindable-surface`（跨界的形状规矩）、`csharp-bindings`（生成器两侧产物规矩）、`csharp-host`（宿主与运行时）。**索引 / 路线图不算规范**，别往这里放（放进来 `openspec validate --all` 会一直红） |
 | **正在做的改动** | `openspec/changes/<change>/` | `proposal.md` / `design.md` / `specs/` / `tasks.md`（`tasks.md` 是唯一进度事实源，`- [ ]`/`- [x]`） |
 | **做完的改动** | `openspec/changes/archive/<日期>-<change>/` | 现有 64 个；里面的 `evidence/` 放实测记录（例如唯一一份可绑定面审计表 `…csharp-bindable-surface/evidence/bindable-audit.md`） |
@@ -43,6 +44,29 @@ CAResources/ ShaderCompilerSlang/ ShaderProcessor/ WindowSystem/ IMGUIContext/ .
 | **对外文档（给使用者看）** | 与代码同目录 | `Tools/CodeGen/README.md`（生成器的能力边界、参数、退出码、示例 + 真实输出）、`CSharpHost/README.md`（接口编号表、环境变量表）、`docs/vulkan-api-docs/README.md` |
 
 **判断一条要求"算不算数"的顺序**：先查 `openspec/specs/`（生效规范）→ 再查 `openspec/changes/<change>/specs/`（本次改动引入的增量）→ 最后查 `TODO/*.md`（只是设计笔记，**不构成要求**，要变成要求得走 proposal）。三处都没有，才可以说"没有这条要求"。
+
+## 文档维护
+
+> 每份文档只有一个职责、一个更新触发点、一条能失败的过期判据。三样缺一样，这份文档就会烂。
+
+| 文档 | 职责（写什么 / 不写什么） | 必须更新的时候 | 过期怎么发现 |
+|---|---|---|---|
+| `docs/ROADMAP.md` | 只写阶段与方向。**不写任务、不写欠账、不写改动细节** | 一个 change 归档时；阶段状态变化时；下一阶段立项时 | `python Tools/check_roadmap.py`（规格见该文件第五节，**脚本尚未实现**） |
+| `openspec/changes/<change>/tasks.md` | 唯一进度事实源 | 每做完一条，当轮就勾 | `openspec instructions apply --change <名字> --json` 的 remaining |
+| `docs/TODO.md` | 只放跨 change 的账。**不抄改法与验收**（那是 `tasks.md` 的事） | 发现跨 change 未修项时；修好即删该条 | 每条「相关」点名的路径能 `Test-Path` |
+| `TODO/<序号>-<kebab>.md` 与 `TODO/README.md` | 设计笔记，不构成要求 | 新增 / 升级 / 废弃一篇时，同步索引与状态栏 | 索引里列出的文件名都存在 |
+| `docs/vulkan-backend-alignment.md` | 后端对齐的阶段差距表 | 某个差距项状态变化时 | 表里每个 change 名能在 `openspec/changes/` 找到 |
+| `docs/project-baseline.md` | 子项目索引 | 新增或删除子项目时 | 表里的模块目录都存在 |
+| `docs/testing.md` | 测试分层、清单、最小集合 | 增删测试时 | 清单条目与 `GPUBackendTester.exe --list` 输出一致 |
+| `docs/failed-approaches.md` | 失败方案台账 | 试过并失败时 | 只要求每条有「何时可重新考虑」，不审内容 |
+| 与代码同目录的 `README.md`（`Tools/CodeGen/`、`CSharpHost/`、`docs/vulkan-api-docs/`） | 对外能力、参数、退出码、示例 | **同一次提交里**改 | `python Tools/CodeGen/verify_readme.py` |
+| `CLAUDE.md` | 规则与上面这张地图 | 规则变化时 | 地图里每个路径都存在 |
+
+**三条硬规则**：
+
+1. **一件事只记一处**。同一个未修项不许同时出现在 `docs/TODO.md` 和某个 change 的 `tasks.md`：属于那个 change 就只写 `tasks.md`；跨 change 才写 `TODO.md`，且只写一行指针 + 状态，改法与验收留在那边。
+2. **指向别的文档必须写路径**，不许写「详见相关文档」这种指代 —— 读者不知道是哪份，等于没指。
+3. **过期判据必须能失败**。「读起来还准确」「内容完整」不算判据；能核的只有三种：路径存在、数字与命令输出一致、表里的名字能在目录里找到。
 
 ## Code Style
 

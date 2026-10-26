@@ -24,7 +24,7 @@
 
 ## [2026-10-20] 绑定发射器（`--emit-binding`）不足以支撑「C# 创建窗口」：10 处桩、句柄不回收、判据恒绿｜`csharp-bindings-generator` 归档后遗留
 
-**状态**：**形状层已修**（`binding-stub-and-shapes`，进行中）；句柄层与托管侧仍未修，留给后继 change。该 change 归档时（提交 `05e483b`）声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的。
+**状态**：**形状层与判据已修**（`binding-stub-and-shapes` 已于 2026-10-25 归档）；句柄反查也已修（生成的产物里 `lookupHandle` 92 处）。**2026-10-26 复核**：下面「仍未修」清单只剩「结构体镜像只收标量」一条仍然成立，另两条已改，逐条见子项末尾的复核标注。该 change 归档时（提交 `05e483b`）声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的（这是当时的状态）。
 
 **问题一：形状层 —— 已修，留档说明当时是什么样。** 归档时 `IWindow` 的函数表 22 个槽里有 10 个桩（桩 = 函数体只有 `return {};   // 零值…`，连 `self` 都不碰）。现在这四条已改掉：
 - 所有 `bool` 返回当时都落成桩 —— 判「能直出」的条件已从 `bareType(returnSpelling) == returnType` 换成显式集合，thunk 生成 `return object->M() ? 1 : 0;`。8 个 `bool` 槽全是真实现了。
@@ -33,14 +33,14 @@
 - 两段式当时只发声明、不发实现 —— 两个伴生各有实现体（容量 0 时一个字节都不写），且这类方法**不再进函数表、不发直出入口**，`IWindowApi_v1` 从 22 个成员变 21 个。
 
 **仍未修（本 change 明确不做）：**
-- `castl::function` 参数一律投影成固定签名 `void (*)(void*, uint32_t, float)`，与真实回调签名无关（`IWindowSystem` 的 10 个 setter 因此绑不了）。
+- `castl::function` 参数一律投影成固定签名 `void (*)(void*, uint32_t, float)`，与真实回调签名无关（`IWindowSystem` 的 10 个 setter 因此绑不了）。**2026-10-26 复核：已改为显式拒绝** —— `Tools/CodeGen/CodeGenMain.cpp` 给出 `rejectReason = "本轮未实现：缺回调投影路径（保活表 + 注销句柄）"`，产物里这个固定签名命中 0 处；回调形状本身仍不支持。
 - 结构体镜像只收「成员全是标量」的类型，`MonitorInfo` 里的 `cacore::Rect<float>` 会被标跳过，而 `GetMonitor` 仍投影成 `MonitorInfoC` ⇒ 引用一个不存在的类型。
-- 兜底那行不分 const，可写出参 `Foo*` 与入参 `Foo const&` 都出 `FooC const*`。
+- 兜底那行不分 const，可写出参 `Foo*` 与入参 `Foo const&` 都出 `FooC const*`。**2026-10-26 复核：已区分** —— `Tools/CodeGen/CodeGenMain.cpp` 用 `isOutRef`（含 `&` 且不含 `const`）判出参走指针，`T const&` 走各自的形状分支。
 - **夹具里三类形状仍是桩（实测 7 个，不是 6）** —— 容器 4 个（`IBindRow05::SetThings` / `IBindRow06::GetThings` / `IBindRow07::SetNested` / `IBindRow08::SetMapping`）、镜像按值返回 1 个（`IBindRow02::GetThing`）、回调 1 个（`IBindRow13::SetCallback`），外加 1 个非这套清单里的（`IBindRow01` 之外的第 7 个，需要再定位）。桩判据对夹具只打印不判定（`build.py` 每次构建会把这一行打进日志）。**这条已按 2026-10-25 用户要求搬到 `openspec/changes/binding-stub-and-shapes/tasks.md` 的 5.1，本文件不再跟踪。**
 - ~~`Scripting/Managed/Host.cs:135` 手抄的表大小~~ —— **已在 `csharp-window-creation` 任务 2.6 修掉**：托管侧现在读生成物里的 `IWindowBindings.IWindowApi_v1_Size`，`TestScriptHost` 日志里「函数表大小不符」从 1 命中变 0 命中。
 
 **问题二：句柄与生命周期（`csharp-window-creation` 已修三条，见下）。**
-- **句柄入参的反查根本没实现**：`lookupHandle` 定义了但 `IBindRow09` 里零引用，注释却写着「句柄参数：反查（失效就置错误码，不崩）」。（本 change 只加了 `ResolveHandle` 这个**新入口**，"接口参数里的 `shared_ptr` / `weak_ptr` 反查"仍未实现。）
+- **句柄入参的反查根本没实现**：`lookupHandle` 定义了但 `IBindRow09` 里零引用，注释却写着「句柄参数：反查（失效就置错误码，不崩）」。（本 change 只加了 `ResolveHandle` 这个**新入口**，"接口参数里的 `shared_ptr` / `weak_ptr` 反查"仍未实现。）**2026-10-26 复核：已实现** —— `out/build/x64-debug/codegen/bindings/*.cpp` 里 `lookupHandle` 命中 92 处。
 - ~~错误状态是每接口一份 static 全局（`IWindow_lastErrorCode`），`LastErrorCode(void*)` 的 `self` 被忽略~~ —— **已在 `csharp-window-creation` 任务 5.10 修掉**：错误通道进 `IWindowApi_v2`（两个槽），状态按 `self` 分槽，每个 thunk 入口先清零；`setError` 的 `memcpy` 也改成夹住 255 字节。
 
 **本轮新发现的三条（`csharp-window-creation` 收尾时实测到的）：**
@@ -202,28 +202,6 @@
 **改法**：headless 跑测前清 `test_output/`（或按后端分子目录）。
 **验收口径**：连续跑完两个后端后，`test_output/` 里每个文件的时间都落在本次运行区间内；不再出现跨后端的同名残留。
 **相关**：`Test/GPUBackendTester/Main.cpp`（`test_output/` 写入路径、`--report`）。
-
----
-
-## [2026-10-15] `Tools/CodeGen/README.md` 有两个「## 五、」｜文档
-
-**状态：未修（纯文档，引用章节号会指错）**
-
-**问题**：第 369 行 `## 五、容器：识别规则、磁盘形状与拒绝条件`、第 466 行 `## 五、调用示例（每条都在本机实跑过，输出逐字照抄）`。
-**改法**：后一个改成「六、」并把其后章节号顺延（其后的「六、构建期怎么用它」等一起动）。
-**验收口径**：`Select-String -LiteralPath "Tools\CodeGen\README.md" -Pattern '^## '` 出来的章节号无重复；`python Tools/CodeGen/verify_readme.py` 仍 `0 mismatch(es)`。
-**相关**：`Tools/CodeGen/README.md`。
-
----
-
-## [2026-10-15] 全局规则文件里仍写着旧产物名（仓库外）｜`~/.dsh/AGENTS.md`
-
-**状态：未修（不在本仓库，改不改由你定）**
-
-**问题**：`~/.dsh/AGENTS.md:143` 逐字：生成的 `` `<类型>.{Reflection,Serialization,Hash}.h` ``。现状是产物已合成**一份** `<类型>.codegen.h`（`merge-codegen-products` 那次改的：一个类型一份产物，三个 section 在同一个文件里）。
-**改法**：把那一行改成 `<类型>.codegen.h`。
-**验收口径**：该文件里 `Reflection,Serialization,Hash` 这个字样不再出现。
-**相关**：`~/.dsh/AGENTS.md`（全局，10 节版）；`openspec/changes/archive/2026-10-15-merge-codegen-products/`。
 
 ---
 
