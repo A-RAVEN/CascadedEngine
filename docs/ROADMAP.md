@@ -51,9 +51,13 @@
 | 项 | 状态 | 位置 |
 |---|---|---|
 | Vulkan GPU 查询体系（时间戳 / 遮挡 / 管线统计） | 0/13，未开工，待拍板 | `openspec/changes/vulkan-gpu-queries/` |
-| IMGUI 字体改 RGBA32 + identity swizzle（要 AA 灰阶） | 12/14，剩 3.1 / 3.2 | `openspec/changes/fix-imgui-font-whitebox/` |
 
-> **原第三项「RunTestCode」已移出**（2026-10-26 复核）：它**不是**真实差距。
+本阶段已完成的两项：
+
+- **IMGUI 字体改 RGBA32 + identity swizzle** —— 14/14，2026-10-26 归档到 `openspec/changes/archive/2026-10-26-fix-imgui-font-whitebox/`。因果判据：把采样视图加回 `SingleChannel(eR)`，vp0 白像素从 97 变成 233。
+- **后端对齐 Phase 3 的 `RunTestCode`** —— 复核为「不是差距」，无需实现，见下注。
+
+> **「RunTestCode」为什么不是差距**（2026-10-26 复核）：
 > `Interface/RenderInterface/header/CRenderBackend.h` 的基类是 `virtual void RunTestCode(){};` 空实现；
 > `D3D12RenderBackend/private/RenderBackend_D3D12.cpp` 的 override 函数体 **40 行全是注释**，一句活代码也没有；
 > 全仓 **0 处调用**。两边都空，谈不上「Vulkan 缺这一项」。
@@ -63,7 +67,7 @@
 
 ## 三、下一阶段
 
-**目前没有已立项的下一阶段。** 阶段 3 这两项做完之后做什么，仓库里没有任何文档给出方向 —— 这一句是本文件当前最重要的一句。
+**目前没有已立项的下一阶段。** 阶段 3 这一项做完之后做什么，仓库里没有任何文档给出方向 —— 这一句是本文件当前最重要的一句。
 
 下面三个是可选方向，**均未立项、未经批准**，列出来是为了让「还没有方向」这件事可见，不是计划：
 
@@ -98,6 +102,6 @@
 
 1. 本文件正文里出现的每个 `openspec/changes/...` 与 `docs/....md` 反引号路径都能 `Test-Path`。**含 `<` 或 `>` 的模板片段跳过** —— 本文件里有 3 处这样的占位符（`<change>/tasks.md`、`<名字>/`、`archive/<日期>-<名字>/`），不跳过的话判据会对着模板报假红。
 2. 「阶段 2」表里列出的每个 change 名，都能在 `openspec/changes/archive/` 下找到名字里含它的目录。
-3. 「阶段 3」表里每行「状态」写的分数（`0/13`、`12/14`）与对应 `tasks.md` 的实际勾选数一致。
+3. 「阶段 3」表里每行「状态」写的分数与对应 `tasks.md` 的实际勾选数一致。
 
 第 2 条和第 3 条是这一整节的关键：没有它们，这个文件可以永远写着「已完成」和「12/14」而没人发现它错了。
