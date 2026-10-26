@@ -68,24 +68,6 @@
 
 ---
 
-## [2026-09-02] IMGUI 字体 D2 加固：规范字体上传（AA 灰阶 + 去 swizzle 依赖）｜`fix-imgui-font-whitebox` deferred follow-up
-
-**类型：变更内 deferred 跟进**（`fix-imgui-font-whitebox` 任务 3.1 / 3.2，明确"本轮不做"）
-
-**问题**：D1（Vulkan 图像视图 honor swizzle，commit `034dcb4`）已让**白块**消失（white=97=字形，与 d3d12 一致），但链路仍是 "`GetTexDataAsAlpha8`(R 单通道) → `E_R8_UNORM` 纹理 → `SingleChannel(R)` swizzle" 的脆弱路径，且**无正常 AA 灰阶**。
-
-**改法**（规范 ImGui 做法）：
-- `IMGUIContext/IMGUIContext.cpp:489` `GetTexDataAsAlpha8` → `GetTexDataAsRGBA32`
-- `:491-493` 纹理 `E_R8_UNORM` → `E_R8G8B8A8_UNORM`
-- `:496` 上传大小 `texW*texH*4`
-- `:754` 采样 view swizzle `SingleChannel(eR)` → **不再保留**（identity 语义；否则 RGBA 读 R=255 仍是白块）
-- 仅改模块版（TestIMGUI 链接的是它）
-
-**验收**：双端 headless 渲染出正常字形 + 出现正常 AA 灰阶；vulkan/d3d12 字节收敛；无新增 VUID。
-**注**：落地时务必把 swizzle 改 identity（否则 RGBA 读 R=255 仍白）。done 后记录 AA 观察 + swizzle 一致性（`docs/TODO.md` 该 entry 移除）。
-
----
-
 ## [2026-07-12] vulkan-gpu-queries：Vulkan GPU 查询体系（OpenSpec change，0/13，未开始）
 
 **状态：未开始（0/13；2026-07-12 建立后未推进，疑似搁置/废弃，待用户拍板）**

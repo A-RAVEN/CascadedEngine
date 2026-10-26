@@ -486,15 +486,18 @@ namespace imgui_display
 		catimer::SetupFonts(editorConfigPath);
 
 		unsigned char* fontData;
-		int texWidth, texHeight, bytesPerPixel;
-		io.Fonts->GetTexDataAsAlpha8(&fontData, &texWidth, &texHeight, &bytesPerPixel);
+		int texWidth, texHeight;
+		// 规范做法：字体位图按 RGBA32 上传，A 通道就是覆盖率（Imgui.slang 读 `.aaaa`）。
+		// 早先用 GetTexDataAsAlpha8 + E_R8_UNORM，要靠采样视图的 SingleChannel(eR) 把 R 复制到 RGBA
+		// 才能让 `.aaaa` 读到覆盖率 —— 那条链依赖 swizzle 在每个后端都被忠实应用，换成 identity 就白块。
+		io.Fonts->GetTexDataAsRGBA32(&fontData, &texWidth, &texHeight);
 
 		m_Fontimage = p_RenderBackend->CreateGPUTexture(GPUTextureDescriptor::Create(texWidth, texHeight
-			, ETextureFormat::E_R8_UNORM)
+			, ETextureFormat::E_R8G8B8A8_UNORM)
 			, ETextureAccessType::eTransferDst | ETextureAccessType::eSampled);;
 		m_Fontimage->SetName("FontImage");
 
-		initializeGraph->ScheduleData(m_Fontimage, fontData, texWidth * texHeight * bytesPerPixel);
+		initializeGraph->ScheduleData(m_Fontimage, fontData, texWidth * texHeight * 4);
 		initializeGraph->Finalize(m_Fontimage, ETextureAccessType::eSampled);
 		IM_FREE(fontData);
 
@@ -816,8 +819,10 @@ namespace imgui_display
 		shaderArgs->SetSampler(CANAME("IMGUITextureSampler"), TextureSamplerDescriptor::LinearClamp());
 
 		auto defaultImageArgs = GetRenderBackend()->CreateShaderStruct("IMGUITextureBinding");
+		// 字体纹理是 RGBA32，A 通道本就是覆盖率，采样视图用 identity（不再挂 SingleChannel(eR)）：
+		// 否则 RGBA 纹理的 R 恒为 255，`.aaaa` 会把覆盖率读成 1，白块原样复现。
 		defaultImageArgs->SetImage(CANAME("IMGUITexture"), m_Fontimage
-			, GPUTextureView::CreateDefaultForSampling(ETextureFormat::E_R8G8B8A8_UNORM, GPUTextureSwizzle::SingleChannel(EColorChannel::eR)));
+			, GPUTextureView::CreateDefaultForSampling(ETextureFormat::E_R8G8B8A8_UNORM));
 
 		pUserData->m_VertexBuffer = BufferHandle("IMGUI Buffer Handle", true);
 		pUserData->m_IndexBuffer = BufferHandle("IMGUI Index Buffer Handle", true);

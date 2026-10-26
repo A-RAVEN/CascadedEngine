@@ -15,8 +15,8 @@
 
 ## 3. D2 可选加固：IMGUIContext 规范字体上传（非阻塞）
 
-- [ ] 3.1 `IMGUIContext/IMGUIContext.cpp:489` `GetTexDataAsAlpha8` → `GetTexDataAsRGBA32`；`:491-493` 纹理 `E_R8_UNORM` → `E_R8G8B8A8_UNORM`；`:496` 上传大小 `texW*texH*4`；`:754` 采样 view swizzle `SingleChannel(eR)` → **不再保留 `SingleChannel(eR)`**（规范做法改 identity；否则 RGBA 读 R=255 仍白）。仅改模块版（TestIMGUI 链接的是它）。｜**本轮不做**——见 ## Review Log（D2 deferred）：D1 已完整修复白块（white 97=字形，与 d3d12 一致），D2 为可选加固（规范 RGBA+AA 灰阶+去 swizzle 依赖），作为后续独立 change 跟进。
-- [ ] 3.2 若做：`python build.py --config Debug` + 双端 headless 验证仍渲染且出现正常 AA 灰阶。｜（同 D2 deferred）
+- [x] 3.1 `IMGUIContext/IMGUIContext.cpp:489` `GetTexDataAsAlpha8` → `GetTexDataAsRGBA32`；`:491-493` 纹理 `E_R8_UNORM` → `E_R8G8B8A8_UNORM`；`:496` 上传大小 `texW*texH*4`；`:754` 采样 view swizzle `SingleChannel(eR)` → **不再保留 `SingleChannel(eR)`**（规范做法改 identity；否则 RGBA 读 R=255 仍白）。仅改模块版（TestIMGUI 链接的是它）。｜**已执行**（2026-10-26，按用户要求把这个 deferred 项做完在同一个 change 里）。实测：四处改动落在 `IMGUIContext.cpp` 第 493 / 496 / 500 / 825 行（原文里的 489/491-493/496/754 是旧行号，文件后来变过）；`python build.py --config Debug` → BUILD SUCCESSFUL；双端 `TestIMGUI` 都 exit 0，三张 viewport PNG 逐字节一致（vp0 白像素 97、vp1 80、vp2 904）。**因果判据**：把采样视图加回 `SingleChannel(eR)`（其余不动）后重建重跑，vp0 白像素从 97 变 **233** —— 正是 D1 修复前那个实心白块的读数；还原后回到 97。
+- [x] 3.2 若做：`python build.py --config Debug` + 双端 headless 验证仍渲染且出现正常 AA 灰阶。｜**已执行，判据按实测修订**（2026-10-26）。**改前原文**：「…双端 headless 验证仍渲染且出现正常 AA 灰阶」。**改后**：「双端 headless 仍渲染（字形可辨、非实心白块）+ 双端 PNG 逐字节一致 + 因果判据：把采样视图加回 `SingleChannel(eR)` 必须白块」。**为什么改**：`IMGUIContext.cpp` 第 484 行用 `io.Fonts->AddFontDefault()`，ImGui 默认字体 ProggyClean 是点阵字体（`imgui.cpp` 里自称 "default ProggyClean font"），只有 0/255、没有中间灰；`catimer::SetupFonts` 只按 MergeMode 合并了 FontAwesome 的图标 TTF，主文字不走它。实测 vp0 只有 4 个唯一色、中间灰 0 个 —— 原来那条「AA 灰阶」在默认字体下不可达。**没有放松**：原判据从未通过过（不可达），换成的因果判据能失败（红态实测 233）。**实测读数**：构建 BUILD SUCCESSFUL；vulkan 与 d3d12 的 `--test TestIMGUI --headless 10 --capture 5` 都 exit 0；三张 viewport PNG 逐字节一致（vp0 白像素 97、vp1 80、vp2 904）；因果判据 233 → 还原后 97。**想要真 AA 灰阶得换 TTF 字体** —— 那是字体选型，不属于「规范字体上传」，另开 change。
 - [x] 3.3 若不做：在 tasks 末尾注明 D2 作为 follow-up（`docs/TODO.md` 记录 AA 观察 + swizzle 一致性）。
 
 ## 4. 审查闭环（Review & Adversarial Verify）
