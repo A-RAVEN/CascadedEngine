@@ -137,6 +137,8 @@ namespace Scripting.Managed
         private static bool s_surfaceWindowProbed;
         private static bool s_engineWindowClosed;
         private static bool s_exceptionProbed;
+        // 任务 2.2：脚本只调一次
+        private static bool s_userScriptCalled;
 
         /// <summary>
         /// 每帧读一次 `WindowShouldClose`（任务 2.8）。引擎侧在关窗前后各 tick 一次，
@@ -195,6 +197,9 @@ namespace Scripting.Managed
             s_windowProbed = false;
             s_engineWindowClosed = false;
             s_surfaceWindowProbed = false;
+            // 任务 2.2：重绑开始就把旧的对象作废 —— 否则下面若取 IWindowSystem 表失败，`s_system`
+            // 会保留上一次的旧对象，"两张表都绑好"这个条件被旧值骗过（脚本会拿到一个已失效的 self）。
+            s_system = null;
 
             uint systemSize = s_api->GetInterfaceApi(InterfaceIdSystem, null, WindowApiTableVersion, 0, null, null);
             if (systemSize == 0)
@@ -213,6 +218,21 @@ namespace Scripting.Managed
             }
             IWindowSystemBindings.Bind(systemTable);
             s_system = new IWindowSystem(new IWindowSystemLease { Self = systemInstance });
+
+            // 任务 2.2：两张表都绑定成功之后调一次用户脚本，整个进程只调一次。
+            // 先置标志再调用：脚本抛异常时由 `Tick` 的 catch 转成非零返回码 + `s_lastError`，
+            // 且不会因为下一帧重试而反复抛。
+            if (!s_userScriptCalled && s_system != null)
+            {
+                s_userScriptCalled = true;
+                UserScript.OnEngineReady(s_system);
+                // 调用次数与建窗尺寸都打到日志里：引擎侧只能看日志，用它判「只调一次」与「窗口建出来了」
+                LogLine($"[脚本] OnEngineReady 调用 #{UserScript.CalledCount}");
+                if (UserScript.LastCreatedSummary.Length != 0)
+                {
+                    LogLine($"[脚本] 建窗：脚本建的窗口 {UserScript.LastCreatedSummary}");
+                }
+            }
         }
 
         /// <summary>
@@ -258,7 +278,7 @@ namespace Scripting.Managed
             var (width, height) = s_window.GetWindowSize();
             LogLine($"[托管侧] 窗口尺寸 = {width} x {height}");
 
-            int windowCount = s_system.GetWindowCount();
+            int windowCount = s_system != null ? s_system.GetWindowCount() : -1;
             LogLine($"[托管侧] IWindowSystem::GetWindowCount = {windowCount}");
             if (windowCount <= 0)
             {
@@ -272,8 +292,10 @@ namespace Scripting.Managed
         /// </summary>
         private static void ProbeSurfaceWindow()
         {
-            if (!s_windowProbed || s_surfaceWindowProbed)
+            if (!s_windowProbed || s_surfaceWindowProbed || s_system == null)
             {
+                // `s_system == null`：引擎只登记了编号 1（半绑定态）。这一帧没有表面可用，
+                // 直接跳过，不许在这里吃空引用异常（任务 2.2 ④）。
                 return;
             }
             s_surfaceWindowProbed = true;

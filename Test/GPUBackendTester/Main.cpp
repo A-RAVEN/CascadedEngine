@@ -1,6 +1,8 @@
 #include<mimalloc.h>
 #include <ScriptHost/IScriptHost.h>
 #include <cstdlib>
+#include <cerrno>
+#include <climits>
 #include <cstring>
 #include <fstream>
 #include <chrono>
@@ -1293,7 +1295,13 @@ void TestCSharpWindow(TestContext& ctx)
 	// 任务 5.4：这一份实现归属哪个窗口系统，必须在窗口还活着的时候读（下面 `window.reset()` 之后就没了）
 	void* const realWindowOwner = window->GetWindowSystem();
 
-	pScriptHost->Tick(0.016);
+	// 任务 2.3：脚本在**进程的第一次成功绑定之后**建一个常驻窗口，只建一次。
+	// 所以这个加号分两种情况（全量跑时脚本早在更早的测试里就建过窗了）：
+	//   - 这一 Tick 是进程的第一次 Tick（回值 1）⇒ 脚本在这里建窗，计数必须 +1；
+	//   - 回值 > 1 ⇒ 脚本已经在更早的 Tick 里建过，这里**不该**再 +1（+1 才说明它重复建窗了）。
+	int32_t const countBeforeScript = ctx.pWindowSystem->GetWindowCount();
+
+	int32_t const scriptTickValue = pScriptHost->Tick(0.016);
 	if (pScriptHost->LastError()[0] != '\0')
 	{
 		// 先把跨边界的文字拷成**具名** std::string 再拼、再抛（任务 4.4）：
@@ -1307,6 +1315,34 @@ void TestCSharpWindow(TestContext& ctx)
 		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "建窗 + Tick 之后 LastError 非空：%s",
 		              pScriptHost->LastError());
 		throw std::runtime_error("E_HANDLE_TABLE");
+	}
+
+	// 任务 2.3：脚本只建一次窗。这一 Tick 是进程第一次 Tick（回值 1）时计数必须 +1；
+	// 否则说明脚本已在更早的 Tick 里建过，这里再加就说明它重复建窗了。两种情况都不许回落。
+	{
+		int32_t const countAfterScript = ctx.pWindowSystem->GetWindowCount();
+		ctx.pWindowSystem->UpdateSystem();
+		int32_t const countAfterScriptUpdate = ctx.pWindowSystem->GetWindowCount();
+		bool const firstTick = scriptTickValue == 1;
+		int32_t const expected = firstTick ? countBeforeScript + 1 : countBeforeScript;
+		CA_LOG("脚本建窗计数：建窗前 {} → Tick(回值 {}) 之后 {} / UpdateSystem 之后 {}（{}）", countBeforeScript,
+		       scriptTickValue, countAfterScript, countAfterScriptUpdate,
+		       firstTick ? "本 Tick 是进程第一次 Tick，期望 +1" : "脚本已在更早的 Tick 建过，期望不涨");
+		if (countAfterScript != expected)
+		{
+			std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+			              "脚本建窗计数不符：Tick 回值 %d（%s）、Tick 之后 = %d、建窗前 = %d（期望 %d）", scriptTickValue,
+			              firstTick ? "进程第一次 Tick，期望 +1" : "脚本早建过，期望不涨", countAfterScript,
+			              countBeforeScript, expected);
+			throw std::runtime_error("E_SCRIPT_WINDOW");
+		}
+		if (countAfterScriptUpdate != countAfterScript)
+		{
+			std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+			              "脚本建的窗口被回收了：UpdateSystem 之后 = %d、建窗后 = %d（脚本没关窗，不许回落）",
+			              countAfterScriptUpdate, countAfterScript);
+			throw std::runtime_error("E_SCRIPT_KEEP");
+		}
 	}
 
 	CA_LOG("TestCSharpWindow 通过：窗口已登记（编号 1 = IWindow、编号 2 = IWindowSystem），"
@@ -1338,33 +1374,39 @@ void TestCSharpWindow(TestContext& ctx)
 	}
 
 	// 任务 5.5：**表面建的窗口**走一整圈 —— 托管侧在第三次 Tick 里 `NewWindow` → 读尺寸 → 关窗 →
-	// `Dispose`，引擎侧只看得到这里的计数：建出来的那一个让计数 +1，泵帧 + UpdateSystem 之后回 0。
+	// `Dispose`，引擎侧只看得到这里的计数：建出来的那一个让计数 +1，泵帧 + UpdateSystem 之后回基线。
 	// 这一段刻意不再裸调 C ABI 入口（建窗 / 解句柄 / 读尺寸 / 关窗 / 读错误码 全部改由托管表面做）——
 	// 那几条入口由 `Test/CoreTests` 的绑定用例直接对着产物验，这里只验"两侧读数一致"。
+	//
+	// `csharp-visible-window` 任务 1.1：脚本（`UserScript.OnEngineReady`）会建一个**常驻**窗口，从第一次
+	// Tick 起就一直在计数里。所以下面两条断言的基线必须**就地重读**，而且不能再取"第一次 Tick 之后"
+	// —— 那时引擎自己那个 800×600 窗口还在（它要到下面这次 `UpdateSystem()` 之后才被回收），基线会把
+	// 它算进去，`+1` 就永远差 1。取在这里：引擎窗口已回收、脚本窗（若已建）已在计数里。
+	int32_t const countSurfaceBaseline = ctx.pWindowSystem->GetWindowCount();
 	pScriptHost->Tick(0.016);
 	int32_t const countAfterSurfaceTick = ctx.pWindowSystem->GetWindowCount();
 	ctx.pWindowSystem->UpdateSystem();
 	int32_t const countAfterSurfaceUpdate = ctx.pWindowSystem->GetWindowCount();
-	CA_LOG("表面建窗计数：Tick #3 之后 {} / UpdateSystem 之后 {}（托管侧在这一次 Tick 里建窗 + 读尺寸 + 关窗 + 释放）",
-	       countAfterSurfaceTick, countAfterSurfaceUpdate);
+	CA_LOG("表面建窗计数：基线 {} → Tick #3 之后 {} / UpdateSystem 之后 {}（托管侧在这一次 Tick 里建窗 + 读尺寸 + 关窗 + 释放）",
+	       countSurfaceBaseline, countAfterSurfaceTick, countAfterSurfaceUpdate);
 	if (pScriptHost->LastError()[0] != '\0')
 	{
 		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "表面建窗那一次 Tick 之后 LastError 非空：%s",
 		              pScriptHost->LastError());
 		throw std::runtime_error("E_SURFACE_WINDOW");
 	}
-	if (countAfterSurfaceTick != countBaseline + 1)
+	if (countAfterSurfaceTick != countSurfaceBaseline + 1)
 	{
 		std::snprintf(g_errorDetail, sizeof(g_errorDetail),
 		              "托管侧通过表面建的窗口没有出现在计数里：Tick #3 之后 = %d、基线 = %d（期望 +1）",
-		              countAfterSurfaceTick, countBaseline);
+		              countAfterSurfaceTick, countSurfaceBaseline);
 		throw std::runtime_error("E_SURFACE_COUNT");
 	}
-	if (countAfterSurfaceUpdate != countBaseline)
+	if (countAfterSurfaceUpdate != countSurfaceBaseline)
 	{
 		std::snprintf(g_errorDetail, sizeof(g_errorDetail),
 		              "表面建的窗口没有被回收：UpdateSystem 之后计数 = %d、基线 = %d（期望回基线）",
-		              countAfterSurfaceUpdate, countBaseline);
+		              countAfterSurfaceUpdate, countSurfaceBaseline);
 		throw std::runtime_error("E_SURFACE_RECYCLE");
 	}
 
@@ -1462,6 +1504,8 @@ int main(int argc, char* argv[])
 	int headlessFrames = 0;
 	int headlessTimeout = 60;
 	int captureFrame = -1;
+	// 任务 3.1：0 = 不进入保持循环（没有默认时长，必须是显式传参）
+	int showWindowSeconds = 0;
 	castl::string reportPath;
 
 	for (int i = 1; i < argc; ++i)
@@ -1534,6 +1578,28 @@ int main(int argc, char* argv[])
 				return 1;
 			}
 			reportPath = argv[++i];
+		}
+		else if (strcmp(argv[i], "--show-window-seconds") == 0)
+		{
+			// 任务 3.1：保持可见的时长。**不许有默认值** —— 不传就不进入保持循环。
+			// 只收正整数：0、负数、非数字、溢出都当非法（`strtol` 对 9999999999 会饱和成
+			// 2147483647 并置 errno=ERANGE，只看 `> 0` 会把它当合法值收下）。
+			if (i + 1 >= argc)
+			{
+				std::cerr << "Error: --show-window-seconds requires a positive integer (seconds)" << std::endl;
+				return 1;
+			}
+			const char* text = argv[++i];
+			errno = 0;
+			char* end = nullptr;
+			long val = strtol(text, &end, 10);
+			if (end == text || *end != '\0' || errno == ERANGE || val <= 0 || val > INT_MAX)
+			{
+				std::cerr << "Error: --show-window-seconds value must be a positive integer, got: " << text
+				          << std::endl;
+				return 1;
+			}
+			showWindowSeconds = static_cast<int>(val);
 		}
 		else if (strcmp(argv[i], "--capture") == 0)
 		{
@@ -1863,6 +1929,51 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestIMGUI", TestIMGUI);
 		runTestWithDiagnostics("TestScriptHost", TestScriptHost);
 		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
+	}
+
+	// 任务 3.2：`--show-window-seconds N` —— 所有选中的测试跑完之后，再保持 N 秒：
+	// 每轮 `Tick()` + `UpdateSystem()`，期间不关脚本建的窗口（脚本本来就没关，这里也不去动它）。
+	// 判据落在日志里，由三条计数决定，不看墙钟自报：
+	//   ① `Tick` 调用次数 > 0；② 它等于循环次数（循环真的每轮都泵帧）；③ 保持结束时计数不回落。
+	if (showWindowSeconds > 0)
+	{
+		auto* pKeepScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+		int32_t const countBeforeKeep = ctx.pWindowSystem ? ctx.pWindowSystem->GetWindowCount() : -1;
+		int32_t loopCount = 0;
+		int32_t tickCalls = 0;
+		auto const startedAt = std::chrono::steady_clock::now();
+		double elapsedSeconds = 0.0;
+		while (true)
+		{
+			elapsedSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedSeconds >= static_cast<double>(showWindowSeconds))
+			{
+				break;
+			}
+			++loopCount;
+			if (pKeepScriptHost != nullptr)
+			{
+				pKeepScriptHost->Tick(0.016);
+				++tickCalls;
+			}
+			if (ctx.pWindowSystem != nullptr)
+			{
+				ctx.pWindowSystem->UpdateSystem();
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		int32_t const countAfterKeep = ctx.pWindowSystem ? ctx.pWindowSystem->GetWindowCount() : -1;
+		bool const keepOk = tickCalls > 0 && tickCalls == loopCount && countAfterKeep == countBeforeKeep;
+		// 这一行必须在**测试自己的日志文件已关闭、stdout/stderr 都被改道之后**还能读到，所以单独落一个文件。
+		std::string const keepLogPath = "test_output/keep_window.log";
+		if (FILE* keepLog = std::fopen(keepLogPath.c_str(), "w"))
+		{
+			std::fprintf(keepLog,
+			             "保持窗口判据：%s（循环 %d 次 / Tick 调用 %d 次 / 实际 %.2f 秒、要求 %d 秒 / 计数 %d → %d）\n",
+			             keepOk ? "通过" : "失败", loopCount, tickCalls, elapsedSeconds, showWindowSeconds,
+			             countBeforeKeep, countAfterKeep);
+			std::fclose(keepLog);
+		}
 	}
 
 	// Task 2.5: Close JSON array

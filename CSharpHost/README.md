@@ -26,6 +26,15 @@
 - **不做 AOT**：现在是 framework-dependent 的 JIT 形态（`runtimeconfig.json` 指向 `Microsoft.NETCore.App`）。
 - **不建线程、不做热重载、不支持多脚本程序集**：`Boot` / `Tick` 都在引擎主线程上被调用。
 
+## 脚本层：`Scripting/Managed/UserScript.cs`
+
+- **写在哪**：`Scripting/Managed/UserScript.cs`（与宿主同程序集，编译期一起编进去）。使用者改这个文件、重新构建即生效，**不必碰 `Host.cs`**。
+- **入口签名**：`public static void OnEngineReady(Scripting.Generated.Bindings.IWindowSystem windows)` —— 一个静态类、一个静态方法。
+- **什么时候被调**：宿主 `EnsureBound()` 把**编号 1、2 两张函数表都绑定成功之后**调一次；**整个进程生命周期内只调一次**（重绑不会再调，所以脚本不会越建越多窗口）。
+- **怎么判"调了几次"**：脚本里 `internal static int CalledCount` 自增，宿主把它打进日志 `[脚本] OnEngineReady 调用 #N`。
+- **边界**：传进来的 `windows` 在引擎换默认实例之前一直有效，**不要存进静态字段跨重绑使用**；建出来的窗口是弱持有，不 `CloseWindow()` 就一直活到进程退出（`Dispose` 只释放句柄）。
+- **失败**：脚本抛异常由宿主 `Tick` 的 `catch` 转成非零返回码 + `LastError`（带异常类型与消息），不会静默。
+
 ## 构建
 
 ```powershell

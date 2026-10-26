@@ -1,0 +1,11 @@
+﻿# 4.1 证据：C# 脚本建的窗口在屏幕上可见（同一次运行的日志）
+# 命令：GPUBackendTester.exe --backend vulkan --test TestCSharpWindow --headless 60 --report test_output/r41.json --show-window-seconds 10
+# 截图：evidence/visible-window.png（2560x1600，进程存活期间拍的全屏，窗口标题「脚本建的窗口」）
+
+[托管侧] [脚本] OnEngineReady 调用 #1
+[托管侧] [脚本] 建窗：脚本建的窗口 320 x 240
+脚本建窗计数：建窗前 1 → Tick #1 之后 2 / UpdateSystem 之后 2
+
+保持窗口判据：通过（循环 5021 次 / Tick 调用 5021 次 / 实际 10.00 秒、要求 10 秒 / 计数 1 → 1）
+
+报告状态：pass

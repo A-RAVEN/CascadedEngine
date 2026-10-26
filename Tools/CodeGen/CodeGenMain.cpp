@@ -3349,6 +3349,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn)
             cpp += "    " + shape.name + "_releaseHandle(self, handle);\n}\n\n";
             cpp += "extern \"C\" void* " + shape.name + "_ResolveHandle(void* self, uint64_t handle)\n{\n";
             cpp += "    " + shape.name + "_clearError(self);\n";
+            // 任务 5.1（`csharp-visible-window`）：解析这条路原来**裸读**句柄表 —— 登记时会 push_back
+            // 扩容、释放时清项，两边都持 HandleMutex，只有这里不持，于是并发用例偶发"取不到句柄"
+            // （实测 353 次里 9 次红）。三路共用同一把锁，读表也在锁内。
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
             cpp += "    void* object = " + shape.name + "_lookupHandle(handle);\n";
             cpp += "    if (object == nullptr) { " + shape.name + "_setError(self, " + shape.name +
                    "_ERROR_STALE_HANDLE, \"stale handle\"); }\n";

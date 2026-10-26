@@ -7,7 +7,7 @@
 | 层 | 载体 | 适合测什么 | 不适合测什么 |
 |---|---|---|---|
 | **① 纯逻辑** | `Test/CoreTests`（13 个 `.cpp`，`main` 在 `SerializerTest.cpp`） | 序列化字节、哈希值、反射与类型表、容器语义这类**不碰模块、不开窗口、不需要 GPU**的判定 | 需要加载模块、需要真实后端、需要多进程或"启动即退出"的行为 |
-| **② 进程内行为** | `Test/GPUBackendTester`（当前 **9** 个测试，注册在 `Main.cpp` 的 `runTestWithDiagnostics("TestXxx", TestXxx)` 列表里） | 要真后端、真要窗口、要在引擎内部断言某模块的行为（例：`IScriptHost` 可用、`Tick` 回值正确） | 进程级失败（启动就该非零退出）、需要改环境变量的场景 |
+| **② 进程内行为** | `Test/GPUBackendTester`（当前 **10** 个测试，注册在 `Main.cpp` 的 `runTestWithDiagnostics("TestXxx", TestXxx)` 列表里） | 要真后端、真要窗口、要在引擎内部断言某模块的行为（例：`IScriptHost` 可用、`Tick` 回值正确） | 进程级失败（启动就该非零退出）、需要改环境变量的场景 |
 | **③ 进程级 / 多进程** | `Tools/check_*.py`（现有 6 个脚本） | "缺文件 / 版本不符 / ABI 不符 ⇒ 退出码与错误串"这类**一启动就失败**的路径；生成物与审计表的对账 | 需要引擎内部状态的断言 |
 
 ## 统一约定
@@ -26,9 +26,9 @@
 
 `CodeGenKindsTest` / `CodeGenMetaTest` / `CodeGenRuntimeTest` / `EmitReflectionTest` / `FriendLikeTest` / `GeneratedContainerTest` / `GeneratedHashContainerTest` / `GeneratedHashTest` / `GeneratedSerializerTest` / `PipelineStateObjectTest` / `ResourceBatchTest` / `SerializerTest`（含 `main` 与分配烟测）/ `ShaderLibraryBytesTest`。
 
-跑法：`out\build\x64-debug\bin\CoreTests.exe`（退出码 0，`PASSED` 行数当前为 **12**）。
+跑法：`out\build\x64-debug\bin\CoreTests.exe`（退出码 0，`PASSED` 行数当前为 **17**）。
 
-### ② `Test/GPUBackendTester`（9 个测试）
+### ② `Test/GPUBackendTester`（10 个测试）
 
 `TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost`。
 
@@ -68,7 +68,7 @@
 
 `CSharpHost` 有两类行为要测，正好各落一层：
 
-### 层 ②：`TestScriptHost`（在 `GPUBackendTester` 里加第 9 个测试）
+### 层 ②：`TestScriptHost`（加它的时候是第 9 条；`TestCSharpWindow` 之后一共 10 条）
 
 测"运行时起来了且双向可调"，断言全部来自进程内状态：
 
@@ -116,4 +116,10 @@ python Tools\CodeGen\check_bindable_audit.py
 python Tools\CodeGen\verify_readme.py
 ```
 
-判定：CoreTests 退出码 0 且 `PASSED` 12 行；两份 report 里 8 条 `status` 全为 `pass`；两个脚本退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`。
+判定：CoreTests 退出码 0 且 `PASSED` 17 行；两份 report 里 10 条 `status` 全为 `pass`；两个脚本退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`。
+
+## C# 脚本层与 `--show-window-seconds`
+
+`Scripting/Managed/UserScript.cs` 是**用户可写的脚本**：宿主 `Host.cs` 在**编号 1、2 两张函数表都绑定成功之后**调用它一次（整个进程只调一次），使用者改这个文件重新构建即生效，不必碰 `Host.cs`。脚本里建的窗口是弱持有：不 `CloseWindow()` 就一直活到进程退出（`Dispose` 只释放句柄）。
+
+`GPUBackendTester` 的 `--show-window-seconds <N>`：所有选中的测试跑完之后，进程再保持 N 秒，每轮 `Tick()` + `UpdateSystem()`，用来让窗口留在屏幕上给人看见/截图。**没有默认值**：不传就不进这段循环；`N` 必须是正整数（`0` / 负数 / 非数字 / 溢出都非零退出并在 stderr 说明用法）。判据落在 `test_output/keep_window.log`：`保持窗口判据：通过/失败（循环 … 次 / Tick 调用 … 次 / 实际 … 秒 / 计数 … → …）`，`Tick` 次数必须大于 0 且等于循环次数。为什么单独一个文件：测试自己的日志此时已关闭、`stdout`/`stderr` 都已改道，`CA_LOG` 写进去看不到。
