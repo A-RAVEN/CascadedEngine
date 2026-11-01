@@ -1289,6 +1289,33 @@ void TestCSharpWindow(TestContext& ctx)
 	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, window.get());
 	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
 
+	// 任务 3.2：显示器读数的两侧探针。C++ 侧每次读都打一行固定格式；托管侧在同一个 Tick 里用
+	// 生成的 `GetMonitor` 表面读同一个编号并打自己那行，`Tools/check_window_system_bindings.py`
+	// 逐字段对拍（两个矩形 + DPI）；负数与不小于数量的编号必须抛 `IWindowSystemException`（1006）。
+	{
+		// 显示器列表在 `UpdateSystem` 里刷新（`UpdateMonitors`）；不先泵一帧，两侧都只会读到 0 个显示器。
+		ctx.pWindowSystem->UpdateSystem();
+		auto logMonitor = [](char const* tag, int monitorId, cawindow::MonitorInfo const& info) {
+			CA_LOG("[C++ GetMonitor] {} id={} rect=({},{},{},{}) work=({},{},{},{}) dpi={}", tag, monitorId,
+			       info.m_MonitorRect.x, info.m_MonitorRect.y, info.m_MonitorRect.width, info.m_MonitorRect.height,
+			       info.m_WorkAreaRect.x, info.m_WorkAreaRect.y, info.m_WorkAreaRect.width,
+			       info.m_WorkAreaRect.height, info.m_DPIScale);
+		};
+		const int monitorCount = ctx.pWindowSystem->GetMonitorCount();
+		CA_LOG("[C++ GetMonitor] count={}", monitorCount);
+		if (monitorCount > 0)
+		{
+			logMonitor("probe=1", 0, ctx.pWindowSystem->GetMonitor(0));
+		}
+		else
+		{
+			CA_LOG("[C++ GetMonitor] 没有显示器，跳过 0 号读数");
+		}
+		// 原生实现对越界编号用 `castl::clamp`，这里把它的真实行为记下来：绑定层 MUST 在调用原生
+		// 实现之前拦下 -1，所以下面这行读数只用于证明"原生确实会返回另一个显示器"，不是期望结果。
+		logMonitor("clamp", -1, ctx.pWindowSystem->GetMonitor(-1));
+	}
+
 	int cppWidth = 0;
 	int cppHeight = 0;
 	window->GetWindowSize(cppWidth, cppHeight);
@@ -1475,6 +1502,190 @@ void TestCSharpWindow(TestContext& ctx)
 			                         "\"");
 		}
 		CA_LOG("未知接口编号读数：返回 0、LastError = {}", pScriptHost->LastError());
+	}
+}
+
+// ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
+// 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
+// `Action<...>` 并把窗口身份与全部标量参数写进日志，`Tools/check_window_system_bindings.py --callbacks`
+// 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
+// `Shutdown` 之前必须先执行托管注销（关闭后旧委托不再执行）。
+//
+// 红态怎么构造：让 `CallbackSlot.Release` 不释放 `GCHandle`（保活项不归零）、去掉替换/置空后的注销、
+// 或让 `CSharpHost::Shutdown` 不调托管 `Shutdown` —— 本测试与脚本都会变红。
+void TestCSharpWindowCallbacks(TestContext& ctx)
+{
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		throw std::runtime_error("IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "托管侧不可用：%s", pScriptHost->LastError());
+		throw std::runtime_error("E_CALLBACK_HOST");
+	}
+
+	struct CallbackEnvGuard
+	{
+		~CallbackEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PROBE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", nullptr);
+		}
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PROBE", "1");
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", "");
+
+	// 全量跑时 `TestCSharpWindow` 会故意触发一次"未知接口编号 9"，引擎侧 `LastError` 会一直留着那条文本
+	// （CSharpHost 只在托管侧写错误时才覆盖它）。这里先记下基线：只有本用例产生的错误才算失败。
+	const std::string baselineError = pScriptHost->LastError();
+	auto checkHostError = [&pScriptHost, &baselineError](char const* stage) {
+		const std::string current = pScriptHost->LastError();
+		if (current == baselineError)
+		{
+			return;
+		}
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s 之后 LastError 非空：%s", stage, current.c_str());
+		throw std::runtime_error("E_CALLBACK_ERROR");
+	};
+	auto logTrigger = [](char const* name, cawindow::IWindow* window, std::string const& args) {
+		CA_LOG("[C++ 回调] {} window=0x{:x} args=({})", name, reinterpret_cast<uintptr_t>(window), args);
+	};
+
+	fake_window::System systemA;
+	auto windowA = systemA.NewWindow(640, 480, "Callback Probe Window", true, true, true, false).lock();
+	if (!windowA)
+	{
+		throw std::runtime_error("E_CALLBACK_WINDOW_A");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowA.get());
+	// 默认实例 = 该接口**最先登记**的那一条：全量跑时 TestSimpleTriangle 已经登记过真实窗口系统，
+	// 所以这里必须用同一个实例名去覆盖那一条，否则托管侧仍然绑到真实实现（假实现上的触发一次都不到）。
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, &systemA);
+
+	// 失败时也要在**假实现还活着**的时候先关闭运行时：否则进程收尾时托管侧会去调一个已经析构的
+	// 栈上夹具（`Host.Shutdown` → 注销回调 → 虚调用），把"测试失败"变成崩溃。
+	try
+	{
+
+	// 固定非零显示器读数的 C++ 侧：托管侧在 Tick 里读同一份夹具数据，脚本逐字段对拍
+	{
+		const cawindow::MonitorInfo info = systemA.GetMonitor(0);
+		CA_LOG("[C++ GetMonitor] count={}", systemA.GetMonitorCount());
+		CA_LOG("[C++ GetMonitor] probe=1 id=0 rect=({},{},{},{}) work=({},{},{},{}) dpi={}", info.m_MonitorRect.x,
+		       info.m_MonitorRect.y, info.m_MonitorRect.width, info.m_MonitorRect.height, info.m_WorkAreaRect.x,
+		       info.m_WorkAreaRect.y, info.m_WorkAreaRect.width, info.m_WorkAreaRect.height, info.m_DPIScale);
+	}
+
+	// Tick #1：绑定 + 注册 10 类回调（托管侧断言保活项 = 10）
+	pScriptHost->Tick(0.016);
+	checkHostError("注册 10 类回调");
+
+	// 10 类事件各触发一次；参数与 `UserScript.CallbackProbe` 的常量逐项一致
+	int triggered = 0;
+	logTrigger("SetWindowFocusCallback", windowA.get(), "1");
+	triggered += systemA.TriggerWindowFocus(windowA.get(), true);
+	logTrigger("SetCursorEnterCallback", windowA.get(), "1");
+	triggered += systemA.TriggerCursorEnter(windowA.get(), true);
+	logTrigger("SetCursorPosCallback", windowA.get(), "12.5,34.5");
+	triggered += systemA.TriggerCursorPos(windowA.get(), 12.5f, 34.5f);
+	logTrigger("SetMouseButtonCallback", windowA.get(), "1,0,3");
+	triggered += systemA.TriggerMouseButton(windowA.get(), 1, 0, 3);
+	logTrigger("SetScrollCallback", windowA.get(), "1.5,-2.5");
+	triggered += systemA.TriggerScroll(windowA.get(), 1.5f, -2.5f);
+	logTrigger("SetWindowCloseCallback", windowA.get(), "");
+	triggered += systemA.TriggerWindowClose(windowA.get());
+	logTrigger("SetWindowPosCallback", windowA.get(), "100.5,200.5");
+	triggered += systemA.TriggerWindowPos(windowA.get(), 100.5f, 200.5f);
+	logTrigger("SetWindowSizeCallback", windowA.get(), "800.5,600.5");
+	triggered += systemA.TriggerWindowSize(windowA.get(), 800.5f, 600.5f);
+	logTrigger("SetKeyCallback", windowA.get(), "65,30,1,2");
+	triggered += systemA.TriggerKey(windowA.get(), 65, 30, 1, 2);
+	logTrigger("SetCharCallback", windowA.get(), "65");
+	triggered += systemA.TriggerChar(windowA.get(), 65u);
+	if (triggered != 10)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "10 类回调只触发了 %d 类", triggered);
+		throw std::runtime_error("E_CALLBACK_TRIGGER");
+	}
+
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", "verify-all");
+	pScriptHost->Tick(0.016);
+	checkHostError("校验 10 类回调并替换/置空");
+
+	// 替换后的焦点回调执行；置空后的光标进入回调不再执行（不记 C++ 触发行，免得被当成第二组）
+	int const replacedCalled = systemA.TriggerWindowFocus(windowA.get(), true);
+	int const clearedCalled = systemA.TriggerCursorEnter(windowA.get(), true);
+	if (replacedCalled != 1 || clearedCalled != 0)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+		              "替换后焦点回调触发结果 = %d（期望 1）、置空后光标进入触发结果 = %d（期望 0）", replacedCalled,
+		              clearedCalled);
+		throw std::runtime_error("E_CALLBACK_REPLACE");
+	}
+
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", "verify-replace");
+	pScriptHost->Tick(0.016);
+	checkHostError("校验替换与置空");
+
+	// 任务 4.3：用户委托抛异常不许穿出原生边界；下一次 UpdateSystem 必须原样上报，随后正常回调仍执行
+	systemA.TriggerScroll(windowA.get(), 3.5f, 4.5f);
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", "verify-exception");
+	pScriptHost->Tick(0.016);
+	checkHostError("回调异常上报");
+	systemA.TriggerScroll(windowA.get(), 5.5f, 6.5f);   // 异常之后重新注册的正常回调
+
+	// 任务 4.3：跨线程回调不许直接进入托管委托（桥必须记录 1005 并停止该次调用）
+	std::thread crossThread([&systemA, &windowA]() { systemA.TriggerWindowFocus(windowA.get(), true); });
+	crossThread.join();
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", "verify-thread");
+	pScriptHost->Tick(0.016);
+	checkHostError("跨线程回调拒绝");
+
+	// 重绑：同一对 (编号, 实例名) 换成第二份实现，托管 EnsureBound 会 Dispose 旧表面对象
+	fake_window::System systemB;
+	auto windowB = systemB.NewWindow(640, 480, "Callback Probe Window", true, true, true, false).lock();
+	if (!windowB)
+	{
+		throw std::runtime_error("E_CALLBACK_WINDOW_B");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowB.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, &systemB);
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", "verify-rebind");
+	pScriptHost->Tick(0.016);
+	checkHostError("校验重绑");
+
+	// 重绑已让托管侧释放旧表面对象并注册到新实现；现在触发两侧事件，再确认计数与保活项
+	int const oldSystemCalled = systemA.TriggerWindowFocus(windowA.get(), true);
+	int const newSystemCalled = systemB.TriggerWindowFocus(windowB.get(), true);
+	if (oldSystemCalled != 0 || newSystemCalled != 1)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+		              "重绑后旧实现触发结果 = %d（期望 0）、新实现 = %d（期望 1）", oldSystemCalled, newSystemCalled);
+		throw std::runtime_error("E_CALLBACK_REBIND");
+	}
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CALLBACK_PHASE", "verify-rebind-done");
+	pScriptHost->Tick(0.016);
+	checkHostError("校验重绑后的回调执行");
+
+	// 关闭：托管 `Shutdown` 必须先释放表面对象并注销回调，之后旧委托不许再执行
+	pScriptHost->Shutdown();
+	int const afterShutdown = systemB.TriggerWindowFocus(windowB.get(), true);
+	if (afterShutdown != 0)
+	{
+		throw std::runtime_error("E_CALLBACK_SHUTDOWN");
+	}
+	if (pScriptHost->IsAvailable())
+	{
+		throw std::runtime_error("E_CALLBACK_STILL_AVAILABLE");
+	}
+	CA_LOG("[C++ 回调] Shutdown 之后旧委托不再执行（第二份实现的回调已被注销）");
+	}
+	catch (...)
+	{
+		pScriptHost->Shutdown();
+		throw;
 	}
 }
 
@@ -1985,6 +2196,7 @@ int main(int argc, char* argv[])
 		std::cout << "  TestIMGUI\n";
 		std::cout << "  TestScriptHost\n";
 		std::cout << "  TestCSharpWindow\n";
+		std::cout << "  TestCSharpWindowCallbacks\n";
 		std::cout << "  TestGPUTiming\n";
 		return 0;
 	}
@@ -2251,6 +2463,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestGPUTiming", TestGPUTiming);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpWindowCallbacks") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -2272,6 +2488,8 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestScriptHost", TestScriptHost);
 		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
 		runTestWithDiagnostics("TestGPUTiming", TestGPUTiming);
+		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
+		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}
 
 	// 任务 3.2：`--show-window-seconds N` —— 所有选中的测试跑完之后，再保持 N 秒：

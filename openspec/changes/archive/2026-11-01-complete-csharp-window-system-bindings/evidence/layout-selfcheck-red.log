@@ -1,0 +1,98 @@
+﻿命令：$env:CASCADED_CSHARP_SELFTEST='layout-mismatch'; out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestCSharpWindow --headless 2
+开始时间：2026-11-01T21:14:27.7776390+08:00
+mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+  (hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+[38;2;128;128;128mRegister Module Factory: class catimer::TimerSystem - CATimer
+[0m[38;2;128;128;128mRegister Module Factory: class imgui_display::IMGUIContext - IMGUIContext
+[0m[38;2;128;128;128mStatic Add Module [TimerSystem_Impl]
+[0m[38;2;128;128;128mAdd Factory: class catimer::TimerSystem - CATimer
+[0m[38;2;128;128;128mTry Dynamic Add Module [ThreadManager]
+[0m[38;2;128;128;128mRegister Module Factory: class thread_management::CThreadManager - ThreadManager
+[0m[38;2;128;128;128mAdd Factory: class thread_management::CThreadManager - ThreadManager
+[0m[38;2;128;128;128mTry Dynamic Add Module [VulkanRenderBackend]
+[0m[38;2;128;128;128mRegister Module Factory: class graphics_backend::CRenderBackend - RenderBackend_Vulkan
+[0m[38;2;128;128;128mAdd Factory: class graphics_backend::CRenderBackend - RenderBackend_Vulkan
+[0m[38;2;128;128;128mTry Dynamic Add Module [ShaderCompilerSlang]
+[0m[38;2;128;128;128mRegister Module Factory: class ShaderCompilerSlang::IShaderCompilerManager - ShaderCompilerManager_Slang
+[0m[38;2;128;128;128mAdd Factory: class ShaderCompilerSlang::IShaderCompilerManager - ShaderCompilerManager_Slang
+[0m[38;2;128;128;128mTry Dynamic Add Module [WindowSystem]
+[0m[38;2;128;128;128mRegister Module Factory: class cawindow::IWindowSystem - WindowSystem_GLFW
+[0m[38;2;128;128;128mAdd Factory: class cawindow::IWindowSystem - WindowSystem_GLFW
+[0m[38;2;128;128;128mTry Dynamic Add Module [IOManager_FS]
+[0m[38;2;128;128;128mRegister Module Factory: class ca_io::IOManager - IOManager_FS
+[0m[38;2;128;128;128mAdd Factory: class ca_io::IOManager - IOManager_FS
+[0m[38;2;128;128;128mTry Dynamic Add Module [CAGeneralReourceSystem]
+[0m[38;2;128;128;128mRegister Module Factory: class resource_management::ResourceImportingSystem - ResourceImportingSystem
+[0m[38;2;128;128;128mRegister Module Factory: class resource_management::ResourceManagingSystem - ResourceManagingSystem
+[0m[38;2;128;128;128mAdd Factory: class resource_management::ResourceImportingSystem - ResourceImportingSystem
+[0m[38;2;128;128;128mAdd Factory: class resource_management::ResourceManagingSystem - ResourceManagingSystem
+[0m[38;2;128;128;128mStatic Add Module [IMGUIContext]
+[0m[38;2;128;128;128mAdd Factory: class imgui_display::IMGUIContext - IMGUIContext
+[0m[38;2;128;128;128mTry Dynamic Add Module [CSharpHost]
+[0m[38;2;128;128;128mRegister Module Factory: class cs_script::IScriptHost - CSharpHost
+[0m[38;2;128;128;128mAdd Factory: class cs_script::IScriptHost - CSharpHost
+[0m[38;2;128;128;128mAdd Instance: class catimer::TimerSystem - CATimer:[0x1f586369580]
+[0m[38;2;128;128;128mAdd Instance: class thread_management::CThreadManager - ThreadManager:[0x1f58636aac8]
+[0m[38;2;128;128;128mAdd Instance: class graphics_backend::CRenderBackend - RenderBackend_Vulkan:[0x1f58636c780]
+[0m[38;2;128;128;128mAdd Instance: class ShaderCompilerSlang::IShaderCompilerManager - ShaderCompilerManager_Slang:[0x1f586370260]
+[0m[38;2;128;128;128mAdd Instance: class cawindow::IWindowSystem - WindowSystem_GLFW:[0x1f586371410]
+[0m[38;2;128;128;128mAdd Instance: class ca_io::IOManager - IOManager_FS:[0x1f58638fd30]
+[0m[38;2;128;128;128mAdd Instance: class resource_management::ResourceImportingSystem - ResourceImportingSystem:[0x1f58639d140]
+[0m[38;2;128;128;128mAdd Instance: class resource_management::ResourceManagingSystem - ResourceManagingSystem:[0x1f586390610]
+[0m[38;2;128;128;128mAdd Instance: class imgui_display::IMGUIContext - IMGUIContext:[0x1f5863a55b0]
+[0m[38;2;128;128;128mAdd Instance: class cs_script::IScriptHost - CSharpHost:[0x1f5863a5870]
+[0m[38;2;128;128;128mCATimer not supports link
+[0m[38;2;128;128;128mThreadManager supports link
+[0m[38;2;128;128;128mRenderBackend_Vulkan supports link
+[0m[38;2;128;128;128mShaderImporter_Vulkan: Shader compiler manager set
+[0m[38;2;128;128;128mShaderImporter_Vulkan: Fallback source directory set to E:\Projects\CascadedEngine\CAResources
+[0m[1m[38;2;220;020;060m
+[unsigned int __cdecl graphics_backend::debugUtilsMessengerCallback(enum VkDebugUtilsMessageSeverityFlagBitsEXT,unsigned int,const struct VkDebugUtilsMessengerCallbackDataEXT *,void *)]
+155)
+[E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp]
+///////////////////
+Warning: { General }:
+	messageIDName   = <Loader Message>
+	messageIdNumber = 0
+	message         = <Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)>
+	Objects:
+		Object 0
+			objectType   = Instance
+			objectHandle = 2154030871616
+
+///////////////////
+[0m[38;2;128;128;128mGeneral Family Is 0
+[0m[38;2;128;128;128mTransfer Family Is 1
+[0m[38;2;128;128;128mCompute Family Is 2
+[0m[38;2;128;128;128mVideo Decoding Family Is 3
+[0m[38;2;128;128;128mTransfer Family Is 4
+[0m[38;2;128;128;128mTransfer Family Is 5
+[0m[38;2;128;128;128mRenderBackend_Vulkan: queried device features — graphicsPipelineLibrary=true, dynamicRendering=true
+[0m[38;2;128;128;128mVulkanMemoryManager initialized successfully
+[0m[38;2;128;128;128mVulkanCommandListManager initialized successfully: GraphicsPool=2199023255554 (qf=0), ComputePool=3298534883331 (qf=2), TransferPool=4398046511108 (qf=5)
+[0m[38;2;128;128;128mVulkanPipelineLibrary initialized with VK_EXT_graphics_pipeline_library support
+[0m[38;2;128;128;128mPipelineLibraryCache initialized
+[0m[38;2;128;128;128mRenderBackend_Vulkan: Pipeline cache created (loaded 152478 bytes from disk)
+[0m[38;2;128;128;128mVulkanCommandListManager initialized successfully: GraphicsPool=6597069766662 (qf=0), ComputePool=7696581394439 (qf=2), TransferPool=8796093022216 (qf=5)
+[0m[38;2;128;128;128mVulkanCommandListManager initialized successfully: GraphicsPool=9895604649993 (qf=0), ComputePool=10995116277770 (qf=2), TransferPool=12094627905547 (qf=5)
+[0m[38;2;128;128;128mVulkanRenderBackend initialized successfully
+[0m[38;2;128;128;128mShaderCompilerManager_Slang supports link
+[0m[38;2;128;128;128mWindowSystem_GLFW not supports link
+[0m[38;2;128;128;128mIOManager_FS supports link
+[0m[38;2;128;128;128mResourceImportingSystem supports link
+[0m[38;2;128;128;128mResourceManagingSystem supports link
+[0m[38;2;128;128;128mIMGUIContext supports link
+[0m[38;2;128;128;128mCSharpHost supports link
+[0m[38;2;128;128;128mCSharpHost：引擎侧 OnGetInterfaceApi 的地址 = 7FFB997F251D，函数表 56 字节
+[0m[1m[38;2;220;020;060m
+[void __cdecl cs_script::CSharpHost::OnManagedLog(int,const unsigned char *,unsigned __int64)]
+629)
+[E:\Projects\CascadedEngine\CSharpHost\private\CSharpHost.cpp]
+[托管侧] 布局清单不一致：FloatRectC.x 偏移 托管 0 / 引擎 8
+[0m[1m[38;2;220;020;060m
+[void __cdecl cs_script::CSharpHost::Fatal(const class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > &)]
+548)
+[E:\Projects\CascadedEngine\CSharpHost\private\CSharpHost.cpp]
+CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 5（引擎侧 ABI 版本 5、函数表 56 字节；0 = 成功）；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、E:\Projects\CascadedEngine\out\build\x64-debug\bin\Scripting.Managed.runtimeconfig.json
+[0m退出码：3

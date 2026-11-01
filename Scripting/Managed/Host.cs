@@ -13,7 +13,7 @@ namespace Scripting.Managed
     public static unsafe class Host
     {
         // 与 C++ 侧必须逐字一致
-        private const uint ExpectedAbiVersion = 4;
+        private const uint ExpectedAbiVersion = 5;
 
         private static EngineApi* s_api;
         private static int s_tickCount;
@@ -26,6 +26,7 @@ namespace Scripting.Managed
         private const int ErrAbiSize = 2;
         private const int ErrAbiNull = 3;
         private const int ErrException = 4;
+        private const int ErrLayout = 5;
 
         [UnmanagedCallersOnly]
         public static int Boot(IntPtr apiPointer)
@@ -61,6 +62,12 @@ namespace Scripting.Managed
                     return ErrAbiNull;
                 }
 
+                if (!VerifyBindingLayouts(api))
+                {
+                    LogVia(api, s_lastError);
+                    return ErrLayout;
+                }
+
                 s_api = api;
                 s_lastError = string.Empty;
 
@@ -73,6 +80,121 @@ namespace Scripting.Managed
             catch (Exception ex)
             {
                 s_lastError = "Boot 抛异常：" + ex.GetType().Name + ": " + ex.Message;
+                return ErrException;
+            }
+        }
+
+        /// <summary>
+        /// 布局清单自检（本 change 任务 3.1）：把生成物里的托管清单与引擎侧运行期读数（真实
+        /// `sizeof` / `offsetof`）逐类型、逐字段比对。不一致就拒绝启动并点名字段路径 ——
+        /// 这条判据**不**依赖 C++ 的 `static_assert`，所以"生成器算错布局"或"程序集与引擎产物不同源"
+        /// 都能在托管启动阶段被拦下。
+        /// </summary>
+        private static bool VerifyBindingLayouts(EngineApi* api)
+        {
+            if (api->GetBindingLayoutType == null || api->GetBindingLayoutField == null)
+            {
+                s_lastError = "函数表里缺布局清单入口（v5 的两个字段是空指针）";
+                return false;
+            }
+            if (!VerifyBindingLayout(api, api->WindowInterfaceId, IWindowBindings.LayoutManifest))
+            {
+                return false;
+            }
+            return VerifyBindingLayout(api, api->WindowSystemInterfaceId, IWindowSystemBindings.LayoutManifest);
+        }
+
+        private static bool VerifyBindingLayout(EngineApi* api, uint interfaceId, BindingLayoutType[] expected)
+        {
+            for (int typeIndex = 0; typeIndex < expected.Length; ++typeIndex)
+            {
+                BindingLayoutType type = expected[typeIndex];
+                byte* typeName = stackalloc byte[128];
+                ulong sizeBytes = 0;
+                uint fieldCount = 0;
+                uint found = api->GetBindingLayoutType(interfaceId, (uint)typeIndex, typeName, 128, &sizeBytes,
+                                                       &fieldCount);
+                if (found == 0)
+                {
+                    s_lastError = $"布局清单：引擎侧没有接口 {interfaceId} 的类型 #{typeIndex}（托管侧期望 {type.Name}）";
+                    return false;
+                }
+                string engineType = Marshal.PtrToStringUTF8((IntPtr)typeName) ?? string.Empty;
+                if (engineType != type.Name)
+                {
+                    s_lastError = $"布局清单不一致：类型 #{typeIndex} 托管叫 {type.Name}、引擎侧叫 {engineType}";
+                    return false;
+                }
+                if ((long)sizeBytes != type.Size)
+                {
+                    s_lastError = $"布局清单不一致：{type.Name} 大小 托管 {type.Size} / 引擎 {sizeBytes}";
+                    return false;
+                }
+                if (fieldCount != (uint)type.Fields.Length)
+                {
+                    s_lastError = $"布局清单不一致：{type.Name} 字段数 托管 {type.Fields.Length} / 引擎 {fieldCount}";
+                    return false;
+                }
+                for (int fieldIndex = 0; fieldIndex < type.Fields.Length; ++fieldIndex)
+                {
+                    BindingLayoutField field = type.Fields[fieldIndex];
+                    byte* fieldName = stackalloc byte[128];
+                    byte* fieldType = stackalloc byte[128];
+                    ulong offsetBytes = 0;
+                    found = api->GetBindingLayoutField(interfaceId, (uint)typeIndex, (uint)fieldIndex, fieldName,
+                                                       128, fieldType, 128, &offsetBytes);
+                    if (found == 0)
+                    {
+                        s_lastError = $"布局清单：引擎侧读不到 {type.Name}.{field.Name}";
+                        return false;
+                    }
+                    string engineField = Marshal.PtrToStringUTF8((IntPtr)fieldName) ?? string.Empty;
+                    if (engineField != field.Name)
+                    {
+                        s_lastError = $"布局清单不一致：{type.Name} 的字段 #{fieldIndex} 托管叫 {field.Name}、引擎侧叫 {engineField}";
+                        return false;
+                    }
+                    if ((long)offsetBytes != field.Offset)
+                    {
+                        s_lastError =
+                            $"布局清单不一致：{type.Name}.{field.Name} 偏移 托管 {field.Offset} / 引擎 {offsetBytes}";
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 关闭入口（本 change 任务 4.1）：`CSharpHost::Shutdown` 在 `hostfxr_close` **之前**调用它。
+        /// 释放窗口系统表面对象 —— 生成物的 `Dispose` 会逐项注销仍存活的回调并释放 `GCHandle`，
+        /// 关闭路径不许只把旧引用置空。
+        /// </summary>
+        [UnmanagedCallersOnly]
+        public static int Shutdown()
+        {
+            try
+            {
+                if (s_system != null)
+                {
+                    s_system.Dispose();
+                    s_system = null;
+                }
+                if (s_window != null)
+                {
+                    s_window.Dispose();
+                    s_window = null;
+                }
+                s_boundWindowInstance = null;
+                s_callbackProbesRegistered = false;
+                s_userScriptCalled = true;
+                LogLine($"托管侧 Shutdown：已释放窗口系统表面对象（剩余保活项 {IWindowSystemCallbackSlot.LiveKeepAliveCount}）");
+                s_api = null;
+                return Ok;
+            }
+            catch (Exception ex)
+            {
+                s_lastError = "Shutdown 抛异常：" + ex.GetType().Name + ": " + ex.Message;
                 return ErrException;
             }
         }
@@ -102,6 +224,8 @@ namespace Scripting.Managed
                 EnsureBound();
                 ProbeWindowSize();
                 ProbeExceptionMapping();
+                ProbeMonitor();
+                RunCallbackProbePhase();
                 // 关窗读数每帧都要读：第 1 帧窗口还开着（0），引擎侧关窗后再 tick 一次才是 1。
                 // 放进 `s_tickCount == 1` 里就只剩一个 0 —— 实测过，那一版日志里没有第二次读数。
                 // 一旦读到"该关了"，就说明引擎侧马上要把它回收掉：此后不再碰旧窗口的 self，
@@ -139,6 +263,329 @@ namespace Scripting.Managed
         private static bool s_exceptionProbed;
         // 任务 2.2：脚本只调一次
         private static bool s_userScriptCalled;
+
+        // ---- 回调探针（本 change 任务 1.2 骨架；4.1–4.3 填实）----
+        // 只在 `CASCADED_CSHARP_CALLBACK_PROBE=1` 时启用：`TestCSharpWindowCallbacks` 用它走到
+        // "注册 10 类回调 → 引擎侧确定性触发 → 校验参数 / 生命周期 / 异常"这条路；其它用例不注册任何回调。
+        private static bool s_callbackProbesRegistered;
+        private static string s_lastCallbackPhase = string.Empty;
+        private static Action<IWindow, bool> s_focusDelegate;
+        private static IWindow s_savedBorrowWindow;
+        private static int s_reentrancyCode = -1;
+        private static int s_cbScrollGood;
+        private static int s_cbFocus;
+        private static int s_cbFocusNew;
+        private static int s_cbCursorEnter;
+        private static int s_cbCursorPos;
+        private static int s_cbMouseButton;
+        private static int s_cbScroll;
+        private static int s_cbWindowClose;
+        private static int s_cbWindowPos;
+        private static int s_cbWindowSize;
+        private static int s_cbKey;
+        private static int s_cbChar;
+
+        // ---- GetMonitor 两侧对拍（本 change 任务 3.2）----
+        // 每个绑定周期只读一次：负数与不小于数量的编号必须抛 1006，有效编号的每个字段都要与 C++ 侧一致。
+        private static bool s_monitorProbed;
+
+        private static bool CallbackProbesEnabled =>
+            Environment.GetEnvironmentVariable("CASCADED_CSHARP_CALLBACK_PROBE") == "1";
+
+        private static string SelfTestMode =>
+            Environment.GetEnvironmentVariable("CASCADED_CSHARP_SELFTEST") ?? string.Empty;
+
+        /// <summary>
+        /// 绑定到 IWindowSystem 表面对象之后注册 10 类回调（本 change 任务 4.1）。
+        /// 公开 setter 都是 `void SetX(Action<...>)`：注册号 / 函数指针 / 用户令牌只在生成物 internal 层。
+        /// </summary>
+        private static void ProbeCallbacks()
+        {
+            if (!CallbackProbesEnabled || s_system == null || s_callbackProbesRegistered)
+            {
+                return;
+            }
+            s_callbackProbesRegistered = true;
+            // 焦点回调会被替换，重绑时注册的必须是**当前那一个**（否则重绑后的行为会退回到旧委托）。
+            if (s_focusDelegate == null)
+            {
+                s_focusDelegate = (window, value) =>
+                {
+                    ++s_cbFocus;
+                    LogCallback("SetWindowFocusCallback", window, value ? 1 : 0);
+                    ValidateCallbackWindow(window);
+                };
+            }
+            s_system.SetWindowFocusCallback(s_focusDelegate);
+            s_system.SetCursorEnterCallback((window, value) =>
+            {
+                ++s_cbCursorEnter;
+                LogCallback("SetCursorEnterCallback", window, value ? 1 : 0);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetCursorPosCallback((window, x, y) =>
+            {
+                ++s_cbCursorPos;
+                LogCallback("SetCursorPosCallback", window, x, y);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetMouseButtonCallback((window, button, action, mods) =>
+            {
+                ++s_cbMouseButton;
+                LogCallback("SetMouseButtonCallback", window, button, action, mods);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetScrollCallback((window, x, y) =>
+            {
+                ++s_cbScroll;
+                LogCallback("SetScrollCallback", window, x, y);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetWindowCloseCallback((window) =>
+            {
+                ++s_cbWindowClose;
+                LogCallback("SetWindowCloseCallback", window);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetWindowPosCallback((window, x, y) =>
+            {
+                ++s_cbWindowPos;
+                LogCallback("SetWindowPosCallback", window, x, y);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetWindowSizeCallback((window, x, y) =>
+            {
+                ++s_cbWindowSize;
+                LogCallback("SetWindowSizeCallback", window, x, y);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetKeyCallback((window, key, scanCode, action, mods) =>
+            {
+                ++s_cbKey;
+                LogCallback("SetKeyCallback", window, key, scanCode, action, mods);
+                ValidateCallbackWindow(window);
+            });
+            s_system.SetCharCallback((window, codepoint) =>
+            {
+                ++s_cbChar;
+                LogCallback("SetCharCallback", window, codepoint);
+                ValidateCallbackWindow(window);
+            });
+            if (IWindowSystemCallbackSlot.LiveKeepAliveCount != 10)
+            {
+                s_lastError = $"注册 10 类回调之后保活项是 {IWindowSystemCallbackSlot.LiveKeepAliveCount}，期望 10";
+            }
+            LogLine($"[托管侧 回调] 已注册 10 类，保活项 {IWindowSystemCallbackSlot.LiveKeepAliveCount}");
+        }
+
+        private static string PointerText(IWindow window)
+        {
+            return window == null ? "0x0" : "0x" + ((long)window.NativeSelf).ToString("x");
+        }
+
+        private static void LogCallback(string name, IWindow window, params object[] values)
+        {
+            LogLine($"[托管侧回调] {name} window={PointerText(window)} args=({string.Join(",", values)})");
+        }
+
+        /// <summary>回调里的窗口必须是真实的 `IWindow` 表面对象（尺寸 / 名字都与夹具一致），不是空壳。</summary>
+        private static void ValidateCallbackWindow(IWindow window)
+        {
+            if (window == null)
+            {
+                s_lastError = "回调收到的窗口是 null";
+                return;
+            }
+            var (width, height) = window.GetWindowSize();
+            if (width != CallbackProbe.WindowWidth || height != CallbackProbe.WindowHeight)
+            {
+                s_lastError = $"回调窗口尺寸读到 {width} x {height}，期望 {CallbackProbe.WindowWidth} x {CallbackProbe.WindowHeight}";
+            }
+        }
+
+        /// <summary>
+        /// 回调生命周期探针的阶段机（本 change 任务 4.1）：`TestCSharpWindowCallbacks` 在两次 Tick 之间
+        /// 改环境变量 `CASCADED_CSHARP_CALLBACK_PHASE`，这里按阶段执行替换 / 置空 / 重绑后的断言。
+        /// </summary>
+        private static void RunCallbackProbePhase()
+        {
+            if (!CallbackProbesEnabled || s_system == null)
+            {
+                return;
+            }
+            string phase = Environment.GetEnvironmentVariable("CASCADED_CSHARP_CALLBACK_PHASE") ?? string.Empty;
+            if (phase == s_lastCallbackPhase)
+            {
+                return;
+            }
+            s_lastCallbackPhase = phase;
+            if (phase == "verify-all")
+            {
+                if (s_cbFocus != 1 || s_cbCursorEnter != 1 || s_cbCursorPos != 1 || s_cbMouseButton != 1 ||
+                    s_cbScroll != 1 || s_cbWindowClose != 1 || s_cbWindowPos != 1 || s_cbWindowSize != 1 ||
+                    s_cbKey != 1 || s_cbChar != 1)
+                {
+                    s_lastError = $"10 类回调的调用次数不符：focus={s_cbFocus} enter={s_cbCursorEnter} pos={s_cbCursorPos} " +
+                                  $"mouse={s_cbMouseButton} scroll={s_cbScroll} close={s_cbWindowClose} " +
+                                  $"winpos={s_cbWindowPos} winsize={s_cbWindowSize} key={s_cbKey} char={s_cbChar}";
+                    return;
+                }
+                LogLine("[托管侧 回调] 10 类各执行 1 次");
+                // 替换焦点回调：先装新的、再注销旧的（design D2）
+                s_focusDelegate = (window, value) =>
+                {
+                    ++s_cbFocusNew;
+                    // 任务 4.2：保存回调里收到的窗口对象，回调返回后在 verify-replace 里再调用它
+                    s_savedBorrowWindow = window;
+                    // 任务 4.3：回调执行期间替换同一个注册必须失败（1004），而不许静默销毁正在执行的回调
+                    try
+                    {
+                        s_system.SetWindowFocusCallback((ignoredWindow, ignoredValue) => { });
+                        s_reentrancyCode = 0;
+                    }
+                    catch (IWindowSystemException ex)
+                    {
+                        s_reentrancyCode = ex.Code;
+                    }
+                    LogCallback("SetWindowFocusCallback", window, value ? 1 : 0);
+                    ValidateCallbackWindow(window);
+                };
+                s_system.SetWindowFocusCallback(s_focusDelegate);
+                if (IWindowSystemCallbackSlot.LiveKeepAliveCount != 10)
+                {
+                    s_lastError = $"替换回调之后保活项是 {IWindowSystemCallbackSlot.LiveKeepAliveCount}，期望 10";
+                }
+                // 置空光标进入回调
+                s_system.SetCursorEnterCallback(null);
+                if (IWindowSystemCallbackSlot.LiveKeepAliveCount != 9)
+                {
+                    s_lastError = $"置空回调之后保活项是 {IWindowSystemCallbackSlot.LiveKeepAliveCount}，期望 9";
+                }
+            }
+            else if (phase == "verify-replace")
+            {
+                if (s_cbFocus != 1 || s_cbFocusNew != 1 || s_cbCursorEnter != 1)
+                {
+                    s_lastError = $"替换/置空之后调用次数不符：旧 focus={s_cbFocus} 新 focus={s_cbFocusNew} enter={s_cbCursorEnter}";
+                }
+                LogLine("[托管侧 回调] 替换后只有新委托执行、置空后旧委托不执行");
+                // 任务 4.2：回调返回后，保存下来的窗口对象再调用任意方法必须抛明确的失效异常（1001）。
+                if (s_savedBorrowWindow == null)
+                {
+                    s_lastError = "回调里没有保存到窗口对象（4.2 的借用失效用例没有素材）";
+                }
+                else
+                {
+                    try
+                    {
+                        var (width, height) = s_savedBorrowWindow.GetWindowSize();
+                        s_lastError = $"保存的借用窗口在回调外仍能调用（读到 {width} x {height}，期望抛 1001）";
+                    }
+                    catch (IWindowException ex)
+                    {
+                        if (ex.Code != 1001)
+                        {
+                            s_lastError = $"借用窗口失效的错误码是 {ex.Code}，期望 1001";
+                        }
+                        else
+                        {
+                            LogLine("[托管侧 回调] 保存的借用窗口在回调外抛 IWindowException(1001)");
+                        }
+                    }
+                    s_savedBorrowWindow = null;
+                }
+                // 任务 4.3：回调内替换自身的错误码必须是 1004（生成桥用活动标记挡下，不销毁正在执行的回调）
+                if (s_reentrancyCode != 1004)
+                {
+                    s_lastError = $"回调内替换自身没有拿到 1004（实际 {s_reentrancyCode}）";
+                }
+                else
+                {
+                    LogLine("[托管侧 回调] 重入替换被挡下：IWindowSystemException(1004)");
+                }
+                // 任务 4.3：注册一个抛异常的滚动回调；下一次 UpdateSystem 必须上报 1003 且保留原文
+                s_system.SetScrollCallback((window, x, y) =>
+                {
+                    ++s_cbScroll;
+                    LogCallback("SetScrollCallback", window, x, y);
+                    throw new InvalidOperationException(CallbackProbe.ThrowingExceptionText);
+                });
+            }
+            else if (phase == "verify-exception")
+            {
+                try
+                {
+                    s_system.UpdateSystem();
+                    s_lastError = "回调抛异常之后 UpdateSystem 没有抛出";
+                }
+                catch (IWindowSystemException ex)
+                {
+                    if (ex.Code != 1003)
+                    {
+                        s_lastError = $"回调异常上报的错误码是 {ex.Code}，期望 1003";
+                    }
+                    else if (!ex.Message.Contains(CallbackProbe.ThrowingExceptionText))
+                    {
+                        s_lastError = $"回调异常上报时丢了原始文本：{ex.Message}";
+                    }
+                    else
+                    {
+                        LogLine("[托管侧 回调] 回调异常在下一次 UpdateSystem 上报：Code=1003，原始文本保留");
+                    }
+                }
+                // 错误槽已经取走：紧接着的一次 UpdateSystem 不许再抛
+                s_system.UpdateSystem();
+                // 异常之后正常回调仍能执行：重新注册一个不抛的滚动回调
+                s_system.SetScrollCallback((window, x, y) =>
+                {
+                    ++s_cbScrollGood;
+                    LogCallback("SetScrollCallback", window, x, y);
+                    ValidateCallbackWindow(window);
+                });
+                LogLine("[托管侧 回调] 异常上报之后的下一次调用正常，正常回调已重新注册");
+            }
+            else if (phase == "verify-thread")
+            {
+                try
+                {
+                    s_system.UpdateSystem();
+                    s_lastError = "跨线程回调之后 UpdateSystem 没有抛出";
+                }
+                catch (IWindowSystemException ex)
+                {
+                    if (ex.Code != 1005)
+                    {
+                        s_lastError = $"跨线程回调的错误码是 {ex.Code}，期望 1005";
+                    }
+                    else
+                    {
+                        LogLine("[托管侧 回调] 跨线程回调被拒绝：IWindowSystemException(1005)");
+                    }
+                }
+                s_system.UpdateSystem();
+                LogLine("[托管侧 回调] 跨线程错误上报之后的下一次调用正常");
+            }
+            else if (phase == "verify-rebind")
+            {
+                if (IWindowSystemCallbackSlot.LiveKeepAliveCount != 10)
+                {
+                    s_lastError = $"重绑之后保活项是 {IWindowSystemCallbackSlot.LiveKeepAliveCount}，期望 10";
+                }
+                LogLine("[托管侧 回调] 重绑完成：新表面对象注册了 10 类（旧对象的保活项已释放）");
+            }
+            else if (phase == "verify-rebind-done")
+            {
+                if (s_cbFocus != 1 || s_cbFocusNew != 2)
+                {
+                    s_lastError = $"重绑之后调用次数不符：旧 focus={s_cbFocus} 新 focus={s_cbFocusNew}（期望 1 / 2）";
+                }
+                if (IWindowSystemCallbackSlot.LiveKeepAliveCount != 10)
+                {
+                    s_lastError = $"重绑之后保活项是 {IWindowSystemCallbackSlot.LiveKeepAliveCount}，期望 10";
+                }
+                LogLine("[托管侧 回调] 重绑后旧窗口系统不再收到事件、新表面对象收到事件");
+            }
+        }
 
         /// <summary>
         /// 每帧读一次 `WindowShouldClose`（任务 2.8）。引擎侧在关窗前后各 tick 一次，
@@ -197,9 +644,16 @@ namespace Scripting.Managed
             s_windowProbed = false;
             s_engineWindowClosed = false;
             s_surfaceWindowProbed = false;
+            s_monitorProbed = false;
             // 任务 2.2：重绑开始就把旧的对象作废 —— 否则下面若取 IWindowSystem 表失败，`s_system`
             // 会保留上一次的旧对象，"两张表都绑好"这个条件被旧值骗过（脚本会拿到一个已失效的 self）。
+            // 本 change 任务 4.1：作废前先 `Dispose` 旧表面对象，由它注销仍存活的回调、释放 GCHandle。
+            if (s_system != null)
+            {
+                s_system.Dispose();
+            }
             s_system = null;
+            s_lastCallbackPhase = string.Empty;
 
             uint systemSize = s_api->GetInterfaceApi(InterfaceIdSystem, null, WindowApiTableVersion, 0, null, null);
             if (systemSize == 0)
@@ -218,6 +672,9 @@ namespace Scripting.Managed
             }
             IWindowSystemBindings.Bind(systemTable);
             s_system = new IWindowSystem(new IWindowSystemLease { Self = systemInstance });
+            // 重绑 = 新的表面对象：回调探针按新对象重新注册（任务 4.1）
+            s_callbackProbesRegistered = false;
+            ProbeCallbacks();
 
             // 任务 2.2：两张表都绑定成功之后调一次用户脚本，整个进程只调一次。
             // 先置标志再调用：脚本抛异常时由 `Tick` 的 catch 转成非零返回码 + `s_lastError`，
@@ -264,6 +721,63 @@ namespace Scripting.Managed
             // 反向用例：上一次失败之后紧接着一次成功调用 —— 错误码按 self 清零，这里 MUST NOT 抛
             var (width, height) = s_window.GetWindowSize();
             LogLine($"[托管侧] 失败之后紧接着成功调用：{width} x {height}（没有抛）");
+        }
+
+        /// <summary>
+        /// GetMonitor 两侧对拍（本 change 任务 3.2）：读 0 号显示器并把两个矩形与 DPI 打成固定格式，
+        /// 由 `Tools/check_window_system_bindings.py` 与 C++ 侧同一行逐字段比对；随后用 -1 与
+        /// `GetMonitorCount()` 两次调用，断言绑定层在进原生 clamp 之前就抛 `IWindowSystemException`
+        /// 且错误码是 1006。
+        ///
+        /// 自检开关（只在 Debug 生效，见 CSharpHost/README.md）：
+        ///   `CASCADED_CSHARP_SELFTEST=monitor-mismatch`     打印时把 m_MonitorRect.width 加 1，
+        ///                                                    用来证明脚本真的会报字段错配；
+        ///   `CASCADED_CSHARP_SELFTEST=monitor-skip-invalid` 跳过两次无效编号调用，用来证明脚本
+        ///                                                    真的会因"放过无效编号"变红。
+        /// </summary>
+        private static void ProbeMonitor()
+        {
+            if (s_system == null || s_monitorProbed)
+            {
+                return;
+            }
+            s_monitorProbed = true;
+            int count = s_system.GetMonitorCount();
+            LogLine($"[托管侧 GetMonitor] count={count}");
+            if (count > 0)
+            {
+                MonitorInfo info = s_system.GetMonitor(0);
+                float loggedWidth = info.m_MonitorRect.width;
+                if (SelfTestMode == "monitor-mismatch")
+                {
+                    loggedWidth += 1.0f;
+                }
+                LogLine($"[托管侧 GetMonitor] probe=1 id=0 rect=({info.m_MonitorRect.x},{info.m_MonitorRect.y},{loggedWidth},{info.m_MonitorRect.height}) work=({info.m_WorkAreaRect.x},{info.m_WorkAreaRect.y},{info.m_WorkAreaRect.width},{info.m_WorkAreaRect.height}) dpi={info.m_DPIScale}");
+            }
+            if (SelfTestMode == "monitor-skip-invalid")
+            {
+                LogLine("[托管侧 无效显示器] 自检开关 monitor-skip-invalid：跳过两次无效编号调用");
+                return;
+            }
+            int[] invalidIndexes = new int[] { -1, count };
+            for (int index = 0; index < invalidIndexes.Length; ++index)
+            {
+                int invalid = invalidIndexes[index];
+                try
+                {
+                    s_system.GetMonitor(invalid);
+                    s_lastError = $"无效显示器编号 {invalid} 没有抛异常（原生 clamp 把它改成了另一个显示器）";
+                    LogLine("[托管侧 无效显示器] " + s_lastError);
+                }
+                catch (IWindowSystemException ex)
+                {
+                    LogLine($"[托管侧 无效显示器] id={invalid} code={ex.Code}");
+                    if (ex.Code != 1006)
+                    {
+                        s_lastError = $"无效显示器编号 {invalid} 的错误码是 {ex.Code}，期望 1006";
+                    }
+                }
+            }
         }
 
         private static void ProbeWindowSize()

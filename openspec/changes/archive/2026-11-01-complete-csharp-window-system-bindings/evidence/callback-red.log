@@ -1,0 +1,70 @@
+﻿命令：out\build\x64-debug\bin\CodeGen.exe Tools\CodeGen\BindableShapes.h --emit-binding --out-dir "C:\Users\76956\AppData\Local\Temp\cascaded-callback-red" --audit-script Tools\CodeGen\check_bindable_audit.py -I"E:\Projects\CascadedEngine\Tools\CodeGen" -I"E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests" -I"E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings" -I"E:\Projects\CascadedEngine\WindowSystem\header\CAWindow" -I"E:\Projects\CascadedEngine\Interface\RenderInterface\private" -I"E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface" -I"E:\Projects\CascadedEngine\Interface\RenderInterface\header" -I"E:\Projects\CascadedEngine\D3D12RenderBackend\private" -I"E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend" -I"E:\Projects\CascadedEngine\Interface\ShaderCompiler\header" -I"E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang" -I"E:\Projects\CascadedEngine\WindowSystem\header" -I"E:\Projects\CascadedEngine\CACore\header" -I"E:\Projects\CascadedEngine\out\build\x64-debug\codegen\CACore" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\mimalloc-src\include" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\hash-library-src" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\komihash-src" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\fmt-src\include" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\magic_enum-src\include" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\glm-src" -I"E:\Projects\CascadedEngine\GeneralResources\header" -I"E:\Projects\CascadedEngine\ThreadManager\header" -I"E:\Projects\CascadedEngine\Interface\TimerSystem\header" -I"E:\Projects\CascadedEngine\Interface\IOManager\header" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\d3d12memoryallocator-src\include" -I"E:\Projects\CascadedEngine\out\build\x64-debug\_deps\directxtex-src\DirectXTex" -I"CACore/header" -I"Tools/CodeGen/clang_shim" -xc++
+开始时间：2026-11-01T20:37:22.8168823+08:00
+  libclang: Tools\CodeGen\BindableShapes.h:1:9: warning: #pragma once in main file [-Wpragma-once-outside-header]
+CodeGen: 跳过审计核对 IBindRow01 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow02 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow03 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow04 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow05 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow06 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow07 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow08 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow09 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow10 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow12 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow13 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow15 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow11 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow14 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow16 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow17 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow18 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow19 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow20 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow21 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRow22 —— 它不在审计表覆盖的接口清单里
+  [接口] IBindRow01 → 3 条：GetInt32 GetBool GetMode 
+  [接口] IBindRow02 → 1 条：GetThing 
+  [接口] IBindRow03 → 2 条：SetName GetName 
+  [接口] IBindRow04 → 1 条：GetNameView 
+  [接口] IBindRow05 → 1 条：SetThings 
+  [接口] IBindRow06 → 1 条：GetThings 
+  [接口] IBindRow07 → 1 条：SetNested 
+  [接口] IBindRow08 → 1 条：SetMapping 
+  [接口] IBindRow09 → 1 条：AcquireThing 
+  [接口] IBindRow10 → 1 条：ConsumeThing 
+  [接口] IBindRow12 → 1 条：GetPair 
+  [接口] IBindRow13 → 1 条：SetCallback 
+  [接口] IBindRow15 → 1 条：SetTitle 
+  [接口] IBindRow11 → 1 条：PeekThing 
+  [接口] IBindRow14 → 1 条：MayThrow 
+  [接口] IBindRow16 → 1 条：GetFlag 
+  [接口] IBindRow17 → 1 条：GetPair 
+  [接口] IBindRow18 → 1 条：SetTitle 
+  [接口] IBindRow19 → 1 条：GetLabel 
+  [接口] IBindRow20 → 1 条：GetToken 
+  [接口] IBindRow21 → 1 条：GetFlagOwner 
+  [接口] IBindRow22 → 2 条：GetMonitorInfo SetMonitorInfo 
+[托管表面] 跳过 IBindRow01::GetMode —— 返回/形参里有本轮不映射的形状（原始拼写：EBindMode）
+[托管表面] 跳过 IBindRow02::GetThing —— 返回/形参里有本轮不映射的形状（原始拼写：BindScalarThing）
+[托管表面] 跳过 IBindRow05::SetThings —— 返回/形参里有本轮不映射的形状（原始拼写：void）
+[托管表面] 跳过 IBindRow06::GetThings —— 返回/形参里有本轮不映射的形状（原始拼写：void）
+[托管表面] 跳过 IBindRow07::SetNested —— 返回/形参里有本轮不映射的形状（原始拼写：void）
+[托管表面] 跳过 IBindRow08::SetMapping —— 返回/形参里有本轮不映射的形状（原始拼写：void）
+[托管表面] 跳过 IBindRow09::AcquireThing —— 返回/形参里有本轮不映射的形状（原始拼写：castl::shared_ptr<BindScalarThing>）
+[托管表面] 跳过 IBindRow10::ConsumeThing —— 返回/形参里有本轮不映射的形状（原始拼写：void）
+CodeGen: 拒绝 IBindRow13::SetCallback —— 本轮未实现：缺回调投影路径（保活表 + 注销句柄）
+[托管表面] 跳过 IBindRow11::PeekThing —— 返回/形参里有本轮不映射的形状（原始拼写：castl::weak_ptr<BindScalarThing>）
+[托管表面] 跳过 IBindRow22::GetMonitorInfo —— 返回/形参里有本轮不映射的形状（原始拼写：BindMonitorInfo）
+[托管表面] 跳过 IBindRow22::SetMonitorInfo —— 返回/形参里有本轮不映射的形状（原始拼写：void）
+绑定：接口 22 个 / 方法 22 条 / 产物 22 个 / 拒绝 1 条
+CodeGen: --emit-binding 返回 1
+退出码：1
+
+===== 决定性输出（红态）=====
+本轮生成器对**没有** CA_BIND_SKIP 的 castl::function<void(...)> 参数直接拒绝，点名方法与缺失的投影路径：
+  CodeGen: 拒绝 IBindRow13::SetCallback —— 本轮未实现：缺回调投影路径（保活表 + 注销句柄）
+  CodeGen: --emit-binding 返回 1
+退出码：1
+恢复后应看到：同一命令退出码 0，产物里出现 IBindRow13_SetCallback / IBindRow13_UnregisterCallback，
+CoreTests 打出 "Bindings callback test PASSED"。

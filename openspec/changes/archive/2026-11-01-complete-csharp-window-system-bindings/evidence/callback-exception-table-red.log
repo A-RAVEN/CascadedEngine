@@ -1,0 +1,110 @@
+﻿命令：python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings（判据只更新了一侧：码表回退成 1001/1002）
+开始时间：2026-11-01T22:07:03.5423560+08:00
+  IBindRow01：常量 IBindRow01_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow01：常量 IBindRow01_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow01：常量 IBindRow01_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow01：常量 IBindRow01_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow02：常量 IBindRow02_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow02：常量 IBindRow02_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow02：常量 IBindRow02_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow02：常量 IBindRow02_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow03：常量 IBindRow03_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow03：常量 IBindRow03_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow03：常量 IBindRow03_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow03：常量 IBindRow03_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow04：常量 IBindRow04_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow04：常量 IBindRow04_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow04：常量 IBindRow04_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow04：常量 IBindRow04_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow05：常量 IBindRow05_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow05：常量 IBindRow05_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow05：常量 IBindRow05_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow05：常量 IBindRow05_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow06：常量 IBindRow06_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow06：常量 IBindRow06_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow06：常量 IBindRow06_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow06：常量 IBindRow06_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow07：常量 IBindRow07_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow07：常量 IBindRow07_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow07：常量 IBindRow07_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow07：常量 IBindRow07_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow08：常量 IBindRow08_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow08：常量 IBindRow08_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow08：常量 IBindRow08_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow08：常量 IBindRow08_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow09：常量 IBindRow09_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow09：常量 IBindRow09_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow09：常量 IBindRow09_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow09：常量 IBindRow09_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow10：常量 IBindRow10_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow10：常量 IBindRow10_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow10：常量 IBindRow10_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow10：常量 IBindRow10_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow11：常量 IBindRow11_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow11：常量 IBindRow11_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow11：常量 IBindRow11_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow11：常量 IBindRow11_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow12：常量 IBindRow12_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow12：常量 IBindRow12_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow12：常量 IBindRow12_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow12：常量 IBindRow12_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow13：常量 IBindRow13_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow13：常量 IBindRow13_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow13：常量 IBindRow13_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow13：常量 IBindRow13_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow14：常量 IBindRow14_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow14：常量 IBindRow14_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow14：常量 IBindRow14_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow14：常量 IBindRow14_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow15：常量 IBindRow15_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow15：常量 IBindRow15_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow15：常量 IBindRow15_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow15：常量 IBindRow15_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow16：常量 IBindRow16_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow16：常量 IBindRow16_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow16：常量 IBindRow16_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow16：常量 IBindRow16_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow17：常量 IBindRow17_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow17：常量 IBindRow17_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow17：常量 IBindRow17_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow17：常量 IBindRow17_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow18：常量 IBindRow18_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow18：常量 IBindRow18_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow18：常量 IBindRow18_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow18：常量 IBindRow18_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow19：常量 IBindRow19_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow19：常量 IBindRow19_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow19：常量 IBindRow19_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow19：常量 IBindRow19_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow20：常量 IBindRow20_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow20：常量 IBindRow20_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow20：常量 IBindRow20_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow20：常量 IBindRow20_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow21：常量 IBindRow21_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow21：常量 IBindRow21_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow21：常量 IBindRow21_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow21：常量 IBindRow21_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IBindRow22：常量 IBindRow22_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IBindRow22：常量 IBindRow22_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IBindRow22：常量 IBindRow22_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IBindRow22：常量 IBindRow22_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IWindow：常量 IWindow_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IWindow：常量 IWindow_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IWindow：常量 IWindow_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IWindow：常量 IWindow_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+  IWindowSystem：常量 IWindowSystem_ERROR_CALLBACK_EXCEPTION = 1003 不在码表里（表里 1003 是 None）
+  IWindowSystem：常量 IWindowSystem_ERROR_CALLBACK_REENTRANT = 1004 不在码表里（表里 1004 是 None）
+  IWindowSystem：常量 IWindowSystem_ERROR_CALLBACK_WRONG_THREAD = 1005 不在码表里（表里 1005 是 None）
+  IWindowSystem：常量 IWindowSystem_ERROR_INVALID_MONITOR = 1006 不在码表里（表里 1006 是 None）
+产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+矩阵行数 15 / 有夹具的行数 15 / 真实接口行 1 / 签名行 46 / 非签名行（拒绝或错误码）0
+不符数 0
+两侧对齐问题 0 处
+被判真实接口：IWindow, IWindowSystem
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+夹具接口 22 个、桩数 3 个（只打印，不判定）
+覆盖率问题 0 处
+托管表面问题 0 处
+第二张矩阵问题 0 处
+错误码问题 96 处
+退出码：1

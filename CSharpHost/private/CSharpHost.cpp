@@ -47,6 +47,14 @@ namespace cs_script
 		// --- v3 追加（任务 4.2）：接口编号由引擎侧单向下发，托管侧不再手抄 ---
 		uint32_t window_interface_id;
 		uint32_t window_system_interface_id;
+		// --- v5 追加（complete-csharp-window-system-bindings 任务 3.1）：布局清单读数 ---
+		// 读"某接口的第 typeIndex 个过界记录类型"（名字 / 真实大小 / 字段数）与"某类型的第 fieldIndex
+		// 个字段"（名字 / C 镜像类型名 / 真实偏移）；返回 1 = 读到。
+		uint32_t (*get_binding_layout_type)(uint32_t interfaceId, uint32_t typeIndex, char* name,
+											uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount);
+		uint32_t (*get_binding_layout_field)(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex,
+											 char* name, uint32_t nameCap, char* typeName, uint32_t typeCap,
+											 uint64_t* offsetBytes);
 	};
 
 	// 引擎侧约定的接口编号（托管侧 Host.cs 必须用同一组数字）
@@ -78,19 +86,20 @@ namespace cs_script
 		return name == nullptr ? std::string() : std::string(name);
 	}
 	// 函数表大小从**审计表里的方法条数**算，不从生成物读 —— 读生成物等于用被检查物证明它自己。
-	// `IWindowSystem` 进表 5 个：NewWindow / GetWindowCount / GetMonitorCount / UpdateSystem /
-	// GetSystemNativeHandle（其余 11 条在头里用 CA_BIND_SKIP 排除）。
+	// `IWindowSystem` 的 16 个方法全部进表（本 change 解开了 10 个回调与 `GetMonitor`）。
 	// 表头只有 abi_version(4) + size(4) 这 8 字节，之后每个槽 8 字节：4 个非方法槽（错误通道两槽、
-	// 句柄解析/释放两槽）+ 5 个方法槽 = 9 槽 ⇒ 8 + 8 × 9 = 80。
-	static_assert(sizeof(IWindowSystemApi_v2) == 8u + 8u * 9u,
-	              "IWindowSystem 函数表应当正好 5 个方法（4 个表头槽 + 每个方法槽 8 字节）");
+	// 句柄解析/释放两槽）+ 16 个方法槽 + 2 个回调伴生槽（UnregisterCallback / ReportCallbackError）
+	// = 22 槽 ⇒ 8 + 8 × 22 = 184。
+	static_assert(sizeof(IWindowSystemApi_v2) == 8u + 8u * 22u,
+	              "IWindowSystem 函数表应当正好 16 个方法 + 2 个回调伴生（4 个表头槽 + 每个方法槽 8 字节）");
 
 
 	// v3 起：`EngineApi` 末尾追加两个接口编号（任务 4.2）。加字段就升版本 —— 托管侧的 `size`
 	// 与 `abi_version` 两道校验都靠它拦住"一边加字段另一边没加"。
 	// v4（任务 5.4）：`get_interface_api` 多一个 `instanceName` 参数。字段没增，但那个**函数指针
 	// 的签名变了**，size 校验抓不到签名，只有版本号能拦 —— 所以照样升一版。
-	static constexpr uint32_t s_engineApiVersion = 4;
+	// v5（complete-csharp-window-system-bindings 任务 3.1）：末尾追加布局清单两个读数入口。
+	static constexpr uint32_t s_engineApiVersion = 5;
 
 	class CSharpHost final : public IScriptHost
 	{
@@ -231,6 +240,16 @@ namespace cs_script
 			// 那时进程里的日志设施已经/正在销毁，再走 CA_LOG 会崩在 CA_LOG 里。
 			// 所以先把开关立起来，让回调改走 stderr。
 			s_shuttingDown = true;
+			// 托管注销（本 change 任务 4.1）：`hostfxr_close` **之前**调用，由它释放窗口系统表面对象
+			// 并注销仍存活的回调。没有这个入口，关闭路径只是把引用置空，原生回调与 GCHandle 都还在。
+			if (m_shutdown != nullptr && m_runtimeContext != nullptr)
+			{
+				const int32_t shutdownResult = m_shutdown();
+				m_shutdown = nullptr;
+				CA_LOG("CSharpHost：托管 Shutdown 返回 {}（0 = 已释放表面对象并注销回调）", shutdownResult);
+				fprintf(stderr, "[CSharpHost] 托管 Shutdown 返回 %d\n", shutdownResult);
+				fflush(stderr);
+			}
 			if (m_runtimeContext != nullptr && m_closeFn != nullptr)
 			{
 				m_closeFn(m_runtimeContext);
@@ -308,6 +327,9 @@ namespace cs_script
 			// 加字段必须同时改托管侧镜像与 `s_engineApiVersion`，否则 `size` 校验会拦下来。
 			api.window_interface_id = s_interfaceIdWindow;
 			api.window_system_interface_id = s_interfaceIdWindowSystem;
+			// 布局清单读数（v5）：托管 Boot 逐项比对后才允许绑定
+			api.get_binding_layout_type = &CSharpHost::OnGetBindingLayoutType;
+			api.get_binding_layout_field = &CSharpHost::OnGetBindingLayoutField;
 			CA_LOG("CSharpHost：引擎侧 OnGetInterfaceApi 的地址 = {:X}，函数表 {} 字节",
 				reinterpret_cast<uintptr_t>(&CSharpHost::OnGetInterfaceApi), api.size);
 
@@ -433,6 +455,18 @@ namespace cs_script
 			if (rc != 0)
 			{
 				m_lastErrorFn = nullptr;
+			}
+
+			// 托管关闭入口（本 change 任务 4.1）：`Shutdown()` 里要在 `hostfxr_close` 之前调用它，
+			// 由它释放窗口系统表面对象并注销仍存活的回调。解析失败要留下可见记录，不能静默跳过。
+			rc = m_loadAssembly(assemblyPath.c_str(), typeName.c_str(), L"Shutdown",
+				UNMANAGEDCALLERSONLY_METHOD, nullptr,
+				reinterpret_cast<void**>(&m_shutdown));
+			if (rc != 0 || m_shutdown == nullptr)
+			{
+				m_shutdown = nullptr;
+				fprintf(stderr, "[CSharpHost] 解析托管入口 Shutdown 失败（返回 %d）：关闭时不会执行托管注销\n", rc);
+				fflush(stderr);
 			}
 			return true;
 		}
@@ -685,14 +719,59 @@ namespace cs_script
 			return realSize;
 		}
 
+		// 布局清单的引擎侧读数（本 change 任务 3.1）：生成物里的运行期清单用的是真实 `sizeof` / `offsetof`，
+		// 托管 `Host.Boot` 逐项比对后才允许继续绑定。两个入口都不写错误码 —— 它们不是接口方法。
+		static uint32_t OnGetBindingLayoutType(uint32_t interfaceId, uint32_t typeIndex, char* name,
+											   uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount)
+		{
+			if (interfaceId == s_interfaceIdWindow)
+			{
+				return IWindow_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
+			}
+			if (interfaceId == s_interfaceIdWindowSystem)
+			{
+				return IWindowSystem_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
+			}
+			return 0u;
+		}
+
+		static uint32_t OnGetBindingLayoutField(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex,
+												char* name, uint32_t nameCap, char* typeName, uint32_t typeCap,
+												uint64_t* offsetBytes)
+		{
+			uint32_t result = 0u;
+			if (interfaceId == s_interfaceIdWindow)
+			{
+				result = IWindow_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName, typeCap,
+												offsetBytes);
+			}
+			else if (interfaceId == s_interfaceIdWindowSystem)
+			{
+				result = IWindowSystem_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName, typeCap,
+													  offsetBytes);
+			}
+#if defined(_DEBUG)
+			// 自检开关（只在 Debug 生效）：模拟"引擎侧编译时的布局与托管清单不一致"，用来证明
+			// 启动自检不是装饰 —— 它会拒绝启动并点名字段。用法见 CSharpHost/README.md 的环境变量表。
+			if (result != 0u && offsetBytes != nullptr && SelfTestMode() == "layout-mismatch")
+			{
+				*offsetBytes += 8u;
+			}
+#endif
+			return result;
+		}
+
 		using BootFn = int32_t (*)(EngineApi*);
 		using TickFn = int32_t (*)(double);
 		// 把托管侧的失败原因拷出来（0 = 没有错误，正数 = 写入的字节数）
 		using LastErrorFn = int32_t (*)(char*, int32_t);
+		// 托管关闭入口（本 change 任务 4.1）：释放窗口系统表面对象并注销仍存活的回调。
+		using ShutdownFn = int32_t (*)();
 
 		bool m_bootSucceeded = false;
 		BootFn m_boot = nullptr;
 		TickFn m_tick = nullptr;
+		ShutdownFn m_shutdown = nullptr;
 		LastErrorFn m_lastErrorFn = nullptr;
 		int32_t m_expectedTick = 0;
 		mutable std::string m_lastError;

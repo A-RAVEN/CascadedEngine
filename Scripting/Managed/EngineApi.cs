@@ -27,5 +27,10 @@ namespace Scripting.Managed
         // --- v3 追加（任务 4.2）：编号由引擎侧下发，这里不再手抄 ---
         public uint WindowInterfaceId;
         public uint WindowSystemInterfaceId;
+        // --- v5 追加（complete-csharp-window-system-bindings 任务 3.1）：布局清单的引擎侧读数 ---
+        // 读"某个接口的第 typeIndex 个过界记录类型"：名字、真实大小、字段数；返回 1 = 读到了。
+        public delegate* unmanaged<uint, uint, byte*, uint, ulong*, uint*, uint> GetBindingLayoutType;
+        // 读"某类型的第 fieldIndex 个字段"：名字、C 镜像类型名、真实偏移；返回 1 = 读到了。
+        public delegate* unmanaged<uint, uint, uint, byte*, uint, byte*, uint, ulong*, uint> GetBindingLayoutField;
     }
 }

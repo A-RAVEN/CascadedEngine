@@ -81,6 +81,11 @@ def normalize(text: str) -> str:
             depth += 1
         elif character == ">":
             depth -= 1
+        # 回调参数是函数指针（`void (*)(void*, uint32_t)`）：括号里的逗号不是形参分隔符
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
         if character == "," and depth == 0:
             parts.append(current)
             current = ""
@@ -91,6 +96,11 @@ def normalize(text: str) -> str:
     for part in parts:
         part = part.strip()
         if not part:
+            cleaned.append(part)
+            continue
+        # 函数指针形参：去掉 `(*)` 里的名字（生成的声明有名字，期望文件里没有）
+        if "(*" in part:
+            part = re.sub(r"\(\*\s*\w*\s*\)", "(*)", part)
             cleaned.append(part)
             continue
         tokens = part.split(" ")
@@ -115,7 +125,7 @@ def read_generated(product_dir: Path) -> dict[str, str]:
 
 
 CPP_SYMBOL_RE = re.compile(r'extern\s+"C"\s+[^;{]*?\b(\w+)_(\w+)\s*\([^;{]*;', re.S)
-CS_MEMBER_RE = re.compile(r"public static delegate\* unmanaged<[^>]*>\s*(\w+)\s*;")
+CS_MEMBER_RE = re.compile(r"public static delegate\* unmanaged<.*>\s*(\w+)\s*;")
 COMPANION_SUFFIXES = ("Len", "Count", "GetApi")
 COMPANION_PREFIXES = ("Copy", "Release", "Resolve", "LastError")
 
@@ -126,7 +136,8 @@ MEMBER_RE = re.compile(r"\(\s*\*\s*(\w+)\s*\)\s*\(")
 # 函数表头部的四个非方法槽（任务 5.10 / 5.2）：错误通道两槽 + 句柄解析/释放两槽。它们不是接口
 # 方法、没有对应的 `<接口>_thunk_*`，所以桩判据与覆盖率判据都要把它们排除在外 —— 否则"表里有这个槽、
 # 产物里却没有对应的 thunk"会被当成结构缺陷，报出来的是假问题。
-CHANNEL_SLOTS = {"LastErrorCode", "LastErrorText", "ResolveHandle", "ReleaseHandle"}
+CHANNEL_SLOTS = {"LastErrorCode", "LastErrorText", "ResolveHandle", "ReleaseHandle",
+                 "UnregisterCallback", "ReportCallbackError"}
 THUNK_ANCHOR_RE = re.compile(r"static\s+([^\n(]+?)\s+(\w+)_thunk_(\w+)\s*\(")
 CALL_RE = re.compile(r"object\s*->\s*(\w+)\s*\(")
 VIRTUAL_RE = re.compile(r"virtual\s+([^;(){]+?)\s+(\w+)\s*\(", re.S)
@@ -372,7 +383,8 @@ def check_alignment(product_dir: Path) -> list[str]:
 
     def is_generic(interface: str, name: str) -> bool:
         """这个符号是"非接口方法"的那一类吗？判据必须按**产物里真的有什么**来认。"""
-        if name in ("GetApi", "LastErrorCode", "LastErrorText", "ResolveHandle", "ReleaseHandle"):
+        if name in ("GetApi", "LastErrorCode", "LastErrorText", "ResolveHandle", "ReleaseHandle",
+                    "UnregisterCallback", "ReportCallbackError"):
             return True
         for base in two_step_bases.get(interface, set()):
             if name in (base, f"{base}Len", f"Copy{base}"):
@@ -606,7 +618,9 @@ def check_surface_matrix(product_dir: Path) -> list[str]:
     return problems
 
 
-ERROR_CODE_TABLE = {1001: "STALE_HANDLE", 1002: "NULL_POINTER"}
+ERROR_CODE_TABLE = {1001: "STALE_HANDLE", 1002: "NULL_POINTER",
+                    1003: "CALLBACK_EXCEPTION", 1004: "CALLBACK_REENTRANT",
+                    1005: "CALLBACK_WRONG_THREAD", 1006: "INVALID_MONITOR"}
 ERROR_CONST_RE = re.compile(r"static const int32_t (\w+?)_ERROR_(\w+) = (\d+);")
 SET_ERROR_RE = re.compile(r"\w+_setError\(\s*[^,]+,\s*([A-Za-z_]\w*|\d+)\s*,")
 
@@ -633,7 +647,9 @@ def check_error_codes(product_dir: Path) -> list[str]:
         for argument in SET_ERROR_RE.findall(text):
             if argument.isdigit():
                 problems.append(f"  {interface}：`setError` 用了裸字面量 {argument}（必须用具名常量）")
-            elif argument not in constants:
+            # 全小写的标识符是函数里的局部量（例如把回调错误槽里取出的码转进统一通道），
+            # 不是"常量"；生成出来的错误常量一律含大写字母。
+            elif argument.isupper() and argument not in constants:
                 problems.append(f"  {interface}：`setError` 用了没定义的常量 {argument}")
     return problems
 

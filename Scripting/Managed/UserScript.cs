@@ -42,4 +42,43 @@ namespace Scripting.Managed
             LastCreatedSummary = $"{width} x {height}";
         }
     }
+
+    /// <summary>
+    /// 回调探针的委托与期望读数（本 change 任务 1.2 骨架；4.1–4.3 在 `Host.ProbeCallbacks` 里使用）。
+    ///
+    /// 全部是常量：`TestCSharpWindowCallbacks` 的假窗口系统按同一组数字触发事件，两边不靠"互相抄"，
+    /// 而是各自对着同一份写死的夹具值比较 —— 一边清零或错序，比对就红。
+    /// </summary>
+    internal static class CallbackProbe
+    {
+        /// <summary>假窗口的固定尺寸（`FakeWindowSystem` 的 `TestCSharpWindowCallbacks` 用例按它建窗）。</summary>
+        internal const int WindowWidth = 640;
+        internal const int WindowHeight = 480;
+
+        /// <summary>假窗口的固定名字：回调里读 `IWindow.GetWindowName()` 用它证明拿到的是同一个窗口。</summary>
+        internal const string WindowName = "回调探针窗口";
+
+        /// <summary>用户委托抛出的原始异常文本：下一次主线程调用必须原样读回。</summary>
+        internal const string ThrowingExceptionText = "回调探针故意抛出的异常文本";
+
+        // 十类回调的固定标量参数（引擎侧触发时用同一组）
+        internal const int FocusValue = 1;
+        internal const int CursorEnterValue = 1;
+        internal const float CursorX = 12.5f;
+        internal const float CursorY = 34.5f;
+        internal const int MouseButton = 1;
+        internal const int MouseAction = 0;
+        internal const int MouseMods = 3;
+        internal const float ScrollX = 1.5f;
+        internal const float ScrollY = -2.5f;
+        internal const float WindowPosX = 100.5f;
+        internal const float WindowPosY = 200.5f;
+        internal const float WindowSizeX = 800.5f;
+        internal const float WindowSizeY = 600.5f;
+        internal const int KeyCode = 65;
+        internal const int KeyScanCode = 30;
+        internal const int KeyAction = 1;
+        internal const int KeyMods = 2;
+        internal const uint CharCode = 65u;
+    }
 }

@@ -1,0 +1,9 @@
+﻿命令：文档清单与实测清单逐项比对（本脚本见执行记录）
+开始时间：2026-11-01T22:16:47.0534588+08:00
+CoreTests 文档条数：20 / 实际文件数：20
+CoreTests 文档缺文件：
+CoreTests 文件缺文档条目：
+tester 文档条数：12 / --list 条数：12
+文档与 --list 差异：
+check_window_system_bindings.py 存在：True
+docs/TODO 与 TODO/005 旧表述命中：0

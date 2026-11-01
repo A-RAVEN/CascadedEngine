@@ -24,7 +24,7 @@
 
 ## [2026-10-20] 绑定发射器（`--emit-binding`）不足以支撑「C# 创建窗口」：10 处桩、句柄不回收、判据恒绿｜`csharp-bindings-generator` 归档后遗留
 
-**状态**：**形状层与判据已修**（`binding-stub-and-shapes` 已于 2026-10-25 归档）；句柄反查也已修（生成的产物里 `lookupHandle` 92 处）。**2026-10-26 复核**：下面「仍未修」清单只剩「结构体镜像只收标量」一条仍然成立，另两条已改，逐条见子项末尾的复核标注。该 change 归档时（提交 `05e483b`）声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的（这是当时的状态）。
+**状态**：**形状层与判据已修**（`binding-stub-and-shapes` 已于 2026-10-25 归档）；句柄反查也已修（生成的产物里 `lookupHandle` 92 处）。**2026-11-01 复核**：`complete-csharp-window-system-bindings` 已实现回调投影与递归纯标量记录镜像（`IWindowSystem` 的 10 个回调和 `GetMonitor` 全部进函数表），下面「仍未修」清单里剩下的两条都已在那个 change 里修掉，逐条见子项末尾的复核标注。该 change 归档时（提交 `05e483b`）声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的（这是当时的状态）。
 
 **问题一：形状层 —— 已修，留档说明当时是什么样。** 归档时 `IWindow` 的函数表 22 个槽里有 10 个桩（桩 = 函数体只有 `return {};   // 零值…`，连 `self` 都不碰）。现在这四条已改掉：
 - 所有 `bool` 返回当时都落成桩 —— 判「能直出」的条件已从 `bareType(returnSpelling) == returnType` 换成显式集合，thunk 生成 `return object->M() ? 1 : 0;`。8 个 `bool` 槽全是真实现了。
@@ -33,10 +33,10 @@
 - 两段式当时只发声明、不发实现 —— 两个伴生各有实现体（容量 0 时一个字节都不写），且这类方法**不再进函数表、不发直出入口**，`IWindowApi_v1` 从 22 个成员变 21 个。
 
 **仍未修（本 change 明确不做）：**
-- `castl::function` 参数一律投影成固定签名 `void (*)(void*, uint32_t, float)`，与真实回调签名无关（`IWindowSystem` 的 10 个 setter 因此绑不了）。**2026-10-26 复核：已改为显式拒绝** —— `Tools/CodeGen/CodeGenMain.cpp` 给出 `rejectReason = "本轮未实现：缺回调投影路径（保活表 + 注销句柄）"`，产物里这个固定签名命中 0 处；回调形状本身仍不支持。
-- 结构体镜像只收「成员全是标量」的类型，`MonitorInfo` 里的 `cacore::Rect<float>` 会被标跳过，而 `GetMonitor` 仍投影成 `MonitorInfoC` ⇒ 引用一个不存在的类型。
+- `castl::function` 参数一律投影成固定签名 `void (*)(void*, uint32_t, float)`，与真实回调签名无关（`IWindowSystem` 的 10 个 setter 因此绑不了）。**2026-10-26 复核：已改为显式拒绝** —— `Tools/CodeGen/CodeGenMain.cpp` 给出 `rejectReason = "本轮未实现：缺回调投影路径（保活表 + 注销句柄）"`，产物里这个固定签名命中 0 处。**2026-11-01 复核：已实现** —— `complete-csharp-window-system-bindings` 把回调投影成真实签名的原生函数指针 + 不透明 `void* user` + 内部注册号 + 注销伴生；`IBindRow13` 夹具覆盖注册、参数顺序、替换、旧注册号注销、空指针、重入与异常，`IWindowSystem` 的 10 个 setter 全部进函数表。
+- 结构体镜像只收「成员全是标量」的类型，`MonitorInfo` 里的 `cacore::Rect<float>` 会被标跳过，而 `GetMonitor` 仍投影成 `MonitorInfoC` ⇒ 引用一个不存在的类型。**2026-11-01 复核：已实现** —— 生成器递归收集纯标量记录，`MonitorInfo` 的两个 `FloatRect` 与 DPI 逐字段进镜像与布局清单；非法嵌套成员非零退出并点名完整路径。
 - 兜底那行不分 const，可写出参 `Foo*` 与入参 `Foo const&` 都出 `FooC const*`。**2026-10-26 复核：已区分** —— `Tools/CodeGen/CodeGenMain.cpp` 用 `isOutRef`（含 `&` 且不含 `const`）判出参走指针，`T const&` 走各自的形状分支。
-- **夹具里三类形状仍是桩（实测 7 个，不是 6）** —— 容器 4 个（`IBindRow05::SetThings` / `IBindRow06::GetThings` / `IBindRow07::SetNested` / `IBindRow08::SetMapping`）、镜像按值返回 1 个（`IBindRow02::GetThing`）、回调 1 个（`IBindRow13::SetCallback`），外加 1 个非这套清单里的（`IBindRow01` 之外的第 7 个，需要再定位）。桩判据对夹具只打印不判定（`build.py` 每次构建会把这一行打进日志）。**这条已按 2026-10-25 用户要求搬到 `openspec/changes/binding-stub-and-shapes/tasks.md` 的 5.1，本文件不再跟踪。**
+- **夹具里三类形状仍是桩（实测 7 个，不是 6）** —— 容器 4 个（`IBindRow05::SetThings` / `IBindRow06::GetThings` / `IBindRow07::SetNested` / `IBindRow08::SetMapping`）、镜像按值返回 1 个（`IBindRow02::GetThing`）、回调 1 个（`IBindRow13::SetCallback`），外加 1 个非这套清单里的（`IBindRow01` 之外的第 7 个，需要再定位）。桩判据对夹具只打印不判定（`build.py` 每次构建会把这一行打进日志）。**这条已按 2026-10-25 用户要求搬到 `openspec/changes/binding-stub-and-shapes/tasks.md` 的 5.1，本文件不再跟踪。2026-11-01 复核：回调与镜像按值返回都已实现，当前夹具桩数是 3（容器出参 / 含 `castl::string` 的容器 / `unordered_map`），见 `Tools/CodeGen/README.md` 的夹具覆盖现状表。**
 - ~~`Scripting/Managed/Host.cs:135` 手抄的表大小~~ —— **已在 `csharp-window-creation` 任务 2.6 修掉**：托管侧现在读生成物里的 `IWindowBindings.IWindowApi_v1_Size`，`TestScriptHost` 日志里「函数表大小不符」从 1 命中变 0 命中。
 
 **问题二：句柄与生命周期（`csharp-window-creation` 已修三条，见下）。**

@@ -1,0 +1,94 @@
+接管复核（独立重跑关键验收）
+时间：2026-11-01T22:24–22:27 +08:00
+背景：原执行会话 c941de84 未被中断、继续完成了 tasks.md 的 12 条；本次由接管子 agent 在它停止写盘后独立重跑关键验收，不采用其口头结论。
+任务勾选：12 / 12，未勾 0；openspec instructions apply --json：total=12 / complete=12 / remaining=0。
+工作区清理：根目录 _build_run.bat 已不存在；未执行任何 git commit / archive。
+
+===== 命令与退出码 =====
+[1] python build.py --config Debug
+    退出码：0
+    决定性输出：BUILD SUCCESSFUL；[耗时] configure 0.0s / codegen 1.5s / 编译 7.1s / 托管侧 1.6s / 合计 14.7s
+
+[2] out\build\x64-debug\bin\CoreTests.exe
+    退出码：0
+    决定性输出：Window bindings compile test PASSED / Bindings layout manifest test PASSED /
+                Bindings nested layout test PASSED / Bindings callback test PASSED /
+                Bindings weak handle test PASSED / Bindings handle table test PASSED /
+                Bindings GetApi test PASSED（共 18 条 PASSED）
+
+[3] GPUBackendTester.exe --backend vulkan --test TestCSharpWindow --headless 2
+    退出码：0
+
+[4] GPUBackendTester.exe --backend d3d12 --test TestCSharpWindow --headless 2
+    退出码：0
+
+[5] GPUBackendTester.exe --backend vulkan --test TestCSharpWindowCallbacks --headless 2
+    退出码：0
+
+[6] GPUBackendTester.exe --backend d3d12 --test TestCSharpWindowCallbacks --headless 2
+    退出码：0
+
+[7] GPUBackendTester.exe --backend vulkan --headless 10
+    退出码：0
+    test_output/result.json：12 条全部 "status":"pass"，含 TestScriptHost / TestCSharpWindow /
+    TestCSharpWindowCallbacks / TestGPUTiming
+
+[8] GPUBackendTester.exe --backend d3d12 --headless 10
+    退出码：0
+    test_output/result.json：12 条全部 "status":"pass"
+
+[9] python Tools\check_window_system_bindings.py --log test_output\TestCSharpWindow.log
+    退出码：0
+    决定性输出：GetMonitor 对拍 1 组 / 回调对拍 0 类 / 命中 0 处问题
+
+[10] python Tools\check_window_system_bindings.py --log test_output\TestCSharpWindowCallbacks.log --callbacks
+    退出码：0
+    决定性输出：GetMonitor 对拍 1 组 / 回调对拍 10 类 / 命中 0 处问题
+
+[11] python Tools\CodeGen\check_bindable_audit.py
+    退出码：0
+    决定性输出：扫描 7 个接口、对账 60 条方法、命中 0 处问题
+
+[12] python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings
+    退出码：0
+    决定性输出：矩阵行数 15 / 有夹具的行数 15 / 签名行 46 / 不符数 0 / 两侧对齐问题 0 处 /
+                真实接口桩数 0 / 丢返回值 0 / 结构问题 0 / 覆盖率问题 0 处 /
+                托管表面问题 0 处 / 第二张矩阵问题 0 处 / 错误码问题 0 处
+
+[13] openspec validate --all
+    退出码：0
+    决定性输出：Totals: 53 passed, 0 failed (53 items)
+
+[14] openspec instructions apply --change complete-csharp-window-system-bindings --json
+    退出码：0
+    决定性输出："total": 12 / "complete": 12 / "remaining": 0
+
+===== 5.3 文档一致性复核（可复现命令） =====
+命令：按 docs/testing.md 的 CoreTests 清单 / tester 清单 / 脚本清单逐项对拍（PowerShell 内联脚本，见下方读数）
+退出码：0
+决定性输出：
+  CoreTests 文档=20 实际=20 缺= 多=
+  tester 文档=12 实测=12 差异=0
+  新脚本存在=True 旧表述命中=0
+补充：docs-consistency-green.log 是上一执行者的一次性比对记录（无退出码）；本段是接管期重跑的
+可复现读数，结论相同。
+
+===== 接管期工件修订（核验时发现，当场修） =====
+[修订 1] openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md：
+  原文：10 个回调行里 9 行的“投影形状”列写成“同第 66 行 / 同上（…）”。
+  问题：csharp-bindable-surface 规范要求“每行 MUST 明确写出原生函数指针、不透明用户令牌、内部注册号和注销伴生，
+        回调首参是回调期间借用的 IWindow”；且“同第 66 行”是行号引用，行号会漂移。
+  改后：10 行逐行写明“函数指针 + `void* user` + 内部注册号 + 注销伴生；回调首参是回调期间借用的 `IWindow`”，
+        备注列逐行写明替换/置空/释放/重入/跨线程/异常行为。
+  复核：python Tools\CodeGen\check_bindable_audit.py → 0，60 条方法 0 处问题；
+        回调行内“同第/同上”残留 0 处，“内部注册号”命中 10 行。
+[修订 2] CSharpHost/README.md：ABI 版本示例从 v4 / 40 字节更新为 v5 / 56 字节
+  （依据实测：CASCADED_CSHARP_SELFTEST=abi-mismatch 输出“故意把 abi_version 改成 6（真实值 5）…
+   引擎侧 ABI 版本 6、函数表 56 字节”、成功启动输出“ABI 版本 5、函数表 56 字节”）。
+
+===== 已知非回归的测试隔离前提 =====
+单独运行 `--test TestScriptHost`（未先跑 TestSimpleTriangle）会退出码 1：CSharpHost 的
+`OnGetInterfaceApi` 对未登记的实例写 m_lastError，而 TestScriptHost 断言两次 Tick 后
+LastError 为空。该行为在 HEAD 的 CSharpHost.cpp / Host.cs 中同源存在，不是本 change 引入；
+全量序列里 TestSimpleTriangle 先登记编号 1/2，TestScriptHost 通过（见 [7][8]）。
+task 6.1 因此按全量序列验收，未改动该测试。

@@ -1,0 +1,90 @@
+﻿命令：python build.py --config Debug
+开始时间：2026-11-01T21:13:27.8166412+08:00
+=== CascadedEngine Build Script (Python) ===
+  Visual Studio : C:\Program Files\Microsoft Visual Studio\18\Community
+  Config        : Debug (preset x64-debug)
+  Build dir     : E:\Projects\CascadedEngine\out\build\x64-debug
+  (CMake 配置输入都没动 —— 跳过 configure，要强制重配就加 --configure)
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)
+  env 'Test/CoreTests': 20 compile unit(s), 27 include dir(s), 10 macro(s), 0 forced include(s)
+  env 'Interface/RenderInterface': 5 compile unit(s), 15 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  env 'D3D12RenderBackend': 23 compile unit(s), 21 include dir(s), 13 macro(s), 0 forced include(s)
+  env 'ShaderCompilerSlang': 2 compile unit(s), 16 include dir(s), 11 macro(s), 0 forced include(s)
+  env 'CACore': 7 compile unit(s), 7 include dir(s), 6 macro(s), 0 forced include(s)
+  env 'VulkanRenderBackendNew': 27 compile unit(s), 20 include dir(s), 11 macro(s), 0 forced include(s)
+  codegen: 重跑 0 条、跳过 76 条（输入没变的那些）
+  [绑定] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h
+    [绑定] 产物：IWindow, IWindowSystem
+  [绑定] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h
+    [绑定] 产物：IBindRow01, IBindRow02, IBindRow09
+  [绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    矩阵行数 15 / 有夹具的行数 15 / 真实接口行 1 / 签名行 46 / 非签名行（拒绝或错误码）0
+    不符数 0
+    两侧对齐问题 0 处
+    被判真实接口：IWindow, IWindowSystem
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    夹具接口 22 个、桩数 3 个（只打印，不判定）
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    第二张矩阵问题 0 处
+    错误码问题 0 处
+
+============================================================
+[2/2] Building all targets...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug
+[1/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\WindowBindingsCompileTest.cpp.obj
+[2/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsGetApiTest.cpp.obj
+[3/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsLayoutTest.cpp.obj
+[4/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsWeakHandleTest.cpp.obj
+[5/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsCallbackTest.cpp.obj
+[6/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsHandleTest.cpp.obj
+[7/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNestedLayoutTest.cpp.obj
+[8/10] Building CXX object CSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj
+[9/10] Linking CXX executable bin\CoreTests.exe
+[10/10] Linking CXX shared module bin\CSharpHost.dll
+
+
+============================================================
+[托管侧] dotnet build -c Debug → E:\Projects\CascadedEngine\out\build\x64-debug\managed
+============================================================
+[托管侧] CascadedBindingDir = E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  生成的绑定：IBindRow01.Bindings.cs、IBindRow02.Bindings.cs、IBindRow03.Bindings.cs、IBindRow04.Bindings.cs、IBindRow05.Bindings.cs、IBindRow06.Bindings.cs、IBindRow07.Bindings.cs、IBindRow08.Bindings.cs、IBindRow09.Bindings.cs、IBindRow10.Bindings.cs、IBindRow11.Bindings.cs、IBindRow12.Bindings.cs、IBindRow13.Bindings.cs、IBindRow14.Bindings.cs、IBindRow15.Bindings.cs、IBindRow16.Bindings.cs、IBindRow17.Bindings.cs、IBindRow18.Bindings.cs、IBindRow19.Bindings.cs、IBindRow20.Bindings.cs、IBindRow21.Bindings.cs、IBindRow22.Bindings.cs、IWindow.Bindings.cs、IWindowSystem.Bindings.cs
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(135,22): warning CS0649: 从未对字段“IBindRow13CallbackState.Self”赋值，字段将一直保持其默认值 [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(137,23): warning CS0649: 从未对字段“IBindRow13CallbackState.Method”赋值，字段将一直保持其默认值 null [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(134,25): warning CS0649: 从未对字段“IBindRow13CallbackState.Callback”赋值，字段将一直保持其默认值 null [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(136,20): warning CS0649: 从未对字段“IBindRow13CallbackState.ThreadId”赋值，字段将一直保持其默认值 0 [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(112,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(141,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(142,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+  Scripting.Managed -> E:\Projects\CascadedEngine\out\build\x64-debug\managed\Scripting.Managed.dll
+
+已成功生成。
+
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(135,22): warning CS0649: 从未对字段“IBindRow13CallbackState.Self”赋值，字段将一直保持其默认值 [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(137,23): warning CS0649: 从未对字段“IBindRow13CallbackState.Method”赋值，字段将一直保持其默认值 null [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(134,25): warning CS0649: 从未对字段“IBindRow13CallbackState.Callback”赋值，字段将一直保持其默认值 null [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow13.Bindings.cs(136,20): warning CS0649: 从未对字段“IBindRow13CallbackState.ThreadId”赋值，字段将一直保持其默认值 0 [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(112,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(141,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(142,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+    7 个警告
+    0 个错误
+
+已用时间 00:00:01.24
+  [托管侧] 已拷到 E:\Projects\CascadedEngine\out\build\x64-debug\bin：Scripting.Managed.dll, Scripting.Managed.runtimeconfig.json, Scripting.Managed.deps.json
+
+  [耗时] configure 0.0s / codegen 1.5s / 编译 6.6s / 托管侧 1.7s / 合计 14.3s
+
+============================================================
+BUILD SUCCESSFUL
+============================================================
+退出码：0

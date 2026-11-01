@@ -2,7 +2,7 @@
 
 **它做什么**：在一个普通引擎模块的初始化阶段，把 .NET 运行时（CoreCLR）拉进本进程、加载 `Scripting.Managed.dll`、拿到托管侧 `Boot` / `Tick` 两个入口，并每帧调一次 `Tick`；同时把一张函数表交给托管侧，让它能回调引擎的日志、`echo`，以及按"接口编号 + 实例名"取引擎接口的函数表。
 
-函数表（`EngineApi`）当前是 **v4**、40 字节，字段顺序就是 ABI、只许在末尾追加：
+函数表（`EngineApi`）当前是 **v5**、56 字节，字段顺序就是 ABI、只许在末尾追加：
 
 | 字段 | 从哪一版起 | 作用 |
 |---|---|---|
@@ -10,6 +10,7 @@
 | `log` / `echo` | v1 | 引擎回调（日志、echo 自检） |
 | `get_interface_api` | v2（v4 加实例名参数） | 按 (接口编号, 实例名) 取该接口的函数表与实例；`size == 0` 是"只问大小"的探针调用 |
 | `window_interface_id` / `window_system_interface_id` | v3 | 接口编号由引擎侧单向下发，托管侧不手抄 |
+| `get_binding_layout_type` / `get_binding_layout_field` | v5 | 布局清单的引擎侧读数（真实 `sizeof` / `offsetof`）：托管 `Host.Boot` 逐项比对后才允许绑定 |
 
 接口编号表（编号由引擎下发，这里只是给它一个可读的名字）：
 
@@ -55,6 +56,11 @@ python build.py --config Debug
 | `CASCADED_CSHARP_RUNTIMECONFIG` | 指定托管侧的 `runtimeconfig.json` 路径 | `<bin>\Scripting.Managed.runtimeconfig.json` |
 | `CASCADED_CSHARP_SELFTEST=abi-mismatch` | **仅 Debug**：引擎侧故意把 `abi_version` 加一，用来构造"ABI 不符"失败路径 | 不设 |
 | `CASCADED_CSHARP_SELFTEST=throw` | **仅 Debug**：托管侧第一次 `Tick` 抛一个异常，用来构造"托管抛异常"失败路径 | 不设 |
+| `CASCADED_CSHARP_SELFTEST=layout-mismatch` | **仅 Debug**：引擎侧把布局清单第一条字段的偏移加 8，模拟"引擎与托管清单不同源"；`Host.Boot` 必须拒绝启动并点名字段 | 不设 |
+| `CASCADED_CSHARP_SELFTEST=monitor-mismatch` | **仅 Debug**：托管侧打印 `GetMonitor` 读数时把 `m_MonitorRect.width` 加 1，用来证明 `Tools/check_window_system_bindings.py` 会报字段错配 | 不设 |
+| `CASCADED_CSHARP_SELFTEST=monitor-skip-invalid` | **仅 Debug**：托管侧跳过两次无效显示器编号调用，用来证明脚本会因"放过无效编号"变红 | 不设 |
+| `CASCADED_CSHARP_CALLBACK_PROBE=1` | 启用 10 类窗口回调探针（只有 `TestCSharpWindowCallbacks` 设置） | 不设 |
+| `CASCADED_CSHARP_CALLBACK_PHASE` | 回调探针阶段机（`verify-all` / `verify-replace` / `verify-exception` / `verify-thread` / `verify-rebind` / `verify-rebind-done`），由测试在两次 `Tick` 之间设置 | 空串 |
 
 ## 失败语义（五条，全部实测过）
 
@@ -65,7 +71,7 @@ python build.py --config Debug
 | 托管程序集缺失 | `CSharpHost 初始化失败（退出码 3）：解析托管入口 Boot 失败，返回 -2146233079（程序集 …\bin\Scripting.Managed.dll）；找过的路径：…\hostfxr.dll、…\Scripting.Managed.runtimeconfig.json` |
 | 配置路径不存在 | `CSharpHost 初始化失败（退出码 3）：找不到托管侧的 runtimeconfig.json：…\bad.runtimeconfig.json；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、…\bad.runtimeconfig.json` |
 | 配置要的运行时版本本机没有 | `hostfxr_initialize_for_runtime_config 返回 -2147450730（…；配置里要的框架版本：7.0.0；本机已装的运行时版本：10.0.2、8.0.23、8.0.6、9.0.12）` |
-| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 5（真实值 4）` + `[托管侧] ABI 版本不符：引擎 5，托管侧期望 4` + `托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 5、函数表 40 字节；0 = 成功）` |
+| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 6（真实值 5）` + `[托管侧] ABI 版本不符：引擎 6，托管侧期望 5` + `托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 6、函数表 56 字节；0 = 成功）` |
 | 托管方法抛异常 | `[托管侧] Tick 抛异常：InvalidOperationException: …` + 引擎侧收到错误码 **4**；进程**不崩** |
 
 ## 关闭
@@ -84,9 +90,9 @@ Select-String -LiteralPath $env:TEMP\csharp.out -Pattern '托管侧|IScriptHost|
 实测输出（节选）：
 
 ```
-[托管侧] 托管侧已启动：ABI 版本 4、函数表 40 字节
+[托管侧] 托管侧已启动：ABI 版本 5、函数表 56 字节
 [托管侧] 回调引擎 Echo(42) 得到 43
-CSharpHost：托管运行时已就绪（加载耗时 = 34 ms；函数表 40 字节，ABI v4）
+CSharpHost：托管运行时已就绪（加载耗时 = 39 ms；函数表 56 字节，ABI v5）
 IScriptHost 已取到：IsAvailable = true
 [托管侧] Tick #1：dt = 0.016 秒
 托管侧 Tick #1 回值 1（引擎侧计数与之一致）

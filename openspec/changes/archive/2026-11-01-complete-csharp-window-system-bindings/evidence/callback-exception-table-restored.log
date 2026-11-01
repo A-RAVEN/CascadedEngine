@@ -1,0 +1,14 @@
+﻿命令：python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings（恢复码表）
+开始时间：2026-11-01T22:07:12.6941783+08:00
+产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+矩阵行数 15 / 有夹具的行数 15 / 真实接口行 1 / 签名行 46 / 非签名行（拒绝或错误码）0
+不符数 0
+两侧对齐问题 0 处
+被判真实接口：IWindow, IWindowSystem
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+夹具接口 22 个、桩数 3 个（只打印，不判定）
+覆盖率问题 0 处
+托管表面问题 0 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+退出码：0

@@ -48,9 +48,7 @@ namespace cawindow
 	};
 
 	// 绑定：`IWindowSystem` 是第二个接到 C# 的接口（`csharp-window-creation` 任务 2.1）。
-	// 16 个方法里 5 个进函数表；其余 11 条用 `CA_BIND_SKIP` 排除，理由一律写**本轮未实现** +
-	// 缺的是哪条投影路径 —— 审计表对它们的结论仍是"可绑"，把"这轮没做"说成"永远绑不了"
-	// 会让读表的人分不清两者（`check_bindable_audit.py` 会因此报错）。
+	// 16 个方法全部进函数表（本 change 解开了 10 个回调与 `GetMonitor`）。
 	CA_BIND()
 	class IWindowSystem
 	{
@@ -82,19 +80,5 @@ namespace cawindow
 		virtual void SetCharCallback(castl::function<void(IWindow*, uint32_t)> callback) = 0;
 
 		virtual void* GetSystemNativeHandle() = 0;
-
-		// 以下 11 条本轮不进函数表（任务 2.1）。理由必须是"本轮未实现"+缺哪条投影路径 ——
-		// 写成 ①–④ 会把"这轮没做"伪装成"形状本身绑不了"。
-		CA_BIND_SKIP(SetWindowFocusCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetCursorEnterCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetCursorPosCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetMouseButtonCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetScrollCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetWindowCloseCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetWindowPosCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetWindowSizeCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetKeyCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(SetCharCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
-		CA_BIND_SKIP(GetMonitor, "本轮未实现：成员是 cacore::Rect<float> 模板实例化类型，布局镜像只收成员全标量的结构体")
 	};
 }

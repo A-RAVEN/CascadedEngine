@@ -1,0 +1,185 @@
+﻿命令：python build.py --config Debug（输出经 cmd 重定向，UTF-8）
+开始时间：2026-11-01T20:34:44.1605336+08:00
+=== CascadedEngine Build Script (Python) ===
+  Visual Studio : C:\Program Files\Microsoft Visual Studio\18\Community
+  Config        : Debug (preset x64-debug)
+  Build dir     : E:\Projects\CascadedEngine\out\build\x64-debug
+  (CMake 配置输入都没动 —— 跳过 configure，要强制重配就加 --configure)
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake -S E:\Projects\CascadedEngine\Tools\CodeGen -B E:\Projects\CascadedEngine\out\build\codegen-tool -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=E:\Projects\CascadedEngine\out\build\x64-debug\bin
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: E:/Projects/CascadedEngine/out/build/codegen-tool
+
+
+  cmake --build E:\Projects\CascadedEngine\out\build\codegen-tool
+ninja: no work to do.
+
+  env 'Test/CoreTests': 19 compile unit(s), 27 include dir(s), 10 macro(s), 0 forced include(s)
+  env 'Interface/RenderInterface': 5 compile unit(s), 15 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  env 'D3D12RenderBackend': 23 compile unit(s), 21 include dir(s), 13 macro(s), 0 forced include(s)
+  env 'ShaderCompilerSlang': 2 compile unit(s), 16 include dir(s), 11 macro(s), 0 forced include(s)
+  env 'CACore': 7 compile unit(s), 7 include dir(s), 6 macro(s), 0 forced include(s)
+  env 'VulkanRenderBackendNew': 27 compile unit(s), 20 include dir(s), 11 macro(s), 0 forced include(s)
+  codegen: 并发 4 条（逻辑核 32，上限 8）
+  [1/76] EmitSample
+  [2/76] Kinds
+  [3/76] FriendLike
+  [4/76] NewRes
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\Kinds.codegen.h (4524 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\FriendLike.codegen.h (4518 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\EmitSample.codegen.h (4312 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\NewRes.codegen.h (4011 B)
+  codegen: 重跑 4 条、跳过 72 条（输入没变的那些）
+  [绑定] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h
+    [绑定] 产物：IWindow, IWindowSystem
+  [绑定] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h
+    [绑定] 产物：IBindRow01, IBindRow02, IBindRow09
+  [绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    矩阵行数 15 / 有夹具的行数 15 / 真实接口行 1 / 签名行 44 / 非签名行（拒绝或错误码）1
+    不符数 0
+    两侧对齐问题 0 处
+    被判真实接口：IWindow, IWindowSystem
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    夹具接口 22 个、桩数 4 个（只打印，不判定）
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    第二张矩阵问题 0 处
+    错误码问题 0 处
+
+============================================================
+[2/2] Building all targets...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug
+[1/16] Linking CXX executable bin\GPUBackendTester.exe
+[2/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenKindsTest.cpp.obj
+[3/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\EmitReflectionTest.cpp.obj
+[4/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\FriendLikeTest.cpp.obj
+[5/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedSerializerTest.cpp.obj
+[6/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\WindowBindingsCompileTest.cpp.obj
+[7/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNestedLayoutTest.cpp.obj
+FAILED: Test/CoreTests/CMakeFiles/CoreTests.dir/BindingsNestedLayoutTest.cpp.obj 
+C:\PROGRA~1\MICROS~3\18\COMMUN~1\VC\Tools\MSVC\1450~1.357\bin\Hostx64\x64\cl.exe  /nologo /TP -DCASCADED_SOURCE_DIR=\"E:/Projects/CascadedEngine\" -DD3D12MA_IMPORTS -DDIRECTX_TEX_IMPORT -DFMT_SHARED -DNOMINMAX=1 -DUSING_EASTL=0 -IE:\Projects\CascadedEngine\Tools\CodeGen -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings -IE:\Projects\CascadedEngine\WindowSystem\header\CAWindow -IE:\Projects\CascadedEngine\Interface\RenderInterface\private -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface -IE:\Projects\CascadedEngine\Interface\RenderInterface\header -IE:\Projects\CascadedEngine\D3D12RenderBackend\private -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend -IE:\Projects\CascadedEngine\Interface\ShaderCompiler\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang -IE:\Projects\CascadedEngine\WindowSystem\header -IE:\Projects\CascadedEngine\CACore\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\CACore -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\mimalloc-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\hash-library-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\komihash-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\fmt-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\magic_enum-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\glm-src -IE:\Projects\CascadedEngine\GeneralResources\header -IE:\Projects\CascadedEngine\ThreadManager\header -IE:\Projects\CascadedEngine\Interface\TimerSystem\header -IE:\Projects\CascadedEngine\Interface\IOManager\header -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\d3d12memoryallocator-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\directxtex-src\DirectXTex -external:IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\directx-headers-src\include -external:W0 /DWIN32 /D_WINDOWS /W3 /GR /EHsc /MDd /Ob0 /Od /RTC1 -std:c++20 -Zi /WX- /external:anglebrackets /external:W0 /wd4068 /wd26812 /wd26451 /wd26495 /wd28251 /wd6387 /Zc:preprocessor /utf-8 -openmp /showIncludes /FoTest\CoreTests\CMakeFiles\CoreTests.dir\BindingsNestedLayoutTest.cpp.obj /FdTest\CoreTests\CMakeFiles\CoreTests.dir\ /FS -c E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(27): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(27): error C2146: syntax error: missing ';' before identifier 'IBindRow22_GetMonitorInfo'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(28): error C2061: syntax error: identifier 'BindMonitorInfoC'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(37): error C2059: syntax error: '*'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(37): error C2091: function returns function
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(37): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(37): warning C4183: 'BindMonitorInfoC': missing return type; assumed to be a member function returning 'int'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(38): error C2061: syntax error: identifier 'BindMonitorInfoC'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(62): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(62): error C2146: syntax error: missing ';' before identifier 'IBindRow22_thunk_GetMonitorInfo'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(62): error C2062: type 'void' unexpected
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(63): error C2143: syntax error: missing ';' before '{'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(63): error C2447: '{': missing function header (old-style formal list?)
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(74): error C2061: syntax error: identifier 'BindMonitorInfoC'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(80): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(80): error C2146: syntax error: missing ';' before identifier 'IBindRow22_GetMonitorInfo'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(81): error C2143: syntax error: missing ';' before '{'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(81): error C2447: '{': missing function header (old-style formal list?)
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(85): error C2061: syntax error: identifier 'BindMonitorInfoC'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(87): error C2065: 'info': undeclared identifier
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(94): error C2039: 'GetMonitorInfo': is not a member of 'IBindRow22Api_v2'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(30): note: see declaration of 'IBindRow22Api_v2'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(94): error C2618: illegal member designator in offsetof
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(94): note: offsetof has a builtin meaning; use /Zc:offsetof- to revert to old, non-conforming definition
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(94): error C2338: static assertion failed: '函数表成员偏移变了：IBindRow22.GetMonitorInfo'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(95): error C2338: static assertion failed: '函数表成员偏移变了：IBindRow22.SetMonitorInfo'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(103): error C2065: 'IBindRow22_thunk_GetMonitorInfo': undeclared identifier
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(97): error C2737: 'IBindRow22_api': const object must be initialized
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(32): error C3668: '`anonymous-namespace'::FakeRow22::GetMonitorInfoA': method with override specifier 'override' did not override any base class methods
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(131): error C2065: 'BindFloatRectC': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(133): error C2065: 'BindFloatRectC': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(137): error C2615: 'offsetof' cannot be applied to non-class type 'int'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(138): error C2615: 'offsetof' cannot be applied to non-class type 'int'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(139): error C2615: 'offsetof' cannot be applied to non-class type 'int'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(144): error C2065: 'BindFloatRectC': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(144): error C2132: syntax error: unexpected identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(144): note: offsetof has a builtin meaning; use /Zc:offsetof- to revert to old, non-conforming definition
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(145): error C2065: 'BindFloatRectC': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(145): error C2132: syntax error: unexpected identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(145): note: offsetof has a builtin meaning; use /Zc:offsetof- to revert to old, non-conforming definition
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(146): error C2065: 'BindFloatRectC': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(146): error C2132: syntax error: unexpected identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(146): note: offsetof has a builtin meaning; use /Zc:offsetof- to revert to old, non-conforming definition
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(147): error C2065: 'BindFloatRectC': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(147): error C2132: syntax error: unexpected identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(147): note: offsetof has a builtin meaning; use /Zc:offsetof- to revert to old, non-conforming definition
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(154): error C2259: '`anonymous-namespace'::FakeRow22': cannot instantiate abstract class
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(29): note: see declaration of '`anonymous-namespace'::FakeRow22'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(154): note: due to following members:
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(154): note: 'ca_bind_fixture::BindMonitorInfo ca_bind_fixture::IBindRow22::GetMonitorInfo(int32_t) const': is abstract
+E:\Projects\CascadedEngine\Tools\CodeGen\BindableShapes.h(270): note: see declaration of 'ca_bind_fixture::IBindRow22::GetMonitorInfo'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(155): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(155): error C2146: syntax error: missing ';' before identifier 'mirror'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(155): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(155): error C3861: 'IBindRow22_GetMonitorInfo': identifier not found
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(161): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(161): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(161): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(162): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(164): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(164): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(165): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(165): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(164): warning C4473: 'printf' : not enough arguments passed for format string
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(164): note: placeholders and their parameters expect 4 variadic arguments, but 0 were provided
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(164): note: the missing variadic argument 1 is required by format string '%g'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(168): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(168): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(169): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(169): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(171): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(172): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(172): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(172): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(171): warning C4473: 'printf' : not enough arguments passed for format string
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(171): note: placeholders and their parameters expect 4 variadic arguments, but 0 were provided
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(171): note: the missing variadic argument 1 is required by format string '%g'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(175): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(177): error C2065: 'mirror': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(177): warning C4473: 'printf' : not enough arguments passed for format string
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(177): note: placeholders and their parameters expect 1 variadic arguments, but 0 were provided
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(177): note: the missing variadic argument 1 is required by format string '%g'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(182): error C2146: syntax error: missing ';' before identifier 'incoming'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(182): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(183): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(184): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(185): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(186): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(187): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(188): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(189): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(190): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(191): error C2065: 'incoming': undeclared identifier
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsNestedLayoutTest.cpp(192): error C2065: 'incoming': undeclared identifier
+[8/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\ResourceBatchTest.cpp.obj
+[9/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsWeakHandleTest.cpp.obj
+[10/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsLayoutTest.cpp.obj
+[11/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsHandleTest.cpp.obj
+[12/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsGetApiTest.cpp.obj
+[13/16] Building CXX object CSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj
+[14/16] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedHashTest.cpp.obj
+ninja: build stopped: subcommand failed.
+
+
+ERROR: command failed (exit 1)
+  Bat file kept at: E:\Projects\CascadedEngine\_build_run.bat
+退出码：1
+
+===== 决定性输出（红态）=====
+生成器当前行为：IBindRow22 的返回类型 BindMonitorInfoC 没有被发出（外层成员 monitorRect 的类型
+BindFloatRect 不是标量，布局清单只收"成员全是标量"的结构体，于是整个镜像被跳过；thunk 里仍然
+按镜像名搬运，产物自己编不过），新增测试因此编译失败：
+  out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(27): error C4430: missing type specifier
+  out\build\x64-debug\codegen\bindings\IBindRow22.Bindings.cpp(28): error C2061: syntax error: identifier 'BindMonitorInfoC'
+  Test\CoreTests\BindingsNestedLayoutTest.cpp(155): error C3861: 'IBindRow22_GetMonitorInfo': identifier not found
+构建退出码：1（见文件末尾"退出码：1"那行）
+恢复后应看到：python build.py --config Debug 退出码 0，CoreTests 打出 "Bindings nested layout test PASSED"。

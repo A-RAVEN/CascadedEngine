@@ -979,9 +979,10 @@ MSVC 自己会折叠那个模式，clang 不会 —— 于是生成物里的 `st
 C++ 接口保持易用（`castl::vector` / `castl::string` / `castl::shared_ptr` / `castl::function` 照写）。
 把复杂结构翻成 blittable 是生成代码的活，不是接口作者的活。
 
-### 边界上只允许三类形状
+### 边界上只允许四类形状
 
-blittable 标量与结构体、`T const* + 数量`（视图）、不透明句柄（定宽整数 + 代际号）。
+blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不透明句柄（定宽整数 + 代际号）、
+“真实签名的原生函数指针 + 不透明 `void* user`”回调形状（注册号与注销伴生留在内部层）。
 **容器类型与模板类型永不出现在 C ABI 面**：`castl::vector` / `map` / `unordered_map` / `set` / `string` 只在 C++ 接口面存在。
 
 ### 投影矩阵
@@ -1001,7 +1002,7 @@ blittable 标量与结构体、`T const* + 数量`（视图）、不透明句柄
 | `castl::shared_ptr<T>`（参数） | `uint64` 句柄 → 反查 | 无 | 生成器 |
 | `castl::weak_ptr<T>` | `uint64` **弱句柄**（句柄表存弱引用，不抬高 `use_count`；对象析构后旧句柄按 1001 判失效） | 无 | 生成器（只观察） |
 | `T const&` / `T&` 出参 | `TC const*` / `TC*` | 视 T | — |
-| `castl::function<Ret(Args...)>` 回调 | 函数指针 + `void* user`（保活表 + 注销句柄） | 无 | 生成器 |
+| `castl::function<Ret(Args...)>` 回调 | 真实签名的函数指针 + `void* user`、内部注册号、注销伴生；回调期间借用的接口对象 | 无 | 生成器（注册表 + 托管 GCHandle） |
 | 会抛异常的方法 | 生成器 try/catch → 错误码 + 文本 | — | — |
 
 统一规则：**元素里含 `string` / 容器 / 指针 ⇒ 一律降到序列化块**，并在生成期日志里逐条说明。
@@ -1043,7 +1044,9 @@ python Tools/CodeGen/check_bindable_audit.py
 
 **做什么**：按头里的 `CA_BIND` 标注，把每个被标注接口投影成两份产物 —— `<接口>.Bindings.cpp`（thunk、版本化函数表、`GetApi(version, size, out)`、共用句柄表、错误通道、布局清单的编译期断言）与 `<接口>.Bindings.cs`（`delegate* unmanaged<…>` 声明、偏移常量、以及**给使用者用的托管表面** `<接口>` 类）。投影规则见 `openspec/specs/csharp-bindable-surface/spec.md` 与本文第十三节、下文的两张矩阵。
 
-**不做什么**：不生成模板/泛型，也不生成"所有权不明裸指针"的绑定（这类必须用 `CA_BIND_SKIP(方法, "理由")` 排除，工具只打印、退出码 0）；回调参数本轮未实现，带 `castl::function` 参数的方法**没写排除就会被拒绝**（退出码 1，见第十四节规则）；不改任何接口签名；不负责把函数表送进托管侧（那是消费方的事）。
+**不做什么**：不生成模板/泛型，也不生成"所有权不明裸指针"的绑定（这类必须用 `CA_BIND_SKIP(方法, "理由")` 排除，工具只打印、退出码 0）；`castl::function<void(...)>` 回调已实现（见下），带这种参数的方法不再被拒绝；不改任何接口签名；不负责把函数表送进托管侧（那是消费方的事）。
+
+**回调（本 change 之后）**：`castl::function<void(Args...)>` 参数投影成**真实签名的原生函数指针 + 不透明 `void* user`**，安装入口返回**内部注册号**，另发一个通用注销伴生 `<接口>_UnregisterCallback(void* self, uint64_t registration)`。注册号、函数指针、用户令牌与注销伴生只留在 native / `internal` 层，公开 C# setter 仍是 `void SetX(Action<...>)`。托管注册表用 `GCHandle` 保活委托：替换先装新的再注销旧的，置空与表面对象释放同时清原生注册与保活项；旧注册号注销只作用于仍匹配 current 的那一项，不会误删后来替换的新回调。回调参数里的已绑定接口裸指针还原成**回调期间借用的表面对象**，返回即撤销借用（再调用抛 1001）；非注册线程的回调被拒绝（1005），回调执行期间替换/清空同一个注册被活动标记挡下（1004），用户委托异常在托管桥内捕获（1003）并在下一次主线程调用原样上报。
 
 **弱句柄、释放与解析（第十四节规则，`csharp-window-creation` 之后）**：`castl::weak_ptr<T>` 返回**不再被拒绝**，它投影成 `uint64` 弱句柄 —— 句柄表里存弱引用、**不抬高** `use_count()`，对象析构后 `lock()` 失败即按 1001 判失效。返回 `T*`（`T` 是另一个已 `CA_BIND` 的接口）投影成**借用句柄**（kind 4）：只存裸指针、不持有，存活见证者是发行它的那个对象。每个被绑定接口另外导出两个泛用入口：`<接口>_ReleaseHandle(void* self, uint64_t handle)` 释放、`<接口>_ResolveHandle(void* self, uint64_t handle)` 把句柄解回对象指针（失败返回空并置 1001）；两者都在函数表里（`ResolveHandle` / `ReleaseHandle` 两个槽），托管侧靠它们做 `Dispose`。**句柄表是进程级唯一一张**（不是每接口一张）：句柄 = 代际 + 序号，而每个接口的序号都从 1 开始，两张独立的表会发出数字完全相同的句柄 —— 把 A 表的句柄交给 B 表的释放入口，B 表会命中同号的活项并销毁一个无关对象。表项带接口标签，标签不符一律按 1001 拒。释放时表项会同时放掉强引用与弱引用并让代际进位：**只清表项、不放强引用**会让对象永不析构（`use_count() == 1` 永远不成立，窗口永不回收）。
 
@@ -1074,15 +1077,21 @@ conformance 夹具，判据在 `Tools/CodeGen/check_bindings.py` 的 `check_surf
   `<接口>Bindings` / `<接口>Lease` / `<接口>Calls` 三层里；
 - `public` 类型里也不许出现它们：`<接口>Handle` 结构体因此是 `internal` 的。
 
-**错误码（`csharp-window-creation` 任务 5.8 的码表，唯一来源是生成物里的具名常量）**：
+**错误码（唯一来源是生成器里的 `kBindErrorCodes`，生成物只发具名常量）**：
 
 | 码 | 生成物里的常量 | 谁会写它 |
 |---|---|---|
-| 1001 | `<接口>_ERROR_STALE_HANDLE` | `ResolveHandle` / `ReleaseHandle`（句柄失效、或不属于本接口）、弱句柄背后对象已析构、借用句柄的见证者已销毁 |
+| 1001 | `<接口>_ERROR_STALE_HANDLE` | `ResolveHandle` / `ReleaseHandle`（句柄失效、或不属于本接口）、弱句柄背后对象已析构、借用句柄的见证者已销毁、回调借用对象在回调返回后被使用 |
 | 1002 | `<接口>_ERROR_NULL_POINTER` | 登记强/弱/借用句柄时实现返回了空指针 |
+| 1003 | `<接口>_ERROR_CALLBACK_EXCEPTION` | 托管桥捕获用户委托异常、原生回调桥抛 C++ 异常；下一次 `UpdateSystem` 或回调注册调用原样上报 |
+| 1004 | `<接口>_ERROR_CALLBACK_REENTRANT` | 回调执行期间替换 / 清空 / 注销**同一个**回调注册（活动标记挡下，不销毁正在执行的回调） |
+| 1005 | `<接口>_ERROR_CALLBACK_WRONG_THREAD` | 原生回调来自非注册线程：桥拒绝进入托管委托，只记录错误 |
+| 1006 | `<接口>_ERROR_INVALID_MONITOR` | `GetMonitor` 的编号为负或不小于 `GetMonitorCount()`：绑定层在调用原生实现**之前**拦下，不让它进 clamp |
 
 生成物里**不许出现裸字面量**；`check_bindings.py` 的 `check_error_codes()` 把产物里所有
-`<接口>_ERROR_*` 常量与所有 `_setError` 的码逐个对这张表，对不上即红。
+`<接口>_ERROR_*` 常量与所有 `_setError` 的码逐个对这张表，对不上即红。新增错误标识时，
+`Tools/CodeGen/CodeGenMain.cpp` 的 `kBindErrorCodes`、`check_bindings.py` 的 `ERROR_CODE_TABLE`
+与这张表**三处一起改** —— 只改一侧会被 `check_error_codes()` 判红。
 
 **退出码**：`0` = 全部生成（含"所有方法都被带理由排除"这种空产物的情况）；`1` = 有拒绝（① 模板类、③ 依赖隐式转换的重载、②/④ 的排除没写理由、缺审计结论、审计表本身不绿）；`2` = 参数问题（缺 `--out-dir`、句柄位宽非法）；`3` = libclang 解析失败或解析出错误诊断。
 
@@ -1128,7 +1137,7 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 4. **字符串入参从 `char const* + len` 造临时量** —— 实现要 `castl::string` 就 `castl::string(ptr, len)`，要 `string_view` 就 `castl::string_view(ptr, len)`，再把临时量传给实现。
 5. **两段式只发两个伴生** —— `_Len` 返回 `object->M().size()`，`_Copy` 自己再取一次实现的值、按 `min(cap - 1, size)` 截断并补零；**容量 0 时一个字节都不写**（无符号下溢会写满整段）。这类方法**不进函数表、不发 `extern "C"` 直出入口、不发直出 thunk** —— 三个都不发才自洽。
 
-**夹具里还剩三类形状未覆盖**（2026-10-25 更新：这一轮修好了两类，桩数从 5 降到 3）：
+**夹具覆盖现状（三个形状仍留桩）**（2026-11-01 更新：回调也修好了；桩数仍是 3，因为下面三个是另一种形状）：
 
 | 形状 | 现在什么状态 | 为什么 |
 |---|---|---|
@@ -1137,6 +1146,6 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 | 容器**出参**（`IBindRow06::GetThings`） | 仍留桩 | C ABI 是 `dst + cap` 两段式，"容量不够怎么办"没有定协议（截断＝静默降级、抛错＝C ABI 没有异常通道）；定协议要连错误码一起设计 |
 | 元素含 `castl::string` 的容器（`IBindRow07::SetNested`） | 仍留桩 | C ABI 是序列化块 `(uint8_t const* + len)`，要先有容器序列化格式 |
 | `unordered_map`（`IBindRow08::SetMapping`） | 仍留桩 | 摊平成 `(K*, V*, count)`，但遍历顺序不保证、重复键的覆盖语义也没定 |
-| 回调（`IBindRow13::SetCallback`） | **不是桩**：任务 2.2 起由 `CA_BIND_SKIP` 带理由排除，生成器强制 | — |
+| 回调（`IBindRow13::SetCallback`） | **已实现**：函数指针 + `void* user` + 内部注册号 + 注销伴生；夹具覆盖注册、参数顺序、替换、旧注册号注销、空指针、重入与异常上报 | — |
 
 `check_bindings.py` 对**夹具**只打印桩数、不判定，对**被绑定到托管侧的真实接口**桩数必须为 0。`build.py` 每次构建会把那一行夹具桩数打进日志（现在是 `桩数 3 个`），别让它悄悄涨。

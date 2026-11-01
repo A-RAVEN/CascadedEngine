@@ -81,23 +81,148 @@ namespace fake_window
 
 		int GetWindowCount() const override { return static_cast<int>(m_windows.size()); }
 		int GetMonitorCount() const override { return 1; }
-		cawindow::MonitorInfo GetMonitor(int) const override { return cawindow::MonitorInfo{}; }
+		cawindow::MonitorInfo GetMonitor(int monitorId) const override;
 		void UpdateSystem() override {}
-		void SetWindowFocusCallback(castl::function<void(cawindow::IWindow*, bool)>) override {}
-		void SetCursorEnterCallback(castl::function<void(cawindow::IWindow*, bool)>) override {}
-		void SetCursorPosCallback(castl::function<void(cawindow::IWindow*, float, float)>) override {}
-		void SetMouseButtonCallback(castl::function<void(cawindow::IWindow*, int, int, int)>) override {}
-		void SetScrollCallback(castl::function<void(cawindow::IWindow*, float, float)>) override {}
-		void SetWindowCloseCallback(castl::function<void(cawindow::IWindow*)>) override {}
-		void SetWindowPosCallback(castl::function<void(cawindow::IWindow*, float, float)>) override {}
-		void SetWindowSizeCallback(castl::function<void(cawindow::IWindow*, float, float)>) override {}
-		void SetKeyCallback(castl::function<void(cawindow::IWindow*, int, int, int, int)>) override {}
-		void SetCharCallback(castl::function<void(cawindow::IWindow*, uint32_t)>) override {}
+		// 10 类回调（本 change 任务 4.1 / 5.2）：真实保存，测试用 `Trigger*` 确定性触发。
+		void SetWindowFocusCallback(castl::function<void(cawindow::IWindow*, bool)> callback) override
+		{
+			m_windowFocus = callback;
+		}
+		void SetCursorEnterCallback(castl::function<void(cawindow::IWindow*, bool)> callback) override
+		{
+			m_cursorEnter = callback;
+		}
+		void SetCursorPosCallback(castl::function<void(cawindow::IWindow*, float, float)> callback) override
+		{
+			m_cursorPos = callback;
+		}
+		void SetMouseButtonCallback(castl::function<void(cawindow::IWindow*, int, int, int)> callback) override
+		{
+			m_mouseButton = callback;
+		}
+		void SetScrollCallback(castl::function<void(cawindow::IWindow*, float, float)> callback) override
+		{
+			m_scroll = callback;
+		}
+		void SetWindowCloseCallback(castl::function<void(cawindow::IWindow*)> callback) override
+		{
+			m_windowClose = callback;
+		}
+		void SetWindowPosCallback(castl::function<void(cawindow::IWindow*, float, float)> callback) override
+		{
+			m_windowPos = callback;
+		}
+		void SetWindowSizeCallback(castl::function<void(cawindow::IWindow*, float, float)> callback) override
+		{
+			m_windowSize = callback;
+		}
+		void SetKeyCallback(castl::function<void(cawindow::IWindow*, int, int, int, int)> callback) override
+		{
+			m_key = callback;
+		}
+		void SetCharCallback(castl::function<void(cawindow::IWindow*, uint32_t)> callback) override
+		{
+			m_char = callback;
+		}
+
+		int TriggerWindowFocus(cawindow::IWindow* window, bool value)
+		{
+			if (!m_windowFocus) { return 0; }
+			m_windowFocus(window, value);
+			return 1;
+		}
+		int TriggerCursorEnter(cawindow::IWindow* window, bool value)
+		{
+			if (!m_cursorEnter) { return 0; }
+			m_cursorEnter(window, value);
+			return 1;
+		}
+		int TriggerCursorPos(cawindow::IWindow* window, float x, float y)
+		{
+			if (!m_cursorPos) { return 0; }
+			m_cursorPos(window, x, y);
+			return 1;
+		}
+		int TriggerMouseButton(cawindow::IWindow* window, int button, int action, int mods)
+		{
+			if (!m_mouseButton) { return 0; }
+			m_mouseButton(window, button, action, mods);
+			return 1;
+		}
+		int TriggerScroll(cawindow::IWindow* window, float x, float y)
+		{
+			if (!m_scroll) { return 0; }
+			m_scroll(window, x, y);
+			return 1;
+		}
+		int TriggerWindowClose(cawindow::IWindow* window)
+		{
+			if (!m_windowClose) { return 0; }
+			m_windowClose(window);
+			return 1;
+		}
+		int TriggerWindowPos(cawindow::IWindow* window, float x, float y)
+		{
+			if (!m_windowPos) { return 0; }
+			m_windowPos(window, x, y);
+			return 1;
+		}
+		int TriggerWindowSize(cawindow::IWindow* window, float x, float y)
+		{
+			if (!m_windowSize) { return 0; }
+			m_windowSize(window, x, y);
+			return 1;
+		}
+		int TriggerKey(cawindow::IWindow* window, int key, int scanCode, int action, int mods)
+		{
+			if (!m_key) { return 0; }
+			m_key(window, key, scanCode, action, mods);
+			return 1;
+		}
+		int TriggerChar(cawindow::IWindow* window, uint32_t codepoint)
+		{
+			if (!m_char) { return 0; }
+			m_char(window, codepoint);
+			return 1;
+		}
 		void* GetSystemNativeHandle() override { return nullptr; }
 
 	private:
 		std::vector<castl::shared_ptr<Window>> m_windows;
+		castl::function<void(cawindow::IWindow*, bool)> m_windowFocus;
+		castl::function<void(cawindow::IWindow*, bool)> m_cursorEnter;
+		castl::function<void(cawindow::IWindow*, float, float)> m_cursorPos;
+		castl::function<void(cawindow::IWindow*, int, int, int)> m_mouseButton;
+		castl::function<void(cawindow::IWindow*, float, float)> m_scroll;
+		castl::function<void(cawindow::IWindow*)> m_windowClose;
+		castl::function<void(cawindow::IWindow*, float, float)> m_windowPos;
+		castl::function<void(cawindow::IWindow*, float, float)> m_windowSize;
+		castl::function<void(cawindow::IWindow*, int, int, int, int)> m_key;
+		castl::function<void(cawindow::IWindow*, uint32_t)> m_char;
 	};
+
+	// 固定非零显示器读数（本 change 任务 3.2）：每个字段都不同，任一字段被清零、错序或漏搬都能在
+	// C++ 与托管的日志对拍里抓出来。原生实现的越界行为仍是 clamp（绑定层必须在此之前拦下，
+	// 所以这里的 clamp 只作为"真实实现会返回另一个显示器"的对照）。
+	inline cawindow::MonitorInfo System::GetMonitor(int monitorId) const
+	{
+		if (monitorId < 0 || monitorId >= GetMonitorCount())
+		{
+			monitorId = 0;
+		}
+		(void)monitorId;
+		cawindow::MonitorInfo info{};
+		info.m_MonitorRect.x = 10.5f;
+		info.m_MonitorRect.y = 20.5f;
+		info.m_MonitorRect.width = 1600.0f;
+		info.m_MonitorRect.height = 900.0f;
+		info.m_WorkAreaRect.x = 15.5f;
+		info.m_WorkAreaRect.y = 25.5f;
+		info.m_WorkAreaRect.width = 1580.0f;
+		info.m_WorkAreaRect.height = 860.0f;
+		info.m_DPIScale = 1.5f;
+		return info;
+	}
 
 	inline cawindow::IWindowSystem* Window::GetWindowSystem()
 	{

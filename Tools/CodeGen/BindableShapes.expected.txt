@@ -18,7 +18,8 @@
 10|void IBindRow10_ConsumeThing(void* self, uint64_t thingHandle)
 11|uint64_t IBindRow11_PeekThing(void* self)
 12|void IBindRow12_GetPair(void* self, int32_t* outFirst, float* outSecond)
-13|拒绝：非零退出，本轮未实现（缺回调投影路径）
+13|uint64_t IBindRow13_SetCallback(void* self, void (*)(void*, uint32_t, float), void* user)
+13|void IBindRow13_UnregisterCallback(void* self, uint64_t registration)
 14|void IBindRow14_MayThrow(void* self, int32_t value)
 IWindow|void IWindow_CloseWindow(void* self)
 IWindow|int32_t IWindow_WindowShouldClose(void* self)

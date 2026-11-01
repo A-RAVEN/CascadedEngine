@@ -144,13 +144,11 @@ namespace ca_bind_fixture
 		virtual ~IBindRow12() = default;
 	};
 
-	// 第 13 行：castl::function<Ret(Args...)> 回调 ⇒ 函数指针 + void* user + 保活表
+	// 第 13 行：castl::function<Ret(Args...)> 回调 ⇒ 函数指针 + void* user + 内部注册号 + 注销伴生
 	CA_BIND()
 	class IBindRow13
 	{
 	public:
-		// 回调参数本轮不投影（任务 2.2）：生成器对没排除的回调方法直接拒绝
-		CA_BIND_SKIP(SetCallback, "本轮未实现：缺回调投影路径（保活表 + 注销句柄）")
 		virtual void SetCallback(castl::function<void(uint32_t, float)> callback) = 0;
 		virtual ~IBindRow13() = default;
 	};
@@ -238,5 +236,37 @@ namespace ca_bind_fixture
 	public:
 		virtual castl::weak_ptr<IBindRow16> GetFlagOwner() = 0;
 		virtual ~IBindRow21() = default;
+	};
+
+	// ---- 嵌套纯标量记录（矩阵第 2 行「blittable 结构体」的递归形态）----
+	// `BindFloatRect` 带 defaulted `operator<=>`：它不改变数据布局，生成器 MUST 仍按数据记录处理；
+	// 换成自定义方法时必须拒绝（拒绝夹具在 `BindableShapes.RejectNested.h`）。
+	struct BindFloatRect
+	{
+		float x;
+		float y;
+		float width;
+		float height;
+
+		auto operator<=>(BindFloatRect const&) const = default;
+	};
+
+	// 外层记录里嵌套两个 `BindFloatRect`：布局清单必须递归记录嵌套类型与字段偏移，
+	// 不能把 `m_MonitorRect` 这一层摊平成匿名字节。
+	struct BindMonitorInfo
+	{
+		BindFloatRect monitorRect;
+		BindFloatRect workAreaRect;
+		float dpiScale;
+	};
+
+	// 按值返回 / 按 const& 入参各一条：镜像搬运要覆盖两个方向。
+	CA_BIND()
+	class IBindRow22
+	{
+	public:
+		virtual BindMonitorInfo GetMonitorInfo(int32_t monitorId) const = 0;
+		virtual void SetMonitorInfo(BindMonitorInfo const& info) = 0;
+		virtual ~IBindRow22() = default;
 	};
 }

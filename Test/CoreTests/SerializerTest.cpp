@@ -68,6 +68,8 @@ bool RunBindingsGetApiTest();
 bool RunBindingsHandleTest();
 bool RunBindingsWeakHandleTest();
 bool RunBindingsLayoutTest();
+bool RunBindingsNestedLayoutTest();
+bool RunBindingsCallbackTest();
 bool RunWindowBindingsCompileTest();
 
 
@@ -103,6 +105,29 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("Bindings layout manifest test PASSED");
+	}
+
+	// 嵌套纯标量记录：递归镜像、按值搬运、defaulted 比较运算符与非法嵌套拒绝（本 change 任务 1.1）
+	if (!RunBindingsNestedLayoutTest())
+	{
+		std::puts("Bindings nested layout test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings nested layout test PASSED");
+	}
+
+	// `castl::function<void(...)>` 回调的原生注册 / 参数顺序 / 替换 / 注销 / 重入 / 异常
+	// （本 change 任务 1.2 / 2.1）
+	if (!RunBindingsCallbackTest())
+	{
+		std::puts("Bindings callback test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings callback test PASSED");
 	}
 
 	// 弱句柄：登记不抬高引用计数、对象被回收后旧句柄报 1001（`csharp-window-creation` 任务 1.4）

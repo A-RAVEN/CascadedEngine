@@ -1,0 +1,7 @@
+﻿命令：out\build\x64-debug\bin\CodeGen.exe Tools\CodeGen\BindableShapes.RejectNested.h --emit-binding --out-dir <%TEMP%>\cascaded_nested_reject --audit-script Tools\CodeGen\check_bindable_audit.py <include 参数> -xc++
+开始时间：2026-11-01T21:14:44.1480050+08:00
+  libclang: E:\Projects\CascadedEngine\Tools\CodeGen\BindableShapes.RejectNested.h:1:9: warning: #pragma once in main file [-Wpragma-once-outside-header]
+CodeGen: 跳过审计核对 IBindRowNestedReject —— 它不在审计表覆盖的接口清单里
+CodeGen: 拒绝嵌套记录 —— BindNestedBadOuter.inner.name 的类型是 castl::string（字符串 / 容器 / 指针 / 智能指针不是纯标量记录）
+CodeGen: --emit-binding 返回 1
+退出码：1

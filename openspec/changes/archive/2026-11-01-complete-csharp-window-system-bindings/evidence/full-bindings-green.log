@@ -1,0 +1,32 @@
+命令：python build.py --config Debug
+开始时间：2026-11-01T22:13:48.7525604+08:00
+[绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+不符数 0
+两侧对齐问题 0 处
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+覆盖率问题 0 处
+托管表面问题 0 处
+错误码问题 0 处
+BUILD SUCCESSFUL
+扫描 7 个接口、对账 60 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+check_bindable_audit 退出码：0
+产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+矩阵行数 15 / 有夹具的行数 15 / 真实接口行 1 / 签名行 46 / 非签名行（拒绝或错误码）0
+不符数 0
+两侧对齐问题 0 处
+被判真实接口：IWindow, IWindowSystem
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+夹具接口 22 个、桩数 3 个（只打印，不判定）
+覆盖率问题 0 处
+托管表面问题 0 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+check_bindings 退出码：0
+----- 5.1 决定性读数 -----
+IWindowSystem 函数表槽位总数（含 4 个非方法槽与 2 个回调伴生槽）：22（`(*` 文本出现 32 次 = 22 个槽位声明 + 10 个回调槽里各带一个内嵌 `void (*)` 形参）；其中 UnregisterCallback=1、ReportCallbackError=1
+IWindowSystem 方法槽：16（22 − 4 个非方法槽 − 2 个回调伴生槽）
+审计表里 IWindowSystem 行的旧回调形状 / 本轮未实现命中：0
+README 旧表述命中：0
+WindowSystem.h 剩余 CA_BIND_SKIP 条数：0
+计数口径补充（并入上面两行）：函数指针成员声明里有 10 个回调槽各带一个嵌套的 oid (*) 形参，所以 (* 出现 32 次 = 22 个槽位 + 10 个内嵌函数指针；槽位 = 4 个非方法槽 + 16 个方法槽 + 2 个回调伴生槽 = 22（sizeof = 8 + 8×22 = 184，CSharpHost 的 static_assert 已同步）。
+IWindowSystem 的 16 个方法全部在函数表里：NewWindow / GetWindowCount / GetMonitorCount / GetMonitor / UpdateSystem / 10 个 Set*Callback / GetSystemNativeHandle。
