@@ -8,6 +8,7 @@
 #include <Utils/InterfaceTranslation.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <GPUGraph/GPUGraphExecutor.h>
+#include <GPUGraph/D3D12GPUTiming.h>
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
 
@@ -330,6 +331,73 @@ namespace graphics_backend
 		D3D12GPUGraphExecutor executor(this);
 		executor.CompileAndExecute(*graph.get(), std::move(frameContext));
 		executor.Release();
+	}
+
+	// vulkan-gpu-queries（能力 `gpu-graph-timing`）任务 2.1：D3D12 的逐 pass GPU 计时。
+	// 能力按队列查询：队列存在且能报出非零时间戳频率即视为支持（design D4/D7）。
+	GPUTimingCapabilities RenderBackend_D3D12::GetTimingCapabilities(EGPUQueueType queue) const
+	{
+		if (!m_Device)
+		{
+			return GPUTimingCapabilities{};
+		}
+		ComPtr<ID3D12CommandQueue> pQueue;
+		if (queue == EGPUQueueType::eDirect)
+		{
+			pQueue = m_CommandQueue;
+		}
+		else if (queue == EGPUQueueType::eCompute)
+		{
+			pQueue = m_ComputeQueue;
+		}
+		if (!pQueue)
+		{
+			return GPUTimingCapabilities{};
+		}
+		UINT64 frequency = 0;
+		if (FAILED(pQueue->GetTimestampFrequency(&frequency)) || frequency == 0)
+		{
+			return GPUTimingCapabilities{};
+		}
+		GPUTimingCapabilities result{};
+		result.passTimestamps = true;
+		return result;
+	}
+
+	std::unique_ptr<IGPUGraphTiming> RenderBackend_D3D12::ExecuteGraphTimed(
+		TaskScheduler* scheduler
+		, castl::shared_ptr<GPUGraph> const& graph)
+	{
+		(void)scheduler;
+		if (!graph)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12::ExecuteGraphTimed: 图为空，无法计时");
+			return nullptr;
+		}
+
+		// 结果对象自己持有查询堆 / 回读缓冲 / fence（design D5），执行器返回即析构也不影响它。
+		auto pTiming = D3D12GPUTiming::Create(this, *graph.get(), ++m_TimingSubmissionCounter);
+		if (!pTiming)
+		{
+			// 具体原因（哪个队列不支持 / 哪次分配失败）已由 D3D12GPUTiming::Create 记录。
+			return nullptr;
+		}
+
+		CleanupWindowHandles();
+
+		GPUFrameManager::PFrameContext frameContext = m_GPUFrameManager.AquireFrameContext();
+		D3D12GPUGraphExecutor executor(this);
+		executor.SetTimingRecorder(pTiming.get());
+		executor.CompileAndExecute(*graph.get(), std::move(frameContext));
+		executor.Release();
+
+		// 提交之后在两条队列上给本对象自己的 fence 发信号，再等待并读取（design D7）。
+		pTiming->SignalAfterExecution(this);
+		if (!pTiming->Finish(this))
+		{
+			return nullptr;
+		}
+		return pTiming;
 	}
 
 	castl::shared_ptr<GPUBuffer> RenderBackend_D3D12::CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags)

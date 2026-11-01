@@ -1,4 +1,5 @@
 #include "GPUGraphExecutor.h"
+#include <GPUGraph/D3D12GPUTiming.h>
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <Utils/InterfaceTranslation.h>
 #include <RenderBackend_D3D12.h>
@@ -10,6 +11,60 @@
 
 namespace graphics_backend
 {
+
+	// ===================== vulkan-gpu-queries 任务 2.1：计时的私有辅助 =====================
+	// 名称规则（design D3）：渲染 pass 取 RenderPass::GetName()，无效时 render[<原始序号>]；
+	// 计算 pass 没有名字，用 compute[<原始序号>]。
+	namespace
+	{
+		// 把设备 tick 换算成纳秒：先除后乘，避免 ticks * 1e9 溢出。frequency 是"每秒 tick 数"。
+		uint64_t TimingTicksToNanoseconds(uint64_t ticks, uint64_t frequency)
+		{
+			if (frequency == 0)
+			{
+				return 0;
+			}
+			uint64_t const wholeSeconds = ticks / frequency;
+			uint64_t const remainder = ticks % frequency;
+			return wholeSeconds * 1000000000ull + (remainder * 1000000000ull) / frequency;
+		}
+
+		castl::string GetRenderPassTimingName(GPUGraph const& graph, uint32_t rasterPassID)
+		{
+			auto const& name = graph.GetRenderPasses()[rasterPassID].GetName();
+			if (!name.Get().empty())
+			{
+				return name.string();
+			}
+			return castl::string("render[") + std::to_string(rasterPassID) + "]";
+		}
+
+		castl::string GetComputePassTimingName(uint32_t computePassID)
+		{
+			return castl::string("compute[") + std::to_string(computePassID) + "]";
+		}
+
+		bool WaitForTimingFence(ID3D12Fence* pFence, uint64_t value)
+		{
+			if (pFence == nullptr)
+			{
+				return false;
+			}
+			if (pFence->GetCompletedValue() >= value)
+			{
+				return true;
+			}
+			HANDLE eventHandle = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+			if (eventHandle == nullptr)
+			{
+				return false;
+			}
+			bool const ok = SUCCEEDED(pFence->SetEventOnCompletion(value, eventHandle))
+				&& (WaitForSingleObject(eventHandle, INFINITE) == WAIT_OBJECT_0);
+			CloseHandle(eventHandle);
+			return ok;
+		}
+	}
 
 	GPUTextureDescriptor GetDescriptor(GPUGraph const& graph, ImageHandle const& image)
 	{
@@ -1700,12 +1755,17 @@ namespace graphics_backend
 			, castl::vector<RenderPassGPUData> const& rasterPassGPUData
 			, castl::vector<ComputePassGPUData> const& computePassGPUData
 			, GPUFrameManager::PFrameContext& pFrameContext
+			, D3D12GPUTiming* pTiming
 		)
 		{
 			std::array<ID3D12DescriptorHeap*, 2> descHeaps = { resourceHeap.GetHeap().Get(),samplerHeap.GetHeap().Get() };
 
 			aquireCommands.Record(pBackend, executeBatch, commandListMgr, linearMemoryManager, resourceManager);
 			releaseCommands.Record(pBackend, executeBatch, commandListMgr);
+
+			// 本批次从哪两个槽位开始写时间戳（普通 ExecuteGraph 不传 pTiming，整段逻辑不执行）。
+			uint32_t const timingSlotBeginDirect = (pTiming != nullptr) ? pTiming->SlotCount(EGPUQueueType::eDirect) : 0;
+			uint32_t const timingSlotBeginCompute = (pTiming != nullptr) ? pTiming->SlotCount(EGPUQueueType::eCompute) : 0;
 
 			pDirectCmd = nullptr;
 			pComputeCmd = nullptr;
@@ -1752,6 +1812,15 @@ namespace graphics_backend
 				auto& rasterData = rasterPassGPUData[rasterPassID];
 				auto& pass = owningGraph.GetRenderPasses()[rasterPassID];
 				CA_ASSERT_BREAK(rasterData.drawcallBatchs.size() == pass.GetDrawCallBatches().size(), "Raster Pass Batch Count Inompatible");
+
+				// 计时（任务 2.1）：起点记在 BeginRenderPass **之前**（render pass 外），
+				// 终点记在 EndRenderPass 之后。普通 ExecuteGraph 的 pTiming 为空，这段不执行。
+				if (pTiming != nullptr)
+				{
+					pTiming->RecordPassBegin(pCommand, EGPUQueueType::eDirect, EGPUTimedPassType::eRender
+						, static_cast<uint32_t>(rasterPassID)
+						, GetRenderPassTimingName(owningGraph, static_cast<uint32_t>(rasterPassID)));
+				}
 
 				//Set Render Targets
 				{
@@ -1882,6 +1951,11 @@ namespace graphics_backend
 				}
 
 				pCommand->EndRenderPass();
+
+				if (pTiming != nullptr)
+				{
+					pTiming->RecordPassEnd(pCommand, EGPUQueueType::eDirect);
+				}
 			}
 
 			//Compute Passes
@@ -1891,6 +1965,17 @@ namespace graphics_backend
 				auto& pass = owningGraph.GetComputePasses()[computePassID];
 
 				auto pCommand = getComputeCmd(pass.asyncCompute);
+
+				// 实际记录的队列（任务 2.1 / spec 场景二）：没请求异步时记在 direct 上，
+				// 结果必须如实报 eDirect，不能按 pass 类型伪报成 compute。
+				EGPUQueueType const computeQueueType = pass.asyncCompute
+					? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
+				if (pTiming != nullptr)
+				{
+					pTiming->RecordPassBegin(pCommand, computeQueueType, EGPUTimedPassType::eCompute
+						, static_cast<uint32_t>(computePassID)
+						, GetComputePassTimingName(static_cast<uint32_t>(computePassID)));
+				}
 
 				for (int dispatchID = 0; dispatchID < computeData.dispatchs.size(); ++dispatchID)
 				{
@@ -1918,6 +2003,11 @@ namespace graphics_backend
 						}
 					}
 					pCommand->Dispatch(dispatchInfo.x, dispatchInfo.y, dispatchInfo.z);
+				}
+
+				if (pTiming != nullptr)
+				{
+					pTiming->RecordPassEnd(pCommand, computeQueueType);
 				}
 			}
 
@@ -1975,6 +2065,13 @@ namespace graphics_backend
 
 					pCommand->CopyBufferRegion(pBufferResource, dataRef.dstOffset, stagingBuffer, 0, dataRef.dataSize);
 				}
+			}
+
+			// 查询解析必须在命令列表 Close() 之前记录（任务 2.1）：只解析本批次新写的槽位区间。
+			if (pTiming != nullptr)
+			{
+				pTiming->ResolveRecordedRange(pDirectCmd, EGPUQueueType::eDirect, timingSlotBeginDirect);
+				pTiming->ResolveRecordedRange(pComputeCmd, EGPUQueueType::eCompute, timingSlotBeginCompute);
 			}
 
 			closeCommands();
@@ -2045,6 +2142,7 @@ namespace graphics_backend
 		, castl::vector<RenderPassGPUData> const& rasterPassGPUData
 		, castl::vector<ComputePassGPUData> const& computePassGPUData
 		, GPUFrameManager::PFrameContext& pFrameContext
+		, D3D12GPUTiming* pTiming
 	)
 	{
 		std::vector<BatchExecutionContext> contexts(executeBatchs.size());
@@ -2063,7 +2161,8 @@ namespace graphics_backend
 				, executeBatch
 				, rasterPassGPUData
 				, computePassGPUData
-				, pFrameContext);
+				, pFrameContext
+				, pTiming);
 		}
 		int directFenceCounter = 0;
 		int computeFenceCounter = 0;
@@ -2236,7 +2335,8 @@ namespace graphics_backend
 			, executionBatchs
 			, rasterPassGPUDataList
 			, computePassGPUDataList
-			, m_CurrentFrameContext);
+			, m_CurrentFrameContext
+			, m_pTiming);
 
 		m_CurrentFrameContext->Signal(GetApp()->GetDirectQueue(), GetApp()->GetComputeQueue());
 
@@ -2261,5 +2361,348 @@ namespace graphics_backend
 		m_ConstantBufferManager.Clear();
 		//m_CurrentFrameContext->GPUWaitIdle();
 		m_CurrentFrameContext = nullptr;
+	}
+
+	// ===================== vulkan-gpu-queries 任务 2.1：D3D12 逐 pass 计时 =====================
+	// 实现放在这个已有 .cpp 里（不新增 .cpp）：新增源文件只有重新 configure 才会进 CMake 的
+	// `file(GLOB_RECURSE ...)`，而本机当前连不上依赖的远端、无法重新 configure。理由同
+	// `CRenderBackend.h` 里那段注释。计时辅助（tick 换算 / 名称规则 / fence 等待）在本文件顶部。
+
+	D3D12GPUTiming::QueueState* D3D12GPUTiming::GetQueueState(EGPUQueueType queue)
+	{
+		if (queue == EGPUQueueType::eDirect)
+		{
+			return &m_Direct;
+		}
+		if (queue == EGPUQueueType::eCompute)
+		{
+			return &m_Compute;
+		}
+		return nullptr;
+	}
+
+	D3D12GPUTiming::QueueState const* D3D12GPUTiming::GetQueueState(EGPUQueueType queue) const
+	{
+		if (queue == EGPUQueueType::eDirect)
+		{
+			return &m_Direct;
+		}
+		if (queue == EGPUQueueType::eCompute)
+		{
+			return &m_Compute;
+		}
+		return nullptr;
+	}
+
+	bool D3D12GPUTiming::InitQueue(RenderBackend_D3D12* pBackend, EGPUQueueType queue, uint32_t passCount)
+	{
+		QueueState* pState = GetQueueState(queue);
+		if (pState == nullptr || passCount == 0)
+		{
+			return true; // 未使用的队列不创建任何资源（design D4）
+		}
+
+		ComPtr<ID3D12Device> pDevice = pBackend->GetDevice();
+		ComPtr<ID3D12CommandQueue> pQueue = (queue == EGPUQueueType::eCompute)
+			? pBackend->GetComputeQueue() : pBackend->GetDirectQueue();
+		if (pDevice == nullptr || pQueue == nullptr)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 队列 {} 不可用，无法创建计时查询", (queue == EGPUQueueType::eCompute) ? "compute" : "direct");
+			return false;
+		}
+
+		// D3D12 的时间戳频率来自命令队列本身（direct 与 compute 可以不同）。
+		UINT64 frequency = 0;
+		if (FAILED(pQueue->GetTimestampFrequency(&frequency)) || frequency == 0)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 队列 {} 不支持时间戳（GetTimestampFrequency 失败）",
+				(queue == EGPUQueueType::eCompute) ? "compute" : "direct");
+			return false;
+		}
+		pState->timestampFrequency = frequency;
+		pState->slotCount = passCount * 2; // 每条 pass 一对 begin/end
+
+		D3D12_QUERY_HEAP_DESC heapDesc{};
+		heapDesc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+		heapDesc.Count = pState->slotCount;
+		heapDesc.NodeMask = 0;
+		HRESULT hr = pDevice->CreateQueryHeap(&heapDesc, IID_PPV_ARGS(&pState->queryHeap));
+		if (FAILED(hr) || pState->queryHeap == nullptr)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 创建时间戳查询堆失败（HRESULT 0x{:08X}）", static_cast<uint32_t>(hr));
+			return false;
+		}
+
+		D3D12_RESOURCE_DESC bufferDesc{};
+		bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+		bufferDesc.Alignment = 0;
+		bufferDesc.Width = static_cast<UINT64>(pState->slotCount) * sizeof(uint64_t);
+		bufferDesc.Height = 1;
+		bufferDesc.DepthOrArraySize = 1;
+		bufferDesc.MipLevels = 1;
+		bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+		bufferDesc.SampleDesc.Count = 1;
+		bufferDesc.SampleDesc.Quality = 0;
+		bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+		bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+		D3D12_HEAP_PROPERTIES heapProps{};
+		heapProps.Type = D3D12_HEAP_TYPE_READBACK;
+		heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+		heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+		heapProps.CreationNodeMask = 1;
+		heapProps.VisibleNodeMask = 1;
+
+		// READBACK 堆的 CPU 回读缓冲：结果对象自己持有（design D5），不放进会被复用的帧上下文。
+		hr = pDevice->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+			D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&pState->readbackBuffer));
+		if (FAILED(hr) || pState->readbackBuffer == nullptr)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 创建计时回读缓冲失败（HRESULT 0x{:08X}）", static_cast<uint32_t>(hr));
+			return false;
+		}
+
+		// 每条队列一个 fence：同一个 fence 上较大的信号值不能证明另一条队列也执行完，
+		// 所以两条队列各等各的 fence。
+		hr = pDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&pState->fence));
+		if (FAILED(hr) || pState->fence == nullptr)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 创建计时 fence 失败（HRESULT 0x{:08X}）", static_cast<uint32_t>(hr));
+			return false;
+		}
+
+		pState->ticks.resize(pState->slotCount, 0);
+		return true;
+	}
+
+	std::unique_ptr<D3D12GPUTiming> D3D12GPUTiming::Create(
+		RenderBackend_D3D12* pBackend,
+		GPUGraph const& graph,
+		uint64_t submissionID)
+	{
+		if (pBackend == nullptr || !pBackend->DeviceInited())
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 后端未初始化，无法计时");
+			return nullptr;
+		}
+
+		GPUTimingCapabilities const directCaps = pBackend->GetTimingCapabilities(EGPUQueueType::eDirect);
+		GPUTimingCapabilities const computeCaps = pBackend->GetTimingCapabilities(EGPUQueueType::eCompute);
+
+		// 按图**实际使用的队列**统计 pass 数：渲染 pass 走 direct；显式异步计算 pass 走 compute，
+		// 未请求异步的计算 pass 走 direct（design D4）。
+		uint32_t directPassCount = static_cast<uint32_t>(graph.GetRenderPasses().size());
+		uint32_t computePassCount = 0;
+		for (auto const& pass : graph.GetComputePasses())
+		{
+			if (!pass.asyncCompute)
+			{
+				++directPassCount;
+				continue;
+			}
+			if (!computeCaps.passTimestamps)
+			{
+				CA_LOG_ERR("当前后端不支持计时：显式异步计算 pass 需要 compute 队列的时间戳，但该队列不支持");
+				return nullptr;
+			}
+			++computePassCount;
+		}
+
+		if (directPassCount > 0 && !directCaps.passTimestamps)
+		{
+			CA_LOG_ERR("当前后端不支持计时：direct 队列的 passTimestamps 为 false，图里有 {} 条 direct pass", directPassCount);
+			return nullptr;
+		}
+		if (directPassCount == 0 && computePassCount == 0)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 这张图没有可计时的渲染 / 计算 pass（传输与 finalize pass 不计时）");
+			return nullptr;
+		}
+
+		auto pTiming = std::unique_ptr<D3D12GPUTiming>(new D3D12GPUTiming());
+		pTiming->m_SubmissionID = submissionID;
+		if (!pTiming->InitQueue(pBackend, EGPUQueueType::eDirect, directPassCount))
+		{
+			return nullptr;
+		}
+		if (!pTiming->InitQueue(pBackend, EGPUQueueType::eCompute, computePassCount))
+		{
+			return nullptr;
+		}
+		return pTiming;
+	}
+
+	uint32_t D3D12GPUTiming::SlotCount(EGPUQueueType queue) const
+	{
+		return (queue == EGPUQueueType::eCompute) ? m_NextSlotCompute : m_NextSlotDirect;
+	}
+
+	void D3D12GPUTiming::RecordPassBegin(ID3D12GraphicsCommandList7* pCmd, EGPUQueueType queue,
+		EGPUTimedPassType passType, uint32_t passIndex, castl::string const& name)
+	{
+		QueueState* pState = GetQueueState(queue);
+		if (pCmd == nullptr || pState == nullptr || pState->queryHeap == nullptr)
+		{
+			return;
+		}
+
+		uint32_t& nextSlot = (queue == EGPUQueueType::eCompute) ? m_NextSlotCompute : m_NextSlotDirect;
+		if (nextSlot + 1 >= pState->slotCount)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 队列 {} 的查询槽位超出分配（已用 {} / 共 {}），本条 pass 不计时",
+				(queue == EGPUQueueType::eCompute) ? "compute" : "direct", nextSlot, pState->slotCount);
+			return;
+		}
+
+		uint32_t const beginSlot = nextSlot;
+		nextSlot += 2;
+		pCmd->EndQuery(pState->queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, beginSlot);
+
+		PendingPass pending{};
+		pending.passType = passType;
+		pending.passIndex = passIndex;
+		pending.queue = queue;
+		pending.name = name;
+		pending.beginSlot = beginSlot;
+		m_PendingPasses.push_back(pending);
+
+		((queue == EGPUQueueType::eCompute) ? m_OpenSlotCompute : m_OpenSlotDirect) = beginSlot;
+	}
+
+	void D3D12GPUTiming::RecordPassEnd(ID3D12GraphicsCommandList7* pCmd, EGPUQueueType queue)
+	{
+		QueueState* pState = GetQueueState(queue);
+		uint32_t& openSlot = (queue == EGPUQueueType::eCompute) ? m_OpenSlotCompute : m_OpenSlotDirect;
+		if (pCmd == nullptr || pState == nullptr || pState->queryHeap == nullptr)
+		{
+			return;
+		}
+		if (openSlot == UINT32_MAX)
+		{
+			CA_LOG_ERR("D3D12GPUTiming: 队列 {} 的 pass 终点找不到对应起点，跳过（不写脏数据）",
+				(queue == EGPUQueueType::eCompute) ? "compute" : "direct");
+			return;
+		}
+
+		pCmd->EndQuery(pState->queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, openSlot + 1);
+		openSlot = UINT32_MAX;
+	}
+
+	void D3D12GPUTiming::ResolveRecordedRange(ID3D12GraphicsCommandList7* pCmd, EGPUQueueType queue, uint32_t slotBegin)
+	{
+		QueueState* pState = GetQueueState(queue);
+		if (pCmd == nullptr || pState == nullptr || pState->queryHeap == nullptr || pState->readbackBuffer == nullptr)
+		{
+			return;
+		}
+		uint32_t const slotEnd = SlotCount(queue);
+		if (slotEnd <= slotBegin)
+		{
+			return;
+		}
+		// 查询解析必须在命令列表 Close() 之前记录（任务 2.1）：这里由调用方在 closeCommands() 之前调。
+		// 64 位时间戳的偏移按 8 字节对齐（slotBegin * sizeof(uint64_t)）。
+		pCmd->ResolveQueryData(pState->queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
+			slotBegin, slotEnd - slotBegin, pState->readbackBuffer.Get(),
+			static_cast<UINT64>(slotBegin) * sizeof(uint64_t));
+	}
+
+	void D3D12GPUTiming::SignalAfterExecution(RenderBackend_D3D12* pBackend)
+	{
+		if (pBackend == nullptr)
+		{
+			return;
+		}
+		// 信号排在本次图执行已提交的命令列表之后（同一条队列上的 Signal 是顺序执行的）。
+		if (m_Direct.fence != nullptr && m_Direct.queryHeap != nullptr)
+		{
+			ComPtr<ID3D12CommandQueue> pQueue = pBackend->GetDirectQueue();
+			if (pQueue != nullptr)
+			{
+				pQueue->Signal(m_Direct.fence.Get(), kFenceValue);
+			}
+		}
+		if (m_Compute.fence != nullptr && m_Compute.queryHeap != nullptr)
+		{
+			ComPtr<ID3D12CommandQueue> pQueue = pBackend->GetComputeQueue();
+			if (pQueue != nullptr)
+			{
+				pQueue->Signal(m_Compute.fence.Get(), kFenceValue);
+			}
+		}
+	}
+
+	bool D3D12GPUTiming::Finish(RenderBackend_D3D12* pBackend)
+	{
+		if (m_Ready)
+		{
+			return !m_Passes.empty();
+		}
+		(void)pBackend;
+
+		// 1) 等对应队列完成，再读回原始 tick（design D7：读完才允许 CPU 使用）。
+		for (EGPUQueueType queue : { EGPUQueueType::eDirect, EGPUQueueType::eCompute })
+		{
+			QueueState* pState = GetQueueState(queue);
+			if (pState == nullptr || pState->queryHeap == nullptr || pState->readbackBuffer == nullptr)
+			{
+				continue;
+			}
+			if (!WaitForTimingFence(pState->fence.Get(), kFenceValue))
+			{
+				CA_LOG_ERR("D3D12GPUTiming: 等待队列 {} 的计时 fence 失败",
+					(queue == EGPUQueueType::eCompute) ? "compute" : "direct");
+				m_Passes.clear();
+				return false;
+			}
+
+			D3D12_RANGE readRange{ 0, static_cast<SIZE_T>(pState->slotCount) * sizeof(uint64_t) };
+			uint8_t* pData = nullptr;
+			HRESULT const hr = pState->readbackBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pData));
+			if (FAILED(hr) || pData == nullptr)
+			{
+				CA_LOG_ERR("D3D12GPUTiming: 映射计时回读缓冲失败（HRESULT 0x{:08X}）", static_cast<uint32_t>(hr));
+				m_Passes.clear();
+				return false;
+			}
+			pState->ticks.resize(pState->slotCount);
+			memcpy(pState->ticks.data(), pData, static_cast<size_t>(pState->slotCount) * sizeof(uint64_t));
+			pState->readbackBuffer->Unmap(0, nullptr);
+		}
+
+		// 2) 换算成纳秒并校验。任何一条无效就整次失败，不把坏数据截断成 0（design D7）。
+		m_Passes.clear();
+		m_Passes.reserve(m_PendingPasses.size());
+		for (auto const& pending : m_PendingPasses)
+		{
+			QueueState const* pState = GetQueueState(pending.queue);
+			if (pState == nullptr || pending.beginSlot + 1 >= pState->ticks.size())
+			{
+				CA_LOG_ERR("D3D12GPUTiming: pass（类型 {}，序号 {}）的查询槽位 {} 没有落进回读范围",
+					static_cast<uint32_t>(pending.passType), pending.passIndex, pending.beginSlot);
+				m_Passes.clear();
+				return false;
+			}
+			uint64_t const beginNs = TimingTicksToNanoseconds(pState->ticks[pending.beginSlot], pState->timestampFrequency);
+			uint64_t const endNs = TimingTicksToNanoseconds(pState->ticks[pending.beginSlot + 1], pState->timestampFrequency);
+			if (endNs < beginNs)
+			{
+				CA_LOG_ERR("D3D12GPUTiming: pass（类型 {}，序号 {}）的结束时间早于开始时间（{} ns < {} ns），计时显式失败",
+					static_cast<uint32_t>(pending.passType), pending.passIndex, endNs, beginNs);
+				m_Passes.clear();
+				return false;
+			}
+			GPUPassTiming result{};
+			result.passType = pending.passType;
+			result.passIndex = pending.passIndex;
+			result.queue = pending.queue;
+			result.name = pending.name;
+			result.beginNs = beginNs;
+			result.endNs = endNs;
+			m_Passes.push_back(castl::move(result));
+		}
+
+		m_Ready = true;
+		return true;
 	}
 }

@@ -1,4 +1,5 @@
 #include <RenderBackend_Vulkan.h>
+#include <GPUGraph/VulkanGPUTiming.h>
 #include <Utils/VulkanDebug.h>
 #include <string>
 #include <cstring>
@@ -443,6 +444,77 @@ namespace graphics_backend
 
 		// Release executor (frame context auto-released by PFrameContext deleter)
 		executor.Release();
+	}
+
+	// vulkan-gpu-queries（能力 `gpu-graph-timing`）任务 3.1：Vulkan 的逐 pass GPU 计时。
+	// 能力按队列查询：队列族存在且 timestampValidBits > 0 才算支持。没有独立计算队列（回退到图形族）时
+	// eCompute 报假 —— 那种情况下计算 pass 实际记录在 direct 命令缓冲区上（design D4）。
+	GPUTimingCapabilities RenderBackend_Vulkan::GetTimingCapabilities(EGPUQueueType queue) const
+	{
+		int family = -1;
+		if (queue == EGPUQueueType::eDirect)
+		{
+			family = m_QueueContext.GetGraphicsQueueFamily();
+		}
+		else if (queue == EGPUQueueType::eCompute)
+		{
+			int const computeFamily = m_QueueContext.GetComputeQueueFamily();
+			if (computeFamily < 0 || computeFamily == m_QueueContext.GetGraphicsQueueFamily())
+			{
+				return GPUTimingCapabilities{};
+			}
+			family = computeFamily;
+		}
+		else
+		{
+			return GPUTimingCapabilities{};
+		}
+		if (family < 0)
+		{
+			return GPUTimingCapabilities{};
+		}
+		auto const queueFamilies = m_PhysicalDevice.getQueueFamilyProperties();
+		if (family >= static_cast<int>(queueFamilies.size()))
+		{
+			return GPUTimingCapabilities{};
+		}
+		GPUTimingCapabilities result{};
+		result.passTimestamps = queueFamilies[family].timestampValidBits > 0;
+		return result;
+	}
+
+	std::unique_ptr<IGPUGraphTiming> RenderBackend_Vulkan::ExecuteGraphTimed(
+		TaskScheduler* scheduler
+		, castl::shared_ptr<GPUGraph> const& graph)
+	{
+		(void)scheduler;
+		if (!graph)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan::ExecuteGraphTimed: 图为空，无法计时");
+			return nullptr;
+		}
+
+		// 结果对象自己持有查询池 / 回读缓冲 / CPU 数组（design D5），执行器返回即析构不影响它。
+		auto pTiming = VulkanGPUTiming::Create(this, *graph.get(), ++m_TimingSubmissionCounter);
+		if (!pTiming)
+		{
+			// 具体原因（哪个队列不支持 / 哪次分配失败）已由 VulkanGPUTiming::Create 记录。
+			return nullptr;
+		}
+
+		auto frameContext = m_GPUFrameManager.AquireFrameContext();
+		VulkanGraphExecutor executor;
+		InitSubObj(&executor);
+		executor.SetTimingRecorder(pTiming.get());
+		executor.CompileAndExecute(graph, std::move(frameContext));
+		executor.Release();
+
+		// SubmitBatches 已逐批 waitForFences；Finish 里再显式 waitIdle + 失效映射内存后读回（design D10）。
+		if (!pTiming->Finish(this))
+		{
+			return nullptr;
+		}
+		return pTiming;
 	}
 	RenderBackend_Vulkan::~RenderBackend_Vulkan()
 	{

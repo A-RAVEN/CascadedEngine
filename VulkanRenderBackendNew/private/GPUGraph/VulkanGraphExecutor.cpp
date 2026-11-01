@@ -1,4 +1,5 @@
 #include <GPUGraph/VulkanGraphExecutor.h>
+#include <GPUGraph/VulkanGPUTiming.h>
 #include <RenderBackend_Vulkan.h>
 #include <Utils/InterfaceTranslator.h>
 #include <ResourceManagement/VulkanCommandListManager.h>
@@ -16,6 +17,23 @@
 
 namespace graphics_backend
 {
+	// vulkan-gpu-queries（任务 3.1）：计时结果里 pass 的名称规则，与 D3D12 侧一致（design D3）：
+	// 渲染 pass 取 RenderPass::GetName()，无效时 render[<原始序号>]；计算 pass 用 compute[<原始序号>]。
+	static castl::string GetRenderPassTimingName(GPUGraph const& graph, uint32_t rasterPassID)
+	{
+		auto const& name = graph.GetRenderPasses()[rasterPassID].GetName();
+		if (!name.Get().empty())
+		{
+			return name.string();
+		}
+		return castl::string("render[") + std::to_string(rasterPassID) + "]";
+	}
+
+	static castl::string GetComputePassTimingName(uint32_t computePassID)
+	{
+		return castl::string("compute[") + std::to_string(computePassID) + "]";
+	}
+
 	// Helper: Convert EShaderTypeFlags to vk::PipelineStageFlags
 	static vk::PipelineStageFlags ToPipelineStageFlags(EShaderTypeFlags flags)
 	{
@@ -2176,6 +2194,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
 		batch.directCommandBuffer.begin(beginInfo);
 
+		// 计时（任务 3.1）：本批次从哪个槽位开始写时间戳。普通 ExecuteGraph 的 m_pTiming 为空，
+		// 整段计时逻辑不执行（design D6）。
+		uint32_t const timingSlotBeginDirect = (m_pTiming != nullptr) ? m_pTiming->SlotCount(false) : 0;
+		uint32_t const timingSlotBeginCompute = (m_pTiming != nullptr) ? m_pTiming->SlotCount(true) : 0;
+
 		if (batch.aquireBarriers.AnyBarrier())
 			batch.aquireBarriers.ExecuteBarriers(batch.directCommandBuffer);
 
@@ -2203,6 +2226,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		if (batch.releaseBarriers.AnyBarrier())
 			batch.releaseBarriers.ExecuteBarriers(batch.directCommandBuffer);
 
+		// 查询结果复制必须在 endRenderPass() 之后、命令缓冲区 end() 之前（design D10）。
+		if (m_pTiming != nullptr)
+		{
+			m_pTiming->CopyRecordedRange(batch.directCommandBuffer, false, timingSlotBeginDirect);
+		}
 		batch.directCommandBuffer.end();
 
 		// === Finalize compute command buffer ===
@@ -2212,6 +2240,10 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			if (batch.computeReleaseBarriers.AnyBarrier())
 				batch.computeReleaseBarriers.ExecuteBarriers(batch.computeCommandBuffer, true);
 
+			if (m_pTiming != nullptr)
+			{
+				m_pTiming->CopyRecordedRange(batch.computeCommandBuffer, true, timingSlotBeginCompute);
+			}
 			batch.computeCommandBuffer.end();
 		}
 	}
@@ -2297,6 +2329,13 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		renderPassBegin.renderArea.extent = vk::Extent2D{ firstAttachmentDesc.width, firstAttachmentDesc.height };
 		renderPassBegin.clearValueCount = static_cast<uint32_t>(clearValues.size());
 		renderPassBegin.pClearValues = clearValues.data();
+
+		// 计时（任务 3.1）：起点在 beginRenderPass **之前**（render pass 外），终点在 endRenderPass 之后。
+		if (m_pTiming != nullptr)
+		{
+			m_pTiming->RecordPassBegin(cmdBuf, false, EGPUTimedPassType::eRender, rasterPassID,
+				GetRenderPassTimingName(graph, rasterPassID), EGPUQueueType::eDirect);
+		}
 
 		cmdBuf.beginRenderPass(renderPassBegin, vk::SubpassContents::eInline);
 
@@ -2423,6 +2462,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		}
 
 		cmdBuf.endRenderPass();
+
+		if (m_pTiming != nullptr)
+		{
+			m_pTiming->RecordPassEnd(cmdBuf, false);
+		}
 	}
 
 	void VulkanGraphExecutor::RecordComputePass(VulkanGPUExecutionBatch& batch,
@@ -2434,6 +2478,21 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		// Task 7.2: Per-pass routing -- asyncCompute && computeCmdBuf -> compute, else -> direct
 		vk::CommandBuffer targetCmdBuf = (asyncCompute && batch.computeCommandBuffer)
 			? batch.computeCommandBuffer : batch.directCommandBuffer;
+
+		// 计时（任务 3.1）：用哪个查询池取决于实际记录在哪个命令缓冲区；结果里的 queue 反映实际队列
+		// —— compute 命令缓冲区提交到独立计算队列时才报 eCompute，回退到图形队列时如实报 eDirect
+		// （spec 场景二）。
+		bool const onComputeCommandBuffer = (batch.computeCommandBuffer != vk::CommandBuffer{})
+			&& (targetCmdBuf == batch.computeCommandBuffer);
+		if (m_pTiming != nullptr)
+		{
+			auto const& queueContext = GetApp()->GetQueueContext();
+			EGPUQueueType const reportedQueue = (onComputeCommandBuffer
+				&& queueContext.GetComputeQueueFamily() != queueContext.GetGraphicsQueueFamily())
+				? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
+			m_pTiming->RecordPassBegin(targetCmdBuf, onComputeCommandBuffer, EGPUTimedPassType::eCompute,
+				computePassID, GetComputePassTimingName(computePassID), reportedQueue);
+		}
 
 		for (size_t dispatchID = 0; dispatchID < computePass.dispatchs.size(); ++dispatchID)
 		{
@@ -2512,6 +2571,11 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 				vk::PipelineStageFlagBits::eComputeShader,
 				vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer,
 				vk::DependencyFlags{}, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+		}
+
+		if (m_pTiming != nullptr)
+		{
+			m_pTiming->RecordPassEnd(targetCmdBuf, onComputeCommandBuffer);
 		}
 	}
 
@@ -3004,5 +3068,358 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 		m_ComputePassGPUData.clear();
 		m_ShaderResourceInstances.clear();
 		m_CurrentGraph.reset();
+	}
+
+	// ===================== vulkan-gpu-queries 任务 3.1：Vulkan 逐 pass 计时 =====================
+	// 实现放在这个已有 .cpp 里（不新增 .cpp）：新增源文件只有重新 configure 才会进 CMake 的
+	// `file(GLOB_RECURSE ...)`，而本机当前连不上依赖的远端、无法重新 configure。理由同
+	// `CRenderBackend.h` 里那段注释。
+
+	VulkanGPUTiming::~VulkanGPUTiming()
+	{
+		ReleasePools();
+	}
+
+	VulkanGPUTiming::PoolState* VulkanGPUTiming::GetPool(bool computeCommandBuffer)
+	{
+		return computeCommandBuffer ? &m_ComputePool : &m_DirectPool;
+	}
+
+	VulkanGPUTiming::PoolState const* VulkanGPUTiming::GetPool(bool computeCommandBuffer) const
+	{
+		return computeCommandBuffer ? &m_ComputePool : &m_DirectPool;
+	}
+
+	void VulkanGPUTiming::ReleasePools()
+	{
+		RenderBackend_Vulkan* pApp = GetApp();
+		for (PoolState* pPool : { &m_DirectPool, &m_ComputePool })
+		{
+			if (pApp != nullptr)
+			{
+				try
+				{
+					if (pPool->queryPool)
+					{
+						pApp->GetVulkanDevice().destroyQueryPool(pPool->queryPool);
+					}
+				}
+				catch (vk::SystemError const& e)
+				{
+					CA_LOG_ERR("VulkanGPUTiming: 销毁查询池失败：{}", e.what());
+				}
+				if (pPool->readbackBuffer && pPool->readbackAllocation != VK_NULL_HANDLE)
+				{
+					pApp->GetMemoryManager().FreeBuffer(pPool->readbackBuffer, pPool->readbackAllocation);
+				}
+			}
+			pPool->queryPool = vk::QueryPool{};
+			pPool->readbackBuffer = vk::Buffer{};
+			pPool->readbackAllocation = VK_NULL_HANDLE;
+			pPool->pMapped = nullptr;
+		}
+	}
+
+	bool VulkanGPUTiming::InitPool(RenderBackend_Vulkan* pBackend, PoolState& pool, uint32_t passCount, int queueFamily)
+	{
+		if (passCount == 0)
+		{
+			return true; // 未使用的命令缓冲区不创建任何资源（design D4）
+		}
+
+		auto const queueFamilies = pBackend->GetVulkanPhysicalDevice().getQueueFamilyProperties();
+		if (queueFamily < 0 || queueFamily >= static_cast<int>(queueFamilies.size()))
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 队列族 {} 不存在，无法创建计时查询", queueFamily);
+			return false;
+		}
+		uint32_t const validBits = queueFamilies[queueFamily].timestampValidBits;
+		if (validBits == 0)
+		{
+			CA_LOG_ERR("当前后端不支持计时：队列族 {} 的 timestampValidBits 为 0", queueFamily);
+			return false;
+		}
+		pool.timestampValidBits = validBits;
+		pool.slotCount = passCount * 2; // 每条 pass 一对 begin/end
+
+		auto device = pBackend->GetVulkanDevice();
+		vk::QueryPoolCreateInfo queryInfo{};
+		queryInfo.queryType = vk::QueryType::eTimestamp;
+		queryInfo.queryCount = pool.slotCount;
+		try
+		{
+			pool.queryPool = device.createQueryPool(queryInfo);
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 创建时间戳查询池失败：{}", e.what());
+			return false;
+		}
+		if (!pool.queryPool)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 创建时间戳查询池返回空句柄");
+			return false;
+		}
+
+		// 宿主可见的回读缓冲：必须带 TRANSFER_DST（design D10），64 位结果按 8 字节对齐。
+		vk::BufferCreateInfo bufferInfo{};
+		bufferInfo.size = static_cast<vk::DeviceSize>(pool.slotCount) * sizeof(uint64_t);
+		bufferInfo.usage = vk::BufferUsageFlagBits::eTransferDst;
+		bufferInfo.sharingMode = vk::SharingMode::eExclusive;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+		VmaAllocationInfo allocResult{};
+		pool.readbackAllocation = pBackend->GetMemoryManager().AllocateBuffer(
+			bufferInfo, allocInfo, pool.readbackBuffer, &allocResult, nullptr);
+		if (!pool.readbackBuffer || pool.readbackAllocation == VK_NULL_HANDLE)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 创建计时回读缓冲失败");
+			return false;
+		}
+		pool.pMapped = allocResult.pMappedData;
+		if (pool.pMapped == nullptr)
+		{
+			pool.pMapped = pBackend->GetMemoryManager().MapMemory(pool.readbackAllocation);
+		}
+		if (pool.pMapped == nullptr)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 映射计时回读缓冲失败（宿主不可见？）");
+			return false;
+		}
+		pool.ticks.resize(pool.slotCount, 0);
+		return true;
+	}
+
+	std::unique_ptr<VulkanGPUTiming> VulkanGPUTiming::Create(
+		RenderBackend_Vulkan* pBackend,
+		GPUGraph const& graph,
+		uint64_t submissionID)
+	{
+		if (pBackend == nullptr)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 后端为空，无法计时");
+			return nullptr;
+		}
+
+		auto const& queueContext = pBackend->GetQueueContext();
+		int const graphicsFamily = queueContext.GetGraphicsQueueFamily();
+		int const computeFamily = queueContext.GetComputeQueueFamily();
+
+		// 按命令缓冲区统计 pass 数：渲染 pass 走 direct；显式异步计算 pass 走 compute 命令缓冲区；
+		// 未请求异步的计算 pass 走 direct（与 VulkanGraphExecutor::RecordComputePass 的路由一致）。
+		uint32_t directPassCount = static_cast<uint32_t>(graph.GetRenderPasses().size());
+		uint32_t computePassCount = 0;
+		for (auto const& pass : graph.GetComputePasses())
+		{
+			if (pass.asyncCompute)
+			{
+				++computePassCount;
+			}
+			else
+			{
+				++directPassCount;
+			}
+		}
+		if (directPassCount == 0 && computePassCount == 0)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 这张图没有可计时的渲染 / 计算 pass（传输与 finalize pass 不计时）");
+			return nullptr;
+		}
+
+		float const timestampPeriod = pBackend->GetVulkanPhysicalDevice().getProperties().limits.timestampPeriod;
+		if (!(timestampPeriod > 0.0f))
+		{
+			CA_LOG_ERR("当前后端不支持计时：timestampPeriod = {}（无效）", timestampPeriod);
+			return nullptr;
+		}
+
+		auto pTiming = std::unique_ptr<VulkanGPUTiming>(new VulkanGPUTiming());
+		pBackend->InitSubObj(pTiming.get());
+		pTiming->m_SubmissionID = submissionID;
+		pTiming->m_TimestampPeriod = timestampPeriod;
+		if (!pTiming->InitPool(pBackend, pTiming->m_DirectPool, directPassCount, graphicsFamily))
+		{
+			return nullptr;
+		}
+		if (!pTiming->InitPool(pBackend, pTiming->m_ComputePool, computePassCount, computeFamily))
+		{
+			return nullptr;
+		}
+		return pTiming;
+	}
+
+	uint32_t VulkanGPUTiming::SlotCount(bool computeCommandBuffer) const
+	{
+		PoolState const* pPool = GetPool(computeCommandBuffer);
+		return (pPool != nullptr) ? pPool->nextSlot : 0;
+	}
+
+	void VulkanGPUTiming::RecordPassBegin(vk::CommandBuffer cmdBuf, bool computeCommandBuffer,
+		EGPUTimedPassType passType, uint32_t passIndex, castl::string const& name,
+		EGPUQueueType reportedQueue)
+	{
+		PoolState* pPool = GetPool(computeCommandBuffer);
+		if (cmdBuf == vk::CommandBuffer{} || pPool == nullptr || !pPool->queryPool)
+		{
+			return;
+		}
+
+		if (!pPool->resetRecorded)
+		{
+			// 写时间戳之前、render pass 外初始化本次查询（design D10）。整池只重置一次：
+			// 后续命令缓冲区继续往更高的槽位写，不能再次重置，否则会抹掉前面批次的结果。
+			cmdBuf.resetQueryPool(pPool->queryPool, 0, pPool->slotCount);
+			pPool->resetRecorded = true;
+		}
+
+		if (pPool->nextSlot + 1 >= pPool->slotCount)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: {} 池的查询槽位超出分配（已用 {} / 共 {}），本条 pass 不计时",
+				computeCommandBuffer ? "compute" : "direct", pPool->nextSlot, pPool->slotCount);
+			return;
+		}
+
+		uint32_t const beginSlot = pPool->nextSlot;
+		pPool->nextSlot += 2;
+		cmdBuf.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, pPool->queryPool, beginSlot);
+
+		PendingPass pending{};
+		pending.passType = passType;
+		pending.passIndex = passIndex;
+		pending.queue = reportedQueue;
+		pending.name = name;
+		pending.beginSlot = beginSlot;
+		pending.computeCommandBuffer = computeCommandBuffer;
+		m_PendingPasses.push_back(pending);
+		pPool->openSlot = beginSlot;
+	}
+
+	void VulkanGPUTiming::RecordPassEnd(vk::CommandBuffer cmdBuf, bool computeCommandBuffer)
+	{
+		PoolState* pPool = GetPool(computeCommandBuffer);
+		if (cmdBuf == vk::CommandBuffer{} || pPool == nullptr || !pPool->queryPool)
+		{
+			return;
+		}
+		if (pPool->openSlot == UINT32_MAX)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: {} 池的 pass 终点找不到对应起点，跳过（不写脏数据）",
+				computeCommandBuffer ? "compute" : "direct");
+			return;
+		}
+		cmdBuf.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, pPool->queryPool, pPool->openSlot + 1);
+		pPool->openSlot = UINT32_MAX;
+	}
+
+	void VulkanGPUTiming::CopyRecordedRange(vk::CommandBuffer cmdBuf, bool computeCommandBuffer, uint32_t slotBegin)
+	{
+		PoolState* pPool = GetPool(computeCommandBuffer);
+		if (cmdBuf == vk::CommandBuffer{} || pPool == nullptr || !pPool->queryPool || !pPool->readbackBuffer)
+		{
+			return;
+		}
+		uint32_t const slotEnd = pPool->nextSlot;
+		if (slotEnd <= slotBegin)
+		{
+			return;
+		}
+		// 64 位结果 + WAIT_BIT：64 位保证换算拿到完整时间戳，WAIT_BIT 让时间戳写入纳入复制的执行依赖
+		// （design D10）。偏移与步长都按 8 字节对齐（slotBegin * sizeof(uint64_t)、stride = 8）。
+		cmdBuf.copyQueryPoolResults(pPool->queryPool, slotBegin, slotEnd - slotBegin, pPool->readbackBuffer,
+			static_cast<vk::DeviceSize>(slotBegin) * sizeof(uint64_t), sizeof(uint64_t),
+			vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
+	}
+
+	bool VulkanGPUTiming::Finish(RenderBackend_Vulkan* pBackend)
+	{
+		if (m_Ready)
+		{
+			return !m_Passes.empty();
+		}
+		if (pBackend == nullptr)
+		{
+			return false;
+		}
+
+		// 等到 GPU 完成之后才允许 CPU 读（design D10）。SubmitBatches 已经逐批 waitForFences，
+		// 这里的 waitIdle 是显式兜底：结果对象不依赖帧上下文的 fence（design D5）。
+		try
+		{
+			pBackend->GetVulkanDevice().waitIdle();
+		}
+		catch (vk::SystemError const& e)
+		{
+			CA_LOG_ERR("VulkanGPUTiming: 等待 GPU 完成失败：{}", e.what());
+			m_Passes.clear();
+			return false;
+		}
+
+		VmaAllocator const allocator = pBackend->GetMemoryManager().GetAllocator();
+		for (PoolState* pPool : { &m_DirectPool, &m_ComputePool })
+		{
+			if (!pPool->queryPool || !pPool->readbackBuffer)
+			{
+				continue;
+			}
+			if (pPool->readbackAllocation != VK_NULL_HANDLE && allocator != VK_NULL_HANDLE)
+			{
+				// 非一致映射内存按既有内存管理方式失效缓存（design D10）。
+				vmaInvalidateAllocation(allocator, pPool->readbackAllocation, 0, VK_WHOLE_SIZE);
+			}
+			if (pPool->pMapped == nullptr)
+			{
+				CA_LOG_ERR("VulkanGPUTiming: 回读缓冲没有映射指针，无法读取计时结果");
+				m_Passes.clear();
+				return false;
+			}
+			pPool->ticks.resize(pPool->slotCount);
+			memcpy(pPool->ticks.data(), pPool->pMapped,
+				static_cast<size_t>(pPool->slotCount) * sizeof(uint64_t));
+		}
+
+		m_Passes.clear();
+		m_Passes.reserve(m_PendingPasses.size());
+		for (auto const& pending : m_PendingPasses)
+		{
+			PoolState const* pPool = GetPool(pending.computeCommandBuffer);
+			if (pPool == nullptr || pending.beginSlot + 1 >= pPool->ticks.size())
+			{
+				CA_LOG_ERR("VulkanGPUTiming: pass（类型 {}，序号 {}）的查询槽位 {} 没有落进回读范围",
+					static_cast<uint32_t>(pending.passType), pending.passIndex, pending.beginSlot);
+				m_Passes.clear();
+				return false;
+			}
+
+			// timestampValidBits 可能少于 64 位：按掩码取有效位（design D7）。
+			uint32_t const bits = (pPool->timestampValidBits == 0) ? 64u : pPool->timestampValidBits;
+			uint64_t const mask = (bits >= 64) ? ~0ull : ((1ull << bits) - 1ull);
+			uint64_t const beginTicks = pPool->ticks[pending.beginSlot] & mask;
+			uint64_t const endTicks = pPool->ticks[pending.beginSlot + 1] & mask;
+			uint64_t const beginNs = static_cast<uint64_t>(
+				static_cast<double>(beginTicks) * static_cast<double>(m_TimestampPeriod) + 0.5);
+			uint64_t const endNs = static_cast<uint64_t>(
+				static_cast<double>(endTicks) * static_cast<double>(m_TimestampPeriod) + 0.5);
+			if (endNs < beginNs)
+			{
+				CA_LOG_ERR("VulkanGPUTiming: pass（类型 {}，序号 {}）的结束时间早于开始时间（{} ns < {} ns），计时显式失败",
+					static_cast<uint32_t>(pending.passType), pending.passIndex, endNs, beginNs);
+				m_Passes.clear();
+				return false;
+			}
+
+			GPUPassTiming result{};
+			result.passType = pending.passType;
+			result.passIndex = pending.passIndex;
+			result.queue = pending.queue;
+			result.name = pending.name;
+			result.beginNs = beginNs;
+			result.endNs = endNs;
+			m_Passes.push_back(castl::move(result));
+		}
+
+		m_Ready = true;
+		return true;
 	}
 }

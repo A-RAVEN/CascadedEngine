@@ -1,0 +1,253 @@
+﻿# 任务 4.1 红态 B：把 direct 回退的计算 pass 伪报成 compute 队列，用例必须失败
+#
+# 时间：2026-10-31 18:54:12
+# 红态构造（临时改代码，验证后已恢复）：D3D12GPUTiming::Finish 构造结果时，把"在 direct 上记录、
+#   但 passType 是 eCompute"的条目伪报成 eCompute 队列（实际池/数据仍按 direct 读，只改上报值）。
+#   这正对应 spec 场景二禁止的"按 pass 类型伪报队列"。
+# 构建：python build.py --config Debug -> 退出码 0
+# 运行（工作目录 out/build/x64-debug/bin）：
+#   GPUBackendTester.exe --backend d3d12 --test TestGPUTiming --headless 10  -> 退出码 1
+# 判据命中：SetAsync(false) 的计算 pass 实际记录在 direct 队列上，结果必须如实报 eDirect —— 实际 2（eCompute）。
+#
+# ======================== stderr ========================
+GPUBackendTester.exe : mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+At line:1 char:1081
++ ... ation $bin; & .\GPUBackendTester.exe --backend d3d12 --test TestGPUTi ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (mimalloc-redire...er ucrtbase.dll:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  (hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+[38;2;128;128;128mRegister Module Factory: class catimer::TimerSystem - CATimer
+[0m[38;2;128;128;128mRegister Module Factory: class imgui_display::IMGUIContext - IMGUIContext
+[0m[38;2;128;128;128mStatic Add Module [TimerSystem_Impl]
+[0m[38;2;128;128;128mAdd Factory: class catimer::TimerSystem - CATimer
+[0m[38;2;128;128;128mTry Dynamic Add Module [ThreadManager]
+[0m[38;2;128;128;128mRegister Module Factory: class thread_management::CThreadManager - ThreadManager
+[0m[38;2;128;128;128mAdd Factory: class thread_management::CThreadManager - ThreadManager
+[0m[38;2;128;128;128mTry Dynamic Add Module [D3D12RenderBackend]
+[0m[38;2;128;128;128mRegister Module Factory: class graphics_backend::CRenderBackend - RenderBackend_D3D12
+[0m[38;2;128;128;128mAdd Factory: class graphics_backend::CRenderBackend - RenderBackend_D3D12
+[0m[38;2;128;128;128mTry Dynamic Add Module [ShaderCompilerSlang]
+[0m[38;2;128;128;128mRegister Module Factory: class ShaderCompilerSlang::IShaderCompilerManager - ShaderCompilerManager_Slang
+[0m[38;2;128;128;128mAdd Factory: class ShaderCompilerSlang::IShaderCompilerManager - ShaderCompilerManager_Slang
+[0m[38;2;128;128;128mTry Dynamic Add Module [WindowSystem]
+[0m[38;2;128;128;128mRegister Module Factory: class cawindow::IWindowSystem - WindowSystem_GLFW
+[0m[38;2;128;128;128mAdd Factory: class cawindow::IWindowSystem - WindowSystem_GLFW
+[0m[38;2;128;128;128mTry Dynamic Add Module [IOManager_FS]
+[0m[38;2;128;128;128mRegister Module Factory: class ca_io::IOManager - IOManager_FS
+[0m[38;2;128;128;128mAdd Factory: class ca_io::IOManager - IOManager_FS
+[0m[38;2;128;128;128mTry Dynamic Add Module [CAGeneralReourceSystem]
+[0m[38;2;128;128;128mRegister Module Factory: class resource_management::ResourceImportingSystem - ResourceImportingSystem
+[0m[38;2;128;128;128mRegister Module Factory: class resource_management::ResourceManagingSystem - ResourceManagingSystem
+[0m[38;2;128;128;128mAdd Factory: class resource_management::ResourceImportingSystem - ResourceImportingSystem
+[0m[38;2;128;128;128mAdd Factory: class resource_management::ResourceManagingSystem - ResourceManagingSystem
+[0m[38;2;128;128;128mStatic Add Module [IMGUIContext]
+[0m[38;2;128;128;128mAdd Factory: class imgui_display::IMGUIContext - IMGUIContext
+[0m[38;2;128;128;128mTry Dynamic Add Module [CSharpHost]
+[0m[38;2;128;128;128mRegister Module Factory: class cs_script::IScriptHost - CSharpHost
+[0m[38;2;128;128;128mAdd Factory: class cs_script::IScriptHost - CSharpHost
+[0m[38;2;128;128;128mAdd Instance: class catimer::TimerSystem - CATimer:[0x12d068adb20]
+[0m[38;2;128;128;128mAdd Instance: class thread_management::CThreadManager - ThreadManager:[0x12d068d6b08]
+[0m[38;2;128;128;128mAdd Instance: class graphics_backend::CRenderBackend - RenderBackend_D3D12:[0x12d068d8bc0]
+[0m[38;2;128;128;128mAdd Instance: class ShaderCompilerSlang::IShaderCompilerManager - ShaderCompilerManager_Slang:[0x12d06882170]
+[0m[38;2;128;128;128mAdd Instance: class cawindow::IWindowSystem - WindowSystem_GLFW:[0x12d068db3d0]
+[0m[38;2;128;128;128mAdd Instance: class ca_io::IOManager - IOManager_FS:[0x12d068f3ca0]
+[0m[38;2;128;128;128mAdd Instance: class resource_management::ResourceImportingSystem - ResourceImportingSystem:[0x12d06939d60]
+[0m[38;2;128;128;128mAdd Instance: class resource_management::ResourceManagingSystem - ResourceManagingSystem:[0x12d0693cea0]
+[0m[38;2;128;128;128mAdd Instance: class imgui_display::IMGUIContext - IMGUIContext:[0x12d0691e4c0]
+[0m[38;2;128;128;128mAdd Instance: class cs_script::IScriptHost - CSharpHost:[0x12d0691ee10]
+[0m[38;2;128;128;128mCATimer not supports link
+[0m[38;2;128;128;128mThreadManager supports link
+[0m[38;2;128;128;128mRenderBackend_D3D12 supports link
+[0m[38;2;128;128;128mShaderCompilerManager_Slang supports link
+[0m[38;2;128;128;128mWindowSystem_GLFW not supports link
+[0m[38;2;128;128;128mIOManager_FS supports link
+[0m[38;2;128;128;128mResourceImportingSystem supports link
+[0m[38;2;128;128;128mResourceManagingSystem supports link
+[0m[38;2;128;128;128mIMGUIContext supports link
+[0m[38;2;128;128;128mCSharpHost supports link
+[0m[38;2;128;128;128mCSharpHost：引擎侧 OnGetInterfaceApi 的地址 = 7FFB942D2509，函数表 40 字节
+[0m[38;2;128;128;128m[托管侧] 托管侧已启动：ABI 版本 4、函数表 40 字节
+[0m[38;2;128;128;128m[托管侧] 托管侧看到的 get_interface_api 地址 = 7FFB942D2509
+[0m[38;2;128;128;128m[托管侧] 回调引擎 Echo(42) 得到 43
+[0m[38;2;128;128;128mCSharpHost：托管运行时已就绪（加载耗时 = 113 ms；函数表 40 字节，ABI v4）
+[0m[38;2;128;128;128mIScriptHost 已取到：IsAvailable = true
+[0m[38;2;128;128;128mCreate new resource: D3D12ShaderLibrary.shLib
+[0m[38;2;128;128;128mResource[SourceTexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]SourceTexture texture space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[SourceSampler] Usage Mask3
+[0m[38;2;128;128;128m[SamplerState]SourceSampler sampler space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SAMPLER_STATE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mimage info[SourceTexture], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0mRoot Struct For Shaders/FinalBlit
+Add Shader Struct: FinalBlitInputs
+[38;2;128;128;128mResource[IMGUITexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]IMGUITexture texture space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128m Found!
+[0m[38;2;128;128;128m[ImguiContext]imguiCommon uniformBuffer space: 1 binding: 0 stride: 16 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [ImguiContext] Usages:0; 1; 
+[0m[38;2;128;128;128mResource[IMGUITextureSampler] Usage Mask3
+[0m[38;2;128;128;128m[SamplerState]IMGUITextureSampler sampler space: 1 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SAMPLER_STATE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mimage info[IMGUITexture], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0m[38;2;128;128;128mcbuffer info[imguiCommon], bindingID[0],spaceID[1],elementCount[1],descTableID[1]
+[0mRoot Struct For Shaders/Imgui
+Add Shader Struct: IMGUITextureBinding
+Add Shader Struct: ImguiContext
+[38;2;128;128;128mResource[testTexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]testTexture texture space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[testSampler] Usage Mask3
+[0m[38;2;128;128;128m[SamplerState]testSampler sampler space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SAMPLER_STATE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mimage info[testTexture], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0mRoot Struct For Shaders/Test/TestBlitToScreenPass
+Add Shader Struct: SamplingTextureData
+[38;2;128;128;128m[TestComputeBufferParams]computeParams uniformBuffer space: 0 binding: 0 stride: 16 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [TestComputeBufferParams] Usages:0; 
+[0m[38;2;128;128;128mResource[RWVertexBuffer] Usage Mask1
+[0m[38;2;128;128;128m Usages:0; 
+[0m[38;2;128;128;128mcbuffer info[computeParams], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0m[38;2;128;128;128mbuffer info[RWVertexBuffer], bindingID[0],spaceID[0],elementCount[1],descTableID[1]
+[0mRoot Struct For Shaders/Test/TestComputeVertexBuffer
+Add Shader Struct: TestComputeBufferParams
+[38;2;128;128;128mEmpty Root Signature For Shader Set E:/Projects/CascadedEngine/CAResources/Shaders/Test/TestNaiveTriangle.slang
+[0mRoot Struct For Shaders/Test/TestNaiveTriangle
+[38;2;128;128;128mEmpty Root Signature For Shader Set E:/Projects/CascadedEngine/CAResources/Shaders/Test/TestSimpleTriangle.slang
+[0mRoot Struct For Shaders/Test/TestSimpleTriangle
+[38;2;128;128;128mEmpty Root Signature For Shader Set E:/Projects/CascadedEngine/CAResources/Shaders/Test/TestTriangleNoAssemblyInputs.slang
+[0mRoot Struct For Shaders/Test/TestTriangleNoAssemblyInputs
+[38;2;128;128;128m[ConstantColor]constantColorBlock uniformBuffer space: 0 binding: 0 stride: 48 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [ConstantColor] Usages:0; 1; 
+[0m[38;2;128;128;128mcbuffer info[constantColorBlock], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0mRoot Struct For Shaders/Test/TestTriangleWithConstantColor
+Add Shader Struct: ColorSubStruct
+Add Shader Struct: ConstantColor
+[38;2;128;128;128mResource[colorStructuredBuffer] Usage Mask3
+[0m[38;2;128;128;128m[StructuredBuffer<vector<float,3>, DefaultDataLayout>]colorStructuredBuffer buffer space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mbuffer info[colorStructuredBuffer], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0mRoot Struct For Shaders/Test/TestTriangleWithStructuredBufferColor
+Add Shader Struct: StructuredColor
+[38;2;128;128;128mResource[testTexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]testTexture texture space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[testSampler] Usage Mask3
+[0m[38;2;128;128;128m[SamplerState]testSampler sampler space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SAMPLER_STATE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mimage info[testTexture], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0mRoot Struct For Shaders/Test/TestTriangleWithTextureSampling
+[38;2;128;128;128m[TestData.TestDataStruct]testData uniformBuffer space: 0 binding: 0 stride: 64 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [TestData.TestDataStruct] Usages:0; 1; 
+[0m[38;2;128;128;128mResource[testTexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]testTexture texture space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[testTexture1] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]testTexture1 texture space: 0 binding: 4 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[testTexture2] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]testTexture2 texture space: 0 binding: 8 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[testBuffer0] Usage Mask3
+[0m[38;2;128;128;128m[StructuredBuffer<TestData.TestData3, DefaultDataLayout>]testBuffer0 buffer space: 0 binding: 12 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[rwtestBuffer0] Usage Mask3
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mcbuffer info[testData], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0m[38;2;128;128;128mimage info[testTexture], bindingID[0],spaceID[0],elementCount[4],descTableID[1]
+[0m[38;2;128;128;128mimage info[testTexture1], bindingID[4],spaceID[0],elementCount[4],descTableID[5]
+[0m[38;2;128;128;128mimage info[testTexture2], bindingID[8],spaceID[0],elementCount[4],descTableID[9]
+[0m[38;2;128;128;128mbuffer info[testBuffer0], bindingID[12],spaceID[0],elementCount[4],descTableID[13]
+[0m[38;2;128;128;128mbuffer info[rwtestBuffer0], bindingID[0],spaceID[0],elementCount[4],descTableID[17]
+[0mRoot Struct For Shaders/TestBindingShader
+Add Shader Struct: TestData.TestDataStruct1
+Add Shader Struct: TestData.TestDataStruct
+Add Shader Struct: TestData.TestDataStruct2
+[38;2;128;128;128mResource[RWBuffer] Usage Mask1
+[0m[38;2;128;128;128m Usages:0; 
+[0m[38;2;128;128;128mbuffer info[RWBuffer], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0mRoot Struct For Shaders/TestComputeShader
+[1m[38;2;220;020;060m
+823) [E:\Projects\CascadedEngine\ShaderCompilerSlang\private\Compiler.cpp]
+string pointer is null
+[0m[38;2;128;128;128mConstBuffer [__RootType] Usages:0; 1; 
+[0m[38;2;128;128;128mResource[SourceTexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]SourceTexture texture space: 1 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[SourceSampler] Usage Mask3
+[0m[38;2;128;128;128m[SamplerState]SourceSampler sampler space: 1 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SAMPLER_STATE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[SourceTexture1] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]SourceTexture1 texture space: 0 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mcbuffer info[__Root], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0m[38;2;128;128;128mimage info[SourceTexture1], bindingID[0],spaceID[0],elementCount[1],descTableID[1]
+[0m[38;2;128;128;128mimage info[SourceTexture], bindingID[0],spaceID[1],elementCount[1],descTableID[2]
+[0mRoot Struct For Shaders/testFinalBlit
+Add Shader Struct: Textures
+[38;2;128;128;128m[SLANG_ParameterGroup_Uniforms]Uniforms uniformBuffer space: 0 binding: 0 stride: 64 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [SLANG_ParameterGroup_Uniforms] Usages:0; 1; 
+[0m[38;2;128;128;128mcbuffer info[Uniforms], bindingID[0],spaceID[0],elementCount[1],descTableID[0]
+[0mRoot Struct For Shaders/TestSlang
+Add Shader Struct: SLANG_ParameterGroup_Uniforms
+[38;2;128;128;128mResource[instanceTransforms] Usage Mask3
+[0m[38;2;128;128;128m[StructuredBuffer<matrix<float,4,4>, DefaultDataLayout>]instanceTransforms buffer space: 1 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[albedoTexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]albedoTexture texture space: 2 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[sampler] Usage Mask3
+[0m[38;2;128;128;128m[SamplerState]sampler sampler space: 2 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SAMPLER_STATE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128m[CameraData]cameraData uniformBuffer space: 0 binding: 0 stride: 64 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [CameraData] Usages:0; 1; 
+[0m[38;2;128;128;128m[GlobalDirectLighting]globalLighting uniformBuffer space: 3 binding: 0 stride: 48 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [GlobalDirectLighting] Usages:0; 1; 
+[0m[38;2;128;128;128mbuffer info[instanceTransforms], bindingID[0],spaceID[1],elementCount[1],descTableID[0]
+[0m[38;2;128;128;128mimage info[albedoTexture], bindingID[0],spaceID[2],elementCount[1],descTableID[1]
+[0m[38;2;128;128;128mcbuffer info[cameraData], bindingID[0],spaceID[0],elementCount[1],descTableID[2]
+[0m[38;2;128;128;128mcbuffer info[globalLighting], bindingID[0],spaceID[3],elementCount[1],descTableID[3]
+[0mRoot Struct For Shaders/TestStaticMeshShader
+Add Shader Struct: GlobalDirectLighting
+Add Shader Struct: MeshData
+Add Shader Struct: MeshMaterial
+Add Shader Struct: CameraData
+TestGPUTiming 失败：SetAsync(false) 的计算 pass 实际记录在 direct 队列上，结果必须如实报 eDirect，不得按 pass 类型伪报 —— 实际 2
+Test TestGPUTiming threw exception: E_TIMING_SYNC_COMPUTE_QUEUE
+[CSharpHost] 运行时已关闭（hostfxr_close 已调用）
+[CSharpHost] hostfxr 保持加载（不 FreeLibrary：卸载会让仍在跑的运行时代码崩）
+[CSharpHost] TryRelease 进入（写 stderr）
+
+# ======================== test_output/TestGPUTiming.log ========================
+Running: TestGPUTiming
+[38;2;128;128;128mTestGPUTiming å¼‚æ­¥è®¡ç®—å›¾ï¼šSubmissionID = 1ï¼›æ¸²æŸ“ passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eDirectï¼‰1793444043118782464 â†’ 1793444043118793728 nsï¼Œåç§° "GPUTimingMainRenderPass"ï¼›è®¡ç®— passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eComputeï¼‰1793444043118385152 â†’ 1793444043118389248 nsï¼Œåç§° "compute[0]"
+[0m[38;2;128;128;128mTestGPUTiming pass é”®ï¼šeRender:0,eCompute:0ï¼ˆä¸¤ä¸ªåŽç«¯åŒä¸€å¼ å›¾å¿…é¡»é€å­—ç›¸åŒï¼‰
+[0m[38;2;128;128;128mTestGPUTiming ç»“æžœç¨³å®šæ€§ï¼šç¬¬ä¸€æ¬¡ SubmissionID = 1ï¼ˆ2 æ¡ï¼‰ï¼Œç¬¬äºŒæ¬¡ SubmissionID = 2ï¼ˆ3 æ¡ï¼‰ï¼Œç¬¬ä¸€æ¬¡ç»“æžœé€å­—æ®µä¸Žå‰¯æœ¬ä¸€è‡´
+[0m
+
+# ======================== 恢复后 ========================
+# 用备份把 GPUGraphExecutor.cpp 覆盖回绿态、touch 后重新构建（退出码 0）。
+# d3d12: 退出码 0 / status=pass；vulkan: 退出码 0 / status=pass；validation 0 字节。

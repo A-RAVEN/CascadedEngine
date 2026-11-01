@@ -31,6 +31,12 @@ namespace graphics_backend
 		~RenderBackend_Vulkan();
 		void Init(cacore::IModuleManager* pModuleManager);
 		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) override;
+		// vulkan-gpu-queries（能力 `gpu-graph-timing`）：1.2 阶段先补 override，能力报假、计时入口返回空；
+		// 真正的查询池与结果对象在 3.1 落地。
+		GPUTimingCapabilities GetTimingCapabilities(EGPUQueueType queue) const override;
+		std::unique_ptr<IGPUGraphTiming> ExecuteGraphTimed(
+			TaskScheduler* scheduler,
+			castl::shared_ptr<GPUGraph> const& graph) override;
 		virtual void Release() override;
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) override;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) override;
@@ -169,6 +175,9 @@ namespace graphics_backend
 
 		// GPU Frame Manager (multi-frame pipelining)
 		VulkanGPUFrameManager m_GPUFrameManager;
+
+		// vulkan-gpu-queries（任务 3.1）：计时执行的单调编号（不是引擎帧号，见 design D2）。
+		uint64_t m_TimingSubmissionCounter = 0;
 
 		// Sampler Manager (global sampler cache)
 		VulkanSamplerManager m_SamplerManager;

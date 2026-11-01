@@ -1,0 +1,30 @@
+﻿# 任务 4.2 验收：--list 输出 11 条、含 TestGPUTiming，且 docs/testing.md 的测试清单与 --list 逐条一致
+#
+# 时间：2026-10-31 18:55:45
+# 命令（工作目录 out/build/x64-debug/bin）：GPUBackendTester.exe --list
+# 结果：11 条（脚本统计 list_count=11），含 TestGPUTiming=True，与文档清单 identical=True。
+# 判定：CHECK_PASS
+#
+# ======================== --list 原始输出 ========================
+
+[38;2;128;128;128mRegister Module Factory: class catimer::TimerSystem - CATimer
+[0m[38;2;128;128;128mRegister Module Factory: class imgui_display::IMGUIContext - IMGUIContext
+[0mAvailable tests:
+  TestSimpleTriangle
+  TestTriangleWithConstantColor
+  TestTriangleWithStructuredBufferColor
+  TestTriangleWithImageBuffer
+  TestDoublePass
+  TestComputeBuffer
+  TestReadback
+  TestIMGUI
+  TestScriptHost
+  TestCSharpWindow
+  TestGPUTiming
+
+# ======================== docs/testing.md 的清单行（原文）========================
+
+`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost` / `TestCSharpWindow` / `TestGPUTiming`ã€‚
+
+# ======================== 逐条一致性 ========================
+# list_count=11 doc_count=11 identical=True contains_TestGPUTiming=True CHECK_PASS

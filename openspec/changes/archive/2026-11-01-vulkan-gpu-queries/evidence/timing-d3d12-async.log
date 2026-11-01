@@ -1,0 +1,45 @@
+﻿# 任务 2.1 验收：D3D12 异步计算图逐 pass 计时（退出码 0）
+#
+# 时间：2026-10-31 18:41:34
+# 命令（工作目录 out/build/x64-debug/bin）：
+#   GPUBackendTester.exe --backend d3d12 --test TestGPUTiming --headless 10
+# 实际退出码：0；result.json status=pass。
+# 判据：Passes() 恰好两条；渲染 pass 为 direct、显式异步计算 pass 为 compute；两条 endNs >= beginNs；
+#       名称分别为 RenderPass::GetName()（GPUTimingMainRenderPass）与 compute[0]。
+#
+# ======================== stderr/stdout 关键读数 ========================
+Add Shader Struct: SLANG_ParameterGroup_Uniforms
+[38;2;128;128;128mResource[instanceTransforms] Usage Mask3
+[0m[38;2;128;128;128m[StructuredBuffer<matrix<float,4,4>, DefaultDataLayout>]instanceTransforms buffer space: 1 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[albedoTexture] Usage Mask3
+[0m[38;2;128;128;128m[Texture2D<vector<float,4>>]albedoTexture texture space: 2 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128mResource[sampler] Usage Mask3
+[0m[38;2;128;128;128m[SamplerState]sampler sampler space: 2 binding: 0 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_SAMPLER_STATE
+
+[0m[38;2;128;128;128m Usages:0; 1; 
+[0m[38;2;128;128;128m[CameraData]cameraData uniformBuffer space: 0 binding: 0 stride: 64 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [CameraData] Usages:0; 1; 
+[0m[38;2;128;128;128m[GlobalDirectLighting]globalLighting uniformBuffer space: 3 binding: 0 stride: 48 arrayLength: 1 category: SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+[0m[38;2;128;128;128mConstBuffer [GlobalDirectLighting] Usages:0; 1; 
+[0m[38;2;128;128;128mbuffer info[instanceTransforms], bindingID[0],spaceID[1],elementCount[1],descTableID[0]
+[0m[38;2;128;128;128mimage info[albedoTexture], bindingID[0],spaceID[2],elementCount[1],descTableID[1]
+[0m[38;2;128;128;128mcbuffer info[cameraData], bindingID[0],spaceID[0],elementCount[1],descTableID[2]
+[0m[38;2;128;128;128mcbuffer info[globalLighting], bindingID[0],spaceID[3],elementCount[1],descTableID[3]
+[0mRoot Struct For Shaders/TestStaticMeshShader
+Add Shader Struct: GlobalDirectLighting
+Add Shader Struct: MeshData
+Add Shader Struct: MeshMaterial
+Add Shader Struct: CameraData
+[CSharpHost] 运行时已关闭（hostfxr_close 已调用）
+[CSharpHost] hostfxr 保持加载（不 FreeLibrary：卸载会让仍在跑的运行时代码崩）
+[CSharpHost] TryRelease 进入（写 stderr）
+
+
+# ======================== test_output/TestGPUTiming.log ========================
+Running: TestGPUTiming
+[38;2;128;128;128mTestGPUTiming å¼‚æ­¥è®¡ç®—å›¾ï¼šSubmissionID = 1ï¼›æ¸²æŸ“ passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eDirectï¼‰1793443283466137600 â†’ 1793443283466146816 nsï¼Œåç§° "GPUTimingMainRenderPass"ï¼›è®¡ç®— passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eComputeï¼‰1793443283465585664 â†’ 1793443283465589760 nsï¼Œåç§° "compute[0]"
+[0m

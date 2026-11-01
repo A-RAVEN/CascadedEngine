@@ -19,6 +19,7 @@ namespace graphics_backend
 	class VulkanBuffer;
 	class VulkanTexture;
 	class VulkanShaderStruct;
+	class VulkanGPUTiming;
 
 	// Get descriptor from image handle
 	GPUTextureDescriptor GetDescriptor(GPUGraph const& graph, ImageHandle const& image);
@@ -291,6 +292,10 @@ namespace graphics_backend
 		// Resource manager access (public for VulkanResourceBindingInstance)
 		VulkanGraphLocalResourceManager& GetLocalResourceManager() { return m_LocalResourceManager; }
 
+		// vulkan-gpu-queries（任务 3.1）：计时执行时由后端传入结果对象；普通 ExecuteGraph 不设置，
+		// 执行器因此完全不碰查询池（design D6）。
+		void SetTimingRecorder(VulkanGPUTiming* pTiming) { m_pTiming = pTiming; }
+
 	private:
 		// Phase 1: Prepare
 		void Prepare(GPUGraph const& graph);
@@ -402,5 +407,8 @@ namespace graphics_backend
 
 		// Current frame context (per-frame resource context)
 		VulkanGPUFrameManager::PFrameContext m_CurrentFrameContext;
+
+		// vulkan-gpu-queries（任务 3.1）：计时结果对象；空 = 普通 ExecuteGraph 路径。
+		VulkanGPUTiming* m_pTiming = nullptr;
 	};
 }

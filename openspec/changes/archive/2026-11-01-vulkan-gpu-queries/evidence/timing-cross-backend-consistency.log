@@ -1,0 +1,98 @@
+﻿# 任务 4.1 绿态：同一张图在 d3d12 / vulkan 上的 pass 键、名称与实际队列一致
+#
+# 时间：2026-10-31 18:54:47
+# 命令（工作目录 out/build/x64-debug/bin）：
+#   GPUBackendTester.exe --backend d3d12 --test TestGPUTiming --headless 10  -> 退出码 0，status=pass
+#   GPUBackendTester.exe --backend vulkan --test TestGPUTiming --headless 10 -> 退出码 0，status=pass
+# 判据：两边结果条数相同；passType + passIndex 集合相同（日志里的 pass 键行逐字相同）；名称都非空；
+#       每边 queue 与该后端实际记录路径一致（异步计算 -> compute，SetAsync(false) -> direct）；
+#       vulkan 的 validation 日志 0 字节（无 VUID）。
+#
+# ======================== d3d12（关键读数）========================
+Running: TestGPUTiming
+[38;2;128;128;128mTestGPUTiming å¼‚æ­¥è®¡ç®—å›¾ï¼šSubmissionID = 1ï¼›æ¸²æŸ“ passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eDirectï¼‰1793444077620170752 â†’ 1793444077620180992 nsï¼Œåç§° "GPUTimingMainRenderPass"ï¼›è®¡ç®— passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eComputeï¼‰1793444077619562496 â†’ 1793444077619566592 nsï¼Œåç§° "compute[0]"
+[0m[38;2;128;128;128mTestGPUTiming pass é”®ï¼šeRender:0,eCompute:0ï¼ˆä¸¤ä¸ªåŽç«¯åŒä¸€å¼ å›¾å¿…é¡»é€å­—ç›¸åŒï¼‰
+[0m[38;2;128;128;128mTestGPUTiming ç»“æžœç¨³å®šæ€§ï¼šç¬¬ä¸€æ¬¡ SubmissionID = 1ï¼ˆ2 æ¡ï¼‰ï¼Œç¬¬äºŒæ¬¡ SubmissionID = 2ï¼ˆ3 æ¡ï¼‰ï¼Œç¬¬ä¸€æ¬¡ç»“æžœé€å­—æ®µä¸Žå‰¯æœ¬ä¸€è‡´
+[0m[38;2;128;128;128mTestGPUTiming éžå¼‚æ­¥è®¡ç®—å›¾ï¼šSubmissionID = 3ï¼›pass é”® eRender:0,eCompute:0ï¼›è®¡ç®— passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eDirectï¼‰1793444077630303232 â†’ 1793444077630308352 nsï¼Œåç§° "compute[0]"
+[0m
+# ======================== vulkan（关键读数）========================
+Running: TestGPUTiming
+[38;2;128;128;128mSwapchain created: 1024x512, 3 images
+[0m[38;2;128;128;128mVulkanWindowHandle initialized
+[0m[38;2;128;128;128mVulkanShaderStruct initialized for type: TestComputeBufferParams
+[0m[38;2;128;128;128mVulkanGraphExecutor: CompileAndExecute entry
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 2097920, unaliased would be: 2097528
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 2097536, unaliased would be: 2097528
+[0m[38;2;128;128;128mVulkanResourceAliasing: Replanned with real alignment, total aliased size: 2097536
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 2 (size=256MB, isBuffer=true)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 1 (size=256MB, isBuffer=false)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 2: 384 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 1: 2097152 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Allocated 4 resources via VirtualBlock aliasing
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created vertex input library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created pre-rasterization library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created fragment library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created fragment output library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Linked pipeline from 4 libraries
+[0m[38;2;128;128;128mPipelineLibraryCache: Cached pipeline for key 3264553523018261808 (total: 1)
+[0m[38;2;128;128;128mVulkanGraphExecutor: Execute entry, batches=3
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanGraphExecutor: Prepare=422us, Execute=8785us, Batches=0
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanResourceAliasing: Destroyed all VirtualBlocks
+[0m[38;2;128;128;128mVulkanResourceAliasing released
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager released
+[0m[38;2;128;128;128mVulkanGraphExecutor released
+[0m[38;2;128;128;128mTestGPUTiming å¼‚æ­¥è®¡ç®—å›¾ï¼šSubmissionID = 1ï¼›æ¸²æŸ“ passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eDirectï¼‰1793444079185540352 â†’ 1793444079185551360 nsï¼Œåç§° "GPUTimingMainRenderPass"ï¼›è®¡ç®— passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eComputeï¼‰1793444079184658944 â†’ 1793444079184665600 nsï¼Œåç§° "compute[0]"
+[0m[38;2;128;128;128mTestGPUTiming pass é”®ï¼šeRender:0,eCompute:0ï¼ˆä¸¤ä¸ªåŽç«¯åŒä¸€å¼ å›¾å¿…é¡»é€å­—ç›¸åŒï¼‰
+[0m[38;2;128;128;128mVulkanGraphExecutor: CompileAndExecute entry
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 6 resources, total aliased size: 4194304, unaliased would be: 4194752
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 6 resources, total aliased size: 4194304, unaliased would be: 4194752
+[0m[38;2;128;128;128mVulkanResourceAliasing: Replanned with real alignment, total aliased size: 4194304
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 2 (size=256MB, isBuffer=true)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 1 (size=256MB, isBuffer=false)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 2: 512 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 1: 2097152 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Allocated 6 resources via VirtualBlock aliasing
+[0m[38;2;128;128;128mPipelineLibraryCache: Cache hit for key 3264553523018261808
+[0m[38;2;128;128;128mPipelineLibraryCache: Cache hit for key 3264553523018261808
+[0m[38;2;128;128;128mVulkanGraphExecutor: Execute entry, batches=4
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanGraphExecutor: Prepare=302us, Execute=4037us, Batches=0
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanResourceAliasing: Destroyed all VirtualBlocks
+[0m[38;2;128;128;128mVulkanResourceAliasing released
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager released
+[0m[38;2;128;128;128mVulkanGraphExecutor released
+[0m[38;2;128;128;128mTestGPUTiming ç»“æžœç¨³å®šæ€§ï¼šç¬¬ä¸€æ¬¡ SubmissionID = 1ï¼ˆ2 æ¡ï¼‰ï¼Œç¬¬äºŒæ¬¡ SubmissionID = 2ï¼ˆ3 æ¡ï¼‰ï¼Œç¬¬ä¸€æ¬¡ç»“æžœé€å­—æ®µä¸Žå‰¯æœ¬ä¸€è‡´
+[0m[38;2;128;128;128mVulkanGraphExecutor: CompileAndExecute entry
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 2097920, unaliased would be: 2097528
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 2097536, unaliased would be: 2097528
+[0m[38;2;128;128;128mVulkanResourceAliasing: Replanned with real alignment, total aliased size: 2097536
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 2 (size=256MB, isBuffer=true)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 1 (size=256MB, isBuffer=false)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 2: 384 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 1: 2097152 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Allocated 4 resources via VirtualBlock aliasing
+[0m[38;2;128;128;128mPipelineLibraryCache: Cache hit for key 3264553523018261808
+[0m[38;2;128;128;128mVulkanGraphExecutor: Execute entry, batches=3
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanGraphExecutor: Prepare=207us, Execute=901us, Batches=0
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanResourceAliasing: Destroyed all VirtualBlocks
+[0m[38;2;128;128;128mVulkanResourceAliasing released
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager released
+[0m[38;2;128;128;128mVulkanGraphExecutor released
+[0m[38;2;128;128;128mTestGPUTiming éžå¼‚æ­¥è®¡ç®—å›¾ï¼šSubmissionID = 3ï¼›pass é”® eRender:0,eCompute:0ï¼›è®¡ç®— passï¼ˆindex 0ï¼Œé˜Ÿåˆ— eDirectï¼‰1793444079197927680 â†’ 1793444079197933568 nsï¼Œåç§° "compute[0]"
+[0m[38;2;128;128;128mVulkanWindowHandle released
+[0m

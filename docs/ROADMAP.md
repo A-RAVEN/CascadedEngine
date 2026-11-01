@@ -4,7 +4,7 @@
 > 它不记任务、不记欠账、不记改动细节 —— 进度事实源只有 `openspec/changes/<change>/tasks.md`，
 > 欠账只有 `docs/TODO.md`，本文件只做指针。
 
-**最后更新**：2026-10-26
+**最后更新**：2026-11-01
 **维护规则**：见 `CLAUDE.md` 的「文档维护」一节
 
 ---
@@ -15,7 +15,7 @@
 
 > CascadedEngine 是一个多后端渲染引擎，采用可插拔的图形后端架构。引擎使用 Render Graph (GPUGraph) 架构进行帧编排，支持 D3D12 和 Vulkan 两种渲染后端。
 
-**产品目标：未定义。** 65 个归档 change、50 个能力目录、273 条 Requirement 里，没有任何一份文档写过「这个引擎最终要成为什么」。这一格空着不是遗漏，是事实。补它只需要所有者给一句话，写在本文件里，**不要写进 `openspec/specs/`** —— 它不是能力要求，放进去会让 `openspec validate --all` 永远报红。
+**产品目标：未定义。** 67 个归档 change、52 个能力目录、281 条 Requirement 里，没有任何一份文档写过「这个引擎最终要成为什么」。这一格空着不是遗漏，是事实。补它只需要所有者给一句话，写在本文件里，**不要写进 `openspec/specs/`** —— 它不是能力要求，放进去会让 `openspec validate --all` 永远报红。
 
 ---
 
@@ -46,13 +46,13 @@
 
 产物是五份能力规范：`csharp-host`、`csharp-bindings`、`csharp-bindable-surface`、`csharp-window-runtime`、`csharp-script`。
 
-### 阶段 3：收尾（进行中）
+### 阶段 3：收尾（已完成）
 
 | 项 | 状态 | 位置 |
 |---|---|---|
-| Vulkan GPU 查询体系（时间戳 / 遮挡 / 管线统计） | 0/13，未开工，待拍板 | `openspec/changes/vulkan-gpu-queries/` |
+| Vulkan GPU 查询体系（时间戳 / 遮挡 / 管线统计） | 11/11，2026-11-01 已归档 | `openspec/changes/archive/2026-11-01-vulkan-gpu-queries/` |
 
-本阶段已完成的两项：
+本阶段另外完成的两项：
 
 - **IMGUI 字体改 RGBA32 + identity swizzle** —— 14/14，2026-10-26 归档到 `openspec/changes/archive/2026-10-26-fix-imgui-font-whitebox/`。因果判据：把采样视图加回 `SingleChannel(eR)`，vp0 白像素从 97 变成 233。
 - **后端对齐 Phase 3 的 `RunTestCode`** —— 复核为「不是差距」，无需实现，见下注。
@@ -74,7 +74,7 @@
 | 可选方向 | 依据 | 要付的代价 |
 |---|---|---|
 | 把更多引擎接口暴露给 C# | 阶段 2 只打通了窗口这一条路；`docs/TODO.md` 里「结构体镜像只收标量」正卡着这条路 | 要补镜像类型、回调、容器三类形状 |
-| 补 GPU 性能基线 | 与 `vulkan-gpu-queries` 是同一件事，做完才有 profiling 数据 | 一条 13 项任务的 change |
+| 接入 GPU 性能分析 | `gpu-graph-timing` 已提供逐 pass 计时，性能分析面板仍未做 | 需要另立 change |
 | 定产品目标 | —— | 需要所有者给一句话 |
 
 ---

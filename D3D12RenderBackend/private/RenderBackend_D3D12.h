@@ -43,6 +43,12 @@ namespace graphics_backend
 		void CleanupWindowHandles();
 		//virtual void ScheduleGPUFrame(TaskScheduler* scheduler, GPUFrame const& gpuFrame) override;
 		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) override;
+		// vulkan-gpu-queries（能力 `gpu-graph-timing`）：1.2 阶段先补 override，能力报假、计时入口返回空；
+		// 真正的查询堆与结果对象在 2.1 落地。
+		GPUTimingCapabilities GetTimingCapabilities(EGPUQueueType queue) const override;
+		std::unique_ptr<IGPUGraphTiming> ExecuteGraphTimed(
+			TaskScheduler* scheduler,
+			castl::shared_ptr<GPUGraph> const& graph) override;
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) override;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) override;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) override;
@@ -205,6 +211,8 @@ namespace graphics_backend
 		GPUFrameManager m_GPUFrameManager;
 
 		castl::atomic<uint64_t> m_ResourceVersion = 1;
+		// vulkan-gpu-queries（任务 2.1）：计时执行的单调编号（不是引擎帧号，见 design D2）。
+		uint64_t m_TimingSubmissionCounter = 0;
 	};
 	
 }

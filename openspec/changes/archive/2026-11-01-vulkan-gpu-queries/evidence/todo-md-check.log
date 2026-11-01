@@ -1,0 +1,13 @@
+﻿# 任务 4.3 验收：docs/TODO.md 的 vulkan-gpu-queries 条目已改写成指向本 change 的一行指针
+#
+# 时间：2026-10-31 18:56:03
+# 命令与结果：
+#   Select-String -Path docs/TODO.md -Pattern 'D3D12 通过'   -> 0 命中
+#   Select-String -Path docs/TODO.md -Pattern 'D3D12_QUERY_HEAP' -> 0 命中
+# 条目现文（第 71-75 行）：
+#   ## [2026-07-12] vulkan-gpu-queries：图执行逐 pass GPU 计时（已转入 OpenSpec change）
+#   **状态：已转入 openspec/changes/vulkan-gpu-queries/（能力名 gpu-graph-timing）** —— 原条目说
+#   "D3D12 已有查询"与代码事实不符：两个后端此前都没有查询设施；本 change 给两端补公共的逐 pass 计时
+#   通路，遮挡查询与管线统计仍留后续。
+#   **相关**：openspec/changes/vulkan-gpu-queries/（proposal / design / specs / tasks 齐）。
+# 说明：路线图（docs/ROADMAP.md）按任务要求不在本条更新，等本 change 归档后再动。

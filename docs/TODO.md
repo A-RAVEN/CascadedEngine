@@ -68,13 +68,11 @@
 
 ---
 
-## [2026-07-12] vulkan-gpu-queries：Vulkan GPU 查询体系（OpenSpec change，0/13，未开始）
+## [2026-07-12] vulkan-gpu-queries：图执行逐 pass GPU 计时（已归档）
 
-**状态：未开始（0/13；2026-07-12 建立后未推进，疑似搁置/废弃，待用户拍板）**
+**状态：2026-11-01 已归档到 `openspec/changes/archive/2026-11-01-vulkan-gpu-queries/`（能力名 `gpu-graph-timing`）** —— 原条目说"D3D12 已有查询"与代码事实不符：两个后端此前都没有查询设施；本 change 给两端补公共的逐 pass 计时通路，遮挡查询与管线统计仍留后续。
 
-**内容**：Vulkan 完全缺 GPU 查询体系。新增 `vk::QueryPool` + `vkCmdWriteTimestamp`/`vkCmdBeginQuery`/`vkCmdEndQuery`/`vkCmdCopyQueryPoolResults`，盖 Timestamp（profiling）、Occlusion、Pipeline Statistics；暴露给引擎 profiling 层。对齐 D3D12 的 `D3D12_QUERY_HEAP`。
-**决策点**：① 照做 → 从 `/opsx:apply vulkan-gpu-queries` 真开干；② 废弃 → 归档 change；③ 暂缓 → 保留现状但明确"非近期优先级"。
-**相关**：`openspec/changes/vulkan-gpu-queries/`（proposal/design/tasks 齐，0 实现）。
+**相关**：`openspec/changes/archive/2026-11-01-vulkan-gpu-queries/`（proposal / design / specs / tasks 齐）。
 
 ---
 

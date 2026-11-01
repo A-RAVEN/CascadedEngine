@@ -26,6 +26,8 @@
 #include <CASTL/CAChrono.h>
 #include <CAResource/ResourceSystemFactory.h>
 #include <GPUGraph.h>
+// vulkan-gpu-queries：一次图执行的逐 pass GPU 计时（`gpu-graph-timing` 能力）。
+#include <GPUTiming.h>
 #include <TextureSampler.h>
 #include <CAWindow/WindowSystem.h>
 #include <CATimer/Timer.h>
@@ -1476,6 +1478,332 @@ void TestCSharpWindow(TestContext& ctx)
 	}
 }
 
+// ---- TestGPUTiming（vulkan-gpu-queries / 能力 `gpu-graph-timing`）----
+// 一张图：一个渲染 pass + 一个显式 `SetAsync(true)` 的计算 pass。调 `ExecuteGraphTimed` → `Wait()` →
+// `Passes()`，断言两条结果、`passType`/`passIndex` 对得上、`queue` 是实际队列、`endNs >= beginNs`、
+// 名称非空。
+// 红态构造（后续任务）：2.2 / 3.2 把已交付结果改成指向被后续执行覆盖的缓冲；4.1 删掉某个后端
+// compute pass 的查询、或把 direct 回退伪报成 compute 队列。
+void TestGPUTiming(TestContext& ctx)
+{
+	// 失败详情必须**直接**写 stderr：异常消息跨 mimalloc / ucrtbase 两个堆的边界可能变成 0xDD
+	// （见 `g_errorDetail` 那段注释），而任务 1.2 的验收要求 stderr 里有"当前后端不支持计时"原文。
+	auto const fail = [](char const* code, castl::string const& detail) {
+		std::cerr << "TestGPUTiming 失败：" << detail << std::endl;
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s", detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	GPUTimingCapabilities const directCaps = ctx.pGPUBackend->GetTimingCapabilities(EGPUQueueType::eDirect);
+	if (!directCaps.passTimestamps)
+	{
+		fail("E_TIMING_UNSUPPORTED", castl::string("当前后端不支持计时：direct 队列 passTimestamps = false"));
+		return;
+	}
+	// 计算队列存不存在是后端的事：Vulkan 没有独立计算队列时，异步计算 pass 合法地回退到 direct
+	// （design D4）。计算 pass 的期望队列由这个能力位决定，测试不假设跨后端映射相同。
+	bool const computeQueueAvailable =
+		ctx.pGPUBackend->GetTimingCapabilities(EGPUQueueType::eCompute).passTimestamps;
+
+	auto newWindow = ctx.pWindowSystem->NewWindow(1024, 512, "GPUTiming");
+	auto windowHandle = ctx.pGPUBackend->GetWindowHandle(newWindow.lock());
+	ImageHandle windowBackBuffer(windowHandle);
+
+	struct TimingVertex
+	{
+		std::array<float, 3> pos;
+		std::array<float, 3> color;
+	};
+	std::vector<TimingVertex> const vertices = {
+		{{-0.25f, -0.25f, 0.25f }, {1.0f, 0.0f, 0.0f}},
+		{{0.25f, -0.25f, 0.25f }, {0.0f, 1.0f, 0.0f}},
+		{{0.0f, 0.5f, 0.5f }, {0.0f, 0.0f, 1.0f}},
+	};
+	cacore::HashObj<VertexInputsDescriptor> const vertexDescs = VertexInputsDescriptor::Create(sizeof(TimingVertex),
+		{
+			VertexAttribute::Create(offsetof(TimingVertex, pos), VertexInputFormat::eR32G32B32_SFloat, CANAME("POSITION")),
+			VertexAttribute::Create(offsetof(TimingVertex, color), VertexInputFormat::eR32G32B32_SFloat, CANAME("COLOR")),
+		}, false);
+
+	BufferHandle vbuffer(CANAME("GPUTimingVertexBuffer"));
+	BufferHandle computeBuffer(CANAME("GPUTimingComputeBuffer"));
+	auto computeParams = ctx.pGPUBackend->CreateShaderStruct(CANAME("TestComputeBufferParams"));
+	computeParams->SetBuffer(CANAME("RWVertexBuffer"), computeBuffer);
+
+	// 渲染 pass 显式命名：名称规则要求取 `RenderPass::GetName()`（design D3）。
+	cacore::NameHash const mainRenderPassName = CANAME("GPUTimingMainRenderPass");
+	auto renderContent = [&](cacore::NameHash const& passName) -> RenderPass {
+		return RenderPass::New(windowBackBuffer
+			, AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0.0f, 0.0f, 0.0f, 1.0f)))
+			.Name(passName)
+			.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
+			.Batch
+			(
+				DrawCallBatch::New()
+				.VertexStream(CANAME("TestVerticesInput"), vertexDescs)
+				.DrawCall(
+					DrawCall::New()
+					.SetVertexBuffer(CANAME("TestVerticesInput"), vbuffer)
+					.Draw(vertices.size())
+				)
+			);
+	};
+
+	auto buildGraph = [&](bool asyncCompute) -> castl::shared_ptr<GPUGraph> {
+		auto graph = castl::make_shared<GPUGraph>();
+		graph->Present(windowBackBuffer)
+			.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(vertices.size(), sizeof(vertices[0])))
+			.ScheduleData(vbuffer, vertices.data(), vertices.size() * sizeof(vertices[0]))
+			.AllocBuffer(computeBuffer, GPUBufferDescriptor::Create(4, sizeof(float) * 3))
+			.Comp(ComputeBatch::New(asyncCompute)
+				.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1)
+					.SetParam(CANAME("computeParams"), computeParams))
+			)
+			.Rast(renderContent(mainRenderPassName));
+		return graph;
+	};
+
+	auto runTimed = [&](bool asyncCompute) {
+		auto scheduler = ctx.pThreadManager->NewScheduler();
+		return ctx.pGPUBackend->ExecuteGraphTimed(scheduler.get(), buildGraph(asyncCompute));
+	};
+	auto const findPass = [](std::span<GPUPassTiming const> all, EGPUTimedPassType type) -> GPUPassTiming const* {
+		for (auto const& pass : all)
+		{
+			if (pass.passType == type)
+				return &pass;
+		}
+		return nullptr;
+	};
+
+	// ---- 一、异步计算图 ----
+	auto timingAsync = runTimed(true);
+	if (!timingAsync)
+	{
+		fail("E_TIMING_NULL", castl::string("ExecuteGraphTimed 返回空结果（异步计算图）"));
+		return;
+	}
+	timingAsync->Wait();
+	std::span<GPUPassTiming const> const passes = timingAsync->Passes();
+	if (passes.size() != 2)
+	{
+		fail("E_TIMING_COUNT", castl::string("异步计算图应返回两条结果，实际 ") + std::to_string(passes.size()));
+	}
+	GPUPassTiming const* pRender = findPass(passes, EGPUTimedPassType::eRender);
+	GPUPassTiming const* pCompute = findPass(passes, EGPUTimedPassType::eCompute);
+	if (pRender == nullptr || pCompute == nullptr)
+	{
+		fail("E_TIMING_TYPES", castl::string("两条结果的 passType 不是一个 eRender + 一个 eCompute"));
+		return;
+	}
+	if (pRender->passIndex != 0 || pCompute->passIndex != 0)
+	{
+		fail("E_TIMING_INDEX", castl::string("passIndex 应分别是该类型内的原始序号 0 / 0，实际 ") +
+			std::to_string(pRender->passIndex) + " / " + std::to_string(pCompute->passIndex));
+	}
+	if (pRender->queue != EGPUQueueType::eDirect)
+	{
+		fail("E_TIMING_RENDER_QUEUE", castl::string("渲染 pass 的队列应为 eDirect（实际 ") +
+			std::to_string(static_cast<uint32_t>(pRender->queue)) + "）");
+	}
+	EGPUQueueType const expectedComputeQueue = computeQueueAvailable ? EGPUQueueType::eCompute : EGPUQueueType::eDirect;
+	if (pCompute->queue != expectedComputeQueue)
+	{
+		fail("E_TIMING_COMPUTE_QUEUE", castl::string("异步计算 pass 的队列与后端实际队列不符：期望 ") +
+			(computeQueueAvailable ? "eCompute" : "eDirect（后端没有独立计算队列）") + "，实际 " +
+			std::to_string(static_cast<uint32_t>(pCompute->queue)));
+	}
+	if (pRender->name.empty() || pCompute->name.empty())
+	{
+		fail("E_TIMING_NAME", castl::string("结果名称不得为空：渲染 = \"") + pRender->name + "\"，计算 = \"" +
+			pCompute->name + "\"");
+	}
+	// 名称规则（任务 2.1/3.1）：渲染 pass 取 RenderPass::GetName()，计算 pass 用 compute[<原始序号>]。
+	if (pRender->name != "GPUTimingMainRenderPass")
+	{
+		fail("E_TIMING_RENDER_NAME", castl::string("渲染 pass 的名称应取 RenderPass::GetName() = "
+			"\"GPUTimingMainRenderPass\"，实际 \"" + pRender->name + "\""));
+	}
+	if (pCompute->name != "compute[0]")
+	{
+		fail("E_TIMING_COMPUTE_NAME", castl::string("计算 pass 的名称应为 \"compute[0]\"，实际 \"") +
+			pCompute->name + "\"");
+	}
+	if (pRender->endNs < pRender->beginNs || pCompute->endNs < pCompute->beginNs)
+	{
+		fail("E_TIMING_ORDER", castl::string("endNs 必须不小于 beginNs：渲染 ") + std::to_string(pRender->beginNs) +
+			" → " + std::to_string(pRender->endNs) + "，计算 " + std::to_string(pCompute->beginNs) + " → " +
+			std::to_string(pCompute->endNs));
+	}
+	CA_LOG("TestGPUTiming 异步计算图：SubmissionID = {}；渲染 pass（index {}，队列 eDirect）{} → {} ns，名称 \"{}\"；"
+	       "计算 pass（index {}，队列 {}）{} → {} ns，名称 \"{}\"",
+	       timingAsync->SubmissionID(), pRender->passIndex, pRender->beginNs, pRender->endNs, pRender->name,
+	       pCompute->passIndex, computeQueueAvailable ? "eCompute" : "eDirect（后端回退）",
+	       pCompute->beginNs, pCompute->endNs, pCompute->name);
+
+	// 双后端一致性（任务 4.1）：把 pass 键规范化成可逐字比较的一行。两个后端跑同一个用例，
+	// 这一行必须逐字相同；断言同时把集合钉死为 {(eRender,0),(eCompute,0)}。
+	castl::string const asyncGraphKeyLine = castl::string("eRender:") + std::to_string(pRender->passIndex)
+		+ ",eCompute:" + std::to_string(pCompute->passIndex);
+	if (asyncGraphKeyLine != "eRender:0,eCompute:0")
+	{
+		fail("E_TIMING_KEYS", castl::string("同一张图的 pass 键集合应为 {(eRender,0),(eCompute,0)}，实际 {") +
+			asyncGraphKeyLine + "}");
+	}
+	CA_LOG("TestGPUTiming pass 键：{}（两个后端同一张图必须逐字相同）", asyncGraphKeyLine);
+
+	// ---- 二、已交付结果在后续执行后必须逐字段不变（任务 2.2 / 3.2）----
+	// 做法（design D5）：先保存第一次结果的逐字段副本，再执行一张 pass 结构不同的计时图，
+	// 然后**重新读**第一次结果的 Passes() 与副本逐项比较。这样比"第二次之后再读"更能确定性
+	// 识别"结果指向了被后续执行覆盖的复用缓冲"。
+	struct SavedPassTiming
+	{
+		EGPUTimedPassType passType = EGPUTimedPassType::eRender;
+		uint32_t passIndex = 0;
+		EGPUQueueType queue = EGPUQueueType::eNone;
+		castl::string name;
+		uint64_t beginNs = 0;
+		uint64_t endNs = 0;
+	};
+	uint64_t const savedSubmissionID = timingAsync->SubmissionID();
+	castl::vector<SavedPassTiming> savedPasses;
+	savedPasses.reserve(passes.size());
+	for (auto const& pass : passes)
+	{
+		SavedPassTiming saved{};
+		saved.passType = pass.passType;
+		saved.passIndex = pass.passIndex;
+		saved.queue = pass.queue;
+		saved.name = pass.name;
+		saved.beginNs = pass.beginNs;
+		saved.endNs = pass.endNs;
+		savedPasses.push_back(castl::move(saved));
+	}
+
+	// 第二张图：pass 结构不同 —— 两个渲染 pass + 一个不请求异步的计算 pass（共 3 条结果）。
+	auto buildDifferentGraph = [&]() -> castl::shared_ptr<GPUGraph> {
+		auto graph = castl::make_shared<GPUGraph>();
+		graph->Present(windowBackBuffer)
+			.AllocBuffer(vbuffer, GPUBufferDescriptor::Create(vertices.size(), sizeof(vertices[0])))
+			.ScheduleData(vbuffer, vertices.data(), vertices.size() * sizeof(vertices[0]))
+			.AllocBuffer(computeBuffer, GPUBufferDescriptor::Create(4, sizeof(float) * 3))
+			.Comp(ComputeBatch::New(false)
+				.Dispatch(ComputeDispatch::Create({ CAPATH("Shaders/Test/TestComputeVertexBuffer") }, 1, 1, 1)
+					.SetParam(CANAME("computeParams"), computeParams))
+			)
+			.Rast(renderContent(CANAME("GPUTimingSecondRenderPassA")))
+			.Rast(renderContent(CANAME("GPUTimingSecondRenderPassB")));
+		return graph;
+	};
+
+	std::unique_ptr<IGPUGraphTiming> timingDifferent;
+	{
+		auto scheduler = ctx.pThreadManager->NewScheduler();
+		timingDifferent = ctx.pGPUBackend->ExecuteGraphTimed(scheduler.get(), buildDifferentGraph());
+	}
+	if (!timingDifferent)
+	{
+		fail("E_TIMING_NULL", castl::string("ExecuteGraphTimed 返回空结果（结构不同的第二张图）"));
+		return;
+	}
+	timingDifferent->Wait();
+	if (timingDifferent->Passes().size() != 3)
+	{
+		fail("E_TIMING_SECOND_COUNT", castl::string("第二张图应返回三条结果（两个渲染 + 一个计算），实际 ") +
+			std::to_string(timingDifferent->Passes().size()));
+	}
+	if (timingDifferent->SubmissionID() <= savedSubmissionID)
+	{
+		fail("E_TIMING_SUBMISSION_ID", castl::string("SubmissionID 必须单调递增：第一次 ") +
+			std::to_string(savedSubmissionID) + "，第二次 " + std::to_string(timingDifferent->SubmissionID()));
+	}
+
+	// 重新读第一次结果（对象还活着），与保存副本逐字段比较。
+	std::span<GPUPassTiming const> const firstPassesAgain = timingAsync->Passes();
+	if (timingAsync->SubmissionID() != savedSubmissionID)
+	{
+		fail("E_TIMING_STABLE_ID", castl::string("第二次执行后第一次结果的 SubmissionID 被改写：保存 ")
+			+ std::to_string(savedSubmissionID) + "，现在 " + std::to_string(timingAsync->SubmissionID()));
+	}
+	if (firstPassesAgain.size() != savedPasses.size())
+	{
+		fail("E_TIMING_STABLE_COUNT", castl::string("第二次执行后第一次结果的条数变了：保存 ") +
+			std::to_string(savedPasses.size()) + "，现在 " + std::to_string(firstPassesAgain.size()));
+		return;
+	}
+	for (size_t i = 0; i < savedPasses.size(); ++i)
+	{
+		GPUPassTiming const& now = firstPassesAgain[i];
+		SavedPassTiming const& saved = savedPasses[i];
+		if (now.passType != saved.passType || now.passIndex != saved.passIndex
+			|| now.queue != saved.queue || now.name != saved.name
+			|| now.beginNs != saved.beginNs || now.endNs != saved.endNs)
+		{
+			fail("E_TIMING_STABLE_FIELD", castl::string("第二次执行后第一次结果的第 ") + std::to_string(i) +
+				" 条被改写：保存（type " + std::to_string(static_cast<uint32_t>(saved.passType)) +
+				"，index " + std::to_string(saved.passIndex) + "，queue " +
+				std::to_string(static_cast<uint32_t>(saved.queue)) + "，name \"" + saved.name + "\"，" +
+				std::to_string(saved.beginNs) + " → " + std::to_string(saved.endNs) + "），现在（type " +
+				std::to_string(static_cast<uint32_t>(now.passType)) + "，index " + std::to_string(now.passIndex) +
+				"，queue " + std::to_string(static_cast<uint32_t>(now.queue)) + "，name \"" + now.name + "\"，" +
+				std::to_string(now.beginNs) + " → " + std::to_string(now.endNs) + "）");
+		}
+	}
+	CA_LOG("TestGPUTiming 结果稳定性：第一次 SubmissionID = {}（{} 条），第二次 SubmissionID = {}（{} 条），"
+	       "第一次结果逐字段与副本一致",
+	       savedSubmissionID, savedPasses.size(), timingDifferent->SubmissionID(),
+	       timingDifferent->Passes().size());
+
+	// ---- 三、计算 pass 改为 SetAsync(false)：两边该 pass 的 queue 都必须是 direct（任务 4.1）----
+	auto timingSyncCompute = runTimed(false);
+	if (!timingSyncCompute)
+	{
+		fail("E_TIMING_NULL", castl::string("ExecuteGraphTimed 返回空结果（非异步计算图）"));
+		return;
+	}
+	timingSyncCompute->Wait();
+	std::span<GPUPassTiming const> const syncPasses = timingSyncCompute->Passes();
+	if (syncPasses.size() != 2)
+	{
+		fail("E_TIMING_SYNC_COUNT", castl::string("非异步计算图应返回两条结果，实际 ") +
+			std::to_string(syncPasses.size()));
+	}
+	GPUPassTiming const* pSyncRender = findPass(syncPasses, EGPUTimedPassType::eRender);
+	GPUPassTiming const* pSyncCompute = findPass(syncPasses, EGPUTimedPassType::eCompute);
+	if (pSyncRender == nullptr || pSyncCompute == nullptr)
+	{
+		fail("E_TIMING_SYNC_TYPES", castl::string("非异步计算图的两条结果不是一个 eRender + 一个 eCompute"));
+		return;
+	}
+	if (pSyncCompute->queue != EGPUQueueType::eDirect)
+	{
+		fail("E_TIMING_SYNC_COMPUTE_QUEUE", castl::string("SetAsync(false) 的计算 pass 实际记录在 direct 队列上，"
+			"结果必须如实报 eDirect，不得按 pass 类型伪报 —— 实际 ") +
+			std::to_string(static_cast<uint32_t>(pSyncCompute->queue)));
+	}
+	if (pSyncCompute->name != "compute[0]")
+	{
+		fail("E_TIMING_SYNC_COMPUTE_NAME", castl::string("非异步计算 pass 的名称应为 \"compute[0]\"，实际 \"") +
+			pSyncCompute->name + "\"");
+	}
+	if (pSyncCompute->endNs < pSyncCompute->beginNs)
+	{
+		fail("E_TIMING_SYNC_ORDER", castl::string("endNs 必须不小于 beginNs：计算 ") +
+			std::to_string(pSyncCompute->beginNs) + " → " + std::to_string(pSyncCompute->endNs));
+	}
+	castl::string const syncGraphKeyLine = castl::string("eRender:") + std::to_string(pSyncRender->passIndex)
+		+ ",eCompute:" + std::to_string(pSyncCompute->passIndex);
+	if (syncGraphKeyLine != "eRender:0,eCompute:0")
+	{
+		fail("E_TIMING_SYNC_KEYS", castl::string("非异步计算图的 pass 键集合应为 {(eRender,0),(eCompute,0)}，实际 {") +
+			syncGraphKeyLine + "}");
+	}
+	CA_LOG("TestGPUTiming 非异步计算图：SubmissionID = {}；pass 键 {}；计算 pass（index {}，队列 eDirect）{} → {} ns，"
+	       "名称 \"{}\"",
+	       timingSyncCompute->SubmissionID(), syncGraphKeyLine, pSyncCompute->passIndex,
+	       pSyncCompute->beginNs, pSyncCompute->endNs, pSyncCompute->name);
+}
+
 int main(int argc, char* argv[])
 {
 	// Task 1.7 + 3.4: Must be first line BEFORE any I/O
@@ -1657,6 +1985,7 @@ int main(int argc, char* argv[])
 		std::cout << "  TestIMGUI\n";
 		std::cout << "  TestScriptHost\n";
 		std::cout << "  TestCSharpWindow\n";
+		std::cout << "  TestGPUTiming\n";
 		return 0;
 	}
 
@@ -1809,6 +2138,10 @@ int main(int argc, char* argv[])
 	}
 
 	// ---- Test runner with diagnostics wrapper ----
+	// vulkan-gpu-queries 任务 1.2：进程退出码必须反映测试结果（此前 `main` 无条件返回 EXIT_SUCCESS，
+	// 而任务 1.2/2.1/3.1/4.1/5.1 都以 tester 的退出码 0/1 作为验收读数）。判定仍以 `result.json`
+	// 的 `status` 为准；退出码只是让"脚本跑一条命令"能直接看到红绿。
+	bool anyTestFailed = false;
 	auto runTestWithDiagnostics = [&](const char* name, auto testFunc)
 	{
 		FILE* validationLogFile = nullptr;
@@ -1877,6 +2210,11 @@ int main(int argc, char* argv[])
 			g_errorDetail[0] != '\0' ? g_errorDetail : (errorMsg.empty() ? nullptr : errorMsg.c_str()));
 		g_errorDetail[0] = '\0';
 
+		if (exitCode != 0)
+		{
+			anyTestFailed = true;
+		}
+
 		return (exitCode == 0);
 	};
 
@@ -1909,6 +2247,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
 	}
+		else if (strcmp(testName.c_str(), "TestGPUTiming") == 0)
+	{
+		runTestWithDiagnostics("TestGPUTiming", TestGPUTiming);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -1929,6 +2271,7 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestIMGUI", TestIMGUI);
 		runTestWithDiagnostics("TestScriptHost", TestScriptHost);
 		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
+		runTestWithDiagnostics("TestGPUTiming", TestGPUTiming);
 	}
 
 	// 任务 3.2：`--show-window-seconds N` —— 所有选中的测试跑完之后，再保持 N 秒：
@@ -1986,5 +2329,6 @@ int main(int argc, char* argv[])
 			pScriptHost->IsAvailable() ? "true" : "false");
 	}
 
-	return EXIT_SUCCESS;
+	// vulkan-gpu-queries 任务 1.2：有测试失败时进程退出码为 1（见 `anyTestFailed` 那段注释）。
+	return anyTestFailed ? EXIT_FAILURE : EXIT_SUCCESS;
 }

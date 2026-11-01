@@ -1,0 +1,67 @@
+﻿# 任务 1.1 红态：TestGPUTiming 测试骨架先于接口落地，Debug 构建必须失败
+#
+# 时间：2026-10-31 18:26:05
+# 命令：python build.py --config Debug
+# 实际退出码：1（构建失败，未产出 GPUBackendTester.exe）
+# 决定性输出：Test\GPUBackendTester\Main.cpp(30): fatal error C1083: Cannot open include file: 'GPUTiming.h': No such file or directory
+# 说明：此时 Interface/RenderInterface/header/GPUTiming.h 尚未创建，CRenderBackend 也还没有
+#       GetTimingCapabilities / ExecuteGraphTimed。本条只要求红态与测试骨架，不要求测试通过。
+#
+# ======================== 完整构建输出 ========================
+=== CascadedEngine Build Script (Python) ===
+  Visual Studio : C:\Program Files\Microsoft Visual Studio\18\Community
+  Config        : Debug (preset x64-debug)
+  Build dir     : E:\Projects\CascadedEngine\out\build\x64-debug
+  (CMake 配置输入都没动 —— 跳过 configure，要强制重配就加 --configure)
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)
+  env 'Test/CoreTests': 18 compile unit(s), 27 include dir(s), 9 macro(s), 0 forced include(s)
+  env 'Interface/RenderInterface': 5 compile unit(s), 15 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  env 'D3D12RenderBackend': 23 compile unit(s), 21 include dir(s), 13 macro(s), 0 forced include(s)
+  env 'ShaderCompilerSlang': 2 compile unit(s), 16 include dir(s), 11 macro(s), 0 forced include(s)
+  env 'CACore': 7 compile unit(s), 7 include dir(s), 6 macro(s), 0 forced include(s)
+  env 'VulkanRenderBackendNew': 27 compile unit(s), 20 include dir(s), 11 macro(s), 0 forced include(s)
+  codegen: 重跑 0 条、跳过 76 条（输入没变的那些）
+  [绑定] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h
+    [绑定] 产物：IWindow, IWindowSystem
+  [绑定] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h
+    [绑定] 产物：IBindRow01, IBindRow02, IBindRow09
+  [绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    矩阵行数 15 / 有夹具的行数 15 / 真实接口行 1 / 签名行 44 / 非签名行（拒绝或错误码）1
+    不符数 0
+    两侧对齐问题 0 处
+    被判真实接口：IWindow, IWindowSystem
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    夹具接口 21 个、桩数 3 个（只打印，不判定）
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    第二张矩阵问题 0 处
+    错误码问题 0 处
+
+============================================================
+[2/2] Building all targets...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug
+[1/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\WindowBindingsCompileTest.cpp.obj
+[2/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsGetApiTest.cpp.obj
+[3/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsLayoutTest.cpp.obj
+[4/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsWeakHandleTest.cpp.obj
+[5/10] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsHandleTest.cpp.obj
+[6/10] Linking CXX executable bin\CoreTests.exe
+[7/10] Building CXX object CSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj
+[8/10] Building CXX object Test\GPUBackendTester\CMakeFiles\GPUBackendTester.dir\Main.cpp.obj
+FAILED: Test/GPUBackendTester/CMakeFiles/GPUBackendTester.dir/Main.cpp.obj 
+C:\PROGRA~1\MICROS~3\18\COMMUN~1\VC\Tools\MSVC\1450~1.357\bin\Hostx64\x64\cl.exe  /nologo /TP -DFMT_SHARED -DJPH_CROSS_PLATFORM_DETERMINISTIC -DJPH_DEBUG_RENDERER -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DJPH_PROFILE_ENABLED -DJPH_SHARED_LIBRARY -DNOMINMAX=1 -DSTATIC_BUILT_IMGUIContext=1 -DSTATIC_BUILT_TimerSystem_Impl=1 -DUSING_EASTL=0 -D_DEBUG -D_HAS_EXCEPTIONS=0 -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings -IE:\Projects\CascadedEngine\WindowSystem\header\CAWindow -IE:\Projects\CascadedEngine\CACore\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\CACore -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\mimalloc-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\hash-library-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\komihash-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\fmt-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\magic_enum-src\include -IE:\Projects\CascadedEngine\Interface\TimerSystem\header -IE:\Projects\CascadedEngine\ThreadManager\header -IE:\Projects\CascadedEngine\Interface\RenderInterface\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface -IE:\Projects\CascadedEngine\WindowSystem\header -IE:\Projects\CascadedEngine\Interface\ShaderCompiler\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang -IE:\Projects\CascadedEngine\Interface\IOManager\header -IE:\Projects\CascadedEngine\GeneralResources\header -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\glm-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\imgui-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\assimp-src\code\..\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\assimp-build\code\..\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\stb-src -IE:\Projects\CascadedEngine\TimerSystem_Impl\header -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\joltphysics-src\Build\.. -IE:\Projects\CascadedEngine\IMGUIContext\header -IE:\Projects\CascadedEngine\Interface\ScriptHost\header /DWIN32 /D_WINDOWS /W3 /GR /EHsc /MDd /Ob0 /Od /RTC1 -std:c++20 -Zi /WX- /external:anglebrackets /external:W0 /wd4068 /wd26812 /wd26451 /wd26495 /wd28251 /wd6387 /Zc:preprocessor /utf-8 /showIncludes /FoTest\GPUBackendTester\CMakeFiles\GPUBackendTester.dir\Main.cpp.obj /FdTest\GPUBackendTester\CMakeFiles\GPUBackendTester.dir\ /FS -c E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(30): fatal error C1083: Cannot open include file: 'GPUTiming.h': No such file or directory
+[9/10] Linking CXX shared module bin\CSharpHost.dll
+ninja: build stopped: subcommand failed.
+
+
+ERROR: command failed (exit 1)
+  Bat file kept at: E:\Projects\CascadedEngine\_build_run.bat
+

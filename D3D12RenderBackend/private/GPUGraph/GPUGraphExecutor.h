@@ -11,12 +11,18 @@
 
 namespace graphics_backend
 {
+	class D3D12GPUTiming;
+
 	class D3D12GPUGraphExecutor : public D3D12SubobjectBase
 	{
 	public:
 		D3D12GPUGraphExecutor(RenderBackend_D3D12* app);
 		void CompileAndExecute(GPUGraph const& owningGraph, GPUFrameManager::PFrameContext&& frameContext);
 		void Release() override;
+
+		// vulkan-gpu-queries（任务 2.1）：计时执行时由后端传入结果对象；普通 ExecuteGraph 不设置，
+		// 执行器因此完全不碰查询资源（design D6）。
+		void SetTimingRecorder(D3D12GPUTiming* pTiming) { m_pTiming = pTiming; }
 
 		D3D12GraphLocalResourceManager& GetLocalResourceManager() { return m_LocalResourceManager; }
 		GPUConstantBufferManager& GetConstantBufferManager() { return m_ConstantBufferManager; }
@@ -28,6 +34,7 @@ namespace graphics_backend
 		ShaderResourceInstanceDic m_ShaderResourceInstances;
 
 		GPUFrameManager::PFrameContext m_CurrentFrameContext;
+		D3D12GPUTiming* m_pTiming = nullptr;
 
 	};
 }

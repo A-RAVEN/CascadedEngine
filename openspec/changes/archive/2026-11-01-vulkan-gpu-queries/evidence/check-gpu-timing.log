@@ -1,0 +1,19 @@
+﻿# 任务 5.1 验收：Tools/check_gpu_timing.py（普通 ExecuteGraph 不创建计时资源）
+#
+# 时间：2026-10-31（运行记录见下）
+# 绿态命令：python Tools\check_gpu_timing.py -> 退出码 0
+#   输出：d3d12: 普通 ExecuteGraph 函数体干净（D3D12RenderBackend/private/RenderBackend_D3D12.cpp）
+#         vulkan: 普通 ExecuteGraph 函数体干净（VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp）
+#         检查 2/2 个后端、0 处问题：普通 ExecuteGraph 不创建计时资源（design D6）
+#
+# 红态构造（临时改代码，验证后已恢复）：在 D3D12RenderBackend::ExecuteGraph 的
+#   CleanupWindowHandles(); 之后插入 `(void)GetTimingCapabilities(EGPUQueueType::eDirect);`
+# 红态运行：python Tools\check_gpu_timing.py -> 退出码 1
+#   vulkan: 普通 ExecuteGraph 函数体干净（VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp）
+#   检查 2/2 个后端、命中 1 处问题
+#     ✗ d3d12 的普通 ExecuteGraph 函数体里出现了计时入口 / 查询资源创建调用：GetTimingCapabilities
+#
+# 恢复后：python Tools\check_gpu_timing.py -> 退出码 0（同上绿态输出）
+#
+# 判据自身失效的情形（退出码 2）：找不到后端源文件、找不到普通 ExecuteGraph 函数体、或取到的函数体里
+# 没有 CompileAndExecute（说明取错了代码段，"干净"不可信）。

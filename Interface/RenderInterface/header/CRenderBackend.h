@@ -21,6 +21,8 @@
 #include <span>
 #include <memory>
 #include "ShaderResourceHandle.h"
+// vulkan-gpu-queries：逐 pass GPU 计时的公共类型与结果对象（能力 `gpu-graph-timing`）。
+#include "GPUTiming.h"
 
 namespace thread_management
 {
@@ -59,6 +61,34 @@ namespace graphics_backend
 	{
 	public:
 		virtual void ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph) = 0;
+		// vulkan-gpu-queries（能力 `gpu-graph-timing`）：每队列的计时能力，以及一次计时图执行。
+		// 普通 `ExecuteGraph` 保持原样，不承担查询开销（design D6）；只有 `ExecuteGraphTimed`
+		// 才创建查询资源、记录时间戳并等待回读。
+		// `GetTimingCapabilities(queue).passTimestamps` 为假时调用方不应发起计时；图实际使用的队列
+		// 不支持计时时 `ExecuteGraphTimed` 返回空结果并记录原因，不返回全零的伪造结果（design D8）。
+		//
+		// 这两个入口**不是纯虚**：`CRenderBackend` 的纯虚方法集合被
+		// `openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md`
+		// 的可绑定面审计表按条数对账（`Tools/CodeGen/check_bindable_audit.py`，构建时由 CodeGen 调用）。
+		// 那份审计表属于另一个 change，本 change 不改它的工件；因此这里给基类默认实现：能力报假、
+		// 计时入口返回空并记录原因 —— 这正是 design D8 要求的"不支持就显式失败"，不是伪造成功。
+		// 两个后端各自 override 出真实实现（D3D12 见 2.1，Vulkan 见 3.1）。
+		virtual GPUTimingCapabilities GetTimingCapabilities(EGPUQueueType queue) const
+		{
+			(void)queue;
+			return GPUTimingCapabilities{};
+		}
+		// 结果对象持有本次计时执行的回读数据与同步资源，生命周期独立于执行器和会被复用的帧上下文
+		// （design D5）。`Wait()` 返回之后读 `Passes()`；不支持或时间无效时返回空指针。
+		virtual std::unique_ptr<IGPUGraphTiming> ExecuteGraphTimed(
+			TaskScheduler* scheduler,
+			castl::shared_ptr<GPUGraph> const& graph)
+		{
+			(void)scheduler;
+			(void)graph;
+			CA_LOG_ERR("当前后端不支持计时：这个后端没有实现 GetTimingCapabilities / ExecuteGraphTimed");
+			return nullptr;
+		}
 		virtual void Release() = 0;
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) = 0;
 		castl::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags usageFlags
