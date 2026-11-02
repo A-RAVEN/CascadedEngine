@@ -31,6 +31,12 @@ namespace Scripting.Managed
         internal static string LastCreatedSummary = string.Empty;
 
         /// <summary>
+        /// 脚本建出来的那个窗口的表面对象（csharp-render-binding-foundations 任务 1.3 的目标释放探针
+        /// 用它）：`Dispose` 只释放目标句柄，不关窗、不改变引擎的窗口计数。
+        /// </summary>
+        internal static IWindow LastCreated;
+
+        /// <summary>
         /// 脚本入口：建一个保持可见的窗口（任务 2.3）。
         /// **不关窗、不 Dispose** —— 引擎的回收条件是"关闭且引用计数归 1"，所以它一直活到进程退出。
         /// </summary>
@@ -38,6 +44,7 @@ namespace Scripting.Managed
         {
             CalledCount++;
             IWindow created = windows.NewWindow(320, 240, "脚本建的窗口", true, true, true, false);
+            LastCreated = created;
             var (width, height) = created.GetWindowSize();
             LastCreatedSummary = $"{width} x {height}";
         }

@@ -1,0 +1,58 @@
+﻿=== 3.1 已知接口清单：实际收集结果与负向用例（真实输出） ===
+
+命令：CodeGen.exe Tools/CodeGen/BindableShapes.h --list-bind-interfaces ... -xc++
+退出码：0
+  IBindRow01=ca_bind_fixture::IBindRow01
+  IBindRow02=ca_bind_fixture::IBindRow02
+  IBindRow03=ca_bind_fixture::IBindRow03
+  IBindRow04=ca_bind_fixture::IBindRow04
+  IBindRow05=ca_bind_fixture::IBindRow05
+  IBindRow06=ca_bind_fixture::IBindRow06
+  IBindRow07=ca_bind_fixture::IBindRow07
+  IBindRow08=ca_bind_fixture::IBindRow08
+  IBindRow09=ca_bind_fixture::IBindRow09
+  IBindRow10=ca_bind_fixture::IBindRow10
+  IBindRow11=ca_bind_fixture::IBindRow11
+  IBindRow12=ca_bind_fixture::IBindRow12
+  IBindRow13=ca_bind_fixture::IBindRow13
+  IBindRow14=ca_bind_fixture::IBindRow14
+  IBindRow15=ca_bind_fixture::IBindRow15
+  IBindRow16=ca_bind_fixture::IBindRow16
+  IBindRow17=ca_bind_fixture::IBindRow17
+  IBindRow18=ca_bind_fixture::IBindRow18
+  IBindRow19=ca_bind_fixture::IBindRow19
+  IBindRow20=ca_bind_fixture::IBindRow20
+  IBindRow21=ca_bind_fixture::IBindRow21
+  IBindRow22=ca_bind_fixture::IBindRow22
+
+命令：CodeGen.exe Tools/CodeGen/BindableShapes.RenderResource.h --list-bind-interfaces ... -xc++
+退出码：0
+  IBindRenderResource=ca_bind_fixture::IBindRenderResource
+  IBindRenderResourceAlt=ca_bind_fixture::IBindRenderResourceAlt
+
+命令：CodeGen.exe Tools/CodeGen/BindableShapes.RenderOwner.h --list-bind-interfaces ... -xc++
+退出码：0
+  IBindRenderOwner=ca_bind_fixture::IBindRenderOwner
+
+命令：CodeGen.exe WindowSystem/header/CAWindow/WindowSystem.h --list-bind-interfaces ... -xc++
+退出码：0
+  IWindow=cawindow::IWindow
+  IWindowSystem=cawindow::IWindowSystem
+
+判读：BindableShapes.h 的清单里必须有 IBindRow16（它不在 CODEGEN_BINDINGS 的期望产物前缀里）。
+
+负向一：--known-interface 与主头声明的完整限定名冲突
+退出码：1
+    libclang: Tools/CodeGen/BindableShapes.RenderResource.h:1:9: warning: #pragma once in main file [-Wpragma-once-outside-header]
+  CodeGen: 拒绝 —— 同短名接口 IBindRenderResource 有两种完整限定名：other::IBindRenderResource / ca_bind_fixture::IBindRenderResource（--known-interface 清单与主头声明不一致）
+  CodeGen: --emit-binding 返回 1
+
+负向二：未登记抽象接口返回
+退出码：1
+    libclang: Tools/CodeGen/BindableShapes.RenderRejectUnregisteredInterface.h:1:9: warning: #pragma once in main file [-Wpragma-once-outside-header]
+  CodeGen: 跳过审计核对 IRejectUnregisteredReturn —— 它不在审计表覆盖的接口清单里
+  CodeGen: 跳过 IRejectUnregisteredTarget —— 没有 CA_BIND 标注（不生成绑定）
+    [接口] IRejectUnregisteredReturn → 1 条：GetTarget 
+完整拒绝行：
+  CodeGen: 拒绝 IRejectUnregisteredReturn::GetTarget —— 返回的裸指针类型 IRejectUnregisteredTarget 不是构建期已知接口清单里的已绑定接口（未登记抽象接口不得生成悬空公开类型）
+  绑定：接口 1 个 / 方法 0 条 / 产物 1 个 / 拒绝 1 条

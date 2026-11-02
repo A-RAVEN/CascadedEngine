@@ -1,0 +1,27 @@
+﻿=== 3.3 删除 shared_ptr 入参的空/失效检查：红态 ===
+命令：python build.py --config Debug
+退出码：0
+
+
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码：1
+
+Window bindings compile test PASSED
+Bindings layout manifest test PASSED
+Bindings nested layout test PASSED
+Bindings callback test PASSED
+Bindings weak handle test PASSED
+Bindings handle table test PASSED
+Bindings GetApi test PASSED
+[跨接口] 失败：错误目标类型的 shared_ptr 入参进入了原生实现
+[跨接口] 失败：释放后的旧句柄进入了原生实现
+Bindings cross interface test FAILED
+BUILD SUCCESSFUL
+
+=== 3.3 恢复后绿态 ===
+命令：python build.py --config Debug
+退出码：0
+BUILD SUCCESSFUL
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码：0
+Bindings cross interface test PASSED

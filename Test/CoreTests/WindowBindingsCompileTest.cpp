@@ -76,9 +76,10 @@ bool RunWindowBindingsCompileTest()
 	// 表大小**从审计过的条数算出来**，不从生成物里读（两侧都读生成物就是同源恒等）：
 	// IWindow 有 23 条纯虚方法，全部可绑（任务 5.3 之后一条 `CA_BIND_SKIP` 都没有）；其中
 	// `GetWindowName` 走两段式伴生、不占方法槽但占**两个**伴生槽 ⇒ 22 + 2 = 24 个方法侧槽位；
-	// 再加表头的四个非方法槽（错误通道 2 + 句柄解析/释放 2）⇒ 28 个槽，每槽 8 字节，
-	// 前面还有 abi_version/size 两个 4 字节字段 ⇒ 8 + 8 × 28 = 232 字节。
-	const uint32_t expectedSlots = 4u + 22u + 2u;
+	// 再加表头的四个非方法槽（错误通道 2 + 句柄解析/释放 2）⇒ 28 个槽；本 change（任务 3.2）
+	// 在末尾追加两个目标接口槽（ResolveTargetHandle / ReleaseTargetHandle）⇒ 30 个槽。
+	// 每槽 8 字节，前面还有 abi_version/size 两个 4 字节字段 ⇒ 8 + 8 × 30 = 248 字节。
+	const uint32_t expectedSlots = 4u + 22u + 2u + 2u;
 	const uint32_t expectedSize = 8u + 8u * expectedSlots;
 	if (realSize != expectedSize)
 	{
@@ -210,7 +211,7 @@ bool RunWindowBindingsCompileTest()
 	// 标签之前，两个接口的句柄**数字完全相同**，这一下会把 IWindow 表里的活项清掉。
 	{
 		auto owner = std::make_shared<FakeWindowForHandle>();
-		const uint64_t borrowed = IWindow_registerBorrowedHandle(owner.get(), owner->m_system);
+		const uint64_t borrowed = IWindow_registerBorrowedHandle(owner.get(), owner->m_system, "");
 		if (borrowed == 0u)
 		{
 			std::puts("  借用句柄登记失败（0）");
@@ -235,8 +236,8 @@ bool RunWindowBindingsCompileTest()
 	{
 		auto owner = std::make_shared<FakeWindowForHandle>();
 		void* const borrowedTarget = owner->m_system;
-		const uint64_t ownerHandle = IWindow_registerStrongHandle(owner.get(), std::shared_ptr<void>(owner));
-		const uint64_t borrowed = IWindow_registerBorrowedHandle(owner.get(), borrowedTarget);
+		const uint64_t ownerHandle = IWindow_registerStrongHandle(owner.get(), std::shared_ptr<void>(owner), "");
+		const uint64_t borrowed = IWindow_registerBorrowedHandle(owner.get(), borrowedTarget, "");
 		if (ownerHandle == 0u || borrowed == 0u)
 		{
 			std::puts("  强句柄 / 借用句柄登记失败");

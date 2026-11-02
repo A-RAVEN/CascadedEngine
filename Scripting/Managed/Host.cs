@@ -68,6 +68,17 @@ namespace Scripting.Managed
                     return ErrLayout;
                 }
 
+                // 公开值内容与真实 CLR 布局（csharp-render-binding-foundations 任务 1.3）：
+                // 枚举实际值 / 底层类型 / [Flags]、记录字段顺序与 Marshal.SizeOf / Marshal.OffsetOf
+                // 都在这里读，不靠生成器写出的两组常量自我印证。
+                string valueError = SurfaceSignatureCheck.VerifyValueTypes();
+                if (valueError != null)
+                {
+                    s_lastError = valueError;
+                    LogVia(api, s_lastError);
+                    return ErrLayout;
+                }
+
                 s_api = api;
                 s_lastError = string.Empty;
 
@@ -225,6 +236,7 @@ namespace Scripting.Managed
                 ProbeWindowSize();
                 ProbeExceptionMapping();
                 ProbeMonitor();
+                ProbeTargetDispose();
                 RunCallbackProbePhase();
                 // 关窗读数每帧都要读：第 1 帧窗口还开着（0），引擎侧关窗后再 tick 一次才是 1。
                 // 放进 `s_tickCount == 1` 里就只剩一个 0 —— 实测过，那一版日志里没有第二次读数。
@@ -261,6 +273,8 @@ namespace Scripting.Managed
         private static bool s_surfaceWindowProbed;
         private static bool s_engineWindowClosed;
         private static bool s_exceptionProbed;
+        // csharp-render-binding-foundations 任务 1.3 / 3.3：目标释放与释放后调用只探一次
+        private static bool s_targetDisposeProbed;
         // 任务 2.2：脚本只调一次
         private static bool s_userScriptCalled;
 
@@ -588,6 +602,82 @@ namespace Scripting.Managed
         }
 
         /// <summary>
+        /// 目标释放与释放后调用（csharp-render-binding-foundations 任务 1.3 / 3.3）。
+        ///
+        /// 用脚本建出来的那个窗口（`IWindowSystem.NewWindow` 的**弱返回句柄** → `IWindow` 目标表面对象）：
+        /// 解析与释放都必须走目标接口入口。`Dispose` 只释放目标句柄、不关窗（窗口计数不变）；
+        /// 释放后再次调用 MUST 抛 `ObjectDisposedException`，且不得进入原生 thunk。
+        /// </summary>
+        private static void ProbeTargetDispose()
+        {
+            if (s_targetDisposeProbed || s_system == null)
+            {
+                return;
+            }
+            s_targetDisposeProbed = true;
+            int ownerCountBefore = s_system.GetWindowCount();
+            IWindow borrowed = UserScript.LastCreated;
+            if (borrowed == null || borrowed.Disposed)
+            {
+                // 脚本窗口的租约已经被上一份绑定释放过：另建一个临时窗口，读完尺寸就关掉、释放租约，
+                // 再 UpdateSystem 把它回收 —— 全程结束后窗口计数必须回到原值。
+                try
+                {
+                    borrowed = s_system.NewWindow(120, 80, "目标释放探针", false, false, false, false);
+                    borrowed.GetWindowSize();
+                    borrowed.CloseWindow();
+                    borrowed.Dispose();
+                    s_system.UpdateSystem();
+                }
+                catch (Exception ex)
+                {
+                    s_lastError = "目标表面获取/释放失败：" + ex.GetType().Name + ": " + ex.Message;
+                    LogLine("[托管侧 目标释放] " + s_lastError);
+                    return;
+                }
+            }
+            else
+            {
+                borrowed.GetWindowSize();
+                try
+                {
+                    borrowed.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    // 把合法释放错接成发行者入口时，这里会真的抛 `<接口>Exception`（1001）——
+                    // 那正是本任务要证明"Dispose 检查错误通道"的失败路径。
+                    s_lastError = "目标表面 Dispose 报错：" + ex.GetType().Name + ": " + ex.Message;
+                    LogLine("[托管侧 目标释放] " + s_lastError);
+                    return;
+                }
+            }
+            bool disposedThrew = false;
+            try
+            {
+                borrowed.GetWindowSize();
+            }
+            catch (ObjectDisposedException)
+            {
+                disposedThrew = true;
+            }
+            catch (Exception ex)
+            {
+                s_lastError = "释放后调用抛了 " + ex.GetType().Name + "，期望 ObjectDisposedException：" + ex.Message;
+                LogLine("[托管侧 目标释放] " + s_lastError);
+                return;
+            }
+            int ownerCount = s_system.GetWindowCount();
+            if (!disposedThrew)
+            {
+                s_lastError = "目标表面 Dispose 之后再次调用没有抛 ObjectDisposedException";
+                LogLine("[托管侧 目标释放] " + s_lastError);
+                return;
+            }
+            LogLine($"[托管侧 目标释放] disposed=ObjectDisposedException borrowedCount={ownerCountBefore} ownerCount={ownerCount}");
+        }
+
+        /// <summary>
         /// 每帧读一次 `WindowShouldClose`（任务 2.8）。引擎侧在关窗前后各 tick 一次，
         /// 两个读数都必须为真 —— 少了这段，托管侧那条读数根本不存在。
         /// </summary>
@@ -645,6 +735,9 @@ namespace Scripting.Managed
             s_engineWindowClosed = false;
             s_surfaceWindowProbed = false;
             s_monitorProbed = false;
+            // 目标释放探针按"每一份绑定"重跑一次：每个窗口测试各写自己的日志，脚本只建一次窗，
+            // 所以第二份绑定起改用临时窗口（关掉并回收，计数回到原值）。
+            s_targetDisposeProbed = false;
             // 任务 2.2：重绑开始就把旧的对象作废 —— 否则下面若取 IWindowSystem 表失败，`s_system`
             // 会保留上一次的旧对象，"两张表都绑好"这个条件被旧值骗过（脚本会拿到一个已失效的 self）。
             // 本 change 任务 4.1：作废前先 `Dispose` 旧表面对象，由它注销仍存活的回调、释放 GCHandle。

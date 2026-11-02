@@ -137,7 +137,228 @@ MEMBER_RE = re.compile(r"\(\s*\*\s*(\w+)\s*\)\s*\(")
 # 方法、没有对应的 `<接口>_thunk_*`，所以桩判据与覆盖率判据都要把它们排除在外 —— 否则"表里有这个槽、
 # 产物里却没有对应的 thunk"会被当成结构缺陷，报出来的是假问题。
 CHANNEL_SLOTS = {"LastErrorCode", "LastErrorText", "ResolveHandle", "ReleaseHandle",
+                 "ResolveTargetHandle", "ReleaseTargetHandle",
                  "UnregisterCallback", "ReportCallbackError"}
+
+# ---- 共享公开值类型（csharp-render-binding-foundations 任务 1.1 / 2.3）----
+# 这类产物**只有** `<类型>.Bindings.cs`，没有对应的 `.Bindings.cpp`：同一个限定 C++ 类型被
+# 多个接口使用时只发一份。接口判据（check_surface / check_alignment 第二层）必须跳过它们，
+# 由下面这份逐项内容判据接管 —— 否则「没有 IDisposable 表面类」会把它们全判红。
+SHARED_VALUE_TYPES = {
+    # 渲染基础夹具（本 change 新增）
+    "RenderDesc": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct RenderDesc",
+        "[MarshalAs(UnmanagedType.I1)]",
+        "public bool visible;",
+        "public uint id;",
+        "public ERenderMode mode;",
+        "public ERenderFlag flags;",
+        "public ushort weight;",
+    ],
+    "RenderHashable": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct RenderHashable",
+        "public uint first;",
+        "public uint second;",
+    ],
+    "RenderNested": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct RenderNested",
+        "public RenderDesc desc;",
+        "public float scale;",
+    ],
+    "ERenderMode": [
+        "public enum ERenderMode : ushort",
+        "None = 0,",
+        "Fill = 1,",
+        "Wire = 2,",
+    ],
+    "ERenderFlag": [
+        "[Flags]",
+        "public enum ERenderFlag : ushort",
+        "None = 0,",
+        "Depth = 1,",
+        "Blend = 2,",
+        "Cull = 4,",
+    ],
+    # 既有夹具 / 窗口值类型（任务 2.3 把"按接口内嵌的公开记录"改成按类型共享产物）
+    "BindScalarThing": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct BindScalarThing",
+        "public uint id;",
+        "public float weight;",
+    ],
+    "BindFloatRect": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct BindFloatRect",
+        "public float x;",
+        "public float y;",
+        "public float width;",
+        "public float height;",
+    ],
+    "BindMonitorInfo": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct BindMonitorInfo",
+        "public BindFloatRect monitorRect;",
+        "public BindFloatRect workAreaRect;",
+        "public float dpiScale;",
+    ],
+    "EBindMode": [
+        "public enum EBindMode : byte",
+        "None = 0,",
+        "One = 1,",
+        "Two = 2,",
+    ],
+    "FloatRect": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct FloatRect",
+        "public float x;",
+        "public float y;",
+        "public float width;",
+        "public float height;",
+    ],
+    "MonitorInfo": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct MonitorInfo",
+        "public FloatRect m_MonitorRect;",
+        "public FloatRect m_WorkAreaRect;",
+        "public float m_DPIScale;",
+    ],
+}
+
+
+REQUIRED_FIXTURE_INTERFACES = {
+    # 本 change 新加的夹具接口（任务 4.1）：它们必须仍被 `BindableShapes*.h` 规则识别为夹具，
+    # 不能被误当成"真实接口"去要求 IDisposable 表面与桩判据。
+    "IBindFoundation",
+    "IBindRenderResource",
+    "IBindRenderResourceAlt",
+    "IBindRenderOwner",
+    "IRejectVirtualRecord",
+    "IRejectPrivateRecord",
+    "IRejectNoDefaultRecord",
+    "IRejectNoHashSource",
+    "IRejectWrapperReturn",
+    "IRejectWrapperNested",
+    "IRejectWeakParam",
+    "IRejectUnregisteredReturn",
+}
+
+
+def check_fixture_recognition() -> list[str]:
+    """确认 `BindableShapes.Render*.h` 都被现有 `BindableShapes*.h` 规则识别为夹具（任务 4.1）。"""
+    fixtures = fixture_interface_names()
+    return [f"  夹具识别：{name} 没有被 BindableShapes*.h 规则收进夹具集合"
+            for name in sorted(REQUIRED_FIXTURE_INTERFACES - fixtures)]
+
+
+def check_shared_qualified_names(product_dir: Path) -> list[str]:
+    """共享公开值类型的限定名唯一性（任务 2.3 / 4.1）。
+
+    每个共享文件头写 `// 限定名：<完整限定名>`。同一短名的文件只能对应一个限定名；反过来，
+    同一个限定名也只能有一份短名 —— 短名不同名化会静默覆盖。
+    """
+    problems: list[str] = []
+    short_to_qualified: dict[str, str] = {}
+    qualified_to_short: dict[str, str] = {}
+    for path in sorted(product_dir.glob("*.Bindings.cs")):
+        stem = path.name[: -len(".Bindings.cs")]
+        if (product_dir / f"{stem}.Bindings.cpp").is_file():
+            continue  # 接口产物，不是共享值类型
+        text = path.read_text(encoding="utf-8", errors="replace")
+        match = re.search(r"^// 限定名：(.+)$", text, re.M)
+        if not match:
+            problems.append(f"  共享值类型 {stem}：文件头没有 `// 限定名：...`，无法做限定名对账")
+            continue
+        qualified = match.group(1).strip()
+        previous = short_to_qualified.get(stem)
+        if previous is not None and previous != qualified:
+            problems.append(f"  共享值类型 {stem}：同一短名对应两个限定名 {previous} / {qualified}")
+        short_to_qualified[stem] = qualified
+        other = qualified_to_short.get(qualified)
+        if other is not None and other != stem:
+            problems.append(f"  共享值类型：限定名 {qualified} 同时产出 {other} 与 {stem}")
+        qualified_to_short[qualified] = stem
+    return problems
+
+
+def check_shared_value_types(product_dir: Path) -> list[str]:
+    """共享公开值类型的内容与唯一性（任务 1.1 登记判据，2.3 / 4.1 扩充）。
+
+    四条口径：
+      ① 每个登记的类型必须有一份 `<类型>.Bindings.cs`；缺一份就报；
+      ② 文件里的公开类型名必须与文件名一致（防止把 A 的内容写进 B 的文件）；
+      ③ 逐字包含登记的那几行 —— 枚举常量值 / 底层类型 / [Flags] / 记录字段名与顺序 /
+         bool 的 I1 声明都靠它钉住（真实 CLR 布局另由托管启动检查读 Marshal.SizeOf）；
+      ④ 共享文件里不许出现接口内部产物（函数表 / 委托指针 / 句柄 / IDisposable / 异常类）。
+    """
+    problems: list[str] = []
+    for name, required_lines in sorted(SHARED_VALUE_TYPES.items()):
+        path = product_dir / f"{name}.Bindings.cs"
+        if not path.is_file():
+            problems.append(f"  共享值类型 {name}：缺 {path.name}")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        declared = re.findall(r"^\s*public\s+(?:sealed\s+)?(?:struct|enum|class)\s+(\w+)",
+                              text, re.M)
+        if declared != [name]:
+            problems.append(f"  共享值类型 {name}：文件里的公开类型是 {declared}，与文件名不符")
+        for line in required_lines:
+            if line not in text:
+                problems.append(f"  共享值类型 {name}：缺少逐字内容 `{line}`")
+        # 顺序也必须对：逐行按登记顺序在文件里前进（字段顺序错了但每行都在，只查"包含"会漏）。
+        cursor = 0
+        for line in required_lines:
+            found = text.find(line, cursor)
+            if found < 0:
+                problems.append(f"  共享值类型 {name}：`{line}` 没有按登记顺序出现（字段/常量顺序错了）")
+                break
+            cursor = found + len(line)
+        for token in ("delegate*", "void*", "IDisposable", "Api_v2", "Exception", "ulong"):
+            if token in text:
+                problems.append(f"  共享值类型 {name}：文件里出现了接口内部产物 `{token}`")
+    # 反向：产物目录里出现的"只有 .cs、没有 .cpp"文件必须都是登记过的共享值类型。
+    for path in sorted(product_dir.glob("*.Bindings.cs")):
+        stem = path.name[: -len(".Bindings.cs")]
+        if (product_dir / f"{stem}.Bindings.cpp").is_file():
+            continue
+        if stem not in SHARED_VALUE_TYPES:
+            problems.append(f"  {stem}：只有 .Bindings.cs 没有 .Bindings.cpp，"
+                            f"但它不是登记过的共享值类型")
+    return problems
+
+
+def check_foundation_surface(product_dir: Path) -> list[str]:
+    """`IBindFoundation` 的公开表面签名（任务 1.1）。
+
+    这一层断言的是**具体签名整行**，不是方法名：`bool` 返回成 `int`、`GetFlags` 的参数
+    还成 `ushort`、包装值还成 `IntPtr`、`byte[]` 还成 `byte*` 都能保持方法名不变，
+    只有逐字签名才判得出来。记录 / 枚举的字段内容与真实 CLR 布局由
+    `check_shared_value_types` 与托管启动检查负责。
+    """
+    path = product_dir / "IBindFoundation.Bindings.cs"
+    if not path.is_file():
+        return ["  IBindFoundation：缺 IBindFoundation.Bindings.cs"]
+    text = path.read_text(encoding="utf-8", errors="replace")
+    expected = [
+        "public RenderDesc GetDesc(RenderDesc desc)",
+        "public RenderNested GetNested(RenderNested nested)",
+        "public bool GetBool(bool value)",
+        "public ERenderMode GetMode(ERenderMode mode)",
+        "public ushort GetFlags(ERenderFlag flags)",
+        "public void SetName(string name)",
+        "public void SetPath(string path)",
+        "public void ConsumeHash(RenderHashable value)",
+        "public long MixBytes(byte[] data, int count, RenderDesc desc, string label, "
+        "ERenderMode mode, ERenderFlag flags, IntPtr token)",
+    ]
+    problems: list[str] = []
+    for signature in expected:
+        if signature not in text:
+            problems.append(f"  IBindFoundation：公开表面里没有 `{signature}`")
+    return problems
+
 THUNK_ANCHOR_RE = re.compile(r"static\s+([^\n(]+?)\s+(\w+)_thunk_(\w+)\s*\(")
 CALL_RE = re.compile(r"object\s*->\s*(\w+)\s*\(")
 VIRTUAL_RE = re.compile(r"virtual\s+([^;(){]+?)\s+(\w+)\s*\(", re.S)
@@ -324,7 +545,12 @@ def check_coverage(product_dir: Path, signatures: list[tuple[str, str]]) -> list
             continue
         match = SYMBOL_RE.search(body)
         if match:
-            expected_by_interface.setdefault(row, set()).add(match.group(1))
+            symbol = match.group(1)
+            # 两段式伴生（`<M>Len` / `Copy<M>`）与配对释放没有 thunk：它们不在覆盖率集合里。
+            short = symbol[len(row) + 1:] if symbol.startswith(row + "_") else symbol
+            if is_companion(short):
+                continue
+            expected_by_interface.setdefault(row, set()).add(symbol)
 
     for interface, expected_names in sorted(expected_by_interface.items()):
         path = product_dir / f"{interface}.Bindings.cpp"
@@ -384,6 +610,7 @@ def check_alignment(product_dir: Path) -> list[str]:
     def is_generic(interface: str, name: str) -> bool:
         """这个符号是"非接口方法"的那一类吗？判据必须按**产物里真的有什么**来认。"""
         if name in ("GetApi", "LastErrorCode", "LastErrorText", "ResolveHandle", "ReleaseHandle",
+                    "ResolveTargetHandle", "ReleaseTargetHandle",
                     "UnregisterCallback", "ReportCallbackError"):
             return True
         for base in two_step_bases.get(interface, set()):
@@ -423,10 +650,12 @@ def check_alignment(product_dir: Path) -> list[str]:
             problems.append(f"  {interface}（native 字段层）：名字集合相同但顺序不同 —— "
                             f"C++ {cpp_list} / C# {cs_list}")
 
-    # ---- 第二层：托管表面（只判真实接口；夹具的表面是半成品，见 check_surface 里的说明）----
+    # ---- 第二层：托管表面（只判有对应 `.Bindings.cpp` 的接口；共享公开值类型走独立判据，
+    # 见 check_shared_value_types —— 任务 4.1 的顺序前提）----
     fixtures = fixture_interface_names()
-    for interface in sorted(set(cpp_pairs) | {p.name[: -len(".Bindings.cs")]
-                                             for p in product_dir.glob("*.Bindings.cs")}):
+    interface_stems = set(cpp_pairs) | {path.name[: -len(".Bindings.cpp")]
+                                        for path in product_dir.glob("*.Bindings.cpp")}
+    for interface in sorted(interface_stems):
         if interface in fixtures:
             continue
         path = product_dir / f"{interface}.Bindings.cs"
@@ -539,6 +768,10 @@ def check_surface(product_dir: Path) -> list[str]:
     problems: list[str] = []
     for path in sorted(product_dir.glob("*.Bindings.cs")):
         interface = path.name[: -len(".Bindings.cs")]
+        # 共享公开值类型（同一次生成里按类型另发的文件）不是接口：它们没有 `.Bindings.cpp`，
+        # 也不该有 `IDisposable` 表面类。内容与唯一性由 check_shared_value_types 判。
+        if not (product_dir / f"{interface}.Bindings.cpp").is_file():
+            continue
         text = path.read_text(encoding="utf-8", errors="replace")
         blocks = type_blocks(text)
         public_blocks = [block for block in blocks if block["visibility"] == "public"]
@@ -770,9 +1003,32 @@ def main() -> int:
         print(problem, file=sys.stderr)
     print(f"错误码问题 {len(code_problems)} 处")
 
+    # ---- 共享公开值类型（任务 1.1 / 2.3）：内容、唯一性与"不许混进接口内部产物" ----
+    shared_problems = check_shared_value_types(product_dir)
+    for problem in shared_problems:
+        print(problem, file=sys.stderr)
+    print(f"共享值类型问题 {len(shared_problems)} 处")
+
+    # ---- 共享值类型的限定名对账与夹具识别（任务 2.3 / 4.1）----
+    qualified_problems = check_shared_qualified_names(product_dir)
+    for problem in qualified_problems:
+        print(problem, file=sys.stderr)
+    print(f"共享值类型限定名问题 {len(qualified_problems)} 处")
+    fixture_problems = check_fixture_recognition()
+    for problem in fixture_problems:
+        print(problem, file=sys.stderr)
+    print(f"夹具识别问题 {len(fixture_problems)} 处")
+
+    # ---- 渲染基础夹具的公开表面签名（任务 1.1）----
+    foundation_problems = check_foundation_surface(product_dir)
+    for problem in foundation_problems:
+        print(problem, file=sys.stderr)
+    print(f"渲染基础表面问题 {len(foundation_problems)} 处")
+
     failed = bool(mismatches or alignment_problems or stub_problems
                   or dropped_problems or structure_problems or coverage_problems or surface_problems
-                  or matrix_problems or code_problems)
+                  or matrix_problems or code_problems or shared_problems or foundation_problems
+                  or qualified_problems or fixture_problems)
     return 1 if failed else 0
 
 

@@ -1,0 +1,16 @@
+﻿=== 2.1 统一转换描述：红态（临时删除字符串入参的原生转换） ===
+命令：python build.py --config Debug
+退出码：1
+
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IWindow.Bindings.cpp(196): error C2065: 'nameText': undeclared identifier
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IWindowSystem.Bindings.cpp(414): error C2065: 'windowNameText': undeclared identifier
+
+=== 2.1 恢复后绿态 ===
+命令：python build.py --config Debug
+退出码：0
+
+不符数 0
+两侧对齐问题 0 处
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+覆盖率问题 0 处
+BUILD SUCCESSFUL

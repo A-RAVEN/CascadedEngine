@@ -6,7 +6,7 @@
 
 | 层 | 载体 | 适合测什么 | 不适合测什么 |
 |---|---|---|---|
-| **① 纯逻辑** | `Test/CoreTests`（20 个 `.cpp`，`main` 在 `SerializerTest.cpp`） | 序列化字节、哈希值、反射与类型表、容器语义、绑定回调/嵌套镜像这类**不碰模块、不开窗口、不需要 GPU**的判定 | 需要加载模块、需要真实后端、需要多进程或"启动即退出"的行为 |
+| **① 纯逻辑** | `Test/CoreTests`（22 个 `.cpp`，`main` 在 `SerializerTest.cpp`） | 序列化字节、哈希值、反射与类型表、容器语义、绑定回调/嵌套镜像/公开值类型这类**不碰模块、不开窗口、不需要 GPU**的判定 | 需要加载模块、需要真实后端、需要多进程或"启动即退出"的行为 |
 | **② 进程内行为** | `Test/GPUBackendTester`（当前 **12** 个测试，注册在 `Main.cpp` 的 `runTestWithDiagnostics("TestXxx", TestXxx)` 列表里） | 要真后端、真要窗口、要在引擎内部断言某模块的行为（例：`IScriptHost` 可用、`Tick` 回值正确、10 类窗口回调与生命周期） | 进程级失败（启动就该非零退出）、需要改环境变量的场景 |
 | **③ 进程级 / 多进程** | `Tools/check_*.py`（现有 8 个脚本） | "缺文件 / 版本不符 / ABI 不符 ⇒ 退出码与错误串"这类**一启动就失败**的路径；生成物与审计表的对账；两侧日志逐字段对拍 | 需要引擎内部状态的断言 |
 
@@ -22,11 +22,11 @@
 
 ## 现有测试清单
 
-### ① `Test/CoreTests`（20 个文件）
+### ① `Test/CoreTests`（22 个文件）
 
-`BindingsCallbackTest` / `BindingsGetApiTest` / `BindingsHandleTest` / `BindingsLayoutTest` / `BindingsNestedLayoutTest` / `BindingsWeakHandleTest` / `CodeGenKindsTest` / `CodeGenMetaTest` / `CodeGenRuntimeTest` / `EmitReflectionTest` / `FriendLikeTest` / `GeneratedContainerTest` / `GeneratedHashContainerTest` / `GeneratedHashTest` / `GeneratedSerializerTest` / `PipelineStateObjectTest` / `ResourceBatchTest` / `SerializerTest`（含 `main` 与分配烟测）/ `ShaderLibraryBytesTest` / `WindowBindingsCompileTest`。
+`BindingsCallbackTest` / `BindingsCrossInterfaceTest` / `BindingsGetApiTest` / `BindingsHandleTest` / `BindingsLayoutTest` / `BindingsNestedLayoutTest` / `BindingsRenderFoundationTest` / `BindingsWeakHandleTest` / `CodeGenKindsTest` / `CodeGenMetaTest` / `CodeGenRuntimeTest` / `EmitReflectionTest` / `FriendLikeTest` / `GeneratedContainerTest` / `GeneratedHashContainerTest` / `GeneratedHashTest` / `GeneratedSerializerTest` / `PipelineStateObjectTest` / `ResourceBatchTest` / `SerializerTest`（含 `main` 与分配烟测）/ `ShaderLibraryBytesTest` / `WindowBindingsCompileTest`。
 
-跑法：`out\build\x64-debug\bin\CoreTests.exe`（退出码 0，`PASSED` 行数当前为 **19**）。
+跑法：`out\build\x64-debug\bin\CoreTests.exe`（退出码 0，`PASSED` 行数当前为 **21**）。
 
 ### ② `Test/GPUBackendTester`（12 个测试）
 
@@ -42,7 +42,7 @@
 
 `check_gpu_timing.py` 的判据（`vulkan-gpu-queries` 任务 5.1，design D6）：读出两个后端源文件、剥注释、按花括号配平取出 `void <类>::ExecuteGraph(` 的函数体，函数体里不得出现 `ExecuteGraphTimed` / `GetTimingCapabilities` / `D3D12GPUTiming` / `VulkanGPUTiming` / `CreateQueryHeap` / `createQueryPool` / `SetTimingRecorder`。退出码 0 = 两个后端都干净、1 = 有违反、2 = 判据自身失效（找不到文件/函数体，或函数体里没有 `CompileAndExecute`）。红态构造：在 D3D12 的普通 `ExecuteGraph` 里插一句 `(void)GetTimingCapabilities(EGPUQueueType::eDirect);` ⇒ 退出码 1 并点名该符号；删掉后回到 0。
 
-**绑定发射器的判据在另一个目录，但已经接进构建**：`Tools/CodeGen/check_bindings.py` 做六件事 —— 期望签名逐行对拍、C++/C# **两层对齐**（native 字段层 + 托管表面层）、**结构桩判据**（剥注释后看 thunk 有没有真调实现；真实接口桩数必须 0、夹具只打印）、**覆盖率下限**（thunk 数必须等于期望文件里的独立清单）、**托管表面判据**（`public` 类型里不许出现 `delegate*` / `void*` / `ulong`，表面成员数必须等于「接口头里的纯虚方法数 − `CA_BIND_SKIP` 数」）、**第二张矩阵的六行 conformance**（每行断言生成出来的整条签名）。它由 `build.py` 在绑定生成之后调用并传 `--product-dir`，非零退出直接让构建失败，stdout 逐行转发（所以"夹具桩数"那行每次构建都看得见）。行为断言落在 `Test/CoreTests/`（第 ① 层）：`BindingsGetApiTest.cpp`（取表握手）、`BindingsHandleTest.cpp`（强/弱/借用三类句柄、代际回绕、并发、1002 的触发与清零反例）、`BindingsWeakHandleTest.cpp`（弱引用不抬高计数、对象析构后 1001）、`WindowBindingsCompileTest.cpp`（`IWindow` 产物编译 + 借用句柄 + 句柄发行者 + 1001）、`BindingsCallbackTest.cpp`（函数指针 + 用户令牌的原生回调：参数顺序、替换、旧注册号注销、空指针、重入 1004、异常 1003 与原文）、`BindingsNestedLayoutTest.cpp`（递归纯标量记录的布局/按值搬运/defaulted 比较运算符 + 非法嵌套成员非零退出并点名路径）。
+**绑定发射器的判据在另一个目录，但已经接进构建**：`Tools/CodeGen/check_bindings.py` 做这些事 —— 期望签名逐行对拍、C++/C# **两层对齐**（native 字段层 + 托管表面层）、**结构桩判据**（剥注释后看 thunk 有没有真调实现；真实接口桩数必须 0、夹具只打印）、**覆盖率下限**（thunk 数必须等于期望文件里的独立清单）、**托管表面判据**（`public` 类型里不许出现 `delegate*` / `void*` / `ulong`，表面成员数必须等于「接口头里的纯虚方法数 − `CA_BIND_SKIP` 数」）、**第二张矩阵的六行 conformance**、**共享公开值类型判据**（`RenderDesc` / `RenderNested` / 枚举等文件的内容、`bool` 的 `I1` 声明、`[Flags]`、`// 限定名：` 唯一性，以及"共享文件不许混进函数表/异常类"）、**渲染基础公开表面签名**（`IBindFoundation` 的记录 / 枚举 / `byte[]` / `IntPtr` 整条签名）、**夹具识别**（`BindableShapes.Render*.h` 必须仍被 `BindableShapes*.h` 规则收进夹具集合）。它由 `build.py` 在绑定生成之后调用并传 `--product-dir`，非零退出直接让构建失败，stdout 逐行转发（所以"夹具桩数"那行每次构建都看得见）。行为断言落在 `Test/CoreTests/`（第 ① 层）：`BindingsGetApiTest.cpp`（取表握手）、`BindingsHandleTest.cpp`（强/弱/借用三类句柄、代际回绕、并发、1002 的触发与清零反例）、`BindingsWeakHandleTest.cpp`（弱引用不抬高计数、对象析构后 1001）、`WindowBindingsCompileTest.cpp`（`IWindow` 产物编译 + 借用句柄 + 句柄发行者 + 1001）、`BindingsCallbackTest.cpp`（函数指针 + 用户令牌的原生回调：参数顺序、替换、旧注册号注销、空指针、重入 1004、异常 1003 与原文）、`BindingsNestedLayoutTest.cpp`（递归纯标量记录的布局/按值搬运/defaulted 比较运算符 + 非法嵌套成员非零退出并点名路径）、`BindingsCrossInterfaceTest.cpp`（跨头文件目标入口、发行者与目标两类角色、配对释放、无见证 / 过期见证借用、`shared_ptr` 入参重建）、`BindingsRenderFoundationTest.cpp`（公开记录 / 枚举 / 标志位 / 包装值 / 字节混合参数的原生读数、空指针配非零长度在 thunk 入口拒绝，以及 8 个 `BindableShapes.RenderReject*.h` 的生成期拒绝探针）。
 
 **托管表面这一层由谁把守**（`csharp-window-creation` 任务 5.2/5.6/5.7，三条互相独立的判据）：
 
@@ -128,7 +128,7 @@ python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen
 python Tools\CodeGen\verify_readme.py
 ```
 
-判定：CoreTests 退出码 0 且 `PASSED` 19 行；两份 report 里 12 条 `status` 全为 `pass`；两条 `TestGPUTiming` 与两条 `TestCSharpWindow*` 命令退出码 0；`check_window_system_bindings.py` 两份日志都 0；`check_gpu_timing.py`、`check_bindable_audit.py`、`check_bindings.py`、`verify_readme.py` 退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`。
+判定：CoreTests 退出码 0 且 `PASSED` 21 行；两份 report 里 12 条 `status` 全为 `pass`；两条 `TestGPUTiming` 与两条 `TestCSharpWindow*` 命令退出码 0；`check_window_system_bindings.py` 两份日志都 0；`check_gpu_timing.py`、`check_bindable_audit.py`、`check_bindings.py`、`verify_readme.py` 退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`。
 
 ## C# 脚本层与 `--show-window-seconds`
 

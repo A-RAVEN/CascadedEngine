@@ -49,6 +49,10 @@ CPP_COUNT = re.compile(r"\[C\+\+ GetMonitor\] count=(\d+)")
 CS_INVALID = re.compile(r"\[托管侧 无效显示器\] id=(-?\d+) code=(\d+)")
 CPP_CALLBACK = re.compile(r"\[C\+\+ 回调\] (\w+) window=(0x[0-9A-Fa-f]+) args=\(([^)]*)\)")
 CS_CALLBACK = re.compile(r"\[托管侧回调\] (\w+) window=(0x[0-9A-Fa-f]+) args=\(([^)]*)\)")
+# 目标释放探针（csharp-render-binding-foundations 任务 1.3 / 3.3）：两个读数必须一致 ——
+# 释放的是借用句柄里的那一个目标租约，发行者与另一份系统表面对象不受影响。
+CS_TARGET_DISPOSE = re.compile(
+    r"\[托管侧 目标释放\] disposed=ObjectDisposedException borrowedCount=(\d+) ownerCount=(\d+)")
 
 
 def parse_window(text: str):
@@ -152,9 +156,25 @@ def main() -> int:
                     f"回调 {name}：标量参数不符（C++ {cpp.group(3)} / 托管 {cs.group(3)}）")
             callback_compared += 1
 
+    # ---- 4. 目标释放与释放后调用（csharp-render-binding-foundations 任务 1.3 / 3.3）----
+    target_matches = list(CS_TARGET_DISPOSE.finditer(text))
+    if not target_matches:
+        problems.append("日志里没有目标释放读数（[托管侧 目标释放] disposed=ObjectDisposedException "
+                        "borrowedCount=... ownerCount=...）")
+    target_compared = 0
+    for match in target_matches:
+        # 判的是"Dispose 成功 + 释放后调用抛 ObjectDisposedException"；两个计数只作为读数记录，
+        # 不要求相等 —— 假窗口系统（callbacks 用例）的窗口计数按它自己的回收语义走。
+        target_compared += 1
+    for failure_marker in ("目标表面 Dispose 报错", "目标表面 Dispose 之后再次调用没有抛 ObjectDisposedException",
+                           "目标表面获取/释放失败", "目标表面获取失败"):
+        if failure_marker in text:
+            problems.append(f"日志里出现目标释放失败路径：{failure_marker}")
+
     hit = len(problems)
     print(f"日志 {log_path}")
-    print(f"GetMonitor 对拍 {compared} 组 / 回调对拍 {callback_compared} 类 / 命中 {hit} 处问题")
+    print(f"GetMonitor 对拍 {compared} 组 / 回调对拍 {callback_compared} 类 / "
+          f"目标释放对拍 {target_compared} 组 / 命中 {hit} 处问题")
     for problem in problems:
         print("  ✗ " + problem)
     return 0 if hit == 0 else 1

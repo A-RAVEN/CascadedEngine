@@ -70,6 +70,8 @@ bool RunBindingsWeakHandleTest();
 bool RunBindingsLayoutTest();
 bool RunBindingsNestedLayoutTest();
 bool RunBindingsCallbackTest();
+bool RunBindingsCrossInterfaceTest();
+bool RunBindingsRenderFoundationTest();
 bool RunWindowBindingsCompileTest();
 
 
@@ -163,6 +165,30 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("Bindings GetApi test PASSED");
+	}
+
+	// 跨头文件资源 / 发行接口：发行者与目标两类入口、shared_ptr 入参重建、弱/借用返回与见证
+	// （csharp-render-binding-foundations 任务 1.2）
+	if (!RunBindingsCrossInterfaceTest())
+	{
+		std::puts("Bindings cross interface test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings cross interface test PASSED");
+	}
+
+	// 渲染基础形状：记录 / 枚举 / 标志位 / 包装值 / 字节混合参数的原生行为 + 生成期拒绝
+	// （csharp-render-binding-foundations 任务 1.3）
+	if (!RunBindingsRenderFoundationTest())
+	{
+		std::puts("Bindings render foundation test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings render foundation test PASSED");
 	}
 
 	if (!RunTypeRegistryTest())

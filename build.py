@@ -74,6 +74,10 @@ CODEGEN_ANNOTATED = [
     # 8.7 的 TResource 对拍夹具：这个头 include `CAResource/IResource.h`，所以它依赖 CoreTests 那条
     # `CAGeneralReourceSystem_Interface`（给 Test/CoreTests 的环境带来 `GeneralResources/header`）。
     ("Tools/CodeGen/TestResource.h", "NewRes", "Test/CoreTests"),
+    # csharp-render-binding-foundations 任务 1.1：`HashObj<T>` 的正向夹具。`RenderHashable`
+    # 带 `CA_REFLECT(serializable)`，消费头 `BindableShapes.RenderFoundation.h` include 生成的
+    # `RenderHashable.codegen.h`（显式哈希来源必须在消费翻译单元里可见）。
+    ("Tools/CodeGen/BindableShapes.RenderTypes.h", "RenderHashable", "Test/CoreTests"),
     # The container fixture, consumed by a real engine target
     # (Interface/RenderInterface/private/TestContainerAssertions.cpp).
     ("Interface/RenderInterface/private/TestContainer.h", "Containers", "Interface/RenderInterface"),
@@ -1033,11 +1037,55 @@ CODEGEN_BINDINGS = [
     # `#include` 它们，构建时不生成就会 C1083（实测过一次：只生成 IWindow，夹具产物被我删掉后构建红）。
     ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow", ["IWindow", "IWindowSystem"]),
     ("Tools/CodeGen/BindableShapes.h", "夹具 BindableShapes", ["IBindRow01", "IBindRow02", "IBindRow09"]),
+    # csharp-render-binding-foundations 任务 1.1：渲染基础形状夹具（记录 / 枚举 / 标志位 /
+    # 包装值 / 字节 / 混合参数）。共享值类型 `RenderDesc` 等由同一次生成按类型另发
+    # `<类型>.Bindings.cs`，它们没有接口产物，所以不列在这里（期望前缀只查接口产物）。
+    ("Tools/CodeGen/BindableShapes.RenderFoundation.h", "夹具 RenderFoundation", ["IBindFoundation"]),
+    # csharp-render-binding-foundations 任务 1.2：资源接口与发行接口分两个头生成。
+    # 发行头 include 资源头，所以资源接口在发行运行里只是"被包含头里的 CA_BIND"——
+    # 完整限定名清单（任务 3.1）必须把两边聚合起来，不能只看主头。
+    ("Tools/CodeGen/BindableShapes.RenderResource.h", "夹具 RenderResource",
+     ["IBindRenderResource", "IBindRenderResourceAlt"]),
+    ("Tools/CodeGen/BindableShapes.RenderOwner.h", "夹具 RenderOwner", ["IBindRenderOwner"]),
 ]
 
 
+def _binding_includes(entries: list[dict], header: str) -> list[str]:
+    """该头所属模块的一个编译单元里的 `-I`（与 codegen 的取法一致）。
+
+    夹具这种没有自己 TU 的头退到 CoreTests 的编译单元（它带了 CASTL 与 sha256 那些第三方
+    include）。**不要**把所有 TU 的 -I 并起来 —— 命令行会超长，libclang 静默少收 include。
+    """
+    header_path = Path(header)
+    module = header_path.parts[0]
+    env = next((e for e in entries if module in Path(e["file"]).parts), None)
+    if env is None:
+        env = next((e for e in entries if Path(e["file"]).as_posix().startswith("Test/CoreTests/")),
+                   None)
+    if env is None:
+        env = next((e for e in entries
+                    if Path(e["file"]).name == "BindingsGetApiTest.cpp"), None)
+    dirs = _include_dirs(env["command"].split()) if env else []
+    seen_dirs: set[str] = set()
+    includes = []
+    for d in dirs:
+        if d in seen_dirs:
+            continue
+        seen_dirs.add(d)
+        includes.append(f"-I{str(Path(d)).replace(chr(92), '/')}")
+    includes += ["-ICACore/header", "-ITools/CodeGen/clang_shim"]
+    return includes
+
+
 def build_bindings() -> list[str]:
-    """跑绑定发射器。返回失败列表（空 = 全绿）。"""
+    """跑绑定发射器。返回失败列表（空 = 全绿）。
+
+    流程（csharp-render-binding-foundations 任务 3.1）：
+      ① 对每个生成输入跑 `--list-bind-interfaces`，汇总 `<短名>=<完整限定名>`；
+      ② 同短名不同完整限定名 = 构建失败并点名双方；
+      ③ 把汇总清单以重复的 `--known-interface` 传给正式 `--emit-binding`。
+    期望产物前缀只用于产物存在性检查，不再兼任接口清单。
+    """
     if not CODEGEN_BINDINGS:
         return []
     tool = BUILD_DIR / "bin" / "CodeGen.exe"
@@ -1052,33 +1100,40 @@ def build_bindings() -> list[str]:
     repo_root = Path(__file__).resolve().parent
     script = repo_root / "Tools" / "CodeGen" / "check_bindable_audit.py"
     failures: list[str] = []
-    for header, name, expected in CODEGEN_BINDINGS:
-        header_path = Path(header)
-        # 该头所属模块的一个编译单元：用它那条命令里的 -I，和 codegen 的取法一致
-        module = header_path.parts[0]
-        # 先找"同一个模块"的编译单元；夹具这种放在 Tools/ 下的头没有自己的 TU，退到 CoreTests 的
-        # 编译单元（它带了 CASTL 与 sha256 那些第三方 include，实测缺了就解析失败 exit 3）
-        env = next((e for e in entries if module in Path(e["file"]).parts), None)
-        if env is None:
-            env = next((e for e in entries if Path(e["file"]).as_posix().startswith("Test/CoreTests/")),
-                       None)
-        if env is None:
-            # 夹具这种没有自己 TU 的头：**借一个已经能编它的 TU**（BindingsGetApiTest 就是 include 夹具
-            # 产物的那个）。不要把所有 TU 的 -I 并起来 —— 命令行会超长，libclang 静默少收 include，
-            # 报的是莫名其妙的 `sha256.h not found`。
-            env = next((e for e in entries
-                        if Path(e["file"]).name == "BindingsGetApiTest.cpp"), None)
-        dirs = _include_dirs(env["command"].split()) if env else []
-        seen_dirs: set[str] = set()
-        includes = []
-        for d in dirs:
-            if d in seen_dirs:
+    includes_by_header = {header: _binding_includes(entries, header)
+                          for header, _name, _expected in CODEGEN_BINDINGS}
+
+    known: dict[str, str] = {}
+    for header, name, _expected in CODEGEN_BINDINGS:
+        cmd = [str(tool), header, "--list-bind-interfaces"] + includes_by_header[header] + ["-xc++"]
+        proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            failures.append(f"绑定清单 {name} 失败（exit {proc.returncode}）：{detail[:800]}")
+            continue
+        listed = 0
+        for line in (proc.stdout or "").splitlines():
+            text = line.strip()
+            if "=" not in text:
                 continue
-            seen_dirs.add(d)
-            includes.append(f"-I{str(Path(d)).replace(chr(92), '/')}")
-        includes += ["-ICACore/header", "-ITools/CodeGen/clang_shim"]
+            short_name, qualified = text.split("=", 1)
+            listed += 1
+            previous = known.get(short_name)
+            if previous is not None and previous != qualified:
+                failures.append(
+                    f"绑定清单冲突：短名 {short_name} 同时对应 {previous} 与 {qualified}"
+                    f"（来自 {header}）")
+                continue
+            known[short_name] = qualified
+        print(f"  [绑定清单] {name} ← {header}：{listed} 个接口", flush=True)
+    known_args = [f"--known-interface={short}={qualified}" for short, qualified in sorted(known.items())]
+
+    shared_types: dict[str, tuple[str, str]] = {}  # 短名 -> (完整限定名, 文件内容哈希)
+    for header, name, expected in CODEGEN_BINDINGS:
+        includes = includes_by_header[header]
         cmd = [str(tool), header, "--emit-binding", "--out-dir", str(out_dir),
-               "--audit-script", str(script)] + includes + ["-xc++"]
+               "--audit-script", str(script)] + known_args + includes + ["-xc++"]
         print(f"  [绑定] {name} ← {header}", flush=True)
         proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True,
                               encoding="utf-8", errors="replace")
@@ -1086,6 +1141,33 @@ def build_bindings() -> list[str]:
             detail = (proc.stderr or proc.stdout or "").strip()
             failures.append(f"绑定 {name} 失败（exit {proc.returncode}）：{detail[:800]}")
             continue
+        # 共享公开值类型（任务 2.3）：生成器逐行报告 `[共享类型] <短名>=<完整限定名>`；
+        # 同名文件内容必须逐字节相同，同短名不同限定名必须失败。
+        for line in (proc.stderr or "").splitlines():
+            marker = "[共享类型] "
+            if marker not in line:
+                continue
+            entry = line.split(marker, 1)[1].strip()
+            if "=" not in entry:
+                continue
+            short_name, qualified = entry.split("=", 1)
+            path = out_dir / f"{short_name}.Bindings.cs"
+            if not path.is_file():
+                failures.append(f"共享值类型 {short_name}={qualified} 声明了，但没有产出 "
+                                f"{path.name}")
+                continue
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            previous = shared_types.get(short_name)
+            if previous is not None and previous[0] != qualified:
+                failures.append(
+                    f"共享值类型冲突：短名 {short_name} 同时对应 {previous[0]} 与 {qualified}")
+                continue
+            if previous is not None and previous[1] != digest:
+                failures.append(
+                    f"共享值类型内容不一致：{short_name}={qualified} 两次生成的内容哈希不同"
+                    f"（{previous[1][:12]} / {digest[:12]}）")
+                continue
+            shared_types[short_name] = (qualified, digest)
         # 逐条核：期望清单里**每一个**接口都必须有产物。
         # 旧写法先过滤掉不存在的、再判断"过滤后是否为空"，只要有一个存在就放行 ——
         # `IWindowSystem` 没产出时构建照样绿（实测过一次）。

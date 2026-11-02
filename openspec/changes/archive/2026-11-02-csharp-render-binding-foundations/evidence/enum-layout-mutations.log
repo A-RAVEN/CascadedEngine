@@ -1,0 +1,35 @@
+﻿=== 2.2 记录字段的窄枚举 / EnumFlags 按 int32_t 镜像：红态 ===
+命令：python build.py --config Debug
+退出码：1
+
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindFoundation.Bindings.cpp(35): error C2338: static assertion failed: '镜像结构体与清单不一致：RenderDescC 的大小'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindFoundation.Bindings.cpp(39): error C2338: static assertion failed: '布局清单与 C++ 侧不一致：RenderDescC.flags 的偏移'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindFoundation.Bindings.cpp(40): error C2338: static assertion failed: '布局清单与 C++ 侧不一致：RenderDescC.weight 的偏移'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindFoundation.Bindings.cpp(98): error C2338: static assertion failed: '镜像结构体与清单不一致：RenderNestedC 的大小'
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindFoundation.Bindings.cpp(100): error C2338: static assertion failed: '布局清单与 C++ 侧不一致：RenderNestedC.scale 的偏移'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsRenderFoundationTest.cpp(27): error C2338: static assertion failed: '记录字段里的普通枚举必须按真实底层类型 uint16_t 镜像'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsRenderFoundationTest.cpp(29): error C2338: static assertion failed: '记录字段里的 EnumFlags 必须按 MaskType 镜像'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsRenderFoundationTest.cpp(33): error C2338: static assertion failed: 'RenderDescC 的大小必须与 C++ 记录一致'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsRenderFoundationTest.cpp(37): error C2338: static assertion failed: 'RenderDescC.flags 偏移'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsRenderFoundationTest.cpp(38): error C2338: static assertion failed: 'RenderDescC.weight 偏移'
+E:\Projects\CascadedEngine\Test\CoreTests\BindingsRenderFoundationTest.cpp(39): error C2338: static assertion failed: 'RenderNestedC 的大小必须与 C++ 记录一致'
+
+=== 2.2 恢复后绿态 ===
+命令：python build.py --config Debug
+退出码：0
+
+不符数 0
+共享值类型问题 0 处
+渲染基础表面问题 0 处
+BUILD SUCCESSFUL
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码：0
+Window bindings compile test PASSED
+Bindings layout manifest test PASSED
+Bindings nested layout test PASSED
+Bindings callback test PASSED
+Bindings weak handle test PASSED
+Bindings handle table test PASSED
+Bindings GetApi test PASSED
+Bindings cross interface test PASSED
+Bindings render foundation test PASSED

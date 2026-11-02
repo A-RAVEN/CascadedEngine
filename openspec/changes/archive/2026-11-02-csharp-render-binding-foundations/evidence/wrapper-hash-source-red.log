@@ -1,0 +1,31 @@
+﻿=== 2.4 取消缺哈希来源的生成期拒绝：红态 ===
+命令：python build.py --config Debug
+退出码：0
+
+
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码：1
+
+Window bindings compile test PASSED
+Bindings layout manifest test PASSED
+Bindings nested layout test PASSED
+Bindings callback test PASSED
+Bindings weak handle test PASSED
+Bindings handle table test PASSED
+Bindings GetApi test PASSED
+Bindings cross interface test PASSED
+[拒绝夹具] BindableShapes.RenderRejectNoHashSource.h：生成器退出码 0（应当非零），输出：
+Bindings render foundation test FAILED
+CodeGen TypeRegistry test PASSED
+CodeGen serialization roundtrip PASSED
+BUILD SUCCESSFUL
+
+=== 2.4 恢复后绿态 ===
+命令：python build.py --config Debug
+退出码：0
+BUILD SUCCESSFUL
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码：0
+CodeGen private-member friend entry PASSED
+CodeGen TResource batch roundtrip PASSED
+CodeGen ShaderLibrary (D3D12) bytes PASSED

@@ -1,0 +1,27 @@
+﻿=== 2.3 同短名不同限定名的共享值类型：构建期红态 ===
+命令：python build.py --config Debug
+退出码：1
+
+[绑定] 产物：IOtherRenderDesc
+共享值类型 RenderDesc：缺少逐字内容 `[MarshalAs(UnmanagedType.I1)]`
+共享值类型 RenderDesc：缺少逐字内容 `public bool visible;`
+共享值类型 RenderDesc：缺少逐字内容 `public uint id;`
+共享值类型 RenderDesc：缺少逐字内容 `public ERenderMode mode;`
+共享值类型 RenderDesc：缺少逐字内容 `public ERenderFlag flags;`
+共享值类型 RenderDesc：缺少逐字内容 `public ushort weight;`
+共享值类型 RenderDesc：`[MarshalAs(UnmanagedType.I1)]` 没有按登记顺序出现（字段/常量顺序错了）
+CODEGEN FAILED (2) — the generated headers are not in the state this build expects
+- 共享值类型冲突：短名 RenderDesc 同时对应 ca_bind_fixture::RenderDesc 与 other::RenderDesc
+
+=== 2.3 恢复（删除临时夹具、恢复 build.py）后绿态 ===
+命令：python build.py --config Debug
+退出码：1
+CODEGEN FAILED (1) — the generated headers are not in the state this build expects
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+（清理临时夹具遗留的 IOtherRenderDesc 产物后重跑）
+退出码：0
+BUILD SUCCESSFUL
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+夹具识别问题 0 处

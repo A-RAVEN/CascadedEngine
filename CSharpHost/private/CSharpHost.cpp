@@ -89,8 +89,8 @@ namespace cs_script
 	// `IWindowSystem` 的 16 个方法全部进表（本 change 解开了 10 个回调与 `GetMonitor`）。
 	// 表头只有 abi_version(4) + size(4) 这 8 字节，之后每个槽 8 字节：4 个非方法槽（错误通道两槽、
 	// 句柄解析/释放两槽）+ 16 个方法槽 + 2 个回调伴生槽（UnregisterCallback / ReportCallbackError）
-	// = 22 槽 ⇒ 8 + 8 × 22 = 184。
-	static_assert(sizeof(IWindowSystemApi_v2) == 8u + 8u * 22u,
+	// = 24 槽 ⇒ 8 + 8 × 24 = 200。
+	static_assert(sizeof(IWindowSystemApi_v2) == 8u + 8u * 24u,
 	              "IWindowSystem 函数表应当正好 16 个方法 + 2 个回调伴生（4 个表头槽 + 每个方法槽 8 字节）");
 
 

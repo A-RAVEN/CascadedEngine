@@ -61,7 +61,7 @@ bool RunBindingsHandleTest()
 		}
 		// 再登记一个弱句柄：断言两类能共存于同一张表（不抬高引用计数由 1.4 单独验）
 		std::shared_ptr<void> keep(&object, [](void*) {});
-		const uint64_t weakHandle = IBindRow09_registerWeakHandle(&object, std::weak_ptr<void>(keep));
+		const uint64_t weakHandle = IBindRow09_registerWeakHandle(&object, std::weak_ptr<void>(keep), "");
 		const std::size_t weakSlot = static_cast<std::size_t>((weakHandle & indexMask) - 1ull);
 		if (weakHandle == 0u || weakSlot >= IBindRow09_handles.size() ||
 			IBindRow09_handles[weakSlot].kind != 2u)

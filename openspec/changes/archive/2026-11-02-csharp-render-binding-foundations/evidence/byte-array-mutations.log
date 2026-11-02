@@ -1,0 +1,15 @@
+﻿=== 2.5 删除 byte[] 的 fixed 范围：红态 ===
+命令：python build.py --config Debug
+退出码：1
+
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindFoundation.Bindings.cs(327,72): error CS0103: 当前上下文中不存在名称“dataPtr” [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\IBindFoundation.Bindings.cs(327,72): error CS0103: 当前上下文中不存在名称“dataPtr” [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+托管侧构建失败：dotnet build 失败，退出码 1
+
+=== 2.5 恢复后绿态 ===
+命令：python build.py --config Debug
+退出码：0
+BUILD SUCCESSFUL
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码：0
+Bindings render foundation test PASSED
