@@ -1,8 +1,8 @@
 # 006 · 渲染后端 C# binding
 
-> **状态**：探索中（未达 OpenSpec proposal 水位）
+> **状态**：已升级到 `openspec/changes/csharp-render-backend-triangle/`
 > **日期**：2026-11-01
-> **关联**：`docs/ROADMAP.md`、`TODO/001-csharp-scripting-framework.md`、`TODO/005-web-editor.md`、`Interface/RenderInterface/header/CRenderBackend.h`
+> **关联**：`openspec/changes/csharp-render-backend-triangle/`、`docs/ROADMAP.md`、`TODO/001-csharp-scripting-framework.md`、`TODO/005-web-editor.md`、`Interface/RenderInterface/header/CRenderBackend.h`
 > **性质**：设计笔记，不是 OpenSpec 规格，也不构成开工授权。
 
 ## 1. 背景与目标

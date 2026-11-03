@@ -58,7 +58,7 @@
 | **001** | C# 运行时设计细节 + 运行时"内部面顺序" | 做 Phase 2-6 时 |
 | **002** | 反射 CodeGen 化设计 | 做 Phase 1 反射部分时 |
 | **003** | 哈希 + 相等设计 | 做 Phase 1 哈希部分时 |
-| **006** | [渲染后端 C# binding](006-csharp-render-backend-binding.md)：资源与图句柄、最小三角形纵向切片与未决问题 | 推进渲染后端 C# 方向前；优先于 005 |
+| **006** | [渲染后端 C# binding](006-csharp-render-backend-binding.md)：已升级到 `csharp-render-backend-triangle`；原笔记保留决策背景 | 推进渲染后端 C# 方向前；优先于 005 |
 | **005** | [网页界面与 C# 编辑器服务](005-web-editor.md)：架构、通信、线程边界、首个纵向切片与未决问题 | 推进网页编辑器方向前 |
 
 ## 两个"顺序"别混

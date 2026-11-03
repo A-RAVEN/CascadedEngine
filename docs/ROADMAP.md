@@ -67,13 +67,13 @@
 
 ## 三、通往产品目标的后续阶段
 
-以下阶段均为方向。阶段 4 的第一个 change 已归档，其余内容（含第二个 change）**尚未立 OpenSpec change**。编号表达目标依赖，不代表已批准的任务清单，也不要求所有工作严格串行。
+以下阶段均为方向。阶段 4 的第一个 change 已归档，第二个 change 已建立为 `csharp-render-backend-triangle`，其余内容**尚未立 OpenSpec change**。编号表达目标依赖，不代表已批准的任务清单，也不要求所有工作严格串行。
 
 ### 阶段 4：C# 渲染闭环（下一阶段）
 
 目标：以现有 GPUGraph 为底层执行接口，让 C# 能创建所需资源、设置着色器参数、构建并提交图，再由 C++ 完成原生执行、同步与呈现。相机、材质、灯光等高级概念优先在 C# 引擎框架中组织，不在首版另建一套 C++ 高层对象体系。
 
-建议按两个先后衔接的 change 推进；第一个已归档到 `openspec/changes/archive/2026-11-02-csharp-render-binding-foundations/`（16/16，2026-11-02），第二个 C# 简单三角形纵向切片尚未立项：
+建议按两个先后衔接的 change 推进；第一个已归档到 `openspec/changes/archive/2026-11-02-csharp-render-binding-foundations/`（16/16，2026-11-02），第二个已建立为 `openspec/changes/csharp-render-backend-triangle/`（工件已创建，尚未授权实施）：
 
 | 顺序 | change 方向 | 阶段结果 |
 |---|---|---|
