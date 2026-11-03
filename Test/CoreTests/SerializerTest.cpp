@@ -72,6 +72,9 @@ bool RunBindingsNestedLayoutTest();
 bool RunBindingsCallbackTest();
 bool RunBindingsCrossInterfaceTest();
 bool RunBindingsRenderFoundationTest();
+// 脚本窄渲染适配面的原生图结构 / 字节复制 / 拒绝路径 / 提交生命周期
+// （csharp-render-backend-triangle 任务 1.1 / 2.1 / 2.2）。
+bool RunScriptRenderBridgeTest();
 bool RunWindowBindingsCompileTest();
 
 
@@ -189,6 +192,18 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("Bindings render foundation test PASSED");
+	}
+
+	// 脚本窄渲染适配面：真实 GPUGraph 的字节 / 属性 / 绘制 / 清除色 / 呈现清单 / 等待与待完成集合，
+	// 以及错误类型句柄与已释放句柄在进入实现之前被挡下（本 change 任务 1.1 / 2.1 / 2.2）
+	if (!RunScriptRenderBridgeTest())
+	{
+		std::puts("Script render bridge test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Script render bridge test PASSED");
 	}
 
 	if (!RunTypeRegistryTest())

@@ -1,0 +1,18 @@
+=== 命令：out\build\x64-debug\bin\CoreTests.exe（2026-11-03，Debug 构建；退出码 0）===
+=== 下面每行是该次运行的真实 stdout（拒绝路径逐项：非零状态 / 错误文本点名参数 / pass 数不涨 / 后端调用 0）===
+  [字节复制] 上传区 72 字节 / 输入 72 字节 / 改输入后逐字节一致=1
+  [拒绝] 参数=data           status=1 点名=1 文本=IScriptRenderGraph.data：字节数组长度与描述里的 SizeInByte 不一致 pass=1 execCalls=0
+  [拒绝] 参数=name           status=1 点名=1 文本=IScriptRenderGraph.name：同一张图里缓冲名称必须唯一 pass=1 execCalls=0
+  [拒绝] 参数=positionOffset status=1 点名=1 文本=IScriptRenderGraph.positionOffset：position 属性越过步长（offset + 12 > stride） pass=1 execCalls=0
+  [拒绝] 参数=colorOffset    status=1 点名=1 文本=IScriptRenderGraph.colorOffset：color 属性越过步长（offset + 12 > stride） pass=1 execCalls=0
+  [拒绝] 参数=streamName     status=1 点名=1 文本=IScriptRenderGraph.streamName：顶点流没有登记过 pass=1 execCalls=0
+  [拒绝] 参数=bufferName     status=1 点名=1 文本=IScriptRenderGraph.bufferName：缓冲没有登记过 pass=1 execCalls=0
+  [拒绝] 参数=vertexCount    status=1 点名=1 文本=IScriptRenderGraph.vertexCount：绘制顶点数必须非零 pass=1 execCalls=0
+  [拒绝] 参数=vertexCount    status=1 点名=1 文本=IScriptRenderGraph.vertexCount：绘制顶点数超过缓冲描述的元素数 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：渲染目标不能为空 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：Present 只接受后台缓冲目标 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：渲染目标不能为空 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：渲染目标不能为空 pass=1 execCalls=0
+  [图结构] pass=1 属性=2 步长=24 绘制=3 清除色=(0.0,1.0,0.0,1.0) 呈现=1
+  [错误通道] 成功调用后 GetLastError 长度=0
+Script render bridge test PASSED

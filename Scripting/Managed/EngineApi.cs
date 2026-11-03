@@ -32,5 +32,10 @@ namespace Scripting.Managed
         public delegate* unmanaged<uint, uint, byte*, uint, ulong*, uint*, uint> GetBindingLayoutType;
         // 读"某类型的第 fieldIndex 个字段"：名字、C 镜像类型名、真实偏移；返回 1 = 读到了。
         public delegate* unmanaged<uint, uint, uint, byte*, uint, byte*, uint, ulong*, uint> GetBindingLayoutField;
+        // --- v6 追加（csharp-render-backend-triangle 任务 3.1）：脚本渲染适配面三张表 ---
+        // 编号同样由引擎侧单向下发；后端表有默认实例，图与目标表属于目标类型表（没有默认实例）。
+        public uint ScriptRenderBackendInterfaceId;
+        public uint ScriptRenderGraphInterfaceId;
+        public uint ScriptRenderTargetInterfaceId;
     }
 }

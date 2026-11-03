@@ -1,0 +1,36 @@
+=== csharp-render-backend-triangle 任务 3.2：C# 真实渲染探针与四个自检模式 ===
+时间 2026-11-03；工作目录 E:\Projects\CascadedEngine；Debug 构建（托管侧由 build.py 的 dotnet 段编译）。
+
+--- 托管编译与启动 ---
+python build.py --config Debug → exit=0，BUILD SUCCESSFUL；[托管侧] 已拷到 out\build\x64-debug\bin：Scripting.Managed.dll。
+启动路径（TestCSharpTriangle 单测日志 test_output/TestCSharpTriangle.log，逐行真实输出）：
+  [托管侧] Tick #1：dt = 0.016 秒
+  [托管侧] [托管侧 渲染] 三个函数表已绑定（后端实例 1730287184880）
+  [托管侧] [脚本] OnEngineReady 调用 #1
+  [托管侧] [脚本 渲染] OnRenderProbe 调用 #1：mode=skip-wait passCount=2 submitStatus=0 skipPresent=False skipWait=True
+（日志文件是 UTF-8；上面按控制台读取时的编码逐字转写。单测证据只覆盖“探针能跑、四种自检会红”，全量顺序结论留空。）
+Host.Boot 的布局清单与公开值检查必须全部通过才会走到 Tick；本次正常像素运行 exit=0 即为该前置检查通过的证据。
+
+--- 正常探针的实际调用链（主代理 d3d12/vulkan normal 实测读数）---
+size=320x240、wait=0→1、pending=0、presents=1、bg=(0,255,0,255)、center=(255,0,0,255)；OnRenderProbe #1、passCount=2、submitStatus=0。
+→ AddBuffer（72 字节 / 3 顶点 × 24 步长）、SetPositionColorStream（0 / 12）、两次同逻辑 AddTrianglePass（窗口 + 离屏）、Present（呈现清单 1 项）、SubmitGraph（0）、WaitIdle（计数 +1）。
+
+--- 四种 Debug 自检（两个后端各跑一次，报告来自任务 4.1 的十连跑）---
+skip-draw   : status=fail，E_TRIANGLE_DRAW：图 pass 数 0（正常模式 2）
+bad-vertex  : status=fail，E_TRIANGLE_PIXEL：中心按预期不再是纯红
+skip-present: status=fail，E_TRIANGLE_PRESENT：真实呈现清单 0 项
+skip-wait   : status=fail，E_TRIANGLE_WAIT：WaitIdle 计数 0→0、待完成 1
+同一份报告里 d3d12 与 vulkan 逐项一致；十份 json 与 stdout 在 test_output/。
+
+--- 未启用探针不创建 GPU 工作 ---
+Host 只在 `CASCADED_CSHARP_RENDER_PROBE=1`（由 TestCSharpTriangle 在 Tick 前设置、Tick 后清理）时调用 OnRenderProbe。全量回归实测（两个后端各一份，日志为 clear_test_logs 之后重跑的副本）：
+  test_output/TestScriptHost_fullsuite_vulkan.log / _d3d12.log：`[托管侧] [脚本] OnEngineReady 调用 #1`，**无 OnRenderProbe 行**；
+  test_output/TestCSharpWindow_fullsuite_vulkan.log / _d3d12.log：**无 OnRenderProbe / OnEngineReady 行**（该测试不调用用户脚本）。
+即：未启用探针的既有测试没有创建离屏目标 / 建图 / 提交。
+
+--- 全量运行中先前 OnEngineReady 不消耗本次探针（实测）---
+探针使用独立的 s_renderProbeCalled 与 RenderProbeCount。主代理的最终全量运行（先 TestScriptHost、TestCSharpWindow，后 TestCSharpTriangle）留下：
+  test_output/TestCSharpTriangle_fullsuite_vulkan.log → `[托管侧] [脚本 渲染] OnRenderProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipPresent=False skipWait=False`
+  test_output/TestCSharpTriangle_fullsuite_d3d12.log  → 同上
+  test_output/TestCSharpTriangle_fullsuite.log         → 同上（D3D12 的最后一次副本）
+结论：先前的 TestScriptHost 已消耗一次性 OnEngineReady #1，随后 TestCSharpTriangle 的独立探针仍执行一次，且两条读数分别落在各自测试的日志里（没有落入先前日志）。

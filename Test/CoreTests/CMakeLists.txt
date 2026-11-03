@@ -22,6 +22,16 @@ target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
 # 落在哪：夹具的头在 Tools/CodeGen 下，但消费它的编译单元在这个模块里，所以产物跟着这个模块走 ——
 # 出仓之后它在构建目录的 `codegen/Test_CoreTests/`，源码树里没有 `generated/` 了。
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/Tools/CodeGen ${CMAKE_BINARY_DIR}/codegen/Test_CoreTests ${CMAKE_BINARY_DIR}/codegen/bindings ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/private ${CMAKE_BINARY_DIR}/codegen/Interface_RenderInterface ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/header)
+# 脚本窄渲染适配面的原生实现（csharp-render-backend-triangle 任务 1.1）：CoreTests 链接产品实现
+# 的独立静态库（`ScriptRenderBridge`），这样原生判据跑的是产品代码，且同一个 .cpp 不会被两个目标
+# 各编一次（两套宏会让 build.py 的生成环境选择拒绝）。它 include 的 `CRenderBackend.h` 链需要下面
+# 这几个接口目录。
+target_link_libraries(${PROJECT_NAME} PRIVATE ScriptRenderBridge)
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_SOURCE_DIR}/Interface/IOManager/header
+    ${CMAKE_SOURCE_DIR}/ThreadManager/header
+    ${CMAKE_SOURCE_DIR}/TimerSystem/header
+    ${CMAKE_SOURCE_DIR}/GeneralResources/header)
 
 # 非法嵌套用例要起一次 `CodeGen.exe` 证明"生成期拒绝"（任务 1.1）：夹具头与审计脚本按源码根定位，
 # 工具与 libclang.dll 按 CoreTests 自己的可执行文件目录定位（构建产物里两者是邻居）。

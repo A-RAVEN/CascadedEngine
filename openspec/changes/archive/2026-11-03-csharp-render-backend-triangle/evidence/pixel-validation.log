@@ -1,0 +1,47 @@
+=== csharp-render-backend-triangle 任务 4.1：双后端正常与四种负向像素验收 ===
+时间 2026-11-03；工作目录 E:\Projects\CascadedEngine；Debug 构建。
+执行方式：主代理运行 %TEMP%\dsh_run_csharp_triangle_pixels.ps1（逐项 GPUBackendTester.exe --backend <b> --test TestCSharpTriangle --headless 10 --report test_output\csharp_triangle_<b>_<mode>.json），批任务退出码 0。
+
+--- 十份报告逐项读数（字段来自各 json；exit_code 是测试进程退出码）---
+d3d12   normal        exit=0 status=pass error=
+d3d12   skip-draw     exit=1 status=fail error=E_TRIANGLE_DRAW: skip-draw：图 pass 数 0（正常模式 2），按预期失败
+d3d12   bad-vertex    exit=1 status=fail error=E_TRIANGLE_PIXEL: bad-vertex：中心按预期不再是纯红
+d3d12   skip-present  exit=1 status=fail error=E_TRIANGLE_PRESENT: skip-present：真实呈现清单 0 项（负向模式期望 0；呈现确实被省略）
+d3d12   skip-wait     exit=1 status=fail error=E_TRIANGLE_WAIT: skip-wait：适配器 WaitIdle 计数 0 → 0、待完成 1（期望 0 次、非空待完成）
+vulkan  normal        exit=0 status=pass error=
+vulkan  skip-draw     exit=1 status=fail error=E_TRIANGLE_DRAW: skip-draw：图 pass 数 0（正常模式 2），按预期失败
+vulkan  bad-vertex    exit=1 status=fail error=E_TRIANGLE_PIXEL: bad-vertex：中心按预期不再是纯红
+vulkan  skip-present  exit=1 status=fail error=E_TRIANGLE_PRESENT: skip-present：真实呈现清单 0 项（负向模式期望 0；呈现确实被省略）
+vulkan  skip-wait     exit=1 status=fail error=E_TRIANGLE_WAIT: skip-wait：适配器 WaitIdle 计数 0 → 0、待完成 1（期望 0 次、非空待完成）
+
+--- 正常模式的同次读数（主代理手工运行；PNG 与报告保留）---
+d3d12 normal: size=320x240 wait=0→1 pending=0 presents=1 bg=(0,255,0,255) center=(255,0,0,255)；OnRenderProbe #1、passCount=2、submitStatus=0
+vulkan normal: 与 d3d12 逐项相同
+
+--- 正常 PNG 逐像素复核（Pillow 解码）---
+命令：python -c "from PIL import Image; import sys; [print(name, Image.open(name).size, Image.open(name).getpixel((1,1)), Image.open(name).getpixel((160,120))) for name in [r'test_output/TestCSharpTriangle_d3d12_normal.png', r'test_output/TestCSharpTriangle_vulkan_normal.png']]"
+test_output/TestCSharpTriangle_d3d12_normal.png (320, 240) (0, 255, 0, 255) (255, 0, 0, 255)
+test_output/TestCSharpTriangle_vulkan_normal.png (320, 240) (0, 255, 0, 255) (255, 0, 0, 255)
+
+--- 负向模式的判据读数 ---
+skip-draw（两个后端）：E_TRIANGLE_DRAW；图 pass 数 0（正常模式 2）——调用层省略两次 AddTrianglePass，不是零面积三角形。
+bad-vertex（两个后端）：E_TRIANGLE_PIXEL；中心不再纯红。
+skip-present（两个后端）：E_TRIANGLE_PRESENT；真实呈现清单 0 项。
+skip-wait（两个后端）：E_TRIANGLE_WAIT；适配器 WaitIdle 计数 0→0、待完成 1。
+
+--- python Tools\check_csharp_triangle.py（本次重新执行，真实输出）---
+C# 三角形证据对账
+d3d12   normal        status=pass
+d3d12   skip-draw     status=fail code=E_TRIANGLE_DRAW
+d3d12   bad-vertex    status=fail code=E_TRIANGLE_PIXEL
+d3d12   skip-present  status=fail code=E_TRIANGLE_PRESENT
+d3d12   skip-wait     status=fail code=E_TRIANGLE_WAIT
+vulkan  normal        status=pass
+vulkan  skip-draw     status=fail code=E_TRIANGLE_DRAW
+vulkan  bad-vertex    status=fail code=E_TRIANGLE_PIXEL
+vulkan  skip-present  status=fail code=E_TRIANGLE_PRESENT
+vulkan  skip-wait     status=fail code=E_TRIANGLE_WAIT
+问题 0 处
+check_csharp_triangle exit=0
+
+证据文件：十份 json 与同名 .stdout.log 在 test_output/；PNG 为 test_output/TestCSharpTriangle_<backend>_<mode>.png。

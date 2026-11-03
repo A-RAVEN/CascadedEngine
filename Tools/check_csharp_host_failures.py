@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """C# 宿主的失败路径测试（docs/testing.md 的第 ③ 层：进程级）。
 
 五条场景，每条都断言"退出码 + 输出里的可核子串"：
@@ -6,9 +6,14 @@
   1. 缺托管程序集          → 退出码 3，输出含 Scripting.Managed.dll 与 找过的路径
   2. 配置路径不存在        → 退出码 3，输出含该路径与 hostfxr.dll
   3. 配置要的运行时版本没有 → 退出码 3，输出含 7.0.0 与 本机已装的运行时版本
-  4. 函数表 ABI 不符        → 退出码 3，输出含 ABI 版本不符：引擎 2（自检开关构造）
-  5. 托管方法抛异常        → 退出码 0，输出含 Tick 抛异常 与 实际 4（自检开关构造）
+  4. 函数表 ABI 不符        → 退出码 3，输出含 ABI 版本不符 与 托管侧期望 6（自检开关构造：
+                              引擎侧故意把当前 v6 加成 7，托管侧仍期望 6）
+  5. 托管方法抛异常        → 退出码 1（GPUBackendTester 对失败的当前操作按既有约定返回 1），
+                              输出含 Tick 抛异常 与 实际 4，且不产生新 crash_*.dmp（自检开关构造）
 
+为什么第 5 条期望 1 而不是 0：这一条验证的是"受控失败、进程不崩"——托管 Tick 抛异常必须让
+当前测试操作失败（tester 退出码 1），同时又必须保留错误码 4/异常文本且不产生崩溃转储。
+把受控失败要求成无条件退出 0 会让这条判据恒绿（csharp-render-backend-triangle 任务 5.1 / 6.8）。
 为什么在这一层：这些情形都是"一启动就失败"，进程里没有机会断言，只能从外面看退出码与输出。
 为什么用自检开关：第 4、5 条原本要临时改源码才能构造，改开关之后脚本可以反复跑、跑完不脏工作区。
 
@@ -132,20 +137,24 @@ def check_scenarios(binary: Path, bin_dir: Path) -> list[tuple[str, bool, str]]:
         record("运行时版本无匹配", ok, f"退出码 {code}（期望 3）；含 7.0.0 与版本清单："
                                       f"{'7.0.0' in text}/{'本机已装的运行时版本' in text}")
 
-        # 4. 函数表 ABI 不符（自检开关）
+        # 4. 函数表 ABI 不符（自检开关）：当前手写 ABI 已升到 v6（本 change 在 EngineApi 末尾追加
+        #    三个渲染接口编号）。自检把引擎侧改成 7，托管侧仍期望 6 —— 断言必须点名**当前** ABI 6，
+        #    不能再期待本 change 之前的版本 2。
         code, text = run_tester(binary, {"CASCADED_CSHARP_SELFTEST": "abi-mismatch"})
-        ok = code == 3 and "ABI 版本不符：引擎 2" in text
-        record("ABI 版本不符", ok, f"退出码 {code}（期望 3）；含 'ABI 版本不符：引擎 2'："
-                                  f"{'ABI 版本不符：引擎 2' in text}")
+        abi_named_current = "ABI 版本不符" in text and "托管侧期望 6" in text
+        ok = code == 3 and abi_named_current
+        record("ABI 版本不符", ok, f"退出码 {code}（期望 3）；含 ABI 版本不符 与 托管侧期望 6："
+                                  f"{abi_named_current}")
 
-        # 5. 托管方法抛异常（自检开关）：进程不崩、错误码 4 出现在输出里
+        # 5. 托管方法抛异常（自检开关）：受控失败 = tester 对失败的当前操作返回 1，但进程不崩、
+        #    错误码 4 与异常文本出现在输出里、不产生新崩溃转储。
         dumps_before = count_dumps()
         clear_test_logs()
         code, text = run_tester(binary, {"CASCADED_CSHARP_SELFTEST": "throw"})
         text += "\n" + collect_test_logs()
         new_dumps = count_dumps() - dumps_before
-        ok = code == 0 and "Tick 抛异常" in text and "实际 4" in text and new_dumps == 0
-        record("托管抛异常", ok, f"退出码 {code}（期望 0）；含异常文本与错误码 4："
+        ok = code == 1 and "Tick 抛异常" in text and "实际 4" in text and new_dumps == 0
+        record("托管抛异常", ok, f"退出码 {code}（期望 1 = 受控失败）；含异常文本与错误码 4："
                                 f"{'Tick 抛异常' in text}/{'实际 4' in text}；新 dump {new_dumps} 个")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

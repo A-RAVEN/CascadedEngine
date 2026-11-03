@@ -1,0 +1,25 @@
+=== 1) 宿主与脚本的渲染探针尚未实现：正常/负向报告都不存在 ===
+C# 三角形证据对账
+d3d12   normal        缺报告
+d3d12   skip-draw     缺报告
+d3d12   bad-vertex    缺报告
+d3d12   skip-present  缺报告
+d3d12   skip-wait     缺报告
+vulkan  normal        缺报告
+vulkan  skip-draw     缺报告
+vulkan  bad-vertex    缺报告
+vulkan  skip-present  缺报告
+vulkan  skip-wait     缺报告
+问题 10 处
+  ✗ 缺报告：test_output\csharp_triangle_d3d12_normal.json（后端 d3d12、模式 normal）
+  ✗ 缺报告：test_output\csharp_triangle_d3d12_skip-draw.json（后端 d3d12、模式 skip-draw）
+  ✗ 缺报告：test_output\csharp_triangle_d3d12_bad-vertex.json（后端 d3d12、模式 bad-vertex）
+  ✗ 缺报告：test_output\csharp_triangle_d3d12_skip-present.json（后端 d3d12、模式 skip-present）
+  ✗ 缺报告：test_output\csharp_triangle_d3d12_skip-wait.json（后端 d3d12、模式 skip-wait）
+  ✗ 缺报告：test_output\csharp_triangle_vulkan_normal.json（后端 vulkan、模式 normal）
+  ✗ 缺报告：test_output\csharp_triangle_vulkan_skip-draw.json（后端 vulkan、模式 skip-draw）
+  ✗ 缺报告：test_output\csharp_triangle_vulkan_bad-vertex.json（后端 vulkan、模式 bad-vertex）
+  ✗ 缺报告：test_output\csharp_triangle_vulkan_skip-present.json（后端 vulkan、模式 skip-present）
+  ✗ 缺报告：test_output\csharp_triangle_vulkan_skip-wait.json（后端 vulkan、模式 skip-wait）
+
+exit=1

@@ -29,10 +29,18 @@ INTERFACES = {
     "IShaderCompilerManager": "Interface/ShaderCompiler/header/Compiler.h",
     "IOManager": "Interface/IOManager/header/IOManager/IOManager.h",
     "IResource": "GeneralResources/header/CAResource/IResource.h",
+    # csharp-render-backend-triangle 任务 1.1：脚本窄渲染适配面
+    "IScriptRenderTarget": "Interface/RenderInterface/header/ScriptRenderBridge.h",
+    "IScriptRenderGraph": "Interface/RenderInterface/header/ScriptRenderBridge.h",
+    "IScriptRenderBackend": "Interface/RenderInterface/header/ScriptRenderBridge.h",
 }
 
 HEADER_ROW = "| 接口::方法 |"
 ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*)::([A-Za-z_]\w*)`\s*\|(.*)$")
+# 范围汇总表（文件开头那张）：`| 接口 | 方法条数 | 所在头文件 |` —— 汇总数字必须与头文件实算一致。
+SUMMARY_HEADER = "| 接口 | 方法条数 | 所在头文件 |"
+SUMMARY_ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*)`\s*\|\s*(\d+)\s*\|")
+SUMMARY_TOTAL_RE = re.compile(r"^\|\s*\*\*合计\*\*\s*\|\s*\*\*(\d+)\*\*\s*\|")
 COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 CLASS_RE = re.compile(r"\b(?:class|struct)\s+([A-Za-z_]\w*)")
 # 一条成员声明 = 从 virtual 到下一个分号（声明内部不含分号）
@@ -153,6 +161,39 @@ def table_rows(audit: Path):
     return rows
 
 
+def summary_rows(audit: Path):
+    """解析范围汇总表：返回 ({接口: 条数}, 合计 或 None)。找不到表头返回 (None, None)。
+
+    这张表在前几轮里**只是文字**：脚本不读它，于是"新增了接口却忘了改合计"照样全绿
+    （csharp-render-backend-triangle 任务 1.1 要求用头文件实算数字核对它）。
+    """
+    lines = audit.read_text(encoding="utf-8", errors="replace").splitlines()
+    try:
+        begin = next(i for i, line in enumerate(lines) if line.startswith(SUMMARY_HEADER))
+    except StopIteration:
+        return None, None
+    counts: dict[str, int] = {}
+    total = None
+    for line in lines[begin + 1 :]:
+        if line.startswith("## "):
+            break
+        match = SUMMARY_ROW_RE.match(line)
+        if match:
+            counts[match.group(1)] = int(match.group(2))
+            continue
+        match = SUMMARY_TOTAL_RE.match(line)
+        if match:
+            total = int(match.group(1))
+            continue
+        if line.startswith("|") and not set(line.replace("|", "").replace("-", "").strip()):
+            continue
+        if line.startswith("|") and "方法条数" in line:
+            continue
+        if not line.startswith("|"):
+            break
+    return counts, total
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="对账可绑定面审计表与接口头里的纯虚方法")
     parser.add_argument("--list", action="store_true", help="打印逐条对账结果")
@@ -175,11 +216,13 @@ def main() -> int:
 
     problems = []
     expected = {}  # (interface, method) -> 次数
+    method_counts: dict[str, int] = {}
     try:
         for interface in INTERFACES:
             methods = header_methods(repo, interface)
             if not methods:
                 problems.append(f"{interface}：头文件里解析到 0 个纯虚方法 —— 判据自身可能失效")
+            method_counts[interface] = len(methods)
             for method in methods:
                 key = (interface, method)
                 expected[key] = expected.get(key, 0) + 1
@@ -232,6 +275,37 @@ def main() -> int:
             missing.append(f"{key[0]}::{key[1]}（头文件 {count} 条、表里 {have} 条）")
     if missing:
         problems.append("缺少审计行：" + "；".join(missing))
+
+    # 重复行：超过头文件条数的部分就是重复登记（重载按头文件条数逐条放行 ——
+    # `CRenderBackend::Readback` 本来就是两条，一刀切按方法名查重会把合法重载判红）。
+    for key, count in expected.items():
+        have = actual.get(key, 0)
+        if have > count:
+            problems.append(
+                f"重复审计行：{key[0]}::{key[1]} 头文件 {count} 条、表里 {have} 条"
+            )
+
+    # 范围汇总表必须与头文件实算数字一致（任务 1.1）：只加行不改合计、或漏写新接口都是失败。
+    summary_counts, summary_total = summary_rows(audit)
+    if summary_counts is None:
+        problems.append("找不到范围汇总表（| 接口 | 方法条数 | 所在头文件 |）—— 无法用头文件实算数字核对汇总")
+    else:
+        for interface, computed in method_counts.items():
+            if interface not in summary_counts:
+                problems.append(f"汇总表缺少接口 {interface} 的方法条数（头文件实算 {computed}）")
+            elif summary_counts[interface] != computed:
+                problems.append(
+                    f"汇总表数字不符：{interface} 写 {summary_counts[interface]}、头文件实算 {computed}"
+                )
+        extras = sorted(set(summary_counts) - set(method_counts))
+        if extras:
+            problems.append("汇总表里有未登记到头文件映射的接口：" + "、".join(extras))
+        if summary_total is None:
+            problems.append("汇总表缺少 `| **合计** | **N** | |` 一行")
+        elif summary_total != sum(expected.values()):
+            problems.append(
+                f"汇总表合计不符：写 {summary_total}、头文件实算 {sum(expected.values())}"
+            )
 
     if args.list:
         print("逐条对账（接口::方法 → 头文件条数 / 表里条数）")

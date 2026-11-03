@@ -13,7 +13,7 @@ namespace Scripting.Managed
     public static unsafe class Host
     {
         // 与 C++ 侧必须逐字一致
-        private const uint ExpectedAbiVersion = 5;
+        private const uint ExpectedAbiVersion = 6;
 
         private static EngineApi* s_api;
         private static int s_tickCount;
@@ -112,7 +112,30 @@ namespace Scripting.Managed
             {
                 return false;
             }
-            return VerifyBindingLayout(api, api->WindowSystemInterfaceId, IWindowSystemBindings.LayoutManifest);
+            if (!VerifyBindingLayout(api, api->WindowSystemInterfaceId, IWindowSystemBindings.LayoutManifest))
+            {
+                return false;
+            }
+            // csharp-render-backend-triangle 任务 3.1：新增三个接口的布局清单也要逐项核对。
+            // 后端与目标接口没有过界记录（清单为空，循环直接通过）；图接口带 GPUBufferDescriptor。
+            if (api->ScriptRenderBackendInterfaceId == 0 || api->ScriptRenderGraphInterfaceId == 0 ||
+                api->ScriptRenderTargetInterfaceId == 0)
+            {
+                s_lastError = "函数表里的渲染接口编号是 0（v6 的三个字段没有下发）";
+                return false;
+            }
+            if (!VerifyBindingLayout(api, api->ScriptRenderBackendInterfaceId,
+                    IScriptRenderBackendBindings.LayoutManifest))
+            {
+                return false;
+            }
+            if (!VerifyBindingLayout(api, api->ScriptRenderGraphInterfaceId,
+                    IScriptRenderGraphBindings.LayoutManifest))
+            {
+                return false;
+            }
+            return VerifyBindingLayout(api, api->ScriptRenderTargetInterfaceId,
+                IScriptRenderTargetBindings.LayoutManifest);
         }
 
         private static bool VerifyBindingLayout(EngineApi* api, uint interfaceId, BindingLayoutType[] expected)
@@ -186,6 +209,16 @@ namespace Scripting.Managed
         {
             try
             {
+                // 关闭顺序（csharp-render-backend-triangle 任务 3.1 / spec）：先释放脚本保留的
+                // 离屏目标、图与窗口目标，再释放后端表面对象；原生适配器随宿主生命周期销毁。
+                UserScript.ReleaseRenderSurfaces();
+                if (s_renderBackend != null)
+                {
+                    s_renderBackend.Dispose();
+                    s_renderBackend = null;
+                }
+                s_renderTablesBound = false;
+                s_renderProbeCalled = true;
                 if (s_system != null)
                 {
                     s_system.Dispose();
@@ -233,6 +266,9 @@ namespace Scripting.Managed
                 s_tickCount++;
                 LogLine($"Tick #{s_tickCount}：dt = {deltaSeconds:F3} 秒");
                 EnsureBound();
+                // 渲染探针有独立的调用标记与开关（csharp-render-backend-triangle 任务 3.2）：
+                // 它不依赖 `OnEngineReady` 那一次，也不会被更早的脚本调用消耗。
+                ProbeRender();
                 ProbeWindowSize();
                 ProbeExceptionMapping();
                 ProbeMonitor();
@@ -741,6 +777,14 @@ namespace Scripting.Managed
             // 任务 2.2：重绑开始就把旧的对象作废 —— 否则下面若取 IWindowSystem 表失败，`s_system`
             // 会保留上一次的旧对象，"两张表都绑好"这个条件被旧值骗过（脚本会拿到一个已失效的 self）。
             // 本 change 任务 4.1：作废前先 `Dispose` 旧表面对象，由它注销仍存活的回调、释放 GCHandle。
+            // 渲染侧同理：旧窗口上的离屏目标 / 图 / 窗口目标不能跨重绑继续用。
+            UserScript.ReleaseRenderSurfaces();
+            s_renderTablesBound = false;
+            if (s_renderBackend != null)
+            {
+                s_renderBackend.Dispose();
+                s_renderBackend = null;
+            }
             if (s_system != null)
             {
                 s_system.Dispose();
@@ -768,6 +812,8 @@ namespace Scripting.Managed
             // 重绑 = 新的表面对象：回调探针按新对象重新注册（任务 4.1）
             s_callbackProbesRegistered = false;
             ProbeCallbacks();
+            // 三张渲染表在同一份绑定里取一次（任务 3.1）；失败只记日志，探针启用时再明确报错。
+            BindRenderInterfaces();
 
             // 任务 2.2：两张表都绑定成功之后调一次用户脚本，整个进程只调一次。
             // 先置标志再调用：脚本抛异常时由 `Tick` 的 catch 转成非零返回码 + `s_lastError`，
@@ -915,6 +961,113 @@ namespace Scripting.Managed
             }
             created.CloseWindow();
             created.Dispose();
+        }
+
+        // ---- 脚本渲染适配面（csharp-render-backend-triangle 任务 3.1 / 3.2）----
+        // 函数表版本仍是 2（生成器不因本 change 提升版本）；后端表有真实实例，图与目标表是目标类型表。
+        private const int RenderApiTableVersion = 2;
+        private static IScriptRenderBackend s_renderBackend;
+        private static bool s_renderTablesBound;
+        private static bool s_renderProbeCalled;
+
+        private static bool RenderProbeEnabled =>
+            Environment.GetEnvironmentVariable("CASCADED_CSHARP_RENDER_PROBE") == "1";
+
+        /// <summary>
+        /// 绑定三张渲染表（任务 3.1）：后端表要求真实适配器实例；图与目标表属于目标类型表，
+        /// 没有默认实例，只把函数表绑进来（实际对象由目标句柄解析）。
+        /// 失败只记日志、不写 `s_lastError` —— 未启用渲染探针的既有窗口路径必须保持原行为；
+        /// 真正启用探针时由 `ProbeRender` 报明确失败。
+        /// </summary>
+        private static void BindRenderInterfaces()
+        {
+            if (s_renderTablesBound)
+            {
+                return;
+            }
+            if (s_renderBackend != null)
+            {
+                s_renderBackend.Dispose();
+                s_renderBackend = null;
+            }
+            uint backendSize = s_api->GetInterfaceApi(s_api->ScriptRenderBackendInterfaceId, null,
+                RenderApiTableVersion, 0, null, null);
+            if (backendSize == 0)
+            {
+                LogLine("[托管侧 渲染] 取 IScriptRenderBackend 函数表失败：渲染适配器未登记（渲染探针不会执行）");
+                return;
+            }
+            byte* backendTable = stackalloc byte[(int)backendSize];
+            void* backendInstance = null;
+            uint backendWritten = s_api->GetInterfaceApi(s_api->ScriptRenderBackendInterfaceId, null,
+                RenderApiTableVersion, backendSize, backendTable, &backendInstance);
+            if (backendWritten != backendSize || backendInstance == null)
+            {
+                LogLine($"[托管侧 渲染] 取 IScriptRenderBackend 函数表失败：写入 {backendWritten} 字节、" +
+                        $"实例 {(long)backendInstance}");
+                return;
+            }
+            IScriptRenderBackendBindings.Bind(backendTable);
+            s_renderBackend = new IScriptRenderBackend(new IScriptRenderBackendLease { Self = backendInstance });
+
+            if (!BindTargetTable(s_api->ScriptRenderGraphInterfaceId, "IScriptRenderGraph",
+                    IScriptRenderGraphBindings.Bind) ||
+                !BindTargetTable(s_api->ScriptRenderTargetInterfaceId, "IScriptRenderTarget",
+                    IScriptRenderTargetBindings.Bind))
+            {
+                LogLine("[托管侧 渲染] " + s_lastError);
+                s_lastError = string.Empty;
+                return;
+            }
+            s_renderTablesBound = true;
+            LogLine($"[托管侧 渲染] 三个函数表已绑定（后端实例 {(long)backendInstance}）");
+        }
+
+        private delegate void BindTableFn(byte* table);
+
+        private static bool BindTargetTable(uint interfaceId, string name, BindTableFn bind)
+        {
+            uint size = s_api->GetInterfaceApi(interfaceId, null, RenderApiTableVersion, 0, null, null);
+            if (size == 0)
+            {
+                s_lastError = $"取 {name} 函数表失败：目标类型表没有登记（编号 {interfaceId}）";
+                return false;
+            }
+            byte* table = stackalloc byte[(int)size];
+            uint written = s_api->GetInterfaceApi(interfaceId, null, RenderApiTableVersion, size, table, null);
+            if (written != size)
+            {
+                s_lastError = $"取 {name} 函数表失败：写入 {written} 字节、期望 {size} 字节";
+                return false;
+            }
+            bind(table);
+            return true;
+        }
+
+        /// <summary>
+        /// 渲染探针（任务 3.2）：独立于 `OnEngineReady` 的调用标记，只在
+        /// `CASCADED_CSHARP_RENDER_PROBE=1` 且三张表都绑好时执行一次。
+        /// </summary>
+        private static void ProbeRender()
+        {
+            if (s_renderProbeCalled || !RenderProbeEnabled)
+            {
+                return;
+            }
+            s_renderProbeCalled = true;
+            if (!s_renderTablesBound)
+            {
+                BindRenderInterfaces();
+            }
+            if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
+            {
+                s_lastError = "渲染探针：三个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                LogLine("[托管侧 渲染] " + s_lastError);
+                return;
+            }
+            UserScript.OnRenderProbe(s_system, s_renderBackend);
+            LogLine($"[脚本 渲染] OnRenderProbe 调用 #{UserScript.RenderProbeCount}：" +
+                    UserScript.LastRenderSummary);
         }
 
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>

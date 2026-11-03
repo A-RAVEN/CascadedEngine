@@ -1,0 +1,32 @@
+=== csharp-render-backend-triangle 任务 3.1：宿主渲染适配器接线（正常路径 + 两条临时变异失败路径 + 恢复）===
+时间 2026-11-03；工作目录 E:\Projects\CascadedEngine；Debug 构建。
+
+--- 正常路径（真实运行，主代理十连跑的 d3d12 normal 进程输出）---
+CSharpHost：脚本渲染适配器已登记（编号 3；后端地址 22C6C9C8350）
+CSharpHost：引擎侧 OnGetInterfaceApi 的地址 = 7FFAECF42FFE，函数表 72 字节
+[托管侧] 托管侧已启动：ABI 版本 6、函数表 72 字节
+CSharpHost：托管运行时已就绪（加载耗时 = 59 ms；函数表 72 字节，ABI v6）
+[托管侧] [托管侧 渲染] 三个函数表已绑定（后端实例 1730287184880）
+IScriptHost 已取到：IsAvailable = true
+读数：两侧 ABI 版本都是 6、函数表 72 字节（两侧 sizeof 一致才会走到 Tick）；编号 3 返回真实适配器实例（地址非空）；编号 4/5 是目标类型表，Host 用 instanceOut=null 取表成功并完成绑定；既有窗口取表（编号 1/2）与生成表版本 2 未变。
+
+--- GPUBackendTester.exe --list（主代理实测）---
+exit=0，共 13 个测试；顺序含 TestCSharpWindow / TestCSharpTriangle / TestCSharpWindowCallbacks / TestGPUTiming。
+
+--- 失败路径 A：临时阻止“目标类型表没有默认实例” ---
+变异：CSharpHost.cpp 的 OnGetInterfaceApi 里把 isTargetTypeTable 临时置为 false（编号 4/5 被当成必须有实例）。
+命令：out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestCSharpTriangle --headless 10 --report test_output\host_render_api_mutA_target_table.json
+exit=1；report status=fail；error=E_TRIANGLE_HOST_ERROR: Tick(回值 1) 之后 LastError 非空：渲染探针：三个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行
+同一进程输出另有：取 IScriptRenderGraph 函数表失败：目标类型表没有登记（编号 4）（主代理转述，完整进程输出 %TEMP%/host-render-api-mutA.log）。
+
+--- 失败路径 B：临时漏登记后端接口 ---
+变异：CSharpHost.cpp 的 CreateRenderAdapter 里临时注释掉 SetInterfaceInstance(编号 3)（适配器对象仍创建，只漏登记）。
+命令：out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestCSharpTriangle --headless 10 --report test_output\host_render_api_mutB_backend_missing.json
+exit=1；report status=fail；error=E_RENDER_BACKEND_MISSING: 编号 3 没有登记脚本渲染适配器（实例 = 0000000000000000）
+注意：进程 stdout 仍会打印固定的“CSharpHost：脚本渲染适配器已登记（编号 3；后端地址 …）”日志（那是 CreateRenderAdapter 里的固定行），它**不是**登记成功的证据；真实实例为 0、C++ 测试在 Tick 之前就按 E_RENDER_BACKEND_MISSING 失败。完整进程输出 %TEMP%/host-render-api-mutB.log。
+
+--- 恢复（两处变异都已还原，源文件 touch mtime 后重建，避免 ninja 复用变异对象）---
+python build.py --config Debug → exit=0，BUILD SUCCESSFUL
+out\build\x64-debug\bin\CoreTests.exe → exit=0，Script render bridge test PASSED
+源码检查：SetInterfaceInstance(s_interfaceIdScriptRenderBackend, …) 与 isTargetTypeTable = interfaceId == graph || target 都已恢复。
+恢复后的宿主正常路径由任务 5.1 的全量回归再跑一次 TestCSharpTriangle normal（若该次失败以 5.1 为准）。

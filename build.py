@@ -1047,6 +1047,10 @@ CODEGEN_BINDINGS = [
     ("Tools/CodeGen/BindableShapes.RenderResource.h", "夹具 RenderResource",
      ["IBindRenderResource", "IBindRenderResourceAlt"]),
     ("Tools/CodeGen/BindableShapes.RenderOwner.h", "夹具 RenderOwner", ["IBindRenderOwner"]),
+    # csharp-render-backend-triangle 任务 1.1：脚本专用窄渲染适配面（目标 / 图 / 后端三个接口）。
+    # 主头只声明接口与方法；原生实现与 CMake 接线在任务 2.1 / 2.2。
+    ("Interface/RenderInterface/header/ScriptRenderBridge.h", "渲染适配",
+     ["IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend"]),
 ]
 
 
@@ -1058,7 +1062,14 @@ def _binding_includes(entries: list[dict], header: str) -> list[str]:
     """
     header_path = Path(header)
     module = header_path.parts[0]
-    env = next((e for e in entries if module in Path(e["file"]).parts), None)
+    # 先按"前两段目录"找（`Interface/RenderInterface` 这种真实模块头必须拿它自己那个模块的
+    # 编译单元，否则会借到另一个 Interface 子模块的 -I，头文件里的 `GPUBuffer.h` 都找不到）。
+    # 找不到再退回只按第一段找，最后才退到 CoreTests 的编译单元。
+    prefix = "/".join(header_path.parts[:2])
+    env = next((e for e in entries
+                if "/".join(Path(e["file"]).parts[:2]) == prefix), None)
+    if env is None:
+        env = next((e for e in entries if module in Path(e["file"]).parts), None)
     if env is None:
         env = next((e for e in entries if Path(e["file"]).as_posix().startswith("Test/CoreTests/")),
                    None)

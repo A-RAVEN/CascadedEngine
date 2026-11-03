@@ -35,6 +35,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ScriptHost)
+# csharp-render-backend-triangle 任务 3.1：脚本渲染适配器由 Rendering 的 `ScriptRenderBridge` 静态库实现，
+# 宿主在模块 link 阶段创建它并登记编号 3。`CRenderBackend.h` 的 include 链还需要下面两个接口目录。
+target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
+target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
+target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
 
 if (NETHOST_DIR)
     target_link_libraries(${PROJECT_NAME} PRIVATE nethost)

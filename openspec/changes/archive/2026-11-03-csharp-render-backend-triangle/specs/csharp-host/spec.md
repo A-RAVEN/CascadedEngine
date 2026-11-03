@@ -43,3 +43,12 @@
 
 - **WHEN** 先前的 `TestScriptHost` 已调用过一次性 `OnEngineReady`，随后 `TestCSharpTriangle` 在自己的 Tick 前设置渲染探针开关
 - **THEN** 独立渲染入口 MUST 仍能执行一次，提交、等待和像素证据 MUST 写入 `TestCSharpTriangle` 的同一次运行，不得落入先前测试日志
+
+### Requirement: 既有宿主失败检查必须使用当前 ABI 与受控失败语义
+
+`Tools/check_csharp_host_failures.py` SHALL 随手写 ABI 更新版本不符断言，不得继续期待本 change 之前的版本号。故意让托管 `Tick` 抛异常时，引擎 MUST 收到错误码 4 与异常文本、当前测试操作 MUST 失败且进程 MUST NOT 崩溃；`GPUBackendTester` 按既有测试结果退出码约定返回 1，不得把受控失败要求成无条件退出 0。
+
+#### Scenario: 全量中的新渲染测试不得改变宿主失败路径含义
+
+- **WHEN** 用运行时开关构造 ABI 不符或托管 `Tick` 异常
+- **THEN** ABI 场景 MUST 点名当前引擎版本 6 并以 3 拒绝启动；异常场景 MUST 以 1 报告当前操作失败、保留错误码 4 与异常文本且不产生新崩溃转储，随后正常全量回归 MUST 全部通过

@@ -62,7 +62,7 @@
 
 ### Requirement: 简单三角形必须在两个后端通过真实像素验收
 
-系统 SHALL 新增 `TestCSharpTriangle`，分别在 D3D12 与 Vulkan 上执行由 C# 构建并提交的图。原生测试 MUST 通过既有 `Readback` 读取独立的单层 RGBA8 离屏目标，核对窗口描述快照、尺寸、格式、背景像素和三角形中心像素；MUST NOT 用交换链后台缓冲、任意非零字节、进程未崩溃或日志声明代替真实像素判据。
+系统 SHALL 新增 `TestCSharpTriangle`，分别在 D3D12 与 Vulkan 上执行由 C# 构建并提交的图。正常探针的原生测试 MUST 通过既有 `Readback` 读取独立的单层 RGBA8 离屏目标，核对窗口描述快照、尺寸、格式、背景像素和三角形中心像素；MUST NOT 用交换链后台缓冲、任意非零字节、进程未崩溃或日志声明代替真实像素判据。
 
 背景清除色 SHALL 为 `(0, 255, 0, 255)` 并精确检查。三个顶点 SHALL 使用相同的红色，正常中心像素 MUST 精确为 `(255, 0, 0, 255)`，不得使用依赖目标尺寸的插值容差。C++ 与 C# MUST 分别写独立夹具值，不能共享一份可同时改错的常量表。
 
@@ -76,7 +76,7 @@
 #### Scenario: 跳过绘制、改错顶点、省略呈现或等待必须变红
 
 - **WHEN** 在 Debug 下分别用 `skip-draw`、`bad-vertex`、`skip-present` 或 `skip-wait`，并在两个后端运行检查
-- **THEN** 跳过绘制 MUST 让中心保持绿色，改变一个顶点为蓝色 MUST 让中心不再是纯红，省略呈现 MUST 被真实图清单拒绝，省略等待 MUST 被调用计数拒绝；`Tools/check_csharp_triangle.py` MUST 非零识别缺失的正常证据或错误接受负向结果，不得把这些负向用例记为成功
+- **THEN** `skip-draw` MUST 省略窗口与离屏目标的两次 `AddTrianglePass`、使图 pass 数为 0，并由原生结构判据以 `E_TRIANGLE_DRAW` 拒绝，MUST NOT 用零面积三角形代替省略调用；改变一个顶点为蓝色 MUST 让中心不再是纯红，省略呈现 MUST 被真实图清单拒绝，省略等待 MUST 被调用计数拒绝；`Tools/check_csharp_triangle.py` MUST 非零识别缺失的正常证据或错误接受负向结果，不得把这些负向用例记为成功
 
 #### Scenario: 像素证据必须来自同一次 C# 提交
 

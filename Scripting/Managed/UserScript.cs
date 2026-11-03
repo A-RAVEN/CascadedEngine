@@ -15,6 +15,10 @@ namespace Scripting.Managed
     ///    所以不要把它存进静态字段跨重绑使用。
     /// ② 建出来的窗口是**弱持有**：脚本不 `CloseWindow()`，它就一直活到进程退出（引擎的回收条件是
     ///    "关闭且引用计数归 1"），Dispose 只释放句柄、不销毁窗口。
+    ///
+    /// 渲染探针（csharp-render-backend-triangle 任务 3.2）走独立入口 `OnRenderProbe`：它只在
+    /// `CASCADED_CSHARP_RENDER_PROBE=1` 且三个渲染函数表都绑好时被调用一次，与上面那个
+    /// "进程只调一次"的 `OnEngineReady` 互不消耗。
     /// </summary>
     public static class UserScript
     {
@@ -36,6 +40,17 @@ namespace Scripting.Managed
         /// </summary>
         internal static IWindow LastCreated;
 
+        // ---- 渲染探针（csharp-render-backend-triangle 任务 3.2）----
+        /// <summary>`OnRenderProbe` 被调用了几次；引擎侧按"独立调用标记"判它没被别的测试消耗。</summary>
+        internal static int RenderProbeCount;
+        /// <summary>最近一次渲染探针的摘要，由宿主打进日志（包含模式、图 pass 数、等待调用）。</summary>
+        internal static string LastRenderSummary = string.Empty;
+        // 保留到托管 Shutdown 再释放：原生测试要用这些表面对象对应的原生资源做像素与结构核对。
+        internal static IWindow RenderWindow;
+        internal static IScriptRenderTarget RenderWindowTarget;
+        internal static IScriptRenderTarget RenderCaptureTarget;
+        internal static IScriptRenderGraph RenderGraph;
+
         /// <summary>
         /// 脚本入口：建一个保持可见的窗口（任务 2.3）。
         /// **不关窗、不 Dispose** —— 引擎的回收条件是"关闭且引用计数归 1"，所以它一直活到进程退出。
@@ -47,6 +62,211 @@ namespace Scripting.Managed
             LastCreated = created;
             var (width, height) = created.GetWindowSize();
             LastCreatedSummary = $"{width} x {height}";
+        }
+
+        /// <summary>
+        /// 渲染探针（本 change 任务 3.2）：用现有 `IWindowSystem.NewWindow` 建窗，取窗口目标与同尺寸
+        /// 离屏目标，用自己的顶点字节、着色器路径、清除色建图、提交并等待。
+        ///
+        /// 正常模式：三个顶点都是红色、位置沿用现有简单三角形；窗口与离屏目标各一份**同逻辑**绘制
+        /// （像素验证镜像，不是通用多 pass）。
+        ///
+        /// Debug 自检模式（`CASCADED_CSHARP_RENDER_SELFTEST`，由 `TestCSharpTriangle` 从环境变量读同一份值）：
+        ///   · `skip-draw`   —— 在调用层省略窗口与离屏目标的两次 `AddTrianglePass`：图 pass 数为 0，
+        ///                      原生测试与正常模式的 2 个 pass 对比后以 `E_TRIANGLE_DRAW` 判红；
+        ///   · `bad-vertex`  —— 把一个顶点改成蓝色：中心不再是纯红，证明插值来自脚本数据；
+        ///   · `skip-present`—— 省略窗口呈现；
+        ///   · `skip-wait`   —— 省略 `WaitIdle`。
+        /// 生产脚本不依赖这些开关。
+        /// </summary>
+        public static void OnRenderProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        {
+            RenderProbeCount++;
+            if (windows == null)
+            {
+                throw new InvalidOperationException("渲染探针：窗口系统表没有绑定");
+            }
+            if (backend == null)
+            {
+                throw new InvalidOperationException("渲染探针：脚本渲染后端表没有绑定");
+            }
+
+            string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_RENDER_SELFTEST") ?? string.Empty;
+            bool skipDraw = mode == "skip-draw";
+            bool badVertex = mode == "bad-vertex";
+            bool skipPresent = mode == "skip-present";
+            bool skipWait = mode == "skip-wait";
+            if (mode.Length != 0 && !(skipDraw || badVertex || skipPresent || skipWait))
+            {
+                throw new InvalidOperationException($"渲染探针：未知的自检模式 {mode}");
+            }
+
+            RenderWindow = windows.NewWindow(CSharpTriangleProbe.WindowWidth, CSharpTriangleProbe.WindowHeight,
+                "C# 三角形", true, true, true, false);
+            RenderWindowTarget = backend.GetWindowTarget(RenderWindow);
+            if (RenderWindowTarget == null)
+            {
+                throw new InvalidOperationException($"渲染探针：GetWindowTarget 返回空：{backend.GetLastError()}");
+            }
+            RenderCaptureTarget = backend.CreateCaptureTarget(CSharpTriangleProbe.WindowWidth,
+                CSharpTriangleProbe.WindowHeight);
+            if (RenderCaptureTarget == null)
+            {
+                throw new InvalidOperationException($"渲染探针：CreateCaptureTarget 返回空：{backend.GetLastError()}");
+            }
+            RenderGraph = backend.CreateGraph();
+            if (RenderGraph == null)
+            {
+                throw new InvalidOperationException($"渲染探针：CreateGraph 返回空：{backend.GetLastError()}");
+            }
+
+            // 顶点字节由脚本自己写：三个顶点，每个 24 字节（位置 float3 + 颜色 float3）。
+            float[] values = CSharpTriangleProbe.BuildVertices(badVertex);
+            byte[] vertexBytes = new byte[values.Length * sizeof(float)];
+            Buffer.BlockCopy(values, 0, vertexBytes, 0, vertexBytes.Length);
+            var descriptor = new GPUBufferDescriptor
+            {
+                count = CSharpTriangleProbe.VertexCount,
+                stride = CSharpTriangleProbe.VertexStride,
+            };
+            CheckStatus(RenderGraph.AddBuffer(CSharpTriangleProbe.BufferName, descriptor, vertexBytes),
+                RenderGraph, "AddBuffer");
+            CheckStatus(RenderGraph.SetPositionColorStream(CSharpTriangleProbe.BufferName,
+                CSharpTriangleProbe.VertexStride, CSharpTriangleProbe.PositionOffset,
+                CSharpTriangleProbe.ColorOffset), RenderGraph, "SetPositionColorStream");
+
+            // 同一份绘制描述：窗口一份、离屏目标一份（验证镜像）。
+            // `skip-draw` 在**调用层**省略这两次 `AddTrianglePass`，图 pass 数为 0 ——
+            // 原生测试与正常模式的 2 个 pass 对比，以 `E_TRIANGLE_DRAW` 判红（不造零面积三角形）。
+            if (!skipDraw)
+            {
+                AddTrianglePass(RenderGraph, RenderWindowTarget);
+                AddTrianglePass(RenderGraph, RenderCaptureTarget);
+            }
+            if (!skipPresent)
+            {
+                CheckStatus(RenderGraph.Present(RenderWindowTarget), RenderGraph, "Present");
+            }
+            int submitStatus = backend.SubmitGraph(RenderGraph);
+            if (skipDraw)
+            {
+                // 空图本来就会被适配器拒绝；这是负向模式期望的路径，不转成宿主错误。
+                if (submitStatus == 0)
+                {
+                    throw new InvalidOperationException("渲染探针：skip-draw 的空图竟然提交成功");
+                }
+            }
+            else
+            {
+                CheckStatus(submitStatus, backend, "SubmitGraph");
+            }
+            if (!skipWait)
+            {
+                backend.WaitIdle();
+            }
+
+            LastRenderSummary = $"mode={(mode.Length == 0 ? "normal" : mode)} passCount={RenderGraph.GetPassCount()} " +
+                $"submitStatus={submitStatus} skipPresent={skipPresent} skipWait={skipWait}";
+        }
+
+        /// <summary>
+        /// 关闭前释放脚本保留的渲染表面（本 change 任务 3.1）：先释放离屏目标、图与窗口目标，再让
+        /// 宿主销毁原生适配器。释放后旧表面对象再次调用会抛 `ObjectDisposedException`。
+        /// </summary>
+        internal static void ReleaseRenderSurfaces()
+        {
+            if (RenderGraph != null)
+            {
+                RenderGraph.Dispose();
+                RenderGraph = null;
+            }
+            if (RenderCaptureTarget != null)
+            {
+                RenderCaptureTarget.Dispose();
+                RenderCaptureTarget = null;
+            }
+            if (RenderWindowTarget != null)
+            {
+                RenderWindowTarget.Dispose();
+                RenderWindowTarget = null;
+            }
+            if (RenderWindow != null)
+            {
+                RenderWindow.Dispose();
+                RenderWindow = null;
+            }
+        }
+
+        private static void AddTrianglePass(IScriptRenderGraph graph, IScriptRenderTarget target)
+        {
+            CheckStatus(graph.AddTrianglePass(target, CSharpTriangleProbe.ShaderPath,
+                CSharpTriangleProbe.BufferName, CSharpTriangleProbe.BufferName,
+                CSharpTriangleProbe.VertexCount, CSharpTriangleProbe.ClearRed,
+                CSharpTriangleProbe.ClearGreen, CSharpTriangleProbe.ClearBlue,
+                CSharpTriangleProbe.ClearAlpha), graph, "AddTrianglePass");
+        }
+
+        private static void CheckStatus(int status, IScriptRenderGraph graph, string step)
+        {
+            if (status == 0)
+            {
+                return;
+            }
+            throw new InvalidOperationException($"渲染探针：{step} 被拒绝（{status}）：{graph.GetLastError()}");
+        }
+
+        private static void CheckStatus(int status, IScriptRenderBackend backend, string step)
+        {
+            if (status == 0)
+            {
+                return;
+            }
+            throw new InvalidOperationException($"渲染探针：{step} 被拒绝（{status}）：{backend.GetLastError()}");
+        }
+    }
+
+    /// <summary>
+    /// 渲染探针的夹具值（本 change 任务 3.2 / 4.1）。C++ 侧 `TestCSharpTriangle` **另写一份**
+    /// 独立的期望值（窗口尺寸、步长、偏移、像素颜色），两边不共享常量表 —— 一份改错不会两边一起绿。
+    /// </summary>
+    internal static class CSharpTriangleProbe
+    {
+        internal const int WindowWidth = 320;
+        internal const int WindowHeight = 240;
+        internal const uint VertexCount = 3;
+        internal const uint VertexStride = 24;
+        internal const uint PositionOffset = 0;
+        internal const uint ColorOffset = 12;
+        internal const string BufferName = "TestVerticesInput";
+        internal const string ShaderPath = "Shaders/Test/TestSimpleTriangle";
+
+        // 清除色 (0, 1, 0, 1) = 精确绿色背景（design 第六节）
+        internal const float ClearRed = 0.0f;
+        internal const float ClearGreen = 1.0f;
+        internal const float ClearBlue = 0.0f;
+        internal const float ClearAlpha = 1.0f;
+
+        /// <summary>
+        /// 三个顶点的位置与颜色（每个顶点 6 个 float：位置 xyz + 颜色 rgb）。
+        /// 位置沿用现有简单三角形的平面坐标，深度统一为 0；正常模式的三个颜色都是红色。
+        /// `skip-draw` 不经过这里 —— 它在调用层省略两次 `AddTrianglePass`，不靠改顶点数据伪造"跳过绘制"。
+        /// </summary>
+        internal static float[] BuildVertices(bool badVertex)
+        {
+            float[] values =
+            {
+                -0.25f, -0.25f, 0.0f, 1.0f, 0.0f, 0.0f,
+                 0.25f, -0.25f, 0.0f, 1.0f, 0.0f, 0.0f,
+                 0.00f,  0.50f, 0.0f, 1.0f, 0.0f, 0.0f,
+            };
+            if (badVertex)
+            {
+                // 第二个顶点的颜色改成蓝色：中心由红蓝插值得到，不再是纯红。
+                values[1 * 6 + 3] = 0.0f;
+                values[1 * 6 + 4] = 0.0f;
+                values[1 * 6 + 5] = 1.0f;
+            }
+            return values;
         }
     }
 

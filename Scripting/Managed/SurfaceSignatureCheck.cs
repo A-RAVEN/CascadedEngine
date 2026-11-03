@@ -17,6 +17,10 @@ namespace Scripting.Managed
         private static IWindowSystem NoSystem => null;
         // 渲染基础夹具没有引擎实例；这些委托只用于编译期签名检查，永远不执行。
         private static IBindFoundation NoFoundation => null;
+        // 脚本窄渲染适配面（csharp-render-backend-triangle 任务 1.2）：同样是编译期签名检查。
+        private static IScriptRenderTarget NoRenderTarget => null;
+        private static IScriptRenderGraph NoRenderGraph => null;
+        private static IScriptRenderBackend NoRenderBackend => null;
 
         internal static void Compile()
         {
@@ -72,6 +76,33 @@ namespace Scripting.Managed
                 (data, count, desc, label, mode, flags, token) =>
                     NoFoundation.MixBytes(data, count, desc, label, mode, flags, token);
 
+            // ---- 脚本窄渲染适配面（csharp-render-backend-triangle 任务 1.2）----
+            // 目标：三个只读标量；`bool` 必须还原成 bool，不许退化成 int。
+            Func<uint> targetWidth = () => NoRenderTarget.GetWidth();
+            Func<uint> targetHeight = () => NoRenderTarget.GetHeight();
+            Func<bool> targetBackbuffer = () => NoRenderTarget.IsBackbuffer();
+            // 图：字节数组、公开记录、路径与名称字符串、四个 float、`int` 状态都必须逐字对上。
+            Func<string, GPUBufferDescriptor, byte[], int> addBuffer =
+                (name, descriptor, data) => NoRenderGraph.AddBuffer(name, descriptor, data);
+            Func<string, uint, uint, uint, int> setStream =
+                (streamName, stride, positionOffset, colorOffset) =>
+                    NoRenderGraph.SetPositionColorStream(streamName, stride, positionOffset, colorOffset);
+            Func<IScriptRenderTarget, string, string, string, uint, float, float, float, float, int> addTrianglePass =
+                (target, shaderPath, streamName, bufferName, vertexCount, red, green, blue, alpha) =>
+                    NoRenderGraph.AddTrianglePass(target, shaderPath, streamName, bufferName, vertexCount,
+                        red, green, blue, alpha);
+            Func<IScriptRenderTarget, int> present = target => NoRenderGraph.Present(target);
+            Func<uint> passCount = () => NoRenderGraph.GetPassCount();
+            Func<string> graphError = () => NoRenderGraph.GetLastError();
+            // 后端：窗口表面对象入参、离屏目标、图、提交状态与阻塞等待。
+            Func<IWindow, IScriptRenderTarget> windowTarget = window => NoRenderBackend.GetWindowTarget(window);
+            Func<uint, uint, IScriptRenderTarget> captureTarget =
+                (width, height) => NoRenderBackend.CreateCaptureTarget(width, height);
+            Func<IScriptRenderGraph> createGraph = () => NoRenderBackend.CreateGraph();
+            Func<IScriptRenderGraph, int> submitGraph = graph => NoRenderBackend.SubmitGraph(graph);
+            Action waitIdle = () => NoRenderBackend.WaitIdle();
+            Func<string> backendError = () => NoRenderBackend.GetLastError();
+
             // 把这些引用"用掉"，避免 CS0219 之类的噪音（也防止有人把上面的赋值删掉还看不出来）
             _ = new object[]
             {
@@ -80,6 +111,9 @@ namespace Scripting.Managed
                 minimized, setWindowName, getWindowName, setAlpha, dpiScale, nativeHandle, windowSystem,
                 keyState, mouseX, mouseY, isKeyDown, isKeyTriggered, isMouseDown, isMouseUp,
                 getDesc, getNested, getBool, getMode, getFlags, setName, setPath, consumeHash, mixBytes,
+                targetWidth, targetHeight, targetBackbuffer, addBuffer, setStream, addTrianglePass, present,
+                passCount, graphError, windowTarget, captureTarget, createGraph, submitGraph, waitIdle,
+                backendError,
             };
         }
 
@@ -151,6 +185,18 @@ namespace Scripting.Managed
             if (error != null)
             {
                 return error;
+            }
+            // 共享公开记录 GPUBufferDescriptor（csharp-render-backend-triangle 任务 4.2）：
+            // 两个 `uint64_t` 字段在 C# 侧是 `ulong`，偏移必须是 0 / 8。
+            error = BindingLayoutCheck.VerifyRecord(typeof(GPUBufferDescriptor), 16, ("count", 0), ("stride", 8));
+            if (error != null)
+            {
+                return error;
+            }
+            if (typeof(GPUBufferDescriptor).GetField("count").FieldType != typeof(ulong) ||
+                typeof(GPUBufferDescriptor).GetField("stride").FieldType != typeof(ulong))
+            {
+                return "记录自检：GPUBufferDescriptor 的 count / stride 不是 ulong（uint64_t 必须按 ulong 投影）";
             }
             return null;
         }

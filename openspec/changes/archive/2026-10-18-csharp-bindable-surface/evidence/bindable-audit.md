@@ -5,7 +5,7 @@
 - 逐文件 `git grep -c 'virtual .*= *0;'` 会把同文件里的其它类算进来（`CRenderBackend.h` 里 13 条中 `CRenderBackend` 本类只有 10 条、另 3 条属 `IReadbackToken`；`WindowSystem.h` 里 39 条分属 `IWindow`（23）与 `IWindowSystem`（16））。
 - **注释里出现的示例签名会被当成真声明**（`CRenderBackend.h` 的注释里写着 `query`、`IResource.h` 的注释里引用了 `Serialize` 的原文）；不剥注释就会凭空多出方法名。
 
-**范围**：6 个模块级接口 + `IReadbackToken`（出现在 `Readback` 的返回值里），合计 **60** 条纯虚方法：
+**范围**：9 个模块级接口 + `IReadbackToken`（出现在 `Readback` 的返回值里），合计 **75** 条纯虚方法：
 
 | 接口 | 方法条数 | 所在头文件 |
 |---|---|---|
@@ -16,7 +16,10 @@
 | `IShaderCompilerManager` | 3 | `Interface/ShaderCompiler/header/Compiler.h` |
 | `IOManager` | 3 | `Interface/IOManager/header/IOManager/IOManager.h` |
 | `IResource` | 2 | `GeneralResources/header/CAResource/IResource.h` |
-| **合计** | **60** | |
+| `IScriptRenderTarget` | 3 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
+| `IScriptRenderGraph` | 6 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
+| `IScriptRenderBackend` | 6 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
+| **合计** | **75** | |
 
 **列定义**：`拷贝` = 该调用是否需要一次额外的内存拷贝（视图与按值不算）；`谁分配` = 过界内存的分配方（调用方给缓冲区 / 投影层分配 + 配对释放 / 引擎持有 + 只读视图 / `—` 表示不过界内存）；`可绑性` = `可绑` / `需快路` / `不可绑`；`不可绑` 必须在"理由或建议"列给出理由与建议。
 
@@ -82,6 +85,21 @@
 | `IOManager::WriteBatch` | `castl::string_view` → `castl::shared_ptr<WBatch>` | 同上 | 一次 | 投影层句柄 | 可绑 | 同上 | 返回 0 + 错误码 |
 | `IResource::Serialize` | `ca_io::WBatch*`（另一个接口的裸指针） | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明裸指针类：参数是 `WBatch` 接口实例且没有所有权说明。建议改成 `uint64 wbatch 句柄`（由 `IOManager::WriteBatch` 产出、共用同一张句柄表），在此之前不暴露 | 不暴露（无入口） |
 | `IResource::Deserialize` | `ca_io::IOBatch*`（另一个接口的裸指针） | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明裸指针类：同上，`IOBatch` 句柄化后再暴露 | 不暴露（无入口） |
+| `IScriptRenderTarget::GetWidth` | `const`，返回 `uint32_t` | `uint32` | 无 | — | 可绑 | 定宽整数；目标尺寸只读 | 不失败 |
+| `IScriptRenderTarget::GetHeight` | `const`，返回 `uint32_t` | `uint32` | 无 | — | 可绑 | 同 `GetWidth` | 不失败 |
+| `IScriptRenderTarget::IsBackbuffer` | `const`，返回 `bool` | `int32` | 无 | — | 可绑 | 布尔在 C ABI 面用 `int32` 表示 | 不失败 |
+| `IScriptRenderGraph::AddBuffer` | `cacore::NameHash const&`（包装值）+ `GPUBufferDescriptor const&`（双 `uint64_t` 公开记录）+ `castl::vector<uint8_t> const&`（同步字节） | `char const* + uint64 len`、`GPUBufferDescriptorC const*`、`uint8_t const* + uint64 count`；返回 `int32` | 一次（名称 + 字节） | 投影层（图内上传持有区） | 可绑 | 字节同步复制、描述符按 blittable 指针传；失败走 0/非 0 状态 + 文本 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptRenderGraph::SetPositionColorStream` | 一个 `NameHash const&` + 三个 `uint32_t` | `char const* + uint64 len` + 三个 `uint32`；返回 `int32` | 一次（名称） | — | 可绑 | 首版只支持 `POSITION` / `COLOR` 两个 `float3`；越界即拒绝 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptRenderGraph::AddTrianglePass` | `castl::shared_ptr<IScriptRenderTarget> const&`（目标接口）+ `PathHash const&` + 两个 `NameHash const&` + `uint32_t` + 四个 `float` | `uint64 targetHandle` + 文本 + 两个文本 + `uint32` + 四个 `float`；返回 `int32` | 一次（三个名字） | 投影层句柄 | 可绑 | 窄绘制描述：目标/着色器/流/缓冲/顶点数/清除色都由调用方给，不是 C++ 代画 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptRenderGraph::Present` | `castl::shared_ptr<IScriptRenderTarget> const&` | `uint64 targetHandle`；返回 `int32` | 无 | 投影层句柄 | 可绑 | 只接受后台缓冲目标；不设呈现目标数量上限 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptRenderGraph::GetPassCount` | `const`，返回 `uint32_t` | `uint32` | 无 | — | 可绑 | 行为断言用，不替代像素判据 | 不失败 |
+| `IScriptRenderGraph::GetLastError` | `const`，返回 `castl::string` | 两段式：`uint64 <M>Len()` + `Copy<M>(uint8_t* dst, uint64 cap)` | 一次 | 调用方给缓冲区 | 可绑 | `string` 返回必须两段式拷出，不许把内部指针交给 C# | 不失败（文本本身） |
+| `IScriptRenderBackend::GetWindowTarget` | `castl::shared_ptr<cawindow::IWindow> const&`（另一模块接口） | `uint64 windowHandle` → `uint64`（强句柄） | 无 | 投影层句柄 | 可绑 | 窗口句柄由窗口接口发行；目标入口按目标类型解析，错误类型/失效句柄不得进入实现 | 返回 0 句柄 + 错误码 |
+| `IScriptRenderBackend::CreateCaptureTarget` | 两个 `uint32_t` → `castl::shared_ptr<IScriptRenderTarget>` | `uint32, uint32` → `uint64`（强句柄） | 无 | 投影层句柄 | 可绑 | 固定 RGBA8 / 2D / 单层 / 单 mip / 单采样；尺寸必须非零 | 返回 0 句柄 + 错误码 |
+| `IScriptRenderBackend::CreateGraph` | 无参 → `castl::shared_ptr<IScriptRenderGraph>` | `void` → `uint64`（强句柄） | 无 | 投影层句柄 | 可绑 | 图由引擎内部构造，脚本只拿句柄 | 返回 0 句柄 + 错误码 |
+| `IScriptRenderBackend::SubmitGraph` | `castl::shared_ptr<IScriptRenderGraph> const&` → `int32_t` | `uint64 graphHandle` → `int32` | 无 | 投影层句柄 | 可绑 | 调度器由原生侧新建，不进签名；空图/已释放句柄必须在提交前拒绝 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptRenderBackend::WaitIdle` | 无参，阻塞到后端空闲 | `void crb_wait_idle(uint64 self)` | 无 | — | 可绑 | 阻塞语义：文档写明会卡住调用线程；等待后才清空待完成集合 | 不失败 |
+| `IScriptRenderBackend::GetLastError` | `const`，返回 `castl::string` | 两段式：`uint64 <M>Len()` + `Copy<M>(uint8_t* dst, uint64 cap)` | 一次 | 调用方给缓冲区 | 可绑 | 同图对象的 `GetLastError` | 不失败（文本本身） |
 
 ## 汇总：不可绑清单（6 条 + 2 条已移出）
 
@@ -96,11 +114,11 @@
 | `IResource::Serialize` | ② 所有权不明的裸指针（`WBatch*`） | `WBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 | `IResource::Deserialize` | ② 所有权不明的裸指针（`IOBatch*`） | `IOBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 
-**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 7 个接口里**暂无实例**（依据：60 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 4 条（`ExecuteGraph` / `GetWindowHandle` / `Serialize` / `Deserialize`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"；**`GetWindowSystem` 也已移出** —— 它返回的是已 `CA_BIND` 接口的裸指针，2026-10-25 起改判为可绑的"借用句柄"；两者都见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
+**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 10 个接口里**暂无实例**（依据：75 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 4 条（`ExecuteGraph` / `GetWindowHandle` / `Serialize` / `Deserialize`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"；**`GetWindowSystem` 也已移出** —— 它返回的是已 `CA_BIND` 接口的裸指针，2026-10-25 起改判为可绑的"借用句柄"；两者都见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
 
 ## 汇总：需快路清单（0 条）
 
-这 7 个接口里**没有**"每帧多次调用且参数是容器"的方法，因此"需快路"为空。这不是规则失效，而是**审计范围不含热路径所在的位置**：
+这 10 个接口里**没有**"每帧多次调用且参数是容器"的方法，因此"需快路"为空。这不是规则失效，而是**审计范围不含热路径所在的位置**：
 
 - 每帧的容器密集调用实际发生在 `GPUGraph`（提交 pass / binding）与 `IMGUIContext`（每帧编辑树）上，这两个不在本次审计范围（见 design 的 Open Questions）。
 - 已观察到的容器参数（`IWindow::SetWindowName` / `IOManager::Batch` / `WriteBatch`）都是低频结构化调用，走"一次拷贝"那档即可；11 个 `Set*Callback` 是**回调注册**（每帧不走注册），走"函数指针 + 保活表"那档 ✓。

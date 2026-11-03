@@ -1,0 +1,64 @@
+=== csharp-render-backend-triangle 任务 5.2：最终构建与 OpenSpec 校验（定稿）===
+时间 2026-11-03；工作目录 E:\Projects\CascadedEngine；Debug 构建。最终构建由主代理执行（后台任务 pwsh-f603346546654870），其余四条只读校验由子代理执行。
+
+--- 1) python build.py --config Debug（主代理，完整日志 %TEMP%/csharp-triangle-final-build.log）---
+exit=0
+3 个警告（均为 Scripting/Managed/Host.cs 的 CA2014：VerifyBindingLayout 在逐字段循环里 stackalloc ——
+  这是本 change 未改动的既有布局自检代码，0 个错误）
+[耗时] configure 0.0s / codegen 1.4s / 编译 9.0s / 托管侧 3.3s / 合计 31.5s
+末尾输出：
+============================================================
+BUILD SUCCESSFUL
+============================================================
+
+--- 2) openspec validate csharp-render-backend-triangle ---
+exit=0
+Change 'csharp-render-backend-triangle' is valid
+
+--- 3) openspec validate --all ---
+exit=0
+Totals: 53 passed, 0 failed (53 items)
+
+--- 4) git diff --check -- . ':(exclude)openspec/changes/csharp-render-backend-triangle/evidence/**' ---
+exit=0（stderr 只有 LF/CRLF 提示，不是空白错误）
+
+--- 5) openspec instructions apply --change csharp-render-backend-triangle --json ---
+勾 5.2 之前：total=11, complete=10, remaining=1（唯一未勾项就是 5.2 本身）。
+勾 5.2 之后（同一命令重跑）：total=11, complete=11, remaining=0。
+`tasks.md` 复查：`Select-String '- \[ \]'` 零命中（无未勾项）。
+
+--- 6) 证据目录与工作区（清理记录，按实况更正）---
+evidence/ 保留：adapter-red、host-pixel-red、graph-builder-mutations、submission-lifetime（含 mtime 还原说明与绿态）、
+render-binding-checks、host-render-api、managed-triangle、pixel-validation、final-regression、final-build。
+清理（2026-11-03，复核由子代理执行）：
+  · `.review_tmp/` —— 由 `python Tools/CodeGen/verify_readme.py` 的运行产生，实际存在 8 个文件：
+    `BindingHandleTable.h`、`IBindRow11Reject.Bindings.cpp/.cs`、`IBindRowOverloadReject.Bindings.cpp/.cs`、
+    `readme/EmitSample.Serialization.h`、`readme/emit-all/EmitSample.codegen.h`、`readme/no-ser/NoSer.Reflection.h`。
+    已整目录删除；`Test-Path '.review_tmp'` = False，`glob **/.review_tmp/**` 与 `.review_tmp/**` 均 0 命中。
+  · `__pycache__/build.cpython-310.pyc` —— 子代理早期导入 `build.py` 的探针脚本留下，已删除（目录不再存在）。
+  · 子代理放在 `%TEMP%` 的探针脚本/中间日志已删除；主代理的最终运行日志（%TEMP%/csharp-*）保留，因为证据里引用了它们。
+  · 反复核对：仓库内没有 `crash_*.dmp`、`_build_run.bat`、`dsh_*` 探针；`test_output/` 只保留本次测试产物与 evidence 引用的
+    `*_fullsuite_*.log` 副本；未跟踪的 `.dsh-acl-recovery/` 保持原样、未 staging、未删除。
+未执行 git commit / git push。
+
+--- 勾 5.2 之后重跑（原始输出）---
+openspec instructions apply --change csharp-render-backend-triangle --json → exit=0
+"total": 11,
+"complete": 11,
+"remaining": 0
+Select-String -Pattern '- \[ \]' tasks.md → 0 命中
+openspec validate csharp-render-backend-triangle → exit=0 : Change 'csharp-render-backend-triangle' is valid
+git diff --check（排除 evidence）→ exit=0
+
+openspec validate --all（勾 5.2 之后复跑）→ exit=0 : Totals: 53 passed, 0 failed (53 items)
+
+--- 清理 .review_tmp / __pycache__ 之后复跑（原始输出）---
+review_tmp 存在=False；glob **/.review_tmp/** 与 .review_tmp/** 均 0 命中
+openspec instructions apply --json → exit=0
+"total": 11,
+"complete": 11,
+"remaining": 0
+Select-String -Pattern '- \[ \]' tasks.md → 0 命中
+openspec validate csharp-render-backend-triangle → exit=0 : Change 'csharp-render-backend-triangle' is valid
+openspec validate --all → exit=0 : Totals: 53 passed, 0 failed (53 items)
+git diff --check（排除 evidence）→ exit=0

@@ -1,0 +1,60 @@
+=== csharp-render-backend-triangle 任务 5.1：最终全量回归（真实命令、退出码、日志路径与关键读数）===
+时间 2026-11-03；工作目录 E:\Projects\CascadedEngine；Debug 构建。GPUBackendTester.exe 的运行由主代理执行，其余检查的子代理读数附在其后。
+
+--- 0) 红态 → 修复 → 绿态：Tools/check_csharp_host_failures.py（tasks 5.1 / 6.8）---
+红态（修订工件时的主代理实测）：exit=1，3 通过、2 失败。
+  · ABI 场景 exit=3 正确，但脚本仍期待旧文本 `ABI 版本不符：引擎 2`（当前手写 ABI 是 v6）；
+  · 故意异常场景含 `Tick 抛异常` / `实际 4` / 无新 dump，但进程 exit=1，脚本仍期待 0。
+修复：脚本第 4 条改为 `code == 3 and "ABI 版本不符" in text and "托管侧期望 6" in text`；
+      第 5 条改为 `code == 1`（受控失败），保留 `Tick 抛异常`、`实际 4`、`new_dumps == 0`。
+      文档同步：docs/testing.md 的旧 `引擎 2` / 退出码 `0` 两行、CSharpHost/README.md 的异常行。
+绿态（主代理实测，完整输出 %TEMP%/csharp-host-failures-fixed.log）：
+  python Tools/check_csharp_host_failures.py → exit=0
+  [通过] 缺托管程序集：退出码 3（期望 3）；含 dll 名与路径清单：True/True
+  [通过] 配置路径不存在：退出码 3（期望 3）；含该路径与 hostfxr.dll：True/True
+  [通过] 运行时版本无匹配：退出码 3（期望 3）；含 7.0.0 与版本清单：True/True
+  [通过] ABI 版本不符：退出码 3（期望 3）；含 ABI 版本不符 与 托管侧期望 6：True
+  [通过] 托管抛异常：退出码 1（期望 1 = 受控失败）；含异常文本与错误码 4：True/True；新 dump 0 个
+  5 个场景：5 通过、0 失败
+
+--- 1) 两个后端完整 GPUBackendTester.exe --headless 10 ---
+vulkan：exit=0；报告 %TEMP%/v-final.json；进程输出 %TEMP%/csharp-final-full-vulkan.log
+d3d12 ：exit=0；报告 %TEMP%/d-final.json；进程输出 %TEMP%/csharp-final-full-d3d12.log
+两份报告各 13 条，全部 status=pass：
+  TestSimpleTriangle / TestTriangleWithConstantColor / TestTriangleWithStructuredBufferColor /
+  TestTriangleWithImageBuffer / TestDoublePass / TestComputeBuffer / TestReadback / TestIMGUI /
+  TestScriptHost / TestCSharpWindow / TestCSharpTriangle / TestGPUTiming / TestCSharpWindowCallbacks
+
+--- 2) 全量运行里的探针时机（3.2 的“全量运行”实测依据）---
+主代理在 clear_test_logs 之后重跑全量，并把每份 per-test 日志复制成了带 _fullsuite_ 后缀的文件：
+  test_output/TestScriptHost_fullsuite_vulkan.log     → [托管侧] [脚本] OnEngineReady 调用 #1；无 OnRenderProbe 行
+  test_output/TestScriptHost_fullsuite_d3d12.log      → 同上
+  test_output/TestCSharpWindow_fullsuite_vulkan.log   → 无 OnRenderProbe/OnEngineReady 行
+  test_output/TestCSharpWindow_fullsuite_d3d12.log    → 无 OnRenderProbe/OnEngineReady 行
+  test_output/TestCSharpTriangle_fullsuite_vulkan.log → [托管侧] [脚本 渲染] OnRenderProbe 调用 #1：
+                                                        mode=normal passCount=2 submitStatus=0 skipPresent=False skipWait=False
+  test_output/TestCSharpTriangle_fullsuite_d3d12.log  → 同上
+  test_output/TestCSharpTriangle_fullsuite.log        → 同上（D3D12 的最后一次副本）
+结论：先跑过的 TestScriptHost 已经消耗一次性 OnEngineReady #1，但随后 TestCSharpTriangle 的独立探针
+仍执行一次且落在它自己的日志里；未启用探针的 TestScriptHost / TestCSharpWindow 没有 OnRenderProbe 行。
+
+--- 3) 两条窗口 / 回调检查（主代理实测）---
+python Tools/check_window_system_bindings.py --log test_output/TestCSharpWindow.log → exit=0
+  普通窗口：GetMonitor 1 组、目标释放 1 组、0 问题。
+python Tools/check_window_system_bindings.py --log test_output/TestCSharpWindowCallbacks.log --callbacks → exit=0
+  回调：GetMonitor 1 组、回调 10 类、目标释放 2 组、0 问题。
+
+--- 4) 其余三层判据 ---
+out\build\x64-debug\bin\CoreTests.exe → exit=0，PASSED 22 行（完整输出 %TEMP%/csharp-final-coretests.log；
+  含 Script render bridge test PASSED）
+python Tools/check_csharp_triangle.py → exit=0，问题 0 处（十份报告：两个后端 normal pass、四种负向按 E_TRIANGLE_* 失败）
+python Tools/check_gpu_timing.py → exit=0（2/2 后端、0 问题）
+python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings → exit=0
+  （被判真实接口 5 个：IScriptRenderBackend / IScriptRenderGraph / IScriptRenderTarget / IWindow / IWindowSystem；
+   真实接口桩数 0、签名 78 行、对齐/表面/共享值/夹具识别/脚本渲染适配面各 0 问题）
+python Tools/CodeGen/check_bindable_audit.py → exit=0（10 个接口、75 条方法、0 处问题）
+python Tools/CodeGen/verify_readme.py → exit=0（22 条命令、0 不符）
+
+--- 5) 证据来源说明 ---
+host 失败检查里的 clear_test_logs 会删除 test_output/*.log；因此本文件引用的是**它之后重跑**的全量日志
+（*_fullsuite_*.log 副本与 %TEMP% 下的最终进程输出），没有把首轮被删除的日志当最终证据。

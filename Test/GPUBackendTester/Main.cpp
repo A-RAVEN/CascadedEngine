@@ -46,6 +46,9 @@
 // 由托管侧走**生成的表面**（`IWindow` / `IWindowSystem`）完成，C ABI 入口只在
 // `Test/CoreTests` 的绑定用例里直接对着产物验。
 #include "FakeWindowSystem.h"
+// 脚本渲染适配面的原生测试钩子（csharp-render-backend-triangle 任务 4.1）：本文件要读脚本创建的
+// 离屏 `ImageHandle`、适配器的等待次数与真实呈现清单。托管侧只能看到公开接口。
+#include "../../Interface/RenderInterface/private/ScriptRenderBridge.h"
 
 // 实例名（`csharp-window-creation` 任务 5.4）：登记与查找都带这一维 —— 同一个接口可以并存
 // 多份实现。真实的窗口系统实例名必须与 `CA_MODULE_INSTANCE(cawindow::IWindowSystem,
@@ -1505,6 +1508,234 @@ void TestCSharpWindow(TestContext& ctx)
 	}
 }
 
+// ---- TestCSharpTriangle（csharp-render-backend-triangle 任务 1.2 / 3.2 / 4.1）----
+// C# 用自己的顶点字节、着色器路径、窗口与离屏目标建图并提交；原生侧只读那份离屏目标做真实像素
+// 判据，同时核对窗口描述快照、真实呈现清单、适配器 WaitIdle 次数与待完成集合。
+//
+// Debug 自检模式（进程环境变量 `CASCADED_CSHARP_RENDER_SELFTEST`，由外层命令设置、C# 侧读同一份值）：
+//   skip-draw 在调用层省略两次 `AddTrianglePass`（图 pass 数 2 → 0），以 `E_TRIANGLE_DRAW` 判红；
+//   bad-vertex / skip-present / skip-wait 分别以 `E_TRIANGLE_PIXEL` / `E_TRIANGLE_PRESENT` /
+//   `E_TRIANGLE_WAIT` 判红。
+// `Tools/check_csharp_triangle.py` 逐后端对账正常（pass）与负向（fail + 对应错误码）。
+void TestCSharpTriangle(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_TRIANGLE_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_TRIANGLE_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段必须已经登记真实适配器。
+	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
+	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
+		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
+	if (renderBackend == nullptr)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
+		fail("E_RENDER_BACKEND_MISSING", detail);
+	}
+
+	char modeBuffer[64] = {};
+	::GetEnvironmentVariableA("CASCADED_CSHARP_RENDER_SELFTEST", modeBuffer, sizeof(modeBuffer));
+	const std::string mode = modeBuffer;
+	const bool skipDraw = mode == "skip-draw";
+	const bool badVertex = mode == "bad-vertex";
+	const bool skipPresent = mode == "skip-present";
+	const bool skipWait = mode == "skip-wait";
+	if (!(mode.empty() || skipDraw || badVertex || skipPresent || skipWait))
+	{
+		fail("E_TRIANGLE_MODE", castl::string("未知的自检模式：") + mode.c_str());
+	}
+
+	struct TriangleEnvGuard
+	{
+		~TriangleEnvGuard() { ::SetEnvironmentVariableA("CASCADED_CSHARP_RENDER_PROBE", nullptr); }
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_RENDER_PROBE", "1");
+
+	// 窗口接口实例：托管探针用 `IWindowSystem.NewWindow` 建自己的窗口并从它取窗口目标。
+	auto newWindow = ctx.pWindowSystem->NewWindow(320, 240, "C# Triangle");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_TRIANGLE_HOST", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	// 基线只看本次 Tick 产生的错误：全量跑时前面的用例可能留下一条（例如故意触发的未知编号）。
+	const std::string baselineError = pScriptHost->LastError();
+	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
+	const int32_t tickValue = pScriptHost->Tick(0.016);
+	::SetEnvironmentVariableA("CASCADED_CSHARP_RENDER_PROBE", nullptr);
+	const std::string hostError = pScriptHost->LastError();
+	if (hostError != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "Tick(回值 %d) 之后 LastError 非空：%s", tickValue,
+		              hostError.c_str());
+		fail("E_TRIANGLE_HOST_ERROR", detail);
+	}
+	if (tickValue <= 0)
+	{
+		fail("E_TRIANGLE_TICK", "Tick 回值不是正数（探针没有执行）");
+	}
+
+	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
+	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
+	if (captureTarget == nullptr || windowTarget == nullptr)
+	{
+		fail("E_RENDER_PROBE_MISSING",
+		     "渲染探针没有创建离屏 / 窗口目标（探针开关或三个函数表绑定失败）");
+	}
+	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
+	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
+
+	// 窗口描述快照：离屏目标必须与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
+	const auto& windowDesc = windowTarget->GetDescriptorForTest();
+	const auto& captureDesc = captureTarget->GetDescriptorForTest();
+	if (windowDesc.width != captureDesc.width || windowDesc.height != captureDesc.height ||
+		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
+		captureTarget->IsBackbuffer())
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
+		              windowDesc.width, windowDesc.height, captureDesc.width, captureDesc.height,
+		              static_cast<int>(captureDesc.format));
+		fail("E_TRIANGLE_TARGET", detail);
+	}
+
+	// 图结构（任务 3.2 / spec 负向场景）：`skip-draw` 在**调用层**省略窗口与离屏目标的两次
+	// `AddTrianglePass`，图 pass 数必须从正常模式的 2 变成 0；原生测试以 `E_TRIANGLE_DRAW` 判红。
+	// 不得用零面积三角形代替省略调用（design 六）。
+	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
+	if (lastGraph == nullptr)
+	{
+		fail("E_TRIANGLE_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
+	}
+	constexpr uint32_t kExpectedPassCount = 2u;
+	if (skipDraw)
+	{
+		ctx.pGPUBackend->WaitIdle(); // 空图不会提交，仍清一次后端，避免残留
+		if (lastGraph->GetPassCount() != 0u)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "skip-draw 没有省略 AddTrianglePass：图 pass 数 %u（期望 0）",
+			              lastGraph->GetPassCount());
+			fail("E_TRIANGLE_DRAW", detail);
+		}
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "skip-draw：图 pass 数 0（正常模式 %u），按预期失败", kExpectedPassCount);
+		fail("E_TRIANGLE_DRAW", detail);
+	}
+	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
+		              lastGraph->GetPassCount(), kExpectedPassCount);
+		fail("E_TRIANGLE_DRAW", detail);
+	}
+
+	// skip-wait：负向模式必须让适配器计数不涨；待完成集合非空也一并记下。
+	if (skipWait)
+	{
+		ctx.pGPUBackend->WaitIdle(); // 清理仍在执行的 GPU 工作，再报负向失败
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "skip-wait：适配器 WaitIdle 计数 %u → %u、待完成 %u（期望 0 次、非空待完成）", waitBefore,
+		              waitAfter, pendingAfter);
+		fail("E_TRIANGLE_WAIT", detail);
+	}
+	if (waitAfter != waitBefore + 1 || pendingAfter != 0)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
+		              waitBefore, waitAfter, pendingAfter);
+		fail("E_TRIANGLE_WAIT", detail);
+	}
+
+	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
+	const bool presentMatches = presents.size() == 1 && presents[0] == windowTarget->GetImageForTest();
+	if (skipPresent)
+	{
+		ctx.pGPUBackend->WaitIdle();
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "skip-present：真实呈现清单 %zu 项（负向模式期望 0；%s）", presents.size(),
+		              presents.size() == 0 ? "呈现确实被省略" : "呈现没有被省略");
+		fail("E_TRIANGLE_PRESENT", detail);
+	}
+	if (!presentMatches)
+	{
+		fail("E_TRIANGLE_PRESENT", "真实呈现清单不是唯一的窗口后台缓冲");
+	}
+
+	// 像素：既有 Readback 读取独立离屏目标；背景 (0,255,0,255)、中心 (255,0,0,255)。
+	ctx.pGPUBackend->WaitIdle();
+	const uint32_t width = captureDesc.width;
+	const uint32_t height = captureDesc.height;
+	std::vector<uint8_t> pixels(static_cast<size_t>(
+		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
+	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	if (!token)
+	{
+		fail("E_TRIANGLE_READBACK", "离屏目标的 Readback 返回空 token");
+	}
+	token->Wait();
+	auto pixelAt = [&pixels, width](uint32_t x, uint32_t y) {
+		const size_t index = (static_cast<size_t>(y) * width + x) * 4u;
+		return std::array<uint8_t, 4>{ pixels[index], pixels[index + 1], pixels[index + 2],
+			                          pixels[index + 3] };
+	};
+	const std::array<uint8_t, 4> background = pixelAt(1, 1);
+	const std::array<uint8_t, 4> center = pixelAt(width / 2, height / 2);
+	const castl::string pngPath = castl::string("test_output/TestCSharpTriangle_") + ctx.backendName + "_" +
+		(mode.empty() ? "normal" : mode.c_str()) + ".png";
+	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
+	               static_cast<int>(width * 4));
+	CA_LOG("TestCSharpTriangle：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
+	       "bg=({},{},{},{}) center=({},{},{},{}) png={}",
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
+	       pendingAfter, presents.size(), background[0], background[1], background[2], background[3],
+	       center[0], center[1], center[2], center[3], pngPath.c_str());
+
+	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
+		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
+	};
+	if (badVertex)
+	{
+		const std::array<uint8_t, 4> pureRed{ 255, 0, 0, 255 };
+		if (!differs(center, pureRed))
+		{
+			fail("E_TRIANGLE_PIXEL", "bad-vertex：中心仍是纯红（负向模式没有生效）");
+		}
+		fail("E_TRIANGLE_PIXEL", "bad-vertex：中心按预期不再是纯红");
+	}
+	const std::array<uint8_t, 4> expectedBackground{ 0, 255, 0, 255 };
+	const std::array<uint8_t, 4> expectedCenter{ 255, 0, 0, 255 };
+	if (differs(background, expectedBackground) || differs(center, expectedCenter))
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "像素不符：背景 (%u,%u,%u,%u)、中心 (%u,%u,%u,%u)", background[0], background[1],
+		              background[2], background[3], center[0], center[1], center[2], center[3]);
+		fail("E_TRIANGLE_PIXEL", detail);
+	}
+	CA_LOG("TestCSharpTriangle 通过：{} 后端背景与中心像素精确匹配", ctx.backendName);
+}
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
 // `Action<...>` 并把窗口身份与全部标量参数写进日志，`Tools/check_window_system_bindings.py --callbacks`
@@ -2196,6 +2427,7 @@ int main(int argc, char* argv[])
 		std::cout << "  TestIMGUI\n";
 		std::cout << "  TestScriptHost\n";
 		std::cout << "  TestCSharpWindow\n";
+		std::cout << "  TestCSharpTriangle\n";
 		std::cout << "  TestCSharpWindowCallbacks\n";
 		std::cout << "  TestGPUTiming\n";
 		return 0;
@@ -2467,6 +2699,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpTriangle") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpTriangle", TestCSharpTriangle);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -2487,6 +2723,7 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestIMGUI", TestIMGUI);
 		runTestWithDiagnostics("TestScriptHost", TestScriptHost);
 		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
+		runTestWithDiagnostics("TestCSharpTriangle", TestCSharpTriangle);
 		runTestWithDiagnostics("TestGPUTiming", TestGPUTiming);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);

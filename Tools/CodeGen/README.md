@@ -1038,13 +1038,13 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 python Tools/CodeGen/check_bindable_audit.py
 ```
 ```
-扫描 7 个接口、对账 60 条方法、命中 0 处问题（审计表：openspec\changes\csharp-bindable-surface\evidence\bindable-audit.md）
+扫描 10 个接口、对账 75 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
 [exit 0]
 ```
 
 **已知限制（醒目）**：
 
-- 审计范围只有 7 个接口（`CRenderBackend` / `IReadbackToken` / `IWindow` / `IWindowSystem` / `IShaderCompilerManager` / `IOManager` / `IResource`）。
+- 审计范围现在是 10 个接口（`CRenderBackend` / `IReadbackToken` / `IWindow` / `IWindowSystem` / `IShaderCompilerManager` / `IOManager` / `IResource` / `IScriptRenderTarget` / `IScriptRenderGraph` / `IScriptRenderBackend`）。其中后三个是 `csharp-render-backend-triangle` 的脚本渲染适配面（3 + 6 + 6 条方法），汇总数字必须与头文件实算一致、重复行会让脚本非零。
   `GPUGraph` / `IMGUIContext` / `IOBatch` / `WBatch` / `IShaderCompiler` **尚未审计** —— 每帧热路径恰恰在这几个上面，所以"需快路"清单目前是**空的**（不是规则失效）。
 - 脚本按**纯虚方法名**对账，**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
 - 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。

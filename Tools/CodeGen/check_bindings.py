@@ -225,7 +225,19 @@ SHARED_VALUE_TYPES = {
         "public FloatRect m_WorkAreaRect;",
         "public float m_DPIScale;",
     ],
+    # csharp-render-backend-triangle 任务 4.2：真实引擎公开记录（两个 `uint64_t` 字段按 ulong 镜像）。
+    # 它的两个字段是定宽的 `uint64_t`，不是句柄 —— 公开方法里的句柄仍是 `ulong`，照旧拒绝。
+    "GPUBufferDescriptor": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct GPUBufferDescriptor",
+        "public ulong count;",
+        "public ulong stride;",
+    ],
 }
+
+# 允许在共享公开记录里出现 `ulong` 的类型（逐项登记，不是整体取消）。
+# 判据要求：只允许**记录字段**里的 `uint64_t` 投影；接口方法里的句柄 `ulong` 仍由 check_surface 拒绝。
+SHARED_TYPES_ALLOW_ULONG = {"GPUBufferDescriptor"}
 
 
 REQUIRED_FIXTURE_INTERFACES = {
@@ -315,9 +327,13 @@ def check_shared_value_types(product_dir: Path) -> list[str]:
                 problems.append(f"  共享值类型 {name}：`{line}` 没有按登记顺序出现（字段/常量顺序错了）")
                 break
             cursor = found + len(line)
-        for token in ("delegate*", "void*", "IDisposable", "Api_v2", "Exception", "ulong"):
+        for token in ("delegate*", "void*", "IDisposable", "Api_v2", "Exception"):
             if token in text:
                 problems.append(f"  共享值类型 {name}：文件里出现了接口内部产物 `{token}`")
+        # `ulong` 只对逐项登记的"字段是 uint64_t"的记录放行；其余共享记录照旧拒绝，
+        # 免得把"句柄不许出现在公开表面"这条整体取消（任务 4.2 的口径）。
+        if name not in SHARED_TYPES_ALLOW_ULONG and re.search(r"\bulong\b", text):
+            problems.append(f"  共享值类型 {name}：文件里出现了 `ulong`（只允许登记的 uint64_t 记录字段）")
     # 反向：产物目录里出现的"只有 .cs、没有 .cpp"文件必须都是登记过的共享值类型。
     for path in sorted(product_dir.glob("*.Bindings.cs")):
         stem = path.name[: -len(".Bindings.cs")]
@@ -851,6 +867,80 @@ def check_surface_matrix(product_dir: Path) -> list[str]:
     return problems
 
 
+def check_render_bridge_surface(product_dir: Path) -> list[str]:
+    """脚本渲染适配面的公开签名与 C ABI 形状（csharp-render-backend-triangle 任务 4.2）。
+
+    两半都判：
+      ① 托管表面里逐字出现的方法签名 —— 名字一样但 `byte[]` 退化成 `byte*`、`int` 状态退化成
+         `void`、或 `IScriptRenderTarget` 参数换成 `IntPtr`，名字判据都抓不住；
+      ② 生成的 `extern "C"` 声明逐字等于期望形状（含 `GPUBufferDescriptorC const*` 与
+         `uint8_t const* + uint64_t` 的同步字节参数）。
+    """
+    problems: list[str] = []
+    surface_expected = {
+        "IScriptRenderTarget.Bindings.cs": [
+            "public uint GetWidth()",
+            "public uint GetHeight()",
+            "public bool IsBackbuffer()",
+        ],
+        "IScriptRenderGraph.Bindings.cs": [
+            "public int AddBuffer(string name, GPUBufferDescriptor descriptor, byte[] data)",
+            "public int SetPositionColorStream(string streamName, uint stride, uint positionOffset, "
+            "uint colorOffset)",
+            "public int AddTrianglePass(IScriptRenderTarget target, string shaderPath, string streamName, "
+            "string bufferName, uint vertexCount, float red, float green, float blue, float alpha)",
+            "public int Present(IScriptRenderTarget target)",
+            "public uint GetPassCount()",
+            "public string GetLastError()",
+        ],
+        "IScriptRenderBackend.Bindings.cs": [
+            "public IScriptRenderTarget GetWindowTarget(IWindow window)",
+            "public IScriptRenderTarget CreateCaptureTarget(uint width, uint height)",
+            "public IScriptRenderGraph CreateGraph()",
+            "public int SubmitGraph(IScriptRenderGraph graph)",
+            "public void WaitIdle()",
+            "public string GetLastError()",
+        ],
+    }
+    for filename, signatures in surface_expected.items():
+        path = product_dir / filename
+        if not path.is_file():
+            problems.append(f"  脚本渲染适配面：缺 {filename}")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for signature in signatures:
+            if signature not in text:
+                problems.append(f"  {filename}：公开表面没有 `{signature}`")
+
+    cpp_expected = {
+        "IScriptRenderGraph_AddBuffer":
+            'extern "C" int32_t IScriptRenderGraph_AddBuffer(void* self, char const* name, '
+            'uint64_t nameLen, GPUBufferDescriptorC const* descriptor, uint8_t const* data, '
+            'uint64_t dataCount)',
+        "IScriptRenderGraph_SetPositionColorStream":
+            'extern "C" int32_t IScriptRenderGraph_SetPositionColorStream(void* self, '
+            'char const* streamName, uint64_t streamNameLen, uint32_t stride, uint32_t positionOffset, '
+            'uint32_t colorOffset)',
+        "IScriptRenderGraph_AddTrianglePass":
+            'extern "C" int32_t IScriptRenderGraph_AddTrianglePass(void* self, uint64_t targetHandle, '
+            'char const* shaderPath, uint64_t shaderPathLen, char const* streamName, '
+            'uint64_t streamNameLen, char const* bufferName, uint64_t bufferNameLen, '
+            'uint32_t vertexCount, float red, float green, float blue, float alpha)',
+        "IScriptRenderBackend_GetWindowTarget":
+            'extern "C" uint64_t IScriptRenderBackend_GetWindowTarget(void* self, uint64_t windowHandle)',
+        "IScriptRenderBackend_SubmitGraph":
+            'extern "C" int32_t IScriptRenderBackend_SubmitGraph(void* self, uint64_t graphHandle)',
+    }
+    generated = read_generated(product_dir)
+    for symbol, expected in cpp_expected.items():
+        actual = generated.get(symbol)
+        if actual is None:
+            problems.append(f"  脚本渲染适配面：C ABI 里没有 {symbol}")
+        elif normalize(actual) != normalize(expected):
+            problems.append(f"  {symbol}：C ABI 形状不符\n    期望 {normalize(expected)}\n    实际 {normalize(actual)}")
+    return problems
+
+
 ERROR_CODE_TABLE = {1001: "STALE_HANDLE", 1002: "NULL_POINTER",
                     1003: "CALLBACK_EXCEPTION", 1004: "CALLBACK_REENTRANT",
                     1005: "CALLBACK_WRONG_THREAD", 1006: "INVALID_MONITOR"}
@@ -1025,10 +1115,16 @@ def main() -> int:
         print(problem, file=sys.stderr)
     print(f"渲染基础表面问题 {len(foundation_problems)} 处")
 
+    # ---- 脚本渲染适配面的公开签名与 C ABI 形状（本 change 任务 4.2）----
+    render_bridge_problems = check_render_bridge_surface(product_dir)
+    for problem in render_bridge_problems:
+        print(problem, file=sys.stderr)
+    print(f"脚本渲染适配面问题 {len(render_bridge_problems)} 处")
+
     failed = bool(mismatches or alignment_problems or stub_problems
                   or dropped_problems or structure_problems or coverage_problems or surface_problems
                   or matrix_problems or code_problems or shared_problems or foundation_problems
-                  or qualified_problems or fixture_problems)
+                  or qualified_problems or fixture_problems or render_bridge_problems)
     return 1 if failed else 0
 
 
