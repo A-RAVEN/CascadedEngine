@@ -35,6 +35,8 @@ INTERFACES = {
     "IScriptRenderBackend": "Interface/RenderInterface/header/ScriptRenderBridge.h",
     # csharp-render-shader-constants 任务 1.1：参数结构窄接口（第四个脚本接口）
     "IScriptShaderStruct": "Interface/RenderInterface/header/ScriptRenderBridge.h",
+    # csharp-render-texture-sampling 任务 1.1：只读纹理句柄（第五个脚本接口）
+    "IScriptTexture": "Interface/RenderInterface/header/ScriptRenderBridge.h",
 }
 
 HEADER_ROW = "| 接口::方法 |"
@@ -126,6 +128,11 @@ SKIP_RE = re.compile(r'CA_BIND_SKIP\s*\(\s*(\w+)\s*,\s*"([^"]*)"\s*\)')
 
 def header_skips(repo: Path, interface: str) -> dict[str, str]:
     """{方法名: 排除理由} —— 从接口头里读 `CA_BIND_SKIP(方法, "理由")`。"""
+    # 审计表里出现了**未登记到头文件映射**的接口（典型：新增接口却漏改本文件的 INTERFACES）时，
+    # 这里不能 KeyError 崩掉 —— 崩溃只有 traceback，读不到"哪个接口没登记"。返回空表，让主流程
+    # 继续走到僵尸行与汇总表那两条判据，按名字点名。
+    if interface not in INTERFACES:
+        return {}
     path = repo / INTERFACES[interface]
     if not path.is_file():
         return {}

@@ -16,6 +16,8 @@ namespace graphics_backend
 	{
 		// POSITION / COLOR 两个 `float3` 语义各占 12 字节（design 二）。
 		constexpr uint32_t kFloat3ByteSize = 12u;
+		// TEXCOORD 是 `float2`：8 字节（csharp-render-texture-sampling 任务 2.3）。
+		constexpr uint32_t kFloat2ByteSize = 8u;
 		// Slang 的 `float3` 完整类型名（实测：`CAAssets/D3D12ShaderLibrary.shLib` 里 `ColorSubStruct`
 		// 的元素表逐字是 `vector<float,3>`，那是 `TypeReflection::getFullName()` 的输出）。
 		// 只按字节数（12）挡不住 `int3` 与 `float3[2]` 的数组元素，所以类型名与元素数都要核。
@@ -54,6 +56,26 @@ namespace graphics_backend
 	bool CScriptRenderTarget::IsBackbuffer() const
 	{
 		return m_Backbuffer;
+	}
+
+	// ---- CScriptTexture ----
+
+	CScriptTexture::CScriptTexture(uint32_t width, uint32_t height,
+		castl::shared_ptr<GPUTexture> nativeTexture)
+		: m_Width(width)
+		, m_Height(height)
+		, m_NativeTexture(std::move(nativeTexture))
+	{
+	}
+
+	uint32_t CScriptTexture::GetWidth() const
+	{
+		return m_Width;
+	}
+
+	uint32_t CScriptTexture::GetHeight() const
+	{
+		return m_Height;
 	}
 
 	// ---- CScriptShaderStruct ----
@@ -174,11 +196,23 @@ namespace graphics_backend
 		}
 		// csharp-render-structured-buffer 任务 2.2：含缓冲字段的子结构会绕过顶层提交检查
 		//（提交检查只走顶层类型自己的 `m_Buffers`），本批只支持顶层缓冲字段，必须拒绝。
+		// csharp-render-texture-sampling 任务 2.2：纹理与采样器表同理 —— 三张资源表任一非空都拒，
+		// 否则子结构里的纹理字段不会被提交检查覆盖。
 		ShaderCompilerSlang::ShaderStructData const* subData = concrete->GetDataForTest();
 		if (subData != nullptr && !subData->m_Buffers.empty())
 		{
 			return Fail("field", ((castl::string("子结构类型 ") + concrete->GetTypeNameForTest().c_str() +
 				" 含缓冲字段，本批只支持顶层缓冲字段：") + field.c_str()).c_str());
+		}
+		if (subData != nullptr && !subData->m_Textures.empty())
+		{
+			return Fail("field", ((castl::string("子结构类型 ") + concrete->GetTypeNameForTest().c_str() +
+				" 含纹理字段，本批只支持顶层纹理字段：") + field.c_str()).c_str());
+		}
+		if (subData != nullptr && !subData->m_TextureSamplers.empty())
+		{
+			return Fail("field", ((castl::string("子结构类型 ") + concrete->GetTypeNameForTest().c_str() +
+				" 含采样器字段，本批只支持顶层采样器字段：") + field.c_str()).c_str());
 		}
 		m_ShaderStruct->SetStruct(field, concrete->GetShaderStructForTest(), elementIndex);
 		if (m_Counters != nullptr)
@@ -260,6 +294,126 @@ namespace graphics_backend
 	{
 		auto found = m_BoundBuffers.find(field);
 		return found == m_BoundBuffers.end() ? cacore::NameHash() : found->second;
+	}
+
+	// csharp-render-texture-sampling 任务 2.2：纹理字段绑定。校验全部在适配层做完 —— 两后端对
+	// 未知字段静默跳过、对越界下标只 `CA_ASSERT`，脚本面不能落到那条路径上。
+	// "已释放"不在这里判（本批无显式销毁、适配层不可观测，D4）：防线在托管表面对象。
+	int32_t CScriptShaderStruct::SetImage(cacore::NameHash const& field,
+		castl::shared_ptr<IScriptTexture> const& texture)
+	{
+		if (!field.Valid())
+		{
+			return Fail("field", "字段名不能为空");
+		}
+		if (texture == nullptr)
+		{
+			return Fail("field", (castl::string("字段 ") + field.c_str() +
+				" 的纹理是空句柄；纹理必须先经 CreateTexture 创建").c_str());
+		}
+		if (m_Data == nullptr || m_ShaderStruct == nullptr)
+		{
+			return Fail("field", "参数结构没有编译元数据或真实对象");
+		}
+		ShaderCompilerSlang::ShaderTextureData const* textureData = nullptr;
+		for (auto const& candidate : m_Data->m_Textures)
+		{
+			if (candidate.m_Name == field)
+			{
+				textureData = &candidate;
+				break;
+			}
+		}
+		if (textureData == nullptr)
+		{
+			return Fail("field", (castl::string("字段不在类型 ") + m_TypeName.c_str() +
+				" 的纹理元数据里：" + field.c_str()).c_str());
+		}
+		if (textureData->m_RWType != ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
+		{
+			return Fail("field", (castl::string("字段 ") + field.c_str() +
+				" 的访问类型不是只读；读写纹理（RWTexture）属计算批，本批不支持").c_str());
+		}
+		// `m_ElementCount` 是描述符数组长度（`Texture2D x[N]` 为 N），不是纹理尺寸。
+		if (textureData->m_ElementCount != 1u)
+		{
+			return Fail("field", (castl::string("字段 ") + field.c_str() +
+				" 必须是单元素（描述符数组长度为 1），实际 " +
+				std::to_string(textureData->m_ElementCount).c_str()).c_str());
+		}
+		auto* concrete = dynamic_cast<CScriptTexture const*>(texture.get());
+		if (concrete == nullptr || concrete->GetNativeTextureForTest() == nullptr)
+		{
+			return Fail("field", "纹理不是本适配面创建的对象");
+		}
+		// 先转发给真实 `ShaderStruct`，再记录窄对象映射（同一字段覆盖写入，提交解析取最后一次）。
+		m_ShaderStruct->SetImage(field, concrete->GetNativeTextureForTest(), 0u);
+		m_BoundImages[field] = texture;
+		if (m_Counters != nullptr)
+		{
+			++m_Counters->setImage;
+		}
+		ClearError();
+		return 0;
+	}
+
+	// 采样器名字表只有名字（`m_TextureSamplers` 是 `vector<NameHash>`）：能校验的只有存在性。
+	int32_t CScriptShaderStruct::SetSampler(cacore::NameHash const& field,
+		TextureSamplerDescriptor const& sampler)
+	{
+		if (!field.Valid())
+		{
+			return Fail("field", "字段名不能为空");
+		}
+		if (m_Data == nullptr || m_ShaderStruct == nullptr)
+		{
+			return Fail("field", "参数结构没有编译元数据或真实对象");
+		}
+		bool found = false;
+		for (auto const& candidate : m_Data->m_TextureSamplers)
+		{
+			if (candidate == field)
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+		{
+			return Fail("field", (castl::string("字段不在类型 ") + m_TypeName.c_str() +
+				" 的采样器元数据里：" + field.c_str()).c_str());
+		}
+		m_ShaderStruct->SetSampler(field, sampler, 0u);
+		m_BoundSamplers[field] = sampler;
+		if (m_Counters != nullptr)
+		{
+			++m_Counters->setSampler;
+		}
+		ClearError();
+		return 0;
+	}
+
+	bool CScriptShaderStruct::HasBoundImage(cacore::NameHash const& field) const
+	{
+		return m_BoundImages.find(field) != m_BoundImages.end();
+	}
+
+	castl::shared_ptr<IScriptTexture> CScriptShaderStruct::GetBoundImage(
+		cacore::NameHash const& field) const
+	{
+		auto found = m_BoundImages.find(field);
+		return found == m_BoundImages.end() ? nullptr : found->second;
+	}
+
+	bool CScriptShaderStruct::HasBoundSampler(cacore::NameHash const& field) const
+	{
+		return m_BoundSamplers.find(field) != m_BoundSamplers.end();
+	}
+
+	TextureSamplerDescriptor CScriptShaderStruct::GetBoundSampler(cacore::NameHash const& field) const
+	{
+		auto found = m_BoundSamplers.find(field);
+		return found == m_BoundSamplers.end() ? TextureSamplerDescriptor{} : found->second;
 	}
 
 	// ---- CScriptRenderGraph ----
@@ -381,6 +535,51 @@ namespace graphics_backend
 			{
 				VertexAttribute::Create(positionOffset, VertexInputFormat::eR32G32B32_SFloat,
 					CANAME("POSITION")),
+			},
+			false);
+		m_Streams[streamName] = record;
+		ClearError();
+		return 0;
+	}
+
+	int32_t CScriptRenderGraph::SetPositionTextureStream(cacore::NameHash const& streamName,
+		uint32_t stride, uint32_t positionOffset, uint32_t texcoordOffset)
+	{
+		if (!streamName.Valid())
+		{
+			return Fail("streamName", "顶点流名称不能为空");
+		}
+		if (stride == 0u)
+		{
+			return Fail("stride", "步长必须非零");
+		}
+		if (positionOffset > stride || stride - positionOffset < kFloat3ByteSize)
+		{
+			return Fail("positionOffset", "position 属性越过步长（offset + 12 > stride）");
+		}
+		// TEXCOORD 是 `float2` = 8 字节：和 POSITION / COLOR 的 12 字节判据不同，写成 12 会把
+		// 越过步长的流放进来（原生测试正是用 `eR32G32B32_SFloat` 声明 `float2` 的越界写法）。
+		if (texcoordOffset > stride || stride - texcoordOffset < kFloat2ByteSize)
+		{
+			return Fail("texcoordOffset", "texcoord 属性越过步长（offset + 8 > stride）");
+		}
+		if (m_Streams.find(streamName) != m_Streams.end())
+		{
+			return Fail("streamName", (castl::string("同一张图里流名必须唯一（这次是重复登记）：") +
+				streamName.c_str()).c_str());
+		}
+		StreamRecord record;
+		record.stride = stride;
+		record.positionOffset = positionOffset;
+		record.colorOffset = 0u;
+		record.texcoordOffset = texcoordOffset;
+		record.vertices = VertexInputsDescriptor::Create(stride,
+			{
+				VertexAttribute::Create(positionOffset, VertexInputFormat::eR32G32B32_SFloat,
+					CANAME("POSITION")),
+				// 8 字节的两分量格式，不是 12 字节的 `eR32G32B32_SFloat`。
+				VertexAttribute::Create(texcoordOffset, VertexInputFormat::eR32G32_SFloat,
+					CANAME("TEXCOORD")),
 			},
 			false);
 		m_Streams[streamName] = record;
@@ -605,6 +804,61 @@ namespace graphics_backend
 		return 0;
 	}
 
+	// csharp-render-texture-sampling 任务 2.2：纹理字段的只读核对口。返回图侧登记表里那个参数
+	// 结构持有的引用本身（对象同一性判据），没有任何计数能替代"解析到哪个对象"。
+	castl::shared_ptr<IScriptTexture> CScriptRenderGraph::GetBoundImageForTest(uint32_t passIndex,
+		cacore::NameHash const& blockName, cacore::NameHash const& field) const
+	{
+		for (auto it = m_PassParams.rbegin(); it != m_PassParams.rend(); ++it)
+		{
+			if (it->passIndex == passIndex && it->blockName == blockName)
+			{
+				return it->parameters == nullptr ? nullptr : it->parameters->GetBoundImage(field);
+			}
+		}
+		return nullptr;
+	}
+
+	int32_t CScriptRenderGraph::CheckBoundTextures(castl::string& outParameter,
+		castl::string& outReason) const
+	{
+		for (auto const& record : m_PassParams)
+		{
+			if (record.parameters == nullptr)
+			{
+				continue;
+			}
+			ShaderCompilerSlang::ShaderStructData const* data = record.parameters->GetDataForTest();
+			if (data == nullptr)
+			{
+				continue;
+			}
+			const castl::string passText = castl::string("pass ") +
+				std::to_string(record.passIndex).c_str() + " 的块 " + record.blockName.c_str();
+			for (auto const& texture : data->m_Textures)
+			{
+				if (!record.parameters->HasBoundImage(texture.m_Name))
+				{
+					outParameter = "field";
+					outReason = passText + " 没有为纹理字段 " + texture.m_Name.c_str() +
+						" 调 SetImage";
+					return 1;
+				}
+			}
+			for (auto const& sampler : data->m_TextureSamplers)
+			{
+				if (!record.parameters->HasBoundSampler(sampler))
+				{
+					outParameter = "field";
+					outReason = passText + " 没有为采样器字段 " + sampler.c_str() +
+						" 调 SetSampler";
+					return 1;
+				}
+			}
+		}
+		return 0;
+	}
+
 	// ---- CScriptRenderBackend ----
 
 	CScriptRenderBackend::CScriptRenderBackend(CRenderBackend* backend,
@@ -687,6 +941,80 @@ namespace graphics_backend
 		ClearError();
 		// 图需要后端引用：`SetPassParam` 要按 pass 的着色器路径查根结构元数据。
 		return castl::make_shared<CScriptRenderGraph>(m_Backend, &m_ShaderCounters);
+	}
+
+	// csharp-render-texture-sampling 任务 2.1：一次调用完成「创建 → 图内上传 → 转采样态 → 同步等待」。
+	// 拒绝清单与 `CreateShaderStruct` 同形：空句柄 + `GetLastError()` 点名，且 MUST NOT 进入后端
+	// `CreateGPUTexture` 的非法参数路径（尺寸 / 字节数 / 重名都在前面挡下）。
+	castl::shared_ptr<IScriptTexture> CScriptRenderBackend::CreateTexture(cacore::NameHash const& name,
+		uint32_t width, uint32_t height, castl::vector<uint8_t> const& rgba)
+	{
+		if (!name.Valid())
+		{
+			Fail("name", "纹理名称不能为空");
+			return nullptr;
+		}
+		if (width == 0u || height == 0u)
+		{
+			Fail("width", "纹理尺寸必须非零");
+			return nullptr;
+		}
+		if (m_Backend == nullptr || m_ThreadManager == nullptr)
+		{
+			Fail("name", "渲染后端或线程管理器不可用");
+			return nullptr;
+		}
+		// 字节数只认 `GetImageByteSize`（64 位公开来源）：32 位的 `width * height * 4` 在
+		// `65536 × 16384` 上回绕成 0，会骗过任何按 32 位自算的校验。
+		const uint64_t expectedBytes =
+			GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM);
+		const uint64_t receivedBytes = static_cast<uint64_t>(rgba.size());
+		if (expectedBytes != receivedBytes)
+		{
+			Fail("rgba", (castl::string("字节数与 GetImageByteSize 不一致：期望 ") +
+				std::to_string(expectedBytes).c_str() + " 字节（RGBA8，宽 " +
+				std::to_string(width).c_str() + " × 高 " + std::to_string(height).c_str() +
+				"），实际收到 " + std::to_string(receivedBytes).c_str() + " 字节").c_str());
+			return nullptr;
+		}
+		if (m_Textures.find(name) != m_Textures.end())
+		{
+			Fail("name", (castl::string("同名纹理已经创建过：") + name.c_str()).c_str());
+			return nullptr;
+		}
+		GPUTextureDescriptor const descriptor =
+			GPUTextureDescriptor::Create(width, height, ETextureFormat::E_R8G8B8A8_UNORM);
+		castl::shared_ptr<GPUTexture> nativeTexture = m_Backend->CreateGPUTexture(descriptor,
+			ETextureAccessType::eTransferDst | ETextureAccessType::eSampled);
+		if (nativeTexture == nullptr)
+		{
+			Fail("name", (castl::string("后端没有创建出纹理：") + name.c_str()).c_str());
+			return nullptr;
+		}
+		// 内部上传图：不建窄对象、不进图登记表、不含任何渲染 pass（原生测试上传段的同型先例）。
+		castl::shared_ptr<GPUGraph> uploadGraph = castl::make_shared<GPUGraph>();
+		const ImageHandle imageHandle(nativeTexture);
+		uploadGraph->ScheduleData(imageHandle, rgba.data(), static_cast<uint64_t>(rgba.size()));
+		uploadGraph->Finalize(imageHandle, ETextureAccessType::eSampled);
+		// 后端直连：不经适配器的 `SubmitGraph` / `WaitIdle`（D24）—— 那会抬高提交执行/等待计数，
+		// 并提前清掉 `m_Pending`。上传执行单列计数。
+		castl::shared_ptr<thread_management::TaskScheduler> scheduler = m_ThreadManager->NewScheduler();
+		if (scheduler == nullptr)
+		{
+			Fail("name", "线程管理器没有创建出调度器");
+			return nullptr;
+		}
+		++m_TextureUploadExecuteCount;
+		m_Backend->ExecuteGraph(scheduler.get(), uploadGraph);
+		m_Backend->WaitIdle();
+
+		castl::shared_ptr<IScriptTexture> texture =
+			castl::make_shared<CScriptTexture>(width, height, nativeTexture);
+		m_Textures[name] = nativeTexture;
+		m_LastCreatedTexture = texture;
+		++m_ShaderCounters.createTexture;
+		ClearError();
+		return texture;
 	}
 
 	castl::shared_ptr<IScriptShaderStruct> CScriptRenderBackend::CreateShaderStruct(
@@ -778,6 +1106,15 @@ namespace graphics_backend
 			castl::string parameter;
 			castl::string reason;
 			if (concrete->CheckBoundBuffers(parameter, reason) != 0)
+			{
+				return Fail(parameter.c_str(), reason.c_str());
+			}
+		}
+		// csharp-render-texture-sampling 任务 2.2：纹理与采样器必需性检查，同样在进入执行之前。
+		{
+			castl::string parameter;
+			castl::string reason;
+			if (concrete->CheckBoundTextures(parameter, reason) != 0)
 			{
 				return Fail(parameter.c_str(), reason.c_str());
 			}

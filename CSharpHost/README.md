@@ -2,7 +2,7 @@
 
 **它做什么**：在一个普通引擎模块的初始化阶段，把 .NET 运行时（CoreCLR）拉进本进程、加载 `Scripting.Managed.dll`、拿到托管侧 `Boot` / `Tick` 两个入口，并每帧调一次 `Tick`；同时把一张函数表交给托管侧，让它能回调引擎的日志、`echo`，以及按"接口编号 + 实例名"取引擎接口的函数表。
 
-函数表（`EngineApi`）当前是 **v7**、72 字节，字段顺序就是 ABI、只许在末尾追加：
+函数表（`EngineApi`）当前是 **v8**、80 字节，字段顺序就是 ABI、只许在末尾追加：
 
 | 字段 | 从哪一版起 | 作用 |
 |---|---|---|
@@ -13,8 +13,9 @@
 | `get_binding_layout_type` / `get_binding_layout_field` | v5 | 布局清单的引擎侧读数（真实 `sizeof` / `offsetof`）：托管 `Host.Boot` 逐项比对后才允许绑定 |
 | `script_render_backend_interface_id` / `script_render_graph_interface_id` / `script_render_target_interface_id` | v6 | 脚本渲染适配面的三个编号（3 / 4 / 5）；后端表有默认实例，图与目标表是目标类型表 |
 | `script_shader_struct_interface_id` | v7 | 脚本参数结构表的编号（6）；与图、目标同属目标类型表（没有默认实例） |
+| `script_texture_interface_id` | v8 | 脚本只读纹理表的编号（7）；同样属目标类型表（没有默认实例） |
 
-`sizeof(EngineApi)` 由 `CSharpHost.cpp` 里的 `static_assert(sizeof(EngineApi) == 72u)` 由编译器核对：v7 只把 v6 尾部那 4 字节对齐填充用满，**大小仍是 72 字节**（不是 80）。
+`sizeof(EngineApi)` 由 `CSharpHost.cpp` 里的 `static_assert(sizeof(EngineApi) == 80u)` 由编译器核对：v7 的 72 字节已经是 8 的整倍数、**没有尾部填充可用**，v8 追加一个 `uint32_t` 后正文 76 字节、按 8 字节对齐补到 **80 字节**（不是 72）。
 
 接口编号表（编号由引擎下发，这里只是给它一个可读的名字）：
 
@@ -26,6 +27,7 @@
 | 4 | `graphics_backend::IScriptRenderGraph` | **目标类型表**：没有默认实例，取表时 `instanceOut` 可为空；实际对象由 `ResolveTargetHandle` 解析 |
 | 5 | `graphics_backend::IScriptRenderTarget` | **目标类型表**：同上 |
 | 6 | `graphics_backend::IScriptShaderStruct` | **目标类型表**：同上（参数结构，v7 追加） |
+| 7 | `graphics_backend::IScriptTexture` | **目标类型表**：同上（只读纹理，v8 追加） |
 
 同一个接口可以登记多份实现，靠实例名区分；实例名传 `nullptr` = 该接口**默认那一份**（最先登记的）。登记与查找都走 `IScriptHost::SetInterfaceInstance` / `GetInterfaceInstance`，两边必须用同一对 (编号, 实例名)。
 
@@ -46,13 +48,13 @@
 
 ## 脚本渲染适配面（csharp-render-backend-triangle）
 
-`Interface/RenderInterface/header/ScriptRenderBridge.h` 声明三个窄纯虚接口，生成的函数表由 `CSharpHost` 编进同一个翻译单元并按编号 3 / 4 / 5 下发；原生实现在 `Interface/RenderInterface/private/ScriptRenderBridge.*`，由独立的 `ScriptRenderBridge` 静态库提供（`Rendering` 与 `CoreTests` 链接同一份）。
+`Interface/RenderInterface/header/ScriptRenderBridge.h` 声明五个窄纯虚接口，生成的函数表由 `CSharpHost` 编进同一个翻译单元并按编号 3 / 4 / 5 / 6 / 7 下发；原生实现在 `Interface/RenderInterface/private/ScriptRenderBridge.*`，由独立的 `ScriptRenderBridge` 静态库提供（`Rendering` 与 `CoreTests` 链接同一份）。
 
 - **入口**：`UserScript.OnRenderProbe(IWindowSystem windows, IScriptRenderBackend backend)`，与一次性 `OnEngineReady` **互不消耗**。`Host` 只在 `CASCADED_CSHARP_RENDER_PROBE=1` 且后端 / 图 / 目标三张表都绑定成功时调用一次；开关由测试在**自己的 Tick 之前**设置、之后清理。
 - **脚本做的事**：`NewWindow` 建窗 → `GetWindowTarget` + 同尺寸 `CreateCaptureTarget` → `CreateGraph` → 写 72 字节顶点（三个顶点 × 24 字节步长，位置偏移 0、颜色偏移 12）→ `AddBuffer` / `SetPositionColorStream` / 两次同逻辑 `AddTrianglePass`（窗口 + 离屏）→ `Present` → `SubmitGraph` → `WaitIdle`，并把图与两个目标保留到 `Shutdown` 再释放。
 - **依赖**：宿主在模块 link 阶段从模块管理器取 `CRenderBackend` 与 `CThreadManager` 创建适配器；缺任何一个时编号 3 **不登记**并留下明确错误，未启用探针的窗口路径保持原行为。
 - **Debug 自检开关**（只在 Debug 生效，供 `TestCSharpTriangle` 构造负向证据）：`CASCADED_CSHARP_RENDER_SELFTEST=skip-draw`（在调用层省略窗口与离屏目标的两次 `AddTrianglePass`，图 pass 数为 0；原生测试与正常模式的 2 个 pass 对比后用 `E_TRIANGLE_DRAW` 判红）、`bad-vertex`（一个顶点改蓝：中心不再是纯红）、`skip-present`（省略呈现）、`skip-wait`（省略 `WaitIdle`）。生产脚本不依赖它们。
-- **关闭顺序**：托管 `Shutdown` 按 **参数结构 → 图 → 离屏目标 → 后端表面** 逐项释放，每一步都往宿主日志与 stderr 打一行 `[托管侧 关闭顺序] N/4 …`；之后原生适配器才随宿主生命周期销毁。
+- **关闭顺序**：托管 `Shutdown` 按 **参数结构 → 纹理 → 图 → 离屏目标 → 后端表面** 逐项释放，每一步都往宿主日志与 stderr 打一行 `[托管侧 关闭顺序] N/4 …`；之后原生适配器才随宿主生命周期销毁。
 - **阻塞语义**：渲染探针里的 `WaitIdle` 会在引擎主线程上等到 GPU 空闲；这是本切片的同步提交语义，不是后台异步。
 
 ## 常量色（着色器参数）探针（csharp-render-shader-constants）
@@ -67,6 +69,15 @@
 - **入口**：`UserScript.OnStructuredBufferProbe(IWindowSystem windows, IScriptRenderBackend backend)`，与 `OnRenderProbe` / `OnConstantColorProbe` **互不消耗**：独立开关 `CASCADED_CSHARP_SB_PROBE=1`、独立调用标记，由 `TestCSharpStructuredBuffer` 在**自己的 Tick 之前**设置、之后清理。
 - **脚本做的事**：`NewWindow` → `GetWindowTarget` + 同尺寸 `CreateCaptureTarget` → `CreateGraph` → 36 字节顶点（三个顶点 × 12 字节步长，只有 `POSITION`）→ `AddBuffer("sbColors", 1 元素 × 12 字节, magenta)` → `SetPositionStream` → `CreateShaderStruct("StructuredColor")` → `SetBuffer("colorStructuredBuffer", "sbColors")` → 窗口与离屏各一个 `AddTrianglePass`（`Shaders/Test/TestTriangleWithStructuredBufferColor`，清除色 `(0,1,0,1)`）→ 两次 `SetPassParam(passIndex, "structuredColorBlock", params)` → `Present` → `SubmitGraph` → `WaitIdle`。缓冲名按"先绑后建"在 `SubmitGraph` 时按**本图**缓冲登记表解析（`SetBuffer` 当场只校验字段级元数据）。
 - **Debug 自检开关**（`CASCADED_CSHARP_SB_SELFTEST`，供 `TestCSharpStructuredBuffer` 构造负向证据）：`bad-buffer-color`（缓冲元素写 `(0,0,1)`：中心精确变成 `(0,0,255,255)`，以 `E_SB_PIXEL` 判红）、`unbound-field`（跳过 `SetBuffer`：`SubmitGraph` 在进入后端执行前拒绝并点名 `colorStructuredBuffer`，以 `E_SB_BIND` 判红，不读像素）、`bad-buffer-name`（绑未登记的 `sbColorsMissing`：同样在提交前拒绝并点名缓冲名，`E_SB_BIND`）。生产脚本不依赖它们。
+
+## 纹理采样探针（csharp-render-texture-sampling）
+
+- **入口**：`UserScript.OnTextureProbe(IWindowSystem windows, IScriptRenderBackend backend)`，与另外三个渲染探针 **互不消耗**：独立开关 `CASCADED_CSHARP_TEX_PROBE=1`、独立调用标记，由 `TestCSharpTextureSampling` 在**自己的 Tick 之前**设置、之后清理。
+- **脚本做的事**：`NewWindow` → `GetWindowTarget` + 同尺寸 `CreateCaptureTarget` → `CreateGraph` → `CreateTexture("texYellow2x2", 2, 2, 16 字节)`（**一次调用完成创建 + 上传 + 转采样态 + 同步等待**）→ 60 字节顶点（三个顶点 × 20 字节步长：位置偏移 0、UV 偏移 12）→ `AddBuffer` / `SetPositionTextureStream` → `CreateShaderStruct("TextureSampleBlock")` → `SetImage("testTexture", tex)` + `SetSampler("testSampler", LinearClamp)` → 窗口与离屏各一个 `AddTrianglePass`（`Shaders/Test/TestCSharpTextureSampling`，清除色 `(0,0,1,1)`）→ 两次 `SetPassParam(passIndex, "textureBlock", params)` → `Present` → `SubmitGraph` → `WaitIdle`。
+- **释放后使用**：探针末尾先 `tex.Dispose()`，再用同一个表面对象调 `SetImage` —— 生成表面在进入原生实现之前抛 `ObjectDisposedException`（原生调用 0），这一行写进摘要 `disposed=ObjectDisposedException 原生 SetImage 调用 0`，`TestCSharpTextureSampling` 从本次运行的日志里读它。
+- **Debug 自检开关**（`CASCADED_CSHARP_TEX_SELFTEST`，供 `TestCSharpTextureSampling` 构造负向证据）：`bad-texture-color`（四纹素改青 `(0,255,255,255)`：中心精确变成它，以 `E_TEX_PIXEL` 判红）、`unbound-image`（跳过 `SetImage`：`SubmitGraph` 在进入后端执行前拒绝并点名 `testTexture`，以 `E_TEX_BIND` 判红，不读像素）、`unbound-sampler`（跳过 `SetSampler`：同样点名 `testSampler`，`E_TEX_BIND`）。生产脚本不依赖它们。
+- **计数语义**：纹理上传的执行与等待走**后端直连**（`ExecuteGraph` + `WaitIdle`），单列 `GetTextureUploadExecuteCountForTest`；`GetExecuteGraphCountForTest` / `GetWaitIdleCountForTest` 只反映脚本提交。一切"本次提交执行增量 0"的判据只看后者。
+- **已知限制**：本批**不提供纹理显式销毁**（`IScriptTexture` 只有 `GetWidth` / `GetHeight`），纹理由适配器保活到进程末；显式释放的语义（谁最后持引用、飞行中提交）留给后续批。
 
 ## 构建
 
@@ -99,6 +110,8 @@ python build.py --config Debug
 | `CASCADED_CSHARP_CONSTCOLOR_SELFTEST` | **仅 Debug**：`bad-struct-colors` / `skip-param` 两个负向模式；C++ 侧 `TestCSharpConstantColor` 读同一份值来核对错误码 | 空串 |
 | `CASCADED_CSHARP_SB_PROBE=1` | 启用结构化缓冲探针；只有 `TestCSharpStructuredBuffer` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_SB_SELFTEST` | **仅 Debug**：`bad-buffer-color` / `unbound-field` / `bad-buffer-name` 三个负向模式；C++ 侧 `TestCSharpStructuredBuffer` 读同一份值来核对错误码 | 空串 |
+| `CASCADED_CSHARP_TEX_PROBE=1` | 启用纹理采样探针；只有 `TestCSharpTextureSampling` 在自己的 Tick 之前设置、之后清理 | 不设 |
+| `CASCADED_CSHARP_TEX_SELFTEST` | **仅 Debug**：`bad-texture-color` / `unbound-image` / `unbound-sampler` 三个负向模式；C++ 侧 `TestCSharpTextureSampling` 读同一份值来核对错误码 | 空串 |
 
 ## 失败语义（五条，全部实测过）
 
@@ -109,7 +122,7 @@ python build.py --config Debug
 | 托管程序集缺失 | `CSharpHost 初始化失败（退出码 3）：解析托管入口 Boot 失败，返回 -2146233079（程序集 …\bin\Scripting.Managed.dll）；找过的路径：…\hostfxr.dll、…\Scripting.Managed.runtimeconfig.json` |
 | 配置路径不存在 | `CSharpHost 初始化失败（退出码 3）：找不到托管侧的 runtimeconfig.json：…\bad.runtimeconfig.json；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、…\bad.runtimeconfig.json` |
 | 配置要的运行时版本本机没有 | `hostfxr_initialize_for_runtime_config 返回 -2147450730（…；配置里要的框架版本：7.0.0；本机已装的运行时版本：10.0.2、8.0.23、8.0.6、9.0.12）` |
-| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 8（真实值 7）` + `[托管侧] ABI 版本不符：引擎 8，托管侧期望 7` + `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 8、函数表 72 字节；0 = 成功）；找过的路径：…` |
+| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 9（真实值 8）` + `[托管侧] ABI 版本不符：引擎 9，托管侧期望 8` + `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 9、函数表 80 字节；0 = 成功）；找过的路径：…` |
 | 托管方法抛异常 | `[托管侧] Tick 抛异常：InvalidOperationException: …` + 引擎侧收到错误码 **4**；进程**不崩**。当前测试操作算失败，`GPUBackendTester` 按既有约定返回 **1**（不是无条件 0）；`Tools/check_csharp_host_failures.py` 按此断言 |
 
 ## 关闭
@@ -128,15 +141,15 @@ Select-String -LiteralPath $env:TEMP\csharp.out -Pattern '托管侧|IScriptHost|
 实测输出（节选）：
 
 ```
-[托管侧] 托管侧已启动：ABI 版本 7、函数表 72 字节
+[托管侧] 托管侧已启动：ABI 版本 8、函数表 80 字节
 [托管侧] 回调引擎 Echo(42) 得到 43
-CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 72 字节，ABI v7）
+CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 80 字节，ABI v8）
 IScriptHost 已取到：IsAvailable = true
 ```
 
 **已知限制（醒目）**：
 
-- 托管侧只认每个接口的**默认实例**（`get_interface_api` 的实例名传 `nullptr`）；按名寻址目前只有引擎与测试在用 —— 同一个接口的多份实现要能被脚本分别拿到，还得等托管表面的那一轮（`csharp-window-creation` 任务 5.6）。**例外**：编号 4 / 5 是目标类型表，本来就没有默认实例，取表时 `instanceOut` 允许为空。
+- 托管侧只认每个接口的**默认实例**（`get_interface_api` 的实例名传 `nullptr`）；按名寻址目前只有引擎与测试在用 —— 同一个接口的多份实现要能被脚本分别拿到，还得等托管表面的那一轮（`csharp-window-creation` 任务 5.6）。**例外**：编号 4 / 5 / 6 / 7 是目标类型表，本来就没有默认实例，取表时 `instanceOut` 允许为空。
 - 阻塞调用（`WaitIdle`、回读的 `Wait`）会卡住引擎主线程：渲染探针的 `WaitIdle` 就是这样同步提交的；窗口路径不碰这些。
 - 托管侧只在主线程被调用；线程拓扑、多脚本、热重载都不在本 change 的范围。
 - `nethost` 找不到时构建不失败、运行期报错 —— 这是有意的（让缺 .NET 的机器也能编引擎），但意味着"构建成功"不等于"C# 可用"。

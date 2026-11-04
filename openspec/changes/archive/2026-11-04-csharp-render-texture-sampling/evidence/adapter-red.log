@@ -1,0 +1,76 @@
+===== 任务 1.1 红态：python build.py --config Debug（声明已加、实现未加）=====
+时间：2026-11-04 20:37:00
+命令：python build.py --config Debug   （退出码 1，ninja: build stopped: subcommand failed）
+C2259 行原文（去重后）：
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): error C2259: 'graphics_backend::CScriptRenderBackend': cannot instantiate abstract class
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): error C2259: 'graphics_backend::CScriptRenderGraph': cannot instantiate abstract class
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): error C2259: 'graphics_backend::CScriptShaderStruct': cannot instantiate abstract class
+E:\Projects\CascadedEngine\Test\CoreTests\ScriptRenderBridgeTest.cpp(473): error C2259: 'graphics_backend::CScriptRenderBackend': cannot instantiate abstract class
+
+===== 任务 1.1 红态①：check_bindable_audit.py 的 INTERFACES 漏加 IScriptTexture 映射 =====
+命令：python Tools/CodeGen/check_bindable_audit.py
+退出码：1
+python : Traceback (most recent call last):
+At line:1 char:136
++ ... se); $out = python Tools/CodeGen/check_bindable_audit.py 2>&1 | Out-S ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+  File "E:\Projects\CascadedEngine\Tools\CodeGen\check_bindable_audit.py", line 344, in <module>
+    sys.exit(main())
+  File "E:\Projects\CascadedEngine\Tools\CodeGen\check_bindable_audit.py", line 265, in main
+    skips_cache[row["interface"]] = header_skips(repo, row["interface"])
+  File "E:\Projects\CascadedEngine\Tools\CodeGen\check_bindable_audit.py", line 129, in header_skips
+    path = repo / INTERFACES[interface]
+KeyError: 'IScriptTexture'
+
+===== 任务 1.1 红态①：check_bindable_audit.py 的 INTERFACES 漏加 IScriptTexture 映射 =====
+命令：python Tools/CodeGen/check_bindable_audit.py
+退出码：1
+扫描 11 个接口、对账 88 条方法、命中 4 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 僵尸行：审计表第里出现了接口中不存在的方法 IScriptTexture::GetWidth
+  ✗ 僵尸行：审计表第里出现了接口中不存在的方法 IScriptTexture::GetHeight
+  ✗ 汇总表里有未登记到头文件映射的接口：IScriptTexture
+  ✗ 汇总表合计不符：写 90、头文件实算 88
+
+===== 任务 1.1 红态②：审计表临时重复登记一行 IScriptShaderStruct::SetImage =====
+命令：python Tools/CodeGen/check_bindable_audit.py
+退出码：1
+扫描 12 个接口、对账 90 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 重复审计行：IScriptShaderStruct::SetImage 头文件 1 条、表里 2 条
+
+===== 任务 1.1 红态③：审计表合计临时写 84（头文件实算 90）=====
+命令：python Tools/CodeGen/check_bindable_audit.py
+退出码：1
+扫描 12 个接口、对账 90 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 汇总表合计不符：写 84、头文件实算 90
+
+===== 任务 1.1 恢复后绿态 =====
+命令：python Tools/CodeGen/check_bindable_audit.py
+退出码：0
+扫描 12 个接口、对账 90 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+
+===== 任务 1.1 散文旧读数 grep（判据：0 命中）=====
+命令：git grep -n '84 条\|84 方法\|合计 \*\*84\*\*\|10 个模块级接口\|11 个接口\|四个纯虚接口' -- <四个文件>
+命中：0 行（空输出）
+
+===== 任务 1.1 过程发现（照原文判据执行时必然撞上的三处构建面问题）=====
+① check_bindable_audit.py：审计表出现未登记到 INTERFACES 的接口时，header_skips 直接 KeyError 崩掉，
+   读不到「未登记到头文件映射的接口」这句点名。已改为返回空表，让主流程走到僵尸行与汇总表两条判据。
+② build.py 的 _binding_includes：compile_commands.json 里是绝对路径，原写法 Path(e['file']).parts[:2]
+   恒为 ('E:\\\\','Projects')，模块前缀比对永不成立，退到第一个含 Interface 段的编译单元（TimerSystem），
+   借来的 -I 里没有 codegen/Interface_RenderInterface —— 头一次 include 带生成物的真实引擎头就红：
+     绑定清单 渲染适配 失败（exit 3）：libclang: TextureSampler.h:91:10: fatal error: 'TextureSamplerDescriptor.codegen.h' file not found
+   已加 _record_path_parts 归一为仓库相对路径。
+③ 补上 -I 之后换成：TextureSamplerDescriptor.codegen.h:22:39: error: constexpr variable 'arr' must be
+   initialized by a constant expression —— 与 CODEGEN_EXTRA_DEFINES 注释里记的同一根因（clang 眼中 UCRT 的
+   offsetof 不是常量子）。绑定解析路径漏了这个定义，已把 CODEGEN_EXTRA_DEFINES 一并加进 _binding_includes。
+④ check_bindings.py 的 SHARED_VALUE_TYPES 未登记新的四个共享值类型 → 「共享值类型问题 4 处」（那是任务 4.2 的
+   条目，但不登记则 codegen 段一直红、构建永远到不了绿）。已按 4.2 的口径登记 TextureSamplerDescriptor 与三个枚举的逐字内容。
+
+===== 任务 1.1 现状（上述三处构建面已修，只剩实现未加的红态）=====
+python build.py --config Debug → 退出码 1；无 CODEGEN FAILED；error C2259 三处（CScriptRenderBackend / CScriptRenderGraph / CScriptShaderStruct）
+生成物已产出：IScriptTexture.Bindings.cpp/.cs、TextureSamplerDescriptor.Bindings.cs、三个枚举 .Bindings.cs
+共享值类型问题 0 处 / 绑定判据其余各项 0 处
+

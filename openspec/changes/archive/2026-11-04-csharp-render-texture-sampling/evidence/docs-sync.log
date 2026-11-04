@@ -1,0 +1,30 @@
+===== 任务 4.3 文档同步：三条实数对拍 + 路径存在性 =====
+时间：2026-11-04 21:10:39
+
+① 测试数：文档写 16（docs/testing.md 第 10 行的 ② 层、第 31 行标题、第 193 行判定）
+   对拍命令：& 'out\build\x64-debug\bin\GPUBackendTester.exe' --list
+   实测：退出码 0、16 行，末行 TestCSharpTextureSampling，前 15 行含 TestCSharpStructuredBuffer —— 与 docs/testing.md 的清单逐条相等（顺序也一致）
+
+② 托管签名条数：文档写 61
+   对拍命令：git grep -c 'Func<\|Action<' -- Scripting/Managed/SurfaceSignatureCheck.cs
+   实测：Scripting/Managed/SurfaceSignatureCheck.cs:61
+
+③ 进程级脚本数：文档写 12（docs/testing.md 第 11 行与第 39 行标题）
+   对拍命令：Get-ChildItem Tools -Recurse -Filter 'check_*.py' -File | Measure-Object | % Count
+   实测：12
+   清单：Tools\check_csharp_constant_color.py、Tools\check_csharp_host_failures.py、Tools\check_csharp_host_readme.py、Tools\check_csharp_structured_buffer.py、Tools\check_csharp_texture_sampling.py、Tools\check_csharp_triangle.py、Tools\check_gpu_timing.py、Tools\check_window_system_bindings.py、Tools\CodeGen\check_bindable_audit.py、Tools\CodeGen\check_bindings.py、Tools\CodeGen\check_hash_sources.py、Tools\CodeGen\check_legacy_symbols.py
+
+④ 文档路径存在性
+   Test-Path 'docs/testing.md' = True
+   Test-Path 'docs/ROADMAP.md' = True
+   Test-Path 'Tools/check_csharp_texture_sampling.py' = True
+   Test-Path 'CSharpHost/README.md' = True
+   Test-Path 'Tools/CodeGen/README.md' = True
+   Test-Path 'openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md' = True
+
+⑤ ROADMAP 的 change 状态判据：git grep -n '尚未立 OpenSpec change' -- docs/ROADMAP.md（3 处，逐处与本 change 状态对照）
+docs/ROADMAP.md:70:以下阶段均为方向。阶段 4 的四个 change 均已归档（第二个 11/11，2026-11-03 归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`；第三个 11/11，2026-11-04 归档到 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/`；第四个 10/10，2026-11-04 归档到 `openspec/changes/archive/2026-11-04-csharp-render-structured-buffer/`）；第五个 `csharp-render-texture-sampling` 的工件**已建立、尚未批准实施**（它自己的 `tasks.md` 是唯一进度事实源）；除这五个之外，其余内容**尚未立 OpenSpec change**。编号表达目标依赖，不代表已批准的任务清单，也不要求所有工作严格串行。
+docs/ROADMAP.md:86:前三个 change 均已归档，第四个 `csharp-render-structured-buffer` 也于 2026-11-04 实施完成 10/10 并归档到 `openspec/changes/archive/2026-11-04-csharp-render-structured-buffer/`；第五个（纹理与采样）的工件已建立在 `openspec/changes/csharp-render-texture-sampling/`，**尚未批准实施**（进度只看它自己的 `tasks.md`）。后续方向还包括**其它 GPU 后端接口的 C# 绑定**：按现有后端测试与产品需要，分批覆盖多阶段图、计算、读回和 GPU 查询等能力。上述后续方向均尚未立 OpenSpec change，需分别明确接口范围、资源所有权与可失败的验收，不代表通用渲染框架已获批准。首个切片与未决问题见 `TODO/006-csharp-render-backend-binding.md`。
+docs/ROADMAP.md:88:排期后续方向（用户 2026-11-04 提出）：在绑定批次照现有窄接口形态跑通之后，要把**合并 C++ 端渲染接口**提上日程——现在 C++ 侧是两层并行的接口面（原生 `CRenderBackend`/`GPUGraph` 与手写的 `IScriptRender*` ScriptBridge 适配层），目标是合并为一致的 C++ 接口面，且合并后必须保证 C++ 端的易用性不下降。该方向尚未立 OpenSpec change。
+   对照：第 70/86 行都明确写「第五个 csharp-render-texture-sampling 工件已建立、尚未批准实施」，与本 change 现状一致；第 88 行说的是「合并 C++ 端渲染接口」这个独立方向仍未立 change，与本批无关、仍然成立。
+

@@ -1,0 +1,110 @@
+﻿===== 任务 5.2 判据①：git status --porcelain -uall 逐行分类 =====
+允许出现的路径前缀清单（白名单，先写在这里，再逐行分类）：
+  CSharpHost/
+  Interface/RenderInterface/
+  Scripting/Managed/
+  Test/CoreTests/ScriptRenderBridgeTest.cpp
+  Test/GPUBackendTester/Main.cpp
+  Tools/
+  build.py
+  docs/ROADMAP.md
+  docs/testing.md
+  openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md
+  openspec/changes/csharp-render-texture-sampling/
+  openspec/changes/archive/2026-11-04-csharp-render-texture-sampling/
+  CAResources/Shaders/Test/TestCSharpTextureSampling.slang
+  .dsh-acl-recovery/
+
+git status --porcelain -uall → 43 行
+  [白名单:C]  M CSharpHost/README.md
+  [白名单:C]  M CSharpHost/private/CSharpHost.cpp
+  [白名单:I]  M Interface/RenderInterface/header/ScriptRenderBridge.h
+  [白名单:I]  M Interface/RenderInterface/private/ScriptRenderBridge.cpp
+  [白名单:I]  M Interface/RenderInterface/private/ScriptRenderBridge.h
+  [白名单:S]  M Scripting/Managed/EngineApi.cs
+  [白名单:S]  M Scripting/Managed/Host.cs
+  [白名单:S]  M Scripting/Managed/SurfaceSignatureCheck.cs
+  [白名单:S]  M Scripting/Managed/UserScript.cs
+  [白名单:T]  M Test/CoreTests/ScriptRenderBridgeTest.cpp
+  [白名单:T]  M Test/GPUBackendTester/Main.cpp
+  [白名单:T]  M Tools/CodeGen/README.md
+  [白名单:T]  M Tools/CodeGen/check_bindable_audit.py
+  [白名单:T]  M Tools/CodeGen/check_bindings.py
+  [白名单:T]  M Tools/check_csharp_host_failures.py
+  [白名单:T]  M Tools/check_csharp_host_readme.py
+  [白名单:b]  M build.py
+  [白名单:d]  M docs/ROADMAP.md
+  [白名单:d]  M docs/testing.md
+  [白名单:o]  M openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md
+  [白名单:.] ?? .dsh-acl-recovery/acl-backup-45b89db38d774d548a8b261ae8557762.json
+  [白名单:.] ?? .dsh-acl-recovery/acl-backup-45b89db38d774d548a8b261ae8557762.json.ps1
+  [白名单:.] ?? .dsh-acl-recovery/acl-report-b32863df85f5436badf50328bb92869b.jsonl
+  [白名单:C] ?? CAResources/Shaders/Test/TestCSharpTextureSampling.slang
+  [白名单:T] ?? Tools/check_csharp_texture_sampling.py
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/.openspec.yaml
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/design.md
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/adapter-red.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/docs-sync.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/final-regression.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/host-pixel-red.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/host-render-api.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/managed-texture.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/param-binding-checks.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/pixel-validation.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/tex-create-mutations.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/tex-lifetime.log
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/evidence/tex-test-skeleton.log
+  [白名单:o] ?? "openspec/changes/csharp-render-texture-sampling/evidence/\345\244\204\347\275\256.md"
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/proposal.md
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/specs/csharp-host/spec.md
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/specs/csharp-rendering/spec.md
+  [白名单:o] ?? openspec/changes/csharp-render-texture-sampling/tasks.md
+
+白名单外的行数 = 0（判据要求 0）
+
+===== 任务 5.2 判据②：新增文件的空白检查 =====
+  [干净] CAResources/Shaders/Test/TestCSharpTextureSampling.slang
+  [干净] Tools/check_csharp_texture_sampling.py
+  [干净] openspec\changes\csharp-render-texture-sampling\.openspec.yaml
+  [干净] openspec\changes\csharp-render-texture-sampling\design.md
+  [干净] openspec\changes\csharp-render-texture-sampling\proposal.md
+  [干净] openspec\changes\csharp-render-texture-sampling\tasks.md
+  [行尾空白] openspec\changes\csharp-render-texture-sampling\evidence\adapter-red.log 共 1 行（首行 19）
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\docs-sync.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\final-regression.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\final-status.txt
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\host-pixel-red.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\host-render-api.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\managed-texture.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\param-binding-checks.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\pixel-validation.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\tex-create-mutations.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\tex-lifetime.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\tex-test-skeleton.log
+  [干净] openspec\changes\csharp-render-texture-sampling\evidence\处置.md
+  [干净] openspec\changes\csharp-render-texture-sampling\specs\csharp-host\spec.md
+  [干净] openspec\changes\csharp-render-texture-sampling\specs\csharp-rendering\spec.md
+
+带行尾空白的新增文件数 = 1（判据要求 0）
+
+被修改文件的空白扫描（同一命令，白名单内全部修改项）：
+带行尾空白的已修改文件数 = 0（判据要求 0）
+
+===== 任务 5.2 判据③：崩溃转储扫描 =====
+Get-ChildItem -Recurse -Filter '*.dmp' -Force → 0 个（判据要求为空）
+
+===== gitignore 产物存在性自证 =====
+Test-Path test_output = True；文件数 = 123
+Test-Path .review_tmp = True；文件数 = 8
+两者都是跑测试/verify_readme 的产物目录，按 .gitignore 豁免、不进仓库（同前几批）。
+
+===== 任务 5.2 判据②③ 复算（修掉 evidence/adapter-red.log 第 19 行的一处行尾空白之后）=====
+新增文件里带行尾空白的个数 = 0；已修改文件里带行尾空白的个数 = 0（两项都要求 0）
+新增文件总数 = 21（逐个扫过）
+
+崩溃转储：Get-ChildItem -Recurse -Filter '*.dmp' -Force → 0 个（要求 0）
+
+【复算（写完 final-status.txt 与 final-build.log 之后，2026-11-04 21:31）】
+  git status --porcelain -uall → 45 行；白名单内 45 行、白名单外 0 行（要求 0）
+  行尾空白复算：命中 0 个文件（要求 0）
+

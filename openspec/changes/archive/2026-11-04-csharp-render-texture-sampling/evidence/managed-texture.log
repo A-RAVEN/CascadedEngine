@@ -1,0 +1,42 @@
+﻿===== 任务 3.2 托管纹理探针的实测读数（主 agent 代跑，两后端全量绿跑 21:22:00 二进制）=====
+命令：GPUBackendTester.exe --backend <d3d12|vulkan> --headless 10 --report test_output\full_green_<backend>.json（退出码 0，16/16 pass）
+日志：%TEMP%\full_<backend>\TestCSharp*.log（每个测试自己那份）与 %TEMP%\tex_fullgreen_<backend>.log（进程 stderr 与控制台）
+
+【正常探针：基线 + 增量（两个后端逐字相同）】
+  TestCSharpTextureSampling 调用计数：createTexture=1 setImage=1 setSampler=1 setPassParam=2 setFloat3=0 setStruct=0 setBuffer=0 captureTarget=1 上传执行=1 本次提交执行=1
+  → CreateTexture +1、SetImage +1、SetSampler +1、SetPassParam +2、SetFloat3/SetStruct/SetBuffer 各 +0 全部对上；
+    上传执行 +1 与"本次提交执行"分开读。
+  → **与 tasks 3.2 原文的一处出入（如实记录，不静默）**：3.2 写「提交执行增量 +0」，但正常模式提交成功必然让
+    `GetExecuteGraphCountForTest` +1（design 决策五写的是「WaitIdle 与提交执行增量 +1/+0」，4.1 才规定漏绑形态 +0）。
+    实现按 design / 4.1：正常 = +1、unbound 两形态 = +0；实测读数如上。
+  等待判据：TestCSharpTextureSampling：backend=d3d12 mode=normal size=320x240 wait=3→4 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,255,0,255)
+  （vulkan 同形，仅 backend 字段不同）→ 适配器 WaitIdle +1、待完成清理 0、呈现清单 1 项。
+
+【disposed 步摘要行（逐字可见）】
+  [托管侧] [脚本 纹理] OnTextureProbe 调用 #1：mode=normal passCount=2 submitStatus=0 unboundImage=False unboundSampler=False texture=(2x2) disposed=ObjectDisposedException 原生 SetImage 调用 0 submitError=
+  → 异常类型 + 「原生 SetImage 调用 0」都在；C++ 侧另有一行 `TestCSharpTextureSampling disposed 摘要行=…` 证明它是从本次运行自己的日志里读回来的。
+
+【两种漏绑：绑定钩子增量 0、提交非零点名、提交执行增量 0】
+  unbound-image（d3d12/vulkan，21:16:34 二进制）：exit 1；error 逐字：
+  E_TEX_BIND: unbound-image：参数表 2 条、适配器点名 testTexture、本次提交执行增量 0（上传执行 1 另计）、等待计数 0→0，按预期失败
+  日志行：TestCSharpTextureSampling 负向计数：setImage=0（期望 0） setSampler=1（期望 1） 上传执行=1（期望 1） 本次提交执行增量=0（期望 0）
+  unbound-sampler（21:12 二进制）：exit 1；error 逐字：
+  E_TEX_BIND: unbound-sampler：参数表 2 条、适配器点名 testSampler、本次提交执行增量 0（上传执行 1 另计）、等待计数 0→0，按预期失败
+
+【四探针在全量顺序各「调用 #1」互不消耗（两后端一致）】
+  [托管侧] [脚本 渲染] OnRenderProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipPresent=False skipWait=False
+  [托管侧] [脚本 常量色] OnConstantColorProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipParam=False disposedThrew=True submitError=
+  [托管侧] [脚本 结构化缓冲] OnStructuredBufferProbe 调用 #1：mode=normal passCount=2 submitStatus=0 unboundField=False badBufferName=False submitError=
+  [托管侧] [脚本 纹理] OnTextureProbe 调用 #1：…（见上）
+
+【非探针测试期间纹理相关钩子增量 0（沿用既有"非探针读数"写法，放在 TestCSharpTriangle 里）】
+  非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget=0 createShaderStruct=0 addBuffer=0 executeGraph=0
+  createTexture=0 上传执行=0 setImage=0 setSampler=0
+  → 八项全 0；这条断言在 Test\GPUBackendTester\Main.cpp 里，任一项非 0 就 fail E_RENDER_NONPROBE_WORK。
+
+【三形态点名行为（托管日志逐字）】
+  bad-texture-color：report error = E_TEX_PIXEL: bad-texture-color：中心精确等于 (0,255,255,255)，按预期失败
+  unbound-image / unbound-sampler：见上两条 E_TEX_BIND（分别点名 testTexture / testSampler）
+
+【未启用探针零 GPU 工作】见上面"非探针阶段读数"八项全 0。
+

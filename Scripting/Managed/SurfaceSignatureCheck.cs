@@ -23,6 +23,8 @@ namespace Scripting.Managed
         private static IScriptRenderBackend NoRenderBackend => null;
         // csharp-render-shader-constants 任务 1.2：参数结构窄接口（第四个脚本接口）。
         private static IScriptShaderStruct NoShaderStruct => null;
+        // csharp-render-texture-sampling 任务 1.2：只读纹理窄接口（第五个脚本接口）。
+        private static IScriptTexture NoTexture => null;
 
         internal static void Compile()
         {
@@ -126,6 +128,21 @@ namespace Scripting.Managed
                 (field, bufferName) => NoShaderStruct.SetBuffer(field, bufferName);
             Func<string> shaderStructError = () => NoShaderStruct.GetLastError();
 
+            // ---- 纹理窄接口与三个既有接口的新方法（csharp-render-texture-sampling 任务 1.2）----
+            // `uint` 两个尺寸读数不许退化成 int / ulong；`CreateTexture` 的字节数组不许换成指针；
+            // `SetImage` 的入参必须是纹理解口表面对象；`SetSampler` 的入参必须是公开记录类型。
+            Func<uint> textureWidth = () => NoTexture.GetWidth();
+            Func<uint> textureHeight = () => NoTexture.GetHeight();
+            Func<string, uint, uint, byte[], IScriptTexture> createTexture =
+                (name, width, height, rgba) => NoRenderBackend.CreateTexture(name, width, height, rgba);
+            Func<string, IScriptTexture, int> setImage =
+                (field, texture) => NoShaderStruct.SetImage(field, texture);
+            Func<string, TextureSamplerDescriptor, int> setSampler =
+                (field, sampler) => NoShaderStruct.SetSampler(field, sampler);
+            Func<string, uint, uint, uint, int> setPositionTextureStream =
+                (streamName, stride, positionOffset, texcoordOffset) =>
+                    NoRenderGraph.SetPositionTextureStream(streamName, stride, positionOffset, texcoordOffset);
+
             // 把这些引用"用掉"，避免 CS0219 之类的噪音（也防止有人把上面的赋值删掉还看不出来）
             _ = new object[]
             {
@@ -138,6 +155,7 @@ namespace Scripting.Managed
                 passCount, graphError, windowTarget, captureTarget, createGraph, submitGraph, waitIdle,
                 backendError, setPositionStream, setPassParam, createShaderStruct, setFloat3, setStruct,
                 setBuffer, shaderStructError,
+                textureWidth, textureHeight, createTexture, setImage, setSampler, setPositionTextureStream,
             };
         }
 
@@ -221,6 +239,56 @@ namespace Scripting.Managed
                 typeof(GPUBufferDescriptor).GetField("stride").FieldType != typeof(ulong))
             {
                 return "记录自检：GPUBufferDescriptor 的 count / stride 不是 ulong（uint64_t 必须按 ulong 投影）";
+            }
+
+            // ---- 采样器公开记录与它的三个枚举（csharp-render-texture-sampling 任务 1.2 / D22）----
+            // 数值是**先实测再写死**的：用生成物 `TextureSamplerDescriptor.Bindings.cs` 单独跑一次
+            // `Marshal.SizeOf` / `Marshal.OffsetOf`，读到的读数逐字是 32 与 0/4/8/12/16/20/24/28。
+            // 字段顺序错、枚举换成别的类型、bool 退化成 4 字节，下面的判据都会点名。
+            error = BindingLayoutCheck.VerifyEnum(typeof(ETextureSamplerFilterMode), typeof(int),
+                ("eNearest", 0), ("eLinear", 1));
+            if (error != null)
+            {
+                return error;
+            }
+            error = BindingLayoutCheck.VerifyEnum(typeof(ETextureSamplerAddressMode), typeof(int),
+                ("eRepeat", 0), ("eMirroredRepeat", 1), ("eClampToEdge", 2), ("eClampToBorder", 3));
+            if (error != null)
+            {
+                return error;
+            }
+            error = BindingLayoutCheck.VerifyEnum(typeof(ETextureSamplerBorderColor), typeof(int),
+                ("eTransparentBlack", 0), ("eOpaqueBlack", 1), ("eOpaqueWhite", 2));
+            if (error != null)
+            {
+                return error;
+            }
+            error = BindingLayoutCheck.VerifyRecord(typeof(TextureSamplerDescriptor), 32,
+                ("magFilterMode", 0), ("minFilterMode", 4), ("mipmapFilterMode", 8),
+                ("addressModeU", 12), ("addressModeV", 16), ("addressModeW", 20),
+                ("boarderColor", 24), ("integerFormat", 28));
+            if (error != null)
+            {
+                return error;
+            }
+            if (typeof(TextureSamplerDescriptor).GetField("integerFormat").FieldType != typeof(bool))
+            {
+                return "记录自检：TextureSamplerDescriptor.integerFormat 不是 bool（bool 不得退化）";
+            }
+            if (typeof(TextureSamplerDescriptor).GetField("magFilterMode").FieldType !=
+                typeof(ETextureSamplerFilterMode))
+            {
+                return "记录自检：TextureSamplerDescriptor.magFilterMode 不是公开枚举 ETextureSamplerFilterMode";
+            }
+            if (typeof(TextureSamplerDescriptor).GetField("addressModeU").FieldType !=
+                typeof(ETextureSamplerAddressMode))
+            {
+                return "记录自检：TextureSamplerDescriptor.addressModeU 不是公开枚举 ETextureSamplerAddressMode";
+            }
+            if (typeof(TextureSamplerDescriptor).GetField("boarderColor").FieldType !=
+                typeof(ETextureSamplerBorderColor))
+            {
+                return "记录自检：TextureSamplerDescriptor.boarderColor 不是公开枚举 ETextureSamplerBorderColor";
             }
             return null;
         }

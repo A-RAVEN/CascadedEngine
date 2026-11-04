@@ -1050,9 +1050,28 @@ CODEGEN_BINDINGS = [
     # csharp-render-backend-triangle 任务 1.1：脚本专用窄渲染适配面（目标 / 图 / 后端三个接口）。
     # 主头只声明接口与方法；原生实现与 CMake 接线在任务 2.1 / 2.2。
     # csharp-render-shader-constants 任务 1.1：同一头里追加参数结构接口 `IScriptShaderStruct`。
+    # csharp-render-texture-sampling 任务 1.1：同一头里追加只读纹理句柄 `IScriptTexture`。
     ("Interface/RenderInterface/header/ScriptRenderBridge.h", "渲染适配",
-     ["IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend", "IScriptShaderStruct"]),
+     ["IScriptTexture", "IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend",
+      "IScriptShaderStruct"]),
 ]
+
+
+def _record_path_parts(file_path: str) -> list[str]:
+    """compile_commands.json 里的文件名是**绝对路径**；先归一成"相对仓库根的 POSIX 路径"再按目录匹配。
+
+    不归一时 `Path(e["file"]).parts[:2]` 永远是 `('E:\\', 'Projects')`，模块前缀比对恒不成立，
+    会一路退到第一个"路径里含 Interface 段"的编译单元（实测是 TimerSystem 那个）——
+    借来的 `-I` 里没有本模块的生成物目录，头文件里的 `<类型>.codegen.h` 就找不到（实测红态：
+    `TextureSampler.h:91: fatal error: 'TextureSamplerDescriptor.codegen.h' file not found`）。
+    """
+    path = Path(file_path)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(PROJECT_DIR.resolve()).parts
+        except ValueError:
+            pass
+    return path.parts
 
 
 def _binding_includes(entries: list[dict], header: str) -> list[str]:
@@ -1068,9 +1087,9 @@ def _binding_includes(entries: list[dict], header: str) -> list[str]:
     # 找不到再退回只按第一段找，最后才退到 CoreTests 的编译单元。
     prefix = "/".join(header_path.parts[:2])
     env = next((e for e in entries
-                if "/".join(Path(e["file"]).parts[:2]) == prefix), None)
+                if "/".join(_record_path_parts(e["file"])[:2]) == prefix), None)
     if env is None:
-        env = next((e for e in entries if module in Path(e["file"]).parts), None)
+        env = next((e for e in entries if module in _record_path_parts(e["file"])), None)
     if env is None:
         env = next((e for e in entries if Path(e["file"]).as_posix().startswith("Test/CoreTests/")),
                    None)
@@ -1085,7 +1104,12 @@ def _binding_includes(entries: list[dict], header: str) -> list[str]:
             continue
         seen_dirs.add(d)
         includes.append(f"-I{str(Path(d)).replace(chr(92), '/')}")
-    includes += ["-ICACore/header", "-ITools/CodeGen/clang_shim"]
+    # 与 codegen 那条解析路径共用同一组补充：clang_shim 的 `cpuid.h`，以及让 `offsetof` 走
+    # `__builtin_offsetof` 的定义（理由见 CODEGEN_EXTRA_DEFINES）。不补定义时，被绑定头一旦
+    # include 带生成物 `<类型>.codegen.h` 的真实引擎头（实测：`ScriptRenderBridge.h` →
+    # `TextureSampler.h` → `TextureSamplerDescriptor.codegen.h`），解析就报
+    # "constexpr variable 'arr' must be initialized by a constant expression"，退出码 3。
+    includes += ["-ICACore/header", "-ITools/CodeGen/clang_shim"] + list(CODEGEN_EXTRA_DEFINES)
     return includes
 
 

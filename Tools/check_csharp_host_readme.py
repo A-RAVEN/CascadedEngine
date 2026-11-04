@@ -8,6 +8,9 @@
   ① ABI 版本：README 的 `vN` == `Host.cs` 的 `ExpectedAbiVersion` == `CSharpHost.cpp` 的 `s_engineApiVersion`；
   ② 函数表大小：README 的字节数 == `CSharpHost.cpp` 里 `static_assert(sizeof(EngineApi) == N)` 的 N
      （那条 static_assert 由编译器核对，所以 N 是"实测值"而不是文档自己写的数）；
+     ②b 全文读数：README **每一处**「函数表 N 字节」「ABI vN」「sizeof(EngineApi) == Nu」
+     「托管侧期望 N」都必须等于上面两个值，出现「不是 N」而 N 就是真实值时也算不符 ——
+     此前只读头部那一行，散文示例里的旧读数漏网（csharp-render-texture-sampling 任务 3.1）；
   ③ 接口编号表：README 每一行的编号与接口名 == `CSharpHost.cpp` 的 `s_interfaceId*` 常量，
      且行数 == `EngineApi.cs` 里下发的接口编号字段数；
   ④ 探针开关：`Host.cs` / `UserScript.cs` 里读的环境变量（`CASCADED_*`）每一个都在 README 的
@@ -130,6 +133,54 @@ def parse_env_names(text: str) -> set[str]:
     return set(re.findall(r'GetEnvironmentVariable\("(CASCADED_[A-Z0-9_]+)"', text))
 
 
+def scan_readme_readings(text: str, version: int, size: int) -> list[str]:
+    """逐行扫描 README 全文的版本 / 字节数读数，返回不符项（带行号与原文）。
+
+    只扫这几类"肯定是读数"的写法，避免把散文里的其它数字算进来：
+      · `函数表 N 字节`（启动日志、就绪日志、失败示例、正文说明）
+      · `ABI vN`
+      · `sizeof(EngineApi) == Nu` / `sizeof(EngineApi) == N`
+      · `托管侧期望 N`
+      · `不是 N` —— 反向断言：N 恰好是真实值时必须报（"不是 80"而真实就是 80 是假话）
+    """
+    problems: list[str] = []
+    counted = {"函数表字节数": 0, "ABI vN": 0}
+    for index, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        for match in re.finditer(r"函数表\s*(\d+)\s*字节", line):
+            counted["函数表字节数"] += 1
+            value = int(match.group(1))
+            if value != size:
+                problems.append(
+                    f"第 {index} 行：函数表 {value} 字节 ≠ static_assert {size} 字节 —— {stripped}")
+        for match in re.finditer(r"ABI v(\d+)", line):
+            counted["ABI vN"] += 1
+            value = int(match.group(1))
+            if value != version:
+                problems.append(
+                    f"第 {index} 行：ABI v{value} ≠ s_engineApiVersion {version} —— {stripped}")
+        for match in re.finditer(r"sizeof\s*\(\s*EngineApi\s*\)\s*==\s*(\d+)", line):
+            value = int(match.group(1))
+            if value != size:
+                problems.append(
+                    f"第 {index} 行：sizeof(EngineApi) == {value} ≠ static_assert {size} —— {stripped}")
+        for match in re.finditer(r"托管侧期望\s*(\d+)", line):
+            value = int(match.group(1))
+            if value != version:
+                problems.append(
+                    f"第 {index} 行：托管侧期望 {value} ≠ 当前 ABI {version} —— {stripped}")
+        for match in re.finditer(r"不是\s*(\d+)", line):
+            value = int(match.group(1))
+            if value == size:
+                problems.append(
+                    f"第 {index} 行：写着「不是 {value}」，但 static_assert 就是 {size} 字节 —— {stripped}")
+    # 读数被整段删掉同样是失效：两条最基本的读数至少在全文里出现一次。
+    for key, count in counted.items():
+        if count == 0:
+            problems.append(f"README 全文里找不到任何「{key}」读数 —— 判据被架空")
+    return problems
+
+
 def main() -> int:
     try:
         readme_text = read(README)
@@ -160,6 +211,8 @@ def main() -> int:
         problems.append(
             f"函数表大小不符：README 写 {readme_size} 字节、CSharpHost.cpp 的 "
             f"static_assert(sizeof(EngineApi) == {cpp_size})")
+    # ②b 全文读数（任务 3.1）：散文示例、失败样例里的旧值同样要红。
+    problems.extend(scan_readme_readings(readme_text, cpp_version, cpp_size))
 
     # ③ 接口编号表 vs s_interfaceId* 常量 vs EngineApi.cs 字段数
     cpp_id_values = sorted(cpp_ids.values())

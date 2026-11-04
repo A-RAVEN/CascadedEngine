@@ -1,0 +1,43 @@
+﻿===== 任务 5.1 全量回归（主 agent 代跑 GPU 部分；工具与 CoreTests 由执行者自跑）=====
+二进制：out\build\x64-debug\bin\GPUBackendTester.exe 21:22:00 / Scripting.Managed.dll 21:25:37（变异 C 已还原）
+主 agent 日志：%TEMP%\tex_final.log；窗口 2026-11-04 21:27-21:33
+
+【A 段：3.1 总门变异 C 的恢复确认（四条单测）】
+  CODE green_tri=0、green_cc=0、green_sb=0、green_tex=0
+  report 逐字：gate_green_tri/cc/sb/tex.json 各一行 status="pass"（148/132/148/136 ms）
+  → 总门变异红（四条全 fail、文本含「四个目标类型表」）→ 还原后四条全 pass，闭环成立。
+
+【全量（两后端各一次，--headless 10 --report test_output\final_full_<backend>.json）】
+  CODE full_d3d12=0、CODE full_vulkan=0
+  final_full_d3d12.json：total=16 pass=16 fail=0（mtime 21:27:04）
+  final_full_vulkan.json：total=16 pass=16 fail=0（mtime 21:27:06）
+
+【32 条分模式报告（先删旧 csharp_*_*.json，mtime 全部落在本次窗口 21:27:08-21:28:00）】
+  纹理 8 份：2 normal pass、6 负向 fail（bad-texture-color / unbound-image / unbound-sampler × 2 后端）
+  结构化缓冲 8 份：2 normal pass、6 负向 fail
+  常量色 6 份：2 normal pass、4 负向 fail
+  三角形 10 份：2 normal pass、8 负向 fail
+  退出码：normal 8 条全 0；负向 24 条全 1（纹理 6 / 结构化 6 / 常量色 4 / 三角形 8）——与各模式期望逐条一致
+  文件清单（名 / mtime / 字节数）见 test_output\ 下 32 行；首次 21:27:08、末次 21:28:00
+
+【六条对账】
+  python Tools\check_csharp_texture_sampling.py → 退出码 0、问题 0 处
+  python Tools\check_csharp_structured_buffer.py → 退出码 0、问题 0 处
+  python Tools\check_csharp_constant_color.py → 退出码 0、问题 0 处
+  python Tools\check_csharp_triangle.py → 退出码 0、问题 0 处
+  python Tools\check_window_system_bindings.py --log test_output/TestCSharpWindow.log → 退出码 0；
+    逐字：GetMonitor 对拍 1 组 / 回调对拍 0 类 / 目标释放对拍 1 组 / 命中 0 处问题
+  python Tools\check_window_system_bindings.py --log test_output/TestCSharpWindowCallbacks.log --callbacks → 退出码 0；
+    逐字：…回调对拍 10 类 / 目标释放对拍 2 组 / 命中 0 处问题
+
+【工具链（执行者自跑，同一窗口）】
+  out\build\x64-debug\bin\CoreTests.exe → 退出码 0（Script render bridge test PASSED 等全部 PASSED）
+  python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings → 退出码 0（真实接口桩数 0、共享值类型问题 0、脚本渲染适配面问题 0）
+  python Tools\CodeGen\check_bindable_audit.py → 退出码 0（扫描 12 个接口、对账 90 条方法、命中 0 处问题）
+  python Tools\check_gpu_timing.py → 退出码 0（检查 2/2 个后端、0 处问题）
+  python Tools\check_csharp_host_readme.py → 退出码 0（v8 / 80 字节 / 7 行编号 / 问题 0 处）
+  python Tools\CodeGen\verify_readme.py → 退出码 0（22 documented command(s) run, 0 mismatch(es)）
+  python Tools\check_csharp_host_failures.py → 退出码 0（5 场景全过；主 agent 代跑，见 host-render-api.log）
+
+【转储】Get-ChildItem -Recurse -Filter *.dmp -Force → dump_count=0
+

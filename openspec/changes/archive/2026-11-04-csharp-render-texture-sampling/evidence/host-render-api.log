@@ -1,0 +1,91 @@
+﻿===== 任务 3.1 红态①：把 CASCADED_CSHARP_TEX_PROBE 的 README 出现全部删掉（第 75 行开关句 + 第 113 行表行）=====
+命令：python Tools/check_csharp_host_readme.py
+退出码：1
+ABI 版本：README v8 / Host.cs 8 / CSharpHost.cpp 8
+函数表大小：README 80 字节 / static_assert 80 字节
+接口编号表：README 7 行 [1, 2, 3, 4, 5, 6, 7] / CSharpHost.cpp 7 个常量 / EngineApi.cs 7 个字段
+探针开关：代码里读到 11 个，README 表里 11 个
+问题 1 处
+  ✗ README 的环境变量表缺这些开关：CASCADED_CSHARP_TEX_PROBE
+
+===== 任务 3.1 红态②：把第 17 行的「不是 72」改回「不是 80」=====
+===== 任务 3.1 红态②：把第 18 行的「不是 72」改回「不是 80」=====
+命令：python Tools/check_csharp_host_readme.py
+退出码：1
+ABI 版本：README v8 / Host.cs 8 / CSharpHost.cpp 8
+函数表大小：README 80 字节 / static_assert 80 字节
+接口编号表：README 7 行 [1, 2, 3, 4, 5, 6, 7] / CSharpHost.cpp 7 个常量 / EngineApi.cs 7 个字段
+探针开关：代码里读到 11 个，README 表里 12 个
+问题 1 处
+  ✗ 第 18 行：写着「不是 80」，但 static_assert 就是 80 字节 —— `sizeof(EngineApi)` 由 `CSharpHost.cpp` 里的 `static_assert(sizeof(EngineApi) == 80u)` 由编译器核对：v7 的 72 字节已经是 8 的整倍数、**没有尾部填充可用**，v8 追加一个 `uint32_t` 后正文 76 字节、按 8 字节对齐补到 **80 字节**（不是 80）。
+
+===== 任务 3.1 恢复后绿态 =====
+命令：python Tools/check_csharp_host_readme.py
+退出码：0
+ABI 版本：README v8 / Host.cs 8 / CSharpHost.cpp 8
+函数表大小：README 80 字节 / static_assert 80 字节
+接口编号表：README 7 行 [1, 2, 3, 4, 5, 6, 7] / CSharpHost.cpp 7 个常量 / EngineApi.cs 7 个字段
+探针开关：代码里读到 11 个，README 表里 12 个
+问题 0 处
+
+===== 任务 3.1 待主 agent 代跑的读数（本文件后续追加）=====
+① abi-mismatch 自检：python Tools/check_csharp_host_failures.py（五场景全过，ABI 场景点名「托管侧期望 8」）
+② python Tools/check_csharp_host_failures.py 整体退出码
+③ 编号 7 空实例取表成功 / 缺后端依赖仍明确失败（GPUBackendTester 日志）
+④ 红态：临时在 BindRenderInterfaces 跳过第五个 BindTargetTable → 第 16 项点名 IScriptTexture、其余三探针绿
+
+===== 任务 3.1 ABI v8 与宿主接线的实测读数（主 agent 代跑）=====
+
+【v8 = 80 字节（编译器核对 + 运行期读数）】
+  CSharpHost/private/CSharpHost.cpp：static_assert(sizeof(EngineApi) == 80u, …)（编译通过即成立）
+  s_engineApiVersion = 8；Scripting/Managed/Host.cs：ExpectedAbiVersion = 8；EngineApi.cs 末尾 ScriptTextureInterfaceId
+  运行期（变异 A 红态那次的同一行输出，逐字）：CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 5（引擎侧 ABI 版本 8、函数表 80 字节；0 = 成功）
+
+【ABI 不符场景（CASCADED_CSHARP_SELFTEST=abi-mismatch）】
+  python Tools/check_csharp_host_failures.py → 退出码 0；该场景逐字：「[通过] ABI 版本不符：退出码 3（期望 3）；含 ABI 版本不符 与 托管侧期望 8：True」
+  五场景全过：缺托管程序集 / 配置路径不存在 / 运行时版本无匹配 / ABI 版本不符 / 托管抛异常（5 通过、0 失败）
+
+【check_csharp_host_readme.py（README 全文读数对拍）】
+  退出码 0；输出逐字：ABI 版本：README v8 / Host.cs 8 / CSharpHost.cpp 8；函数表大小：README 80 字节 / static_assert 80 字节；
+  接口编号表：README 7 行 [1, 2, 3, 4, 5, 6, 7] / CSharpHost.cpp 7 个常量 / EngineApi.cs 7 个字段；探针开关：代码里读到 11 个，README 表里 12 个；问题 0 处
+
+【待补（等全量绿跑回传）】编号 7 空实例取表成功（托管日志「五个函数表已绑定（后端实例 …）」+ 第 16 项 pass）；
+  关闭顺序逐项读数（[托管侧 关闭顺序] 1/4 参数结构 → 2/4 纹理 → 3/4 图 → 离屏目标 → 4/4 后端表面）；
+  缺后端依赖仍明确失败（既有场景）；总门变异红态（+1000u）读数。
+
+【总门红态（裁决批准的 +1000u 变异；Scripting.Managed.dll 21:24:23）】
+  变异：!BindTargetTable(s_api->ScriptTextureInterfaceId + 1000u, "IScriptTexture", IScriptTextureBindings.Bind)
+  → 第五张表查不到 ⇒ BindTargetTable 返回 false ⇒ s_renderTablesBound 不置真 ⇒ 四个探针按各自守卫拒绝。
+  命令：--backend vulkan --test <TestCSharpTriangle|TestCSharpConstantColor|TestCSharpStructuredBuffer|TestCSharpTextureSampling> --headless 10
+  四条 report 的 error 逐字：
+  E_TRIANGLE_HOST_ERROR: Tick(回值 1) 之后 LastError 非空：渲染探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行
+  E_CONSTCOLOR_HOST_ERROR: Tick(回值 1) 之后 LastError 非空：常量色探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行
+  E_SB_HOST_ERROR: Tick(回值 1) 之后 LastError 非空：结构化缓冲探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行
+  E_TEX_HOST_ERROR: Tick(回值 1) 之后 LastError 非空：纹理采样探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行；绑定失败原因：取 IScriptTexture 函数表失败：目标类型表没有登记（编号 1007）
+  → 四探针全部拒绝、「四个目标类型表」字样在四条文本里都在；第 16 项额外点名 IScriptTexture 与编号。总门不放行成立。
+
+【为什么不用"字面删掉 || 操作数"的写法（工件修订记录的依据）】
+  `s_renderTablesBound = true;` 在 if 之后；删掉第五个操作数后条件只剩前三个、它们都成功 ⇒ 总门反而置真，
+  第 16 项会走到托管 CreateTexture 的 IScriptTextureBindings.ResolveTargetHandle（表没绑、函数指针为 null）抛 NullReferenceException，
+  结果是"三探针绿 + 第 16 项红"——正是 tasks.md 修订记录里驳回的旧写法。故用 +1000u 让该表"绑不上"。
+
+【编号 7 空实例取表成功（恢复后全量绿跑，21:22:00 二进制）】
+  托管日志逐字：[托管侧] [托管侧 渲染] 五个函数表已绑定（后端实例 …）
+  → IScriptTexture 属目标类型表，取表时 instanceOut 为空；随后第 16 项 pass。
+
+【关闭顺序逐项读数（进程 stderr，%TEMP%\tex_fullgreen_<backend>.log，两后端一致）】
+  [托管侧 关闭顺序] 1/4 参数结构表面对象
+  [托管侧 关闭顺序] 2/4 纹理表面对象
+  [托管侧 关闭顺序] 3/4 图 → 离屏目标
+  [托管侧 关闭顺序] 4/4 后端表面对象
+  [托管侧 关闭顺序] 释放完成
+  → 与 spec 的「参数结构 → 纹理 → 图 → 离屏目标 → 后端表面」一致；这些行走 Console.Error（进程 stderr），不在 test_output\TestCSharpWindowCallbacks.log 里，出处如实写明。
+
+【缺后端依赖仍明确失败】该分支（CSharpHost.cpp 的「脚本渲染适配器未登记：缺少 …」与 OnGetInterfaceApi 对编号 3 要求真实实例）本批未改动；
+  现有测试套件没有"移除后端依赖"的专用用例（TestCSharpWindow 里那条编号 9 的未知编号探针覆盖的是"未知编号不许静默"），本批以两后端 16/16 全量回归兜底 —— 如实记录，不声称有独立实测。
+
+【总门变异 C 的恢复确认（四条单测重跑，Scripting.Managed.dll 21:25:37）】
+  CODE green_tri=0、green_cc=0、green_sb=0、green_tex=0
+  report：gate_green_tri.json status=pass 136ms、gate_green_cc.json pass 148ms、gate_green_sb.json pass 132ms、gate_green_tex.json pass 148ms
+  → 红（四条 fail，文本含四个目标类型表）→ 还原后四条各自全绿，3.1 的强弱两半都成立。
+

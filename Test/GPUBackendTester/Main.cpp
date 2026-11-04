@@ -1572,16 +1572,27 @@ void TestCSharpTriangle(TestContext& ctx)
 		const uint32_t executeCount = renderBackend->GetExecuteGraphCountForTest();
 		// csharp-render-structured-buffer 任务 3.1：非探针阶段建缓冲也必须为 0（新增的计数槽）。
 		const uint32_t addBufferCount = renderBackend->GetAddBufferCountForTest();
+		// csharp-render-texture-sampling 任务 3.2：纹理相关的四个钩子同样必须为 0 ——
+		// 创建次数、"上传执行"单列计数、绑定次数；未启用探针的测试不许创建任何 GPU 工作。
+		const uint32_t createTextureCount = renderBackend->GetCreateTextureCountForTest();
+		const uint32_t textureUploadCount = renderBackend->GetTextureUploadExecuteCountForTest();
+		const uint32_t setImageCount = renderBackend->GetSetImageCountForTest();
+		const uint32_t setSamplerCount = renderBackend->GetSetSamplerCountForTest();
 		CA_LOG("非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget={} "
-		       "createShaderStruct={} addBuffer={} executeGraph={}",
-		       captureCount, structCount, addBufferCount, executeCount);
-		if (captureCount != 0u || structCount != 0u || executeCount != 0u || addBufferCount != 0u)
+		       "createShaderStruct={} addBuffer={} executeGraph={} createTexture={} 上传执行={} "
+		       "setImage={} setSampler={}",
+		       captureCount, structCount, addBufferCount, executeCount, createTextureCount,
+		       textureUploadCount, setImageCount, setSamplerCount);
+		if (captureCount != 0u || structCount != 0u || executeCount != 0u || addBufferCount != 0u ||
+			createTextureCount != 0u || textureUploadCount != 0u || setImageCount != 0u ||
+			setSamplerCount != 0u)
 		{
-			char detail[256] = {};
+			char detail[384] = {};
 			std::snprintf(detail, sizeof(detail),
 			              "非探针测试创建了 GPU 工作：captureTarget=%u createShaderStruct=%u addBuffer=%u "
-			              "executeGraph=%u",
-			              captureCount, structCount, addBufferCount, executeCount);
+			              "executeGraph=%u createTexture=%u 上传执行=%u setImage=%u setSampler=%u",
+			              captureCount, structCount, addBufferCount, executeCount, createTextureCount,
+			              textureUploadCount, setImageCount, setSamplerCount);
 			fail("E_RENDER_NONPROBE_WORK", detail);
 		}
 	}
@@ -2537,9 +2548,502 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 	}
 }
 
+// csharp-render-texture-sampling 任务 1.2 / 4.1：第 16 项 —— C# 建 2×2 RGBA8 纹理（一次调用完成
+// 创建 + 上传 + 转采样态），用位置 + 纹理坐标顶点流与 `TextureSampleBlock` 参数结构提交窗口 / 离屏
+// 两个同逻辑 pass，原生侧用既有 `Readback` 读同一次提交的离屏目标做精确像素判据
+// （背景 (0,0,255,255)、中心 (255,255,0,255)），并核对 pass 数、参数表条目、纹理字段的对象同一性、
+// 调用计数（上传执行与提交执行分开读）与托管侧的 disposed 摘要行。
+//
+// Debug 负向（进程环境变量 `CASCADED_CSHARP_TEX_SELFTEST`，C# 侧读同一份值）：
+//   `bad-texture-color` 四纹素改青 (0,255,255,255) → 中心 MUST 精确等于 (0,255,255,255)，`E_TEX_PIXEL`；
+//   `unbound-image`     跳过 `SetImage` → `SubmitGraph` 在进入后端执行前拒绝并点名 `testTexture`，
+//                       `E_TEX_BIND`，**不读像素**；
+//   `unbound-sampler`   跳过 `SetSampler` → 同样在提交前拒绝并点名 `testSampler`。
+// `Tools/check_csharp_texture_sampling.py` 逐后端对账正常（pass）与三个负向（fail + 对应错误码）。
+void TestCSharpTextureSampling(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	// C++ 侧的独立夹具值：尺寸、pass 数、两个像素、纹理字节与清除色都另写一份，不与 C# 的
+	// `CSharpTextureProbe` 共享常量表 —— 一边改错不会两边一起绿。
+	constexpr uint32_t kWindowWidth = 320u;
+	constexpr uint32_t kWindowHeight = 240u;
+	constexpr uint32_t kExpectedPassCount = 2u;
+	constexpr uint32_t kTextureSize = 2u;
+	const std::array<uint8_t, 4> expectedBackground{ 0u, 0u, 255u, 255u };
+	const std::array<uint8_t, 4> expectedCenter{ 255u, 255u, 0u, 255u };
+	const std::array<uint8_t, 4> expectedBadTextureCenter{ 0u, 255u, 255u, 255u };
+	const std::array<uint8_t, 4> expectedTexel{ 255u, 255u, 0u, 255u };
+	const std::array<uint8_t, 4> expectedBadTexel{ 0u, 255u, 255u, 255u };
+	const std::array<float, 4> expectedClearColor{ 0.0f, 0.0f, 1.0f, 1.0f };
+	char const* const kBlockName = "textureBlock";
+	char const* const kTextureField = "testTexture";
+	char const* const kSamplerField = "testSampler";
+	char const* const kStructTypeName = "TextureSampleBlock";
+	char const* const kTextureName = "texYellow2x2";
+	char const* const kProbeLogPath = "test_output/TestCSharpTextureSampling.log";
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_TEX_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_TEX_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段登记真实适配器。
+	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
+	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
+		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
+	if (renderBackend == nullptr)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
+		fail("E_TEX_BACKEND_MISSING", detail);
+	}
+
+	char modeBuffer[64] = {};
+	::GetEnvironmentVariableA("CASCADED_CSHARP_TEX_SELFTEST", modeBuffer, sizeof(modeBuffer));
+	const std::string mode = modeBuffer;
+	const bool badTextureColor = mode == "bad-texture-color";
+	const bool unboundImage = mode == "unbound-image";
+	const bool unboundSampler = mode == "unbound-sampler";
+	if (!(mode.empty() || badTextureColor || unboundImage || unboundSampler))
+	{
+		fail("E_TEX_MODE", castl::string("未知的自检模式：") + mode.c_str());
+	}
+
+	struct TextureEnvGuard
+	{
+		~TextureEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_CSHARP_TEX_PROBE", nullptr);
+		}
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_TEX_PROBE", "1");
+
+	CA_LOG("TestCSharpTextureSampling 夹具期望：纹理 {}x{} 纹素=({},{},{},{}) 清除色=({},{},{},{}) "
+	       "block={} field={} sampler={}",
+	       kTextureSize, kTextureSize, expectedTexel[0], expectedTexel[1], expectedTexel[2],
+	       expectedTexel[3], expectedClearColor[0], expectedClearColor[1], expectedClearColor[2],
+	       expectedClearColor[3], kBlockName, kTextureField, kSamplerField);
+
+	// 托管探针用 `IWindowSystem.NewWindow` 建自己的窗口，并从它取窗口目标。
+	auto newWindow = ctx.pWindowSystem->NewWindow(kWindowWidth, kWindowHeight, "C# Texture");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_TEX_HOST", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	const std::string baselineError = pScriptHost->LastError();
+	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
+	const uint32_t executeBefore = renderBackend->GetExecuteGraphCountForTest();
+	const uint32_t uploadBefore = renderBackend->GetTextureUploadExecuteCountForTest();
+	const uint32_t createTextureBefore = renderBackend->GetCreateTextureCountForTest();
+	const uint32_t setImageBefore = renderBackend->GetSetImageCountForTest();
+	const uint32_t setSamplerBefore = renderBackend->GetSetSamplerCountForTest();
+	const uint32_t setPassParamBefore = renderBackend->GetSetPassParamCountForTest();
+	const uint32_t setFloat3Before = renderBackend->GetSetFloat3CountForTest();
+	const uint32_t setStructBefore = renderBackend->GetSetStructCountForTest();
+	const uint32_t setBufferBefore = renderBackend->GetSetBufferCountForTest();
+	const uint32_t captureBefore = renderBackend->GetCreateCaptureTargetCountForTest();
+	const int32_t tickValue = pScriptHost->Tick(0.016);
+	::SetEnvironmentVariableA("CASCADED_CSHARP_TEX_PROBE", nullptr);
+
+	const std::string hostError = pScriptHost->LastError();
+	if (hostError != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "Tick(回值 %d) 之后 LastError 非空：%s", tickValue,
+		              hostError.c_str());
+		fail("E_TEX_HOST_ERROR", detail);
+	}
+	if (tickValue <= 0)
+	{
+		fail("E_TEX_TICK", "Tick 回值不是正数（探针没有执行）");
+	}
+
+	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
+	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
+	if (captureTarget == nullptr || windowTarget == nullptr)
+	{
+		fail("E_TEX_PROBE_MISSING",
+		     "渲染探针没有创建离屏 / 窗口目标（探针开关或五个函数表绑定失败）");
+	}
+	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
+	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
+
+	// 窗口描述快照：离屏目标与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
+	const auto& windowDesc = windowTarget->GetDescriptorForTest();
+	const auto& captureDesc = captureTarget->GetDescriptorForTest();
+	if (windowDesc.width != kWindowWidth || windowDesc.height != kWindowHeight ||
+		captureDesc.width != kWindowWidth || captureDesc.height != kWindowHeight ||
+		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
+		captureTarget->IsBackbuffer())
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
+		              windowDesc.width, windowDesc.height, captureDesc.width, captureDesc.height,
+		              static_cast<int>(captureDesc.format));
+		fail("E_TEX_TARGET", detail);
+	}
+
+	// 图结构与参数表：两个 pass（窗口 + 离屏），每个 pass 的参数表正好 1 条 `textureBlock`。
+	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
+	if (lastGraph == nullptr)
+	{
+		fail("E_TEX_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
+	}
+	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
+		              lastGraph->GetPassCount(), kExpectedPassCount);
+		fail("E_TEX_GRAPH", detail);
+	}
+	size_t totalBoundParams = 0;
+	uint32_t passesWithBlock = 0;
+	for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+	{
+		auto const& bound = pass.GetShaderStructs();
+		totalBoundParams += bound.size();
+		auto entry = bound.find(CANAME(kBlockName));
+		if (entry != bound.end() && entry->second != nullptr)
+		{
+			++passesWithBlock;
+		}
+	}
+	if (totalBoundParams != kExpectedPassCount || passesWithBlock != kExpectedPassCount)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "参数表不符：%zu 条绑定、%u 个 pass 有 %s（期望 %u 个 pass 各 1 条）", totalBoundParams,
+		              passesWithBlock, kBlockName, kExpectedPassCount);
+		fail("E_TEX_PARAM", detail);
+	}
+
+	// `TextureSampleBlock` 的元数据读数（4.1：复核 design 前提，不改规则）：纹理条目是只读 + 描述符数组
+	// 长度 1，采样器表里有 `testSampler`。查询方法在 `CRenderBackend` 上，所以经后端对象读。
+	{
+		ShaderCompilerSlang::ShaderStructData const* structData =
+			ctx.pGPUBackend->FindShaderStructData(CANAME(kStructTypeName));
+		if (structData == nullptr)
+		{
+			fail("E_TEX_STRUCT", "后端查不到 TextureSampleBlock 的编译元数据");
+		}
+		ShaderCompilerSlang::ShaderTextureData const* textureEntry = nullptr;
+		for (auto const& candidate : structData->m_Textures)
+		{
+			if (candidate.m_Name == CANAME(kTextureField))
+			{
+				textureEntry = &candidate;
+				break;
+			}
+		}
+		if (textureEntry == nullptr)
+		{
+			fail("E_TEX_STRUCT", "TextureSampleBlock 的元数据纹理表里没有 testTexture");
+		}
+		bool samplerListed = false;
+		for (auto const& sampler : structData->m_TextureSamplers)
+		{
+			if (sampler == CANAME(kSamplerField))
+			{
+				samplerListed = true;
+				break;
+			}
+		}
+		CA_LOG("TestCSharpTextureSampling 元数据读数：type={} textures={} texField={} rw={} elements={} "
+		       "samplers={} samplerListed={}",
+		       kStructTypeName, structData->m_Textures.size(), textureEntry->m_Name.c_str(),
+		       static_cast<int>(textureEntry->m_RWType), textureEntry->m_ElementCount,
+		       structData->m_TextureSamplers.size(), samplerListed ? 1 : 0);
+		if (textureEntry->m_RWType != ShaderCompilerSlang::EShaderResourceAccess::eReadOnly ||
+			textureEntry->m_ElementCount != 1u || !samplerListed)
+		{
+			fail("E_TEX_STRUCT",
+			     "TextureSampleBlock 的 testTexture 不是「只读 + 描述符数组长度 1」，或采样器表里没有 testSampler");
+		}
+	}
+
+	// 探针那次 `CreateTexture` 返回的纹理对象：后面的对象同一性核对与真实后端负例都要用它。
+	auto lastCreatedTexture = renderBackend->GetLastCreatedTextureForTest();
+	if (lastCreatedTexture == nullptr)
+	{
+		fail("E_TEX_CREATE", "适配器没有记录最近创建的纹理（探针没有调 CreateTexture）");
+	}
+
+	// 两种提交前拒绝：参数表 2 条（两次 SetPassParam 都成功）、适配器错误文本点名缺失项、本次提交的
+	// 后端执行增量为 0（上传执行另计，必须仍是 1）、不读像素 —— 以 `E_TEX_BIND` 判红。
+	const uint32_t uploadDelta = renderBackend->GetTextureUploadExecuteCountForTest() - uploadBefore;
+	const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
+	if (unboundImage || unboundSampler)
+	{
+		const std::string adapterError = renderBackend->GetLastError().c_str();
+		char const* const requiredName = unboundImage ? kTextureField : kSamplerField;
+		const bool named = adapterError.find(requiredName) != std::string::npos;
+		if (!named)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "%s：适配器错误文本没有点名 %s，实际 = \"%s\"",
+			              mode.c_str(), requiredName, adapterError.c_str());
+			fail("E_TEX_BIND", detail);
+		}
+		if (executeDelta != 0u)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "%s：本次提交执行增量 %u（期望 0）", mode.c_str(),
+			              executeDelta);
+			fail("E_TEX_BIND", detail);
+		}
+		if (uploadDelta != 1u)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "%s：上传执行增量 %u（期望 1，另计不进提交判据）",
+			              mode.c_str(), uploadDelta);
+			fail("E_TEX_COUNTS", detail);
+		}
+		const uint32_t expectedSetImage = unboundImage ? 0u : 1u;
+		const uint32_t expectedSetSampler = unboundSampler ? 0u : 1u;
+		const uint32_t setImageDelta = renderBackend->GetSetImageCountForTest() - setImageBefore;
+		const uint32_t setSamplerDelta = renderBackend->GetSetSamplerCountForTest() - setSamplerBefore;
+		CA_LOG("TestCSharpTextureSampling 负向计数：setImage={}（期望 {}） setSampler={}（期望 {}） "
+		       "上传执行={}（期望 1） 本次提交执行增量={}（期望 0）",
+		       setImageDelta, expectedSetImage, setSamplerDelta, expectedSetSampler, uploadDelta,
+		       executeDelta);
+		if (setImageDelta != expectedSetImage || setSamplerDelta != expectedSetSampler)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "%s：计数不符 setImage=%u/%u setSampler=%u/%u",
+			              mode.c_str(), setImageDelta, expectedSetImage, setSamplerDelta,
+			              expectedSetSampler);
+			fail("E_TEX_COUNTS", detail);
+		}
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "%s：参数表 %zu 条、适配器点名 %s、本次提交执行增量 0（上传执行 1 另计）、等待计数 "
+		              "%u→%u，按预期失败",
+		              mode.c_str(), totalBoundParams, requiredName, waitBefore, waitAfter);
+		fail("E_TEX_BIND", detail);
+	}
+
+	// 纹理字段解析读**图侧登记表**（`GetBoundImageForTest`），并按对象同一性核对它是探针那次
+	// `CreateTexture` 返回的同一个对象 —— 计数证明不了"解析到谁"。这一块必须排在两种漏绑的
+	// 提交前拒绝**之后**：`unbound-image` 里探针根本没调 `SetImage`，先跑同一性核对会把
+	// `E_TEX_BIND` 的文本换成"不是同一对象"，两条负向的错误文本就不同构了（实测过）。
+	{
+		auto* concreteGraph = dynamic_cast<graphics_backend::CScriptRenderGraph*>(lastGraph.get());
+		if (concreteGraph == nullptr)
+		{
+			fail("E_TEX_GRAPH", "最近提交的图不是本适配面的 CScriptRenderGraph");
+		}
+		for (uint32_t passIndex = 0; passIndex < kExpectedPassCount; ++passIndex)
+		{
+			auto resolved = concreteGraph->GetBoundImageForTest(passIndex, CANAME(kBlockName),
+				CANAME(kTextureField));
+			const bool sameObject = resolved != nullptr && resolved.get() == lastCreatedTexture.get();
+			CA_LOG("TestCSharpTextureSampling pass={} 纹理字段解析={} 同一对象={}", passIndex,
+			       resolved == nullptr ? "(空)" : "非空", sameObject ? 1 : 0);
+			if (!sameObject)
+			{
+				char detail[256] = {};
+				std::snprintf(detail, sizeof(detail),
+				              "pass %u 的纹理字段解析到的不是探针 CreateTexture 返回的同一对象", passIndex);
+				fail("E_TEX_BIND", detail);
+			}
+		}
+	}
+
+	// 正常 / bad-texture-color：调用计数逐项对上（读数全部来自适配器的原生钩子）。
+	{
+		const uint32_t createTextureDelta =
+			renderBackend->GetCreateTextureCountForTest() - createTextureBefore;
+		const uint32_t setImageDelta = renderBackend->GetSetImageCountForTest() - setImageBefore;
+		const uint32_t setSamplerDelta = renderBackend->GetSetSamplerCountForTest() - setSamplerBefore;
+		const uint32_t setPassParamDelta =
+			renderBackend->GetSetPassParamCountForTest() - setPassParamBefore;
+		const uint32_t setFloat3Delta = renderBackend->GetSetFloat3CountForTest() - setFloat3Before;
+		const uint32_t setStructDelta = renderBackend->GetSetStructCountForTest() - setStructBefore;
+		const uint32_t setBufferDelta = renderBackend->GetSetBufferCountForTest() - setBufferBefore;
+		const uint32_t captureDelta =
+			renderBackend->GetCreateCaptureTargetCountForTest() - captureBefore;
+		CA_LOG("TestCSharpTextureSampling 调用计数：createTexture={} setImage={} setSampler={} "
+		       "setPassParam={} setFloat3={} setStruct={} setBuffer={} captureTarget={} 上传执行={} "
+		       "本次提交执行={}",
+		       createTextureDelta, setImageDelta, setSamplerDelta, setPassParamDelta, setFloat3Delta,
+		       setStructDelta, setBufferDelta, captureDelta, uploadDelta, executeDelta);
+		if (createTextureDelta != 1u || setImageDelta != 1u || setSamplerDelta != 1u ||
+			setPassParamDelta != 2u || setFloat3Delta != 0u || setStructDelta != 0u ||
+			setBufferDelta != 0u || captureDelta != 1u || uploadDelta != 1u || executeDelta != 1u)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "调用计数不符：createTexture=%u/1 setImage=%u/1 setSampler=%u/1 setPassParam=%u/2 "
+			              "setFloat3=%u/0 setStruct=%u/0 setBuffer=%u/0 captureTarget=%u/1 "
+			              "上传执行=%u/1 本次提交执行=%u/1",
+			              createTextureDelta, setImageDelta, setSamplerDelta, setPassParamDelta,
+			              setFloat3Delta, setStructDelta, setBufferDelta, captureDelta, uploadDelta,
+			              executeDelta);
+			fail("E_TEX_COUNTS", detail);
+		}
+	}
+
+	if (waitAfter != waitBefore + 1u || pendingAfter != 0u)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
+		              waitBefore, waitAfter, pendingAfter);
+		fail("E_TEX_WAIT", detail);
+	}
+	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
+	if (presents.size() != 1u || presents[0] != windowTarget->GetImageForTest())
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "真实呈现清单 %zu 项，期望唯一的窗口后台缓冲",
+		              presents.size());
+		fail("E_TEX_PRESENT", detail);
+	}
+
+	// 托管侧的 disposed 摘要行（3.2 的实测步 / 4.1 的核对）：先 flush 当前 stdout，再从本次运行
+	// 自己的日志文件里读那一行 —— 日志是这一层唯一能读到托管摘要的通道。
+	{
+		std::fflush(stdout);
+		std::ifstream logFile(kProbeLogPath);
+		std::string logText;
+		bool disposedLine = false;
+		std::string line;
+		while (std::getline(logFile, line))
+		{
+			if (line.find("ObjectDisposedException") != std::string::npos &&
+				line.find("原生 SetImage 调用 0") != std::string::npos)
+			{
+				disposedLine = true;
+				logText = line;
+			}
+		}
+		CA_LOG("TestCSharpTextureSampling disposed 摘要行={}", disposedLine ? logText.c_str() : "(未命中)");
+		if (!disposedLine)
+		{
+			fail("E_TEX_DISPOSED",
+			     "托管日志里没有 disposed 摘要行（ObjectDisposedException + 原生 SetImage 调用 0）");
+		}
+	}
+
+	// 像素：既有 `Readback` 读取同一次 C# 提交的独立离屏目标。背景来自清除色 (0,0,1,1)、
+	// 中心来自纹理采样色；bad-texture-color 的纹素是青色，中心必须精确变成 (0,255,255,255)。
+	ctx.pGPUBackend->WaitIdle();
+	const uint32_t width = captureDesc.width;
+	const uint32_t height = captureDesc.height;
+	std::vector<uint8_t> pixels(static_cast<size_t>(
+		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
+	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	if (!token)
+	{
+		fail("E_TEX_READBACK", "离屏目标的 Readback 返回空 token");
+	}
+	token->Wait();
+	auto pixelAt = [&pixels, width](uint32_t x, uint32_t y) {
+		const size_t index = (static_cast<size_t>(y) * width + x) * 4u;
+		return std::array<uint8_t, 4>{ pixels[index], pixels[index + 1], pixels[index + 2],
+			                          pixels[index + 3] };
+	};
+	const std::array<uint8_t, 4> background = pixelAt(1, 1);
+	const std::array<uint8_t, 4> center = pixelAt(width / 2, height / 2);
+	const castl::string pngPath = castl::string("test_output/TestCSharpTextureSampling_") +
+		ctx.backendName + "_" + (mode.empty() ? "normal" : mode.c_str()) + ".png";
+	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
+	               static_cast<int>(width * 4));
+	CA_LOG("TestCSharpTextureSampling：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
+	       "passes={} boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
+	       pendingAfter, presents.size(), lastGraph->GetPassCount(), totalBoundParams, background[0],
+	       background[1], background[2], background[3], center[0], center[1], center[2], center[3],
+	       pngPath.c_str());
+
+	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
+		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
+	};
+	if (badTextureColor)
+	{
+		// 纹素 (0,255,255,255)：中心 MUST 精确等于它。判据不能写成"中心非黄"或"中心不等于背景"——
+		// 空帧 / 黑帧都能通过那种弱判据。
+		if (differs(center, expectedBadTextureCenter))
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "bad-texture-color：中心 (%u,%u,%u,%u) 不等于 (0,255,255,255)（负向模式没有生效）",
+			              center[0], center[1], center[2], center[3]);
+			fail("E_TEX_PIXEL", detail);
+		}
+		fail("E_TEX_PIXEL", "bad-texture-color：中心精确等于 (0,255,255,255)，按预期失败");
+	}
+	if (differs(background, expectedBackground) || differs(center, expectedCenter))
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "像素不符：背景 (%u,%u,%u,%u)、中心 (%u,%u,%u,%u)", background[0], background[1],
+		              background[2], background[3], center[0], center[1], center[2], center[3]);
+		fail("E_TEX_PIXEL", detail);
+	}
+	CA_LOG("TestCSharpTextureSampling 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}",
+	       ctx.backendName, kBlockName);
+
+	// 真实后端负例（两后端各一次、进程不崩）：
+	// ① 字节数不符创建 → 空句柄 + 点名 `GetImageByteSize` 的 64 位期望值；
+	// ② 纹理表外字段 `SetImage` → 非零点名字段（两后端对未知字段是静默跳过，不可作为脚本面）。
+	{
+		const uint32_t createCountBeforeNegative = renderBackend->GetCreateTextureCountForTest();
+		auto badTexture = renderBackend->CreateTexture(CANAME("texBadBytes"), kTextureSize, kTextureSize,
+			std::vector<uint8_t>(12u, 0x11u));
+		const std::string badTextureError = renderBackend->GetLastError().c_str();
+		if (badTexture != nullptr || badTextureError.find("16") == std::string::npos ||
+			badTextureError.find("12") == std::string::npos ||
+			renderBackend->GetCreateTextureCountForTest() != createCountBeforeNegative)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "字节数不符的创建没有被挡下：句柄非空=%d 文本=\"%s\" 计数 %u→%u",
+			              badTexture == nullptr ? 0 : 1, badTextureError.c_str(),
+			              createCountBeforeNegative, renderBackend->GetCreateTextureCountForTest());
+			fail("E_TEX_NEGATIVE", detail);
+		}
+		CA_LOG("真实后端负例①：字节数不符创建 → 空句柄 文本={}", badTextureError.c_str());
+
+		auto negativeParams = renderBackend->CreateShaderStruct(CANAME(kStructTypeName));
+		if (negativeParams == nullptr)
+		{
+			fail("E_TEX_NEGATIVE",
+			     castl::string("真实后端负例的参数结构没有创建：") + renderBackend->GetLastError());
+		}
+		const uint32_t setImageBeforeNegative = renderBackend->GetSetImageCountForTest();
+		const int32_t negativeStatus =
+			negativeParams->SetImage(CANAME("noSuchTextureField"), lastCreatedTexture);
+		const std::string negativeError = negativeParams->GetLastError().c_str();
+		if (negativeStatus == 0 || negativeError.find("noSuchTextureField") == std::string::npos ||
+			renderBackend->GetSetImageCountForTest() != setImageBeforeNegative)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "真实后端负例没有被挡下：status=%d 文本=\"%s\" 计数 %u→%u", negativeStatus,
+			              negativeError.c_str(), setImageBeforeNegative,
+			              renderBackend->GetSetImageCountForTest());
+			fail("E_TEX_NEGATIVE", detail);
+		}
+		CA_LOG("真实后端负例②：纹理表外字段 SetImage → status={} 文本={}", negativeStatus,
+		       negativeError.c_str());
+	}
+}
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
-// `Action<...>` 并把窗口身份与全部标量参数写进日志，`Tools/check_window_system_bindings.py --callbacks`
 // 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
 // `Shutdown` 之前必须先执行托管注销（关闭后旧委托不再执行）。
 //
@@ -3236,6 +3740,9 @@ int main(int argc, char* argv[])
 		// csharp-render-structured-buffer 任务 1.2：第 15 项（`--list` 顺序 ≠ 全量执行顺序：
 		// 全量里它必须排在 `TestCSharpWindowCallbacks` 之前，见 run-all 那段的注释）
 		std::cout << "  TestCSharpStructuredBuffer\n";
+		// csharp-render-texture-sampling 任务 1.2：第 16 项（同样：`--list` 里排最后，
+		// 全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）
+		std::cout << "  TestCSharpTextureSampling\n";
 		return 0;
 	}
 
@@ -3517,6 +4024,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpStructuredBuffer", TestCSharpStructuredBuffer);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpTextureSampling") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpTextureSampling", TestCSharpTextureSampling);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -3544,6 +4055,9 @@ int main(int argc, char* argv[])
 		// 结构化缓冲探针同样要用 C#：`--list` 里它紧跟常量色，但**全量执行位置必须在这里** ——
 		// `TestCSharpWindowCallbacks` 会显式关闭托管运行时，把它排在那个用例之后就再也拿不到 C#。
 		runTestWithDiagnostics("TestCSharpStructuredBuffer", TestCSharpStructuredBuffer);
+		// 纹理采样探针同样要用 C#：**全量执行位置必须在这里**、排在 `TestCSharpWindowCallbacks` 之前
+		//（那个用例会显式关闭托管运行时，排在它之后就再也拿不到 C#）。
+		runTestWithDiagnostics("TestCSharpTextureSampling", TestCSharpTextureSampling);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}

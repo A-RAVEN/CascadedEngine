@@ -492,6 +492,200 @@ namespace Scripting.Managed
                 StructuredBufferGraph, "AddTrianglePass");
         }
 
+        // ---- 纹理采样探针（csharp-render-texture-sampling 任务 3.2）----
+        /// <summary>`OnTextureProbe` 被调用了几次（与另外三个渲染探针分开计数）。</summary>
+        internal static int TextureProbeCount;
+        /// <summary>最近一次纹理探针的摘要：模式、pass 数、提交状态、拒绝文本、disposed 步。</summary>
+        internal static string LastTextureSummary = string.Empty;
+        // 保留到原生核对与托管 Shutdown：图、两个目标、参数结构与纹理都由原生侧读。
+        internal static IWindow TextureWindow;
+        internal static IScriptRenderTarget TextureWindowTarget;
+        internal static IScriptRenderTarget TextureCaptureTarget;
+        internal static IScriptRenderGraph TextureGraph;
+        internal static IScriptShaderStruct TextureParams;
+        internal static IScriptTexture TextureProbeTexture;
+
+        /// <summary>
+        /// 纹理采样探针（csharp-render-texture-sampling 任务 3.2）：一次 `CreateTexture` 完成
+        /// 创建 + 上传 + 转采样态；位置 + 纹理坐标顶点流；`TextureSampleBlock` 参数结构绑
+        /// `testTexture` 与 `testSampler`；窗口与离屏各一个同逻辑 pass；呈现、提交、等待。
+        /// 保留图、目标、参数结构与纹理到原生核对完成。
+        ///
+        /// Debug 自检（`CASCADED_CSHARP_TEX_SELFTEST`，C++ 侧读同一份值判定错误码）：
+        ///   · `bad-texture-color`：四纹素改青 `(0,255,255,255)` —— 中心精确变 `(0,255,255,255)`（`E_TEX_PIXEL`）；
+        ///   · `unbound-image`：跳过 `SetImage` —— `SubmitGraph` 在进入执行前拒绝并点名 `testTexture`（`E_TEX_BIND`）；
+        ///   · `unbound-sampler`：跳过 `SetSampler` —— 同上，点名 `testSampler`。
+        /// 探针末尾固定加一步：`TextureProbeTexture.Dispose()` 之后再用它调一次 `SetImage`，
+        /// 捕获 `ObjectDisposedException` 并把结果写进摘要（"释放后使用"的防线在托管层，见 design 决策三）。
+        /// </summary>
+        public static void OnTextureProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        {
+            TextureProbeCount++;
+            if (windows == null)
+            {
+                throw new InvalidOperationException("纹理探针：窗口系统表没有绑定");
+            }
+            if (backend == null)
+            {
+                throw new InvalidOperationException("纹理探针：脚本渲染后端表没有绑定");
+            }
+
+            string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_TEX_SELFTEST") ?? string.Empty;
+            bool badTextureColor = mode == "bad-texture-color";
+            bool unboundImage = mode == "unbound-image";
+            bool unboundSampler = mode == "unbound-sampler";
+            if (mode.Length != 0 && !(badTextureColor || unboundImage || unboundSampler))
+            {
+                throw new InvalidOperationException($"纹理探针：未知的自检模式 {mode}");
+            }
+
+            TextureWindow = windows.NewWindow(CSharpTextureProbe.WindowWidth,
+                CSharpTextureProbe.WindowHeight, "C# 纹理采样", true, true, true, false);
+            TextureWindowTarget = backend.GetWindowTarget(TextureWindow);
+            if (TextureWindowTarget == null)
+            {
+                throw new InvalidOperationException(
+                    $"纹理探针：GetWindowTarget 返回空：{backend.GetLastError()}");
+            }
+            TextureCaptureTarget = backend.CreateCaptureTarget(CSharpTextureProbe.WindowWidth,
+                CSharpTextureProbe.WindowHeight);
+            if (TextureCaptureTarget == null)
+            {
+                throw new InvalidOperationException(
+                    $"纹理探针：CreateCaptureTarget 返回空：{backend.GetLastError()}");
+            }
+            TextureGraph = backend.CreateGraph();
+            if (TextureGraph == null)
+            {
+                throw new InvalidOperationException(
+                    $"纹理探针：CreateGraph 返回空：{backend.GetLastError()}");
+            }
+
+            // 2×2 纹理：正常全黄 (255,255,0,255)、bad-texture-color 全青 (0,255,255,255)。
+            // 16 字节 = 2 × 2 × 4，必须等于 GetImageByteSize(2, 2, RGBA8)，否则适配层当场拒绝。
+            byte[] texels = CSharpTextureProbe.BuildTexelBytes(badTextureColor);
+            TextureProbeTexture = backend.CreateTexture(CSharpTextureProbe.TextureName,
+                CSharpTextureProbe.TextureWidth, CSharpTextureProbe.TextureHeight, texels);
+            if (TextureProbeTexture == null)
+            {
+                throw new InvalidOperationException(
+                    $"纹理探针：CreateTexture 返回空：{backend.GetLastError()}");
+            }
+            // 尺寸读数必须在 disposed 步之前取：释放之后再问表面对象会抛失效异常。
+            uint textureWidth = TextureProbeTexture.GetWidth();
+            uint textureHeight = TextureProbeTexture.GetHeight();
+
+            // 顶点字节由脚本自己写：三个顶点、每个 5 个 float（位置 xyz + UV，步长 20）。
+            float[] vertices = CSharpTextureProbe.BuildVertices();
+            byte[] vertexBytes = new byte[vertices.Length * sizeof(float)];
+            Buffer.BlockCopy(vertices, 0, vertexBytes, 0, vertexBytes.Length);
+            var vertexDescriptor = new GPUBufferDescriptor
+            {
+                count = CSharpTextureProbe.VertexCount,
+                stride = CSharpTextureProbe.VertexStride,
+            };
+            CheckStatus(TextureGraph.AddBuffer(CSharpTextureProbe.VertexBufferName, vertexDescriptor,
+                vertexBytes), TextureGraph, "AddBuffer(顶点)");
+            CheckStatus(TextureGraph.SetPositionTextureStream(CSharpTextureProbe.VertexBufferName,
+                CSharpTextureProbe.VertexStride, CSharpTextureProbe.PositionOffset,
+                CSharpTextureProbe.TexcoordOffset), TextureGraph, "SetPositionTextureStream");
+
+            TextureParams = backend.CreateShaderStruct(CSharpTextureProbe.StructTypeName);
+            if (TextureParams == null)
+            {
+                throw new InvalidOperationException(
+                    $"纹理探针：CreateShaderStruct 返回空：{backend.GetLastError()}");
+            }
+            if (!unboundImage)
+            {
+                // unbound-image 刻意不写，让提交检查点名缺失的 testTexture。
+                if (TextureParams.SetImage(CSharpTextureProbe.TextureField, TextureProbeTexture) != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"纹理探针：SetImage 被拒绝：{TextureParams.GetLastError()}");
+                }
+            }
+            if (!unboundSampler)
+            {
+                // unbound-sampler 刻意不写，让提交检查点名缺失的 testSampler。
+                if (TextureParams.SetSampler(CSharpTextureProbe.SamplerField,
+                    CSharpTextureProbe.LinearClamp()) != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"纹理探针：SetSampler 被拒绝：{TextureParams.GetLastError()}");
+                }
+            }
+
+            AddTexturePass(TextureWindowTarget);
+            AddTexturePass(TextureCaptureTarget);
+            // 两种漏绑形态也要走到两次 SetPassParam：拒绝发生在 SubmitGraph，不是绑定。
+            CheckStatus(TextureGraph.SetPassParam(0u, CSharpTextureProbe.BlockName, TextureParams),
+                TextureGraph, "SetPassParam(0)");
+            CheckStatus(TextureGraph.SetPassParam(1u, CSharpTextureProbe.BlockName, TextureParams),
+                TextureGraph, "SetPassParam(1)");
+            CheckStatus(TextureGraph.Present(TextureWindowTarget), TextureGraph, "Present");
+
+            int submitStatus = backend.SubmitGraph(TextureGraph);
+            string submitError = backend.GetLastError();
+            if (unboundImage || unboundSampler)
+            {
+                // 负向模式：提交前拒绝是期望结果，不抛异常（抛了会变成宿主错误码 4，判据分不清是哪一种）。
+                if (submitStatus == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"纹理探针：{(unboundImage ? "unbound-image" : "unbound-sampler")} 的提交竟然成功");
+                }
+            }
+            else
+            {
+                CheckStatus(submitStatus, backend, "SubmitGraph");
+                backend.WaitIdle();
+            }
+
+            // 探针末尾的 disposed 步（design 决策三 / 任务 3.2）：释放纹理表面对象后再调一次
+            // `SetImage`，必须在进入原生实现之前抛 `ObjectDisposedException`（原生调用 0）。
+            string disposedStep;
+            try
+            {
+                TextureProbeTexture.Dispose();
+                TextureParams.SetImage(CSharpTextureProbe.TextureField, TextureProbeTexture);
+                disposedStep = "disposed=none（释放后调用竟然成功，防线失效）";
+            }
+            catch (ObjectDisposedException ex)
+            {
+                disposedStep = $"disposed={ex.GetType().Name} 原生 SetImage 调用 0";
+            }
+
+            LastTextureSummary =
+                $"mode={(mode.Length == 0 ? "normal" : mode)} " +
+                $"passCount={TextureGraph.GetPassCount()} submitStatus={submitStatus} " +
+                $"unboundImage={unboundImage} unboundSampler={unboundSampler} " +
+                $"texture=({textureWidth}x{textureHeight}) " +
+                $"{disposedStep} submitError={submitError}";
+        }
+
+        private static void AddTexturePass(IScriptRenderTarget target)
+        {
+            CheckStatus(TextureGraph.AddTrianglePass(target, CSharpTextureProbe.ShaderPath,
+                CSharpTextureProbe.VertexBufferName, CSharpTextureProbe.VertexBufferName,
+                CSharpTextureProbe.VertexCount, CSharpTextureProbe.ClearRed,
+                CSharpTextureProbe.ClearGreen, CSharpTextureProbe.ClearBlue,
+                CSharpTextureProbe.ClearAlpha), TextureGraph, "AddTrianglePass");
+        }
+
+        /// <summary>
+        /// 关闭顺序的第 2 步（任务 3.1）：纹理表面对象排在参数结构之后、图之前释放 ——
+        /// 参数结构持纹理引用，先放持有者。
+        /// </summary>
+        internal static void ReleaseTextureSurfaces()
+        {
+            if (TextureProbeTexture != null)
+            {
+                TextureProbeTexture.Dispose();
+                TextureProbeTexture = null;
+            }
+        }
+
         /// <summary>
         /// 关闭顺序的第 1 步（任务 3.1）：参数结构表面对象（含三个子结构）必须先于图与目标释放。
         /// </summary>
@@ -515,6 +709,13 @@ namespace Scripting.Managed
             {
                 StructuredBufferParams.Dispose();
                 StructuredBufferParams = null;
+            }
+            // csharp-render-texture-sampling 任务 3.1：纹理探针的参数结构同样排在第 1 步（它持纹理引用，
+            // 必须先于第 2 步的纹理释放）。
+            if (TextureParams != null)
+            {
+                TextureParams.Dispose();
+                TextureParams = null;
             }
         }
 
@@ -540,6 +741,12 @@ namespace Scripting.Managed
                 StructuredBufferGraph.Dispose();
                 StructuredBufferGraph = null;
             }
+            // csharp-render-texture-sampling 任务 3.1：纹理探针的图与两个目标。
+            if (TextureGraph != null)
+            {
+                TextureGraph.Dispose();
+                TextureGraph = null;
+            }
             if (RenderCaptureTarget != null)
             {
                 RenderCaptureTarget.Dispose();
@@ -554,6 +761,11 @@ namespace Scripting.Managed
             {
                 StructuredBufferCaptureTarget.Dispose();
                 StructuredBufferCaptureTarget = null;
+            }
+            if (TextureCaptureTarget != null)
+            {
+                TextureCaptureTarget.Dispose();
+                TextureCaptureTarget = null;
             }
             if (RenderWindowTarget != null)
             {
@@ -570,6 +782,11 @@ namespace Scripting.Managed
                 StructuredBufferWindowTarget.Dispose();
                 StructuredBufferWindowTarget = null;
             }
+            if (TextureWindowTarget != null)
+            {
+                TextureWindowTarget.Dispose();
+                TextureWindowTarget = null;
+            }
             if (RenderWindow != null)
             {
                 RenderWindow.Dispose();
@@ -584,6 +801,11 @@ namespace Scripting.Managed
             {
                 StructuredBufferWindow.Dispose();
                 StructuredBufferWindow = null;
+            }
+            if (TextureWindow != null)
+            {
+                TextureWindow.Dispose();
+                TextureWindow = null;
             }
         }
 
@@ -751,6 +973,92 @@ namespace Scripting.Managed
             return badBufferColor
                 ? new float[] { 0.0f, 0.0f, 1.0f }
                 : new float[] { 1.0f, 0.0f, 1.0f };
+        }
+    }
+
+    /// <summary>
+    /// 纹理采样探针的夹具值（csharp-render-texture-sampling 任务 3.2）。C++ 侧
+    /// `TestCSharpTextureSampling` **另写一份**独立的期望值（尺寸、pass 数、背景与中心像素、
+    /// 纹理字节、清除色），两边不共享常量表。
+    /// </summary>
+    internal static class CSharpTextureProbe
+    {
+        internal const int WindowWidth = 320;
+        internal const int WindowHeight = 240;
+        internal const uint VertexCount = 3;
+        // 每个顶点 5 个 float：位置 xyz（12 字节）+ UV（8 字节）。
+        internal const uint VertexStride = 20;
+        internal const uint PositionOffset = 0;
+        internal const uint TexcoordOffset = 12;
+        internal const string VertexBufferName = "CSharpTextureVertices";
+        internal const string TextureName = "texYellow2x2";
+        internal const uint TextureWidth = 2;
+        internal const uint TextureHeight = 2;
+        internal const string ShaderPath = "Shaders/Test/TestCSharpTextureSampling";
+        internal const string StructTypeName = "TextureSampleBlock";
+        internal const string TextureField = "testTexture";
+        internal const string SamplerField = "testSampler";
+        internal const string BlockName = "textureBlock";
+
+        // 清除色 (0, 0, 1, 1) = 精确蓝色背景
+        internal const float ClearRed = 0.0f;
+        internal const float ClearGreen = 0.0f;
+        internal const float ClearBlue = 1.0f;
+        internal const float ClearAlpha = 1.0f;
+
+        /// <summary>
+        /// 三个顶点的位置与 UV（每个顶点 5 个 float）。位置沿用常量色批的平面坐标；UV 三个值
+        /// 只作流数据实例 —— 四纹素全同色，任何过滤 / 寻址 / UV 都返回同一颜色，判据不依赖插值。
+        /// </summary>
+        internal static float[] BuildVertices()
+        {
+            return new float[]
+            {
+                -0.25f, -0.25f, 0.25f, 0.0f, 0.0f,
+                 0.25f, -0.25f, 0.25f, 1.0f, 0.0f,
+                 0.00f,  0.50f, 0.50f, 0.5f, 1.0f,
+            };
+        }
+
+        /// <summary>
+        /// 2×2 纹理的 16 字节：正常四纹素全黄 (255,255,0,255)；
+        /// `bad-texture-color` 全青 (0,255,255,255) —— 中心必须跟着精确变。
+        /// </summary>
+        internal static byte[] BuildTexelBytes(bool badTextureColor)
+        {
+            byte red = badTextureColor ? (byte)0 : (byte)255;
+            byte green = 255;
+            byte blue = badTextureColor ? (byte)255 : (byte)0;
+            byte[] bytes = new byte[16];
+            for (int texel = 0; texel < 4; ++texel)
+            {
+                bytes[texel * 4 + 0] = red;
+                bytes[texel * 4 + 1] = green;
+                bytes[texel * 4 + 2] = blue;
+                bytes[texel * 4 + 3] = 255;
+            }
+            return bytes;
+        }
+
+        /// <summary>
+        /// `LinearClamp` 采样器：与原生 `TextureSamplerDescriptor::LinearClamp()` 逐字段相同
+        /// （三过滤 = 线性、三地址 = ClampToEdge、边界色默认、非整数格式）。
+        /// 生成的公开记录没有工厂方法，这里按字段写。
+        /// </summary>
+        internal static TextureSamplerDescriptor LinearClamp()
+        {
+            var sampler = new TextureSamplerDescriptor
+            {
+                magFilterMode = ETextureSamplerFilterMode.eLinear,
+                minFilterMode = ETextureSamplerFilterMode.eLinear,
+                mipmapFilterMode = ETextureSamplerFilterMode.eLinear,
+                addressModeU = ETextureSamplerAddressMode.eClampToEdge,
+                addressModeV = ETextureSamplerAddressMode.eClampToEdge,
+                addressModeW = ETextureSamplerAddressMode.eClampToEdge,
+                boarderColor = ETextureSamplerBorderColor.eTransparentBlack,
+                integerFormat = false,
+            };
+            return sampler;
         }
     }
 

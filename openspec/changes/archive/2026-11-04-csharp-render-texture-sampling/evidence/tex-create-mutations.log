@@ -1,0 +1,32 @@
+﻿===== 任务 2.1 纹理创建：绿态 + 两处变异红态（写法：整段删除 if 分支连拒绝返回）=====
+时间：2026-11-04 20:54:38
+
+【绿态】python build.py --config Debug → BUILD SUCCESSFUL；out/build/x64-debug/bin/CoreTests.exe → 退出码 0
+  [纹理创建拒绝] 零尺寸              句柄空=1 点名=width 后端调用 5→5 文本=IScriptRenderBackend.width：纹理尺寸必须非零
+  [纹理创建拒绝] 字节数不符（期望值） 句柄空=1 点名=16 后端调用 5→5 文本=IScriptRenderBackend.rgba：字节数与 GetImageByteSize 不一致：期望 16 字节（RGBA8，宽 2 × 高 2），实际收到 12 字节
+  [纹理创建拒绝] 超大尺寸回绕     句柄空=1 点名=4294967296 后端调用 5→5 文本=IScriptRenderBackend.rgba：字节数与 GetImageByteSize 不一致：期望 4294967296 字节（RGBA8，宽 65536 × 高 16384），实际收到 0 字节
+  [纹理创建拒绝] 重名                 句柄空=1 点名=texYellow2x2 后端调用 6→6 文本=IScriptRenderBackend.name：同名纹理已经创建过：texYellow2x2
+  [纹理创建] 计数=1 上传执行 +1 提交执行 +0 描述符=2x2 格式=6
+Script render bridge test PASSED
+
+【变异 A：整段删除 CreateTexture 的零尺寸 if 分支（含 Fail 与 return nullptr）】
+构建 BUILD SUCCESSFUL；CoreTests 退出码 1。读数原文：
+  [脚本渲染适配] 失败：零尺寸
+  [脚本渲染适配] 失败：零尺寸
+  [脚本渲染适配] 失败：零尺寸
+  [脚本渲染适配] 失败：零尺寸
+  [纹理创建拒绝] 零尺寸              句柄空=0 点名=width 后端调用 5→6 文本=
+Script render bridge test FAILED
+
+【变异 B：整段删除 CreateTexture 的重名 if 分支（含 Fail 与 return nullptr）】
+构建 BUILD SUCCESSFUL；CoreTests 退出码 1。读数原文：
+  [脚本渲染适配] 失败：重名
+  [脚本渲染适配] 失败：重名
+  [脚本渲染适配] 失败：重名
+  [脚本渲染适配] 失败：重名
+  [纹理创建拒绝] 重名                 句柄空=0 点名=texYellow2x2 后端调用 6→7 文本=
+  [脚本渲染适配] 失败：重名拒绝之后成功创建计数发生了变化
+Script render bridge test FAILED
+
+【恢复】两处 if 分支按原文还原，重新构建后 CoreTests 退出码 0（见任务 2.2 / 2.3 绿态那条命令的同一份读数）
+

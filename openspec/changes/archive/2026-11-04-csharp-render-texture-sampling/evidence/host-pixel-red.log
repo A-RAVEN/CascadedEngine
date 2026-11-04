@@ -1,0 +1,24 @@
+﻿===== 任务 1.2 run-all 位置红绿（第 16 项 vs TestCSharpWindowCallbacks）=====
+时间：2026-11-04 21:21-21:22
+
+【红态：把 run-all 里第 16 项调用移到 TestCSharpWindowCallbacks 之后】
+  二进制：GPUBackendTester.exe 21:20:38；命令：--backend <d3d12|vulkan> --headless 10 --report test_output\pos_red_<backend>.json
+  退出码：d3d12=1、vulkan=1
+  两份 report 各 16 条：前 15 条全 pass（含 TestCSharpTriangle / TestCSharpConstantColor / TestCSharpStructuredBuffer / TestCSharpWindowCallbacks），
+  第 16 条 TestCSharpTextureSampling fail、duration 0ms，error 逐字（两后端相同）：
+  E_TEX_HOST: 托管侧不可用：未知接口编号 9：当前接线了 1 = IWindow、2 = IWindowSystem、3 = IScriptRenderBackend、4 = IScriptRenderGraph、5 = IScriptRenderTarget、6 = IScriptShaderStruct、7 = IScriptTexture
+  → 含 E_TEX_HOST 与「托管侧不可用」点名，其余 15 条 pass，与 1.2 验收一致（"第 16 项 error 含托管侧不可用类点名、其余 15 条 pass"）。
+  → 备注：该次运行里 test_output\TestCSharpWindowCallbacks.log 之后又跑了第 16 项，
+    第 16 项的 test_output\TestCSharpTextureSampling.log 只有一行 `Running: TestCSharpTextureSampling`（36 字节）——
+    测试体在宿主守卫处 0ms 被拒，没走到写失败行的阶段；拒绝证据以 report 的 error 字段为准（如实记录，不引用不存在的日志行）。
+
+【绿态：把第 16 项调用移回 TestCSharpWindowCallbacks 之前（21:22:00 二进制）】
+  命令：--backend <d3d12|vulkan> --headless 10 --report test_output\full_green_<backend>.json
+  退出码：d3d12=0、vulkan=0；两份 report 各 total=16 pass=16 fail=0（含第 16 项 TestCSharpTextureSampling）
+  → 位置红绿一对成立：移到 Callbacks 之后 ⇒ 15 pass + 第 16 项 E_TEX_HOST；移回 ⇒ 16 全 pass。
+
+【新着色器进两后端资源的读数（1.2 要求，4.1 首跑核对）】
+  d3d12 与 vulkan 全量运行的控制台日志（%TEMP%\tex_fullgreen_<backend>.log）各命中一行，逐字：
+  Root Struct For Shaders/Test/TestCSharpTextureSampling
+  → importer 扫目录即生效，没有登记清单步骤，与 design 的预期一致。
+

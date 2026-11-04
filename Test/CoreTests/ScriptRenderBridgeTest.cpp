@@ -83,6 +83,10 @@ namespace
 			++createTextureCalls;
 			auto texture = castl::make_shared<FakeTexture>();
 			texture->descriptor = descriptor;
+			// csharp-render-texture-sampling 任务 2.1：适配器传给后端的描述符与纹理要能被读数
+			//（正例断言 width / height / format，负例断言"根本没到后端"）。
+			lastTextureDescriptor = descriptor;
+			lastTexture = texture;
 			return texture;
 		}
 		// 夹具里有的类型才返回真实可写的实例（改前这里固定返回空指针，「参数表含 1 条」会拿空指针
@@ -144,6 +148,9 @@ namespace
 		int findShaderStructCalls = 0;
 		int findShaderRootStructCalls = 0;
 		castl::weak_ptr<graphics_backend::GPUGraph> lastGraph;
+		// csharp-render-texture-sampling 任务 2.1：最近一次创建纹理的描述符与对象（正例读数）。
+		graphics_backend::GPUTextureDescriptor lastTextureDescriptor{};
+		castl::shared_ptr<graphics_backend::GPUTexture> lastTexture;
 		// 夹具元数据表（csharp-render-shader-constants 任务 1.1）：适配层的校验查询直接读它。
 		// 类型本身在下面定义（`TestShaderStruct` / `fixture`），所以构造与创建都放到类外实现。
 		FakeRenderBackend();
@@ -182,10 +189,26 @@ namespace
 			castl::string bufferName;
 			uint32_t elementIndex = 0;
 		};
+		// csharp-render-texture-sampling 任务 2.2：真实 `ShaderStruct::SetImage` / `SetSampler` 的
+		// 写入记录。判据要能证"拒绝路径一次都没写进真实对象"，光看适配层计数不够。
+		struct ImageWrite
+		{
+			cacore::NameHash name;
+			graphics_backend::GPUTextureDescriptor descriptor{};
+			uint32_t elementIndex = 0;
+		};
+		struct SamplerWrite
+		{
+			cacore::NameHash name;
+			graphics_backend::TextureSamplerDescriptor descriptor{};
+			uint32_t elementIndex = 0;
+		};
 
 		std::vector<ValueWrite> valueWrites;
 		std::vector<StructWrite> structWrites;
 		std::vector<BufferWrite> bufferWrites;
+		std::vector<ImageWrite> imageWrites;
+		std::vector<SamplerWrite> samplerWrites;
 
 	protected:
 		void SetValueInternal(cacore::NameHash const& name, void const* pValue, uint32_t sizeInBytes,
@@ -199,18 +222,29 @@ namespace
 			write.bytes.assign(bytes, bytes + sizeInBytes);
 			valueWrites.push_back(write);
 		}
-		void SetImageInternal(cacore::NameHash const&, graphics_backend::ImageHandle const&,
-			graphics_backend::GPUTextureView const&, uint32_t) override
+		void SetImageInternal(cacore::NameHash const& name, graphics_backend::ImageHandle const& imageHandle,
+			graphics_backend::GPUTextureView const&, uint32_t elementIndex) override
 		{
+			ImageWrite write;
+			write.name = name;
+			write.elementIndex = elementIndex;
+			castl::shared_ptr<graphics_backend::GPUTexture> texture =
+				imageHandle.GetExternalManagedTexture();
+			if (texture != nullptr)
+			{
+				write.descriptor = texture->GetDescriptor();
+			}
+			imageWrites.push_back(write);
 		}
 		void SetBufferInternal(cacore::NameHash const& name, graphics_backend::BufferHandle const& bufferHandle,
 			uint32_t elementIndex) override
 		{
 			bufferWrites.push_back(BufferWrite{ name, castl::string(bufferHandle.GetName()), elementIndex });
 		}
-		void SetSamplerInternal(cacore::NameHash const&, graphics_backend::TextureSamplerDescriptor const&,
-			uint32_t) override
+		void SetSamplerInternal(cacore::NameHash const& name,
+			graphics_backend::TextureSamplerDescriptor const& samplerDesc, uint32_t elementIndex) override
 		{
+			samplerWrites.push_back(SamplerWrite{ name, samplerDesc, elementIndex });
 		}
 		void SetStructInternal(cacore::NameHash const& name,
 			castl::shared_ptr<graphics_backend::ShaderStruct> const& subStruct,
@@ -269,6 +303,19 @@ namespace
 			bufferData.m_ElementCount = elementCount;
 			target.EnsureShaderBuffer(bufferData);
 			return true;
+		}
+
+		// csharp-render-texture-sampling 任务 2.2：纹理条目（名字 / 读写类型 / 描述符数组长度）与
+		// 采样器名字表。`TextureSampleBlock` 是正例（`testTexture` 只读单元素 + `testSampler` 一个
+		// 采样器）；另外三个是负例素材：数组纹理、读写纹理、以及"含纹理 / 采样器字段的子结构"。
+		void AddTextureData(ShaderCompilerSlang::ShaderStructData& target, char const* name,
+			ShaderCompilerSlang::EShaderResourceAccess access, uint32_t elementCount)
+		{
+			ShaderCompilerSlang::ShaderTextureData textureData{};
+			textureData.m_Name = cacore::NameHash(name);
+			textureData.m_RWType = access;
+			textureData.m_ElementCount = elementCount;
+			target.EnsureShaderTexture(textureData);
 		}
 
 		castl::unordered_map<cacore::NameHash, ShaderCompilerSlang::ShaderStructData> BuildStructs()
@@ -339,6 +386,35 @@ namespace
 			AddSubStruct(rootWithStructuredSub, "child", "StructuredColor", 1u, 0u, 12u, 12u);
 			table.insert(castl::make_pair(CANAME("RootWithStructuredSub"), rootWithStructuredSub));
 
+			// csharp-render-texture-sampling 任务 2.2：纹理夹具。
+			ShaderCompilerSlang::ShaderStructData textureSampleBlock;
+			textureSampleBlock.Init(CANAME("TextureSampleBlock"));
+			AddTextureData(textureSampleBlock, "testTexture",
+				ShaderCompilerSlang::EShaderResourceAccess::eReadOnly, 1u);
+			textureSampleBlock.EnsureTextureSampler(CANAME("testSampler"));
+			table.insert(castl::make_pair(CANAME("TextureSampleBlock"), textureSampleBlock));
+
+			// 负例：描述符数组长度 2（数组纹理留给后续批）。
+			ShaderCompilerSlang::ShaderStructData textureArray;
+			textureArray.Init(CANAME("TextureSampleArray"));
+			AddTextureData(textureArray, "testTextures",
+				ShaderCompilerSlang::EShaderResourceAccess::eReadOnly, 2u);
+			textureArray.EnsureTextureSampler(CANAME("testSampler"));
+			table.insert(castl::make_pair(CANAME("TextureSampleArray"), textureArray));
+
+			// 负例：读写纹理（RWTexture 属计算批）。
+			ShaderCompilerSlang::ShaderStructData textureRW;
+			textureRW.Init(CANAME("TextureSampleRW"));
+			AddTextureData(textureRW, "testTexture",
+				ShaderCompilerSlang::EShaderResourceAccess::eReadWrite, 1u);
+			table.insert(castl::make_pair(CANAME("TextureSampleRW"), textureRW));
+
+			// 负例：含纹理与采样器字段的子结构类型（`SetStruct` 必须拒绝）。
+			ShaderCompilerSlang::ShaderStructData rootWithTextureSub;
+			rootWithTextureSub.Init(CANAME("RootWithTextureSub"));
+			AddSubStruct(rootWithTextureSub, "textureChild", "TextureSampleBlock", 1u, 0u, 8u, 8u);
+			table.insert(castl::make_pair(CANAME("RootWithTextureSub"), rootWithTextureSub));
+
 			return table;
 		}
 
@@ -357,6 +433,12 @@ namespace
 			AddSubStruct(structuredRoot, "structuredColorBlock", "StructuredColor", 1u, 0u, 12u, 12u);
 			table.insert(castl::make_pair(CAPATH("Shaders/Test/TestTriangleWithStructuredBufferColor"),
 				structuredRoot));
+			// csharp-render-texture-sampling 任务 2.2：纹理采样着色器的根结构
+			//（一个 `ParameterBlock<TextureSampleBlock> textureBlock`）。
+			ShaderCompilerSlang::ShaderStructData textureRoot;
+			textureRoot.Init(CANAME("__TextureRootType"));
+			AddSubStruct(textureRoot, "textureBlock", "TextureSampleBlock", 1u, 0u, 8u, 8u);
+			table.insert(castl::make_pair(CAPATH("Shaders/Test/TestCSharpTextureSampling"), textureRoot));
 			return table;
 		}
 	}
@@ -411,6 +493,10 @@ namespace
 			return 0;
 		}
 		int32_t SetPositionStream(cacore::NameHash const&, uint32_t, uint32_t) override { return 0; }
+		int32_t SetPositionTextureStream(cacore::NameHash const&, uint32_t, uint32_t, uint32_t) override
+		{
+			return 0;
+		}
 		int32_t SetPassParam(uint32_t, cacore::NameHash const&,
 			castl::shared_ptr<graphics_backend::IScriptShaderStruct> const&) override
 		{
@@ -1464,6 +1550,429 @@ bool RunScriptRenderBridgeTest()
 				"子结构缓冲拒绝进入了后端执行") && ok;
 			std::printf("  [子结构缓冲拒绝] status=%d 点名child=%d 点名原因=%d 文本=%s\n", status,
 				namedField ? 1 : 0, namedReason ? 1 : 0, text.c_str());
+		}
+	}
+
+	// ---- ⑩ 纹理创建（csharp-render-texture-sampling 任务 2.1）----
+	// 四条拒绝（零尺寸 / 字节数不符 / 超大尺寸回绕 / 重名）都必须返回空句柄 + 点名，且**根本不进入**
+	// 后端 `CreateGPUTexture`；正例核对假后端收到的描述符、上传执行单列计数、脚本提交执行增量 0。
+	{
+		auto* scriptAdapter = &adapter;
+		auto* backendPtr = &backend;
+
+		// 基线：本文件前面的用例已经用掉过 `CreateCaptureTarget`（它也走 `CreateGPUTexture`），
+		// 所以全部判据都是"基线 + 增量"，不写绝对值（D14）。
+		ok = Expect(scriptAdapter->GetCreateTextureCountForTest() == 0u,
+			"纹理创建计数在开工前就不是 0") && ok;
+		const uint32_t textureUploadBefore = scriptAdapter->GetTextureUploadExecuteCountForTest();
+		const uint32_t submitExecuteBefore = scriptAdapter->GetExecuteGraphCountForTest();
+		const uint32_t adapterWaitBefore = scriptAdapter->GetWaitIdleCountForTest();
+
+		const std::vector<uint8_t> yellow16(16u, 0x7Fu);
+		auto expectTextureReject = [&](auto const& action, auto const& errorText, char const* token,
+			char const* what) {
+			const int createCallsBefore = backendPtr->createTextureCalls;
+			const uint32_t textureCountBefore = scriptAdapter->GetCreateTextureCountForTest();
+			auto result = action();
+			const castl::string text = errorText();
+			const bool statusOk = Expect(result == nullptr, what);
+			const bool textOk = Expect(Contains(text, token), what);
+			const bool noBackend = Expect(backendPtr->createTextureCalls == createCallsBefore,
+				what);
+			const bool noCount = Expect(scriptAdapter->GetCreateTextureCountForTest() == textureCountBefore,
+				what);
+			std::printf("  [纹理创建拒绝] %-22s 句柄空=%d 点名=%s 后端调用 %d→%d 文本=%s\n", what,
+				result == nullptr ? 1 : 0, token, createCallsBefore, backendPtr->createTextureCalls,
+				text.c_str());
+			ok = statusOk && textOk && noBackend && noCount && ok;
+		};
+
+		// 零尺寸：配**空数组**（`GetImageByteSize(0, 4)` 也是 0，字节数校验放行），所以这条只由
+		// 尺寸校验挡下 —— 删掉那个 if 分支就会一路走到后端并返回非空句柄。
+		expectTextureReject(
+			[&] {
+				return scriptAdapter->CreateTexture(CANAME("texZero"), 0u, 4u, std::vector<uint8_t>());
+			},
+			[&] { return scriptAdapter->GetLastError(); }, "width", "零尺寸");
+		// 字节数不符：16 字节纹理收到 12 字节 —— 文本必须同时点名 64 位期望值与实际收到数。
+		expectTextureReject(
+			[&] {
+				return scriptAdapter->CreateTexture(CANAME("texShort"), 2u, 2u,
+					std::vector<uint8_t>(12u, 0x11u));
+			},
+			[&] { return scriptAdapter->GetLastError(); }, "16", "字节数不符（期望值）");
+		ok = Expect(Contains(scriptAdapter->GetLastError(), "12"),
+			"字节数不符的错误文本没有点名实际收到的 12 字节") && ok;
+		// 超大尺寸回绕：65536 × 16384 × 4 = 4294967296 在 32 位回绕成 0，配空数组会骗过自算校验。
+		expectTextureReject(
+			[&] {
+				return scriptAdapter->CreateTexture(CANAME("texHuge"), 65536u, 16384u,
+					std::vector<uint8_t>());
+			},
+			[&] { return scriptAdapter->GetLastError(); }, "4294967296", "超大尺寸回绕");
+
+		// 正例：先建同名一次（增量 +1），描述符 / 上传执行 / 提交执行 / 尺寸逐项核对。
+		const int createCallsBeforeOk = backendPtr->createTextureCalls;
+		auto texture = scriptAdapter->CreateTexture(CANAME("texYellow2x2"), 2u, 2u, yellow16);
+		ok = Expect(texture != nullptr, "合法的 CreateTexture 被拒绝") && ok;
+		ok = Expect(scriptAdapter->GetCreateTextureCountForTest() == 1u,
+			"成功创建纹理后计数不是 1") && ok;
+		ok = Expect(backendPtr->createTextureCalls == createCallsBeforeOk + 1,
+			"成功创建纹理没有让假后端的 CreateGPUTexture 增量 +1") && ok;
+		ok = Expect(backendPtr->lastTextureDescriptor.width == 2u &&
+			backendPtr->lastTextureDescriptor.height == 2u &&
+			backendPtr->lastTextureDescriptor.format == ETextureFormat::E_R8G8B8A8_UNORM,
+			"传给后端的纹理描述符不是 2×2 RGBA8") && ok;
+		ok = Expect(scriptAdapter->GetTextureUploadExecuteCountForTest() == textureUploadBefore + 1u,
+			"上传执行单列计数没有 +1") && ok;
+		ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == submitExecuteBefore,
+			"纹理上传抬高了脚本提交执行计数") && ok;
+		ok = Expect(scriptAdapter->GetWaitIdleCountForTest() == adapterWaitBefore,
+			"纹理上传抬高了适配器 WaitIdle 计数") && ok;
+		ok = Expect(scriptAdapter->GetPendingGraphCountForTest() == 0u,
+			"纹理上传把内部图放进了待完成集合") && ok;
+		ok = Expect(texture != nullptr && texture->GetWidth() == 2u && texture->GetHeight() == 2u,
+			"窄纹理的宽高读数不是 2×2") && ok;
+		ok = Expect(dynamic_cast<graphics_backend::CScriptTexture*>(texture.get()) != nullptr,
+			"CreateTexture 返回的不是本适配面的纹理对象") && ok;
+
+		// 重名：再建一次同名必须返回空句柄、计数与后端调用增量都 0。
+		expectTextureReject(
+			[&] { return scriptAdapter->CreateTexture(CANAME("texYellow2x2"), 2u, 2u, yellow16); },
+			[&] { return scriptAdapter->GetLastError(); }, "texYellow2x2", "重名");
+		ok = Expect(scriptAdapter->GetCreateTextureCountForTest() == 1u,
+			"重名拒绝之后成功创建计数发生了变化") && ok;
+		std::printf("  [纹理创建] 计数=%u 上传执行 +%u 提交执行 +%u 描述符=%ux%u 格式=%d\n",
+			scriptAdapter->GetCreateTextureCountForTest(),
+			scriptAdapter->GetTextureUploadExecuteCountForTest() - textureUploadBefore,
+			scriptAdapter->GetExecuteGraphCountForTest() - submitExecuteBefore,
+			backendPtr->lastTextureDescriptor.width, backendPtr->lastTextureDescriptor.height,
+			static_cast<int>(backendPtr->lastTextureDescriptor.format));
+	}
+
+	// ---- ⑪ 纹理 / 采样器绑定与提交完备性（csharp-render-texture-sampling 任务 2.2）----
+	// 五条当场拒绝（表外字段 / 非只读 / 数组 / 空纹理 / 采样器表外字段）都必须非零 + 点名，且
+	// **一次都不写进真实 `ShaderStruct`**（`imageWrites` / `samplerWrites` 空）；两种漏绑提交必须
+	// 在进入执行前拒绝、提交执行增量 0；重复绑定两次都成功且提交解析到最后一次（对象同一性）。
+	{
+		auto* scriptAdapter = &adapter;
+		auto* backendPtr = &backend;
+
+		auto textureBytes = std::vector<uint8_t>(16u, 0xFFu);
+		auto textureA = scriptAdapter->CreateTexture(CANAME("texCoreA"), 2u, 2u, textureBytes);
+		auto textureB = scriptAdapter->CreateTexture(CANAME("texCoreB"), 2u, 2u, textureBytes);
+		ok = Expect(textureA != nullptr && textureB != nullptr, "纹理绑定用例的纹理没有创建出来") && ok;
+
+		auto makeTextureGraph =
+			[&]() -> castl::shared_ptr<graphics_backend::IScriptRenderGraph> {
+			auto g = scriptAdapter->CreateGraph();
+			if (g == nullptr)
+			{
+				return nullptr;
+			}
+			if (g->AddBuffer(CANAME("TexVertices"), graphics_backend::GPUBufferDescriptor::Create(3u, 12u),
+					std::vector<uint8_t>(36u, 0u)) != 0)
+			{
+				return nullptr;
+			}
+			if (g->SetPositionTextureStream(CANAME("TexStream"), 20u, 0u, 12u) != 0)
+			{
+				return nullptr;
+			}
+			if (g->AddTrianglePass(capture, CAPATH("Shaders/Test/TestCSharpTextureSampling"),
+					CANAME("TexStream"), CANAME("TexVertices"), 3u, 0.0f, 0.0f, 1.0f, 1.0f) != 0)
+			{
+				return nullptr;
+			}
+			return g;
+		};
+
+		auto block = scriptAdapter->CreateShaderStruct(CANAME("TextureSampleBlock"));
+		auto blockArray = scriptAdapter->CreateShaderStruct(CANAME("TextureSampleArray"));
+		auto blockRW = scriptAdapter->CreateShaderStruct(CANAME("TextureSampleRW"));
+		ok = Expect(block != nullptr && blockArray != nullptr && blockRW != nullptr,
+			"纹理夹具类型有一个创建失败") && ok;
+		auto* blockConcrete = dynamic_cast<graphics_backend::CScriptShaderStruct*>(block.get());
+		auto* blockStub = blockConcrete == nullptr ? nullptr
+			: dynamic_cast<TestShaderStruct*>(blockConcrete->GetShaderStructForTest().get());
+		ok = Expect(blockStub != nullptr, "纹理夹具的真实 ShaderStruct 不是测试桩") && ok;
+
+		const uint32_t setImageBefore = scriptAdapter->GetSetImageCountForTest();
+		const uint32_t setSamplerBefore = scriptAdapter->GetSetSamplerCountForTest();
+		auto expectBindReject = [&](auto const& action, auto const& errorText, char const* token,
+			char const* what) {
+			const int32_t status = action();
+			const castl::string text = errorText();
+			const bool statusOk = Expect(status != 0, what);
+			const bool textOk = Expect(Contains(text, token), what);
+			std::printf("  [绑定拒绝] %-26s status=%d 点名=%s 文本=%s\n", what, status, token,
+				text.c_str());
+			ok = statusOk && textOk && ok;
+		};
+
+		// 纹理表外字段
+		expectBindReject([&] { return block->SetImage(CANAME("noSuchTextureField"), textureA); },
+			[&] { return block->GetLastError(); }, "noSuchTextureField", "纹理表外字段");
+		// 读写纹理
+		expectBindReject([&] { return blockRW->SetImage(CANAME("testTexture"), textureA); },
+			[&] { return blockRW->GetLastError(); }, "testTexture", "读写纹理条目");
+		ok = Expect(Contains(blockRW->GetLastError(), "RWTexture"),
+			"读写纹理条目的错误文本没有说明原因（RWTexture 属计算批）") && ok;
+		// 描述符数组长度 2
+		expectBindReject([&] { return blockArray->SetImage(CANAME("testTextures"), textureA); },
+			[&] { return blockArray->GetLastError(); }, "testTextures", "数组纹理条目");
+		// 空纹理
+		expectBindReject(
+			[&] { return block->SetImage(CANAME("testTexture"), castl::shared_ptr<graphics_backend::IScriptTexture>()); },
+			[&] { return block->GetLastError(); }, "testTexture", "空纹理");
+		// 采样器表外字段
+		expectBindReject(
+			[&] {
+				return block->SetSampler(CANAME("noSuchSamplerField"),
+					graphics_backend::TextureSamplerDescriptor::LinearClamp());
+			},
+			[&] { return block->GetLastError(); }, "noSuchSamplerField", "采样器表外字段");
+		ok = Expect(scriptAdapter->GetSetImageCountForTest() == setImageBefore &&
+			scriptAdapter->GetSetSamplerCountForTest() == setSamplerBefore,
+			"被拒绝的 SetImage / SetSampler 仍然让成功计数增长") && ok;
+		ok = Expect(blockStub != nullptr && blockStub->imageWrites.empty() &&
+			blockStub->samplerWrites.empty(),
+			"被拒绝的 SetImage / SetSampler 仍然写进了真实 ShaderStruct") && ok;
+
+		// 正例：字段与引用原样落到真实 ShaderStruct，窄对象映射与计数同步。
+		ok = Expect(block->SetImage(CANAME("testTexture"), textureA) == 0, "SetImage 合法调用被拒绝") && ok;
+		ok = Expect(block->SetSampler(CANAME("testSampler"),
+			graphics_backend::TextureSamplerDescriptor::LinearClamp()) == 0,
+			"SetSampler 合法调用被拒绝") && ok;
+		ok = Expect(scriptAdapter->GetSetImageCountForTest() == setImageBefore + 1u &&
+			scriptAdapter->GetSetSamplerCountForTest() == setSamplerBefore + 1u,
+			"SetImage / SetSampler 计数没有各 +1") && ok;
+		ok = Expect(blockConcrete != nullptr && blockConcrete->HasBoundImage(CANAME("testTexture")) &&
+			blockConcrete->GetBoundImage(CANAME("testTexture")) == textureA,
+			"窄对象记住的纹理引用不是传进去的那个对象") && ok;
+		if (blockStub != nullptr && blockStub->imageWrites.size() == 1u &&
+			blockStub->samplerWrites.size() == 1u)
+		{
+			auto const& imageWrite = blockStub->imageWrites.front();
+			auto const& samplerWrite = blockStub->samplerWrites.front();
+			ok = Expect(imageWrite.name == CANAME("testTexture") && imageWrite.elementIndex == 0u &&
+				imageWrite.descriptor.width == 2u && imageWrite.descriptor.height == 2u &&
+				imageWrite.descriptor.format == ETextureFormat::E_R8G8B8A8_UNORM,
+				"真实 ShaderStruct 记录的纹理字段 / 下标 / 描述符有一项不符") && ok;
+			ok = Expect(samplerWrite.name == CANAME("testSampler") &&
+				samplerWrite.descriptor.magFilterMode ==
+					graphics_backend::ETextureSamplerFilterMode::eLinear &&
+				samplerWrite.descriptor.addressModeU ==
+					graphics_backend::ETextureSamplerAddressMode::eClampToEdge,
+				"真实 ShaderStruct 记录的采样器字段 / 描述有一项不符") && ok;
+			std::printf("  [纹理绑定] 桩记录 字段=%s 纹理=%ux%u 采样器字段=%s\n", imageWrite.name.c_str(),
+				imageWrite.descriptor.width, imageWrite.descriptor.height, samplerWrite.name.c_str());
+		}
+		else
+		{
+			ok = Expect(false, "真实 ShaderStruct 没有记录这次 SetImage / SetSampler") && ok;
+		}
+
+		// 重复绑定：两次都成功、计数各 +2、提交解析取最后一次（经 `GetBoundImage` 读同一对象）。
+		ok = Expect(block->SetImage(CANAME("testTexture"), textureB) == 0 &&
+			block->SetSampler(CANAME("testSampler"),
+				graphics_backend::TextureSamplerDescriptor::PointClamp()) == 0,
+			"同一字段第二次 SetImage / SetSampler 被拒绝（资源绑定应允许覆盖）") && ok;
+		ok = Expect(scriptAdapter->GetSetImageCountForTest() == setImageBefore + 2u &&
+			scriptAdapter->GetSetSamplerCountForTest() == setSamplerBefore + 2u,
+			"连续两次 SetImage / SetSampler 的成功计数不是各 2") && ok;
+		ok = Expect(blockConcrete != nullptr && blockConcrete->GetBoundImage(CANAME("testTexture")) == textureB,
+			"重复绑定之后窄对象记住的不是最后一次的纹理") && ok;
+		ok = Expect(blockConcrete != nullptr &&
+			blockConcrete->GetBoundSampler(CANAME("testSampler")).magFilterMode ==
+				graphics_backend::ETextureSamplerFilterMode::eNearest,
+			"重复绑定之后窄对象记住的不是最后一次的采样器") && ok;
+
+		// 两种漏绑提交：必须在进入执行之前拒绝并点名，提交执行增量 0。
+		{
+			auto g = makeTextureGraph();
+			ok = Expect(g != nullptr, "unbound-image 用例的图没有建出来") && ok;
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("TextureSampleBlock"));
+			ok = Expect(params != nullptr &&
+				params->SetSampler(CANAME("testSampler"),
+					graphics_backend::TextureSamplerDescriptor::LinearClamp()) == 0,
+				"unbound-image 用例的 SetSampler 失败") && ok;
+			ok = Expect(g != nullptr && g->SetPassParam(0u, CANAME("textureBlock"), params) == 0,
+				"unbound-image 用例的 SetPassParam 失败") && ok;
+			const uint32_t executeBefore = scriptAdapter->GetExecuteGraphCountForTest();
+			const uint32_t uploadBefore = scriptAdapter->GetTextureUploadExecuteCountForTest();
+			const int backendExecuteBefore = backendPtr->executeGraphCalls;
+			const int32_t status = scriptAdapter->SubmitGraph(g);
+			const castl::string text = scriptAdapter->GetLastError();
+			ok = Expect(status != 0, "unbound-image 的提交没有返回非零") && ok;
+			ok = Expect(Contains(text, "testTexture"), "unbound-image 的错误文本没有点名 testTexture") && ok;
+			ok = Expect(Contains(text, "IScriptRenderBackend.field"),
+				"unbound-image 的错误通道不是 field") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBefore &&
+				backendPtr->executeGraphCalls == backendExecuteBefore,
+				"unbound-image 的提交进入了后端执行（提交执行增量不是 0）") && ok;
+			ok = Expect(scriptAdapter->GetTextureUploadExecuteCountForTest() == uploadBefore,
+				"unbound-image 的提交路径改动了上传执行计数") && ok;
+			ok = Expect(scriptAdapter->GetPendingGraphCountForTest() == 0u,
+				"被拒绝的纹理提交把图放进了待完成集合") && ok;
+			std::printf("  [提交检查 unbound-image] status=%d 文本=%s 提交执行增量=%u\n", status,
+				text.c_str(), scriptAdapter->GetExecuteGraphCountForTest() - executeBefore);
+		}
+		{
+			auto g = makeTextureGraph();
+			ok = Expect(g != nullptr, "unbound-sampler 用例的图没有建出来") && ok;
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("TextureSampleBlock"));
+			ok = Expect(params != nullptr && params->SetImage(CANAME("testTexture"), textureA) == 0,
+				"unbound-sampler 用例的 SetImage 失败") && ok;
+			ok = Expect(g != nullptr && g->SetPassParam(0u, CANAME("textureBlock"), params) == 0,
+				"unbound-sampler 用例的 SetPassParam 失败") && ok;
+			const uint32_t executeBefore = scriptAdapter->GetExecuteGraphCountForTest();
+			const int32_t status = scriptAdapter->SubmitGraph(g);
+			const castl::string text = scriptAdapter->GetLastError();
+			ok = Expect(status != 0, "unbound-sampler 的提交没有返回非零") && ok;
+			ok = Expect(Contains(text, "testSampler"),
+				"unbound-sampler 的错误文本没有点名 testSampler") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBefore,
+				"unbound-sampler 的提交进入了后端执行（提交执行增量不是 0）") && ok;
+			std::printf("  [提交检查 unbound-sampler] status=%d 文本=%s\n", status, text.c_str());
+		}
+
+		// 含纹理 / 采样器字段的子结构：`SetStruct` 必须拒绝并点名字段与原因。
+		{
+			auto parent = scriptAdapter->CreateShaderStruct(CANAME("RootWithTextureSub"));
+			auto child = scriptAdapter->CreateShaderStruct(CANAME("TextureSampleBlock"));
+			ok = Expect(parent != nullptr && child != nullptr, "子结构纹理拒绝用例的参数结构没有创建") && ok;
+			const int32_t status = parent == nullptr ? 1 : parent->SetStruct(CANAME("textureChild"), child, 0u);
+			const castl::string text = parent == nullptr ? castl::string() : parent->GetLastError();
+			ok = Expect(status != 0, "含纹理 / 采样器字段的子结构没有被 SetStruct 拒绝") && ok;
+			ok = Expect(Contains(text, "textureChild"), "子结构纹理拒绝没有点名字段 textureChild") && ok;
+			ok = Expect(Contains(text, "纹理字段") || Contains(text, "采样器字段"),
+				"子结构纹理拒绝没有说明原因（纹理 / 采样器字段）") && ok;
+			std::printf("  [子结构纹理拒绝] status=%d 文本=%s\n", status, text.c_str());
+		}
+
+		// 释放脚本侧的纹理表面对象之后：图侧登记表仍持强引用，提交执行与等待正常、待完成清理。
+		{
+			auto g = makeTextureGraph();
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("TextureSampleBlock"));
+			ok = Expect(g != nullptr && params != nullptr, "纹理保活用例的图 / 参数结构没有建出来") && ok;
+			ok = Expect(params != nullptr && params->SetImage(CANAME("testTexture"), textureA) == 0 &&
+				params->SetSampler(CANAME("testSampler"),
+					graphics_backend::TextureSamplerDescriptor::LinearClamp()) == 0,
+				"纹理保活用例的绑定失败") && ok;
+			ok = Expect(g != nullptr && g->SetPassParam(0u, CANAME("textureBlock"), params) == 0,
+				"纹理保活用例的 SetPassParam 失败") && ok;
+			auto* concrete = dynamic_cast<graphics_backend::CScriptRenderGraph*>(g.get());
+			params.reset(); // 脚本释放参数结构表面对象
+			textureA.reset(); // 脚本释放纹理表面对象
+			const bool stillReadable = concrete != nullptr &&
+				concrete->GetBoundImageForTest(0u, CANAME("textureBlock"),
+					CANAME("testTexture")) != nullptr;
+			ok = Expect(stillReadable, "释放表面对象后图侧纹理引用不可读（登记表没有保活）") && ok;
+			const uint32_t executeBefore = scriptAdapter->GetExecuteGraphCountForTest();
+			ok = Expect(g != nullptr && scriptAdapter->SubmitGraph(g) == 0,
+				"释放纹理表面对象后已提交图不能执行") && ok;
+			const uint32_t executeAfter = scriptAdapter->GetExecuteGraphCountForTest();
+			ok = Expect(executeAfter == executeBefore + 1u,
+				"释放纹理表面对象后的合法提交没有让执行次数 +1") && ok;
+			ok = Expect(scriptAdapter->GetPendingGraphCountForTest() == 1u,
+				"提交之后待完成集合不是 1") && ok;
+			scriptAdapter->WaitIdle();
+			ok = Expect(scriptAdapter->GetPendingGraphCountForTest() == 0u,
+				"释放纹理表面对象后等待没有清理待完成集合") && ok;
+			std::printf("  [纹理保活] 释放后引用可读=%d 提交执行 %u→%u 待完成=%u\n",
+				stillReadable ? 1 : 0, executeBefore, executeAfter,
+				scriptAdapter->GetPendingGraphCountForTest());
+		}
+	}
+
+	// ---- ⑫ 位置 + 纹理坐标顶点流（csharp-render-texture-sampling 任务 2.3）----
+	// 像素判据对 texcoord 的具体值不敏感（全同色纹理），所以这一层的唯一可失败核对是**描述符回读**：
+	// 两个属性的 offset 与格式必须逐字对。负例：步长越界 / 步长为零 / 重名。
+	{
+		auto* scriptAdapter = &adapter;
+		auto graph = scriptAdapter->CreateGraph();
+		auto* concrete = dynamic_cast<graphics_backend::CScriptRenderGraph*>(graph.get());
+		ok = Expect(graph != nullptr && concrete != nullptr, "顶点流用例的图没有建出来") && ok;
+		const uint32_t passesBefore = graph == nullptr ? 0u : graph->GetPassCount();
+
+		auto expectStreamReject = [&](int32_t status, char const* token, char const* what) {
+			const castl::string text = graph == nullptr ? castl::string() : graph->GetLastError();
+			const bool statusOk = Expect(status != 0, what);
+			const bool textOk = Expect(Contains(text, token), what);
+			const bool passOk = Expect(graph == nullptr || graph->GetPassCount() == passesBefore,
+				"被拒绝的顶点流仍然改变了 pass 数");
+			std::printf("  [顶点流拒绝] %-22s status=%d 点名=%s 文本=%s\n", what, status, token,
+				text.c_str());
+			ok = statusOk && textOk && passOk && ok;
+		};
+		// texcoordOffset + 8 > stride（stride 20、texcoordOffset 13 → 13 + 8 = 21 > 20）
+		expectStreamReject(
+			graph == nullptr ? 1 : graph->SetPositionTextureStream(CANAME("TexStreamBad"), 20u, 0u, 13u),
+			"texcoordOffset", "texcoord 越过步长");
+		// stride == 0
+		expectStreamReject(
+			graph == nullptr ? 1 : graph->SetPositionTextureStream(CANAME("TexStreamZero"), 0u, 0u, 12u),
+			"stride", "步长为零");
+		// 正例：stride 20、POSITION @0、TEXCOORD @12
+		const int32_t okStatus = graph == nullptr
+			? 1 : graph->SetPositionTextureStream(CANAME("TexStream"), 20u, 0u, 12u);
+		ok = Expect(okStatus == 0, "合法的 SetPositionTextureStream 被拒绝") && ok;
+		// 重名：与刚登记的流同名必须拒绝并点名（三种流共用同一张流名表）。
+		expectStreamReject(
+			graph == nullptr ? 1 : graph->SetPositionTextureStream(CANAME("TexStream"), 20u, 0u, 12u),
+			"TexStream", "流名重复");
+		// 正例建 pass：先登记 20 字节步长的缓冲，再按名取该流的描述符，从真实图回读逐字核对。
+		ok = Expect(graph != nullptr &&
+			graph->AddBuffer(CANAME("TexVerticesStream"), graphics_backend::GPUBufferDescriptor::Create(3u, 20u),
+				std::vector<uint8_t>(60u, 0u)) == 0, "顶点流用例的缓冲没有登记") && ok;
+		ok = Expect(graph != nullptr &&
+			graph->AddTrianglePass(capture, CAPATH("Shaders/Test/TestCSharpTextureSampling"),
+				CANAME("TexStream"), CANAME("TexVerticesStream"), 3u, 0.0f, 0.0f, 1.0f, 1.0f) == 0,
+			"合法的 AddTrianglePass（位置 + 纹理坐标流）被拒绝") && ok;
+		if (concrete != nullptr && !concrete->GetGraphForTest()->GetRenderPasses().empty())
+		{
+			auto const& pass = concrete->GetGraphForTest()->GetRenderPasses().back();
+			auto const& batches = pass.GetDrawCallBatches();
+			bool foundStream = false;
+			bool foundPosition = false;
+			bool foundTexcoord = false;
+			uint32_t stride = 0;
+			size_t attributeCount = 0;
+			if (!batches.empty())
+			{
+				auto stream = batches.back().m_VertexInputDescs.find(CANAME("TexStream"));
+				if (stream != batches.back().m_VertexInputDescs.end())
+				{
+					VertexInputsDescriptor const& descriptor = stream->second.Get();
+					foundStream = true;
+					stride = descriptor.stride;
+					attributeCount = descriptor.attributes.size();
+					for (auto const& attribute : descriptor.attributes)
+					{
+						if (attribute.semanticName == CANAME("POSITION"))
+						{
+							foundPosition = attribute.offset == 0u &&
+								attribute.format == VertexInputFormat::eR32G32B32_SFloat;
+						}
+						if (attribute.semanticName == CANAME("TEXCOORD"))
+						{
+							foundTexcoord = attribute.offset == 12u &&
+								attribute.format == VertexInputFormat::eR32G32_SFloat;
+						}
+					}
+				}
+			}
+			ok = Expect(foundStream, "pass 的批次里没有登记 TexStream 顶点流") && ok;
+			ok = Expect(stride == 20u, "纹理坐标流的步长不是 20") && ok;
+			ok = Expect(foundPosition, "POSITION 属性的 offset / 格式不是 @0 eR32G32B32_SFloat") && ok;
+			ok = Expect(foundTexcoord, "TEXCOORD 属性的 offset / 格式不是 @12 eR32G32_SFloat") && ok;
+			std::printf("  [纹理坐标流] 描述符 stride=%u POSITION@0=%d TEXCOORD@12=%d 属性数=%zu\n",
+				stride, foundPosition ? 1 : 0, foundTexcoord ? 1 : 0, attributeCount);
+		}
+		else
+		{
+			ok = Expect(false, "顶点流用例没有建出 pass，无法回读描述符") && ok;
 		}
 	}
 

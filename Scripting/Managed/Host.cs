@@ -12,8 +12,9 @@ namespace Scripting.Managed
     /// </summary>
     public static unsafe class Host
     {
-        // 与 C++ 侧必须逐字一致（csharp-render-shader-constants 任务 3.1：v6 → v7，末尾追加参数结构编号）
-        private const uint ExpectedAbiVersion = 7;
+        // 与 C++ 侧必须逐字一致（csharp-render-texture-sampling 任务 3.1：v7 → v8，末尾追加纹理编号；
+        // 函数表 72 → 80 字节）
+        private const uint ExpectedAbiVersion = 8;
 
         private static EngineApi* s_api;
         private static int s_tickCount;
@@ -120,9 +121,10 @@ namespace Scripting.Managed
             // 后端与目标接口没有过界记录（清单为空，循环直接通过）；图接口带 GPUBufferDescriptor。
             // csharp-render-shader-constants 任务 3.1：第四个渲染接口（参数结构，编号 6）同样纳入。
             if (api->ScriptRenderBackendInterfaceId == 0 || api->ScriptRenderGraphInterfaceId == 0 ||
-                api->ScriptRenderTargetInterfaceId == 0 || api->ScriptShaderStructInterfaceId == 0)
+                api->ScriptRenderTargetInterfaceId == 0 || api->ScriptShaderStructInterfaceId == 0 ||
+                api->ScriptTextureInterfaceId == 0)
             {
-                s_lastError = "函数表里的渲染接口编号是 0（v6 的三个 / v7 的第四个字段没有下发）";
+                s_lastError = "函数表里的渲染接口编号是 0（v6 的三个 / v7 的第四个 / v8 的第五个字段没有下发）";
                 return false;
             }
             if (!VerifyBindingLayout(api, api->ScriptRenderBackendInterfaceId,
@@ -137,6 +139,12 @@ namespace Scripting.Managed
             }
             if (!VerifyBindingLayout(api, api->ScriptShaderStructInterfaceId,
                     IScriptShaderStructBindings.LayoutManifest))
+            {
+                return false;
+            }
+            // csharp-render-texture-sampling 任务 3.1：第五个渲染接口（纹理，编号 7）。
+            if (!VerifyBindingLayout(api, api->ScriptTextureInterfaceId,
+                    IScriptTextureBindings.LayoutManifest))
             {
                 return false;
             }
@@ -215,11 +223,13 @@ namespace Scripting.Managed
         {
             try
             {
-                // 关闭顺序（csharp-render-backend-triangle 任务 3.1 / spec；
-                // csharp-render-shader-constants 任务 3.1 追加参数结构）：参数结构 → 图 → 离屏目标 → 后端表面。
+                // 关闭顺序（csharp-render-texture-sampling 任务 3.1）：参数结构 → 纹理 → 图 → 离屏目标
+                // → 后端表面。纹理排在参数结构之后：结构持纹理引用，先放持有者。
                 LogShutdownStep("1/4 参数结构表面对象");
                 UserScript.ReleaseShaderStructSurfaces();
-                LogShutdownStep("2-3/4 图 → 离屏目标");
+                LogShutdownStep("2/4 纹理表面对象");
+                UserScript.ReleaseTextureSurfaces();
+                LogShutdownStep("3/4 图 → 离屏目标");
                 UserScript.ReleaseRenderSurfaces();
                 LogShutdownStep("4/4 后端表面对象");
                 if (s_renderBackend != null)
@@ -229,6 +239,7 @@ namespace Scripting.Managed
                 }
                 LogShutdownStep("释放完成");
                 s_renderTablesBound = false;
+                s_renderBindError = string.Empty;
                 s_renderProbeCalled = true;
                 if (s_system != null)
                 {
@@ -284,6 +295,8 @@ namespace Scripting.Managed
                 ProbeConstantColor();
                 // 结构化缓冲探针独立（csharp-render-structured-buffer 任务 3.1）：三个渲染探针互不消耗。
                 ProbeStructuredBuffer();
+                // 纹理采样探针同样独立（csharp-render-texture-sampling 任务 3.2）：四个探针互不消耗。
+                ProbeTexture();
                 ProbeWindowSize();
                 ProbeExceptionMapping();
                 ProbeMonitor();
@@ -983,11 +996,19 @@ namespace Scripting.Managed
         private const int RenderApiTableVersion = 2;
         private static IScriptRenderBackend s_renderBackend;
         private static bool s_renderTablesBound;
+        /// <summary>
+        /// 最近一次渲染表绑定失败的原因（`IScriptRenderBackend` / 某张目标类型表没登记、写入字节数不符）。
+        /// `BindRenderInterfaces` 会清空 `s_lastError`（未启用探针的窗口路径要保持原行为），所以这里
+        /// 另记一份，供探针的失败文本点名"是哪张表"。
+        /// </summary>
+        private static string s_renderBindError = string.Empty;
         private static bool s_renderProbeCalled;
         // csharp-render-shader-constants 任务 3.2：常量色探针有自己的开关与调用标记，与渲染探针互不消耗。
         private static bool s_constantColorProbeCalled;
         // csharp-render-structured-buffer 任务 3.1：结构化缓冲探针同样独立（第三个渲染探针）。
         private static bool s_structuredBufferProbeCalled;
+        // csharp-render-texture-sampling 任务 3.2：纹理探针有独立开关与调用标记（第四个渲染探针）。
+        private static bool s_textureProbeCalled;
 
         private static bool RenderProbeEnabled =>
             Environment.GetEnvironmentVariable("CASCADED_CSHARP_RENDER_PROBE") == "1";
@@ -997,6 +1018,9 @@ namespace Scripting.Managed
 
         private static bool StructuredBufferProbeEnabled =>
             Environment.GetEnvironmentVariable("CASCADED_CSHARP_SB_PROBE") == "1";
+
+        private static bool TextureProbeEnabled =>
+            Environment.GetEnvironmentVariable("CASCADED_CSHARP_TEX_PROBE") == "1";
 
         /// <summary>
         /// 绑定三张渲染表（任务 3.1）：后端表要求真实适配器实例；图与目标表属于目标类型表，
@@ -1019,7 +1043,8 @@ namespace Scripting.Managed
                 RenderApiTableVersion, 0, null, null);
             if (backendSize == 0)
             {
-                LogLine("[托管侧 渲染] 取 IScriptRenderBackend 函数表失败：渲染适配器未登记（渲染探针不会执行）");
+                s_renderBindError = $"取 IScriptRenderBackend 函数表失败：渲染适配器未登记（编号 {s_api->ScriptRenderBackendInterfaceId}）";
+                LogLine("[托管侧 渲染] " + s_renderBindError + "（渲染探针不会执行）");
                 return;
             }
             byte* backendTable = stackalloc byte[(int)backendSize];
@@ -1028,8 +1053,8 @@ namespace Scripting.Managed
                 RenderApiTableVersion, backendSize, backendTable, &backendInstance);
             if (backendWritten != backendSize || backendInstance == null)
             {
-                LogLine($"[托管侧 渲染] 取 IScriptRenderBackend 函数表失败：写入 {backendWritten} 字节、" +
-                        $"实例 {(long)backendInstance}");
+                s_renderBindError = $"取 IScriptRenderBackend 函数表失败：写入 {backendWritten} 字节、实例 {(long)backendInstance}";
+                LogLine("[托管侧 渲染] " + s_renderBindError);
                 return;
             }
             IScriptRenderBackendBindings.Bind(backendTable);
@@ -1042,14 +1067,22 @@ namespace Scripting.Managed
                 // csharp-render-shader-constants 任务 3.1：第四个渲染接口（参数结构）也是目标类型表，
                 // 允许空实例取表；实际对象由目标句柄解析。
                 !BindTargetTable(s_api->ScriptShaderStructInterfaceId, "IScriptShaderStruct",
-                    IScriptShaderStructBindings.Bind))
+                    IScriptShaderStructBindings.Bind) ||
+                // csharp-render-texture-sampling 任务 3.1：第五个渲染接口（纹理）同样属目标类型表，
+                // 空实例取表；实际对象由 `ResolveTargetHandle` 解析。
+                !BindTargetTable(s_api->ScriptTextureInterfaceId, "IScriptTexture",
+                    IScriptTextureBindings.Bind))
             {
+                // 失败原因留一份（`s_lastError` 随后会清空）：探针的失败文本要能点名是**哪张表**没绑
+                // —— 3.1 的红态判据靠这一句点名 `IScriptTexture`。
+                s_renderBindError = s_lastError;
                 LogLine("[托管侧 渲染] " + s_lastError);
                 s_lastError = string.Empty;
                 return;
             }
             s_renderTablesBound = true;
-            LogLine($"[托管侧 渲染] 四个函数表已绑定（后端实例 {(long)backendInstance}）");
+            s_renderBindError = string.Empty;
+            LogLine($"[托管侧 渲染] 五个函数表已绑定（后端实例 {(long)backendInstance}）");
         }
 
         private delegate void BindTableFn(byte* table);
@@ -1090,7 +1123,7 @@ namespace Scripting.Managed
             }
             if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
             {
-                s_lastError = "渲染探针：三个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                s_lastError = "渲染探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
                 LogLine("[托管侧 渲染] " + s_lastError);
                 return;
             }
@@ -1117,7 +1150,7 @@ namespace Scripting.Managed
             }
             if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
             {
-                s_lastError = "常量色探针：四个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                s_lastError = "常量色探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
                 LogLine("[托管侧 常量色] " + s_lastError);
                 return;
             }
@@ -1144,13 +1177,41 @@ namespace Scripting.Managed
             }
             if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
             {
-                s_lastError = "结构化缓冲探针：四个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                s_lastError = "结构化缓冲探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
                 LogLine("[托管侧 结构化缓冲] " + s_lastError);
                 return;
             }
             UserScript.OnStructuredBufferProbe(s_system, s_renderBackend);
             LogLine($"[脚本 结构化缓冲] OnStructuredBufferProbe 调用 #{UserScript.StructuredBufferProbeCount}：" +
                     UserScript.LastStructuredBufferSummary);
+        }
+
+        /// <summary>
+        /// 纹理采样探针（csharp-render-texture-sampling 任务 3.2）：与 `ProbeStructuredBuffer` 同形但
+        /// **独立**的开关（`CASCADED_CSHARP_TEX_PROBE`）与调用标记 —— 四个渲染探针在同一进程的全量顺序里
+        /// 各自执行一次、互不消耗。未启用时不创建任何 GPU 工作。
+        /// </summary>
+        private static void ProbeTexture()
+        {
+            if (s_textureProbeCalled || !TextureProbeEnabled)
+            {
+                return;
+            }
+            s_textureProbeCalled = true;
+            if (!s_renderTablesBound)
+            {
+                BindRenderInterfaces();
+            }
+            if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
+            {
+                s_lastError = "纹理采样探针：后端 + 四个目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行" +
+                              (s_renderBindError.Length == 0 ? string.Empty : "；绑定失败原因：" + s_renderBindError);
+                LogLine("[托管侧 纹理] " + s_lastError);
+                return;
+            }
+            UserScript.OnTextureProbe(s_system, s_renderBackend);
+            LogLine($"[脚本 纹理] OnTextureProbe 调用 #{UserScript.TextureProbeCount}：" +
+                    UserScript.LastTextureSummary);
         }
 
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>

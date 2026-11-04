@@ -40,5 +40,8 @@ namespace Scripting.Managed
         // --- v7 追加（csharp-render-shader-constants 任务 3.1）：参数结构表 ---
         // 与图、目标同属目标类型表（没有默认实例，取表时 instanceOut 可为空）。
         public uint ScriptShaderStructInterfaceId;
+        // --- v8 追加（csharp-render-texture-sampling 任务 3.1）：只读纹理表 ---
+        // 同样属目标类型表（没有默认实例）；v7 的 72 字节无尾填充，追加后函数表按 8 字节对齐为 80。
+        public uint ScriptTextureInterfaceId;
     }
 }

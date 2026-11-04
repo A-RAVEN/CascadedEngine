@@ -25,7 +25,7 @@ namespace graphics_backend
 	// 适配器上读到「创建了几个参数结构 / 写了多少次 float3 / 挂了几次子结构」。计数放在后端持有的
 	// 一个小结构里、窄对象只拿指针 —— 避免窄对象反向持有后端（那会形成环形引用）。
 	// `setPassParam` 由任务 3.2 的读数要求补上（「两次 SetPassParam 的对应断言」必须来自原生钩子），
-	// 它是实现类上的测试钩子，不进任何绑定接口，不影响审计表的 84 方法口径。
+	// 它是实现类上的测试钩子，不进任何绑定接口，不影响审计表的 90 方法口径。
 	struct ScriptShaderCallCounters
 	{
 		uint32_t createShaderStruct = 0;
@@ -38,6 +38,30 @@ namespace graphics_backend
 		// csharp-render-structured-buffer 任务 2.1：`CScriptRenderGraph::AddBuffer` 成功登记的次数。
 		// 「非探针期建缓冲为 0」必须有这个读数（适配器现状没有别的计数能区分）。
 		uint32_t addBuffer = 0;
+		// csharp-render-texture-sampling 任务 2.1 / 2.2：成功 `CreateTexture`、成功 `SetImage`、
+		// 成功 `SetSampler` 的次数（正常探针各 +1，`unbound-image` 的 SetImage 增量 0 等判据用它）。
+		uint32_t createTexture = 0;
+		uint32_t setImage = 0;
+		uint32_t setSampler = 0;
+	};
+
+	// 只读纹理窄对象（csharp-render-texture-sampling 任务 2.1）：只报宽高，并持一份原生纹理副本
+	// （适配器另有一张按名字的强引用表）。本批不提供显式销毁 —— 纹理由适配器保活到进程末。
+	class CScriptTexture final : public IScriptTexture
+	{
+	public:
+		CScriptTexture(uint32_t width, uint32_t height, castl::shared_ptr<GPUTexture> nativeTexture);
+
+		uint32_t GetWidth() const override;
+		uint32_t GetHeight() const override;
+
+		// 原生测试钩子（C++ only）：底层真实纹理。
+		castl::shared_ptr<GPUTexture> const& GetNativeTextureForTest() const { return m_NativeTexture; }
+
+	private:
+		uint32_t m_Width = 0;
+		uint32_t m_Height = 0;
+		castl::shared_ptr<GPUTexture> m_NativeTexture;
 	};
 
 	// 目标：窗口后台缓冲或固定格式离屏纹理。保存描述快照，原生测试用它核对宽、高与格式。
@@ -76,11 +100,24 @@ namespace graphics_backend
 		// csharp-render-structured-buffer 任务 2.1：字段级校验当场做（缓冲表、读写类型、数组长度），
 		// 缓冲名此刻只登记不解析（原生的先绑后建时序）；通过后转发给真实 `ShaderStruct::SetBuffer`。
 		int32_t SetBuffer(cacore::NameHash const& field, cacore::NameHash const& bufferName) override;
+		// csharp-render-texture-sampling 任务 2.2：纹理与采样器绑定。`SetImage` 校验纹理表条目
+		//（存在 / 只读 / 描述符数组长度 1）与非空；`SetSampler` 只校验采样器名字表存在性。
+		// 两者都 MUST NOT 把无效输入转交真实 `ShaderStruct`（两后端对未知字段静默跳过、越界 `CA_ASSERT`）。
+		int32_t SetImage(cacore::NameHash const& field,
+			castl::shared_ptr<IScriptTexture> const& texture) override;
+		int32_t SetSampler(cacore::NameHash const& field,
+			TextureSamplerDescriptor const& sampler) override;
 		castl::string GetLastError() const override;
 
 		// 提交检查的只读数据面（任务 2.2）：字段是否被 `SetBuffer` 写过、写的是哪个缓冲名。
 		bool HasBoundBuffer(cacore::NameHash const& field) const;
 		cacore::NameHash GetBoundBufferName(cacore::NameHash const& field) const;
+		// csharp-render-texture-sampling 任务 2.2：纹理与采样器的只读核对口（D5）——
+		// 计数证明不了"解析到谁"，4.1 要按对象同一性核对，所以这里必须交出引用本身。
+		bool HasBoundImage(cacore::NameHash const& field) const;
+		castl::shared_ptr<IScriptTexture> GetBoundImage(cacore::NameHash const& field) const;
+		bool HasBoundSampler(cacore::NameHash const& field) const;
+		TextureSamplerDescriptor GetBoundSampler(cacore::NameHash const& field) const;
 		// 编译元数据指针（只读；提交检查要按它的 `m_Buffers` 逐字段核对）。
 		ShaderCompilerSlang::ShaderStructData const* GetDataForTest() const { return m_Data; }
 
@@ -99,6 +136,10 @@ namespace graphics_backend
 		// 字段 → 缓冲名（任务 2.1）：重复绑定覆盖写入，提交解析取最后一次；与流名查重的
 		// 「重复即拒绝」语义不同（缓冲绑定是状态写入，有效性由提交检查兜底）。
 		castl::unordered_map<cacore::NameHash, cacore::NameHash> m_BoundBuffers;
+		// csharp-render-texture-sampling 任务 2.2：字段 → 纹理引用 / 采样器描述。同样覆盖写入，
+		// 提交检查按这两张表核对"每个纹理 / 采样器条目都写过"。
+		castl::unordered_map<cacore::NameHash, castl::shared_ptr<IScriptTexture>> m_BoundImages;
+		castl::unordered_map<cacore::NameHash, TextureSamplerDescriptor> m_BoundSamplers;
 		castl::string m_LastError;
 	};
 
@@ -114,6 +155,11 @@ namespace graphics_backend
 			uint32_t positionOffset, uint32_t colorOffset) override;
 		int32_t SetPositionStream(cacore::NameHash const& streamName, uint32_t stride,
 			uint32_t positionOffset) override;
+		// csharp-render-texture-sampling 任务 2.3：`POSITION float3` + `TEXCOORD float2` 流。
+		// `TEXCOORD` 的属性格式是 8 字节的 `eR32G32_SFloat`（不是原生测试那种用 12 字节三分量格式
+		// 声明 `float2` 的越界写法），描述符经 `GetGraphForTest()` 回读核对。
+		int32_t SetPositionTextureStream(cacore::NameHash const& streamName, uint32_t stride,
+			uint32_t positionOffset, uint32_t texcoordOffset) override;
 		int32_t SetPassParam(uint32_t passIndex, cacore::NameHash const& blockName,
 			castl::shared_ptr<IScriptShaderStruct> const& parameters) override;
 		int32_t AddTrianglePass(castl::shared_ptr<IScriptRenderTarget> const& target,
@@ -135,6 +181,13 @@ namespace graphics_backend
 		cacore::NameHash GetBoundBufferNameForTest(uint32_t passIndex, cacore::NameHash const& blockName,
 			cacore::NameHash const& field) const;
 		int32_t CheckBoundBuffers(castl::string& outParameter, castl::string& outReason) const;
+		// csharp-render-texture-sampling 任务 2.2：纹理字段的只读核对口。返回的是图侧登记表里
+		// 那个参数结构持有的**引用本身**（对象同一性判据用，计数替代不了）。
+		castl::shared_ptr<IScriptTexture> GetBoundImageForTest(uint32_t passIndex,
+			cacore::NameHash const& blockName, cacore::NameHash const& field) const;
+		// 提交前核对「纹理表与采样器表每条目都已写」。与 `CheckBoundBuffers` 分开只是为了错误文本
+		// 各对各的参数名，二者都在 `ExecuteGraph` 之前调用。
+		int32_t CheckBoundTextures(castl::string& outParameter, castl::string& outReason) const;
 
 	private:
 		struct BufferRecord
@@ -146,6 +199,8 @@ namespace graphics_backend
 			uint32_t stride = 0;
 			uint32_t positionOffset = 0;
 			uint32_t colorOffset = 0;
+			// csharp-render-texture-sampling 任务 2.3：TEXCOORD 的字节偏移（8 字节属性）。
+			uint32_t texcoordOffset = 0;
 			cacore::HashObj<VertexInputsDescriptor> vertices;
 		};
 		// `SetPassParam` 成功登记：`(passIndex, blockName) → 窄参数结构`。强引用（与参数保活同孔）——
@@ -183,6 +238,11 @@ namespace graphics_backend
 		castl::shared_ptr<IScriptRenderTarget> CreateCaptureTarget(uint32_t width,
 			uint32_t height) override;
 		castl::shared_ptr<IScriptRenderGraph> CreateGraph() override;
+		// csharp-render-texture-sampling 任务 2.1：一次调用完成创建 + 上传 + 转采样态 + 同步等待。
+		// 上传执行走**后端直连**（`ExecuteGraph` + `WaitIdle`），不经适配器的 `SubmitGraph`/`WaitIdle`：
+		// `GetExecuteGraphCountForTest`/`GetWaitIdleCountForTest`/`m_Pending` 只反映脚本提交。
+		castl::shared_ptr<IScriptTexture> CreateTexture(cacore::NameHash const& name, uint32_t width,
+			uint32_t height, castl::vector<uint8_t> const& rgba) override;
 		// 未知类型：返回空句柄 + `GetLastError()` 点名 `structTypeName`，且 MUST NOT 进入后端
 		// `CRenderBackend::CreateShaderStruct`（D3D12 侧对空元数据解引用）。非空类型才创建真实
 		// `ShaderStruct` 并包进窄对象。
@@ -225,6 +285,19 @@ namespace graphics_backend
 		// `skip-param` 的提交前拒绝也必须证明"后端执行次数 0"（任务 4.1）。
 		uint32_t GetCreateCaptureTargetCountForTest() const { return m_CreateCaptureTargetCount; }
 		uint32_t GetExecuteGraphCountForTest() const { return m_ExecuteGraphCount; }
+		// csharp-render-texture-sampling 任务 2.1：成功创建纹理的次数；"上传执行"单列计数（D24）——
+		// 一切"本次提交执行增量 0"的判据只看 `GetExecuteGraphCountForTest`，上传那 1 次不进它。
+		uint32_t GetCreateTextureCountForTest() const { return m_ShaderCounters.createTexture; }
+		uint32_t GetTextureUploadExecuteCountForTest() const { return m_TextureUploadExecuteCount; }
+		// csharp-render-texture-sampling 任务 2.2：成功绑定纹理 / 采样器的次数。
+		uint32_t GetSetImageCountForTest() const { return m_ShaderCounters.setImage; }
+		uint32_t GetSetSamplerCountForTest() const { return m_ShaderCounters.setSampler; }
+		// 最近一次成功创建的纹理（任务 4.1 的对象同一性核对：图侧 `GetBoundImageForTest` 读出的
+		// 必须是**这个对象**，计数替代不了同一性）。
+		castl::shared_ptr<IScriptTexture> const& GetLastCreatedTextureForTest() const
+		{
+			return m_LastCreatedTexture;
+		}
 
 	private:
 		int32_t Fail(char const* parameter, char const* reason);
@@ -242,6 +315,11 @@ namespace graphics_backend
 		castl::weak_ptr<CScriptRenderGraph> m_LastGraph;
 		castl::shared_ptr<CScriptRenderTarget> m_LastCaptureTarget;
 		castl::shared_ptr<CScriptRenderTarget> m_LastWindowTarget;
+		// csharp-render-texture-sampling 任务 2.1：纹理强引用表（名字 → 原生纹理）+ 上传执行计数 +
+		// 最近创建的窄纹理。表与窄对象各持一份 shared_ptr 副本，适配器销毁前纹理不失效。
+		castl::unordered_map<cacore::NameHash, castl::shared_ptr<GPUTexture>> m_Textures;
+		uint32_t m_TextureUploadExecuteCount = 0;
+		castl::shared_ptr<IScriptTexture> m_LastCreatedTexture;
 		castl::string m_LastError;
 	};
 }

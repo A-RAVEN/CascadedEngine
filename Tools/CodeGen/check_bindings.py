@@ -233,6 +233,39 @@ SHARED_VALUE_TYPES = {
         "public ulong count;",
         "public ulong stride;",
     ],
+    # csharp-render-texture-sampling 任务 4.2：采样器描述记录与它的三个枚举（`SetSampler` 的入参）。
+    # 记录是 7 个枚举 + 1 个 bool（bool 必须按 I1 投影，不许退化成 4 字节的默认布尔）。
+    "TextureSamplerDescriptor": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct TextureSamplerDescriptor",
+        "public ETextureSamplerFilterMode magFilterMode;",
+        "public ETextureSamplerFilterMode minFilterMode;",
+        "public ETextureSamplerFilterMode mipmapFilterMode;",
+        "public ETextureSamplerAddressMode addressModeU;",
+        "public ETextureSamplerAddressMode addressModeV;",
+        "public ETextureSamplerAddressMode addressModeW;",
+        "public ETextureSamplerBorderColor boarderColor;",
+        "[MarshalAs(UnmanagedType.I1)]",
+        "public bool integerFormat;",
+    ],
+    "ETextureSamplerFilterMode": [
+        "public enum ETextureSamplerFilterMode : int",
+        "eNearest = 0,",
+        "eLinear = 1,",
+    ],
+    "ETextureSamplerAddressMode": [
+        "public enum ETextureSamplerAddressMode : int",
+        "eRepeat = 0,",
+        "eMirroredRepeat = 1,",
+        "eClampToEdge = 2,",
+        "eClampToBorder = 3,",
+    ],
+    "ETextureSamplerBorderColor": [
+        "public enum ETextureSamplerBorderColor : int",
+        "eTransparentBlack = 0,",
+        "eOpaqueBlack = 1,",
+        "eOpaqueWhite = 2,",
+    ],
 }
 
 # 允许在共享公开记录里出现 `ulong` 的类型（逐项登记，不是整体取消）。
@@ -889,6 +922,8 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
             "public int SetPositionColorStream(string streamName, uint stride, uint positionOffset, "
             "uint colorOffset)",
             "public int SetPositionStream(string streamName, uint stride, uint positionOffset)",
+            "public int SetPositionTextureStream(string streamName, uint stride, uint positionOffset, "
+            "uint texcoordOffset)",
             "public int SetPassParam(uint passIndex, string blockName, IScriptShaderStruct parameters)",
             "public int AddTrianglePass(IScriptRenderTarget target, string shaderPath, string streamName, "
             "string bufferName, uint vertexCount, float red, float green, float blue, float alpha)",
@@ -901,17 +936,27 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
             "public IScriptRenderTarget CreateCaptureTarget(uint width, uint height)",
             "public IScriptRenderGraph CreateGraph()",
             "public IScriptShaderStruct CreateShaderStruct(string structTypeName)",
+            "public IScriptTexture CreateTexture(string name, uint width, uint height, byte[] rgba)",
             "public int SubmitGraph(IScriptRenderGraph graph)",
             "public void WaitIdle()",
             "public string GetLastError()",
         ],
         # csharp-render-shader-constants 任务 4.2：第四个脚本接口的完整公开表面。
         # csharp-render-structured-buffer 任务 4.2：追加 `SetBuffer`（两个 string 入参、返回 int）。
+        # csharp-render-texture-sampling 任务 4.2：追加 `SetImage` / `SetSampler`（纹理解口表面对象与
+        # 公开记录入参，`int` 状态不许退化成 void）。
         "IScriptShaderStruct.Bindings.cs": [
             "public int SetFloat3(string field, float x, float y, float z)",
             "public int SetStruct(string field, IScriptShaderStruct sub, uint elementIndex)",
             "public int SetBuffer(string field, string bufferName)",
+            "public int SetImage(string field, IScriptTexture texture)",
+            "public int SetSampler(string field, TextureSamplerDescriptor sampler)",
             "public string GetLastError()",
+        ],
+        # csharp-render-texture-sampling 任务 4.2：第五个脚本接口（只读纹理）的完整公开表面。
+        "IScriptTexture.Bindings.cs": [
+            "public uint GetWidth()",
+            "public uint GetHeight()",
         ],
     }
     for filename, signatures in surface_expected.items():
@@ -962,6 +1007,22 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
         "IScriptShaderStruct_SetBuffer":
             'extern "C" int32_t IScriptShaderStruct_SetBuffer(void* self, char const* field, '
             'uint64_t fieldLen, char const* bufferName, uint64_t bufferNameLen)',
+        # csharp-render-texture-sampling 任务 4.2：纹理创建 / 绑定 / 顶点流的 C ABI 形状。
+        # `CreateTexture` 的字节数组沿用 `AddBuffer` 的先例（`uint8_t const* + uint64_t count`）。
+        "IScriptRenderBackend_CreateTexture":
+            'extern "C" uint64_t IScriptRenderBackend_CreateTexture(void* self, char const* name, '
+            'uint64_t nameLen, uint32_t width, uint32_t height, uint8_t const* rgba, '
+            'uint64_t rgbaCount)',
+        "IScriptShaderStruct_SetImage":
+            'extern "C" int32_t IScriptShaderStruct_SetImage(void* self, char const* field, '
+            'uint64_t fieldLen, uint64_t textureHandle)',
+        "IScriptShaderStruct_SetSampler":
+            'extern "C" int32_t IScriptShaderStruct_SetSampler(void* self, char const* field, '
+            'uint64_t fieldLen, TextureSamplerDescriptorC const* sampler)',
+        "IScriptRenderGraph_SetPositionTextureStream":
+            'extern "C" int32_t IScriptRenderGraph_SetPositionTextureStream(void* self, '
+            'char const* streamName, uint64_t streamNameLen, uint32_t stride, uint32_t positionOffset, '
+            'uint32_t texcoordOffset)',
     }
     generated = read_generated(product_dir)
     for symbol, expected in cpp_expected.items():

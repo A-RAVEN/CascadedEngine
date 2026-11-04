@@ -1,0 +1,73 @@
+﻿===== 任务 2.2 / 2.3 适配层：绿态读数 + 五处变异红态（写法：整段删除 if 分支连拒绝返回；非 if 的保活写入整段删除该语句）=====
+时间：2026-11-04 20:58:59
+
+【绿态】python build.py --config Debug → BUILD SUCCESSFUL；out/build/x64-debug/bin/CoreTests.exe → 退出码 0
+  [拒绝] 参数=streamName     status=1 点名=1 文本=IScriptRenderGraph.streamName：顶点流没有登记过 pass=1 execCalls=0
+  [缓冲绑定拒绝] 缓冲表外字段             status=1 点名=noSuchBufferField 文本=IScriptShaderStruct.field：字段不在类型 StructuredColor 的缓冲元数据里：noSuchBufferField
+  [缓冲绑定拒绝] 读写访问条目             status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 的访问类型不是只读；读写缓冲属计算批，本批不支持
+  [缓冲绑定拒绝] 数组条目（元素数 2）  status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 必须是单元素（描述符数组长度为 1），实际 2
+  [绑定拒绝] 纹理表外字段         status=1 点名=noSuchTextureField 文本=IScriptShaderStruct.field：字段不在类型 TextureSampleBlock 的纹理元数据里：noSuchTextureField
+  [绑定拒绝] 读写纹理条目         status=1 点名=testTexture 文本=IScriptShaderStruct.field：字段 testTexture 的访问类型不是只读；读写纹理（RWTexture）属计算批，本批不支持
+  [绑定拒绝] 数组纹理条目         status=1 点名=testTextures 文本=IScriptShaderStruct.field：字段 testTextures 必须是单元素（描述符数组长度为 1），实际 2
+  [绑定拒绝] 空纹理                  status=1 点名=testTexture 文本=IScriptShaderStruct.field：字段 testTexture 的纹理是空句柄；纹理必须先经 CreateTexture 创建
+  [绑定拒绝] 采样器表外字段      status=1 点名=noSuchSamplerField 文本=IScriptShaderStruct.field：字段不在类型 TextureSampleBlock 的采样器元数据里：noSuchSamplerField
+  [纹理绑定] 桩记录 字段=testTexture 纹理=2x2 采样器字段=testSampler
+  [提交检查 unbound-image] status=1 文本=IScriptRenderBackend.field：pass 0 的块 textureBlock 没有为纹理字段 testTexture 调 SetImage 提交执行增量=0
+  [提交检查 unbound-sampler] status=1 文本=IScriptRenderBackend.field：pass 0 的块 textureBlock 没有为采样器字段 testSampler 调 SetSampler
+  [子结构纹理拒绝] status=1 文本=IScriptShaderStruct.field：子结构类型 TextureSampleBlock 含纹理字段，本批只支持顶层纹理字段：textureChild
+  [纹理保活] 释放后引用可读=1 提交执行 6→7 待完成=0
+  [顶点流拒绝] texcoord 越过步长  status=1 点名=texcoordOffset 文本=IScriptRenderGraph.texcoordOffset：texcoord 属性越过步长（offset + 8 > stride）
+  [顶点流拒绝] 步长为零           status=1 点名=stride 文本=IScriptRenderGraph.stride：步长必须非零
+  [顶点流拒绝] 流名重复           status=1 点名=TexStream 文本=IScriptRenderGraph.streamName：同一张图里流名必须唯一（这次是重复登记）：TexStream
+  [纹理坐标流] 描述符 stride=20 POSITION@0=1 TEXCOORD@12=1 属性数=2
+Script render bridge test PASSED
+
+【变异 ①：整段删除 SetImage 的空纹理 if 分支】构建成功；CoreTests 退出码 1：
+  [脚本渲染适配] 失败：空纹理
+  [绑定拒绝] 空纹理                  status=1 点名=testTexture 文本=IScriptShaderStruct.field：纹理不是本适配面创建的对象
+Script render bridge test FAILED
+
+【变异 ②：整段删除 CheckBoundTextures 的采样器必绑循环】构建成功；CoreTests 退出码 1：
+  [脚本渲染适配] 失败：unbound-sampler 的提交没有返回非零
+  [脚本渲染适配] 失败：unbound-sampler 的错误文本没有点名 testSampler
+  [脚本渲染适配] 失败：unbound-sampler 的提交进入了后端执行（提交执行增量不是 0）
+  [提交检查 unbound-sampler] status=0 文本=
+  [脚本渲染适配] 失败：提交之后待完成集合不是 1
+Script render bridge test FAILED
+
+【变异 ③：整段删除 SetStruct 的三张资源表拒绝分支】构建成功；CoreTests 退出码 1：
+  [脚本渲染适配] 失败：含缓冲字段的子结构没有被 SetStruct 拒绝
+  [脚本渲染适配] 失败：子结构缓冲拒绝没有点名字段 child
+  [脚本渲染适配] 失败：子结构缓冲拒绝没有说明原因（缓冲字段）
+  [子结构缓冲拒绝] status=0 点名child=0 点名原因=0 文本=
+  [脚本渲染适配] 失败：含纹理 / 采样器字段的子结构没有被 SetStruct 拒绝
+  [脚本渲染适配] 失败：子结构纹理拒绝没有点名字段 textureChild
+  [脚本渲染适配] 失败：子结构纹理拒绝没有说明原因（纹理 / 采样器字段）
+  [子结构纹理拒绝] status=0 文本=
+Script render bridge test FAILED
+
+【变异 ④：整段删除 SetImage 里的保活记录 m_BoundImages[field] = texture】构建成功；CoreTests 退出码 1：
+  [脚本渲染适配] 失败：窄对象记住的纹理引用不是传进去的那个对象
+  [脚本渲染适配] 失败：重复绑定之后窄对象记住的不是最后一次的纹理
+  [脚本渲染适配] 失败：unbound-sampler 的错误文本没有点名 testSampler
+  [脚本渲染适配] 失败：释放表面对象后图侧纹理引用不可读（登记表没有保活）
+  [脚本渲染适配] 失败：释放纹理表面对象后已提交图不能执行
+  [脚本渲染适配] 失败：释放纹理表面对象后的合法提交没有让执行次数 +1
+  [脚本渲染适配] 失败：提交之后待完成集合不是 1
+  [纹理保活] 释放后引用可读=0 提交执行 6→6 待完成=0
+Script render bridge test FAILED
+
+===== 任务 2.3 尾节：SetPositionTextureStream 变异红态 + 恢复绿态 =====
+【变异：整段删除 texcoordOffset + 8 > stride 的 if 分支】构建成功；CoreTests 退出码 1：
+  [脚本渲染适配] 失败：texcoord 越过步长
+  [脚本渲染适配] 失败：texcoord 越过步长
+  [顶点流拒绝] texcoord 越过步长  status=0 点名=texcoordOffset 文本=
+Script render bridge test FAILED
+
+【恢复】if 分支按原文还原：python build.py --config Debug → BUILD SUCCESSFUL；CoreTests 退出码 0
+  [顶点流拒绝] texcoord 越过步长  status=1 点名=texcoordOffset 文本=IScriptRenderGraph.texcoordOffset：texcoord 属性越过步长（offset + 8 > stride）
+  [顶点流拒绝] 步长为零           status=1 点名=stride 文本=IScriptRenderGraph.stride：步长必须非零
+  [顶点流拒绝] 流名重复           status=1 点名=TexStream 文本=IScriptRenderGraph.streamName：同一张图里流名必须唯一（这次是重复登记）：TexStream
+  [纹理坐标流] 描述符 stride=20 POSITION@0=1 TEXCOORD@12=1 属性数=2
+Script render bridge test PASSED
+

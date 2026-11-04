@@ -1,0 +1,90 @@
+﻿===== 任务 4.1 双后端像素与提交前拒绝证据（主 agent 代跑，读数原样回传）=====
+二进制：out\build\x64-debug\bin\GPUBackendTester.exe 21:12:02（Debug，BUILD SUCCESSFUL）；主 agent 日志 %TEMP%\tex_batch2.log
+时间：2026-11-04 21:12-21:14
+
+【--list】退出码 0，16 行，末行 TestCSharpTextureSampling（前 15 行含 TestCSharpStructuredBuffer）
+
+【命令】逐条（全部带 --headless 10；报告名见下）
+  & GPUBackendTester.exe --backend <d3d12|vulkan> --test TestCSharpTextureSampling --headless 10 --report test_output\csharp_texture_sampling_<backend>_<mode>.json
+
+【退出码】d3d12 normal=0、vulkan normal=0；bad-texture-color ×2 = 1；unbound-image ×2 = 1；unbound-sampler ×2 = 1；进程转储 crash_*.dmp 计数 = 0
+
+【normal】d3d12 status=pass 159ms；vulkan status=pass 216ms
+  PNG：TestCSharpTextureSampling_d3d12_normal.png 3487 字节（21:12:36）、TestCSharpTextureSampling_vulkan_normal.png 3487 字节（21:12:38）
+
+【bad-texture-color ×2】exit 1，report error 逐字：
+  E_TEX_PIXEL: bad-texture-color：中心精确等于 (0,255,255,255)，按预期失败
+  PNG：TestCSharpTextureSampling_d3d12_bad-texture-color.png 3489 字节、TestCSharpTextureSampling_vulkan_bad-texture-color.png 3489 字节
+
+【unbound-sampler ×2】exit 1，report error 逐字：
+  E_TEX_BIND: unbound-sampler：参数表 2 条、适配器点名 testSampler、本次提交执行增量 0（上传执行 1 另计）、等待计数 0→0，按预期失败
+
+【unbound-image ×2：第一轮红态（判据顺序缺陷，已修）】exit 1，report error 逐字：
+  E_TEX_BIND: pass 0 的纹理字段解析到的不是探针 CreateTexture 返回的同一对象
+  → 缺陷：原生判据里对象同一性核对排在漏绑提交前拒绝之前，unbound-image 先判「不是同一对象」，
+    导致 error 没点名 testTexture、也没带「本次提交执行增量 0 / 上传执行 1」，与 unbound-sampler 不同构。
+  → 修复：把同一性核对整块移到两种漏绑拒绝之后（Test\GPUBackendTester\Main.cpp，两处注释说明顺序理由），重新构建。重跑读数待回传后补在此节下面。
+
+【check_csharp_texture_sampling.py 第一轮】退出码 1、6 处 ✗ —— 正是被 unbound-image 那条缺陷触发（判据抓到了自己的缺陷）
+
+【check_csharp_host_failures.py（任务 3.1）】退出码 0，5 场景全过（含 v8「托管侧期望 8」）
+
+【备注】test_output\result.json 里那条 29ms 的 E_TEX_PROBE_MISSING 是旧单跑残留（单模式 --test 不写 result.json），不属本批读数
+
+【unbound-image 修复后重跑（21:16:34 二进制）】
+  命令：同前两条（d3d12 / vulkan --test TestCSharpTextureSampling --headless 10，report 覆盖同名文件）
+  退出码：d3d12 = 1、vulkan = 1（duration 各 111ms）
+  两份 report error 逐字相同：
+  E_TEX_BIND: unbound-image：参数表 2 条、适配器点名 testTexture、本次提交执行增量 0（上传执行 1 另计）、等待计数 0→0，按预期失败
+  与 unbound-sampler 完全同构（点名、增量 0、上传 1 两项读数都在）
+  日志关键行（两份逐字相同）：TestCSharpTextureSampling 负向计数：setImage=0（期望 0） setSampler=1（期望 1） 上传执行=1（期望 1） 本次提交执行增量=0（期望 0）
+
+【check_csharp_texture_sampling.py 第二轮（八份对账）】退出码 0、问题 0 处
+  d3d12 normal=pass、bad-texture-color=fail、unbound-image=fail code=E_TEX_BIND、unbound-sampler=fail code=E_TEX_BIND
+  vulkan 同上四项
+
+【报告 mtime 分两段（如实记录，不是同一时刻）】
+  第一段（21:12 窗口，21:12 二进制）：d3d12/vulkan 的 normal、bad-texture-color、unbound-sampler 共 6 份报告 + 4 份 PNG
+    csharp_texture_sampling_d3d12_normal.json 21:12:36、_vulkan_normal.json 21:12:38
+    _d3d12_bad-texture-color.json 21:12:40、_vulkan_bad-texture-color.json 21:12:42
+    _d3d12_unbound-sampler.json 21:12:47、_vulkan_unbound-sampler.json 21:12:49
+  第二段（21:16 窗口，修后重跑）：unbound-image 两份 —— d3d12 21:16+、vulkan 21:16+（第一轮同名文件被覆盖）
+  说明：unbound-image 第一轮的 error 文本因判据顺序缺陷不合格（见上），修完只重跑了这两条；其余六份仍是 21:12 窗口的读数。
+
+【合成自检四类异常（4.1 要求「各退 1」）】把八份报告 + 四份 PNG 复制到 %TEMP%\tex-selfcheck 后逐类构造
+  基线（未构造异常）：python Tools/check_csharp_texture_sampling.py --report-dir <临时目录>
+    退出码：0；末行：问题 0 处
+  ① 缺正常（删 d3d12 normal 报告）→ 退出码 1；点名：d3d12   normal             缺报告
+  ② 负向被接受（把 d3d12 unbound-image 的 status 改成 pass）→ 退出码 1；点名：✗ 负向结果被错误接受：d3d12 的 unbound-image 是 pass（期望 fail，错误码 E_TEX_BIND）
+  ③ 负向码错（把 vulkan bad-texture-color 的 E_TEX_PIXEL 改成 E_WRONG_CODE）→ 退出码 1；点名：✗ 负向错误码不对：vulkan 的 bad-texture-color 期望 E_TEX_PIXEL，实际 error=E_WRONG_CODE: bad-texture-color：中心精确等于 (0,255,255,255)，按预期失败
+  ④ 缺 PNG（删 vulkan normal 的 PNG）→ 退出码 1；点名：✗ 缺像素 PNG 或为空：C:\Users\76956\AppData\Local\Temp\tex-selfcheck\TestCSharpTextureSampling_vulkan_normal.png
+  四类各退 1 ✓（基线本身退出码见上，正常应为 0）
+
+【normal 模式的原生读数（两后端全量绿跑 21:22:00 二进制，%TEMP%\full_<backend>\TestCSharpTextureSampling.log）】
+  d3d12：TestCSharpTextureSampling：backend=d3d12 mode=normal size=320x240 wait=3→4 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,255,0,255) png=test_output/TestCSharpTextureSampling_d3d12_normal.png
+  vulkan：TestCSharpTextureSampling：backend=vulkan mode=normal size=320x240 wait=3→4 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,255,0,255) png=test_output/TestCSharpTextureSampling_vulkan_normal.png
+  通过行：TestCSharpTextureSampling 通过：<backend> 后端背景与中心像素精确匹配、两个 pass 各 1 条 textureBlock
+
+  → 背景精确 (0,0,255,255)、中心精确 (255,255,0,255)；等待计数 3→4（适配器 WaitIdle +1）、待完成 0、呈现清单 1 项、pass 数 2、每 pass 参数表 1 条 textureBlock。
+
+【纹理字段对象同一性（D5）】
+  TestCSharpTextureSampling pass=0 纹理字段解析=非空 同一对象=1
+  TestCSharpTextureSampling pass=1 纹理字段解析=非空 同一对象=1
+  → `GetBoundImageForTest` 读出与探针 `CreateTexture` 返回值是同一对象（指针同一性，两后端一致）。
+
+【元数据读数（复核 design 前提，不改规则）】
+  TestCSharpTextureSampling 元数据读数：type=TextureSampleBlock textures=1 texField=testTexture rw=1 elements=1 samplers=1 samplerListed=1
+  → 纹理条目只读（rw=1 是 EShaderResourceAccess::eReadOnly 的枚举值）、描述符数组长度 1；采样器表里确有 testSampler。
+
+【探针摘要的 disposed 行（3.2 的实测步，4.1 核对）】
+  TestCSharpTextureSampling disposed 摘要行=[托管侧] [脚本 纹理] OnTextureProbe 调用 #1：… disposed=ObjectDisposedException 原生 SetImage 调用 0 submitError=
+
+【调用计数（两后端一致）】
+  createTexture=1 setImage=1 setSampler=1 setPassParam=2 setFloat3=0 setStruct=0 setBuffer=0 captureTarget=1 上传执行=1 本次提交执行=1
+
+【真实后端负例（两后端各一次、进程不崩）】
+  ① 真实后端负例①：字节数不符创建 → 空句柄 文本=IScriptRenderBackend.rgba：字节数与 GetImageByteSize 不一致：期望 16 字节（RGBA8，宽 2 × 高 2），实际收到 12 字节
+  ② 真实后端负例②：纹理表外字段 SetImage → status=1 文本=IScriptShaderStruct.field：字段不在类型 TextureSampleBlock 的纹理元数据里：noSuchTextureField
+
+【全量绿跑上下文】d3d12/vulkan 两份 final 之外的全量 report（test_output\full_green_<backend>.json）各 16 条 status，全部 pass；本用例两条均 pass。
+

@@ -1038,13 +1038,13 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 python Tools/CodeGen/check_bindable_audit.py
 ```
 ```
-扫描 11 个接口、对账 84 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+扫描 12 个接口、对账 90 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
 [exit 0]
 ```
 
 **已知限制（醒目）**：
 
-- 审计范围现在是 11 个接口（`CRenderBackend` / `IReadbackToken` / `IWindow` / `IWindowSystem` / `IShaderCompilerManager` / `IOManager` / `IResource` / `IScriptRenderTarget` / `IScriptRenderGraph` / `IScriptRenderBackend` / `IScriptShaderStruct`）。其中后四个是脚本渲染适配面：`csharp-render-backend-triangle` 的 3 + 6 + 6 条方法，加上 `csharp-render-shader-constants` 的参数结构 3 条与两个接口各新增的方法（图 6 → 8、后端 6 → 7）；`CRenderBackend` 的两个元数据查询也各登记一行（不可绑 + 理由），所以它是 10 → 12 条。汇总数字必须与头文件实算一致、重复行会让脚本非零。
+- 审计范围现在是 12 个接口（`CRenderBackend` / `IReadbackToken` / `IWindow` / `IWindowSystem` / `IShaderCompilerManager` / `IOManager` / `IResource` / `IScriptTexture` / `IScriptRenderTarget` / `IScriptRenderGraph` / `IScriptRenderBackend` / `IScriptShaderStruct`）。其中后五个是脚本渲染适配面：`csharp-render-backend-triangle` 的 3 + 6 + 6 条方法，加上 `csharp-render-shader-constants` 的参数结构 3 条与两个接口各新增的方法（图 6 → 8、后端 6 → 7），再加上 `csharp-render-texture-sampling` 的纹理接口 2 条与三个接口各新增的方法（图 8 → 9、后端 7 → 8、参数结构 4 → 6）；`CRenderBackend` 的两个元数据查询也各登记一行（不可绑 + 理由），所以它是 10 → 12 条。汇总数字必须与头文件实算一致、重复行会让脚本非零。
   `GPUGraph` / `IMGUIContext` / `IOBatch` / `WBatch` / `IShaderCompiler` **尚未审计** —— 每帧热路径恰恰在这几个上面，所以"需快路"清单目前是**空的**（不是规则失效）。
 - 脚本按**纯虚方法名**对账，**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
 - 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。

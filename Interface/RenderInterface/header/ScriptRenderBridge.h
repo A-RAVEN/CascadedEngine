@@ -1,7 +1,8 @@
 #pragma once
-// 脚本专用窄渲染适配面（csharp-render-backend-triangle；csharp-render-shader-constants 追加参数结构）。
+// 脚本专用窄渲染适配面（csharp-render-backend-triangle；csharp-render-shader-constants 追加参数结构；
+// csharp-render-texture-sampling 追加纹理）。
 //
-// 这里只放**跨脚本边界**的四个纯虚接口：目标、图、后端、参数结构。它们只使用已经归档的绑定形状
+// 这里只放**跨脚本边界**的五个纯虚接口：目标、图、后端、参数结构、纹理。它们只使用已经归档的绑定形状
 // （定宽标量、公开记录、文本/路径值、同步字节、接口智能指针），不暴露 `TaskScheduler*`、
 // `CRenderBackend::Release`、具体建图类或原生资源地址。
 //
@@ -16,6 +17,7 @@
 #include <HashKeys.h>
 #include "CodeGenMeta.h"
 #include "GPUBuffer.h"
+#include "TextureSampler.h"
 
 // 窗口只以智能指针入参出现：真实窗口由 `IWindowSystem` 创建，句柄由窗口接口发行。
 namespace cawindow
@@ -25,6 +27,17 @@ namespace cawindow
 
 namespace graphics_backend
 {
+	// 只读纹理句柄（csharp-render-texture-sampling 任务 1.1）：纹理由后端适配器发行、由适配器保活，
+// 脚本侧只读宽高。本批不提供显式销毁（释放与飞行中提交的语义留给后续批）。
+	CA_BIND()
+	class IScriptTexture
+	{
+	public:
+		virtual uint32_t GetWidth() const = 0;
+		virtual uint32_t GetHeight() const = 0;
+		virtual ~IScriptTexture() = default;
+	};
+
 	CA_BIND()
 	class IScriptRenderTarget
 	{
@@ -53,6 +66,15 @@ namespace graphics_backend
 		// 「重复即拒绝」语义不同），有效性由提交时检查兜底。
 		virtual int32_t SetBuffer(cacore::NameHash const& field,
 			cacore::NameHash const& bufferName) = 0;
+		// 把适配器发行的纹理按字段名绑到本结构的纹理字段：字段必须在类型元数据的纹理表内、
+		// 访问类型只读、描述符数组长度为 1，纹理不能为空；违反逐项拒绝并点名参数。
+		// 同一字段重复绑定以最后一次为准（与缓冲绑定同为状态写入）。
+		virtual int32_t SetImage(cacore::NameHash const& field,
+			castl::shared_ptr<IScriptTexture> const& texture) = 0;
+		// 采样器描述按字段名绑到采样器表内的字段：字段必须在类型元数据的采样器名字表内，
+		// 否则拒绝并点名 field（采样器表只有名字，没有读写类型与元素数可校验）。
+		virtual int32_t SetSampler(cacore::NameHash const& field,
+			TextureSamplerDescriptor const& sampler) = 0;
 		virtual castl::string GetLastError() const = 0;
 		virtual ~IScriptShaderStruct() = default;
 	};
@@ -72,6 +94,12 @@ namespace graphics_backend
 		// 重复登记同名流返回非零并点名 `streamName`（这是加严：旧行为是静默覆盖）。
 		virtual int32_t SetPositionStream(cacore::NameHash const& streamName, uint32_t stride,
 			uint32_t positionOffset) = 0;
+		// 单 `POSITION` `float3` + 单 `TEXCOORD` `float2` 流：`stride == 0`、
+		// `positionOffset + 12 > stride`、`texcoordOffset + 8 > stride` 即拒绝。
+		// `TEXCOORD` 的顶点格式是 `eR32G32_SFloat`（2 个 float = 8 字节），不是 12 字节的三分量格式。
+		// 三种流的登记共用同一张流名表 —— 重复登记同名流返回非零并点名 `streamName`。
+		virtual int32_t SetPositionTextureStream(cacore::NameHash const& streamName, uint32_t stride,
+			uint32_t positionOffset, uint32_t texcoordOffset) = 0;
 		// 把参数结构绑定到第 passIndex 个 pass 的参数块名。passIndex 越界、参数为空、
 		// blockName 不在该 pass 着色器根结构、块类型与参数结构类型名不符都拒绝并点名参数。
 		// 形参名不叫 `params`：那是 C# 关键字，绑定发射器会把形参名原样搬进托管表面（构建期实测
@@ -98,6 +126,12 @@ namespace graphics_backend
 		virtual castl::shared_ptr<IScriptRenderTarget> CreateCaptureTarget(uint32_t width,
 			uint32_t height) = 0;
 		virtual castl::shared_ptr<IScriptRenderGraph> CreateGraph() = 0;
+		// 一次调用完成「创建 RGBA8 纹理 → 图内上传字节 → 转采样态 → 同步等待」。
+		// 字节数必须等于 `GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)`（64 位）；
+		// 零尺寸、字节数不符、重名、底层创建失败都 MUST 返回空句柄并由 `GetLastError()` 点名原因。
+		// 上传的执行与等待**不**计入脚本提交路径的 `GetExecuteGraphCountForTest`/`GetWaitIdleCountForTest`。
+		virtual castl::shared_ptr<IScriptTexture> CreateTexture(cacore::NameHash const& name,
+			uint32_t width, uint32_t height, castl::vector<uint8_t> const& rgba) = 0;
 		// 按类型名创建参数结构。未知类型 MUST 返回空句柄并由 `GetLastError()` 点名 `structTypeName`，
 		// 且 MUST NOT 调用 `CRenderBackend::CreateShaderStruct`（D3D12 侧对空元数据解引用）。
 		virtual castl::shared_ptr<IScriptShaderStruct> CreateShaderStruct(

@@ -1,0 +1,46 @@
+﻿===== 任务 5.2 最终构建 + 校验 + 三条清洁判据 =====
+时间：2026-11-04 21:30:45
+
+【最终构建】python build.py --config Debug
+  退出码 0；末行 BUILD SUCCESSFUL；耗时行：[耗时] configure 0.0s / codegen 1.5s / 编译 9.9s / 托管侧 1.9s / 合计 37.3s
+
+【openspec 校验】
+  openspec validate csharp-render-texture-sampling → 退出码 0；Change 'csharp-render-texture-sampling' is valid
+  openspec validate --all → 退出码 0；Totals: 54 passed, 0 failed (54 items)
+
+【判据①：git status --porcelain -uall 逐行分类】
+  白名单先写进 openspec/changes/csharp-render-texture-sampling/evidence/final-status.txt（14 条前缀）；
+  分类结果：43 行全部落在白名单内，白名单外 0 行（逐行标注见 final-status.txt 第一段）。
+
+【判据②：新增文件与已修改文件的行尾空白】
+  新增 21 个文件逐个扫 `[ \t]+$`：0 个命中；已修改 20 个文件同扫：0 个命中（复算见 final-status.txt 第二段）。
+
+【判据③：崩溃转储】
+  Get-ChildItem -Recurse -Filter '*.dmp' -Force → 0 个。
+
+【gitignore 产物存在性自证（先 Test-Path + 计数，再按豁免如实列出）】
+  Test-Path test_output = True；文件数 = 123
+  Test-Path .review_tmp = True；文件数 = 8
+  两者都只在 .gitignore 里，不进仓库（与已归档各批一致）。
+
+【交付判据】
+  openspec instructions apply --change csharp-render-texture-sampling --json → progress: total=12, complete=12, remaining=0
+  tasks.md：- [ ] 计数 = 0（12/12 全勾）
+  openspec validate csharp-render-texture-sampling → Change 'csharp-render-texture-sampling' is valid
+  openspec validate --all → Totals: 54 passed, 0 failed (54 items)
+
+【二进制与读数的对应关系（如实写明）】
+  5.1 的全量/分模式读数为 GPUBackendTester.exe 21:22:00 + Scripting.Managed.dll 21:25:37 这一版；
+  5.2 的最终构建（21:29-21:30）重跑了托管段，Scripting.Managed.dll 被重新产出为 21:29:49（源码自 21:25:37 起未再改动，IL 同源），
+  GPUBackendTester.exe 仍是 21:22:00（C++ 侧最终构建没有需要重链的改动）。因此 5.1 的读数对应最终源码状态。
+
+【证据目录】openspec/changes/csharp-render-texture-sampling/evidence/ 下保留全部红态与恢复记录：
+  adapter-red.log、tex-create-mutations.log、tex-lifetime.log、tex-test-skeleton.log、host-pixel-red.log、
+  host-render-api.log、managed-texture.log、pixel-validation.log、param-binding-checks.log、docs-sync.log、
+  final-regression.log、final-status.txt、final-build.log
+
+===== 收尾补正（裁决第⑨条）：CSharpHost/CMakeLists.txt 注释同步 =====
+  改前：生成绑定产物清单只列到 `IScriptShaderStruct.Bindings.cpp`（与代码不符）。
+  改后：清单补上 `IScriptTexture.Bindings.cpp`，并把「第五个脚本接口 IScriptTexture 的产物」写进说明；纯注释，不动构建行为。
+  python build.py --config Debug → 退出码 0，末行 BUILD SUCCESSFUL（2026-11-04 22:33 窗口）
+
