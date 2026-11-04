@@ -25,13 +25,19 @@ namespace graphics_backend
 	// 适配器上读到「创建了几个参数结构 / 写了多少次 float3 / 挂了几次子结构」。计数放在后端持有的
 	// 一个小结构里、窄对象只拿指针 —— 避免窄对象反向持有后端（那会形成环形引用）。
 	// `setPassParam` 由任务 3.2 的读数要求补上（「两次 SetPassParam 的对应断言」必须来自原生钩子），
-	// 它是实现类上的测试钩子，不进任何绑定接口，不影响审计表的 83 方法口径。
+	// 它是实现类上的测试钩子，不进任何绑定接口，不影响审计表的 84 方法口径。
 	struct ScriptShaderCallCounters
 	{
 		uint32_t createShaderStruct = 0;
 		uint32_t setFloat3 = 0;
 		uint32_t setStruct = 0;
+		// csharp-render-structured-buffer 任务 2.1：成功绑定结构化缓冲字段的次数（正常探针增量 +1、
+		// `unbound-field` 增量 0）。
+		uint32_t setBuffer = 0;
 		uint32_t setPassParam = 0;
+		// csharp-render-structured-buffer 任务 2.1：`CScriptRenderGraph::AddBuffer` 成功登记的次数。
+		// 「非探针期建缓冲为 0」必须有这个读数（适配器现状没有别的计数能区分）。
+		uint32_t addBuffer = 0;
 	};
 
 	// 目标：窗口后台缓冲或固定格式离屏纹理。保存描述快照，原生测试用它核对宽、高与格式。
@@ -67,7 +73,16 @@ namespace graphics_backend
 		int32_t SetFloat3(cacore::NameHash const& field, float x, float y, float z) override;
 		int32_t SetStruct(cacore::NameHash const& field,
 			castl::shared_ptr<IScriptShaderStruct> const& sub, uint32_t elementIndex) override;
+		// csharp-render-structured-buffer 任务 2.1：字段级校验当场做（缓冲表、读写类型、数组长度），
+		// 缓冲名此刻只登记不解析（原生的先绑后建时序）；通过后转发给真实 `ShaderStruct::SetBuffer`。
+		int32_t SetBuffer(cacore::NameHash const& field, cacore::NameHash const& bufferName) override;
 		castl::string GetLastError() const override;
+
+		// 提交检查的只读数据面（任务 2.2）：字段是否被 `SetBuffer` 写过、写的是哪个缓冲名。
+		bool HasBoundBuffer(cacore::NameHash const& field) const;
+		cacore::NameHash GetBoundBufferName(cacore::NameHash const& field) const;
+		// 编译元数据指针（只读；提交检查要按它的 `m_Buffers` 逐字段核对）。
+		ShaderCompilerSlang::ShaderStructData const* GetDataForTest() const { return m_Data; }
 
 		// 原生测试钩子（C++ only）：类型名、真实 `ShaderStruct` 与两个写入计数。
 		cacore::NameHash const& GetTypeNameForTest() const { return m_TypeName; }
@@ -81,6 +96,9 @@ namespace graphics_backend
 		ShaderCompilerSlang::ShaderStructData const* m_Data = nullptr;
 		castl::shared_ptr<ShaderStruct> m_ShaderStruct;
 		ScriptShaderCallCounters* m_Counters = nullptr;
+		// 字段 → 缓冲名（任务 2.1）：重复绑定覆盖写入，提交解析取最后一次；与流名查重的
+		// 「重复即拒绝」语义不同（缓冲绑定是状态写入，有效性由提交检查兜底）。
+		castl::unordered_map<cacore::NameHash, cacore::NameHash> m_BoundBuffers;
 		castl::string m_LastError;
 	};
 
@@ -109,6 +127,15 @@ namespace graphics_backend
 		// 原生测试钩子：真实图结构（上传字节 / 属性 / 着色器 / 绘制数 / 清除色 / 呈现清单）。
 		castl::shared_ptr<GPUGraph> const& GetGraphForTest() const { return m_Graph; }
 
+		// csharp-render-structured-buffer 任务 2.2：提交检查的只读查询与数据通道。
+		// `HasBuffer` 查本图缓冲登记表；`GetBoundBufferNameForTest` 读图侧登记表解析出的缓冲名
+		//（4.1 核对用，不读后端 `GetBufferHandles` —— 那方法只在两个具体后端类上）；
+		// `CheckBoundBuffers` 在提交前逐 pass 核对「字段已写 + 缓冲名在本图登记」。
+		bool HasBuffer(cacore::NameHash const& name) const;
+		cacore::NameHash GetBoundBufferNameForTest(uint32_t passIndex, cacore::NameHash const& blockName,
+			cacore::NameHash const& field) const;
+		int32_t CheckBoundBuffers(castl::string& outParameter, castl::string& outReason) const;
+
 	private:
 		struct BufferRecord
 		{
@@ -120,6 +147,14 @@ namespace graphics_backend
 			uint32_t positionOffset = 0;
 			uint32_t colorOffset = 0;
 			cacore::HashObj<VertexInputsDescriptor> vertices;
+		};
+		// `SetPassParam` 成功登记：`(passIndex, blockName) → 窄参数结构`。强引用（与参数保活同孔）——
+		// 脚本释放自己的表面对象之后，提交检查与测试核对仍能读到字段映射。
+		struct PassParamRecord
+		{
+			uint32_t passIndex = 0;
+			cacore::NameHash blockName;
+			castl::shared_ptr<CScriptShaderStruct> parameters;
 		};
 
 		int32_t Fail(char const* parameter, char const* reason);
@@ -133,6 +168,7 @@ namespace graphics_backend
 		castl::shared_ptr<GPUGraph> m_Graph;
 		castl::unordered_map<cacore::NameHash, BufferRecord> m_Buffers;
 		castl::unordered_map<cacore::NameHash, StreamRecord> m_Streams;
+		castl::vector<PassParamRecord> m_PassParams;
 		castl::string m_LastError;
 	};
 
@@ -180,6 +216,9 @@ namespace graphics_backend
 		uint32_t GetCreateShaderStructCountForTest() const { return m_ShaderCounters.createShaderStruct; }
 		uint32_t GetSetFloat3CountForTest() const { return m_ShaderCounters.setFloat3; }
 		uint32_t GetSetStructCountForTest() const { return m_ShaderCounters.setStruct; }
+		// csharp-render-structured-buffer 任务 2.1：成功 `SetBuffer` 与成功 `AddBuffer` 的计数。
+		uint32_t GetSetBufferCountForTest() const { return m_ShaderCounters.setBuffer; }
+		uint32_t GetAddBufferCountForTest() const { return m_ShaderCounters.addBuffer; }
 		// 成功绑定参数块的次数（任务 3.2 要求"两次 SetPassParam"也有原生读数）。
 		uint32_t GetSetPassParamCountForTest() const { return m_ShaderCounters.setPassParam; }
 		// `CreateCaptureTarget` 与进入后端的执行次数：非探针测试期间必须为 0（任务 3.2），

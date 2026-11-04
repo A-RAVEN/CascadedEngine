@@ -5,7 +5,7 @@
 - 逐文件 `git grep -c 'virtual .*= *0;'` 会把同文件里的其它类算进来（`CRenderBackend.h` 里 13 条中 `CRenderBackend` 本类只有 10 条、另 3 条属 `IReadbackToken`；`WindowSystem.h` 里 39 条分属 `IWindow`（23）与 `IWindowSystem`（16））。
 - **注释里出现的示例签名会被当成真声明**（`CRenderBackend.h` 的注释里写着 `query`、`IResource.h` 的注释里引用了 `Serialize` 的原文）；不剥注释就会凭空多出方法名。
 
-**范围**：10 个模块级接口 + `IReadbackToken`（出现在 `Readback` 的返回值里），合计 **83** 条纯虚方法：
+**范围**：10 个模块级接口 + `IReadbackToken`（出现在 `Readback` 的返回值里），合计 **84** 条纯虚方法：
 
 | 接口 | 方法条数 | 所在头文件 |
 |---|---|---|
@@ -19,8 +19,8 @@
 | `IScriptRenderTarget` | 3 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
 | `IScriptRenderGraph` | 8 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
 | `IScriptRenderBackend` | 7 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
-| `IScriptShaderStruct` | 3 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
-| **合计** | **83** | |
+| `IScriptShaderStruct` | 4 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
+| **合计** | **84** | |
 
 **列定义**：`拷贝` = 该调用是否需要一次额外的内存拷贝（视图与按值不算）；`谁分配` = 过界内存的分配方（调用方给缓冲区 / 投影层分配 + 配对释放 / 引擎持有 + 只读视图 / `—` 表示不过界内存）；`可绑性` = `可绑` / `需快路` / `不可绑`；`不可绑` 必须在"理由或建议"列给出理由与建议。
 
@@ -108,6 +108,7 @@
 | `IScriptRenderBackend::CreateShaderStruct` | `cacore::NameHash const&` → `castl::shared_ptr<IScriptShaderStruct>` | `char const* + uint64 len` → `uint64`（目标类型句柄） | 一次（类型名） | 投影层句柄 | 可绑 | 未知类型返回空句柄（不返回非零）+ `GetLastError()` 点名 `structTypeName`；MUST NOT 到达 `CRenderBackend::CreateShaderStruct` | 返回 0 句柄 + 错误码 + `GetLastError()` |
 | `IScriptShaderStruct::SetFloat3` | `NameHash const&` + 三个 `float` | `char const* + uint64 len` + 三个 `float`；返回 `int32` | 一次（字段名） | — | 可绑 | 只接受 12 字节 `float3` 单元素字段（`int3`、`float3[2]` 元素同样拒绝），全部校验在适配层完成 | 返回 0 + 错误码 + `GetLastError()` |
 | `IScriptShaderStruct::SetStruct` | `NameHash const&` + `castl::shared_ptr<IScriptShaderStruct> const&` + `uint32_t` | `char const* + uint64 len` + `uint64 subHandle` + `uint32`；返回 `int32` | 一次（字段名） | 投影层句柄 | 可绑 | 子结构必须是该字段声明的类型、下标小于元素数；类型不符时同时点名期望与实际类型名 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptShaderStruct::SetBuffer` | 两个 `NameHash const&` | 两个 `char const* + uint64 len`；返回 `int32` | 一次（两个名字） | — | 可绑 | 字段必须在类型元数据的缓冲表内、访问类型只读（`m_RWType != eReadOnly` 拒绝其余三值）、描述符数组长度为 1；缓冲名按"先绑后建"在 `SubmitGraph` 时按本图解析，同一字段重复绑定以最后一次为准 | 返回 0 + 错误码 + `GetLastError()` |
 | `IScriptShaderStruct::GetLastError` | `const`，返回 `castl::string` | 两段式：`uint64 <M>Len()` + `Copy<M>(uint8_t* dst, uint64 cap)` | 一次 | 调用方给缓冲区 | 可绑 | 同图对象的 `GetLastError` | 不失败（文本本身） |
 
 ## 汇总：不可绑清单（8 条 + 2 条已移出）
@@ -125,7 +126,7 @@
 | `IResource::Serialize` | ② 所有权不明的裸指针（`WBatch*`） | `WBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 | `IResource::Deserialize` | ② 所有权不明的裸指针（`IOBatch*`） | `IOBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 
-**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 11 个接口里**暂无实例**（依据：83 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 6 条（`ExecuteGraph` / `GetWindowHandle` / `Serialize` / `Deserialize` / 两个 `Find*`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"；**`GetWindowSystem` 也已移出** —— 它返回的是已 `CA_BIND` 接口的裸指针，2026-10-25 起改判为可绑的"借用句柄"；两者都见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
+**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 11 个接口里**暂无实例**（依据：84 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 6 条（`ExecuteGraph` / `GetWindowHandle` / `Serialize` / `Deserialize` / 两个 `Find*`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"；**`GetWindowSystem` 也已移出** —— 它返回的是已 `CA_BIND` 接口的裸指针，2026-10-25 起改判为可绑的"借用句柄"；两者都见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
 
 ## 汇总：需快路清单（0 条）
 

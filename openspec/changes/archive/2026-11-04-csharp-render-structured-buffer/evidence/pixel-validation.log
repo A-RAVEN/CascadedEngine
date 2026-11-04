@@ -1,0 +1,105 @@
+# csharp-render-structured-buffer 任务 4.1 证据：双后端像素、三种负向与八份报告对账
+记录时间：2026-11-04 17:20
+只追加，不覆盖。八条运行命令由主 agent 代跑（执行者准备命令与步骤）。
+
+## A. 生成八份报告的命令与退出码（先删旧同名报告再跑）
+```powershell
+cd E:\Projects\CascadedEngine
+$exe = 'out\build\x64-debug\bin\GPUBackendTester.exe'
+Remove-Item test_output\csharp_structured_buffer_*.json -ErrorAction SilentlyContinue
+& $exe --backend d3d12 --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_d3d12_normal.json
+& $exe --backend vulkan --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_vulkan_normal.json
+$env:CASCADED_CSHARP_SB_SELFTEST='bad-buffer-color'
+& $exe --backend d3d12 --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_d3d12_bad-buffer-color.json
+& $exe --backend vulkan --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_vulkan_bad-buffer-color.json
+$env:CASCADED_CSHARP_SB_SELFTEST='unbound-field'
+& $exe --backend d3d12 --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_d3d12_unbound-field.json
+& $exe --backend vulkan --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_vulkan_unbound-field.json
+$env:CASCADED_CSHARP_SB_SELFTEST='bad-buffer-name'
+& $exe --backend d3d12 --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_d3d12_bad-buffer-name.json
+& $exe --backend vulkan --test TestCSharpStructuredBuffer --headless 10 --report test_output\csharp_structured_buffer_vulkan_bad-buffer-name.json
+Remove-Item Env:\CASCADED_CSHARP_SB_SELFTEST
+```
+退出码原文（`test_output\sb_runs.txt`）：
+```
+RUN d3d12 normal EXIT=0
+RUN vulkan normal EXIT=0
+RUN d3d12 bad-buffer-color EXIT=1
+RUN vulkan bad-buffer-color EXIT=1
+RUN d3d12 unbound-field EXIT=1
+RUN vulkan unbound-field EXIT=1
+RUN d3d12 bad-buffer-name EXIT=1
+RUN vulkan bad-buffer-name EXIT=1
+```
+
+## B. 八份报告的 status / error 原文
+```
+csharp_structured_buffer_d3d12_normal.json          status=pass  exit_code=0
+csharp_structured_buffer_vulkan_normal.json         status=pass  exit_code=0
+csharp_structured_buffer_d3d12_bad-buffer-color.json  status=fail error="E_SB_PIXEL: bad-buffer-color：中心精确等于 (0,0,255,255)，按预期失败"
+csharp_structured_buffer_vulkan_bad-buffer-color.json status=fail error="E_SB_PIXEL: bad-buffer-color：中心精确等于 (0,0,255,255)，按预期失败"
+csharp_structured_buffer_d3d12_unbound-field.json   status=fail error="E_SB_BIND: unbound-field：参数表 2 条、适配器点名 colorStructuredBuffer、后端执行次数 0、等待计数 0→0，按预期失败"
+csharp_structured_buffer_vulkan_unbound-field.json  status=fail error="E_SB_BIND: unbound-field：参数表 2 条、适配器点名 colorStructuredBuffer、后端执行次数 0、等待计数 0→0，按预期失败"
+csharp_structured_buffer_d3d12_bad-buffer-name.json status=fail error="E_SB_BIND: bad-buffer-name：参数表 2 条、适配器点名 sbColorsMissing、后端执行次数 0、等待计数 0→0，按预期失败"
+csharp_structured_buffer_vulkan_bad-buffer-name.json status=fail error="E_SB_BIND: bad-buffer-name：参数表 2 条、适配器点名 sbColorsMissing、后端执行次数 0、等待计数 0→0，按预期失败"
+```
+
+## C. 正常模式读数（像素、结构、元数据、字段解析、计数）
+两后端原文（`test_output\sb_readings_<backend>_normal.txt`）：
+```
+[托管侧] [脚本 结构化缓冲] OnStructuredBufferProbe 调用 #1：mode=normal passCount=2 submitStatus=0 unboundField=False badBufferName=False submitError=
+TestCSharpStructuredBuffer 元数据读数：type=StructuredColor field=colorStructuredBuffer rw=1 elements=1
+TestCSharpStructuredBuffer pass=0 缓冲字段解析=sbColors
+TestCSharpStructuredBuffer pass=1 缓冲字段解析=sbColors
+TestCSharpStructuredBuffer 调用计数：createStruct=1 setBuffer=1 setFloat3=0 setStruct=0 setPassParam=2 addBuffer=2 captureTarget=1 executeGraph=1
+TestCSharpStructuredBuffer：backend=d3d12 mode=normal size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,255,0,255) center=(255,0,255,255) png=test_output/TestCSharpStructuredBuffer_d3d12_normal.png
+TestCSharpStructuredBuffer 通过：d3d12 后端背景与中心像素精确匹配、两个 pass 各 1 条 structuredColorBlock
+真实后端负例：缓冲表外字段名 SetBuffer → status=1 文本=IScriptShaderStruct.field：字段不在类型 StructuredColor 的缓冲元数据里：noSuchBufferField
+TestCSharpStructuredBuffer：backend=vulkan mode=normal size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,255,0,255) center=(255,0,255,255) png=test_output/TestCSharpStructuredBuffer_vulkan_normal.png
+TestCSharpStructuredBuffer 通过：vulkan 后端背景与中心像素精确匹配、两个 pass 各 1 条 structuredColorBlock
+真实后端负例：缓冲表外字段名 SetBuffer → status=1 文本=IScriptShaderStruct.field：字段不在类型 StructuredColor 的缓冲元数据里：noSuchBufferField
+```
+`rw=1` 是 `EShaderResourceAccess::eReadOnly` 的实际值；`elements=1` 是描述符数组长度（非数组恒 1），
+与 design 的定死规则一致，不是实测临时改规则。`GetBoundBufferNameForTest` 读的是图侧登记表
+（`pass=0/1 缓冲字段解析=sbColors`），没有读后端私有表。
+
+## D. 负向读数
+`bad-buffer-color`（两后端原文）：中心 `center=(0,0,255,255)`、背景 `bg=(0,255,0,255)`，错误码
+`E_SB_PIXEL`；缓冲颜色由 C# 写成 `(0,0,1)`，C++ 侧独立夹具期望为 `(0,0,255,255)`，不是 C++ 硬编码颜色。
+`unbound-field`（两后端）：`submitStatus=1`、适配器点名 `colorStructuredBuffer`、
+`负向计数：setBuffer=0（期望 0） addBuffer=2（期望 2）`、`缓冲字段解析=(空)`，错误码 `E_SB_BIND`。
+`bad-buffer-name`（两后端）：`submitStatus=1`、点名 `sbColorsMissing`、
+`负向计数：setBuffer=1（期望 1） addBuffer=2（期望 2）`、`缓冲字段解析=sbColorsMissing`，错误码 `E_SB_BIND`。
+两种提交前拒绝都没有读像素（报告里不带像素字段）。
+
+## E. 对账脚本（真实报告目录）
+命令：python Tools/check_csharp_structured_buffer.py
+```
+C# 结构化缓冲证据对账
+d3d12   normal             status=pass
+d3d12   bad-buffer-color   status=fail code=E_SB_PIXEL
+d3d12   unbound-field      status=fail code=E_SB_BIND
+d3d12   bad-buffer-name    status=fail code=E_SB_BIND
+vulkan  normal             status=pass
+vulkan  bad-buffer-color   status=fail code=E_SB_PIXEL
+vulkan  unbound-field      status=fail code=E_SB_BIND
+vulkan  bad-buffer-name    status=fail code=E_SB_BIND
+问题 0 处
+CHECK_EXIT=0
+```
+
+## F. 对账脚本自身的判据自检（合成报告，%TEMP%\sb_judge_fake，用完即删）
+1) 八份都正确 → 问题 0 处、EXIT=0
+2) 把 vulkan normal 的 status 改成 fail → `✗ 正常证据不是 pass：vulkan 的 normal 是 fail`、EXIT=1
+3) 把 d3d12 unbound-field 的 status 改成 pass → `✗ 负向结果被错误接受：d3d12 的 unbound-field 是 pass（期望 fail，错误码 E_SB_BIND）`、EXIT=1
+4) 把 vulkan bad-buffer-color 的错误文本里的 `(0,0,255,255)` 改掉 → `✗ bad-buffer-color 的 error 里缺「(0,0,255,255)」`、EXIT=1
+5) 删掉 d3d12 normal 的 PNG → `✗ 缺正常像素 PNG 或为空`、EXIT=1
+（2～5 是累计污染同一个合成目录，所以后一步会多出前面制造的问题；每一条新问题都逐条出现。）
+
+## G. PNG 实测（non-empty，路径在 test_output/ 被 gitignore）
+```
+TestCSharpStructuredBuffer_d3d12_normal.png = 3486 字节 (17:13:39)
+TestCSharpStructuredBuffer_vulkan_normal.png = 3486 字节 (17:13:41)
+TestCSharpStructuredBuffer_d3d12_bad-buffer-color.png = 3489 字节 (17:13:43)
+TestCSharpStructuredBuffer_vulkan_bad-buffer-color.png = 3489 字节 (17:13:45)
+```

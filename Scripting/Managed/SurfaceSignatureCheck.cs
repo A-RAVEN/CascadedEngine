@@ -121,6 +121,9 @@ namespace Scripting.Managed
                 (field, x, y, z) => NoShaderStruct.SetFloat3(field, x, y, z);
             Func<string, IScriptShaderStruct, uint, int> setStruct =
                 (field, sub, elementIndex) => NoShaderStruct.SetStruct(field, sub, elementIndex);
+            // csharp-render-structured-buffer 任务 1.2：结构化缓冲按名绑定（两个 string，返回 int）。
+            Func<string, string, int> setBuffer =
+                (field, bufferName) => NoShaderStruct.SetBuffer(field, bufferName);
             Func<string> shaderStructError = () => NoShaderStruct.GetLastError();
 
             // 把这些引用"用掉"，避免 CS0219 之类的噪音（也防止有人把上面的赋值删掉还看不出来）
@@ -134,7 +137,7 @@ namespace Scripting.Managed
                 targetWidth, targetHeight, targetBackbuffer, addBuffer, setStream, addTrianglePass, present,
                 passCount, graphError, windowTarget, captureTarget, createGraph, submitGraph, waitIdle,
                 backendError, setPositionStream, setPassParam, createShaderStruct, setFloat3, setStruct,
-                shaderStructError,
+                setBuffer, shaderStructError,
             };
         }
 

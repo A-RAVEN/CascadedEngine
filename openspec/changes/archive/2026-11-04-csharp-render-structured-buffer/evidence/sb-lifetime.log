@@ -1,0 +1,108 @@
+# csharp-render-structured-buffer 任务 2.2 证据：图侧登记表、提交检查、子结构缓冲拒绝与五处变异
+记录时间：2026-11-04 17:12
+只追加，不覆盖。构建命令均为 `python build.py --config Debug`，测试命令均为
+`out\build\x64-debug\bin\CoreTests.exe`；下列读数取自 `RunScriptRenderBridgeTest` 的第 ⑨ 段。
+
+## A. 基线绿态（实现完成、未变异）
+`BUILD_EXIT=0`；CoreTests 退出码 0：
+```
+  [提交检查 unbound] status=1 点名=1 执行次数=3 文本=IScriptRenderBackend.field：pass 0 的块 structuredColorBlock 没有为缓冲字段 colorStructuredBuffer 调 SetBuffer
+  [提交检查 bad-name] status=1 点名=1 文本=IScriptRenderBackend.bufferName：pass 0 的块 structuredColorBlock 的字段 colorStructuredBuffer 引用了本图未登记的缓冲：SbColorsMissing
+  [双图] A 提交=0 B 提交=1 B 文本=IScriptRenderBackend.bufferName：pass 0 的块 structuredColorBlock 的字段 colorStructuredBuffer 引用了本图未登记的缓冲：SbColors
+  [参数保活-图登记表] 释放后映射可读=1 提交=0
+  [重复绑定] 解析到最后一次=1 拒绝status=1
+  [子结构缓冲拒绝] status=1 点名child=1 点名原因=1 文本=IScriptShaderStruct.field：子结构类型 StructuredColor 含缓冲字段，本批只支持顶层缓冲字段：child
+Script render bridge test PASSED
+TEST_EXIT=0
+```
+（`执行次数=3` 是进程级累计的绝对读数；断言用的是本次提交前后的增量。`unbound-field` 的
+`GetSetBufferCountForTest` 增量为 0 由测试内部断言，未打印数值。）
+
+## B. 变异 1：删掉「字段未写」检查（`HasBoundBuffer` 分支）
+构建 `BUILD_EXIT=0`；CoreTests 退出码 1：
+```
+  [脚本渲染适配] 失败：字段未写的错误通道不是 field（没有把缺失字段当参数点名）
+  [提交检查 unbound] status=1 点名=1 执行次数=3 文本=IScriptRenderBackend.bufferName：pass 0 的块 structuredColorBlock 的字段 colorStructuredBuffer 引用了本图未登记的缓冲：(空)
+  [提交检查 bad-name] status=1 点名=1 文本=IScriptRenderBackend.bufferName：…SbColorsMissing
+  [双图] A 提交=0 B 提交=1 …
+  [参数保活-图登记表] 释放后映射可读=1 提交=0
+  [重复绑定] 解析到最后一次=1 拒绝status=1
+  [子结构缓冲拒绝] status=1 点名child=1 点名原因=1 …
+Script render bridge test FAILED
+TEST_EXIT=1
+```
+红点是「字段未写」：删掉检查后错误通道变成 `bufferName`（空名），不再把缺失字段当参数点名。
+（这条变异最初让异常路径崩溃过一次：空 `NameHash` 的 `c_str()` 为 `nullptr`，拼接错误文本时访问违例
+`TEST_EXIT=-1073741819`。修法是在错误文本里对空名输出 `(空)`——这只影响错误文本、不放松任何检查；
+改完复跑得到上面这条断言级红态，而不是崩溃。）
+
+## C. 变异 2：删掉「缓冲名在本图登记」检查
+构建 `BUILD_EXIT=0`；CoreTests 退出码 1：
+```
+  [提交检查 unbound] status=1 点名=1 执行次数=3 文本=IScriptRenderBackend.field：…没有为缓冲字段 colorStructuredBuffer 调 SetBuffer
+  [脚本渲染适配] 失败：未登记缓冲名的提交没有返回非零
+  [脚本渲染适配] 失败：未登记缓冲名的错误文本没有点名 SbColorsMissing
+  [脚本渲染适配] 失败：未登记缓冲名的错误通道不是 bufferName
+  [脚本渲染适配] 失败：未登记缓冲名的提交进入了后端执行
+  [提交检查 bad-name] status=0 点名=0 文本=
+  [脚本渲染适配] 失败：改提交给不含该缓冲的 B 图没有被拒绝
+  [脚本渲染适配] 失败：B 图拒绝文本没有点名缓冲名 SbColors
+  [脚本渲染适配] 失败：B 图被拒绝的提交仍然进入了后端执行
+  [双图] A 提交=0 B 提交=0 B 文本=
+  [脚本渲染适配] 失败：重复绑定的最后一次是未登记名，提交却没有点名拒绝
+  [脚本渲染适配] 失败：重复绑定的拒绝路径进入了后端执行
+  [重复绑定] 解析到最后一次=1 拒绝status=0
+Script render bridge test FAILED
+TEST_EXIT=1
+```
+
+## D. 变异 3：删掉「提交时按本图重解析」，改成 `SetPassParam` 当场解析
+（`CheckBoundBuffers` 的存在性检查改为不可达，另在 `SetPassParam` 里加当场解析；提交时不再重解析。）
+构建 `BUILD_EXIT=0`；CoreTests 退出码 1：
+```
+  [提交检查 unbound] status=1 点名=1 执行次数=3 文本=IScriptRenderBackend.field：…
+  [脚本渲染适配] 失败：bad-buffer-name 用例的 SetPassParam 失败
+  [脚本渲染适配] 失败：未登记缓冲名的提交没有返回非零
+  [脚本渲染适配] 失败：未登记缓冲名的错误文本没有点名 SbColorsMissing
+  [脚本渲染适配] 失败：未登记缓冲名的错误通道不是 bufferName
+  [脚本渲染适配] 失败：未登记缓冲名的提交进入了后端执行
+  [脚本渲染适配] 失败：同一结构在 B 图的 SetPassParam 失败
+  [脚本渲染适配] 失败：改提交给不含该缓冲的 B 图没有被拒绝
+  [脚本渲染适配] 失败：B 图拒绝文本没有点名缓冲名 SbColors
+  [脚本渲染适配] 失败：B 图被拒绝的提交仍然进入了后端执行
+  [脚本渲染适配] 失败：重复绑定用例的 SetPassParam 失败
+  [脚本渲染适配] 失败：重复绑定的最后一次是未登记名，提交却没有点名拒绝
+  [脚本渲染适配] 失败：重复绑定的拒绝路径进入了后端执行
+Script render bridge test FAILED
+TEST_EXIT=1
+```
+双图用例与重复绑定用例都变红：证明「换图时按提交的那张图重新解析」是承重判据。
+
+## E. 变异 4：删掉「含缓冲字段的子结构」拒绝
+构建 `BUILD_EXIT=0`；CoreTests 退出码 1：
+```
+  [脚本渲染适配] 失败：含缓冲字段的子结构没有被 SetStruct 拒绝
+  [脚本渲染适配] 失败：子结构缓冲拒绝没有点名字段 child
+  [脚本渲染适配] 失败：子结构缓冲拒绝没有说明原因（缓冲字段）
+  [子结构缓冲拒绝] status=0 点名child=0 点名原因=0 文本=
+Script render bridge test FAILED
+TEST_EXIT=1
+```
+
+## F. 变异 5：删掉参数结构保活（图侧登记表强引用 → 弱引用）
+构建 `BUILD_EXIT=0`；CoreTests 退出码 1：
+```
+  [脚本渲染适配] 失败：释放参数结构表面对象后图侧登记表映射不可读
+  [参数保活-图登记表] 释放后映射可读=0 提交=0
+Script render bridge test FAILED
+TEST_EXIT=1
+```
+红点正是「释放表面对象后映射仍可读」；同一用例里提交仍然成功（弱引用过期后被跳过），把红点
+精确限定在保活这一条。
+
+## G. 五处变异全部恢复后全绿
+恢复后构建 `BUILD_EXIT=0`；CoreTests 退出码 0，读数与 A 节一致：
+```
+Script render bridge test PASSED
+TEST_EXIT=0
+```

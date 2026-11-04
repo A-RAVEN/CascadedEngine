@@ -906,9 +906,11 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
             "public string GetLastError()",
         ],
         # csharp-render-shader-constants 任务 4.2：第四个脚本接口的完整公开表面。
+        # csharp-render-structured-buffer 任务 4.2：追加 `SetBuffer`（两个 string 入参、返回 int）。
         "IScriptShaderStruct.Bindings.cs": [
             "public int SetFloat3(string field, float x, float y, float z)",
             "public int SetStruct(string field, IScriptShaderStruct sub, uint elementIndex)",
+            "public int SetBuffer(string field, string bufferName)",
             "public string GetLastError()",
         ],
     }
@@ -956,6 +958,10 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
         "IScriptShaderStruct_SetStruct":
             'extern "C" int32_t IScriptShaderStruct_SetStruct(void* self, char const* field, '
             'uint64_t fieldLen, uint64_t subHandle, uint32_t elementIndex)',
+        # csharp-render-structured-buffer 任务 4.2：`SetBuffer` 的 C ABI 形状（两个名字各带长度）。
+        "IScriptShaderStruct_SetBuffer":
+            'extern "C" int32_t IScriptShaderStruct_SetBuffer(void* self, char const* field, '
+            'uint64_t fieldLen, char const* bufferName, uint64_t bufferNameLen)',
     }
     generated = read_generated(product_dir)
     for symbol, expected in cpp_expected.items():

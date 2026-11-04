@@ -1,0 +1,62 @@
+# csharp-render-structured-buffer 任务 4.2 证据：check_bindings 的 SetBuffer 判据与三处红态
+记录时间：2026-11-04 17:21
+只追加，不覆盖。产品目录：`out\build\x64-debug\codegen\bindings`（构建产物）。
+
+## A. 绿态基线
+命令与退出码：
+```
+python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+  → BINDINGS_EXIT=0（脚本渲染适配面问题 0 处、真实接口桩数 0、两侧对齐问题 0 处）
+python Tools/CodeGen/check_bindable_audit.py
+  → 扫描 11 个接口、对账 84 条方法、命中 0 处问题；AUDIT_EXIT=0
+python Tools/CodeGen/verify_readme.py
+  → README: 22 documented command(s) run, 0 mismatch(es)；README_EXIT=0
+python build.py --config Debug
+  → BUILD_EXIT=0
+```
+`check_bindings.py` 新增的两条判据（`check_render_bridge_surface`）：
+```
+IScriptShaderStruct.Bindings.cs：public int SetBuffer(string field, string bufferName)
+IScriptShaderStruct_SetBuffer：extern "C" int32_t IScriptShaderStruct_SetBuffer(void* self,
+  char const* field, uint64_t fieldLen, char const* bufferName, uint64_t bufferNameLen)
+```
+
+## B. 红态 1：删掉生成的公开表面方法
+把 `out\build\x64-debug\codegen\bindings\IScriptShaderStruct.Bindings.cs` 里的
+`public int SetBuffer(string field, string bufferName)`（三行实现）临时删掉：
+```
+  IScriptShaderStruct（表面层）：C++ 多 ['SetBuffer']，C# 表面多 无
+  IScriptShaderStruct.Bindings.cs：公开表面没有 `public int SetBuffer(string field, string bufferName)`
+两侧对齐问题 1 处
+托管表面问题 1 处
+脚本渲染适配面问题 1 处
+EXIT=1
+```
+
+## C. 红态 2：把原生转发改成零值桩
+把 `out\build\x64-debug\codegen\bindings\IScriptShaderStruct.Bindings.cpp` 里
+`IScriptShaderStruct_thunk_SetBuffer` 的函数体临时改成 `(void)…; return 0;`（不再调用实现）：
+```
+  IScriptShaderStruct::SetBuffer：thunk 体内没有真正调用实现（桩）
+真实接口桩数 1 / 丢返回值 0 / 结构问题 0
+EXIT=1
+```
+
+## D. 红态 3：漏登记审计行
+把唯一审计表里的 `IScriptShaderStruct::SetBuffer` 行临时删掉：
+命令：python Tools/CodeGen/check_bindable_audit.py
+```
+扫描 11 个接口、对账 84 条方法、命中 1 处问题
+  ✗ 缺少审计行：IScriptShaderStruct::SetBuffer（头文件 1 条、表里 0 条）
+EXIT=1
+```
+（构建期的绑定发射器用 `--audit-script` 调同一份脚本，所以这条红态同样是构建红态。）
+
+## E. 三处全部恢复后重新构建并复跑
+恢复公开表面方法、thunk 函数体与审计行，重新 `python build.py --config Debug`（BUILD_EXIT=0，
+生成物重新落地），再跑三条判据：
+```
+BINDINGS_EXIT=0
+扫描 11 个接口、对账 84 条方法、命中 0 处问题；AUDIT_EXIT=0
+README: 22 documented command(s) run, 0 mismatch(es)；README_EXIT=0
+```

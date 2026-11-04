@@ -282,6 +282,8 @@ namespace Scripting.Managed
                 ProbeRender();
                 // 常量色探针同样独立（csharp-render-shader-constants 任务 3.2）。
                 ProbeConstantColor();
+                // 结构化缓冲探针独立（csharp-render-structured-buffer 任务 3.1）：三个渲染探针互不消耗。
+                ProbeStructuredBuffer();
                 ProbeWindowSize();
                 ProbeExceptionMapping();
                 ProbeMonitor();
@@ -984,12 +986,17 @@ namespace Scripting.Managed
         private static bool s_renderProbeCalled;
         // csharp-render-shader-constants 任务 3.2：常量色探针有自己的开关与调用标记，与渲染探针互不消耗。
         private static bool s_constantColorProbeCalled;
+        // csharp-render-structured-buffer 任务 3.1：结构化缓冲探针同样独立（第三个渲染探针）。
+        private static bool s_structuredBufferProbeCalled;
 
         private static bool RenderProbeEnabled =>
             Environment.GetEnvironmentVariable("CASCADED_CSHARP_RENDER_PROBE") == "1";
 
         private static bool ConstantColorProbeEnabled =>
             Environment.GetEnvironmentVariable("CASCADED_CSHARP_CONSTCOLOR_PROBE") == "1";
+
+        private static bool StructuredBufferProbeEnabled =>
+            Environment.GetEnvironmentVariable("CASCADED_CSHARP_SB_PROBE") == "1";
 
         /// <summary>
         /// 绑定三张渲染表（任务 3.1）：后端表要求真实适配器实例；图与目标表属于目标类型表，
@@ -1117,6 +1124,33 @@ namespace Scripting.Managed
             UserScript.OnConstantColorProbe(s_system, s_renderBackend);
             LogLine($"[脚本 常量色] OnConstantColorProbe 调用 #{UserScript.ConstantColorProbeCount}：" +
                     UserScript.LastConstantColorSummary);
+        }
+
+        /// <summary>
+        /// 结构化缓冲探针（csharp-render-structured-buffer 任务 3.1）：与 `ProbeConstantColor` 同形但
+        /// **独立**的开关（`CASCADED_CSHARP_SB_PROBE`）与调用标记 —— 三个渲染探针在同一进程的全量顺序里
+        /// 各自执行一次、互不消耗。未启用时不创建任何 GPU 工作。
+        /// </summary>
+        private static void ProbeStructuredBuffer()
+        {
+            if (s_structuredBufferProbeCalled || !StructuredBufferProbeEnabled)
+            {
+                return;
+            }
+            s_structuredBufferProbeCalled = true;
+            if (!s_renderTablesBound)
+            {
+                BindRenderInterfaces();
+            }
+            if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
+            {
+                s_lastError = "结构化缓冲探针：四个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                LogLine("[托管侧 结构化缓冲] " + s_lastError);
+                return;
+            }
+            UserScript.OnStructuredBufferProbe(s_system, s_renderBackend);
+            LogLine($"[脚本 结构化缓冲] OnStructuredBufferProbe 调用 #{UserScript.StructuredBufferProbeCount}：" +
+                    UserScript.LastStructuredBufferSummary);
         }
 
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>

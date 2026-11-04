@@ -1,0 +1,89 @@
+# csharp-render-structured-buffer 任务 3.1 证据：托管探针、开关与 README 判据
+记录时间：2026-11-04 17:21
+只追加，不覆盖。GPUBackendTester 命令由主 agent 代跑；构建与 `Tools/*.py` 由执行者自跑。
+
+## A. 托管编译与启动
+命令：python build.py --config Debug → `BUILD_EXIT=0`，日志末段：
+```
+  正在确定要还原的项目…
+  Scripting.Managed -> E:\Projects\CascadedEngine\out\build\x64-debug\managed\Scripting.Managed.dll
+已成功生成。
+  [托管侧] 已拷到 E:\Projects\CascadedEngine\out\build\x64-debug\bin：Scripting.Managed.dll, Scripting.Managed.runtimeconfig.json, Scripting.Managed.deps.json
+BUILD SUCCESSFUL
+```
+探针在正常/两种负向运行里都实际被执行（`OnStructuredBufferProbe 调用 #1`，见 B/C/D）。
+
+## B. `python Tools/check_csharp_host_readme.py`（绿态）
+```
+ABI 版本：README v7 / Host.cs 7 / CSharpHost.cpp 7
+函数表大小：README 72 字节 / static_assert 72 字节
+接口编号表：README 6 行 [1, 2, 3, 4, 5, 6] / CSharpHost.cpp 6 个常量 / EngineApi.cs 6 个字段
+探针开关：代码里读到 9 个，README 表里 10 个
+问题 0 处
+README_EXIT=0
+```
+
+## C. 红态构造：删除 `CASCADED_CSHARP_SB_SELFTEST` 在 README 里的全部出现
+先只删环境变量表那一行（正文「Debug 自检开关（`CASCADED_CSHARP_SB_SELFTEST`…）」仍保留名字）：
+```
+探针开关：代码里读到 9 个，README 表里 10 个
+问题 0 处
+EXIT=0
+```
+—— 这正好复现了任务 4.2（归档批次）里记过的坑：只删表行时，现有「代码读到的开关必须出现在
+README」判据仍被正文里的同名字喂绿。**当次删的是 README 第 93 行那条 `CASCADED_CSHARP_SB_SELFTEST`
+环境变量表行**；抓到它不红的是 `parse_readme_env` 全行扫描。
+
+再把正文那一处名字也删掉（第 69 行「Debug 自检开关（…）」的括号内名字）：
+```
+探针开关：代码里读到 9 个，README 表里 9 个
+问题 1 处
+  ✗ README 的环境变量表缺这些开关：CASCADED_CSHARP_SB_SELFTEST
+EXIT=1
+```
+—— 当次删的是 **第 69 行正文提及 + 第 93 行表行（两处全部出现）**；抓到它的是
+`④ 探针开关：代码里读的每个 CASCADED_* 都要在 README 里出现` 这一条判据。
+恢复两处后 `问题 0 处`、`EXIT=0`（见 B）。
+
+## D. 正常探针调用增量（两后端，读数全部来自适配器原生钩子；Tick 前取基线、断言增量）
+`test_output\sb_readings_<backend>_normal.txt` 原文：
+```
+[托管侧] [脚本 结构化缓冲] OnStructuredBufferProbe 调用 #1：mode=normal passCount=2 submitStatus=0 unboundField=False badBufferName=False submitError=
+TestCSharpStructuredBuffer 调用计数：createStruct=1 setBuffer=1 setFloat3=0 setStruct=0 setPassParam=2 addBuffer=2 captureTarget=1 executeGraph=1
+```
+两后端读数相同。增量对账：`CreateShaderStruct` +1、`SetBuffer` +1、`SetFloat3` +0、`SetStruct` +0、
+`SetPassParam` +2、`AddBuffer` +2（顶点 + `sbColors` 各一次）、`CreateCaptureTarget` +1、执行 +1。
+
+## E. `unbound-field` 形态：SetBuffer 增量为 0 且提交被拒
+```
+[托管侧] [脚本 结构化缓冲] OnStructuredBufferProbe 调用 #1：mode=unbound-field passCount=2 submitStatus=1 unboundField=True badBufferName=False submitError=IScriptRenderBackend.field：pass 0 的块 structuredColorBlock 没有为缓冲字段 colorStructuredBuffer 调 SetBuffer
+TestCSharpStructuredBuffer 负向计数：setBuffer=0（期望 0） addBuffer=2（期望 2）
+```
+两后端相同；测试内部断言增量 0，不符即 `E_SB_COUNTS`。
+
+## F. `bad-buffer-name` 形态：绑了名字但提交前点名拒绝
+```
+[托管侧] [脚本 结构化缓冲] OnStructuredBufferProbe 调用 #1：mode=bad-buffer-name passCount=2 submitStatus=1 unboundField=False badBufferName=True submitError=IScriptRenderBackend.bufferName：pass 0 的块 structuredColorBlock 的字段 colorStructuredBuffer 引用了本图未登记的缓冲：sbColorsMissing
+TestCSharpStructuredBuffer 负向计数：setBuffer=1（期望 1） addBuffer=2（期望 2）
+```
+`bad-buffer-color` 形态：`submitStatus=0`、像素判据失败（`E_SB_PIXEL`），明细见
+`evidence/pixel-validation.log` 的 D 节。
+
+## G. 非探针测试期间增量为 0（全量顺序实测）
+`TestCSharpTriangle` 里的「非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）」已扩到
+`captureTarget / createShaderStruct / addBuffer / executeGraph` 四项，并把四项全为 0 做成断言
+（`E_RENDER_NONPROBE_WORK`）。全量运行（两后端各一次，`test_output\sb_green_TestCSharpTriangle_<backend>.log`）原文：
+```
+非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget=0 createShaderStruct=0 addBuffer=0 executeGraph=0
+```
+两个后端读数相同。
+
+## H. 三个渲染探针在同一进程的全量顺序里互不消耗（各执行一次）
+全量运行里三份日志各自原文（`test_output\sb_green_<测试名>_<backend>.log`）：
+```
+[托管侧] [脚本 渲染] OnRenderProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipPresent=False skipWait=False
+[托管侧] [脚本 常量色] OnConstantColorProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipParam=False disposedThrew=True submitError=
+[托管侧] [脚本 结构化缓冲] OnStructuredBufferProbe 调用 #1：mode=normal passCount=2 submitStatus=0 unboundField=False badBufferName=False submitError=
+```
+三个入口都只被调用一次、互不消耗；结构化缓冲探针排在 `TestCSharpWindowCallbacks`（关闭运行时）之前，
+所以它拿到的是仍可用的托管运行时。

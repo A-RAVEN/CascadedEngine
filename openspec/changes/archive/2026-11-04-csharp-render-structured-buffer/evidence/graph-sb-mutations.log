@@ -1,0 +1,58 @@
+# csharp-render-structured-buffer 任务 2.1 证据：SetBuffer 适配实现、计数槽与两处守卫变异
+记录时间：2026-11-04 17:05
+只追加，不覆盖。
+
+## A. 基线绿态（实现完成、未变异）
+命令：python build.py --config Debug && out\build\x64-debug\bin\CoreTests.exe
+构建 `BUILD_EXIT=0`；CoreTests 退出码 0，读数：
+```
+  [缓冲绑定拒绝] 缓冲表外字段             status=1 点名=noSuchBufferField 文本=IScriptShaderStruct.field：字段不在类型 StructuredColor 的缓冲元数据里：noSuchBufferField
+  [缓冲绑定拒绝] 读写访问条目             status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 的访问类型不是只读；读写缓冲属计算批，本批不支持
+  [缓冲绑定拒绝] 数组条目（元素数 2）  status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 必须是单元素（描述符数组长度为 1），实际 2
+  [缓冲绑定] 桩记录 字段=colorStructuredBuffer 缓冲=SbColors 下标=0
+  [缓冲绑定] 重复绑定成功计数=2 桩记录最后缓冲=SbColorsNew
+Script render bridge test PASSED
+TEST_EXIT=0
+```
+覆盖的断言：三个拒绝各自非零且点名；RW 条目错误文本含「读写缓冲属计算批」；被拒绝的调用不涨
+`GetSetBufferCountForTest`、不写真实 `ShaderStruct`；正例的字段 / 缓冲名 / 下标逐项与桩记录一致；
+同一字段连续两次绑定 `SbColors` → `SbColorsNew` 都返回 0、计数增量 2、真实对象最后一次为 `SbColorsNew`。
+
+## B. 变异 1：把「缓冲表外字段」守卫改成 `return 0` 放行
+改动（原文 → 变异）：`if (bufferData == nullptr) { return Fail("field", …); }` → 同一分支改成 `return 0;`
+（不删除守卫 —— 删掉后紧随的成员访问会空指针崩溃，拿不到断言读数）。
+构建 `BUILD_EXIT=0`；CoreTests 退出码 1，失败原文：
+```
+  [脚本渲染适配] 失败：缓冲表外字段
+  [脚本渲染适配] 失败：缓冲表外字段
+  [缓冲绑定拒绝] 缓冲表外字段             status=0 点名=noSuchBufferField 文本=
+  [缓冲绑定拒绝] 读写访问条目             status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 的访问类型不是只读；读写缓冲属计算批，本批不支持
+  [缓冲绑定拒绝] 数组条目（元素数 2）  status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 必须是单元素（描述符数组长度为 1），实际 2
+  [缓冲绑定] 桩记录 字段=colorStructuredBuffer 缓冲=SbColors 下标=0
+  [缓冲绑定] 重复绑定成功计数=2 桩记录最后缓冲=SbColorsNew
+Script render bridge test FAILED
+TEST_EXIT=1
+```
+红点正是「缓冲表外字段」那一条（status=0、无错误文本），其余两条拒绝仍绿。
+
+## C. 变异 2：把「`m_ElementCount != 1`」守卫改成 `return 0` 放行
+改动：`if (bufferData->m_ElementCount != 1u) { return Fail(…); }` → 同一分支改成 `return 0;`
+构建 `BUILD_EXIT=0`；CoreTests 退出码 1，失败原文：
+```
+  [缓冲绑定拒绝] 缓冲表外字段             status=1 点名=noSuchBufferField 文本=IScriptShaderStruct.field：字段不在类型 StructuredColor 的缓冲元数据里：noSuchBufferField
+  [缓冲绑定拒绝] 读写访问条目             status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 的访问类型不是只读；读写缓冲属计算批，本批不支持
+  [脚本渲染适配] 失败：数组条目（元素数 2）
+  [脚本渲染适配] 失败：数组条目（元素数 2）
+  [缓冲绑定拒绝] 数组条目（元素数 2）  status=0 点名=colors 文本=
+Script render bridge test FAILED
+TEST_EXIT=1
+```
+红点正是「数组条目（元素数 2）」那一条，其余两条拒绝仍绿。
+
+## D. 两处变异都恢复后全绿
+两处守卫恢复原文，重新构建 `BUILD_EXIT=0`；CoreTests 退出码 0：
+```
+Script render bridge test PASSED
+TEST_EXIT=0
+```
+（恢复后的完整 2.1 读数与 A 节相同，复跑已确认。）

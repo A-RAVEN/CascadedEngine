@@ -1,0 +1,82 @@
+# csharp-render-structured-buffer 任务 5.1 证据：全量回归与分模式报告
+记录时间：2026-11-04 17:23
+只追加，不覆盖。本轮构建：`python build.py --config Debug` → `BUILD_EXIT=0`（产物时间 17:20:07）；
+此后所有报告与日志的 mtime 都在 17:20:07 之后。GPUBackendTester 的命令由主 agent 代跑；
+CoreTests 与 `python Tools/*.py` 由执行者自跑。
+
+## A. 本地命令（退出码 0）
+```
+out\build\x64-debug\bin\CoreTests.exe                                         → CORETESTS_EXIT=0
+python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+                                                                              → CHECKBINDINGS_EXIT=0
+python Tools/CodeGen/check_bindable_audit.py                                  → AUDIT_EXIT=0
+python Tools/check_csharp_host_failures.py                                    → HOSTFAIL_EXIT=0（5 个场景：5 通过、0 失败）
+python Tools/check_csharp_host_readme.py                                      → HOSTREADME_EXIT=0（问题 0 处）
+python Tools/check_gpu_timing.py                                              → GPUTIMING_EXIT=0（2/2 后端、0 处问题）
+python Tools/CodeGen/verify_readme.py                                         → VERIFYREADME_EXIT=0（22 条命令、0 不匹配）
+```
+`check_csharp_host_failures.py` 末行原文：`5 个场景：5 通过、0 失败`；`check_gpu_timing.py` 末行原文：
+`检查 2/2 个后端、0 处问题：普通 ExecuteGraph 不创建计时资源（design D6）`。
+
+## B. 两后端完整全量（15 项）
+命令与主 agent 回传的进程退出码：
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --headless 10 --report test_output\final_full_d3d12.json
+  → EXIT_final_d3d12=0
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --headless 10 --report test_output\final_full_vulkan.json
+  → EXIT_final_vulkan=0
+```
+两份报告各 15 条、全部 pass：
+```
+d3d12  total=15 pass=15 fail=0   （final_full_d3d12.json，17:20:56）
+vulkan total=15 pass=15 fail=0   （final_full_vulkan.json，17:21:00）
+```
+15 项逐条（两份报告同名同序）：`TestSimpleTriangle` / `TestTriangleWithConstantColor` /
+`TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` /
+`TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost` / `TestCSharpWindow` /
+`TestCSharpTriangle` / `TestGPUTiming` / `TestCSharpConstantColor` / `TestCSharpStructuredBuffer` /
+`TestCSharpWindowCallbacks`。（全量执行顺序与前 14 项略异：`TestCSharpConstantColor`、
+`TestCSharpStructuredBuffer` 都在 `TestGPUTiming` 之后、`TestCSharpWindowCallbacks` 之前。）
+
+## C. 分模式报告：24 份齐全，mtime 全在 17:21 本次窗口
+结构化缓冲 8 份（17:21:02–17:21:17）：
+```
+csharp_structured_buffer_d3d12_normal.json          pass  17:21:02
+csharp_structured_buffer_vulkan_normal.json         pass  17:21:04
+csharp_structured_buffer_d3d12_bad-buffer-color.json fail E_SB_PIXEL 17:21:07
+csharp_structured_buffer_vulkan_bad-buffer-color.json fail E_SB_PIXEL 17:21:08
+csharp_structured_buffer_d3d12_unbound-field.json   fail E_SB_BIND 17:21:11
+csharp_structured_buffer_vulkan_unbound-field.json  fail E_SB_BIND 17:21:13
+csharp_structured_buffer_d3d12_bad-buffer-name.json fail E_SB_BIND 17:21:15
+csharp_structured_buffer_vulkan_bad-buffer-name.json fail E_SB_BIND 17:21:17
+```
+常量色 6 份（17:21:20–17:21:30）：normal 两份 pass；`bad-struct-colors` 两份 fail `E_CONSTCOLOR_PIXEL`；
+`skip-param` 两份 fail `E_CONSTCOLOR_PARAM` 且 error 含「后端执行次数 0」。
+三角形 10 份（17:21:33–17:21:51）：normal 两份 pass；`skip-draw` / `bad-vertex` / `skip-present` / `skip-wait`
+各两份 fail，错误码分别为 `E_TRIANGLE_DRAW` / `E_TRIANGLE_PIXEL` / `E_TRIANGLE_PRESENT` / `E_TRIANGLE_WAIT`。
+（24 份的 `name|status|exit_code|error|mtime` 逐条读数见本文件生成时的 `test_output` 目录；本节按三类汇总。）
+
+## D. 报告对账与窗口日志判据（退出码 0）
+```
+python Tools/check_csharp_structured_buffer.py   → 问题 0 处，EXIT=0
+python Tools/check_csharp_constant_color.py      → 问题 0 处，EXIT=0
+python Tools/check_csharp_triangle.py            → 问题 0 处，EXIT=0
+python Tools/check_window_system_bindings.py --log test_output/TestCSharpWindow.log
+  → GetMonitor 对拍 1 组 / 回调对拍 0 类 / 目标释放对拍 1 组 / 命中 0 处问题，EXIT=0
+python Tools/check_window_system_bindings.py --log test_output/TestCSharpWindowCallbacks.log --callbacks
+  → GetMonitor 对拍 1 组 / 回调对拍 10 类 / 目标释放对拍 2 组 / 命中 0 处问题，EXIT=0
+```
+
+## E. 运行时读数（结构化缓冲测试，全量内）
+两后端 `sb_green_TestCSharpStructuredBuffer_<backend>.log` 都含：
+`调用计数：createStruct=1 setBuffer=1 setFloat3=0 setStruct=0 setPassParam=2 addBuffer=2 captureTarget=1 executeGraph=1`、
+`元数据读数：type=StructuredColor field=colorStructuredBuffer rw=1 elements=1`、
+`pass=0/1 缓冲字段解析=sbColors`、`call 计数 wait=2→3`（绝对读数，增量 1）、
+`bg=(0,255,0,255) center=(255,0,255,255)`。
+`非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget=0 createShaderStruct=0 addBuffer=0 executeGraph=0`
+两后端相同；三个探针（`OnRenderProbe` / `OnConstantColorProbe` / `OnStructuredBufferProbe`）各 `调用 #1`，
+互不消耗（详见 `evidence/managed-structured-buffer.log` G/H 节）。
+
+## F. 结论
+所有命令退出 0；15 项全量在两后端全 pass；24 份分模式报告状态全部符合各自判据、mtime 均在本次运行窗口内；
+窗口/回调对拍与三项报告对账脚本全部 0。没有需要修复后重跑的失败。

@@ -1,0 +1,75 @@
+# csharp-render-structured-buffer 任务 4.3 证据：docs/testing.md 与 docs/ROADMAP.md 同步
+记录时间：2026-11-04 17:21
+只追加，不覆盖。
+
+## A. 文档路径存在性
+```
+True Tools/check_csharp_structured_buffer.py
+True openspec/changes/csharp-render-structured-buffer/tasks.md
+True docs/testing.md
+True docs/ROADMAP.md
+True openspec/changes/csharp-render-structured-buffer/evidence/pixel-validation.log
+True openspec/changes/csharp-render-structured-buffer/evidence/param-binding-checks.log
+True openspec/changes/csharp-render-structured-buffer/evidence/managed-structured-buffer.log
+True openspec/changes/csharp-render-structured-buffer/evidence/host-pixel-red.log
+True openspec/changes/csharp-render-structured-buffer/evidence/graph-sb-mutations.log
+True openspec/changes/csharp-render-structured-buffer/evidence/sb-lifetime.log
+```
+
+## B. 第 ③ 层脚本计数与实数一致
+命令：`Get-ChildItem Tools -Recurse -Filter 'check_*.py'` → 11 个：
+```
+Tools\check_csharp_constant_color.py
+Tools\check_csharp_host_failures.py
+Tools\check_csharp_host_readme.py
+Tools\check_csharp_structured_buffer.py
+Tools\check_csharp_triangle.py
+Tools\check_gpu_timing.py
+Tools\check_window_system_bindings.py
+Tools\CodeGen\check_bindable_audit.py
+Tools\CodeGen\check_bindings.py
+Tools\CodeGen\check_hash_sources.py
+Tools\CodeGen\check_legacy_symbols.py
+COUNT=11
+```
+`docs/testing.md` 现写「`check_*.py` 前缀 11 个（`Tools/` 7 个 + `Tools/CodeGen/` 4 个）」，与实数一致；
+第 ③ 层小节里逐个点名的脚本也含新增的 `check_csharp_structured_buffer.py`。
+
+## C. `openspec list`（只证明 change 存在）
+```
+  csharp-render-structured-buffer     5/10 tasks    just now
+```
+
+## D. ROADMAP 限定语逐处核对
+命令：`git grep -n '尚未立 OpenSpec change' -- docs/ROADMAP.md`（命中 3 处，`GREP_EXIT=0`）：
+```
+docs/ROADMAP.md:70: …第四个 `csharp-render-structured-buffer` 的工件已建立（`openspec/changes/csharp-render-structured-buffer/`）但尚未批准实施；除这第四个之外，其余内容**尚未立 OpenSpec change**。…
+docs/ROADMAP.md:85: …第四个 `csharp-render-structured-buffer` 的工件已建立（`openspec/changes/csharp-render-structured-buffer/`），尚未批准实施。…上述后续方向均尚未立 OpenSpec change…
+docs/ROADMAP.md:87: …要把**合并 C++ 端渲染接口**提上日程…该方向尚未立 OpenSpec change。
+```
+三处都与本 change 的实际状态（工件已建立、未批准实施、未归档）不矛盾：第 70 行先点明第四个已建立再
+限定「除这第四个之外」；第 85 行把「这些内容」改成「上述后续方向」，指的是纹理采样等后续批次，不含
+`csharp-render-structured-buffer`；第 87 行是 C++ 接口合并方向，与本 change 无关。阶段 4 表新增第 4 行，
+状态写「已建立 `openspec/changes/csharp-render-structured-buffer/`，未批准实施」，没有写已归档或已批准。
+
+## E. `--list` 15 行（主 agent 代跑，原文）
+命令：`out\build\x64-debug\bin\GPUBackendTester.exe --list`（输出落 `test_output\sb_list.txt`）：
+```
+Available tests:
+  TestSimpleTriangle
+  TestTriangleWithConstantColor
+  TestTriangleWithStructuredBufferColor
+  TestTriangleWithImageBuffer
+  TestDoublePass
+  TestComputeBuffer
+  TestReadback
+  TestIMGUI
+  TestScriptHost
+  TestCSharpWindow
+  TestCSharpTriangle
+  TestCSharpWindowCallbacks
+  TestGPUTiming
+  TestCSharpConstantColor
+  TestCSharpStructuredBuffer
+```
+逐条与 `docs/testing.md` 第 ② 层清单相等（15 条、顺序一致），最后一条就是本 change 新增的第 15 项。

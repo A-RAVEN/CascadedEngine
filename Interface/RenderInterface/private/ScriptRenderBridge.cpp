@@ -172,6 +172,14 @@ namespace graphics_backend
 				std::to_string(reference->m_ElementCount).c_str() + "，实际下标 " +
 				std::to_string(elementIndex).c_str()).c_str());
 		}
+		// csharp-render-structured-buffer 任务 2.2：含缓冲字段的子结构会绕过顶层提交检查
+		//（提交检查只走顶层类型自己的 `m_Buffers`），本批只支持顶层缓冲字段，必须拒绝。
+		ShaderCompilerSlang::ShaderStructData const* subData = concrete->GetDataForTest();
+		if (subData != nullptr && !subData->m_Buffers.empty())
+		{
+			return Fail("field", ((castl::string("子结构类型 ") + concrete->GetTypeNameForTest().c_str() +
+				" 含缓冲字段，本批只支持顶层缓冲字段：") + field.c_str()).c_str());
+		}
 		m_ShaderStruct->SetStruct(field, concrete->GetShaderStructForTest(), elementIndex);
 		if (m_Counters != nullptr)
 		{
@@ -184,6 +192,74 @@ namespace graphics_backend
 	castl::string CScriptShaderStruct::GetLastError() const
 	{
 		return m_LastError;
+	}
+
+	// csharp-render-structured-buffer 任务 2.1：结构化缓冲字段绑定。字段级校验当场做，
+	// 缓冲名只登记不解析（原生链就是先 `SetBuffer` 后 `AllocBuffer`）。
+	int32_t CScriptShaderStruct::SetBuffer(cacore::NameHash const& field,
+		cacore::NameHash const& bufferName)
+	{
+		if (!field.Valid())
+		{
+			return Fail("field", "字段名不能为空");
+		}
+		if (!bufferName.Valid())
+		{
+			return Fail("bufferName", "缓冲名不能为空");
+		}
+		if (m_Data == nullptr || m_ShaderStruct == nullptr)
+		{
+			return Fail("field", "参数结构没有编译元数据或真实对象");
+		}
+		ShaderCompilerSlang::BufferData const* bufferData = nullptr;
+		for (auto const& candidate : m_Data->m_Buffers)
+		{
+			if (candidate.m_Name == field)
+			{
+				bufferData = &candidate;
+				break;
+			}
+		}
+		if (bufferData == nullptr)
+		{
+			return Fail("field", (castl::string("字段不在类型 ") + m_TypeName.c_str() +
+				" 的缓冲元数据里：" + field.c_str()).c_str());
+		}
+		// `m_RWType` 的类型是 `EShaderResourceAccess`（`eUnknown`/`eReadOnly`/`eWriteOnly`/`eReadWrite`）；
+		// `eStructuredBuffer` 属另一个枚举 `EShaderResourceType`，不是这里的合法取值（写错编译不过）。
+		if (bufferData->m_RWType != ShaderCompilerSlang::EShaderResourceAccess::eReadOnly)
+		{
+			return Fail("field", (castl::string("字段 ") + field.c_str() +
+				" 的访问类型不是只读；读写缓冲属计算批，本批不支持").c_str());
+		}
+		// `m_ElementCount` 是描述符数组长度（非数组字段恒为 1、`field[N]` 为 N），不是缓冲内元素数。
+		if (bufferData->m_ElementCount != 1u)
+		{
+			return Fail("field", (castl::string("字段 ") + field.c_str() +
+				" 必须是单元素（描述符数组长度为 1），实际 " +
+				std::to_string(bufferData->m_ElementCount).c_str()).c_str());
+		}
+		// 成功：先转发给真实 `ShaderStruct`（`BufferHandle` 的本体就是名字值，缓冲允许尚未在图里
+		// 登记 —— 先绑后建），再记录窄对象映射。同一字段重复绑定覆盖写入，提交解析取最后一次。
+		m_ShaderStruct->SetBuffer(field, BufferHandle(bufferName), 0u);
+		m_BoundBuffers[field] = bufferName;
+		if (m_Counters != nullptr)
+		{
+			++m_Counters->setBuffer;
+		}
+		ClearError();
+		return 0;
+	}
+
+	bool CScriptShaderStruct::HasBoundBuffer(cacore::NameHash const& field) const
+	{
+		return m_BoundBuffers.find(field) != m_BoundBuffers.end();
+	}
+
+	cacore::NameHash CScriptShaderStruct::GetBoundBufferName(cacore::NameHash const& field) const
+	{
+		auto found = m_BoundBuffers.find(field);
+		return found == m_BoundBuffers.end() ? cacore::NameHash() : found->second;
 	}
 
 	// ---- CScriptRenderGraph ----
@@ -231,6 +307,10 @@ namespace graphics_backend
 		m_Graph->AllocBuffer(bufferHandle, descriptor);
 		m_Graph->ScheduleData(bufferHandle, data.data(), static_cast<uint64_t>(data.size()), 0u, true);
 		m_Buffers[name] = BufferRecord{ descriptor };
+		if (m_Counters != nullptr)
+		{
+			++m_Counters->addBuffer;
+		}
 		ClearError();
 		return 0;
 	}
@@ -363,6 +443,24 @@ namespace graphics_backend
 		// 写入真实 pass（design 第二节：`GPUGraph` 的受控可变访问器）。图与被绑定的参数结构由
 		// pass 的 `shaderStructs` 持有强引用，提交后仍然保活到 `WaitIdle`。
 		m_Graph->GetRenderPassForWrite(passIndex).SetParam(blockName, concrete->GetShaderStructForTest());
+		// csharp-render-structured-buffer 任务 2.2：图侧登记表。`SubmitGraph` 的缓冲检查从这里拿
+		// 「pass/块 → 窄参数结构」的强引用；同一 (passIndex, blockName) 重复绑定覆盖，取最后一次。
+		castl::shared_ptr<CScriptShaderStruct> concreteShared =
+			std::static_pointer_cast<CScriptShaderStruct>(parameters);
+		bool replaced = false;
+		for (auto& record : m_PassParams)
+		{
+			if (record.passIndex == passIndex && record.blockName == blockName)
+			{
+				record.parameters = concreteShared;
+				replaced = true;
+				break;
+			}
+		}
+		if (!replaced)
+		{
+			m_PassParams.push_back(PassParamRecord{ passIndex, blockName, concreteShared });
+		}
 		if (m_Counters != nullptr)
 		{
 			++m_Counters->setPassParam;
@@ -448,6 +546,63 @@ namespace graphics_backend
 	castl::string CScriptRenderGraph::GetLastError() const
 	{
 		return m_LastError;
+	}
+
+	bool CScriptRenderGraph::HasBuffer(cacore::NameHash const& name) const
+	{
+		return m_Buffers.find(name) != m_Buffers.end();
+	}
+
+	cacore::NameHash CScriptRenderGraph::GetBoundBufferNameForTest(uint32_t passIndex,
+		cacore::NameHash const& blockName, cacore::NameHash const& field) const
+	{
+		for (auto it = m_PassParams.rbegin(); it != m_PassParams.rend(); ++it)
+		{
+			if (it->passIndex == passIndex && it->blockName == blockName)
+			{
+				return it->parameters == nullptr ? cacore::NameHash()
+					: it->parameters->GetBoundBufferName(field);
+			}
+		}
+		return cacore::NameHash();
+	}
+
+	int32_t CScriptRenderGraph::CheckBoundBuffers(castl::string& outParameter,
+		castl::string& outReason) const
+	{
+		for (auto const& record : m_PassParams)
+		{
+			if (record.parameters == nullptr)
+			{
+				continue;
+			}
+			ShaderCompilerSlang::ShaderStructData const* data = record.parameters->GetDataForTest();
+			if (data == nullptr)
+			{
+				continue;
+			}
+			for (auto const& buffer : data->m_Buffers)
+			{
+				const castl::string passText = castl::string("pass ") +
+					std::to_string(record.passIndex).c_str() + " 的块 " + record.blockName.c_str();
+				const cacore::NameHash bufferName = record.parameters->GetBoundBufferName(buffer.m_Name);
+				if (!record.parameters->HasBoundBuffer(buffer.m_Name))
+				{
+					outParameter = "field";
+					outReason = passText + " 没有为缓冲字段 " + buffer.m_Name.c_str() + " 调 SetBuffer";
+					return 1;
+				}
+				if (m_Buffers.find(bufferName) == m_Buffers.end())
+				{
+					outParameter = "bufferName";
+					outReason = passText + " 的字段 " + buffer.m_Name.c_str() +
+						" 引用了本图未登记的缓冲：" +
+						(bufferName.Valid() ? bufferName.c_str() : "(空)");
+					return 1;
+				}
+			}
+		}
+		return 0;
 	}
 
 	// ---- CScriptRenderBackend ----
@@ -615,6 +770,16 @@ namespace graphics_backend
 						std::to_string(passIndex).c_str() + " 的着色器 " + shaderPath.c_str() +
 						" 缺少必需参数块：" + reference.m_Name.c_str()).c_str());
 				}
+			}
+		}
+		// csharp-render-structured-buffer 任务 2.2：结构化缓冲引用检查必须在进入执行之前完成 ——
+		// 字段没写过、或缓冲名不在**本图**登记表里都点名拒绝，`ExecuteGraph` 调用次数保持 0。
+		{
+			castl::string parameter;
+			castl::string reason;
+			if (concrete->CheckBoundBuffers(parameter, reason) != 0)
+			{
+				return Fail(parameter.c_str(), reason.c_str());
 			}
 		}
 		// 待完成集合先持有强引用，再交给后端执行：脚本随后释放自己的表面对象也不影响执行。

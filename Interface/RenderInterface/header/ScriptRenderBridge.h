@@ -46,6 +46,13 @@ namespace graphics_backend
 		// `elementIndex` 必须小于 `m_ElementCount`；违反逐项拒绝并点名参数。
 		virtual int32_t SetStruct(cacore::NameHash const& field,
 			castl::shared_ptr<IScriptShaderStruct> const& sub, uint32_t elementIndex) = 0;
+		// 把**将绑定的那张图**里经 `AddBuffer` 登记的结构化缓冲按名绑到本结构的缓冲字段：
+		// 字段必须在类型元数据的缓冲表内、访问类型只读、描述符数组长度为 1（数组字段留后续批）。
+		// 缓冲名按"先绑后建"的原生时序于 `SubmitGraph` 提交时解析（此刻允许尚未登记）。
+		// 同一字段重复绑定 MUST 成功并以最后一次为准（缓冲绑定是状态写入，与流名查重的
+		// 「重复即拒绝」语义不同），有效性由提交时检查兜底。
+		virtual int32_t SetBuffer(cacore::NameHash const& field,
+			cacore::NameHash const& bufferName) = 0;
 		virtual castl::string GetLastError() const = 0;
 		virtual ~IScriptShaderStruct() = default;
 	};

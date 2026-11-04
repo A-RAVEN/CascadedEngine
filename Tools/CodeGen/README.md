@@ -1038,7 +1038,7 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 python Tools/CodeGen/check_bindable_audit.py
 ```
 ```
-扫描 11 个接口、对账 83 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+扫描 11 个接口、对账 84 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
 [exit 0]
 ```
 

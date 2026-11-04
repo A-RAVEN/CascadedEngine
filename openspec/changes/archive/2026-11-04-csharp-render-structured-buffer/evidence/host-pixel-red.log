@@ -1,0 +1,104 @@
+# csharp-render-structured-buffer 任务 1.2 证据：判据脚本红态与托管探针缺席
+记录时间：2026-11-04 16:55
+只追加，不覆盖。
+
+## A. `Tools/check_csharp_structured_buffer.py` 红态（托管探针与适配实现之前）
+当时 `test_output/` 目录**存在**（`Test-Path test_output` = `True`，目录里已有前批产物），所以本次属于
+「目录在、八份报告全缺」这一态：脚本退出 **1**，不是退出 2。
+命令：python Tools/check_csharp_structured_buffer.py
+```
+C# 结构化缓冲证据对账
+d3d12   normal             缺报告
+d3d12   bad-buffer-color   缺报告
+d3d12   unbound-field      缺报告
+d3d12   bad-buffer-name    缺报告
+vulkan  normal             缺报告
+vulkan  bad-buffer-color   缺报告
+vulkan  unbound-field      缺报告
+vulkan  bad-buffer-name    缺报告
+问题 8 处
+  ✗ 缺报告：test_output\csharp_structured_buffer_d3d12_normal.json（后端 d3d12、模式 normal）
+  ✗ 缺报告：test_output\csharp_structured_buffer_d3d12_bad-buffer-color.json（后端 d3d12、模式 bad-buffer-color）
+  ✗ 缺报告：test_output\csharp_structured_buffer_d3d12_unbound-field.json（后端 d3d12、模式 unbound-field）
+  ✗ 缺报告：test_output\csharp_structured_buffer_d3d12_bad-buffer-name.json（后端 d3d12、模式 bad-buffer-name）
+  ✗ 缺报告：test_output\csharp_structured_buffer_vulkan_normal.json（后端 vulkan、模式 normal）
+  ✗ 缺报告：test_output\csharp_structured_buffer_vulkan_bad-buffer-color.json（后端 vulkan、模式 bad-buffer-color）
+  ✗ 缺报告：test_output\csharp_structured_buffer_vulkan_unbound-field.json（后端 vulkan、模式 unbound-field）
+  ✗ 缺报告：test_output\csharp_structured_buffer_vulkan_bad-buffer-name.json（后端 vulkan、模式 bad-buffer-name）
+EXIT=1
+```
+
+## B. 脚本的「判据自身失效」分支（目录不存在）
+命令：python Tools/check_csharp_structured_buffer.py --report-dir "$env:TEMP\sb_reports_absent_dir"
+（该目录刻意不存在，脚本不创建它）
+```
+报告目录不存在：C:\Users\76956\AppData\Local\Temp\sb_reports_absent_dir —— 判据自身失效（先跑 GPUBackendTester）
+EXIT=2
+```
+两种行为都已实现：目录在且缺报告 = 1、目录不存在 = 2。
+
+## C. 脚本要查的八份报告（`--list` 原文）
+命令：python Tools/check_csharp_structured_buffer.py --list
+```
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_d3d12_normal.json
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_d3d12_bad-buffer-color.json
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_d3d12_unbound-field.json
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_d3d12_bad-buffer-name.json
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_vulkan_normal.json
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_vulkan_bad-buffer-color.json
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_vulkan_unbound-field.json
+E:\Projects\CascadedEngine\test_output\csharp_structured_buffer_vulkan_bad-buffer-name.json
+```
+
+## D. 托管探针尚不存在
+命令：`git grep -n OnStructuredBufferProbe -- Scripting/Managed`
+输出：（空）
+```
+GREP_EXIT=1
+```
+`GREP_EXIT=1` 即 0 命中。
+
+## E. 待补：run-all 调用位置的「移后全红 / 移回全绿」读数
+这一项要求 15 项全量在两后端各跑一次红、一次绿；第 15 项的实现（托管探针在 3.1、图提交检查在 2.2）
+完成之前，红与绿都不可区分（探针还没被调用，两种位置都会以 E_SB_PROBE_MISSING 失败），无法按原文
+取得有意义的红绿对照。读数在探针链路可运行后立即补做并追加到本文件（同一段：移到
+`TestCSharpWindowCallbacks` 之后 → 两后端全量红并点名托管不可用；移回 → 两后端全量绿）。
+
+## F. 实测：把 run-all 调用临时移到 `TestCSharpWindowCallbacks` 之后（两后端全量红）
+改动：`Test\GPUBackendTester\Main.cpp` 的 run-all 段里，把
+`runTestWithDiagnostics("TestCSharpStructuredBuffer", TestCSharpStructuredBuffer);` 从
+`runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);` **之前**移到**之后**；
+重新 `python build.py --config Debug` → `BUILD_EXIT=0`。
+命令（主 agent 代跑）：
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --headless 10 --report test_output\sb_red_full_d3d12.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --headless 10 --report test_output\sb_red_full_vulkan.json
+```
+进程退出码（主 agent 回传原文）：`EXIT_d3d12=1`、`EXIT_vulkan=1`。
+两份报告里 15 条结果的 `name/status` 逐条：前 14 条——`TestSimpleTriangle` / `TestTriangleWithConstantColor` /
+`TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` /
+`TestReadback` / `TestIMGUI` / `TestScriptHost` / `TestCSharpWindow` / `TestCSharpTriangle` / `TestGPUTiming` /
+`TestCSharpConstantColor` / `TestCSharpWindowCallbacks`——全部 `status=pass`；第 15 条 `TestCSharpStructuredBuffer`
+两后端都 `status=fail`，`error` 逐字：
+```
+E_SB_HOST: 托管侧不可用：未知接口编号 9：当前接线了 1 = IWindow、2 = IWindowSystem、3 = IScriptRenderBackend、4 = IScriptRenderGraph、5 = IScriptRenderTarget、6 = IScriptShaderStruct
+```
+两后端相同，`duration_ms=0`，即派发前就被挡下。这就是验收要求的「两后端全量变红并点名托管不可用」。
+
+## G. 实测：移回 `TestCSharpWindowCallbacks` 之前（两后端全量绿）
+改动：把上一节的调用移回常量色之后、`TestCSharpWindowCallbacks` 之前，重新 `python build.py --config Debug`
+→ `BUILD_EXIT=0`。命令（主 agent 代跑）：
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --headless 10 --report test_output\final_full_d3d12.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --headless 10 --report test_output\final_full_vulkan.json
+```
+主 agent 回传的进程退出码：`EXIT_final_d3d12=0`、`EXIT_final_vulkan=0`。
+两份报告（`test_output\final_full_d3d12.json` / `final_full_vulkan.json`）各 15 条、全部 `status=pass`：
+```
+d3d12  total=15 pass=15 fail=0
+vulkan total=15 pass=15 fail=0
+```
+第 15 项 `TestCSharpStructuredBuffer` 两后端都 `status=pass`（d3d12 106ms、vulkan 107ms）。红绿对照成立：
+「移到 `TestCSharpWindowCallbacks` 之后 → 两后端全量红并点名托管不可用；移回 → 两后端全量绿」。
+
+

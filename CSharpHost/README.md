@@ -62,6 +62,12 @@
 - **参数句柄生命周期**：正常模式在**提交并等待之后**释放参数结构表面对象，旧表面再调用会抛 `ObjectDisposedException`（已提交的图由原生侧继续持有绑定的 `ShaderStruct` 直到等待完成）。
 - **Debug 自检开关**（`CASCADED_CSHARP_CONSTCOLOR_SELFTEST`，供 `TestCSharpConstantColor` 构造负向证据）：`bad-struct-colors`（三槽改成红/绿/蓝：中心不再是纯红，以 `E_CONSTCOLOR_PIXEL` 判红）、`skip-param`（完全不调 `SetPassParam`：`SubmitGraph` 在进入后端执行前拒绝并点名 `constantColorBlock`，以 `E_CONSTCOLOR_PARAM` 判红，不读像素）。生产脚本不依赖它们。
 
+## 结构化缓冲探针（csharp-render-structured-buffer）
+
+- **入口**：`UserScript.OnStructuredBufferProbe(IWindowSystem windows, IScriptRenderBackend backend)`，与 `OnRenderProbe` / `OnConstantColorProbe` **互不消耗**：独立开关 `CASCADED_CSHARP_SB_PROBE=1`、独立调用标记，由 `TestCSharpStructuredBuffer` 在**自己的 Tick 之前**设置、之后清理。
+- **脚本做的事**：`NewWindow` → `GetWindowTarget` + 同尺寸 `CreateCaptureTarget` → `CreateGraph` → 36 字节顶点（三个顶点 × 12 字节步长，只有 `POSITION`）→ `AddBuffer("sbColors", 1 元素 × 12 字节, magenta)` → `SetPositionStream` → `CreateShaderStruct("StructuredColor")` → `SetBuffer("colorStructuredBuffer", "sbColors")` → 窗口与离屏各一个 `AddTrianglePass`（`Shaders/Test/TestTriangleWithStructuredBufferColor`，清除色 `(0,1,0,1)`）→ 两次 `SetPassParam(passIndex, "structuredColorBlock", params)` → `Present` → `SubmitGraph` → `WaitIdle`。缓冲名按"先绑后建"在 `SubmitGraph` 时按**本图**缓冲登记表解析（`SetBuffer` 当场只校验字段级元数据）。
+- **Debug 自检开关**（`CASCADED_CSHARP_SB_SELFTEST`，供 `TestCSharpStructuredBuffer` 构造负向证据）：`bad-buffer-color`（缓冲元素写 `(0,0,1)`：中心精确变成 `(0,0,255,255)`，以 `E_SB_PIXEL` 判红）、`unbound-field`（跳过 `SetBuffer`：`SubmitGraph` 在进入后端执行前拒绝并点名 `colorStructuredBuffer`，以 `E_SB_BIND` 判红，不读像素）、`bad-buffer-name`（绑未登记的 `sbColorsMissing`：同样在提交前拒绝并点名缓冲名，`E_SB_BIND`）。生产脚本不依赖它们。
+
 ## 构建
 
 ```powershell
@@ -91,6 +97,8 @@ python build.py --config Debug
 | `CASCADED_CSHARP_RENDER_SELFTEST` | **仅 Debug**：`skip-draw` / `bad-vertex` / `skip-present` / `skip-wait` 四个负向模式；C++ 侧 `TestCSharpTriangle` 读同一份值来核对错误码 | 空串 |
 | `CASCADED_CSHARP_CONSTCOLOR_PROBE=1` | 启用常量色（着色器参数）探针；只有 `TestCSharpConstantColor` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_CONSTCOLOR_SELFTEST` | **仅 Debug**：`bad-struct-colors` / `skip-param` 两个负向模式；C++ 侧 `TestCSharpConstantColor` 读同一份值来核对错误码 | 空串 |
+| `CASCADED_CSHARP_SB_PROBE=1` | 启用结构化缓冲探针；只有 `TestCSharpStructuredBuffer` 在自己的 Tick 之前设置、之后清理 | 不设 |
+| `CASCADED_CSHARP_SB_SELFTEST` | **仅 Debug**：`bad-buffer-color` / `unbound-field` / `bad-buffer-name` 三个负向模式；C++ 侧 `TestCSharpStructuredBuffer` 读同一份值来核对错误码 | 空串 |
 
 ## 失败语义（五条，全部实测过）
 

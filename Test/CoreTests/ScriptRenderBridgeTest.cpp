@@ -175,9 +175,17 @@ namespace
 			castl::shared_ptr<graphics_backend::ShaderStruct> sub;
 			uint32_t elementIndex = 0;
 		};
+		// csharp-render-structured-buffer 任务 2.1：真实 `ShaderStruct::SetBuffer` 的写入记录。
+		struct BufferWrite
+		{
+			cacore::NameHash name;
+			castl::string bufferName;
+			uint32_t elementIndex = 0;
+		};
 
 		std::vector<ValueWrite> valueWrites;
 		std::vector<StructWrite> structWrites;
+		std::vector<BufferWrite> bufferWrites;
 
 	protected:
 		void SetValueInternal(cacore::NameHash const& name, void const* pValue, uint32_t sizeInBytes,
@@ -195,9 +203,10 @@ namespace
 			graphics_backend::GPUTextureView const&, uint32_t) override
 		{
 		}
-		void SetBufferInternal(cacore::NameHash const&, graphics_backend::BufferHandle const&,
-			uint32_t) override
+		void SetBufferInternal(cacore::NameHash const& name, graphics_backend::BufferHandle const& bufferHandle,
+			uint32_t elementIndex) override
 		{
+			bufferWrites.push_back(BufferWrite{ name, castl::string(bufferHandle.GetName()), elementIndex });
 		}
 		void SetSamplerInternal(cacore::NameHash const&, graphics_backend::TextureSamplerDescriptor const&,
 			uint32_t) override
@@ -249,6 +258,19 @@ namespace
 			return true;
 		}
 
+		// csharp-render-structured-buffer 任务 2.1：结构化缓冲字段的元数据条目（名字 / 读写类型 /
+		// 描述符数组长度）。`m_ElementCount` 是描述符数组长度，不是缓冲内元素数。
+		bool AddBufferData(ShaderCompilerSlang::ShaderStructData& target, char const* name,
+			ShaderCompilerSlang::EShaderResourceAccess access, uint32_t elementCount)
+		{
+			ShaderCompilerSlang::BufferData bufferData{};
+			bufferData.m_Name = cacore::NameHash(name);
+			bufferData.m_RWType = access;
+			bufferData.m_ElementCount = elementCount;
+			target.EnsureShaderBuffer(bufferData);
+			return true;
+		}
+
 		castl::unordered_map<cacore::NameHash, ShaderCompilerSlang::ShaderStructData> BuildStructs()
 		{
 			castl::unordered_map<cacore::NameHash, ShaderCompilerSlang::ShaderStructData> table;
@@ -288,6 +310,35 @@ namespace
 			AddUniform(otherSubStruct, kSlangFloat3TypeName.c_str(), "color", 0u, 12u, 12u, 1u);
 			table.insert(castl::make_pair(CANAME("OtherSubStruct"), otherSubStruct));
 
+			// csharp-render-structured-buffer 任务 2.1：结构化缓冲字段的三种形态 ——
+			// StructuredColor：只读 + 描述符数组长度 1（正例）；
+			// StructuredColorArray：只读 + 长度 2（数组字段，本批拒绝）；
+			// StructuredColorRW：读写访问 + 长度 1（读写缓冲属计算批，本批拒绝）。
+			ShaderCompilerSlang::ShaderStructData structuredColor;
+			structuredColor.Init(CANAME("StructuredColor"));
+			AddBufferData(structuredColor, "colorStructuredBuffer",
+				ShaderCompilerSlang::EShaderResourceAccess::eReadOnly, 1u);
+			table.insert(castl::make_pair(CANAME("StructuredColor"), structuredColor));
+
+			ShaderCompilerSlang::ShaderStructData structuredColorArray;
+			structuredColorArray.Init(CANAME("StructuredColorArray"));
+			AddBufferData(structuredColorArray, "colors",
+				ShaderCompilerSlang::EShaderResourceAccess::eReadOnly, 2u);
+			table.insert(castl::make_pair(CANAME("StructuredColorArray"), structuredColorArray));
+
+			ShaderCompilerSlang::ShaderStructData structuredColorRW;
+			structuredColorRW.Init(CANAME("StructuredColorRW"));
+			AddBufferData(structuredColorRW, "colors",
+				ShaderCompilerSlang::EShaderResourceAccess::eReadWrite, 1u);
+			table.insert(castl::make_pair(CANAME("StructuredColorRW"), structuredColorRW));
+
+			// csharp-render-structured-buffer 任务 2.2：带缓冲字段的子结构类型（`StructuredColor`
+			// 本身有非空 `m_Buffers`）被挂进另一个结构 —— `SetStruct` 必须拒绝这种子结构。
+			ShaderCompilerSlang::ShaderStructData rootWithStructuredSub;
+			rootWithStructuredSub.Init(CANAME("RootWithStructuredSub"));
+			AddSubStruct(rootWithStructuredSub, "child", "StructuredColor", 1u, 0u, 12u, 12u);
+			table.insert(castl::make_pair(CANAME("RootWithStructuredSub"), rootWithStructuredSub));
+
 			return table;
 		}
 
@@ -299,6 +350,13 @@ namespace
 			root.Init(CANAME("__RootType"));
 			AddSubStruct(root, "constantColorBlock", "ConstantColor", 1u, 0u, 36u, 36u);
 			table.insert(castl::make_pair(CAPATH("Shaders/Test/TestTriangleWithConstantColor"), root));
+			// csharp-render-structured-buffer 任务 2.2：结构化缓冲着色器的根结构
+			//（一个 `ParameterBlock<StructuredColor> structuredColorBlock`）。
+			ShaderCompilerSlang::ShaderStructData structuredRoot;
+			structuredRoot.Init(CANAME("__StructuredRootType"));
+			AddSubStruct(structuredRoot, "structuredColorBlock", "StructuredColor", 1u, 0u, 12u, 12u);
+			table.insert(castl::make_pair(CAPATH("Shaders/Test/TestTriangleWithStructuredBufferColor"),
+				structuredRoot));
 			return table;
 		}
 	}
@@ -1086,6 +1144,326 @@ bool RunScriptRenderBridgeTest()
 			std::printf("  [参数句柄释放] 提交后待完成=%u → 等待后=%u，执行次数=%u（释放句柄前后不变）\n",
 				pendingAfterAbiSubmit, adapter.GetPendingGraphCountForTest(), executeAfterAbiWait);
 			IScriptRenderBackend_ReleaseCreateGraph(&adapter, abiGraph);
+		}
+	}
+
+	// ---- ⑧ 结构化缓冲字段绑定（csharp-render-structured-buffer 任务 2.1）----
+	// 字段级校验当场做：缓冲表外字段、读写访问条目、描述符数组长度 != 1 都拒绝并点名；
+	// 正例必须把字段与缓冲名原样写进真实 `ShaderStruct`；同一字段重复绑定成功且取最后一次。
+	{
+		auto* scriptAdapter = &adapter;
+		auto* backendPtr = &backend;
+
+		auto structured = scriptAdapter->CreateShaderStruct(CANAME("StructuredColor"));
+		auto structuredArray = scriptAdapter->CreateShaderStruct(CANAME("StructuredColorArray"));
+		auto structuredRW = scriptAdapter->CreateShaderStruct(CANAME("StructuredColorRW"));
+		ok = Expect(structured != nullptr && structuredArray != nullptr && structuredRW != nullptr,
+			"结构化缓冲夹具类型有一个创建失败") && ok;
+		auto* structuredConcrete = dynamic_cast<graphics_backend::CScriptShaderStruct*>(structured.get());
+		auto* arrayConcrete = dynamic_cast<graphics_backend::CScriptShaderStruct*>(structuredArray.get());
+		auto* rwConcrete = dynamic_cast<graphics_backend::CScriptShaderStruct*>(structuredRW.get());
+		ok = Expect(structuredConcrete != nullptr && arrayConcrete != nullptr && rwConcrete != nullptr,
+			"结构化缓冲参数结构不是本适配面的对象") && ok;
+		auto* structuredStub = structuredConcrete == nullptr ? nullptr
+			: dynamic_cast<TestShaderStruct*>(structuredConcrete->GetShaderStructForTest().get());
+		ok = Expect(structuredStub != nullptr, "结构化缓冲的真实 ShaderStruct 不是测试桩") && ok;
+
+		const int createCallsBeforeBuffer = backendPtr->createShaderStructCalls;
+		const uint32_t setBufferBefore = scriptAdapter->GetSetBufferCountForTest();
+		const bool hasBoundBefore = structuredConcrete != nullptr &&
+			structuredConcrete->HasBoundBuffer(CANAME("colorStructuredBuffer"));
+		ok = Expect(!hasBoundBefore, "新创建的参数结构一开始就报告已绑定缓冲字段") && ok;
+
+		auto expectBufferReject = [&ok](auto const& action, auto const& errorText, char const* token,
+			char const* what) {
+			const int32_t status = action();
+			const castl::string text = errorText();
+			const bool statusOk = Expect(status != 0, what);
+			const bool textOk = Expect(Contains(text, token), what);
+			std::printf("  [缓冲绑定拒绝] %-30s status=%d 点名=%s 文本=%s\n", what, status, token,
+				text.c_str());
+			ok = statusOk && textOk && ok;
+		};
+
+		// 缓冲表外字段名
+		expectBufferReject(
+			[&] { return structured->SetBuffer(CANAME("noSuchBufferField"), CANAME("SbColors")); },
+			[&] { return structured->GetLastError(); }, "noSuchBufferField", "缓冲表外字段");
+		// 读写访问条目：错误文本必须说明读写缓冲属计算批（`m_RWType != eReadOnly` 全拒）。
+		expectBufferReject([&] { return structuredRW->SetBuffer(CANAME("colors"), CANAME("SbColors")); },
+			[&] { return structuredRW->GetLastError(); }, "colors", "读写访问条目");
+		ok = Expect(Contains(structuredRW->GetLastError(), "读写缓冲属计算批"),
+			"读写访问条目的错误文本没有说明「读写缓冲属计算批」") && ok;
+		// 描述符数组长度 != 1（数组字段留后续批）
+		expectBufferReject([&] { return structuredArray->SetBuffer(CANAME("colors"), CANAME("SbColors")); },
+			[&] { return structuredArray->GetLastError(); }, "colors", "数组条目（元素数 2）");
+		ok = Expect(scriptAdapter->GetSetBufferCountForTest() == setBufferBefore,
+			"被拒绝的 SetBuffer 仍然让成功计数增长") && ok;
+		ok = Expect(structuredStub != nullptr && structuredStub->bufferWrites.empty(),
+			"被拒绝的 SetBuffer 仍然写进了真实 ShaderStruct") && ok;
+		ok = Expect(backendPtr->createShaderStructCalls == createCallsBeforeBuffer,
+			"SetBuffer 拒绝路径仍然创建了参数结构") && ok;
+
+		// 正例：字段与缓冲名必须原样落到真实 ShaderStruct 上；窄对象映射与计数同步。
+		ok = Expect(structured->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColors")) == 0,
+			"SetBuffer 合法调用被拒绝") && ok;
+		ok = Expect(scriptAdapter->GetSetBufferCountForTest() == setBufferBefore + 1u,
+			"SetBuffer 计数没有随成功调用 +1") && ok;
+		ok = Expect(structuredConcrete != nullptr &&
+			structuredConcrete->HasBoundBuffer(CANAME("colorStructuredBuffer")) &&
+			structuredConcrete->GetBoundBufferName(CANAME("colorStructuredBuffer")) == CANAME("SbColors"),
+			"窄对象没有记住「字段 → 缓冲名」映射") && ok;
+		if (structuredStub != nullptr && structuredStub->bufferWrites.size() == 1u)
+		{
+			auto const& write = structuredStub->bufferWrites.front();
+			ok = Expect(write.name == CANAME("colorStructuredBuffer") &&
+				write.bufferName == "SbColors" && write.elementIndex == 0u,
+				"真实 ShaderStruct 记录的字段 / 缓冲名 / 下标有一项不符") && ok;
+			std::printf("  [缓冲绑定] 桩记录 字段=%s 缓冲=%s 下标=%u\n", write.name.c_str(),
+				write.bufferName.c_str(), write.elementIndex);
+		}
+		else
+		{
+			ok = Expect(false, "真实 ShaderStruct 没有记录这次 SetBuffer") && ok;
+		}
+		// 同一字段重复绑定：两次都成功、计数 +2、映射与真实对象都取最后一次。
+		ok = Expect(structured->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColorsNew")) == 0,
+			"同一字段第二次 SetBuffer 被拒绝（缓冲绑定应允许覆盖）") && ok;
+		ok = Expect(scriptAdapter->GetSetBufferCountForTest() == setBufferBefore + 2u,
+			"连续两次 SetBuffer 的成功计数不是 2") && ok;
+		ok = Expect(structuredConcrete != nullptr &&
+			structuredConcrete->GetBoundBufferName(CANAME("colorStructuredBuffer")) == CANAME("SbColorsNew"),
+			"重复绑定之后窄对象映射不是最后一次的缓冲名") && ok;
+		if (structuredStub != nullptr)
+		{
+			ok = Expect(structuredStub->bufferWrites.size() == 2u &&
+				structuredStub->bufferWrites.back().bufferName == "SbColorsNew",
+				"重复绑定没有把最后一次缓冲名写进真实 ShaderStruct") && ok;
+			std::printf("  [缓冲绑定] 重复绑定成功计数=%u 桩记录最后缓冲=%s\n",
+				scriptAdapter->GetSetBufferCountForTest(),
+				structuredStub->bufferWrites.empty() ? "(空)"
+					: structuredStub->bufferWrites.back().bufferName.c_str());
+		}
+	}
+
+	// ---- ⑨ 提交检查、图侧登记表与子结构缓冲拒绝（csharp-render-structured-buffer 任务 2.2）----
+	// 数据来源是图侧登记表（`SetPassParam` 记下的 `(passIndex, blockName) → 窄参数结构` 强引用），
+	// 不依赖后端 `GetBufferHandles`。每张图独立：结构化着色器根结构 + 单 POSITION 流 + 一个 pass。
+	{
+		auto* scriptAdapter = &adapter;
+		auto* backendPtr = &backend;
+
+		auto buildStructuredGraph =
+			[&](bool withColors) -> castl::shared_ptr<graphics_backend::IScriptRenderGraph> {
+			auto g = scriptAdapter->CreateGraph();
+			if (g == nullptr)
+			{
+				return nullptr;
+			}
+			if (g->AddBuffer(CANAME("SbVertices"), graphics_backend::GPUBufferDescriptor::Create(3u, 12u),
+					std::vector<uint8_t>(36u, 0u)) != 0)
+			{
+				return nullptr;
+			}
+			if (withColors && g->AddBuffer(CANAME("SbColors"),
+					graphics_backend::GPUBufferDescriptor::Create(1u, 12u),
+					std::vector<uint8_t>(12u, 0x11)) != 0)
+			{
+				return nullptr;
+			}
+			if (g->SetPositionStream(CANAME("SbStream"), 12u, 0u) != 0)
+			{
+				return nullptr;
+			}
+			if (g->AddTrianglePass(capture, CAPATH("Shaders/Test/TestTriangleWithStructuredBufferColor"),
+					CANAME("SbStream"), CANAME("SbVertices"), 3u, 0.0f, 1.0f, 0.0f, 1.0f) != 0)
+			{
+				return nullptr;
+			}
+			return g;
+		};
+
+		// A. 字段未写：提交必须在进入后端之前拒绝并点名字段，`SetBuffer` 计数增量为 0。
+		{
+			auto g = buildStructuredGraph(true);
+			auto* concrete = dynamic_cast<graphics_backend::CScriptRenderGraph*>(g.get());
+			ok = Expect(g != nullptr && concrete != nullptr, "unbound-field 用例的图没有建出来") && ok;
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("StructuredColor"));
+			ok = Expect(params != nullptr, "unbound-field 用例的参数结构没有创建") && ok;
+			ok = Expect(g != nullptr && g->SetPassParam(0u, CANAME("structuredColorBlock"), params) == 0,
+				"unbound-field 用例的 SetPassParam 失败") && ok;
+			const uint32_t setBufferBefore = scriptAdapter->GetSetBufferCountForTest();
+			const uint32_t executeBefore = scriptAdapter->GetExecuteGraphCountForTest();
+			const int backendExecuteBefore = backendPtr->executeGraphCalls;
+			const int32_t status = scriptAdapter->SubmitGraph(g);
+			const castl::string text = scriptAdapter->GetLastError();
+			const bool named = Contains(text, "colorStructuredBuffer");
+			// 错误通道必须指向**未写字段**这条（`IScriptRenderBackend.field`），不能只是文本里
+			// 顺带出现字段名 —— 否则删掉「字段未写」检查后、缓冲名检查也会在文本里带出字段名。
+			const bool namedAsField = Contains(text, "IScriptRenderBackend.field");
+			ok = Expect(status != 0, "字段未写的提交没有返回非零") && ok;
+			ok = Expect(named, "字段未写的错误文本没有点名 colorStructuredBuffer") && ok;
+			ok = Expect(namedAsField, "字段未写的错误通道不是 field（没有把缺失字段当参数点名）") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBefore &&
+				backendPtr->executeGraphCalls == backendExecuteBefore,
+				"字段未写的提交进入了后端执行") && ok;
+			ok = Expect(scriptAdapter->GetSetBufferCountForTest() == setBufferBefore,
+				"unbound-field 的 SetBuffer 计数增量不是 0") && ok;
+			ok = Expect(scriptAdapter->GetPendingGraphCountForTest() == 0u,
+				"被拒绝的提交把图放进了待完成集合") && ok;
+			std::printf("  [提交检查 unbound] status=%d 点名=%d 执行次数=%u 文本=%s\n", status, named ? 1 : 0,
+				scriptAdapter->GetExecuteGraphCountForTest(), text.c_str());
+		}
+
+		// B. 未在本图登记的缓冲名：提交拒绝并点名缓冲名，执行次数 0。
+		{
+			auto g = buildStructuredGraph(true);
+			ok = Expect(g != nullptr, "bad-buffer-name 用例的图没有建出来") && ok;
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("StructuredColor"));
+			ok = Expect(params != nullptr &&
+				params->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColorsMissing")) == 0,
+				"bad-buffer-name 用例的 SetBuffer 失败") && ok;
+			ok = Expect(g != nullptr && g->SetPassParam(0u, CANAME("structuredColorBlock"), params) == 0,
+				"bad-buffer-name 用例的 SetPassParam 失败") && ok;
+			const uint32_t executeBefore = scriptAdapter->GetExecuteGraphCountForTest();
+			const int backendExecuteBefore = backendPtr->executeGraphCalls;
+			const int32_t status = scriptAdapter->SubmitGraph(g);
+			const castl::string text = scriptAdapter->GetLastError();
+			const bool named = Contains(text, "SbColorsMissing");
+			const bool namedAsBufferName = Contains(text, "IScriptRenderBackend.bufferName");
+			ok = Expect(status != 0, "未登记缓冲名的提交没有返回非零") && ok;
+			ok = Expect(named, "未登记缓冲名的错误文本没有点名 SbColorsMissing") && ok;
+			ok = Expect(namedAsBufferName, "未登记缓冲名的错误通道不是 bufferName") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBefore &&
+				backendPtr->executeGraphCalls == backendExecuteBefore,
+				"未登记缓冲名的提交进入了后端执行") && ok;
+			std::printf("  [提交检查 bad-name] status=%d 点名=%d 文本=%s\n", status, named ? 1 : 0,
+				text.c_str());
+		}
+
+		// C. 双图：同一结构绑 A 图缓冲提交通过；改提交给不含该缓冲的 B 图非零（按本图解析）。
+		{
+			auto graphA = buildStructuredGraph(true);
+			auto graphB = buildStructuredGraph(false);
+			auto* concreteA = dynamic_cast<graphics_backend::CScriptRenderGraph*>(graphA.get());
+			ok = Expect(graphA != nullptr && graphB != nullptr && concreteA != nullptr,
+				"双图用例的图没有建出来") && ok;
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("StructuredColor"));
+			ok = Expect(params != nullptr &&
+				params->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColors")) == 0,
+				"双图用例的 SetBuffer 失败") && ok;
+			ok = Expect(graphA != nullptr &&
+				graphA->SetPassParam(0u, CANAME("structuredColorBlock"), params) == 0,
+				"双图用例在 A 图的 SetPassParam 失败") && ok;
+			ok = Expect(concreteA != nullptr &&
+				concreteA->GetBoundBufferNameForTest(0u, CANAME("structuredColorBlock"),
+					CANAME("colorStructuredBuffer")) == CANAME("SbColors"),
+				"图侧登记表没有把字段解析到 A 图的 SbColors") && ok;
+			const uint32_t executeBeforeA = scriptAdapter->GetExecuteGraphCountForTest();
+			ok = Expect(scriptAdapter->SubmitGraph(graphA) == 0, "绑到 A 图缓冲的提交失败") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBeforeA + 1u,
+				"A 图提交没有让执行次数 +1") && ok;
+			scriptAdapter->WaitIdle();
+			ok = Expect(scriptAdapter->GetPendingGraphCountForTest() == 0u,
+				"A 图等待之后待完成集合没有清理") && ok;
+
+			ok = Expect(graphB != nullptr &&
+				graphB->SetPassParam(0u, CANAME("structuredColorBlock"), params) == 0,
+				"同一结构在 B 图的 SetPassParam 失败") && ok;
+			const uint32_t executeBeforeB = scriptAdapter->GetExecuteGraphCountForTest();
+			const int32_t statusB = scriptAdapter->SubmitGraph(graphB);
+			const castl::string textB = scriptAdapter->GetLastError();
+			ok = Expect(statusB != 0, "改提交给不含该缓冲的 B 图没有被拒绝") && ok;
+			ok = Expect(Contains(textB, "SbColors"),
+				"B 图拒绝文本没有点名缓冲名 SbColors") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBeforeB,
+				"B 图被拒绝的提交仍然进入了后端执行") && ok;
+			std::printf("  [双图] A 提交=0 B 提交=%d B 文本=%s\n", statusB, textB.c_str());
+		}
+
+		// D. 提交前释放参数结构表面对象：登记表持强引用，映射仍可读、提交仍按同一判定通过。
+		{
+			auto g = buildStructuredGraph(true);
+			auto* concrete = dynamic_cast<graphics_backend::CScriptRenderGraph*>(g.get());
+			ok = Expect(g != nullptr && concrete != nullptr, "释放表面对象用例的图没有建出来") && ok;
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("StructuredColor"));
+			ok = Expect(params != nullptr &&
+				params->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColors")) == 0,
+				"释放表面对象用例的 SetBuffer 失败") && ok;
+			ok = Expect(g != nullptr &&
+				g->SetPassParam(0u, CANAME("structuredColorBlock"), params) == 0,
+				"释放表面对象用例的 SetPassParam 失败") && ok;
+			params.reset(); // 脚本释放自己的表面对象：图侧登记表必须还持有强引用
+			const bool mappingStillReadable = concrete != nullptr &&
+				concrete->GetBoundBufferNameForTest(0u, CANAME("structuredColorBlock"),
+					CANAME("colorStructuredBuffer")) == CANAME("SbColors");
+			ok = Expect(mappingStillReadable, "释放参数结构表面对象后图侧登记表映射不可读") && ok;
+			const uint32_t executeBefore = scriptAdapter->GetExecuteGraphCountForTest();
+			const int32_t status = scriptAdapter->SubmitGraph(g);
+			ok = Expect(status == 0, "释放参数结构表面对象后提交失败（登记表没有保活）") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBefore + 1u,
+				"释放表面对象后的合法提交没有让执行次数 +1") && ok;
+			scriptAdapter->WaitIdle();
+			ok = Expect(scriptAdapter->GetPendingGraphCountForTest() == 0u,
+				"释放表面对象后等待没有清理待完成集合") && ok;
+			std::printf("  [参数保活-图登记表] 释放后映射可读=%d 提交=%d\n", mappingStillReadable ? 1 : 0,
+				status);
+		}
+
+		// E. 同一字段重复绑定：提交解析采用最后一次（经 `GetBoundBufferNameForTest` 核对）。
+		{
+			auto g = buildStructuredGraph(true);
+			auto* concrete = dynamic_cast<graphics_backend::CScriptRenderGraph*>(g.get());
+			ok = Expect(g != nullptr && concrete != nullptr, "重复绑定用例的图没有建出来") && ok;
+			auto params = scriptAdapter->CreateShaderStruct(CANAME("StructuredColor"));
+			ok = Expect(params != nullptr &&
+				params->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColors")) == 0 &&
+				params->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColorsMissing")) == 0,
+				"重复绑定用例的两次 SetBuffer 失败") && ok;
+			ok = Expect(g != nullptr &&
+				g->SetPassParam(0u, CANAME("structuredColorBlock"), params) == 0,
+				"重复绑定用例的 SetPassParam 失败") && ok;
+			const bool resolvedLast = concrete != nullptr &&
+				concrete->GetBoundBufferNameForTest(0u, CANAME("structuredColorBlock"),
+					CANAME("colorStructuredBuffer")) == CANAME("SbColorsMissing");
+			ok = Expect(resolvedLast, "提交解析没有采用最后一次绑定的缓冲名") && ok;
+			const uint32_t executeBefore = scriptAdapter->GetExecuteGraphCountForTest();
+			const int32_t status = scriptAdapter->SubmitGraph(g);
+			ok = Expect(status != 0 && Contains(scriptAdapter->GetLastError(), "SbColorsMissing"),
+				"重复绑定的最后一次是未登记名，提交却没有点名拒绝") && ok;
+			ok = Expect(scriptAdapter->GetExecuteGraphCountForTest() == executeBefore,
+				"重复绑定的拒绝路径进入了后端执行") && ok;
+			// 再绑回已登记名：提交必须通过（覆盖写入生效）。
+			ok = Expect(params != nullptr &&
+				params->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColors")) == 0,
+				"第三次 SetBuffer 失败") && ok;
+			ok = Expect(scriptAdapter->SubmitGraph(g) == 0, "绑回已登记缓冲名之后提交仍失败") && ok;
+			scriptAdapter->WaitIdle();
+			std::printf("  [重复绑定] 解析到最后一次=%d 拒绝status=%d\n", resolvedLast ? 1 : 0, status);
+		}
+
+		// F. 含缓冲字段的子结构：`SetStruct` 必须拒绝并点名字段（否则绕过顶层提交检查）。
+		{
+			auto parent = scriptAdapter->CreateShaderStruct(CANAME("RootWithStructuredSub"));
+			auto child = scriptAdapter->CreateShaderStruct(CANAME("StructuredColor"));
+			ok = Expect(parent != nullptr && child != nullptr,
+				"子结构缓冲拒绝用例的参数结构没有创建") && ok;
+			ok = Expect(child != nullptr &&
+				child->SetBuffer(CANAME("colorStructuredBuffer"), CANAME("SbColors")) == 0,
+				"子结构缓冲拒绝用例的 SetBuffer 失败") && ok;
+			const int executeBefore = backendPtr->executeGraphCalls;
+			const int32_t status = parent == nullptr
+				? 1 : parent->SetStruct(CANAME("child"), child, 0u);
+			const castl::string text = parent == nullptr ? castl::string() : parent->GetLastError();
+			const bool namedField = Contains(text, "child");
+			const bool namedReason = Contains(text, "缓冲字段");
+			ok = Expect(status != 0, "含缓冲字段的子结构没有被 SetStruct 拒绝") && ok;
+			ok = Expect(namedField, "子结构缓冲拒绝没有点名字段 child") && ok;
+			ok = Expect(namedReason, "子结构缓冲拒绝没有说明原因（缓冲字段）") && ok;
+			ok = Expect(backendPtr->executeGraphCalls == executeBefore,
+				"子结构缓冲拒绝进入了后端执行") && ok;
+			std::printf("  [子结构缓冲拒绝] status=%d 点名child=%d 点名原因=%d 文本=%s\n", status,
+				namedField ? 1 : 0, namedReason ? 1 : 0, text.c_str());
 		}
 	}
 

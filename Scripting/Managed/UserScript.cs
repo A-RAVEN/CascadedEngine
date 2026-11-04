@@ -334,6 +334,164 @@ namespace Scripting.Managed
                 CSharpConstantColorProbe.ClearAlpha), ConstantColorGraph, "AddTrianglePass");
         }
 
+        // ---- 结构化缓冲探针（csharp-render-structured-buffer 任务 3.1）----
+        /// <summary>`OnStructuredBufferProbe` 被调用了几次（与另外两个渲染探针分开计数）。</summary>
+        internal static int StructuredBufferProbeCount;
+        /// <summary>最近一次结构化缓冲探针的摘要：模式、pass 数、提交状态、拒绝文本。</summary>
+        internal static string LastStructuredBufferSummary = string.Empty;
+        // 保留到原生核对完成：图、两个目标与参数结构都由原生侧读。
+        internal static IWindow StructuredBufferWindow;
+        internal static IScriptRenderTarget StructuredBufferWindowTarget;
+        internal static IScriptRenderTarget StructuredBufferCaptureTarget;
+        internal static IScriptRenderGraph StructuredBufferGraph;
+        internal static IScriptShaderStruct StructuredBufferParams;
+
+        /// <summary>
+        /// 结构化缓冲探针（csharp-render-structured-buffer 任务 3.1）：单 `POSITION` 顶点流、
+        /// `StructuredColor` 参数结构（一个 `StructuredBuffer<float3>` 字段）按名绑定图内登记的
+        /// 结构化缓冲，窗口与离屏各一个同逻辑 pass、两次 `SetPassParam`，呈现、提交、等待。
+        /// 保留图、目标与参数结构到原生核对完成。
+        ///
+        /// Debug 自检（`CASCADED_CSHARP_SB_SELFTEST`，C++ 侧读同一份值判定错误码）：
+        ///   · `bad-buffer-color`：缓冲元素写成 (0,0,1) —— 中心精确变成 (0,0,255,255)（`E_SB_PIXEL`）；
+        ///   · `unbound-field`：跳过 `SetBuffer` —— `SubmitGraph` 在进入后端执行前拒绝并点名
+        ///     `colorStructuredBuffer`（`E_SB_BIND`），该状态记入摘要、不抛异常；
+        ///   · `bad-buffer-name`：绑未登记的 `sbColorsMissing` —— 提交前拒绝并点名缓冲名（`E_SB_BIND`）。
+        /// </summary>
+        public static void OnStructuredBufferProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        {
+            StructuredBufferProbeCount++;
+            if (windows == null)
+            {
+                throw new InvalidOperationException("结构化缓冲探针：窗口系统表没有绑定");
+            }
+            if (backend == null)
+            {
+                throw new InvalidOperationException("结构化缓冲探针：脚本渲染后端表没有绑定");
+            }
+
+            string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_SB_SELFTEST") ?? string.Empty;
+            bool badBufferColor = mode == "bad-buffer-color";
+            bool unboundField = mode == "unbound-field";
+            bool badBufferName = mode == "bad-buffer-name";
+            if (mode.Length != 0 && !(badBufferColor || unboundField || badBufferName))
+            {
+                throw new InvalidOperationException($"结构化缓冲探针：未知的自检模式 {mode}");
+            }
+
+            StructuredBufferWindow = windows.NewWindow(CSharpStructuredBufferProbe.WindowWidth,
+                CSharpStructuredBufferProbe.WindowHeight, "C# 结构化缓冲", true, true, true, false);
+            StructuredBufferWindowTarget = backend.GetWindowTarget(StructuredBufferWindow);
+            if (StructuredBufferWindowTarget == null)
+            {
+                throw new InvalidOperationException(
+                    $"结构化缓冲探针：GetWindowTarget 返回空：{backend.GetLastError()}");
+            }
+            StructuredBufferCaptureTarget = backend.CreateCaptureTarget(
+                CSharpStructuredBufferProbe.WindowWidth, CSharpStructuredBufferProbe.WindowHeight);
+            if (StructuredBufferCaptureTarget == null)
+            {
+                throw new InvalidOperationException(
+                    $"结构化缓冲探针：CreateCaptureTarget 返回空：{backend.GetLastError()}");
+            }
+            StructuredBufferGraph = backend.CreateGraph();
+            if (StructuredBufferGraph == null)
+            {
+                throw new InvalidOperationException(
+                    $"结构化缓冲探针：CreateGraph 返回空：{backend.GetLastError()}");
+            }
+
+            // 顶点字节由脚本自己写：三个顶点、每个只有位置 float3（步长 12）。
+            float[] positions = CSharpStructuredBufferProbe.BuildPositions();
+            byte[] vertexBytes = new byte[positions.Length * sizeof(float)];
+            Buffer.BlockCopy(positions, 0, vertexBytes, 0, vertexBytes.Length);
+            var vertexDescriptor = new GPUBufferDescriptor
+            {
+                count = CSharpStructuredBufferProbe.VertexCount,
+                stride = CSharpStructuredBufferProbe.VertexStride,
+            };
+            CheckStatus(StructuredBufferGraph.AddBuffer(CSharpStructuredBufferProbe.VertexBufferName,
+                vertexDescriptor, vertexBytes), StructuredBufferGraph, "AddBuffer(顶点)");
+
+            // 结构化缓冲：1 元素 × 12 字节。正常模式是 magenta (1,0,1)；
+            // bad-buffer-color 写 (0,0,1)（既非清除色也非 magenta，供原生侧精确断言中心）。
+            float[] color = CSharpStructuredBufferProbe.BuildBufferColor(badBufferColor);
+            byte[] colorBytes = new byte[color.Length * sizeof(float)];
+            Buffer.BlockCopy(color, 0, colorBytes, 0, colorBytes.Length);
+            var colorDescriptor = new GPUBufferDescriptor
+            {
+                count = CSharpStructuredBufferProbe.BufferElementCount,
+                stride = CSharpStructuredBufferProbe.BufferElementStride,
+            };
+            CheckStatus(StructuredBufferGraph.AddBuffer(CSharpStructuredBufferProbe.BufferName,
+                colorDescriptor, colorBytes), StructuredBufferGraph, "AddBuffer(sbColors)");
+            CheckStatus(StructuredBufferGraph.SetPositionStream(CSharpStructuredBufferProbe.VertexBufferName,
+                CSharpStructuredBufferProbe.VertexStride, CSharpStructuredBufferProbe.PositionOffset),
+                StructuredBufferGraph, "SetPositionStream");
+
+            StructuredBufferParams = backend.CreateShaderStruct(CSharpStructuredBufferProbe.StructTypeName);
+            if (StructuredBufferParams == null)
+            {
+                throw new InvalidOperationException(
+                    $"结构化缓冲探针：CreateShaderStruct 返回空：{backend.GetLastError()}");
+            }
+            if (!unboundField)
+            {
+                // 正常与 bad-buffer-name 走这里；unbound-field 刻意不写，让提交检查点名缺失字段。
+                string targetBufferName = badBufferName
+                    ? CSharpStructuredBufferProbe.MissingBufferName
+                    : CSharpStructuredBufferProbe.BufferName;
+                if (StructuredBufferParams.SetBuffer(CSharpStructuredBufferProbe.FieldName,
+                        targetBufferName) != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"结构化缓冲探针：SetBuffer 被拒绝：{StructuredBufferParams.GetLastError()}");
+                }
+            }
+
+            AddStructuredBufferPass(StructuredBufferWindowTarget);
+            AddStructuredBufferPass(StructuredBufferCaptureTarget);
+            // 两种提交前拒绝形态也要走到两次 SetPassParam：拒绝发生在 SubmitGraph，不是绑定。
+            CheckStatus(StructuredBufferGraph.SetPassParam(0u, CSharpStructuredBufferProbe.BlockName,
+                StructuredBufferParams), StructuredBufferGraph, "SetPassParam(0)");
+            CheckStatus(StructuredBufferGraph.SetPassParam(1u, CSharpStructuredBufferProbe.BlockName,
+                StructuredBufferParams), StructuredBufferGraph, "SetPassParam(1)");
+            CheckStatus(StructuredBufferGraph.Present(StructuredBufferWindowTarget), StructuredBufferGraph,
+                "Present");
+
+            int submitStatus = backend.SubmitGraph(StructuredBufferGraph);
+            string submitError = backend.GetLastError();
+            if (unboundField || badBufferName)
+            {
+                // 负向模式：提交前拒绝是期望结果，不抛异常（抛了会变成宿主错误码 4，判据分不清是哪一种）。
+                if (submitStatus == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"结构化缓冲探针：{(unboundField ? "unbound-field" : "bad-buffer-name")} 的提交竟然成功");
+                }
+            }
+            else
+            {
+                CheckStatus(submitStatus, backend, "SubmitGraph");
+                backend.WaitIdle();
+            }
+
+            LastStructuredBufferSummary =
+                $"mode={(mode.Length == 0 ? "normal" : mode)} " +
+                $"passCount={StructuredBufferGraph.GetPassCount()} submitStatus={submitStatus} " +
+                $"unboundField={unboundField} badBufferName={badBufferName} submitError={submitError}";
+        }
+
+        private static void AddStructuredBufferPass(IScriptRenderTarget target)
+        {
+            CheckStatus(StructuredBufferGraph.AddTrianglePass(target,
+                CSharpStructuredBufferProbe.ShaderPath, CSharpStructuredBufferProbe.VertexBufferName,
+                CSharpStructuredBufferProbe.VertexBufferName, CSharpStructuredBufferProbe.VertexCount,
+                CSharpStructuredBufferProbe.ClearRed, CSharpStructuredBufferProbe.ClearGreen,
+                CSharpStructuredBufferProbe.ClearBlue, CSharpStructuredBufferProbe.ClearAlpha),
+                StructuredBufferGraph, "AddTrianglePass");
+        }
+
         /// <summary>
         /// 关闭顺序的第 1 步（任务 3.1）：参数结构表面对象（含三个子结构）必须先于图与目标释放。
         /// </summary>
@@ -351,6 +509,12 @@ namespace Scripting.Managed
                     ConstantColorSubStructs[index].Dispose();
                     ConstantColorSubStructs[index] = null;
                 }
+            }
+            // csharp-render-structured-buffer 任务 3.1：结构化缓冲探针的参数结构也按同一顺序先释放。
+            if (StructuredBufferParams != null)
+            {
+                StructuredBufferParams.Dispose();
+                StructuredBufferParams = null;
             }
         }
 
@@ -370,6 +534,12 @@ namespace Scripting.Managed
                 ConstantColorGraph.Dispose();
                 ConstantColorGraph = null;
             }
+            // csharp-render-structured-buffer 任务 3.1：结构化缓冲探针的图与两个目标。
+            if (StructuredBufferGraph != null)
+            {
+                StructuredBufferGraph.Dispose();
+                StructuredBufferGraph = null;
+            }
             if (RenderCaptureTarget != null)
             {
                 RenderCaptureTarget.Dispose();
@@ -379,6 +549,11 @@ namespace Scripting.Managed
             {
                 ConstantColorCaptureTarget.Dispose();
                 ConstantColorCaptureTarget = null;
+            }
+            if (StructuredBufferCaptureTarget != null)
+            {
+                StructuredBufferCaptureTarget.Dispose();
+                StructuredBufferCaptureTarget = null;
             }
             if (RenderWindowTarget != null)
             {
@@ -390,6 +565,11 @@ namespace Scripting.Managed
                 ConstantColorWindowTarget.Dispose();
                 ConstantColorWindowTarget = null;
             }
+            if (StructuredBufferWindowTarget != null)
+            {
+                StructuredBufferWindowTarget.Dispose();
+                StructuredBufferWindowTarget = null;
+            }
             if (RenderWindow != null)
             {
                 RenderWindow.Dispose();
@@ -399,6 +579,11 @@ namespace Scripting.Managed
             {
                 ConstantColorWindow.Dispose();
                 ConstantColorWindow = null;
+            }
+            if (StructuredBufferWindow != null)
+            {
+                StructuredBufferWindow.Dispose();
+                StructuredBufferWindow = null;
             }
         }
 
@@ -512,6 +697,60 @@ namespace Scripting.Managed
                  0.25f, -0.25f, 0.25f,
                  0.00f,  0.50f, 0.50f,
             };
+        }
+    }
+
+    /// <summary>
+    /// 结构化缓冲探针的夹具值（csharp-render-structured-buffer 任务 3.1）。C++ 侧
+    /// `TestCSharpStructuredBuffer` **另写一份**独立的期望值（尺寸、pass 数、背景与中心像素、缓冲颜色、
+    /// 清除色），两边不共享常量表。
+    /// </summary>
+    internal static class CSharpStructuredBufferProbe
+    {
+        internal const int WindowWidth = 320;
+        internal const int WindowHeight = 240;
+        internal const uint VertexCount = 3;
+        internal const uint VertexStride = 12;
+        internal const uint PositionOffset = 0;
+        internal const string VertexBufferName = "CSharpStructuredBufferVertices";
+        // 图内结构化缓冲的登记名：`SetBuffer` 与 `AddBuffer` 用同一个名字（先绑后建）。
+        internal const string BufferName = "sbColors";
+        internal const string MissingBufferName = "sbColorsMissing";
+        internal const uint BufferElementCount = 1;
+        internal const uint BufferElementStride = 12;
+        internal const string ShaderPath = "Shaders/Test/TestTriangleWithStructuredBufferColor";
+        internal const string StructTypeName = "StructuredColor";
+        internal const string FieldName = "colorStructuredBuffer";
+        internal const string BlockName = "structuredColorBlock";
+
+        // 清除色 (0, 1, 0, 1) = 精确绿色背景
+        internal const float ClearRed = 0.0f;
+        internal const float ClearGreen = 1.0f;
+        internal const float ClearBlue = 0.0f;
+        internal const float ClearAlpha = 1.0f;
+
+        /// <summary>
+        /// 三个顶点的位置（每个顶点 3 个 float：xyz）。沿用结构化缓冲着色器既有测试的平面坐标。
+        /// </summary>
+        internal static float[] BuildPositions()
+        {
+            return new float[]
+            {
+                -0.25f, -0.25f, 0.25f,
+                 0.25f, -0.25f, 0.25f,
+                 0.00f,  0.50f, 0.50f,
+            };
+        }
+
+        /// <summary>
+        /// 结构化缓冲那一个元素的值（12 字节的 float3）。正常模式 magenta (1,0,1)；
+        /// `bad-buffer-color` 用 (0,0,1) —— 既非清除色 (0,1,0) 也非 magenta。
+        /// </summary>
+        internal static float[] BuildBufferColor(bool badBufferColor)
+        {
+            return badBufferColor
+                ? new float[] { 0.0f, 0.0f, 1.0f }
+                : new float[] { 1.0f, 0.0f, 1.0f };
         }
     }
 

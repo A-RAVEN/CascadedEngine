@@ -1570,15 +1570,18 @@ void TestCSharpTriangle(TestContext& ctx)
 		const uint32_t captureCount = renderBackend->GetCreateCaptureTargetCountForTest();
 		const uint32_t structCount = renderBackend->GetCreateShaderStructCountForTest();
 		const uint32_t executeCount = renderBackend->GetExecuteGraphCountForTest();
+		// csharp-render-structured-buffer 任务 3.1：非探针阶段建缓冲也必须为 0（新增的计数槽）。
+		const uint32_t addBufferCount = renderBackend->GetAddBufferCountForTest();
 		CA_LOG("非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget={} "
-		       "createShaderStruct={} executeGraph={}",
-		       captureCount, structCount, executeCount);
-		if (captureCount != 0u || structCount != 0u || executeCount != 0u)
+		       "createShaderStruct={} addBuffer={} executeGraph={}",
+		       captureCount, structCount, addBufferCount, executeCount);
+		if (captureCount != 0u || structCount != 0u || executeCount != 0u || addBufferCount != 0u)
 		{
 			char detail[256] = {};
 			std::snprintf(detail, sizeof(detail),
-			              "非探针测试创建了 GPU 工作：captureTarget=%u createShaderStruct=%u executeGraph=%u",
-			              captureCount, structCount, executeCount);
+			              "非探针测试创建了 GPU 工作：captureTarget=%u createShaderStruct=%u addBuffer=%u "
+			              "executeGraph=%u",
+			              captureCount, structCount, addBufferCount, executeCount);
 			fail("E_RENDER_NONPROBE_WORK", detail);
 		}
 	}
@@ -2119,6 +2122,418 @@ void TestCSharpConstantColor(TestContext& ctx)
 			fail("E_CONSTCOLOR_NEGATIVE_PATH", detail);
 		}
 		CA_LOG("真实后端负例 2/2：未登记着色器路径 → status={} 文本点名路径", bindStatus);
+	}
+}
+
+// ---- TestCSharpStructuredBuffer（csharp-render-structured-buffer 任务 1.2 / 4.1）----
+// C# 用单 `POSITION` 顶点流 + `StructuredColor` 参数结构（一个 `StructuredBuffer<float3>` 字段，经
+// `SetBuffer` 按名绑定图内登记的缓冲）建图：窗口与离屏各一个同逻辑 pass、两次
+// `SetPassParam("structuredColorBlock", …)`，提交并等待。原生侧用既有 `Readback` 读那份离屏目标做
+// 精确像素判据（背景 (0,255,0,255)、中心 (255,0,255,255)），并核对 pass 数、每个 pass 的参数表条目、
+// 呈现清单与等待计数。
+//
+// Debug 负向（进程环境变量 `CASCADED_CSHARP_SB_SELFTEST`，C# 侧读同一份值）：
+//   `bad-buffer-color` 缓冲元素写成 (0,0,1) → 中心 MUST 精确等于 (0,0,255,255)，以 `E_SB_PIXEL` 判红；
+//   `unbound-field`    完全不调 `SetBuffer` → `SubmitGraph` 在进入后端执行前拒绝并点名
+//                      `colorStructuredBuffer`，以 `E_SB_BIND` 判红，**不读像素**；
+//   `bad-buffer-name`  绑未登记的 `sbColorsMissing` → 同样在提交前拒绝并点名缓冲名，以 `E_SB_BIND` 判红。
+// `Tools/check_csharp_structured_buffer.py` 逐后端对账正常（pass）与三个负向（fail + 对应错误码）。
+void TestCSharpStructuredBuffer(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	// C++ 侧的独立夹具值：尺寸、pass 数、两个像素、缓冲颜色与清除色都另写一份，不与 C# 的
+	// `CSharpStructuredBufferProbe` 共享常量表 —— 一边改错不会两边一起绿。
+	constexpr uint32_t kWindowWidth = 320u;
+	constexpr uint32_t kWindowHeight = 240u;
+	constexpr uint32_t kExpectedPassCount = 2u;
+	const std::array<uint8_t, 4> expectedBackground{ 0u, 255u, 0u, 255u };
+	const std::array<uint8_t, 4> expectedCenter{ 255u, 0u, 255u, 255u };
+	const std::array<uint8_t, 4> expectedBadBufferCenter{ 0u, 0u, 255u, 255u };
+	const std::array<float, 3> expectedBufferColor{ 1.0f, 0.0f, 1.0f };
+	const std::array<float, 4> expectedClearColor{ 0.0f, 1.0f, 0.0f, 1.0f };
+	char const* const kBlockName = "structuredColorBlock";
+	char const* const kFieldName = "colorStructuredBuffer";
+	char const* const kBufferName = "sbColors";
+	char const* const kMissingBufferName = "sbColorsMissing";
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_SB_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_SB_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段登记真实适配器。
+	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
+	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
+		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
+	if (renderBackend == nullptr)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
+		fail("E_SB_BACKEND_MISSING", detail);
+	}
+
+	char modeBuffer[64] = {};
+	::GetEnvironmentVariableA("CASCADED_CSHARP_SB_SELFTEST", modeBuffer, sizeof(modeBuffer));
+	const std::string mode = modeBuffer;
+	const bool badBufferColor = mode == "bad-buffer-color";
+	const bool unboundField = mode == "unbound-field";
+	const bool badBufferName = mode == "bad-buffer-name";
+	if (!(mode.empty() || badBufferColor || unboundField || badBufferName))
+	{
+		fail("E_SB_MODE", castl::string("未知的自检模式：") + mode.c_str());
+	}
+
+	struct StructuredBufferEnvGuard
+	{
+		~StructuredBufferEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_CSHARP_SB_PROBE", nullptr);
+		}
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_SB_PROBE", "1");
+
+	CA_LOG("TestCSharpStructuredBuffer 夹具期望：缓冲颜色=({},{},{}) 清除色=({},{},{},{}) "
+	       "block={} field={} buffer={}",
+	       expectedBufferColor[0], expectedBufferColor[1], expectedBufferColor[2], expectedClearColor[0],
+	       expectedClearColor[1], expectedClearColor[2], expectedClearColor[3], kBlockName, kFieldName,
+	       kBufferName);
+
+	// 托管探针用 `IWindowSystem.NewWindow` 建自己的窗口，并从它取窗口目标。
+	auto newWindow = ctx.pWindowSystem->NewWindow(kWindowWidth, kWindowHeight, "C# StructuredBuffer");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_SB_HOST", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	const std::string baselineError = pScriptHost->LastError();
+	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
+	const uint32_t createStructBefore = renderBackend->GetCreateShaderStructCountForTest();
+	const uint32_t setFloat3Before = renderBackend->GetSetFloat3CountForTest();
+	const uint32_t setStructBefore = renderBackend->GetSetStructCountForTest();
+	const uint32_t setPassParamBefore = renderBackend->GetSetPassParamCountForTest();
+	const uint32_t captureBefore = renderBackend->GetCreateCaptureTargetCountForTest();
+	const uint32_t executeBefore = renderBackend->GetExecuteGraphCountForTest();
+	// 任务 3.1：`SetBuffer` 与 `AddBuffer` 的增量也要从适配器读数核对（探针里各 1 / 2）。
+	const uint32_t setBufferCounterBefore = renderBackend->GetSetBufferCountForTest();
+	const uint32_t addBufferBefore = renderBackend->GetAddBufferCountForTest();
+	const int32_t tickValue = pScriptHost->Tick(0.016);
+	::SetEnvironmentVariableA("CASCADED_CSHARP_SB_PROBE", nullptr);
+
+	const std::string hostError = pScriptHost->LastError();
+	if (hostError != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "Tick(回值 %d) 之后 LastError 非空：%s", tickValue,
+		              hostError.c_str());
+		fail("E_SB_HOST_ERROR", detail);
+	}
+	if (tickValue <= 0)
+	{
+		fail("E_SB_TICK", "Tick 回值不是正数（探针没有执行）");
+	}
+
+	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
+	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
+	if (captureTarget == nullptr || windowTarget == nullptr)
+	{
+		fail("E_SB_PROBE_MISSING",
+		     "渲染探针没有创建离屏 / 窗口目标（探针开关或四个函数表绑定失败）");
+	}
+	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
+	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
+
+	// 窗口描述快照：离屏目标与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
+	const auto& windowDesc = windowTarget->GetDescriptorForTest();
+	const auto& captureDesc = captureTarget->GetDescriptorForTest();
+	if (windowDesc.width != kWindowWidth || windowDesc.height != kWindowHeight ||
+		captureDesc.width != kWindowWidth || captureDesc.height != kWindowHeight ||
+		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
+		captureTarget->IsBackbuffer())
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
+		              windowDesc.width, windowDesc.height, captureDesc.width, captureDesc.height,
+		              static_cast<int>(captureDesc.format));
+		fail("E_SB_TARGET", detail);
+	}
+
+	// 图结构与参数表：两个 pass（窗口 + 离屏），每个 pass 的参数表正好 1 条 `structuredColorBlock`
+	// 且条目非空。缓冲名解析到本图登记的 `sbColors` 由 2.2 的 `GetBoundBufferNameForTest` 在 4.1 核对。
+	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
+	if (lastGraph == nullptr)
+	{
+		fail("E_SB_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
+	}
+	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
+		              lastGraph->GetPassCount(), kExpectedPassCount);
+		fail("E_SB_GRAPH", detail);
+	}
+	size_t totalBoundParams = 0;
+	uint32_t passesWithBlock = 0;
+	for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+	{
+		auto const& bound = pass.GetShaderStructs();
+		totalBoundParams += bound.size();
+		auto entry = bound.find(CANAME("structuredColorBlock"));
+		if (entry != bound.end() && entry->second != nullptr)
+		{
+			++passesWithBlock;
+		}
+	}
+	if (totalBoundParams != kExpectedPassCount || passesWithBlock != kExpectedPassCount)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "参数表不符：%zu 条绑定、%u 个 pass 有 %s（期望 %u 个 pass 各 1 条）", totalBoundParams,
+		              passesWithBlock, kBlockName, kExpectedPassCount);
+		fail("E_SB_PARAM", detail);
+	}
+
+	// 任务 4.1：`StructuredColor` 的缓冲元数据读数。查询方法在 `CRenderBackend` 上（适配器没有），
+	// 所以经后端对象读；这里只复核 design 已定死的读数（只读访问、描述符数组长度 1），不临时改规则。
+	{
+		ShaderCompilerSlang::ShaderStructData const* structData =
+			ctx.pGPUBackend->FindShaderStructData(CANAME("StructuredColor"));
+		if (structData == nullptr)
+		{
+			fail("E_SB_STRUCT", "后端查不到 StructuredColor 的编译元数据");
+		}
+		ShaderCompilerSlang::BufferData const* bufferEntry = nullptr;
+		for (auto const& candidate : structData->m_Buffers)
+		{
+			if (candidate.m_Name == CANAME("colorStructuredBuffer"))
+			{
+				bufferEntry = &candidate;
+				break;
+			}
+		}
+		if (bufferEntry == nullptr)
+		{
+			fail("E_SB_STRUCT", "StructuredColor 的元数据缓冲表里没有 colorStructuredBuffer");
+		}
+		CA_LOG("TestCSharpStructuredBuffer 元数据读数：type=StructuredColor field={} rw={} elements={}",
+		       bufferEntry->m_Name.c_str(), static_cast<int>(bufferEntry->m_RWType),
+		       bufferEntry->m_ElementCount);
+		if (bufferEntry->m_RWType != ShaderCompilerSlang::EShaderResourceAccess::eReadOnly ||
+			bufferEntry->m_ElementCount != 1u)
+		{
+			fail("E_SB_STRUCT", "StructuredColor 的 colorStructuredBuffer 不是「只读 + 描述符数组长度 1」");
+		}
+	}
+
+	// 任务 4.1：两个 pass 的缓冲字段解析读**图侧登记表**（`GetBoundBufferNameForTest`），不读后端私有表。
+	{
+		auto* concreteGraph = dynamic_cast<graphics_backend::CScriptRenderGraph*>(lastGraph.get());
+		if (concreteGraph == nullptr)
+		{
+			fail("E_SB_GRAPH", "最近提交的图不是本适配面的 CScriptRenderGraph");
+		}
+		const cacore::NameHash expectedName = unboundField
+			? cacore::NameHash()
+			: (badBufferName ? CANAME("sbColorsMissing") : CANAME("sbColors"));
+		for (uint32_t passIndex = 0; passIndex < kExpectedPassCount; ++passIndex)
+		{
+			const cacore::NameHash resolved = concreteGraph->GetBoundBufferNameForTest(passIndex,
+				CANAME("structuredColorBlock"), CANAME("colorStructuredBuffer"));
+			if (!(resolved == expectedName))
+			{
+				char detail[512] = {};
+				std::snprintf(detail, sizeof(detail),
+				              "pass %u 的缓冲字段解析不是预期名字：期望 %s，实际 %s", passIndex,
+				              expectedName.Valid() ? expectedName.c_str() : "(空)",
+				              resolved.Valid() ? resolved.c_str() : "(空)");
+				fail("E_SB_BIND", detail);
+			}
+			CA_LOG("TestCSharpStructuredBuffer pass={} 缓冲字段解析={}", passIndex,
+			       resolved.Valid() ? resolved.c_str() : "(空)");
+		}
+	}
+
+	// 两种提交前拒绝：参数表 2 条（两次 SetPassParam 都成功）、适配器错误文本点名缺失项、
+	// 后端执行次数 0、不读像素 —— 以 `E_SB_BIND` 判红。任务 3.1 的 `SetBuffer` 增量也要在这里
+	// 各对各的：`unbound-field` 是 0，`bad-buffer-name` 是 1（确实绑了一个名字，只是名字不存在）。
+	if (unboundField || badBufferName)
+	{
+		const std::string adapterError = renderBackend->GetLastError().c_str();
+		char const* const requiredName = unboundField ? kFieldName : kMissingBufferName;
+		const bool named = adapterError.find(requiredName) != std::string::npos;
+		const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
+		const uint32_t setBufferDelta = renderBackend->GetSetBufferCountForTest() - setBufferCounterBefore;
+		const uint32_t addBufferDelta = renderBackend->GetAddBufferCountForTest() - addBufferBefore;
+		const uint32_t expectedSetBuffer = unboundField ? 0u : 1u;
+		if (!named)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "%s：适配器错误文本没有点名 %s，实际 = \"%s\"",
+			              mode.c_str(), requiredName, adapterError.c_str());
+			fail("E_SB_BIND", detail);
+		}
+		if (executeDelta != 0u)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "%s：后端执行次数增量 %u（期望 0）", mode.c_str(),
+			              executeDelta);
+			fail("E_SB_BIND", detail);
+		}
+		CA_LOG("TestCSharpStructuredBuffer 负向计数：setBuffer={}（期望 {}） addBuffer={}（期望 2）",
+		       setBufferDelta, expectedSetBuffer, addBufferDelta);
+		if (setBufferDelta != expectedSetBuffer || addBufferDelta != 2u)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "%s：计数不符 setBuffer=%u/%u addBuffer=%u/2", mode.c_str(),
+			              setBufferDelta, expectedSetBuffer, addBufferDelta);
+			fail("E_SB_COUNTS", detail);
+		}
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "%s：参数表 %zu 条、适配器点名 %s、后端执行次数 0、等待计数 %u→%u，按预期失败",
+		              mode.c_str(), totalBoundParams, requiredName, waitBefore, waitAfter);
+		fail("E_SB_BIND", detail);
+	}
+
+	// 正常 / bad-buffer-color：调用计数逐项对上（读数全部来自适配器的原生钩子）。
+	{
+		const uint32_t createStructDelta = renderBackend->GetCreateShaderStructCountForTest() - createStructBefore;
+		const uint32_t setFloat3Delta = renderBackend->GetSetFloat3CountForTest() - setFloat3Before;
+		const uint32_t setStructDelta = renderBackend->GetSetStructCountForTest() - setStructBefore;
+		const uint32_t setPassParamDelta = renderBackend->GetSetPassParamCountForTest() - setPassParamBefore;
+		const uint32_t captureDelta = renderBackend->GetCreateCaptureTargetCountForTest() - captureBefore;
+		const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
+		const uint32_t setBufferDelta = renderBackend->GetSetBufferCountForTest() - setBufferCounterBefore;
+		const uint32_t addBufferDelta = renderBackend->GetAddBufferCountForTest() - addBufferBefore;
+		CA_LOG("TestCSharpStructuredBuffer 调用计数：createStruct={} setBuffer={} setFloat3={} setStruct={} "
+		       "setPassParam={} addBuffer={} captureTarget={} executeGraph={}",
+		       createStructDelta, setBufferDelta, setFloat3Delta, setStructDelta, setPassParamDelta,
+		       addBufferDelta, captureDelta, executeDelta);
+		if (createStructDelta != 1u || setBufferDelta != 1u || setFloat3Delta != 0u ||
+			setStructDelta != 0u || setPassParamDelta != 2u || addBufferDelta != 2u ||
+			captureDelta != 1u || executeDelta != 1u)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "调用计数不符：createStruct=%u/1 setBuffer=%u/1 setFloat3=%u/0 setStruct=%u/0 "
+			              "setPassParam=%u/2 addBuffer=%u/2 captureTarget=%u/1 executeGraph=%u/1",
+			              createStructDelta, setBufferDelta, setFloat3Delta, setStructDelta, setPassParamDelta,
+			              addBufferDelta, captureDelta, executeDelta);
+			fail("E_SB_COUNTS", detail);
+		}
+	}
+
+	if (waitAfter != waitBefore + 1 || pendingAfter != 0)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
+		              waitBefore, waitAfter, pendingAfter);
+		fail("E_SB_WAIT", detail);
+	}
+	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
+	if (presents.size() != 1u || presents[0] != windowTarget->GetImageForTest())
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "真实呈现清单 %zu 项，期望唯一的窗口后台缓冲",
+		              presents.size());
+		fail("E_SB_PRESENT", detail);
+	}
+
+	// 像素：既有 `Readback` 读取同一次 C# 提交的独立离屏目标。背景来自清除色 (0,1,0,1)、
+	// 中心来自缓冲颜色 (1,0,1)；bad-buffer-color 的缓冲是 (0,0,1)，中心必须精确变成 (0,0,255,255)。
+	ctx.pGPUBackend->WaitIdle();
+	const uint32_t width = captureDesc.width;
+	const uint32_t height = captureDesc.height;
+	std::vector<uint8_t> pixels(static_cast<size_t>(
+		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
+	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	if (!token)
+	{
+		fail("E_SB_READBACK", "离屏目标的 Readback 返回空 token");
+	}
+	token->Wait();
+	auto pixelAt = [&pixels, width](uint32_t x, uint32_t y) {
+		const size_t index = (static_cast<size_t>(y) * width + x) * 4u;
+		return std::array<uint8_t, 4>{ pixels[index], pixels[index + 1], pixels[index + 2],
+			                          pixels[index + 3] };
+	};
+	const std::array<uint8_t, 4> background = pixelAt(1, 1);
+	const std::array<uint8_t, 4> center = pixelAt(width / 2, height / 2);
+	const castl::string pngPath = castl::string("test_output/TestCSharpStructuredBuffer_") +
+		ctx.backendName + "_" + (mode.empty() ? "normal" : mode.c_str()) + ".png";
+	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
+	               static_cast<int>(width * 4));
+	CA_LOG("TestCSharpStructuredBuffer：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
+	       "passes={} boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
+	       pendingAfter, presents.size(), lastGraph->GetPassCount(), totalBoundParams, background[0],
+	       background[1], background[2], background[3], center[0], center[1], center[2], center[3],
+	       pngPath.c_str());
+
+	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
+		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
+	};
+	if (badBufferColor)
+	{
+		// 缓冲元素 (0,0,1)：中心 MUST 精确等于 (0,0,255,255)。判据不能写成"中心非 magenta"或
+		// "中心不等于背景"—— 空帧 / 黑帧都能通过那种弱判据。
+		if (differs(center, expectedBadBufferCenter))
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "bad-buffer-color：中心 (%u,%u,%u,%u) 不等于 (0,0,255,255)（负向模式没有生效）",
+			              center[0], center[1], center[2], center[3]);
+			fail("E_SB_PIXEL", detail);
+		}
+		fail("E_SB_PIXEL", "bad-buffer-color：中心精确等于 (0,0,255,255)，按预期失败");
+	}
+	if (differs(background, expectedBackground) || differs(center, expectedCenter))
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "像素不符：背景 (%u,%u,%u,%u)、中心 (%u,%u,%u,%u)", background[0], background[1],
+		              background[2], background[3], center[0], center[1], center[2], center[3]);
+		fail("E_SB_PIXEL", detail);
+	}
+	CA_LOG("TestCSharpStructuredBuffer 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}",
+	       ctx.backendName, kBlockName);
+
+	// 任务 4.1：真实后端负例 —— 经真实适配器对缓冲表外字段名执行 `SetBuffer`，必须在适配层被拒绝、
+	// 进程不崩（D3D12 侧未命中字段是静默跳过，不可作为脚本面）。
+	{
+		auto negativeParams = renderBackend->CreateShaderStruct(CANAME("StructuredColor"));
+		if (negativeParams == nullptr)
+		{
+			fail("E_SB_NEGATIVE",
+			     castl::string("真实后端负例的参数结构没有创建：") + renderBackend->GetLastError());
+		}
+		const uint32_t setBufferBeforeNegative = renderBackend->GetSetBufferCountForTest();
+		const int32_t negativeStatus =
+			negativeParams->SetBuffer(CANAME("noSuchBufferField"), CANAME("sbColors"));
+		const std::string negativeError = negativeParams->GetLastError().c_str();
+		if (negativeStatus == 0 || negativeError.find("noSuchBufferField") == std::string::npos ||
+			renderBackend->GetSetBufferCountForTest() != setBufferBeforeNegative)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "真实后端负例没有被挡下：status=%d 文本=\"%s\" 计数 %u→%u", negativeStatus,
+			              negativeError.c_str(), setBufferBeforeNegative,
+			              renderBackend->GetSetBufferCountForTest());
+			fail("E_SB_NEGATIVE", detail);
+		}
+		CA_LOG("真实后端负例：缓冲表外字段名 SetBuffer → status={} 文本={}", negativeStatus,
+		       negativeError.c_str());
 	}
 }
 
@@ -2818,6 +3233,9 @@ int main(int argc, char* argv[])
 		std::cout << "  TestGPUTiming\n";
 		// csharp-render-shader-constants 任务 1.2：第 14 项
 		std::cout << "  TestCSharpConstantColor\n";
+		// csharp-render-structured-buffer 任务 1.2：第 15 项（`--list` 顺序 ≠ 全量执行顺序：
+		// 全量里它必须排在 `TestCSharpWindowCallbacks` 之前，见 run-all 那段的注释）
+		std::cout << "  TestCSharpStructuredBuffer\n";
 		return 0;
 	}
 
@@ -3095,6 +3513,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpConstantColor", TestCSharpConstantColor);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpStructuredBuffer") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpStructuredBuffer", TestCSharpStructuredBuffer);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -3119,6 +3541,9 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestGPUTiming", TestGPUTiming);
 		// 常量色参数测试也要用 C#：必须排在 `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
 		runTestWithDiagnostics("TestCSharpConstantColor", TestCSharpConstantColor);
+		// 结构化缓冲探针同样要用 C#：`--list` 里它紧跟常量色，但**全量执行位置必须在这里** ——
+		// `TestCSharpWindowCallbacks` 会显式关闭托管运行时，把它排在那个用例之后就再也拿不到 C#。
+		runTestWithDiagnostics("TestCSharpStructuredBuffer", TestCSharpStructuredBuffer);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}

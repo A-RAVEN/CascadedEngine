@@ -1,0 +1,74 @@
+# csharp-render-structured-buffer 任务 1.1 证据：声明面、审计表 84 与构建红态
+记录时间：2026-11-04 16:51
+只追加，不覆盖。
+
+## A. 审计表同步后的绿态
+命令：python Tools/CodeGen/check_bindable_audit.py
+```
+扫描 11 个接口、对账 84 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+EXIT=0
+```
+
+## B. 红态 1：临时重复登记 `IScriptShaderStruct::SetBuffer` 审计行
+在审计表主表里把 `IScriptShaderStruct::SetBuffer` 那一行原样复制成两行后运行：
+命令：python Tools/CodeGen/check_bindable_audit.py
+```
+扫描 11 个接口、对账 84 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 重复审计行：IScriptShaderStruct::SetBuffer 头文件 1 条、表里 2 条
+EXIT=1
+```
+恢复（删掉重复行）后复跑：见 D。
+
+## C. 红态 2：把汇总合计临时写成 83
+把汇总表 `| **合计** | **84** | |` 改成 `| **合计** | **83** | |` 后运行：
+命令：python Tools/CodeGen/check_bindable_audit.py
+```
+扫描 11 个接口、对账 84 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 汇总表合计不符：写 83、头文件实算 84
+EXIT=1
+```
+恢复为 84 后复跑：见 D。
+
+## D. 恢复后绿态（与 A 相同，重新跑一遍确认）
+命令：python Tools/CodeGen/check_bindable_audit.py
+```
+扫描 11 个接口、对账 84 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+EXIT=0
+```
+
+## E. 散文数字 83 的零命中判据
+命令：
+`git grep -n '83 条\|83 方法\|合计 \*\*83\*\*' -- openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md Interface/RenderInterface/private/ScriptRenderBridge.h Tools/CodeGen/README.md`
+输出：（空）
+```
+GREP_EXIT=1
+```
+`GREP_EXIT=1` 即 0 命中（git grep 无匹配时的退出码）。三处散文已同步为 84：
+`bindable-audit.md` 引言「合计 **84** 条纯虚方法」、汇总表「**84**」与四类不可投影依据「84 条纯虚方法」；`ScriptRenderBridge.h` 注释「审计表的 84 方法口径」；`Tools/CodeGen/README.md` 示例读数「对账 84 条方法」。
+
+## F. 构建红态（1.1 收尾时构建必须仍失败）
+命令：python build.py --config Debug
+`check_bindable_audit.py`（构建期由 CodeGen 调用）已通过；编译阶段失败，原文：
+```
+[8/20] Building CXX object Interface\RenderInterface\CMakeFiles\ScriptRenderBridge.dir\private\ScriptRenderBridge.cpp.obj
+FAILED: Interface/RenderInterface/CMakeFiles/ScriptRenderBridge.dir/private/ScriptRenderBridge.cpp.obj
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): error C2259: 'graphics_backend::CScriptShaderStruct': cannot instantiate abstract class
+E:\Projects\CascadedEngine\Interface\RenderInterface\private\ScriptRenderBridge.h(60): note: see declaration of 'graphics_backend::CScriptShaderStruct'
+... note: 'int32_t graphics_backend::IScriptShaderStruct::SetBuffer(const cacore::NameHash &,const cacore::NameHash &)': is abstract
+E:\Projects\CascadedEngine\Interface\RenderInterface\private\../header/ScriptRenderBridge.h(54): note: see declaration of 'graphics_backend::IScriptShaderStruct::SetBuffer'
+...
+ninja: build stopped: subcommand failed.
+ERROR: command failed (exit 1)
+[status: completed, exit code: 1]
+```
+这正是验收要求的「点名 `CScriptShaderStruct` 无法实例化（抽象类）」；未用保留空方法体或删除断言取得红态。
+
+## G. 绑定生成与对账读数（同一次构建）
+```
+[绑定清单] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h：4 个接口
+[绑定] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h
+    [绑定] 产物：IScriptRenderTarget, IScriptRenderGraph, IScriptRenderBackend, IScriptShaderStruct
+[绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+两侧对齐问题 0 处
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+```
