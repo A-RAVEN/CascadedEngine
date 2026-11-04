@@ -17,6 +17,8 @@
 #include <CAResource/ResourceImportingSystem.h>
 #include <ShaderStruct.h>
 #include <Compiler.h>
+// 两个元数据查询的入参用到 `cacore::PathHash`（`NameHash` 由 Common.h 带入）。
+#include <HashKeys.h>
 // add-render-readback: cross-backend GPU→host readback
 #include <span>
 #include <memory>
@@ -99,6 +101,16 @@ namespace graphics_backend
 		}
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) = 0;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) = 0;
+		// csharp-render-shader-constants 任务 1.1：按类型名 / 按着色器路径查询结构元数据。
+		// 适配层用它们在做任何后端调用之前完成校验（`CreateShaderStruct` 对未知类型会解引用空元数据，
+		// 见 `D3D12RenderBackend/private/ShaderLibrary/D3D12ShaderStruct.cpp` 构造函数体内第一处实际使用）。
+		// 两个查询的契约：**未命中返回空指针且不打断**。两个后端 MUST 直读各自 `ShaderLibrary` 公开段的
+		// `m_ShaderStructs` / `m_ShaderRootStructs`；不得复用 Vulkan 现有 getter，它未命中先执行
+		// `CA_LOG_ERR_BREAK`（`__debugbreak`，Release 不消除）。
+		virtual ShaderCompilerSlang::ShaderStructData const* FindShaderStructData(
+			cacore::NameHash const& structType) = 0;
+		virtual ShaderCompilerSlang::ShaderStructData const* FindShaderRootStructData(
+			cacore::PathHash const& shaderPath) = 0;
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) = 0;
 		virtual bool AnyWindowRunning() = 0;
 		virtual void WaitIdle() = 0;

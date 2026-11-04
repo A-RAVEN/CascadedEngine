@@ -1,0 +1,30 @@
+﻿# csharp-render-shader-constants 任务 3.2 证据：常量色探针的托管调用计数与两个负向模式
+记录时间：2026-11-04 13:24:38
+命令（主 agent 代跑）：GPUBackendTester.exe --backend vulkan|d3d12 --test TestCSharpConstantColor --headless 10
+读数全部来自适配器的原生钩子（GetCreateShaderStructCountForTest / GetSetFloat3CountForTest /
+GetSetStructCountForTest / GetSetPassParamCountForTest / GetCreateCaptureTargetCountForTest /
+GetExecuteGraphCountForTest / GetWaitIdleCountForTest / GetPendingGraphCountForTest），不是托管自记自断。
+只追加，不覆盖。
+
+## 一、正常模式：托管编译与启动通过、布局清单执行、调用计数逐项对上
+[托管侧] [脚本 常量色] OnConstantColorProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipParam=False disposedThrew=True submitError=
+TestCSharpConstantColor 调用计数：createStruct=4 setFloat3=3 setStruct=3 setPassParam=2 captureTarget=1 executeGraph=1
+TestCSharpConstantColor：backend=vulkan mode=normal size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpConstantColor_vulkan_normal.png
+TestCSharpConstantColor：backend=vulkan mode=normal size=320x240 wait=1→2 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpConstantColor_vulkan_normal.png
+
+## 二、bad-struct-colors：三槽红/绿/蓝 → 中心不再是纯红（E_CONSTCOLOR_PIXEL 判红）
+[托管侧] [脚本 常量色] OnConstantColorProbe 调用 #1：mode=bad-struct-colors passCount=2 submitStatus=0 skipParam=False disposedThrew=True submitError=
+TestCSharpConstantColor：backend=vulkan mode=bad-struct-colors size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(84,87,84,255) png=test_output/TestCSharpConstantColor_vulkan_bad-struct-colors.png
+TestCSharpConstantColor：backend=d3d12 mode=bad-struct-colors size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(84,87,84,255) png=test_output/TestCSharpConstantColor_d3d12_bad-struct-colors.png
+
+## 三、skip-param：SubmitGraph 提交前拒绝并点名 constantColorBlock，执行次数 0、不读像素
+[托管侧] [脚本 常量色] OnConstantColorProbe 调用 #1：mode=skip-param passCount=2 submitStatus=1 skipParam=True disposedThrew=False submitError=IScriptRenderBackend.blockName：pass 0 的着色器 Shaders/Test/TestTriangleWithConstantColor 缺少必需参数块：constantColorBlock
+TestCSharpConstantColor 调用计数：createStruct=4 setFloat3=3 setStruct=3 setPassParam=0 captureTarget=1 executeGraph=0
+
+## 四、非探针测试不创建 GPU 工作（TestScriptHost / TestCSharpWindow 之后读数为 0）
+非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget=0 createShaderStruct=0 executeGraph=0
+
+## 五、两个探针在全量顺序里互不消耗（同一进程各执行 #1）
+
+[托管侧] [脚本 渲染] OnRenderProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipPresent=False skipWait=False
+[托管侧] [脚本 常量色] OnConstantColorProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipParam=False disposedThrew=True submitError=

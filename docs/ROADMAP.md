@@ -4,7 +4,7 @@
 > 它不记任务、不记欠账、不记改动细节 —— 进度事实源只有 `openspec/changes/<change>/tasks.md`，
 > 欠账只有 `docs/TODO.md`，本文件只做指针。
 
-**最后更新**：2026-11-03
+**最后更新**：2026-11-04
 **维护规则**：见 `CLAUDE.md` 的「文档维护」一节
 
 ---
@@ -67,20 +67,23 @@
 
 ## 三、通往产品目标的后续阶段
 
-以下阶段均为方向。阶段 4 的两个 change 均已归档（第二个 11/11，2026-11-03 归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`），其余内容**尚未立 OpenSpec change**。编号表达目标依赖，不代表已批准的任务清单，也不要求所有工作严格串行。
+以下阶段均为方向。阶段 4 的三个 change 均已归档（第二个 11/11，2026-11-03 归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`；第三个 11/11，2026-11-04 归档到 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/`），后续批次尚未批准，其余内容**尚未立 OpenSpec change**。编号表达目标依赖，不代表已批准的任务清单，也不要求所有工作严格串行。
 
 ### 阶段 4：C# 渲染闭环（下一阶段）
 
 目标：以现有 GPUGraph 为底层执行接口，让 C# 能创建所需资源、设置着色器参数、构建并提交图，再由 C++ 完成原生执行、同步与呈现。相机、材质、灯光等高级概念优先在 C# 引擎框架中组织，不在首版另建一套 C++ 高层对象体系。
 
-建议按两个先后衔接的 change 推进；第一个已归档到 `openspec/changes/archive/2026-11-02-csharp-render-binding-foundations/`（16/16，2026-11-02），第二个已归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`（11/11，2026-11-03）：
+建议按先后衔接的 change 推进；第一个已归档到 `openspec/changes/archive/2026-11-02-csharp-render-binding-foundations/`（16/16，2026-11-02），第二个已归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`（11/11，2026-11-03），第三个 `csharp-render-shader-constants`（着色器常量参数通道）**已于 2026-11-04 实施完成 11/11 并归档到 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/`**：
 
 | 顺序 | change 方向 | 阶段结果 |
 |---|---|---|
 | 1 | C# 渲染绑定的生成器与句柄基础能力 | `CodeGen.exe` 能投影首个切片所需的数据记录、枚举与标志位、名称与路径值、字节数据；智能指针实参与跨接口资源句柄具备完整转换、类型校验和失效规则。 |
 | 2 | C# 简单三角形纵向切片（已归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`，11/11，2026-11-03） | 通过窄纯虚适配面以句柄建图与提交，原生线程调度器留在引擎内部；由 C# 构建并提交的简单三角形在 D3D12 与 Vulkan 上均通过原生真实像素检查。 |
+| 3 | C# 着色器常量参数（已归档到 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/`，11/11，2026-11-04） | C# 能按编译元数据创建参数结构、按字段名写 `float3`、按数组下标挂子结构并把结构按块名绑到既有 pass；全部无效输入在适配层被拒绝；常量色三角形在 D3D12 与 Vulkan 上通过原生真实像素检查。 |
 
-两个 change 均已归档；后续方向还包括**其它 GPU 后端接口的 C# 绑定**：按现有后端测试与产品需要，分批覆盖着色器参数、纹理与采样、多阶段图、计算、读回和 GPU 查询等能力。这些内容均尚未立 OpenSpec change，需分别明确接口范围、资源所有权与可失败的验收，不代表通用渲染框架已获批准。首个切片与未决问题见 `TODO/006-csharp-render-backend-binding.md`。
+前两个 change 均已归档，第三个 `csharp-render-shader-constants` 也于 2026-11-04 实施完成 11/11 并归档到 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/`。后续方向还包括**其它 GPU 后端接口的 C# 绑定**：按现有后端测试与产品需要，分批覆盖纹理与采样、多阶段图、计算、读回和 GPU 查询等能力。这些内容均尚未立 OpenSpec change，需分别明确接口范围、资源所有权与可失败的验收，不代表通用渲染框架已获批准。首个切片与未决问题见 `TODO/006-csharp-render-backend-binding.md`。
+
+排期后续方向（用户 2026-11-04 提出）：在绑定批次照现有窄接口形态跑通之后，要把**合并 C++ 端渲染接口**提上日程——现在 C++ 侧是两层并行的接口面（原生 `CRenderBackend`/`GPUGraph` 与手写的 `IScriptRender*` ScriptBridge 适配层），目标是合并为一致的 C++ 接口面，且合并后必须保证 C++ 端的易用性不下降。该方向尚未立 OpenSpec change。
 
 ### 阶段 5：游戏运行时基础
 

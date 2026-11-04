@@ -2,7 +2,7 @@
 
 **它做什么**：在一个普通引擎模块的初始化阶段，把 .NET 运行时（CoreCLR）拉进本进程、加载 `Scripting.Managed.dll`、拿到托管侧 `Boot` / `Tick` 两个入口，并每帧调一次 `Tick`；同时把一张函数表交给托管侧，让它能回调引擎的日志、`echo`，以及按"接口编号 + 实例名"取引擎接口的函数表。
 
-函数表（`EngineApi`）当前是 **v6**、72 字节，字段顺序就是 ABI、只许在末尾追加：
+函数表（`EngineApi`）当前是 **v7**、72 字节，字段顺序就是 ABI、只许在末尾追加：
 
 | 字段 | 从哪一版起 | 作用 |
 |---|---|---|
@@ -12,6 +12,9 @@
 | `window_interface_id` / `window_system_interface_id` | v3 | 接口编号由引擎侧单向下发，托管侧不手抄 |
 | `get_binding_layout_type` / `get_binding_layout_field` | v5 | 布局清单的引擎侧读数（真实 `sizeof` / `offsetof`）：托管 `Host.Boot` 逐项比对后才允许绑定 |
 | `script_render_backend_interface_id` / `script_render_graph_interface_id` / `script_render_target_interface_id` | v6 | 脚本渲染适配面的三个编号（3 / 4 / 5）；后端表有默认实例，图与目标表是目标类型表 |
+| `script_shader_struct_interface_id` | v7 | 脚本参数结构表的编号（6）；与图、目标同属目标类型表（没有默认实例） |
+
+`sizeof(EngineApi)` 由 `CSharpHost.cpp` 里的 `static_assert(sizeof(EngineApi) == 72u)` 由编译器核对：v7 只把 v6 尾部那 4 字节对齐填充用满，**大小仍是 72 字节**（不是 80）。
 
 接口编号表（编号由引擎下发，这里只是给它一个可读的名字）：
 
@@ -22,6 +25,7 @@
 | 3 | `graphics_backend::IScriptRenderBackend` | 空（默认实例，由 `CSharpHost::Init` 用模块管理器里的 `CRenderBackend` + `CThreadManager` 创建） |
 | 4 | `graphics_backend::IScriptRenderGraph` | **目标类型表**：没有默认实例，取表时 `instanceOut` 可为空；实际对象由 `ResolveTargetHandle` 解析 |
 | 5 | `graphics_backend::IScriptRenderTarget` | **目标类型表**：同上 |
+| 6 | `graphics_backend::IScriptShaderStruct` | **目标类型表**：同上（参数结构，v7 追加） |
 
 同一个接口可以登记多份实现，靠实例名区分；实例名传 `nullptr` = 该接口**默认那一份**（最先登记的）。登记与查找都走 `IScriptHost::SetInterfaceInstance` / `GetInterfaceInstance`，两边必须用同一对 (编号, 实例名)。
 
@@ -48,8 +52,15 @@
 - **脚本做的事**：`NewWindow` 建窗 → `GetWindowTarget` + 同尺寸 `CreateCaptureTarget` → `CreateGraph` → 写 72 字节顶点（三个顶点 × 24 字节步长，位置偏移 0、颜色偏移 12）→ `AddBuffer` / `SetPositionColorStream` / 两次同逻辑 `AddTrianglePass`（窗口 + 离屏）→ `Present` → `SubmitGraph` → `WaitIdle`，并把图与两个目标保留到 `Shutdown` 再释放。
 - **依赖**：宿主在模块 link 阶段从模块管理器取 `CRenderBackend` 与 `CThreadManager` 创建适配器；缺任何一个时编号 3 **不登记**并留下明确错误，未启用探针的窗口路径保持原行为。
 - **Debug 自检开关**（只在 Debug 生效，供 `TestCSharpTriangle` 构造负向证据）：`CASCADED_CSHARP_RENDER_SELFTEST=skip-draw`（在调用层省略窗口与离屏目标的两次 `AddTrianglePass`，图 pass 数为 0；原生测试与正常模式的 2 个 pass 对比后用 `E_TRIANGLE_DRAW` 判红）、`bad-vertex`（一个顶点改蓝：中心不再是纯红）、`skip-present`（省略呈现）、`skip-wait`（省略 `WaitIdle`）。生产脚本不依赖它们。
-- **关闭顺序**：托管 `Shutdown` 先 `UserScript.ReleaseRenderSurfaces()`（离屏目标 → 图 → 窗口目标 → 窗口），再释放后端表面对象；之后原生适配器才随宿主生命周期销毁。
+- **关闭顺序**：托管 `Shutdown` 按 **参数结构 → 图 → 离屏目标 → 后端表面** 逐项释放，每一步都往宿主日志与 stderr 打一行 `[托管侧 关闭顺序] N/4 …`；之后原生适配器才随宿主生命周期销毁。
 - **阻塞语义**：渲染探针里的 `WaitIdle` 会在引擎主线程上等到 GPU 空闲；这是本切片的同步提交语义，不是后台异步。
+
+## 常量色（着色器参数）探针（csharp-render-shader-constants）
+
+- **入口**：`UserScript.OnConstantColorProbe(IWindowSystem windows, IScriptRenderBackend backend)`，与 `OnRenderProbe` **互不消耗**：独立开关 `CASCADED_CSHARP_CONSTCOLOR_PROBE=1`、独立调用标记，由 `TestCSharpConstantColor` 在**自己的 Tick 之前**设置、之后清理。
+- **脚本做的事**：`NewWindow` → `GetWindowTarget` + 同尺寸 `CreateCaptureTarget` → `CreateGraph` → 36 字节顶点（三个顶点 × 12 字节步长，只有 `POSITION`）→ `AddBuffer` / `SetPositionStream` → `CreateShaderStruct("ConstantColor")` + 3 个 `CreateShaderStruct("ColorSubStruct")`（各 `SetFloat3("color", …)`、`SetStruct("colorStruct", sub, i)`）→ 窗口与离屏各一个 `AddTrianglePass`（`Shaders/Test/TestTriangleWithConstantColor`，清除色 `(0,0,1,1)`）→ 两次 `SetPassParam(passIndex, "constantColorBlock", params)` → `Present` → `SubmitGraph` → `WaitIdle`。
+- **参数句柄生命周期**：正常模式在**提交并等待之后**释放参数结构表面对象，旧表面再调用会抛 `ObjectDisposedException`（已提交的图由原生侧继续持有绑定的 `ShaderStruct` 直到等待完成）。
+- **Debug 自检开关**（`CASCADED_CSHARP_CONSTCOLOR_SELFTEST`，供 `TestCSharpConstantColor` 构造负向证据）：`bad-struct-colors`（三槽改成红/绿/蓝：中心不再是纯红，以 `E_CONSTCOLOR_PIXEL` 判红）、`skip-param`（完全不调 `SetPassParam`：`SubmitGraph` 在进入后端执行前拒绝并点名 `constantColorBlock`，以 `E_CONSTCOLOR_PARAM` 判红，不读像素）。生产脚本不依赖它们。
 
 ## 构建
 
@@ -78,6 +89,8 @@ python build.py --config Debug
 | `CASCADED_CSHARP_CALLBACK_PHASE` | 回调探针阶段机（`verify-all` / `verify-replace` / `verify-exception` / `verify-thread` / `verify-rebind` / `verify-rebind-done`），由测试在两次 `Tick` 之间设置 | 空串 |
 | `CASCADED_CSHARP_RENDER_PROBE=1` | 启用脚本渲染探针；只有 `TestCSharpTriangle` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_RENDER_SELFTEST` | **仅 Debug**：`skip-draw` / `bad-vertex` / `skip-present` / `skip-wait` 四个负向模式；C++ 侧 `TestCSharpTriangle` 读同一份值来核对错误码 | 空串 |
+| `CASCADED_CSHARP_CONSTCOLOR_PROBE=1` | 启用常量色（着色器参数）探针；只有 `TestCSharpConstantColor` 在自己的 Tick 之前设置、之后清理 | 不设 |
+| `CASCADED_CSHARP_CONSTCOLOR_SELFTEST` | **仅 Debug**：`bad-struct-colors` / `skip-param` 两个负向模式；C++ 侧 `TestCSharpConstantColor` 读同一份值来核对错误码 | 空串 |
 
 ## 失败语义（五条，全部实测过）
 
@@ -88,7 +101,7 @@ python build.py --config Debug
 | 托管程序集缺失 | `CSharpHost 初始化失败（退出码 3）：解析托管入口 Boot 失败，返回 -2146233079（程序集 …\bin\Scripting.Managed.dll）；找过的路径：…\hostfxr.dll、…\Scripting.Managed.runtimeconfig.json` |
 | 配置路径不存在 | `CSharpHost 初始化失败（退出码 3）：找不到托管侧的 runtimeconfig.json：…\bad.runtimeconfig.json；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、…\bad.runtimeconfig.json` |
 | 配置要的运行时版本本机没有 | `hostfxr_initialize_for_runtime_config 返回 -2147450730（…；配置里要的框架版本：7.0.0；本机已装的运行时版本：10.0.2、8.0.23、8.0.6、9.0.12）` |
-| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 7（真实值 6）` + `[托管侧] ABI 版本不符：引擎 7，托管侧期望 6` + `托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 7、函数表 72 字节；0 = 成功）` |
+| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 8（真实值 7）` + `[托管侧] ABI 版本不符：引擎 8，托管侧期望 7` + `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 8、函数表 72 字节；0 = 成功）；找过的路径：…` |
 | 托管方法抛异常 | `[托管侧] Tick 抛异常：InvalidOperationException: …` + 引擎侧收到错误码 **4**；进程**不崩**。当前测试操作算失败，`GPUBackendTester` 按既有约定返回 **1**（不是无条件 0）；`Tools/check_csharp_host_failures.py` 按此断言 |
 
 ## 关闭
@@ -97,7 +110,7 @@ python build.py --config Debug
 
 ## 可直接复制运行的检查
 
-跑一次测试宿主（`--headless 2` 跑两个测试），看托管侧与引擎侧的读数：
+跑一次测试宿主（`--headless 2` 表示跑 2 帧后退出），看托管侧启动与引擎侧读数：
 
 ```powershell
 & 'out\build\x64-debug\bin\GPUBackendTester.exe' --backend vulkan --headless 2 2> $env:TEMP\csharp.err *> $env:TEMP\csharp.out
@@ -107,13 +120,10 @@ Select-String -LiteralPath $env:TEMP\csharp.out -Pattern '托管侧|IScriptHost|
 实测输出（节选）：
 
 ```
-[托管侧] 托管侧已启动：ABI 版本 6、函数表 72 字节
+[托管侧] 托管侧已启动：ABI 版本 7、函数表 72 字节
 [托管侧] 回调引擎 Echo(42) 得到 43
-CSharpHost：托管运行时已就绪（加载耗时 = 39 ms；函数表 72 字节，ABI v6）
+CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 72 字节，ABI v7）
 IScriptHost 已取到：IsAvailable = true
-[托管侧] Tick #1：dt = 0.016 秒
-托管侧 Tick #1 回值 1（引擎侧计数与之一致）
-第一次跨边界 Tick 的回值 = 1（与托管侧日志里的 #N 逐字比对）
 ```
 
 **已知限制（醒目）**：

@@ -37,5 +37,8 @@ namespace Scripting.Managed
         public uint ScriptRenderBackendInterfaceId;
         public uint ScriptRenderGraphInterfaceId;
         public uint ScriptRenderTargetInterfaceId;
+        // --- v7 追加（csharp-render-shader-constants 任务 3.1）：参数结构表 ---
+        // 与图、目标同属目标类型表（没有默认实例，取表时 instanceOut 可为空）。
+        public uint ScriptShaderStructInterfaceId;
     }
 }

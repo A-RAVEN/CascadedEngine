@@ -1,0 +1,193 @@
+﻿# csharp-render-shader-constants 任务 5.1 证据：全量回归
+记录时间：2026-11-04 13:27:42
+前提：`python build.py --config Debug` 成功（最终构建见 final-build.log）。
+只追加，不覆盖。每条命令的记录格式：命令、退出码、关键读数原文。
+
+## 一、本机可自行运行的判据（不碰窗口/GPU）
+### 1) CoreTests
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=0；PASSED 22 行（与改动前一致）；Script render bridge test PASSED（含 2.1/2.2 新增的拒绝路径、参数表同一实例、跳参提交拒绝与句柄释放保活断言）。
+
+### 2) check_bindings.py
+命令：python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+退出码=0
+不符数 0
+两侧对齐问题 0 处
+被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IWindow, IWindowSystem
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+覆盖率问题 0 处
+托管表面问题 0 处
+脚本渲染适配面问题 0 处
+
+### 3) check_bindable_audit.py
+命令：python Tools/CodeGen/check_bindable_audit.py
+退出码=0
+扫描 11 个接口、对账 83 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+
+### 4) check_csharp_host_readme.py
+命令：python Tools/check_csharp_host_readme.py
+退出码=0
+ABI 版本：README v7 / Host.cs 7 / CSharpHost.cpp 7
+函数表大小：README 72 字节 / static_assert 72 字节
+接口编号表：README 6 行 [1, 2, 3, 4, 5, 6] / CSharpHost.cpp 6 个常量 / EngineApi.cs 6 个字段
+探针开关：代码里读到 7 个，README 表里 8 个
+问题 0 处
+
+### 5) check_gpu_timing.py
+命令：python Tools/check_gpu_timing.py
+退出码=0
+d3d12: 普通 ExecuteGraph 函数体干净（D3D12RenderBackend/private/RenderBackend_D3D12.cpp）
+vulkan: 普通 ExecuteGraph 函数体干净（VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp）
+检查 2/2 个后端、0 处问题：普通 ExecuteGraph 不创建计时资源（design D6）
+
+### 6) check_csharp_triangle.py（本次十份报告）
+命令：python Tools/check_csharp_triangle.py
+退出码=0
+C# 三角形证据对账
+d3d12   normal        status=pass
+d3d12   skip-draw     status=fail code=E_TRIANGLE_DRAW
+d3d12   bad-vertex    status=fail code=E_TRIANGLE_PIXEL
+d3d12   skip-present  status=fail code=E_TRIANGLE_PRESENT
+d3d12   skip-wait     status=fail code=E_TRIANGLE_WAIT
+vulkan  normal        status=pass
+vulkan  skip-draw     status=fail code=E_TRIANGLE_DRAW
+vulkan  bad-vertex    status=fail code=E_TRIANGLE_PIXEL
+vulkan  skip-present  status=fail code=E_TRIANGLE_PRESENT
+vulkan  skip-wait     status=fail code=E_TRIANGLE_WAIT
+问题 0 处
+
+### 7) check_csharp_constant_color.py（本次六份报告）
+命令：python Tools/check_csharp_constant_color.py
+退出码=0
+C# 常量色证据对账
+d3d12   normal             status=pass
+d3d12   bad-struct-colors  status=fail code=E_CONSTCOLOR_PIXEL
+d3d12   skip-param         status=fail code=E_CONSTCOLOR_PARAM
+vulkan  normal             status=pass
+vulkan  bad-struct-colors  status=fail code=E_CONSTCOLOR_PIXEL
+vulkan  skip-param         status=fail code=E_CONSTCOLOR_PARAM
+问题 0 处
+
+### 8) check_window_system_bindings.py（TestCSharpWindow.log）
+命令：python Tools/check_window_system_bindings.py --log test_output/TestCSharpWindow.log
+退出码=0
+日志 test_output\TestCSharpWindow.log
+GetMonitor 对拍 1 组 / 回调对拍 0 类 / 目标释放对拍 1 组 / 命中 0 处问题
+
+### 9) check_window_system_bindings.py --callbacks（TestCSharpWindowCallbacks.log）
+命令：python Tools/check_window_system_bindings.py --log test_output/TestCSharpWindowCallbacks.log --callbacks
+退出码=0
+日志 test_output\TestCSharpWindowCallbacks.log
+GetMonitor 对拍 1 组 / 回调对拍 10 类 / 目标释放对拍 2 组 / 命中 0 处问题
+
+### 10) 两个后端完整 --headless 10（本次运行的两份 report）
+命令（主 agent 代跑）：
+  out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --headless 10 --report test_output\final_full_d3d12.json
+  out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --headless 10 --report test_output\final_full_vulkan.json
+
+final_full_d3d12.json 的 14 条 status：
+{"name":"TestSimpleTriangle","status":"pass","duration_ms":82,"exit_code":0}
+{"name":"TestTriangleWithConstantColor","status":"pass","duration_ms":74,"exit_code":0}
+{"name":"TestTriangleWithStructuredBufferColor","status":"pass","duration_ms":66,"exit_code":0}
+{"name":"TestTriangleWithImageBuffer","status":"pass","duration_ms":91,"exit_code":0}
+{"name":"TestDoublePass","status":"pass","duration_ms":92,"exit_code":0}
+{"name":"TestComputeBuffer","status":"pass","duration_ms":78,"exit_code":0}
+{"name":"TestReadback","status":"pass","duration_ms":62,"exit_code":0}
+{"name":"TestIMGUI","status":"pass","duration_ms":225,"exit_code":0}
+{"name":"TestScriptHost","status":"pass","duration_ms":27,"exit_code":0}
+{"name":"TestCSharpWindow","status":"pass","duration_ms":88,"exit_code":0}
+{"name":"TestCSharpTriangle","status":"pass","duration_ms":109,"exit_code":0}
+{"name":"TestGPUTiming","status":"pass","duration_ms":40,"exit_code":0}
+{"name":"TestCSharpConstantColor","status":"pass","duration_ms":89,"exit_code":0}
+{"name":"TestCSharpWindowCallbacks","status":"pass","duration_ms":16,"exit_code":0}
+
+final_full_vulkan.json 的 14 条 status：
+{"name":"TestSimpleTriangle","status":"pass","duration_ms":109,"exit_code":0}
+{"name":"TestTriangleWithConstantColor","status":"pass","duration_ms":76,"exit_code":0}
+{"name":"TestTriangleWithStructuredBufferColor","status":"pass","duration_ms":60,"exit_code":0}
+{"name":"TestTriangleWithImageBuffer","status":"pass","duration_ms":84,"exit_code":0}
+{"name":"TestDoublePass","status":"pass","duration_ms":82,"exit_code":0}
+{"name":"TestComputeBuffer","status":"pass","duration_ms":67,"exit_code":0}
+{"name":"TestReadback","status":"pass","duration_ms":67,"exit_code":0}
+{"name":"TestIMGUI","status":"pass","duration_ms":182,"exit_code":0}
+{"name":"TestScriptHost","status":"pass","duration_ms":26,"exit_code":0}
+{"name":"TestCSharpWindow","status":"pass","duration_ms":93,"exit_code":0}
+{"name":"TestCSharpTriangle","status":"pass","duration_ms":108,"exit_code":0}
+{"name":"TestGPUTiming","status":"pass","duration_ms":50,"exit_code":0}
+{"name":"TestCSharpConstantColor","status":"pass","duration_ms":99,"exit_code":0}
+{"name":"TestCSharpWindowCallbacks","status":"pass","duration_ms":16,"exit_code":0}
+
+### 11) 16 份单测报告（本次运行，报告路径在 test_output/ 被 gitignore）
+  csharp_constant_color_d3d12_bad-struct-colors.json → status=fail  error=E_CONSTCOLOR_PIXEL: bad-struct-colors：中心按预期不再是纯红
+  csharp_constant_color_d3d12_normal.json → status=pass  error=
+  csharp_constant_color_d3d12_skip-param.json → status=fail  error=E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、后端执行次数 0、等待计数 0→0，按预期失败
+  csharp_constant_color_vulkan_bad-struct-colors.json → status=fail  error=E_CONSTCOLOR_PIXEL: bad-struct-colors：中心按预期不再是纯红
+  csharp_constant_color_vulkan_normal.json → status=pass  error=
+  csharp_constant_color_vulkan_skip-param.json → status=fail  error=E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、后端执行次数 0、等待计数 0→0，按预期失败
+  csharp_triangle_d3d12_bad-vertex.json → status=fail  error=E_TRIANGLE_PIXEL: bad-vertex：中心按预期不再是纯红
+  csharp_triangle_d3d12_normal.json → status=pass  error=
+  csharp_triangle_d3d12_skip-draw.json → status=fail  error=E_TRIANGLE_DRAW: skip-draw：图 pass 数 0（正常模式 2），按预期失败
+  csharp_triangle_d3d12_skip-present.json → status=fail  error=E_TRIANGLE_PRESENT: skip-present：真实呈现清单 0 项（负向模式期望 0；呈现确实被省略）
+  csharp_triangle_d3d12_skip-wait.json → status=fail  error=E_TRIANGLE_WAIT: skip-wait：适配器 WaitIdle 计数 0 → 0、待完成 1（期望 0 次、非空待完成）
+  csharp_triangle_vulkan_bad-vertex.json → status=fail  error=E_TRIANGLE_PIXEL: bad-vertex：中心按预期不再是纯红
+  csharp_triangle_vulkan_normal.json → status=pass  error=
+  csharp_triangle_vulkan_skip-draw.json → status=fail  error=E_TRIANGLE_DRAW: skip-draw：图 pass 数 0（正常模式 2），按预期失败
+  csharp_triangle_vulkan_skip-present.json → status=fail  error=E_TRIANGLE_PRESENT: skip-present：真实呈现清单 0 项（负向模式期望 0；呈现确实被省略）
+  csharp_triangle_vulkan_skip-wait.json → status=fail  error=E_TRIANGLE_WAIT: skip-wait：适配器 WaitIdle 计数 0 → 0、待完成 1（期望 0 次、非空待完成）
+
+### 12) 主 agent 本次批量运行的退出码（原文）
+EXIT_F1a_verify_readme=0
+EXIT_F1b_host_failures=0
+EXIT_F2a_full_d3d12=0
+EXIT_F2b_full_vulkan=0
+EXIT_F3a_tri_d3d_normal=0
+{"name":"TestCSharpTriangle","status":"pass","duration_ms":107,"exit_code":0}
+EXIT_F3b_tri_vk_normal=0
+{"name":"TestCSharpTriangle","status":"pass","duration_ms":178,"exit_code":0}
+EXIT_F3c1_tri_d3d_skip-draw=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":65,"exit_code":1,"error":"E_TRIANGLE_DRAW: skip-draw：图 pass 数 0（正常模式 2），按预期失败"}
+EXIT_F3c2_tri_vk_skip-draw=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":121,"exit_code":1,"error":"E_TRIANGLE_DRAW: skip-draw：图 pass 数 0（正常模式 2），按预期失败"}
+EXIT_F3c1_tri_d3d_bad-vertex=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":120,"exit_code":1,"error":"E_TRIANGLE_PIXEL: bad-vertex：中心按预期不再是纯红"}
+EXIT_F3c2_tri_vk_bad-vertex=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":130,"exit_code":1,"error":"E_TRIANGLE_PIXEL: bad-vertex：中心按预期不再是纯红"}
+EXIT_F3c1_tri_d3d_skip-present=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":84,"exit_code":1,"error":"E_TRIANGLE_PRESENT: skip-present：真实呈现清单 0 项（负向模式期望 0；呈现确实被省略）"}
+EXIT_F3c2_tri_vk_skip-present=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":113,"exit_code":1,"error":"E_TRIANGLE_PRESENT: skip-present：真实呈现清单 0 项（负向模式期望 0；呈现确实被省略）"}
+EXIT_F3c1_tri_d3d_skip-wait=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":102,"exit_code":1,"error":"E_TRIANGLE_WAIT: skip-wait：适配器 WaitIdle 计数 0 → 0、待完成 1（期望 0 次、非空待完成）"}
+EXIT_F3c2_tri_vk_skip-wait=1
+{"name":"TestCSharpTriangle","status":"fail","duration_ms":108,"exit_code":1,"error":"E_TRIANGLE_WAIT: skip-wait：适配器 WaitIdle 计数 0 → 0、待完成 1（期望 0 次、非空待完成）"}
+EXIT_F4a_cc_d3d_normal=0
+{"name":"TestCSharpConstantColor","status":"pass","duration_ms":97,"exit_code":0}
+EXIT_F4b_cc_vk_normal=0
+{"name":"TestCSharpConstantColor","status":"pass","duration_ms":126,"exit_code":0}
+EXIT_F4c1_cc_d3d_bad-struct-colors=1
+{"name":"TestCSharpConstantColor","status":"fail","duration_ms":111,"exit_code":1,"error":"E_CONSTCOLOR_PIXEL: bad-struct-colors：中心按预期不再是纯红"}
+EXIT_F4c2_cc_vk_bad-struct-colors=1
+{"name":"TestCSharpConstantColor","status":"fail","duration_ms":150,"exit_code":1,"error":"E_CONSTCOLOR_PIXEL: bad-struct-colors：中心按预期不再是纯红"}
+EXIT_F4c1_cc_d3d_skip-param=1
+{"name":"TestCSharpConstantColor","status":"fail","duration_ms":81,"exit_code":1,"error":"E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、后端执行次数 0、等待计数 0→0，按预期失败"}
+EXIT_F4c2_cc_vk_skip-param=1
+{"name":"TestCSharpConstantColor","status":"fail","duration_ms":96,"exit_code":1,"error":"E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、后端执行次数 0、等待计数 0→0，按预期失败"}
+EXIT_F6_list=0
+
+说明：负向模式（三角形 4 个自检 × 2 后端 = 8 条、常量色 2 个自检 × 2 后端 = 4 条）按设计退出 1，
+`check_csharp_triangle.py` / `check_csharp_constant_color.py` 读的是它们 report 里的 status+错误码（两份都退出 0，见第 6/7 条）。
+
+### 13) 本次运行里常量色 normal 的像素与结构读数（主 agent 在报告被覆盖前抓的原文）
+TestCSharpConstantColor：backend=d3d12 mode=normal size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpConstantColor_d3d12_normal.png
+TestCSharpConstantColor：backend=vulkan mode=normal size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpConstantColor_vulkan_normal.png
+
+### 14) 两处日志的出处说明（主 agent 2026-11-04 复核）
+- `[托管侧 关闭顺序] 1/4 参数结构表面对象 / 2-3/4 图 → 离屏目标 / 4/4 后端表面对象 / 释放完成`
+  与 `[托管侧] 托管侧已启动：ABI 版本 7、函数表 72 字节` **在进程的 stdout/stderr 里**逐字存在
+  （关闭发生在每个测试自己的日志文件已关闭之后），**不在** `test_output\TestCSharpConstantColor.log` /
+  `test_output\TestScriptHost.log` 文件内。`TestScriptHost.log` 里对应的点名行是
+  `[托管侧 渲染] 四个函数表已绑定（后端实例 1736715011248）`。
+- 为补抓上述点名行，主 agent 把常量色 normal 两条各**复跑一次**（同一份二进制）：d3d12 / vulkan 都仍是
+  `status=pass`、退出码 0，读数与第一次一致（`createStruct=4 setFloat3=3 setStruct=3 setPassParam=2
+  captureTarget=1 executeGraph=1`）。
+- 结论不变：5.1 的全部验收命令退出 0，负向模式按设计退出 1 并由两份对账脚本判红对得上。

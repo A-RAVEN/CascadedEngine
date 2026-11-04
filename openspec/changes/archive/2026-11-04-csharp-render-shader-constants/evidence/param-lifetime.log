@@ -1,0 +1,88 @@
+﻿# csharp-render-shader-constants 任务 2.2 证据：真实 pass 参数表、提交前必需块检查、参数与句柄保活
+记录时间：2026-11-04 13:04:58
+判据命令：out/build/x64-debug/bin/CoreTests.exe、python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+只追加，不覆盖：每次变异与恢复都往下写。
+## 一、check_bindings.py：真实接口无桩、两侧对齐、公开表面（验收第 1 句）
+命令：python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+退出码=0（必须 0）
+产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+矩阵行数 23 / 有夹具的行数 23 / 真实接口行 5 / 签名行 78 / 非签名行（拒绝或错误码）0
+不符数 0
+两侧对齐问题 0 处
+被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IWindow, IWindowSystem
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+覆盖率问题 0 处
+托管表面问题 0 处
+脚本渲染适配面问题 0 处
+
+## 二/三/四、CoreTests 的四条判据（验收第 2-4 句）
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=0（全绿）
+以下为本次运行的逐条读数（原样复制）：
+[参数表同一实例] 表内指针=000001C4378DA390 夹具实例指针=000001C4378DA390 一致=1
+[必需块检查] status=1 执行次数=1 待完成=0 文本=IScriptRenderBackend.blockName：pass 0 的着色器 Shaders/Test/TestTriangleWithConstantColor 缺少必需参数块：constantColorBlock
+[参数保活] pass0 表内指针=000001C4378DAA90 pass1 表内指针=000001C4378DAA90 夹具实例指针=000001C4378DAA90
+[参数句柄释放] 提交后待完成=1 → 等待后=0，执行次数=3（释放句柄前后不变）
+## 变异 M1（红态）：删掉 SubmitGraph 的必需参数块检查
+改动：ScriptRenderBridge.cpp 里把必需块检查的循环条件临时改成 alse && passIndex < …，
+      即空参数表的图照样进入 ExecuteGraph（真实缺陷：两后端在空参数表下执行会触发 CA_ASSERT_BREAK）。
+命令：python build.py --config Debug → 退出码 0
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=1（必须非零）
+[脚本渲染适配] 失败：缺参数块的提交没有返回非零
+[脚本渲染适配] 失败：缺参数块的错误文本没有点名 constantColorBlock
+[脚本渲染适配] 失败：缺参数块的提交进入了后端执行
+[脚本渲染适配] 失败：缺参数块的提交调用了后端 ExecuteGraph
+[脚本渲染适配] 失败：缺参数块的提交把图放进了待完成集合
+[必需块检查] status=0 执行次数=2 待完成=1 文本=
+[脚本渲染适配] 失败：成功提交没有让执行次数 +1
+[脚本渲染适配] 失败：待完成集合没有持有图强引用
+## 变异 M2（红态）：删掉参数块类型名校验（句柄类型校验）
+改动：ScriptRenderBridge.cpp 的 SetPassParam 里把 concrete->GetTypeNameForTest() != reference->m_StructTypeName
+      的比较条件临时改成 alse && …，即把任意类型的参数结构都绑到块名上（真实缺陷：Block 与结构体类型不符时
+      后端按错误布局解释同一块内存）。
+命令：python build.py --config Debug → 退出码 0
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=1（必须非零）
+[脚本渲染适配] 失败：参数块类型不符
+[脚本渲染适配] 失败：参数块类型不符
+[参数结构拒绝] 参数块类型不符        status=0 点名=ColorSubStruct 文本=
+[脚本渲染适配] 失败：参数块类型不符没有点名期望类型 ConstantColor
+## 变异 M3（红态）：取消待完成集合的强引用（参数保活）
+改动：ScriptRenderBridge.cpp 的 SubmitGraph 里把 m_Pending.push_back(graph); 包进 if (false)，
+      即提交后不再由适配器持有图（图里的 pass 因此也不再被保活到 WaitIdle）。
+      真实缺陷：脚本释放自己的图表面对象后，绑定的参数结构与图一起被销毁，执行/等待落到悬空对象上。
+命令：python build.py --config Debug → 退出码 0
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=1（必须非零）
+[脚本渲染适配] 失败：待完成集合没有持有图强引用
+[脚本渲染适配] 失败：释放脚本图表面对象之后待完成集合被提前清空
+[脚本渲染适配] 失败：待完成集合没有持有图强引用
+[参数保活] pass0 表内指针=0000029621A37760 pass1 表内指针=0000029621A37760 夹具实例指针=0000029621A37760
+[脚本渲染适配] 失败：释放 C ABI 参数结构句柄之后图不能执行与等待（或待完成集合没有清理）
+[参数句柄释放] 提交后待完成=0 → 等待后=0，执行次数=3（释放句柄前后不变）
+## 变异 M4（红态）：跳过"经受控可变访问器写进真实 pass"这一步
+改动：ScriptRenderBridge.cpp 的 SetPassParam 里把 m_Graph->GetRenderPassForWrite(passIndex).SetParam(…)
+      包进 if (false)，即校验通过、返回 0，但参数没有真正绑到 pass 上。
+      真实缺陷：AddTrianglePass 当场 AddPass，没有这条写入通道就永远绑不上参数。
+命令：python build.py --config Debug → 退出码 0
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=1（必须非零）
+[脚本渲染适配] 失败：真实 pass 的参数表不是「1 条 constantColorBlock 且与窄对象同一实例」
+[必需块检查] status=1 执行次数=1 待完成=0 文本=IScriptRenderBackend.blockName：pass 0 的着色器 Shaders/Test/TestTriangleWithConstantColor 缺少必需参数块：constantColorBlock
+[脚本渲染适配] 失败：绑定完整后的提交失败
+[脚本渲染适配] 失败：成功提交没有让执行次数 +1
+[脚本渲染适配] 失败：待完成集合没有持有图强引用
+[脚本渲染适配] 失败：两个 pass 的参数表不是「各 1 条 constantColorBlock 且与夹具实例同一对象」
+[脚本渲染适配] 失败：C ABI SubmitGraph 失败
+[脚本渲染适配] 失败：C ABI 提交没有让执行次数 +1
+[脚本渲染适配] 失败：释放 C ABI 参数结构句柄之后图不能执行与等待（或待完成集合没有清理）
+## 恢复：四处变异全部还原后重跑（必须全绿）
+改动：M1/M2/M3/M4 的临时条件全部删除，源码里不再有 if (false 与 alse &&（grep 实测 0 命中）。
+命令：python build.py --config Debug → 退出码 0
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=0
+[参数表同一实例] 表内指针=0000023F4A7AA0F0 夹具实例指针=0000023F4A7AA0F0 一致=1
+[必需块检查] status=1 执行次数=1 待完成=0 文本=IScriptRenderBackend.blockName：pass 0 的着色器 Shaders/Test/TestTriangleWithConstantColor 缺少必需参数块：constantColorBlock
+[参数保活] pass0 表内指针=0000023F4A7A9C90 pass1 表内指针=0000023F4A7A9C90 夹具实例指针=0000023F4A7A9C90
+[参数句柄释放] 提交后待完成=1 → 等待后=0，执行次数=3（释放句柄前后不变）

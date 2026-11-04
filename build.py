@@ -1049,8 +1049,9 @@ CODEGEN_BINDINGS = [
     ("Tools/CodeGen/BindableShapes.RenderOwner.h", "夹具 RenderOwner", ["IBindRenderOwner"]),
     # csharp-render-backend-triangle 任务 1.1：脚本专用窄渲染适配面（目标 / 图 / 后端三个接口）。
     # 主头只声明接口与方法；原生实现与 CMake 接线在任务 2.1 / 2.2。
+    # csharp-render-shader-constants 任务 1.1：同一头里追加参数结构接口 `IScriptShaderStruct`。
     ("Interface/RenderInterface/header/ScriptRenderBridge.h", "渲染适配",
-     ["IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend"]),
+     ["IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend", "IScriptShaderStruct"]),
 ]
 
 

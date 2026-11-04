@@ -1,0 +1,153 @@
+﻿# csharp-render-shader-constants 任务 4.2 证据：绑定判据与宿主 README 对拍的扩项与红态
+记录时间：2026-11-04 13:16:53
+只追加，不覆盖。
+
+## A. 扩充后的 check_bindings.py 正常态（IScriptShaderStruct + 三个新方法）
+命令：python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+矩阵行数 23 / 有夹具的行数 23 / 真实接口行 5 / 签名行 78 / 非签名行（拒绝或错误码）0
+不符数 0
+两侧对齐问题 0 处
+被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IWindow, IWindowSystem
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+夹具接口 26 个、桩数 3 个（只打印，不判定）
+覆盖率问题 0 处
+托管表面问题 0 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+夹具识别问题 0 处
+渲染基础表面问题 0 处
+脚本渲染适配面问题 0 处
+退出码=0（必须 0）
+
+## B. 宿主 README 对拍：正常态与"把 ABI 版本改错一行"的红态
+命令：python Tools/check_csharp_host_readme.py
+ABI 版本：README v6 / Host.cs 7 / CSharpHost.cpp 7
+函数表大小：README 72 字节 / static_assert 72 字节
+接口编号表：README 6 行 [1, 2, 3, 4, 5, 6] / CSharpHost.cpp 6 个常量 / EngineApi.cs 6 个字段
+探针开关：代码里读到 7 个，README 表里 8 个
+问题 1 处
+  ✗ ABI 版本不符：README 写 v6、Host.cs ExpectedAbiVersion=7、CSharpHost.cpp s_engineApiVersion=7
+退出码=1（必须 0）
+
+红态：把 README 第一处 当前是 **v7** 改成 **v6**（Host.cs 与 CSharpHost.cpp 仍是 7）。
+ABI 版本：README v6 / Host.cs 7 / CSharpHost.cpp 7
+函数表大小：README 72 字节 / static_assert 72 字节
+接口编号表：README 6 行 [1, 2, 3, 4, 5, 6] / CSharpHost.cpp 6 个常量 / EngineApi.cs 6 个字段
+探针开关：代码里读到 7 个，README 表里 8 个
+问题 1 处
+  ✗ ABI 版本不符：README 写 v6、Host.cs ExpectedAbiVersion=7、CSharpHost.cpp s_engineApiVersion=7
+退出码=1（必须非零）
+
+恢复：README 改回 **v7**。
+ABI 版本：README v7 / Host.cs 7 / CSharpHost.cpp 7
+函数表大小：README 72 字节 / static_assert 72 字节
+接口编号表：README 6 行 [1, 2, 3, 4, 5, 6] / CSharpHost.cpp 6 个常量 / EngineApi.cs 6 个字段
+探针开关：代码里读到 7 个，README 表里 8 个
+问题 0 处
+退出码=0（必须 0）
+
+## 记录更正（不改上面的原始输出，只追加说明）
+B 段第一块标题写"正常态"，但它记录的是 README 已被改成 v6 之后的读数（退出码 1）——
+那是**红态**，与紧接着的"红态"块是同一次状态。真正的正常态是最后"恢复："那一块
+（README v7 / 两侧 7 / 问题 0 处 / 退出码 0）。脚本自身在这三种状态下的判据没有变化。
+
+## C. 红态：临时删掉一个公开方法（产物 IScriptShaderStruct.Bindings.cs 里的 SetFloat3）
+命令：python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+python :   IScriptShaderStruct（表面层）：C++ 多 ['SetFloat3']，C# 表面多 无
+IScriptShaderStruct：表面成员 2 个，期望 3 个（纯虚 3 条 − 排除 0 条）
+IScriptShaderStruct.Bindings.cs：公开表面没有 `public int SetFloat3(string field, float x, float y, float z)`
+两侧对齐问题 1 处
+被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IWindow, IWindowSystem
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+覆盖率问题 0 处
+托管表面问题 1 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+夹具识别问题 0 处
+渲染基础表面问题 0 处
+脚本渲染适配面问题 1 处
+退出码=1（必须非零）
+
+
+## D. 红态：把一个原生转发改成零值桩（产物 IScriptRenderGraph.Bindings.cpp 里 	hunk_SetPassParam 直接 eturn 0;）
+命令：python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+python :   IScriptRenderGraph::SetPassParam：thunk 体内没有真正调用实现（桩）
++ CategoryInfo          : NotSpecified: (  IScriptRender...k 体内没有真正调用实现（桩）:String) [], RemoteException
+两侧对齐问题 0 处
+真实接口桩数 1 / 丢返回值 0 / 结构问题 0
+夹具接口 26 个、桩数 3 个（只打印，不判定）
+覆盖率问题 0 处
+托管表面问题 0 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+夹具识别问题 0 处
+渲染基础表面问题 0 处
+脚本渲染适配面问题 0 处
+退出码=1（必须非零）
+
+（上一条标题里的 `thunk_SetPassParam` / `return 0;` 被 PowerShell 双引号 here-string 吃掉了转义字符，
+显示成 `\thunk_...` / `\return 0;`；内容无误，这里补一行原文：把 `IScriptRenderGraph_thunk_SetPassParam`
+里的 `return object->SetPassParam(passIndex, blockNameCpp, parametersShared);` 改成 `return 0;`。）
+
+## E. 红态：在公开方法里放原生句柄（产物 `IScriptShaderStruct.Bindings.cs` 的 `SetStruct` 参数 `uint elementIndex` → `ulong elementIndex`）
+命令：python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+python :   IScriptShaderStruct：public 类型 `IScriptShaderStruct` 里出现了 `ulong`（句柄）
++ CategoryInfo          : NotSpecified: (  IScriptShader...出现了 `ulong`（句柄）:String) [], RemoteException
+两侧对齐问题 0 处
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+覆盖率问题 0 处
+托管表面问题 1 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+夹具识别问题 0 处
+渲染基础表面问题 0 处
+脚本渲染适配面问题 1 处
+退出码=1（必须非零）
+
+恢复：两份产物从 %TEMP% 的备份还原。
+命令：python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+不符数 0
+两侧对齐问题 0 处
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+托管表面问题 0 处
+脚本渲染适配面问题 0 处
+退出码=0（必须 0）
+
+## F. 红态：漏登记一条审计行（从 `bindable-audit.md` 临时删掉 `IScriptShaderStruct::SetStruct`）
+命令：python Tools/CodeGen/check_bindable_audit.py
+扫描 11 个接口、对账 83 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 缺少审计行：IScriptShaderStruct::SetStruct（头文件 1 条、表里 0 条）
+退出码=1（必须非零）
+
+恢复：补回该行。
+扫描 11 个接口、对账 83 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+退出码=0（必须 0）
+
+## 小结（4.2 的判据覆盖）
+- `check_render_bridge_surface()` 现在逐字列出四个脚本接口的**整条公开签名**（图 8 条、后端 7 条、目标 3 条、参数结构 3 条），
+  并新增 `SetPositionStream` / `SetPassParam` / `CreateShaderStruct` / `SetFloat3` / `SetStruct` 五条 `extern "C"` 形状判据；
+  方法集合的规模仍由 `check_surface()`（表面成员数 == 接口头纯虚数 − CA_BIND_SKIP 数）与 `check_coverage()` 兜住，
+  真实实现调用由 `check_stubs()`（真实接口桩数必须 0）兜住。
+- 四类红态各自被点名：删公开方法 → 三处判据同时点名 `IScriptShaderStruct::SetFloat3` / 表面成员 2≠3 / 缺整条签名；
+  原生转发改零值桩 → `真实接口桩数 1` 且点名 `IScriptRenderGraph::SetPassParam：thunk 体内没有真正调用实现（桩）`；
+  漏审计行 → `缺少审计行：IScriptShaderStruct::SetStruct`；公开方法里放 `ulong` → 托管表面判据非零。
+
+## G. verify_readme.py（4.2 验收最后一条）
+命令：python Tools/CodeGen/verify_readme.py
+退出码=0
+OK    exit=1 documented=None text=0  CodeGen.exe Tools/CodeGen/BindableShapes.RejectOverload.h --emit-binding --out-dir .review_tmp --audit-script Tools/CodeGen/check_bindable_audit.py -ICACore/header -ITools/CodeGen/clang_shim -xc++
+README: 22 documented command(s) run, 0 mismatch(es)
+
+## G.2 verify_readme.py 的末段原文（主 agent 复核）
+两条以 `exit=11 documented=11` 结尾的场景 OK（第 3.12 节 StdLayout / 第 3.13 节 OnlyDeclared），
+两条 `--emit-binding` 场景（BindableShapes.Reject / RejectOverload）也 OK，末行：
+`README: 22 documented command(s) run, 0 mismatch(es)`

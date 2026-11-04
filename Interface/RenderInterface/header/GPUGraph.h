@@ -654,6 +654,15 @@ namespace graphics_backend
 
 		castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }
 		castl::deque<RenderPass> const& GetRenderPasses() const { return m_RenderPasses; }
+		// csharp-render-shader-constants 任务 2.2：受控可变 pass 访问器。
+		// 只给脚本适配层在**提交之前**把参数结构绑到既有 pass（`AddTrianglePass` 当场 `AddPass`，
+		// 不延迟建图；这里就是事后补写参数的唯一通道）。调用方 MUST 先自己核对下标：
+		// `index < GetRenderPasses().size()`。`m_RenderPasses` 是 `deque`，引用在下标不失效的前提下稳定。
+		RenderPass& GetRenderPassForWrite(uint32_t index)
+		{
+			CA_ASSERT(index < m_RenderPasses.size(), "GetRenderPassForWrite 下标越界:{}", index);
+			return m_RenderPasses[index];
+		}
 		castl::deque<ComputeBatch> const& GetComputePasses() const { return m_ComputePasses; }
 		castl::vector<GPUDataTransfers> const& GetDataTransfers() const { return m_DataTransfers; }
 		castl::vector<uint32_t> const& GetPassIndices() const { return m_PassIndices; }

@@ -169,6 +169,191 @@ namespace Scripting.Managed
                 $"submitStatus={submitStatus} skipPresent={skipPresent} skipWait={skipWait}";
         }
 
+        // ---- 常量色探针（csharp-render-shader-constants 任务 3.2）----
+        /// <summary>`OnConstantColorProbe` 被调用了几次（与 `RenderProbeCount` 分开计数）。</summary>
+        internal static int ConstantColorProbeCount;
+        /// <summary>最近一次常量色探针的摘要：模式、pass 数、提交状态、拒绝文本、释放后失效读数。</summary>
+        internal static string LastConstantColorSummary = string.Empty;
+        // 保留到原生核对完成：图、两个目标与参数结构都由原生侧读。
+        internal static IWindow ConstantColorWindow;
+        internal static IScriptRenderTarget ConstantColorWindowTarget;
+        internal static IScriptRenderTarget ConstantColorCaptureTarget;
+        internal static IScriptRenderGraph ConstantColorGraph;
+        internal static IScriptShaderStruct ConstantColorParams;
+        internal static IScriptShaderStruct[] ConstantColorSubStructs = new IScriptShaderStruct[3];
+
+        /// <summary>
+        /// 常量色探针（csharp-render-shader-constants 任务 3.2）：单 `POSITION` 顶点流 + `ConstantColor`
+        /// 参数结构（3 个 `ColorSubStruct`），窗口与离屏各一个同逻辑 pass，两次 `SetPassParam`，
+        /// 呈现、提交、等待。保留图、目标与参数结构到原生核对完成。
+        ///
+        /// Debug 自检（`CASCADED_CSHARP_CONSTCOLOR_SELFTEST`，C++ 侧读同一份值判定错误码）：
+        ///   · `bad-struct-colors`：三槽颜色改成红/绿/蓝 —— 中心不再是纯红（`E_CONSTCOLOR_PIXEL`）；
+        ///   · `skip-param`：完全不调 `SetPassParam` —— `SubmitGraph` 在进入后端执行前拒绝并点名
+        ///     `constantColorBlock`（`E_CONSTCOLOR_PARAM`）；该状态记入摘要，不抛异常。
+        /// </summary>
+        public static void OnConstantColorProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        {
+            ConstantColorProbeCount++;
+            if (windows == null)
+            {
+                throw new InvalidOperationException("常量色探针：窗口系统表没有绑定");
+            }
+            if (backend == null)
+            {
+                throw new InvalidOperationException("常量色探针：脚本渲染后端表没有绑定");
+            }
+
+            string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_CONSTCOLOR_SELFTEST") ??
+                          string.Empty;
+            bool badStructColors = mode == "bad-struct-colors";
+            bool skipParam = mode == "skip-param";
+            if (mode.Length != 0 && !(badStructColors || skipParam))
+            {
+                throw new InvalidOperationException($"常量色探针：未知的自检模式 {mode}");
+            }
+
+            ConstantColorWindow = windows.NewWindow(CSharpConstantColorProbe.WindowWidth,
+                CSharpConstantColorProbe.WindowHeight, "C# 常量色", true, true, true, false);
+            ConstantColorWindowTarget = backend.GetWindowTarget(ConstantColorWindow);
+            if (ConstantColorWindowTarget == null)
+            {
+                throw new InvalidOperationException($"常量色探针：GetWindowTarget 返回空：{backend.GetLastError()}");
+            }
+            ConstantColorCaptureTarget = backend.CreateCaptureTarget(CSharpConstantColorProbe.WindowWidth,
+                CSharpConstantColorProbe.WindowHeight);
+            if (ConstantColorCaptureTarget == null)
+            {
+                throw new InvalidOperationException(
+                    $"常量色探针：CreateCaptureTarget 返回空：{backend.GetLastError()}");
+            }
+            ConstantColorGraph = backend.CreateGraph();
+            if (ConstantColorGraph == null)
+            {
+                throw new InvalidOperationException($"常量色探针：CreateGraph 返回空：{backend.GetLastError()}");
+            }
+
+            // 顶点字节由脚本自己写：三个顶点、每个只有位置 float3（步长 12）。
+            float[] positions = CSharpConstantColorProbe.BuildPositions();
+            byte[] vertexBytes = new byte[positions.Length * sizeof(float)];
+            Buffer.BlockCopy(positions, 0, vertexBytes, 0, vertexBytes.Length);
+            var descriptor = new GPUBufferDescriptor
+            {
+                count = CSharpConstantColorProbe.VertexCount,
+                stride = CSharpConstantColorProbe.VertexStride,
+            };
+            CheckStatus(ConstantColorGraph.AddBuffer(CSharpConstantColorProbe.BufferName, descriptor,
+                vertexBytes), ConstantColorGraph, "AddBuffer");
+            CheckStatus(ConstantColorGraph.SetPositionStream(CSharpConstantColorProbe.BufferName,
+                CSharpConstantColorProbe.VertexStride, CSharpConstantColorProbe.PositionOffset),
+                ConstantColorGraph, "SetPositionStream");
+
+            ConstantColorParams = backend.CreateShaderStruct(CSharpConstantColorProbe.StructTypeName);
+            if (ConstantColorParams == null)
+            {
+                throw new InvalidOperationException(
+                    $"常量色探针：CreateShaderStruct 返回空：{backend.GetLastError()}");
+            }
+            for (int slot = 0; slot < CSharpConstantColorProbe.SubStructCount; ++slot)
+            {
+                IScriptShaderStruct sub = backend.CreateShaderStruct(CSharpConstantColorProbe.SubStructTypeName);
+                if (sub == null)
+                {
+                    throw new InvalidOperationException(
+                        $"常量色探针：CreateShaderStruct(ColorSubStruct) 返回空：{backend.GetLastError()}");
+                }
+                ConstantColorSubStructs[slot] = sub;
+                // 正常模式三槽同红；bad-struct-colors 改成红/绿/蓝（槽 0 红、槽 1 绿、槽 2 蓝）。
+                float red = badStructColors ? (slot == 0 ? 1.0f : 0.0f) : 1.0f;
+                float green = badStructColors && slot == 1 ? 1.0f : 0.0f;
+                float blue = badStructColors && slot == 2 ? 1.0f : 0.0f;
+                if (sub.SetFloat3(CSharpConstantColorProbe.ColorField, red, green, blue) != 0)
+                {
+                    throw new InvalidOperationException($"常量色探针：SetFloat3 被拒绝：{sub.GetLastError()}");
+                }
+                if (ConstantColorParams.SetStruct(CSharpConstantColorProbe.SubStructField, sub,
+                        (uint)slot) != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"常量色探针：SetStruct 被拒绝：{ConstantColorParams.GetLastError()}");
+                }
+            }
+
+            // 窗口与离屏各一个同逻辑 pass（像素验证镜像，不是通用多 pass）。
+            AddConstantColorPass(ConstantColorWindowTarget);
+            AddConstantColorPass(ConstantColorCaptureTarget);
+            if (!skipParam)
+            {
+                CheckStatus(ConstantColorGraph.SetPassParam(0u, CSharpConstantColorProbe.BlockName,
+                    ConstantColorParams), ConstantColorGraph, "SetPassParam(0)");
+                CheckStatus(ConstantColorGraph.SetPassParam(1u, CSharpConstantColorProbe.BlockName,
+                    ConstantColorParams), ConstantColorGraph, "SetPassParam(1)");
+            }
+            CheckStatus(ConstantColorGraph.Present(ConstantColorWindowTarget), ConstantColorGraph, "Present");
+
+            int submitStatus = backend.SubmitGraph(ConstantColorGraph);
+            string submitError = backend.GetLastError();
+            bool disposedThrew = false;
+            if (skipParam)
+            {
+                // 负向模式：提交前拒绝是期望结果，不抛异常（抛了会变成宿主错误码 4，判据分不清是哪一种）。
+                if (submitStatus == 0)
+                {
+                    throw new InvalidOperationException("常量色探针：skip-param 的提交竟然成功");
+                }
+            }
+            else
+            {
+                CheckStatus(submitStatus, backend, "SubmitGraph");
+                backend.WaitIdle();
+                // 提交并等待之后释放参数结构表面对象：旧表面再调用必须抛明确失效异常。
+                ConstantColorParams.Dispose();
+                try
+                {
+                    ConstantColorParams.SetFloat3(CSharpConstantColorProbe.ColorField, 1.0f, 0.0f, 0.0f);
+                }
+                catch (ObjectDisposedException)
+                {
+                    disposedThrew = true;
+                }
+                ConstantColorParams = null;
+            }
+
+            LastConstantColorSummary =
+                $"mode={(mode.Length == 0 ? "normal" : mode)} passCount={ConstantColorGraph.GetPassCount()} " +
+                $"submitStatus={submitStatus} skipParam={skipParam} disposedThrew={disposedThrew} " +
+                $"submitError={submitError}";
+        }
+
+        private static void AddConstantColorPass(IScriptRenderTarget target)
+        {
+            CheckStatus(ConstantColorGraph.AddTrianglePass(target, CSharpConstantColorProbe.ShaderPath,
+                CSharpConstantColorProbe.BufferName, CSharpConstantColorProbe.BufferName,
+                CSharpConstantColorProbe.VertexCount, CSharpConstantColorProbe.ClearRed,
+                CSharpConstantColorProbe.ClearGreen, CSharpConstantColorProbe.ClearBlue,
+                CSharpConstantColorProbe.ClearAlpha), ConstantColorGraph, "AddTrianglePass");
+        }
+
+        /// <summary>
+        /// 关闭顺序的第 1 步（任务 3.1）：参数结构表面对象（含三个子结构）必须先于图与目标释放。
+        /// </summary>
+        internal static void ReleaseShaderStructSurfaces()
+        {
+            if (ConstantColorParams != null)
+            {
+                ConstantColorParams.Dispose();
+                ConstantColorParams = null;
+            }
+            for (int index = 0; index < ConstantColorSubStructs.Length; ++index)
+            {
+                if (ConstantColorSubStructs[index] != null)
+                {
+                    ConstantColorSubStructs[index].Dispose();
+                    ConstantColorSubStructs[index] = null;
+                }
+            }
+        }
+
         /// <summary>
         /// 关闭前释放脚本保留的渲染表面（本 change 任务 3.1）：先释放离屏目标、图与窗口目标，再让
         /// 宿主销毁原生适配器。释放后旧表面对象再次调用会抛 `ObjectDisposedException`。
@@ -180,20 +365,40 @@ namespace Scripting.Managed
                 RenderGraph.Dispose();
                 RenderGraph = null;
             }
+            if (ConstantColorGraph != null)
+            {
+                ConstantColorGraph.Dispose();
+                ConstantColorGraph = null;
+            }
             if (RenderCaptureTarget != null)
             {
                 RenderCaptureTarget.Dispose();
                 RenderCaptureTarget = null;
+            }
+            if (ConstantColorCaptureTarget != null)
+            {
+                ConstantColorCaptureTarget.Dispose();
+                ConstantColorCaptureTarget = null;
             }
             if (RenderWindowTarget != null)
             {
                 RenderWindowTarget.Dispose();
                 RenderWindowTarget = null;
             }
+            if (ConstantColorWindowTarget != null)
+            {
+                ConstantColorWindowTarget.Dispose();
+                ConstantColorWindowTarget = null;
+            }
             if (RenderWindow != null)
             {
                 RenderWindow.Dispose();
                 RenderWindow = null;
+            }
+            if (ConstantColorWindow != null)
+            {
+                ConstantColorWindow.Dispose();
+                ConstantColorWindow = null;
             }
         }
 
@@ -267,6 +472,46 @@ namespace Scripting.Managed
                 values[1 * 6 + 5] = 1.0f;
             }
             return values;
+        }
+    }
+
+    /// <summary>
+    /// 常量色探针的夹具值（csharp-render-shader-constants 任务 3.2）。C++ 侧 `TestCSharpConstantColor`
+    /// **另写一份**独立的期望值（尺寸、pass 数、背景与中心像素），两边不共享常量表。
+    /// </summary>
+    internal static class CSharpConstantColorProbe
+    {
+        internal const int WindowWidth = 320;
+        internal const int WindowHeight = 240;
+        internal const uint VertexCount = 3;
+        internal const uint VertexStride = 12;
+        internal const uint PositionOffset = 0;
+        internal const string BufferName = "CSharpConstantColorVertices";
+        internal const string ShaderPath = "Shaders/Test/TestTriangleWithConstantColor";
+        internal const string StructTypeName = "ConstantColor";
+        internal const string SubStructTypeName = "ColorSubStruct";
+        internal const string SubStructField = "colorStruct";
+        internal const string ColorField = "color";
+        internal const string BlockName = "constantColorBlock";
+        internal const int SubStructCount = 3;
+
+        // 清除色 (0, 0, 1, 1) = 精确蓝色背景（design 第五节）
+        internal const float ClearRed = 0.0f;
+        internal const float ClearGreen = 0.0f;
+        internal const float ClearBlue = 1.0f;
+        internal const float ClearAlpha = 1.0f;
+
+        /// <summary>
+        /// 三个顶点的位置（每个顶点 3 个 float：xyz）。沿用常量色着色器既有测试的平面坐标与深度。
+        /// </summary>
+        internal static float[] BuildPositions()
+        {
+            return new float[]
+            {
+                -0.25f, -0.25f, 0.25f,
+                 0.25f, -0.25f, 0.25f,
+                 0.00f,  0.50f, 0.50f,
+            };
         }
     }
 

@@ -5,11 +5,11 @@
 - 逐文件 `git grep -c 'virtual .*= *0;'` 会把同文件里的其它类算进来（`CRenderBackend.h` 里 13 条中 `CRenderBackend` 本类只有 10 条、另 3 条属 `IReadbackToken`；`WindowSystem.h` 里 39 条分属 `IWindow`（23）与 `IWindowSystem`（16））。
 - **注释里出现的示例签名会被当成真声明**（`CRenderBackend.h` 的注释里写着 `query`、`IResource.h` 的注释里引用了 `Serialize` 的原文）；不剥注释就会凭空多出方法名。
 
-**范围**：9 个模块级接口 + `IReadbackToken`（出现在 `Readback` 的返回值里），合计 **75** 条纯虚方法：
+**范围**：10 个模块级接口 + `IReadbackToken`（出现在 `Readback` 的返回值里），合计 **83** 条纯虚方法：
 
 | 接口 | 方法条数 | 所在头文件 |
 |---|---|---|
-| `CRenderBackend` | 10 | `Interface/RenderInterface/header/CRenderBackend.h` |
+| `CRenderBackend` | 12 | `Interface/RenderInterface/header/CRenderBackend.h` |
 | `IReadbackToken` | 3 | `Interface/RenderInterface/header/CRenderBackend.h` |
 | `IWindow` | 23 | `WindowSystem/header/CAWindow/WindowSystem.h` |
 | `IWindowSystem` | 16 | `WindowSystem/header/CAWindow/WindowSystem.h` |
@@ -17,9 +17,10 @@
 | `IOManager` | 3 | `Interface/IOManager/header/IOManager/IOManager.h` |
 | `IResource` | 2 | `GeneralResources/header/CAResource/IResource.h` |
 | `IScriptRenderTarget` | 3 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
-| `IScriptRenderGraph` | 6 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
-| `IScriptRenderBackend` | 6 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
-| **合计** | **75** | |
+| `IScriptRenderGraph` | 8 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
+| `IScriptRenderBackend` | 7 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
+| `IScriptShaderStruct` | 3 | `Interface/RenderInterface/header/ScriptRenderBridge.h` |
+| **合计** | **83** | |
 
 **列定义**：`拷贝` = 该调用是否需要一次额外的内存拷贝（视图与按值不算）；`谁分配` = 过界内存的分配方（调用方给缓冲区 / 投影层分配 + 配对释放 / 引擎持有 + 只读视图 / `—` 表示不过界内存）；`可绑性` = `可绑` / `需快路` / `不可绑`；`不可绑` 必须在"理由或建议"列给出理由与建议。
 
@@ -35,6 +36,8 @@
 | `CRenderBackend::WaitIdle` | 无参 | `void crb_wait_idle(uint64 self)` | 无 | — | 可绑 | 阻塞语义：文档必须写明"会卡住调用线程" | 不失败 |
 | `CRenderBackend::Readback` | 参数 `ImageHandle const&`（实测：含 `m_Key` / `m_ExternalManagedTexture` 指针 / `m_Type` 的类，无虚函数）+ `std::span<uint8_t>`；返回 `std::unique_ptr<IReadbackToken>` | `uint64 crb_readback_image(uint64 self, ImageHandleC const*, uint8_t* dst, uint64 len)` → token 句柄；`crb_release_token(uint64)` | 无 | 调用方给 dst；token 由投影层给句柄 | 可绑 | `span` 是最理想形状；`ImageHandle` 按 blittable 镜像传 + 布局自检；`unique_ptr` 按独占智能指针规则 ⇒ 句柄，释放即作废 | 返回 0 + 错误码 |
 | `CRenderBackend::Readback` | 同上，参数换成 `BufferHandle const&`（同类结构） | `uint64 crb_readback_buffer(uint64 self, BufferHandleC const*, uint8_t* dst, uint64 len)` → token 句柄 | 无 | 调用方给 dst；token 由投影层给句柄 | 可绑 | 同上（`Readback` 的重载，两条各占一行） | 返回 0 + 错误码 |
+| `CRenderBackend::FindShaderStructData` | `cacore::NameHash const&` → `ShaderCompilerSlang::ShaderStructData const*`（指向库内实体的裸指针） | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明的裸指针类：返回的是指向 `ShaderLibrary` 内部表项的只读指针，生命周期由库决定、脚本拿到它没有合法用途；脚本侧对应能力已由 `IScriptRenderBackend::CreateShaderStruct`（空句柄 + 错误文本）承当。建议不暴露 | 不暴露（无入口） |
+| `CRenderBackend::FindShaderRootStructData` | `cacore::PathHash const&` → 同上 | `—（不暴露）` | — | — | **不可绑** | ② 所有权不明的裸指针类：同 `FindShaderStructData`，按着色器路径查根结构的内部查询，指针不是可持有对象。建议不暴露 | 不暴露（无入口） |
 | `IReadbackToken::Wait` | 无参，阻塞直到 GPU 写完 | `void crb_token_wait(uint64)` | 无 | — | 可绑 | 阻塞语义：文档必须写明"会卡住调用线程" | 错误码（超时 / 令牌失效） |
 | `IReadbackToken::IsReady` | `const`，返回 `bool` | `int32` | 无 | — | 可绑 | 布尔用 `int32` | 不失败 |
 | `IReadbackToken::Reset` | 无参（幂等释放） | `void crb_token_reset(uint64)` | 无 | — | 可绑 | 幂等语义写进契约（重复调不报错） | 不失败 |
@@ -100,25 +103,33 @@
 | `IScriptRenderBackend::SubmitGraph` | `castl::shared_ptr<IScriptRenderGraph> const&` → `int32_t` | `uint64 graphHandle` → `int32` | 无 | 投影层句柄 | 可绑 | 调度器由原生侧新建，不进签名；空图/已释放句柄必须在提交前拒绝 | 返回 0 + 错误码 + `GetLastError()` |
 | `IScriptRenderBackend::WaitIdle` | 无参，阻塞到后端空闲 | `void crb_wait_idle(uint64 self)` | 无 | — | 可绑 | 阻塞语义：文档写明会卡住调用线程；等待后才清空待完成集合 | 不失败 |
 | `IScriptRenderBackend::GetLastError` | `const`，返回 `castl::string` | 两段式：`uint64 <M>Len()` + `Copy<M>(uint8_t* dst, uint64 cap)` | 一次 | 调用方给缓冲区 | 可绑 | 同图对象的 `GetLastError` | 不失败（文本本身） |
+| `IScriptRenderGraph::SetPositionStream` | 一个 `NameHash const&` + 两个 `uint32_t` | `char const* + uint64 len` + 两个 `uint32`；返回 `int32` | 一次（名称） | — | 可绑 | 单 `POSITION` `float3` 流：`stride == 0` 或 `positionOffset + 12 > stride` 即拒绝；与 `SetPositionColorStream` 共用流名表，重复登记返回非零并点名 `streamName` | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptRenderGraph::SetPassParam` | `uint32_t` + `NameHash const&` + `castl::shared_ptr<IScriptShaderStruct> const&` | `uint32` + `char const* + uint64 len` + `uint64 paramsHandle`；返回 `int32` | 一次（块名） | 投影层句柄 | 可绑 | 参数结构是后端发行的目标类型句柄，入参走既有目标解析；passIndex 越界 / 空参数 / 未知块名 / 块类型不符都在适配层拒绝 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptRenderBackend::CreateShaderStruct` | `cacore::NameHash const&` → `castl::shared_ptr<IScriptShaderStruct>` | `char const* + uint64 len` → `uint64`（目标类型句柄） | 一次（类型名） | 投影层句柄 | 可绑 | 未知类型返回空句柄（不返回非零）+ `GetLastError()` 点名 `structTypeName`；MUST NOT 到达 `CRenderBackend::CreateShaderStruct` | 返回 0 句柄 + 错误码 + `GetLastError()` |
+| `IScriptShaderStruct::SetFloat3` | `NameHash const&` + 三个 `float` | `char const* + uint64 len` + 三个 `float`；返回 `int32` | 一次（字段名） | — | 可绑 | 只接受 12 字节 `float3` 单元素字段（`int3`、`float3[2]` 元素同样拒绝），全部校验在适配层完成 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptShaderStruct::SetStruct` | `NameHash const&` + `castl::shared_ptr<IScriptShaderStruct> const&` + `uint32_t` | `char const* + uint64 len` + `uint64 subHandle` + `uint32`；返回 `int32` | 一次（字段名） | 投影层句柄 | 可绑 | 子结构必须是该字段声明的类型、下标小于元素数；类型不符时同时点名期望与实际类型名 | 返回 0 + 错误码 + `GetLastError()` |
+| `IScriptShaderStruct::GetLastError` | `const`，返回 `castl::string` | 两段式：`uint64 <M>Len()` + `Copy<M>(uint8_t* dst, uint64 cap)` | 一次 | 调用方给缓冲区 | 可绑 | 同图对象的 `GetLastError` | 不失败（文本本身） |
 
-## 汇总：不可绑清单（6 条 + 2 条已移出）
+## 汇总：不可绑清单（8 条 + 2 条已移出）
 
 | 接口::方法 | 属于哪一类不可投影 | 处置建议 | 归属哪个后续 change |
 |---|---|---|---|
 | `CRenderBackend::ExecuteGraph` | ② 所有权不明的裸指针（+ `shared_ptr` 参数） | 拆成"建图（返回句柄）+ 提交（引擎决定 scheduler）" | `csharp-bindings-generator`（改接口形状） |
 | `CRenderBackend::Release` | ④ 语义越界 | 不暴露；脚本只能释放自己创建的句柄 | 无（规则即结论） |
 | `CRenderBackend::GetWindowHandle` | ② 所有权不明的裸指针（`shared_ptr<IWindow>` 参数没有对应句柄） | 改成接收引擎分配的窗口 id | `csharp-bindings-generator` |
+| `CRenderBackend::FindShaderStructData` | ② 所有权不明的裸指针（指向 `ShaderLibrary` 内部表项的只读指针） | 不暴露；适配层内部校验用，脚本侧由 `IScriptRenderBackend::CreateShaderStruct` 承当 | 无（规则即结论） |
+| `CRenderBackend::FindShaderRootStructData` | ② 所有权不明的裸指针（同上，按着色器路径查） | 不暴露 | 无（规则即结论） |
 | ~~`IWindow::GetWindowSystem`~~ | **已移出不可绑清单**（2026-10-25） | 改判为可绑的借用句柄，见主表那一行 | `csharp-window-creation` |
 | ~~`IWindowSystem::NewWindow`~~ | **已移出不可绑清单**（2026-10-20） | 改判为可绑的弱句柄，见主表那一行 | `csharp-window-creation` |
 | `IOManager::Initialize` | ④ 语义越界 | 不暴露 | 无（规则即结论） |
 | `IResource::Serialize` | ② 所有权不明的裸指针（`WBatch*`） | `WBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 | `IResource::Deserialize` | ② 所有权不明的裸指针（`IOBatch*`） | `IOBatch` 句柄化后暴露 | `csharp-bindings-generator` |
 
-**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 10 个接口里**暂无实例**（依据：75 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 4 条（`ExecuteGraph` / `GetWindowHandle` / `Serialize` / `Deserialize`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"；**`GetWindowSystem` 也已移出** —— 它返回的是已 `CA_BIND` 接口的裸指针，2026-10-25 起改判为可绑的"借用句柄"；两者都见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
+**四类不可投影分别落到谁身上**：① 模板方法 / 泛型接口 —— 本批 11 个接口里**暂无实例**（依据：83 条纯虚方法里没有一条是 `template<...>` 成员，也没有类模板作参数；规则保留，等出现再套）；② 所有权不明的裸指针 —— 6 条（`ExecuteGraph` / `GetWindowHandle` / `Serialize` / `Deserialize` / 两个 `Find*`；**`NewWindow` 已移出本类** —— 它返回的是 `weak_ptr` 不是裸指针，2026-10-20 起改判为可绑的"弱句柄"；**`GetWindowSystem` 也已移出** —— 它返回的是已 `CA_BIND` 接口的裸指针，2026-10-25 起改判为可绑的"借用句柄"；两者都见主表那一行）；③ 依赖隐式转换的重载 —— 本批**暂无实例**（依据：全批只有一个重载对 `CRenderBackend::Readback` 的图像版与缓冲版，参数类型分别是 `ImageHandle` / `BufferHandle`、没有隐式互转；规则保留）；④ 语义越界 —— 2 条（`Release` / `Initialize`）。
 
 ## 汇总：需快路清单（0 条）
 
-这 10 个接口里**没有**"每帧多次调用且参数是容器"的方法，因此"需快路"为空。这不是规则失效，而是**审计范围不含热路径所在的位置**：
+这 11 个接口里**没有**"每帧多次调用且参数是容器"的方法，因此"需快路"为空。这不是规则失效，而是**审计范围不含热路径所在的位置**：
 
 - 每帧的容器密集调用实际发生在 `GPUGraph`（提交 pass / binding）与 `IMGUIContext`（每帧编辑树）上，这两个不在本次审计范围（见 design 的 Open Questions）。
 - 已观察到的容器参数（`IWindow::SetWindowName` / `IOManager::Batch` / `WriteBatch`）都是低频结构化调用，走"一次拷贝"那档即可；11 个 `Set*Callback` 是**回调注册**（每帧不走注册），走"函数指针 + 保活表"那档 ✓。

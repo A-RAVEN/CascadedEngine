@@ -1,7 +1,7 @@
 #pragma once
-// 脚本专用窄渲染适配面（csharp-render-backend-triangle）。
+// 脚本专用窄渲染适配面（csharp-render-backend-triangle；csharp-render-shader-constants 追加参数结构）。
 //
-// 这里只放**跨脚本边界**的三个纯虚接口：目标、图、后端。它们只使用已经归档的绑定形状
+// 这里只放**跨脚本边界**的四个纯虚接口：目标、图、后端、参数结构。它们只使用已经归档的绑定形状
 // （定宽标量、公开记录、文本/路径值、同步字节、接口智能指针），不暴露 `TaskScheduler*`、
 // `CRenderBackend::Release`、具体建图类或原生资源地址。
 //
@@ -36,6 +36,21 @@ namespace graphics_backend
 	};
 
 	CA_BIND()
+	class IScriptShaderStruct
+	{
+	public:
+		// 字段必须是该类型元数据里的 12 字节 `float3` 单元素字段（类型名与元素数都要核对：
+		// 12 字节的 `int3`、`float3[2]` 的数组元素同样拒绝）；否则拒绝并点名 field。
+		virtual int32_t SetFloat3(cacore::NameHash const& field, float x, float y, float z) = 0;
+		// field 必须是元数据里的子结构数组，sub 的类型名必须等于该条目的 `m_StructTypeName`，
+		// `elementIndex` 必须小于 `m_ElementCount`；违反逐项拒绝并点名参数。
+		virtual int32_t SetStruct(cacore::NameHash const& field,
+			castl::shared_ptr<IScriptShaderStruct> const& sub, uint32_t elementIndex) = 0;
+		virtual castl::string GetLastError() const = 0;
+		virtual ~IScriptShaderStruct() = default;
+	};
+
+	CA_BIND()
 	class IScriptRenderGraph
 	{
 	public:
@@ -45,6 +60,17 @@ namespace graphics_backend
 		// 首版只支持 POSITION / COLOR 两个 `float3` 属性；任一 `offset + 12` 越过步长即拒绝。
 		virtual int32_t SetPositionColorStream(cacore::NameHash const& streamName, uint32_t stride,
 			uint32_t positionOffset, uint32_t colorOffset) = 0;
+		// 单 `POSITION` `float3` 流（常量色着色器只要位置）：`stride == 0` 或
+		// `positionOffset + 12 > stride` 即拒绝。两种流的登记共用同一张流名表 ——
+		// 重复登记同名流返回非零并点名 `streamName`（这是加严：旧行为是静默覆盖）。
+		virtual int32_t SetPositionStream(cacore::NameHash const& streamName, uint32_t stride,
+			uint32_t positionOffset) = 0;
+		// 把参数结构绑定到第 passIndex 个 pass 的参数块名。passIndex 越界、参数为空、
+		// blockName 不在该 pass 着色器根结构、块类型与参数结构类型名不符都拒绝并点名参数。
+		// 形参名不叫 `params`：那是 C# 关键字，绑定发射器会把形参名原样搬进托管表面（构建期实测
+		// `IScriptRenderGraph.Bindings.cs` 报 CS1041「params 是关键字」）。错误文本里仍点名 "params"。
+		virtual int32_t SetPassParam(uint32_t passIndex, cacore::NameHash const& blockName,
+			castl::shared_ptr<IScriptShaderStruct> const& parameters) = 0;
 		virtual int32_t AddTrianglePass(castl::shared_ptr<IScriptRenderTarget> const& target,
 			cacore::PathHash const& shaderPath, cacore::NameHash const& streamName,
 			cacore::NameHash const& bufferName, uint32_t vertexCount, float red, float green,
@@ -65,6 +91,10 @@ namespace graphics_backend
 		virtual castl::shared_ptr<IScriptRenderTarget> CreateCaptureTarget(uint32_t width,
 			uint32_t height) = 0;
 		virtual castl::shared_ptr<IScriptRenderGraph> CreateGraph() = 0;
+		// 按类型名创建参数结构。未知类型 MUST 返回空句柄并由 `GetLastError()` 点名 `structTypeName`，
+		// 且 MUST NOT 调用 `CRenderBackend::CreateShaderStruct`（D3D12 侧对空元数据解引用）。
+		virtual castl::shared_ptr<IScriptShaderStruct> CreateShaderStruct(
+			cacore::NameHash const& structTypeName) = 0;
 		virtual int32_t SubmitGraph(castl::shared_ptr<IScriptRenderGraph> const& graph) = 0;
 		virtual void WaitIdle() = 0;
 		virtual castl::string GetLastError() const = 0;

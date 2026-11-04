@@ -21,6 +21,19 @@ namespace graphics_backend
 {
 	class CRenderBackend;
 
+	// 参数结构窄对象的计数槽（csharp-render-shader-constants 任务 2.1 / 3.2）：三个 `*ForTest` 钩子要从
+	// 适配器上读到「创建了几个参数结构 / 写了多少次 float3 / 挂了几次子结构」。计数放在后端持有的
+	// 一个小结构里、窄对象只拿指针 —— 避免窄对象反向持有后端（那会形成环形引用）。
+	// `setPassParam` 由任务 3.2 的读数要求补上（「两次 SetPassParam 的对应断言」必须来自原生钩子），
+	// 它是实现类上的测试钩子，不进任何绑定接口，不影响审计表的 83 方法口径。
+	struct ScriptShaderCallCounters
+	{
+		uint32_t createShaderStruct = 0;
+		uint32_t setFloat3 = 0;
+		uint32_t setStruct = 0;
+		uint32_t setPassParam = 0;
+	};
+
 	// 目标：窗口后台缓冲或固定格式离屏纹理。保存描述快照，原生测试用它核对宽、高与格式。
 	class CScriptRenderTarget final : public IScriptRenderTarget
 	{
@@ -41,16 +54,50 @@ namespace graphics_backend
 		bool m_Backbuffer = false;
 	};
 
+	// 参数结构窄对象（csharp-render-shader-constants 任务 2.1）：把「类型名 + 编译元数据」的写入面
+	// 收敛成两个**可校验**方法。全部校验在这里完成，绝不把无效输入交给具体后端 ——
+	// `ShaderStruct` 的两个实现（D3D12 / Vulkan）对未知字段静默忽略、对越界下标只 `CA_ASSERT`。
+	class CScriptShaderStruct final : public IScriptShaderStruct
+	{
+	public:
+		CScriptShaderStruct(cacore::NameHash const& typeName,
+			ShaderCompilerSlang::ShaderStructData const* data,
+			castl::shared_ptr<ShaderStruct> shaderStruct, ScriptShaderCallCounters* counters);
+
+		int32_t SetFloat3(cacore::NameHash const& field, float x, float y, float z) override;
+		int32_t SetStruct(cacore::NameHash const& field,
+			castl::shared_ptr<IScriptShaderStruct> const& sub, uint32_t elementIndex) override;
+		castl::string GetLastError() const override;
+
+		// 原生测试钩子（C++ only）：类型名、真实 `ShaderStruct` 与两个写入计数。
+		cacore::NameHash const& GetTypeNameForTest() const { return m_TypeName; }
+		castl::shared_ptr<ShaderStruct> const& GetShaderStructForTest() const { return m_ShaderStruct; }
+
+	private:
+		int32_t Fail(char const* parameter, char const* reason);
+		void ClearError() { m_LastError.clear(); }
+
+		cacore::NameHash m_TypeName;
+		ShaderCompilerSlang::ShaderStructData const* m_Data = nullptr;
+		castl::shared_ptr<ShaderStruct> m_ShaderStruct;
+		ScriptShaderCallCounters* m_Counters = nullptr;
+		castl::string m_LastError;
+	};
+
 	// 图：持有一份真实 `GPUGraph`，以及本图已登记缓冲与顶点流的描述。
 	class CScriptRenderGraph final : public IScriptRenderGraph
 	{
 	public:
-		CScriptRenderGraph();
+		CScriptRenderGraph(CRenderBackend* backend, ScriptShaderCallCounters* counters);
 
 		int32_t AddBuffer(cacore::NameHash const& name, GPUBufferDescriptor const& descriptor,
 			castl::vector<uint8_t> const& data) override;
 		int32_t SetPositionColorStream(cacore::NameHash const& streamName, uint32_t stride,
 			uint32_t positionOffset, uint32_t colorOffset) override;
+		int32_t SetPositionStream(cacore::NameHash const& streamName, uint32_t stride,
+			uint32_t positionOffset) override;
+		int32_t SetPassParam(uint32_t passIndex, cacore::NameHash const& blockName,
+			castl::shared_ptr<IScriptShaderStruct> const& parameters) override;
 		int32_t AddTrianglePass(castl::shared_ptr<IScriptRenderTarget> const& target,
 			cacore::PathHash const& shaderPath, cacore::NameHash const& streamName,
 			cacore::NameHash const& bufferName, uint32_t vertexCount, float red, float green,
@@ -78,6 +125,11 @@ namespace graphics_backend
 		int32_t Fail(char const* parameter, char const* reason);
 		void ClearError() { m_LastError.clear(); }
 
+		// 非拥有：只用来查编译元数据（`FindShaderStructData` / `FindShaderRootStructData`）与
+		// 创建真实 `ShaderStruct`。后端由宿主持有，生命周期长于本图。
+		CRenderBackend* m_Backend = nullptr;
+		// 非拥有：计数槽归后端持有，本图只在自己成功绑定参数时加一（任务 3.2 的读数来源）。
+		ScriptShaderCallCounters* m_Counters = nullptr;
 		castl::shared_ptr<GPUGraph> m_Graph;
 		castl::unordered_map<cacore::NameHash, BufferRecord> m_Buffers;
 		castl::unordered_map<cacore::NameHash, StreamRecord> m_Streams;
@@ -95,6 +147,11 @@ namespace graphics_backend
 		castl::shared_ptr<IScriptRenderTarget> CreateCaptureTarget(uint32_t width,
 			uint32_t height) override;
 		castl::shared_ptr<IScriptRenderGraph> CreateGraph() override;
+		// 未知类型：返回空句柄 + `GetLastError()` 点名 `structTypeName`，且 MUST NOT 进入后端
+		// `CRenderBackend::CreateShaderStruct`（D3D12 侧对空元数据解引用）。非空类型才创建真实
+		// `ShaderStruct` 并包进窄对象。
+		castl::shared_ptr<IScriptShaderStruct> CreateShaderStruct(
+			cacore::NameHash const& structTypeName) override;
 		int32_t SubmitGraph(castl::shared_ptr<IScriptRenderGraph> const& graph) override;
 		void WaitIdle() override;
 		castl::string GetLastError() const override;
@@ -118,6 +175,17 @@ namespace graphics_backend
 		{
 			return m_LastWindowTarget;
 		}
+		// csharp-render-shader-constants 任务 2.1 / 3.2 的三个调用计数：正常探针必须读到
+		// 4 次参数结构创建、3 次 `SetFloat3`、3 次 `SetStruct`；非探针测试期间它们保持 0。
+		uint32_t GetCreateShaderStructCountForTest() const { return m_ShaderCounters.createShaderStruct; }
+		uint32_t GetSetFloat3CountForTest() const { return m_ShaderCounters.setFloat3; }
+		uint32_t GetSetStructCountForTest() const { return m_ShaderCounters.setStruct; }
+		// 成功绑定参数块的次数（任务 3.2 要求"两次 SetPassParam"也有原生读数）。
+		uint32_t GetSetPassParamCountForTest() const { return m_ShaderCounters.setPassParam; }
+		// `CreateCaptureTarget` 与进入后端的执行次数：非探针测试期间必须为 0（任务 3.2），
+		// `skip-param` 的提交前拒绝也必须证明"后端执行次数 0"（任务 4.1）。
+		uint32_t GetCreateCaptureTargetCountForTest() const { return m_CreateCaptureTargetCount; }
+		uint32_t GetExecuteGraphCountForTest() const { return m_ExecuteGraphCount; }
 
 	private:
 		int32_t Fail(char const* parameter, char const* reason);
@@ -128,6 +196,9 @@ namespace graphics_backend
 		// 待完成集合持有图强引用，`WaitIdle` 之后才清空（design 三）。
 		castl::vector<castl::shared_ptr<IScriptRenderGraph>> m_Pending;
 		uint32_t m_WaitIdleCount = 0;
+		ScriptShaderCallCounters m_ShaderCounters;
+		uint32_t m_CreateCaptureTargetCount = 0;
+		uint32_t m_ExecuteGraphCount = 0;
 		castl::weak_ptr<GPUGraph> m_LastSubmittedGraph;
 		castl::weak_ptr<CScriptRenderGraph> m_LastGraph;
 		castl::shared_ptr<CScriptRenderTarget> m_LastCaptureTarget;

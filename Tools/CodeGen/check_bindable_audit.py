@@ -33,6 +33,8 @@ INTERFACES = {
     "IScriptRenderTarget": "Interface/RenderInterface/header/ScriptRenderBridge.h",
     "IScriptRenderGraph": "Interface/RenderInterface/header/ScriptRenderBridge.h",
     "IScriptRenderBackend": "Interface/RenderInterface/header/ScriptRenderBridge.h",
+    # csharp-render-shader-constants 任务 1.1：参数结构窄接口（第四个脚本接口）
+    "IScriptShaderStruct": "Interface/RenderInterface/header/ScriptRenderBridge.h",
 }
 
 HEADER_ROW = "| 接口::方法 |"

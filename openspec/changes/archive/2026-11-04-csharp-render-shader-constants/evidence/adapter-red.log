@@ -1,0 +1,278 @@
+﻿# csharp-render-shader-constants 任务 1.1 红态与恢复记录
+记录时间：2026-11-04 12:45:42
+工作目录：E:\Projects\CascadedEngine  分支：002-vulkan-backend-renderinterface
+只追加，不覆盖：本文件后续每次实测都往下追加一段。
+
+## A. 审计对账：补齐 8 行后的正常态（11 接口 83 方法）
+命令：python Tools/CodeGen/check_bindable_audit.py
+扫描 11 个接口、对账 83 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+退出码=0
+
+## B. 红态实验一：临时重复一行审计（IScriptShaderStruct::SetFloat3 登记两次）
+扫描 11 个接口、对账 83 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 重复审计行：IScriptShaderStruct::SetFloat3 头文件 1 条、表里 2 条
+退出码=1（必须非零）
+
+恢复：删除重复行（同一行只留一条）。
+恢复后：扫描 11 个接口、对账 83 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+退出码=0（必须 0）
+
+## C. 红态实验二：把范围汇总表的合计写成 81（正确值 83）
+扫描 11 个接口、对账 83 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 汇总表合计不符：写 81、头文件实算 83
+退出码=1（必须非零）
+
+恢复：合计改回 83。
+恢复后：扫描 11 个接口、对账 83 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 缺少审计行：IScriptRenderBackend::CreateShaderStruct（头文件 1 条、表里 0 条）
+退出码=1（必须 0）
+
+## D. 红态实验三：临时删掉一条新登记行（IScriptRenderBackend::CreateShaderStruct）
+扫描 11 个接口、对账 83 条方法、命中 1 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 缺少审计行：IScriptRenderBackend::CreateShaderStruct（头文件 1 条、表里 0 条）
+退出码=1（必须非零）
+
+恢复：把 IScriptRenderBackend::CreateShaderStruct 行补回。
+恢复后：扫描 11 个接口、对账 83 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+退出码=0（必须 0）
+
+## 记录更正（不改上面的原始输出，只追加说明）
+C 段「恢复后」那次读数的退出码是 1 而不是 0：因为把合计改回 83 与 D 段的「删掉一条新登记行」
+是用同一次编辑完成的，所以那一次运行时表里已经缺了 IScriptRenderBackend::CreateShaderStruct
+（输出里点名了这一条）。C 段单变量对照的有效读数是它的第一段（合计 81 → 非零并点名合计）。
+D 段之后已补回该行，第 36-37 行的 0 处问题 / 退出码 0 就是三次实验全部恢复后的最终状态。
+## E. 1.1 收尾构建红态：python build.py --config Debug（接口已声明、适配实现尚未写）
+命令：python build.py --config Debug
+开始时间：2026-11-04 12:46:26
+
+完整构建输出（61006 字节）紧跟在本行之后，末尾写退出码：
+
+=== CascadedEngine Build Script (Python) ===
+  Visual Studio : C:\Program Files\Microsoft Visual Studio\18\Community
+  Config        : Debug (preset x64-debug)
+  Build dir     : E:\Projects\CascadedEngine\out\build\x64-debug
+  (CMake 配置输入都没动 —— 跳过 configure，要强制重配就加 --configure)
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)
+  env 'Test/CoreTests': 23 compile unit(s), 28 include dir(s), 10 macro(s), 0 forced include(s)
+  env 'Interface/RenderInterface': 6 compile unit(s), 16 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  env 'D3D12RenderBackend': 23 compile unit(s), 21 include dir(s), 13 macro(s), 0 forced include(s)
+  env 'ShaderCompilerSlang': 2 compile unit(s), 16 include dir(s), 11 macro(s), 0 forced include(s)
+  env 'CACore': 7 compile unit(s), 7 include dir(s), 6 macro(s), 0 forced include(s)
+  env 'VulkanRenderBackendNew': 27 compile unit(s), 20 include dir(s), 11 macro(s), 0 forced include(s)
+  codegen: 重跑 0 条、跳过 77 条（输入没变的那些）
+  [绑定清单] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h：2 个接口
+  [绑定清单] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h：22 个接口
+  [绑定清单] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h：1 个接口
+  [绑定清单] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h：2 个接口
+  [绑定清单] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h：1 个接口
+  [绑定清单] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h：4 个接口
+  [绑定] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h
+    [绑定] 产物：IWindow, IWindowSystem
+  [绑定] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h
+    [绑定] 产物：IBindRow01, IBindRow02, IBindRow09
+  [绑定] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h
+    [绑定] 产物：IBindFoundation
+  [绑定] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h
+    [绑定] 产物：IBindRenderResource, IBindRenderResourceAlt
+  [绑定] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h
+    [绑定] 产物：IBindRenderOwner
+  [绑定] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h
+    [绑定] 产物：IScriptRenderTarget, IScriptRenderGraph, IScriptRenderBackend, IScriptShaderStruct
+  [绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    矩阵行数 23 / 有夹具的行数 23 / 真实接口行 5 / 签名行 78 / 非签名行（拒绝或错误码）0
+    不符数 0
+    两侧对齐问题 0 处
+    被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IWindow, IWindowSystem
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    夹具接口 26 个、桩数 3 个（只打印，不判定）
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    第二张矩阵问题 0 处
+    错误码问题 0 处
+    共享值类型问题 0 处
+    共享值类型限定名问题 0 处
+    夹具识别问题 0 处
+    渲染基础表面问题 0 处
+    脚本渲染适配面问题 0 处
+
+============================================================
+[2/2] Building all targets...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug
+[1/58] Building CXX object Interface\RenderInterface\CMakeFiles\ScriptRenderBridge.dir\private\ScriptRenderBridge.cpp.obj
+FAILED: Interface/RenderInterface/CMakeFiles/ScriptRenderBridge.dir/private/ScriptRenderBridge.cpp.obj 
+C:\PROGRA~1\MICROS~3\18\COMMUN~1\VC\Tools\MSVC\1450~1.357\bin\Hostx64\x64\cl.exe  /nologo /TP -DFMT_SHARED -DNOMINMAX=1 -DUSING_EASTL=0 -IE:\Projects\CascadedEngine\Interface\RenderInterface\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface -IE:\Projects\CascadedEngine\CACore\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\CACore -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\mimalloc-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\hash-library-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\komihash-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\fmt-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\magic_enum-src\include -IE:\Projects\CascadedEngine\ThreadManager\header -IE:\Projects\CascadedEngine\Interface\TimerSystem\header -IE:\Projects\CascadedEngine\GeneralResources\header -IE:\Projects\CascadedEngine\Interface\IOManager\header -IE:\Projects\CascadedEngine\WindowSystem\header -IE:\Projects\CascadedEngine\Interface\ShaderCompiler\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang /DWIN32 /D_WINDOWS /W3 /GR /EHsc /MDd /Ob0 /Od /RTC1 -std:c++20 -Zi /WX- /external:anglebrackets /external:W0 /wd4068 /wd26812 /wd26451 /wd26495 /wd28251 /wd6387 /Zc:preprocessor /utf-8 /showIncludes /FoInterface\RenderInterface\CMakeFiles\ScriptRenderBridge.dir\private\ScriptRenderBridge.cpp.obj /FdInterface\RenderInterface\CMakeFiles\ScriptRenderBridge.dir\ScriptRenderBridge.pdb /FS -c E:\Projects\CascadedEngine\Interface\RenderInterface\private\ScriptRenderBridge.cpp
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): error C2259: 'graphics_backend::CScriptRenderGraph': cannot instantiate abstract class
+E:\Projects\CascadedEngine\Interface\RenderInterface\private\ScriptRenderBridge.h(45): note: see declaration of 'graphics_backend::CScriptRenderGraph'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): note: due to following members:
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): note: 'int32_t graphics_backend::IScriptRenderGraph::SetPositionStream(const cacore::NameHash &,uint32_t,uint32_t)': is abstract
+E:\Projects\CascadedEngine\Interface\RenderInterface\private\../header/ScriptRenderBridge.h(66): note: see declaration of 'graphics_backend::IScriptRenderGraph::SetPositionStream'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): note: 'int32_t graphics_backend::IScriptRenderGraph::SetPassParam(uint32_t,const cacore::NameHash &,const std::shared_ptr<graphics_backend::IScriptShaderStruct> &)': is abstract
+E:\Projects\CascadedEngine\Interface\RenderInterface\private\../header/ScriptRenderBridge.h(70): note: see declaration of 'graphics_backend::IScriptRenderGraph::SetPassParam'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xmemory(2238): note: the template instantiation context (the oldest one first) is
+E:\Projects\CascadedEngine\Interface\RenderInterface\private\ScriptRenderBridge.cpp(282): note: see reference to function template instantiation 'std::shared_ptr<_Ty> std::make_shared<graphics_backend::CScriptRenderGraph,>(void)' being compiled
+        with
+        [
+            _Ty=graphics_backend::CScriptRenderGraph
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(2944): note: see reference to class template instantiation 'std::_Ref_count_obj2<graphics_backend::CScriptRenderGraph>' being compiled
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(2144): note: see reference to class template instantiation 'std::_Wrap<graphics_backend::CScriptRenderGraph>' being compiled
+[2/58] Building CXX object CSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj
+FAILED: CSharpHost/CMakeFiles/CSharpHost.dir/private/CSharpHost.cpp.obj 
+C:\PROGRA~1\MICROS~3\18\COMMUN~1\VC\Tools\MSVC\1450~1.357\bin\Hostx64\x64\cl.exe  /nologo /TP -DCASCADED_HAS_NETHOST=1 -DCA_MODULE_NAME=CSharpHost -DCA_STATIC_BUILD=0 -DCSharpHost_EXPORTS -DFMT_SHARED -DNOMINMAX=1 -DSTATIC_BUILT_CSharpHost=0 -DUSING_EASTL=0 -IE:\Projects\CascadedEngine\CSharpHost\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings -IE:\Projects\CascadedEngine\WindowSystem\header\CAWindow -IE:\Projects\CascadedEngine\CACore\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\CACore -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\mimalloc-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\hash-library-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\komihash-src -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\fmt-src\include -IE:\Projects\CascadedEngine\out\build\x64-debug\_deps\magic_enum-src\include -IE:\Projects\CascadedEngine\Interface\ScriptHost\header -IE:\Projects\CascadedEngine\Interface\RenderInterface\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface -IE:\Projects\CascadedEngine\WindowSystem\header -IE:\Projects\CascadedEngine\Interface\ShaderCompiler\header -IE:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang -IE:\Projects\CascadedEngine\Interface\TimerSystem\header -IE:\Projects\CascadedEngine\Interface\IOManager\header -IE:\Projects\CascadedEngine\ThreadManager\header -IE:\Projects\CascadedEngine\GeneralResources\header -external:I"C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\10.0.2\runtimes\win-x64\native" -external:W0 /DWIN32 /D_WINDOWS /W3 /GR /EHsc /MDd /Ob0 /Od /RTC1 -std:c++20 -Zi /WX- /external:anglebrackets /external:W0 /wd4068 /wd26812 /wd26451 /wd26495 /wd28251 /wd6387 /Zc:preprocessor /utf-8 /showIncludes /FoCSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj /FdCSharpHost\CMakeFiles\CSharpHost.dir\ /FS -c E:\Projects\CascadedEngine\CSharpHost\private\CSharpHost.cpp
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): error C2259: 'graphics_backend::CScriptRenderBackend': cannot instantiate abstract class
+E:\Projects\CascadedEngine\CSharpHost\private\../../Interface/RenderInterface/private/ScriptRenderBridge.h(88): note: see declaration of 'graphics_backend::CScriptRenderBackend'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: due to following members:
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: 'std::shared_ptr<graphics_backend::IScriptShaderStruct> graphics_backend::IScriptRenderBackend::CreateShaderStruct(const cacore::NameHash &)': is abstract
+E:\Projects\CascadedEngine\Interface\RenderInterface\header\ScriptRenderBridge.h(94): note: see declaration of 'graphics_backend::IScriptRenderBackend::CreateShaderStruct'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: the template instantiation context (the oldest one first) is
+E:\Projects\CascadedEngine\CSharpHost\private\CSharpHost.cpp(324): note: see reference to function template instantiation 'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>> std::make_unique<graphics_backend::CScriptRenderBackend,T*&,thread_management::CThreadManager*&,0>(T *&,thread_management::CThreadManager *&)' being compiled
+        with
+        [
+            T=graphics_backend::CRenderBackend
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): error C2259: 'graphics_backend::CScriptRenderBackend': cannot instantiate abstract class
+E:\Projects\CascadedEngine\CSharpHost\private\../../Interface/RenderInterface/private/ScriptRenderBridge.h(88): note: see declaration of 'graphics_backend::CScriptRenderBackend'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: due to following members:
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: 'std::shared_ptr<graphics_backend::IScriptShaderStruct> graphics_backend::IScriptRenderBackend::CreateShaderStruct(const cacore::NameHash &)': is abstract
+E:\Projects\CascadedEngine\Interface\RenderInterface\header\ScriptRenderBridge.h(94): note: see declaration of 'graphics_backend::IScriptRenderBackend::CreateShaderStruct'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): error C2440: '<function-style-cast>': cannot convert from 'graphics_backend::CScriptRenderBackend *' to 'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: 'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(const std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>> &)': cannot convert argument 1 from 'graphics_backend::CScriptRenderBackend *' to 'const std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>> &'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: Reason: cannot convert from 'graphics_backend::CScriptRenderBackend *' to 'const std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3422): note: could be 'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(std::unique_ptr<_Ux,_Dx> &&) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3414): note: or       'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>> &&) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3411): note: or       'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(graphics_backend::CScriptRenderBackend *,std::default_delete<graphics_backend::CScriptRenderBackend> &&)'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3406): note: or       'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(graphics_backend::CScriptRenderBackend *,_Dx &&) noexcept'
+        with
+        [
+            _Dx=std::default_delete<graphics_backend::CScriptRenderBackend>
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3402): note: or       'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(graphics_backend::CScriptRenderBackend *,const _Dx &) noexcept'
+        with
+        [
+            _Dx=std::default_delete<graphics_backend::CScriptRenderBackend>
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3399): note: or       'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(graphics_backend::CScriptRenderBackend *) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3389): note: or       'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(std::nullptr_t) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3386): note: or       'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::unique_ptr(void) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3659): note: while trying to match the argument list '(graphics_backend::CScriptRenderBackend *)'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): error C2672: 'forward': no matching overloaded function found
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\type_traits(1514): note: could be '_Ty &&std::forward(remove_reference<_Ty>::type &&) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): note: Failed to specialize function template '_Ty &&std::forward(remove_reference<_Ty>::type &&) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): note: With the following template arguments:
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): note: '_Ty=std::default_delete<graphics_backend::CScriptRenderBackend>'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\type_traits(1509): note: or       '_Ty &&std::forward(remove_reference<_Ty>::type &) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): note: Failed to specialize function template '_Ty &&std::forward(remove_reference<_Ty>::type &) noexcept'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): note: With the following template arguments:
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): note: '_Ty=std::default_delete<graphics_backend::CScriptRenderBackend>'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\memory(3444): note: the template instantiation context (the oldest one first) is
+E:\Projects\CascadedEngine\CSharpHost\private\CSharpHost.cpp(324): note: see reference to function template instantiation 'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>> &std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::operator =<std::default_delete<graphics_backend::CScriptRenderBackend>,0>(std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>> &&) noexcept' being compiled
+E:\Projects\CascadedEngine\CSharpHost\private\CSharpHost.cpp(324): note: see the first reference to 'std::unique_ptr<graphics_backend::CScriptRenderBackend,std::default_delete<graphics_backend::CScriptRenderBackend>>::operator =' in 'cs_script::CSharpHost::CreateRenderAdapter'
+[3/58] Building CXX object IMGUIContext\CMakeFiles\IMGUIContext.dir\IMGUIContext.cpp.obj
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(529): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(529): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(559): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(559): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(575): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(575): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(650): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(650): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(682): warning C4018: '<': signed/unsigned mismatch
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(776): warning C4018: '<': signed/unsigned mismatch
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\type_traits(1688): warning C4244: 'argument': conversion from '_Ty' to 'int', possible loss of data
+        with
+        [
+            _Ty=float
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\type_traits(1688): note: the template instantiation context (the oldest one first) is
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(519): note: see reference to function template instantiation 'std::function<void (cawindow::IWindow *,float,float)>::function<void(__cdecl &)(cawindow::IWindow *,int,int),0>(_Fx)' being compiled
+        with
+        [
+            _Fx=void (__cdecl &)(cawindow::IWindow *,int,int)
+        ]
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(519): note: see the first reference to 'std::function<void (cawindow::IWindow *,float,float)>::function' in 'imgui_display::IMGUIContext::Initialize'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(1110): note: see reference to function template instantiation 'void std::_Func_class<_Ret,cawindow::IWindow *,float,float>::_Reset<void(__cdecl &)(cawindow::IWindow *,int,int)>(_Fx)' being compiled
+        with
+        [
+            _Ret=void,
+            _Fx=void (__cdecl &)(cawindow::IWindow *,int,int)
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(977): note: see reference to variable template 'const bool _Is_large<std::_Func_impl_no_alloc<void (__cdecl*)(cawindow::IWindow *,int,int),void,cawindow::IWindow *,float,float> >' being compiled
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(749): note: see reference to class template instantiation 'std::_Func_impl_no_alloc<void (__cdecl *)(cawindow::IWindow *,int,int),_Ret,cawindow::IWindow *,float,float>' being compiled
+        with
+        [
+            _Ret=void
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(881): note: while compiling class template member function '_Rx std::_Func_impl_no_alloc<void (__cdecl *)(cawindow::IWindow *,int,int),_Rx,cawindow::IWindow *,float,float>::_Do_call(cawindow::IWindow *&&,float &&,float &&)'
+        with
+        [
+            _Rx=void
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(883): note: see reference to function template instantiation 'void std::invoke<void(__cdecl *&)(cawindow::IWindow *,int,int),_Ty,float,float>(_Callable,_Ty1 &&,float &&,float &&) noexcept(false)' being compiled
+        with
+        [
+            _Ty=cawindow::IWindow *,
+            _Callable=void (__cdecl *&)(cawindow::IWindow *,int,int),
+            _Ty1=cawindow::IWindow *
+        ]
+[4/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\FrameBoundResourceManager.cpp.obj
+[5/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\D3DBufferObject.cpp.obj
+[6/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUComputePipelineInstance.cpp.obj
+[7/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUPipelineInstance.cpp.obj
+[8/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\CommandListManager.cpp.obj
+[9/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\D3DImageObject.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\D3DImageObject.cpp(63) : warning C4172: returning address of local variable or temporary 
+[10/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\RenderBackend_D3D12.cpp.obj
+[11/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\DescriptorManagment\GPUDescriptorHeap.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\Utils\InterfaceTranslation.h(785) : warning C4715: 'graphics_backend::ETextureSamplerFilterModeToD3D12FilterType': not all control paths return a value
+[12/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUResourceBindingInstance.cpp.obj
+[13/58] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUGraphExecutor.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(706): warning C4244: 'argument': conversion from 'uint64_t' to 'uint32_t', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(1833): warning C4018: '<': signed/unsigned mismatch
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(1927): warning C4244: '=': conversion from 'UINT64' to 'UINT', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(1941): warning C4244: '=': conversion from 'UINT64' to 'UINT', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(2049): warning C4244: 'argument': conversion from 'UINT64' to 'HRESULT', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\Utils\InterfaceTranslation.h(834) : warning C4715: 'graphics_backend::EAttachmentLoadOpToD3D12RenderPassBeginAccess': not all control paths return a value
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\Utils\InterfaceTranslation.h(845) : warning C4715: 'graphics_backend::EAttachmentStoreOpToD3D12RenderPassEndAccess': not all control paths return a value
+[14/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VMAImpl.cpp.obj
+[15/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanWindowHandle.cpp.obj
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\VulkanObjects\VulkanWindowHandle.cpp(335): warning C4834: discarding return value of function with [[nodiscard]] attribute
+[16/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\Utils\VulkanSubobjectBase.cpp.obj
+[17/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanPassRWState.cpp.obj
+[18/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanMemoryManager.cpp.obj
+[19/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjectManaging\DescriptorSetLayoutManager.cpp.obj
+[20/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjectManaging\VertexInputStateManager.cpp.obj
+[21/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanShaderStruct.cpp.obj
+[22/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\PipelineLibrary\PipelineLibraryCache.cpp.obj
+[23/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanFrameManager.cpp.obj
+[24/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanBuffer.cpp.obj
+[25/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanLinearMemoryManager.cpp.obj
+[26/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanTexture.cpp.obj
+[27/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\PipelineLibrary\VulkanPipelineLibrary.cpp.obj
+[28/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjectManaging\PipelineLayoutManager.cpp.obj
+[29/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanCommandListManager.cpp.obj
+[30/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanResourceAliasing.cpp.obj
+[31/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanGraphLocalResourceManager.cpp.obj
+[32/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanResourceBindingInstance.cpp.obj
+[33/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanGraphExecutor.cpp.obj
+[34/58] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\RenderBackend_Vulkan.cpp.obj
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(236): warning C4996: 'vk::DebugUtilsMessengerCreateInfoEXT::DebugUtilsMessengerCreateInfoEXT': This constructor is deprecated. Use the one taking function pointer types from the vk-namespace instead.
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(354): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(619): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(1127): warning C4834: discarding return value of function with [[nodiscard]] attribute
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(1184): warning C4834: discarding return value of function with [[nodiscard]] attribute
+ninja: build stopped: subcommand failed.
+
+
+ERROR: command failed (exit 1)
+  Bat file kept at: E:\Projects\CascadedEngine\_build_run.bat
+
+
+构建退出码=1（1.1 的期望红态：适配实现未写，纯虚方法没实现 ⇒ 不能实例化抽象类）
+

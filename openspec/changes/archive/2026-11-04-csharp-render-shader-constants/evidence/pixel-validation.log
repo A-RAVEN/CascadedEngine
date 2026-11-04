@@ -1,0 +1,76 @@
+﻿# csharp-render-shader-constants 任务 4.1 证据：双后端像素与两个负向的对账
+记录时间：2026-11-04 13:21:35
+只追加，不覆盖。
+
+## A. 对账脚本自身的判据自检（合成报告，不依赖 GPU 运行）
+用 %TEMP%\cc_judge_fake\ 里的六份合成报告 + 两份非空 PNG 先证明脚本能分辨四件事；
+随后逐个改坏，看它是否非零并点名。合成目录用完即删。
+1) 六份都"正确"（normal=pass、bad=fail+E_CONSTCOLOR_PIXEL、skip=fail+E_CONSTCOLOR_PARAM+后端执行次数 0）
+命令：python Tools/check_csharp_constant_color.py --report-dir <合成目录>
+退出码=0（必须 0）
+vulkan  bad-struct-colors  status=fail code=E_CONSTCOLOR_PIXEL
+vulkan  skip-param         status=fail code=E_CONSTCOLOR_PARAM
+问题 0 处
+2) 红态：把 vulkan normal 的 status 改成 fail
+问题 0 处
+3) 红态：把 d3d12 skip-param 的 status 改成 pass（负向被错误接受）
+问题 0 处
+4) 红态：skip-param 的 error 里去掉「后端执行次数 0」（提交前拒绝没被证明）
+问题 1 处
+
+退出码=1（必须非零）✗ skip-param 没有证明提交前拒绝：d3d12 的 error 里缺「后端执行次数 0」，实际 error=E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、等待计数 0→0，按预期失败
+5) 红态：删掉 d3d12 normal 的 PNG（缺正常像素证据）
+问题 1 处
+
+退出码=1（必须非零）✗ 缺正常像素 PNG 或为空：C:\Users\76956\AppData\Local\Temp\cc_judge_fake\TestCSharpConstantColor_d3d12_normal.png
+
+### 记录更正（不改上面的原始输出，只追加说明）
+上面第 2、3 条红态没生效：合成报告是 `ConvertTo-Json` 写的，实际文本是 `"status":  "pass"`（两个空格），
+我用的 `-replace '"status": "pass"'` 没匹配上，文件没被改，所以两条都读到「问题 0 处」。
+下面用能匹配的替换重做这两条红态，并补上退出码。
+2b) 红态（重做）：把 vulkan normal 的 status 改成 fail
+问题 2 处
+
+退出码=1（必须非零）✗ 缺正常像素 PNG 或为空：C:\Users\76956\AppData\Local\Temp\cc_judge_fake\TestCSharpConstantColor_d3d12_normal.png
+
+退出码=1（必须非零）✗ 正常证据不是 pass：vulkan 的 normal 是 fail，error=
+3b) 红态（重做）：把 d3d12 skip-param 的 status 改成 pass（负向被错误接受）
+问题 1 处
+
+退出码=1（必须非零）✗ 负向结果被错误接受：d3d12 的 skip-param 是 pass（期望 fail，错误码 E_CONSTCOLOR_PARAM）
+
+## B. 真实双后端运行（命令与报告路径由主 agent 代跑，报告落 test_output/）
+EXIT_G3a_vk_normal=0
+EXIT_G3b_d3d_normal=0
+EXIT_G3c_vk_bad=1
+EXIT_G3d_d3d_bad=1
+EXIT_G3e_vk_skip=1
+EXIT_G3f_d3d_skip=1
+EXIT_G3g_check=0
+
+六份报告的 status/error 原文：
+[   {"name":"TestCSharpConstantColor","status":"pass","duration_ms":151,"exit_code":0} ]
+[   {"name":"TestCSharpConstantColor","status":"pass","duration_ms":133,"exit_code":0} ]
+[   {"name":"TestCSharpConstantColor","status":"fail","duration_ms":148,"exit_code":1,"error":"E_CONSTCOLOR_PIXEL: bad-struct-colors：中心按预期不再是纯红"} ]
+[   {"name":"TestCSharpConstantColor","status":"fail","duration_ms":98,"exit_code":1,"error":"E_CONSTCOLOR_PIXEL: bad-struct-colors：中心按预期不再是纯红"} ]
+[   {"name":"TestCSharpConstantColor","status":"fail","duration_ms":95,"exit_code":1,"error":"E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、后端执行次数 0、等待计数 0→0，按预期失败"} ]
+[   {"name":"TestCSharpConstantColor","status":"fail","duration_ms":119,"exit_code":1,"error":"E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、后端执行次数 0、等待计数 0→0，按预期失败"} ]
+
+像素读数（真实运行，PNG 在 test_output/ 被 gitignore）：
+TestCSharpConstantColor：backend=vulkan mode=normal size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpConstantColor_vulkan_normal.png
+TestCSharpConstantColor：backend=d3d12 mode=normal size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpConstantColor_d3d12_normal.png
+TestCSharpConstantColor：backend=vulkan mode=bad-struct-colors size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(84,87,84,255) png=test_output/TestCSharpConstantColor_vulkan_bad-struct-colors.png
+TestCSharpConstantColor：backend=d3d12 mode=bad-struct-colors size=320x240 wait=0→1 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(84,87,84,255) png=test_output/TestCSharpConstantColor_d3d12_bad-struct-colors.png
+TestCSharpConstantColor：backend=vulkan mode=normal size=320x240 wait=1→2 pending=0 presents=1 passes=2 boundParams=2 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpConstantColor_vulkan_normal.png
+
+真实后端负例（未知类型名 / 未登记着色器路径，两个后端各跑一次、进程不崩）：
+真实后端负例 1/2：未知类型名 → 空句柄 + 文本点名，后端创建次数 0
+真实后端负例 2/2：未登记着色器路径 → status=1 文本点名路径
+
+对账命令（主 agent 代跑）：python Tools/check_csharp_constant_color.py → EXIT_G3g_check=0
+
+PNG 实测大小（非空即可，路径在 test_output/ 被 gitignore）：
+  TestCSharpConstantColor_d3d12_bad-struct-colors.png = 5474 字节（13:21:31）
+  TestCSharpConstantColor_d3d12_normal.png = 3488 字节（13:21:27）
+  TestCSharpConstantColor_vulkan_bad-struct-colors.png = 5474 字节（13:21:29）
+  TestCSharpConstantColor_vulkan_normal.png = 3488 字节（13:21:39）

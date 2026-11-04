@@ -434,6 +434,32 @@ namespace graphics_backend
 		return NewSubObject_Shared<D3D2ShaderStruct>(pData);
 	}
 
+	// csharp-render-shader-constants 任务 1.1：未命中返回空指针且不打断。直接读公开段的两张表，
+	// 与上面的 `CreateShaderStruct` 用同一条路径（同一个资源名、同一张表）。
+	ShaderCompilerSlang::ShaderStructData const* RenderBackend_D3D12::FindShaderStructData(
+		cacore::NameHash const& structType)
+	{
+		auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("D3D12ShaderLibrary.shLib");
+		if (shaderLibrary == nullptr)
+		{
+			return nullptr;
+		}
+		auto found = shaderLibrary->m_ShaderStructs.find(structType);
+		return found == shaderLibrary->m_ShaderStructs.end() ? nullptr : &found->second;
+	}
+
+	ShaderCompilerSlang::ShaderStructData const* RenderBackend_D3D12::FindShaderRootStructData(
+		cacore::PathHash const& shaderPath)
+	{
+		auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("D3D12ShaderLibrary.shLib");
+		if (shaderLibrary == nullptr)
+		{
+			return nullptr;
+		}
+		auto found = shaderLibrary->m_ShaderRootStructs.find(shaderPath);
+		return found == shaderLibrary->m_ShaderRootStructs.end() ? nullptr : &found->second;
+	}
+
 	void RenderBackend_D3D12::RunTestCode()
 	{
 		//struct VertexStruct

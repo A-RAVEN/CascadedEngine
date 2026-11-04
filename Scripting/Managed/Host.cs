@@ -12,8 +12,8 @@ namespace Scripting.Managed
     /// </summary>
     public static unsafe class Host
     {
-        // 与 C++ 侧必须逐字一致
-        private const uint ExpectedAbiVersion = 6;
+        // 与 C++ 侧必须逐字一致（csharp-render-shader-constants 任务 3.1：v6 → v7，末尾追加参数结构编号）
+        private const uint ExpectedAbiVersion = 7;
 
         private static EngineApi* s_api;
         private static int s_tickCount;
@@ -118,10 +118,11 @@ namespace Scripting.Managed
             }
             // csharp-render-backend-triangle 任务 3.1：新增三个接口的布局清单也要逐项核对。
             // 后端与目标接口没有过界记录（清单为空，循环直接通过）；图接口带 GPUBufferDescriptor。
+            // csharp-render-shader-constants 任务 3.1：第四个渲染接口（参数结构，编号 6）同样纳入。
             if (api->ScriptRenderBackendInterfaceId == 0 || api->ScriptRenderGraphInterfaceId == 0 ||
-                api->ScriptRenderTargetInterfaceId == 0)
+                api->ScriptRenderTargetInterfaceId == 0 || api->ScriptShaderStructInterfaceId == 0)
             {
-                s_lastError = "函数表里的渲染接口编号是 0（v6 的三个字段没有下发）";
+                s_lastError = "函数表里的渲染接口编号是 0（v6 的三个 / v7 的第四个字段没有下发）";
                 return false;
             }
             if (!VerifyBindingLayout(api, api->ScriptRenderBackendInterfaceId,
@@ -131,6 +132,11 @@ namespace Scripting.Managed
             }
             if (!VerifyBindingLayout(api, api->ScriptRenderGraphInterfaceId,
                     IScriptRenderGraphBindings.LayoutManifest))
+            {
+                return false;
+            }
+            if (!VerifyBindingLayout(api, api->ScriptShaderStructInterfaceId,
+                    IScriptShaderStructBindings.LayoutManifest))
             {
                 return false;
             }
@@ -209,14 +215,19 @@ namespace Scripting.Managed
         {
             try
             {
-                // 关闭顺序（csharp-render-backend-triangle 任务 3.1 / spec）：先释放脚本保留的
-                // 离屏目标、图与窗口目标，再释放后端表面对象；原生适配器随宿主生命周期销毁。
+                // 关闭顺序（csharp-render-backend-triangle 任务 3.1 / spec；
+                // csharp-render-shader-constants 任务 3.1 追加参数结构）：参数结构 → 图 → 离屏目标 → 后端表面。
+                LogShutdownStep("1/4 参数结构表面对象");
+                UserScript.ReleaseShaderStructSurfaces();
+                LogShutdownStep("2-3/4 图 → 离屏目标");
                 UserScript.ReleaseRenderSurfaces();
+                LogShutdownStep("4/4 后端表面对象");
                 if (s_renderBackend != null)
                 {
                     s_renderBackend.Dispose();
                     s_renderBackend = null;
                 }
+                LogShutdownStep("释放完成");
                 s_renderTablesBound = false;
                 s_renderProbeCalled = true;
                 if (s_system != null)
@@ -269,6 +280,8 @@ namespace Scripting.Managed
                 // 渲染探针有独立的调用标记与开关（csharp-render-backend-triangle 任务 3.2）：
                 // 它不依赖 `OnEngineReady` 那一次，也不会被更早的脚本调用消耗。
                 ProbeRender();
+                // 常量色探针同样独立（csharp-render-shader-constants 任务 3.2）。
+                ProbeConstantColor();
                 ProbeWindowSize();
                 ProbeExceptionMapping();
                 ProbeMonitor();
@@ -969,9 +982,14 @@ namespace Scripting.Managed
         private static IScriptRenderBackend s_renderBackend;
         private static bool s_renderTablesBound;
         private static bool s_renderProbeCalled;
+        // csharp-render-shader-constants 任务 3.2：常量色探针有自己的开关与调用标记，与渲染探针互不消耗。
+        private static bool s_constantColorProbeCalled;
 
         private static bool RenderProbeEnabled =>
             Environment.GetEnvironmentVariable("CASCADED_CSHARP_RENDER_PROBE") == "1";
+
+        private static bool ConstantColorProbeEnabled =>
+            Environment.GetEnvironmentVariable("CASCADED_CSHARP_CONSTCOLOR_PROBE") == "1";
 
         /// <summary>
         /// 绑定三张渲染表（任务 3.1）：后端表要求真实适配器实例；图与目标表属于目标类型表，
@@ -1013,14 +1031,18 @@ namespace Scripting.Managed
             if (!BindTargetTable(s_api->ScriptRenderGraphInterfaceId, "IScriptRenderGraph",
                     IScriptRenderGraphBindings.Bind) ||
                 !BindTargetTable(s_api->ScriptRenderTargetInterfaceId, "IScriptRenderTarget",
-                    IScriptRenderTargetBindings.Bind))
+                    IScriptRenderTargetBindings.Bind) ||
+                // csharp-render-shader-constants 任务 3.1：第四个渲染接口（参数结构）也是目标类型表，
+                // 允许空实例取表；实际对象由目标句柄解析。
+                !BindTargetTable(s_api->ScriptShaderStructInterfaceId, "IScriptShaderStruct",
+                    IScriptShaderStructBindings.Bind))
             {
                 LogLine("[托管侧 渲染] " + s_lastError);
                 s_lastError = string.Empty;
                 return;
             }
             s_renderTablesBound = true;
-            LogLine($"[托管侧 渲染] 三个函数表已绑定（后端实例 {(long)backendInstance}）");
+            LogLine($"[托管侧 渲染] 四个函数表已绑定（后端实例 {(long)backendInstance}）");
         }
 
         private delegate void BindTableFn(byte* table);
@@ -1068,6 +1090,33 @@ namespace Scripting.Managed
             UserScript.OnRenderProbe(s_system, s_renderBackend);
             LogLine($"[脚本 渲染] OnRenderProbe 调用 #{UserScript.RenderProbeCount}：" +
                     UserScript.LastRenderSummary);
+        }
+
+        /// <summary>
+        /// 常量色探针（csharp-render-shader-constants 任务 3.2）：与 `ProbeRender` 同形但**独立**的
+        /// 开关（`CASCADED_CSHARP_CONSTCOLOR_PROBE`）与调用标记 —— 两个探针在同一进程的全量顺序里
+        /// 各自执行一次、互不消耗。未启用时不创建任何 GPU 工作。
+        /// </summary>
+        private static void ProbeConstantColor()
+        {
+            if (s_constantColorProbeCalled || !ConstantColorProbeEnabled)
+            {
+                return;
+            }
+            s_constantColorProbeCalled = true;
+            if (!s_renderTablesBound)
+            {
+                BindRenderInterfaces();
+            }
+            if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
+            {
+                s_lastError = "常量色探针：四个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                LogLine("[托管侧 常量色] " + s_lastError);
+                return;
+            }
+            UserScript.OnConstantColorProbe(s_system, s_renderBackend);
+            LogLine($"[脚本 常量色] OnConstantColorProbe 调用 #{UserScript.ConstantColorProbeCount}：" +
+                    UserScript.LastConstantColorSummary);
         }
 
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>
@@ -1121,6 +1170,18 @@ namespace Scripting.Managed
             {
                 s_api->Log(0, pointer, (ulong)utf8.Length);
             }
+        }
+
+        /// <summary>
+        /// 关闭顺序的逐步读数（任务 3.1）：同时走宿主日志与 stderr —— 关闭发生在各测试自己的日志文件
+        /// 已关闭之后，只写宿主日志的话这一串顺序在进程输出里看不到。
+        /// </summary>
+        private static void LogShutdownStep(string step)
+        {
+            string text = "[托管侧 关闭顺序] " + step;
+            LogLine(text);
+            Console.Error.WriteLine(text);
+            Console.Error.Flush();
         }
     }
 }

@@ -41,6 +41,13 @@ namespace graphics_backend
 		virtual castl::shared_ptr<GPUBuffer> CreateGPUBuffer(GPUBufferDescriptor const& descriptor, EBufferUsageFlags usageFlags) override;
 		virtual castl::shared_ptr<GPUTexture> CreateGPUTexture(GPUTextureDescriptor const& inDescriptor, ETextureAccessTypeFlags accessType) override;
 		virtual castl::shared_ptr<ShaderStruct> CreateShaderStruct(cacore::NameHash const& structType) override;
+		// csharp-render-shader-constants 任务 1.1：直读 `ShaderLibrary` 公开段的两张结构表。
+		// **不复用** `ShaderLibrary::GetShaderStruct` / `GetShaderRootStruct` —— 它们未命中先执行
+		// `CA_LOG_ERR_BREAK`（`__debugbreak`），不能当"未命中返回空"的校验查询。
+		ShaderCompilerSlang::ShaderStructData const* FindShaderStructData(
+			cacore::NameHash const& structType) override;
+		ShaderCompilerSlang::ShaderStructData const* FindShaderRootStructData(
+			cacore::PathHash const& shaderPath) override;
 		virtual castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow> window) override;
 		virtual bool AnyWindowRunning() override;
 		virtual void WaitIdle() override;

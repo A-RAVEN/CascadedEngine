@@ -15,6 +15,8 @@
 #include "IScriptRenderTarget.Bindings.cpp"
 #include "IScriptRenderGraph.Bindings.cpp"
 #include "IScriptRenderBackend.Bindings.cpp"
+// csharp-render-shader-constants 任务 3.1：参数结构（第四个脚本接口，编号 6）。
+#include "IScriptShaderStruct.Bindings.cpp"
 
 // 原生适配器实现：三个公开接口 + 私有类（`CScriptRenderBackend`）。宿主只在这里接触具体类型，
 // 托管侧只能看到公开接口。
@@ -71,7 +73,15 @@ namespace cs_script
 		uint32_t script_render_backend_interface_id;
 		uint32_t script_render_graph_interface_id;
 		uint32_t script_render_target_interface_id;
+		// --- v7 追加（csharp-render-shader-constants 任务 3.1）：参数结构表编号 ---
+		// 与图、目标同属目标类型表（没有默认实例，取表时 instanceOut 可为空）；实际对象由目标句柄解析。
+		// 实测 `sizeof(EngineApi)` 仍是 72 字节：v6 的正文是 68 字节 + 尾巴对齐填充 4，追加这一个 `uint32_t`
+		// 后正文恰为 72、对齐不产生新的填充。下面那条 static_assert 由编译器核对这个数。
+		uint32_t script_shader_struct_interface_id;
 	};
+
+	static_assert(sizeof(EngineApi) == 72u,
+	              "手写 EngineApi 的实测大小必须是 72 字节（v7 只把尾部填充用满，不新增 8 字节槽）");
 
 	// 引擎侧约定的接口编号（托管侧 Host.cs 必须用同一组数字）
 	static constexpr uint32_t s_interfaceIdWindow = 1;
@@ -80,6 +90,8 @@ namespace cs_script
 	static constexpr uint32_t s_interfaceIdScriptRenderBackend = 3;
 	static constexpr uint32_t s_interfaceIdScriptRenderGraph = 4;
 	static constexpr uint32_t s_interfaceIdScriptRenderTarget = 5;
+	// v7：参数结构（csharp-render-shader-constants 任务 3.1）。第四个脚本接口，接在 5 之后。
+	static constexpr uint32_t s_interfaceIdScriptShaderStruct = 6;
 	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
 	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会
 	// **覆盖**第一份 —— 两个 window system 并存时 `GetInterfaceInstance` 张冠李戴。
@@ -120,7 +132,8 @@ namespace cs_script
 	// 的签名变了**，size 校验抓不到签名，只有版本号能拦 —— 所以照样升一版。
 	// v5（complete-csharp-window-system-bindings 任务 3.1）：末尾追加布局清单两个读数入口。
 	// v6（csharp-render-backend-triangle 任务 3.1）：末尾追加脚本渲染适配面的三个接口编号。
-	static constexpr uint32_t s_engineApiVersion = 6;
+	// v7（csharp-render-shader-constants 任务 3.1）：末尾追加参数结构的接口编号（编号 6）。
+	static constexpr uint32_t s_engineApiVersion = 7;
 
 	class CSharpHost final : public IScriptHost
 	{
@@ -323,8 +336,13 @@ namespace cs_script
 			}
 			m_renderAdapter = std::make_unique<graphics_backend::CScriptRenderBackend>(backend, threads);
 			SetInterfaceInstance(s_interfaceIdScriptRenderBackend, nullptr, m_renderAdapter.get());
-			CA_LOG("CSharpHost：脚本渲染适配器已登记（编号 {}；后端地址 {:X}）",
-				s_interfaceIdScriptRenderBackend, reinterpret_cast<uintptr_t>(backend));
+			// 这行必须报**登记表的实际读数**：csharp-render-shader-constants 任务 3.1 的变异实验里
+			// 临时注释掉上面那行登记，日志却照样打"已登记"——文本在说谎，把缺口遮住了。现在直接把
+			// 查表结果打在后面，登记没发生时读数是 0，一眼可见。
+			void* registered = GetInterfaceInstance(s_interfaceIdScriptRenderBackend, nullptr);
+			CA_LOG("CSharpHost：脚本渲染适配器{}（编号 {}；后端地址 {:X}；登记表读数 {:X}）",
+				registered == m_renderAdapter.get() ? "已登记" : "未登记", s_interfaceIdScriptRenderBackend,
+				reinterpret_cast<uintptr_t>(backend), reinterpret_cast<uintptr_t>(registered));
 		}
 
 		// 被登记的接口实例（下标就是接口编号；0 号不用）
@@ -382,6 +400,8 @@ namespace cs_script
 			api.script_render_backend_interface_id = s_interfaceIdScriptRenderBackend;
 			api.script_render_graph_interface_id = s_interfaceIdScriptRenderGraph;
 			api.script_render_target_interface_id = s_interfaceIdScriptRenderTarget;
+			// v7：参数结构表编号（与图、目标同属目标类型表）
+			api.script_shader_struct_interface_id = s_interfaceIdScriptShaderStruct;
 			// 布局清单读数（v5）：托管 Boot 逐项比对后才允许绑定
 			api.get_binding_layout_type = &CSharpHost::OnGetBindingLayoutType;
 			api.get_binding_layout_field = &CSharpHost::OnGetBindingLayoutField;
@@ -728,16 +748,17 @@ namespace cs_script
 			}
 			// 未知编号**不许静默**（`csharp-window-creation` 任务 4.2）：以前这里 `>= 8u` 直接
 			// 返回 0，加第 9 个接口时既不报错也不提示，调用方只看到"取表失败"。
-			// 目标类型表（图 / 目标）：没有默认实例，取表时不需要实例；实际对象由目标句柄解析。
+			// 目标类型表（图 / 目标 / 参数结构）：没有默认实例，取表时不需要实例；实际对象由目标句柄解析。
 			const bool isTargetTypeTable = interfaceId == s_interfaceIdScriptRenderGraph ||
-				interfaceId == s_interfaceIdScriptRenderTarget;
+				interfaceId == s_interfaceIdScriptRenderTarget ||
+				interfaceId == s_interfaceIdScriptShaderStruct;
 			if (interfaceId != s_interfaceIdWindow && interfaceId != s_interfaceIdWindowSystem &&
 				interfaceId != s_interfaceIdScriptRenderBackend && !isTargetTypeTable)
 			{
 				s_instance->m_lastError =
 					"未知接口编号 " + std::to_string(interfaceId) +
 					"：当前接线了 1 = IWindow、2 = IWindowSystem、3 = IScriptRenderBackend、"
-					"4 = IScriptRenderGraph、5 = IScriptRenderTarget";
+					"4 = IScriptRenderGraph、5 = IScriptRenderTarget、6 = IScriptShaderStruct";
 				return 0u;
 			}
 			// `size == 0` 是"探针调用"：托管侧还不知道表有多大，先问一句（不写任何内存）。
@@ -760,6 +781,10 @@ namespace cs_script
 				if (interfaceId == s_interfaceIdScriptRenderGraph)
 				{
 					return static_cast<uint32_t>(sizeof(IScriptRenderGraphApi_v2));
+				}
+				if (interfaceId == s_interfaceIdScriptShaderStruct)
+				{
+					return static_cast<uint32_t>(sizeof(IScriptShaderStructApi_v2));
 				}
 				return static_cast<uint32_t>(sizeof(IScriptRenderTargetApi_v2));
 			}
@@ -811,6 +836,11 @@ namespace cs_script
 				realSize = IScriptRenderGraph_GetApi(version, size,
 					static_cast<IScriptRenderGraphApi_v2*>(out));
 			}
+			else if (interfaceId == s_interfaceIdScriptShaderStruct)
+			{
+				realSize = IScriptShaderStruct_GetApi(version, size,
+					static_cast<IScriptShaderStructApi_v2*>(out));
+			}
 			else
 			{
 				realSize = IScriptRenderTarget_GetApi(version, size,
@@ -844,6 +874,10 @@ namespace cs_script
 			{
 				return IScriptRenderTarget_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
 			}
+			if (interfaceId == s_interfaceIdScriptShaderStruct)
+			{
+				return IScriptShaderStruct_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
+			}
 			return 0u;
 		}
 
@@ -875,6 +909,11 @@ namespace cs_script
 			else if (interfaceId == s_interfaceIdScriptRenderTarget)
 			{
 				result = IScriptRenderTarget_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName,
+															typeCap, offsetBytes);
+			}
+			else if (interfaceId == s_interfaceIdScriptShaderStruct)
+			{
+				result = IScriptShaderStruct_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName,
 															typeCap, offsetBytes);
 			}
 #if defined(_DEBUG)

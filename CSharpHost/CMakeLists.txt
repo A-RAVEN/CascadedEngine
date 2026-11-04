@@ -28,8 +28,11 @@ endif()
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 target_include_directories(${PROJECT_NAME} PUBLIC header)
-# 生成的绑定产物（`IWindow.Bindings.cpp`，由 build.py 的模型生成步骤写出）与它 include 的接口头：
-# 这个模块直接编译那份产物，所以自己就带着函数表与 thunk。
+# 生成的绑定产物（`IWindow.Bindings.cpp`、`IScriptRenderBackend.Bindings.cpp`、
+# `IScriptRenderGraph.Bindings.cpp`、`IScriptRenderTarget.Bindings.cpp`、
+# `IScriptShaderStruct.Bindings.cpp`，由 build.py 的模型生成步骤写出）与它们 include 的接口头：
+# 这个模块直接编译这些产物，所以自己就带着函数表与 thunk（csharp-render-shader-constants 任务 3.1
+# 追加了第四个脚本接口的产物）。
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/codegen/bindings
     ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow)

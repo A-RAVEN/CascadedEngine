@@ -7,8 +7,8 @@
 | 层 | 载体 | 适合测什么 | 不适合测什么 |
 |---|---|---|---|
 | **① 纯逻辑** | `Test/CoreTests`（23 个 `.cpp`，`main` 在 `SerializerTest.cpp`） | 序列化字节、哈希值、反射与类型表、容器语义、绑定回调/嵌套镜像/公开值类型、脚本渲染适配面的原生图结构这类**不碰模块、不开窗口、不需要 GPU**的判定 | 需要加载模块、需要真实后端、需要多进程或"启动即退出"的行为 |
-| **② 进程内行为** | `Test/GPUBackendTester`（当前 **13** 个测试，注册在 `Main.cpp` 的 `runTestWithDiagnostics("TestXxx", TestXxx)` 列表里） | 要真后端、真要窗口、要在引擎内部断言某模块的行为（例：`IScriptHost` 可用、`Tick` 回值正确、10 类窗口回调与生命周期、C# 提交三角形的真实像素） | 进程级失败（启动就该非零退出）、需要改环境变量的场景 |
-| **③ 进程级 / 多进程** | `Tools/check_*.py`（现有 9 个脚本） | "缺文件 / 版本不符 / ABI 不符 ⇒ 退出码与错误串"这类**一启动就失败**的路径；生成物与审计表的对账；两侧日志逐字段对拍；正常/负向像素报告的对账 | 需要引擎内部状态的断言 |
+| **② 进程内行为** | `Test/GPUBackendTester`（当前 **14** 个测试，注册在 `Main.cpp` 的 `runTestWithDiagnostics("TestXxx", TestXxx)` 列表里） | 要真后端、真要窗口、要在引擎内部断言某模块的行为（例：`IScriptHost` 可用、`Tick` 回值正确、10 类窗口回调与生命周期、C# 提交三角形的真实像素、C# 按着色器参数驱动的常量色像素） | 进程级失败（启动就该非零退出）、需要改环境变量的场景 |
+| **③ 进程级 / 多进程** | `check_*.py` 前缀共 10 个（`Tools/` 6 个 + `Tools/CodeGen/` 4 个），外加 `verify_readme.py`、`read_dump.py`、`spin_check.py` 三个助手 | "缺文件 / 版本不符 / ABI 不符 ⇒ 退出码与错误串"这类**一启动就失败**的路径；生成物与审计表的对账；两侧日志逐字段对拍；正常/负向像素报告的对账；`CSharpHost/README.md` 的 ABI 读数对拍 | 需要引擎内部状态的断言 |
 
 ## 统一约定
 
@@ -28,23 +28,27 @@
 
 跑法：`out\build\x64-debug\bin\CoreTests.exe`（退出码 0，`PASSED` 行数当前为 **22**）。`ScriptRenderBridgeTest` 链接产品实现的独立静态库 `ScriptRenderBridge`，逐项打印拒绝路径的 `status / 点名参数 / pass 数 / 后端调用数`，以及真实 `GPUGraph` 的字节复制、两个属性、绘制数、清除色、呈现清单与 `WaitIdle` 计数。
 
-### ② `Test/GPUBackendTester`（13 个测试）
+### ② `Test/GPUBackendTester`（14 个测试）
 
-`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost` / `TestCSharpWindow` / `TestCSharpTriangle` / `TestCSharpWindowCallbacks` / `TestGPUTiming`。
+`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost` / `TestCSharpWindow` / `TestCSharpTriangle` / `TestCSharpWindowCallbacks` / `TestGPUTiming` / `TestCSharpConstantColor`。
 
-（这份清单必须与 `GPUBackendTester.exe --list` 逐条一致，顺序也一致；`TestGPUTiming` 由 `vulkan-gpu-queries` 加入，覆盖一次图执行的逐 pass GPU 计时；`TestCSharpWindowCallbacks` 覆盖 10 类窗口/输入回调、替换/置空/重绑/关闭与借用窗口失效，放在全量列表最后，因为它会显式关闭托管运行时。`TestCSharpTriangle` 由 `csharp-render-backend-triangle` 加入：C# 用自己的顶点字节 / 着色器 / 窗口与离屏目标建图、提交并等待，原生侧读那份离屏目标做像素判据。）
+（这份清单必须与 `GPUBackendTester.exe --list` 逐条一致，顺序也一致 —— 上面就是 `--list` 的实际顺序。全量运行的执行顺序略有不同：`TestCSharpConstantColor` 排在 `TestGPUTiming` 之后、`TestCSharpWindowCallbacks` 之前，因为最后那条会显式关闭托管运行时、之后再没有测试能用 C#。`TestGPUTiming` 由 `vulkan-gpu-queries` 加入，覆盖一次图执行的逐 pass GPU 计时；`TestCSharpWindowCallbacks` 覆盖 10 类窗口/输入回调、替换/置空/重绑/关闭与借用窗口失效。`TestCSharpTriangle` 由 `csharp-render-backend-triangle` 加入：C# 用自己的顶点字节 / 着色器 / 窗口与离屏目标建图、提交并等待，原生侧读那份离屏目标做像素判据。`TestCSharpConstantColor` 由 `csharp-render-shader-constants` 加入：C# 用单 `POSITION` 顶点流 + `ConstantColor` 参数结构（3 个 `ColorSubStruct`）建图、两次 `SetPassParam` 绑定 `constantColorBlock`，原生侧读离屏目标做精确像素判据，并在同一次运行里用真实适配器验"未知类型名 / 未登记着色器路径"两个负例不崩、被拒。）
 
 跑法：`GPUBackendTester.exe --backend vulkan|d3d12 --headless 10 --report <json>`；`--list` 列出可用测试；`--test <名字>` 只跑一个。每个测试各自写 `test_output/<名字>.log`，崩溃会写 `crash_YYYYMMDD_HHMMSS.dmp` 并在 stderr 打印异常名、异常码、崩溃模块。
 
-### ③ `Tools/check_*.py`（9 个）
+### ③ 进程级脚本（`check_*.py` 前缀 10 个 + 助手 3 个）
 
-`check_legacy_symbols.py`（旧符号守卫）、`check_hash_sources.py`（哈希来源盘点）、`check_bindable_audit.py`（可绑定面审计对账）、`check_gpu_timing.py`（普通 `ExecuteGraph` 不得创建计时资源）、`check_window_system_bindings.py`（`GetMonitor` 与 10 类回调的 C++ / 托管两侧日志逐字段对拍）、`check_csharp_triangle.py`（C# 三角形的正常/负向像素报告对账）、`verify_readme.py`（README 里的命令逐条重跑）、`read_dump.py`（读崩溃转储）、`spin_check.py`（轮界进度检查）。它们自己就是"进程级断言"的样板：跑别人的程序，只看**退出码 + 输出里的可核子串**。
+`check_legacy_symbols.py`（旧符号守卫）、`check_hash_sources.py`（哈希来源盘点）、`check_bindable_audit.py`（可绑定面审计对账）、`check_gpu_timing.py`（普通 `ExecuteGraph` 不得创建计时资源）、`check_window_system_bindings.py`（`GetMonitor` 与 10 类回调的 C++ / 托管两侧日志逐字段对拍）、`check_csharp_triangle.py`（C# 三角形的正常/负向像素报告对账）、`check_csharp_constant_color.py`（C# 常量色的正常/负向报告对账）、`check_csharp_host_failures.py`（宿主五条失败路径）、`check_csharp_host_readme.py`（`CSharpHost/README.md` 的 ABI 版本 / 接口编号表 / 探针开关 vs 代码真实值）、`verify_readme.py`（README 里的命令逐条重跑）、`read_dump.py`（读崩溃转储）、`spin_check.py`（轮界进度检查）。它们自己就是"进程级断言"的样板：跑别人的程序，只看**退出码 + 输出里的可核子串**。
 
-`check_csharp_triangle.py` 的判据（`csharp-render-backend-triangle` 任务 4.1）：报告目录里必须有 `csharp_triangle_<backend>_<mode>.json` 十份（两个后端 × normal / skip-draw / bad-vertex / skip-present / skip-wait）。正常模式要求 `status = pass` 且同次 PNG 非空；四个负向模式要求 `status = fail` 且 `error` 里的错误码对得上（skip-draw → `E_TRIANGLE_DRAW`、bad-vertex → `E_TRIANGLE_PIXEL`、skip-present → `E_TRIANGLE_PRESENT`、skip-wait → `E_TRIANGLE_WAIT`）。缺报告、正常不是 pass、负向被错误接受都非零；报告目录本身不存在按"判据自身失效"退出 2。红态构造：不跑任何像素测试直接运行它 ⇒ 十份报告全缺、退出 1（见本 change 的 `evidence/host-pixel-red.log`）；把某份 skip-draw 报告改成 `pass` ⇒ "负向结果被错误接受"。
+`check_csharp_constant_color.py` 的判据（`csharp-render-shader-constants` 任务 4.1）：报告目录里必须有 `csharp_constant_color_<backend>_<mode>.json` 六份（两个后端 × normal / bad-struct-colors / skip-param）。正常模式要求 `status = pass` 且同次 PNG `TestCSharpConstantColor_<backend>_normal.png` 非空；`bad-struct-colors` 要求 `status = fail` 且 `error` 含 `E_CONSTCOLOR_PIXEL`；`skip-param` 要求 `status = fail`、`error` 含 `E_CONSTCOLOR_PARAM` **并且**含「后端执行次数 0」（判据是提交前拒绝，不读像素 —— 未定义内容的像素不能当判据）。缺报告、正常不是 pass、负向被错误接受、skip-param 没有执行次数读数都非零；报告目录不存在按"判据自身失效"退出 2。红态构造：不跑任何常量色测试直接运行它 ⇒ 六份报告全缺、退出 1（见 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/evidence/host-pixel-red.log`）；把某份 `skip-param` 报告改成 `pass` ⇒ "负向结果被错误接受"。
+
+`check_csharp_host_readme.py` 的判据（`csharp-render-shader-constants` 任务 4.2）：`CSharpHost/README.md` 的 ABI 版本、函数表字节数、接口编号表与探针开关清单，逐项对拍 `Host.cs` 的 `ExpectedAbiVersion`、`CSharpHost.cpp` 的 `s_engineApiVersion` 与 `static_assert(sizeof(EngineApi) == N)`、`s_interfaceId*` 常量、`EngineApi.cs` 的 `*InterfaceId` 字段，以及两份托管源文件里 `GetEnvironmentVariable("CASCADED_…")` 读到、而 README 环境变量表没写的开关。红态构造：把 README 的 `**v7**` 改成 `**v6**` ⇒ 退出码 1 并点名「ABI 版本不符：README 写 v6、Host.cs ExpectedAbiVersion=7、CSharpHost.cpp s_engineApiVersion=7」。
+
+`check_csharp_triangle.py` 的判据（`csharp-render-backend-triangle` 任务 4.1）：报告目录里必须有 `csharp_triangle_<backend>_<mode>.json` 十份（两个后端 × normal / skip-draw / bad-vertex / skip-present / skip-wait）。正常模式要求 `status = pass` 且同次 PNG 非空；四个负向模式要求 `status = fail` 且 `error` 里的错误码对得上（skip-draw → `E_TRIANGLE_DRAW`、bad-vertex → `E_TRIANGLE_PIXEL`、skip-present → `E_TRIANGLE_PRESENT`、skip-wait → `E_TRIANGLE_WAIT`）。缺报告、正常不是 pass、负向被错误接受都非零；报告目录本身不存在按"判据自身失效"退出 2。红态构造：不跑任何像素测试直接运行它 ⇒ 十份报告全缺、退出 1（见 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/evidence/host-pixel-red.log`）；把某份 skip-draw 报告改成 `pass` ⇒ "负向结果被错误接受"。
 
 `check_gpu_timing.py` 的判据（`vulkan-gpu-queries` 任务 5.1，design D6）：读出两个后端源文件、剥注释、按花括号配平取出 `void <类>::ExecuteGraph(` 的函数体，函数体里不得出现 `ExecuteGraphTimed` / `GetTimingCapabilities` / `D3D12GPUTiming` / `VulkanGPUTiming` / `CreateQueryHeap` / `createQueryPool` / `SetTimingRecorder`。退出码 0 = 两个后端都干净、1 = 有违反、2 = 判据自身失效（找不到文件/函数体，或函数体里没有 `CompileAndExecute`）。红态构造：在 D3D12 的普通 `ExecuteGraph` 里插一句 `(void)GetTimingCapabilities(EGPUQueueType::eDirect);` ⇒ 退出码 1 并点名该符号；删掉后回到 0。
 
-**绑定发射器的判据在另一个目录，但已经接进构建**：`Tools/CodeGen/check_bindings.py` 做这些事 —— 期望签名逐行对拍、C++/C# **两层对齐**（native 字段层 + 托管表面层）、**结构桩判据**（剥注释后看 thunk 有没有真调实现；真实接口桩数必须 0、夹具只打印）、**覆盖率下限**（thunk 数必须等于期望文件里的独立清单）、**托管表面判据**（`public` 类型里不许出现 `delegate*` / `void*` / `ulong`，表面成员数必须等于「接口头里的纯虚方法数 − `CA_BIND_SKIP` 数」）、**第二张矩阵的六行 conformance**、**共享公开值类型判据**（`RenderDesc` / `RenderNested` / 枚举等文件的内容、`bool` 的 `I1` 声明、`[Flags]`、`// 限定名：` 唯一性，以及"共享文件不许混进函数表/异常类"；`GPUBufferDescriptor` 的两个 `uint64_t` 字段按 `ulong` 允许，其余共享记录仍禁 `ulong`）、**渲染基础公开表面签名**（`IBindFoundation` 的记录 / 枚举 / `byte[]` / `IntPtr` 整条签名）、**脚本渲染适配面签名**（三个接口的整条公开签名 + `AddBuffer` / `SetPositionColorStream` / `AddTrianglePass` / `GetWindowTarget` / `SubmitGraph` 的 C ABI 形状）、**夹具识别**（`BindableShapes.Render*.h` 必须仍被 `BindableShapes*.h` 规则收进夹具集合）。它由 `build.py` 在绑定生成之后调用并传 `--product-dir`，非零退出直接让构建失败，stdout 逐行转发（所以"夹具桩数"那行每次构建都看得见）。行为断言落在 `Test/CoreTests/`（第 ① 层）：`BindingsGetApiTest.cpp`（取表握手）、`BindingsHandleTest.cpp`（强/弱/借用三类句柄、代际回绕、并发、1002 的触发与清零反例）、`BindingsWeakHandleTest.cpp`（弱引用不抬高计数、对象析构后 1001）、`WindowBindingsCompileTest.cpp`（`IWindow` 产物编译 + 借用句柄 + 句柄发行者 + 1001）、`BindingsCallbackTest.cpp`（函数指针 + 用户令牌的原生回调：参数顺序、替换、旧注册号注销、空指针、重入 1004、异常 1003 与原文）、`BindingsNestedLayoutTest.cpp`（递归纯标量记录的布局/按值搬运/defaulted 比较运算符 + 非法嵌套成员非零退出并点名路径）、`BindingsCrossInterfaceTest.cpp`（跨头文件目标入口、发行者与目标两类角色、配对释放、无见证 / 过期见证借用、`shared_ptr` 入参重建）、`BindingsRenderFoundationTest.cpp`（公开记录 / 枚举 / 标志位 / 包装值 / 字节混合参数的原生读数、空指针配非零长度在 thunk 入口拒绝，以及 8 个 `BindableShapes.RenderReject*.h` 的生成期拒绝探针）、`ScriptRenderBridgeTest.cpp`（脚本渲染适配面：真实 `GPUGraph` 的缓冲描述 / 同步字节副本 / 两个 `float3` 属性 / 绘制数 / 清除色 / 呈现清单，全部参数拒绝路径，以及提交强引用、`WaitIdle` 计数、待完成集合清理与句柄层挡下）。
+**绑定发射器的判据在另一个目录，但已经接进构建**：`Tools/CodeGen/check_bindings.py` 做这些事 —— 期望签名逐行对拍、C++/C# **两层对齐**（native 字段层 + 托管表面层）、**结构桩判据**（剥注释后看 thunk 有没有真调实现；真实接口桩数必须 0、夹具只打印）、**覆盖率下限**（thunk 数必须等于期望文件里的独立清单）、**托管表面判据**（`public` 类型里不许出现 `delegate*` / `void*` / `ulong`，表面成员数必须等于「接口头里的纯虚方法数 − `CA_BIND_SKIP` 数」）、**第二张矩阵的六行 conformance**、**共享公开值类型判据**（`RenderDesc` / `RenderNested` / 枚举等文件的内容、`bool` 的 `I1` 声明、`[Flags]`、`// 限定名：` 唯一性，以及"共享文件不许混进函数表/异常类"；`GPUBufferDescriptor` 的两个 `uint64_t` 字段按 `ulong` 允许，其余共享记录仍禁 `ulong`）、**渲染基础公开表面签名**（`IBindFoundation` 的记录 / 枚举 / `byte[]` / `IntPtr` 整条签名）、**脚本渲染适配面签名**（四个接口的整条公开签名 + `AddBuffer` / `SetPositionColorStream` / `SetPositionStream` / `SetPassParam` / `AddTrianglePass` / `GetWindowTarget` / `CreateShaderStruct` / `SubmitGraph` 的 C ABI 形状，以及 `IScriptShaderStruct` 的 `SetFloat3` / `SetStruct`）、**夹具识别**（`BindableShapes.Render*.h` 必须仍被 `BindableShapes*.h` 规则收进夹具集合）。它由 `build.py` 在绑定生成之后调用并传 `--product-dir`，非零退出直接让构建失败，stdout 逐行转发（所以"夹具桩数"那行每次构建都看得见）。行为断言落在 `Test/CoreTests/`（第 ① 层）：`BindingsGetApiTest.cpp`（取表握手）、`BindingsHandleTest.cpp`（强/弱/借用三类句柄、代际回绕、并发、1002 的触发与清零反例）、`BindingsWeakHandleTest.cpp`（弱引用不抬高计数、对象析构后 1001）、`WindowBindingsCompileTest.cpp`（`IWindow` 产物编译 + 借用句柄 + 句柄发行者 + 1001）、`BindingsCallbackTest.cpp`（函数指针 + 用户令牌的原生回调：参数顺序、替换、旧注册号注销、空指针、重入 1004、异常 1003 与原文）、`BindingsNestedLayoutTest.cpp`（递归纯标量记录的布局/按值搬运/defaulted 比较运算符 + 非法嵌套成员非零退出并点名路径）、`BindingsCrossInterfaceTest.cpp`（跨头文件目标入口、发行者与目标两类角色、配对释放、无见证 / 过期见证借用、`shared_ptr` 入参重建）、`BindingsRenderFoundationTest.cpp`（公开记录 / 枚举 / 标志位 / 包装值 / 字节混合参数的原生读数、空指针配非零长度在 thunk 入口拒绝，以及 8 个 `BindableShapes.RenderReject*.h` 的生成期拒绝探针）、`ScriptRenderBridgeTest.cpp`（脚本渲染适配面：真实 `GPUGraph` 的缓冲描述 / 同步字节副本 / 两个 `float3` 属性 / 绘制数 / 清除色 / 呈现清单，全部参数拒绝路径，以及提交强引用、`WaitIdle` 计数、待完成集合清理与句柄层挡下）。
 
 **托管表面这一层由谁把守**（`csharp-window-creation` 任务 5.2/5.6/5.7，三条互相独立的判据）：
 
@@ -74,7 +78,7 @@
 
 `CSharpHost` 有两类行为要测，正好各落一层：
 
-### 层 ②：`TestScriptHost`（加它的时候是第 9 条；当前全量一共 13 条）
+### 层 ②：`TestScriptHost`（加它的时候是第 9 条；当前全量一共 14 条）
 
 测"运行时起来了且双向可调"，断言全部来自进程内状态：
 
@@ -100,7 +104,7 @@ GetInstance<cs_script::IScriptHost>() 非空
 | 缺托管程序集 | 把 `bin\Scripting.Managed.dll` 临时改名 | 退出码 **3** 且输出含 `Scripting.Managed.dll` 与 `找过的路径` |
 | 配置路径不存在 | `CASCADED_CSHARP_RUNTIMECONFIG=<%TEMP% 里不存在的路径>` | 退出码 **3** 且输出含该路径与 `hostfxr.dll` |
 | 要的运行时版本本机没有 | `CASCADED_CSHARP_RUNTIMECONFIG` 指向一份 `"version":"7.0.0"` 的副本 | 退出码 **3** 且输出含 `7.0.0` 与 `本机已装的运行时版本` |
-| 函数表 ABI 不符 | `CASCADED_CSHARP_SELFTEST=abi-mismatch`（引擎侧把当前 v6 加成 7） | 退出码 **3** 且输出含 `ABI 版本不符` 与 `托管侧期望 6`（点名当前 ABI，不再期待旧版本 2） |
+| 函数表 ABI 不符 | `CASCADED_CSHARP_SELFTEST=abi-mismatch`（引擎侧把当前 v7 加成 8） | 退出码 **3** 且输出含 `ABI 版本不符` 与 `托管侧期望 7`（点名当前 ABI，不再期待旧版本 2 / 6） |
 | 托管方法抛异常 | `CASCADED_CSHARP_SELFTEST=throw`（托管侧 `Tick` 抛一次） | 退出码 **1**（受控失败：`GPUBackendTester` 对失败的当前操作按既有约定返回 1）、输出含 `Tick 抛异常` 与错误码 **4**、且**不产生**新 `crash_*.dmp` |
 
 - **运行时自检开关是这条测试能自动化的前提**：CSharpHost 与托管侧的自检开关（`abi-mismatch`、`throw`、`layout-mismatch`、`monitor-mismatch`、`monitor-skip-invalid`、`CASCADED_CSHARP_CALLBACK_PROBE` / `CASCADED_CSHARP_CALLBACK_PHASE`）让红态不必临时改源码；开关只在 Debug 下生效，并在 `CSharpHost/README.md` 里登记。
@@ -127,6 +131,8 @@ python Tools\check_window_system_bindings.py --log test_output\TestCSharpWindowC
 python Tools\check_gpu_timing.py
 python Tools\CodeGen\check_bindable_audit.py
 python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings
+python Tools\check_csharp_constant_color.py
+python Tools\check_csharp_host_readme.py
 python Tools\CodeGen\verify_readme.py
 ```
 
@@ -149,7 +155,22 @@ Remove-Item Env:\CASCADED_CSHARP_RENDER_SELFTEST
 python Tools\check_csharp_triangle.py
 ```
 
-判定：CoreTests 退出码 0 且 `PASSED` 22 行；两份全量 report 里 13 条 `status` 全为 `pass`；两条 `TestGPUTiming` 与两条 `TestCSharpWindow*` 命令退出码 0；`check_window_system_bindings.py` 两份日志都 0；`check_gpu_timing.py`、`check_bindable_audit.py`、`check_bindings.py`、`verify_readme.py` 退出码 0；十份 `csharp_triangle_*` report 里正常两份 `pass`、负向八份 `fail` 且错误码对得上（skip-draw 是 `E_TRIANGLE_DRAW`），`check_csharp_triangle.py` 退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`。
+C# 常量色（着色器参数）的像素判据（`csharp-render-shader-constants`）另外要跑六次：两个后端 × 正常与两个 Debug 自检模式，报告路径按 `test_output\csharp_constant_color_<backend>_<mode>.json` 命名，最后 `python Tools\check_csharp_constant_color.py` 对账（缺一份即非零）：
+
+```powershell
+# normal（不设模式变量）
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestCSharpConstantColor --headless 10 --report test_output\csharp_constant_color_d3d12_normal.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestCSharpConstantColor --headless 10 --report test_output\csharp_constant_color_vulkan_normal.json
+# 两个负向模式（每个后端各一次，共 4 份）
+$env:CASCADED_CSHARP_CONSTCOLOR_SELFTEST='bad-struct-colors'; out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestCSharpConstantColor --headless 10 --report test_output\csharp_constant_color_d3d12_bad-struct-colors.json
+$env:CASCADED_CSHARP_CONSTCOLOR_SELFTEST='skip-param';        out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestCSharpConstantColor --headless 10 --report test_output\csharp_constant_color_d3d12_skip-param.json
+$env:CASCADED_CSHARP_CONSTCOLOR_SELFTEST='bad-struct-colors'; out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestCSharpConstantColor --headless 10 --report test_output\csharp_constant_color_vulkan_bad-struct-colors.json
+$env:CASCADED_CSHARP_CONSTCOLOR_SELFTEST='skip-param';        out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestCSharpConstantColor --headless 10 --report test_output\csharp_constant_color_vulkan_skip-param.json
+Remove-Item Env:\CASCADED_CSHARP_CONSTCOLOR_SELFTEST
+python Tools\check_csharp_constant_color.py
+```
+
+判定：CoreTests 退出码 0 且 `PASSED` 22 行；两份全量 report 里 14 条 `status` 全为 `pass`；两条 `TestGPUTiming` 与两条 `TestCSharpWindow*` 命令退出码 0；`check_window_system_bindings.py` 两份日志都 0；`check_gpu_timing.py`、`check_bindable_audit.py`、`check_bindings.py`、`verify_readme.py`、`check_csharp_host_readme.py` 退出码 0；十份 `csharp_triangle_*` report 里正常两份 `pass`、负向八份 `fail` 且错误码对得上（skip-draw 是 `E_TRIANGLE_DRAW`），`check_csharp_triangle.py` 退出码 0；六份 `csharp_constant_color_*` report 里正常两份 `pass`、`bad-struct-colors` 两份 `fail` 且错误码 `E_CONSTCOLOR_PIXEL`、`skip-param` 两份 `fail` 且错误码 `E_CONSTCOLOR_PARAM` 并带「后端执行次数 0」，`check_csharp_constant_color.py` 退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`（ABI 期望版本随当前手写 ABI 走，当前 v7）。
 
 ## C# 脚本层与 `--show-window-seconds`
 

@@ -1563,6 +1563,26 @@ void TestCSharpTriangle(TestContext& ctx)
 	} envGuard;
 	::SetEnvironmentVariableA("CASCADED_CSHARP_RENDER_PROBE", "1");
 
+	// 任务 3.2（csharp-render-shader-constants）：本用例是**第一个**渲染探针用例，之前跑的
+	// `TestScriptHost` / `TestCSharpWindow` 都没有设置任何渲染开关 —— 适配器的离屏目标、参数结构
+	// 与后端执行计数必须全为 0，否则说明未启用探针的测试也创建了 GPU 工作。
+	{
+		const uint32_t captureCount = renderBackend->GetCreateCaptureTargetCountForTest();
+		const uint32_t structCount = renderBackend->GetCreateShaderStructCountForTest();
+		const uint32_t executeCount = renderBackend->GetExecuteGraphCountForTest();
+		CA_LOG("非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget={} "
+		       "createShaderStruct={} executeGraph={}",
+		       captureCount, structCount, executeCount);
+		if (captureCount != 0u || structCount != 0u || executeCount != 0u)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "非探针测试创建了 GPU 工作：captureTarget=%u createShaderStruct=%u executeGraph=%u",
+			              captureCount, structCount, executeCount);
+			fail("E_RENDER_NONPROBE_WORK", detail);
+		}
+	}
+
 	// 窗口接口实例：托管探针用 `IWindowSystem.NewWindow` 建自己的窗口并从它取窗口目标。
 	auto newWindow = ctx.pWindowSystem->NewWindow(320, 240, "C# Triangle");
 	auto windowKeepAlive = newWindow.lock();
@@ -1734,6 +1754,372 @@ void TestCSharpTriangle(TestContext& ctx)
 		fail("E_TRIANGLE_PIXEL", detail);
 	}
 	CA_LOG("TestCSharpTriangle 通过：{} 后端背景与中心像素精确匹配", ctx.backendName);
+}
+
+// ---- TestCSharpConstantColor（csharp-render-shader-constants 任务 1.2 / 4.1）----
+// C# 用单 `POSITION` 顶点流 + `ConstantColor` 参数结构（3 个 `ColorSubStruct`）建图，把参数结构绑定到
+// `constantColorBlock`，窗口与离屏各一个同逻辑 pass，提交并等待；原生侧读那份离屏目标做精确像素判据
+// （背景 (0,0,255,255)、中心 (255,0,0,255)），同时核对 pass 数与每个 pass 的真实参数表条目。
+//
+// Debug 负向（进程环境变量 `CASCADED_CSHARP_CONSTCOLOR_SELFTEST`，C# 侧读同一份值）：
+//   `bad-struct-colors` 三个数组槽改成红/绿/蓝 → 中心不再是纯红，以 `E_CONSTCOLOR_PIXEL` 判红；
+//   `skip-param` 完全不调 `SetPassParam` → `SubmitGraph` 在进入后端执行前拒绝并点名 `constantColorBlock`，
+//                原生以 `E_CONSTCOLOR_PARAM` 判红，**不读像素**（不对未定义内容编造期望）。
+// `Tools/check_csharp_constant_color.py` 逐后端对账正常（pass）与两个负向（fail + 对应错误码）。
+void TestCSharpConstantColor(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	// C++ 侧的独立夹具值（design 第五节）：尺寸、pass 数、两个像素与块名都另写一份，
+	// 不与 C# 的 `CSharpConstantColorProbe` 共享常量表 —— 一边改错不会两边一起绿。
+	constexpr uint32_t kWindowWidth = 320u;
+	constexpr uint32_t kWindowHeight = 240u;
+	constexpr uint32_t kExpectedPassCount = 2u;
+	const std::array<uint8_t, 4> expectedBackground{ 0u, 0u, 255u, 255u };
+	const std::array<uint8_t, 4> expectedCenter{ 255u, 0u, 0u, 255u };
+	char const* const kBlockName = "constantColorBlock";
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_CONSTCOLOR_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_CONSTCOLOR_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段登记真实适配器。
+	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
+	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
+		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
+	if (renderBackend == nullptr)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
+		fail("E_CONSTCOLOR_BACKEND_MISSING", detail);
+	}
+
+	char modeBuffer[64] = {};
+	::GetEnvironmentVariableA("CASCADED_CSHARP_CONSTCOLOR_SELFTEST", modeBuffer, sizeof(modeBuffer));
+	const std::string mode = modeBuffer;
+	const bool badStructColors = mode == "bad-struct-colors";
+	const bool skipParam = mode == "skip-param";
+	if (!(mode.empty() || badStructColors || skipParam))
+	{
+		fail("E_CONSTCOLOR_MODE", castl::string("未知的自检模式：") + mode.c_str());
+	}
+
+	struct ConstantColorEnvGuard
+	{
+		~ConstantColorEnvGuard() { ::SetEnvironmentVariableA("CASCADED_CSHARP_CONSTCOLOR_PROBE", nullptr); }
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CONSTCOLOR_PROBE", "1");
+
+	// 托管探针用 `IWindowSystem.NewWindow` 建自己的窗口，并从它取窗口目标。
+	auto newWindow = ctx.pWindowSystem->NewWindow(kWindowWidth, kWindowHeight, "C# ConstantColor");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_CONSTCOLOR_HOST", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	const std::string baselineError = pScriptHost->LastError();
+	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
+	// 任务 3.2 的读数基线：三个参数结构计数、`SetPassParam` 计数、离屏目标计数、后端执行次数。
+	const uint32_t createStructBefore = renderBackend->GetCreateShaderStructCountForTest();
+	const uint32_t setFloat3Before = renderBackend->GetSetFloat3CountForTest();
+	const uint32_t setStructBefore = renderBackend->GetSetStructCountForTest();
+	const uint32_t setPassParamBefore = renderBackend->GetSetPassParamCountForTest();
+	const uint32_t captureBefore = renderBackend->GetCreateCaptureTargetCountForTest();
+	const uint32_t executeBefore = renderBackend->GetExecuteGraphCountForTest();
+	const int32_t tickValue = pScriptHost->Tick(0.016);
+	::SetEnvironmentVariableA("CASCADED_CSHARP_CONSTCOLOR_PROBE", nullptr);
+	const std::string hostError = pScriptHost->LastError();
+	if (hostError != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "Tick(回值 %d) 之后 LastError 非空：%s", tickValue,
+		              hostError.c_str());
+		fail("E_CONSTCOLOR_HOST_ERROR", detail);
+	}
+	if (tickValue <= 0)
+	{
+		fail("E_CONSTCOLOR_TICK", "Tick 回值不是正数（探针没有执行）");
+	}
+
+	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
+	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
+	if (captureTarget == nullptr || windowTarget == nullptr)
+	{
+		fail("E_CONSTCOLOR_PROBE_MISSING",
+		     "渲染探针没有创建离屏 / 窗口目标（探针开关或四个函数表绑定失败）");
+	}
+	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
+	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
+
+	// 窗口描述快照：离屏目标与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
+	const auto& windowDesc = windowTarget->GetDescriptorForTest();
+	const auto& captureDesc = captureTarget->GetDescriptorForTest();
+	if (windowDesc.width != kWindowWidth || windowDesc.height != kWindowHeight ||
+		captureDesc.width != kWindowWidth || captureDesc.height != kWindowHeight ||
+		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
+		captureTarget->IsBackbuffer())
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
+		              windowDesc.width, windowDesc.height, captureDesc.width, captureDesc.height,
+		              static_cast<int>(captureDesc.format));
+		fail("E_CONSTCOLOR_TARGET", detail);
+	}
+
+	// 图结构：两个 pass（窗口 + 离屏），每个 pass 的参数表都必须正好 1 条 `constantColorBlock`
+	// 且条目非空；`skip-param` 形态两张表都必须为空。
+	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
+	if (lastGraph == nullptr)
+	{
+		fail("E_CONSTCOLOR_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
+	}
+	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
+		              lastGraph->GetPassCount(), kExpectedPassCount);
+		fail("E_CONSTCOLOR_GRAPH", detail);
+	}
+	size_t totalBoundParams = 0;
+	uint32_t passesWithBlock = 0;
+	for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+	{
+		auto const& bound = pass.GetShaderStructs();
+		totalBoundParams += bound.size();
+		auto entry = bound.find(CANAME("constantColorBlock"));
+		if (entry != bound.end() && entry->second != nullptr)
+		{
+			++passesWithBlock;
+		}
+	}
+
+	// 任务 3.2：探针调用计数必须与 C# 的实际调用逐项对上（读数全部来自适配器的原生钩子）。
+	{
+		const uint32_t createStructDelta = renderBackend->GetCreateShaderStructCountForTest() - createStructBefore;
+		const uint32_t setFloat3Delta = renderBackend->GetSetFloat3CountForTest() - setFloat3Before;
+		const uint32_t setStructDelta = renderBackend->GetSetStructCountForTest() - setStructBefore;
+		const uint32_t setPassParamDelta = renderBackend->GetSetPassParamCountForTest() - setPassParamBefore;
+		const uint32_t captureDelta = renderBackend->GetCreateCaptureTargetCountForTest() - captureBefore;
+		const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
+		const uint32_t expectedPassParam = skipParam ? 0u : 2u;
+		const uint32_t expectedExecute = skipParam ? 0u : 1u;
+		CA_LOG("TestCSharpConstantColor 调用计数：createStruct={} setFloat3={} setStruct={} "
+		       "setPassParam={} captureTarget={} executeGraph={}",
+		       createStructDelta, setFloat3Delta, setStructDelta, setPassParamDelta, captureDelta,
+		       executeDelta);
+		if (createStructDelta != 4u || setFloat3Delta != 3u || setStructDelta != 3u ||
+			setPassParamDelta != expectedPassParam || captureDelta != 1u ||
+			executeDelta != expectedExecute)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "调用计数不符：createStruct=%u/4 setFloat3=%u/3 setStruct=%u/3 "
+			              "setPassParam=%u/%u captureTarget=%u/1 executeGraph=%u/%u",
+			              createStructDelta, setFloat3Delta, setStructDelta, setPassParamDelta,
+			              expectedPassParam, captureDelta, executeDelta, expectedExecute);
+			fail("E_CONSTCOLOR_COUNTS", detail);
+		}
+	}
+
+	if (skipParam)
+	{
+		// 提交前拒绝：参数表为空、适配器错误文本点名块名、进入后端的执行次数为 0。
+		const std::string adapterError = renderBackend->GetLastError().c_str();
+		const bool namedBlock = adapterError.find(kBlockName) != std::string::npos;
+		const uint32_t executedTotal = renderBackend->GetExecuteGraphCountForTest();
+		if (totalBoundParams != 0)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "skip-param：参数表仍有 %zu 条绑定", totalBoundParams);
+			fail("E_CONSTCOLOR_PARAM", detail);
+		}
+		if (!namedBlock)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "skip-param：适配器错误文本没有点名 %s，实际 = \"%s\"",
+			              kBlockName, adapterError.c_str());
+			fail("E_CONSTCOLOR_PARAM", detail);
+		}
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "skip-param：参数表 0 条、适配器点名 %s、后端执行次数 %u、等待计数 %u→%u，按预期失败",
+		              kBlockName, executedTotal, waitBefore, waitAfter);
+		fail("E_CONSTCOLOR_PARAM", detail);
+	}
+
+	if (totalBoundParams != kExpectedPassCount || passesWithBlock != kExpectedPassCount)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "参数表不符：%zu 条绑定、%u 个 pass 有 %s（期望 %u 个 pass 各 1 条）", totalBoundParams,
+		              passesWithBlock, kBlockName, kExpectedPassCount);
+		fail("E_CONSTCOLOR_PARAM", detail);
+	}
+	if (waitAfter != waitBefore + 1 || pendingAfter != 0)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
+		              waitBefore, waitAfter, pendingAfter);
+		fail("E_CONSTCOLOR_WAIT", detail);
+	}
+	// 顶点流：单 `POSITION` 布局（任务 3.2 的 `SetPositionStream` 断言）。两个 pass 的顶点流
+	// 描述都必须只有一条 POSITION 属性、偏移 0、步长 12。
+	{
+		uint32_t checkedBatches = 0;
+		for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+		{
+			for (auto const& batch : pass.GetDrawCallBatches())
+			{
+				++checkedBatches;
+				if (batch.m_VertexInputDescs.size() != 1u)
+				{
+					fail("E_CONSTCOLOR_STREAM", "绘制批次里的顶点流不止一个");
+				}
+				auto const& streamDescriptor = batch.m_VertexInputDescs.begin()->second.Get();
+				auto const& attributes = streamDescriptor.attributes;
+				if (attributes.size() != 1u || attributes[0].semanticName != CANAME("POSITION") ||
+					attributes[0].offset != 0u || streamDescriptor.stride != 12u)
+				{
+					char detail[256] = {};
+					std::snprintf(detail, sizeof(detail),
+					              "顶点流不是单 POSITION：属性 %zu、首个语义 %s、偏移 %u、步长 %u",
+					              attributes.size(),
+					              attributes.empty() ? "?" : attributes[0].semanticName.c_str(),
+					              attributes.empty() ? 0u : attributes[0].offset, streamDescriptor.stride);
+					fail("E_CONSTCOLOR_STREAM", detail);
+				}
+			}
+		}
+		if (checkedBatches != kExpectedPassCount)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "检查到 %u 个绘制批次，期望 %u", checkedBatches,
+			              kExpectedPassCount);
+			fail("E_CONSTCOLOR_STREAM", detail);
+		}
+	}
+	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
+	if (presents.size() != 1u || presents[0] != windowTarget->GetImageForTest())
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "真实呈现清单 %zu 项，期望唯一的窗口后台缓冲",
+		              presents.size());
+		fail("E_CONSTCOLOR_PRESENT", detail);
+	}
+
+	// 像素：既有 `Readback` 读取独立离屏目标。背景来自清除色 (0,0,1,1)、中心来自三槽同红。
+	ctx.pGPUBackend->WaitIdle();
+	const uint32_t width = captureDesc.width;
+	const uint32_t height = captureDesc.height;
+	std::vector<uint8_t> pixels(static_cast<size_t>(
+		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
+	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	if (!token)
+	{
+		fail("E_CONSTCOLOR_READBACK", "离屏目标的 Readback 返回空 token");
+	}
+	token->Wait();
+	auto pixelAt = [&pixels, width](uint32_t x, uint32_t y) {
+		const size_t index = (static_cast<size_t>(y) * width + x) * 4u;
+		return std::array<uint8_t, 4>{ pixels[index], pixels[index + 1], pixels[index + 2],
+			                          pixels[index + 3] };
+	};
+	const std::array<uint8_t, 4> background = pixelAt(1, 1);
+	const std::array<uint8_t, 4> center = pixelAt(width / 2, height / 2);
+	const castl::string pngPath = castl::string("test_output/TestCSharpConstantColor_") +
+		ctx.backendName + "_" + (mode.empty() ? "normal" : mode.c_str()) + ".png";
+	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
+	               static_cast<int>(width * 4));
+	CA_LOG("TestCSharpConstantColor：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
+	       "passes={} boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
+	       pendingAfter, presents.size(), lastGraph->GetPassCount(), totalBoundParams, background[0],
+	       background[1], background[2], background[3], center[0], center[1], center[2], center[3],
+	       pngPath.c_str());
+
+	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
+		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
+	};
+	if (badStructColors)
+	{
+		// 三槽改成红/绿/蓝：中心不再是纯红，证明颜色确实来自 C# 写入的参数值。
+		if (!differs(center, expectedCenter))
+		{
+			fail("E_CONSTCOLOR_PIXEL", "bad-struct-colors：中心仍是纯红（负向模式没有生效）");
+		}
+		fail("E_CONSTCOLOR_PIXEL", "bad-struct-colors：中心按预期不再是纯红");
+	}
+	if (differs(background, expectedBackground) || differs(center, expectedCenter))
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "像素不符：背景 (%u,%u,%u,%u)、中心 (%u,%u,%u,%u)", background[0], background[1],
+		              background[2], background[3], center[0], center[1], center[2], center[3]);
+		fail("E_CONSTCOLOR_PIXEL", detail);
+	}
+	CA_LOG("TestCSharpConstantColor 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}",
+	       ctx.backendName, kBlockName);
+
+	// 真实后端负例（任务 4.1）：未知类型名创建与未登记着色器路径绑定都必须在适配层被拒绝，
+	// 进程不崩（D3D12 侧对空元数据的构造函数路径因此永远走不到）。
+	{
+		const uint32_t createBeforeNegative = renderBackend->GetCreateShaderStructCountForTest();
+		auto unknownStruct = renderBackend->CreateShaderStruct(CANAME("NoSuchStructForConstantColor"));
+		const std::string unknownError = renderBackend->GetLastError().c_str();
+		if (unknownStruct != nullptr ||
+			unknownError.find("NoSuchStructForConstantColor") == std::string::npos ||
+			renderBackend->GetCreateShaderStructCountForTest() != createBeforeNegative)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "未知类型名没有被挡下：句柄=%p 文本=\"%s\" 后端创建次数 %u→%u",
+			              static_cast<void*>(unknownStruct.get()), unknownError.c_str(),
+			              createBeforeNegative, renderBackend->GetCreateShaderStructCountForTest());
+			fail("E_CONSTCOLOR_NEGATIVE_TYPE", detail);
+		}
+		CA_LOG("真实后端负例 1/2：未知类型名 → 空句柄 + 文本点名，后端创建次数 0");
+
+		auto negativeGraph = renderBackend->CreateGraph();
+		bool graphBuilt = negativeGraph != nullptr &&
+			negativeGraph->AddBuffer(CANAME("NegativeVertices"),
+				GPUBufferDescriptor::Create(3u, 12u), std::vector<uint8_t>(36u, 0u)) == 0 &&
+			negativeGraph->SetPositionStream(CANAME("NegativeStream"), 12u, 0u) == 0 &&
+			negativeGraph->AddTrianglePass(captureTarget, CAPATH("Shaders/Test/NoSuchShader"),
+				CANAME("NegativeStream"), CANAME("NegativeVertices"), 3u, 0.0f, 0.0f, 1.0f, 1.0f) == 0;
+		if (!graphBuilt)
+		{
+			fail("E_CONSTCOLOR_NEGATIVE_PATH", "负例图没有建出来（AddBuffer / SetPositionStream / AddTrianglePass 被拒）");
+		}
+		auto negativeParams = renderBackend->CreateShaderStruct(CANAME("ConstantColor"));
+		if (negativeParams == nullptr)
+		{
+			fail("E_CONSTCOLOR_NEGATIVE_PATH",
+			     castl::string("负例的参数结构没有创建出来：") + renderBackend->GetLastError());
+		}
+		const int32_t bindStatus =
+			negativeGraph->SetPassParam(0u, CANAME("constantColorBlock"), negativeParams);
+		const std::string bindError = negativeGraph->GetLastError().c_str();
+		if (bindStatus == 0 || bindError.find("NoSuchShader") == std::string::npos)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "未登记着色器路径没有被拒绝：status=%d 文本=\"%s\"",
+			              bindStatus, bindError.c_str());
+			fail("E_CONSTCOLOR_NEGATIVE_PATH", detail);
+		}
+		CA_LOG("真实后端负例 2/2：未登记着色器路径 → status={} 文本点名路径", bindStatus);
+	}
 }
 
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
@@ -2430,6 +2816,8 @@ int main(int argc, char* argv[])
 		std::cout << "  TestCSharpTriangle\n";
 		std::cout << "  TestCSharpWindowCallbacks\n";
 		std::cout << "  TestGPUTiming\n";
+		// csharp-render-shader-constants 任务 1.2：第 14 项
+		std::cout << "  TestCSharpConstantColor\n";
 		return 0;
 	}
 
@@ -2703,6 +3091,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpTriangle", TestCSharpTriangle);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpConstantColor") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpConstantColor", TestCSharpConstantColor);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -2725,6 +3117,8 @@ int main(int argc, char* argv[])
 		runTestWithDiagnostics("TestCSharpWindow", TestCSharpWindow);
 		runTestWithDiagnostics("TestCSharpTriangle", TestCSharpTriangle);
 		runTestWithDiagnostics("TestGPUTiming", TestGPUTiming);
+		// 常量色参数测试也要用 C#：必须排在 `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
+		runTestWithDiagnostics("TestCSharpConstantColor", TestCSharpConstantColor);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}

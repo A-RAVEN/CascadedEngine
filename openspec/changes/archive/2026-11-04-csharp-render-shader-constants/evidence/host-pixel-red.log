@@ -1,0 +1,39 @@
+﻿# csharp-render-shader-constants 任务 1.2 红态记录
+记录时间：2026-11-04 12:49:34
+只追加，不覆盖。
+
+## A. 像素证据缺失：对账脚本在没有报告时的读数
+命令：python Tools/check_csharp_constant_color.py
+C# 常量色证据对账
+d3d12   normal             缺报告
+d3d12   bad-struct-colors  缺报告
+d3d12   skip-param         缺报告
+vulkan  normal             缺报告
+vulkan  bad-struct-colors  缺报告
+vulkan  skip-param         缺报告
+问题 6 处
+  ✗ 缺报告：test_output\csharp_constant_color_d3d12_normal.json（后端 d3d12、模式 normal）
+  ✗ 缺报告：test_output\csharp_constant_color_d3d12_bad-struct-colors.json（后端 d3d12、模式 bad-struct-colors）
+  ✗ 缺报告：test_output\csharp_constant_color_d3d12_skip-param.json（后端 d3d12、模式 skip-param）
+  ✗ 缺报告：test_output\csharp_constant_color_vulkan_normal.json（后端 vulkan、模式 normal）
+  ✗ 缺报告：test_output\csharp_constant_color_vulkan_bad-struct-colors.json（后端 vulkan、模式 bad-struct-colors）
+  ✗ 缺报告：test_output\csharp_constant_color_vulkan_skip-param.json（后端 vulkan、模式 skip-param）
+退出码=1（必须非零：六份报告全缺）
+
+## B. 托管提交不存在：脚本侧还没有 OnConstantColorProbe
+命令：git grep -n "OnConstantColorProbe" -- Scripting/Managed
+（零命中：托管侧还没有这个入口，探针不可能提交任何图）
+命中数=0  退出码=1（git grep 零命中 = 1）
+
+## C. 原生入口已登记、但托管侧没有实现（同一时刻的两侧对照）
+命令：git grep -n "TestCSharpConstantColor" -- Test/GPUBackendTester/Main.cpp
+Test/GPUBackendTester/Main.cpp:1739:// ---- TestCSharpConstantColor（csharp-render-shader-constants 任务 1.2 / 4.1）----
+Test/GPUBackendTester/Main.cpp:1749:void TestCSharpConstantColor(TestContext& ctx)
+Test/GPUBackendTester/Main.cpp:1949:	const castl::string pngPath = castl::string("test_output/TestCSharpConstantColor_") +
+Test/GPUBackendTester/Main.cpp:1953:	CA_LOG("TestCSharpConstantColor：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
+Test/GPUBackendTester/Main.cpp:1980:	CA_LOG("TestCSharpConstantColor 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}",
+Test/GPUBackendTester/Main.cpp:2679:		std::cout << "  TestCSharpConstantColor\n";
+Test/GPUBackendTester/Main.cpp:2953:		else if (strcmp(testName.c_str(), "TestCSharpConstantColor") == 0)
+Test/GPUBackendTester/Main.cpp:2955:		runTestWithDiagnostics("TestCSharpConstantColor", TestCSharpConstantColor);
+Test/GPUBackendTester/Main.cpp:2980:		runTestWithDiagnostics("TestCSharpConstantColor", TestCSharpConstantColor);
+

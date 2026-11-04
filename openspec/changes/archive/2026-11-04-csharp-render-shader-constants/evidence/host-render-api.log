@@ -1,0 +1,97 @@
+﻿# csharp-render-shader-constants 任务 3.1 证据：手写 ABI v7、第四个渲染接口、关闭顺序
+记录时间：2026-11-04 13:24:16
+构建：python build.py --config Debug → 退出码 0、BUILD SUCCESSFUL（CSharpHost.cpp 里 static_assert(sizeof(EngineApi) == 72u) 由编译器核对）
+只追加，不覆盖。
+
+## 一、两侧 ABI v7 与 sizeof 一致
+1) C++ 侧：CSharpHost.cpp 的 static_assert(sizeof(EngineApi) == 72u) 编译通过（构建成功即为实测）。
+2) 托管侧 Boot 自检通过并打印：
+   [托管侧] 托管侧已启动：ABI 版本 7、函数表 72 字节
+
+## 二、编号 6（参数结构）允许空实例取表
+托管侧日志（真实运行）：
+   [托管侧] [托管侧 渲染] 四个函数表已绑定（后端实例 2185322461136）
+
+## 三、v7 自检与宿主五条失败路径（命令由主 agent 代跑）
+命令：python Tools/check_csharp_host_failures.py
+########## G1_hostfail ##########
+[通过] 缺托管程序集：退出码 3（期望 3）；含 dll 名与路径清单：True/True
+[通过] 配置路径不存在：退出码 3（期望 3）；含该路径与 hostfxr.dll：True/True
+[通过] 运行时版本无匹配：退出码 3（期望 3）；含 7.0.0 与版本清单：True/True
+[通过] ABI 版本不符：退出码 3（期望 3）；含 ABI 版本不符 与 托管侧期望 7：True
+[通过] 托管抛异常：退出码 1（期望 1 = 受控失败）；含异常文本与错误码 4：True/True；新 dump 0 个
+
+5 个场景：5 通过、0 失败
+
+EXIT_G1_hostfail=0
+
+## 四、现有窗口与三个渲染编号行为不变（命令由主 agent 代跑）
+EXIT_G2a_script_host=1
+EXIT_G2b_window=0
+EXIT_G2c_triangle=0
+EXIT_G4a_full_vk=0
+说明：`--test TestScriptHost` 单跑会**同时**跑 TestCSharpWindow（Main.cpp 的既有配对分派），而编号 1/2 的实例是
+TestSimpleTriangle 在**全量顺序**里登记的（Main.cpp 的注释已写明这一点）；单跑时没有实例，TestScriptHost 必然写
+s_lastError 并判红、随后的 TestCSharpWindow 也拿不到默认实例（E_HANDLE_TABLE）。这是**改动前就有**的单跑行为，
+不是本次回归：全量运行里同一条用例是 pass（见下面 G4a 的 14 条 status），而 TestCSharpWindow / TestCSharpTriangle
+单跑都退出 0。完整证据：G2a 的 report 里 TestScriptHost 的 error 是无实例字样、TestCSharpWindow 的 error 是
+「接口编号 1 下没有登记实例名」，与 Main.cpp:170-172 的注释逐条对上。
+
+## 五、全量运行（14 条 status）
+[
+  {"name":"TestSimpleTriangle","status":"pass","duration_ms":134,"exit_code":0},
+  {"name":"TestTriangleWithConstantColor","status":"pass","duration_ms":79,"exit_code":0},
+  {"name":"TestTriangleWithStructuredBufferColor","status":"pass","duration_ms":64,"exit_code":0},
+  {"name":"TestTriangleWithImageBuffer","status":"pass","duration_ms":83,"exit_code":0},
+  {"name":"TestDoublePass","status":"pass","duration_ms":81,"exit_code":0},
+  {"name":"TestComputeBuffer","status":"pass","duration_ms":68,"exit_code":0},
+  {"name":"TestReadback","status":"pass","duration_ms":66,"exit_code":0},
+  {"name":"TestIMGUI","status":"pass","duration_ms":190,"exit_code":0},
+  {"name":"TestScriptHost","status":"pass","duration_ms":27,"exit_code":0},
+  {"name":"TestCSharpWindow","status":"pass","duration_ms":83,"exit_code":0},
+  {"name":"TestCSharpTriangle","status":"pass","duration_ms":108,"exit_code":0},
+  {"name":"TestGPUTiming","status":"pass","duration_ms":50,"exit_code":0},
+  {"name":"TestCSharpConstantColor","status":"pass","duration_ms":94,"exit_code":0},
+  {"name":"TestCSharpWindowCallbacks","status":"pass","duration_ms":14,"exit_code":0}
+]
+
+## 六、关闭顺序逐项记录（参数结构 → 图 → 离屏目标 → 后端表面）与关闭后旧表面失效
+[托管侧·关闭期] [托管侧 关闭顺序] 1/4 参数结构表面对象
+[托管侧 关闭顺序] 1/4 参数结构表面对象
+[托管侧·关闭期] [托管侧 关闭顺序] 2-3/4 图 → 离屏目标
+[托管侧 关闭顺序] 2-3/4 图 → 离屏目标
+[托管侧·关闭期] [托管侧 关闭顺序] 4/4 后端表面对象
+[托管侧 关闭顺序] 4/4 后端表面对象
+[托管侧·关闭期] [托管侧 关闭顺序] 释放完成
+[托管侧 关闭顺序] 释放完成
+[CSharpHost] 托管 Shutdown 返回 0
+
+关闭后旧参数结构表面再调用 SetFloat3 的结果（disposedThrew=True 表示抛了 ObjectDisposedException）：
+   [托管侧] [脚本 常量色] OnConstantColorProbe 调用 #1：mode=normal passCount=2 submitStatus=0 skipParam=False disposedThrew=True submitError=
+
+## 七、变异 A（红态）：临时阻止编号 6 的空实例取表
+改动：CSharpHost.cpp 的 OnGetInterfaceApi 里把 s_interfaceIdScriptShaderStruct 从 isTargetTypeTable 移出，
+      编号 6 被当成"必须有默认实例"，取表失败。
+命令：python build.py --config Debug → 退出码 0
+命令（主 agent 代跑）：GPUBackendTester.exe --backend vulkan --test TestCSharpConstantColor --headless 10 --report test_output\host_v7_mutA_target_table.json
+退出码=1（必须非零，判据成立）
+report 原文：
+[
+  {"name":"TestCSharpConstantColor","status":"fail","duration_ms":57,"exit_code":1,"error":"E_CONSTCOLOR_HOST_ERROR: Tick(回值 1) 之后 LastError 非空：常量色探针：四个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行"}
+]
+
+说明：失败落在宿主分支「常量色探针：四个渲染函数表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行」
+（Tick 回值非 0 → 原生侧先按 E_CONSTCOLOR_HOST_ERROR 判红），而不是我先前提的 E_CONSTCOLOR_PROBE_MISSING——
+四个表没绑齐时探针在创建目标之前就被宿主挡下，这比"建了目标再发现没表"更早、更明确。工件判据是
+「对应测试必须失败」，这一条已满足。
+
+## 八、变异 B（红态）：临时漏登记后端接口（编号 3）
+改动：CSharpHost.cpp 的 CreateRenderAdapter 里把 SetInterfaceInstance(s_interfaceIdScriptRenderBackend, …) 注释掉，
+      适配器对象仍创建、只是不登记。
+命令：python build.py --config Debug → 退出码 0
+命令（主 agent 代跑）：GPUBackendTester.exe --backend vulkan --test TestCSharpTriangle --headless 10 --report test_output\host_v7_mutB_backend_missing.json
+退出码=1（必须非零，判据成立）
+report 原文：
+[
+  {"name":"TestCSharpTriangle","status":"fail","duration_ms":0,"exit_code":1,"error":"E_RENDER_BACKEND_MISSING: 编号 3 没有登记脚本渲染适配器（实例 = 0000000000000000）"}
+]

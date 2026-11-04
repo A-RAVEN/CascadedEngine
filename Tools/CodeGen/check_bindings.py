@@ -868,13 +868,14 @@ def check_surface_matrix(product_dir: Path) -> list[str]:
 
 
 def check_render_bridge_surface(product_dir: Path) -> list[str]:
-    """脚本渲染适配面的公开签名与 C ABI 形状（csharp-render-backend-triangle 任务 4.2）。
+    """脚本渲染适配面的公开签名与 C ABI 形状（csharp-render-backend-triangle 任务 4.2；
+    csharp-render-shader-constants 任务 4.2 追加参数结构接口与三个新方法）。
 
     两半都判：
       ① 托管表面里逐字出现的方法签名 —— 名字一样但 `byte[]` 退化成 `byte*`、`int` 状态退化成
-         `void`、或 `IScriptRenderTarget` 参数换成 `IntPtr`，名字判据都抓不住；
-      ② 生成的 `extern "C"` 声明逐字等于期望形状（含 `GPUBufferDescriptorC const*` 与
-         `uint8_t const* + uint64_t` 的同步字节参数）。
+         `void`、或 `IScriptShaderStruct` 参数换成 `IntPtr`/`ulong`，名字判据都抓不住；
+      ② 生成的 `extern "C"` 声明逐字等于期望形状（含 `GPUBufferDescriptorC const*`、
+         `uint8_t const* + uint64_t` 的同步字节参数、`SetPassParam` 的目标句柄参数）。
     """
     problems: list[str] = []
     surface_expected = {
@@ -887,6 +888,8 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
             "public int AddBuffer(string name, GPUBufferDescriptor descriptor, byte[] data)",
             "public int SetPositionColorStream(string streamName, uint stride, uint positionOffset, "
             "uint colorOffset)",
+            "public int SetPositionStream(string streamName, uint stride, uint positionOffset)",
+            "public int SetPassParam(uint passIndex, string blockName, IScriptShaderStruct parameters)",
             "public int AddTrianglePass(IScriptRenderTarget target, string shaderPath, string streamName, "
             "string bufferName, uint vertexCount, float red, float green, float blue, float alpha)",
             "public int Present(IScriptRenderTarget target)",
@@ -897,8 +900,15 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
             "public IScriptRenderTarget GetWindowTarget(IWindow window)",
             "public IScriptRenderTarget CreateCaptureTarget(uint width, uint height)",
             "public IScriptRenderGraph CreateGraph()",
+            "public IScriptShaderStruct CreateShaderStruct(string structTypeName)",
             "public int SubmitGraph(IScriptRenderGraph graph)",
             "public void WaitIdle()",
+            "public string GetLastError()",
+        ],
+        # csharp-render-shader-constants 任务 4.2：第四个脚本接口的完整公开表面。
+        "IScriptShaderStruct.Bindings.cs": [
+            "public int SetFloat3(string field, float x, float y, float z)",
+            "public int SetStruct(string field, IScriptShaderStruct sub, uint elementIndex)",
             "public string GetLastError()",
         ],
     }
@@ -930,6 +940,22 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
             'extern "C" uint64_t IScriptRenderBackend_GetWindowTarget(void* self, uint64_t windowHandle)',
         "IScriptRenderBackend_SubmitGraph":
             'extern "C" int32_t IScriptRenderBackend_SubmitGraph(void* self, uint64_t graphHandle)',
+        # csharp-render-shader-constants 任务 4.2：参数结构接口与三个新方法的 C ABI 形状。
+        "IScriptRenderGraph_SetPositionStream":
+            'extern "C" int32_t IScriptRenderGraph_SetPositionStream(void* self, char const* streamName, '
+            'uint64_t streamNameLen, uint32_t stride, uint32_t positionOffset)',
+        "IScriptRenderGraph_SetPassParam":
+            'extern "C" int32_t IScriptRenderGraph_SetPassParam(void* self, uint32_t passIndex, '
+            'char const* blockName, uint64_t blockNameLen, uint64_t parametersHandle)',
+        "IScriptRenderBackend_CreateShaderStruct":
+            'extern "C" uint64_t IScriptRenderBackend_CreateShaderStruct(void* self, '
+            'char const* structTypeName, uint64_t structTypeNameLen)',
+        "IScriptShaderStruct_SetFloat3":
+            'extern "C" int32_t IScriptShaderStruct_SetFloat3(void* self, char const* field, '
+            'uint64_t fieldLen, float x, float y, float z)',
+        "IScriptShaderStruct_SetStruct":
+            'extern "C" int32_t IScriptShaderStruct_SetStruct(void* self, char const* field, '
+            'uint64_t fieldLen, uint64_t subHandle, uint32_t elementIndex)',
     }
     generated = read_generated(product_dir)
     for symbol, expected in cpp_expected.items():

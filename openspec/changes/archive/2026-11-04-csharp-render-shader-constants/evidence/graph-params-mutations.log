@@ -1,0 +1,38 @@
+﻿# csharp-render-shader-constants 任务 2.1 证据：参数结构与顶点流校验的判据与变异红绿
+记录时间：2026-11-04 12:52:36
+判据命令：out/build/x64-debug/bin/CoreTests.exe（退出码 0 且 PASSED 行数含 ScriptRenderBridgeTest）
+只追加，不覆盖：红态（临时删掉校验分支）与恢复后全绿都记在这里。
+## 基线（变异之前）：CoreTests 全绿
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=0
+以下为 ScriptRenderBridgeTest 的逐条读数（原样复制）：
+[参数结构] 未知类型 status=空句柄 点名=1 后端创建=0
+[参数结构拒绝] 未知字段                 status=1 点名=noSuchField 文本=IScriptShaderStruct.field：字段不在类型 ColorSubStruct 的元数据里：noSuchField
+[参数结构拒绝] 12 字节 int3 类型不符  status=1 点名=vector<int,3> 文本=IScriptShaderStruct.field：字段 value 类型不符：期望 vector<float,3>，实际 vector<int,3>
+[参数结构拒绝] float3[2] 数组字段       status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 必须是单元素，实际元素数 2
+[参数结构拒绝] 空子结构                 status=1 点名=sub 文本=IScriptShaderStruct.sub：子结构不能为空
+[参数结构拒绝] 子结构类型不符        status=1 点名=OtherSubStruct 文本=IScriptShaderStruct.sub：子结构类型不符：期望 ColorSubStruct，实际 OtherSubStruct
+[参数结构拒绝] 越界 elementIndex          status=1 点名=elementIndex 文本=IScriptShaderStruct.elementIndex：下标越界：元素数 3，实际下标 3
+[参数结构拒绝] 未知参数块名           status=1 点名=noSuchBlock 文本=IScriptRenderGraph.blockName：参数块不在该 pass 着色器的根结构里：noSuchBlock
+[参数结构拒绝] 越界 passIndex             status=1 点名=passIndex 文本=IScriptRenderGraph.passIndex：pass 下标越界：pass 数 1，实际下标 7
+[参数结构拒绝] 空参数                    status=1 点名=params 文本=IScriptRenderGraph.params：参数结构不能为空
+[参数结构拒绝] 参数块类型不符        status=1 点名=ColorSubStruct 文本=IScriptRenderGraph.params：参数块类型不符：期望 ConstantColor，实际 ColorSubStruct
+[参数结构拒绝] 未登记着色器路径     status=1 点名=Shaders/Test/NoSuchShader 文本=IScriptRenderGraph.shaderPath：着色器路径没有登记的根结构：Shaders/Test/NoSuchShader
+[流名查重] 两属性 / 单 POSITION 都拒绝，pass=1 execute=1
+## 变异 A（红态）：删掉 CreateShaderStruct 的未知类型空元数据判定
+改动：Interface/RenderInterface/private/ScriptRenderBridge.cpp 里把 if (data == nullptr) { … } 的条件临时改成 if (false)，
+      即未知类型也会调 m_Backend->CreateShaderStruct（真实缺陷：D3D12 侧会解引用空元数据）。
+命令：python build.py --config Debug → BUILD SUCCESSFUL（变异本身能编译，缺陷只在运行期暴露）
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=1（必须非零）
+[脚本渲染适配] 失败：未知类型名进入了后端 CreateShaderStruct
+[参数结构] 未知类型 status=空句柄 点名=1 后端创建=1
+## 变异 B（红态）：删掉 SetStruct 的 elementIndex 越界判定
+改动：Interface/RenderInterface/private/ScriptRenderBridge.cpp 里把 if (elementIndex >= reference->m_ElementCount) 的条件临时改成 if (false && …)。
+命令：python build.py --config Debug → BUILD SUCCESSFUL
+命令：out/build/x64-debug/bin/CoreTests.exe
+退出码=1（必须非零）
+[脚本渲染适配] 失败：越界 elementIndex
+[脚本渲染适配] 失败：越界 elementIndex
+[参数结构拒绝] 越界 elementIndex          status=0 点名=elementIndex 文本=
+说明：越界下标这一条的实际效果是 status=0（适配层放行）—— 在真实 D3D12 后端上 SetStructInternal 对越界下标只 CA_ASSERT，即数据被悄悄写坏。

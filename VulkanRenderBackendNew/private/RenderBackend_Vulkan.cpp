@@ -763,6 +763,40 @@ namespace graphics_backend
 		return shaderStruct;
 	}
 
+	// csharp-render-shader-constants 任务 1.1：未命中返回空指针且不打断。这里**故意**不调
+	// `ShaderLibrary::GetShaderStruct` / `GetShaderRootStruct`：它们未命中先执行 `CA_LOG_ERR_BREAK`。
+	ShaderCompilerSlang::ShaderStructData const* RenderBackend_Vulkan::FindShaderStructData(
+		cacore::NameHash const& structType)
+	{
+		if (p_ResourceManager == nullptr)
+		{
+			return nullptr;
+		}
+		auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("VulkanShaderLibrary.shLib");
+		if (shaderLibrary == nullptr)
+		{
+			return nullptr;
+		}
+		auto found = shaderLibrary->m_ShaderStructs.find(structType);
+		return found == shaderLibrary->m_ShaderStructs.end() ? nullptr : &found->second;
+	}
+
+	ShaderCompilerSlang::ShaderStructData const* RenderBackend_Vulkan::FindShaderRootStructData(
+		cacore::PathHash const& shaderPath)
+	{
+		if (p_ResourceManager == nullptr)
+		{
+			return nullptr;
+		}
+		auto shaderLibrary = p_ResourceManager->GetOrLoadResource<ShaderLibrary>("VulkanShaderLibrary.shLib");
+		if (shaderLibrary == nullptr)
+		{
+			return nullptr;
+		}
+		auto found = shaderLibrary->m_ShaderRootStructs.find(shaderPath);
+		return found == shaderLibrary->m_ShaderRootStructs.end() ? nullptr : &found->second;
+	}
+
 	VulkanShaderFileInfo const* RenderBackend_Vulkan::GetShaderFileInfo(ShaderInfo const& shaderInfo)
 	{
 		if (p_ResourceManager == nullptr)

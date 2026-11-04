@@ -1,0 +1,53 @@
+﻿# csharp-render-shader-constants 任务 5.2 证据：最终构建与 OpenSpec 校验
+记录时间：2026-11-04 13:29:00
+只追加，不覆盖。
+
+## 一、最终构建
+命令：python build.py --config Debug
+退出码=0
+已用时间 00:00:01.28
+  [托管侧] 已拷到 E:\Projects\CascadedEngine\out\build\x64-debug\bin：Scripting.Managed.dll, Scripting.Managed.runtimeconfig.json, Scripting.Managed.deps.json
+  [耗时] configure 0.0s / codegen 1.2s / 编译 6.3s / 托管侧 1.7s / 合计 25.7s
+============================================================
+BUILD SUCCESSFUL
+============================================================
+[耗时] configure 0.0s / codegen 1.2s / 编译 6.3s / 托管侧 1.7s / 合计 25.7s
+
+## 二、OpenSpec 校验
+命令：openspec validate csharp-render-shader-constants
+退出码=0
+Change 'csharp-render-shader-constants' is valid
+
+命令：openspec validate --all
+退出码=0
+Totals: 54 passed, 0 failed (54 items)
+
+## 三、空白错误检查
+命令：git diff --check -- . ':(exclude)openspec/changes/csharp-render-shader-constants/evidence/**'
+退出码=0（无输出 = 没有空白错误）
+
+## 四、剩余任务读数
+命令：openspec instructions apply --change csharp-render-shader-constants --json
+"total": 11,
+"complete": 10,
+"remaining": 1
+tasks.md 未勾条目数=1
+
+勾完 5.2 之后的最终读数：
+"total": 11,
+"complete": 11,
+"remaining": 0
+tasks.md 未勾条目数=0
+仓库根 crash_*.dmp 数量=0
+仓库根临时文件（_build_run*/.bak/.tmp）数量=0
+
+## 五、收尾状态（自查）
+- `tasks.md` 11 条全部勾选、`openspec instructions apply … --json` 的 `remaining` = 0。
+- 仓库根没有 `crash_*.dmp`、没有 `_build_run*` / `.bak` / `.tmp` 临时文件；本 change 的实现改动只落在
+  tasks.md 点名的文件 + 本 change 的 `evidence/`（`test_output/` 与 `.review_tmp/` 都在 .gitignore 里）。
+- 证据目录里的文件：adapter-red.log（1.1）、host-pixel-red.log（1.2）、graph-params-mutations.log（2.1）、
+  param-lifetime.log（2.2）、host-render-api.log（3.1）、managed-constant-color.log（3.2）、
+  pixel-validation.log（4.1）、param-binding-checks.log（4.2）、docs-sync.log（4.3）、
+  final-regression.log（5.1）、final-build.log（5.2），以及工件自带的 处置.md。
+
+补充：主 agent 复核确认（1）关闭顺序与 ABI 版本行在进程 stdout/stderr、（2）常量色 normal 为补抓点名行各复跑一次仍 pass（退出码 0）、（3）--list 14 行与 docs/testing.md 逐条一致。以上三点分别追加进 final-regression.log 第 14 节、docs-sync.log 第四节。

@@ -21,6 +21,8 @@ namespace Scripting.Managed
         private static IScriptRenderTarget NoRenderTarget => null;
         private static IScriptRenderGraph NoRenderGraph => null;
         private static IScriptRenderBackend NoRenderBackend => null;
+        // csharp-render-shader-constants 任务 1.2：参数结构窄接口（第四个脚本接口）。
+        private static IScriptShaderStruct NoShaderStruct => null;
 
         internal static void Compile()
         {
@@ -103,6 +105,24 @@ namespace Scripting.Managed
             Action waitIdle = () => NoRenderBackend.WaitIdle();
             Func<string> backendError = () => NoRenderBackend.GetLastError();
 
+            // ---- 参数结构窄接口与两个既有接口的新方法（csharp-render-shader-constants 任务 1.2）----
+            // `int` 状态不许退化成 void、`uint` 不许退化成 int、`float` 不许退化成 double、
+            // 参数结构入参不许换成 IntPtr —— 任何一处退化下面的委托赋值都编译不过。
+            Func<string, uint, uint, int> setPositionStream =
+                (streamName, stride, positionOffset) =>
+                    NoRenderGraph.SetPositionStream(streamName, stride, positionOffset);
+            Func<uint, string, IScriptShaderStruct, int> setPassParam =
+                (passIndex, blockName, parameters) =>
+                    NoRenderGraph.SetPassParam(passIndex, blockName, parameters);
+            Func<string, IScriptShaderStruct> createShaderStruct =
+                structTypeName => NoRenderBackend.CreateShaderStruct(structTypeName);
+            // 参数结构：按字段名写 float3、按字段名 + 数组下标挂子结构、读错误文本。
+            Func<string, float, float, float, int> setFloat3 =
+                (field, x, y, z) => NoShaderStruct.SetFloat3(field, x, y, z);
+            Func<string, IScriptShaderStruct, uint, int> setStruct =
+                (field, sub, elementIndex) => NoShaderStruct.SetStruct(field, sub, elementIndex);
+            Func<string> shaderStructError = () => NoShaderStruct.GetLastError();
+
             // 把这些引用"用掉"，避免 CS0219 之类的噪音（也防止有人把上面的赋值删掉还看不出来）
             _ = new object[]
             {
@@ -113,7 +133,8 @@ namespace Scripting.Managed
                 getDesc, getNested, getBool, getMode, getFlags, setName, setPath, consumeHash, mixBytes,
                 targetWidth, targetHeight, targetBackbuffer, addBuffer, setStream, addTrianglePass, present,
                 passCount, graphError, windowTarget, captureTarget, createGraph, submitGraph, waitIdle,
-                backendError,
+                backendError, setPositionStream, setPassParam, createShaderStruct, setFloat3, setStruct,
+                shaderStructError,
             };
         }
 
