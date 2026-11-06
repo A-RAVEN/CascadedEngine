@@ -1,0 +1,90 @@
+# 任务 3.1：宿主手写层退役（红绿实跑）
+
+## 改造内容
+
+`CSharpHost/private/CSharpHost.cpp`：
+- 只 `#include "BindingRegistry.Bindings.cpp"`（生成的跨接口登记表把逐接口产物一起带进来）；
+- 删除手写 `struct EngineApi`、`static_assert(sizeof(EngineApi) == 80u`、`s_engineApiVersion`、
+  `s_interfaceId*` 常量，以及 `OnGetInterfaceApi` / `OnGetBindingLayoutType` /
+  `OnGetBindingLayoutField` 三个逐接口分派（净删 7577 字节）；
+- 改为生成的登记表按**固定名字**调用的宿主钩子（`CSharpHostManagedLog/Echo`、
+  `CSharpHostBindingReportError/LookupInstance/CreateDefaultInstances/RequiresInstance/LayoutType/LayoutField`），
+  行为本体留在 `CSharpHost` 里；
+- `kBindingPolicies` 角色登记表 7 行（默认实例 / 目标类型表），编号取生成常量；
+- `Init` 存 `m_moduleManager` → `LoadRuntime` 里 `ca_bind_registry::FillEngineApi(api)`；
+  工厂锚行 `m_renderAdapter = std::make_unique<graphics_backend::CScriptRenderBackend>(backend, threads);` 原样保留。
+
+判据：`git grep -c "interfaceId ==" -- CSharpHost/private/CSharpHost.cpp` → **无命中（0）**；
+`s_interfaceId` / `s_engineApiVersion` → 无命中。
+
+## 编译期现场一：生成文本用 C++20 关键字当变量名（build-12 红）
+
+`build.py` 在 CSharpHost 编译段失败：
+
+```
+BindingRegistry.Bindings.cpp(119): error C2059: syntax error: 'requires'
+BindingRegistry.Bindings.cpp(120): error C2760: syntax error: '<' was unexpected here; expected '{'
+BindingRegistry.Bindings.cpp(120): error C2059: syntax error: 'constant'
+```
+
+生成文本是 `const int32_t requires = CSharpHostBindingRequiresInstance(route.id);` —— `requires`
+在 `/std:c++20` 下是关键字。已改名 `requiresInstance`；build-13 复绿。
+
+**决定（可编译性闸门）**：不为 `check_bindings.py` 另加"再编译一遍生成物"的预检 —— 编译器
+（ninja 硬门）已经兜住这类问题，再跑一遍编译的代价大于收益；`check_bindings.py` 维持
+编号/表面/对齐/错误码等文本判据。这条决定连同本次现场记在这里。
+
+## 红态一（build-14）：注释工厂锚行 → 初次全量跑出 2 条**回归**
+
+构造：把锚行注释成
+`// m_renderAdapter = std::make_unique<graphics_backend::CScriptRenderBackend>(backend, threads);`，
+构建绿后跑 `GPUBackendTester.exe --backend vulkan --headless 10 --report %TEMP%\rmerge-3.1-red\suite.json`。
+
+结果：进程退出码 1；**12 pass / 4 fail 的期望没达成** —— 实测 10 pass / 6 fail：
+
+- 四条渲染探针按期望 fail 且点名干净：
+  `TestCSharpTriangle: E_RENDER_BACKEND_MISSING: 编号 3 没有登记脚本渲染适配器（实例 = 0000000000000000）`、
+  `TestCSharpConstantColor: E_CONSTCOLOR_BACKEND_MISSING: 同上`、
+  `TestCSharpStructuredBuffer: E_SB_BACKEND_MISSING: 同上`、
+  `TestCSharpTextureSampling: E_TEX_BACKEND_MISSING: 同上`；
+- **意外 fail**：`TestCSharpWindow`（`建窗 + Tick 之后 LastError 非空：接口 IScriptRenderBackend（编号 3）
+  下没有登记实例名 ""…`）与 `TestScriptHost`（LastError 非空）。这是本次改造引入的回归：
+  生成的 `get_interface_api` 把"默认实例缺失"当错误写进了宿主 `LastError`，而旧形态不会让这条
+  路径污染窗口路径的 LastError。
+
+## 回归修复（生成器模板）与红态复跑（build-15）
+
+修法（只动生成器里的 `get_interface_api` 模板）：
+1. 顺序改为：未知编号 → 角色未登记 → **默认实例解析** → `size==0` 探针 → `out` 空检查 → 回表；
+2. 默认实例缺失时**直接返回 0、不写宿主 LastError**（由托管侧 `s_renderBindError` 与探针失败文本
+   点名接口）；
+3. **未知编号 / 角色未登记仍然写宿主 LastError** —— `TestCSharpWindow` 的"未知接口编号 9"判据依赖它。
+
+> **分界记一笔**：这两类错误必须分开处理 —— "未知编号"是给调用的明确拒绝（写 LastError，
+> 测试依赖）；"缺少默认实例"属于渲染绑定失败（不写 LastError，窗口路径必须保持 LastError 为空）。
+> 后人容易为了"少一条日志"把两类一起静音，那会同时打破 spec csharp-host 的两条判据。
+
+build-15（锚行仍注释）+ 复跑 `--report %TEMP%\rmerge-3.1-red\suite2.json`：
+进程退出码 1，逐条 status：
+
+```
+TestSimpleTriangle pass
+TestTriangleWithConstantColor pass
+TestTriangleWithStructuredBufferColor pass
+TestTriangleWithImageBuffer pass
+TestDoublePass pass
+TestComputeBuffer pass
+TestReadback pass
+TestIMGUI pass
+TestScriptHost pass
+TestCSharpWindow pass
+TestCSharpTriangle fail
+TestGPUTiming pass
+TestCSharpConstantColor fail
+TestCSharpStructuredBuffer fail
+TestCSharpTextureSampling fail
+TestCSharpWindowCallbacks pass
+```
+
+**恰好 4 fail（四条渲染探针）+ 12 pass**，窗口两条（`TestCSharpWindow`、`TestCSharpWindowCallbacks`）
+与 `TestScriptHost` 全部复绿 —— 任务 3.1 的"四个渲染探针明确失败、窗口路径既有行为不变"达成。

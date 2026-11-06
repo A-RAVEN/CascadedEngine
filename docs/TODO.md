@@ -8,6 +8,14 @@
 
 # 待办（未解决 / 需后续处理）
 
+## [2026-11-05] check_hash_sources 把 std 别名 remove_cvref_t 当键类型点名（基线即红）｜工具（跨 change）
+
+**状态**：待修（基线 `1301768` 即红；本 change 只留档不改）。**条目**：`remove_cvref_t` 被 `check_hash_sources.py` 当作来源不明的哈希键类型点名（出现在 `Test/CoreTests/GeneratedHashTest.cpp`）；待修方向：扫描器展开 std 别名，或该测试改用显式类型。**相关**：`Tools/CodeGen/check_hash_sources.py`、`Test/CoreTests/GeneratedHashTest.cpp`、`openspec/changes/render-interface-merge/evidence/4.3-全量实测.txt`。
+
+## [2026-11-05] 绑定生成物期望检查仍是前缀通配，改名件可绕过｜构建系统（跨 change）
+
+**状态**：待修（跨 change；本 change 只把**登记产物**层改成精确文件名，逐接口层未动）。**条目**：`build.py` 的 `CODEGEN_BINDINGS` 缺失检查用 `glob(f"{stem}.Bindings.*")`，`<stem>.Bindings.cs.redbak` 这类改名件同样命中，闸门会恒绿。另：codegen 只写不删，**输入面删除后旧产物留在构建目录**会被 `check_bindings` 当成真实接口（`render-interface-merge` 5.1 演练实测：孤儿 `IBindRegistry10.Bindings.cpp` 报"解析不到接口头"）；清理责任目前靠人。**相关**：`build.py` 的 `CODEGEN_BINDINGS` 缺失检查、`openspec/changes/render-interface-merge/evidence/1.4-登记产物闸门红.txt`、同 change 的 `evidence/5.1-演练.md`。
+
 ## [2026-10-25] CodeGen 重编之后第一次全量跑，`VulkanCBufferBindingInfo` 会以退出码 6 失败｜构建系统（跨 change）
 
 **状态**：待修（不阻塞：再跑一次构建就过）。

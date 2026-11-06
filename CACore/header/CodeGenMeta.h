@@ -185,6 +185,10 @@ namespace cacore::codegen
 // openspec/specs/csharp-bindable-surface/spec.md 与 Tools/CodeGen/README.md 第十三节）。
 // 与 CA_REFLECT 一样是"文本标记 + 编译期 no-op"：工具按源码文本认它，编译器这里什么也不做。
 //
+// **编号写在这条标注上**：`CA_BIND(3)`。进入宿主登记表（`--emit-registry`）的接口必须带编号：
+// 编号全局唯一、只增不改序；生成器从宏文本读取编号，把它作为登记表与 `EngineApi` 两侧编号的
+// 唯一来源。既有不进登记表的夹具头维持无号 `CA_BIND()` 现状（design D2 的豁免口径）。
+//
 // CA_BIND_SKIP(方法名, "理由") —— 逐方法排除。它**必须带理由**：工具对"排除但没写理由"单独报错。
 // 用法与退出码见 Tools/CodeGen/README.md 的发射器一节。
 // ---------------------------------------------------------------------------------------------

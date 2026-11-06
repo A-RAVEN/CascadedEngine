@@ -1,0 +1,41 @@
+# 任务 4.2：对外文档同批更新
+
+## `CSharpHost/README.md`
+
+- 函数表读数改 **v9 / 80 字节**；新增"v9（render-interface-merge）"段：字段布局不变，版本升级
+  因为表改由生成器从 `CA_BIND(编号)` 标注发射（C++ `BindingRegistry.Bindings.h/.cpp` +
+  托管 `EngineApi.Bindings.cs`），手写镜像退役。
+- `sizeof(EngineApi)` 的 `static_assert` 来源改为**生成的** `BindingRegistry.Bindings.h`。
+- 接口编号表说明改为"编号写在接口头上的 `CA_BIND(编号)` 标注里，由生成器发射成
+  `kBindingInterfaceId*` 常量与 `EngineApi.Bindings.cs` 编号常量；README 只是可读名字，由
+  `Tools/check_csharp_host_readme.py` 逐行对拍"。
+- 后端实例说明改为"由宿主固定名工厂钩子在生成的装配代码里、用模块管理器里的
+  `CRenderBackend` + `CThreadManager` 创建"。
+- 失败样例与"可直接复制运行"的示例输出同步为 `abi_version 10（真实值 9）`、`托管侧期望 9`、
+  `ABI 版本 9`、`ABI v9`。
+
+## `Tools/CodeGen/README.md`
+
+- 第二节参数表新增四行：`--registry-part <标签>`、`--registry-part-dir <目录>`、
+  `--emit-registry`、`--registry-part-file <路径>`（含缺号/重号/跳号拒绝与分片语义）。
+- 第十四节末尾新增「登记表发射（`--emit-registry`，render-interface-merge）」小节：
+  三份产物形状、编号规则（全局唯一、只增不改序、主表 1..N 连续 / 夹具表 8..M 连续）、
+  确定性口径（**同一输入重跑**逐字节相同；路径文本不同属于输入不同）、构建期用法、退出码。
+- 措辞遵守主 agent 要求：**没有**写"任意两次调用产物逐字节相同"。
+
+## `docs/testing.md`
+
+- `check_csharp_host_readme.py` 判据段改写：真值来源 = 生成产物（`kEngineApiVersion` /
+  `static_assert(sizeof(EngineApi) == N)` / `kBindingInterfaceId*` / 生成 `EngineApi.Bindings.cs`
+  编号常量）；缺产物 ⇒ 判据自身失效退出 2；红态示例改为 v9/v8。
+- `check_bindings.py` 能力清单补"登记表判据"（编号对账、1..N / 8..M 连续、两侧 14 字段、
+  v9/80、C# 常量与清单条目数）。
+- `SurfaceSignatureCheck.cs` 行补清"该文件本身没有计数断言；61 是仓库级观测口径"。
+- ABI 失败场景与最小集合末尾的"A/B 期望版本"由 v8 改为 **v9**（自检把 v9 加成 10）。
+
+## 验收
+
+- `python Tools\check_csharp_host_readme.py`：`问题 0 处`，exit 0（`evidence\4.1-判据同步.txt`）。
+- `python Tools\CodeGen\verify_readme.py`：4.3 驱动脚本里 `exit=0 OK`（README 的既有命令仍可重跑）。
+- `GPUBackendTester.exe --list`（最终构建后重跑，`%TEMP%\rmerge-list-final.log`）：
+  16 条，顺序与 `docs/testing.md` 的清单逐条一致（`TestSimpleTriangle` … `TestCSharpTextureSampling`）。

@@ -1,0 +1,8 @@
+# 基线提交号（任务 2.2 的 git diff 基准）
+
+- 提交号：`13017684bab39ad2f251aeab3bd7ccaf94671798`
+- 分支：`002-vulkan-backend-renderinterface`
+- 记录时刻：apply 开工第一步（2026-11-05），工作树只剩两个未跟踪目录
+  （`.dsh-acl-recovery/`、`openspec/changes/render-interface-merge/`）。
+- 用途：任务 2.2「原生头零改动」的比对基准；`git diff --name-only <本提交号>` 必须不出现
+  禁止清单里的头文件。

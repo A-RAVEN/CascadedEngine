@@ -1,0 +1,207 @@
+# 基线复算（apply 开工第一步，只读命令）
+
+日期：2026-11-05
+工作目录：E:\Projects\CascadedEngine
+分支：002-vulkan-backend-renderinterface
+
+> 说明：`GPUBackendTester.exe --list` 的实际执行按分工红线由主 agent 代跑，本文件先记静态复核
+> （`Test/GPUBackendTester/Main.cpp` 的 `--list` 分支逐行条数）；实跑原始输出由主 agent 回填到本文件末尾。
+
+## 1. 基线提交号与工作树
+
+```
+$ git rev-parse HEAD
+13017684bab39ad2f251aeab3bd7ccaf94671798
+
+$ git branch --show-current
+002-vulkan-backend-renderinterface
+
+$ git status --porcelain
+?? .dsh-acl-recovery/
+?? openspec/changes/render-interface-merge/
+```
+
+## 2. 手写 `interfaceId ==` 分派
+
+```
+$ git grep -c "interfaceId ==" -- CSharpHost/private/CSharpHost.cpp
+CSharpHost/private/CSharpHost.cpp:30
+```
+
+## 3. 关键文件行数
+
+```
+$ for f in ...; (Get-Content -LiteralPath $f).Count
+CSharpHost/private/CSharpHost.cpp = 1026
+Scripting/Managed/Host.cs = 1282
+Scripting/Managed/EngineApi.cs = 47
+Interface/RenderInterface/private/ScriptRenderBridge.cpp = 1152
+Interface/RenderInterface/private/ScriptRenderBridge.h = 325
+Interface/RenderInterface/header/ScriptRenderBridge.h = 144
+CSharpHost/README.md = 155
+Tools/CodeGen/CodeGenMain.cpp = 7438
+build.py = 1366
+Tools/CodeGen/check_bindings.py = 1225
+Tools/check_csharp_host_failures.py = 203
+Tools/check_csharp_host_readme.py = 259
+Scripting/Managed/SurfaceSignatureCheck.cs = 296
+```
+
+## 4. ABI v8 / sizeof(EngineApi) == 80 / 14 字段
+
+```
+$ git grep -n "s_engineApiVersion\|sizeof(EngineApi)" -- CSharpHost/private/CSharpHost.cpp
+CSharpHost/private/CSharpHost.cpp:89:	static_assert(sizeof(EngineApi) == 80u,
+CSharpHost/private/CSharpHost.cpp:146:	static constexpr uint32_t s_engineApiVersion = 8;
+```
+
+手写 `struct EngineApi`（CSharpHost.cpp 第 49–87 行）字段逐条数 = **14**：
+`abi_version`、`size`、`log`、`echo`、`get_interface_api`、`window_interface_id`、
+`window_system_interface_id`、`get_binding_layout_type`、`get_binding_layout_field`、
+`script_render_backend_interface_id`、`script_render_graph_interface_id`、
+`script_render_target_interface_id`、`script_shader_struct_interface_id`、
+`script_texture_interface_id`。
+
+托管侧手写镜像：
+
+```
+$ git grep -n "ExpectedAbiVersion" -- Scripting/Managed/Host.cs
+Scripting/Managed/Host.cs:17:        private const uint ExpectedAbiVersion = 8;
+```
+
+## 5. `check_csharp_host_failures.py` 现期望文本
+
+```
+$ git grep -n "托管侧期望" -- Tools/check_csharp_host_failures.py
+Tools/check_csharp_host_failures.py:9:  4. 函数表 ABI 不符        → 退出码 3，输出含 ABI 版本不符 与 托管侧期望 8（自检开关构造：
+Tools/check_csharp_host_failures.py:10:                              引擎侧故意把当前 v8 加成 9，托管侧仍期望 8）
+Tools/check_csharp_host_failures.py:144:        abi_named_current = "ABI 版本不符" in text and "托管侧期望 8" in text
+Tools/check_csharp_host_failures.py:146:        record("ABI 版本不符", ok, f"退出码 {code}（期望 3）；含 ABI 版本不符 与 托管侧期望 8："
+```
+
+## 6. `GPUBackendTester --list` = 16 用例
+
+静态复核（`Test/GPUBackendTester/Main.cpp` 的 `--list` 分支，第 3725–3745 行逐行打印 16 条）：
+
+```
+TestSimpleTriangle
+TestTriangleWithConstantColor
+TestTriangleWithStructuredBufferColor
+TestTriangleWithImageBuffer
+TestDoublePass
+TestComputeBuffer
+TestReadback
+TestIMGUI
+TestScriptHost
+TestCSharpWindow
+TestCSharpTriangle
+TestCSharpWindowCallbacks
+TestGPUTiming
+TestCSharpConstantColor
+TestCSharpStructuredBuffer
+TestCSharpTextureSampling
+```
+
+`--list` 分支条数：16（上面逐条数）。
+实际 `GPUBackendTester.exe --list` 原始输出：待主 agent 代跑后回填（见文件末尾）。
+
+## 7. 渲染探针 4 个（互不消耗）
+
+```
+$ git grep -n "CASCADED_CSHARP_RENDER_PROBE\|CASCADED_CSHARP_CONSTCOLOR_PROBE\|CASCADED_CSHARP_SB_PROBE\|CASCADED_CSHARP_TEX_PROBE" -- Scripting/Managed/Host.cs
+Scripting/Managed/Host.cs:1014:            Environment.GetEnvironmentVariable("CASCADED_CSHARP_RENDER_PROBE") == "1";
+Scripting/Managed/Host.cs:1017:            Environment.GetEnvironmentVariable("CASCADED_CSHARP_CONSTCOLOR_PROBE") == "1";
+Scripting/Managed/Host.cs:1020:            Environment.GetEnvironmentVariable("CASCADED_CSHARP_SB_PROBE") == "1";
+Scripting/Managed/Host.cs:1023:            Environment.GetEnvironmentVariable("CASCADED_CSHARP_TEX_PROBE") == "1";
+```
+
+## 8. 审计 12 接口 90 方法（实跑）
+
+```
+$ python Tools\CodeGen\check_bindable_audit.py
+扫描 12 个接口、对账 90 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+exit=0
+```
+
+## 9. `Tools/**/check_*.py` 重 glob = 12 份
+
+```
+$ Get-ChildItem -Path Tools -Recurse -Filter 'check_*.py' | ...（相对路径）
+Tools\check_csharp_constant_color.py
+Tools\check_csharp_host_failures.py
+Tools\check_csharp_host_readme.py
+Tools\check_csharp_structured_buffer.py
+Tools\check_csharp_texture_sampling.py
+Tools\check_csharp_triangle.py
+Tools\check_gpu_timing.py
+Tools\check_window_system_bindings.py
+Tools\CodeGen\check_bindable_audit.py
+Tools\CodeGen\check_bindings.py
+Tools\CodeGen\check_hash_sources.py
+Tools\CodeGen\check_legacy_symbols.py
+```
+
+## 10. 夹具头 `CA_BIND` 现状（任务 2.1 的豁免口径）
+
+```
+$ (Get-ChildItem Tools\CodeGen\BindableShapes*.h).Count
+19
+```
+
+- 含 `CA_BIND(` 标注的夹具头：17 份（`git grep -l "CA_BIND(" -- Tools/CodeGen/BindableShapes*.h` 逐条数）。
+- 标注总数：39 处，全部为**无号** `CA_BIND()`。
+- 其中在 `build.py` 的 `CODEGEN_BINDINGS` 里走绑定发射的 4 份：
+  `BindableShapes.h`、`BindableShapes.RenderFoundation.h`、`BindableShapes.RenderResource.h`、
+  `BindableShapes.RenderOwner.h`。
+
+## 11. abi-mismatch 场景现状
+
+- 引擎侧自检开关（`CSharpHost.cpp` 第 394–399 行）：`CASCADED_CSHARP_SELFTEST=abi-mismatch` 时
+  `api.abi_version = s_engineApiVersion + 1`（当前 8 → 9），并把真实值 8 打进日志。
+- 托管侧期望 `Host.cs` 第 17 行 `ExpectedAbiVersion = 8`，失败文本
+  `ABI 版本不符：引擎 {api->AbiVersion}，托管侧期望 {ExpectedAbiVersion}`。
+- `check_csharp_host_failures.py` 断言文本 `"托管侧期望 8"`（第 144 行）。
+- 本 change 升 v9 后，实跑读数按任务 3.3 现场重算，本文件不预设。
+
+---
+
+## 附：主 agent 代跑回填区
+
+### `GPUBackendTester.exe --list`（主 agent 代跑，2026-11-05，退出码 0）
+
+命令（工作目录 `E:\Projects\CascadedEngine`）：
+```
+& '.\out\build\x64-debug\bin\GPUBackendTester.exe' --list
+```
+全量原始日志：`C:\Users\76956\AppData\Local\Temp\gpubt-list-baseline-20261105.log`
+
+stdout（Available tests 段，逐条 16 条）：
+```
+TestSimpleTriangle
+TestTriangleWithConstantColor
+TestTriangleWithStructuredBufferColor
+TestTriangleWithImageBuffer
+TestDoublePass
+TestComputeBuffer
+TestReadback
+TestIMGUI
+TestScriptHost
+TestCSharpWindow
+TestCSharpTriangle
+TestCSharpWindowCallbacks
+TestGPUTiming
+TestCSharpConstantColor
+TestCSharpStructuredBuffer
+TestCSharpTextureSampling
+```
+读数：16 条，与任务基线 16 一致。
+
+stderr 原样（既有噪声，非本次执行引入）：
+```
+mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+(hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+Register Module Factory: class catimer::TimerSystem - CATimer
+Register Module Factory: class imgui_display::IMGUIContext - IMGUIContext
+```
+

@@ -1,0 +1,43 @@
+# 任务 5.2：openspec 校验与临时产物清理
+
+## 校验（复跑）
+
+```
+$ openspec validate render-interface-merge --strict
+Change 'render-interface-merge' is valid
+exit=0
+
+$ openspec validate --all
+Totals: 54 passed, 0 failed (54 items)
+exit=0
+```
+
+## 清理
+
+- 删除跑测产物 `test_output\`（117 个文件；报告与 PNG 是 4.3 的运行产物，读数已入
+  `evidence\4.3-全量实测.txt`，原始日志在 `%TEMP%\rmerge-4.3\`）。
+- 检查 `crash_*.dmp`：无；`*.redbak`：仓库内无（1.4 演练的改名件已在当时移出构建目录）；
+  5.1 演练夹具头已删除（`Test-Path … RenderRegistryDrill.h` = False）。
+- `git status --porcelain` 只剩本 change 的预期改动、新夹具头与 change 目录；`.dsh-acl-recovery/`
+  是开工前就存在的未跟踪目录（基线记录里已有）。
+
+```
+ M CACore/header/CodeGenMeta.h
+ M CSharpHost/README.md
+ M CSharpHost/private/CSharpHost.cpp
+ M Interface/RenderInterface/header/ScriptRenderBridge.h
+ D Scripting/Managed/EngineApi.cs
+ M Scripting/Managed/Host.cs
+ M Tools/CodeGen/CodeGenMain.cpp
+ M Tools/CodeGen/README.md
+ M Tools/CodeGen/check_bindings.py
+ M Tools/check_csharp_host_failures.py
+ M Tools/check_csharp_host_readme.py
+ M WindowSystem/header/CAWindow/WindowSystem.h
+ M build.py
+ M docs/TODO.md
+ M docs/testing.md
+?? .dsh-acl-recovery/
+?? Tools/CodeGen/BindableShapes.RenderRegistry.h
+?? openspec/changes/render-interface-merge/
+```

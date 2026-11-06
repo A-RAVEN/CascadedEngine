@@ -116,6 +116,8 @@ def read_generated(product_dir: Path) -> dict[str, str]:
     if not product_dir.is_dir():
         return found
     for path in sorted(product_dir.glob("*.Bindings.cpp")):
+        if is_registry_product(path):
+            continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for declaration in DECL_RE.findall(text):
             match = SYMBOL_RE.search(declaration)
@@ -139,6 +141,74 @@ MEMBER_RE = re.compile(r"\(\s*\*\s*(\w+)\s*\)\s*\(")
 CHANNEL_SLOTS = {"LastErrorCode", "LastErrorText", "ResolveHandle", "ReleaseHandle",
                  "ResolveTargetHandle", "ReleaseTargetHandle",
                  "UnregisterCallback", "ReportCallbackError"}
+
+# ---- 登记表产物（render-interface-merge 任务 1.3）----
+# 这三份是**跨接口**产物，不是"一个接口一份"的绑定产物：逐接口判据（桩 / 两侧对齐 / 表面 /
+# 错误码 / 共享值类型）必须跳过它们，另由 `check_registry()` 按编号表与 EngineApi 形状判。
+REGISTRY_PRODUCT_NAMES = {"BindingRegistry.Bindings.cpp", "BindingRegistry.Bindings.cs",
+                          "EngineApi.Bindings.cs"}
+
+
+def is_registry_product(path: Path) -> bool:
+    return path.name in REGISTRY_PRODUCT_NAMES
+
+
+# ---- 登记表编号对账表（render-interface-merge 任务 1.3 / 2.1）----
+# 编号的唯一来源是接口头上的 `CA_BIND(编号)` 标注；这张表是**判据侧的期望**，改号 / 删号 / 换序
+# 必须在这里显式改并重跑，生成物与它不一致即非零退出并点名差异。
+# 主登记表的期望（真实接口 1–7）：
+EXPECTED_BINDING_NUMBERS = {
+    1: "cawindow::IWindow",
+    2: "cawindow::IWindowSystem",
+    3: "graphics_backend::IScriptRenderBackend",
+    4: "graphics_backend::IScriptRenderGraph",
+    5: "graphics_backend::IScriptRenderTarget",
+    6: "graphics_backend::IScriptShaderStruct",
+    7: "graphics_backend::IScriptTexture",
+}
+# 夹具登记表（`codegen/bindings/fixture`）的期望（夹具专用号段 8/9，不进真实宿主）：
+FIXTURE_BINDING_NUMBERS = {
+    8: "ca_bind_fixture::IBindRegistry8",
+    9: "ca_bind_fixture::IBindRegistry9",
+}
+# `EngineApi` 的 14 个字段（C++ 名 / C# 名，顺序就是 ABI）。两侧必须逐字段同序。
+ENGINE_API_FIELD_PAIRS = [
+    ("abi_version", "AbiVersion"),
+    ("size", "Size"),
+    ("log", "Log"),
+    ("echo", "Echo"),
+    ("get_interface_api", "GetInterfaceApi"),
+    ("window_interface_id", "WindowInterfaceId"),
+    ("window_system_interface_id", "WindowSystemInterfaceId"),
+    ("get_binding_layout_type", "GetBindingLayoutType"),
+    ("get_binding_layout_field", "GetBindingLayoutField"),
+    ("script_render_backend_interface_id", "ScriptRenderBackendInterfaceId"),
+    ("script_render_graph_interface_id", "ScriptRenderGraphInterfaceId"),
+    ("script_render_target_interface_id", "ScriptRenderTargetInterfaceId"),
+    ("script_shader_struct_interface_id", "ScriptShaderStructInterfaceId"),
+    ("script_texture_interface_id", "ScriptTextureInterfaceId"),
+]
+# 逐字段的**逐字声明**（C++ 侧）：除了名字，宽度与函数指针形状也必须同 v8 手写表一致。
+# 只数名字会放过"函数指针把名字写了两遍"这种编译不过的产物（实际踩过一次）。
+ENGINE_API_FIELD_DECLARATIONS = [
+    "uint32_t abi_version;",
+    "uint32_t size;",
+    "void (*log)(int level, uint8_t const* utf8, uint64_t len);",
+    "int32_t (*echo)(int32_t value);",
+    "uint32_t (*get_interface_api)(uint32_t interfaceId, char const* instanceName, uint32_t version, "
+    "uint32_t size, void* out, void** instanceOut);",
+    "uint32_t window_interface_id;",
+    "uint32_t window_system_interface_id;",
+    "uint32_t (*get_binding_layout_type)(uint32_t interfaceId, uint32_t typeIndex, char* name, "
+    "uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount);",
+    "uint32_t (*get_binding_layout_field)(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex, "
+    "char* name, uint32_t nameCap, char* typeName, uint32_t typeCap, uint64_t* offsetBytes);",
+    "uint32_t script_render_backend_interface_id;",
+    "uint32_t script_render_graph_interface_id;",
+    "uint32_t script_render_target_interface_id;",
+    "uint32_t script_shader_struct_interface_id;",
+    "uint32_t script_texture_interface_id;",
+]
 
 # ---- 共享公开值类型（csharp-render-binding-foundations 任务 1.1 / 2.3）----
 # 这类产物**只有** `<类型>.Bindings.cs`，没有对应的 `.Bindings.cpp`：同一个限定 C++ 类型被
@@ -308,6 +378,8 @@ def check_shared_qualified_names(product_dir: Path) -> list[str]:
     short_to_qualified: dict[str, str] = {}
     qualified_to_short: dict[str, str] = {}
     for path in sorted(product_dir.glob("*.Bindings.cs")):
+        if is_registry_product(path):
+            continue
         stem = path.name[: -len(".Bindings.cs")]
         if (product_dir / f"{stem}.Bindings.cpp").is_file():
             continue  # 接口产物，不是共享值类型
@@ -369,6 +441,8 @@ def check_shared_value_types(product_dir: Path) -> list[str]:
             problems.append(f"  共享值类型 {name}：文件里出现了 `ulong`（只允许登记的 uint64_t 记录字段）")
     # 反向：产物目录里出现的"只有 .cs、没有 .cpp"文件必须都是登记过的共享值类型。
     for path in sorted(product_dir.glob("*.Bindings.cs")):
+        if is_registry_product(path):
+            continue
         stem = path.name[: -len(".Bindings.cs")]
         if (product_dir / f"{stem}.Bindings.cpp").is_file():
             continue
@@ -412,7 +486,9 @@ THUNK_ANCHOR_RE = re.compile(r"static\s+([^\n(]+?)\s+(\w+)_thunk_(\w+)\s*\(")
 CALL_RE = re.compile(r"object\s*->\s*(\w+)\s*\(")
 VIRTUAL_RE = re.compile(r"virtual\s+([^;(){]+?)\s+(\w+)\s*\(", re.S)
 INCLUDE_RE = re.compile(r'^\s*#include\s+"([^"]+)"', re.M)
-CA_BIND_CLASS_RE = re.compile(r"CA_BIND\s*\(\s*\)\s*class\s+(\w+)", re.S)
+# 夹具识别：`BindableShapes*.h` 里的 `CA_BIND(编号)` 或 `CA_BIND()` 都要认出来 —— 只认空括号
+# 会把带号夹具（render-interface-merge 任务 1.1 的编号 8/9）当成真实接口，桩判据立刻红。
+CA_BIND_CLASS_RE = re.compile(r"CA_BIND\s*\([^)]*\)\s*class\s+(\w+)", re.S)
 
 
 def strip_comments(text: str) -> str:
@@ -527,7 +603,8 @@ def resolve_interface_header(product_text: str) -> Path | None:
 def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str], list[str]]:
     """返回（真实接口数, 夹具接口数, 夹具桩数, 真实接口问题, 丢返回值问题, 结构问题）。"""
     fixtures = fixture_interface_names()
-    products = sorted(product_dir.glob("*.Bindings.cpp"))
+    products = [path for path in sorted(product_dir.glob("*.Bindings.cpp"))
+                if not is_registry_product(path)]
     real_paths = [path for path in products if interface_of(path) not in fixtures]
     real_names = {interface_of(path) for path in real_paths}
 
@@ -671,12 +748,16 @@ def check_alignment(product_dir: Path) -> list[str]:
         return False
 
     for path in sorted(product_dir.glob("*.Bindings.cpp")):
+        if is_registry_product(path):
+            continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for interface, method in CPP_SYMBOL_RE.findall(text):
             if is_generic(interface, method):
                 continue
             cpp_pairs.setdefault(interface, []).append(method)
     for path in sorted(product_dir.glob("*.Bindings.cs")):
+        if is_registry_product(path):
+            continue
         interface = path.name[: -len(".Bindings.cs")]
         text = path.read_text(encoding="utf-8", errors="replace")
         for method in CS_MEMBER_RE.findall(text):
@@ -703,7 +784,8 @@ def check_alignment(product_dir: Path) -> list[str]:
     # 见 check_shared_value_types —— 任务 4.1 的顺序前提）----
     fixtures = fixture_interface_names()
     interface_stems = set(cpp_pairs) | {path.name[: -len(".Bindings.cpp")]
-                                        for path in product_dir.glob("*.Bindings.cpp")}
+                                        for path in product_dir.glob("*.Bindings.cpp")
+                                        if not is_registry_product(path)}
     for interface in sorted(interface_stems):
         if interface in fixtures:
             continue
@@ -1049,6 +1131,8 @@ def check_error_codes(product_dir: Path) -> list[str]:
     """
     problems: list[str] = []
     for path in sorted(product_dir.glob("*.Bindings.cpp")):
+        if is_registry_product(path):
+            continue
         interface = path.name[: -len(".Bindings.cpp")]
         text = path.read_text(encoding="utf-8", errors="replace")
         constants = {f"{prefix}_ERROR_{name}": int(code)
@@ -1067,6 +1151,140 @@ def check_error_codes(product_dir: Path) -> list[str]:
             # 不是"常量"；生成出来的错误常量一律含大写字母。
             elif argument.isupper() and argument not in constants:
                 problems.append(f"  {interface}：`setError` 用了没定义的常量 {argument}")
+    return problems
+
+
+REGISTRY_CONST_RE = re.compile(
+    r"inline constexpr uint32_t kBindingInterfaceId(\w+) = (\d+)u;\s*//\s*(\S+)")
+ENGINE_API_STRUCT_RE = re.compile(r"struct EngineApi\s*\{(.*?)\};", re.S)
+ENGINE_API_MIRROR_RE = re.compile(r"struct EngineApiMirror\s*\{(.*?)\}", re.S)
+CPP_FIELD_NAME_RE = re.compile(r"\(\s*\*\s*(\w+)\s*\)|^\s*[\w:*]+\s+(\w+)\s*;", re.M)
+
+
+def check_registry(product_dir: Path, expected_numbers: dict[int, str],
+                   require_engine_api_ids: bool, contiguous_from: int | None) -> list[str]:
+    """登记表产物判据（render-interface-merge 任务 1.3）。
+
+    四类断言：
+      ① 编号对账：生成物里的「编号 → 接口完整限定名」必须与期望表逐项相同（缺 / 多 / 改号 /
+         换限定名都报，并点名差异）；
+      ② `EngineApi` 形状：C++ struct 恰好 14 个字段、顺序与 `ENGINE_API_FIELD_PAIRS` 相同、
+         `static_assert(sizeof(EngineApi) == 80u`、`kEngineApiVersion = 9`、`kEngineApiSize = 80`；
+      ③ 同一次生成的托管对照：`EngineApiMirror` 恰好 14 个字段、顺序与 C++ 侧逐字段对上，
+         `AbiVersion = 9`、`Size = 80`、逐接口编号常量与 ① 一致；
+      ④ （主登记表）装配代码里 7 个编号字段必须引用生成常量，不许回落到 0。
+    """
+    problems: list[str] = []
+    header_path = product_dir / "BindingRegistry.Bindings.h"
+    cpp_path = product_dir / "BindingRegistry.Bindings.cpp"
+    cs_path = product_dir / "EngineApi.Bindings.cs"
+    for path in (header_path, cpp_path, cs_path):
+        if not path.is_file():
+            problems.append(f"  登记表：缺产物 {path}")
+    if problems:
+        return problems
+    header = header_path.read_text(encoding="utf-8", errors="replace")
+    cpp = cpp_path.read_text(encoding="utf-8", errors="replace")
+    cs = cs_path.read_text(encoding="utf-8", errors="replace")
+
+    # ① 编号对账
+    actual: dict[int, str] = {}
+    for _suffix, number, qualified in REGISTRY_CONST_RE.findall(header):
+        actual[int(number)] = qualified
+    for number in sorted(set(expected_numbers) | set(actual)):
+        want = expected_numbers.get(number)
+        got = actual.get(number)
+        if want is None:
+            problems.append(f"  登记表：多出编号 {number} → {got}（期望表里没有这一项）")
+        elif got is None:
+            problems.append(f"  登记表：缺少编号 {number} → {want}")
+        elif got != want:
+            problems.append(f"  登记表：编号 {number} 的接口对不上：期望 {want}，产物是 {got}")
+
+    # 编号连续性（spec："只许在现有最大编号之后追加新号"）：这条**不依赖期望表本身** ——
+    # 即使有人把期望表改成 17，越界号 / 跳号也必须红。主登记表要求恰为 1..N 连续；
+    # 夹具登记表要求从 8 起连续（8..M）。
+    numbers_sorted = sorted(actual)
+    if numbers_sorted:
+        if contiguous_from is not None and numbers_sorted[0] != contiguous_from:
+            problems.append(
+                f"  登记表：编号起点必须是 {contiguous_from}，实际是 {numbers_sorted[0]}"
+                f"（编号清单 {numbers_sorted}）")
+        expected_sequence = list(range(numbers_sorted[0], numbers_sorted[0] + len(numbers_sorted)))
+        if numbers_sorted != expected_sequence:
+            problems.append(
+                f"  登记表：编号必须是连续区间，实际 {numbers_sorted}"
+                f"（缺 {sorted(set(expected_sequence) - set(numbers_sorted))}、"
+                f"多 {sorted(set(numbers_sorted) - set(expected_sequence))}）")
+    else:
+        problems.append("  登记表：一个编号都没读到")
+
+    # ② C++ EngineApi 形状
+    if re.search(r"inline constexpr uint32_t kEngineApiVersion = 9u;", header) is None:
+        problems.append("  登记表：kEngineApiVersion 不是 9u")
+    if re.search(r"inline constexpr uint32_t kEngineApiSize = 80u;", header) is None:
+        problems.append("  登记表：kEngineApiSize 不是 80u")
+    if "static_assert(sizeof(EngineApi) == 80u" not in header:
+        problems.append("  登记表：缺 `static_assert(sizeof(EngineApi) == 80u`")
+    struct_match = ENGINE_API_STRUCT_RE.search(header)
+    if struct_match is None:
+        problems.append("  登记表：找不到 `struct EngineApi { ... };`")
+        cpp_fields: list[str] = []
+    else:
+        cpp_fields = []
+        for function_name, variable_name in CPP_FIELD_NAME_RE.findall(struct_match.group(1)):
+            cpp_fields.append(function_name or variable_name)
+        expected_cpp = [cpp for cpp, _cs in ENGINE_API_FIELD_PAIRS]
+        if cpp_fields != expected_cpp:
+            problems.append(f"  登记表：C++ EngineApi 字段 {cpp_fields} 与期望 14 字段 {expected_cpp} 不一致")
+        if len(cpp_fields) != 14:
+            problems.append(f"  登记表：C++ EngineApi 字段数是 {len(cpp_fields)}，期望 14")
+        for declaration in ENGINE_API_FIELD_DECLARATIONS:
+            if ("    " + declaration) not in header:
+                problems.append(f"  登记表：EngineApi 缺少逐字声明 `{declaration}`")
+
+    # ③ 托管对照
+    if "public const uint AbiVersion = 9;" not in cs:
+        problems.append("  登记表：C# 侧 AbiVersion 不是 9")
+    if "public const uint Size = 80;" not in cs:
+        problems.append("  登记表：C# 侧 Size 不是 80")
+    mirror_match = ENGINE_API_MIRROR_RE.search(cs)
+    if mirror_match is None:
+        problems.append("  登记表：找不到 `struct EngineApiMirror { ... }`")
+        cs_fields: list[str] = []
+    else:
+        cs_fields = re.findall(r"^\s*public\s+[^;=]+\s+(\w+)\s*;", mirror_match.group(1), re.M)
+        expected_cs = [cs for _cpp, cs in ENGINE_API_FIELD_PAIRS]
+        if cs_fields != expected_cs:
+            problems.append(f"  登记表：C# EngineApiMirror 字段 {cs_fields} 与期望 14 字段 {expected_cs} 不一致")
+        if len(cs_fields) != 14:
+            problems.append(f"  登记表：C# EngineApiMirror 字段数是 {len(cs_fields)}，期望 14")
+    if "public const uint TableVersion = 2;" not in cs:
+        problems.append("  登记表：C# 侧 TableVersion 不是 2（生成接口表版本必须保持 2）")
+    for number, qualified in sorted(expected_numbers.items()):
+        short = qualified.rsplit("::", 1)[-1]
+        suffix = short[1:] + "InterfaceId" if len(short) > 1 and short[0] == "I" and short[1].isupper() \
+            else short + "InterfaceId"
+        if f"public const uint {suffix} = {number};" not in cs:
+            problems.append(f"  登记表：C# 侧缺编号常量 {suffix} = {number}（{qualified}）")
+    table_entries = re.findall(r"new InterfaceTable\(", cs)
+    if len(table_entries) != len(expected_numbers):
+        problems.append(f"  登记表：C# 绑定清单条目 {len(table_entries)} 个，期望 {len(expected_numbers)} 个")
+
+    # ④ 主登记表：7 个编号字段必须装配到生成常量（不是 0）
+    if require_engine_api_ids:
+        assembly = [
+            "api.window_interface_id = kBindingInterfaceIdIWindow;",
+            "api.window_system_interface_id = kBindingInterfaceIdIWindowSystem;",
+            "api.script_render_backend_interface_id = kBindingInterfaceIdIScriptRenderBackend;",
+            "api.script_render_graph_interface_id = kBindingInterfaceIdIScriptRenderGraph;",
+            "api.script_render_target_interface_id = kBindingInterfaceIdIScriptRenderTarget;",
+            "api.script_shader_struct_interface_id = kBindingInterfaceIdIScriptShaderStruct;",
+            "api.script_texture_interface_id = kBindingInterfaceIdIScriptTexture;",
+        ]
+        for line in assembly:
+            if line not in cpp:
+                problems.append(f"  登记表：装配代码里没有 `{line}`")
     return problems
 
 
@@ -1150,7 +1368,8 @@ def main() -> int:
               "「真实接口桩数为 0」会因此恒真）", file=sys.stderr)
         return 2
     real_names = sorted(p.name[: -len(".Bindings.cpp")] for p in product_dir.glob("*.Bindings.cpp")
-                        if p.name[: -len(".Bindings.cpp")] not in fixture_interface_names())
+                        if not is_registry_product(p)
+                        and p.name[: -len(".Bindings.cpp")] not in fixture_interface_names())
     print(f"被判真实接口：{', '.join(real_names)}")
     for problem in structure_problems:
         print(problem, file=sys.stderr)
@@ -1214,10 +1433,26 @@ def main() -> int:
         print(problem, file=sys.stderr)
     print(f"脚本渲染适配面问题 {len(render_bridge_problems)} 处")
 
+    # ---- 登记表（本 change 任务 1.3）：编号对账 + EngineApi 两侧 14 字段 + v9 / 80 字节 ----
+    registry_problems = check_registry(product_dir, EXPECTED_BINDING_NUMBERS,
+                                       require_engine_api_ids=True, contiguous_from=1)
+    for problem in registry_problems:
+        print(problem, file=sys.stderr)
+    print(f"登记表问题 {len(registry_problems)} 处")
+    fixture_registry_problems: list[str] = []
+    fixture_registry_dir = product_dir / "fixture"
+    if fixture_registry_dir.is_dir():
+        fixture_registry_problems = check_registry(fixture_registry_dir, FIXTURE_BINDING_NUMBERS,
+                                                   require_engine_api_ids=False, contiguous_from=8)
+        for problem in fixture_registry_problems:
+            print(problem, file=sys.stderr)
+        print(f"夹具登记表问题 {len(fixture_registry_problems)} 处")
+
     failed = bool(mismatches or alignment_problems or stub_problems
                   or dropped_problems or structure_problems or coverage_problems or surface_problems
                   or matrix_problems or code_problems or shared_problems or foundation_problems
-                  or qualified_problems or fixture_problems or render_bridge_problems)
+                  or qualified_problems or fixture_problems or render_bridge_problems
+                  or registry_problems or fixture_registry_problems)
     return 1 if failed else 0
 
 

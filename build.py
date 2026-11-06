@@ -1037,6 +1037,10 @@ CODEGEN_BINDINGS = [
     # `#include` 它们，构建时不生成就会 C1083（实测过一次：只生成 IWindow，夹具产物被我删掉后构建红）。
     ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow", ["IWindow", "IWindowSystem"]),
     ("Tools/CodeGen/BindableShapes.h", "夹具 BindableShapes", ["IBindRow01", "IBindRow02", "IBindRow09"]),
+    # render-interface-merge 任务 1.1：登记表夹具（编号 8/9，夹具专用号段）。它同时是
+    # `CODEGEN_REGISTRIES` 的登记输入 —— 见下面的常量。
+    ("Tools/CodeGen/BindableShapes.RenderRegistry.h", "夹具 RenderRegistry",
+     ["IBindRegistry8", "IBindRegistry9"]),
     # csharp-render-binding-foundations 任务 1.1：渲染基础形状夹具（记录 / 枚举 / 标志位 /
     # 包装值 / 字节 / 混合参数）。共享值类型 `RenderDesc` 等由同一次生成按类型另发
     # `<类型>.Bindings.cs`，它们没有接口产物，所以不列在这里（期望前缀只查接口产物）。
@@ -1055,6 +1059,33 @@ CODEGEN_BINDINGS = [
      ["IScriptTexture", "IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend",
       "IScriptShaderStruct"]),
 ]
+
+
+# 登记表发射输入（render-interface-merge 任务 1.1 / 1.3）：每个输入头在 `--emit-binding` 时额外
+# 写一份 `<标签>.registry.part` 分片，全部输入跑完后由 `--emit-registry` 汇总成三份跨接口产物：
+#   BindingRegistry.Bindings.h / .cpp、EngineApi.Bindings.cs
+# 每项 = (产物子目录（相对 codegen/bindings，空串 = 主目录）, [(头文件, 分片标签), ...])。
+# 主目录的产物被 CSharpHost 与 Scripting.Managed 编译；`fixture` 子目录只做编号 / 拒绝 / 确定性
+# 与编号对账的夹具（design D2：夹具头不进真实宿主登记表的执行口径 —— 它的头不在宿主 include
+# 路径上，编译进宿主会找不到头文件）。
+CODEGEN_REGISTRIES = [
+    # 主登记表（真实宿主与托管侧编译它）：窗口两个接口 + 脚本渲染适配面五个接口，编号 1–7。
+    ("", [
+        ("WindowSystem/header/CAWindow/WindowSystem.h", "window"),
+        ("Interface/RenderInterface/header/ScriptRenderBridge.h", "render"),
+    ]),
+    # 夹具登记表（只做编号 / 拒绝 / 确定性与编号对账）：夹具专用号段 8/9。
+    ("fixture", [
+        ("Tools/CodeGen/BindableShapes.RenderRegistry.h", "fixture"),
+    ]),
+]
+
+
+def _registry_product_dirs() -> dict[str, Path]:
+    """登记产物的落点：子目录名 → 绝对路径。"""
+    return {subdir: (BUILD_DIR / "codegen" / "bindings" / subdir if subdir
+                     else BUILD_DIR / "codegen" / "bindings")
+            for subdir, _inputs in CODEGEN_REGISTRIES}
 
 
 def _record_path_parts(file_path: str) -> list[str]:
@@ -1165,11 +1196,24 @@ def build_bindings() -> list[str]:
         print(f"  [绑定清单] {name} ← {header}：{listed} 个接口", flush=True)
     known_args = [f"--known-interface={short}={qualified}" for short, qualified in sorted(known.items())]
 
+    # 登记表发射输入（本 change 任务 1.1）：头文件 → [(产物目录, 分片标签), ...]。
+    # 分片在 `--emit-binding` 那一轮写出，全部绑定输入跑完后由 `--emit-registry` 汇总。
+    registry_dirs = _registry_product_dirs()
+    registry_membership: dict[str, list[tuple[Path, str]]] = {}
+    for subdir, inputs in CODEGEN_REGISTRIES:
+        product_dir = registry_dirs[subdir]
+        product_dir.mkdir(parents=True, exist_ok=True)
+        for header, tag in inputs:
+            registry_membership.setdefault(header, []).append((product_dir, tag))
+
     shared_types: dict[str, tuple[str, str]] = {}  # 短名 -> (完整限定名, 文件内容哈希)
     for header, name, expected in CODEGEN_BINDINGS:
         includes = includes_by_header[header]
         cmd = [str(tool), header, "--emit-binding", "--out-dir", str(out_dir),
-               "--audit-script", str(script)] + known_args + includes + ["-xc++"]
+               "--audit-script", str(script)] + known_args
+        for part_dir, tag in registry_membership.get(header, []):
+            cmd += ["--registry-part", tag, "--registry-part-dir", str(part_dir)]
+        cmd += includes + ["-xc++"]
         print(f"  [绑定] {name} ← {header}", flush=True)
         proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True,
                               encoding="utf-8", errors="replace")
@@ -1214,6 +1258,42 @@ def build_bindings() -> list[str]:
             failures.append(
                 f"绑定 {name} 退出码 0，但缺少这些接口的产物：{', '.join(missing)}"
                 f"（生成器自报的接口数见上面 [接口] 行）")
+
+    # ---- 登记表汇合与期望产物（render-interface-merge 任务 1.3 / 1.4）----
+    # 每个登记输入在 `--emit-binding` 那一轮写一份分片；这里按登记表逐个汇合。
+    # 分片缺失 = 对应输入在写分片之前就失败了（上面已有失败条目），这里再点名一次避免静默。
+    for subdir, inputs in CODEGEN_REGISTRIES:
+        product_dir = registry_dirs[subdir]
+        label = "主登记表" if not subdir else f"登记表（{subdir}）"
+        part_paths = [product_dir / f"{tag}.registry.part" for _header, tag in inputs]
+        missing_parts = [path for path in part_paths if not path.is_file()]
+        if missing_parts:
+            failures.append(
+                f"{label}：登记输入没有产出分片：{', '.join(path.name for path in missing_parts)}"
+                f"（生成器在写分片之前就失败了，见上面的绑定失败）")
+        else:
+            cmd = [str(tool), "--emit-registry", "--out-dir", str(product_dir)]
+            for path in part_paths:
+                cmd += ["--registry-part-file", str(path)]
+            print(f"  [登记表] {label} ← {len(inputs)} 个输入", flush=True)
+            proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace")
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout or "").strip()
+                failures.append(f"{label}汇总失败（exit {proc.returncode}）：{detail[:800]}")
+            else:
+                for line in (proc.stdout or "").splitlines():
+                    if line.startswith("CodeGen wrote: "):
+                        print(f"    [登记表] {line[len('CodeGen wrote: '):]}", flush=True)
+        # 期望产物（任务 1.4 的闸门）：三份登记产物缺一即构建失败并点名。
+        # 用**精确文件名**而不是前缀通配：`BindingRegistry.Bindings.*` 会连
+        # `BindingRegistry.Bindings.h.redbak` 这种旧产物改名件一起放行（实测过一次：
+        # 把产物改成 .redbak 后前缀检查仍然通过，只有 check_bindings 抓到了缺失）。
+        # 红态构造只能走源码侧（假前缀 / 注释掉上面的汇合调用）—— 删生成物会被下一次构建重新生成。
+        for filename in ("BindingRegistry.Bindings.h", "BindingRegistry.Bindings.cpp",
+                         "EngineApi.Bindings.cs"):
+            if not (product_dir / filename).is_file():
+                failures.append(f"{label}：缺少登记产物 {filename}（目录 {product_dir}）")
     return failures
 
 def main() -> None:

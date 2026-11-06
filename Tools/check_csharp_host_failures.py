@@ -6,8 +6,8 @@
   1. 缺托管程序集          → 退出码 3，输出含 Scripting.Managed.dll 与 找过的路径
   2. 配置路径不存在        → 退出码 3，输出含该路径与 hostfxr.dll
   3. 配置要的运行时版本没有 → 退出码 3，输出含 7.0.0 与 本机已装的运行时版本
-  4. 函数表 ABI 不符        → 退出码 3，输出含 ABI 版本不符 与 托管侧期望 8（自检开关构造：
-                              引擎侧故意把当前 v8 加成 9，托管侧仍期望 8）
+  4. 函数表 ABI 不符        → 退出码 3，输出含 ABI 版本不符 与 托管侧期望 9（自检开关构造：
+                              引擎侧故意把当前 v9 加成 10，托管侧仍期望 9）
   5. 托管方法抛异常        → 退出码 1（GPUBackendTester 对失败的当前操作按既有约定返回 1），
                               输出含 Tick 抛异常 与 实际 4，且不产生新 crash_*.dmp（自检开关构造）
 
@@ -137,13 +137,13 @@ def check_scenarios(binary: Path, bin_dir: Path) -> list[tuple[str, bool, str]]:
         record("运行时版本无匹配", ok, f"退出码 {code}（期望 3）；含 7.0.0 与版本清单："
                                       f"{'7.0.0' in text}/{'本机已装的运行时版本' in text}")
 
-        # 4. 函数表 ABI 不符（自检开关）：当前手写 ABI 已升到 v8（csharp-render-texture-sampling 在
-        #    EngineApi 末尾追加纹理接口编号）。自检把引擎侧改成 9，托管侧仍期望 8 —— 断言必须
-        #    点名**当前** ABI 8，不能再期待上一版（v7）或更早的版本 2。
+        # 4. 函数表 ABI 不符（自检开关）：当前 ABI 已升到 v9（render-interface-merge 把跨边界
+        #    函数表改为登记表生成，字段布局不变、版本号 8 → 9）。自检把引擎侧改成 10，托管侧仍
+        #    期望 9 —— 断言必须点名**当前** ABI 9，不能再期待上一版（v8）或更早的版本 2。
         code, text = run_tester(binary, {"CASCADED_CSHARP_SELFTEST": "abi-mismatch"})
-        abi_named_current = "ABI 版本不符" in text and "托管侧期望 8" in text
+        abi_named_current = "ABI 版本不符" in text and "托管侧期望 9" in text
         ok = code == 3 and abi_named_current
-        record("ABI 版本不符", ok, f"退出码 {code}（期望 3）；含 ABI 版本不符 与 托管侧期望 8："
+        record("ABI 版本不符", ok, f"退出码 {code}（期望 3）；含 ABI 版本不符 与 托管侧期望 9："
                                   f"{abi_named_current}")
 
         # 5. 托管方法抛异常（自检开关）：受控失败 = tester 对失败的当前操作返回 1，但进程不崩、

@@ -29,7 +29,7 @@ namespace graphics_backend
 {
 	// 只读纹理句柄（csharp-render-texture-sampling 任务 1.1）：纹理由后端适配器发行、由适配器保活，
 // 脚本侧只读宽高。本批不提供显式销毁（释放与飞行中提交的语义留给后续批）。
-	CA_BIND()
+	CA_BIND(7)
 	class IScriptTexture
 	{
 	public:
@@ -38,7 +38,7 @@ namespace graphics_backend
 		virtual ~IScriptTexture() = default;
 	};
 
-	CA_BIND()
+	CA_BIND(5)
 	class IScriptRenderTarget
 	{
 	public:
@@ -48,7 +48,7 @@ namespace graphics_backend
 		virtual ~IScriptRenderTarget() = default;
 	};
 
-	CA_BIND()
+	CA_BIND(6)
 	class IScriptShaderStruct
 	{
 	public:
@@ -79,7 +79,7 @@ namespace graphics_backend
 		virtual ~IScriptShaderStruct() = default;
 	};
 
-	CA_BIND()
+	CA_BIND(4)
 	class IScriptRenderGraph
 	{
 	public:
@@ -117,7 +117,7 @@ namespace graphics_backend
 		virtual ~IScriptRenderGraph() = default;
 	};
 
-	CA_BIND()
+	CA_BIND(3)
 	class IScriptRenderBackend
 	{
 	public:

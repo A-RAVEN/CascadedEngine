@@ -1,0 +1,74 @@
+# 任务 1.3：登记表 `EngineApi` 逐字 14 字段判据（先红后绿）
+
+`Tools/CodeGen/check_bindings.py` 的 `check_registry()` 新增两类断言：
+① 编号对账（生成物 `kBindingInterfaceId*` vs 期望表）；
+② `EngineApi` 的 14 个字段按**逐字声明**在生成头里出现（只数名字会放过"函数指针把名字写坏"的产物）。
+
+本文件记录这条文本判据在实现过程中抓到的三种错误形态（红）与修好后的绿档。
+
+## 红态（构建日志，主 agent 代跑）
+
+来源：`rmerge-build-2.log` / `rmerge-build-3.log` / `rmerge-build-4.log`（`%TEMP%`）。
+
+形态一（名字写两遍，build-2）：
+```
+登记表：EngineApi 缺少逐字声明 `void (*log)(int level, uint8_t const* utf8, uint64_t len);`
+...（同样 5 条，函数指针字段全部命中）
+```
+生成头实际：`void (*log)(int level, uint8_t const* utf8, uint64_t len) log;`
+
+形态二（名字没插进去，build-3）：
+```
+登记表：C++ EngineApi 字段 ['abi_version', 'size', 'window_interface_id', ...] 与期望 14 字段 [...] 不一致
+登记表：C++ EngineApi 字段数是 9，期望 14
+登记表：EngineApi 缺少逐字声明 `int32_t (*echo)(int32_t value);`
+...（5 条）
+```
+生成头实际：`void (*)(int level, uint8_t const* utf8, uint64_t len) log;`
+
+形态三（吃掉了右括号，build-4）：
+```
+登记表：EngineApi 缺少逐字声明 `uint32_t (*get_interface_api)(uint32_t interfaceId, char const* instanceName, uint32_t version, uint32_t size, void* out, void** instanceOut);`
+...（5 条）
+```
+生成头实际：`void (*log(int level, uint8_t const* utf8, uint64_t len);`
+
+## 绿档（build-5 绑定判据段）
+
+来源：`rmerge-build-5.log`。
+
+```
+    共享值类型问题 0 处
+    共享值类型限定名问题 0 处
+    夹具识别问题 0 处
+    渲染基础表面问题 0 处
+    脚本渲染适配面问题 0 处
+    登记表问题 0 处
+```
+
+生成头（build-5）的 `struct EngineApi` 原文：
+
+```cpp
+struct EngineApi
+{
+    uint32_t abi_version;
+    uint32_t size;
+    void (*log)(int level, uint8_t const* utf8, uint64_t len);
+    int32_t (*echo)(int32_t value);
+    uint32_t (*get_interface_api)(uint32_t interfaceId, char const* instanceName, uint32_t version, uint32_t size, void* out, void** instanceOut);
+    uint32_t window_interface_id;
+    uint32_t window_system_interface_id;
+    uint32_t (*get_binding_layout_type)(uint32_t interfaceId, uint32_t typeIndex, char* name, uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount);
+    uint32_t (*get_binding_layout_field)(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex, char* name, uint32_t nameCap, char* typeName, uint32_t typeCap, uint64_t* offsetBytes);
+    uint32_t script_render_backend_interface_id;
+    uint32_t script_render_graph_interface_id;
+    uint32_t script_render_target_interface_id;
+    uint32_t script_shader_struct_interface_id;
+    uint32_t script_texture_interface_id;
+};
+
+static_assert(sizeof(EngineApi) == 80u,
+              "生成的 EngineApi 必须是 80 字节（14 字段：正文 76 + 尾部对齐填充 4）");
+```
+
+构建最终读数（build-5）：`BUILD SUCCESSFUL`；`[耗时] configure 0.0s / codegen 46.0s / 编译 62.5s / 托管侧 1.8s / 合计 130.9s`。

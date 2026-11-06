@@ -2,7 +2,7 @@
 
 **它做什么**：在一个普通引擎模块的初始化阶段，把 .NET 运行时（CoreCLR）拉进本进程、加载 `Scripting.Managed.dll`、拿到托管侧 `Boot` / `Tick` 两个入口，并每帧调一次 `Tick`；同时把一张函数表交给托管侧，让它能回调引擎的日志、`echo`，以及按"接口编号 + 实例名"取引擎接口的函数表。
 
-函数表（`EngineApi`）当前是 **v8**、80 字节，字段顺序就是 ABI、只许在末尾追加：
+函数表（`EngineApi`）当前是 **v9**、80 字节，字段顺序就是 ABI、只许在末尾追加：
 
 | 字段 | 从哪一版起 | 作用 |
 |---|---|---|
@@ -15,15 +15,25 @@
 | `script_shader_struct_interface_id` | v7 | 脚本参数结构表的编号（6）；与图、目标同属目标类型表（没有默认实例） |
 | `script_texture_interface_id` | v8 | 脚本只读纹理表的编号（7）；同样属目标类型表（没有默认实例） |
 
-`sizeof(EngineApi)` 由 `CSharpHost.cpp` 里的 `static_assert(sizeof(EngineApi) == 80u)` 由编译器核对：v7 的 72 字节已经是 8 的整倍数、**没有尾部填充可用**，v8 追加一个 `uint32_t` 后正文 76 字节、按 8 字节对齐补到 **80 字节**（不是 72）。
+**v9（render-interface-merge）**：字段顺序与宽度一个都没动（仍是上面这 14 个字段、80 字节），
+版本升级是因为这张表改由绑定生成器从各接口头上的 `CA_BIND(编号)` 标注发射 —— C++ 侧的
+`struct EngineApi` 与其装配代码在生成的 `BindingRegistry.Bindings.h/.cpp` 里，托管侧的逐字段
+镜像与编号常量在生成的 `EngineApi.Bindings.cs` 里；两侧手写镜像已退役。宿主只保留按固定名字
+暴露的几项实现（`log` / `echo` / 实例查找 / 错误出口 / 默认实例工厂 / 角色登记）。
 
-接口编号表（编号由引擎下发，这里只是给它一个可读的名字）：
+`sizeof(EngineApi)` 由**生成的** `BindingRegistry.Bindings.h` 里的
+`static_assert(sizeof(EngineApi) == 80u)` 由编译器核对：v7 的 72 字节已经是 8 的整倍数、
+**没有尾部填充可用**，v8 追加一个 `uint32_t` 后正文 76 字节、按 8 字节对齐补到 **80 字节**
+（不是 72）；v9 布局不变。
+
+接口编号表（编号**写在接口头上的 `CA_BIND(编号)` 标注里**，由生成器发射成
+`kBindingInterfaceId*` 常量与 `EngineApi.Bindings.cs` 的编号常量；这里只是给它一个可读的名字）：
 
 | 编号 | 接口 | 实例名（本仓库现有的那份） |
 |---|---|---|
 | 1 | `cawindow::IWindow` | `Window` |
 | 2 | `cawindow::IWindowSystem` | `WindowSystem_GLFW` |
-| 3 | `graphics_backend::IScriptRenderBackend` | 空（默认实例，由 `CSharpHost::Init` 用模块管理器里的 `CRenderBackend` + `CThreadManager` 创建） |
+| 3 | `graphics_backend::IScriptRenderBackend` | 空（默认实例；由宿主固定名工厂钩子在生成的装配代码里、用模块管理器里的 `CRenderBackend` + `CThreadManager` 创建） |
 | 4 | `graphics_backend::IScriptRenderGraph` | **目标类型表**：没有默认实例，取表时 `instanceOut` 可为空；实际对象由 `ResolveTargetHandle` 解析 |
 | 5 | `graphics_backend::IScriptRenderTarget` | **目标类型表**：同上 |
 | 6 | `graphics_backend::IScriptShaderStruct` | **目标类型表**：同上（参数结构，v7 追加） |
@@ -33,7 +43,7 @@
 
 **它不做什么**：
 
-- **不生成任何绑定**：绑定产物由 `Tools/CodeGen`（`--emit-binding`）生成、由本模块 `#include` 进同一个翻译单元；哪个引擎接口能调、用什么形状过界，属于 `openspec/specs/csharp-bindable-surface/spec.md` 的规矩。
+- **不生成任何绑定**：绑定产物由 `Tools/CodeGen`（`--emit-binding` / `--emit-registry`）生成；宿主只 `#include` 生成的 `BindingRegistry.Bindings.cpp`，由它在同一个翻译单元里再包含各接口产物。哪个引擎接口能调、用什么形状过界，属于 `openspec/specs/csharp-bindable-surface/spec.md` 的规矩。
 - **不做 AOT**：现在是 framework-dependent 的 JIT 形态（`runtimeconfig.json` 指向 `Microsoft.NETCore.App`）。
 - **不建线程、不做热重载、不支持多脚本程序集**：`Boot` / `Tick` 都在引擎主线程上被调用。
 
@@ -122,7 +132,7 @@ python build.py --config Debug
 | 托管程序集缺失 | `CSharpHost 初始化失败（退出码 3）：解析托管入口 Boot 失败，返回 -2146233079（程序集 …\bin\Scripting.Managed.dll）；找过的路径：…\hostfxr.dll、…\Scripting.Managed.runtimeconfig.json` |
 | 配置路径不存在 | `CSharpHost 初始化失败（退出码 3）：找不到托管侧的 runtimeconfig.json：…\bad.runtimeconfig.json；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、…\bad.runtimeconfig.json` |
 | 配置要的运行时版本本机没有 | `hostfxr_initialize_for_runtime_config 返回 -2147450730（…；配置里要的框架版本：7.0.0；本机已装的运行时版本：10.0.2、8.0.23、8.0.6、9.0.12）` |
-| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 9（真实值 8）` + `[托管侧] ABI 版本不符：引擎 9，托管侧期望 8` + `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 9、函数表 80 字节；0 = 成功）；找过的路径：…` |
+| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 10（真实值 9）` + `[托管侧] ABI 版本不符：引擎 10，托管侧期望 9` + `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 10、函数表 80 字节；0 = 成功）；找过的路径：…` |
 | 托管方法抛异常 | `[托管侧] Tick 抛异常：InvalidOperationException: …` + 引擎侧收到错误码 **4**；进程**不崩**。当前测试操作算失败，`GPUBackendTester` 按既有约定返回 **1**（不是无条件 0）；`Tools/check_csharp_host_failures.py` 按此断言 |
 
 ## 关闭
@@ -141,9 +151,9 @@ Select-String -LiteralPath $env:TEMP\csharp.out -Pattern '托管侧|IScriptHost|
 实测输出（节选）：
 
 ```
-[托管侧] 托管侧已启动：ABI 版本 8、函数表 80 字节
+[托管侧] 托管侧已启动：ABI 版本 9、函数表 80 字节
 [托管侧] 回调引擎 Echo(42) 得到 43
-CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 80 字节，ABI v8）
+CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 80 字节，ABI v9）
 IScriptHost 已取到：IsAvailable = true
 ```
 

@@ -1,0 +1,84 @@
+# 任务 4.3：全量实测（驱动脚本一次跑完）
+
+驱动脚本：`%TEMP%\rmerge-4.3.ps1`（UTF-8 带 BOM），日志目录 `%TEMP%\rmerge-4.3\`，
+控制台 `%TEMP%\rmerge-4.3-console.log`。主 agent 代跑。
+
+## SUMMARY（原文）
+
+```
+SUMMARY steps=51 failures=1 | CoreTests=1 full=2 window=2 tri=10 cc=6 sb=8 tex=8 check=13 verify=1
+FAIL LIST:
+  check-hash-sources exit=1 FAIL
+LOG DIR: C:\Users\76956\AppData\Local\Temp\rmerge-4.3
+```
+
+## ① 层：CoreTests
+
+- 退出码 0；日志里 `PASSED` 命中 **22** 处（与 `docs/testing.md` 的"PASSED 22 行"一致）。
+- 文件数口径：`Test/CoreTests` 23 个 `.cpp`（未变）。
+
+## ② 层：GPUBackendTester
+
+- 两后端全量 16 用例：`full-vulkan.json` / `full-d3d12.json` 各 **16/16 pass**，退出码 0。
+  （用例数 = 基线 16 + 本 change 0 条；`--list` 开工实测 16。）
+- 窗口专项：`TestCSharpWindow`、`TestCSharpWindowCallbacks` 各自退出码 0（日志供
+  `check_window_system_bindings.py` 对拍）。
+- 四探针矩阵（全量里各一次 + 专项矩阵）：三角形 2×5、常量色 2×3、结构化缓冲 2×4、纹理 2×4，
+  共 36 次调用，**每一步的 exit 都与期望一致**（正常 0 / 负向 1）：
+
+```
+tri-vulkan-skip-draw exit=1 expect=1 OK
+tri-vulkan-bad-vertex exit=1 expect=1 OK
+tri-vulkan-skip-present exit=1 expect=1 OK
+tri-vulkan-skip-wait exit=1 expect=1 OK
+tri-d3d12-skip-draw exit=1 expect=1 OK
+...（其余同形，全部 OK）
+```
+
+负向错误码抽查（报告原文）：
+```
+csharp_triangle_vulkan_skip-draw.json -> fail | E_TRIANGLE_DRAW: skip-draw：图 pass 数 0（正常模式 2），按预期失败
+csharp_constant_color_vulkan_skip-param.json -> fail | E_CONSTCOLOR_PARAM: skip-param：参数表 0 条、适配器点名 constantColorBlock、后端执行次数 0、等待计数 0→0，按预期失败
+csharp_structured_buffer_vulkan_unbound-field.json -> fail | E_SB_BIND: unbound-field：参数表 2 条、适配器点名 colorStructuredBuffer、后端执行次数 0、等待计数 0→0，按预期失败
+csharp_texture_sampling_vulkan_unbound-image.json -> fail | E_TEX_BIND: unbound-image：参数表 2 条、适配器点名 testTexture、本次提交执行增量 0（上传执行 1 另计）、等待计数 0→0，按预期失败
+```
+
+四探针 = 基线 4 个 + 本 change 0 个；窗口回调 10 类的既有断言由
+`check_window_system_bindings.py --callbacks` 对拍通过。
+
+## ③ 层：`Tools/**/check_*.py` 全家族（重 glob = 12 份）
+
+13 项检查 + `verify_readme` 中 **14 项退出 0**：
+`check-window` / `check-window-callbacks` / `check-gpu-timing` / `check-bindable-audit` /
+`check-bindings` / `check-constant-color` / `check-structured-buffer` / `check-texture-sampling` /
+`check-triangle` / `check-host-readme` / `check-host-failures` / `check-legacy-symbols` /
+`verify-readme` 全部 `exit=0 OK`。
+
+**唯一红：`check-hash-sources.py` exit=1 —— 基线既红，超出本 change 范围**：
+
+```
+$ python Tools\CodeGen\check_hash_sources.py
+扫描 288 个文件、命中 1 个来源不明的键类型
+  来源不明: remove_cvref_t（出现在 Test/CoreTests/GeneratedHashTest.cpp）
+...
+exit=1
+```
+
+### 基线红实测（不是推定；主 agent 用 worktree 快照直接跑）
+
+```
+$ git worktree add --detach %TEMP%\ce-base-13017684… 13017684bab39ad2f251aeab3bd7ccaf94671798
+（在基线快照里原样跑）
+$ python Tools\CodeGen\check_hash_sources.py
+扫描 288 个文件、命中 1 个来源不明的键类型
+  来源不明: remove_cvref_t（出现在 Test/CoreTests/GeneratedHashTest.cpp）
+清单 75 个类型；键类型共 37 个
+EXIT=1
+```
+
+基线快照的输出与工作树**逐字相同** ⇒ 该红在基线提交上就存在（主 agent 已 `git worktree remove` 清理，
+未接触本工作树）。`git diff --name-only <基线>` 也显示 `check_hash_sources.py` 与
+`GeneratedHashTest.cpp` 零改动（旁证）。
+
+**处置（主 agent 裁定 A）**：tasks 4.3 的判据句按 §7 三件改档 —— 唯一记名例外 = 该脚本，
+其余 `Tools/**/check_*.py` 全家族仍逐个退出 0；该基线红另记跨 change 账到 `docs/TODO.md`。

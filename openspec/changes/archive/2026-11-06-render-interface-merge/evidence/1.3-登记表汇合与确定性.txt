@@ -1,0 +1,44 @@
+# 任务 1.3：登记表汇合与确定性对拍
+
+执行：主 agent 代跑 `CodeGen.exe --emit-registry`（脚本 `%TEMP%\rmerge-1.2.ps1`，日志目录
+`C:\Users\76956\AppData\Local\Temp\rmerge-1.2\`）。
+
+## 汇合（两次）
+
+`1.3-汇合第一次.txt` / `1.3-汇合第二次.txt` 内层原文（两次逐字相同）：
+
+```
+登记：接口 2 个（8 = IBindRegistry8、9 = IBindRegistry9）
+CodeGen: --emit-registry 返回 0
+CodeGen wrote: ...\codegen\bindings/BindingRegistry.Bindings.h
+CodeGen wrote: ...\codegen\bindings/BindingRegistry.Bindings.cpp
+CodeGen wrote: ...\codegen\bindings/EngineApi.Bindings.cs
+```
+
+## 确定性：同一输入重跑逐字节相同
+
+`1.3-确定性.txt` 原文：
+
+```
+第一次汇合后哈希：
+BindingRegistry.Bindings.h B19A412DC7B4DA846C7CCFE0B532B53A0344671D4DF930E52107A77C538607CF
+BindingRegistry.Bindings.cpp 0CFACD4F8F51C99018F89C49BD12D58D629FDC193143149EACBF64283351E1EC
+EngineApi.Bindings.cs D779F6A6FE7B29AC0D8AE7A6A1AC4D3D5C383C49303791D5DEB50E4F55D2E7B8
+第二次汇合后哈希：
+BindingRegistry.Bindings.h B19A412DC7B4DA846C7CCFE0B532B53A0344671D4DF930E52107A77C538607CF
+BindingRegistry.Bindings.cpp 0CFACD4F8F51C99018F89C49BD12D58D629FDC193143149EACBF64283351E1EC
+EngineApi.Bindings.cs D779F6A6FE7B29AC0D8AE7A6A1AC4D3D5C383C49303791D5DEB50E4F55D2E7B8
+两次汇合逐字节相同：True
+```
+
+口径：**同一输入重跑**逐字节相同（不含"任意两次不同调用之间"的断言 —— build.py 传相对头路径
+而手工脚本传绝对路径时，生成头注释里的来源路径不同，这属于输入不同，不是非确定性）。
+
+## 编号期望对账（红态）
+
+`check_bindings.py` 的 `check_registry()` 按"编号 → 接口完整限定名"期望表逐项对账。红态构造：
+把期望表里编号 8 与 9 的接口名互换，重跑 `check_bindings.py --product-dir <bindings>`，输出见
+`evidence/1.3-编号对账红.txt`（非零并点名两个编号的差异）；还原期望表后回到"登记表问题 0 处"。
+
+真实接口的"改既有编号"红态在任务 2.1 之后按 spec 场景再构造一次（把 `IScriptTexture` 的
+`CA_BIND(7)` 临时改号 → 重生成 → 对账点名差异 → 还原复绿）。

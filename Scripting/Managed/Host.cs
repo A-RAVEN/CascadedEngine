@@ -12,11 +12,10 @@ namespace Scripting.Managed
     /// </summary>
     public static unsafe class Host
     {
-        // 与 C++ 侧必须逐字一致（csharp-render-texture-sampling 任务 3.1：v7 → v8，末尾追加纹理编号；
-        // 函数表 72 → 80 字节）
-        private const uint ExpectedAbiVersion = 8;
+        // ABI 版本 / 函数表大小 / 表版本 / 七个接口编号全部来自生成物（render-interface-merge：
+        // 两侧同一次生成；手写 EngineApi.cs 与三个手写常量已退役）。
 
-        private static EngineApi* s_api;
+        private static EngineApiMirror* s_api;
         private static int s_tickCount;
         private static int s_lastEcho;
         private static string s_lastError = string.Empty;
@@ -40,16 +39,23 @@ namespace Scripting.Managed
                     return ErrAbiNull;
                 }
 
-                var api = (EngineApi*)apiPointer;
+                var api = (EngineApiMirror*)apiPointer;
 
-                if (api->AbiVersion != ExpectedAbiVersion)
+                if (api->AbiVersion != EngineApiBindings.AbiVersion)
                 {
-                    s_lastError = $"ABI 版本不符：引擎 {api->AbiVersion}，托管侧期望 {ExpectedAbiVersion}";
+                    s_lastError = $"ABI 版本不符：引擎 {api->AbiVersion}，托管侧期望 {EngineApiBindings.AbiVersion}";
                     LogVia(api, s_lastError); // 失败也要让引擎侧看到"两边的版本号"
                     return ErrAbiVersion;
                 }
 
-                uint expectedSize = (uint)sizeof(EngineApi);
+                uint expectedSize = (uint)sizeof(EngineApiMirror);
+                if (expectedSize != EngineApiBindings.Size)
+                {
+                    s_lastError = $"生成物自相矛盾：EngineApiMirror 是 {expectedSize} 字节，" +
+                                  $"EngineApiBindings.Size = {EngineApiBindings.Size}";
+                    LogVia(api, s_lastError);
+                    return ErrAbiSize;
+                }
                 if (api->Size != expectedSize)
                 {
                     s_lastError = $"函数表大小不符：引擎 {api->Size} 字节，托管侧 {expectedSize} 字节";
@@ -102,7 +108,7 @@ namespace Scripting.Managed
         /// 这条判据**不**依赖 C++ 的 `static_assert`，所以"生成器算错布局"或"程序集与引擎产物不同源"
         /// 都能在托管启动阶段被拦下。
         /// </summary>
-        private static bool VerifyBindingLayouts(EngineApi* api)
+        private static bool VerifyBindingLayouts(EngineApiMirror* api)
         {
             if (api->GetBindingLayoutType == null || api->GetBindingLayoutField == null)
             {
@@ -152,7 +158,7 @@ namespace Scripting.Managed
                 IScriptRenderTargetBindings.LayoutManifest);
         }
 
-        private static bool VerifyBindingLayout(EngineApi* api, uint interfaceId, BindingLayoutType[] expected)
+        private static bool VerifyBindingLayout(EngineApiMirror* api, uint interfaceId, BindingLayoutType[] expected)
         {
             for (int typeIndex = 0; typeIndex < expected.Length; ++typeIndex)
             {
@@ -325,8 +331,7 @@ namespace Scripting.Managed
         }
 
         // 托管侧只用**生成出来的表面**（`csharp-window-creation` 任务 5.5）：不再手抄偏移常量、不再把
-        // `delegate*` 取出来自己转。表版本 = 2（任务 5.10 的错误通道两槽 + 5.2 的句柄解析/释放两槽都在表头）。
-        private const int WindowApiTableVersion = 2;
+        // `delegate*` 取出来自己转。表版本取自生成常量（生成接口表版本 2，本 change 不变）。
         // 编号由引擎侧单向下发（任务 4.2），实例名传 null = 该接口默认那一份（任务 5.4）
         private static uint InterfaceIdWindow => s_api->WindowInterfaceId;
         private static uint InterfaceIdSystem => s_api->WindowSystemInterfaceId;
@@ -769,7 +774,7 @@ namespace Scripting.Managed
         /// </summary>
         private static void EnsureBound()
         {
-            uint windowSize = s_api->GetInterfaceApi(InterfaceIdWindow, null, WindowApiTableVersion, 0, null, null);
+            uint windowSize = s_api->GetInterfaceApi(InterfaceIdWindow, null, EngineApiBindings.TableVersion, 0, null, null);
             if (windowSize == 0)
             {
                 if (!s_windowProbed && s_tickCount <= 1)
@@ -780,7 +785,7 @@ namespace Scripting.Managed
             }
             byte* windowTable = stackalloc byte[(int)windowSize];
             void* windowInstance = null;
-            uint windowWritten = s_api->GetInterfaceApi(InterfaceIdWindow, null, WindowApiTableVersion, windowSize,
+            uint windowWritten = s_api->GetInterfaceApi(InterfaceIdWindow, null, EngineApiBindings.TableVersion, windowSize,
                                                        windowTable, &windowInstance);
             if (windowWritten != windowSize || windowInstance == null)
             {
@@ -820,7 +825,7 @@ namespace Scripting.Managed
             s_system = null;
             s_lastCallbackPhase = string.Empty;
 
-            uint systemSize = s_api->GetInterfaceApi(InterfaceIdSystem, null, WindowApiTableVersion, 0, null, null);
+            uint systemSize = s_api->GetInterfaceApi(InterfaceIdSystem, null, EngineApiBindings.TableVersion, 0, null, null);
             if (systemSize == 0)
             {
                 s_lastError = "取 IWindowSystem 函数表失败：探针调用返回 0（实例未登记）";
@@ -828,7 +833,7 @@ namespace Scripting.Managed
             }
             byte* systemTable = stackalloc byte[(int)systemSize];
             void* systemInstance = null;
-            uint systemWritten = s_api->GetInterfaceApi(InterfaceIdSystem, null, WindowApiTableVersion, systemSize,
+            uint systemWritten = s_api->GetInterfaceApi(InterfaceIdSystem, null, EngineApiBindings.TableVersion, systemSize,
                                                         systemTable, &systemInstance);
             if (systemWritten != systemSize || systemInstance == null)
             {
@@ -992,8 +997,7 @@ namespace Scripting.Managed
         }
 
         // ---- 脚本渲染适配面（csharp-render-backend-triangle 任务 3.1 / 3.2）----
-        // 函数表版本仍是 2（生成器不因本 change 提升版本）；后端表有真实实例，图与目标表是目标类型表。
-        private const int RenderApiTableVersion = 2;
+        // 函数表版本取自生成常量（生成器不因本 change 提升版本）；后端表有真实实例，图与目标表是目标类型表。
         private static IScriptRenderBackend s_renderBackend;
         private static bool s_renderTablesBound;
         /// <summary>
@@ -1023,10 +1027,10 @@ namespace Scripting.Managed
             Environment.GetEnvironmentVariable("CASCADED_CSHARP_TEX_PROBE") == "1";
 
         /// <summary>
-        /// 绑定三张渲染表（任务 3.1）：后端表要求真实适配器实例；图与目标表属于目标类型表，
-        /// 没有默认实例，只把函数表绑进来（实际对象由目标句柄解析）。
+        /// 绑定渲染表（render-interface-merge 任务 3.2）：后端表单独取（要求真实适配器实例）；
+        /// 目标类型表按**生成的登记清单**循环绑定（逐接口手写序列已退役，实际对象由目标句柄解析）。
         /// 失败只记日志、不写 `s_lastError` —— 未启用渲染探针的既有窗口路径必须保持原行为；
-        /// 真正启用探针时由 `ProbeRender` 报明确失败。
+        /// 真正启用探针时由 `ProbeRender` 报明确失败，失败文本必须点名是**哪个接口**。
         /// </summary>
         private static void BindRenderInterfaces()
         {
@@ -1039,18 +1043,18 @@ namespace Scripting.Managed
                 s_renderBackend.Dispose();
                 s_renderBackend = null;
             }
-            uint backendSize = s_api->GetInterfaceApi(s_api->ScriptRenderBackendInterfaceId, null,
-                RenderApiTableVersion, 0, null, null);
+            uint backendId = EngineApiBindings.ScriptRenderBackendInterfaceId;
+            uint backendSize = s_api->GetInterfaceApi(backendId, null, EngineApiBindings.TableVersion, 0, null, null);
             if (backendSize == 0)
             {
-                s_renderBindError = $"取 IScriptRenderBackend 函数表失败：渲染适配器未登记（编号 {s_api->ScriptRenderBackendInterfaceId}）";
+                s_renderBindError = $"取 IScriptRenderBackend 函数表失败：渲染适配器未登记（编号 {backendId}）";
                 LogLine("[托管侧 渲染] " + s_renderBindError + "（渲染探针不会执行）");
                 return;
             }
             byte* backendTable = stackalloc byte[(int)backendSize];
             void* backendInstance = null;
-            uint backendWritten = s_api->GetInterfaceApi(s_api->ScriptRenderBackendInterfaceId, null,
-                RenderApiTableVersion, backendSize, backendTable, &backendInstance);
+            uint backendWritten = s_api->GetInterfaceApi(backendId, null, EngineApiBindings.TableVersion, backendSize,
+                                                        backendTable, &backendInstance);
             if (backendWritten != backendSize || backendInstance == null)
             {
                 s_renderBindError = $"取 IScriptRenderBackend 函数表失败：写入 {backendWritten} 字节、实例 {(long)backendInstance}";
@@ -1060,50 +1064,39 @@ namespace Scripting.Managed
             IScriptRenderBackendBindings.Bind(backendTable);
             s_renderBackend = new IScriptRenderBackend(new IScriptRenderBackendLease { Self = backendInstance });
 
-            if (!BindTargetTable(s_api->ScriptRenderGraphInterfaceId, "IScriptRenderGraph",
-                    IScriptRenderGraphBindings.Bind) ||
-                !BindTargetTable(s_api->ScriptRenderTargetInterfaceId, "IScriptRenderTarget",
-                    IScriptRenderTargetBindings.Bind) ||
-                // csharp-render-shader-constants 任务 3.1：第四个渲染接口（参数结构）也是目标类型表，
-                // 允许空实例取表；实际对象由目标句柄解析。
-                !BindTargetTable(s_api->ScriptShaderStructInterfaceId, "IScriptShaderStruct",
-                    IScriptShaderStructBindings.Bind) ||
-                // csharp-render-texture-sampling 任务 3.1：第五个渲染接口（纹理）同样属目标类型表，
-                // 空实例取表；实际对象由 `ResolveTargetHandle` 解析。
-                !BindTargetTable(s_api->ScriptTextureInterfaceId, "IScriptTexture",
-                    IScriptTextureBindings.Bind))
+            // 目标类型表：遍历生成清单（窗口两表由 EnsureBound 自己绑定；后端表上面已处理，跳过）。
+            foreach (var table in EngineApiBindings.Tables)
             {
-                // 失败原因留一份（`s_lastError` 随后会清空）：探针的失败文本要能点名是**哪张表**没绑
-                // —— 3.1 的红态判据靠这一句点名 `IScriptTexture`。
-                s_renderBindError = s_lastError;
-                LogLine("[托管侧 渲染] " + s_lastError);
-                s_lastError = string.Empty;
-                return;
+                if (table.Id == s_api->WindowInterfaceId || table.Id == s_api->WindowSystemInterfaceId ||
+                    table.Id == backendId)
+                {
+                    continue;
+                }
+                uint size = s_api->GetInterfaceApi(table.Id, null, EngineApiBindings.TableVersion, 0, null, null);
+                if (size == 0)
+                {
+                    s_lastError = $"取 {table.Name} 函数表失败：目标类型表没有登记（编号 {table.Id}）";
+                    s_renderBindError = s_lastError;
+                    LogLine("[托管侧 渲染] " + s_lastError);
+                    s_lastError = string.Empty;
+                    return;
+                }
+                byte* tableBytes = stackalloc byte[(int)size];
+                uint written = s_api->GetInterfaceApi(table.Id, null, EngineApiBindings.TableVersion, size, tableBytes,
+                                                      null);
+                if (written != size)
+                {
+                    s_lastError = $"取 {table.Name} 函数表失败：写入 {written} 字节、期望 {size} 字节";
+                    s_renderBindError = s_lastError;
+                    LogLine("[托管侧 渲染] " + s_lastError);
+                    s_lastError = string.Empty;
+                    return;
+                }
+                table.Bind(tableBytes);
             }
             s_renderTablesBound = true;
             s_renderBindError = string.Empty;
             LogLine($"[托管侧 渲染] 五个函数表已绑定（后端实例 {(long)backendInstance}）");
-        }
-
-        private delegate void BindTableFn(byte* table);
-
-        private static bool BindTargetTable(uint interfaceId, string name, BindTableFn bind)
-        {
-            uint size = s_api->GetInterfaceApi(interfaceId, null, RenderApiTableVersion, 0, null, null);
-            if (size == 0)
-            {
-                s_lastError = $"取 {name} 函数表失败：目标类型表没有登记（编号 {interfaceId}）";
-                return false;
-            }
-            byte* table = stackalloc byte[(int)size];
-            uint written = s_api->GetInterfaceApi(interfaceId, null, RenderApiTableVersion, size, table, null);
-            if (written != size)
-            {
-                s_lastError = $"取 {name} 函数表失败：写入 {written} 字节、期望 {size} 字节";
-                return false;
-            }
-            bind(table);
-            return true;
         }
 
         /// <summary>
@@ -1239,7 +1232,7 @@ namespace Scripting.Managed
             return count;
         }
 
-        private static void LogVia(EngineApi* api, string text)
+        private static void LogVia(EngineApiMirror* api, string text)
         {
             if (api == null || api->Log == null)
             {

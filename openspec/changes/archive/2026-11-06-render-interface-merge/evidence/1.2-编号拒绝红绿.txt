@@ -1,0 +1,68 @@
+# 任务 1.2：编号解析与"缺号 / 重号"拒绝（红绿实跑）
+
+执行：主 agent 代跑 `CodeGen.exe`（分工红线：一切 exe 由主 agent 跑）。
+脚本：`%TEMP%\rmerge-1.2.ps1`（源码侧变异 + `try/finally` 还原夹具头，不碰生成物）。
+原始日志目录：`C:\Users\76956\AppData\Local\Temp\rmerge-1.2\`
+脚本 SUMMARY：`SUMMARY 缺编号 exit=1 重号 exit=1 绿 exit=0 汇合1=0 汇合2=0 半成品=True/True 确定性=True`
+
+> 说明：日志里 `CodeGen.exe : ...` 与 `NativeCommandError` 是 PowerShell 5.1 对原生程序 stderr 的
+> 包装噪声；判据只认内层的 `CodeGen: ...` 原句（已逐条抄在下面）。
+
+## 红态一：`CA_BIND(8)` 改回 `CA_BIND()`（缺编号）
+
+`1.2-缺编号红.txt` 内层原文：
+
+```
+CodeGen: 拒绝登记 IBindRegistry8 —— 进入宿主登记表的接口必须在 CA_BIND 上带编号（写成 CA_BIND(编号)；当前标注参数是 ""）
+CodeGen: --emit-binding 返回 1
+```
+
+退出码 **1**；点名接口 `IBindRegistry8`，且没有写出任何登记分片（见下面的半成品核对）。
+
+## 红态二：两个接口都写 `CA_BIND(8)`（重号）
+
+`1.2-重号红.txt` 内层原文：
+
+```
+CodeGen: 拒绝登记 —— 编号 8 重复：IBindRegistry8 与 IBindRegistry9
+CodeGen: --emit-binding 返回 1
+```
+
+退出码 **1**；同时点名两个接口与重复的编号。
+
+## 半成品核对：拒绝那一轮不得写出/改写登记产物
+
+`1.2-半成品核对.txt` 原文：
+
+```
+登记产物哈希（拒绝前）：
+BindingRegistry.Bindings.h B19A412DC7B4DA846C7CCFE0B532B53A0344671D4DF930E52107A77C538607CF
+BindingRegistry.Bindings.cpp 0CFACD4F8F51C99018F89C49BD12D58D629FDC193143149EACBF64283351E1EC
+EngineApi.Bindings.cs D779F6A6FE7B29AC0D8AE7A6A1AC4D3D5C383C49303791D5DEB50E4F55D2E7B8
+登记产物哈希（缺编号拒绝后）：
+BindingRegistry.Bindings.h B19A412DC7B4DA846C7CCFE0B532B53A0344671D4DF930E52107A77C538607CF
+BindingRegistry.Bindings.cpp 0CFACD4F8F51C99018F89C49BD12D58D629FDC193143149EACBF64283351E1EC
+EngineApi.Bindings.cs D779F6A6FE7B29AC0D8AE7A6A1AC4D3D5C383C49303791D5DEB50E4F55D2E7B8
+登记产物哈希（重号拒绝后）：
+BindingRegistry.Bindings.h B19A412DC7B4DA846C7CCFE0B532B53A0344671D4DF930E52107A77C538607CF
+BindingRegistry.Bindings.cpp 0CFACD4F8F51C99018F89C49BD12D58D629FDC193143149EACBF64283351E1EC
+EngineApi.Bindings.cs D779F6A6FE7B29AC0D8AE7A6A1AC4D3D5C383C49303791D5DEB50E4F55D2E7B8
+缺编号拒绝前后逐字节一致：True
+重号拒绝前后逐字节一致：True
+```
+
+## 绿态：还原后生成成功
+
+`1.2-绿.txt` 内层原文（节选）：
+
+```
+CodeGen: 跳过审计核对 IBindRegistry8 —— 它不在审计表覆盖的接口清单里
+CodeGen: 跳过审计核对 IBindRegistry9 —— 它不在审计表覆盖的接口清单里
+  [接口] IBindRegistry8 → 3 条：GetNumber SetNumber GetNumberDoubled
+  [接口] IBindRegistry9 → 2 条：GetNumber SetNumber
+绑定：接口 2 个 / 方法 5 条 / 产物 2 个 / 拒绝 0 条
+登记分片：...\codegen\bindings/fixture.registry.part（2 个接口）
+CodeGen: --emit-binding 返回 0
+```
+
+退出码 **0**；夹具头在 `finally` 中还原（脚本末尾打印"夹具头已还原。"）。

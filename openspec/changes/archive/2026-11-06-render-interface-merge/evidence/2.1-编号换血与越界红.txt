@@ -1,0 +1,94 @@
+# 任务 2.1：真实接口编号换血 + 越界编号红绿
+
+日期：2026-11-05
+
+## 换血
+
+源码（4 处标注 + 注释 + 构建/判据同批切换）：
+- `WindowSystem/header/CAWindow/WindowSystem.h`：`CA_BIND(1)`（IWindow）、`CA_BIND(2)`（IWindowSystem）
+- `Interface/RenderInterface/header/ScriptRenderBridge.h`：`CA_BIND(7)`（IScriptTexture）、
+  `CA_BIND(5)`（IScriptRenderTarget）、`CA_BIND(6)`（IScriptShaderStruct）、
+  `CA_BIND(4)`（IScriptRenderGraph）、`CA_BIND(3)`（IScriptRenderBackend）
+- `CACore/header/CodeGenMeta.h`：`CA_BIND` 注释补编号规则
+- `build.py`：主登记表输入 = 窗口头 + 渲染头；夹具登记表移到 `codegen/bindings/fixture/`
+- `Tools/CodeGen/check_bindings.py`：`EXPECTED_BINDING_NUMBERS` = 1–7、`FIXTURE_BINDING_NUMBERS` = 8–9、
+  `require_engine_api_ids=True`、编号连续性断言
+
+构建（主 agent 代跑 `python build.py --config Debug`）：
+
+- build-10 绑定判据段：
+```
+  [登记表] 主登记表 ← 2 个输入
+  [登记表] 登记表（fixture） ← 1 个输入
+    登记表问题 0 处
+    夹具登记表问题 0 处
+...BUILD SUCCESSFUL
+```
+- 生成的主登记表编号（实测原文）：
+```
+inline constexpr uint32_t kBindingInterfaceIdIWindow = 1u;  // cawindow::IWindow
+inline constexpr uint32_t kBindingInterfaceIdIWindowSystem = 2u;  // cawindow::IWindowSystem
+inline constexpr uint32_t kBindingInterfaceIdIScriptRenderBackend = 3u;  // graphics_backend::IScriptRenderBackend
+inline constexpr uint32_t kBindingInterfaceIdIScriptRenderGraph = 4u;  // graphics_backend::IScriptRenderGraph
+inline constexpr uint32_t kBindingInterfaceIdIScriptRenderTarget = 5u;  // graphics_backend::IScriptRenderTarget
+inline constexpr uint32_t kBindingInterfaceIdIScriptShaderStruct = 6u;  // graphics_backend::IScriptShaderStruct
+inline constexpr uint32_t kBindingInterfaceIdIScriptTexture = 7u;  // graphics_backend::IScriptTexture
+```
+- 夹具子目录（`codegen/bindings/fixture/`）三份产物在位；主目录不混入 8/9。
+- build-11（连续断言补上后）复核：`登记表问题 0 处`、`夹具登记表问题 0 处`、`BUILD SUCCESSFUL`。
+
+## 越界编号红态（spec 场景"改既有编号"）
+
+构造：把 `IScriptTexture` 的 `CA_BIND(7)` 临时改成 `CA_BIND(17)`，主 agent 代跑
+`CodeGen.exe` 的渲染头 emit-binding + emit-registry（日志 `%TEMP%\rmerge-2.1-red\`）：
+
+- cmd1 exit 0：`绑定：接口 5 个 / 方法 25 条 / 产物 5 个 / 拒绝 0 条`；分片行：
+  `17	IScriptTexture	graphics_backend::IScriptTexture	Interface/RenderInterface/header/ScriptRenderBridge.h`
+- cmd2 exit 0：`登记：接口 7 个（1 = IWindow、2 = IWindowSystem、3 = IScriptRenderBackend、
+  4 = IScriptRenderGraph、5 = IScriptRenderTarget、6 = IScriptShaderStruct、17 = IScriptTexture）`
+
+`python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings`（exit 1）：
+
+```
+  登记表：缺少编号 7 → graphics_backend::IScriptTexture
+  登记表：多出编号 17 → graphics_backend::IScriptTexture（期望表里没有这一项）
+  登记表：编号必须是连续区间，实际 [1, 2, 3, 4, 5, 6, 17]（缺 [7]、多 [17]）
+  登记表：C# 侧缺编号常量 ScriptTextureInterfaceId = 7（graphics_backend::IScriptTexture）
+登记表问题 4 处
+夹具登记表问题 0 处
+```
+
+## 绿态（还原 `CA_BIND(7)` 后重跑同两条）
+
+- cmd1d EXIT=0：`绑定：接口 5 个 / 方法 25 条 / 产物 5 个 / 拒绝 0 条`（**拒绝 0 条**；
+  见下面的"教训"——第一次手工绿跑漏了 `--known-interface`，`GetWindowTarget` 被丢）
+- cmd2d EXIT=0：`登记：接口 7 个（1 = IWindow、2 = IWindowSystem、3 = IScriptRenderBackend、
+  4 = IScriptRenderGraph、5 = IScriptRenderTarget、6 = IScriptShaderStruct、7 = IScriptTexture）`
+- `python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings`：
+  `登记表问题 0 处`、`夹具登记表问题 0 处`、`脚本渲染适配面问题 0 处`、exit 0。
+
+**教训（写成可复核的判据链）**：手工跑 `CodeGen.exe` 必须**镜像 `build.py` 的全部参数**。
+第一次手工绿跑只拷贝了 `--registry-part/--emit-registry`，漏了 build.py 从
+`--list-bind-interfaces` 聚合出来的 7 条 `--known-interface`；生成器解析不到
+`castl::shared_ptr<cawindow::IWindow>` 的目标接口，`IScriptRenderBackend.GetWindowTarget`
+被静默丢弃（`拒绝 0 条`，产物少一条方法）。`check_bindings` 当场抓到：
+`IScriptRenderBackend（表面层）：C++ 多 ['GetWindowTarget']，C# 表面多 无`。补齐 7 条
+`--known-interface` 后同一构造复绿。结论：**手工命令之后必须跑 check_bindings**，
+"命令 exit 0"不能代替产物判据。
+
+## `git grep` 原文（任务 2.1 验收）
+
+```
+$ git grep -n "CA_BIND(" -- Interface/RenderInterface/header/ScriptRenderBridge.h
+Interface/RenderInterface/header/ScriptRenderBridge.h:32:	CA_BIND(7)
+Interface/RenderInterface/header/ScriptRenderBridge.h:41:	CA_BIND(5)
+Interface/RenderInterface/header/ScriptRenderBridge.h:51:	CA_BIND(6)
+Interface/RenderInterface/header/ScriptRenderBridge.h:82:	CA_BIND(4)
+Interface/RenderInterface/header/ScriptRenderBridge.h:120:	CA_BIND(3)
+
+$ git grep -n "CA_BIND(" -- WindowSystem/header/CAWindow/WindowSystem.h
+WindowSystem/header/CAWindow/WindowSystem.h:11:	CA_BIND(1)
+WindowSystem/header/CAWindow/WindowSystem.h:52:	CA_BIND(2)
+```
+
+5 行、编号恰为 3–7（顺序按声明）；窗口两行恰为 1–2。

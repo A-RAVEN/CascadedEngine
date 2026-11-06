@@ -1910,6 +1910,11 @@ namespace bindemit
     {
         std::string interfaceName;
         bool isTemplate = false;
+        // 编号参数（本 change 任务 1.2）：`CA_BIND(8)` 的 8。无号 `CA_BIND()` ⇒ hasNumber = false。
+        // 既有夹具头按 design D2 的豁免口径维持无号；只有"进登记表"的输入才强制带号。
+        bool hasNumber = false;
+        unsigned number = 0;
+        std::string numberText;   // 宏里原样的参数文本，报错时用（例如 "8" / "" / "abc"）
         std::map<std::string, std::string> skipReasons;  // 方法 → 理由（空串 = 没写理由）
     };
 
@@ -1953,6 +1958,9 @@ namespace bindemit
         std::size_t position = 0;
         bool pendingBind = false;
         bool pendingTemplate = false;
+        bool pendingHasNumber = false;
+        unsigned pendingNumber = 0;
+        std::string pendingNumberText;
         while (position < source.size())
         {
             const std::size_t lineEnd = source.find('\n', position);
@@ -1967,6 +1975,33 @@ namespace bindemit
             if (line.find("CA_BIND(") != std::string::npos)
             {
                 pendingBind = true;
+                // 编号参数（本 change 任务 1.2）：`CA_BIND(8)` ⇒ 8；`CA_BIND()` ⇒ 无号。
+                // 只接受非负十进制整数；其它写法原样记进 numberText，由需要编号的地方点名报错。
+                const std::size_t open = line.find('(', line.find("CA_BIND("));
+                const std::size_t close = open == std::string::npos ? std::string::npos
+                                                                    : line.find(')', open);
+                pendingNumberText = (open == std::string::npos || close == std::string::npos)
+                                        ? std::string()
+                                        : trimCopy(line.substr(open + 1, close - open - 1));
+                pendingHasNumber = false;
+                pendingNumber = 0;
+                if (!pendingNumberText.empty())
+                {
+                    bool allDigits = true;
+                    for (char ch : pendingNumberText)
+                    {
+                        if (!std::isdigit(static_cast<unsigned char>(ch)))
+                        {
+                            allDigits = false;
+                            break;
+                        }
+                    }
+                    if (allDigits)
+                    {
+                        pendingHasNumber = true;
+                        pendingNumber = static_cast<unsigned>(std::strtoul(pendingNumberText.c_str(), nullptr, 10));
+                    }
+                }
                 continue;
             }
             // 排除：紧跟在本接口之后、下一个 CA_BIND 之前出现
@@ -2028,10 +2063,16 @@ namespace bindemit
                 BoundMarker marker;
                 marker.interfaceName = name;
                 marker.isTemplate = isTemplateLine;
+                marker.hasNumber = pendingHasNumber;
+                marker.number = pendingNumber;
+                marker.numberText = pendingNumberText;
                 markers.push_back(std::move(marker));
             }
             pendingBind = false;
             pendingTemplate = false;
+            pendingHasNumber = false;
+            pendingNumber = 0;
+            pendingNumberText.clear();
         }
         return markers;
     }
@@ -3344,7 +3385,8 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
     }
 
     int run(const char* filePath, const char* outDir, const std::vector<const char*>& clangArgs,
-            const std::string& auditScriptPath, unsigned handleIndexBits, unsigned handleGenerationBits)
+            const std::string& auditScriptPath, unsigned handleIndexBits, unsigned handleGenerationBits,
+            std::string const& registryPartLabel, std::string const& registryPartDir)
     {
         const std::string sourceText = readWholeFile(filePath);
         const std::vector<BoundMarker> markers = scanBoundMarkers(sourceText);
@@ -3358,6 +3400,40 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         {
             std::fprintf(stderr, "CodeGen: --emit-binding found no CA_BIND marker in '%s'.\n", filePath);
             return 1;
+        }
+
+        // 登记表输入（本 change 任务 1.2）：进登记表的头里，每个接口都必须在 `CA_BIND` 上带编号，
+        // 且同一份输入里不许重号。这里在**任何产物写出之前**拒绝，保证拒绝的那一轮不落地半成品
+        // 登记表（生效规范 csharp-bindings 的"不出半成品"场景在任务 1.2 有独立判据）。
+        if (!registryPartLabel.empty())
+        {
+            std::map<unsigned, std::string> numbers;
+            int registryProblems = 0;
+            for (BoundMarker const& marker : markers)
+            {
+                if (!marker.hasNumber)
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝登记 %s —— 进入宿主登记表的接口必须在 CA_BIND 上带编号"
+                                 "（写成 CA_BIND(编号)；当前标注参数是 \"%s\"）\n",
+                                 marker.interfaceName.c_str(), marker.numberText.c_str());
+                    ++registryProblems;
+                    continue;
+                }
+                auto inserted = numbers.emplace(marker.number, marker.interfaceName);
+                if (!inserted.second)
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝登记 —— 编号 %u 重复：%s 与 %s\n",
+                                 marker.number, inserted.first->second.c_str(),
+                                 marker.interfaceName.c_str());
+                    ++registryProblems;
+                }
+            }
+            if (registryProblems > 0)
+            {
+                return 1;
+            }
         }
 
         // ① 模板/泛型 与"排除没写理由"只看源码文本就够了，必须在解析**之前**判 ——
@@ -6418,6 +6494,47 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         {
             return 1;
         }
+        // 登记表输入的分片（本 change 任务 1.2 / 1.3）：到这里所有接口产物都已成功写出，
+        // 再把"编号 → 接口"的分片落到登记产物目录，供 `--emit-registry` 汇总。
+        // 拒绝路径（上面的 registryProblems / rejected / 解析失败）在写分片之前就返回了 ——
+        // 因此拒绝的那一轮不会留下任何登记分片，更不会改写已有登记产物。
+        if (!registryPartLabel.empty())
+        {
+            std::string part;
+            part += "# render-interface-merge 登记输入\n";
+            part += "# header\t" + std::string(filePath != nullptr ? filePath : "") + "\n";
+            int missingShapes = 0;
+            for (BoundMarker const& marker : markers)
+            {
+                auto found = std::find_if(shapes.begin(), shapes.end(),
+                                          [&marker](InterfaceShape const& shape) {
+                                              return shape.name == marker.interfaceName;
+                                          });
+                if (found == shapes.end())
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝登记 %s —— 有 CA_BIND(%u) 标注，但找不到它的类定义\n",
+                                 marker.interfaceName.c_str(), marker.number);
+                    ++missingShapes;
+                    continue;
+                }
+                part += std::to_string(marker.number) + "\t" + found->name + "\t" +
+                        found->qualifiedName + "\t" + std::string(filePath != nullptr ? filePath : "") + "\n";
+            }
+            if (missingShapes > 0)
+            {
+                return 1;
+            }
+            const std::string partPath = registryPartDir + "/" + registryPartLabel + ".registry.part";
+            std::ofstream partOut(partPath, std::ios::binary);
+            partOut << part;
+            if (!partOut)
+            {
+                std::fprintf(stderr, "CodeGen: cannot write '%s'\n", partPath.c_str());
+                return 2;
+            }
+            std::fprintf(stderr, "登记分片：%s（%zu 个接口）\n", partPath.c_str(), markers.size());
+        }
         // 没有产物不等于失败：整个接口的方法都被带理由排除掉时，0 个产物是正确的
         return 0;
     }
@@ -6516,10 +6633,538 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         }
         return 0;
     }
+
+    // ---- 登记表发射（render-interface-merge 任务 1.3）----
+    // 输入是每个登记表输入头在 `--emit-binding --registry-part` 时写下的分片；
+    // 输出是跨接口的三份产物：
+    //   BindingRegistry.Bindings.h  编号清单、EngineApi struct + static_assert、宿主固定名钩子声明
+    //   BindingRegistry.Bindings.cpp `get_interface_api` 路由、布局查询路由、EngineApi 装配
+    //   EngineApi.Bindings.cs       与 C++ struct 逐字段对照的托管 struct + 生成常量
+    struct RegistryEntry
+    {
+        unsigned number = 0;
+        std::string shortName;
+        std::string qualifiedName;
+        std::string header;
+    };
+
+    struct EngineApiFieldSpec
+    {
+        char const* cppType;
+        char const* cppName;
+        char const* csType;
+        char const* csName;
+        char const* interfaceShort;   // 非空 = 该字段填对应接口的编号
+        char const* hostSymbol;       // 非空 = 装配成宿主固定名函数
+    };
+
+    // 14 个字段的顺序与宽度就是 ABI（design D5：v8 的形状逐字段不动，字节布局仍是 80）。
+    // 两侧的 struct 与装配代码都从这一张表发出 —— 手写镜像不再拥有它。
+    EngineApiFieldSpec const kEngineApiFields[] = {
+        { "uint32_t", "abi_version", "uint", "AbiVersion", nullptr, nullptr },
+        { "uint32_t", "size", "uint", "Size", nullptr, nullptr },
+        { "void (*)(int level, uint8_t const* utf8, uint64_t len)",
+          "log", "delegate* unmanaged<int, byte*, ulong, void>", "Log", nullptr, "CSharpHostManagedLog" },
+        { "int32_t (*)(int32_t value)", "echo", "delegate* unmanaged<int, int>", "Echo", nullptr,
+          "CSharpHostManagedEcho" },
+        { "uint32_t (*)(uint32_t interfaceId, char const* instanceName, uint32_t version, "
+          "uint32_t size, void* out, void** instanceOut)",
+          "get_interface_api", "delegate* unmanaged<uint, byte*, uint, uint, void*, void**, uint>",
+          "GetInterfaceApi", nullptr, nullptr },
+        { "uint32_t", "window_interface_id", "uint", "WindowInterfaceId", "IWindow", nullptr },
+        { "uint32_t", "window_system_interface_id", "uint", "WindowSystemInterfaceId", "IWindowSystem", nullptr },
+        { "uint32_t (*)(uint32_t interfaceId, uint32_t typeIndex, char* name, "
+          "uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount)",
+          "get_binding_layout_type",
+          "delegate* unmanaged<uint, uint, byte*, uint, ulong*, uint*, uint>", "GetBindingLayoutType",
+          nullptr, "CSharpHostBindingLayoutType" },
+        { "uint32_t (*)(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex, "
+          "char* name, uint32_t nameCap, char* typeName, uint32_t typeCap, uint64_t* offsetBytes)",
+          "get_binding_layout_field",
+          "delegate* unmanaged<uint, uint, uint, byte*, uint, byte*, uint, ulong*, uint>",
+          "GetBindingLayoutField", nullptr, "CSharpHostBindingLayoutField" },
+        { "uint32_t", "script_render_backend_interface_id", "uint", "ScriptRenderBackendInterfaceId",
+          "IScriptRenderBackend", nullptr },
+        { "uint32_t", "script_render_graph_interface_id", "uint", "ScriptRenderGraphInterfaceId",
+          "IScriptRenderGraph", nullptr },
+        { "uint32_t", "script_render_target_interface_id", "uint", "ScriptRenderTargetInterfaceId",
+          "IScriptRenderTarget", nullptr },
+        { "uint32_t", "script_shader_struct_interface_id", "uint", "ScriptShaderStructInterfaceId",
+          "IScriptShaderStruct", nullptr },
+        { "uint32_t", "script_texture_interface_id", "uint", "ScriptTextureInterfaceId", "IScriptTexture",
+          nullptr },
+    };
+
+    // 把字段声明拼成合法 C++：函数指针类型的名字必须写在 `(*` 之后
+    // （`void (*)(int)` + `log` ⇒ `void (*log)(int)`），不能像普通字段那样在后面再拼一个名字。
+    std::string cppFieldDeclaration(EngineApiFieldSpec const& field)
+    {
+        const std::string type = field.cppType;
+        const std::size_t star = type.find("(*)");
+        if (star == std::string::npos)
+        {
+            return type + " " + field.cppName + ";";
+        }
+        return type.substr(0, star + 2) + field.cppName + type.substr(star + 2) + ";";
+    }
+
+    // 接口短名 → 生成常量名 / C# 常量名：去掉开头的 I，再接 InterfaceId。
+    std::string interfaceConstantSuffix(std::string const& shortName)
+    {
+        std::string bare = shortName;
+        if (bare.size() > 1 && bare[0] == 'I' && std::isupper(static_cast<unsigned char>(bare[1])))
+        {
+            bare = bare.substr(1);
+        }
+        return bare + "InterfaceId";
+    }
+
+    bool readRegistryPart(std::string const& path, std::vector<RegistryEntry>* entries, std::string* error)
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            *error = "读不到登记分片：" + path;
+            return false;
+        }
+        std::string line;
+        while (std::getline(in, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+            {
+                line.pop_back();
+            }
+            if (line.empty() || line[0] == '#')
+            {
+                continue;
+            }
+            std::vector<std::string> fields;
+            std::size_t begin = 0;
+            for (;;)
+            {
+                const std::size_t tab = line.find('\t', begin);
+                fields.push_back(line.substr(begin, tab == std::string::npos ? std::string::npos : tab - begin));
+                if (tab == std::string::npos)
+                {
+                    break;
+                }
+                begin = tab + 1;
+            }
+            if (fields.size() != 4)
+            {
+                *error = "登记分片格式不对（" + path + "）：" + line;
+                return false;
+            }
+            RegistryEntry entry;
+            entry.number = static_cast<unsigned>(std::strtoul(fields[0].c_str(), nullptr, 10));
+            entry.shortName = fields[1];
+            entry.qualifiedName = fields[2];
+            entry.header = fields[3];
+            if (entry.number == 0 || entry.shortName.empty() || entry.qualifiedName.empty())
+            {
+                *error = "登记分片里有非法条目（" + path + "）：" + line;
+                return false;
+            }
+            entries->push_back(std::move(entry));
+        }
+        return true;
+    }
+
+    int emitRegistry(std::string const& outDir, std::vector<std::string> const& partFiles)
+    {
+        std::vector<RegistryEntry> entries;
+        for (std::string const& part : partFiles)
+        {
+            std::string error;
+            if (!readRegistryPart(part, &entries, &error))
+            {
+                std::fprintf(stderr, "CodeGen: %s\n", error.c_str());
+                return 1;
+            }
+        }
+        if (entries.empty())
+        {
+            std::fprintf(stderr, "CodeGen: --emit-registry 没有读到任何登记条目（分片 %zu 个）\n",
+                         partFiles.size());
+            return 1;
+        }
+        std::sort(entries.begin(), entries.end(), [](RegistryEntry const& a, RegistryEntry const& b) {
+            if (a.number != b.number)
+            {
+                return a.number < b.number;
+            }
+            return a.shortName < b.shortName;
+        });
+        // 编号与短名都必须全局唯一：两个接口同号 / 同名都必须在写产物之前拒绝并点名双方。
+        for (std::size_t i = 0; i < entries.size(); ++i)
+        {
+            for (std::size_t j = 0; j < i; ++j)
+            {
+                if (entries[i].number == entries[j].number)
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝登记 —— 编号 %u 重复：%s（%s）与 %s（%s）\n",
+                                 entries[i].number, entries[j].shortName.c_str(),
+                                 entries[j].header.c_str(), entries[i].shortName.c_str(),
+                                 entries[i].header.c_str());
+                    return 1;
+                }
+                if (entries[i].shortName == entries[j].shortName)
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝登记 —— 接口短名 %s 重复：%s 与 %s\n",
+                                 entries[i].shortName.c_str(), entries[j].header.c_str(),
+                                 entries[i].header.c_str());
+                    return 1;
+                }
+            }
+        }
+        // `EngineApi` 的编号字段按接口短名找编号；找不到的字段装配成 0（该编号还没登记）。
+        std::map<std::string, unsigned> numberByShort;
+        for (RegistryEntry const& entry : entries)
+        {
+            numberByShort[entry.shortName] = entry.number;
+        }
+
+        std::string header;
+        header += "// 由 CodeGen --emit-registry 生成，勿手改。\n";
+        header += "// 编号唯一来源：各接口头上的 CA_BIND(编号) 标注。\n";
+        header += "// 登记输入（按编号排序）：\n";
+        for (RegistryEntry const& entry : entries)
+        {
+            header += "//   " + std::to_string(entry.number) + " = " + entry.qualifiedName +
+                      "（" + entry.header + "）\n";
+        }
+        header += "#pragma once\n#include <stdint.h>\n#include <stddef.h>\n\n";
+        header += "// ---- 接口编号清单 ----\n";
+        for (RegistryEntry const& entry : entries)
+        {
+            header += "inline constexpr uint32_t kBindingInterfaceId" + entry.shortName + " = " +
+                      std::to_string(entry.number) + "u;  // " + entry.qualifiedName + "\n";
+        }
+        header += "\n// 生成接口表的 ABI 版本（生成器固定 2u，本 change 不提升；窗口两表与渲染五表同版）\n";
+        header += "inline constexpr uint32_t kBindingInterfaceTableVersion = 2u;\n";
+        header += "// 跨边界函数表版本（本 change 由 v8 升到 v9：字段顺序与宽度不变，字节布局仍是 80）\n";
+        header += "inline constexpr uint32_t kEngineApiVersion = 9u;\n";
+        header += "inline constexpr uint32_t kEngineApiSize = 80u;\n\n";
+        header += "// 交给托管侧的函数表。字段顺序与宽度就是 ABI —— 只许在末尾追加。\n";
+        header += "struct EngineApi\n{\n";
+        for (EngineApiFieldSpec const& field : kEngineApiFields)
+        {
+            header += "    " + cppFieldDeclaration(field) + "\n";
+        }
+        header += "};\n\n";
+        header += "static_assert(sizeof(EngineApi) == 80u,\n";
+        header += "              \"生成的 EngineApi 必须是 80 字节（14 字段：正文 76 + 尾部对齐填充 4）\");\n";
+        header += "static_assert(kEngineApiSize == 80u, \"kEngineApiSize 必须与 sizeof(EngineApi) 一致\");\n\n";
+        header += "// 宿主固定名字的实现钩子：实现留手写（log / echo / 实例查找 / 错误出口 / 默认实例工厂 /\n";
+        header += "// 角色登记），登记表只按固定名字调用它们 —— 逐接口分支不再存在。\n";
+        header += "extern \"C\" void CSharpHostManagedLog(int level, uint8_t const* utf8, uint64_t len);\n";
+        header += "extern \"C\" int32_t CSharpHostManagedEcho(int32_t value);\n";
+        header += "extern \"C\" void CSharpHostBindingReportError(char const* text);\n";
+        header += "extern \"C\" void* CSharpHostBindingLookupInstance(uint32_t interfaceId, char const* instanceName);\n";
+        header += "extern \"C\" void CSharpHostBindingCreateDefaultInstances(void);\n";
+        header += "// 返回 1 = 该编号要求默认实例；0 = 目标类型表（允许空实例）；-1 = 宿主没有登记该编号\n";
+        header += "extern \"C\" int32_t CSharpHostBindingRequiresInstance(uint32_t interfaceId);\n";
+        header += "// 布局查询由宿主固定名实现包一层：路由本身是生成的，宿主那层只留自检钩子\n";
+        header += "// （layout-mismatch 构造要在引擎侧改偏移）。\n";
+        header += "extern \"C\" uint32_t CSharpHostBindingLayoutType(uint32_t interfaceId, uint32_t typeIndex,\n";
+        header += "                                                   char* name, uint32_t nameCap,\n";
+        header += "                                                   uint64_t* sizeBytes, uint32_t* fieldCount);\n";
+        header += "extern \"C\" uint32_t CSharpHostBindingLayoutField(uint32_t interfaceId, uint32_t typeIndex,\n";
+        header += "                                                    uint32_t fieldIndex, char* name,\n";
+        header += "                                                    uint32_t nameCap, char* typeName,\n";
+        header += "                                                    uint32_t typeCap, uint64_t* offsetBytes);\n\n";
+        header += "namespace ca_bind_registry\n{\n";
+        header += "    uint32_t GetInterfaceApi(uint32_t interfaceId, char const* instanceName, uint32_t version,\n";
+        header += "                             uint32_t size, void* out, void** instanceOut);\n";
+        header += "    uint32_t GetBindingLayoutType(uint32_t interfaceId, uint32_t typeIndex, char* name,\n";
+        header += "                                  uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount);\n";
+        header += "    uint32_t GetBindingLayoutField(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex,\n";
+        header += "                                   char* name, uint32_t nameCap, char* typeName, uint32_t typeCap,\n";
+        header += "                                   uint64_t* offsetBytes);\n";
+        header += "    // 装配：先让宿主建默认实例，再按宿主角色登记表填 EngineApi。\n";
+        header += "    void FillEngineApi(EngineApi& api);\n";
+        header += "}\n";
+
+        std::string cpp;
+        cpp += "// 由 CodeGen --emit-registry 生成，勿手改。\n";
+        cpp += "#pragma once\n#include <stdint.h>\n#include <stddef.h>\n#include <stdio.h>\n";
+        cpp += "#include \"BindingRegistry.Bindings.h\"\n";
+        cpp += "// 逐接口产物：路由直接调它们生成的 GetApi / 布局查询入口。\n";
+        for (RegistryEntry const& entry : entries)
+        {
+            cpp += "#include \"" + entry.shortName + ".Bindings.cpp\"\n";
+        }
+        cpp += "\nnamespace ca_bind_registry\n{\n";
+        cpp += "    enum class BindingRole : uint32_t\n    {\n";
+        cpp += "        Unregistered = 0,   // 宿主角色登记表里没有这个编号 —— 取表必须拒绝\n";
+        cpp += "        DefaultInstance = 1, // 必须有默认实例\n";
+        cpp += "        TargetTypeTable = 2, // 目标类型表：允许空实例\n";
+        cpp += "    };\n\n";
+        cpp += "    struct BindingRoute\n    {\n";
+        cpp += "        uint32_t id;\n";
+        cpp += "        char const* name;\n";
+        cpp += "        uint32_t tableSize;\n";
+        cpp += "        uint32_t (*getApi)(uint32_t version, uint32_t size, void* out);\n";
+        cpp += "        uint32_t (*layoutType)(uint32_t typeIndex, char* name, uint32_t nameCap, uint64_t* sizeBytes,\n";
+        cpp += "                               uint32_t* fieldCount);\n";
+        cpp += "        uint32_t (*layoutField)(uint32_t typeIndex, uint32_t fieldIndex, char* name, uint32_t nameCap,\n";
+        cpp += "                                char* typeName, uint32_t typeCap, uint64_t* offsetBytes);\n";
+        cpp += "        BindingRole role;\n";
+        cpp += "    };\n\n";
+        for (RegistryEntry const& entry : entries)
+        {
+            cpp += "    static uint32_t Route_" + entry.shortName + "(uint32_t version, uint32_t size, void* out)\n    {\n";
+            cpp += "        return " + entry.shortName + "_GetApi(version, size, static_cast<" + entry.shortName +
+                   "Api_v2*>(out));\n    }\n";
+        }
+        cpp += "\n    static BindingRoute kRoutes[] = {\n";
+        for (RegistryEntry const& entry : entries)
+        {
+            cpp += "        { " + std::to_string(entry.number) + "u, \"" + entry.shortName + "\",\n";
+            cpp += "          static_cast<uint32_t>(sizeof(" + entry.shortName + "Api_v2)),\n";
+            cpp += "          &Route_" + entry.shortName + ", &" + entry.shortName + "_GetLayoutType,\n";
+            cpp += "          &" + entry.shortName + "_GetLayoutField, BindingRole::Unregistered },\n";
+        }
+        cpp += "    };\n";
+        cpp += "    static char const* const kKnownInterfacesText = \"";
+        for (std::size_t i = 0; i < entries.size(); ++i)
+        {
+            if (i != 0)
+            {
+                cpp += "、";
+            }
+            cpp += std::to_string(entries[i].number) + " = " + entries[i].shortName;
+        }
+        cpp += "\";\n\n";
+        cpp += "    static BindingRoute const* FindRoute(uint32_t interfaceId)\n    {\n";
+        cpp += "        for (BindingRoute const& route : kRoutes)\n        {\n";
+        cpp += "            if (route.id == interfaceId) { return &route; }\n        }\n";
+        cpp += "        return nullptr;\n    }\n\n";
+        cpp += "    static void Report(char const* text)\n    {\n";
+        cpp += "        CSharpHostBindingReportError(text);\n    }\n\n";
+        cpp += "    // 宿主角色登记（任务 3.1）：每张表在装配时问一次宿主，缺登记的编号保持 Unregistered，\n";
+        cpp += "    // 取表时明确拒绝并点名 —— 不许静默按目标类型表放行。\n";
+        cpp += "    static void ApplyPolicies()\n    {\n        for (BindingRoute& route : kRoutes)\n        {\n";
+        cpp += "            // 注意：`requires` 是 C++20 关键字，变量名不能叫它（实测 MSVC 报 C2059）。\n";
+        cpp += "            const int32_t requiresInstance = CSharpHostBindingRequiresInstance(route.id);\n";
+        cpp += "            route.role = requiresInstance < 0 ? BindingRole::Unregistered\n";
+        cpp += "                         : (requiresInstance != 0 ? BindingRole::DefaultInstance : BindingRole::TargetTypeTable);\n";
+        cpp += "        }\n    }\n\n";
+        cpp += "    uint32_t GetInterfaceApi(uint32_t interfaceId, char const* instanceName, uint32_t version,\n";
+        cpp += "                             uint32_t size, void* out, void** instanceOut)\n    {\n";
+        cpp += "        BindingRoute const* route = FindRoute(interfaceId);\n";
+        cpp += "        if (route == nullptr)\n        {\n";
+        cpp += "            char text[512];\n";
+        cpp += "            ::snprintf(text, sizeof(text), \"未知接口编号 %u：当前登记 %zu 个接口（%s）\",\n";
+        cpp += "                       interfaceId, sizeof(kRoutes) / sizeof(kRoutes[0]), kKnownInterfacesText);\n";
+        cpp += "            Report(text);\n            return 0u;\n        }\n";
+        cpp += "        if (route->role == BindingRole::Unregistered)\n        {\n";
+        cpp += "            char text[512];\n";
+        cpp += "            ::snprintf(text, sizeof(text),\n";
+        cpp += "                       \"接口 %s（编号 %u）没有在宿主角色登记表里登记（默认实例 / 目标类型表必须二选一）\",\n";
+        cpp += "                       route->name, interfaceId);\n";
+        cpp += "            Report(text);\n            return 0u;\n        }\n";
+        cpp += "        // 默认实例必须在**探针调用之前**解析：缺少实例时直接回 0，让托管侧按自己的\n";
+        cpp += "        // `s_renderBindError` 点名接口并让探针明确失败；**不写宿主 LastError** ——\n";
+        cpp += "        // 未启用渲染探针的既有窗口路径要求 LastError 保持为空（spec csharp-host）。\n";
+        cpp += "        void* instance = nullptr;\n";
+        cpp += "        if (route->role == BindingRole::DefaultInstance)\n        {\n";
+        cpp += "            instance = CSharpHostBindingLookupInstance(interfaceId, instanceName);\n";
+        cpp += "            if (instance == nullptr) { return 0u; }\n";
+        cpp += "        }\n";
+        cpp += "        // `size == 0` 是探针调用：只回真实表大小，不写任何内存。\n";
+        cpp += "        if (size == 0u) { return route->tableSize; }\n";
+        cpp += "        if (out == nullptr) { return 0u; }\n";
+        cpp += "        if (instanceOut != nullptr) { *instanceOut = instance; }\n";
+        cpp += "        return route->getApi(version, size, out);\n    }\n\n";
+        cpp += "    uint32_t GetBindingLayoutType(uint32_t interfaceId, uint32_t typeIndex, char* name,\n";
+        cpp += "                                  uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount)\n    {\n";
+        cpp += "        BindingRoute const* route = FindRoute(interfaceId);\n";
+        cpp += "        if (route == nullptr || route->layoutType == nullptr) { return 0u; }\n";
+        cpp += "        return route->layoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);\n    }\n\n";
+        cpp += "    uint32_t GetBindingLayoutField(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex,\n";
+        cpp += "                                   char* name, uint32_t nameCap, char* typeName, uint32_t typeCap,\n";
+        cpp += "                                   uint64_t* offsetBytes)\n    {\n";
+        cpp += "        BindingRoute const* route = FindRoute(interfaceId);\n";
+        cpp += "        if (route == nullptr || route->layoutField == nullptr) { return 0u; }\n";
+        cpp += "        return route->layoutField(typeIndex, fieldIndex, name, nameCap, typeName, typeCap, offsetBytes);\n";
+        cpp += "    }\n\n";
+        cpp += "    void FillEngineApi(EngineApi& api)\n    {\n";
+        cpp += "        // 工厂由宿主按固定名字暴露（任务 3.1）：装配代码只负责按约定调用它。\n";
+        cpp += "        CSharpHostBindingCreateDefaultInstances();\n";
+        cpp += "        ApplyPolicies();\n";
+        for (EngineApiFieldSpec const& field : kEngineApiFields)
+        {
+            const std::string cppName = field.cppName;
+            if (field.hostSymbol != nullptr)
+            {
+                cpp += "        api." + cppName + " = &" + std::string(field.hostSymbol) + ";\n";
+            }
+            else if (std::string(cppName) == "abi_version")
+            {
+                cpp += "        api.abi_version = kEngineApiVersion;\n";
+            }
+            else if (std::string(cppName) == "size")
+            {
+                cpp += "        api.size = static_cast<uint32_t>(sizeof(EngineApi));\n";
+            }
+            else if (std::string(cppName) == "get_interface_api")
+            {
+                cpp += "        api.get_interface_api = &GetInterfaceApi;\n";
+            }
+            else if (std::string(cppName) == "get_binding_layout_type")
+            {
+                cpp += "        api.get_binding_layout_type = &GetBindingLayoutType;\n";
+            }
+            else if (std::string(cppName) == "get_binding_layout_field")
+            {
+                cpp += "        api.get_binding_layout_field = &GetBindingLayoutField;\n";
+            }
+            else if (field.interfaceShort != nullptr)
+            {
+                auto found = numberByShort.find(field.interfaceShort);
+                if (found != numberByShort.end())
+                {
+                    cpp += "        api." + cppName + " = kBindingInterfaceId" + field.interfaceShort + ";\n";
+                }
+                else
+                {
+                    cpp += "        api." + cppName + " = 0u;  // 编号尚未登记（接口 " +
+                           std::string(field.interfaceShort) + " 不在本次登记输入里）\n";
+                }
+            }
+        }
+        cpp += "    }\n}\n";
+
+        std::string cs;
+        cs += "// 由 CodeGen --emit-registry 生成，勿手改。\n";
+        cs += "// 与 C++ 侧 BindingRegistry.Bindings.h 的 EngineApi 逐字段对照（同一次生成）。\n";
+        cs += "using System.Runtime.InteropServices;\n";
+        cs += "// 接口产物（`<接口>Bindings.Bind` 与编号表）都在这个命名空间里。\n";
+        cs += "using Scripting.Generated.Bindings;\n\n";
+        cs += "namespace Scripting.Managed\n{\n";
+        cs += "    /// <summary>引擎交给托管侧的函数表。字段顺序与宽度就是 ABI —— 只许在末尾追加。</summary>\n";
+        cs += "    [StructLayout(LayoutKind.Sequential)]\n";
+        cs += "    internal unsafe struct EngineApiMirror\n    {\n";
+        for (EngineApiFieldSpec const& field : kEngineApiFields)
+        {
+            cs += "        public " + std::string(field.csType) + " " + field.csName + ";\n";
+        }
+        cs += "    }\n\n";
+        cs += "    /// <summary>生成的 ABI 常量与接口编号清单（Host.cs 只读这里，不再手抄）。</summary>\n";
+        cs += "    internal static unsafe class EngineApiBindings\n    {\n";
+        cs += "        public const uint AbiVersion = 9;\n";
+        cs += "        public const uint Size = 80;\n";
+        cs += "        public const uint TableVersion = 2;\n\n";
+        for (RegistryEntry const& entry : entries)
+        {
+            cs += "        // " + entry.qualifiedName + "\n";
+            cs += "        public const uint " + interfaceConstantSuffix(entry.shortName) + " = " +
+                  std::to_string(entry.number) + ";\n";
+        }
+        cs += "\n        internal delegate void InterfaceTableBind(byte* table);\n\n";
+        cs += "        internal sealed class InterfaceTable\n        {\n";
+        cs += "            public readonly uint Id;\n";
+        cs += "            public readonly string Name;\n";
+        cs += "            public readonly InterfaceTableBind Bind;\n";
+        cs += "            public InterfaceTable(uint id, string name, InterfaceTableBind bind)\n";
+        cs += "            {\n                Id = id;\n                Name = name;\n                Bind = bind;\n";
+        cs += "            }\n        }\n\n";
+        cs += "        internal static readonly InterfaceTable[] Tables = new InterfaceTable[]\n        {\n";
+        for (RegistryEntry const& entry : entries)
+        {
+            cs += "            new InterfaceTable(" + interfaceConstantSuffix(entry.shortName) + ", \"" +
+                  entry.shortName + "\", " + entry.shortName + "Bindings.Bind),\n";
+        }
+        cs += "        };\n";
+        cs += "    }\n}\n";
+
+        const std::string headerPath = outDir + "/BindingRegistry.Bindings.h";
+        const std::string cppPath = outDir + "/BindingRegistry.Bindings.cpp";
+        const std::string csPath = outDir + "/EngineApi.Bindings.cs";
+        std::ofstream headerOut(headerPath, std::ios::binary);
+        headerOut << header;
+        if (!headerOut)
+        {
+            std::fprintf(stderr, "CodeGen: cannot write '%s'\n", headerPath.c_str());
+            return 2;
+        }
+        std::ofstream cppOut(cppPath, std::ios::binary);
+        cppOut << cpp;
+        if (!cppOut)
+        {
+            std::fprintf(stderr, "CodeGen: cannot write '%s'\n", cppPath.c_str());
+            return 2;
+        }
+        std::ofstream csOut(csPath, std::ios::binary);
+        csOut << cs;
+        if (!csOut)
+        {
+            std::fprintf(stderr, "CodeGen: cannot write '%s'\n", csPath.c_str());
+            return 2;
+        }
+        std::string numbers;
+        for (RegistryEntry const& entry : entries)
+        {
+            if (!numbers.empty())
+            {
+                numbers += "、";
+            }
+            numbers += std::to_string(entry.number) + " = " + entry.shortName;
+        }
+        std::fprintf(stderr, "登记：接口 %zu 个（%s）\n", entries.size(), numbers.c_str());
+        std::fprintf(stdout, "CodeGen wrote: %s\n", headerPath.c_str());
+        std::fprintf(stdout, "CodeGen wrote: %s\n", cppPath.c_str());
+        std::fprintf(stdout, "CodeGen wrote: %s\n", csPath.c_str());
+        return 0;
+    }
 }
 
 int main(int argc, char** argv)
 {
+    // `--emit-registry`（render-interface-merge 任务 1.3）：不给头文件，只把前面
+    // `--emit-binding --registry-part` 写下的分片汇总成跨接口登记产物。
+    if (argc >= 2 && std::string(argv[1]) == "--emit-registry")
+    {
+        std::string registryOutDir;
+        std::vector<std::string> partFiles;
+        for (int i = 2; i < argc; ++i)
+        {
+            const std::string a = argv[i];
+            if (a == "--out-dir" && i + 1 < argc)
+            {
+                registryOutDir = argv[++i];
+            }
+            else if (a.rfind("--out-dir=", 0) == 0)
+            {
+                registryOutDir = a.substr(10);
+            }
+            else if (a == "--registry-part-file" && i + 1 < argc)
+            {
+                partFiles.push_back(argv[++i]);
+            }
+            else if (a.rfind("--registry-part-file=", 0) == 0)
+            {
+                partFiles.push_back(a.substr(20));
+            }
+            else
+            {
+                std::fprintf(stderr, "CodeGen: --emit-registry 不认识参数 '%s'\n", a.c_str());
+                return 2;
+            }
+        }
+        if (registryOutDir.empty())
+        {
+            std::fprintf(stderr, "CodeGen: --emit-registry needs a non-empty --out-dir.\n");
+            return 2;
+        }
+        const int registryResult = bindemit::emitRegistry(registryOutDir, partFiles);
+        std::fprintf(stderr, "CodeGen: --emit-registry 返回 %d\n", registryResult);
+        return registryResult;
+    }
+
     if (argc < 3)
     {
         std::fprintf(stderr,
@@ -6579,6 +7224,9 @@ int main(int argc, char** argv)
     const char* outDir            = nullptr;
     std::string qualifiedNameOverride;
     std::string auditScript;   // --audit-script：审计脚本路径（默认取头文件同目录）
+    // 登记表输入（render-interface-merge 任务 1.1）：标签非空 = 本头是登记表发射输入。
+    std::string registryPartLabel;
+    std::string registryPartDir;
     // 句柄位宽（任务 2.9）：序号位默认 48、代际位默认 16，合法范围由"两者之和不超过 64"约束
     unsigned    handleIndexBits  = 48u;
     unsigned    handleGenerationBits = 16u;
@@ -6633,6 +7281,18 @@ int main(int argc, char** argv)
         {
             if (i + 1 < argc)
                 auditScript = argv[++i];
+        }
+        // 登记表输入（render-interface-merge 任务 1.1/1.2）：本头写一份 `编号 → 接口` 分片，
+        // 供随后的 `--emit-registry` 汇总。标签只用于分片文件名（ASCII、无路径分隔符）。
+        else if (a == "--registry-part")
+        {
+            if (i + 1 < argc)
+                registryPartLabel = argv[++i];
+        }
+        else if (a == "--registry-part-dir")
+        {
+            if (i + 1 < argc)
+                registryPartDir = argv[++i];
         }
         else if (a == "-o")
         {
@@ -6696,8 +7356,10 @@ int main(int argc, char** argv)
                          handleIndexBits, handleGenerationBits);
             return 2;
         }
+        const std::string effectivePartDir = registryPartDir.empty() ? std::string(outDir) : registryPartDir;
         const int bindingResult =
-            bindemit::run(filePath, outDir, clangArgs, auditScript, handleIndexBits, handleGenerationBits);
+            bindemit::run(filePath, outDir, clangArgs, auditScript, handleIndexBits, handleGenerationBits,
+                          registryPartLabel, effectivePartDir);
         std::fprintf(stderr, "CodeGen: --emit-binding 返回 %d\n", bindingResult);
         return bindingResult;
     }

@@ -76,6 +76,10 @@ CodeGen.exe <file.h> <TypeName> --emit-all --out-dir <目录> [交给 libclang �
 | `--audit-script <路径>` | 只配 `--emit-binding`：审计脚本路径（默认取**输入头所在目录**下的 `check_bindable_audit.py`）。生成前会以子进程调它，接口不在审计表覆盖清单里时打"跳过审计核对" |
 | `--handle-index-bits <n>` | 只配 `--emit-binding`：句柄里**序号位**的位数，默认 **48**。合法范围：至少 1 位，且与 `--handle-generation-bits` 之和不超过 **64**；越界时退出码 **2** 并说明 |
 | `--handle-generation-bits <n>` | 只配 `--emit-binding`：句柄里**代际位**的位数，默认 **16**。合法范围同上。`release` 后代际号进位，旧句柄立刻失效 |
+| `--registry-part <标签>` | 只配 `--emit-binding`：声明**本头是登记表发射输入**（见「十四、登记表发射」）。要求该头里每个被 `CA_BIND` 标注的接口都带编号；缺号 / 同号 ⇒ 非零退出并点名，且**不写任何产物**。成功时把 `<标签>.registry.part` 分片写进 `--registry-part-dir` |
+| `--registry-part-dir <目录>` | 只配 `--registry-part`：分片落点（目录必须已存在）；缺省 = `--out-dir` |
+| `--emit-registry` | **合并模式**（不给头文件、不再解析 C++）：读若干个 `--registry-part-file` 分片，产出登记表三份产物。见「十四、登记表发射」 |
+| `--registry-part-file <路径>` | 只配 `--emit-registry`：一个输入分片；可重复。编号跨分片重复 / 跳号 / 从非 1 开始时非零退出并点名 |
 | 其余参数 | 原样交给 libclang，例如 `-I CACore/header`、`-std=c++20`、`-D...` |
 
 **发射标志互斥**：`--emit-reflection` / `--emit-serialization` / `--emit-hash` 在**一次调用里只允许给一个**；
@@ -1192,3 +1196,21 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 | 回调（`IBindRow13::SetCallback`） | **已实现**：函数指针 + `void* user` + 内部注册号 + 注销伴生；夹具覆盖注册、参数顺序、替换、旧注册号注销、空指针、重入与异常上报 | — |
 
 `check_bindings.py` 对**夹具**只打印桩数、不判定，对**被绑定到托管侧的真实接口**桩数必须为 0。`build.py` 每次构建会把那一行夹具桩数打进日志（现在是 `桩数 3 个`），别让它悄悄涨。
+
+### 登记表发射（`--emit-registry`，render-interface-merge）
+
+**做什么**：把"编号 → 接口"从各接口头的 `CA_BIND(编号)` 标注收集成分片，再在**不解析 C++** 的合并步里产出三份跨接口产物：
+
+| 产物 | 内容 |
+|---|---|
+| `BindingRegistry.Bindings.h` | `kBindingInterfaceId<接口>` 编号常量、`EngineApi` struct 与 14 字段的 `static_assert(sizeof(EngineApi) == 80u`、宿主固定名钩子声明 |
+| `BindingRegistry.Bindings.cpp` | `get_interface_api` 路由（编号 → `<接口>_GetApi`、默认实例 / 目标类型表角色）、布局查询路由、`FillEngineApi` 装配（按固定名字调宿主工厂/错误通道钩子） |
+| `EngineApi.Bindings.cs` | 与 C++ struct 同一次生成的托管逐字段镜像 `EngineApiMirror` + `EngineApiBindings`（`AbiVersion` / `Size` / `TableVersion` / 逐接口编号常量 / 绑定清单 `Tables`） |
+
+**编号规则**：进登记表的接口必须写 `CA_BIND(编号)`；编号全局唯一、只在现有最大编号之后追加，主登记表必须恰为 `1..N` 连续（夹具登记表按同规则连续）。缺号 / 同号 / 跳号 ⇒ 分片步或合并步非零退出并点名；拒绝的那一轮**不写任何登记产物**（先校验后写）。
+
+**确定性**：**同一输入重跑**，三份产物逐字节相同。不同调用方式把不同的输入头路径文本写进"登记输入"注释时产物会差这一行注释 —— 那是输入不同，不是非确定性。
+
+**构建期用法**：`build.py` 对 `CODEGEN_REGISTRIES` 的每个登记输入头跑一次 `--emit-binding ... --registry-part <标签> --registry-part-dir <目录>`（分片），再用 `--emit-registry --out-dir <目录>` 加重复的 `--registry-part-file <分片>` 汇总。主登记表产物落 `codegen/bindings/`，夹具登记表落 `codegen/bindings/fixture/`（不进宿主编译面）。
+
+**退出码**：0 = 成功；1 = 编号问题（缺号 / 重号 / 跳号）或分片缺失/读不到（都在写产物之前拒绝）；2 = 参数问题（缺 `--out-dir`）或写文件失败。

@@ -5,20 +5,11 @@
 // 任何一步失败都必须把"找过哪些路径 / 版本号"写进 LastError，由调用方打日志 —— 不许静默降级。
 #include <CACore/CAModuleManager.h>
 #include <ScriptHost/IScriptHost.h>
-// 生成的绑定产物：提供 IWindow_GetApi 与 IWindowApi_v2（本 TU 编译它，模块自己就带表）
-#include "IWindow.Bindings.cpp"
-// 第二份产物（`csharp-window-creation` 任务 2.4）：`IWindowSystem` 的函数表与取表入口。
-// 两份产物在同一个 TU 里不冲突 —— 各自的符号前缀不同（`IWindow_*` / `IWindowSystem_*`）。
-#include "IWindowSystem.Bindings.cpp"
-// csharp-render-backend-triangle 任务 3.1：脚本渲染适配面的三张函数表。目标与图接口的函数表
-// 也在这里（本模块要按编号把它们下发给托管侧）。
-#include "IScriptRenderTarget.Bindings.cpp"
-#include "IScriptRenderGraph.Bindings.cpp"
-#include "IScriptRenderBackend.Bindings.cpp"
-// csharp-render-shader-constants 任务 3.1：参数结构（第四个脚本接口，编号 6）。
-#include "IScriptShaderStruct.Bindings.cpp"
-// csharp-render-texture-sampling 任务 3.1：第五个脚本接口（只读纹理，编号 7）的函数表。
-#include "IScriptTexture.Bindings.cpp"
+// 生成的绑定产物（render-interface-merge 任务 3.1）：跨接口登记表把逐接口产物一起带进来 ——
+// 编号清单、EngineApi struct 与版本/大小断言、get_interface_api 路由、布局查询路由、装配代码
+// 都在 `BindingRegistry.Bindings.h/.cpp` 里。宿主不再逐份 #include 接口产物，也不再手写
+// `struct EngineApi`、手写编号常量或逐接口手写分派。
+#include "BindingRegistry.Bindings.cpp"
 
 // 原生适配器实现：三个公开接口 + 私有类（`CScriptRenderBackend`）。宿主只在这里接触具体类型，
 // 托管侧只能看到公开接口。
@@ -44,62 +35,26 @@
 
 namespace cs_script
 {
-	// 交给托管侧的函数表。字段顺序与宽度就是 ABI，只许在末尾追加；
-	// 托管侧的 EngineApi（Scripting/Managed/Host.cs）必须逐字相同。
-	struct EngineApi
+	// EngineApi 的字段、版本与大小断言都在生成的 `BindingRegistry.Bindings.h` 里（同一次生成发出
+	// C++ struct、托管镜像与两侧常量）；宿主不再保留手写 struct / 版本常量 / 编号常量。
+	//
+	// 宿主角色登记（render-interface-merge 任务 3.1）：进主登记表的接口每个一行 ——
+	// `true` = 要求默认实例，`false` = 目标类型表（允许空实例）。编号取自生成常量，不手抄数字。
+	// 新增一个进主登记表的接口时，这里加一行（任务 5.1 列出的四处手写改动面之一）。
+	struct BindingPolicyEntry
 	{
-		uint32_t abi_version;
-		uint32_t size;
-		void (*log)(int level, uint8_t const* utf8, uint64_t len);
-		int32_t (*echo)(int32_t value);
-		// --- v2 追加（csharp-bindings-generator 任务 3.2）---
-		// 取"接口函数表 + 实例指针"：id 见 CSharpHost/README.md 的编号表（1 = IWindow）；
-		// version/size 是托管侧期望的值，成功后 out 填表、*instanceOut 填实例，返回真实表大小；
-		// 版本或大小不符时返回 0 且**一个字节都不写**（与生成的 GetApi 同一口径）。
-		// --- v4（任务 5.4）：多一个 instanceName，同一个接口的多份实现靠它区分 ---
-		uint32_t (*get_interface_api)(uint32_t interfaceId, char const* instanceName, uint32_t version,
-									  uint32_t size, void* out, void** instanceOut);
-		// --- v3 追加（任务 4.2）：接口编号由引擎侧单向下发，托管侧不再手抄 ---
-		uint32_t window_interface_id;
-		uint32_t window_system_interface_id;
-		// --- v5 追加（complete-csharp-window-system-bindings 任务 3.1）：布局清单读数 ---
-		// 读"某接口的第 typeIndex 个过界记录类型"（名字 / 真实大小 / 字段数）与"某类型的第 fieldIndex
-		// 个字段"（名字 / C 镜像类型名 / 真实偏移）；返回 1 = 读到。
-		uint32_t (*get_binding_layout_type)(uint32_t interfaceId, uint32_t typeIndex, char* name,
-											uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount);
-		uint32_t (*get_binding_layout_field)(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex,
-											 char* name, uint32_t nameCap, char* typeName, uint32_t typeCap,
-											 uint64_t* offsetBytes);
-		// --- v6 追加（csharp-render-backend-triangle 任务 3.1）：脚本渲染适配面三张表的编号 ---
-		// 后端表有默认实例；图与目标表属于目标类型表，取表时允许没有默认实例。
-		uint32_t script_render_backend_interface_id;
-		uint32_t script_render_graph_interface_id;
-		uint32_t script_render_target_interface_id;
-		// --- v7 追加（csharp-render-shader-constants 任务 3.1）：参数结构表编号 ---
-		// 与图、目标同属目标类型表（没有默认实例，取表时 instanceOut 可为空）；实际对象由目标句柄解析。
-		// 实测 `sizeof(EngineApi)` 仍是 72 字节：v6 的正文是 68 字节 + 尾巴对齐填充 4，追加这一个 `uint32_t`
-		// 后正文恰为 72、对齐不产生新的填充。下面那条 static_assert 由编译器核对这个数。
-		uint32_t script_shader_struct_interface_id;
-		// --- v8 追加（csharp-render-texture-sampling 任务 3.1）：只读纹理接口编号 ---
-		// 与图、目标、参数结构同属目标类型表（没有默认实例）。v7 的 72 字节已是 8 的整倍数、
-		// 没有尾部填充可用：追加这一个 `uint32_t` 后正文 76，结构按最大成员 8 字节对齐补到 **80**。
-		uint32_t script_texture_interface_id;
+		uint32_t id;
+		bool requiresInstance;
 	};
-
-	static_assert(sizeof(EngineApi) == 80u,
-	              "手写 EngineApi 的实测大小必须是 80 字节（v8 正文 76 字节 + 4 字节对齐填充）");
-
-	// 引擎侧约定的接口编号（托管侧 Host.cs 必须用同一组数字）
-	static constexpr uint32_t s_interfaceIdWindow = 1;
-	static constexpr uint32_t s_interfaceIdWindowSystem = 2;
-	// v6：脚本渲染适配面（csharp-render-backend-triangle 任务 3.1）。编号接在 1、2 之后。
-	static constexpr uint32_t s_interfaceIdScriptRenderBackend = 3;
-	static constexpr uint32_t s_interfaceIdScriptRenderGraph = 4;
-	static constexpr uint32_t s_interfaceIdScriptRenderTarget = 5;
-	// v7：参数结构（csharp-render-shader-constants 任务 3.1）。第四个脚本接口，接在 5 之后。
-	static constexpr uint32_t s_interfaceIdScriptShaderStruct = 6;
-	// v8：只读纹理（csharp-render-texture-sampling 任务 3.1）。第五个脚本接口，接在 6 之后。
-	static constexpr uint32_t s_interfaceIdScriptTexture = 7;
+	constexpr BindingPolicyEntry kBindingPolicies[] = {
+		{ kBindingInterfaceIdIWindow, true },
+		{ kBindingInterfaceIdIWindowSystem, true },
+		{ kBindingInterfaceIdIScriptRenderBackend, true },
+		{ kBindingInterfaceIdIScriptRenderGraph, false },
+		{ kBindingInterfaceIdIScriptRenderTarget, false },
+		{ kBindingInterfaceIdIScriptShaderStruct, false },
+		{ kBindingInterfaceIdIScriptTexture, false },
+	};
 	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
 	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会
 	// **覆盖**第一份 —— 两个 window system 并存时 `GetInterfaceInstance` 张冠李戴。
@@ -134,20 +89,69 @@ namespace cs_script
 	              "IWindowSystem 函数表应当正好 16 个方法 + 2 个回调伴生（4 个表头槽 + 每个方法槽 8 字节）");
 
 
-	// v3 起：`EngineApi` 末尾追加两个接口编号（任务 4.2）。加字段就升版本 —— 托管侧的 `size`
-	// 与 `abi_version` 两道校验都靠它拦住"一边加字段另一边没加"。
-	// v4（任务 5.4）：`get_interface_api` 多一个 `instanceName` 参数。字段没增，但那个**函数指针
-	// 的签名变了**，size 校验抓不到签名，只有版本号能拦 —— 所以照样升一版。
-	// v5（complete-csharp-window-system-bindings 任务 3.1）：末尾追加布局清单两个读数入口。
-	// v6（csharp-render-backend-triangle 任务 3.1）：末尾追加脚本渲染适配面的三个接口编号。
-	// v7（csharp-render-shader-constants 任务 3.1）：末尾追加参数结构的接口编号（编号 6）。
-	// v8（csharp-render-texture-sampling 任务 3.1）：末尾追加纹理的接口编号（编号 7），
-	// 函数表从 72 字节涨到 80 字节（两侧 `static_assert` / 布局自检强制）。
-	static constexpr uint32_t s_engineApiVersion = 8;
-
 	class CSharpHost final : public IScriptHost
 	{
 	public:
+		// ---- 生成登记表的固定名字钩子（render-interface-merge 任务 3.1）----
+		// 生成的 `BindingRegistry.Bindings.cpp` 按这些固定名字调用；具体行为仍是宿主手写。
+		static void HostLog(int level, uint8_t const* utf8, uint64_t len)
+		{
+			OnManagedLog(level, utf8, len);
+		}
+		static int32_t HostEcho(int32_t value)
+		{
+			return OnManagedEcho(value);
+		}
+		static void HostReportError(char const* text)
+		{
+			if (s_instance != nullptr)
+			{
+				s_instance->m_lastError = text == nullptr ? std::string() : std::string(text);
+			}
+		}
+		static void* HostLookupInstance(uint32_t interfaceId, char const* instanceName)
+		{
+			return s_instance == nullptr ? nullptr : s_instance->GetInterfaceInstance(interfaceId, instanceName);
+		}
+		static void HostCreateDefaultInstances()
+		{
+			if (s_instance != nullptr)
+			{
+				s_instance->CreateRenderAdapter(s_instance->m_moduleManager);
+			}
+		}
+		static int32_t HostInterfaceRequiresInstance(uint32_t interfaceId)
+		{
+			for (BindingPolicyEntry const& policy : kBindingPolicies)
+			{
+				if (policy.id == interfaceId)
+				{
+					return policy.requiresInstance ? 1 : 0;
+				}
+			}
+			return -1;
+		}
+		static uint32_t HostLayoutType(uint32_t interfaceId, uint32_t typeIndex, char* name, uint32_t nameCap,
+									   uint64_t* sizeBytes, uint32_t* fieldCount)
+		{
+			return ca_bind_registry::GetBindingLayoutType(interfaceId, typeIndex, name, nameCap, sizeBytes,
+														  fieldCount);
+		}
+		static uint32_t HostLayoutField(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex, char* name,
+										uint32_t nameCap, char* typeName, uint32_t typeCap, uint64_t* offsetBytes)
+		{
+			uint32_t result = ca_bind_registry::GetBindingLayoutField(interfaceId, typeIndex, fieldIndex, name,
+																	  nameCap, typeName, typeCap, offsetBytes);
+#if defined(_DEBUG)
+			// 自检开关（只在 Debug 生效）：模拟"引擎侧编译时的布局与托管清单不一致"。
+			if (result != 0u && offsetBytes != nullptr && SelfTestMode() == "layout-mismatch")
+			{
+				*offsetBytes += 8u;
+			}
+#endif
+			return result;
+		}
+
 		CSharpHost() = default;
 		// 关闭放在析构里：实例析构发生在模块管理器拆实例的时候，此时 CSharpHost.dll 还没被卸载；
 		// 实测把 hostfxr_close 放到更晚（模块的 TryRelease / 进程退出之后）会在 CSharpHost.DLL 里崩
@@ -211,16 +215,19 @@ namespace cs_script
 		uint32_t GetInterfaceApiForTest(uint32_t interfaceId, char const* instanceName, uint32_t version,
 		                                uint32_t size, void* out, void** instanceOut) override
 		{
-			// 只给测试用：把跨边界的那个入口原样转一次（任务 4.2 要造出"未知编号"这次调用）
-			return OnGetInterfaceApi(interfaceId, instanceName, version, size, out, instanceOut);
+			// 只给测试用：把跨边界的那个入口原样转一次（任务 4.2 要造出"未知编号"这次调用）。
+			// 路由本体在生成的登记表里 —— 宿主的逐接口分支已经退役。
+			return ca_bind_registry::GetInterfaceApi(interfaceId, instanceName, version, size, out, instanceOut);
 		}
 
 		// 模块 link 阶段（所有模块都登记完之后）被调用一次
 		void Init(cacore::IModuleManager* pModuleManager)
 		{
 			s_instance = this;
-			// 适配器必须在托管运行时启动之前登记：`Host.Boot` 会核对编号 3、4、5 的布局清单。
-			CreateRenderAdapter(pModuleManager);
+			// 后端适配器的创建走生成装配代码的固定名工厂钩子
+			// （FillEngineApi → CSharpHostBindingCreateDefaultInstances），仍发生在托管 Boot 之前；
+			// 这里只把模块管理器留下来给钩子用。
+			m_moduleManager = pModuleManager;
 			LoadRuntime();
 		}
 
@@ -324,8 +331,11 @@ namespace cs_script
 		// 脚本渲染适配器（csharp-render-backend-triangle 任务 3.1）：由本模块 new、生命周期与宿主一致。
 		// 托管侧只持有编号 3 的实例指针与生成的函数表，不拥有它。
 		std::unique_ptr<graphics_backend::CScriptRenderBackend> m_renderAdapter;
+		// 模块管理器（render-interface-merge 任务 3.1）：生成的装配代码通过固定名工厂钩子回到
+		// CreateRenderAdapter，钩子需要一个稳定的管理器指针。
+		cacore::IModuleManager* m_moduleManager = nullptr;
 
-		// 用模块管理器里的真实后端与线程管理器创建脚本渲染适配器。缺少依赖时**不登记**接口 3，
+		// 用模块管理器里的真实后端与线程管理器创建脚本渲染适配器。缺少依赖时**不登记**编号 3，
 		// 并把原因留在 m_lastError（不造空壳、不伪造成功）；未启用渲染探针的窗口路径不受影响。
 		void CreateRenderAdapter(cacore::IModuleManager* pModuleManager)
 		{
@@ -345,18 +355,15 @@ namespace cs_script
 				return;
 			}
 			m_renderAdapter = std::make_unique<graphics_backend::CScriptRenderBackend>(backend, threads);
-			SetInterfaceInstance(s_interfaceIdScriptRenderBackend, nullptr, m_renderAdapter.get());
+			SetInterfaceInstance(kBindingInterfaceIdIScriptRenderBackend, nullptr, m_renderAdapter.get());
 			// 这行必须报**登记表的实际读数**：csharp-render-shader-constants 任务 3.1 的变异实验里
 			// 临时注释掉上面那行登记，日志却照样打"已登记"——文本在说谎，把缺口遮住了。现在直接把
 			// 查表结果打在后面，登记没发生时读数是 0，一眼可见。
-			void* registered = GetInterfaceInstance(s_interfaceIdScriptRenderBackend, nullptr);
+			void* registered = GetInterfaceInstance(kBindingInterfaceIdIScriptRenderBackend, nullptr);
 			CA_LOG("CSharpHost：脚本渲染适配器{}（编号 {}；后端地址 {:X}；登记表读数 {:X}）",
-				registered == m_renderAdapter.get() ? "已登记" : "未登记", s_interfaceIdScriptRenderBackend,
+				registered == m_renderAdapter.get() ? "已登记" : "未登记", kBindingInterfaceIdIScriptRenderBackend,
 				reinterpret_cast<uintptr_t>(backend), reinterpret_cast<uintptr_t>(registered));
 		}
-
-		// 被登记的接口实例（下标就是接口编号；0 号不用）
-		void* m_interfaceInstances[8] = {};
 
 		void LoadRuntime()
 		{
@@ -387,38 +394,21 @@ namespace cs_script
 			}
 
 			EngineApi& api = m_api;
-			api.abi_version = s_engineApiVersion;
+			// 装配（render-interface-merge 任务 3.1）：由生成的登记表填字段 —— 包括按固定名字回调
+			// 宿主的默认实例工厂、按宿主角色登记表区分默认实例/目标类型表、填入两侧同源的编号常量。
+			ca_bind_registry::FillEngineApi(api);
 #if defined(_DEBUG)
 			// 自检开关（只在 Debug 生效）：让层 ③ 的失败路径测试不必临时改源码就能构造"ABI 不符"。
 			// 用法见 CSharpHost/README.md 的环境变量表。
 			if (SelfTestMode() == "abi-mismatch")
 			{
-				api.abi_version = s_engineApiVersion + 1;
+				api.abi_version = kEngineApiVersion + 1;
 				CA_LOG_ERR("CSharpHost 自检开关已生效：故意把 abi_version 改成 {}（真实值 {}）",
-					api.abi_version, s_engineApiVersion);
+					api.abi_version, kEngineApiVersion);
 			}
 #endif
-			api.size = static_cast<uint32_t>(sizeof(EngineApi));
-			api.log = &CSharpHost::OnManagedLog;
-			api.echo = &CSharpHost::OnManagedEcho;
-			api.get_interface_api = &CSharpHost::OnGetInterfaceApi;
-			// 接口编号的**唯一来源**（任务 4.2）：托管侧不再手抄一份，而是从这里拿。
-			// 加字段必须同时改托管侧镜像与 `s_engineApiVersion`，否则 `size` 校验会拦下来。
-			api.window_interface_id = s_interfaceIdWindow;
-			api.window_system_interface_id = s_interfaceIdWindowSystem;
-			// v6：脚本渲染适配面的三个编号（托管侧同样不手抄）
-			api.script_render_backend_interface_id = s_interfaceIdScriptRenderBackend;
-			api.script_render_graph_interface_id = s_interfaceIdScriptRenderGraph;
-			api.script_render_target_interface_id = s_interfaceIdScriptRenderTarget;
-			// v7：参数结构表编号（与图、目标同属目标类型表）
-			api.script_shader_struct_interface_id = s_interfaceIdScriptShaderStruct;
-			// v8：纹理表编号（同样属目标类型表，空实例取表）
-			api.script_texture_interface_id = s_interfaceIdScriptTexture;
-			// 布局清单读数（v5）：托管 Boot 逐项比对后才允许绑定
-			api.get_binding_layout_type = &CSharpHost::OnGetBindingLayoutType;
-			api.get_binding_layout_field = &CSharpHost::OnGetBindingLayoutField;
 			CA_LOG("CSharpHost：引擎侧 OnGetInterfaceApi 的地址 = {:X}，函数表 {} 字节",
-				reinterpret_cast<uintptr_t>(&CSharpHost::OnGetInterfaceApi), api.size);
+				reinterpret_cast<uintptr_t>(api.get_interface_api), api.size);
 
 			int32_t bootResult = m_boot(&api);
 			if (bootResult != 0)
@@ -749,215 +739,8 @@ namespace cs_script
 			return value + 1;
 		}
 
-		// 托管侧取"接口函数表 + 实例"的入口（csharp-bindings-generator 任务 3.2）。
-		// 版本/大小不符、或实例没登记，就返回 0 且**一个字节都不写** —— 与生成出来的 GetApi 同一口径。
-		static uint32_t OnGetInterfaceApi(uint32_t interfaceId, char const* instanceName, uint32_t version,
-										  uint32_t size, void* out, void** instanceOut)
-		{
-			if (s_instance == nullptr)
-			{
-				return 0u;
-			}
-			// 未知编号**不许静默**（`csharp-window-creation` 任务 4.2）：以前这里 `>= 8u` 直接
-			// 返回 0，加第 9 个接口时既不报错也不提示，调用方只看到"取表失败"。
-			// 目标类型表（图 / 目标 / 参数结构）：没有默认实例，取表时不需要实例；实际对象由目标句柄解析。
-			const bool isTargetTypeTable = interfaceId == s_interfaceIdScriptRenderGraph ||
-				interfaceId == s_interfaceIdScriptRenderTarget ||
-				interfaceId == s_interfaceIdScriptShaderStruct ||
-				interfaceId == s_interfaceIdScriptTexture;
-			if (interfaceId != s_interfaceIdWindow && interfaceId != s_interfaceIdWindowSystem &&
-				interfaceId != s_interfaceIdScriptRenderBackend && !isTargetTypeTable)
-			{
-				s_instance->m_lastError =
-					"未知接口编号 " + std::to_string(interfaceId) +
-					"：当前接线了 1 = IWindow、2 = IWindowSystem、3 = IScriptRenderBackend、"
-					"4 = IScriptRenderGraph、5 = IScriptRenderTarget、6 = IScriptShaderStruct、"
-					"7 = IScriptTexture";
-				return 0u;
-			}
-			// `size == 0` 是"探针调用"：托管侧还不知道表有多大，先问一句（不写任何内存）。
-			// 这一条必须排在 `out == nullptr` 之前 —— 探针调用本来就不给缓冲区（实测漏了这层判断，
-			// 探针永远返回 0）。
-			if (size == 0u)
-			{
-				if (interfaceId == s_interfaceIdWindow)
-				{
-					return static_cast<uint32_t>(sizeof(IWindowApi_v2));
-				}
-				if (interfaceId == s_interfaceIdWindowSystem)
-				{
-					return static_cast<uint32_t>(sizeof(IWindowSystemApi_v2));
-				}
-				if (interfaceId == s_interfaceIdScriptRenderBackend)
-				{
-					return static_cast<uint32_t>(sizeof(IScriptRenderBackendApi_v2));
-				}
-				if (interfaceId == s_interfaceIdScriptRenderGraph)
-				{
-					return static_cast<uint32_t>(sizeof(IScriptRenderGraphApi_v2));
-				}
-				if (interfaceId == s_interfaceIdScriptShaderStruct)
-				{
-					return static_cast<uint32_t>(sizeof(IScriptShaderStructApi_v2));
-				}
-				if (interfaceId == s_interfaceIdScriptTexture)
-				{
-					return static_cast<uint32_t>(sizeof(IScriptTextureApi_v2));
-				}
-				return static_cast<uint32_t>(sizeof(IScriptRenderTargetApi_v2));
-			}
-			if (out == nullptr)
-			{
-				return 0u;
-			}
-			if (isTargetTypeTable)
-			{
-				// 设计允许目标类型表没有默认实例：`instanceOut` 可以为空，即便给了也只回空。
-				if (instanceOut != nullptr)
-				{
-					*instanceOut = nullptr;
-				}
-			}
-			else
-			{
-				// 按 (编号, 实例名) 取实例（任务 5.4）：取不到也要说出来，不许又是一个静默 0。
-				// 后端接口（编号 3）必须要求真实适配器实例 —— 缺依赖时这里就是明确失败。
-				void* instance = s_instance->GetInterfaceInstance(interfaceId, instanceName);
-				if (instance == nullptr)
-				{
-					s_instance->m_lastError =
-						"接口编号 " + std::to_string(interfaceId) + " 下没有登记实例名 \"" +
-						SafeInstanceName(instanceName) + "\"（登记与查找必须用同一对编号 + 实例名）";
-					return 0u;
-				}
-				if (instanceOut != nullptr)
-				{
-					*instanceOut = instance;
-				}
-			}
-			uint32_t realSize = 0u;
-			if (interfaceId == s_interfaceIdWindow)
-			{
-				realSize = IWindow_GetApi(version, size, static_cast<IWindowApi_v2*>(out));
-			}
-			else if (interfaceId == s_interfaceIdWindowSystem)
-			{
-				realSize = IWindowSystem_GetApi(version, size, static_cast<IWindowSystemApi_v2*>(out));
-			}
-			else if (interfaceId == s_interfaceIdScriptRenderBackend)
-			{
-				realSize = IScriptRenderBackend_GetApi(version, size,
-					static_cast<IScriptRenderBackendApi_v2*>(out));
-			}
-			else if (interfaceId == s_interfaceIdScriptRenderGraph)
-			{
-				realSize = IScriptRenderGraph_GetApi(version, size,
-					static_cast<IScriptRenderGraphApi_v2*>(out));
-			}
-			else if (interfaceId == s_interfaceIdScriptShaderStruct)
-			{
-				realSize = IScriptShaderStruct_GetApi(version, size,
-					static_cast<IScriptShaderStructApi_v2*>(out));
-			}
-			else if (interfaceId == s_interfaceIdScriptTexture)
-			{
-				realSize = IScriptTexture_GetApi(version, size,
-					static_cast<IScriptTextureApi_v2*>(out));
-			}
-			else
-			{
-				realSize = IScriptRenderTarget_GetApi(version, size,
-					static_cast<IScriptRenderTargetApi_v2*>(out));
-			}
-			return realSize;
-		}
-
-		// 布局清单的引擎侧读数（本 change 任务 3.1）：生成物里的运行期清单用的是真实 `sizeof` / `offsetof`，
-		// 托管 `Host.Boot` 逐项比对后才允许继续绑定。两个入口都不写错误码 —— 它们不是接口方法。
-		static uint32_t OnGetBindingLayoutType(uint32_t interfaceId, uint32_t typeIndex, char* name,
-											   uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount)
-		{
-			if (interfaceId == s_interfaceIdWindow)
-			{
-				return IWindow_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
-			}
-			if (interfaceId == s_interfaceIdWindowSystem)
-			{
-				return IWindowSystem_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
-			}
-			if (interfaceId == s_interfaceIdScriptRenderBackend)
-			{
-				return IScriptRenderBackend_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
-			}
-			if (interfaceId == s_interfaceIdScriptRenderGraph)
-			{
-				return IScriptRenderGraph_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
-			}
-			if (interfaceId == s_interfaceIdScriptRenderTarget)
-			{
-				return IScriptRenderTarget_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
-			}
-			if (interfaceId == s_interfaceIdScriptShaderStruct)
-			{
-				return IScriptShaderStruct_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
-			}
-			if (interfaceId == s_interfaceIdScriptTexture)
-			{
-				return IScriptTexture_GetLayoutType(typeIndex, name, nameCap, sizeBytes, fieldCount);
-			}
-			return 0u;
-		}
-
-		static uint32_t OnGetBindingLayoutField(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex,
-												char* name, uint32_t nameCap, char* typeName, uint32_t typeCap,
-												uint64_t* offsetBytes)
-		{
-			uint32_t result = 0u;
-			if (interfaceId == s_interfaceIdWindow)
-			{
-				result = IWindow_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName, typeCap,
-												offsetBytes);
-			}
-			else if (interfaceId == s_interfaceIdWindowSystem)
-			{
-				result = IWindowSystem_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName, typeCap,
-													  offsetBytes);
-			}
-			else if (interfaceId == s_interfaceIdScriptRenderBackend)
-			{
-				result = IScriptRenderBackend_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName,
-															 typeCap, offsetBytes);
-			}
-			else if (interfaceId == s_interfaceIdScriptRenderGraph)
-			{
-				result = IScriptRenderGraph_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName,
-														   typeCap, offsetBytes);
-			}
-			else if (interfaceId == s_interfaceIdScriptRenderTarget)
-			{
-				result = IScriptRenderTarget_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName,
-															typeCap, offsetBytes);
-			}
-			else if (interfaceId == s_interfaceIdScriptShaderStruct)
-			{
-				result = IScriptShaderStruct_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName,
-															typeCap, offsetBytes);
-			}
-			else if (interfaceId == s_interfaceIdScriptTexture)
-			{
-				result = IScriptTexture_GetLayoutField(typeIndex, fieldIndex, name, nameCap, typeName,
-													   typeCap, offsetBytes);
-			}
-#if defined(_DEBUG)
-			// 自检开关（只在 Debug 生效）：模拟"引擎侧编译时的布局与托管清单不一致"，用来证明
-			// 启动自检不是装饰 —— 它会拒绝启动并点名字段。用法见 CSharpHost/README.md 的环境变量表。
-			if (result != 0u && offsetBytes != nullptr && SelfTestMode() == "layout-mismatch")
-			{
-				*offsetBytes += 8u;
-			}
-#endif
-			return result;
-		}
+		// 逐接口的取表 / 布局查询分派已退役（render-interface-merge 任务 3.1）：路由在生成的
+		// BindingRegistry.Bindings.cpp 里，宿主只保留上面那些固定名字的实现钩子。
 
 		using BootFn = int32_t (*)(EngineApi*);
 		using TickFn = int32_t (*)(double);
@@ -999,6 +782,53 @@ namespace cs_script
 	int32_t CSharpHost::s_echoCalls = 0;
 	bool CSharpHost::s_shuttingDown = false;
 	CSharpHost* CSharpHost::s_instance = nullptr;
+}
+
+// ---- 生成登记表的固定名字钩子实现（render-interface-merge 任务 3.1）----
+// 生成的 `BindingRegistry.Bindings.h` 声明这些名字、装配代码按名字调用；行为本体的实现仍在
+// 上面的 CSharpHost 里（log / echo / 实例查找 / 错误出口 / 默认实例工厂 / 角色登记 / 布局自检）。
+extern "C" void CSharpHostManagedLog(int level, uint8_t const* utf8, uint64_t len)
+{
+	cs_script::CSharpHost::HostLog(level, utf8, len);
+}
+
+extern "C" int32_t CSharpHostManagedEcho(int32_t value)
+{
+	return cs_script::CSharpHost::HostEcho(value);
+}
+
+extern "C" void CSharpHostBindingReportError(char const* text)
+{
+	cs_script::CSharpHost::HostReportError(text);
+}
+
+extern "C" void* CSharpHostBindingLookupInstance(uint32_t interfaceId, char const* instanceName)
+{
+	return cs_script::CSharpHost::HostLookupInstance(interfaceId, instanceName);
+}
+
+extern "C" void CSharpHostBindingCreateDefaultInstances(void)
+{
+	cs_script::CSharpHost::HostCreateDefaultInstances();
+}
+
+extern "C" int32_t CSharpHostBindingRequiresInstance(uint32_t interfaceId)
+{
+	return cs_script::CSharpHost::HostInterfaceRequiresInstance(interfaceId);
+}
+
+extern "C" uint32_t CSharpHostBindingLayoutType(uint32_t interfaceId, uint32_t typeIndex, char* name,
+												uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount)
+{
+	return cs_script::CSharpHost::HostLayoutType(interfaceId, typeIndex, name, nameCap, sizeBytes, fieldCount);
+}
+
+extern "C" uint32_t CSharpHostBindingLayoutField(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex,
+												 char* name, uint32_t nameCap, char* typeName, uint32_t typeCap,
+												 uint64_t* offsetBytes)
+{
+	return cs_script::CSharpHost::HostLayoutField(interfaceId, typeIndex, fieldIndex, name, nameCap, typeName,
+												  typeCap, offsetBytes);
 }
 
 // 框架对三个导出都是可选查找（CaModuleManager.cpp 里取地址后判空才调），而 CA_MODULE_INSTANCE 宏

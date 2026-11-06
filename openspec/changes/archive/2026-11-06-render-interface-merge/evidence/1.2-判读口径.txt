@@ -1,0 +1,25 @@
+# 任务 1.2 的判读口径与一次"退出码说谎"实录
+
+## 实录（2026-11-05）
+
+主 agent 的链式 job 结束时打印了 `SCRIPT_EXIT=0`，但 `%TEMP%\rmerge-1.2` 目录根本没创建 ——
+脚本一次都没跑。根因两层：
+
+1. 链式 job 里 `SCRIPT_EXIT` 是 `$LASTEXITCODE` 的**残留值**：`&` 调用本身解析失败时不会更新
+   `$LASTEXITCODE`，上一段的 0 被原样带出来；
+2. 本会话宿主是 **PowerShell 5.1**，按 ANSI 解析 **UTF-8 无 BOM** 的 `.ps1`，脚本里的中文全角
+   串把引号配对打炸。原始 parse error：`rmerge-1.2.ps1:56 char:87 An expression was expected
+   after '('`、`:75 Unexpected token '…'`、`:99 The string is missing the terminator`。
+
+**修法**：脚本改存 **UTF-8 带 BOM**（`New-Object System.Text.UTF8Encoding($true)`），PowerShell 5.1
+见到 BOM 即按 UTF-8 解析。修后 `powershell.exe -NoProfile -Command "[void][scriptblock]::Create(...)"`
+解析通过。
+
+## 判读口径（本 change 后续一律照此）
+
+- **退出码单独出现不算证据**：勾任务必须同时看到产物存在（日志目录里的原始输出文件、生成的
+  登记产物文件、实测日志路径），并对得上验收要求里的关键字样。
+- 任务 1.2 的勾选以 `%TEMP%\rmerge-1.2\` 下五个文件存在 + `SUMMARY` 行读数为准；退出码只作
+  辅助读数。
+- 任务 1.4 / 3.x 的构建类验收同理：以 `BUILD SUCCESSFUL` 行 + 具体错误/产物行为准，不以
+  "命令返回 0"单独作数。

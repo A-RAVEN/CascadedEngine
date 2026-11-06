@@ -1,0 +1,49 @@
+# 任务 3.2：托管侧手写层退役与红态
+
+## 改造
+
+- 删除 `Scripting/Managed/EngineApi.cs`（47 行手写镜像）；生成 `EngineApi.Bindings.cs` 经
+  `Scripting.Managed.csproj` 现有 `*.Bindings.cs` 通配进编译（csproj 未改）。
+- `Host.cs`：`EngineApiMirror*`、`EngineApiBindings.AbiVersion/Size/TableVersion`、
+  `sizeof(EngineApiMirror)`；`BindRenderInterfaces` = 后端表单独取 + 遍历 `EngineApiBindings.Tables`
+  绑定目标类型表（跳过窗口两编号与后端编号），`BindTargetTable` 删除；
+  成功日志行"五个函数表已绑定"原文保留（一致性约束，本批不冒充可失败判据）。
+- 三个手写常量声明行（`ExpectedAbiVersion` / `WindowApiTableVersion` / `RenderApiTableVersion`）已退役。
+
+判据（实跑）：
+```
+$ git grep -c 'private const uint ExpectedAbiVersion\|const int WindowApiTableVersion\|const int RenderApiTableVersion' -- Scripting/Managed/Host.cs
+（无命中）
+$ Test-Path Scripting\Managed\EngineApi.cs
+False
+$ git grep -n 'EngineApi\*\|(EngineApi)' -- Scripting/Managed/Host.cs
+（无命中）
+```
+
+## 红态①：手工恢复错误的手写常量 ⇒ Boot 版本自检拒绝启动
+
+构造（`Host.cs`，临时）：加 `private const uint ExpectedAbiVersion = 8;`，Boot 的版本比较临时用它。
+引擎侧仍是 `kEngineApiVersion = 9`。构建（build-16）绿；跑
+`GPUBackendTester.exe --backend vulkan --headless 1`（`%TEMP%\rmerge-3.2-red\abi.log`）：
+
+- tester 退出码 **3**；
+- `[托管侧] ABI 版本不符：引擎 9，托管侧期望 8`
+- `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 9、函数表 80 字节；
+  0 = 成功）；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、…\Scripting.Managed.runtimeconfig.json`
+
+随后已还原（比较改回 `EngineApiBindings.AbiVersion`）。
+
+## 红态②：删宿主角色登记表里的 `IScriptTexture` 行 ⇒ 托管循环点名接口
+
+构造：`CSharpHost.cpp` 的 `kBindingPolicies` 临时删掉 `{ kBindingInterfaceIdIScriptTexture, false },`
+（其余 6 行在）。构建（build-17）绿；跑
+`GPUBackendTester.exe --backend vulkan --test TestCSharpTextureSampling --headless 10 --report %TEMP%\rmerge-3.2-red\loop.json`：
+
+- tester 退出码 **1**；
+- `loop.json` 的 `error` 原文：
+```
+E_TEX_HOST_ERROR: Tick(回值 1) 之后 LastError 非空：纹理采样探针：后端 + 四个目标类型表没有全部绑定
+（或 IWindowSystem 未绑定），拒绝执行；绑定失败原因：取 IScriptTexture 函数表失败：目标类型表没有登记（编号 7）
+```
+点名接口 `IScriptTexture` 与编号 7；进程不崩。随后角色登记行已还原。
+

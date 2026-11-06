@@ -8,7 +8,7 @@ namespace cawindow
 {
 	class IWindowSystem;
 	// 绑定：`IWindow` 是第一个真正接到 C# 的接口（规矩见 Tools/CodeGen/README.md 第十三节）。
-	CA_BIND()
+	CA_BIND(1)
 	class IWindow
 	{
 	public:
@@ -49,7 +49,7 @@ namespace cawindow
 
 	// 绑定：`IWindowSystem` 是第二个接到 C# 的接口（`csharp-window-creation` 任务 2.1）。
 	// 16 个方法全部进函数表（本 change 解开了 10 个回调与 `GetMonitor`）。
-	CA_BIND()
+	CA_BIND(2)
 	class IWindowSystem
 	{
 	public:

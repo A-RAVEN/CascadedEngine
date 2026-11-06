@@ -1,0 +1,66 @@
+# 任务 2.2：原生头零改动核对（D8 判据①）
+
+比对基准：`evidence\基线提交.txt` 记录的开工提交号
+`13017684bab39ad2f251aeab3bd7ccaf94671798`（分支 `002-vulkan-backend-renderinterface`）。
+
+## `git diff --name-only <基线提交>` 全量输出（核对时点）
+
+```
+$ git diff --name-only 13017684bab39ad2f251aeab3bd7ccaf94671798
+CACore/header/CodeGenMeta.h
+CSharpHost/README.md
+CSharpHost/private/CSharpHost.cpp
+Interface/RenderInterface/header/ScriptRenderBridge.h
+Tools/CodeGen/CodeGenMain.cpp
+Tools/CodeGen/check_bindings.py
+Tools/check_csharp_host_failures.py
+Tools/check_csharp_host_readme.py
+WindowSystem/header/CAWindow/WindowSystem.h
+build.py
+docs/TODO.md
+```
+
+未跟踪新文件（`git status --porcelain` 的 `??` 项）：
+`.dsh-acl-recovery/`、`Tools/CodeGen/BindableShapes.RenderRegistry.h`、
+`openspec/changes/render-interface-merge/`。
+
+## 逐条归属
+
+| 文件 | 归属 |
+|---|---|
+| `CACore/header/CodeGenMeta.h` | 任务 2.1：`CA_BIND` 注释补编号规则（只改注释） |
+| `CSharpHost/README.md` | 任务 4.2：ABI v9/80、编号来源、登记表机制 |
+| `CSharpHost/private/CSharpHost.cpp` | 任务 3.1：手写 `EngineApi`/编号常量/分派退役，改固定名钩子 |
+| `Interface/RenderInterface/header/ScriptRenderBridge.h` | 任务 2.1：只改 `CA_BIND()` → `CA_BIND(编号)`（5 行，见 2.1 证据） |
+| `Tools/CodeGen/CodeGenMain.cpp` | 任务 1.2/1.3：编号解析、分片、登记表发射 |
+| `Tools/CodeGen/check_bindings.py` | 任务 1.3/2.1：登记表判据、编号对账、连续性断言 |
+| `Tools/check_csharp_host_failures.py` | 任务 3.3：ABI 期望 8→9 |
+| `Tools/check_csharp_host_readme.py` | 裁决一批准的改造：真值来源改为生成产物 |
+| `WindowSystem/header/CAWindow/WindowSystem.h` | 任务 2.1：只改 `CA_BIND()` → `CA_BIND(1/2)`（2 行） |
+| `build.py` | 任务 1.4/2.1：登记产物闸门、登记表输入清单 |
+| `docs/TODO.md` | 主 agent 裁定的跨 change 账指针（见 1.4 证据） |
+
+## 禁止清单核对
+
+点名禁止清单里的 13 个渲染头（`CRenderBackend.h`、`GPUGraph.h`、`ShaderStruct.h`、
+`ShaderProvider.h`、`GPUBuffer.h`、`GPUTexture.h`、`GPUTiming.h`、`WindowHandle.h`、
+`ShaderResourceHandle.h`、`CCommandList.h`、`GPUFrame.h`、`LayoutBuilder.h`、
+`CNativeRenderPassInfo.h`）在 diff 里**零命中**；
+`Interface/RenderInterface/private/ScriptRenderBridge.*` 两文件也**零命中**（未改动）。
+
+```
+$ （对 diff 逐名比对禁止清单）
+(以上无输出 = 零命中)
+```
+
+## 红态自证（临时触碰清单内的头文件，diff 必须点名它）
+
+临时在 `Interface/RenderInterface/header/CRenderBackend.h` 的 `#pragma once` 后加一行注释，再跑：
+
+```
+$ git diff --name-only 13017684bab39ad2f251aeab3bd7ccaf94671798 | Select-String 'CRenderBackend.h'
+Interface/RenderInterface/header/CRenderBackend.h
+```
+
+确认 diff 会点名被碰的禁止头（说明"零命中"不是因为 diff 恒空）。随后删除那一行并复跑，
+`CRenderBackend.h` 从清单消失（`Select-String` 无命中）；其余清单不变。

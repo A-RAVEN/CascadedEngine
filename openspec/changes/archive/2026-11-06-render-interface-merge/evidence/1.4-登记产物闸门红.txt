@@ -1,0 +1,90 @@
+# 任务 1.4：登记产物闸门的红态（假前缀 / 注释汇合调用）
+
+## 第①段：期望清单里加一个生成器不会产出的假前缀（源码侧）
+
+改动：`build.py` 的 `CODEGEN_BINDINGS` 里夹具 RenderRegistry 条目的期望产物前缀临时追加
+`"IBindNoSuch"`（生成器不会产出它）。
+
+构建（主 agent 代跑 `python build.py --config Debug`，日志 `%TEMP%\rmerge-build-6.log`）：
+
+```
+CODEGEN FAILED (1) — the generated headers are not in the state this build expects
+  - 绑定 夹具 RenderRegistry 退出码 0，但缺少这些接口的产物：IBindNoSuch（生成器自报的接口数见上面 [接口] 行）
+CODEGEN FAILED (1) — build not reported as successful
+```
+
+构建退出码非零；点名缺失前缀 `IBindNoSuch`。随后已还原该期望列表。
+
+## 第②段：注释掉登记表汇合调用 + 临时移走三份登记产物（源码侧；不靠"删产物"造红）
+
+构造：
+1. `build.py` 的登记表汇合分支临时改成 `pass`（不执行 `--emit-registry`）；
+2. 把 `out\build\x64-debug\codegen\bindings\` 下已有的
+   `BindingRegistry.Bindings.h/.cpp`、`EngineApi.Bindings.cs` 临时改名为 `*.redbak`
+   —— 这一步只是为了把"上一轮留下的旧产物"从检查面上拿开；红的原因是第 1 步的源码改动。
+   若发射调用还在，这三份产物会被重新生成（下一段绿态就是在**产物缺失**的状态下只还原
+   调用、由构建重新生成，证明"每建重发"）。
+
+### 第一轮（build-7）：只有 check_bindings 抓到，build.py 的闸门被前缀通配骗过
+
+```
+    登记表：缺产物 ...\BindingRegistry.Bindings.h
+    登记表：缺产物 ...\BindingRegistry.Bindings.cpp
+    登记表：缺产物 ...\EngineApi.Bindings.cs
+CODEGEN FAILED (1) — the generated headers are not in the state this build expects
+  - 绑定判据失败（退出码 1）：见上面 check_bindings.py 的输出
+CODEGEN FAILED (1) — build not reported as successful
+```
+
+`build.py` 自己的"缺少登记产物"行**没有出现**。原因：闸门写的是
+`product_dir.glob("BindingRegistry.Bindings.*")`，而 `*.redbak` 改名件同样匹配这个前缀通配
+（`BindingRegistry.Bindings.h.redbak`）—— 闸门被旧改名件喂绿。这是闸门本身的缺陷，当场修：
+改成**精确文件名**三元组（`.h` / `.cpp` / `EngineApi.Bindings.cs`），并把 `.redbak` 移出产物目录
+（移到 `%TEMP%\rmerge-registry-bak\`）。修后再跑同一构造（下一段）。
+
+### 第二轮（build-8，精确文件名闸门）：build.py 点名缺失
+
+日志 `%TEMP%\rmerge-build-8.log`：
+
+```
+CODEGEN FAILED (4) — the generated headers are not in the state this build expects
+  - 主登记表：缺少登记产物 BindingRegistry.Bindings.h（目录 ...\codegen\bindings）
+  - 主登记表：缺少登记产物 BindingRegistry.Bindings.cpp（目录 ...\codegen\bindings）
+  - 主登记表：缺少登记产物 EngineApi.Bindings.cs（目录 ...\codegen\bindings）
+CODEGEN FAILED (4) — build not reported as successful
+```
+
+第 4 条失败是 check_bindings 的缺产物（退出码 1）；构建退出码非零。
+
+> 读数口径：`CODEGEN FAILED (4)` 括号里的 4 是 build.py **codegen 步内部**的失败条目数
+> （三条缺产物 + 一条 check_bindings 失败），不是构建进程的退出码；`python build.py` 对外
+> 退出码是 **1**（build.py 在失败分支里 `sys.exit`/非零返回）。
+
+### 绿态（build-9：只还原汇合调用，产物仍缺失 ⇒ 构建重新生成）
+
+日志 `%TEMP%\rmerge-build-9.log`（主 agent 代跑，构建退出码 0）：
+
+```
+  [登记表] 主登记表 ← 1 个输入
+    [登记表] ...\codegen\bindings/BindingRegistry.Bindings.h
+    [登记表] ...\codegen\bindings/BindingRegistry.Bindings.cpp
+    [登记表] ...\codegen\bindings/EngineApi.Bindings.cs
+    登记表问题 0 处
+BUILD SUCCESSFUL
+```
+
+三份登记产物在盘（时间戳 22:07:35，本轮新写）—— 证明"每建重发"：红态里被移走的产物由
+还原后的汇合调用重新生成，而不是靠旧文件通过。
+
+## 跨 change 账（已按文档地图记到 `docs/TODO.md`）
+
+`build.py` 对**逐接口产物**的期望检查仍是前缀通配（`glob(f"{stem}.Bindings.*")`），同类改名件
+也能骗过；本 change 只把登记产物层改成了精确文件名。
+
+```
+$ git grep -n "绑定生成物期望检查仍是前缀通配" -- docs/TODO.md
+docs/TODO.md:11:## [2026-11-05] 绑定生成物期望检查仍是前缀通配，改名件可绕过｜构建系统（跨 change）
+```
+
+
+

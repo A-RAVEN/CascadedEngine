@@ -1,0 +1,35 @@
+# 任务 1.1：登记表夹具与登记输入（构建日志读数）
+
+日期：2026-11-05
+来源日志：`C:\Users\76956\AppData\Local\Temp\rmerge-build-3.log`（主 agent 代跑 `python build.py --config Debug`）
+说明：本次构建在"登记表逐字字段判据"上红（生成器那一版还没有把函数指针字段名插进 `(*`），但
+绑定/登记表生成阶段的读数有效，作为任务 1.1 的证据；红绿与最终绿档见任务 1.2 / 1.3 的证据。
+
+## 新增夹具头登记
+
+`Tools/CodeGen/BindableShapes.RenderRegistry.h`（新建，编号 8 / 9，夹具专用号段）：
+
+```
+$ git grep -n "CA_BIND(" -- Tools/CodeGen/BindableShapes.RenderRegistry.h
+Tools/CodeGen/BindableShapes.RenderRegistry.h:37:	CA_BIND(8)
+Tools/CodeGen/BindableShapes.RenderRegistry.h:53:	CA_BIND(9)
+```
+
+`build.py` 的 `CODEGEN_BINDINGS` 增条目 + `CODEGEN_REGISTRIES` 登记输入（1.x 阶段主登记表
+暂用该夹具头，理由见 `evidence/裁决.md` 裁决二）。
+
+## 构建日志里的绑定与登记表读数（逐字节选）
+
+```
+  [绑定清单] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h：2 个接口
+  [绑定] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h
+    [绑定] 产物：IBindRegistry8, IBindRegistry9
+  [登记表] 主登记表 ← 1 个输入
+    [登记表] ...out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.h
+    [登记表] ...out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.cpp
+    [登记表] ...out\build\x64-debug\codegen\bindings/EngineApi.Bindings.cs
+```
+
+登记输入 1 个、产物 3 份、夹具接口 2 个（编号 8/9）。此阶段的"主登记表 = 夹具头"是
+1.x 的临时形态（真实接口尚未加编号）；2.1 加号后主登记表切换为两个真实头，夹具移到
+`codegen/bindings/fixture/`，见任务 2.1 的证据。

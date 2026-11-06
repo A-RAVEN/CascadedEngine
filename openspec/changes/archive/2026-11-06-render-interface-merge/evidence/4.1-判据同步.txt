@@ -1,0 +1,49 @@
+# 任务 4.1：判据家族同步与 `SurfaceSignatureCheck` 定性
+
+## `check_csharp_host_readme.py`（真值来源已换生成产物）
+
+绿档（build-18 产物）：
+
+```
+$ python Tools\check_csharp_host_readme.py
+ABI 版本：README v9 / 生成 kEngineApiVersion=9
+函数表大小：README 80 字节 / 生成 static_assert 80 字节
+接口编号表：README 7 行 [1, 2, 3, 4, 5, 6, 7] / 生成头 7 项 / EngineApi 7 个字段 / C# 7 个常量
+探针开关：代码里读到 11 个，README 表里 12 个
+问题 0 处
+exit=0
+```
+
+红态（README 故意残留 `v8`，改回 `v9` 复绿）：
+
+```
+ABI 版本：README v8 / 生成 kEngineApiVersion=9
+问题 1 处
+  ✗ ABI 版本不符：README 写 v8、生成 kEngineApiVersion=9
+exit=1
+```
+
+## 审计脚本（零改动仍绿）
+
+```
+$ python Tools\CodeGen\check_bindable_audit.py
+扫描 12 个接口、对账 90 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+exit=0
+
+$ git diff --name-only 13017684bab39ad2f251aeab3bd7ccaf94671798 -- Tools/CodeGen/check_bindable_audit.py
+（无输出 = 零改动）
+```
+
+编号变化不改变审计口径：仍是 12 接口 90 方法。
+
+## `SurfaceSignatureCheck.cs` 实际判什么（复核口径）
+
+- 它**没有**任何"61"计数断言。文件 296 行；它的机制是把每个公开表面方法赋给
+  `Func<...>` / `Action<...>` 委托（`internal static class SurfaceSignatureCheck` 的 `Compile()`，
+  被 `Host.Boot` 之前/编译期引用），签名映射错 = **C# 编译错误**（构建失败），没有运行期断言。
+- `VerifyValueTypes()` 是运行期方法（Host.Boot 调），按真实 CLR 布局核对公开记录/枚举。
+- 观测口径：`git grep -c 'Func<\|Action<' -- Scripting/Managed/SurfaceSignatureCheck.cs` 实测
+  **61**（仓库级观测，不是文件内判据）。
+- 本批改造后它随 `Scripting.Managed` 编译（build-18 绿即通过）；未改动该文件。
+
+> 与 tasks 4.1 的"此前工件里'基线 61'是仓库级观测口径"一致：不把它冒充成可失败断言。

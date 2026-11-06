@@ -1,0 +1,38 @@
+# 任务 5.3：最终编译验证（`python build.py --config Debug`）
+
+最终构建 = **build-21**（主 agent 代跑；在 5.1 演练彻底还原、构建目录旧产物清理之后）。
+
+## 关键读数（原文）
+
+```
+  [登记表] 主登记表 ← 2 个输入
+    [登记表] ...\codegen\bindings/BindingRegistry.Bindings.h
+    [登记表] ...\codegen\bindings/BindingRegistry.Bindings.cpp
+    [登记表] ...\codegen\bindings/EngineApi.Bindings.cs
+  [登记表] 登记表（fixture） ← 1 个输入
+    [登记表] ...\codegen\bindings\fixture/BindingRegistry.Bindings.h
+    [登记表] ...\codegen\bindings\fixture/BindingRegistry.Bindings.cpp
+    [登记表] ...\codegen\bindings\fixture/EngineApi.Bindings.cs
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    登记表问题 0 处
+    夹具登记表问题 0 处
+BUILD SUCCESSFUL
+```
+
+## 与 4.3 的全量实测对齐复核
+
+- 4.3 的 51 步 SUMMARY：`failures=1`（唯一记名例外 `check_hash_sources.py` 基线红，已裁定）
+  + 其余 50 步全绿；CoreTests 22 个 `PASSED`、两后端全量各 16/16 pass、像素矩阵 10/6/8/8 全按期望。
+- build-21 与 4.3 时的源码状态**一致**：4.3 之后只发生过 5.1 演练的四处登记项（已全部还原，
+  `git status` 里没有残留）与文档/evidence 改动（不参与编译）；`check_bindings.py`/`build.py`
+  的演练行已删回原状。
+- 结论：**一致，无差异**。build-21 重新生成的登记产物为三份（主表）+ 三份（夹具表），
+  `登记表问题 0 处` / `夹具登记表问题 0 处` 与 4.3 时相同；本构建即 5.3 要求的最终构建。
+
+## 5.1 演练残留清理的复现命令（供复核）
+
+```powershell
+Remove-Item out\build\x64-debug\codegen\bindings\IBindRegistry10.Bindings.* -Force
+Remove-Item out\build\x64-debug\codegen\bindings\fixture\drill.registry.part -Force
+```
+清理后重跑构建即绿（build-20 红 → 清理 → build-21 绿）。
