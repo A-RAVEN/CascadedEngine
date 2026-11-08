@@ -1,0 +1,19 @@
+﻿命令 1：Test-Path openspec/changes/render-interface-merge
+输出：False
+
+命令 2：Get-ChildItem openspec/changes/archive -Directory | Where-Object Name -like '*render-interface*' | Select-Object -ExpandProperty Name
+输出：
+2026-11-06-render-interface-merge
+
+附：底座批归档目录内容（前 20 项）
+evidence
+specs
+.openspec.yaml
+design.md
+proposal.md
+tasks.md
+
+附：归档目录任务勾选读数
+已勾 15 条 / 未勾 0 条
+
+结论：0.1 满足 —— render-interface-merge 不在活跃目录，已归档到 archive/2026-11-06-render-interface-merge。

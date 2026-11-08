@@ -1,0 +1,57 @@
+4.3 文档与能力边界同步
+
+一、`Tools/CodeGen/README.md`
+
+1) 限制清单句（只删已落地的"通用序列化块"一项；`std::span` / 容器出参 / 映射容器 / 联合体 /
+   定长数组保留原文）：
+   改前（逐字）：
+     同步一次复制，原生实现若异步保存输入指针，需要后续专门的回读 / 生命周期 change；不支持容器出参、
+     映射容器、联合体、定长数组与通用序列化块；非接口数据对象的智能指针返回仍只提供原生发行者入口，
+   改后（逐字）：
+     同步一次复制，原生实现若异步保存输入指针，需要后续专门的回读 / 生命周期 change；不支持容器出参、
+     映射容器、联合体、定长数组；非接口数据对象的智能指针返回仍只提供原生发行者入口，
+   保留项核（`git grep -n -F` 命中）：
+     `std::span`（第 1097 行）、`容器出参`（1099）、`映射容器`（1100）、`联合体`（1100）、
+     `定长数组`（424 / 436 / 1100）。
+
+2) 资源引用是**新增**形状（原清单没有它，不是"删除"）——新增段逐字：
+   `**本 change 新增的能力（原清单里没有这些形状，不是"从限制清单删除"）**：资源引用值类（CA_BIND_VALUE…）；
+   序列化块记录（…块头 = 版本 + 类型名哈希 + 字段布局哈希…）；参数注入（CA_BIND_INJECT…）。`
+
+3) 编号来源改锁文件与 `--update-ids`：
+   改前：`进登记表的接口必须写 CA_BIND(编号)；编号全局唯一、只在现有最大编号之后追加…`
+   改后：`编号唯一来源是 Tools/CodeGen/interface-ids.lock（按 host / fixture 分段，行格式 编号<TAB>短名<TAB>限定名<TAB>头）；
+   接口头里只写无参 CA_BIND()…新号只经 --update-ids 追加（高水位 +1）…`
+   同节"做什么"改前：`从各接口头的 CA_BIND(编号) 标注收集成分片`
+   改后：`从各接口头的 CA_BIND 标注（名字）与 Tools/CodeGen/interface-ids.lock（编号）收集成分片`
+
+4) 参数表补 `--id-lock/--id-scope`、`--update-ids --lock --scope`、`--parse-report [--out]` 三行；
+   `--registry-part` 行的"都带编号"改成"都能从锁文件取到编号"；`--emit-registry` 的锁源变化见上
+   （同一把锁、`--id-scope` 选段）。新增「十五、真实头投影快照」一节（做什么 / 边界 / 对账 / 退出码）。
+5) 错误码表补 1007–1010（`BAD_BLOCK_VERSION` / `BAD_BLOCK_TYPE` / `BAD_BLOCK_LAYOUT` /
+   `BAD_BLOCK_PAYLOAD`），与 `kBindErrorCodes`、`check_bindings.py` 的 `ERROR_CODE_TABLE` 同源。
+
+二、`CSharpHost/README.md`（v9 = 80 字节读数不动）
+   改前：`版本升级是因为这张表改由绑定生成器从各接口头上的 CA_BIND(编号) 标注发射`
+   改后：`版本升级是因为这张表改由绑定生成器从 Tools/CodeGen/interface-ids.lock 取编号后发射`
+   改前：`接口编号表（编号写在接口头上的 CA_BIND(编号) 标注里，由生成器发射成`
+   改后：`接口编号表（编号在 Tools/CodeGen/interface-ids.lock 里，构建时核对；发号经 --update-ids，由生成器发射成`
+   校验读数：`ABI 版本：README v9 / 生成 kEngineApiVersion=9`、
+   `函数表大小：README 80 字节 / 生成 static_assert 80 字节`、`问题 0 处`、退出码 0。
+
+三、`docs/testing.md`
+   · ②层计数复核：`GPUBackendTester.exe --list` 实测 **16** 个（与文档现文一致，未改数字）；
+   · ③层脚本计数：`check_*.py` 前缀 **14** 个 + 助手 3 个（新增 `check_binding_baseline.py`、
+     `check_native_snapshot.py` 后重数）；
+   · 错误码范围句：`1001–1006` → `1001–1010`（3.2 新增四条块错误码）；
+   · ①层清单补 `BindingsNativeShapesTest.cpp`（本批新增用例的口径）。
+
+四、校验工具（本轮实跑）
+   `python Tools/CodeGen/verify_readme.py` → `README: 22 documented command(s) run, 0 mismatch(es)`，
+   退出码 0（临时目录 `.review_tmp` 用完已删）。
+   `python Tools/check_csharp_host_readme.py` → `问题 0 处`，退出码 0；v9 / 80 / 编号 7 行不变。
+
+五、能力边界保留项
+   `std::span`、容器出参、映射容器、联合体、定长数组五类仍在限制清单里（grep 命中见上）；
+   未把资源引用写成"从清单删除"；未把序列化块/注入写成"原本就有限制"。
+结论：4.3 验收（三处逐字 before/after、两个 README 校验 exit 0、保留行 grep）满足。

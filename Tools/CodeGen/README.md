@@ -76,8 +76,11 @@ CodeGen.exe <file.h> <TypeName> --emit-all --out-dir <目录> [交给 libclang �
 | `--audit-script <路径>` | 只配 `--emit-binding`：审计脚本路径（默认取**输入头所在目录**下的 `check_bindable_audit.py`）。生成前会以子进程调它，接口不在审计表覆盖清单里时打"跳过审计核对" |
 | `--handle-index-bits <n>` | 只配 `--emit-binding`：句柄里**序号位**的位数，默认 **48**。合法范围：至少 1 位，且与 `--handle-generation-bits` 之和不超过 **64**；越界时退出码 **2** 并说明 |
 | `--handle-generation-bits <n>` | 只配 `--emit-binding`：句柄里**代际位**的位数，默认 **16**。合法范围同上。`release` 后代际号进位，旧句柄立刻失效 |
-| `--registry-part <标签>` | 只配 `--emit-binding`：声明**本头是登记表发射输入**（见「十四、登记表发射」）。要求该头里每个被 `CA_BIND` 标注的接口都带编号；缺号 / 同号 ⇒ 非零退出并点名，且**不写任何产物**。成功时把 `<标签>.registry.part` 分片写进 `--registry-part-dir` |
+| `--registry-part <标签>` | 只配 `--emit-binding`：声明**本头是登记表发射输入**（见「十四、登记表发射」）。要求该头里每个被 `CA_BIND` 标注的接口都能从锁文件取到编号；缺号 / 同号 ⇒ 非零退出并点名，且**不写任何产物**。成功时把 `<标签>.registry.part` 分片写进 `--registry-part-dir` |
 | `--registry-part-dir <目录>` | 只配 `--registry-part`：分片落点（目录必须已存在）；缺省 = `--out-dir` |
+| `--id-lock <锁>` / `--id-scope <段>` | 只配 `--emit-binding` / `--emit-registry`：编号唯一来源 `Tools/CodeGen/interface-ids.lock`，`--id-scope` 选 `host` 或 `fixture` 段。缺省锁与段由 `build.py` 显式传给每次调用 |
+| `--update-ids --lock <锁> --scope <段>` | 唯一的发号入口：只加新名、删消失名，既有行一字不动；不产绑定产物。见「十二、编号锁」 |
+| `--parse-report [--out <文件>]` | 只解析、不产物：对头里每个类输出投影快照（`[类]` 一行，随后每个方法一行 `[采集]/[排除] 类短名::方法名；形状；判定`）。见「十五、真实头投影快照」 |
 | `--emit-registry` | **合并模式**（不给头文件、不再解析 C++）：读若干个 `--registry-part-file` 分片，产出登记表三份产物。见「十四、登记表发射」 |
 | `--registry-part-file <路径>` | 只配 `--emit-registry`：一个输入分片；可重复。编号跨分片重复 / 跳号 / 从非 1 开始时非零退出并点名 |
 | 其余参数 | 原样交给 libclang，例如 `-I CACore/header`、`-std=c++20`、`-D...` |
@@ -1062,6 +1065,8 @@ python Tools/CodeGen/check_bindable_audit.py
 
 **弱句柄、释放与解析（第十四节规则，`csharp-window-creation` 之后）**：`castl::weak_ptr<T>` 返回**不再被拒绝**，它投影成 `uint64` 弱句柄 —— 句柄表里存弱引用、**不抬高** `use_count()`，对象析构后 `lock()` 失败即按 1001 判失效。返回 `T*`（`T` 是另一个已 `CA_BIND` 的接口）投影成**借用句柄**（kind 4）：只存裸指针、不持有，存活见证者是发行它的那个对象。每个被绑定接口另外导出两个泛用入口：`<接口>_ReleaseHandle(void* self, uint64_t handle)` 释放、`<接口>_ResolveHandle(void* self, uint64_t handle)` 把句柄解回对象指针（失败返回空并置 1001）；两者都在函数表里（`ResolveHandle` / `ReleaseHandle` 两个槽），托管侧靠它们做 `Dispose`。**句柄表是进程级唯一一张**（不是每接口一张）：句柄 = 代际 + 序号，而每个接口的序号都从 1 开始，两张独立的表会发出数字完全相同的句柄 —— 把 A 表的句柄交给 B 表的释放入口，B 表会命中同号的活项并销毁一个无关对象。表项带接口标签，标签不符一律按 1001 拒。释放时表项会同时放掉强引用与弱引用并让代际进位：**只清表项、不放强引用**会让对象永不析构（`use_count() == 1` 永远不成立，窗口永不回收）。
 
+**参数注入（`CA_BIND_INJECT`，codegen-native-binding-prereqs 任务 3.3）**：方法参数是"所有权不明的裸指针"且由引擎默认提供时，在接口类后面写 `CA_BIND_INJECT(方法名, 参数名)`，并在同一头文件里声明固定名钩子 `extern "C" void* CAInject_<类短名>_<方法名>_<参数名>();`。该参数**不进** C ABI 与托管表面，thunk 用钩子返回值作为实参；钩子名三段用短名拼（类短名取 `CA_BIND` 后的类名，不含命名空间）。参数名不存在、参数不是裸指针、有注入声明但没有钩子声明，三种情况都是生成期非零退出并点名；注入声明与钩子名还会写进**注入片段** `<接口>.inject.part`（每行 `# inject <钩子名>`），供装配侧核对。返回位置的裸指针不适用（维持不可绑）。
+
 ### 跨头文件清单、共享值类型与双角色句柄（csharp-render-binding-foundations）
 
 **构建期接口清单（任务 3.1）**：`CODEGEN_BINDINGS` 的第三列只检查"期望产物前缀是否存在"，**不是**接口清单。
@@ -1092,8 +1097,14 @@ CodeGen.exe <头文件> --list-bind-interfaces -ICACore/header -ITools/CodeGen/c
 **本 change 的明确限制**：不支持 `std::span`；不支持包装值（`NameHash` / `PathHash` / `HashObj<T>`）
 作为返回值、嵌入记录或容器元素；不支持 `weak_ptr<T>` 入参（弱返回句柄仍然支持）；字节入参只承诺
 同步一次复制，原生实现若异步保存输入指针，需要后续专门的回读 / 生命周期 change；不支持容器出参、
-映射容器、联合体、定长数组与通用序列化块；非接口数据对象的智能指针返回仍只提供原生发行者入口，
+映射容器、联合体、定长数组；非接口数据对象的智能指针返回仍只提供原生发行者入口，
 不生成伪造的公开 C# 资源对象。
+
+**本 change 新增的能力（原清单里没有这些形状，不是"从限制清单删除"）**：
+资源引用值类（`CA_BIND_VALUE`，kind + 对象句柄 / 名称两通道，托管侧是共享值类型）；
+序列化块记录（参数位置、成员含一层 `vector` 或文本的记录，块头 = 版本 + 类型名哈希 + 字段布局哈希，
+托管侧镜像 + 同源字段清单的序列化器）；参数注入（`CA_BIND_INJECT`，裸指针参数由固定名钩子提供，
+不进 C ABI / 托管表面）。
 
 
 
@@ -1134,6 +1145,10 @@ conformance 夹具，判据在 `Tools/CodeGen/check_bindings.py` 的 `check_surf
 | 1004 | `<接口>_ERROR_CALLBACK_REENTRANT` | 回调执行期间替换 / 清空 / 注销**同一个**回调注册（活动标记挡下，不销毁正在执行的回调） |
 | 1005 | `<接口>_ERROR_CALLBACK_WRONG_THREAD` | 原生回调来自非注册线程：桥拒绝进入托管委托，只记录错误 |
 | 1006 | `<接口>_ERROR_INVALID_MONITOR` | `GetMonitor` 的编号为负或不小于 `GetMonitorCount()`：绑定层在调用原生实现**之前**拦下，不让它进 clamp |
+| 1007 | `<接口>_ERROR_BAD_BLOCK_VERSION` | 序列化块头 `formatVersion` 不是 `1u`：反序列化在调用原生实现之前拒绝 |
+| 1008 | `<接口>_ERROR_BAD_BLOCK_TYPE` | 序列化块头的类型名哈希与生成期常量不符 |
+| 1009 | `<接口>_ERROR_BAD_BLOCK_LAYOUT` | 序列化块头的字段布局哈希不符（含"字段改名、类型序不变"的块） |
+| 1010 | `<接口>_ERROR_BAD_BLOCK_PAYLOAD` | 序列化块载荷截断/字段读取失败（块头之后的内容不够或长度越界） |
 
 生成物里**不许出现裸字面量**；`check_bindings.py` 的 `check_error_codes()` 把产物里所有
 `<接口>_ERROR_*` 常量与所有 `_setError` 的码逐个对这张表，对不上即红。新增错误标识时，
@@ -1199,7 +1214,7 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 
 ### 登记表发射（`--emit-registry`，render-interface-merge）
 
-**做什么**：把"编号 → 接口"从各接口头的 `CA_BIND(编号)` 标注收集成分片，再在**不解析 C++** 的合并步里产出三份跨接口产物：
+**做什么**：把"编号 → 接口"从各接口头的 `CA_BIND` 标注（名字）与 `Tools/CodeGen/interface-ids.lock`（编号）收集成分片，再在**不解析 C++** 的合并步里产出三份跨接口产物：
 
 | 产物 | 内容 |
 |---|---|
@@ -1207,10 +1222,30 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 | `BindingRegistry.Bindings.cpp` | `get_interface_api` 路由（编号 → `<接口>_GetApi`、默认实例 / 目标类型表角色）、布局查询路由、`FillEngineApi` 装配（按固定名字调宿主工厂/错误通道钩子） |
 | `EngineApi.Bindings.cs` | 与 C++ struct 同一次生成的托管逐字段镜像 `EngineApiMirror` + `EngineApiBindings`（`AbiVersion` / `Size` / `TableVersion` / 逐接口编号常量 / 绑定清单 `Tables`） |
 
-**编号规则**：进登记表的接口必须写 `CA_BIND(编号)`；编号全局唯一、只在现有最大编号之后追加，主登记表必须恰为 `1..N` 连续（夹具登记表按同规则连续）。缺号 / 同号 / 跳号 ⇒ 分片步或合并步非零退出并点名；拒绝的那一轮**不写任何登记产物**（先校验后写）。
+**编号规则**：编号唯一来源是 `Tools/CodeGen/interface-ids.lock`（按 `host` / `fixture` 分段，行格式 `编号<TAB>短名<TAB>限定名<TAB>头`）；接口头里只写**无参** `CA_BIND()`，编号由锁文件按名字取。新号只经 `--update-ids` 追加（高水位 +1），既有行一字不动；名字消失时 `--update-ids` 删行。主登记表必须恰为 `1..N` 连续（夹具登记表按同规则连续）。缺号 / 同号 / 跳号 / 手写编号参数 ⇒ 分片步或合并步非零退出并点名；拒绝的那一轮**不写任何登记产物**（先校验后写）。
 
 **确定性**：**同一输入重跑**，三份产物逐字节相同。不同调用方式把不同的输入头路径文本写进"登记输入"注释时产物会差这一行注释 —— 那是输入不同，不是非确定性。
 
 **构建期用法**：`build.py` 对 `CODEGEN_REGISTRIES` 的每个登记输入头跑一次 `--emit-binding ... --registry-part <标签> --registry-part-dir <目录>`（分片），再用 `--emit-registry --out-dir <目录>` 加重复的 `--registry-part-file <分片>` 汇总。主登记表产物落 `codegen/bindings/`，夹具登记表落 `codegen/bindings/fixture/`（不进宿主编译面）。
 
 **退出码**：0 = 成功；1 = 编号问题（缺号 / 重号 / 跳号）或分片缺失/读不到（都在写产物之前拒绝）；2 = 参数问题（缺 `--out-dir`）或写文件失败。
+
+### 十五、真实头投影快照（`--parse-report`，codegen-native-binding-prereqs 任务 4.1）
+
+**做什么**：只解析、不产物。对输入头里每个类输出一段：
+
+```
+[类] <命名空间>::<类短名>
+[采集] <类短名>::<方法名> | 形状：<返回类型> <方法名>(<参数类型>) | 判定：采集：可绑定
+[排除] <类短名>::<方法名> | 形状：… | 判定：排除：① 模板方法（本批不做模板单态化）
+```
+
+**边界**：只报**主文件里**的类定义；模板类（`ClassTemplate`）与模板特化两侧都不采；构造 / 析构 /
+`operator` 不进方法行；重载按出现次数重复。快照是直绑批的开工地图，不改任何头、不写绑定产物。
+
+**对账**：`python Tools/CodeGen/check_native_snapshot.py --snapshot <快照>` —— 它用**剥注释文本解析**
+出第二份公开方法清单，与快照按 `类短名::方法名` 多重集逐条对账；两侧不同源，堵"生成器漏采、
+两边一起消失"。GPUGraph.h 另设下界锚"独立清单 ≥ 13 + 10 = 23 条"。
+
+**退出码**：0 = 解析成功；2 = 写 `--out` 失败；3 = libclang 解析失败或诊断里有 error。
+

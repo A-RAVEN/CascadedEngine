@@ -1,0 +1,55 @@
+3.1 资源引用值类（D7）
+
+一、红态（改造前，用 2.4 的 CodeGen.exe 直接对加了值类的夹具头跑）
+命令：CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapes.h --emit-binding --out-dir <临时> --audit-script Tools/CodeGen/check_bindable_audit.py <构建同款 include> -xc++
+读数（逐字）：
+  CodeGen: 拒绝嵌套记录 —— NativeResourceRef：类型 ca_bind_fixture::NativeResourceRef 的成员 m_Object 不是公开字段（非公开字段不能镜像）
+  CodeGen: --emit-binding 返回 1
+  退出码 1
+（按工件纪律没有预设"退出码 15"；绑定发射器这条路实际给的码是 1。）
+
+二、实现
+  · 标注：`CACore/header/CodeGenMeta.h` 新增 `CA_BIND_VALUE(类型名)`（no-op 文本标记）。
+  · 夹具：`NativeResourceRef` —— kind 枚举在类体里（Object=1 / Named=2，与真实 ImageHandle 同形），
+    两条构造通道（`castl::shared_ptr<IBindNativeShape> const&` 与 `cacore::NameHash const&`），
+    只读访问器 `GetReferenceKind` / `GetReferencedObject` / `GetReferencedName`；标 `CA_BIND_VALUE`。
+    `IBindNativeShape` 增加 `virtual void ConsumeRef(NativeResourceRef const& resourceRef, uint32_t channel) = 0;`。
+  · 生成器：扫描 CA_BIND_VALUE；kind 枚举从**类体源码文本**解析（libclang 对嵌套 enum 的访问实测
+    不稳定），构造通道从 AST 的构造函数取（shared_ptr 的实参必须是已绑定接口才成通道；NameHash/PathHash
+    是名称通道）；参数过界成四段线形 `uint32_t <p>Kind, uint64_t <p>Handle, uint8_t const* <p>Name,
+    uint64_t <p>NameLen`（全部由既有四类线形组合，不新增 C ABI 线形）；返回位置拒绝。
+    thunk 按 kind 分派：对象通道复用既有 `_lookupStrongHandle` 反查同一实例；名称通道走
+    `cacore::NameHash(castl::string(...))` 原生构造；坏句柄落 1001、空名/非法 kind 落 1002，
+    都在进入实现之前返回（实现调用计数不变）。托管侧发共享值类型
+    `NativeResourceRef.Bindings.cs`：internal `Kind/Handle/Name` + 两个工厂
+    `FromBindNativeShape(IBindNativeShape)` / `FromName(string)`；Calls 层把名称按 UTF-8 走 `fixed`
+    后按四段传参。值类自身成员方法不采集（它不是 CA_BIND 类）。
+  · 判据：`check_bindings.py` 登记 `NativeResourceRef` 共享值类型（允许 `ulong` 句柄字段）、
+    ConsumeRef 的 C ABI/托管逐字行、值类方法槽缺席检查；expected 增 ConsumeRef 一行。
+
+三、执行期修的两处（均为我这轮引入）
+  1) kind 枚举最初写在类体外，文本解析器按"类体里找 enum"取不到 ⇒ 报
+     `值类 NativeResourceRef 没有可用的 kind 枚举`。把枚举挪进类体（与真实 ImageHandle 同形）后生成通过；
+     用当时的 CodeGen.exe 单跑夹具头验证：`绑定：接口 2 个 / 方法 12 条 / 产物 2 个 / 拒绝 0 条`，exit 0。
+  2) C# 关键字：C++ 形参名 `ref` 出码到 C# 是关键字（CS1001/CS1003/CS1031/CS1525/CS0839，五个点位）。
+     夹具形参改名 `ref` → `resourceRef`（C++ 合法、C# 合法），C ABI 四段参数名连带变成
+     `resourceRefKind/resourceRefHandle/resourceRefName/resourceRefNameLen`；`check_bindings.py` 与
+     expected 同步改（类型序列不变，只改参数名，判据不放松）。
+
+四、绿轮（主 agent 代跑）
+构建：python build.py --config Debug；退出码 0；日志 evidence/3.1-构建日志.txt
+  不符数 0；两侧对齐问题 0 处；覆盖率问题 0 处；共享值类型问题 0 处；原生形态夹具问题 0 处
+  夹具接口 30 个、桩数 5 个、丢返回值 0 个（桩只打印，丢返回值参与判定）
+  BUILD SUCCESSFUL；[耗时] configure 0.0s / codegen 7.0s / 编译 8.0s / 托管侧 2.6s / 合计 41.0s
+CoreTests：退出码 0；日志 evidence/3.1-CoreTests日志.txt
+  `Bindings native shapes test PASSED`；PASSED 23 行、FAILED 0 行。
+  3.1 断言：对象通道（kind=1 + 强句柄）原生实现收到的对象与注册实例是**同一实例**、channel 一致；
+  名称通道（kind=2 + "alpha"）原生侧按 NameHash 原生构造重建，与 `NativeResourceRef(NameHash("alpha"))`
+  直构的 NameHash 逐位一致；坏句柄 ⇒ 错误码 1001 且实现计数不变；空名 ⇒ 错误码 1002 且实现计数不变；
+  kind 读出与构造通道一致（Object / Named）。
+值类成员方法未采集：产物目录里 `NativeResourceRef_` 命中 **0** 处；只有 `NativeResourceRef.Bindings.cs`
+（共享托管类型）一份。
+产物基线：缺失 0 / 不一致 0 / 多余 0（NativeResourceRef.Bindings.cs 已逐项登记进允许新增）。
+
+结论：3.1 验收（四段过界、两条托管工厂通道、同一实例、NameHash 一致、坏引用不进实现、
+值类成员方法不采集）满足。

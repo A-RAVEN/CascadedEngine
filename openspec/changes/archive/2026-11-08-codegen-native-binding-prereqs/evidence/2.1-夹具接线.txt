@@ -1,0 +1,55 @@
+2.1 新夹具接线
+
+一、新夹具头 Tools/CodeGen/BindableShapes.NativeShapes.h（新建，只被生成器解析与生成物编译）
+覆盖本批要补齐的原生面形态，逐项落任务：
+  · 纯虚基础面 GetCounter / SetCounter —— 改造前的绿态锚（现行生成器就能绑，产物必须仍有这两条）；
+  · 非纯虚 virtual GetVirtualCount（接口里带实现体）—— 2.2；
+  · 非虚公开方法 GetDoubledCount —— 2.2；
+  · 自返回链式 ChainAdd（返回 IBindNativeShape&）—— 2.2（C ABI 返回 void，C# 返回 this）；
+  · 纯标量记录 NativeCount + 默认构造类 BindNativeObject —— 2.3（静态工厂 / Create）；
+  · 同名两签重载 Overloaded(uint32_t) / Overloaded(uint32_t, uint32_t) + 两个静态计数 —— 2.4；
+  · 模板方法 GetAs（配 CA_BIND_SKIP(GetAs, "① 模板方法…")）—— 本批维持拒绝，但显式排除并写理由。
+
+二、接线
+  · build.py 的 CODEGEN_BINDINGS 追加：
+    ("Tools/CodeGen/BindableShapes.NativeShapes.h", "夹具 NativeShapes",
+     ["IBindNativeShape", "BindNativeObject"])
+  · check_bindings.py 的 REQUIRED_FIXTURE_INTERFACES 追加 IBindNativeShape / BindNativeObject。
+不接线则产物不存在、2.2–2.4 的红绿全部无效 —— 这一步单列就是为堵这个。
+
+三、第一次构建失败与修复（单因，留档）
+首次构建（日志 evidence/2.1-首次构建失败日志.txt）退出码 1，唯一拒绝行：
+  CODEGEN FAILED (1) — the generated headers are not in the state this build expects
+    - 绑定 夹具 NativeShapes 失败（exit 1）：CodeGen: 拒绝 BindNativeObject —— ① 模板/泛型：绑定对象不能是模板类
+根因（读 CodeGenMain.cpp 的 scanBoundMarkers）：模板类标记 `pendingTemplate` 只在遇到 CA_BIND 类时清掉。
+夹具头里 `template<typename T>` 的下一行是模板**方法** `T GetAs() const;`，标记没清，于是后面无辜的
+BindNativeObject 被当成模板类拒绝。修复：`pendingBind == false` 时，当前行含 `;` 或 `(` 就清掉
+`pendingTemplate`（模板方法声明行的特征）；模板类夹具 `BindableShapes.RejectTemplate.h` 的
+`template <typename T>` 下一行是 CA_BIND()，不含 `;`/`(`，仍会被正确判成模板类。
+
+四、第二次构建（绿，主 agent 代跑，退出码 0）
+日志：evidence/2.1-构建日志.txt（%TEMP%\cnbp-2.1-build2.log 原样转存）
+关键读数（逐字）：
+  [绑定清单] 夹具 NativeShapes ← Tools/CodeGen/BindableShapes.NativeShapes.h：2 个接口
+  [绑定] 夹具 NativeShapes ← Tools/CodeGen/BindableShapes.NativeShapes.h
+    [绑定] 产物：IBindNativeShape, BindNativeObject
+  真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+  夹具接口 30 个、桩数 3 个（只打印，不判定）
+  夹具识别问题 0 处
+  BUILD SUCCESSFUL
+说明：`[接口] … → N 条` 是生成器 stderr，build.py 成功路径只打印 stdout 的 `[绑定]` 行，
+所以构建日志里看不到它；实际条数下面用产物文本核对。
+
+五、产物存在且是"改造前"形状（2.2 的红态前置）
+  · IBindNativeShape.Bindings.cpp 里只有 GetCounter / SetCounter 两个方法槽（纯虚面）；
+    GetVirtualCount / GetDoubledCount / ChainAdd 一条都没有；
+  · BindNativeObject.Bindings.cpp 一个方法槽都没有（没有 Create）。
+  这两个读数就是 2.2 / 2.3 的"缺槽"红档（下一轮把它们写成判据并留档）。
+
+六、基线对账
+新增 4 个本批夹具产物（IBindNativeShape / BindNativeObject 的 .Bindings.cpp/.cs），
+在 evidence/基线产物哈希.txt 的「允许新增」段逐项登记（`# + <路径>`）后：
+  基线对账：缺失 0 / 不一致 0 / 多余 0（退出码 0）
+既有产物仍逐字节不变。
+
+结论：2.1 验收（构建日志出现该夹具绑定行、产物前缀检查过、不接线则全组无效）满足。

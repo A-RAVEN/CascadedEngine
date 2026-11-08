@@ -1,0 +1,18 @@
+﻿1.1 第一步：清除无源残留（登记表输入清单里没有的分片 / 指向已删除头的产物）
+
+判定依据：build.py 的 CODEGEN_REGISTRIES 只列三个分片输入——window / render（主目录）与 fixture（fixture 子目录）。
+  · out/build/x64-debug/codegen/bindings/fixture.registry.part —— 旧布局残留（同内容的分片现在落 fixture/fixture.registry.part），没有任何输入会写它。
+  · out/build/x64-debug/codegen/bindings/fixture/drill.registry.part —— 分片头写着 BindableShapes.RenderRegistryDrill.h，该头文件 Test-Path = False，属底座批演练残留。
+
+命令：Remove-Item -LiteralPath <上面两个路径>
+已删除：out/build/x64-debug/codegen/bindings/fixture.registry.part
+已删除：out/build/x64-debug/codegen/bindings/fixture/drill.registry.part
+
+删除后目录读数：
+  render.registry.part
+  window.registry.part
+fixture 子目录：
+  BindingRegistry.Bindings.cpp
+  BindingRegistry.Bindings.h
+  EngineApi.Bindings.cs
+  fixture.registry.part

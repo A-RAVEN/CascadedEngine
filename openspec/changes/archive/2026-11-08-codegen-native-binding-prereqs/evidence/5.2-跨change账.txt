@@ -1,0 +1,19 @@
+5.2 直绑批跨 change 账
+
+一、`docs/TODO.md` 新增一行（在「待办（未解决 / 需后续处理）」段顶部）：
+`## [2026-11-06] 原生直绑 + IScript*/CScript* 退役批（codegen-native-binding-prereqs 之后）｜CodeGen→C# 直绑（跨 change）`
+
+内容只写：状态=待立项；触发=本批归档后立即立项；开工输入=evidence/原生头投影快照.txt 与本批能力；
+范围=把原生接口按快照直绑到 C#、整体退役手搓 IScript*/CScript* 适配层。
+不写改法、不写验收口径（按文档地图"TODO 只放跨 change 的账、改法与验收留在 tasks"）。
+
+二、命中行（逐字）
+命令：`git grep -n -F "原生直绑" -- docs/TODO.md`
+输出：
+  docs/TODO.md:11:## [2026-11-06] 原生直绑 + `IScript*`/`CScript*` 退役批（codegen-native-binding-prereqs 之后）｜CodeGen→C# 直绑（跨 change）
+  退出码 0
+即"一行、可 grep 核到"。
+
+三、与 4.1 的关系
+4.1 的快照文件 `evidence/原生头投影快照.txt` 是该批的开工输入；本条目在 4.1 收尾时同轮写入，
+5.2 只做复核（同一行，不重复加）。

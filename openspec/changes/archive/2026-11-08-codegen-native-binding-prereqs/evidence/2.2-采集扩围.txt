@@ -1,0 +1,82 @@
+2.2 非纯虚/非虚采集 + 自返回 void 化（D3/D4）
+
+一、生成器改动（Tools/CodeGen/CodeGenMain.cpp）
+  1) 采集扩围（D3）：`collectMethods` 不再要求 `clang_CXXMethod_isPureVirtual` —— 公开的非纯虚
+     virtual 与非虚成员函数都进表；仍不采：非 public（显式 private/protected）、静态成员（2.3 才接）。
+  2) 成员函数模板（① 类）：libclang 报 `CXCursor_FunctionTemplate`，单独记名字；run() 里对
+     "模板方法且没有 CA_BIND_SKIP(方法, 理由)" 非零点名"① 模板/泛型：成员函数模板不能绑定"。
+     夹具的 `GetAs` 用 `CA_BIND_SKIP(GetAs, "① 模板方法…")` 显式排除（理由必填的检查照旧）。
+  3) 自返回（D4）：`returnsSelfRef` = 返回拼写含 `&` 且 `bareType` 的短名 == 本类名。
+     `projectMethod` 对它返回 `void`；thunk 只调用、不写回；C# `Calls` 层为 void、
+     公开表面方法返回 `this`（保持链式可读）。
+  4) C ABI 槽名 `abiName`：第 1 槽保持原名；2.2 过渡期同名第二槽留空 = 不绑并打日志
+     （序数槽在 2.4 接线）。C ABI 声明 / thunk / 表槽 / 外部调用全部改用 `abiName`。
+
+二、判据改动（Tools/CodeGen/check_bindings.py）
+  · 新增 `check_native_shapes`：C ABI 与托管表面的逐字行判据（先红后绿）；
+  · `check_stubs` 增加"夹具丢返回值"一类并参与判定（真实接口的判据不变）；
+  · 新增 `is_self_return` 豁免：只认"末尾 `&`、去掉末尾 `const` 后短名 == 接口名"；
+  · 新增 `--self-test-exemption` 自检（防豁免过界）。
+  · 夹具方法名避开判据里"…Count 当伴生"的旧口径：GetVirtualCount→GetVirtualValue、
+    GetDoubledCount→GetDoubled（对应产物与 CoreTests 同步改）。
+
+三、红态一：改造前产物缺槽（check_bindings 对 2.1 产物单跑，退出码 1）
+读数（逐字，行里的旧方法名是当时夹具名，后来为避免 …Count 伴生口径改名）：
+  IBindNativeShape：C ABI 里没有 `extern "C" uint32_t IBindNativeShape_GetVirtualCount(void* self);`
+  IBindNativeShape：C ABI 里没有 `extern "C" uint32_t IBindNativeShape_GetDoubledCount(void* self);`
+  IBindNativeShape：C ABI 里没有 `extern "C" void IBindNativeShape_ChainAdd(void* self, uint32_t value);`
+  IBindNativeShape：托管表面里没有 `public uint GetVirtualCount()`
+  IBindNativeShape：托管表面里没有 `public uint GetDoubledCount()`
+  IBindNativeShape：托管表面里没有 `public IBindNativeShape ChainAdd(uint value)`
+  原生形态夹具问题 6 处；exit 1
+（2.1 产物的 IBindNativeShape.Bindings.cpp 里当时只有 GetCounter/SetCounter 两个方法槽，
+ GetVirtualCount/GetDoubledCount/ChainAdd 各 0 次；BindNativeObject 方法槽 0 条 —— 已在
+ evidence/2.1-夹具接线.txt 留档。）
+
+四、红态二：豁免没接时构建被"丢返回值"点红（主 agent 代跑，退出码 1）
+日志：evidence/2.2-红态丢返回值构建日志.txt
+读数（逐字）：
+  夹具接口 30 个、桩数 3 个、丢返回值 1 个（桩只打印，丢返回值参与判定）
+  IBindNativeShape::ChainAdd：投影成 void，但实现返回 IBindNativeShape& —— 调用了却把返回值丢掉（夹具）
+  CODEGEN FAILED (1) — the generated headers are not in the state this build expects
+    - 绑定判据失败（退出码 1）：见上面 check_bindings.py 的输出
+  真实接口桩数 0 / 丢返回值 0 / 结构问题 0  ← 真实侧未受牵连（单因）
+这一轮还暴露了一个我本轮引入的 C# 出码缺陷（同轮修掉）：
+  IBindNativeShape.Bindings.cs(160,20): error CS0026: 关键字 "this" 在静态属性、静态方法或静态字段初始值设定项中无效
+根因：自返回的 `return this` 写进了 internal static 的 `Calls` 层。修法：Calls 层返回 void，
+公开表面方法转发后 `return this`；只有公开表面（实例方法）里出现 `this`。
+
+五、豁免判据双向红绿（实跑）
+  正常：python Tools/CodeGen/check_bindings.py --product-dir <产物> --self-test-exemption
+    → `自返回豁免自检：4 例 / 问题 0 处`，退出码 0
+  把豁免写宽成"任何返回值都豁免"（内存里替换 is_self_return，不改文件）：
+    → `自返回豁免自检：4 例 / 问题 2 处`
+      IBindRow09 + `castl::shared_ptr<BindScalarThing>` 期望 不豁免，实际 豁免
+      IBindRow09 + `uint32_t` 期望 不豁免，实际 豁免
+    → 退出码 1（防豁免过界成立）
+
+六、绿轮（主 agent 代跑）
+构建：python build.py --config Debug；日志 evidence/2.2-绿色构建日志.txt
+  退出码 0；BUILD SUCCESSFUL；无 error C / LNK / error CS
+  (CMake 配置输入变了：Test\CoreTests\CMakeLists.txt —— 重新 configure)
+  [4/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNativeShapesTest.cpp.obj
+  夹具接口 30 个、桩数 3 个、丢返回值 0 个（桩只打印，丢返回值参与判定）
+  原生形态夹具问题 0 处 / 覆盖率问题 0 处 / 不符数 0
+  [耗时] configure 11.6s / codegen 1.4s / 编译 6.2s / 托管侧 2.8s / 合计 44.9s
+CoreTests：退出码 0，`Bindings native shapes test PASSED`；全量 PASSED、无 FAILED。
+  日志 evidence/2.2-CoreTests日志.txt
+  断言内容：非纯虚 virtual 读到接口实现体（7）；非虚公开方法 GetDoubled 读到
+  GetCounter()*2（18）；自返回链式两次调用原生计数 9+3+4=16、顺序 [3,4]；
+  以及 static_assert：`IBindNativeShape_ChainAdd` 的 C ABI 类型必须是 `void (*)(void*, uint32_t)`。
+产物逐字节基线：缺失 0 / 不一致 0 / 多余 0（退出码 0；本批新夹具产物已在允许新增清单里）。
+
+七、模板方法不进产物
+`IBindNativeShape.Bindings.cpp` / `.cs` 里 `GetAs` 出现 0 次（check_native_shapes 的缺席判据
+逐字检查，绿轮 0 问题）。
+
+八、CMake 接线（为让新 CoreTests 文件进链接）
+`Test/CoreTests/CMakeLists.txt` 的两条 `file(GLOB_RECURSE ...)` 加 `CONFIGURE_DEPENDS`：
+新增 .cpp 时下一轮构建自动重配、把 `BindingsNativeShapesTest.cpp` 收进源清单（实测日志
+出现 `CMake 配置输入变了：Test\CoreTests\CMakeLists.txt —— 重新 configure`，随后编到该 .obj）。
+
+结论：2.2 验收（先红后绿、真实计数、链式顺序、C ABI void、豁免双向）满足。

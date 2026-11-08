@@ -1,0 +1,28 @@
+GPUBackendTester.exe : mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+At line:1 char:164
++ ... 'Continue'; & "out\build\x64-debug\bin\GPUBackendTester.exe" --list * ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (mimalloc-redire...er ucrtbase.dll:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  (hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+[38;2;128;128;128mRegister Module Factory: class catimer::TimerSystem - CATimer
+[0m[38;2;128;128;128mRegister Module Factory: class imgui_display::IMGUIContext - IMGUIContext
+[0mAvailable tests:
+  TestSimpleTriangle
+  TestTriangleWithConstantColor
+  TestTriangleWithStructuredBufferColor
+  TestTriangleWithImageBuffer
+  TestDoublePass
+  TestComputeBuffer
+  TestReadback
+  TestIMGUI
+  TestScriptHost
+  TestCSharpWindow
+  TestCSharpTriangle
+  TestCSharpWindowCallbacks
+  TestGPUTiming
+  TestCSharpConstantColor
+  TestCSharpStructuredBuffer
+  TestCSharpTextureSampling

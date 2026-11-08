@@ -126,7 +126,7 @@ def read_generated(product_dir: Path) -> dict[str, str]:
     return found
 
 
-CPP_SYMBOL_RE = re.compile(r'extern\s+"C"\s+[^;{]*?\b(\w+)_(\w+)\s*\([^;{]*;', re.S)
+CPP_SYMBOL_RE = re.compile(r'extern\s+"C"\s+[^;{]*?\b(\w+?)_(\w+)\s*\([^;{]*;', re.S)
 CS_MEMBER_RE = re.compile(r"public static delegate\* unmanaged<.*>\s*(\w+)\s*;")
 COMPANION_SUFFIXES = ("Len", "Count", "GetApi")
 COMPANION_PREFIXES = ("Copy", "Release", "Resolve", "LastError")
@@ -153,24 +153,46 @@ def is_registry_product(path: Path) -> bool:
     return path.name in REGISTRY_PRODUCT_NAMES
 
 
-# ---- 登记表编号对账表（render-interface-merge 任务 1.3 / 2.1）----
-# 编号的唯一来源是接口头上的 `CA_BIND(编号)` 标注；这张表是**判据侧的期望**，改号 / 删号 / 换序
-# 必须在这里显式改并重跑，生成物与它不一致即非零退出并点名差异。
-# 主登记表的期望（真实接口 1–7）：
-EXPECTED_BINDING_NUMBERS = {
-    1: "cawindow::IWindow",
-    2: "cawindow::IWindowSystem",
-    3: "graphics_backend::IScriptRenderBackend",
-    4: "graphics_backend::IScriptRenderGraph",
-    5: "graphics_backend::IScriptRenderTarget",
-    6: "graphics_backend::IScriptShaderStruct",
-    7: "graphics_backend::IScriptTexture",
-}
-# 夹具登记表（`codegen/bindings/fixture`）的期望（夹具专用号段 8/9，不进真实宿主）：
-FIXTURE_BINDING_NUMBERS = {
-    8: "ca_bind_fixture::IBindRegistry8",
-    9: "ca_bind_fixture::IBindRegistry9",
-}
+# ---- 编号锁文件（codegen-native-binding-prereqs 任务 1.3）----
+# 编号的唯一来源是入库锁文件 `Tools/CodeGen/interface-ids.lock`：本脚本不再保留手抄编号表。
+# 锁缺失 / 格式不对 = 判据自身失效（退出 2）；锁与产物对不上 = 发现差异（退出 1）。
+LOCK_FILE = HERE / "interface-ids.lock"
+
+
+def read_lock_scope(scope: str) -> dict[int, str]:
+    """读锁文件里指定段的 {编号: 完整限定名}；格式不对抛 ValueError（调用方按退出 2 处理）。"""
+    if not LOCK_FILE.is_file():
+        raise ValueError(f"找不到编号锁文件：{LOCK_FILE}")
+    numbers: dict[int, str] = {}
+    current: str | None = None
+    for line in LOCK_FILE.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+        text = line.rstrip()
+        if not text.strip():
+            continue
+        if text.startswith("# scope "):
+            current = text[len("# scope "):].strip()
+            continue
+        if text.lstrip().startswith("#"):
+            continue
+        fields = text.split("\t")
+        if len(fields) != 4:
+            raise ValueError(f"锁文件数据行不是四列（编号、短名、完整限定名、头路径）：{text!r}")
+        if current != scope:
+            continue
+        try:
+            number = int(fields[0])
+        except ValueError as error:
+            raise ValueError(f"锁文件里的编号不是整数：{text!r}") from error
+        if number <= 0:
+            raise ValueError(f"锁文件里的编号不是正整数：{text!r}")
+        if number in numbers:
+            raise ValueError(f"锁文件段 {scope} 有重复编号 {number}")
+        numbers[number] = fields[2]
+    if not numbers:
+        raise ValueError(f"锁文件里没有段 {scope} 的数据行")
+    return numbers
+
+
 # `EngineApi` 的 14 个字段（C++ 名 / C# 名，顺序就是 ABI）。两侧必须逐字段同序。
 ENGINE_API_FIELD_PAIRS = [
     ("abi_version", "AbiVersion"),
@@ -215,6 +237,43 @@ ENGINE_API_FIELD_DECLARATIONS = [
 # 多个接口使用时只发一份。接口判据（check_surface / check_alignment 第二层）必须跳过它们，
 # 由下面这份逐项内容判据接管 —— 否则「没有 IDisposable 表面类」会把它们全判红。
 SHARED_VALUE_TYPES = {
+    # codegen-native-binding-prereqs 任务 3.2：序列化块记录与容器元素记录
+    "PassLike": [
+        "public sealed class PassLike",
+        "public PassAttachment[] m_Attachments;",
+        "public EPassMode[] m_Modes;",
+        "public string m_Name;",
+        "public uint m_PrivateCount;",
+        "internal static class PassLikeCodec",
+        "public const uint FormatVersion = 1u;",
+        "public static byte[] Serialize(PassLike value)",
+    ],
+    "PassAttachment": [
+        "public struct PassAttachment",
+        "public uint index;",
+        "public float weight;",
+    ],
+    "EPassMode": [
+        "public enum EPassMode : ushort",
+        "Fill = 0,",
+        "Wire = 1,",
+    ],
+    # codegen-native-binding-prereqs 任务 3.1：资源引用值类的共享托管类型
+    "NativeResourceRef": [
+        "public sealed class NativeResourceRef",
+        "internal readonly uint Kind;",
+        "internal readonly ulong Handle;",
+        "internal readonly string Name;",
+        "public static NativeResourceRef FromBindNativeShape(IBindNativeShape value)",
+        "public static NativeResourceRef FromName(string name)",
+    ],
+    # codegen-native-binding-prereqs 任务 2.3：静态工厂返回的纯标量记录（本批新增）
+    "NativeCount": [
+        "[StructLayout(LayoutKind.Sequential)]",
+        "public struct NativeCount",
+        "public uint calls;",
+        "public uint lastValue;",
+    ],
     # 渲染基础夹具（本 change 新增）
     "RenderDesc": [
         "[StructLayout(LayoutKind.Sequential)]",
@@ -340,7 +399,7 @@ SHARED_VALUE_TYPES = {
 
 # 允许在共享公开记录里出现 `ulong` 的类型（逐项登记，不是整体取消）。
 # 判据要求：只允许**记录字段**里的 `uint64_t` 投影；接口方法里的句柄 `ulong` 仍由 check_surface 拒绝。
-SHARED_TYPES_ALLOW_ULONG = {"GPUBufferDescriptor"}
+SHARED_TYPES_ALLOW_ULONG = {"GPUBufferDescriptor", "NativeResourceRef", "PassLike"}
 
 
 REQUIRED_FIXTURE_INTERFACES = {
@@ -358,6 +417,9 @@ REQUIRED_FIXTURE_INTERFACES = {
     "IRejectWrapperNested",
     "IRejectWeakParam",
     "IRejectUnregisteredReturn",
+    # codegen-native-binding-prereqs 任务 2.1：原生形态夹具（不进真实宿主登记表）。
+    "IBindNativeShape",
+    "BindNativeObject",
 }
 
 
@@ -449,6 +511,183 @@ def check_shared_value_types(product_dir: Path) -> list[str]:
         if stem not in SHARED_VALUE_TYPES:
             problems.append(f"  {stem}：只有 .Bindings.cs 没有 .Bindings.cpp，"
                             f"但它不是登记过的共享值类型")
+    return problems
+
+
+def check_native_shapes(product_dir: Path) -> list[str]:
+    """原生形态夹具的产物文本判据（codegen-native-binding-prereqs 任务 2.2）。
+
+    为什么用文本判据：这些断言的是"C ABI 槽存在且形状对、托管表面逐字对"，
+    不需要真的起托管运行时；tester 用例数固定 16 条，不新增用例。
+    每加一条能力（2.2 / 2.3 / 2.4 / 3.x），这里就加对应的逐字行 —— 判据先红后绿。
+    """
+    problems: list[str] = []
+    cpp_path = product_dir / "IBindNativeShape.Bindings.cpp"
+    cs_path = product_dir / "IBindNativeShape.Bindings.cs"
+    if not cpp_path.is_file():
+        problems.append("  IBindNativeShape：缺 IBindNativeShape.Bindings.cpp")
+        return problems
+    if not cs_path.is_file():
+        problems.append("  IBindNativeShape：缺 IBindNativeShape.Bindings.cs")
+        return problems
+    cpp = cpp_path.read_text(encoding="utf-8", errors="replace")
+    cs = cs_path.read_text(encoding="utf-8", errors="replace")
+    # 2.2：非纯虚 virtual / 非虚公开方法 / 自返回链式（C ABI 返回 void）。
+    c_abi_expected = [
+        'extern "C" uint32_t IBindNativeShape_GetCounter(void* self);',
+        'extern "C" void IBindNativeShape_SetCounter(void* self, uint32_t value);',
+        'extern "C" uint32_t IBindNativeShape_GetVirtualValue(void* self);',
+        'extern "C" uint32_t IBindNativeShape_GetDoubled(void* self);',
+        'extern "C" void IBindNativeShape_ChainAdd(void* self, uint32_t value);',
+    ]
+    cs_expected = [
+        "public uint GetCounter()",
+        "public void SetCounter(uint value)",
+        "public uint GetVirtualValue()",
+        "public uint GetDoubled()",
+        "public IBindNativeShape ChainAdd(uint value)",
+    ]
+    # 2.4：同名两签重载 → 第 1 槽保持现名、第 2 槽 `_2`；C# 出同名重载。
+    c_abi_expected += [
+        'extern "C" uint32_t IBindNativeShape_Overloaded(void* self, uint32_t value);',
+        'extern "C" uint32_t IBindNativeShape_Overloaded_2(void* self, uint32_t value, uint32_t add);',
+    ]
+    cs_expected += [
+        "public uint Overloaded(uint value)",
+        "public uint Overloaded(uint value, uint add)",
+    ]
+    # 2.3：纯标量记录静态工厂 + 默认构造 Create（句柄登记 + 配对释放 + 释放后调用抛异常）。
+    c_abi_expected += [
+        'extern "C" NativeCountC IBindNativeShape_MakeTally(void* self, uint32_t value);',
+    ]
+    cs_expected += [
+        "public NativeCount MakeTally(uint value)",
+    ]
+    # 3.1：资源引用值类作为参数过界（kind + 对象句柄 + 名称 ptr/len），托管表面收托管值类型。
+    c_abi_expected += [
+        'extern "C" void IBindNativeShape_ConsumeRef(void* self, uint32_t resourceRefKind, '
+        'uint64_t resourceRefHandle, uint8_t const* resourceRefName, uint64_t resourceRefNameLen, '
+        'uint32_t channel);',
+    ]
+    cs_expected += [
+        "public void ConsumeRef(NativeResourceRef resourceRef, uint channel)",
+    ]
+    for line in c_abi_expected:
+        if line not in cpp:
+            problems.append(f"  IBindNativeShape：C ABI 里没有 `{line}`")
+    for line in cs_expected:
+        if line not in cs:
+            problems.append(f"  IBindNativeShape：托管表面里没有 `{line}`")
+    # 3.1：值类自身的成员方法 MUST NOT 被采集成表面（只作参数过界）。
+    value_stem_used = False
+    for product in sorted(product_dir.glob("*.Bindings.cpp")):
+        if "NativeResourceRef_" in product.read_text(encoding="utf-8", errors="replace"):
+            value_stem_used = True
+            problems.append(f"  资源引用值类：{product.name} 里出现了 NativeResourceRef_ 方法槽"
+                            f"（值类成员方法不应被采集）")
+    value_cs_path = product_dir / "NativeResourceRef.Bindings.cs"
+    if not value_cs_path.is_file():
+        problems.append("  资源引用值类：缺 NativeResourceRef.Bindings.cs")
+    else:
+        value_cs = value_cs_path.read_text(encoding="utf-8", errors="replace")
+        for line in (
+            "public sealed class NativeResourceRef",
+            "public static NativeResourceRef FromBindNativeShape(IBindNativeShape value)",
+            "public static NativeResourceRef FromName(string name)",
+        ):
+            if line not in value_cs:
+                problems.append(f"  资源引用值类：托管值类型里没有 `{line}`")
+    # 3.2：序列化块记录（输入方向、块头三项与 C++ 同源；托管序列化器与镜像类型同文件）。
+    c_abi_expected += [
+        'extern "C" void IBindNativeShape_ConsumePass(void* self, uint8_t const* passBytes, '
+        'uint64_t passLen);',
+    ]
+    cs_expected += [
+        "public void ConsumePass(PassLike pass)",
+    ]
+    # 3.3：参数注入 —— C ABI 与托管表面都只有 token，没有 externalState。
+    c_abi_expected += [
+        'extern "C" void IBindNativeShape_SetInjectedPointer(void* self, uint32_t token);',
+    ]
+    cs_expected += [
+        "public void SetInjectedPointer(uint token)",
+    ]
+    for line in c_abi_expected:
+        if line not in cpp:
+            problems.append(f"  IBindNativeShape：C ABI 里没有 `{line}`")
+    for line in cs_expected:
+        if line not in cs:
+            problems.append(f"  IBindNativeShape：托管表面里没有 `{line}`")
+    for name, lines in (
+        ("PassLike", (
+            "public sealed class PassLike",
+            "internal static class PassLikeCodec",
+            "public const uint FormatVersion = 1u;",
+            "public const ulong TypeNameHash",
+            "public const ulong LayoutHash",
+            "writer.Write(1u);",
+            "writer.Write(TypeNameHash);",
+            "writer.Write(LayoutHash);",
+            "public static byte[] Serialize(PassLike value)",
+        )),
+        ("PassAttachment", (
+            "public struct PassAttachment",
+            "public uint index;",
+            "public float weight;",
+        )),
+    ):
+        path = product_dir / f"{name}.Bindings.cs"
+        if not path.is_file():
+            problems.append(f"  序列化块记录：缺 {name}.Bindings.cs")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for line in lines:
+            if line not in text:
+                problems.append(f"  序列化块记录 {name}：托管产物里没有 `{line}`")
+    codec_header = product_dir / "PassLike.BindingCodec.h"
+    if not codec_header.is_file():
+        problems.append("  序列化块记录：缺 PassLike.BindingCodec.h（C++ 反序列化入口）")
+    else:
+        codec_text = codec_header.read_text(encoding="utf-8", errors="replace")
+        for line in ("kTypeNameHash", "kLayoutHash", "kLayoutText", "static uint32_t Deserialize",
+                     "static void Serialize"):
+            if line not in codec_text:
+                problems.append(f"  序列化块记录 PassLike：C++ 编解码头里没有 `{line}`")
+    # ① 模板方法 MUST NOT 进产物（CA_BIND_SKIP 显式排除）；夹具头的 #include 行不算。
+    for name, text in (("C ABI", cpp), ("托管表面", cs)):
+        if "GetAs" in text:
+            problems.append(f"  IBindNativeShape：{name} 产物里出现了模板方法 GetAs（应被显式排除）")
+    # 2.3：Create 的托管行为以生成 .cs 逐字文本判据核（不新增 tester 用例）：
+    #   静态 Create 工厂、句柄租约、配对释放入口、已释放对象调用抛 ObjectDisposedException。
+    object_cs_path = product_dir / "BindNativeObject.Bindings.cs"
+    if not object_cs_path.is_file():
+        problems.append("  BindNativeObject：缺 BindNativeObject.Bindings.cs")
+        return problems
+    object_cs = object_cs_path.read_text(encoding="utf-8", errors="replace")
+    object_cpp_path = product_dir / "BindNativeObject.Bindings.cpp"
+    if not object_cpp_path.is_file():
+        problems.append("  BindNativeObject：缺 BindNativeObject.Bindings.cpp")
+        return problems
+    object_cpp = object_cpp_path.read_text(encoding="utf-8", errors="replace")
+    if 'extern "C" uint64_t BindNativeObject_Create(void* self);' not in object_cpp:
+        problems.append(
+            '  BindNativeObject：C ABI 里没有 `extern "C" uint64_t BindNativeObject_Create(void* self);`')
+    for line in (
+        "public static BindNativeObject Create()",
+        "Release = BindNativeObjectBindings.ReleaseHandle",
+        'if (lease.Disposed) { throw new ObjectDisposedException("BindNativeObject"); }',
+    ):
+        if line not in object_cs:
+            problems.append(f"  BindNativeObject：托管表面里没有 `{line}`")
+    # 3.3：注入钩子必须进注入片段（`<接口>.inject.part`，装配侧按这行核对；
+    # 有注入没钩子在生成期已经拒绝）。
+    inject_part = product_dir / "IBindNativeShape.inject.part"
+    if not inject_part.is_file():
+        problems.append("  参数注入：缺 IBindNativeShape.inject.part（钩子声明没有进注入片段）")
+    else:
+        inject_text = inject_part.read_text(encoding="utf-8", errors="replace")
+        if "# inject\tCAInject_IBindNativeShape_SetInjectedPointer_externalState" not in inject_text:
+            problems.append("  参数注入：注入片段里没有钩子行")
     return problems
 
 
@@ -600,8 +839,51 @@ def resolve_interface_header(product_text: str) -> Path | None:
     return None
 
 
-def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str], list[str]]:
-    """返回（真实接口数, 夹具接口数, 夹具桩数, 真实接口问题, 丢返回值问题, 结构问题）。"""
+def is_self_return(interface: str, declared: str) -> bool:
+    """`declarations` 里的返回拼写是不是"该接口自身的引用"（任务 2.2 的丢返回值豁免）。
+
+    识别口径（写死，不放宽）：末尾必须是 `&`；去掉末尾 `const` 后的短名必须等于接口名。
+    因此 `IBindNativeShape&` / `IBindNativeShape const&` 豁免；
+    `castl::shared_ptr<BindScalarThing>` / `uint32_t` 这类非自身引用仍然按"丢返回值"拒绝。
+    """
+    text = " ".join(declared.split())
+    if not text.endswith("&"):
+        return False
+    core = text[:-1].strip()
+    if core.endswith("const"):
+        core = core[:-len("const")].strip()
+    return core.rsplit("::", 1)[-1] == interface
+
+
+def self_test_self_return_exemption() -> int:
+    """豁免判据的自检（任务 2.2 的"防豁免过界"）。
+
+    为什么要有它：夹具里唯一的"投影成 void 但声明不是 void"的方法就是自返回链式方法，
+    没有第二个真实夹具能直接证明"把豁免写宽之后会漏掉非自身引用的丢返回值"。这里用
+    `is_self_return` 的两组输入做自检：写宽成"任何返回值都豁免"时，`IBindRow09` 的
+    `castl::shared_ptr<BindScalarThing>` 会被误判为豁免 ⇒ 自检立刻红。
+    """
+    cases = [
+        ("IBindNativeShape", "IBindNativeShape&", True),
+        ("IBindNativeShape", "IBindNativeShape const&", True),
+        ("IBindRow09", "castl::shared_ptr<BindScalarThing>", False),
+        ("IBindRow09", "uint32_t", False),
+    ]
+    problems: list[str] = []
+    for interface, declared, expected in cases:
+        actual = is_self_return(interface, declared)
+        if actual != expected:
+            problems.append(
+                f"  自返回豁免自检：{interface} + `{declared}` 期望 "
+                f"{'豁免' if expected else '不豁免'}，实际 {'豁免' if actual else '不豁免'}")
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    print(f"自返回豁免自检：{len(cases)} 例 / 问题 {len(problems)} 处")
+    return 1 if problems else 0
+
+
+def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str], list[str], list[str]]:
+    """返回（真实接口数, 夹具接口数, 夹具桩数, 真实接口问题, 丢返回值问题, 结构问题, 夹具丢返回值问题）。"""
     fixtures = fixture_interface_names()
     products = [path for path in sorted(product_dir.glob("*.Bindings.cpp"))
                 if not is_registry_product(path)]
@@ -610,6 +892,7 @@ def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str],
 
     real_problems: list[str] = []
     dropped_problems: list[str] = []
+    fixture_dropped: list[str] = []
     structure_problems: list[str] = []
     fixture_stubs = 0
 
@@ -646,15 +929,21 @@ def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str],
                 continue
             # 独立红条件（design D2 第 4 条）：投影成 void，而实现返回的不是 void ⇒ 调了但丢结果
             if projected_void and member in declarations and declarations[member] != "void":
+                if is_self_return(interface, declarations[member]):
+                    # 返回本类引用的链式方法：C ABI 就是 void（托管侧返回 this），不算丢返回值。
+                    continue
                 if is_real:
                     dropped_problems.append(
                         f"  {interface}::{member}：投影成 void，但实现返回 {declarations[member]}"
                         f" —— 调用了却把返回值丢掉")
                 else:
-                    fixture_stubs += 1
+                    # 夹具也判（任务 2.2）：自返回链式方法在豁免规则生效前会落进这里；豁免实现后 0 处。
+                    fixture_dropped.append(
+                        f"  {interface}::{member}：投影成 void，但实现返回 {declarations[member]}"
+                        f" —— 调用了却把返回值丢掉（夹具）")
 
     return len(real_names), len(products) - len(real_names), fixture_stubs, \
-        real_problems, dropped_problems, structure_problems
+        real_problems, dropped_problems, structure_problems, fixture_dropped
 
 
 def check_coverage(product_dir: Path, signatures: list[tuple[str, str]]) -> list[str]:
@@ -752,6 +1041,10 @@ def check_alignment(product_dir: Path) -> list[str]:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for interface, method in CPP_SYMBOL_RE.findall(text):
+            # 注入钩子（`CAInject_<类>_<方法>_<参数>`）不是接口槽：extern "C" 声明进产物只为
+            # thunk 可见性，不参与"C++ 槽 ↔ C# 字段"的两侧对齐。
+            if interface == "CAInject":
+                continue
             if is_generic(interface, method):
                 continue
             cpp_pairs.setdefault(interface, []).append(method)
@@ -1118,7 +1411,10 @@ def check_render_bridge_surface(product_dir: Path) -> list[str]:
 
 ERROR_CODE_TABLE = {1001: "STALE_HANDLE", 1002: "NULL_POINTER",
                     1003: "CALLBACK_EXCEPTION", 1004: "CALLBACK_REENTRANT",
-                    1005: "CALLBACK_WRONG_THREAD", 1006: "INVALID_MONITOR"}
+                    1005: "CALLBACK_WRONG_THREAD", 1006: "INVALID_MONITOR",
+                    # codegen-native-binding-prereqs 任务 3.2：序列化块四项
+                    1007: "BAD_BLOCK_VERSION", 1008: "BAD_BLOCK_TYPE",
+                    1009: "BAD_BLOCK_LAYOUT", 1010: "BAD_BLOCK_PAYLOAD"}
 ERROR_CONST_RE = re.compile(r"static const int32_t (\w+?)_ERROR_(\w+) = (\d+);")
 SET_ERROR_RE = re.compile(r"\w+_setError\(\s*[^,]+,\s*([A-Za-z_]\w*|\d+)\s*,")
 
@@ -1292,7 +1588,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="对拍绑定产物与期望签名")
     parser.add_argument("--product-dir", required=True,
                         help="生成物目录（<构建目录>/codegen/bindings）；必填，判据只认这一个来源")
+    parser.add_argument("--self-test-exemption", action="store_true",
+                        help="只跑自返回豁免判据的自检（不读产物）")
     args = parser.parse_args()
+    if args.self_test_exemption:
+        return self_test_self_return_exemption()
     product_dir = Path(args.product_dir)
     if not product_dir.is_absolute():
         product_dir = (Path.cwd() / product_dir)
@@ -1300,6 +1600,15 @@ def main() -> int:
 
     if not FIXTURE_HEADER.is_file():
         print(f"找不到夹具头：{FIXTURE_HEADER} —— 判据自身失效", file=sys.stderr)
+        return 2
+    if not LOCK_FILE.is_file():
+        print(f"找不到编号锁文件：{LOCK_FILE} —— 判据自身失效（编号唯一来源是锁文件）", file=sys.stderr)
+        return 2
+    try:
+        host_numbers = read_lock_scope("host")
+        fixture_numbers = read_lock_scope("fixture")
+    except ValueError as error:
+        print(f"{error} —— 判据自身失效", file=sys.stderr)
         return 2
     if not product_dir.is_dir():
         print(f"产物目录不存在：{product_dir} —— 判据自身失效"
@@ -1360,9 +1669,9 @@ def main() -> int:
         print(problem, file=sys.stderr)
     print(f"两侧对齐问题 {len(alignment_problems)} 处")
 
-    # ---- 结构桩判据（任务 1.3）：真实接口一个桩都不许有；夹具只打印 ----
-    real_count, fixture_count, fixture_stubs, stub_problems, dropped_problems, structure_problems = \
-        check_stubs(product_dir)
+    # ---- 结构桩判据（任务 1.3）：真实接口一个桩都不许有；夹具桩只打印，夹具丢返回值要判 ----
+    real_count, fixture_count, fixture_stubs, stub_problems, dropped_problems, structure_problems, \
+        fixture_dropped = check_stubs(product_dir)
     if real_count == 0:
         print("算不出真实接口 —— 判据自身失效（产物接口减去夹具头里声明的接口后是空集，"
               "「真实接口桩数为 0」会因此恒真）", file=sys.stderr)
@@ -1377,9 +1686,12 @@ def main() -> int:
         print(problem, file=sys.stderr)
     for problem in dropped_problems:
         print(problem, file=sys.stderr)
+    for problem in fixture_dropped:
+        print(problem, file=sys.stderr)
     print(f"真实接口桩数 {len(stub_problems)} / 丢返回值 {len(dropped_problems)} / "
           f"结构问题 {len(structure_problems)}")
-    print(f"夹具接口 {fixture_count} 个、桩数 {fixture_stubs} 个（只打印，不判定）")
+    print(f"夹具接口 {fixture_count} 个、桩数 {fixture_stubs} 个、丢返回值 {len(fixture_dropped)} 个"
+          f"（桩只打印，丢返回值参与判定）")
 
     # ---- 覆盖率下限（任务 1.4）：thunk 数必须等于期望文件里该接口的行数 ----
     coverage_problems = check_coverage(product_dir, signatures)
@@ -1427,6 +1739,12 @@ def main() -> int:
         print(problem, file=sys.stderr)
     print(f"渲染基础表面问题 {len(foundation_problems)} 处")
 
+    # ---- 原生形态夹具（本 change 任务 2.2 起逐步加判据）----
+    native_shape_problems = check_native_shapes(product_dir)
+    for problem in native_shape_problems:
+        print(problem, file=sys.stderr)
+    print(f"原生形态夹具问题 {len(native_shape_problems)} 处")
+
     # ---- 脚本渲染适配面的公开签名与 C ABI 形状（本 change 任务 4.2）----
     render_bridge_problems = check_render_bridge_surface(product_dir)
     for problem in render_bridge_problems:
@@ -1434,7 +1752,7 @@ def main() -> int:
     print(f"脚本渲染适配面问题 {len(render_bridge_problems)} 处")
 
     # ---- 登记表（本 change 任务 1.3）：编号对账 + EngineApi 两侧 14 字段 + v9 / 80 字节 ----
-    registry_problems = check_registry(product_dir, EXPECTED_BINDING_NUMBERS,
+    registry_problems = check_registry(product_dir, host_numbers,
                                        require_engine_api_ids=True, contiguous_from=1)
     for problem in registry_problems:
         print(problem, file=sys.stderr)
@@ -1442,7 +1760,7 @@ def main() -> int:
     fixture_registry_problems: list[str] = []
     fixture_registry_dir = product_dir / "fixture"
     if fixture_registry_dir.is_dir():
-        fixture_registry_problems = check_registry(fixture_registry_dir, FIXTURE_BINDING_NUMBERS,
+        fixture_registry_problems = check_registry(fixture_registry_dir, fixture_numbers,
                                                    require_engine_api_ids=False, contiguous_from=8)
         for problem in fixture_registry_problems:
             print(problem, file=sys.stderr)
@@ -1452,7 +1770,8 @@ def main() -> int:
                   or dropped_problems or structure_problems or coverage_problems or surface_problems
                   or matrix_problems or code_problems or shared_problems or foundation_problems
                   or qualified_problems or fixture_problems or render_bridge_problems
-                  or registry_problems or fixture_registry_problems)
+                  or registry_problems or fixture_registry_problems
+                  or fixture_dropped or native_shape_problems)
     return 1 if failed else 0
 
 

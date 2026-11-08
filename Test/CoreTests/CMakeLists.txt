@@ -1,8 +1,8 @@
 set(PROJECT_NAME CoreTests)
 project (${PROJECT_NAME})
 
-file(GLOB_RECURSE Source_List "*.cpp")
-file(GLOB_RECURSE Header_List "*.h")
+file(GLOB_RECURSE Source_List CONFIGURE_DEPENDS "*.cpp")
+file(GLOB_RECURSE Header_List CONFIGURE_DEPENDS "*.h")
 
 add_executable(${PROJECT_NAME} ${Header_List} ${Source_List})
 

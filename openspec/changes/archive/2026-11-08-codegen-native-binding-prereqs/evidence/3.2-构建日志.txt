@@ -1,0 +1,485 @@
+=== CascadedEngine Build Script (Python) ===
+  Visual Studio : C:\Program Files\Microsoft Visual Studio\18\Community
+  Config        : Debug (preset x64-debug)
+  Build dir     : E:\Projects\CascadedEngine\out\build\x64-debug
+  (CMake 配置输入都没动 —— 跳过 configure，要强制重配就加 --configure)
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+
+  cmake -S E:\Projects\CascadedEngine\Tools\CodeGen -B E:\Projects\CascadedEngine\out\build\codegen-tool -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=E:\Projects\CascadedEngine\out\build\x64-debug\bin
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: E:/Projects/CascadedEngine/out/build/codegen-tool
+
+
+  cmake --build E:\Projects\CascadedEngine\out\build\codegen-tool
+[1/2] Building CXX object CMakeFiles\CodeGen.dir\CodeGenMain.cpp.obj
+E:\Projects\CascadedEngine\Tools\CodeGen\CodeGenMain.cpp(10311): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\Tools\CodeGen\CodeGenMain.cpp(10501): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\Tools\CodeGen\CodeGenMain.cpp(10860): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+[2/2] Linking CXX executable E:\Projects\CascadedEngine\out\build\x64-debug\bin\CodeGen.exe
+
+  env 'Test/CoreTests': 24 compile unit(s), 28 include dir(s), 10 macro(s), 0 forced include(s)
+  env 'Interface/RenderInterface': 6 compile unit(s), 16 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  env 'D3D12RenderBackend': 23 compile unit(s), 21 include dir(s), 13 macro(s), 0 forced include(s)
+  env 'ShaderCompilerSlang': 2 compile unit(s), 16 include dir(s), 11 macro(s), 0 forced include(s)
+  env 'CACore': 7 compile unit(s), 7 include dir(s), 6 macro(s), 0 forced include(s)
+  env 'VulkanRenderBackendNew': 27 compile unit(s), 20 include dir(s), 11 macro(s), 0 forced include(s)
+  codegen: 并发 8 条（逻辑核 32，上限 8）
+  [1/77] EmitSample
+  [2/77] Kinds
+  [3/77] FriendLike
+  [4/77] NewRes
+  [5/77] RenderHashable
+  [6/77] Containers
+  [7/77] HasFloat
+  [8/77] Inner
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\Kinds.codegen.h (4524 B)
+  [9/77] Outer
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\FriendLike.codegen.h (4518 B)
+  [10/77] FixedArrays
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\EmitSample.codegen.h (4312 B)
+  [11/77] RasterizerStates
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\Containers.codegen.h (12251 B)
+  [12/77] DepthStencilStates
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\Inner.codegen.h (3757 B)
+  [13/77] StencilStates
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\HasFloat.codegen.h (3443 B)
+  [14/77] SingleColorAttachmentBlendStates
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\Outer.codegen.h (3618 B)
+  [15/77] ColorAttachmentsBlendStates
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\FixedArrays.codegen.h (4365 B)
+  [16/77] CPipelineStateObject
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\NewRes.codegen.h (4011 B)
+  [17/77] VertexAttribute
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\RenderHashable.codegen.h (3842 B)
+  [18/77] VertexInputsDescriptor
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\RasterizerStates.codegen.h (5260 B)
+  [19/77] ResourceHandleKeyData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\SingleColorAttachmentBlendStates.codegen.h (6554 B)
+  [20/77] InputAssemblyStates
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\DepthStencilStates.codegen.h (5407 B)
+  [21/77] RectSate
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\StencilStates.codegen.h (5765 B)
+  [22/77] TextureSamplerDescriptor
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\CPipelineStateObject.codegen.h (4660 B)
+  [23/77] ShaderInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\ColorAttachmentsBlendStates.codegen.h (3826 B)
+  [24/77] ViewRectData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\VertexAttribute.codegen.h (4374 B)
+  [25/77] GPUPipelineStateKey
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\VertexInputsDescriptor.codegen.h (4328 B)
+  [26/77] VertexInputBindingData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\ResourceHandleKeyData.codegen.h (4348 B)
+  [27/77] InputElementDesc
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\InputAssemblyStates.codegen.h (3349 B)
+  [28/77] UniformElement
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\TextureSamplerDescriptor.codegen.h (6666 B)
+  [29/77] ShaderStructUniforms
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\RectSate.codegen.h (4075 B)
+  [30/77] BufferData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\ShaderInfo.codegen.h (3204 B)
+  [31/77] ShaderTextureData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\ViewRectData.codegen.h (4425 B)
+  [32/77] SubStructReference
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\UniformElement.codegen.h (5578 B)
+  [33/77] ShaderStructData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\BufferData.codegen.h (4289 B)
+  [34/77] ShaderResourceBinding
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderStructUniforms.codegen.h (4676 B)
+  [35/77] ShaderBindingHierarchy
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderTextureData.codegen.h (4401 B)
+  [36/77] ShaderSpaceResourceStats
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\GPUPipelineStateKey.codegen.h (6152 B)
+  [37/77] BindingDesc
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\VertexInputBindingData.codegen.h (4740 B)
+  [38/77] BufferBindingDesc
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\SubStructReference.codegen.h (5696 B)
+  [39/77] ShaderSpaceInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\InputElementDesc.codegen.h (6482 B)
+  [40/77] ShaderBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderBindingHierarchy.codegen.h (7572 B)
+  [41/77] UniformGroup
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderResourceBinding.codegen.h (6458 B)
+  [42/77] UniformBufferData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderStructData.codegen.h (6693 B)
+  [43/77] ShaderResourceGroups
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderSpaceResourceStats.codegen.h (10697 B)
+  [44/77] TextureData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\BindingDesc.codegen.h (4315 B)
+  [45/77] SamplerData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\BufferBindingDesc.codegen.h (4827 B)
+  [46/77] ShaderBufferData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderSpaceInfo.codegen.h (4455 B)
+  [47/77] ShaderBindingSpaceData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderBindingInfo.codegen.h (5073 B)
+  [48/77] ShaderVertexAttributeData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\UniformGroup.codegen.h (6476 B)
+  [49/77] ShaderReflectionData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\UniformBufferData.codegen.h (4252 B)
+  [50/77] ShaderProgramData
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderResourceGroups.codegen.h (6180 B)
+  [51/77] ShaderCompileTargetResult
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\TextureData.codegen.h (4828 B)
+  [52/77] result_type
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\CACore\result_type.codegen.h (3689 B)
+  [53/77] ShaderLibrary
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\SamplerData.codegen.h (4453 B)
+  [54/77] VulkanShaderCode
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderBufferData.codegen.h (4913 B)
+  [55/77] VulkanShaderFileInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderBindingSpaceData.codegen.h (6950 B)
+  [56/77] ProgramInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderVertexAttributeData.codegen.h (5301 B)
+  [57/77] VulkanShaderResourceBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderReflectionData.codegen.h (5994 B)
+  [58/77] VulkanDescriptorSetLayoutInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderCompileTargetResult.codegen.h (5244 B)
+  [59/77] VulkanDescriptorBinding
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\ShaderCompilerSlang\ShaderProgramData.codegen.h (4775 B)
+  [60/77] VulkanCBufferBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\ShaderLibrary.codegen.h (6854 B)
+  [61/77] VulkanImageBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanShaderCode.codegen.h (4156 B)
+  [62/77] VulkanBufferBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanShaderFileInfo.codegen.h (5263 B)
+  [63/77] VulkanSamplerBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\ProgramInfo.codegen.h (4681 B)
+  [64/77] VulkanStructBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanShaderResourceBindingInfo.codegen.h (8360 B)
+  [65/77] ShaderLibrary
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanDescriptorSetLayoutInfo.codegen.h (4364 B)
+  [66/77] ShaderSourceKey
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanDescriptorBinding.codegen.h (4867 B)
+  [67/77] CBufferBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanCBufferBindingInfo.codegen.h (5266 B)
+  [68/77] ImageBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\ShaderLibrary.codegen.h (6830 B)
+  [69/77] BufferBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\ShaderSourceKey.codegen.h (3913 B)
+  [70/77] SamplerBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\CBufferBindingInfo.codegen.h (5545 B)
+  [71/77] StructBindingInfos
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\ImageBindingInfo.codegen.h (6336 B)
+  [72/77] ShaderResourceBindingInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\BufferBindingInfo.codegen.h (6364 B)
+  [73/77] ShaderFileInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanImageBindingInfo.codegen.h (6071 B)
+  [74/77] ProgramInfo
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanBufferBindingInfo.codegen.h (6098 B)
+  [75/77] ShaderCode
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanStructBindingInfo.codegen.h (7330 B)
+  [76/77] Holder
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\VulkanRenderBackendNew\VulkanSamplerBindingInfo.codegen.h (5273 B)
+  [77/77] GPUBufferDescriptor
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\SamplerBindingInfo.codegen.h (5552 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\StructBindingInfos.codegen.h (7225 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\ShaderResourceBindingInfo.codegen.h (8817 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\CACore\Holder.codegen.h (4711 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Interface_RenderInterface\GPUBufferDescriptor.codegen.h (3932 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\ShaderFileInfo.codegen.h (5149 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\ShaderCode.codegen.h (4476 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\D3D12RenderBackend\ProgramInfo.codegen.h (4585 B)
+  codegen: 重跑 77 条、跳过 0 条（输入没变的那些）
+  [绑定清单] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h：2 个接口
+  [绑定清单] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h：22 个接口
+  [绑定清单] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h：2 个接口
+  [绑定清单] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h：1 个接口
+  [绑定清单] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h：2 个接口
+  [绑定清单] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h：1 个接口
+  [绑定清单] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h：5 个接口
+  [绑定清单] 夹具 NativeShapes ← Tools/CodeGen/BindableShapes.NativeShapes.h：2 个接口
+  [绑定] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h
+    [绑定] 产物：IWindow, IWindowSystem
+  [绑定] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h
+    [绑定] 产物：IBindRow01, IBindRow02, IBindRow09
+  [绑定] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h
+    [绑定] 产物：IBindRegistry8, IBindRegistry9
+  [绑定] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h
+    [绑定] 产物：IBindFoundation
+  [绑定] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h
+    [绑定] 产物：IBindRenderResource, IBindRenderResourceAlt
+  [绑定] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h
+    [绑定] 产物：IBindRenderOwner
+  [绑定] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h
+    [绑定] 产物：IScriptTexture, IScriptRenderTarget, IScriptRenderGraph, IScriptRenderBackend, IScriptShaderStruct
+  [绑定] 夹具 NativeShapes ← Tools/CodeGen/BindableShapes.NativeShapes.h
+    [绑定] 产物：IBindNativeShape, BindNativeObject
+  [登记表] 主登记表 ← 2 个输入
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.h
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.cpp
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/EngineApi.Bindings.cs
+  [登记表] 登记表（fixture） ← 1 个输入
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/BindingRegistry.Bindings.h
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/BindingRegistry.Bindings.cpp
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/EngineApi.Bindings.cs
+  [绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    矩阵行数 23 / 有夹具的行数 23 / 真实接口行 7 / 签名行 92 / 非签名行（拒绝或错误码）0
+    不符数 0
+    两侧对齐问题 0 处
+    被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IScriptTexture, IWindow, IWindowSystem
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    夹具接口 30 个、桩数 5 个、丢返回值 0 个（桩只打印，丢返回值参与判定）
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    第二张矩阵问题 0 处
+    错误码问题 0 处
+    共享值类型问题 0 处
+    共享值类型限定名问题 0 处
+    夹具识别问题 0 处
+    渲染基础表面问题 0 处
+    原生形态夹具问题 0 处
+    脚本渲染适配面问题 0 处
+    登记表问题 0 处
+    夹具登记表问题 0 处
+
+============================================================
+[2/2] Building all targets...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug
+[0/2] Re-checking globbed directories...
+[1/93] Building CXX object Interface\RenderInterface\CMakeFiles\Rendering.dir\private\TestContainerAssertions.cpp.obj
+[2/93] Building CXX object Interface\RenderInterface\CMakeFiles\Rendering.dir\private\GPUBufferDescriptorReflection.cpp.obj
+[3/93] Building CXX object CACore\CMakeFiles\CACore.dir\private\TestWrapperAssertions.cpp.obj
+[4/93] Linking CXX static library lib\CACore.lib
+[5/93] Building CXX object Interface\RenderInterface\CMakeFiles\RenderThreadData.dir\private\ThreadData.cpp.obj
+[6/93] Linking CXX static library lib\RenderThreadData.lib
+[7/93] Building CXX object ShaderCompilerSlang\CMakeFiles\ShaderCompilerSlang.dir\private\ShaderStructsCodeGenAssertions.cpp.obj
+[8/93] Building CXX object Interface\RenderInterface\CMakeFiles\Rendering.dir\private\CPipelineStateObjectAssertions.cpp.obj
+[9/93] Building CXX object Interface\RenderInterface\CMakeFiles\ScriptRenderBridge.dir\private\ScriptRenderBridge.cpp.obj
+[10/93] Building CXX object ShaderCompilerSlang\CMakeFiles\ShaderCompilerSlang.dir\private\Compiler.cpp.obj
+E:\Projects\CascadedEngine\ShaderCompilerSlang\private\Compiler.cpp(2): warning C4005: 'NOMINMAX': macro redefinition
+E:\Projects\CascadedEngine\ShaderCompilerSlang\private\Compiler.cpp(2): note: 'NOMINMAX' previously declared on the command line
+E:\Projects\CascadedEngine\ShaderCompilerSlang\private\TestPrint.h(651): warning C4244: 'initializing': conversion from 'SlangUInt' to 'int', possible loss of data
+E:\Projects\CascadedEngine\ShaderCompilerSlang\private\Compiler.cpp(1409): warning C4244: 'initializing': conversion from 'SlangUInt' to 'int', possible loss of data
+E:\Projects\CascadedEngine\ShaderCompilerSlang\private\Compiler.cpp(1548): warning C4244: 'initializing': conversion from 'SlangUInt' to 'uint32_t', possible loss of data
+E:\Projects\CascadedEngine\ShaderCompilerSlang\private\Compiler.cpp(239) : warning C4715: 'ShaderCompilerSlang::Compiler_Impl::GetCategoryName': not all control paths return a value
+E:\Projects\CascadedEngine\ShaderCompilerSlang\private\Compiler.cpp(288) : warning C4715: 'ShaderCompilerSlang::Compiler_Impl::GetBindingTypeName': not all control paths return a value
+[11/93] Linking CXX static library lib\ScriptRenderBridge.lib
+[12/93] Linking CXX static library lib\Rendering.lib
+[13/93] Building CXX object CSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj
+[14/93] Building CXX object IMGUIContext\CMakeFiles\IMGUIContext.dir\IMGUIContext.cpp.obj
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(529): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(529): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(559): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(559): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(575): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(575): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(650): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(650): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(682): warning C4018: '<': signed/unsigned mismatch
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(776): warning C4018: '<': signed/unsigned mismatch
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\type_traits(1688): warning C4244: 'argument': conversion from '_Ty' to 'int', possible loss of data
+        with
+        [
+            _Ty=float
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\type_traits(1688): note: the template instantiation context (the oldest one first) is
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(519): note: see reference to function template instantiation 'std::function<void (cawindow::IWindow *,float,float)>::function<void(__cdecl &)(cawindow::IWindow *,int,int),0>(_Fx)' being compiled
+        with
+        [
+            _Fx=void (__cdecl &)(cawindow::IWindow *,int,int)
+        ]
+E:\Projects\CascadedEngine\IMGUIContext\IMGUIContext.cpp(519): note: see the first reference to 'std::function<void (cawindow::IWindow *,float,float)>::function' in 'imgui_display::IMGUIContext::Initialize'
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(1110): note: see reference to function template instantiation 'void std::_Func_class<_Ret,cawindow::IWindow *,float,float>::_Reset<void(__cdecl &)(cawindow::IWindow *,int,int)>(_Fx)' being compiled
+        with
+        [
+            _Ret=void,
+            _Fx=void (__cdecl &)(cawindow::IWindow *,int,int)
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(977): note: see reference to variable template 'const bool _Is_large<std::_Func_impl_no_alloc<void (__cdecl*)(cawindow::IWindow *,int,int),void,cawindow::IWindow *,float,float> >' being compiled
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(749): note: see reference to class template instantiation 'std::_Func_impl_no_alloc<void (__cdecl *)(cawindow::IWindow *,int,int),_Ret,cawindow::IWindow *,float,float>' being compiled
+        with
+        [
+            _Ret=void
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(881): note: while compiling class template member function '_Rx std::_Func_impl_no_alloc<void (__cdecl *)(cawindow::IWindow *,int,int),_Rx,cawindow::IWindow *,float,float>::_Do_call(cawindow::IWindow *&&,float &&,float &&)'
+        with
+        [
+            _Rx=void
+        ]
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\functional(883): note: see reference to function template instantiation 'void std::invoke<void(__cdecl *&)(cawindow::IWindow *,int,int),_Ty,float,float>(_Callable,_Ty1 &&,float &&,float &&) noexcept(false)' being compiled
+        with
+        [
+            _Ty=cawindow::IWindow *,
+            _Callable=void (__cdecl *&)(cawindow::IWindow *,int,int),
+            _Ty1=cawindow::IWindow *
+        ]
+[15/93] Linking CXX static library lib\IMGUIContext.lib
+[16/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanConstantBufferManager.cpp.obj
+[17/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanSamplerManager.cpp.obj
+[18/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ShaderLibrary\ShaderLibraryCodeGenAssertions.cpp.obj
+[19/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\DescriptorManagment\GPUDescriptorHeap.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\Utils\InterfaceTranslation.h(785) : warning C4715: 'graphics_backend::ETextureSamplerFilterModeToD3D12FilterType': not all control paths return a value
+[20/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ShaderLibrary\ShaderLibrary.cpp.obj
+[21/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ShaderLibrary\ShaderImporter_Vulkan.cpp.obj
+[22/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VMAImpl.cpp.obj
+[23/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUComputePipelineInstance.cpp.obj
+[24/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUPipelineInstance.cpp.obj
+[25/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanBuffer.cpp.obj
+[26/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUObjects\PipelineStatesObject.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUObjects\PipelineStatesObject.cpp(43): warning C4244: '=': conversion from 'float' to 'INT', possible loss of data
+[27/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjectManaging\PipelineLayoutManager.cpp.obj
+[28/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanMemoryManager.cpp.obj
+[29/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\PipelineLibrary\PipelineLibraryCache.cpp.obj
+[30/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanGraphLocalResourceManager.cpp.obj
+[31/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\Utils\VulkanSubobjectBase.cpp.obj
+[32/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanResourceBindingInstance.cpp.obj
+[33/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanPassRWState.cpp.obj
+[34/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanFrameManager.cpp.obj
+[35/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanShaderStruct.cpp.obj
+[36/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjectManaging\DescriptorSetLayoutManager.cpp.obj
+[37/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanTexture.cpp.obj
+[38/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\PipelineLibrary\VulkanPipelineLibrary.cpp.obj
+[39/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanCommandListManager.cpp.obj
+[40/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjectManaging\VertexInputStateManager.cpp.obj
+[41/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUResourceBindingInstance.cpp.obj
+[42/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanLinearMemoryManager.cpp.obj
+[43/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\ResourceManagement\VulkanResourceAliasing.cpp.obj
+[44/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsCrossInterfaceTest.cpp.obj
+[45/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\RenderBackend_Vulkan.cpp.obj
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(236): warning C4996: 'vk::DebugUtilsMessengerCreateInfoEXT::DebugUtilsMessengerCreateInfoEXT': This constructor is deprecated. Use the one taking function pointer types from the vk-namespace instead.
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(354): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(619): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(1127): warning C4834: discarding return value of function with [[nodiscard]] attribute
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\RenderBackend_Vulkan.cpp(1184): warning C4834: discarding return value of function with [[nodiscard]] attribute
+[46/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\GPUGraph\GPUGraphExecutor.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(706): warning C4244: 'argument': conversion from 'uint64_t' to 'uint32_t', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(1833): warning C4018: '<': signed/unsigned mismatch
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(1927): warning C4244: '=': conversion from 'UINT64' to 'UINT', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(1941): warning C4244: '=': conversion from 'UINT64' to 'UINT', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\GPUGraph\GPUGraphExecutor.cpp(2049): warning C4244: 'argument': conversion from 'UINT64' to 'HRESULT', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\Utils\InterfaceTranslation.h(845) : warning C4715: 'graphics_backend::EAttachmentStoreOpToD3D12RenderPassEndAccess': not all control paths return a value
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\Utils\InterfaceTranslation.h(834) : warning C4715: 'graphics_backend::EAttachmentLoadOpToD3D12RenderPassBeginAccess': not all control paths return a value
+[47/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\CommandListManager.cpp.obj
+[48/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenKindsTest.cpp.obj
+[49/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\EmitReflectionTest.cpp.obj
+[50/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\FriendLikeTest.cpp.obj
+[51/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedSerializerTest.cpp.obj
+[52/93] Linking CXX shared module bin\ThreadManager.dll
+[53/93] Linking CXX shared module bin\CAGeneralReourceSystem.dll
+[54/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\VulkanObjects\VulkanWindowHandle.cpp.obj
+E:\Projects\CascadedEngine\VulkanRenderBackendNew\private\VulkanObjects\VulkanWindowHandle.cpp(335): warning C4834: discarding return value of function with [[nodiscard]] attribute
+[55/93] Linking CXX shared module bin\WindowSystem.dll
+[56/93] Linking CXX shared module bin\IOManager_FS.dll
+[57/93] Building CXX object VulkanRenderBackendNew\CMakeFiles\VulkanRenderBackend.dir\private\GPUGraph\VulkanGraphExecutor.cpp.obj
+[58/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\RenderBackend_D3D12.cpp.obj
+[59/93] Linking CXX shared module bin\CSharpHost.dll
+[60/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedContainerTest.cpp.obj
+[61/93] Linking CXX shared module bin\ShaderCompilerSlang.dll; -E copy -t E:/Projects/CascadedEngine/out/build/x64-debug/bin E:/Projects/CascadedEngine/out/build/x64-debug/_deps/slang-src/bin/slang.dll;E:/Projects/CascadedEngine/out/build/x64-debug/bin/mimalloc-debug.dll;E:/Projects/CascadedEngine/out/build/x64-debug/bin/fmtd.dll
+[62/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsHandleTest.cpp.obj
+[63/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsCallbackTest.cpp.obj
+[64/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\WindowBindingsCompileTest.cpp.obj
+[65/93] Linking CXX shared module bin\VulkanRenderBackend.dll
+[66/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsGetApiTest.cpp.obj
+[67/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsLayoutTest.cpp.obj
+[68/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsWeakHandleTest.cpp.obj
+[69/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNestedLayoutTest.cpp.obj
+[70/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsRenderFoundationTest.cpp.obj
+[71/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNativeShapesTest.cpp.obj
+[72/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\ResourceBatchTest.cpp.obj
+[73/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedHashContainerTest.cpp.obj
+[74/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\PipelineStateObjectTest.cpp.obj
+[75/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ShaderLibrary\ShaderLibrary.cpp.obj
+[76/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ShaderLibrary\ShaderLibraryCodeGenAssertions.cpp.obj
+[77/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ShaderLibrary\ShaderImporter_D12.cpp.obj
+[78/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\FrameBoundResourceManager.cpp.obj
+[79/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\D3DBufferObject.cpp.obj
+[80/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\D3DImageObject.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\D3DImageObject.cpp(63) : warning C4172: returning address of local variable or temporary 
+[81/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\MemoryManager.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\MemoryManager.cpp(174): warning C4244: 'argument': conversion from 'const uint64_t' to 'uint32_t', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\MemoryManager.cpp(179): warning C4244: 'argument': conversion from 'const uint64_t' to 'uint32_t', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\MemoryManager.cpp(223): warning C4101: 'heapStats': unreferenced local variable
+[82/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ShaderLibrary\D3D12ShaderStruct.cpp.obj
+[83/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\ResourceManagment\GPUResourceStates.cpp.obj
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(292): warning C4996: 'std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\codecvt(34): note: see declaration of 'std::codecvt_utf8'
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(292): warning C4996: 'std::wstring_convert<std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>,wchar_t,std::allocator<wchar_t>,std::allocator<char>>': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xlocbuf(303): note: see declaration of 'std::wstring_convert'
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(320): warning C4996: 'std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\codecvt(34): note: see declaration of 'std::codecvt_utf8'
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(320): warning C4996: 'std::wstring_convert<std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>,wchar_t,std::allocator<wchar_t>,std::allocator<char>>': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\include\xlocbuf(303): note: see declaration of 'std::wstring_convert'
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(292): warning C4996: 'std::wstring_convert<std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>,wchar_t,std::allocator<wchar_t>,std::allocator<char>>::wstring_convert': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(301): warning C4996: 'std::wstring_convert<std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>,wchar_t,std::allocator<wchar_t>,std::allocator<char>>::from_bytes': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(320): warning C4996: 'std::wstring_convert<std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>,wchar_t,std::allocator<wchar_t>,std::allocator<char>>::wstring_convert': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(329): warning C4996: 'std::wstring_convert<std::codecvt_utf8<wchar_t,1114111,(std::codecvt_mode)0>,wchar_t,std::allocator<wchar_t>,std::allocator<char>>::from_bytes': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.) The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead. You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to suppress this warning.
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(649): warning C4244: 'argument': conversion from 'uint64_t' to 'uint32_t', possible loss of data
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(27) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(396) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(398) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(406) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(412) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(357) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(365) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(376) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(378) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(382) : warning C4172: returning address of local variable or temporary 
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(604) : warning C4715: 'graphics_backend::TextureResourceAllocationInfo::EnsureResourceView': not all control paths return a value
+E:\Projects\CascadedEngine\D3D12RenderBackend\private\ResourceManagment\GPUResourceStates.cpp(657) : warning C4172: returning address of local variable or temporary 
+[84/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\ScriptRenderBridgeTest.cpp.obj
+[85/93] Building CXX object Test\GPUBackendTester\CMakeFiles\GPUBackendTester.dir\Main.cpp.obj
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3807): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3808): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3812): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3816): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3824): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3825): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3826): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3827): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3828): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3829): warning C5056: operator '==': deprecated for array types
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3910): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3910): note: the template instantiation context (the oldest one first) is
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3983): note: see reference to function template instantiation 'bool main::<lambda_1>::operator ()<void(__cdecl *)(TestContext &)>(const char *,_T1) const' being compiled
+        with
+        [
+            _T1=void (__cdecl *)(TestContext &)
+        ]
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3916): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(3953): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+E:\Projects\CascadedEngine\Test\GPUBackendTester\Main.cpp(4100): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+[86/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\Utils\D3D12SubobjectBase.cpp.obj
+[87/93] Linking CXX executable bin\GPUBackendTester.exe
+[88/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\ShaderLibraryBytesTest.cpp.obj
+[89/93] Building CXX object D3D12RenderBackend\CMakeFiles\D3D12RenderBackend.dir\private\WindowContext.cpp.obj
+[90/93] Linking CXX shared module bin\D3D12RenderBackend.dll
+[91/93] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedHashTest.cpp.obj
+[92/93] Linking CXX executable bin\CoreTests.exe
+
+
+============================================================
+[托管侧] dotnet build -c Debug → E:\Projects\CascadedEngine\out\build\x64-debug\managed
+============================================================
+[托管侧] CascadedBindingDir = E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  生成的绑定：BindFloatRect.Bindings.cs、BindMonitorInfo.Bindings.cs、BindNativeObject.Bindings.cs、BindScalarThing.Bindings.cs、EBindMode.Bindings.cs、EngineApi.Bindings.cs、EPassMode.Bindings.cs、ERenderFlag.Bindings.cs、ERenderMode.Bindings.cs、ETextureSamplerAddressMode.Bindings.cs、ETextureSamplerBorderColor.Bindings.cs、ETextureSamplerFilterMode.Bindings.cs、FloatRect.Bindings.cs、GPUBufferDescriptor.Bindings.cs、IBindFoundation.Bindings.cs、IBindNativeShape.Bindings.cs、IBindRegistry8.Bindings.cs、IBindRegistry9.Bindings.cs、IBindRenderOwner.Bindings.cs、IBindRenderResource.Bindings.cs、IBindRenderResourceAlt.Bindings.cs、IBindRow01.Bindings.cs、IBindRow02.Bindings.cs、IBindRow03.Bindings.cs、IBindRow04.Bindings.cs、IBindRow05.Bindings.cs、IBindRow06.Bindings.cs、IBindRow07.Bindings.cs、IBindRow08.Bindings.cs、IBindRow09.Bindings.cs、IBindRow10.Bindings.cs、IBindRow11.Bindings.cs、IBindRow12.Bindings.cs、IBindRow13.Bindings.cs、IBindRow14.Bindings.cs、IBindRow15.Bindings.cs、IBindRow16.Bindings.cs、IBindRow17.Bindings.cs、IBindRow18.Bindings.cs、IBindRow19.Bindings.cs、IBindRow20.Bindings.cs、IBindRow21.Bindings.cs、IBindRow22.Bindings.cs、IScriptRenderBackend.Bindings.cs、IScriptRenderGraph.Bindings.cs、IScriptRenderTarget.Bindings.cs、IScriptShaderStruct.Bindings.cs、IScriptTexture.Bindings.cs、IWindow.Bindings.cs、IWindowSystem.Bindings.cs、MonitorInfo.Bindings.cs、NativeCount.Bindings.cs、NativeResourceRef.Bindings.cs、PassAttachment.Bindings.cs、PassLike.Bindings.cs、RenderDesc.Bindings.cs、RenderHashable.Bindings.cs、RenderNested.Bindings.cs、TextureSamplerDescriptor.Bindings.cs
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(166,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(195,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(196,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(1084,36): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+  Scripting.Managed -> E:\Projects\CascadedEngine\out\build\x64-debug\managed\Scripting.Managed.dll
+
+已成功生成。
+
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(166,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(195,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(196,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(1084,36): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+    4 个警告
+    0 个错误
+
+已用时间 00:00:01.40
+  [托管侧] 已拷到 E:\Projects\CascadedEngine\out\build\x64-debug\bin：Scripting.Managed.dll, Scripting.Managed.runtimeconfig.json, Scripting.Managed.deps.json
+
+  [耗时] configure 0.0s / codegen 58.3s / 编译 41.5s / 托管侧 1.8s / 合计 129.6s
+
+============================================================
+BUILD SUCCESSFUL
+============================================================

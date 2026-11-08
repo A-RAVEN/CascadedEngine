@@ -1,0 +1,93 @@
+1.2 锁文件与读锁（过渡态）+ --update-ids 正例真跑
+
+一、新建入库锁文件 Tools/CodeGen/interface-ids.lock
+形状：数据行四列（制表符分隔）= 编号、短名、完整限定名、头文件路径；段用 `# scope host` /
+`# scope fixture`，每段一条 `# high water`。初值逐字迁移现值：
+  host 段 1–7（IWindow、IWindowSystem、IScriptRenderBackend、IScriptRenderGraph、
+  IScriptRenderTarget、IScriptShaderStruct、IScriptTexture），水位行 `# high water 7`；
+  fixture 段 8–9（IBindRegistry8、IBindRegistry9），水位行 `# high water 9`。
+两段水位不同值（7 / 9），不是都写 9。
+
+二、生成器与 build.py 的改动（读锁，不写锁）
+  · CodeGenMain.cpp：新增锁解析/校验（段内编号唯一、从段起点连续、水位 ≥ 段内最大编号）、
+    `--id-lock`/`--id-scope` 两个参数、`--update-ids` 模式；`--emit-binding` 从锁取号写分片，
+    `--emit-registry` 核对"分片名集合 == 锁内该段名集合"（多一行 / 少一行 / 改号都点名）；
+  · build.py：CODEGEN_REGISTRIES 增加段名（host / fixture），登记输入传 `--id-lock`/`--id-scope`，
+    新增 `python build.py --update-ids` 入口（逐头转成 `CodeGen --update-ids`）。
+过渡态口径：无号标注按锁取号；带号标注必须与锁一致（1.4 才改成"带号即拒"）。
+
+三、过渡态构建（主 agent 代跑，退出码 0）
+命令：python build.py --config Debug
+日志：evidence/1.2-过渡态构建日志.txt（%TEMP%\cnbp-1.2-transition-build.log 原样转存）
+关键读数（逐字）：
+  [登记表] 主登记表 ← 2 个输入
+  [登记表] 登记表（fixture） ← 1 个输入
+  真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+  登记表问题 0 处
+  夹具登记表问题 0 处
+  BUILD SUCCESSFUL
+  [耗时] configure 0.0s / codegen 45.7s / 编译 49.9s / 托管侧 2.5s / 合计 125.4s
+CodeGen.exe 本轮真重编（日志有 [1/2] Building …CodeGenMain.cpp.obj、[2/2] Linking …CodeGen.exe）。
+构建后产物对账（证明换源后既有产物逐字节不变）：
+  python Tools/CodeGen/check_binding_baseline.py --baseline <基线> --product-dir out/build/x64-debug/codegen/bindings
+  → 基线对账：缺失 0 / 不一致 0 / 多余 0；退出码 0。
+
+四、红态一：锁删 IScriptTexture 行 ⇒ 构建非零点名（主 agent 代跑，退出码 1）
+改动：只删锁里 `7  IScriptTexture  graphics_backend::IScriptTexture  …ScriptRenderBridge.h` 一行。
+日志：evidence/1.2-红态锁删行构建日志.txt
+关键读数（CODEGEN FAILED 段逐字）：
+  CODEGEN FAILED (2) — the generated headers are not in the state this build expects
+    - 绑定 渲染适配 失败（exit 1）：… CodeGen: 拒绝登记 IScriptTexture —— 锁文件（段 host）里没有它的行。
+      新接口先跑 CodeGen --update-ids 发号，编号不许手填
+      CodeGen: --emit-binding 返回 1
+    - 主登记表汇总失败（exit 1）：CodeGen: 拒绝登记 —— 分片里有 IScriptTexture（编号 7），
+      锁文件（段 host）里没有它
+      CodeGen: --emit-registry 返回 1
+  末尾：CODEGEN FAILED (2) — build not reported as successful（退出码 1）
+还原：把该行原样插回；锁文件 sha256 回到 C7C959385796831548871F3417731FD03E605B8665AF51D06B5ECFD75250D14F。
+
+五、红态二：锁内段内重号 / 跳号 ⇒ 生成器非零（直接跑 CodeGen.exe，锁副本在 %TEMP%）
+（一）重号：把 IScriptRenderGraph 的编号 4 改成 3（与 IScriptRenderBackend 重号）
+  命令：CodeGen.exe WindowSystem/header/CAWindow/WindowSystem.h --emit-binding --out-dir <临时> …
+        --id-lock <临时副本> --id-scope host <构建同款 include> -xc++
+  读数（逐字）：`CodeGen: 拒绝登记 —— 锁文件的段 host 有重复编号 3：IScriptRenderGraph`
+               `CodeGen: --emit-binding 返回 1`；退出码 1
+（二）跳号：删掉 IScriptRenderGraph 的编号 4 那一行
+  读数（逐字）：`CodeGen: 拒绝登记 —— 锁文件的段 host 编号不连续：期望 4、实际 5（缺号 / 跳号）`
+               `CodeGen: --emit-binding 返回 1`；退出码 1
+两次都未产出分片（拒绝发生在写产物之前），正式锁文件未参与（用 %TEMP% 副本）。
+
+六、正例：--update-ids 真跑（夹具段临时登记一个新名）
+  ① 无增删试跑（正式头 + 正式锁）：`CodeGen: --update-ids 完成（段 fixture）：无增删`，退出码 0；
+     锁文件改前/改后 sha256 都是 C7C959…D14F，**字节一致 = True**（不产绑定、不改既有行）。
+  ② 主 agent 临时在 Tools/CodeGen/BindableShapes.RenderRegistry.h 追加：
+     CA_BIND()\nclass IBindRegistry10 { public: virtual uint32_t GetNumber() const = 0; virtual ~IBindRegistry10() = default; };
+  ③ 我跑：CodeGen.exe Tools/CodeGen/BindableShapes.RenderRegistry.h --update-ids
+     --lock Tools/CodeGen/interface-ids.lock --scope fixture <构建同款 include> -xc++
+     读数（逐字）：`CodeGen: --update-ids 完成（段 fixture）：` / `新增：编号 10 / IBindRegistry10`；退出码 0。
+     锁文件 fixture 段：`10  IBindRegistry10  ca_bind_fixture::IBindRegistry10  Tools/CodeGen/BindableShapes.RenderRegistry.h`
+     水位行：`# high water 10`。
+  ④ 其余行零 diff（实测）：
+       原锁 22 行 → 现锁 23 行；Compare-Object 只有三处差异：
+         => 10  IBindRegistry10  …
+         => # high water 10
+         <= # high water 9
+       去掉新增行与水位行后：原锁 21 行 / 现锁 21 行，逐行相等 = True。
+  ⑤ 三处消费点同号（生成到 %TEMP%\cnbp-1.2-positive，不碰正式产物）：
+       分片 fixture.registry.part：`10  IBindRegistry10  ca_bind_fixture::IBindRegistry10  …RenderRegistry.h`
+       C++ BindingRegistry.Bindings.h：`inline constexpr uint32_t kBindingInterfaceIdIBindRegistry10 = 10u;`
+       托管 EngineApi.Bindings.cs：`public const uint BindRegistry10InterfaceId = 10;`
+         （另有 `new InterfaceTable(BindRegistry10InterfaceId, "IBindRegistry10", IBindRegistry10Bindings.Bind),`）
+       同一轮 `--emit-registry` 读数：`登记：接口 3 个（8 = IBindRegistry8、9 = IBindRegistry9、10 = IBindRegistry10）`，退出码 0。
+  ⑥ 还原闭环：
+       主 agent 还原正式头：1392 字节 / 38 行 / sha256 0BD7C39348FE0A2FCEB8A8D9533BF1BCCC6EAAC597866AF1607BB81C3449AEEA，
+       git diff 空输出、IBindRegistry10 残留 0 处；我按备份还原锁文件：sha256 回到 C7C959…D14F。
+       还原后复绿：生成器整条链路 exit 0（`绑定：接口 2 个 / 方法 5 条 / 产物 2 个 / 拒绝 0 条`；
+       `登记：接口 2 个（8 = IBindRegistry8、9 = IBindRegistry9）`），基线对账 缺失 0 / 不一致 0 / 多余 0，exit 0。
+
+七、本步结束时现场
+  · 锁文件：host 1–7 / 水位 7，fixture 8–9 / 水位 9；sha256 C7C959…D14F（与备份一致）；
+  · 正式夹具头：与提交版本逐字节一致（git diff 空）；
+  · 产物目录：仍与基线逐字节一致（未被临时生成触碰）。
+
+结论：1.2 验收（红先、正例真跑、还原复绿）全部满足。

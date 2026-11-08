@@ -1,0 +1,24 @@
+4.2 检查家族（实跑）
+
+check_bindings exit=0
+check_binding_baseline exit=0
+check_native_snapshot exit=0
+check_bindable_audit exit=0
+check_legacy_symbols exit=0
+check_gpu_timing exit=0
+check_window exit=0
+check_csharp_host_failures exit=0
+check_csharp_host_readme exit=0
+verify_readme exit=0
+check_hash_sources exit=1
+check_csharp_triangle exit=0
+check_csharp_constant_color exit=0
+check_csharp_structured_buffer exit=0
+check_csharp_texture_sampling exit=0
+
+check_hash_sources 原文：
+扫描 289 个文件、命中 1 个来源不明的键类型
+  来源不明: remove_cvref_t（出现在 Test/CoreTests/GeneratedHashTest.cpp）
+例外 1 个（hash_source_exceptions.txt，逐条列出）：
+  PipelineStateDesc：例外：唯一的用户 PipelineStatesDic 是死代码；补它要连带 ShaderStateDescriptor / CRenderPassInfo / D3DVertexBindingSlot，另立改动（出现在 D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h）
+清单 75 个类型；键类型共 37 个

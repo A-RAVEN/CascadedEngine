@@ -76,6 +76,8 @@ bool RunBindingsRenderFoundationTest();
 // （csharp-render-backend-triangle 任务 1.1 / 2.1 / 2.2）。
 bool RunScriptRenderBridgeTest();
 bool RunWindowBindingsCompileTest();
+// 原生形态夹具：非纯虚 virtual / 非虚公开方法 / 自返回链式的原生行为（本 change 任务 2.2）
+bool RunBindingsNativeShapesTest();
 
 
 
@@ -204,6 +206,17 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("Script render bridge test PASSED");
+	}
+
+	// 原生形态夹具：非纯虚 virtual / 非虚公开方法 / 自返回链式（本 change 任务 2.2）
+	if (!RunBindingsNativeShapesTest())
+	{
+		std::puts("Bindings native shapes test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings native shapes test PASSED");
 	}
 
 	if (!RunTypeRegistryTest())

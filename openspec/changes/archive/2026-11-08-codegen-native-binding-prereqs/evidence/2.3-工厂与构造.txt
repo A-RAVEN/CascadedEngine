@@ -1,0 +1,67 @@
+2.3 静态工厂（限纯标量记录返回）与构造 Create（D3）
+
+一、生成器改动（Tools/CodeGen/CodeGenMain.cpp）
+  1) 静态成员函数进采集（不再在 collectMethods 里过滤），标 `isStatic`。
+  2) 静态工厂的返回**只接纯标量记录**：`projectMethod` 对静态方法的返回类型做初步校验
+     （指针/标量/容器/文本/智能指针 ⇒ 拒绝"静态工厂只支持返回纯标量记录"），
+     返回值投影成 `<记录>C`。
+  3) 返回记录的成员在 run() 的镜像收集之前再核一次：成员里出现容器 / 文本（NameHash/PathHash）/
+     裸指针 / 智能指针 ⇒ 生成期非零拒绝，文本点名
+     "返回位置容器：静态工厂不得返回含容器/文本/句柄的记录（<记录>::<成员> 是非标量成员；
+      托管替代是镜像类型字段赋值；真实实例出现时立扩形状批）"。
+  4) 构造 Create：`collectCtorProbe` 记录"公开默认构造"与"是否有纯虚方法"；带公开默认构造的
+     **非抽象**类生成 `<类>_Create` 槽（new 一个对象、`_registerStrongHandle` 登记强句柄）、
+     进函数表；C# `Calls` 层出 internal 静态 Create（Create → ThrowIfFailed → ResolveHandle →
+     租约）；公开表面出 `public static <类> Create()`，本体只有 `new <类>(<类>Calls.Create())`
+     （指针/句柄不进 public 类型）；租约释放走 `ReleaseHandle`，已释放对象调用命中原有的
+     `if (lease.Disposed) { throw new ObjectDisposedException("<类>"); }`。
+
+二、判据改动（Tools/CodeGen/check_bindings.py）
+  · `check_native_shapes` 增加 2.3 逐字行：C++ `NativeCountC IBindNativeShape_MakeTally(void* self, uint32_t value)`；
+    托管 `public NativeCount MakeTally(uint value)`；对 BindNativeObject 产物检查
+    `extern "C" uint64_t BindNativeObject_Create(void* self);`、`public static BindNativeObject Create()`、
+    `Release = BindNativeObjectBindings.ReleaseHandle`、`ObjectDisposedException("BindNativeObject")` 行。
+  · `SHARED_VALUE_TYPES` 登记镜像记录 `NativeCount`（`[StructLayout]` + `public struct NativeCount`
+    + `public uint calls;` + `public uint lastValue;`），否则"只有 .cs 没有 .cpp"会被点名。
+  · expected 增加 6 行（IBindNativeShape 的 MakeTally、BindNativeObject 三个方法 + Create）。
+  · 夹具方法名从 `MakeCount` 改成 `MakeTally`：`check_coverage` 的 `is_companion` 旧口径把
+    "…Count" 结尾当伴生跳过，改名避开（判据本身不放松）。
+
+三、红态一：改造前产物缺 Create / MakeTally（check_bindings 对 2.2 产物单跑，退出码 1）
+读数（逐字）：
+  BindNativeObject：少了 BindNativeObject_Create（期望清单里有、产物里没有对应的 thunk）
+  IBindNativeShape：C ABI 里没有 `extern "C" NativeCountC IBindNativeShape_MakeCount(void* self, uint32_t value);`
+  IBindNativeShape：C ABI 里没有 `extern "C" uint64_t BindNativeObject_Create(void* self);`
+  IBindNativeShape：托管表面里没有 `public NativeCount MakeCount(uint value)`
+  IBindNativeShape：托管表面里没有 `public static BindNativeObject Create()`
+  BindNativeObject：托管表面里没有 `public static BindNativeObject Create()`
+  BindNativeObject：托管表面里没有 `Release = BindNativeObjectBindings.ReleaseHandle`
+  原生形态夹具问题 6 处；exit 1
+
+四、红态二：绿轮第一次构建失败（三处，均为我这轮引入的判据/测试缺陷）
+日志：%TEMP%\cnbp-2.3-green.log（现场已核，未入档为产品缺陷）
+  ① `IBindNativeShape：多了 IBindNativeShape_MakeCount`（伴生旧口径，见上）
+  ② `NativeCount：只有 .Bindings.cs 没有 .Bindings.cpp，但它不是登记过的共享值类型`
+  ③ `BindNativeObject：C ABI 里没有 extern "C" uint64_t BindNativeObject_Create(void* self);`
+     —— 这条行本身放错了文件（拿 IBindNativeShape 的 .cpp 找 BindNativeObject 的槽）
+  另有 CoreTests 编译错误：`'NativeCountC': is not a member of 'ca_bind_fixture'`
+     —— C 镜像类型在**全局作用域**，测试写错了命名空间。
+三处修完后重跑。
+
+五、绿轮（主 agent 代跑）
+构建：python build.py --config Debug；退出码 0；日志 evidence/2.3-构建日志.txt
+  不符数 0；覆盖率问题 0 处；共享值类型问题 0 处；原生形态夹具问题 0 处
+  夹具接口 30 个、桩数 5 个、丢返回值 0 个（桩只打印，丢返回值参与判定）
+  BUILD SUCCESSFUL；[耗时] configure 0.0s / codegen 6.9s / 编译 7.9s / 托管侧 1.4s / 合计 39.6s
+  [16/23] Building CXX object Test\CoreTests\...\BindingsNativeShapesTest.cpp.obj
+CoreTests：退出码 0；日志 evidence/2.3-CoreTests日志.txt
+  `Bindings native shapes test PASSED`；全日志 PASSED 23 行、FAILED 0 行；
+  `[原生形态] 失败` 与 `[拒绝夹具]` 0 命中。
+  2.3 断言：`IBindNativeShape_MakeTally` 返回的 NativeCountC 字段 calls=41 / lastValue=42；
+  `BindNativeObject_Create` 返回非零句柄 → ResolveHandle 得到对象 → SetValue(21) → GetValue=21、
+  DoubleValue=42 → ReleaseHandle → 旧句柄 ResolveHandle 返回空 + LastErrorCode=1001；
+  两条生成期拒绝探针：模板方法夹具非零点名 ① 模板、静态工厂返回容器夹具非零点名
+  `RejectContainerRecord` + 返回位置容器。
+产物基线：缺失 0 / 不一致 0 / 多余 0（NativeCount.Bindings.cs 已逐项登记进允许新增）。
+
+结论：2.3 验收（工厂进表、容器返回生成期拒绝、Create 槽 + 托管文本判据 + C++ 句柄表等价断言）满足。

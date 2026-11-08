@@ -1,0 +1,320 @@
+=== CascadedEngine Build Script (Python) ===
+  Visual Studio : C:\Program Files\Microsoft Visual Studio\18\Community
+  Config        : Debug (preset x64-debug)
+  Build dir     : E:\Projects\CascadedEngine\out\build\x64-debug
+  (CMake 配置输入变了：Test\CoreTests\CMakeLists.txt —— 重新 configure)
+============================================================
+[1/2] Configuring CMake...
+============================================================
+
+  cmake --preset x64-debug -DGIT_EXECUTABLE="C:/Program Files/Git/cmd/git.exe"
+-- CPM: Adding package glm@1.0.1 (1.0.1)
+CMake Deprecation Warning at out/build/x64-debug/_deps/glm-src/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+CMake Deprecation Warning at out/build/x64-debug/_deps/glm-src/CMakeLists.txt:2 (cmake_policy):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- GLM: Version 1.0.1
+-- GLM: Build with C++ features auto detection
+-- CPM: Adding package imgui@1.91.6-docking (v1.91.6-docking)
+-- Populating imgui
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: E:/Projects/CascadedEngine/out/build/x64-debug/_deps/imgui-subbuild
+[0/7] Performing update step for 'imgui-populate'
+-- Already at requested tag: v1.91.6-docking
+[1/7] No patch step for 'imgui-populate'
+[3/7] No configure step for 'imgui-populate'
+[4/7] No build step for 'imgui-populate'
+[5/7] No install step for 'imgui-populate'
+[6/7] No test step for 'imgui-populate'
+[7/7] Completed 'imgui-populate'
+-- CPM: Adding package assimp@5.4.3 (v5.4.3)
+-- Shared libraries enabled
+-- compiling zlib from sources
+-- tinyusdz disabled
+-- Enabled importer formats: AMF 3DS AC ASE ASSBIN B3D BVH COLLADA DXF CSM HMP IRRMESH IQM IRR LWO LWS M3D MD2 MD3 MD5 MDC MDL NFF NDO OFF OBJ OGRE OPENGEX PLY MS3D COB BLEND IFC XGL FBX Q3D Q3BSP RAW SIB SMD STL TERRAGEN 3D X X3D GLTF 3MF MMD
+-- Disabled importer formats: USD
+-- Enabled exporter formats: OBJ OPENGEX PLY 3DS ASSBIN ASSXML M3D COLLADA FBX STL X X3D GLTF 3MF PBRT ASSJSON STEP
+-- Disabled exporter formats:
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:885 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:886 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:887 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:888 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:889 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:890 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:891 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:892 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at out/build/x64-debug/_deps/assimp-src/CMakeLists.txt:893 (ADD_CUSTOM_COMMAND):
+  Exactly one of PRE_BUILD, PRE_LINK, or POST_BUILD must be given.  Assuming
+  POST_BUILD to preserve backward compatibility.
+
+  Policy CMP0175 is not set: add_custom_command() rejects invalid arguments.
+  Run "cmake --help-policy CMP0175" for policy details.  Use the cmake_policy
+  command to set the policy and suppress this warning.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- CPM: Adding package stb@ (master)
+-- Populating stb
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: E:/Projects/CascadedEngine/out/build/x64-debug/_deps/stb-subbuild
+[0/7] Performing update step for 'stb-populate'
+-- Fetching latest from the remote origin
+[1/7] No patch step for 'stb-populate'
+[3/7] No configure step for 'stb-populate'
+[4/7] No build step for 'stb-populate'
+[5/7] No install step for 'stb-populate'
+[6/7] No test step for 'stb-populate'
+[7/7] Completed 'stb-populate'
+-- CPM: Adding package JoltPhysics@5.2.0 (v5.2.0)
+-- CPM: Adding package fmt@11.1.3 (11.1.3)
+-- {fmt} version: 11.1.3
+-- Build type: Debug
+-- CPM: Adding package hash-library@ (hash_library_v8)
+-- CPM: Adding package komihash@5.10 (5.10)
+-- CPM: Adding package mimalloc@3.0.8 (v3.0.8)
+-- 
+-- Architecture: x64
+-- Override standard malloc (MI_OVERRIDE=ON)
+-- Use the C++ compiler to compile (MI_USE_CXX=ON)
+-- 
+-- Library name     : mimalloc-debug
+-- Version          : 3.0.8
+-- Build type       : debug
+-- C++ Compiler     : C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe
+-- Compiler flags   : /Zc:__cplusplus
+-- Compiler defines : MI_CMAKE_BUILD_TYPE=debug
+-- Link libraries   : psapi;shell32;user32;advapi32;bcrypt
+-- Build targets    : shared;static;object;tests
+-- 
+-- CPM: Adding package magic_enum@0.9.7 (v0.9.7)
+-- CA_SETUP_MODULE: target='IMGUIContext' _is_static_val='1'_type='STATIC_LIBRARY'
+-- CA_SETUP_MODULE: target='TimerSystem_Impl' _is_static_val='1'_type='STATIC_LIBRARY'
+-- CA_SETUP_MODULE: target='ThreadManager' _is_static_val='0'_type='MODULE_LIBRARY'
+-- CPM: Adding package glfw@3.4 (3.4)
+-- Including Win32 support
+-- CA_SETUP_MODULE: target='WindowSystem' _is_static_val='0'_type='MODULE_LIBRARY'
+-- CA_SETUP_MODULE: target='CAGeneralReourceSystem' _is_static_val='0'_type='MODULE_LIBRARY'
+-- CA_SETUP_MODULE: target='IOManager_FS' _is_static_val='0'_type='MODULE_LIBRARY'
+-- CPM: Adding package slang@2025.10 (2025.10)
+-- Populating slang
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: E:/Projects/CascadedEngine/out/build/x64-debug/_deps/slang-subbuild
+ninja: no work to do.
+-- CA_SETUP_MODULE: target='ShaderCompilerSlang' _is_static_val='0'_type='MODULE_LIBRARY'
+-- CSharpHost: nethost 取自 C:\Program Files/dotnet/packs/Microsoft.NETCore.App.Host.win-x64/10.0.2/runtimes/win-x64/native
+-- CA_SETUP_MODULE: target='CSharpHost' _is_static_val='0'_type='MODULE_LIBRARY'
+-- CPM: Adding package VulkanMemoryAllocator@3.1.0 (v3.1.0)
+-- CA_SETUP_MODULE: target='VulkanRenderBackend' _is_static_val='0'_type='MODULE_LIBRARY'
+-- CPM: Adding package D3D12MemoryAllocator@ (master)
+-- Could NOT find Doxygen (missing: DOXYGEN_EXECUTABLE) 
+-- D3D12MA_BUILD_SAMPLE = OFF
+-- DX12 Agility SDK not used.
+-- CPM: Adding package DirectXTex@ (mar2025)
+-- Using LegacyShaderCompiler found in C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/fxc.exe
+-- Build library as a DLL
+-- Building tools: texassemble;texconv;texdiag;ddsview
+-- Building with DirectX 12 Runtime support
+-- CPM: Adding package DirectX-Headers@1.615.0 (v1.615.0)
+-- CA_SETUP_MODULE: target='D3D12RenderBackend' _is_static_val='0'_type='MODULE_LIBRARY'
+-- Configuring done (8.9s)
+-- Generating done (0.5s)
+-- Build files have been written to: E:/Projects/CascadedEngine/out/build/x64-debug
+
+  Patching build.ninja for CMake 4.x compatibility...
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)
+  env 'Test/CoreTests': 24 compile unit(s), 28 include dir(s), 10 macro(s), 0 forced include(s)
+  env 'Interface/RenderInterface': 6 compile unit(s), 16 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  env 'D3D12RenderBackend': 23 compile unit(s), 21 include dir(s), 13 macro(s), 0 forced include(s)
+  env 'ShaderCompilerSlang': 2 compile unit(s), 16 include dir(s), 11 macro(s), 0 forced include(s)
+  env 'CACore': 7 compile unit(s), 7 include dir(s), 6 macro(s), 0 forced include(s)
+  env 'VulkanRenderBackendNew': 27 compile unit(s), 20 include dir(s), 11 macro(s), 0 forced include(s)
+  codegen: 重跑 0 条、跳过 77 条（输入没变的那些）
+  [绑定清单] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h：2 个接口
+  [绑定清单] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h：22 个接口
+  [绑定清单] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h：2 个接口
+  [绑定清单] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h：1 个接口
+  [绑定清单] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h：2 个接口
+  [绑定清单] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h：1 个接口
+  [绑定清单] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h：5 个接口
+  [绑定清单] 夹具 NativeShapes ← Tools/CodeGen/BindableShapes.NativeShapes.h：2 个接口
+  [绑定] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h
+    [绑定] 产物：IWindow, IWindowSystem
+  [绑定] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h
+    [绑定] 产物：IBindRow01, IBindRow02, IBindRow09
+  [绑定] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h
+    [绑定] 产物：IBindRegistry8, IBindRegistry9
+  [绑定] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h
+    [绑定] 产物：IBindFoundation
+  [绑定] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h
+    [绑定] 产物：IBindRenderResource, IBindRenderResourceAlt
+  [绑定] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h
+    [绑定] 产物：IBindRenderOwner
+  [绑定] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h
+    [绑定] 产物：IScriptTexture, IScriptRenderTarget, IScriptRenderGraph, IScriptRenderBackend, IScriptShaderStruct
+  [绑定] 夹具 NativeShapes ← Tools/CodeGen/BindableShapes.NativeShapes.h
+    [绑定] 产物：IBindNativeShape, BindNativeObject
+  [登记表] 主登记表 ← 2 个输入
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.h
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.cpp
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/EngineApi.Bindings.cs
+  [登记表] 登记表（fixture） ← 1 个输入
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/BindingRegistry.Bindings.h
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/BindingRegistry.Bindings.cpp
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/EngineApi.Bindings.cs
+  [绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    矩阵行数 23 / 有夹具的行数 23 / 真实接口行 6 / 签名行 84 / 非签名行（拒绝或错误码）0
+    不符数 0
+    两侧对齐问题 0 处
+    被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IScriptTexture, IWindow, IWindowSystem
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    夹具接口 30 个、桩数 3 个、丢返回值 0 个（桩只打印，丢返回值参与判定）
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    第二张矩阵问题 0 处
+    错误码问题 0 处
+    共享值类型问题 0 处
+    共享值类型限定名问题 0 处
+    夹具识别问题 0 处
+    渲染基础表面问题 0 处
+    原生形态夹具问题 0 处
+    脚本渲染适配面问题 0 处
+    登记表问题 0 处
+    夹具登记表问题 0 处
+
+============================================================
+[2/2] Building all targets...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug
+[0/2] Re-checking globbed directories...
+[1/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsCrossInterfaceTest.cpp.obj
+[2/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\WindowBindingsCompileTest.cpp.obj
+[3/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsLayoutTest.cpp.obj
+[4/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNativeShapesTest.cpp.obj
+[5/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsGetApiTest.cpp.obj
+[6/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsWeakHandleTest.cpp.obj
+[7/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsCallbackTest.cpp.obj
+[8/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsHandleTest.cpp.obj
+[9/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNestedLayoutTest.cpp.obj
+[10/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsRenderFoundationTest.cpp.obj
+[11/15] Building CXX object CSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj
+[12/15] Linking CXX shared module bin\CSharpHost.dll
+[13/15] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\ScriptRenderBridgeTest.cpp.obj
+[14/15] Linking CXX executable bin\CoreTests.exe
+
+
+============================================================
+[托管侧] dotnet build -c Debug → E:\Projects\CascadedEngine\out\build\x64-debug\managed
+============================================================
+[托管侧] CascadedBindingDir = E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  生成的绑定：BindFloatRect.Bindings.cs、BindMonitorInfo.Bindings.cs、BindNativeObject.Bindings.cs、BindScalarThing.Bindings.cs、EBindMode.Bindings.cs、EngineApi.Bindings.cs、ERenderFlag.Bindings.cs、ERenderMode.Bindings.cs、ETextureSamplerAddressMode.Bindings.cs、ETextureSamplerBorderColor.Bindings.cs、ETextureSamplerFilterMode.Bindings.cs、FloatRect.Bindings.cs、GPUBufferDescriptor.Bindings.cs、IBindFoundation.Bindings.cs、IBindNativeShape.Bindings.cs、IBindRegistry8.Bindings.cs、IBindRegistry9.Bindings.cs、IBindRenderOwner.Bindings.cs、IBindRenderResource.Bindings.cs、IBindRenderResourceAlt.Bindings.cs、IBindRow01.Bindings.cs、IBindRow02.Bindings.cs、IBindRow03.Bindings.cs、IBindRow04.Bindings.cs、IBindRow05.Bindings.cs、IBindRow06.Bindings.cs、IBindRow07.Bindings.cs、IBindRow08.Bindings.cs、IBindRow09.Bindings.cs、IBindRow10.Bindings.cs、IBindRow11.Bindings.cs、IBindRow12.Bindings.cs、IBindRow13.Bindings.cs、IBindRow14.Bindings.cs、IBindRow15.Bindings.cs、IBindRow16.Bindings.cs、IBindRow17.Bindings.cs、IBindRow18.Bindings.cs、IBindRow19.Bindings.cs、IBindRow20.Bindings.cs、IBindRow21.Bindings.cs、IBindRow22.Bindings.cs、IScriptRenderBackend.Bindings.cs、IScriptRenderGraph.Bindings.cs、IScriptRenderTarget.Bindings.cs、IScriptShaderStruct.Bindings.cs、IScriptTexture.Bindings.cs、IWindow.Bindings.cs、IWindowSystem.Bindings.cs、MonitorInfo.Bindings.cs、RenderDesc.Bindings.cs、RenderHashable.Bindings.cs、RenderNested.Bindings.cs、TextureSamplerDescriptor.Bindings.cs
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(1084,36): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(166,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(195,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(196,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+  Scripting.Managed -> E:\Projects\CascadedEngine\out\build\x64-debug\managed\Scripting.Managed.dll
+
+已成功生成。
+
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(1084,36): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(166,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(195,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(196,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+    4 个警告
+    0 个错误
+
+已用时间 00:00:02.45
+  [托管侧] 已拷到 E:\Projects\CascadedEngine\out\build\x64-debug\bin：Scripting.Managed.dll, Scripting.Managed.runtimeconfig.json, Scripting.Managed.deps.json
+
+  [耗时] configure 11.6s / codegen 1.4s / 编译 6.2s / 托管侧 2.8s / 合计 44.9s
+
+============================================================
+BUILD SUCCESSFUL
+============================================================

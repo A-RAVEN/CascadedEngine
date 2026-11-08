@@ -1,0 +1,51 @@
+1.3 标注去号与判据改源
+
+一、标注去号（只动标注，不动签名）
+真实头 7 处 + 夹具带号 2 处全部由 `CA_BIND(编号)` 改成无参 `CA_BIND()`：
+  · WindowSystem/header/CAWindow/WindowSystem.h：第 11 行、第 52 行；
+  · Interface/RenderInterface/header/ScriptRenderBridge.h：第 32、41、51、82、120 行；
+  · Tools/CodeGen/BindableShapes.RenderRegistry.h：第 18、29 行。
+产物侧逐行读数（Select-String 'CA_BIND'）：三个头里剩下的标注全部是 `CA_BIND()`，带号标注 0 行。
+
+二、CACore/header/CodeGenMeta.h 宏体与注释改写
+注释不再是"编号写在这条标注上"的旧说法：改成"标注上不写编号，编号唯一来源是
+Tools/CodeGen/interface-ids.lock；默认构建只核对，发号只经 CodeGen --update-ids"。
+注释里不再出现 `CA_BIND(数字)` 形态示例（防"清零搜索"假阴）。宏体本身不变（仍是文本标记 + no-op）。
+
+三、Tools/CodeGen/check_bindings.py 改读锁文件
+删除手抄的 `EXPECTED_BINDING_NUMBERS`（1–7）与 `FIXTURE_BINDING_NUMBERS`（8–9）两张表，新增
+`LOCK_FILE = HERE / "interface-ids.lock"` 与 `read_lock_scope(scope)`：
+  · 锁缺失 → 退出 2「判据自身失效（编号唯一来源是锁文件）」；
+  · 数据行不是四列 / 编号非正整数 / 段内重号 → 退出 2；
+  · 主登记表按 host 段对账，夹具登记表按 fixture 段对账。
+改后在现有产物上单跑：
+  python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings
+  → 矩阵行数 23 / 有夹具的行数 23 / 真实接口行 5 / 签名行 78 / 非签名行 0
+  → 真实接口桩数 0 / 丢返回值 0 / 结构问题 0；登记表问题 0 处；夹具登记表问题 0 处
+  → 退出码 0
+
+四、构建（主 agent 代跑，退出码 0）
+命令：python build.py --config Debug；日志：evidence/1.3-构建日志.txt
+（%TEMP%\cnbp-1.3-build.log 原样转存）
+关键读数（逐字）：
+  [绑定清单] 各行接口数 2/22/2/1/2/1/5（与基线一致）
+  [绑定] 产物七组全在（真实侧五个 IScript* 照旧；夹具侧 IBindRegistry8、IBindRegistry9 照旧）
+  全日志无 `CodeGen: 拒绝登记`（= 登记表输入全部无号通过）
+  登记表问题 0 处 / 夹具登记表问题 0 处
+  真实接口桩数 0 / 丢返回值 0 / 结构问题 0 / 错误码问题 0 处
+  BUILD SUCCESSFUL；[耗时] configure 0.0s / codegen 54.0s / 编译 65.1s / 托管侧 1.5s / 合计 143.5s
+本轮大范围重编 109 个编译单元（含直接消费三个改过头的目标），无 `error C`。
+
+五、产物逐字节不变（换源回归硬锚）
+python Tools/CodeGen/check_binding_baseline.py --baseline <基线产物哈希.txt> --product-dir out/build/x64-debug/codegen/bindings
+  → 基线对账：缺失 0 / 不一致 0 / 多余 0；退出码 0。
+即"编号来源从标注换成锁、标注去掉数字"之后，既有绑定产物与登记表产物一个字节都没变。
+
+六、`CA_BIND(数字)` 剩余命中（任务 1.3 指定命令，逐条列给主循环核）
+命令：git grep -nE 'CA_BIND\([0-9]+\)' -- WindowSystem Interface CACore Tools
+剩余命中 2 条，全部是**代码注释**（不是标注行；1.4 会顺手改写掉）：
+  1) Tools/CodeGen/CodeGenMain.cpp:1913 —— "// 编号参数（本 change 任务 1.2）：`CA_BIND(8)` 的 8。无号 `CA_BIND()` ⇒ hasNumber = false。"
+  2) Tools/CodeGen/CodeGenMain.cpp:1978 —— "// 编号参数（本 change 任务 1.2）：`CA_BIND(8)` ⇒ 8；`CA_BIND()` ⇒ 无号。"
+含未跟踪文件的同口径 Select-String 也是同样这两条；三个接口头里带号标注 0 行。
+
+结论：1.3 验收（基线全绿、登记表输入全部无号通过、剩余命中逐条列）满足。

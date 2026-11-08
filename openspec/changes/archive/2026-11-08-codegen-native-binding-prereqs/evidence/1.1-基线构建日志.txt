@@ -1,0 +1,133 @@
+=== CascadedEngine Build Script (Python) ===
+  Visual Studio : C:\Program Files\Microsoft Visual Studio\18\Community
+  Config        : Debug (preset x64-debug)
+  Build dir     : E:\Projects\CascadedEngine\out\build\x64-debug
+  (CMake 配置输入都没动 —— 跳过 configure，要强制重配就加 --configure)
+
+============================================================
+[1.5] CodeGen: generating reflection headers for annotated types...
+============================================================
+  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)
+  env 'Test/CoreTests': 23 compile unit(s), 28 include dir(s), 10 macro(s), 0 forced include(s)
+  env 'Interface/RenderInterface': 6 compile unit(s), 16 include dir(s), 7 macro(s), 1 forced include(s) [cmake_pch.hxx]
+  env 'D3D12RenderBackend': 23 compile unit(s), 21 include dir(s), 13 macro(s), 0 forced include(s)
+  env 'ShaderCompilerSlang': 2 compile unit(s), 16 include dir(s), 11 macro(s), 0 forced include(s)
+  env 'CACore': 7 compile unit(s), 7 include dir(s), 6 macro(s), 0 forced include(s)
+  env 'VulkanRenderBackendNew': 27 compile unit(s), 20 include dir(s), 11 macro(s), 0 forced include(s)
+  codegen: 并发 5 条（逻辑核 32，上限 8）
+  [1/77] EmitSample
+  [2/77] Kinds
+  [3/77] FriendLike
+  [4/77] NewRes
+  [5/77] RenderHashable
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\EmitSample.codegen.h (4312 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\Kinds.codegen.h (4524 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\FriendLike.codegen.h (4518 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\NewRes.codegen.h (4011 B)
+  generated E:\Projects\CascadedEngine\out\build\x64-debug\codegen\Test_CoreTests\RenderHashable.codegen.h (3842 B)
+  codegen: 重跑 5 条、跳过 72 条（输入没变的那些）
+  [绑定清单] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h：2 个接口
+  [绑定清单] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h：22 个接口
+  [绑定清单] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h：2 个接口
+  [绑定清单] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h：1 个接口
+  [绑定清单] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h：2 个接口
+  [绑定清单] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h：1 个接口
+  [绑定清单] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h：5 个接口
+  [绑定] IWindow ← WindowSystem/header/CAWindow/WindowSystem.h
+    [绑定] 产物：IWindow, IWindowSystem
+  [绑定] 夹具 BindableShapes ← Tools/CodeGen/BindableShapes.h
+    [绑定] 产物：IBindRow01, IBindRow02, IBindRow09
+  [绑定] 夹具 RenderRegistry ← Tools/CodeGen/BindableShapes.RenderRegistry.h
+    [绑定] 产物：IBindRegistry8, IBindRegistry9
+  [绑定] 夹具 RenderFoundation ← Tools/CodeGen/BindableShapes.RenderFoundation.h
+    [绑定] 产物：IBindFoundation
+  [绑定] 夹具 RenderResource ← Tools/CodeGen/BindableShapes.RenderResource.h
+    [绑定] 产物：IBindRenderResource, IBindRenderResourceAlt
+  [绑定] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h
+    [绑定] 产物：IBindRenderOwner
+  [绑定] 渲染适配 ← Interface/RenderInterface/header/ScriptRenderBridge.h
+    [绑定] 产物：IScriptTexture, IScriptRenderTarget, IScriptRenderGraph, IScriptRenderBackend, IScriptShaderStruct
+  [登记表] 主登记表 ← 2 个输入
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.h
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/BindingRegistry.Bindings.cpp
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings/EngineApi.Bindings.cs
+  [登记表] 登记表（fixture） ← 1 个输入
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/BindingRegistry.Bindings.h
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/BindingRegistry.Bindings.cpp
+    [登记表] E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings\fixture/EngineApi.Bindings.cs
+  [绑定判据] check_bindings.py --product-dir E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+    矩阵行数 23 / 有夹具的行数 23 / 真实接口行 5 / 签名行 78 / 非签名行（拒绝或错误码）0
+    不符数 0
+    两侧对齐问题 0 处
+    被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IScriptTexture, IWindow, IWindowSystem
+    真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+    夹具接口 28 个、桩数 3 个（只打印，不判定）
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    第二张矩阵问题 0 处
+    错误码问题 0 处
+    共享值类型问题 0 处
+    共享值类型限定名问题 0 处
+    夹具识别问题 0 处
+    渲染基础表面问题 0 处
+    脚本渲染适配面问题 0 处
+    登记表问题 0 处
+    夹具登记表问题 0 处
+
+============================================================
+[2/2] Building all targets...
+============================================================
+
+  cmake --build E:\Projects\CascadedEngine\out\build\x64-debug
+[1/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\CodeGenKindsTest.cpp.obj
+[2/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\EmitReflectionTest.cpp.obj
+[3/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedSerializerTest.cpp.obj
+[4/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\FriendLikeTest.cpp.obj
+[5/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsCrossInterfaceTest.cpp.obj
+[6/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\WindowBindingsCompileTest.cpp.obj
+[7/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\ResourceBatchTest.cpp.obj
+[8/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsGetApiTest.cpp.obj
+[9/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsWeakHandleTest.cpp.obj
+[10/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsCallbackTest.cpp.obj
+[11/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsLayoutTest.cpp.obj
+[12/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsHandleTest.cpp.obj
+[13/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsNestedLayoutTest.cpp.obj
+[14/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\BindingsRenderFoundationTest.cpp.obj
+[15/19] Building CXX object CSharpHost\CMakeFiles\CSharpHost.dir\private\CSharpHost.cpp.obj
+[16/19] Linking CXX shared module bin\CSharpHost.dll
+[17/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\ScriptRenderBridgeTest.cpp.obj
+[18/19] Building CXX object Test\CoreTests\CMakeFiles\CoreTests.dir\GeneratedHashTest.cpp.obj
+[19/19] Linking CXX executable bin\CoreTests.exe
+
+
+============================================================
+[托管侧] dotnet build -c Debug → E:\Projects\CascadedEngine\out\build\x64-debug\managed
+============================================================
+[托管侧] CascadedBindingDir = E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  生成的绑定：BindFloatRect.Bindings.cs、BindMonitorInfo.Bindings.cs、BindScalarThing.Bindings.cs、EBindMode.Bindings.cs、EngineApi.Bindings.cs、ERenderFlag.Bindings.cs、ERenderMode.Bindings.cs、ETextureSamplerAddressMode.Bindings.cs、ETextureSamplerBorderColor.Bindings.cs、ETextureSamplerFilterMode.Bindings.cs、FloatRect.Bindings.cs、GPUBufferDescriptor.Bindings.cs、IBindFoundation.Bindings.cs、IBindRegistry8.Bindings.cs、IBindRegistry9.Bindings.cs、IBindRenderOwner.Bindings.cs、IBindRenderResource.Bindings.cs、IBindRenderResourceAlt.Bindings.cs、IBindRow01.Bindings.cs、IBindRow02.Bindings.cs、IBindRow03.Bindings.cs、IBindRow04.Bindings.cs、IBindRow05.Bindings.cs、IBindRow06.Bindings.cs、IBindRow07.Bindings.cs、IBindRow08.Bindings.cs、IBindRow09.Bindings.cs、IBindRow10.Bindings.cs、IBindRow11.Bindings.cs、IBindRow12.Bindings.cs、IBindRow13.Bindings.cs、IBindRow14.Bindings.cs、IBindRow15.Bindings.cs、IBindRow16.Bindings.cs、IBindRow17.Bindings.cs、IBindRow18.Bindings.cs、IBindRow19.Bindings.cs、IBindRow20.Bindings.cs、IBindRow21.Bindings.cs、IBindRow22.Bindings.cs、IScriptRenderBackend.Bindings.cs、IScriptRenderGraph.Bindings.cs、IScriptRenderTarget.Bindings.cs、IScriptShaderStruct.Bindings.cs、IScriptTexture.Bindings.cs、IWindow.Bindings.cs、IWindowSystem.Bindings.cs、MonitorInfo.Bindings.cs、RenderDesc.Bindings.cs、RenderHashable.Bindings.cs、RenderNested.Bindings.cs、TextureSamplerDescriptor.Bindings.cs
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(166,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(1084,36): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(195,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(196,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+  Scripting.Managed -> E:\Projects\CascadedEngine\out\build\x64-debug\managed\Scripting.Managed.dll
+
+已成功生成。
+
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(166,34): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(1084,36): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(195,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+E:\Projects\CascadedEngine\Scripting\Managed\Host.cs(196,39): warning CA2014: 潜在的堆栈溢出。将 stackalloc 移出循环。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [E:\Projects\CascadedEngine\Scripting\Managed\Scripting.Managed.csproj]
+    4 个警告
+    0 个错误
+
+已用时间 00:00:03.78
+  [托管侧] 已拷到 E:\Projects\CascadedEngine\out\build\x64-debug\bin：Scripting.Managed.dll, Scripting.Managed.runtimeconfig.json, Scripting.Managed.deps.json
+
+  [耗时] configure 0.0s / codegen 4.5s / 编译 12.2s / 托管侧 4.4s / 合计 42.2s
+
+============================================================
+BUILD SUCCESSFUL
+============================================================

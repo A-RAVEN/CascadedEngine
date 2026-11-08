@@ -1,0 +1,53 @@
+1.1 基线落账 + 对账脚本创建（codegen-native-binding-prereqs）
+
+一、基线构建（主 agent 代跑，命令与输出原文）
+命令：python build.py --config Debug
+工作目录：E:\Projects\CascadedEngine
+完整日志：evidence/1.1-基线构建日志.txt（从 %TEMP%\cnbp-1.1-baseline-build.log 原样转存）
+退出码：0（主 agent 另存 %TEMP%\cnbp-1.1-baseline-build.exit，内容一行 0）
+
+关键读数（逐字）：
+  矩阵行数 23 / 有夹具的行数 23 / 真实接口行 5 / 签名行 78 / 非签名行（拒绝或错误码）0
+  被判真实接口：IScriptRenderBackend, IScriptRenderGraph, IScriptRenderTarget, IScriptShaderStruct, IScriptTexture, IWindow, IWindowSystem
+  真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+  夹具接口 28 个、桩数 3 个（只打印，不判定）
+  [耗时] configure 0.0s / codegen 4.5s / 编译 12.2s / 托管侧 4.4s / 合计 42.2s
+  BUILD SUCCESSFUL
+说明：本次是增量构建（configure 0.0s）；工件 1.1 的口径是"本批开工前对现有产物取哈希"，不要求从零构建。
+
+二、无源残留清除
+见 evidence/1.1-无源残留清除.txt：删掉 fixture.registry.part（旧布局残留）与 fixture/drill.registry.part
+（分片头指向不存在的 BindableShapes.RenderRegistryDrill.h），删除名单、理由与前后读数已入档。
+
+三、基线产物哈希
+文件：evidence/基线产物哈希.txt
+  · 条目数 96（数据行 96 行，与 `# 条目数 96` 一致）；
+  · git rev-parse HEAD = d7bc1a2745cb1648741c116fe65429ca1ae4bce0；
+  · git status --porcelain 快照同时记入文件头（?? .dsh-acl-recovery/、?? Tools/CodeGen/check_binding_baseline.py、
+    ?? Tools/CodeGen/interface-ids.lock、?? openspec/changes/codegen-native-binding-prereqs/）；
+  · 每条 = SHA-256 + 制表符 + 相对产物目录路径；取哈希命令：Get-ChildItem -Recurse -File | Get-FileHash -Algorithm SHA256。
+
+四、对账脚本 Tools/CodeGen/check_binding_baseline.py
+命令与读数（实际执行）：
+  python Tools/CodeGen/check_binding_baseline.py --baseline openspec/changes/codegen-native-binding-prereqs/evidence/基线产物哈希.txt --product-dir out/build/x64-debug/codegen/bindings
+  → 基线对账：缺失 0 / 不一致 0 / 多余 0
+  → 退出码 0
+
+  python Tools/CodeGen/check_binding_baseline.py ... --self-test
+  → 自检通过：删掉基线行 BindFloatRect.Bindings.cs 之后被点名（缺失或多余），脚本确实逐条对账
+  → 退出码 0
+
+五、自检红态：删基线一行 ⇒ 退出 2「判据自身失效」
+做法：把基线复制到 %TEMP%\cnbp-baseline-tampered.txt，删掉第一条数据行
+（2826b9ddc93707f6adf300dccef440e68e8a6edc7cc2d6c46f5e17eaad5632d0  BindFloatRect.Bindings.cs），
+对副本跑同一个脚本。
+读数（原文）：
+  基线「条目数 96」与实际数据行 95 条不符 —— 基线被改过（删行 / 加行），判据自身失效 —— 判据自身失效
+  退出码 2
+还原：删除副本后对原基线重跑 → 缺失 0 / 不一致 0 / 多余 0，退出码 0。
+
+六、判据自身失效的另外两条路径（脚本内建，未触发但存在）
+  · 基线文件不存在 / 产物目录不存在 ⇒ 退出 2；
+  · --self-test 时若删掉一行后判定结果不变（脚本没在逐行读基线）⇒ 退出 2。
+
+结论：1.1 验收（脚本两态输出 + 基线三件齐）满足。

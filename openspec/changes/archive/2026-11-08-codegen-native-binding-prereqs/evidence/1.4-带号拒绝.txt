@@ -1,0 +1,44 @@
+1.4 带号拒绝启用（单因红态）
+
+一、代码改动
+  · CodeGenMain.cpp：`--emit-binding` 在扫描出 CA_BIND 标注之后、解析之前，对任何 `hasNumber`
+    的标注无条件非零拒绝；`--list-bind-interfaces` 同样在清单阶段先拒（否则 build.py 的清单
+    先跑一步会在产物目录留下旧分片，红态不单因）。
+  · 原来"过渡态：带号须与锁一致"的分支删除（带号已在入口拒绝，走不到那里）。
+  · scanBoundMarkers 里两处含 `CA_BIND(数字)` 的注释改写；`git grep -nE 'CA_BIND\([0-9]+\)'
+    -- WindowSystem Interface CACore Tools` 现在 **0 命中**（exit 1）。
+
+二、绿：正式夹具全过（主 agent 代跑，退出码 0）
+命令：python build.py --config Debug；日志：evidence/1.4-构建日志.txt
+关键读数（逐字）：
+  BUILD SUCCESSFUL；0 个错误
+  全日志无 `CodeGen: 拒绝`
+  登记表问题 0 处 / 夹具登记表问题 0 处
+  真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+  矩阵行数 23 / 有夹具的行数 23 / 真实接口行 5 / 签名行 78 / 非签名行（拒绝或错误码）0
+  [耗时] configure 0.0s / codegen 41.3s / 编译 36.5s / 托管侧 1.7s / 合计 103.1s
+构建后基线对账：缺失 0 / 不一致 0 / 多余 0（退出码 0）—— 正式头产物仍逐字节不变。
+
+三、红：临时副本改回带号（主 agent 亲手做，正式头不受牵连）
+做法（单因）：
+  1) `%TEMP%\cnbp-1.4-red\` 建目录；
+  2) 复制 `Tools/CodeGen/BindableShapes.RenderRegistry.h` 到该目录，副本与正式头 SHA256
+     A780C8C29AE306A6896C7FE938FA716F07434432DA450E1B58345D2127B271F2 相等（证明复制前一致）；
+  3) 只把副本第一处 `CA_BIND()` 改成 `CA_BIND(9)`（第二处不动；改动处第 18 行：
+     改前 `CA_BIND()` / 改后 `CA_BIND(9)`，下一行 `class IBindRegistry8` 不变）；
+  4) 运行刚编出的 CodeGen.exe：
+     `CodeGen.exe %TEMP%\cnbp-1.4-red\BindableShapes.RenderRegistry.h --emit-binding
+      --out-dir %TEMP%\cnbp-1.4-red\out --id-lock Tools/CodeGen/interface-ids.lock
+      --id-scope fixture -xc++`
+读数（逐字）：
+  退出码 1
+  stderr 核心判据句：
+    CodeGen: 拒绝 IBindRegistry8 —— 编号由锁文件治理、标注无参数（标注里写的是 "9"；编号 9 无效）
+    CodeGen: --emit-binding 返回 1
+  stdout 为空；`--out-dir` 指向的 out 目录未生成（拒绝先于产物）。
+  （临时件 %TEMP%\cnbp-1.4-red 测完即删；正式头全程未动，哈希 A780…B271F2 可复核。）
+
+四、结论
+带号标注从"须与锁一致"改为"无条件拒绝"之后：正式夹具全绿、产物逐字节不变；
+带号标注被生成期非零点名，且拒绝发生在产物写出之前（无半成品）。
+1.4 验收满足。

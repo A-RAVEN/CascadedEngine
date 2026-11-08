@@ -1,0 +1,18 @@
+[
+  {"name":"TestSimpleTriangle","status":"pass","duration_ms":55,"exit_code":0},
+  {"name":"TestTriangleWithConstantColor","status":"pass","duration_ms":41,"exit_code":0},
+  {"name":"TestTriangleWithStructuredBufferColor","status":"pass","duration_ms":40,"exit_code":0},
+  {"name":"TestTriangleWithImageBuffer","status":"pass","duration_ms":57,"exit_code":0},
+  {"name":"TestDoublePass","status":"pass","duration_ms":51,"exit_code":0},
+  {"name":"TestComputeBuffer","status":"pass","duration_ms":48,"exit_code":0},
+  {"name":"TestReadback","status":"pass","duration_ms":34,"exit_code":0},
+  {"name":"TestIMGUI","status":"pass","duration_ms":137,"exit_code":0},
+  {"name":"TestScriptHost","status":"pass","duration_ms":17,"exit_code":0},
+  {"name":"TestCSharpWindow","status":"pass","duration_ms":51,"exit_code":0},
+  {"name":"TestCSharpTriangle","status":"pass","duration_ms":50,"exit_code":0},
+  {"name":"TestGPUTiming","status":"pass","duration_ms":23,"exit_code":0},
+  {"name":"TestCSharpConstantColor","status":"pass","duration_ms":53,"exit_code":0},
+  {"name":"TestCSharpStructuredBuffer","status":"pass","duration_ms":55,"exit_code":0},
+  {"name":"TestCSharpTextureSampling","status":"pass","duration_ms":61,"exit_code":0},
+  {"name":"TestCSharpWindowCallbacks","status":"pass","duration_ms":9,"exit_code":0}
+]

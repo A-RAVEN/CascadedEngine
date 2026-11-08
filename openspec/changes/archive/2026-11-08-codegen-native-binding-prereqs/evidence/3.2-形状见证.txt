@@ -1,0 +1,45 @@
+# 真实头形状见证（codegen-native-binding-prereqs 任务 3.2）
+
+说明：本文件逐字摘录真实头里的形状，作为直绑批"序列化块记录"的覆盖界依据；**本批没有给真实头加 CA_BIND**，见证仅供下一批。
+
+## 模式：static RenderPass New\(ImageHandle const& color
+  GPUGraph.h:279: static RenderPass New(ImageHandle const& color
+  GPUGraph.h:306: static RenderPass New(ImageHandle const& color, ImageHandle const& depth
+
+## 模式：static AttachmentConfig Create\(
+  GPUGraph.h:252: static AttachmentConfig Create(
+
+## 模式：static AttachmentConfig Clear\(
+  GPUGraph.h:263: static AttachmentConfig Clear(GraphicsClearValue const& clearValue = GraphicsClearValue::ClearColor()
+
+## 模式：static AttachmentConfig ClearDepthStencil\(
+  GPUGraph.h:268: static AttachmentConfig ClearDepthStencil(float depth = 1.0f, uint32_t stencil = 0
+
+## 模式：static DrawCallBatch New\(\)
+  GPUGraph.h:173: static DrawCallBatch New()
+
+## 模式：m_AttachmentConfigs;
+  GPUGraph.h:370: castl::vector<AttachmentConfig> m_AttachmentConfigs;
+
+## 模式：m_DrawCallBatches;
+  GPUGraph.h:343: castl::vector<DrawCallBatch> const& GetDrawCallBatches() const { return m_DrawCallBatches; }
+  GPUGraph.h:371: castl::vector<DrawCallBatch> m_DrawCallBatches;
+
+## 模式：m_Attachments;
+  GPUGraph.h:344: castl::vector<ImageHandle> const& GetAttachments() const { return m_Attachments; }
+  GPUGraph.h:372: castl::vector<ImageHandle> m_Attachments;
+
+## 模式：cacore::HashObj<CPipelineStateObject> m_PipelineStates;
+  GPUGraph.h:52: cacore::HashObj<CPipelineStateObject> m_PipelineStates;
+  归属：`PipelineDescData`（GPUGraph.h:48 起）的成员；**不在** `RenderPass` 里。
+
+## 附：`static RenderPass New` 全部四个重载（任务文本"4 重载"的逐条依据）
+  GPUGraph.h:279: static RenderPass New(ImageHandle const& color
+  GPUGraph.h:288: static RenderPass New(castl::vector<ImageHandle> const& colors, ImageHandle const& depth)
+  GPUGraph.h:298: static RenderPass New(castl::vector<ImageHandle> const& colors)
+  GPUGraph.h:306: static RenderPass New(ImageHandle const& color, ImageHandle const& depth
+
+## 附：`AttachmentConfig` 没有 New（0 命中），工厂是 Create / Clear / ClearDepthStencil
+  命令：git grep -n "AttachmentConfig New\|AttachmentConfig::New" -- Interface/RenderInterface/header/GPUGraph.h
+  结果：0 命中。
+

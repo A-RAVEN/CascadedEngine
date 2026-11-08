@@ -1,0 +1,26 @@
+5.3 最终编译验证
+
+一、命令与结果（主 agent 代跑）
+命令：`python build.py --config Debug`（项目唯一合法构建路径）
+日志：evidence/5.3-构建日志.txt
+  退出码 0；`BUILD SUCCESSFUL`；`0 个错误`；无 `error C` / `LNK` / `error CS`；
+  [耗时] configure 0.0s / codegen 1.2s / 编译 6.8s / 托管侧 2.8s / 合计 34.1s（增量档，源码自 4.2 后未再改，只改文档）。
+
+CoreTests：evidence/5.3-CoreTests日志.txt
+  退出码 0；`PASSED` 23 行、`FAILED` 0 行；含 `Bindings native shapes test PASSED`。
+
+二、与 4.2 的逐项对齐复核
+| 层 | 4.2 读数 | 5.3 读数 | 判定 |
+|---|---|---|---|
+| 构建退出码 / 结果 | 0 / BUILD SUCCESSFUL | 0 / BUILD SUCCESSFUL | 一致 |
+| 判据七行 | 不符 0、两侧 0、覆盖率 0、错误码 0、共享值类型 0、限定名 0、原生形态 0 | 同左（逐行 0） | 一致 |
+| 构建耗时 | codegen 1.2s / 编译 25.6s / 合计 51.4s | codegen 1.2s / 编译 6.8s / 合计 34.1s | 差异：编译/合计更短，因 5.3 是紧接 4.2 的增量构建（头文件与产物未变，只重编被文档时间戳带到的极少数目标）；codegen 耗时逐字相同（1.2s），产物内容由基线对账另行锁定 |
+| CoreTests | 退出 0，PASSED 23 / FAILED 0 | 退出 0，PASSED 23 / FAILED 0 | 一致 |
+| 基线 | 缺失 0 / 不一致 0 / 多余 0 | 未重跑（构建产物与 4.2 同一输入、同一 codegen 1.2s；5.3 只改文档，不改产物） | 一致（以 4.2 对账为准） |
+
+三、差异解释（不藏）
+唯一差异是编译与合计耗时（25.6s/51.4s → 6.8s/34.1s）。原因：4.2 构建前刚经历 4.1 的 CodeGen 重编与
+全量产物刷新，编译段仍需重编较多目标；5.3 与 4.2 之间只改了 `.md`（README / CSharpHost / testing /
+TODO / evidence），没有改任何 `.cpp/.h` 或生成输入，故增量编译目标更少。判据行、CoreTests 计数与
+codegen 耗时均逐项一致，没有"5.3 绿而 4.2 红"或反向的情况。
+结论：5.3 验收（构建成功、最后一轮读数与 4.2 对齐、差异有解释）满足。

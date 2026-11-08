@@ -1,0 +1,22 @@
+# 接口编号锁文件（codegen-native-binding-prereqs 任务 1.2）
+#
+# 数据行四列，制表符分隔：编号、短名、完整限定名、头文件路径。
+# 段用注释行划分（# scope host / # scope fixture），每段一条 # high water <该段历史最高号>。
+# 编号的唯一来源就是这个文件：默认构建只核对、不改写锁；新名字只经 CodeGen --update-ids
+# 追加（该段水位 + 1），既有行一字不动。构建模式绝不写锁，锁的 diff 进人工评审。
+# 宿主段与夹具段各自独立的号空间：宿主从 1 起、夹具从 8 起；夹具段永不进宿主路由。
+# 编号与名字的绑定发生变化（改号 / 换号）时，生成常量与 Tables 清单必然变化，
+# 由「产物逐字节基线对账」（Tools/CodeGen/check_binding_baseline.py）抓。
+# scope host
+1	IWindow	cawindow::IWindow	WindowSystem/header/CAWindow/WindowSystem.h
+2	IWindowSystem	cawindow::IWindowSystem	WindowSystem/header/CAWindow/WindowSystem.h
+3	IScriptRenderBackend	graphics_backend::IScriptRenderBackend	Interface/RenderInterface/header/ScriptRenderBridge.h
+4	IScriptRenderGraph	graphics_backend::IScriptRenderGraph	Interface/RenderInterface/header/ScriptRenderBridge.h
+5	IScriptRenderTarget	graphics_backend::IScriptRenderTarget	Interface/RenderInterface/header/ScriptRenderBridge.h
+6	IScriptShaderStruct	graphics_backend::IScriptShaderStruct	Interface/RenderInterface/header/ScriptRenderBridge.h
+7	IScriptTexture	graphics_backend::IScriptTexture	Interface/RenderInterface/header/ScriptRenderBridge.h
+# high water 7
+# scope fixture
+8	IBindRegistry8	ca_bind_fixture::IBindRegistry8	Tools/CodeGen/BindableShapes.RenderRegistry.h
+9	IBindRegistry9	ca_bind_fixture::IBindRegistry9	Tools/CodeGen/BindableShapes.RenderRegistry.h
+# high water 9

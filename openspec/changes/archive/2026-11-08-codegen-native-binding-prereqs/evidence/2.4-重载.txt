@@ -1,0 +1,47 @@
+2.4 重载序数槽（D5）
+
+一、生成器改动
+  `MethodSignature.abiName` 的分配改为：同名方法按声明顺序计数，第 1 槽保持原方法名、第 2 槽起
+  `_<序数>`（`Overloaded` / `Overloaded_2`）。C ABI 声明、thunk 名、函数表槽、C# 内部委托字段与
+  调用层全部使用 `abiName`；托管表面/`Calls` 方法本身仍用原方法名，于是 C# 侧自然成为同名重载。
+  既有的"③ 依赖隐式转换的重载"判定（投影成同一 C ABI 签名即拒绝）未动。
+
+二、判据改动（check_bindings.py）
+  · `check_native_shapes` 增 4 行：C++ `extern "C" uint32_t IBindNativeShape_Overloaded(void* self, uint32_t value);`
+    与 `extern "C" uint32_t IBindNativeShape_Overloaded_2(void* self, uint32_t value, uint32_t add);`；
+    托管 `public uint Overloaded(uint value)` 与 `public uint Overloaded(uint value, uint add)`。
+  · expected 增 `_Overloaded_2` 一行。
+  · 修对账器切名歧义：`CPP_SYMBOL_RE` 的接口名组由贪婪 `(\w+)` 改为非贪婪 `(\w+?)`
+    （按第一个下划线切 `<接口>_<方法>`；接口短名不含下划线，`_2` 属于方法名后缀）。
+
+三、红态（check_bindings 对 2.3 产物单跑，退出码 1）
+读数（逐字）：
+  IBindNativeShape：C ABI 里没有 `extern "C" uint32_t IBindNativeShape_Overloaded_2(void* self, uint32_t value, uint32_t add);`
+  IBindNativeShape：托管表面里没有 `public uint Overloaded(uint value, uint add)`
+  原生形态夹具问题 2 处；exit 1
+（2.3 产物里第 2 个重载在 2.2 过渡口径下"只绑第一槽"，所以第二槽与第二个 C# 重载都不存在。）
+
+四、第一轮构建红（对账器切名歧义，非产品缺陷）
+读数（逐字）：
+  两侧对齐问题 3 处
+  IBindNativeShape（native 字段层）：C++ 多 无，C# 多 ['Overloaded_2']
+  IBindNativeShape_Overloaded（native 字段层）：C++ 多 ['2']，C# 多 无
+  IBindNativeShape_Overloaded（表面层）：缺 IBindNativeShape_Overloaded.Bindings.cs
+根因：`CPP_SYMBOL_RE` 的 `(\w+)_(\w+)` 贪婪，把 `IBindNativeShape_Overloaded_2` 切成
+接口 `IBindNativeShape_Overloaded` + 方法 `2`。改成非贪婪后 0 处（第 2 条）。
+
+五、绿轮（主 agent 代跑）
+构建：python build.py --config Debug；退出码 0；日志 evidence/2.4-构建日志.txt
+  不符数 0；两侧对齐问题 0 处；覆盖率问题 0 处；原生形态夹具问题 0 处
+  夹具接口 30 个、桩数 5 个、丢返回值 0 个（桩只打印，丢返回值参与判定）
+  BUILD SUCCESSFUL；[耗时] configure 0.0s / codegen 1.2s / 编译 6.3s / 托管侧 1.4s / 合计 32.3s
+CoreTests：退出码 0；日志 evidence/2.4-CoreTests日志.txt
+  `Bindings native shapes test PASSED`；PASSED 23 行、FAILED 0 行。
+  2.4 断言：`IBindNativeShape_Overloaded(&fake,10)` 返回 11、`_Overloaded_2(&fake,10,5)` 返回 15；
+  `s_OverloadOneCalls` 与 `s_OverloadTwoCalls` 各 +1（互不冒充）；两条 static_assert 锁住
+  `uint32_t (*)(void*, uint32_t)` 与 `uint32_t (*)(void*, uint32_t, uint32_t)`；
+  `IBindRowOverloadReject` 拒绝探针仍非零点名"③ 依赖隐式转换的重载"（既有行为不动）。
+产物基线：缺失 0 / 不一致 0 / 多余 0（退出码 0）。
+
+结论：2.4 验收（第 1 槽现名、第 2 槽 _2、extern 无重名、C# 同名重载、两实现计数各 +1、
+隐式转换重载仍拒）满足。

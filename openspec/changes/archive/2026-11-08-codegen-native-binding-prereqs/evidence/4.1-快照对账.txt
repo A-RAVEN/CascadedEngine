@@ -1,0 +1,56 @@
+4.1 快照模式与独立计数对账（D10）
+
+一、`--parse-report`（生成器侧，只解析不产物）
+命令形态：`CodeGen.exe <头> --parse-report <构建同款 include> -xc++`
+四份头各跑一次（两份额外开关是解析环境需要：`-D_CRT_USE_BUILTIN_OFFSETOF` 让生成物里的
+`offsetof` 走内建形式；`-DNOMINMAX` 避免 `std::numeric_limits<...>::max()` 被 Windows 的
+`max` 宏展开。二者都不改被解析头的语义）。
+读数（生成器 stderr 逐字）：
+  CRenderBackend.h: 快照：2 个类
+  GPUGraph.h: 快照：15 个类
+  ShaderStruct.h: 快照：1 个类
+  GPUTexture.h: 快照：4 个类
+快照文件：`evidence/原生头投影快照.txt`（160 行 = 4 个 `[头]` + 22 个 `[类]` + 110 条 `[采集]` +
+16 条 `[排除]`；126 条方法行）。
+
+二、独立对账（`Tools/CodeGen/check_native_snapshot.py`，与生成器**不同源**）
+做法：剥注释 → 取每个类体（跳过 `enum class`、模板类、模板特化）→ 按访问标号切公开段 →
+按分号/花括号切声明 → 摘方法名（重载保留重复次数）；与快照的
+`[采集]/[排除] 类短名::方法名` 多重集逐条对账；另设下界锚
+"GPUGraph.h 独立清单条数 ≥ 13 + 10 = 23"。
+读数（逐字）：
+  独立清单：GPUGraph.h 方法 23 条（下界锚 23）
+  快照对账：独立清单 126 条 / 问题 0 处
+  退出码 0
+即两侧逐条一致（4 份头、22 个类、126 个方法）。
+
+三、红例一：临时给 GPUGraph.h 加一个公开方法（主 agent 亲手做，已还原）
+改动：第 655 行 `castl::vector<EGraphStageType> const& GetGraphStages() const { return m_StageTypes; }`
+之后插入一行 `uint32_t GetSnapshotProbeCount() const { return 42u; }`（只这一处；文件 885→886 行）。
+读数（用"未含临时方法"的快照副本模拟"快照未变"）：
+  独立清单：GPUGraph.h 方法 24 条（下界锚 23）
+  快照对账：独立清单 127 条 / 问题 1 处
+  退出码 1
+  点名：`Interface/RenderInterface/header/GPUGraph.h :: GPUGraph：独立清单有、快照没有 ['GetSnapshotProbeCount']`
+还原：删掉该行，文件回到 885 行、`git diff -- …/GPUGraph.h` 空输出、
+`GetSnapshotProbeCount` 全文 0 处；重新生成快照后对账回到 0 处。
+
+四、红例二：手工删快照一行
+做法：把快照复制到 %TEMP%，删掉 `[采集] GPUGraph::GetGraphStages | …` 一行再对账。
+读数（逐字）：
+  独立清单：GPUGraph.h 方法 23 条（下界锚 23）
+  快照对账：独立清单 126 条 / 问题 1 处
+  退出码 1
+  点名：`Interface/RenderInterface/header/GPUGraph.h :: GPUGraph：独立清单有、快照没有 ['GetGraphStages']`
+（临时副本用完即删；正式快照未动。）
+
+五、`docs/TODO.md` 直绑批跨 change 账
+已在待办段顶部加一行（`## [2026-11-06] 原生直绑 + IScript*/CScript* 退役批…`）：
+触发=本批归档后立即立项；开工输入=`evidence/原生头投影快照.txt` 与本批能力。
+`git grep -n "原生直绑" -- docs/TODO.md` 命中 1 行。
+
+六、边界说明
+· 本批**没有给任何真实头加 `CA_BIND`**；快照只是直绑批的开工地图。
+· 快照里 `[排除]` 16 条是解析层面的形状判定（裸指针 / 映射容器 / 定长数组 / 模板方法等），
+  目的是"谁进表、谁须排除、理由是什么"可评审；对账只校验方法名多重集，不把理由当判据。
+结论：4.1 验收（快照入库、独立清单逐条对账、两条红例、23 锚、TODO 账）满足。

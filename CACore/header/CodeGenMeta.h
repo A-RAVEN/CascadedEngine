@@ -152,7 +152,8 @@ namespace cacore::codegen
     friend struct ::cacore::codegen::TypeDescriptor<Type>;          \
     friend struct ::cacore::codegen::CodeGenSerializer<Type>;       \
     friend struct ::cacore::codegen::CodeGenEqual<Type>;            \
-    friend struct ::cacore::codegen::custom_hash_trait<Type>
+    friend struct ::cacore::codegen::custom_hash_trait<Type>;       \
+    friend struct ::cacore::codegen::CodeGenBindingCodec<Type>
 
 // ---------------------------------------------------------------------------------------------
 // Discovery macro. The engine compiles with MSVC, so we deliberately do NOT use literal
@@ -185,9 +186,10 @@ namespace cacore::codegen
 // openspec/specs/csharp-bindable-surface/spec.md 与 Tools/CodeGen/README.md 第十三节）。
 // 与 CA_REFLECT 一样是"文本标记 + 编译期 no-op"：工具按源码文本认它，编译器这里什么也不做。
 //
-// **编号写在这条标注上**：`CA_BIND(3)`。进入宿主登记表（`--emit-registry`）的接口必须带编号：
-// 编号全局唯一、只增不改序；生成器从宏文本读取编号，把它作为登记表与 `EngineApi` 两侧编号的
-// 唯一来源。既有不进登记表的夹具头维持无号 `CA_BIND()` 现状（design D2 的豁免口径）。
+// **标注上不写编号**：接口编号的唯一来源是入库锁文件 `Tools/CodeGen/interface-ids.lock`
+// （数据行四列 = 编号、短名、完整限定名、头文件路径；段内唯一、从段起点连续）。默认构建只核对
+// 锁、不改写；新接口发号只经显式 `CodeGen --update-ids`（该段水位 + 1），人不接触数字。
+// 在标注上写编号会被生成期非零拒绝并点名。
 //
 // CA_BIND_SKIP(方法名, "理由") —— 逐方法排除。它**必须带理由**：工具对"排除但没写理由"单独报错。
 // 用法与退出码见 Tools/CodeGen/README.md 的发射器一节。
@@ -197,3 +199,32 @@ namespace cacore::codegen
 
 #define CA_BIND_SKIP(MethodName, Reason) \
     static_assert(true, "CA_BIND_SKIP(" #MethodName ", " Reason ")");
+
+// ---------------------------------------------------------------------------------------------
+// CA_BIND_VALUE — 标在**值语义资源引用类**上（`ImageHandle` / `BufferHandle` 这一类：内部持
+// 智能指针或名称哈希、作哈希键、自身不可进反射表）。它只作为参数/返回的过界值，**自身成员方法
+// 不进表面**：发射器的行为是把它投影成 `(kind 枚举, 对象句柄 uint64, 名称 ptr + len)` 的组合线形，
+// 托管侧出按构造通道一一对应的静态工厂。与 CA_BIND 一样是文本标记 + 编译期 no-op。
+// ---------------------------------------------------------------------------------------------
+#define CA_BIND_VALUE(TypeName) \
+    static_assert(true, "CA_BIND_VALUE(" #TypeName ")");
+
+// ---------------------------------------------------------------------------------------------
+// CA_BIND_INJECT(方法名, 参数名) — 把"参数位置的所有权不明裸指针"声明为引擎默认提供：
+// 该参数从 C ABI 与托管表面移除，thunk 从固定名钩子取值：
+//   extern "C" void* CAInject_<类短名>_<方法名>_<参数名>();
+// 参数名不存在 / 参数不是裸指针 / 有注入声明但没有钩子声明，都是生成期非零拒绝。
+// 返回位置的裸指针不适用（维持不可绑）。
+// ---------------------------------------------------------------------------------------------
+#define CA_BIND_INJECT(MethodName, ParameterName) \
+    static_assert(true, "CA_BIND_INJECT(" #MethodName ", " #ParameterName ")");
+
+// 生成器给"含容器/文本的记录"生成的 C++ 序列化入口（任务 D8）：绑定产物按同一份字段清单
+// 同时生成 C++ 反序列化与 C# 序列化。声明只在这里，特化由 CodeGen --emit-binding 发出；
+// 含私有字段的记录用 CA_CODEGEN_FRIEND 把这个模板加成友元即可。
+namespace cacore::codegen
+{
+    template<typename T> struct CodeGenBindingCodec;
+}
+#define CA_CODEGEN_BINDING_FRIEND(Type) \
+    friend struct ::cacore::codegen::CodeGenBindingCodec<Type>;

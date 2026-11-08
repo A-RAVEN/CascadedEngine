@@ -1058,34 +1058,43 @@ CODEGEN_BINDINGS = [
     ("Interface/RenderInterface/header/ScriptRenderBridge.h", "渲染适配",
      ["IScriptTexture", "IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend",
       "IScriptShaderStruct"]),
+    # codegen-native-binding-prereqs 任务 2.1：原生形态夹具（非纯虚 / 非虚 / 自返回链式 / 静态工厂 /
+    # 默认构造 / 重载 / 模板拒绝）。它同时是 2.2–2.4 与 3.x 的红绿载体。
+    ("Tools/CodeGen/BindableShapes.NativeShapes.h", "夹具 NativeShapes",
+     ["IBindNativeShape", "BindNativeObject"]),
 ]
 
 
 # 登记表发射输入（render-interface-merge 任务 1.1 / 1.3）：每个输入头在 `--emit-binding` 时额外
 # 写一份 `<标签>.registry.part` 分片，全部输入跑完后由 `--emit-registry` 汇总成三份跨接口产物：
 #   BindingRegistry.Bindings.h / .cpp、EngineApi.Bindings.cs
-# 每项 = (产物子目录（相对 codegen/bindings，空串 = 主目录）, [(头文件, 分片标签), ...])。
+# 每项 = (产物子目录（相对 codegen/bindings，空串 = 主目录）, 编号锁段名, [(头文件, 分片标签), ...])。
 # 主目录的产物被 CSharpHost 与 Scripting.Managed 编译；`fixture` 子目录只做编号 / 拒绝 / 确定性
 # 与编号对账的夹具（design D2：夹具头不进真实宿主登记表的执行口径 —— 它的头不在宿主 include
 # 路径上，编译进宿主会找不到头文件）。
+# 编号锁（codegen-native-binding-prereqs 任务 1.2）：段的号空间独立，宿主段从 1、夹具段从 8。
 CODEGEN_REGISTRIES = [
     # 主登记表（真实宿主与托管侧编译它）：窗口两个接口 + 脚本渲染适配面五个接口，编号 1–7。
-    ("", [
+    ("", "host", [
         ("WindowSystem/header/CAWindow/WindowSystem.h", "window"),
         ("Interface/RenderInterface/header/ScriptRenderBridge.h", "render"),
     ]),
     # 夹具登记表（只做编号 / 拒绝 / 确定性与编号对账）：夹具专用号段 8/9。
-    ("fixture", [
+    ("fixture", "fixture", [
         ("Tools/CodeGen/BindableShapes.RenderRegistry.h", "fixture"),
     ]),
 ]
+
+# 接口编号的唯一来源（本 change 任务 1.2）：入库锁文件。构建只核对、不改写；
+# 发号只走 `python build.py --update-ids`（转成逐头的 `CodeGen --update-ids`）。
+INTERFACE_ID_LOCK = PROJECT_DIR / "Tools" / "CodeGen" / "interface-ids.lock"
 
 
 def _registry_product_dirs() -> dict[str, Path]:
     """登记产物的落点：子目录名 → 绝对路径。"""
     return {subdir: (BUILD_DIR / "codegen" / "bindings" / subdir if subdir
                      else BUILD_DIR / "codegen" / "bindings")
-            for subdir, _inputs in CODEGEN_REGISTRIES}
+            for subdir, _scope, _inputs in CODEGEN_REGISTRIES}
 
 
 def _record_path_parts(file_path: str) -> list[str]:
@@ -1196,23 +1205,25 @@ def build_bindings() -> list[str]:
         print(f"  [绑定清单] {name} ← {header}：{listed} 个接口", flush=True)
     known_args = [f"--known-interface={short}={qualified}" for short, qualified in sorted(known.items())]
 
-    # 登记表发射输入（本 change 任务 1.1）：头文件 → [(产物目录, 分片标签), ...]。
+    # 登记表发射输入（本 change 任务 1.1）：头文件 → [(产物目录, 段名, 分片标签), ...]。
     # 分片在 `--emit-binding` 那一轮写出，全部绑定输入跑完后由 `--emit-registry` 汇总。
+    # 段名（host / fixture）同时传给生成器：编号从锁文件的同名段里取。
     registry_dirs = _registry_product_dirs()
-    registry_membership: dict[str, list[tuple[Path, str]]] = {}
-    for subdir, inputs in CODEGEN_REGISTRIES:
+    registry_membership: dict[str, list[tuple[Path, str, str]]] = {}
+    for subdir, scope, inputs in CODEGEN_REGISTRIES:
         product_dir = registry_dirs[subdir]
         product_dir.mkdir(parents=True, exist_ok=True)
         for header, tag in inputs:
-            registry_membership.setdefault(header, []).append((product_dir, tag))
+            registry_membership.setdefault(header, []).append((product_dir, scope, tag))
 
     shared_types: dict[str, tuple[str, str]] = {}  # 短名 -> (完整限定名, 文件内容哈希)
     for header, name, expected in CODEGEN_BINDINGS:
         includes = includes_by_header[header]
         cmd = [str(tool), header, "--emit-binding", "--out-dir", str(out_dir),
                "--audit-script", str(script)] + known_args
-        for part_dir, tag in registry_membership.get(header, []):
-            cmd += ["--registry-part", tag, "--registry-part-dir", str(part_dir)]
+        for part_dir, scope, tag in registry_membership.get(header, []):
+            cmd += ["--registry-part", tag, "--registry-part-dir", str(part_dir),
+                    "--id-lock", str(INTERFACE_ID_LOCK), "--id-scope", scope]
         cmd += includes + ["-xc++"]
         print(f"  [绑定] {name} ← {header}", flush=True)
         proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True,
@@ -1262,7 +1273,7 @@ def build_bindings() -> list[str]:
     # ---- 登记表汇合与期望产物（render-interface-merge 任务 1.3 / 1.4）----
     # 每个登记输入在 `--emit-binding` 那一轮写一份分片；这里按登记表逐个汇合。
     # 分片缺失 = 对应输入在写分片之前就失败了（上面已有失败条目），这里再点名一次避免静默。
-    for subdir, inputs in CODEGEN_REGISTRIES:
+    for subdir, scope, inputs in CODEGEN_REGISTRIES:
         product_dir = registry_dirs[subdir]
         label = "主登记表" if not subdir else f"登记表（{subdir}）"
         part_paths = [product_dir / f"{tag}.registry.part" for _header, tag in inputs]
@@ -1272,7 +1283,8 @@ def build_bindings() -> list[str]:
                 f"{label}：登记输入没有产出分片：{', '.join(path.name for path in missing_parts)}"
                 f"（生成器在写分片之前就失败了，见上面的绑定失败）")
         else:
-            cmd = [str(tool), "--emit-registry", "--out-dir", str(product_dir)]
+            cmd = [str(tool), "--emit-registry", "--out-dir", str(product_dir),
+                   "--id-lock", str(INTERFACE_ID_LOCK), "--id-scope", scope]
             for path in part_paths:
                 cmd += ["--registry-part-file", str(path)]
             print(f"  [登记表] {label} ← {len(inputs)} 个输入", flush=True)
@@ -1295,6 +1307,38 @@ def build_bindings() -> list[str]:
             if not (product_dir / filename).is_file():
                 failures.append(f"{label}：缺少登记产物 {filename}（目录 {product_dir}）")
     return failures
+
+def update_interface_ids() -> int:
+    """发号入口（本 change 任务 1.2）：逐登记输入跑 `CodeGen --update-ids`，只改锁文件。
+
+    编号不许人填：新接口进表时跑一次这个命令，工具在锁里追加一行（该段水位 + 1）、删掉
+    标注已经消失的行，既有行一字不动；它不产任何绑定产物，构建随后照常跑。
+    """
+    tool = BUILD_DIR / "bin" / "CodeGen.exe"
+    if not tool.is_file():
+        print(f"发号失败：找不到 {tool}（先跑一次 python build.py --config Debug 把工具编出来）")
+        return 1
+    cc_file = BUILD_DIR / "compile_commands.json"
+    if not cc_file.is_file():
+        print(f"发号失败：找不到 {cc_file}（需要上一次 configure 导出的编译数据库来定位 include）")
+        return 1
+    entries = json.loads(cc_file.read_text(encoding="utf-8"))
+    print(f"  [发号] 锁文件：{INTERFACE_ID_LOCK}")
+    failures = 0
+    for _subdir, scope, inputs in CODEGEN_REGISTRIES:
+        for header, _tag in inputs:
+            includes = _binding_includes(entries, header)
+            cmd = [str(tool), header, "--update-ids", "--lock", str(INTERFACE_ID_LOCK),
+                   "--scope", scope] + includes + ["-xc++"]
+            print(f"  [发号] {scope} ← {header}", flush=True)
+            proc = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parent),
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace")
+            for line in (proc.stderr or "").splitlines():
+                print(f"    {line}", flush=True)
+            if proc.returncode != 0:
+                failures += 1
+    return 1 if failures else 0
+
 
 def main() -> None:
     global config, BUILD_DIR, NINJA_FILE
@@ -1321,6 +1365,10 @@ def main() -> None:
 
     BUILD_DIR = PROJECT_DIR / "out" / "build" / CONFIGS[config]
     NINJA_FILE = BUILD_DIR / "build.ninja"
+
+    # 发号入口（本 change 任务 1.2）：只改锁文件，不 configure、不编译、不产绑定。
+    if "--update-ids" in args:
+        sys.exit(update_interface_ids())
 
     # 两个开关随「生成物入库」一起删除，**传了就明确拒绝**。不这么写的话它们是**静默通过**的：下面逐个吃
     # 参数、只认自己认识的那几个，其余一律忽略（`git grep -n -F "unknown" -- build.py` 零命中），于是

@@ -8,6 +8,10 @@
 
 # 待办（未解决 / 需后续处理）
 
+## [2026-11-06] 原生直绑 + `IScript*`/`CScript*` 退役批（codegen-native-binding-prereqs 之后）｜CodeGen→C# 直绑（跨 change）
+
+**状态**：待立项。**触发**：`codegen-native-binding-prereqs` 归档后**立即立项**。**开工输入**：`openspec/changes/codegen-native-binding-prereqs/evidence/原生头投影快照.txt` 与本批已交付的生成能力（锁文件编号、非纯虚采集、自返回、静态工厂、Create、重载序数槽、资源引用值类、序列化块记录、参数注入）。**范围**：把原生接口按快照直绑到 C#，并整体退役手搓的 `IScript*`/`CScript*` 适配层；不再为本批已有能力补机制。
+
 ## [2026-11-05] check_hash_sources 把 std 别名 remove_cvref_t 当键类型点名（基线即红）｜工具（跨 change）
 
 **状态**：待修（基线 `1301768` 即红；本 change 只留档不改）。**条目**：`remove_cvref_t` 被 `check_hash_sources.py` 当作来源不明的哈希键类型点名（出现在 `Test/CoreTests/GeneratedHashTest.cpp`）；待修方向：扫描器展开 std 别名，或该测试改用显式类型。**相关**：`Tools/CodeGen/check_hash_sources.py`、`Test/CoreTests/GeneratedHashTest.cpp`、`openspec/changes/render-interface-merge/evidence/4.3-全量实测.txt`。

@@ -1,0 +1,78 @@
+4.2 全量回归
+
+一、构建（主 agent 代跑；日志 evidence/4.2-构建日志.txt）
+命令：python build.py --config Debug
+退出码 0；BUILD SUCCESSFUL；`0 个错误`；判据七行：
+  不符数 0 / 两侧对齐问题 0 处 / 覆盖率问题 0 处 / 错误码问题 0 处 /
+  共享值类型问题 0 处 / 共享值类型限定名问题 0 处 / 原生形态夹具问题 0 处
+基线（本机自跑）：`缺失 0 / 不一致 0 / 多余 0`，退出码 0。
+
+二、GPUBackendTester（主 agent 跑 exe，执行者读日志）
+`--list`：退出码 0，**16 条**（顺序见 evidence/4.2-tester清单.txt）：
+TestSimpleTriangle / TestTriangleWithConstantColor / TestTriangleWithStructuredBufferColor /
+TestTriangleWithImageBuffer / TestDoublePass / TestComputeBuffer / TestReadback / TestIMGUI /
+TestScriptHost / TestCSharpWindow / TestCSharpTriangle / TestCSharpWindowCallbacks / TestGPUTiming /
+TestCSharpConstantColor / TestCSharpStructuredBuffer / TestCSharpTextureSampling。
+
+全量（不带 `--test`、`--headless 10 --report`）：
+  vulkan：退出码 0；报告 16 条 **16 pass / 0 fail**；日志 48,946 B（evidence/4.2-vulkan报告.txt）
+  d3d12 ：退出码 0；报告 16 条 **16 pass / 0 fail**；日志 36,266 B（evidence/4.2-d3d12报告.txt）
+说明：首轮 vulkan 全量按"完全不带 --headless"跑，用例无帧数上限、日志涨到 1,037 MB 仍未收尾；
+主 agent 杀掉宿主与残留 tester 进程、删超大日志，按 tester 自带收尾机制
+`--headless 10 --report` 重跑（仍是不带 `--test` 的 16 条全量），本轮读数以上面为准。
+
+三、CoreTests（主 agent 跑 exe；日志 evidence/4.2-CoreTests日志.txt）
+退出码 0；PASSED 23 行、FAILED 0 行；含本批新增 `Bindings native shapes test PASSED`。
+
+四、检查脚本家族（本机自跑；读数 evidence/4.2-检查家族.txt）
+`Tools/**/check_*.py` 与 `Tools/CodeGen/check_*.py` 重 glob 实得 **14 个**：
+  check_bindings（--product-dir）0
+  check_binding_baseline（基线 + 产物目录）0
+  check_native_snapshot（快照）0
+  check_bindable_audit 0
+  check_legacy_symbols 0
+  check_gpu_timing 0
+  check_window_system_bindings（--log test_output/TestCSharpWindow.log）0
+  check_csharp_triangle 0
+  check_csharp_constant_color 0
+  check_csharp_structured_buffer 0
+  check_csharp_texture_sampling 0
+  check_csharp_host_failures 0（5 个场景 5 通过、0 失败）
+  check_csharp_host_readme 0
+  check_hash_sources **1（既有基线红，非本批引入）**
+另跑助手 `verify_readme.py`：0（22 条 documented command，0 mismatch）。
+`check_hash_sources.py` 原文：
+  `扫描 289 个文件、命中 1 个来源不明的键类型`
+  `  来源不明: remove_cvref_t（出现在 Test/CoreTests/GeneratedHashTest.cpp）`
+  `清单 75 个类型；键类型共 37 个`；退出码 1。
+该条是 `docs/TODO.md` 2026-11-05 已单列的跨 change 待修项（本批未动该文件/该测试）；
+其余 13 个 check 脚本全部 exit 0。**这一条不冒充通过，也不改它的判据。**
+
+五、C# 像素判据的报告（主 agent 跑 tester，32 次；读数 evidence/4.2-像素矩阵.txt）
+两个后端 × 四个套件 × 各自模式，共 32 次单测跑，`--report test_output/csharp_*.json`。
+31 次为"normal=0 / 负向=1"；唯一异常：vulkan csharp_triangle bad-vertex 首跑 exit=3
+（CSharpHost 初始化瞬态失败 `解析托管入口 Boot 失败，返回 -2146233079`，未写报告）；
+同参数单例复跑 exit=1、报告 `status=fail`，`csharp_*.json` 恢复到 32/32；无 dmp，
+未改任何代码。四个判据随后实跑：`check_csharp_triangle` / `check_csharp_constant_color` /
+`check_csharp_structured_buffer` / `check_csharp_texture_sampling` 全部 exit 0
+（正常 pass、负向 fail 且错误码对上；normal PNG 非空）。
+
+六、生成期拒绝探针（既有条目 + 本批增量）
+CoreTests 的 23 个套件全绿，其中 `Bindings native shapes test` 内含本批九条生成期拒绝探针
+（模板 / 静态工厂返回容器 / 重载 ③ / 序列化块映射容器 / 两层容器 / 出参方向 / 注入三条），
+与既有 `BindingsRenderFoundationTest` 的 8 个 `BindableShapes.RenderReject*.h` 探针同轮全过；
+`--list` 16 条与工件口径一致。
+
+结论：4.2 五层（构建、基线、tester 16 条、CoreTests、检查家族）有日志与读数；
+唯一非 0 是既有的 `check_hash_sources.py`（已在 docs/TODO.md 单列，不属本批），其余全 0。
+
+七、4.2 工件修订（主循环 2026-11-06 裁决，已写入 tasks.md 修订记录）
+4.2 的"全家族 exit 0"加**唯一命名豁免**：`check_hash_sources.py` 对 `remove_cvref_t`
+（`Test/CoreTests/GeneratedHashTest.cpp`）的点名。豁免依据（主循环独立核过）：
+  · `git diff --name-only d7bc1a2 -- Test/CoreTests/GeneratedHashTest.cpp` 空输出；
+  · `check_hash_sources.py` 不在本批 `git status` 改动清单；
+  · `docs/TODO.md` 2026-11-05 条目先把该红记成"基线（1301768）即红、只留档不改"。
+证据口径按修订文本执行：保留**原始输出**，读数逐字是
+`扫描 289 个文件、命中 1 个来源不明的键类型`（命中数变 0 之外的任何变化——多命中/报错/崩——
+都算 4.2 不过）；其余 13 份 check 任何一份红也不算过。本轮实际读数与这条豁免完全对上：
+13 份 exit 0、`check_hash_sources.py` exit 1 且原文如上。

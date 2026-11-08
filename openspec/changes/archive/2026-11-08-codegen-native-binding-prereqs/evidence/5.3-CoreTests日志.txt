@@ -1,0 +1,162 @@
+CoreTests.exe : mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+At line:1 char:476
++ ... 'Continue'; & "out\build\x64-debug\bin\CoreTests.exe" *> "$env:TEMP\c ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (mimalloc-redire...er ucrtbase.dll:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  (hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+heap stats:     peak       total     current       block      total#   
+    binned:     0           0           0                                ok
+      huge:     0           0           0                                ok
+     total:     0           0           0                                ok
+malloc req:     0      
+
+  reserved:     0           0           0                                ok
+ committed:     0           0           0                                ok
+     reset:     0      
+    purged:     0      
+   touched:     0           0           0                                ok
+     pages:     0           0           0                                ok
+-abandoned:     0           0           0                                ok
+ -reclaima:     0      
+ -reclaimf:     0      
+-reabandon:     0      
+    -waits:     0      
+ -extended:     0      
+   -retire:     0      
+    arenas:     0      
+ -rollback:     0      
+     mmaps:     0      
+   commits:     0      
+    resets:     0      
+    purges:     0      
+   guarded:     0      
+   threads:     0           0           0                                ok
+  searches:     0.0 avg
+numa nodes:     1
+   elapsed:     0.001 s
+   process: user: 0.000 s, system: 0.000 s, faults: 1900, rss: 7.1 MiB, commit: 1.4 MiB
+Window bindings compile test PASSED
+Bindings layout manifest test PASSED
+Bindings nested layout test PASSED
+Bindings callback test PASSED
+Bindings weak handle test PASSED
+Bindings handle table test PASSED
+Bindings GetApi test PASSED
+Bindings cross interface test PASSED
+Bindings render foundation test PASSED
+  [字节复制] 上传区 72 字节 / 输入 72 字节 / 改输入后逐字节一致=1
+  [拒绝] 参数=data           status=1 点名=1 文本=IScriptRenderGraph.data：字节数组长度与描述里的 SizeInByte 不一致 pass=1 execCalls=0
+  [拒绝] 参数=name           status=1 点名=1 文本=IScriptRenderGraph.name：同一张图里缓冲名称必须唯一 pass=1 execCalls=0
+  [拒绝] 参数=positionOffset status=1 点名=1 文本=IScriptRenderGraph.positionOffset：position 属性越过步长（offset + 12 > stride） pass=1 execCalls=0
+  [拒绝] 参数=colorOffset    status=1 点名=1 文本=IScriptRenderGraph.colorOffset：color 属性越过步长（offset + 12 > stride） pass=1 execCalls=0
+  [拒绝] 参数=streamName     status=1 点名=1 文本=IScriptRenderGraph.streamName：顶点流没有登记过 pass=1 execCalls=0
+  [拒绝] 参数=bufferName     status=1 点名=1 文本=IScriptRenderGraph.bufferName：缓冲没有登记过 pass=1 execCalls=0
+  [拒绝] 参数=vertexCount    status=1 点名=1 文本=IScriptRenderGraph.vertexCount：绘制顶点数必须非零 pass=1 execCalls=0
+  [拒绝] 参数=vertexCount    status=1 点名=1 文本=IScriptRenderGraph.vertexCount：绘制顶点数超过缓冲描述的元素数 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：渲染目标不能为空 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：Present 只接受后台缓冲目标 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：渲染目标不能为空 pass=1 execCalls=0
+  [拒绝] 参数=target         status=1 点名=1 文本=IScriptRenderGraph.target：渲染目标不能为空 pass=1 execCalls=0
+  [图结构] pass=1 属性=2 步长=24 绘制=3 清除色=(0.0,1.0,0.0,1.0) 呈现=1
+  [错误通道] 成功调用后 GetLastError 长度=0
+  [提交生命周期] ExecuteGraph=1 NewScheduler=1 WaitIdle=1 后端WaitIdle=1 待完成=0
+  [参数结构] 未知类型 status=空句柄 点名=1 后端创建=0
+  [参数结构拒绝] 未知字段                 status=1 点名=noSuchField 文本=IScriptShaderStruct.field：字段不在类型 ColorSubStruct 的元数据里：noSuchField
+  [参数结构拒绝] 12 字节 int3 类型不符  status=1 点名=vector<int,3> 文本=IScriptShaderStruct.field：字段 value 类型不符：期望 vector<float,3>，实际 vector<int,3>
+  [参数结构拒绝] float3[2] 数组字段       status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 必须是单元素，实际元素数 2
+  [参数结构拒绝] 空子结构                 status=1 点名=sub 文本=IScriptShaderStruct.sub：子结构不能为空
+  [参数结构拒绝] 子结构类型不符        status=1 点名=OtherSubStruct 文本=IScriptShaderStruct.sub：子结构类型不符：期望 ColorSubStruct，实际 OtherSubStruct
+  [参数结构拒绝] 越界 elementIndex          status=1 点名=elementIndex 文本=IScriptShaderStruct.elementIndex：下标越界：元素数 3，实际下标 3
+  [参数结构拒绝] 未知参数块名           status=1 点名=noSuchBlock 文本=IScriptRenderGraph.blockName：参数块不在该 pass 着色器的根结构里：noSuchBlock
+  [参数结构拒绝] 越界 passIndex             status=1 点名=passIndex 文本=IScriptRenderGraph.passIndex：pass 下标越界：pass 数 1，实际下标 7
+  [参数结构拒绝] 空参数                    status=1 点名=params 文本=IScriptRenderGraph.params：参数结构不能为空
+  [参数结构拒绝] 参数块类型不符        status=1 点名=ColorSubStruct 文本=IScriptRenderGraph.params：参数块类型不符：期望 ConstantColor，实际 ColorSubStruct
+  [参数结构拒绝] 未登记着色器路径     status=1 点名=Shaders/Test/NoSuchShader 文本=IScriptRenderGraph.shaderPath：着色器路径没有登记的根结构：Shaders/Test/NoSuchShader
+  [参数表同一实例] 表内指针=0000011912AF4090 夹具实例指针=0000011912AF4090 一致=1
+  [流名查重] 两属性 / 单 POSITION 都拒绝，pass=1 execute=1
+  [必需块检查] status=1 执行次数=1 待完成=0 文本=IScriptRenderBackend.blockName：pass 0 的着色器 Shaders/Test/TestTriangleWithConstantColor 缺少必需参数块：constantColorBlock
+  [参数保活] pass0 表内指针=0000011912AF3410 pass1 表内指针=0000011912AF3410 夹具实例指针=0000011912AF3410
+  [参数句柄释放] 提交后待完成=1 → 等待后=0，执行次数=3（释放句柄前后不变）
+  [缓冲绑定拒绝] 缓冲表外字段             status=1 点名=noSuchBufferField 文本=IScriptShaderStruct.field：字段不在类型 StructuredColor 的缓冲元数据里：noSuchBufferField
+  [缓冲绑定拒绝] 读写访问条目             status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 的访问类型不是只读；读写缓冲属计算批，本批不支持
+  [缓冲绑定拒绝] 数组条目（元素数 2）  status=1 点名=colors 文本=IScriptShaderStruct.field：字段 colors 必须是单元素（描述符数组长度为 1），实际 2
+  [缓冲绑定] 桩记录 字段=colorStructuredBuffer 缓冲=SbColors 下标=0
+  [缓冲绑定] 重复绑定成功计数=2 桩记录最后缓冲=SbColorsNew
+  [提交检查 unbound] status=1 点名=1 执行次数=3 文本=IScriptRenderBackend.field：pass 0 的块 structuredColorBlock 没有为缓冲字段 colorStructuredBuffer 调 SetBuffer
+  [提交检查 bad-name] status=1 点名=1 文本=IScriptRenderBackend.bufferName：pass 0 的块 structuredColorBlock 的字段 colorStructuredBuffer 引用了本图未登记的缓冲：SbColorsMissing
+  [双图] A 提交=0 B 提交=1 B 文本=IScriptRenderBackend.bufferName：pass 0 的块 structuredColorBlock 的字段 colorStructuredBuffer 引用了本图未登记的缓冲：SbColors
+  [参数保活-图登记表] 释放后映射可读=1 提交=0
+  [重复绑定] 解析到最后一次=1 拒绝status=1
+  [子结构缓冲拒绝] status=1 点名child=1 点名原因=1 文本=IScriptShaderStruct.field：子结构类型 StructuredColor 含缓冲字段，本批只支持顶层缓冲字段：child
+  [纹理创建拒绝] 零尺寸              句柄空=1 点名=width 后端调用 5→5 文本=IScriptRenderBackend.width：纹理尺寸必须非零
+  [纹理创建拒绝] 字节数不符（期望值） 句柄空=1 点名=16 后端调用 5→5 文本=IScriptRenderBackend.rgba：字节数与 GetImageByteSize 不一致：期望 16 字节（RGBA8，宽 2 × 高 2），实际收到 12 字节
+  [纹理创建拒绝] 超大尺寸回绕     句柄空=1 点名=4294967296 后端调用 5→5 文本=IScriptRenderBackend.rgba：字节数与 GetImageByteSize 不一致：期望 4294967296 字节（RGBA8，宽 65536 × 高 16384），实际收到 0 字节
+  [纹理创建拒绝] 重名                 句柄空=1 点名=texYellow2x2 后端调用 6→6 文本=IScriptRenderBackend.name：同名纹理已经创建过：texYellow2x2
+  [纹理创建] 计数=1 上传执行 +1 提交执行 +0 描述符=2x2 格式=6
+  [绑定拒绝] 纹理表外字段         status=1 点名=noSuchTextureField 文本=IScriptShaderStruct.field：字段不在类型 TextureSampleBlock 的纹理元数据里：noSuchTextureField
+  [绑定拒绝] 读写纹理条目         status=1 点名=testTexture 文本=IScriptShaderStruct.field：字段 testTexture 的访问类型不是只读；读写纹理（RWTexture）属计算批，本批不支持
+  [绑定拒绝] 数组纹理条目         status=1 点名=testTextures 文本=IScriptShaderStruct.field：字段 testTextures 必须是单元素（描述符数组长度为 1），实际 2
+  [绑定拒绝] 空纹理                  status=1 点名=testTexture 文本=IScriptShaderStruct.field：字段 testTexture 的纹理是空句柄；纹理必须先经 CreateTexture 创建
+  [绑定拒绝] 采样器表外字段      status=1 点名=noSuchSamplerField 文本=IScriptShaderStruct.field：字段不在类型 TextureSampleBlock 的采样器元数据里：noSuchSamplerField
+  [纹理绑定] 桩记录 字段=testTexture 纹理=2x2 采样器字段=testSampler
+  [提交检查 unbound-image] status=1 文本=IScriptRenderBackend.field：pass 0 的块 textureBlock 没有为纹理字段 testTexture 调 SetImage 提交执行增量=0
+  [提交检查 unbound-sampler] status=1 文本=IScriptRenderBackend.field：pass 0 的块 textureBlock 没有为采样器字段 testSampler 调 SetSampler
+  [子结构纹理拒绝] status=1 文本=IScriptShaderStruct.field：子结构类型 TextureSampleBlock 含纹理字段，本批只支持顶层纹理字段：textureChild
+  [纹理保活] 释放后引用可读=1 提交执行 6→7 待完成=0
+  [顶点流拒绝] texcoord 越过步长  status=1 点名=texcoordOffset 文本=IScriptRenderGraph.texcoordOffset：texcoord 属性越过步长（offset + 8 > stride）
+  [顶点流拒绝] 步长为零           status=1 点名=stride 文本=IScriptRenderGraph.stride：步长必须非零
+  [顶点流拒绝] 流名重复           status=1 点名=TexStream 文本=IScriptRenderGraph.streamName：同一张图里流名必须唯一（这次是重复登记）：TexStream
+  [纹理坐标流] 描述符 stride=20 POSITION@0=1 TEXCOORD@12=1 属性数=2
+Script render bridge test PASSED
+Bindings native shapes test PASSED
+CodeGen TypeRegistry test PASSED
+CodeGen serialization roundtrip PASSED
+CodeGen serialization test PASSED
+CodeGen legacy hash entry uses the generated trait = 1 (legacy=15402126173295036644 fieldwise=15402126173295036644)
+CodeGen hash ignores padding = 1 (padding differs = 1, fields equal = 1, raw bytes differ = 1)
+CodeGen legacy hash host NameHash     = 11718336935620011197
+CodeGen legacy hash host PathHash     = 12386457803575074623
+CodeGen legacy hash host HashObj<int> = 7869321708915449410
+CodeGen resource handles hash keys = 1 (同键同位 → 相同 = 1, 同键不同类型 → 不同 = 1, 两种句柄不同 = 1)
+CodeGen key hash readings (ViewRectData / InputElementDesc / VertexInputBindingData / GPUPipelineStateKey) = 9566659391000707361 / 7588715830773829420 / 17516807725481476295 / 17773842414398720855
+CodeGen key hash unchanged (ViewRectData) = 1 (期望 9566659391000707361，实得 9566659391000707361)
+CodeGen key hash unchanged (GPUPipelineStateKey) = 1 (期望 17773842414398720855，实得 17773842414398720855)
+CodeGen key hash unchanged (InputElementDesc) = 1 (期望 7588715830773829420，实得 7588715830773829420)
+CodeGen key hash unchanged (VertexInputBindingData) = 1 (期望 17516807725481476295，实得 17516807725481476295)
+CodeGen key hash controls = 1 (改一个字段 → 哈希变 = 1；尾部填充改成别的字节 → 哈希不变 = 1；尾部填充字节数 ViewRectData=0 InputElementDesc=0 VertexInputBindingData=0 GPUPipelineStateKey=0)
+CodeGen two entries NameHash             = 11718336935620011197 / 11718336935620011197
+CodeGen two entries PathHash             = 12386457803575074623 / 12386457803575074623
+CodeGen two entries HashObj<int>         = 7869321708915449410 / 7869321708915449410
+CodeGen two entries EmitSample           = 15402126173295036644 / 15402126173295036644
+CodeGen two entries CPipelineStateObject = 16012413602016233964 / 16012413602016233964
+CodeGen hash/equality test PASSED
+CodeGen hash test PASSED
+CodeGen container-of-struct bytes stable = 1, round-trip = 1, control differs = 1 (bytes=72)
+CodeGen container bytes stable = 1 (bytes=235)
+CodeGen container control differs = 1
+CodeGen container read-back clean = 1
+CodeGen ordered members match the old path = 1 (vector/map/string)
+CodeGen container serialization PASSED
+CodeGen nested bytes equal = 1, nested hash equal = 1, nested equal() = 1, control differs = 1
+CodeGen float map equal() = 1, new hash equal = 1 | old path 581cd0fa58d99645 vs 581cd0fa58d99645
+CodeGen element trait equal() = 1, new hash equal = 1 | raw bytes 4d25767f9dce13f5 vs 4d25767f9dce13f5
+CodeGen nested container + element hash PASSED
+CodeGen runtime write == old runtime bytes = 1 (bytes=17)
+CodeGen runtime reads old payload field-by-field = 1 (consumed=17/17)
+CodeGen runtime container bytes == old, and reads back = 1
+CodeGen runtime string bytes == old = 1 (bytes=15, 载荷长度 = 8 + 文本长度 = 15)
+CodeGen runtime truncated payload fails at the boundary = 1, full payload succeeds = 1
+CodeGen runtime fixed arrays (C array = 1, castl::array = 1) overwritten in place; length mismatch fails and reports extent=3 vs payload=4; castl::array bytes == old = 1
+CodeGen runtime read/write PASSED
+CPipelineStateObject bytes == old runtime = 1 (bytes=301), read-back = 1, content = 1
+CPipelineStateObject hash ignores padding = 1 (fields equal = 1, overall bytes differ = 1, HashObj equal = 1, control differs = 1)
+CPipelineStateObject migration PASSED
+FriendLike 私有成员：往返一致 = 1，字节 = 20，反向对照字节不同 = 1，相等 = 1，哈希相同 = 1
+CodeGen private-member friend entry PASSED
+TResource 对拍：新批字节 == 老批字节 = 1（新=16 / 老=16），只做转发 = 1，读回一致 = 1，反向对照不同 = 1
+CodeGen TResource batch roundtrip PASSED
+ShaderLibrary(D3D12) 对拍：无程序逐字节相同 = 1（新=504 / 老=504），有程序只差插入的 blob = 1（新=595 / 老=583，差在 57），读回结构体 = 1、blob = 1、重写不变 = 1，反向对照 = 1，空 blob 不崩且往返 = 1（591 字节）
+CodeGen ShaderLibrary (D3D12) bytes PASSED

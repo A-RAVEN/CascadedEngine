@@ -16,7 +16,7 @@
 | `script_texture_interface_id` | v8 | 脚本只读纹理表的编号（7）；同样属目标类型表（没有默认实例） |
 
 **v9（render-interface-merge）**：字段顺序与宽度一个都没动（仍是上面这 14 个字段、80 字节），
-版本升级是因为这张表改由绑定生成器从各接口头上的 `CA_BIND(编号)` 标注发射 —— C++ 侧的
+版本升级是因为这张表改由绑定生成器从 `Tools/CodeGen/interface-ids.lock` 取编号后发射 —— C++ 侧的
 `struct EngineApi` 与其装配代码在生成的 `BindingRegistry.Bindings.h/.cpp` 里，托管侧的逐字段
 镜像与编号常量在生成的 `EngineApi.Bindings.cs` 里；两侧手写镜像已退役。宿主只保留按固定名字
 暴露的几项实现（`log` / `echo` / 实例查找 / 错误出口 / 默认实例工厂 / 角色登记）。
@@ -26,7 +26,7 @@
 **没有尾部填充可用**，v8 追加一个 `uint32_t` 后正文 76 字节、按 8 字节对齐补到 **80 字节**
 （不是 72）；v9 布局不变。
 
-接口编号表（编号**写在接口头上的 `CA_BIND(编号)` 标注里**，由生成器发射成
+接口编号表（编号**在 `Tools/CodeGen/interface-ids.lock` 里，构建时核对；发号经 `--update-ids`**，由生成器发射成
 `kBindingInterfaceId*` 常量与 `EngineApi.Bindings.cs` 的编号常量；这里只是给它一个可读的名字）：
 
 | 编号 | 接口 | 实例名（本仓库现有的那份） |

@@ -1,0 +1,74 @@
+3.2 序列化块记录（D8）
+
+一、红态（改造前，用 3.1 的 CodeGen.exe 对加了 PassLike 的夹具头直接跑）
+命令：CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapes.h --emit-binding --out-dir <临时> --audit-script Tools/CodeGen/check_bindable_audit.py <构建同款 include> -xc++
+读数（逐字）：
+  CodeGen: 拒绝嵌套记录 —— PassLike：类型 ca_bind_fixture::PassLike 的成员 m_PrivateCount 不是公开字段（非公开字段不能镜像）
+  CodeGen: --emit-binding 返回 1
+  退出码 1
+
+二、实现（生成器）
+  1) 夹具：`PassLike`（公开 `castl::vector<PassAttachment>` / `castl::vector<EPassMode>` /
+     `cacore::NameHash`，私有 `uint32_t m_PrivateCount` 经 `CA_CODEGEN_FRIEND(PassLike)`）；
+     `IBindNativeShape::ConsumePass(PassLike const&)`。
+  2) 识别：参数位置、成员含一层容器/文本、且**不同时出现在返回位置**的记录走序列化块
+     （同时出现在返回位置的记录留给镜像路径 —— 既有"嵌入记录"诊断因此零改动）。
+  3) 字段形状：标量 / 枚举 / 文本（NameHash、PathHash、castl::string）/ 一层
+     `vector<标量|枚举|纯标量记录>`；元素记录只允许标量/枚举字段。越界形状生成期非零拒绝：
+     `vector<vector<T>>`（"两层容器"）、`unordered_map`/`map`/`set`/定长数组（"映射容器 / 定长数组"）、
+     非 const 引用出参（"出参方向"）、string_view（反序列化会悬空）、裸指针/智能指针；每个都写明
+     恢复路径（真实实例出现时立扩形状批 / 出参投影批）。
+  4) 块头三项：`formatVersion = 1u` + 类型完整限定名的 FNV-1a 64 + **字段布局哈希** =
+     `FNV("字段名:类型:偏移;" 序列，含元素记录逐字段展开)`。布局哈希覆盖"名+类型+偏移"，
+     "字段改名但类型序不变"的块与正确块字节不同。
+  5) C++ 侧：生成 `<记录>.BindingCodec.h`（`#pragma once`，跨接口共享；同一个 TU 里被多个
+     接口产物 include 也只展开一次）：`Serialize` 写块头+字段，`Reader/Deserialize` 逐项校验并
+     返回 1/2/3/4（版本/类型/布局/载荷）；thunk 把 4 映射到本接口的具名错误码
+     `BAD_BLOCK_VERSION=1007` / `BAD_BLOCK_TYPE=1008` / `BAD_BLOCK_LAYOUT=1009` /
+     `BAD_BLOCK_PAYLOAD=1010`，失败时**不调用原生实现**（实现计数保持 0）。
+     四条块错误码**只发给确实用了序列化块的接口**（本批是 IBindNativeShape）——这是保住
+     "既有产物逐字节不变"硬锚的关键：全局错误码表原本让 70 个既有产物全变。
+  6) 托管侧：`<记录>.Bindings.cs` = 公开镜像类（字段名/顺序与 C++ 一致）+ internal
+     `<记录>Codec.Serialize`（同一份字段清单；BinaryWriter 小端，标量按自身宽度、文本 u64 长度前缀、
+     容器 u64 个数前缀），块头三项用同一组常量；元素记录另发 `<元素>.Bindings.cs`；
+     Calls 层 `byte[] + fixed`，公开表面收镜像类。
+
+三、执行期四轮红（全部为我这轮引入，逐条修）
+  1) C3493/C2326：`buildSerializedElementFields` 的 visitor lambda 用了外层 `declaration`。→ 放进
+     `FieldSink` 经 `CXClientData` 传入。
+  2) CS1503：Calls 层把 `passBytes`（byte[]）传给要 `byte*` 的参数。→ 改传 `passBytesPtr`。
+  3) `EPassMode`：枚举共享文件没有 .cpp，被"共享值类型"反查点名。→ 在 `SHARED_VALUE_TYPES` 登记。
+  4) 既有夹具回退 + 基线 70 个产物变：
+     · `RejectWrapperNestedRecord`（含顶层 NameHash）被误收进序列化块候选，默认构造门抢答了旧的
+       "嵌入记录"诊断 → 候选排除"同时出现在返回位置"的记录，且默认构造门移到形状检查之后、
+       隐式默认构造放行；
+     · 70 个既有产物变化 = 全局错误码表新增 1007–1010 → 改为按接口过滤后，基线恢复
+       "缺失 0 / 不一致 0 / 多余 0"。
+
+四、绿轮（主 agent 代跑）
+构建：python build.py --config Debug；退出码 0；日志 evidence/3.2-构建日志.txt
+  不符数 0；两侧对齐问题 0 处；覆盖率问题 0 处；错误码问题 0 处；共享值类型问题 0 处；
+  原生形态夹具问题 0 处；夹具接口 30 个、桩数 5 个、丢返回值 0 个
+  BUILD SUCCESSFUL；[耗时] configure 0.0s / codegen 58.3s / 编译 41.5s / 托管侧 1.8s / 合计 129.6s
+CoreTests：退出码 0；日志 evidence/3.2-CoreTests日志.txt
+  `Bindings native shapes test PASSED` + `Bindings render foundation test PASSED`（既有夹具回退已消）；
+  PASSED 23 行、FAILED 0 行、`[原生形态] 失败` / `[拒绝夹具]` 0 命中。
+  3.2 断言：
+  · 往返字段级一致：两个附件字段、两个枚举、文本 "passx"、私有计数 7 全部逐项到达；
+  · 块头三项与布局清单同源：`kLayoutHash == Fnv(kLayoutText, strlen(kLayoutText))`；
+  · 畸形块（**全部 CoreTests 手摆字节流，不碰生成物**）：
+    版本字节 +1 → 1007；类型名哈希改错 → 1008；字段布局哈希改错 → 1009；
+    "改名同序"（把 m_Attachments 改名后重算布局哈希写回块头）→ 1009；载荷截断 → 1010；
+    五例的实现调用计数全部保持不变。
+  · 三条生成期拒绝探针：映射容器夹具点名 `RejectMapRecord` + "映射容器"；两层容器夹具点名
+    `RejectNestedVectorRecord` + "两层容器"；出参方向夹具点名 `RejectOutRecord` + "出参方向"。
+产物基线：缺失 0 / 不一致 0 / 多余 0（4 个新文件已逐项登记进允许新增）。
+
+五、真实头形状见证
+evidence/3.2-形状见证.txt（逐字摘录 + 归属说明）：`static RenderPass New(ImageHandle const& color`
+与全部 4 个 New 重载、`AttachmentConfig` 的 Create/Clear/ClearDepthStencil（无 New，0 命中）、
+`static DrawCallBatch New()`、RenderPass 的 `castl::vector<...> m_AttachmentConfigs;` /
+`m_DrawCallBatches;` / `m_Attachments;`、`cacore::HashObj<CPipelineStateObject> m_PipelineStates;`
+属 `PipelineDescData`（不在 RenderPass）。**本批没有给真实头加 CA_BIND**。
+
+结论：3.2 验收（块头三项、往返逐字段、五例畸形块拒绝且不调实现、越界形状生成期拒绝、真实头见证）满足。
