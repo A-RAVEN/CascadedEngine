@@ -22,6 +22,11 @@
   1 = 有缺失 / 内容不一致 / 未登记的多余文件
   2 = 判据自身失效（基线文件不存在、产物目录不存在、基线「条目数」与实际行数不符）
 
+**当前基线**：`openspec/changes/csharp-native-direct-binding/evidence/基线产物哈希.txt`（6.1 换锚；旧锚 96 份仍在
+`openspec/changes/archive/2026-11-08-codegen-native-binding-prereqs/evidence/基线产物哈希.txt`，并在本 change 的
+`evidence/6.1-旧锚封存-基线产物哈希.txt` 留了逐字节封存副本）。换锚前后的逐文件差异见
+`openspec/changes/csharp-native-direct-binding/evidence/6.1-换锚前后对照.txt`。
+
 `--self-test` 会在内存里删掉基线的一条数据行再算一遍：如果删掉之后判定结果没有变化
 （说明脚本根本没在逐行读基线），退出 2 并打印「判据自身失效」。这是防止「脚本写错还永远绿」
 的自检，不替代正常对账。

@@ -4,6 +4,10 @@
 #include <cerrno>
 #include <climits>
 #include <cstring>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
 #include <fstream>
 #include <chrono>
 #include <windows.h>
@@ -46,9 +50,9 @@
 // 由托管侧走**生成的表面**（`IWindow` / `IWindowSystem`）完成，C ABI 入口只在
 // `Test/CoreTests` 的绑定用例里直接对着产物验。
 #include "FakeWindowSystem.h"
-// 脚本渲染适配面的原生测试钩子（csharp-render-backend-triangle 任务 4.1）：本文件要读脚本创建的
-// 离屏 `ImageHandle`、适配器的等待次数与真实呈现清单。托管侧只能看到公开接口。
-#include "../../Interface/RenderInterface/private/ScriptRenderBridge.h"
+// 脚本渲染用例的原生核对通道（csharp-native-direct-binding 4.1）：桥退役后不再 include 适配层私有头，
+// 改为读托管侧读数行（`[托管 读数]`：原生对象地址 + 计数）+ 图附件的资源引用（helper 在
+// TestCSharpTriangle 之前）。
 
 // 实例名（`csharp-window-creation` 任务 5.4）：登记与查找都带这一维 —— 同一个接口可以并存
 // 多份实现。真实的窗口系统实例名必须与 `CA_MODULE_INSTANCE(cawindow::IWindowSystem,
@@ -1490,10 +1494,11 @@ void TestCSharpWindow(TestContext& ctx)
 	}
 
 	// 任务 4.2 的第二条：**未知接口编号不许静默返回 0**。
-	// 造一次 `interfaceId = 9` 的取表调用：返回值必须是 0，且 `LastError()` 里必须说明原因。
-	// 9 用的是"当前没有接线的编号"，不是某个将来要用的具体接口。
+	// 造一次 `interfaceId = 9999` 的取表调用：返回值必须是 0，且 `LastError()` 里必须说明原因。
+	// （原来用 9：那时 9 还没接线；2.3/2.4 把原生五类接到 8–12 之后 9 = GPUGraph 已是登记过的目标类型表，
+	//   探针会撞上"版本/角色不符"的另一条错误文本。9999 不在登记表里，判据保持"未知编号必须点名"。）
 	{
-		uint32_t const rejected = pScriptHost->GetInterfaceApiForTest(9u, nullptr, 1u, 0u, nullptr, nullptr);
+		uint32_t const rejected = pScriptHost->GetInterfaceApiForTest(9999u, nullptr, 1u, 0u, nullptr, nullptr);
 		if (rejected != 0u)
 		{
 			throw std::runtime_error("未知接口编号 9 竟然取表成功（返回 " + std::to_string(rejected) + "）");
@@ -1508,11 +1513,129 @@ void TestCSharpWindow(TestContext& ctx)
 	}
 }
 
-// ---- TestCSharpTriangle（csharp-render-backend-triangle 任务 1.2 / 3.2 / 4.1）----
-// C# 用自己的顶点字节、着色器路径、窗口与离屏目标建图并提交；原生侧只读那份离屏目标做真实像素
-// 判据，同时核对窗口描述快照、真实呈现清单、适配器 WaitIdle 次数与待完成集合。
+// ---- 托管读数行与绑定对象句柄解析（csharp-native-direct-binding 4.1）----
+// 桥退役后 C++ 用例不能再 dynamic_cast 适配器对象；改为读托管侧打出的机器可读读数行
+// （`[托管 读数] ...`），并按行里的对象句柄从**进程级强句柄表**解析出真实的 `GPUGraph` /
+// `GPUTexture` / `WindowHandle` —— 与托管侧持有的是同一个对象（同一张表、同一代际），
+// 结构断言（pass 数、参数表、呈现清单、顶点流）与像素断言的强度不变。
+namespace
+{
+	struct HostProbeReadings
+	{
+		std::map<std::string, std::string> values;
+		std::string reject;
+		bool found = false;
+
+		bool Has(char const* key) const
+		{
+			return values.find(key) != values.end();
+		}
+
+		std::string const& Get(char const* key) const
+		{
+			static const std::string empty;
+			auto it = values.find(key);
+			return it == values.end() ? empty : it->second;
+		}
+
+		uint64_t U64(char const* key) const
+		{
+			return std::strtoull(Get(key).c_str(), nullptr, 10);
+		}
+
+		int64_t I64(char const* key) const
+		{
+			return std::strtoll(Get(key).c_str(), nullptr, 10);
+		}
+	};
+
+	// 从本次用例自己的日志里读最后一条 `probe=<名字>` 的读数行（stdout 已被
+	// runTestWithDiagnostics 重定向到 test_output/<用例名>.log）。
+	bool ReadHostProbeReadings(char const* logPath, char const* probe, HostProbeReadings* out)
+	{
+		std::fflush(stdout);
+		std::ifstream file(logPath);
+		if (!file)
+		{
+			return false;
+		}
+		const std::string marker = std::string(" probe=") + probe + " ";
+		std::string line;
+		while (std::getline(file, line))
+		{
+			if (line.find("[托管 读数]") == std::string::npos || line.find(marker) == std::string::npos)
+			{
+				continue;
+			}
+			out->found = true;
+			out->values.clear();
+			out->reject.clear();
+			const std::size_t rejectAt = line.find(" | reject=");
+			const std::string head = rejectAt == std::string::npos ? line : line.substr(0, rejectAt);
+			if (rejectAt != std::string::npos)
+			{
+				out->reject = line.substr(rejectAt + std::strlen(" | reject="));
+			}
+			std::istringstream stream(head);
+			std::string token;
+			while (stream >> token)
+			{
+				const std::size_t eq = token.find('=');
+				if (eq == std::string::npos)
+				{
+					continue;
+				}
+				out->values[token.substr(0, eq)] = token.substr(eq + 1);
+			}
+		}
+		return out->found;
+	}
+
+	// 句柄 = (代际 << 48) | 序号；测试进程里**没有**生成产物的句柄表（它在 CSharpHost 模块里），
+	// 所以对象的核对走另一个口：托管读数行给出图的原生对象地址（对象由 C# 租约与图内引用保活），
+	// 再用图里的附件 `ImageHandle` 拿到离屏纹理与窗口后台缓冲的 `shared_ptr` —— 与 C# 侧提交的
+	// 是同一个对象（附件里的句柄在反序列化时从同一张对象表解析）。
+	struct ProbeNativeObjects
+	{
+		graphics_backend::GPUGraph* graph = nullptr;
+		graphics_backend::ImageHandle windowImage;
+		graphics_backend::ImageHandle captureImage;
+	};
+
+	ProbeNativeObjects ResolveProbeObjects(HostProbeReadings const& readings)
+	{
+		ProbeNativeObjects objects;
+		objects.graph = reinterpret_cast<graphics_backend::GPUGraph*>(
+			static_cast<uintptr_t>(readings.U64("graphSelf")));
+		if (objects.graph == nullptr)
+		{
+			return objects;
+		}
+		for (auto const& pass : objects.graph->GetRenderPasses())
+		{
+			for (auto const& attachment : pass.GetAttachments())
+			{
+				if (attachment.GetType() == graphics_backend::ImageHandle::ImageType::Backbuffer &&
+					!objects.windowImage.IsValid())
+				{
+					objects.windowImage = attachment;
+				}
+				if (attachment.GetType() == graphics_backend::ImageHandle::ImageType::External &&
+					!objects.captureImage.IsValid())
+				{
+					objects.captureImage = attachment;
+				}
+			}
+		}
+		return objects;
+	}
+}
+
+// ---- TestCSharpTriangle（csharp-native-direct-binding 4.1）----
+// C# 用自己的顶点字节、着色器路径、窗口与离屏目标建图并提交；原生侧按托管读数行里的句柄解析出
+// 同一份 `GPUGraph` / `GPUTexture` / `WindowHandle`，读 pass 数、呈现清单与像素。
 //
-// Debug 自检模式（进程环境变量 `CASCADED_CSHARP_RENDER_SELFTEST`，由外层命令设置、C# 侧读同一份值）：
+// Debug 自检模式（进程环境变量 `CASCADED_CSHARP_RENDER_SELFTEST`，C# 侧读同一份值）：
 //   skip-draw 在调用层省略两次 `AddTrianglePass`（图 pass 数 2 → 0），以 `E_TRIANGLE_DRAW` 判红；
 //   bad-vertex / skip-present / skip-wait 分别以 `E_TRIANGLE_PIXEL` / `E_TRIANGLE_PRESENT` /
 //   `E_TRIANGLE_WAIT` 判红。
@@ -1534,17 +1657,6 @@ void TestCSharpTriangle(TestContext& ctx)
 		fail("E_TRIANGLE_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
 	}
 
-	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段必须已经登记真实适配器。
-	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
-	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
-		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
-	if (renderBackend == nullptr)
-	{
-		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
-		fail("E_RENDER_BACKEND_MISSING", detail);
-	}
-
 	char modeBuffer[64] = {};
 	::GetEnvironmentVariableA("CASCADED_CSHARP_RENDER_SELFTEST", modeBuffer, sizeof(modeBuffer));
 	const std::string mode = modeBuffer;
@@ -1563,40 +1675,6 @@ void TestCSharpTriangle(TestContext& ctx)
 	} envGuard;
 	::SetEnvironmentVariableA("CASCADED_CSHARP_RENDER_PROBE", "1");
 
-	// 任务 3.2（csharp-render-shader-constants）：本用例是**第一个**渲染探针用例，之前跑的
-	// `TestScriptHost` / `TestCSharpWindow` 都没有设置任何渲染开关 —— 适配器的离屏目标、参数结构
-	// 与后端执行计数必须全为 0，否则说明未启用探针的测试也创建了 GPU 工作。
-	{
-		const uint32_t captureCount = renderBackend->GetCreateCaptureTargetCountForTest();
-		const uint32_t structCount = renderBackend->GetCreateShaderStructCountForTest();
-		const uint32_t executeCount = renderBackend->GetExecuteGraphCountForTest();
-		// csharp-render-structured-buffer 任务 3.1：非探针阶段建缓冲也必须为 0（新增的计数槽）。
-		const uint32_t addBufferCount = renderBackend->GetAddBufferCountForTest();
-		// csharp-render-texture-sampling 任务 3.2：纹理相关的四个钩子同样必须为 0 ——
-		// 创建次数、"上传执行"单列计数、绑定次数；未启用探针的测试不许创建任何 GPU 工作。
-		const uint32_t createTextureCount = renderBackend->GetCreateTextureCountForTest();
-		const uint32_t textureUploadCount = renderBackend->GetTextureUploadExecuteCountForTest();
-		const uint32_t setImageCount = renderBackend->GetSetImageCountForTest();
-		const uint32_t setSamplerCount = renderBackend->GetSetSamplerCountForTest();
-		CA_LOG("非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget={} "
-		       "createShaderStruct={} addBuffer={} executeGraph={} createTexture={} 上传执行={} "
-		       "setImage={} setSampler={}",
-		       captureCount, structCount, addBufferCount, executeCount, createTextureCount,
-		       textureUploadCount, setImageCount, setSamplerCount);
-		if (captureCount != 0u || structCount != 0u || executeCount != 0u || addBufferCount != 0u ||
-			createTextureCount != 0u || textureUploadCount != 0u || setImageCount != 0u ||
-			setSamplerCount != 0u)
-		{
-			char detail[384] = {};
-			std::snprintf(detail, sizeof(detail),
-			              "非探针测试创建了 GPU 工作：captureTarget=%u createShaderStruct=%u addBuffer=%u "
-			              "executeGraph=%u createTexture=%u 上传执行=%u setImage=%u setSampler=%u",
-			              captureCount, structCount, addBufferCount, executeCount, createTextureCount,
-			              textureUploadCount, setImageCount, setSamplerCount);
-			fail("E_RENDER_NONPROBE_WORK", detail);
-		}
-	}
-
 	// 窗口接口实例：托管探针用 `IWindowSystem.NewWindow` 建自己的窗口并从它取窗口目标。
 	auto newWindow = ctx.pWindowSystem->NewWindow(320, 240, "C# Triangle");
 	auto windowKeepAlive = newWindow.lock();
@@ -1607,9 +1685,7 @@ void TestCSharpTriangle(TestContext& ctx)
 	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
 	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
 
-	// 基线只看本次 Tick 产生的错误：全量跑时前面的用例可能留下一条（例如故意触发的未知编号）。
 	const std::string baselineError = pScriptHost->LastError();
-	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
 	const int32_t tickValue = pScriptHost->Tick(0.016);
 	::SetEnvironmentVariableA("CASCADED_CSHARP_RENDER_PROBE", nullptr);
 	const std::string hostError = pScriptHost->LastError();
@@ -1625,22 +1701,84 @@ void TestCSharpTriangle(TestContext& ctx)
 		fail("E_TRIANGLE_TICK", "Tick 回值不是正数（探针没有执行）");
 	}
 
-	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
-	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
-	if (captureTarget == nullptr || windowTarget == nullptr)
+	HostProbeReadings readings;
+	if (!ReadHostProbeReadings("test_output/TestCSharpTriangle.log", "triangle", &readings))
 	{
-		fail("E_RENDER_PROBE_MISSING",
-		     "渲染探针没有创建离屏 / 窗口目标（探针开关或三个函数表绑定失败）");
+		fail("E_TRIANGLE_READINGS", "托管读数行 `[托管 读数] probe=triangle` 没有出现在日志里");
 	}
-	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
-	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
 
-	// 窗口描述快照：离屏目标必须与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
-	const auto& windowDesc = windowTarget->GetDescriptorForTest();
-	const auto& captureDesc = captureTarget->GetDescriptorForTest();
-	if (windowDesc.width != captureDesc.width || windowDesc.height != captureDesc.height ||
-		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
-		captureTarget->IsBackbuffer())
+	// 本用例是**第一个**渲染探针用例，之前跑的 `TestScriptHost` / `TestCSharpWindow` 都没有设置
+	// 任何渲染开关 —— 探针开始前的原生调用计数必须全为 0。
+	{
+		const int64_t preExec = readings.I64("preExec");
+		const int64_t preCapture = readings.I64("preCapture");
+		const int64_t preStruct = readings.I64("preStruct");
+		const int64_t preAddBuffer = readings.I64("preAddBuffer");
+		const int64_t preCreateTexture = readings.I64("preCreateTexture");
+		const int64_t preUpload = readings.I64("preUpload");
+		const int64_t preImage = readings.I64("preImage");
+		const int64_t preSampler = readings.I64("preSampler");
+		CA_LOG("非探针阶段读数（TestScriptHost / TestCSharpWindow 之后）：captureTarget={} "
+		       "createShaderStruct={} addBuffer={} executeGraph={} createTexture={} 上传执行={} "
+		       "setImage={} setSampler={}",
+		       preCapture, preStruct, preAddBuffer, preExec, preCreateTexture, preUpload, preImage,
+		       preSampler);
+		if (preExec != 0 || preCapture != 0 || preStruct != 0 || preAddBuffer != 0 ||
+			preCreateTexture != 0 || preUpload != 0 || preImage != 0 || preSampler != 0)
+		{
+			char detail[384] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "非探针测试创建了 GPU 工作：captureTarget=%lld createShaderStruct=%lld "
+			              "addBuffer=%lld executeGraph=%lld createTexture=%lld 上传执行=%lld "
+			              "setImage=%lld setSampler=%lld",
+			              static_cast<long long>(preCapture), static_cast<long long>(preStruct),
+			              static_cast<long long>(preAddBuffer), static_cast<long long>(preExec),
+			              static_cast<long long>(preCreateTexture), static_cast<long long>(preUpload),
+			              static_cast<long long>(preImage), static_cast<long long>(preSampler));
+			fail("E_RENDER_NONPROBE_WORK", detail);
+		}
+	}
+
+	ProbeNativeObjects objects = ResolveProbeObjects(readings);
+	if (objects.graph == nullptr)
+	{
+		fail("E_TRIANGLE_GRAPH", "读数行里的 graphSelf 解析不出一张原生 GPUGraph（图没有保留或被提前释放）");
+	}
+	const uint32_t passCount = static_cast<uint32_t>(objects.graph->GetRenderPasses().size());
+	const auto& presents = objects.graph->GetFinalizePass().m_PresentBackBuffers;
+	if (skipDraw)
+	{
+		// `skip-draw` 在调用层省略了两次 `AddTrianglePass`：图 pass 数必须为 0（不是零面积三角形），
+		// 托管前置校验拒绝空图提交、原生执行计数 0。
+		if (passCount != 0u || readings.I64("exec") != 0)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail),
+			              "skip-draw 没有省略 AddTrianglePass：图 pass 数 %u、原生执行 %lld（期望 0 / 0）",
+			              passCount, static_cast<long long>(readings.I64("exec")));
+			fail("E_TRIANGLE_DRAW", detail);
+		}
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "skip-draw：图 pass 数 0、原生执行 0（正常模式 2），按预期失败");
+		fail("E_TRIANGLE_DRAW", detail);
+	}
+	// 图里有 pass 才能从附件里拿到离屏纹理与窗口后台缓冲（skip-draw 的 0 pass 在上面的分支已经判红）。
+	if (!objects.captureImage.IsValid() || !objects.windowImage.IsValid())
+	{
+		fail("E_TRIANGLE_TARGET", "图附件的资源引用里解析不出离屏纹理 / 窗口后台缓冲");
+	}
+
+	// 目标快照：离屏目标与窗口同尺寸、RGBA8；离屏引用是外部纹理、窗口引用是后台缓冲。
+	const auto& captureDesc = objects.captureImage.GetExternalManagedTexture()->GetDescriptor();
+	const auto& windowDesc = objects.windowImage.GetWindowHandle()->GetBackbufferDescriptor();
+	const bool captureExternal =
+		objects.captureImage.GetType() == ImageHandle::ImageType::External;
+	const bool windowBackbuffer =
+		objects.windowImage.GetType() == ImageHandle::ImageType::Backbuffer;
+	if (windowDesc.width != 320u || windowDesc.height != 240u || captureDesc.width != 320u ||
+		captureDesc.height != 240u || captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM ||
+		!captureExternal || !windowBackbuffer)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
@@ -1649,66 +1787,49 @@ void TestCSharpTriangle(TestContext& ctx)
 		fail("E_TRIANGLE_TARGET", detail);
 	}
 
-	// 图结构（任务 3.2 / spec 负向场景）：`skip-draw` 在**调用层**省略窗口与离屏目标的两次
-	// `AddTrianglePass`，图 pass 数必须从正常模式的 2 变成 0；原生测试以 `E_TRIANGLE_DRAW` 判红。
-	// 不得用零面积三角形代替省略调用（design 六）。
-	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
-	if (lastGraph == nullptr)
-	{
-		fail("E_TRIANGLE_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
-	}
 	constexpr uint32_t kExpectedPassCount = 2u;
-	if (skipDraw)
-	{
-		ctx.pGPUBackend->WaitIdle(); // 空图不会提交，仍清一次后端，避免残留
-		if (lastGraph->GetPassCount() != 0u)
-		{
-			char detail[256] = {};
-			std::snprintf(detail, sizeof(detail),
-			              "skip-draw 没有省略 AddTrianglePass：图 pass 数 %u（期望 0）",
-			              lastGraph->GetPassCount());
-			fail("E_TRIANGLE_DRAW", detail);
-		}
-		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail),
-		              "skip-draw：图 pass 数 0（正常模式 %u），按预期失败", kExpectedPassCount);
-		fail("E_TRIANGLE_DRAW", detail);
-	}
-	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	if (passCount != kExpectedPassCount)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
-		              lastGraph->GetPassCount(), kExpectedPassCount);
+		              passCount, kExpectedPassCount);
 		fail("E_TRIANGLE_DRAW", detail);
 	}
+	if (readings.I64("exec") != 1)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "原生执行入口调用增量 %lld，期望 1",
+		              static_cast<long long>(readings.I64("exec")));
+		fail("E_TRIANGLE_EXEC", detail);
+	}
 
-	// skip-wait：负向模式必须让适配器计数不涨；待完成集合非空也一并记下。
+	// skip-wait：负向模式必须让等待计数不涨。
 	if (skipWait)
 	{
 		ctx.pGPUBackend->WaitIdle(); // 清理仍在执行的 GPU 工作，再报负向失败
 		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail),
-		              "skip-wait：适配器 WaitIdle 计数 %u → %u、待完成 %u（期望 0 次、非空待完成）", waitBefore,
-		              waitAfter, pendingAfter);
+		std::snprintf(detail, sizeof(detail), "skip-wait：由本次提交引起的 WaitIdle 增量 %lld（期望 0）",
+		              static_cast<long long>(readings.I64("wait")));
 		fail("E_TRIANGLE_WAIT", detail);
 	}
-	if (waitAfter != waitBefore + 1 || pendingAfter != 0)
+	if (readings.I64("wait") != 1)
 	{
 		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
-		              waitBefore, waitAfter, pendingAfter);
+		std::snprintf(detail, sizeof(detail), "等待判据不符：由本次提交引起的 WaitIdle 增量 %lld（期望 1）",
+		              static_cast<long long>(readings.I64("wait")));
 		fail("E_TRIANGLE_WAIT", detail);
 	}
 
-	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
-	const bool presentMatches = presents.size() == 1 && presents[0] == windowTarget->GetImageForTest();
+	const bool presentMatches = presents.size() == 1u &&
+		presents[0] == objects.windowImage &&
+		presents[0].GetType() == ImageHandle::ImageType::Backbuffer;
 	if (skipPresent)
 	{
 		ctx.pGPUBackend->WaitIdle();
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail),
 		              "skip-present：真实呈现清单 %zu 项（负向模式期望 0；%s）", presents.size(),
-		              presents.size() == 0 ? "呈现确实被省略" : "呈现没有被省略");
+		              presents.empty() ? "呈现确实被省略" : "呈现没有被省略");
 		fail("E_TRIANGLE_PRESENT", detail);
 	}
 	if (!presentMatches)
@@ -1722,7 +1843,7 @@ void TestCSharpTriangle(TestContext& ctx)
 	const uint32_t height = captureDesc.height;
 	std::vector<uint8_t> pixels(static_cast<size_t>(
 		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
-	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	auto token = ctx.pGPUBackend->Readback(objects.captureImage, pixels);
 	if (!token)
 	{
 		fail("E_TRIANGLE_READBACK", "离屏目标的 Readback 返回空 token");
@@ -1739,11 +1860,12 @@ void TestCSharpTriangle(TestContext& ctx)
 		(mode.empty() ? "normal" : mode.c_str()) + ".png";
 	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
 	               static_cast<int>(width * 4));
-	CA_LOG("TestCSharpTriangle：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
+	CA_LOG("TestCSharpTriangle：backend={} mode={} size={}x{} wait={} exec={} presents={} "
 	       "bg=({},{},{},{}) center=({},{},{},{}) png={}",
-	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
-	       pendingAfter, presents.size(), background[0], background[1], background[2], background[3],
-	       center[0], center[1], center[2], center[3], pngPath.c_str());
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height,
+	       static_cast<long long>(readings.I64("wait")),
+	       static_cast<long long>(readings.I64("exec")), presents.size(), background[0], background[1],
+	       background[2], background[3], center[0], center[1], center[2], center[3], pngPath.c_str());
 
 	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
 		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
@@ -1770,16 +1892,15 @@ void TestCSharpTriangle(TestContext& ctx)
 	CA_LOG("TestCSharpTriangle 通过：{} 后端背景与中心像素精确匹配", ctx.backendName);
 }
 
-// ---- TestCSharpConstantColor（csharp-render-shader-constants 任务 1.2 / 4.1）----
+// ---- TestCSharpConstantColor（csharp-native-direct-binding 4.1）----
 // C# 用单 `POSITION` 顶点流 + `ConstantColor` 参数结构（3 个 `ColorSubStruct`）建图，把参数结构绑定到
-// `constantColorBlock`，窗口与离屏各一个同逻辑 pass，提交并等待；原生侧读那份离屏目标做精确像素判据
-// （背景 (0,0,255,255)、中心 (255,0,0,255)），同时核对 pass 数与每个 pass 的真实参数表条目。
+// `constantColorBlock`，窗口与离屏各一个同逻辑 pass，提交并等待；原生侧按句柄解析同一份图，核对
+// pass 数、每个 pass 的参数表、顶点流描述、呈现清单与像素（背景 (0,0,255,255)、中心 (255,0,0,255)）。
 //
 // Debug 负向（进程环境变量 `CASCADED_CSHARP_CONSTCOLOR_SELFTEST`，C# 侧读同一份值）：
 //   `bad-struct-colors` 三个数组槽改成红/绿/蓝 → 中心不再是纯红，以 `E_CONSTCOLOR_PIXEL` 判红；
-//   `skip-param` 完全不调 `SetPassParam` → `SubmitGraph` 在进入后端执行前拒绝并点名 `constantColorBlock`，
+//   `skip-param` 完全不调 `SetPassParam` → 托管前置校验在进入后端执行前拒绝并点名 `constantColorBlock`，
 //                原生以 `E_CONSTCOLOR_PARAM` 判红，**不读像素**（不对未定义内容编造期望）。
-// `Tools/check_csharp_constant_color.py` 逐后端对账正常（pass）与两个负向（fail + 对应错误码）。
 void TestCSharpConstantColor(TestContext& ctx)
 {
 	auto fail = [](char const* code, castl::string const& detail) {
@@ -1787,8 +1908,8 @@ void TestCSharpConstantColor(TestContext& ctx)
 		throw std::runtime_error(code);
 	};
 
-	// C++ 侧的独立夹具值（design 第五节）：尺寸、pass 数、两个像素与块名都另写一份，
-	// 不与 C# 的 `CSharpConstantColorProbe` 共享常量表 —— 一边改错不会两边一起绿。
+	// C++ 侧的独立夹具值：尺寸、pass 数、两个像素与块名都另写一份，不与 C# 的
+	// `CSharpConstantColorProbe` 共享常量表 —— 一边改错不会两边一起绿。
 	constexpr uint32_t kWindowWidth = 320u;
 	constexpr uint32_t kWindowHeight = 240u;
 	constexpr uint32_t kExpectedPassCount = 2u;
@@ -1804,17 +1925,6 @@ void TestCSharpConstantColor(TestContext& ctx)
 	if (!pScriptHost->IsAvailable())
 	{
 		fail("E_CONSTCOLOR_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
-	}
-
-	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段登记真实适配器。
-	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
-	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
-		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
-	if (renderBackend == nullptr)
-	{
-		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
-		fail("E_CONSTCOLOR_BACKEND_MISSING", detail);
 	}
 
 	char modeBuffer[64] = {};
@@ -1844,14 +1954,6 @@ void TestCSharpConstantColor(TestContext& ctx)
 	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
 
 	const std::string baselineError = pScriptHost->LastError();
-	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
-	// 任务 3.2 的读数基线：三个参数结构计数、`SetPassParam` 计数、离屏目标计数、后端执行次数。
-	const uint32_t createStructBefore = renderBackend->GetCreateShaderStructCountForTest();
-	const uint32_t setFloat3Before = renderBackend->GetSetFloat3CountForTest();
-	const uint32_t setStructBefore = renderBackend->GetSetStructCountForTest();
-	const uint32_t setPassParamBefore = renderBackend->GetSetPassParamCountForTest();
-	const uint32_t captureBefore = renderBackend->GetCreateCaptureTargetCountForTest();
-	const uint32_t executeBefore = renderBackend->GetExecuteGraphCountForTest();
 	const int32_t tickValue = pScriptHost->Tick(0.016);
 	::SetEnvironmentVariableA("CASCADED_CSHARP_CONSTCOLOR_PROBE", nullptr);
 	const std::string hostError = pScriptHost->LastError();
@@ -1867,23 +1969,30 @@ void TestCSharpConstantColor(TestContext& ctx)
 		fail("E_CONSTCOLOR_TICK", "Tick 回值不是正数（探针没有执行）");
 	}
 
-	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
-	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
-	if (captureTarget == nullptr || windowTarget == nullptr)
+	HostProbeReadings readings;
+	if (!ReadHostProbeReadings("test_output/TestCSharpConstantColor.log", "constantcolor", &readings))
 	{
-		fail("E_CONSTCOLOR_PROBE_MISSING",
-		     "渲染探针没有创建离屏 / 窗口目标（探针开关或四个函数表绑定失败）");
+		fail("E_CONSTCOLOR_READINGS", "托管读数行 `[托管 读数] probe=constantcolor` 没有出现在日志里");
 	}
-	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
-	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
+
+	ProbeNativeObjects objects = ResolveProbeObjects(readings);
+	if (objects.graph == nullptr)
+	{
+		fail("E_CONSTCOLOR_GRAPH", "读数行里的 graph 句柄解析不出一张原生 GPUGraph");
+	}
+	if (!objects.captureImage.IsValid() || !objects.windowImage.IsValid())
+	{
+		fail("E_CONSTCOLOR_PROBE_MISSING", "读数行里的离屏纹理 / 窗口句柄解析不出原生对象");
+	}
 
 	// 窗口描述快照：离屏目标与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
-	const auto& windowDesc = windowTarget->GetDescriptorForTest();
-	const auto& captureDesc = captureTarget->GetDescriptorForTest();
+	const auto& windowDesc = objects.windowImage.GetWindowHandle()->GetBackbufferDescriptor();
+	const auto& captureDesc = objects.captureImage.GetExternalManagedTexture()->GetDescriptor();
 	if (windowDesc.width != kWindowWidth || windowDesc.height != kWindowHeight ||
 		captureDesc.width != kWindowWidth || captureDesc.height != kWindowHeight ||
-		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
-		captureTarget->IsBackbuffer())
+		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM ||
+		objects.captureImage.GetType() != ImageHandle::ImageType::External ||
+		objects.windowImage.GetType() != ImageHandle::ImageType::Backbuffer)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
@@ -1892,67 +2001,71 @@ void TestCSharpConstantColor(TestContext& ctx)
 		fail("E_CONSTCOLOR_TARGET", detail);
 	}
 
-	// 图结构：两个 pass（窗口 + 离屏），每个 pass 的参数表都必须正好 1 条 `constantColorBlock`
-	// 且条目非空；`skip-param` 形态两张表都必须为空。
-	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
-	if (lastGraph == nullptr)
-	{
-		fail("E_CONSTCOLOR_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
-	}
-	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	const auto& passes = objects.graph->GetRenderPasses();
+	const uint32_t passCount = static_cast<uint32_t>(passes.size());
+	if (passCount != kExpectedPassCount)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
-		              lastGraph->GetPassCount(), kExpectedPassCount);
+		              passCount, kExpectedPassCount);
 		fail("E_CONSTCOLOR_GRAPH", detail);
 	}
 	size_t totalBoundParams = 0;
 	uint32_t passesWithBlock = 0;
-	for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+	for (auto const& pass : passes)
 	{
 		auto const& bound = pass.GetShaderStructs();
 		totalBoundParams += bound.size();
-		auto entry = bound.find(CANAME("constantColorBlock"));
+		auto entry = bound.find(CANAME(kBlockName));
 		if (entry != bound.end() && entry->second != nullptr)
 		{
 			++passesWithBlock;
 		}
 	}
 
-	// 任务 3.2：探针调用计数必须与 C# 的实际调用逐项对上（读数全部来自适配器的原生钩子）。
+	// 探针调用计数必须与 C# 的实际调用逐项对上（读数来自托管侧的进入原生实现之前的计数）。
+	// 正常模式在像素判据之后还要跑两个**托管前置校验负例**（未知类型名 / 未登记着色器路径），
+	// 其中"未登记路径"的负例要建一个真实参数结构 —— 所以正常模式比 skip-param 多 1 次创建。
 	{
-		const uint32_t createStructDelta = renderBackend->GetCreateShaderStructCountForTest() - createStructBefore;
-		const uint32_t setFloat3Delta = renderBackend->GetSetFloat3CountForTest() - setFloat3Before;
-		const uint32_t setStructDelta = renderBackend->GetSetStructCountForTest() - setStructBefore;
-		const uint32_t setPassParamDelta = renderBackend->GetSetPassParamCountForTest() - setPassParamBefore;
-		const uint32_t captureDelta = renderBackend->GetCreateCaptureTargetCountForTest() - captureBefore;
-		const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
-		const uint32_t expectedPassParam = skipParam ? 0u : 2u;
-		const uint32_t expectedExecute = skipParam ? 0u : 1u;
+		const int64_t createStructDelta = readings.I64("createStruct");
+		const int64_t setFloat3Delta = readings.I64("setFloat3");
+		const int64_t setStructDelta = readings.I64("setStruct");
+		const int64_t setPassParamDelta = readings.I64("setPassParam");
+		const int64_t captureDelta = readings.I64("captureCount");
+		const int64_t executeDelta = readings.I64("exec");
+		const int64_t expectedCreateStruct = mode.empty() ? 5 : 4;
+		const int64_t expectedPassParam = skipParam ? 0 : 2;
+		const int64_t expectedExecute = skipParam ? 0 : 1;
 		CA_LOG("TestCSharpConstantColor 调用计数：createStruct={} setFloat3={} setStruct={} "
 		       "setPassParam={} captureTarget={} executeGraph={}",
-		       createStructDelta, setFloat3Delta, setStructDelta, setPassParamDelta, captureDelta,
-		       executeDelta);
-		if (createStructDelta != 4u || setFloat3Delta != 3u || setStructDelta != 3u ||
-			setPassParamDelta != expectedPassParam || captureDelta != 1u ||
+		       static_cast<long long>(createStructDelta), static_cast<long long>(setFloat3Delta),
+		       static_cast<long long>(setStructDelta), static_cast<long long>(setPassParamDelta),
+		       static_cast<long long>(captureDelta), static_cast<long long>(executeDelta));
+		if (createStructDelta != expectedCreateStruct || setFloat3Delta != 3 || setStructDelta != 3 ||
+			setPassParamDelta != expectedPassParam || captureDelta != 1 ||
 			executeDelta != expectedExecute)
 		{
 			char detail[512] = {};
 			std::snprintf(detail, sizeof(detail),
-			              "调用计数不符：createStruct=%u/4 setFloat3=%u/3 setStruct=%u/3 "
-			              "setPassParam=%u/%u captureTarget=%u/1 executeGraph=%u/%u",
-			              createStructDelta, setFloat3Delta, setStructDelta, setPassParamDelta,
-			              expectedPassParam, captureDelta, executeDelta, expectedExecute);
+			              "调用计数不符：createStruct=%lld/%lld setFloat3=%lld/3 setStruct=%lld/3 "
+			              "setPassParam=%lld/%lld captureTarget=%lld/1 executeGraph=%lld/%lld",
+			              static_cast<long long>(createStructDelta),
+			              static_cast<long long>(expectedCreateStruct),
+			              static_cast<long long>(setFloat3Delta),
+			              static_cast<long long>(setStructDelta),
+			              static_cast<long long>(setPassParamDelta),
+			              static_cast<long long>(expectedPassParam),
+			              static_cast<long long>(captureDelta),
+			              static_cast<long long>(executeDelta),
+			              static_cast<long long>(expectedExecute));
 			fail("E_CONSTCOLOR_COUNTS", detail);
 		}
 	}
 
 	if (skipParam)
 	{
-		// 提交前拒绝：参数表为空、适配器错误文本点名块名、进入后端的执行次数为 0。
-		const std::string adapterError = renderBackend->GetLastError().c_str();
-		const bool namedBlock = adapterError.find(kBlockName) != std::string::npos;
-		const uint32_t executedTotal = renderBackend->GetExecuteGraphCountForTest();
+		// 提交前拒绝：参数表为空、托管错误文本点名块名、本次提交的原生执行增量为 0。
+		const bool namedBlock = readings.reject.find(kBlockName) != std::string::npos;
 		if (totalBoundParams != 0)
 		{
 			char detail[256] = {};
@@ -1962,14 +2075,20 @@ void TestCSharpConstantColor(TestContext& ctx)
 		if (!namedBlock)
 		{
 			char detail[512] = {};
-			std::snprintf(detail, sizeof(detail), "skip-param：适配器错误文本没有点名 %s，实际 = \"%s\"",
-			              kBlockName, adapterError.c_str());
+			std::snprintf(detail, sizeof(detail), "skip-param：拒绝文本没有点名 %s，实际 = \"%s\"",
+			              kBlockName, readings.reject.c_str());
+			fail("E_CONSTCOLOR_PARAM", detail);
+		}
+		if (readings.I64("exec") != 0)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "skip-param：原生执行增量 %lld（期望 0）",
+			              static_cast<long long>(readings.I64("exec")));
 			fail("E_CONSTCOLOR_PARAM", detail);
 		}
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail),
-		              "skip-param：参数表 0 条、适配器点名 %s、后端执行次数 %u、等待计数 %u→%u，按预期失败",
-		              kBlockName, executedTotal, waitBefore, waitAfter);
+		              "skip-param：参数表 0 条、拒绝文本点名 %s、后端执行次数 0，按预期失败", kBlockName);
 		fail("E_CONSTCOLOR_PARAM", detail);
 	}
 
@@ -1981,18 +2100,17 @@ void TestCSharpConstantColor(TestContext& ctx)
 		              passesWithBlock, kBlockName, kExpectedPassCount);
 		fail("E_CONSTCOLOR_PARAM", detail);
 	}
-	if (waitAfter != waitBefore + 1 || pendingAfter != 0)
+	if (readings.I64("wait") != 1)
 	{
 		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
-		              waitBefore, waitAfter, pendingAfter);
+		std::snprintf(detail, sizeof(detail), "等待判据不符：WaitIdle 增量 %lld（期望 1）",
+		              static_cast<long long>(readings.I64("wait")));
 		fail("E_CONSTCOLOR_WAIT", detail);
 	}
-	// 顶点流：单 `POSITION` 布局（任务 3.2 的 `SetPositionStream` 断言）。两个 pass 的顶点流
-	// 描述都必须只有一条 POSITION 属性、偏移 0、步长 12。
+	// 顶点流：单 `POSITION` 布局。两个 pass 的顶点流描述都必须只有一条 POSITION 属性、偏移 0、步长 12。
 	{
 		uint32_t checkedBatches = 0;
-		for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+		for (auto const& pass : passes)
 		{
 			for (auto const& batch : pass.GetDrawCallBatches())
 			{
@@ -2024,8 +2142,8 @@ void TestCSharpConstantColor(TestContext& ctx)
 			fail("E_CONSTCOLOR_STREAM", detail);
 		}
 	}
-	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
-	if (presents.size() != 1u || presents[0] != windowTarget->GetImageForTest())
+	const auto& presents = objects.graph->GetFinalizePass().m_PresentBackBuffers;
+	if (presents.size() != 1u || presents[0] != objects.windowImage)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "真实呈现清单 %zu 项，期望唯一的窗口后台缓冲",
@@ -2039,7 +2157,7 @@ void TestCSharpConstantColor(TestContext& ctx)
 	const uint32_t height = captureDesc.height;
 	std::vector<uint8_t> pixels(static_cast<size_t>(
 		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
-	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	auto token = ctx.pGPUBackend->Readback(objects.captureImage, pixels);
 	if (!token)
 	{
 		fail("E_CONSTCOLOR_READBACK", "离屏目标的 Readback 返回空 token");
@@ -2056,12 +2174,12 @@ void TestCSharpConstantColor(TestContext& ctx)
 		ctx.backendName + "_" + (mode.empty() ? "normal" : mode.c_str()) + ".png";
 	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
 	               static_cast<int>(width * 4));
-	CA_LOG("TestCSharpConstantColor：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
-	       "passes={} boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
-	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
-	       pendingAfter, presents.size(), lastGraph->GetPassCount(), totalBoundParams, background[0],
-	       background[1], background[2], background[3], center[0], center[1], center[2], center[3],
-	       pngPath.c_str());
+	CA_LOG("TestCSharpConstantColor：backend={} mode={} size={}x{} wait={} presents={} passes={} "
+	       "boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height,
+	       static_cast<long long>(readings.I64("wait")), presents.size(), passCount, totalBoundParams,
+	       background[0], background[1], background[2], background[3], center[0], center[1], center[2],
+	       center[3], pngPath.c_str());
 
 	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
 		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
@@ -2083,72 +2201,36 @@ void TestCSharpConstantColor(TestContext& ctx)
 		              background[2], background[3], center[0], center[1], center[2], center[3]);
 		fail("E_CONSTCOLOR_PIXEL", detail);
 	}
-	CA_LOG("TestCSharpConstantColor 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}",
+	CA_LOG("TestCSharpConstantColor 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}", 
 	       ctx.backendName, kBlockName);
 
-	// 真实后端负例（任务 4.1）：未知类型名创建与未登记着色器路径绑定都必须在适配层被拒绝，
-	// 进程不崩（D3D12 侧对空元数据的构造函数路径因此永远走不到）。
+	// 托管前置校验负例（design D6）：未知类型名与未登记着色器路径都必须在进入原生实现之前被拒绝。
 	{
-		const uint32_t createBeforeNegative = renderBackend->GetCreateShaderStructCountForTest();
-		auto unknownStruct = renderBackend->CreateShaderStruct(CANAME("NoSuchStructForConstantColor"));
-		const std::string unknownError = renderBackend->GetLastError().c_str();
-		if (unknownStruct != nullptr ||
-			unknownError.find("NoSuchStructForConstantColor") == std::string::npos ||
-			renderBackend->GetCreateShaderStructCountForTest() != createBeforeNegative)
+		const bool unknownOk = readings.Get("negUnknown") == "1";
+		const bool pathOk = readings.Get("negPath") == "1";
+		if (!unknownOk || !pathOk)
 		{
 			char detail[512] = {};
 			std::snprintf(detail, sizeof(detail),
-			              "未知类型名没有被挡下：句柄=%p 文本=\"%s\" 后端创建次数 %u→%u",
-			              static_cast<void*>(unknownStruct.get()), unknownError.c_str(),
-			              createBeforeNegative, renderBackend->GetCreateShaderStructCountForTest());
-			fail("E_CONSTCOLOR_NEGATIVE_TYPE", detail);
-		}
-		CA_LOG("真实后端负例 1/2：未知类型名 → 空句柄 + 文本点名，后端创建次数 0");
-
-		auto negativeGraph = renderBackend->CreateGraph();
-		bool graphBuilt = negativeGraph != nullptr &&
-			negativeGraph->AddBuffer(CANAME("NegativeVertices"),
-				GPUBufferDescriptor::Create(3u, 12u), std::vector<uint8_t>(36u, 0u)) == 0 &&
-			negativeGraph->SetPositionStream(CANAME("NegativeStream"), 12u, 0u) == 0 &&
-			negativeGraph->AddTrianglePass(captureTarget, CAPATH("Shaders/Test/NoSuchShader"),
-				CANAME("NegativeStream"), CANAME("NegativeVertices"), 3u, 0.0f, 0.0f, 1.0f, 1.0f) == 0;
-		if (!graphBuilt)
-		{
-			fail("E_CONSTCOLOR_NEGATIVE_PATH", "负例图没有建出来（AddBuffer / SetPositionStream / AddTrianglePass 被拒）");
-		}
-		auto negativeParams = renderBackend->CreateShaderStruct(CANAME("ConstantColor"));
-		if (negativeParams == nullptr)
-		{
-			fail("E_CONSTCOLOR_NEGATIVE_PATH",
-			     castl::string("负例的参数结构没有创建出来：") + renderBackend->GetLastError());
-		}
-		const int32_t bindStatus =
-			negativeGraph->SetPassParam(0u, CANAME("constantColorBlock"), negativeParams);
-		const std::string bindError = negativeGraph->GetLastError().c_str();
-		if (bindStatus == 0 || bindError.find("NoSuchShader") == std::string::npos)
-		{
-			char detail[512] = {};
-			std::snprintf(detail, sizeof(detail), "未登记着色器路径没有被拒绝：status=%d 文本=\"%s\"",
-			              bindStatus, bindError.c_str());
+			              "负例没有被挡下：negUnknown=%s negPath=%s unknownText=\"%s\" pathText=\"%s\"",
+			              readings.Get("negUnknown").c_str(), readings.Get("negPath").c_str(),
+			              readings.Get("negUnknownText").c_str(), readings.Get("negPathText").c_str());
 			fail("E_CONSTCOLOR_NEGATIVE_PATH", detail);
 		}
-		CA_LOG("真实后端负例 2/2：未登记着色器路径 → status={} 文本点名路径", bindStatus);
+		CA_LOG("托管前置校验负例：未知类型名 / 未登记着色器路径都被拒绝（原生创建计数 0）");
 	}
 }
 
-// ---- TestCSharpStructuredBuffer（csharp-render-structured-buffer 任务 1.2 / 4.1）----
+// ---- TestCSharpStructuredBuffer（csharp-native-direct-binding 4.1）----
 // C# 用单 `POSITION` 顶点流 + `StructuredColor` 参数结构（一个 `StructuredBuffer<float3>` 字段，经
 // `SetBuffer` 按名绑定图内登记的缓冲）建图：窗口与离屏各一个同逻辑 pass、两次
-// `SetPassParam("structuredColorBlock", …)`，提交并等待。原生侧用既有 `Readback` 读那份离屏目标做
-// 精确像素判据（背景 (0,255,0,255)、中心 (255,0,255,255)），并核对 pass 数、每个 pass 的参数表条目、
-// 呈现清单与等待计数。
+// `SetPassParam("structuredColorBlock", …)`，提交并等待。原生侧按句柄解析同一份图，核对 pass 数、
+// 每个 pass 的参数表、缓冲字段解析名、呈现清单与像素（背景 (0,255,0,255)、中心 (255,0,255,255)）。
 //
 // Debug 负向（进程环境变量 `CASCADED_CSHARP_SB_SELFTEST`，C# 侧读同一份值）：
 //   `bad-buffer-color` 缓冲元素写成 (0,0,1) → 中心 MUST 精确等于 (0,0,255,255)，以 `E_SB_PIXEL` 判红；
-//   `unbound-field`    完全不调 `SetBuffer` → `SubmitGraph` 在进入后端执行前拒绝并点名
-//                      `colorStructuredBuffer`，以 `E_SB_BIND` 判红，**不读像素**；
-//   `bad-buffer-name`  绑未登记的 `sbColorsMissing` → 同样在提交前拒绝并点名缓冲名，以 `E_SB_BIND` 判红。
-// `Tools/check_csharp_structured_buffer.py` 逐后端对账正常（pass）与三个负向（fail + 对应错误码）。
+//   `unbound-field`    完全不调 `SetBuffer` → 托管前置校验拒绝并点名 `colorStructuredBuffer`；
+//   `bad-buffer-name`  绑未登记的 `sbColorsMissing` → 同样在提交前拒绝并点名缓冲名。
 void TestCSharpStructuredBuffer(TestContext& ctx)
 {
 	auto fail = [](char const* code, castl::string const& detail) {
@@ -2181,17 +2263,6 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 		fail("E_SB_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
 	}
 
-	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段登记真实适配器。
-	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
-	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
-		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
-	if (renderBackend == nullptr)
-	{
-		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
-		fail("E_SB_BACKEND_MISSING", detail);
-	}
-
 	char modeBuffer[64] = {};
 	::GetEnvironmentVariableA("CASCADED_CSHARP_SB_SELFTEST", modeBuffer, sizeof(modeBuffer));
 	const std::string mode = modeBuffer;
@@ -2205,10 +2276,7 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 
 	struct StructuredBufferEnvGuard
 	{
-		~StructuredBufferEnvGuard()
-		{
-			::SetEnvironmentVariableA("CASCADED_CSHARP_SB_PROBE", nullptr);
-		}
+		~StructuredBufferEnvGuard() { ::SetEnvironmentVariableA("CASCADED_CSHARP_SB_PROBE", nullptr); }
 	} envGuard;
 	::SetEnvironmentVariableA("CASCADED_CSHARP_SB_PROBE", "1");
 
@@ -2229,19 +2297,8 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
 
 	const std::string baselineError = pScriptHost->LastError();
-	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
-	const uint32_t createStructBefore = renderBackend->GetCreateShaderStructCountForTest();
-	const uint32_t setFloat3Before = renderBackend->GetSetFloat3CountForTest();
-	const uint32_t setStructBefore = renderBackend->GetSetStructCountForTest();
-	const uint32_t setPassParamBefore = renderBackend->GetSetPassParamCountForTest();
-	const uint32_t captureBefore = renderBackend->GetCreateCaptureTargetCountForTest();
-	const uint32_t executeBefore = renderBackend->GetExecuteGraphCountForTest();
-	// 任务 3.1：`SetBuffer` 与 `AddBuffer` 的增量也要从适配器读数核对（探针里各 1 / 2）。
-	const uint32_t setBufferCounterBefore = renderBackend->GetSetBufferCountForTest();
-	const uint32_t addBufferBefore = renderBackend->GetAddBufferCountForTest();
 	const int32_t tickValue = pScriptHost->Tick(0.016);
 	::SetEnvironmentVariableA("CASCADED_CSHARP_SB_PROBE", nullptr);
-
 	const std::string hostError = pScriptHost->LastError();
 	if (hostError != baselineError)
 	{
@@ -2255,23 +2312,31 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 		fail("E_SB_TICK", "Tick 回值不是正数（探针没有执行）");
 	}
 
-	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
-	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
-	if (captureTarget == nullptr || windowTarget == nullptr)
+	HostProbeReadings readings;
+	if (!ReadHostProbeReadings("test_output/TestCSharpStructuredBuffer.log", "structuredbuffer",
+			&readings))
 	{
-		fail("E_SB_PROBE_MISSING",
-		     "渲染探针没有创建离屏 / 窗口目标（探针开关或四个函数表绑定失败）");
+		fail("E_SB_READINGS", "托管读数行 `[托管 读数] probe=structuredbuffer` 没有出现在日志里");
 	}
-	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
-	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
+
+	ProbeNativeObjects objects = ResolveProbeObjects(readings);
+	if (objects.graph == nullptr)
+	{
+		fail("E_SB_GRAPH", "读数行里的 graph 句柄解析不出一张原生 GPUGraph");
+	}
+	if (!objects.captureImage.IsValid() || !objects.windowImage.IsValid())
+	{
+		fail("E_SB_PROBE_MISSING", "读数行里的离屏纹理 / 窗口句柄解析不出原生对象");
+	}
 
 	// 窗口描述快照：离屏目标与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
-	const auto& windowDesc = windowTarget->GetDescriptorForTest();
-	const auto& captureDesc = captureTarget->GetDescriptorForTest();
+	const auto& windowDesc = objects.windowImage.GetWindowHandle()->GetBackbufferDescriptor();
+	const auto& captureDesc = objects.captureImage.GetExternalManagedTexture()->GetDescriptor();
 	if (windowDesc.width != kWindowWidth || windowDesc.height != kWindowHeight ||
 		captureDesc.width != kWindowWidth || captureDesc.height != kWindowHeight ||
-		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
-		captureTarget->IsBackbuffer())
+		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM ||
+		objects.captureImage.GetType() != ImageHandle::ImageType::External ||
+		objects.windowImage.GetType() != ImageHandle::ImageType::Backbuffer)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
@@ -2280,27 +2345,23 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 		fail("E_SB_TARGET", detail);
 	}
 
-	// 图结构与参数表：两个 pass（窗口 + 离屏），每个 pass 的参数表正好 1 条 `structuredColorBlock`
-	// 且条目非空。缓冲名解析到本图登记的 `sbColors` 由 2.2 的 `GetBoundBufferNameForTest` 在 4.1 核对。
-	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
-	if (lastGraph == nullptr)
-	{
-		fail("E_SB_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
-	}
-	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	// 图结构与参数表：两个 pass（窗口 + 离屏），每个 pass 的参数表正好 1 条 `structuredColorBlock`。
+	const auto& passes = objects.graph->GetRenderPasses();
+	const uint32_t passCount = static_cast<uint32_t>(passes.size());
+	if (passCount != kExpectedPassCount)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
-		              lastGraph->GetPassCount(), kExpectedPassCount);
+		              passCount, kExpectedPassCount);
 		fail("E_SB_GRAPH", detail);
 	}
 	size_t totalBoundParams = 0;
 	uint32_t passesWithBlock = 0;
-	for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+	for (auto const& pass : passes)
 	{
 		auto const& bound = pass.GetShaderStructs();
 		totalBoundParams += bound.size();
-		auto entry = bound.find(CANAME("structuredColorBlock"));
+		auto entry = bound.find(CANAME(kBlockName));
 		if (entry != bound.end() && entry->second != nullptr)
 		{
 			++passesWithBlock;
@@ -2315,145 +2376,109 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 		fail("E_SB_PARAM", detail);
 	}
 
-	// 任务 4.1：`StructuredColor` 的缓冲元数据读数。查询方法在 `CRenderBackend` 上（适配器没有），
-	// 所以经后端对象读；这里只复核 design 已定死的读数（只读访问、描述符数组长度 1），不临时改规则。
+	// 缓冲字段解析名读托管计划的登记表：`unbound-field` 必须是空、`bad-buffer-name` 必须是
+	// `sbColorsMissing`、正常模式必须是 `sbColors`（两个 pass 各一次）。
 	{
-		ShaderCompilerSlang::ShaderStructData const* structData =
-			ctx.pGPUBackend->FindShaderStructData(CANAME("StructuredColor"));
-		if (structData == nullptr)
-		{
-			fail("E_SB_STRUCT", "后端查不到 StructuredColor 的编译元数据");
-		}
-		ShaderCompilerSlang::BufferData const* bufferEntry = nullptr;
-		for (auto const& candidate : structData->m_Buffers)
-		{
-			if (candidate.m_Name == CANAME("colorStructuredBuffer"))
-			{
-				bufferEntry = &candidate;
-				break;
-			}
-		}
-		if (bufferEntry == nullptr)
-		{
-			fail("E_SB_STRUCT", "StructuredColor 的元数据缓冲表里没有 colorStructuredBuffer");
-		}
-		CA_LOG("TestCSharpStructuredBuffer 元数据读数：type=StructuredColor field={} rw={} elements={}",
-		       bufferEntry->m_Name.c_str(), static_cast<int>(bufferEntry->m_RWType),
-		       bufferEntry->m_ElementCount);
-		if (bufferEntry->m_RWType != ShaderCompilerSlang::EShaderResourceAccess::eReadOnly ||
-			bufferEntry->m_ElementCount != 1u)
-		{
-			fail("E_SB_STRUCT", "StructuredColor 的 colorStructuredBuffer 不是「只读 + 描述符数组长度 1」");
-		}
-	}
-
-	// 任务 4.1：两个 pass 的缓冲字段解析读**图侧登记表**（`GetBoundBufferNameForTest`），不读后端私有表。
-	{
-		auto* concreteGraph = dynamic_cast<graphics_backend::CScriptRenderGraph*>(lastGraph.get());
-		if (concreteGraph == nullptr)
-		{
-			fail("E_SB_GRAPH", "最近提交的图不是本适配面的 CScriptRenderGraph");
-		}
-		const cacore::NameHash expectedName = unboundField
-			? cacore::NameHash()
-			: (badBufferName ? CANAME("sbColorsMissing") : CANAME("sbColors"));
+		const std::string expectedName = unboundField ? "-" : (badBufferName ? kMissingBufferName : kBufferName);
 		for (uint32_t passIndex = 0; passIndex < kExpectedPassCount; ++passIndex)
 		{
-			const cacore::NameHash resolved = concreteGraph->GetBoundBufferNameForTest(passIndex,
-				CANAME("structuredColorBlock"), CANAME("colorStructuredBuffer"));
-			if (!(resolved == expectedName))
+			const std::string resolved =
+				readings.Get(passIndex == 0 ? "boundBuffer0" : "boundBuffer1");
+			if (resolved != expectedName)
 			{
 				char detail[512] = {};
 				std::snprintf(detail, sizeof(detail),
 				              "pass %u 的缓冲字段解析不是预期名字：期望 %s，实际 %s", passIndex,
-				              expectedName.Valid() ? expectedName.c_str() : "(空)",
-				              resolved.Valid() ? resolved.c_str() : "(空)");
+				              expectedName.c_str(), resolved.c_str());
 				fail("E_SB_BIND", detail);
 			}
-			CA_LOG("TestCSharpStructuredBuffer pass={} 缓冲字段解析={}", passIndex,
-			       resolved.Valid() ? resolved.c_str() : "(空)");
+			CA_LOG("TestCSharpStructuredBuffer pass={} 缓冲字段解析={}", passIndex, resolved.c_str());
 		}
 	}
 
-	// 两种提交前拒绝：参数表 2 条（两次 SetPassParam 都成功）、适配器错误文本点名缺失项、
-	// 后端执行次数 0、不读像素 —— 以 `E_SB_BIND` 判红。任务 3.1 的 `SetBuffer` 增量也要在这里
-	// 各对各的：`unbound-field` 是 0，`bad-buffer-name` 是 1（确实绑了一个名字，只是名字不存在）。
+	// 两种提交前拒绝：参数表 2 条、拒绝文本点名缺失项、本次提交执行增量 0、不读像素。
 	if (unboundField || badBufferName)
 	{
-		const std::string adapterError = renderBackend->GetLastError().c_str();
 		char const* const requiredName = unboundField ? kFieldName : kMissingBufferName;
-		const bool named = adapterError.find(requiredName) != std::string::npos;
-		const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
-		const uint32_t setBufferDelta = renderBackend->GetSetBufferCountForTest() - setBufferCounterBefore;
-		const uint32_t addBufferDelta = renderBackend->GetAddBufferCountForTest() - addBufferBefore;
-		const uint32_t expectedSetBuffer = unboundField ? 0u : 1u;
+		const bool named = readings.reject.find(requiredName) != std::string::npos;
 		if (!named)
 		{
 			char detail[512] = {};
-			std::snprintf(detail, sizeof(detail), "%s：适配器错误文本没有点名 %s，实际 = \"%s\"",
-			              mode.c_str(), requiredName, adapterError.c_str());
+			std::snprintf(detail, sizeof(detail), "%s：拒绝文本没有点名 %s，实际 = \"%s\"",
+			              mode.c_str(), requiredName, readings.reject.c_str());
 			fail("E_SB_BIND", detail);
 		}
-		if (executeDelta != 0u)
+		if (readings.I64("exec") != 0)
 		{
 			char detail[256] = {};
-			std::snprintf(detail, sizeof(detail), "%s：后端执行次数增量 %u（期望 0）", mode.c_str(),
-			              executeDelta);
+			std::snprintf(detail, sizeof(detail), "%s：本次提交执行增量 %lld（期望 0）", mode.c_str(),
+			              static_cast<long long>(readings.I64("exec")));
 			fail("E_SB_BIND", detail);
 		}
+		const int64_t expectedSetBuffer = unboundField ? 0 : 1;
 		CA_LOG("TestCSharpStructuredBuffer 负向计数：setBuffer={}（期望 {}） addBuffer={}（期望 2）",
-		       setBufferDelta, expectedSetBuffer, addBufferDelta);
-		if (setBufferDelta != expectedSetBuffer || addBufferDelta != 2u)
+		       static_cast<long long>(readings.I64("setBuffer")),
+		       static_cast<long long>(expectedSetBuffer),
+		       static_cast<long long>(readings.I64("addBuffer")));
+		if (readings.I64("setBuffer") != expectedSetBuffer || readings.I64("addBuffer") != 2)
 		{
 			char detail[256] = {};
-			std::snprintf(detail, sizeof(detail), "%s：计数不符 setBuffer=%u/%u addBuffer=%u/2", mode.c_str(),
-			              setBufferDelta, expectedSetBuffer, addBufferDelta);
+			std::snprintf(detail, sizeof(detail), "%s：计数不符 setBuffer=%lld/%lld addBuffer=%lld/2",
+			              mode.c_str(), static_cast<long long>(readings.I64("setBuffer")),
+			              static_cast<long long>(expectedSetBuffer),
+			              static_cast<long long>(readings.I64("addBuffer")));
 			fail("E_SB_COUNTS", detail);
 		}
 		char detail[512] = {};
 		std::snprintf(detail, sizeof(detail),
-		              "%s：参数表 %zu 条、适配器点名 %s、后端执行次数 0、等待计数 %u→%u，按预期失败",
-		              mode.c_str(), totalBoundParams, requiredName, waitBefore, waitAfter);
+		              "%s：参数表 %zu 条、拒绝文本点名 %s、后端执行次数 0，按预期失败", mode.c_str(),
+		              totalBoundParams, requiredName);
 		fail("E_SB_BIND", detail);
 	}
 
-	// 正常 / bad-buffer-color：调用计数逐项对上（读数全部来自适配器的原生钩子）。
+	// 正常 / bad-buffer-color：调用计数逐项对上。
 	{
-		const uint32_t createStructDelta = renderBackend->GetCreateShaderStructCountForTest() - createStructBefore;
-		const uint32_t setFloat3Delta = renderBackend->GetSetFloat3CountForTest() - setFloat3Before;
-		const uint32_t setStructDelta = renderBackend->GetSetStructCountForTest() - setStructBefore;
-		const uint32_t setPassParamDelta = renderBackend->GetSetPassParamCountForTest() - setPassParamBefore;
-		const uint32_t captureDelta = renderBackend->GetCreateCaptureTargetCountForTest() - captureBefore;
-		const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
-		const uint32_t setBufferDelta = renderBackend->GetSetBufferCountForTest() - setBufferCounterBefore;
-		const uint32_t addBufferDelta = renderBackend->GetAddBufferCountForTest() - addBufferBefore;
 		CA_LOG("TestCSharpStructuredBuffer 调用计数：createStruct={} setBuffer={} setFloat3={} setStruct={} "
 		       "setPassParam={} addBuffer={} captureTarget={} executeGraph={}",
-		       createStructDelta, setBufferDelta, setFloat3Delta, setStructDelta, setPassParamDelta,
-		       addBufferDelta, captureDelta, executeDelta);
-		if (createStructDelta != 1u || setBufferDelta != 1u || setFloat3Delta != 0u ||
-			setStructDelta != 0u || setPassParamDelta != 2u || addBufferDelta != 2u ||
-			captureDelta != 1u || executeDelta != 1u)
+		       static_cast<long long>(readings.I64("createStruct")),
+		       static_cast<long long>(readings.I64("setBuffer")),
+		       static_cast<long long>(readings.I64("setFloat3")),
+		       static_cast<long long>(readings.I64("setStruct")),
+		       static_cast<long long>(readings.I64("setPassParam")),
+		       static_cast<long long>(readings.I64("addBuffer")),
+		       static_cast<long long>(readings.I64("captureCount")),
+		       static_cast<long long>(readings.I64("exec")));
+		if (readings.I64("createStruct") != 1 || readings.I64("setBuffer") != 1 ||
+			readings.I64("setFloat3") != 0 || readings.I64("setStruct") != 0 ||
+			readings.I64("setPassParam") != 2 || readings.I64("addBuffer") != 2 ||
+			readings.I64("captureCount") != 1 || readings.I64("exec") != 1)
 		{
 			char detail[512] = {};
 			std::snprintf(detail, sizeof(detail),
-			              "调用计数不符：createStruct=%u/1 setBuffer=%u/1 setFloat3=%u/0 setStruct=%u/0 "
-			              "setPassParam=%u/2 addBuffer=%u/2 captureTarget=%u/1 executeGraph=%u/1",
-			              createStructDelta, setBufferDelta, setFloat3Delta, setStructDelta, setPassParamDelta,
-			              addBufferDelta, captureDelta, executeDelta);
+			              "调用计数不符：createStruct=%lld/1 setBuffer=%lld/1 setFloat3=%lld/0 "
+			              "setStruct=%lld/0 setPassParam=%lld/2 addBuffer=%lld/2 captureTarget=%lld/1 "
+			              "executeGraph=%lld/1",
+			              static_cast<long long>(readings.I64("createStruct")),
+			              static_cast<long long>(readings.I64("setBuffer")),
+			              static_cast<long long>(readings.I64("setFloat3")),
+			              static_cast<long long>(readings.I64("setStruct")),
+			              static_cast<long long>(readings.I64("setPassParam")),
+			              static_cast<long long>(readings.I64("addBuffer")),
+			              static_cast<long long>(readings.I64("captureCount")),
+			              static_cast<long long>(readings.I64("exec")));
 			fail("E_SB_COUNTS", detail);
 		}
 	}
 
-	if (waitAfter != waitBefore + 1 || pendingAfter != 0)
+	if (readings.I64("wait") != 1)
 	{
 		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
-		              waitBefore, waitAfter, pendingAfter);
+		std::snprintf(detail, sizeof(detail), "等待判据不符：WaitIdle 增量 %lld（期望 1）",
+		              static_cast<long long>(readings.I64("wait")));
 		fail("E_SB_WAIT", detail);
 	}
-	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
-	if (presents.size() != 1u || presents[0] != windowTarget->GetImageForTest())
+	const auto& presents = objects.graph->GetFinalizePass().m_PresentBackBuffers;
+	if (presents.size() != 1u || presents[0] != objects.windowImage)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "真实呈现清单 %zu 项，期望唯一的窗口后台缓冲",
@@ -2468,7 +2493,7 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 	const uint32_t height = captureDesc.height;
 	std::vector<uint8_t> pixels(static_cast<size_t>(
 		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
-	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	auto token = ctx.pGPUBackend->Readback(objects.captureImage, pixels);
 	if (!token)
 	{
 		fail("E_SB_READBACK", "离屏目标的 Readback 返回空 token");
@@ -2485,12 +2510,12 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 		ctx.backendName + "_" + (mode.empty() ? "normal" : mode.c_str()) + ".png";
 	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
 	               static_cast<int>(width * 4));
-	CA_LOG("TestCSharpStructuredBuffer：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
-	       "passes={} boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
-	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
-	       pendingAfter, presents.size(), lastGraph->GetPassCount(), totalBoundParams, background[0],
-	       background[1], background[2], background[3], center[0], center[1], center[2], center[3],
-	       pngPath.c_str());
+	CA_LOG("TestCSharpStructuredBuffer：backend={} mode={} size={}x{} wait={} presents={} passes={} "
+	       "boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height,
+	       static_cast<long long>(readings.I64("wait")), presents.size(), passCount, totalBoundParams,
+	       background[0], background[1], background[2], background[3], center[0], center[1], center[2],
+	       center[3], pngPath.c_str());
 
 	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
 		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
@@ -2498,7 +2523,7 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 	if (badBufferColor)
 	{
 		// 缓冲元素 (0,0,1)：中心 MUST 精确等于 (0,0,255,255)。判据不能写成"中心非 magenta"或
-		// "中心不等于背景"—— 空帧 / 黑帧都能通过那种弱判据。
+		// "中心不等于背景" —— 空帧 / 黑帧都能通过那种弱判据。
 		if (differs(center, expectedBadBufferCenter))
 		{
 			char detail[256] = {};
@@ -2520,46 +2545,25 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 	CA_LOG("TestCSharpStructuredBuffer 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}",
 	       ctx.backendName, kBlockName);
 
-	// 任务 4.1：真实后端负例 —— 经真实适配器对缓冲表外字段名执行 `SetBuffer`，必须在适配层被拒绝、
-	// 进程不崩（D3D12 侧未命中字段是静默跳过，不可作为脚本面）。
+	// 托管前置校验负例（design D6）：缓冲表外字段名 `SetBuffer` 必须在进入原生实现之前被拒绝。
 	{
-		auto negativeParams = renderBackend->CreateShaderStruct(CANAME("StructuredColor"));
-		if (negativeParams == nullptr)
-		{
-			fail("E_SB_NEGATIVE",
-			     castl::string("真实后端负例的参数结构没有创建：") + renderBackend->GetLastError());
-		}
-		const uint32_t setBufferBeforeNegative = renderBackend->GetSetBufferCountForTest();
-		const int32_t negativeStatus =
-			negativeParams->SetBuffer(CANAME("noSuchBufferField"), CANAME("sbColors"));
-		const std::string negativeError = negativeParams->GetLastError().c_str();
-		if (negativeStatus == 0 || negativeError.find("noSuchBufferField") == std::string::npos ||
-			renderBackend->GetSetBufferCountForTest() != setBufferBeforeNegative)
+		const bool negativeOk = readings.Get("negField") == "1";
+		if (!negativeOk)
 		{
 			char detail[512] = {};
-			std::snprintf(detail, sizeof(detail),
-			              "真实后端负例没有被挡下：status=%d 文本=\"%s\" 计数 %u→%u", negativeStatus,
-			              negativeError.c_str(), setBufferBeforeNegative,
-			              renderBackend->GetSetBufferCountForTest());
+			std::snprintf(detail, sizeof(detail), "负例没有被挡下：negField=%s 文本=\"%s\"",
+			              readings.Get("negField").c_str(), readings.Get("negFieldText").c_str());
 			fail("E_SB_NEGATIVE", detail);
 		}
-		CA_LOG("真实后端负例：缓冲表外字段名 SetBuffer → status={} 文本={}", negativeStatus,
-		       negativeError.c_str());
+		CA_LOG("托管前置校验负例：缓冲表外字段名 SetBuffer 被拒绝（原生 SetBuffer 计数 0）");
 	}
 }
 
-// csharp-render-texture-sampling 任务 1.2 / 4.1：第 16 项 —— C# 建 2×2 RGBA8 纹理（一次调用完成
-// 创建 + 上传 + 转采样态），用位置 + 纹理坐标顶点流与 `TextureSampleBlock` 参数结构提交窗口 / 离屏
-// 两个同逻辑 pass，原生侧用既有 `Readback` 读同一次提交的离屏目标做精确像素判据
-// （背景 (0,0,255,255)、中心 (255,255,0,255)），并核对 pass 数、参数表条目、纹理字段的对象同一性、
-// 调用计数（上传执行与提交执行分开读）与托管侧的 disposed 摘要行。
-//
-// Debug 负向（进程环境变量 `CASCADED_CSHARP_TEX_SELFTEST`，C# 侧读同一份值）：
-//   `bad-texture-color` 四纹素改青 (0,255,255,255) → 中心 MUST 精确等于 (0,255,255,255)，`E_TEX_PIXEL`；
-//   `unbound-image`     跳过 `SetImage` → `SubmitGraph` 在进入后端执行前拒绝并点名 `testTexture`，
-//                       `E_TEX_BIND`，**不读像素**；
-//   `unbound-sampler`   跳过 `SetSampler` → 同样在提交前拒绝并点名 `testSampler`。
-// `Tools/check_csharp_texture_sampling.py` 逐后端对账正常（pass）与三个负向（fail + 对应错误码）。
+// ---- TestCSharpTextureSampling（csharp-native-direct-binding 4.1）----
+// C# 建 2×2 RGBA8 纹理（一次调用完成创建 + 上传 + 转采样态），用位置 + 纹理坐标顶点流与
+// `TextureSampleBlock` 参数结构提交窗口 / 离屏两个同逻辑 pass，原生侧按句柄解析同一份图与同一份
+// 纹理对象，核对 pass 数、参数表条目、纹理字段对象同一性、调用计数（上传执行与提交执行分开读）
+// 与像素（背景 (0,0,255,255)、中心 (255,255,0,255)）。
 void TestCSharpTextureSampling(TestContext& ctx)
 {
 	auto fail = [](char const* code, castl::string const& detail) {
@@ -2596,17 +2600,6 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		fail("E_TEX_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
 	}
 
-	// 编号 3 = 脚本渲染后端：宿主在模块 link 阶段登记真实适配器。
-	void* renderInstance = pScriptHost->GetInterfaceInstance(3, nullptr);
-	auto* renderBackend = dynamic_cast<graphics_backend::CScriptRenderBackend*>(
-		static_cast<graphics_backend::IScriptRenderBackend*>(renderInstance));
-	if (renderBackend == nullptr)
-	{
-		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "编号 3 没有登记脚本渲染适配器（实例 = %p）", renderInstance);
-		fail("E_TEX_BACKEND_MISSING", detail);
-	}
-
 	char modeBuffer[64] = {};
 	::GetEnvironmentVariableA("CASCADED_CSHARP_TEX_SELFTEST", modeBuffer, sizeof(modeBuffer));
 	const std::string mode = modeBuffer;
@@ -2620,10 +2613,7 @@ void TestCSharpTextureSampling(TestContext& ctx)
 
 	struct TextureEnvGuard
 	{
-		~TextureEnvGuard()
-		{
-			::SetEnvironmentVariableA("CASCADED_CSHARP_TEX_PROBE", nullptr);
-		}
+		~TextureEnvGuard() { ::SetEnvironmentVariableA("CASCADED_CSHARP_TEX_PROBE", nullptr); }
 	} envGuard;
 	::SetEnvironmentVariableA("CASCADED_CSHARP_TEX_PROBE", "1");
 
@@ -2644,20 +2634,8 @@ void TestCSharpTextureSampling(TestContext& ctx)
 	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
 
 	const std::string baselineError = pScriptHost->LastError();
-	const uint32_t waitBefore = renderBackend->GetWaitIdleCountForTest();
-	const uint32_t executeBefore = renderBackend->GetExecuteGraphCountForTest();
-	const uint32_t uploadBefore = renderBackend->GetTextureUploadExecuteCountForTest();
-	const uint32_t createTextureBefore = renderBackend->GetCreateTextureCountForTest();
-	const uint32_t setImageBefore = renderBackend->GetSetImageCountForTest();
-	const uint32_t setSamplerBefore = renderBackend->GetSetSamplerCountForTest();
-	const uint32_t setPassParamBefore = renderBackend->GetSetPassParamCountForTest();
-	const uint32_t setFloat3Before = renderBackend->GetSetFloat3CountForTest();
-	const uint32_t setStructBefore = renderBackend->GetSetStructCountForTest();
-	const uint32_t setBufferBefore = renderBackend->GetSetBufferCountForTest();
-	const uint32_t captureBefore = renderBackend->GetCreateCaptureTargetCountForTest();
 	const int32_t tickValue = pScriptHost->Tick(0.016);
 	::SetEnvironmentVariableA("CASCADED_CSHARP_TEX_PROBE", nullptr);
-
 	const std::string hostError = pScriptHost->LastError();
 	if (hostError != baselineError)
 	{
@@ -2671,23 +2649,30 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		fail("E_TEX_TICK", "Tick 回值不是正数（探针没有执行）");
 	}
 
-	auto captureTarget = renderBackend->GetLastCaptureTargetForTest();
-	auto windowTarget = renderBackend->GetLastWindowTargetForTest();
-	if (captureTarget == nullptr || windowTarget == nullptr)
+	HostProbeReadings readings;
+	if (!ReadHostProbeReadings(kProbeLogPath, "texture", &readings))
 	{
-		fail("E_TEX_PROBE_MISSING",
-		     "渲染探针没有创建离屏 / 窗口目标（探针开关或五个函数表绑定失败）");
+		fail("E_TEX_READINGS", "托管读数行 `[托管 读数] probe=texture` 没有出现在日志里");
 	}
-	const uint32_t waitAfter = renderBackend->GetWaitIdleCountForTest();
-	const uint32_t pendingAfter = renderBackend->GetPendingGraphCountForTest();
+
+	ProbeNativeObjects objects = ResolveProbeObjects(readings);
+	if (objects.graph == nullptr)
+	{
+		fail("E_TEX_GRAPH", "读数行里的 graph 句柄解析不出一张原生 GPUGraph");
+	}
+	if (!objects.captureImage.IsValid() || !objects.windowImage.IsValid())
+	{
+		fail("E_TEX_PROBE_MISSING", "读数行里的离屏纹理 / 窗口句柄解析不出原生对象");
+	}
 
 	// 窗口描述快照：离屏目标与窗口同尺寸、RGBA8；窗口目标是后台缓冲、离屏不是。
-	const auto& windowDesc = windowTarget->GetDescriptorForTest();
-	const auto& captureDesc = captureTarget->GetDescriptorForTest();
+	const auto& windowDesc = objects.windowImage.GetWindowHandle()->GetBackbufferDescriptor();
+	const auto& captureDesc = objects.captureImage.GetExternalManagedTexture()->GetDescriptor();
 	if (windowDesc.width != kWindowWidth || windowDesc.height != kWindowHeight ||
 		captureDesc.width != kWindowWidth || captureDesc.height != kWindowHeight ||
-		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM || !windowTarget->IsBackbuffer() ||
-		captureTarget->IsBackbuffer())
+		captureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM ||
+		objects.captureImage.GetType() != ImageHandle::ImageType::External ||
+		objects.windowImage.GetType() != ImageHandle::ImageType::Backbuffer)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "目标快照不符：窗口 %ux%u / 离屏 %ux%u（格式 %d）",
@@ -2697,21 +2682,18 @@ void TestCSharpTextureSampling(TestContext& ctx)
 	}
 
 	// 图结构与参数表：两个 pass（窗口 + 离屏），每个 pass 的参数表正好 1 条 `textureBlock`。
-	auto lastGraph = renderBackend->GetLastGraphForTest().lock();
-	if (lastGraph == nullptr)
-	{
-		fail("E_TEX_GRAPH", "最近一次提交的图对象已经不存在（脚本没有保留图表面对象）");
-	}
-	if (lastGraph->GetPassCount() != kExpectedPassCount)
+	const auto& passes = objects.graph->GetRenderPasses();
+	const uint32_t passCount = static_cast<uint32_t>(passes.size());
+	if (passCount != kExpectedPassCount)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "图 pass 数 %u，期望 %u（窗口 + 离屏两次同逻辑绘制）",
-		              lastGraph->GetPassCount(), kExpectedPassCount);
+		              passCount, kExpectedPassCount);
 		fail("E_TEX_GRAPH", detail);
 	}
 	size_t totalBoundParams = 0;
 	uint32_t passesWithBlock = 0;
-	for (auto const& pass : lastGraph->GetGraphForTest()->GetRenderPasses())
+	for (auto const& pass : passes)
 	{
 		auto const& bound = pass.GetShaderStructs();
 		totalBoundParams += bound.size();
@@ -2730,7 +2712,7 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		fail("E_TEX_PARAM", detail);
 	}
 
-	// `TextureSampleBlock` 的元数据读数（4.1：复核 design 前提，不改规则）：纹理条目是只读 + 描述符数组
+	// `TextureSampleBlock` 的元数据读数（复核 design 前提，不改规则）：纹理条目是只读 + 描述符数组
 	// 长度 1，采样器表里有 `testSampler`。查询方法在 `CRenderBackend` 上，所以经后端对象读。
 	{
 		ShaderCompilerSlang::ShaderStructData const* structData =
@@ -2774,84 +2756,93 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		}
 	}
 
-	// 探针那次 `CreateTexture` 返回的纹理对象：后面的对象同一性核对与真实后端负例都要用它。
-	auto lastCreatedTexture = renderBackend->GetLastCreatedTextureForTest();
-	if (lastCreatedTexture == nullptr)
+	// 探针那次 `CreateTexture` 返回的纹理对象：按读数行里的原生对象地址取（纹理由图内参数结构
+	// 强引用保活，探针末尾的 Dispose 只失效托管表面、不销毁原生对象）。
+	GPUTexture* probeTexture = reinterpret_cast<GPUTexture*>(
+		static_cast<uintptr_t>(readings.U64("textureSelf")));
+	if (probeTexture == nullptr)
 	{
-		fail("E_TEX_CREATE", "适配器没有记录最近创建的纹理（探针没有调 CreateTexture）");
+		fail("E_TEX_CREATE", "读数行里的 textureSelf 是空（CreateTexture 没建出对象）");
+	}
+	{
+		const auto& textureDesc = probeTexture->GetDescriptor();
+		if (textureDesc.width != kTextureSize || textureDesc.height != kTextureSize ||
+			textureDesc.format != ETextureFormat::E_R8G8B8A8_UNORM)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "创建的纹理描述不符：%ux%u 格式 %u",
+			              textureDesc.width, textureDesc.height, static_cast<unsigned>(textureDesc.format));
+			fail("E_TEX_CREATE", detail);
+		}
 	}
 
-	// 两种提交前拒绝：参数表 2 条（两次 SetPassParam 都成功）、适配器错误文本点名缺失项、本次提交的
-	// 后端执行增量为 0（上传执行另计，必须仍是 1）、不读像素 —— 以 `E_TEX_BIND` 判红。
-	const uint32_t uploadDelta = renderBackend->GetTextureUploadExecuteCountForTest() - uploadBefore;
-	const uint32_t executeDelta = renderBackend->GetExecuteGraphCountForTest() - executeBefore;
+	// 两种提交前拒绝：参数表 2 条、拒绝文本点名缺失项、本次提交执行增量 0（上传执行另计，必须仍是 1）、
+	// 不读像素 —— 以 `E_TEX_BIND` 判红。
 	if (unboundImage || unboundSampler)
 	{
-		const std::string adapterError = renderBackend->GetLastError().c_str();
 		char const* const requiredName = unboundImage ? kTextureField : kSamplerField;
-		const bool named = adapterError.find(requiredName) != std::string::npos;
+		const bool named = readings.reject.find(requiredName) != std::string::npos;
 		if (!named)
 		{
 			char detail[512] = {};
-			std::snprintf(detail, sizeof(detail), "%s：适配器错误文本没有点名 %s，实际 = \"%s\"",
-			              mode.c_str(), requiredName, adapterError.c_str());
+			std::snprintf(detail, sizeof(detail), "%s：拒绝文本没有点名 %s，实际 = \"%s\"",
+			              mode.c_str(), requiredName, readings.reject.c_str());
 			fail("E_TEX_BIND", detail);
 		}
-		if (executeDelta != 0u)
+		if (readings.I64("exec") != 0)
 		{
 			char detail[256] = {};
-			std::snprintf(detail, sizeof(detail), "%s：本次提交执行增量 %u（期望 0）", mode.c_str(),
-			              executeDelta);
+			std::snprintf(detail, sizeof(detail), "%s：本次提交执行增量 %lld（期望 0）", mode.c_str(),
+			              static_cast<long long>(readings.I64("exec")));
 			fail("E_TEX_BIND", detail);
 		}
-		if (uploadDelta != 1u)
+		if (readings.I64("upload") != 1)
 		{
 			char detail[256] = {};
-			std::snprintf(detail, sizeof(detail), "%s：上传执行增量 %u（期望 1，另计不进提交判据）",
-			              mode.c_str(), uploadDelta);
+			std::snprintf(detail, sizeof(detail), "%s：上传执行增量 %lld（期望 1，另计不进提交判据）",
+			              mode.c_str(), static_cast<long long>(readings.I64("upload")));
 			fail("E_TEX_COUNTS", detail);
 		}
-		const uint32_t expectedSetImage = unboundImage ? 0u : 1u;
-		const uint32_t expectedSetSampler = unboundSampler ? 0u : 1u;
-		const uint32_t setImageDelta = renderBackend->GetSetImageCountForTest() - setImageBefore;
-		const uint32_t setSamplerDelta = renderBackend->GetSetSamplerCountForTest() - setSamplerBefore;
+		const int64_t expectedSetImage = unboundImage ? 0 : 1;
+		const int64_t expectedSetSampler = unboundSampler ? 0 : 1;
 		CA_LOG("TestCSharpTextureSampling 负向计数：setImage={}（期望 {}） setSampler={}（期望 {}） "
 		       "上传执行={}（期望 1） 本次提交执行增量={}（期望 0）",
-		       setImageDelta, expectedSetImage, setSamplerDelta, expectedSetSampler, uploadDelta,
-		       executeDelta);
-		if (setImageDelta != expectedSetImage || setSamplerDelta != expectedSetSampler)
+		       static_cast<long long>(readings.I64("setImage")),
+		       static_cast<long long>(expectedSetImage),
+		       static_cast<long long>(readings.I64("setSampler")),
+		       static_cast<long long>(expectedSetSampler),
+		       static_cast<long long>(readings.I64("upload")),
+		       static_cast<long long>(readings.I64("exec")));
+		if (readings.I64("setImage") != expectedSetImage ||
+			readings.I64("setSampler") != expectedSetSampler)
 		{
 			char detail[256] = {};
-			std::snprintf(detail, sizeof(detail), "%s：计数不符 setImage=%u/%u setSampler=%u/%u",
-			              mode.c_str(), setImageDelta, expectedSetImage, setSamplerDelta,
-			              expectedSetSampler);
+			std::snprintf(detail, sizeof(detail), "%s：计数不符 setImage=%lld/%lld setSampler=%lld/%lld",
+			              mode.c_str(), static_cast<long long>(readings.I64("setImage")),
+			              static_cast<long long>(expectedSetImage),
+			              static_cast<long long>(readings.I64("setSampler")),
+			              static_cast<long long>(expectedSetSampler));
 			fail("E_TEX_COUNTS", detail);
 		}
 		char detail[512] = {};
 		std::snprintf(detail, sizeof(detail),
-		              "%s：参数表 %zu 条、适配器点名 %s、本次提交执行增量 0（上传执行 1 另计）、等待计数 "
-		              "%u→%u，按预期失败",
-		              mode.c_str(), totalBoundParams, requiredName, waitBefore, waitAfter);
+		              "%s：参数表 %zu 条、拒绝文本点名 %s、本次提交执行增量 0（上传执行 1 另计），按预期失败",
+		              mode.c_str(), totalBoundParams, requiredName);
 		fail("E_TEX_BIND", detail);
 	}
 
-	// 纹理字段解析读**图侧登记表**（`GetBoundImageForTest`），并按对象同一性核对它是探针那次
-	// `CreateTexture` 返回的同一个对象 —— 计数证明不了"解析到谁"。这一块必须排在两种漏绑的
-	// 提交前拒绝**之后**：`unbound-image` 里探针根本没调 `SetImage`，先跑同一性核对会把
-	// `E_TEX_BIND` 的文本换成"不是同一对象"，两条负向的错误文本就不同构了（实测过）。
+	// 纹理字段解析读**托管计划的登记表**：两个 pass 都要解析到探针那次 CreateTexture 的同一个对象
+	// （读数行里的 `texture` 句柄与 `boundTexture0/1` 必须相等）。这一块排在两种漏绑的拒绝之后：
+	// `unbound-image` 里根本没有绑定，先跑同一性核对会把错误文本换成"不是同一对象"。
 	{
-		auto* concreteGraph = dynamic_cast<graphics_backend::CScriptRenderGraph*>(lastGraph.get());
-		if (concreteGraph == nullptr)
-		{
-			fail("E_TEX_GRAPH", "最近提交的图不是本适配面的 CScriptRenderGraph");
-		}
+		const uint64_t createdToken = readings.U64("texture");
 		for (uint32_t passIndex = 0; passIndex < kExpectedPassCount; ++passIndex)
 		{
-			auto resolved = concreteGraph->GetBoundImageForTest(passIndex, CANAME(kBlockName),
-				CANAME(kTextureField));
-			const bool sameObject = resolved != nullptr && resolved.get() == lastCreatedTexture.get();
+			const uint64_t boundToken =
+				readings.U64(passIndex == 0 ? "boundTexture0" : "boundTexture1");
+			const bool sameObject = createdToken != 0u && boundToken == createdToken;
 			CA_LOG("TestCSharpTextureSampling pass={} 纹理字段解析={} 同一对象={}", passIndex,
-			       resolved == nullptr ? "(空)" : "非空", sameObject ? 1 : 0);
+			       boundToken != 0u ? "非空" : "(空)", sameObject ? 1 : 0);
 			if (!sameObject)
 			{
 				char detail[256] = {};
@@ -2862,49 +2853,55 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		}
 	}
 
-	// 正常 / bad-texture-color：调用计数逐项对上（读数全部来自适配器的原生钩子）。
+	// 正常 / bad-texture-color：调用计数逐项对上（上传执行与提交执行分开读）。
 	{
-		const uint32_t createTextureDelta =
-			renderBackend->GetCreateTextureCountForTest() - createTextureBefore;
-		const uint32_t setImageDelta = renderBackend->GetSetImageCountForTest() - setImageBefore;
-		const uint32_t setSamplerDelta = renderBackend->GetSetSamplerCountForTest() - setSamplerBefore;
-		const uint32_t setPassParamDelta =
-			renderBackend->GetSetPassParamCountForTest() - setPassParamBefore;
-		const uint32_t setFloat3Delta = renderBackend->GetSetFloat3CountForTest() - setFloat3Before;
-		const uint32_t setStructDelta = renderBackend->GetSetStructCountForTest() - setStructBefore;
-		const uint32_t setBufferDelta = renderBackend->GetSetBufferCountForTest() - setBufferBefore;
-		const uint32_t captureDelta =
-			renderBackend->GetCreateCaptureTargetCountForTest() - captureBefore;
 		CA_LOG("TestCSharpTextureSampling 调用计数：createTexture={} setImage={} setSampler={} "
 		       "setPassParam={} setFloat3={} setStruct={} setBuffer={} captureTarget={} 上传执行={} "
 		       "本次提交执行={}",
-		       createTextureDelta, setImageDelta, setSamplerDelta, setPassParamDelta, setFloat3Delta,
-		       setStructDelta, setBufferDelta, captureDelta, uploadDelta, executeDelta);
-		if (createTextureDelta != 1u || setImageDelta != 1u || setSamplerDelta != 1u ||
-			setPassParamDelta != 2u || setFloat3Delta != 0u || setStructDelta != 0u ||
-			setBufferDelta != 0u || captureDelta != 1u || uploadDelta != 1u || executeDelta != 1u)
+		       static_cast<long long>(readings.I64("createTexture")),
+		       static_cast<long long>(readings.I64("setImage")),
+		       static_cast<long long>(readings.I64("setSampler")),
+		       static_cast<long long>(readings.I64("setPassParam")),
+		       static_cast<long long>(readings.I64("setFloat3")),
+		       static_cast<long long>(readings.I64("setStruct")),
+		       static_cast<long long>(readings.I64("setBuffer")),
+		       static_cast<long long>(readings.I64("captureCount")),
+		       static_cast<long long>(readings.I64("upload")),
+		       static_cast<long long>(readings.I64("exec")));
+		if (readings.I64("createTexture") != 1 || readings.I64("setImage") != 1 ||
+			readings.I64("setSampler") != 1 || readings.I64("setPassParam") != 2 ||
+			readings.I64("setFloat3") != 0 || readings.I64("setStruct") != 0 ||
+			readings.I64("setBuffer") != 0 || readings.I64("captureCount") != 1 ||
+			readings.I64("upload") != 1 || readings.I64("exec") != 1)
 		{
 			char detail[512] = {};
 			std::snprintf(detail, sizeof(detail),
-			              "调用计数不符：createTexture=%u/1 setImage=%u/1 setSampler=%u/1 setPassParam=%u/2 "
-			              "setFloat3=%u/0 setStruct=%u/0 setBuffer=%u/0 captureTarget=%u/1 "
-			              "上传执行=%u/1 本次提交执行=%u/1",
-			              createTextureDelta, setImageDelta, setSamplerDelta, setPassParamDelta,
-			              setFloat3Delta, setStructDelta, setBufferDelta, captureDelta, uploadDelta,
-			              executeDelta);
+			              "调用计数不符：createTexture=%lld/1 setImage=%lld/1 setSampler=%lld/1 "
+			              "setPassParam=%lld/2 setFloat3=%lld/0 setStruct=%lld/0 setBuffer=%lld/0 "
+			              "captureTarget=%lld/1 上传执行=%lld/1 本次提交执行=%lld/1",
+			              static_cast<long long>(readings.I64("createTexture")),
+			              static_cast<long long>(readings.I64("setImage")),
+			              static_cast<long long>(readings.I64("setSampler")),
+			              static_cast<long long>(readings.I64("setPassParam")),
+			              static_cast<long long>(readings.I64("setFloat3")),
+			              static_cast<long long>(readings.I64("setStruct")),
+			              static_cast<long long>(readings.I64("setBuffer")),
+			              static_cast<long long>(readings.I64("captureCount")),
+			              static_cast<long long>(readings.I64("upload")),
+			              static_cast<long long>(readings.I64("exec")));
 			fail("E_TEX_COUNTS", detail);
 		}
 	}
 
-	if (waitAfter != waitBefore + 1u || pendingAfter != 0u)
+	if (readings.I64("wait") != 1)
 	{
 		char detail[256] = {};
-		std::snprintf(detail, sizeof(detail), "等待判据不符：适配器 WaitIdle 计数 %u → %u、待完成 %u",
-		              waitBefore, waitAfter, pendingAfter);
+		std::snprintf(detail, sizeof(detail), "等待判据不符：WaitIdle 增量 %lld（期望 1）",
+		              static_cast<long long>(readings.I64("wait")));
 		fail("E_TEX_WAIT", detail);
 	}
-	const auto& presents = lastGraph->GetGraphForTest()->GetFinalizePass().m_PresentBackBuffers;
-	if (presents.size() != 1u || presents[0] != windowTarget->GetImageForTest())
+	const auto& presents = objects.graph->GetFinalizePass().m_PresentBackBuffers;
+	if (presents.size() != 1u || presents[0] != objects.windowImage)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "真实呈现清单 %zu 项，期望唯一的窗口后台缓冲",
@@ -2912,8 +2909,8 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		fail("E_TEX_PRESENT", detail);
 	}
 
-	// 托管侧的 disposed 摘要行（3.2 的实测步 / 4.1 的核对）：先 flush 当前 stdout，再从本次运行
-	// 自己的日志文件里读那一行 —— 日志是这一层唯一能读到托管摘要的通道。
+	// 托管侧的 disposed 摘要行：先 flush 当前 stdout，再从本次运行自己的日志文件里读那一行 ——
+	// 日志是这一层唯一能读到托管摘要的通道。
 	{
 		std::fflush(stdout);
 		std::ifstream logFile(kProbeLogPath);
@@ -2937,14 +2934,14 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		}
 	}
 
-	// 像素：既有 `Readback` 读取同一次 C# 提交的独立离屏目标。背景来自清除色 (0,0,1,1)、
+	// 像素：既有 `Readback` 读取同一次 C# 提交的独立离屏目标。背景来自清除色 (0,0,1,1)，
 	// 中心来自纹理采样色；bad-texture-color 的纹素是青色，中心必须精确变成 (0,255,255,255)。
 	ctx.pGPUBackend->WaitIdle();
 	const uint32_t width = captureDesc.width;
 	const uint32_t height = captureDesc.height;
 	std::vector<uint8_t> pixels(static_cast<size_t>(
 		GetImageByteSize(width, height, ETextureFormat::E_R8G8B8A8_UNORM)));
-	auto token = ctx.pGPUBackend->Readback(captureTarget->GetImageForTest(), pixels);
+	auto token = ctx.pGPUBackend->Readback(objects.captureImage, pixels);
 	if (!token)
 	{
 		fail("E_TEX_READBACK", "离屏目标的 Readback 返回空 token");
@@ -2961,19 +2958,19 @@ void TestCSharpTextureSampling(TestContext& ctx)
 		ctx.backendName + "_" + (mode.empty() ? "normal" : mode.c_str()) + ".png";
 	stbi_write_png(pngPath.c_str(), static_cast<int>(width), static_cast<int>(height), 4, pixels.data(),
 	               static_cast<int>(width * 4));
-	CA_LOG("TestCSharpTextureSampling：backend={} mode={} size={}x{} wait={}→{} pending={} presents={} "
-	       "passes={} boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
-	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height, waitBefore, waitAfter,
-	       pendingAfter, presents.size(), lastGraph->GetPassCount(), totalBoundParams, background[0],
-	       background[1], background[2], background[3], center[0], center[1], center[2], center[3],
-	       pngPath.c_str());
+	CA_LOG("TestCSharpTextureSampling：backend={} mode={} size={}x{} wait={} presents={} passes={} "
+	       "boundParams={} bg=({},{},{},{}) center=({},{},{},{}) png={}",
+	       ctx.backendName, mode.empty() ? "normal" : mode.c_str(), width, height,
+	       static_cast<long long>(readings.I64("wait")), presents.size(), passCount, totalBoundParams,
+	       background[0], background[1], background[2], background[3], center[0], center[1], center[2],
+	       center[3], pngPath.c_str());
 
 	auto differs = [](std::array<uint8_t, 4> const& left, std::array<uint8_t, 4> const& right) {
 		return left[0] != right[0] || left[1] != right[1] || left[2] != right[2] || left[3] != right[3];
 	};
 	if (badTextureColor)
 	{
-		// 纹素 (0,255,255,255)：中心 MUST 精确等于它。判据不能写成"中心非黄"或"中心不等于背景"——
+		// 纹素 (0,255,255,255)：中心 MUST 精确等于它。判据不能写成"中心非黄"或"中心不等于背景" ——
 		// 空帧 / 黑帧都能通过那种弱判据。
 		if (differs(center, expectedBadTextureCenter))
 		{
@@ -2996,50 +2993,25 @@ void TestCSharpTextureSampling(TestContext& ctx)
 	CA_LOG("TestCSharpTextureSampling 通过：{} 后端背景与中心像素精确匹配、两个 pass 各 1 条 {}",
 	       ctx.backendName, kBlockName);
 
-	// 真实后端负例（两后端各一次、进程不崩）：
-	// ① 字节数不符创建 → 空句柄 + 点名 `GetImageByteSize` 的 64 位期望值；
-	// ② 纹理表外字段 `SetImage` → 非零点名字段（两后端对未知字段是静默跳过，不可作为脚本面）。
+	// 托管前置校验负例（design D6）：字节数不符的创建与纹理表外字段 `SetImage` 都必须被拒绝，
+	// 且原生计数不涨。
 	{
-		const uint32_t createCountBeforeNegative = renderBackend->GetCreateTextureCountForTest();
-		auto badTexture = renderBackend->CreateTexture(CANAME("texBadBytes"), kTextureSize, kTextureSize,
-			std::vector<uint8_t>(12u, 0x11u));
-		const std::string badTextureError = renderBackend->GetLastError().c_str();
-		if (badTexture != nullptr || badTextureError.find("16") == std::string::npos ||
-			badTextureError.find("12") == std::string::npos ||
-			renderBackend->GetCreateTextureCountForTest() != createCountBeforeNegative)
+		const bool bytesOk = readings.Get("negBytes") == "1";
+		const bool fieldOk = readings.Get("negField") == "1";
+		if (!bytesOk || !fieldOk)
 		{
 			char detail[512] = {};
 			std::snprintf(detail, sizeof(detail),
-			              "字节数不符的创建没有被挡下：句柄非空=%d 文本=\"%s\" 计数 %u→%u",
-			              badTexture == nullptr ? 0 : 1, badTextureError.c_str(),
-			              createCountBeforeNegative, renderBackend->GetCreateTextureCountForTest());
+			              "负例没有被挡下：negBytes=%s negField=%s bytesText=\"%s\" fieldText=\"%s\"",
+			              readings.Get("negBytes").c_str(), readings.Get("negField").c_str(),
+			              readings.Get("negBytesText").c_str(), readings.Get("negFieldText").c_str());
 			fail("E_TEX_NEGATIVE", detail);
 		}
-		CA_LOG("真实后端负例①：字节数不符创建 → 空句柄 文本={}", badTextureError.c_str());
-
-		auto negativeParams = renderBackend->CreateShaderStruct(CANAME(kStructTypeName));
-		if (negativeParams == nullptr)
-		{
-			fail("E_TEX_NEGATIVE",
-			     castl::string("真实后端负例的参数结构没有创建：") + renderBackend->GetLastError());
-		}
-		const uint32_t setImageBeforeNegative = renderBackend->GetSetImageCountForTest();
-		const int32_t negativeStatus =
-			negativeParams->SetImage(CANAME("noSuchTextureField"), lastCreatedTexture);
-		const std::string negativeError = negativeParams->GetLastError().c_str();
-		if (negativeStatus == 0 || negativeError.find("noSuchTextureField") == std::string::npos ||
-			renderBackend->GetSetImageCountForTest() != setImageBeforeNegative)
-		{
-			char detail[512] = {};
-			std::snprintf(detail, sizeof(detail),
-			              "真实后端负例没有被挡下：status=%d 文本=\"%s\" 计数 %u→%u", negativeStatus,
-			              negativeError.c_str(), setImageBeforeNegative,
-			              renderBackend->GetSetImageCountForTest());
-			fail("E_TEX_NEGATIVE", detail);
-		}
-		CA_LOG("真实后端负例②：纹理表外字段 SetImage → status={} 文本={}", negativeStatus,
-		       negativeError.c_str());
+		CA_LOG("托管前置校验负例：字节数不符创建 / 纹理表外字段 SetImage 都被拒绝（原生创建与写入计数 0）");
 	}
+	CA_LOG("TestCSharpTextureSampling 夹具纹理读数：badTexel=({},{},{},{}) 清除色=({},{},{},{})",
+	       expectedBadTexel[0], expectedBadTexel[1], expectedBadTexel[2], expectedBadTexel[3],
+	       expectedClearColor[0], expectedClearColor[1], expectedClearColor[2], expectedClearColor[3]);
 }
 
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----

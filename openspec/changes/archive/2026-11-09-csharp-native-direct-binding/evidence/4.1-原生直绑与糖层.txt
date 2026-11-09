@@ -1,0 +1,115 @@
+csharp-native-direct-binding 4.1 执行记录（2026-11-09）
+=========================================================
+
+一、实现面（文件 + 关键点）
+---------------------------
+1) 生成器值类构造通道（Tools/CodeGen/CodeGenMain.cpp）
+   · 参数投影：值类的**全部**对象构造通道都出 switch 分支。此前只出第一条 ⇒ ImageHandle 的
+     WindowHandle→Backbuffer 通道缺失，Present 在边界被判「无效的资源引用类型」。
+   · 名称通道改用枚举里精确的 `Internal = 0`。此前 pickKindConstant 跳过 0，把名称通道错配成
+     Backbuffer=2，与 WindowHandle 对象通道撞号 ⇒ 生成的 switch 重复 case，构建红
+     （error C2196: case value '2' already used，见 %TEMP%\cnb-build-1.log）。
+   · 新增 Invalid 态通道（生成 `BufferHandle.Invalid`）：记录字段的「未设置」要能过界
+     （IndexBufferData.indexBufferHandle 在原生 `DrawCall::New()` 里就是默认构造的 Invalid 句柄），
+     否则每个 AddPass 都被句柄解析拒（块错误码 12）。
+
+2) 托管糖层 Scripting/Managed/NativeRenderSugar.cs
+   · 目标对象（design D12）：窗口目标 = GetWindowHandle + GetSizeSafe + ImageHandle.FromWindowHandle
+     + isBackbuffer=true；捕获目标 = CreateGPUTexture（RGBA8 / 2D / 1 层 / 1 mip / 1 采样，
+     TransferSrc|TransferDst|RT）+ ImageHandle.FromGPUTexture + 托管记尺寸。
+   · 上传糖（design D2）：ScriptUpload.ScheduleData(handle, byte[])（offset=0、copy=true）。
+   · 图（design D11/D13）：托管计划（缓冲登记表 / 顶点流 / 每个 pass 的记录与参数表 / 呈现表）→ 提交时
+     逐 pass `AddPass(RenderPass 序列化块)` + `Present`，再跑完整性校验，最后 `ExecuteGraph`。
+     `PassCount` 读 `GetPassIndices().Length`（D13 的计数/拷贝两段式；注意它数的是**图阶段**，
+     含 ScheduleData 的数据上传阶段，比 render pass 数多）。
+   · 顶点流三种布局与越界判据、绘制顶点数上限、缓冲描述/字节数/重名、空图、Present 目标类型，
+     全部在进入函数表调用前拒绝（design D6）。
+   · 参数结构：元数据经 FindShaderStructData / FindShaderRootStructData 两段式只读副本；
+     SetFloat3 / SetStruct / SetBuffer / SetImage / SetSampler 的字段级校验（类型名、元素数、只读、
+     表内字段、子结构资源字段）全在托管层；释放后使用抛 ObjectDisposedException 且原生调用 0。
+   · 管线默认值逐字段复写 `CPipelineStateObject.h` 的默认成员初始化（cullMode=eNone、
+     channelMask=eRGBA、depthCompareOp=eGEqual、msCount=e1 …）：写成 0 会变成 eBack 剔除、
+     或关掉颜色写。
+   · 视口/剪裁矩形写成**整张目标**：序列化块反序列化出来的 `HashObj<ViewRectData>` 恒为有效，
+     写零矩形会把执行器默认的整目标视口覆盖成 0×0；批级 `ShaderInfo.path` 也必须写真实路径
+     （空路径是「有效」的 PathHash，会覆盖 pass 级路径 ⇒ 实测断在 ShaderLibrary::GetShaderFileInfo）。
+
+3) 宿主 CSharpHost/private/CSharpHost.cpp：4.1 起额外把**原生** CRenderBackend 登记为编号 8 的默认实例
+   （桥编号 3 保留到 5.1 与桥文件同轮删除）。
+
+4) 托管入口 Scripting/Managed/Host.cs：绑原生后端表（编号取生成常量）+ 四张目标类型表；
+   布局自检换到五张原生表的清单；四个探针改为接收糖层后端对象。
+
+5) 用例 Scripting/Managed/UserScript.cs：四探针改写糖层；每个探针输出一行机器可读读数
+   `[托管 读数] probe=… graphSelf=… captureSelf=… pass=… exec=… | reject=…`。C++ 用例按
+   graphSelf 取原生 GPUGraph*，再从图附件的 ImageHandle 取同一份 GPUTexture / WindowHandle
+   （附件里的句柄在反序列化时从同一张对象表解析，与 C# 侧是同一对象）。
+
+6) 判据换面 Scripting/Managed/SurfaceSignatureCheck.cs：桥五接口的签名断言退役，换成原生五类
+   直绑表面 + 糖层的编译期签名断言（参数/返回类型写死，映射错即编译不过）。
+
+二、验收读数
+------------
+构建：python build.py --config Debug → exit 0 
+      日志 %TEMP%\cnb-build-13.log（4.1 最终态；build-1 是生成器重复 case 的红态留档）
+四用例 × 两后端（normal，每个一条进程）：
+  vulkan  TestCSharpTriangle        pass
+  vulkan  TestCSharpConstantColor   pass
+  vulkan  TestCSharpStructuredBuffer pass
+  vulkan  TestCSharpTextureSampling pass
+  d3d12   TestCSharpTriangle        pass
+  d3d12   TestCSharpConstantColor   pass
+  d3d12   TestCSharpStructuredBuffer pass
+  d3d12   TestCSharpTextureSampling pass
+  报告：test_output/csharp_{triangle,constant_color,structured_buffer,texture_sampling}_{vulkan,d3d12}_normal.json
+  跑法：out\build\x64-debug\bin\GPUBackendTester.exe --backend <b> --test <名字> --headless 10 --report <json>
+
+负向矩阵（每个自检模式 × 两后端；报告同名带模式后缀）：
+  triangle          skip-draw → E_TRIANGLE_DRAW；bad-vertex → E_TRIANGLE_PIXEL；
+                    skip-present → E_TRIANGLE_PRESENT；skip-wait → E_TRIANGLE_WAIT
+  constant color    bad-struct-colors → E_CONSTCOLOR_PIXEL；skip-param → E_CONSTCOLOR_PARAM
+                    （失败文本含「后端执行次数 0」）
+  structured buffer bad-buffer-color → E_SB_PIXEL；unbound-field / bad-buffer-name → E_SB_BIND
+                    （失败文本含「后端执行次数 0」）
+  texture sampling  bad-texture-color → E_TEX_PIXEL；unbound-image / unbound-sampler → E_TEX_BIND
+                    （失败文本含「本次提交执行增量 0」「上传执行 1」）
+  读数：%TEMP%\cnb-neg_*.log，报告在 test_output/
+
+四份对账脚本（判据=报告状态+错误码+PNG 存在）：
+  python Tools\check_csharp_triangle.py           → exit 0，问题 0 处（%TEMP%\cnb-check_csharp_triangle.py.log）
+  python Tools\check_csharp_constant_color.py     → exit 0，问题 0 处
+  python Tools\check_csharp_structured_buffer.py  → exit 0，问题 0 处
+  python Tools\check_csharp_texture_sampling.py   → exit 0，问题 0 处
+
+CoreTests：out\build\x64-debug\bin\CoreTests.exe → exit 0
+  新增读数：`[原生表面] Present(windows 句柄构造) 错误码=0 呈现项=1`（%TEMP%\cnb-coretests.log）
+  —— 这条断言在生成器只出第一条对象通道的版本上会红（错误码非 0、呈现项 0）。
+
+--list：16 条（%TEMP%\cnb-list.txt），顺序与 docs/testing.md 清单一致。
+
+全量回归（4.1 收尾时的两后端 16 用例）：
+  --backend vulkan --headless 10 --report test_output\result.json   → exit 0、16/16 pass
+  --backend d3d12  --headless 10 --report test_output\result_d3d12.json → exit 0、16/16 pass
+  日志 %TEMP%\cnb-full-vulkan2.log / %TEMP%\cnb-full-d3d12.log
+  顺带修掉一条 2.3/2.4 之后就存在的过期探针：TestCSharpWindow 的「未知接口编号」用例写死 9，
+  而 2.3/2.4 把原生五类接到 8–12 之后 9 = GPUGraph（已登记的目标类型表），
+  取表会返回表尺寸而不是「未知编号」。改成 9999（不在登记表里的编号），判据保持
+  「未知编号必须非 0 拒绝并点名」。
+
+三、拒绝用例「原生执行计数 0」的红样（撤校验即红；两次变异均从 %TEMP%\cnb-sugar-backup.cs 还原）
+--------------------------------------------------------------------------------------------
+红样 1（撤掉必需参数块校验）：把 SubmitGraph 的必需参数块循环整段删除后构建，
+  CASCADED_CSHARP_CONSTCOLOR_SELFTEST=skip-param --test TestCSharpConstantColor →
+  exit = -2147483645（STATUS_BREAKPOINT；原生空参数表 CA_ASSERT_BREAK 路径），报告文件 0 字节。
+  日志 %TEMP%\cnb-red_skip-param.log。还原后同一命令 → E_CONSTCOLOR_PARAM（文本含「后端执行次数 0」）。
+红样 2（断言灵敏度）：保留校验、在拒绝返回前临时 `++ExecuteGraphCount`（模拟"已进入原生执行"），
+  同一 skip-param 命令 → 
+  E_CONSTCOLOR_COUNTS: 调用计数不符：createStruct=4/4 setFloat3=3/3 setStruct=3/3
+  setPassParam=0/0 captureTarget=1/1 executeGraph=1/0
+  （%TEMP%\cnb-red2_skip-param.log）。还原后 → 正常 E_CONSTCOLOR_PARAM。
+
+四、断点说明
+------------
+4.1 全部完成；C++ 侧四条用例的核对通道由「桥私有测试头里的 *ForTest 钩子」换为
+「托管读数行（原生对象地址 + 计数）+ 图附件的资源引用」。桥文件本身到 5.1 才删，
+此前的构建与 16 用例回归在 4.1 结束时保持绿。

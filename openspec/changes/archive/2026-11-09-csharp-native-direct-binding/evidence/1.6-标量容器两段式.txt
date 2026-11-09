@@ -1,0 +1,66 @@
+1.6 返回位置标量容器两段式（design D13）—— 红态、绿态与判据
+
+执行者：apply 子 agent　　时间：2026-11-09 03:3x
+
+一、机制（design D13）
+
+`vector<标量|枚举> const&` 返回 → 出 `<方法>Count` + `Copy<方法>` 一对伴生（与 D8 的 `Len`/`Copy`
+同族：不发直出槽、两个伴生都进函数表）。线形 = 定长缓冲逐字节拷贝；`Count=0` 时空容器不解引用。
+元素限可 blittable 标量/枚举；记录容器、含句柄/文本的容器、非常量引用返回维持不可绑 —— 生成期点名。
+
+二、红态（改造前）
+
+1. 托管表面**根本没有这条方法**：改造前 `const castl::vector<uint32_t> &` 落到"字符串两段式"的
+   通用分支（`needsTwoStep=true`，伴生按 char* 出口），托管映射器认不出 ⇒ 打印跳过、方法不进表面。
+   实测原文（改造前跑真实头 `Interface/RenderInterface/header/GPUGraph.h`，2026-11-09 02:5x，日志
+   %TEMP%\probe_native3.log）：
+
+       [托管表面] 跳过 GPUGraph::GetPassIndices —— 返回/形参里有本轮不映射的形状（原始拼写：const castl::vector<uint32_t> &）
+
+   这条正是 3.1 对账表里 `GetPassCount` 那一行判红的直接现场。
+2. 记录元素容器（若放任走同一条路）没有拒绝：改造前没有任何"元素必须是 blittable"的判据。
+   现在跑新夹具的拒绝原文（exit=1）：
+
+       CodeGen: 拒绝 IBindRejectRecordContainer::GetRecords —— 返回位置的容器元素 RejectRecordElement
+       不是可 blittable 标量/枚举 —— design D13 只开标量容器的两段式；记录容器、含句柄/文本的容器维持不可绑
+
+三、绿态
+
+夹具（`Tools/CodeGen/BindableShapes.NativeShapes.h`）：
+    virtual castl::vector<uint32_t> const& GetPassIndices() const = 0;
+产物（`out/build/x64-debug/codegen/bindings/IBindNativeShape.Bindings.cpp/.h` 逐字）：
+    extern "C" uint64_t IBindNativeShape_GetPassIndicesCount(void* self);
+    extern "C" void IBindNativeShape_CopyGetPassIndices(void* self, uint8_t* dst, uint64_t cap);
+托管表面（`IBindNativeShape.Bindings.cs` 逐字）：
+    public uint[] GetPassIndices()
+        ulong count = IBindNativeShapeBindings.GetPassIndicesCount(lease.Self);
+        if (count == 0UL) { return new uint[0]; }
+        uint[] values = new uint[(int)count];
+        fixed (uint* valuesPtr = values) { IBindNativeShapeBindings.CopyGetPassIndices(lease.Self, (byte*)valuesPtr, (ulong)values.Length * 4UL); }
+        return values;
+C++ 伴生实现（逐字）：
+    Count: object->GetPassIndices().size()
+    Copy : if (dst == nullptr || cap == 0u) { return; } … if (value.empty()) { return; } … memcpy(dst, value.data(), min(bytes, cap))
+
+CoreTests 读数（`out/build/x64-debug/bin/CoreTests.exe`，exit=0）：
+    [标量容器] count=3 元素=7/11/42 空count=0 空写保护=1
+  对应断言：① Count 与元素逐条相等（7/11/42）；② 空容器 Count=0；③ 空容器调 Copy（哨兵缓冲）
+  一个字节都没被改（`空写保护=1`）；④ `Copy(nullptr, 0)` 不崩。
+
+四、判据（Tools/CodeGen/check_bindings.py 新增，全部会失败）
+
+  · C ABI 两条逐字（`IBindNativeShape_GetPassIndicesCount` / `_CopyGetPassIndices`）；
+  · 托管表面 `public uint[] GetPassIndices()` 与四条实现行（count / 空数组 / `* 4UL` / `return values`）；
+  · 期望清单 `BindableShapes.expected.txt` 加两行（签名矩阵 99 → 101 行，签名行数与夹具行数仍一一对应）；
+  · 槽/thunk 对齐判据放行 `<方法>Count` 与 `Copy<方法>` 两类伴生槽（它们本来就没有 thunk，实现体
+    直接调接口方法）—— 改前它只放行 `Len` / `Copy` 前缀。
+
+五、边界不放松（design D13 原文照做）
+
+  · 元素限 blittable 标量/枚举：记录元素 ⇒ 生成期点名（上面第二节第 2 条原文，CoreTests 的拒绝探针
+    以 "blittable" 为判据，撤掉判据即红）；
+  · 空容器：Count=0 且 Copy 在 dst 为空 / cap=0 / value.empty() 三处提前返回，不解引用；
+  · 非常量引用返回与含句柄/文本的容器仍走原拒绝路径（未改）。
+
+结论：1.6 的三条验收（红=改造前拒绝/跳过原文；绿=count 与拷贝两槽读数一致且逐元素相等、空容器
+count=0 不越界；记录容器生成期点名留档）都有实测读数，通过。

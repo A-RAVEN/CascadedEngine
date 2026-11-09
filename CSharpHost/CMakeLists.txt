@@ -28,19 +28,16 @@ endif()
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 target_include_directories(${PROJECT_NAME} PUBLIC header)
-# 生成的绑定产物（`IWindow.Bindings.cpp`、`IScriptRenderBackend.Bindings.cpp`、
-# `IScriptRenderGraph.Bindings.cpp`、`IScriptRenderTarget.Bindings.cpp`、
-# `IScriptShaderStruct.Bindings.cpp`、`IScriptTexture.Bindings.cpp`，由 build.py 的模型生成步骤写出）
-# 与它们 include 的接口头：这个模块直接编译这些产物，所以自己就带着函数表与 thunk
-# （csharp-render-shader-constants 任务 3.1 追加了第四个脚本接口的产物，
-# csharp-render-texture-sampling 任务 3.1 追加了第五个脚本接口 `IScriptTexture` 的产物）。
+# 生成的绑定产物（`IWindow.Bindings.cpp`、`CRenderBackend.Bindings.cpp`、`GPUGraph.Bindings.cpp`、
+# `ShaderStruct.Bindings.cpp`、`GPUTexture.Bindings.cpp`、`WindowHandle.Bindings.cpp`，由 build.py 的
+# 模型生成步骤写出）与它们 include 的接口头：这个模块直接编译这些产物，所以自己就带着函数表与 thunk。
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/codegen/bindings
     ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ScriptHost)
-# csharp-render-backend-triangle 任务 3.1：脚本渲染适配器由 Rendering 的 `ScriptRenderBridge` 静态库实现，
-# 宿主在模块 link 阶段创建它并登记编号 3。`CRenderBackend.h` 的 include 链还需要下面两个接口目录。
+# 5.1：桥退役后宿主直持原生后端（Rendering 的 `CRenderBackend` 实例），登记为编号 3。
+# `CRenderBackend.h` 的 include 链还需要下面两个接口目录。
 target_link_libraries(${PROJECT_NAME} PRIVATE Rendering)
 target_link_libraries(${PROJECT_NAME} PRIVATE ThreadManager_Interface)
 target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)

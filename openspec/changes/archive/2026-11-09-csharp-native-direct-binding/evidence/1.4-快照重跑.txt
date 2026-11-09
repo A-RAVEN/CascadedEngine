@@ -1,0 +1,89 @@
+1.4 快照模式适配三新形态 + 四真实头快照重跑 + 独立对账（含标记比较与翻红演练）
+
+执行者：apply 子 agent　　时间：2026-11-09 00:1x – 00:3x
+
+一、快照模式对三新形态的适配（判定原文，夹具快照）
+文件：evidence/1.4-夹具三新形态快照.txt（`CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapes.h --parse-report`）
+逐字读数：
+    [采集] IBindNativeShape::SetInjectedPointer | 形状：void SetInjectedPointer(uint32_t, int32_t *) | 判定：采集：可绑定
+    [采集] IBindNativeShape::UploadWindow | 形状：void UploadWindow(const void *, uint64_t, uint64_t, bool) | 判定：采集：可绑定（内存窗投影：托管收 byte[]，thunk 以固定内存传指针与长度）
+    [采集] IBindNativeShape::FindPass | 形状：const PassLike * FindPass(const cacore::NameHash &) | 判定：采集：可绑定（记录两段式：托管得序列化只读副本，空命中为 null）
+    [采集] IBindNativeShape::TemplatedValue | 形状：template<> TemplatedValue(...) | 判定：采集：可绑定（模板显式实例化： uint32_t, float ）
+    [排除] IBindNativeShape::GetAs | 形状：template<> GetAs(...) | 判定：排除：① 模板方法（本批不做模板单态化）
+即：D2（内存窗）/ D8（记录两段式）/ D9（实例化声明）三种新形态在快照里都被认成采集并带原因；
+未声明形态的模板（GetAs）仍是 ① 排除；注入参数（SetInjectedPointer）不再被 ② 误伤。
+
+两处实现口径（都写在代码注释里、可核）：
+  · `reportVerdict` 判"相邻唯一整型长度参数"时用的是 libclang 的**规范类型拼写**，
+    `uint64_t` 在 MSVC 目标下会展开成 `unsigned long long` —— 不认这些原生拼写会把内存窗
+    误判成"缺长度"（实测过：`[排除] … UploadWindow … 内存窗配对失败：const void* 参数 data 没有相邻整型长度参数`）。
+    已在 `isIntegerSpelling` 里补 `long long` / `unsigned long long` / `__int64` 一族。
+  · 注入参数（`CA_BIND_INJECT`）在快照判定里豁免 ②：托管表面与 C ABI 都看不到它。
+
+二、四真实头快照重跑（`--parse-report`，四份头逐份跑）
+命令形态（可复制）：
+    CodeGen.exe <头> --parse-report <CoreTests 编译单元的 -I 全量>
+        -ICACore/header -ITools/CodeGen/clang_shim -D_CRT_USE_BUILTIN_OFFSETOF -DNOMINMAX -xc++
+（`-DNOMINMAX` 是解析环境需要：`std::numeric_limits<...>::max()` 会被 Windows 的 `max` 宏展开成
+ "too few arguments provided to function-like macro invocation"，缺了它四头都解析失败、退出码 3。）
+文件：evidence/1.4-原生头投影快照.txt。生成器 stderr 逐字：
+    快照：2 个类      （CRenderBackend.h）
+    快照：15 个类     （GPUGraph.h）
+    快照：1 个类      （ShaderStruct.h）
+    快照：4 个类      （GPUTexture.h）
+快照统计（PowerShell 按行首标记数）：
+    lines=160 / [头]=4 / [类]=22 / [采集]=110 / [排除]=16
+与归档的前置批快照逐行比对（`Compare-Object`）：
+    new=160 old=160 / difflines=0
+—— 即本批这次重跑的输出与归档快照**逐行完全一致**。
+
+三、采集/排除计数变化逐条指认
+
+结论：**0 变化**，原因逐条写清（不是"没查"）：
+  · 四份真实头此刻**都还没有挂 `CA_BIND`**（原生四类进表是任务 2.1）。快照的采集/排除判定按
+    "绑定类才按新投影规则判、非绑定类维持旧口径"执行，所以 ScheduleData 系 / Find* 系 / SetValue
+    仍然维持旧判定（②/②/①）；
+  · 三种新投影的可采集性已由夹具快照逐条证明（见第一节），不是没实现；
+  · 四真实头的采集面变化（`ScheduleData` 两条从 ② 变采集、`FindShaderStructData`/
+    `FindShaderRootStructData` 两条从 ② 变采集、`ShaderStruct::SetValue` 从 ① 变采集）会在
+    2.1 挂标注 + 声明实例化之后出现，届时逐条指认（任务 2.1 的验收也要求"绑定面与重跑快照逐条一致"）。
+  · 非绑定类（`UploadDataHolder::AddData`、`DataReference::Create`）在本次重跑里仍是 ②：判定按绑定类
+    生效，不为不进绑定面的类猜内存窗配对（设计 Risks 里"这些方法维持排除"的目标由此达成）。
+
+四、独立对账脚本的加严（本批修掉前批已知缺陷：只比方法名多重集、丢弃标记）
+
+`Tools/CodeGen/check_native_snapshot.py` 改动：
+  · 独立清单从"类 → 方法名多重集"改成"类 → (标记, 方法名) 多重集"；
+  · 标记由脚本**自己**按 spec csharp-bindable-surface 四类不可绑 + D2/D8/D9 例外通道算
+    （`classify_marker`：模板未声明=排除 / 声明了=采集；参数位置裸指针（含注入豁免、内存窗配对）
+    =按规则判；返回位置裸指针（void* 或可序列化记录指针）=放行，其余排除；映射容器=排除）；
+  · 同一方法两侧标记不同 ⇒ 单独一条"标记不符"并点名两侧标记；
+  · 可序列化记录集合由脚本自己扫 `Interface/**/*.h` 的类体（含容器 / NameHash / PathHash 成员）
+    独立算出，不读生成器输出。
+
+对账读数（正式快照）：
+    $ python Tools/CodeGen/check_native_snapshot.py --snapshot evidence/1.4-原生头投影快照.txt
+    独立清单：GPUGraph.h 方法 23 条（下界锚 23）
+    快照对账：独立清单 126 条 / 问题 0 处
+    exit=0
+
+五、两条翻红演练（用 %TEMP% 副本，原件未动，演练后副本已删）
+
+演练一（本批要修掉的缺口：标记翻转）：
+    做法：把快照里 `[排除] UploadDataHolder::AddData` 的标记改成 `[采集]`，其余不动。
+    读数：
+      Interface/RenderInterface/header/GPUGraph.h :: 标记不符 —— UploadDataHolder::AddData：独立清单判 [排除]、快照写 [采集]
+      快照对账：独立清单 126 条 / 问题 1 处
+      exit=1
+    —— 前置批的脚本只比方法名多重集，这一条翻不动红；本批加严后能红。
+
+演练二（方法集合仍有判据）：
+    做法：删掉 `[采集] GPUGraph::GetGraphStages` 一行。
+    读数：
+      Interface/RenderInterface/header/GPUGraph.h :: GPUGraph：独立清单有、快照没有 [('采集', 'GetGraphStages')]
+      快照对账：独立清单 126 条 / 问题 1 处
+      exit=1
+
+六、结论
+1.4 的三条验收（三新形态适配、四真实头快照重跑、独立对账 0 差异 + 标记比较与翻红演练）逐条有实测读数；
+计数变化逐条指认为 0 变化并写明原因（四头未挂标注，变化在 2.1 出现）。

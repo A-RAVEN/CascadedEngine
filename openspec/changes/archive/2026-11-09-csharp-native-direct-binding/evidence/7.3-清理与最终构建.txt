@@ -1,0 +1,41 @@
+csharp-native-direct-binding 7.3 清理与最终构建（2026-11-09）
+=========================================================
+
+一、清理了什么
+--------------
+1) 构建目录里的桥遗留产物（5.1 同轮）：`codegen/bindings/IScriptRender*.Bindings.cs|cpp`（10 个）与
+   `render.registry.part`。清掉之前它们会被 `check_bindings.py` 当真实接口扫（实测 5 处 + 42 处红，
+   已记在 5.1 证据里）。当前构建目录里已无任何 `IScript*` / `ScriptRenderBridge*` 命名的产物：
+   命令 `Get-ChildItem out\build\x64-debug\codegen -Recurse -File | Where-Object Name -match 'IScript|ScriptRenderBridge'`
+   → 0 个文件。
+2) `verify_readme.py` 的临时目录 `.review_tmp/`（仓库根）→ 已删除。
+3) `%TEMP%` 本批临时件：198 个 `cnb-*` 文件（构建 / 测试 / 判据日志、快照中间件、临时脚本），逐个删除、
+   0 个失败、删除后 0 个剩余。证据文件里引用的 `%TEMP%` 路径自此失效 —— 关键读数已逐字抄进
+   `5.1` / `6.1` / `6.2` / `7.1` 的证据文件，需要复跑时按各证据里的命令重跑即可重新生成。
+4) 判定为**不删**的：`test_output/`（四探针报告与测试日志，是四个 `check_csharp_*.py` 的直接输入；
+   仓库已忽略，可随时重跑生成）、`_build_run.bat`（`build.py` 自己保留的批处理）、`.dsh-acl-recovery/`
+   （2026-11-01 就存在，非本批产物）。
+
+二、无源产物核查
+----------------
+产物集合与当前锚逐字节一致：`check_binding_baseline.py --baseline
+openspec\changes\csharp-native-direct-binding\evidence\基线产物哈希.txt --product-dir
+out\build\x64-debug\codegen\bindings` → exit 0、缺失 0 / 不一致 0 / 多余 0（191 条全对上）。
+即：构建目录里没有任何"有文件、没输入"的残留（桥产物已在 5.1 删除；其余 191 个文件都能由当前
+`CODEGEN_INPUTS` / `CODEGEN_REGISTRIES` 重新生成）。
+
+三、最终构建复跑（对齐 7.1）
+----------------------------
+python build.py --config Debug → exit 0、BUILD SUCCESSFUL
+  耗时：configure 0.0s / codegen 1.3s / 编译 6.2s / 托管侧 1.4s / 合计 53.0s
+  （最终构建日志按本节第一条已清理；同一条命令在 7.1 的读数见 `evidence\7.1-全量回归.txt`）
+最终构建后再对锚：缺失 0 / 不一致 0 / 多余 0（确定性成立，重跑不改产物字节）。
+
+四、收尾状态
+------------
+- `openspec instructions apply --change csharp-native-direct-binding --json`：total 21 / remaining 0
+  （7.3 勾选后实测；勾选前 remaining 1 就是本条）。
+- `tasks.md` 无 `- [ ]` 残留（逐行核对见收尾报告）。
+- `git status --porcelain` 的未跟踪项均为本批**源码**工件（`Scripting/Managed/NativeRenderSugar.cs`、
+  `Test/CoreTests/BindingsNativeSurfaceTest.cpp`、六个生成期拒绝夹具头、`openspec/changes/csharp-native-direct-binding/`）
+  与既有的 `.dsh-acl-recovery/`；没有临时日志、备份或探针脚本。

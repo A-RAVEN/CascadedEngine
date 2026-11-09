@@ -43,6 +43,9 @@ namespace graphics_backend
 
 	using ResourceHandleKey = cacore::HashObj<ResourceHandleKeyData, cacore::EHashObjCompareMode::FullCompare>;
 
+	// 句柄值类（csharp-native-direct-binding 2.2 / design D1）：只作为参数/字段过界（kind + 句柄/名称
+	// 三段线形），自身成员方法不进绑定表面。标注必须写在定义处（生成器从包含闭包里扫 CA_BIND_VALUE）。
+	CA_BIND_VALUE(ImageHandle)
 	class ImageHandle
 	{
 	public:
@@ -121,6 +124,7 @@ namespace graphics_backend
 
 	};
 
+	CA_BIND_VALUE(BufferHandle)
 	class BufferHandle
 	{
 	public:

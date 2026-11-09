@@ -1,0 +1,70 @@
+1.3 模板显式实例化 CA_BIND_INSTANTIATE（design D9）—— 红态、绿态与判据
+
+执行者：apply 子 agent　　时间：2026-11-08 23:3x – 2026-11-09 00:1x
+
+一、通道本身
+
+macro（CACore/header/CodeGenMeta.h，编译期 no-op，只留文本给生成器读）：
+    #define CA_BIND_INSTANTIATE(MethodName, ...) \
+        static_assert(true, "CA_BIND_INSTANTIATE(" #MethodName ", " #__VA_ARGS__ ")");
+    ——不改原生签名、不新增原生函数；模板体在头文件内定义，thunk 自身完成实例化。
+
+夹具声明（Tools/CodeGen/BindableShapes.NativeShapes.h）：
+    template<typename T>
+    uint32_t TemplatedValue(T const& value) { ... }        // uint32_t 形态 value+100；float 形态 value*2
+    static inline uint32_t s_TemplateUintCalls = 0u;
+    static inline uint32_t s_TemplateFloatCalls = 0u;
+    类后：
+    CA_BIND_INSTANTIATE(TemplatedValue, uint32_t, float)
+
+二、绿态：两形态各出具体槽 + 托管同名重载
+
+1) C ABI（IBindNativeShape.Bindings.cpp 逐字）：
+    extern "C" uint32_t IBindNativeShape_TemplatedValue_uint32_t(void* self, uint32_t value);
+    extern "C" uint32_t IBindNativeShape_TemplatedValue_float(void* self, float value);
+    static uint32_t IBindNativeShape_thunk_TemplatedValue_uint32_t(void* self, uint32_t value) { ... return object->TemplatedValue(value); }
+    static uint32_t IBindNativeShape_thunk_TemplatedValue_float(void* self, float value) { ... return object->TemplatedValue(value); }
+   —— 槽名 = `<方法名>_<类型记号>`（`uint32_t` / `float`），与 design 里 `ShaderStruct_SetValue_float3` 的写法一致。
+
+2) 托管表面（IBindNativeShape.Bindings.cs 逐字）：
+    public static uint TemplatedValue(IBindNativeShapeLease lease, uint value)   → 调 TemplatedValue_uint32_t
+    public static uint TemplatedValue(IBindNativeShapeLease lease, float value)  → 调 TemplatedValue_float
+    public uint TemplatedValue(uint value)
+    public uint TemplatedValue(float value)
+   —— 同名重载分别命中两个具体槽。
+
+3) 判据（Tools/CodeGen/check_bindings.py，check_native_shapes 里本批新增的逐字行）：
+    · 两条 C ABI 声明逐字存在；
+    · 托管表面 `public uint TemplatedValue(uint value)` 与 `public uint TemplatedValue(float value)` 逐字存在；
+    · **未声明的形态 MUST 0 命中**：产物里出现 `TemplatedValue_double`（C ABI）或
+      `TemplatedValue(double`（托管）即失败。
+
+4) CoreTests 运行读数（退出码 0）：
+    [模板实例化] uint32_t→141 float→3 计数uint=1 计数float=1
+    Bindings native shapes test PASSED
+   —— `uint32_t` 形态命中 value+100（41+100=141），`float` 形态命中 value*2（1.5*2=3），
+      两个实例的原生计数各 +1（互不冒充）。
+   另有编译期判据（BindingsNativeShapesTest.cpp 的 static_assert）：
+       `IBindNativeShape_TemplatedValue_uint32_t` 的签名必须是 `uint32_t (*)(void*, uint32_t)`；
+       `IBindNativeShape_TemplatedValue_float` 的签名必须是 `uint32_t (*)(void*, float)`。
+
+三、红态/失败通道
+
+1) 未声明形态不进表面：产物全文搜索 `TemplatedValue_double` / `TemplatedValue(double` 0 命中
+   （上面的 check_bindings 第 3 条就是这条判据；它是一句会失败的断言，不是描述）。
+2) 类型名拼错 ⇒ 生成期非零点名（当前生成器实跑，退出码 1）：
+    $ CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapesRejectInstantiateType.h --emit-binding ...
+    exit=1
+    CodeGen: 拒绝 IBindRejectInstantiateType::Value 的实例化声明 —— 类型 NoSuchType 在翻译单元里找不到（本批只接受标量 / 枚举 / 记录 / 资源引用值类）
+
+四、模板成员本体不再被当成可投影方法
+
+实现细节（可核）：模板成员函数的 `abiName` 留空 ⇒ 镜像收集、投影、发射、覆盖率四类循环全部跳过它；
+否则模板参数 `T` 会被当成真实类型去建镜像（实测红态原文：
+`CodeGen: 拒绝嵌套记录 —— IBindNativeShape::T：找不到类型定义`，退出码 1）。
+具体形态只由声明展开的克隆体承担（克隆体自己有 `<方法名>_<类型记号>` 槽名与自返回识别）。
+
+五、构建判据汇总（build_t17 日志）
+    不符数 0 / 覆盖率问题 0 处 / 托管表面问题 0 处 / 原生形态夹具问题 0 处
+结论：1.3 的三条验收（红=未声明形态 0 命中 + 拼错类型名点名；绿=两形态出具体槽、
+托管同名重载分别命中各实例的计数断言）逐条有实测读数，通过。

@@ -1,0 +1,170 @@
+csharp-native-direct-binding 6.1 换锚前后对照（2026-11-09）
+=========================================================
+
+旧锚：openspec/changes/archive/2026-11-08-codegen-native-binding-prereqs/evidence/基线产物哈希.txt
+  sha256 = da62d776e3b74f732dd2764fda6e56a5f9a45a9a0f04710a78cea73bf978feda
+  条目数 96 + 允许新增 11 条 = 107 个文件；96 份是前置批开工前的既有产物（本批要保的不变量），
+  11 条 `# +` 是前置批自己的新夹具产物。
+  ！按任务口径封存一份逐字节副本在 evidence/6.1-旧锚封存-基线产物哈希.txt（原件不动，不删旧账）。
+
+新锚：openspec/changes/csharp-native-direct-binding/evidence/基线产物哈希.txt
+  sha256 = 3be58717c6b04e7b79c9feec3a12e0eff506b2ba53976e30f22500b98abe017d
+  条目数 0（主目录 + fixture/ 全量，换锚后不再有 # + 放行项）
+  取锚前提：python build.py --config Debug → BUILD SUCCESSFUL（exit 0，%TEMP%\cnb-build-54.log）
+
+两锚差异：删除 96 / 新增 0 / 内容变化 0 / 不变 0
+
+一、删除（旧锚有、新产物没有）= 5.1 桥退役动作
+----------------------------------------------------------------
+  - BindFloatRect.Bindings.cs
+  - BindingHandleTable.h
+  - BindingRegistry.Bindings.cpp
+  - BindingRegistry.Bindings.h
+  - BindMonitorInfo.Bindings.cs
+  - BindScalarThing.Bindings.cs
+  - EBindMode.Bindings.cs
+  - EngineApi.Bindings.cs
+  - ERenderFlag.Bindings.cs
+  - ERenderMode.Bindings.cs
+  - ETextureSamplerAddressMode.Bindings.cs
+  - ETextureSamplerBorderColor.Bindings.cs
+  - ETextureSamplerFilterMode.Bindings.cs
+  - fixture/BindingRegistry.Bindings.cpp
+  - fixture/BindingRegistry.Bindings.h
+  - fixture/EngineApi.Bindings.cs
+  - fixture/fixture.registry.part
+  - FloatRect.Bindings.cs
+  - GPUBufferDescriptor.Bindings.cs
+  - IBindFoundation.Bindings.cpp
+  - IBindFoundation.Bindings.cs
+  - IBindRegistry8.Bindings.cpp
+  - IBindRegistry8.Bindings.cs
+  - IBindRegistry9.Bindings.cpp
+  - IBindRegistry9.Bindings.cs
+  - IBindRenderOwner.Bindings.cpp
+  - IBindRenderOwner.Bindings.cs
+  - IBindRenderResource.Bindings.cpp
+  - IBindRenderResource.Bindings.cs
+  - IBindRenderResourceAlt.Bindings.cpp
+  - IBindRenderResourceAlt.Bindings.cs
+  - IBindRow01.Bindings.cpp
+  - IBindRow01.Bindings.cs
+  - IBindRow02.Bindings.cpp
+  - IBindRow02.Bindings.cs
+  - IBindRow03.Bindings.cpp
+  - IBindRow03.Bindings.cs
+  - IBindRow04.Bindings.cpp
+  - IBindRow04.Bindings.cs
+  - IBindRow05.Bindings.cpp
+  - IBindRow05.Bindings.cs
+  - IBindRow06.Bindings.cpp
+  - IBindRow06.Bindings.cs
+  - IBindRow07.Bindings.cpp
+  - IBindRow07.Bindings.cs
+  - IBindRow08.Bindings.cpp
+  - IBindRow08.Bindings.cs
+  - IBindRow09.Bindings.cpp
+  - IBindRow09.Bindings.cs
+  - IBindRow10.Bindings.cpp
+  - IBindRow10.Bindings.cs
+  - IBindRow11.Bindings.cpp
+  - IBindRow11.Bindings.cs
+  - IBindRow12.Bindings.cpp
+  - IBindRow12.Bindings.cs
+  - IBindRow13.Bindings.cpp
+  - IBindRow13.Bindings.cs
+  - IBindRow14.Bindings.cpp
+  - IBindRow14.Bindings.cs
+  - IBindRow15.Bindings.cpp
+  - IBindRow15.Bindings.cs
+  - IBindRow16.Bindings.cpp
+  - IBindRow16.Bindings.cs
+  - IBindRow17.Bindings.cpp
+  - IBindRow17.Bindings.cs
+  - IBindRow18.Bindings.cpp
+  - IBindRow18.Bindings.cs
+  - IBindRow19.Bindings.cpp
+  - IBindRow19.Bindings.cs
+  - IBindRow20.Bindings.cpp
+  - IBindRow20.Bindings.cs
+  - IBindRow21.Bindings.cpp
+  - IBindRow21.Bindings.cs
+  - IBindRow22.Bindings.cpp
+  - IBindRow22.Bindings.cs
+  - IScriptRenderBackend.Bindings.cpp
+  - IScriptRenderBackend.Bindings.cs
+  - IScriptRenderGraph.Bindings.cpp
+  - IScriptRenderGraph.Bindings.cs
+  - IScriptRenderTarget.Bindings.cpp
+  - IScriptRenderTarget.Bindings.cs
+  - IScriptShaderStruct.Bindings.cpp
+  - IScriptShaderStruct.Bindings.cs
+  - IScriptTexture.Bindings.cpp
+  - IScriptTexture.Bindings.cs
+  - IWindow.Bindings.cpp
+  - IWindow.Bindings.cs
+  - IWindowSystem.Bindings.cpp
+  - IWindowSystem.Bindings.cs
+  - MonitorInfo.Bindings.cs
+  - render.registry.part
+  - RenderDesc.Bindings.cs
+  - RenderHashable.Bindings.cs
+  - RenderNested.Bindings.cs
+  - TextureSamplerDescriptor.Bindings.cs
+  - window.registry.part
+  原因：桥三个源文件删除后，`--emit-binding` 不再产出桥的五个接口产物；`render.registry.part` 随主登记表
+  的桥输入一并消失。不是"漏生成"，是桥退出绑定面的直接结果。
+
+二、新增（新产物有、旧锚与旧 allow 清单都没有）= 本批 1.x/2.x 的生成器能力扩围产物
+--------------------------------------------------------------
+  原因分类：
+   · 原生五类直绑表面：CRenderBackend / GPUGraph / ShaderStruct / GPUTexture / WindowHandle 的 .Bindings.cs/.cpp、注入片段；
+   · D11 记录形状带出的共享类型与 codec：RenderPass / DrawCall(Batch) / PipelineDescData / AttachmentConfig / 各类枚举的 .Bindings.cs 与 .BindingCodec.h；
+   · D2/D8/D13 的元数据记录：ShaderStructData / ShaderStructUniforms / BufferData / ShaderTextureData / SubStructReference / UniformElement；
+   · 值与句柄：ImageHandle / BufferHandle / float3 / uint2 / GPUTextureDescriptor 等；
+   · 新的共享头 BindingHandleTable.h（句柄表抽成跨产物共用一份）。
+
+三、内容变化（两锚都有、字节不同）
+--------------------------------------
+  原因（逐类可核，文件本身是生成物、无手改）：
+   ① 每个接口产物的 .Bindings.cpp 都多了一行 `#include "BindingHandleTable.h"`（句柄表抽成共享头，跨接口共用一张表）；
+   ② 每个接口产物的 .Bindings.cs/.cpp 都多了错误码 `ERROR_BAD_OBJECT_HANDLE = 1011`（序列化块对象句柄查不到）；
+   ③ BindingRegistry.Bindings.h/.cpp、EngineApi.Bindings.cs、BindingHandleTable.h 随 5.1 段 B 的编号重排（桥 3–7 删、
+      原生五类 8–12 → 3–7）与登记表 7 项更新；
+   ④ 引用值类的产物（ImageHandle / BufferHandle 的 kind 修正）在"新增"里，不在本组。
+  这三类都是"本批生成器修订 + 编号重排"的机械结果；两锚差异逐文件列在上面，任何未列出的差异都不存在。
+
+四、重指向与演练
+------------------
+  当前基线 = `openspec/changes/csharp-native-direct-binding/evidence/基线产物哈希.txt`（`check_binding_baseline.py` 的调用路径见下）；
+  旧锚保留为历史，不再作为当前判据（仍在 archive 与本 evidence 的封存副本里）。
+
+
+五、对账与演练读数（2026-11-09 06:0x）
+------------------------------------
+命令统一：python Tools\CodeGen\check_binding_baseline.py --baseline <锚> --product-dir out/build/x64-debug/codegen/bindings
+
+  1) 新锚 vs 新产物 → exit 0；基线对账：缺失 0 / 不一致 0 / 多余 0
+     （%TEMP%\cnb-anchor-new.log）
+  2) 新锚 --self-test → exit 0；自检通过：删掉基线行 AttachmentConfig.Bindings.cs 之后被点名（缺失或多余），脚本确实逐条对账
+     （%TEMP%\cnb-anchor-selftest.log）
+  3) **跳过换锚（继续拿旧锚对新产品）→ exit 1**（判据拒绝，红样）：
+     缺 11 / 不一致 64 / 多余 84；末行   多余：产物目录里有、基线没登记 —— uint2.Bindings.cs
+     （%TEMP%\cnb-anchor-old-vs-new.log）
+     含义：不封存旧锚、不重取新锚就继续用旧锚，会被逐文件点名拒绝 —— "跳过封存"这条捷径不可用。
+  4) 篡改一条基线哈希 → exit 1（点名该文件内容不一致）；  不一致：内容与基线不同 —— window.registry.part（基线 000000000000… / 实际 7fb041009ad6…）
+     （%TEMP%\cnb-anchor-tampered.log）
+  5) 封存副本逐字节等于旧锚：evidence/6.1-旧锚封存-基线产物哈希.txt 的 sha256 =
+     da62d776e3b74f732dd2764fda6e56a5f9a45a9a0f04710a78cea73bf978feda
+     与旧锚 sha256 相同（da62d776…feda）。
+
+
+六、ABI v10 落地后的重锚（与 6.2 同批，design D4）
+------------------------------------------------
+6.1 的锚取在 ABI v10 之前，属**中间态**；6.2 重建登记表布局后按 design D4「换锚 + ABI 同一批」重取：
+  · 中间锚封存：evidence/6.2-ABI落地前-基线产物哈希.txt；
+  · 当前锚：evidence/基线产物哈希.txt（191 条；ABI v10 后重新取，sha256 见该文件头与 6.2 证据）；
+  · 差异只有 6 个登记表 / 镜像产物（版本号、大小、字段表），其余 185 个逐字节不变；
+    读数与逐文件清单见 evidence/6.2-ABI-v10与重锚.txt。
+这样收尾时只有一个当前锚，6.1 的 96 份旧锚、6.1 中间锚与 6.2 当前锚三份都能回溯。
+

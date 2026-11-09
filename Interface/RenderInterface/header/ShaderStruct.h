@@ -1,4 +1,6 @@
 #pragma once
+// 绑定标注宏（CA_BIND / CA_BIND_INSTANTIATE）：这个头自己也进绑定面（2.2）。
+#include <CodeGenMeta.h>
 #include "ShaderResourceHandle.h"
 #include "ShaderBindingBuilder.h"
 #include "TextureSampler.h"
@@ -8,7 +10,18 @@
 
 namespace graphics_backend
 {
+	// 12 字节三分量浮点值（csharp-native-direct-binding 2.2 / design D9）：着色器 uniform 里的
+	// `float3` 字段就是 12 字节，`SetValue<T>` 需要的具体形态由这个公开值类型给出 —— 只是新增一个
+	// **值类型**，不改任何既有签名、不新增任何原生方法。
+	struct float3
+	{
+		float x = 0.0f;
+		float y = 0.0f;
+		float z = 0.0f;
+	};
+
 	//Interface for setting shader arguments
+	CA_BIND()
 	class ShaderStruct
 	{
 	protected:
@@ -87,4 +100,9 @@ namespace graphics_backend
 
 		virtual cacore::NameHash const& GetStructTypeName() const = 0;
 	};
+	// 模板参写的显式实例化声明（design D9）：只绑 `float3`（12 字节着色器 float3 字段）与 `float`
+	// （标量字段）两个形态；其它形态不进任何表面。C++ 侧不新增函数、不改签名。
+	CA_BIND_INSTANTIATE(SetValue, float3, float)
+	// 返回位置的包装值（`NameHash const&`）本批只定义入参方向 ⇒ 显式排除（诊断用，脚本不需要）。
+	CA_BIND_SKIP(GetStructTypeName, "本轮未实现：返回位置的包装值（NameHash const&）只定义入参方向")
 }

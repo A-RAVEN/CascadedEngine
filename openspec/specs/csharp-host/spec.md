@@ -34,21 +34,21 @@ host 在找不到 `hostfxr`、找不到托管程序集、找不到 `runtimeconfi
 - **THEN** `Boot` 返回非零错误码，引擎侧初始化失败，错误信息里 MUST 出现两边的版本号
 
 ### Requirement: 宿主登记与跨边界函数表由生成登记表提供
-`CSharpHost` SHALL 在模块链接阶段使用模块管理器中的真实 `CRenderBackend` 与 `CThreadManager` 创建脚本渲染适配器，并登记后端接口默认实例。接口编号 MUST 由入库锁文件 `Tools/CodeGen/interface-ids.lock` 声明（段内唯一、段内从段起点连续；默认构建只核对、不写锁；发号只经显式 `--update-ids`），取表路由与编号常量由绑定生成器从锁文件与**无参数** `CA_BIND` 标注发射为宿主登记表与 `EngineApi` 两侧对照——在标注上写编号 MUST 被生成期拒绝；宿主 MUST NOT 保留手写的逐接口 `interfaceId` 分支分派，两侧 MUST NOT 保留手写的 `EngineApi` 镜像 struct。`EngineApi` 的版本与大小 MUST 以生成常量单点定义、两侧对生成值断言；ABI 升到版本 9 后 `sizeof(EngineApi)` MUST 仍为 80 字节（14 个字段的顺序与宽度与 v8 一致，字节布局不变），生成接口表的 ABI 版本 MUST 保持不变。`CSharpHost/README.md` 全文、`Tools/check_csharp_host_readme.py` 与 `Tools/check_csharp_host_failures.py` 三处 MUST 同步为同一 v9=80 读数，任一残留旧值即非零。
+`CSharpHost` SHALL 在模块链接阶段取得模块管理器中的真实 `CRenderBackend` 与 `CThreadManager`，**直接持有并登记原生对象**（脚本渲染适配桥 `CScript*` 类随桥退役，宿主 MUST NOT 再构造或引用它），并登记后端接口默认实例。接口编号 MUST 由入库锁文件 `Tools/CodeGen/interface-ids.lock` 声明（段内唯一、段内从段起点连续；默认构建只核对、不写锁；发号只经显式 `--update-ids`），取表路由与编号常量由绑定生成器从锁文件与**无参数** `CA_BIND` 标注发射为宿主登记表与 `EngineApi` 两侧对照——在标注上写编号 MUST 被生成期拒绝；宿主 MUST NOT 保留手写的逐接口 `interfaceId` 分支分派，两侧 MUST NOT 保留手写的 `EngineApi` 镜像 struct。`EngineApi` 的版本与大小 MUST 以生成常量单点定义、两侧对生成值断言；绑定面换源（桥退役+原生进表）MUST 递增 ABI 版本并按新面重算结构，重算后 `CSharpHost/README.md`、`Tools/check_csharp_host_readme.py` 与 `Tools/check_csharp_host_failures.py` 三处 MUST 同步为同一读数（版本与字节数以执行批生成常量实测为准），任一残留旧值即非零。
 
-图、目标、参数结构与纹理接口属于目标类型表，宿主 MUST 允许在没有默认实例的情况下返回其函数表；实际对象 MUST 通过对应 `ResolveTargetHandle` 解析。后端接口 MUST 仍要求真实适配器实例，缺少后端或线程管理器时不得返回空壳或伪造成功。托管侧绑定失败文本 MUST 按登记表逐项点名是哪个接口（例如点名 `IScriptTexture`），不得退化为笼统错误。
+目标类型表（图、目标、参数结构、纹理等值类解析所依赖的接口）MUST 允许在没有默认实例的情况下返回其函数表，实际对象 MUST 通过对应 `ResolveTargetHandle` 解析。后端接口 MUST 仍要求真实原生后端实例，缺少后端或线程管理器时不得返回空壳或伪造成功。托管侧绑定失败文本 MUST 按登记表逐项点名是哪个接口（点名对象为换源后的实际登记名），不得退化为笼统错误。
 
-#### Scenario: 五个渲染接口按编号取得真实函数表
-- **WHEN** 托管侧按生成登记表下发的后端、图、目标、参数结构和纹理编号请求函数表
-- **THEN** 后端表 MUST 对应已登记的真实适配器，图、目标、参数结构与纹理表 MUST 能用于目标句柄解析；`EngineApi` 版本、大小与七个接口编号在两侧 MUST 来自同一份"锁文件派生的生成常量"，既有窗口编号（1、2）与生成接口表版本 MUST 不变
+#### Scenario: 绑定接口按编号取得真实函数表
+- **WHEN** 托管侧按生成登记表下发的编号请求后端、图、参数结构与纹理等接口函数表
+- **THEN** 后端表 MUST 对应已登记的真实原生后端，其余表 MUST 能用于目标句柄解析；`EngineApi` 版本、大小与全部接口编号在两侧 MUST 来自同一份"锁文件派生的生成常量"，既有窗口编号（1、2）与生成接口表版本 MUST 不变
 
-#### Scenario: 编号来源换锁后产物逐字节不变
-- **WHEN** 编号声明从 `CA_BIND(编号)` 标注迁移为锁文件承载（本批迁移），迁移前后各构建一次
-- **THEN** 迁移完成的构建 MUST 全绿，且登记表、接口表与 `EngineApi` 全部既有产物 MUST 与迁移前逐字节一致（编号值与绑定一个都没换的铁证）；在标注上重写编号（回退尝试）MUST 被生成期拒绝并点名
+#### Scenario: 换源后编号仍由锁治理且产物对账换锚
+- **WHEN** 桥条目从锁文件退役、原生条目经 `--update-ids` 发号入锁后构建
+- **THEN** 构建 MUST 全绿且发号只增不改既有行；产物逐字节基线 MUST 按换锚程序重取（design/规范：换锚封存旧账，见 csharp-bindings 换锚条）；在标注上写编号（回退尝试）MUST 被生成期拒绝并点名
 
 #### Scenario: 缺少渲染依赖必须明确失败
 - **WHEN** 后端或线程管理器不可用，而托管渲染探针请求后端接口
-- **THEN** 宿主 MUST 报告适配器未登记及缺失依赖，不得返回空函数表后仍声称渲染可用；未启用渲染探针的既有窗口路径 MUST 保持原行为
+- **THEN** 宿主 MUST 报告未登记及缺失依赖，不得返回空函数表后仍声称渲染可用；未启用渲染探针的既有窗口路径 MUST 保持原行为
 
 #### Scenario: 单张表缺失必须点名接口
 - **WHEN** 登记表里某个渲染接口的工厂或取表路由被移除（演练或变异，例如锁文件删掉该接口行），托管侧执行渲染绑定
@@ -112,9 +112,9 @@ C# 宿主的验证 MUST 落在 `docs/testing.md` 定义的第 ② 层（进程�
 - **THEN** 五条场景各自的退出码与错误子串 MUST 被断言（前四条退出码 3、异常那条退出码 1（受控失败）且输出含错误码 4），任何一条不符 MUST 让脚本非零退出；脚本退出后 MUST 不留新的 `crash_*.dmp`、也不改动仓库文件
 
 ### Requirement: 既有宿主失败检查必须使用当前 ABI 与受控失败语义
-`Tools/check_csharp_host_failures.py` SHALL 随 ABI（自本 change 起为生成常量）更新版本不符断言，不得继续期待过时的版本号。故意让托管 `Tick` 抛异常时，引擎 MUST 收到错误码 4 与异常文本、当前测试操作 MUST 失败且进程 MUST NOT 崩溃；`GPUBackendTester` 按既有测试结果退出码约定返回 1，不得把受控失败要求成无条件退出 0。
+`Tools/check_csharp_host_failures.py` SHALL 随 ABI（自生成常量单点起）更新版本不符断言，不得继续期待过时的版本号。故意让托管 `Tick` 抛异常时，引擎 MUST 收到错误码 4 与异常文本、当前测试操作 MUST 失败且进程 MUST NOT 崩溃；`GPUBackendTester` 按既有测试结果退出码约定返回 1，不得把受控失败要求成无条件退出 0。五条失败场景（缺程序集、配置路径不存在、运行时版本缺失、ABI 不符、托管异常）MUST 在换源后**一条不少**，期望计数与读数按新登记面当场实测重算——重算指"取新生成常量"，不指减少场景。
 
-#### Scenario: 接口合并变更把 ABI 升到 9 后失败检查仍点名当前版本
-- **WHEN** 生成的 ABI 版本升到 9 后用运行时开关构造 ABI 不符
-- **THEN** ABI 场景 MUST 点名引擎与托管两侧的版本读数（沿用"开关打印版本 + 1"的既有构造，期望以实跑输出为准）并以 3 拒绝启动；异常场景 MUST 以 1 报告当前操作失败、保留错误码 4 与异常文本且不产生新崩溃转储，随后正常全量回归 MUST 全部通过
+#### Scenario: 绑定面换源把 ABI 再升一版后失败检查仍点名当前版本
+- **WHEN** 桥退役与原生进表把生成的 ABI 版本从当前值再递增后用运行时开关构造 ABI 不符
+- **THEN** ABI 场景 MUST 点名引擎与托管两侧的版本读数（沿用"开关打印版本 + 1"的既有构造，期望以实跑输出为准）并以既有约定退出码拒绝；异常场景 MUST 以 1 报告当前操作失败、保留错误码 4 与异常文本且不产生新崩溃转储，随后正常全量回归 MUST 全部通过
 

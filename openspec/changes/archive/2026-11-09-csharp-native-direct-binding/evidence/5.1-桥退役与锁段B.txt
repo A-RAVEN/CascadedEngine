@@ -1,0 +1,69 @@
+csharp-native-direct-binding 5.1 执行记录（2026-11-09）
+=========================================================
+
+一、删除（退役 = 删除，不留兼容层、不留空壳转发）
+-----------------------------------------------
+D Interface/RenderInterface/header/ScriptRenderBridge.h      （5 个渲染窄接口 + 5 个 CA_BIND 标注）
+D Interface/RenderInterface/private/ScriptRenderBridge.cpp   （1152 行适配层实现）
+D Interface/RenderInterface/private/ScriptRenderBridge.h     （325 行私有头：5 个 CScript* 类 + 28 个 *ForTest 钩子）
+D Test/CoreTests/ScriptRenderBridgeTest.cpp                  （桥的原生测试件；覆盖点由 RunNativeSurfaceTest 与四条渲染用例承接）
+
+二、同轮改动
+------------
+1) CSharpHost/private/CSharpHost.cpp
+   · 删掉桥私有头 include 与 `m_renderAdapter`（`std::make_unique<CScriptRenderBackend>` 工厂锚）；
+   · `kBindingPolicies[]` 删除桥 5 行；宿主只登记**原生** CRenderBackend（编号取生成常量 = 3，默认实例）；
+   · `CreateRenderAdapter` 保留函数名（生成的装配钩子按固定名回调），行为改为“取后端 + 线程管理器、
+     登记原生后端、把登记表实际读数打进日志”；调度器注入钩子不变（`CAInject_CRenderBackend_ExecuteGraph_scheduler`）。
+2) Interface/RenderInterface/CMakeLists.txt
+   · 删 `ScriptRenderBridge` 静态库目标与 `Rendering` 对它的 PUBLIC 链接；
+   · 保留 `RenderThreadData` 抽离（`ThreadID::Get` / `ThreadLocalID::Get` 仍被内联的 `ResourceHandleKeyData::Create` 需要）。
+3) Test/CoreTests/CMakeLists.txt：删 `target_link_libraries(CoreTests PRIVATE ScriptRenderBridge)`；
+   补链 `RenderThreadData`（桥库消失后 LNK2019 两个符号，实测见 %TEMP%\cnb-build-51.log）。
+4) Test/CoreTests/SerializerTest.cpp：删 `RunScriptRenderBridgeTest()` 声明与调用块。
+5) build.py
+   · CODEGEN_INPUTS 删桥头（不再生成桥的五套绑定产物）；
+   · CODEGEN_REGISTRIES 主登记表删桥输入（分片 `render.registry.part` 不再产出）。
+6) Tools/CodeGen/check_bindings.py
+   · 删 `check_render_bridge_surface()`（桥的托管签名 + C ABI 形状判据）与它的调用/计分项；
+   · `check_registry` 的 ④ 改为“两个窗口编号字段必须接生成常量 + 五个退役字段必须装配成 0”
+     （EngineApi 仍是 ABI v9 的 14 字段 / 80 字节；字段删除留 6.2 的 ABI v10 重建）。
+7) Tools/CodeGen/check_bindable_audit.py + 归档审计表
+   · INTERFACES 删桥五个接口；审计表删 5 行汇总 + 28 行方法；
+   · 范围行 13 接口/119 条 → 8 接口/91 条（合计行同步）。
+8) Tools/CodeGen/interface-ids.lock：D10 段 B（本批唯一一次受控手工锁编辑）
+   改前 host 段：1 IWindow / 2 IWindowSystem / 3–7 桥五类 / 8–12 原生五类 / high water 12
+   改后 host 段：1 IWindow / 2 IWindowSystem / 3 CRenderBackend / 4 GPUGraph / 5 ShaderStruct /
+                 6 GPUTexture / 7 WindowHandle / high water 7
+   diff 全文见 `git diff -- Tools/CodeGen/interface-ids.lock`；构建可见状态 1..7 连续、无跳号重号。
+9) 清理了上一轮构建遗留的桥产物（`codegen/bindings/IScript*.Bindings.cs|cpp`、`render.registry.part`）——
+   生成步骤不清理旧产物，残留文件会被 check_surface / check_error_codes 当真实接口扫（实测 5 处 + 42 处红，
+   %TEMP%\cnb-build-52.log）。
+
+三、残留判据
+------------
+命令：git grep -nE 'IScriptRender|IScriptShaderStruct|IScriptTexture|CScript' -- CACore CSharpHost Scripting Interface Test Tools build.py
+结果（2026-11-09 05:5x）：
+  · 产品代码 / 测试 / 生成输入：0 处桥实现或桥符号；唯一命中是 Tools/CodeGen/CodeGenMain.cpp 的
+    `kEngineApiFields` 五行字段表（"IScriptRenderBackend" 等，作为 ABI v9 的 14 字段布局的**字段名**保留，
+    装配时写 0，6.2 的 ABI v10 重建时删除）。豁免理由：它不是可执行代码路径、不是绑定面、不是桥实现；
+    保留它是为了 5.1 不提前改 ABI（6.1 换锚在前、6.2 改 ABI 在后的顺序由 tasks 钉死）。
+  · CSharpHost/README.md（编号表 + 四个探针入口签名）与 Tools/CodeGen/README.md（审计范围 12 接口那段）：
+    **docs 叙述**，按 5.1 判据的“docs 叙述豁免”处理，5.2 同批逐字换面。
+  · openspec 本 change 的 proposal/design/specs/tasks 与 evidence：退役要求的正文必须点名被退役符号；
+    与 archive/docs 同属历史/规范叙述，不在代码残留面。
+  · `IScriptHost`：D7 明确不在退役面，接口与 TestScriptHost 零改动。
+
+四、验收读数（构建可见 + 锁 + 测试）
+-----------------------------------
+构建：python build.py --config Debug → exit 0
+  日志 %TEMP%\cnb-build-54.log（config 0.0s / codegen 1.2s / 编译 6.1s / 托管侧 1.5s / 合计 53.7s）
+锁：Tools/CodeGen/interface-ids.lock host 段 1..7 连续（`# high water 7`），夹具段仍 8..9；
+  生成的 EngineApiBindings.cs：CRenderBackendInterfaceId=3、GPUGraph=4、ShaderStruct=5、GPUTexture=6、
+  WindowHandle=7；`EngineApiBindings.Tables` 7 条。
+全量回归（桥删除后）：
+  --backend vulkan --headless 10 --report test_output\result.json       → exit 0、16/16 pass
+  --backend d3d12  --headless 10 --report test_output\result_d3d12.json → exit 0、16/16 pass
+  日志 %TEMP%\cnb-51-full-vk.log / %TEMP%\cnb-51-full-d3.log
+CoreTests：exit 0（%TEMP%\cnb-51-coretests.log）
+登记表/审计判据：构建内 check_bindings 全项 0 处、check_bindable_audit 通过（8 接口 / 91 条）。

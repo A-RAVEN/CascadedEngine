@@ -1,0 +1,83 @@
+csharp-native-direct-binding 7.1 全量回归记录（2026-11-09）
+=========================================================
+
+一、构建
+--------
+python build.py --config Debug → exit 0（BUILD SUCCESSFUL）
+  日志 %TEMP%\cnb-build-61.log（ABI v10 最终态；含 check_bindings / check_bindable_audit 两段构建内判据全 0）
+  耗时读数：configure 0.0s / codegen 1.2s / 编译 6.1s / 托管侧 1.5s / 合计 53.7s
+
+二、两后端 --list 与 16 用例
+----------------------------
+out\build\x64-debug\bin\GPUBackendTester.exe --list → exit 0、16 条（%TEMP%\cnb-list.txt）
+  TestSimpleTriangle / TestTriangleWithConstantColor / TestTriangleWithStructuredBufferColor /
+  TestTriangleWithImageBuffer / TestDoublePass / TestComputeBuffer / TestReadback / TestIMGUI /
+  TestScriptHost / TestCSharpWindow / TestCSharpTriangle / TestCSharpWindowCallbacks / TestGPUTiming /
+  TestCSharpConstantColor / TestCSharpStructuredBuffer / TestCSharpTextureSampling
+
+全量执行（ABI v10 最终二进制）：
+  --backend vulkan --headless 10 --report test_output\result.json
+    → exit 0、16/16 pass；日志 %TEMP%\cnb-62-full-vk.log
+  --backend d3d12 --headless 10 --report test_output\result_d3d12.json
+    → exit 0、16/16 pass；日志 %TEMP%\cnb-62-full-d3.log
+
+四探针（正常 + 负向，报告按 check 脚本约定命名；2026-11-09 06:2x 用最终二进制重跑）：
+  test_output/csharp_triangle_{vulkan,d3d12}_{normal,skip-draw,bad-vertex,skip-present,skip-wait}.json
+  test_output/csharp_constant_color_{vulkan,d3d12}_{normal,bad-struct-colors,skip-param}.json
+  test_output/csharp_structured_buffer_{vulkan,d3d12}_{normal,bad-buffer-color,unbound-field,bad-buffer-name}.json
+  test_output/csharp_texture_sampling_{vulkan,d3d12}_{normal,bad-texture-color,unbound-image,unbound-sampler}.json
+  四份对账脚本全 exit 0、问题 0 处：
+    python Tools\check_csharp_triangle.py            → exit 0（%TEMP%\cnb-71-check_csharp_triangle.py.log）
+    python Tools\check_csharp_constant_color.py      → exit 0（%TEMP%\cnb-71-check_csharp_constant_color.py.log）
+    python Tools\check_csharp_structured_buffer.py   → exit 0（%TEMP%\cnb-71-check_csharp_structured_buffer.py.log）
+    python Tools\check_csharp_texture_sampling.py    → exit 0（%TEMP%\cnb-71-check_csharp_texture_sampling.py.log）
+
+三、CoreTests
+-------------
+out\build\x64-debug\bin\CoreTests.exe → exit 0
+  PASSED 行 23 / FAILED 行 0（%TEMP%\cnb-62-coretests.log；24 个 .cpp，main 在 SerializerTest.cpp）
+  关键读数：`[原生表面] Present(windows 句柄构造) 错误码=0 呈现项=1`；`[图形状] … 对象一致=1/1`；
+  `[标量容器] count=3 元素=7/11/42 空count=0 空写保护=1`。
+
+四、check 家族（16 个调用逐个退出码）
+-------------------------------------
+| 脚本 | 命令 | 退出码 | 读数 / 日志 |
+|---|---|---|---|
+| check_legacy_symbols.py | python Tools\CodeGen\check_legacy_symbols.py | 0 | 扫描 465 文件、命中 0 行（%TEMP%\cnb-71-legacy.log） |
+| check_gpu_timing.py | python Tools\check_gpu_timing.py | 0 | 2/2 后端普通 ExecuteGraph 干净（%TEMP%\cnb-71-gputiming.log） |
+| check_bindable_audit.py | python Tools\CodeGen\check_bindable_audit.py | 0 | 8 接口 / 91 条 / 0 处（%TEMP%\cnb-71-audit.log） |
+| check_bindings.py | python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings | 0 | 各段问题 0（%TEMP%\cnb-71-bindings.log） |
+| check_binding_baseline.py | python Tools\CodeGen\check_binding_baseline.py --baseline openspec\changes\csharp-native-direct-binding\evidence\基线产物哈希.txt --product-dir out\build\x64-debug\codegen\bindings | 0 | 缺失 0 / 不一致 0 / 多余 0（%TEMP%\cnb-71-anchor.log） |
+| check_native_snapshot.py | python Tools\CodeGen\check_native_snapshot.py --snapshot openspec\changes\csharp-native-direct-binding\evidence\7.1-原生头投影快照.txt | 0 | 独立清单 129 条 / 0 处；五头快照 119 采集 + 10 排除（%TEMP%\cnb-71-snapshot.log） |
+| check_csharp_triangle.py | 见上 | 0 | 问题 0 处 |
+| check_csharp_constant_color.py | 见上 | 0 | 问题 0 处 |
+| check_csharp_structured_buffer.py | 见上 | 0 | 问题 0 处 |
+| check_csharp_texture_sampling.py | 见上 | 0 | 问题 0 处 |
+| check_csharp_host_failures.py | python Tools\check_csharp_host_failures.py | 0 | 5 场景 5 通过（%TEMP%\cnb-62-failures.log） |
+| check_csharp_host_readme.py | python Tools\check_csharp_host_readme.py | 0 | 问题 0 处；README v10 / 56 字节（%TEMP%\cnb-62-readme.log） |
+| check_window_system_bindings.py | python Tools\check_window_system_bindings.py --log test_output\TestCSharpWindow.log | 0 | GetMonitor 1 组 / 目标释放 1 组 / 0 处（%TEMP%\cnb-71-window.log） |
+| 同上（回调） | python Tools\check_window_system_bindings.py --log test_output\TestCSharpWindowCallbacks.log --callbacks | 0 | 回调 10 类 / 目标释放 2 组 / 0 处（%TEMP%\cnb-71-windowcb.log） |
+| verify_readme.py | python Tools\CodeGen\verify_readme.py | 0 | 22 条命令、0 不符（%TEMP%\cnb-71-verifyreadme.log） |
+| check_hash_sources.py | python Tools\CodeGen\check_hash_sources.py | **1（记名豁免）** | 见下 |
+
+**check_hash_sources.py 的记名豁免（批 A 遗留账，不是本批引入）**：
+  输出逐字：`来源不明: remove_cvref_t（出现在 Test/CoreTests/GeneratedHashTest.cpp）`；扫描 286 文件 /
+  清单 75 类型 / 键类型 37 个；例外清单 1 条（PipelineStateDesc，逐条打印）。
+  溯源：`docs/TODO.md` 2026-11-05 条目已登记「基线 `1301768` 即红、本 change 只留档不改」；
+  前两批（render-interface-merge 4.3 / codegen-native-binding-prereqs 4.2）evidence 里都有同一行的
+  基线红与豁免记录。本批对三件相关物 `git diff` 为零改动：
+  `Tools/CodeGen/check_hash_sources.py`、`Tools/CodeGen/hash_source_exceptions.txt`、
+  `Test/CoreTests/GeneratedHashTest.cpp`（`git status --porcelain` 三者均不出现）。
+  除这一条记名例外，其余 check 调用全部 exit 0。
+
+五、openspec validate
+---------------------
+openspec validate csharp-native-direct-binding --strict → exit 0（Change 合法，%TEMP%\cnb-71-validate-strict.log）
+openspec validate --all → exit 0（Totals: 54 passed, 0 failed，%TEMP%\cnb-71-validate-all.log）
+
+六、四探针基线/增量说明
+-----------------------
+四探针的"基线+增量"在本批的落地形式：正常模式仍是既有像素判据（背景/中心精确值，未改期望），
+负向模式逐条对照错误码；计数一律读**增量**（托管读数行的 `exec=` / `wait=` / `createStruct=` 等
+都是探针开始前快照后的差值），没有把累计值当增量。各后端正常/负向报告与 4.1 的红样见
+`evidence\4.1-原生直绑与糖层.txt`。

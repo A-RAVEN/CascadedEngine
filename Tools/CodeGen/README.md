@@ -1045,15 +1045,15 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 python Tools/CodeGen/check_bindable_audit.py
 ```
 ```
-扫描 12 个接口、对账 90 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+扫描 8 个接口、对账 91 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
 [exit 0]
 ```
 
 **已知限制（醒目）**：
 
-- 审计范围现在是 12 个接口（`CRenderBackend` / `IReadbackToken` / `IWindow` / `IWindowSystem` / `IShaderCompilerManager` / `IOManager` / `IResource` / `IScriptTexture` / `IScriptRenderTarget` / `IScriptRenderGraph` / `IScriptRenderBackend` / `IScriptShaderStruct`）。其中后五个是脚本渲染适配面：`csharp-render-backend-triangle` 的 3 + 6 + 6 条方法，加上 `csharp-render-shader-constants` 的参数结构 3 条与两个接口各新增的方法（图 6 → 8、后端 6 → 7），再加上 `csharp-render-texture-sampling` 的纹理接口 2 条与三个接口各新增的方法（图 8 → 9、后端 7 → 8、参数结构 4 → 6）；`CRenderBackend` 的两个元数据查询也各登记一行（不可绑 + 理由），所以它是 10 → 12 条。汇总数字必须与头文件实算一致、重复行会让脚本非零。
+- 审计范围现在是 8 个接口（`CRenderBackend` / `IReadbackToken` / `GPUGraph` / `ShaderStruct` / `GPUTexture` / `WindowHandle` / `IWindow` / `IWindowSystem`），合计 91 条公开方法。口径是"进入绑定面的公开方法"（含非纯虚 virtual 与非虚公开方法；模板方法只在同文件有 `CA_BIND_INSTANTIATE` 声明时按一行计）。**过渡期桥五个接口的 28 条方法随 `csharp-native-direct-binding` 5.1 退役移出审计面**（行同时删除，不是放过）。汇总数字必须与头文件实算一致、重复行会让脚本非零。
   `GPUGraph` / `IMGUIContext` / `IOBatch` / `WBatch` / `IShaderCompiler` **尚未审计** —— 每帧热路径恰恰在这几个上面，所以"需快路"清单目前是**空的**（不是规则失效）。
-- 脚本按**纯虚方法名**对账，**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
+- 脚本按**公开方法名**对账（含非纯虚 virtual 与非虚公开方法；模板按 `CA_BIND_INSTANTIATE` 计），**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
 - 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。
 ## 十四、绑定发射器（`--emit-binding`）
 
@@ -1094,17 +1094,22 @@ CodeGen.exe <头文件> --list-bind-interfaces -ICACore/header -ITools/CodeGen/c
 表项现在记录 `issuerType` / `targetType` / `witnessHandle`，见证按"发行者在表里的那个活表项（序号+代际）"
 判，而不是按对象弱引用（别的持有者会让弱引用一直不过期）。
 
-**本 change 的明确限制**：不支持 `std::span`；不支持包装值（`NameHash` / `PathHash` / `HashObj<T>`）
-作为返回值、嵌入记录或容器元素；不支持 `weak_ptr<T>` 入参（弱返回句柄仍然支持）；字节入参只承诺
-同步一次复制，原生实现若异步保存输入指针，需要后续专门的回读 / 生命周期 change；不支持容器出参、
-映射容器、联合体、定长数组；非接口数据对象的智能指针返回仍只提供原生发行者入口，
+**仍然不支持（明确限制，逐条带拒绝行为）**：`std::span`（Non-Goal 点名的 GPU 查询批形状，生成期点名）；
+`weak_ptr<T>` 入参（弱返回句柄仍然支持）；字节入参只承诺同步一次复制，原生实现若异步保存输入指针，
+需要后续专门的回读 / 生命周期 change；容器**出参**（`vector<T>&` 仍留桩，容量协议未定）；
+键不是 `NameHash` 的映射、指向未绑定类型的智能指针、返回位置的记录容器 / 映射 / 含句柄容器
+（生成期点名，不静默丢字段）；非接口数据对象的智能指针返回仍只提供原生发行者入口，
 不生成伪造的公开 C# 资源对象。
 
-**本 change 新增的能力（原清单里没有这些形状，不是"从限制清单删除"）**：
-资源引用值类（`CA_BIND_VALUE`，kind + 对象句柄 / 名称两通道，托管侧是共享值类型）；
-序列化块记录（参数位置、成员含一层 `vector` 或文本的记录，块头 = 版本 + 类型名哈希 + 字段布局哈希，
-托管侧镜像 + 同源字段清单的序列化器）；参数注入（`CA_BIND_INJECT`，裸指针参数由固定名钩子提供，
-不进 C ABI / 托管表面）。
+**已落地的新形状（原限制清单里列过，现在反向：能力 + 判据）**：
+
+- 参数位置内存窗（`const void*` + 相邻 `uint64_t` 长度 ⇒ 托管 `byte[]`，design D2）；
+- 返回位置可序列化记录的非拥有裸指针 ⇒ 两段式只读副本，空命中 `null`（design D8）；
+- 模板方法的显式实例化声明 `CA_BIND_INSTANTIATE`（不改签名、不新增方法，design D9）；
+- 序列化块元素扩到 7 类：值类容器、`NameHash` 键映射、已绑定接口 `shared_ptr` 引用、定长数组、
+  枚举标志包装、值类字段、联合体（design D11 与执行记录 17）；
+- 返回位置只读标量容器 ⇒ `<方法>Count` + `<方法>Copy` 两段式（design D13）；
+- 资源引用值类（`CA_BIND_VALUE`）与参数注入（`CA_BIND_INJECT`）为前置批已交付能力，语义不变。
 
 
 
@@ -1218,11 +1223,13 @@ CodeGen: 拒绝 IBindRowOverloadReject::Set 与 Set —— ③ 依赖隐式转�
 
 | 产物 | 内容 |
 |---|---|
-| `BindingRegistry.Bindings.h` | `kBindingInterfaceId<接口>` 编号常量、`EngineApi` struct 与 14 字段的 `static_assert(sizeof(EngineApi) == 80u`、宿主固定名钩子声明 |
+| `BindingRegistry.Bindings.h` | `kBindingInterfaceId<接口>` 编号常量、`EngineApi` struct 与 9 字段的 `static_assert(sizeof(EngineApi) == 56u`、宿主固定名钩子声明 |
 | `BindingRegistry.Bindings.cpp` | `get_interface_api` 路由（编号 → `<接口>_GetApi`、默认实例 / 目标类型表角色）、布局查询路由、`FillEngineApi` 装配（按固定名字调宿主工厂/错误通道钩子） |
 | `EngineApi.Bindings.cs` | 与 C++ struct 同一次生成的托管逐字段镜像 `EngineApiMirror` + `EngineApiBindings`（`AbiVersion` / `Size` / `TableVersion` / 逐接口编号常量 / 绑定清单 `Tables`） |
 
-**编号规则**：编号唯一来源是 `Tools/CodeGen/interface-ids.lock`（按 `host` / `fixture` 分段，行格式 `编号<TAB>短名<TAB>限定名<TAB>头`）；接口头里只写**无参** `CA_BIND()`，编号由锁文件按名字取。新号只经 `--update-ids` 追加（高水位 +1），既有行一字不动；名字消失时 `--update-ids` 删行。主登记表必须恰为 `1..N` 连续（夹具登记表按同规则连续）。缺号 / 同号 / 跳号 / 手写编号参数 ⇒ 分片步或合并步非零退出并点名；拒绝的那一轮**不写任何登记产物**（先校验后写）。
+**编号规则**：编号唯一来源是 `Tools/CodeGen/interface-ids.lock`（按 `host` / `fixture` 分段，行格式 `编号<TAB>短名<TAB>限定名<TAB>头`）；接口头里只写**无参** `CA_BIND()`，编号由锁文件按名字取。新号只经 `--update-ids` 追加（高水位 +1），既有行一字不动；名字消失时 `--update-ids` 删行（**只删本头自己的行**：`--update-ids` 以输入头为界取消失集合，早期"按短名全局删"的实现会删掉别的头里的同名行，已按头作用域收窄）。主登记表必须恰为 `1..N` 连续（夹具登记表按同规则连续）。缺号 / 同号 / 跳号 / 手写编号参数 ⇒ 分片步或合并步非零退出并点名；拒绝的那一轮**不写任何登记产物**（先校验后写）。
+
+**发号命令必须带 `--config Debug`**：`python build.py --config Debug --update-ids` —— `--update-ids` 靠构建目录里的 `compile_commands.json` 定位每个输入头的 include 集合；不带 `--config Debug` 时脚本指向默认的 RelWithDebInfo 构建目录，那里没有（或不是与当前头匹配的）编译数据库，工具拿不到 include，所有输入头都会 parse failed。
 
 **确定性**：**同一输入重跑**，三份产物逐字节相同。不同调用方式把不同的输入头路径文本写进"登记输入"注释时产物会差这一行注释 —— 那是输入不同，不是非确定性。
 

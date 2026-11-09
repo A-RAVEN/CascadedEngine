@@ -1,0 +1,80 @@
+2.4 WindowHandle 进表与对账缺口补齐（design D12 / D13）
+
+执行者：apply 子 agent　　时间：2026-11-09 04:0x–04:5x
+
+一、逐条落地（与 D12/D13 对齐）
+
+1. `Interface/RenderInterface/header/WindowHandle.h`：`CA_BIND()` 加在 `class WindowHandle` 前
+   （第五个原生接口）。三个方法全部进表：
+   - `GetSizeSafe()` 返回 `uint2` 纯标量记录 → 记录镜像（`uint2C`）；
+   - `GetBackbufferDescriptor()` 返回 `GPUTextureDescriptor const&` → 序列化只读副本
+     （`GPUTextureDescriptorC` + `Len`/`Copy` 同族；`const&` 即非拥有别名）；
+   - `IsValid()` 是非纯虚成员 → 批 A 既有形态（`int32_t`）。
+2. `CRenderBackend.h`：**摘掉** `CA_BIND_SKIP(GetWindowHandle, …)`。产物：
+       extern "C" uint64_t CRenderBackend_GetWindowHandle(void* self, uint64_t windowHandle);
+       extern "C" void CRenderBackend_ReleaseGetWindowHandle(void* self, uint64_t handle);
+3. 发射器缺陷修复（csharp-bindings 主规范"带公开默认构造的类 MUST 生成 Create 入口"）：
+   `collectCtorProbe` 只看得到**显式**构造游标，隐式公开默认构造（`GPUGraph` 的类体 public 段
+   没有任何构造函数声明）因此漏掉 `<类>_Create`。修法：记录"是否有任何用户声明的构造"，没有且非
+   抽象 ⇒ 隐式公开默认构造存在。产物逐字：
+       extern "C" uint64_t GPUGraph_Create(void* self);
+4. `ImageHandle` 值类补两条对象构造通道（design D12）：`ValueTypeInfo::objectChannels` 按声明序
+   收集全部 `shared_ptr<已绑定接口>` 构造，kind 按枚举里对象态常量顺序（Object/External/Backbuffer）
+   配，通道数超过常量数就点名拒绝。产物（`ImageHandle.Bindings.cs` 逐字）：
+       public static ImageHandle FromGPUTexture(GPUTexture value)   // kind 1（External）
+       public static ImageHandle FromWindowHandle(WindowHandle value) // kind 2（Backbuffer）
+   C++ 侧的 `appendCppValueClassReconstruct` 同步按通道逐条反查（查无句柄 ⇒ 12 ⇒ 错误码 1011）。
+5. `GPUGraph::GetPassIndices` 摘掉 SKIP，按 1.6/D13 出 `Count` + `Copy` 对（详见 evidence/1.6）。
+
+二、生成器同一轮修掉的四个产物级缺陷（都会让构建红，不是判据放松）
+
+1. 元素记录改由**它自己的 codec** 读写：`CA_CODEGEN_FRIEND(T)` 只让 `CodeGenBindingCodec<T>` 成为
+   T 的友元，父记录的 codec 不是 —— RenderPass 的 codec 直接读 `DrawCall::m_BoundVertexBuffers` 撞
+   C2248。现在每个被引用的元素记录单发一份 `ReadFields`/`WriteFields` 特化（宏守卫，递归先发依赖：
+   DrawCallBatch → VertexInputsDescriptor → VertexAttribute）。
+2. HashObj 包装字段的临时变量名：原来拼成 `access + "Value"`（`obj.m_ViewPortValue`），生成
+   `T obj.m_ViewPortValue{};` 撞 C3878。改成标识符 `field.name + "Value"`。
+3. 注入参数强转用**完整限定拼写**：头里写 `TaskScheduler*`（靠 `using namespace` 才成立），生成的
+   thunk 在全局作用域看不到短名（`error C2061: syntax error: identifier 'TaskScheduler'`）。
+4. C 镜像结构体加宏守卫：`GPUBufferDescriptorC` 同时被桥的 IScriptRenderGraph 与原生 GPUGraph 需要，
+   宿主把两产物 include 进同一翻译单元时重定义（C2011）。守卫按类型名，转换函数仍按接口各发一份。
+
+三、判据读数
+
+    $ python Tools/CodeGen/check_bindable_audit.py
+    扫描 13 个接口、对账 119 条方法、命中 0 处问题        （WindowHandle 三行 + 两条改判）
+
+    $ python Tools/CodeGen/check_native_snapshot.py --snapshot <五头快照 129 行>
+    独立清单：GPUGraph.h 方法 23 条（下界锚 23）
+    快照对账：独立清单 129 条 / 问题 0 处
+    exit=0                                                  （采集/排除见快照文件）
+
+    $ python build.py --config Debug
+    exit=0；check_bindings 十四项计数全 0（不符数 0 / 两侧对齐 0 / 托管表面 0 / 共享值类型 0 …）
+
+    $ out/build/x64-debug/bin/CoreTests.exe
+    exit=0；新增读数逐字：
+      [原生表面] 工厂句柄=12 解析=1 窗口尺寸=1920x1080 有效=1 描述符码=0 槽=7
+      Bindings native surface test PASSED
+    另有既有读数不变：[图形状] 值类元素=2 标量值=7 记录值=(3,0.50) 对象一致=1/1；
+    [标量容器] count=3 元素=7/11/42 空count=0 空写保护=1。
+
+四、五个新表面各自的读数断言（CoreTests，`Test/CoreTests/BindingsNativeSurfaceTest.cpp`）
+
+    ① `GPUGraph_Create`            static_assert 取地址 + 运行时：句柄=12 非 0、`ResolveHandle` 解析回对象
+    ② `CRenderBackend_GetWindowHandle`  static_assert 取地址（2.4 解 SKIP 的槽）
+    ③ `WindowHandle_GetSizeSafe`   static_assert + 运行时 1920x1080
+    ④ `WindowHandle_GetBackbufferDescriptor` static_assert + 运行时错误码 0（序列化只读副本成功）
+    ⑤ `WindowHandle_IsValid`       static_assert + 运行时非 0（非纯虚方法进表）
+    另加 `GPUGraph_GetPassIndicesCount` / `GPUGraph_CopyGetPassIndices` 两条 D13 槽的取地址断言。
+  该文件直接 `#include` 五个真实产物（与夹具测试同一套路），渲染后端用 `FakeWindowHandle` 替身；
+  `CRenderBackend` 的注入钩子在测试里给了一个**显式写明**的替身（返回空指针，注释说明本测试不调
+  ExecuteGraph），不是静默兜底。
+
+五、结论
+
+2.4 的三条验收（构建全绿、快照与审计重跑 0 差异、CoreTests 对五个新表面各有一条读数断言）都有
+实测读数，通过。3.1 对账表里原先判红的七行，本轮补上了六行的原生等价物（GetWidth/GetHeight/
+IsBackbuffer → WindowHandle 的尺寸与描述符、GetWindowTarget → GetWindowHandle、CreateGraph →
+GPUGraph_Create、GetPassCount → GetPassIndices().Length）；`CreateCaptureTarget` 归托管糖层
+（`CreateGPUTexture` + `ImageHandle::FromGPUTexture` + 托管记尺寸），在 4.1 落地。

@@ -1,0 +1,71 @@
+# csharp-rendering 增量
+
+## MODIFIED Requirements
+
+### Requirement: 纹理与采样绑定必须一次创建可用并在两个后端通过真实像素验收
+系统 SHALL 以**原生直绑表面 + 托管糖层**承担脚本纹理面（`IScript*` 适配桥整体退役，不再存在）：糖层的一次调用纹理创建 MUST 在原生面上完成"创建（固定 RGBA8、二维、单层单 mip、单采样）→ 图内上传 → 转采样态 → 后端同步等待"（原生件=`CRenderBackend::CreateGPUTexture` + `GPUGraph::ScheduleData` 字节窗 + 提交/等待，组合在糖层、不改任何原生签名），成功返回的糖层纹理对象 MUST 只读报告宽/高；上传执行 MUST NOT 走脚本提交路径的等待/执行计数（上传单列计数，提交计数只反映脚本提交）；宽/高为零、字节数不等于 `GetImageByteSize(width, height, E_R8G8B8A8_UNORM)`（64 位公开字节数来源，禁止 32 位 `width*height*4` 自算）、名字与既有纹理重复、底层创建失败时 MUST 返回空句柄并由错误通道点名原因，MUST NOT 到达两后端 `CreateGPUTexture` 的非法参数路径。纹理对象 MUST 保活至宿主关闭，本批 MUST NOT 提供显式销毁；关闭释放顺序 MUST 把纹理排在参数结构之后、图之前。糖层顶点流 MUST 支持 `POSITION float3 + TEXCOORD float2`（`eR32G32_SFloat`，8 字节属性校验），重名与越界拒绝沿用流面规矩，并 MUST 生成带 `TEXCOORD` 偏移与该格式的真实顶点描述（可经图回读核对，不只靠像素）。
+
+验收测试 `TestCSharpTextureSampling`（GPUBackendTester 第 16 项）SHALL 用新测试着色器 `Shaders/Test/TestCSharpTextureSampling`（片元输出**采样色本身**，premultiplied；原生 `TestTriangleWithTextureSampling` 的片元输出 UV 插值，不满足"纹理内容进像素"的判据，MUST NOT 复用其出图像素期望）：C# 建 `2×2` 四纹素全 `(255, 255, 0, 255)` 的纹理与 `LinearClamp` 采样器绑进 `textureBlock`，清除色 `(0, 0, 1, 1)`，窗口与离屏双 pass 同逻辑提交。正常模式背景像素 MUST 精确 `(0, 0, 255, 255)`、中心 MUST 精确 `(255, 255, 0, 255)`，判据 MUST 来自同一次提交的离屏回读（单层 RGBA8）并核对呈现清单、等待计数与待完成清理。Debug 负向 SHALL 包含：`bad-texture-color`（纹理全改 `(0, 255, 255, 255)`，中心 MUST 精确 `(0, 255, 255, 255)`，否则 `E_TEX_PIXEL` 判红——证明字节→纹理→采样→像素整链参与）、`unbound-image` 与 `unbound-sampler`（漏对应绑定即提交，糖层提交 MUST 在进 `ExecuteGraph` 前非零并点名 `testTexture`/`testSampler`，`E_TEX_BIND`，本次提交引起的后端执行次数增量为 0——上传执行单列不计入）。真实后端负例 MUST 覆盖尺寸不符创建与表外字段 `SetImage` 各一次每后端、拒绝且进程不崩。`Tools/check_csharp_texture_sampling.py` MUST 对账 8 份报告（2 后端 × normal/bad-texture-color/unbound-image/unbound-sampler），缺正常证据、负向被错误接受都非零；报告目录不存在按"判据自身失效"退出 2。
+
+#### Scenario: 两个后端都绘制出纹理驱动的像素
+- **WHEN** 分别以 D3D12 和 Vulkan 运行正常的 `TestCSharpTextureSampling`
+- **THEN** 两个后端的离屏目标 MUST 与窗口描述快照同尺寸并为 RGBA8，背景与中心 MUST 精确等于 `(0, 0, 255, 255)` 与 `(255, 255, 0, 255)`，两个 pass 的参数表 MUST 各含 1 条以 `textureBlock` 为键的真实绑定，且纹理字段经只读核对口读出 MUST 与该次创建返回并登记的纹理为**同一对象**（对象同一性，计数替代不了），报告 MUST 为 `pass`
+
+#### Scenario: 漏绑纹理或采样器必须在提交前被点名拒绝
+- **WHEN** 在 Debug 下用 `unbound-image` 跳过纹理字段绑定、或用 `unbound-sampler` 跳过采样器字段绑定，绑定并提交
+- **THEN** 糖层提交 MUST 在调用 `ExecuteGraph` 前拒绝并分别点名 `testTexture` 或 `testSampler`，后端执行调用次数 MUST 为 0，测试 MUST 以 `E_TEX_BIND` 失败，两种形态 MUST NOT 用像素内容充当判据
+
+#### Scenario: 非法纹理创建与非法纹理字段必须当场拒绝且不崩
+- **WHEN** 以字节数不等于 `GetImageByteSize(width, height, E_R8G8B8A8_UNORM)` 的尺寸创建纹理（含乘积在 32 位会回绕的超大尺寸配空数组，如 `65536×16384`）、或对纹理表外的字段名执行 `SetImage`
+- **THEN** 创建 MUST 返回空句柄且错误通道点名尺寸原因（64 位实际字节数与收到的字节数都要出现在文本），`SetImage` MUST 返回非零并点名字段名，两后端进程 MUST NOT 崩溃，真实纹理创建调用与执行次数 MUST 保持为 0（被拒项）
+
+
+
+### Requirement: 脚本窄渲染适配面必须形成真实建图与提交
+系统 SHALL 以**原生接口直绑表面 + 托管糖层**承担脚本渲染（`IScript*` 适配桥整体退役，不再存在）：C# 调用方 MUST 能经绑定的 `CRenderBackend`、`GPUGraph`、`RenderPass`/`DrawCallBatch`/`DrawCall` 值形态、`ShaderStruct`、`GPUTexture` 与句柄值类，提供顶点字节、缓冲描述、顶点流布局、着色器路径、渲染目标、顶点数、清除色与参数结构绑定项，构造现有 `GPUGraph` 并提交；调度器 MUST 仍由引擎内部创建（`TaskScheduler*` 经参数注入，公开表面 MUST NOT 出现它，MUST NOT 出现所有权不明裸指针）。链式自返回方法在托管表面 MUST 返回同一表面对象保持可链；`CRenderBackend::Release`/`Initialize` 维持审计判定的 ④ 语义越界不可绑（`CA_BIND_SKIP`，不进绑定面，脚本侧释放仍走托管 `Dispose` 防线）；原生面不再有"隐藏具体建图类"的窄面约束，凡快照采集的方法都直接生成。顶点流布局 SHALL 支持三种：`POSITION`+`COLOR` 两个 `float3`、仅 `POSITION`、`POSITION float3 + TEXCOORD float2`（`eR32G32_SFloat`，8 字节）；属性 `offset + 属性字节数` 越过步长、同名流重复登记 MUST 在托管提交前置校验拒绝并点名 `streamName`（原桥面"静默覆盖加严"语义保留）。同一逻辑绘制可为原生像素验证重复到离屏目标，但该验证副本 MUST NOT 被解释为通用多 pass、计算或依赖图能力。
+
+#### Scenario: C# 输入决定原生图内容
+- **WHEN** C# 经原生直绑表面建缓冲、设顶点流（三种布局之一）、组 pass、指定呈现目标并提交
+- **THEN** 提交的 `GPUGraph` MUST 含对应的缓冲描述、上传字节与逐项一致的属性集合（含偏移与格式逐项相等）、着色器路径、顶点数与清除色，提交使用引擎内部新建的调度器
+
+#### Scenario: 修改脚本顶点数据必须改变真实结果
+- **WHEN** 保持其他输入不变，仅改变 C# 顶点缓冲区中的一个颜色值
+- **THEN** 离屏目标的对应像素 MUST 随之改变；不得由 C++ 用硬编码三角形替代脚本输入
+
+#### Scenario: 验证镜像不扩大为通用图能力
+- **WHEN** 为像素验证把同一逻辑绘制重复到离屏目标
+- **THEN** 两个目标 MUST 使用相同的着色器、顶点流、缓冲、顶点数和清除色；适配面 MUST NOT 因此接受 pass 依赖、计算调度或通用附件组合
+
+### Requirement: 适配器必须在进入后端前拒绝无效图与无效参数
+提交前的拒绝防线 MUST 存在且 MUST 位于**托管前置校验层**（design D6/D8；原"原生适配层"随桥退役）：缓冲大小不一致、名称重复、属性越过步长、未知流或缓冲、顶点数为零或超过缓冲元素数、非后台缓冲呈现、空目标和空图提交 MUST 在进入函数表调用前被拒绝并点名具体参数/字段/缓冲名/纹理名，被拒时**原生后端执行入口调用计数增量 MUST 为 0**。提交时参数完整性检查 SHALL 覆盖结构化缓冲、纹理与采样器引用：校验数据源 MUST 是引擎编译元数据（经元数据记录的两段式投影读取，空命中为 `null`）；凡元数据缓冲表或纹理表列出的字段 MUST 已被对应写入且引用的缓冲名存在于被提交那张图的缓冲登记表，采样器字段 MUST 已写入；字段未写、缓冲名未在本图登记、同一结构改绑到不含该缓冲的另一张图提交时 MUST 拒绝并点名。资源字段仅支持顶层的语义保留（含资源字段的子结构绑定 MUST 被拒绝并点名字段）。"释放后使用"防线保持在托管表面：`Dispose()` 后再调用 MUST 在进入原生实现前抛 `ObjectDisposedException`、实现调用次数 0；托管异常 MUST NOT 穿过边界变成原生崩溃路径。进入登记表的全部绑定接口方法 MUST 在唯一审计表中有且只有一行，重复行与汇总数字不符 MUST 使审计失败（审计表数字随绑定面换源重算，以执行批当场实测为准）。
+
+#### Scenario: 无效布局或绘制数不得进入实现
+- **WHEN** 属性 `offset + 属性字节数` 越过步长，或绘制数超过对应缓冲描述的元素数
+- **THEN** 托管前置校验 MUST 在调用后端执行前拒绝并点名参数，后续有效调用 MUST 成功（拒绝通道为托管异常或错误返回，语义与原 `int32_t`+`GetLastError` 等价：点名参数、不留旧错）
+
+#### Scenario: 缓冲引用不完整或换图错绑不得进入执行
+- **WHEN** 参数结构含元数据声明的缓冲字段但从未写入，或引用未在本图登记的缓冲名，或把为 A 图绑定的结构提交给不含该缓冲的 B 图
+- **THEN** 提交 MUST 被拒绝并点名缺失字段名或缓冲名，后端执行调用计数增量 MUST 为 0，MUST NOT 让两后端把未初始化的缓冲句柄带进执行路径
+
+#### Scenario: 纹理或采样器未绑定不得进入执行
+- **WHEN** 参数结构含元数据声明的纹理字段但从未绑图，或含采样器字段但从未绑定后提交
+- **THEN** 提交 MUST 在调用执行前拒绝并点名对应字段名，本次提交引起的后端执行调用计数增量 MUST 为 0（纹理创建的内部上传执行单列计数、不计入该判据），MUST NOT 触达两后端对未知字段静默跳过或对越界下标 `CA_ASSERT` 的路径
+
+#### Scenario: 未审计或重复审计的方法不得悄悄生成
+- **WHEN** 给任一绑定接口新增方法但未更新唯一审计表，或把同一方法登记两次，或表内汇总数字与实际不符
+- **THEN** `check_bindable_audit.py` 与构建 MUST 非零退出并点名接口、方法或不符汇总；补齐审计后生成物 MUST 仍满足真实接口无桩和两侧方法对齐
+
+### Requirement: 着色器参数绑定必须按编译元数据在进入后端前校验
+系统 SHALL 经原生 `ShaderStruct` 直绑表面提供脚本参数结构：按类型名创建（`CRenderBackend::CreateShaderStruct`，无效类型 MUST 在进入后端前被拒绝并点名 `structTypeName`——创建前的元数据存在性由托管前置校验查两段式投影，未命中拒绝、不创建）；字段写入 SHALL 覆盖：标量与 `float3` 等模板实例形态经**显式实例化声明**（`CA_BIND_INSTANTIATE`，design D9：文本声明要绑的形态，C++ 不新增方法、不改签名）出同名托管重载，纹理/缓冲/采样器/子结构按字段名经 `SetImage`/`SetBuffer`/`SetSampler`/`SetStruct` 绑定，参数结构按参数块名绑定到图中既有 pass。未知字段、类型不符、子结构类型不符、下标越界、缓冲/纹理/采样器表外的字段名、访问类型非只读、元素数不等于 1 的数组形态、空纹理、未知参数块名、块类型不符、pass 下标越界、未登记着色器路径 MUST 全部由托管前置校验在进入原生实现当场拒绝并点名（数据源=编译元数据投影），**原生 `ShaderStruct::Set*` 的对应写入实现调用计数增量 MUST 为 0**——原生实现对未知字段静默跳过、对越界下标走 `CA_ASSERT`，这些路径 MUST NOT 被脚本输入触达。同一字段重复绑定 MUST 成功并以最后一次为准（状态写入语义，提交解析采用最后登记引用）。写入与绑定沿用"成功清错、失败点名"的等价错误通道（托管层实现，不再要求原生 `int32_t` 返回）。元数据查询的裸指针返回面（`FindShaderStructData` 系）MUST 以记录两段式投影供托管读取；查询面 MUST NOT 以裸指针形态跨脚本边界暴露。
+
+#### Scenario: 无效参数结构输入不得进入后端
+- **WHEN** C# 以未知类型名创建、写未知/类型不符/越界的字段、绑定表外资源字段、以空纹理绑定、或给未登记路径的块执行提交
+- **THEN** 托管前置校验 MUST 拒绝并点名对应参数（类型不符同时点名期望与实际类型名），原生写入实现与后端创建/执行调用计数增量 MUST 为 0，后续有效调用 MUST 成功
+
+#### Scenario: 重复绑定同一资源字段以最后一次为准
+- **WHEN** 对同一字段连续两次绑定不同的合法登记对象后提交
+- **THEN** 两次绑定 MUST 都成功且实现调用计数各 +1，提交解析与执行 MUST 采用最后一次登记的引用
+
+#### Scenario: 参数结构与纹理句柄的生命周期沿用既有目标解析
+- **WHEN** C# 释放参数结构或纹理表面对象后再次调用其方法，或把该句柄交给类型不符的接口
+- **THEN** 调用 MUST 在进入原生实现前失败（`ObjectDisposedException` 或句柄层拒绝）且实现调用次数为 0；已提交图 MUST 通过原生持有继续保活其绑定的参数结构与纹理引用直到 `WaitIdle` 完成

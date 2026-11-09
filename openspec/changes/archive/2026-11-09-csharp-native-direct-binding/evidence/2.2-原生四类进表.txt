@@ -1,0 +1,121 @@
+2.2 原生四类进表（annotate + 生成器扩形状 + 宿主钩子）
+
+执行者：apply 子 agent　　时间：2026-11-09 02:0x – 03:1x
+
+一、改了哪些原生头（只加标注与一个值类型，不改任何签名、不加方法）
+
+1. `Interface/RenderInterface/header/CRenderBackend.h`
+   - `CA_BIND()` 加在 `class CRenderBackend` 前；
+   - `CA_BIND_INJECT(ExecuteGraph, scheduler)` + 钩子声明
+     `extern "C" void* CAInject_CRenderBackend_ExecuteGraph_scheduler();`（参数位置裸指针的唯一通道，设计 D1）；
+   - 四条 `CA_BIND_SKIP` 带理由：`ExecuteGraphTimed` / `RunTestCode` / `Readback`（两条重载同名一条跳过）/
+     `CreateGPUBuffer`（两条重载）/ `GetWindowHandle`。
+2. `Interface/RenderInterface/header/GPUGraph.h`
+   - `CA_BIND()` 加在 `class GPUGraph` 前；
+   - `CA_CODEGEN_FRIEND(...)` 加在 `DrawCall` / `DrawCallBatch` / `RenderPass` / `ComputeBatch` / `FinalizePass`（序列化块要读写私有成员）；
+   - 九条 `CA_BIND_SKIP` 带理由：`AllocAndUploadBuffer`（模板便利方法）+ 七条返回位置记录容器/管理器访问器 +
+     两条只读访问器的托管两段式（本轮未实现）；`ScheduleData` 的两条模板形态**不写 SKIP**（见三-6）。
+3. `Interface/RenderInterface/header/ShaderStruct.h`
+   - `CA_BIND()`；新增值类型 `struct float3 { float x, y, z; }`（只是值类型，不动任何签名）；
+   - `CA_BIND_INSTANTIATE(SetValue, float3, float)`（设计 D9）；`CA_BIND_SKIP(GetStructTypeName, …)`（返回位置包装值，本轮未实现）。
+4. `Interface/RenderInterface/header/GPUTexture.h`：`CA_BIND()`。
+5. `Interface/RenderInterface/header/ShaderResourceHandle.h`：`CA_BIND_VALUE(ImageHandle)` / `CA_BIND_VALUE(BufferHandle)`。
+6. 四个头都补了 `#include <CodeGenMeta.h>`（标注宏不能靠别的头恰好带进来）。
+
+宿主：`CSharpHost/private/CSharpHost.cpp` 定义 `CAInject_CRenderBackend_ExecuteGraph_scheduler()` ——
+`CreateRenderAdapter` 取到真实 `CThreadManager` 后存进文件级 `s_threadManager`；钩子每次调用 `NewScheduler()`，
+用一个**线程局部**强引用保活到下一次调用（`ExecuteGraph` 是同步提交，返回时调度器不再被使用），返回裸指针。
+
+`build.py`：绑定输入加四个原生头（`CODEGEN_BINDINGS`）；这四个头是"被别的模块 include 的接口头"，
+`Interface/RenderInterface` 的编译单元不含跨模块 `-I`，因此对这四个头**再并上 CoreTests 那一个编译单元的
+`-I` 并补 `-DNOMINMAX`**（`CODEGEN_BINDING_MERGE_CORETESTS`，实测不并时报 `'CAWindow/WindowSystem.h' file not found`）。
+
+二、产物（逐字，out/build/x64-debug/codegen/bindings/）
+
+    extern "C" void CRenderBackend_ExecuteGraph(void* self, uint64_t graphHandle);              // scheduler 由钩子注入
+    extern "C" void GPUGraph_ScheduleData(void* self, uint32_t imageHandleKind, uint64_t imageHandleHandle, uint8_t const* imageHandleName, uint64_t imageHandleNameLen, uint8_t const* data, uint64_t dataCount, uint64_t offset, int32_t copy);
+    public GPUGraph ScheduleData(ImageHandle imageHandle, byte[] data, ulong offset, bool copy)  // 托管表面（内存窗 → byte[]）
+    public GPUGraph ScheduleData(BufferHandle bufferHandle, byte[] data, ulong offset, bool copy)
+    public GPUGraph AddPass(RenderPass renderPass)          // D11 记录序列化块
+    public GPUGraph AddPass(ComputeBatch computePass)
+    public ShaderStruct SetValue(string name, float3 value, uint elementIndex)   // D9 实例化槽
+    public ShaderStruct SetValue(string name, float value, uint elementIndex)
+    public static ShaderStructData FindShaderStructData(CRenderBackendLease lease, string structType)     // D8 两段式
+    public static ShaderStructData FindShaderRootStructData(CRenderBackendLease lease, string shaderPath)
+
+四个表面类的方法名（逐字，含静态入口与实例方法两份）：
+    CRenderBackend: ExecuteGraph GetTimingCapabilities Release CreateGPUTexture CreateShaderStruct
+                    FindShaderStructData FindShaderRootStructData AnyWindowRunning WaitIdle
+    GPUGraph:       AddPass Rast Comp ScheduleData AllocImage AllocBuffer Present Finalize
+    ShaderStruct:   SetImage(×2) SetBuffer SetSampler SetStruct SetValue(×2)
+    GPUTexture:     GetDescriptor SetName GetName
+函数表槽数（含错误通道 / 句柄解析 / 两段式伴生）：CRenderBackend 17 / GPUGraph 16 / ShaderStruct 13 / GPUTexture 10。
+
+三、生成器为此扩的形状（本次新增，全部有生成期拒绝或判据兜着）
+
+1. **定长数组 `std::array<记录, N>`**（真实形状 `RenderPass::m_AttachmentBlendStates`）：
+   `kind = 8`，元素个数是类型的一部分 ⇒ 线形**不带 count**，元素按记录字段逐项；元素记录单独出托管镜像。
+2. **枚举位标志包装 `uenum::EnumFlags<E>`**（`SingleColorAttachmentBlendStates::channelMask`）：
+   按底层整数 + 枚举类型名过界（规范类型是记录，不判就会去拆它的内部成员）。
+3. **值类字段**（`BufferHandle m_Buffer` / `ImageHandle m_Color`）：`kind = 9`，kind + 句柄 + 名称三段线形，
+   C++ 侧按绑定对象表反查重建（查无句柄 ⇒ 错误码 1011）。
+4. **联合体按定长原样字节**（`union GraphicsClearValue`，16 字节）：`kind = 10`；C# 镜像是 `byte[]`，
+   写入时长度不齐当场抛（不静默补零/截断）。
+5. **文本元素的判定顺序**：`NameHash` 的规范类型也是 record，必须**先判文本再判记录元素**，否则会去拆
+   `NameHash` 的私有成员（实测报 `字段 m_NameView 的嵌套记录没有字段（std::basic_string_view<char>）`）。
+6. **同名模板形态自动排除**：`GPUGraph::ScheduleData` 的两条模板便利形态与两条内存窗重载同名 ——
+   按名字写 `CA_BIND_SKIP` 会把非模板重载一起排掉（实测丢掉了 D2 的字节上传通道）。现在生成器的规则是
+   "同名已有可绑的非模板实现 ⇒ 模板形态自动排除并打日志 `[排除] GPUGraph::ScheduleData（模板形态）`"。
+7. **C# 局部名唯一化**：嵌套记录三层（RenderPass → DrawCallBatch → DrawCall）时 `count`/`index`/`item`/`pair`
+   会撞成同名局部变量（实测 CS0136），现在全部带字段后缀。
+8. **元素记录里的枚举也要出产物**：否则生成一个引用不存在类型的 `.cs`（实测 CS0246 `EShaderResourceAccess`）。
+9. **③ 重载判据按"ABI 形状 + 托管类型后缀"**：只按 ABI 字节判会把 `ScheduleData(ImageHandle…)` 与
+   `ScheduleData(BufferHandle…)`、`AddPass(RenderPass)` 与 `AddPass(ComputeBatch)` 误杀（同串字节、不同托管类型）；
+   只按原拼写判又会漏掉真正的隐式转换重载（CoreTests 的 ③ 夹具立刻变红，已当场验证）。两条叠加后
+   夹具恢复绿、真实表面也不再误杀。
+10. **`CA_BIND_SKIP` 打标记统一生效**：排除方法不再进镜像收集（实测 `CRenderBackend::std::span<uint8_t>` 被当
+    镜像类型去建，报"找不到类型定义"）。
+
+审计表（2.1 那张）同步：`CreateGPUBuffer` 两条 / `GetWindowHandle` / `GetGraphStages` / `GetPassIndices` 改判
+"不可绑 + 本轮未实现"，`ShaderStruct` 计数 6 → 7（`SetValue` 走 `CA_BIND_INSTANTIATE`），合计 116 条。
+
+四、判据读数（本轮最终构建 build_n232 与脚本复跑）
+
+    $ python Tools/CodeGen/check_bindable_audit.py
+    扫描 12 个接口、对账 116 条方法、命中 0 处问题
+    exit=0
+
+    $ CodeGen.exe <四个头> --parse-report …（逐头跑，拼成快照 189 行）
+    $ python Tools/CodeGen/check_native_snapshot.py --snapshot <快照>
+    独立清单：GPUGraph.h 方法 23 条（下界锚 23）
+    快照对账：独立清单 126 条 / 问题 0 处
+    exit=0
+    快照内容：采集 116 行 / 排除 10 行
+
+    $ python Tools/CodeGen/check_bindings.py（构建里那一步，逐条问题计数）
+    不符数 0 / 两侧对齐问题 0 处 / 覆盖率问题 0 处 / 托管表面问题 0 处 / 第二张矩阵问题 0 处 /
+    错误码问题 0 处 / 共享值类型问题 0 处 / 共享值类型限定名问题 0 处 / 夹具识别问题 0 处 /
+    渲染基础表面问题 0 处 / 原生形态夹具问题 0 处 / 脚本渲染适配面问题 0 处 / 登记表问题 0 处
+
+    $ out/build/x64-debug/bin/CoreTests.exe
+    exit=0（全部 PASSED；新增的 `[图形状]` / `[内存窗]` / `[记录两段式]` / `[模板实例化]` 读数不变，
+     ③ 隐式转换重载拒绝夹具仍然绿）
+
+五、本轮明确**没做**的（都留在审计表与 SKIP 理由里，不是静默丢）
+
+    CRenderBackend::CreateGPUBuffer ×2   返回 shared_ptr<GPUBuffer>，本批绑定面不含 GPUBuffer
+    CRenderBackend::GetWindowHandle      返回 shared_ptr<WindowHandle>，同上
+    CRenderBackend::ExecuteGraphTimed    返回 unique_ptr<IGPUGraphTiming>（要连第五接口一起放门）
+    CRenderBackend::Readback ×2          std::span（Non-Goals 点名的 GPU 查询批）
+    CRenderBackend::RunTestCode          ④ 语义越界
+    GPUGraph::GetRenderPasses / GetRenderPassForWrite / GetComputePasses / GetDataTransfers /
+    GetUploadDataHolder / GetImageManager / GetBufferManager / GetFinalizePass   返回位置记录容器等
+    GPUGraph::GetGraphStages / GetPassIndices                                     托管两段式读取未做
+    GPUGraph::AllocAndUploadBuffer / ScheduleData 两条模板形态                     模板便利方法
+    ShaderStruct::GetStructTypeName      返回位置包装值
+
+六、结论
+
+2.2 的两条验收（① 快照与对账：四头逐行一致 / 0 处问题；② 托管表面：四个表面类的签名与审计表逐条对得上）
+都有实测读数，通过。**没有做的事都在审计表里点名**，其中 `CreateGPUBuffer` / `GetWindowHandle` 会在
+5.1（桥退役）时变成必须补的形状 —— 已写进 task 5.1 的风险提示。

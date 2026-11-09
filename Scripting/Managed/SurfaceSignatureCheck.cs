@@ -4,7 +4,9 @@
 // `NewWindow` 的四个 `bool` 写成一个 `int`，名字判据照样绿。这里把每个方法赋给一个
 // `Func<…>`（参数与返回类型都写死），签名映射错就**编译不过**。
 //
-// 这些委托**从不调用**（`Never` 为 null，赋值只是让编译器检查签名），所以不会真去建窗口。
+// 这些委托**从不调用**（`No*` 为 null，赋值只是让编译器检查签名），所以不会真去建窗口。
+// csharp-native-direct-binding 4.1：桥退役后，渲染侧的签名判据换成**原生五类直绑表面 + C# 糖层**
+// 两块 —— 原生面钉住"生成物真的收到了这些方法/值类型"，糖层钉住脚本实际调的便利形状。
 using System;
 using Scripting.Generated.Bindings;
 
@@ -17,14 +19,19 @@ namespace Scripting.Managed
         private static IWindowSystem NoSystem => null;
         // 渲染基础夹具没有引擎实例；这些委托只用于编译期签名检查，永远不执行。
         private static IBindFoundation NoFoundation => null;
-        // 脚本窄渲染适配面（csharp-render-backend-triangle 任务 1.2）：同样是编译期签名检查。
-        private static IScriptRenderTarget NoRenderTarget => null;
-        private static IScriptRenderGraph NoRenderGraph => null;
-        private static IScriptRenderBackend NoRenderBackend => null;
-        // csharp-render-shader-constants 任务 1.2：参数结构窄接口（第四个脚本接口）。
-        private static IScriptShaderStruct NoShaderStruct => null;
-        // csharp-render-texture-sampling 任务 1.2：只读纹理窄接口（第五个脚本接口）。
-        private static IScriptTexture NoTexture => null;
+        // 原生五类直绑表面（csharp-native-direct-binding 4.1 / design D1）：只做编译期签名检查。
+        private static CRenderBackend NoNativeBackend => null;
+        private static GPUGraph NoNativeGraph => null;
+        private static ShaderStruct NoNativeStruct => null;
+        private static GPUTexture NoNativeTexture => null;
+        private static WindowHandle NoNativeWindow => null;
+        private static ShaderStructData NoStructData => null;
+        // C# 糖层（脚本实际调的那一层）。
+        private static ScriptRenderBackend NoSugarBackend => null;
+        private static ScriptRenderGraph NoSugarGraph => null;
+        private static ScriptShaderStruct NoSugarStruct => null;
+        private static ScriptTexture NoSugarTexture => null;
+        private static ScriptRenderTarget NoSugarTarget => null;
 
         internal static void Compile()
         {
@@ -65,9 +72,6 @@ namespace Scripting.Managed
             Func<int, bool> isMouseUp = code => NoWindow.IsMouseUp(code);
 
             // ---- 渲染基础夹具（csharp-render-binding-foundations 任务 1.3）----
-            // 记录 / 枚举 / 标志位 / 包装值 / 字节数组都必须形成真实的公开签名：
-            // 把 `GetFlags` 的参数还成 ushort、把 `ConsumeHash` 还成指针、把 `MixBytes` 的
-            // byte[] 还成 byte*，下面的委托赋值都会编译失败。
             Func<RenderDesc, RenderDesc> getDesc = desc => NoFoundation.GetDesc(desc);
             Func<RenderNested, RenderNested> getNested = nested => NoFoundation.GetNested(nested);
             Func<bool, bool> getBool = value => NoFoundation.GetBool(value);
@@ -80,68 +84,102 @@ namespace Scripting.Managed
                 (data, count, desc, label, mode, flags, token) =>
                     NoFoundation.MixBytes(data, count, desc, label, mode, flags, token);
 
-            // ---- 脚本窄渲染适配面（csharp-render-backend-triangle 任务 1.2）----
-            // 目标：三个只读标量；`bool` 必须还原成 bool，不许退化成 int。
-            Func<uint> targetWidth = () => NoRenderTarget.GetWidth();
-            Func<uint> targetHeight = () => NoRenderTarget.GetHeight();
-            Func<bool> targetBackbuffer = () => NoRenderTarget.IsBackbuffer();
-            // 图：字节数组、公开记录、路径与名称字符串、四个 float、`int` 状态都必须逐字对上。
-            Func<string, GPUBufferDescriptor, byte[], int> addBuffer =
-                (name, descriptor, data) => NoRenderGraph.AddBuffer(name, descriptor, data);
-            Func<string, uint, uint, uint, int> setStream =
-                (streamName, stride, positionOffset, colorOffset) =>
-                    NoRenderGraph.SetPositionColorStream(streamName, stride, positionOffset, colorOffset);
-            Func<IScriptRenderTarget, string, string, string, uint, float, float, float, float, int> addTrianglePass =
-                (target, shaderPath, streamName, bufferName, vertexCount, red, green, blue, alpha) =>
-                    NoRenderGraph.AddTrianglePass(target, shaderPath, streamName, bufferName, vertexCount,
-                        red, green, blue, alpha);
-            Func<IScriptRenderTarget, int> present = target => NoRenderGraph.Present(target);
-            Func<uint> passCount = () => NoRenderGraph.GetPassCount();
-            Func<string> graphError = () => NoRenderGraph.GetLastError();
-            // 后端：窗口表面对象入参、离屏目标、图、提交状态与阻塞等待。
-            Func<IWindow, IScriptRenderTarget> windowTarget = window => NoRenderBackend.GetWindowTarget(window);
-            Func<uint, uint, IScriptRenderTarget> captureTarget =
-                (width, height) => NoRenderBackend.CreateCaptureTarget(width, height);
-            Func<IScriptRenderGraph> createGraph = () => NoRenderBackend.CreateGraph();
-            Func<IScriptRenderGraph, int> submitGraph = graph => NoRenderBackend.SubmitGraph(graph);
-            Action waitIdle = () => NoRenderBackend.WaitIdle();
-            Func<string> backendError = () => NoRenderBackend.GetLastError();
+            // ---- 原生五类直绑表面（design D1/D12）：每个方法的名字与签名逐字钉住 ----
+            // `GPUGraph`：隐式公开默认构造的工厂 + 链式自返回（返回值必须是同一个图对象类型）+
+            // 两条字节窗 `ScheduleData`（D2）+ 记录图入参 `AddPass(RenderPass)` + 呈现 + D13 的容器读。
+            Func<GPUGraph> graphCreate = () => GPUGraph.Create();
+            Func<RenderPass, GPUGraph> addPass = pass => NoNativeGraph.AddPass(pass);
+            Func<ImageHandle, byte[], ulong, bool, GPUGraph> scheduleImage =
+                (handle, data, offset, copy) => NoNativeGraph.ScheduleData(handle, data, offset, copy);
+            Func<BufferHandle, byte[], ulong, bool, GPUGraph> scheduleBuffer =
+                (handle, data, offset, copy) => NoNativeGraph.ScheduleData(handle, data, offset, copy);
+            Func<BufferHandle, GPUBufferDescriptor, GPUGraph> allocBuffer =
+                (handle, desc) => NoNativeGraph.AllocBuffer(handle, desc);
+            Func<ImageHandle, GPUGraph> presentImage = handle => NoNativeGraph.Present(handle);
+            Func<uint[]> passIndices = () => NoNativeGraph.GetPassIndices();
+            // `CRenderBackend`：窗口句柄 / 纹理 / 参数结构 / 元数据两段式 / 执行与等待。
+            Func<IWindow, WindowHandle> getWindowHandle = window => NoNativeBackend.GetWindowHandle(window);
+            Func<GPUTextureDescriptor, ETextureAccessType, GPUTexture> createTexture =
+                (descriptor, access) => NoNativeBackend.CreateGPUTexture(descriptor, access);
+            Func<string, ShaderStruct> createShaderStruct = name => NoNativeBackend.CreateShaderStruct(name);
+            Func<string, ShaderStructData> findStruct = name => NoNativeBackend.FindShaderStructData(name);
+            Func<string, ShaderStructData> findRootStruct = path =>
+                NoNativeBackend.FindShaderRootStructData(path);
+            Action<GPUGraph> executeGraph = graph => NoNativeBackend.ExecuteGraph(graph);
+            Action waitIdle = () => NoNativeBackend.WaitIdle();
+            // `WindowHandle`：尺寸（`uint2` 记录镜像）/ 后台缓冲描述（序列化只读副本）/ 有效性。
+            Func<uint2> windowSize = () => NoNativeWindow.GetSizeSafe();
+            Func<GPUTextureDescriptor> backbufferDescriptor =
+                () => NoNativeWindow.GetBackbufferDescriptor();
+            Func<bool> windowValid = () => NoNativeWindow.IsValid();
+            // `ShaderStruct`：模板实例化的两种形态 + 四类资源/子结构写入，全部链式自返回。
+            Func<string, float3, uint, ShaderStruct> setValueFloat3 =
+                (name, value, index) => NoNativeStruct.SetValue(name, value, index);
+            Func<string, float, uint, ShaderStruct> setValueFloat =
+                (name, value, index) => NoNativeStruct.SetValue(name, value, index);
+            Func<string, BufferHandle, uint, ShaderStruct> setBuffer =
+                (name, handle, index) => NoNativeStruct.SetBuffer(name, handle, index);
+            Func<string, GPUTexture, uint, ShaderStruct> setImage =
+                (name, texture, index) => NoNativeStruct.SetImage(name, texture, index);
+            Func<string, TextureSamplerDescriptor, uint, ShaderStruct> setSampler =
+                (name, sampler, index) => NoNativeStruct.SetSampler(name, sampler, index);
+            Func<string, ShaderStruct, uint, ShaderStruct> setStruct =
+                (name, sub, index) => NoNativeStruct.SetStruct(name, sub, index);
+            // `GPUTexture`：描述符读回。
+            Func<GPUTextureDescriptor> textureDescriptor = () => NoNativeTexture.GetDescriptor();
+            // 值类的工厂通道（design D12：ImageHandle 的两条对象通道 + 名称/无效两态）。
+            Func<GPUTexture, ImageHandle> imageFromTexture = texture => ImageHandle.FromGPUTexture(texture);
+            Func<WindowHandle, ImageHandle> imageFromWindow = handle => ImageHandle.FromWindowHandle(handle);
+            Func<string, BufferHandle> bufferFromName = name => BufferHandle.FromName(name);
+            Func<ShaderStructData> structData = () => NoStructData;
 
-            // ---- 参数结构窄接口与两个既有接口的新方法（csharp-render-shader-constants 任务 1.2）----
-            // `int` 状态不许退化成 void、`uint` 不许退化成 int、`float` 不许退化成 double、
-            // 参数结构入参不许换成 IntPtr —— 任何一处退化下面的委托赋值都编译不过。
-            Func<string, uint, uint, int> setPositionStream =
-                (streamName, stride, positionOffset) =>
-                    NoRenderGraph.SetPositionStream(streamName, stride, positionOffset);
-            Func<uint, string, IScriptShaderStruct, int> setPassParam =
+            // ---- C# 糖层（design D6/D12/D13）：脚本实际调用的便利形状 ----
+            Func<IWindow, ScriptRenderTarget> sugarWindowTarget =
+                window => NoSugarBackend.GetWindowTarget(window);
+            Func<uint, uint, ScriptRenderTarget> sugarCaptureTarget =
+                (width, height) => NoSugarBackend.CreateCaptureTarget(width, height);
+            Func<ScriptRenderGraph> sugarCreateGraph = () => NoSugarBackend.CreateGraph();
+            Func<string, uint, uint, byte[], ScriptTexture> sugarCreateTexture =
+                (name, width, height, rgba) => NoSugarBackend.CreateTexture(name, width, height, rgba);
+            Func<string, ScriptShaderStruct> sugarCreateStruct =
+                name => NoSugarBackend.CreateShaderStruct(name);
+            Func<ScriptRenderGraph, int> sugarSubmit = graph => NoSugarBackend.SubmitGraph(graph);
+            Action sugarWait = () => NoSugarBackend.WaitIdle();
+            Func<string, GPUBufferDescriptor, byte[], int> sugarAddBuffer =
+                (name, descriptor, data) => NoSugarGraph.AddBuffer(name, descriptor, data);
+            Func<string, uint, uint, uint, int> sugarSetStream =
+                (name, stride, position, color) =>
+                    NoSugarGraph.SetPositionColorStream(name, stride, position, color);
+            Func<string, uint, uint, int> sugarSetPositionStream =
+                (name, stride, position) => NoSugarGraph.SetPositionStream(name, stride, position);
+            Func<string, uint, uint, uint, int> sugarSetPositionTextureStream =
+                (name, stride, position, texcoord) =>
+                    NoSugarGraph.SetPositionTextureStream(name, stride, position, texcoord);
+            Func<ScriptRenderTarget, string, string, string, uint, float, float, float, float, int>
+                sugarAddTrianglePass =
+                    (target, shaderPath, streamName, bufferName, vertexCount, red, green, blue, alpha) =>
+                        NoSugarGraph.AddTrianglePass(target, shaderPath, streamName, bufferName,
+                            vertexCount, red, green, blue, alpha);
+            Func<ScriptRenderTarget, int> sugarPresent = target => NoSugarGraph.Present(target);
+            Func<uint, string, ScriptShaderStruct, int> sugarSetPassParam =
                 (passIndex, blockName, parameters) =>
-                    NoRenderGraph.SetPassParam(passIndex, blockName, parameters);
-            Func<string, IScriptShaderStruct> createShaderStruct =
-                structTypeName => NoRenderBackend.CreateShaderStruct(structTypeName);
-            // 参数结构：按字段名写 float3、按字段名 + 数组下标挂子结构、读错误文本。
-            Func<string, float, float, float, int> setFloat3 =
-                (field, x, y, z) => NoShaderStruct.SetFloat3(field, x, y, z);
-            Func<string, IScriptShaderStruct, uint, int> setStruct =
-                (field, sub, elementIndex) => NoShaderStruct.SetStruct(field, sub, elementIndex);
-            // csharp-render-structured-buffer 任务 1.2：结构化缓冲按名绑定（两个 string，返回 int）。
-            Func<string, string, int> setBuffer =
-                (field, bufferName) => NoShaderStruct.SetBuffer(field, bufferName);
-            Func<string> shaderStructError = () => NoShaderStruct.GetLastError();
-
-            // ---- 纹理窄接口与三个既有接口的新方法（csharp-render-texture-sampling 任务 1.2）----
-            // `uint` 两个尺寸读数不许退化成 int / ulong；`CreateTexture` 的字节数组不许换成指针；
-            // `SetImage` 的入参必须是纹理解口表面对象；`SetSampler` 的入参必须是公开记录类型。
-            Func<uint> textureWidth = () => NoTexture.GetWidth();
-            Func<uint> textureHeight = () => NoTexture.GetHeight();
-            Func<string, uint, uint, byte[], IScriptTexture> createTexture =
-                (name, width, height, rgba) => NoRenderBackend.CreateTexture(name, width, height, rgba);
-            Func<string, IScriptTexture, int> setImage =
-                (field, texture) => NoShaderStruct.SetImage(field, texture);
-            Func<string, TextureSamplerDescriptor, int> setSampler =
-                (field, sampler) => NoShaderStruct.SetSampler(field, sampler);
-            Func<string, uint, uint, uint, int> setPositionTextureStream =
-                (streamName, stride, positionOffset, texcoordOffset) =>
-                    NoRenderGraph.SetPositionTextureStream(streamName, stride, positionOffset, texcoordOffset);
+                    NoSugarGraph.SetPassParam(passIndex, blockName, parameters);
+            Func<uint> sugarPassCount = () => NoSugarGraph.GetPassCount();
+            Func<string, float, float, float, int> sugarSetFloat3 =
+                (field, x, y, z) => NoSugarStruct.SetFloat3(field, x, y, z);
+            Func<string, ScriptShaderStruct, uint, int> sugarSetStruct =
+                (field, sub, index) => NoSugarStruct.SetStruct(field, sub, index);
+            Func<string, string, int> sugarSetBuffer =
+                (field, bufferName) => NoSugarStruct.SetBuffer(field, bufferName);
+            Func<string, ScriptTexture, int> sugarSetImage =
+                (field, texture) => NoSugarStruct.SetImage(field, texture);
+            Func<string, TextureSamplerDescriptor, int> sugarSetSampler =
+                (field, sampler) => NoSugarStruct.SetSampler(field, sampler);
+            Func<uint> sugarTextureWidth = () => NoSugarTexture.GetWidth();
+            Func<uint> sugarTextureHeight = () => NoSugarTexture.GetHeight();
+            Func<uint> sugarTargetWidth = () => NoSugarTarget.GetWidth();
+            Func<uint> sugarTargetHeight = () => NoSugarTarget.GetHeight();
+            Func<bool> sugarTargetBackbuffer = () => NoSugarTarget.IsBackbuffer();
 
             // 把这些引用"用掉"，避免 CS0219 之类的噪音（也防止有人把上面的赋值删掉还看不出来）
             _ = new object[]
@@ -151,11 +189,17 @@ namespace Scripting.Managed
                 minimized, setWindowName, getWindowName, setAlpha, dpiScale, nativeHandle, windowSystem,
                 keyState, mouseX, mouseY, isKeyDown, isKeyTriggered, isMouseDown, isMouseUp,
                 getDesc, getNested, getBool, getMode, getFlags, setName, setPath, consumeHash, mixBytes,
-                targetWidth, targetHeight, targetBackbuffer, addBuffer, setStream, addTrianglePass, present,
-                passCount, graphError, windowTarget, captureTarget, createGraph, submitGraph, waitIdle,
-                backendError, setPositionStream, setPassParam, createShaderStruct, setFloat3, setStruct,
-                setBuffer, shaderStructError,
-                textureWidth, textureHeight, createTexture, setImage, setSampler, setPositionTextureStream,
+                graphCreate, addPass, scheduleImage, scheduleBuffer, allocBuffer, presentImage, passIndices,
+                getWindowHandle, createTexture, createShaderStruct, findStruct, findRootStruct, executeGraph,
+                waitIdle, windowSize, backbufferDescriptor, windowValid, setValueFloat3, setValueFloat,
+                setBuffer, setImage, setSampler, setStruct, textureDescriptor, imageFromTexture,
+                imageFromWindow, bufferFromName, structData,
+                sugarWindowTarget, sugarCaptureTarget, sugarCreateGraph, sugarCreateTexture,
+                sugarCreateStruct, sugarSubmit, sugarWait, sugarAddBuffer, sugarSetStream,
+                sugarSetPositionStream, sugarSetPositionTextureStream, sugarAddTrianglePass, sugarPresent,
+                sugarSetPassParam, sugarPassCount, sugarSetFloat3, sugarSetStruct, sugarSetBuffer,
+                sugarSetImage, sugarSetSampler, sugarTextureWidth, sugarTextureHeight, sugarTargetWidth,
+                sugarTargetHeight, sugarTargetBackbuffer,
             };
         }
 

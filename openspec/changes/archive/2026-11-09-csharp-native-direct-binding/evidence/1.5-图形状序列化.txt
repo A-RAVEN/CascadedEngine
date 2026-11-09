@@ -1,0 +1,113 @@
+1.5 图形状序列化（design D11）—— 三类元素的红态、绿态与判据
+
+执行者：apply 子 agent　　时间：2026-11-09 00:35 – 01:1x
+
+一、任务与设计口径
+
+design D11：序列化块元素扩三类（记录嵌套内任意深度生效）：
+  ① 值类容器元素：`vector<CA_BIND_VALUE 值类>` —— 元素按四字段线形 kind/handle/nameptr/len 逐个重复；
+  ② 命名映射成员：键固定 `cacore::NameHash` 的 map，值限标量/枚举/记录/值类 —— count + 重复(key 线形, value 线形)；
+  ③ 接口对象引用成员：`shared_ptr<已挂 CA_BIND 接口>` —— u64 句柄过界，C++ thunk 从绑定对象表反查重建。
+MUST NOT（不放松）：键非 NameHash 的映射、指向未绑定类型的智能指针、返回位置的映射容器 ⇒ 生成期点名拒绝，不静默丢字段。
+另附一类真实头必需、D11 正文未单列的包装成员：`cacore::HashObj<T>`（`HashObj<ViewRectData> m_ViewPort`）——
+线形 = 内层记录字段逐项，读回时重新包成 HashObj（实测 `DrawCallBatch::VertexInputDescMap` 的值就是这个形态）。
+
+夹具（Tools/CodeGen/BindableShapes.NativeShapes.h）：记录 `GraphLikeRecord` 把三类元素收在一张表里：
+    castl::vector<NativeResourceRef> m_Refs;                                        // ①
+    castl::unordered_map<cacore::NameHash, uint32_t> m_Counts;                      // ② 标量值
+    castl::unordered_map<cacore::NameHash, PassAttachment> m_Attachments;           // ② 记录值
+    castl::unordered_map<cacore::NameHash, NativeResourceRef> m_RefsByName;         // ② 值类值
+    castl::shared_ptr<IBindNativeShape> m_Object;                                   // ③ 直接成员
+    castl::unordered_map<cacore::NameHash, castl::shared_ptr<IBindNativeShape>> m_Objects;  // ③ 映射值
+方法：`virtual void ConsumeGraphShape(GraphLikeRecord const& shape) = 0;`
+
+二、红态：改造前逐条生成期拒绝（原文）
+
+1) 映射成员（改造前，2026-11-09 00:5x 用当时的生成器跑夹具，原始行）：
+    CodeGen: 拒绝序列化块记录 GraphLikeRecord —— 字段 m_Counts 是映射容器 / 定长数组
+    （std::unordered_map<cacore::NameHash, unsigned int, cacore::hash<cacore::NameHash>>）—— 本批未实现该形状；
+    恢复路径：真实实例出现时立扩形状批
+   （日志：%TEMP%\cg_d11.log；同一轮完整构建日志：%TEMP%\build_d11a.log 的「不符数」段）
+2) 接口对象引用成员（改到映射可通过之后的下一层拒绝，原文）：
+    CodeGen: 拒绝序列化块记录 GraphLikeRecord —— 字段 m_Object 是裸指针 / 智能指针
+    （std::shared_ptr<ca_bind_fixture::IBindNativeShape>）—— 本批未实现该形状；恢复路径：真实实例出现时立扩形状批
+   （日志：%TEMP%\cg_d11b.log）
+3) 诚实说明：值类容器元素这一条的**改造前单独拒绝原文没有取到** —— 它与上面两个字段在同一张记录里，
+   生成器逐字段拒绝、字段声明顺序里映射在前，所以先看到的是映射的拒绝文本；改造前该形状走的是
+   "容器元素形状不在本批支持范围内"那条分支（本轮实现后它变成 elementKind=4）。这里不补造原文。
+
+三、绿态：产物与判据
+
+1) C ABI（IBindNativeShape.Bindings.cpp 逐字）：
+    extern "C" void IBindNativeShape_ConsumeGraphShape(void* self, uint8_t const* shapeBytes, uint64_t shapeLen);
+   thunk 里注入了对象解析器，并把块错误码 12 映射成 1011：
+    cacore::codegen::BindingHandleResolver shapeResolver;
+    shapeResolver.user = self;
+    shapeResolver.resolve = [](void* user, uint64_t handle, char const* expectedType, char const* fieldPath) -> std::shared_ptr<void> { return IBindNativeShape_lookupStrongHandle(user, handle, expectedType, fieldPath); };
+    ...
+    case 12u: blockError = IBindNativeShape_ERROR_BAD_OBJECT_HANDLE; blockText = "序列化块里的对象句柄在绑定对象表里查不到"; break;
+
+2) 托管镜像（GraphLikeRecord.Bindings.cs 逐字）：
+    public NativeResourceRef[] m_Refs;
+    public System.Collections.Generic.Dictionary<string, uint> m_Counts;
+    public System.Collections.Generic.Dictionary<string, PassAttachment> m_Attachments;
+    public System.Collections.Generic.Dictionary<string, NativeResourceRef> m_RefsByName;
+    public IBindNativeShape m_Object;
+    public System.Collections.Generic.Dictionary<string, IBindNativeShape> m_Objects;
+   托管写线形（同一文件逐字）：值类元素/值类值写 `item.Kind / item.Handle / 名称字节`；
+   接口引用写 `(ulong)(pair.Value == null ? 0UL : (ulong)pair.Value.Token)` / `(ulong)(value.m_Object ... Token)`。
+   托管读方向：值类元素用同程序集内部构造器 `new NativeResourceRef(valueKind, valueHandle, valueName)`；
+   命名映射与接口引用在**读方向**抛 InvalidDataException（本批只定义输入方向；返回位置含这两类字段
+   在生成期已拒绝，见四）。
+
+3) C++ 编解码头（GraphLikeRecord.BindingCodec.h 逐字）：
+    struct Reader { ... cacore::codegen::BindingHandleResolver resolver; ... };
+    static uint32_t Deserialize(GraphLikeRecord&, uint8_t const* data, uint64_t size);                 // 三参重载（既有调用点不变）
+    static uint32_t Deserialize(GraphLikeRecord&, ..., cacore::codegen::BindingHandleResolver);       // 注入解析器的重载
+    ... if (!object) { return 12u; }                                                                 // 查无句柄边界拒
+   `BindingHandleResolver` 定义在生成产物共用的 `BindingHandleTable.h` 里（函数指针 + user，不含任何状态）。
+
+4) CoreTests 运行读数（out/build/x64-debug/bin/CoreTests.exe，退出码 0）：
+    [图形状] 值类元素=2 标量值=7 记录值=(3,0.50) 值类名=beta 对象一致=1/1
+    Bindings native shapes test PASSED
+  对应断言（逐条）：值类容器元素按三段线形重建（kind=2 Named）；命名映射的标量值 7、记录值 (3,0.50)、
+  值类值名称 "beta" 逐字段一致；直接成员与映射值里的接口对象都反查回同一个 FakeNativeShape 实例。
+  坏句柄：把直接成员的句柄改成 0xDEADBEEF ⇒ 实现调用计数不增、错误码 1011（`IBindNativeShape_LastErrorCode`）。
+  说明：C++ 侧只定义二进制的**读**方向（C# → 原生），所以这块字节由测试按同一份线形手摆
+  （块头三项取生成常量 `GraphCodec::kTypeNameHash / kLayoutHash`）；托管写方向的逐字行由 check_bindings 判据钉住。
+
+5) 未支持类别的生成期点名（当前生成器实跑，退出码 1）：
+    $ CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapesRejectMapKey.h --emit-binding ...
+    exit=1
+    CodeGen: 拒绝序列化块记录 RejectIntKeyMapRecord —— 字段 values 的映射容器键不是 cacore::NameHash（实际 int）
+    —— design D11 只定义 NameHash 键的命名映射；键非 NameHash 的映射容器维持不可绑（不静默丢字段）
+   （夹具用 `std::unordered_map` 保持自包含：拒绝探针的 include 集不含 CASTL 的间接依赖 sha256.h。）
+
+四、MUST NOT 的另一半：返回位置的记录不许含这三类字段（生成期拒绝，代码点可核）
+
+`serializedFieldNeedsBindingTable()` 递归扫字段（含嵌套/元素/映射值），命中 kind 5/6 或 elementKind 4 时，
+若该记录同时是"返回位置（D8 记录两段式）的载体"则拒绝，原文模板：
+    记录 <名> 是返回位置（记录两段式）的载体，但字段 <字段> 是值类容器 / 命名映射 / 接口对象引用
+    —— design D11 的 MUST NOT：返回位置的这些形状维持不可绑（不静默丢字段）
+这条守的是"不静默丢字段"：这类记录的 C++ Serialize 不产写路径（生成物里是注释），若放任它们进返回位置，
+托管读方向就会拿到缺字段的块。
+
+五、判据（Tools/CodeGen/check_bindings.py 新增，全部是会失败的断言）
+
+  · C ABI `ConsumeGraphShape` 两段字节声明逐字；
+  · 托管表面 `public void ConsumeGraphShape(GraphLikeRecord shape)`；
+  · `GraphLikeRecord.Bindings.cs` 六个镜像字段的逐字类型（数组 / Dictionary / 接口表面类）；
+  · 托管写线形的四条逐字行（值类元素、值类值、接口引用映射值、接口引用直接成员）；
+  · `GraphLikeRecord.BindingCodec.h` 里 `BindingHandleResolver resolver`、`reader.resolver.resolve`、`return 12u;`；
+  · 产物里必须有 `ERROR_BAD_OBJECT_HANDLE`（1011）。
+  · 错误码表同步：`ERROR_CODE_TABLE` 加 `1011: "BAD_OBJECT_HANDLE"`。
+
+六、构建判据汇总（build_d11h 日志，check_bindings 输出逐字）
+    矩阵行数 23 / 有夹具的行数 23 / 真实接口行 7 / 签名行 99 / 非签名行（拒绝或错误码）0
+    不符数 0
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    共享值类型问题 0 处
+    原生形态夹具问题 0 处
+结论：1.5 的三条验收（红=改造前逐条拒绝原文；绿=三类元素往返逐字段一致 + 坏句柄边界拒且实现计数 0；
+未支持类别生成期点名）逐条有实测读数，通过。

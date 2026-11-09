@@ -1,0 +1,68 @@
+csharp-native-direct-binding 6.2 ABI v9 → v10 与重锚记录（2026-11-09）
+=====================================================================
+
+一、常量单点 + 布局重建
+----------------------
+1) `Tools/CodeGen/CodeGenMain.cpp`（生成的唯一来源，手写侧不保留第二份常量）：
+   · `kEngineApiVersion` 9u → **10u**（单点 +1）；`kEngineApiSize` 80u → **56u**；
+   · `kEngineApiFields[]` 删除桥五类的五个 `*_interface_id` 字段，剩 **9 个字段**：
+     abi_version / size / log / echo / get_interface_api / window_interface_id /
+     window_system_interface_id / get_binding_layout_type / get_binding_layout_field；
+   · `static_assert(sizeof(EngineApi) == 56u)`（布局：4 + 4 + 8×5 + 4 + 4 = 56，
+     8 字节对齐无尾部填充）；
+   · 托管镜像同一次生成：`AbiVersion = 10`、`Size = 56`（`EngineApiMirror` 9 字段）。
+2) 生成物实测（out/build/x64-debug/codegen/bindings/BindingRegistry.Bindings.h）：
+     inline constexpr uint32_t kEngineApiVersion = 10u;
+     inline constexpr uint32_t kEngineApiSize = 56u;
+     static_assert(sizeof(EngineApi) == 56u, "生成的 EngineApi 必须是 56 字节（9 字段：4 + 4 + 8×5 + 4 + 4）");
+     static_assert(kEngineApiSize == 56u, "kEngineApiSize 必须与 sizeof(EngineApi) 一致");
+   `Host.cs` 的 Boot 用生成常量做两侧版本 / 大小比对，运行时自检同步生效。
+
+二、判据族同步重算（只严不松）
+----------------------------
+1) `Tools/CodeGen/check_bindings.py`
+   · `ENGINE_API_FIELD_PAIRS` / `ENGINE_API_FIELD_DECLARATIONS` 由 14 项减到 9 项（删五个桥字段）；
+   · 版本 / 大小期望 9/80 → 10/56，字段数 14 → 9（C++ 与 C# 两侧同改）；
+   · 登记表 ④：只要求两个窗口编号字段装配到生成常量（五个退役字段已从 struct 删除，
+     不再有 `= 0u` 行）。
+2) `Tools/check_csharp_host_readme.py`
+   · ③ 的「README 行数 == EngineApi 下发的 *_interface_id 字段数」改为
+     「README 行数 == 编号表项数（7）」+「EngineApi 里窗口两字段都在、字段数不超过表行数」——
+     因为 ABI v10 的 EngineApi 只下发两个窗口编号字段（这是布局重建的定义，不是放松：
+     编号表本身仍逐项对拍、C# 常量仍逐接口对拍）。
+3) `Tools/check_csharp_host_failures.py`（五场景期望按当场实测重算，场景一条不少）
+   · 第 4 条从「托管侧期望 9」改为「托管侧期望 10」（自检把引擎侧改成 11）。
+4) 文档：`CSharpHost/README.md` ABI 段（v10 / 56 字节 / 9 字段 / 布局算式 / 失败示例）、
+   `Tools/CodeGen/README.md` 登记产物表、`docs/testing.md` 的 ABI 失败场景期望。
+
+三、重锚（design D4「换锚 + ABI 同一批」）
+---------------------------------------
+6.1 的锚是 ABI v10 落地前的中间态；6.2 改写了 6 个登记表产物，因此按设计重取一次：
+  · 中间锚封存：`evidence/6.2-ABI落地前-基线产物哈希.txt`（sha256 见下）；
+  · 当前锚（重取）：`evidence/基线产物哈希.txt`（191 条，sha256 见下）；
+  · 差异：**只 6 个文件**（全部是登记表/镜像产物，内容差异就是版本号、大小与字段表）：
+      BindingRegistry.Bindings.h / BindingRegistry.Bindings.cpp / EngineApi.Bindings.cs
+      fixture/BindingRegistry.Bindings.h / fixture/BindingRegistry.Bindings.cpp / fixture/EngineApi.Bindings.cs
+    其余 185 个产物逐字节不变（接口产物不内嵌 ABI 版本/大小，符合生成器设计）。
+  · 对账读数：
+      当前锚 vs 产物 → exit 0；基线对账：缺失 0 / 不一致 0 / 多余 0（%TEMP%\cnb-anchor2.log）
+      当前锚 --self-test → exit 0（%TEMP%\cnb-anchor2-self.log）
+      **中间锚 vs 当前产物 → exit 1；缺失 0 / 不一致 6 / 多余 0**（%TEMP%\cnb-anchor2-pre.log）
+        —— 这条红样证明 ABI 改动会被锚逐文件抓到；不重取锚就过不了对账。
+
+四、验收读数
+------------
+构建：python build.py --config Debug → exit 0（%TEMP%\cnb-build-61.log）
+check 家族（本批相关）：
+  python Tools\CodeGen\check_bindings.py（构建内）→ 全项 0 处（%TEMP%\cnb-build-61.log）
+  python Tools\check_csharp_host_readme.py → exit 0；ABI 版本 README v10 / 生成 10；
+    函数表 README 56 字节 / 生成 56；接口编号表 README 7 行 / 生成 7 项 / EngineApi 2 个字段 /
+    C# 7 个常量；问题 0 处（%TEMP%\cnb-62-readme.log）
+  python Tools\check_csharp_host_failures.py → exit 0，5 个场景 5 通过
+    第 4 条实测：退出码 3、输出含 `ABI 版本不符` 与 `托管侧期望 10`（%TEMP%\cnb-62-failures.log）
+  python Tools\check_csharp_host_readme.py → exit 0（同上）
+全量回归（ABI v10 运行期）：
+  --backend vulkan --headless 10 → exit 0、16/16 pass（%TEMP%\cnb-62-full-vk.log）
+  --backend d3d12  --headless 10 → exit 0、16/16 pass（%TEMP%\cnb-62-full-d3.log）
+CoreTests → exit 0（%TEMP%\cnb-62-coretests.log）
+  （CoreTests 的 `BindingsNativeSurfaceTest` 直接 include 生成产物，ABI v10 后仍绿。）

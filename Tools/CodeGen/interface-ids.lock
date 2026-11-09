@@ -10,11 +10,11 @@
 # scope host
 1	IWindow	cawindow::IWindow	WindowSystem/header/CAWindow/WindowSystem.h
 2	IWindowSystem	cawindow::IWindowSystem	WindowSystem/header/CAWindow/WindowSystem.h
-3	IScriptRenderBackend	graphics_backend::IScriptRenderBackend	Interface/RenderInterface/header/ScriptRenderBridge.h
-4	IScriptRenderGraph	graphics_backend::IScriptRenderGraph	Interface/RenderInterface/header/ScriptRenderBridge.h
-5	IScriptRenderTarget	graphics_backend::IScriptRenderTarget	Interface/RenderInterface/header/ScriptRenderBridge.h
-6	IScriptShaderStruct	graphics_backend::IScriptShaderStruct	Interface/RenderInterface/header/ScriptRenderBridge.h
-7	IScriptTexture	graphics_backend::IScriptTexture	Interface/RenderInterface/header/ScriptRenderBridge.h
+3	CRenderBackend	graphics_backend::CRenderBackend	Interface/RenderInterface/header/CRenderBackend.h
+4	GPUGraph	graphics_backend::GPUGraph	Interface/RenderInterface/header/GPUGraph.h
+5	ShaderStruct	graphics_backend::ShaderStruct	Interface/RenderInterface/header/ShaderStruct.h
+6	GPUTexture	graphics_backend::GPUTexture	Interface/RenderInterface/header/GPUTexture.h
+7	WindowHandle	graphics_backend::WindowHandle	Interface/RenderInterface/header/WindowHandle.h
 # high water 7
 # scope fixture
 8	IBindRegistry8	ca_bind_fixture::IBindRegistry8	Tools/CodeGen/BindableShapes.RenderRegistry.h

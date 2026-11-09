@@ -193,7 +193,7 @@ def read_lock_scope(scope: str) -> dict[int, str]:
     return numbers
 
 
-# `EngineApi` 的 14 个字段（C++ 名 / C# 名，顺序就是 ABI）。两侧必须逐字段同序。
+# `EngineApi` 的 9 个字段（C++ 名 / C# 名，顺序就是 ABI；6.2 的 v10 重建：桥五类编号字段已删）。两侧必须逐字段同序。
 ENGINE_API_FIELD_PAIRS = [
     ("abi_version", "AbiVersion"),
     ("size", "Size"),
@@ -204,11 +204,6 @@ ENGINE_API_FIELD_PAIRS = [
     ("window_system_interface_id", "WindowSystemInterfaceId"),
     ("get_binding_layout_type", "GetBindingLayoutType"),
     ("get_binding_layout_field", "GetBindingLayoutField"),
-    ("script_render_backend_interface_id", "ScriptRenderBackendInterfaceId"),
-    ("script_render_graph_interface_id", "ScriptRenderGraphInterfaceId"),
-    ("script_render_target_interface_id", "ScriptRenderTargetInterfaceId"),
-    ("script_shader_struct_interface_id", "ScriptShaderStructInterfaceId"),
-    ("script_texture_interface_id", "ScriptTextureInterfaceId"),
 ]
 # 逐字段的**逐字声明**（C++ 侧）：除了名字，宽度与函数指针形状也必须同 v8 手写表一致。
 # 只数名字会放过"函数指针把名字写了两遍"这种编译不过的产物（实际踩过一次）。
@@ -225,11 +220,6 @@ ENGINE_API_FIELD_DECLARATIONS = [
     "uint32_t nameCap, uint64_t* sizeBytes, uint32_t* fieldCount);",
     "uint32_t (*get_binding_layout_field)(uint32_t interfaceId, uint32_t typeIndex, uint32_t fieldIndex, "
     "char* name, uint32_t nameCap, char* typeName, uint32_t typeCap, uint64_t* offsetBytes);",
-    "uint32_t script_render_backend_interface_id;",
-    "uint32_t script_render_graph_interface_id;",
-    "uint32_t script_render_target_interface_id;",
-    "uint32_t script_shader_struct_interface_id;",
-    "uint32_t script_texture_interface_id;",
 ]
 
 # ---- 共享公开值类型（csharp-render-binding-foundations 任务 1.1 / 2.3）----
@@ -237,6 +227,80 @@ ENGINE_API_FIELD_DECLARATIONS = [
 # 多个接口使用时只发一份。接口判据（check_surface / check_alignment 第二层）必须跳过它们，
 # 由下面这份逐项内容判据接管 —— 否则「没有 IDisposable 表面类」会把它们全判红。
 SHARED_VALUE_TYPES = {
+    # csharp-native-direct-binding 2.2：原生四类进表后带出的共享值类型（句柄值类 / 纹理面值类 /
+    # 枚举 / 12 字节 float3）。只钉"这个文件属于预期产物 + 它的公开类型名逐字"，细节由生成侧保证。
+    "ImageHandle": ["public sealed class ImageHandle"],
+    "BufferHandle": ["public sealed class BufferHandle"],
+    # 原生四类带出的其余产物（着色器元数据记录 / 描述符用的枚举）。只钉"这个文件属于预期产物"。
+    "BufferData": ["public struct BufferData"],
+    "ShaderTextureData": ["public struct ShaderTextureData"],
+    "SubStructReference": ["public struct SubStructReference"],
+    "UniformElement": ["public struct UniformElement"],
+    "ShaderStructData": ["public sealed class ShaderStructData"],
+    "ShaderStructUniforms": ["public sealed class ShaderStructUniforms"],
+    "GPUTimingCapabilities": ["public struct GPUTimingCapabilities"],
+    "EShaderResourceAccess": ["public enum EShaderResourceAccess : byte"],
+    "EBufferUsage": ["public enum EBufferUsage : ushort"],
+    "EGPUQueueType": ["public enum EGPUQueueType : uint"],
+    "ETextureAccessType": ["public enum ETextureAccessType : byte"],
+    # 2.4（D12）：WindowHandle::GetSizeSafe 的纯标量记录
+    "uint2": ["public struct uint2"],
+    # 原生图 / 管线 / 附件记录的托管镜像（2.2 进表后带出）。只钉"这个文件属于预期产物"。
+    "RenderPass": ["public sealed class RenderPass"],
+    "DrawCallBatch": ["public struct DrawCallBatch"],
+    "DrawCall": ["public struct DrawCall"],
+    "DrawInfo": ["public sealed class DrawInfo"],
+    "IndexBufferData": ["public sealed class IndexBufferData"],
+    "PipelineDescData": ["public sealed class PipelineDescData"],
+    "InputAssemblyStates": ["public sealed class InputAssemblyStates"],
+    "RasterizerStates": ["public sealed class RasterizerStates"],
+    "DepthStencilStates": ["public sealed class DepthStencilStates"],
+    "StencilStates": ["public sealed class StencilStates"],
+    "ColorAttachmentsBlendStates": ["public sealed class ColorAttachmentsBlendStates"],
+    "SingleColorAttachmentBlendStates": ["public sealed class SingleColorAttachmentBlendStates"],
+    "CPipelineStateObject": ["public sealed class CPipelineStateObject"],
+    "RectSate": ["public sealed class RectSate"],
+    "ViewRectData": ["public sealed class ViewRectData"],
+    "ShaderInfo": ["public sealed class ShaderInfo"],
+    "AttachmentConfig": ["public struct AttachmentConfig"],
+    "ComputeBatch": ["public sealed class ComputeBatch"],
+    "ComputeDispatch": ["public struct ComputeDispatch"],
+    "VertexAttribute": ["public struct VertexAttribute"],
+    "VertexInputsDescriptor": ["public sealed class VertexInputsDescriptor"],
+    "EAttachmentLoadOp": ["public enum EAttachmentLoadOp : int"],
+    "EAttachmentStoreOp": ["public enum EAttachmentStoreOp : int"],
+    "EBlendFactor": ["public enum EBlendFactor : int"],
+    "EBlendOp": ["public enum EBlendOp : int"],
+    "EColorChannelMask": ["public enum EColorChannelMask : byte"],
+    "ECompareOp": ["public enum ECompareOp : int"],
+    "ECullMode": ["public enum ECullMode : int"],
+    "EFrontFace": ["public enum EFrontFace : int"],
+    "EIndexBufferType": ["public enum EIndexBufferType : byte"],
+    "EPolygonMode": ["public enum EPolygonMode : int"],
+    "EStencilOp": ["public enum EStencilOp : int"],
+    "ETopology": ["public enum ETopology : int"],
+    "VertexInputFormat": ["public enum VertexInputFormat : int"],
+    "float3": ["public struct float3"],
+    "GPUTextureDescriptor": ["public struct GPUTextureDescriptor"],
+    "GPUTextureView": ["public struct GPUTextureView"],
+    "GPUTextureSwizzle": ["public struct GPUTextureSwizzle"],
+    "ETextureFormat": ["public enum ETextureFormat : byte"],
+    "ETextureType": ["public enum ETextureType : byte"],
+    "ETextureAspect": ["public enum ETextureAspect : byte"],
+    "EColorChannel": ["public enum EColorChannel : byte"],
+    "EMultiSampleCount": ["public enum EMultiSampleCount : int"],
+    # csharp-native-direct-binding 任务 1.5 / design D11：图形状序列化记录（三类元素一次过界）
+    "GraphLikeRecord": [
+        "public sealed class GraphLikeRecord",
+        "public NativeResourceRef[] m_Refs;",
+        "public System.Collections.Generic.Dictionary<string, uint> m_Counts;",
+        "public System.Collections.Generic.Dictionary<string, PassAttachment> m_Attachments;",
+        "public System.Collections.Generic.Dictionary<string, NativeResourceRef> m_RefsByName;",
+        "public IBindNativeShape m_Object;",
+        "public System.Collections.Generic.Dictionary<string, IBindNativeShape> m_Objects;",
+        "internal static class GraphLikeRecordCodec",
+        "public static byte[] Serialize(GraphLikeRecord value)",
+    ],
     # codegen-native-binding-prereqs 任务 3.2：序列化块记录与容器元素记录
     "PassLike": [
         "public sealed class PassLike",
@@ -399,7 +463,17 @@ SHARED_VALUE_TYPES = {
 
 # 允许在共享公开记录里出现 `ulong` 的类型（逐项登记，不是整体取消）。
 # 判据要求：只允许**记录字段**里的 `uint64_t` 投影；接口方法里的句柄 `ulong` 仍由 check_surface 拒绝。
-SHARED_TYPES_ALLOW_ULONG = {"GPUBufferDescriptor", "NativeResourceRef", "PassLike"}
+SHARED_TYPES_ALLOW_ULONG = {"GPUBufferDescriptor", "NativeResourceRef", "PassLike", "GraphLikeRecord",
+                            # 句柄值类：它们的 `ulong Handle` 就是句柄本身（值类的定义如此）。
+                            "ImageHandle", "BufferHandle",
+                            # 元数据记录里有 `uint64_t` 字段（布局哈希/大小由原生决定）。
+                            "ShaderStructUniforms", "ShaderStructData",
+                            # 原生记录里的 `cacore::HashObj<T>` 的哈希值就是 64 位（字段名 `m_Value`
+                            # 在 C# 镜像里是 `ulong`）。
+                            "CPipelineStateObject", "ColorAttachmentsBlendStates", "ComputeBatch",
+                            "PipelineDescData", "InputAssemblyStates", "RasterizerStates",
+                            "DepthStencilStates", "RectSate", "ViewRectData", "ComputeDispatch",
+                            "DrawCallBatch"}
 
 
 REQUIRED_FIXTURE_INTERFACES = {
@@ -494,12 +568,19 @@ def check_shared_value_types(product_dir: Path) -> list[str]:
                 problems.append(f"  共享值类型 {name}：`{line}` 没有按登记顺序出现（字段/常量顺序错了）")
                 break
             cursor = found + len(line)
-        for token in ("delegate*", "void*", "IDisposable", "Api_v2", "Exception"):
+        for token in ("delegate*", "void*", "IDisposable", "Api_v2"):
             if token in text:
                 problems.append(f"  共享值类型 {name}：文件里出现了接口内部产物 `{token}`")
-        # `ulong` 只对逐项登记的"字段是 uint64_t"的记录放行；其余共享记录照旧拒绝，
-        # 免得把"句柄不许出现在公开表面"这条整体取消（任务 4.2 的口径）。
-        if name not in SHARED_TYPES_ALLOW_ULONG and re.search(r"\bulong\b", text):
+        # 异常类只挡"文件里自己定义了一个异常类型"（接口产物 `<接口>Exception` 的形态）；
+        # 编解码里 `throw new System.IO.InvalidDataException(...)` 这类 BCL 异常是正常用法
+        # （D8 的 Deserialize 要用），不能按 "Exception" 这个词一刀切。
+        if re.search(r"\bclass\s+\w+Exception\b", text):
+            problems.append(f"  共享值类型 {name}：文件里定义了异常类型（接口内部产物 `class …Exception`）")
+        # `ulong` 只对逐项登记的"字段是 uint64_t"的记录放行；**生成的数据记录镜像**（带 Codec 的
+        # 序列化块记录 / 元素记录）整体豁免：它们的 `ulong` 是数据字段（uint64 计数、NameHash 哈希、
+        # HashObj 的值），不是句柄。句柄类的公开表面（接口产物 / 托管值类）仍然照旧拒绝。
+        is_data_record = "Codec" in text and "internal static class " in text
+        if name not in SHARED_TYPES_ALLOW_ULONG and not is_data_record and re.search(r"\bulong\b", text):
             problems.append(f"  共享值类型 {name}：文件里出现了 `ulong`（只允许登记的 uint64_t 记录字段）")
     # 反向：产物目录里出现的"只有 .cs、没有 .cpp"文件必须都是登记过的共享值类型。
     for path in sorted(product_dir.glob("*.Bindings.cs")):
@@ -688,6 +769,113 @@ def check_native_shapes(product_dir: Path) -> list[str]:
         inject_text = inject_part.read_text(encoding="utf-8", errors="replace")
         if "# inject\tCAInject_IBindNativeShape_SetInjectedPointer_externalState" not in inject_text:
             problems.append("  参数注入：注入片段里没有钩子行")
+    # 1.1：内存窗参数投影（design D2）—— C ABI 两段（指针 + 长度），托管表面收 `byte[]`，
+    # 长度由托管算（`fixed` + `(ulong)data.Length`），裸指针不出现在托管表面。
+    window_abi = ('extern "C" void IBindNativeShape_UploadWindow(void* self, uint8_t const* data, '
+                  'uint64_t dataCount, uint64_t offset, int32_t copy);')
+    if window_abi not in cpp:
+        problems.append(f"  IBindNativeShape：内存窗 C ABI 不是两段（指针+长度），缺 `{window_abi}`")
+    for line in (
+        "public void UploadWindow(byte[] data, ulong offset, bool copy)",
+        "fixed (byte* dataPtr = data)",
+        "IBindNativeShapeBindings.UploadWindow(lease.Self, dataPtr, (ulong)data.Length, offset, (copy ? 1 : 0));",
+    ):
+        if line not in cs:
+            problems.append(f"  IBindNativeShape：内存窗托管表面里没有 `{line}`")
+    # 裸指针不进托管表面：这条形状的托管签名里不许出现 `IntPtr` / `void*`。
+    for line in re.findall(r"public void UploadWindow\([^)]*\)", cs):
+        if "IntPtr" in line or "void*" in line:
+            problems.append(f"  IBindNativeShape：内存窗的托管签名把裸指针暴露出来了：`{line}`")
+    # 1.2：记录两段式投影（design D8）—— C ABI 两个伴生（Len / Copy），托管表面收记录副本，
+    # 空命中 `null`，托管侧不出现裸指针。
+    for line in (
+        'extern "C" uint64_t IBindNativeShape_FindPassLen(void* self, char const* passName, '
+        'uint64_t passNameLen);',
+        'extern "C" void IBindNativeShape_CopyFindPass(void* self, char const* passName, '
+        'uint64_t passNameLen, uint8_t* dst, uint64_t cap);',
+    ):
+        if line not in cpp:
+            problems.append(f"  IBindNativeShape：记录两段式的 C ABI 里没有 `{line}`")
+    for line in (
+        "public PassLike FindPass(string passName)",
+        "ulong length = IBindNativeShapeBindings.FindPassLen(lease.Self, passNamePtr, (ulong)passNameBytes.Length);",
+        "if (length == 0UL) { return null; }",
+        "return PassLikeCodec.Deserialize(buffer);",
+    ):
+        if line not in cs:
+            problems.append(f"  IBindNativeShape：记录两段式的托管表面里没有 `{line}`")
+    for line in re.findall(r"public [^;\n]* FindPass\([^)]*\)", cs):
+        if "IntPtr" in line or "void*" in line:
+            problems.append(f"  IBindNativeShape：记录两段式的托管签名把裸指针暴露出来了：`{line}`")
+    # 1.3：模板显式实例化（design D9）—— 两个声明形态各出具体槽 + 托管同名重载；
+    # 未声明的形态（double）在任何表面里 MUST 0 命中。
+    for line in (
+        'extern "C" uint32_t IBindNativeShape_TemplatedValue_uint32_t(void* self, uint32_t value);',
+        'extern "C" uint32_t IBindNativeShape_TemplatedValue_float(void* self, float value);',
+    ):
+        if line not in cpp:
+            problems.append(f"  IBindNativeShape：模板实例化的 C ABI 里没有 `{line}`")
+    for line in (
+        "public uint TemplatedValue(uint value)",
+        "public uint TemplatedValue(float value)",
+    ):
+        if line not in cs:
+            problems.append(f"  IBindNativeShape：模板实例化的托管表面里没有 `{line}`")
+    if "TemplatedValue_double" in cpp or "TemplatedValue(double" in cs:
+        problems.append("  IBindNativeShape：未声明的模板形态 double 进了表面（D9 只允许声明过的形态）")
+    # 1.5：图形状序列化（design D11）—— 三类元素进序列化块：值类容器 / 命名映射 / 接口对象引用。
+    graph_abi = ('extern "C" void IBindNativeShape_ConsumeGraphShape(void* self, '
+                 'uint8_t const* shapeBytes, uint64_t shapeLen);')
+    if graph_abi not in cpp:
+        problems.append(f"  IBindNativeShape：图形状的 C ABI 里没有 `{graph_abi}`")
+    if "public void ConsumeGraphShape(GraphLikeRecord shape)" not in cs:
+        problems.append("  IBindNativeShape：图形状的托管表面里没有 `public void ConsumeGraphShape(GraphLikeRecord shape)`")
+    graph_path = product_dir / "GraphLikeRecord.Bindings.cs"
+    if not graph_path.is_file():
+        problems.append("  图形状序列化：缺 GraphLikeRecord.Bindings.cs")
+    else:
+        graph_cs = graph_path.read_text(encoding="utf-8", errors="replace")
+        for line in (
+            "public NativeResourceRef[] m_Refs;",
+            "public System.Collections.Generic.Dictionary<string, uint> m_Counts;",
+            "public System.Collections.Generic.Dictionary<string, PassAttachment> m_Attachments;",
+            "public System.Collections.Generic.Dictionary<string, NativeResourceRef> m_RefsByName;",
+            "public IBindNativeShape m_Object;",
+            "public System.Collections.Generic.Dictionary<string, IBindNativeShape> m_Objects;",
+            # ① 值类元素的写线形；② 值类的三段线形；③ 接口引用按句柄
+            # （局部名带字段后缀 —— 嵌套记录三层时 C# 不许同名局部变量重复声明）
+            "writer.Write(item_m_Refs.Kind);",
+            "writer.Write(pair_m_RefsByName.Value.Kind);",
+            "writer.Write((ulong)(pair_m_Objects.Value == null ? 0UL : (ulong)pair_m_Objects.Value.Token));",
+            "writer.Write((ulong)(value.m_Object == null ? 0UL : (ulong)value.m_Object.Token));",
+        ):
+            if line not in graph_cs:
+                problems.append(f"  图形状序列化：GraphLikeRecord.Bindings.cs 里没有 `{line}`")
+    graph_codec = product_dir / "GraphLikeRecord.BindingCodec.h"
+    if not graph_codec.is_file():
+        problems.append("  图形状序列化：缺 GraphLikeRecord.BindingCodec.h（C++ 反序列化入口）")
+    else:
+        graph_cpp = graph_codec.read_text(encoding="utf-8", errors="replace")
+        for line in ("BindingHandleResolver resolver", "reader.resolver.resolve", "return 12u;"):
+            if line not in graph_cpp:
+                problems.append(f"  图形状序列化：C++ 编解码头里没有 `{line}`")
+        if "BAD_OBJECT_HANDLE" not in cpp:
+            problems.append("  图形状序列化：产物里没有 ERROR_BAD_OBJECT_HANDLE（查无句柄的错误码 1011）")
+    # 1.6：返回位置标量容器两段式（D13）—— Count + Copy 两个伴生 + 托管数组表面。
+    count_abi = 'extern "C" uint64_t IBindNativeShape_GetPassIndicesCount(void* self);'
+    copy_abi = ('extern "C" void IBindNativeShape_CopyGetPassIndices(void* self, uint8_t* dst, '
+                'uint64_t cap);')
+    for line in (count_abi, copy_abi):
+        if line not in cpp:
+            problems.append(f"  IBindNativeShape：标量容器两段式的 C ABI 里没有 `{line}`")
+    if "public uint[] GetPassIndices()" not in cs:
+        problems.append("  IBindNativeShape：标量容器两段式的托管表面里没有 `public uint[] GetPassIndices()`")
+    for line in ("ulong count = IBindNativeShapeBindings.GetPassIndicesCount(lease.Self);",
+                 "return new uint[0];",
+                 "(ulong)values.Length * 4UL",
+                 "return values;"):
+        if line not in cs:
+            problems.append(f"  IBindNativeShape：标量容器两段式的托管表面里没有 `{line}`")
     return problems
 
 
@@ -911,9 +1099,11 @@ def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str],
             continue
         for member in members:
             if member not in thunks:
-                # 两段式伴生的两个槽（`<方法>Len` / `Copy<方法>`）没有 thunk —— 它们的实现体直接调
-                # 接口方法。按命名认它们；"真方法漏了 thunk"由 check_coverage 对着期望文件抓。
-                is_two_step = member.endswith("Len") or member.startswith("Copy")
+                # 两段式伴生的两个槽（`<方法>Len` / `Copy<方法>`，以及本批 1.6/D13 的
+                # `<方法>Count` / `Copy<方法>`）没有 thunk —— 它们的实现体直接调接口方法。
+                # 按命名认它们；"真方法漏了 thunk"由 check_coverage 对着期望文件抓。
+                is_two_step = (member.endswith("Len") or member.startswith("Copy")
+                               or member.endswith("Count"))
                 if is_two_step:
                     continue
                 structure_problems.append(
@@ -921,7 +1111,9 @@ def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str],
                 continue
             projected, body = thunks[member]
             projected_void = projected == "void"
-            if thunk_is_stub(body, projected_void):
+            # `Create` 是工厂槽：它的 thunk 就是 `new <类>()`（没有 `object->` 调用），
+            # 按"桩"判会误报（实测 `GPUGraph::Create：thunk 体内没有真正调用实现（桩）`）。
+            if thunk_is_stub(body, projected_void) and member != "Create":
                 if is_real:
                     real_problems.append(f"  {interface}::{member}：thunk 体内没有真正调用实现（桩）")
                 else:
@@ -1104,6 +1296,38 @@ def check_alignment(product_dir: Path) -> list[str]:
         skip = two_step_bases.get(interface, set())
         members = [name for name in members if name not in skip]
         expected = cpp_pairs.get(interface, [])
+        if interface in NATIVE_INTERFACES:
+            # 原生四类的函数表名带重载后缀（`SetImage_2`）与实例化形态（`SetValue_float3`）：
+            # 都归一到表面里的同名成员再比**多重集**（重载/实例化的顺序不是契约，个数是）。
+            base_names = sorted(set(members), key=len, reverse=True)
+            normalized = []
+            seen_two_step: set[str] = set()
+            for name in expected:
+                # 两段式伴生槽（`<方法>Len` / `<方法>Count` / `Copy<方法>`）与主方法合成**一个**成员：
+                # 它们在 C# 表面就是同一个方法（`GetPassIndices()` / `GetName()` 等）。
+                two_step_base = None
+                if name.endswith("Len") and name[:-3] in base_names:
+                    two_step_base = name[:-3]
+                elif name.endswith("Count") and name[:-5] in base_names:
+                    two_step_base = name[:-5]
+                elif name.startswith("Copy") and name[4:] in base_names:
+                    two_step_base = name[4:]
+                if two_step_base is not None:
+                    if two_step_base in seen_two_step:
+                        continue
+                    seen_two_step.add(two_step_base)
+                base = two_step_base or next(
+                    (candidate for candidate in base_names
+                     if name == candidate or name.startswith(candidate + "_")), name)
+                normalized.append(base)
+            if sorted(normalized) == sorted(members):
+                continue
+            only_expected = [name for name in normalized if name not in members]
+            only_actual = [name for name in members if name not in normalized]
+            problems.append(f"  {interface}（表面层）：C++ 多 {only_expected or '无'}，"
+                            f"C# 表面多 {only_actual or '无'}（归一后 C++ {sorted(normalized)} / "
+                            f"C# {sorted(members)}）")
+            continue
         if members == expected:
             continue
         only_expected = [name for name in expected if name not in members]
@@ -1179,6 +1403,34 @@ def type_blocks(text: str) -> list[dict]:
     return blocks
 
 
+HANDLE_NAME_RE = re.compile(r"(?i)(handle|token|lease|self|registration)$")
+RETURN_ULONG_RE = re.compile(r"\bpublic\b[^()]*\bulong\s+\w+\s*\(")
+
+
+def public_ulong_problems(interface: str, block: dict) -> list[str]:
+    """public 类型体里的 `ulong` 判据（口径细化：只挡句柄，不挡真标量）。
+
+    原口径是"public 类型体里出现 `ulong` 即失败"（句柄必须包成表面对象）。绑定面换到原生接口后，
+    `uint64_t` 的真标量参数（`GPUGraph::ScheduleData` 的 offset、`CreateGPUBuffer` 的长度）
+    也会投影成 `ulong` —— 一刀切会把合法标量判红。句柄在生成物里有固定命名：参数叫
+    `<名>Handle`（弱/强/借用解析出来的）或 `<名>Token`，租约字段叫 `<X>Lease`，
+    返回值位置直接是句柄。这里按这两个位置判，句柄仍然过不去。
+    """
+    problems: list[str] = []
+    for line in block["body"].splitlines():
+        if "ulong" not in line:
+            continue
+        stripped = line.strip()
+        if RETURN_ULONG_RE.search(stripped):
+            problems.append(f"  {interface}：public 类型 `{block['name']}` 的返回值里出现了 `ulong`（句柄）")
+            continue
+        for name in re.findall(r"\bulong\s+(\w+)", stripped):
+            if HANDLE_NAME_RE.search(name):
+                problems.append(
+                    f"  {interface}：public 类型 `{block['name']}` 的参数 `{name}` 是 `ulong`（句柄形态）")
+    return problems
+
+
 def check_surface(product_dir: Path) -> list[str]:
     """托管表面判据（任务 5.2 / 5.6）。
 
@@ -1214,8 +1466,7 @@ def check_surface(product_dir: Path) -> list[str]:
             for token in ("delegate*", "void*"):
                 if token in block["body"]:
                     problems.append(f"  {interface}：public 类型 `{block['name']}` 里出现了 `{token}`")
-            if re.search(r"\bulong\b", block["body"]):
-                problems.append(f"  {interface}：public 类型 `{block['name']}` 里出现了 `ulong`（句柄）")
+            problems.extend(public_ulong_problems(interface, block))
         exceptions = [block for block in public_blocks if block["name"] == f"{interface}Exception"]
         if not exceptions:
             problems.append(f"  {interface}：没有 `public sealed class {interface}Exception`")
@@ -1241,10 +1492,74 @@ def check_surface(product_dir: Path) -> list[str]:
             problems.append(f"  {interface}：接口头里找不到 `class {interface}`")
             continue
         expected = len(VIRTUAL_RE.findall(body)) - len(SKIP_RE.findall(body))
+        if interface in NATIVE_INTERFACES:
+            # 原生四类（csharp-native-direct-binding 2.2）：方法名会被重载后缀（`SetImage_2`）和
+            # 实例化形态（`SetValue_float3` / `SetValue_float`）加长，表面里则是同名重载 ⇒
+            # 计条数的旧公式不适用。这里判**名字级**：表面里出现的每个方法名都必须能在头里找到
+            # 同名公开声明（模板方法按 `CA_BIND_INSTANTIATE` 声明算一个名字）；头里声明的名字，
+            # 除被 `CA_BIND_SKIP` 排除的以外，都必须在表面里出现。
+            names = native_header_method_names(interface, body)
+            # `CA_BIND_SKIP` 写在类体之后（本批的接口头都这么写）：从**整份头文本**取名字。
+            skipped = set(re.findall(r"CA_BIND_SKIP\s*\(\s*(\w+)\s*,",
+                                     header.read_text(encoding="utf-8", errors="replace")))
+            # `Create` 是生成器给"带公开默认构造的非抽象类"发的工厂槽（csharp-bindings 主规范
+            # 要求），不是头里的方法：名字级判据放行它。
+            extra = sorted({name for name in members if name not in names and name != "Create"})
+            missing = sorted({name for name in names if name not in members and name not in skipped})
+            if extra:
+                problems.append(f"  {interface}：托管表面出现头里没有的方法 {extra}")
+            if missing:
+                problems.append(f"  {interface}：头里声明的方法没进托管表面 {missing}")
+            continue
         if len(members) != expected:
             problems.append(f"  {interface}：表面成员 {len(members)} 个，期望 {expected} 个"
                             f"（纯虚 {len(VIRTUAL_RE.findall(body))} 条 − 排除 {len(SKIP_RE.findall(body))} 条）")
     return problems
+
+
+NATIVE_INTERFACES = {"CRenderBackend", "GPUGraph", "ShaderStruct", "GPUTexture"}
+NATIVE_METHOD_NAME_RE = re.compile(r"(\w+)\s*\(")
+
+
+def native_header_method_names(interface: str, body: str) -> set[str]:
+    """原生接口头里的公开方法名集合（含带默认参数的通道构造之外的普通方法；模板方法按
+    `CA_BIND_INSTANTIATE` 声明算一个名字）。解析口径与 `check_bindable_audit.py` 的
+    `header_methods` 同源：按访问标号切段，只留 public 段。这里只回集合，用于"表面方法名能否
+    在头里找到"的判据。"""
+    inner = body.strip()
+    if inner.startswith("{"):
+        inner = inner[1:]
+    if inner.endswith("}"):
+        inner = inner[:-1]
+    inner = re.sub(r"\{[^{}]*\}", ";", inner)
+    names: set[str] = set()
+    visibility = "private"
+    for segment in re.split(r"\b(public|private|protected)\s*:", inner):
+        if segment in ("public", "private", "protected"):
+            visibility = segment
+            continue
+        if visibility != "public":
+            continue
+        for decl in segment.split(";"):
+            text = decl.strip()
+            if not text or "(" not in text:
+                continue
+            if text.startswith(("static_assert", "CA_", "friend", "using", "typedef")):
+                continue
+            if text.startswith("template"):
+                rest = text[text.find(">") + 1:] if ">" in text else ""
+                match = NATIVE_METHOD_NAME_RE.search(rest)
+                if match:
+                    names.add(match.group(1))
+                continue
+            match = NATIVE_METHOD_NAME_RE.search(text)
+            if not match:
+                continue
+            name = match.group(1)
+            if name.startswith("~") or name == interface:
+                continue
+            names.add(name)
+    return names
 
 
 def check_surface_matrix(product_dir: Path) -> list[str]:
@@ -1275,149 +1590,16 @@ def check_surface_matrix(product_dir: Path) -> list[str]:
     return problems
 
 
-def check_render_bridge_surface(product_dir: Path) -> list[str]:
-    """脚本渲染适配面的公开签名与 C ABI 形状（csharp-render-backend-triangle 任务 4.2；
-    csharp-render-shader-constants 任务 4.2 追加参数结构接口与三个新方法）。
-
-    两半都判：
-      ① 托管表面里逐字出现的方法签名 —— 名字一样但 `byte[]` 退化成 `byte*`、`int` 状态退化成
-         `void`、或 `IScriptShaderStruct` 参数换成 `IntPtr`/`ulong`，名字判据都抓不住；
-      ② 生成的 `extern "C"` 声明逐字等于期望形状（含 `GPUBufferDescriptorC const*`、
-         `uint8_t const* + uint64_t` 的同步字节参数、`SetPassParam` 的目标句柄参数）。
-    """
-    problems: list[str] = []
-    surface_expected = {
-        "IScriptRenderTarget.Bindings.cs": [
-            "public uint GetWidth()",
-            "public uint GetHeight()",
-            "public bool IsBackbuffer()",
-        ],
-        "IScriptRenderGraph.Bindings.cs": [
-            "public int AddBuffer(string name, GPUBufferDescriptor descriptor, byte[] data)",
-            "public int SetPositionColorStream(string streamName, uint stride, uint positionOffset, "
-            "uint colorOffset)",
-            "public int SetPositionStream(string streamName, uint stride, uint positionOffset)",
-            "public int SetPositionTextureStream(string streamName, uint stride, uint positionOffset, "
-            "uint texcoordOffset)",
-            "public int SetPassParam(uint passIndex, string blockName, IScriptShaderStruct parameters)",
-            "public int AddTrianglePass(IScriptRenderTarget target, string shaderPath, string streamName, "
-            "string bufferName, uint vertexCount, float red, float green, float blue, float alpha)",
-            "public int Present(IScriptRenderTarget target)",
-            "public uint GetPassCount()",
-            "public string GetLastError()",
-        ],
-        "IScriptRenderBackend.Bindings.cs": [
-            "public IScriptRenderTarget GetWindowTarget(IWindow window)",
-            "public IScriptRenderTarget CreateCaptureTarget(uint width, uint height)",
-            "public IScriptRenderGraph CreateGraph()",
-            "public IScriptShaderStruct CreateShaderStruct(string structTypeName)",
-            "public IScriptTexture CreateTexture(string name, uint width, uint height, byte[] rgba)",
-            "public int SubmitGraph(IScriptRenderGraph graph)",
-            "public void WaitIdle()",
-            "public string GetLastError()",
-        ],
-        # csharp-render-shader-constants 任务 4.2：第四个脚本接口的完整公开表面。
-        # csharp-render-structured-buffer 任务 4.2：追加 `SetBuffer`（两个 string 入参、返回 int）。
-        # csharp-render-texture-sampling 任务 4.2：追加 `SetImage` / `SetSampler`（纹理解口表面对象与
-        # 公开记录入参，`int` 状态不许退化成 void）。
-        "IScriptShaderStruct.Bindings.cs": [
-            "public int SetFloat3(string field, float x, float y, float z)",
-            "public int SetStruct(string field, IScriptShaderStruct sub, uint elementIndex)",
-            "public int SetBuffer(string field, string bufferName)",
-            "public int SetImage(string field, IScriptTexture texture)",
-            "public int SetSampler(string field, TextureSamplerDescriptor sampler)",
-            "public string GetLastError()",
-        ],
-        # csharp-render-texture-sampling 任务 4.2：第五个脚本接口（只读纹理）的完整公开表面。
-        "IScriptTexture.Bindings.cs": [
-            "public uint GetWidth()",
-            "public uint GetHeight()",
-        ],
-    }
-    for filename, signatures in surface_expected.items():
-        path = product_dir / filename
-        if not path.is_file():
-            problems.append(f"  脚本渲染适配面：缺 {filename}")
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for signature in signatures:
-            if signature not in text:
-                problems.append(f"  {filename}：公开表面没有 `{signature}`")
-
-    cpp_expected = {
-        "IScriptRenderGraph_AddBuffer":
-            'extern "C" int32_t IScriptRenderGraph_AddBuffer(void* self, char const* name, '
-            'uint64_t nameLen, GPUBufferDescriptorC const* descriptor, uint8_t const* data, '
-            'uint64_t dataCount)',
-        "IScriptRenderGraph_SetPositionColorStream":
-            'extern "C" int32_t IScriptRenderGraph_SetPositionColorStream(void* self, '
-            'char const* streamName, uint64_t streamNameLen, uint32_t stride, uint32_t positionOffset, '
-            'uint32_t colorOffset)',
-        "IScriptRenderGraph_AddTrianglePass":
-            'extern "C" int32_t IScriptRenderGraph_AddTrianglePass(void* self, uint64_t targetHandle, '
-            'char const* shaderPath, uint64_t shaderPathLen, char const* streamName, '
-            'uint64_t streamNameLen, char const* bufferName, uint64_t bufferNameLen, '
-            'uint32_t vertexCount, float red, float green, float blue, float alpha)',
-        "IScriptRenderBackend_GetWindowTarget":
-            'extern "C" uint64_t IScriptRenderBackend_GetWindowTarget(void* self, uint64_t windowHandle)',
-        "IScriptRenderBackend_SubmitGraph":
-            'extern "C" int32_t IScriptRenderBackend_SubmitGraph(void* self, uint64_t graphHandle)',
-        # csharp-render-shader-constants 任务 4.2：参数结构接口与三个新方法的 C ABI 形状。
-        "IScriptRenderGraph_SetPositionStream":
-            'extern "C" int32_t IScriptRenderGraph_SetPositionStream(void* self, char const* streamName, '
-            'uint64_t streamNameLen, uint32_t stride, uint32_t positionOffset)',
-        "IScriptRenderGraph_SetPassParam":
-            'extern "C" int32_t IScriptRenderGraph_SetPassParam(void* self, uint32_t passIndex, '
-            'char const* blockName, uint64_t blockNameLen, uint64_t parametersHandle)',
-        "IScriptRenderBackend_CreateShaderStruct":
-            'extern "C" uint64_t IScriptRenderBackend_CreateShaderStruct(void* self, '
-            'char const* structTypeName, uint64_t structTypeNameLen)',
-        "IScriptShaderStruct_SetFloat3":
-            'extern "C" int32_t IScriptShaderStruct_SetFloat3(void* self, char const* field, '
-            'uint64_t fieldLen, float x, float y, float z)',
-        "IScriptShaderStruct_SetStruct":
-            'extern "C" int32_t IScriptShaderStruct_SetStruct(void* self, char const* field, '
-            'uint64_t fieldLen, uint64_t subHandle, uint32_t elementIndex)',
-        # csharp-render-structured-buffer 任务 4.2：`SetBuffer` 的 C ABI 形状（两个名字各带长度）。
-        "IScriptShaderStruct_SetBuffer":
-            'extern "C" int32_t IScriptShaderStruct_SetBuffer(void* self, char const* field, '
-            'uint64_t fieldLen, char const* bufferName, uint64_t bufferNameLen)',
-        # csharp-render-texture-sampling 任务 4.2：纹理创建 / 绑定 / 顶点流的 C ABI 形状。
-        # `CreateTexture` 的字节数组沿用 `AddBuffer` 的先例（`uint8_t const* + uint64_t count`）。
-        "IScriptRenderBackend_CreateTexture":
-            'extern "C" uint64_t IScriptRenderBackend_CreateTexture(void* self, char const* name, '
-            'uint64_t nameLen, uint32_t width, uint32_t height, uint8_t const* rgba, '
-            'uint64_t rgbaCount)',
-        "IScriptShaderStruct_SetImage":
-            'extern "C" int32_t IScriptShaderStruct_SetImage(void* self, char const* field, '
-            'uint64_t fieldLen, uint64_t textureHandle)',
-        "IScriptShaderStruct_SetSampler":
-            'extern "C" int32_t IScriptShaderStruct_SetSampler(void* self, char const* field, '
-            'uint64_t fieldLen, TextureSamplerDescriptorC const* sampler)',
-        "IScriptRenderGraph_SetPositionTextureStream":
-            'extern "C" int32_t IScriptRenderGraph_SetPositionTextureStream(void* self, '
-            'char const* streamName, uint64_t streamNameLen, uint32_t stride, uint32_t positionOffset, '
-            'uint32_t texcoordOffset)',
-    }
-    generated = read_generated(product_dir)
-    for symbol, expected in cpp_expected.items():
-        actual = generated.get(symbol)
-        if actual is None:
-            problems.append(f"  脚本渲染适配面：C ABI 里没有 {symbol}")
-        elif normalize(actual) != normalize(expected):
-            problems.append(f"  {symbol}：C ABI 形状不符\n    期望 {normalize(expected)}\n    实际 {normalize(actual)}")
-    return problems
-
-
 ERROR_CODE_TABLE = {1001: "STALE_HANDLE", 1002: "NULL_POINTER",
                     1003: "CALLBACK_EXCEPTION", 1004: "CALLBACK_REENTRANT",
                     1005: "CALLBACK_WRONG_THREAD", 1006: "INVALID_MONITOR",
                     # codegen-native-binding-prereqs 任务 3.2：序列化块四项
                     1007: "BAD_BLOCK_VERSION", 1008: "BAD_BLOCK_TYPE",
-                    1009: "BAD_BLOCK_LAYOUT", 1010: "BAD_BLOCK_PAYLOAD"}
+                    1009: "BAD_BLOCK_LAYOUT", 1010: "BAD_BLOCK_PAYLOAD",
+                    # csharp-native-direct-binding 2.2：序列化块里的对象句柄查不到
+                    1011: "BAD_OBJECT_HANDLE"}
 ERROR_CONST_RE = re.compile(r"static const int32_t (\w+?)_ERROR_(\w+) = (\d+);")
 SET_ERROR_RE = re.compile(r"\w+_setError\(\s*[^,]+,\s*([A-Za-z_]\w*|\d+)\s*,")
-
 
 def check_error_codes(product_dir: Path) -> list[str]:
     """错误码判据（任务 5.8）：生成器发出的每个码都必须在码表里，且不许是裸字面量。
@@ -1464,10 +1646,10 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
     四类断言：
       ① 编号对账：生成物里的「编号 → 接口完整限定名」必须与期望表逐项相同（缺 / 多 / 改号 /
          换限定名都报，并点名差异）；
-      ② `EngineApi` 形状：C++ struct 恰好 14 个字段、顺序与 `ENGINE_API_FIELD_PAIRS` 相同、
-         `static_assert(sizeof(EngineApi) == 80u`、`kEngineApiVersion = 9`、`kEngineApiSize = 80`；
-      ③ 同一次生成的托管对照：`EngineApiMirror` 恰好 14 个字段、顺序与 C++ 侧逐字段对上，
-         `AbiVersion = 9`、`Size = 80`、逐接口编号常量与 ① 一致；
+      ② `EngineApi` 形状：C++ struct 恰好 9 个字段、顺序与 `ENGINE_API_FIELD_PAIRS` 相同、
+         `static_assert(sizeof(EngineApi) == 56u`、`kEngineApiVersion = 10`、`kEngineApiSize = 56`；
+      ③ 同一次生成的托管对照：`EngineApiMirror` 恰好 9 个字段、顺序与 C++ 侧逐字段对上，
+         `AbiVersion = 10`、`Size = 56`、逐接口编号常量与 ① 一致；
       ④ （主登记表）装配代码里 7 个编号字段必须引用生成常量，不许回落到 0。
     """
     problems: list[str] = []
@@ -1516,12 +1698,12 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
         problems.append("  登记表：一个编号都没读到")
 
     # ② C++ EngineApi 形状
-    if re.search(r"inline constexpr uint32_t kEngineApiVersion = 9u;", header) is None:
-        problems.append("  登记表：kEngineApiVersion 不是 9u")
-    if re.search(r"inline constexpr uint32_t kEngineApiSize = 80u;", header) is None:
-        problems.append("  登记表：kEngineApiSize 不是 80u")
-    if "static_assert(sizeof(EngineApi) == 80u" not in header:
-        problems.append("  登记表：缺 `static_assert(sizeof(EngineApi) == 80u`")
+    if re.search(r"inline constexpr uint32_t kEngineApiVersion = 10u;", header) is None:
+        problems.append("  登记表：kEngineApiVersion 不是 10u")
+    if re.search(r"inline constexpr uint32_t kEngineApiSize = 56u;", header) is None:
+        problems.append("  登记表：kEngineApiSize 不是 56u")
+    if "static_assert(sizeof(EngineApi) == 56u" not in header:
+        problems.append("  登记表：缺 `static_assert(sizeof(EngineApi) == 56u`")
     struct_match = ENGINE_API_STRUCT_RE.search(header)
     if struct_match is None:
         problems.append("  登记表：找不到 `struct EngineApi { ... };`")
@@ -1532,18 +1714,18 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
             cpp_fields.append(function_name or variable_name)
         expected_cpp = [cpp for cpp, _cs in ENGINE_API_FIELD_PAIRS]
         if cpp_fields != expected_cpp:
-            problems.append(f"  登记表：C++ EngineApi 字段 {cpp_fields} 与期望 14 字段 {expected_cpp} 不一致")
-        if len(cpp_fields) != 14:
-            problems.append(f"  登记表：C++ EngineApi 字段数是 {len(cpp_fields)}，期望 14")
+            problems.append(f"  登记表：C++ EngineApi 字段 {cpp_fields} 与期望 9 字段 {expected_cpp} 不一致")
+        if len(cpp_fields) != 9:
+            problems.append(f"  登记表：C++ EngineApi 字段数是 {len(cpp_fields)}，期望 9")
         for declaration in ENGINE_API_FIELD_DECLARATIONS:
             if ("    " + declaration) not in header:
                 problems.append(f"  登记表：EngineApi 缺少逐字声明 `{declaration}`")
 
     # ③ 托管对照
-    if "public const uint AbiVersion = 9;" not in cs:
-        problems.append("  登记表：C# 侧 AbiVersion 不是 9")
-    if "public const uint Size = 80;" not in cs:
-        problems.append("  登记表：C# 侧 Size 不是 80")
+    if "public const uint AbiVersion = 10;" not in cs:
+        problems.append("  登记表：C# 侧 AbiVersion 不是 10")
+    if "public const uint Size = 56;" not in cs:
+        problems.append("  登记表：C# 侧 Size 不是 56")
     mirror_match = ENGINE_API_MIRROR_RE.search(cs)
     if mirror_match is None:
         problems.append("  登记表：找不到 `struct EngineApiMirror { ... }`")
@@ -1552,9 +1734,9 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
         cs_fields = re.findall(r"^\s*public\s+[^;=]+\s+(\w+)\s*;", mirror_match.group(1), re.M)
         expected_cs = [cs for _cpp, cs in ENGINE_API_FIELD_PAIRS]
         if cs_fields != expected_cs:
-            problems.append(f"  登记表：C# EngineApiMirror 字段 {cs_fields} 与期望 14 字段 {expected_cs} 不一致")
-        if len(cs_fields) != 14:
-            problems.append(f"  登记表：C# EngineApiMirror 字段数是 {len(cs_fields)}，期望 14")
+            problems.append(f"  登记表：C# EngineApiMirror 字段 {cs_fields} 与期望 9 字段 {expected_cs} 不一致")
+        if len(cs_fields) != 9:
+            problems.append(f"  登记表：C# EngineApiMirror 字段数是 {len(cs_fields)}，期望 9")
     if "public const uint TableVersion = 2;" not in cs:
         problems.append("  登记表：C# 侧 TableVersion 不是 2（生成接口表版本必须保持 2）")
     for number, qualified in sorted(expected_numbers.items()):
@@ -1567,16 +1749,13 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
     if len(table_entries) != len(expected_numbers):
         problems.append(f"  登记表：C# 绑定清单条目 {len(table_entries)} 个，期望 {len(expected_numbers)} 个")
 
-    # ④ 主登记表：7 个编号字段必须装配到生成常量（不是 0）
+    # ④ 主登记表：EngineApi 的编号字段必须装配到生成常量（不是 0）。
+    # 6.2 的 ABI v10：桥五类的五个编号字段已从 struct 删除（布局 14 字段 / 80 字节 → 9 字段 / 56 字节），
+    # 现在只剩两个窗口字段需要配对生成常量。
     if require_engine_api_ids:
         assembly = [
             "api.window_interface_id = kBindingInterfaceIdIWindow;",
             "api.window_system_interface_id = kBindingInterfaceIdIWindowSystem;",
-            "api.script_render_backend_interface_id = kBindingInterfaceIdIScriptRenderBackend;",
-            "api.script_render_graph_interface_id = kBindingInterfaceIdIScriptRenderGraph;",
-            "api.script_render_target_interface_id = kBindingInterfaceIdIScriptRenderTarget;",
-            "api.script_shader_struct_interface_id = kBindingInterfaceIdIScriptShaderStruct;",
-            "api.script_texture_interface_id = kBindingInterfaceIdIScriptTexture;",
         ]
         for line in assembly:
             if line not in cpp:
@@ -1745,13 +1924,9 @@ def main() -> int:
         print(problem, file=sys.stderr)
     print(f"原生形态夹具问题 {len(native_shape_problems)} 处")
 
-    # ---- 脚本渲染适配面的公开签名与 C ABI 形状（本 change 任务 4.2）----
-    render_bridge_problems = check_render_bridge_surface(product_dir)
-    for problem in render_bridge_problems:
-        print(problem, file=sys.stderr)
-    print(f"脚本渲染适配面问题 {len(render_bridge_problems)} 处")
+    # 5.1：桥与它的表面判据一起退役（原生五类表面的判据在 check_surface_matrix / 原生夹具里）。
 
-    # ---- 登记表（本 change 任务 1.3）：编号对账 + EngineApi 两侧 14 字段 + v9 / 80 字节 ----
+    # ---- 登记表（本 change 任务 1.3 / 6.2）：编号对账 + EngineApi 两侧 9 字段 + v10 / 56 字节 ----
     registry_problems = check_registry(product_dir, host_numbers,
                                        require_engine_api_ids=True, contiguous_from=1)
     for problem in registry_problems:
@@ -1769,7 +1944,7 @@ def main() -> int:
     failed = bool(mismatches or alignment_problems or stub_problems
                   or dropped_problems or structure_problems or coverage_problems or surface_problems
                   or matrix_problems or code_problems or shared_problems or foundation_problems
-                  or qualified_problems or fixture_problems or render_bridge_problems
+                  or qualified_problems or fixture_problems
                   or registry_problems or fixture_registry_problems
                   or fixture_dropped or native_shape_problems)
     return 1 if failed else 0

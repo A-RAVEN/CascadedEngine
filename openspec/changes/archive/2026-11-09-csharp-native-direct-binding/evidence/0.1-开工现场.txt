@@ -1,0 +1,161 @@
+csharp-native-direct-binding 0.1 开工现场（三张清单重跑）
+生成时间：2026-11-08 23:15:42
+执行者：apply 子 agent
+
+一、通读记录（四份工件 + design D1–D10）
+
+| 文件 | 行数 |
+|---|---|
+| proposal.md | 34 |
+| design.md | 52 |
+| tasks.md | 61 |
+| specs/csharp-native-render-binding/spec.md | 33 |
+| specs/csharp-rendering/spec.md | 52 |
+| specs/csharp-host/spec.md | 31 |
+| specs/csharp-bindings/spec.md | 12 |
+| specs/csharp-bindable-surface/spec.md | 32 |
+
+D1–D10 逐条已读：D1 快照重跑制、D2 字节窗参数投影、D3 退役程序=删除+残留零判据、D4 换锚与 ABI 递增、D5 桥方法对账表、D6 前置校验防线迁托管糖层、D7 IScriptHost 不在退役面、D8 元数据两段式投影、D9 CA_BIND_INSTANTIATE、D10 锁槽位原地置换。
+tasks.md 共 18 条任务（0.1、1.1–1.4、2.1–2.3、3.1、4.1–4.2、5.1–5.2、6.1–6.2、7.1–7.3），末尾「修订记录」13 条已读。
+
+二、清单 1：ScriptRenderBridge.h 的 virtual 行 / 纯虚方法 / 虚析构
+
+命令（工作目录 E:\Projects\CascadedEngine）：
+$p='Interface/RenderInterface/header/ScriptRenderBridge.h'; $lines=Get-Content -LiteralPath $p;
+"total_lines=$($lines.Count)";
+"virtual_lines=$(($lines | Select-String -Pattern '^\s*virtual' ).Count)";
+"pure_virtual=$(($lines | Select-String -Pattern '=\s*0;' -AllMatches | ForEach-Object { $_.Matches.Count } | Measure-Object -Sum).Sum)";
+"virtual_dtor=$(($lines | Select-String -Pattern 'virtual\s+~').Count)";
+$cur=''; $counts=@{}; $order=@();
+foreach($l in $lines){ if($l -match '^\s*class\s+(I\w+)'){ $cur=$Matches[1]; if(-not $counts.ContainsKey($cur)){$counts[$cur]=0;$order+=$cur} } elseif($cur -ne '' -and $l -match '^\s*virtual'){ $counts[$cur]++ } };
+foreach($k in $order){ "class $k virtual=$($counts[$k])" }
+
+原始读数：
+total_lines=144
+virtual_lines=33
+pure_virtual=28
+virtual_dtor=5
+class IWindow virtual=0
+class IScriptTexture virtual=3
+class IScriptRenderTarget virtual=4
+class IScriptShaderStruct virtual=7
+class IScriptRenderGraph virtual=10
+class IScriptRenderBackend virtual=9
+
+逐方法清单（28 个纯虚，行号=头文件当前行号；5 个虚析构单列不计）：
+IScriptTexture（2 纯虚 + 1 析构 L38）：L36 GetWidth、L37 GetHeight
+IScriptRenderTarget（3 纯虚 + 1 析构 L48）：L45 GetWidth、L46 GetHeight、L47 IsBackbuffer
+IScriptShaderStruct（6 纯虚 + 1 析构 L79）：L57 SetFloat3、L60 SetStruct、L67 SetBuffer、L72 SetImage、L76 SetSampler、L78 GetLastError
+IScriptRenderGraph（9 纯虚 + 1 析构 L117）：L87 AddBuffer、L90 SetPositionColorStream、L95 SetPositionStream、L101 SetPositionTextureStream、L107 SetPassParam、L109 AddTrianglePass、L114 Present、L115 GetPassCount、L116 GetLastError
+IScriptRenderBackend（8 纯虚 + 1 析构 L142）：L124 GetWindowTarget、L126 CreateCaptureTarget、L128 CreateGraph、L133 CreateTexture、L137 CreateShaderStruct、L139 SubmitGraph、L140 WaitIdle、L141 GetLastError
+合计：2+3+6+9+8 = 28 纯虚；28+5 = 33 virtual 行。
+
+结论：与工件口径（28 纯虚 / 33 virtual 行 / 5 虚析构不计）一致。
+
+三、清单 2：宿主 kBindingPolicies[] 桥行数
+
+命令：
+$p='CSharpHost/private/CSharpHost.cpp'; $lines=Get-Content -LiteralPath $p;
+$start=($lines | Select-String -Pattern 'kBindingPolicies\[\] = \{' | Select-Object -First 1).LineNumber;
+$end=($lines | Select-String -Pattern '^\s*\};' | Where-Object { $_.LineNumber -gt $start } | Select-Object -First 1).LineNumber;
+"array_start=$start array_end=$end"; $body=$lines[($start-1)..($end-1)]; $body;
+"total_entries=$(($body | Select-String -Pattern '^\s*\{ kBindingInterfaceId').Count)";
+"bridge_entries=$(($body | Select-String -Pattern 'kBindingInterfaceIdIScript').Count)";
+"window_entries=$(($body | Select-String -Pattern 'kBindingInterfaceIdIWindow').Count)"
+
+原始读数：
+array_start=49 array_end=57
+	constexpr BindingPolicyEntry kBindingPolicies[] = {
+		{ kBindingInterfaceIdIWindow, true },
+		{ kBindingInterfaceIdIWindowSystem, true },
+		{ kBindingInterfaceIdIScriptRenderBackend, true },
+		{ kBindingInterfaceIdIScriptRenderGraph, false },
+		{ kBindingInterfaceIdIScriptRenderTarget, false },
+		{ kBindingInterfaceIdIScriptShaderStruct, false },
+		{ kBindingInterfaceIdIScriptTexture, false },
+	};
+total_entries=7
+bridge_entries=5
+window_entries=2
+
+结论：桥 5 行（IScriptRenderBackend / IScriptRenderGraph / IScriptRenderTarget / IScriptShaderStruct / IScriptTexture）与工件口径（桥 5 行）一致；窗口 2 行不动。
+
+四、清单 3：三个托管文件的 IScript 引用点
+
+命令：
+$files = @('Host.cs','SurfaceSignatureCheck.cs','UserScript.cs');
+foreach ($f in $files) { $p = Join-Path 'Scripting/Managed' $f; $lines = Select-String -Path $p -Pattern 'IScript' -AllMatches; $occ = ($lines | ForEach-Object { $_.Matches.Count } | Measure-Object -Sum).Sum; $lineCount = ($lines | Measure-Object).Count; "$f lines=$lineCount occurrences=$occ" }
+
+原始读数：
+Host.cs lines=11 occurrences=12
+SurfaceSignatureCheck.cs lines=16 occurrences=16
+UserScript.cs lines=28 occurrences=30
+
+逐行清单（行号: 内容，Trim 后）：
+Host.cs（11 行 / 12 处，L1065 一行两处）：
+137: IScriptRenderBackendBindings.LayoutManifest))
+142: IScriptRenderGraphBindings.LayoutManifest))
+147: IScriptShaderStructBindings.LayoutManifest))
+153: IScriptTextureBindings.LayoutManifest))
+158: IScriptRenderTargetBindings.LayoutManifest);
+1001: private static IScriptRenderBackend s_renderBackend;
+1004: /// 最近一次渲染表绑定失败的原因（`IScriptRenderBackend` / 某张目标类型表没登记、写入字节数不符）。
+1050: s_renderBindError = $"取 IScriptRenderBackend 函数表失败：渲染适配器未登记（编号 {backendId}）";
+1060: s_renderBindError = $"取 IScriptRenderBackend 函数表失败：写入 {backendWritten} 字节、实例 {(long)backendInstance}";
+1064: IScriptRenderBackendBindings.Bind(backendTable);
+1065: s_renderBackend = new IScriptRenderBackend(new IScriptRenderBackendLease { Self = backendInstance });
+
+SurfaceSignatureCheck.cs（16 行 / 16 处）：
+21: private static IScriptRenderTarget NoRenderTarget => null;
+22: private static IScriptRenderGraph NoRenderGraph => null;
+23: private static IScriptRenderBackend NoRenderBackend => null;
+25: private static IScriptShaderStruct NoShaderStruct => null;
+27: private static IScriptTexture NoTexture => null;
+94: Func<IScriptRenderTarget, string, string, string, uint, float, float, float, float, int> addTrianglePass =
+98: Func<IScriptRenderTarget, int> present = target => NoRenderGraph.Present(target);
+102: Func<IWindow, IScriptRenderTarget> windowTarget = window => NoRenderBackend.GetWindowTarget(window);
+103: Func<uint, uint, IScriptRenderTarget> captureTarget =
+105: Func<IScriptRenderGraph> createGraph = () => NoRenderBackend.CreateGraph();
+106: Func<IScriptRenderGraph, int> submitGraph = graph => NoRenderBackend.SubmitGraph(graph);
+116: Func<uint, string, IScriptShaderStruct, int> setPassParam =
+119: Func<string, IScriptShaderStruct> createShaderStruct =
+124: Func<string, IScriptShaderStruct, uint, int> setStruct =
+136: Func<string, uint, uint, byte[], IScriptTexture> createTexture =
+138: Func<string, IScriptTexture, int> setImage =
+
+UserScript.cs（28 行 / 30 处）：
+50: internal static IScriptRenderTarget RenderWindowTarget;
+51: internal static IScriptRenderTarget RenderCaptureTarget;
+52: internal static IScriptRenderGraph RenderGraph;
+82: public static void OnRenderProbe(IWindowSystem windows, IScriptRenderBackend backend)
+179: internal static IScriptRenderTarget ConstantColorWindowTarget;
+180: internal static IScriptRenderTarget ConstantColorCaptureTarget;
+181: internal static IScriptRenderGraph ConstantColorGraph;
+182: internal static IScriptShaderStruct ConstantColorParams;
+183: internal static IScriptShaderStruct[] ConstantColorSubStructs = new IScriptShaderStruct[3];
+195: public static void OnConstantColorProbe(IWindowSystem windows, IScriptRenderBackend backend)
+259: IScriptShaderStruct sub = backend.CreateShaderStruct(CSharpConstantColorProbe.SubStructTypeName);
+328: private static void AddConstantColorPass(IScriptRenderTarget target)
+344: internal static IScriptRenderTarget StructuredBufferWindowTarget;
+345: internal static IScriptRenderTarget StructuredBufferCaptureTarget;
+346: internal static IScriptRenderGraph StructuredBufferGraph;
+347: internal static IScriptShaderStruct StructuredBufferParams;
+361: public static void OnStructuredBufferProbe(IWindowSystem windows, IScriptRenderBackend backend)
+485: private static void AddStructuredBufferPass(IScriptRenderTarget target)
+502: internal static IScriptRenderTarget TextureWindowTarget;
+503: internal static IScriptRenderTarget TextureCaptureTarget;
+504: internal static IScriptRenderGraph TextureGraph;
+505: internal static IScriptShaderStruct TextureParams;
+506: internal static IScriptTexture TextureProbeTexture;
+521: public static void OnTextureProbe(IWindowSystem windows, IScriptRenderBackend backend)
+667: private static void AddTexturePass(IScriptRenderTarget target)
+812: private static void AddTrianglePass(IScriptRenderGraph graph, IScriptRenderTarget target)
+821: private static void CheckStatus(int status, IScriptRenderGraph graph, string step)
+830: private static void CheckStatus(int status, IScriptRenderBackend backend, string step)
+
+口径说明：工件写的 11/16/28 是「命中行数」（Select-String 行计数），不是「出现次数」（Host.cs 12、UserScript.cs 30 处出现，因续行/同行多处）。
+结论：三文件行数 11/16/28 与工件口径一致。
+
+五、总判定
+
+三张清单读数与 proposal/design/tasks 的账目全部一致（28 纯虚 / 33 virtual 行 / 5 虚析构、桥 5 行、11/16/28 行引用点），按 tasks.md 0.1 要求「数字与工件不符时停下报主循环」——本条不触发停下，可以开工。

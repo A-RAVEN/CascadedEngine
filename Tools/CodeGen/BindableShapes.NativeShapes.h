@@ -18,10 +18,12 @@
 #define _CRT_USE_BUILTIN_OFFSETOF
 #endif
 #include <stdint.h>
+#include <type_traits>
 
 #include <CASTL/CAString.h>
 #include <CASTL/CAStringView.h>
 #include <CASTL/CASharedPtr.h>
+#include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAVector.h>
 
 #include <HashKeys.h>
@@ -83,6 +85,23 @@ namespace ca_bind_fixture
 		float weight;
 	};
 
+	// 图形状序列化夹具（本批 1.5 / design D11）：把真实 `RenderPass`/`DrawCallBatch`/`DrawCall`
+	// 里出现的三类新元素类别收在一张记录里，逐字段往返核对：
+	//   ① 值类容器元素：`castl::vector<CA_BIND_VALUE 值类>`（真实形状：`vector<ImageHandle> m_Attachments`）；
+	//   ② 命名映射成员：`unordered_map<cacore::NameHash, 标量|记录|值类>`（真实形状：
+	//      `unordered_map<NameHash, BufferHandle> m_BoundVertexBuffers`）；
+	//   ③ 接口对象引用成员：`shared_ptr<已挂 CA_BIND 的接口>`，直接成员与映射值两种（真实形状：
+	//      `ShaderStructDic = unordered_map<NameHash, shared_ptr<ShaderStruct>>`）。
+	struct GraphLikeRecord
+	{
+		castl::vector<NativeResourceRef> m_Refs;                                            // ①
+		castl::unordered_map<cacore::NameHash, uint32_t> m_Counts;                          // ② 标量值
+		castl::unordered_map<cacore::NameHash, PassAttachment> m_Attachments;               // ② 记录值
+		castl::unordered_map<cacore::NameHash, NativeResourceRef> m_RefsByName;             // ② 值类值
+		castl::shared_ptr<IBindNativeShape> m_Object;                                       // ③ 直接成员
+		castl::unordered_map<cacore::NameHash, castl::shared_ptr<IBindNativeShape>> m_Objects;  // ③ 映射值
+	};
+
 	enum class EPassMode : uint16_t
 	{
 		Fill = 0,
@@ -136,9 +155,53 @@ namespace ca_bind_fixture
 		// 序列化块记录（任务 3.2）：输入方向、一层容器/文本记录，过界是 uint8_t const* + count。
 		virtual void ConsumePass(PassLike const& pass) = 0;
 
+		// 图形状序列化（本批 1.5 / design D11）：值类容器 / 命名映射 / 接口对象引用三类元素一次过界。
+		virtual void ConsumeGraphShape(GraphLikeRecord const& shape) = 0;
+
 		// 参数注入（任务 3.3）：第二个参数是所有权不明的裸指针，由引擎钩子提供；
 		// C ABI 与托管表面都看不到它（CA_BIND_INJECT 写在类后面）。
 		virtual void SetInjectedPointer(uint32_t token, int32_t* externalState) = 0;
+
+		// 内存窗参数投影（csharp-native-direct-binding 任务 1.1 / design D2）：
+		// `const void*` + 紧随其后的 `uint64_t` 长度 + 其余标量（offset / copy）。
+		// 托管表面收 `byte[]`（长度由托管算），thunk 以固定内存传指针与长度；
+		// 原生实现必须收到与托管字节逐字节一致的内容与正确长度，其余参数原样过界。
+		virtual void UploadWindow(void const* data, uint64_t size, uint64_t offset, bool copy) = 0;
+
+		// 记录两段式（csharp-native-direct-binding 任务 1.2 / design D8）：返回位置指向
+		// **可序列化记录**的非拥有裸指针。命中返回记录地址、未命中返回空指针（托管得 null）；
+		// 托管拿到的是记录的序列化只读副本，原生签名不动。
+		virtual PassLike const* FindPass(cacore::NameHash const& passName) = 0;
+
+		// 返回位置标量容器两段式（csharp-native-direct-binding 任务 1.6 / design D13）：
+		// `vector<标量> const&` 走 `Count` + `Copy` 两个伴生；托管表面得到元素数组。
+		// 空容器：Count=0 且 Copy 不许在零长度上解引用。记录容器 / 含句柄或文本的容器维持不可绑。
+		virtual castl::vector<uint32_t> const& GetPassIndices() const = 0;
+
+		// 模板显式实例化声明（csharp-native-direct-binding 任务 1.3 / design D9）：模板成员本身
+		// 不自动采集；类后的 `CA_BIND_INSTANTIATE(TemplatedValue, uint32_t, float)` 声明要绑的
+		// 两个形态。两个形态各自出具体槽、托管侧是同名重载；未声明的形态（如 double）不进任何表面。
+		// 模板体在头文件内定义 —— thunk 自己完成实例化，C++ 侧不新增函数、不改签名。
+		template<typename T>
+		uint32_t TemplatedValue(T const& value)
+		{
+			if constexpr (std::is_same_v<T, uint32_t>)
+			{
+				++s_TemplateUintCalls;
+				return value + 100u;
+			}
+			else if constexpr (std::is_same_v<T, float>)
+			{
+				++s_TemplateFloatCalls;
+				return static_cast<uint32_t>(value * 2.0f);
+			}
+			else
+			{
+				return 0u;
+			}
+		}
+		static inline uint32_t s_TemplateUintCalls = 0u;
+		static inline uint32_t s_TemplateFloatCalls = 0u;
 
 		// 返回自身引用的链式方法（任务 2.2）：C ABI 投影成 void，C# 表面返回 this。
 		virtual IBindNativeShape& ChainAdd(uint32_t value)
@@ -168,6 +231,8 @@ namespace ca_bind_fixture
 	};
 	CA_BIND_SKIP(GetAs, "① 模板方法：本批不做模板单态化绑定（spec csharp-bindings 的①类）")
 	CA_BIND_INJECT(SetInjectedPointer, externalState)
+	// 模板显式实例化（D9）：只绑 uint32_t 与 float 两个形态；double 等未声明形态不进任何表面。
+	CA_BIND_INSTANTIATE(TemplatedValue, uint32_t, float)
 
 	// 带默认构造的绑定类（任务 2.3）：生成 `<类>_Create` 槽与 C# `Create` 入口。
 	// 本类没有纯虚方法；改造前的生成器一条方法都收不到，改造后才会有方法 + Create。

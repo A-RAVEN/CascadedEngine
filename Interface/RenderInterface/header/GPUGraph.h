@@ -99,6 +99,10 @@ namespace graphics_backend
 
 	class DrawCall
 	{
+		// 序列化块要按字段名读写私有成员（csharp-native-direct-binding 2.2 / design D11）：
+		// 加一条生成器友元，不改任何签名、不新增成员。
+		CA_CODEGEN_FRIEND(DrawCall);
+
 	public:
 		struct DrawInfo
 		{
@@ -168,6 +172,8 @@ namespace graphics_backend
 
 	class DrawCallBatch
 	{
+		CA_CODEGEN_FRIEND(DrawCallBatch);
+
 	public:
 		using VertexInputDescMap = castl::unordered_map<cacore::NameHash, cacore::HashObj<VertexInputsDescriptor>>;
 		static DrawCallBatch New()
@@ -274,6 +280,8 @@ namespace graphics_backend
 
 	class RenderPass
 	{
+		CA_CODEGEN_FRIEND(RenderPass);
+
 	public:
 		//RenderPass() = default;
 		static RenderPass New(ImageHandle const& color
@@ -428,6 +436,8 @@ namespace graphics_backend
 
 	class ComputeBatch
 	{
+		CA_CODEGEN_FRIEND(ComputeBatch);
+
 	public:
 
 		static ComputeBatch New(bool asyncCompute = false)
@@ -477,6 +487,8 @@ namespace graphics_backend
 #pragma region Finalize
 	class FinalizePass
 	{
+		CA_CODEGEN_FRIEND(FinalizePass);
+
 	public:
 		bool isEmpty() const
 		{
@@ -600,6 +612,8 @@ namespace graphics_backend
 		castl::vector<DescriptorType> m_Descriptors;
 	};
 
+	// 原生图进绑定面（csharp-native-direct-binding 2.2 / design D1）：链式构件在托管表面返回同一图对象。
+	CA_BIND()
 	class GPUGraph
 	{
 	public:
@@ -691,6 +705,22 @@ namespace graphics_backend
 		GraphResourceManager<GPUBufferDescriptor> m_InternalBufferManager;
 		//castl::vector<ImageHandle> m_PresentBackBuffers;
 	};
+	// 模板形态与返回位置记录容器的排除（csharp-native-direct-binding 2.2）：每条带理由。
+	// `ScheduleData` 的两条模板便利形态**不写 SKIP**：按名字写的跳过会把同名的两条内存窗重载
+	// （D2 的字节上传通道）一起排掉；模板形态由生成器的"同名已有可绑非模板实现 ⇒ 自动排除"处理。
+	CA_BIND_SKIP(AllocAndUploadBuffer, "① 模板方法：便利方法（AllocBuffer + ScheduleData 组合），本批不绑")
+	CA_BIND_SKIP(GetRenderPasses, "本轮未实现：返回位置的记录容器（D11 只定义记录输入方向）")
+	CA_BIND_SKIP(GetRenderPassForWrite, "本轮未实现：出参方向记录（本批只定义记录输入方向）")
+	CA_BIND_SKIP(GetComputePasses, "本轮未实现：返回位置的记录容器（D11 只定义记录输入方向）")
+	CA_BIND_SKIP(GetDataTransfers, "本轮未实现：元素记录 GPUDataTransfers 的形状未在本批序列化批登记")
+	CA_BIND_SKIP(GetUploadDataHolder, "本轮未实现：记录含 void const* 成员（不可序列化）")
+	CA_BIND_SKIP(GetImageManager, "本轮未实现：模板化内部资源管理器记录，无绑定形状")
+	CA_BIND_SKIP(GetBufferManager, "本轮未实现：模板化内部资源管理器记录，无绑定形状")
+	CA_BIND_SKIP(GetFinalizePass, "本轮未实现：记录含键非 NameHash 的映射（D11 的 MUST NOT）")
+	// `GetGraphStages` 的元素是枚举、`GetPassIndices` 是标量：后者从 1.6 起按 D13 的标量容器
+	// 两段式进表（Count + Copy），前者仍排除 —— 它的消费点（3.1 对账）没有"数 pass"的需求，
+	// 而 D13 只给标量容器开了通道，枚举容器要另立形状批（点名留档，不静默降级）。
+	CA_BIND_SKIP(GetGraphStages, "本轮未实现：返回位置的**枚举**容器（D13 只开标量容器两段式；枚举容器另立形状批）")
 
 	template<typename TSS, typename TSSRange>
 	static void ForeachShaderStructs(TSSRange const& inShaderStructRange, castl::function<void(TSS const&)> callback)

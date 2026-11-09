@@ -1,0 +1,29 @@
+桥接口方法,桥接口::方法,原生等价物（接口::方法）,是否为"无等价物又被消费",依据（三托管文件引用点，grep 实测）,备注
+IScriptTexture,IScriptTexture::GetWidth,GPUTexture::GetDescriptor（读 descriptor 的 width 字段）,否,UserScript.cs:575 SurfaceSignatureCheck.cs:85/134,纹理尺寸从描述符读
+IScriptTexture,IScriptTexture::GetHeight,GPUTexture::GetDescriptor（读 descriptor 的 height 字段）,否,UserScript.cs:576 SurfaceSignatureCheck.cs:86/135,同上
+IScriptRenderTarget,IScriptRenderTarget::GetWidth,WindowHandle::GetSizeSafe（经 GetWindowHandle 拿窗口句柄；糖层记尺寸）,否,UserScript.cs:575 SurfaceSignatureCheck.cs:85/134,2.4（D12）改判：窗口目标=GetWindowHandle+GetSizeSafe+ImageHandle::FromWindowHandle
+IScriptRenderTarget,IScriptRenderTarget::GetHeight,WindowHandle::GetSizeSafe,否,UserScript.cs:576 SurfaceSignatureCheck.cs:86/135,同上（uint2 的 x/y）
+IScriptRenderTarget,IScriptRenderTarget::IsBackbuffer,WindowHandle::GetBackbufferDescriptor（原生）+ 糖层 isBackbuffer 标记,否,SurfaceSignatureCheck.cs:87,2.4（D12）改判：窗口目标恒为后台缓冲（糖层记 true）、捕获目标记 false
+IScriptShaderStruct,IScriptShaderStruct::SetFloat3,ShaderStruct::SetValue（float3 实例化槽）,否,UserScript.cs:270/313 SurfaceSignatureCheck.cs:123,D9 声明 CA_BIND_INSTANTIATE(SetValue；float3；float)
+IScriptShaderStruct,IScriptShaderStruct::SetStruct,ShaderStruct::SetStruct,否,UserScript.cs:274 SurfaceSignatureCheck.cs:125,参数是已绑定接口句柄
+IScriptShaderStruct,IScriptShaderStruct::SetBuffer,ShaderStruct::SetBuffer,否,UserScript.cs:444 SurfaceSignatureCheck.cs:128,参数是 BufferHandle 值类
+IScriptShaderStruct,IScriptShaderStruct::SetImage,ShaderStruct::SetImage（两条重载）,否,UserScript.cs:602/651 SurfaceSignatureCheck.cs:139,ImageHandle 与 shared_ptr<GPUTexture> 两条
+IScriptShaderStruct,IScriptShaderStruct::SetSampler,ShaderStruct::SetSampler,否,UserScript.cs:611 SurfaceSignatureCheck.cs:141,采样器记录按镜像指针传
+IScriptShaderStruct,IScriptShaderStruct::GetLastError,错误通道（<接口>_LastErrorCode / LastErrorText + 统一错误码）,否,UserScript.cs:109/115/120/221/228/233/255/263/272/278/295/388/395/401/436/448/463/548/555/561/572/597/605/615/629/827/836 SurfaceSignatureCheck.cs:100/108/129,与全部桥方法的错误上报同一条通道
+IScriptRenderGraph,IScriptRenderGraph::AddBuffer,GPUGraph::AllocBuffer（BufferHandle + 描述符）+ GPUGraph::ScheduleData（byte[] 内存窗）,否,UserScript.cs:132/245/413/426/587 SurfaceSignatureCheck.cs:90,桥是"登记缓冲 + 立刻上传"，原生拆成两步（先分配、再排上传）
+IScriptRenderGraph,IScriptRenderGraph::SetPositionColorStream,GPUGraph::AddPass(RenderPass)（DrawCall/VertexInputsDescriptor 描述输入布局）,否,UserScript.cs:134 SurfaceSignatureCheck.cs:93,顶点流从前向调用变成"记录里的字段"
+IScriptRenderGraph,IScriptRenderGraph::SetPositionStream,GPUGraph::AddPass(RenderPass)（同上，单流版本）,否,UserScript.cs:247/428 SurfaceSignatureCheck.cs:115,同上
+IScriptRenderGraph,IScriptRenderGraph::SetPositionTextureStream,GPUGraph::AddPass(RenderPass)（同上，带纹理坐标）,否,UserScript.cs:589 SurfaceSignatureCheck.cs:144,同上
+IScriptRenderGraph,IScriptRenderGraph::SetPassParam,ShaderStruct::SetValue / SetStruct（对 pass 的着色器结构写参数）,否,UserScript.cs:287/289/455/457/622/624 SurfaceSignatureCheck.cs:118,桥的"按 pass 索引写参数块"在原生面变成"拿 pass 的 ShaderStruct 直接写"
+IScriptRenderGraph,IScriptRenderGraph::AddTrianglePass,GPUGraph::AddPass(RenderPass)（D11 记录序列化块）,否,UserScript.cs:330/487/669/814 SurfaceSignatureCheck.cs:96,建 pass 的入口
+IScriptRenderGraph,IScriptRenderGraph::Present,GPUGraph::Present(ImageHandle),否,UserScript.cs:148/292/459/626 SurfaceSignatureCheck.cs:98,参数从 target 句柄变成图像句柄
+IScriptRenderGraph,IScriptRenderGraph::GetPassCount,GPUGraph::GetPassIndices（D13 两段式；糖层 PassCount = 数组长度）,否,UserScript.cs:168/323/481/661 SurfaceSignatureCheck.cs:99,1.6/2.4 改判：GetPassIndices 解 SKIP，托管得 uint[]，计数=Length
+IScriptRenderGraph,IScriptRenderGraph::GetLastError,错误通道,否,同上 30 处,同 IScriptShaderStruct::GetLastError
+IScriptRenderBackend,IScriptRenderBackend::GetWindowTarget,CRenderBackend::GetWindowHandle（2.4 解 SKIP）+ ImageHandle::FromWindowHandle,否,UserScript.cs:106/218/384/544 SurfaceSignatureCheck.cs:102,2.4（D12）改判：窗口→窗口句柄→图像句柄，糖层包成"窗口目标"对象（尺寸/描述符从 WindowHandle 读）
+IScriptRenderBackend,IScriptRenderBackend::CreateCaptureTarget,CRenderBackend::CreateGPUTexture + ImageHandle::FromGPUTexture（糖层包成捕获目标）,否,UserScript.cs:111/223/390/550 SurfaceSignatureCheck.cs:104,2.4（D12）改判：捕获目标=纹理对象+图像句柄+糖层记尺寸与 isBackbuffer=false
+IScriptRenderBackend,IScriptRenderBackend::CreateGraph,GPUGraph_Create（隐式公开默认构造的工厂槽）,否,UserScript.cs:117/230/397/557 SurfaceSignatureCheck.cs:105,2.4 改判：发射器缺陷已修，生成 GPUGraph_Create（取句柄）
+IScriptRenderBackend,IScriptRenderBackend::CreateTexture,CRenderBackend::CreateGPUTexture（本轮已绑定）,否,UserScript.cs:567 SurfaceSignatureCheck.cs:137,返回 GPUTexture 句柄
+IScriptRenderBackend,IScriptRenderBackend::CreateShaderStruct,CRenderBackend::CreateShaderStruct（本轮已绑定）,否,UserScript.cs:251/259/432/593 SurfaceSignatureCheck.cs:120,返回 ShaderStruct 句柄
+IScriptRenderBackend,IScriptRenderBackend::SubmitGraph,CRenderBackend::ExecuteGraph（scheduler 经 CA_BIND_INJECT 注入）,否,UserScript.cs:150/294/462/628 SurfaceSignatureCheck.cs:106,参数从图句柄变成 GPUGraph 句柄
+IScriptRenderBackend,IScriptRenderBackend::WaitIdle,CRenderBackend::WaitIdle,否,UserScript.cs:165/308/476/642 SurfaceSignatureCheck.cs:107,同义
+IScriptRenderBackend,IScriptRenderBackend::GetLastError,错误通道,否,同上 30 处,同 IScriptShaderStruct::GetLastError

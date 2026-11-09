@@ -1,4 +1,7 @@
 #pragma once
+// 绑定标注宏（CA_BIND / CA_BIND_SKIP / CA_BIND_INJECT）：csharp-native-direct-binding 2.2 起
+// 这个头自己也进绑定面，所以标注宏必须在本头可见，不能靠别的头恰好带进来。
+#include <CodeGenMeta.h>
 #include <CASTL/CAVector.h>
 #include <CASTL/CASharedPtr.h>
 #include <CASTL/CAString.h>
@@ -59,6 +62,9 @@ namespace graphics_backend
 		virtual void Reset() = 0;         // explicit release of internal staging/sync (idempotent)
 	};
 
+	// 原生渲染后端进绑定面（csharp-native-direct-binding 2.2 / design D1）：无参 CA_BIND 只声明绑定意图，
+	// 编号由锁文件治理。四个 SKIP 是主循环裁定过的（各带理由，审计表记"不可绑 + 本轮未实现/④"）。
+	CA_BIND()
 	class CRenderBackend
 	{
 	public:
@@ -128,6 +134,22 @@ namespace graphics_backend
 		virtual std::unique_ptr<IReadbackToken> Readback(ImageHandle const& image, std::span<uint8_t> dst) = 0;
 		virtual std::unique_ptr<IReadbackToken> Readback(BufferHandle const& buffer, std::span<uint8_t> dst) = 0;
 	};
+	// 参数位置裸指针的唯一通道（design D1 / csharp-native-direct-binding 2.2）：调度器由引擎钩子提供，
+	// 不进 C ABI、不进托管表面。钩子名固定 `<类>_<方法>_<参数>`，定义在宿主（CSharpHost）。
+	CA_BIND_INJECT(ExecuteGraph, scheduler)
+	// 四条按主循环裁定排除（审计表逐行记"不可绑 + 原因"）。
+	CA_BIND_SKIP(ExecuteGraphTimed, "本轮未实现：返回 unique_ptr<IGPUGraphTiming>，要让这条进表必须把第五个接口一起放门；脚本渲染用例不用计时")
+	CA_BIND_SKIP(RunTestCode, "④ 语义越界：测试专用入口，脚本不该调")
+	CA_BIND_SKIP(Release, "④ 语义越界：销毁整个后端，脚本不该调（沿用 csharp-bindable-surface 审计表既定结论）")
+	CA_BIND_SKIP(Readback, "本轮未实现：std::span 是 design Non-Goals 点名的 GPU 查询批形状（另立批）")
+	// 一条形状超界（实测：托管侧不映射 `shared_ptr<GPUBuffer>`）：
+	// 本批四个渲染用例的建缓冲走"名称 + BufferHandle + 图内分配"（GPUGraph::AllocBuffer），
+	// 不需要直接拿 GPUBuffer 对象。
+	CA_BIND_SKIP(CreateGPUBuffer, "本轮未实现：返回位置的 castl::shared_ptr<GPUBuffer> 未进本批绑定面（建缓冲走 BufferHandle + 图内分配）")
+	// `GetWindowHandle` 从 2.4 起进表（design D12）：`shared_ptr<IWindow>` 是已绑定接口按句柄、
+	// `shared_ptr<WindowHandle>` 是已绑定接口按对象登记 —— 全是既有机制，不再排除。
+	// 注入钩子声明：生成器在头文本里核对它存在，定义在宿主侧。
+	extern "C" void* CAInject_CRenderBackend_ExecuteGraph_scheduler();
 }
 
 

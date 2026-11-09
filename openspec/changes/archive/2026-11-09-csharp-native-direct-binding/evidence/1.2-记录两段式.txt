@@ -1,0 +1,77 @@
+1.2 记录两段式投影（design D8）—— 红态、绿态与判据
+
+执行者：apply 子 agent　　时间：2026-11-08 23:2x – 2026-11-09 00:1x
+
+一、红态：改造前"返回位置裸指针"整类被 ② 拒绝（原文）
+
+本批改动之前的生成器对这类形状的原文（仓库里现成的改造前证据，
+`openspec/changes/archive/2026-11-08-codegen-native-binding-prereqs/evidence/原生头投影快照.txt`）：
+    [排除] CRenderBackend::FindShaderStructData | 形状：const ShaderCompilerSlang::ShaderStructData * FindShaderStructData(const cacore::NameHash &) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
+    [排除] CRenderBackend::FindShaderRootStructData | 形状：const ShaderCompilerSlang::ShaderStructData * FindShaderRootStructData(const cacore::PathHash &) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
+夹具层同形状的改造前读数（本批 1.1 那一轮用改造前生成器跑 `--parse-report` 的同一台机器、同一套参数）：
+    [排除] IBindNativeShape::UploadWindow | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
+   —— 即"返回位置 `T*`"和"参数位置 `const void*`"在改造前都归 ②，不留通道。
+
+二、绿态：投影落地后的产物与判据
+
+夹具方法（Tools/CodeGen/BindableShapes.NativeShapes.h）：
+    virtual PassLike const* FindPass(cacore::NameHash const& passName) = 0;
+（`PassLike` 是含容器/文本的序列化块记录；命中返回记录地址，未命中返回空指针。）
+
+1) C ABI（out/build/x64-debug/codegen/bindings/IBindNativeShape.Bindings.cpp 逐字）：
+    extern "C" uint64_t IBindNativeShape_FindPassLen(void* self, char const* passName, uint64_t passNameLen);
+    extern "C" void IBindNativeShape_CopyFindPass(void* self, char const* passName, uint64_t passNameLen, uint8_t* dst, uint64_t cap);
+    static void const* IBindNativeShape_call_FindPass(void* self, char const* passName, uint64_t passNameLen)
+    {
+        cacore::NameHash passNameValue(castl::string(passName, passNameLen));
+        auto* object = static_cast<ca_bind_fixture::IBindNativeShape*>(self);
+        return static_cast<void const*>(object->FindPass(passNameValue));
+    }
+   → 原生签名没动；不发直出槽，发 Len/Copy 两个伴生（与字符串两段式同线形）。
+
+2) 托管表面（out/build/x64-debug/codegen/bindings/IBindNativeShape.Bindings.cs 逐字）：
+    public static delegate* unmanaged<void*, byte*, ulong, ulong> FindPassLen;
+    public static delegate* unmanaged<void*, byte*, ulong, byte*, ulong, void> CopyFindPass;
+    public static PassLike FindPass(IBindNativeShapeLease lease, string passName)
+        ulong length = IBindNativeShapeBindings.FindPassLen(lease.Self, passNamePtr, (ulong)passNameBytes.Length);
+        if (length == 0UL) { return null; }
+        byte[] buffer = new byte[(int)length];
+        fixed (byte* bufferPtr = buffer) { IBindNativeShapeBindings.CopyFindPass(lease.Self, passNamePtr, (ulong)passNameBytes.Length, bufferPtr, (ulong)buffer.Length); }
+        return PassLikeCodec.Deserialize(buffer);
+    public PassLike FindPass(string passName)
+   → 托管得记录的序列化只读副本；空指针 ⇒ `null`（不解引用）；托管侧没有裸指针。
+   → `PassLikeCodec.Deserialize` 是同一份字段清单生成的托管解包器（块头三项逐项校验）。
+
+3) 判据（Tools/CodeGen/check_bindings.py，check_native_shapes 里本批新增的逐字行）：
+    · C ABI 两个伴生的完整声明必须逐字存在；
+    · 托管表面必须含 `public PassLike FindPass(string passName)`、`if (length == 0UL) { return null; }`、
+      `return PassLikeCodec.Deserialize(buffer);`；
+    · 该方法托管签名里出现 `IntPtr` / `void*` 即失败。
+    红态构造：把 `if (length == 0UL) { return null; }` 删掉 ⇒ 判据红（空命中会被当成空记录去解包）。
+
+4) CoreTests 运行读数（退出码 0）：
+    [记录两段式] 命中字节=63 反序列化码=0 未命中Len=0 未命中写缓冲=0 调用=4
+    Bindings native shapes test PASSED
+  含义：命中时 Len=63 字节、按 C++ 同源编解码器反序列化成功（码 0）、字段逐项一致；未命中时 Len=0、
+  Copy 没写目标缓冲（0xAA 哨兵仍原样）、四次伴生调用都各到达一次原生实现。
+
+5) 所有权裸指针形态仍拒（红样=指向夹具资源对象的裸指针返回），当前生成器实跑：
+    $ CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapesRejectRecordReturn.h --emit-binding ...
+    exit=1
+    CodeGen: 拒绝 IBindRejectRecordReturn::FindResource —— 返回的裸指针类型 FixtureResourceObject 不是构建期已知接口清单里的已绑定接口（未登记抽象接口不得生成悬空公开类型）
+   → "裸指针不可绑"的唯一例外只对可序列化记录开；指向资源对象的返回仍被拒。
+
+三、为让 D8 落地而扩的序列化覆盖（同一份块线形，不是新格式）
+
+`ShaderStructData` 的成员形状（嵌套记录 `ShaderStructUniforms`、`vector<NameHash>` 采样器名字表）
+在扩展前过不了序列化块的字段分类。本批把块线形扩到：
+    · 嵌套记录字段（kind=4）：逐字段内联写/读，布局清单带缩进层级（一并进块头哈希）；
+    · 容器元素是文本（elementKind=3，`vector<NameHash>` / `vector<PathHash>` / `vector<string>`）：
+      u64 长度 + UTF-8 字节；
+    · 元素记录里允许文本/枚举/标量（与顶层记录同一份字段分类器）。
+托管侧同步加了字段级 `Write` / `Read` 与 `Deserialize`（块头三项校验）——输入方向原有的
+`Serialize` 字节序列不变（既有产物逐字节锚仍绿：build_t17 的不符数 0）。
+
+四、构建判据汇总（build_t17 日志）
+    不符数 0 / 覆盖率问题 0 处 / 托管表面问题 0 处 / 原生形态夹具问题 0 处
+结论：1.2 的三条验收（红=改造前 ② 原文；绿=托管得副本、空命中 null；所有权裸指针仍拒）逐条有实测读数，通过。

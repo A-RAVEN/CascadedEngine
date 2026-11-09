@@ -40,16 +40,18 @@ namespace Scripting.Managed
         /// </summary>
         internal static IWindow LastCreated;
 
-        // ---- 渲染探针（csharp-render-backend-triangle 任务 3.2）----
+        // ---- 渲染探针（csharp-native-direct-binding 4.1：原生直绑表面 + C# 糖层）----
         /// <summary>`OnRenderProbe` 被调用了几次；引擎侧按"独立调用标记"判它没被别的测试消耗。</summary>
         internal static int RenderProbeCount;
         /// <summary>最近一次渲染探针的摘要，由宿主打进日志（包含模式、图 pass 数、等待调用）。</summary>
         internal static string LastRenderSummary = string.Empty;
+        /// <summary>机器可读读数行（C++ 侧用例按它核对托管计数与对象句柄）。</summary>
+        internal static string LastRenderReadings = string.Empty;
         // 保留到托管 Shutdown 再释放：原生测试要用这些表面对象对应的原生资源做像素与结构核对。
         internal static IWindow RenderWindow;
-        internal static IScriptRenderTarget RenderWindowTarget;
-        internal static IScriptRenderTarget RenderCaptureTarget;
-        internal static IScriptRenderGraph RenderGraph;
+        internal static ScriptRenderTarget RenderWindowTarget;
+        internal static ScriptRenderTarget RenderCaptureTarget;
+        internal static ScriptRenderGraph RenderGraph;
 
         /// <summary>
         /// 脚本入口：建一个保持可见的窗口（任务 2.3）。
@@ -65,21 +67,21 @@ namespace Scripting.Managed
         }
 
         /// <summary>
-        /// 渲染探针（本 change 任务 3.2）：用现有 `IWindowSystem.NewWindow` 建窗，取窗口目标与同尺寸
-        /// 离屏目标，用自己的顶点字节、着色器路径、清除色建图、提交并等待。
+        /// 渲染探针（csharp-native-direct-binding 4.1）：用现有 `IWindowSystem.NewWindow` 建窗，取窗口目标
+        /// 与同尺寸离屏目标，用自己的顶点字节、着色器路径、清除色建图、提交并等待。
         ///
         /// 正常模式：三个顶点都是红色、位置沿用现有简单三角形；窗口与离屏目标各一份**同逻辑**绘制
         /// （像素验证镜像，不是通用多 pass）。
         ///
         /// Debug 自检模式（`CASCADED_CSHARP_RENDER_SELFTEST`，由 `TestCSharpTriangle` 从环境变量读同一份值）：
         ///   · `skip-draw`   —— 在调用层省略窗口与离屏目标的两次 `AddTrianglePass`：图 pass 数为 0，
-        ///                      原生测试与正常模式的 2 个 pass 对比后以 `E_TRIANGLE_DRAW` 判红；
+        ///                      托管前置校验拒绝空图提交；原生测试与正常模式的 2 个 pass 对比后判红；
         ///   · `bad-vertex`  —— 把一个顶点改成蓝色：中心不再是纯红，证明插值来自脚本数据；
         ///   · `skip-present`—— 省略窗口呈现；
         ///   · `skip-wait`   —— 省略 `WaitIdle`。
         /// 生产脚本不依赖这些开关。
         /// </summary>
-        public static void OnRenderProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        internal static void OnRenderProbe(IWindowSystem windows, ScriptRenderBackend backend)
         {
             RenderProbeCount++;
             if (windows == null)
@@ -88,7 +90,7 @@ namespace Scripting.Managed
             }
             if (backend == null)
             {
-                throw new InvalidOperationException("渲染探针：脚本渲染后端表没有绑定");
+                throw new InvalidOperationException("渲染探针：原生渲染后端表没有绑定");
             }
 
             string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_RENDER_SELFTEST") ?? string.Empty;
@@ -100,6 +102,19 @@ namespace Scripting.Managed
             {
                 throw new InvalidOperationException($"渲染探针：未知的自检模式 {mode}");
             }
+            int preExec = backend.ExecuteGraphCount;
+            int preCapture = backend.CreateCaptureTargetCount;
+            int preStruct = backend.CreateShaderStructCount;
+            int preAddBuffer = backend.AddBufferCount;
+            int preCreateTexture = backend.CreateTextureCount;
+            int preUpload = backend.TextureUploadExecuteCount;
+            int preImage = backend.SetImageCount;
+            int preSampler = backend.SetSamplerCount;
+            int preWait = backend.WaitIdleCount;
+            int preSetFloat3 = backend.SetFloat3Count;
+            int preSetStruct = backend.SetStructCount;
+            int preSetPassParam = backend.SetPassParamCount;
+            int preSetBuffer = backend.SetBufferCount;
 
             RenderWindow = windows.NewWindow(CSharpTriangleProbe.WindowWidth, CSharpTriangleProbe.WindowHeight,
                 "C# 三角形", true, true, true, false);
@@ -137,7 +152,7 @@ namespace Scripting.Managed
 
             // 同一份绘制描述：窗口一份、离屏目标一份（验证镜像）。
             // `skip-draw` 在**调用层**省略这两次 `AddTrianglePass`，图 pass 数为 0 ——
-            // 原生测试与正常模式的 2 个 pass 对比，以 `E_TRIANGLE_DRAW` 判红（不造零面积三角形）。
+            // 原生测试与正常模式的 2 个 pass 对比判红（不造零面积三角形）。
             if (!skipDraw)
             {
                 AddTrianglePass(RenderGraph, RenderWindowTarget);
@@ -148,9 +163,10 @@ namespace Scripting.Managed
                 CheckStatus(RenderGraph.Present(RenderWindowTarget), RenderGraph, "Present");
             }
             int submitStatus = backend.SubmitGraph(RenderGraph);
+            string submitError = backend.GetLastError();
             if (skipDraw)
             {
-                // 空图本来就会被适配器拒绝；这是负向模式期望的路径，不转成宿主错误。
+                // 空图本来就会被托管前置校验拒绝；这是负向模式期望的路径，不转成宿主错误。
                 if (submitStatus == 0)
                 {
                     throw new InvalidOperationException("渲染探针：skip-draw 的空图竟然提交成功");
@@ -167,20 +183,26 @@ namespace Scripting.Managed
 
             LastRenderSummary = $"mode={(mode.Length == 0 ? "normal" : mode)} passCount={RenderGraph.GetPassCount()} " +
                 $"submitStatus={submitStatus} skipPresent={skipPresent} skipWait={skipWait}";
+            LastRenderReadings = BuildReadings("triangle", mode, backend, RenderGraph, RenderCaptureTarget,
+                RenderWindowTarget, submitStatus, submitError, preExec, preCapture, preStruct, preAddBuffer,
+                preCreateTexture, preUpload, preImage, preSampler, preWait, preSetFloat3, preSetStruct,
+                preSetPassParam, preSetBuffer, string.Empty);
         }
 
-        // ---- 常量色探针（csharp-render-shader-constants 任务 3.2）----
+        // ---- 常量色探针（csharp-native-direct-binding 4.1）----
         /// <summary>`OnConstantColorProbe` 被调用了几次（与 `RenderProbeCount` 分开计数）。</summary>
         internal static int ConstantColorProbeCount;
         /// <summary>最近一次常量色探针的摘要：模式、pass 数、提交状态、拒绝文本、释放后失效读数。</summary>
         internal static string LastConstantColorSummary = string.Empty;
+        /// <summary>机器可读读数行（C++ 侧用例按它核对托管计数与对象句柄）。</summary>
+        internal static string LastConstantColorReadings = string.Empty;
         // 保留到原生核对完成：图、两个目标与参数结构都由原生侧读。
         internal static IWindow ConstantColorWindow;
-        internal static IScriptRenderTarget ConstantColorWindowTarget;
-        internal static IScriptRenderTarget ConstantColorCaptureTarget;
-        internal static IScriptRenderGraph ConstantColorGraph;
-        internal static IScriptShaderStruct ConstantColorParams;
-        internal static IScriptShaderStruct[] ConstantColorSubStructs = new IScriptShaderStruct[3];
+        internal static ScriptRenderTarget ConstantColorWindowTarget;
+        internal static ScriptRenderTarget ConstantColorCaptureTarget;
+        internal static ScriptRenderGraph ConstantColorGraph;
+        internal static ScriptShaderStruct ConstantColorParams;
+        internal static ScriptShaderStruct[] ConstantColorSubStructs = new ScriptShaderStruct[3];
 
         /// <summary>
         /// 常量色探针（csharp-render-shader-constants 任务 3.2）：单 `POSITION` 顶点流 + `ConstantColor`
@@ -192,7 +214,7 @@ namespace Scripting.Managed
         ///   · `skip-param`：完全不调 `SetPassParam` —— `SubmitGraph` 在进入后端执行前拒绝并点名
         ///     `constantColorBlock`（`E_CONSTCOLOR_PARAM`）；该状态记入摘要，不抛异常。
         /// </summary>
-        public static void OnConstantColorProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        internal static void OnConstantColorProbe(IWindowSystem windows, ScriptRenderBackend backend)
         {
             ConstantColorProbeCount++;
             if (windows == null)
@@ -201,7 +223,7 @@ namespace Scripting.Managed
             }
             if (backend == null)
             {
-                throw new InvalidOperationException("常量色探针：脚本渲染后端表没有绑定");
+                throw new InvalidOperationException("常量色探针：原生渲染后端表没有绑定");
             }
 
             string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_CONSTCOLOR_SELFTEST") ??
@@ -212,6 +234,19 @@ namespace Scripting.Managed
             {
                 throw new InvalidOperationException($"常量色探针：未知的自检模式 {mode}");
             }
+            int preExec = backend.ExecuteGraphCount;
+            int preCapture = backend.CreateCaptureTargetCount;
+            int preStruct = backend.CreateShaderStructCount;
+            int preAddBuffer = backend.AddBufferCount;
+            int preCreateTexture = backend.CreateTextureCount;
+            int preUpload = backend.TextureUploadExecuteCount;
+            int preImage = backend.SetImageCount;
+            int preSampler = backend.SetSamplerCount;
+            int preWait = backend.WaitIdleCount;
+            int preSetFloat3 = backend.SetFloat3Count;
+            int preSetStruct = backend.SetStructCount;
+            int preSetPassParam = backend.SetPassParamCount;
+            int preSetBuffer = backend.SetBufferCount;
 
             ConstantColorWindow = windows.NewWindow(CSharpConstantColorProbe.WindowWidth,
                 CSharpConstantColorProbe.WindowHeight, "C# 常量色", true, true, true, false);
@@ -256,7 +291,7 @@ namespace Scripting.Managed
             }
             for (int slot = 0; slot < CSharpConstantColorProbe.SubStructCount; ++slot)
             {
-                IScriptShaderStruct sub = backend.CreateShaderStruct(CSharpConstantColorProbe.SubStructTypeName);
+                ScriptShaderStruct sub = backend.CreateShaderStruct(CSharpConstantColorProbe.SubStructTypeName);
                 if (sub == null)
                 {
                     throw new InvalidOperationException(
@@ -319,13 +354,57 @@ namespace Scripting.Managed
                 ConstantColorParams = null;
             }
 
+            // 托管前置校验的负例（design D6，正常模式才跑）：
+            //   ① 未知类型名 → 元数据查询处挡下，MUST NOT 进后端创建路径（创建计数不涨）；
+            //   ② 未登记着色器路径 → 参数块校验点名路径拒绝。
+            // 结果写进机器可读读数行，由 C++ 用例核对；负例自身不抛（负向模式另有分支）。
+            string negatives = string.Empty;
+            if (mode.Length == 0)
+            {
+                int structBeforeNegative = backend.CreateShaderStructCount;
+                ScriptShaderStruct unknownStruct = backend.CreateShaderStruct("NoSuchStructForConstantColor");
+                string unknownError = backend.GetLastError();
+                bool unknownOk = unknownStruct == null &&
+                                 unknownError.Contains("NoSuchStructForConstantColor") &&
+                                 backend.CreateShaderStructCount == structBeforeNegative;
+                ScriptRenderGraph negativeGraph = backend.CreateGraph();
+                int negativeStatus = 1;
+                string negativeError = string.Empty;
+                if (negativeGraph != null)
+                {
+                    byte[] zeros = new byte[36];
+                    int build = negativeGraph.AddBuffer("NegativeVertices",
+                        new GPUBufferDescriptor { count = 3UL, stride = 12UL }, zeros);
+                    build |= negativeGraph.SetPositionStream("NegativeStream", 12u, 0u);
+                    build |= negativeGraph.AddTrianglePass(ConstantColorCaptureTarget,
+                        "Shaders/Test/NoSuchShader", "NegativeStream", "NegativeVertices", 3u,
+                        0.0f, 0.0f, 1.0f, 1.0f);
+                    ScriptShaderStruct negativeParams = backend.CreateShaderStruct(
+                        CSharpConstantColorProbe.StructTypeName);
+                    build |= negativeGraph.SetPassParam(0u, CSharpConstantColorProbe.BlockName,
+                        negativeParams);
+                    negativeStatus = build;
+                    negativeError = negativeGraph.GetLastError();
+                    negativeGraph.Dispose();
+                    negativeParams?.Dispose();
+                }
+                bool pathOk = negativeStatus != 0 && negativeError.Contains("NoSuchShader");
+                negatives = $" negUnknown={(unknownOk ? 1 : 0)} negPath={(pathOk ? 1 : 0)}" +
+                            $" negUnknownText={unknownError.Replace(' ', '_')}" +
+                            $" negPathText={negativeError.Replace(' ', '_')}";
+            }
+
             LastConstantColorSummary =
                 $"mode={(mode.Length == 0 ? "normal" : mode)} passCount={ConstantColorGraph.GetPassCount()} " +
                 $"submitStatus={submitStatus} skipParam={skipParam} disposedThrew={disposedThrew} " +
                 $"submitError={submitError}";
+            LastConstantColorReadings = BuildReadings("constantcolor", mode, backend, ConstantColorGraph,
+                ConstantColorCaptureTarget, ConstantColorWindowTarget, submitStatus, submitError, preExec,
+                preCapture, preStruct, preAddBuffer, preCreateTexture, preUpload, preImage, preSampler,
+                preWait, preSetFloat3, preSetStruct, preSetPassParam, preSetBuffer, negatives);
         }
 
-        private static void AddConstantColorPass(IScriptRenderTarget target)
+        private static void AddConstantColorPass(ScriptRenderTarget target)
         {
             CheckStatus(ConstantColorGraph.AddTrianglePass(target, CSharpConstantColorProbe.ShaderPath,
                 CSharpConstantColorProbe.BufferName, CSharpConstantColorProbe.BufferName,
@@ -334,17 +413,19 @@ namespace Scripting.Managed
                 CSharpConstantColorProbe.ClearAlpha), ConstantColorGraph, "AddTrianglePass");
         }
 
-        // ---- 结构化缓冲探针（csharp-render-structured-buffer 任务 3.1）----
+        // ---- 结构化缓冲探针（csharp-native-direct-binding 4.1）----
         /// <summary>`OnStructuredBufferProbe` 被调用了几次（与另外两个渲染探针分开计数）。</summary>
         internal static int StructuredBufferProbeCount;
         /// <summary>最近一次结构化缓冲探针的摘要：模式、pass 数、提交状态、拒绝文本。</summary>
         internal static string LastStructuredBufferSummary = string.Empty;
+        /// <summary>机器可读读数行（C++ 侧用例按它核对托管计数与对象句柄）。</summary>
+        internal static string LastStructuredBufferReadings = string.Empty;
         // 保留到原生核对完成：图、两个目标与参数结构都由原生侧读。
         internal static IWindow StructuredBufferWindow;
-        internal static IScriptRenderTarget StructuredBufferWindowTarget;
-        internal static IScriptRenderTarget StructuredBufferCaptureTarget;
-        internal static IScriptRenderGraph StructuredBufferGraph;
-        internal static IScriptShaderStruct StructuredBufferParams;
+        internal static ScriptRenderTarget StructuredBufferWindowTarget;
+        internal static ScriptRenderTarget StructuredBufferCaptureTarget;
+        internal static ScriptRenderGraph StructuredBufferGraph;
+        internal static ScriptShaderStruct StructuredBufferParams;
 
         /// <summary>
         /// 结构化缓冲探针（csharp-render-structured-buffer 任务 3.1）：单 `POSITION` 顶点流、
@@ -358,7 +439,7 @@ namespace Scripting.Managed
         ///     `colorStructuredBuffer`（`E_SB_BIND`），该状态记入摘要、不抛异常；
         ///   · `bad-buffer-name`：绑未登记的 `sbColorsMissing` —— 提交前拒绝并点名缓冲名（`E_SB_BIND`）。
         /// </summary>
-        public static void OnStructuredBufferProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        internal static void OnStructuredBufferProbe(IWindowSystem windows, ScriptRenderBackend backend)
         {
             StructuredBufferProbeCount++;
             if (windows == null)
@@ -367,7 +448,7 @@ namespace Scripting.Managed
             }
             if (backend == null)
             {
-                throw new InvalidOperationException("结构化缓冲探针：脚本渲染后端表没有绑定");
+                throw new InvalidOperationException("结构化缓冲探针：原生渲染后端表没有绑定");
             }
 
             string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_SB_SELFTEST") ?? string.Empty;
@@ -378,6 +459,19 @@ namespace Scripting.Managed
             {
                 throw new InvalidOperationException($"结构化缓冲探针：未知的自检模式 {mode}");
             }
+            int preExec = backend.ExecuteGraphCount;
+            int preCapture = backend.CreateCaptureTargetCount;
+            int preStruct = backend.CreateShaderStructCount;
+            int preAddBuffer = backend.AddBufferCount;
+            int preCreateTexture = backend.CreateTextureCount;
+            int preUpload = backend.TextureUploadExecuteCount;
+            int preImage = backend.SetImageCount;
+            int preSampler = backend.SetSamplerCount;
+            int preWait = backend.WaitIdleCount;
+            int preSetFloat3 = backend.SetFloat3Count;
+            int preSetStruct = backend.SetStructCount;
+            int preSetPassParam = backend.SetPassParamCount;
+            int preSetBuffer = backend.SetBufferCount;
 
             StructuredBufferWindow = windows.NewWindow(CSharpStructuredBufferProbe.WindowWidth,
                 CSharpStructuredBufferProbe.WindowHeight, "C# 结构化缓冲", true, true, true, false);
@@ -476,13 +570,44 @@ namespace Scripting.Managed
                 backend.WaitIdle();
             }
 
+            // 托管前置校验的负例（design D6，正常模式才跑）：缓冲表外的字段名 `SetBuffer` 必须被拒绝并
+            // 点名字段，`SetBufferCount` 不涨（两后端对未命中字段是静默跳过，不能作为脚本面）。
+            string negatives = string.Empty;
+            if (mode.Length == 0)
+            {
+                int setBufferBeforeNegative = backend.SetBufferCount;
+                int negativeStatus = StructuredBufferParams.SetBuffer("noSuchBufferField",
+                    CSharpStructuredBufferProbe.BufferName);
+                string negativeError = StructuredBufferParams.GetLastError();
+                bool negativeOk = negativeStatus != 0 && negativeError.Contains("noSuchBufferField") &&
+                                  backend.SetBufferCount == setBufferBeforeNegative;
+                negatives = $" negField={(negativeOk ? 1 : 0)}" +
+                            $" negFieldText={negativeError.Replace(' ', '_')}";
+            }
+
             LastStructuredBufferSummary =
                 $"mode={(mode.Length == 0 ? "normal" : mode)} " +
                 $"passCount={StructuredBufferGraph.GetPassCount()} submitStatus={submitStatus} " +
                 $"unboundField={unboundField} badBufferName={badBufferName} submitError={submitError}";
+            string extras = string.Empty;
+            if (StructuredBufferGraph != null)
+            {
+                string bound0 = StructuredBufferGraph.GetBoundBufferName(0,
+                    CSharpStructuredBufferProbe.FieldName);
+                string bound1 = StructuredBufferGraph.GetBoundBufferName(1,
+                    CSharpStructuredBufferProbe.FieldName);
+                extras = $" boundBuffer0={(bound0.Length == 0 ? "-" : bound0)}" +
+                         $" boundBuffer1={(bound1.Length == 0 ? "-" : bound1)}";
+            }
+            extras += negatives;
+            LastStructuredBufferReadings = BuildReadings("structuredbuffer", mode, backend,
+                StructuredBufferGraph, StructuredBufferCaptureTarget, StructuredBufferWindowTarget,
+                submitStatus, submitError, preExec, preCapture, preStruct, preAddBuffer, preCreateTexture,
+                preUpload, preImage, preSampler, preWait, preSetFloat3, preSetStruct, preSetPassParam,
+                preSetBuffer, extras);
         }
 
-        private static void AddStructuredBufferPass(IScriptRenderTarget target)
+        private static void AddStructuredBufferPass(ScriptRenderTarget target)
         {
             CheckStatus(StructuredBufferGraph.AddTrianglePass(target,
                 CSharpStructuredBufferProbe.ShaderPath, CSharpStructuredBufferProbe.VertexBufferName,
@@ -492,18 +617,20 @@ namespace Scripting.Managed
                 StructuredBufferGraph, "AddTrianglePass");
         }
 
-        // ---- 纹理采样探针（csharp-render-texture-sampling 任务 3.2）----
+        // ---- 纹理采样探针（csharp-native-direct-binding 4.1）----
         /// <summary>`OnTextureProbe` 被调用了几次（与另外三个渲染探针分开计数）。</summary>
         internal static int TextureProbeCount;
         /// <summary>最近一次纹理探针的摘要：模式、pass 数、提交状态、拒绝文本、disposed 步。</summary>
         internal static string LastTextureSummary = string.Empty;
+        /// <summary>机器可读读数行（C++ 侧用例按它核对托管计数与对象句柄）。</summary>
+        internal static string LastTextureReadings = string.Empty;
         // 保留到原生核对与托管 Shutdown：图、两个目标、参数结构与纹理都由原生侧读。
         internal static IWindow TextureWindow;
-        internal static IScriptRenderTarget TextureWindowTarget;
-        internal static IScriptRenderTarget TextureCaptureTarget;
-        internal static IScriptRenderGraph TextureGraph;
-        internal static IScriptShaderStruct TextureParams;
-        internal static IScriptTexture TextureProbeTexture;
+        internal static ScriptRenderTarget TextureWindowTarget;
+        internal static ScriptRenderTarget TextureCaptureTarget;
+        internal static ScriptRenderGraph TextureGraph;
+        internal static ScriptShaderStruct TextureParams;
+        internal static ScriptTexture TextureProbeTexture;
 
         /// <summary>
         /// 纹理采样探针（csharp-render-texture-sampling 任务 3.2）：一次 `CreateTexture` 完成
@@ -518,7 +645,7 @@ namespace Scripting.Managed
         /// 探针末尾固定加一步：`TextureProbeTexture.Dispose()` 之后再用它调一次 `SetImage`，
         /// 捕获 `ObjectDisposedException` 并把结果写进摘要（"释放后使用"的防线在托管层，见 design 决策三）。
         /// </summary>
-        public static void OnTextureProbe(IWindowSystem windows, IScriptRenderBackend backend)
+        internal static void OnTextureProbe(IWindowSystem windows, ScriptRenderBackend backend)
         {
             TextureProbeCount++;
             if (windows == null)
@@ -527,7 +654,7 @@ namespace Scripting.Managed
             }
             if (backend == null)
             {
-                throw new InvalidOperationException("纹理探针：脚本渲染后端表没有绑定");
+                throw new InvalidOperationException("纹理探针：原生渲染后端表没有绑定");
             }
 
             string mode = Environment.GetEnvironmentVariable("CASCADED_CSHARP_TEX_SELFTEST") ?? string.Empty;
@@ -538,6 +665,19 @@ namespace Scripting.Managed
             {
                 throw new InvalidOperationException($"纹理探针：未知的自检模式 {mode}");
             }
+            int preExec = backend.ExecuteGraphCount;
+            int preCapture = backend.CreateCaptureTargetCount;
+            int preStruct = backend.CreateShaderStructCount;
+            int preAddBuffer = backend.AddBufferCount;
+            int preCreateTexture = backend.CreateTextureCount;
+            int preUpload = backend.TextureUploadExecuteCount;
+            int preImage = backend.SetImageCount;
+            int preSampler = backend.SetSamplerCount;
+            int preWait = backend.WaitIdleCount;
+            int preSetFloat3 = backend.SetFloat3Count;
+            int preSetStruct = backend.SetStructCount;
+            int preSetPassParam = backend.SetPassParamCount;
+            int preSetBuffer = backend.SetBufferCount;
 
             TextureWindow = windows.NewWindow(CSharpTextureProbe.WindowWidth,
                 CSharpTextureProbe.WindowHeight, "C# 纹理采样", true, true, true, false);
@@ -642,9 +782,43 @@ namespace Scripting.Managed
                 backend.WaitIdle();
             }
 
-            // 探针末尾的 disposed 步（design 决策三 / 任务 3.2）：释放纹理表面对象后再调一次
-            // `SetImage`，必须在进入原生实现之前抛 `ObjectDisposedException`（原生调用 0）。
+            // 对象句柄必须在 disposed 步之前取：释放后租约里的句柄归零。
+            ulong textureToken = TextureProbeTexture.Token;
+            string extras = $" texture={textureToken} textureSelf={TextureProbeTexture.NativeSelf}";
+            if (TextureGraph != null)
+            {
+                extras += $" boundTexture0={TextureGraph.GetBoundImageToken(0, CSharpTextureProbe.TextureField)}" +
+                          $" boundTexture1={TextureGraph.GetBoundImageToken(1, CSharpTextureProbe.TextureField)}";
+            }
+
+            // 托管前置校验的负例（design D6，正常模式才跑）：
+            //   ① 字节数与 `width * height * 4` 不符 → 空句柄 + 文本同时点名期望值与实际值，
+            //      `CreateTextureCount` 不涨（MUST NOT 进后端创建路径）；
+            //   ② 纹理表外字段 `SetImage` → 拒绝并点名字段，`SetImageCount` 不涨。
+            string negatives = string.Empty;
+            if (mode.Length == 0)
+            {
+                int createBeforeNegative = backend.CreateTextureCount;
+                ScriptTexture badTexture = backend.CreateTexture("texBadBytes", CSharpTextureProbe.TextureWidth,
+                    CSharpTextureProbe.TextureHeight, new byte[12]);
+                string badTextureError = backend.GetLastError();
+                bool bytesOk = badTexture == null && badTextureError.Contains("16") &&
+                               badTextureError.Contains("12") &&
+                               backend.CreateTextureCount == createBeforeNegative;
+                int imageBeforeNegative = backend.SetImageCount;
+                int fieldStatus = TextureParams.SetImage("noSuchTextureField", TextureProbeTexture);
+                string fieldError = TextureParams.GetLastError();
+                bool fieldOk = fieldStatus != 0 && fieldError.Contains("noSuchTextureField") &&
+                               backend.SetImageCount == imageBeforeNegative;
+                negatives = $" negBytes={(bytesOk ? 1 : 0)} negField={(fieldOk ? 1 : 0)}" +
+                            $" negBytesText={badTextureError.Replace(' ', '_')}" +
+                            $" negFieldText={fieldError.Replace(' ', '_')}";
+            }
+
+            // 探针末尾的 disposed 步：释放纹理表面对象后再调一次 `SetImage`，必须在进入原生实现之前
+            // 抛 `ObjectDisposedException`（原生 SetImage 调用 0）。
             string disposedStep;
+            int disposedBefore = backend.SetImageCount;
             try
             {
                 TextureProbeTexture.Dispose();
@@ -653,7 +827,9 @@ namespace Scripting.Managed
             }
             catch (ObjectDisposedException ex)
             {
-                disposedStep = $"disposed={ex.GetType().Name} 原生 SetImage 调用 0";
+                disposedStep = backend.SetImageCount == disposedBefore
+                    ? $"disposed={ex.GetType().Name} 原生 SetImage 调用 0"
+                    : $"disposed={ex.GetType().Name} 但原生 SetImage 计数涨了";
             }
 
             LastTextureSummary =
@@ -662,9 +838,13 @@ namespace Scripting.Managed
                 $"unboundImage={unboundImage} unboundSampler={unboundSampler} " +
                 $"texture=({textureWidth}x{textureHeight}) " +
                 $"{disposedStep} submitError={submitError}";
+            LastTextureReadings = BuildReadings("texture", mode, backend, TextureGraph, TextureCaptureTarget,
+                TextureWindowTarget, submitStatus, submitError, preExec, preCapture, preStruct, preAddBuffer,
+                preCreateTexture, preUpload, preImage, preSampler, preWait, preSetFloat3, preSetStruct,
+                preSetPassParam, preSetBuffer, negatives + extras);
         }
 
-        private static void AddTexturePass(IScriptRenderTarget target)
+        private static void AddTexturePass(ScriptRenderTarget target)
         {
             CheckStatus(TextureGraph.AddTrianglePass(target, CSharpTextureProbe.ShaderPath,
                 CSharpTextureProbe.VertexBufferName, CSharpTextureProbe.VertexBufferName,
@@ -681,6 +861,7 @@ namespace Scripting.Managed
         {
             if (TextureProbeTexture != null)
             {
+                TextureProbeTexture.ReleaseNative();
                 TextureProbeTexture.Dispose();
                 TextureProbeTexture = null;
             }
@@ -809,7 +990,7 @@ namespace Scripting.Managed
             }
         }
 
-        private static void AddTrianglePass(IScriptRenderGraph graph, IScriptRenderTarget target)
+        private static void AddTrianglePass(ScriptRenderGraph graph, ScriptRenderTarget target)
         {
             CheckStatus(graph.AddTrianglePass(target, CSharpTriangleProbe.ShaderPath,
                 CSharpTriangleProbe.BufferName, CSharpTriangleProbe.BufferName,
@@ -818,7 +999,7 @@ namespace Scripting.Managed
                 CSharpTriangleProbe.ClearAlpha), graph, "AddTrianglePass");
         }
 
-        private static void CheckStatus(int status, IScriptRenderGraph graph, string step)
+        private static void CheckStatus(int status, ScriptRenderGraph graph, string step)
         {
             if (status == 0)
             {
@@ -827,13 +1008,78 @@ namespace Scripting.Managed
             throw new InvalidOperationException($"渲染探针：{step} 被拒绝（{status}）：{graph.GetLastError()}");
         }
 
-        private static void CheckStatus(int status, IScriptRenderBackend backend, string step)
+        private static void CheckStatus(int status, ScriptRenderBackend backend, string step)
         {
             if (status == 0)
             {
                 return;
             }
             throw new InvalidOperationException($"渲染探针：{step} 被拒绝（{status}）：{backend.GetLastError()}");
+        }
+
+        /// <summary>
+        /// 一行**机器可读**读数（C++ 侧用例解析）：对象句柄供原生侧按绑定对象表解析出真实
+        /// `GPUGraph` / `GPUTexture` / `WindowHandle`，计数供"拒绝时原生执行计数 0"这类断言。
+        /// 文本里不含空格以外的分隔符；`reject` 永远在最后一段（以 ` | reject=` 起头）。
+        /// </summary>
+        private static string BuildReadings(string probe, string mode, ScriptRenderBackend backend,
+            ScriptRenderGraph graph, ScriptRenderTarget capture, ScriptRenderTarget window,
+            int submitStatus, string reject, int preExec, int preCapture, int preStruct, int preAddBuffer,
+            int preCreateTexture, int preUpload, int preImage, int preSampler, int preWait,
+            int preSetFloat3, int preSetStruct, int preSetPassParam, int preSetBuffer, string extra)
+        {
+            ulong graphToken = graph == null ? 0UL : graph.Token;
+            ulong captureToken = capture == null ? 0UL : capture.CaptureTextureToken;
+            ulong windowToken = window == null ? 0UL : window.WindowHandleToken;
+            uint passCount = graph == null ? 0u : graph.GetPassCount();
+            int presentCount = graph == null ? 0 : graph.PresentCount;
+            string line = "[托管 读数]" +
+                $" probe={probe}" +
+                $" mode={(mode.Length == 0 ? "normal" : mode)}" +
+                $" graph={graphToken}" +
+                $" graphSelf={(graph == null ? 0UL : graph.NativeSelf)}" +
+                $" capture={captureToken}" +
+                $" captureSelf={(capture == null ? 0UL : capture.CaptureTextureSelf)}" +
+                $" window={windowToken}" +
+                $" size={(capture == null ? 0u : capture.GetWidth())}x{(capture == null ? 0u : capture.GetHeight())}" +
+                $" pass={passCount}" +
+                $" submit={submitStatus}" +
+                $" present={presentCount}" +
+                $" exec={backend.ExecuteGraphCount - preExec}" +
+                $" wait={backend.WaitIdleCount - preWait}" +
+                $" preExec={preExec}" +
+                $" preCapture={preCapture}" +
+                $" preStruct={preStruct}" +
+                $" preAddBuffer={preAddBuffer}" +
+                $" preCreateTexture={preCreateTexture}" +
+                $" preUpload={preUpload}" +
+                $" preImage={preImage}" +
+                $" preSampler={preSampler}" +
+                $" preWait={preWait}" +
+                $" preSetFloat3={preSetFloat3}" +
+                $" preSetStruct={preSetStruct}" +
+                $" preSetPassParam={preSetPassParam}" +
+                $" preSetBuffer={preSetBuffer}" +
+                $" createStruct={backend.CreateShaderStructCount - preStruct}" +
+                $" captureCount={backend.CreateCaptureTargetCount - preCapture}" +
+                $" createTexture={backend.CreateTextureCount - preCreateTexture}" +
+                $" upload={backend.TextureUploadExecuteCount - preUpload}" +
+                $" addBuffer={backend.AddBufferCount - preAddBuffer}" +
+                $" setFloat3={backend.SetFloat3Count - preSetFloat3}" +
+                $" setStruct={backend.SetStructCount - preSetStruct}" +
+                $" setPassParam={backend.SetPassParamCount - preSetPassParam}" +
+                $" setBuffer={backend.SetBufferCount - preSetBuffer}" +
+                $" setImage={backend.SetImageCount - preImage}" +
+                $" setSampler={backend.SetSamplerCount - preSampler}";
+            if (!string.IsNullOrEmpty(extra))
+            {
+                line += " " + extra;
+            }
+            if (!string.IsNullOrEmpty(reject))
+            {
+                line += " | reject=" + reject.Replace('\n', ' ').Replace('\r', ' ');
+            }
+            return line;
         }
     }
 

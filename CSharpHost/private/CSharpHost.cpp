@@ -11,9 +11,8 @@
 // `struct EngineApi`、手写编号常量或逐接口手写分派。
 #include "BindingRegistry.Bindings.cpp"
 
-// 原生适配器实现：三个公开接口 + 私有类（`CScriptRenderBackend`）。宿主只在这里接触具体类型，
-// 托管侧只能看到公开接口。
-#include "../../Interface/RenderInterface/private/ScriptRenderBridge.h"
+// 宿主直持原生后端（5.1：桥与它的私有头一起退役）。CAInject_..._ExecuteGraph_scheduler 钩子
+// 仍然由本文件提供，托管侧只看到生成的直绑表面。
 #include <CRenderBackend.h>
 #include <ThreadManager.h>
 
@@ -35,6 +34,9 @@
 
 namespace cs_script
 {
+	// 注入钩子用的线程管理器（csharp-native-direct-binding 2.2 / design D1）：`CreateRenderAdapter`
+	// 从模块管理器取到真实 `CThreadManager` 后写这里；钩子只被生成产物的 thunk 调用。
+	static thread_management::CThreadManager* s_threadManager = nullptr;
 	// EngineApi 的字段、版本与大小断言都在生成的 `BindingRegistry.Bindings.h` 里（同一次生成发出
 	// C++ struct、托管镜像与两侧常量）；宿主不再保留手写 struct / 版本常量 / 编号常量。
 	//
@@ -49,11 +51,14 @@ namespace cs_script
 	constexpr BindingPolicyEntry kBindingPolicies[] = {
 		{ kBindingInterfaceIdIWindow, true },
 		{ kBindingInterfaceIdIWindowSystem, true },
-		{ kBindingInterfaceIdIScriptRenderBackend, true },
-		{ kBindingInterfaceIdIScriptRenderGraph, false },
-		{ kBindingInterfaceIdIScriptRenderTarget, false },
-		{ kBindingInterfaceIdIScriptShaderStruct, false },
-		{ kBindingInterfaceIdIScriptTexture, false },
+		// csharp-native-direct-binding 2.4 / 4.1（design D12）：原生五类也要能从托管侧取表。
+		// `CRenderBackend` 是引擎里那**一个**真实后端（默认实例）；`GPUGraph` / `ShaderStruct` /
+		// `GPUTexture` / `WindowHandle` 是目标类型表（由工厂或句柄解析产出，允许空实例）。
+		{ kBindingInterfaceIdCRenderBackend, true },
+		{ kBindingInterfaceIdGPUGraph, false },
+		{ kBindingInterfaceIdShaderStruct, false },
+		{ kBindingInterfaceIdGPUTexture, false },
+		{ kBindingInterfaceIdWindowHandle, false },
 	};
 	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
 	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会
@@ -328,15 +333,14 @@ namespace cs_script
 		// 第一版把它写成 LoadRuntime() 里的局部变量，Boot 之后表就失效了，Tick 里一读就是野指针（实测崩在
 		// Scripting.Managed.Host.Tick，退出码 0xC0000005）。改成成员。
 		EngineApi m_api{};
-		// 脚本渲染适配器（csharp-render-backend-triangle 任务 3.1）：由本模块 new、生命周期与宿主一致。
-		// 托管侧只持有编号 3 的实例指针与生成的函数表，不拥有它。
-		std::unique_ptr<graphics_backend::CScriptRenderBackend> m_renderAdapter;
 		// 模块管理器（render-interface-merge 任务 3.1）：生成的装配代码通过固定名工厂钩子回到
-		// CreateRenderAdapter，钩子需要一个稳定的管理器指针。
+		// 这里，钩子需要一个稳定的管理器指针。
 		cacore::IModuleManager* m_moduleManager = nullptr;
 
-		// 用模块管理器里的真实后端与线程管理器创建脚本渲染适配器。缺少依赖时**不登记**编号 3，
-		// 并把原因留在 m_lastError（不造空壳、不伪造成功）；未启用渲染探针的窗口路径不受影响。
+		// 用模块管理器里的真实后端与线程管理器登记**原生**渲染后端（编号 = 生成的 CRenderBackend
+		// 常量，默认实例）。5.1：桥退役后宿主直持原生对象，不再 new 适配器。
+		// 缺少依赖时**不登记**编号，并把原因留在 m_lastError（不造空壳、不伪造成功）；
+		// 未启用渲染探针的窗口路径不受影响。
 		void CreateRenderAdapter(cacore::IModuleManager* pModuleManager)
 		{
 			auto* backend = pModuleManager != nullptr
@@ -345,26 +349,27 @@ namespace cs_script
 			auto* threads = pModuleManager != nullptr
 				? pModuleManager->GetInstance<thread_management::CThreadManager>()
 				: nullptr;
+			// 注入钩子（csharp-native-direct-binding 2.2 / design D1）要用它新建调度器：
+			// `ExecuteGraph(TaskScheduler*, graph)` 的调度器参数由引擎提供，脚本永远看不到它。
+			s_threadManager = threads;
 			if (backend == nullptr || threads == nullptr)
 			{
-				m_lastError = std::string("脚本渲染适配器未登记：缺少 ") +
+				m_lastError = std::string("渲染后端未登记：缺少 ") +
 					(backend == nullptr ? "CRenderBackend" : "") +
 					(backend == nullptr && threads == nullptr ? " 与 " : "") +
 					(threads == nullptr ? "CThreadManager" : "");
 				CA_LOG_ERR("CSharpHost：{}", m_lastError.c_str());
 				return;
 			}
-			m_renderAdapter = std::make_unique<graphics_backend::CScriptRenderBackend>(backend, threads);
-			SetInterfaceInstance(kBindingInterfaceIdIScriptRenderBackend, nullptr, m_renderAdapter.get());
+			SetInterfaceInstance(kBindingInterfaceIdCRenderBackend, nullptr, backend);
 			// 这行必须报**登记表的实际读数**：csharp-render-shader-constants 任务 3.1 的变异实验里
 			// 临时注释掉上面那行登记，日志却照样打"已登记"——文本在说谎，把缺口遮住了。现在直接把
 			// 查表结果打在后面，登记没发生时读数是 0，一眼可见。
-			void* registered = GetInterfaceInstance(kBindingInterfaceIdIScriptRenderBackend, nullptr);
-			CA_LOG("CSharpHost：脚本渲染适配器{}（编号 {}；后端地址 {:X}；登记表读数 {:X}）",
-				registered == m_renderAdapter.get() ? "已登记" : "未登记", kBindingInterfaceIdIScriptRenderBackend,
+			void* registered = GetInterfaceInstance(kBindingInterfaceIdCRenderBackend, nullptr);
+			CA_LOG("CSharpHost：原生渲染后端{}（编号 {}；后端地址 {:X}；登记表读数 {:X}）",
+				registered == backend ? "已登记" : "未登记", kBindingInterfaceIdCRenderBackend,
 				reinterpret_cast<uintptr_t>(backend), reinterpret_cast<uintptr_t>(registered));
 		}
-
 		void LoadRuntime()
 		{
 			auto started = std::chrono::steady_clock::now();
@@ -854,3 +859,19 @@ extern "C" CA_MODULE_API void TryRelease(void* pManager)
 }
 
 CA_MODULE_INSTANCE(cs_script::IScriptHost, cs_script::CSharpHost, CSharpHost);
+
+// 参数注入钩子（csharp-native-direct-binding 2.2 / design D1）：`CRenderBackend::ExecuteGraph` 的
+// 调度器参数由引擎在这里提供 —— 每次调用新建一个调度器，用一个线程局部强引用保活到下一次调用
+// （ExecuteGraph 是同步提交，返回时调度器不再被使用）。线程管理器缺失时返回空指针，thunk 会把它
+// 当空值传给原生（后端对空调度器的行为不在本批改动面内）。
+extern "C" void* CAInject_CRenderBackend_ExecuteGraph_scheduler()
+{
+	static thread_local castl::shared_ptr<thread_management::TaskScheduler> s_scheduler;
+	if (cs_script::s_threadManager == nullptr)
+	{
+		s_scheduler.reset();
+		return nullptr;
+	}
+	s_scheduler = cs_script::s_threadManager->NewScheduler();
+	return s_scheduler.get();
+}

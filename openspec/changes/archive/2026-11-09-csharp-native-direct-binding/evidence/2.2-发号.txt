@@ -1,0 +1,77 @@
+2.3 锁文件 host 段换面段 A（design D10 前半：纯追加，零手工数字编辑）
+
+执行者：apply 子 agent　　时间：2026-11-09 04:0x
+
+一、做法（与 D10 段 A 逐条对齐）
+
+1. `build.py` 的 `CODEGEN_REGISTRIES` host 段在桥行**之后**追加五个原生头（顺序=发号顺序）：
+   `CRenderBackend.h` / `GPUGraph.h` / `ShaderStruct.h` / `GPUTexture.h` / `WindowHandle.h`。
+   分片标签一头一个（`native-render-backend` / `native-graph` / `native-shader-struct` /
+   `native-texture` / `native-window-handle`）—— 同名标签共用一个分片文件，后写的会覆盖先写的
+   （实测五个都写 `native.registry.part` 时聚合只剩 WindowHandle）。
+2. 发号只经工具：`python build.py --config Debug --update-ids`（逐登记输入跑 `CodeGen --update-ids`）。
+   **零手工数字编辑**：锁里新增的五行的编号全部由工具按"该段水位 + 1"追加。
+3. 桥 3–7 一行未动、桥头 `CA_BIND` 标注未动 —— 宿主消费的五个桥常量名与值原样保留。
+
+二、锁 diff（全文，逐字）
+
+    @@ -15,7 +15,12 @@
+     5	IScriptRenderTarget	graphics_backend::IScriptRenderTarget	Interface/RenderInterface/header/ScriptRenderBridge.h
+     6	IScriptShaderStruct	graphics_backend::IScriptShaderStruct	Interface/RenderInterface/header/ScriptRenderBridge.h
+     7	IScriptTexture	graphics_backend::IScriptTexture	Interface/RenderInterface/header/ScriptRenderBridge.h
+    -# high water 7
+    +8	CRenderBackend	graphics_backend::CRenderBackend	Interface/RenderInterface/header/CRenderBackend.h
+    +9	GPUGraph	graphics_backend::GPUGraph	Interface/RenderInterface/header/GPUGraph.h
+    +10	ShaderStruct	graphics_backend::ShaderStruct	Interface/RenderInterface/header/ShaderStruct.h
+    +11	GPUTexture	graphics_backend::GPUTexture	Interface/RenderInterface/header/GPUTexture.h
+    +12	WindowHandle	graphics_backend::WindowHandle	Interface/RenderInterface/header/WindowHandle.h
+    +# high water 12
+     # scope fixture
+     8	IBindRegistry8	ca_bind_fixture::IBindRegistry8	Tools/CodeGen/BindableShapes.RenderRegistry.h
+
+三、段内连续性（构建可见状态 1..12，无跳号无重号）
+
+    $ CodeGen --emit-registry …（构建里那一步，产物 BindingRegistry.Bindings.h 逐字）
+    inline constexpr uint32_t kBindingInterfaceIdIWindow = 1u;                        // cawindow::IWindow
+    inline constexpr uint32_t kBindingInterfaceIdIWindowSystem = 2u;                  // cawindow::IWindowSystem
+    inline constexpr uint32_t kBindingInterfaceIdIScriptRenderBackend = 3u;           // graphics_backend::IScriptRenderBackend
+    inline constexpr uint32_t kBindingInterfaceIdIScriptRenderGraph = 4u;             // graphics_backend::IScriptRenderGraph
+    inline constexpr uint32_t kBindingInterfaceIdIScriptRenderTarget = 5u;            // graphics_backend::IScriptRenderTarget
+    inline constexpr uint32_t kBindingInterfaceIdIScriptShaderStruct = 6u;            // graphics_backend::IScriptShaderStruct
+    inline constexpr uint32_t kBindingInterfaceIdIScriptTexture = 7u;                 // graphics_backend::IScriptTexture
+    inline constexpr uint32_t kBindingInterfaceIdCRenderBackend = 8u;                 // graphics_backend::CRenderBackend
+    inline constexpr uint32_t kBindingInterfaceIdGPUGraph = 9u;                       // graphics_backend::GPUGraph
+    inline constexpr uint32_t kBindingInterfaceIdShaderStruct = 10u;                  // graphics_backend::ShaderStruct
+    inline constexpr uint32_t kBindingInterfaceIdGPUTexture = 11u;                    // graphics_backend::GPUTexture
+    inline constexpr uint32_t kBindingInterfaceIdWindowHandle = 12u;                  // graphics_backend::WindowHandle
+
+四、三处消费点同号核对
+
+1. 生成常量（C++）：`BindingRegistry.Bindings.h` 的十二个 `kBindingInterfaceId*`（上面逐字）。
+2. 生成清单（C#）：`EngineApi.Bindings.cs` 逐字
+       public const uint GPUGraphInterfaceId = 9;
+       public const uint WindowHandleInterfaceId = 12;
+       new InterfaceTable(GPUGraphInterfaceId, "GPUGraph", GPUGraphBindings.Bind),
+       new InterfaceTable(WindowHandleInterfaceId, "WindowHandle", WindowHandleBindings.Bind),
+3. 宿主消费点：`CSharpHost/private/CSharpHost.cpp:55-59 / :364 / :368-370` 用的仍是五个桥常量
+   （`kBindingInterfaceIdIScriptRenderBackend` 等），值与 3–7 完全一致 —— **宿主一行未改、编译通过**，
+   这正是段 A 的目的：桥的消费者在 5.1 之前照常工作。
+
+五、过程中修掉的两个工具缺陷（都属"编号唯一来源"的护栏，不是判据放松）
+
+1. `--update-ids` 的删除范围从"名字不在本头标注里就删"改成"只删**本头**的行"。原实现是逐头调用的
+   （`python build.py --update-ids` 按登记输入逐个跑），跑一次 WindowHandle.h 会把 IWindow/桥五条
+   一起删掉（实测：`删除：编号 1 / IWindow …`）。改后：别的头的行原样保留、只有本头消失的名字才删。
+2. `--emit-registry` 增加**同号同名同头**的重复分片去重。分片按翻译单元写，被别的头 include 的
+   接口会在多个分片里各出现一次（实测 `WindowHandle.h` 被 `ShaderResourceHandle.h` 带进四个头，
+   聚合时报 `编号 12 重复：WindowHandle … 与 WindowHandle …`）。四列完全一致才去重，任何一处不同
+   仍按原冲突判据报错。
+
+六、说明：发号必须带 `--config Debug`
+
+`python build.py --update-ids` 不带 `--config` 时默认用 RelWithDebInfo 的构建目录，那个目录里没有
+本次的 compile_commands/产物 ⇒ 工具解析失败（`libclang: parse failed (error=4)` 对所有头）。本轮用的
+是 `python build.py --config Debug --update-ids`；这条限制已记在这里，5.2 写 README 时一并写进命令示例。
+
+结论：2.3 的两条验收（段内 1..12 连续无跳号无重号、三处消费点同号）都有实测读数，通过。段 B
+（删桥行 + 原生重编号 8–12→3–7）在 5.1 执行。

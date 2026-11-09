@@ -72,12 +72,12 @@ bool RunBindingsNestedLayoutTest();
 bool RunBindingsCallbackTest();
 bool RunBindingsCrossInterfaceTest();
 bool RunBindingsRenderFoundationTest();
-// 脚本窄渲染适配面的原生图结构 / 字节复制 / 拒绝路径 / 提交生命周期
-// （csharp-render-backend-triangle 任务 1.1 / 2.1 / 2.2）。
-bool RunScriptRenderBridgeTest();
+// 5.1：桥测试件随桥一起退役（原生面判据由 RunNativeSurfaceTest 与四条渲染用例承接）。
 bool RunWindowBindingsCompileTest();
 // 原生形态夹具：非纯虚 virtual / 非虚公开方法 / 自返回链式的原生行为（本 change 任务 2.2）
 bool RunBindingsNativeShapesTest();
+// 原生五类表面（本 change 任务 2.4 / D12+D13）：工厂槽、WindowHandle 三方法、标量容器两段式。
+bool RunNativeSurfaceTest();
 
 
 
@@ -196,18 +196,6 @@ int main(int argc, char* argv[])
 		std::puts("Bindings render foundation test PASSED");
 	}
 
-	// 脚本窄渲染适配面：真实 GPUGraph 的字节 / 属性 / 绘制 / 清除色 / 呈现清单 / 等待与待完成集合，
-	// 以及错误类型句柄与已释放句柄在进入实现之前被挡下（本 change 任务 1.1 / 2.1 / 2.2）
-	if (!RunScriptRenderBridgeTest())
-	{
-		std::puts("Script render bridge test FAILED");
-		allOk = false;
-	}
-	else
-	{
-		std::puts("Script render bridge test PASSED");
-	}
-
 	// 原生形态夹具：非纯虚 virtual / 非虚公开方法 / 自返回链式（本 change 任务 2.2）
 	if (!RunBindingsNativeShapesTest())
 	{
@@ -217,6 +205,17 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("Bindings native shapes test PASSED");
+	}
+
+	// 原生五类表面（本 change 任务 2.4 / D12+D13）
+	if (!RunNativeSurfaceTest())
+	{
+		std::puts("Bindings native surface test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings native surface test PASSED");
 	}
 
 	if (!RunTypeRegistryTest())

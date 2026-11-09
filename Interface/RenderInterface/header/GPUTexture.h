@@ -1,4 +1,6 @@
 #pragma once
+// 绑定标注宏（CA_BIND）：这个头自己也进绑定面（2.2）。
+#include <CodeGenMeta.h>
 #include <CASTL/CAAlgorithm.h>
 #include "Common.h"
 
@@ -145,6 +147,8 @@ namespace graphics_backend
 		}
 	};
 
+	// 纹理接口进绑定面（csharp-native-direct-binding 2.2 / design D1）：描述符按值镜像、名字走两段式。
+	CA_BIND()
 	class GPUTexture
 	{
 	public:

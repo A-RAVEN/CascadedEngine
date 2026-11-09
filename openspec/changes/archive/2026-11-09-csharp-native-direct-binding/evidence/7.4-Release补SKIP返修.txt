@@ -1,0 +1,101 @@
+csharp-native-direct-binding 7.4 Release 补 SKIP 返修记录（2026-11-09）
+=====================================================================
+
+一、改动（本次唯一一处编辑）
+---------------------------
+文件：`Interface/RenderInterface/header/CRenderBackend.h`（标注区，`CA_BIND_INJECT` 那几行旁边）
+新增行（逐字，行首一个 tab）：
+
+	CA_BIND_SKIP(Release, "④ 语义越界：销毁整个后端，脚本不该调（沿用 csharp-bindable-surface 审计表既定结论）")
+
+位置：紧跟 `CA_BIND_SKIP(RunTestCode, "④ 语义越界：测试专用入口，脚本不该调")` 之后，
+      `CA_BIND_SKIP(Readback, …)` 之前；其余行未动（本次编辑只新增这一行）。
+依据：`tasks.md` 修订记录 27 与修订记录 8/15、两份 spec MODIFIED 裁定 `Release`/`Initialize`
+      维持审计 ④ 语义越界不可绑；2.2 挂标注时漏了 `Release`。
+说明：L140 注释「四条按主循环裁定排除」未改 —— 任务口径是"别动任何其他行"，补后实际五条，
+      注释里的「四条」这个数字保持原样，未擅自改注释。
+
+二、构建
+--------
+命令：`python build.py --config Debug`（后台执行，输出重定向）
+日志：`%TEMP%\fix74-build.log`；退出码文件 `%TEMP%\fix74-build.exit` = **0**
+读数：`BUILD SUCCESSFUL`；耗时 configure 0.0s / codegen 5.0s / 编译 54.6s / 托管侧 5.9s / 合计 120.9s
+构建内 `check_bindings.py`（日志内「[绑定判据]」段）：
+  矩阵行数 23 / 有夹具的行数 23 / 真实接口行 7 / 签名行 101 / 非签名行（拒绝或错误码）0
+  不符数 0；两侧对齐问题 0 处；覆盖率问题 0 处；托管表面问题 0 处；第二张矩阵问题 0 处；
+  错误码问题 0 处；共享值类型问题 0 处；夹具识别问题 0 处；渲染基础表面问题 0 处；登记表问题 0 处
+
+三、生成产物验证（判据 2：槽消失、托管表面方法消失）
+-----------------------------------------------------
+1) 精确槽（0 命中）：
+   `Select-String -Path out\build\x64-debug\codegen\bindings\CRenderBackend.Bindings.cpp -Pattern 'CRenderBackend_Release\(void\* self\)'`
+   → **0 命中**。
+   同文件里另有 21 处含 `CRenderBackend_Release` 的行，逐条核对全部是 `ReleaseHandle` /
+   `ReleaseTargetHandle` / `ReleaseCreateGPUTexture` / `ReleaseCreateShaderStruct` / `ReleaseGetWindowHandle`
+   这类**句柄释放**槽，不是 `Release(void* self)` 方法槽，不构成命中。
+2) 托管表面（方法消失）：
+   生成产物 `out\build\x64-debug\codegen\bindings\CRenderBackend.Bindings.cs` 的
+   `public sealed class CRenderBackend : IDisposable`（L337–382）公开方法为：
+   ExecuteGraph / GetTimingCapabilities / CreateGPUTexture / CreateShaderStruct /
+   FindShaderStructData / FindShaderRootStructData / GetWindowHandle / AnyWindowRunning /
+   WaitIdle / Dispose —— **没有 `Release()`**。
+3) 函数表结构：`CRenderBackendApi_v2`（.cpp L168–188）列 17 个函数指针，成员表里没有 Release。
+
+四、check 家族
+--------------
+| 脚本 | 命令 | 退出码 | 关键读数 | 日志 |
+|---|---|---|---|---|
+| check_bindings.py | `python Tools\CodeGen\check_bindings.py --product-dir out\build\x64-debug\codegen\bindings` | 0 | 不符数 0；两侧对齐 / 覆盖率 / 托管表面 / 第二张矩阵 / 错误码 / 共享值类型 / 夹具识别 / 渲染基础表面 / 登记表 全 0 处 | `%TEMP%\fix74-bindings.log` |
+| check_bindable_audit.py | `python Tools\CodeGen\check_bindable_audit.py` | 0 | 扫描 8 个接口、对账 91 条方法、命中 0 处问题 | `%TEMP%\fix74-audit.log` |
+| check_native_snapshot.py | `python Tools\CodeGen\check_native_snapshot.py --snapshot openspec\changes\csharp-native-direct-binding\evidence\7.1-原生头投影快照.txt` | 0 | 独立清单 129 条 / 问题 0 处；GPUGraph.h 方法 23 条（下界锚 23） | `%TEMP%\fix74-snapshot.log` |
+
+五、CoreTests
+-------------
+命令：`out\build\x64-debug\bin\CoreTests.exe`
+退出码：**0**；日志 `%TEMP%\fix74-coretests.log`
+读数：`PASSED` 行 **23** / `FAILED` 行 **0**（日志共 107 行）
+
+六、两后端全量（均带 --headless 10）
+------------------------------------
+1) vulkan：
+   `out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --headless 10 --report test_output\result.json`
+   退出码 **0**；日志 `%TEMP%\fix74-vulkan.log`
+   报告：16 条用例，`status=pass` **16/16**（报告留档 `test_output\result.json`，
+   另有一份 `%TEMP%\fix74-result-vulkan.json` 副本）
+2) d3d12：
+   `out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --headless 10 --report test_output\result.json`
+   退出码 **0**；日志 `%TEMP%\fix74-d3d12.log`
+   报告：16 条用例，`status=pass` **16/16**（报告留档 `test_output\result_d3d12.json`）
+   两次报告同用 `result.json`：按 7.1 口径把 vulkan 报告先抄回 `test_output\result.json`、d3d12 报告
+   抄成 `test_output\result_d3d12.json`，两份都逐条核过 16 条 `status=pass`、0 条非 pass。
+
+七、基线锚（按 6.1 换锚程序小轮）
+--------------------------------
+1) 换前锚封存：
+   命令：`Copy-Item evidence\基线产物哈希.txt evidence\7.4-换锚前-基线产物哈希.txt`
+   两侧 sha256 = `309f55b4fa2f3e83f25b4aa5bcc2c0a143cc4e705cffff9751adbbcebad1c597`（逐字节副本）
+   说明：`check_binding_baseline.py` 的当前基线路径本来就是 `evidence\基线产物哈希.txt`，本次重取后
+   该路径即新锚，脚本无需改路径（任务纪律：除补 SKIP 外不改工具代码，脚本 docstring 未动）。
+2) 新锚重取：
+   `evidence\基线产物哈希.txt` 按 6.1 格式重写（头部含取锚时刻、HEAD、git status、条目数），
+   条目数 **191**；sha256 = `b264edecc251bf5af664ca107d24d3f97fc57215477dce827e1b078059e3ba93`
+   取锚前提：上条构建 `exit 0`（BUILD SUCCESSFUL）；取锚时刻 2026-11-09 14:12:22、HEAD `6d76f07d…`
+3) 两锚差异逐文件（旧锚 → 新锚）：
+   删除 0 / 新增 0 / 内容变化 **2**
+   - `CRenderBackend.Bindings.cpp`（旧 67a3fe715180… / 新 702f645e683d…）
+   - `CRenderBackend.Bindings.cs`（旧 f22e24e2f4d9… / 新 f4368b18b6d6…）
+   与预期一致：只有 `CRenderBackend` 产物族变化（Release 槽与托管表面方法删除）；其余 189 个产物逐字节不变。
+   日志 `%TEMP%\fix74-anchor-diff.log`
+4) 对账三件：
+   - 新锚 vs 当前产物 → **exit 0**；基线对账：缺失 0 / 不一致 0 / 多余 0（`%TEMP%\fix74-anchor-new.log`）
+   - 旧锚 vs 新产物 → **exit 1**；缺失 0 / 不一致 2 / 多余 0，逐条点名上面两个文件
+     （`%TEMP%\fix74-anchor-old.log`）—— 不换锚就过不了，红样证明换锚必要
+   - 新锚 `--self-test` → **exit 0**；删掉基线行 AttachmentConfig.Bindings.cs 之后被点名
+     （`%TEMP%\fix74-anchor-selftest.log`）
+
+八、结论
+--------
+7.4 的产品代码唯一改动（补 `CA_BIND_SKIP(Release, …)`）已落地；构建 exit 0；Release 方法槽与托管表面
+`Release()` 消失；check_bindings / check_bindable_audit / check_native_snapshot 全 0；CoreTests 23 PASSED
+/ 0 FAILED；两后端 `--headless 10` 各 16/16 pass、exit 0；基线锚按 6.1 程序完成换锚（差异只有
+CRenderBackend 两个产物，旧锚对新产物 exit 1、新锚对产物 exit 0）。`tasks.md` 7.4 勾选。

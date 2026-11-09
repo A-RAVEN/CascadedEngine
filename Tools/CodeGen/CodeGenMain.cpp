@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <initializer_list>
 #include <map>
 #include <set>
@@ -1303,6 +1304,37 @@ namespace bindemit
         return false;
     }
 
+    // 标量宽度类型的字节数（标量容器两段式的拷贝容量要按字节算）。
+    std::size_t scalarWidthBytes(std::string const& widthType)
+    {
+        if (widthType == "uint8_t" || widthType == "int8_t" || widthType == "bool") return 1u;
+        if (widthType == "uint16_t" || widthType == "int16_t") return 2u;
+        if (widthType == "uint32_t" || widthType == "int32_t" || widthType == "float") return 4u;
+        if (widthType == "uint64_t" || widthType == "int64_t" || widthType == "double") return 8u;
+        return 0u;
+    }
+
+    // 标量拼写 → 定宽宽度类型（返回位置标量容器两段式要用，本批 1.6 / design D13）。
+    // 只认显式列出的拼写；认不出就返回空串，由调用方生成期点名（不猜宽度）。
+    std::string normalizeScalarSpelling(std::string const& spelling)
+    {
+        const std::string bare = bareType(spelling);
+        if (bare == "uint8_t" || bare == "unsigned char" || bare == "char") return "uint8_t";
+        if (bare == "int8_t" || bare == "signed char") return "int8_t";
+        if (bare == "uint16_t" || bare == "unsigned short") return "uint16_t";
+        if (bare == "int16_t" || bare == "short") return "int16_t";
+        if (bare == "uint32_t" || bare == "unsigned int" || bare == "unsigned") return "uint32_t";
+        if (bare == "int32_t" || bare == "int") return "int32_t";
+        if (bare == "uint64_t" || bare == "unsigned long" || bare == "unsigned long long" ||
+            bare == "size_t")
+            return "uint64_t";
+        if (bare == "int64_t" || bare == "long" || bare == "long long") return "int64_t";
+        if (bare == "float") return "float";
+        if (bare == "double") return "double";
+        if (bare == "bool") return "bool";
+        return std::string();
+    }
+
     bool hasPrefix(std::string const& text, char const* prefix)
     {
         return text.rfind(prefix, 0) == 0;
@@ -1335,6 +1367,8 @@ namespace bindemit
         { "BAD_BLOCK_TYPE", 1008 },
         { "BAD_BLOCK_LAYOUT", 1009 },
         { "BAD_BLOCK_PAYLOAD", 1010 },
+        // D11：序列化块里的对象句柄（值类容器元素 / 接口对象引用）在绑定对象表里查不到。
+        { "BAD_OBJECT_HANDLE", 1011 },
     };
 
     // 回调形状要认"参数是不是已绑定接口的裸指针"，所以这两个声明提前到这里。
@@ -1358,12 +1392,106 @@ namespace bindemit
         std::string abiName;
         // 任务 3.3：该方法的注入参数名（从 CA_BIND_INJECT 读入，C ABI/托管表面都不出现）。
         std::set<std::string> injectedParams;
+        // `CA_BIND_SKIP` 带理由的方法（本批 2.2）：打一次标记，各道统一按它跳过。
+        bool skipped = false;
+        // 内存窗配对（csharp-native-direct-binding 任务 1.1 / design D2）：指针参数下标 ↔ 长度参数
+        // 下标。run() 的配对检查填这两张表；配对失败在那一轮就非零点名，不留给投影去猜。
+        std::map<std::size_t, std::size_t> windowLengthByPointer;
+        std::map<std::size_t, std::size_t> windowPointerByLength;
+        // 模板显式实例化声明（任务 1.3 / design D9）：`CA_BIND_INSTANTIATE(方法, 类型...)` 的
+        // 类型列表。只对模板成员函数有意义；未声明的模板形态不进任何表面。
+        std::vector<std::string> instantiateTypes;
+        // 模板成员函数的模板参数名（通常就一个 `T`）：实例化时按名替换成具体类型。
+        std::vector<std::string> templateParams;
         std::string ownerName;   // 所属接口短名（钩子命名要用）
+        // 返回位置标量容器两段式（本批 1.6 / design D13）：元素宽度类型（`uint32_t` 之类）。
+        // 非空 = 这条方法按 `Count` + `Copy` 两个伴生出绑定，托管表面得到元素数组。
+        std::string twoStepScalarElement;
     };
 
     // 已标记 CA_BIND 的接口名（`run` 里填）。`projectMethod` 与回调形状解析都要用它判
     // "这个裸指针指向的是不是已绑定接口"。
     std::set<std::string> g_bindableInterfaceNames;
+
+    // ---- 内存窗配对（csharp-native-direct-binding 任务 1.1 / design D2）----
+    // 固定形状：`const void*` 参数 + 同参数表内**相邻唯一**的整型长度参数（常见 uint64_t）。
+    // 配对判据=相邻（前一或后一个形参）的整型参数恰好一个：
+    //   · 0 个 ⇒ 长度缺失，生成期点名（不许把裸指针暴露给托管）；
+    //   · 2 个（两侧都是整型）⇒ 配对不唯一，生成期点名（不许猜哪个是长度）。
+    // 投影：托管收 `byte[]`；C ABI 两段 `uint8_t const* <名>` + `uint64_t <名>Count`。
+    bool isConstVoidPointerSpelling(std::string const& spelling)
+    {
+        std::string text = trimCopy(spelling);
+        if (text.empty() || text.back() != '*')
+        {
+            return false;
+        }
+        if (text.find("const") == std::string::npos)
+        {
+            return false;   // 非 const 的 `void*` 是出参方向，不是内存窗
+        }
+        text.pop_back();
+        text = trimCopy(text);
+        if (text.rfind("const ", 0) == 0)
+        {
+            text = trimCopy(text.substr(6));
+        }
+        if (text.size() > 6 && text.compare(text.size() - 6, 6, " const") == 0)
+        {
+            text = trimCopy(text.substr(0, text.size() - 6));
+        }
+        return text == "void";
+    }
+
+    bool isIntegerSpelling(std::string const& spelling)
+    {
+        const std::string bare = bareType(spelling);
+        if (!isScalarType(bare))
+        {
+            // 规范类型拼写（libclang 的 canonical type）会把 `uint64_t` 展开成
+            // `unsigned long long` / `__int64` 这类原生拼写 —— 快照模式读的就是规范拼写，
+            // 不认这些会把它当成"非整型"，内存窗配对当场误判成缺长度（实测）。
+            static const char* const canonicalIntegers[] = {
+                "long long", "unsigned long long", "__int8", "unsigned __int8", "__int16",
+                "unsigned __int16", "__int32", "unsigned __int32", "__int64", "unsigned __int64",
+            };
+            for (char const* candidate : canonicalIntegers)
+            {
+                if (bare == candidate)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return bare != "bool" && bare != "float" && bare != "double";
+    }
+
+    // 返回 0 = 唯一配对（*lengthIndex 写下标）；1 = 长度缺失；2 = 多个整型候选。
+    int analyzeWindowPair(MethodSignature const& method, std::size_t pointerIndex,
+                          std::size_t* lengthIndex)
+    {
+        std::vector<std::size_t> candidates;
+        if (pointerIndex > 0 && isIntegerSpelling(method.params[pointerIndex - 1].first))
+        {
+            candidates.push_back(pointerIndex - 1);
+        }
+        if (pointerIndex + 1 < method.params.size() &&
+            isIntegerSpelling(method.params[pointerIndex + 1].first))
+        {
+            candidates.push_back(pointerIndex + 1);
+        }
+        if (candidates.empty())
+        {
+            return 1;
+        }
+        if (candidates.size() > 1)
+        {
+            return 2;
+        }
+        *lengthIndex = candidates[0];
+        return 0;
+    }
 
     // ---- 枚举元数据（csharp-render-binding-foundations 任务 2.2）----
     // 记录字段里的普通枚举按真实底层类型镜像，`EnumFlags<T>` 按 MaskType 镜像；公开 C# 枚举
@@ -1398,9 +1526,24 @@ namespace bindemit
         std::string objectPointeeQualified;   // T 的完整限定名（必须是已绑定接口）
         std::string objectFactoryName;        // 托管工厂名（From<T 去前导 I>）
         unsigned objectKind = 0;              // 值类枚举里"按对象构造"的常量值
+        // 值类可能有多条对象构造通道（真实形状：`ImageHandle(shared_ptr<GPUTexture>)` → External、
+        // `ImageHandle(shared_ptr<WindowHandle>)` → Backbuffer，design D12）。上面三个单数字段是
+        // **首条**通道（既有调用点不变），这里按声明序记全部通道。
+        struct ObjectChannel
+        {
+            std::string pointeeShort;
+            std::string pointeeQualified;
+            std::string factoryName;
+            unsigned kind = 0;
+        };
+        std::vector<ObjectChannel> objectChannels;
         bool hasNameCtor = false;
         std::string nameFactoryName = "FromName";
         unsigned nameKind = 0;
+        // 无效态（枚举里的 `Invalid`）：值类字段的"未设置"要能过界（`IndexBufferData::indexBufferHandle`
+        // 在原生 `DrawCall::New()` 里就是默认构造的 Invalid 句柄）；不猜时保持 false。
+        bool hasInvalidKind = false;
+        unsigned invalidKind = 0;
     };
 
     std::map<std::string, ValueTypeInfo> g_valueTypes;
@@ -1413,19 +1556,53 @@ namespace bindemit
     {
         std::string name;
         std::string cppType;         // 原生字段类型拼写（诊断与 C# 类型映射）
-        int kind = 0;                // 0 标量 / 1 枚举 / 2 文本 / 3 vector
+        // 定长数组元素个数（kind == 8）：个数是类型的一部分，线形里不带 count。
+        std::size_t fixedCount = 0;
+        // 值类字段（kind == 9）的短名。
+        std::string valueClassShort;
+        // 联合体字段（kind == 10）的定长字节数。
+        std::size_t blobSize = 0;
+        int kind = 0;                // 0 标量 / 1 枚举 / 2 文本 / 3 vector / 4 嵌套记录
         std::string widthType;       // 标量或枚举底层类型：uint32_t / uint16_t / float / double / bool
         std::string enumShort;
         uint64_t offsetBytes = 0;
         bool textIsNameHash = false;
         bool textIsPathHash = false;
         // vector 元素
-        int elementKind = 0;         // 0 标量 / 1 枚举 / 2 记录
+        int elementKind = 0;         // 0 标量 / 1 枚举 / 2 记录 / 3 文本
         std::string elementWidthType;
         std::string elementEnumShort;
         std::string elementRecordShort;
         std::string elementRecordQualified;
         std::vector<SerializedField> elementFields;
+        bool elementTextIsNameHash = false;
+        bool elementTextIsPathHash = false;
+        // 嵌套记录（D8 扩展：元数据记录 ShaderStructData 里含 `ShaderStructUniforms` 这类子记录）
+        std::string nestedRecordShort;
+        std::string nestedRecordQualified;
+        std::vector<SerializedField> nestedFields;
+        // 嵌套记录自己的布局清单（父层按"父字段行 + 嵌套行"拼进布局哈希）。
+        std::string nestedLayoutText;
+        // ---- D11：三类图形状元素 ----
+        // ① 值类容器元素（`vector<CA_BIND_VALUE 值类>`）：elementKind = 4 + 值类短名。
+        std::string elementValueClassShort;
+        // ② 命名映射成员（键固定 NameHash）：kind = 5 + 值类别与值侧元数据。
+        int mapValueKind = 0;        // 0 标量 / 1 枚举 / 2 记录 / 3 值类 / 4 接口引用
+        std::string mapValueWidthType;
+        std::string mapValueEnumShort;
+        std::string mapValueRecordShort;
+        std::string mapValueRecordQualified;
+        std::vector<SerializedField> mapValueFields;
+        std::string mapValueValueClassShort;
+        std::string mapValueInterfaceShort;
+        std::string mapValueInterfaceQualified;
+        // ③ 接口对象引用成员（`shared_ptr<已挂 CA_BIND 的接口>`）：kind = 6。
+        std::string interfaceShort;
+        std::string interfaceQualified;
+        // 包装成员（`cacore::HashObj<T>`，真实形状：`HashObj<ViewRectData> m_ViewPort`）：kind = 7，
+        // 线形 = 内层记录的字段逐项（读回时重新包成 HashObj）。
+        bool isHashObjWrapper = false;
+        bool mapValueIsHashObj = false;
     };
 
     struct SerializedTypeInfo
@@ -1447,6 +1624,44 @@ namespace bindemit
 
     std::map<std::string, SerializedTypeInfo> g_serializedTypes;
     std::map<std::string, SerializedElementInfo> g_serializedElementRecords;
+
+    // ---- 记录两段式投影（本批 D8）：返回位置指向"可序列化记录"的非拥有裸指针 ----
+    // 记录短名清单由 run() 在投影之前填（判定依据=该记录需要序列化块路径）。
+    // 命中的方法投影成 `Len` / `Copy` 两个伴生：原生返回空指针 ⇒ Len 返回 0 ⇒ 托管得到 null。
+    std::set<std::string> g_recordReturnTypes;
+
+    // D11：这条字段（含嵌套/元素/映射值）是否需要绑定对象表 —— 值类元素 / 命名映射 / 接口引用。
+    // 返回位置的记录含这类字段时生成期拒绝（design D11 的 MUST NOT：返回位置映射与对象引用维持不可绑）。
+    bool serializedFieldNeedsBindingTable(SerializedField const& field)
+    {
+        if (field.kind == 5 || field.kind == 6 || field.kind == 8 || field.kind == 9 ||
+            field.kind == 10 || field.elementKind == 4)
+        {
+            return true;
+        }
+        for (SerializedField const& sub : field.nestedFields)
+        {
+            if (serializedFieldNeedsBindingTable(sub))
+            {
+                return true;
+            }
+        }
+        for (SerializedField const& sub : field.elementFields)
+        {
+            if (serializedFieldNeedsBindingTable(sub))
+            {
+                return true;
+            }
+        }
+        for (SerializedField const& sub : field.mapValueFields)
+        {
+            if (serializedFieldNeedsBindingTable(sub))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     // 已知接口清单（任务 3.1）：`--known-interface <短名>=<完整限定名>`。
     // 它只用于类型投影与诊断，不决定产物 —— 产物仍只看主头里的 CA_BIND。
@@ -1848,6 +2063,8 @@ namespace bindemit
     {
         bool hasPublicDefaultCtor = false;
         bool hasPureVirtual = false;
+        // 任意用户声明的构造函数（含拷贝/移动）。为假且非抽象 ⇒ 默认构造是**隐式公开**的。
+        bool hasAnyCtor = false;
     };
 
     CXChildVisitResult collectCtorProbe(CXCursor cursor, CXCursor, CXClientData data)
@@ -1857,6 +2074,10 @@ namespace bindemit
         if (kind == CXCursor_CXXMethod && clang_CXXMethod_isPureVirtual(cursor) != 0u)
         {
             probe->hasPureVirtual = true;
+        }
+        if (kind == CXCursor_Constructor)
+        {
+            probe->hasAnyCtor = true;
         }
         if (kind == CXCursor_Constructor &&
             clang_CXXConstructor_isDefaultConstructor(cursor) != 0u &&
@@ -1925,10 +2146,45 @@ namespace bindemit
         method.isTemplate = isTemplate;
         if (isTemplate)
         {
-            // FunctionTemplate 游标上取不到函数类型：只记名字，供 run() 的 ① 类检查用。
+            // FunctionTemplate 游标上取不到"函数类型"（Clang 报 Invalid），但可以从子游标读到
+            // 模板参数名与形参声明 —— 显式实例化声明（D9）要按名替换成具体类型。
             if (hasMethodNamed(*collector->sink, method))
             {
                 return CXChildVisit_Continue;
+            }
+            struct TemplateShape
+            {
+                MethodSignature* method = nullptr;
+            } templateShape{ &method };
+            clang_visitChildren(
+                cursor,
+                [](CXCursor child, CXCursor, CXClientData data) {
+                    auto* shape = static_cast<TemplateShape*>(data);
+                    const CXCursorKind childKind = clang_getCursorKind(child);
+                    if (childKind == CXCursor_TemplateTypeParameter)
+                    {
+                        shape->method->templateParams.push_back(toStd(clang_getCursorSpelling(child)));
+                    }
+                    else if (childKind == CXCursor_ParmDecl)
+                    {
+                        const CXType childType = clang_getCursorType(child);
+                        shape->method->params.emplace_back(toStd(clang_getTypeSpelling(childType)),
+                                                           toStd(clang_getCursorSpelling(child)));
+                        shape->method->paramCanonicalSpellings.push_back(
+                            toStd(clang_getTypeSpelling(clang_getCanonicalType(childType))));
+                        shape->method->paramKinds.push_back(
+                            static_cast<int>(clang_getCanonicalType(childType).kind));
+                    }
+                    return CXChildVisit_Continue;
+                },
+                &templateShape);
+            const CXType templateResult = clang_getCursorResultType(cursor);
+            if (templateResult.kind != CXType_Invalid)
+            {
+                method.returnSpelling = toStd(clang_getTypeSpelling(templateResult));
+                method.returnCanonicalSpelling =
+                    toStd(clang_getTypeSpelling(clang_getCanonicalType(templateResult)));
+                method.returnKind = static_cast<int>(clang_getCanonicalType(templateResult).kind);
             }
             collector->sink->push_back(std::move(method));
             return CXChildVisit_Continue;
@@ -2017,6 +2273,13 @@ namespace bindemit
                     CtorProbe probe;
                     clang_visitChildren(cursor, collectCtorProbe, &probe);
                     shape.hasPublicDefaultCtor = probe.hasPublicDefaultCtor;
+                    // 隐式公开默认构造（真实形状：`GPUGraph` 的 public 段没有任何构造函数声明）：
+                    // 语言规定它存在且公开，但 libclang **不会为隐式构造生成 Constructor 游标** ——
+                    // 只看游标会漏掉 `<类>_Create` 槽（实测 3.1 对账把 `CreateGraph` 判成"无等价物"）。
+                    if (!probe.hasPublicDefaultCtor && !probe.hasAnyCtor)
+                    {
+                        shape.hasPublicDefaultCtor = true;
+                    }
                     shape.isAbstract = probe.hasPureVirtual;
                     collector->sink->push_back(std::move(shape));
                     break;
@@ -2051,6 +2314,8 @@ namespace bindemit
         std::map<std::string, std::string> skipReasons;  // 方法 → 理由（空串 = 没写理由）
         // 方法 → 注入参数名列表（任务 3.3：`CA_BIND_INJECT(方法, 参数)`）。
         std::map<std::string, std::vector<std::string>> injectParams;
+        // 方法 → 显式实例化类型列表（本批 D9：`CA_BIND_INSTANTIATE(方法, 类型...)`）。
+        std::map<std::string, std::vector<std::string>> instantiateTypes;
     };
 
     std::vector<BoundMarker> scanBoundMarkers(std::string const& text)
@@ -2178,6 +2443,43 @@ namespace bindemit
                 if (!method.empty())
                 {
                     markers.back().injectParams[method].push_back(parameter);
+                }
+                continue;
+            }
+            // `CA_BIND_INSTANTIATE(方法, 类型...)`（本批 D9）：模板方法要绑的具体形态。
+            if (line.find("CA_BIND_INSTANTIATE(") != std::string::npos && !markers.empty())
+            {
+                const std::size_t at = line.find("CA_BIND_INSTANTIATE(");
+                const std::size_t open = line.find('(', at);
+                const std::size_t close = line.find(')', open);
+                const std::string inside =
+                    (open != std::string::npos && close != std::string::npos)
+                        ? line.substr(open + 1, close - open - 1)
+                        : std::string();
+                std::vector<std::string> fields;
+                std::size_t begin = 0;
+                for (;;)
+                {
+                    const std::size_t comma = inside.find(',', begin);
+                    fields.push_back(trimCopy(inside.substr(begin, comma == std::string::npos
+                                                                   ? std::string::npos
+                                                                   : comma - begin)));
+                    if (comma == std::string::npos)
+                    {
+                        break;
+                    }
+                    begin = comma + 1;
+                }
+                if (!fields.empty() && !fields[0].empty())
+                {
+                    const std::string methodName = fields[0];
+                    for (std::size_t index = 1; index < fields.size(); ++index)
+                    {
+                        if (!fields[index].empty())
+                        {
+                            markers.back().instantiateTypes[methodName].push_back(fields[index]);
+                        }
+                    }
                 }
                 continue;
             }
@@ -2897,6 +3199,12 @@ namespace bindemit
     {
         for (MirrorType const& mirror : mirrors)
         {
+            // 同一份 C 镜像结构体会出现在多个产物里（`GPUBufferDescriptorC` 同时被桥的
+            // 渲染图的表与原生 GPUGraph 需要），宿主把所有产物 include 进同一个翻译单元
+            // 时就是重定义（实测 `error C2011: 'GPUBufferDescriptorC': 'struct' type redefinition`）。
+            // 用宏守卫按类型名去重；断言也一起包进去（重复的 static_assert 无害但没必要）。
+            const std::string guard = "CODEGEN_MIRROR_" + mirror.cName;
+            *cpp += "#ifndef " + guard + "\n#define " + guard + "\n";
             *cpp += "typedef struct " + mirror.cName + " {\n";
             for (MirrorField const& field : mirror.fields)
             {
@@ -2927,6 +3235,8 @@ namespace bindemit
                         mirror.cName + "." + field.name + " 的偏移\");\n";
             }
             // 双向转换：嵌套记录递归展开，不假设紧凑排列。
+            // 转换函数是**按接口**命名的（`<接口>_fromC_<记录>`），不进守卫 —— 每个产物都要有自己的一份。
+            *cpp += "#endif\n";
             *cpp += "static " + mirror.cppName + " " + interfaceName + "_fromC_" + mirror.csName + "(" +
                     mirror.cName + " const& value)\n{\n";
             *cpp += "    " + mirror.cppName + " result{};\n";
@@ -3264,10 +3574,19 @@ namespace bindemit
 
     // 把一条方法投影成 C ABI 的（参数们, 返回类型）。返回 false 表示该形状必须被拒绝。
     bool projectMethod(MethodSignature const& method, std::vector<Projected>* params, std::string* returnType,
-std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCallback = nullptr)
+std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCallback = nullptr,
+std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = nullptr)
     {
         *needsTwoStep = false;
         *isHandleReturn = false;
+        if (twoStepScalarElement != nullptr)
+        {
+            twoStepScalarElement->clear();
+        }
+        if (twoStepRecordShort != nullptr)
+        {
+            twoStepRecordShort->clear();
+        }
         if (isCallback != nullptr)
         {
             *isCallback = false;
@@ -3314,6 +3633,24 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             if (method.injectedParams.count(param.second) > 0)
             {
                 continue;
+            }
+
+            // 内存窗（任务 1.1 / design D2）：指针参数出两段 ABI（`uint8_t const*` + 长度），
+            // 配对的长度参数被吸收、不再单独出参。配对表由 run() 的配对检查填；这里只消费。
+            // 两张表的键：`windowLengthByPointer` 的键是**指针**下标、值是长度下标；
+            // `windowPointerByLength` 的键是**长度**下标、值是指针下标。
+            {
+                const std::size_t paramIndex = static_cast<std::size_t>(&param - method.params.data());
+                if (method.windowLengthByPointer.count(paramIndex) > 0)
+                {
+                    params->push_back({"uint8_t const*", name});
+                    params->push_back({"uint64_t", name + "Count"});
+                    continue;
+                }
+                if (method.windowPointerByLength.count(paramIndex) > 0)
+                {
+                    continue;
+                }
             }
 
             // 字节入参（任务 2.5）：必须在通用容器判定之前，否则会拼出不存在的 `uint8_tC`。
@@ -3520,8 +3857,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             *rejectReason = "资源引用值类的返回位置不在本批支持范围内（只支持 const& 参数过界）";
             return false;
         }
-        // 序列化块记录的返回位置不在本批支持范围内（本批只定义输入方向）。
-        if (g_serializedTypes.count(bareType(method.returnSpelling)) > 0)
+        // 序列化块记录的返回位置**按值/引用**不在本批支持范围内（本批只定义输入方向）；
+        // 返回位置指向它的**裸指针**走 D8 的记录两段式（下面单独一支）。
+        if (method.returnSpelling.find('*') == std::string::npos &&
+            g_serializedTypes.count(unqualifiedName(bareType(method.returnSpelling))) > 0)
         {
             *rejectReason = "序列化块记录的返回位置不在本批支持范围内（本批只定义输入方向）";
             return false;
@@ -3588,6 +3927,21 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             *isHandleReturn = true;
         }
         else if (!returnBare.empty() && returnBare.back() != '*' &&
+                 method.returnSpelling.find('*') != std::string::npos &&
+                 g_recordReturnTypes.count(unqualifiedName(returnBare)) > 0)
+        {
+            // 记录两段式（本批 D8）：返回位置指向**可序列化记录**的非拥有裸指针。
+            // C ABI 不发直出槽，发 `Len` / `Copy` 两个伴生（与字符串两段式同线形）：
+            // 原生返回空指针 ⇒ Len 返回 0 ⇒ 托管得到 null（不解引用）。
+            *returnType = "void";
+            *needsTwoStep = true;
+            if (twoStepRecordShort != nullptr)
+            {
+                *twoStepRecordShort = unqualifiedName(returnBare);
+            }
+            return true;
+        }
+        else if (!returnBare.empty() && returnBare.back() != '*' &&
                  method.returnSpelling.find('*') != std::string::npos)
         {
             // 所有权不明的裸指针返回（`T*`）：没有登记成可绑定接口时不能静默绑成裸地址；
@@ -3611,10 +3965,42 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         }
         else if (hasPrefix(returnBare, "castl::string_view") || hasPrefix(returnBare, "std::string_view") ||
                  returnBare == "castl::string" || returnBare == "std::string" ||
-                 hasPrefix(returnBare, "castl::vector"))
+                 hasPrefix(returnBare, "castl::vector") || hasPrefix(returnBare, "std::vector"))
         {
             *returnType = "void"; // 两段式：由伴生函数拷出
             *needsTwoStep = true;
+            // 返回位置的**标量容器**（本批 1.6 / design D13）：`Count` 查条数 + `Copy` 按定长缓冲
+            // 逐字节拷；元素限可 blittable 标量/枚举，其它元素（记录 / 句柄 / 文本）维持不可绑，
+            // 在这里生成期点名（不静默降级）。
+            if (hasPrefix(returnBare, "castl::vector") || hasPrefix(returnBare, "std::vector"))
+            {
+                const std::size_t open = returnBare.find('<');
+                const std::size_t close = returnBare.rfind('>');
+                const std::string element =
+                    (open != std::string::npos && close != std::string::npos && close > open)
+                        ? bareType(trimCopy(returnBare.substr(open + 1, close - open - 1)))
+                        : std::string();
+                std::string width = normalizeScalarSpelling(element);
+                if (width.empty())
+                {
+                    EnumInfo const* info = findEnumBySpelling(element);
+                    if (info != nullptr && isEnumUnderlyingSpelling(info->underlying))
+                    {
+                        width = info->underlying;
+                    }
+                }
+                if (width.empty())
+                {
+                    *rejectReason = "返回位置的容器元素 " + element +
+                                    " 不是可 blittable 标量/枚举 —— design D13 只开标量容器的两段式；"
+                                    "记录容器、含句柄/文本的容器维持不可绑";
+                    return false;
+                }
+                if (twoStepScalarElement != nullptr)
+                {
+                    *twoStepScalarElement = width;
+                }
+            }
         }
         else if (method.returnKind == static_cast<int>(CXType_Enum))
         {
@@ -4090,9 +4476,20 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         std::set<std::string> keptNames;
         for (LockEntry const& entry : existing)
         {
-            if (markerNames.count(entry.shortName) == 0)
+            // 删除只针对**本头**的行：`--update-ids` 是逐头调用的（`python build.py --update-ids`
+            // 按登记输入逐个跑），按"名字不在本头标注里"删会把别的头的行一起删掉（实测：跑
+            // WindowHandle.h 一次，IWindow/桥五条全被删）。别的头的行原样保留。
+            const bool sameHeader =
+                normalizeLockSlashes(entry.header) == normalizeLockSlashes(filePath);
+            if (sameHeader && markerNames.count(entry.shortName) == 0)
             {
                 report += "  删除：编号 " + std::to_string(entry.number) + " / " + entry.shortName + "\n";
+                continue;
+            }
+            if (!sameHeader)
+            {
+                keptLines.push_back(entry.rawLine);
+                keptNames.insert(entry.shortName);
                 continue;
             }
             auto shape = qualifiedByName.find(entry.shortName);
@@ -4226,8 +4623,24 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             {
                 break;
             }
+            // 宏定义自身也含 `CA_BIND_VALUE(`（`#define CA_BIND_VALUE(TypeName)` 与它的宏体字符串）——
+            // 这些是标注机制的名字，不是被标注的类。按"整行以 #define 开头"与"名字必须是标识符"两条滤掉。
+            const std::size_t lineBegin = stripped.rfind('\n', position);
+            const std::string linePrefix =
+                trimCopy(stripped.substr(lineBegin == std::string::npos ? 0 : lineBegin + 1,
+                                         position - (lineBegin == std::string::npos ? 0 : lineBegin + 1)));
             const std::string name = trimCopy(stripped.substr(open + 1, close - open - 1));
-            if (!name.empty())
+            bool isIdentifier = !name.empty() &&
+                                (std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_');
+            for (char character : name)
+            {
+                if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_')
+                {
+                    isIdentifier = false;
+                    break;
+                }
+            }
+            if (isIdentifier && name != "TypeName" && linePrefix.rfind("#define", 0) != 0)
             {
                 names.insert(name);
             }
@@ -4290,6 +4703,28 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         return 0;
     }
 
+    // 取枚举里**精确同名**的常量值 —— 包含 0。`pickKindConstant` 跳过 0 是有意的（"没找到"与
+    // "找到了 0" 要能区分），但名称通道恰好落在 `Internal = 0` 上：ImageHandle / BufferHandle 的
+    // 枚举都是 Internal=0、对象态在 1/2，跳过 0 会把名称通道错配成另一个对象态常量
+    // （实测 ImageHandle 的名字通道被配成 Backbuffer=2，与 WindowHandle 对象通道撞号，
+    // 生成的 C++ switch 出现重复 case，Present 也永远拿不到后台缓冲引用）。
+    bool exactKindConstant(std::vector<std::pair<std::string, int64_t>> const& constants,
+                           std::initializer_list<char const*> keys, unsigned* outValue)
+    {
+        for (char const* key : keys)
+        {
+            for (auto const& entry : constants)
+            {
+                if (entry.first == key && entry.second >= 0)
+                {
+                    *outValue = static_cast<unsigned>(entry.second);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     unsigned firstOtherConstant(std::vector<std::pair<std::string, int64_t>> const& constants,
                                 unsigned taken)
     {
@@ -4349,6 +4784,34 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             }
         }
         return false;
+    }
+
+    // 类体可能在**被包含的头**里（句柄值类与元数据记录的真实定义处）：主头里找不到时，
+    // 读该游标所在的声明文件再找一次。不这样做的话，`CA_BIND_VALUE(ImageHandle)` 与
+    // `FindShaderStructData` 的记录都会在"源码里找不到类体"这一步被拒。
+    bool findClassBodyTextNearCursor(CXCursor cursor, std::string const& className,
+                                     std::string const& mainText, std::string* body)
+    {
+        if (findClassBodyText(mainText, className, body))
+        {
+            return true;
+        }
+        CXFile file = nullptr;
+        unsigned line = 0;
+        unsigned column = 0;
+        unsigned offset = 0;
+        clang_getSpellingLocation(clang_getCursorLocation(cursor), &file, &line, &column, &offset);
+        if (file == nullptr)
+        {
+            return false;
+        }
+        const std::string path = toStd(clang_getFileName(file));
+        if (path.empty())
+        {
+            return false;
+        }
+        const std::string text = readWholeFile(path.c_str());
+        return !text.empty() && findClassBodyText(text, className, body);
     }
 
     bool parseEnumConstantsFromText(std::string const& classBody, std::vector<std::pair<std::string, int64_t>>* constants,
@@ -4436,9 +4899,20 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                     return CXChildVisit_Continue;
                 }
                 const int argumentCount = clang_Cursor_getNumArguments(child);
-                if (argumentCount != 1)
+                // 通道构造也可以带一个**带默认值**的尾部 bool（`ImageHandle(NameHash const&, bool unique = false)`）：
+                // 重建调用只传第一个参数，尾部 bool 走默认值。第二个参数不是 bool 的构造不认。
+                if (argumentCount < 1 || argumentCount > 2)
                 {
                     return CXChildVisit_Continue;
+                }
+                if (argumentCount == 2)
+                {
+                    const CXType secondType = clang_getCanonicalType(
+                        clang_getCursorType(clang_Cursor_getArgument(child, 1)));
+                    if (secondType.kind != CXType_Bool)
+                    {
+                        return CXChildVisit_Continue;
+                    }
                 }
                 const CXCursor argument = clang_Cursor_getArgument(child, 0);
                 CXType argumentType = clang_getCanonicalType(clang_getCursorType(argument));
@@ -4455,9 +4929,19 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                         auto known = g_knownInterfaces.find(innerShort);
                         if (known != g_knownInterfaces.end())
                         {
-                            state->info->objectPointeeShort = innerShort;
-                            state->info->objectPointeeQualified = known->second;
-                            state->info->objectFactoryName = "From" + stripInterfacePrefix(innerShort);
+                            // 逐条通道都记下来（design D12：ImageHandle 有 GPUTexture / WindowHandle
+                            // 两条对象构造通道）；首个通道同时写进旧的单数字段，既有调用点不动。
+                            ValueTypeInfo::ObjectChannel channel;
+                            channel.pointeeShort = innerShort;
+                            channel.pointeeQualified = known->second;
+                            channel.factoryName = "From" + stripInterfacePrefix(innerShort);
+                            state->info->objectChannels.push_back(channel);
+                            if (state->info->objectPointeeQualified.empty())
+                            {
+                                state->info->objectPointeeShort = innerShort;
+                                state->info->objectPointeeQualified = known->second;
+                                state->info->objectFactoryName = channel.factoryName;
+                            }
                         }
                     }
                     return CXChildVisit_Continue;
@@ -4475,10 +4959,50 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             return false;
         }
         info->objectKind = pickKindConstant(constants, { "Object", "External", "Backbuffer" });
-        info->nameKind = pickKindConstant(constants, { "Named", "Internal", "Name" });
-        if (info->nameKind == 0 && info->hasNameCtor)
+        // 名称通道 = 枚举里精确的 `Internal`（值 0）。这里不能用 `pickKindConstant`：它跳过 0，
+        // 会把名称通道错配到另一个对象态常量上（实测 ImageHandle 错配成 Backbuffer=2，与
+        // WindowHandle 对象通道撞号 ⇒ 生成的 switch 重复 case、Present 拿不到后台缓冲引用）。
+        unsigned exactNamedKind = 0;
+        const bool hasExactNamedKind =
+            exactKindConstant(constants, { "Internal", "Named", "Name" }, &exactNamedKind);
+        info->nameKind = hasExactNamedKind ? exactNamedKind : 0;
+        info->hasInvalidKind = exactKindConstant(constants, { "Invalid" }, &info->invalidKind);
+        // 多条对象通道的 kind 按"枚举里对象态的常量顺序"配（ImageType：External / Backbuffer；
+        // 构造声明顺序与它们一致，实测 ImageHandle 的 GPUTexture 构造写 External、WindowHandle 写
+        // Backbuffer）。通道数超过候选常量数就点名拒绝，不猜。
+        if (!info->objectChannels.empty())
         {
-            info->nameKind = firstOtherConstant(constants, info->objectKind);
+            std::vector<int64_t> objectKinds;
+            for (char const* preferred : { "Object", "External", "Backbuffer" })
+            {
+                for (auto const& constant : constants)
+                {
+                    if (constant.first == preferred)
+                    {
+                        objectKinds.push_back(constant.second);
+                        break;
+                    }
+                }
+            }
+            if (info->objectChannels.size() > objectKinds.size())
+            {
+                *whyNot = "值类 " + info->shortName + " 的对象构造通道有 " +
+                          std::to_string(info->objectChannels.size()) +
+                          " 条，但 kind 枚举里只有 " + std::to_string(objectKinds.size()) +
+                          " 个对象态常量（Object/External/Backbuffer）—— 不猜 kind";
+                return false;
+            }
+            for (std::size_t index = 0; index < info->objectChannels.size(); ++index)
+            {
+                info->objectChannels[index].kind = static_cast<unsigned>(objectKinds[index]);
+            }
+            info->objectKind = info->objectChannels.front().kind;
+        }
+        if (info->hasNameCtor && !hasExactNamedKind)
+        {
+            *whyNot = "值类 " + info->shortName +
+                      " 有名称构造通道，但 kind 枚举里没有 `Internal`/`Named`/`Name` 常量 —— 不猜 kind";
+            return false;
         }
         if (info->objectKind == 0 && !info->objectPointeeQualified.empty())
         {
@@ -4491,7 +5015,7 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             return false;
         }
         if ((!info->objectPointeeQualified.empty() && info->objectKind == 0) ||
-            (info->hasNameCtor && info->nameKind == 0))
+            (info->hasNameCtor && !hasExactNamedKind))
         {
             *whyNot = "值类 " + info->shortName + " 的 kind 枚举里找不到构造通道对应的常量值";
             return false;
@@ -4514,13 +5038,17 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         cs += "        internal readonly string Name;\n";
         cs += "        internal " + info.shortName + "(uint kind, ulong handle, string name)\n        {\n";
         cs += "            Kind = kind;\n            Handle = handle;\n            Name = name;\n        }\n";
-        if (!info.objectPointeeQualified.empty())
+        if (!info.objectChannels.empty())
         {
-            cs += "        /// <summary>按已绑定对象构造：句柄来自目标表面对象的租约（同一对象性由原生侧反查保证）</summary>\n";
-            cs += "        public static " + info.shortName + " " + info.objectFactoryName + "(" +
-                  info.objectPointeeShort + " value)\n        {\n";
-            cs += "            return new " + info.shortName + "(" + std::to_string(info.objectKind) +
-                  "u, (ulong)(long)value.Token, string.Empty);\n        }\n";
+            // 每条对象构造通道一个工厂（design D12：ImageHandle 的 GPUTexture / WindowHandle 两条）。
+            for (ValueTypeInfo::ObjectChannel const& channel : info.objectChannels)
+            {
+                cs += "        /// <summary>按已绑定对象构造：句柄来自目标表面对象的租约（同一对象性由原生侧反查保证）</summary>\n";
+                cs += "        public static " + info.shortName + " " + channel.factoryName + "(" +
+                      channel.pointeeShort + " value)\n        {\n";
+                cs += "            return new " + info.shortName + "(" + std::to_string(channel.kind) +
+                      "u, (ulong)(long)value.Token, string.Empty);\n        }\n";
+            }
         }
         if (info.hasNameCtor)
         {
@@ -4529,6 +5057,12 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                   "(string name)\n        {\n";
             cs += "            return new " + info.shortName + "(" + std::to_string(info.nameKind) +
                   "u, 0UL, name ?? string.Empty);\n        }\n";
+        }
+        if (info.hasInvalidKind)
+        {
+            cs += "        /// <summary>无效值（枚举的 Invalid 态）：记录字段的\"未设置\"用它过界</summary>\n";
+            cs += "        public static " + info.shortName + " Invalid => new " + info.shortName +
+                  "(" + std::to_string(info.invalidKind) + "u, 0UL, string.Empty);\n";
         }
         cs += "    }\n}\n";
         return cs;
@@ -4592,8 +5126,28 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         return cSharpIntegerType(width);
     }
 
+    // BinaryReader 的方法名是 `ReadUInt32` / `ReadInt16` / `ReadSingle` …，不是 `Read` + C# 类型名
+    // （照拼会得到 `Readuint`）。标量字段的读入口按宽度类型映射到这里。
+    std::string csharpReaderCall(std::string const& width)
+    {
+        if (width == "bool") return "reader.ReadByte() != 0";
+        if (width == "uint8_t" || width == "unsigned char") return "reader.ReadByte()";
+        if (width == "int8_t" || width == "signed char") return "(sbyte)reader.ReadByte()";
+        if (width == "uint16_t" || width == "unsigned short") return "reader.ReadUInt16()";
+        if (width == "int16_t" || width == "short") return "reader.ReadInt16()";
+        if (width == "uint32_t" || width == "unsigned int" || width == "unsigned") return "reader.ReadUInt32()";
+        if (width == "int32_t" || width == "int") return "reader.ReadInt32()";
+        if (width == "uint64_t" || width == "unsigned long" || width == "size_t") return "reader.ReadUInt64()";
+        if (width == "int64_t" || width == "long") return "reader.ReadInt64()";
+        if (width == "float") return "reader.ReadSingle()";
+        if (width == "double") return "reader.ReadDouble()";
+        return "reader.ReadInt32()";
+    }
+
     bool buildSerializedElementFields(CXType elementType, SerializedField* field,
                                       std::string* layoutText, std::string* error);
+    bool buildSerializedFieldList(CXCursor recordCursor, std::vector<SerializedField>* fields,
+                                  std::string* layoutText, std::string const& indent, std::string* error);
     bool buildSerializedField(CXCursor recordCursor, CXCursor fieldCursor, SerializedField* field,
                               std::string* layoutText, std::string* error)
     {
@@ -4636,16 +5190,63 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             field->kind = 2;
             field->textIsNameHash = true;
         }
+        // 联合体（真实形状：`union GraphicsClearValue { float color[4]; struct {...} depthStencil; }`）：
+        // 没有可逐字段投影的成员名，按**定长原样字节**过界（C# 镜像里是 `byte[]`）。
+        // 只允许出现在序列化块记录（class 镜像）里；元素记录（struct 镜像）里出现就点名拒绝。
+        else if (canonical.kind == CXType_Record &&
+                 clang_getCursorKind(clang_getTypeDeclaration(canonical)) == CXCursor_UnionDecl)
+        {
+            const long long size = clang_Type_getSizeOf(canonical);
+            if (size <= 0 || size > 64)
+            {
+                *error = "字段 " + field->name + " 的联合体大小不可用或超出本批上限（" +
+                         std::to_string(size) + " 字节）";
+                return false;
+            }
+            field->kind = 10;
+            field->blobSize = static_cast<std::size_t>(size);
+        }
+        // 值类字段（D11 ①的标量形态：真实形状 `BufferHandle m_Buffer` / `ImageHandle m_Color`）：
+        // 过界就是 kind + 句柄 + 名称三段线形，按绑定对象表反查重建。
+        else if (g_valueTypes.count(unqualifiedName(bare)) > 0)
+        {
+            field->kind = 9;
+            field->valueClassShort = unqualifiedName(bare);
+        }
+        // 枚举位标志包装（真实形状：`uenum::EnumFlags<EColorChannelMask> channelMask`）：规范类型是
+        // 记录（一个带 `m_Value` 的壳），但它过界就是底层整数 + 枚举类型名。
+        else if (hasPrefix(bare, "uenum::EnumFlags<") || hasPrefix(bare, "castl::EnumFlags<") ||
+                 hasPrefix(bare, "std::EnumFlags<"))
+        {
+            const std::size_t open = bare.find('<');
+            const std::size_t close = bare.rfind('>');
+            const std::string inner = (open != std::string::npos && close != std::string::npos && close > open)
+                                          ? bareType(trimCopy(bare.substr(open + 1, close - open - 1)))
+                                          : std::string();
+            const EnumInfo* info = findEnumBySpelling(inner);
+            if (info == nullptr || !isEnumUnderlyingSpelling(info->underlying))
+            {
+                *error = "字段 " + field->name + " 的枚举位标志内层枚举认不出来（" + inner + "）";
+                return false;
+            }
+            field->kind = 1;
+            field->widthType = info->underlying;
+            field->enumShort = info->shortName;
+        }
         else if (isPathHashSpelling(field->cppType))
         {
             field->kind = 2;
             field->textIsPathHash = true;
         }
-        else if (bare == "castl::string" || bare == "std::string")
+        else if (bare == "castl::string" || bare == "std::string" ||
+                 hasPrefix(bare, "std::basic_string<char") || hasPrefix(bare, "castl::basic_string<char"))
         {
+            // 规范拼写：`castl::string` 就是 `std::basic_string<char>`，某些字段的类型拼写会落成
+            // 后者（实测 ComputeBatch::kernelName）。两者都必须按文本字段过界。
             field->kind = 2;
         }
-        else if (hasPrefix(bare, "castl::string_view") || hasPrefix(bare, "std::string_view"))
+        else if (hasPrefix(bare, "castl::string_view") || hasPrefix(bare, "std::string_view") ||
+                 hasPrefix(bare, "castl::basic_string_view") || hasPrefix(bare, "std::basic_string_view"))
         {
             *error = "字段 " + field->name + " 是 string_view —— 反序列化出来的视图会悬空；"
                      "本批文本字段用 castl::string / NameHash / PathHash";
@@ -4705,6 +5306,26 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 field->elementWidthType = info->underlying;
                 field->elementEnumShort = info->shortName;
             }
+            else if (isNameHashSpelling(elementSpelling) || isPathHashSpelling(elementSpelling) ||
+                     elementSpelling == "castl::string" || elementSpelling == "std::string" ||
+                     hasPrefix(elementSpelling, "std::basic_string<char") ||
+                     hasPrefix(elementSpelling, "castl::basic_string<char"))
+            {
+                // 文本元素（本批 D8 扩展）：元数据记录里的 `vector<NameHash>`（纹理采样器名字表）
+                // 就是这种形状。过界与标量 string 字段同线形：u64 长度 + UTF-8 字节。
+                // 必须排在"记录元素"之前：`NameHash` 的规范类型也是 record，先判记录会去拆它的
+                // 内部字段（实测报 "字段 m_NameView 的嵌套记录没有字段（std::basic_string_view<char>）"）。
+                field->elementKind = 3;
+                field->elementTextIsNameHash = isNameHashSpelling(elementSpelling);
+                field->elementTextIsPathHash = isPathHashSpelling(elementSpelling);
+            }
+            else if (elementCanonical.kind == CXType_Record &&
+                     g_valueTypes.count(unqualifiedName(elementSpelling)) > 0)
+            {
+                // D11 ①：值类容器元素（真实形状：`vector<ImageHandle> m_Attachments`）。
+                field->elementKind = 4;
+                field->elementValueClassShort = unqualifiedName(elementSpelling);
+            }
             else if (elementCanonical.kind == CXType_Record)
             {
                 field->elementKind = 2;
@@ -4729,14 +5350,275 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 return false;
             }
         }
+        // 定长数组成员（D11 第四类元素：真实形状 `std::array<SingleColorAttachmentBlendStates, 8>
+        // m_AttachmentBlendStates`）：**不带 count**，元素个数是类型的一部分；元素按记录逐字段线形。
+        // 只支持"纯标量字段的记录元素"（有容器/文本的元素记录由 buildSerializedElementFields 点名拒绝）。
+        else if (hasPrefix(bare, "std::array<") || hasPrefix(bare, "castl::array<"))
+        {
+            const std::size_t open = bare.find('<');
+            const std::size_t close = bare.rfind('>');
+            const std::string inside = (open != std::string::npos && close != std::string::npos && close > open)
+                                           ? trimCopy(bare.substr(open + 1, close - open - 1))
+                                           : std::string();
+            const std::size_t comma = inside.rfind(',');
+            if (comma == std::string::npos)
+            {
+                *error = "字段 " + field->name + " 的定长数组拼写里找不到元素个数（" + field->cppType + "）";
+                return false;
+            }
+            const std::string countText = trimCopy(inside.substr(comma + 1));
+            std::size_t fixedCount = 0;
+            try
+            {
+                fixedCount = static_cast<std::size_t>(std::stoul(countText));
+            }
+            catch (...)
+            {
+                fixedCount = 0;
+            }
+            if (fixedCount == 0)
+            {
+                *error = "字段 " + field->name + " 的定长数组元素个数认不出来（" + countText + "）";
+                return false;
+            }
+            CXType elementType = clang_Type_getTemplateArgumentAsType(canonical, 0);
+            if (elementType.kind == CXType_Invalid)
+            {
+                *error = "字段 " + field->name + " 的定长数组元素类型无法从模板实参解析（" + field->cppType + "）";
+                return false;
+            }
+            const CXType elementCanonical = clang_getCanonicalType(elementType);
+            const std::string elementSpelling = bareType(toStd(clang_getTypeSpelling(elementCanonical)));
+            if (elementCanonical.kind != CXType_Record)
+            {
+                *error = "字段 " + field->name + " 的定长数组元素不是记录（" + elementSpelling +
+                         "）—— 本批只定义记录元素的定长数组";
+                return false;
+            }
+            field->kind = 8;
+            field->fixedCount = fixedCount;
+            field->elementKind = 2;
+            field->elementRecordShort = unqualifiedName(elementSpelling);
+            field->elementRecordQualified = qualifiedCursorName(clang_getTypeDeclaration(elementCanonical));
+            if (!buildSerializedElementFields(elementCanonical, field, layoutText, error))
+            {
+                return false;
+            }
+        }
+        // 包装成员（D11 附）：`cacore::HashObj<T>`（真实形状：`HashObj<ViewRectData> m_ViewPort`）。
+        // 线形 = 内层记录的字段逐项；读回时重新包成 HashObj。
+        // 外层条件排除映射 / 集合 / 定长数组 / 智能指针：它们的规范类型也是 record，必须落到各自的分支。
+        else if (canonical.kind == CXType_Record &&
+                 !hasPrefix(bare, "castl::unordered_map") && !hasPrefix(bare, "std::unordered_map") &&
+                 !hasPrefix(bare, "castl::map") && !hasPrefix(bare, "std::map") &&
+                 !hasPrefix(bare, "castl::set") && !hasPrefix(bare, "std::set") &&
+                 !hasPrefix(bare, "castl::shared_ptr") && !hasPrefix(bare, "std::shared_ptr") &&
+                 !hasPrefix(bare, "castl::weak_ptr") && !hasPrefix(bare, "std::weak_ptr") &&
+                 bare.find("std::array") == std::string::npos &&
+                 bare.find("castl::array") == std::string::npos)
+        {
+            std::string hashInner;
+            if (parseHashObjWrapper(field->cppType, &hashInner) ||
+                parseHashObjWrapper(toStd(clang_getTypeSpelling(canonical)), &hashInner))
+            {
+                // HashObj<T> 的模板实参就是内层记录类型：直接从模板实参取声明，不靠全局表。
+                CXType innerType = clang_Type_getTemplateArgumentAsType(canonical, 0);
+                CXCursor declaration = clang_getTypeDeclaration(clang_getCanonicalType(innerType));
+                if (clang_Cursor_isNull(declaration))
+                {
+                    *error = "字段 " + field->name + " 的 HashObj 内层记录 " + hashInner + " 找不到定义";
+                    return false;
+                }
+                field->kind = 7;
+                field->isHashObjWrapper = true;
+                field->nestedRecordShort = unqualifiedName(bareType(hashInner));
+                field->nestedRecordQualified = qualifiedCursorName(declaration);
+                if (!buildSerializedFieldList(declaration, &field->nestedFields, &field->nestedLayoutText,
+                                              "  ", error))
+                {
+                    return false;
+                }
+                if (field->nestedFields.empty())
+                {
+                    *error = "字段 " + field->name + " 的 HashObj 内层记录没有字段";
+                    return false;
+                }
+            }
+            else if (!hasPrefix(bare, "castl::unordered_map") && !hasPrefix(bare, "std::unordered_map") &&
+                     !hasPrefix(bare, "castl::map") && !hasPrefix(bare, "std::map") &&
+                     !hasPrefix(bare, "castl::set") && !hasPrefix(bare, "std::set") &&
+                     !hasPrefix(bare, "castl::shared_ptr") && !hasPrefix(bare, "std::shared_ptr") &&
+                     !hasPrefix(bare, "castl::weak_ptr") && !hasPrefix(bare, "std::weak_ptr") &&
+                     bare.find("std::array") == std::string::npos &&
+                     bare.find("castl::array") == std::string::npos)
+            {
+                CXCursor declaration = clang_getTypeDeclaration(canonical);
+                if (clang_Cursor_isNull(declaration) || clang_isCursorDefinition(declaration) == 0)
+                {
+                    *error = "字段 " + field->name + " 的记录类型找不到定义（" + field->cppType + "）";
+                    return false;
+                }
+                field->kind = 4;
+                field->nestedRecordShort = unqualifiedName(field->cppType);
+                field->nestedRecordQualified = qualifiedCursorName(declaration);
+                // 嵌套记录自己的字段清单与布局文本单独攒，父层按"父字段行 + 嵌套行"的顺序拼。
+                if (!buildSerializedFieldList(declaration, &field->nestedFields, &field->nestedLayoutText,
+                                              "  ", error))
+                {
+                    return false;
+                }
+                if (field->nestedFields.empty())
+                {
+                    *error = "字段 " + field->name + " 的嵌套记录没有字段（" + field->cppType + "）";
+                    return false;
+                }
+            }
+            else
+            {
+                *error = "字段 " + field->name + " 是映射容器 / 定长数组（" + field->cppType +
+                         "）—— 本批未实现该形状；恢复路径：真实实例出现时立扩形状批";
+                return false;
+            }
+        }
+        // 命名映射成员（D11 ②）：键固定 `cacore::NameHash`，值限标量 / 枚举 / 记录 / 值类 / 接口引用。
         else if (hasPrefix(bare, "castl::unordered_map") || hasPrefix(bare, "std::unordered_map") ||
-                 hasPrefix(bare, "castl::map") || hasPrefix(bare, "std::map") ||
-                 hasPrefix(bare, "castl::set") || hasPrefix(bare, "std::set") ||
+                 hasPrefix(bare, "castl::map") || hasPrefix(bare, "std::map"))
+        {
+            CXType keyType = clang_Type_getTemplateArgumentAsType(canonical, 0);
+            CXType valueType = clang_Type_getTemplateArgumentAsType(canonical, 1);
+            if (keyType.kind == CXType_Invalid || valueType.kind == CXType_Invalid)
+            {
+                *error = "字段 " + field->name + " 的映射类型实参解析不出来（" + field->cppType + "）";
+                return false;
+            }
+            const std::string keySpelling =
+                bareType(toStd(clang_getTypeSpelling(clang_getCanonicalType(keyType))));
+            if (!isNameHashSpelling(keySpelling))
+            {
+                *error = "字段 " + field->name + " 的映射容器键不是 cacore::NameHash（实际 " + keySpelling +
+                         "）—— design D11 只定义 NameHash 键的命名映射；键非 NameHash 的映射容器维持不可绑"
+                         "（不静默丢字段）";
+                return false;
+            }
+            field->kind = 5;
+            const CXType valueCanonical = clang_getCanonicalType(valueType);
+            const std::string valueSpelling = bareType(toStd(clang_getTypeSpelling(valueCanonical)));
+            if (isScalarType(valueSpelling))
+            {
+                field->mapValueKind = 0;
+                field->mapValueWidthType = normalizedScalarType(valueCanonical);
+                if (field->mapValueWidthType.empty())
+                {
+                    *error = "字段 " + field->name + " 的映射值标量宽度认不出来（" + valueSpelling + "）";
+                    return false;
+                }
+            }
+            else if (valueCanonical.kind == CXType_Enum)
+            {
+                field->mapValueKind = 1;
+                EnumInfo const* info = findEnumBySpelling(valueSpelling);
+                if (info == nullptr)
+                {
+                    info = findEnumBySpelling(toStd(clang_getTypeSpelling(valueCanonical)));
+                }
+                if (info == nullptr || !isEnumUnderlyingSpelling(info->underlying))
+                {
+                    *error = "字段 " + field->name + " 的映射值枚举底层类型认不出来（" + valueSpelling + "）";
+                    return false;
+                }
+                field->mapValueWidthType = info->underlying;
+                field->mapValueEnumShort = info->shortName;
+            }
+            else if (g_valueTypes.count(unqualifiedName(valueSpelling)) > 0)
+            {
+                field->mapValueKind = 3;
+                field->mapValueValueClassShort = unqualifiedName(valueSpelling);
+            }
+            else if (hasPrefix(valueSpelling, "castl::shared_ptr") ||
+                     hasPrefix(valueSpelling, "std::shared_ptr"))
+            {
+                const std::size_t open = valueSpelling.find('<');
+                const std::size_t close = valueSpelling.rfind('>');
+                const std::string inner = (open != std::string::npos && close != std::string::npos)
+                                              ? bareType(trimCopy(valueSpelling.substr(open + 1, close - open - 1)))
+                                              : std::string();
+                const std::string innerShort = unqualifiedName(inner);
+                if (!g_bindableInterfaceNames.count(innerShort))
+                {
+                    *error = "字段 " + field->name + " 的映射值是指向未绑定类型的智能指针（" + inner +
+                             "）—— design D11 只允许已挂 CA_BIND 的接口（不静默丢字段）";
+                    return false;
+                }
+                field->mapValueKind = 4;
+                field->mapValueInterfaceShort = innerShort;
+                auto known = g_knownInterfaces.find(innerShort);
+                field->mapValueInterfaceQualified = known == g_knownInterfaces.end() ? inner : known->second;
+            }
+            else if (valueCanonical.kind == CXType_Record)
+            {
+                field->mapValueKind = 2;
+                std::string hashInner;
+                bool isWrapper = parseHashObjWrapper(valueSpelling, &hashInner);
+                field->mapValueIsHashObj = isWrapper;
+                // 内层记录声明：HashObj 取值的模板实参 0，普通记录直接取声明。
+                CXType recordType = valueCanonical;
+                if (isWrapper)
+                {
+                    recordType = clang_getCanonicalType(clang_Type_getTemplateArgumentAsType(valueCanonical, 0));
+                }
+                CXCursor declaration = clang_getTypeDeclaration(recordType);
+                if (clang_Cursor_isNull(declaration))
+                {
+                    *error = "字段 " + field->name + " 的映射值记录找不到定义（" + valueSpelling + "）";
+                    return false;
+                }
+                field->mapValueRecordShort = unqualifiedName(toStd(clang_getTypeSpelling(recordType)));
+                field->mapValueRecordQualified = qualifiedCursorName(declaration);
+                if (!buildSerializedFieldList(declaration, &field->mapValueFields, &field->nestedLayoutText,
+                                              "  ", error))
+                {
+                    return false;
+                }
+                if (field->mapValueFields.empty())
+                {
+                    *error = "字段 " + field->name + " 的映射值记录没有字段";
+                    return false;
+                }
+            }
+            else
+            {
+                *error = "字段 " + field->name + " 的映射值形状不在本批支持范围内（" + valueSpelling +
+                         "）—— design D11 只允许标量 / 枚举 / 记录 / 值类 / 已绑定接口引用";
+                return false;
+            }
+        }
+        // 接口对象引用成员（D11 ③）：`shared_ptr<已挂 CA_BIND 的接口>` → u64 句柄过界，
+        // C++ thunk 从绑定对象表反查重建；指向未绑定类型的智能指针生成期点名（不静默丢字段）。
+        else if (hasPrefix(bare, "castl::shared_ptr") || hasPrefix(bare, "std::shared_ptr"))
+        {
+            const std::size_t open = bare.find('<');
+            const std::size_t close = bare.rfind('>');
+            const std::string inner = (open != std::string::npos && close != std::string::npos)
+                                          ? bareType(trimCopy(bare.substr(open + 1, close - open - 1)))
+                                          : std::string();
+            const std::string innerShort = unqualifiedName(inner);
+            if (!g_bindableInterfaceNames.count(innerShort))
+            {
+                *error = "字段 " + field->name + " 是指向未绑定类型的智能指针（" + inner +
+                         "）—— design D11 只允许已挂 CA_BIND 的接口（不静默丢字段）";
+                return false;
+            }
+            field->kind = 6;
+            field->interfaceShort = innerShort;
+            auto known = g_knownInterfaces.find(innerShort);
+            field->interfaceQualified = known == g_knownInterfaces.end() ? inner : known->second;
+        }
+        else if (hasPrefix(bare, "castl::set") || hasPrefix(bare, "std::set") ||
                  bare.find("std::array") != std::string::npos ||
                  bare.find("castl::array") != std::string::npos)
         {
-            *error = "字段 " + field->name + " 是映射容器 / 定长数组（" + field->cppType + "）—— 本批未实现"
-                     "该形状；恢复路径：真实实例出现时立扩形状批";
+            *error = "字段 " + field->name + " 是集合容器 / 定长数组（" + field->cppType +
+                     "）—— 本批未实现该形状；恢复路径：真实实例出现时立扩形状批";
             return false;
         }
         else if (bare.find('*') != std::string::npos ||
@@ -4753,10 +5635,46 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                      "本批只支持这些形状";
             return false;
         }
-        // 布局文本：名 + 类型 + 真实偏移（vector 元素记录再逐字段展开）。
-        *layoutText += field->name + ":" + field->cppType + ":" +
-                       std::to_string(field->offsetBytes) + ";";
+        // 布局文本由 buildSerializedFieldList 统一追加（父字段行 + 它自己的嵌套行）。
+        (void)layoutText;
         return true;
+    }
+
+    // 逐字段分类（嵌套记录内联展开）。indent 只影响布局清单的缩进 —— 它也参与块头哈希，
+    // 所以缩进规则一旦变了布局哈希就变；规则固定为：顶层无缩进、每下一层加两格。
+    bool buildSerializedFieldList(CXCursor recordCursor, std::vector<SerializedField>* fields,
+                                  std::string* layoutText, std::string const& indent, std::string* error)
+    {
+        struct ListSink
+        {
+            CXCursor record{};
+            std::vector<SerializedField>* fields = nullptr;
+            std::string* layoutText = nullptr;
+            std::string indent;
+            std::string* error = nullptr;
+            bool ok = true;
+        } sink{ recordCursor, fields, layoutText, indent, error, true };
+        clang_visitChildren(
+            recordCursor,
+            [](CXCursor member, CXCursor, CXClientData data) {
+                auto* sink = static_cast<ListSink*>(data);
+                if (clang_getCursorKind(member) != CXCursor_FieldDecl)
+                {
+                    return CXChildVisit_Continue;
+                }
+                SerializedField field;
+                if (!buildSerializedField(sink->record, member, &field, sink->layoutText, sink->error))
+                {
+                    sink->ok = false;
+                    return CXChildVisit_Break;
+                }
+                *sink->layoutText += sink->indent + field.name + ":" + field.cppType + ":" +
+                                     std::to_string(field.offsetBytes) + ";" + field.nestedLayoutText;
+                sink->fields->push_back(std::move(field));
+                return CXChildVisit_Continue;
+            },
+            &sink);
+        return sink.ok;
     }
 
     bool buildSerializedElementFields(CXType elementType, SerializedField* field,
@@ -4768,68 +5686,9 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             *error = "容器元素记录找不到定义";
             return false;
         }
-        struct FieldSink
-        {
-            std::vector<SerializedField>* fields = nullptr;
-            std::string* layoutText = nullptr;
-            std::string* error = nullptr;
-            CXCursor declaration{};
-            bool ok = true;
-        } sink{ &field->elementFields, layoutText, error, declaration, true };
         field->elementRecordQualified = qualifiedCursorName(declaration);
-        clang_visitChildren(
-            declaration,
-            [](CXCursor member, CXCursor, CXClientData data) {
-                auto* sink = static_cast<FieldSink*>(data);
-                if (clang_getCursorKind(member) != CXCursor_FieldDecl)
-                {
-                    return CXChildVisit_Continue;
-                }
-                SerializedField sub;
-                sub.name = toStd(clang_getCursorSpelling(member));
-                const CXType memberType =
-                    clang_getCanonicalType(clang_getCursorType(member));
-                sub.cppType = toStd(clang_getTypeSpelling(memberType));
-                sub.offsetBytes = static_cast<uint64_t>(
-                    clang_Type_getOffsetOf(clang_getCursorType(sink->declaration), sub.name.c_str()) / 8);
-                const std::string bare = bareType(sub.cppType);
-                if (isScalarType(bare))
-                {
-                    sub.kind = 0;
-                    sub.widthType = normalizedScalarType(memberType);
-                }
-                else if (memberType.kind == CXType_Enum)
-                {
-                    sub.kind = 1;
-                    EnumInfo const* info = findEnumBySpelling(sub.cppType);
-                    if (info == nullptr)
-                    {
-                        info = findEnumBySpelling(toStd(clang_getTypeSpelling(memberType)));
-                    }
-                    if (info == nullptr)
-                    {
-                        sink->error->assign("元素记录字段 " + sub.name + " 的枚举认不出来");
-                        sink->ok = false;
-                        return CXChildVisit_Break;
-                    }
-                    sub.widthType = info->underlying;
-                    sub.enumShort = info->shortName;
-                }
-                else
-                {
-                    sink->error->assign("元素记录字段 " + sub.name +
-                                        " 不是标量/枚举（" + sub.cppType +
-                                        "）—— 本批只支持纯标量记录作容器元素");
-                    sink->ok = false;
-                    return CXChildVisit_Break;
-                }
-                *sink->layoutText += "  " + sub.name + ":" + sub.cppType + ":" +
-                                     std::to_string(sub.offsetBytes) + ";";
-                sink->fields->push_back(sub);
-                return CXChildVisit_Continue;
-            },
-            &sink);
-        if (!sink.ok)
+        // 元素记录与顶层记录走同一份字段分类（D8 扩展：元素记录里也允许文本 / 枚举 / 标量）。
+        if (!buildSerializedFieldList(declaration, &field->elementFields, layoutText, "  ", error))
         {
             return false;
         }
@@ -4921,25 +5780,8 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             std::string* error = nullptr;
             bool ok = true;
         } sink{ record, info, &info->layoutText, error, true };
-        clang_visitChildren(
-            record,
-            [](CXCursor member, CXCursor, CXClientData data) {
-                auto* sink = static_cast<FieldBuildSink*>(data);
-                if (clang_getCursorKind(member) != CXCursor_FieldDecl)
-                {
-                    return CXChildVisit_Continue;
-                }
-                SerializedField field;
-                if (!buildSerializedField(sink->record, member, &field, sink->layoutText, sink->error))
-                {
-                    sink->ok = false;
-                    return CXChildVisit_Break;
-                }
-                sink->info->fields.push_back(field);
-                return CXChildVisit_Continue;
-            },
-            &sink);
-        if (!sink.ok)
+        // 顶层字段与嵌套记录走同一份分类器（D8 扩展：嵌套记录逐字段内联，布局文本一起算哈希）。
+        if (!buildSerializedFieldList(sink.record, &info->fields, sink.layoutText, "", error))
         {
             return false;
         }
@@ -5029,6 +5871,78 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                      "    WriteRaw(out, textValue.data(), static_cast<uint64_t>(textValue.size()));\n";
             *code += indent + "}\n";
         }
+        else if (field.kind == 4)
+        {
+            // 嵌套记录（D8 扩展）：逐字段内联写，父字段名不单独占一段。
+            for (SerializedField const& sub : field.nestedFields)
+            {
+                appendCppWriteField(code, sub, access, indent);
+            }
+        }
+        else if (field.kind == 7)
+        {
+            // HashObj 包装（D11 附）：线形 = 内层记录的字段；写方向访问 `.Get()`。
+            for (SerializedField const& sub : field.nestedFields)
+            {
+                appendCppWriteField(code, sub, access + ".Get()", indent);
+            }
+        }
+        else if (field.kind == 8)
+        {
+            // 定长数组是输入方向：写路径不产出（元素记录只有结构体、没 Codec；返回位置已生成期拒绝）。
+            *code += indent + "/* 定长数组成员：输入方向，不产写路径 */\n";
+        }
+        else if (field.kind == 9 || field.kind == 10)
+        {
+            // 值类字段 / 联合体是输入方向：写路径不产出。
+            *code += indent + "/* 值类字段 / 联合体：输入方向，不产写路径 */\n";
+        }
+        else if (field.kind == 5)
+        {
+            // 命名映射（D11 ②）：count + 重复（key 文本线形, value 线形）。
+            *code += indent + "{\n";
+            *code += indent + "    WriteValue<uint64_t>(out, static_cast<uint64_t>(" + access +
+                     ".size()));\n";
+            *code += indent + "    for (auto const& kv : " + access + ")\n" + indent + "    {\n";
+            *code += indent + "        {\n";
+            *code += indent + "            auto const& keyText = kv.first.string();\n";
+            *code += indent + "            WriteValue<uint64_t>(out, static_cast<uint64_t>(keyText.size()));\n";
+            *code += indent + "            WriteRaw(out, keyText.data(), "
+                              "static_cast<uint64_t>(keyText.size()));\n";
+            *code += indent + "        }\n";
+            if (field.mapValueKind == 0 || field.mapValueKind == 1)
+            {
+                *code += indent + "        WriteValue<" + field.mapValueWidthType +
+                         ">(out, static_cast<" + field.mapValueWidthType + ">(kv.second));\n";
+            }
+            else if (field.mapValueKind == 3)
+            {
+                *code += indent + "        /* 值类是输入方向：写路径不产出（返回位置已生成期拒绝） */\n";
+            }
+            else if (field.mapValueKind == 4)
+            {
+                *code += indent + "        /* 接口引用是输入方向：写路径不产出（返回位置已生成期拒绝） */\n";
+            }
+            else
+            {
+                std::string valueAccess = "kv.second";
+                if (field.mapValueIsHashObj)
+                {
+                    valueAccess += ".Get()";
+                }
+                for (SerializedField const& sub : field.mapValueFields)
+                {
+                    appendCppWriteField(code, sub, valueAccess, indent + "        ");
+                }
+            }
+            *code += indent + "    }\n" + indent + "}\n";
+        }
+        else if (field.kind == 6)
+        {
+            // 接口对象引用（D11 ③）：输入方向记录不产写路径；返回位置含此字段在生成期已拒绝。
+            *code += indent + "/* 接口对象引用字段 " + field.name +
+                     "：输入方向，不产写路径（返回位置已生成期拒绝） */\n";
+        }
         else
         {
             *code += indent + "WriteValue<uint64_t>(out, static_cast<uint64_t>(" + access + ".size()));\n";
@@ -5042,15 +5956,84 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 *code += indent + "    WriteValue<" + field.elementWidthType +
                          ">(out, static_cast<" + field.elementWidthType + ">(element));\n";
             }
+            else if (field.elementKind == 3)
+            {
+                // 文本元素（D8 扩展）：每条 u64 长度 + UTF-8 字节。
+                const std::string textExpr = (field.elementTextIsNameHash || field.elementTextIsPathHash)
+                                                 ? "element.string()"
+                                                 : "element";
+                *code += indent + "    {\n";
+                *code += indent + "        auto const& textValue = " + textExpr + ";\n";
+                *code += indent +
+                         "        WriteValue<uint64_t>(out, static_cast<uint64_t>(textValue.size()));\n";
+                *code += indent + "        WriteRaw(out, textValue.data(), "
+                                  "static_cast<uint64_t>(textValue.size()));\n";
+                *code += indent + "    }\n";
+            }
+            else if (field.elementKind == 4)
+            {
+                // 值类元素（D11 ①）：输入方向记录不产写路径；返回位置含此元素在生成期已拒绝。
+                *code += indent + "    /* 值类元素：输入方向，不产写路径 */\n";
+            }
             else
             {
-                for (SerializedField const& sub : field.elementFields)
-                {
-                    appendCppWriteField(code, sub, "element", indent + "    ");
-                }
+                // 元素记录：写走它自己的 codec（友元只对直接类有效，父 codec 写不了它的私有成员）。
+                *code += indent + "        cacore::codegen::CodeGenBindingCodec<" +
+                         field.elementRecordQualified + ">::WriteFields(out, element);\n";
             }
             *code += indent + "}\n";
         }
+    }
+
+    // D11 ① / ②：把「kind + handle + name」三段值类线形重建成值类对象。
+    // 值类容器元素与映射值共用；对象通道走 reader.resolver（绑定对象表反查），查无句柄 ⇒ failureCode。
+    void appendCppValueClassReconstruct(std::string* code, std::string const& valueClassShort,
+                                        std::string const& target, std::string const& kindVar,
+                                        std::string const& handleVar, std::string const& nameVar,
+                                        std::string const& fieldPath, std::string const& indent,
+                                        unsigned failureCode)
+    {
+        auto found = g_valueTypes.find(valueClassShort);
+        if (found == g_valueTypes.end())
+        {
+            *code += indent + "/* 值类 " + valueClassShort + " 未登记（不该发生） */\n";
+            return;
+        }
+        const ValueTypeInfo& info = found->second;
+        bool firstBranch = true;
+        for (ValueTypeInfo::ObjectChannel const& channel : info.objectChannels)
+        {
+            *code += indent + (firstBranch ? "if (" : "else if (") + kindVar + " == " +
+                     std::to_string(channel.kind) + "u)\n" + indent + "{\n";
+            *code += indent + "    std::shared_ptr<void> valueObject = reader.resolver.resolve("
+                              "reader.resolver.user, " + handleVar + ", \"" +
+                     channel.pointeeQualified + "\", \"" + fieldPath + "\");\n";
+            *code += indent + "    if (!valueObject) { return " + std::to_string(failureCode) + "u; }\n";
+            *code += indent + "    " + target + " = " + info.qualifiedName +
+                     "(std::static_pointer_cast<" + channel.pointeeQualified + ">(valueObject));\n";
+            *code += indent + "}\n";
+            firstBranch = false;
+        }
+        if (info.hasNameCtor)
+        {
+            *code += indent + (firstBranch ? "if (" : "else if (") + kindVar + " == " +
+                     std::to_string(info.nameKind) + "u)\n" + indent + "{\n";
+            *code += indent + "    " + target + " = " + info.qualifiedName +
+                     "(cacore::NameHash(" + nameVar + "));\n";
+            *code += indent + "}\n";
+            firstBranch = false;
+        }
+        if (info.hasInvalidKind)
+        {
+            // 无效态 = 原生默认构造值（`DrawCall::New()` 的 `IndexBufferData.indexBufferHandle`
+            // 就是这个状态）。记录字段的"未设置"必须能过界，否则每个 AddPass 都会被句柄解析拒。
+            *code += indent + (firstBranch ? "if (" : "else if (") + kindVar + " == " +
+                     std::to_string(info.invalidKind) + "u)\n" + indent + "{\n";
+            *code += indent + "    " + target + " = " + info.qualifiedName + "{};\n";
+            *code += indent + "}\n";
+            firstBranch = false;
+        }
+        *code += indent + "else { return " + std::to_string(failureCode) + "u; }\n";
     }
 
     void appendCppReadField(std::string* code, SerializedField const& field, std::string const& object,
@@ -5097,6 +6080,164 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             }
             *code += indent + "}\n";
         }
+        else if (field.kind == 4)
+        {
+            // 嵌套记录（D8 扩展）：逐字段内联读。
+            for (SerializedField const& sub : field.nestedFields)
+            {
+                appendCppReadField(code, sub, access, indent);
+            }
+        }
+        else if (field.kind == 7)
+        {
+            // HashObj 包装（D11 附）：读内层字段到临时值，再重新包成 HashObj。
+            // 临时变量名必须是**标识符**（`field.name + "Value"`），不能拼成表达式路径 ——
+            // 拼 `access + "Value"` 会生成 `T obj.m_ViewPortValue{};`（实测 C3878）。
+            const std::string wrapperLocal = field.name + "Value";
+            *code += indent + "{\n";
+            *code += indent + "    " + field.nestedRecordQualified + " " + wrapperLocal + "{};\n";
+            for (SerializedField const& sub : field.nestedFields)
+            {
+                appendCppReadField(code, sub, wrapperLocal, indent + "    ");
+            }
+            *code += indent + "    " + access + " = cacore::HashObj<" + field.nestedRecordQualified +
+                     ">{" + wrapperLocal + "};\n";
+            *code += indent + "}\n";
+        }
+        else if (field.kind == 8)
+        {
+            // 定长数组：元素个数固定，线形里**不带 count**；元素按记录字段逐项。
+            *code += indent + "{\n";
+            *code += indent + "    for (std::size_t index = 0u; index < " +
+                     std::to_string(field.fixedCount) + "u; ++index)\n" + indent + "    {\n";
+            const std::string elementAccess = access + "[index]";
+            for (SerializedField const& sub : field.elementFields)
+            {
+                appendCppReadField(code, sub, elementAccess, indent + "        ");
+            }
+            *code += indent + "    }\n" + indent + "}\n";
+        }
+        else if (field.kind == 9)
+        {
+            // 值类字段：kind + handle + 名称三段线形 → 值类对象。
+            *code += indent + "{\n";
+            *code += indent + "    uint32_t valueKind = 0u;\n";
+            *code += indent + "    uint64_t valueHandle = 0u;\n";
+            *code += indent + "    uint64_t valueNameSize = 0u;\n";
+            *code += indent + "    if (!reader.ReadValue(valueKind) || !reader.ReadValue(valueHandle) || "
+                              "!reader.ReadValue(valueNameSize) || valueNameSize > reader.Remaining()) "
+                              "{ return 4u; }\n";
+            *code += indent + "    castl::string valueName(reinterpret_cast<char const*>(reader.data + "
+                              "reader.pos), static_cast<std::size_t>(valueNameSize));\n";
+            *code += indent + "    reader.pos += valueNameSize;\n";
+            appendCppValueClassReconstruct(code, field.valueClassShort, access, "valueKind", "valueHandle",
+                                           "valueName", "字段 " + field.name, indent + "    ", 12u);
+            *code += indent + "}\n";
+        }
+        else if (field.kind == 10)
+        {
+            // 联合体：定长原样字节，不做逐字段解释。
+            *code += indent + "if (!reader.ReadRaw(&" + access + ", " + std::to_string(field.blobSize) +
+                     "u)) { return 4u; }\n";
+        }
+        else if (field.kind == 5)
+        {
+            // 命名映射（D11 ②）：count + 重复（key 文本线形, value 线形）。
+            *code += indent + "{\n";
+            *code += indent + "    uint64_t count = 0u;\n";
+            *code += indent +
+                     "    if (!reader.ReadValue(count) || count > reader.Remaining()) { return 4u; }\n";
+            *code += indent + "    " + access + ".clear();\n";
+            *code += indent + "    for (uint64_t index = 0u; index < count; ++index)\n" + indent + "    {\n";
+            *code += indent + "        uint64_t keySize = 0u;\n";
+            *code += indent +
+                     "        if (!reader.ReadValue(keySize) || keySize > reader.Remaining()) { return 4u; }\n";
+            *code += indent + "        castl::string keyText(reinterpret_cast<char const*>(reader.data + "
+                              "reader.pos), static_cast<std::size_t>(keySize));\n";
+            *code += indent + "        reader.pos += keySize;\n";
+            *code += indent + "        cacore::NameHash key(keyText);\n";
+            if (field.mapValueKind == 0 || field.mapValueKind == 1)
+            {
+                *code += indent + "        " + field.mapValueWidthType + " mapValue{};\n";
+                *code += indent + "        if (!reader.ReadValue(mapValue)) { return 4u; }\n";
+                if (field.mapValueKind == 1)
+                {
+                    *code += indent + "        " + access + "[key] = static_cast<" +
+                             enumCppNameForShort(field.mapValueEnumShort) + ">(mapValue);\n";
+                }
+                else
+                {
+                    *code += indent + "        " + access + "[key] = mapValue;\n";
+                }
+            }
+            else if (field.mapValueKind == 3)
+            {
+                *code += indent + "        uint32_t valueKind = 0u;\n";
+                *code += indent + "        uint64_t valueHandle = 0u;\n";
+                *code += indent + "        uint64_t valueNameSize = 0u;\n";
+                *code += indent + "        if (!reader.ReadValue(valueKind) || "
+                                  "!reader.ReadValue(valueHandle) || !reader.ReadValue(valueNameSize) || "
+                                  "valueNameSize > reader.Remaining()) { return 4u; }\n";
+                *code += indent + "        castl::string valueName(reinterpret_cast<char const*>(reader.data + "
+                                  "reader.pos), static_cast<std::size_t>(valueNameSize));\n";
+                *code += indent + "        reader.pos += valueNameSize;\n";
+                appendCppValueClassReconstruct(code, field.mapValueValueClassShort, access + "[key]",
+                                               "valueKind", "valueHandle", "valueName",
+                                               "字段 " + field.name, indent + "        ", 12u);
+            }
+            else if (field.mapValueKind == 4)
+            {
+                *code += indent + "        uint64_t valueHandle = 0u;\n";
+                *code += indent + "        if (!reader.ReadValue(valueHandle)) { return 4u; }\n";
+                *code += indent +
+                         "        std::shared_ptr<void> valueObject = reader.resolver.resolve("
+                         "reader.resolver.user, valueHandle, \"" + field.mapValueInterfaceQualified +
+                         "\", \"" + field.name + "\");\n";
+                *code += indent + "        if (!valueObject) { return 12u; }\n";
+                *code += indent + "        " + access + "[key] = std::static_pointer_cast<" +
+                         field.mapValueInterfaceQualified + ">(valueObject);\n";
+            }
+            else
+            {
+                *code += indent + "        " + field.mapValueRecordQualified + " mapValue{};\n";
+                std::string valueAccess = "mapValue";
+                if (field.mapValueIsHashObj)
+                {
+                    // HashObj 值：先读到内层记录，再包成 HashObj 存进表。
+                    for (SerializedField const& sub : field.mapValueFields)
+                    {
+                        appendCppReadField(code, sub, valueAccess, indent + "        ");
+                    }
+                    *code += indent + "        " + access + "[key] = cacore::HashObj<" +
+                             field.mapValueRecordQualified + ">{mapValue};\n";
+                }
+                else
+                {
+                    for (SerializedField const& sub : field.mapValueFields)
+                    {
+                        appendCppReadField(code, sub, valueAccess, indent + "        ");
+                    }
+                    *code += indent + "        " + access + "[key] = mapValue;\n";
+                }
+            }
+            *code += indent + "    }\n" + indent + "}\n";
+        }
+        else if (field.kind == 6)
+        {
+            // 接口对象引用（D11 ③）：u64 句柄 → 从绑定对象表反查重建；查无句柄 ⇒ 12（边界拒）。
+            *code += indent + "{\n";
+            *code += indent + "    uint64_t objectHandle = 0u;\n";
+            *code += indent + "    if (!reader.ReadValue(objectHandle)) { return 4u; }\n";
+            *code += indent + "    if (objectHandle == 0u) { " + access + " = nullptr; }\n";
+            *code += indent + "    else\n" + indent + "    {\n";
+            *code += indent + "        std::shared_ptr<void> object = reader.resolver.resolve("
+                              "reader.resolver.user, objectHandle, \"" + field.interfaceQualified +
+                     "\", \"" + field.name + "\");\n";
+            *code += indent + "        if (!object) { return 12u; }\n";
+            *code += indent + "        " + access + " = std::static_pointer_cast<" +
+                     field.interfaceQualified + ">(object);\n";
+            *code += indent + "    }\n" + indent + "}\n";
+        }
         else
         {
             *code += indent + "{\n";
@@ -5118,13 +6259,62 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 *code += indent + "        " + access + ".push_back(static_cast<" +
                          enumCppNameForShort(field.elementEnumShort) + ">(element));\n";
             }
-            else
+            else if (field.elementKind == 3)
             {
-                *code += indent + "        " + field.elementRecordQualified + " element{};\n";
-                for (SerializedField const& sub : field.elementFields)
+                // 文本元素（D8 扩展）：读长度 + UTF-8 字节后按元素类型重建。
+                *code += indent + "        uint64_t textSize = 0u;\n";
+                *code += indent +
+                         "        if (!reader.ReadValue(textSize) || textSize > reader.Remaining()) "
+                         "{ return 4u; }\n";
+                *code += indent +
+                         "        castl::string text(reinterpret_cast<char const*>(reader.data + reader.pos), "
+                         "static_cast<std::size_t>(textSize));\n";
+                *code += indent + "        reader.pos += textSize;\n";
+                if (field.elementTextIsNameHash)
                 {
-                    appendCppReadField(code, sub, "element", indent + "        ");
+                    *code += indent + "        " + access + ".push_back(cacore::NameHash(text));\n";
                 }
+                else if (field.elementTextIsPathHash)
+                {
+                    *code += indent + "        " + access + ".push_back(cacore::PathHash(text));\n";
+                }
+                else
+                {
+                    *code += indent + "        " + access + ".push_back(text);\n";
+                }
+            }
+            else if (field.elementKind == 4)
+            {
+                // 值类元素（D11 ①）：kind + handle + name 三段线形 → 值类对象。
+                *code += indent + "        uint32_t valueKind = 0u;\n";
+                *code += indent + "        uint64_t valueHandle = 0u;\n";
+                *code += indent + "        uint64_t valueNameSize = 0u;\n";
+                *code += indent + "        if (!reader.ReadValue(valueKind) || "
+                                  "!reader.ReadValue(valueHandle) || !reader.ReadValue(valueNameSize) || "
+                                  "valueNameSize > reader.Remaining()) { return 4u; }\n";
+                *code += indent + "        castl::string valueName(reinterpret_cast<char const*>(reader.data + "
+                                  "reader.pos), static_cast<std::size_t>(valueNameSize));\n";
+                *code += indent + "        reader.pos += valueNameSize;\n";
+                auto valueInfo = g_valueTypes.find(field.elementValueClassShort);
+                const std::string valueType =
+                    valueInfo == g_valueTypes.end() ? field.elementValueClassShort
+                                                    : valueInfo->second.qualifiedName;
+                *code += indent + "        " + valueType + " element{};\n";
+                appendCppValueClassReconstruct(code, field.elementValueClassShort, "element", "valueKind",
+                                               "valueHandle", "valueName", "字段 " + field.name,
+                                               indent + "        ", 12u);
+                *code += indent + "        " + access + ".push_back(element);\n";
+            }
+            else if (field.elementKind == 2)
+            {
+                // 元素记录由它自己的 codec 读写（友元只对直接类有效，父 codec 读不到私有成员）。
+                *code += indent + "        " + field.elementRecordQualified + " element{};\n";
+                *code += indent + "        {\n";
+                *code += indent + "            const uint32_t elementCode = "
+                                  "cacore::codegen::CodeGenBindingCodec<" +
+                         field.elementRecordQualified + ">::ReadFields(reader, element);\n";
+                *code += indent + "            if (elementCode != 0u) { return elementCode; }\n";
+                *code += indent + "        }\n";
                 *code += indent + "        " + access + ".push_back(element);\n";
             }
             *code += indent + "    }\n" + indent + "}\n";
@@ -5132,9 +6322,113 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
     }
 
     // 生成 C++ 编解码：WriteValue / WriteRaw / Serialize / Reader / Deserialize。
+    // 内层元素记录要由**它自己的** codec 来读写：`CA_CODEGEN_FRIEND(T)` 只让
+    // `CodeGenBindingCodec<T>` 成为 T 的友元，父记录的 codec 不是 —— 父 codec 直接内联读
+    // 私有成员会撞 C2248（实测 `DrawCall::m_BoundVertexBuffers` 从 RenderPass 的 codec 里读）。
+    // 这里把每个被引用的元素记录单独发一份 codec 特化（只有字段级 ReadFields / WriteFields，
+    // 没有块头），父 codec 调它。用宏守卫防止同一个元素记录在多个父 codec 里重复定义。
+    void appendElementCodecSpec(std::string* code, SerializedElementInfo const& element)
+    {
+        const std::string guard = "CODEGEN_ELEMENT_CODEC_" + element.shortName;
+        *code += "#ifndef " + guard + "\n#define " + guard + "\n";
+        *code += "namespace cacore::codegen\n{\n";
+        *code += "template<>\nstruct CodeGenBindingCodec<" + element.qualifiedName + ">\n{\n";
+        *code += "    template<typename ReaderT>\n";
+        *code += "    static uint32_t ReadFields(ReaderT& reader, " + element.qualifiedName +
+                 "& obj)\n    {\n";
+        std::string reads;
+        for (SerializedField const& field : element.fields)
+        {
+            appendCppReadField(&reads, field, "obj", "        ");
+        }
+        *code += reads;
+        *code += "        return 0u;\n    }\n";
+        *code += "    static void WriteRaw(std::vector<uint8_t>& out, void const* data, uint64_t size)\n"
+                 "    {\n";
+        *code += "        uint8_t const* bytes = static_cast<uint8_t const*>(data);\n";
+        *code += "        out.insert(out.end(), bytes, bytes + size);\n    }\n";
+        *code += "    template<typename V> static void WriteValue(std::vector<uint8_t>& out, V value)\n"
+                 "    {\n        WriteRaw(out, &value, sizeof(V));\n    }\n";
+        *code += "    static void WriteFields(std::vector<uint8_t>& out, " + element.qualifiedName +
+                 " const& obj)\n    {\n";
+        std::string writes;
+        for (SerializedField const& field : element.fields)
+        {
+            appendCppWriteField(&writes, field, "obj", "        ");
+        }
+        *code += writes;
+        *code += "    }\n};\n}\n";
+        *code += "#endif\n";
+    }
+
+    // 这条记录用到的元素记录短名（递归收集：容器元素 / 定长数组元素 / 映射的记录值）。
+    void collectElementRecords(SerializedField const& field, std::set<std::string>* names)
+    {
+        if ((field.kind == 3 || field.kind == 8) && field.elementKind == 2 &&
+            !field.elementRecordShort.empty())
+        {
+            names->insert(field.elementRecordShort);
+        }
+        if (field.kind == 5 && field.mapValueKind == 2 && !field.mapValueRecordShort.empty())
+        {
+            names->insert(field.mapValueRecordShort);
+        }
+        for (SerializedField const& sub : field.nestedFields)
+        {
+            collectElementRecords(sub, names);
+        }
+        for (SerializedField const& sub : field.elementFields)
+        {
+            collectElementRecords(sub, names);
+        }
+        for (SerializedField const& sub : field.mapValueFields)
+        {
+            collectElementRecords(sub, names);
+        }
+    }
+
     std::string emitSerializedCodecCpp(SerializedTypeInfo const& info)
     {
         std::string code;
+        // 先发本记录引用到的元素记录 codec（父 codec 要调它们的字段级读写）。
+        // **递归且先发依赖**：元素记录自己也可能引用别的元素记录（DrawCallBatch → 映射值
+        // VertexInputsDescriptor → vector<VertexAttribute>），被引用的必须先定义。
+        {
+            std::set<std::string> emittedElements;
+            std::function<void(std::string const&)> emitElement = [&](std::string const& name) {
+                if (!emittedElements.insert(name).second)
+                {
+                    return;
+                }
+                auto element = g_serializedElementRecords.find(name);
+                if (element == g_serializedElementRecords.end())
+                {
+                    return;
+                }
+                std::set<std::string> dependencies;
+                for (SerializedField const& field : element->second.fields)
+                {
+                    collectElementRecords(field, &dependencies);
+                }
+                for (std::string const& dependency : dependencies)
+                {
+                    if (dependency != name)
+                    {
+                        emitElement(dependency);
+                    }
+                }
+                appendElementCodecSpec(&code, element->second);
+            };
+            std::set<std::string> elementNames;
+            for (SerializedField const& field : info.fields)
+            {
+                collectElementRecords(field, &elementNames);
+            }
+            for (std::string const& name : elementNames)
+            {
+                emitElement(name);
+            }
+        }
         code += "// 序列化块记录（任务 3.2）：" + info.qualifiedName + "\n";
         code += "namespace cacore::codegen\n{\n";
         code += "template<>\nstruct CodeGenBindingCodec<" + info.qualifiedName + ">\n{\n";
@@ -5170,6 +6464,9 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         code += "    }\n";
         code += "    struct Reader\n    {\n";
         code += "        uint8_t const* data;\n        uint64_t size;\n        uint64_t pos;\n";
+        // D11：值类容器元素 / 接口对象引用要按句柄从绑定对象表反查重建 —— 解析器由 thunk 注入
+        // （它持有 `self`，能调 `<接口>_lookupStrongHandle`）。没有解析器时遇到这类字段 ⇒ 12。
+        code += "        cacore::codegen::BindingHandleResolver resolver;\n";
         code += "        bool ReadRaw(void* dst, uint64_t count)\n        {\n";
         code += "            if (count > size - pos) { return false; }\n";
         code += "            ::memcpy(dst, data + pos, static_cast<size_t>(count));\n";
@@ -5177,9 +6474,13 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         code += "        template<typename T> bool ReadValue(T& value) { return ReadRaw(&value, "
                 "sizeof(T)); }\n";
         code += "        uint64_t Remaining() const { return size - pos; }\n    };\n";
+        // 三参重载（无对象解析器）供不含新类别字段的记录使用，保持既有调用点不变。
         code += "    static uint32_t Deserialize(" + info.qualifiedName +
                 "& obj, uint8_t const* data, uint64_t size)\n    {\n";
-        code += "        Reader reader{data, size, 0u};\n";
+        code += "        return Deserialize(obj, data, size, cacore::codegen::BindingHandleResolver{});\n    }\n";
+        code += "    static uint32_t Deserialize(" + info.qualifiedName +
+                "& obj, uint8_t const* data, uint64_t size, cacore::codegen::BindingHandleResolver resolver)\n    {\n";
+        code += "        Reader reader{data, size, 0u, resolver};\n";
         code += "        uint32_t version = 0u;\n";
         code += "        if (!reader.ReadValue(version)) { return 4u; }\n";
         code += "        if (version != 1u) { return 1u; }\n";
@@ -5204,8 +6505,26 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         if (field.kind == 0) return csharpScalarTypeForWidth(field.widthType);
         if (field.kind == 1) return field.enumShort;
         if (field.kind == 2) return "string";
+        if (field.kind == 4) return field.nestedRecordShort;
+        if (field.kind == 7) return field.nestedRecordShort;
+        if (field.kind == 6) return field.interfaceShort;
+        if (field.kind == 8) return field.elementRecordShort + "[]";
+        if (field.kind == 9) return field.valueClassShort;
+        if (field.kind == 10) return "byte[]";
+        if (field.kind == 5)
+        {
+            std::string valueType;
+            if (field.mapValueKind == 0) valueType = csharpScalarTypeForWidth(field.mapValueWidthType);
+            else if (field.mapValueKind == 1) valueType = field.mapValueEnumShort;
+            else if (field.mapValueKind == 2) valueType = field.mapValueRecordShort;
+            else if (field.mapValueKind == 3) valueType = field.mapValueValueClassShort;
+            else valueType = field.mapValueInterfaceShort;
+            return "System.Collections.Generic.Dictionary<string, " + valueType + ">";
+        }
         if (field.elementKind == 0) return csharpScalarTypeForWidth(field.elementWidthType) + "[]";
         if (field.elementKind == 1) return field.elementEnumShort + "[]";
+        if (field.elementKind == 3) return "string[]";
+        if (field.elementKind == 4) return field.elementValueClassShort + "[]";
         return field.elementRecordShort + "[]";
     }
 
@@ -5239,11 +6558,14 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         cs += "// 限定名：" + info.qualifiedName + "\n";
         cs += "using System;\n\n";
         cs += "namespace Scripting.Generated.Bindings\n{\n";
-        cs += "    /// <summary>" + info.shortName + " 的托管镜像（纯标量记录）</summary>\n";
+        cs += "    /// <summary>" + info.shortName + " 的托管镜像（记录字段）</summary>\n";
         cs += "    public struct " + info.shortName + "\n    {\n";
         for (SerializedField const& field : info.fields)
         {
-            cs += "        public " + csharpScalarTypeForWidth(field.widthType) + " " + field.name + ";\n";
+            // 元素记录的字段类型走同一张映射表（标量 / 枚举 / 文本 / 记录），不再只认标量：
+            // 元数据记录里的 `cacore::NameHash m_Name` 是文本字段，只按标量映射会生成
+            // `public  m_Name;`（实测 CS1519）。
+            cs += "        public " + csharpTypeForSerializedField(field) + " " + field.name + ";\n";
         }
         cs += "    }\n}\n";
         return cs;
@@ -5254,6 +6576,9 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
     {
         std::string code;
         const std::string access = object + "." + field.name;
+        // 局部名一律带字段后缀：嵌套记录三层时 `pair` / `item` / `textBytes` 会在 C# 里撞成
+        // 同名局部变量（实测 CS0136）。
+        const std::string sfx = "_" + field.name;
         if (field.kind == 0)
         {
             if (field.widthType == "bool")
@@ -5274,10 +6599,109 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         else if (field.kind == 2)
         {
             code += indent + "{\n";
-            code += indent + "    byte[] textBytes = System.Text.Encoding.UTF8.GetBytes(" + access +
+            code += indent + "    byte[] textBytes" + sfx + " = System.Text.Encoding.UTF8.GetBytes(" + access +
                     " ?? string.Empty);\n";
-            code += indent + "    writer.Write((ulong)textBytes.Length);\n";
-            code += indent + "    writer.Write(textBytes);\n";
+            code += indent + "    writer.Write((ulong)textBytes" + sfx + ".Length);\n";
+            code += indent + "    writer.Write(textBytes" + sfx + ");\n";
+            code += indent + "}\n";
+        }
+        else if (field.kind == 4)
+        {
+            // 嵌套记录（D8 扩展）：复用子记录编解码的字段级 Write。
+            code += indent + field.nestedRecordShort + "Codec.Write(writer, " + access + ");\n";
+        }
+        else if (field.kind == 7)
+        {
+            // HashObj 包装（D11 附）：托管镜像就是内层记录，线形与嵌套记录一致。
+            code += indent + field.nestedRecordShort + "Codec.Write(writer, " + access + ");\n";
+        }
+        else if (field.kind == 5)
+        {
+            // 命名映射（D11 ②）：count + 重复（key 文本线形, value 线形）。
+            code += indent + "{\n";
+            code += indent + "    writer.Write((ulong)(" + access + " == null ? 0 : " + access +
+                    ".Count));\n";
+            code += indent + "    if (" + access + " != null)\n" + indent + "    {\n";
+            code += indent + "        foreach (var pair" + sfx + " in " + access + ")\n" + indent + "        {\n";
+            code += indent + "            byte[] keyBytes" + sfx + " = System.Text.Encoding.UTF8.GetBytes(pair" +
+                    sfx + ".Key ?? string.Empty);\n";
+            code += indent + "            writer.Write((ulong)keyBytes" + sfx + ".Length);\n";
+            code += indent + "            writer.Write(keyBytes" + sfx + ");\n";
+            if (field.mapValueKind == 0 || field.mapValueKind == 1)
+            {
+                code += indent + "            writer.Write((" +
+                        csharpScalarTypeForWidth(field.mapValueWidthType) + ")pair" + sfx + ".Value);\n";
+            }
+            else if (field.mapValueKind == 3)
+            {
+                // 值类值：kind + handle + 名称三段线形。
+                code += indent + "            writer.Write(pair" + sfx + ".Value.Kind);\n";
+                code += indent + "            writer.Write(pair" + sfx + ".Value.Handle);\n";
+                code += indent + "            {\n";
+                code += indent + "                byte[] valueNameBytes" + sfx +
+                        " = System.Text.Encoding.UTF8.GetBytes(pair" + sfx +
+                        ".Value.Name ?? string.Empty);\n";
+                code += indent + "                writer.Write((ulong)valueNameBytes" + sfx + ".Length);\n";
+                code += indent + "                writer.Write(valueNameBytes" + sfx + ");\n";
+                code += indent + "            }\n";
+            }
+            else if (field.mapValueKind == 4)
+            {
+                code += indent + "            writer.Write((ulong)(pair" + sfx +
+                        ".Value == null ? 0UL : (ulong)pair" + sfx + ".Value.Token));\n";
+            }
+            else
+            {
+                // 记录值：逐字段内联写（元素记录只有结构体、没有 Codec，不能直接复用 Codec）。
+                for (SerializedField const& sub : field.mapValueFields)
+                {
+                    code += emitSerializedFieldCSharpWrite(sub, "pair" + sfx + ".Value",
+                                                          indent + "            ");
+                }
+            }
+            code += indent + "        }\n" + indent + "    }\n" + indent + "}\n";
+        }
+        else if (field.kind == 6)
+        {
+            // 接口对象引用（D11 ③）：按绑定对象句柄过界（0 = 空）。
+            code += indent + "writer.Write((ulong)(" + access + " == null ? 0UL : (ulong)" + access +
+                    ".Token));\n";
+        }
+        else if (field.kind == 8)
+        {
+            // 定长数组成员：元素个数由类型给定，线形里**不写 count**（只写 N 个元素）。
+            code += indent + "if (" + access + " != null)\n" + indent + "{\n";
+            code += indent + "    foreach (var item" + sfx + " in " + access + ")\n" + indent + "    {\n";
+            for (SerializedField const& sub : field.elementFields)
+            {
+                code += emitSerializedFieldCSharpWrite(sub, "item" + sfx, indent + "        ");
+            }
+            code += indent + "    }\n" + indent + "}\n";
+        }
+        else if (field.kind == 9)
+        {
+            // 值类字段：kind + 句柄 + 名称三段线形（与容器元素/映射值同一份托管值类）。
+            code += indent + "{\n";
+            code += indent + "    writer.Write(" + access + ".Kind);\n";
+            code += indent + "    writer.Write(" + access + ".Handle);\n";
+            code += indent + "    byte[] valueNameBytes" + sfx + " = System.Text.Encoding.UTF8.GetBytes(" +
+                    access + ".Name ?? string.Empty);\n";
+            code += indent + "    writer.Write((ulong)valueNameBytes" + sfx + ".Length);\n";
+            code += indent + "    writer.Write(valueNameBytes" + sfx + ");\n";
+            code += indent + "}\n";
+        }
+        else if (field.kind == 10)
+        {
+            // 联合体：定长原样字节；长度不齐就当场抛（不静默截断/补零）。
+            code += indent + "{\n";
+            code += indent + "    byte[] raw" + sfx + " = " + access + " ?? new byte[" +
+                    std::to_string(field.blobSize) + "];\n";
+            code += indent + "    if (raw" + sfx + ".Length != " + std::to_string(field.blobSize) + ")\n" +
+                    indent + "    {\n";
+            code += indent + "        throw new System.ArgumentException(\"记录字段 " + field.name +
+                    " 要求 " + std::to_string(field.blobSize) + " 字节（联合体原样过界）\");\n";
+            code += indent + "    }\n";
+            code += indent + "    writer.Write(raw" + sfx + ");\n";
             code += indent + "}\n";
         }
         else
@@ -5285,22 +6709,169 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             code += indent + "writer.Write((ulong)(" + access + " == null ? 0 : " + access +
                     ".Length));\n";
             code += indent + "if (" + access + " != null)\n" + indent + "{\n";
-            code += indent + "    foreach (var item in " + access + ")\n" + indent + "    {\n";
+            code += indent + "    foreach (var item" + sfx + " in " + access + ")\n" + indent + "    {\n";
             if (field.elementKind == 0)
             {
-                code += indent + "        writer.Write(item);\n";
+                code += indent + "        writer.Write(item" + sfx + ");\n";
             }
             else if (field.elementKind == 1)
             {
                 code += indent + "        writer.Write((" +
-                        csharpScalarTypeForWidth(field.elementWidthType) + ")item);\n";
+                        csharpScalarTypeForWidth(field.elementWidthType) + ")item" + sfx + ");\n";
+            }
+            else if (field.elementKind == 3)
+            {
+                // 文本元素（D8 扩展）：每条 u64 长度 + UTF-8 字节。
+                code += indent + "        {\n";
+                code += indent + "            byte[] textBytes" + sfx +
+                        " = System.Text.Encoding.UTF8.GetBytes(item" + sfx + " ?? string.Empty);\n";
+                code += indent + "            writer.Write((ulong)textBytes" + sfx + ".Length);\n";
+                code += indent + "            writer.Write(textBytes" + sfx + ");\n";
+                code += indent + "        }\n";
+            }
+            else if (field.elementKind == 4)
+            {
+                // 值类元素（D11 ①）：kind + handle + 名称三段线形。
+                code += indent + "        {\n";
+                code += indent + "            writer.Write(item" + sfx + ".Kind);\n";
+                code += indent + "            writer.Write(item" + sfx + ".Handle);\n";
+                code += indent + "            byte[] elementNameBytes" + sfx +
+                        " = System.Text.Encoding.UTF8.GetBytes(item" + sfx + ".Name ?? string.Empty);\n";
+                code += indent + "            writer.Write((ulong)elementNameBytes" + sfx + ".Length);\n";
+                code += indent + "            writer.Write(elementNameBytes" + sfx + ");\n";
+                code += indent + "        }\n";
             }
             else
             {
                 for (SerializedField const& sub : field.elementFields)
                 {
-                    code += emitSerializedFieldCSharpWrite(sub, "item", indent + "        ");
+                    code += emitSerializedFieldCSharpWrite(sub, "item" + sfx, indent + "        ");
                 }
+            }
+            code += indent + "    }\n" + indent + "}\n";
+        }
+        return code;
+    }
+
+    // 字段级读（D8 扩展：元数据记录两段式投影的托管侧解包）。与 C++ `Deserialize` 的字段格式逐字节同源。
+    std::string emitSerializedFieldCSharpRead(SerializedField const& field, std::string const& object,
+                                              std::string const& indent)
+    {
+        std::string code;
+        const std::string access = object + "." + field.name;
+        if (field.kind == 0)
+        {
+            if (field.widthType == "bool")
+            {
+                code += indent + access + " = reader.ReadByte() != 0;\n";
+            }
+            else
+            {
+                code += indent + access + " = " + csharpReaderCall(field.widthType) + ";\n";
+            }
+        }
+        else if (field.kind == 1)
+        {
+            code += indent + access + " = (" + field.enumShort + ")" + csharpReaderCall(field.widthType) +
+                    ";\n";
+        }
+        else if (field.kind == 2)
+        {
+            code += indent + "{\n";
+            code += indent + "    ulong textSize = reader.ReadUInt64();\n";
+            code += indent + "    byte[] textBytes = reader.ReadBytes((int)textSize);\n";
+            code += indent + "    " + access +
+                    " = System.Text.Encoding.UTF8.GetString(textBytes, 0, textBytes.Length);\n";
+            code += indent + "}\n";
+        }
+        else if (field.kind == 4)
+        {
+            code += indent + access + " = " + field.nestedRecordShort + "Codec.Read(reader);\n";
+        }
+        else if (field.kind == 7)
+        {
+            // HashObj 包装（D11 附）：托管镜像就是内层记录。
+            code += indent + access + " = " + field.nestedRecordShort + "Codec.Read(reader);\n";
+        }
+        else if (field.kind == 8 || field.kind == 9 || field.kind == 10)
+        {
+            // 定长数组 / 值类字段 / 联合体：本批只定义输入方向（C# → 原生）。返回位置含这些字段
+            // 在生成期已被拒绝（design D11 的 MUST NOT），走到这里只可能是手改产物。
+            code += indent + "throw new System.IO.InvalidDataException(\"记录字段 " + field.name +
+                    " 是" + (field.kind == 8 ? "定长数组" : (field.kind == 9 ? "值类字段" : "联合体")) +
+                    "：本批只定义输入方向，不支持从字节反序列化\");\n";
+        }
+        else if (field.kind == 5 || field.kind == 6)
+        {
+            // 命名映射 / 接口对象引用：本批只定义输入方向（C# → 原生）。返回位置含这两类字段
+            // 在生成期已被拒绝（design D11 的 MUST NOT），走到这里只可能是手改产物。
+            code += indent + "throw new System.IO.InvalidDataException(\"记录字段 " + field.name +
+                    " 是" + (field.kind == 5 ? "命名映射" : "接口对象引用") +
+                    "：本批只定义输入方向，不支持从字节反序列化\");\n";
+        }
+        else
+        {
+            // 容器元素（标量 / 枚举 / 文本 / 值类 / 记录）：局部名一律带字段后缀 ——
+            // 嵌套记录三层时 `count` / `index` / `item` 会在 C# 里撞成同名局部变量（实测 CS0136）。
+            const std::string sfx = "_" + field.name;
+            std::string elementType;
+            if (field.elementKind == 0) elementType = csharpScalarTypeForWidth(field.elementWidthType);
+            else if (field.elementKind == 1) elementType = field.elementEnumShort;
+            else if (field.elementKind == 3) elementType = "string";
+            else if (field.elementKind == 4) elementType = field.elementValueClassShort;
+            else elementType = field.elementRecordShort;
+            code += indent + "{\n";
+            code += indent + "    ulong count" + sfx + " = reader.ReadUInt64();\n";
+            code += indent + "    " + access + " = new " + elementType + "[(int)count" + sfx + "];\n";
+            code += indent + "    for (int index" + sfx + " = 0; index" + sfx + " < (int)count" + sfx +
+                    "; ++index" + sfx + ")\n" + indent + "    {\n";
+            const std::string elementRef = access + "[index" + sfx + "]";
+            if (field.elementKind == 0)
+            {
+                code += indent + "        " + elementRef + " = " +
+                        csharpReaderCall(field.elementWidthType) + ";\n";
+            }
+            else if (field.elementKind == 1)
+            {
+                code += indent + "        " + elementRef + " = (" + field.elementEnumShort + ")" +
+                        csharpReaderCall(field.elementWidthType) + ";\n";
+            }
+            else if (field.elementKind == 3)
+            {
+                code += indent + "        {\n";
+                code += indent + "            ulong textSize" + sfx + " = reader.ReadUInt64();\n";
+                code += indent + "            byte[] textBytes" + sfx + " = reader.ReadBytes((int)textSize" +
+                        sfx + ");\n";
+                code += indent + "            " + elementRef +
+                        " = System.Text.Encoding.UTF8.GetString(textBytes" + sfx + ", 0, textBytes" + sfx +
+                        ".Length);\n";
+                code += indent + "        }\n";
+            }
+            else if (field.elementKind == 4)
+            {
+                // 值类元素（D11 ①）：kind + handle + 名称三段线形 → 托管值类（同程序集内部构造器）。
+                code += indent + "        {\n";
+                code += indent + "            uint valueKind" + sfx + " = reader.ReadUInt32();\n";
+                code += indent + "            ulong valueHandle" + sfx + " = reader.ReadUInt64();\n";
+                code += indent + "            ulong valueNameSize" + sfx + " = reader.ReadUInt64();\n";
+                code += indent + "            byte[] valueNameBytes" + sfx +
+                        " = reader.ReadBytes((int)valueNameSize" + sfx + ");\n";
+                code += indent + "            string valueName" + sfx +
+                        " = System.Text.Encoding.UTF8.GetString(valueNameBytes" + sfx + ", 0, valueNameBytes" +
+                        sfx + ".Length);\n";
+                code += indent + "            " + elementRef + " = new " + field.elementValueClassShort +
+                        "(valueKind" + sfx + ", valueHandle" + sfx + ", valueName" + sfx + ");\n";
+                code += indent + "        }\n";
+            }
+            else
+            {
+                code += indent + "        " + field.elementRecordShort + " item" + sfx + " = new " +
+                        field.elementRecordShort + "();\n";
+                for (SerializedField const& sub : field.elementFields)
+                {
+                    code += emitSerializedFieldCSharpRead(sub, "item" + sfx, indent + "        ");
+                }
+                code += indent + "        " + elementRef + " = item" + sfx + ";\n";
             }
             code += indent + "    }\n" + indent + "}\n";
         }
@@ -5315,17 +6886,50 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         cs += "        public const uint FormatVersion = 1u;\n";
         cs += "        public const ulong TypeNameHash = " + std::to_string(info.typeHash) + "UL;\n";
         cs += "        public const ulong LayoutHash = " + std::to_string(info.layoutHash) + "UL;\n";
+        // 顺序固定为 Serialize → Write → Read → Deserialize：既有共享值类型的逐字判据（字段行
+        // 之后必须紧跟 `public static byte[] Serialize(...)` 与块头三行）按这个顺序钉住了。
         cs += "        public static byte[] Serialize(" + info.shortName + " value)\n        {\n";
         cs += "            using (var stream = new System.IO.MemoryStream())\n";
         cs += "            using (var writer = new System.IO.BinaryWriter(stream))\n            {\n";
         cs += "                writer.Write(1u);\n";
         cs += "                writer.Write(TypeNameHash);\n";
         cs += "                writer.Write(LayoutHash);\n";
+        cs += "                Write(writer, value);\n";
+        cs += "                return stream.ToArray();\n            }\n        }\n";
+        // 字段级写/读（不含块头）：嵌套记录直接复用这两个入口（D8 扩展）。
+        cs += "        internal static void Write(System.IO.BinaryWriter writer, " + info.shortName +
+              " value)\n        {\n";
         for (SerializedField const& field : info.fields)
         {
-            cs += emitSerializedFieldCSharpWrite(field, "value", "                ");
+            cs += emitSerializedFieldCSharpWrite(field, "value", "            ");
         }
-        cs += "                return stream.ToArray();\n            }\n        }\n    }\n\n";
+        cs += "        }\n";
+        cs += "        internal static " + info.shortName +
+              " Read(System.IO.BinaryReader reader)\n        {\n";
+        cs += "            " + info.shortName + " value = new " + info.shortName + "();\n";
+        for (SerializedField const& field : info.fields)
+        {
+            cs += emitSerializedFieldCSharpRead(field, "value", "            ");
+        }
+        cs += "            return value;\n        }\n";
+        cs += "        /// <summary>从字节还原（块头三项逐项校验；不符即抛 InvalidDataException）</summary>\n";
+        cs += "        public static " + info.shortName + " Deserialize(byte[] bytes)\n        {\n";
+        cs += "            if (bytes == null) { throw new System.ArgumentNullException(nameof(bytes)); }\n";
+        cs += "            using (var stream = new System.IO.MemoryStream(bytes))\n";
+        cs += "            using (var reader = new System.IO.BinaryReader(stream))\n            {\n";
+        cs += "                if (reader.ReadUInt32() != FormatVersion)\n";
+        cs += "                {\n";
+        cs += "                    throw new System.IO.InvalidDataException(\"序列化块格式版本不符\");\n";
+        cs += "                }\n";
+        cs += "                if (reader.ReadUInt64() != TypeNameHash)\n";
+        cs += "                {\n";
+        cs += "                    throw new System.IO.InvalidDataException(\"序列化块类型名哈希不符\");\n";
+        cs += "                }\n";
+        cs += "                if (reader.ReadUInt64() != LayoutHash)\n";
+        cs += "                {\n";
+        cs += "                    throw new System.IO.InvalidDataException(\"序列化块字段布局哈希不符\");\n";
+        cs += "                }\n";
+        cs += "                return Read(reader);\n            }\n        }\n    }\n\n";
         return cs;
     }
 
@@ -5358,6 +6962,14 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         std::string* out = nullptr;
         std::string shortName;
         bool isStruct = false;
+        // 该类是不是 `CA_BIND` 绑定类（本文件里扫出来的标注）。只有绑定类才按新投影规则
+        // （D2 内存窗 / D8 记录两段式 / D9 实例化声明）判采集；非绑定类维持旧口径 ——
+        // 非绑定类不进绑定面，不为它猜配对（`AddData` / `DataReference::Create` 就属这一类）。
+        bool isBound = false;
+        // 可序列化记录集合（D8 判定用；由 parseReport 填）。
+        std::set<std::string> const* serializableRecords = nullptr;
+        // 该类的标注（D9：`CA_BIND_INSTANTIATE` 的模板形态判定用）。
+        BoundMarker const* marker = nullptr;
     };
 
     struct ParseReportState
@@ -5365,22 +6977,158 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         std::string* out = nullptr;
         const char* mainFile = nullptr;
         int classCount = 0;
+        std::set<std::string> boundNames;
+        // 可序列化记录集合（D8：返回位置裸指针能不能走两段式的判定依据）。
+        std::set<std::string> serializableRecords;
+        // 每个绑定类的标注（D9：显式实例化声明）。
+        std::map<std::string, BoundMarker> markersByName;
     };
 
-    std::string reportVerdict(CXCursor cursor, CXCursorKind kind)
+    std::string reportVerdict(CXCursor cursor, CXCursorKind kind, bool classIsBound,
+                              std::set<std::string> const& serializableRecords,
+                              BoundMarker const* marker)
     {
         if (kind == CXCursor_FunctionTemplate)
         {
+            // D9：写了显式实例化声明的模板形态是采集项（生成器按声明逐形态出槽）。
+            if (marker != nullptr)
+            {
+                auto declared = marker->instantiateTypes.find(toStd(clang_getCursorSpelling(cursor)));
+                if (declared != marker->instantiateTypes.end() && !declared->second.empty())
+                {
+                    std::string types;
+                    for (std::string const& type : declared->second)
+                    {
+                        types += (types.empty() ? "" : ", ") + type;
+                    }
+                    return "采集：可绑定（模板显式实例化： " + types + " ）";
+                }
+            }
             return "排除：① 模板方法（本批不做模板单态化）";
         }
         const CXType returnType = clang_getResultType(clang_getCursorType(cursor));
-        std::string spellings = toStd(clang_getTypeSpelling(clang_getCanonicalType(returnType)));
+        const std::string methodName = toStd(clang_getCursorSpelling(cursor));
+        const std::string returnSpelling =
+            toStd(clang_getTypeSpelling(clang_getCanonicalType(returnType)));
+        std::vector<std::string> paramSpellings;
+        std::vector<std::string> paramNames;
         const int count = clang_Cursor_getNumArguments(cursor);
         for (int index = 0; index < count; ++index)
         {
             const CXCursor argument = clang_Cursor_getArgument(cursor, static_cast<unsigned>(index));
-            spellings += " " +
-                         toStd(clang_getTypeSpelling(clang_getCanonicalType(clang_getCursorType(argument))));
+            paramSpellings.push_back(
+                toStd(clang_getTypeSpelling(clang_getCanonicalType(clang_getCursorType(argument)))));
+            paramNames.push_back(toStd(clang_getCursorSpelling(argument)));
+        }
+        std::string spellings = returnSpelling;
+        for (std::string const& spelling : paramSpellings)
+        {
+            spellings += " " + spelling;
+        }
+        // 内存窗（任务 1.1 / design D2）：只在绑定类上按相邻唯一整型配对判；配上了就把那对
+        // 参数当"已投影"，不再算 ②。配对失败照旧是 ②，并在判定里点名失败原因。
+        std::set<std::size_t> windowPointers;
+        std::set<std::size_t> windowLengths;
+        std::string windowNote;
+        bool recordReturn = false;
+        if (classIsBound)
+        {
+            int windowPairs = 0;
+            for (std::size_t index = 0; index < paramSpellings.size(); ++index)
+            {
+                if (!isConstVoidPointerSpelling(paramSpellings[index]))
+                {
+                    continue;
+                }
+                std::vector<std::size_t> candidates;
+                if (index > 0 && isIntegerSpelling(paramSpellings[index - 1]))
+                {
+                    candidates.push_back(index - 1);
+                }
+                if (index + 1 < paramSpellings.size() && isIntegerSpelling(paramSpellings[index + 1]))
+                {
+                    candidates.push_back(index + 1);
+                }
+                if (candidates.size() == 1)
+                {
+                    windowPointers.insert(index);
+                    windowLengths.insert(candidates[0]);
+                    ++windowPairs;
+                    continue;
+                }
+                windowNote = candidates.empty()
+                                 ? "，内存窗配对失败：const void* 参数 " + paramNames[index] +
+                                       " 没有相邻整型长度参数"
+                                 : "，内存窗配对不唯一：const void* 参数 " + paramNames[index] +
+                                       " 两侧有多个整型候选";
+            }
+            for (std::size_t index = 0; index < paramSpellings.size(); ++index)
+            {
+                if (windowPointers.count(index) > 0 || windowLengths.count(index) > 0)
+                {
+                    continue;
+                }
+                // 注入参数（CA_BIND_INJECT）：该指针由引擎钩子提供，托管表面看不到它 ⇒ 不算 ②。
+                if (marker != nullptr)
+                {
+                    auto injection = marker->injectParams.find(methodName);
+                    if (injection != marker->injectParams.end() &&
+                        std::find(injection->second.begin(), injection->second.end(), paramNames[index]) !=
+                            injection->second.end())
+                    {
+                        continue;
+                    }
+                }
+                if (paramSpellings[index].find('*') != std::string::npos)
+                {
+                    return "排除：② 所有权不明的裸指针（参数或返回位置）" + windowNote;
+                }
+            }
+            if (returnSpelling.find('*') != std::string::npos)
+            {
+                const std::string returnBare = bareType(returnSpelling);
+                const bool returnIsVoidPointer = returnBare == "void" &&
+                                                 returnSpelling.find("const") == std::string::npos;
+                if (!returnIsVoidPointer)
+                {
+                    // D8：返回位置指向可序列化记录 ⇒ 记录两段式（可绑定）；其它裸指针仍 ②。
+                    if (serializableRecords.count(unqualifiedName(returnBare)) > 0)
+                    {
+                        recordReturn = true;
+                    }
+                    else
+                    {
+                        return "排除：② 所有权不明的裸指针（参数或返回位置）";
+                    }
+                }
+            }
+            if (!windowNote.empty())
+            {
+                // 配对失败的形状：判 ②（不进绑定面），并把失败原因写清。
+                return "排除：② 所有权不明的裸指针（参数或返回位置）" + windowNote;
+            }
+            if (recordReturn)
+            {
+                return "采集：可绑定（记录两段式：托管得序列化只读副本，空命中为 null）";
+            }
+            if (spellings.find("unordered_map") != std::string::npos ||
+                spellings.find("std::map") != std::string::npos ||
+                spellings.find("std::set") != std::string::npos ||
+                spellings.find("std::array") != std::string::npos)
+            {
+                return "排除：映射容器 / 定长数组（本批未实现）";
+            }
+            if (windowPairs > 0)
+            {
+                return "采集：可绑定（内存窗投影：托管收 byte[]，thunk 以固定内存传指针与长度）";
+            }
+            if (spellings.find("vector") != std::string::npos ||
+                spellings.find("string") != std::string::npos ||
+                spellings.find("NameHash") != std::string::npos)
+            {
+                return "采集：可绑定（容器/文本走序列化块或两段式）";
+            }
+            return "采集：可绑定";
         }
         if (spellings.find('*') != std::string::npos)
         {
@@ -5446,7 +7194,12 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         {
             shape = "template<> " + name + "(...)";
         }
-        const std::string verdict = reportVerdict(cursor, kind);
+        static std::set<std::string> const emptySerializableRecords;
+        const std::string verdict =
+            reportVerdict(cursor, kind, context->isBound,
+                          context->serializableRecords != nullptr ? *context->serializableRecords
+                                                                  : emptySerializableRecords,
+                          context->marker);
         const char* prefix = verdict.rfind("采集", 0) == 0 ? "采集" : "排除";
         *context->out += std::string("[") + prefix + "] " + context->shortName + "::" + name +
                          " | 形状：" + shape + " | 判定：" + verdict + "\n";
@@ -5475,6 +7228,12 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         context.out = state->out;
         context.shortName = toStd(clang_getCursorSpelling(cursor));
         context.isStruct = kind == CXCursor_StructDecl;
+        context.isBound = state->boundNames.count(context.shortName) > 0;
+        context.serializableRecords = &state->serializableRecords;
+        {
+            auto foundMarker = state->markersByName.find(context.shortName);
+            context.marker = foundMarker == state->markersByName.end() ? nullptr : &foundMarker->second;
+        }
         *state->out += "[类] " + qualifiedCursorName(cursor) + "\n";
         clang_visitChildren(cursor, collectReportMethods, &context);
         ++state->classCount;
@@ -5540,6 +7299,28 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         ParseReportState state;
         state.out = &report;
         state.mainFile = filePath;
+        // 绑定类清单：本文件文本里的 `CA_BIND` 标注。只有绑定类才走新投影规则，
+        // 非绑定类维持旧口径（不为不进绑定面的类猜内存窗配对）。
+        for (BoundMarker const& marker : scanBoundMarkers(readWholeFile(filePath)))
+        {
+            state.boundNames.insert(marker.interfaceName);
+            state.markersByName[marker.interfaceName] = marker;
+        }
+        // 可序列化记录集合（D8）：走序列化块路径的记录类型才能当"记录两段式"的返回目标。
+        {
+            std::map<std::string, CXCursor> reportRecords;
+            StructCursorCollector reportCollector;
+            reportCollector.sink = &reportRecords;
+            clang_visitChildren(clang_getTranslationUnitCursor(unit), collectStructCursorsForMirror,
+                                &reportCollector);
+            for (auto const& entry : reportRecords)
+            {
+                if (recordNeedsSerialization(entry.second))
+                {
+                    state.serializableRecords.insert(entry.first);
+                }
+            }
+        }
         clang_visitChildren(clang_getTranslationUnitCursor(unit), collectReportClasses, &state);
         clang_disposeTranslationUnit(unit);
         clang_disposeIndex(index);
@@ -5568,7 +7349,11 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
     {
         const std::string sourceText = readWholeFile(filePath);
         const std::vector<BoundMarker> markers = scanBoundMarkers(sourceText);
-        const std::set<std::string> valueTypeNames = scanValueTypeNames(sourceText);
+        // `CA_BIND_VALUE` 的标注可以写在被包含的头里（句柄值类在它们自己的定义文件里标注，
+        // 例如 `ShaderResourceHandle.h` 的 ImageHandle / BufferHandle）：只扫主头会把它们漏掉，
+        // 于是 `GPUGraph::ScheduleData(ImageHandle const&, …)` 这类方法的参数认不出值类。
+        // 解析之后再补扫整个包含闭包（下面的 unit 建好以后）。
+        std::set<std::string> valueTypeNames = scanValueTypeNames(sourceText);
         std::vector<std::string> bound;
         bound.reserve(markers.size());
         for (BoundMarker const& marker : markers)
@@ -5693,6 +7478,22 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         collector.wanted = &bound;
         collector.sink = &shapes;
         clang_visitChildren(clang_getTranslationUnitCursor(unit), collectClasses, &collector);
+        // `CA_BIND_VALUE` 补扫包含闭包（见上面 valueTypeNames 的说明）。
+        {
+            std::vector<std::string> includedFiles;
+            InclusionCollector inclusionCollector;
+            inclusionCollector.paths = &includedFiles;
+            clang_getInclusions(unit, collectInclusion, &inclusionCollector);
+            for (std::string const& path : includedFiles)
+            {
+                if (path.empty())
+                {
+                    continue;
+                }
+                const std::set<std::string> extra = scanValueTypeNames(readWholeFile(path.c_str()));
+                valueTypeNames.insert(extra.begin(), extra.end());
+            }
+        }
         // 接口名清单：`projectMethod` 用它判"返回的是不是另一个可绑定接口的裸指针"（借用句柄，
         // 任务 5.3 / design D9）。本 change 2.x/3.1：主头里的接口 + `--known-interface` 传入的
         // 其它生成输入（跨头文件目标），两边都按**完整限定名**登记。
@@ -5750,7 +7551,7 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 ValueTypeInfo info;
                 std::string whyNot;
                 std::string classBody;
-                if (!findClassBodyText(sourceText, name, &classBody))
+                if (!findClassBodyTextNearCursor(found->second, name, sourceText, &classBody))
                 {
                     std::fprintf(stderr,
                                  "CodeGen: 拒绝 %s —— CA_BIND_VALUE 标注了它，但源码里找不到类体\n",
@@ -5870,13 +7671,43 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             }
         }
 
+        // 排除方法（CA_BIND_SKIP 带理由）在各道上必须一致生效：先给方法打标记，后面的
+        // 镜像收集 / 投影 / 发射统一看这一个标记。不这么做时"排除了还去收它的镜像" ——
+        // 实测 CRenderBackend 的 Readback（std::span）与 ExecuteGraphTimed 仍被当成要建镜像的
+        // 参数，报 `CRenderBackend::std::span<uint8_t>：找不到类型定义`。
+        {
+            std::map<std::string, std::set<std::string>> skippedNames;
+            for (BoundMarker const& marker : markers)
+            {
+                for (auto const& skip : marker.skipReasons)
+                {
+                    if (!skip.second.empty())
+                    {
+                        skippedNames[marker.interfaceName].insert(skip.first);
+                    }
+                }
+            }
+            for (InterfaceShape& shape : shapes)
+            {
+                for (MethodSignature& method : shape.methods)
+                {
+                    if (skippedNames[shape.name].count(method.name) > 0)
+                    {
+                        method.skipped = true;
+                    }
+                }
+            }
+        }
+
         // ---- ① 模板成员函数：显式排除（CA_BIND_SKIP 带理由）或生成期拒绝（任务 2.2）----
         // 与"模板类"分开：模板类在任何情况下都拒绝；模板**成员函数**允许用 CA_BIND_SKIP 显式排除
         // （本批不做模板单态化，排除必须留理由 —— 现有的"排除必须写理由"检查仍然生效）。
         {
             std::map<std::string, std::set<std::string>> explicitSkips;
+            std::map<std::string, BoundMarker const*> markerByName;
             for (BoundMarker const& marker : markers)
             {
+                markerByName[marker.interfaceName] = &marker;
                 for (auto const& skip : marker.skipReasons)
                 {
                     if (!skip.second.empty())
@@ -5892,6 +7723,39 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 {
                     if (!method.isTemplate)
                     {
+                        continue;
+                    }
+                    // 本批 D9：写了 `CA_BIND_INSTANTIATE` 的模板形态是要绑的（由展开通道处理），
+                    // 不算"没被排除的模板"。
+                    bool declaredInstantiation = false;
+                    auto marker = markerByName.find(shape.name);
+                    if (marker != markerByName.end())
+                    {
+                        declaredInstantiation =
+                            marker->second->instantiateTypes.count(method.name) > 0;
+                    }
+                    if (declaredInstantiation)
+                    {
+                        continue;
+                    }
+                    // 同名已有可绑的非模板实现（真实形状：`GPUGraph::ScheduleData` 的两条内存窗
+                    // 重载 + 两条模板便利形态）：模板形态自动排除并打日志，**不需要** CA_BIND_SKIP ——
+                    // 按名字写 SKIP 会把同名非模板重载一起排掉（实测丢掉了 D2 的字节上传通道）。
+                    bool shadowedByConcrete = false;
+                    for (MethodSignature const& sibling : shape.methods)
+                    {
+                        if (!sibling.isTemplate && sibling.name == method.name &&
+                            explicitSkips[shape.name].count(sibling.name) == 0)
+                        {
+                            shadowedByConcrete = true;
+                            break;
+                        }
+                    }
+                    if (shadowedByConcrete)
+                    {
+                        std::fprintf(stderr,
+                                     "[排除] %s::%s（模板形态）—— 同名已有可绑的非模板实现\n",
+                                     shape.name.c_str(), method.name.c_str());
                         continue;
                     }
                     if (explicitSkips[shape.name].count(method.name) == 0)
@@ -6023,7 +7887,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             {
                 if (method.isTemplate)
                 {
-                    method.abiName = method.name;
+                    // 模板成员本身**不出槽**（D9）：它的具体形态由 `CA_BIND_INSTANTIATE` 的展开
+                    // 克隆体承担。这里留空 abiName，后面所有投影 / 发射循环都会跳过它 ——
+                    // 否则模板参数 `T` 会被当成真实类型去建镜像（实测报 "找不到类型定义 T"）。
+                    method.abiName.clear();
                     continue;
                 }
                 const std::string bare = bareType(method.returnSpelling);
@@ -6033,6 +7900,82 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 // 任务 2.4：第 1 槽保持现名，第 2 槽起 `_<序数>`（既有产物逐字节锚不受影响）。
                 method.abiName = ordinal == 1 ? method.name
                                               : method.name + "_" + std::to_string(ordinal);
+            }
+        }
+
+        // ---- 内存窗配对（csharp-native-direct-binding 任务 1.1 / design D2）----
+        // 绑定方法里的 `const void*` 必须配到**相邻唯一**的整型长度参数；配对失败在投影之前
+        // 非零点名（长度缺失 / 多个整型候选各一句），不许把裸指针暴露给托管、也不许猜。
+        // 排除方法（CA_BIND_SKIP 带理由）不参与配对 —— 它们本来就不出绑定。
+        {
+            std::map<std::string, std::set<std::string>> skippedForPairing;
+            for (BoundMarker const& marker : markers)
+            {
+                for (auto const& skip : marker.skipReasons)
+                {
+                    if (!skip.second.empty())
+                    {
+                        skippedForPairing[marker.interfaceName].insert(skip.first);
+                    }
+                }
+            }
+            int windowProblems = 0;
+            for (InterfaceShape& shape : shapes)
+            {
+                for (MethodSignature& method : shape.methods)
+                {
+                    if (method.isTemplate)
+                    {
+                        continue;
+                    }
+                    if (skippedForPairing[shape.name].count(method.name) > 0)
+                    {
+                        continue;
+                    }
+                    for (std::size_t paramIndex = 0; paramIndex < method.params.size(); ++paramIndex)
+                    {
+                        if (method.injectedParams.count(method.params[paramIndex].second) > 0)
+                        {
+                            continue;
+                        }
+                        if (!isConstVoidPointerSpelling(method.params[paramIndex].first))
+                        {
+                            continue;
+                        }
+                        std::size_t lengthIndex = 0;
+                        const int analysis = analyzeWindowPair(method, paramIndex, &lengthIndex);
+                        if (analysis == 0)
+                        {
+                            method.windowLengthByPointer[paramIndex] = lengthIndex;
+                            method.windowPointerByLength[lengthIndex] = paramIndex;
+                            continue;
+                        }
+                        const std::string parameterName = method.params[paramIndex].second;
+                        if (analysis == 1)
+                        {
+                            std::fprintf(stderr,
+                                         "CodeGen: 拒绝 %s::%s —— 内存窗配对失败：const void* 参数 %s "
+                                         "没有相邻整型长度参数（相邻形参都不是整型），不猜\n",
+                                         shape.name.c_str(), method.name.c_str(), parameterName.c_str());
+                        }
+                        else
+                        {
+                            std::fprintf(stderr,
+                                         "CodeGen: 拒绝 %s::%s —— 内存窗配对不唯一：const void* 参数 %s "
+                                         "两侧有多个整型候选（%s / %s），不猜\n",
+                                         shape.name.c_str(), method.name.c_str(), parameterName.c_str(),
+                                         method.params[paramIndex - 1].second.c_str(),
+                                         method.params[paramIndex + 1].second.c_str());
+                        }
+                        ++windowProblems;
+                    }
+                }
+            }
+            if (windowProblems > 0)
+            {
+                clang_disposeTranslationUnit(unit);
+                clang_disposeIndex(index);
+                return 1;
             }
         }
 
@@ -6059,6 +8002,150 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 g_enumsByShort[info.shortName] = info;
             }
             if (enumConflicts > 0)
+            {
+                clang_disposeTranslationUnit(unit);
+                clang_disposeIndex(index);
+                return 1;
+            }
+        }
+
+        // ---- 模板显式实例化声明（本批 D9）：把声明的形态展开成具体方法 ----
+        // 放在枚举元数据之后：类型名可解析性检查要能认出枚举 / 记录 / 资源引用值类。
+        // 每个形态克隆一份 MethodSignature（模板参数名按标识符边界替换成具体类型），
+        // C ABI 槽名 = `<方法名>_<类型记号>`，托管侧仍是同名重载。
+        {
+            std::map<std::string, CXCursor> instantiationRecords;
+            {
+                StructCursorCollector collector;
+                collector.sink = &instantiationRecords;
+                clang_visitChildren(clang_getTranslationUnitCursor(unit), collectStructCursorsForMirror,
+                                    &collector);
+            }
+            std::map<std::string, BoundMarker const*> markerByName;
+            for (BoundMarker const& marker : markers)
+            {
+                markerByName[marker.interfaceName] = &marker;
+            }
+            auto typeToken = [](std::string const& name) {
+                std::string token;
+                for (char character : name)
+                {
+                    token.push_back(std::isalnum(static_cast<unsigned char>(character)) ? character : '_');
+                }
+                return token;
+            };
+            int instantiateProblems = 0;
+            for (InterfaceShape& shape : shapes)
+            {
+                auto marker = markerByName.find(shape.name);
+                if (marker == markerByName.end() || marker->second->instantiateTypes.empty())
+                {
+                    continue;
+                }
+                std::vector<MethodSignature> expansions;
+                for (MethodSignature const& method : shape.methods)
+                {
+                    if (!method.isTemplate)
+                    {
+                        continue;
+                    }
+                    auto declared = marker->second->instantiateTypes.find(method.name);
+                    if (declared == marker->second->instantiateTypes.end())
+                    {
+                        continue;
+                    }
+                    for (std::string const& typeName : declared->second)
+                    {
+                        const std::string typeBare = bareType(typeName);
+                        const bool knownType =
+                            isScalarType(typeBare) ||
+                            g_enumsByShort.count(unqualifiedName(typeBare)) > 0 ||
+                            g_valueTypes.count(unqualifiedName(typeBare)) > 0 ||
+                            instantiationRecords.count(unqualifiedName(typeBare)) > 0;
+                        if (!knownType)
+                        {
+                            std::fprintf(stderr,
+                                         "CodeGen: 拒绝 %s::%s 的实例化声明 —— 类型 %s 在翻译单元里找不到"
+                                         "（本批只接受标量 / 枚举 / 记录 / 资源引用值类）\n",
+                                         shape.name.c_str(), method.name.c_str(), typeName.c_str());
+                            ++instantiateProblems;
+                            continue;
+                        }
+                        if (method.templateParams.empty())
+                        {
+                            std::fprintf(stderr,
+                                         "CodeGen: 拒绝 %s::%s 的实例化声明 —— 该方法不是带类型参数的模板\n",
+                                         shape.name.c_str(), method.name.c_str());
+                            ++instantiateProblems;
+                            continue;
+                        }
+                        auto substitute = [&method, &typeBare](std::string text) {
+                            for (std::string const& templateParam : method.templateParams)
+                            {
+                                std::string out;
+                                for (std::size_t index = 0; index < text.size();)
+                                {
+                                    const bool boundaryBefore =
+                                        index == 0 ||
+                                        !(std::isalnum(static_cast<unsigned char>(text[index - 1])) ||
+                                          text[index - 1] == '_');
+                                    if (boundaryBefore &&
+                                        text.compare(index, templateParam.size(), templateParam) == 0)
+                                    {
+                                        const std::size_t end = index + templateParam.size();
+                                        const bool boundaryAfter =
+                                            end >= text.size() ||
+                                            !(std::isalnum(static_cast<unsigned char>(text[end])) ||
+                                              text[end] == '_');
+                                        if (boundaryAfter)
+                                        {
+                                            out += typeBare;
+                                            index = end;
+                                            continue;
+                                        }
+                                    }
+                                    out.push_back(text[index]);
+                                    ++index;
+                                }
+                                text = out;
+                            }
+                            return text;
+                        };
+                        MethodSignature clone = method;
+                        clone.isTemplate = false;
+                        clone.isPure = false;
+                        clone.returnSpelling = substitute(method.returnSpelling);
+                        clone.returnCanonicalSpelling = substitute(method.returnCanonicalSpelling);
+                        for (auto& parameter : clone.params)
+                        {
+                            parameter.first = substitute(parameter.first);
+                        }
+                        for (std::string& canonical : clone.paramCanonicalSpellings)
+                        {
+                            canonical = substitute(canonical);
+                        }
+                        clone.abiName = method.name + "_" + typeToken(typeName);
+                        clone.ownerName = shape.name;
+                        // 自返回识别在这一步之后不再重跑（槽名已定），克隆体自己算一次：
+                        // `ShaderStruct::SetValue` 返回 `ShaderStruct&`，托管侧要能继续链。
+                        {
+                            const std::string cloneReturnBare = bareType(clone.returnSpelling);
+                            clone.returnsSelfRef =
+                                clone.returnSpelling.find('&') != std::string::npos &&
+                                !cloneReturnBare.empty() &&
+                                unqualifiedName(cloneReturnBare) == shape.name;
+                        }
+                        clone.templateParams.clear();
+                        clone.instantiateTypes.clear();
+                        expansions.push_back(std::move(clone));
+                    }
+                }
+                if (!expansions.empty())
+                {
+                    shape.methods.insert(shape.methods.end(), expansions.begin(), expansions.end());
+                }
+            }
+            if (instantiateProblems > 0)
             {
                 clang_disposeTranslationUnit(unit);
                 clang_disposeIndex(index);
@@ -6184,6 +8271,36 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             cursorCollector.sink = &structCursors;
             clang_visitChildren(clang_getTranslationUnitCursor(unit), collectStructCursorsForMirror,
                                 &cursorCollector);
+            // ---- 记录两段式（本批 D8）：可投影的返回位置记录集合 ----
+            // 必须在任何 projectMethod 调用之前定下来：`FindShaderStructData` 这类元数据查询
+            // 只有先认出"指向可序列化记录的裸指针"才会走两段式，否则按 ② 拒绝。
+            // 判定口径与序列化块同源（recordNeedsSerialization：成员含容器/文本 ⇒ 需要块路径）。
+            g_recordReturnTypes.clear();
+            for (InterfaceShape const& shape : shapes)
+            {
+                for (MethodSignature const& method : shape.methods)
+                {
+                    if (method.isTemplate)
+                    {
+                        continue;
+                    }
+                    if (method.returnSpelling.find('*') == std::string::npos)
+                    {
+                        continue;
+                    }
+                    const std::string returnBare = bareType(method.returnSpelling);
+                    if (returnBare.empty() || returnBare.back() == '*')
+                    {
+                        continue;
+                    }
+                    auto record = structCursors.find(unqualifiedName(returnBare));
+                    if (record == structCursors.end() || !recordNeedsSerialization(record->second))
+                    {
+                        continue;
+                    }
+                    g_recordReturnTypes.insert(unqualifiedName(returnBare));
+                }
+            }
             // 静态工厂的返回记录必须是纯标量记录（任务 2.3）：成员里出现容器 / 文本 / 指针 /
             // 智能指针就按"返回位置容器"生成期拒绝并点名，MUST NOT 把被禁形状标成可绑。
             {
@@ -6265,6 +8382,14 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 {
                     for (MethodSignature const& method : shape.methods)
                     {
+                        // 只在**真会绑定**的方法上收返回类型：被 CA_BIND_SKIP 排除的方法（例如
+                        // `GetRenderPassForWrite` 返回 `RenderPass&`）不该把 RenderPass 从
+                        // 序列化候选里踢出去 —— 那会让 `AddPass(RenderPass const&)` 退到镜像路径，
+                        // 而 RenderPass 的成员是私有的（实测报"m_PipelineStates 不是公开字段"）。
+                        if (method.skipped || method.abiName.empty())
+                        {
+                            continue;
+                        }
                         returnedRecords.insert(unqualifiedName(bareType(method.returnSpelling)));
                     }
                 }
@@ -6305,44 +8430,113 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                         }
                     }
                 }
+                // 返回位置的可序列化记录（D8）也要建块：`FindShaderStructData` 系的两段式
+                // 要靠同一个编解码器把记录搬给托管。
+                candidates.insert(g_recordReturnTypes.begin(), g_recordReturnTypes.end());
                 int serializedProblems = 0;
+                // 逐条注册记录本体 + 它引出的嵌套记录 / 容器元素记录：三者都要单独的托管镜像
+                // （嵌套记录是 `m_StructUniforms` 这类字段，元素记录是 vector 的元素类型）。
+                auto registerSerializedRecord = [&structCursors, &sourceText](std::string const& rootName,
+                                                                              std::string* error) -> bool {
+                    std::vector<std::string> pending{ rootName };
+                    std::set<std::string> visited;
+                    while (!pending.empty())
+                    {
+                        const std::string name = pending.back();
+                        pending.pop_back();
+                        if (!visited.insert(name).second || g_serializedTypes.count(name) > 0)
+                        {
+                            continue;
+                        }
+                        auto record = structCursors.find(name);
+                        if (record == structCursors.end())
+                        {
+                            *error = "找不到记录 " + name + " 的定义";
+                            return false;
+                        }
+                        std::string classBody;
+                        if (!findClassBodyTextNearCursor(record->second, name, sourceText, &classBody))
+                        {
+                            *error = "源码里找不到类体";
+                            return false;
+                        }
+                        SerializedTypeInfo info;
+                        std::string buildError;
+                        if (!buildSerializedTypeInfo(record->second, classBody, &info, &buildError))
+                        {
+                            *error = buildError;
+                            return false;
+                        }
+                        // 把记录里出现的嵌套记录 / 元素记录排进队列（先收完再落表，避免迭代器失效）。
+                        std::vector<SerializedField const*> queue;
+                        for (SerializedField const& field : info.fields)
+                        {
+                            queue.push_back(&field);
+                        }
+                        while (!queue.empty())
+                        {
+                            SerializedField const* field = queue.back();
+                            queue.pop_back();
+                            if (field->kind == 4 || field->kind == 7)
+                            {
+                                pending.push_back(field->nestedRecordShort);
+                            }
+                            if (field->kind == 8 && field->elementKind == 2)
+                            {
+                                pending.push_back(field->elementRecordShort);
+                            }
+                            // 映射的记录值（含 HashObj 包装的内层记录）也要单独出托管镜像：
+                            // 托管字典的值类型就是它（实测缺 VertexInputsDescriptor 时报 CS0246）。
+                            if (field->kind == 5 && field->mapValueKind == 2)
+                            {
+                                pending.push_back(field->mapValueRecordShort);
+                            }
+                            if (field->kind == 3 && field->elementKind == 2)
+                            {
+                                SerializedElementInfo element;
+                                element.shortName = field->elementRecordShort;
+                                element.qualifiedName = field->elementRecordQualified;
+                                element.fields = field->elementFields;
+                                g_serializedElementRecords[element.shortName] = element;
+                            }
+                            for (SerializedField const& sub : field->nestedFields)
+                            {
+                                queue.push_back(&sub);
+                            }
+                            for (SerializedField const& sub : field->elementFields)
+                            {
+                                queue.push_back(&sub);
+                            }
+                        }
+                        // 返回位置的记录（D8 两段式）不许含"需要绑定对象表"的字段：D11 的
+                        // MUST NOT 明确——返回位置的映射容器与对象引用维持不可绑，不静默丢字段。
+                        if (g_recordReturnTypes.count(name) > 0)
+                        {
+                            for (SerializedField const& field : info.fields)
+                            {
+                                if (serializedFieldNeedsBindingTable(field))
+                                {
+                                    *error = "记录 " + name + " 是返回位置（记录两段式）的载体，但字段 " +
+                                             field.name +
+                                             " 是值类容器 / 命名映射 / 接口对象引用 —— design D11 的 "
+                                             "MUST NOT：返回位置的这些形状维持不可绑（不静默丢字段）";
+                                    return false;
+                                }
+                            }
+                        }
+                        g_serializedTypes[name] = std::move(info);
+                    }
+                    return true;
+                };
                 for (std::string const& name : candidates)
                 {
-                    auto record = structCursors.find(name);
-                    if (record == structCursors.end())
-                    {
-                        continue;
-                    }
-                    std::string classBody;
-                    SerializedTypeInfo info;
                     std::string serializedError;
-                    if (!findClassBodyText(sourceText, name, &classBody))
-                    {
-                        std::fprintf(stderr,
-                                     "CodeGen: 拒绝序列化块记录 %s —— 源码里找不到类体\n", name.c_str());
-                        ++serializedProblems;
-                        continue;
-                    }
-                    if (!buildSerializedTypeInfo(record->second, classBody, &info, &serializedError))
+                    if (!registerSerializedRecord(name, &serializedError))
                     {
                         std::fprintf(stderr, "CodeGen: 拒绝序列化块记录 %s —— %s\n", name.c_str(),
                                      serializedError.c_str());
                         ++serializedProblems;
-                        continue;
                     }
-                    for (SerializedField const& field : info.fields)
-                    {
-                        if (field.elementKind != 2)
-                        {
-                            continue;
-                        }
-                        SerializedElementInfo element;
-                        element.shortName = field.elementRecordShort;
-                        element.qualifiedName = field.elementRecordQualified;
-                        element.fields = field.elementFields;
-                        g_serializedElementRecords[element.shortName] = element;
-                    }
-                    g_serializedTypes[name] = info;
                 }
                 if (serializedProblems > 0)
                 {
@@ -6354,7 +8548,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             for (InterfaceShape const& shape : shapes)
             {
                 std::set<std::string> wantedMirrors;
-                auto noteType = [&wantedMirrors](std::string const& projectedType) {
+                // 诊断：记录"这个镜像名是哪条方法/哪个投影类型带来的"（镜像构建失败时能点到方法）。
+                std::map<std::string, std::string> mirrorSources;
+                auto noteType = [&wantedMirrors, &mirrorSources](std::string const& projectedType,
+                                                                std::string const& source) {
                     std::string bare = projectedType;
                     while (!bare.empty() && (bare.back() == '*' || bare.back() == ' '))
                     {
@@ -6366,14 +8563,16 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                     }
                     if (bare.size() > 1 && bare.back() == 'C' && !isScalarType(bare))
                     {
-                        wantedMirrors.insert(bare.substr(0, bare.size() - 1));
+                        const std::string name = bare.substr(0, bare.size() - 1);
+                        wantedMirrors.insert(name);
+                        mirrorSources.emplace(name, source);
                     }
                 };
                 for (MethodSignature const& method : shape.methods)
                 {
-                    if (method.abiName.empty())
+                    if (method.abiName.empty() || method.skipped)
                     {
-                        continue;   // 2.2 过渡：同名第二槽不绑
+                        continue;   // 2.2 过渡：同名第二槽不绑；排除方法不参与镜像收集
                     }
                     std::vector<Projected> params;
                     std::string returnType;
@@ -6384,10 +8583,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                     {
                         continue;
                     }
-                    noteType(returnType);
+                    noteType(returnType, method.name + " 返回");
                     for (Projected const& projected : params)
                     {
-                        noteType(projected.type);
+                        noteType(projected.type, method.name + " 参数 " + projected.name);
                     }
                 }
                 MirrorBuildCtx ctx;
@@ -6404,6 +8603,8 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                     }
                     buildMirror(ctx, clang_getCursorType(found->second), qualifiedCursorName(found->second),
                                 wanted);
+                    std::fprintf(stderr, "[镜像] %s ← %s\n", wanted.c_str(),
+                                 mirrorSources[wanted].c_str());
                 }
             }
         }
@@ -6611,12 +8812,48 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 {
                     continue;
                 }
+                // 判据看两件事叠加：
+                // ① ABI 形状（原来那条）——抓"两个不同拼写投影成同一串字节"的隐式转换重载；
+                // ② 值类 / 序列化块 / 已绑定接口 / 内存窗参数的**托管类型**后缀 ——它们在同一串
+                //    ABI 字节上仍然对应不同的托管类型（`ScheduleData(ImageHandle…)` 与
+                //    `ScheduleData(BufferHandle…)`、`AddPass(RenderPass)` 与 `AddPass(ComputeBatch)`），
+                //    不是重载冲突。只保留 ABI 形状会误杀这些（实测）。
                 std::string key = method.name + "|" + returnType + "(";
                 for (Projected const& projected : params)
                 {
                     key += projected.type + ",";
                 }
                 key += ")";
+                auto managedToken = [](std::string const& bare) -> std::string {
+                    const std::string shortName = unqualifiedName(bare);
+                    if (g_valueTypes.count(shortName) > 0)
+                    {
+                        return "VC:" + shortName;
+                    }
+                    if (g_serializedTypes.count(shortName) > 0)
+                    {
+                        return "BLK:" + shortName;
+                    }
+                    if (g_bindableInterfaceNames.count(shortName) > 0 &&
+                        (hasPrefix(bare, "castl::shared_ptr") || hasPrefix(bare, "std::shared_ptr") ||
+                         hasPrefix(bare, "castl::weak_ptr") || hasPrefix(bare, "std::weak_ptr")))
+                    {
+                        return "IF:" + shortName;
+                    }
+                    return std::string();
+                };
+                for (auto const& parameter : method.params)
+                {
+                    if (method.injectedParams.count(parameter.second) > 0)
+                    {
+                        continue;
+                    }
+                    const std::string token = managedToken(bareType(parameter.first));
+                    if (!token.empty())
+                    {
+                        key += "|" + token;
+                    }
+                }
                 auto existing = seenSignatures.find(key);
                 if (existing != seenSignatures.end())
                 {
@@ -6644,6 +8881,14 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             table += "// 命中一个同号的活项并把它清掉 —— 销毁的是一个无关对象（实测，见 tasks.md 5.11）。\n";
             table += "#pragma once\n";
             table += "#include <stdint.h>\n#include <memory>\n#include <mutex>\n#include <vector>\n\n";
+            // D11：序列化块里的值类容器元素 / 接口对象引用按句柄反查绑定对象表。
+            // 解析器由 thunk 注入（它持有 `self`）；`expectedType` / `fieldPath` 只用于错误点名。
+            table += "namespace cacore::codegen\n{\n";
+            table += "    struct BindingHandleResolver\n    {\n";
+            table += "        std::shared_ptr<void> (*resolve)(void* user, uint64_t handle, "
+                     "char const* expectedType, char const* fieldPath) = nullptr;\n";
+            table += "        void* user = nullptr;\n";
+            table += "    };\n}\n\n";
             table += "namespace cascaded_bindings\n{\n";
             table += "    struct HandleEntry\n    {\n";
             table += "        void const* object;          // 对象指针（弱/借用句柄可能是空或已失效）\n";
@@ -6723,6 +8968,13 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                             used = true;
                             break;
                         }
+                    }
+                    // 记录两段式（D8）：返回位置指向该记录时也要它的编解码器（Len/Copy 伴生用）。
+                    if (!used && method.returnSpelling.find('*') != std::string::npos &&
+                        unqualifiedName(bareType(method.returnSpelling)) == entry.first &&
+                        g_recordReturnTypes.count(entry.first) > 0)
+                    {
+                        used = true;
                     }
                     if (used)
                     {
@@ -6837,6 +9089,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 bool isHandleReturn = false;
                 bool isCallback = false;
                 MethodCallbackInfo callback;
+                // 记录两段式（D8）：非空 = 返回位置指向该记录，托管侧走 Len/Copy 取序列化副本。
+                std::string twoStepRecordShort;
+                // 返回位置标量容器两段式（本批 1.6 / D13）：非空 = 元素宽度类型，走 Count/Copy。
+                std::string twoStepScalarElement;
             };
             std::vector<SurfaceMethod> surfaceMethods;
             // 回调方法（按声明顺序）要在方法循环之前就知道：注册号里的 method 索引与注销分发都靠它。
@@ -7049,8 +9305,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 bool needsTwoStep = false;
                 bool isHandleReturn = false;
                 bool isCallback = false;
+                std::string twoStepRecordShort;
+                std::string twoStepScalarElement;
                 if (!projectMethod(method, &params, &returnType, &rejectReason, &needsTwoStep, &isHandleReturn,
-                                   &isCallback))
+                                   &isCallback, &twoStepRecordShort, &twoStepScalarElement))
                 {
                     std::fprintf(stderr, "CodeGen: 拒绝 %s::%s —— %s\n", shape.name.c_str(),
                                  method.name.c_str(), rejectReason.c_str());
@@ -7075,7 +9333,8 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                 // 托管表面（任务 5.2 / 5.6）要按**原始 C++ 声明**出成员，所以这里把投影结果连
                 // 同原始签名一起收起来，循环结束后统一发射。
                 surfaceMethods.push_back(
-                    { &method, params, returnType, needsTwoStep, isHandleReturn, isCallback, callbackInfo });
+                    { &method, params, returnType, needsTwoStep, isHandleReturn, isCallback, callbackInfo,
+                      twoStepRecordShort, twoStepScalarElement });
                 // ---- 任务 5.1：两类"成员级映射"形状要先在这里认出元素类型 ----
                 // 镜像结构体按值返回：C 侧 `<T>C`、C++ 侧 `T`，靠 mirrors 里的字段名逐成员搭桥。
                 const MirrorType* mirrorReturn = findMirrorByCpp(bareType(method.returnSpelling));
@@ -7154,6 +9413,197 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                                               ")(void* self, char* dst, uint64_t cap)",
                                           "&" + shape.name + "_Copy" + abiName,
                                           "void*, byte*, ulong, void"});
+                    continue;
+                }
+                // ---- 返回位置标量容器两段式（本批 1.6 / design D13）：`vector<标量> const&` →
+                // `Count` + `Copy` 两个伴生。与字符串两段式同族：不发直出槽、两个伴生都进函数表。
+                // 空容器：Count=0、Copy 在 dst 为空或 cap=0 时直接返回（不解引用）。
+                if (!twoStepScalarElement.empty())
+                {
+                    if (!method.params.empty())
+                    {
+                        std::fprintf(stderr,
+                                     "CodeGen: 拒绝 %s::%s —— 标量容器两段式只支持无参方法"
+                                     "（本批见证形状 GetPassIndices 无参）\n",
+                                     shape.name.c_str(), method.name.c_str());
+                        ++rejected;
+                        continue;
+                    }
+                    cpp += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Count(void* self);\n";
+                    cpp += "extern \"C\" void " + shape.name + "_Copy" + abiName +
+                           "(void* self, uint8_t* dst, uint64_t cap);\n";
+                    lateDefs += "extern \"C\" uint64_t " + shape.name + "_" + abiName +
+                                "Count(void* self)\n{\n";
+                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    lateDefs += "    return static_cast<uint64_t>(object->" + method.name +
+                                "().size());\n}\n";
+                    lateDefs += "extern \"C\" void " + shape.name + "_Copy" + abiName +
+                                "(void* self, uint8_t* dst, uint64_t cap)\n{\n";
+                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    if (dst == nullptr || cap == 0u) { return; }\n";
+                    lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    lateDefs += "    auto const& value = object->" + method.name + "();\n";
+                    lateDefs += "    if (value.empty()) { return; }\n";
+                    lateDefs += "    const std::size_t bytes = value.size() * sizeof(" +
+                                twoStepScalarElement + ");\n";
+                    lateDefs += "    const std::size_t limit = static_cast<std::size_t>(cap);\n";
+                    lateDefs += "    const std::size_t copied = (bytes < limit) ? bytes : limit;\n";
+                    lateDefs += "    ::memcpy(dst, value.data(), copied);\n}\n";
+                    tableSlots.push_back({abiName + "Count", "uint64_t (*" + abiName + "Count)(void* self)",
+                                          "&" + shape.name + "_" + abiName + "Count", "void*, ulong"});
+                    tableSlots.push_back({"Copy" + abiName,
+                                          "void (*Copy" + abiName +
+                                              ")(void* self, uint8_t* dst, uint64_t cap)",
+                                          "&" + shape.name + "_Copy" + abiName,
+                                          "void*, byte*, ulong, void"});
+                    continue;
+                }
+                // ---- 记录两段式（本批 D8）：`return const Record*` → `Len` + `Copy` 两个伴生 ----
+                // 与字符串两段式同线形（同进函数表、不发直出槽）。原生返回空指针 ⇒ Len=0 ⇒ 托管
+                // 得到 null，不解引用。参数转换只覆盖本批见证形状（注入 / 文本 / 标量 / 枚举），
+                // 其它形状生成期拒绝并点名 —— 不猜。
+                if (!twoStepRecordShort.empty())
+                {
+                    std::string prelude;
+                    std::vector<std::string> argExprs;
+                    std::size_t abiIndex = 0;
+                    bool argsSupported = true;
+                    for (std::size_t paramIndex = 0; paramIndex < method.params.size(); ++paramIndex)
+                    {
+                        const std::string spelling = method.params[paramIndex].first;
+                        const std::string bare = bareType(spelling);
+                        const std::string name = method.params[paramIndex].second.empty()
+                                                     ? std::string("arg") + std::to_string(paramIndex)
+                                                     : method.params[paramIndex].second;
+                        if (method.injectedParams.count(method.params[paramIndex].second) > 0)
+                        {
+                            // 同主 thunk：强转用完整限定拼写（短名靠 `using namespace` 才成立，
+                            // 生成的 thunk 在全局作用域看不到）。
+                            const std::string castSpelling =
+                                paramIndex < method.paramCanonicalSpellings.size() &&
+                                        !method.paramCanonicalSpellings[paramIndex].empty()
+                                    ? method.paramCanonicalSpellings[paramIndex]
+                                    : spelling;
+                            argExprs.push_back("static_cast<" + castSpelling + ">(CAInject_" +
+                                               method.ownerName + "_" + method.name + "_" +
+                                               method.params[paramIndex].second + "())");
+                            continue;
+                        }
+                        if (isNameHashSpelling(spelling) || isPathHashSpelling(spelling))
+                        {
+                            const std::string wrapper = isNameHashSpelling(spelling) ? "cacore::NameHash"
+                                                                                     : "cacore::PathHash";
+                            prelude += "    " + wrapper + " " + name + "Value(castl::string(" + name + ", " +
+                                       name + "Len));\n";
+                            argExprs.push_back(name + "Value");
+                            abiIndex += 2;
+                            continue;
+                        }
+                        const std::string canonicalSpelling =
+                            paramIndex < method.paramCanonicalSpellings.size()
+                                ? method.paramCanonicalSpellings[paramIndex]
+                                : spelling;
+                        if (paramIndex < method.paramKinds.size() &&
+                            method.paramKinds[paramIndex] == static_cast<int>(CXType_Enum))
+                        {
+                            EnumInfo const* info = findEnumBySpelling(canonicalSpelling);
+                            if (info == nullptr)
+                            {
+                                argsSupported = false;
+                                break;
+                            }
+                            argExprs.push_back("static_cast<" + info->cppName + ">(" + name + ")");
+                            ++abiIndex;
+                            continue;
+                        }
+                        if (isScalarType(bare))
+                        {
+                            argExprs.push_back(bare == "bool" ? name + " != 0" : name);
+                            ++abiIndex;
+                            continue;
+                        }
+                        argsSupported = false;
+                        break;
+                    }
+                    if (!argsSupported || abiIndex != params.size())
+                    {
+                        std::fprintf(stderr,
+                                     "CodeGen: 拒绝 %s::%s —— 记录两段式的参数形状不在本批支持范围内"
+                                     "（只支持注入 / 文本 / 标量 / 枚举参数）\n",
+                                     shape.name.c_str(), method.name.c_str());
+                        ++rejected;
+                        continue;
+                    }
+                    std::string recordQualified = twoStepRecordShort;
+                    {
+                        // 限定名直接取已建好的序列化记录信息（它由 buildSerializedTypeInfo 用同一
+                        // 份游标算过），不在发射期再走一次游标链。
+                        auto serialized = g_serializedTypes.find(twoStepRecordShort);
+                        if (serialized != g_serializedTypes.end() && !serialized->second.qualifiedName.empty())
+                        {
+                            recordQualified = serialized->second.qualifiedName;
+                        }
+                    }
+                    std::string paramDecls;
+                    std::string argNames;
+                    std::string abiParamTypes;
+                    std::string csParamTypes = "void*";
+                    for (Projected const& projected : params)
+                    {
+                        paramDecls += ", " + projectedDeclaration(projected);
+                        argNames += ", " + projected.name;
+                        abiParamTypes += ", " + projected.type;
+                        csParamTypes += ", " + toCSharpType(projected.type);
+                    }
+                    const std::string helper = shape.name + "_call_" + abiName;
+                    cpp += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Len(void* self" +
+                           paramDecls + ");\n";
+                    cpp += "extern \"C\" void " + shape.name + "_Copy" + abiName + "(void* self" + paramDecls +
+                           ", uint8_t* dst, uint64_t cap);\n";
+                    // 伴生直接实现成导出函数（与字符串两段式同线形，不带 `_thunk_` 前缀：
+                    // 覆盖率判据只认 `_thunk_` 符号，伴生不该出现在那份清单里）。
+                    // 共享的原生调用：两个伴生各自调一次（不依赖跨调用的暂存状态）。
+                    lateDefs += "static void const* " + helper + "(void* self" + paramDecls + ")\n{\n";
+                    lateDefs += prelude;
+                    lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
+                    lateDefs += "    return static_cast<void const*>(object->" + method.name + "(";
+                    for (std::size_t index = 0; index < argExprs.size(); ++index)
+                    {
+                        lateDefs += (index == 0 ? "" : ", ") + argExprs[index];
+                    }
+                    lateDefs += "));\n}\n\n";
+                    lateDefs += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Len(void* self" +
+                                paramDecls + ")\n{\n";
+                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    void const* found = " + helper + "(self" + argNames + ");\n";
+                    lateDefs += "    if (found == nullptr) { return 0u; }\n";
+                    lateDefs += "    std::vector<uint8_t> bytes;\n";
+                    lateDefs += "    cacore::codegen::CodeGenBindingCodec<" + recordQualified +
+                                ">::Serialize(*static_cast<" + recordQualified + " const*>(found), bytes);\n";
+                    lateDefs += "    return static_cast<uint64_t>(bytes.size());\n}\n";
+                    lateDefs += "extern \"C\" void " + shape.name + "_Copy" + abiName + "(void* self" +
+                                paramDecls + ", uint8_t* dst, uint64_t cap)\n{\n";
+                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    if (dst == nullptr || cap == 0u) { return; }\n";
+                    lateDefs += "    void const* found = " + helper + "(self" + argNames + ");\n";
+                    lateDefs += "    if (found == nullptr) { return; }\n";
+                    lateDefs += "    std::vector<uint8_t> bytes;\n";
+                    lateDefs += "    cacore::codegen::CodeGenBindingCodec<" + recordQualified +
+                                ">::Serialize(*static_cast<" + recordQualified + " const*>(found), bytes);\n";
+                    lateDefs += "    const uint64_t copied = (static_cast<uint64_t>(bytes.size()) < cap) ? "
+                                "static_cast<uint64_t>(bytes.size()) : cap;\n";
+                    lateDefs += "    ::memcpy(dst, bytes.data(), static_cast<std::size_t>(copied));\n}\n";
+                    tableSlots.push_back({abiName + "Len",
+                                          "uint64_t (*" + abiName + "Len)(void* self" + abiParamTypes + ")",
+                                          "&" + shape.name + "_" + abiName + "Len",
+                                          csParamTypes + ", ulong"});
+                    tableSlots.push_back({"Copy" + abiName,
+                                          "void (*Copy" + abiName + ")(void* self" + abiParamTypes +
+                                              ", uint8_t* dst, uint64_t cap)",
+                                          "&" + shape.name + "_Copy" + abiName,
+                                          csParamTypes + ", byte*, ulong, void"});
+                    ++emitted;
                     continue;
                 }
                 std::string signature = returnType + " " + shape.name + "_" + abiName + "(void* self";
@@ -7301,8 +9751,37 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                         const std::string hookName = "CAInject_" + method.ownerName + "_" +
                                                      method.name + "_" +
                                                      method.params[paramIndex].second;
-                        nativeArgs.push_back("static_cast<" + spelling + ">(" + hookName + "())");
+                        // 强转要用**完整限定拼写**：头里的形参拼写常是短名（`TaskScheduler *`），
+                        // 它靠 `using namespace` 才成立；生成的 thunk 在全局作用域，短名找不到
+                        // （实测 `error C2061: syntax error: identifier 'TaskScheduler'`）。
+                        const std::string castSpelling =
+                            paramIndex < method.paramCanonicalSpellings.size() &&
+                                    !method.paramCanonicalSpellings[paramIndex].empty()
+                                ? method.paramCanonicalSpellings[paramIndex]
+                                : spelling;
+                        nativeArgs.push_back("static_cast<" + castSpelling + ">(" + hookName + "())");
                         continue;
+                    }
+                    // 内存窗（任务 1.1 / design D2）：指针参数对应 ABI 的 `<名>`；被吸收的长度参数
+                    // 由托管算、经 ABI 的 `<名>Count` 进来。
+                    {
+                        auto windowPointer = method.windowLengthByPointer.find(paramIndex);
+                        if (windowPointer != method.windowLengthByPointer.end())
+                        {
+                            nativeArgs.push_back(paramName);
+                            continue;
+                        }
+                        auto windowLength = method.windowPointerByLength.find(paramIndex);
+                        if (windowLength != method.windowPointerByLength.end())
+                        {
+                            const std::size_t pointerIndex = windowLength->second;
+                            const std::string pointerName =
+                                method.params[pointerIndex].second.empty()
+                                    ? std::string("arg") + std::to_string(pointerIndex)
+                                    : method.params[pointerIndex].second;
+                            nativeArgs.push_back("static_cast<uint64_t>(" + pointerName + "Count)");
+                            continue;
+                        }
                     }
                     const std::string canonicalSpelling =
                         paramIndex < method.paramCanonicalSpellings.size()
@@ -7340,7 +9819,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                             continue;
                         }
                     }
-                    // 资源引用值类（任务 3.1）：按 kind 分派两条构造通道，组装栈上值类再传给原生。
+                    // 资源引用值类（任务 3.1）：按 kind 分派**全部**对象构造通道（ImageHandle 有
+                    // GPUTexture → External / WindowHandle → Backbuffer 两条，design D12）与名称通道，
+                    // 组装栈上值类再传给原生。只出第一条对象通道会让"按窗口句柄构造的后台缓冲引用"
+                    // 在边界上被判无效（Present 永远拿不到 Backbuffer 引用）。
                     {
                         auto valueType = g_valueTypes.find(bare);
                         if (valueType != g_valueTypes.end() && !outRef)
@@ -7349,19 +9831,19 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                             const std::string valueLocal = paramName + "Value";
                             nativePrelude += "    " + valueInfo.qualifiedName + " " + valueLocal + ";\n";
                             nativePrelude += "    switch (" + paramName + "Kind)\n    {\n";
-                            if (!valueInfo.objectPointeeQualified.empty())
+                            for (ValueTypeInfo::ObjectChannel const& channel : valueInfo.objectChannels)
                             {
-                                nativePrelude += "    case " + std::to_string(valueInfo.objectKind) +
+                                nativePrelude += "    case " + std::to_string(channel.kind) +
                                                  "u:\n    {\n";
                                 nativePrelude += "        std::shared_ptr<void> " + paramName + "Strong = " +
                                                  shape.name + "_lookupStrongHandle(self, " + paramName +
-                                                 "Handle, \"" + valueInfo.objectPointeeQualified + "\", \"" +
+                                                 "Handle, \"" + channel.pointeeQualified + "\", \"" +
                                                  paramName + "\");\n";
                                 nativePrelude += "        if (!" + paramName + "Strong) { " +
                                                  trimCopy(zeroReturn) + " }\n";
                                 nativePrelude += "        " + valueLocal + " = " + valueInfo.qualifiedName +
                                                  "(std::static_pointer_cast<" +
-                                                 valueInfo.objectPointeeQualified + ">(" + paramName +
+                                                 channel.pointeeQualified + ">(" + paramName +
                                                  "Strong));\n";
                                 nativePrelude += "        break;\n    }\n";
                             }
@@ -7380,6 +9862,14 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                                                  "NameLen))));\n";
                                 nativePrelude += "        break;\n    }\n";
                             }
+                            if (valueInfo.hasInvalidKind)
+                            {
+                                // 无效态：传默认构造值（原生侧按"无效句柄"处理）。参数位置用它的
+                                // 唯一场景是记录字段的镜像值，方法参数本身不该出现无效值 —— 这里
+                                // 仍然放行而不猜一个对象通道，让原生实现自己去拒绝空句柄。
+                                nativePrelude += "    case " + std::to_string(valueInfo.invalidKind) +
+                                                 "u:\n        break;\n";
+                            }
                             nativePrelude += "    default:\n        " + shape.name + "_setError(self, " +
                                              shape.name +
                                              "_ERROR_NULL_POINTER, \"无效的资源引用类型\");\n        " +
@@ -7396,12 +9886,23 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                         {
                             const SerializedTypeInfo& blockType = serialized->second;
                             const std::string valueLocal = paramName + "Value";
+                            // D11：块里可能有值类容器元素 / 接口对象引用，按句柄从绑定对象表反查。
+                            // 解析器把 `self` 交给产物自己的 `_lookupStrongHandle`（它负责类型核对、
+                            // 查不到时写错误码并返回空 ⇒ 块读取返回 12 ⇒ 边界拒）。
+                            nativePrelude += "    cacore::codegen::BindingHandleResolver " + paramName +
+                                             "Resolver;\n";
+                            nativePrelude += "    " + paramName + "Resolver.user = self;\n";
+                            nativePrelude += "    " + paramName +
+                                             "Resolver.resolve = [](void* user, uint64_t handle, "
+                                             "char const* expectedType, char const* fieldPath) "
+                                             "-> std::shared_ptr<void> { return " + shape.name +
+                                             "_lookupStrongHandle(user, handle, expectedType, fieldPath); };\n";
                             nativePrelude += "    " + blockType.qualifiedName + " " + valueLocal + ";\n";
                             nativePrelude += "    {\n";
                             nativePrelude += "        const uint32_t blockCode = cacore::codegen::"
                                              "CodeGenBindingCodec<" + blockType.qualifiedName +
                                              ">::Deserialize(" + valueLocal + ", " + paramName +
-                                             "Bytes, " + paramName + "Len);\n";
+                                             "Bytes, " + paramName + "Len, " + paramName + "Resolver);\n";
                             nativePrelude += "        if (blockCode != 0u)\n        {\n";
                             nativePrelude += "            int32_t blockError = " + shape.name +
                                              "_ERROR_BAD_BLOCK_PAYLOAD;\n";
@@ -7413,6 +9914,8 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                                              "_ERROR_BAD_BLOCK_TYPE; blockText = \"序列化块类型名哈希不符\"; break;\n";
                             nativePrelude += "            case 3u: blockError = " + shape.name +
                                              "_ERROR_BAD_BLOCK_LAYOUT; blockText = \"序列化块字段布局哈希不符\"; break;\n";
+                            nativePrelude += "            case 12u: blockError = " + shape.name +
+                                             "_ERROR_BAD_OBJECT_HANDLE; blockText = \"序列化块里的对象句柄在绑定对象表里查不到\"; break;\n";
                             nativePrelude += "            default: break;\n            }\n";
                             nativePrelude += "            " + shape.name +
                                              "_setError(self, blockError, blockText);\n";
@@ -8575,6 +11078,10 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                                                (hasPrefix(bare, "castl::string_view") ||
                                                 hasPrefix(bare, "std::string_view") || bare == "castl::string" ||
                                                 bare == "std::string");
+                    // 记录两段式（D8）：托管得记录的序列化只读副本，空指针 ⇒ null。
+                    const bool recordTwoStep = !surface.twoStepRecordShort.empty();
+                    // 标量容器两段式（本批 1.6 / D13）：托管得元素数组。
+                    const bool containerTwoStep = !surface.twoStepScalarElement.empty();
                     const std::string weakInner = innerOfWeak(bare);
                     // 返回的是"另一个接口的对象"吗？弱引用（`weak_ptr<T>`）与借用裸指针（`T*`）都算，
                     // 表面给同名接口对象；夹具里指向非接口类型的句柄不算（下面会跳过并打印原因）。
@@ -8602,6 +11109,14 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                     else if (stringTwoStep)
                     {
                         surfaceReturn = "string";
+                    }
+                    else if (recordTwoStep)
+                    {
+                        surfaceReturn = surface.twoStepRecordShort;
+                    }
+                    else if (containerTwoStep)
+                    {
+                        surfaceReturn = csharpScalarTypeForWidth(surface.twoStepScalarElement) + "[]";
                     }
                     else if (!surfaceObjectName.empty())
                     {
@@ -8670,6 +11185,21 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                         // 注入参数（任务 3.3）：托管表面里不出现。
                         if (method.injectedParams.count(parameter.second) > 0)
                         {
+                            continue;
+                        }
+                        // 内存窗（任务 1.1 / design D2）：指针形参在托管表面收 `byte[]`，
+                        // 长度由托管按数组长度算；被吸收的长度形参不在托管表面出现。
+                        if (method.windowPointerByLength.count(paramIndex) > 0)
+                        {
+                            continue;
+                        }
+                        if (method.windowLengthByPointer.count(paramIndex) > 0)
+                        {
+                            SurfaceParam windowParam;
+                            windowParam.type = "byte[]";
+                            windowParam.name = parameter.second;
+                            windowParam.isBytes = true;
+                            surfaceParams.push_back(windowParam);
                             continue;
                         }
                         if (surface.isCallback)
@@ -9116,6 +11646,43 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                         callBody += throwLine;
                         callBody += "            return System.Text.Encoding.UTF8.GetString(buffer, 0, (int)length);\n";
                     }
+                    else if (recordTwoStep)
+                    {
+                        // 记录两段式（D8）：Len 返回序列化字节数，0 表示原生返回了空指针 ⇒ 托管 null。
+                        callBody += "            ulong length = " + bindingsName + "." + abiName + "Len(" +
+                                    abiArgs + ");\n";
+                        callBody += throwLine;
+                        callBody += "            if (length == 0UL) { return null; }\n";
+                        callBody += "            byte[] buffer = new byte[(int)length];\n";
+                        callBody += "            fixed (byte* bufferPtr = buffer) { " + bindingsName + ".Copy" +
+                                    abiName + "(" + abiArgs +
+                                    ", bufferPtr, (ulong)buffer.Length); }\n";
+                        callBody += throwLine;
+                        callBody += "            return " + surface.twoStepRecordShort +
+                                    "Codec.Deserialize(buffer);\n";
+                    }
+                    else if (containerTwoStep)
+                    {
+                        // 标量容器两段式（D13）：Count 查条数 → 分配数组 → 定长拷贝（按 byte* 传）。
+                        // 空容器：count=0 直接返回空数组，不调 Copy（也不解引用）。
+                        const std::string csElement =
+                            csharpScalarTypeForWidth(surface.twoStepScalarElement);
+                        const std::string elementBytes =
+                            std::to_string(scalarWidthBytes(surface.twoStepScalarElement));
+                        callBody += "            ulong count = " + bindingsName + "." + abiName +
+                                    "Count(lease.Self);\n";
+                        callBody += throwLine;
+                        callBody += "            if (count == 0UL) { return new " + csElement +
+                                    "[0]; }\n";
+                        callBody += "            " + csElement + "[] values = new " + csElement +
+                                    "[(int)count];\n";
+                        callBody += "            fixed (" + csElement + "* valuesPtr = values) { " +
+                                    bindingsName + ".Copy" + abiName +
+                                    "(lease.Self, (byte*)valuesPtr, (ulong)values.Length * " +
+                                    elementBytes + "UL); }\n";
+                        callBody += throwLine;
+                        callBody += "            return values;\n";
+                    }
                     else if (!surfaceObjectName.empty())
                     {
                         // 强/弱/借用返回：C ABI 给的是句柄，这里用**目标接口**的解析/释放入口换成表面对象。
@@ -9469,6 +12036,52 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
                     }
                 }
             }
+            // 容器元素记录与嵌套记录里的枚举同样要出公开枚举文件：元素记录的字段现在走统一类型
+            // 映射（枚举 → 枚举类型名），不登记就会生成一个引用不存在类型的 .cs（实测 CS0246
+            // `EShaderResourceAccess`）。
+            {
+                auto noteEnum = [&publicEnums](std::string const& shortName) {
+                    EnumInfo const* info = findEnumByShort(shortName);
+                    if (info != nullptr)
+                    {
+                        publicEnums.emplace(info->shortName, *info);
+                    }
+                };
+                std::function<void(SerializedField const&)> visit;
+                visit = [&](SerializedField const& field) {
+                    if (field.kind == 1)
+                    {
+                        noteEnum(field.enumShort);
+                    }
+                    if (field.elementKind == 1)
+                    {
+                        noteEnum(field.elementEnumShort);
+                    }
+                    if (field.mapValueKind == 1)
+                    {
+                        noteEnum(field.mapValueEnumShort);
+                    }
+                    for (SerializedField const& sub : field.nestedFields)
+                    {
+                        visit(sub);
+                    }
+                    for (SerializedField const& sub : field.elementFields)
+                    {
+                        visit(sub);
+                    }
+                    for (SerializedField const& sub : field.mapValueFields)
+                    {
+                        visit(sub);
+                    }
+                };
+                for (auto const& entry : g_serializedElementRecords)
+                {
+                    for (SerializedField const& field : entry.second.fields)
+                    {
+                        visit(field);
+                    }
+                }
+            }
             for (auto const& entry : publicEnums)
             {
                 const std::string path = std::string(outDir) + "/" + entry.first + ".Bindings.cs";
@@ -9786,8 +12399,8 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         char const* hostSymbol;       // 非空 = 装配成宿主固定名函数
     };
 
-    // 14 个字段的顺序与宽度就是 ABI（design D5：v8 的形状逐字段不动，字节布局仍是 80）。
-    // 两侧的 struct 与装配代码都从这一张表发出 —— 手写镜像不再拥有它。
+    // 9 个字段的顺序与宽度就是 ABI（csharp-native-direct-binding 6.2：v10 重建 —— 桥五类的五个编号字段
+    // 随退役删除，布局从 14 字段 / 80 字节缩到 9 字段 / 56 字节）。两侧的 struct 与装配代码都从这一张表发出。
     EngineApiFieldSpec const kEngineApiFields[] = {
         { "uint32_t", "abi_version", "uint", "AbiVersion", nullptr, nullptr },
         { "uint32_t", "size", "uint", "Size", nullptr, nullptr },
@@ -9811,16 +12424,6 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
           "get_binding_layout_field",
           "delegate* unmanaged<uint, uint, uint, byte*, uint, byte*, uint, ulong*, uint>",
           "GetBindingLayoutField", nullptr, "CSharpHostBindingLayoutField" },
-        { "uint32_t", "script_render_backend_interface_id", "uint", "ScriptRenderBackendInterfaceId",
-          "IScriptRenderBackend", nullptr },
-        { "uint32_t", "script_render_graph_interface_id", "uint", "ScriptRenderGraphInterfaceId",
-          "IScriptRenderGraph", nullptr },
-        { "uint32_t", "script_render_target_interface_id", "uint", "ScriptRenderTargetInterfaceId",
-          "IScriptRenderTarget", nullptr },
-        { "uint32_t", "script_shader_struct_interface_id", "uint", "ScriptShaderStructInterfaceId",
-          "IScriptShaderStruct", nullptr },
-        { "uint32_t", "script_texture_interface_id", "uint", "ScriptTextureInterfaceId", "IScriptTexture",
-          nullptr },
     };
 
     // 把字段声明拼成合法 C++：函数指针类型的名字必须写在 `(*` 之后
@@ -9916,6 +12519,30 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             std::fprintf(stderr, "CodeGen: --emit-registry 没有读到任何登记条目（分片 %zu 个）\n",
                          partFiles.size());
             return 1;
+        }
+        // 分片按**翻译单元**写：被别的头 include 的接口会在多个分片里各出现一次（实测
+        // `WindowHandle.h` 被 `ShaderResourceHandle.h` 带进 CRenderBackend/GPUGraph/ShaderStruct
+        // 的分片，聚合时报"编号 12 重复"）。同号同名的重复条目只要**四列完全一致**就是同一次
+        // 登记，去重即可；任何一处不同才当冲突（下面的判据不变）。
+        {
+            std::vector<RegistryEntry> deduped;
+            std::set<std::string> seen;
+            for (RegistryEntry const& entry : entries)
+            {
+                const std::string key = std::to_string(entry.number) + "\t" + entry.shortName + "\t" +
+                                        entry.qualifiedName + "\t" + entry.header;
+                if (!seen.insert(key).second)
+                {
+                    continue;
+                }
+                deduped.push_back(entry);
+            }
+            if (deduped.size() != entries.size())
+            {
+                std::fprintf(stderr, "[登记] 去重：%zu 条重复分片条目（同号同名同头，来自被包含头）\n",
+                             entries.size() - deduped.size());
+            }
+            entries = std::move(deduped);
         }
         std::sort(entries.begin(), entries.end(), [](RegistryEntry const& a, RegistryEntry const& b) {
             if (a.number != b.number)
@@ -10050,9 +12677,9 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         }
         header += "\n// 生成接口表的 ABI 版本（生成器固定 2u，本 change 不提升；窗口两表与渲染五表同版）\n";
         header += "inline constexpr uint32_t kBindingInterfaceTableVersion = 2u;\n";
-        header += "// 跨边界函数表版本（本 change 由 v8 升到 v9：字段顺序与宽度不变，字节布局仍是 80）\n";
-        header += "inline constexpr uint32_t kEngineApiVersion = 9u;\n";
-        header += "inline constexpr uint32_t kEngineApiSize = 80u;\n\n";
+        header += "// 跨边界函数表版本（csharp-native-direct-binding 6.2：v9 → v10；桥五类编号字段删除，布局重建为 9 字段 / 56 字节）\n";
+        header += "inline constexpr uint32_t kEngineApiVersion = 10u;\n";
+        header += "inline constexpr uint32_t kEngineApiSize = 56u;\n\n";
         header += "// 交给托管侧的函数表。字段顺序与宽度就是 ABI —— 只许在末尾追加。\n";
         header += "struct EngineApi\n{\n";
         for (EngineApiFieldSpec const& field : kEngineApiFields)
@@ -10060,9 +12687,9 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
             header += "    " + cppFieldDeclaration(field) + "\n";
         }
         header += "};\n\n";
-        header += "static_assert(sizeof(EngineApi) == 80u,\n";
-        header += "              \"生成的 EngineApi 必须是 80 字节（14 字段：正文 76 + 尾部对齐填充 4）\");\n";
-        header += "static_assert(kEngineApiSize == 80u, \"kEngineApiSize 必须与 sizeof(EngineApi) 一致\");\n\n";
+        header += "static_assert(sizeof(EngineApi) == 56u,\n";
+        header += "              \"生成的 EngineApi 必须是 56 字节（9 字段：4 + 4 + 8×5 + 4 + 4）\");\n";
+        header += "static_assert(kEngineApiSize == 56u, \"kEngineApiSize 必须与 sizeof(EngineApi) 一致\");\n\n";
         header += "// 宿主固定名字的实现钩子：实现留手写（log / echo / 实例查找 / 错误出口 / 默认实例工厂 /\n";
         header += "// 角色登记），登记表只按固定名字调用它们 —— 逐接口分支不再存在。\n";
         header += "extern \"C\" void CSharpHostManagedLog(int level, uint8_t const* utf8, uint64_t len);\n";
@@ -10261,8 +12888,8 @@ std::string* rejectReason, bool* needsTwoStep, bool* isHandleReturn, bool* isCal
         cs += "    }\n\n";
         cs += "    /// <summary>生成的 ABI 常量与接口编号清单（Host.cs 只读这里，不再手抄）。</summary>\n";
         cs += "    internal static unsafe class EngineApiBindings\n    {\n";
-        cs += "        public const uint AbiVersion = 9;\n";
-        cs += "        public const uint Size = 80;\n";
+        cs += "        public const uint AbiVersion = 10;\n";
+        cs += "        public const uint Size = 56;\n";
         cs += "        public const uint TableVersion = 2;\n\n";
         for (RegistryEntry const& entry : entries)
         {

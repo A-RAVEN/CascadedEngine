@@ -21,22 +21,22 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # 被审计接口 → 它所在的头文件（相对仓库根）
+# 口径（csharp-native-direct-binding 任务 2.1 换面）：审计覆盖**进入绑定面的公开方法**（含非纯虚
+# virtual 与非虚公开成员函数），不再只数纯虚方法；模板方法只在有 `CA_BIND_INSTANTIATE` 声明时计一次
+# （生成器按声明展开具体槽，审计按方法名一行）。窗口两个接口维持原样；过渡期桥五个接口随 5.1 退役移出审计面。
 INTERFACES = {
+    # 本批进表的四类原生接口（design D1）
     "CRenderBackend": "Interface/RenderInterface/header/CRenderBackend.h",
     "IReadbackToken": "Interface/RenderInterface/header/CRenderBackend.h",
+    "GPUGraph": "Interface/RenderInterface/header/GPUGraph.h",
+    "ShaderStruct": "Interface/RenderInterface/header/ShaderStruct.h",
+    "GPUTexture": "Interface/RenderInterface/header/GPUTexture.h",
+    # 本批 2.4（design D12）：窗口句柄进表，第五个原生接口
+    "WindowHandle": "Interface/RenderInterface/header/WindowHandle.h",
+    # 窗口（既有）
     "IWindow": "WindowSystem/header/CAWindow/WindowSystem.h",
     "IWindowSystem": "WindowSystem/header/CAWindow/WindowSystem.h",
-    "IShaderCompilerManager": "Interface/ShaderCompiler/header/Compiler.h",
-    "IOManager": "Interface/IOManager/header/IOManager/IOManager.h",
-    "IResource": "GeneralResources/header/CAResource/IResource.h",
-    # csharp-render-backend-triangle 任务 1.1：脚本窄渲染适配面
-    "IScriptRenderTarget": "Interface/RenderInterface/header/ScriptRenderBridge.h",
-    "IScriptRenderGraph": "Interface/RenderInterface/header/ScriptRenderBridge.h",
-    "IScriptRenderBackend": "Interface/RenderInterface/header/ScriptRenderBridge.h",
-    # csharp-render-shader-constants 任务 1.1：参数结构窄接口（第四个脚本接口）
-    "IScriptShaderStruct": "Interface/RenderInterface/header/ScriptRenderBridge.h",
-    # csharp-render-texture-sampling 任务 1.1：只读纹理句柄（第五个脚本接口）
-    "IScriptTexture": "Interface/RenderInterface/header/ScriptRenderBridge.h",
+    # 5.1：桥五类退役，审计面不再包含它们（原生五类 + 窗口 + IReadbackToken = 8 个接口）。
 }
 
 HEADER_ROW = "| 接口::方法 |"
@@ -85,19 +85,23 @@ def class_body(text: str, class_name: str):
 
 
 def header_methods(repo: Path, interface: str):
-    """解析接口头，返回该类的纯虚方法名列表（含重载，按出现顺序；纯虚析构不算方法）。
+    """解析接口头，返回该接口**进入绑定面的公开方法名**列表（含重载，按出现顺序）。
 
-    做法：剥注释 → 取类体 → 去掉最外层花括号 → 把"带实现体的成员"（如虚析构的 `{}`）换成空声明 →
-    按分号切成声明 → 只留以 `= 0` 结尾的 → 名字取第一个左括号前的标识符。
-    这样处理的原因（都是实测踩出来的）：注释里写的示例签名会被当成真声明；虚析构的实现体没有分号，
-    直接按分号切会把下一条纯虚方法吞进来；参数里带括号的回调类型会把"第一个括号"判断带偏。
+    口径（csharp-native-direct-binding 任务 2.1 换面）：非纯虚 virtual 与非虚公开成员函数都算；
+    模板方法只在同文件里有 `CA_BIND_INSTANTIATE(方法名, …)` 声明时计一次（生成器按声明展开具体槽，
+    审计按方法名一行）；构造函数 / 析构 / 运算符不算。做法与旧版一致：剥注释 → 取类体 → 去掉最外层
+    花括号 → 把带实现体的成员换成空声明 → 按访问标号切段 → 只留 public 段里以 `(` 开头的声明。
+    `static_assert(true, "CA_BIND(...)")` 这类宏展开行与访问标号不是方法，逐条跳过。
     """
     path = repo / INTERFACES[interface]
     if not path.is_file():
         raise FileNotFoundError(str(path))
-    body = class_body(strip_comments(path.read_text(encoding="utf-8", errors="replace")), interface)
+    text = strip_comments(path.read_text(encoding="utf-8", errors="replace"))
+    body = class_body(text, interface)
     if body is None:
         raise LookupError(interface)
+    # 显式实例化声明可能写在类体后面：整文件扫一遍（宏是文本标记）。
+    instantiated = set(re.findall(r"CA_BIND_INSTANTIATE\s*\(\s*(\w+)\s*,", text))
     inner = body.strip()
     if inner.startswith("{"):
         inner = inner[1:]
@@ -105,21 +109,37 @@ def header_methods(repo: Path, interface: str):
         inner = inner[:-1]
     inner = re.sub(r"\{[^{}]*\}", ";", inner)
     names = []
-    # 访问标号也不是分号分隔的声明：`public:` 和它下面的第一条方法在同一个"分号块"里，
-    # 不先切开就会漏掉"紧跟在 public: 后面的第一条方法"（实测漏了 5 条）。
     decls = []
-    for part in re.split(r"\b(?:public|private|protected)\s*:", inner):
-        decls.extend(part.split(";"))
+    visibility = "private"  # class 默认私有；access 标号之前的声明都按默认访问级算
+    for segment in re.split(r"\b(public|private|protected)\s*:", inner):
+        if segment in ("public", "private", "protected"):
+            visibility = segment
+            continue
+        if visibility != "public":
+            continue
+        decls.extend(segment.split(";"))
     for decl in decls:
-        text = decl.strip()
-        if not text.startswith("virtual"):
+        text_decl = decl.strip()
+        if not text_decl or "(" not in text_decl:
             continue
-        text = text[len("virtual") :].strip()
-        if not PURE_TAIL_RE.search(text):
+        if text_decl.startswith("static_assert") or text_decl.startswith("CA_"):
             continue
-        match = NAME_RE.search(text)
-        if match and not match.group(1).startswith("~"):
-            names.append(match.group(1))
+        if text_decl.startswith("template"):
+            rest = text_decl[text_decl.find(">") + 1:] if ">" in text_decl else ""
+            match = NAME_RE.search(rest)
+            if match and match.group(1) in instantiated:
+                names.append(match.group(1))
+            continue
+        if text_decl.startswith(("friend", "using", "typedef", "namespace", "return", "if", "for",
+                                 "while", "switch", "else", "do", "case", "catch")):
+            continue
+        match = NAME_RE.search(text_decl)
+        if not match:
+            continue
+        name = match.group(1)
+        if name.startswith("~") or name == interface or name in ("if", "for", "while", "switch"):
+            continue
+        names.append(name)
     return names
 
 

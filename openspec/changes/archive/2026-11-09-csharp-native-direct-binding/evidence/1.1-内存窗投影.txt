@@ -1,0 +1,84 @@
+1.1 内存窗参数投影（design D2）—— 红态、绿态与判据
+
+执行者：apply 子 agent　　时间：2026-11-08 23:1x – 2026-11-09 00:1x
+
+一、红态：改造前该形状被 ② 拒绝（原文）
+
+夹具方法（先加夹具、不改编译器，用**改造前**的生成器跑）：
+    virtual void UploadWindow(void const* data, uint64_t size, uint64_t offset, bool copy) = 0;
+（写在 Tools/CodeGen/BindableShapes.NativeShapes.h 的 IBindNativeShape 里。）
+
+命令（工作目录 E:\Projects\CascadedEngine；生成器是 2026-11-06 构建的那份，即本批改动之前）：
+    out/build/x64-debug/bin/CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapes.h --parse-report
+        <CoreTests 编译单元的 -I 全量> -ICACore/header -ITools/CodeGen/clang_shim
+        -D_CRT_USE_BUILTIN_OFFSETOF -xc++
+（"CoreTests 编译单元的 -I 全量"由 out/build/x64-debug/compile_commands.json 里
+ `Test/CoreTests/` 那一项的 -I 原样取出；与 build.py 的 `_binding_includes` 同一取法。）
+
+原始读数（逐字，退出码 0 —— 快照模式本身不因排除而失败）：
+    快照：6 个类
+    [排除] IBindNativeShape::UploadWindow | 形状：void UploadWindow(const void *, uint64_t, uint64_t, bool) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
+
+即：改造前这个形状整条被 ② 判死，不会产出任何绑定。
+
+二、绿态：投影落地后的产物与判据
+
+1) C ABI（out/build/x64-debug/codegen/bindings/IBindNativeShape.Bindings.cpp 逐字）：
+    extern "C" void IBindNativeShape_UploadWindow(void* self, uint8_t const* data, uint64_t dataCount, uint64_t offset, int32_t copy);
+    static void IBindNativeShape_thunk_UploadWindow(void* self, uint8_t const* data, uint64_t dataCount, uint64_t offset, int32_t copy)
+    ...
+        object->UploadWindow(data, static_cast<uint64_t>(dataCount), offset, copy != 0);
+   → 指针与长度两段进 ABI；thunk 把长度按 `dataCount` 传给原生（`copy` 落成 `copy != 0`）。
+
+2) 托管表面（out/build/x64-debug/codegen/bindings/IBindNativeShape.Bindings.cs 逐字）：
+    public static delegate* unmanaged<void*, byte*, ulong, ulong, int, void> UploadWindow;
+    public static void UploadWindow(IBindNativeShapeLease lease, byte[] data, ulong offset, bool copy)
+        if (data == null) { throw new ArgumentNullException(nameof(data)); }
+        fixed (byte* dataPtr = data)
+        IBindNativeShapeBindings.UploadWindow(lease.Self, dataPtr, (ulong)data.Length, offset, (copy ? 1 : 0));
+    public void UploadWindow(byte[] data, ulong offset, bool copy)
+   → 托管收 `byte[]`；长度由托管按数组长度算；裸指针不出现在托管签名里。
+
+3) 判据（Tools/CodeGen/check_bindings.py，check_native_shapes 里本批新增的逐字行）：
+    · C ABI 必须是 `extern "C" void IBindNativeShape_UploadWindow(void* self, uint8_t const* data, uint64_t dataCount, uint64_t offset, int32_t copy);`
+    · 托管表面必须含 `public void UploadWindow(byte[] data, ulong offset, bool copy)`、
+      `fixed (byte* dataPtr = data)`、
+      `IBindNativeShapeBindings.UploadWindow(lease.Self, dataPtr, (ulong)data.Length, offset, (copy ? 1 : 0));`
+    · 该方法的托管签名里出现 `IntPtr` / `void*` 即失败（"裸指针不进托管表面"）。
+    红态构造：把生成的 .cs 里 `byte[] data` 换回 `IntPtr data` ⇒ 第二条与第三条同时红（判据不是恒真）。
+
+4) CoreTests 运行读数（out/build/x64-debug/bin/CoreTests.exe，退出码 0）：
+    [内存窗] 长度=9 字节一致=1 offset=16 copy=0
+    Bindings native shapes test PASSED
+  含义：托管给 9 字节、原生实现收到 9 字节且逐字节一致（`uploadWindowBytes == payload`），
+  其余标量 offset=16、copy=false 原样过界；另加一条零长度窗口（Len=0 + copy=true）也到达实现。
+
+5) 配对失败的生成期点名（两条拒绝夹具，当前生成器实跑，退出码 1）：
+    $ CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapesRejectWindowAmbiguous.h --emit-binding ...
+    exit=1
+    CodeGen: 拒绝 IBindRejectWindowAmbiguous::UploadAmbiguous —— 内存窗配对不唯一：const void* 参数 data 两侧有多个整型候选（lead / trail），不猜
+    $ CodeGen.exe Tools/CodeGen/BindableShapes.NativeShapesRejectWindowMissing.h --emit-binding ...
+    exit=1
+    CodeGen: 拒绝 IBindRejectWindowMissing::UploadMissing —— 内存窗配对失败：const void* 参数 data 没有相邻整型长度参数（相邻形参都不是整型），不猜
+
+三、判据口径的一处细化（附带改动，留红绿对照）
+
+改动：Tools/CodeGen/check_bindings.py 的 `check_surface`。原口径是"public 类型体里出现 `ulong` 即失败"，
+本批的 `uint64_t` 真标量参数（内存窗的 offset、之后的 CreateGPUBuffer 长度）也投影成 `ulong`，
+一刀切会把合法标量判红。新口径 = "返回值位置的 `ulong`"与"句柄命名的 `ulong` 参数
+（`*Handle` / `*Token` / `*Lease` / `*Self` / `*Registration`）"失败，其余标量放行。
+红绿演练（直接调函数，输入是两段假产物文本）：
+    RED problems= 2
+      X：public 类型 `X` 的参数 `bufferHandle` 是 `ulong`（句柄形态）
+      X：public 类型 `X` 的返回值里出现了 `ulong`（句柄）
+    GREEN problems= 0   （`public void Bar(ulong offset, bool copy)`）
+即：句柄仍然过不去，标量放行；判据没有整体放开。
+
+四、构建判据汇总（build_t17 日志，Tools/CodeGen/check_bindings.py 输出逐字）
+    矩阵行数 23 / 有夹具的行数 23 / 真实接口行 7 / 签名行 98 / 非签名行（拒绝或错误码）0
+    不符数 0
+    覆盖率问题 0 处
+    托管表面问题 0 处
+    原生形态夹具问题 0 处
+结论：1.1 的三条验收（红=改造前 ② 拒绝原文；绿=托管 byte[] 过界 + 实现端逐字节一致；
+配对歧义/缺失生成期点名）逐条有实测读数，通过。

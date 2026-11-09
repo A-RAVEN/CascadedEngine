@@ -233,7 +233,7 @@ def main() -> int:
     # ②b 全文读数：散文示例、失败样例里的旧值同样要红
     problems.extend(scan_readme_readings(readme_text, version, size))
 
-    # ③ 接口编号表：README 每一行 == 生成头编号常量；行数 == EngineApi 字段数 == C# 常量数
+    # ③ 接口编号表：README 每一行 == 生成头编号常量；行数 == 编号表项数 == C# 常量数
     for number in sorted(set(readme_interfaces) | set(generated_interfaces)):
         want = generated_interfaces.get(number)
         got = readme_interfaces.get(number)
@@ -244,10 +244,17 @@ def main() -> int:
         elif got != want:
             problems.append(
                 f"接口编号 {number} 的接口名对不上：README 写 `{got}`、生成的是 `{want}`")
-    if len(readme_interfaces) != len(api_fields):
+    if len(readme_interfaces) != len(generated_interfaces):
         problems.append(
-            f"接口编号数不符：README 表里 {len(readme_interfaces)} 行、生成 EngineApi 下发 "
-            f"{len(api_fields)} 个 *_interface_id 字段（{', '.join(api_fields)}）")
+            f"接口编号数不符：README 表里 {len(readme_interfaces)} 行、生成头 "
+            f"{len(generated_interfaces)} 项")
+    # 6.2 的 ABI v10：EngineApi 只下发两个窗口编号字段（桥五类的五个字段随退役删除），
+    # 所以这里只要求窗口两字段都在、且字段数不超过编号表行数（不再逐接口相等）。
+    if "window_interface_id" not in api_fields or "window_system_interface_id" not in api_fields:
+        problems.append(f"EngineApi 少了窗口编号字段：{api_fields}")
+    if len(api_fields) > len(generated_interfaces):
+        problems.append(
+            f"EngineApi 编号字段数 {len(api_fields)} 超过编号表行数 {len(generated_interfaces)}")
     if sorted(cs_numbers) != sorted(generated_interfaces):
         problems.append(
             f"生成两侧编号不一致：C++ 头 {sorted(generated_interfaces)}、"

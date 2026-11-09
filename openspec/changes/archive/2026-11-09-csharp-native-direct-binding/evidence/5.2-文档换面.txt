@@ -1,0 +1,119 @@
+csharp-native-direct-binding 5.2 文档换面记录（2026-11-09）
+=============================================================
+
+三份文档逐字 before / after。判据：`python Tools/CodeGen/verify_readme.py` 与
+`python Tools/check_csharp_host_readme.py` 均 exit 0（读数附在第五节）。
+
+一、CSharpHost/README.md
+-----------------------
+1) 接口编号表（旧 → 新；表格行 3–7 全部换面）：
+
+   before:
+     | 3 | `graphics_backend::IScriptRenderBackend` | 空（默认实例；由宿主固定名工厂钩子在生成的装配代码里、用模块管理器里的 `CRenderBackend` + `CThreadManager` 创建） |
+     | 4 | `graphics_backend::IScriptRenderGraph` | **目标类型表**：没有默认实例，取表时 `instanceOut` 可为空；实际对象由 `ResolveTargetHandle` 解析 |
+     | 5 | `graphics_backend::IScriptRenderTarget` | **目标类型表**：同上 |
+     | 6 | `graphics_backend::IScriptShaderStruct` | **目标类型表**：同上（参数结构，v7 追加） |
+     | 7 | `graphics_backend::IScriptTexture` | **目标类型表**：同上（只读纹理，v8 追加） |
+   after:
+     | 3 | `graphics_backend::CRenderBackend` | 空（默认实例；宿主在模块 link 阶段把引擎里那**一个**真实后端登记进来，托管侧取的函数表就是它） |
+     | 4 | `graphics_backend::GPUGraph` | **目标类型表**：没有默认实例；图对象由 `GPUGraph.Create` 产出、按目标句柄解析 |
+     | 5 | `graphics_backend::ShaderStruct` | **目标类型表**：同上（参数结构，`CreateShaderStruct` 产出） |
+     | 6 | `graphics_backend::GPUTexture` | **目标类型表**：同上（后端纹理对象，`CreateGPUTexture` 产出） |
+     | 7 | `graphics_backend::WindowHandle` | **目标类型表**：同上（窗口后台缓冲句柄，`GetWindowHandle` 产出） |
+
+   判据：README 7 行 == 生成头 7 项 == EngineApi 7 个 `*_interface_id` 字段 == C# 7 个编号常量
+   （check_csharp_host_readme 的 ③ 逐项对拍；6.2 的 ABI v10 删掉五个退役字段后这条对拍要同步改口径）。
+
+2) 章节标题与正文（旧 → 新）：
+
+   before: `## 脚本渲染适配面（csharp-render-backend-triangle）`
+           “`Interface/RenderInterface/header/ScriptRenderBridge.h` 声明五个窄纯虚接口……由独立的
+            `ScriptRenderBridge` 静态库提供（`Rendering` 与 `CoreTests` 链接同一份）。”
+   after:  `## 脚本渲染直绑面 + C# 糖层（csharp-native-direct-binding 4.1）`
+           “渲染侧不再有专门的适配桥：`CRenderBackend` / `GPUGraph` / `ShaderStruct` / `GPUTexture` /
+            `WindowHandle` 五类原生接口**直接进绑定面**……便利形状全部在托管层
+            `Scripting/Managed/NativeRenderSugar.cs`。”
+
+3) 四个探针入口签名（旧 → 新）：
+   before: `OnRenderProbe(IWindowSystem windows, IScriptRenderBackend backend)`（四个探针同样）
+   after:  `OnRenderProbe(IWindowSystem windows, ScriptRenderBackend backend)`（另外三个同改）
+
+4) 计数语义（旧 → 新）：
+   before: “纹理上传的执行与等待走**后端直连**（`ExecuteGraph` + `WaitIdle`），单列
+            `GetTextureUploadExecuteCountForTest`；`GetExecuteGraphCountForTest` /
+            `GetWaitIdleCountForTest` 只反映脚本提交。”
+   after:  “……单列糖层的 `TextureUploadExecuteCount`；`ExecuteGraphCount` / `WaitIdleCount` 只反映
+            脚本提交……C++ 用例从托管读数行 `[托管 读数]` 里读这些增量。”
+
+5) 纹理销毁限制（旧 → 新）：
+   before: “本批**不提供纹理显式销毁**（`IScriptTexture` 只有 `GetWidth` / `GetHeight`），纹理由
+            适配器保活到进程末……”
+   after:  “本批**不提供纹理显式销毁**（`GPUTexture` 只有描述符/名称读取，销毁由引擎资源生命周期决定）；
+            托管 `ScriptTexture.Dispose()` 只把表面标成失效……原生纹理对象由绑定对象表与图内参数结构
+            保活到进程末。”
+
+二、Tools/CodeGen/README.md
+---------------------------
+1) 审计命令示例的真实输出（旧 → 新）：
+   before: `扫描 12 个接口、对账 90 条方法、命中 0 处问题（审计表：…\bindable-audit.md）`
+   after:  `扫描 8 个接口、对账 91 条方法、命中 0 处问题（审计表：…\bindable-audit.md）`
+   （实测命令：`python Tools/CodeGen/check_bindable_audit.py` → 该行、exit 0，%TEMP%\cnb-audit-after-51.log）
+
+2) 审计范围段（旧 → 新）：
+   before: “审计范围现在是 12 个接口（… `IScriptTexture` / `IScriptRenderTarget` / `IScriptRenderGraph` /
+            `IScriptRenderBackend` / `IScriptShaderStruct`）。其中后五个是脚本渲染适配面……”
+   after:  “审计范围现在是 8 个接口（`CRenderBackend` / `IReadbackToken` / `GPUGraph` / `ShaderStruct` /
+            `GPUTexture` / `WindowHandle` / `IWindow` / `IWindowSystem`），合计 91 条公开方法……
+            **过渡期桥五个接口的 28 条方法随 5.1 退役移出审计面**（行同时删除，不是放过）。”
+   口径句同改：“脚本按**纯虚方法名**对账” → “脚本按**公开方法名**对账（含非纯虚 virtual 与非虚
+   公开方法；模板按 `CA_BIND_INSTANTIATE` 计）”。
+
+3) 限制清单反向（旧 → 新）：
+   before: “**本 change 的明确限制**：不支持 `std::span`；不支持包装值（…）作为返回值、嵌入记录或容器
+            元素；……不支持容器出参、映射容器、联合体、定长数组；……”
+   after:  “**仍然不支持（明确限制，逐条带拒绝行为）**：`std::span`；`weak_ptr<T>` 入参；异步保存输入
+            指针；容器**出参**；键不是 `NameHash` 的映射 / 未绑定类型的智能指针 / 返回位置的记录容器……
+            ” + “**已落地的新形状（原限制清单里列过，现在反向：能力 + 判据）**：参数位置内存窗（D2）、
+            返回位置记录两段式（D8）、`CA_BIND_INSTANTIATE`（D9）、序列化块 7 类元素（D11 + 记录 17）、
+            返回位置标量容器两段式（D13）、`CA_BIND_VALUE` 与 `CA_BIND_INJECT` 前置批能力。”
+
+4) **两条必写的 `--update-ids` 说明（新增，逐字如下）**：
+   · “**发号命令必须带 `--config Debug`**：`python build.py --config Debug --update-ids` —— `--update-ids`
+      靠构建目录里的 `compile_commands.json` 定位每个输入头的 include 集合；不带 `--config Debug` 时脚本
+      指向默认的 RelWithDebInfo 构建目录，那里没有（或不是与当前头匹配的）编译数据库，工具拿不到
+      include，所有输入头都会 parse failed。”
+   · “……名字消失时 `--update-ids` 删行（**只删本头自己的行**：`--update-ids` 以输入头为界取消失集合，
+      早期"按短名全局删"的实现会删掉别的头里的同名行，已按头作用域收窄）。”
+     依据：`Tools/CodeGen/CodeGenMain.cpp` 的 `updateInterfaceIds(...)` 注释与实现（单头入参、
+     消失集合只从本头标注里取）；`build.py` 的 `update_interface_ids()` 使用按 `--config` 选择的
+     `BUILD_DIR / compile_commands.json`。
+
+三、docs/testing.md
+-------------------
+1) 分层表 ①：`23 个 .cpp` → `24 个 .cpp`（删 `ScriptRenderBridgeTest.cpp`、补上已在仓里的
+   `BindingsNativeShapesTest.cpp` / `BindingsNativeSurfaceTest.cpp`）；“脚本渲染适配面的原生图结构” →
+   “原生五类表面的工厂与句柄往返”。
+2) 分层表 ③：`check_*.py` 前缀 12 个（Tools 8 + CodeGen 4）→ 14 个（Tools 8 + CodeGen 6）。
+3) ① 清单：删 `ScriptRenderBridgeTest`、补 `BindingsNativeShapesTest` / `BindingsNativeSurfaceTest`；
+   `PASSED` 行数 22 → 23（实测：%TEMP%\cnb-51-coretests.log，23 PASSED / 0 FAILED）。
+4) ① 跑法段：删桥测试件说明，新增 `BindingsNativeSurfaceTest` 的读数判据
+   （`[原生表面] Present(windows 句柄构造) 错误码=0 呈现项=1`），并说明桥原判据由四条 C# 用例承接。
+5) ② 四个 C# 用例描述：`IScriptRenderBackend` / `GetBoundImageForTest` / “真实适配器负例”
+   全部改成“原生直绑表面 + 糖层 + 托管读数行（`[托管 读数]`：`graph` 原生对象地址、
+   `boundBuffer0/1`、`texture` 与 `boundTexture0/1`、`negUnknown` / `negPath` / `negField`）”。
+
+四、顺带清掉的同源叙述
+----------------------
+- `Interface/RenderInterface/CMakeLists.txt` 与 `CSharpHost/CMakeLists.txt` 里描述桥静态库/桥产物的注释
+  改为桥退役后的现状；`build.py` 的注释示例从桥头换成 `CRenderBackend.h`。
+- `Tools/CodeGen/check_bindings.py` 与 `check_bindable_audit.py` 的桥判据已随 5.1 删除（不属于文档换面，
+  记在 5.1 的 evidence 里）。
+
+五、判据读数
+------------
+python Tools\CodeGen\verify_readme.py
+  → README: 22 documented command(s) run, 0 mismatch(es)，exit 0（%TEMP%\cnb-verify-readme.log）
+python Tools\check_csharp_host_readme.py
+  → ABI 版本 README v9 / 生成 9；函数表 README 80 / 生成 80；接口编号表 README 7 行 / 生成头 7 项 /
+    EngineApi 7 字段 / C# 7 常量；探针开关代码 11 个、README 12 个；问题 0 处；exit 0
+    （%TEMP%\cnb-check-host-readme.log）

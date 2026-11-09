@@ -1,0 +1,58 @@
+2.1 审计表换面（check_bindable_audit.py 口径 + 表 + 汇总数字重算）
+
+执行者：apply 子 agent　　时间：2026-11-09 01:2x
+
+一、口径改前→改后（逐条对照）
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| 审计面 | 只数**纯虚**方法（`virtual ... = 0;`） | 数**进入绑定面的公开方法**：`CA_BIND` 接口里的公开成员函数（含非纯虚 virtual 与非虚公开方法）；构造/析构/运算符不算 |
+| 访问级 | 不分访问级（类体里所有 `= 0` 都算） | 按 `public/protected/private` 标号切段，**只数 public 段**（`ShaderStruct` 的 `*Internal` 受保护纯虚不再误入） |
+| 模板方法 | 一律不计（连行都不许有） | 只在同文件写了 `CA_BIND_INSTANTIATE(方法名, …)` 时计一次（生成器按声明展开具体槽） |
+| 接口清单 | 11 个模块级接口 + `IReadbackToken`（含 `IShaderCompilerManager` / `IOManager` / `IResource`） | **12 个**：原生四类（`CRenderBackend`/`GPUGraph`/`ShaderStruct`/`GPUTexture`）+ `IReadbackToken` + 窗口两个 + 过渡期桥五个；三个旧接口随换面移出（表内行同时删除） |
+| 方法总数 | 90 | **115**（当场重算：16 + 3 + 20 + 6 + 3 + 23 + 16 + 2 + 3 + 9 + 8 + 6 = 115） |
+
+改后计数（`check_bindable_audit.py --list` 的分类段逐字）：
+    CRenderBackend → 16（含 CreateGPUBuffer 两条重载、GetTimingCapabilities / ExecuteGraphTimed / RunTestCode 三条非纯虚）
+    IReadbackToken → 3
+    GPUGraph → 20
+    ShaderStruct → 6（SetValue 是模板，本步还没声明实例化形态，所以不计；2.2 加声明后变 7）
+    GPUTexture → 3
+    IWindow → 23 / IWindowSystem → 16 / 桥五个 → 2+3+9+8+6 = 28
+
+二、审计表（`openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md`）
+
+- 表头口径段与范围汇总表整段重写（上表数字）；
+- 主表：CRenderBackend 12 行 → 16 行（ExecuteGraph 改判"可绑（注入）"、Find* 两行改判"可绑（记录两段式）"、
+  GetWindowHandle 改判"可绑"、新增 3 条非纯虚方法行、Readback 两行改判"不可绑：本轮未实现 std::span"）；
+  新增 GPUGraph 20 行、ShaderStruct 6 行、GPUTexture 3 行；删除 `IShaderCompilerManager` / `IOManager` / `IResource` 8 行；
+- "汇总：不可绑清单"整表重写：本批 11 条（④ 2 条 + 本轮未实现 9 条）+ 逐条"已移出"说明（ExecuteGraph / Find* 两条 /
+  GetWindowHandle / 三个旧接口）；
+- "四类不可投影落到谁身上"按换面后的结论重写（① 由 `CA_BIND_INSTANTIATE` 合法化 SetValue；② 的两条参数通道与
+  一条返回例外；④ 两条）；"需快路"一节删掉 `IOManager::Batch/WriteBatch` 的旧引用。
+
+三、绿态读数
+
+    $ python Tools/CodeGen/check_bindable_audit.py
+    扫描 12 个接口、对账 115 条方法、命中 0 处问题
+    exit=0
+
+四、红态演练（漏登记新方法 ⇒ 点名）
+
+    做法：把主表里 `GPUGraph::AllocBuffer` 一行临时删掉（备份在 %TEMP%，演练后原样还原）。
+    $ python Tools/CodeGen/check_bindable_audit.py
+    扫描 12 个接口、对账 115 条方法、命中 1 处问题
+      ✗ 缺少审计行：GPUGraph::AllocBuffer（头文件 1 条、表里 0 条）
+    exit=1
+    还原后复跑：命中 0 处问题 / exit=0。
+  （同一脚本另有"僵尸行"判据：表里有、头里没有的方法会被点名；换面时删除三个旧接口的 8 行就是靠它确认删干净的。）
+
+五、说明与遗留
+
+- 汇总表数字是脚本用头文件**实算**后与表内数字逐项比对的（不是抄生成器输出），改表不改脚本或改脚本不改表都会红。
+- `ShaderStruct::SetValue` 的行等 2.2 加 `CA_BIND_INSTANTIATE` 声明后补（声明落地前它不进绑定面，审计不该有行）；
+  2.2 那一轮会把 ShaderStruct 的计数 6 → 7 并重钉汇总表。
+- 生成器里那道"审计行必须齐"的闸门（`CodeGen` 子进程调 `check_bindable_audit.py --json`）现在能过 —— 2.2 给四类挂
+  `CA_BIND` 之后，绑定生成不会再被"缺少审计结论"拦住。
+
+结论：2.1 的两条验收（红=漏登记新方法点名；绿=全表一致）逐条有实测读数，通过。

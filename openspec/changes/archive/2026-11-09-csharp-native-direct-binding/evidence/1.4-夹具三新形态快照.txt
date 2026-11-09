@@ -1,0 +1,32 @@
+# 原生头投影快照（codegen-native-binding-prereqs 任务 4.1）
+# 生成器：CodeGen.exe <头> --parse-report
+[头] Tools/CodeGen/BindableShapes.NativeShapes.h
+[类] ca_bind_fixture::NativeCount
+[类] ca_bind_fixture::NativeResourceRef
+[采集] NativeResourceRef::GetReferenceKind | 形状：ENativeRefKind GetReferenceKind() | 判定：采集：可绑定
+[采集] NativeResourceRef::GetReferencedObject | 形状：const castl::shared_ptr<IBindNativeShape> & GetReferencedObject() | 判定：采集：可绑定
+[采集] NativeResourceRef::GetReferencedName | 形状：const cacore::NameHash & GetReferencedName() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[类] ca_bind_fixture::PassAttachment
+[类] ca_bind_fixture::PassLike
+[采集] PassLike::SetPrivateCount | 形状：void SetPrivateCount(uint32_t) | 判定：采集：可绑定
+[采集] PassLike::GetPrivateCount | 形状：uint32_t GetPrivateCount() | 判定：采集：可绑定
+[类] ca_bind_fixture::IBindNativeShape
+[采集] IBindNativeShape::GetCounter | 形状：uint32_t GetCounter() | 判定：采集：可绑定
+[采集] IBindNativeShape::SetCounter | 形状：void SetCounter(uint32_t) | 判定：采集：可绑定
+[采集] IBindNativeShape::GetVirtualValue | 形状：uint32_t GetVirtualValue() | 判定：采集：可绑定
+[采集] IBindNativeShape::GetDoubled | 形状：uint32_t GetDoubled() | 判定：采集：可绑定
+[采集] IBindNativeShape::MakeTally | 形状：static NativeCount MakeTally(uint32_t) | 判定：采集：可绑定
+[采集] IBindNativeShape::ConsumeRef | 形状：void ConsumeRef(const NativeResourceRef &, uint32_t) | 判定：采集：可绑定
+[采集] IBindNativeShape::ConsumePass | 形状：void ConsumePass(const PassLike &) | 判定：采集：可绑定
+[采集] IBindNativeShape::SetInjectedPointer | 形状：void SetInjectedPointer(uint32_t, int32_t *) | 判定：采集：可绑定
+[采集] IBindNativeShape::UploadWindow | 形状：void UploadWindow(const void *, uint64_t, uint64_t, bool) | 判定：采集：可绑定（内存窗投影：托管收 byte[]，thunk 以固定内存传指针与长度）
+[采集] IBindNativeShape::FindPass | 形状：const PassLike * FindPass(const cacore::NameHash &) | 判定：采集：可绑定（记录两段式：托管得序列化只读副本，空命中为 null）
+[采集] IBindNativeShape::TemplatedValue | 形状：template<> TemplatedValue(...) | 判定：采集：可绑定（模板显式实例化： uint32_t, float ）
+[采集] IBindNativeShape::ChainAdd | 形状：IBindNativeShape & ChainAdd(uint32_t) | 判定：采集：可绑定
+[采集] IBindNativeShape::Overloaded | 形状：uint32_t Overloaded(uint32_t) | 判定：采集：可绑定
+[采集] IBindNativeShape::Overloaded | 形状：uint32_t Overloaded(uint32_t, uint32_t) | 判定：采集：可绑定
+[排除] IBindNativeShape::GetAs | 形状：template<> GetAs(...) | 判定：排除：① 模板方法（本批不做模板单态化）
+[类] ca_bind_fixture::BindNativeObject
+[采集] BindNativeObject::GetValue | 形状：uint32_t GetValue() | 判定：采集：可绑定
+[采集] BindNativeObject::SetValue | 形状：void SetValue(uint32_t) | 判定：采集：可绑定
+[采集] BindNativeObject::DoubleValue | 形状：uint32_t DoubleValue() | 判定：采集：可绑定

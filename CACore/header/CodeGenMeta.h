@@ -219,6 +219,16 @@ namespace cacore::codegen
 #define CA_BIND_INJECT(MethodName, ParameterName) \
     static_assert(true, "CA_BIND_INJECT(" #MethodName ", " #ParameterName ")");
 
+// ---------------------------------------------------------------------------------------------
+// CA_BIND_INSTANTIATE(方法名, 类型列表...) — 模板成员函数的**显式实例化声明**（design D9）。
+// 模板成员不会被自动单态化采集；需要绑定某个具体形态时，在声明头文件里写这一行（编译期 no-op，
+// 只留文本给生成器读）。生成器按声明逐形态出具体槽（如 `ShaderStruct_SetValue_float3`）与
+// 托管同名重载；C++ 侧不新增函数、不改签名 —— thunk 自身完成实例化。
+// 声明的类型名在翻译单元里找不到、或方法名不存在，都是生成期非零拒绝。
+// ---------------------------------------------------------------------------------------------
+#define CA_BIND_INSTANTIATE(MethodName, ...) \
+    static_assert(true, "CA_BIND_INSTANTIATE(" #MethodName ", " #__VA_ARGS__ ")");
+
 // 生成器给"含容器/文本的记录"生成的 C++ 序列化入口（任务 D8）：绑定产物按同一份字段清单
 // 同时生成 C++ 反序列化与 C# 序列化。声明只在这里，特化由 CodeGen --emit-binding 发出；
 // 含私有字段的记录用 CA_CODEGEN_FRIEND 把这个模板加成友元即可。

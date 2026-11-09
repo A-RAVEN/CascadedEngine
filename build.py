@@ -1051,17 +1051,18 @@ CODEGEN_BINDINGS = [
     ("Tools/CodeGen/BindableShapes.RenderResource.h", "夹具 RenderResource",
      ["IBindRenderResource", "IBindRenderResourceAlt"]),
     ("Tools/CodeGen/BindableShapes.RenderOwner.h", "夹具 RenderOwner", ["IBindRenderOwner"]),
-    # csharp-render-backend-triangle 任务 1.1：脚本专用窄渲染适配面（目标 / 图 / 后端三个接口）。
-    # 主头只声明接口与方法；原生实现与 CMake 接线在任务 2.1 / 2.2。
-    # csharp-render-shader-constants 任务 1.1：同一头里追加参数结构接口 `IScriptShaderStruct`。
-    # csharp-render-texture-sampling 任务 1.1：同一头里追加只读纹理句柄 `IScriptTexture`。
-    ("Interface/RenderInterface/header/ScriptRenderBridge.h", "渲染适配",
-     ["IScriptTexture", "IScriptRenderTarget", "IScriptRenderGraph", "IScriptRenderBackend",
-      "IScriptShaderStruct"]),
     # codegen-native-binding-prereqs 任务 2.1：原生形态夹具（非纯虚 / 非虚 / 自返回链式 / 静态工厂 /
     # 默认构造 / 重载 / 模板拒绝）。它同时是 2.2–2.4 与 3.x 的红绿载体。
     ("Tools/CodeGen/BindableShapes.NativeShapes.h", "夹具 NativeShapes",
      ["IBindNativeShape", "BindNativeObject"]),
+    # csharp-native-direct-binding 任务 2.2：原生四类直接进绑定面（design D1）。四个头各自一次
+    # `--emit-binding`；`ImageHandle`/`BufferHandle` 的 `CA_BIND_VALUE` 在它们的定义头里，靠包含闭包扫描认。
+    ("Interface/RenderInterface/header/CRenderBackend.h", "原生 CRenderBackend", ["CRenderBackend"]),
+    ("Interface/RenderInterface/header/GPUGraph.h", "原生 GPUGraph", ["GPUGraph"]),
+    ("Interface/RenderInterface/header/ShaderStruct.h", "原生 ShaderStruct", ["ShaderStruct"]),
+    ("Interface/RenderInterface/header/GPUTexture.h", "原生 GPUTexture", ["GPUTexture"]),
+    # csharp-native-direct-binding 2.4（design D12）：窗口句柄进表（第五个原生接口）。
+    ("Interface/RenderInterface/header/WindowHandle.h", "原生 WindowHandle", ["WindowHandle"]),
 ]
 
 
@@ -1074,10 +1075,18 @@ CODEGEN_BINDINGS = [
 # 路径上，编译进宿主会找不到头文件）。
 # 编号锁（codegen-native-binding-prereqs 任务 1.2）：段的号空间独立，宿主段从 1、夹具段从 8。
 CODEGEN_REGISTRIES = [
-    # 主登记表（真实宿主与托管侧编译它）：窗口两个接口 + 脚本渲染适配面五个接口，编号 1–7。
+    # 主登记表（真实宿主与托管侧编译它）：窗口两个接口 + 原生五类，5.1 起编号 1–7。
     ("", "host", [
         ("WindowSystem/header/CAWindow/WindowSystem.h", "window"),
-        ("Interface/RenderInterface/header/ScriptRenderBridge.h", "render"),
+        # csharp-native-direct-binding 5.1 段 B（design D10）：桥 3–7 行已删，五个原生接口\r
+        # 重编号 3–7（本批唯一一次受控手工锁编辑）；追加顺序=这里的顺序（`--update-ids` 按登记输入顺序发号）。
+        # 分片标签必须**一头一个**：同名标签共用一个分片文件，后写的会覆盖先写的（实测五个都写
+        # `native.registry.part`，聚合时只剩 WindowHandle，报"锁里有 CRenderBackend 但没写出"）。
+        ("Interface/RenderInterface/header/CRenderBackend.h", "native-render-backend"),
+        ("Interface/RenderInterface/header/GPUGraph.h", "native-graph"),
+        ("Interface/RenderInterface/header/ShaderStruct.h", "native-shader-struct"),
+        ("Interface/RenderInterface/header/GPUTexture.h", "native-texture"),
+        ("Interface/RenderInterface/header/WindowHandle.h", "native-window-handle"),
     ]),
     # 夹具登记表（只做编号 / 拒绝 / 确定性与编号对账）：夹具专用号段 8/9。
     ("fixture", "fixture", [
@@ -1088,6 +1097,17 @@ CODEGEN_REGISTRIES = [
 # 接口编号的唯一来源（本 change 任务 1.2）：入库锁文件。构建只核对、不改写；
 # 发号只走 `python build.py --update-ids`（转成逐头的 `CodeGen --update-ids`）。
 INTERFACE_ID_LOCK = PROJECT_DIR / "Tools" / "CodeGen" / "interface-ids.lock"
+
+# 原生四头（csharp-native-direct-binding 2.2）：它们是被别的模块 include 的接口头，
+# `Interface/RenderInterface` 的编译单元不 include 它们 → 那份 -I 缺跨模块路径。
+# 只对这四个头并上 CoreTests 那一个 TU 的 -I，并补 `-DNOMINMAX`（理由见 `_binding_includes`）。
+CODEGEN_BINDING_MERGE_CORETESTS = {
+    "Interface/RenderInterface/header/CRenderBackend.h",
+    "Interface/RenderInterface/header/GPUGraph.h",
+    "Interface/RenderInterface/header/ShaderStruct.h",
+    "Interface/RenderInterface/header/GPUTexture.h",
+    "Interface/RenderInterface/header/WindowHandle.h",
+}
 
 
 def _registry_product_dirs() -> dict[str, Path]:
@@ -1137,6 +1157,15 @@ def _binding_includes(entries: list[dict], header: str) -> list[str]:
         env = next((e for e in entries
                     if Path(e["file"]).name == "BindingsGetApiTest.cpp"), None)
     dirs = _include_dirs(env["command"].split()) if env else []
+    # 原生四头是"被别的模块 include"的接口头：`Interface/RenderInterface` 的编译单元并不 include
+    # 它们，所以那一条的 -I 缺 `WindowSystem/header` 这类跨模块路径（实测 CRenderBackend.h 报
+    # `'CAWindow/WindowSystem.h' file not found`）。只对这一组头**再并上 CoreTests 那一个 TU** 的
+    # -I（不是并全部，避免命令行超长）。
+    if header in CODEGEN_BINDING_MERGE_CORETESTS:
+        coretests = next((e for e in entries
+                          if "Test/CoreTests" in "/".join(_record_path_parts(e["file"]))), None)
+        if coretests is not None:
+            dirs = list(dirs) + [d for d in _include_dirs(coretests["command"].split()) if d not in dirs]
     seen_dirs: set[str] = set()
     includes = []
     for d in dirs:
@@ -1146,10 +1175,14 @@ def _binding_includes(entries: list[dict], header: str) -> list[str]:
         includes.append(f"-I{str(Path(d)).replace(chr(92), '/')}")
     # 与 codegen 那条解析路径共用同一组补充：clang_shim 的 `cpuid.h`，以及让 `offsetof` 走
     # `__builtin_offsetof` 的定义（理由见 CODEGEN_EXTRA_DEFINES）。不补定义时，被绑定头一旦
-    # include 带生成物 `<类型>.codegen.h` 的真实引擎头（实测：`ScriptRenderBridge.h` →
+    # include 带生成物 `<类型>.codegen.h` 的真实引擎头（实测：`CRenderBackend.h` →
     # `TextureSampler.h` → `TextureSamplerDescriptor.codegen.h`），解析就报
     # "constexpr variable 'arr' must be initialized by a constant expression"，退出码 3。
     includes += ["-ICACore/header", "-ITools/CodeGen/clang_shim"] + list(CODEGEN_EXTRA_DEFINES)
+    if header in CODEGEN_BINDING_MERGE_CORETESTS:
+        # `ShaderResourceHandle.h` 用 `std::numeric_limits<...>::max()`，Windows 的 max 宏会把它
+        # 撕成函数式宏调用（实测解析报 "too few arguments provided to function-like macro invocation"）。
+        includes.append("-DNOMINMAX")
     return includes
 
 
@@ -1180,6 +1213,10 @@ def build_bindings() -> list[str]:
                           for header, _name, _expected in CODEGEN_BINDINGS}
 
     known: dict[str, str] = {}
+    # 每个头自己声明的接口名：`--known-interface` 传给别人，但**不能**传给它自己 ——
+    # 登记表分片那一轮里，生成器会把"主头里的 CA_BIND"和"known-interface 清单"两边都登记，
+    # 自己传自己就是同一个编号登记两次（实测报 `编号 12 重复：WindowHandle … 与 WindowHandle …`）。
+    own_interfaces: dict[str, set[str]] = {}
     for header, name, _expected in CODEGEN_BINDINGS:
         cmd = [str(tool), header, "--list-bind-interfaces"] + includes_by_header[header] + ["-xc++"]
         proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True,
@@ -1195,6 +1232,7 @@ def build_bindings() -> list[str]:
                 continue
             short_name, qualified = text.split("=", 1)
             listed += 1
+            own_interfaces.setdefault(header, set()).add(short_name)
             previous = known.get(short_name)
             if previous is not None and previous != qualified:
                 failures.append(
@@ -1204,6 +1242,8 @@ def build_bindings() -> list[str]:
             known[short_name] = qualified
         print(f"  [绑定清单] {name} ← {header}：{listed} 个接口", flush=True)
     known_args = [f"--known-interface={short}={qualified}" for short, qualified in sorted(known.items())]
+    # （`known_args` 供登记表汇总那一步用；逐头的 `--emit-binding` 传的是**去掉自己**的清单，
+    #  见下面的 per-header 过滤 —— 自己传自己会让同一个编号登记两次。）
 
     # 登记表发射输入（本 change 任务 1.1）：头文件 → [(产物目录, 段名, 分片标签), ...]。
     # 分片在 `--emit-binding` 那一轮写出，全部绑定输入跑完后由 `--emit-registry` 汇总。
@@ -1220,7 +1260,9 @@ def build_bindings() -> list[str]:
     for header, name, expected in CODEGEN_BINDINGS:
         includes = includes_by_header[header]
         cmd = [str(tool), header, "--emit-binding", "--out-dir", str(out_dir),
-               "--audit-script", str(script)] + known_args
+               "--audit-script", str(script)] + [
+                   f"--known-interface={short}={known[short]}"
+                   for short in sorted(known) if short not in own_interfaces.get(header, set())]
         for part_dir, scope, tag in registry_membership.get(header, []):
             cmd += ["--registry-part", tag, "--registry-part-dir", str(part_dir),
                     "--id-lock", str(INTERFACE_ID_LOCK), "--id-scope", scope]
