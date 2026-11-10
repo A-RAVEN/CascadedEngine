@@ -2,7 +2,7 @@
 
 **它做什么**：在一个普通引擎模块的初始化阶段，把 .NET 运行时（CoreCLR）拉进本进程、加载 `Scripting.Managed.dll`、拿到托管侧 `Boot` / `Tick` 两个入口，并每帧调一次 `Tick`；同时把一张函数表交给托管侧，让它能回调引擎的日志、`echo`，以及按"接口编号 + 实例名"取引擎接口的函数表。
 
-函数表（`EngineApi`）当前是 **v10**、56 字节（9 字段；桥五类的五个编号字段已随退役删除），字段顺序就是 ABI、只许在末尾追加：
+函数表（`EngineApi`）当前是 **v12**、56 字节（9 字段；桥五类的五个编号字段已随退役删除），字段顺序就是 ABI、只许在末尾追加：
 
 | 字段 | 从哪一版起 | 作用 |
 |---|---|---|
@@ -14,6 +14,13 @@
 | `script_render_backend_interface_id` / `script_render_graph_interface_id` / `script_render_target_interface_id` | v6 | 脚本渲染适配面的三个编号（3 / 4 / 5）；后端表有默认实例，图与目标表是目标类型表 |
 | `script_shader_struct_interface_id` | v7 | 脚本参数结构表的编号（6）；与图、目标同属目标类型表（没有默认实例） |
 | `script_texture_interface_id` | v8 | 脚本只读纹理表的编号（7）；同样属目标类型表（没有默认实例） |
+
+**v12（csharp-bindings-namespace-alignment 7.1）**：补 `GPUBuffer` 直绑（第六原生接口、编号 8），
+`CreateGPUBuffer` 解 SKIP；函数表布局不变（仍 9 字段 / 56 字节），版本号 11 → 12。
+
+**v11（csharp-bindings-namespace-alignment 4.1）**：接口身份链改完整限定名（生成的编号常量
+`kBindingInterfaceId<线形>` / C# `GraphicsBackend__GPUGraphInterfaceId` 等），函数表布局不变
+（仍 9 字段 / 56 字节），版本号 10 → 11；宿主与托管侧都只读生成常量。
 
 **v10（csharp-native-direct-binding 6.2）**：桥五类的五个编号字段随退役删除，布局从 14 字段 / 80 字节重建为 **9 字段 / 56 字节**；
 版本升级是因为这张表改由绑定生成器从 `Tools/CodeGen/interface-ids.lock` 取编号后发射 —— C++ 侧的
@@ -38,6 +45,7 @@
 | 5 | `graphics_backend::ShaderStruct` | **目标类型表**：同上（参数结构，`CreateShaderStruct` 产出） |
 | 6 | `graphics_backend::GPUTexture` | **目标类型表**：同上（后端纹理对象，`CreateGPUTexture` 产出） |
 | 7 | `graphics_backend::WindowHandle` | **目标类型表**：同上（窗口后台缓冲句柄，`GetWindowHandle` 产出） |
+| 8 | `graphics_backend::GPUBuffer` | **目标类型表**：同上（后端直建缓冲，`CreateGPUBuffer` 产出；生命周期跟随后端，跨图复用） |
 
 同一个接口可以登记多份实现，靠实例名区分；实例名传 `nullptr` = 该接口**默认那一份**（最先登记的）。登记与查找都走 `IScriptHost::SetInterfaceInstance` / `GetInterfaceInstance`，两边必须用同一对 (编号, 实例名)。
 
@@ -50,7 +58,7 @@
 ## 脚本层：`Scripting/Managed/UserScript.cs`
 
 - **写在哪**：`Scripting/Managed/UserScript.cs`（与宿主同程序集，编译期一起编进去）。使用者改这个文件、重新构建即生效，**不必碰 `Host.cs`**。
-- **入口签名**：`public static void OnEngineReady(Scripting.Generated.Bindings.IWindowSystem windows)` —— 一个静态类、一个静态方法。
+- **入口签名**：`public static void OnEngineReady(Scripting.Generated.Bindings.Cawindow.IWindowSystem windows)` —— 一个静态类、一个静态方法。
 - **什么时候被调**：宿主 `EnsureBound()` 把**编号 1、2 两张函数表都绑定成功之后**调一次；**整个进程生命周期内只调一次**（重绑不会再调，所以脚本不会越建越多窗口）。
 - **怎么判"调了几次"**：脚本里 `internal static int CalledCount` 自增，宿主把它打进日志 `[脚本] OnEngineReady 调用 #N`。
 - **边界**：传进来的 `windows` 在引擎换默认实例之前一直有效，**不要存进静态字段跨重绑使用**；建出来的窗口是弱持有，不 `CloseWindow()` 就一直活到进程退出（`Dispose` 只释放句柄）。
@@ -64,7 +72,7 @@
 校验（D6）、参数结构元数据校验、字节上传糖 `ScheduleData(handle, byte[])`、`PassCount` 读
 `GetPassIndices().Length`（D13）。原生接口签名零改动。
 
-- **入口**：`UserScript.OnRenderProbe(IWindowSystem windows, ScriptRenderBackend backend)`，与一次性 `OnEngineReady` **互不消耗**。`Host` 只在 `CASCADED_CSHARP_RENDER_PROBE=1` 且后端 + 四张目标类型表都绑定成功时调用一次；开关由测试在**自己的 Tick 之前**设置、之后清理。
+- **入口**：`UserScript.OnRenderProbe(IWindowSystem windows, ScriptRenderBackend backend)`，与一次性 `OnEngineReady` **互不消耗**。`Host` 只在 `CASCADED_CSHARP_RENDER_PROBE=1` 且后端 + 五张目标类型表都绑定成功时调用一次；开关由测试在**自己的 Tick 之前**设置、之后清理。
 - **脚本做的事**：`NewWindow` 建窗 → `GetWindowTarget`（`GetWindowHandle` + `GetSizeSafe` + `ImageHandle.FromWindowHandle`，`isBackbuffer=true`）+ 同尺寸 `CreateCaptureTarget`（`CreateGPUTexture` + `ImageHandle.FromGPUTexture`，托管记尺寸）→ `CreateGraph` → 写 72 字节顶点（三个顶点 × 24 字节步长，位置偏移 0、颜色偏移 12）→ `AddBuffer`（内部 `AllocBuffer` + 上传糖）/ `SetPositionColorStream` / 两次同逻辑 `AddTrianglePass`（窗口 + 离屏）→ `Present` → `SubmitGraph`（糖层先把计划落成原生 pass，再跑完整性校验，最后 `ExecuteGraph`）→ `WaitIdle`，并把图与两个目标保留到 `Shutdown` 再释放。
 - **依赖**：宿主在模块 link 阶段从模块管理器取 `CRenderBackend` 与 `CThreadManager`，把**原生后端**登记为编号 3；缺任何一个时编号 3 **不登记**并留下明确错误，未启用探针的窗口路径保持原行为。`ExecuteGraph` 的调度器仍由引擎注入（`CAInject_CRenderBackend_ExecuteGraph_scheduler`）。
 - **Debug 自检开关**（只在 Debug 生效，供 `TestCSharpTriangle` 构造负向证据）：`CASCADED_CSHARP_RENDER_SELFTEST=skip-draw`（在调用层省略窗口与离屏目标的两次 `AddTrianglePass`，图 pass 数为 0；托管前置校验拒绝空图提交，原生测试与正常模式的 2 个 pass 对比后用 `E_TRIANGLE_DRAW` 判红）、`bad-vertex`（一个顶点改蓝：中心不再是纯红）、`skip-present`（省略呈现）、`skip-wait`（省略 `WaitIdle`）。生产脚本不依赖它们。
@@ -124,6 +132,7 @@ python build.py --config Debug
 | `CASCADED_CSHARP_CONSTCOLOR_SELFTEST` | **仅 Debug**：`bad-struct-colors` / `skip-param` 两个负向模式；C++ 侧 `TestCSharpConstantColor` 读同一份值来核对错误码 | 空串 |
 | `CASCADED_CSHARP_SB_PROBE=1` | 启用结构化缓冲探针；只有 `TestCSharpStructuredBuffer` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_SB_SELFTEST` | **仅 Debug**：`bad-buffer-color` / `unbound-field` / `bad-buffer-name` 三个负向模式；C++ 侧 `TestCSharpStructuredBuffer` 读同一份值来核对错误码 | 空串 |
+| `CASCADED_CSHARP_BUFFER_FALLBACK=1` | **仅 Debug 演练**：7.1 的"回退到图内 `AllocBuffer`"红样开关；设置后结构化缓冲探针走按名分配、第二张图提交必败（`E_SB_CREATEBUFFER`）。生产脚本不设 | 不设 |
 | `CASCADED_CSHARP_TEX_PROBE=1` | 启用纹理采样探针；只有 `TestCSharpTextureSampling` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_TEX_SELFTEST` | **仅 Debug**：`bad-texture-color` / `unbound-image` / `unbound-sampler` 三个负向模式；C++ 侧 `TestCSharpTextureSampling` 读同一份值来核对错误码 | 空串 |
 
@@ -136,7 +145,7 @@ python build.py --config Debug
 | 托管程序集缺失 | `CSharpHost 初始化失败（退出码 3）：解析托管入口 Boot 失败，返回 -2146233079（程序集 …\bin\Scripting.Managed.dll）；找过的路径：…\hostfxr.dll、…\Scripting.Managed.runtimeconfig.json` |
 | 配置路径不存在 | `CSharpHost 初始化失败（退出码 3）：找不到托管侧的 runtimeconfig.json：…\bad.runtimeconfig.json；找过的路径：C:\Program Files\dotnet\host\fxr\10.0.2\hostfxr.dll、…\bad.runtimeconfig.json` |
 | 配置要的运行时版本本机没有 | `hostfxr_initialize_for_runtime_config 返回 -2147450730（…；配置里要的框架版本：7.0.0；本机已装的运行时版本：10.0.2、8.0.23、8.0.6、9.0.12）` |
-| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 11（真实值 10）` + `[托管侧] ABI 版本不符：引擎 11，托管侧期望 10` + `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 11、函数表 56 字节；0 = 成功）；找过的路径：…` |
+| 函数表 ABI 版本不符 | `CSharpHost 自检开关已生效：故意把 abi_version 改成 13（真实值 12）` + `[托管侧] ABI 版本不符：引擎 13，托管侧期望 12` + `CSharpHost 初始化失败（退出码 3）：托管侧 Boot 返回错误码 1（引擎侧 ABI 版本 12、函数表 56 字节；0 = 成功）；找过的路径：…` |
 | 托管方法抛异常 | `[托管侧] Tick 抛异常：InvalidOperationException: …` + 引擎侧收到错误码 **4**；进程**不崩**。当前测试操作算失败，`GPUBackendTester` 按既有约定返回 **1**（不是无条件 0）；`Tools/check_csharp_host_failures.py` 按此断言 |
 
 ## 关闭
@@ -155,9 +164,9 @@ Select-String -LiteralPath $env:TEMP\csharp.out -Pattern '托管侧|IScriptHost|
 实测输出（节选）：
 
 ```
-[托管侧] 托管侧已启动：ABI 版本 10、函数表 56 字节
+[托管侧] 托管侧已启动：ABI 版本 12、函数表 56 字节
 [托管侧] 回调引擎 Echo(42) 得到 43
-CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 56 字节，ABI v10）
+CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 56 字节，ABI v12）
 IScriptHost 已取到：IsAvailable = true
 ```
 

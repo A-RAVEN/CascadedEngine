@@ -1,4 +1,4 @@
-// 布局清单（`csharp-bindings-generator` 任务 2.5）：镜像结构体与 C++ 侧的真实布局必须一致。
+﻿// 布局清单（`csharp-bindings-generator` 任务 2.5）：镜像结构体与 C++ 侧的真实布局必须一致。
 //
 // 生成物里已经有 `static_assert(sizeof(...) == 8)` 与逐字段的 `static_assert(offsetof(...) == N)` ——
 // 那两条是**编译期**判据：把夹具的字段类型改掉却不重新生成，这个文件就编不过。
@@ -6,7 +6,7 @@
 
 #include "BindableShapes.h"
 
-#include "IBindRow02.Bindings.cpp"
+#include "ca_bind_fixture__IBindRow02.Bindings.cpp"
 
 #include <cstddef>
 #include <cstdio>

@@ -1,0 +1,61 @@
+csharp-bindings-namespace-alignment · 1.2 C ABI 槽名线形与 D6 产物/辅助标识符
+执行时间：2026-11-09 深夜
+构建日志：%TEMP%\ns-build-10.log（EXIT=0，BUILD SUCCESSFUL；本轮同时是"同 TU 无 C2011/C2084"的实测）
+
+一、槽名线形（D2）：`<ns 段>__<短名>__<方法>`
+  命令：Select-String out\build\x64-debug\codegen\bindings\graphics_backend__GPUGraph.Bindings.cpp -Pattern 'extern "C".*AddPass'
+  实测：
+    extern "C" void graphics_backend__GPUGraph__AddPass(void* self, uint8_t const* renderPassBytes, uint64_t renderPassLen);
+    extern "C" void graphics_backend__GPUGraph__AddPass_2(void* self, uint8_t const* computePassBytes, uint64_t computePassLen);
+  表头槽同规则：`graphics_backend__GPUGraph__LastErrorCode/LastErrorText/ResolveHandle/ReleaseHandle/
+  ResolveTargetHandle/ReleaseTargetHandle/UnregisterCallback/ReportCallbackError/GetApi/GetLayoutType*`。
+  两段式伴生：`graphics_backend__GPUGraph__AddPassLen` / `...__CopyAddPass`（实测产物里存在）。
+
+二、旧短名槽名 0 命中
+  命令：Get-ChildItem out\build\x64-debug\codegen\bindings -File -Filter *.Bindings.cpp |
+        Select-String -Pattern '(?<!_)(GPUGraph|CRenderBackend|GPUTexture|ShaderStruct|WindowHandle|IWindowSystem|IWindow|IBindRow\d+)_[A-Za-z]'
+  实测：0 行（全部槽名都是 `<线形>__<方法>`；`_2` 这类单下划线只在方法名内部）。
+
+三、注入钩子（D2）
+  实测：
+    extern "C" void* CAInject__graphics_backend__CRenderBackend__ExecuteGraph__scheduler();
+    object->ExecuteGraph(static_cast<thread_management::TaskScheduler *>(
+        CAInject__graphics_backend__CRenderBackend__ExecuteGraph__scheduler()), graphShared);
+  旧钩子命中：Get-ChildItem ... -Filter *.Bindings.cpp | Select-String 'CAInject_[A-Za-z]' ⇒ 0 行。
+  手写侧同步：Interface/RenderInterface/header/CRenderBackend.h、CSharpHost.cpp、CoreTests 两处、
+  Tools/CodeGen/BindableShapes.NativeShapes.h 全部改成新名（见 git diff）。
+
+四、产物文件名（D6）：`<限定名线形>.Bindings.cs/.cpp`
+  命令：Get-ChildItem out\build\x64-debug\codegen\bindings -File -Filter '*__*.Bindings.cs' | Select-Object -First N Name
+  实测抽样：
+    cawindow__IWindow.Bindings.cs / cawindow__IWindowSystem.Bindings.cs
+    graphics_backend__GPUGraph.Bindings.cs / graphics_backend__CRenderBackend.Bindings.cpp
+    ca_bind_fixture__IBindRow01.Bindings.cs / ca_bind_fixture__IBindNativeShape.Bindings.cpp
+    ns1__Device.Bindings.cs / ns2__Device.Bindings.cs / a_b__Widget.Bindings.cs / a__b__Widget.Bindings.cs
+  共享类型同规则：ShaderCompilerSlang__ShaderStructData.Bindings.cs、
+  ca_bind_fixture__PassLike.BindingCodec.h（编解码头也带线形，避免同短名记录撞名）。
+  产物总数：121 个 .Bindings.cs + 42 个 .Bindings.cpp（另有 BindingHandleTable.h 与登记表三件）。
+
+五、文件内 C++ 辅助标识符加线形前缀（D6）
+  实测抽样（graphics_backend__GPUGraph.Bindings.cpp）：
+    static graphics_backend::GPUBufferDescriptor graphics_backend__GPUGraph_fromC_GPUBufferDescriptor(...)
+    static graphics_backend::GPUTextureDescriptor graphics_backend__GPUGraph_fromC_GPUTextureDescriptor(...)
+    graphics_backend__GPUGraphLayoutFieldData / graphics_backend__GPUGraphLayoutTypeData /
+    graphics_backend__GPUGraph_layoutFields0 / graphics_backend__GPUGraph_layoutTypes
+    static <ret> graphics_backend__GPUGraph_thunk_<方法>(...)
+    graphics_backend__GPUGraph_ERROR_<码名> / graphics_backend__GPUGraph_handles / ..._HANDLE_TAG /
+    ..._errorSlots / ..._errorMutex / ..._claimSlotLocked / ..._lookupTargetHandle
+  函数表 struct：`graphics_backend__GPUGraphApi_v2`；`GetApi` 入口 `graphics_backend__GPUGraph__GetApi`。
+
+六、同 TU 无重定义（D6 红态判据）
+  BindingRegistry.Bindings.cpp（fixture）实测同时 `#include "ns1__Device.Bindings.cpp"` 与
+  `#include "ns2__Device.Bindings.cpp"`，两者各有 `Route_ns1__Device` / `Route_ns2__Device` 与
+  `ns1__Device__GetApi` / `ns2__Device__GetApi`；构建编译段 0 个 C2011/C2084，BUILD SUCCESSFUL。
+  推论：两份产物文件名不同（磁盘互不覆盖）、同 TU 辅助名不撞（编译通过）。
+
+七、消费方同步点（0.1 实测点位）
+  build.py：CODEGEN_BINDINGS 期望前缀全部改线形（L1035-1078），known 清单改按**完整限定名**去重
+  （删掉"短名冲突"拒绝），共享类型按 `[共享类型] <线形>=<限定名>` 直接落盘（L1285 起）。
+  BindingRegistry 的 include 改线形（CodeGenMain.cpp L12937）。
+  Scripting.Managed.csproj 的 `$(CascadedBindingDir)\*.Bindings.cs` 平铺 glob 不变（产物仍在平铺目录）。
+  CoreTests 11 个文件、tester 与两个注入钩子定义按 0.1 点位改 include / 符号名（见 git diff）。

@@ -2,159 +2,169 @@
 # 生成器：CodeGen.exe <头> --parse-report
 [头] Interface/RenderInterface/header/CRenderBackend.h
 [类] graphics_backend::IReadbackToken
-[采集] IReadbackToken::Wait | 形状：void Wait() | 判定：采集：可绑定
-[采集] IReadbackToken::IsReady | 形状：bool IsReady() | 判定：采集：可绑定
-[采集] IReadbackToken::Reset | 形状：void Reset() | 判定：采集：可绑定
+[采集] graphics_backend::IReadbackToken::Wait | 形状：void Wait() | 判定：采集：可绑定
+[采集] graphics_backend::IReadbackToken::IsReady | 形状：bool IsReady() | 判定：采集：可绑定
+[采集] graphics_backend::IReadbackToken::Reset | 形状：void Reset() | 判定：采集：可绑定
 [类] graphics_backend::CRenderBackend
-[排除] CRenderBackend::ExecuteGraph | 形状：void ExecuteGraph(TaskScheduler *, const castl::shared_ptr<GPUGraph> &) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[采集] CRenderBackend::GetTimingCapabilities | 形状：GPUTimingCapabilities GetTimingCapabilities(EGPUQueueType) | 判定：采集：可绑定
-[排除] CRenderBackend::ExecuteGraphTimed | 形状：std::unique_ptr<IGPUGraphTiming> ExecuteGraphTimed(TaskScheduler *, const castl::shared_ptr<GPUGraph> &) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[采集] CRenderBackend::Release | 形状：void Release() | 判定：采集：可绑定
-[采集] CRenderBackend::CreateGPUBuffer | 形状：castl::shared_ptr<GPUBuffer> CreateGPUBuffer(const GPUBufferDescriptor &, EBufferUsageFlags) | 判定：采集：可绑定
-[采集] CRenderBackend::CreateGPUBuffer | 形状：castl::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags, uint64_t, uint64_t) | 判定：采集：可绑定
-[采集] CRenderBackend::CreateGPUTexture | 形状：castl::shared_ptr<GPUTexture> CreateGPUTexture(const GPUTextureDescriptor &, ETextureAccessTypeFlags) | 判定：采集：可绑定
-[采集] CRenderBackend::CreateShaderStruct | 形状：castl::shared_ptr<ShaderStruct> CreateShaderStruct(const cacore::NameHash &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[排除] CRenderBackend::FindShaderStructData | 形状：const ShaderCompilerSlang::ShaderStructData * FindShaderStructData(const cacore::NameHash &) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[排除] CRenderBackend::FindShaderRootStructData | 形状：const ShaderCompilerSlang::ShaderStructData * FindShaderRootStructData(const cacore::PathHash &) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[采集] CRenderBackend::GetWindowHandle | 形状：castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow>) | 判定：采集：可绑定
-[采集] CRenderBackend::AnyWindowRunning | 形状：bool AnyWindowRunning() | 判定：采集：可绑定
-[采集] CRenderBackend::WaitIdle | 形状：void WaitIdle() | 判定：采集：可绑定
-[采集] CRenderBackend::RunTestCode | 形状：void RunTestCode() | 判定：采集：可绑定
-[采集] CRenderBackend::Readback | 形状：std::unique_ptr<IReadbackToken> Readback(const ImageHandle &, std::span<uint8_t>) | 判定：采集：可绑定
-[采集] CRenderBackend::Readback | 形状：std::unique_ptr<IReadbackToken> Readback(const BufferHandle &, std::span<uint8_t>) | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::ExecuteGraph | 形状：void ExecuteGraph(TaskScheduler *, const castl::shared_ptr<GPUGraph> &) | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::GetTimingCapabilities | 形状：GPUTimingCapabilities GetTimingCapabilities(EGPUQueueType) | 判定：采集：可绑定
+[排除] graphics_backend::CRenderBackend::ExecuteGraphTimed | 形状：std::unique_ptr<IGPUGraphTiming> ExecuteGraphTimed(TaskScheduler *, const castl::shared_ptr<GPUGraph> &) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
+[采集] graphics_backend::CRenderBackend::Release | 形状：void Release() | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::CreateGPUBuffer | 形状：castl::shared_ptr<GPUBuffer> CreateGPUBuffer(const GPUBufferDescriptor &, EBufferUsageFlags) | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::CreateGPUBuffer | 形状：castl::shared_ptr<GPUBuffer> CreateGPUBuffer(EBufferUsageFlags, uint64_t, uint64_t) | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::CreateGPUTexture | 形状：castl::shared_ptr<GPUTexture> CreateGPUTexture(const GPUTextureDescriptor &, ETextureAccessTypeFlags) | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::CreateShaderStruct | 形状：castl::shared_ptr<ShaderStruct> CreateShaderStruct(const cacore::NameHash &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::CRenderBackend::FindShaderStructData | 形状：const ShaderCompilerSlang::ShaderStructData * FindShaderStructData(const cacore::NameHash &) | 判定：采集：可绑定（记录两段式：托管得序列化只读副本，空命中为 null）
+[采集] graphics_backend::CRenderBackend::FindShaderRootStructData | 形状：const ShaderCompilerSlang::ShaderStructData * FindShaderRootStructData(const cacore::PathHash &) | 判定：采集：可绑定（记录两段式：托管得序列化只读副本，空命中为 null）
+[采集] graphics_backend::CRenderBackend::GetWindowHandle | 形状：castl::shared_ptr<WindowHandle> GetWindowHandle(castl::shared_ptr<cawindow::IWindow>) | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::AnyWindowRunning | 形状：bool AnyWindowRunning() | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::WaitIdle | 形状：void WaitIdle() | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::RunTestCode | 形状：void RunTestCode() | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::Readback | 形状：std::unique_ptr<IReadbackToken> Readback(const ImageHandle &, std::span<uint8_t>) | 判定：采集：可绑定
+[采集] graphics_backend::CRenderBackend::Readback | 形状：std::unique_ptr<IReadbackToken> Readback(const BufferHandle &, std::span<uint8_t>) | 判定：采集：可绑定
 # 原生头投影快照（codegen-native-binding-prereqs 任务 4.1）
 # 生成器：CodeGen.exe <头> --parse-report
 [头] Interface/RenderInterface/header/GPUGraph.h
 [类] graphics_backend::UploadDataHolder
-[排除] UploadDataHolder::AddData | 形状：uint64_t AddData(const void *, uint64_t) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[排除] UploadDataHolder::GetPtr | 形状：const void * GetPtr(uint64_t) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[采集] UploadDataHolder::Clear | 形状：void Clear() | 判定：采集：可绑定
+[排除] graphics_backend::UploadDataHolder::AddData | 形状：uint64_t AddData(const void *, uint64_t) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
+[排除] graphics_backend::UploadDataHolder::GetPtr | 形状：const void * GetPtr(uint64_t) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
+[采集] graphics_backend::UploadDataHolder::Clear | 形状：void Clear() | 判定：采集：可绑定
 [类] graphics_backend::PipelineDescData
-[采集] PipelineDescData::CombindDescData | 形状：static PipelineDescData CombindDescData(const PipelineDescData &, const PipelineDescData &) | 判定：采集：可绑定
+[采集] graphics_backend::PipelineDescData::CombindDescData | 形状：static PipelineDescData CombindDescData(const PipelineDescData &, const PipelineDescData &) | 判定：采集：可绑定
 [类] graphics_backend::IndexBufferData
-[采集] IndexBufferData::Select | 形状：const IndexBufferData & Select(const IndexBufferData &) | 判定：采集：可绑定
-[采集] IndexBufferData::IsValid | 形状：bool IsValid() | 判定：采集：可绑定
+[采集] graphics_backend::IndexBufferData::Select | 形状：const IndexBufferData & Select(const IndexBufferData &) | 判定：采集：可绑定
+[采集] graphics_backend::IndexBufferData::IsValid | 形状：bool IsValid() | 判定：采集：可绑定
 [类] graphics_backend::ViewRectData
-[采集] ViewRectData::Zeros | 形状：static ViewRectData Zeros() | 判定：采集：可绑定
+[采集] graphics_backend::ViewRectData::Zeros | 形状：static ViewRectData Zeros() | 判定：采集：可绑定
 [类] graphics_backend::DrawCall
-[采集] DrawCall::New | 形状：static DrawCall New() | 判定：采集：可绑定
-[采集] DrawCall::SetVertexBuffer | 形状：DrawCall & SetVertexBuffer(const cacore::NameHash &, const BufferHandle &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] DrawCall::SetIndexBuffer | 形状：DrawCall & SetIndexBuffer(EIndexBufferType, const BufferHandle &, uint32_t) | 判定：采集：可绑定
-[采集] DrawCall::DrawIndexed | 形状：DrawCall & DrawIndexed(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
-[采集] DrawCall::Draw | 形状：DrawCall & Draw(uint32_t, uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
-[采集] DrawCall::ViewPort | 形状：DrawCall & ViewPort(int, int, int, int) | 判定：采集：可绑定
-[采集] DrawCall::Scissor | 形状：DrawCall & Scissor(int, int, int, int) | 判定：采集：可绑定
-[采集] DrawCall::GetDrawInfo | 形状：const DrawInfo & GetDrawInfo() | 判定：采集：可绑定
-[采集] DrawCall::GetIndexBuffer | 形状：const IndexBufferData & GetIndexBuffer() | 判定：采集：可绑定
-[排除] DrawCall::GetVertexBuffers | 形状：const castl::unordered_map<cacore::NameHash, BufferHandle> & GetVertexBuffers() | 判定：排除：映射容器 / 定长数组（本批未实现）
-[采集] DrawCall::GetViewPort | 形状：const cacore::HashObj<ViewRectData> & GetViewPort() | 判定：采集：可绑定
-[采集] DrawCall::GetScissor | 形状：const cacore::HashObj<ViewRectData> & GetScissor() | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::New | 形状：static DrawCall New() | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::SetVertexBuffer | 形状：DrawCall & SetVertexBuffer(const cacore::NameHash &, const BufferHandle &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::DrawCall::SetIndexBuffer | 形状：DrawCall & SetIndexBuffer(EIndexBufferType, const BufferHandle &, uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::DrawIndexed | 形状：DrawCall & DrawIndexed(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::Draw | 形状：DrawCall & Draw(uint32_t, uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::ViewPort | 形状：DrawCall & ViewPort(int, int, int, int) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::Scissor | 形状：DrawCall & Scissor(int, int, int, int) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::GetDrawInfo | 形状：const DrawInfo & GetDrawInfo() | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::GetIndexBuffer | 形状：const IndexBufferData & GetIndexBuffer() | 判定：采集：可绑定
+[排除] graphics_backend::DrawCall::GetVertexBuffers | 形状：const castl::unordered_map<cacore::NameHash, BufferHandle> & GetVertexBuffers() | 判定：排除：映射容器 / 定长数组（本批未实现）
+[采集] graphics_backend::DrawCall::GetViewPort | 形状：const cacore::HashObj<ViewRectData> & GetViewPort() | 判定：采集：可绑定
+[采集] graphics_backend::DrawCall::GetScissor | 形状：const cacore::HashObj<ViewRectData> & GetScissor() | 判定：采集：可绑定
 [类] DrawInfo
 [类] graphics_backend::DrawCallBatch
-[采集] DrawCallBatch::New | 形状：static DrawCallBatch New() | 判定：采集：可绑定
-[采集] DrawCallBatch::GetPipelineStates | 形状：const PipelineDescData & GetPipelineStates() | 判定：采集：可绑定
-[采集] DrawCallBatch::SetPipelineState | 形状：DrawCallBatch & SetPipelineState(const CPipelineStateObject &) | 判定：采集：可绑定
-[采集] DrawCallBatch::SetInputAssemblyStates | 形状：DrawCallBatch & SetInputAssemblyStates(InputAssemblyStates) | 判定：采集：可绑定
-[采集] DrawCallBatch::SetShaderInfo | 形状：DrawCallBatch & SetShaderInfo(const ShaderInfo &) | 判定：采集：可绑定
-[采集] DrawCallBatch::SetViewPort | 形状：DrawCallBatch & SetViewPort(const ViewRectData &) | 判定：采集：可绑定
-[采集] DrawCallBatch::SetScissor | 形状：DrawCallBatch & SetScissor(const ViewRectData &) | 判定：采集：可绑定
-[采集] DrawCallBatch::SetParam | 形状：DrawCallBatch & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] DrawCallBatch::VertexStream | 形状：DrawCallBatch & VertexStream(const cacore::NameHash &, const cacore::HashObj<VertexInputsDescriptor> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] DrawCallBatch::DrawCall | 形状：DrawCallBatch & DrawCall(const DrawCall &) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::New | 形状：static DrawCallBatch New() | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::GetPipelineStates | 形状：const PipelineDescData & GetPipelineStates() | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::SetPipelineState | 形状：DrawCallBatch & SetPipelineState(const CPipelineStateObject &) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::SetInputAssemblyStates | 形状：DrawCallBatch & SetInputAssemblyStates(InputAssemblyStates) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::SetShaderInfo | 形状：DrawCallBatch & SetShaderInfo(const ShaderInfo &) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::SetViewPort | 形状：DrawCallBatch & SetViewPort(const ViewRectData &) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::SetScissor | 形状：DrawCallBatch & SetScissor(const ViewRectData &) | 判定：采集：可绑定
+[采集] graphics_backend::DrawCallBatch::SetParam | 形状：DrawCallBatch & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::DrawCallBatch::VertexStream | 形状：DrawCallBatch & VertexStream(const cacore::NameHash &, const cacore::HashObj<VertexInputsDescriptor> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::DrawCallBatch::DrawCall | 形状：DrawCallBatch & DrawCall(const DrawCall &) | 判定：采集：可绑定
 [类] graphics_backend::AttachmentConfig
-[采集] AttachmentConfig::Create | 形状：static AttachmentConfig Create(EAttachmentLoadOp, EAttachmentStoreOp, GraphicsClearValue) | 判定：采集：可绑定
-[采集] AttachmentConfig::Clear | 形状：static AttachmentConfig Clear(const GraphicsClearValue &, EAttachmentStoreOp) | 判定：采集：可绑定
-[采集] AttachmentConfig::ClearDepthStencil | 形状：static AttachmentConfig ClearDepthStencil(float, uint32_t, EAttachmentStoreOp) | 判定：采集：可绑定
+[采集] graphics_backend::AttachmentConfig::Create | 形状：static AttachmentConfig Create(EAttachmentLoadOp, EAttachmentStoreOp, GraphicsClearValue) | 判定：采集：可绑定
+[采集] graphics_backend::AttachmentConfig::Clear | 形状：static AttachmentConfig Clear(const GraphicsClearValue &, EAttachmentStoreOp) | 判定：采集：可绑定
+[采集] graphics_backend::AttachmentConfig::ClearDepthStencil | 形状：static AttachmentConfig ClearDepthStencil(float, uint32_t, EAttachmentStoreOp) | 判定：采集：可绑定
 [类] graphics_backend::RenderPass
-[采集] RenderPass::New | 形状：static RenderPass New(const ImageHandle &, const AttachmentConfig &) | 判定：采集：可绑定
-[采集] RenderPass::New | 形状：static RenderPass New(const castl::vector<ImageHandle> &, const ImageHandle &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] RenderPass::New | 形状：static RenderPass New(const castl::vector<ImageHandle> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] RenderPass::New | 形状：static RenderPass New(const ImageHandle &, const ImageHandle &, const AttachmentConfig &, const AttachmentConfig &) | 判定：采集：可绑定
-[采集] RenderPass::Name | 形状：RenderPass & Name(const cacore::NameHash &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] RenderPass::SetAttachmentConfig | 形状：RenderPass & SetAttachmentConfig(uint32_t, const AttachmentConfig &) | 判定：采集：可绑定
-[采集] RenderPass::SetDepthAttachmentConfig | 形状：RenderPass & SetDepthAttachmentConfig(const AttachmentConfig &) | 判定：采集：可绑定
-[采集] RenderPass::SetPipelineState | 形状：RenderPass & SetPipelineState(const CPipelineStateObject &) | 判定：采集：可绑定
-[采集] RenderPass::SetParam | 形状：RenderPass & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] RenderPass::SetInputAssemblyStates | 形状：RenderPass & SetInputAssemblyStates(InputAssemblyStates) | 判定：采集：可绑定
-[采集] RenderPass::SetShaderInfo | 形状：RenderPass & SetShaderInfo(const ShaderInfo &) | 判定：采集：可绑定
-[采集] RenderPass::DrawCall | 形状：RenderPass & DrawCall(const DrawCallBatch &) | 判定：采集：可绑定
-[采集] RenderPass::Batch | 形状：RenderPass & Batch(const DrawCallBatch &) | 判定：采集：可绑定
-[采集] RenderPass::GetDrawCallBatches | 形状：const castl::vector<DrawCallBatch> & GetDrawCallBatches() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] RenderPass::GetAttachments | 形状：const castl::vector<ImageHandle> & GetAttachments() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] RenderPass::GetDepthAttachmentIndex | 形状：int GetDepthAttachmentIndex() | 判定：采集：可绑定
-[采集] RenderPass::GetColorAttachmentCount | 形状：uint32_t GetColorAttachmentCount() | 判定：采集：可绑定
-[采集] RenderPass::HasDepthAttachment | 形状：bool HasDepthAttachment() | 判定：采集：可绑定
-[采集] RenderPass::GetAttachmentConfig | 形状：const AttachmentConfig & GetAttachmentConfig(uint32_t) | 判定：采集：可绑定
-[采集] RenderPass::GetPipelineStates | 形状：const PipelineDescData & GetPipelineStates() | 判定：采集：可绑定
-[排除] RenderPass::GetShaderStructs | 形状：const castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> & GetShaderStructs() | 判定：排除：映射容器 / 定长数组（本批未实现）
-[采集] RenderPass::GetName | 形状：const cacore::NameHash & GetName() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::RenderPass::New | 形状：static RenderPass New(const ImageHandle &, const AttachmentConfig &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::New | 形状：static RenderPass New(const castl::vector<ImageHandle> &, const ImageHandle &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::RenderPass::New | 形状：static RenderPass New(const castl::vector<ImageHandle> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::RenderPass::New | 形状：static RenderPass New(const ImageHandle &, const ImageHandle &, const AttachmentConfig &, const AttachmentConfig &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::Name | 形状：RenderPass & Name(const cacore::NameHash &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::RenderPass::SetAttachmentConfig | 形状：RenderPass & SetAttachmentConfig(uint32_t, const AttachmentConfig &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::SetDepthAttachmentConfig | 形状：RenderPass & SetDepthAttachmentConfig(const AttachmentConfig &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::SetPipelineState | 形状：RenderPass & SetPipelineState(const CPipelineStateObject &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::SetParam | 形状：RenderPass & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::RenderPass::SetInputAssemblyStates | 形状：RenderPass & SetInputAssemblyStates(InputAssemblyStates) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::SetShaderInfo | 形状：RenderPass & SetShaderInfo(const ShaderInfo &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::DrawCall | 形状：RenderPass & DrawCall(const DrawCallBatch &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::Batch | 形状：RenderPass & Batch(const DrawCallBatch &) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::GetDrawCallBatches | 形状：const castl::vector<DrawCallBatch> & GetDrawCallBatches() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::RenderPass::GetAttachments | 形状：const castl::vector<ImageHandle> & GetAttachments() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::RenderPass::GetDepthAttachmentIndex | 形状：int GetDepthAttachmentIndex() | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::GetColorAttachmentCount | 形状：uint32_t GetColorAttachmentCount() | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::HasDepthAttachment | 形状：bool HasDepthAttachment() | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::GetAttachmentConfig | 形状：const AttachmentConfig & GetAttachmentConfig(uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::RenderPass::GetPipelineStates | 形状：const PipelineDescData & GetPipelineStates() | 判定：采集：可绑定
+[排除] graphics_backend::RenderPass::GetShaderStructs | 形状：const castl::unordered_map<cacore::NameHash, castl::shared_ptr<ShaderStruct>> & GetShaderStructs() | 判定：排除：映射容器 / 定长数组（本批未实现）
+[采集] graphics_backend::RenderPass::GetName | 形状：const cacore::NameHash & GetName() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
 [类] graphics_backend::ComputeDispatch
-[采集] ComputeDispatch::New | 形状：static ComputeDispatch New() | 判定：采集：可绑定
-[采集] ComputeDispatch::Create | 形状：static ComputeDispatch Create(const ShaderInfo &, uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
-[采集] ComputeDispatch::SetShader | 形状：ComputeDispatch & SetShader(const ShaderInfo &) | 判定：采集：可绑定
-[采集] ComputeDispatch::Dispatch | 形状：ComputeDispatch & Dispatch(uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
-[采集] ComputeDispatch::SetParam | 形状：ComputeDispatch & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ComputeDispatch::New | 形状：static ComputeDispatch New() | 判定：采集：可绑定
+[采集] graphics_backend::ComputeDispatch::Create | 形状：static ComputeDispatch Create(const ShaderInfo &, uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::ComputeDispatch::SetShader | 形状：ComputeDispatch & SetShader(const ShaderInfo &) | 判定：采集：可绑定
+[采集] graphics_backend::ComputeDispatch::Dispatch | 形状：ComputeDispatch & Dispatch(uint32_t, uint32_t, uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::ComputeDispatch::SetParam | 形状：ComputeDispatch & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
 [类] graphics_backend::ComputeBatch
-[采集] ComputeBatch::New | 形状：static ComputeBatch New(bool) | 判定：采集：可绑定
-[采集] ComputeBatch::SetAsync | 形状：ComputeBatch & SetAsync(bool) | 判定：采集：可绑定
-[采集] ComputeBatch::SetParam | 形状：ComputeBatch & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] ComputeBatch::Dispatch | 形状：ComputeBatch & Dispatch(const ComputeDispatch &) | 判定：采集：可绑定
-[排除] ComputeBatch::Dispatch | 形状：ComputeBatch & Dispatch(const ShaderInfo &, const castl::string_view &, uint32_t, uint32_t, uint32_t, const ShaderStructDic &) | 判定：排除：映射容器 / 定长数组（本批未实现）
+[采集] graphics_backend::ComputeBatch::New | 形状：static ComputeBatch New(bool) | 判定：采集：可绑定
+[采集] graphics_backend::ComputeBatch::SetAsync | 形状：ComputeBatch & SetAsync(bool) | 判定：采集：可绑定
+[采集] graphics_backend::ComputeBatch::SetParam | 形状：ComputeBatch & SetParam(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ComputeBatch::Dispatch | 形状：ComputeBatch & Dispatch(const ComputeDispatch &) | 判定：采集：可绑定
+[排除] graphics_backend::ComputeBatch::Dispatch | 形状：ComputeBatch & Dispatch(const ShaderInfo &, const castl::string_view &, uint32_t, uint32_t, uint32_t, const ShaderStructDic &) | 判定：排除：映射容器 / 定长数组（本批未实现）
 [类] graphics_backend::FinalizePass
-[采集] FinalizePass::isEmpty | 形状：bool isEmpty() | 判定：采集：可绑定
+[采集] graphics_backend::FinalizePass::isEmpty | 形状：bool isEmpty() | 判定：采集：可绑定
 [类] graphics_backend::GPUDataTransfers
 [类] DataReference
 [排除] DataReference::Create | 形状：static DataReference Create(const void *, uint64_t, uint64_t, uint64_t, bool) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
 [类] graphics_backend::GPUGraph
-[采集] GPUGraph::AddPass | 形状：GPUGraph & AddPass(const RenderPass &) | 判定：采集：可绑定
-[采集] GPUGraph::Rast | 形状：GPUGraph & Rast(const RenderPass &) | 判定：采集：可绑定
-[采集] GPUGraph::AddPass | 形状：GPUGraph & AddPass(const ComputeBatch &) | 判定：采集：可绑定
-[采集] GPUGraph::Comp | 形状：GPUGraph & Comp(const ComputeBatch &) | 判定：采集：可绑定
-[排除] GPUGraph::ScheduleData | 形状：GPUGraph & ScheduleData(const ImageHandle &, const void *, uint64_t, uint64_t, bool) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[排除] GPUGraph::ScheduleData | 形状：GPUGraph & ScheduleData(const BufferHandle &, const void *, uint64_t, uint64_t, bool) | 判定：排除：② 所有权不明的裸指针（参数或返回位置）
-[排除] GPUGraph::ScheduleData | 形状：template<> ScheduleData(...) | 判定：排除：① 模板方法（本批不做模板单态化）
-[排除] GPUGraph::ScheduleData | 形状：template<> ScheduleData(...) | 判定：排除：① 模板方法（本批不做模板单态化）
-[采集] GPUGraph::AllocImage | 形状：GPUGraph & AllocImage(const ImageHandle &, const GPUTextureDescriptor &) | 判定：采集：可绑定
-[采集] GPUGraph::AllocBuffer | 形状：GPUGraph & AllocBuffer(const BufferHandle &, const GPUBufferDescriptor &) | 判定：采集：可绑定
-[采集] GPUGraph::Present | 形状：GPUGraph & Present(const ImageHandle &) | 判定：采集：可绑定
-[采集] GPUGraph::Finalize | 形状：GPUGraph & Finalize(const ImageHandle &, ETextureAccessType) | 判定：采集：可绑定
-[排除] GPUGraph::AllocAndUploadBuffer | 形状：template<> AllocAndUploadBuffer(...) | 判定：排除：① 模板方法（本批不做模板单态化）
-[采集] GPUGraph::GetGraphStages | 形状：const castl::vector<EGraphStageType> & GetGraphStages() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] GPUGraph::GetRenderPasses | 形状：const castl::deque<RenderPass> & GetRenderPasses() | 判定：采集：可绑定
-[采集] GPUGraph::GetRenderPassForWrite | 形状：RenderPass & GetRenderPassForWrite(uint32_t) | 判定：采集：可绑定
-[采集] GPUGraph::GetComputePasses | 形状：const castl::deque<ComputeBatch> & GetComputePasses() | 判定：采集：可绑定
-[采集] GPUGraph::GetDataTransfers | 形状：const castl::vector<GPUDataTransfers> & GetDataTransfers() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] GPUGraph::GetPassIndices | 形状：const castl::vector<uint32_t> & GetPassIndices() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] GPUGraph::GetUploadDataHolder | 形状：const UploadDataHolder & GetUploadDataHolder() | 判定：采集：可绑定
-[采集] GPUGraph::GetImageManager | 形状：const GraphResourceManager<GPUTextureDescriptor> & GetImageManager() | 判定：采集：可绑定
-[采集] GPUGraph::GetBufferManager | 形状：const GraphResourceManager<GPUBufferDescriptor> & GetBufferManager() | 判定：采集：可绑定
-[采集] GPUGraph::GetFinalizePass | 形状：const FinalizePass & GetFinalizePass() | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::AddPass | 形状：GPUGraph & AddPass(const RenderPass &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::Rast | 形状：GPUGraph & Rast(const RenderPass &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::AddPass | 形状：GPUGraph & AddPass(const ComputeBatch &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::Comp | 形状：GPUGraph & Comp(const ComputeBatch &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::ScheduleData | 形状：GPUGraph & ScheduleData(const ImageHandle &, const void *, uint64_t, uint64_t, bool) | 判定：采集：可绑定（内存窗投影：托管收 byte[]，thunk 以固定内存传指针与长度）
+[采集] graphics_backend::GPUGraph::ScheduleData | 形状：GPUGraph & ScheduleData(const BufferHandle &, const void *, uint64_t, uint64_t, bool) | 判定：采集：可绑定（内存窗投影：托管收 byte[]，thunk 以固定内存传指针与长度）
+[排除] graphics_backend::GPUGraph::ScheduleData | 形状：template<> ScheduleData(...) | 判定：排除：① 模板方法（本批不做模板单态化）
+[排除] graphics_backend::GPUGraph::ScheduleData | 形状：template<> ScheduleData(...) | 判定：排除：① 模板方法（本批不做模板单态化）
+[采集] graphics_backend::GPUGraph::AllocImage | 形状：GPUGraph & AllocImage(const ImageHandle &, const GPUTextureDescriptor &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::AllocBuffer | 形状：GPUGraph & AllocBuffer(const BufferHandle &, const GPUBufferDescriptor &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::Present | 形状：GPUGraph & Present(const ImageHandle &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::Finalize | 形状：GPUGraph & Finalize(const ImageHandle &, ETextureAccessType) | 判定：采集：可绑定
+[排除] graphics_backend::GPUGraph::AllocAndUploadBuffer | 形状：template<> AllocAndUploadBuffer(...) | 判定：排除：① 模板方法（本批不做模板单态化）
+[采集] graphics_backend::GPUGraph::GetGraphStages | 形状：const castl::vector<EGraphStageType> & GetGraphStages() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::GPUGraph::GetRenderPasses | 形状：const castl::deque<RenderPass> & GetRenderPasses() | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::GetRenderPassForWrite | 形状：RenderPass & GetRenderPassForWrite(uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::GetComputePasses | 形状：const castl::deque<ComputeBatch> & GetComputePasses() | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::GetDataTransfers | 形状：const castl::vector<GPUDataTransfers> & GetDataTransfers() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::GPUGraph::GetPassIndices | 形状：const castl::vector<uint32_t> & GetPassIndices() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::GPUGraph::GetUploadDataHolder | 形状：const UploadDataHolder & GetUploadDataHolder() | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::GetImageManager | 形状：const GraphResourceManager<GPUTextureDescriptor> & GetImageManager() | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::GetBufferManager | 形状：const GraphResourceManager<GPUBufferDescriptor> & GetBufferManager() | 判定：采集：可绑定
+[采集] graphics_backend::GPUGraph::GetFinalizePass | 形状：const FinalizePass & GetFinalizePass() | 判定：采集：可绑定
 # 原生头投影快照（codegen-native-binding-prereqs 任务 4.1）
 # 生成器：CodeGen.exe <头> --parse-report
 [头] Interface/RenderInterface/header/ShaderStruct.h
+[类] graphics_backend::float3
 [类] graphics_backend::ShaderStruct
-[排除] ShaderStruct::SetValue | 形状：template<> SetValue(...) | 判定：排除：① 模板方法（本批不做模板单态化）
-[采集] ShaderStruct::SetImage | 形状：ShaderStruct & SetImage(const cacore::NameHash &, const ImageHandle &, const GPUTextureView &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] ShaderStruct::SetImage | 形状：ShaderStruct & SetImage(const cacore::NameHash &, const castl::shared_ptr<GPUTexture> &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] ShaderStruct::SetBuffer | 形状：ShaderStruct & SetBuffer(const cacore::NameHash &, const BufferHandle &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] ShaderStruct::SetSampler | 形状：ShaderStruct & SetSampler(const cacore::NameHash &, const TextureSamplerDescriptor &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] ShaderStruct::SetStruct | 形状：ShaderStruct & SetStruct(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] ShaderStruct::GetStructTypeName | 形状：const cacore::NameHash & GetStructTypeName() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ShaderStruct::SetValue | 形状：template<> SetValue(...) | 判定：采集：可绑定（模板显式实例化： float3, float ）
+[采集] graphics_backend::ShaderStruct::SetImage | 形状：ShaderStruct & SetImage(const cacore::NameHash &, const ImageHandle &, const GPUTextureView &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ShaderStruct::SetImage | 形状：ShaderStruct & SetImage(const cacore::NameHash &, const castl::shared_ptr<GPUTexture> &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ShaderStruct::SetBuffer | 形状：ShaderStruct & SetBuffer(const cacore::NameHash &, const BufferHandle &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ShaderStruct::SetSampler | 形状：ShaderStruct & SetSampler(const cacore::NameHash &, const TextureSamplerDescriptor &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ShaderStruct::SetStruct | 形状：ShaderStruct & SetStruct(const cacore::NameHash &, const castl::shared_ptr<ShaderStruct> &, uint32_t) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::ShaderStruct::GetStructTypeName | 形状：const cacore::NameHash & GetStructTypeName() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
 # 原生头投影快照（codegen-native-binding-prereqs 任务 4.1）
 # 生成器：CodeGen.exe <头> --parse-report
 [头] Interface/RenderInterface/header/GPUTexture.h
 [类] graphics_backend::GPUTextureDescriptor
-[采集] GPUTextureDescriptor::Create | 形状：static GPUTextureDescriptor Create(uint32_t, uint32_t, ETextureFormat, ETextureType, uint32_t, uint32_t, EMultiSampleCount) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureDescriptor::Create | 形状：static GPUTextureDescriptor Create(uint32_t, uint32_t, ETextureFormat, ETextureType, uint32_t, uint32_t, EMultiSampleCount) | 判定：采集：可绑定
 [类] graphics_backend::GPUTextureSwizzle
-[采集] GPUTextureSwizzle::Create | 形状：static GPUTextureSwizzle Create(EColorChannel, EColorChannel, EColorChannel, EColorChannel) | 判定：采集：可绑定
-[采集] GPUTextureSwizzle::SingleChannel | 形状：static GPUTextureSwizzle SingleChannel(EColorChannel) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureSwizzle::Create | 形状：static GPUTextureSwizzle Create(EColorChannel, EColorChannel, EColorChannel, EColorChannel) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureSwizzle::SingleChannel | 形状：static GPUTextureSwizzle SingleChannel(EColorChannel) | 判定：采集：可绑定
 [类] graphics_backend::GPUTextureView
-[采集] GPUTextureView::Create | 形状：static GPUTextureView Create(uint32_t, uint32_t, uint32_t, uint32_t, ETextureAspect, GPUTextureSwizzle) | 判定：采集：可绑定
-[采集] GPUTextureView::CreateDefaultForRenderTarget | 形状：static GPUTextureView CreateDefaultForRenderTarget(ETextureFormat, uint32_t, uint32_t) | 判定：采集：可绑定
-[采集] GPUTextureView::CreateDefaultForRenderTarget | 形状：static GPUTextureView CreateDefaultForRenderTarget(uint32_t, uint32_t) | 判定：采集：可绑定
-[采集] GPUTextureView::CreateDefaultForSampling | 形状：static GPUTextureView CreateDefaultForSampling(ETextureFormat, GPUTextureSwizzle) | 判定：采集：可绑定
-[采集] GPUTextureView::Sanitize | 形状：void Sanitize(const GPUTextureDescriptor &) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureView::Create | 形状：static GPUTextureView Create(uint32_t, uint32_t, uint32_t, uint32_t, ETextureAspect, GPUTextureSwizzle) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureView::CreateDefaultForRenderTarget | 形状：static GPUTextureView CreateDefaultForRenderTarget(ETextureFormat, uint32_t, uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureView::CreateDefaultForRenderTarget | 形状：static GPUTextureView CreateDefaultForRenderTarget(uint32_t, uint32_t) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureView::CreateDefaultForSampling | 形状：static GPUTextureView CreateDefaultForSampling(ETextureFormat, GPUTextureSwizzle) | 判定：采集：可绑定
+[采集] graphics_backend::GPUTextureView::Sanitize | 形状：void Sanitize(const GPUTextureDescriptor &) | 判定：采集：可绑定
 [类] graphics_backend::GPUTexture
-[采集] GPUTexture::GetDescriptor | 形状：const GPUTextureDescriptor & GetDescriptor() | 判定：采集：可绑定
-[采集] GPUTexture::SetName | 形状：void SetName(const castl::string &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
-[采集] GPUTexture::GetName | 形状：const castl::string & GetName() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::GPUTexture::GetDescriptor | 形状：const GPUTextureDescriptor & GetDescriptor() | 判定：采集：可绑定
+[采集] graphics_backend::GPUTexture::SetName | 形状：void SetName(const castl::string &) | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+[采集] graphics_backend::GPUTexture::GetName | 形状：const castl::string & GetName() | 判定：采集：可绑定（容器/文本走序列化块或两段式）
+# 原生头投影快照（codegen-native-binding-prereqs 任务 4.1）
+# 生成器：CodeGen.exe <头> --parse-report
+[头] Interface/RenderInterface/header/WindowHandle.h
+[类] graphics_backend::uint2
+[类] graphics_backend::int2
+[类] graphics_backend::WindowHandle
+[采集] graphics_backend::WindowHandle::GetSizeSafe | 形状：uint2 GetSizeSafe() | 判定：采集：可绑定
+[采集] graphics_backend::WindowHandle::GetBackbufferDescriptor | 形状：const GPUTextureDescriptor & GetBackbufferDescriptor() | 判定：采集：可绑定
+[采集] graphics_backend::WindowHandle::IsValid | 形状：bool IsValid() | 判定：采集：可绑定

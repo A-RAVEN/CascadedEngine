@@ -1,0 +1,27 @@
+csharp-bindings-namespace-alignment · 6.1 清理与最终构建对齐
+执行时间：2026-11-09 深夜
+最终构建日志：%TEMP%\ns-build-6.1.log（EXIT=0，BUILD SUCCESSFUL，合计 74.4s）
+
+一、清理（删了什么、现在剩什么）
+  已删：
+    · 仓库根的 `.review_tmp/`（verify_readme.py 跑文档命令时写的临时产物，不入库；Test-Path 已为 False）；
+    · %TEMP% 本批临时件：ns-*.log / ns-*.exit / ns-*.json / ns-*.txt、ns-collision-probe/ 目录、
+      old-check_bindings.py（HEAD 版判据脚本的临时副本，跑完即从 Tools\CodeGen 删除）、
+      bindable-audit.before.md、ns-snapshot.before.txt、BindableShapes.expected.before.txt、
+      CodeGenMain.before-linear.cpp、ns-baseline-tamper.txt。
+  现在剩什么：
+    · 仓库工作区没有本批遗留的临时脚本 / 备份 / 日志（git status 里无 tmp/temp/bak/review_tmp 条目）；
+    · 产物目录 out\build\x64-debug\codegen\bindings 的 200 个文件全部在新锚里（基线对账 0 多余），
+      没有旧短名文件残留（换锚前已清过一次旧命名产物）。
+    · `.dsh-acl-recovery/` 是开工前就存在的未跟踪目录（0.1 记录在案），不属于本批，未动。
+
+二、最终构建复跑（对齐 5.1）
+  命令：python build.py --config Debug
+  实测：BUILD SUCCESSFUL；绑定判据：不符数 0；登记表问题 0 处；夹具登记表问题 0 处；
+        托管侧 dotnet build 成功并拷出 Scripting.Managed.dll。
+  与 5.1 对齐：同一套 16/16（两后端）+ CoreTests EXIT=0 + check 家族读数的代码状态；
+  本次复跑只做增量（codegen 1.3s / 编译 12.4s / 托管侧 2.5s / 合计 74.4s）。
+
+三、最终基线对账
+  python Tools\CodeGen\check_binding_baseline.py --baseline evidence\基线产物哈希.txt --product-dir out\build\x64-debug\codegen\bindings
+  实测：基线对账：缺失 0 / 不一致 0 / 多余 0；EXIT=0。

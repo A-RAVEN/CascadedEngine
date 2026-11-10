@@ -1,0 +1,48 @@
+csharp-bindings-namespace-alignment · 1.1 命名空间镜像（D1）
+执行时间：2026-11-09 深夜（北京时间 2026-11-10 凌晨）
+HEAD：498969e + 本批工作区改动
+构建日志：%TEMP%\ns-build-10.log（EXIT=0，BUILD SUCCESSFUL）
+
+一、改造前红态（已留档，见 evidence\1.3-旧判据留档.txt 第一节）
+  命令：Get-ChildItem out\build\x64-debug\codegen\bindings -File -Filter *.Bindings.cs |
+        Select-String -Pattern '^namespace ' | Group-Object Line
+  实测：116 × `namespace Scripting.Generated.Bindings` + 1 × `namespace Scripting.Managed`
+  —— 全部类型平铺根下（红）。
+
+二、映射实现（CodeGenMain.cpp）
+  cSharpNamespaceOf() / cSharpFullNameOf() / qualifiedLinearName() 加在 namespacePrefixOf() 之后；
+  规则：`::` 分层、`_` 在层内分词、每词首字母大写其余小写、层间用 `.` 拼、根
+  `Scripting.Generated.Bindings`；类名保持原样。
+  六处命名空间发射点全部改成按类型自己的完整限定名：
+    L3010 emitPublicRecordFile / L3033 emitPublicEnumFile / L5033 emitValueTypeCSharp /
+    L6540 emitSerializedRecordCSharp / L6560 emitSerializedElementCSharp / L9030 逐接口 .Bindings.cs。
+  EngineApi.Bindings.cs 去掉 `using Scripting.Generated.Bindings;`，表项改用
+  `global::<完整命名空间>.<短名>Bindings.Bind`。
+
+三、绿态读数（构建日志 %TEMP%\ns-build-10.log 尾部：BUILD SUCCESSFUL / 合计 104 秒级）
+  命令：foreach ($f in 'ns1__Device','ns2__Device','a_b__Widget','a__b__Widget') {
+            Get-Content out\build\x64-debug\codegen\bindings\$f.Bindings.cs |
+              Select-String '^namespace |public sealed class ' }
+  实测：
+    ns1__Device.Bindings.cs  → namespace Scripting.Generated.Bindings.Ns1；public sealed class Device : IDisposable
+    ns2__Device.Bindings.cs  → namespace Scripting.Generated.Bindings.Ns2；public sealed class Device : IDisposable
+    a_b__Widget.Bindings.cs  → namespace Scripting.Generated.Bindings.AB；public sealed class Widget : IDisposable
+    a__b__Widget.Bindings.cs → namespace Scripting.Generated.Bindings.A.B；public sealed class Widget : IDisposable
+  另外真实接口实测：
+    cawindow__IWindow.Bindings.cs → namespace Scripting.Generated.Bindings.Cawindow
+    graphics_backend__GPUGraph.Bindings.cs → namespace Scripting.Generated.Bindings.GraphicsBackend
+
+四、映射后全名碰撞夹具（`csharp-bindings-namespace-alignment 1.1` 红样）
+  夹具：Tools/CodeGen/BindableShapes.NamespaceCollision.h（AB::Widget 与 Ab::Widget，两者都映射 Ab.Widget）
+  命令（用 build.py 的 include 提取，避免手抄 -I）：
+    python -c "import sys,json,subprocess; sys.path.insert(0,'.'); import build; from pathlib import Path; build.BUILD_DIR=Path('out/build/x64-debug').resolve(); entries=json.loads((build.BUILD_DIR/'compile_commands.json').read_text(encoding='utf-8')); inc=build._binding_includes(entries,'Tools/CodeGen/BindableShapes.NamespaceCollision.h'); cmd=[str(build.BUILD_DIR/'bin'/'CodeGen.exe'),'Tools/CodeGen/BindableShapes.NamespaceCollision.h','--emit-binding','--out-dir',r'%TEMP%\ns-collision-probe','--audit-script','Tools/CodeGen/check_bindable_audit.py']+inc+['-xc++']; p=subprocess.run(cmd,cwd='.',capture_output=True,text=True,encoding='utf-8',errors='replace'); print('EXIT',p.returncode); print(p.stderr)"
+  实测（%TEMP%\ns-collision-probe.log）：
+    EXIT 1
+    CodeGen: 拒绝 —— 映射后 C# 全名冲突 Scripting.Generated.Bindings.Ab.Widget：AB::Widget / Ab::Widget
+    CodeGen: --emit-binding 返回 1
+  同一探针上一版（收集器还按短名去重时）实测 EXIT 0、只收 1 个接口 —— 已按 1.1 修掉：
+  collectClasses 的"只收一次"改按**完整限定名**比较（短名相同、命名空间不同必须都收下）。
+
+五、合法共存对照
+  a_b::Widget（AB.Widget）与 a::b::Widget（A.B.Widget）同构建、同一次产物目录里各自成面（第三节），
+  构建全绿；与映射后碰撞（AB.Widget vs Ab.Widget）区分开。

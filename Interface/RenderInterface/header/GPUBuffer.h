@@ -26,6 +26,9 @@ namespace graphics_backend
 		}
 	};
 
+	// 缓冲对象进绑定面（csharp-bindings-namespace-alignment 7.1 / 用户 2026-11-10 裁定）：
+	// 后端直建缓冲的生命周期跟随后端（`shared_ptr`），图内 `AllocBuffer` 做不到跨图复用。
+	CA_BIND()
 	class GPUBuffer
 	{
 	public:

@@ -1,0 +1,54 @@
+csharp-bindings-namespace-alignment · 2.2 check_native_snapshot 对账键 + 审计表行键（D3③⑤）
+执行时间：2026-11-09 深夜
+相关文件：
+  Tools/CodeGen/check_native_snapshot.py
+  Tools/CodeGen/check_bindable_audit.py
+  openspec/changes/archive/2026-11-08-codegen-native-binding-prereqs/evidence/原生头投影快照.txt
+  openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md
+
+一、快照对账键改完整限定名
+  1) 生成器侧（CodeGenMain.cpp 的 `--parse-report`）：`[采集]/[排除]` 行由
+     `[采集] <类短名>::<方法>` 改成 `[采集] <完整限定名>::<方法>`（ReportClassContext 新增
+     qualifiedName = qualifiedCursorName(cursor)；[类] 行本来就是限定名）。
+  2) 对账脚本侧：
+     · METHOD_LINE_RE 的类名段改成 `([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)`；
+     · read_snapshot 按 `::` 末段归一后与独立清单（文本解析只有短名）比较；
+     · 独立清单的逐条 (标记, 方法) 多重集判据不变。
+  3) 快照重生成命令（用 build.py 的 include 提取，5 个头逐个 --parse-report，拼成一份）：
+     python -c "import sys,json,subprocess; sys.path.insert(0,'.'); import build; from pathlib import Path;
+       build.BUILD_DIR=Path('out/build/x64-debug').resolve();
+       entries=json.loads((build.BUILD_DIR/'compile_commands.json').read_text(encoding='utf-8'));
+       headers=[...5 个头...]; parts=[]; bad=0;
+       for h in headers: inc=build._binding_includes(entries,h);
+         cmd=[exe,h,'--parse-report']+inc+['-xc++']; p=subprocess.run(...); parts.append(p.stdout)
+       open(snapshot,'w',encoding='utf-8',newline='').write(''.join(parts))"
+  实测：BAD 0；快照 170 行（旧 160 行 + WindowHandle 头段 10 行 —— 旧快照是 2.4 之前生成的，
+  缺第五个原生头的 [头] 段，本次一并补齐）。
+  4) 对账实测：
+     python Tools\CodeGen\check_native_snapshot.py --snapshot <归档快照>
+     实测：独立清单：GPUGraph.h 方法 23 条（下界锚 23）；快照对账：独立清单 129 条 / 问题 **0 处**。
+  5) 新快照抽样（逐字）：
+     [头] Interface/RenderInterface/header/CRenderBackend.h
+     [类] graphics_backend::IReadbackToken
+     [采集] graphics_backend::IReadbackToken::Wait | 形状：void Wait() | 判定：采集：可绑定
+     [排除] graphics_backend::CRenderBackend::ExecuteGraph | …
+  旧快照（改前）抽样：`[采集] IReadbackToken::Wait | …`（无命名空间前缀）。
+  备份：%TEMP%\ns-snapshot.before.txt（改前 160 行原文）。
+
+二、审计表行键改完整限定名（D3③）
+  1) 脚本（check_bindable_audit.py）：
+     · INTERFACES 的键由短名改成完整限定名，值改成 (头文件, 短名)；
+     · 新增 header_of() / short_of()；header_methods / header_skips 用头文件 + 短名找类体；
+     · ROW_RE / SUMMARY_ROW_RE 的接口段改成 `([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)`，放得下
+       `graphics_backend::GPUGraph`（0.1 实测：旧字符类 `[A-Za-z_]\w*` 会在 `::` 处断，103 行主表整体匹配不上）。
+     · 行键仍是 (接口, 方法)，接口段现在是完整限定名。
+  2) 审计表（归档 evidence/bindable-audit.md，唯一一份；脚本 glob 同时扫 changes 与 archive）：
+     · 范围汇总表 8 行 + 主表全部行键改成 `graphics_backend::<短名>` / `cawindow::<短名>`；
+     · 口径段同步写全限定名；行数/方法数不变（91 条）。
+  3) 重跑实测：
+     python Tools\CodeGen\check_bindable_audit.py
+     实测：扫描 8 个接口、对账 91 条方法、命中 **0 处问题**。
+  改前备份：%TEMP%\bindable-audit.before.md。
+
+三、结论
+  快照对账键、审计表行键都已换成完整限定名；两份对账脚本重跑 0 差异/0 问题。

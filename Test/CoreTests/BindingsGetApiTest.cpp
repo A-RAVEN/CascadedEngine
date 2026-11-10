@@ -1,4 +1,4 @@
-// 绑定函数表的取表校验（`csharp-bindings-generator` 任务 2.2 的两条探针，常驻在 CoreTests 里）。
+﻿// 绑定函数表的取表校验（`csharp-bindings-generator` 任务 2.2 的两条探针，常驻在 CoreTests 里）。
 //
 // 判的是三件事：
 //   ① 版本与大小都对 → `GetApi` 返回真实表大小，且表里的 `abi_version` / `size` 与实现一致；
@@ -9,7 +9,7 @@
 
 #include "BindableShapes.h"
 
-#include "IBindRow01.Bindings.cpp"
+#include "ca_bind_fixture__IBindRow01.Bindings.cpp"
 
 #include <cstdio>
 #include <cstring>
@@ -50,12 +50,12 @@ namespace
 
 bool RunBindingsGetApiTest()
 {
-	const uint32_t realSize = static_cast<uint32_t>(sizeof(IBindRow01Api_v2));
-	IBindRow01Api_v2 table;
+	const uint32_t realSize = static_cast<uint32_t>(sizeof(ca_bind_fixture__IBindRow01Api_v2));
+	ca_bind_fixture__IBindRow01Api_v2 table;
 	std::memset(&table, 0xCD, sizeof(table));
 
 	// ① 正确的版本与大小
-	const uint32_t returned = IBindRow01_GetApi(2u, realSize, &table);
+	const uint32_t returned = ca_bind_fixture__IBindRow01__GetApi(2u, realSize, &table);
 	if (returned != realSize)
 	{
 		std::printf("  GetApi 正确调用：期望返回 %u，实际 %u\n", realSize, returned);
@@ -70,9 +70,9 @@ bool RunBindingsGetApiTest()
 
 	// ② 版本不对：返回 0 且缓冲区不被写。用 1u —— 那是错误通道进表之前的版本号
 	//    （`csharp-window-creation` 任务 5.10 把版本从 1 升到 2），这条同时证明旧产物会被拦。
-	IBindRow01Api_v2 untouchedForVersion;
+	ca_bind_fixture__IBindRow01Api_v2 untouchedForVersion;
 	std::memset(&untouchedForVersion, 0xCD, sizeof(untouchedForVersion));
-	if (IBindRow01_GetApi(1u, realSize, &untouchedForVersion) != 0u)
+	if (ca_bind_fixture__IBindRow01__GetApi(1u, realSize, &untouchedForVersion) != 0u)
 	{
 		std::puts("  GetApi 版本不符时没有返回 0");
 		return false;
@@ -85,9 +85,9 @@ bool RunBindingsGetApiTest()
 	}
 
 	// ③ 大小不对：同样返回 0 且不写
-	IBindRow01Api_v2 untouchedForSize;
+	ca_bind_fixture__IBindRow01Api_v2 untouchedForSize;
 	std::memset(&untouchedForSize, 0xCD, sizeof(untouchedForSize));
-	if (IBindRow01_GetApi(2u, realSize - 8u, &untouchedForSize) != 0u)
+	if (ca_bind_fixture__IBindRow01__GetApi(2u, realSize - 8u, &untouchedForSize) != 0u)
 	{
 		std::puts("  GetApi 大小不符时没有返回 0");
 		return false;

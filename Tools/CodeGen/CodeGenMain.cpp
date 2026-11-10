@@ -1,4 +1,4 @@
-//
+﻿//
 // CodeGenMain.cpp — minimal libclang-driven extraction tool for the CodeGen framework.
 //
 // Takes a header file + a type name, parses it with libclang (the real C++ front end — we are
@@ -25,6 +25,7 @@
 #include <fstream>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
 #include <map>
 #include <set>
 #include <string>
@@ -1404,6 +1405,7 @@ namespace bindemit
         // 模板成员函数的模板参数名（通常就一个 `T`）：实例化时按名替换成具体类型。
         std::vector<std::string> templateParams;
         std::string ownerName;   // 所属接口短名（钩子命名要用）
+        std::string ownerQualified;   // 所属接口完整限定名（D2：钩子名用限定名线形）
         // 返回位置标量容器两段式（本批 1.6 / design D13）：元素宽度类型（`uint32_t` 之类）。
         // 非空 = 这条方法按 `Count` + `Copy` 两个伴生出绑定，托管表面得到元素数组。
         std::string twoStepScalarElement;
@@ -1665,7 +1667,8 @@ namespace bindemit
 
     // 已知接口清单（任务 3.1）：`--known-interface <短名>=<完整限定名>`。
     // 它只用于类型投影与诊断，不决定产物 —— 产物仍只看主头里的 CA_BIND。
-    std::map<std::string, std::string> g_knownInterfaces;
+    // 跨命名空间同短名（本批 1.1）起改成列表：同一个短名可以对应多条完整限定名。
+    std::vector<std::pair<std::string, std::string>> g_knownInterfaces;
 
     bool isEnumUnderlyingSpelling(std::string const& bare)
     {
@@ -2234,15 +2237,31 @@ namespace bindemit
                 return CXChildVisit_Recurse;
             }
             const std::string name = toStd(clang_getCursorSpelling(cursor));
+            // 带命名空间的完整拼写（thunk 里 static_cast 要用它；只写短名在命名空间里编不过）。
+            // libclang 的类型拼写在这里只给短名，所以自己沿"语义父"把命名空间串起来。
+            std::string qualified;
+            {
+                std::string prefix;
+                for (CXCursor parent = clang_getCursorSemanticParent(cursor);
+                     !clang_Cursor_isNull(parent) &&
+                     clang_getCursorKind(parent) == CXCursor_Namespace;
+                     parent = clang_getCursorSemanticParent(parent))
+                {
+                    prefix = toStd(clang_getCursorSpelling(parent)) + "::" + prefix;
+                }
+                qualified = prefix + name;
+            }
             for (std::string const& wanted : *collector->wanted)
             {
                 if (name == wanted)
                 {
-                    // 同一个接口可能被访问多次（前向声明 + 定义）：只收一次
+                    // 同一**完整限定名**可能被访问多次（前向声明 + 定义）：只收一次。
+                    // 本批 1.1：同短名不同命名空间是两个不同的接口，都必须收下 —— 否则映射后
+                    // 碰撞夹具永远看不到冲突的一方，判据恒绿。
                     bool alreadyCollected = false;
                     for (InterfaceShape const& existing : *collector->sink)
                     {
-                        if (existing.name == name)
+                        if (existing.qualifiedName == qualified)
                         {
                             alreadyCollected = true;
                             break;
@@ -2254,19 +2273,7 @@ namespace bindemit
                     }
                     InterfaceShape shape;
                     shape.name = name;
-                    // 带命名空间的完整拼写（thunk 里 static_cast 要用它；只写短名在命名空间里编不过）。
-                    // libclang 的类型拼写在这里只给短名，所以自己沿"语义父"把命名空间串起来。
-                    {
-                        std::string prefix;
-                        for (CXCursor parent = clang_getCursorSemanticParent(cursor);
-                             !clang_Cursor_isNull(parent) &&
-                             clang_getCursorKind(parent) == CXCursor_Namespace;
-                             parent = clang_getCursorSemanticParent(parent))
-                        {
-                            prefix = toStd(clang_getCursorSpelling(parent)) + "::" + prefix;
-                        }
-                        shape.qualifiedName = prefix + name;
-                    }
+                    shape.qualifiedName = qualified;
                     MethodCollector methods;
                     methods.sink = &shape.methods;
                     clang_visitChildren(cursor, collectMethods, &methods);
@@ -2598,6 +2605,142 @@ namespace bindemit
     {
         const std::size_t split = qualifiedName.rfind("::");
         return split == std::string::npos ? std::string() : qualifiedName.substr(0, split + 2);
+    }
+
+    // ---- C# 命名空间镜像与线形命名（csharp-bindings-namespace-alignment D1/D2/D6）----
+    // 规则：完整限定名按 `::` 分层；每层内按 `_` 分词，每个词首字母大写、其余小写，各词直接相连。
+    //   graphics_backend::GPUGraph → GraphicsBackend.GPUGraph
+    //   a_b::Widget                → AB.Widget
+    //   a::b::Widget               → A.B.Widget
+    std::string capitalizeWord(std::string const& word)
+    {
+        if (word.empty())
+        {
+            return word;
+        }
+        std::string out = word;
+        out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
+        for (std::size_t i = 1; i < out.size(); ++i)
+        {
+            out[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(out[i])));
+        }
+        return out;
+    }
+
+    std::string cSharpNamespaceSegment(std::string const& segment)
+    {
+        std::string out;
+        std::string word;
+        for (char ch : segment)
+        {
+            if (ch == '_')
+            {
+                out += capitalizeWord(word);
+                word.clear();
+            }
+            else
+            {
+                word += ch;
+            }
+        }
+        out += capitalizeWord(word);
+        return out;
+    }
+
+    // 返回完整 C# 命名空间路径（含根 `Scripting.Generated.Bindings`）。
+    std::string cSharpNamespaceOf(std::string const& qualifiedName)
+    {
+        const std::string prefix = namespacePrefixOf(qualifiedName);
+        std::string path = "Scripting.Generated.Bindings";
+        std::size_t begin = 0;
+        while (begin < prefix.size())
+        {
+            const std::size_t split = prefix.find("::", begin);
+            const std::size_t end = split == std::string::npos ? prefix.size() : split;
+            const std::string segment = prefix.substr(begin, end - begin);
+            if (!segment.empty())
+            {
+                path += "." + cSharpNamespaceSegment(segment);
+            }
+            if (split == std::string::npos)
+            {
+                break;
+            }
+            begin = split + 2;
+        }
+        return path;
+    }
+
+    // 返回完整 C# 类型名（命名空间路径 + 类名，类名保持原样）。
+    std::string cSharpFullNameOf(std::string const& qualifiedName)
+    {
+        const std::string prefix = namespacePrefixOf(qualifiedName);
+        return cSharpNamespaceOf(qualifiedName) + "." + qualifiedName.substr(prefix.size());
+    }
+
+    // 返回限定名线形：命名空间段保持原样、以 `__` 分隔，末尾接类名（`graphics_backend__GPUGraph`）。
+    std::string qualifiedLinearName(std::string const& qualifiedName)
+    {
+        const std::string prefix = namespacePrefixOf(qualifiedName);
+        std::string out = prefix;
+        for (std::size_t i = 0; i + 1 < out.size();)
+        {
+            if (out[i] == ':' && out[i + 1] == ':')
+            {
+                out.replace(i, 2, "__");
+                i += 2;
+            }
+            else
+            {
+                ++i;
+            }
+        }
+        out += qualifiedName.substr(prefix.size());
+        return out;
+    }
+
+    // 宿主注入钩子名（design D2）：`CAInject__<限定名线形>__<方法>__<参数>`。
+    std::string injectHookName(std::string const& ownerQualified, std::string const& method,
+                               std::string const& parameter)
+    {
+        return "CAInject__" + qualifiedLinearName(ownerQualified) + "__" + method + "__" + parameter;
+    }
+
+    // 在已知接口清单里按短名找完整限定名（本批 1.1：同短名可有多条）。
+    // 优先取与 context 同命名空间的那条；找不到同命名空间的、且全表只有一条时返回它；
+    // 多条且无法靠命名空间区分时返回空串（调用方按"找不到/歧义"处理，不许瞎猜）。
+    std::string knownInterfaceQualified(std::string const& shortName,
+                                        std::string const& contextQualified = std::string())
+    {
+        const std::string contextNs = namespacePrefixOf(contextQualified);
+        std::string first;
+        std::string sameNamespace;
+        int matches = 0;
+        for (auto const& entry : g_knownInterfaces)
+        {
+            if (entry.first != shortName)
+            {
+                continue;
+            }
+            ++matches;
+            if (first.empty())
+            {
+                first = entry.second;
+            }
+            if (!contextNs.empty() && namespacePrefixOf(entry.second) == contextNs)
+            {
+                if (!sameNamespace.empty() && sameNamespace != entry.second)
+                {
+                    return std::string();
+                }
+                sameNamespace = entry.second;
+            }
+        }
+        if (matches == 0)
+        {
+            return std::string();
+        }
+        return sameNamespace.empty() ? first : sameNamespace;
     }
 
     std::string shortTypeName(std::string const& spelling)
@@ -3007,7 +3150,7 @@ namespace bindemit
         cs += "// 共享公开值类型：同一限定 C++ 类型的唯一一份公开 C# 产物。\n";
         cs += "// 限定名：" + mirror.cppName + "\n";
         cs += "using System;\nusing System.Runtime.InteropServices;\n\n";
-        cs += "namespace Scripting.Generated.Bindings\n{\n";
+        cs += "namespace " + cSharpNamespaceOf(mirror.cppName) + "\n{\n";
         cs += "    /// <summary>" + mirror.cppName + " 的公开记录：字段名与顺序与 C++ 声明一致</summary>\n";
         cs += "    [StructLayout(LayoutKind.Sequential)]\n";
         cs += "    public struct " + mirror.csName + "\n    {\n";
@@ -3030,7 +3173,7 @@ namespace bindemit
         cs += "// 共享公开值类型：同一限定 C++ 类型的唯一一份公开 C# 产物。\n";
         cs += "// 限定名：" + info.cppName + "\n";
         cs += "using System;\nusing System.Runtime.InteropServices;\n\n";
-        cs += "namespace Scripting.Generated.Bindings\n{\n";
+        cs += "namespace " + cSharpNamespaceOf(info.cppName) + "\n{\n";
         if (info.usedAsFlags)
         {
             cs += "    [Flags]\n";
@@ -3326,11 +3469,11 @@ namespace bindemit
         // 没有镜像类型的接口也必须导出同名入口（返回 0）—— 托管侧对两个接口都调同一组函数。
         if (mirrors.empty())
         {
-            *cpp += "extern \"C\" uint32_t " + interfaceName + "_GetLayoutTypeCount(void)\n{\n    return 0u;\n}\n";
+            *cpp += "extern \"C\" uint32_t " + interfaceName + "__GetLayoutTypeCount(void)\n{\n    return 0u;\n}\n";
             *cpp += "extern \"C\" uint32_t " + interfaceName +
-                    "_GetLayoutType(uint32_t, char*, uint32_t, uint64_t*, uint32_t*)\n{\n    return 0u;\n}\n";
+                    "__GetLayoutType(uint32_t, char*, uint32_t, uint64_t*, uint32_t*)\n{\n    return 0u;\n}\n";
             *cpp += "extern \"C\" uint32_t " + interfaceName +
-                    "_GetLayoutField(uint32_t, uint32_t, char*, uint32_t, char*, uint32_t, uint64_t*)\n{\n"
+                    "__GetLayoutField(uint32_t, uint32_t, char*, uint32_t, char*, uint32_t, uint64_t*)\n{\n"
                     "    return 0u;\n}\n\n";
             return;
         }
@@ -3360,10 +3503,10 @@ namespace bindemit
                     std::to_string(index) + " },\n";
         }
         *cpp += "};\n";
-        *cpp += "extern \"C\" uint32_t " + interfaceName + "_GetLayoutTypeCount(void)\n{\n    return " +
+        *cpp += "extern \"C\" uint32_t " + interfaceName + "__GetLayoutTypeCount(void)\n{\n    return " +
                 std::to_string(mirrors.size()) + "u;\n}\n";
         *cpp += "extern \"C\" uint32_t " + interfaceName +
-                "_GetLayoutType(uint32_t index, char* name, uint32_t nameCap, uint64_t* sizeBytes, "
+                "__GetLayoutType(uint32_t index, char* name, uint32_t nameCap, uint64_t* sizeBytes, "
                 "uint32_t* fieldCount)\n{\n";
         *cpp += "    if (index >= " + std::to_string(mirrors.size()) + "u) { return 0u; }\n";
         *cpp += "    const " + interfaceName + "LayoutTypeData& type = " + interfaceName + "_layoutTypes[index];\n";
@@ -3375,7 +3518,7 @@ namespace bindemit
         *cpp += "    if (fieldCount != nullptr) { *fieldCount = type.fieldCount; }\n";
         *cpp += "    return 1u;\n}\n";
         *cpp += "extern \"C\" uint32_t " + interfaceName +
-                "_GetLayoutField(uint32_t typeIndex, uint32_t fieldIndex, char* name, uint32_t nameCap, "
+                "__GetLayoutField(uint32_t typeIndex, uint32_t fieldIndex, char* name, uint32_t nameCap, "
                 "char* typeName, uint32_t typeCap, uint64_t* offsetBytes)\n{\n";
         *cpp += "    if (typeIndex >= " + std::to_string(mirrors.size()) + "u) { return 0u; }\n";
         *cpp += "    const " + interfaceName + "LayoutTypeData& type = " + interfaceName + "_layoutTypes[typeIndex];\n";
@@ -4074,11 +4217,15 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         return nullptr;
     }
 
-    LockEntry* findLockEntry(LockScope& scope, std::string const& shortName)
+    // 本批 1.1/2.3：锁条目的身份是**完整限定名**；给了 qualifiedName 时必须两者都匹配，
+    // 否则同短名的另一条（别的命名空间）会被误认成同一行。
+    LockEntry* findLockEntry(LockScope& scope, std::string const& shortName,
+                             std::string const& qualifiedName = std::string())
     {
         for (LockEntry& entry : scope.entries)
         {
-            if (entry.shortName == shortName)
+            if (entry.shortName == shortName &&
+                (qualifiedName.empty() || entry.qualifiedName == qualifiedName))
             {
                 return &entry;
             }
@@ -4086,11 +4233,13 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         return nullptr;
     }
 
-    LockEntry const* findLockEntry(LockScope const& scope, std::string const& shortName)
+    LockEntry const* findLockEntry(LockScope const& scope, std::string const& shortName,
+                                   std::string const& qualifiedName = std::string())
     {
         for (LockEntry const& entry : scope.entries)
         {
-            if (entry.shortName == shortName)
+            if (entry.shortName == shortName &&
+                (qualifiedName.empty() || entry.qualifiedName == qualifiedName))
             {
                 return &entry;
             }
@@ -4213,19 +4362,20 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             }
             const unsigned start = lockScopeStart(scope.name);
             std::set<unsigned> numbers;
-            std::set<std::string> shortNames;
+            // 本批 1.1/2.3：段内唯一的是完整限定名（身份），短名只作显示名 —— 同短名可多行。
+            std::set<std::string> qualifiedNames;
             unsigned maxNumber = 0;
             for (LockEntry const& entry : scope.entries)
             {
                 if (!numbers.insert(entry.number).second)
                 {
                     *error = "锁文件的段 `" + scope.name + "` 有重复编号 " + std::to_string(entry.number) +
-                             "：" + entry.shortName;
+                             "：" + entry.qualifiedName;
                     return false;
                 }
-                if (!shortNames.insert(entry.shortName).second)
+                if (!qualifiedNames.insert(entry.qualifiedName).second)
                 {
-                    *error = "锁文件的段 `" + scope.name + "` 有重复短名 " + entry.shortName;
+                    *error = "锁文件的段 `" + scope.name + "` 有重复完整限定名 " + entry.qualifiedName;
                     return false;
                 }
                 maxNumber = std::max(maxNumber, entry.number);
@@ -4331,6 +4481,13 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         for (InterfaceShape const& shape : shapes)
         {
             qualifiedByName[shape.name] = shape.qualifiedName;
+        }
+        // 本批 1.1/2.3：发号身份以**完整限定名**为准（短名只是显示名）。同短名不同命名空间
+        // 必须各占一行、各自发号；同短名不再被当成"已经登记过"。
+        std::set<std::string> markerQualifiedNames;
+        for (auto const& entry : qualifiedByName)
+        {
+            markerQualifiedNames.insert(entry.second);
         }
         for (BoundMarker const& marker : markers)
         {
@@ -4474,6 +4631,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         std::string report;
         std::vector<std::string> keptLines;
         std::set<std::string> keptNames;
+        // 本批 1.1：发号身份以完整限定名为准 —— 同短名的另一条（别的命名空间）不算已登记。
+        std::set<std::string> keptQualified;
         for (LockEntry const& entry : existing)
         {
             // 删除只针对**本头**的行：`--update-ids` 是逐头调用的（`python build.py --update-ids`
@@ -4490,6 +4649,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             {
                 keptLines.push_back(entry.rawLine);
                 keptNames.insert(entry.shortName);
+                keptQualified.insert(entry.qualifiedName);
                 continue;
             }
             auto shape = qualifiedByName.find(entry.shortName);
@@ -4511,10 +4671,12 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             }
             keptLines.push_back(entry.rawLine);
             keptNames.insert(entry.shortName);
+            keptQualified.insert(entry.qualifiedName);
         }
         for (BoundMarker const& marker : markers)
         {
-            if (keptNames.count(marker.interfaceName) > 0)
+            const std::string markerQualified = qualifiedByName[marker.interfaceName];
+            if (keptQualified.count(markerQualified) > 0)
             {
                 continue;
             }
@@ -4926,20 +5088,21 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     {
                         const std::string inner = trimCopy(bare.substr(open + 1, close - open - 1));
                         const std::string innerShort = unqualifiedName(bareType(inner));
-                        auto known = g_knownInterfaces.find(innerShort);
-                        if (known != g_knownInterfaces.end())
+                        const std::string knownQualified =
+                            knownInterfaceQualified(innerShort, state->info->qualifiedName);
+                        if (!knownQualified.empty())
                         {
                             // 逐条通道都记下来（design D12：ImageHandle 有 GPUTexture / WindowHandle
                             // 两条对象构造通道）；首个通道同时写进旧的单数字段，既有调用点不动。
                             ValueTypeInfo::ObjectChannel channel;
                             channel.pointeeShort = innerShort;
-                            channel.pointeeQualified = known->second;
+                            channel.pointeeQualified = knownQualified;
                             channel.factoryName = "From" + stripInterfacePrefix(innerShort);
                             state->info->objectChannels.push_back(channel);
                             if (state->info->objectPointeeQualified.empty())
                             {
                                 state->info->objectPointeeShort = innerShort;
-                                state->info->objectPointeeQualified = known->second;
+                                state->info->objectPointeeQualified = knownQualified;
                                 state->info->objectFactoryName = channel.factoryName;
                             }
                         }
@@ -5030,7 +5193,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         cs += "// 共享值类型（资源引用）：只作参数过界，自身成员方法不进表面。\n";
         cs += "// 限定名：" + info.qualifiedName + "\n";
         cs += "using System;\n\n";
-        cs += "namespace Scripting.Generated.Bindings\n{\n";
+        cs += "namespace " + cSharpNamespaceOf(info.qualifiedName) + "\n{\n";
         cs += "    /// <summary>资源引用值类：kind + 对象句柄 / 名称两态，托管工厂与构造通道一一对应</summary>\n";
         cs += "    public sealed class " + info.shortName + "\n    {\n";
         cs += "        internal readonly uint Kind;\n";
@@ -5551,8 +5714,9 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 }
                 field->mapValueKind = 4;
                 field->mapValueInterfaceShort = innerShort;
-                auto known = g_knownInterfaces.find(innerShort);
-                field->mapValueInterfaceQualified = known == g_knownInterfaces.end() ? inner : known->second;
+                const std::string mapKnownQualified = knownInterfaceQualified(innerShort);
+                field->mapValueInterfaceQualified =
+                    mapKnownQualified.empty() ? inner : mapKnownQualified;
             }
             else if (valueCanonical.kind == CXType_Record)
             {
@@ -5610,8 +5774,9 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             }
             field->kind = 6;
             field->interfaceShort = innerShort;
-            auto known = g_knownInterfaces.find(innerShort);
-            field->interfaceQualified = known == g_knownInterfaces.end() ? inner : known->second;
+            const std::string interfaceKnownQualified = knownInterfaceQualified(innerShort);
+            field->interfaceQualified =
+                interfaceKnownQualified.empty() ? inner : interfaceKnownQualified;
         }
         else if (hasPrefix(bare, "castl::set") || hasPrefix(bare, "std::set") ||
                  bare.find("std::array") != std::string::npos ||
@@ -6537,7 +6702,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         cs += "// 共享值类型（序列化块记录）：托管镜像 + 与 C++ 同源字段清单生成的序列化器。\n";
         cs += "// 限定名：" + info.qualifiedName + "\n";
         cs += "using System;\n\n";
-        cs += "namespace Scripting.Generated.Bindings\n{\n";
+        cs += "namespace " + cSharpNamespaceOf(info.qualifiedName) + "\n{\n";
         cs += "    /// <summary>" + info.shortName + " 的托管镜像：字段名与顺序与 C++ 声明一致</summary>\n";
         cs += "    public sealed class " + info.shortName + "\n    {\n";
         for (SerializedField const& field : info.fields)
@@ -6557,7 +6722,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         cs += "// 共享值类型（序列化块的容器元素记录）：纯标量字段。\n";
         cs += "// 限定名：" + info.qualifiedName + "\n";
         cs += "using System;\n\n";
-        cs += "namespace Scripting.Generated.Bindings\n{\n";
+        cs += "namespace " + cSharpNamespaceOf(info.qualifiedName) + "\n{\n";
         cs += "    /// <summary>" + info.shortName + " 的托管镜像（记录字段）</summary>\n";
         cs += "    public struct " + info.shortName + "\n    {\n";
         for (SerializedField const& field : info.fields)
@@ -6961,6 +7126,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
     {
         std::string* out = nullptr;
         std::string shortName;
+        // 本批 2.2：快照对账键 = 完整限定名（`[采集] graphics_backend::GPUGraph::AddPass`）。
+        std::string qualifiedName;
         bool isStruct = false;
         // 该类是不是 `CA_BIND` 绑定类（本文件里扫出来的标注）。只有绑定类才按新投影规则
         // （D2 内存窗 / D8 记录两段式 / D9 实例化声明）判采集；非绑定类维持旧口径 ——
@@ -7201,7 +7368,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                                                   : emptySerializableRecords,
                           context->marker);
         const char* prefix = verdict.rfind("采集", 0) == 0 ? "采集" : "排除";
-        *context->out += std::string("[") + prefix + "] " + context->shortName + "::" + name +
+        *context->out += std::string("[") + prefix + "] " + context->qualifiedName + "::" + name +
                          " | 形状：" + shape + " | 判定：" + verdict + "\n";
         return CXChildVisit_Continue;
     }
@@ -7227,6 +7394,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         ReportClassContext context;
         context.out = state->out;
         context.shortName = toStd(clang_getCursorSpelling(cursor));
+        context.qualifiedName = qualifiedCursorName(cursor);
         context.isStruct = kind == CXCursor_StructDecl;
         context.isBound = state->boundNames.count(context.shortName) > 0;
         context.serializableRecords = &state->serializableRecords;
@@ -7495,35 +7663,54 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             }
         }
         // 接口名清单：`projectMethod` 用它判"返回的是不是另一个可绑定接口的裸指针"（借用句柄，
-        // 任务 5.3 / design D9）。本 change 2.x/3.1：主头里的接口 + `--known-interface` 传入的
-        // 其它生成输入（跨头文件目标），两边都按**完整限定名**登记。
+        // 任务 5.3 / design D9）。主头里的接口 + `--known-interface` 传来的其它生成输入（跨头目标）
+        // 两边都按**完整限定名**登记。本批 1.1：同一个短名可以有多条完整限定名（跨命名空间同名）。
         g_bindableInterfaceNames.clear();
-        int interfaceNameConflicts = 0;
         for (InterfaceShape const& shape : shapes)
         {
             g_bindableInterfaceNames.insert(shape.name);
-            auto known = g_knownInterfaces.find(shape.name);
-            if (known != g_knownInterfaces.end() && known->second != shape.qualifiedName)
+            bool alreadyKnown = false;
+            for (auto const& entry : g_knownInterfaces)
             {
-                std::fprintf(stderr,
-                             "CodeGen: 拒绝 —— 同短名接口 %s 有两种完整限定名：%s / %s"
-                             "（--known-interface 清单与主头声明不一致）\n",
-                             shape.name.c_str(), known->second.c_str(), shape.qualifiedName.c_str());
-                ++interfaceNameConflicts;
+                if (entry.first == shape.name && entry.second == shape.qualifiedName)
+                {
+                    alreadyKnown = true;
+                    break;
+                }
             }
-            g_knownInterfaces[shape.name] = shape.qualifiedName;
+            if (!alreadyKnown)
+            {
+                g_knownInterfaces.emplace_back(shape.name, shape.qualifiedName);
+            }
         }
-        // 已知清单里的其它生成输入（跨头文件目标）也要参与类型投影：主头没有 include 它们，
-        // 但方法签名里可能就写着它们的短名。
         for (auto const& entry : g_knownInterfaces)
         {
             g_bindableInterfaceNames.insert(entry.first);
         }
-        if (interfaceNameConflicts > 0)
+
+        // 映射后 C# 全名碰撞（design D1）：这是本批唯一的同名拒绝点，判定在命名空间映射之后。
+        // 两个不同的 C++ 类型映射到同一 C# 全名（命名空间路径 + 类名）⇒ 非零退出并点名双方。
         {
-            clang_disposeTranslationUnit(unit);
-            clang_disposeIndex(index);
-            return 1;
+            std::map<std::string, std::string> mappedToQualified;   // C# 全名 → 完整限定名
+            int collisions = 0;
+            for (auto const& entry : g_knownInterfaces)
+            {
+                const std::string mapped = cSharpFullNameOf(entry.second);
+                auto inserted = mappedToQualified.emplace(mapped, entry.second);
+                if (!inserted.second && inserted.first->second != entry.second)
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝 —— 映射后 C# 全名冲突 %s：%s / %s\n",
+                                 mapped.c_str(), inserted.first->second.c_str(), entry.second.c_str());
+                    ++collisions;
+                }
+            }
+            if (collisions > 0)
+            {
+                clang_disposeTranslationUnit(unit);
+                clang_disposeIndex(index);
+                return 1;
+            }
         }
 
         // ---- 资源引用值类（任务 3.1）：从 AST 提取 kind 枚举与构造通道 ----
@@ -7606,9 +7793,15 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 return 1;
             }
             int lockProblems = 0;
+            std::map<std::string, std::string> qualifiedByMarker;
+            for (InterfaceShape const& shape : shapes)
+            {
+                qualifiedByMarker[shape.name] = shape.qualifiedName;
+            }
             for (BoundMarker const& marker : markers)
             {
-                LockEntry const* entry = findLockEntry(*scope, marker.interfaceName);
+                LockEntry const* entry = findLockEntry(*scope, marker.interfaceName,
+                                                       qualifiedByMarker[marker.interfaceName]);
                 if (entry == nullptr)
                 {
                     std::fprintf(stderr,
@@ -7777,7 +7970,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         }
 
         // ---- 参数注入（任务 3.3）：裸指针参数 + 源码里写了固定名钩子声明 ----
-        // 钩子命名：`CAInject_<类短名>_<方法名>_<参数名>()`，返回 `void*`。三条生成期拒绝：
+        // 钩子命名：`CAInject__<限定名线形>__<方法名>__<参数名>()`，返回 `void*`。三条生成期拒绝：
         // 方法不存在 / 参数名不存在、参数不是裸指针、有注入声明但没有钩子声明。
         {
             std::map<std::string, BoundMarker const*> markerByName;
@@ -7855,8 +8048,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                             ++injectProblems;
                             continue;
                         }
-                        const std::string hookName = "CAInject_" + shape.name + "_" + methodName +
-                                                     "_" + parameterName;
+                        const std::string hookName =
+                            injectHookName(shape.qualifiedName, methodName, parameterName);
                         if (strippedSource.find(hookName + "(") == std::string::npos)
                         {
                             std::fprintf(stderr,
@@ -7868,6 +8061,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         }
                         target->injectedParams.insert(parameterName);
                         target->ownerName = shape.name;
+                        target->ownerQualified = shape.qualifiedName;
                     }
                 }
             }
@@ -8126,6 +8320,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         }
                         clone.abiName = method.name + "_" + typeToken(typeName);
                         clone.ownerName = shape.name;
+                        clone.ownerQualified = shape.qualifiedName;
                         // 自返回识别在这一步之后不再重跑（槽名已定），克隆体自己算一次：
                         // `ShaderStruct::SetValue` 返回 `ShaderStruct&`，托管侧要能继续链。
                         {
@@ -8752,6 +8947,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         int rejected = 0;
         int methodsTotal = 0;
         int products = 0;
+        // 本批 1.1：逐接口 / 共享类型产出的 .cs 路径（写完统一补跨命名空间 using）。
+        std::vector<std::string> writtenCsPaths;
         // ---- 拒绝口径（任务 2.6）：只有 ① 模板与 ③ 隐式转换重载自动判；② ④ 必须带理由排除 ----
         std::map<std::string, BoundMarker const*> markerByName;
         for (BoundMarker const& marker : markers)
@@ -8924,6 +9121,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         for (InterfaceShape const& shape : shapes)
         {
             std::string cpp;
+            // 本接口的限定名线形（D2/D6）：C ABI 槽名、产物文件名与文件内 C++ 辅助标识符统一用它作前缀。
+            const std::string linear = qualifiedLinearName(shape.qualifiedName);
             // 序列化块四条错误码只在"确实用了序列化块"的接口产物里出现：既有接口的产物
             // 因此逐字节不变（本批的回归硬锚），而用了块的接口仍能逐项点名。
             const bool usesSerializedBlocks = [&shape]() {
@@ -8983,7 +9182,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 }
                 if (used)
                 {
-                    cpp += "#include \"" + entry.second.shortName + ".BindingCodec.h\"\n";
+                    cpp += "#include \"" + qualifiedLinearName(entry.second.qualifiedName) +
+                           ".BindingCodec.h\"\n";
                 }
             }
             // 注入钩子的声明放在全局作用域：夹具头里可能把它声明在命名空间内，而 extern "C"
@@ -8992,8 +9192,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             {
                 for (std::string const& parameterName : method.injectedParams)
                 {
-                    cpp += "extern \"C\" void* CAInject_" + shape.name + "_" + method.name + "_" +
-                           parameterName + "();\n";
+                    cpp += "extern \"C\" void* " +
+                           injectHookName(shape.qualifiedName, method.name, parameterName) + "();\n";
                 }
             }
             cpp += "\n";
@@ -9027,7 +9227,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             cs += "using System;\n";
             cs += "using System.Runtime.InteropServices;\n";
             cs += "using Scripting.Managed;\n\n";
-            cs += "namespace Scripting.Generated.Bindings\n{\n";
+            cs += "namespace " + cSharpNamespaceOf(shape.qualifiedName) + "\n{\n";
             // 公开记录 / 枚举按类型另发共享 `.Bindings.cs`（任务 2.3）：接口产物里只留 C 镜像与转换。
             cs += "    /// <summary>" + shape.name + " 的句柄：C 侧是不透明 uint64，0 表示无效</summary>\n";
             cs += "    [StructLayout(LayoutKind.Sequential)]\n";
@@ -9047,18 +9247,18 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
 
             int emitted = 0;
             // 每个接口一对错误通道：托管侧靠它把"异常 → 错误码 + 文本"读回来（异常绝不穿过 C ABI）。
-            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorCode(void* self);\n";
-            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorText(void* self, char* dst, uint64_t cap);\n";
+            cpp += "extern \"C\" int32_t " + linear + "__LastErrorCode(void* self);\n";
+            cpp += "extern \"C\" int32_t " + linear + "__LastErrorText(void* self, char* dst, uint64_t cap);\n";
             // 句柄的解析/释放也要进表（任务 5.2）：托管表面的 `Dispose` 与"解出 self"都靠它 ——
             // 这两个入口不在表里，托管侧连函数地址都拿不到（它啃不动 DLL 里的导出符号名）。
-            cpp += "extern \"C\" void* " + shape.name + "_ResolveHandle(void* self, uint64_t handle);\n";
-            cpp += "extern \"C\" void " + shape.name + "_ReleaseHandle(void* self, uint64_t handle);\n";
+            cpp += "extern \"C\" void* " + linear + "__ResolveHandle(void* self, uint64_t handle);\n";
+            cpp += "extern \"C\" void " + linear + "__ReleaseHandle(void* self, uint64_t handle);\n";
             // 目标接口入口：追加在函数表末尾（任务 3.2），ABI 版本不变。
-            cpp += "extern \"C\" void* " + shape.name + "_ResolveTargetHandle(void* self, uint64_t handle);\n";
-            cpp += "extern \"C\" void " + shape.name + "_ReleaseTargetHandle(void* self, uint64_t handle);\n";
+            cpp += "extern \"C\" void* " + linear + "__ResolveTargetHandle(void* self, uint64_t handle);\n";
+            cpp += "extern \"C\" void " + linear + "__ReleaseTargetHandle(void* self, uint64_t handle);\n";
             // 布局清单（任务 2.5）：镜像结构体 + 编译期断言。必须**在方法声明的循环之前**发出 ——
             // 声明里会用到镜像类型，放在后面就是"先用后定义"（实测 C4430 / C2378）。
-            emitLayoutManifest(&cpp, &cs, shape.name, mirrors);
+            emitLayoutManifest(&cpp, &cs, linear, mirrors);
             // 函数表用一个**槽列表**描述，而不是边循环边拼字符串：表头那四个槽（错误通道 + 句柄
             // 解析/释放）与两段式伴生的两个槽都不是"接口方法"，但都要进表，只有列表才排得一致。
             struct TableSlot
@@ -9070,13 +9270,13 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             };
             std::vector<TableSlot> tableSlots;
             tableSlots.push_back({"LastErrorCode", "int32_t (*LastErrorCode)(void* self)",
-                                  "&" + shape.name + "_readErrorCode", "void*, int"});
+                                  "&" + linear + "_readErrorCode", "void*, int"});
             tableSlots.push_back({"LastErrorText", "void (*LastErrorText)(void* self, char* dst, uint64_t cap)",
-                                  "&" + shape.name + "_readErrorText", "void*, byte*, ulong, void"});
+                                  "&" + linear + "_readErrorText", "void*, byte*, ulong, void"});
             tableSlots.push_back({"ResolveHandle", "void* (*ResolveHandle)(void* self, uint64_t handle)",
-                                  "&" + shape.name + "_ResolveHandle", "void*, ulong, void*"});
+                                  "&" + linear + "__ResolveHandle", "void*, ulong, void*"});
             tableSlots.push_back({"ReleaseHandle", "void (*ReleaseHandle)(void* self, uint64_t handle)",
-                                  "&" + shape.name + "_ReleaseHandle", "void*, ulong, void"});
+                                  "&" + linear + "__ReleaseHandle", "void*, ulong, void"});
             std::string thunkDefs;     // thunk 实现
             std::string externDefs;    // 导出入口（extern "C" 的定义）
             std::string lateDefs;      // 必须排在句柄表实现之后的定义（Release 之类）
@@ -9160,7 +9360,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             std::string callbackSupport;
             if (hasCallbacks)
             {
-                const std::string& I = shape.name;
+                const std::string& I = linear;
                 callbackSupport += "// ---- 回调注册表（" + I + "）----\n";
                 callbackSupport += "typedef struct " + I + "CallbackEntry {\n";
                 callbackSupport += "    uint64_t registration;   // 0 不用；单调递增，标识本次注册\n";
@@ -9270,7 +9470,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 callbackSupport += "            slot.code = 0;\n            slot.text[0] = 0;\n            break;\n        }\n    }\n";
                 callbackSupport += "    if (code != 0) { " + I + "_setError(self, code, text); }\n}\n";
                 callbackSupport += "extern \"C\" void " + I +
-                                   "_ReportCallbackError(void* self, int32_t code, char const* text, uint64_t textLen)\n{\n";
+                                   "__ReportCallbackError(void* self, int32_t code, char const* text, uint64_t textLen)\n{\n";
                 callbackSupport += "    std::lock_guard<std::recursive_mutex> guard(" + I + "_callbackErrorMutex);\n";
                 callbackSupport += "    auto* slot = static_cast<" + I + "CallbackErrorSlot*>(nullptr);\n";
                 callbackSupport += "    for (auto& candidate : " + I + "_callbackErrors)\n    {\n";
@@ -9383,19 +9583,19 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                      twoStepBare == "castl::string" || twoStepBare == "std::string");
                 if (stringTwoStep)
                 {
-                    cpp += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Len(void* self);\n";
-                    cpp += "extern \"C\" void " + shape.name + "_Copy" + abiName +
+                    cpp += "extern \"C\" uint64_t " + linear + "__" + abiName + "Len(void* self);\n";
+                    cpp += "extern \"C\" void " + linear + "__Copy" + abiName +
                            "(void* self, char* dst, uint64_t cap);\n";
                     // 两个伴生**各自独立**取一次实现的值：不依赖跨调用的暂存状态
-                    lateDefs += "extern \"C\" uint64_t " + shape.name + "_" + abiName +
+                    lateDefs += "extern \"C\" uint64_t " + linear + "__" + abiName +
                                 "Len(void* self)\n{\n";
                     // 两个伴生也是"入口"：不先清就会把上一次调用的失败码算到这次头上
-                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    " + linear + "_clearError(self);\n";
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
                     lateDefs += "    return static_cast<uint64_t>(object->" + method.name + "().size());\n}\n";
-                    lateDefs += "extern \"C\" void " + shape.name + "_Copy" + abiName +
+                    lateDefs += "extern \"C\" void " + linear + "__Copy" + abiName +
                                 "(void* self, char* dst, uint64_t cap)\n{\n";
-                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    " + linear + "_clearError(self);\n";
                     // 容量是无符号的：`cap - 1` 在 0 时会下溢成最大值，必须先判
                     lateDefs += "    if (cap == 0u || dst == nullptr) { return; }\n";
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
@@ -9407,11 +9607,11 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     // 两段式伴生也进表（任务 5.2）：托管表面的 `string GetXxx()` 两段都得能调到，
                     // 而它们只是导出符号、不在表里 —— 托管侧拿不到地址。
                     tableSlots.push_back({abiName + "Len", "uint64_t (*" + abiName + "Len)(void* self)",
-                                          "&" + shape.name + "_" + abiName + "Len", "void*, ulong"});
+                                          "&" + linear + "__" + abiName + "Len", "void*, ulong"});
                     tableSlots.push_back({"Copy" + abiName,
                                           "void (*Copy" + abiName +
                                               ")(void* self, char* dst, uint64_t cap)",
-                                          "&" + shape.name + "_Copy" + abiName,
+                                          "&" + linear + "__Copy" + abiName,
                                           "void*, byte*, ulong, void"});
                     continue;
                 }
@@ -9429,18 +9629,18 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         ++rejected;
                         continue;
                     }
-                    cpp += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Count(void* self);\n";
-                    cpp += "extern \"C\" void " + shape.name + "_Copy" + abiName +
+                    cpp += "extern \"C\" uint64_t " + linear + "__" + abiName + "Count(void* self);\n";
+                    cpp += "extern \"C\" void " + linear + "__Copy" + abiName +
                            "(void* self, uint8_t* dst, uint64_t cap);\n";
-                    lateDefs += "extern \"C\" uint64_t " + shape.name + "_" + abiName +
+                    lateDefs += "extern \"C\" uint64_t " + linear + "__" + abiName +
                                 "Count(void* self)\n{\n";
-                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    " + linear + "_clearError(self);\n";
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
                     lateDefs += "    return static_cast<uint64_t>(object->" + method.name +
                                 "().size());\n}\n";
-                    lateDefs += "extern \"C\" void " + shape.name + "_Copy" + abiName +
+                    lateDefs += "extern \"C\" void " + linear + "__Copy" + abiName +
                                 "(void* self, uint8_t* dst, uint64_t cap)\n{\n";
-                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    " + linear + "_clearError(self);\n";
                     lateDefs += "    if (dst == nullptr || cap == 0u) { return; }\n";
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
                     lateDefs += "    auto const& value = object->" + method.name + "();\n";
@@ -9451,11 +9651,11 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     lateDefs += "    const std::size_t copied = (bytes < limit) ? bytes : limit;\n";
                     lateDefs += "    ::memcpy(dst, value.data(), copied);\n}\n";
                     tableSlots.push_back({abiName + "Count", "uint64_t (*" + abiName + "Count)(void* self)",
-                                          "&" + shape.name + "_" + abiName + "Count", "void*, ulong"});
+                                          "&" + linear + "__" + abiName + "Count", "void*, ulong"});
                     tableSlots.push_back({"Copy" + abiName,
                                           "void (*Copy" + abiName +
                                               ")(void* self, uint8_t* dst, uint64_t cap)",
-                                          "&" + shape.name + "_Copy" + abiName,
+                                          "&" + linear + "__Copy" + abiName,
                                           "void*, byte*, ulong, void"});
                     continue;
                 }
@@ -9485,9 +9685,11 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                         !method.paramCanonicalSpellings[paramIndex].empty()
                                     ? method.paramCanonicalSpellings[paramIndex]
                                     : spelling;
-                            argExprs.push_back("static_cast<" + castSpelling + ">(CAInject_" +
-                                               method.ownerName + "_" + method.name + "_" +
-                                               method.params[paramIndex].second + "())");
+                            argExprs.push_back(
+                                "static_cast<" + castSpelling + ">(" +
+                                injectHookName(method.ownerQualified, method.name,
+                                               method.params[paramIndex].second) +
+                                "())");
                             continue;
                         }
                         if (isNameHashSpelling(spelling) || isPathHashSpelling(spelling))
@@ -9556,10 +9758,10 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         abiParamTypes += ", " + projected.type;
                         csParamTypes += ", " + toCSharpType(projected.type);
                     }
-                    const std::string helper = shape.name + "_call_" + abiName;
-                    cpp += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Len(void* self" +
+                    const std::string helper = linear + "_call_" + abiName;
+                    cpp += "extern \"C\" uint64_t " + linear + "__" + abiName + "Len(void* self" +
                            paramDecls + ");\n";
-                    cpp += "extern \"C\" void " + shape.name + "_Copy" + abiName + "(void* self" + paramDecls +
+                    cpp += "extern \"C\" void " + linear + "__Copy" + abiName + "(void* self" + paramDecls +
                            ", uint8_t* dst, uint64_t cap);\n";
                     // 伴生直接实现成导出函数（与字符串两段式同线形，不带 `_thunk_` 前缀：
                     // 覆盖率判据只认 `_thunk_` 符号，伴生不该出现在那份清单里）。
@@ -9573,18 +9775,18 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         lateDefs += (index == 0 ? "" : ", ") + argExprs[index];
                     }
                     lateDefs += "));\n}\n\n";
-                    lateDefs += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Len(void* self" +
+                    lateDefs += "extern \"C\" uint64_t " + linear + "__" + abiName + "Len(void* self" +
                                 paramDecls + ")\n{\n";
-                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    " + linear + "_clearError(self);\n";
                     lateDefs += "    void const* found = " + helper + "(self" + argNames + ");\n";
                     lateDefs += "    if (found == nullptr) { return 0u; }\n";
                     lateDefs += "    std::vector<uint8_t> bytes;\n";
                     lateDefs += "    cacore::codegen::CodeGenBindingCodec<" + recordQualified +
                                 ">::Serialize(*static_cast<" + recordQualified + " const*>(found), bytes);\n";
                     lateDefs += "    return static_cast<uint64_t>(bytes.size());\n}\n";
-                    lateDefs += "extern \"C\" void " + shape.name + "_Copy" + abiName + "(void* self" +
+                    lateDefs += "extern \"C\" void " + linear + "__Copy" + abiName + "(void* self" +
                                 paramDecls + ", uint8_t* dst, uint64_t cap)\n{\n";
-                    lateDefs += "    " + shape.name + "_clearError(self);\n";
+                    lateDefs += "    " + linear + "_clearError(self);\n";
                     lateDefs += "    if (dst == nullptr || cap == 0u) { return; }\n";
                     lateDefs += "    void const* found = " + helper + "(self" + argNames + ");\n";
                     lateDefs += "    if (found == nullptr) { return; }\n";
@@ -9596,17 +9798,17 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     lateDefs += "    ::memcpy(dst, bytes.data(), static_cast<std::size_t>(copied));\n}\n";
                     tableSlots.push_back({abiName + "Len",
                                           "uint64_t (*" + abiName + "Len)(void* self" + abiParamTypes + ")",
-                                          "&" + shape.name + "_" + abiName + "Len",
+                                          "&" + linear + "__" + abiName + "Len",
                                           csParamTypes + ", ulong"});
                     tableSlots.push_back({"Copy" + abiName,
                                           "void (*Copy" + abiName + ")(void* self" + abiParamTypes +
                                               ", uint8_t* dst, uint64_t cap)",
-                                          "&" + shape.name + "_Copy" + abiName,
+                                          "&" + linear + "__Copy" + abiName,
                                           csParamTypes + ", byte*, ulong, void"});
                     ++emitted;
                     continue;
                 }
-                std::string signature = returnType + " " + shape.name + "_" + abiName + "(void* self";
+                std::string signature = returnType + " " + linear + "__" + abiName + "(void* self";
                 for (Projected const& projected : params)
                 {
                     signature += ", " + projectedDeclaration(projected);
@@ -9617,19 +9819,19 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 // 两段式伴生：先问长度、再拷出来（矩阵里 string / string_view / 容器返回那一行）
                 if (needsTwoStep)
                 {
-                    cpp += "extern \"C\" uint64_t " + shape.name + "_" + abiName + "Len(void* self);\n";
-                    cpp += "extern \"C\" void " + shape.name + "_Copy" + abiName +
+                    cpp += "extern \"C\" uint64_t " + linear + "__" + abiName + "Len(void* self);\n";
+                    cpp += "extern \"C\" void " + linear + "__Copy" + abiName +
                            "(void* self, char* dst, uint64_t cap);\n";
                 }
                 // 句柄的配对释放（矩阵里智能指针返回那一行）：定义成查表 + 代际进位
                 if (isHandleReturn)
                 {
-                    cpp += "extern \"C\" void " + shape.name + "_Release" + abiName +
+                    cpp += "extern \"C\" void " + linear + "__Release" + abiName +
                            "(void* self, uint64_t handle);\n";
                     // 配对释放也按 self 记错误码（任务 5.10）：释放失败要能归到调用它的那个实例
-                    lateDefs += "extern \"C\" void " + shape.name + "_Release" + abiName +
-                                "(void* self, uint64_t handle)\n{\n    " + shape.name +
-                                "_clearError(self);\n    " + shape.name +
+                    lateDefs += "extern \"C\" void " + linear + "__Release" + abiName +
+                                "(void* self, uint64_t handle)\n{\n    " + linear +
+                                "_clearError(self);\n    " + linear +
                                 "_releaseHandle(self, handle);\n}\n";
                 }
 
@@ -9670,12 +9872,12 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 }
                 tableSlots.push_back({abiName,
                                       returnType + " (*" + abiName + ")(" + paramTypes + ")",
-                                      "&" + shape.name + "_thunk_" + abiName,
+                                      "&" + linear + "_thunk_" + abiName,
                                       csParamTypes + ", " + abiCSharpType(returnType)});
 
                 // thunk 实现：先只覆盖"参数全是标量、返回是 void 或同名标量"的形状；
                 // 其它形状（容器 / 两段式 / 句柄 / 回调 / 出参）留给 2.4 / 2.5，这里必须是可见的桩。
-                thunkDefs += "static " + returnType + " " + shape.name + "_thunk_" + abiName + "(void* self";
+                thunkDefs += "static " + returnType + " " + linear + "_thunk_" + abiName + "(void* self";
                 for (Projected const& projected : params)
                 {
                     thunkDefs += ", " + projectedDeclaration(projected);
@@ -9683,7 +9885,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 thunkDefs += ")\n{\n";
                 // 每个 thunk 入口先清一次（任务 5.10）：读到 0 只可能表示"这次调用没出错"。
                 // 上一次失败留下的码不会粘在这里 —— D8 的误抛就是粘出来的。
-                thunkDefs += "    " + shape.name + "_clearError(self);\n";
+                thunkDefs += "    " + linear + "_clearError(self);\n";
                 bool simpleShape = true;
                 for (Projected const& projected : params)
                 {
@@ -9748,9 +9950,9 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     // 注入参数（任务 3.3）：C ABI 里没有它，thunk 从固定名钩子取值。
                     if (method.injectedParams.count(method.params[paramIndex].second) > 0)
                     {
-                        const std::string hookName = "CAInject_" + method.ownerName + "_" +
-                                                     method.name + "_" +
-                                                     method.params[paramIndex].second;
+                        const std::string hookName =
+                            injectHookName(method.ownerQualified, method.name,
+                                           method.params[paramIndex].second);
                         // 强转要用**完整限定拼写**：头里的形参拼写常是短名（`TaskScheduler *`），
                         // 它靠 `using namespace` 才成立；生成的 thunk 在全局作用域，短名找不到
                         // （实测 `error C2061: syntax error: identifier 'TaskScheduler'`）。
@@ -9836,7 +10038,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                 nativePrelude += "    case " + std::to_string(channel.kind) +
                                                  "u:\n    {\n";
                                 nativePrelude += "        std::shared_ptr<void> " + paramName + "Strong = " +
-                                                 shape.name + "_lookupStrongHandle(self, " + paramName +
+                                                 linear + "_lookupStrongHandle(self, " + paramName +
                                                  "Handle, \"" + channel.pointeeQualified + "\", \"" +
                                                  paramName + "\");\n";
                                 nativePrelude += "        if (!" + paramName + "Strong) { " +
@@ -9853,7 +10055,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                                  "u:\n    {\n";
                                 nativePrelude += "        if (" + paramName + "Name == nullptr || " + paramName +
                                                  "NameLen == 0u)\n        {\n";
-                                nativePrelude += "            " + shape.name + "_setError(self, " + shape.name +
+                                nativePrelude += "            " + linear + "_setError(self, " + linear +
                                                  "_ERROR_NULL_POINTER, \"空名称不能构造资源引用\");\n";
                                 nativePrelude += "            " + trimCopy(zeroReturn) + "\n        }\n";
                                 nativePrelude += "        " + valueLocal + " = " + valueInfo.qualifiedName +
@@ -9870,8 +10072,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                 nativePrelude += "    case " + std::to_string(valueInfo.invalidKind) +
                                                  "u:\n        break;\n";
                             }
-                            nativePrelude += "    default:\n        " + shape.name + "_setError(self, " +
-                                             shape.name +
+                            nativePrelude += "    default:\n        " + linear + "_setError(self, " +
+                                             linear +
                                              "_ERROR_NULL_POINTER, \"无效的资源引用类型\");\n        " +
                                              trimCopy(zeroReturn) + "\n    }\n";
                             nativeArgs.push_back(valueLocal);
@@ -9895,7 +10097,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                             nativePrelude += "    " + paramName +
                                              "Resolver.resolve = [](void* user, uint64_t handle, "
                                              "char const* expectedType, char const* fieldPath) "
-                                             "-> std::shared_ptr<void> { return " + shape.name +
+                                             "-> std::shared_ptr<void> { return " + linear +
                                              "_lookupStrongHandle(user, handle, expectedType, fieldPath); };\n";
                             nativePrelude += "    " + blockType.qualifiedName + " " + valueLocal + ";\n";
                             nativePrelude += "    {\n";
@@ -9904,20 +10106,20 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                              ">::Deserialize(" + valueLocal + ", " + paramName +
                                              "Bytes, " + paramName + "Len, " + paramName + "Resolver);\n";
                             nativePrelude += "        if (blockCode != 0u)\n        {\n";
-                            nativePrelude += "            int32_t blockError = " + shape.name +
+                            nativePrelude += "            int32_t blockError = " + linear +
                                              "_ERROR_BAD_BLOCK_PAYLOAD;\n";
                             nativePrelude += "            char const* blockText = \"序列化块载荷不完整或字段读取失败\";\n";
                             nativePrelude += "            switch (blockCode)\n            {\n";
-                            nativePrelude += "            case 1u: blockError = " + shape.name +
+                            nativePrelude += "            case 1u: blockError = " + linear +
                                              "_ERROR_BAD_BLOCK_VERSION; blockText = \"序列化块格式版本不符\"; break;\n";
-                            nativePrelude += "            case 2u: blockError = " + shape.name +
+                            nativePrelude += "            case 2u: blockError = " + linear +
                                              "_ERROR_BAD_BLOCK_TYPE; blockText = \"序列化块类型名哈希不符\"; break;\n";
-                            nativePrelude += "            case 3u: blockError = " + shape.name +
+                            nativePrelude += "            case 3u: blockError = " + linear +
                                              "_ERROR_BAD_BLOCK_LAYOUT; blockText = \"序列化块字段布局哈希不符\"; break;\n";
-                            nativePrelude += "            case 12u: blockError = " + shape.name +
+                            nativePrelude += "            case 12u: blockError = " + linear +
                                              "_ERROR_BAD_OBJECT_HANDLE; blockText = \"序列化块里的对象句柄在绑定对象表里查不到\"; break;\n";
                             nativePrelude += "            default: break;\n            }\n";
-                            nativePrelude += "            " + shape.name +
+                            nativePrelude += "            " + linear +
                                              "_setError(self, blockError, blockText);\n";
                             nativePrelude += "            " + trimCopy(zeroReturn) + "\n        }\n    }\n";
                             nativeArgs.push_back(valueLocal);
@@ -9931,7 +10133,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         nativePrelude += "    castl::vector<uint8_t> " + bytesLocal + ";\n";
                         nativePrelude += "    if (" + paramName + " == nullptr)\n    {\n";
                         nativePrelude += "        if (" + paramName + "Count != 0u)\n        {\n";
-                        nativePrelude += "            " + shape.name + "_setError(self, " + shape.name +
+                        nativePrelude += "            " + linear + "_setError(self, " + linear +
                                          "_ERROR_NULL_POINTER, \"空指针配非零字节长度\");\n";
                         nativePrelude += zeroReturn + "        }\n    }\n";
                         nativePrelude += "    else\n    {\n        " + bytesLocal + ".assign(" + paramName + ", " +
@@ -9962,7 +10164,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                             }
                             const std::string valueLocal = paramName + "Value";
                             const std::string hashLocal = paramName + "Hash";
-                            nativePrelude += "    " + innerMirror->cppName + " " + valueLocal + " = " + shape.name +
+                            nativePrelude += "    " + innerMirror->cppName + " " + valueLocal + " = " + linear +
                                              "_fromC_" + innerMirror->csName + "(*" + paramName + ");\n";
                             nativePrelude += "    cacore::HashObj<" + innerMirror->cppName + "> " + hashLocal + "{" +
                                              valueLocal + "};\n";
@@ -9999,14 +10201,14 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         }
                         inner = trimCopy(inner.substr(open + 1, close - open - 1));
                         const std::string innerShort = unqualifiedName(bareType(inner));
-                        auto known = g_knownInterfaces.find(innerShort);
-                        const std::string targetLiteral = known == g_knownInterfaces.end() ? std::string()
-                                                                                          : known->second;
+                        const std::string knownQualified =
+                            knownInterfaceQualified(innerShort, shape.qualifiedName);
+                        const std::string targetLiteral = knownQualified;
                         // 原生实参类型必须用完整限定名：主头里可能只有短名（跨头文件目标）。
                         std::string qualifiedInner = inner;
-                        if (known != g_knownInterfaces.end())
+                        if (!knownQualified.empty())
                         {
-                            qualifiedInner = known->second;
+                            qualifiedInner = knownQualified;
                         }
                         else if (const MirrorType* innerMirror = findMirrorByCpp(bareType(inner)))
                         {
@@ -10014,7 +10216,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         }
                         const std::string strongLocal = paramName + "Strong";
                         const std::string pointerLocal = paramName + "Shared";
-                        nativePrelude += "    std::shared_ptr<void> " + strongLocal + " = " + shape.name +
+                        nativePrelude += "    std::shared_ptr<void> " + strongLocal + " = " + linear +
                                          "_lookupStrongHandle(self, " + paramName + "Handle, \"" + targetLiteral +
                                          "\", \"" + paramName + "\");\n";
                         nativePrelude += "    if (!" + strongLocal + ")\n    {\n" + zeroReturn + "    }\n";
@@ -10027,7 +10229,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     if (const MirrorType* paramMirror = findMirrorByCpp(bare))
                     {
                         const std::string recordLocal = paramName + "Cpp";
-                        nativePrelude += "    " + paramMirror->cppName + " " + recordLocal + " = " + shape.name +
+                        nativePrelude += "    " + paramMirror->cppName + " " + recordLocal + " = " + linear +
                                          "_fromC_" + paramMirror->csName + "(*" + paramName + ");\n";
                         nativeArgs.push_back(recordLocal);
                         continue;
@@ -10052,7 +10254,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                              "Count));\n";
                             nativePrelude += "    for (uint64_t index = 0u; index < " + paramName +
                                              "Count; ++index)\n    {\n        " + vectorLocal + ".push_back(" +
-                                             shape.name + "_fromC_" + elementMirror->csName + "(" + paramName +
+                                             linear + "_fromC_" + elementMirror->csName + "(" + paramName +
                                              "[index]));\n    }\n";
                             nativeArgs.push_back(vectorLocal);
                             continue;
@@ -10095,10 +10297,9 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     return trimCopy(bare.substr(open + 1, close - open - 1));
                 };
                 // 目标类型的完整限定名（跨头文件）：短名必须在已知清单里，否则返回空串。
-                auto targetLiteralOf = [](std::string const& typeSpelling) -> std::string {
+                auto targetLiteralOf = [&shape](std::string const& typeSpelling) -> std::string {
                     const std::string shortName = unqualifiedName(bareType(typeSpelling));
-                    auto known = g_knownInterfaces.find(shortName);
-                    return known == g_knownInterfaces.end() ? std::string() : known->second;
+                    return knownInterfaceQualified(shortName, shape.qualifiedName);
                 };
                 if (isCallback)
                 {
@@ -10141,36 +10342,36 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     }
                     thunkDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
                     thunkDefs += "    if (" + fnName + " == nullptr)\n    {\n";
-                    thunkDefs += "        if (" + shape.name + "_callbackModifyBlocked(self, " + indexText +
+                    thunkDefs += "        if (" + linear + "_callbackModifyBlocked(self, " + indexText +
                                  ")) { return 0u; }\n";
-                    thunkDefs += "        " + shape.name + "_supersedeCallback(self, " + indexText + ");\n";
+                    thunkDefs += "        " + linear + "_supersedeCallback(self, " + indexText + ");\n";
                     thunkDefs += "        try { object->" + method.name + "(castl::function<" + originalCallbackType +
                                  ">{}); }\n";
-                    thunkDefs += "        catch (...) { " + shape.name + "_setError(self, " + shape.name +
+                    thunkDefs += "        catch (...) { " + linear + "_setError(self, " + linear +
                                  "_ERROR_CALLBACK_EXCEPTION, \"原生实现抛出了 C++ 异常\"); return 0u; }\n";
                     // 清空不产生注册号，挂起的回调错误可以在这里安全上报（安装成功的路径不 attach，
                     // 否则 C# 会因为异常而丢掉刚拿到的注册号，保活项与 native 注册就对不上了）。
-                    thunkDefs += "        " + shape.name + "_attachCallbackError(self);\n";
+                    thunkDefs += "        " + linear + "_attachCallbackError(self);\n";
                     thunkDefs += "        return 0u;\n    }\n";
-                    thunkDefs += "    if (" + shape.name + "_callbackModifyBlocked(self, " + indexText +
+                    thunkDefs += "    if (" + linear + "_callbackModifyBlocked(self, " + indexText +
                                  ")) { return 0u; }\n";
-                    thunkDefs += "    const uint64_t registration = " + shape.name + "_registerCallback(self, " +
+                    thunkDefs += "    const uint64_t registration = " + linear + "_registerCallback(self, " +
                                  indexText + ");\n";
                     thunkDefs += "    if (registration == 0u) { return 0u; }\n";
                     thunkDefs += "    auto callback = [registration, self, " + fnName + ", " + userName + "](" +
                                  lambdaParams + ") {\n";
-                    thunkDefs += "        " + shape.name + "_beginCallback(registration);\n";
+                    thunkDefs += "        " + linear + "_beginCallback(registration);\n";
                     thunkDefs += "        try { " + fnName + "(" + userName + forwardArgs + "); }\n";
-                    thunkDefs += "        catch (std::exception const& error) { " + shape.name +
-                                 "_setCallbackError(self, " + shape.name +
+                    thunkDefs += "        catch (std::exception const& error) { " + linear +
+                                 "_setCallbackError(self, " + linear +
                                  "_ERROR_CALLBACK_EXCEPTION, error.what()); }\n";
-                    thunkDefs += "        catch (...) { " + shape.name + "_setCallbackError(self, " + shape.name +
+                    thunkDefs += "        catch (...) { " + linear + "_setCallbackError(self, " + linear +
                                  "_ERROR_CALLBACK_EXCEPTION, \"原生回调桥抛出了 C++ 异常\"); }\n";
-                    thunkDefs += "        " + shape.name + "_endCallback(registration);\n    };\n";
+                    thunkDefs += "        " + linear + "_endCallback(registration);\n    };\n";
                     thunkDefs += "    try { object->" + method.name + "(castl::function<" + originalCallbackType +
                                  ">(callback)); }\n";
-                    thunkDefs += "    catch (...) { " + shape.name + "_unregisterCallback(self, registration); " +
-                                 shape.name + "_setError(self, " + shape.name +
+                    thunkDefs += "    catch (...) { " + linear + "_unregisterCallback(self, registration); " +
+                                 linear + "_setError(self, " + linear +
                                  "_ERROR_CALLBACK_EXCEPTION, \"原生实现抛出了 C++ 异常\"); return 0u; }\n";
                     thunkDefs += "    return registration;\n";
                 }
@@ -10196,7 +10397,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                             call += (index == 0 ? "" : ", ") + nativeArgs[index];
                         }
                         call += ")";
-                        thunkDefs += "    return " + shape.name + "_registerWeakHandle(self, std::weak_ptr<void>(" +
+                        thunkDefs += "    return " + linear + "_registerWeakHandle(self, std::weak_ptr<void>(" +
                                      call + "), \"" + target + "\");\n";
                     }
                 }
@@ -10229,7 +10430,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     // 回调错误槽在这里上报（design D5）：用户委托的异常在下一次 UpdateSystem 抛给调用方。
                     if (hasCallbacks && method.name == "UpdateSystem")
                     {
-                        thunkDefs += "    " + shape.name + "_attachCallbackError(self);\n";
+                        thunkDefs += "    " + linear + "_attachCallbackError(self);\n";
                     }
                 }
                 // 借用句柄（任务 5.3 / design D9）：返回的是另一个可绑定接口的裸指针 ——
@@ -10256,7 +10457,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                             borrowCall += (index == 0 ? "" : ", ") + nativeArgs[index];
                         }
                         borrowCall += "))";
-                        thunkDefs += "    return " + shape.name + "_registerBorrowedHandle(self, " + borrowCall +
+                        thunkDefs += "    return " + linear + "_registerBorrowedHandle(self, " + borrowCall +
                                      ", \"" + target + "\");\n";
                     }
                 }
@@ -10280,9 +10481,9 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         }
                         call += ")";
                         thunkDefs += "    auto result = " + call + ";\n";
-                        thunkDefs += "    if (!result) { " + shape.name + "_setError(self, " + shape.name +
+                        thunkDefs += "    if (!result) { " + linear + "_setError(self, " + linear +
                                      "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
-                        thunkDefs += "    return " + shape.name +
+                        thunkDefs += "    return " + linear +
                                      "_registerStrongHandle(self, std::shared_ptr<void>(result), \"" + target +
                                      "\");\n";
                     }
@@ -10303,7 +10504,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         // 回调错误槽在这里上报（design D5）：用户委托的异常在下一次 UpdateSystem 抛给调用方。
                         if (hasCallbacks && method.name == "UpdateSystem")
                         {
-                            thunkDefs += "    " + shape.name + "_attachCallbackError(self);\n";
+                            thunkDefs += "    " + linear + "_attachCallbackError(self);\n";
                         }
                     }
                     else if (directReturnBare == "bool")
@@ -10346,7 +10547,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         thunkDefs += "        char monitorError[96] = {0};\n";
                         thunkDefs += "        ::snprintf(monitorError, sizeof(monitorError), \"无效的显示器编号 %d（数量 %d）\", " +
                                      monitorName + ", object->GetMonitorCount());\n";
-                        thunkDefs += "        " + shape.name + "_setError(self, " + shape.name +
+                        thunkDefs += "        " + linear + "_setError(self, " + linear +
                                      "_ERROR_INVALID_MONITOR, monitorError);\n";
                         thunkDefs += "        return {};\n    }\n";
                     }
@@ -10359,7 +10560,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     }
                     call += ")";
                     thunkDefs += "    " + qualify(mirrorReturn->cppName) + " result = " + call + ";\n";
-                    thunkDefs += "    return " + shape.name + "_toC_" + mirrorReturn->csName + "(result);\n";
+                    thunkDefs += "    return " + linear + "_toC_" + mirrorReturn->csName + "(result);\n";
                 }
                 else
                 {
@@ -10369,7 +10570,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 thunkDefs += "}\n\n";
 
                 // 导出入口：`extern "C"` 的那一层只是把参数原样转给 thunk（声明在上面，定义在这里）
-                externDefs += "extern \"C\" " + returnType + " " + shape.name + "_" + abiName +
+                externDefs += "extern \"C\" " + returnType + " " + linear + "__" + abiName +
                               "(void* self";
                 for (Projected const& projected : params)
                 {
@@ -10384,12 +10585,12 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     }
                     if (returnType == "void")
                     {
-                        externDefs += "    " + shape.name + "_thunk_" + abiName + "(" + callArguments +
+                        externDefs += "    " + linear + "_thunk_" + abiName + "(" + callArguments +
                                       ");\n";
                     }
                     else
                     {
-                        externDefs += "    return " + shape.name + "_thunk_" + abiName + "(" +
+                        externDefs += "    return " + linear + "_thunk_" + abiName + "(" +
                                       callArguments + ");\n";
                     }
                 }
@@ -10399,51 +10600,51 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             const bool emitCreate = shape.hasPublicDefaultCtor && !shape.isAbstract;
             if (emitCreate)
             {
-                cpp += "extern \"C\" uint64_t " + shape.name + "_Create(void* self);\n";
-                thunkDefs += "static uint64_t " + shape.name + "_thunk_Create(void* self)\n{\n";
-                thunkDefs += "    " + shape.name + "_clearError(self);\n";
+                cpp += "extern \"C\" uint64_t " + linear + "__Create(void* self);\n";
+                thunkDefs += "static uint64_t " + linear + "_thunk_Create(void* self)\n{\n";
+                thunkDefs += "    " + linear + "_clearError(self);\n";
                 thunkDefs += "    std::shared_ptr<" + shape.qualifiedName + "> object(new " +
                              shape.qualifiedName + "());\n";
-                thunkDefs += "    return " + shape.name +
+                thunkDefs += "    return " + linear +
                              "_registerStrongHandle(self, std::static_pointer_cast<void>(object), \"" +
                              shape.qualifiedName + "\");\n}\n\n";
-                externDefs += "extern \"C\" uint64_t " + shape.name + "_Create(void* self)\n{\n";
-                externDefs += "    return " + shape.name + "_thunk_Create(self);\n}\n\n";
+                externDefs += "extern \"C\" uint64_t " + linear + "__Create(void* self)\n{\n";
+                externDefs += "    return " + linear + "_thunk_Create(self);\n}\n\n";
                 tableSlots.push_back({"Create", "uint64_t (*Create)(void* self)",
-                                      "&" + shape.name + "_thunk_Create", "void*, ulong"});
+                                      "&" + linear + "_thunk_Create", "void*, ulong"});
             }
             if (hasCallbacks)
             {
                 // 通用注销伴生（design D1）：按注册号清理仍匹配的那一项；旧注册号静默无操作，
                 // 不许误删后来替换的新回调。它进函数表 —— 托管侧只有函数表地址，没有导出符号名。
-                cpp += "extern \"C\" void " + shape.name + "_UnregisterCallback(void* self, uint64_t registration);\n";
-                thunkDefs += "static void " + shape.name +
+                cpp += "extern \"C\" void " + linear + "__UnregisterCallback(void* self, uint64_t registration);\n";
+                thunkDefs += "static void " + linear +
                              "_thunk_UnregisterCallback(void* self, uint64_t registration)\n{\n";
-                thunkDefs += "    " + shape.name + "_clearError(self);\n";
-                thunkDefs += "    " + shape.name + "_unregisterCallback(self, registration);\n";
-                thunkDefs += "    " + shape.name + "_attachCallbackError(self);\n}\n\n";
-                externDefs += "extern \"C\" void " + shape.name +
-                              "_UnregisterCallback(void* self, uint64_t registration)\n{\n";
-                externDefs += "    " + shape.name + "_thunk_UnregisterCallback(self, registration);\n}\n\n";
+                thunkDefs += "    " + linear + "_clearError(self);\n";
+                thunkDefs += "    " + linear + "_unregisterCallback(self, registration);\n";
+                thunkDefs += "    " + linear + "_attachCallbackError(self);\n}\n\n";
+                externDefs += "extern \"C\" void " + linear +
+                              "__UnregisterCallback(void* self, uint64_t registration)\n{\n";
+                externDefs += "    " + linear + "_thunk_UnregisterCallback(self, registration);\n}\n\n";
                 tableSlots.push_back({"UnregisterCallback",
                                       "void (*UnregisterCallback)(void* self, uint64_t registration)",
-                                      "&" + shape.name + "_thunk_UnregisterCallback", "void*, ulong, void"});
+                                      "&" + linear + "_thunk_UnregisterCallback", "void*, ulong, void"});
                 // 托管桥把回调里捕获的异常 / 跨线程 / 重入错误写进回调错误槽的入口
-                cpp += "extern \"C\" void " + shape.name +
-                       "_ReportCallbackError(void* self, int32_t code, char const* text, uint64_t textLen);\n";
+                cpp += "extern \"C\" void " + linear +
+                       "__ReportCallbackError(void* self, int32_t code, char const* text, uint64_t textLen);\n";
                 tableSlots.push_back({"ReportCallbackError",
                                       "void (*ReportCallbackError)(void* self, int32_t code, char const* text, "
                                       "uint64_t textLen)",
-                                      "&" + shape.name + "_ReportCallbackError",
+                                      "&" + linear + "__ReportCallbackError",
                                       "void*, int, byte*, ulong, void"});
             }
             // 目标接口两个槽：**追加**在函数表末尾（任务 3.2）。不重排旧槽、ABI 版本不变。
             tableSlots.push_back({"ResolveTargetHandle",
                                   "void* (*ResolveTargetHandle)(void* self, uint64_t handle)",
-                                  "&" + shape.name + "_ResolveTargetHandle", "void*, ulong, void*"});
+                                  "&" + linear + "__ResolveTargetHandle", "void*, ulong, void*"});
             tableSlots.push_back({"ReleaseTargetHandle",
                                   "void (*ReleaseTargetHandle)(void* self, uint64_t handle)",
-                                  "&" + shape.name + "_ReleaseTargetHandle", "void*, ulong, void"});
+                                  "&" + linear + "__ReleaseTargetHandle", "void*, ulong, void"});
             cpp += "\n";
             // ---- 版本化函数表 + 取表函数（任务 2.2）----
             // 校验口径：**版本相等且大小相等**才通过（与已落地的 Scripting/Managed/Host.cs 一致）；
@@ -10452,7 +10653,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             // 版本从 1 升到 2（任务 5.10）：表头在 abi_version / size 之后多两个错误通道槽。
             // 两侧 `GetApi` 的"版本相等且大小相等"双校验因此自然拦住上一版产物 —— 不需要
             // 另加一条兼容判断，旧表拿到新版本号直接返回 0。
-            cpp += "typedef struct " + shape.name + "Api_v2 {\n";
+            cpp += "typedef struct " + linear + "Api_v2 {\n";
             cpp += "    uint32_t abi_version;\n";
             cpp += "    uint32_t size;\n";
             // 表头之后是四个非方法槽（错误通道两槽 + 句柄解析/释放两槽），再是方法与两段式伴生。
@@ -10461,11 +10662,11 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             {
                 cpp += "    " + slot.member + ";\n";
             }
-            cpp += "} " + shape.name + "Api_v2;\n\n";
+            cpp += "} " + linear + "Api_v2;\n\n";
             // 句柄表与错误通道的**数据**必须定义在 thunk 之前（thunk 里要用），实现体可以放在后面 ——
             // 这里先把类型、两张表与三个 helper 的前置声明吐出来，避免"先用后定义"。
-            cpp += "static const uint32_t " + shape.name + "_HANDLE_INDEX_BITS = " + std::to_string(handleIndexBits) + "u;\n";
-            cpp += "static const uint32_t " + shape.name + "_HANDLE_GEN_BITS = " + std::to_string(handleGenerationBits) + "u;\n";
+            cpp += "static const uint32_t " + linear + "_HANDLE_INDEX_BITS = " + std::to_string(handleIndexBits) + "u;\n";
+            cpp += "static const uint32_t " + linear + "_HANDLE_GEN_BITS = " + std::to_string(handleGenerationBits) + "u;\n";
             // 错误码一律具名（本 change 任务 4.3）：唯一来源是上面的 `kBindErrorCodes`，生成物里不许出现
             // 裸字面量；`check_bindings.py` 的 `ERROR_CODE_TABLE` 与 README 的错误码表跟它逐项对齐。
             for (BindErrorCode const& errorCode : kBindErrorCodes)
@@ -10475,7 +10676,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 {
                     continue;
                 }
-                cpp += "static const int32_t " + shape.name + "_ERROR_" + errorCode.name + " = " +
+                cpp += "static const int32_t " + linear + "_ERROR_" + errorCode.name + " = " +
                        std::to_string(errorCode.value) + ";\n";
             }
             // 错误状态按 **self（实例）** 分槽（任务 5.10 / design D11）：以前是每接口一份
@@ -10483,39 +10684,39 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             // 而且一次失败之后紧接着一次成功的调用读到的仍是上一次的码（D8 会误抛）。
             // 键用 self 指针：每个模块实例、每个窗口对象的 self 都不同，接口这一维由
             // "每个接口一份生成物"本身保证，所以 `(接口, 实例)` 落下来就是 `(本文件, self)`。
-            cpp += "typedef struct " + shape.name + "ErrorSlot { void const* self; int32_t code; char text[256]; } " +
-                   shape.name + "ErrorSlot;\n";
+            cpp += "typedef struct " + linear + "ErrorSlot { void const* self; int32_t code; char text[256]; } " +
+                   linear + "ErrorSlot;\n";
             // 与句柄表同一口径：挂在永不释放的堆对象上，避开静态析构顺序（实测过崩溃）
-            cpp += "static std::vector<" + shape.name + "ErrorSlot>& " + shape.name +
-                   "_errorSlots = *new std::vector<" + shape.name + "ErrorSlot>();\n";
-            cpp += "static std::recursive_mutex " + shape.name + "_errorMutex;\n";
+            cpp += "static std::vector<" + linear + "ErrorSlot>& " + linear +
+                   "_errorSlots = *new std::vector<" + linear + "ErrorSlot>();\n";
+            cpp += "static std::recursive_mutex " + linear + "_errorMutex;\n";
             // 句柄表是**进程级唯一一张**（任务 5.11 / design D12 乙）：所有接口共用，表项带接口标签。
             // 为什么不能每接口一张：句柄 = (代际 << 48) | 序号，而每个接口的序号都从 1 开始，两张独立
             // 的表会发出**数字完全相同**的句柄；把 A 表的句柄交给 B 表的释放入口，B 表会命中一个同号
             // 的活项并把它清掉 —— 销毁的是一个无关对象（实测，口径见 tasks.md 5.11）。
             cpp += "// 本接口在共用句柄表里的标签：一个本翻译单元独有的静态对象地址，跨接口不会撞\n";
-            cpp += "static int const " + shape.name + "_HANDLE_TAG = 0;\n";
+            cpp += "static int const " + linear + "_HANDLE_TAG = 0;\n";
             // 兼容既有读写点（CoreTests 直接读表项的 kind / strong）：类型换成共用的那个
-            cpp += "static std::vector<cascaded_bindings::HandleEntry>& " + shape.name +
+            cpp += "static std::vector<cascaded_bindings::HandleEntry>& " + linear +
                    "_handles = cascaded_bindings::HandleTable();\n";
             const std::string handleMutexName = "cascaded_bindings::HandleMutex()";
             // 错误通道的转发声明必须排在 thunk 之前（thunk 入口第一句就是 clearError）。
             // 槽的键是 self：错误码只对"这次调用的那个实例"有意义。
-            cpp += "static " + shape.name + "ErrorSlot& " + shape.name + "_errorSlotLocked(void const* self);\n";
-            cpp += "static void " + shape.name + "_clearError(void const* self);\n";
-            cpp += "static void " + shape.name + "_setError(void const* self, int32_t code, char const* text);\n";
-            cpp += "static int32_t " + shape.name + "_readErrorCode(void* self);\n";
-            cpp += "static void " + shape.name + "_readErrorText(void* self, char* dst, uint64_t cap);\n";
-            cpp += "static uint64_t " + shape.name + "_registerStrongHandle(void const* owner, std::shared_ptr<void> object, char const* targetType);\n";
-            cpp += "static uint64_t " + shape.name + "_registerWeakHandle(void const* owner, std::weak_ptr<void> object, char const* targetType);\n";
-            cpp += "static uint64_t " + shape.name + "_registerBorrowedHandle(void const* issuer, void* object, char const* targetType);\n";
-            cpp += "static std::shared_ptr<void> " + shape.name +
+            cpp += "static " + linear + "ErrorSlot& " + linear + "_errorSlotLocked(void const* self);\n";
+            cpp += "static void " + linear + "_clearError(void const* self);\n";
+            cpp += "static void " + linear + "_setError(void const* self, int32_t code, char const* text);\n";
+            cpp += "static int32_t " + linear + "_readErrorCode(void* self);\n";
+            cpp += "static void " + linear + "_readErrorText(void* self, char* dst, uint64_t cap);\n";
+            cpp += "static uint64_t " + linear + "_registerStrongHandle(void const* owner, std::shared_ptr<void> object, char const* targetType);\n";
+            cpp += "static uint64_t " + linear + "_registerWeakHandle(void const* owner, std::weak_ptr<void> object, char const* targetType);\n";
+            cpp += "static uint64_t " + linear + "_registerBorrowedHandle(void const* issuer, void* object, char const* targetType);\n";
+            cpp += "static std::shared_ptr<void> " + linear +
                    "_lookupStrongHandle(void const* owner, uint64_t handle, char const* expectedTarget, char const* roleText);\n";
-            cpp += "static void* " + shape.name + "_lookupHandle(uint64_t handle);\n";
-            cpp += "static void* " + shape.name +
+            cpp += "static void* " + linear + "_lookupHandle(uint64_t handle);\n";
+            cpp += "static void* " + linear +
                    "_lookupTargetHandle(void const* owner, uint64_t handle, char const* expectedTarget);\n";
-            cpp += "static void " + shape.name + "_releaseHandle(void const* owner, uint64_t handle);\n";
-            cpp += "static void " + shape.name +
+            cpp += "static void " + linear + "_releaseHandle(void const* owner, uint64_t handle);\n";
+            cpp += "static void " + linear +
                    "_releaseTargetHandle(void const* owner, uint64_t handle, char const* expectedTarget);\n\n";
             // 回调注册表与桥：它的辅助函数要用到上面声明的 `_setError`，而 thunk 又要用它们 —— 夹在中间。
             cpp += callbackSupport;
@@ -10536,169 +10737,169 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 {
                     // 托管侧的字段声明也从这里出：一个槽一行 `delegate* unmanaged<…>`
                     cs += "        public static delegate* unmanaged<" + slot.csType + "> " + slot.name + ";\n";
-                    cpp += "static_assert(offsetof(" + shape.name + "Api_v2, " + slot.name + ") == " +
+                    cpp += "static_assert(offsetof(" + linear + "Api_v2, " + slot.name + ") == " +
                            std::to_string(tableHeaderBytes + 8u * memberIndex) +
-                           ", \"函数表成员偏移变了：\" \"" + shape.name + "." + slot.name + "\");\n";
+                           ", \"函数表成员偏移变了：\" \"" + linear + "." + slot.name + "\");\n";
                     cs += "        public const int " + shape.name + "Api_v2_" + slot.name + " = " +
                           std::to_string(tableHeaderBytes + 8u * memberIndex) + ";\n";
                     ++memberIndex;
                 }
                 cpp += "\n";
             }
-            cpp += "static " + shape.name + "Api_v2 const " + shape.name + "_api = {\n";
-            cpp += "    2u, (uint32_t)sizeof(" + shape.name + "Api_v2),\n";
+            cpp += "static " + linear + "Api_v2 const " + linear + "_api = {\n";
+            cpp += "    2u, (uint32_t)sizeof(" + linear + "Api_v2),\n";
             // 四个非方法槽按 tableSlots 的顺序紧跟在表头后面
             for (TableSlot const& slot : tableSlots)
             {
                 cpp += "    " + slot.init + ",\n";
             }
             cpp += "};\n\n";
-            cpp += "extern \"C\" uint32_t " + shape.name + "_GetApi(uint32_t version, uint32_t size, " +
-                   shape.name + "Api_v2* out)\n{\n";
-            cpp += "    const uint32_t realSize = (uint32_t)sizeof(" + shape.name + "Api_v2);\n";
+            cpp += "extern \"C\" uint32_t " + linear + "__GetApi(uint32_t version, uint32_t size, " +
+                   linear + "Api_v2* out)\n{\n";
+            cpp += "    const uint32_t realSize = (uint32_t)sizeof(" + linear + "Api_v2);\n";
             cpp += "    if (version != 2u || size != realSize || out == nullptr)\n    {\n        return 0u;\n    }\n";
-            cpp += "    ::memcpy(out, &" + shape.name + "_api, realSize);\n";
+            cpp += "    ::memcpy(out, &" + linear + "_api, realSize);\n";
             cpp += "    return realSize;\n}\n\n";
             // ---- 错误通道 + 句柄表（任务 2.4）----
             // 句柄 = 低 <INDEX> 位序号 + 高 <GEN> 位代际（位数在 2.9 变成参数，这里先用默认 48/16）。
             // `Release` 让代际进位 ⇒ 旧句柄立刻失效；失效时置错误码 1001 并留一条文本。
             // ---- 错误状态：按 self 分槽（任务 5.10 / design D11）----
             // 每个槽一个自述文本（最多 255 字节 + NUL），`text` 里永远留一个 NUL。
-            cpp += "static " + shape.name + "ErrorSlot& " + shape.name + "_errorSlotLocked(void const* self)\n{\n";
-            cpp += "    for (auto& slot : " + shape.name + "_errorSlots)\n    {\n";
+            cpp += "static " + linear + "ErrorSlot& " + linear + "_errorSlotLocked(void const* self)\n{\n";
+            cpp += "    for (auto& slot : " + linear + "_errorSlots)\n    {\n";
             cpp += "        if (slot.self == self) { return slot; }\n    }\n";
-            cpp += "    " + shape.name + "_errorSlots.push_back({self, 0, {0}});\n";
-            cpp += "    return " + shape.name + "_errorSlots.back();\n}\n";
-            cpp += "static void " + shape.name + "_clearError(void const* self)\n{\n";
-            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
-            cpp += "    " + shape.name + "ErrorSlot& slot = " + shape.name + "_errorSlotLocked(self);\n";
+            cpp += "    " + linear + "_errorSlots.push_back({self, 0, {0}});\n";
+            cpp += "    return " + linear + "_errorSlots.back();\n}\n";
+            cpp += "static void " + linear + "_clearError(void const* self)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + linear + "_errorMutex);\n";
+            cpp += "    " + linear + "ErrorSlot& slot = " + linear + "_errorSlotLocked(self);\n";
             cpp += "    slot.code = 0;\n    slot.text[0] = 0;\n}\n";
-            cpp += "static void " + shape.name + "_setError(void const* self, int32_t code, char const* text)\n{\n";
-            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
-            cpp += "    " + shape.name + "ErrorSlot& slot = " + shape.name + "_errorSlotLocked(self);\n";
+            cpp += "static void " + linear + "_setError(void const* self, int32_t code, char const* text)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + linear + "_errorMutex);\n";
+            cpp += "    " + linear + "ErrorSlot& slot = " + linear + "_errorSlotLocked(self);\n";
             cpp += "    slot.code = code;\n    slot.text[0] = 0;\n";
             cpp += "    if (text != nullptr)\n    {\n";
             // 文本长度必须夹住：旧的 `memcpy(strlen + 1)` 在文本超过 255 字节时写穿整个槽
             cpp += "        const std::size_t room = sizeof(slot.text) - 1u;\n";
             cpp += "        const std::size_t length = (::strlen(text) < room) ? ::strlen(text) : room;\n";
             cpp += "        ::memcpy(slot.text, text, length);\n        slot.text[length] = 0;\n    }\n}\n";
-            cpp += "static int32_t " + shape.name + "_readErrorCode(void* self)\n{\n";
-            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
-            cpp += "    return " + shape.name + "_errorSlotLocked(self).code;\n}\n";
-            cpp += "static void " + shape.name + "_readErrorText(void* self, char* dst, uint64_t cap)\n{\n";
+            cpp += "static int32_t " + linear + "_readErrorCode(void* self)\n{\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + linear + "_errorMutex);\n";
+            cpp += "    return " + linear + "_errorSlotLocked(self).code;\n}\n";
+            cpp += "static void " + linear + "_readErrorText(void* self, char* dst, uint64_t cap)\n{\n";
             cpp += "    if (cap == 0u || dst == nullptr) { return; }\n";
-            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + shape.name + "_errorMutex);\n";
-            cpp += "    const " + shape.name + "ErrorSlot& slot = " + shape.name + "_errorSlotLocked(self);\n";
+            cpp += "    std::lock_guard<std::recursive_mutex> guard(" + linear + "_errorMutex);\n";
+            cpp += "    const " + linear + "ErrorSlot& slot = " + linear + "_errorSlotLocked(self);\n";
             cpp += "    const std::size_t length = ::strlen(slot.text);\n";
             cpp += "    const std::size_t copied = (length < cap - 1u) ? length : cap - 1u;\n";
             cpp += "    ::memcpy(dst, slot.text, copied);\n    dst[copied] = 0;\n}\n";
             // 旧的独立入口保留（既有 CoreTests 与 C ABI 用户还在调），但**必须转发到同一份状态**：
             // 否则"从这里读不到错误、只有表里读得到"会把同一次失败读成两个数。
-            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorCode(void* self)\n{\n    return " +
-                   shape.name + "_readErrorCode(self);\n}\n";
-            cpp += "extern \"C\" int32_t " + shape.name + "_LastErrorText(void* self, char* dst, uint64_t cap)\n{\n";
-            cpp += "    " + shape.name + "_readErrorText(self, dst, cap);\n";
+            cpp += "extern \"C\" int32_t " + linear + "__LastErrorCode(void* self)\n{\n    return " +
+                   linear + "_readErrorCode(self);\n}\n";
+            cpp += "extern \"C\" int32_t " + linear + "__LastErrorText(void* self, char* dst, uint64_t cap)\n{\n";
+            cpp += "    " + linear + "_readErrorText(self, dst, cap);\n";
             cpp += "    return (dst != nullptr && cap > 0u) ? (int32_t)::strlen(dst) : 0;\n}\n\n";
             // ---- 句柄表的实现（所有接口共用一张表，任务 5.11 / design D12 乙）----
-            cpp += "static cascaded_bindings::HandleEntry* " + shape.name + "_claimSlotLocked()\n{\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "static cascaded_bindings::HandleEntry* " + linear + "_claimSlotLocked()\n{\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    uint64_t index = 1u;\n";
-            cpp += "    while (index <= indexMask && index < " + shape.name + "_handles.size() + 1u)\n    {\n";
-            cpp += "        if (" + shape.name + "_handles[index - 1u].kind == 0u) { break; }\n        ++index;\n    }\n";
+            cpp += "    while (index <= indexMask && index < " + linear + "_handles.size() + 1u)\n    {\n";
+            cpp += "        if (" + linear + "_handles[index - 1u].kind == 0u) { break; }\n        ++index;\n    }\n";
             cpp += "    if (index > indexMask) { return nullptr; }\n";
-            cpp += "    if (index > " + shape.name + "_handles.size()) { " + shape.name + "_handles.push_back({}); }\n";
-            cpp += "    return &" + shape.name + "_handles[index - 1u];\n}\n";
-            cpp += "static uint64_t " + shape.name +
+            cpp += "    if (index > " + linear + "_handles.size()) { " + linear + "_handles.push_back({}); }\n";
+            cpp += "    return &" + linear + "_handles[index - 1u];\n}\n";
+            cpp += "static uint64_t " + linear +
                    "_handleOfLocked(cascaded_bindings::HandleEntry const* entry)\n{\n";
-            cpp += "    const uint64_t index = static_cast<uint64_t>(entry - " + shape.name +
+            cpp += "    const uint64_t index = static_cast<uint64_t>(entry - " + linear +
                    "_handles.data()) + 1u;\n";
-            cpp += "    return (static_cast<uint64_t>(entry->generation) << " + shape.name +
+            cpp += "    return (static_cast<uint64_t>(entry->generation) << " + linear +
                    "_HANDLE_INDEX_BITS) | index;\n}\n";
-            cpp += "static uint64_t " + shape.name + "_registerStrongHandle(void const* owner, std::shared_ptr<void> object, char const* targetType)\n{\n";
+            cpp += "static uint64_t " + linear + "_registerStrongHandle(void const* owner, std::shared_ptr<void> object, char const* targetType)\n{\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
-            cpp += "    if (!object) { " + shape.name + "_setError(owner, " + shape.name + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
-            cpp += "    cascaded_bindings::HandleEntry* entry = " + shape.name + "_claimSlotLocked();\n";
+            cpp += "    if (!object) { " + linear + "_setError(owner, " + linear + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
+            cpp += "    cascaded_bindings::HandleEntry* entry = " + linear + "_claimSlotLocked();\n";
             cpp += "    if (entry == nullptr) { return 0u; }\n";
             cpp += "    entry->object = object.get();\n    entry->kind = 1u;\n    entry->hasWitness = false;\n";
             cpp += "    entry->witnessHandle = 0u;\n";
-            cpp += "    entry->interfaceTag = &" + shape.name + "_HANDLE_TAG;\n";
+            cpp += "    entry->interfaceTag = &" + linear + "_HANDLE_TAG;\n";
             cpp += "    entry->issuerType = \"" + shape.qualifiedName + "\";\n";
             cpp += "    entry->targetType = targetType;\n";
             cpp += "    entry->strong = object;\n    entry->weak.reset();\n";
-            cpp += "    return " + shape.name + "_handleOfLocked(entry);\n}\n";
-            cpp += "static uint64_t " + shape.name + "_registerWeakHandle(void const* owner, std::weak_ptr<void> object, char const* targetType)\n{\n";
+            cpp += "    return " + linear + "_handleOfLocked(entry);\n}\n";
+            cpp += "static uint64_t " + linear + "_registerWeakHandle(void const* owner, std::weak_ptr<void> object, char const* targetType)\n{\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
-            cpp += "    if (object.expired()) { " + shape.name + "_setError(owner, " + shape.name + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
-            cpp += "    cascaded_bindings::HandleEntry* entry = " + shape.name + "_claimSlotLocked();\n";
+            cpp += "    if (object.expired()) { " + linear + "_setError(owner, " + linear + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
+            cpp += "    cascaded_bindings::HandleEntry* entry = " + linear + "_claimSlotLocked();\n";
             cpp += "    if (entry == nullptr) { return 0u; }\n";
             // 弱句柄不持有强引用，所以 object 先写 weak 换出来的指针；对象一死 lookup 就失败
             cpp += "    entry->object = object.lock().get();\n    entry->kind = 2u;\n    entry->hasWitness = false;\n";
             cpp += "    entry->witnessHandle = 0u;\n";
-            cpp += "    entry->interfaceTag = &" + shape.name + "_HANDLE_TAG;\n";
+            cpp += "    entry->interfaceTag = &" + linear + "_HANDLE_TAG;\n";
             cpp += "    entry->issuerType = \"" + shape.qualifiedName + "\";\n";
             cpp += "    entry->targetType = targetType;\n";
             cpp += "    entry->weak = object;\n    entry->strong.reset();\n";
-            cpp += "    return " + shape.name + "_handleOfLocked(entry);\n}\n";
+            cpp += "    return " + linear + "_handleOfLocked(entry);\n}\n";
             // 借用句柄（任务 5.3 / design D9）：只存裸指针、不持有；发行者见证 = 发行者在表里那个
             // **活着的表项**（按句柄与代际判，而不是按对象弱引用 —— 别的持有者会让弱引用一直不过期，
             // 于是"见证过期"永远判不出来）。
-            cpp += "static bool " + shape.name + "_witnessAliveLocked(uint64_t witnessHandle)\n{\n";
+            cpp += "static bool " + linear + "_witnessAliveLocked(uint64_t witnessHandle)\n{\n";
             cpp += "    if (witnessHandle == 0u) { return false; }\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = witnessHandle & indexMask;\n";
-            cpp += "    const uint64_t generation = witnessHandle >> " + shape.name + "_HANDLE_INDEX_BITS;\n";
-            cpp += "    if (index == 0u || index > " + shape.name + "_handles.size()) { return false; }\n";
-            cpp += "    auto const& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    const uint64_t generation = witnessHandle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+            cpp += "    if (index == 0u || index > " + linear + "_handles.size()) { return false; }\n";
+            cpp += "    auto const& entry = " + linear + "_handles[index - 1u];\n";
             cpp += "    return entry.kind != 0u && entry.kind != 3u && entry.generation == generation;\n}\n";
-            cpp += "static uint64_t " + shape.name + "_registerBorrowedHandle(void const* issuer, void* object, char const* targetType)\n{\n";
+            cpp += "static uint64_t " + linear + "_registerBorrowedHandle(void const* issuer, void* object, char const* targetType)\n{\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
-            cpp += "    if (object == nullptr) { " + shape.name + "_setError(issuer, " + shape.name + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
-            cpp += "    cascaded_bindings::HandleEntry* entry = " + shape.name + "_claimSlotLocked();\n";
+            cpp += "    if (object == nullptr) { " + linear + "_setError(issuer, " + linear + "_ERROR_NULL_POINTER, \"实现返回了空指针\"); return 0u; }\n";
+            cpp += "    cascaded_bindings::HandleEntry* entry = " + linear + "_claimSlotLocked();\n";
             cpp += "    if (entry == nullptr) { return 0u; }\n";
             cpp += "    entry->object = object;\n    entry->kind = 4u;\n    entry->hasWitness = false;\n";
             cpp += "    entry->witnessHandle = 0u;\n";
-            cpp += "    entry->interfaceTag = &" + shape.name + "_HANDLE_TAG;\n";
+            cpp += "    entry->interfaceTag = &" + linear + "_HANDLE_TAG;\n";
             cpp += "    entry->issuerType = \"" + shape.qualifiedName + "\";\n";
             cpp += "    entry->targetType = targetType;\n";
             cpp += "    entry->strong.reset();\n    entry->weak.reset();\n";
-            cpp += "    for (std::size_t slot = 0; slot < " + shape.name + "_handles.size(); ++slot)\n    {\n";
-            cpp += "        auto const& other = " + shape.name + "_handles[slot];\n";
+            cpp += "    for (std::size_t slot = 0; slot < " + linear + "_handles.size(); ++slot)\n    {\n";
+            cpp += "        auto const& other = " + linear + "_handles[slot];\n";
             cpp += "        if (other.object != issuer || other.kind == 0u || other.kind == 3u) { continue; }\n";
             cpp += "        entry->hasWitness = true;\n";
-            cpp += "        entry->witnessHandle = (static_cast<uint64_t>(other.generation) << " + shape.name +
+            cpp += "        entry->witnessHandle = (static_cast<uint64_t>(other.generation) << " + linear +
                    "_HANDLE_INDEX_BITS) | (static_cast<uint64_t>(slot) + 1u);\n";
             cpp += "        break;\n    }\n";
-            cpp += "    return " + shape.name + "_handleOfLocked(entry);\n}\n";
-            cpp += "static std::shared_ptr<void> " + shape.name +
+            cpp += "    return " + linear + "_handleOfLocked(entry);\n}\n";
+            cpp += "static std::shared_ptr<void> " + linear +
                    "_lookupStrongHandle(void const* owner, uint64_t handle, char const* expectedTarget, char const* roleText)\n{\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = handle & indexMask;\n";
-            cpp += "    const uint64_t generation = handle >> " + shape.name + "_HANDLE_INDEX_BITS;\n";
-            cpp += "    if (index == 0u || index > " + shape.name + "_handles.size())\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, roleText);\n        return {};\n    }\n";
-            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    const uint64_t generation = handle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+            cpp += "    if (index == 0u || index > " + linear + "_handles.size())\n    {\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, roleText);\n        return {};\n    }\n";
+            cpp += "    auto& entry = " + linear + "_handles[index - 1u];\n";
             cpp += "    if (entry.kind == 0u || entry.kind == 3u || entry.generation != generation)\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, roleText);\n        return {};\n    }\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, roleText);\n        return {};\n    }\n";
             cpp += "    if (expectedTarget != nullptr && expectedTarget[0] != 0 &&\n";
             cpp += "        (entry.targetType == nullptr || ::strcmp(entry.targetType, expectedTarget) != 0))\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"句柄的目标类型不符\");\n        return {};\n    }\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"句柄的目标类型不符\");\n        return {};\n    }\n";
             cpp += "    if (entry.kind == 4u)\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"借用句柄没有可持有的智能指针所有权\");\n        return {};\n    }\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"借用句柄没有可持有的智能指针所有权\");\n        return {};\n    }\n";
             cpp += "    if (entry.kind == 2u)\n    {\n";
             cpp += "        std::shared_ptr<void> locked = entry.weak.lock();\n";
-            cpp += "        if (!locked) { " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, roleText); }\n";
+            cpp += "        if (!locked) { " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, roleText); }\n";
             cpp += "        return locked;\n    }\n";
             cpp += "    return entry.strong;\n}\n";
-            cpp += "static void* " + shape.name + "_lookupHandle(uint64_t handle)\n{\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "static void* " + linear + "_lookupHandle(uint64_t handle)\n{\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = handle & indexMask;\n";
-            cpp += "    const uint64_t generation = handle >> " + shape.name + "_HANDLE_INDEX_BITS;\n";
-            cpp += "    if (index == 0u || index > " + shape.name + "_handles.size()) { return nullptr; }\n";
-            cpp += "    auto const& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    const uint64_t generation = handle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+            cpp += "    if (index == 0u || index > " + linear + "_handles.size()) { return nullptr; }\n";
+            cpp += "    auto const& entry = " + linear + "_handles[index - 1u];\n";
             cpp += "    /* kind 3 = 已退休的槽：代际回绕过，永不再分配 */\n    if (entry.kind == 0u || entry.kind == 3u || entry.generation != generation) { return nullptr; }\n";
             // 标签校验（任务 5.11）：数字相同、但属于别的接口的句柄，**不许**在这里命中
-            cpp += "    if (entry.interfaceTag != &" + shape.name + "_HANDLE_TAG) { return nullptr; }\n";
+            cpp += "    if (entry.interfaceTag != &" + linear + "_HANDLE_TAG) { return nullptr; }\n";
             // 弱句柄：每次取用都 lock 一次，对象已析构就判失效。
             // 这里**不写错误码**：错误槽按 self 分，而查表函数不知道调用方是谁 ——
             // 由两个入口（`ResolveHandle` / `releaseHandle`）各自按自己的 self 置码。
@@ -10708,30 +10909,30 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             cpp += "        return locked.get();\n    }\n";
             // 借用句柄（旧发行者路径）：有见证就按见证判；没有见证仍允许显式释放（兼容行为）。
             cpp += "    if (entry.kind == 4u)\n    {\n";
-            cpp += "        if (entry.hasWitness && !" + shape.name +
+            cpp += "        if (entry.hasWitness && !" + linear +
                    "_witnessAliveLocked(entry.witnessHandle)) { return nullptr; }\n";
             cpp += "        return const_cast<void*>(entry.object);\n    }\n";
             cpp += "    return const_cast<void*>(entry.object);\n}\n";
-            cpp += "static void* " + shape.name +
+            cpp += "static void* " + linear +
                    "_lookupTargetHandle(void const* owner, uint64_t handle, char const* expectedTarget)\n{\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = handle & indexMask;\n";
-            cpp += "    const uint64_t generation = handle >> " + shape.name + "_HANDLE_INDEX_BITS;\n";
-            cpp += "    if (index == 0u || index > " + shape.name + "_handles.size())\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return nullptr;\n    }\n";
-            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    const uint64_t generation = handle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+            cpp += "    if (index == 0u || index > " + linear + "_handles.size())\n    {\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return nullptr;\n    }\n";
+            cpp += "    auto& entry = " + linear + "_handles[index - 1u];\n";
             cpp += "    if (entry.kind == 0u || entry.kind == 3u || entry.generation != generation)\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return nullptr;\n    }\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return nullptr;\n    }\n";
             cpp += "    if (entry.targetType == nullptr || ::strcmp(entry.targetType, expectedTarget) != 0)\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"句柄的目标类型不符\");\n        return nullptr;\n    }\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"句柄的目标类型不符\");\n        return nullptr;\n    }\n";
             cpp += "    if (entry.kind == 2u)\n    {\n";
             cpp += "        std::shared_ptr<void> locked = entry.weak.lock();\n";
-            cpp += "        if (!locked) { " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"目标对象已死亡\"); return nullptr; }\n";
+            cpp += "        if (!locked) { " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"目标对象已死亡\"); return nullptr; }\n";
             cpp += "        return locked.get();\n    }\n";
             cpp += "    if (entry.kind == 4u)\n    {\n";
-            cpp += "        if (!entry.hasWitness || !" + shape.name + "_witnessAliveLocked(entry.witnessHandle))\n        {\n";
-            cpp += "            " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"借用句柄的发行者见证不存在或已过期\");\n            return nullptr;\n        }\n";
+            cpp += "        if (!entry.hasWitness || !" + linear + "_witnessAliveLocked(entry.witnessHandle))\n        {\n";
+            cpp += "            " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"借用句柄的发行者见证不存在或已过期\");\n            return nullptr;\n        }\n";
             cpp += "        return const_cast<void*>(entry.object);\n    }\n";
             cpp += "    return const_cast<void*>(entry.object);\n}\n";
             const std::string releaseEntryCode =
@@ -10739,63 +10940,63 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 "    entry.strong.reset();\n    entry.weak.reset();\n"
                 "    entry.hasWitness = false;\n    entry.witnessHandle = 0u;\n"
                 "    entry.issuerType = nullptr;\n    entry.targetType = nullptr;\n"
-                "    const uint32_t nextGeneration = (entry.generation + 1u) & ((1u << " + shape.name +
+                "    const uint32_t nextGeneration = (entry.generation + 1u) & ((1u << " + linear +
                 "_HANDLE_GEN_BITS) - 1u);\n"
                 "    if (nextGeneration == 0u) { entry.kind = 3u; }\n"
                 "    entry.generation = nextGeneration;\n";
             // 释放 = 表项清空 + 强/弱引用一起放掉 + 代际进位（旧句柄因此被判 stale）
-            cpp += "static void " + shape.name + "_releaseHandle(void const* owner, uint64_t handle)\n{\n";
+            cpp += "static void " + linear + "_releaseHandle(void const* owner, uint64_t handle)\n{\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = handle & indexMask;\n";
             // 释放走一次 lookup：标签不符 / 已失效都在这里被挡下来，错误码归调用方那个实例
-            cpp += "    if (" + shape.name + "_lookupHandle(handle) == nullptr)\n    {\n        " + shape.name +
-                   "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"stale handle\");\n        return;\n    }\n";
-            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    if (" + linear + "_lookupHandle(handle) == nullptr)\n    {\n        " + linear +
+                   "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"stale handle\");\n        return;\n    }\n";
+            cpp += "    auto& entry = " + linear + "_handles[index - 1u];\n";
             cpp += releaseEntryCode + "}\n\n";
             // 目标释放：先按序号、代际和目标类型校验，再清表项并进位。目标已死亡或见证过期**不**
             // 阻止清理 —— 这条路径必须能把残槽收掉。
-            cpp += "static void " + shape.name +
+            cpp += "static void " + linear +
                    "_releaseTargetHandle(void const* owner, uint64_t handle, char const* expectedTarget)\n{\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(" + handleMutexName + ");\n";
-            cpp += "    const uint64_t indexMask = (1ull << " + shape.name + "_HANDLE_INDEX_BITS) - 1ull;\n";
+            cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
             cpp += "    const uint64_t index = handle & indexMask;\n";
-            cpp += "    const uint64_t generation = handle >> " + shape.name + "_HANDLE_INDEX_BITS;\n";
-            cpp += "    if (index == 0u || index > " + shape.name + "_handles.size())\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return;\n    }\n";
-            cpp += "    auto& entry = " + shape.name + "_handles[index - 1u];\n";
+            cpp += "    const uint64_t generation = handle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+            cpp += "    if (index == 0u || index > " + linear + "_handles.size())\n    {\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return;\n    }\n";
+            cpp += "    auto& entry = " + linear + "_handles[index - 1u];\n";
             cpp += "    if (entry.kind == 0u || entry.kind == 3u || entry.generation != generation)\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return;\n    }\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"句柄已失效\");\n        return;\n    }\n";
             cpp += "    if (entry.targetType == nullptr || ::strcmp(entry.targetType, expectedTarget) != 0)\n    {\n";
-            cpp += "        " + shape.name + "_setError(owner, " + shape.name + "_ERROR_STALE_HANDLE, \"句柄的目标类型不符\");\n        return;\n    }\n";
+            cpp += "        " + linear + "_setError(owner, " + linear + "_ERROR_STALE_HANDLE, \"句柄的目标类型不符\");\n        return;\n    }\n";
             cpp += releaseEntryCode + "}\n\n";
             // 每接口两个泛用入口（任务 1.3）：`ResolveHandle` 是必需的 —— C ABI 面所有方法入口
             // 的第一个参数都是 `void* self`，没有任何一个收定宽句柄；没有它，C# 拿到句柄之后
             // 没有任何办法用它调方法，"旧句柄报 1001" 这条验收也写不出来。
             // 任务 5.10：`ResolveHandle` 也收 `self` —— 它是最常失败的那个入口，不给自己就没法
             // 把 1001 记到"哪个实例失败了"上（错误槽按 self 分）。
-            cpp += "extern \"C\" void " + shape.name + "_ReleaseHandle(void* self, uint64_t handle)\n{\n";
-            cpp += "    " + shape.name + "_clearError(self);\n";
-            cpp += "    " + shape.name + "_releaseHandle(self, handle);\n}\n\n";
-            cpp += "extern \"C\" void* " + shape.name + "_ResolveHandle(void* self, uint64_t handle)\n{\n";
-            cpp += "    " + shape.name + "_clearError(self);\n";
+            cpp += "extern \"C\" void " + linear + "__ReleaseHandle(void* self, uint64_t handle)\n{\n";
+            cpp += "    " + linear + "_clearError(self);\n";
+            cpp += "    " + linear + "_releaseHandle(self, handle);\n}\n\n";
+            cpp += "extern \"C\" void* " + linear + "__ResolveHandle(void* self, uint64_t handle)\n{\n";
+            cpp += "    " + linear + "_clearError(self);\n";
             // 任务 5.1（`csharp-visible-window`）：解析这条路原来**裸读**句柄表 —— 登记时会 push_back
             // 扩容、释放时清项，两边都持 HandleMutex，只有这里不持，于是并发用例偶发"取不到句柄"
             // （实测 353 次里 9 次红）。三路共用同一把锁，读表也在锁内。
             cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
-            cpp += "    void* object = " + shape.name + "_lookupHandle(handle);\n";
-            cpp += "    if (object == nullptr) { " + shape.name + "_setError(self, " + shape.name +
+            cpp += "    void* object = " + linear + "_lookupHandle(handle);\n";
+            cpp += "    if (object == nullptr) { " + linear + "_setError(self, " + linear +
                    "_ERROR_STALE_HANDLE, \"stale handle\"); }\n";
             cpp += "    return object;\n}\n\n";
             // 目标接口入口（任务 3.2）：按目标对象的完整限定类型解析/释放；只追加，不重排旧槽。
-            cpp += "extern \"C\" void* " + shape.name + "_ResolveTargetHandle(void* self, uint64_t handle)\n{\n";
-            cpp += "    " + shape.name + "_clearError(self);\n";
+            cpp += "extern \"C\" void* " + linear + "__ResolveTargetHandle(void* self, uint64_t handle)\n{\n";
+            cpp += "    " + linear + "_clearError(self);\n";
             cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
-            cpp += "    return " + shape.name + "_lookupTargetHandle(self, handle, \"" + shape.qualifiedName +
+            cpp += "    return " + linear + "_lookupTargetHandle(self, handle, \"" + shape.qualifiedName +
                    "\");\n}\n\n";
-            cpp += "extern \"C\" void " + shape.name + "_ReleaseTargetHandle(void* self, uint64_t handle)\n{\n";
-            cpp += "    " + shape.name + "_clearError(self);\n";
-            cpp += "    " + shape.name + "_releaseTargetHandle(self, handle, \"" + shape.qualifiedName +
+            cpp += "extern \"C\" void " + linear + "__ReleaseTargetHandle(void* self, uint64_t handle)\n{\n";
+            cpp += "    " + linear + "_clearError(self);\n";
+            cpp += "    " + linear + "_releaseTargetHandle(self, handle, \"" + shape.qualifiedName +
                    "\");\n}\n\n";
             cpp += lateDefs;
             // ================= 托管表面（任务 5.2 / 5.6）=================
@@ -11312,8 +11513,9 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                             }
                             const std::string inner = trimCopy(paramBare.substr(open + 1, close - open - 1));
                             const std::string innerShort = unqualifiedName(bareType(inner));
-                            auto known = g_knownInterfaces.find(innerShort);
-                            if (known == g_knownInterfaces.end())
+                            const std::string knownQualified =
+                                knownInterfaceQualified(innerShort, shape.qualifiedName);
+                            if (knownQualified.empty())
                             {
                                 supported = false;
                                 break;
@@ -11322,7 +11524,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                             surfaceParam.type = innerShort;
                             surfaceParam.name = parameter.second;
                             surfaceParam.isSurfaceObject = true;
-                            surfaceParam.targetType = known->second;
+                            surfaceParam.targetType = knownQualified;
                             surfaceParams.push_back(surfaceParam);
                             continue;
                         }
@@ -11921,8 +12123,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             // 以前这里是 `if (emitted == 0) continue;` —— 产物目录不清空，上一轮的旧文件就留在原地，
             // 判据读的是那几个字节，于是"这次一个字都没生成"与"生成得完全正确"在磁盘上长得一样。
             // 实测：`IBindRow04` 的两个两段式伴生因此从来没被真正生成过，判据却一直是绿的。
-            const std::string cppPath = std::string(outDir) + "/" + shape.name + ".Bindings.cpp";
-            const std::string csPath = std::string(outDir) + "/" + shape.name + ".Bindings.cs";
+            const std::string cppPath = std::string(outDir) + "/" + linear + ".Bindings.cpp";
+            const std::string csPath = std::string(outDir) + "/" + linear + ".Bindings.cs";
             std::ofstream cppOut(cppPath, std::ios::binary);
             cppOut << cpp;
             if (!cppOut)
@@ -11937,6 +12139,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 std::fprintf(stderr, "CodeGen: cannot write '%s'\n", csPath.c_str());
                 return 2;
             }
+            writtenCsPaths.push_back(csPath);
             ++products;
         }
 
@@ -12084,7 +12287,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             }
             for (auto const& entry : publicEnums)
             {
-                const std::string path = std::string(outDir) + "/" + entry.first + ".Bindings.cs";
+                const std::string linear = qualifiedLinearName(entry.second.cppName);
+                const std::string path = std::string(outDir) + "/" + linear + ".Bindings.cs";
                 std::ofstream out(path, std::ios::binary);
                 out << emitPublicEnumFile(entry.second);
                 if (!out)
@@ -12092,12 +12296,14 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     std::fprintf(stderr, "CodeGen: cannot write '%s'\n", path.c_str());
                     return 2;
                 }
-                std::fprintf(stderr, "[共享类型] %s=%s\n", entry.first.c_str(),
+                writtenCsPaths.push_back(path);
+                std::fprintf(stderr, "[共享类型] %s=%s\n", linear.c_str(),
                              entry.second.cppName.c_str());
             }
             for (auto const& entry : publicRecords)
             {
-                const std::string path = std::string(outDir) + "/" + entry.second.csName + ".Bindings.cs";
+                const std::string linear = qualifiedLinearName(entry.second.cppName);
+                const std::string path = std::string(outDir) + "/" + linear + ".Bindings.cs";
                 std::ofstream out(path, std::ios::binary);
                 out << emitPublicRecordFile(entry.second);
                 if (!out)
@@ -12105,14 +12311,15 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     std::fprintf(stderr, "CodeGen: cannot write '%s'\n", path.c_str());
                     return 2;
                 }
-                std::fprintf(stderr, "[共享类型] %s=%s\n", entry.second.csName.c_str(),
+                writtenCsPaths.push_back(path);
+                std::fprintf(stderr, "[共享类型] %s=%s\n", linear.c_str(),
                              entry.second.cppName.c_str());
             }
             // 资源引用值类（任务 3.1）：每个 CA_BIND_VALUE 各发一份共享托管值类型。
             for (auto const& entry : g_valueTypes)
             {
-                const std::string path = std::string(outDir) + "/" + entry.second.shortName +
-                                         ".Bindings.cs";
+                const std::string linear = qualifiedLinearName(entry.second.qualifiedName);
+                const std::string path = std::string(outDir) + "/" + linear + ".Bindings.cs";
                 std::ofstream out(path, std::ios::binary);
                 out << emitValueTypeCSharp(entry.second);
                 if (!out)
@@ -12120,15 +12327,16 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     std::fprintf(stderr, "CodeGen: cannot write '%s'\n", path.c_str());
                     return 2;
                 }
-                std::fprintf(stderr, "[共享类型] %s=%s\n", entry.second.shortName.c_str(),
+                writtenCsPaths.push_back(path);
+                std::fprintf(stderr, "[共享类型] %s=%s\n", linear.c_str(),
                              entry.second.qualifiedName.c_str());
             }
             // 序列化块记录（任务 3.2）：C++ 编解码头 + 托管镜像/序列化器 + 元素记录镜像。
             for (auto const& entry : g_serializedTypes)
             {
                 const SerializedTypeInfo& info = entry.second;
-                const std::string codecPath =
-                    std::string(outDir) + "/" + info.shortName + ".BindingCodec.h";
+                const std::string linear = qualifiedLinearName(info.qualifiedName);
+                const std::string codecPath = std::string(outDir) + "/" + linear + ".BindingCodec.h";
                 std::ofstream codecOut(codecPath, std::ios::binary);
                 codecOut << "#pragma once\n#include <stdint.h>\n#include <stddef.h>\n#include <string.h>\n"
                             "#include <vector>\n#include <HashKeys.h>\n\n";
@@ -12138,8 +12346,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     std::fprintf(stderr, "CodeGen: cannot write '%s'\n", codecPath.c_str());
                     return 2;
                 }
-                const std::string recordPath =
-                    std::string(outDir) + "/" + info.shortName + ".Bindings.cs";
+                const std::string recordPath = std::string(outDir) + "/" + linear + ".Bindings.cs";
                 std::ofstream recordOut(recordPath, std::ios::binary);
                 recordOut << emitSerializedRecordCSharp(info);
                 if (!recordOut)
@@ -12147,13 +12354,14 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     std::fprintf(stderr, "CodeGen: cannot write '%s'\n", recordPath.c_str());
                     return 2;
                 }
-                std::fprintf(stderr, "[共享类型] %s=%s\n", info.shortName.c_str(),
+                writtenCsPaths.push_back(recordPath);
+                std::fprintf(stderr, "[共享类型] %s=%s\n", linear.c_str(),
                              info.qualifiedName.c_str());
             }
             for (auto const& entry : g_serializedElementRecords)
             {
-                const std::string path =
-                    std::string(outDir) + "/" + entry.second.shortName + ".Bindings.cs";
+                const std::string linear = qualifiedLinearName(entry.second.qualifiedName);
+                const std::string path = std::string(outDir) + "/" + linear + ".Bindings.cs";
                 std::ofstream out(path, std::ios::binary);
                 out << emitSerializedElementCSharp(entry.second);
                 if (!out)
@@ -12161,7 +12369,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                     std::fprintf(stderr, "CodeGen: cannot write '%s'\n", path.c_str());
                     return 2;
                 }
-                std::fprintf(stderr, "[共享类型] %s=%s\n", entry.second.shortName.c_str(),
+                writtenCsPaths.push_back(path);
+                std::fprintf(stderr, "[共享类型] %s=%s\n", linear.c_str(),
                              entry.second.qualifiedName.c_str());
             }
         }
@@ -12169,20 +12378,21 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         // 供装配侧核对。它不是登记表分片（不参与编号），单独一个 `<接口>.inject.part`。
         for (InterfaceShape const& shape : shapes)
         {
+            const std::string linear = qualifiedLinearName(shape.qualifiedName);
             std::string injectText;
             for (MethodSignature const& method : shape.methods)
             {
                 for (std::string const& parameterName : method.injectedParams)
                 {
-                    injectText += "# inject\tCAInject_" + shape.name + "_" + method.name + "_" +
-                                  parameterName + "\n";
+                    injectText += "# inject\t" +
+                                  injectHookName(shape.qualifiedName, method.name, parameterName) + "\n";
                 }
             }
             if (injectText.empty())
             {
                 continue;
             }
-            const std::string path = std::string(outDir) + "/" + shape.name + ".inject.part";
+            const std::string path = std::string(outDir) + "/" + linear + ".inject.part";
             std::ofstream injectOut(path, std::ios::binary);
             injectOut << injectText;
             if (!injectOut)
@@ -12192,6 +12402,105 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             }
             std::fprintf(stderr, "注入片段：%s（%zu 行）\n", path.c_str(),
                          std::count(injectText.begin(), injectText.end(), '\n'));
+        }
+
+        // ---- 跨命名空间 using 补齐（本批 1.1）----
+        // 生成文件按镜像命名空间分层后，接口/记录引用别的命名空间里的类型需要 `using`。
+        // 口径：文件里**按整词出现**的已知类型短名，若它的命名空间与本文件不同，就补一条 using。
+        {
+            std::map<std::string, std::string> namespaceByShort;
+            auto noteType = [&namespaceByShort](std::string const& qualified) {
+                const std::string prefix = namespacePrefixOf(qualified);
+                if (prefix.empty())
+                {
+                    return;
+                }
+                namespaceByShort[qualified.substr(prefix.size())] = cSharpNamespaceOf(qualified);
+            };
+            for (auto const& entry : g_knownInterfaces) noteType(entry.second);
+            for (auto const& entry : g_valueTypes) noteType(entry.second.qualifiedName);
+            for (auto const& entry : g_serializedTypes) noteType(entry.second.qualifiedName);
+            for (auto const& entry : g_serializedElementRecords) noteType(entry.second.qualifiedName);
+            for (auto const& entry : g_enumsByShort) noteType(entry.second.cppName);
+            for (auto const& entry : mirrorsByInterface)
+            {
+                for (auto const& mirror : entry.second)
+                {
+                    noteType(mirror.cppName);
+                }
+            }
+            auto containsWord = [](std::string const& hay, std::string const& needle) {
+                for (std::size_t pos = hay.find(needle); pos != std::string::npos;
+                     pos = hay.find(needle, pos + needle.size()))
+                {
+                    const bool left = pos == 0 ||
+                                      !(std::isalnum(static_cast<unsigned char>(hay[pos - 1])) ||
+                                        hay[pos - 1] == '_');
+                    const std::size_t end = pos + needle.size();
+                    const bool right = end >= hay.size() ||
+                                       !(std::isalnum(static_cast<unsigned char>(hay[end])) ||
+                                         hay[end] == '_');
+                    if (left && right)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            for (std::string const& path : writtenCsPaths)
+            {
+                std::ifstream in(path, std::ios::binary);
+                if (!in)
+                {
+                    continue;
+                }
+                std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                const std::size_t nsPos = text.find("namespace ");
+                if (nsPos == std::string::npos)
+                {
+                    continue;
+                }
+                const std::size_t nsEnd = text.find('\n', nsPos);
+                std::string current = text.substr(
+                    nsPos + 10, nsEnd == std::string::npos ? std::string::npos : nsEnd - nsPos - 10);
+                while (!current.empty() && (current.back() == '\r' || current.back() == ' '))
+                {
+                    current.pop_back();
+                }
+                if (!current.empty() && current.back() == '{')
+                {
+                    current.pop_back();
+                    while (!current.empty() && current.back() == ' ')
+                    {
+                        current.pop_back();
+                    }
+                }
+                std::string usings;
+                std::set<std::string> added;
+                for (auto const& entry : namespaceByShort)
+                {
+                    if (entry.second == current || entry.second.empty())
+                    {
+                        continue;
+                    }
+                    if (!containsWord(text, entry.first))
+                    {
+                        continue;
+                    }
+                    if (!added.insert(entry.second).second)
+                    {
+                        continue;
+                    }
+                    usings += "using " + entry.second + ";\n";
+                }
+                if (usings.empty())
+                {
+                    continue;
+                }
+                text.insert(nsPos, usings + "\n");
+                std::ofstream out(path, std::ios::binary | std::ios::trunc);
+                out << text;
+            }
         }
 
         std::fprintf(stderr, "绑定：接口 %zu 个 / 方法 %d 条 / 产物 %d 个 / 拒绝 %d 条\n",
@@ -12245,12 +12554,18 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             // 这里保证"谁提供了哪个指针"在登记输入里可见。
             for (BoundMarker const& marker : markers)
             {
+                auto owner = std::find_if(shapes.begin(), shapes.end(),
+                                          [&marker](InterfaceShape const& shape) {
+                                              return shape.name == marker.interfaceName;
+                                          });
+                const std::string ownerQualified =
+                    owner == shapes.end() ? marker.interfaceName : owner->qualifiedName;
                 for (auto const& injection : marker.injectParams)
                 {
                     for (std::string const& parameterName : injection.second)
                     {
-                        part += "# inject\tCAInject_" + marker.interfaceName + "_" + injection.first +
-                                "_" + parameterName + "\n";
+                        part += "# inject\t" +
+                                injectHookName(ownerQualified, injection.first, parameterName) + "\n";
                     }
                 }
             }
@@ -12346,7 +12661,9 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         clang_disposeTranslationUnit(unit);
         clang_disposeIndex(index);
 
-        std::map<std::string, std::string> listed;
+        // 本批 1.1：清单按完整限定名逐条输出，同一个短名可以出现多行（跨命名空间同名），
+        // 不再按短名拒绝、也不再把同短名的两条折叠成一条。只去掉完全相同的重复条目。
+        std::vector<std::pair<std::string, std::string>> listed;
         for (BoundMarker const& marker : markers)
         {
             auto found = std::find_if(shapes.begin(), shapes.end(), [&marker](InterfaceShape const& shape) {
@@ -12358,15 +12675,19 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                              marker.interfaceName.c_str());
                 return 1;
             }
-            auto existing = listed.find(found->name);
-            if (existing != listed.end() && existing->second != found->qualifiedName)
+            bool alreadyListed = false;
+            for (auto const& entry : listed)
             {
-                std::fprintf(stderr,
-                             "CodeGen: 拒绝 —— 同短名接口 %s 有两种完整限定名：%s / %s\n",
-                             found->name.c_str(), existing->second.c_str(), found->qualifiedName.c_str());
-                return 1;
+                if (entry.first == found->name && entry.second == found->qualifiedName)
+                {
+                    alreadyListed = true;
+                    break;
+                }
             }
-            listed[found->name] = found->qualifiedName;
+            if (!alreadyListed)
+            {
+                listed.emplace_back(found->name, found->qualifiedName);
+            }
         }
         for (auto const& entry : listed)
         {
@@ -12439,15 +12760,40 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         return type.substr(0, star + 2) + field.cppName + type.substr(star + 2) + ";";
     }
 
-    // 接口短名 → 生成常量名 / C# 常量名：去掉开头的 I，再接 InterfaceId。
-    std::string interfaceConstantSuffix(std::string const& shortName)
+    // C# 常量名里的命名空间段：按 D3② 用 PascalCase 段、以 `__` 分隔（GraphicsBackend__GPUGraphInterfaceId）。
+    std::string cSharpNamespaceLinear(std::string const& qualifiedName)
+    {
+        const std::string prefix = namespacePrefixOf(qualifiedName);
+        std::string out;
+        std::size_t begin = 0;
+        while (begin < prefix.size())
+        {
+            const std::size_t split = prefix.find("::", begin);
+            const std::size_t end = split == std::string::npos ? prefix.size() : split;
+            if (!out.empty())
+            {
+                out += "__";
+            }
+            out += cSharpNamespaceSegment(prefix.substr(begin, end - begin));
+            if (split == std::string::npos)
+            {
+                break;
+            }
+            begin = split + 2;
+        }
+        return out;
+    }
+
+    // 接口完整限定名 + 短名 → 生成常量名 / C# 常量名：命名空间线形 + `__` + 去掉开头 I 的短名 + InterfaceId。
+    std::string interfaceConstantSuffix(std::string const& qualifiedName, std::string const& shortName)
     {
         std::string bare = shortName;
         if (bare.size() > 1 && bare[0] == 'I' && std::isupper(static_cast<unsigned char>(bare[1])))
         {
             bare = bare.substr(1);
         }
-        return bare + "InterfaceId";
+        const std::string ns = cSharpNamespaceLinear(qualifiedName);
+        return (ns.empty() ? std::string() : ns + "__") + bare + "InterfaceId";
     }
 
     bool readRegistryPart(std::string const& path, std::vector<RegistryEntry>* entries, std::string* error)
@@ -12551,7 +12897,8 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             }
             return a.shortName < b.shortName;
         });
-        // 编号与短名都必须全局唯一：两个接口同号 / 同名都必须在写产物之前拒绝并点名双方。
+        // 编号与完整限定名都必须全局唯一：两个接口同号 / 同一完整限定名都必须在写产物之前拒绝并点名双方。
+        // 本批 1.1：同短名不同命名空间是合法的，不再按短名拒绝。
         for (std::size_t i = 0; i < entries.size(); ++i)
         {
             for (std::size_t j = 0; j < i; ++j)
@@ -12560,16 +12907,16 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 {
                     std::fprintf(stderr,
                                  "CodeGen: 拒绝登记 —— 编号 %u 重复：%s（%s）与 %s（%s）\n",
-                                 entries[i].number, entries[j].shortName.c_str(),
-                                 entries[j].header.c_str(), entries[i].shortName.c_str(),
+                                 entries[i].number, entries[j].qualifiedName.c_str(),
+                                 entries[j].header.c_str(), entries[i].qualifiedName.c_str(),
                                  entries[i].header.c_str());
                     return 1;
                 }
-                if (entries[i].shortName == entries[j].shortName)
+                if (entries[i].qualifiedName == entries[j].qualifiedName)
                 {
                     std::fprintf(stderr,
-                                 "CodeGen: 拒绝登记 —— 接口短名 %s 重复：%s 与 %s\n",
-                                 entries[i].shortName.c_str(), entries[j].header.c_str(),
+                                 "CodeGen: 拒绝登记 —— 接口完整限定名 %s 重复：%s 与 %s\n",
+                                 entries[i].qualifiedName.c_str(), entries[j].header.c_str(),
                                  entries[i].header.c_str());
                     return 1;
                 }
@@ -12600,7 +12947,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             int lockProblems = 0;
             for (RegistryEntry const& entry : entries)
             {
-                LockEntry const* locked = findLockEntry(*scope, entry.shortName);
+                LockEntry const* locked = findLockEntry(*scope, entry.shortName, entry.qualifiedName);
                 if (locked == nullptr)
                 {
                     std::fprintf(stderr,
@@ -12654,9 +13001,11 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
 
         // `EngineApi` 的编号字段按接口短名找编号；找不到的字段装配成 0（该编号还没登记）。
         std::map<std::string, unsigned> numberByShort;
+        std::map<std::string, std::string> qualifiedByShort;   // 装配常量名要用完整限定名线形
         for (RegistryEntry const& entry : entries)
         {
             numberByShort[entry.shortName] = entry.number;
+            qualifiedByShort[entry.shortName] = entry.qualifiedName;
         }
 
         std::string header;
@@ -12672,13 +13021,14 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         header += "// ---- 接口编号清单 ----\n";
         for (RegistryEntry const& entry : entries)
         {
-            header += "inline constexpr uint32_t kBindingInterfaceId" + entry.shortName + " = " +
+            header += "inline constexpr uint32_t kBindingInterfaceId" +
+                      qualifiedLinearName(entry.qualifiedName) + " = " +
                       std::to_string(entry.number) + "u;  // " + entry.qualifiedName + "\n";
         }
         header += "\n// 生成接口表的 ABI 版本（生成器固定 2u，本 change 不提升；窗口两表与渲染五表同版）\n";
         header += "inline constexpr uint32_t kBindingInterfaceTableVersion = 2u;\n";
-        header += "// 跨边界函数表版本（csharp-native-direct-binding 6.2：v9 → v10；桥五类编号字段删除，布局重建为 9 字段 / 56 字节）\n";
-        header += "inline constexpr uint32_t kEngineApiVersion = 10u;\n";
+        header += "// 跨边界函数表版本（csharp-bindings-namespace-alignment 4.1：v10 → v11；身份链改完整限定名，布局不变 9 字段 / 56 字节）\n";
+        header += "inline constexpr uint32_t kEngineApiVersion = 12u;\n";
         header += "inline constexpr uint32_t kEngineApiSize = 56u;\n\n";
         header += "// 交给托管侧的函数表。字段顺序与宽度就是 ABI —— 只许在末尾追加。\n";
         header += "struct EngineApi\n{\n";
@@ -12727,7 +13077,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         cpp += "// 逐接口产物：路由直接调它们生成的 GetApi / 布局查询入口。\n";
         for (RegistryEntry const& entry : entries)
         {
-            cpp += "#include \"" + entry.shortName + ".Bindings.cpp\"\n";
+            cpp += "#include \"" + qualifiedLinearName(entry.qualifiedName) + ".Bindings.cpp\"\n";
         }
         cpp += "\nnamespace ca_bind_registry\n{\n";
         cpp += "    enum class BindingRole : uint32_t\n    {\n";
@@ -12748,17 +13098,19 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         cpp += "    };\n\n";
         for (RegistryEntry const& entry : entries)
         {
-            cpp += "    static uint32_t Route_" + entry.shortName + "(uint32_t version, uint32_t size, void* out)\n    {\n";
-            cpp += "        return " + entry.shortName + "_GetApi(version, size, static_cast<" + entry.shortName +
+            const std::string linear = qualifiedLinearName(entry.qualifiedName);
+            cpp += "    static uint32_t Route_" + linear + "(uint32_t version, uint32_t size, void* out)\n    {\n";
+            cpp += "        return " + linear + "__GetApi(version, size, static_cast<" + linear +
                    "Api_v2*>(out));\n    }\n";
         }
         cpp += "\n    static BindingRoute kRoutes[] = {\n";
         for (RegistryEntry const& entry : entries)
         {
+            const std::string linear = qualifiedLinearName(entry.qualifiedName);
             cpp += "        { " + std::to_string(entry.number) + "u, \"" + entry.shortName + "\",\n";
-            cpp += "          static_cast<uint32_t>(sizeof(" + entry.shortName + "Api_v2)),\n";
-            cpp += "          &Route_" + entry.shortName + ", &" + entry.shortName + "_GetLayoutType,\n";
-            cpp += "          &" + entry.shortName + "_GetLayoutField, BindingRole::Unregistered },\n";
+            cpp += "          static_cast<uint32_t>(sizeof(" + linear + "Api_v2)),\n";
+            cpp += "          &Route_" + linear + ", &" + linear + "__GetLayoutType,\n";
+            cpp += "          &" + linear + "__GetLayoutField, BindingRole::Unregistered },\n";
         }
         cpp += "    };\n";
         cpp += "    static char const* const kKnownInterfacesText = \"";
@@ -12768,7 +13120,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             {
                 cpp += "、";
             }
-            cpp += std::to_string(entries[i].number) + " = " + entries[i].shortName;
+            cpp += std::to_string(entries[i].number) + " = " + entries[i].qualifiedName;
         }
         cpp += "\";\n\n";
         cpp += "    static BindingRoute const* FindRoute(uint32_t interfaceId)\n    {\n";
@@ -12860,7 +13212,11 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 auto found = numberByShort.find(field.interfaceShort);
                 if (found != numberByShort.end())
                 {
-                    cpp += "        api." + cppName + " = kBindingInterfaceId" + field.interfaceShort + ";\n";
+                    auto qualified = qualifiedByShort.find(field.interfaceShort);
+                    const std::string linear = qualified == qualifiedByShort.end()
+                                                   ? std::string(field.interfaceShort)
+                                                   : qualifiedLinearName(qualified->second);
+                    cpp += "        api." + cppName + " = kBindingInterfaceId" + linear + ";\n";
                 }
                 else
                 {
@@ -12874,9 +13230,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         std::string cs;
         cs += "// 由 CodeGen --emit-registry 生成，勿手改。\n";
         cs += "// 与 C++ 侧 BindingRegistry.Bindings.h 的 EngineApi 逐字段对照（同一次生成）。\n";
-        cs += "using System.Runtime.InteropServices;\n";
-        cs += "// 接口产物（`<接口>Bindings.Bind` 与编号表）都在这个命名空间里。\n";
-        cs += "using Scripting.Generated.Bindings;\n\n";
+        cs += "using System.Runtime.InteropServices;\n\n";
         cs += "namespace Scripting.Managed\n{\n";
         cs += "    /// <summary>引擎交给托管侧的函数表。字段顺序与宽度就是 ABI —— 只许在末尾追加。</summary>\n";
         cs += "    [StructLayout(LayoutKind.Sequential)]\n";
@@ -12888,13 +13242,14 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         cs += "    }\n\n";
         cs += "    /// <summary>生成的 ABI 常量与接口编号清单（Host.cs 只读这里，不再手抄）。</summary>\n";
         cs += "    internal static unsafe class EngineApiBindings\n    {\n";
-        cs += "        public const uint AbiVersion = 10;\n";
+        cs += "        public const uint AbiVersion = 12;\n";
         cs += "        public const uint Size = 56;\n";
         cs += "        public const uint TableVersion = 2;\n\n";
         for (RegistryEntry const& entry : entries)
         {
             cs += "        // " + entry.qualifiedName + "\n";
-            cs += "        public const uint " + interfaceConstantSuffix(entry.shortName) + " = " +
+            cs += "        public const uint " +
+                  interfaceConstantSuffix(entry.qualifiedName, entry.shortName) + " = " +
                   std::to_string(entry.number) + ";\n";
         }
         cs += "\n        internal delegate void InterfaceTableBind(byte* table);\n\n";
@@ -12908,8 +13263,10 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         cs += "        internal static readonly InterfaceTable[] Tables = new InterfaceTable[]\n        {\n";
         for (RegistryEntry const& entry : entries)
         {
-            cs += "            new InterfaceTable(" + interfaceConstantSuffix(entry.shortName) + ", \"" +
-                  entry.shortName + "\", " + entry.shortName + "Bindings.Bind),\n";
+            cs += "            new InterfaceTable(" +
+                  interfaceConstantSuffix(entry.qualifiedName, entry.shortName) + ", \"" +
+                  entry.qualifiedName + "\", global::" + cSharpFullNameOf(entry.qualifiedName) +
+                  "Bindings.Bind),\n";
         }
         cs += "        };\n";
         cs += "    }\n}\n";
@@ -13118,9 +13475,8 @@ int main(int argc, char** argv)
     {
         listBindInterfaceMode = true;
     }
-    std::map<std::string, std::string> knownInterfaceArgs;
-    std::vector<std::string> knownInterfaceConflicts;
-    auto addKnownInterface = [&knownInterfaceArgs, &knownInterfaceConflicts](std::string const& text) {
+    std::vector<std::pair<std::string, std::string>> knownInterfaceArgs;
+    auto addKnownInterface = [&knownInterfaceArgs](std::string const& text) {
         const std::size_t split = text.find('=');
         if (split == std::string::npos || split == 0 || split + 1 >= text.size())
         {
@@ -13130,13 +13486,15 @@ int main(int argc, char** argv)
         }
         const std::string shortName = text.substr(0, split);
         const std::string qualified = text.substr(split + 1);
-        auto existing = knownInterfaceArgs.find(shortName);
-        if (existing != knownInterfaceArgs.end() && existing->second != qualified)
+        // 本批 1.1：同一个短名可以对应多条完整限定名（跨命名空间同名），只去重完全相同的条目。
+        for (auto const& entry : knownInterfaceArgs)
         {
-            knownInterfaceConflicts.push_back(shortName + "：" + existing->second + " / " + qualified);
-            return;
+            if (entry.first == shortName && entry.second == qualified)
+            {
+                return;
+            }
         }
-        knownInterfaceArgs[shortName] = qualified;
+        knownInterfaceArgs.emplace_back(shortName, qualified);
     };
     const char* outPath           = nullptr;
     const char* outDir            = nullptr;
@@ -13262,15 +13620,7 @@ int main(int argc, char** argv)
         }
     }
 
-    // 同短名不同完整限定名：清单本身就必须拒绝，不能靠后一次覆盖前一次（任务 3.1）。
-    if (!knownInterfaceConflicts.empty())
-    {
-        for (std::string const& conflict : knownInterfaceConflicts)
-        {
-            std::fprintf(stderr, "CodeGen: 拒绝 —— 同短名接口有两种完整限定名：%s\n", conflict.c_str());
-        }
-        return 1;
-    }
+    // 本批 1.1：同短名不再按短名拒绝——判定改到命名空间映射之后（见 bindemit::run 的映射后碰撞判据）。
     if (listBindInterfaceMode)
     {
         return bindemit::listBindInterfaces(filePath, clangArgs);

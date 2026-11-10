@@ -1,0 +1,254 @@
+csharp-bindings-namespace-alignment · 0.1 开工现场清单
+执行时间：2026-11-09
+工作区：E:\Projects\CascadedEngine
+构建目录：out\build\x64-debug（产物目录 out\build\x64-debug\codegen\bindings）
+HEAD：498969e csharp-native-direct-binding：原生接口直绑，IScript*/CScript* 桥整体退役
+工作区状态：git status --porcelain 仅两项未跟踪（.dsh-acl-recovery/、本 change 目录），产品代码零改动
+读数口径：以下每个数字都来自本文件里写明的那条命令，重跑即可复现。
+
+================================================================================
+一、`__` 双下划线使用点清查（口径：生成标识符空间）
+================================================================================
+口径（按 design D2 / tasks 0.1）：生成标识符空间 = 生成器代码与绑定符号消费方（Tools/CodeGen 的
+.cpp/.h/.py、CSharpHost、Scripting、Test）以及现有生成产物（out/build/x64-debug/codegen/bindings）。
+编译器内建（__int64 / __VA_ARGS__ / __declspec / __cdecl / __fastfail …）与 Python 双下划线约定
+（__init__ / __name__ / __main__ / __pycache__ …）不在这个空间，排除。
+
+重跑命令（PowerShell，工作目录 = 仓库根）：
+  $files  = Get-ChildItem Tools\CodeGen -File -Include *.cpp,*.h,*.py |
+            Where-Object { $_.Name -notlike '*.expected.txt' }
+  $files += Get-ChildItem CSharpHost -Recurse -File -Include *.cpp,*.h,*.cs,*.py
+  $files += Get-ChildItem Scripting -Recurse -File -Include *.cs,*.cpp,*.h
+  $files += Get-ChildItem Test -Recurse -File -Include *.cs,*.cpp,*.h
+  $files += Get-ChildItem out\build\x64-debug\codegen\bindings -File
+  $hits = $files | Select-String -Pattern '__' -Encoding UTF8 -AllMatches
+  "文件数: " + ($files | Measure-Object).Count
+  "命中行数: " + ($hits | Measure-Object).Count
+  $hits | ForEach-Object { "{0}:{1}: {2}" -f $_.Filename, $_.LineNumber, $_.Line.Trim() }
+
+实测读数：
+  文件数：224
+  命中行数：2
+  1) Test\GPUBackendTester\Main.cpp:81
+     static int __cdecl AutoDismissAssertHook(int reportType, char* message, int* /*returnValue*/)
+     —— `__cdecl`，编译器调用约定，排除。
+  2) Test\GPUBackendTester\private\MiniDump.cpp:9
+     // CRT routes abort() through __fastfail, which raises STATUS_FAIL_FAST_EXCEPTION (0xC0000602). We
+     —— `__fastfail`，CRT 名称，排除。
+  收窄后生成标识符空间内 `__` = **0 处** ⇒ 不触发"非零即停工"的判据。
+
+全仓对照（说明"95+ 行"是怎么来的，不作为本空间判据）：
+  git grep -n -F '__' -- . ':!out'
+  实测：492 行；主要来源是 openspec/changes/archive 下的历史 evidence（单个日志 32 行）、
+  openspec/changes/archive/2026-10-07-clear-codegen-parse-blockers/design.md（17 行）、
+  docs/vulkan-api-docs/spec/vk.xml（14 行）等文档/证据文本，不含生成标识符。
+结论：0.1① 通过，0 处；D2 选 `__` 作分隔符在生成标识符空间内无歧义。
+
+================================================================================
+二、CodeGenMain.cpp 短名身份点与 C ABI 命名点逐区清单
+================================================================================
+文件：Tools/CodeGen/CodeGenMain.cpp，共 14039 行。
+全文计数（命令：对全文做 [regex]::Matches 计数）：
+
+  shortName（info.shortName / entry.shortName / entry->shortName / entry.second.shortName 等）
+      = 182 处   ← design 写"约 170 处"，本次重跑为 182
+  shape.name（接口短名；用作发射标识符 / 查找键）
+      = 384 处   ← 其中含 C++ 类型引用；逐区见表
+  extern（`extern \"C\"` 声明与定义的拼装点；≈ design 的"C ABI 命名点约 52 处"重跑值）
+      = 68 处
+  Api_v2（函数表 struct 名 `<接口>Api_v2`）
+      = 13 处
+  CAInject_（宿主注入钩子名）
+      = 7 处
+  合计校验：下面分区表的 shortName 合计 = 182、shape.name 合计 = 384、extern 合计 = 68、
+  Api_v2 合计 = 13、CAInject_ 合计 = 7，与全文字面计数一致（分区不漏行）。
+
+分区表（区域边界即行号区间；重跑命令见本节末）：
+  区域(行号)                        shortName  shape.name  extern  Api_v2  CAInject_
+  A 基础工具与镜像归一 [1-880]              0           0       0       0          0
+  B 合并/反射/序列化发射 [881-1200]          0           0       0       0          0
+  C 解析与形状收集 [1201-2949]              7           1       0       0          0
+  D 枚举/记录/镜像/布局发射 [2950-3300]      8           0       0       0          0
+  E 类型投影 [3301-4019]                    0           0       6       0          0
+  F 锁文件解析/发号/核对 [4020-4560]        27           1       0       0          0
+  G 值类发射 [4561-5100]                   14           0       0       0          0
+  H 记录字段投影 [5101-6389]               15           0       0       0          0
+  I 序列化块/编解码发射 [6390-7000]         12           0       0       0          0
+  J 接口形状/回调收集 [7001-8949]           27          40       1       0          2
+  K 接口 C ABI 声明与表槽 [8950-9200]        6          20      10       2          1
+  L thunk/导出定义 [9201-10899]              2         276      43       9          2
+  M 表面方法与 C# 表面 [10900-11899]         9          40       0       0          0
+  N 共享类型与产物落盘 [11900-12300]        14           5       0       0          2
+  O 登记表与 EngineApi [12301-12960]        37           1       8       2          0
+  P 命令行 main [12961-14039]                4           0       0       0          0
+  合计                                    182         384      68      13          7
+
+重跑命令（PowerShell）：
+  $p='Tools\CodeGen\CodeGenMain.cpp'; $lines=Get-Content $p -Encoding UTF8
+  $regions=@(
+    @{n='A';s=1;e=880},@{n='B';s=881;e=1200},@{n='C';s=1201;e=2949},@{n='D';s=2950;e=3300},
+    @{n='E';s=3301;e=4019},@{n='F';s=4020;e=4560},@{n='G';s=4561;e=5100},@{n='H';s=5101;e=6389},
+    @{n='I';s=6390;e=7000},@{n='J';s=7001;e=8949},@{n='K';s=8950;e=9200},@{n='L';s=9201;e=10899},
+    @{n='M';s=10900;e=11899},@{n='N';s=11900;e=12300},@{n='O';s=12301;e=12960},@{n='P';s=12961;e=$lines.Count})
+  $pats=@('shortName','shape\.name','extern','Api_v2','CAInject_')
+  foreach($r in $regions){ $seg=$lines[($r.s-1)..($r.e-1)] -join "`n"
+    $c=@(); foreach($pat in $pats){ $c+=([regex]::Matches($seg,$pat)).Count }
+    "{0} [{1}-{2}] {3} {4} {5} {6} {7}" -f $r.n,$r.s,$r.e,$c[0],$c[1],$c[2],$c[3],$c[4] }
+
+关键发射点（后续 1.1/1.2 要逐点改的地方）：
+  [命名空间发射 6 处 + using 1 处]
+    L3010  emitPublicRecordFile：namespace Scripting.Generated.Bindings
+    L3033  emitPublicEnumFile：namespace Scripting.Generated.Bindings
+    L5033  emitValueTypeCSharp：namespace Scripting.Generated.Bindings
+    L6540  emitSerializedRecordCSharp：namespace Scripting.Generated.Bindings
+    L6560  emitSerializedElementCSharp：namespace Scripting.Generated.Bindings
+    L9030  逐接口 .Bindings.cs：namespace Scripting.Generated.Bindings
+    L12879 EngineApi.Bindings.cs：`using Scripting.Generated.Bindings;`（文件本体在 Scripting.Managed）
+  [C# 公开类型名 = 短名]
+    L3039  public enum <info.shortName>
+    L5035  public sealed class <info.shortName>
+    L6542  public sealed class <info.shortName>
+    L6562  public struct <info.shortName>
+    L9035  internal readonly struct <shape.name>Handle
+    L9040  internal static unsafe class <shape.name>Bindings
+  [C ABI 槽名 / 函数表 / 注入钩子]
+    L9050-L9058  <shape.name>_LastErrorCode / _LastErrorText / _ResolveHandle / _ReleaseHandle /
+                 _ResolveTargetHandle / _ReleaseTargetHandle 的 extern "C" 声明
+    L9072-L9079  函数表四个表头槽（LastErrorCode / LastErrorText / ResolveHandle / ReleaseHandle）
+    L8995         extern "C" void* CAInject_<shape.name>_<method>_<param>()
+    L12177        注入分片里 `# inject\tCAInject_...`
+    L10625/L10638/L10661  entry->issuerType / 目标类型名（用限定名）
+    L11924/L11925 逐接口产物文件名：<shape.name>.Bindings.cpp / <shape.name>.Bindings.cs
+    L12730        BindingRegistry.Bindings.cpp 里 #include "<entry.shortName>.Bindings.cpp"
+    L3012/L3015/L5030/L6538/L12087/L12100/L12115/L12142/L12156 共享类型产物文件名（短名/ csName）
+  [旧"同短名拒绝"点（1.1 要替换成"映射后全名冲突"）]
+    L4228  锁文件段内重复短名 → 拒绝
+    L4447  宿主段/夹具段跨段同短名 → 拒绝
+    L7509  CodeGen: 拒绝 —— 同短名接口 %s 有两种完整限定名
+    L7996  CodeGen: 拒绝 —— 同短名枚举 %s 有两种完整限定名
+    L12365 CodeGen: 拒绝 —— 同短名接口 %s 有两种完整限定名（登记表汇总）
+    build.py L1237  绑定清单汇总："短名 %s 同时对应 %s 与 %s"
+  [C ABI 命名辅助]
+    L12442-L12451 interfaceConstantSuffix()：<短名去掉 I> + "InterfaceId"（登记表常量名）
+    L12900-L12930 附近 emitRegistry 的 EngineApi C# 常量与 Tables 清单
+  [C++ 侧文件作用域辅助名 = 短名前缀（同 TU 内会撞，见第五节）]
+    <短名>_fromC_<类型>/<短名>_toC_<类型>/<短名>_layoutFieldsN/<短名>_layoutTypes/
+    <短名>_thunk_<方法>/<短名>_readErrorCode/<短名>_readErrorText/<短名>_ERROR_<码名>/
+    <短名>LayoutFieldData/<短名>LayoutTypeData/<短名>C 镜像 typedef
+
+================================================================================
+三、check_bindings.py 短名判据逐条清单
+================================================================================
+文件：Tools/CodeGen/check_bindings.py，共 1954 行。
+"非判据行"说明：L243/L321/L350/L365/L372/L886/L899 里的 `ushort` 是期望文本（`public enum … : ushort`）
+或文档叙述里的字，不是身份判据，不计入下表。下表只列**把短名当身份键**或**按短名拼 C ABI 符号**的判据。
+
+逐条（编号 = 2.1 要逐条换源的口径）：
+  C01 L113-L126 read_generated：产物声明按 `extern "C"` 里第一个标识符建索引；该标识符在新线形下是
+      `<ns>__<短名>__<方法>`，索引与期望文件的符号必须同步换。
+  C02 L162-L193 read_lock_scope：返回 {编号 → 完整限定名}（已是限定名口径，身份来源正确，不改）。
+  C03 L500-L504 check_fixture_recognition：夹具识别靠 `REQUIRED_FIXTURE_INTERFACES`（短名集合）。
+  C04 L507-L536 check_shared_qualified_names：以**产物文件 stem（短名）**为键，要求"同短名只能对应
+      一个限定名、同限定名只能对应一个短名"—— 同短名跨命名空间共存时这条必误红，必须改成以限定名为键。
+  C05 L539-L595 check_shared_value_types：`SHARED_VALUE_TYPES` 以短名为键；要求 `<短名>.Bindings.cs`
+      文件名与公开类型名逐字一致，且产物目录里"只有 .cs 没有 .cpp"的文件必须都在登记表里。
+      同短名值类型跨命名空间时文件名会撞（见第五节）。
+  C06 L598-L880 check_native_shapes：逐字断言短名 C ABI 符号（`IBindNativeShape_GetCounter` 等）
+      与短名 C# 类型名。
+  C07 L882-L910 check_foundation_surface：逐字断言 `IBindFoundation.Bindings.cs` 文件名与表面签名。
+  C08 L998-L999 interface_of：`<短名>.Bindings.cpp` 去扩展名 = 接口短名（全脚本的接口身份入口）。
+  C09 L1002-L1007 fixture_interface_names：从夹具头抓 `CA_BIND class <短名>`；被 check_stubs /
+      check_surface 用来区分"真实接口 vs 夹具"。
+  C10 L1073-L1138 check_stubs：按 interface_of 分组，报 `<短名>::<方法>`；函数表名按 `<接口>Api_v2`。
+  C11 L1141-L1177 check_coverage：期望清单按行前缀（短名）分组；产物路径 f"{interface}.Bindings.cpp"；
+      实际符号 f"{interface}_{method}" 拼装（单下划线口径）。
+  C12 L1191-L1341 check_alignment：CPP_SYMBOL_RE 见 L129 `(\w+?)_(\w+)` 按**第一个下划线**切
+      接口/方法；L1213 `(\w+?)_(\w+)Len` 认两段式；L1271/L1277/L1279 以短名为键与文件名。
+      新槽名含 `__`，这两条正则会把接口名切错（必须改按 `__` 线形解析）。
+  C13 L1434-L1517 check_surface：L1446/L1449/L1481 用 `<短名>.Bindings.cs/.cpp`；L1463 表面类型名
+      必须逐字等于接口短名；L1470-1472 异常类名 `<短名>Exception`；L1490 在接口头里找 `class <短名>`。
+  C14 L1565-L1590 check_surface_matrix：六行夹具断言按短名找 `<短名>.Bindings.cs`，签名里带短名类型。
+  C15 L1601-L1632 check_error_codes：ERROR_CONST_RE `(\w+?)_ERROR_(\w+)` 按第一个下划线切
+      接口前缀；`<接口>_ERROR_*` 与码表名对账。新线形下前缀切法必须改。
+  C16 L1635-L1636 REGISTRY_CONST_RE：`kBindingInterfaceId(\w+)` + 注释 `// <完整限定名>`；编号对账
+      已用限定名（注释列），常量名后缀仍是短名。
+  C17 L1642-L1763 check_registry：L1742-L1747 由限定名取短名再推导 `<短名去 I>InterfaceId` 与
+      `{短名}Exception` 式常量名；L1701-L1728 硬编码 ABI 期望（kEngineApiVersion=10u、Size=56u、
+      AbiVersion=10、Size=56、9 字段）—— 4.1 的同步点。
+  C18 期望文件 Tools/CodeGen/BindableShapes.expected.txt：行前缀是夹具短名、签名文本是短名槽名
+      （C01 的比对输入）。
+诊断：上述 C01/C03/C04/C05/C08/C10/C11/C12/C13/C14/C15/C17 是"短名当身份"的判据，
+2.1 要逐条给出改前/改后；C06/C07/C14/C18 是逐字期望文本，跟着新线形换期望即可，但同样要留旧口径误红证据。
+
+================================================================================
+四、审计表行键结构确认
+================================================================================
+重跑命令：
+  Select-String -Path Tools\CodeGen\check_bindable_audit.py -Pattern 'HEADER_ROW =|ROW_RE =|key = \(row|SUMMARY_ROW_RE|INTERFACES = \{' -Encoding UTF8
+  Select-String -Path openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md -Pattern '^\| `[A-Za-z_]+::[A-Za-z_]+`' -Encoding UTF8 | Select-Object -First 3
+实测：
+  check_bindable_audit.py:27  INTERFACES = {
+  check_bindable_audit.py:42  HEADER_ROW = "| 接口::方法 |"
+  check_bindable_audit.py:43  ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*)::([A-Za-z_]\w*)`\s*\|(.*)$")
+  check_bindable_audit.py:46  SUMMARY_ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*)`\s*\|\s*(\d+)\s*\|")
+  check_bindable_audit.py:274 key = (row["interface"], row["method"])
+  审计表 L23  | `CRenderBackend::ExecuteGraph` | ...
+  审计表 L9   | `CRenderBackend` | 16 | `Interface/RenderInterface/header/CRenderBackend.h` |
+结论：行键 =（接口, 方法）；接口列就是短名；**没有独立短名列**（主表与开头的范围汇总表两处都是短名）。
+     2.2 直接替换这两处的接口段为完整限定名；ROW_RE/SUMMARY_ROW_RE 的字符类 `[A-Za-z_]\w*` 放不下
+     `graphics_backend::GPUGraph`，必须同步改（否则 103 行主表整体匹配不上，判据会"0 行"假绿/假红）。
+     审计表唯一一份在 openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/，
+     check_bindable_audit.py 的 glob 同时扫 changes 与 archive —— 2.2 改的是这份归档证据文件。
+
+================================================================================
+五、现场发现的阻断项（0.1 实测，需主循环裁定；不属超范围改动）
+================================================================================
+【阻断 1】产物文件名仍是短名，同短名共存会写同一路径（1.1/1.3 无法按现工件实现）
+  证据：
+    CodeGenMain.cpp L11924  const std::string cppPath = ... + shape.name + ".Bindings.cpp";
+    CodeGenMain.cpp L11925  const std::string csPath  = ... + shape.name + ".Bindings.cs";
+    CodeGenMain.cpp L12730  cpp += "#include \"" + entry.shortName + ".Bindings.cpp\"\n";
+    build.py L1237  短名重复即失败（"绑定清单冲突：短名 %s 同时对应 %s 与 %s"）
+    build.py L1287  shared_types 产物路径 out_dir / f"{short_name}.Bindings.cs"
+    Scripting/Managed/Scripting.Managed.csproj L32  <CascadedBindingFile Include="$(CascadedBindingDir)\*.Bindings.cs" />
+  推理：`ns1::Device` 与 `ns2::Device` 同一次构建 → 两次 --emit-binding 都写
+        `Device.Bindings.cs/.cpp`，后写覆盖先写；registry 的 `#include "Device.Bindings.cpp"` 也会重复
+        包含同一份、漏掉另一份。工件（proposal/design/spec/tasks）没有任何一条规定产物文件名规则，
+        而 spec 的"跨命名空间同名接口同构建共存"场景要求两者各自成面、构建全绿。
+  需要裁定：产物文件名/落盘目录用什么规则（例如按镜像命名空间分子目录，或文件名带限定名线形），
+        以及随之要改的 build.py 期望前缀、csproj/CMake glob、CoreTests/tester 的 #include。
+
+【阻断 2】C++ 文件作用域辅助标识符仍以短名为前缀，同短名共存会在同一翻译单元里重定义
+  证据（out\build\x64-debug\codegen\bindings\IBindNativeShape.Bindings.cpp 实测）：
+    typedef struct NativeCountC ...
+    static ca_bind_fixture::NativeCount IBindNativeShape_fromC_NativeCount(...)
+    static NativeCountC IBindNativeShape_toC_NativeCount(...)
+    typedef struct IBindNativeShapeLayoutFieldData / IBindNativeShapeLayoutTypeData ...
+    static const IBindNativeShape_layoutFields0[] / IBindNativeShape_layoutTypes[]
+    static <ret> IBindNativeShape_thunk_<方法>(...)
+    static const int32_t IBindNativeShape_ERROR_<码名> ...
+    （另有 <短名>Handle、<短名>Bindings 等）
+  并且 BindingRegistry.Bindings.cpp L12730 把全部接口产物 `#include` 进**同一个 TU**。
+  推理：`ns1::Device`/`ns2::Device` 两份产物进同一 TU → 同名 typedef/static 函数/常量重定义（C2011/C2084）。
+  工件 D1/D2 只规定命名空间与槽名，没有规定这些文件作用域辅助名的去碰撞规则。
+  需要裁定：辅助名是否也改限定名线形（或把它们包进按限定名命名的 C++ namespace）。
+
+【观察 3】其它已确认但可照现有工件执行的点
+  - `__` 清查 0 处（第一节）。
+  - check_bindings.py 的 `CPP_SYMBOL_RE` / `ERROR_CONST_RE` / `THUNK_ANCHOR_RE` 按单下划线切接口名，
+    新线形下必须同步改（2.1 范围，不阻断）。
+  - `BindingRegistry.Bindings.cpp` 里 `kBindingInterfaceId<短名>` 常量与 EngineApi.Bindings.cs 的
+    `<短名去 I>InterfaceId` 常量名：D3② 只写了 C# 侧 `GPUGraphInterfaceId → GraphicsBackend__GPUGraphInterfaceId`，
+    没写 C++ 侧常量名；1.1 前需确认两侧是否同规则（D2 说"登记表产物名同规则"，可按同规则执行）。
+  - 审计表 ROW_RE 的字符类放不下 `::`（第四节），2.2 必须同步改正则。
+
+================================================================================
+六、0.1 结论
+================================================================================
+① `__` 清查：生成标识符空间 0 处（2 处命中均为编译器/CRT 名称，已排除）→ 通过。
+② CodeGenMain.cpp：shortName 182 / shape.name 384 / extern 68 / Api_v2 13 / CAInject_ 7，
+   逐区清单见第二节，合计与全文字面计数一致。
+③ check_bindings.py：短名身份判据 18 条（C01-C18），非判据行（ushort 等）已排除，逐条见第三节。
+④ 审计表：行键 =（接口, 方法），接口列即短名，无独立短名列，主表与汇总表两处均需换 → 确认。
+⑤ 阻断：产物文件名规则（阻断 1）与 C++ 辅助标识符去碰撞规则（阻断 2）在工件中缺失，
+   1.1 的"同短名共存夹具绿"与 1.3 无法按现工件实现。

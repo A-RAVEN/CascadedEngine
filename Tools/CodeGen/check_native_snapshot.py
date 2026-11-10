@@ -412,11 +412,17 @@ def independent_lists() -> dict[str, dict[str, list[tuple[str, str]]]]:
     return result
 
 
-METHOD_LINE_RE = re.compile(r"^\[(采集|排除)\]\s+([A-Za-z_]\w*)::([A-Za-z_]\w*)\s*\|")
+METHOD_LINE_RE = re.compile(
+    r"^\[(采集|排除)\]\s+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)::([A-Za-z_]\w*)\s*\|")
 
 
 def read_snapshot(path: Path) -> dict[str, dict[str, list[tuple[str, str]]]]:
-    """{头相对路径: {类短名: [(标记, 方法名), …]}}；只读 [采集]/[排除] 行。"""
+    """{头相对路径: {类短名: [(标记, 方法名), …]}}；只读 [采集]/[排除] 行。
+
+    本批 2.2：快照的类名是完整限定名（`[采集] graphics_backend::GPUGraph::AddPass`）；
+    独立清单由文本解析得到，只有短名，所以这里按 `::` 末段归一后再比 —— 对账仍是逐条多重集，
+    归一不改变任何一条的 (标记, 方法) 判定。
+    """
     result: dict[str, dict[str, list[tuple[str, str]]]] = {}
     current_header: str | None = None
     for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
@@ -430,7 +436,8 @@ def read_snapshot(path: Path) -> dict[str, dict[str, list[tuple[str, str]]]]:
             continue
         if current_header is None:
             raise ValueError(f"快照里的方法行出现在任何 [头] 之前：{stripped}")
-        result[current_header].setdefault(match.group(2), []).append((match.group(1), match.group(3)))
+        result[current_header].setdefault(match.group(2).rsplit("::", 1)[-1], []).append(
+            (match.group(1), match.group(3)))
     return result
 
 

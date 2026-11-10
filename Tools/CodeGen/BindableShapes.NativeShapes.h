@@ -43,8 +43,8 @@ namespace ca_bind_fixture
 	// 自身成员方法不进表面；只作为参数过界（C ABI 是 kind + 句柄 + 名称四段）。
 	class IBindNativeShape;
 
-	// 注入钩子（任务 3.3）：固定名 `<类>_<方法>_<参数>`，返回引擎默认提供的指针。
-	extern "C" void* CAInject_IBindNativeShape_SetInjectedPointer_externalState();
+	// 注入钩子（任务 3.3）：固定名 `CAInject__<限定名线形>__<方法>__<参数>`，返回引擎默认提供的指针。
+	extern "C" void* CAInject__ca_bind_fixture__IBindNativeShape__SetInjectedPointer__externalState();
 
 	CA_BIND_VALUE(NativeResourceRef)
 	class NativeResourceRef

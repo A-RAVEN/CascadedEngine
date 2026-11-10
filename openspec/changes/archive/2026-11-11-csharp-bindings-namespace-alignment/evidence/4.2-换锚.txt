@@ -1,0 +1,54 @@
+csharp-bindings-namespace-alignment · 4.2 基线换锚（复用批 B 6.1 程序）
+执行时间：2026-11-09 深夜
+程序：旧锚封存 → 新锚重取 → 差异逐文件指认 → check_binding_baseline.py 重指向 → "跳过封存被拒"演练
+
+一、旧锚封存（191 条，逐字节）
+  源：openspec/changes/archive/2026-11-09-csharp-native-direct-binding/evidence/基线产物哈希.txt
+  副本：evidence/4.2-旧锚封存-基线产物哈希.txt
+  实测 SHA256：
+    源   B264EDECC251BF5AF664CA107D24D3F97FC57215477DCE827E1B078059E3BA93
+    副本 B264EDECC251BF5AF664CA107D24D3F97FC57215477DCE827E1B078059E3BA93
+  —— 逐字节一致（旧锚没有被"跳过"或改写）。
+
+二、新锚重取（200 条）
+  文件：evidence/基线产物哈希.txt
+  生成规则：递归列 out/build/x64-debug/codegen/bindings 下全部文件、逐文件 sha256
+  （与 Tools/CodeGen/check_binding_baseline.py 的 product_files 同口径；条目数 200 写在 `# 条目数` 头）。
+  生成命令：python -c "… import check_binding_baseline as cbb; files=cbb.product_files(prod); …"
+  实测：entries 200。
+
+三、两锚差异逐文件指认
+  文件：evidence/4.2-换锚前后对照.txt
+  实测计数（旧锚 191 / 新锚 200）：
+    删除（旧有、新无）：133 条   —— 全部是旧短名文件名（如 `GPUGraph.Bindings.cs`）
+    新增（新有、旧无）：142 条   —— 全部是新线形文件名（如 `graphics_backend__GPUGraph.Bindings.cs`）
+                                 + 本批新增夹具产物（ns1__Device / ns2__Device / a_b__Widget / a__b__Widget）
+    内容变化：7 条              —— 同名但内容变了：BindingRegistry.Bindings.h/.cpp、EngineApi.Bindings.cs、
+                                 BindingHandleTable.h、fixture 三件（常量名/表项/include 改线形）
+    内容未变：51 条
+  自洽校验：191 = 133 + 7 + 51；200 = 142 + 7 + 51。
+  说明："全部产物走换锚程序"指 200 条全部重新取哈希；不是"每份内容都变"。
+
+四、check_binding_baseline.py 重指向
+  脚本 docstring 的"当前基线"改成
+  `openspec/changes/csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`（4.2 换锚），
+  并写明旧锚 191 条仍在 archive、副本在本 change 的 evidence；
+  docs/testing.md 的当前基线路径同步改指这份新锚。
+
+五、演练（红绿留档）
+  1) 新锚 vs 产物：
+     python Tools\CodeGen\check_binding_baseline.py --baseline evidence\基线产物哈希.txt --product-dir out\build\x64-debug\codegen\bindings
+     实测：基线对账：缺失 0 / 不一致 0 / 多余 0；EXIT=0（绿）。
+  2) 自检（内存删一条基线行）：
+     … --self-test
+     实测：自检通过：删掉基线行 BindingHandleTable.h 之后被点名（缺失或多余），脚本确实逐条对账；EXIT=0（绿）。
+  3) **跳过封存被拒**（旧锚 vs 新产物，不重取锚）：
+     … --baseline evidence\4.2-旧锚封存-基线产物哈希.txt --product-dir <新产物>
+     实测：基线对账：缺失 133 / 不一致 7 / 多余 142；EXIT=1（红）—— 逐文件点名
+     （例：多余：ns2__Device.Bindings.cpp / ns2__Device.Bindings.cs）。
+  4) 篡改一条哈希（把第一行 sha256 改成 64 个 0）：
+     实测：基线对账：缺失 0 / 不一致 1 / 多余 0；EXIT=1（红），点名
+     `不一致：内容与基线不同 —— a__b__Widget.Bindings.cpp（基线 000000000000… / 实际 7dc11334420a…）`。
+
+六、结论
+  旧锚逐字节封存、新锚重取、差异逐文件指认、脚本重指向、三种演练红绿齐备。4.2 完成。

@@ -1,0 +1,57 @@
+csharp-bindings-namespace-alignment · 5.1 全量回归
+执行时间：2026-11-09 深夜
+构建日志：%TEMP%\ns-build-final.log（EXIT=0，BUILD SUCCESSFUL）
+CoreTests 日志：%TEMP%\ns-coretests-final.log（EXIT=0）
+
+一、构建
+  命令：python build.py --config Debug
+  实测：BUILD SUCCESSFUL；构建内 check_bindings.py 十三项全 0（不符数 0 / 两侧对齐 0 / 覆盖率 0 /
+  托管表面 0 / 第二张矩阵 0 / 错误码 0 / 共享值类型 0 / 原生形态夹具 0 / 登记表 0 / 夹具登记表 0 …）。
+
+二、两后端 headless 全量（每后端 16 条）
+  命令：
+    out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --headless 10 --report %TEMP%\ns-vulkan-report.json
+    out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12  --headless 10 --report %TEMP%\ns-d3d12-report.json
+  实测：
+    vulkan：EXIT=0；report 16 条、status=pass 16、fail 0
+    d3d12 ：EXIT=0；report 16 条、status=pass 16、fail 0
+  16 条名单：TestSimpleTriangle / TestTriangleWithConstantColor / TestTriangleWithStructuredBufferColor /
+  TestTriangleWithImageBuffer / TestDoublePass / TestComputeBuffer / TestReadback / TestIMGUI /
+  TestScriptHost / TestCSharpWindow / TestCSharpTriangle / TestCSharpWindowCallbacks / TestGPUTiming /
+  TestCSharpConstantColor / TestCSharpStructuredBuffer / TestCSharpTextureSampling。
+
+三、CoreTests
+  命令：out\build\x64-debug\bin\CoreTests.exe
+  实测：EXIT=0（末尾各用例 PASSED，见 %TEMP%\ns-coretests-final.log）。
+
+四、check 家族（逐条）
+  脚本（Tools\ 与 Tools\CodeGen\，14 个）：
+    check_bindings.py（构建内跑）          EXIT=0，十三项全 0
+    check_binding_baseline.py              EXIT=0，缺失 0 / 不一致 0 / 多余 0（新锚对最终产物）
+    check_bindable_audit.py                EXIT=0，8 接口 / 91 方法 / 0 问题
+    check_native_snapshot.py --snapshot …  EXIT=0，独立清单 129 条 / 0 问题
+    check_legacy_symbols.py                EXIT=0，扫描 468 文件、命中 0 行
+    check_gpu_timing.py                    EXIT=0，2/2 后端、0 处问题
+    check_csharp_triangle.py               EXIT=0，问题 0 处
+    check_csharp_constant_color.py         EXIT=0，问题 0 处
+    check_csharp_structured_buffer.py      EXIT=0，问题 0 处
+    check_csharp_texture_sampling.py       EXIT=0，问题 0 处
+    check_window_system_bindings.py --log test_output\TestCSharpWindow.log
+                                           EXIT=0，GetMonitor 1 组 / 目标释放 1 组 / 0 问题
+    check_window_system_bindings.py --log test_output\TestCSharpWindowCallbacks.log --callbacks
+                                           EXIT=0，回调 10 类 / 目标释放 2 组 / 0 问题
+    check_csharp_host_failures.py          EXIT=0，5 场景 5 通过（含 ABI 版本不符 期望 11）
+    check_csharp_host_readme.py            EXIT=0，ABI v11 / 56 字节 / 7 行编号表 / 问题 0 处
+    verify_readme.py                       EXIT=0，22 条文档命令、0 mismatch
+  非绿两条（既有、与本批无关，文件 git 未改动）：
+    check_hash_sources.py                  EXIT=1：`来源不明: remove_cvref_t`（出现在
+                                           Test/CoreTests/GeneratedHashTest.cpp；本批未改该文件）——
+                                           属既有记名豁免口径之外的红，按"发现即报"记录，不夹带修。
+    （openspec 见下）
+
+五、OpenSpec
+  openspec validate csharp-bindings-namespace-alignment --strict → `is valid`（EXIT=0）
+  openspec validate --all --strict → 53 passed / 2 failed：
+    spec/module-lifecycle、spec/vulkan-pipeline-cache —— 两条都是
+    `[WARNING] overview: Purpose section is too brief (less than 50 characters)`；
+    两份规格文件本批 git status 无改动（git diff --stat 为空），属既有红，不在本变更范围。

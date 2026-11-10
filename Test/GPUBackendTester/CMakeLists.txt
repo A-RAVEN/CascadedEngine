@@ -32,7 +32,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ScriptHost)
 target_link_libraries(${PROJECT_NAME} PRIVATE dbghelp)
 
 # 生成的绑定产物（`csharp-window-creation` 任务 2.8）：测试要拿弱句柄，只能走 C ABI 的
-# `IWindowSystem_NewWindow` / `_ResolveHandle`，所以要 include `<接口>.Bindings.cpp`。
+# `cawindow__IWindowSystem__NewWindow` / `__ResolveHandle`，所以要 include `<限定名线形>.Bindings.cpp`。
 # 目录与 CSharpHost/CMakeLists.txt 里那条一致（同一个生成步骤写出的）。
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/codegen/bindings

@@ -1,8 +1,8 @@
-// 嵌套纯标量记录的镜像与按值搬运（`complete-csharp-window-system-bindings` 任务 1.1 / 3.1）。
+﻿// 嵌套纯标量记录的镜像与按值搬运（`complete-csharp-window-system-bindings` 任务 1.1 / 3.1）。
 //
 // 四条读数：
 //   ① 布局：镜像结构体与 C++ 侧的大小、外层字段偏移、嵌套字段偏移都一致；
-//   ② 按值返回：`IBindRow22_GetMonitorInfo` 把两个矩形与 DPI 逐字段搬出来，非零读数不许丢；
+//   ② 按值返回：`ca_bind_fixture__IBindRow22__GetMonitorInfo` 把两个矩形与 DPI 逐字段搬出来，非零读数不许丢；
 //   ③ 默认比较运算符：`BindFloatRect` 的 defaulted `operator<=>` 不阻止生成（能编过即是证明，
 //      运行期再断言排序真的按字段走）；
 //   ④ 非法嵌套：`BindableShapes.RejectNested.h` 里的外层记录含一个带 `castl::string` 的内层，
@@ -13,7 +13,7 @@
 
 #include "BindableShapes.h"
 
-#include "IBindRow22.Bindings.cpp"
+#include "ca_bind_fixture__IBindRow22.Bindings.cpp"
 
 #include <cstddef>
 #include <cstdio>
@@ -167,7 +167,7 @@ bool RunBindingsNestedLayoutTest()
 
 	// ② 按值返回：固定非零读数逐字段比对
 	FakeRow22 object;
-	const BindMonitorInfoC mirror = IBindRow22_GetMonitorInfo(&object, 7);
+	const BindMonitorInfoC mirror = ca_bind_fixture__IBindRow22__GetMonitorInfo(&object, 7);
 	if (object.m_lastMonitorId != 7)
 	{
 		std::printf("  GetMonitorInfo 收到的显示器编号是 %d，期望 7\n", object.m_lastMonitorId);
@@ -204,7 +204,7 @@ bool RunBindingsNestedLayoutTest()
 	incoming.workAreaRect.width = 7.25f;
 	incoming.workAreaRect.height = 8.25f;
 	incoming.dpiScale = 2.5f;
-	IBindRow22_SetMonitorInfo(&object, &incoming);
+	ca_bind_fixture__IBindRow22__SetMonitorInfo(&object, &incoming);
 	if (object.m_receivedCount != 1)
 	{
 		std::printf("  SetMonitorInfo 被调用 %d 次，期望 1 次\n", object.m_receivedCount);

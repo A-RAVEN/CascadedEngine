@@ -1,4 +1,4 @@
-// 渲染基础形状的原生行为判据 + 生成期拒绝探针（csharp-render-binding-foundations 任务 1.3）。
+﻿// 渲染基础形状的原生行为判据 + 生成期拒绝探针（csharp-render-binding-foundations 任务 1.3）。
 //
 // 判据分两半：
 //   ① 原生行为：用固定非零字段逐项核对实现收到的记录、枚举、掩码、名称、规范化路径、
@@ -8,7 +8,7 @@
 //      断言非零退出并点名对应类型 / 成员 / 依赖。
 #include "BindableShapes.RenderFoundation.h"
 
-#include "IBindFoundation.Bindings.cpp"
+#include "ca_bind_fixture__IBindFoundation.Bindings.cpp"
 
 #include <cstddef>
 #include <cstdio>
@@ -41,11 +41,11 @@ static_assert(std::is_same_v<decltype(RenderHashableC::first), uint32_t>, "Rende
 
 // C ABI 的定宽类型也必须逐字对上：方法级标志位是 uint16_t，不是 int32_t。
 using GetFlagsFunction = uint16_t (*)(void*, uint16_t);
-static_assert(std::is_same_v<decltype(&IBindFoundation_GetFlags), GetFlagsFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindFoundation__GetFlags), GetFlagsFunction>,
 	"方法级 EnumFlags 必须按 MaskType（uint16_t）投影");
 using MixBytesFunction = int64_t (*)(void*, uint8_t const*, uint64_t, int32_t, RenderDescC const*,
 	char const*, uint64_t, int32_t, uint16_t, void*);
-static_assert(std::is_same_v<decltype(&IBindFoundation_MixBytes), MixBytesFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindFoundation__MixBytes), MixBytesFunction>,
 	"字节入参必须是 uint8_t const* + uint64_t，且与所有其他参数同序组合");
 
 namespace
@@ -302,7 +302,7 @@ bool RunBindingsRenderFoundationTest()
 
 	// ---- ① 平坦记录：入参逐字段到达实现，返回值逐字段搬回 ----
 	const RenderDescC descC = MakeDescC();
-	const RenderDescC echoed = IBindFoundation_GetDesc(&fake, &descC);
+	const RenderDescC echoed = ca_bind_fixture__IBindFoundation__GetDesc(&fake, &descC);
 	ok = Expect(fake.lastDesc.visible && fake.lastDesc.id == 0x1234u &&
 		fake.lastDesc.mode == ca_bind_fixture::ERenderMode::Wire &&
 		fake.lastDesc.flags.m_mask == 3u && fake.lastDesc.weight == 0x55u,
@@ -316,7 +316,7 @@ bool RunBindingsRenderFoundationTest()
 	RenderNestedC nestedC{};
 	nestedC.desc = descC;
 	nestedC.scale = 2.5f;
-	const RenderNestedC nestedEcho = IBindFoundation_GetNested(&fake, &nestedC);
+	const RenderNestedC nestedEcho = ca_bind_fixture__IBindFoundation__GetNested(&fake, &nestedC);
 	ok = Expect(fake.lastNested.desc.id == 0x1234u && fake.lastNested.desc.weight == 0x55u &&
 		fake.lastNested.scale == 2.5f,
 		"嵌套记录的入参没有逐层到达原生实现") && ok;
@@ -324,20 +324,20 @@ bool RunBindingsRenderFoundationTest()
 		"嵌套记录的返回值没有逐层搬回") && ok;
 
 	// ---- ③ bool / 普通枚举 / 方法级标志位 ----
-	ok = Expect(IBindFoundation_GetBool(&fake, 1) == 0 && fake.lastBool,
+	ok = Expect(ca_bind_fixture__IBindFoundation__GetBool(&fake, 1) == 0 && fake.lastBool,
 		"bool 入参没有还原成 true") && ok;
-	ok = Expect(IBindFoundation_GetMode(&fake, static_cast<int32_t>(ca_bind_fixture::ERenderMode::Wire)) ==
+	ok = Expect(ca_bind_fixture__IBindFoundation__GetMode(&fake, static_cast<int32_t>(ca_bind_fixture::ERenderMode::Wire)) ==
 		static_cast<int32_t>(ca_bind_fixture::ERenderMode::Wire) && fake.lastMode == ca_bind_fixture::ERenderMode::Wire,
 		"普通枚举没有按 int32_t 双向投影") && ok;
-	ok = Expect(IBindFoundation_GetFlags(&fake, 5u) == 13u && fake.lastFlags == 5u,
+	ok = Expect(ca_bind_fixture__IBindFoundation__GetFlags(&fake, 5u) == 13u && fake.lastFlags == 5u,
 		"方法级 EnumFlags 没有按 MaskType 重建/投影") && ok;
 
 	// ---- ④ NameHash / PathHash：原生构造函数语义 ----
 	const char* const nameText = "渲染-基础-Ω";
-	IBindFoundation_SetName(&fake, nameText, static_cast<uint64_t>(std::strlen(nameText)));
+	ca_bind_fixture__IBindFoundation__SetName(&fake, nameText, static_cast<uint64_t>(std::strlen(nameText)));
 	ok = Expect(fake.lastName == castl::string(nameText), "NameHash 没有还原成完整 UTF-8 文本") && ok;
 	const char* const pathText = "Render\\Textures//..\\Textures//Albedo.png";
-	IBindFoundation_SetPath(&fake, pathText, static_cast<uint64_t>(std::strlen(pathText)));
+	ca_bind_fixture__IBindFoundation__SetPath(&fake, pathText, static_cast<uint64_t>(std::strlen(pathText)));
 	const castl::string expectedPath = cacore::PathHash(castl::string(pathText)).string();
 	ok = Expect(fake.lastPath == expectedPath, "PathHash 没有按现有 C++ 构造函数规范化") && ok;
 	ok = Expect(fake.lastPath != castl::string(pathText), "PathHash 输入本身没有被规范化，判据构造有问题") && ok;
@@ -346,7 +346,7 @@ bool RunBindingsRenderFoundationTest()
 	RenderHashableC hashC{};
 	hashC.first = 0x11223344u;
 	hashC.second = 0xAABBCCDDu;
-	IBindFoundation_ConsumeHash(&fake, &hashC);
+	ca_bind_fixture__IBindFoundation__ConsumeHash(&fake, &hashC);
 	ca_bind_fixture::RenderHashable expectedHashValue{};
 	expectedHashValue.first = hashC.first;
 	expectedHashValue.second = hashC.second;
@@ -359,7 +359,7 @@ bool RunBindingsRenderFoundationTest()
 	// ---- ⑥ 字节 + 标量/记录/文本/枚举/标志位/句柄混合参数 ----
 	const uint8_t bytes[] = { 0x00u, 0x7fu, 0x80u, 0xffu };
 	const int32_t mixCount = -7;
-	const int64_t mixed = IBindFoundation_MixBytes(&fake, bytes, sizeof(bytes), mixCount, &descC, "混合-参数",
+	const int64_t mixed = ca_bind_fixture__IBindFoundation__MixBytes(&fake, bytes, sizeof(bytes), mixCount, &descC, "混合-参数",
 		static_cast<uint64_t>(std::strlen("混合-参数")), static_cast<int32_t>(ca_bind_fixture::ERenderMode::Fill),
 		6u, reinterpret_cast<void*>(static_cast<uintptr_t>(0x1234u)));
 	ok = Expect(mixed == -7 + 0 + 127 + 128 + 255, "混合参数的返回值不对") && ok;
@@ -371,40 +371,40 @@ bool RunBindingsRenderFoundationTest()
 
 	// ---- ⑦ 空数组合法；空指针配非零长度在 thunk 入口拒绝且不进入实现 ----
 	const int mixCallsBefore = fake.mixCalls;
-	const int64_t emptyResult = IBindFoundation_MixBytes(&fake, nullptr, 0u, 0, &descC, nullptr, 0u,
+	const int64_t emptyResult = ca_bind_fixture__IBindFoundation__MixBytes(&fake, nullptr, 0u, 0, &descC, nullptr, 0u,
 		static_cast<int32_t>(ca_bind_fixture::ERenderMode::None), 0u, nullptr);
 	ok = Expect(fake.mixCalls == mixCallsBefore + 1 && fake.lastBytes.empty() && emptyResult == 0,
 		"空数组没有被当作合法的零长度输入") && ok;
 	const int mixCallsBeforeBad = fake.mixCalls;
-	const int64_t bad = IBindFoundation_thunk_MixBytes(&fake, nullptr, 3u, 0, &descC, nullptr, 0u,
+	const int64_t bad = ca_bind_fixture__IBindFoundation_thunk_MixBytes(&fake, nullptr, 3u, 0, &descC, nullptr, 0u,
 		static_cast<int32_t>(ca_bind_fixture::ERenderMode::None), 0u, nullptr);
 	ok = Expect(bad == 0 && fake.mixCalls == mixCallsBeforeBad &&
-		IBindFoundation_LastErrorCode(&fake) == IBindFoundation_ERROR_NULL_POINTER,
+		ca_bind_fixture__IBindFoundation__LastErrorCode(&fake) == ca_bind_fixture__IBindFoundation_ERROR_NULL_POINTER,
 		"空指针配非零字节长度没有在 thunk 入口被拒绝") && ok;
 
 	// ---- ⑧ 强返回 + 配对释放：发行者入口解析到同一对象，释放后旧句柄失效 ----
-	const uint64_t handle = IBindFoundation_AcquireDesc(&fake, bytes, sizeof(bytes), &descC, "acquire",
+	const uint64_t handle = ca_bind_fixture__IBindFoundation__AcquireDesc(&fake, bytes, sizeof(bytes), &descC, "acquire",
 		static_cast<uint64_t>(std::strlen("acquire")), 0u, 3u);
 	ok = Expect(handle != 0ull && fake.acquireCalls == 1 && fake.lastAcquireDesc.id == 0x1234u &&
 		fake.lastAcquireBytes.size() == 4 && fake.lastAcquireLabel == castl::string("acquire") &&
 		fake.lastAcquireMode == ca_bind_fixture::ERenderMode::None && fake.lastAcquireFlags == 3u,
 		"智能指针返回的方法漏掉了实参转换") && ok;
-	void* resolved = IBindFoundation_ResolveHandle(&fake, handle);
+	void* resolved = ca_bind_fixture__IBindFoundation__ResolveHandle(&fake, handle);
 	ok = Expect(resolved != nullptr && static_cast<ca_bind_fixture::RenderDesc*>(resolved)->id == 0x1234u + 1000u,
 		"强返回句柄没有解析到实现创建的对象") && ok;
-	IBindFoundation_ReleaseAcquireDesc(&fake, handle);
-	ok = Expect(IBindFoundation_ResolveHandle(&fake, handle) == nullptr &&
-		IBindFoundation_LastErrorCode(&fake) == IBindFoundation_ERROR_STALE_HANDLE,
+	ca_bind_fixture__IBindFoundation__ReleaseAcquireDesc(&fake, handle);
+	ok = Expect(ca_bind_fixture__IBindFoundation__ResolveHandle(&fake, handle) == nullptr &&
+		ca_bind_fixture__IBindFoundation__LastErrorCode(&fake) == ca_bind_fixture__IBindFoundation_ERROR_STALE_HANDLE,
 		"配对释放后旧句柄仍然可以解析") && ok;
 
 	// ---- ⑨ shared_ptr 入参：反查重建到同一对象 ----
-	const uint64_t consumedHandle = IBindFoundation_AcquireDesc(&fake, bytes, sizeof(bytes), &descC, "consume",
+	const uint64_t consumedHandle = ca_bind_fixture__IBindFoundation__AcquireDesc(&fake, bytes, sizeof(bytes), &descC, "consume",
 		static_cast<uint64_t>(std::strlen("consume")), 0u, 0u);
-	void* consumedObject = IBindFoundation_ResolveHandle(&fake, consumedHandle);
-	IBindFoundation_ConsumeDesc(&fake, consumedHandle);
+	void* consumedObject = ca_bind_fixture__IBindFoundation__ResolveHandle(&fake, consumedHandle);
+	ca_bind_fixture__IBindFoundation__ConsumeDesc(&fake, consumedHandle);
 	ok = Expect(fake.consumeDescCalls == 1 && fake.lastConsumed.get() == consumedObject,
 		"shared_ptr 入参没有反查重建到同一对象") && ok;
-	IBindFoundation_ReleaseAcquireDesc(&fake, consumedHandle);
+	ca_bind_fixture__IBindFoundation__ReleaseAcquireDesc(&fake, consumedHandle);
 
 	// ---- ⑩ 生成期拒绝：每个负向夹具单独起一次 CodeGen.exe ----
 	ok = RunRenderRejectProbes() && ok;

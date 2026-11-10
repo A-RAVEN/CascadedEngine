@@ -1,0 +1,26 @@
+# 7.1 换锚前后逐文件对照（GPUBuffer 直绑 + ABI v12）
+
+上一锚 200 条 / 新锚 203 条
+
+## 删除：0 条
+
+## 新增：3 条
+  - graphics_backend__GPUBuffer.Bindings.cpp
+  - graphics_backend__GPUBuffer.Bindings.cs
+  - native-gpu-buffer.registry.part
+
+## 内容变化：12 条
+  - BindingRegistry.Bindings.cpp
+  - BindingRegistry.Bindings.h
+  - EngineApi.Bindings.cs
+  - fixture/BindingRegistry.Bindings.h
+  - fixture/EngineApi.Bindings.cs
+  - graphics_backend__BufferHandle.Bindings.cs
+  - graphics_backend__CRenderBackend.Bindings.cpp
+  - graphics_backend__CRenderBackend.Bindings.cs
+  - graphics_backend__GPUGraph.Bindings.cpp
+  - graphics_backend__IndexBufferData.BindingCodec.h
+  - graphics_backend__RenderPass.BindingCodec.h
+  - graphics_backend__ShaderStruct.Bindings.cpp
+
+## 未变：188 条

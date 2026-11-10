@@ -1,0 +1,87 @@
+csharp-bindings-namespace-alignment · 2.1 check_bindings.py 判据换源（逐条双口径）
+执行时间：2026-11-09 深夜
+旧口径跑新产物：%TEMP%\ns-old-check.log（EXIT=1；旧脚本 = git HEAD 版本，复制到 Tools\CodeGen 下临时跑，跑完即删）
+新口径跑新产物：%TEMP%\ns-new-check.log（EXIT=0，十三个分项全部 0）
+构建内跑：%TEMP%\ns-build-10.log（绑定判据失败 0 次，BUILD SUCCESSFUL）
+
+================================================================================
+一、双口径总读数（同一份新产物）
+================================================================================
+  旧脚本（HEAD 的 check_bindings.py）：
+    不符数 0（期望文件已换线形，C01 索引本身与短名无关）
+    两侧对齐问题 **87 处**（把 `ca_bind_fixture__IBindRow01__GetInt32` 切成 interface=`ca_bind_fixture`?
+      不，旧正则 `(\w+?)_(\w+)` 从第一个下划线切，日志逐字是 `a（native 字段层）：C++ 多
+      ['_b__Widget__GetArea', 'b__Widget__GetArea', …]`、`ca（native 字段层）：C++ 多
+      ['bind_fixture__BindNativeObject__GetValue', …]` —— 接口名被截成 `a` / `ca`，方法名带残段）
+    真实接口桩数 4 / 丢返回值 1
+    覆盖率问题 7 处
+    托管表面问题 123 处
+    第二张矩阵问题 6 处
+    共享值类型问题 92 处
+    渲染基础表面问题 1 处
+    原生形态夹具问题 1 处
+    登记表问题 9 处 / 夹具登记表问题 6 处
+  新脚本：EXIT=0，上述十三个分项全部 0 处（错误码/夹具识别/共享值类型限定名也都是 0）。
+
+================================================================================
+二、逐条改前/改后（编号沿用 0.1 现场清单 C01–C18；0 抽样）
+================================================================================
+C01 read_generated             不依赖短名（按 `extern "C"` 首个标识符索引）→ 未改；旧跑新产物不符数 0。
+C02 read_lock_scope            已是限定名口径（{编号: 完整限定名}）→ 未改；编号期望来源仍是锁文件。
+C03 check_fixture_recognition  用夹具头里的**类名**（短名）集合 → 未改；新旧都 0。
+C04 check_shared_qualified_names
+   改前：文件 stem（当时=短名）↔ 限定名 1:1；新产物下 stem 是线形，旧口径恒绿（判据失效）。
+   改后：stem 必须等于 `python_linear(限定名)`，并检测"线形→限定名"与"限定名→线形"两个方向唯一。
+C05 check_shared_value_types
+   改前：`product_dir / f"{短名}.Bindings.cs"`；新产物下 92 处误红（缺 <短名>.Bindings.cs）。
+   改后：`product_by_interface(短名, ".Bindings.cs")` 在线形文件名里找；0 处。
+C06 check_native_shapes
+   改前：`IBindNativeShape.Bindings.cpp`、短名槽名逐字；新产物下 1 处误红。
+   改后：`product_by_interface` + `ca_bind_fixture__IBindNativeShape__*` 线形槽名；0 处。
+C07 check_foundation_surface
+   改前：`IBindFoundation.Bindings.cs`；新产物下 1 处误红。
+   改后：线形文件名（product_by_interface）；0 处。
+C08 interface_of
+   改前：`path.name[:-len]` 直接当接口短名 → 新产物下把它读成 `ca_bind_fixture__IBindRow01`
+       再经旧正则切成 `ca` / `a`（见第一节日志逐字），全脚本身份错位。
+   改后：`split_linear(linear)[1]` 取 `__` 末段短名；身份正确。
+C09 fixture_interface_names    夹具头里的类名（短名）→ 未改；新旧都 0。
+C10 check_stubs
+   改前：`interface_of` 短名 + `resolve_interface_header` 找头；新产物下旧跑 4 个"真实接口桩"+1 丢返回值。
+   改后：短名仍从线形末段取，产物路径按线形；0 桩 / 0 丢返回值。
+C11 check_coverage
+   改前：期望符号按 `symbol[len(row)+1:]` 切、产物 `<短名>.Bindings.cpp`、实际符号 `<短名>_<方法>`。
+   新产物下 7 处红。
+   改后：按最后一个 `__` 切方法名、`product_by_interface` 找线形产物、实际符号 `<线形>__<方法>`；0 处。
+C12 check_alignment
+   改前：`CPP_SYMBOL_RE = (\w+?)_(\w+)` 按第一个下划线切；两段式 `(\w+?)_(\w+)Len`；键=短名。
+   新产物下 87 处红（接口名被截成 `a` / `ca`）。
+   改后：按本产物线形前缀切 `<线形>__<方法>`；两段式 `(.+)__(.+)Len`；键=线形；0 处。
+C13 check_surface
+   改前：`<短名>.Bindings.cs`、表面类名必须逐字==stub、`class <短名>`；新产物下 123 处红。
+   改后：线形文件名 + 短名（类名仍保持原样，由命名空间隔离）；0 处。
+C14 check_surface_matrix
+   改前：`<短名>.Bindings.cs`；新产物下 6 处红（六行全部缺文件）。
+   改后：`product_by_interface`；0 处。
+C15 check_error_codes
+   改前：`argument.isupper()` 区分"常量 vs 局部量"；新线形含小写命名空间，`isupper()` 恒假 ⇒ 判据失效。
+   改后：名字里带 `_ERROR_` 且在常量表里才算合法，否则点名；旧跑新产物 0（恒绿），新口径 0 处问题。
+C16 REGISTRY_CONST_RE
+   改前/改后：`kBindingInterfaceId(\w+) = (\d+)u; // <限定名>`；编号对账仍以注释里的完整限定名为准，
+   常量名变化（`kBindingInterfaceId<线形>`）后正则仍匹配。编号期望来源仍是锁文件 → 未改语义。
+C17 check_registry
+   改前：C# 常量名 `<短名去 I>InterfaceId`、装配行 `kBindingInterfaceId<短名>`；新产物下 9 处红。
+   改后：`csharp_constant_suffix(qualified)`（PascalCase 命名空间段 + `__` + 短名去 I + InterfaceId）、
+   装配行 `kBindingInterfaceId<线形>`；0 处。
+C18 期望文件 BindableShapes.expected.txt
+   改前：短名槽名（`IBindRow01_GetInt32`）；改后：线形槽名（`ca_bind_fixture__IBindRow01__GetInt32`），
+   101 行机械替换、类型/参数一字未动。旧脚本读同一份期望文件所以不符数 0（这是期望文本，不是判据代码）。
+   改前备份：%TEMP%\BindableShapes.expected.before.txt（101 行替换前原文）。
+
+================================================================================
+三、结论
+================================================================================
+18 条逐条有归宿：依赖短名并在新产物上误红的 10 条（C05/C06/C07/C10/C11/C12/C13/C14/C15/C17），
+旧口径恒绿失效的 1 条（C04），身份错位被日志逐字抓到的 1 条（C08），不依赖短名的 4 条（C01/C02/C03/C09），
+正则/期望文本随线形同步的 2 条（C16/C18）。0 抽样。
+新口径：check_bindings.py EXIT=0，十三项全 0；构建内绑定判据 0 失败。

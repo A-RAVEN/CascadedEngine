@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """对拍：绑定生成的 C ABI 签名，是否逐行等于 BindableShapes.expected.txt 里写的。
 
 期望文件每行前缀矩阵行号（`01|` … `14|`），随后是期望的 C ABI 签名（逐字）。
@@ -33,8 +33,8 @@ FIXTURE_HEADER = HERE / "BindableShapes.h"
 
 ROW_RE = re.compile(r"^([0-9A-Za-z]{2,})\|(.*)$")
 # 期望行 -> 符号名：取签名里第一个"标识符 + 左括号"。不再硬编码 `IBindRow\d\d_` ——
-# 那样真实接口（`IWindow_*`）的签名一行都进不了比对（实测：改错 IWindow_WindowShouldClose
-# 的返回类型，旧脚本照样报"不符数 0"）。
+# 那样真实接口（`cawindow__IWindow__*`）的签名一行都进不了比对（实测：改错
+# `cawindow__IWindow__WindowShouldClose` 的返回类型，旧脚本照样报"不符数 0"）。
 SYMBOL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 DECL_RE = re.compile(r"extern\s+\"C\"[^;{]*?;", re.S)
 
@@ -507,12 +507,12 @@ def check_fixture_recognition() -> list[str]:
 def check_shared_qualified_names(product_dir: Path) -> list[str]:
     """共享公开值类型的限定名唯一性（任务 2.3 / 4.1）。
 
-    每个共享文件头写 `// 限定名：<完整限定名>`。同一短名的文件只能对应一个限定名；反过来，
-    同一个限定名也只能有一份短名 —— 短名不同名化会静默覆盖。
+    每个共享文件头写 `// 限定名：<完整限定名>`。文件名必须是该限定名的线形（本批 D6）；
+    同一个线形只能对应一个限定名 —— 否则磁盘上会静默覆盖。
     """
     problems: list[str] = []
-    short_to_qualified: dict[str, str] = {}
-    qualified_to_short: dict[str, str] = {}
+    linear_to_qualified: dict[str, str] = {}
+    qualified_to_linear: dict[str, str] = {}
     for path in sorted(product_dir.glob("*.Bindings.cs")):
         if is_registry_product(path):
             continue
@@ -525,14 +525,17 @@ def check_shared_qualified_names(product_dir: Path) -> list[str]:
             problems.append(f"  共享值类型 {stem}：文件头没有 `// 限定名：...`，无法做限定名对账")
             continue
         qualified = match.group(1).strip()
-        previous = short_to_qualified.get(stem)
+        expected = python_linear(qualified)
+        if stem != expected:
+            problems.append(f"  共享值类型 {stem}：文件名不是限定名线形（{qualified} → {expected}）")
+        previous = linear_to_qualified.get(stem)
         if previous is not None and previous != qualified:
-            problems.append(f"  共享值类型 {stem}：同一短名对应两个限定名 {previous} / {qualified}")
-        short_to_qualified[stem] = qualified
-        other = qualified_to_short.get(qualified)
+            problems.append(f"  共享值类型 {stem}：同一线形对应两个限定名 {previous} / {qualified}")
+        linear_to_qualified[stem] = qualified
+        other = qualified_to_linear.get(qualified)
         if other is not None and other != stem:
             problems.append(f"  共享值类型：限定名 {qualified} 同时产出 {other} 与 {stem}")
-        qualified_to_short[qualified] = stem
+        qualified_to_linear[qualified] = stem
     return problems
 
 
@@ -548,9 +551,9 @@ def check_shared_value_types(product_dir: Path) -> list[str]:
     """
     problems: list[str] = []
     for name, required_lines in sorted(SHARED_VALUE_TYPES.items()):
-        path = product_dir / f"{name}.Bindings.cs"
-        if not path.is_file():
-            problems.append(f"  共享值类型 {name}：缺 {path.name}")
+        path = product_by_interface(product_dir, name, ".Bindings.cs")
+        if path is None:
+            problems.append(f"  共享值类型 {name}：缺 <限定名线形>.Bindings.cs")
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         declared = re.findall(r"^\s*public\s+(?:sealed\s+)?(?:struct|enum|class)\s+(\w+)",
@@ -589,7 +592,7 @@ def check_shared_value_types(product_dir: Path) -> list[str]:
         stem = path.name[: -len(".Bindings.cs")]
         if (product_dir / f"{stem}.Bindings.cpp").is_file():
             continue
-        if stem not in SHARED_VALUE_TYPES:
+        if split_linear(stem)[1] not in SHARED_VALUE_TYPES:
             problems.append(f"  {stem}：只有 .Bindings.cs 没有 .Bindings.cpp，"
                             f"但它不是登记过的共享值类型")
     return problems
@@ -603,23 +606,23 @@ def check_native_shapes(product_dir: Path) -> list[str]:
     每加一条能力（2.2 / 2.3 / 2.4 / 3.x），这里就加对应的逐字行 —— 判据先红后绿。
     """
     problems: list[str] = []
-    cpp_path = product_dir / "IBindNativeShape.Bindings.cpp"
-    cs_path = product_dir / "IBindNativeShape.Bindings.cs"
-    if not cpp_path.is_file():
-        problems.append("  IBindNativeShape：缺 IBindNativeShape.Bindings.cpp")
+    cpp_path = product_by_interface(product_dir, "IBindNativeShape", ".Bindings.cpp")
+    cs_path = product_by_interface(product_dir, "IBindNativeShape", ".Bindings.cs")
+    if cpp_path is None:
+        problems.append("  IBindNativeShape：缺 <限定名线形>.Bindings.cpp")
         return problems
-    if not cs_path.is_file():
-        problems.append("  IBindNativeShape：缺 IBindNativeShape.Bindings.cs")
+    if cs_path is None:
+        problems.append("  IBindNativeShape：缺 <限定名线形>.Bindings.cs")
         return problems
     cpp = cpp_path.read_text(encoding="utf-8", errors="replace")
     cs = cs_path.read_text(encoding="utf-8", errors="replace")
     # 2.2：非纯虚 virtual / 非虚公开方法 / 自返回链式（C ABI 返回 void）。
     c_abi_expected = [
-        'extern "C" uint32_t IBindNativeShape_GetCounter(void* self);',
-        'extern "C" void IBindNativeShape_SetCounter(void* self, uint32_t value);',
-        'extern "C" uint32_t IBindNativeShape_GetVirtualValue(void* self);',
-        'extern "C" uint32_t IBindNativeShape_GetDoubled(void* self);',
-        'extern "C" void IBindNativeShape_ChainAdd(void* self, uint32_t value);',
+        'extern "C" uint32_t ca_bind_fixture__IBindNativeShape__GetCounter(void* self);',
+        'extern "C" void ca_bind_fixture__IBindNativeShape__SetCounter(void* self, uint32_t value);',
+        'extern "C" uint32_t ca_bind_fixture__IBindNativeShape__GetVirtualValue(void* self);',
+        'extern "C" uint32_t ca_bind_fixture__IBindNativeShape__GetDoubled(void* self);',
+        'extern "C" void ca_bind_fixture__IBindNativeShape__ChainAdd(void* self, uint32_t value);',
     ]
     cs_expected = [
         "public uint GetCounter()",
@@ -630,8 +633,8 @@ def check_native_shapes(product_dir: Path) -> list[str]:
     ]
     # 2.4：同名两签重载 → 第 1 槽保持现名、第 2 槽 `_2`；C# 出同名重载。
     c_abi_expected += [
-        'extern "C" uint32_t IBindNativeShape_Overloaded(void* self, uint32_t value);',
-        'extern "C" uint32_t IBindNativeShape_Overloaded_2(void* self, uint32_t value, uint32_t add);',
+        'extern "C" uint32_t ca_bind_fixture__IBindNativeShape__Overloaded(void* self, uint32_t value);',
+        'extern "C" uint32_t ca_bind_fixture__IBindNativeShape__Overloaded_2(void* self, uint32_t value, uint32_t add);',
     ]
     cs_expected += [
         "public uint Overloaded(uint value)",
@@ -639,14 +642,14 @@ def check_native_shapes(product_dir: Path) -> list[str]:
     ]
     # 2.3：纯标量记录静态工厂 + 默认构造 Create（句柄登记 + 配对释放 + 释放后调用抛异常）。
     c_abi_expected += [
-        'extern "C" NativeCountC IBindNativeShape_MakeTally(void* self, uint32_t value);',
+        'extern "C" NativeCountC ca_bind_fixture__IBindNativeShape__MakeTally(void* self, uint32_t value);',
     ]
     cs_expected += [
         "public NativeCount MakeTally(uint value)",
     ]
     # 3.1：资源引用值类作为参数过界（kind + 对象句柄 + 名称 ptr/len），托管表面收托管值类型。
     c_abi_expected += [
-        'extern "C" void IBindNativeShape_ConsumeRef(void* self, uint32_t resourceRefKind, '
+        'extern "C" void ca_bind_fixture__IBindNativeShape__ConsumeRef(void* self, uint32_t resourceRefKind, '
         'uint64_t resourceRefHandle, uint8_t const* resourceRefName, uint64_t resourceRefNameLen, '
         'uint32_t channel);',
     ]
@@ -666,7 +669,7 @@ def check_native_shapes(product_dir: Path) -> list[str]:
             value_stem_used = True
             problems.append(f"  资源引用值类：{product.name} 里出现了 NativeResourceRef_ 方法槽"
                             f"（值类成员方法不应被采集）")
-    value_cs_path = product_dir / "NativeResourceRef.Bindings.cs"
+    value_cs_path = product_dir / "ca_bind_fixture__NativeResourceRef.Bindings.cs"
     if not value_cs_path.is_file():
         problems.append("  资源引用值类：缺 NativeResourceRef.Bindings.cs")
     else:
@@ -680,7 +683,7 @@ def check_native_shapes(product_dir: Path) -> list[str]:
                 problems.append(f"  资源引用值类：托管值类型里没有 `{line}`")
     # 3.2：序列化块记录（输入方向、块头三项与 C++ 同源；托管序列化器与镜像类型同文件）。
     c_abi_expected += [
-        'extern "C" void IBindNativeShape_ConsumePass(void* self, uint8_t const* passBytes, '
+        'extern "C" void ca_bind_fixture__IBindNativeShape__ConsumePass(void* self, uint8_t const* passBytes, '
         'uint64_t passLen);',
     ]
     cs_expected += [
@@ -688,7 +691,7 @@ def check_native_shapes(product_dir: Path) -> list[str]:
     ]
     # 3.3：参数注入 —— C ABI 与托管表面都只有 token，没有 externalState。
     c_abi_expected += [
-        'extern "C" void IBindNativeShape_SetInjectedPointer(void* self, uint32_t token);',
+        'extern "C" void ca_bind_fixture__IBindNativeShape__SetInjectedPointer(void* self, uint32_t token);',
     ]
     cs_expected += [
         "public void SetInjectedPointer(uint token)",
@@ -717,17 +720,17 @@ def check_native_shapes(product_dir: Path) -> list[str]:
             "public float weight;",
         )),
     ):
-        path = product_dir / f"{name}.Bindings.cs"
-        if not path.is_file():
-            problems.append(f"  序列化块记录：缺 {name}.Bindings.cs")
+        path = product_by_interface(product_dir, name, ".Bindings.cs")
+        if path is None:
+            problems.append(f"  序列化块记录：缺 <限定名线形>.Bindings.cs（{name}）")
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for line in lines:
             if line not in text:
                 problems.append(f"  序列化块记录 {name}：托管产物里没有 `{line}`")
-    codec_header = product_dir / "PassLike.BindingCodec.h"
-    if not codec_header.is_file():
-        problems.append("  序列化块记录：缺 PassLike.BindingCodec.h（C++ 反序列化入口）")
+    codec_header = product_by_interface(product_dir, "PassLike", ".BindingCodec.h")
+    if codec_header is None:
+        problems.append("  序列化块记录：缺 PassLike 的 <限定名线形>.BindingCodec.h（C++ 反序列化入口）")
     else:
         codec_text = codec_header.read_text(encoding="utf-8", errors="replace")
         for line in ("kTypeNameHash", "kLayoutHash", "kLayoutText", "static uint32_t Deserialize",
@@ -740,19 +743,19 @@ def check_native_shapes(product_dir: Path) -> list[str]:
             problems.append(f"  IBindNativeShape：{name} 产物里出现了模板方法 GetAs（应被显式排除）")
     # 2.3：Create 的托管行为以生成 .cs 逐字文本判据核（不新增 tester 用例）：
     #   静态 Create 工厂、句柄租约、配对释放入口、已释放对象调用抛 ObjectDisposedException。
-    object_cs_path = product_dir / "BindNativeObject.Bindings.cs"
+    object_cs_path = product_dir / "ca_bind_fixture__BindNativeObject.Bindings.cs"
     if not object_cs_path.is_file():
         problems.append("  BindNativeObject：缺 BindNativeObject.Bindings.cs")
         return problems
     object_cs = object_cs_path.read_text(encoding="utf-8", errors="replace")
-    object_cpp_path = product_dir / "BindNativeObject.Bindings.cpp"
+    object_cpp_path = product_dir / "ca_bind_fixture__BindNativeObject.Bindings.cpp"
     if not object_cpp_path.is_file():
         problems.append("  BindNativeObject：缺 BindNativeObject.Bindings.cpp")
         return problems
     object_cpp = object_cpp_path.read_text(encoding="utf-8", errors="replace")
-    if 'extern "C" uint64_t BindNativeObject_Create(void* self);' not in object_cpp:
+    if 'extern "C" uint64_t ca_bind_fixture__BindNativeObject__Create(void* self);' not in object_cpp:
         problems.append(
-            '  BindNativeObject：C ABI 里没有 `extern "C" uint64_t BindNativeObject_Create(void* self);`')
+            '  BindNativeObject：C ABI 里没有 `extern "C" uint64_t ca_bind_fixture__BindNativeObject__Create(void* self);`')
     for line in (
         "public static BindNativeObject Create()",
         "Release = BindNativeObjectBindings.ReleaseHandle",
@@ -762,16 +765,16 @@ def check_native_shapes(product_dir: Path) -> list[str]:
             problems.append(f"  BindNativeObject：托管表面里没有 `{line}`")
     # 3.3：注入钩子必须进注入片段（`<接口>.inject.part`，装配侧按这行核对；
     # 有注入没钩子在生成期已经拒绝）。
-    inject_part = product_dir / "IBindNativeShape.inject.part"
-    if not inject_part.is_file():
-        problems.append("  参数注入：缺 IBindNativeShape.inject.part（钩子声明没有进注入片段）")
+    inject_part = product_by_interface(product_dir, "IBindNativeShape", ".inject.part")
+    if inject_part is None:
+        problems.append("  参数注入：缺 <限定名线形>.inject.part（钩子声明没有进注入片段）")
     else:
         inject_text = inject_part.read_text(encoding="utf-8", errors="replace")
-        if "# inject\tCAInject_IBindNativeShape_SetInjectedPointer_externalState" not in inject_text:
+        if "# inject\tCAInject__ca_bind_fixture__IBindNativeShape__SetInjectedPointer__externalState" not in inject_text:
             problems.append("  参数注入：注入片段里没有钩子行")
     # 1.1：内存窗参数投影（design D2）—— C ABI 两段（指针 + 长度），托管表面收 `byte[]`，
     # 长度由托管算（`fixed` + `(ulong)data.Length`），裸指针不出现在托管表面。
-    window_abi = ('extern "C" void IBindNativeShape_UploadWindow(void* self, uint8_t const* data, '
+    window_abi = ('extern "C" void ca_bind_fixture__IBindNativeShape__UploadWindow(void* self, uint8_t const* data, '
                   'uint64_t dataCount, uint64_t offset, int32_t copy);')
     if window_abi not in cpp:
         problems.append(f"  IBindNativeShape：内存窗 C ABI 不是两段（指针+长度），缺 `{window_abi}`")
@@ -789,9 +792,9 @@ def check_native_shapes(product_dir: Path) -> list[str]:
     # 1.2：记录两段式投影（design D8）—— C ABI 两个伴生（Len / Copy），托管表面收记录副本，
     # 空命中 `null`，托管侧不出现裸指针。
     for line in (
-        'extern "C" uint64_t IBindNativeShape_FindPassLen(void* self, char const* passName, '
+        'extern "C" uint64_t ca_bind_fixture__IBindNativeShape__FindPassLen(void* self, char const* passName, '
         'uint64_t passNameLen);',
-        'extern "C" void IBindNativeShape_CopyFindPass(void* self, char const* passName, '
+        'extern "C" void ca_bind_fixture__IBindNativeShape__CopyFindPass(void* self, char const* passName, '
         'uint64_t passNameLen, uint8_t* dst, uint64_t cap);',
     ):
         if line not in cpp:
@@ -810,8 +813,8 @@ def check_native_shapes(product_dir: Path) -> list[str]:
     # 1.3：模板显式实例化（design D9）—— 两个声明形态各出具体槽 + 托管同名重载；
     # 未声明的形态（double）在任何表面里 MUST 0 命中。
     for line in (
-        'extern "C" uint32_t IBindNativeShape_TemplatedValue_uint32_t(void* self, uint32_t value);',
-        'extern "C" uint32_t IBindNativeShape_TemplatedValue_float(void* self, float value);',
+        'extern "C" uint32_t ca_bind_fixture__IBindNativeShape__TemplatedValue_uint32_t(void* self, uint32_t value);',
+        'extern "C" uint32_t ca_bind_fixture__IBindNativeShape__TemplatedValue_float(void* self, float value);',
     ):
         if line not in cpp:
             problems.append(f"  IBindNativeShape：模板实例化的 C ABI 里没有 `{line}`")
@@ -824,15 +827,15 @@ def check_native_shapes(product_dir: Path) -> list[str]:
     if "TemplatedValue_double" in cpp or "TemplatedValue(double" in cs:
         problems.append("  IBindNativeShape：未声明的模板形态 double 进了表面（D9 只允许声明过的形态）")
     # 1.5：图形状序列化（design D11）—— 三类元素进序列化块：值类容器 / 命名映射 / 接口对象引用。
-    graph_abi = ('extern "C" void IBindNativeShape_ConsumeGraphShape(void* self, '
+    graph_abi = ('extern "C" void ca_bind_fixture__IBindNativeShape__ConsumeGraphShape(void* self, '
                  'uint8_t const* shapeBytes, uint64_t shapeLen);')
     if graph_abi not in cpp:
         problems.append(f"  IBindNativeShape：图形状的 C ABI 里没有 `{graph_abi}`")
     if "public void ConsumeGraphShape(GraphLikeRecord shape)" not in cs:
         problems.append("  IBindNativeShape：图形状的托管表面里没有 `public void ConsumeGraphShape(GraphLikeRecord shape)`")
-    graph_path = product_dir / "GraphLikeRecord.Bindings.cs"
-    if not graph_path.is_file():
-        problems.append("  图形状序列化：缺 GraphLikeRecord.Bindings.cs")
+    graph_path = product_by_interface(product_dir, "GraphLikeRecord", ".Bindings.cs")
+    if graph_path is None:
+        problems.append("  图形状序列化：缺 GraphLikeRecord 的 <限定名线形>.Bindings.cs")
     else:
         graph_cs = graph_path.read_text(encoding="utf-8", errors="replace")
         for line in (
@@ -851,9 +854,9 @@ def check_native_shapes(product_dir: Path) -> list[str]:
         ):
             if line not in graph_cs:
                 problems.append(f"  图形状序列化：GraphLikeRecord.Bindings.cs 里没有 `{line}`")
-    graph_codec = product_dir / "GraphLikeRecord.BindingCodec.h"
-    if not graph_codec.is_file():
-        problems.append("  图形状序列化：缺 GraphLikeRecord.BindingCodec.h（C++ 反序列化入口）")
+    graph_codec = product_by_interface(product_dir, "GraphLikeRecord", ".BindingCodec.h")
+    if graph_codec is None:
+        problems.append("  图形状序列化：缺 GraphLikeRecord 的 <限定名线形>.BindingCodec.h（C++ 反序列化入口）")
     else:
         graph_cpp = graph_codec.read_text(encoding="utf-8", errors="replace")
         for line in ("BindingHandleResolver resolver", "reader.resolver.resolve", "return 12u;"):
@@ -862,8 +865,8 @@ def check_native_shapes(product_dir: Path) -> list[str]:
         if "BAD_OBJECT_HANDLE" not in cpp:
             problems.append("  图形状序列化：产物里没有 ERROR_BAD_OBJECT_HANDLE（查无句柄的错误码 1011）")
     # 1.6：返回位置标量容器两段式（D13）—— Count + Copy 两个伴生 + 托管数组表面。
-    count_abi = 'extern "C" uint64_t IBindNativeShape_GetPassIndicesCount(void* self);'
-    copy_abi = ('extern "C" void IBindNativeShape_CopyGetPassIndices(void* self, uint8_t* dst, '
+    count_abi = 'extern "C" uint64_t ca_bind_fixture__IBindNativeShape__GetPassIndicesCount(void* self);'
+    copy_abi = ('extern "C" void ca_bind_fixture__IBindNativeShape__CopyGetPassIndices(void* self, uint8_t* dst, '
                 'uint64_t cap);')
     for line in (count_abi, copy_abi):
         if line not in cpp:
@@ -887,7 +890,7 @@ def check_foundation_surface(product_dir: Path) -> list[str]:
     只有逐字签名才判得出来。记录 / 枚举的字段内容与真实 CLR 布局由
     `check_shared_value_types` 与托管启动检查负责。
     """
-    path = product_dir / "IBindFoundation.Bindings.cs"
+    path = product_dir / "ca_bind_fixture__IBindFoundation.Bindings.cs"
     if not path.is_file():
         return ["  IBindFoundation：缺 IBindFoundation.Bindings.cs"]
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -995,8 +998,49 @@ def thunk_is_stub(body: str, projected_void: bool) -> bool:
     return not re.search(r"\breturn\b|[^=!<>+\-*/%&|^]=[^=]", code)
 
 
+def split_linear(name: str) -> tuple[str, str]:
+    """`graphics_backend__GPUGraph` → (`graphics_backend`, `GPUGraph`)；无 `__` 时命名空间为空。"""
+    namespace, sep, short = name.rpartition("__")
+    return (namespace, short) if sep else ("", name)
+
+
+def python_linear(qualified: str) -> str:
+    """与生成器 qualifiedLinearName 同规则的 Python 版：`a::b::Widget` → `a__b__Widget`。"""
+    split = qualified.rfind("::")
+    if split == -1:
+        return qualified
+    return qualified[:split].replace("::", "__") + "__" + qualified[split + 2:]
+
+
+def csharp_constant_suffix(qualified: str) -> str:
+    """与生成器 interfaceConstantSuffix 同规则：PascalCase 命名空间段 + `__` + 短名去 I + InterfaceId。"""
+    parts = qualified.split("::")
+    short = parts[-1]
+    bare = short[1:] if len(short) > 1 and short[0] == "I" and short[1].isupper() else short
+    segments = []
+    for part in parts[:-1]:
+        segments.append("".join(word[:1].upper() + word[1:].lower()
+                                for word in part.split("_")))
+    namespace = "__".join(segments)
+    return (namespace + "__" if namespace else "") + bare + "InterfaceId"
+
+
 def interface_of(path: Path) -> str:
-    return path.name[: -len(".Bindings.cpp")]
+    """产物文件名是限定名线形（本批 D6），接口身份取末尾短名。"""
+    linear = path.name[: -len(".Bindings.cpp")]
+    return split_linear(linear)[1]
+
+
+def product_by_interface(product_dir: Path, interface: str, suffix: str) -> Path | None:
+    """按短名找逐接口产物（文件名是限定名线形）。唯一命中才返回。"""
+    matches = [path for path in sorted(product_dir.glob(f"*{suffix}"))
+               if split_linear(path.name[: -len(suffix)])[1] == interface]
+    return matches[0] if len(matches) == 1 else None
+
+
+def product_linear_name(product_dir: Path, interface: str, suffix: str) -> str:
+    path = product_by_interface(product_dir, interface, suffix)
+    return path.name[: -len(suffix)] if path is not None else interface
 
 
 def fixture_interface_names() -> set[str]:
@@ -1154,18 +1198,20 @@ def check_coverage(product_dir: Path, signatures: list[tuple[str, str]]) -> list
         if match:
             symbol = match.group(1)
             # 两段式伴生（`<M>Len` / `Copy<M>`）与配对释放没有 thunk：它们不在覆盖率集合里。
-            short = symbol[len(row) + 1:] if symbol.startswith(row + "_") else symbol
+            # 新槽名是 `<限定名线形>__<方法>`，方法名内部不含 `__`，所以从最后一个 `__` 切。
+            short = symbol.rsplit("__", 1)[-1]
             if is_companion(short):
                 continue
             expected_by_interface.setdefault(row, set()).add(symbol)
 
     for interface, expected_names in sorted(expected_by_interface.items()):
-        path = product_dir / f"{interface}.Bindings.cpp"
-        if not path.is_file():
+        path = product_by_interface(product_dir, interface, ".Bindings.cpp")
+        if path is None:
             problems.append(f"  {interface}：期望文件里列了 {len(expected_names)} 个方法，但产物文件不存在")
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        actual_names = {f"{interface}_{method}" for method in extract_thunks(text)}
+        linear = path.name[: -len(".Bindings.cpp")]
+        actual_names = {f"{linear}__{method}" for method in extract_thunks(text)}
         missing = sorted(expected_names - actual_names)
         extra = sorted(actual_names - expected_names)
         if missing:
@@ -1207,10 +1253,10 @@ def check_alignment(product_dir: Path) -> list[str]:
     cs_fields: dict[str, list[str]] = {}
     generated = read_generated(product_dir)
     symbols = set(generated)
-    # 两段式的基础方法名：`<I>_<M>Len` 存在 ⇒ `M` / `MLen` / `CopyM` 三个都算伴生，不进方法集合
+    # 两段式的基础方法名：`<线形>__<M>Len` 存在 ⇒ `M` / `MLen` / `CopyM` 三个都算伴生，不进方法集合
     two_step_bases: dict[str, set[str]] = {}
     for symbol in symbols:
-        match = re.fullmatch(r"(\w+?)_(\w+)Len", symbol)
+        match = re.fullmatch(r"(.+)__(.+)Len", symbol)
         if match:
             two_step_bases.setdefault(match.group(1), set()).add(match.group(2))
 
@@ -1224,22 +1270,29 @@ def check_alignment(product_dir: Path) -> list[str]:
             if name in (base, f"{base}Len", f"Copy{base}"):
                 return True
         # `<M>` 的配对释放入口（`AcquireThing` → `ReleaseAcquireThing`）
-        if name.startswith("Release") and f"{interface}_{name[7:]}" in symbols:
+        if name.startswith("Release") and f"{interface}__{name[7:]}" in symbols:
             return True
         return False
 
     for path in sorted(product_dir.glob("*.Bindings.cpp")):
         if is_registry_product(path):
             continue
+        linear = path.name[: -len(".Bindings.cpp")]
+        prefix = linear + "__"
         text = path.read_text(encoding="utf-8", errors="replace")
-        for interface, method in CPP_SYMBOL_RE.findall(text):
-            # 注入钩子（`CAInject_<类>_<方法>_<参数>`）不是接口槽：extern "C" 声明进产物只为
+        for declaration in DECL_RE.findall(text):
+            match = SYMBOL_RE.search(declaration)
+            if match is None:
+                continue
+            symbol = match.group(1)
+            # 注入钩子（`CAInject__<线形>__<方法>__<参数>`）不是接口槽：extern "C" 声明进产物只为
             # thunk 可见性，不参与"C++ 槽 ↔ C# 字段"的两侧对齐。
-            if interface == "CAInject":
+            if symbol.startswith("CAInject__") or not symbol.startswith(prefix):
                 continue
-            if is_generic(interface, method):
+            method = symbol[len(prefix):]
+            if is_generic(linear, method):
                 continue
-            cpp_pairs.setdefault(interface, []).append(method)
+            cpp_pairs.setdefault(linear, []).append(method)
     for path in sorted(product_dir.glob("*.Bindings.cs")):
         if is_registry_product(path):
             continue
@@ -1272,7 +1325,8 @@ def check_alignment(product_dir: Path) -> list[str]:
                                         for path in product_dir.glob("*.Bindings.cpp")
                                         if not is_registry_product(path)}
     for interface in sorted(interface_stems):
-        if interface in fixtures:
+        short = split_linear(interface)[1]
+        if short in fixtures:
             continue
         path = product_dir / f"{interface}.Bindings.cs"
         if not path.is_file():
@@ -1296,7 +1350,7 @@ def check_alignment(product_dir: Path) -> list[str]:
         skip = two_step_bases.get(interface, set())
         members = [name for name in members if name not in skip]
         expected = cpp_pairs.get(interface, [])
-        if interface in NATIVE_INTERFACES:
+        if short in NATIVE_INTERFACES:
             # 原生四类的函数表名带重载后缀（`SetImage_2`）与实例化形态（`SetValue_float3`）：
             # 都归一到表面里的同名成员再比**多重集**（重载/实例化的顺序不是契约，个数是）。
             base_names = sorted(set(members), key=len, reverse=True)
@@ -1443,10 +1497,11 @@ def check_surface(product_dir: Path) -> list[str]:
     """
     problems: list[str] = []
     for path in sorted(product_dir.glob("*.Bindings.cs")):
-        interface = path.name[: -len(".Bindings.cs")]
+        linear = path.name[: -len(".Bindings.cs")]
+        interface = split_linear(linear)[1]
         # 共享公开值类型（同一次生成里按类型另发的文件）不是接口：它们没有 `.Bindings.cpp`，
         # 也不该有 `IDisposable` 表面类。内容与唯一性由 check_shared_value_types 判。
-        if not (product_dir / f"{interface}.Bindings.cpp").is_file():
+        if not (product_dir / f"{linear}.Bindings.cpp").is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         blocks = type_blocks(text)
@@ -1478,7 +1533,7 @@ def check_surface(product_dir: Path) -> list[str]:
         # 「[托管表面] 跳过 …」并跳过它们（第二张矩阵的夹具由任务 5.7 另配）。
         if interface in fixture_interface_names():
             continue
-        product = path.with_name(f"{interface}.Bindings.cpp")
+        product = path.with_name(f"{linear}.Bindings.cpp")
         if not product.is_file():
             problems.append(f"  {interface}：找不到对应的 .Bindings.cpp，算不出期望的方法数")
             continue
@@ -1579,8 +1634,8 @@ def check_surface_matrix(product_dir: Path) -> list[str]:
     ]
     problems: list[str] = []
     for row, interface, description, signature in rows:
-        path = product_dir / f"{interface}.Bindings.cs"
-        if not path.is_file():
+        path = product_by_interface(product_dir, interface, ".Bindings.cs")
+        if path is None:
             problems.append(f"  第二张矩阵 {row} 行（{description}）：缺 {interface}.Bindings.cs")
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -1611,7 +1666,7 @@ def check_error_codes(product_dir: Path) -> list[str]:
     for path in sorted(product_dir.glob("*.Bindings.cpp")):
         if is_registry_product(path):
             continue
-        interface = path.name[: -len(".Bindings.cpp")]
+        interface = split_linear(path.name[: -len(".Bindings.cpp")])[1]
         text = path.read_text(encoding="utf-8", errors="replace")
         constants = {f"{prefix}_ERROR_{name}": int(code)
                      for prefix, name, code in ERROR_CONST_RE.findall(text)}
@@ -1625,9 +1680,9 @@ def check_error_codes(product_dir: Path) -> list[str]:
         for argument in SET_ERROR_RE.findall(text):
             if argument.isdigit():
                 problems.append(f"  {interface}：`setError` 用了裸字面量 {argument}（必须用具名常量）")
-            # 全小写的标识符是函数里的局部量（例如把回调错误槽里取出的码转进统一通道），
-            # 不是"常量"；生成出来的错误常量一律含大写字母。
-            elif argument.isupper() and argument not in constants:
+            # 生成出来的错误常量是 `<线形>_ERROR_<码名>`：名字里带 `_ERROR_` 却不在本产物常量表里的，
+            # 就是用了没定义的常量。函数里的局部量不含 `_ERROR_`，不会被误报。
+            elif "_ERROR_" in argument and argument not in constants:
                 problems.append(f"  {interface}：`setError` 用了没定义的常量 {argument}")
     return problems
 
@@ -1647,9 +1702,9 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
       ① 编号对账：生成物里的「编号 → 接口完整限定名」必须与期望表逐项相同（缺 / 多 / 改号 /
          换限定名都报，并点名差异）；
       ② `EngineApi` 形状：C++ struct 恰好 9 个字段、顺序与 `ENGINE_API_FIELD_PAIRS` 相同、
-         `static_assert(sizeof(EngineApi) == 56u`、`kEngineApiVersion = 10`、`kEngineApiSize = 56`；
+         `static_assert(sizeof(EngineApi) == 56u`、`kEngineApiVersion = 12`、`kEngineApiSize = 56`；
       ③ 同一次生成的托管对照：`EngineApiMirror` 恰好 9 个字段、顺序与 C++ 侧逐字段对上，
-         `AbiVersion = 10`、`Size = 56`、逐接口编号常量与 ① 一致；
+         `AbiVersion = 12`、`Size = 56`、逐接口编号常量与 ① 一致；
       ④ （主登记表）装配代码里 7 个编号字段必须引用生成常量，不许回落到 0。
     """
     problems: list[str] = []
@@ -1698,8 +1753,8 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
         problems.append("  登记表：一个编号都没读到")
 
     # ② C++ EngineApi 形状
-    if re.search(r"inline constexpr uint32_t kEngineApiVersion = 10u;", header) is None:
-        problems.append("  登记表：kEngineApiVersion 不是 10u")
+    if re.search(r"inline constexpr uint32_t kEngineApiVersion = 12u;", header) is None:
+        problems.append("  登记表：kEngineApiVersion 不是 11u")
     if re.search(r"inline constexpr uint32_t kEngineApiSize = 56u;", header) is None:
         problems.append("  登记表：kEngineApiSize 不是 56u")
     if "static_assert(sizeof(EngineApi) == 56u" not in header:
@@ -1722,8 +1777,8 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
                 problems.append(f"  登记表：EngineApi 缺少逐字声明 `{declaration}`")
 
     # ③ 托管对照
-    if "public const uint AbiVersion = 10;" not in cs:
-        problems.append("  登记表：C# 侧 AbiVersion 不是 10")
+    if "public const uint AbiVersion = 12;" not in cs:
+        problems.append("  登记表：C# 侧 AbiVersion 不是 11")
     if "public const uint Size = 56;" not in cs:
         problems.append("  登记表：C# 侧 Size 不是 56")
     mirror_match = ENGINE_API_MIRROR_RE.search(cs)
@@ -1740,9 +1795,7 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
     if "public const uint TableVersion = 2;" not in cs:
         problems.append("  登记表：C# 侧 TableVersion 不是 2（生成接口表版本必须保持 2）")
     for number, qualified in sorted(expected_numbers.items()):
-        short = qualified.rsplit("::", 1)[-1]
-        suffix = short[1:] + "InterfaceId" if len(short) > 1 and short[0] == "I" and short[1].isupper() \
-            else short + "InterfaceId"
+        suffix = csharp_constant_suffix(qualified)
         if f"public const uint {suffix} = {number};" not in cs:
             problems.append(f"  登记表：C# 侧缺编号常量 {suffix} = {number}（{qualified}）")
     table_entries = re.findall(r"new InterfaceTable\(", cs)
@@ -1754,8 +1807,8 @@ def check_registry(product_dir: Path, expected_numbers: dict[int, str],
     # 现在只剩两个窗口字段需要配对生成常量。
     if require_engine_api_ids:
         assembly = [
-            "api.window_interface_id = kBindingInterfaceIdIWindow;",
-            "api.window_system_interface_id = kBindingInterfaceIdIWindowSystem;",
+            "api.window_interface_id = kBindingInterfaceIdcawindow__IWindow;",
+            "api.window_system_interface_id = kBindingInterfaceIdcawindow__IWindowSystem;",
         ]
         for line in assembly:
             if line not in cpp:

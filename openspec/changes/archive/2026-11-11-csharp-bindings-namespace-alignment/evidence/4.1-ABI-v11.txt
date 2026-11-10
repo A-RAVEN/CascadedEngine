@@ -1,0 +1,42 @@
+csharp-bindings-namespace-alignment · 4.1 ABI v10 → v11
+执行时间：2026-11-09 深夜
+构建日志：%TEMP%\ns-build-11.log（EXIT=0，BUILD SUCCESSFUL）
+
+一、生成器单点 +1 与布局
+  改前：header `inline constexpr uint32_t kEngineApiVersion = 10u;` / C# `public const uint AbiVersion = 10;`
+  改后：header `inline constexpr uint32_t kEngineApiVersion = 11u;` / C# `public const uint AbiVersion = 11;`
+  布局不变：EngineApi 仍 9 字段 / 56 字节（csharp-native-direct-binding 6.2 的布局），
+  `kEngineApiSize = 56u`、`static_assert(sizeof(EngineApi) == 56u` 原样；版本号单点由生成器发。
+  实测（out\build\x64-debug\codegen\bindings\BindingRegistry.Bindings.h / EngineApi.Bindings.cs）：
+    inline constexpr uint32_t kEngineApiVersion = 11u;
+    inline constexpr uint32_t kEngineApiSize = 56u;
+    static_assert(kEngineApiSize == 56u, "kEngineApiSize 必须与 sizeof(EngineApi) 一致");
+    public const uint AbiVersion = 11;
+    public const uint Size = 56;
+
+二、同步清单四处（全部落地）
+  1) CSharpHost/README.md：
+     · 当前版本句 `当前是 **v11**、56 字节`；新增 v11 说明段（身份链改限定名、布局不变、版本 10→11）；
+     · 失败场景例 `故意把 abi_version 改成 12（真实值 11）` / `引擎 12，托管侧期望 11` /
+       `ABI 版本 11` 全部改到 11/12；
+     · 接口编号表本来就是完整限定名（7 行）。
+  2) Tools/check_csharp_host_failures.py：第 4 条期望 `托管侧期望 11`（自检把引擎侧改成 12），
+     注释同步 v11。
+  3) Tools/check_csharp_host_readme.py：C# 编号常量的期望名改成
+     `PascalCase 命名空间段 + __ + 短名去 I + InterfaceId`（与生成器同规则），版本对拍自然变成 v11。
+  4) Tools/CodeGen/check_bindings.py：`kEngineApiVersion = 11u`、`AbiVersion = 11` 两处期望与注释同步。
+  （Tools/CodeGen/README.md 与 docs/testing.md 的读数在 5.2 统一换面。）
+
+三、五条失败场景一条不少（check_csharp_host_failures.py，日志 %TEMP%\ns-host-failures.log，EXIT=0）
+  [通过] 缺托管程序集：退出码 3（期望 3）；含 dll 名与路径清单：True/True
+  [通过] 配置路径不存在：退出码 3（期望 3）；含该路径与 hostfxr.dll：True/True
+  [通过] 运行时版本无匹配：退出码 3（期望 3）；含 7.0.0 与版本清单：True/True
+  [通过] ABI 版本不符：退出码 3（期望 3）；含 ABI 版本不符 与 托管侧期望 11：True
+  [通过] 托管抛异常：退出码 1（期望 1 = 受控失败）；含异常文本与错误码 4：True/True；新 dump 0 个
+  合计：5 个场景 5 通过、0 失败。
+
+四、其它对拍
+  python Tools\check_csharp_host_readme.py
+  实测：ABI 版本 README v11 / 生成 11；函数表 56 字节 / 生成 56；接口编号表 7 行 / 生成 7 项；
+        问题 0 处。
+  构建内 check_bindings.py：登记表问题 0 处（%TEMP%\ns-build-11.log）。

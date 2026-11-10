@@ -25,25 +25,38 @@ for _stream in (sys.stdout, sys.stderr):
 # virtual 与非虚公开成员函数），不再只数纯虚方法；模板方法只在有 `CA_BIND_INSTANTIATE` 声明时计一次
 # （生成器按声明展开具体槽，审计按方法名一行）。窗口两个接口维持原样；过渡期桥五个接口随 5.1 退役移出审计面。
 INTERFACES = {
+    # 本批 2.2（csharp-bindings-namespace-alignment）：对账键 = 完整限定名；值是 (头文件, 短名)。
     # 本批进表的四类原生接口（design D1）
-    "CRenderBackend": "Interface/RenderInterface/header/CRenderBackend.h",
-    "IReadbackToken": "Interface/RenderInterface/header/CRenderBackend.h",
-    "GPUGraph": "Interface/RenderInterface/header/GPUGraph.h",
-    "ShaderStruct": "Interface/RenderInterface/header/ShaderStruct.h",
-    "GPUTexture": "Interface/RenderInterface/header/GPUTexture.h",
+    "graphics_backend::CRenderBackend": ("Interface/RenderInterface/header/CRenderBackend.h", "CRenderBackend"),
+    "graphics_backend::IReadbackToken": ("Interface/RenderInterface/header/CRenderBackend.h", "IReadbackToken"),
+    "graphics_backend::GPUGraph": ("Interface/RenderInterface/header/GPUGraph.h", "GPUGraph"),
+    "graphics_backend::ShaderStruct": ("Interface/RenderInterface/header/ShaderStruct.h", "ShaderStruct"),
+    "graphics_backend::GPUTexture": ("Interface/RenderInterface/header/GPUTexture.h", "GPUTexture"),
     # 本批 2.4（design D12）：窗口句柄进表，第五个原生接口
-    "WindowHandle": "Interface/RenderInterface/header/WindowHandle.h",
+    "graphics_backend::WindowHandle": ("Interface/RenderInterface/header/WindowHandle.h", "WindowHandle"),
+    # 7.1（用户 2026-11-10 裁定）：缓冲对象直绑，第六个原生接口
+    "graphics_backend::GPUBuffer": ("Interface/RenderInterface/header/GPUBuffer.h", "GPUBuffer"),
     # 窗口（既有）
-    "IWindow": "WindowSystem/header/CAWindow/WindowSystem.h",
-    "IWindowSystem": "WindowSystem/header/CAWindow/WindowSystem.h",
+    "cawindow::IWindow": ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow"),
+    "cawindow::IWindowSystem": ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindowSystem"),
     # 5.1：桥五类退役，审计面不再包含它们（原生五类 + 窗口 + IReadbackToken = 8 个接口）。
 }
 
+
+def header_of(interface: str) -> str:
+    return INTERFACES[interface][0]
+
+
+def short_of(interface: str) -> str:
+    return INTERFACES[interface][1]
+
+
 HEADER_ROW = "| 接口::方法 |"
-ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*)::([A-Za-z_]\w*)`\s*\|(.*)$")
+# 接口段允许 `::`（本批 2.2：行键 = 完整限定名）。
+ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)::([A-Za-z_]\w*)`\s*\|(.*)$")
 # 范围汇总表（文件开头那张）：`| 接口 | 方法条数 | 所在头文件 |` —— 汇总数字必须与头文件实算一致。
 SUMMARY_HEADER = "| 接口 | 方法条数 | 所在头文件 |"
-SUMMARY_ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*)`\s*\|\s*(\d+)\s*\|")
+SUMMARY_ROW_RE = re.compile(r"^\|\s*`([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)`\s*\|\s*(\d+)\s*\|")
 SUMMARY_TOTAL_RE = re.compile(r"^\|\s*\*\*合计\*\*\s*\|\s*\*\*(\d+)\*\*\s*\|")
 COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 CLASS_RE = re.compile(r"\b(?:class|struct)\s+([A-Za-z_]\w*)")
@@ -93,11 +106,11 @@ def header_methods(repo: Path, interface: str):
     花括号 → 把带实现体的成员换成空声明 → 按访问标号切段 → 只留 public 段里以 `(` 开头的声明。
     `static_assert(true, "CA_BIND(...)")` 这类宏展开行与访问标号不是方法，逐条跳过。
     """
-    path = repo / INTERFACES[interface]
+    path = repo / header_of(interface)
     if not path.is_file():
         raise FileNotFoundError(str(path))
     text = strip_comments(path.read_text(encoding="utf-8", errors="replace"))
-    body = class_body(text, interface)
+    body = class_body(text, short_of(interface))
     if body is None:
         raise LookupError(interface)
     # 显式实例化声明可能写在类体后面：整文件扫一遍（宏是文本标记）。
@@ -137,7 +150,7 @@ def header_methods(repo: Path, interface: str):
         if not match:
             continue
         name = match.group(1)
-        if name.startswith("~") or name == interface or name in ("if", "for", "while", "switch"):
+        if name.startswith("~") or name == short_of(interface) or name in ("if", "for", "while", "switch"):
             continue
         names.append(name)
     return names
@@ -153,10 +166,10 @@ def header_skips(repo: Path, interface: str) -> dict[str, str]:
     # 继续走到僵尸行与汇总表那两条判据，按名字点名。
     if interface not in INTERFACES:
         return {}
-    path = repo / INTERFACES[interface]
+    path = repo / header_of(interface)
     if not path.is_file():
         return {}
-    body = class_body(strip_comments(path.read_text(encoding="utf-8", errors="replace")), interface)
+    body = class_body(strip_comments(path.read_text(encoding="utf-8", errors="replace")), short_of(interface))
     return {match.group(1): match.group(2) for match in SKIP_RE.finditer(body)}
 
 

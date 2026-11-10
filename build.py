@@ -1035,34 +1035,53 @@ def build_managed() -> None:
 CODEGEN_BINDINGS = [
     # (头文件, 日志标签, 必须出现的产物前缀)。夹具那份也要生成 —— CoreTests 的三个绑定用例直接
     # `#include` 它们，构建时不生成就会 C1083（实测过一次：只生成 IWindow，夹具产物被我删掉后构建红）。
-    ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow", ["IWindow", "IWindowSystem"]),
-    ("Tools/CodeGen/BindableShapes.h", "夹具 BindableShapes", ["IBindRow01", "IBindRow02", "IBindRow09"]),
+    # 产物前缀 = 限定名线形（本批 D6：`<ns>__<短名>`），与磁盘文件名一致。
+    ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow",
+     ["cawindow__IWindow", "cawindow__IWindowSystem"]),
+    ("Tools/CodeGen/BindableShapes.h", "夹具 BindableShapes",
+     ["ca_bind_fixture__IBindRow01", "ca_bind_fixture__IBindRow02", "ca_bind_fixture__IBindRow09"]),
     # render-interface-merge 任务 1.1：登记表夹具（编号 8/9，夹具专用号段）。它同时是
     # `CODEGEN_REGISTRIES` 的登记输入 —— 见下面的常量。
     ("Tools/CodeGen/BindableShapes.RenderRegistry.h", "夹具 RenderRegistry",
-     ["IBindRegistry8", "IBindRegistry9"]),
+     ["ca_bind_fixture__IBindRegistry8", "ca_bind_fixture__IBindRegistry9"]),
     # csharp-render-binding-foundations 任务 1.1：渲染基础形状夹具（记录 / 枚举 / 标志位 /
     # 包装值 / 字节 / 混合参数）。共享值类型 `RenderDesc` 等由同一次生成按类型另发
-    # `<类型>.Bindings.cs`，它们没有接口产物，所以不列在这里（期望前缀只查接口产物）。
-    ("Tools/CodeGen/BindableShapes.RenderFoundation.h", "夹具 RenderFoundation", ["IBindFoundation"]),
+    # `<线形>.Bindings.cs`，它们没有接口产物，所以不列在这里（期望前缀只查接口产物）。
+    ("Tools/CodeGen/BindableShapes.RenderFoundation.h", "夹具 RenderFoundation",
+     ["ca_bind_fixture__IBindFoundation"]),
     # csharp-render-binding-foundations 任务 1.2：资源接口与发行接口分两个头生成。
     # 发行头 include 资源头，所以资源接口在发行运行里只是"被包含头里的 CA_BIND"——
     # 完整限定名清单（任务 3.1）必须把两边聚合起来，不能只看主头。
     ("Tools/CodeGen/BindableShapes.RenderResource.h", "夹具 RenderResource",
-     ["IBindRenderResource", "IBindRenderResourceAlt"]),
-    ("Tools/CodeGen/BindableShapes.RenderOwner.h", "夹具 RenderOwner", ["IBindRenderOwner"]),
+     ["ca_bind_fixture__IBindRenderResource", "ca_bind_fixture__IBindRenderResourceAlt"]),
+    ("Tools/CodeGen/BindableShapes.RenderOwner.h", "夹具 RenderOwner",
+     ["ca_bind_fixture__IBindRenderOwner"]),
     # codegen-native-binding-prereqs 任务 2.1：原生形态夹具（非纯虚 / 非虚 / 自返回链式 / 静态工厂 /
     # 默认构造 / 重载 / 模板拒绝）。它同时是 2.2–2.4 与 3.x 的红绿载体。
     ("Tools/CodeGen/BindableShapes.NativeShapes.h", "夹具 NativeShapes",
-     ["IBindNativeShape", "BindNativeObject"]),
+     ["ca_bind_fixture__IBindNativeShape", "ca_bind_fixture__BindNativeObject"]),
     # csharp-native-direct-binding 任务 2.2：原生四类直接进绑定面（design D1）。四个头各自一次
     # `--emit-binding`；`ImageHandle`/`BufferHandle` 的 `CA_BIND_VALUE` 在它们的定义头里，靠包含闭包扫描认。
-    ("Interface/RenderInterface/header/CRenderBackend.h", "原生 CRenderBackend", ["CRenderBackend"]),
-    ("Interface/RenderInterface/header/GPUGraph.h", "原生 GPUGraph", ["GPUGraph"]),
-    ("Interface/RenderInterface/header/ShaderStruct.h", "原生 ShaderStruct", ["ShaderStruct"]),
-    ("Interface/RenderInterface/header/GPUTexture.h", "原生 GPUTexture", ["GPUTexture"]),
+    ("Interface/RenderInterface/header/CRenderBackend.h", "原生 CRenderBackend",
+     ["graphics_backend__CRenderBackend"]),
+    ("Interface/RenderInterface/header/GPUGraph.h", "原生 GPUGraph",
+     ["graphics_backend__GPUGraph"]),
+    ("Interface/RenderInterface/header/ShaderStruct.h", "原生 ShaderStruct",
+     ["graphics_backend__ShaderStruct"]),
+    ("Interface/RenderInterface/header/GPUTexture.h", "原生 GPUTexture",
+     ["graphics_backend__GPUTexture"]),
     # csharp-native-direct-binding 2.4（design D12）：窗口句柄进表（第五个原生接口）。
-    ("Interface/RenderInterface/header/WindowHandle.h", "原生 WindowHandle", ["WindowHandle"]),
+    ("Interface/RenderInterface/header/WindowHandle.h", "原生 WindowHandle",
+     ["graphics_backend__WindowHandle"]),
+    # csharp-bindings-namespace-alignment 7.1（用户 2026-11-10 裁定）：缓冲对象直绑（第六原生接口）。
+    ("Interface/RenderInterface/header/GPUBuffer.h", "原生 GPUBuffer",
+     ["graphics_backend__GPUBuffer"]),
+    # csharp-bindings-namespace-alignment 1.1/1.3（design D1/D6）：跨命名空间同短名共存夹具。
+    # A/B 两个头分开放同短名接口，旧判据在清单聚合处非零拒绝；改造后必须各自成面。
+    ("Tools/CodeGen/BindableShapes.NamespaceCoexistA.h", "夹具 NamespaceCoexistA",
+     ["ns1__Device", "a_b__Widget"]),
+    ("Tools/CodeGen/BindableShapes.NamespaceCoexistB.h", "夹具 NamespaceCoexistB",
+     ["ns2__Device", "a__b__Widget"]),
 ]
 
 
@@ -1087,10 +1106,15 @@ CODEGEN_REGISTRIES = [
         ("Interface/RenderInterface/header/ShaderStruct.h", "native-shader-struct"),
         ("Interface/RenderInterface/header/GPUTexture.h", "native-texture"),
         ("Interface/RenderInterface/header/WindowHandle.h", "native-window-handle"),
+        # 7.1：第六原生接口（后端直建缓冲）。
+        ("Interface/RenderInterface/header/GPUBuffer.h", "native-gpu-buffer"),
     ]),
     # 夹具登记表（只做编号 / 拒绝 / 确定性与编号对账）：夹具专用号段 8/9。
     ("fixture", "fixture", [
         ("Tools/CodeGen/BindableShapes.RenderRegistry.h", "fixture"),
+        # csharp-bindings-namespace-alignment 1.3：两个同短名接口各自发号、登记表两行各自在案。
+        ("Tools/CodeGen/BindableShapes.NamespaceCoexistA.h", "fixture-namespace-a"),
+        ("Tools/CodeGen/BindableShapes.NamespaceCoexistB.h", "fixture-namespace-b"),
     ]),
 ]
 
@@ -1212,8 +1236,11 @@ def build_bindings() -> list[str]:
     includes_by_header = {header: _binding_includes(entries, header)
                           for header, _name, _expected in CODEGEN_BINDINGS}
 
-    known: dict[str, str] = {}
-    # 每个头自己声明的接口名：`--known-interface` 传给别人，但**不能**传给它自己 ——
+    # 已知接口清单按**完整限定名**去重（本批 1.1）：同一个短名可以出现在多个命名空间，
+    # 不再以短名为主键、也不再按短名冲突拒绝；映射后 C# 全名冲突由生成器非零点名。
+    known: list[tuple[str, str]] = []
+    known_qualified: set[str] = set()
+    # 每个头自己声明的接口（按**完整限定名**）：`--known-interface` 传给别人，但**不能**传给它自己 ——
     # 登记表分片那一轮里，生成器会把"主头里的 CA_BIND"和"known-interface 清单"两边都登记，
     # 自己传自己就是同一个编号登记两次（实测报 `编号 12 重复：WindowHandle … 与 WindowHandle …`）。
     own_interfaces: dict[str, set[str]] = {}
@@ -1232,16 +1259,14 @@ def build_bindings() -> list[str]:
                 continue
             short_name, qualified = text.split("=", 1)
             listed += 1
-            own_interfaces.setdefault(header, set()).add(short_name)
-            previous = known.get(short_name)
-            if previous is not None and previous != qualified:
-                failures.append(
-                    f"绑定清单冲突：短名 {short_name} 同时对应 {previous} 与 {qualified}"
-                    f"（来自 {header}）")
+            own_interfaces.setdefault(header, set()).add(qualified)
+            if qualified in known_qualified:
                 continue
-            known[short_name] = qualified
+            known_qualified.add(qualified)
+            known.append((short_name, qualified))
         print(f"  [绑定清单] {name} ← {header}：{listed} 个接口", flush=True)
-    known_args = [f"--known-interface={short}={qualified}" for short, qualified in sorted(known.items())]
+    known_args = [f"--known-interface={short}={qualified}"
+                  for short, qualified in sorted(known)]
     # （`known_args` 供登记表汇总那一步用；逐头的 `--emit-binding` 传的是**去掉自己**的清单，
     #  见下面的 per-header 过滤 —— 自己传自己会让同一个编号登记两次。）
 
@@ -1261,8 +1286,8 @@ def build_bindings() -> list[str]:
         includes = includes_by_header[header]
         cmd = [str(tool), header, "--emit-binding", "--out-dir", str(out_dir),
                "--audit-script", str(script)] + [
-                   f"--known-interface={short}={known[short]}"
-                   for short in sorted(known) if short not in own_interfaces.get(header, set())]
+                   f"--known-interface={short}={qualified}"
+                   for short, qualified in known if qualified not in own_interfaces.get(header, set())]
         for part_dir, scope, tag in registry_membership.get(header, []):
             cmd += ["--registry-part", tag, "--registry-part-dir", str(part_dir),
                     "--id-lock", str(INTERFACE_ID_LOCK), "--id-scope", scope]
@@ -1274,8 +1299,8 @@ def build_bindings() -> list[str]:
             detail = (proc.stderr or proc.stdout or "").strip()
             failures.append(f"绑定 {name} 失败（exit {proc.returncode}）：{detail[:800]}")
             continue
-        # 共享公开值类型（任务 2.3）：生成器逐行报告 `[共享类型] <短名>=<完整限定名>`；
-        # 同名文件内容必须逐字节相同，同短名不同限定名必须失败。
+        # 共享公开值类型（任务 2.3 / 本批 D6）：生成器逐行报告 `[共享类型] <限定名线形>=<完整限定名>`；
+        # 同一份限定名只发一份、内容必须逐字节相同；同一个线形文件名不许对应两个限定名。
         for line in (proc.stderr or "").splitlines():
             marker = "[共享类型] "
             if marker not in line:
@@ -1283,24 +1308,24 @@ def build_bindings() -> list[str]:
             entry = line.split(marker, 1)[1].strip()
             if "=" not in entry:
                 continue
-            short_name, qualified = entry.split("=", 1)
-            path = out_dir / f"{short_name}.Bindings.cs"
+            linear_name, qualified = entry.split("=", 1)
+            path = out_dir / f"{linear_name}.Bindings.cs"
             if not path.is_file():
-                failures.append(f"共享值类型 {short_name}={qualified} 声明了，但没有产出 "
+                failures.append(f"共享值类型 {linear_name}={qualified} 声明了，但没有产出 "
                                 f"{path.name}")
                 continue
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            previous = shared_types.get(short_name)
-            if previous is not None and previous[0] != qualified:
+            previous = shared_types.get(qualified)
+            if previous is not None and previous[0] != linear_name:
                 failures.append(
-                    f"共享值类型冲突：短名 {short_name} 同时对应 {previous[0]} 与 {qualified}")
+                    f"共享值类型冲突：限定名 {qualified} 同时产出 {previous[0]} 与 {linear_name}")
                 continue
             if previous is not None and previous[1] != digest:
                 failures.append(
-                    f"共享值类型内容不一致：{short_name}={qualified} 两次生成的内容哈希不同"
+                    f"共享值类型内容不一致：{qualified}（{linear_name}）两次生成的内容哈希不同"
                     f"（{previous[1][:12]} / {digest[:12]}）")
                 continue
-            shared_types[short_name] = (qualified, digest)
+            shared_types[qualified] = (linear_name, digest)
         # 逐条核：期望清单里**每一个**接口都必须有产物。
         # 旧写法先过滤掉不存在的、再判断"过滤后是否为空"，只要有一个存在就放行 ——
         # `IWindowSystem` 没产出时构建照样绿（实测过一次）。

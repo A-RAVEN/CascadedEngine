@@ -2319,6 +2319,23 @@ void TestCSharpStructuredBuffer(TestContext& ctx)
 		fail("E_SB_READINGS", "托管读数行 `[托管 读数] probe=structuredbuffer` 没有出现在日志里");
 	}
 
+	// 7.1 验收：后端直建缓冲（`CreateBuffer`）跨两张图复用 —— 第一张图上传、图 Dispose 后第二张图
+	// 仍绑定**同一个**后端对象并提交成功。回退到图内 `AllocBuffer` 时第二次绑定的是另一个对象
+	// （且第一张图销毁后不可达），这三条读数做不出来。
+	if (mode.empty())
+	{
+		if (!readings.Has("bufferReuse") || readings.U64("bufferReuse") != 1 ||
+			readings.U64("bufferSubmits") != 2 || readings.U64("bufferAfterDispose") != 1)
+		{
+			fail("E_SB_CREATEBUFFER",
+			     castl::string("后端直建缓冲跨图复用读数不符：reuse=") + readings.Get("bufferReuse") +
+			         " submits=" + readings.Get("bufferSubmits") +
+			         " afterDispose=" + readings.Get("bufferAfterDispose") +
+			         " createCount=" + readings.Get("bufferCreateCount") +
+			         " err=" + readings.Get("bufferError"));
+		}
+	}
+
 	ProbeNativeObjects objects = ResolveProbeObjects(readings);
 	if (objects.graph == nullptr)
 	{

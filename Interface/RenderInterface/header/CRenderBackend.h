@@ -142,14 +142,13 @@ namespace graphics_backend
 	CA_BIND_SKIP(RunTestCode, "④ 语义越界：测试专用入口，脚本不该调")
 	CA_BIND_SKIP(Release, "④ 语义越界：销毁整个后端，脚本不该调（沿用 csharp-bindable-surface 审计表既定结论）")
 	CA_BIND_SKIP(Readback, "本轮未实现：std::span 是 design Non-Goals 点名的 GPU 查询批形状（另立批）")
-	// 一条形状超界（实测：托管侧不映射 `shared_ptr<GPUBuffer>`）：
-	// 本批四个渲染用例的建缓冲走"名称 + BufferHandle + 图内分配"（GPUGraph::AllocBuffer），
-	// 不需要直接拿 GPUBuffer 对象。
-	CA_BIND_SKIP(CreateGPUBuffer, "本轮未实现：返回位置的 castl::shared_ptr<GPUBuffer> 未进本批绑定面（建缓冲走 BufferHandle + 图内分配）")
+	// 7.1（用户 2026-11-10 裁定）：`CreateGPUBuffer` 不再排除。`GPUBuffer` 已挂 CA_BIND（第六原生接口），
+	// 返回的 `shared_ptr<GPUBuffer>` 走"已绑定接口按对象登记"——托管侧拿表面对象、`Dispose` 只放托管引用，
+	// 原生对象由 `shared_ptr` 计数保活；缓冲生命周期跟随后端，跨图复用不需要重分配。
 	// `GetWindowHandle` 从 2.4 起进表（design D12）：`shared_ptr<IWindow>` 是已绑定接口按句柄、
 	// `shared_ptr<WindowHandle>` 是已绑定接口按对象登记 —— 全是既有机制，不再排除。
 	// 注入钩子声明：生成器在头文本里核对它存在，定义在宿主侧。
-	extern "C" void* CAInject_CRenderBackend_ExecuteGraph_scheduler();
+	extern "C" void* CAInject__graphics_backend__CRenderBackend__ExecuteGraph__scheduler();
 }
 
 

@@ -1,0 +1,50 @@
+csharp-bindings-namespace-alignment · 5.2 文档换面
+执行时间：2026-11-09 深夜
+内容判据（任务 5.2 已写死）：镜像映射规则与 `__` 线形槽名在 Tools/CodeGen/README.md 正文**逐字可 grep**；
+CSharpHost/README.md 编号表用完整限定名；verify_readme.py、check_csharp_host_readme.py exit 0。
+
+一、Tools/CodeGen/README.md
+  改前（关键处）：
+    · 第十四节把产物写成 `<接口>.Bindings.cpp` / `<接口>.Bindings.cs`；
+    · 参数注入钩子写成 `CAInject_<类短名>_<方法名>_<参数名>`；
+    · 跨头文件清单段写"同短名不同完整限定名 = 清单冲突"；
+    · 共享值类型写成 `<类型短名>.Bindings.cs`；
+    · 登记表路由写 `<接口>_GetApi`；错误码表写 `<接口>_ERROR_*`；
+    · 快照段写 `[采集] 类短名::方法名`。
+  改后：
+    · 新增"命名空间镜像与线形命名（D1/D2/D6）"整段：`::` 分层 / `_` 层内分词 / 单词首字母大写，
+      根 `Scripting.Generated.Bindings`；例 `graphics_backend::GPUGraph` →
+      `Scripting.Generated.Bindings.GraphicsBackend.GPUGraph`、`a_b::Widget` → `...AB.Widget`、
+      `a::b::Widget` → `...A.B.Widget`；槽名 `graphics_backend__GPUGraph__AddPass`、
+      函数表 `graphics_backend__GPUGraphApi_v2`、产物 `graphics_backend__GPUGraph.Bindings.cs`、
+      辅助名 `graphics_backend__GPUGraph_thunk_AddPass`；映射后同 C# 全名（`AB::Widget` vs `Ab::Widget`）
+      非零点名双方，同短名跨命名空间合法共存。
+    · 产物占位统一 `<限定名线形>.Bindings.*`；钩子 `CAInject__<限定名线形>__<方法>__<参数>`；
+    · 清单段改"按完整限定名去重；同短名跨命名空间合法；映射后同全名才拒"；
+    · 共享值类型 `<限定名线形>.Bindings.cs` + 文件名必须等于线形；
+    · 登记表 `<线形>__GetApi`、错误码 `<线形>_ERROR_*`；
+    · 快照格式改 `[类] <完整限定名>` / `[采集] <完整限定名>::<方法名>`，对账按完整限定名多重集。
+  内容判据实测：
+    Select-String Tools\CodeGen\README.md -Pattern 'Scripting\.Generated\.Bindings\.GraphicsBackend\.GPUGraph'  ⇒ 1 行
+    Select-String Tools\CodeGen\README.md -Pattern 'graphics_backend__GPUGraph__AddPass'                  ⇒ 1 行
+    Select-String Tools\CodeGen\README.md -Pattern 'Scripting\.Generated\.Bindings\.I|<接口>_|类短名::方法' ⇒ 0 行
+
+二、CSharpHost/README.md
+  · 当前 ABI 句 `**v10**` → `**v11**`；新增 v11 段（身份链改限定名、布局仍 9 字段 / 56 字节、版本 10→11）；
+  · 示例输出 `ABI 版本 10` / `ABI v10` → 11；
+  · 失败场景 `改成 11（真实值 10）` / `引擎 11，托管侧期望 10` → 12 / 11（与自检开关 +1 一致）；
+  · 接口编号表 7 行本来就是完整限定名（实测 7 行匹配 `^\| \d \| \`[a-z_]+::`）。
+  check_csharp_host_readme.py：EXIT=0，问题 0 处（ABI v11 / 56 字节 / 7 行编号表 / 7 个 C# 常量）。
+
+三、docs/testing.md
+  · `check_binding_baseline.py` 的当前基线路径改指
+    `openspec/changes/csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`；
+  · 第 55 行的 `kEngineApiVersion = 10` → `11`；"6.2 的 ABI v10" 改为
+    "ABI v11：身份链改完整限定名，布局仍 9 字段 / 56 字节"；
+  · 错误码段 `<接口>_ERROR_*` → `<线形>_ERROR_*`。
+
+四、命令判据
+  python Tools\CodeGen\verify_readme.py
+  实测：EXIT=0，22 条文档命令、0 mismatch（日志 %TEMP%\ns-verify-readme-2.log）。
+  python Tools\check_csharp_host_readme.py
+  实测：EXIT=0，问题 0 处。

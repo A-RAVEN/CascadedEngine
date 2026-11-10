@@ -1,7 +1,11 @@
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Scripting.Generated.Bindings;
+using Scripting.Generated.Bindings.Cawindow;
+using Scripting.Generated.Bindings.GraphicsBackend;
+using Scripting.Generated.Bindings.CaBindFixture;
+using Scripting.Generated.Bindings.Shadercompilerslang;
 
 namespace Scripting.Managed
 {
@@ -125,27 +129,27 @@ namespace Scripting.Managed
             }
             // csharp-native-direct-binding 4.1：渲染侧换到**原生五类直绑表**（编号以生成常量为准），
             // 每张表的过界记录都按引擎侧运行期清单逐项核对。
-            if (!VerifyBindingLayout(api, EngineApiBindings.CRenderBackendInterfaceId,
+            if (!VerifyBindingLayout(api, EngineApiBindings.GraphicsBackend__CRenderBackendInterfaceId,
                     CRenderBackendBindings.LayoutManifest))
             {
                 return false;
             }
-            if (!VerifyBindingLayout(api, EngineApiBindings.GPUGraphInterfaceId,
+            if (!VerifyBindingLayout(api, EngineApiBindings.GraphicsBackend__GPUGraphInterfaceId,
                     GPUGraphBindings.LayoutManifest))
             {
                 return false;
             }
-            if (!VerifyBindingLayout(api, EngineApiBindings.ShaderStructInterfaceId,
+            if (!VerifyBindingLayout(api, EngineApiBindings.GraphicsBackend__ShaderStructInterfaceId,
                     ShaderStructBindings.LayoutManifest))
             {
                 return false;
             }
-            if (!VerifyBindingLayout(api, EngineApiBindings.GPUTextureInterfaceId,
+            if (!VerifyBindingLayout(api, EngineApiBindings.GraphicsBackend__GPUTextureInterfaceId,
                     GPUTextureBindings.LayoutManifest))
             {
                 return false;
             }
-            return VerifyBindingLayout(api, EngineApiBindings.WindowHandleInterfaceId,
+            return VerifyBindingLayout(api, EngineApiBindings.GraphicsBackend__WindowHandleInterfaceId,
                 WindowHandleBindings.LayoutManifest);
         }
 
@@ -1035,7 +1039,7 @@ namespace Scripting.Managed
                 s_renderBackend.Dispose();
                 s_renderBackend = null;
             }
-            uint backendId = EngineApiBindings.CRenderBackendInterfaceId;
+            uint backendId = EngineApiBindings.GraphicsBackend__CRenderBackendInterfaceId;
             uint backendSize = s_api->GetInterfaceApi(backendId, null, EngineApiBindings.TableVersion, 0, null, null);
             if (backendSize == 0)
             {
@@ -1089,7 +1093,7 @@ namespace Scripting.Managed
             }
             s_renderTablesBound = true;
             s_renderBindError = string.Empty;
-            LogLine($"[托管侧 渲染] 后端 + 四张目标类型表已绑定（后端实例 {(long)backendInstance}）");
+            LogLine($"[托管侧 渲染] 后端 + 五张目标类型表已绑定（后端实例 {(long)backendInstance}）");
         }
 
         /// <summary>
@@ -1109,7 +1113,7 @@ namespace Scripting.Managed
             }
             if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
             {
-                s_lastError = "渲染探针：后端 + 四张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                s_lastError = "渲染探针：后端 + 五张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
                 LogLine("[托管侧 渲染] " + s_lastError);
                 return;
             }
@@ -1137,7 +1141,7 @@ namespace Scripting.Managed
             }
             if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
             {
-                s_lastError = "常量色探针：后端 + 四张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                s_lastError = "常量色探针：后端 + 五张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
                 LogLine("[托管侧 常量色] " + s_lastError);
                 return;
             }
@@ -1165,7 +1169,7 @@ namespace Scripting.Managed
             }
             if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
             {
-                s_lastError = "结构化缓冲探针：后端 + 四张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
+                s_lastError = "结构化缓冲探针：后端 + 五张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行";
                 LogLine("[托管侧 结构化缓冲] " + s_lastError);
                 return;
             }
@@ -1193,7 +1197,7 @@ namespace Scripting.Managed
             }
             if (!s_renderTablesBound || s_system == null || s_renderBackend == null)
             {
-                s_lastError = "纹理采样探针：后端 + 四张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行" +
+                s_lastError = "纹理采样探针：后端 + 五张目标类型表没有全部绑定（或 IWindowSystem 未绑定），拒绝执行" +
                               (s_renderBindError.Length == 0 ? string.Empty : "；绑定失败原因：" + s_renderBindError);
                 LogLine("[托管侧 纹理] " + s_lastError);
                 return;

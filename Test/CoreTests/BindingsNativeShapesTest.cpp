@@ -8,8 +8,8 @@
 // 生成物由本翻译单元直接 include（与既有绑定用例同一口径），判据跑的是产品生成的 C ABI。
 #include "BindableShapes.NativeShapes.h"
 
-#include "IBindNativeShape.Bindings.cpp"
-#include "BindNativeObject.Bindings.cpp"
+#include "ca_bind_fixture__IBindNativeShape.Bindings.cpp"
+#include "ca_bind_fixture__BindNativeObject.Bindings.cpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -27,7 +27,7 @@ namespace
 	int32_t g_injectedSentinel = 0x1234;
 }
 // 注入钩子（任务 3.3）：固定名，返回引擎默认提供的指针。
-extern "C" void* CAInject_IBindNativeShape_SetInjectedPointer_externalState()
+extern "C" void* CAInject__ca_bind_fixture__IBindNativeShape__SetInjectedPointer__externalState()
 {
 	return &g_injectedSentinel;
 }
@@ -260,42 +260,42 @@ namespace
 
 // 自返回（任务 2.2）：C ABI 槽返回 void，原生返回的 *this 不写回。
 using ChainAddFunction = void (*)(void*, uint32_t);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_ChainAdd), ChainAddFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__ChainAdd), ChainAddFunction>,
 	"返回自身引用的链式方法必须投影成 void 返回的 C ABI 槽");
 
 using GetVirtualValueFunction = uint32_t (*)(void*);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_GetVirtualValue), GetVirtualValueFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__GetVirtualValue), GetVirtualValueFunction>,
 	"非纯虚 virtual 方法必须进表");
 
 using GetDoubledFunction = uint32_t (*)(void*);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_GetDoubled), GetDoubledFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__GetDoubled), GetDoubledFunction>,
 	"非虚公开方法必须进表");
 
 // 静态工厂（任务 2.3）：返回纯标量记录的 C 镜像（镜像类型在全局作用域，不在夹具命名空间）。
 using MakeTallyFunction = NativeCountC (*)(void*, uint32_t);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_MakeTally), MakeTallyFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__MakeTally), MakeTallyFunction>,
 	"返回纯标量记录的静态工厂必须投影成 `<记录>C` 返回的 C ABI 槽");
 
 // 重载序数槽（任务 2.4）：第 1 槽保持原名、第 2 槽 `_2`，签名各自对上。
 using OverloadedOneFunction = uint32_t (*)(void*, uint32_t);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_Overloaded), OverloadedOneFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__Overloaded), OverloadedOneFunction>,
 	"重载第 1 槽的 C ABI 签名不对");
 using OverloadedTwoFunction = uint32_t (*)(void*, uint32_t, uint32_t);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_Overloaded_2), OverloadedTwoFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__Overloaded_2), OverloadedTwoFunction>,
 	"重载第 2 槽必须叫 _2 且签名各自独立");
 
 // 内存窗参数投影（任务 1.1 / design D2）：`const void*` + 相邻长度投影成
 // `uint8_t const*` + `uint64_t` 两段 ABI；其余标量（offset / copy）原样跟在后面。
 using UploadWindowFunction = void (*)(void*, uint8_t const*, uint64_t, uint64_t, int32_t);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_UploadWindow), UploadWindowFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__UploadWindow), UploadWindowFunction>,
 	"内存窗投影的 C ABI 签名不是 (uint8_t const*, uint64_t 长度, uint64_t offset, int32_t copy)");
 
 // 模板显式实例化（任务 1.3 / design D9）：两个声明形态各有一个具体槽，槽名带类型记号。
 using TemplatedValueUintFunction = uint32_t (*)(void*, uint32_t);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_TemplatedValue_uint32_t), TemplatedValueUintFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__TemplatedValue_uint32_t), TemplatedValueUintFunction>,
 	"模板实例化 uint32_t 形态的 C ABI 槽签名不对");
 using TemplatedValueFloatFunction = uint32_t (*)(void*, float);
-static_assert(std::is_same_v<decltype(&IBindNativeShape_TemplatedValue_float), TemplatedValueFloatFunction>,
+static_assert(std::is_same_v<decltype(&ca_bind_fixture__IBindNativeShape__TemplatedValue_float), TemplatedValueFloatFunction>,
 	"模板实例化 float 形态的 C ABI 槽签名不对");
 
 bool RunBindingsNativeShapesTest()
@@ -304,64 +304,64 @@ bool RunBindingsNativeShapesTest()
 	bool ok = true;
 
 	// ---- 非纯虚 virtual：接口里的实现体被绑进表，调用到达原生实现 ----
-	ok = Expect(IBindNativeShape_GetVirtualValue(&fake) == 7u,
+	ok = Expect(ca_bind_fixture__IBindNativeShape__GetVirtualValue(&fake) == 7u,
 		"非纯虚 virtual 方法没有读到接口实现体（应为 7）") && ok;
 
 	// ---- 非虚公开方法：调纯虚钩子（GetCounter 走虚分派）----
-	IBindNativeShape_SetCounter(&fake, 9u);
+	ca_bind_fixture__IBindNativeShape__SetCounter(&fake, 9u);
 	ok = Expect(fake.counter == 9u && fake.setCounterCalls == 1u,
 		"SetCounter 没有到达原生实现") && ok;
-	ok = Expect(IBindNativeShape_GetDoubled(&fake) == 18u,
+	ok = Expect(ca_bind_fixture__IBindNativeShape__GetDoubled(&fake) == 18u,
 		"非虚公开方法 GetDoubled 没有读到 GetCounter 的两倍") && ok;
 
 	// ---- 自返回链式：C ABI 返回 void，原生计数 +2 且顺序一致 ----
-	IBindNativeShape_ChainAdd(&fake, 3u);
-	IBindNativeShape_ChainAdd(&fake, 4u);
+	ca_bind_fixture__IBindNativeShape__ChainAdd(&fake, 3u);
+	ca_bind_fixture__IBindNativeShape__ChainAdd(&fake, 4u);
 	ok = Expect(fake.counter == 16u,
 		"链式两次调用后原生计数应为 9 + 3 + 4 = 16") && ok;
 	ok = Expect(fake.chainOrder.size() == 2u && fake.chainOrder[0] == 3u && fake.chainOrder[1] == 4u,
 		"链式两次调用的顺序与实参没有按声明顺序到达原生实现") && ok;
 
 	// ---- 静态工厂（任务 2.3）：返回纯标量记录，字段逐项到达 ----
-	const NativeCountC count = IBindNativeShape_MakeTally(&fake, 41u);
+	const NativeCountC count = ca_bind_fixture__IBindNativeShape__MakeTally(&fake, 41u);
 	ok = Expect(count.calls == 41u && count.lastValue == 42u,
 		"静态工厂返回的纯标量记录没有逐字段搬回") && ok;
 
 	// ---- 重载序数槽（任务 2.4）：第 1 槽保持现名、第 2 槽 `_2`；两实现计数互不冒充 ----
 	const uint32_t oneBefore = ca_bind_fixture::IBindNativeShape::s_OverloadOneCalls;
 	const uint32_t twoBefore = ca_bind_fixture::IBindNativeShape::s_OverloadTwoCalls;
-	ok = Expect(IBindNativeShape_Overloaded(&fake, 10u) == 11u,
+	ok = Expect(ca_bind_fixture__IBindNativeShape__Overloaded(&fake, 10u) == 11u,
 		"重载第 1 槽没有命中 Overloaded(uint32_t) 的实现") && ok;
-	ok = Expect(IBindNativeShape_Overloaded_2(&fake, 10u, 5u) == 15u,
+	ok = Expect(ca_bind_fixture__IBindNativeShape__Overloaded_2(&fake, 10u, 5u) == 15u,
 		"重载第 2 槽没有命中 Overloaded(uint32_t, uint32_t) 的实现") && ok;
 	ok = Expect(ca_bind_fixture::IBindNativeShape::s_OverloadOneCalls == oneBefore + 1u &&
 	            ca_bind_fixture::IBindNativeShape::s_OverloadTwoCalls == twoBefore + 1u,
 		"两个重载实现的原生计数没有各 +1（互相冒充）") && ok;
 
 	// ---- 构造 Create（任务 2.3）：句柄登记、同一实例、配对释放、释放后解析失败 ----
-	const uint64_t handle = BindNativeObject_Create(nullptr);
-	ok = Expect(handle != 0u, "BindNativeObject_Create 没有返回句柄") && ok;
-	void* object = BindNativeObject_ResolveHandle(nullptr, handle);
+	const uint64_t handle = ca_bind_fixture__BindNativeObject__Create(nullptr);
+	ok = Expect(handle != 0u, "ca_bind_fixture__BindNativeObject__Create 没有返回句柄") && ok;
+	void* object = ca_bind_fixture__BindNativeObject__ResolveHandle(nullptr, handle);
 	ok = Expect(object != nullptr, "Create 登记的句柄解析不到对象") && ok;
-	BindNativeObject_SetValue(object, 21u);
-	ok = Expect(BindNativeObject_GetValue(object) == 21u && BindNativeObject_DoubleValue(object) == 42u,
+	ca_bind_fixture__BindNativeObject__SetValue(object, 21u);
+	ok = Expect(ca_bind_fixture__BindNativeObject__GetValue(object) == 21u && ca_bind_fixture__BindNativeObject__DoubleValue(object) == 42u,
 		"Create 出来的对象上的方法没读到真实值") && ok;
-	BindNativeObject_ReleaseHandle(nullptr, handle);
-	ok = Expect(BindNativeObject_ResolveHandle(nullptr, handle) == nullptr,
+	ca_bind_fixture__BindNativeObject__ReleaseHandle(nullptr, handle);
+	ok = Expect(ca_bind_fixture__BindNativeObject__ResolveHandle(nullptr, handle) == nullptr,
 		"配对释放之后旧句柄仍能解析出对象") && ok;
-	ok = Expect(BindNativeObject_LastErrorCode(nullptr) == 1001,
+	ok = Expect(ca_bind_fixture__BindNativeObject__LastErrorCode(nullptr) == 1001,
 		"配对释放之后旧句柄的错误码不是 1001") && ok;
 
 	// ---- 资源引用值类（任务 3.1）：两条构造通道、同一实例、坏引用不进实现 ----
 	{
 		auto shared = std::make_shared<FakeNativeShape>();
-		const uint64_t strong = IBindNativeShape_registerStrongHandle(
+		const uint64_t strong = ca_bind_fixture__IBindNativeShape_registerStrongHandle(
 			shared.get(), std::static_pointer_cast<void>(shared),
 			"ca_bind_fixture::IBindNativeShape");
 		ok = Expect(strong != 0u, "资源引用：注册对象强句柄失败") && ok;
 
 		// 通道一：按对象句柄构造（kind=Object）。
-		IBindNativeShape_ConsumeRef(shared.get(), 1u, strong, nullptr, 0u, 7u);
+		ca_bind_fixture__IBindNativeShape__ConsumeRef(shared.get(), 1u, strong, nullptr, 0u, 7u);
 		ok = Expect(shared->consumeRefCalls == 1u && shared->lastChannel == 7u,
 			"对象通道没有进入原生实现") && ok;
 		ok = Expect(shared->lastRefKind == ca_bind_fixture::NativeResourceRef::ENativeRefKind::Object,
@@ -372,7 +372,7 @@ bool RunBindingsNativeShapesTest()
 
 		// 通道二：按名称构造（kind=Named）：原生侧走 NameHash 原生构造通道。
 		const char* nameText = "alpha";
-		IBindNativeShape_ConsumeRef(shared.get(), 2u, 0u,
+		ca_bind_fixture__IBindNativeShape__ConsumeRef(shared.get(), 2u, 0u,
 			reinterpret_cast<uint8_t const*>(nameText), 5u, 8u);
 		ok = Expect(shared->consumeRefCalls == 2u && shared->lastChannel == 8u,
 			"名称通道没有进入原生实现") && ok;
@@ -383,14 +383,14 @@ bool RunBindingsNativeShapesTest()
 			"按名构造与原生直构的 NameHash 不一致") && ok;
 
 		// 坏句柄：错误码 + 实现计数不变（不进实现）。
-		IBindNativeShape_ConsumeRef(shared.get(), 1u, 0u, nullptr, 0u, 9u);
+		ca_bind_fixture__IBindNativeShape__ConsumeRef(shared.get(), 1u, 0u, nullptr, 0u, 9u);
 		ok = Expect(shared->consumeRefCalls == 2u, "坏句柄进入了原生实现") && ok;
-		ok = Expect(IBindNativeShape_LastErrorCode(shared.get()) == 1001,
+		ok = Expect(ca_bind_fixture__IBindNativeShape__LastErrorCode(shared.get()) == 1001,
 			"坏句柄的错误码不是 1001") && ok;
 		// 空名：错误码 + 实现计数不变。
-		IBindNativeShape_ConsumeRef(shared.get(), 2u, 0u, nullptr, 0u, 10u);
+		ca_bind_fixture__IBindNativeShape__ConsumeRef(shared.get(), 2u, 0u, nullptr, 0u, 10u);
 		ok = Expect(shared->consumeRefCalls == 2u, "空名进入了原生实现") && ok;
-		ok = Expect(IBindNativeShape_LastErrorCode(shared.get()) == 1002,
+		ok = Expect(ca_bind_fixture__IBindNativeShape__LastErrorCode(shared.get()) == 1002,
 			"空名的错误码不是 1002") && ok;
 	}
 
@@ -405,7 +405,7 @@ bool RunBindingsNativeShapesTest()
 		using Codec = cacore::codegen::CodeGenBindingCodec<ca_bind_fixture::PassLike>;
 		std::vector<uint8_t> bytes;
 		Codec::Serialize(pass, bytes);
-		IBindNativeShape_ConsumePass(&fake, bytes.data(), static_cast<uint64_t>(bytes.size()));
+		ca_bind_fixture__IBindNativeShape__ConsumePass(&fake, bytes.data(), static_cast<uint64_t>(bytes.size()));
 		ok = Expect(fake.consumePassCalls == 1u, "序列化块往返没有进入原生实现") && ok;
 		ok = Expect(fake.lastPassAttachments.size() == 2u &&
 		            fake.lastPassAttachments[0].first == 1u && fake.lastPassAttachments[0].second == 0.5f &&
@@ -424,27 +424,27 @@ bool RunBindingsNativeShapesTest()
 		{
 			std::vector<uint8_t> bad = bytes;
 			bad[0] = static_cast<uint8_t>(bad[0] + 1u);
-			IBindNativeShape_ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
+			ca_bind_fixture__IBindNativeShape__ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
 			ok = Expect(fake.consumePassCalls == callsAfterOk &&
-			            IBindNativeShape_LastErrorCode(&fake) == 1007,
+			            ca_bind_fixture__IBindNativeShape__LastErrorCode(&fake) == 1007,
 				"版本字节 +1 没有按 1007 拒绝") && ok;
 		}
 		// ② 类型名哈希改错
 		{
 			std::vector<uint8_t> bad = bytes;
 			bad[4] = static_cast<uint8_t>(bad[4] ^ 0xFFu);
-			IBindNativeShape_ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
+			ca_bind_fixture__IBindNativeShape__ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
 			ok = Expect(fake.consumePassCalls == callsAfterOk &&
-			            IBindNativeShape_LastErrorCode(&fake) == 1008,
+			            ca_bind_fixture__IBindNativeShape__LastErrorCode(&fake) == 1008,
 				"类型名哈希改错没有按 1008 拒绝") && ok;
 		}
 		// ③ 字段布局哈希改错
 		{
 			std::vector<uint8_t> bad = bytes;
 			bad[12] = static_cast<uint8_t>(bad[12] ^ 0xFFu);
-			IBindNativeShape_ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
+			ca_bind_fixture__IBindNativeShape__ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
 			ok = Expect(fake.consumePassCalls == callsAfterOk &&
-			            IBindNativeShape_LastErrorCode(&fake) == 1009,
+			            ca_bind_fixture__IBindNativeShape__LastErrorCode(&fake) == 1009,
 				"字段布局哈希改错没有按 1009 拒绝") && ok;
 		}
 		// ③b "改名同序"：只改字段名、类型序列不变，前两项哈希检不出 —— 必须由字段布局哈希抓。
@@ -461,24 +461,24 @@ bool RunBindingsNativeShapesTest()
 				Codec::Fnv(renamed.data(), static_cast<uint64_t>(renamed.size()));
 			std::vector<uint8_t> bad = bytes;
 			::memcpy(bad.data() + 12, &renamedHash, sizeof(renamedHash));
-			IBindNativeShape_ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
+			ca_bind_fixture__IBindNativeShape__ConsumePass(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
 			ok = Expect(renamedHash != Codec::kLayoutHash && fake.consumePassCalls == callsAfterOk &&
-			            IBindNativeShape_LastErrorCode(&fake) == 1009,
+			            ca_bind_fixture__IBindNativeShape__LastErrorCode(&fake) == 1009,
 				"改名同序的块没有被字段布局哈希拒绝") && ok;
 		}
 		// ④ 载荷截断
 		{
-			IBindNativeShape_ConsumePass(&fake, bytes.data(),
+			ca_bind_fixture__IBindNativeShape__ConsumePass(&fake, bytes.data(),
 				static_cast<uint64_t>(bytes.size() - 1u));
 			ok = Expect(fake.consumePassCalls == callsAfterOk &&
-			            IBindNativeShape_LastErrorCode(&fake) == 1010,
+			            ca_bind_fixture__IBindNativeShape__LastErrorCode(&fake) == 1010,
 				"载荷截断没有按 1010 拒绝") && ok;
 		}
 	}
 
 	// ---- 参数注入（任务 3.3）：C ABI/托管表面没有该参数，原生实现收到钩子返回的哨兵指针 ----
 	{
-		IBindNativeShape_SetInjectedPointer(&fake, 77u);
+		ca_bind_fixture__IBindNativeShape__SetInjectedPointer(&fake, 77u);
 		ok = Expect(fake.setInjectedCalls == 1u && fake.lastInjectedToken == 77u,
 			"注入方法没有把 token 送到原生实现") && ok;
 		ok = Expect(fake.lastInjectedPointer == &g_injectedSentinel,
@@ -490,7 +490,7 @@ bool RunBindingsNativeShapesTest()
 	// ---- 内存窗参数投影（任务 1.1 / design D2）：逐字节一致 + 长度正确 + 其余参数原样 ----
 	{
 		std::vector<uint8_t> payload = { 0x01u, 0x02u, 0x03u, 0x05u, 0x08u, 0x0Du, 0x15u, 0x22u, 0x37u };
-		IBindNativeShape_UploadWindow(&fake, payload.data(), static_cast<uint64_t>(payload.size()),
+		ca_bind_fixture__IBindNativeShape__UploadWindow(&fake, payload.data(), static_cast<uint64_t>(payload.size()),
 			16u, 0);
 		ok = Expect(fake.uploadWindowCalls == 1u, "内存窗调用没有进入原生实现") && ok;
 		ok = Expect(fake.uploadWindowSize == static_cast<uint64_t>(payload.size()),
@@ -504,7 +504,7 @@ bool RunBindingsNativeShapesTest()
 			fake.uploadWindowBytes == payload ? 1 : 0,
 			static_cast<unsigned long long>(fake.lastUploadOffset), fake.lastUploadCopy ? 1 : 0);
 		// 空窗口：长度 0、指针非空 —— 实现照样被调用（不上报假错误）。
-		IBindNativeShape_UploadWindow(&fake, payload.data(), 0u, 0u, 1);
+		ca_bind_fixture__IBindNativeShape__UploadWindow(&fake, payload.data(), 0u, 0u, 1);
 		ok = Expect(fake.uploadWindowCalls == 2u && fake.uploadWindowSize == 0u &&
 		            fake.uploadWindowBytes.empty() && fake.lastUploadCopy == true,
 			"零长度内存窗没有按零长度 + copy=true 到达原生实现") && ok;
@@ -521,12 +521,12 @@ bool RunBindingsNativeShapesTest()
 
 		using Codec = cacore::codegen::CodeGenBindingCodec<ca_bind_fixture::PassLike>;
 		const char* key = "passx";
-		const uint64_t length = IBindNativeShape_FindPassLen(&fake, key, 5u);
+		const uint64_t length = ca_bind_fixture__IBindNativeShape__FindPassLen(&fake, key, 5u);
 		ok = Expect(length > 0u, "记录两段式：命中时 Len 返回 0（应当返回序列化字节数）") && ok;
 		std::vector<uint8_t> buffer(static_cast<std::size_t>(length));
-		IBindNativeShape_CopyFindPass(&fake, key, 5u, buffer.data(),
+		ca_bind_fixture__IBindNativeShape__CopyFindPass(&fake, key, 5u, buffer.data(),
 			static_cast<uint64_t>(buffer.size()));
-		ok = Expect(IBindNativeShape_LastErrorCode(&fake) == 0,
+		ok = Expect(ca_bind_fixture__IBindNativeShape__LastErrorCode(&fake) == 0,
 			"记录两段式：Copy 之后错误码非 0") && ok;
 		ca_bind_fixture::PassLike decoded;
 		const uint32_t decodeCode =
@@ -543,11 +543,11 @@ bool RunBindingsNativeShapesTest()
 
 		// 未命中：原生返回空指针 ⇒ Len=0（托管侧映射成 null），Copy 不写目标缓冲。
 		const char* missing = "nope";
-		const uint64_t missingLength = IBindNativeShape_FindPassLen(&fake, missing, 4u);
+		const uint64_t missingLength = ca_bind_fixture__IBindNativeShape__FindPassLen(&fake, missing, 4u);
 		ok = Expect(missingLength == 0u,
 			"记录两段式：未命中时 Len 不是 0（托管得不到 null）") && ok;
 		std::vector<uint8_t> untouched(8u, 0xAAu);
-		IBindNativeShape_CopyFindPass(&fake, missing, 4u, untouched.data(), 8u);
+		ca_bind_fixture__IBindNativeShape__CopyFindPass(&fake, missing, 4u, untouched.data(), 8u);
 		ok = Expect(untouched[0] == 0xAAu, "记录两段式：未命中时 Copy 仍然写了目标缓冲") && ok;
 		ok = Expect(fake.findPassCalls == 4u, "记录两段式：四次伴生调用没有分别到达原生实现") && ok;
 		std::printf("  [记录两段式] 命中字节=%llu 反序列化码=%u 未命中Len=%llu 未命中写缓冲=%d 调用=%u\n",
@@ -560,8 +560,8 @@ bool RunBindingsNativeShapesTest()
 	{
 		const uint32_t uintBefore = ca_bind_fixture::IBindNativeShape::s_TemplateUintCalls;
 		const uint32_t floatBefore = ca_bind_fixture::IBindNativeShape::s_TemplateFloatCalls;
-		const uint32_t uintResult = IBindNativeShape_TemplatedValue_uint32_t(&fake, 41u);
-		const uint32_t floatResult = IBindNativeShape_TemplatedValue_float(&fake, 1.5f);
+		const uint32_t uintResult = ca_bind_fixture__IBindNativeShape__TemplatedValue_uint32_t(&fake, 41u);
+		const uint32_t floatResult = ca_bind_fixture__IBindNativeShape__TemplatedValue_float(&fake, 1.5f);
 		const uint32_t uintAfter = ca_bind_fixture::IBindNativeShape::s_TemplateUintCalls;
 		const uint32_t floatAfter = ca_bind_fixture::IBindNativeShape::s_TemplateFloatCalls;
 		ok = Expect(uintResult == 141u,
@@ -577,7 +577,7 @@ bool RunBindingsNativeShapesTest()
 	// ---- 图形状序列化（任务 1.5 / design D11）：值类容器 / 命名映射 / 接口对象引用 ----
 	{
 		auto shared = std::make_shared<FakeNativeShape>();
-		const uint64_t objectHandle = IBindNativeShape_registerStrongHandle(
+		const uint64_t objectHandle = ca_bind_fixture__IBindNativeShape_registerStrongHandle(
 			shared.get(), std::static_pointer_cast<void>(shared),
 			"ca_bind_fixture::IBindNativeShape");
 		ok = Expect(objectHandle != 0u, "图形状：注册对象句柄失败") && ok;
@@ -625,7 +625,7 @@ bool RunBindingsNativeShapesTest()
 		writeText("obj");
 		writeU64(objectHandle);
 
-		IBindNativeShape_ConsumeGraphShape(&fake, bytes.data(), static_cast<uint64_t>(bytes.size()));
+		ca_bind_fixture__IBindNativeShape__ConsumeGraphShape(&fake, bytes.data(), static_cast<uint64_t>(bytes.size()));
 		ok = Expect(fake.graphShapeCalls == 1u, "图形状：块没有进入原生实现") && ok;
 		ok = Expect(fake.graphRefKinds.size() == 1u && fake.graphRefKinds[0] == 2u,
 			"图形状：值类容器元素没有按四字段线形重建") && ok;
@@ -644,9 +644,9 @@ bool RunBindingsNativeShapesTest()
 			const std::size_t directOffset = bad.size() - (8u + 8u + 8u + 3u + 8u);
 			const uint64_t bogus = 0xDEADBEEFull;
 			::memcpy(bad.data() + directOffset, &bogus, sizeof(bogus));
-			IBindNativeShape_ConsumeGraphShape(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
+			ca_bind_fixture__IBindNativeShape__ConsumeGraphShape(&fake, bad.data(), static_cast<uint64_t>(bad.size()));
 			ok = Expect(fake.graphShapeCalls == 1u, "图形状：坏句柄进入了原生实现") && ok;
-			ok = Expect(IBindNativeShape_LastErrorCode(&fake) == 1011,
+			ok = Expect(ca_bind_fixture__IBindNativeShape__LastErrorCode(&fake) == 1011,
 				"图形状：坏句柄的错误码不是 1011") && ok;
 		}
 		std::printf("  [图形状] 值类元素=%u 标量值=%u 记录值=(%u,%.2f) 值类名=%s 对象一致=%d/%d\n",
@@ -657,24 +657,24 @@ bool RunBindingsNativeShapesTest()
 
 	// ---- 返回位置标量容器两段式（任务 1.6 / design D13）：Count + Copy 两槽 ----
 	{
-		const uint64_t count = IBindNativeShape_GetPassIndicesCount(&fake);
+		const uint64_t count = ca_bind_fixture__IBindNativeShape__GetPassIndicesCount(&fake);
 		ok = Expect(count == 3u, "标量容器两段式：Count 不等于 3") && ok;
 		std::vector<uint32_t> values(static_cast<std::size_t>(count), 0u);
-		IBindNativeShape_CopyGetPassIndices(&fake, reinterpret_cast<uint8_t*>(values.data()),
+		ca_bind_fixture__IBindNativeShape__CopyGetPassIndices(&fake, reinterpret_cast<uint8_t*>(values.data()),
 			static_cast<uint64_t>(values.size() * sizeof(uint32_t)));
 		ok = Expect(values.size() == 3u && values[0] == 7u && values[1] == 11u && values[2] == 42u,
 			"标量容器两段式：逐元素与原生不一致") && ok;
 
 		// 空容器：Count=0；Copy 在零长度上不许解引用（哨兵一个字节都不许被改），空指针+零容量也不许崩。
 		fake.passIndicesEmpty = true;
-		const uint64_t emptyCount = IBindNativeShape_GetPassIndicesCount(&fake);
+		const uint64_t emptyCount = ca_bind_fixture__IBindNativeShape__GetPassIndicesCount(&fake);
 		ok = Expect(emptyCount == 0u, "标量容器两段式：空容器 Count 不为 0") && ok;
 		uint32_t sentinel = 0xA5A5A5A5u;
-		IBindNativeShape_CopyGetPassIndices(&fake, reinterpret_cast<uint8_t*>(&sentinel),
+		ca_bind_fixture__IBindNativeShape__CopyGetPassIndices(&fake, reinterpret_cast<uint8_t*>(&sentinel),
 			sizeof(sentinel));
 		const bool sentinelIntact = sentinel == 0xA5A5A5A5u;
 		ok = Expect(sentinelIntact, "标量容器两段式：空容器 Copy 写了缓冲（不该解引用）") && ok;
-		IBindNativeShape_CopyGetPassIndices(&fake, nullptr, 0u);
+		ca_bind_fixture__IBindNativeShape__CopyGetPassIndices(&fake, nullptr, 0u);
 		fake.passIndicesEmpty = false;
 		std::printf("  [标量容器] count=%llu 元素=%u/%u/%u 空count=%llu 空写保护=%d\n",
 			static_cast<unsigned long long>(count), values[0], values[1], values[2],

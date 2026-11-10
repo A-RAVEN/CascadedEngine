@@ -1,0 +1,41 @@
+csharp-bindings-namespace-alignment · 2.3 锁文件表头注释与 --update-ids 限定名身份
+执行时间：2026-11-09 深夜
+相关文件：Tools/CodeGen/interface-ids.lock、Tools/CodeGen/CodeGenMain.cpp（锁解析/发号）
+
+一、锁文件表头注释改写（改前/改后逐字）
+  改前（git HEAD 的第 3-7 行）：
+    # 数据行四列，制表符分隔：编号、短名、完整限定名、头文件路径。
+    # 段用注释行划分（# scope host / # scope fixture），每段一条 # high water <该段历史最高号>。
+    # 编号的唯一来源就是这个文件：默认构建只核对、不改写锁；新名字只经 CodeGen --update-ids
+    # 追加（该段水位 + 1），既有行一字不动。构建模式绝不写锁，锁的 diff 进人工评审。
+    # 宿主段与夹具段各自独立的号空间：宿主从 1 起、夹具从 8 起；夹具段永不进宿主路由。
+  改后（现行文件第 3-8 行）：
+    # 数据行四列，制表符分隔：编号、短名、完整限定名、头文件路径。
+    # 短名列只是**显示名**；身份以完整限定名列（第 3 列）为准 —— 同一短名可以在不同命名空间各占一行
+    # （csharp-bindings-namespace-alignment 1.1/2.3：`ns1::Device` 与 `ns2::Device` 各有自己的编号）。
+    # 段用注释行划分（# scope host / # scope fixture），每段一条 # high water <该段历史最高号>。
+    # 编号的唯一来源就是这个文件：……（其余一字未动）
+  四列制不变；表头注释只加"短名=显示名、身份=限定名"的语义说明。
+
+二、`--update-ids` 身份=完整限定名（核对结论 + 必要修正，需主循环知悉）
+  1) 实测发现：改造前 `findLockEntry(scope, 短名)` 只按短名找行；`loadInterfaceLock` 也按
+     "段内短名唯一"拒绝。于是第一次给 B 头发号时，`ns2::Device`/`a::b::Widget` 被当成
+     "已经登记过（A 头的 ns1::Device / a_b::Widget）"，输出"无增删"，B 头拿不到自己的号。
+     这直接违背 1.3 的"各自经 --update-ids 追加发号（既有锁行一字不动）"。
+  2) 处置（发号算法未动）：身份查找改完整限定名 ——
+     · findLockEntry 增加 qualifiedName 参数，两者都匹配才命中；
+     · 锁校验把"段内短名唯一"改成"段内完整限定名唯一"（短名可重复）；
+     · 发号循环的跳过条件由 `keptNames.count(短名)` 改成 `keptQualified.count(限定名)`；
+     · 取号仍是"水位 + 1"、既有行原样吐回、只删本头消失的行 —— 这三条一字未动。
+     这是"D3 身份链全链限定名"在锁层的落实，不改变编号分配规则（未新增/未跳号）。
+  3) 发号结果（%TEMP%\ns-update-ids-2.log，EXIT=0）：
+       A 头：新增 编号 10 / Device、编号 11 / Widget
+       B 头：新增 编号 12 / Device、编号 13 / Widget
+     锁文件 fixture 段实测四行：10 ns1::Device / 11 a_b::Widget / 12 ns2::Device / 13 a::b::Widget；
+     既有 8/9 两行逐字未动；# high water 13。
+  4) 幂等复跑（%TEMP%\ns-update-ids-3.log，EXIT=0）：9 个登记输入全部"无增删" ——
+     同一短名的两行（Device 10/12、Widget 11/13）各自被认作已登记，证明身份键是限定名而非短名。
+
+三、结论
+  短名列=显示名、身份=完整限定名，锁文件语义与发号身份一致；发号规则（水位+1、既有行不动、
+  只删本头消失行）未变。2.3 核对完成。

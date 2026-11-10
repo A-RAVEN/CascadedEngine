@@ -19,6 +19,10 @@
 using System;
 using System.Collections.Generic;
 using Scripting.Generated.Bindings;
+using Scripting.Generated.Bindings.Cawindow;
+using Scripting.Generated.Bindings.GraphicsBackend;
+using Scripting.Generated.Bindings.CaBindFixture;
+using Scripting.Generated.Bindings.Shadercompilerslang;
 
 namespace Scripting.Managed
 {
@@ -138,6 +142,60 @@ namespace Scripting.Managed
     }
 
     /// <summary>
+    /// 后端直建缓冲（7.1，用户 2026-11-10 裁定）：生命周期跟随后端对象（`shared_ptr`），不跟图走。
+    /// `Handle` 交给参数结构后，图以"外部缓冲"引用它：跨两张图复用同一对象、不需要 `AllocBuffer`，
+    /// 图销毁也不释放它。
+    /// </summary>
+    internal sealed class ScriptBuffer : IDisposable
+    {
+        internal readonly GPUBuffer Native;
+        internal readonly GPUBufferDescriptor Descriptor;
+        internal bool Disposed;
+
+        internal ScriptBuffer(GPUBuffer native, GPUBufferDescriptor descriptor)
+        {
+            Native = native;
+            Descriptor = descriptor;
+        }
+
+        /// <summary>参数结构用的外部缓冲句柄（`BufferHandle` 的 External 分支）。</summary>
+        internal BufferHandle Handle
+        {
+            get
+            {
+                if (Disposed)
+                {
+                    throw new ObjectDisposedException("ScriptBuffer");
+                }
+                return BufferHandle.FromGPUBuffer(Native);
+            }
+        }
+
+        public GPUBufferDescriptor GetDescriptor()
+        {
+            return Descriptor;
+        }
+
+        public void Dispose()
+        {
+            if (Disposed)
+            {
+                return;
+            }
+            // 只放**托管引用**：仍被图/参数结构持有的原生对象由 `shared_ptr` 保活，
+            // 所以 Dispose 之后已经提交/已绑定的图仍能跑完（MUST NOT 提前释放）。
+            Disposed = true;
+            Native.Dispose();
+        }
+
+        /// <summary>进程关闭时真正释放原生缓冲句柄。</summary>
+        internal void ReleaseNative()
+        {
+            Native.Dispose();
+        }
+    }
+
+    /// <summary>
     /// 着色器参数结构（托管糖层对象，design D6/D9/D11）：生成的 `ShaderStruct` 表面 + 引擎编译
     /// 元数据的只读副本。字段级校验全部在这里做，原生 `Set*` 的未知字段静默跳过 / 越界
     /// `CA_ASSERT` 路径不会被脚本输入触达。
@@ -152,6 +210,8 @@ namespace Scripting.Managed
 
         // 资源绑定的托管侧登记：提交前置校验要逐字段核对"写过没有 / 缓冲在不在本图"。
         private readonly Dictionary<string, string> m_BoundBuffers = new Dictionary<string, string>();
+        // 7.1：以 `ScriptBuffer` 绑定的外部缓冲 —— 不在图内分配表里，提交校验跳过 `HasBuffer`。
+        private readonly HashSet<string> m_ExternalBufferFields = new HashSet<string>();
         private readonly Dictionary<string, ScriptTexture> m_BoundImages =
             new Dictionary<string, ScriptTexture>();
         private readonly Dictionary<string, TextureSamplerDescriptor> m_BoundSamplers =
@@ -339,6 +399,67 @@ namespace Scripting.Managed
             ++m_Backend.SetBufferCount;
             return ClearError();
         }
+
+        /// <summary>
+        /// 7.1：把后端直建的 `ScriptBuffer` 按字段名绑到本结构的缓冲字段。它走 `BufferHandle` 的
+        /// External 分支（不占图内分配表），所以同一对象可以跨多张图复用，图销毁不释放它。
+        /// 字段名 / 只读 / 单元素的校验与按名版本一致。
+        /// </summary>
+        public int SetBuffer(string field, ScriptBuffer buffer)
+        {
+            if (string.IsNullOrEmpty(field))
+            {
+                return Fail("field", "字段名不能为空");
+            }
+            if (buffer == null || buffer.Disposed)
+            {
+                return Fail("buffer", $"字段 {field} 的缓冲为空或已释放");
+            }
+            BufferData? bufferData = null;
+            if (m_Data.m_Buffers != null)
+            {
+                foreach (BufferData candidate in m_Data.m_Buffers)
+                {
+                    if (candidate.m_Name == field)
+                    {
+                        bufferData = candidate;
+                        break;
+                    }
+                }
+            }
+            if (bufferData == null)
+            {
+                return Fail("field", $"字段不在类型 {TypeName} 的缓冲元数据里：{field}");
+            }
+            if (bufferData.Value.m_RWType != EShaderResourceAccess.eReadOnly)
+            {
+                return Fail("field", $"字段 {field} 的访问类型不是只读；读写缓冲属计算批，本批不支持");
+            }
+            if (bufferData.Value.m_ElementCount != 1u)
+            {
+                return Fail("field",
+                    $"字段 {field} 必须是单元素（描述符数组长度为 1），实际 {bufferData.Value.m_ElementCount}");
+            }
+            try
+            {
+                m_Native.SetBuffer(field, buffer.Handle, 0u);
+            }
+            catch (ObjectDisposedException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return Fail("field", ex.Message);
+            }
+            m_BoundBuffers[field] = $"external:{field}";
+            m_ExternalBufferFields.Add(field);
+            ++m_Backend.SetBufferCount;
+            return ClearError();
+        }
+
+        /// <summary>该字段是否以外部 `ScriptBuffer` 绑定（提交校验据此跳过图内分配表）。</summary>
+        internal bool IsExternalBuffer(string field) => m_ExternalBufferFields.Contains(field);
 
         /// <summary>把后端发行的纹理按字段名绑到本结构的纹理字段。</summary>
         public int SetImage(string field, ScriptTexture texture)
@@ -1040,6 +1161,8 @@ namespace Scripting.Managed
         internal int CreateShaderStructCount;
         internal int CreateCaptureTargetCount;
         internal int CreateTextureCount;
+        /// <summary>7.1：后端直建缓冲的调用次数（与图内 `AddBufferCount` 分开计）。</summary>
+        internal int CreateBufferCount;
         internal int TextureUploadExecuteCount;
         internal int ExecuteGraphCount;
         internal int WaitIdleCount;
@@ -1220,6 +1343,41 @@ namespace Scripting.Managed
             }
         }
 
+        /// <summary>
+        /// 后端直建缓冲（7.1）：返回的 `ScriptBuffer` 持有生成的 `GPUBuffer` 表面，生命周期跟随后端
+        /// `shared_ptr`，不跟任何一张图。描述符非零且不溢出；创建失败返回空并由 `GetLastError()` 点名。
+        /// </summary>
+        public ScriptBuffer CreateBuffer(GPUBufferDescriptor descriptor, EBufferUsage usageFlags)
+        {
+            if (descriptor.count == 0UL || descriptor.stride == 0UL)
+            {
+                Fail("descriptor", "缓冲描述 count / stride 必须非零");
+                return null;
+            }
+            if (descriptor.count > ulong.MaxValue / descriptor.stride)
+            {
+                Fail("descriptor", "缓冲描述的 count * stride 溢出");
+                return null;
+            }
+            try
+            {
+                GPUBuffer buffer = m_Native.CreateGPUBuffer(descriptor, usageFlags);
+                if (buffer == null)
+                {
+                    Fail("descriptor", "后端拒绝了缓冲创建");
+                    return null;
+                }
+                ++CreateBufferCount;
+                ClearError();
+                return new ScriptBuffer(buffer, descriptor);
+            }
+            catch (Exception ex)
+            {
+                Fail("descriptor", ex.Message);
+                return null;
+            }
+        }
+
         /// <summary>按类型名创建参数结构：未知类型先在元数据查询处挡下，MUST NOT 进后端创建路径。</summary>
         public ScriptShaderStruct CreateShaderStruct(string structTypeName)
         {
@@ -1312,7 +1470,9 @@ namespace Scripting.Managed
                                 $"pass {passIndex} 的块 {pair.Key} 没有为缓冲字段 {buffer.m_Name} 调 SetBuffer");
                         }
                         string bufferName = pair.Value.GetBoundBufferName(buffer.m_Name);
-                        if (!graph.HasBuffer(bufferName))
+                        // 7.1：外部缓冲（`ScriptBuffer`）不在本图分配表里，它的生命周期跟随后端，
+                        // 跨图复用正是本入口的目的；只对图内按名分配的缓冲要求 HasBuffer。
+                        if (!pair.Value.IsExternalBuffer(buffer.m_Name) && !graph.HasBuffer(bufferName))
                         {
                             return Fail("bufferName",
                                 $"pass {passIndex} 的字段 {buffer.m_Name} 引用了本图未登记的缓冲：{(bufferName.Length == 0 ? "(空)" : bufferName)}");

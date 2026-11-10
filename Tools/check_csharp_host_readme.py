@@ -260,10 +260,13 @@ def main() -> int:
             f"生成两侧编号不一致：C++ 头 {sorted(generated_interfaces)}、"
             f"EngineApi.Bindings.cs {sorted(cs_numbers)}")
     for number, qualified in sorted(generated_interfaces.items()):
-        short = qualified.rsplit("::", 1)[-1]
-        expected_suffix = (
-            short[1:] if len(short) > 1 and short[0] == "I" and short[1].isupper() else short
-        ) + "InterfaceId"
+        parts = qualified.split("::")
+        short = parts[-1]
+        bare = short[1:] if len(short) > 1 and short[0] == "I" and short[1].isupper() else short
+        namespace = "__".join(
+            "".join(word[:1].upper() + word[1:].lower() for word in part.split("_"))
+            for part in parts[:-1])
+        expected_suffix = (namespace + "__" if namespace else "") + bare + "InterfaceId"
         actual_suffix = cs_numbers.get(number, "")
         if actual_suffix != expected_suffix:
             problems.append(

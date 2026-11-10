@@ -1,5 +1,9 @@
 using System;
 using Scripting.Generated.Bindings;
+using Scripting.Generated.Bindings.Cawindow;
+using Scripting.Generated.Bindings.GraphicsBackend;
+using Scripting.Generated.Bindings.CaBindFixture;
+using Scripting.Generated.Bindings.Shadercompilerslang;
 
 namespace Scripting.Managed
 {
@@ -605,6 +609,139 @@ namespace Scripting.Managed
                 submitStatus, submitError, preExec, preCapture, preStruct, preAddBuffer, preCreateTexture,
                 preUpload, preImage, preSampler, preWait, preSetFloat3, preSetStruct, preSetPassParam,
                 preSetBuffer, extras);
+            // 7.1 验收（正常模式）：后端直建缓冲跨两张图复用 —— 缓冲对象在 graph1.Dispose 之后仍能用；
+            // 回退到"图内 AllocBuffer"时第二次绑定的就不是同一个后端对象，这个用例必败。
+            // 放在读数行生成**之后**：复用探针的调用计数不污染主探针的计数断言，只追加自己的字段。
+            if (mode.Length == 0)
+            {
+                LastStructuredBufferReadings += " " +
+                    ProbeCreateBufferReuse(backend, colorDescriptor, colorBytes);
+            }
+        }
+
+        /// <summary>
+        /// 7.1 验收探针：后端 `CreateBuffer` 建一个缓冲，先后绑进两张独立的图并各自提交 —— 第一张图
+        /// 负责把字节上传到**这个外部对象**，图 Dispose 后第二张图仍复用同一个对象。回退到图内
+        /// `AllocBuffer` 时第二张图绑定的是另一个图内对象（且第一张图销毁后已不可达），本用例必败。
+        /// </summary>
+        private static string ProbeCreateBufferReuse(ScriptRenderBackend backend,
+            GPUBufferDescriptor colorDescriptor, byte[] colorBytes)
+        {
+            // 红样开关（只给本用例的验收演练用）：走"图内 AllocBuffer"回退路径。第二张图没有本图
+            // 分配的同名缓冲，提交前校验会拒绝 —— 证明跨图复用必须走后端直建对象。
+            bool fallback = Environment.GetEnvironmentVariable("CASCADED_CSHARP_BUFFER_FALLBACK") == "1";
+            string fallbackName = "sbColorsReuseFallback";
+            ScriptBuffer buffer = null;
+            ulong token = 0UL;
+            if (!fallback)
+            {
+                buffer = backend.CreateBuffer(colorDescriptor,
+                    EBufferUsage.eStructuredBuffer | EBufferUsage.eDataSrc | EBufferUsage.eDataDst);
+                if (buffer == null)
+                {
+                    return "bufferReuse=0 bufferCreate=0 bufferError=" +
+                           backend.GetLastError().Replace(' ', '_');
+                }
+                token = (ulong)(long)buffer.Native.Token;
+            }
+            float[] positions = CSharpStructuredBufferProbe.BuildPositions();
+            byte[] vertexBytes = new byte[positions.Length * sizeof(float)];
+            Buffer.BlockCopy(positions, 0, vertexBytes, 0, vertexBytes.Length);
+            var vertexDescriptor = new GPUBufferDescriptor
+            {
+                count = CSharpStructuredBufferProbe.VertexCount,
+                stride = CSharpStructuredBufferProbe.VertexStride,
+            };
+            int submits = 0;
+            string error = string.Empty;
+            for (int graphIndex = 0; graphIndex < 2 && error.Length == 0; ++graphIndex)
+            {
+                using (ScriptRenderGraph graph = backend.CreateGraph())
+                {
+                    if (graph == null)
+                    {
+                        error = "graph_null";
+                        break;
+                    }
+                    if (graph.AddBuffer(CSharpStructuredBufferProbe.VertexBufferName,
+                            vertexDescriptor, vertexBytes) != 0)
+                    {
+                        error = "vertex:" + graph.GetLastError();
+                        break;
+                    }
+                    if (graph.SetPositionStream(CSharpStructuredBufferProbe.VertexBufferName,
+                            CSharpStructuredBufferProbe.VertexStride,
+                            CSharpStructuredBufferProbe.PositionOffset) != 0)
+                    {
+                        error = "stream:" + graph.GetLastError();
+                        break;
+                    }
+                    if (fallback)
+                    {
+                        if (graphIndex == 0 &&
+                            graph.AddBuffer(fallbackName, colorDescriptor, colorBytes) != 0)
+                        {
+                            error = "fallbackAdd:" + graph.GetLastError();
+                            break;
+                        }
+                    }
+                    else if (graphIndex == 0)
+                    {
+                        // 只在这里上传一次：数据写在**后端缓冲对象**上，不是图内分配。
+                        graph.Native.ScheduleData(buffer.Handle, colorBytes, 0UL, true);
+                    }
+                    ScriptShaderStruct parameters = backend.CreateShaderStruct(
+                        CSharpStructuredBufferProbe.StructTypeName);
+                    if (parameters == null)
+                    {
+                        error = "struct:" + backend.GetLastError();
+                        break;
+                    }
+                    int bindStatus = fallback
+                        ? parameters.SetBuffer(CSharpStructuredBufferProbe.FieldName, fallbackName)
+                        : parameters.SetBuffer(CSharpStructuredBufferProbe.FieldName, buffer);
+                    if (bindStatus != 0)
+                    {
+                        error = "bind:" + parameters.GetLastError();
+                        break;
+                    }
+                    if (graph.AddTrianglePass(StructuredBufferWindowTarget,
+                            CSharpStructuredBufferProbe.ShaderPath,
+                            CSharpStructuredBufferProbe.VertexBufferName,
+                            CSharpStructuredBufferProbe.VertexBufferName,
+                            CSharpStructuredBufferProbe.VertexCount,
+                            CSharpStructuredBufferProbe.ClearRed, CSharpStructuredBufferProbe.ClearGreen,
+                            CSharpStructuredBufferProbe.ClearBlue,
+                            CSharpStructuredBufferProbe.ClearAlpha) != 0)
+                    {
+                        error = "pass:" + graph.GetLastError();
+                        break;
+                    }
+                    if (graph.SetPassParam(0u, CSharpStructuredBufferProbe.BlockName, parameters) != 0)
+                    {
+                        error = "param:" + graph.GetLastError();
+                        break;
+                    }
+                    if (graph.Present(StructuredBufferWindowTarget) != 0)
+                    {
+                        error = "present:" + graph.GetLastError();
+                        break;
+                    }
+                    if (backend.SubmitGraph(graph) != 0)
+                    {
+                        error = "submit:" + backend.GetLastError();
+                        break;
+                    }
+                    backend.WaitIdle();
+                    ++submits;
+                }
+            }
+            buffer?.Dispose();
+            string suffix = error.Length == 0 ? string.Empty : " bufferError=" + error.Replace(' ', '_');
+            return $"bufferReuse={(submits == 2 && !fallback ? 1 : 0)} bufferSubmits={submits} " +
+                   $"bufferToken={token} bufferFallback={(fallback ? 1 : 0)} " +
+                   $"bufferAfterDispose={(buffer != null && buffer.Disposed ? 1 : 0)} " +
+                   $"bufferCreateCount={backend.CreateBufferCount}{suffix}";
         }
 
         private static void AddStructuredBufferPass(ScriptRenderTarget target)

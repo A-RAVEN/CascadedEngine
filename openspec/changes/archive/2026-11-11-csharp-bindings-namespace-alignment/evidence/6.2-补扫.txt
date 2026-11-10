@@ -1,0 +1,40 @@
+csharp-bindings-namespace-alignment · 6.2 补扫（完工核验后的迁移残留）
+执行时间：2026-11-10 凌晨
+
+一、修正的残留（CSharpHost/README.md 第 57 行，脚本层入口签名示例）
+  改前：
+    - **入口签名**：`public static void OnEngineReady(Scripting.Generated.Bindings.IWindowSystem windows)`
+  改后：
+    - **入口签名**：`public static void OnEngineReady(Scripting.Generated.Bindings.Cawindow.IWindowSystem windows)`
+  依据：`cawindow::IWindowSystem` 按 D1 映射为 `Scripting.Generated.Bindings.Cawindow.IWindowSystem`
+  （生成产物 `cawindow__IWindowSystem.Bindings.cs` 里的实际命名空间，逐字可核）。
+  git diff 实测：`9 insertions(+), 5 deletions(-)`（只含本批 ABI/示例改动 + 这一行，未整文件重写）。
+
+二、宽模式全仓重扫（含 .md）
+  命令：
+    $pat='Generated\.Bindings\.(IWindow|IWindowSystem|CRenderBackend|GPUGraph|ShaderStruct|GPUTexture|WindowHandle|ImageHandle|BufferHandle)\b'
+    git grep -nP $pat -- '*.md' '*.cs' '*.cpp' '*.py' '*.h' ':!openspec/changes/archive' ':!*dsh-acl-recovery*'
+  实测：0 行命中（不含历史归档；`.dsh-acl-recovery/` 是开工前就存在的未跟踪目录，非本批产物）。
+  说明：历史叙述豁免项仍保留在 docs/TODO.md 的划线记录（`IWindow_lastErrorCode`，属"已修复旧实现"的
+  历史描述，且不匹配本模式 —— 模式要求 `Generated.Bindings.<类型>`）。
+
+三、为什么 5.2 的内容判据没抓到它（缺口原因，三条）
+  1) `Tools/check_csharp_host_readme.py` 的判据面：只解析
+     ① ABI 版本/字节数（`ABI vN`、`函数表 N 字节`、`托管侧期望 N`）、
+     ② `| 编号 | 接口 | … |` 编号表行（只比对行里的完整限定名）、
+     ③ `CASCADED_*` 探针开关清单。
+     第 57 行是一个**散文里的 C# 签名示例**，不含上述任何一种读数；脚本没有"正文类型名/命名空间"
+     扫描，所以它有 0 问题（这次修完再跑仍是 0 问题 —— 它本来就不覆盖这一类）。
+  2) `Tools/CodeGen/verify_readme.py` 的输入只有 `Tools/CodeGen/README.md`：它逐条重跑文档里的
+     `CodeGen.exe …` 命令并比对输出，CSharpHost/README.md 里的签名示例不是命令/输出块，不在覆盖面内。
+  3) 5.2 的任务级内容判据只写了两条可 grep 要求：镜像规则/线形槽名在 Tools/CodeGen/README.md 正文、
+     CSharpHost 编号表用限定名。**没有**"全仓旧平铺引用 0（含 .md）"这条。3.3 当时确实扫到过这一处
+     （evidence/3.1-3.3 里记为"CSharpHost/README.md:53，文档换面在 5.2 处理"），但 5.2 换面按
+     ABI/编号表/示例输出逐项改，没把 3.3 的"待 5.2"转成一张逐文件清单 ⇒ 漏掉了这一行。
+  处置：本条补扫把"宽模式全仓 0 命中（含 .md、排除 archive）"固化成可复跑命令，记在本文件第二节；
+  后续任何改名的 change 收尾都应按它复跑一遍。
+
+四、回归
+  python Tools\check_csharp_host_readme.py ⇒ EXIT=0，问题 0 处（ABI v11 / 56 字节 / 7 行编号表）；
+  python Tools\check_csharp_host_failures.py 的 ABI 场景不受本次文档改动影响（此前 5/5 通过）。
+  openspec validate csharp-bindings-namespace-alignment --strict 仍为 valid（本次只改 README 示例）。

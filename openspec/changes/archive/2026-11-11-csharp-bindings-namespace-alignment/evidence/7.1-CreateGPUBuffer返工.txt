@@ -1,0 +1,92 @@
+csharp-bindings-namespace-alignment · 7.1 补 CreateGPUBuffer 直绑（用户 2026-11-10 裁定）
+执行时间：2026-11-10 下午
+最终构建：%TEMP%\ns7-build-6.log（EXIT=0，BUILD SUCCESSFUL；绑定判据十三项全 0）
+全量测试：vulkan 16/16 pass、d3d12 16/16 pass；CoreTests EXIT=0
+
+一、C++ 侧（照 GPUTexture 先例，无新机制）
+  1) `Interface/RenderInterface/header/GPUBuffer.h`：`GPUBuffer` 挂无参 `CA_BIND()`（第六原生接口）；
+     描述符 `GPUBufferDescriptor` 早已是公开记录。
+  2) `Interface/RenderInterface/header/CRenderBackend.h`：删掉 `CA_BIND_SKIP(CreateGPUBuffer, …)`，
+     `shared_ptr<GPUBuffer>` 返回走"已绑定接口按对象登记"；两个重载都进表
+     （`CreateGPUBuffer` / `CreateGPUBuffer_2`）。
+  3) 发号：`python build.py --update-ids --config Debug` 实测
+     `新增：编号 8 / GPUBuffer`；锁 host 段 1–7 一字未动，8 行写入，`# high water 8`，
+     段内从 1 连续、无跳号（构建核对 0 问题）。
+  4) `build.py`：`CODEGEN_BINDINGS` 加 `GPUBuffer.h`（期望产物 `graphics_backend__GPUBuffer`），
+     `CODEGEN_REGISTRIES` host 段加 `native-gpu-buffer` 分片。
+  5) `CSharpHost/private/CSharpHost.cpp`：角色表加
+     `{ kBindingInterfaceIdgraphics_backend__GPUBuffer, false }`（目标类型表，允许空实例）。
+
+二、生成产物（构建后实测）
+  · `graphics_backend__GPUBuffer.Bindings.cs`：`public sealed class GPUBuffer : IDisposable`
+    + `GetDescriptor/SetName/GetName`；`graphics_backend__GPUBuffer.Bindings.cpp` 同套 C ABI。
+  · `graphics_backend__CRenderBackend.Bindings.cs`：
+      `public static delegate* … CreateGPUBuffer;`（表偏移 56）
+      `public static delegate* … CreateGPUBuffer_2;`（表偏移 64）
+      `public GPUBuffer CreateGPUBuffer(GPUBufferDescriptor descriptor, EBufferUsage usageFlags)`
+  · `graphics_backend__BufferHandle.Bindings.cs`：新增
+      `public static BufferHandle FromGPUBuffer(GPUBuffer value)`（外部缓冲句柄分支）。
+  · 夹具登记表/主登记表：编号 8 行、`kBindingInterfaceIdgraphics_backend__GPUBuffer = 8u`；
+    `EngineApi.Bindings.cs` 常量 `GraphicsBackend__GPUBufferInterfaceId = 8`。
+
+三、托管糖层（Scripting/Managed/NativeRenderSugar.cs）
+  · 新增 `ScriptBuffer`（IDisposable）：持 `GPUBuffer` 表面 + 描述符；`Handle` = `BufferHandle.FromGPUBuffer`；
+    `Dispose` 只放托管引用（`Native.Dispose()`），仍被图/参数结构持有的原生对象由 `shared_ptr` 保活。
+  · `ScriptRenderBackend.CreateBuffer(GPUBufferDescriptor, EBufferUsage)`：count/stride 非零、乘法不溢出，
+    失败返回空并点名；新增计数 `CreateBufferCount`。
+  · `ScriptShaderStruct.SetBuffer(string field, ScriptBuffer buffer)`：校验字段在元数据里、只读、单元素，
+    走 External 句柄；新增 `IsExternalBuffer`，`SubmitGraph` 的前置校验对这类字段跳过
+    "缓冲必须在本图分配表里"（生命周期跟随后端，不跟图）。
+  · `CSharpHost/README.md`：编号表补第 8 行 `graphics_backend::GPUBuffer`（目标类型表）；
+    环境变量表补 `CASCADED_CSHARP_BUFFER_FALLBACK`（红样开关）。
+
+四、验收红绿（糖层用例，跨两次建图复用同一后端直建缓冲）
+  位置：`Scripting/Managed/UserScript.cs` 的 `ProbeCreateBufferReuse`，由
+  `TestCSharpStructuredBuffer` 正常模式在读数行之后追加字段：
+    `bufferReuse=1 bufferSubmits=2 bufferToken=… bufferFallback=0 bufferAfterDispose=1 bufferCreateCount=1`
+  C++ 断言：`Test/GPUBackendTester/Main.cpp` 读到 reuse=1 / submits=2 / afterDispose=1，否则
+  `E_SB_CREATEBUFFER`。
+  绿样（默认）：
+    out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestCSharpStructuredBuffer --headless 10 --report …
+    实测：`{"name":"TestCSharpStructuredBuffer","status":"pass","exit_code":0}`（d3d12 同）。
+  红样（回退到图内 AllocBuffer 路径，`CASCADED_CSHARP_BUFFER_FALLBACK=1`）：
+    实测：EXIT=1
+    `E_SB_CREATEBUFFER: 后端直建缓冲跨图复用读数不符：reuse=0 submits=1 afterDispose=0 createCount=0
+     err=submit:ScriptRenderBackend.bufferName：pass_0_的字段_colorStructuredBuffer_引用了本图未登记的缓冲：sbColorsReuseFallback`
+    —— 第二张图没有本图分配的同名缓冲，提交前校验拒绝：图内 `AllocBuffer` 无法跨图复用。
+
+五、审计与快照
+  · 审计表：`graphics_backend::GPUBuffer` 3 行（GetDescriptor/SetName/GetName，均"可绑"）；
+    `CreateGPUBuffer` 两行从"本轮未实现/不可绑"改为"可绑"（返回 `GPUBuffer` 表面对象、Dispose 只放
+    托管引用、跨图复用）。范围从 8 接口/91 方法变 9 接口/94 方法。
+  · `python Tools\CodeGen\check_bindable_audit.py` 实测：扫描 9 个接口、对账 94 条方法、**0 问题**。
+  · 快照重跑（5 个原生头，`--parse-report`）：`check_native_snapshot.py` 实测
+    独立清单 129 条 / **0 问题**；`[采集] graphics_backend::CRenderBackend::CreateGPUBuffer` 两行由
+    "排除"变"采集"，归档快照已替换。
+
+六、ABI v11→v12（绑定面换源：新增第六接口 + 表槽）
+  · 生成器单点：`kEngineApiVersion = 12u`、`AbiVersion = 12`；布局不变（9 字段 / 56 字节）。
+  · 四处同步：`CSharpHost/README.md`（v12 + 示例 13/12）、`Tools/check_csharp_host_failures.py`
+    （托管侧期望 12）、`Tools/check_csharp_host_readme.py`（常量期望规则不变，读生成值）、
+    `Tools/CodeGen/check_bindings.py`（`kEngineApiVersion = 12u` / `AbiVersion = 12`）。
+  · 实测：生成头 12u / 56u；`check_csharp_host_readme.py` 问题 0 处（v12 / 56 字节 / 8 行表 / 8 常量）；
+    `check_csharp_host_failures.py` 5 场景 5 通过（第 4 条文本含"托管侧期望 12"）。
+
+七、基线换锚小轮（程序同 4.2）
+  · 上一锚（v11 / 200 条）逐字节封存：`evidence/7.1-换锚前-基线产物哈希.txt`。
+  · 新锚：`evidence/基线产物哈希.txt`，203 条。
+  · 差异（`evidence/7.1-换锚前后对照.txt`）：删除 0 / 新增 3（GPUBuffer 两产物 + native-gpu-buffer 分片）/
+    内容变化 12（两张登记表、EngineApi、BufferHandle、CRenderBackend/GPUGraph/GPUTexture 等）/
+    未变 188；自洽：200 = 0 + 12 + 188，203 = 3 + 12 + 188。
+  · 演练：新锚 0/0/0 EXIT=0；`--self-test` EXIT=0；上一锚 vs 新产物 缺 0 / 不一致 12 / 多余 3 EXIT=1
+    （跳过封存被拒）；篡改一条哈希 EXIT=1。
+  · `check_binding_baseline.py` docstring 的"当前基线"补记 7.1 换锚与上一锚位置。
+
+八、全量回归
+  · `python build.py --config Debug`：BUILD SUCCESSFUL；绑定判据十三项全 0。
+  · 两后端：`--headless 10 --report` 各 16 条、pass 16 / fail 0（vulkan、d3d12）。
+  · CoreTests：EXIT=0。
+  · check 家族：legacy 0 命中、gpu_timing 2/2、triangle/constant_color/structured_buffer/texture_sampling
+    各 0 问题、window 1 组 + callbacks 10 类 0 问题、check_csharp_host_failures 5/5、
+    check_csharp_host_readme 0、baseline 0/0/0、audit 0、snapshot 0、verify_readme 22 命令 0 mismatch。
+  · `openspec validate csharp-bindings-namespace-alignment --strict`：valid。

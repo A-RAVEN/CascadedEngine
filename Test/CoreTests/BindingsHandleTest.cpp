@@ -1,4 +1,4 @@
-// 句柄表（`csharp-bindings-generator` 任务 2.4）：序号 + 代际、配对释放、失效报错、参数侧反查。
+﻿// 句柄表（`csharp-bindings-generator` 任务 2.4）：序号 + 代际、配对释放、失效报错、参数侧反查。
 //
 // 四条读数：
 //   ① 实现返回智能指针 → 拿到非零句柄；
@@ -8,7 +8,7 @@
 
 #include "BindableShapes.h"
 
-#include "IBindRow09.Bindings.cpp"
+#include "ca_bind_fixture__IBindRow09.Bindings.cpp"
 
 #include <atomic>
 #include <cstdio>
@@ -42,7 +42,7 @@ namespace
 bool RunBindingsHandleTest()
 {
 	FakeRow09 object;
-	const uint64_t handle = IBindRow09_AcquireThing(&object);
+	const uint64_t handle = ca_bind_fixture__IBindRow09__AcquireThing(&object);
 	if (handle == 0u)
 	{
 		std::puts("  AcquireThing 没有返回句柄");
@@ -54,29 +54,29 @@ bool RunBindingsHandleTest()
 	{
 		const uint64_t indexMask = (1ull << 48) - 1ull;
 		const std::size_t slot = static_cast<std::size_t>((handle & indexMask) - 1ull);
-		if (slot >= IBindRow09_handles.size() || IBindRow09_handles[slot].kind != 1u)
+		if (slot >= ca_bind_fixture__IBindRow09_handles.size() || ca_bind_fixture__IBindRow09_handles[slot].kind != 1u)
 		{
 			std::puts("  强句柄的表项 kind 应为 1（同一张表里区分强/弱）");
 			return false;
 		}
 		// 再登记一个弱句柄：断言两类能共存于同一张表（不抬高引用计数由 1.4 单独验）
 		std::shared_ptr<void> keep(&object, [](void*) {});
-		const uint64_t weakHandle = IBindRow09_registerWeakHandle(&object, std::weak_ptr<void>(keep), "");
+		const uint64_t weakHandle = ca_bind_fixture__IBindRow09_registerWeakHandle(&object, std::weak_ptr<void>(keep), "");
 		const std::size_t weakSlot = static_cast<std::size_t>((weakHandle & indexMask) - 1ull);
-		if (weakHandle == 0u || weakSlot >= IBindRow09_handles.size() ||
-			IBindRow09_handles[weakSlot].kind != 2u)
+		if (weakHandle == 0u || weakSlot >= ca_bind_fixture__IBindRow09_handles.size() ||
+			ca_bind_fixture__IBindRow09_handles[weakSlot].kind != 2u)
 		{
 			std::puts("  弱句柄没有登记进同一张表（kind 应为 2）");
 			return false;
 		}
-		IBindRow09_releaseHandle(&object, weakHandle);
+		ca_bind_fixture__IBindRow09_releaseHandle(&object, weakHandle);
 	}
 
 	// ② 有效句柄释放一次：成功且错误码回到 0
-	IBindRow09_ReleaseAcquireThing(&object, handle);
-	if (IBindRow09_LastErrorCode(&object) != 0)
+	ca_bind_fixture__IBindRow09__ReleaseAcquireThing(&object, handle);
+	if (ca_bind_fixture__IBindRow09__LastErrorCode(&object) != 0)
 	{
-		std::printf("  有效句柄释放后错误码应为 0，实际 %d\n", IBindRow09_LastErrorCode(&object));
+		std::printf("  有效句柄释放后错误码应为 0，实际 %d\n", ca_bind_fixture__IBindRow09__LastErrorCode(&object));
 		return false;
 	}
 
@@ -86,7 +86,7 @@ bool RunBindingsHandleTest()
 	{
 		const uint64_t indexMask = (1ull << 48) - 1ull;
 		const std::size_t slot = static_cast<std::size_t>((handle & indexMask) - 1ull);
-		if (slot < IBindRow09_handles.size() && IBindRow09_handles[slot].strong)
+		if (slot < ca_bind_fixture__IBindRow09_handles.size() && ca_bind_fixture__IBindRow09_handles[slot].strong)
 		{
 			std::puts("  释放句柄后生成物仍持有强引用 —— 对象永远不会被析构");
 			return false;
@@ -94,27 +94,27 @@ bool RunBindingsHandleTest()
 	}
 
 	// ③ 同一句柄再释放：失效错误码 1001
-	IBindRow09_ReleaseAcquireThing(&object, handle);
-	if (IBindRow09_LastErrorCode(&object) != 1001)
+	ca_bind_fixture__IBindRow09__ReleaseAcquireThing(&object, handle);
+	if (ca_bind_fixture__IBindRow09__LastErrorCode(&object) != 1001)
 	{
-		std::printf("  重复释放应报 1001，实际 %d\n", IBindRow09_LastErrorCode(&object));
+		std::printf("  重复释放应报 1001，实际 %d\n", ca_bind_fixture__IBindRow09__LastErrorCode(&object));
 		return false;
 	}
 	// ③' 任务 1.3：泛用解析入口对已失效的句柄必须返回空 + 1001
 	// （它是 C# 侧"用句柄调方法"的唯一通路：所有方法入口的第一个参数都是 `void* self`）
-	if (IBindRow09_ResolveHandle(&object, handle) != nullptr)
+	if (ca_bind_fixture__IBindRow09__ResolveHandle(&object, handle) != nullptr)
 	{
 		std::puts("  ResolveHandle 对已失效的句柄仍然返回了指针");
 		return false;
 	}
-	if (IBindRow09_LastErrorCode(&object) != 1001)
+	if (ca_bind_fixture__IBindRow09__LastErrorCode(&object) != 1001)
 	{
-		std::printf("  ResolveHandle 失败后错误码应为 1001，实际 %d\n", IBindRow09_LastErrorCode(&object));
+		std::printf("  ResolveHandle 失败后错误码应为 1001，实际 %d\n", ca_bind_fixture__IBindRow09__LastErrorCode(&object));
 		return false;
 	}
 
 	char text[64] = { 0 };
-	IBindRow09_LastErrorText(&object, text, sizeof(text));
+	ca_bind_fixture__IBindRow09__LastErrorText(&object, text, sizeof(text));
 	if (std::strstr(text, "stale") == nullptr)
 	{
 		std::printf("  失效后文本里没有说明：%s\n", text);
@@ -122,8 +122,8 @@ bool RunBindingsHandleTest()
 	}
 
 	// ④ 再释放一次仍然是 1001（旧句柄不会复活）
-	IBindRow09_ReleaseAcquireThing(&object, handle);
-	if (IBindRow09_LastErrorCode(&object) != 1001)
+	ca_bind_fixture__IBindRow09__ReleaseAcquireThing(&object, handle);
+	if (ca_bind_fixture__IBindRow09__LastErrorCode(&object) != 1001)
 	{
 		std::puts("  失效句柄反复释放时错误码变了");
 		return false;
@@ -139,17 +139,17 @@ bool RunBindingsHandleTest()
 	{
 		constexpr uint32_t kGenerationBits = 16u;
 		constexpr uint32_t kCycles = 1u << kGenerationBits; // 65536
-		uint64_t const firstHandle = IBindRow09_AcquireThing(&object);
+		uint64_t const firstHandle = ca_bind_fixture__IBindRow09__AcquireThing(&object);
 		if (firstHandle == 0u)
 		{
 			std::puts("  回绕用例：第一轮就没拿到句柄");
 			return false;
 		}
-		IBindRow09_ReleaseAcquireThing(&object, firstHandle);
+		ca_bind_fixture__IBindRow09__ReleaseAcquireThing(&object, firstHandle);
 		bool sawRepeat = false;
 		for (uint32_t cycle = 0u; cycle < kCycles; ++cycle)
 		{
-			uint64_t const handle = IBindRow09_AcquireThing(&object);
+			uint64_t const handle = ca_bind_fixture__IBindRow09__AcquireThing(&object);
 			if (handle == 0u)
 			{
 				// 槽被退休之后表会继续往后长；长不出来才允许在这里退出
@@ -161,14 +161,14 @@ bool RunBindingsHandleTest()
 			{
 				sawRepeat = true;
 			}
-			IBindRow09_ReleaseAcquireThing(&object, handle);
+			ca_bind_fixture__IBindRow09__ReleaseAcquireThing(&object, handle);
 		}
 		if (sawRepeat)
 		{
 			std::puts("  代际回绕：同一个句柄数字被重新发了出去（旧句柄会复活）");
 			return false;
 		}
-		if (IBindRow09_ResolveHandle(&object, firstHandle) != nullptr)
+		if (ca_bind_fixture__IBindRow09__ResolveHandle(&object, firstHandle) != nullptr)
 		{
 			std::puts("  代际回绕之后最早的句柄又复活了（退休机制没生效）");
 			return false;
@@ -191,17 +191,17 @@ bool RunBindingsHandleTest()
 			threads.emplace_back([&object, &failures, &lastHandles, threadIndex]() {
 				for (int iteration = 0; iteration < kPerThread; ++iteration)
 				{
-					uint64_t const handle = IBindRow09_AcquireThing(&object);
+					uint64_t const handle = ca_bind_fixture__IBindRow09__AcquireThing(&object);
 					if (handle == 0u)
 					{
 						++failures;
 						return;
 					}
-					if (IBindRow09_ResolveHandle(&object, handle) == nullptr)
+					if (ca_bind_fixture__IBindRow09__ResolveHandle(&object, handle) == nullptr)
 					{
 						++failures;
 					}
-					IBindRow09_ReleaseAcquireThing(&object, handle);
+					ca_bind_fixture__IBindRow09__ReleaseAcquireThing(&object, handle);
 					lastHandles[static_cast<std::size_t>(threadIndex)] = handle;
 				}
 			});
@@ -217,7 +217,7 @@ bool RunBindingsHandleTest()
 		}
 		for (uint64_t handle : lastHandles)
 		{
-			if (handle != 0u && IBindRow09_ResolveHandle(&object, handle) != nullptr)
+			if (handle != 0u && ca_bind_fixture__IBindRow09__ResolveHandle(&object, handle) != nullptr)
 			{
 				std::puts("  并发用例：已释放的句柄仍然能解析出指针");
 				return false;
@@ -229,20 +229,20 @@ bool RunBindingsHandleTest()
 	{
 		FakeRow09 nullObject;
 		nullObject.returnNull = true;
-		const uint64_t zeroHandle = IBindRow09_AcquireThing(&nullObject);
+		const uint64_t zeroHandle = ca_bind_fixture__IBindRow09__AcquireThing(&nullObject);
 		if (zeroHandle != 0u)
 		{
 			std::puts("  实现返回空指针时应当拿到 0 句柄");
 			return false;
 		}
-		if (IBindRow09_LastErrorCode(&nullObject) != IBindRow09_ERROR_NULL_POINTER)
+		if (ca_bind_fixture__IBindRow09__LastErrorCode(&nullObject) != ca_bind_fixture__IBindRow09_ERROR_NULL_POINTER)
 		{
-			std::printf("  实现返回空指针时应报 1002，实际 %d\n", IBindRow09_LastErrorCode(&nullObject));
+			std::printf("  实现返回空指针时应报 1002，实际 %d\n", ca_bind_fixture__IBindRow09__LastErrorCode(&nullObject));
 			return false;
 		}
 		// 反例（D11 的"入口先清零"）：同一个实例紧接着一次成功调用，码必须回到 0
 		nullObject.returnNull = false;
-		if (IBindRow09_AcquireThing(&nullObject) == 0u || IBindRow09_LastErrorCode(&nullObject) != 0)
+		if (ca_bind_fixture__IBindRow09__AcquireThing(&nullObject) == 0u || ca_bind_fixture__IBindRow09__LastErrorCode(&nullObject) != 0)
 		{
 			std::puts("  失败之后紧接着的成功调用没有把错误码清回 0");
 			return false;

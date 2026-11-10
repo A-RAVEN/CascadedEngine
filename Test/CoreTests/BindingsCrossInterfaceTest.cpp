@@ -1,4 +1,4 @@
-// 跨头文件资源 / 发行接口的行为判据（csharp-render-binding-foundations 任务 1.2）。
+﻿// 跨头文件资源 / 发行接口的行为判据（csharp-render-binding-foundations 任务 1.2）。
 //
 // 判的是四件事：
 //   ① 发行者入口与目标入口分别校验：资源句柄由 `IBindRenderOwner` 发行，`IBindRenderResource`
@@ -9,9 +9,9 @@
 //      强句柄释放后表项里的 `strong` 为空。
 //
 // 测试直接 include 生成物，所以句柄表与错误通道在同一个翻译单元里可见（这是规范要求的判据口径）。
-#include "IBindRenderOwner.Bindings.cpp"
-#include "IBindRenderResource.Bindings.cpp"
-#include "IBindRenderResourceAlt.Bindings.cpp"
+#include "ca_bind_fixture__IBindRenderOwner.Bindings.cpp"
+#include "ca_bind_fixture__IBindRenderResource.Bindings.cpp"
+#include "ca_bind_fixture__IBindRenderResourceAlt.Bindings.cpp"
 
 #include <cstdio>
 #include <cstring>
@@ -139,112 +139,112 @@ bool RunBindingsCrossInterfaceTest()
 	bool ok = true;
 
 	// ---- ① 强返回：发行者入口 / 目标入口分别校验 ----
-	const uint64_t strong = IBindRenderOwner_CreateResource(owner, 42u);
+	const uint64_t strong = ca_bind_fixture__IBindRenderOwner__CreateResource(owner, 42u);
 	ok = Expect(strong != 0ull && owner->createCalls == 1, "CreateResource 没有拿到句柄") && ok;
 	ok = Expect(owner->created != nullptr, "原生实现没有拿到创建出来的资源") && ok;
-	ok = Expect(IBindRenderResource_ResolveHandle(owner, strong) == nullptr &&
-		IBindRenderResource_LastErrorCode(owner) == IBindRenderResource_ERROR_STALE_HANDLE,
+	ok = Expect(ca_bind_fixture__IBindRenderResource__ResolveHandle(owner, strong) == nullptr &&
+		ca_bind_fixture__IBindRenderResource__LastErrorCode(owner) == ca_bind_fixture__IBindRenderResource_ERROR_STALE_HANDLE,
 		"资源接口的发行者入口没有拒绝别的接口发行的句柄") && ok;
-	ok = Expect(IBindRenderOwner_ResolveHandle(owner, strong) == owner->created,
+	ok = Expect(ca_bind_fixture__IBindRenderOwner__ResolveHandle(owner, strong) == owner->created,
 		"发行者入口没有解析到发行者自己的句柄") && ok;
-	ok = Expect(IBindRenderResource_ResolveTargetHandle(owner, strong) == owner->created,
+	ok = Expect(ca_bind_fixture__IBindRenderResource__ResolveTargetHandle(owner, strong) == owner->created,
 		"资源目标入口没有按目标类型解析跨头文件句柄") && ok;
-	ok = Expect(IBindRenderOwner_ResolveTargetHandle(owner, strong) == nullptr &&
-		IBindRenderOwner_LastErrorCode(owner) == IBindRenderOwner_ERROR_STALE_HANDLE,
+	ok = Expect(ca_bind_fixture__IBindRenderOwner__ResolveTargetHandle(owner, strong) == nullptr &&
+		ca_bind_fixture__IBindRenderOwner__LastErrorCode(owner) == ca_bind_fixture__IBindRenderOwner_ERROR_STALE_HANDLE,
 		"目标入口没有拒绝错误的目标类型") && ok;
 
 	// ---- ② shared_ptr 入参按目标类型反查重建 ----
-	IBindRenderOwner_UseResource(owner, strong);
+	ca_bind_fixture__IBindRenderOwner__UseResource(owner, strong);
 	ok = Expect(owner->useCalls == 1 && owner->lastUsed == owner->created,
 		"shared_ptr 入参没有重建到同一对象") && ok;
 	const int useCallsBefore = owner->useCalls;
-	IBindRenderOwner_UseAltResource(owner, strong);
+	ca_bind_fixture__IBindRenderOwner__UseAltResource(owner, strong);
 	ok = Expect(owner->useAltCalls == 0 &&
-		IBindRenderOwner_LastErrorCode(owner) == IBindRenderOwner_ERROR_STALE_HANDLE,
+		ca_bind_fixture__IBindRenderOwner__LastErrorCode(owner) == ca_bind_fixture__IBindRenderOwner_ERROR_STALE_HANDLE,
 		"错误目标类型的 shared_ptr 入参进入了原生实现") && ok;
 	ok = Expect(owner->useCalls == useCallsBefore, "错误目标类型的调用改动了原生实现状态") && ok;
 
 	// ---- ③ 弱返回：不抬高引用计数，对象回收后判失效 ----
 	const long useCountBefore = owner->createdShared.use_count();
-	const uint64_t weak = IBindRenderOwner_PeekResource(owner);
+	const uint64_t weak = ca_bind_fixture__IBindRenderOwner__PeekResource(owner);
 	const long useCountAfter = owner->createdShared.use_count();
 	ok = Expect(weak != 0ull && useCountBefore == useCountAfter,
 		"弱返回句柄抬高了 use_count") && ok;
-	ok = Expect(IBindRenderResource_ResolveTargetHandle(owner, weak) == owner->created,
+	ok = Expect(ca_bind_fixture__IBindRenderResource__ResolveTargetHandle(owner, weak) == owner->created,
 		"弱返回句柄在对象存活时解析失败") && ok;
 	// 先释放强句柄（表项里的强引用），再让实现自己回收对象：只有两步都做完，弱句柄才该判失效。
-	IBindRenderOwner_ReleaseCreateResource(owner, strong);
-	ok = Expect(IBindRenderResource_ResolveTargetHandle(owner, weak) == owner->created,
+	ca_bind_fixture__IBindRenderOwner__ReleaseCreateResource(owner, strong);
+	ok = Expect(ca_bind_fixture__IBindRenderResource__ResolveTargetHandle(owner, weak) == owner->created,
 		"强句柄释放后、对象仍被持有者保活时弱句柄不该失效") && ok;
 	owner->createdShared.reset();
-	ok = Expect(IBindRenderResource_ResolveTargetHandle(owner, weak) == nullptr &&
-		IBindRenderResource_LastErrorCode(owner) == IBindRenderResource_ERROR_STALE_HANDLE,
+	ok = Expect(ca_bind_fixture__IBindRenderResource__ResolveTargetHandle(owner, weak) == nullptr &&
+		ca_bind_fixture__IBindRenderResource__LastErrorCode(owner) == ca_bind_fixture__IBindRenderResource_ERROR_STALE_HANDLE,
 		"对象回收后弱返回句柄没有判失效") && ok;
-	IBindRenderResource_ReleaseTargetHandle(owner, weak);
+	ca_bind_fixture__IBindRenderResource__ReleaseTargetHandle(owner, weak);
 	{
-		const uint64_t index = HandleIndex(weak, IBindRenderOwner_HANDLE_INDEX_BITS);
-		ok = Expect(index >= 1ull && index <= IBindRenderOwner_handles.size() &&
-			IBindRenderOwner_handles[index - 1u].kind == 0u,
+		const uint64_t index = HandleIndex(weak, ca_bind_fixture__IBindRenderOwner_HANDLE_INDEX_BITS);
+		ok = Expect(index >= 1ull && index <= ca_bind_fixture__IBindRenderOwner_handles.size() &&
+			ca_bind_fixture__IBindRenderOwner_handles[index - 1u].kind == 0u,
 			"目标释放没有清掉弱句柄的表项") && ok;
 	}
 
 	// ---- ④ 借用 + 见证：见证存活时目标解析成功，见证过期后拒绝 ----
-	const uint64_t borrowedIssuer = IBindRenderOwner_CreateResource(owner, 7u);
-	void* resourceSelf = IBindRenderResource_ResolveTargetHandle(owner, borrowedIssuer);
+	const uint64_t borrowedIssuer = ca_bind_fixture__IBindRenderOwner__CreateResource(owner, 7u);
+	void* resourceSelf = ca_bind_fixture__IBindRenderResource__ResolveTargetHandle(owner, borrowedIssuer);
 	ok = Expect(resourceSelf != nullptr, "借用场景拿不到资源对象") && ok;
-	const uint64_t ownerWeak = IBindRenderResource_GetOwnerWeak(resourceSelf);
-	ok = Expect(IBindRenderOwner_ResolveTargetHandle(owner, ownerWeak) == owner,
+	const uint64_t ownerWeak = ca_bind_fixture__IBindRenderResource__GetOwnerWeak(resourceSelf);
+	ok = Expect(ca_bind_fixture__IBindRenderOwner__ResolveTargetHandle(owner, ownerWeak) == owner,
 		"弱返回的跨头文件目标解析失败") && ok;
-	const uint64_t borrowed = IBindRenderResource_GetOwnerBorrowed(resourceSelf);
+	const uint64_t borrowed = ca_bind_fixture__IBindRenderResource__GetOwnerBorrowed(resourceSelf);
 	ok = Expect(borrowed != 0ull, "借用返回没有拿到句柄") && ok;
-	ok = Expect(IBindRenderOwner_ResolveTargetHandle(owner, borrowed) == owner,
+	ok = Expect(ca_bind_fixture__IBindRenderOwner__ResolveTargetHandle(owner, borrowed) == owner,
 		"见证存活时借用句柄目标解析失败") && ok;
-	IBindRenderOwner_ReleaseCreateResource(owner, borrowedIssuer);
-	ok = Expect(IBindRenderOwner_ResolveTargetHandle(owner, borrowed) == nullptr &&
-		IBindRenderOwner_LastErrorCode(owner) == IBindRenderOwner_ERROR_STALE_HANDLE,
+	ca_bind_fixture__IBindRenderOwner__ReleaseCreateResource(owner, borrowedIssuer);
+	ok = Expect(ca_bind_fixture__IBindRenderOwner__ResolveTargetHandle(owner, borrowed) == nullptr &&
+		ca_bind_fixture__IBindRenderOwner__LastErrorCode(owner) == ca_bind_fixture__IBindRenderOwner_ERROR_STALE_HANDLE,
 		"见证过期后借用句柄目标解析没有被拒绝") && ok;
-	IBindRenderOwner_ReleaseTargetHandle(owner, borrowed);
-	ok = Expect(IBindRenderOwner_ResolveTargetHandle(owner, borrowed) == nullptr,
+	ca_bind_fixture__IBindRenderOwner__ReleaseTargetHandle(owner, borrowed);
+	ok = Expect(ca_bind_fixture__IBindRenderOwner__ResolveTargetHandle(owner, borrowed) == nullptr,
 		"借用句柄释放后仍然可以解析") && ok;
 
 	// ---- ⑤ 无见证借用：栈上的资源对象不在表里 ----
 	FakeResource stackResource(castl::weak_ptr<ca_bind_fixture::IBindRenderOwner>(ownerShared), owner, 3u);
-	const uint64_t noWitness = IBindRenderResource_GetOwnerBorrowed(&stackResource);
+	const uint64_t noWitness = ca_bind_fixture__IBindRenderResource__GetOwnerBorrowed(&stackResource);
 	ok = Expect(noWitness != 0ull, "无见证借用没有拿到句柄") && ok;
-	ok = Expect(IBindRenderOwner_ResolveTargetHandle(owner, noWitness) == nullptr &&
-		IBindRenderOwner_LastErrorCode(owner) == IBindRenderOwner_ERROR_STALE_HANDLE,
+	ok = Expect(ca_bind_fixture__IBindRenderOwner__ResolveTargetHandle(owner, noWitness) == nullptr &&
+		ca_bind_fixture__IBindRenderOwner__LastErrorCode(owner) == ca_bind_fixture__IBindRenderOwner_ERROR_STALE_HANDLE,
 		"无见证借用句柄通过了目标解析") && ok;
-	IBindRenderOwner_ReleaseTargetHandle(owner, noWitness);
+	ca_bind_fixture__IBindRenderOwner__ReleaseTargetHandle(owner, noWitness);
 	{
-		const uint64_t index = HandleIndex(noWitness, IBindRenderOwner_HANDLE_INDEX_BITS);
-		ok = Expect(index >= 1ull && index <= IBindRenderOwner_handles.size() &&
-			IBindRenderOwner_handles[index - 1u].kind == 0u,
+		const uint64_t index = HandleIndex(noWitness, ca_bind_fixture__IBindRenderOwner_HANDLE_INDEX_BITS);
+		ok = Expect(index >= 1ull && index <= ca_bind_fixture__IBindRenderOwner_handles.size() &&
+			ca_bind_fixture__IBindRenderOwner_handles[index - 1u].kind == 0u,
 			"无见证借用释放没有清掉表项") && ok;
 	}
 
 	// ---- ⑥ 强句柄释放后表项强引用为空，旧句柄失效且不再进入实现 ----
-	const uint64_t released = IBindRenderOwner_CreateResource(owner, 9u);
-	const uint64_t releasedIndex = HandleIndex(released, IBindRenderOwner_HANDLE_INDEX_BITS);
-	IBindRenderOwner_ReleaseCreateResource(owner, released);
-	ok = Expect(releasedIndex >= 1ull && releasedIndex <= IBindRenderOwner_handles.size() &&
-		IBindRenderOwner_handles[releasedIndex - 1u].kind == 0u &&
-		IBindRenderOwner_handles[releasedIndex - 1u].strong == nullptr,
+	const uint64_t released = ca_bind_fixture__IBindRenderOwner__CreateResource(owner, 9u);
+	const uint64_t releasedIndex = HandleIndex(released, ca_bind_fixture__IBindRenderOwner_HANDLE_INDEX_BITS);
+	ca_bind_fixture__IBindRenderOwner__ReleaseCreateResource(owner, released);
+	ok = Expect(releasedIndex >= 1ull && releasedIndex <= ca_bind_fixture__IBindRenderOwner_handles.size() &&
+		ca_bind_fixture__IBindRenderOwner_handles[releasedIndex - 1u].kind == 0u &&
+		ca_bind_fixture__IBindRenderOwner_handles[releasedIndex - 1u].strong == nullptr,
 		"释放后表项仍持有强引用") && ok;
 	const int useCallsAfterRelease = owner->useCalls;
-	IBindRenderOwner_UseResource(owner, released);
+	ca_bind_fixture__IBindRenderOwner__UseResource(owner, released);
 	ok = Expect(owner->useCalls == useCallsAfterRelease &&
-		IBindRenderOwner_LastErrorCode(owner) == IBindRenderOwner_ERROR_STALE_HANDLE,
+		ca_bind_fixture__IBindRenderOwner__LastErrorCode(owner) == ca_bind_fixture__IBindRenderOwner_ERROR_STALE_HANDLE,
 		"释放后的旧句柄进入了原生实现") && ok;
 
 	// ---- ⑦ Alt 资源同样按目标类型解析 ----
-	const uint64_t alt = IBindRenderOwner_CreateAltResource(owner, 11u);
+	const uint64_t alt = ca_bind_fixture__IBindRenderOwner__CreateAltResource(owner, 11u);
 	ok = Expect(alt != 0ull, "Alt 资源没有拿到句柄") && ok;
-	ok = Expect(IBindRenderResourceAlt_ResolveTargetHandle(owner, alt) != nullptr,
+	ok = Expect(ca_bind_fixture__IBindRenderResourceAlt__ResolveTargetHandle(owner, alt) != nullptr,
 		"Alt 目标入口没有解析自己的句柄") && ok;
-	ok = Expect(IBindRenderResource_ResolveTargetHandle(owner, alt) == nullptr &&
-		IBindRenderResource_LastErrorCode(owner) == IBindRenderResource_ERROR_STALE_HANDLE,
+	ok = Expect(ca_bind_fixture__IBindRenderResource__ResolveTargetHandle(owner, alt) == nullptr &&
+		ca_bind_fixture__IBindRenderResource__LastErrorCode(owner) == ca_bind_fixture__IBindRenderResource_ERROR_STALE_HANDLE,
 		"资源目标入口没有拒绝 Alt 句柄") && ok;
-	IBindRenderOwner_ReleaseCreateAltResource(owner, alt);
+	ca_bind_fixture__IBindRenderOwner__ReleaseCreateAltResource(owner, alt);
 
 	return ok;
 }

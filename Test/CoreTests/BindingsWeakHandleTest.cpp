@@ -1,4 +1,4 @@
-// 弱句柄（`csharp-window-creation` 任务 1.4）：`castl::weak_ptr<T>` 返回 ⇒ `uint64_t` 弱句柄。
+﻿// 弱句柄（`csharp-window-creation` 任务 1.4）：`castl::weak_ptr<T>` 返回 ⇒ `uint64_t` 弱句柄。
 //
 // 为什么单独一个文件：生成物会各自产出 `BindScalarThingC` 镜像结构体，把
 // `IBindRow11.Bindings.cpp` 和 `IBindRow09.Bindings.cpp` 塞进同一个翻译单元会 C2011
@@ -12,7 +12,7 @@
 
 #include "BindableShapes.h"
 
-#include "IBindRow11.Bindings.cpp"
+#include "ca_bind_fixture__IBindRow11.Bindings.cpp"
 
 #include <cstdio>
 #include <memory>
@@ -38,7 +38,7 @@ bool RunBindingsWeakHandleTest()
 
 	// ① 弱句柄不抬高引用计数
 	const long before = static_cast<long>(owner.m_owned.use_count());
-	const uint64_t handle = IBindRow11_PeekThing(&owner);
+	const uint64_t handle = ca_bind_fixture__IBindRow11__PeekThing(&owner);
 	if (handle == 0u)
 	{
 		std::puts("  弱句柄没有登记成功（返回 0）");
@@ -50,7 +50,7 @@ bool RunBindingsWeakHandleTest()
 		std::printf("  弱句柄抬高了引用计数：%ld → %ld（它应当只观察、不持有）\n", before, after);
 		return false;
 	}
-	if (IBindRow11_ResolveHandle(&owner, handle) != owner.m_owned.get())
+	if (ca_bind_fixture__IBindRow11__ResolveHandle(&owner, handle) != owner.m_owned.get())
 	{
 		std::puts("  弱句柄解析出来的指针与实现持有的对象不一致");
 		return false;
@@ -64,14 +64,14 @@ bool RunBindingsWeakHandleTest()
 		std::puts("  见证者没有过期 —— 对象其实还活着，下面的 1001 不能当证据");
 		return false;
 	}
-	if (IBindRow11_ResolveHandle(&owner, handle) != nullptr)
+	if (ca_bind_fixture__IBindRow11__ResolveHandle(&owner, handle) != nullptr)
 	{
 		std::puts("  对象已析构，弱句柄仍然给出了指针");
 		return false;
 	}
-	if (IBindRow11_LastErrorCode(&owner) != 1001)
+	if (ca_bind_fixture__IBindRow11__LastErrorCode(&owner) != 1001)
 	{
-		std::printf("  对象析构后弱句柄应报 1001，实际 %d\n", IBindRow11_LastErrorCode(&owner));
+		std::printf("  对象析构后弱句柄应报 1001，实际 %d\n", ca_bind_fixture__IBindRow11__LastErrorCode(&owner));
 		return false;
 	}
 	return true;

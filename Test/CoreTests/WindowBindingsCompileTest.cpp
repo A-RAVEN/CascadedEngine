@@ -1,16 +1,16 @@
-// `IWindow` 的绑定产物能不能被真正编译并链接（`csharp-bindings-generator` 任务 2.10）。
+﻿// `IWindow` 的绑定产物能不能被真正编译并链接（`csharp-bindings-generator` 任务 2.10）。
 //
 // 这个文件 `#include` 了生成出来的 `IWindow.Bindings.cpp`：只要 CoreTests 能链接成功，就证明
 // 那份产物**进了编译**（不是躺在磁盘上没人用）。运行期再验两条：
-//   ① `IWindow_GetApi` 的版本/大小握手按约定工作；
+//   ① `cawindow__IWindow__GetApi` 的版本/大小握手按约定工作；
 //   ② 表里的方法条数与审计过的可绑方法数一致（23 条纯虚 − 1 条带理由排除 = 22）。
 
 #include <CAWindow/WindowSystem.h>
 
-#include "IWindow.Bindings.cpp"
+#include "cawindow__IWindow.Bindings.cpp"
 // 任务 5.11 的交叉句柄判据要用**另一份产物**的释放入口（两张表合成一张之后靠接口标签区分，
 // 见 design D12 乙）。这一个翻译单元里放两份产物没问题：它们的符号各自带接口前缀。
-#include "IWindowSystem.Bindings.cpp"
+#include "cawindow__IWindowSystem.Bindings.cpp"
 
 #include <cstdio>
 #include <cstring>
@@ -58,13 +58,13 @@ namespace
 
 bool RunWindowBindingsCompileTest()
 {
-	const uint32_t realSize = static_cast<uint32_t>(sizeof(IWindowApi_v2));
-	IWindowApi_v2 table;
+	const uint32_t realSize = static_cast<uint32_t>(sizeof(cawindow__IWindowApi_v2));
+	cawindow__IWindowApi_v2 table;
 	std::memset(&table, 0xCD, sizeof(table));
 
-	if (IWindow_GetApi(2u, realSize, &table) != realSize)
+	if (cawindow__IWindow__GetApi(2u, realSize, &table) != realSize)
 	{
-		std::puts("  IWindow_GetApi 的版本/大小握手没有回填真实大小");
+		std::puts("  cawindow__IWindow__GetApi 的版本/大小握手没有回填真实大小");
 		return false;
 	}
 	if (table.abi_version != 2u || table.size != realSize)
@@ -103,7 +103,7 @@ bool RunWindowBindingsCompileTest()
 	}
 	// 造一次失败：解一个从来没发出去的句柄（代际 1、序号 9999）
 	const uint64_t deadHandle = (1ull << 48) | 9999ull;
-	if (IWindow_ResolveHandle(&window, deadHandle) != nullptr || table.LastErrorCode(&window) != 1001)
+	if (cawindow__IWindow__ResolveHandle(&window, deadHandle) != nullptr || table.LastErrorCode(&window) != 1001)
 	{
 		std::printf("  解失效句柄没有置 1001（读到 %d）\n", table.LastErrorCode(&window));
 		return false;
@@ -142,15 +142,15 @@ bool RunWindowBindingsCompileTest()
 	static char const* const kName = "Cascaded";
 	unsigned char poison[64];
 	std::memset(poison, 0xCD, sizeof(poison));
-	IWindow_SetWindowName(&window, kName, 8u);
-	const uint64_t length = IWindow_GetWindowNameLen(&window);
+	cawindow__IWindow__SetWindowName(&window, kName, 8u);
+	const uint64_t length = cawindow__IWindow__GetWindowNameLen(&window);
 	if (length != 8u)
 	{
 		std::printf("  GetWindowNameLen 与设进去的名字长度不符：%llu\n",
 		            static_cast<unsigned long long>(length));
 		return false;
 	}
-	IWindow_CopyGetWindowName(&window, reinterpret_cast<char*>(poison), sizeof(poison));
+	cawindow__IWindow__CopyGetWindowName(&window, reinterpret_cast<char*>(poison), sizeof(poison));
 	if (std::memcmp(poison, kName, 9u) != 0)
 	{
 		std::puts("  CopyGetWindowName 没有把名字原样写出（含结尾零）");
@@ -159,7 +159,7 @@ bool RunWindowBindingsCompileTest()
 	// 容量为 0 时一个字节都不许写（`cap - 1` 在无符号下溢会写满整段）
 	unsigned char untouched[8];
 	std::memset(untouched, 0xCD, sizeof(untouched));
-	IWindow_CopyGetWindowName(&window, reinterpret_cast<char*>(untouched), 0u);
+	cawindow__IWindow__CopyGetWindowName(&window, reinterpret_cast<char*>(untouched), 0u);
 	for (unsigned char byte : untouched)
 	{
 		if (byte != 0xCD)
@@ -180,28 +180,28 @@ bool RunWindowBindingsCompileTest()
 			std::puts("  GetWindowSystem 没有产出借用句柄（0）");
 			return false;
 		}
-		if (IWindow_ResolveHandle(&window, borrowed) != window.GetWindowSystem())
+		if (cawindow__IWindow__ResolveHandle(&window, borrowed) != window.GetWindowSystem())
 		{
 			std::puts("  借用句柄解出来的指针与实现返回的不一致");
 			return false;
 		}
 		const std::size_t slot = static_cast<std::size_t>((borrowed & ((1ull << 48) - 1ull)) - 1ull);
-		if (slot >= IWindow_handles.size() || IWindow_handles[slot].kind != 4u ||
-		    IWindow_handles[slot].strong != nullptr)
+		if (slot >= cawindow__IWindow_handles.size() || cawindow__IWindow_handles[slot].kind != 4u ||
+		    cawindow__IWindow_handles[slot].strong != nullptr)
 		{
 			std::puts("  借用句柄的表项：kind 应为 4，且不许持有强引用");
 			return false;
 		}
-		IWindow_ReleaseGetWindowSystem(&window, borrowed);
-		if (IWindow_ResolveHandle(&window, borrowed) != nullptr)
+		cawindow__IWindow__ReleaseGetWindowSystem(&window, borrowed);
+		if (cawindow__IWindow__ResolveHandle(&window, borrowed) != nullptr)
 		{
 			std::puts("  借用句柄释放之后仍然能解出指针");
 			return false;
 		}
 		// 从 5.5 的端到端测试挪过来的读数（那边不许再裸调 C ABI 了）：释放之后解析失败必须报 1001
-		if (IWindow_LastErrorCode(&window) != 1001)
+		if (cawindow__IWindow__LastErrorCode(&window) != 1001)
 		{
-			std::printf("  借用句柄释放后解析失败应报 1001，实际 %d\n", IWindow_LastErrorCode(&window));
+			std::printf("  借用句柄释放后解析失败应报 1001，实际 %d\n", cawindow__IWindow__LastErrorCode(&window));
 			return false;
 		}
 	}
@@ -211,24 +211,24 @@ bool RunWindowBindingsCompileTest()
 	// 标签之前，两个接口的句柄**数字完全相同**，这一下会把 IWindow 表里的活项清掉。
 	{
 		auto owner = std::make_shared<FakeWindowForHandle>();
-		const uint64_t borrowed = IWindow_registerBorrowedHandle(owner.get(), owner->m_system, "");
+		const uint64_t borrowed = cawindow__IWindow_registerBorrowedHandle(owner.get(), owner->m_system, "");
 		if (borrowed == 0u)
 		{
 			std::puts("  借用句柄登记失败（0）");
 			return false;
 		}
-		IWindowSystem_ReleaseHandle(owner.get(), borrowed); // 错配：这个句柄不是 IWindowSystem 发的
-		if (IWindow_ResolveHandle(owner.get(), borrowed) == nullptr)
+		cawindow__IWindowSystem__ReleaseHandle(owner.get(), borrowed); // 错配：这个句柄不是 IWindowSystem 发的
+		if (cawindow__IWindow__ResolveHandle(owner.get(), borrowed) == nullptr)
 		{
 			std::puts("  错配的释放把另一个接口的活项清掉了（句柄表没有按接口标签区分）");
 			return false;
 		}
-		if (IWindowSystem_LastErrorCode(owner.get()) != 1001)
+		if (cawindow__IWindowSystem__LastErrorCode(owner.get()) != 1001)
 		{
-			std::printf("  错配的释放必须报 1001，实际 %d\n", IWindowSystem_LastErrorCode(owner.get()));
+			std::printf("  错配的释放必须报 1001，实际 %d\n", cawindow__IWindowSystem__LastErrorCode(owner.get()));
 			return false;
 		}
-		IWindow_releaseHandle(owner.get(), borrowed);
+		cawindow__IWindow_releaseHandle(owner.get(), borrowed);
 	}
 
 	// ---- 任务 5.11 ②：借用句柄的存活 ----
@@ -236,21 +236,21 @@ bool RunWindowBindingsCompileTest()
 	{
 		auto owner = std::make_shared<FakeWindowForHandle>();
 		void* const borrowedTarget = owner->m_system;
-		const uint64_t ownerHandle = IWindow_registerStrongHandle(owner.get(), std::shared_ptr<void>(owner), "");
-		const uint64_t borrowed = IWindow_registerBorrowedHandle(owner.get(), borrowedTarget, "");
+		const uint64_t ownerHandle = cawindow__IWindow_registerStrongHandle(owner.get(), std::shared_ptr<void>(owner), "");
+		const uint64_t borrowed = cawindow__IWindow_registerBorrowedHandle(owner.get(), borrowedTarget, "");
 		if (ownerHandle == 0u || borrowed == 0u)
 		{
 			std::puts("  强句柄 / 借用句柄登记失败");
 			return false;
 		}
-		if (IWindow_ResolveHandle(owner.get(), borrowed) != borrowedTarget)
+		if (cawindow__IWindow__ResolveHandle(owner.get(), borrowed) != borrowedTarget)
 		{
 			std::puts("  发行者还活着时，借用句柄就该解得出指针");
 			return false;
 		}
-		IWindow_releaseHandle(owner.get(), ownerHandle); // 先放掉表里的强引用
+		cawindow__IWindow_releaseHandle(owner.get(), ownerHandle); // 先放掉表里的强引用
 		owner.reset();                                   // 发行者真的死了
-		if (IWindow_ResolveHandle(nullptr, borrowed) != nullptr)
+		if (cawindow__IWindow__ResolveHandle(nullptr, borrowed) != nullptr)
 		{
 			std::puts("  发行者已销毁，借用句柄仍然解出了指针（悬垂）");
 			return false;

@@ -1,0 +1,48 @@
+csharp-bindings-namespace-alignment · 1.1 改造前旧判据留档（供 1.3 对账）
+执行时间：2026-11-09 深夜
+工作区：E:\Projects\CascadedEngine
+HEAD：498969e csharp-native-direct-binding：原生接口直绑，IScript*/CScript* 桥整体退役
+样本（新增夹具，改造前已入库的只有夹具头与 build.py 接线，判据脚本与生成器逻辑未动）：
+  Tools/CodeGen/BindableShapes.NamespaceCoexistA.h → ns1::Device、a_b::Widget
+  Tools/CodeGen/BindableShapes.NamespaceCoexistB.h → ns2::Device、a::b::Widget
+  Tools/CodeGen/BindableShapes.NamespaceCollision.h → AB::Widget、Ab::Widget（不进构建，只给拒绝探针）
+
+一、改造前产物命名空间现状（红态原文）
+命令：
+  $dir='out\build\x64-debug\codegen\bindings'
+  $files = Get-ChildItem $dir -File -Filter *.Bindings.cs
+  "文件数: $($files.Count)"
+  $files | Select-String -Pattern '^namespace ' -Encoding UTF8 | Group-Object Line | Select-Object Count,Name
+读数：
+  现有 .Bindings.cs 文件数: 117
+  namespace 行数: 117
+  116 × `namespace Scripting.Generated.Bindings`
+    1 × `namespace Scripting.Managed`（EngineApi.Bindings.cs，本来就是托管侧那个命名空间）
+结论：改造前全部类型平铺在根 `Scripting.Generated.Bindings` 下（红），无任何镜像命名空间。
+
+二、旧同短名判据的非零拒绝原文（1.3 对账用）
+跑法：只跑绑定段（build.py 的 build_bindings()，不编译），CodeGen.exe 为**改造前**二进制
+（源码里刚加了未启用的命名映射辅助函数，二进制未重建，判据与发射逻辑仍是旧的）。
+命令：
+  python -c "import sys; sys.path.insert(0,'.'); import build; from pathlib import Path; build.BUILD_DIR=Path('out/build/x64-debug').resolve(); f=build.build_bindings(); print('FAILURES %d' % len(f)); [print('  - '+x) for x in f]; raise SystemExit(1 if f else 0)"
+输出日志：%TEMP%\ns-coexist-old-reject.log
+实测退出码：EXIT=1（日志同目录 ns-coexist-old-reject.exit 记录 `EXIT=1`）
+
+关键拒绝原文（逐字）：
+  绑定清单冲突：短名 Device 同时对应 ns1::Device 与 ns2::Device（来自 Tools/CodeGen/BindableShapes.NamespaceCoexistB.h）
+  绑定清单冲突：短名 Widget 同时对应 a_b::Widget 与 a::b::Widget（来自 Tools/CodeGen/BindableShapes.NamespaceCoexistB.h）
+  FAILURES 5
+
+同一次输出里还有另一类旧拒绝（登记表治理，非本次要废除的同短名判据，改造后仍保留：
+新接口必须先 --update-ids 发号）：
+  CodeGen: 拒绝登记 Device —— 锁文件（段 fixture）里没有它的行。新接口先跑 CodeGen --update-ids 发号，编号不许手填
+  CodeGen: 拒绝登记 Widget —— 锁文件（段 fixture）里没有它的行。新接口先跑 CodeGen --update-ids 发号，编号不许手填
+
+三、对账口径（1.3 用）
+改造后同一组夹具（A/B 两个头同构建）必须：
+  · 不再出现上面两条"绑定清单冲突"；
+  · ns1::Device → C# 命名空间 Scripting.Generated.Bindings.Ns1、ns2::Device → …Ns2；
+  · a_b::Widget → …AB、a::b::Widget → …A.B；
+  · 产物文件名与 C++ 辅助标识符各自带限定名线形（ns1__Device / ns2__Device / a_b__Widget / a__b__Widget），
+    磁盘互不覆盖、登记表单 TU include 后无 C2011/C2084；
+  · 四个接口各自经 --update-ids 入 fixture 段登记表（既有 8/9 两行一字不动）。

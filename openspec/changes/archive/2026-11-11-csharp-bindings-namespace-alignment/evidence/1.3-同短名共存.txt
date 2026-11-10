@@ -1,0 +1,49 @@
+csharp-bindings-namespace-alignment · 1.3 同短名共存（用户裁定的核心红样）
+执行时间：2026-11-09 深夜
+旧判据原文：evidence\1.3-旧判据留档.txt（改造前跑 build.py 的 build_bindings()，EXIT=1）
+新判据实测：本文件与 %TEMP%\ns-build-10.log（EXIT=0，BUILD SUCCESSFUL）
+
+一、对账 1：旧判据拒绝原文（改造前，逐字）
+  FAILURES 5，其中两条是本批要废除的旧同短名判据：
+    绑定清单冲突：短名 Device 同时对应 ns1::Device 与 ns2::Device（来自 Tools/CodeGen/BindableShapes.NamespaceCoexistB.h）
+    绑定清单冲突：短名 Widget 同时对应 a_b::Widget 与 a::b::Widget（来自 Tools/CodeGen/BindableShapes.NamespaceCoexistB.h）
+  （同一次输出里"锁里没有它的行"那条是登记表治理，改造后仍保留，见第三节。）
+
+二、对账 2：改造后同一组夹具（A/B 两头同构建）
+  命令：Get-ChildItem out\build\x64-debug\codegen\bindings -File -Filter '*.Bindings.cs' |
+         Where-Object Name -match '^(ns1__Device|ns2__Device|a_b__Widget|a__b__Widget)'
+  实测：四个文件都在（磁盘互不覆盖）：
+    ns1__Device.Bindings.cs / ns2__Device.Bindings.cs / a_b__Widget.Bindings.cs / a__b__Widget.Bindings.cs
+  命名空间与表面（逐字）：
+    ns1__Device  → namespace Scripting.Generated.Bindings.Ns1；public sealed class Device : IDisposable
+    ns2__Device  → namespace Scripting.Generated.Bindings.Ns2；public sealed class Device : IDisposable
+    a_b__Widget  → namespace Scripting.Generated.Bindings.AB；public sealed class Widget : IDisposable
+    a__b__Widget → namespace Scripting.Generated.Bindings.A.B；public sealed class Widget : IDisposable
+  旧的"绑定清单冲突"两条在 %TEMP%\ns-build-10.log 里 0 命中；构建 BUILD SUCCESSFUL。
+
+三、登记表两行各自发号
+  --update-ids 实测输出（%TEMP%\ns-update-ids-2.log，EXIT=0）：
+    夹具 NamespaceCoexistA：新增 编号 10 / Device、编号 11 / Widget
+    夹具 NamespaceCoexistB：新增 编号 12 / Device、编号 13 / Widget
+  锁文件（Tools/CodeGen/interface-ids.lock）fixture 段实测：
+    10  Device  ns1::Device   Tools/CodeGen/BindableShapes.NamespaceCoexistA.h
+    11  Widget  a_b::Widget   Tools/CodeGen/BindableShapes.NamespaceCoexistA.h
+    12  Device  ns2::Device   Tools/CodeGen/BindableShapes.NamespaceCoexistB.h
+    13  Widget  a::b::Widget  Tools/CodeGen/BindableShapes.NamespaceCoexistB.h
+    # high water 13（既有 8/9 两行一字未动）
+  夹具登记表产物（codegen/bindings/fixture/BindingRegistry.Bindings.h）实测：
+    inline constexpr uint32_t kBindingInterfaceIdns1__Device = 10u;  // ns1::Device
+    inline constexpr uint32_t kBindingInterfaceIda_b__Widget = 11u;  // a_b::Widget
+    inline constexpr uint32_t kBindingInterfaceIdns2__Device = 12u;  // ns2::Device
+    inline constexpr uint32_t kBindingInterfaceIda__b__Widget = 13u;  // a::b::Widget
+  登记表检查：check_bindings.py 的"夹具登记表问题 0 处"（%TEMP%\ns-build-10.log）。
+
+四、同 TU 无重定义
+  fixture/BindingRegistry.Bindings.cpp 同时 include
+    #include "ns1__Device.Bindings.cpp"
+    #include "ns2__Device.Bindings.cpp"
+  编译段 0 个 C2011/C2084（BUILD SUCCESSFUL）。
+
+五、结论
+  旧判据（短名冲突）→ 新判据（映射后全名冲突）替换完成；`ns1::Device`/`ns2::Device` 与
+  `a_b::Widget`/`a::b::Widget` 各自成面、各自发号、同 TU 共存，1.3 对账闭环。

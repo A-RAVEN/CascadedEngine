@@ -1,4 +1,4 @@
-// 托管表面的**编译期签名断言**（`csharp-window-creation` 任务 5.2 / 5.6）。
+﻿// 托管表面的**编译期签名断言**（`csharp-window-creation` 任务 5.2 / 5.6）。
 //
 // 为什么要有这个文件：表面方法是不是"逐个镜像了原始 C++ 声明"，只比名字抓不住 —— 把
 // `NewWindow` 的四个 `bool` 写成一个 `int`，名字判据照样绿。这里把每个方法赋给一个
@@ -9,6 +9,10 @@
 // 两块 —— 原生面钉住"生成物真的收到了这些方法/值类型"，糖层钉住脚本实际调的便利形状。
 using System;
 using Scripting.Generated.Bindings;
+using Scripting.Generated.Bindings.Cawindow;
+using Scripting.Generated.Bindings.GraphicsBackend;
+using Scripting.Generated.Bindings.CaBindFixture;
+using Scripting.Generated.Bindings.Shadercompilerslang;
 
 namespace Scripting.Managed
 {

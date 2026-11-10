@@ -49,16 +49,18 @@ namespace cs_script
 		bool requiresInstance;
 	};
 	constexpr BindingPolicyEntry kBindingPolicies[] = {
-		{ kBindingInterfaceIdIWindow, true },
-		{ kBindingInterfaceIdIWindowSystem, true },
+		{ kBindingInterfaceIdcawindow__IWindow, true },
+		{ kBindingInterfaceIdcawindow__IWindowSystem, true },
 		// csharp-native-direct-binding 2.4 / 4.1（design D12）：原生五类也要能从托管侧取表。
 		// `CRenderBackend` 是引擎里那**一个**真实后端（默认实例）；`GPUGraph` / `ShaderStruct` /
 		// `GPUTexture` / `WindowHandle` 是目标类型表（由工厂或句柄解析产出，允许空实例）。
-		{ kBindingInterfaceIdCRenderBackend, true },
-		{ kBindingInterfaceIdGPUGraph, false },
-		{ kBindingInterfaceIdShaderStruct, false },
-		{ kBindingInterfaceIdGPUTexture, false },
-		{ kBindingInterfaceIdWindowHandle, false },
+		{ kBindingInterfaceIdgraphics_backend__CRenderBackend, true },
+		{ kBindingInterfaceIdgraphics_backend__GPUGraph, false },
+		{ kBindingInterfaceIdgraphics_backend__ShaderStruct, false },
+		{ kBindingInterfaceIdgraphics_backend__GPUTexture, false },
+		{ kBindingInterfaceIdgraphics_backend__WindowHandle, false },
+		// 7.1（用户 2026-11-10 裁定）：缓冲对象直绑 —— 目标类型表（`CreateGPUBuffer` 产出，允许空实例）。
+		{ kBindingInterfaceIdgraphics_backend__GPUBuffer, false },
 	};
 	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
 	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会
@@ -90,8 +92,8 @@ namespace cs_script
 	// 表头只有 abi_version(4) + size(4) 这 8 字节，之后每个槽 8 字节：4 个非方法槽（错误通道两槽、
 	// 句柄解析/释放两槽）+ 16 个方法槽 + 2 个回调伴生槽（UnregisterCallback / ReportCallbackError）
 	// = 24 槽 ⇒ 8 + 8 × 24 = 200。
-	static_assert(sizeof(IWindowSystemApi_v2) == 8u + 8u * 24u,
-	              "IWindowSystem 函数表应当正好 16 个方法 + 2 个回调伴生（4 个表头槽 + 每个方法槽 8 字节）");
+	static_assert(sizeof(cawindow__IWindowSystemApi_v2) == 8u + 8u * 24u,
+	              "cawindow::IWindowSystem 函数表应当正好 16 个方法 + 2 个回调伴生（4 个表头槽 + 每个方法槽 8 字节）");
 
 
 	class CSharpHost final : public IScriptHost
@@ -361,13 +363,13 @@ namespace cs_script
 				CA_LOG_ERR("CSharpHost：{}", m_lastError.c_str());
 				return;
 			}
-			SetInterfaceInstance(kBindingInterfaceIdCRenderBackend, nullptr, backend);
+			SetInterfaceInstance(kBindingInterfaceIdgraphics_backend__CRenderBackend, nullptr, backend);
 			// 这行必须报**登记表的实际读数**：csharp-render-shader-constants 任务 3.1 的变异实验里
 			// 临时注释掉上面那行登记，日志却照样打"已登记"——文本在说谎，把缺口遮住了。现在直接把
 			// 查表结果打在后面，登记没发生时读数是 0，一眼可见。
-			void* registered = GetInterfaceInstance(kBindingInterfaceIdCRenderBackend, nullptr);
+			void* registered = GetInterfaceInstance(kBindingInterfaceIdgraphics_backend__CRenderBackend, nullptr);
 			CA_LOG("CSharpHost：原生渲染后端{}（编号 {}；后端地址 {:X}；登记表读数 {:X}）",
-				registered == backend ? "已登记" : "未登记", kBindingInterfaceIdCRenderBackend,
+				registered == backend ? "已登记" : "未登记", kBindingInterfaceIdgraphics_backend__CRenderBackend,
 				reinterpret_cast<uintptr_t>(backend), reinterpret_cast<uintptr_t>(registered));
 		}
 		void LoadRuntime()
@@ -864,7 +866,7 @@ CA_MODULE_INSTANCE(cs_script::IScriptHost, cs_script::CSharpHost, CSharpHost);
 // 调度器参数由引擎在这里提供 —— 每次调用新建一个调度器，用一个线程局部强引用保活到下一次调用
 // （ExecuteGraph 是同步提交，返回时调度器不再被使用）。线程管理器缺失时返回空指针，thunk 会把它
 // 当空值传给原生（后端对空调度器的行为不在本批改动面内）。
-extern "C" void* CAInject_CRenderBackend_ExecuteGraph_scheduler()
+extern "C" void* CAInject__graphics_backend__CRenderBackend__ExecuteGraph__scheduler()
 {
 	static thread_local castl::shared_ptr<thread_management::TaskScheduler> s_scheduler;
 	if (cs_script::s_threadManager == nullptr)
