@@ -1,0 +1,31 @@
+# 3.1 红态：资源反序列化失败必须抛 io_error（改前）
+
+时间: 2026-11-16 23:56:16（Asia/Hong_Kong；CoreTests 进程）
+代码状态: `GeneralResources/header/CAResource/IResource.h` 的 `TResource::Deserialize` 还是旧写法
+——`CodeGenSerializer<TRes>::deserialize(...)` 的返回值被直接丢弃，字段垃圾照收。
+
+## 判据（tasks.md 3.1 原文）
+「把 `ResourceBatchTest` 的完整载荷截掉末字节喂 `TResource::Deserialize`，必须抛
+——改前红（字段垃圾、无报错），改后绿。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\CoreTests.exe      （退出码 1）
+```
+日志存档：`evidence/2.1-3.1-红态-CoreTests.log`
+
+## 真实输出（该日志第 105、106、107 行，原文）
+```
+L105: 资源层截短载荷：TResource::Deserialize 抛 ca_io::io_error = 0、消息含来源路径 = 0（均期望 1，改前均为 0）
+L106: TResource 批读写判据失败：字节对拍 = 1、只做转发 = 1、读回一致 = 1、反向对照不同 = 1、流式截短失败 = 0、资源层截短抛 io_error = 0、消息含来源路径 = 0
+L107: CodeGen TResource batch roundtrip test FAILED
+```
+
+## 判据为什么红
+- 载荷截短到 12 字节后走 `TResource<NewRes>::Deserialize`：旧实现不看 `deserialize` 的返回值，
+  于是**没有抛异常**、`NewRes` 的 `c` 字段留在未定义值上（`TResource` 不知道自己在读哪个文件，
+  消息里也就谈不上点名路径）。两个读数都是 **0**。
+- 这条判据与 2.1 分开记：2.1 判"读对象自己失败"，3.1 判"资源层把失败抛出来"。改前两者都是 0，
+  所以两处红都不是另一处带出来的。
+- 载荷来源用 `ReadBatchStub`（`SourcePath()` = `ReadBatchStub://内存字节来源`），
+  改后要核的"消息含来源路径"就是拿这个字符串比。

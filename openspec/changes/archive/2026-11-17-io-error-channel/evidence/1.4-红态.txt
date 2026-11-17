@@ -1,0 +1,31 @@
+# 1.4 红态：提交期打不开文件与中途短读（改前，两个红态）
+
+时间: 2026-11-16 23:56:57（Asia/Hong_Kong）
+代码状态: `IOBatchImpl::SubmitAndWait` 保留旧行为——`is_open()` 为 false 时整段跳过、不报错；
+          读任务不检查 `gcount()`，短读把 stage 里的残渣静默 `memcpy` 进目标内存。
+
+## 判据（tasks.md 1.4 原文的两个红态）
+- ① 批里**先排队一次读**再删除源文件再提交（空批首行即返回、到不了打开文件分支），必须抛；
+- ② 批里排队读前 16 字节后把源文件截短到 8 字节再提交（创建期尺寸仍按原长，越界检查挡不住），
+  `gcount()` 短读必须抛。
+- 两红态改前均静默，改后必抛。
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_red_vulkan.json
+```
+（d3d12 同一条，读数逐字相同）
+
+## 真实输出（test_output\TestIOErrorChannel.log 第 5、6 行，原文）
+```
+[I/O 错误通道 1.4①] 排队读之后删除源文件，SubmitAndWait 抛 ca_io::io_error 点名路径：判据不成立 ⇒ 没有抛异常（静默成功）
+[I/O 错误通道 1.4②] 排队读之后把源文件截短到 8 字节，SubmitAndWait 抛 ca_io::io_error 点名路径：判据不成立 ⇒ 没有抛异常（静默成功）
+```
+
+## 判据为什么红
+- ① `std::ifstream` 打开被删掉的源文件失败，旧实现走 `if (file_src.is_open())` 的假分支，
+  什么都没读、也不报错，`SubmitAndWait` 正常返回 ⇒ 调用方以为读成功了，目标内存保持未填充。
+- ② `read()` 只拿到 8 字节（`gcount() == 8`，请求 16），旧实现不做中途检查，
+  把 16 字节 stage 缓冲（其中 8 字节是零）整段 `memcpy` 给目标 ⇒ 静默交出 8 字节垃圾。
+- 两个红态都是"没抛异常（静默成功）"，与"缺陷仍在、判据为红"一一对应；
+  临时文件全部在 `%TEMP%\io_error_channel_probe\` 下，用例结束（含异常路径）由 `TempDirGuard` 删除。

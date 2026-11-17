@@ -1,0 +1,65 @@
+# 4.3 双判据：CodeGen 产物逐字节不变
+
+时间: 2026-11-17 00:1x（Asia/Hong_Kong），绿态构建之后
+判据（tasks.md 4.3 原文）：「① `python Tools/CodeGen/check_binding_baseline.py` 通过（bindings 基线）；
+② 构建前快照（2026-11-16，77 份 `*.codegen.h` → `%TEMP%\ioerr-codegen-before`，保留相对目录结构）
+最终构建后逐个 `fc /b` 比对全同。验收：两判据输出存档 evidence；任一处字节差异即红。」
+
+==============================================================
+## 判据 ①：bindings 产物基线对账
+--------------------------------------------------------------
+命令（基线文件取仓库里现存的最新一份；`docs/testing.md` 里写的是
+`openspec/changes/csharp-bindings-namespace-alignment/…`，那个 change 已归档，实际路径见下）：
+```
+python Tools\CodeGen\check_binding_baseline.py --baseline "openspec\changes\archive\2026-11-11-csharp-bindings-namespace-alignment\evidence\基线产物哈希.txt" --product-dir out\build\x64-debug\codegen\bindings
+```
+真实输出：
+```
+基线对账：缺失 0 / 不一致 0 / 多余 0
+```
+退出码: 0  ⇒ 判据成立（缺失 0、不一致 0、多余 0）。
+
+补一条"这条判据不是恒真"的证明（脚本自带的自检，在内存里删掉一条基线行）：
+```
+python Tools\CodeGen\check_binding_baseline.py --baseline "<同上>" --product-dir out\build\x64-debug\codegen\bindings --self-test
+```
+真实输出：
+```
+自检通过：删掉基线行 BindingHandleTable.h 之后被点名（缺失或多余），脚本确实逐条对账
+```
+退出码: 0 ⇒ 删掉一条基线行时它确实会点名，所以①的"0/0/0"不是空跑。
+
+==============================================================
+## 判据 ②：C++ 生成物（`*.codegen.h`）逐个 `fc /b` 与构建前快照比对
+--------------------------------------------------------------
+快照根：`%TEMP%\ioerr-codegen-before`（主循环 2026-11-16 构建前拷贝，保留相对目录结构）
+比对目标根：`out\build\x64-debug\codegen`（同名相对路径）
+命令（逐份 `cmd /c "fc /b <快照文件> <当前产物>"`，统计退出码）：
+```
+快照份数 = 77      当前构建产物份数 = 77
+逐字节相同 = 77    有差异 = 0    当前构建缺文件 = 0
+当前产物里快照没有的份数 = 0
+```
+按模块目录的份数（与快照逐一对应）：
+```
+CACore = 2
+D3D12RenderBackend = 14
+Interface_RenderInterface = 20
+ShaderCompilerSlang = 24
+Test_CoreTests = 5
+VulkanRenderBackendNew = 12
+合计 = 77
+```
+差异/缺文件/多出的清单：（空）
+⇒ 判据成立：77 份生成物**逐字节全同**，既没有差异文件、也没有新增/删除的生成物。
+
+==============================================================
+## 为什么这两条能兜住本 change 的红线
+--------------------------------------------------------------
+- 本批只改了运行时的 `CACore/header/CodeGenSerialization.h`（流式分支）与资源层/接口层，
+  **没有碰 `Tools/CodeGen/` 生成器本身**，也没有给任何已标注类型加字段 —— 生成物应当一字不动。
+  ① 管 bindings 那一批产物，② 管 6 个模块的 77 份 `.codegen.h`；两条都通过才说明"生成物零改动"。
+- ②是必要的：①只覆盖 `codegen/bindings/` 下的绑定产物（2026-11-11 裁决已证它不覆盖 C++ 生成物），
+  而本 change 的 spec 场景「生成物字节契约不受影响」要求的是全部生成物。
+- 运行期的字节契约另有一条独立判据：CoreTests 的 `TResource 对拍：新批字节 == 老批字节 = 1
+  （新=16 / 老=16）` 与 `ShaderLibrary(D3D12) 对拍 …` 全 1（见 `evidence/2.1-绿态.txt`）。

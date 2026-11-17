@@ -79,7 +79,7 @@ namespace cacore::codegen
     // 字节来源的两种形状，读对象自己按形状分支（不做"选型特化"）：
     //   * 有 `data()` 与 `size()` 的——缓冲区：能拿到长度，读越界会失败；
     //   * 只有 `Read(size, dest)` 的——流式来源（例如 IOManager 的 `IOBatch`）：问不到剩余长度，
-    //     每次读交给来源自己，所以那条路上"越界会失败"由来源决定，运行时这边给不了。
+    //     每次读交给来源自己判断；来源报告"没接受"时，读对象把这次失败传播出去（与缓冲区分支同一语义）。
     // 判别写在读对象内部而不是让宿主特化：特化要靠每个消费单元 include 到位，漏一个就会静默退回
     // 缓冲区读对象、报一串与真实原因无关的错（实测过），而形状判别在哪里都成立。
     // ============================================================================================
@@ -146,7 +146,7 @@ namespace cacore::codegen
         }
 
         // 缓冲区来源：越界时失败并返回 false，不读长度之外的内存。
-        // 流式来源：交给来源的 `Read`，成败由来源决定（它问不到"还剩多少"）。
+        // 流式来源：把来源 `Read` 的返回值传播出来 —— 来源拒绝（越界/来源错误）与缓冲区的越界失败同一语义。
         bool read_raw(void* dest, std::size_t size)
         {
             if constexpr (hasBufferShape<ByteBuffer>::value)
@@ -164,7 +164,13 @@ namespace cacore::codegen
             else
             {
                 // `Read` 是来源的成员函数（推进它自己的读游标），生成代码拿到的却是 `const&`。
-                const_cast<ByteBuffer*>(m_Buffer)->Read(size, dest);
+                // 来源报告"这次读没被接受"时置失败位并返回 false：旧实现无条件 `return true`，
+                // 于是截短/损坏的载荷被当成读成功、上层拿到垃圾数据（design D3）。
+                if (!const_cast<ByteBuffer*>(m_Buffer)->Read(size, dest))
+                {
+                    m_Failed = true;
+                    return false;
+                }
                 m_Position += size;
                 return true;
             }

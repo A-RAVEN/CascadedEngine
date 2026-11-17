@@ -1,0 +1,38 @@
+# 5.1 红态：缺失资产路径的加载被点名拒绝（改前）
+
+时间: 2026-11-16 23:56:57（Asia/Hong_Kong）
+代码状态: 资源层没有检查点（3.1 未改），批创建期也没有探测（1.2 未改）。
+用例：`ctx.pResourceManagingSystem->GetOrLoadResource<MissingAssetResourceProbe>(
+cacore::PathHash("__io_error_channel_missing__.res"))` —— 该名字既不在资源字典里、
+磁盘上也不存在（不碰 CAAssets 里的真实资产）。
+
+## 判据（tasks.md 5.1 原文）
+「必须抛 `io_error` 且 test_output 日志点名该路径（红）；完好资产下两后端 17/17 全绿（绿）。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_red_vulkan.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_red_d3d12.json
+```
+两次退出码：1 / 1。
+
+## 真实输出（test_output\TestIOErrorChannel.log 第 2、8 行，原文）
+```
+Load new resource: __io_error_channel_missing__.res
+[I/O 错误通道 5.1] 经 GetOrLoadResource 加载缺失资产路径抛 ca_io::io_error 点名该路径：判据不成立 ⇒ 未知类型的异常
+```
+result.json（vulkan）：
+```
+{"name":"TestIOErrorChannel","status":"fail","duration_ms":19,"exit_code":1,"error":"I/O 错误通道判据不成立：1.2 1.3 1.4① 1.4② 1.5 5.1 （逐条读数见 test_output/TestIOErrorChannel.log）"}
+```
+
+## 判据为什么红 / 这条红证明了什么
+- 第一行 `Load new resource: __io_error_channel_missing__.res` 证明**真的走到了读盘路径**
+  （`GetOrLoadResource` 的创建回调执行了），不是"字典里命中内存所以没触到 I/O"。
+  这一条正对 2026-11-11 裁决里"截断 shLib 红态不可达"的替代方案：换成一个字典与磁盘都不存在的
+  名字，读盘分支必然执行。
+- 第二行：抛出来的**不是** `ca_io::io_error`（是 `IOManager::Batch` 里裸抛的
+  `std::filesystem::filesystem_error`，在测试进程里连 `std::exception` 都匹配不上，
+  原因见 `evidence/1.2-红态.txt`），也没有点名路径 ⇒ 判据不成立。
+- 资源层确实没有拦：异常穿过 `get_or_create` 的创建回调原样抛出（这正是 3.2 走读要的
+  "不吞异常"），但抛的**类型与消息**都不合格，所以本条为红。

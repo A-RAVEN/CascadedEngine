@@ -4,7 +4,7 @@
 > 它不记任务、不记欠账、不记改动细节 —— 进度事实源只有 `openspec/changes/<change>/tasks.md`，
 > 欠账只有 `docs/TODO.md`，本文件只做指针。
 
-**最后更新**：2026-11-09
+**最后更新**：2026-11-17
 **维护规则**：见 `CLAUDE.md` 的「文档维护」一节
 
 ---
@@ -69,9 +69,11 @@
 
 以下阶段均为方向。阶段 4 的五个 change 均已归档（第二个 11/11，2026-11-03 归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`；第三个 11/11，2026-11-04 归档到 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/`；第四个 10/10，2026-11-04 归档到 `openspec/changes/archive/2026-11-04-csharp-render-structured-buffer/`；第五个 12/12，2026-11-04 归档到 `openspec/changes/archive/2026-11-04-csharp-render-texture-sampling/`）；除这五个之外，其余内容**尚未立 OpenSpec change**。编号表达目标依赖，不代表已批准的任务清单，也不要求所有工作严格串行。
 
-### 阶段 4：C# 渲染闭环（下一阶段）
+### 阶段 4：C# 渲染闭环（已完成，2026-11-11 认定）
 
 目标：以现有 GPUGraph 为底层执行接口，让 C# 能创建所需资源、设置着色器参数、构建并提交图，再由 C++ 完成原生执行、同步与呈现。相机、材质、灯光等高级概念优先在 C# 引擎框架中组织，不在首版另建一套 C++ 高层对象体系。
+
+依据：直绑批 `csharp-native-direct-binding`（原生五类+WindowHandle+GPUBuffer 直绑、`IScript*`/`CScript*` 桥整体退役、糖层承接脚本面，22/22+返工，归档 `openspec/changes/archive/2026-11-09-csharp-native-direct-binding/`，提交 `498969e`）与命名空间对齐批 `csharp-bindings-namespace-alignment`（C# 绑定镜像 C++ 限定名、废除同短名拒绝，16/16 含返工，归档 `openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/`，提交 `990bf55`）落地后，C# 已能创建资源（含后端持有的缓冲/纹理）、按编译元数据设参数、构建并提交图，两后端 16/16 用例全绿——目标达成。L86 所列"其它 GPU 后端接口的 C# 绑定（多阶段图、计算、读回、GPU 查询）"仍为未立项方向，不影响本阶段完成认定。
 
 建议按先后衔接的 change 推进；第一个已归档到 `openspec/changes/archive/2026-11-02-csharp-render-binding-foundations/`（16/16，2026-11-02），第二个已归档到 `openspec/changes/archive/2026-11-03-csharp-render-backend-triangle/`（11/11，2026-11-03），第三个 `csharp-render-shader-constants`（着色器常量参数通道）**已于 2026-11-04 实施完成 11/11 并归档到 `openspec/changes/archive/2026-11-04-csharp-render-shader-constants/`**，第四个 `csharp-render-structured-buffer`（结构化缓冲参数通道）**已于 2026-11-04 实施完成 10/10 并归档到 `openspec/changes/archive/2026-11-04-csharp-render-structured-buffer/`**，第五个 `csharp-render-texture-sampling`（纹理与采样参数通道）**已于 2026-11-04 实施完成 12/12 并归档到 `openspec/changes/archive/2026-11-04-csharp-render-texture-sampling/`**：
 
@@ -89,13 +91,17 @@
 
 排期后续方向（用户 2026-11-05 提出，**优先级最高，排在剩余绑定批次之前**）：**废除手写接口编号**。现状 `CA_BIND(编号)` 要求写接口的人自己填一个数字，用户裁定这违背 CodeGen 服务易用性的初衷（原话：这种要用户自己手写意义不明的 ID 的东西就是狗屎）。目标方向：标注回归无参 `CA_BIND`，人只声明"这个接口要绑"；编号历史改由一份锁文件承载（编号 → 接口限定名），已有名字保持原号、新接口自动取下一个空号、删除与改名退役，对账不符构建必红，期望表与 README 编号表由锁生成——具体机制设计立批时定，本段只钉方向与优先级。该方向已立 change `codegen-native-binding-prereqs`（编号锁文件 + 原生形态直绑能力），2026-11-06 授权执行、18/18 完成（两后端 16/16、CoreTests 23/0、基线 96 产物逐字节不变），2026-11-08 归档到 `openspec/changes/archive/2026-11-08-codegen-native-binding-prereqs/`（归档时按 §3 补写了增量缺的 REMOVED 旧编号条，对照见其 tasks.md 修订记录第 17 条）；直绑+退役批随即立项，开工输入=其 `evidence\原生头投影快照.txt`（见 `docs/TODO.md` 直绑批账）。
 
-排期后续方向（用户 2026-11-09 裁定，**最高优先级，排在所有未归档绑定批与后续批之前**）：**C# 绑定命名空间与 C++ 对齐、废除"同短名拒绝"判据**。现状生成器把全部托管绑定类发进一个平铺命名空间 `Scripting.Generated.Bindings`，公开身份链（锁文件短名列、登记表常量、C ABI 槽名、审计表、判据族）以接口短名为准；批 A 由此立了"两个命名空间存在同短名接口⇒生成期非零退出"的判据（`csharp-bindings` 主规范 L350-352）。用户裁定该判据是代理自定、不符合要求：C++ 里跨命名空间同名接口是正常写法，生成器拒绝等于牺牲 C++ 接口易用性，违背 CodeGen 定义性要求（用户原话："我对codegen的要求就是在不牺牲c++接口易用性的前提下直接生成C#binding"；"这个规范是你定的不是我定的，而且明显不符合我的要求"；"要改记到RoadMap里，最高优先级"）。目标方向：C# 侧按 C++ 完整限定名分层镜像命名空间（如 `Scripting.Generated.Bindings.GraphicsBackend.GPUGraph`），身份链全链改用限定名、短名只作显示名，跨命名空间同名接口成为合法常态而非构建期拒绝；该改造同时迁移现有全部已绑接口的 C# 命名空间与引用方（糖层、宿主、`using`、判据族）。尚未立 OpenSpec change，本段只钉方向与优先级。
+排期后续方向（用户 2026-11-09 裁定，**最高优先级，排在所有未归档绑定批与后续批之前**）：**C# 绑定命名空间与 C++ 对齐、废除"同短名拒绝"判据**。现状生成器把全部托管绑定类发进一个平铺命名空间 `Scripting.Generated.Bindings`，公开身份链（锁文件短名列、登记表常量、C ABI 槽名、审计表、判据族）以接口短名为准；批 A 由此立了"两个命名空间存在同短名接口⇒生成期非零退出"的判据（`csharp-bindings` 主规范 L350-352）。用户裁定该判据是代理自定、不符合要求：C++ 里跨命名空间同名接口是正常写法，生成器拒绝等于牺牲 C++ 接口易用性，违背 CodeGen 定义性要求（用户原话："我对codegen的要求就是在不牺牲c++接口易用性的前提下直接生成C#binding"；"这个规范是你定的不是我定的，而且明显不符合我的要求"；"要改记到RoadMap里，最高优先级"）。目标方向：C# 侧按 C++ 完整限定名分层镜像命名空间（如 `Scripting.Generated.Bindings.GraphicsBackend.GPUGraph`），身份链全链改用限定名、短名只作显示名，跨命名空间同名接口成为合法常态而非构建期拒绝；该改造同时迁移现有全部已绑接口的 C# 命名空间与引用方（糖层、宿主、`using`、判据族）。**已兑现（2026-11-11）**：change `csharp-bindings-namespace-alignment` 16/16（含 `CreateGPUBuffer` 返工）完成并归档（提交 `990bf55`），跨命名空间同名接口实测各自成面，旧"同短名拒绝"判据已从主规范废除。
 
 ### 阶段 5：游戏运行时基础
 
-目标：补齐资源导入与引用、序列化、场景与实体组件、层级变换、时间与输入，以及 C# 脚本注册、挂载和生命周期。稳定对象编号、资源所有权和主线程边界先于大规模接口扩张；首版不要求完整 ECS，也不要求向游戏脚本开放原生线程调度。
+目标：补齐资源导入与引用、序列化、场景与实体组件、层级变换、时间与输入，以及 C# 脚本注册、挂载和生命周期。稳定对象编号、资源所有权和主线程边界先于大规模接口扩张；首版不要求完整 ECS，也不要要求向游戏脚本开放原生线程调度。
 
 阶段结果：C# 脚本能够操作场景对象，场景能够保存和加载，资源与脚本生命周期能够形成一致闭环。
+
+2026-11-11 口径澄清（用户裁定，沿用阶段 4 既定原则"高级概念优先在 C# 引擎框架中组织"）：本阶段所列模块——场景/实体/组件、序列化、脚本生命周期、每帧场景→图翻译——**全部是 C# 框架层代码**，坐在阶段 4 已完成的全量原生直绑表面（8 接口 + 糖层）之上，**不依赖任何新 C++ 能力**；C++ 引擎层与绑定层对本阶段视为已齐。仍成立的边界只有跨语言对象身份与所有权（场景引用原生纹理/缓冲），已由对象句柄表与编辑器对象编号机制覆盖。推论：阶段 6 编辑器首切片（窗口属性面板）被编辑对象用现成窗口表面即可，不依赖本阶段场景模型。
+
+排期后续方向（用户 2026-11-11 指示记入）：**I/O 与资源管理层的正确性基础**。现状三层（`Interface/IOManager` 批式读写接口 → `IOManager_FS` 实现 → `GeneralResources` 资源注册表与导入）有两类地基级缺陷：其一，读越界与文件打不开被静默吞掉（`IOBatchImpl::Read` 越界直接 `return`、读任务打不开文件无错误通道）；其二，流式反序列化无边界检查（`CodeGenSerialization.h` 读对象流式分支无条件返回成功，`TResource::Deserialize` 又忽略 `deserialize` 的返回值——截短或损坏的资产文件会静默把垃圾灌进 `ShaderLibrary`）。切法从小到大、各自独立可验：先做 I/O 错误通道与资源反序列化边界检查——**已兑现（2026-11-17）**：change `io-error-channel` 14/14 完成并归档到 `openspec/changes/archive/2026-11-17-io-error-channel/`，新主规范 `openspec/specs/io-error-channel/spec.md`（三要求八场景）生效；六条失败判据红绿闭环、两后端全量各 17/17、生成物逐字节不变。其后依次为 `CACore/header/FileLoader.h` 同族静默失败修复（`LoadStringFile`/`LoadBinaryFile` 打不开时静默返回空、`WriteBinaryFile` 打不开时静默丢写）、`SerializeAll` 增量回写与源删除清产物、假异步清理与读侧句柄缓存（纯性能，可缓）、资源身份重设计（内容哈希/依赖记录，编辑器与热重载需要时再做）。定位：I/O 批处理与导入器属引擎核心，留在 C++；"哪些资产存在、谁引用谁"的登记策略未来可按本阶段口径澄清的同原则坐 C#；若 C# 脚本需加载贴图/网格，`ResourceManagingSystem` 是后续绑定接口的候选——这是该模块与阶段 5 的真实接口点。
 
 ### 阶段 6：网页编辑器闭环
 

@@ -1,0 +1,28 @@
+# 1.4 绿态：提交期打不开文件与中途短读都抛 io_error（改后）
+
+时间: 绿态构建（%TEMP%\ioerr-build-green.log）
+代码状态: `IOBatchImpl::SubmitAndWait` 的任务体内按值收失败（打不开源文件 / `gcount()` 短读，
+          含偏移、请求字节数、实际字节数），`WaitAll()` 之后在调用线程抛 `io_error`；任务体内不抛（design D2）。
+
+## 判据（tasks.md 1.4 原文）
+「两个红态：①批里先排队一次读再删除源文件再提交，必须抛；②批里排队读前 16 字节后把源文件截短到
+8 字节再提交，`gcount()` 短读必须抛。两红态改前均静默，改后必抛。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_vulkan.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_d3d12.json
+```
+
+## 真实输出（绿色日志第 5、6 行，原文；两后端逐字相同）
+```
+[I/O 错误通道 1.4①] 排队读之后删除源文件，SubmitAndWait 抛 ca_io::io_error 点名路径：判据成立 ⇒ ca_io::io_error：批读提交失败："C:\Users\76956\AppData\Local\Temp\io_error_channel_probe\deleted_after_batch.bin"（打不开源文件）
+[I/O 错误通道 1.4②] 排队读之后把源文件截短到 8 字节，SubmitAndWait 抛 ca_io::io_error 点名路径：判据成立 ⇒ ca_io::io_error：批读提交失败："C:\Users\76956\AppData\Local\Temp\io_error_channel_probe\truncated_after_batch.bin"（源文件读不足（偏移 0、请求 16 字节、实际读到 8 字节；创建批之后源文件被截短？））
+```
+
+## 判据为什么绿（红→绿对照）
+- 红态两行都是 `没有抛异常（静默成功）`；绿态两行都是 `ca_io::io_error`，消息逐字含对应路径。
+- ② 的消息带**实际读数**「偏移 0、请求 16 字节、实际读到 8 字节」——这正是 design D2 要的
+  `gcount()` 中途检查：截短发生在批创建之后（创建期尺寸仍是 16，越界检查放行），
+  提交时读到的字节数对不上才被逮住，不是被 1.2 的创建期探测顺带挡下的。
+- ① 的路径与 ② 不同（`deleted_after_batch.bin` / `truncated_after_batch.bin`），两条判据互不掩盖。

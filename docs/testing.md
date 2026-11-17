@@ -1,4 +1,4 @@
-﻿# 测试规范
+# 测试规范
 
 本项目把测试分三层。**任何新功能都必须落在其中至少一层，并且留下一条"在缺陷存在时会变红"的断言** —— 只贴日志、只手工造一次红态、只写"已验证"，都不算测试。
 
@@ -7,7 +7,7 @@
 | 层 | 载体 | 适合测什么 | 不适合测什么 |
 |---|---|---|---|
 | **① 纯逻辑** | `Test/CoreTests`（24 个 `.cpp`，`main` 在 `SerializerTest.cpp`） | 序列化字节、哈希值、反射与类型表、容器语义、绑定回调/嵌套镜像/公开值类型、原生五类表面的工厂与句柄往返这类**不碰模块、不开窗口、不需要 GPU**的判定 | 需要加载模块、需要真实后端、需要多进程或"启动即退出"的行为 |
-| **② 进程内行为** | `Test/GPUBackendTester`（当前 **16** 个测试，注册在 `Main.cpp` 的 `runTestWithDiagnostics("TestXxx", TestXxx)` 列表里） | 要真后端、真要窗口、要在引擎内部断言某模块的行为（例：`IScriptHost` 可用、`Tick` 回值正确、10 类窗口回调与生命周期、C# 提交三角形的真实像素、C# 按着色器参数驱动的常量色像素、C# 纹理采样的真实像素） | 进程级失败（启动就该非零退出）、需要改环境变量的场景 |
+| **② 进程内行为** | `Test/GPUBackendTester`（当前 **17** 个测试，注册在 `Main.cpp` 的 `runTestWithDiagnostics("TestXxx", TestXxx)` 列表里） | 要真后端、真要窗口、要在引擎内部断言某模块的行为（例：`IScriptHost` 可用、`Tick` 回值正确、10 类窗口回调与生命周期、C# 提交三角形的真实像素、C# 按着色器参数驱动的常量色像素、C# 纹理采样的真实像素、批式读写六条 I/O 失败路径） | 进程级失败（启动就该非零退出）、需要改环境变量的场景 |
 | **③ 进程级 / 多进程** | `check_*.py` 前缀共 14 个（`Tools/` 8 个 + `Tools/CodeGen/` 6 个），外加 `verify_readme.py`、`read_dump.py`、`spin_check.py` 三个助手 | "缺文件 / 版本不符 / ABI 不符 ⇒ 退出码与错误串"这类**一启动就失败**的路径；生成物与审计表的对账；两侧日志逐字段对拍；正常/负向像素报告的对账；`CSharpHost/README.md` 的 ABI 读数对拍 | 需要引擎内部状态的断言 |
 
 ## 统一约定
@@ -28,11 +28,11 @@
 
 跑法：`out\build\x64-debug\bin\CoreTests.exe`（退出码 0，`PASSED` 行数当前为 **23**）。`BindingsNativeSurfaceTest` 直接 include 真实接口的生成产物，断言五个原生表面的工厂槽 / 句柄往返 / 窗口尺寸与后台缓冲描述，并含一条值类**第二条对象通道**的读数：`Present` 用 `WindowHandle` 构造的后台缓冲引用必须回错误码 0 且呈现清单收到 1 项（`[原生表面] Present(windows 句柄构造) 错误码=0 呈现项=1`）。旧的 `ScriptRenderBridgeTest` 随桥一起删除（5.1），它原来的拒绝路径 / 字节复制 / 图结构判据由四条 C# 渲染用例与托管读数行承接。
 
-### ② `Test/GPUBackendTester`（16 个测试）
+### ② `Test/GPUBackendTester`（17 个测试）
 
-`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost` / `TestCSharpWindow` / `TestCSharpTriangle` / `TestCSharpWindowCallbacks` / `TestGPUTiming` / `TestCSharpConstantColor` / `TestCSharpStructuredBuffer` / `TestCSharpTextureSampling`。
+`TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStructuredBufferColor` / `TestTriangleWithImageBuffer` / `TestDoublePass` / `TestComputeBuffer` / `TestReadback` / `TestIMGUI` / `TestScriptHost` / `TestCSharpWindow` / `TestCSharpTriangle` / `TestCSharpWindowCallbacks` / `TestGPUTiming` / `TestCSharpConstantColor` / `TestCSharpStructuredBuffer` / `TestCSharpTextureSampling` / `TestIOErrorChannel`。
 
-（这份清单必须与 `GPUBackendTester.exe --list` 逐条一致，顺序也一致 —— 上面就是 `--list` 的实际顺序。全量运行的执行顺序略有不同：`TestCSharpConstantColor`、`TestCSharpStructuredBuffer` 与 `TestCSharpTextureSampling` 都排在 `TestGPUTiming` 之后、`TestCSharpWindowCallbacks` 之前，因为最后那条会显式关闭托管运行时、之后再没有测试能用 C#。`TestGPUTiming` 由 `vulkan-gpu-queries` 加入，覆盖一次图执行的逐 pass GPU 计时；`TestCSharpWindowCallbacks` 覆盖 10 类窗口/输入回调、替换/置空/重绑/关闭与借用窗口失效。`TestCSharpTriangle` 由 `csharp-render-backend-triangle` 加入（4.1 换面）：C# 经**原生直绑表面 + 糖层**用自己的顶点字节 / 着色器 / 窗口与离屏目标建图、提交并等待；C++ 侧从托管读数行 `[托管 读数]` 拿原生图对象地址，再从图附件的资源引用里取同一份离屏纹理做像素判据。`TestCSharpConstantColor` 由 `csharp-render-shader-constants` 加入：C# 用单 `POSITION` 顶点流 + `ConstantColor` 参数结构（3 个 `ColorSubStruct`）建图、两次 `SetPassParam` 绑定 `constantColorBlock`，原生侧读离屏目标做精确像素判据，并在同一次运行里由 C# 探针做两个**托管前置校验**负例（未知类型名 / 未登记着色器路径），C++ 侧按读数行 `negUnknown` / `negPath` 核对被拒；`skip-param` 的「后端执行次数 0」同样读自读数行。`TestCSharpStructuredBuffer` 由 `csharp-render-structured-buffer` 加入：C# 把图内登记的 1 元素结构化缓冲按名绑进 `StructuredColor` 参数结构、两次 `SetPassParam` 绑定 `structuredColorBlock`，原生侧读离屏目标做精确像素判据（背景 `(0,255,0,255)`、中心 `(255,0,255,255)`），并核对两个 pass 的缓冲字段解析名（读数行 `boundBuffer0/1` = `sbColors`）、缓冲元数据读数为只读 + 描述符数组长度 1、以及托管前置校验拒绝缓冲表外字段名（读数行 `negField`）。`TestCSharpTextureSampling` 由 `csharp-render-texture-sampling` 加入（**排在 `TestCSharpWindowCallbacks` 之前**，与另外两条 C# 用例同一理由）：C# 一次 `CreateTexture("texYellow2x2", 2, 2, 16 字节)` 完成创建 + 上传 + 转采样态，用位置 + 纹理坐标顶点流与 `TextureSampleBlock` 参数结构（`testTexture` / `testSampler`）两次 `SetPassParam` 绑定 `textureBlock`，原生侧读离屏目标做精确像素判据（背景 `(0,0,255,255)`、中心 `(255,255,0,255)`），并核对两个 pass 的纹理字段解析句柄（读数行 `texture` 与 `boundTexture0/1` 相等 ⇒ 与 `CreateTexture` 返回的是**同一对象**）、上传执行与提交执行分开计数、以及托管 disposed 摘要行。）
+（这份清单必须与 `GPUBackendTester.exe --list` 逐条一致，顺序也一致 —— 上面就是 `--list` 的实际顺序。全量运行的执行顺序略有不同：`TestCSharpConstantColor`、`TestCSharpStructuredBuffer` 与 `TestCSharpTextureSampling` 都排在 `TestGPUTiming` 之后、`TestCSharpWindowCallbacks` 之前，因为最后那条会显式关闭托管运行时、之后再没有测试能用 C#。`TestGPUTiming` 由 `vulkan-gpu-queries` 加入，覆盖一次图执行的逐 pass GPU 计时；`TestCSharpWindowCallbacks` 覆盖 10 类窗口/输入回调、替换/置空/重绑/关闭与借用窗口失效。`TestCSharpTriangle` 由 `csharp-render-backend-triangle` 加入（4.1 换面）：C# 经**原生直绑表面 + 糖层**用自己的顶点字节 / 着色器 / 窗口与离屏目标建图、提交并等待；C++ 侧从托管读数行 `[托管 读数]` 拿原生图对象地址，再从图附件的资源引用里取同一份离屏纹理做像素判据。`TestCSharpConstantColor` 由 `csharp-render-shader-constants` 加入：C# 用单 `POSITION` 顶点流 + `ConstantColor` 参数结构（3 个 `ColorSubStruct`）建图、两次 `SetPassParam` 绑定 `constantColorBlock`，原生侧读离屏目标做精确像素判据，并在同一次运行里由 C# 探针做两个**托管前置校验**负例（未知类型名 / 未登记着色器路径），C++ 侧按读数行 `negUnknown` / `negPath` 核对被拒；`skip-param` 的「后端执行次数 0」同样读自读数行。`TestCSharpStructuredBuffer` 由 `csharp-render-structured-buffer` 加入：C# 把图内登记的 1 元素结构化缓冲按名绑进 `StructuredColor` 参数结构、两次 `SetPassParam` 绑定 `structuredColorBlock`，原生侧读离屏目标做精确像素判据（背景 `(0,255,0,255)`、中心 `(255,0,255,255)`），并核对两个 pass 的缓冲字段解析名（读数行 `boundBuffer0/1` = `sbColors`）、缓冲元数据读数为只读 + 描述符数组长度 1、以及托管前置校验拒绝缓冲表外字段名（读数行 `negField`）。`TestCSharpTextureSampling` 由 `csharp-render-texture-sampling` 加入（**排在 `TestCSharpWindowCallbacks` 之前**，与另外两条 C# 用例同一理由）：C# 一次 `CreateTexture("texYellow2x2", 2, 2, 16 字节)` 完成创建 + 上传 + 转采样态，用位置 + 纹理坐标顶点流与 `TextureSampleBlock` 参数结构（`testTexture` / `testSampler`）两次 `SetPassParam` 绑定 `textureBlock`，原生侧读离屏目标做精确像素判据（背景 `(0,0,255,255)`、中心 `(255,255,0,255)`），并核对两个 pass 的纹理字段解析句柄（读数行 `texture` 与 `boundTexture0/1` 相等 ⇒ 与 `CreateTexture` 返回的是**同一对象**）、上传执行与提交执行分开计数、以及托管 disposed 摘要行。`TestIOErrorChannel` 由 `io-error-channel` 加入：批式读写六条失败路径各自打印一行读数、各自记判定（1.2 不存在的路径在 `Batch()` 抛 `ca_io::io_error`；1.3 越界读返回 `false` 且批内位置不推进；1.4① 排队读后删除源文件、1.4② 排队读后把源文件截短到 8 字节都必须在 `SubmitAndWait` 抛 `io_error`；1.5 写目标父目录不存在同样抛；5.1 经 `GetOrLoadResource` 加载不存在的资产路径抛 `io_error` 并点名该路径）。**怎么把它弄红**：把 `IOBatchImpl::Read` 的越界分支改回无条件接受 ⇒ 只有 1.3 那行判据不成立、整条用例判红；把 `SubmitAndWait` 的 `gcount()` 检查删掉 ⇒ 只有 1.4② 那行不成立。）
 
 跑法：`GPUBackendTester.exe --backend vulkan|d3d12 --headless 10 --report <json>`；`--list` 列出可用测试；`--test <名字>` 只跑一个。每个测试各自写 `test_output/<名字>.log`，崩溃会写 `crash_YYYYMMDD_HHMMSS.dmp` 并在 stderr 打印异常名、异常码、崩溃模块。
 
@@ -82,7 +82,7 @@
 
 `CSharpHost` 有两类行为要测，正好各落一层：
 
-### 层 ②：`TestScriptHost`（加它的时候是第 9 条；当前全量一共 16 条）
+### 层 ②：`TestScriptHost`（加它的时候是第 9 条；当前全量一共 17 条）
 
 测"运行时起来了且双向可调"，断言全部来自进程内状态：
 
@@ -209,7 +209,7 @@ Remove-Item Env:\CASCADED_CSHARP_TEX_SELFTEST
 python Tools\check_csharp_texture_sampling.py
 ```
 
-判定：CoreTests 退出码 0 且 `PASSED` 22 行；两份全量 report 里 16 条 `status` 全为 `pass`；两条 `TestGPUTiming` 与两条 `TestCSharpWindow*` 命令退出码 0；`check_window_system_bindings.py` 两份日志都 0；`check_gpu_timing.py`、`check_bindable_audit.py`、`check_bindings.py`、`verify_readme.py`、`check_csharp_host_readme.py` 退出码 0；十份 `csharp_triangle_*` report 里正常两份 `pass`、负向八份 `fail` 且错误码对得上（skip-draw 是 `E_TRIANGLE_DRAW`），`check_csharp_triangle.py` 退出码 0；六份 `csharp_constant_color_*` report 里正常两份 `pass`、`bad-struct-colors` 两份 `fail` 且错误码 `E_CONSTCOLOR_PIXEL`、`skip-param` 两份 `fail` 且错误码 `E_CONSTCOLOR_PARAM` 并带「后端执行次数 0」，`check_csharp_constant_color.py` 退出码 0；八份 `csharp_structured_buffer_*` report 里正常两份 `pass`、`bad-buffer-color` 两份 `fail` 且错误码 `E_SB_PIXEL` 并带中心 `(0,0,255,255)`、`unbound-field` 两份与 `bad-buffer-name` 两份 `fail` 且错误码 `E_SB_BIND` 并带「后端执行次数 0」，`check_csharp_structured_buffer.py` 退出码 0；八份 `csharp_texture_sampling_*` report 里正常两份 `pass`、`bad-texture-color` 两份 `fail` 且错误码 `E_TEX_PIXEL` 并带中心 `(0,255,255,255)`、`unbound-image` 两份与 `unbound-sampler` 两份 `fail` 且错误码 `E_TEX_BIND` 并带「本次提交执行增量 0」与「上传执行 1」，`check_csharp_texture_sampling.py` 退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`（ABI 期望版本随当前生成常量走，当前 v9）。
+判定：CoreTests 退出码 0 且 `PASSED` 22 行；两份全量 report 里 17 条 `status` 全为 `pass`；两条 `TestGPUTiming` 与两条 `TestCSharpWindow*` 命令退出码 0；`check_window_system_bindings.py` 两份日志都 0；`check_gpu_timing.py`、`check_bindable_audit.py`、`check_bindings.py`、`verify_readme.py`、`check_csharp_host_readme.py` 退出码 0；十份 `csharp_triangle_*` report 里正常两份 `pass`、负向八份 `fail` 且错误码对得上（skip-draw 是 `E_TRIANGLE_DRAW`），`check_csharp_triangle.py` 退出码 0；六份 `csharp_constant_color_*` report 里正常两份 `pass`、`bad-struct-colors` 两份 `fail` 且错误码 `E_CONSTCOLOR_PIXEL`、`skip-param` 两份 `fail` 且错误码 `E_CONSTCOLOR_PARAM` 并带「后端执行次数 0」，`check_csharp_constant_color.py` 退出码 0；八份 `csharp_structured_buffer_*` report 里正常两份 `pass`、`bad-buffer-color` 两份 `fail` 且错误码 `E_SB_PIXEL` 并带中心 `(0,0,255,255)`、`unbound-field` 两份与 `bad-buffer-name` 两份 `fail` 且错误码 `E_SB_BIND` 并带「后端执行次数 0」，`check_csharp_structured_buffer.py` 退出码 0；八份 `csharp_texture_sampling_*` report 里正常两份 `pass`、`bad-texture-color` 两份 `fail` 且错误码 `E_TEX_PIXEL` 并带中心 `(0,255,255,255)`、`unbound-image` 两份与 `unbound-sampler` 两份 `fail` 且错误码 `E_TEX_BIND` 并带「本次提交执行增量 0」与「上传执行 1」，`check_csharp_texture_sampling.py` 退出码 0。新增/改动 C#Host 时再加 `TestScriptHost` 与 `Tools\check_csharp_host_failures.py`（ABI 期望版本随当前生成常量走，当前 v9）。
 
 ## C# 脚本层与 `--show-window-seconds`
 

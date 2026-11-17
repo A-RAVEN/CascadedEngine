@@ -1,0 +1,25 @@
+# 1.5 红态：写目标打不开被拒绝（改前）
+
+时间: 2026-11-16 23:56:57（Asia/Hong_Kong）
+代码状态: `WriteBatchImpl::SubmitAndWait` 保留旧行为——`is_open()` 为 false 时整段跳过，
+          `flush()` 照调，既不报错也没有任何返回值，已排队的写被静默丢弃。
+
+## 判据（tasks.md 1.5 原文）
+「先 `Write()` 排队一次写（空批首行即返回——必须先排队），再对不存在目录下的路径提交，必须抛
+——改前红（静默丢弃），改后绿。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_red_vulkan.json
+```
+（d3d12 同一条，读数逐字相同）
+
+## 真实输出（test_output\TestIOErrorChannel.log 第 7 行，原文）
+```
+[I/O 错误通道 1.5] 写目标打不开（父目录不存在）时 SubmitAndWait 抛 ca_io::io_error 点名路径：判据不成立 ⇒ 没有抛异常（静默成功）
+```
+
+## 判据为什么红
+- 目标路径的父目录不存在 ⇒ 缓存的 `std::ofstream` 打开失败（`is_open()` false），
+  旧实现跳过写、`flush()` 空转、`SubmitAndWait` 正常返回 ⇒ 调用方以为写成功了，数据全丢。
+- 该路径同时覆盖 `ResourceImportingSystem::SerializeAll` 的落盘入口（同一 `WBatch::SubmitAndWait`）。

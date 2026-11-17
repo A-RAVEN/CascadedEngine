@@ -1,0 +1,25 @@
+# 1.5 绿态：写目标打不开被点名拒绝（改后）
+
+时间: 绿态构建（%TEMP%\ioerr-build-green.log）
+代码状态: `WriteBatchImpl::SubmitAndWait` 在任务体内检查 `is_open()`（目标打不开）与
+          `write()` / `flush()` 之后的流状态，按值收失败、调用线程抛 `io_error` 点名路径。
+
+## 判据（tasks.md 1.5 原文）
+「先 `Write()` 排队一次写，再对不存在目录下的路径提交，必须抛——改前红，改后绿。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_vulkan.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_d3d12.json
+```
+
+## 真实输出（绿色日志第 7 行，原文；两后端逐字相同）
+```
+[I/O 错误通道 1.5] 写目标打不开（父目录不存在）时 SubmitAndWait 抛 ca_io::io_error 点名路径：判据成立 ⇒ ca_io::io_error：批写提交失败："C:\Users\76956\AppData\Local\Temp\io_error_channel_probe\no_such_dir\output.bin"（打不开写目标）
+```
+
+## 判据为什么绿（红→绿对照）
+- 红态：`没有抛异常（静默成功）`——已排队的 16 字节写被静默丢弃。
+- 绿态：`ca_io::io_error`，消息逐字含目标路径与原因「打不开写目标」。
+- 这条路径就是 `ResourceImportingSystem::SerializingAll` 落盘用的同一个 `WBatch::SubmitAndWait`，
+  所以"写失败显式化"覆盖了 `SerializeAll`（3.2 走读已确认该处无 catch 吞异常）。

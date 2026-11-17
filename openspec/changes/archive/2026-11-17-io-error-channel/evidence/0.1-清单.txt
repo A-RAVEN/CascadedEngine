@@ -1,0 +1,71 @@
+# 0.1 实现点与消费点清单（全仓口径，不限目录）
+# 生成时间: 2026-11-16 23:49 (Asia/Hong_Kong)
+# 工作目录: E:\Projects\CascadedEngine
+# 说明: 下列每条命令均为 tasks.md 0.1 点名的命令（或其为补齐两条正则合并所拆开的同义形式），
+#       均不限目录、在仓库根执行；命令后紧跟真实输出与 git grep 退出码。
+
+==============================================================
+## 命令 1（tasks 原文，两条实现点正则合并为一条 -E）
+## git grep -n -E "public ca_io::(IOBatch|WBatch)|: public (IOBatch|WBatch)"
+--------------------------------------------------------------
+IOManager_FS/IOManager.cpp:161:	class IOBatchImpl : public IOBatch
+IOManager_FS/IOManager.cpp:177:	class WriteBatchImpl : public WBatch
+Test/CoreTests/ResourceBatchTest.cpp:58:    class WriteBatchStub : public ca_io::WBatch
+Test/CoreTests/ResourceBatchTest.cpp:79:    class ReadBatchStub : public ca_io::IOBatch
+--------------------------------------------------------------
+# 退出码: 0
+
+==============================================================
+## 命令 2（tasks 原文）
+## git grep -n -- "->Read(\|\.Read("
+--------------------------------------------------------------
+CACore/header/CodeGenSerialization.h:167:                const_cast<ByteBuffer*>(m_Buffer)->Read(size, dest);
+D3D12RenderBackend/private/ResourceManagment/GPUResourceStates.h:192:			if (Write() && otherResourceState.Read())
+D3D12RenderBackend/private/ResourceManagment/GPUResourceStates.h:539:				if (resourceState.Read())
+D3D12RenderBackend/private/ResourceManagment/GPUResourceStates.h:558:				if (resourceState.Read())
+Tools/CodeGen/CodeGenMain.cpp:6954:            code += indent + access + " = " + field.nestedRecordShort + "Codec.Read(reader);\n";
+Tools/CodeGen/CodeGenMain.cpp:6959:            code += indent + access + " = " + field.nestedRecordShort + "Codec.Read(reader);\n";
+--------------------------------------------------------------
+# 退出码: 0
+
+==============================================================
+## 命令 3（tasks 原文）
+## git grep -n "CodeGenSerializer<.*IOBatch\|deserialize" -- "*ShaderLibraryCodeGenAssertions.cpp"
+--------------------------------------------------------------
+D3D12RenderBackend/private/ShaderLibrary/ShaderLibraryCodeGenAssertions.cpp:95:template bool cacore::codegen::CodeGenSerializer<graphics_backend::ShaderLibrary>::deserialize<
+D3D12RenderBackend/private/ShaderLibrary/ShaderLibraryCodeGenAssertions.cpp:99:template bool cacore::codegen::CodeGenSerializer<graphics_backend::ShaderLibrary>::deserialize<ca_io::IOBatch>(
+VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibraryCodeGenAssertions.cpp:160:template bool cacore::codegen::CodeGenSerializer<graphics_backend::ShaderLibrary>::deserialize<
+VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibraryCodeGenAssertions.cpp:164:template bool cacore::codegen::CodeGenSerializer<graphics_backend::ShaderLibrary>::deserialize<ca_io::IOBatch>(
+--------------------------------------------------------------
+# 退出码: 0
+
+==============================================================
+## 命令 4（补证：CodeGenSerialization.h 内的流式消费点，对应命令 2 第 1 行）
+## git grep -n "Read(" -- "CACore/header/CodeGenSerialization.h"
+--------------------------------------------------------------
+CACore/header/CodeGenSerialization.h:81:    //   * 只有 `Read(size, dest)` 的——流式来源（例如 IOManager 的 `IOBatch`）：问不到剩余长度，
+CACore/header/CodeGenSerialization.h:167:                const_cast<ByteBuffer*>(m_Buffer)->Read(size, dest);
+--------------------------------------------------------------
+# 退出码: 0
+
+==============================================================
+## 清点结论
+--------------------------------------------------------------
+1. 实现点实测 4 个，与 design 上下文「实现方仅 IOBatchImpl/WriteBatchImpl 两个，
+   CoreTests 桩两个」逐条对上，无清单外实现点：
+   - IOManager_FS/IOManager.cpp:161 IOBatchImpl
+   - IOManager_FS/IOManager.cpp:177 WriteBatchImpl
+   - Test/CoreTests/ResourceBatchTest.cpp:58 WriteBatchStub
+   - Test/CoreTests/ResourceBatchTest.cpp:79 ReadBatchStub
+2. 消费点：唯一对流式来源调用 `Read(size, dest)` 的产品代码是
+   CACore/header/CodeGenSerialization.h:167（`const_cast<ByteBuffer*>(m_Buffer)->Read(size, dest);`，
+   其中 m_Buffer 类型是 `ByteBuffer const*` 的模板参数，流式时绑定到 ca_io::IOBatch）。
+   命令 2 其余命中为无关同名方法（GPUResourceStates 的 Read() 与 CodeGen 模板字符串拼接）。
+3. 显式实例化点 2 处（2026-11-11 裁决点名的既有清单漏项，本清单已含）：
+   - VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibraryCodeGenAssertions.cpp:164
+     `deserialize<ca_io::IOBatch>`
+   - D3D12RenderBackend/private/ShaderLibrary/ShaderLibraryCodeGenAssertions.cpp:99
+     `deserialize<ca_io::IOBatch>`
+   ⇒ 修改 `reader::read_raw` 流式分支会经由这两个显式实例化进入两后端编译单元，
+     4.2 两后端全量构建即覆盖其编译验证。
+4. 出现清单外实现点：无。⇒ 不触发 proposal Impact 节与 design 的修订。

@@ -1,0 +1,34 @@
+# 2.1 红态：流式来源拒绝读时反序列化必须失败（改前）
+
+时间: 2026-11-16 23:56:16（Asia/Hong_Kong；CoreTests 进程）
+代码状态: `CACore/header/CodeGenSerialization.h` 的 `read_raw` 流式分支还是旧写法
+——`const_cast<ByteBuffer*>(m_Buffer)->Read(size, dest); m_Position += size; return true;`
+（无条件报告成功）。
+
+## 判据（tasks.md 2.1 原文）
+「`ReadBatchStub`（越界返回 false）喂截短载荷，`CodeGenSerializer<T>::deserialize` 必须返回 `false`
+——改前红（无条件 `true`），改后绿；缓冲区分支一行不动。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\CoreTests.exe      （退出码 1）
+```
+日志存档：`evidence/2.1-3.1-红态-CoreTests.log`（原文副本，共 13420 字节）
+
+## 真实输出（该日志第 103–107 行，原文）
+```
+L103: TResource 对拍：新批字节 == 老批字节 = 1（新=16 / 老=16），只做转发 = 1，读回一致 = 1，反向对照不同 = 1
+L104: 流式读对象截短载荷（16→12 字节）：来源拒绝读后 deserialize 返回失败 = 0（期望 1，改前为 0）
+L105: 资源层截短载荷：TResource::Deserialize 抛 ca_io::io_error = 0、消息含来源路径 = 0（均期望 1，改前均为 0）
+L106: TResource 批读写判据失败：字节对拍 = 1、只做转发 = 1、读回一致 = 1、反向对照不同 = 1、流式截短失败 = 0、资源层截短抛 io_error = 0、消息含来源路径 = 0
+L107: CodeGen TResource batch roundtrip test FAILED
+```
+
+## 判据为什么红
+- 载荷 16 字节截成 12 字节：读第三个字段 `c`（double，8 字节）时位置 8 + 8 > 12，
+  `ReadBatchStub::Read` 返回 false；旧 `read_raw` 忽略返回值 ⇒ `deserialize` 返回 true。
+  读数是 **0**，与缺陷一一对应。
+- 同一行的四断言（字节对拍 / 只做转发 / 读回一致 / 反向对照）全为 **1**：
+  说明这批红读数不是"案例本身坏了"，字节契约完好，失败的只有新判据。
+- 红态实现里 `ReadBatchStub::Read` 已经按 design D3 返回 false（4.1 的桩同步已完成），
+  所以红是**运行时行为**的红，不是"桩还没改"的红。

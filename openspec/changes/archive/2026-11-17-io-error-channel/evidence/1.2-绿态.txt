@@ -1,0 +1,28 @@
+# 1.2 绿态：不存在的路径在批创建时点名失败（改后）
+
+时间: 2026-11-16 23:59 之后（绿态构建：BUILD SUCCESSFUL，日志 %TEMP%\ioerr-build-green.log）
+代码状态: `IOManagerImpl::Batch` 先 `ProbeSourceFileSize`（`is_directory` + `file_size(error_code)`），
+          失败抛 `io_error`；`IOBatchImpl` 构造不再裸调 `std::filesystem::file_size`（design D4）。
+
+## 判据（tasks.md 1.2 原文）
+「对不存在的路径 `Batch()`，`catch (ca_io::io_error const&)` 且 `what()` 含路径——改前红，改后绿。」
+
+## 命令（真实执行，两后端各一次）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_vulkan.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_d3d12.json
+```
+退出码：0 / 0。result.json：`{"name":"TestIOErrorChannel","status":"pass","duration_ms":10,"exit_code":0}`（vulkan）、
+`…"duration_ms":8…`（d3d12）。
+
+## 真实输出（test_output\TestIOErrorChannel_green_vulkan.log 第 3 行，原文；d3d12 副本逐字相同）
+```
+[I/O 错误通道 1.2] 不存在的路径在 IOManager::Batch 抛 ca_io::io_error 且点名路径：判据成立 ⇒ ca_io::io_error：批创建期探测源文件失败："C:\Users\76956\AppData\Local\Temp\io_error_channel_probe\missing_input.bin"（The system cannot find the file specified.）
+```
+
+## 判据为什么绿（红→绿对照）
+- 红态：`未知类型的异常`（抛的是裸 `std::filesystem::filesystem_error`，类型与路径都拿不到）。
+- 绿态：抛的是 `ca_io::io_error`，消息里**逐字含该路径**（用例用 `std::strstr` 在 `what()` 上核对），
+  且原因（`The system cannot find the file specified.`）一并点名。
+- 同一句消息走的是"探测失败即抛"，所以 `IOBatchImpl` 构造里那次未类型化的 `file_size` 调用已经不存在
+  （design D4 的"加载入口第一时间报错，不拖到 Submit"）。

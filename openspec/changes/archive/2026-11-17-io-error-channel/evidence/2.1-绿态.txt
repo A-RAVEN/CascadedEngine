@@ -1,0 +1,30 @@
+# 2.1 绿态：流式来源拒绝读时反序列化失败（改后）
+
+时间: 绿态 CoreTests 运行（%TEMP%\ioerr-coretests-green.log）
+代码状态: `CACore/header/CodeGenSerialization.h` 的 `read_raw` 流式分支取 `Read` 的返回值：
+          false ⇒ `m_Failed = true; return false;`；缓冲区分支一行未动（design D3）。
+
+## 判据（tasks.md 2.1 原文）
+「`ReadBatchStub`（越界返回 false）喂截短载荷，`CodeGenSerializer<T>::deserialize` 必须返回 `false`
+——改前红，改后绿；`GeneratedContainerTest`/`FriendLikeTest`/`ShaderLibraryBytesTest` 等缓冲区用例全绿不动。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\CoreTests.exe      （退出码 0）
+```
+完整日志副本：`evidence/2.1-3.1-绿态-CoreTests.log`
+
+## 真实输出（该日志第 103–106 行，原文）
+```
+L103: TResource 对拍：新批字节 == 老批字节 = 1（新=16 / 老=16），只做转发 = 1，读回一致 = 1，反向对照不同 = 1
+L104: 流式读对象截短载荷（16→12 字节）：来源拒绝读后 deserialize 返回失败 = 1（期望 1，改前为 0）
+L105: 资源层截短载荷：TResource::Deserialize 抛 ca_io::io_error = 1、消息含来源路径 = 1（均期望 1，改前均为 0）
+L106: CodeGen TResource batch roundtrip PASSED
+```
+`PASSED` 23 行、`FAILED` 0 行。
+
+## 判据为什么绿（红→绿对照）
+- 红态 L104 为 0（`read_raw` 无条件 `return true`）；绿态为 1。
+- 同一轮里 `GeneratedContainerTest` / `FriendLikeTest` / `ShaderLibraryBytesTest` 等缓冲区用例照旧
+  `PASSED`（23 行全绿、0 失败）：缓冲区分支没被这次改动波及，字节契约也没动（L103 四断言全 1）。
+- L107 的 `ShaderLibrary(D3D12) 对拍` 也全 1 —— 另一条独立的字节契约判据仍然成立。

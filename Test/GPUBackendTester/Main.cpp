@@ -1173,6 +1173,300 @@ ctx.pWindowSystem->UpdateSystem();
 }
 
 
+// 失败详情放在**静态缓冲**里（任务 4.4）：这个可执行文件里长 std::string 的堆缓冲在
+// 异常抛出与捕获之间会被释放掉（实测 e.what() 拿到 32 个 0xDD = MSVC debug 堆的"已释放"填充，
+// 而短于 SSO 阈值的消息完全正常），根因是 mimalloc 与 ucrtbase 两个堆同时存在：
+//   mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+// 所以跨 catch 边界只传一句短码，详细文字走这块静态内存，appendJsonResult 直接按 char* 写出。
+// （声明放在 `TestIOErrorChannel` 之前：那段用例的失败细节也走这条通道，见下面的判据汇总。）
+static char g_errorDetail[512] = {};
+
+// ---- TestIOErrorChannel（io-error-channel 任务 1.2 / 1.3 / 1.4 / 1.5 / 5.1）----
+// 批式读写的失败通道，以及资源加载失败的透出。每条判据各自打印一行读数、各自记判定，最后统一判红绿 ——
+// 这样改动前的一次运行里 1.2 / 1.3 / 1.4① / 1.4② / 1.5 / 5.1 的**真实读数逐条可辨**，不会被前一条
+// 失败挡住。临时文件全部落在 `%TEMP%\io_error_channel_probe\` 下，用完删除（异常路径也删，见 TempDirGuard）；
+// 5.1 用一个资源字典里没有、磁盘上也不存在的名字，不碰 `CAAssets` 里的真实资产。
+namespace
+{
+	// 5.1 的探针资源类型：`GetOrLoadResource` 的模板便利入口要求一个可默认构造的 `IResource` 派生类型。
+	// 路径不存在时 `Batch()` 在反序列化之前就抛 `io_error`，所以下面两个成员不该被调到；
+	// 一旦被调到（说明批创建期的探测没拦住），这里抛的异常会把 5.1 判红。
+	class MissingAssetResourceProbe : public IResource
+	{
+	public:
+		void Serialize(ca_io::WBatch* /*inWriter*/) override { throw std::runtime_error("E_IO_PROBE_SERIALIZE"); }
+		void Deserialize(ca_io::IOBatch* /*inReader*/) override { throw std::runtime_error("E_IO_PROBE_DESERIALIZE"); }
+	};
+
+	// 一条「必须抛 ca_io::io_error 且消息点名路径」的判据读数。
+	struct IoThrowReading
+	{
+		bool threw = false;     // 抛的是不是 ca_io::io_error
+		bool namedPath = false; // 消息里有没有那个路径
+		char actual[320] = {};  // 实际发生的事（失败时直接看这一行）
+
+		bool Passed() const { return threw && namedPath; }
+	};
+
+	// 跑一个应当失败的调用，把「有没有抛、抛的是什么、消息点没点名路径」都变成读数，不向外抛异常 ——
+	// 好让同一轮里其余判据照常跑。
+	template <typename Fn>
+	IoThrowReading ProbeThrow(char const* expectedPath, Fn&& action)
+	{
+		IoThrowReading reading;
+		try
+		{
+			action();
+			std::snprintf(reading.actual, sizeof(reading.actual), "没有抛异常（静默成功）");
+		}
+		catch (ca_io::io_error const& e)
+		{
+			reading.threw = true;
+			// 直接对 `what()` 的字符缓冲做子串查找：本进程里 std::string 的堆缓冲在跨 catch 边界
+			// 有已知问题（见 `g_errorDetail` 的注释），这里不再多复制一份 std::string。
+			reading.namedPath = std::strstr(e.what(), expectedPath) != nullptr;
+			std::snprintf(reading.actual, sizeof(reading.actual), "ca_io::io_error：%s", e.what());
+		}
+		catch (std::exception const& e)
+		{
+			std::snprintf(reading.actual, sizeof(reading.actual), "非 ca_io::io_error 的异常：%s", e.what());
+		}
+		catch (...)
+		{
+			// 这个分支也会接住**模块 DLL 抛来的 std 异常**：本可执行文件的目标带
+			// `-D_HAS_EXCEPTIONS=0`（从 Jolt 的接口定义继承），那个模式下 `std::exception` 是
+			// `<exception>` 里的 `stdext::exception`（名字不同、布局也不同），所以
+			// `catch (std::exception const&)` 匹配不上 DLL 抛的 `std::filesystem::filesystem_error`。
+			// `ca_io::io_error` 不受影响：它自己的类型名两边一致，上面的第一个 catch 按名字就能接住。
+			std::snprintf(reading.actual, sizeof(reading.actual), "未知类型的异常（不是 ca_io::io_error）");
+		}
+		return reading;
+	}
+
+	// 写一个指定字节数的文件：内容按序号填（第 i 个字节 = i），便于核对读到的位置对不对。
+	bool WriteProbeFile(std::filesystem::path const& path, std::size_t size)
+	{
+		std::ofstream out(path, std::ios::out | std::ios::binary | std::ios::trunc);
+		if (!out.is_open())
+			return false;
+		for (std::size_t i = 0; i < size; ++i)
+		{
+			const char byte = static_cast<char>(i);
+			out.write(&byte, 1);
+		}
+		out.close();
+		return true;
+	}
+
+	// 判据失败时也要把临时文件删掉：抛异常退出时由析构负责。
+	struct TempDirGuard
+	{
+		std::filesystem::path root;
+		~TempDirGuard()
+		{
+			std::error_code ignored;
+			std::filesystem::remove_all(root, ignored);
+		}
+	};
+} // namespace
+
+void TestIOErrorChannel(TestContext& ctx)
+{
+	auto* pIOManager = ctx.pModuleManager->GetInstance<ca_io::IOManager>();
+	if (pIOManager == nullptr)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "取不到 ca_io::IOManager（IOManager_FS 模块没加载成功）");
+		throw std::runtime_error("E_IO_NO_MODULE");
+	}
+	if (ctx.pResourceManagingSystem == nullptr)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "取不到 ResourceManagingSystem（资源模块没加载成功）");
+		throw std::runtime_error("E_IO_NO_RESOURCE_SYSTEM");
+	}
+
+	struct SubCheck
+	{
+		char const* id = "";
+		char const* subject = "";
+		bool passed = false;
+		char reading[384] = {};
+	};
+	std::vector<SubCheck> checks;
+	auto addCheck = [&checks](char const* id, char const* subject, bool passed, char const* reading) {
+		SubCheck check;
+		check.id = id;
+		check.subject = subject;
+		check.passed = passed;
+		std::snprintf(check.reading, sizeof(check.reading), "%s", reading);
+		checks.push_back(check);
+	};
+
+	TempDirGuard tempGuard;
+	tempGuard.root = std::filesystem::temp_directory_path() / "io_error_channel_probe";
+	std::error_code ignored;
+	std::filesystem::remove_all(tempGuard.root, ignored);
+	std::filesystem::create_directories(tempGuard.root, ignored);
+
+	// ---- 1.2 创建期探测：不存在的路径必须在 `Batch()` 就抛 `io_error` 并点名路径 ----
+	{
+		std::string const missingText = (tempGuard.root / "missing_input.bin").string();
+		const IoThrowReading reading = ProbeThrow(missingText.c_str(), [&]() {
+			auto batch = pIOManager->Batch(missingText);
+		});
+		addCheck("1.2", "不存在的路径在 IOManager::Batch 抛 ca_io::io_error 且点名路径", reading.Passed(),
+		         reading.actual);
+	}
+
+	// ---- 1.3 越界读：拒绝并报告 false，且批内位置不推进（用「拒绝之后再读一段必须仍被接受」核位置）----
+	{
+		std::filesystem::path const filePath = tempGuard.root / "sixteen_bytes.bin";
+		bool firstAccepted = false;
+		bool overrunRejected = false;
+		bool positionKept = false;
+		bool headCorrect = false;
+		bool tailCorrect = false;
+		char readingText[384] = {};
+		if (!WriteProbeFile(filePath, 16))
+		{
+			std::snprintf(readingText, sizeof(readingText), "构造失败：写不出 16 字节临时文件 %s",
+			              filePath.string().c_str());
+		}
+		else
+		{
+			std::string const fileText = filePath.string();
+			try
+			{
+				auto batch = pIOManager->Batch(fileText);
+				unsigned char head[8] = {};
+				unsigned char overrunTarget[16] = {}; // 越界那次的目标单独一块，旧实现真写进来也不越界
+				unsigned char tail[8] = {};
+				firstAccepted = batch->Read(8, head);
+				overrunRejected = !batch->Read(16, overrunTarget);
+				positionKept = batch->Read(8, tail);
+				batch->SubmitAndWait();
+				headCorrect = true;
+				tailCorrect = true;
+				for (std::size_t i = 0; i < 8; ++i)
+				{
+					headCorrect = headCorrect && head[i] == static_cast<unsigned char>(i);
+					tailCorrect = tailCorrect && tail[i] == static_cast<unsigned char>(i + 8);
+				}
+				std::snprintf(readingText, sizeof(readingText),
+				              "首读 8 字节被接受=%d、越界读 16 字节被拒=%d、拒绝后再读 8 字节仍被接受（位置未推进）=%d、"
+				              "头 8 字节内容符合=%d、尾 8 字节内容符合=%d",
+				              firstAccepted ? 1 : 0, overrunRejected ? 1 : 0, positionKept ? 1 : 0,
+				              headCorrect ? 1 : 0, tailCorrect ? 1 : 0);
+			}
+			catch (std::exception const& e)
+			{
+				std::snprintf(readingText, sizeof(readingText), "意外抛出异常：%s", e.what());
+			}
+			catch (...)
+			{
+				std::snprintf(readingText, sizeof(readingText), "意外抛出未知类型的异常");
+			}
+		}
+		addCheck("1.3",
+		         "越界读返回 false、批内位置不推进、已接受的读仍读得到正确字节",
+		         firstAccepted && overrunRejected && positionKept && headCorrect && tailCorrect, readingText);
+	}
+
+	// ---- 1.4① 提交期打不开：先排队一次读，再删掉源文件，`SubmitAndWait` 必须在调用线程抛 `io_error` ----
+	{
+		std::filesystem::path const filePath = tempGuard.root / "deleted_after_batch.bin";
+		std::string const fileText = filePath.string();
+		bool const created = WriteProbeFile(filePath, 16);
+		if (!created)
+		{
+			addCheck("1.4①", "排队读之后删除源文件，SubmitAndWait 抛 ca_io::io_error 点名路径", false,
+			         "构造失败：写不出 16 字节临时文件");
+		}
+		else
+		{
+			const IoThrowReading reading = ProbeThrow(fileText.c_str(), [&]() {
+				auto batch = pIOManager->Batch(fileText);
+				unsigned char buffer[16] = {};
+				batch->Read(16, buffer); // 必须先排队：空批在 SubmitAndWait 首行就返回
+				std::error_code removeError;
+				std::filesystem::remove(filePath, removeError);
+				batch->SubmitAndWait();
+			});
+			addCheck("1.4①", "排队读之后删除源文件，SubmitAndWait 抛 ca_io::io_error 点名路径", reading.Passed(),
+			         reading.actual);
+		}
+	}
+
+	// ---- 1.4② 提交期短读（TOCTOU）：创建期尺寸 16，提交前截短到 8，`gcount()` 检查必须抓到 ----
+	{
+		std::filesystem::path const filePath = tempGuard.root / "truncated_after_batch.bin";
+		std::string const fileText = filePath.string();
+		bool const created = WriteProbeFile(filePath, 16);
+		if (!created)
+		{
+			addCheck("1.4②", "排队读之后把源文件截短到 8 字节，SubmitAndWait 抛 ca_io::io_error 点名路径", false,
+			         "构造失败：写不出 16 字节临时文件");
+		}
+		else
+		{
+			const IoThrowReading reading = ProbeThrow(fileText.c_str(), [&]() {
+				auto batch = pIOManager->Batch(fileText);
+				unsigned char buffer[16] = {};
+				batch->Read(16, buffer); // 创建期尺寸 16，越界检查放行
+				std::error_code resizeError;
+				std::filesystem::resize_file(filePath, 8, resizeError);
+				batch->SubmitAndWait();
+			});
+			addCheck("1.4②", "排队读之后把源文件截短到 8 字节，SubmitAndWait 抛 ca_io::io_error 点名路径",
+			         reading.Passed(), reading.actual);
+		}
+	}
+
+	// ---- 1.5 写目标打不开：父目录不存在，`SubmitAndWait` 必须在调用线程抛 `io_error` 点名路径 ----
+	{
+		std::string const unwritableText = (tempGuard.root / "no_such_dir" / "output.bin").string();
+		const IoThrowReading reading = ProbeThrow(unwritableText.c_str(), [&]() {
+			auto batch = pIOManager->WriteBatch(unwritableText);
+			unsigned char payload[16] = {};
+			batch->Write(16, payload); // 必须先排队：空批在 SubmitAndWait 首行就返回
+			batch->SubmitAndWait();
+		});
+		addCheck("1.5", "写目标打不开（父目录不存在）时 SubmitAndWait 抛 ca_io::io_error 点名路径",
+		         reading.Passed(), reading.actual);
+	}
+
+	// ---- 5.1 资源层透出：资源字典里没有、磁盘上也不存在的资产路径，加载必须抛 `io_error` 点名路径 ----
+	{
+		char const* const kMissingAssetName = "__io_error_channel_missing__.res";
+		const IoThrowReading reading = ProbeThrow(kMissingAssetName, [&]() {
+			cacore::PathHash const key{ castl::string(kMissingAssetName) };
+			ctx.pResourceManagingSystem->GetOrLoadResource<MissingAssetResourceProbe>(key);
+		});
+		addCheck("5.1", "经 GetOrLoadResource 加载缺失资产路径抛 ca_io::io_error 点名该路径", reading.Passed(),
+		         reading.actual);
+	}
+
+	// ---- 汇总：逐条打印读数，再统一判红绿 ----
+	std::string failedIds;
+	for (auto const& check : checks)
+	{
+		CA_LOG("[I/O 错误通道 {}] {}：{} ⇒ {}", check.id, check.subject,
+		       check.passed ? "判据成立" : "判据不成立", check.reading);
+		if (!check.passed)
+		{
+			failedIds += check.id;
+			failedIds += " ";
+		}
+	}
+	if (!failedIds.empty())
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail),
+		              "I/O 错误通道判据不成立：%s（逐条读数见 test_output/TestIOErrorChannel.log）",
+		              failedIds.c_str());
+		throw std::runtime_error("E_IO_ERROR_CHANNEL");
+	}
+	CA_LOG("TestIOErrorChannel 通过：{} 条判据全部成立（1.2 / 1.3 / 1.4① / 1.4② / 1.5 / 5.1）", checks.size());
+}
+
 // ---- Helpers (added for diagnostics) ----
 
 static void createDirectoryIfNeeded(const char* path)
@@ -1180,12 +1474,8 @@ static void createDirectoryIfNeeded(const char* path)
 	CreateDirectoryA(path, NULL);
 }
 
-// 失败详情放在**静态缓冲**里（任务 4.4）：这个可执行文件里长 std::string 的堆缓冲在
-// 异常抛出与捕获之间会被释放掉（实测 e.what() 拿到 32 个 0xDD = MSVC debug 堆的"已释放"填充，
-// 而短于 SSO 阈值的消息完全正常），根因是 mimalloc 与 ucrtbase 两个堆同时存在：
-//   mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
-// 所以跨 catch 边界只传一句短码，详细文字走这块静态内存，appendJsonResult 直接按 char* 写出。
-static char g_errorDetail[512] = {};
+// `g_errorDetail`（失败细节的静态缓冲，理由见它自己的声明处）声明在 `TestIOErrorChannel` 之前，
+// 这里直接用；`appendJsonResult` 按 `char*` 把它写进结果文件。
 static void appendJsonResult(std::ofstream& jsonFile, bool& isFirst,
 	const char* testName, const char* status,
 	long long durationMs, int exitCode, const char* error)
@@ -3732,6 +4022,9 @@ int main(int argc, char* argv[])
 		// csharp-render-texture-sampling 任务 1.2：第 16 项（同样：`--list` 里排最后，
 		// 全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）
 		std::cout << "  TestCSharpTextureSampling\n";
+		// io-error-channel 任务 4.2 / 5.1：第 17 项（批式读写的失败通道与资源加载失败透出；
+		// 不开窗口、不用 C#，所以全量里放哪都不影响别的用例，见 run-all 那段）
+		std::cout << "  TestIOErrorChannel\n";
 		return 0;
 	}
 
@@ -4017,6 +4310,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpTextureSampling", TestCSharpTextureSampling);
 	}
+		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
+	{
+		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
+	}
 		else
 		{
 			std::cerr << "Error: Unknown test: " << testName.c_str() << std::endl;
@@ -4047,6 +4344,9 @@ int main(int argc, char* argv[])
 		// 纹理采样探针同样要用 C#：**全量执行位置必须在这里**、排在 `TestCSharpWindowCallbacks` 之前
 		//（那个用例会显式关闭托管运行时，排在它之后就再也拿不到 C#）。
 		runTestWithDiagnostics("TestCSharpTextureSampling", TestCSharpTextureSampling);
+		// io-error-channel 任务 4.2：批式读写的失败通道与资源加载失败透出。它不开窗口、不用 C#，
+		// 放在 `TestCSharpWindowCallbacks` 之前（那条会关掉托管运行时；这条与 C# 无关，位置只为好读）。
+		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}

@@ -1,0 +1,85 @@
+# 3.2 ResourceImportingSystem.cpp 走读：加载与 SerializeAll 路径无吞 io_error 的 catch
+
+生成时间: 2026-11-17 (Asia/Hong_Kong)    工作目录: E:\Projects\CascadedEngine
+任务原文: 「`ResourceImportingSystem.cpp`：`GetOrLoadResource`/`SerializeAll` 走读确认无吞 `io_error` 的 catch 块
+（**不得新增 try/catch**）。验收可失败：`git grep -n "catch" -- GeneralResources/private/ResourceImportingSystem.cpp`
+输出存档 evidence；逐条走读确认不吞 `io_error`；红态 = 实现中出现 `catch (...)` 或捕获 `io_error` 且不 rethrow
+——出现即本条红。」
+
+==============================================================
+## 命令 A（tasks 原文的判据命令）
+## git grep -n "catch" -- GeneralResources/private/ResourceImportingSystem.cpp
+--------------------------------------------------------------
+（无输出）
+--------------------------------------------------------------
+退出码: 1  ⇒ 该文件里 **0 个 catch**，不存在"捕获 io_error 且不 rethrow"的写法，也不存在 `catch (...)`。
+
+==============================================================
+## 命令 B（补证：连 try 块也没有；同时说明为什么不能用 "try" 当判据）
+## git grep -n "try" -- GeneralResources/private/ResourceImportingSystem.cpp
+--------------------------------------------------------------
+GeneralResources/private/ResourceImportingSystem.cpp:94:								using Entry = castl::filesystem::directory_entry;
+GeneralResources/private/ResourceImportingSystem.cpp:95:								for (Entry const& entry : castl::filesystem::directory_iterator(destPath))
+GeneralResources/private/ResourceImportingSystem.cpp:98:									targetTime = targetTime < entry.last_write_time() ? targetTime : entry.last_write_time();
+--------------------------------------------------------------
+退出码: 0 —— 但 3 行命中全是 `directory_entry` / `directory_iterator` / `entry` 的**子串**，没有一条是 `try` 语句。
+这正是 tasks 修订记录第 8 条点出的假命中：拿 "try" 当判据会恒真。本条的判据因此用 `catch`。
+
+==============================================================
+## 命令 C（补证：该文件根本不引用 io_error，没有"按类型吞掉"的分支）
+## git grep -n "io_error" -- GeneralResources/private/ResourceImportingSystem.cpp
+--------------------------------------------------------------
+（无输出）
+--------------------------------------------------------------
+退出码: 1
+
+==============================================================
+## 命令 D：文件总行数（走读范围）
+--------------------------------------------------------------
+223 行（全文已逐行读过，见下面的两条路径走读）。
+
+==============================================================
+## 逐条走读（两条路径的异常出口）
+--------------------------------------------------------------
+### ① `ResourceManagingSystem_Impl::GetOrLoadResource`（`ResourceImportingSystem.cpp:168`）
+```
+auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
+    {
+        CA_LOG("Load new resource: {}", path);
+        castl::shared_ptr<IResource> newRes = castl::shared_ptr<IResource>(newCallback(), deleteCallback);
+        auto batch = pIOManager->Batch(GetResourceFullPath(path));
+        newRes->Deserialize(batch.get());
+        return newRes;
+    });
+return result->second;
+```
+- 走读结论：函数体里没有 try/catch。`pIOManager->Batch(...)`（1.2 的 `io_error`）与
+  `newRes->Deserialize(...)`（3.1 的 `io_error`）都在 `get_or_create` 的创建回调里，异常沿
+  `createFunctor()` → `get_or_create` → `GetOrLoadResource` 一路向外抛。
+- `get_or_create` 侧核对（`CACore/header/CACore/CASharedDic.h:61`）：两个重载都只在拿到
+  `createFunctor()` 的**返回值之后**才 `m_Map.insert(...)`；回调抛异常时 insert 不执行、函数不捕获
+  （源码里没有 try/catch），所以异常原样穿过，字典里也不会留下半成品条目。
+- 已在 `newRes` 上核对所有权：它是局部 `castl::shared_ptr`，栈展开时按 `deleteCallback` 释放，
+  不存在"抛了异常却泄漏一个资源对象"。
+
+### ② `ResourceManagingSystem_Impl::SerializeAll`（`ResourceImportingSystem.cpp:145`）
+```
+m_PathToResource.for_each([&](cacore::PathHash const& key, castl::shared_ptr<IResource>& val)
+{
+    castl::filesystem::path destPath = m_AssetRootPath / key.Get();
+    castl::filesystem::create_directories(destPath.parent_path());
+    auto batch = pIOManager->WriteBatch(destPath.generic_string());
+    val->Serialize(batch.get());
+    batch->SubmitAndWait();
+});
+```
+- 走读结论：没有 try/catch。`val->Serialize(...)` 内部的 `Write` 与 `batch->SubmitAndWait()`
+  （1.5 的 `io_error`）都直接向外抛，`for_each` 的回调不拦截。
+- 本条没有新增任何 try/catch（任务明令禁止）：文件里 `catch` 仍然是 0 个。
+
+==============================================================
+## 本条判定
+--------------------------------------------------------------
+判据：文件里不得出现 `catch (...)`，也不得出现捕获 `io_error` 而不 rethrow 的块（出现即红）。
+实测：`catch` 0 处、`io_error` 0 处、无 try 语句 ⇒ **判据成立（绿）**。
+本条不需要改动实现代码（任务要求就是"走读确认"，并禁止新增 try/catch）。

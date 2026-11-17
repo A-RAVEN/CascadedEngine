@@ -1,0 +1,39 @@
+# 1.2 红态：不存在的路径在批创建时点名失败（改前）
+
+时间: 2026-11-16 23:56:57（Asia/Hong_Kong）    工作目录: E:\Projects\CascadedEngine
+构建: `python build.py --config Debug` → BUILD SUCCESSFUL（主循环执行，日志 %TEMP%\ioerr-build-red.log）
+代码状态: 1.1 接口层已就位（`Read`/`Write` 返回 bool、`SourcePath()`、`ca_io::io_error`），
+          实现**保留旧行为**：`IOBatchImpl` 构造里裸调 `std::filesystem::file_size`，
+          `IOManagerImpl::Batch` 不做探测。
+
+## 判据（tasks.md 1.2 原文）
+「对不存在的路径 `Batch()`，`catch (ca_io::io_error const&)` 且 `what()` 含路径——改前红
+（抛 `std::filesystem::filesystem_error`，类型对不上），改后绿。」
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_red_vulkan.json
+```
+对照同一轮 d3d12：`--backend d3d12 ... --report test_output\io_error_channel_red_d3d12.json`
+
+## 真实输出（test_output\TestIOErrorChannel.log 第 3 行，原文；两后端逐字相同）
+```
+[I/O 错误通道 1.2] 不存在的路径在 IOManager::Batch 抛 ca_io::io_error 且点名路径：判据不成立 ⇒ 未知类型的异常
+```
+进程退出码：vulkan 1 / d3d12 1；result.json：
+```
+{"name":"TestIOErrorChannel","status":"fail","duration_ms":19,"exit_code":1,"error":"I/O 错误通道判据不成立：1.2 1.3 1.4① 1.4② 1.5 5.1 （逐条读数见 test_output/TestIOErrorChannel.log）"}
+```
+（原始文件副本：`evidence/1.2-1.5-5.1-红态-tester日志-vulkan.log`、`…-d3d12.log`、
+`evidence/1.2-1.5-5.1-红态-result-vulkan.json`、`…-d3d12.json`）
+
+## 判据为什么红
+- 抛的**不是** `ca_io::io_error`，`ProbeThrow` 的 `catch (ca_io::io_error const&)` 没接住。
+- 落进 `catch (...)` 而不是 `catch (std::exception)`：GPUBackendTester 的目标带
+  `-D_HAS_EXCEPTIONS=0`（从 Jolt 的接口定义继承，`out\build\x64-debug\build.ninja` 的
+  `GPUBackendTester.dir\Main.cpp.obj` 那条 `DEFINES` 里可核），该模式下 `<exception>` 把
+  `std::exception` 定义为 `stdext::exception`（名字 `. ?AVexception@stdext@@`、布局也不同），
+  所以 `catch (std::exception const&)` 接不住 `IOManager_FS.dll` 抛出的
+  `std::filesystem::filesystem_error`（它派生自真正的 `std::exception`）。
+  这正是"未类型化的 filesystem 异常逃逸"的现场：调用方既认不出类型，也拿不到路径。
+- 判据强度不变：要的还是"抛 `ca_io::io_error` 且消息含路径"，没有因为接不住就放宽。

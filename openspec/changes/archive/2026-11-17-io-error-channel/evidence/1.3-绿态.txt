@@ -1,0 +1,26 @@
+# 1.3 绿态：越界读被拒绝、位置不推进（改后）
+
+时间: 绿态构建（%TEMP%\ioerr-build-green.log）
+代码状态: `IOBatchImpl::Read` 的越界分支由"静默接受"改为 `return false;`，且不 `AppendRange`
+          （批内位置不推进，design D3）。
+
+## 判据（tasks.md 1.3 原文 + 本用例加严的三项）
+「16 字节临时文件建批，顺序读完 16 字节后再 `Read(1, &b)`，返回值必须为 `false`——改前红，改后绿。」
+本用例实际核五项：① 首读 8 字节被接受；② 越界 `Read(16)` 返回 false；③ 拒绝之后再 `Read(8)` 仍被接受
+（位置没被推进的可观测判据）；④ 头 8 字节内容 == 0..7；⑤ 尾 8 字节内容 == 8..15。
+
+## 命令（真实执行）
+```
+out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_vulkan.json
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestIOErrorChannel --headless 1 --report test_output\io_error_channel_green_d3d12.json
+```
+
+## 真实输出（绿色日志第 4 行，原文；两后端逐字相同）
+```
+[I/O 错误通道 1.3] 越界读返回 false、批内位置不推进、已接受的读仍读得到正确字节：判据成立 ⇒ 首读 8 字节被接受=1、越界读 16 字节被拒=1、拒绝后再读 8 字节仍被接受（位置未推进）=1、头 8 字节内容符合=1、尾 8 字节内容符合=1
+```
+
+## 判据为什么绿（红→绿对照）
+- 红态同一行：`越界读 16 字节被拒=0`（其余四项已是 1）⇒ 只有"越界是否被报告"这一件事是红的。
+- 绿态五项全 1：越界被拒=1、位置未推进=1、被接受的两段读内容正确=1 ——
+  说明失败只落在越界那一次调用上，没有把整条读路径搞坏。

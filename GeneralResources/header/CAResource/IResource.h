@@ -1,9 +1,11 @@
 #pragma once
+#include <CASTL/CAString.h>
 #include <CASTL/CAVector.h>
 #include <CodeGenSerialization.h>
 #include <IOManager/IOManager.h>
 #include <cstddef>
 #include <cstdint>
+#include <typeinfo>
 
 namespace resource_management
 {
@@ -35,7 +37,20 @@ namespace resource_management
 		virtual void Deserialize(ca_io::IOBatch* inReader) override
 		{
 			std::size_t position = 0;   // 流式读对象只做计数；"读到多少算越界"由来源决定
-			cacore::codegen::CodeGenSerializer<TRes>::deserialize(*static_cast<TRes*>(this), *inReader, position);
+			const bool deserialized =
+				cacore::codegen::CodeGenSerializer<TRes>::deserialize(*static_cast<TRes*>(this), *inReader, position);
+			if (!deserialized)
+			{
+				// design D5：反序列化失败必须显式抛出，不再把未定义数据静默灌进资源对象。
+				// 消息点名来源路径（经 `IOBatch::SourcePath()` 从批上取，design D1），并补上资源类型 ——
+				// 同一个来源路径可能对应多种资源，只有路径不够定位。
+				castl::string message("资源反序列化失败：\"");
+				message += inReader->SourcePath();
+				message += "\"（资源类型 ";
+				message += typeid(TRes).name();
+				message += "）";
+				throw ca_io::io_error(message);
+			}
 			inReader->SubmitAndWait();
 		}
 	};
