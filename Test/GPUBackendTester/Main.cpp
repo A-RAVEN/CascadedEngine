@@ -38,6 +38,7 @@
 #include <TimerSystemEditor/TimerSystem_Impl.h>
 #include <IOManager/IOManager.h>
 #include <filesystem>
+#include <system_error>
 #include <magic_enum/magic_enum.hpp>
 #include <CAResource/ResourceSystemFactory.h>
 #include <stb_image.h>
@@ -116,6 +117,7 @@ struct TestContext
 	castl::string resourcePath;
 	int headlessFrames = 0;
 	int captureFrame = -1; // add-render-readback: read back this frame (index into headless loop) to PNG
+	int captureWrites = 0; // 本测试成功写出的 capture PNG 数（任务 2.3：0 = 没写成，帧循环结束后警告）
 	castl::string backendName = "vulkan"; // which backend is running; tags capture PNG filenames
 };
 
@@ -156,6 +158,7 @@ static bool WriteReadbackPNG(TestContext& ctx, ImageHandle const& rt, int w, int
 		std::cerr << "[capture] " << baseName << ": capture is BLANK (nonEmpty=false) - render likely broken" << std::endl;
 		return false;
 	}
+	++ctx.captureWrites;
 	return true;
 }
 
@@ -1472,6 +1475,37 @@ void TestIOErrorChannel(TestContext& ctx)
 static void createDirectoryIfNeeded(const char* path)
 {
 	CreateDirectoryA(path, NULL);
+}
+
+// 任务 2.1（design D3）：headless 跑前只清 `test_output/*.log` —— 同名日志跨运行 / 跨后端串味是病根；
+// json/png 是跨运行累积产物（C# 像素判据多 run 对账、跨后端 PNG 对比依赖它们），不能删。
+static int CleanupStaleLogs(char const* path)
+{
+	int removed = 0;
+	std::error_code ec;
+	std::filesystem::directory_iterator entry(path, ec);
+	if (ec)
+	{
+		return 0;
+	}
+	for (auto const& item : entry)
+	{
+		if (!item.is_regular_file(ec))
+		{
+			ec.clear();
+			continue;
+		}
+		if (item.path().extension() != ".log")
+		{
+			continue;
+		}
+		std::error_code removeError;
+		if (std::filesystem::remove(item.path(), removeError) && !removeError)
+		{
+			++removed;
+		}
+	}
+	return removed;
 }
 
 // `g_errorDetail`（失败细节的静态缓冲，理由见它自己的声明处）声明在 `TestIOErrorChannel` 之前，
@@ -3993,6 +4027,7 @@ int main(int argc, char* argv[])
 		std::cout << "  --headless-timeout <N>     Headless timeout in seconds (default: 60)\n";
 		std::cout << "  --report <path>            Output test results as JSON (headless default: test_output/result.json)\n";
 		std::cout << "  --capture <N>              Read back headless frame N to test_output/<test>.png\n";
+		std::cout << "                             (headless only; interactive mode writes a PNG only on TestReadback)\n";
 		std::cout << "  --help                     Show this help message\n";
 		return 0;
 	}
@@ -4028,6 +4063,14 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
+	// 任务 2.2（design D4）：非 headless 带 --capture —— 写图仅在 headless 生效，但交互模式
+	// TestReadback 的单帧路径确实会写 PNG（依赖 test_output 目录已存在），所以只警告、不拒绝。
+	if (headlessFrames <= 0 && captureFrame >= 0)
+	{
+		std::cerr << "[capture] 警告：--capture 的写图仅在 headless 生效；交互模式只有 TestReadback 的单帧路径会写 PNG"
+		             "（依赖 test_output 目录已存在），其余测试只建回读 RT 不写图。" << std::endl;
+	}
+
 	// Task 2.4: Headless default JSON path
 	if (headlessFrames > 0 && reportPath.empty())
 	{
@@ -4038,6 +4081,9 @@ int main(int argc, char* argv[])
 	if (headlessFrames > 0)
 	{
 		createDirectoryIfNeeded("test_output");
+		// 任务 2.1（D3）：跑前清既有 `*.log` 并打印计数；交互运行不进这个分支，故不清理。
+		const int cleanedLogs = CleanupStaleLogs("test_output");
+		std::cout << "test_output 跑前清理：" << cleanedLogs << " 个日志" << std::endl;
 	}
 
 	// ---- Initialize TestContext ----
@@ -4184,6 +4230,7 @@ int main(int argc, char* argv[])
 	auto runTestWithDiagnostics = [&](const char* name, auto testFunc)
 	{
 		FILE* validationLogFile = nullptr;
+		ctx.captureWrites = 0; // 任务 2.3：本测试写出的 capture PNG 数，按测试重置
 
 		if (headlessFrames > 0)
 		{
@@ -4233,6 +4280,15 @@ int main(int argc, char* argv[])
 		{
 			fflush(stdout);
 			freopen("CON", "w", stdout);
+		}
+
+		// 任务 2.3（design D4）：headless 运行里请求了 capture 却没写出 PNG（帧号越界或回读无效）——
+		// 在测试的帧循环结束之后点名测试与帧号；交互运行不发这条（误用由参数校验那一条覆盖）。
+		// 测试本身已失败时不再补警告：失败原因已经由它自己的异常 / 错误码报出来了。
+		if (headlessFrames > 0 && captureFrame >= 0 && exitCode == 0 && ctx.captureWrites == 0)
+		{
+			std::cerr << "[capture] 警告：测试 " << name << " 请求 capture 帧 " << captureFrame
+			          << "，但本次运行未写出 PNG（帧号越界或回读无效）" << std::endl;
 		}
 
 		// Task 4.4: Clear and close validation log

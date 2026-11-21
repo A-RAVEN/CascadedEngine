@@ -1,0 +1,41 @@
+failure-visibility-hygiene 6.1 FileLoader 对外文档（与代码同目录）
+执行：2026-11-21，apply 子 agent
+
+交付：新增 `CACore/README.md`（该模块此前没有 README）。
+内容：
+- 模块一句话定位；
+- FileLoader 三函数段落：错误类型 `cacore::file_error`（消息形状 `动作："路径"（原因）`、不复用 ca_io::io_error 的理由）；
+- **当前无活跃调用方**一句（按要求写明，依据 evidence/1.3-零调用方.txt）；
+- 错误行为表五行：①读目标打不开 ②读取不足 ③写目标打不开 ④写流失败（write/flush/close） ⑤空文件合法；
+  每行都写了改前静默行为与改后 file_error 对照；
+- 两支无独立注入读数的说明（读取不足 / 写流失败，走读证明，指向 evidence/1.2 第三节）；
+- 可复制示例（缺失路径读、空文件合法、缺失目录写）；
+- 真实运行输出（照抄 evidence/1.2 的绿态读数，未手编）；
+- 回归时怎么把这条链路弄红的四条。
+
+验收读数：
+[命令] Test-Path CACore\README.md
+[输出] True
+
+[命令] Select-String -Path CACore\README.md -Pattern "^\| [1-5] \|" -Encoding UTF8
+[输出] 5 命中，逐行开头：
+| 1 | 读目标打不开（`LoadStringFile` / `LoadBinaryFile`） | …
+| 2 | 读取不足（二进制按 `tellg` 尺寸读后 `gcount()` 不足；文本流状态坏且非正常结束） | …
+| 3 | 写目标打不开（父目录不存在、无写权限等） | …
+| 4 | 写流失败（`write()` / `flush()` / `close()` 后流状态坏） | …
+| 5 | 空文件（0 字节） | 返回空容器 | 返回空容器，**不抛**（合法输入） |
+
+[命令] 提取 README 里 11 行 FileLoader 示例/输出（去空白）逐行在 evidence/1.2-FileLoader红绿.txt 中查找
+[输出] README 行数=11 未在 evidence 找到的行数=0（逐行一致）
+
+[命令] Select-String -Path docs\testing.md -Pattern "25 个文件|FileLoaderErrorTest|PASSED. 行数当前为|PASSED. 24 行"
+[输出]
+25: ### ① `Test/CoreTests`（25 个文件）
+27: … / `EmitReflectionTest` / `FileLoaderErrorTest` / `FriendLikeTest` / …
+29: 跑法：`out\build\x64-debug\bin\CoreTests.exe`（退出码 0，`PASSED` 行数当前为 **24**）。`FileLoaderErrorTest` 由 `failure-visibility-hygiene` 加入…
+212: 判定：CoreTests 退出码 0 且 `PASSED` 24 行；…
+
+附：docs/testing.md 的两处计数是随新增用例同步的事实修订（CLAUDE.md「增删测试时」更新）：
+- 「（23 个文件）」→「（25 个文件）」：改前实际 .cpp 数为 24（更早的计数已偏 1），新增 FileLoaderErrorTest.cpp 后为 25（Get-ChildItem Test\CoreTests -Filter *.cpp 实测）；
+- 「PASSED 行数当前为 23」→ **24**：红态日志 reqA-coretests-red.txt 里 PASSED 命中 23（CodeGenMetaTest 是 static_assert-only、无 PASSED 行），绿态 reqB-coretests-green.txt 命中 24；
+- 最小集合判定行「PASSED 22 行」原本也已过期（红态实测 23），一并改为 24。

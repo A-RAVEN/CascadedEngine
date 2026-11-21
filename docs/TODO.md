@@ -12,9 +12,9 @@
 
 **状态**：待修（基线 `1301768` 即红；本 change 只留档不改）。**条目**：`remove_cvref_t` 被 `check_hash_sources.py` 当作来源不明的哈希键类型点名（出现在 `Test/CoreTests/GeneratedHashTest.cpp`）；待修方向：扫描器展开 std 别名，或该测试改用显式类型。**相关**：`Tools/CodeGen/check_hash_sources.py`、`Test/CoreTests/GeneratedHashTest.cpp`、`openspec/changes/render-interface-merge/evidence/4.3-全量实测.txt`。
 
-## [2026-11-05] 绑定生成物期望检查仍是前缀通配，改名件可绕过｜构建系统（跨 change）
+## [2026-11-05] codegen 只写不删，输入面删除后旧产物留在构建目录｜构建系统（跨 change）
 
-**状态**：待修（跨 change；本 change 只把**登记产物**层改成精确文件名，逐接口层未动）。**条目**：`build.py` 的 `CODEGEN_BINDINGS` 缺失检查用 `glob(f"{stem}.Bindings.*")`，`<stem>.Bindings.cs.redbak` 这类改名件同样命中，闸门会恒绿。另：codegen 只写不删，**输入面删除后旧产物留在构建目录**会被 `check_bindings` 当成真实接口（`render-interface-merge` 5.1 演练实测：孤儿 `IBindRegistry10.Bindings.cpp` 报"解析不到接口头"）；清理责任目前靠人。**相关**：`build.py` 的 `CODEGEN_BINDINGS` 缺失检查、`openspec/changes/render-interface-merge/evidence/1.4-登记产物闸门红.txt`、同 change 的 `evidence/5.1-演练.md`。
+**状态**：待修（跨 change）。**来源**：2026-11-05 的「绑定生成物期望检查」条目前半段（前缀通配，改名件可绕过）已由 `failure-visibility-hygiene` 修掉（`build.py` 逐接口期望检查改精确文件名），孤儿产物清理用户未点头收入本批，保留为独立条目。**条目**：codegen 只写不删，**输入面删除后旧产物留在构建目录**会被 `check_bindings` 当成真实接口（`render-interface-merge` 5.1 演练实测：孤儿 `IBindRegistry10.Bindings.cpp` 报"解析不到接口头"）；清理责任目前靠人。**相关**：`build.py` 的 codegen 段、`openspec/changes/render-interface-merge/evidence/5.1-演练.md`。
 
 ## [2026-10-25] CodeGen 重编之后第一次全量跑，`VulkanCBufferBindingInfo` 会以退出码 6 失败｜构建系统（跨 change）
 
@@ -30,9 +30,97 @@
 
 **相关代码**：`build.py` 的 codegen 段、`Tools/CodeGen/CodeGenMain.cpp` 的 `--emit-all` 分派、日志里的 `[54/76] VulkanShaderFileInfo` / `[72/76] ShaderFileInfo` 两行。
 
-## [2026-10-20] 绑定发射器（`--emit-binding`）不足以支撑「C# 创建窗口」：10 处桩、句柄不回收、判据恒绿｜`csharp-bindings-generator` 归档后遗留
+## [2026-08-28] D3D12 回读改为异步，与 Vulkan 对齐（add-render-readback）
+
+**状态：未修（技术债）**
+
+**问题**：`add-render-readback` 的回读接口是跨后端通用的（`Readback` + `IReadbackToken`），但当前两后端实现不对称：
+- **Vulkan**：异步 token —— `Readback()` 提交后返回 token，token 自持 staging+fence；`Wait()` 阻塞、`Reset()` 归还、`IsReady()` 有实义。
+- **D3D12**：同步 token —— 整个 `record→execute→signal→wait→copy→释放 COM` 在 `Readback()` 内完成，token 不持 COM，`Wait()/IsReady()/Reset()` 全是 no-op。
+
+后果：`IReadbackToken` 成了最小公分母（D3D12 上半个函数空转），两后端内部实现裂开。**目标：两后端都是真异步、对称。**
+
+**为何当初 D3D12 做成同步**：初版 D3D12 是异步的，token 自管每次新建的 `CreateCommandAllocator/CommandList/Fence`，析构 `Release()` 时 COM 悬垂崩溃（dump：`ACCESS_VIOLATION`、`Rip=0x0` = null vtable 调用 / double-release；debug layer 另抓到 `0x87D`：分配器早于命令列表被释放）。**这是工程权衡，不是 D3D12 基础限制**——当时没根因清楚那个悬垂，又考虑低频读回同步够用，就用同步兜底了。
+
+**正确修法（优先 A）**：
+- A（推荐）：复用引擎已有 `CommandListManager`（`DirectCommand`/`ComputeCommand`）、`PooledCommandAllocator`、`GPUFrameManager`（`FrameContext::GPUWaitIdle`/`SetEventOnCompletion`），用帧上下文的命令列表/分配器做 copy+fence，与图执行共用一套，消灭"per-call 新建/裸释放"。
+- B：修 per-call COM 生命周期——命令列表先于分配器释放 + 命令列表 `Reset` + 无 double-addref/release + fence 等完才释 READBACK allocation。
+
+**验收口径**：两后端真异步对称、`Wait()` 真阻塞、无 no-op 空转；`python build.py --config Debug` 通过；vulkan+d3d12 各 8 测试 `exit 0` 全 `pass`；无 debug-layer 生命周期类报错、无 D3D12MA leaked-allocation 断言、无 crash dump、无 VUID 错误；两后端 `test_output/readback_*.png` 字节一致、`nonEmpty=true`。
+
+**相关代码**：接口 `Interface/RenderInterface/header/CRenderBackend.h`；Vulkan（参照，异步）`VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp`；D3D12（待改，同步）`D3D12RenderBackend/private/RenderBackend_D3D12.cpp`；可复用设施 `D3D12RenderBackend/private/ResourceManagment/CommandListManager.h`、`FrameBoundResourceManager.h`。
+
+**收尾**：修好→删本条、更新 `openspec/changes/add-render-readback/design.md`（D7）与 `tasks.md`（4.3 的 [TODO] 标注）。
+
+---
+
+## [2026-10-15] 哈希来源盘点脚本扫不到三类位置｜`require-explicit-hash-source` 后续
+
+**状态：未修（工具边界；今天靠编译器兜底）**
+
+**问题**：`Tools/CodeGen/check_hash_sources.py` 按**写法**扫（`HashObj<X>` / `cacore::hash<X>` / `unordered_map<X,` / `HashDictionary<X,` 等）。**扫不到**三处：① 容器元素位置（`castl::vector<X>`）；② 手写特化体里 `hasher.hash(obj.<成员>)` 的成员类型；③ 宏包一层与别名。
+**实测**：本 change 收尾时 `vk::VertexInputBindingDescription` / `vk::VertexInputAttributeDescription` / `vk::PushConstantRange` 三个类型是**编译器**报出来的，脚本同一状态报 `命中 0 个来源不明的键类型`（把 `CA_HASH_BY_BYTES(::vk::PushConstantRange)` 注释掉，脚本仍报 0）。
+**改法**：把上述三类位置扫进去（至少 `castl::vector<X>` 与 `hasher.hash(obj.member)`）。
+**验收口径**：注释掉 `VulkanRenderBackendNew/private/Utils/VulkanIncludes.h` 里那一行声明，脚本必须**非零退出并点名 `vk::PushConstantRange`**（今天只有编译器报红）。
+**相关**：`Tools/CodeGen/check_hash_sources.py`、`Tools/CodeGen/README.md` 第十一节（边界已写明）、`openspec/changes/archive/2026-10-15-require-explicit-hash-source/`。
+
+---
+
+## [2026-10-15] PipelineStateDesc 那条链没有哈希来源（盘点脚本的例外清单）｜`require-explicit-hash-source` 后续
+
+**状态：未修（今天不会静默算错：有人真用那个字典就当场编不过）**
+
+**问题**：`PipelineStateDesc` 与它的成员链（`D3DVertexBindingSlot` / `D3DVertexBindingData` / `ShaderStateDescriptor` / `CRenderPassInfo`）既没进接入清单、也没有手写特化。它唯一的用户是 `D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h` 末尾的 `using PipelineStatesDic = HashDictionary<PipelineStateDesc, PipelineStates>;`，而它**全仓零调用点**（死代码），所以挂在盘点脚本的例外清单上。
+**改法**：补齐这条链的字段级特化（`PipelineStateDesc` 的成员含 `HashObj<…>` 与容器）。
+**验收口径**：`Tools/CodeGen/hash_source_exceptions.txt` 清空、`python Tools/CodeGen/check_hash_sources.py` 仍 `命中 0`、`python build.py --config Debug` → `BUILD SUCCESSFUL`。
+**相关**：`D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h`、`Interface/RenderInterface/header/CNativeRenderPassInfo.h`、`Tools/CodeGen/hash_source_exceptions.txt`。
+
+---
+
+## [2026-10-15] 纹理视图与 subresource 的 4 条潜伏项（fix-imgui-font-whitebox 收尾记录）｜`fix-imgui-font-whitebox`
+
+**状态：未修（该 change 收尾节原话：「非阻塞 latent 改进项（non-regression，列作记录，均未触达、可后续单独改）」）**
+
+**问题**（四条，逐字摘该 change 收尾）：
+1. `GetTextureView(handle, view)` 仅 External 纹理 honor swizzle；graph-local/Internal 注册 handle 仍走 identity `resource->imageView`（丢弃 swizzle）→ 将来 Internal 单通道采样不会 swizzle。
+2. `VulkanTexture.cpp:240,247` 的 `baseMip` / `baseLayer` 未 clamp（只有 `mipCount`/`layerCount` 做了 0/~0u clamp）→ 潜伏 `VUID-01718/06725`。
+3. identity 短路返回全范围 `m_ImageView`，忽略携带的 subresource range（与既有行为一致，未触发）。
+4. 审查侧引用的 VUID 编号有差异（01762 vs 12397，format-must-match-image）——非代码缺陷。
+
+**验收口径**：Internal 纹理传 swizzle 时采样结果与 External 一致；`baseMip/baseLayer` 越界输入被 clamp 且不再出 `VUID-01718/06725`；双端 8 测试 `exit 0`。
+**相关**：`VulkanRenderBackendNew/private/VulkanObjects/VulkanTexture.cpp`、`VulkanRenderBackendNew/private/VulkanObjects/VulkanGraphLocalResourceManager.*`、`openspec/changes/fix-imgui-font-whitebox/tasks.md`（收尾节）。
+
+---
+
+## [2026-10-15] 22 处 workflow 脚本引用已归档（不存在）的 change 路径｜`.claude/workflows/scripts`
+
+**状态：未修（悬空引用；脚本一跑就读空文件）**。**2026-11-20 重测**：15 个脚本 / 22 处（原记 14 个 / 21 处，新增 `imgui-font-proposal-artifact-verify.js` 指向 `fix-imgui-font-whitebox` 1 处）。
+
+**问题**：15 个 `.claude/workflows/scripts/*.js` 里共 **22 处** `openspec/changes/<名字>/…` 指向已归档的 change（`engine-codegen-framework` 7 处、`harden-readback-carrier` 6 处、`fix-vulkan-dedup-key-identity` 4 处、`fix-vulkan-descriptor-registration` 2 处、`unify-depth-clamp-switch` 2 处、`fix-imgui-font-whitebox` 1 处），逐条 `Test-Path` 均为假（2026-11-20 实测）。
+**改法**：路径补上 `archive/<日期>-` 前缀（真路径可查 `openspec/changes/archive/`），或把这些一次性脚本删掉。
+**验收口径**：把这些脚本里出现的每个 `openspec/changes/...` 路径逐个 `Test-Path`，全部为真。
+**相关**：`.claude/workflows/scripts/`（2026-11-20 实测清单：`audit-readback-carrier.js`、`audit-readback-implementation.js`、`describe-readback-interface.js`、`imgui-font-proposal-artifact-verify.js`、`imgui-multiwin-final-verify.js`、`imgui-multiwin-proposal-verify.js`、`reverify-audit1-readback-implementation.js`、`reverify-readback-carrier.js`、`review-codegen-marker-attribute-design.js`、`tasks-adversarial-vote.js`、`unify-depth-clamp-impl-verify.js`、`unify-depth-clamp-verify.js`、`verify-codegen-tasks-order.js`、`verify-dedup-impl.js`、`vulkan-descriptor-adversarial-verify.js`）。
+
+---
+
+## [2026-11-20] 交互模式 capture 写图静默失败（目录缺失/写盘失败无信号）｜`Test/GPUBackendTester`
+
+**状态**：未修（failure-visibility-hygiene 对抗复核实测发现，该批只在警告文本里带上前提，不扩修）。
+
+**问题**：非 headless 运行不调 `createDirectoryIfNeeded("test_output")`（仅 headless 分支内创建），交互 `TestReadback --capture 0` 写 PNG 依赖目录已存在；且 `WriteReadbackPNG` 不检查 stbi 写返回值——目录缺失或写盘失败时静默无图。
+**改法**：交互路径写图前确保目录存在；`WriteReadbackPNG` 检查写返回值并在失败时 stderr 点名。
+**验收口径**：删掉 test_output 目录后交互跑 `TestReadback --capture 0`，PNG 仍写出或 stderr 有失败点名（今天静默）。
+**相关**：`Test/GPUBackendTester/Main.cpp`（`WriteReadbackPNG`、headless 分支的 `createDirectoryIfNeeded`）。
+
+---
+
+# 已解决记录（保留供追溯；对应条目上移至待办后此区为空可清理）
+
+## [2026-10-20] 绑定发射器（`--emit-binding`）不足以支撑「C# 创建窗口」：10 处桩、句柄不回收、判据恒绿｜`csharp-bindings-generator` 归档后遗留｜✅已解决（2026-11-20 复核移区）
 
 **状态**：**形状层与判据已修**（`binding-stub-and-shapes` 已于 2026-10-25 归档）；句柄反查也已修（生成的产物里 `lookupHandle` 92 处）。**2026-11-01 复核**：`complete-csharp-window-system-bindings` 已实现回调投影与递归纯标量记录镜像（`IWindowSystem` 的 10 个回调和 `GetMonitor` 全部进函数表），下面「仍未修」清单里剩下的两条都已在那个 change 里修掉，逐条见子项末尾的复核标注。该 change 归档时（提交 `05e483b`）声称的「端到端打通」只覆盖 `GetWindowSize` 一条（出参，走真实现路径），其余形状一次没被调到，所以下面这些缺陷当时全是绿的（这是当时的状态）。
+
+**2026-11-20 移区说明**：本条全部子项已修（归档于 `openspec/changes/archive/2026-10-25-binding-stub-and-shapes/`、`2026-10-25-csharp-window-creation/`、`2026-11-01-complete-csharp-window-system-bindings/`）或已注明搬入对应 change 的 tasks 跟踪，无剩余未跟踪项；正文保留作历史追溯，从待办区移入已解决区。
 
 **问题一：形状层 —— 已修，留档说明当时是什么样。** 归档时 `IWindow` 的函数表 22 个槽里有 10 个桩（桩 = 函数体只有 `return {};   // 零值…`，连 `self` 都不碰）。现在这四条已改掉：
 - 所有 `bool` 返回当时都落成桩 —— 判「能直出」的条件已从 `bareType(returnSpelling) == returnType` 换成显式集合，thunk 生成 `return object->M() ? 1 : 0;`。8 个 `bool` 槽全是真实现了。
@@ -76,124 +164,13 @@
 
 ---
 
-## [2026-07-12] vulkan-gpu-queries：图执行逐 pass GPU 计时（已归档）
+## [2026-07-12] vulkan-gpu-queries：图执行逐 pass GPU 计时｜✅已解决（2026-11-01 归档，2026-11-20 复核移区）
 
 **状态：2026-11-01 已归档到 `openspec/changes/archive/2026-11-01-vulkan-gpu-queries/`（能力名 `gpu-graph-timing`）** —— 原条目说"D3D12 已有查询"与代码事实不符：两个后端此前都没有查询设施；本 change 给两端补公共的逐 pass 计时通路，遮挡查询与管线统计仍留后续。
 
 **相关**：`openspec/changes/archive/2026-11-01-vulkan-gpu-queries/`（proposal / design / specs / tasks 齐）。
 
 ---
-
-## [2026-08-28] D3D12 回读改为异步，与 Vulkan 对齐（add-render-readback）
-
-**状态：未修（技术债）**
-
-**问题**：`add-render-readback` 的回读接口是跨后端通用的（`Readback` + `IReadbackToken`），但当前两后端实现不对称：
-- **Vulkan**：异步 token —— `Readback()` 提交后返回 token，token 自持 staging+fence；`Wait()` 阻塞、`Reset()` 归还、`IsReady()` 有实义。
-- **D3D12**：同步 token —— 整个 `record→execute→signal→wait→copy→释放 COM` 在 `Readback()` 内完成，token 不持 COM，`Wait()/IsReady()/Reset()` 全是 no-op。
-
-后果：`IReadbackToken` 成了最小公分母（D3D12 上半个函数空转），两后端内部实现裂开。**目标：两后端都是真异步、对称。**
-
-**为何当初 D3D12 做成同步**：初版 D3D12 是异步的，token 自管每次新建的 `CreateCommandAllocator/CommandList/Fence`，析构 `Release()` 时 COM 悬垂崩溃（dump：`ACCESS_VIOLATION`、`Rip=0x0` = null vtable 调用 / double-release；debug layer 另抓到 `0x87D`：分配器早于命令列表被释放）。**这是工程权衡，不是 D3D12 基础限制**——当时没根因清楚那个悬垂，又考虑低频读回同步够用，就用同步兜底了。
-
-**正确修法（优先 A）**：
-- A（推荐）：复用引擎已有 `CommandListManager`（`DirectCommand`/`ComputeCommand`）、`PooledCommandAllocator`、`GPUFrameManager`（`FrameContext::GPUWaitIdle`/`SetEventOnCompletion`），用帧上下文的命令列表/分配器做 copy+fence，与图执行共用一套，消灭"per-call 新建/裸释放"。
-- B：修 per-call COM 生命周期——命令列表先于分配器释放 + 命令列表 `Reset` + 无 double-addref/release + fence 等完才释 READBACK allocation。
-
-**验收口径**：两后端真异步对称、`Wait()` 真阻塞、无 no-op 空转；`python build.py --config Debug` 通过；vulkan+d3d12 各 8 测试 `exit 0` 全 `pass`；无 debug-layer 生命周期类报错、无 D3D12MA leaked-allocation 断言、无 crash dump、无 VUID 错误；两后端 `test_output/readback_*.png` 字节一致、`nonEmpty=true`。
-
-**相关代码**：接口 `Interface/RenderInterface/header/CRenderBackend.h`；Vulkan（参照，异步）`VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp`；D3D12（待改，同步）`D3D12RenderBackend/private/RenderBackend_D3D12.cpp`；可复用设施 `D3D12RenderBackend/private/ResourceManagment/CommandListManager.h`、`FrameBoundResourceManager.h`。
-
-**收尾**：修好→删本条、更新 `openspec/changes/add-render-readback/design.md`（D7）与 `tasks.md`（4.3 的 [TODO] 标注）。
-
----
-
-## [2026-08-30] capture 的 2 条 LOW（GPUBackendTester 截图扩展收尾）
-
-**状态：未修（LOW，从已解决的 capture 4 问题条目中摘出的剩余项）**
-
-**2026-10-15 复核**：LOW-2 在 `TestReadback` 这条路径上**已不再静默** —— `Test/GPUBackendTester/Main.cpp:290-293` 在"请求了 capture 却没拿到帧"时 `throw std::runtime_error("TestReadback: requested capture frame … but readback was null/blank")`；其余测试的越界帧号仍静默不写，LOW-1 也仍未修。
-
-- **LOW-1**：`--capture` 不带 `--headless` 时**静默 noop**（无任何提示）——capture 只对 headless 生效，非 headless 下用户可能以为截了图。
-- **LOW-2**：capture 帧号**越界无提示**——请求的 capture 帧号超出运行帧数时静默不写（`TestReadback` 除外，见上）。
-
-**改法**：① 非 headless + 带 capture 时打 stderr 提示"capture 仅 headless 生效"；② capture 帧越界时 stderr 警告/拒绝。**验收**：跑测试无意外截图、越界有告警。
-**相关**：`Test/GPUBackendTester/Main.cpp`（`--capture`/`--headless` 解析、`WriteReadbackPNG`）。
-
----
-
-## [2026-10-15] 哈希来源盘点脚本扫不到三类位置｜`require-explicit-hash-source` 后续
-
-**状态：未修（工具边界；今天靠编译器兜底）**
-
-**问题**：`Tools/CodeGen/check_hash_sources.py` 按**写法**扫（`HashObj<X>` / `cacore::hash<X>` / `unordered_map<X,` / `HashDictionary<X,` 等）。**扫不到**三处：① 容器元素位置（`castl::vector<X>`）；② 手写特化体里 `hasher.hash(obj.<成员>)` 的成员类型；③ 宏包一层与别名。
-**实测**：本 change 收尾时 `vk::VertexInputBindingDescription` / `vk::VertexInputAttributeDescription` / `vk::PushConstantRange` 三个类型是**编译器**报出来的，脚本同一状态报 `命中 0 个来源不明的键类型`（把 `CA_HASH_BY_BYTES(::vk::PushConstantRange)` 注释掉，脚本仍报 0）。
-**改法**：把上述三类位置扫进去（至少 `castl::vector<X>` 与 `hasher.hash(obj.member)`）。
-**验收口径**：注释掉 `VulkanRenderBackendNew/private/Utils/VulkanIncludes.h` 里那一行声明，脚本必须**非零退出并点名 `vk::PushConstantRange`**（今天只有编译器报红）。
-**相关**：`Tools/CodeGen/check_hash_sources.py`、`Tools/CodeGen/README.md` 第十一节（边界已写明）、`openspec/changes/archive/2026-10-15-require-explicit-hash-source/`。
-
----
-
-## [2026-10-15] PipelineStateDesc 那条链没有哈希来源（盘点脚本的例外清单）｜`require-explicit-hash-source` 后续
-
-**状态：未修（今天不会静默算错：有人真用那个字典就当场编不过）**
-
-**问题**：`PipelineStateDesc` 与它的成员链（`D3DVertexBindingSlot` / `D3DVertexBindingData` / `ShaderStateDescriptor` / `CRenderPassInfo`）既没进接入清单、也没有手写特化。它唯一的用户是 `D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h` 末尾的 `using PipelineStatesDic = HashDictionary<PipelineStateDesc, PipelineStates>;`，而它**全仓零调用点**（死代码），所以挂在盘点脚本的例外清单上。
-**改法**：补齐这条链的字段级特化（`PipelineStateDesc` 的成员含 `HashObj<…>` 与容器）。
-**验收口径**：`Tools/CodeGen/hash_source_exceptions.txt` 清空、`python Tools/CodeGen/check_hash_sources.py` 仍 `命中 0`、`python build.py --config Debug` → `BUILD SUCCESSFUL`。
-**相关**：`D3D12RenderBackend/private/GPUObjects/PipelineStatesObject.h`、`Interface/RenderInterface/header/CNativeRenderPassInfo.h`、`Tools/CodeGen/hash_source_exceptions.txt`。
-
----
-
-## [2026-10-15] 纹理视图与 subresource 的 4 条潜伏项（fix-imgui-font-whitebox 收尾记录）｜`fix-imgui-font-whitebox`
-
-**状态：未修（该 change 收尾节原话：「非阻塞 latent 改进项（non-regression，列作记录，均未触达、可后续单独改）」）**
-
-**问题**（四条，逐字摘该 change 收尾）：
-1. `GetTextureView(handle, view)` 仅 External 纹理 honor swizzle；graph-local/Internal 注册 handle 仍走 identity `resource->imageView`（丢弃 swizzle）→ 将来 Internal 单通道采样不会 swizzle。
-2. `VulkanTexture.cpp:240,247` 的 `baseMip` / `baseLayer` 未 clamp（只有 `mipCount`/`layerCount` 做了 0/~0u clamp）→ 潜伏 `VUID-01718/06725`。
-3. identity 短路返回全范围 `m_ImageView`，忽略携带的 subresource range（与既有行为一致，未触发）。
-4. 审查侧引用的 VUID 编号有差异（01762 vs 12397，format-must-match-image）——非代码缺陷。
-
-**验收口径**：Internal 纹理传 swizzle 时采样结果与 External 一致；`baseMip/baseLayer` 越界输入被 clamp 且不再出 `VUID-01718/06725`；双端 8 测试 `exit 0`。
-**相关**：`VulkanRenderBackendNew/private/VulkanObjects/VulkanTexture.cpp`、`VulkanRenderBackendNew/private/VulkanObjects/VulkanGraphLocalResourceManager.*`、`openspec/changes/fix-imgui-font-whitebox/tasks.md`（收尾节）。
-
----
-
-## [2026-10-15] `Tools/spin_check.py` 把待办清单路径写死在已归档的 change 上｜工具
-
-**状态：未修（轮界"可执行队列"装置对新 change 完全失效）**
-
-**问题**：`Tools/spin_check.py:57` 逐字 `TASKS = ARCHIVE / "2026-09-20-engine-codegen-framework" / "tasks.md"`。实测 `python Tools/spin_check.py queue start 1` 读出来的是那份老清单的 **86 条**，与当前 change 的 `tasks.md` 无关；`queue end` 同理。
-**改法**：给它加"按 change 名"的参数（或读 `openspec list` 里进行中的那个）；`evidence` 子命令与 `ARCHIVE` 的相对路径也要一起看。
-**验收口径**：对某个进行中的 change 跑 `queue start`，打印的未勾条目与该 change 的 `tasks.md` 逐条一致；不存在该 change 时非零退出。
-**相关**：`Tools/spin_check.py`、`openspec/changes/require-explicit-hash-source`（本次会话就是因为它读不到本 change，只能人工贴表）。
-
----
-
-## [2026-10-15] 21 处 workflow 脚本引用已归档（不存在）的 change 路径｜`.claude/workflows/scripts`
-
-**状态：未修（悬空引用；脚本一跑就读空文件）**
-
-**问题**：14 个 `.claude/workflows/scripts/*.js` 里共 **21 处** `openspec/changes/<名字>/…` 指向已归档的 change（`engine-codegen-framework` 7 处、`harden-readback-carrier` 6 处、`fix-vulkan-dedup-key-identity` 4 处、`fix-vulkan-descriptor-registration` 2 处、`unify-depth-clamp-switch` 2 处），逐条 `Test-Path` 均为假。
-**改法**：路径补上 `archive/<日期>-` 前缀（真路径可查 `openspec/changes/archive/`），或把这些一次性脚本删掉。
-**验收口径**：把这些脚本里出现的每个 `openspec/changes/...` 路径逐个 `Test-Path`，全部为真。
-**相关**：`.claude/workflows/scripts/`（`audit-readback-*.js`、`imgui-multiwin-*.js`、`review-codegen-marker-attribute-design.js`、`verify-codegen-tasks-order.js`、`verify-dedup-impl.js`、`unify-depth-clamp-*.js`、`tasks-adversarial-vote.js`、`vulkan-descriptor-adversarial-verify.js`）。
-
----
-
-## [2026-10-15] `test_output/` 跨运行不清理，不同后端的日志串味｜`Test/GPUBackendTester`
-
-**状态：未修（会影响"按后端读验证日志"这件事）**
-
-**问题**：测试器只建目录不删除（`Test/GPUBackendTester/Main.cpp:1349` 只有 `createDirectoryIfNeeded("test_output")`）。实测：连跑 vulkan 与 d3d12 之后，`test_output/TestTriangleWithConstantColor_validation.log` 的时间是 **22:34:52（vulkan 写的）**，而 d3d12 自己的 `TestTriangleWithConstantColor.log` 是 22:34:54 —— 于是 d3d12 的快照里带着 vulkan 的 `VUID-VkShaderModuleCreateInfo-pCode-08740`，读日志会把上一条后端的错误算到这一条头上。
-**改法**：headless 跑测前清 `test_output/`（或按后端分子目录）。
-**验收口径**：连续跑完两个后端后，`test_output/` 里每个文件的时间都落在本次运行区间内；不再出现跨后端的同名残留。
-**相关**：`Test/GPUBackendTester/Main.cpp`（`test_output/` 写入路径、`--report`）。
-
----
-
-# 已解决记录（保留供追溯；对应条目上移至待办后此区为空可清理）
 
 ## [2026-10-15] `Experimental/DotNetHost` 原型被注释在构建外（C# 那条线的起点）｜✅已解决
 

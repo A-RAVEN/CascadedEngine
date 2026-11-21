@@ -22,11 +22,11 @@
   1 = 有缺失 / 内容不一致 / 未登记的多余文件
   2 = 判据自身失效（基线文件不存在、产物目录不存在、基线「条目数」与实际行数不符）
 
-**当前基线**：`openspec/changes/csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`（4.2 首锚；
+**当前基线**：`openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`（4.2 首锚；
 7.1 因 GPUBuffer 直绑 + ABI v12 又换锚一次，上一锚 200 条封存在同目录 `7.1-换锚前-基线产物哈希.txt`；
 4.2 的旧锚 191 条仍在 `openspec/changes/archive/2026-11-09-csharp-native-direct-binding/evidence/基线产物哈希.txt`，
 副本在 `evidence/4.2-旧锚封存-基线产物哈希.txt`）。换锚前后的逐文件差异见
-`openspec/changes/csharp-bindings-namespace-alignment/evidence/4.2-换锚前后对照.txt` 与
+`openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/4.2-换锚前后对照.txt` 与
 `evidence/7.1-换锚前后对照.txt`。
 
 `--self-test` 会在内存里删掉基线的一条数据行再算一遍：如果删掉之后判定结果没有变化

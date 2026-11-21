@@ -1,0 +1,185 @@
+failure-visibility-hygiene 0.1 开工清点
+执行：2026-11-21，apply 子 agent（只读检查；构建由主循环代跑）
+工作区：E:\Projects\CascadedEngine，HEAD 7bcd166（io-error-channel 收尾提交）
+工作区状态：仅 docs/TODO.md 已改（与本批无关的既有改动）、本 change 目录未跟踪。
+
+==================================================================
+一、FileLoader 三函数全仓调用点（0.1①）
+==================================================================
+
+[命令] git grep -n -E "LoadStringFile|LoadBinaryFile|WriteBinaryFile"
+[输出]
+CACore/header/FileLoader.h:14:	castl::string LoadStringFile(castl::string const& file_source);
+CACore/header/FileLoader.h:21:	castl::vector<uint8_t> LoadBinaryFile(castl::string const& file_source);
+CACore/header/FileLoader.h:29:	void WriteBinaryFile(castl::string const& dest, void const* data, size_t size);
+CACore/private/FileLoader.cpp:9:	castl::string LoadStringFile(castl::string const& file_source)
+CACore/private/FileLoader.cpp:24:	castl::vector<uint8_t> LoadBinaryFile(castl::string const& file_source)
+CACore/private/FileLoader.cpp:39:	void WriteBinaryFile(castl::string const& file_dest, void const* data, size_t size)
+ShaderProcessor/Main.cpp:18:	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
+[退出码] 0
+
+注：上面第 29 行原文是 `void WriteBinaryFile(castl::string const& file_dest, void const* data, size_t size);`（此处按原样抄录，参数名为 file_dest）。
+
+[命令] git grep -n "fileloading_utils"
+[输出]
+ShaderProcessor/Main.cpp:18:	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
+[退出码] 0
+
+[命令] git grep -n "namespace fileloading_utils"
+[输出]（无输出）
+[退出码] 1
+结论：`fileloading_utils` 命名空间全仓无声明；ShaderProcessor/Main.cpp:18 的调用指向不存在的符号。
+
+--- 1. 根 CMakeLists 的 add_subdirectory 清单 ---
+[命令] Select-String -Path CMakeLists.txt -Pattern "add_subdirectory" -Encoding UTF8 | ForEach-Object { $_.Line.Trim() }
+[输出]
+# reads it. Must be set before add_subdirectory so it applies to every target.
+add_subdirectory ("ExternalLib")
+#add_subdirectory ("CASTL")
+add_subdirectory ("CACore")
+add_subdirectory ("IMGUIContext")
+add_subdirectory ("Interface/TimerSystem")
+add_subdirectory ("Interface/IOManager")
+add_subdirectory ("Interface/RenderInterface")
+add_subdirectory ("Interface/ShaderCompiler")
+add_subdirectory ("Interface/ScriptHost")
+add_subdirectory ("TimerSystem_Impl")
+add_subdirectory ("ThreadManager")
+add_subdirectory ("WindowSystem")
+add_subdirectory ("GeneralResources")
+add_subdirectory ("IOManager_FS")
+add_subdirectory ("ShaderCompilerSlang")
+add_subdirectory ("CSharpHost")
+add_subdirectory ("VulkanRenderBackendNew")
+add_subdirectory ("D3D12RenderBackend")
+#add_subdirectory ("Test/VulkanRendererBackendTester")
+add_subdirectory ("Test/GPUBackendTester")
+add_subdirectory ("Test/CoreTests")
+
+[命令] Select-String -Path CMakeLists.txt -Pattern "ShaderProcessor" -Encoding UTF8
+[输出]（无输出）
+结论：根 CMakeLists 未收 ShaderProcessor；其自带的 ShaderProcessor/CMakeLists.txt 不参与构建。
+
+--- 2. build.ninja 零命中 ---
+[命令] Select-String -Path <各 build.ninja> -Pattern "ShaderProcessor" -Encoding UTF8
+[输出]
+out\build\x64-debug\build.ninja: 0 命中
+out\build\x64-relWithDebugInfo\build.ninja: 0 命中
+out\build\codegen-tool\build.ninja: 0 命中
+
+--- 3. 磁盘无 ShaderProcessor 可执行文件 ---
+[命令] Get-ChildItem -Path out -Recurse -Filter "*ShaderProcessor*" -ErrorAction SilentlyContinue
+[输出]（空）
+[命令] Get-ChildItem out\build\x64-debug\bin -Filter "*ShaderProcessor*"; Get-ChildItem out\build\x64-relWithDebugInfo\bin -Filter "*ShaderProcessor*"
+[输出]（空）
+
+--- 4. 其余 ShaderProcessor 引用（全仓 git grep 供对照） ---
+[命令] git grep -n "ShaderProcessor"
+[输出摘要] 命中仅为：历史归档 evidence、docs/project-baseline.md（记其"未启用"）、CLAUDE.md 的目录列举、一个 workflow 脚本的提示词、ShaderProcessor/CMakeLists.txt:1 自身工程名。构建相关文件零命中。
+附：git grep -n "ShaderProcessor" -- "*.txt" "*.cmake" 唯一命中 ShaderProcessor/CMakeLists.txt:1（它自己的 set_project），无任何上级 CMakeLists 收它。
+
+结论（0.1①）：FileLoader 三函数除自身定义外无活跃调用方。ShaderProcessor/Main.cpp 不在构建（根清单未收、三份 build.ninja 零命中、磁盘无对应 exe），且其调用写的是全仓不存在的 fileloading_utils::LoadStringFile ⇒ 构建外死代码，本批不碰。
+
+==================================================================
+二、build.py CODEGEN_BINDINGS 逐 stem 的实际产物形状（0.1②）
+==================================================================
+
+产物来源：out\build\x64-debug\codegen\bindings\（上一次成功构建的产物；HEAD 7bcd166 构建后工作区源码无改动，故该目录就是当前生成器的实际输出）。
+生成器写产物的事实（两件套同段、无分支）：
+[命令] Select-String -Path Tools\CodeGen\CodeGenMain.cpp -Pattern "Bindings.cpp"
+  → 12126: const std::string cppPath = std::string(outDir) + "/" + linear + ".Bindings.cpp";
+  → 12127: const std::string csPath = std::string(outDir) + "/" + linear + ".Bindings.cs";
+  （同一 emit-binding 接口分支内无条件写两件）
+
+[命令]
+$stems = @("cawindow__IWindow","cawindow__IWindowSystem","ca_bind_fixture__IBindRow01","ca_bind_fixture__IBindRow02","ca_bind_fixture__IBindRow09","ca_bind_fixture__IBindRegistry8","ca_bind_fixture__IBindRegistry9","ca_bind_fixture__IBindFoundation","ca_bind_fixture__IBindRenderResource","ca_bind_fixture__IBindRenderResourceAlt","ca_bind_fixture__IBindRenderOwner","ca_bind_fixture__IBindNativeShape","ca_bind_fixture__BindNativeObject","graphics_backend__CRenderBackend","graphics_backend__GPUGraph","graphics_backend__ShaderStruct","graphics_backend__GPUTexture","graphics_backend__WindowHandle","graphics_backend__GPUBuffer","ns1__Device","a_b__Widget","ns2__Device","a__b__Widget")
+foreach ($s in $stems) { $cs = Test-Path (Join-Path $dir "$s.Bindings.cs"); $cpp = Test-Path (Join-Path $dir "$s.Bindings.cpp"); ... }
+[输出]
+cawindow__IWindow	cs=True	cpp=True
+cawindow__IWindowSystem	cs=True	cpp=True
+ca_bind_fixture__IBindRow01	cs=True	cpp=True
+ca_bind_fixture__IBindRow02	cs=True	cpp=True
+ca_bind_fixture__IBindRow09	cs=True	cpp=True
+ca_bind_fixture__IBindRegistry8	cs=True	cpp=True
+ca_bind_fixture__IBindRegistry9	cs=True	cpp=True
+ca_bind_fixture__IBindFoundation	cs=True	cpp=True
+ca_bind_fixture__IBindRenderResource	cs=True	cpp=True
+ca_bind_fixture__IBindRenderResourceAlt	cs=True	cpp=True
+ca_bind_fixture__IBindRenderOwner	cs=True	cpp=True
+ca_bind_fixture__IBindNativeShape	cs=True	cpp=True
+ca_bind_fixture__BindNativeObject	cs=True	cpp=True
+graphics_backend__CRenderBackend	cs=True	cpp=True
+graphics_backend__GPUGraph	cs=True	cpp=True
+graphics_backend__ShaderStruct	cs=True	cpp=True
+graphics_backend__GPUTexture	cs=True	cpp=True
+graphics_backend__WindowHandle	cs=True	cpp=True
+graphics_backend__GPUBuffer	cs=True	cpp=True
+ns1__Device	cs=True	cpp=True
+a_b__Widget	cs=True	cpp=True
+ns2__Device	cs=True	cpp=True
+a__b__Widget	cs=True	cpp=True
+
+[命令] Get-ChildItem $dir -Filter "*.redbak"
+[输出]（空——当前无改名件残留）
+
+精确期望表（3.1 的输入）：23 个 stem，每个期望两件 —— `<stem>.Bindings.cs` 与 `<stem>.Bindings.cpp`，缺任一即闸门报缺失。
+共享值类型（如 `ca_bind_fixture__RenderDesc.Bindings.cs`、`graphics_backend__AttachmentConfig.Bindings.cs`）不在 CODEGEN_BINDINGS 期望内，仍按现状不核对存在性。
+
+==================================================================
+三、spin_check.py 现有子命令 / 位置参数 / 写死常量（0.1③）
+==================================================================
+
+子命令（docstring Usage，第 24-30 行原文）：
+    python Tools/spin_check.py spin  start <round-id>
+    python Tools/spin_check.py spin  end   <round-id>
+    python Tools/spin_check.py queue start <round-id>
+    python Tools/spin_check.py queue end   <round-id>
+    python Tools/spin_check.py evidence [<evidence-dir>]
+
+写死常量（逐字）：
+spin_check.py:56: EVIDENCE = ARCHIVE / "2026-09-20-engine-codegen-framework" / "evidence"
+spin_check.py:57: TASKS = ARCHIVE / "2026-09-20-engine-codegen-framework" / "tasks.md"
+
+argv 解析（逐字，main() 内）：
+spin_check.py:372: if len(sys.argv) >= 2 and sys.argv[1] == "evidence":
+spin_check.py:373: target = Path(sys.argv[2]) if len(sys.argv) > 2 else EVIDENCE
+spin_check.py:375: if len(sys.argv) != 4 or sys.argv[1] not in ("spin", "queue") or sys.argv[2] not in ("start", "end"):
+spin_check.py:379: what, mode, round_id = sys.argv[1], sys.argv[2], sys.argv[3]
+结论：轮次是 argv[3]（位置参数）；evidence 目录是 argv[2]；`queue start <轮次>` 形状被 CLAUDE.md 与 docs/agent-rules-rationale.md 引用，必须保留。
+
+==================================================================
+四、build.py 绑定生成段先无条件重写、后做缺失检查（0.1④）
+==================================================================
+
+[命令] Select-String -Path build.py -Pattern 'for header, name, expected in CODEGEN_BINDINGS|" --emit-binding"|missing = \[stem for stem in expected|缺少这些接口的产物|红态构造只能走源码侧' -Encoding UTF8
+[输出]
+build.py:1285: for header, name, expected in CODEGEN_BINDINGS:
+build.py:1287: cmd = [str(tool), header, "--emit-binding", "--out-dir", str(out_dir),
+build.py:1332: missing = [stem for stem in expected if not any(out_dir.glob(f"{stem}.Bindings.*"))]
+build.py:1337: f"绑定 {name} 退出码 0，但缺少这些接口的产物：{', '.join(missing)}"
+build.py:1371: # 红态构造只能走源码侧（假前缀 / 注释掉上面的汇合调用）—— 删生成物会被下一次构建重新生成。
+
+[命令] Select-String -Path build.py -Pattern "missing = \[stem" -Context 3,6 -Encoding UTF8
+[输出（上下文）]
+  1329:         # 逐条核：期望清单里**每一个**接口都必须有产物。
+  1330:         # 旧写法先过滤掉不存在的、再判断"过滤后是否为空"，只要有一个存在就放行 ——
+  1331:         # `IWindowSystem` 没产出时构建照样绿（实测过一次）。
+  1332:         missing = [stem for stem in expected if not any(out_dir.glob(f"{stem}.Bindings.*"))]
+  1333:         present = [stem for stem in expected if stem not in missing]
+  1334:         print(f"    [绑定] 产物：{', '.join(present) if present else '（无）'}", flush=True)
+  1335:         if missing:
+  1336:             failures.append(
+  1337:                 f"绑定 {name} 退出码 0，但缺少这些接口的产物：{', '.join(missing)}"
+  1338:                 f"（生成器自报的接口数见上面 [接口] 行）")
+
+登记产物层已有精确文件名先例（同一段、可对照）：
+build.py:1367-1375:
+  # 期望产物（任务 1.4 的闸门）：三份登记产物缺一即构建失败并点名。
+  # 用**精确文件名**而不是前缀通配：`BindingRegistry.Bindings.*` 会连
+  # `BindingRegistry.Bindings.h.redbak` 这种旧产物改名件一起放行（实测过一次：
+  # 把产物改成 .redbak 后前缀检查仍然通过，只有 check_bindings 抓到了缺失）。
+  # 红态构造只能走源码侧（假前缀 / 注释掉上面的汇合调用）—— 删生成物会被下一次构建重新生成。
+  for filename in ("BindingRegistry.Bindings.h", "BindingRegistry.Bindings.cpp", "EngineApi.Bindings.cs"):
+      if not (product_dir / filename).is_file():
+
+结论（0.1④）：逐接口循环在同一个 `for header, name, expected in CODEGEN_BINDINGS` 迭代里先无条件跑 `--emit-binding`（生成器无条件覆写产物，CodeGenMain.cpp:12126-12127），随后（1332 行）才做缺失检查。故单纯把产物改名 `.redbak` 会在检查前被再生；红态必须从源码侧令本次构建不为该头生成产物（design D5 的构造四步）。

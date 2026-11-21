@@ -25,9 +25,18 @@ Usage
 -----
     python Tools/spin_check.py spin  start <round-id>
     python Tools/spin_check.py spin  end   <round-id>
-    python Tools/spin_check.py queue start <round-id>
-    python Tools/spin_check.py queue end   <round-id>
-    python Tools/spin_check.py evidence [<evidence-dir>]
+    python Tools/spin_check.py queue start <round-id> [--change <名>]
+    python Tools/spin_check.py queue end   <round-id> [--change <名>]
+    python Tools/spin_check.py evidence [<evidence-dir>] [--change <名>]
+
+Which change? (failure-visibility-hygiene 任务 4.1：不再是写死的已归档 change)
+    `--change <名>` looks in `openspec/changes/<名>/` first, then in
+    `openspec/changes/archive/*-<名>/` (exactly one match; more than one is an error naming them).
+    Without the flag the tool runs `openspec list --json` and requires EXACTLY ONE active change;
+    zero or several active changes exit non-zero and name them. `spin` does not read the change
+    (it hashes the whole worktree), so the flag is accepted there but has no effect.
+    An explicit `<evidence-dir>` positional argument still overrides the change's own evidence
+    directory for `evidence`.
 
 Snapshots land in `.review_tmp/spin/<round-id>.{spin,queue}.{start,end}.json` — a `.review_tmp/` path that
 is gitignored, and an id chosen per round so a previous round's snapshot cannot be mistaken for this one.
@@ -45,7 +54,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -53,8 +64,104 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SNAP = REPO / ".review_tmp" / "spin"
 ARCHIVE = REPO / "openspec" / "changes" / "archive"
-EVIDENCE = ARCHIVE / "2026-09-20-engine-codegen-framework" / "evidence"
-TASKS = ARCHIVE / "2026-09-20-engine-codegen-framework" / "tasks.md"
+CHANGES = REPO / "openspec" / "changes"
+
+
+class ChangeLookupError(Exception):
+    """A change directory could not be resolved (message is printed by `main`, exit code 2)."""
+
+
+def _openspec_command() -> list[str]:
+    """The `openspec list --json` command line, as a list a shell-free subprocess can actually start.
+
+    On this machine `openspec` is an npm shim: the PATH entry named `openspec` is a Unix shell script,
+    and the Windows-startable form is `openspec.cmd`. CreateProcess (what `subprocess` uses) neither
+    appends PATHEXT nor runs `.cmd` files, so the shim must go through `cmd.exe /c` (measured: a bare
+    `["openspec", ...]` fails with WinError 2).
+    """
+    exe = shutil.which("openspec")
+    if exe is None:
+        raise ChangeLookupError("找不到 `openspec` 命令（PATH 上没有可执行的 openspec / openspec.cmd）")
+    if exe.lower().endswith((".cmd", ".bat")):
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/c", exe, "list", "--json"]
+    return [exe, "list", "--json"]
+
+
+def active_change_names() -> list[str]:
+    """The active change names, as `openspec list --json` reports them (the tool's own list)."""
+    command = _openspec_command()
+    try:
+        proc = subprocess.run(command, cwd=str(REPO),
+                              capture_output=True, text=True, encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise ChangeLookupError(f"跑不了 `openspec list --json`：{error}") from error
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().replace("\n", " ")[:400]
+        raise ChangeLookupError(f"`openspec list --json` 失败（退出码 {proc.returncode}）：{detail}")
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as error:
+        raise ChangeLookupError(f"`openspec list --json` 的输出不是 JSON：{error}") from error
+    entries = data.get("changes", []) if isinstance(data, dict) else data
+    names: list[str] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            names.append(entry)
+        elif isinstance(entry, dict):
+            name = entry.get("name") or entry.get("change")
+            if name:
+                names.append(str(name))
+    return names
+
+
+def resolve_change_dir(explicit: str | None) -> Path:
+    """The change directory named by `--change`, or the single active change when no name was given."""
+    if explicit:
+        direct = CHANGES / explicit
+        if direct.is_dir():
+            return direct
+        matches = sorted(p for p in ARCHIVE.iterdir()
+                         if p.is_dir() and p.name.endswith("-" + explicit))
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ChangeLookupError(
+                f"change 名 {explicit} 在归档里匹配到多个：{', '.join(p.name for p in matches)}"
+                f"；请改用完整目录名（--change <目录名>）")
+        raise ChangeLookupError(f"找不到 change {explicit}：{CHANGES / explicit} 不存在，"
+                                f"归档里也没有 *-{explicit}")
+    names = active_change_names()
+    if len(names) == 1:
+        return CHANGES / names[0]
+    if not names:
+        raise ChangeLookupError("当前没有活跃 change；请用 --change <名> 显式指定（已归档 change 也可）")
+    raise ChangeLookupError(f"当前有 {len(names)} 个活跃 change（{', '.join(names)}）；"
+                            f"请用 --change <名> 显式指定")
+
+
+def split_change_flag(argv: list[str]) -> tuple[list[str], str | None]:
+    """Pull the optional `--change <名>` / `--change=<名>` flag out of the positional arguments."""
+    rest: list[str] = []
+    change: str | None = None
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--change":
+            if index + 1 >= len(argv):
+                raise ChangeLookupError("--change 需要 <change 名>")
+            change = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--change="):
+            value = arg.split("=", 1)[1]
+            if not value:
+                raise ChangeLookupError("--change 需要 <change 名>")
+            change = value
+            index += 1
+            continue
+        rest.append(arg)
+        index += 1
+    return rest, change
 
 # Deliverable file types for THIS change (engine-codegen-framework delivers code + build glue).
 # `.txt` is included because the build glue is `CMakeLists.txt` — without it a round that ONLY edited a
@@ -79,12 +186,12 @@ def snapshot() -> dict[str, str]:
     return out
 
 
-def task_items() -> list[dict]:
-    """Every checklist item in the change's task list, in file order (id, checked, title)."""
+def task_items(tasks: Path) -> list[dict]:
+    """Every checklist item in the given change's task list, in file order (id, checked, title)."""
     items: list[dict] = []
-    if not TASKS.exists():
+    if not tasks.exists():
         return items
-    for line in TASKS.read_text(encoding="utf-8").splitlines():
+    for line in tasks.read_text(encoding="utf-8").splitlines():
         m = ITEM_RE.match(line)
         if not m:
             continue
@@ -122,10 +229,10 @@ def spin(mode: str, round_id: str) -> int:
     return 0
 
 
-def queue(mode: str, round_id: str) -> int:
-    items = task_items()
+def queue(mode: str, round_id: str, tasks: Path) -> int:
+    items = task_items(tasks)
     if not items:
-        print(f"no checklist items found in {TASKS}")
+        print(f"no checklist items found in {tasks}")
         return 2
     state = {i["id"]: i["checked"] for i in items}
     titles = {i["id"]: i["title"] for i in items}
@@ -369,15 +476,37 @@ def main() -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
-    if len(sys.argv) >= 2 and sys.argv[1] == "evidence":
-        target = Path(sys.argv[2]) if len(sys.argv) > 2 else EVIDENCE
-        return evidence(target)
-    if len(sys.argv) != 4 or sys.argv[1] not in ("spin", "queue") or sys.argv[2] not in ("start", "end"):
+    try:
+        argv, explicit_change = split_change_flag(sys.argv[1:])
+    except ChangeLookupError as error:
+        print(str(error))
+        return 2
+    if argv and argv[0] == "evidence":
+        if len(argv) > 2:
+            print("evidence 只接受一个可选的 <evidence-dir> 位置参数")
+            return 2
+        if len(argv) == 2:
+            # 显式目录优先：给定了就不再要求解析 change（没有活跃 change 时也照样能查归档记录）。
+            return evidence(Path(argv[1]))
+        try:
+            change_dir = resolve_change_dir(explicit_change)
+        except ChangeLookupError as error:
+            print(str(error))
+            return 2
+        return evidence(change_dir / "evidence")
+    if len(argv) != 3 or argv[0] not in ("spin", "queue") or argv[1] not in ("start", "end"):
         print(__doc__)
         return 2
     SNAP.mkdir(parents=True, exist_ok=True)
-    what, mode, round_id = sys.argv[1], sys.argv[2], sys.argv[3]
-    return spin(mode, round_id) if what == "spin" else queue(mode, round_id)
+    what, mode, round_id = argv
+    if what == "spin":
+        return spin(mode, round_id)
+    try:
+        change_dir = resolve_change_dir(explicit_change)
+    except ChangeLookupError as error:
+        print(str(error))
+        return 2
+    return queue(mode, round_id, change_dir / "tasks.md")
 
 
 if __name__ == "__main__":

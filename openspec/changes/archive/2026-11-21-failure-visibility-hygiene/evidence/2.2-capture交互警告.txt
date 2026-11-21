@@ -1,0 +1,72 @@
+failure-visibility-hygiene 2.2 非 headless 带 --capture 的参数校验警告（design D4）
+执行：2026-11-21，实现由 apply 子 agent，交互运行由主循环代跑
+日志：%TEMP%\fvh\reqA-22-red-out.txt / reqA-22-red-err.txt（红态）、reqB-22-green-out.txt / reqB-22-green-err.txt（绿态）、
+      reqB-help.txt（--help）
+
+实现（Test/GPUBackendTester/Main.cpp）：
+- 参数解析完成后、进入 headless 默认 report 之前：`if (headlessFrames <= 0 && captureFrame >= 0)` →
+  stderr 打警告；不拒绝（继续运行）。文本逐字：
+  「[capture] 警告：--capture 的写图仅在 headless 生效；交互模式只有 TestReadback 的单帧路径会写 PNG（依赖 test_output 目录已存在），其余测试只建回读 RT 不写图。」
+- --help 的 `--capture` 行下补一行：(headless only; interactive mode writes a PNG only on TestReadback)。
+
+==================================================================
+一、红态（改前：交互模式带 --capture 无任何提示）
+==================================================================
+
+[命令] GPUBackendTester.exe --backend vulkan --test TestReadback --capture 0
+       （交互：不传 --headless；TestReadback 只跑 1 帧、自行退出；进程退出码由 cmd errorlevel 取得）
+[读数] T22_EXIT=0；stderr 里 `[capture]` 命中 **0**。
+[stderr 全文（reqA-22-red-err.txt，UTF-8）]
+mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+  (hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+（只有 mimalloc 噪音；没有任何 capture 提示。）
+[stdout] %TEMP%\fvh\reqA-22-red-out.txt（36,556 字节，含完整正常关闭序列「CSharpHost 托管 Shutdown 返回 0」）
+⇒ 缺陷：用户可能以为截图生效了，实际交互模式只有 TestReadback 这条真实路径在写图。
+
+==================================================================
+二、绿态（改后：警告出现，进程继续跑完并退出 0）
+==================================================================
+
+[命令] GPUBackendTester.exe --backend vulkan --test TestReadback --capture 0
+[读数] T22_EXIT=0；stderr 警告逐字：
+[capture] 警告：--capture 的写图仅在 headless 生效；交互模式只有 TestReadback 的单帧路径会写 PNG（依赖 test_output 目录已存在），其余测试只建回读 RT 不写图。
+[stderr 全文前 3 行（reqB-22-green-err.txt，UTF-8）]
+mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+  (hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+[capture] 警告：--capture 的写图仅在 headless 生效；…
+[编码说明] reqB-22-green-err.txt 是 UTF-8 字节；用 `-Encoding UTF8` 读是干净中文，用 Default/GBK 读会乱码。
+           红态 reqA-22-red-err.txt 是主循环用 cmd 重定向重写过的同内容，UTF-8 可读。
+
+==================================================================
+三、"不拒绝"的证据：交互 TestReadback 的真实单帧写图路径仍可用
+==================================================================
+
+[读数] 同一次交互运行退出码 0；`test_output\readback_vulkan.png` 写出（11,528 字节，22:54:12），
+       且 test_output 目录当时已存在（本前提与警告文本一致）。
+⇒ 若按旧方案"报错退出"，这条真实可用的路径会被砍掉；D4 的"只警告、不拒绝"成立。
+
+==================================================================
+四、交互不误报逐测试警告（与 tasks 2.3 的"交互不发"对齐）
+==================================================================
+
+[读数] 同一次绿态 stderr 里「请求 capture 帧」命中 **0**（reqB-22-green-err.txt）。
+⇒ 交互模式帧号有效时不触发 2.3 的逐测试警告；误用提示只由参数校验这一条覆盖。
+
+==================================================================
+五、--help 同步
+==================================================================
+
+[命令] GPUBackendTester.exe --help
+[读数] HELP_EXIT=0；--capture 两行逐字（reqB-help.txt）：
+  --capture <N>              Read back headless frame N to test_output/<test>.png
+                             (headless only; interactive mode writes a PNG only on TestReadback)
+
+==================================================================
+六、TestReadback 既有 throw 未动（全模式）
+==================================================================
+
+Main.cpp:337 逐字：
+  throw std::runtime_error("TestReadback: requested capture frame " + std::to_string(ctx.captureFrame) + " but readback was null/blank");
+git diff -- Test/GPUBackendTester/Main.cpp 里没有 `requested capture frame` 行（既无新增也无删除）⇒ 一字未动。

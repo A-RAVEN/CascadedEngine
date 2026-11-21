@@ -1,0 +1,79 @@
+failure-visibility-hygiene 2.1 tester headless 跑前清理 test_output 日志（design D3）
+执行：2026-11-21，实现由 apply 子 agent，tester 运行由主循环代跑
+日志：%TEMP%\fvh\reqA-21-red.txt（红态）、reqB-21a-green.txt（绿态①）、reqB-21c1-green.txt / reqB-21c2-green.txt（累积③）、
+      reqB-21b-green.txt（跨后端②）
+
+实现（Test/GPUBackendTester/Main.cpp）：
+- headless 分支在建目录后调用 `CleanupStaleLogs("test_output")`：只删 `*.log` 常规文件，打印
+  「test_output 跑前清理：N 个日志」；交互运行不进这个分支。
+- 代码位置锚：「static int CleanupStaleLogs(char const* path)」与「test_output 跑前清理：」。
+
+==================================================================
+一、红态（改前：目录只建不清）
+==================================================================
+
+① 哨兵残留：
+[命令] 种 test_output\fvh-sentinel-20261121.log（LastWriteTime 设为 3 天前）→
+       GPUBackendTester.exe --backend vulkan --test TestSimpleTriangle --headless 1 --report test_output\fvh_21_red_report.json
+[读数] T21_EXIT=0；sentinel exists after run = True（哨兵仍在）；日志里「跑前清理」字样命中 0。
+[日志] %TEMP%\fvh\reqA-21-red.txt（48,836 字节）
+⇒ 缺陷：旧日志跨运行残留，没有任何清理信号。
+
+==================================================================
+二、绿态①（哨兵旧日志被跑前清理）
+==================================================================
+
+同一条哨兵（未手动删除，留给绿态跑）：
+[命令] GPUBackendTester.exe --backend vulkan --test TestSimpleTriangle --headless 1 --report test_output\fvh_21_green_report.json
+[读数] T21A_EXIT=0；sentinel exists = **False**；
+       stdout 逐字「test_output 跑前清理：43 个日志」（N=43 ≥ 1）。
+[日志] %TEMP%\fvh\reqB-21a-green.txt；report test_output\fvh_21_green_report.json（22:53:49 写出）
+⇒ 旧日志消失且计数打印；清理发生在 headless 启动时。
+
+==================================================================
+三、绿态③（跨运行累积产物不被清理 —— 钉死"只清日志"的边界）
+==================================================================
+
+[命令 A] GPUBackendTester.exe --backend vulkan --test TestSimpleTriangle --capture 0 --headless 1 --report test_output\fvh_21_keep1.json
+[读数 A] keep1=True png=True（test_output\TestSimpleTriangle_vulkan.png）
+[命令 B] GPUBackendTester.exe --backend vulkan --test TestReadback --capture 0 --headless 1 --report test_output\fvh_21_keep2.json
+[读数 B] keep1=True keep2=True png1=True png2=True
+          （png1 = TestSimpleTriangle_vulkan.png，png2 = readback_vulkan.png）
+[复核（apply 子 agent 直接读盘）] 四个文件仍在，时间戳：
+  fvh_21_keep1.json                87 字节  22:53:51
+  fvh_21_keep2.json                80 字节  22:53:53
+  TestSimpleTriangle_vulkan.png 24,265 字节 22:53:58（随后被 2.3 对照跑重写，仍存在）
+  readback_vulkan.png          11,528 字节 22:54:12（2.2 交互跑重写，仍存在）
+[日志] %TEMP%\fvh\reqB-21c1-green.txt、reqB-21c2-green.txt
+⇒ 第二次 headless 启动只清了 *.log；第一次的 json 与 PNG 全在，结束后两份 report 并存。
+  （全清方案在此会红。）
+
+==================================================================
+四、绿态②（跨后端连跑日志不串味）
+==================================================================
+
+[命令] $start = Get-Date；GPUBackendTester.exe --backend d3d12 --test TestSimpleTriangle --headless 1
+       --report test_output\fvh_21_cross_d3d12.json
+[读数] T21B_EXIT=0；stale logs = 0（test_output\*.log 全部晚于本次启动时刻；vulkan 上一次的
+       `*_validation.log` 已被跑前清理删掉，不会算到 d3d12 头上）。
+[日志] %TEMP%\fvh\reqB-21b-green.txt
+[补充] 该测完之后的 2.3/2.2 运行又重写了日志（都各自先清理），所以当前盘上的日志是最后一次运行的；
+       6.2 的两后端全量回归会再给一次跨后端读数。
+
+==================================================================
+五、实现走读（清理边界）
+==================================================================
+
+static int CleanupStaleLogs(char const* path)
+{
+    ...
+    for (auto const& item : entry)
+    {
+        if (!item.is_regular_file(ec)) { ec.clear(); continue; }   // 目录 / 子目录不碰
+        if (item.path().extension() != ".log") { continue; }        // 只认 .log
+        std::error_code removeError;
+        if (std::filesystem::remove(item.path(), removeError) && !removeError) { ++removed; }
+    }
+    return removed;
+}
+⇒ 非 .log（json/png 等）与子目录在构造上不可能被删；删除失败只影响计数，不误删。

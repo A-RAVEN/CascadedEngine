@@ -1,0 +1,97 @@
+failure-visibility-hygiene 1.3 零活跃调用方事实存档（不碰 ShaderProcessor）
+执行：2026-11-21，apply 子 agent 只读检查
+
+结论：FileLoader 三函数除自身定义外，全仓**零活跃调用方**。唯一一处调用在
+`ShaderProcessor/Main.cpp:18`，但它写的是全仓不存在的 `fileloading_utils::LoadStringFile`，且
+ShaderProcessor 不在构建里 —— 构建外死代码，本批不碰（处置另案）。
+
+==================================================================
+一、四项命令与真实输出
+==================================================================
+
+① 三函数全仓调用点：
+[命令] git grep -n -E "LoadStringFile|LoadBinaryFile|WriteBinaryFile"
+[输出]
+CACore/header/FileLoader.h:14:	castl::string LoadStringFile(castl::string const& file_source);
+CACore/header/FileLoader.h:21:	castl::vector<uint8_t> LoadBinaryFile(castl::string const& file_source);
+CACore/header/FileLoader.h:29:	void WriteBinaryFile(castl::string const& file_dest, void const* data, size_t size);
+CACore/private/FileLoader.cpp:9:	castl::string LoadStringFile(castl::string const& file_source)
+CACore/private/FileLoader.cpp:24:	castl::vector<uint8_t> LoadBinaryFile(castl::string const& file_source)
+CACore/private/FileLoader.cpp:39:	void WriteBinaryFile(castl::string const& file_dest, void const* data, size_t size)
+ShaderProcessor/Main.cpp:18:	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
+[退出码] 0
+⇒ 定义处 6 行 + 构建外死代码 1 行；无活跃调用方。
+
+② 根 CMakeLists 的 add_subdirectory 清单（无 ShaderProcessor）：
+[命令] Select-String -Path CMakeLists.txt -Pattern "add_subdirectory" -Encoding UTF8 | ForEach-Object { $_.Line.Trim() }
+[输出]
+# reads it. Must be set before add_subdirectory so it applies to every target.
+add_subdirectory ("ExternalLib")
+#add_subdirectory ("CASTL")
+add_subdirectory ("CACore")
+add_subdirectory ("IMGUIContext")
+add_subdirectory ("Interface/TimerSystem")
+add_subdirectory ("Interface/IOManager")
+add_subdirectory ("Interface/RenderInterface")
+add_subdirectory ("Interface/ShaderCompiler")
+add_subdirectory ("Interface/ScriptHost")
+add_subdirectory ("TimerSystem_Impl")
+add_subdirectory ("ThreadManager")
+add_subdirectory ("WindowSystem")
+add_subdirectory ("GeneralResources")
+add_subdirectory ("IOManager_FS")
+add_subdirectory ("ShaderCompilerSlang")
+add_subdirectory ("CSharpHost")
+add_subdirectory ("VulkanRenderBackendNew")
+add_subdirectory ("D3D12RenderBackend")
+#add_subdirectory ("Test/VulkanRendererBackendTester")
+add_subdirectory ("Test/GPUBackendTester")
+add_subdirectory ("Test/CoreTests")
+
+[命令] Select-String -Path CMakeLists.txt -Pattern "ShaderProcessor" -Encoding UTF8
+[输出]（无输出）
+[命令] git grep -n "ShaderProcessor" -- "*.txt" "*.cmake"
+[输出] ShaderProcessor/CMakeLists.txt:1:set(PROJECT_NAME ShaderProcessor)
+（只有它自己的工程名；没有任何上级 CMakeLists 收它。）
+
+③ build.ninja 零命中（三份都核）：
+[命令] Select-String -Path <各 build.ninja> -Pattern "ShaderProcessor" -Encoding UTF8
+[输出]
+out\build\x64-debug\build.ninja: 0 命中
+out\build\x64-relWithDebugInfo\build.ninja: 0 命中
+out\build\codegen-tool\build.ninja: 0 命中
+
+④ fileloading_utils 无声明、无产物：
+[命令] git grep -n "fileloading_utils"
+[输出]
+ShaderProcessor/Main.cpp:18:	auto shaderSource = fileloading_utils::LoadStringFile(resourceString + "/Shaders/testShader.hlsl");
+[退出码] 0
+[命令] git grep -n "namespace fileloading_utils"
+[输出]（无输出）
+[退出码] 1
+[命令] Get-ChildItem -Path out -Recurse -Filter "*ShaderProcessor*" -ErrorAction SilentlyContinue
+[输出]（空）
+[命令] Get-ChildItem out\build\x64-debug\bin -Filter "*ShaderProcessor*"; Get-ChildItem out\build\x64-relWithDebugInfo\bin -Filter "*ShaderProcessor*"
+[输出]（空）
+
+==================================================================
+二、验收判据：工件里不再有「唯一调用」断言
+==================================================================
+
+[命令] cd openspec/changes/failure-visibility-hygiene
+       Select-String -Path proposal.md,design.md,specs\*\*.md -Pattern "唯一调用" -Encoding UTF8
+[输出]（无输出，0 命中）
+[退出码] 0
+
+改前红态引文（工件已按 2026-11-20 对抗裁决修订，改前原文只留在 tasks.md 修订记录第 1 条，
+本条自引不计入上面的 grep）：
+> 改前——proposal/design/spec/tasks 把 ShaderProcessor/Main.cpp 当"全仓唯一调用点"，要求包 try/catch
+> 并跑 exe 验收、0.1③ 核其 build.ninja DEFINES；改后——全仓零活跃调用方……
+（出处：tasks.md 修订记录第 1 条。）
+
+==================================================================
+三、对 6.1 的交接
+==================================================================
+
+FileLoader 对外文档（CACore/README.md，任务 6.1）必须写明「当前无活跃调用方，失败语义由 CoreTests 钉死」——
+该句随 6.1 交付，本条 evidence 先登记本事实供其引用。

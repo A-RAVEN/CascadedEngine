@@ -1085,6 +1085,12 @@ CODEGEN_BINDINGS = [
 ]
 
 
+# 逐接口绑定的期望产物形状（failure-visibility-hygiene 0.1② 清点：23 个 stem 全部两件套）。
+# 存在性检查按这些**精确文件名**逐个 `is_file()`；不再用前缀通配 —— `<stem>.Bindings.*` 会放行
+# `<stem>.Bindings.cs.redbak` 这类改名件，闸门会恒绿（2026-11-21 红态实测）。
+CODEGEN_BINDING_PRODUCT_SUFFIXES = (".Bindings.cs", ".Bindings.cpp")
+
+
 # 登记表发射输入（render-interface-merge 任务 1.1 / 1.3）：每个输入头在 `--emit-binding` 时额外
 # 写一份 `<标签>.registry.part` 分片，全部输入跑完后由 `--emit-registry` 汇总成三份跨接口产物：
 #   BindingRegistry.Bindings.h / .cpp、EngineApi.Bindings.cs
@@ -1329,7 +1335,11 @@ def build_bindings() -> list[str]:
         # 逐条核：期望清单里**每一个**接口都必须有产物。
         # 旧写法先过滤掉不存在的、再判断"过滤后是否为空"，只要有一个存在就放行 ——
         # `IWindowSystem` 没产出时构建照样绿（实测过一次）。
-        missing = [stem for stem in expected if not any(out_dir.glob(f"{stem}.Bindings.*"))]
+        # 本批 D5：按精确文件名逐文件 `is_file()`；前缀通配 `<stem>.Bindings.*` 会连改名件
+        # `<stem>.Bindings.cs.redbak` 一起放行（2026-11-21 红态实测：.cs 改名后闸门仍然绿）。
+        missing = [stem for stem in expected
+                   if not all((out_dir / f"{stem}{suffix}").is_file()
+                              for suffix in CODEGEN_BINDING_PRODUCT_SUFFIXES)]
         present = [stem for stem in expected if stem not in missing]
         print(f"    [绑定] 产物：{', '.join(present) if present else '（无）'}", flush=True)
         if missing:

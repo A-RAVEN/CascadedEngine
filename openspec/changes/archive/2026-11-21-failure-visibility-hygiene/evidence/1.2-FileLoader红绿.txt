@@ -1,0 +1,86 @@
+failure-visibility-hygiene 1.2 FileLoader 三函数失败显式化（design D1/D2）红绿
+执行：2026-11-21，实现由 apply 子 agent，构建与 CoreTests 由主循环代跑
+日志：%TEMP%\fvh\reqA-build.txt（红态构建）、reqA-coretests-red.txt（红态）、reqB-build.txt（绿态构建）、
+      reqB-coretests-green.txt（绿态）
+
+改动：
+- CACore/header/FileLoader.h：新增 `cacore::file_error : std::runtime_error`，消息按 `动作："路径"（原因）` 拼；
+  三函数签名不变。
+- CACore/private/FileLoader.cpp：三函数按 D2 补失败（打不开 / 读不足 / 写失败 / flush 失败 / close 失败抛；
+  空文件合法）。
+- Test/CoreTests/FileLoaderErrorTest.cpp（新增，已在 SerializerTest.cpp 声明并在 main 调用）：
+  真临时文件（`%TEMP%\cascaded_fileloader_error_<pid>`，用例结束 remove_all）造五个读数。
+
+==================================================================
+一、红态（新类型 + 新判据已就位，实现保留旧行为）
+==================================================================
+
+构建：python build.py --config Debug → BUILD SUCCESSFUL（退出码 0），日志 reqA-build.txt。
+
+CoreTests：out\build\x64-debug\bin\CoreTests.exe → **退出码 1**（主循环回传 CORETESTS_EXIT=1）。
+日志 reqA-coretests-red.txt 的 FileLoader 段逐字：
+
+  [FileLoader] 没有抛异常（改前行为：静默返回空 / 静默丢写）
+  [FileLoader] 判据不成立：缺失路径 LoadStringFile 抛 file_error 且消息含路径
+  [FileLoader] 没有抛异常（改前行为：静默返回空 / 静默丢写）
+  [FileLoader] 判据不成立：缺失路径 LoadBinaryFile 抛 file_error 且消息含路径
+  [FileLoader] 0 字节文件：创建=是 抛出=否 返回字节数=0
+  [FileLoader] 判据成立：0 字节文件 LoadBinaryFile 返回空且不抛
+  [FileLoader] 没有抛异常（改前行为：静默返回空 / 静默丢写）
+  [FileLoader] 判据不成立：父目录不存在的 WriteBinaryFile 抛 file_error 且消息含路径
+  [FileLoader] 缺失目录写之后目标文件存在=否（改前为否，静默丢写）
+  [FileLoader] 判据成立：正常写入后读回的字节一致（成功路径不受影响）
+  FileLoader error channel test FAILED
+
+⇒ 三条失败判据（缺失路径读文本、缺失路径读二进制、缺失目录写）都打印"没有抛异常"，
+  与"缺陷仍在时判据失败"对上；两条对照（0 字节文件、正常写读）改前已绿。
+
+==================================================================
+二、绿态（实现改后）
+==================================================================
+
+构建：BUILD SUCCESSFUL（退出码 0），日志 reqB-build.txt。
+CoreTests：**退出码 0**（主循环回传 CORETESTS_EXIT=0），PASSED 行数 = 24（改前 23，新用例加 1）。
+日志 reqB-coretests-green.txt 的 FileLoader 段逐字：
+
+  [FileLoader] 抛出 file_error：加载文本文件："C:\Users\76956\AppData\Local\Temp\cascaded_fileloader_error_54424\missing_text.txt"（无法打开文件）（消息含路径=是）
+  [FileLoader] 判据成立：缺失路径 LoadStringFile 抛 file_error 且消息含路径
+  [FileLoader] 抛出 file_error：加载二进制文件："C:\Users\76956\AppData\Local\Temp\cascaded_fileloader_error_54424\missing_binary.bin"（无法打开文件）（消息含路径=是）
+  [FileLoader] 判据成立：缺失路径 LoadBinaryFile 抛 file_error 且消息含路径
+  [FileLoader] 0 字节文件：创建=是 抛出=否 返回字节数=0
+  [FileLoader] 判据成立：0 字节文件 LoadBinaryFile 返回空且不抛
+  [FileLoader] 抛出 file_error：写入二进制文件："C:\Users\76956\AppData\Local\Temp\cascaded_fileloader_error_54424\no_such_subdir\output.bin"（无法创建或打开目标文件）（消息含路径=是）
+  [FileLoader] 判据成立：父目录不存在的 WriteBinaryFile 抛 file_error 且消息含路径
+  [FileLoader] 缺失目录写之后目标文件存在=否（改前为否，静默丢写）
+  [FileLoader] 判据成立：正常写入后读回的字节一致（成功路径不受影响）
+  FileLoader error channel test PASSED
+
+⇒ 三条原红判据全绿且消息点名路径；两条对照仍绿；进程退出码 0。
+
+==================================================================
+三、没有独立注入读数的分支（如实登记，不编造）
+==================================================================
+
+按 design D2 与 tasks 1.2③：下面几支只做实现检查 + 走读证明，**无独立注入读数**。
+
+1. 二进制"读不足"（`LoadBinaryFile` 的 `gcount()` 检查）：
+   `tellg` 与 `read` 在同一次调用内，单线程用例无法在两者之间截短文件；并发截短线程的竞态不可靠，
+   故没有稳定注入手段。走读证明（CACore/private/FileLoader.cpp）：
+       file_src.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(size));
+       if (static_cast<size_t>(file_src.gcount()) != static_cast<size_t>(size))
+       {
+           throw file_error("加载二进制文件", file_source, "实际读到的字节数少于文件尺寸");
+       }
+
+2. 文本"读取未完成"（`LoadStringFile` 的流状态检查）：同样无稳定注入手段。走读证明：
+       while (std::getline(file_src, line)) { result += line + "\n"; }
+       if (file_src.bad() || !file_src.eof())
+       {
+           throw file_error("加载文本文件", file_source, "读取未完成（流状态异常且未到文件末尾）");
+       }
+
+3. `WriteBinaryFile` 的 write / flush / close 失败三支：要制造"open 成功但写失败"需要磁盘满或只读句柄，
+   测试里没有稳定手段。走读证明：write 后 `if (!file_dst)`、flush 后 `if (!file_dst)`、close 后
+   `if (!file_dst)` 三处各自抛 file_error（原因分别为 写入失败 / 刷新缓冲区失败 / 关闭文件失败）。
+
+4. 红态只覆盖 ①②④（缺失路径读 ×2、缺失目录写）；③⑤ 是对照。这与 tasks 1.2 的四项判据一致。

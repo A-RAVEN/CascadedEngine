@@ -1,0 +1,135 @@
+failure-visibility-hygiene 4.1 spin_check 按 change 定位（design D6）红绿
+执行：2026-11-21，apply 子 agent 自跑（该工具只写 gitignored 的 .review_tmp/）
+
+实现改动（Tools/spin_check.py）：
+- 删两个写死常量（改前逐字：`EVIDENCE = ARCHIVE / "2026-09-20-engine-codegen-framework" / "evidence"`、
+  `TASKS = ARCHIVE / "2026-09-20-engine-codegen-framework" / "tasks.md"`），改为 `CHANGES = REPO / "openspec" / "changes"`。
+- 新增 `--change <名>` / `--change=<名>` 可选旗标；`queue start|end <轮次>` / `spin start|end <轮次>` 的轮次位置参数原样保留（argv 分析见 build 后的 main：`what, mode, round_id = argv`）。
+- `--change` 解析：先 `openspec/changes/<名>/`，不存在再 `openspec/changes/archive/*-<名>/`（恰一个匹配；多个/零个均非零退出并点名）。
+- 未给 `--change`：跑 `openspec list --json`，要求恰好一个活跃 change；零个/多个非零退出并点名。
+- `evidence [<evidence-dir>]`：显式目录优先；未给时用解析出的 change 的 `evidence/`。
+- docstring 的 Usage 与 change 解析规则同步更新。
+
+改前写死常量残留检查：
+[命令] git grep -n "2026-09-20-engine-codegen-framework" -- Tools/spin_check.py
+[输出]（无输出）[退出码] 1
+（`Select-String` 只剩小写的函数名/参数名 `evidence`/`tasks`，没有任何大写常量赋值。）
+
+==================================================================
+一、红态（改前，缺陷仍在时的真实读数）
+==================================================================
+
+① 显式指向已归档 change 的意图无法表达（旧代码只认 3 个位置参数）：
+[命令] python Tools/spin_check.py queue start fvh-red-exit --change io-error-channel
+[输出] 打印完整 Usage docstring（首行 "Round-boundary checks for a goal round ..."）
+[退出码] 2
+
+② 旧形状（不带 --change）读的是写死的已归档 change `2026-09-20-engine-codegen-framework`：
+[命令] python Tools/spin_check.py queue start fvh-red-old
+[输出]
+queue fvh-red-old: 86 items total, 1 OPEN at round start (frozen -> E:\Projects\CascadedEngine\.review_tmp\spin\fvh-red-old.queue.start.json)
+  OPEN  9.2  9.2 ~~**[AUDIT] 真实类型接线 + ABI guard 实例化**~~ **【已作废 · 2026-09-08】**：原条目要求把 `out/build/<cfg>/codegen` 接
+[退出码] 0
+（86 条 = 老 change 的清单，与本 change 的 14 条无关；缺陷坐实。）
+
+③ 不存在的名字同样被静默忽略（旧代码只看参数个数）：
+[命令] python Tools/spin_check.py queue start fvh-red-exit2 --change no-such-change
+[输出] 打印完整 Usage docstring
+[退出码] 2
+
+④ evidence 默认目录也指向已归档 change：
+[命令] python Tools/spin_check.py evidence
+[输出（末 4 行）]
+  spin-check-evidence.txt: no `cmd:` line (not covered by this gate)
+evidence: 7 file(s) with `cmd:` lines, 613 input path(s), 5 not tracked by git, 272 relocated by archiving
+  note: `relocated by archiving` paths were checked at their post-archive location; the command lines keep the pre-archive text they were run with
+  note: tokens skipped above are NOT inputs (flags, the program, -o targets, bare file names); they are printed so the count is not read as full coverage
+[退出码] 1
+（读的是 2026-09-20-engine-codegen-framework 的 evidence，7 份文件；旧缺陷记录里的 39 个夹具路径靠 archive 搬迁规则才被认下。）
+
+==================================================================
+二、绿态（改后实测）
+==================================================================
+
+① 显式 --change 指向已归档 change，读出 14 条全勾（未勾 0）：
+[命令] python Tools/spin_check.py queue start fvh-green-io --change io-error-channel
+[输出]
+queue fvh-green-io: 14 items total, 0 OPEN at round start (frozen -> E:\Projects\CascadedEngine\.review_tmp\spin\fvh-green-io.queue.start.json)
+[退出码] 0
+
+② 不存在的名字非零退出并点名：
+[命令] python Tools/spin_check.py queue start fvh-green-missing --change no-such-change
+[输出]
+找不到 change no-such-change：E:\Projects\CascadedEngine\openspec\changes\no-such-change 不存在，归档里也没有 *-no-such-change
+[退出码] 2
+
+③ 旧形状（不带 --change）自动探测到本 change（当前唯一活跃）并读出其未勾条目：
+[命令] python Tools/spin_check.py queue start fvh-green-auto
+[输出（首行 + 12 条 OPEN 的编号）]
+queue fvh-green-auto: 14 items total, 12 OPEN at round start (frozen -> E:\Projects\CascadedEngine\.review_tmp\spin\fvh-green-auto.queue.start.json)
+  OPEN  1.1 / 1.2 / 1.3 / 2.1 / 2.2 / 2.3 / 3.1 / 4.1 / 5.1 / 5.2 / 6.1 / 6.2
+[退出码] 0
+（12 条未勾 = 当时 tasks.md 的真实状态；0.1/0.2 已勾。）
+
+③b `--change=<名>` 等号形式同样生效：
+[命令] python Tools/spin_check.py queue start fvh-green-eq --change=failure-visibility-hygiene
+[输出（首行）]
+queue fvh-green-eq: 14 items total, 12 OPEN at round start (frozen -> ...\fvh-green-eq.queue.start.json)
+[退出码] 0
+
+④ evidence 默认目录改为本 change 的 evidence：
+[命令] python Tools/spin_check.py evidence
+[输出]
+  0.1-清点.txt: no `cmd:` line (not covered by this gate)
+  0.2-codegen快照.txt: no `cmd:` line (not covered by this gate)
+evidence: 0 file(s) with `cmd:` lines, 0 input path(s), 0 not tracked by git, 0 relocated by archiving
+[退出码] 0
+（读的是 openspec/changes/failure-visibility-hygiene/evidence 下的两份文件，不再碰归档目录。）
+
+⑤ 显式 evidence 目录优先（不被 change 解析挡住）：
+[命令] python Tools/spin_check.py evidence openspec/changes/failure-visibility-hygiene/evidence
+[输出] evidence: 0 file(s) with `cmd:` lines, 0 input path(s), 0 not tracked by git, 0 relocated by archiving
+[退出码] 0
+
+⑥ --change 缺值：
+[命令] python Tools/spin_check.py queue start fvh-x --change
+[输出] --change 需要 <change 名>
+[退出码] 2
+
+⑦ 语法检查：
+[命令] python -m py_compile Tools/spin_check.py
+[退出码] 0
+
+==================================================================
+三、无法实测的分支（走读证明，如实登记，不谎称实测）
+==================================================================
+
+(a) 零个 / 多个活跃 change（本 change 活跃期间无法安全构造）：
+源码（Tools/spin_check.py 的 resolve_change_dir 末尾）：
+    names = active_change_names()
+    if len(names) == 1:
+        return CHANGES / names[0]
+    if not names:
+        raise ChangeLookupError("当前没有活跃 change；请用 --change <名> 显式指定（已归档 change 也可）")
+    raise ChangeLookupError(f"当前有 {len(names)} 个活跃 change（{', '.join(names)}）；"
+                            f"请用 --change <名> 显式指定")
+main 里捕获 ChangeLookupError → print(message) → return 2。三条分支都非零退出，不放行。
+
+(b) 归档名多匹配（归档里没有任何两个目录能被同一后缀同时匹配；实测命令与输出）：
+[命令] 归档目录去掉日期前缀后 Group-Object 查重 + 两两 EndsWith("-" + <名>) 检查
+[输出] 无（该分支需造目录才能实测，走读证明）
+源码：
+    matches = sorted(p for p in ARCHIVE.iterdir()
+                     if p.is_dir() and p.name.endswith("-" + explicit))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ChangeLookupError(
+            f"change 名 {explicit} 在归档里匹配到多个：{', '.join(p.name for p in matches)}"
+            f"；请改用完整目录名（--change <目录名>）")
+main 同样返回 2。
+
+(c) `openspec` 命令形态（实测修正，记录在此以免下次踩坑）：本机 PATH 上的 `openspec` 是 npm shim
+（`openspec` 为 Unix shell 脚本、`openspec.cmd` 才是 Windows 可启动形式）。subprocess 的 CreateProcess
+既不补 PATHEXT 也不跑 .cmd —— 裸 `["openspec", ...]` 实测抛 WinError 2。现实现用 `shutil.which("openspec")`
+定位，`.cmd/.bat` 经 `cmd.exe /c` 启动；绿态 ③/④ 即该实现的实测读数。

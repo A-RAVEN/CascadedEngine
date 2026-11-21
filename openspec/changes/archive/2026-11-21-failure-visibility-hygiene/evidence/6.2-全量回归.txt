@@ -1,0 +1,76 @@
+failure-visibility-hygiene 6.2 全量回归（design D7）
+执行：2026-11-21，构建与运行由主循环代跑；fc /b 逐份比对与读盘核对由 apply 子 agent
+日志：%TEMP%\fvh\reqE-*.txt；报告产物在 test_output\（未删除）
+
+==================================================================
+一、最终构建（3.1 临时构造还原后的全绿）
+==================================================================
+[命令] python build.py --config Debug
+[读数] BUILD_EXIT=0；BUILD SUCCESSFUL；
+       耗时 configure 0.0s / codegen 3.5s / 编译 13.3s / 托管侧 2.0s / 合计 80.5s。
+[日志] %TEMP%\fvh\reqE-build.txt
+⇒ 同时是 3.1 第④步「还原注释与改名后全绿」的读数（evidence/3.1-闸门红绿.txt 第四节引用本条）。
+
+==================================================================
+二、CoreTests 全绿（含 FileLoader 新用例）
+==================================================================
+[命令] out\build\x64-debug\bin\CoreTests.exe
+[读数] 退出码 0；PASSED 行数 **24**（改前 23）；末段逐字「FileLoader error channel test PASSED」，
+       0 条「判据不成立」。
+[日志] %TEMP%\fvh\reqE-coretests.txt
+
+==================================================================
+三、两后端 headless 17/17
+==================================================================
+[命令] out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --headless 10 --report test_output\fvh_regression_vulkan.json
+[命令] out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --headless 10 --report test_output\fvh_regression_d3d12.json
+[读数] vulkan_exit=0、d3d12_exit=0；
+       report 逐条复算（ConvertFrom-Json）：
+         vulkan: total=17 pass=17 fail=0
+         d3d12 : total=17 pass=17 fail=0
+       d3d12 跑后 stale logs = 0（跨后端连跑日志时间戳全部落在第二次运行区间 —— 2.1② 的再次读数）。
+[路径] test_output\fvh_regression_vulkan.json、test_output\fvh_regression_d3d12.json
+[日志] %TEMP%\fvh\reqE-vulkan.txt、reqE-d3d12.txt
+
+==================================================================
+四、C# 像素判据脚本全链路通过（证 D3 只清日志不砸跨 run 累积）
+==================================================================
+[命令] docs/testing.md 146-160 的十次跑法：两后端 × normal + 四个 Debug 自检模式
+       （报告名逐字 csharp_triangle_<backend>_<mode>.json；命令与日志 reqE-cs-*.txt 一一对应），随后
+       python Tools\check_csharp_triangle.py
+[读数] normal 两次 exit 0；八条负向各 exit 1（测试设计上就是 fail）；
+       test_output\csharp_triangle_*.json 共 **10 份**；
+       python Tools\check_csharp_triangle.py → exit 0、「问题 0 处」；
+       输出末尾逐字（vulkan 段）：
+         vulkan  normal        status=pass
+         vulkan  skip-draw     status=fail code=E_TRIANGLE_DRAW
+         vulkan  bad-vertex    status=fail code=E_TRIANGLE_PIXEL
+         vulkan  skip-present  status=fail code=E_TRIANGLE_PRESENT
+         vulkan  skip-wait     status=fail code=E_TRIANGLE_WAIT
+        问题 0 处
+       （d3d12 段同；十份报告分别产生于十次独立 headless 运行 —— 每次运行启动时只清 *.log，
+        前几次写出的 report/PNG 全都留到对账时，脚本才可能一次通过。）
+[日志] %TEMP%\fvh\reqE-cs-*.txt、%TEMP%\fvh\reqE-csharp-check.txt
+
+==================================================================
+五、绑定产物基线 0/0/0
+==================================================================
+[命令] python Tools\CodeGen\check_binding_baseline.py
+         --baseline "openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt"
+         --product-dir out\build\x64-debug\codegen\bindings
+[读数] exit 0；逐字「基线对账：缺失 0 / 不一致 0 / 多余 0」。
+[日志] %TEMP%\fvh\reqE-baseline.txt
+
+==================================================================
+六、codegen 产物逐字节不变（fc /b 对 0.2 快照，锚在首次构建之前）
+==================================================================
+[命令] 对 %TEMP%\fvh-codegen-before 的每份 *.codegen.h，按相对路径找 out\build\x64-debug\codegen
+       下同名文件，逐个 `fc.exe /b <快照> <当前>`，统计 missing / differ。
+[读数] **snapshot=77 source=77 missing=0 differ=0**
+⇒ 77/77 逐字节全同（本批不碰生成器与序列化运行时）。
+
+==================================================================
+七、结论
+==================================================================
+六项验收全部成立：构建绿、CoreTests 24/24 行 PASSED（含新用例）、两后端各 17/17、
+C# 三角形判据十跑对账 0 问题、绑定基线 0/0/0、codegen 77/77 逐字节不变。

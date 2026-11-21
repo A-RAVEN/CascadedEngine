@@ -1,0 +1,58 @@
+failure-visibility-hygiene 2.3 headless capture 未写出警告（design D4，仅限 headless）
+执行：2026-11-21，实现由 apply 子 agent，tester 运行由主循环代跑
+日志：%TEMP%\fvh\reqA-23-red.txt（红态）、reqB-23-green.txt（绿态 D）、reqB-23-control.txt（对照 E）、
+      reqB-22-green-err.txt（交互不误报）
+
+实现（Test/GPUBackendTester/Main.cpp）：
+- TestContext 增 `int captureWrites = 0;`；WriteReadbackPNG 成功写出时 `++ctx.captureWrites;`。
+- runTestWithDiagnostics 每个测试开始重置 `ctx.captureWrites = 0`；测试返回后：
+      if (headlessFrames > 0 && captureFrame >= 0 && exitCode == 0 && ctx.captureWrites == 0)
+          std::cerr << "[capture] 警告：测试 " << name << " 请求 capture 帧 " << captureFrame
+                    << "，但本次运行未写出 PNG（帧号越界或回读无效）" << std::endl;
+  ⇒ 只在 headless 发；交互运行 `headlessFrames <= 0` 整条不进。
+
+==================================================================
+一、红态（改前：越界帧号静默不写，stderr 无警告）
+==================================================================
+
+[命令] GPUBackendTester.exe --backend vulkan --test TestSimpleTriangle --capture 999 --headless 1
+[读数] T23_EXIT=0；日志里 capture / 捕获 / 截图 警告字样命中 **0**（只有正常测试输出）。
+[日志] %TEMP%\fvh\reqA-23-red.txt（48,834 字节）
+⇒ 缺陷：请求了不存在的帧号 999，静默不写，用户拿不到任何信号。
+
+==================================================================
+二、绿态 D（越界帧号有警告，点名测试与帧号）
+==================================================================
+
+[命令] 同一条：--backend vulkan --test TestSimpleTriangle --capture 999 --headless 1
+[读数] T23D_EXIT=0；stderr 警告逐字：
+[capture] 警告：测试 TestSimpleTriangle 请求 capture 帧 999，但本次运行未写出 PNG（帧号越界或回读无效）
+[日志] %TEMP%\fvh\reqB-23-green.txt
+⇒ 点名测试名与帧号 999；退出码不变（测试本身没有失败）。
+
+==================================================================
+三、绿态 E（对照：--capture 0 正常写出 PNG，不误报）
+==================================================================
+
+[命令] GPUBackendTester.exe --backend vulkan --test TestSimpleTriangle --capture 0 --headless 1 --report test_output\fvh_23_control.json
+[读数] T23E_EXIT=0；stderr 里 `[capture]` 命中 **0**；
+       test_output\TestSimpleTriangle_vulkan.png 存在（24,265 字节，22:53:58）；
+       test_output\TestSimpleTriangle.log 逐字：
+       「TestSimpleTriangle: wrote test_output/TestSimpleTriangle_vulkan.png pixelBytes=2097152 nonEmpty=true」
+[日志] %TEMP%\fvh\reqB-23-control.txt
+⇒ 帧号有效时正常写出、不触发警告。
+
+==================================================================
+四、交互运行不误报（spec 场景「交互模式有效帧号不误报越界」）
+==================================================================
+
+[读数] 交互 TestReadback --capture 0（请求 2.2 的同一次运行）stderr 里「请求 capture 帧」命中 **0**
+       （证据：evidence/2.2-capture交互警告.txt 的第四节；日志 %TEMP%\fvh\reqB-22-green-err.txt）。
+⇒ 逐测试警告只在 headless 发；交互的误用提示由参数校验那条覆盖。
+
+==================================================================
+五、TestReadback 既有 throw 保留（全模式）
+==================================================================
+
+Main.cpp:337 的 throw 一字未动（git diff 里没有 `requested capture frame` 行），
+TestReadback 在回读 null/空白时仍 throw；本任务只在其后增加 headless 下的"未写出"警告。

@@ -1,0 +1,69 @@
+failure-visibility-hygiene 5.1 文档路径修复（design D8）
+执行：2026-11-21，apply 子 agent
+
+范围（D8，只修点名文件，归档 evidence 里的历史串不改写）：
+① docs/testing.md 的当前基线路径；
+② Tools/CodeGen/check_binding_baseline.py docstring 的当前基线 / 换锚对照两处路径（仅注释文字，脚本逻辑不动）；
+③ docs/ROADMAP.md 的「也不要要求」笔误。
+
+==================================================================
+一、红态（改前）
+==================================================================
+
+[命令] git grep -n -F "openspec/changes/csharp-bindings-namespace-alignment/" -- docs/testing.md Tools/CodeGen/check_binding_baseline.py
+[输出]
+Tools/CodeGen/check_binding_baseline.py:25:**当前基线**：`openspec/changes/csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`（4.2 首锚；
+Tools/CodeGen/check_binding_baseline.py:29:`openspec/changes/csharp-bindings-namespace-alignment/evidence/4.2-换锚前后对照.txt` 与
+docs/testing.md:41:`check_binding_baseline.py`（绑定产物逐字节基线对账；当前基线 = `openspec/changes/csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`）
+[退出码] 0
+⇒ 3 命中（与 tasks 5.1 写明的「改前 3 命中」一致）。
+
+[命令] Select-String -Path docs\ROADMAP.md -Pattern "也不要要求" -Encoding UTF8
+[输出]
+ROADMAP.md:98: 目标：……首版不要求完整 ECS，也不要要求向游戏脚本开放原生线程调度。
+⇒ 1 命中。
+
+==================================================================
+二、绿态（改后）
+==================================================================
+
+[命令] git grep -n -F "openspec/changes/csharp-bindings-namespace-alignment/" -- docs/testing.md Tools/CodeGen/check_binding_baseline.py
+[输出]（无输出）
+[退出码] 1
+⇒ 点名两文件 0 命中。
+
+[命令] Select-String -Path docs\ROADMAP.md -Pattern "也不要要求" -Encoding UTF8
+[输出]（无输出）
+⇒ 0 命中；同句现在是「首版不要求完整 ECS，也不要求向游戏脚本开放原生线程调度。」
+
+[命令] Test-Path "openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt"
+[输出] True
+[命令] Test-Path "openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/4.2-换锚前后对照.txt"
+[输出] True
+（仅作补充读数——按 tasks 5.1，`Test-Path` 恒真不作判据。）
+
+[命令] python -m py_compile Tools\CodeGen\check_binding_baseline.py
+[退出码] 0
+[命令] python Tools\CodeGen\check_binding_baseline.py --help *> $null; Write-Output $LASTEXITCODE
+[输出] 0
+（docstring 只改路径文字，脚本参数与逻辑未动。）
+
+==================================================================
+三、改前 → 改后原文对照
+==================================================================
+
+docs/testing.md 第 41 行（同一行内）：
+改前：……当前基线 = `openspec/changes/csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`
+改后：……当前基线 = `openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`
+
+Tools/CodeGen/check_binding_baseline.py docstring：
+改前：**当前基线**：`openspec/changes/csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`（4.2 首锚；
+改后：**当前基线**：`openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt`（4.2 首锚；
+改前：`openspec/changes/csharp-bindings-namespace-alignment/evidence/4.2-换锚前后对照.txt` 与
+改后：`openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/4.2-换锚前后对照.txt` 与
+
+docs/ROADMAP.md 阶段 5 目标句：
+改前：首版不要求完整 ECS，也不要要求向游戏脚本开放原生线程调度。
+改后：首版不要求完整 ECS，也不要求向游戏脚本开放原生线程调度。
+
+归档 evidence 里的历史路径串**未改**（D8）：`openspec/changes/archive/2026-11-17-io-error-channel/` 等归档件保持原样。

@@ -4,7 +4,7 @@
 > 它不记任务、不记欠账、不记改动细节 —— 进度事实源只有 `openspec/changes/<change>/tasks.md`，
 > 欠账只有 `docs/TODO.md`，本文件只做指针。
 
-**最后更新**：2026-11-17
+**最后更新**：2026-11-21
 **维护规则**：见 `CLAUDE.md` 的「文档维护」一节
 
 ---
@@ -95,13 +95,13 @@
 
 ### 阶段 5：游戏运行时基础
 
-目标：补齐资源导入与引用、序列化、场景与实体组件、层级变换、时间与输入，以及 C# 脚本注册、挂载和生命周期。稳定对象编号、资源所有权和主线程边界先于大规模接口扩张；首版不要求完整 ECS，也不要要求向游戏脚本开放原生线程调度。
+目标：补齐资源导入与引用、序列化、场景与实体组件、层级变换、时间与输入，以及 C# 脚本注册、挂载和生命周期。稳定对象编号、资源所有权和主线程边界先于大规模接口扩张；首版不要求完整 ECS，也不要求向游戏脚本开放原生线程调度。
 
 阶段结果：C# 脚本能够操作场景对象，场景能够保存和加载，资源与脚本生命周期能够形成一致闭环。
 
 2026-11-11 口径澄清（用户裁定，沿用阶段 4 既定原则"高级概念优先在 C# 引擎框架中组织"）：本阶段所列模块——场景/实体/组件、序列化、脚本生命周期、每帧场景→图翻译——**全部是 C# 框架层代码**，坐在阶段 4 已完成的全量原生直绑表面（8 接口 + 糖层）之上，**不依赖任何新 C++ 能力**；C++ 引擎层与绑定层对本阶段视为已齐。仍成立的边界只有跨语言对象身份与所有权（场景引用原生纹理/缓冲），已由对象句柄表与编辑器对象编号机制覆盖。推论：阶段 6 编辑器首切片（窗口属性面板）被编辑对象用现成窗口表面即可，不依赖本阶段场景模型。
 
-排期后续方向（用户 2026-11-11 指示记入）：**I/O 与资源管理层的正确性基础**。现状三层（`Interface/IOManager` 批式读写接口 → `IOManager_FS` 实现 → `GeneralResources` 资源注册表与导入）有两类地基级缺陷：其一，读越界与文件打不开被静默吞掉（`IOBatchImpl::Read` 越界直接 `return`、读任务打不开文件无错误通道）；其二，流式反序列化无边界检查（`CodeGenSerialization.h` 读对象流式分支无条件返回成功，`TResource::Deserialize` 又忽略 `deserialize` 的返回值——截短或损坏的资产文件会静默把垃圾灌进 `ShaderLibrary`）。切法从小到大、各自独立可验：先做 I/O 错误通道与资源反序列化边界检查——**已兑现（2026-11-17）**：change `io-error-channel` 14/14 完成并归档到 `openspec/changes/archive/2026-11-17-io-error-channel/`，新主规范 `openspec/specs/io-error-channel/spec.md`（三要求八场景）生效；六条失败判据红绿闭环、两后端全量各 17/17、生成物逐字节不变。其后依次为 `CACore/header/FileLoader.h` 同族静默失败修复（`LoadStringFile`/`LoadBinaryFile` 打不开时静默返回空、`WriteBinaryFile` 打不开时静默丢写）、`SerializeAll` 增量回写与源删除清产物、假异步清理与读侧句柄缓存（纯性能，可缓）、资源身份重设计（内容哈希/依赖记录，编辑器与热重载需要时再做）。定位：I/O 批处理与导入器属引擎核心，留在 C++；"哪些资产存在、谁引用谁"的登记策略未来可按本阶段口径澄清的同原则坐 C#；若 C# 脚本需加载贴图/网格，`ResourceManagingSystem` 是后续绑定接口的候选——这是该模块与阶段 5 的真实接口点。
+排期后续方向（用户 2026-11-11 指示记入）：**I/O 与资源管理层的正确性基础**。现状三层（`Interface/IOManager` 批式读写接口 → `IOManager_FS` 实现 → `GeneralResources` 资源注册表与导入）有两类地基级缺陷：其一，读越界与文件打不开被静默吞掉（`IOBatchImpl::Read` 越界直接 `return`、读任务打不开文件无错误通道）；其二，流式反序列化无边界检查（`CodeGenSerialization.h` 读对象流式分支无条件返回成功，`TResource::Deserialize` 又忽略 `deserialize` 的返回值——截短或损坏的资产文件会静默把垃圾灌进 `ShaderLibrary`）。切法从小到大、各自独立可验：先做 I/O 错误通道与资源反序列化边界检查——**已兑现（2026-11-17）**：change `io-error-channel` 14/14 完成并归档到 `openspec/changes/archive/2026-11-17-io-error-channel/`，新主规范 `openspec/specs/io-error-channel/spec.md`（三要求八场景）生效；六条失败判据红绿闭环、两后端全量各 17/17、生成物逐字节不变。第二项 `CACore/header/FileLoader.h` 同族静默失败修复**已兑现（2026-11-21）**：随合并批 `failure-visibility-hygiene`（14/14，归档 `openspec/changes/archive/2026-11-21-failure-visibility-hygiene/`）完成——三函数失败抛 `cacore::file_error` 点名路径（零活跃调用方，语义由 CoreTests 钉死），新主规范 `openspec/specs/fileloader-error-channel/spec.md` 生效；同批另完成 tester 输出卫生（test_output 跑前清日志保留 json/png、capture 误用/越界警告，主规范 `openspec/specs/tester-output-hygiene/spec.md`）、绑定产物闸门精确文件名（`csharp-bindings` 主规范同步）、spin_check 按 change 定位与过期文档路径修复。其后依次为 `SerializeAll` 增量回写与源删除清产物、假异步清理与读侧句柄缓存（纯性能，可缓）、资源身份重设计（内容哈希/依赖记录，编辑器与热重载需要时再做）。定位：I/O 批处理与导入器属引擎核心，留在 C++；"哪些资产存在、谁引用谁"的登记策略未来可按本阶段口径澄清的同原则坐 C#；若 C# 脚本需加载贴图/网格，`ResourceManagingSystem` 是后续绑定接口的候选——这是该模块与阶段 5 的真实接口点。
 
 ### 阶段 6：网页编辑器闭环
 

@@ -78,6 +78,9 @@ bool RunWindowBindingsCompileTest();
 bool RunBindingsNativeShapesTest();
 // 原生五类表面（本 change 任务 2.4 / D12+D13）：工厂槽、WindowHandle 三方法、标量容器两段式。
 bool RunNativeSurfaceTest();
+// FileLoader 三函数的失败显式化（failure-visibility-hygiene 1.2）：缺失路径读 / 缺失目录写必须抛
+// `cacore::file_error` 并点名路径；0 字节文件合法（返回空，不抛）。
+bool RunFileLoaderErrorTest();
 
 
 
@@ -287,6 +290,16 @@ int main(int argc, char* argv[])
 	{
 		std::puts("CodeGen ShaderLibrary (D3D12) bytes test FAILED");
 		allOk = false;
+	}
+
+	if (!RunFileLoaderErrorTest())
+	{
+		std::puts("FileLoader error channel test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("FileLoader error channel test PASSED");
 	}
 
 	return allOk ? 0 : 1;

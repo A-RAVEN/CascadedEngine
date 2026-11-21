@@ -1,0 +1,60 @@
+failure-visibility-hygiene 5.2 docs/TODO.md 销账
+执行：2026-11-21，apply 子 agent
+
+背景：docs/TODO.md 的工作区里已有一批先于本任务存在的改动（已解决区重排、2026-11-20 交互 capture 写图静默失败新条目、
+workflow 计数 21→22 等）。那些不是本任务内容，未动；下面只做 tasks 5.2 点名的四处。
+
+==================================================================
+一、做了四处
+==================================================================
+
+1. 整条删除：[2026-08-30] capture 的 2 条 LOW（GPUBackendTester 截图扩展收尾）
+   依据：LOW-1（非 headless 带 capture 无提示）由本批 2.2 修；LOW-2（帧号越界静默）由本批 2.3 修（TestReadback 既有 throw 保留）。
+2. 整条删除：[2026-10-15] `Tools/spin_check.py` 把待办清单路径写死在已归档的 change 上｜工具
+   依据：本批 4.1 修（--change + openspec list 自动探测，红绿见 evidence/4.1-spin_check红绿.txt）。
+3. 整条删除：[2026-10-15] `test_output/` 跨运行不清理，不同后端的日志串味｜`Test/GPUBackendTester`
+   依据：本批 2.1 修（headless 跑前清 *.log，保留 json/png；红绿见 evidence/2.1-test_output清理.txt）。
+4. 改写保留：[2026-11-05] 绑定生成物期望检查仍是前缀通配…… → 只保留孤儿产物后半段，独立成条：
+   `## [2026-11-05] codegen 只写不删，输入面删除后旧产物留在构建目录｜构建系统（跨 change）`
+   正文注明来源：前半段（前缀通配，改名件可绕过）已由 failure-visibility-hygiene 修掉，孤儿产物清理用户未点头收入本批。
+
+==================================================================
+二、验收读数
+==================================================================
+
+[命令] 对三条被删标题逐条 Select-String -Path docs\TODO.md -Encoding UTF8
+[输出]
+capture 的 2 条 LOW => 0 命中
+把待办清单路径写死在已归档的 change 上 => 0 命中
+跨运行不清理，不同后端的日志串味 => 0 命中
+
+[命令] (Select-String -Path docs\TODO.md -Pattern "绑定生成物期望检查仍是前缀通配，改名件可绕过" -Encoding UTF8 | Measure-Object).Count
+[输出] 0
+⇒ 原前缀通配标题不再出现（改写后的正文只说「「绑定生成物期望检查」条目前半段（前缀通配，改名件可绕过）」，不是原标题）。
+
+[命令] Select-String -Path docs\TODO.md -Pattern "codegen 只写不删" -Encoding UTF8
+[输出]
+行15: ## [2026-11-05] codegen 只写不删，输入面删除后旧产物留在构建目录｜构建系统（跨 change）
+行17: **状态**：待修（跨 change）。**来源**：2026-11-05 的「绑定生成物期望检查」条目前半段（前缀通配，改名件可绕过）已由
+      `failure-visibility-hygiene` 修掉（`build.py` 逐接口期望检查改精确文件名），孤儿产物清理用户未点头收入本批，
+      保留为独立条目。**条目**：codegen 只写不删，**输入面删除后旧产物留在构建目录**会被 `check_bindings` 当成真实接口
+      （`render-interface-merge` 5.1 演练实测：孤儿 `IBindRegistry10.Bindings.cpp` 报"解析不到接口头"）；清理责任目前靠人。
+⇒ 孤儿产物保留条存在且注明来源。
+
+[命令] Select-String -Path docs\TODO.md -Pattern "^## " -Encoding UTF8（待办区标题清单，节选）
+[输出]
+11: ## [2026-11-05] check_hash_sources 把 std 别名 remove_cvref_t 当键类型点名（基线即红）｜工具（跨 change）
+15: ## [2026-11-05] codegen 只写不删，输入面删除后旧产物留在构建目录｜构建系统（跨 change）
+19: ## [2026-10-25] CodeGen 重编之后第一次全量跑，`VulkanCBufferBindingInfo` 会以退出码 6 失败｜构建系统（跨 change）
+33: ## [2026-08-28] D3D12 回读改为异步，与 Vulkan 对齐（add-render-readback）
+57: ## [2026-10-15] 哈希来源盘点脚本扫不到三类位置｜`require-explicit-hash-source` 后续
+……
+106: ## [2026-11-20] 交互模式 capture 写图静默失败（目录缺失/写盘失败无信号）｜`Test/GPUBackendTester`
+（三条被删条目已不在清单里；2026-11-20 那条是另一件事——交互写图本身静默，D4 Risks 明确本批不扩修、另案记 TODO，故保留。）
+
+==================================================================
+三、未动
+==================================================================
+- 2026-11-20 交互模式 capture 写图静默失败条目（另案，非本批三条）。
+- 22 处 workflow 悬空脚本条目（design Non-Goals：待用户裁定删/修）。
+- 前缀通配条后半段的孤儿产物清理（用户未点头收入本批）。

@@ -1,0 +1,34 @@
+failure-visibility-hygiene 0.2 codegen 快照核对
+执行：2026-11-21，apply 子 agent（快照由主循环在首次构建之前执行；本条只做核对并存档份数读数）
+
+快照位置：%TEMP%\fvh-codegen-before（保留相对目录结构）
+源目录：out\build\x64-debug\codegen
+锚点：HEAD 7bcd166（io-error-channel 收尾提交）
+
+[命令] (Get-ChildItem -Path out\build\x64-debug\codegen -Recurse -Filter "*.codegen.h" | Measure-Object).Count
+[输出] 77
+
+[命令] (Get-ChildItem -Path $env:TEMP\fvh-codegen-before -Recurse -Filter "*.codegen.h" | Measure-Object).Count
+[输出] 77
+
+[命令] 相对源目录 / 快照目录各列相对路径清单，Compare-Object 比对
+[输出] 无差异（相对结构一致）
+
+[命令] Get-ChildItem $env:TEMP\fvh-codegen-before | Select-Object Name,Mode
+[输出]
+CACore                    d-----
+D3D12RenderBackend        d-----
+Interface_RenderInterface d-----
+ShaderCompilerSlang       d-----
+Test_CoreTests            d-----
+VulkanRenderBackendNew    d-----
+
+[命令] 相对路径前 5 条
+[输出]
+CACore\Holder.codegen.h
+CACore\result_type.codegen.h
+D3D12RenderBackend\BufferBindingInfo.codegen.h
+D3D12RenderBackend\CBufferBindingInfo.codegen.h
+D3D12RenderBackend\GPUPipelineStateKey.codegen.h
+
+结论：快照份数 77 与源目录 77 一致，相对结构一致。6.2 的 `fc /b` 逐份比对以本快照为锚（在实现改动与全量构建之后跑，才不是"当前比当前"）。

@@ -1,0 +1,72 @@
+failure-visibility-hygiene 3.1 逐接口产物闸门改精确文件名（design D5）红绿
+执行：2026-11-21，源码侧构造与修复由 apply 子 agent，构建由主循环代跑
+日志：%TEMP%\fvh\reqC-31-red.txt（红态）、reqD-31-green.txt（绿态）
+
+改动（build.py）：
+- 新增 `CODEGEN_BINDING_PRODUCT_SUFFIXES = (".Bindings.cs", ".Bindings.cpp")`（按 0.1② 清点的实际产物形状：
+  23 个 stem 全部两件套）；
+- 逐接口期望检查一行：
+  改前：missing = [stem for stem in expected if not any(out_dir.glob(f"{stem}.Bindings.*"))]
+  改后：missing = [stem for stem in expected
+                   if not all((out_dir / f"{stem}{suffix}").is_file()
+                              for suffix in CODEGEN_BINDING_PRODUCT_SUFFIXES)]
+- 缺失消息沿用「缺少这些接口的产物」并点名 stem（未改）。
+
+==================================================================
+一、红态构造（源码侧四步，按 D5 / 裁决 blocking 3）
+==================================================================
+
+① 临时跳过 `Tools/CodeGen/BindableShapes.RenderOwner.h` 的 `--emit-binding`（build.py 里逐字标记
+   「TEMP（failure-visibility-hygiene 3.1 红态构造，用后还原）」），令本次构建不再为该头生成产物；
+② 把该接口一份既有产物改名：`ca_bind_fixture__IBindRenderOwner.Bindings.cs` →
+   `ca_bind_fixture__IBindRenderOwner.Bindings.cs.redbak`（`.Bindings.cpp` 仍在）；
+③ 跑构建；
+④ 见下面的绿态与还原。
+
+==================================================================
+二、红态（旧 glob：改名件仍被放行）
+==================================================================
+
+[命令] python build.py --config Debug
+[读数] BUILD_EXIT=1（下游 check_bindings / 托管编译因缺 .cs 而失败 —— 可区分的另一条失败）；
+       闸门消息「缺少这些接口的产物」命中 **0**；
+       「[绑定] 夹具 RenderOwner ← Tools/CodeGen/BindableShapes.RenderOwner.h」后紧跟
+       「[绑定] 产物：ca_bind_fixture__IBindRenderOwner」—— stem 被算作 present，尽管 .cs 已改名。
+[下游失败原文（与闸门区分）]
+  ca_bind_fixture__IBindRenderOwner（native 字段层）：C++ 多 ['CreateResource', 'PeekResource', 'BorrowResource',
+  'UseResource', 'UseAltResource', 'CreateAltResource', 'LastUsedId']，C# 多 无
+  …\ca_bind_fixture__IBindRenderResource.Bindings.cs(142,23): error CS0246: 未能找到类型或命名空间名"IBindRenderOwner"…
+[日志] %TEMP%\fvh\reqC-31-red.txt
+⇒ 缺陷：`glob(f"{stem}.Bindings.*")` 命中了 `.Bindings.cs.redbak`，闸门自己对缺失改名件放行。
+
+==================================================================
+三、绿态（精确文件名：闸门自己点名该 stem）
+==================================================================
+
+同一构造（临时跳过 emit + .cs 仍是 .redbak）下：
+[命令] python build.py --config Debug
+[读数] BUILD_EXIT=1（下游同样失败，与红态一致）；
+       闸门消息逐字出现：
+  - 绑定 夹具 RenderOwner 退出码 0，但缺少这些接口的产物：ca_bind_fixture__IBindRenderOwner（生成器自报的接口数见上面 [接口] 行）
+       同头的产物行为「    [绑定] 产物：（无）」—— stem 不再被算作 present；
+       其它 22 个 stem 的绑定行照常（抽查：cawindow__IWindow/IWindowSystem、IBindRow01/02/09、
+       IBindRegistry8/9、IBindFoundation、IBindRenderResource/Alt 均正常列出）；
+       CODEGEN FAILED (2)（两条 = 闸门缺失 + 下游绑定判据失败，均可区分）。
+[日志] %TEMP%\fvh\reqD-31-green.txt
+
+红绿对照（同一构造、只差闸门一行代码）：
+  改前：闸门消息 0 命中、stem 被算作 present（放行改名件）
+  改后：闸门消息点名 ca_bind_fixture__IBindRenderOwner、stem 算 missing
+
+==================================================================
+四、还原（临时改动全部清掉）
+==================================================================
+
+1. build.py 的临时跳过块删除（还原为无条件的 `proc = subprocess.run(...)` 与 `if proc.returncode != 0:`，
+   共享类型循环恢复 `(proc.stderr or "")`）；
+2. `ca_bind_fixture__IBindRenderOwner.Bindings.cs.redbak` 改回 `.Bindings.cs`（13,147 字节）；
+3. `python -m py_compile build.py` 退出码 0；
+4. 残留检查：build.py 里「TEMP（failure-visibility-hygiene 3.1」与「proc = None」命中 0；
+   产物目录 `*.redbak` 命中 0；
+5. `git diff --stat -- build.py` = 1 file changed, 11 insertions(+), 1 deletion(-)（只留修复本身）。
+⇒ 还原后的全绿构建读数在 evidence/6.2-全量回归.txt（最终构建 BUILD SUCCESSFUL、闸门不报缺失）。
