@@ -32,21 +32,23 @@ namespace graphics_backend
 		const char* pathName,
 		ShaderCompilerSlang::ShaderReflectionData const& shaderReflectionData);
 
-	// Task 4.1: Changed base class from VulkanSubobjectBase to ResourceImporterFree
-	class ShaderImporter_Vulkan : public ::resource_management::ResourceImporterFree
+	// 目录级导入器（v3 拉取式，resource-importer-refactor）：扫 .slang → 编译 → 交出一条产出
+	// （`VulkanShaderLibrary.shLib`）。**只产对象、不注册**：注册 / 替换 / 落盘在
+	// `ResourceImportingSystem::ScanSourceDirectory` 里做。
+	class ShaderImporter_Vulkan : public ::resource_management::ResourceImporter
 	{
 	public:
 		ShaderImporter_Vulkan() = default;
 		~ShaderImporter_Vulkan() = default;
 
-		// Task 4.2: GetTags method returning "Vulkan;Slang"
 		virtual castl::string GetTags() const override { return "Vulkan;Slang"; }
 
-		// Task 4.3: ImportResource method (main entry point following D3D12 pattern)
-		virtual void ImportResource(
-			::resource_management::ResourceManagingSystem* resourceManager,
-			cafs::path const& sourcePath,
-			cafs::path const& destPath) override;
+		// 空 = 跟随 ScanSourceDirectory 传入的根（回退目录另存 m_SourceDirectory，见下）。
+		virtual castl::string GetSourceDirectory() const override { return castl::string(); }
+		virtual castl::string GetDestDirectory() const override { return castl::string(); }
+
+		// 扫源 → 编译 → 单条产出；没有可编的源时返回空迭代器（HasNext 恒假）。
+		virtual ::resource_management::ResourceImporterProductions* Produce() override;
 
 		// Set compiler manager (following D3D12ShaderResourceImporter pattern)
 		void SetCompiler(ShaderCompilerSlang::IShaderCompilerManager* compiler);
@@ -62,9 +64,8 @@ namespace graphics_backend
 		ShaderCompilerSlang::IShaderCompilerManager* m_ShaderCompilerManager = nullptr;
 
 		// Fallback source directory for .slang scanning (Decision 2+3)
-		// When ScanSourceDirectory passes a non-existent path (e.g., due to CWD-depth bug),
-		// ImportResource falls back to this directory if configured.
-		// Empty = no fallback; importer depends entirely on ScanSourceDirectory's sourcePath.
+		// 管线传入的源根（`GetScanSourceDirectory()`）不存在时，Produce 回退到这个目录（如果配了）。
+		// 空 = 没有回退；导入器完全依赖 ScanSourceDirectory 传入的根。
 		cafs::path m_SourceDirectory;
 	};
 }

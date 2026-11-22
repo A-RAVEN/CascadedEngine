@@ -9,8 +9,8 @@ namespace resource_management
 	{
 	public:
 		virtual void SetResourceManager(ResourceManagingSystem* resourceManagingSystem) = 0;
-		virtual void AddImporter(ResourceImporterBase* importer) = 0;
-		virtual void AddImporter(ResourceImporterFree* importer) = 0;
+		// 唯一导入器形态：目录级、拉取产出、不注册（旧的 1:1 后缀导入器抽象已退役）。
+		virtual void AddImporter(ResourceImporter* importer) = 0;
 		virtual void ScanSourceDirectory(const castl::string& sourceDirectory) = 0;
 	};
 }

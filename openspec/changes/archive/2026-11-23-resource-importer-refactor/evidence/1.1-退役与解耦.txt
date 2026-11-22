@@ -1,0 +1,48 @@
+# 1.1 / 1.2 退役与解耦实测（C++ 源码范围）
+
+采集时间：2026-11-22 23:40 左右（执行者只读核对；命令口径与 `Test/CoreTests/ResourceImporterTest.cpp` 一致）。
+命令：对下列范围目录递归取 `.h/.hpp/.cpp/.inl`，逐文件数子串命中（不剥注释 —— 口径就是"源码文本零命中"）。
+
+## 范围（design D1 逐字口径）
+
+- `GeneralResources/header`
+- `GeneralResources/private`
+- `VulkanRenderBackendNew/private/ShaderLibrary`
+- `D3D12RenderBackend/private/ShaderLibrary`
+
+实测：范围内共 **20** 个 C++ 源文件。
+
+## 退役符号（每个都必须 0）
+
+`ResourceImporterBase` / `ResourceImporterFree` / `GetSourceFilePostfix` / `GetDestFilePostfix` /
+`m_PostfixToImporterIndex` / `m_Importers` / `m_ReservedSpace` / `m_ImportingResources` /
+`m_GeneralImporters` / `ImportResource(`
+
+实测命中：**0**。
+
+（模板判据在 CoreTests 里另按折行感知判：`template` 与 `class ResourceImporter` 之间只隔空白也算命中；
+当前 0 命中 —— 新接口是普通类，不是模板。）
+
+## 解耦（导入器代码不许写注册表）
+
+范围：四个着色器导入器文件（`ShaderImporter_Vulkan.h/.cpp`、`ShaderImporter_D12.h/.cpp`）。
+五个入口：`RegisterResource` / `ReleaseResource` / `CreateResource` / `GetOrLoadResource` / `GetOrNewResource`。
+
+实测命中：**0**。
+
+## 说明：为什么注释里也不能出现这些名字
+
+第一次采集时有两处命中，都在注释里，已改掉（判据是"源码文本零命中"，注释同样算命中）：
+
+1. `GeneralResources/header/CAResource/IResourceFactory.h` 的注释逐字写着两个后缀方法名
+   （`GetSourceFilePostfix` / `GetDestFilePostfix`）→ 改成"旧 1:1 导入器那套源后缀 / 目标后缀"。
+2. 两个着色器导入器的新注释里写着旧建库模板名 → 改成"不再走资源系统的旧建库模板"。
+
+改后重采：退役符号 0、解耦入口 0（上面两条读数就是改后读数）。
+
+## 生成期判据（待构建读数，主循环代跑）
+
+`ResourceImporter.h` 里两个反向接口（`ResourceImporter` / `ResourceImporterProductions`）全落在生成器
+现有四种形状里（bool 返回 / string 返回无参 / 返回另一个反向接口的裸指针），预期
+`--emit-binding` 输出 `拒绝 0 条`。实测读数落 `openspec/changes/resource-importer-refactor/evidence/`
+的构建日志（主循环补）。

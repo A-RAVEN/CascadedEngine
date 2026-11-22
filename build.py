@@ -1168,6 +1168,11 @@ CODEGEN_BINDINGS = [
      ["resource_management__IResourceFactory"]),
     ("GeneralResources/header/CAResource/IResource.h", "原生 IResource",
      ["resource_management__IResource"]),
+    # resource-importer-refactor 3.1（design D6）：导入器**双反向**接口（C# 实现 C++），一个头里两个
+    # 接口，一次 `--emit-binding` 出两套产物。形状全落在现有四种里（标量返 / string 返无参 /
+    # 返回另一个反向接口的裸指针），所以生成器一行没改。
+    ("GeneralResources/header/CAResource/ResourceImporter.h", "原生 ResourceImporter",
+     ["resource_management__ResourceImporter", "resource_management__ResourceImporterProductions"]),
 ]
 
 
@@ -1205,6 +1210,10 @@ CODEGEN_REGISTRIES = [
         # 顺序 = 发号顺序：IResourceFactory 先发 9，IResource 后发 10。
         ("GeneralResources/header/CAResource/IResourceFactory.h", "reverse-resource-factory"),
         ("GeneralResources/header/CAResource/IResource.h", "reverse-resource"),
+        # resource-importer-refactor 3.2（design D6）：导入器双反向接口进宿主登记表 —— C# 侧经
+        # get_interface_api 取得到它们的反向函数表（编号由 --update-ids 发；既有序号不动）。
+        # 两个接口在同一个头里，一份分片写两行。
+        ("GeneralResources/header/CAResource/ResourceImporter.h", "reverse-resource-importer"),
     ]),
     # 夹具登记表（只做编号 / 拒绝 / 确定性与编号对账）：夹具专用号段 8/9。
     ("fixture", "fixture", [

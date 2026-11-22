@@ -1,0 +1,66 @@
+# 4.2 重导入后“旧句柄保活读数”为什么不能当判据（实测 1 / 0 的根因）
+
+## 现象（2026-11-22，两后端同时红）
+
+`TestCSharpImporter` 断言「重导入之后旧 C# 资源的保活计数不是 0（读数 1 / 0）」：
+第二轮扫描（重导入替换）之后，旧 A 资源的 `KeepAliveCount(旧句柄)` = **1**、旧 B = **0**。
+
+## 机制（生成产物逐字）
+
+`ReverseKeepAliveCount` / `noteKeepAlive` 的键是**句柄里的槽位下标**，代际号不参与：
+
+```cpp
+// resource_management__IResource.Bindings.cpp
+static void resource_management__IResource_noteKeepAlive(uint64_t handle, std::shared_ptr<cascaded_reverse::KeepAlive> state)
+{
+    const uint64_t index = handle & ((1ull << ..._HANDLE_INDEX_BITS) - 1ull);
+    ...
+    resource_management__IResource_keepAlives[index - 1u] = std::move(state);
+}
+extern "C" uint64_t ...__ReverseKeepAliveCount(uint64_t handle)
+{
+    const uint64_t index = handle & (...);            // 只看下标，**不比对代际**
+    ... return state->count.load();
+}
+```
+
+槽位会被后来的代理复用（`claimSlotLocked` 取**第一个空槽**）：
+
+```cpp
+static uint64_t resource_management__IResource_claimSlotLocked()
+{
+    uint64_t index = 1u;
+    while (...) { if (resource_management__IResource_handles[index - 1u].kind == 0u) { break; } ++index; }
+    ...
+}
+```
+
+## 时间线（管线是“先取新、再放旧”，所以旧槽位在取新之后才空出来）
+
+```
+扫描①：importer=槽1，productions=槽2，A1=槽3，B1=槽4；扫描结束 productions 析构（槽2 空）
+扫描②：productions=槽2（复用）
+        NextResource(A2) → CreateProxy → 槽 3/4 还被 A1/B1 占着 ⇒ A2=槽5
+        ReleaseResource(A) → A1 析构 ⇒ 槽3 空，keepAlives[2]=0
+        NextResource(B2) → CreateProxy → 复用槽3 ⇒ B2=槽3，keepAlives[2]=1（覆盖了 A1 的 0）
+        ReleaseResource(B) → B1 析构 ⇒ 槽4 空，keepAlives[3]=0
+读数：KeepAliveCount(旧 A 句柄，槽3) = 1（其实是 B2 的状态）；KeepAliveCount(旧 B 句柄，槽4) = 0
+```
+
+⇒ 读数 1 不是“旧 A 没被释放”，而是“旧 A 的槽位被新代理复用了”。旧 B 读到 0 说明旧 B 已被释放
+（否则它也该是 1）—— 这一条反证了 `try_erase`、`delete ptr → 虚析构 → releaseUser → GCHandle.Free`
+链条本身工作正常。
+
+## 判据改成什么（改后）
+
+- 旧代理是否真被替换释放：**两个旧借用句柄 `ReleaseImpl(旧句柄) == 1001`**（按代际判失效；槽位复用也成立）。
+  若旧代理还活着，同一句柄的 `ReleaseImpl` 会把它真退役并返回 0 ⇒ 断言照样能红。
+- 保活 1→0 的正当观测点：末尾 `ReleaseResource(pathA)` 之后立刻读 `round2HandleA` 的保活 == 0
+  （那一刻到读数之间不新建任何代理，槽位不会被复用），再补重复释放 1001。
+- C# 探针不再写 `round1_keepalive_*_after_replacement`（并在注释里写明原因）。
+
+## 落点
+
+- `Test/GPUBackendTester/Main.cpp`：`E_IMPORTER_OLD_RELEASE`（两个旧句柄都要 1001）。
+- `Scripting/Managed/ResourceImporterProbe.cs`：`after-second-scan` 只写 `round2_is_new_a/b` 与第二轮读数。
+- `docs/testing.md` 的 `TestCSharpImporter` 说明同步成“旧句柄按代际失效”，并写明不用旧句柄保活读数。

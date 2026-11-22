@@ -1,0 +1,23 @@
+任务 0.2 / 5.1 / 5.2：封存旧锚 + 全量回归 + 基线换锚（主循环实测）
+记录时间：2026-11-22（Debug 配置，x64-debug）
+
+== 0.2 封存旧锚 ==
+旧锚 = 上一 change（2026-11-22-csharp-reverse-interface-binding）新锚.txt（213 条），整份封存 evidence/旧锚封存件.txt。
+
+== 5.1 全量回归 ==
+- 构建 python build.py --config Debug BUILD SUCCESSFUL。
+- CoreTests exit 0 PASSED 26（含 Resource importer retirement/decoupling test PASSED）。
+- 两后端全量 21/21（FV/FD_EXIT=0；report 存 5.1-全量-vulkan.json / 5.1-全量-d3d12.json）。
+- 既有 20 对拍：新 21 去 TestCSharpImporter=20，与上一 change 基线（8.2-全量-*.json 各 20）逐条 name+status 差异=0。着色器导入器默认激活重构后行为保持。
+- TestCSharpImporter 两后端 pass（字节对拍与改前逐字节同：Vulkan 7a3d7d0c…7c81 / D3D12 5d9551ca…93f3；对照回读 20261122；保活 1→0+1001+1013；非1:1 同一实例；重导入替换）。
+- verify_readme 0 不符（23 命令）；check_csharp_host_readme 0 问题。
+
+== 5.2 基线换锚 ==
+- 旧锚（213）对拍当前产物：缺失 0 / 不一致 3 / 多余 5。
+  不一致 3 = BindingRegistry.Bindings.cpp/.h + EngineApi.Bindings.cs（宿主登记表新号 11=ResourceImporter/12=ResourceImporterProductions，合法变化）。
+  多余 5 = ResourceImporter.Bindings.cpp/.cs + ResourceImporterProductions.Bindings.cpp/.cs + reverse-resource-importer.registry.part（导入器反向产物）。
+  既有正向产物（8 接口 .Bindings.cpp/.cs 等）不在差异里 = 逐字节回到旧锚。
+- 新锚 evidence/新锚.txt（218 条 = 213+5），自洽对账 缺失0/不一致0/多余0。
+- 差异逐文件指认完毕，无指认不了的差异。
+
+结论：0.2/5.1/5.2 判据满足。

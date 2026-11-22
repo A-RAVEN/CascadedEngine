@@ -1,0 +1,121 @@
+# 3.1 / 3.2 反向绑定：生成了什么（只读核对生成产物 + 编号锁）
+
+采集：2026-11-22 23:35 那次 Debug 构建的生成步骤（产物落 `out/build/x64-debug/codegen/bindings/`）。
+
+## 产物（四个文件，两套两件套）
+
+| 文件 | 字节 | 生成时间 |
+|---|---|---|
+| `resource_management__ResourceImporter.Bindings.cpp` | 23703 | 2026-11-22 23:35:08 |
+| `resource_management__ResourceImporter.Bindings.cs` | 16261 | 2026-11-22 23:35:08 |
+| `resource_management__ResourceImporterProductions.Bindings.cpp` | 21269 | 2026-11-22 23:35:08 |
+| `resource_management__ResourceImporterProductions.Bindings.cs` | 12849 | 2026-11-22 23:35:08 |
+
+## 公开抽象基类（逐字，C# 侧）
+
+`resource_management__ResourceImporter.Bindings.cs`：
+
+```csharp
+public abstract class ResourceImporterBase
+{
+    public abstract string GetTags();                    // 两段式 Len/Copy
+    public abstract string GetSourceDirectory();         // 两段式 Len/Copy
+    public abstract string GetDestDirectory();           // 两段式 Len/Copy
+    public abstract ResourceImporterProductionsBase Produce();   // 返回另一个反向接口裸指针
+}
+```
+
+`resource_management__ResourceImporterProductions.Bindings.cs`：
+
+```csharp
+public abstract class ResourceImporterProductionsBase
+{
+    public abstract bool HasNext();
+    public abstract string NextPath();                   // 两段式 Len/Copy
+    public abstract ResourceBase NextResource();         // 返回另一个反向接口裸指针
+}
+```
+
+⇒ 与 design D2/D6 的形状逐条一致；四种形状清单没扩（标量返回 / string 返回无参 / 返回反向接口裸指针）。
+
+## 所有权：新对象走 `CreateProxy`（不是 `ResolveImpl`）
+
+`…ResourceImporter.Bindings.cs` 的托管桥（`OnProduce`）：
+
+```csharp
+ResourceImporterProductionsBase result = target.Produce();
+…
+IntPtr native = global::Scripting.Generated.Bindings.ResourceManagement.ResourceImporterProductionsBindings.CreateProxy(result, out resourceHandle);
+global::…ResourceImporterProductionsBindings.SetBorrowHandle(result, resourceHandle);
+return (void*)native;
+```
+
+`…ResourceImporterProductions.Bindings.cs` 的 `OnNextResource` 同构：
+
+```csharp
+ResourceBase result = target.NextResource();
+…
+IntPtr native = global::Scripting.Generated.Bindings.ResourceManagement.IResourceBindings.CreateProxy(result, out resourceHandle);
+global::…IResourceBindings.SetBorrowHandle(result, resourceHandle);
+return (void*)native;
+```
+
+⇒ “新 C# 资源还没有代理/借用句柄，必须 `CreateProxy`”这条是**生成器自己**做的（design D3 的修正由生成产物直接成立）。
+
+## C# 桥暴露给探针的入口（逐个核过存在）
+
+- `ResourceImporterBindings.Create(ResourceImporterBase) → ulong`（第 90 行）、`KeepAliveCount(ulong)`（122）、`GetBorrowHandle(...)`（55）
+- `ResourceImporterProductionsBindings.GetBorrowHandle(...)`（52）、`KeepAliveCount(ulong)`（119）
+
+## 登记表与编号（3.2）
+
+`Tools/CodeGen/interface-ids.lock` 的 host 段（逐字）：
+
+```
+11	ResourceImporter	resource_management::ResourceImporter	GeneralResources/header/CAResource/ResourceImporter.h
+12	ResourceImporterProductions	resource_management::ResourceImporterProductions	GeneralResources/header/CAResource/ResourceImporter.h
+# high water 12
+```
+
+生成的 C++ 常量（`BindingRegistry.Bindings.h`）：
+
+```
+inline constexpr uint32_t kBindingInterfaceIdresource_management__ResourceImporter = 11u;
+inline constexpr uint32_t kBindingInterfaceIdresource_management__ResourceImporterProductions = 12u;
+```
+
+生成的 C++ 登记表路由（`EngineApi.Bindings.cs`）：两个 `InterfaceTable` 行各自在案（编号 11 / 12，绑定委托指向
+`ResourceImporterBindings.Bind` / `ResourceImporterProductionsBindings.Bind`）。宿主 `kBindingPolicies` 已按这两行加
+（`requiresInstance = false`，目标类型表）。
+
+## check_reverse_base：绿态 + 塞 `void*` 红态（2026-11-22 23:52 实测）
+
+产物目录有 **5** 个反向 `.Bindings.cs`：`IResource` / `IResourceFactory` / `ResourceImporter` /
+`ResourceImporterProductions` + 夹具 `IBindReverseShape`。
+
+绿态（执行者代跑，Python 检查，不碰构建）：
+
+```
+python Tools/CodeGen/check_bindings.py --product-dir out/build/x64-debug/codegen/bindings --only reverse_base
+扫描命中反向基类文件 5 个
+reverse_base 问题 0 处
+[exit 0]
+```
+
+红态（把生成的 `resource_management__ResourceImporterProductions.Bindings.cs` 临时改一处：在公开抽象基类里
+插一行 `public void* Bogus();`，跑完从 `%TEMP%` 的备份恢复、哈希逐字节相同）：
+
+```
+扫描命中反向基类文件 5 个
+reverse_base 问题 1 处
+  ResourceImporterProductions（反向基类）：public 类型 `ResourceImporterProductionsBase` 里出现了 `void*`
+[exit 1]
+```
+
+恢复后重跑：`5 个 / 0 处 / exit 0`，备份哈希与恢复件一致（`restored hash match = True`）。
+⇒ “命中含两个新基类且 ≥5、塞 `void*` 必红”两条都成立。
+
+## 3.3（寿命）与 4.2（端到端）的运行时读数
+
+待主循环跑 `TestCSharpImporter`（两后端）后补：`ReverseKeepAliveCount` 1→0、重复释放 1001、非 1:1 两条、
+重导入替换、源不存在不早退、C++ 对照回读。

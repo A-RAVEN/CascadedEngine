@@ -1,5 +1,6 @@
 #include <ShaderLibrary/ShaderImporter_Vulkan.h>
 #include <CAResource/ResourceManagingSystem.h>
+#include <CAResource/SingleResourceProductions.h>
 #include <CASTL/CAUnorderedSet.h>
 #include <CASTL/CADeque.h>
 #include <iostream>   // 旧头删掉之后要自己带：本文件用了 `castl::cout`
@@ -297,50 +298,35 @@ namespace graphics_backend
 		pCompiler->EndCompileTask();
 	}
 
-	// Task 4.3-4.10: ImportResource implementation following D3D12 pattern
-	void ShaderImporter_Vulkan::ImportResource(
-		resource_management::ResourceManagingSystem* resourceManager,
-		cafs::path const& sourcePath,
-		cafs::path const& destPath)
+	// 目录级导入（v3 拉取式）：扫源 → 编译 → 一条产出（VulkanShaderLibrary.shLib）。
+	// 只产对象、不注册：管线负责包 shared_ptr / 替换 / SerializeAll。
+	resource_management::ResourceImporterProductions* ShaderImporter_Vulkan::Produce()
 	{
 		// NOTE: ShaderLibrary internal maps (m_ShaderPrograms, m_ShaderFiles, etc.) are NOT thread-safe.
-		// ImportResource MUST only be called during single-threaded initialization (before rendering begins).
+		// Produce MUST only be called during single-threaded initialization (before rendering begins).
 		// Any future hot-reload or background-compilation feature must add synchronization.
 
-		// Decision 2: Resolve the effective source directory with fallback
-		cafs::path effectiveSourcePath = sourcePath;
-		if (!cafs::exists(sourcePath))
+		// 有效源根：管线写入的本次扫描根优先；它不存在时用 SetSourceDirectory 配的回退目录。
+		cafs::path effectiveSourcePath(GetScanSourceDirectory(), cafs::path::format::generic_format);
+		if (!cafs::exists(effectiveSourcePath))
 		{
 			if (!m_SourceDirectory.empty() && cafs::exists(m_SourceDirectory))
 			{
 				CA_LOG("ShaderImporter_Vulkan: Source path does not exist: {}. Using fallback: {}",
-					sourcePath.generic_string(), m_SourceDirectory.generic_string());
+					effectiveSourcePath.generic_string(), m_SourceDirectory.generic_string());
 				effectiveSourcePath = m_SourceDirectory;
-			}
-			else if (m_SourceDirectory.empty())
-			{
-				CA_LOG_WARN("ShaderImporter_Vulkan: Source path does not exist: {} (no fallback configured, importer depends entirely on ScanSourceDirectory path)",
-					sourcePath.generic_string());
-				return;
 			}
 			else
 			{
-				CA_LOG_WARN("ShaderImporter_Vulkan: Both source path and fallback do not exist. sourcePath={}, fallback={}",
-					sourcePath.generic_string(), m_SourceDirectory.generic_string());
-				return;
+				CA_LOG_WARN("ShaderImporter_Vulkan: 没有可扫的源目录（扫描根 {}，回退 {}），本轮无产出",
+					effectiveSourcePath.generic_string(), m_SourceDirectory.generic_string());
+				return new resource_management::SingleResourceProductions(castl::string(), nullptr);
 			}
 		}
-		else if (!m_SourceDirectory.empty() && sourcePath != m_SourceDirectory)
-		{
-			CA_LOG("ShaderImporter_Vulkan: Using sourcePath={} (fallback={} also configured but differs)",
-				sourcePath.generic_string(), m_SourceDirectory.generic_string());
-		}
 
-		// Task 4.6: Get or create ShaderLibrary resource
-		cafs::path shaderLibraryPath = "VulkanShaderLibrary.shLib";
-		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath);
-
-		// Task 4.13 [P]: Clear all collections to avoid accumulating old data on re-import
+		// 新建库：导入器只产对象，注册交给管线（不再走资源系统的旧建库模板 —— 那会把旧库静默留下）。
+		auto* shaderLibrary = new ShaderLibrary();
+		// 每次导入都从干净的库开始（新对象本来就是空的；保留显式清理，语义与旧行为一致）。
 		shaderLibrary->m_ShaderPrograms.clear();
 		shaderLibrary->m_ShaderFiles.clear();
 		shaderLibrary->m_ShaderStructs.clear();
@@ -466,5 +452,8 @@ namespace graphics_backend
 			shaderLibrary->m_ShaderPrograms.size(),
 			shaderLibrary->m_ShaderStructs.size(),
 			shaderLibrary->m_ShaderRootStructs.size());
+
+		// 单条产出：注册键 / 落盘路径与旧行为逐字相同（消费者按同一个键取库）。
+		return new resource_management::SingleResourceProductions("VulkanShaderLibrary.shLib", shaderLibrary);
 	}
 }

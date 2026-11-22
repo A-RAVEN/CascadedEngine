@@ -1,0 +1,61 @@
+# 4.2 C++ 对照资源读回 0 的根因：IOBatch 的读是排队的
+
+## 现象（2026-11-22 23:48 的 Debug 运行，两后端同时红）
+
+`TestCSharpImporter` 的 ④ 段：「C++ 对照资源读回来的值是 0，期望 20261122」。
+（此前的字节对拍、两次扫描、非 1:1、重导入替换、旧句柄 1001 全过。）
+
+## 先证“写”是对的（读盘实测）
+
+```
+CAAssets\CSharpProbe\Contrast.res   4 字节   2026-11-22 23:48:16
+字节 = 02 29 35 01  ⇒ 小端 int32 = 0x01352902 = 20261122
+```
+
+⇒ `Serialize` → `WBatch::Write` → `SubmitAndWait` → `SerializeAll` 的写路径没有问题，盘上就是 20261122。
+
+## 根因（`IOManager_FS/IOManager.cpp` 逐字）
+
+```cpp
+bool IOBatchImpl::Read(uint64_t readSize, void* destination)
+{
+    if (m_Batchs.GetCurrentPos() + readSize > m_FileSize) return false;
+    m_Batchs.AppendRange(readSize, destination);   // 只把**目的地指针**排进批
+    return true;
+}
+void IOBatchImpl::SubmitAndWait()
+{
+    ... 开流、按块读文件、把字节写进排队的 destination（在 scheduler 任务里）...
+}
+```
+
+读是**异步**的：`Read` 只登记“读到哪里去”，真正的字节在 `SubmitAndWait` 里才落到目的地。
+生成代码（`CodeGenSerialization.h` 的 `reader::read_raw` → `IOBatch::Read`）之所以没问题，是因为它
+**直接把字节读进资源成员**（目的地就是成员的地址），提交之后再没人从成员里搬一次。
+
+我原来的 `ContrastResource::Deserialize` 是：
+
+```cpp
+int32_t read = 0;
+if (!reader->Read(sizeof(read), &read)) { throw ...; }
+Value = read;              // ← 错：此时批还没提交，read 还是初始 0
+reader->SubmitAndWait();   // ← 字节在这里才写进 read
+```
+
+⇒ 读回 0。这是**测试桩的写法错**，不是管线 / 序列化契约的问题。
+
+## 修法（`Main.cpp` 的 `ContrastResource::Deserialize`）
+
+改成读进**成员**、提交之后再判失败，与生成代码同构：
+
+```cpp
+Value = 0;
+if (!reader->Read(sizeof(Value), &Value)) { Value = 0; throw ca_io::io_error(...); }
+reader->SubmitAndWait();   // 字节在提交时写进 Value
+```
+
+## 备注（同类坑的判据边界）
+
+- 这是 C++ 侧读路径的坑；C# 资源的读回本来就被 `CA_BIND_SKIP` 排除（代理抛 1013），不涉及。
+- `TResource<T>::Deserialize` 走的也是“直接读进成员 + 末尾 SubmitAndWait”，所以它不受影响 —— 这也是
+  “加载回读只对 C++ 对照资源（`TResource` 走 `Deserialize`）”那条侧别结论的实测支撑。

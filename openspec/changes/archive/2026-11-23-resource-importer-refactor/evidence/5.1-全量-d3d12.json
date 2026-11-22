@@ -1,0 +1,23 @@
+[
+  {"name":"TestSimpleTriangle","status":"pass","duration_ms":99,"exit_code":0},
+  {"name":"TestTriangleWithConstantColor","status":"pass","duration_ms":87,"exit_code":0},
+  {"name":"TestTriangleWithStructuredBufferColor","status":"pass","duration_ms":78,"exit_code":0},
+  {"name":"TestTriangleWithImageBuffer","status":"pass","duration_ms":121,"exit_code":0},
+  {"name":"TestDoublePass","status":"pass","duration_ms":106,"exit_code":0},
+  {"name":"TestComputeBuffer","status":"pass","duration_ms":109,"exit_code":0},
+  {"name":"TestReadback","status":"pass","duration_ms":84,"exit_code":0},
+  {"name":"TestIMGUI","status":"pass","duration_ms":261,"exit_code":0},
+  {"name":"TestScriptHost","status":"pass","duration_ms":33,"exit_code":0},
+  {"name":"TestCSharpWindow","status":"pass","duration_ms":158,"exit_code":0},
+  {"name":"TestCSharpTriangle","status":"pass","duration_ms":155,"exit_code":0},
+  {"name":"TestGPUTiming","status":"pass","duration_ms":45,"exit_code":0},
+  {"name":"TestCSharpConstantColor","status":"pass","duration_ms":136,"exit_code":0},
+  {"name":"TestCSharpStructuredBuffer","status":"pass","duration_ms":200,"exit_code":0},
+  {"name":"TestCSharpTextureSampling","status":"pass","duration_ms":128,"exit_code":0},
+  {"name":"TestEditorWindowPanel","status":"pass","duration_ms":4504,"exit_code":0},
+  {"name":"TestIOErrorChannel","status":"pass","duration_ms":9,"exit_code":0},
+  {"name":"TestCSharpScene","status":"pass","duration_ms":286,"exit_code":0},
+  {"name":"TestCSharpResourceFactory","status":"pass","duration_ms":78,"exit_code":0},
+  {"name":"TestCSharpImporter","status":"pass","duration_ms":435,"exit_code":0},
+  {"name":"TestCSharpWindowCallbacks","status":"pass","duration_ms":12,"exit_code":0}
+]

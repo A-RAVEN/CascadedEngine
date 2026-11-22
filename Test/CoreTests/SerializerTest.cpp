@@ -64,6 +64,9 @@ bool RunFriendLikeTest();
 bool RunResourceBatchTest();
 // D3D12 后端 `graphics_backend::ShaderLibrary` 的新老字节对拍（定义在 ShaderLibraryBytesTest.cpp）。
 bool RunShaderLibraryBytesTest();
+// resource-importer-refactor 4.1：旧 1:1 导入器退役 / 导入器不注册 / 拉取式接口形状
+// （定义在 ResourceImporterTest.cpp）。
+bool RunResourceImporterTest();
 bool RunBindingsGetApiTest();
 bool RunBindingsHandleTest();
 bool RunBindingsWeakHandleTest();
@@ -293,6 +296,18 @@ int main(int argc, char* argv[])
 	{
 		std::puts("CodeGen ShaderLibrary (D3D12) bytes test FAILED");
 		allOk = false;
+	}
+
+	// resource-importer-refactor 4.1：旧 1:1 导入器退役 / 导入器不注册 / 拉取式接口形状
+	// （源码范围零命中 + 编译期签名 + 迭代器最小行为）。
+	if (!RunResourceImporterTest())
+	{
+		std::puts("Resource importer retirement/decoupling test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Resource importer retirement/decoupling test PASSED");
 	}
 
 	if (!RunFileLoaderErrorTest())

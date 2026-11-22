@@ -1,0 +1,114 @@
+# resource-importer-refactor 0.1 开工清点（只读核对）
+# 执行：apply 子 agent；日期 2026-11-22；只读阅读与记录，未改实现代码。
+# 命令口径：read / grep / Select-String 逐处核到行号；行号仅作当次定位，引用一律附逐字引文。
+
+## 一、旧 Base / Free / 模板现状
+
+GeneralResources/header/CAResource/ResourceImporter.h
+- 第 10 行逐字：`class ResourceImporterBase`
+  - 五个虚方法：GetResourceType（有默认体）、GetSourceFilePostfix（纯虚）、GetDestFilePostfix（纯虚）、
+    GetTags（纯虚）、GetIResourceSizeInByte（有默认体）、ImportResource(ResourceManagingSystem*, string, string)（纯虚）
+- 第 21 行逐字：`class ResourceImporterFree`
+  - GetTags（纯虚）+ ImportResource(ResourceManagingSystem*, cafs::path const&, cafs::path const&)（纯虚）
+- 第 30-31 行逐字：`template<typename TRes>` / `class ResourceImporter : public ResourceImporterBase`
+  - 覆写 GetIResourceSizeInByte（sizeof(TRes)）与 GetResourceType（typeid(TRes).name()）
+
+GeneralResources/header/CAResource/ResourceImportingSystem.h
+- 第 12 行逐字：`virtual void AddImporter(ResourceImporterBase* importer) = 0;`
+- 第 13 行逐字：`virtual void AddImporter(ResourceImporterFree* importer) = 0;`
+- 第 14 行逐字：`virtual void ScanSourceDirectory(const castl::string& sourceDirectory) = 0;`
+
+GeneralResources/private/ResourceImportingSystem.cpp
+- 第 33-41 行：Base 重载，按 `importer->GetSourceFilePostfix()` 去重后写 m_PostfixToImporterIndex 与 m_Importers
+- 第 43-48 行：Free 重载，空指针早退后 push 到 m_GeneralImporters
+- 五个待删成员（第 124-128 行逐字）：
+  `m_PostfixToImporterIndex` / `m_GeneralImporters` / `m_Importers` / `m_ReservedSpace` / `m_ImportingResources`
+  （其中 m_GeneralImporters 是自由导入器列表，v2 要保留功能、随 Free→ResourceImporter 改类型）
+
+## 二、ScanSourceDirectory 双循环 + 早退分支
+
+ResourceImportingSystem.cpp 内 `ScanSourceDirectory`（第 50-122 行）结构：
+- 第 52-53 行：`path rootPath(sourceDirectory, ...)`、`targetRootPath = m_ResourceManagingSystem->GetResourceRootPath()`
+- 第 55-58 行：Free 导入器循环（先跑，传入 (manager, rootPath, targetRootPath)）
+- 第 60-63 行：早退 `if(!exists(rootPath)) { return; }` —— 在 SerializeAll 之前
+- 第 64-70 行：m_ReservedSpace / m_ImportingResources 按导入器数量重置
+- 第 71-111 行：后缀扫描循环（recursive_directory_iterator；按 m_PostfixToImporterIndex 找导入器；
+  用 last_write_time 判 needImport；命中则记 (源路径, 目标相对路径)）
+- 第 112-120 行：Base 导入器循环（逐条 ImportResource）
+- 第 121 行：`m_ResourceManagingSystem->SerializeAll();`（唯一一处；在早退分支之后）
+
+⇒ v2 D4 的修点已核到：① 早退会跳过 SerializeAll；② Free 路径本身在早退之前，但早退后不再落盘。
+
+## 三、两个着色器导入器：GetOrNewResource 与清集合差异
+
+Vulkan：VulkanRenderBackendNew/private/ShaderLibrary/ShaderImporter_Vulkan.cpp
+- 第 340 行逐字：`cafs::path shaderLibraryPath = "VulkanShaderLibrary.shLib";`
+- 第 341 行逐字：`auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath);`
+- 第 344-347 行逐字（清 4 集合）：
+  `shaderLibrary->m_ShaderPrograms.clear();`
+  `shaderLibrary->m_ShaderFiles.clear();`
+  `shaderLibrary->m_ShaderStructs.clear();`
+  `shaderLibrary->m_ShaderRootStructs.clear();`
+- 类声明：ShaderImporter_Vulkan.h 第 36 行逐字 `class ShaderImporter_Vulkan : public ::resource_management::ResourceImporterFree`
+
+D3D12：D3D12RenderBackend/private/ShaderLibrary/ShaderImporter_D12.cpp
+- 第 353 行逐字：`cafs::path shaderLibraryPath = "D3D12ShaderLibrary.shLib";`
+- 第 355 行逐字：`auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath);`
+- 第 356 行逐字（清 1 集合）：
+  `shaderLibrary->m_ShaderPrograms.clear();`
+- 类声明：ShaderImporter_D12.h 第 11 行逐字 `class D3D12ShaderResourceImporter : public ResourceImporterFree`
+  （文件名是 `_D12`，类名是 `D3D12ShaderResourceImporter` —— 与 design D5 的命名提醒一致）
+
+注册点（导入器默认激活的三处）：
+- VulkanRenderBackendNew/private/RenderBackend_Vulkan.cpp 第 182 行逐字：`p_ResourceImporter->AddImporter(&m_ShaderImporter);`
+- D3D12RenderBackend/private/RenderBackend_D3D12.cpp 第 125 行逐字：`p_ResourceImporter->AddImporter(&m_ShaderResourceImporter);`
+- Test/GPUBackendTester/Main.cpp 第 7787 行逐字：`ctx.pImportingSystem->ScanSourceDirectory(ctx.resourcePath);`
+
+## 四、上一 change（csharp-reverse-interface-binding）的复用面
+
+- CreateResource：ResourceImportingSystem.cpp 第 314-350 行；单一所有者包法第 347 行逐字：
+  `castl::shared_ptr<IResource> resource(created, [](IResource* releasedObj) { delete releasedObj; });`
+  随后第 348 行 `RegisterResource(path, resource);`
+- RegisterResource：第 287-299 行，实现是 `m_PathToResource.get_or_create(key, ...)`
+  ⇒ 同路径再注册静默留旧值（v2 D4 的重导入替换改的就是这里的行为，不改 RegisterResource 本身）
+- ReleaseResource：第 310-313 行逐字 `return m_PathToResource.try_erase(cacore::PathHash(path));`
+- 反向产物（构建目录，勿手改）：out/build/x64-debug/codegen/bindings/
+  - resource_management__IResourceFactory.Bindings.cpp / .Bindings.cs
+  - resource_management__IResource.Bindings.cpp / .Bindings.cs
+  两对产物都含 `__CreateImpl` / `__CreateProxy` / `__ReleaseImpl` / `__ResolveImpl` /
+  `__ReverseKeepAliveCount` 与 `Api_v2` 函数表；C# 侧是 `ResourceFactoryBase` / `ResourceBase` 抽象基类 + internal 桥。
+- kBindingPolicies：CSharpHost/private/CSharpHost.cpp 第 51-69 行；末尾两行是上批新增的反向接口策略：
+  `{ kBindingInterfaceIdresource_management__IResourceFactory, false },`
+  `{ kBindingInterfaceIdresource_management__IResource, false },`
+
+## 五、基线
+
+- 当前锚：openspec/changes/archive/2026-11-22-csharp-reverse-interface-binding/evidence/新锚.txt
+  - 实测：文件 217 行，其中哈希行 213 条（64 位十六进制 + TAB + 文件名）
+- 既有 tester 用例 20 条：Test/GPUBackendTester/Main.cpp 第 7967-8000 行的顺序表
+  （TestSimpleTriangle … TestCSharpResourceFactory、TestCSharpWindowCallbacks 收尾，共 20 条）
+- 现状与基线对照用的产物目录：out/build/x64-debug/codegen/（本次不清空、不重建前先留读数）
+
+## 六、开工即发现的阻塞（设计与生成器能力不符，v2 D2）
+
+两条接口形状在生成器里都拿不到可用产物；逐条核到代码：
+
+1) 反向投影的参数只支持标量
+- Tools/CodeGen/CodeGenMain.cpp 第 7819-7838 行：逐参 `findReverseScalar(...)`，为空即打印拒绝
+  （第 7825-7829 行消息逐字含：`参数 %zu 的形状 ... 不在反向投影支持的形状里（只支持标量参数；其它形状要另立批并在 README 登记）`）
+- Tools/CodeGen/README.md 第 1137-1139 行逐字：`支持的方法形状只有四种（其余生成期拒绝并点名）`：
+  `void` / 标量参数与返回、`castl::string` 返回、`void Serialize(WBatch*)` 写路径、返回另一个反向接口的裸指针
+- 夹具实证：Tools/CodeGen/BindableShapes.Reverse.h 第 19-25 行只有标量参数（Add(int32_t,int32_t)、Describe()、Reset()、IsReady()）
+⇒ `ResourceImporter::Import(castl::string const&, castl::string const&, IImportOutput*)` 的第 1 个参数就会被拒。
+
+2) 正向投影没有"形参是反向接口裸指针"的映射
+- CodeGenMain.cpp 第 4029-4046 行：非标量裸指针落到兜底 `params->push_back({bare + "C const*", name})`
+  ⇒ `IResource*` 会变成 `IResourceC const*`（不存在的类型）
+- 托管表面在第 13053-13059 行对不映射的形参整条跳过（消息逐字：`[托管表面] 跳过 %s::%s —— 返回/形参里有本轮不映射的形状`）
+⇒ `IImportOutput::Add(castl::string const&, IResource*)` 生成不出可调的 C# 表面（且 C ABI 结构里会出现 `IResourceC`）。
+
+3) 结论
+- spec 的 Scenario「生成 MUST 不拒绝（rejected=0）」在现工件形状下不可能通过；
+- 要满足它只有两条路：改生成器（与任务书「不扩生成器」和 design D2「无需 CodeGen 形状扩展」冲突），
+  或改接口形状（与 spec Requirement「Import MUST 为 (string, string, IImportOutput*)」冲突）。
+- 两条路都要先改工件，故按停工条件「设计与规范冲突」上报主循环修订；在此之前不动实现代码，避免按错误形状返工。

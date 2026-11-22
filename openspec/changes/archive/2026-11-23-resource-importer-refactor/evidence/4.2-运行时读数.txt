@@ -1,0 +1,67 @@
+# 4.1 / 4.2 / 3.3 运行时读数（Debug，主循环代跑）
+
+## 绿灯（2026-11-22 晚，B5 构建）
+
+- 构建：`python build.py --config Debug` → `BUILD SUCCESSFUL`（含 `Scripting.Managed` 的 C# 编译，
+  `ResourceImporterProbe.cs` 无错）。
+- CoreTests：退出码 0，`PASSED` **26** 行，其中含 `Resource importer retirement/decoupling test PASSED`
+  （退役 / 解耦 / 拉取式接口形状三组断言）。
+- `GPUBackendTester --test TestCSharpImporter`：vulkan `pass`（502ms）、d3d12 `pass`（454ms）
+  （报告存档：`4.2-TestCSharpImporter-vulkan.json` / `-d3d12.json`）。
+- 全量：vulkan **21/21 pass**、d3d12 **21/21 pass**（报告由主循环存 `5.1-全量-*.json`；
+  两后端 `TestCSharpImporter` 在全量里也是 pass：515ms / 435ms）。
+- `verify_readme.py`：23 条命令、0 处不符（exit 0）；`check_csharp_host_readme.py`：问题 0 处（exit 0）。
+
+## 这条用例的逐段判据（通过的运行各自证明了什么）
+
+| 段 | 判据 | 失败码 |
+|---|---|---|
+| ⓪ | 导入器级字节对拍：启动扫描产出的 `<后端>ShaderLibrary.shLib` 的 SHA-256 与改动前逐字节相同（两后端） | `E_IMPORTER_SHLIB_MISSING` / `E_IMPORTER_SHLIB_BYTES` |
+| ① | C# 导入器经 `CreateImpl` 注册：强句柄非 0、保活 1、`GetTags` = `CSharp;Probe`、反向基类名 `ResourceImporterBase`、`ResolveImpl` 拿借用指针 | `E_IMPORTER_HANDLE` / `E_IMPORTER_TAGS` / `E_IMPORTER_BASE` / `E_IMPORTER_RESOLVE` / `E_IMPORTER_TABLE*` |
+| ② | 同一实例 `Produce()` 产两条（非 1:1）：`produce_count==1`、两路径 `HasResource`、`GetResource` 同一实例、两对象不同、借用句柄非 0、保活 1、写字节 `{C5,01}`/`{C5,02}`、落盘字节相同、迭代器扫描后已析构（保活 0） | `E_IMPORTER_PRODUCE_COUNT` / `E_IMPORTER_REGISTER` / `E_IMPORTER_ONE_RESOURCE` / `E_IMPORTER_BYTES_*` / `E_IMPORTER_FILE_*` / `E_IMPORTER_PRODUCTIONS_LIFETIME` |
+| ③ | 第二次扫描（传入**不存在**的源目录）：不早退（`produce_count==2`）、重导入替换（新对象 + 两个旧借用句柄按代际失效 = `ReleaseImpl` 1001）、对照资源仍注册且文件仍在 | `E_IMPORTER_PRODUCE_COUNT_2` / `E_IMPORTER_REPLACE` / `E_IMPORTER_OLD_RELEASE` / `E_IMPORTER_CONTRAST_2` / `E_IMPORTER_CONTRAST_FILE_2` |
+| ④ | C++ 对照资源真读盘回读：`ReleaseResource` → `GetOrLoadResource` → 值 = 20261122 | `E_IMPORTER_CONTRAST_LOAD` / `E_IMPORTER_CONTRAST_VALUE` |
+| ⑤ | C# 资源侧别与寿命：`SerializeAll` 写过它（计数 ≥1）、`Deserialize` 抛 1013 且不动批、`ReleaseResource` 后保活 1→0、重复释放 1001、`HasResource` 转假 | `E_IMPORTER_SERIALIZE` / `E_IMPORTER_DESERIALIZE` / `E_IMPORTER_RELEASE*` |
+
+## 红态（缺陷态先存档）
+
+迭代过程中实际撞到并修掉的两个红态（都是**这条用例自己**报出来的，读数与根因各有一份证据）：
+
+1. 「重导入之后旧 C# 资源的保活计数不是 0（读数 1 / 0）」→ 判据选错观测量（保活表按槽位下标、槽位会复用），
+   改判旧句柄代际失效。见 `4.2-旧句柄保活口径.txt`。
+2. 「C++ 对照资源读回来的值是 0，期望 20261122」→ 测试桩没按“读是排队的”写（`IOBatch::Read` 只登记目的地，
+   字节在 `SubmitAndWait` 才落地）。见 `4.2-C++对照回读.txt`。
+
+两个**产品缺陷态**的红（临时注入、跑完恢复）：
+
+- **导入器写错字段**（Vulkan `shaderInfo.path = cacore::PathHash("REDSTATE_BYTE_MUTATION")`，其余不动）⇒ ⓪
+  字节对拍红，实测：
+
+  ```
+  GPUBackendTester --backend vulkan --test TestCSharpImporter  → exit 1
+  导入器产出的 ShaderLibrary 序列化字节与改动前不一致：
+    实际 4fd16466f2ba7d5ea0f71a23280a0cfb0c53efb53639a319ca731e91b9e2174f
+    期望 7a3d7d0c5ff8ac8ba014e6a256e2babcb737c7d69105c5481e474be0d8977c81
+  ```
+
+  期望值正是改前封存的那个哈希 ⇒ 这一条不是“改期望值”，而是**产品侧字节真变了**时判据会红。
+
+- **管线去掉 `ReleaseResource`**（只留 `RegisterResource`，即 get_or_create 静默留旧）⇒ ③ 重导入替换判据红，
+  实测：
+
+  ```
+  GPUBackendTester --backend d3d12 --test TestCSharpImporter  → exit 1
+  重导入替换没有生效：消费者还拿到旧对象（get_or_create 式静默留旧）
+  ```
+
+两处改动跑完已**逐字恢复**（`RED-STATE` 标记全仓 0 命中；恢复后的两行分别是
+`shaderInfo.path = shaderPathHash;` 与 `m_ResourceManagingSystem->ReleaseResource(relativePath);`），
+随后复绿：
+
+```
+python build.py --config Debug                                → BUILD SUCCESSFUL（exit 0）
+GPUBackendTester --backend vulkan --test TestCSharpImporter  → pass（729ms，exit 0）
+GPUBackendTester --backend d3d12  --test TestCSharpImporter  → pass（474ms，exit 0）
+```
+
+⇒ 4.2 的验收两半都成立：两后端全断言过；两个产品缺陷态各自能把它弄红。

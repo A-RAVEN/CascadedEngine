@@ -45,6 +45,12 @@ INTERFACES = {
     "resource_management::IResource": ("GeneralResources/header/CAResource/IResource.h", "IResource"),
     "resource_management::IResourceFactory": (
         "GeneralResources/header/CAResource/IResourceFactory.h", "IResourceFactory"),
+    # resource-importer-refactor 3.1：导入器双反向接口（拉取式）也进审计面。两者在同一个头里；
+    # 公开方法逐条一行（含 Produce / HasNext / NextPath / NextResource）。
+    "resource_management::ResourceImporter": (
+        "GeneralResources/header/CAResource/ResourceImporter.h", "ResourceImporter"),
+    "resource_management::ResourceImporterProductions": (
+        "GeneralResources/header/CAResource/ResourceImporter.h", "ResourceImporterProductions"),
 }
 
 

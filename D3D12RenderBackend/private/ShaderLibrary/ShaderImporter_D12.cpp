@@ -1,5 +1,6 @@
 #include "ShaderImporter_D12.h"
 #include <CAResource/ResourceManagingSystem.h>
+#include <CAResource/SingleResourceProductions.h>
 #include <CASTL/CAUnorderedSet.h>
 #include <CAResource/IResource.h>
 #include "ShaderLibrary.h"
@@ -340,19 +341,21 @@ namespace graphics_backend
 		pCompiler->EndCompileTask();
 	}
 
-	void D3D12ShaderResourceImporter::ImportResource(ResourceManagingSystem* resourceManager
-		, cafs::path const& sourcePath
-		, cafs::path const& destPath)
+	// 目录级导入（v3 拉取式）：扫源 → 编译 → 一条产出（D3D12ShaderLibrary.shLib）。
+	// 只产对象、不注册：管线负责包 shared_ptr / 替换 / SerializeAll。
+	resource_management::ResourceImporterProductions* D3D12ShaderResourceImporter::Produce()
 	{
+		// 有效源根：管线传入的扫描根（D3D12 没有额外回退目录）。
+		cafs::path sourcePath(GetScanSourceDirectory(), cafs::path::format::generic_format);
 		if (!cafs::exists(sourcePath))
 		{
-			return;
+			CA_LOG_WARN("D3D12ShaderResourceImporter: 源目录不存在 {}，本轮无产出", sourcePath.generic_string());
+			return new resource_management::SingleResourceProductions(castl::string(), nullptr);
 		}
 		castl::unordered_map<cahash::sha256_hash::result_type, ShaderCode> shaderPrograms;
 
-		cafs::path shaderLibraryPath = "D3D12ShaderLibrary.shLib";
-
-		auto shaderLibrary = resourceManager->GetOrNewResource<ShaderLibrary>(shaderLibraryPath);
+		// 新建库：导入器只产对象，注册交给管线（不再走资源系统的旧建库模板 —— 那会把旧库静默留下）。
+		auto* shaderLibrary = new ShaderLibrary();
 		shaderLibrary->m_ShaderPrograms.clear();
 
 		for (auto& p : cafs::recursive_directory_iterator(sourcePath))
@@ -436,5 +439,8 @@ namespace graphics_backend
 				}
 			}
 		}
+
+		// 单条产出：注册键 / 落盘路径与旧行为逐字相同（消费者按同一个键取库）。
+		return new resource_management::SingleResourceProductions("D3D12ShaderLibrary.shLib", shaderLibrary);
 	}
 }

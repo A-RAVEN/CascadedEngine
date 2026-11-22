@@ -15,7 +15,7 @@ namespace resource_management
 	// 注册进资源表由系统负责。Create() 失败 MUST 抛异常（C++ 原生工厂直接抛；C# 工厂的异常经桥
 	// 转码成同一个异常类型再抛），MUST NOT 返回 nullptr 来表示失败。
 	//
-	// 可选的后缀方法（GetSourceFilePostfix / GetDestFilePostfix）本批不定义：反向投影会要求每份
+	// 可选的后缀方法（旧 1:1 导入器那套源后缀 / 目标后缀）本批不定义：反向投影会要求每份
 	// C# 工厂都实现它，而本批的资源路径不消费这两个值。需要时按"反向接口加一个虚方法 + 补审计
 	// 表一行 + 跑 --update-ids"的流程加。
 	CA_BIND_REVERSE()

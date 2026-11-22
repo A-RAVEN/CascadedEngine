@@ -66,6 +66,11 @@ namespace cs_script
 		// 缺这两行时 ApplyPolicies 判 Unregistered、GetInterfaceApi(9/10) 返 0，托管侧取不到反向函数表。
 		{ kBindingInterfaceIdresource_management__IResourceFactory, false },
 		{ kBindingInterfaceIdresource_management__IResource, false },
+		// resource-importer-refactor 3.2（design D6）：导入器**双反向**接口也进主登记表。
+		// 同样是目标类型表（实例由 C# 经 CreateImpl 造出来），允许空实例；缺行时
+		// GetInterfaceApi 返 0，托管侧取不到它们的反向函数表。
+		{ kBindingInterfaceIdresource_management__ResourceImporter, false },
+		{ kBindingInterfaceIdresource_management__ResourceImporterProductions, false },
 	};
 	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
 	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会

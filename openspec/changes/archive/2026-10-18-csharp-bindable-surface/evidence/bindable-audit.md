@@ -2,7 +2,7 @@
 
 **口径（csharp-native-direct-binding 任务 2.1 换面）**：审计面 = **进入绑定面的公开方法**——`CA_BIND` 接口里的公开成员函数（含非纯虚 virtual 与非虚公开方法；构造 / 析构 / 运算符不算），逐条取类体按访问标号切段后**只数 public 段**；模板方法只在同文件写了 `CA_BIND_INSTANTIATE(方法名, …)` 时计一次（生成器按声明展开具体槽，审计按方法名一行）。`CA_BIND_SKIP` 的方法仍要有行（结论写"不可绑 + 本轮未实现/理由"）。解析实现见 `Tools/CodeGen/check_bindable_audit.py` 的 `header_methods`。
 
-**范围（csharp-reverse-interface-binding 之后）**：**11** 个接口 = 原生六类（`graphics_backend::CRenderBackend` / `graphics_backend::GPUGraph` / `graphics_backend::ShaderStruct` / `graphics_backend::GPUTexture` / `graphics_backend::WindowHandle` / `graphics_backend::GPUBuffer`）+ `graphics_backend::IReadbackToken` + 窗口两个（`cawindow::IWindow` / `cawindow::IWindowSystem`）+ 两个**反向接口**（`resource_management::IResource` / `resource_management::IResourceFactory`，C# 实现 C++），合计 **98** 条公开方法。正反向的差别只在"谁实现"（见下面那张表），审计口径（进入绑定面的公开方法逐条一行）不变。过渡期桥五个接口的 28 条方法随 5.1 退役移出审计面（行同时删除，不是"放过"）。旧表的 `IShaderCompilerManager` / `IOManager` / `IResource` 三块随换面移出（它们不是本批绑定面的接口，行同时删除；不是"放过"）—— 其中 `IResource` 在 csharp-reverse-interface-binding 里作为**反向接口**重新进审计面，行按新形状重写。
+**范围（resource-importer-refactor 之后）**：**13** 个接口 = 原生六类（`graphics_backend::CRenderBackend` / `graphics_backend::GPUGraph` / `graphics_backend::ShaderStruct` / `graphics_backend::GPUTexture` / `graphics_backend::WindowHandle` / `graphics_backend::GPUBuffer`）+ `graphics_backend::IReadbackToken` + 窗口两个（`cawindow::IWindow` / `cawindow::IWindowSystem`）+ 四个**反向接口**（`resource_management::IResource` / `resource_management::IResourceFactory` / `resource_management::ResourceImporter` / `resource_management::ResourceImporterProductions`，C# 实现 C++），合计 **105** 条公开方法。正反向的差别只在"谁实现"（见下面那张表），审计口径（进入绑定面的公开方法逐条一行）不变。过渡期桥五个接口的 28 条方法随 5.1 退役移出审计面（行同时删除，不是"放过"）。旧表的 `IShaderCompilerManager` / `IOManager` / `IResource` 三块随换面移出（它们不是本批绑定面的接口，行同时删除；不是"放过"）—— 其中 `IResource` 在 csharp-reverse-interface-binding 里作为**反向接口**重新进审计面，行按新形状重写。
 
 | 接口 | 方法条数 | 所在头文件 |
 |---|---|---|
@@ -17,15 +17,19 @@
 | `cawindow::IWindowSystem` | 16 | `WindowSystem/header/CAWindow/WindowSystem.h` |
 | `resource_management::IResource` | 2 | `GeneralResources/header/CAResource/IResource.h` |
 | `resource_management::IResourceFactory` | 2 | `GeneralResources/header/CAResource/IResourceFactory.h` |
-| **合计** | **98** | |
+| `resource_management::ResourceImporter` | 4 | `GeneralResources/header/CAResource/ResourceImporter.h` |
+| `resource_management::ResourceImporterProductions` | 3 | `GeneralResources/header/CAResource/ResourceImporter.h` |
+| **合计** | **105** | |
 
-**谁实现（csharp-reverse-interface-binding 2.3）**：绑定面第一次出现"实现方在托管侧"的接口。主表 98 行**逐行加一列会让既有行的固定列号（`可绑性` / `理由或建议`）全部移位**，判据（`check_bindable_audit.py` 按固定下标读这两列）与人工核对都会更容易读错；所以"谁实现"按接口单列一张表，行级结论仍在主表。**这一列就是本批要求的"谁实现"列**，每个接口恰好一行。
+**谁实现（csharp-reverse-interface-binding 2.3）**：绑定面第一次出现"实现方在托管侧"的接口。主表 105 行**逐行加一列会让既有行的固定列号（`可绑性` / `理由或建议`）全部移位**，判据（`check_bindable_audit.py` 按固定下标读这两列）与人工核对都会更容易读错；所以"谁实现"按接口单列一张表，行级结论仍在主表。**这一列就是本批要求的"谁实现"列**，每个接口恰好一行。
 
 | 接口 | 谁实现 | 反向产物 | 说明 |
 |---|---|---|---|
 | `graphics_backend::CRenderBackend` / `GPUGraph` / `ShaderStruct` / `GPUTexture` / `WindowHandle` / `GPUBuffer` / `IReadbackToken` / `cawindow::IWindow` / `cawindow::IWindowSystem` | 引擎（C++） | 正向：`IDisposable` 表面类 + `<线形>Api_v2` 函数表 | C# 只调，不实现 |
 | `resource_management::IResource` | **托管侧（C#）** | 反向：`ResourceBase` 抽象基类 + `<线形>Proxy` 代理 + 注册 glue | C# 覆写 `byte[] Serialize()`；`Deserialize` 本批排除（见主表该行） |
 | `resource_management::IResourceFactory` | **托管侧（C#）**（C++ 原生也可继承 `IResourceFactory`） | 反向：`ResourceFactoryBase` 抽象基类 + `<线形>Proxy` 代理 + 注册 glue | C# 覆写 `GetResourceType()` / `ResourceBase Create()`；C++ 原生工厂走同一张工厂注册表 |
+| `resource_management::ResourceImporter` | **托管侧（C#）**（C++ 原生导入器也实现它：两个着色器导入器） | 反向：`ResourceImporterBase` 抽象基类 + `<线形>Proxy` 代理 + 注册 glue | C# 覆写 `GetTags()` / `GetSourceDirectory()` / `GetDestDirectory()` / `Produce()`；拉取式：导入器只产对象、不注册（注册在管线） |
+| `resource_management::ResourceImporterProductions` | **托管侧（C#）**（C++ 导入器用 `SingleResourceProductions`） | 反向：`ResourceImporterProductionsBase` 抽象基类 + `<线形>Proxy` 代理 + 注册 glue | C# 覆写 `HasNext()` / `NextPath()` / `NextResource()`；`NextResource` 交出的对象由管线包 `shared_ptr` 注册（单一强所有者） |
 
 
 **列定义**：`拷贝` = 该调用是否需要一次额外的内存拷贝（视图与按值不算）；`谁分配` = 过界内存的分配方（调用方给缓冲区 / 投影层分配 + 配对释放 / 引擎持有 + 只读视图 / `—` 表示不过界内存）；`可绑性` = `可绑` / `需快路` / `不可绑`；`不可绑` 必须在"理由或建议"列给出理由与建议。
@@ -130,6 +134,13 @@
 | `resource_management::IResource::Deserialize` | `ca_io::IOBatch*` 入参 | `—（不暴露）` | — | — | **不可绑** | 本轮未实现：`IOBatch` 问不到剩余长度（`IResource.h` 逐字"IOBatch 问不到剩余长度"），反向读要先加长度查询（改接口 + 两实现 + 两测试桩）。`CA_BIND_SKIP(Deserialize, "本批不支持反向读，另立批")`；代理的 `Deserialize` 抛 1013 | 不暴露（无入口）；代理抛 `ReverseBindingError(1013)` |
 | `resource_management::IResourceFactory::GetResourceType` | 返回 `castl::string`（**反向**） | 两段式 `<方法>Len(user)` + `Copy<方法>(user, dst, cap)`（UTF-8）；C# 公开方法返回 `string` | 一次（托管字符串 → 原生缓冲） | 代理分配（按长度问两次） | 可绑（反向） | 类型名由 C# 工厂给定；工厂注册表按这个字符串登记与查找 | 错误码（1012）；下一次调用抛 `ReverseBindingError` |
 | `resource_management::IResourceFactory::Create` | 返回 `IResource*` 无参（**反向**） | 函数表槽返回 `void*`（C# 桥里先把 `ResourceBase` 包成原生 `IResourceProxy`，再把裸指针交回）；C# 公开方法返回 `ResourceBase` | 无 | 资源注册表（`shared_ptr` 单一所有者） | 可绑（反向） | 反向工厂只构造对象，注册由系统负责；Create 失败 MUST 抛异常（C# 返回 null 也转成异常），系统在包 `shared_ptr` / `RegisterResource` 前检查空指针，MUST NOT 注册空资源 | Create 抛 `resource_management::resource_creation_error`（含反向标识与原始文本）；Tester 用 `HasResource` 读数验"没注册空" |
+| `resource_management::ResourceImporter::GetTags` | `const`，返回 `castl::string`（**反向**） | 两段式 `<方法>Len(user)` + `Copy<方法>(user, dst, cap)`（UTF-8）；C# 公开方法返回 `string` | 一次（托管字符串 → 原生缓冲） | 代理分配（按长度问两次） | 可绑（反向） | resource-importer-refactor D2/D6：标签只给管线日志与诊断用（"Vulkan;Slang" 这类），C# 导入器自己给出 | 错误码（1012）；下一次注册线程调用抛 `cascaded_reverse::ReverseBindingError` |
+| `resource_management::ResourceImporter::GetSourceDirectory` | `const`，返回 `castl::string`（**反向**） | 两段式（同上） | 一次 | 代理分配 | 可绑（反向） | 声明导入器自己的源根；**空 = 跟随 `ScanSourceDirectory` 传入的根**（原生导入器从管线写的扫描上下文读，C# 实现读不到 ⇒ C# 导入器 MUST 自己声明目录） | 错误码（1012）；下一次调用抛 `ReverseBindingError` |
+| `resource_management::ResourceImporter::GetDestDirectory` | `const`，返回 `castl::string`（**反向**） | 两段式（同上） | 一次 | 代理分配 | 可绑（反向） | 声明导入器自己的目标根；空 = 跟随资源系统的资源根（同上：C# 实现 MUST 自己声明） | 错误码（1012）；下一次调用抛 `ReverseBindingError` |
+| `resource_management::ResourceImporter::Produce` | 无参，返回 `ResourceImporterProductions*`（**反向**） | 函数表槽返回 `void*`：C# 桥先把 `ResourceImporterProductionsBase` 用 `CreateProxy` 包成原生代理再交回；C++ 导入器直接 `new SingleResourceProductions` | 无 | 管线（`shared_ptr(ptr, delete)`，扫描结束即析构 → 代理析构 → `releaseUser` → GCHandle.Free） | 可绑（反向） | 拉取式入口：导入器只产对象、不注册；迭代器归管线所有；返回空迭代器（HasNext 恒假）表示本轮没有产出 | 错误码（1012 / 1005）；下一次注册线程调用抛 `ReverseBindingError` |
+| `resource_management::ResourceImporterProductions::HasNext` | 无参，返回 `bool`（**反向**） | `int32`（布尔用 `int32`） | 无 | — | 可绑（反向） | 先问 `HasNext`，为真才取一条（`NextPath`/`NextResource`）；`HasNext` 为假之后 MUST NOT 再调那两个 | 错误码（1012）；下一次调用抛 `ReverseBindingError` |
+| `resource_management::ResourceImporterProductions::NextPath` | 无参，返回 `castl::string`（**反向**） | 两段式（同上） | 一次 | 代理分配 | 可绑（反向） | 资源路径 = 注册键 = 落盘路径（相对资源根，例如 `VulkanShaderLibrary.shLib`）；只在 `HasNext` 为真时调用 | 错误码（1012）；下一次调用抛 `ReverseBindingError` |
+| `resource_management::ResourceImporterProductions::NextResource` | 无参，返回 `IResource*`（**反向**） | 函数表槽返回 `void*`：C# 桥用 `CreateProxy` 把新 C# 资源包成原生代理（与 `IResourceFactory::Create` 同构），所有权交给管线 | 无 | 注册表（管线包 `shared_ptr(ptr, delete)` 后注册，单一强所有者） | 可绑（反向） | 逐条交出产出；管线对每条**先 `ReleaseResource(path)` 再 `RegisterResource`**（重导入替换，不 `get_or_create` 静默留旧）。`CreateProxy` 之后 `ReverseKeepAliveCount`==1、`ReleaseResource` 之后归 0；MUST NOT 用 `ResolveImpl`（新对象还没有代理/借用句柄） | 错误码（1012）；返回空指针时管线抛 `resource_creation_error`（MUST NOT 注册空资源） |
 
 ## 汇总：不可绑清单（csharp-reverse-interface-binding 之后 12 条：④ 2 条 + 本轮未实现 10 条）
 

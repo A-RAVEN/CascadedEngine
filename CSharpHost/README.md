@@ -48,6 +48,8 @@
 | 8 | `graphics_backend::GPUBuffer` | **目标类型表**：同上（后端直建缓冲，`CreateGPUBuffer` 产出；生命周期跟随后端，跨图复用） |
 | 9 | `resource_management::IResourceFactory` | **目标类型表（反向）**：C# 实现 `ResourceFactoryBase`，经 `IResourceFactoryBindings.Create` 拿强句柄交给资源系统的工厂注册表；C++ 原生工厂走同一个注册表，不进这张编号表 |
 | 10 | `resource_management::IResource` | **目标类型表（反向）**：C# 实现 `ResourceBase`，由反向工厂的 `Create` 在托管桥里包成原生 `IResourceProxy`；`Deserialize` 本批排除 |
+| 11 | `resource_management::ResourceImporter` | **目标类型表（反向）**：C# 实现 `ResourceImporterBase`（`GetTags` / `GetSourceDirectory` / `GetDestDirectory` / `Produce`），经 `ResourceImporterBindings.Create` 拿强句柄，原生侧 `ResolveImpl` 后交给 `ResourceImportingSystem::AddImporter`；C++ 原生导入器（两个着色器导入器）走同一个导入器列表、不进这张编号表 |
+| 12 | `resource_management::ResourceImporterProductions` | **目标类型表（反向）**：C# 实现 `ResourceImporterProductionsBase`（`HasNext` / `NextPath` / `NextResource`），由 `Produce` 的托管桥用 `CreateProxy` 包成原生代理；迭代器归资源管线所有（扫描结束即析构） |
 
 同一个接口可以登记多份实现，靠实例名区分；实例名传 `nullptr` = 该接口**默认那一份**（最先登记的）。登记与查找都走 `IScriptHost::SetInterfaceInstance` / `GetInterfaceInstance`，两边必须用同一对 (编号, 实例名)。
 
@@ -301,6 +303,56 @@ C++ 原生工厂**原生继承** `resource_management::IResourceFactory`（`GetR
 `CA_BIND_SKIP(Deserialize, "本批不支持反向读，另立批")` 排除，`ResourceBase` 里**只有 `Serialize` 一个
 抽象方法**。代理的 `Deserialize` 存在但抛 `ReverseBindingError(1013)`。读回路径仍走 `TResource`。
 
+### 导入器也是反向接口（拉取式，`resource-importer-refactor`）
+
+`resource_management::ResourceImporter` 与 `resource_management::ResourceImporterProductions` 同样用
+`CA_BIND_REVERSE()` 标注，C# 侧继承 `ResourceImporterBase` / `ResourceImporterProductionsBase` 写自己的
+目录级导入器。**产出是拉取式的**：原生管线调 `Produce()` 拿到迭代器，再逐条
+`HasNext()` → `NextPath()` + `NextResource()`；导入器**只产对象、不注册**，注册 / 替换 / 落盘全由
+`ResourceImportingSystem::ScanSourceDirectory` 做（先 `ReleaseResource(路径)` 再 `RegisterResource`，
+所以重扫会换掉旧对象）。
+
+```csharp
+using Scripting.Generated.Bindings.ResourceManagement;
+
+internal sealed class MyRes : ResourceBase
+{
+    public override byte[] Serialize() => new byte[] { 0xC5, 0x01 };
+}
+
+internal sealed class MyProductions : ResourceImporterProductionsBase
+{
+    private readonly string[] m_Paths = { "My/A.res", "My/B.res" };
+    private int m_Index;
+    public override bool HasNext() => m_Index < m_Paths.Length;
+    public override string NextPath() => m_Paths[m_Index];
+    public override ResourceBase NextResource()
+    {
+        ResourceBase resource = new MyRes();   // 一条产出换一个对象
+        ++m_Index;                             // 取走一条即推进
+        return resource;
+    }
+}
+
+internal sealed class MyImporter : ResourceImporterBase
+{
+    public override string GetTags() => "MyImporter";
+    // C# 反向实现读不到管线传入的扫描根，目录 MUST 自己声明（空 = 跟随，但托管侧看不到那个值）。
+    public override string GetSourceDirectory() => "C:/assets/src";
+    public override string GetDestDirectory() => string.Empty;
+    public override ResourceImporterProductionsBase Produce() => new MyProductions();
+}
+
+// 注册（C++ 侧）：强句柄 + ResolveImpl 借用指针 → ResourceImportingSystem::AddImporter
+ulong handle = ResourceImporterBindings.Create(new MyImporter());
+```
+
+**所有权**：`Produce()` 返回的迭代器由管线持有的 `shared_ptr` 管（C# 侧用 `CreateProxy` 造原生代理），
+每次 `NextResource()` 交出的资源同样由管线包 `shared_ptr(ptr, delete)` 后注册 —— 与
+`CreateResource` 同构，注册表是唯一强所有者；`ReleaseResource` 之后代理析构 → `releaseUser` →
+`GCHandle.Free`，`ReverseKeepAliveCount` 从 1 归 0，旧句柄重复释放报 1001。**MUST NOT 用
+`ResolveImpl` 处理新对象**（新对象还没有代理/借用句柄，必须 `CreateProxy`）。
+
 ## 环境变量
 
 | 变量 | 作用 | 默认 |
@@ -327,6 +379,10 @@ C++ 原生工厂**原生继承** `resource_management::IResourceFactory`（`GetR
 | `CASCADED_CSHARP_RESOURCE_PROBE=1` | 启用反向接口探针（C# 实现 `ResourceFactoryBase` / `ResourceBase`）；只有 `TestCSharpResourceFactory` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_RESOURCE_PHASE` | 反向接口探针阶段机（`create-factory` / `create-failing-factories` / `after-create` / `make-serialize-throw` / `after-throw` / `dispose-resource` / `dispose-factory` / `report-counters` / `report-resource-keepalive`），由测试在两次 `Tick` 之间设置 | 空串 |
 | `CASCADED_CSHARP_RESOURCE_READINGS` | 反向接口探针把读数（句柄 / 错误码 / 计数）追加到这个文件，测试读同一份；不设时探针不写任何东西 | 不设 |
+| `CASCADED_CSHARP_IMPORTER_PROBE=1` | 启用**导入器**反向探针（C# 实现 `ResourceImporterBase` / `ResourceImporterProductionsBase`，拉取式产两条资源）；只有 `TestCSharpImporter` 在自己的 Tick 之前设置、之后清理 | 不设 |
+| `CASCADED_CSHARP_IMPORTER_PHASE` | 导入器探针阶段机（`create-importer` / `after-first-scan` / `after-second-scan` / `report-serialize`），由测试在两次 `Tick` 之间设置 | 空串 |
+| `CASCADED_CSHARP_IMPORTER_READINGS` | 导入器探针把读数（句柄 / 保活计数 / Produce 次数 / 序列化计数）追加到这个文件，测试读同一份 | 不设 |
+| `CASCADED_CSHARP_IMPORTER_SOURCE` | 导入器探针把 `GetSourceDirectory()` 声明成这个目录（C# 反向实现读不到管线传入的扫描根，必须自己声明） | 空串 |
 | `CASCADED_EDITOR` | `1` 时启用编辑器面板服务（单窗口分栏 + WebView2 + WebSocket 命令服务）；不设时零行为（不监听、不建线程） | 不设 |
 | `CASCADED_EDITOR_PORT` | 编辑器服务监听端口（只绑 localhost） | `18390`（`1`-`65535`） |
 | `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` |

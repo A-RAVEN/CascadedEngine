@@ -20,7 +20,9 @@
 8	GPUBuffer	graphics_backend::GPUBuffer	Interface/RenderInterface/header/GPUBuffer.h
 9	IResourceFactory	resource_management::IResourceFactory	GeneralResources/header/CAResource/IResourceFactory.h
 10	IResource	resource_management::IResource	GeneralResources/header/CAResource/IResource.h
-# high water 10
+11	ResourceImporter	resource_management::ResourceImporter	GeneralResources/header/CAResource/ResourceImporter.h
+12	ResourceImporterProductions	resource_management::ResourceImporterProductions	GeneralResources/header/CAResource/ResourceImporter.h
+# high water 12
 # scope fixture
 8	IBindRegistry8	ca_bind_fixture::IBindRegistry8	Tools/CodeGen/BindableShapes.RenderRegistry.h
 9	IBindRegistry9	ca_bind_fixture::IBindRegistry9	Tools/CodeGen/BindableShapes.RenderRegistry.h

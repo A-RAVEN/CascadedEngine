@@ -1,0 +1,41 @@
+# 2.2 导入器级字节对拍：改前字节的封存
+
+## 为什么用文件哈希当判据
+
+着色器导入器重构的验收是"行为保持"：同样的 `.slang` 源、同样的编译器，产出的 `ShaderLibrary`
+序列化字节必须与改动前**逐字节相同**（导入器漏填 / 漏清 / 交错了对象都会变）。
+
+## 改前字节的来源（可核）
+
+- 代码状态：`git rev-parse HEAD` = `b29b13b`（csharp-reverse-interface-binding 收尾），工作区干净；
+- 产生时刻：**2026-11-22 20:02** 的两次 tester 全量运行（改动前代码）；
+- 文件：`CAAssets/D3D12ShaderLibrary.shLib`（20:02:47）、`CAAssets/VulkanShaderLibrary.shLib`（20:02:29）。
+
+## 封存读数（SHA-256，十六进制小写）
+
+| 文件 | 字节数 | SHA-256 |
+|---|---|---|
+| `CAAssets/D3D12ShaderLibrary.shLib` | 293737 | `5d9551ca7711bbd5f6a0e7d7c117f6eb1a8f5afd9cc26f0250332e4a657193f3` |
+| `CAAssets/VulkanShaderLibrary.shLib` | 145710 | `7a3d7d0c5ff8ac8ba014e6a256e2babcb737c7d69105c5481e474be0d8977c81` |
+
+## 判据落点
+
+`Test/GPUBackendTester/Main.cpp` 的 `TestCSharpImporter` 第 ⓪ 段：
+`HashFileHex(<assetPath>/<后端>ShaderLibrary.shLib)` 与上表逐字比较（Vulkan 用 Vulkan 行、D3D12 用
+D3D12 行）；文件缺失 / 为空 / 哈希不符各自点名失败码（`E_IMPORTER_SHLIB_MISSING` /
+`E_IMPORTER_SHLIB_BYTES`）。
+
+## 实测（2026-11-22 23:47/23:48 的 Debug 运行，两后端各一行日志）
+
+```
+vulkan：VulkanShaderLibrary.shLib = 7a3d7d0c5ff8ac8ba014e6a256e2babcb737c7d69105c5481e474be0d8977c81（与改前同）
+d3d12：D3D12ShaderLibrary.shLib = 5d9551ca7711bbd5f6a0e7d7c117f6eb1a8f5afd9cc26f0250332e4a657193f3（与改前同）
+```
+
+⇒ 着色器导入器重构后产出的序列化字节与改动前**逐字节相同**（两后端），判据成立。
+
+## 备注
+
+- 启动时那次 `ScanSourceDirectory` 会把当前后端的 `.shLib` 重写一遍，所以测试读到的是**本次构建
+  的代码**产出的字节，不是旧文件残留 —— 这正是对拍要证的东西。
+- Vulkan 在重构前没有字节判据（`ShaderLibraryBytesTest` 只绑 D3D12），这一段就是新增的 Vulkan 判据。

@@ -1,0 +1,42 @@
+# 2.1 管线注册 / 重导入替换 / 早退修：实现落点与已测读数
+
+## 改了什么（文件与逐字锚点）
+
+`GeneralResources/private/ResourceImportingSystem.cpp`：
+
+- `AddImporter(ResourceImporter*)` 唯一入口（旧的 Base 重载与后缀去重逻辑整段删除）；
+- `ScanSourceDirectory` 改成拉取式：每个导入器解析有效根（`GetSourceDirectory()` 空则用传入的、
+  `GetDestDirectory()` 空则用资源根）→ `SetScanDirectories` 交给原生导入器 → `Produce()` →
+  `while (productions->HasNext())` 取 `NextPath()` / `NextResource()`；
+- 产出所有权：`castl::shared_ptr<IResource> resource(produced, [](IResource* releasedObj) { delete releasedObj; });`
+  —— 与同一文件里 `CreateResource` 的单一所有者写法逐字同构；
+- **重导入替换**：`m_ResourceManagingSystem->ReleaseResource(relativePath);` 紧接
+  `m_ResourceManagingSystem->RegisterResource(relativePath, resource);`（不依赖 `RegisterResource` 内部的
+  `get_or_create`）；
+- **早退修**：源目录不存在只打一行 `CA_LOG_WARN`，不再 `return`；`m_ResourceManagingSystem->SerializeAll();`
+  在整段循环之后无条件执行；
+- 迭代器归管线所有：`castl::shared_ptr<ResourceImporterProductions> productions(importer->Produce(),
+  [](ResourceImporterProductions* releasedProductions) { delete releasedProductions; });`（C# 反向实现的代理
+  在这里析构 → `releaseUser` → 托管 `GCHandle.Free`）。
+
+## 判据一：导入器五写注册表入口 grep 0
+
+范围：四个着色器导入器文件；五个入口 `RegisterResource` / `ReleaseResource` / `CreateResource` /
+`GetOrLoadResource` / `GetOrNewResource`。实测命中 **0**（采集命令与逐条读数见
+`evidence/1.1-退役与解耦.txt` 的第二节）。
+
+## 判据二 / 三：重导入消费者取新库、源不存在回退仍落盘
+
+由 `Test/GPUBackendTester/Main.cpp` 的 `TestCSharpImporter` 覆盖（运行时读数，主循环代跑）：
+
+- 重导入替换：第二次 `ScanSourceDirectory` 之后 `GetResource(路径)` 拿到的指针 != 第一次的指针
+  （`E_IMPORTER_REPLACE`）；C# 侧 `ReferenceEquals` 判新（`E_IMPORTER_NEW_OBJECTS`）；两个**旧借用句柄**
+  都按代际失效（`ReleaseImpl(旧句柄) == 1001`，`E_IMPORTER_OLD_RELEASE`）。
+  旧句柄的**保活读数不作判据**：`ReverseKeepAliveCount` 只按句柄里的槽位下标查表（代际只用于判失效），
+  旧槽位可能被第二轮的新代理复用 —— 2026-11-22 实测旧 A 读到 1（槽位被 B2 复用）、旧 B 读到 0，
+  所以判据换成代际失效（若旧代理还活着，同一句柄的 `ReleaseImpl` 会真退役并返回 0 ⇒ 断言红）。
+- 早退修：第二次扫描传入**不存在**的源目录之后，C++ 对照导入器声明的产出仍在注册表里且文件仍在盘上
+  （`E_IMPORTER_CONTRAST_2` / `E_IMPORTER_CONTRAST_FILE_2`），且 C# 导入器仍被调用（`produce_count==2`，
+  `E_IMPORTER_PRODUCE_COUNT_2`）。
+
+实测读数（本次构建后的 tester 日志）由主循环补到本目录。

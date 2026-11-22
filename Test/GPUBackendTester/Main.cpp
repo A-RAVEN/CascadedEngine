@@ -37,6 +37,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <iterator>
 #include <chrono>
 #include <windows.h>
 #include <ThreadManager.h>
@@ -71,6 +72,7 @@
 #include <CAResource/ResourceSystemFactory.h>
 #include <stb_image.h>
 #include <CACore/CAModuleManager.h>
+#include <CACore/CAHash.h>
 #include <IMGUIContext/IMGUIContext.h>
 #include <crtdbg.h>
 #include <windows.h>
@@ -84,6 +86,9 @@
 // `<线形>__*` 函数（句柄表是 inline+函数级 static，EXE 与 DLL 各一份，查错表就等于查不到）。
 #include "resource_management__IResourceFactory.Bindings.cpp"
 #include "resource_management__IResource.Bindings.cpp"
+// resource-importer-refactor 4.2：导入器双反向接口的函数表类型（同样只用它解释表结构）。
+#include "resource_management__ResourceImporter.Bindings.cpp"
+#include "resource_management__ResourceImporterProductions.Bindings.cpp"
 // 编号常量来自登记表头（唯一来源仍是 interface-ids.lock）。
 #include "BindingRegistry.Bindings.h"
 // 脚本渲染用例的原生核对通道（csharp-native-direct-binding 4.1）：桥退役后不再 include 适配层私有头，
@@ -6918,6 +6923,484 @@ void TestCSharpResourceFactory(TestContext& ctx)
 	       "（Dispose 1001 + 同一实例 + 计数 1→0）");
 }
 
+// ---- TestCSharpImporter（resource-importer-refactor 4.2，第 21 用例）----
+// 导入器（**拉取式**）的消费方验收：C# 实现 `ResourceImporter` + `ResourceImporterProductions`，
+// 管线 `ScanSourceDirectory` 逐条拉取产出 → 包 `shared_ptr(ptr, delete)` → 先 `ReleaseResource`
+// 再 `RegisterResource`（重导入替换）→ `SerializeAll` 无条件落盘；外加**导入器级字节对拍**：
+// 着色器导入器产出的 `ShaderLibrary` 序列化字节与改动前（2026-11-22 20:02 的 tester 运行）逐字节相同。
+//
+// 侧别（design D8）：C# 资源的 `Deserialize` 是 `CA_BIND_SKIP`（代理抛 1013），所以这里只验
+// "写 + 注册 + GetResource 同一实例"；**加载回读只对 C++ 对照资源**（ContrastResource 手写
+// Deserialize，走 `GetOrLoadResource` 真读盘）。
+//
+// 红态怎么构造：让管线回到 `get_or_create` 式注册（重导入留旧库）、把 `SerializeAll` 挪回早退之后、
+// 让 C# 的 `NextResource` 不交新对象、或让导入器自己调注册表 —— 对应断言各自会变红。
+namespace
+{
+	// C++ 对照资源：Serialize 写 4 字节 int32、Deserialize 读回来（手写，不经 CodeGen）。
+	class ContrastResource final : public resource_management::IResource
+	{
+	public:
+		static constexpr int32_t kValue = 20261122;
+		int32_t Value = 0;
+
+		void Serialize(ca_io::WBatch* writer) override
+		{
+			writer->Write(sizeof(Value), &Value);
+			writer->SubmitAndWait();
+		}
+		void Deserialize(ca_io::IOBatch* reader) override
+		{
+			// 读是**排队**的（`IOBatchImpl::Read` 只把目的地指针追加进批，字节在 `SubmitAndWait` 里
+			// 才落地 —— 流式来源问不到剩余长度，生成代码也是直接读进成员）。所以这里必须**读进成员**、
+			// 提交之后再判失败：读进局部变量再赋值会拿到提交前的初始值（实测读回 0）。
+			Value = 0;
+			if (!reader->Read(sizeof(Value), &Value))
+			{
+				Value = 0;
+				throw ca_io::io_error("ContrastResource 反序列化读失败（对照资源应当读得回来）");
+			}
+			reader->SubmitAndWait();
+		}
+	};
+
+	class ContrastProductions final : public resource_management::ResourceImporterProductions
+	{
+	public:
+		explicit ContrastProductions(resource_management::IResource* resource) : m_Resource(resource) {}
+		bool HasNext() override { return m_Resource != nullptr; }
+		castl::string NextPath() override { return kContrastPath; }
+		resource_management::IResource* NextResource() override
+		{
+			resource_management::IResource* produced = m_Resource;
+			m_Resource = nullptr;
+			return produced;
+		}
+
+		static constexpr char const* kContrastPath = "CSharpProbe/Contrast.res";
+
+	private:
+		resource_management::IResource* m_Resource = nullptr;
+	};
+
+	// C++ 对照导入器：**声明自己的源根**（一个不存在的目录），用来验"源目录不存在也不早退"：
+	// 管线的早退修就是"不管源在不在，产出照样注册、SerializeAll 照样跑"。
+	class ContrastImporter final : public resource_management::ResourceImporter
+	{
+	public:
+		castl::string GetTags() const override { return "Cpp;Contrast"; }
+		castl::string GetSourceDirectory() const override { return "<declared-source-does-not-exist>"; }
+		castl::string GetDestDirectory() const override { return castl::string(); }
+		resource_management::ResourceImporterProductions* Produce() override
+		{
+			auto* resource = new ContrastResource();
+			resource->Value = ContrastResource::kValue;
+			return new ContrastProductions(resource);
+		}
+	};
+
+	// "改前字节"的哈希（逐字写死）。来源：改动前的 tester 在 2026-11-22 20:02 写出的两份
+	// `CAAssets/<后端>ShaderLibrary.shLib`（当时 HEAD = b29b13b、工作区干净）。存档在本次 change 的
+	// `evidence/2.2-改前字节.txt`。导入器漏填 / 漏清 / 写错交出对象都会让哈希变红。
+	constexpr char const* kVulkanShaderLibrarySha256 =
+		"7a3d7d0c5ff8ac8ba014e6a256e2babcb737c7d69105c5481e474be0d8977c81";
+	constexpr char const* kD3D12ShaderLibrarySha256 =
+		"5d9551ca7711bbd5f6a0e7d7c117f6eb1a8f5afd9cc26f0250332e4a657193f3";
+
+	bool ReadWholeFileBytes(std::filesystem::path const& path, std::vector<unsigned char>* bytes)
+	{
+		std::ifstream in(path, std::ios::binary);
+		if (!in)
+		{
+			return false;
+		}
+		bytes->assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		return true;
+	}
+
+	// 文件内容的 SHA-256（十六进制小写）：与 `cahash::sha256_hash::result_type::toString()` 同口径。
+	std::string HashFileHex(std::filesystem::path const& path)
+	{
+		std::vector<unsigned char> bytes;
+		if (!ReadWholeFileBytes(path, &bytes) || bytes.empty())
+		{
+			return std::string();
+		}
+		cahash::sha256_hash::result_type const digest =
+			cahash::getHash<cahash::sha256_hash>(bytes.data(), bytes.size());
+		return digest.toString();
+	}
+}
+
+void TestCSharpImporter(TestContext& ctx)
+{
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		throw std::runtime_error("IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		throw std::runtime_error(std::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+	if (ctx.pResourceManagingSystem == nullptr)
+	{
+		throw std::runtime_error("取不到 ResourceManagingSystem（资源模块没加载成功）");
+	}
+	if (ctx.pImportingSystem == nullptr)
+	{
+		throw std::runtime_error("取不到 ResourceImportingSystem（资源模块没加载成功）");
+	}
+
+	auto fail = [](char const* code, std::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s", detail.c_str());
+		CA_LOG("[TestCSharpImporter 失败] {}", detail);
+		throw std::runtime_error(code);
+	};
+
+	// ---- ⓪ 导入器级字节对拍（着色器导入器；本后端）----
+	// 启动时那一次 ScanSourceDirectory 已经把着色器库序列化到 `<assetPath>/<后端>ShaderLibrary.shLib`。
+	{
+		const bool vulkan = ctx.backendName == "vulkan";
+		const std::filesystem::path shaderLibraryPath =
+			std::filesystem::path(ctx.assetPath.c_str()) /
+			(vulkan ? "VulkanShaderLibrary.shLib" : "D3D12ShaderLibrary.shLib");
+		const std::string actual = HashFileHex(shaderLibraryPath);
+		const std::string expected = vulkan ? kVulkanShaderLibrarySha256 : kD3D12ShaderLibrarySha256;
+		if (actual.empty())
+		{
+			fail("E_IMPORTER_SHLIB_MISSING",
+			     "着色器库文件不存在或为空：" + shaderLibraryPath.string() +
+			         "（导入器没有产出 / 没有落盘）");
+		}
+		if (actual != expected)
+		{
+			fail("E_IMPORTER_SHLIB_BYTES",
+			     "导入器产出的 ShaderLibrary 序列化字节与改动前不一致：实际 " + actual + "，期望 " +
+			         expected + "（文件 " + shaderLibraryPath.string() + "）");
+		}
+		CA_LOG("导入器级字节对拍通过（{}）：{} = {}（与改动前逐字节相同）", ctx.backendName,
+		       shaderLibraryPath.filename().string(), actual);
+	}
+
+	// ---- 探针门控 + 读数文件（守卫负责清理）----
+	const std::filesystem::path readings =
+		std::filesystem::temp_directory_path() / "cascaded_csharp_importer_probe.txt";
+	std::error_code removeError;
+	std::filesystem::remove(readings, removeError);
+	struct ImporterProbeEnvGuard
+	{
+		~ImporterProbeEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_PROBE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_PHASE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_READINGS", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_SOURCE", nullptr);
+		}
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_PROBE", "1");
+	::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_READINGS", readings.string().c_str());
+	::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_PHASE", "");
+	::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_SOURCE", ctx.resourcePath.c_str());
+
+	const std::string baselineError = pScriptHost->LastError();
+	auto tick = [&](char const* phase) {
+		::SetEnvironmentVariableA("CASCADED_CSHARP_IMPORTER_PHASE", phase);
+		pScriptHost->Tick(0.016);
+		const std::string hostError = pScriptHost->LastError();
+		if (hostError != baselineError)
+		{
+			fail("E_IMPORTER_HOST", std::string("阶段 ") + phase + " 之后宿主 LastError 非空：" +
+				hostError + "（读数：" + ReadProbeValue(readings, "probe_error") + "）");
+		}
+	};
+	auto read = [&](char const* key) { return ReadProbeValue(readings, key); };
+	auto readU64 = [&](char const* key) -> uint64_t { return std::strtoull(read(key).c_str(), nullptr, 10); };
+	auto readInt = [&](char const* key) -> int64_t { return std::strtoll(read(key).c_str(), nullptr, 10); };
+
+	// ---- 反向函数表：**必须用 CSharpHost 那一份**（句柄表是 EXE/DLL 各一份）----
+	std::vector<unsigned char> importerTableStorage;
+	std::vector<unsigned char> productionsTableStorage;
+	std::vector<unsigned char> resourceTableStorage;
+	auto* importerTable = FetchReverseTable<resource_management__ResourceImporterApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__ResourceImporter, importerTableStorage);
+	auto* productionsTable = FetchReverseTable<resource_management__ResourceImporterProductionsApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__ResourceImporterProductions,
+		productionsTableStorage);
+	auto* resourceTable = FetchReverseTable<resource_management__IResourceApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__IResource, resourceTableStorage);
+	if (importerTable == nullptr || productionsTable == nullptr || resourceTable == nullptr)
+	{
+		fail("E_IMPORTER_TABLE", std::string("取不到反向函数表（") +
+			(importerTable == nullptr ? "ResourceImporter " : "") +
+			(productionsTable == nullptr ? "ResourceImporterProductions " : "") +
+			(resourceTable == nullptr ? "IResource " : "") + "）；登记表 / kBindingPolicies 缺行？");
+	}
+	if (importerTable->abi_version != 2u || productionsTable->abi_version != 2u ||
+		resourceTable->abi_version != 2u)
+	{
+		fail("E_IMPORTER_TABLE_ABI", "反向函数表的 abi_version 不是 2");
+	}
+	auto requireKeepAlive = [&](char const* what, uint64_t handle, uint64_t expected) {
+		const uint64_t actual = resourceTable->ReverseKeepAliveCount(handle);
+		if (actual != expected)
+		{
+			fail("E_IMPORTER_KEEPALIVE", std::string(what) + "：保活计数是 " +
+				std::to_string(actual) + "，期望 " + std::to_string(expected));
+		}
+	};
+
+	// ---- ① C# 导入器经 CreateImpl 注册（强句柄 → ResolveImpl 借用指针 → AddImporter）----
+	tick("create-importer");
+	const uint64_t importerHandle = readU64("importer_handle");
+	if (importerHandle == 0u)
+	{
+		fail("E_IMPORTER_HANDLE", "C# 导入器 CreateImpl 没有返回强句柄（读数 importer_handle=0）");
+	}
+	if (read("importer_tags") != "CSharp;Probe")
+	{
+		fail("E_IMPORTER_TAGS", "C# 导入器的 GetTags 是 \"" + read("importer_tags") +
+			"\"，写死期望 \"CSharp;Probe\"");
+	}
+	if (read("importer_base_type") != "ResourceImporterBase")
+	{
+		fail("E_IMPORTER_BASE", "C# 导入器的反向基类名是 \"" + read("importer_base_type") +
+			"\"，期望 \"ResourceImporterBase\"");
+	}
+	if (readU64("importer_keepalive") != 1u)
+	{
+		fail("E_IMPORTER_KEEPALIVE_CREATE", "导入器注册后保活计数应为 1，实际读数 " +
+			read("importer_keepalive"));
+	}
+	resource_management::ResourceImporter* csharpImporter =
+		static_cast<resource_management::ResourceImporter*>(importerTable->ResolveImpl(importerHandle));
+	if (csharpImporter == nullptr)
+	{
+		fail("E_IMPORTER_RESOLVE", "ResolveImpl(导入器句柄) 返回空（句柄查不到代理）");
+	}
+	// 导入器列表在测试返回后仍持有这些指针：对照导入器放函数级 static（进程寿命），
+	// C# 导入器的强句柄在 CSharpHost 的句柄表里（本用例不释放它）。
+	static ContrastImporter s_contrastImporter;
+	ctx.pImportingSystem->AddImporter(csharpImporter);
+	ctx.pImportingSystem->AddImporter(&s_contrastImporter);
+
+	// ---- ② 第一次扫描：同一导入器实例产两条（非 1:1）----
+	const std::string pathA = "CSharpProbe/Imported_A.res";
+	const std::string pathB = "CSharpProbe/Imported_B.res";
+	ctx.pImportingSystem->ScanSourceDirectory(ctx.resourcePath);
+	tick("after-first-scan");
+	if (readInt("produce_count") != 1)
+	{
+		fail("E_IMPORTER_PRODUCE_COUNT", "第一次扫描后导入器的 Produce 调用次数是 " +
+			read("produce_count") + "，期望 1");
+	}
+	// 迭代器在扫描结束后必须已析构：C# 那边的保活计数归 0（代理析构 → releaseUser → GCHandle.Free）。
+	if (readU64("round1_productions_keepalive") != 0u)
+	{
+		fail("E_IMPORTER_PRODUCTIONS_LIFETIME", "第一次扫描结束后产出迭代器的保活计数是 " +
+			read("round1_productions_keepalive") + "，期望 0（迭代器应由管线析构）");
+	}
+	if (!ctx.pResourceManagingSystem->HasResource(pathA) ||
+		!ctx.pResourceManagingSystem->HasResource(pathB))
+	{
+		fail("E_IMPORTER_REGISTER", "同一导入器产出的两条路径没有都注册（HasResource 有假）");
+	}
+	auto firstA = ctx.pResourceManagingSystem->GetResource(pathA);
+	auto firstB = ctx.pResourceManagingSystem->GetResource(pathB);
+	if (!firstA || !firstB)
+	{
+		fail("E_IMPORTER_GET", "两条产出按路径取回有空的");
+	}
+	if (firstA.get() == firstB.get())
+	{
+		fail("E_IMPORTER_ONE_RESOURCE", "两条路径取回的是同一个对象（不是真正的非 1:1）");
+	}
+	const uint64_t round1HandleA = readU64("round1_handle_a");
+	const uint64_t round1HandleB = readU64("round1_handle_b");
+	if (round1HandleA == 0u || round1HandleB == 0u)
+	{
+		fail("E_IMPORTER_RESOURCE_HANDLE", "C# 资源没有借用句柄（CreateProxy 没发句柄）");
+	}
+	requireKeepAlive("第一条 C# 资源注册后", round1HandleA, 1u);
+	requireKeepAlive("第二条 C# 资源注册后", round1HandleB, 1u);
+	// 写路径：C++ 侧调 Serialize 收字节（不验回读 —— C# 资源的 Deserialize 是 1013）。
+	{
+		ReverseRecordingBatch batchA;
+		firstA->Serialize(&batchA);
+		std::vector<unsigned char> const expectedA = { 0xC5, 0x01 };
+		if (batchA.Bytes != expectedA)
+		{
+			fail("E_IMPORTER_BYTES_A", "第一条 C# 资源的写字节不是写死期望 {C5,01}");
+		}
+		ReverseRecordingBatch batchB;
+		firstB->Serialize(&batchB);
+		std::vector<unsigned char> const expectedB = { 0xC5, 0x02 };
+		if (batchB.Bytes != expectedB)
+		{
+			fail("E_IMPORTER_BYTES_B", "第二条 C# 资源的写字节不是写死期望 {C5,02}");
+		}
+	}
+	// 落盘：SerializeAll 已经把两条 C# 资源写进资源根（导入器不写盘，管线写的）。
+	{
+		auto requireFileBytes = [&](std::string const& relative, std::vector<unsigned char> const& expected) {
+			std::vector<unsigned char> actual;
+			const std::filesystem::path file = std::filesystem::path(ctx.assetPath.c_str()) / relative;
+			if (!ReadWholeFileBytes(file, &actual))
+			{
+				fail("E_IMPORTER_FILE_MISSING", "产出没有落盘：" + file.string());
+			}
+			if (actual != expected)
+			{
+				fail("E_IMPORTER_FILE_BYTES", "落盘字节与写死期望不符：" + file.string());
+			}
+		};
+		requireFileBytes(pathA, { 0xC5, 0x01 });
+		requireFileBytes(pathB, { 0xC5, 0x02 });
+	}
+	// C++ 对照资源也在这一轮注册并落盘（它声明的源根不存在 —— 源目录不存在不影响落盘）。
+	if (!ctx.pResourceManagingSystem->HasResource(ContrastProductions::kContrastPath))
+	{
+		fail("E_IMPORTER_CONTRAST_REGISTER", "C++ 对照导入器的产出没有注册");
+	}
+	if (!std::filesystem::exists(std::filesystem::path(ctx.assetPath.c_str()) /
+	                             ContrastProductions::kContrastPath))
+	{
+		fail("E_IMPORTER_CONTRAST_FILE", "C++ 对照导入器的产出没有落盘");
+	}
+
+	// ---- ③ 第二次扫描（传入一个**不存在**的源目录）：不早退、仍有产出、且重导入替换 ----
+	// 记下第一轮的裸地址（只用来做"第二轮不是同一对象"的比较），再**放掉本地 shared_ptr**：
+	// 注册表是唯一强所有者 —— 本地再持一份会让旧代理活到用例结束，重导入替换的"旧对象被释放 /
+	// 保活归 0"两条判据就永远看不到 0。
+	resource_management::IResource* const firstARaw = firstA.get();
+	resource_management::IResource* const firstBRaw = firstB.get();
+	firstA.reset();
+	firstB.reset();
+	{
+		const std::filesystem::path missingRoot =
+			std::filesystem::path(ctx.assetPath.c_str()) / "__no_such_source_directory__";
+		ctx.pImportingSystem->ScanSourceDirectory(missingRoot.string());
+	}
+	tick("after-second-scan");
+	if (readInt("produce_count") != 2)
+	{
+		fail("E_IMPORTER_PRODUCE_COUNT_2", "第二次扫描后导入器的 Produce 调用次数是 " +
+			read("produce_count") + "，期望 2（早退会让它仍是 1）");
+	}
+	if (readInt("round2_is_new_a") != 1 || readInt("round2_is_new_b") != 1)
+	{
+		fail("E_IMPORTER_NEW_OBJECTS", "第二次扫描交出的不是新对象（C# 侧 ReferenceEquals 判同）");
+	}
+	auto secondA = ctx.pResourceManagingSystem->GetResource(pathA);
+	auto secondB = ctx.pResourceManagingSystem->GetResource(pathB);
+	if (!secondA || !secondB)
+	{
+		fail("E_IMPORTER_REGISTER_2", "重导入之后按路径取回有空的");
+	}
+	if (secondA.get() == firstARaw || secondB.get() == firstBRaw)
+	{
+		fail("E_IMPORTER_REPLACE", "重导入替换没有生效：消费者还拿到旧对象（get_or_create 式静默留旧）");
+	}
+	const uint64_t round2HandleA = readU64("round2_handle_a");
+	const uint64_t round2HandleB = readU64("round2_handle_b");
+	if (round2HandleA == 0u || round2HandleB == 0u || round2HandleA == round1HandleA)
+	{
+		fail("E_IMPORTER_RESOURCE_HANDLE_2", "第二条 C# 资源的借用句柄不对（0 或复用了旧句柄）");
+	}
+	requireKeepAlive("重导入之后的第一条 C# 资源", round2HandleA, 1u);
+	// 旧代理在替换时被放掉：判据是**旧借用句柄按代际失效**（两个旧句柄都必须 1001）。
+	// 这里 MUST NOT 用"旧句柄的保活计数 == 0"当判据：`ReverseKeepAliveCount` 只按句柄里的**槽位下标**
+	// 查表（代际只用来判失效），旧槽位可能已被第二轮的新代理复用 —— 实测旧 A 读到 1（槽位被 B2 复用）、
+	// 旧 B 读到 0。`ReleaseImpl(旧句柄) == 1001` 靠代际判定，槽位复用也成立；若旧代理还活着，
+	// 同一句柄的 ReleaseImpl 会真的把它退役并返回 0 ⇒ 断言变红。
+	if (resourceTable->ReleaseImpl(round1HandleA) != 1001 ||
+		resourceTable->ReleaseImpl(round1HandleB) != 1001)
+	{
+		fail("E_IMPORTER_OLD_RELEASE",
+		     "旧资源句柄没有按代际失效（重复释放应 1001；旧代理可能没被替换释放）");
+	}
+	// 源目录不存在也落盘：两次扫描之后 C++ 对照资源仍在注册、文件仍在。
+	if (!ctx.pResourceManagingSystem->HasResource(ContrastProductions::kContrastPath))
+	{
+		fail("E_IMPORTER_CONTRAST_2", "第二次扫描（源目录不存在）之后 C++ 对照资源被丢掉了");
+	}
+	if (!std::filesystem::exists(std::filesystem::path(ctx.assetPath.c_str()) /
+	                             ContrastProductions::kContrastPath))
+	{
+		fail("E_IMPORTER_CONTRAST_FILE_2", "第二次扫描（源目录不存在）之后对照资源没有落盘");
+	}
+
+	// ---- ④ C++ 对照往返（加载回读只对 C++ 资源）：释放 → GetOrLoadResource 真读盘 ----
+	{
+		if (!ctx.pResourceManagingSystem->ReleaseResource(ContrastProductions::kContrastPath))
+		{
+			fail("E_IMPORTER_CONTRAST_RELEASE", "ReleaseResource(对照资源) 返回 false");
+		}
+		cacore::PathHash const key{ castl::string(ContrastProductions::kContrastPath) };
+		auto loaded = ctx.pResourceManagingSystem->GetOrLoadResource<ContrastResource>(key);
+		if (!loaded)
+		{
+			fail("E_IMPORTER_CONTRAST_LOAD", "C++ 对照资源加载回读返回空");
+		}
+		if (loaded->Value != ContrastResource::kValue)
+		{
+			fail("E_IMPORTER_CONTRAST_VALUE", "C++ 对照资源读回来的值是 " +
+				std::to_string(loaded->Value) + "，期望 " + std::to_string(ContrastResource::kValue));
+		}
+		ctx.pResourceManagingSystem->ReleaseResource(ContrastProductions::kContrastPath);
+	}
+
+	// ---- ⑤ C# 资源的寿命与侧别：ReleaseResource → 保活 1→0；重复释放 1001；Deserialize 抛 1013 ----
+	tick("report-serialize");
+	if (readInt("round2_serialize_a") < 1)
+	{
+		fail("E_IMPORTER_SERIALIZE", "第二次扫描没有写过 C# 资源（Serialize 计数 " +
+			read("round2_serialize_a") + "，期望至少 1 —— SerializeAll 无条件落盘）");
+	}
+	{
+		ReverseRecordingReader reader;
+		bool threw = false;
+		try
+		{
+			secondA->Deserialize(&reader);
+		}
+		catch (cascaded_reverse::ReverseBindingError const& error)
+		{
+			threw = error.Code() == 1013;
+		}
+		if (!threw)
+		{
+			fail("E_IMPORTER_DESERIALIZE", "C# 资源的 Deserialize 没有抛 1013（反向读被排除这条不成立）");
+		}
+		if (reader.Reads != 0 || reader.Submits != 0)
+		{
+			fail("E_IMPORTER_DESERIALIZE_IO", "C# 资源的 Deserialize 动了批（Reads/Submits 非 0）");
+		}
+	}
+	// 放掉本地两份强引用：注册表才是唯一强所有者 —— 本地再持一份，下面"保活 1→0"就看不到 0。
+	secondA.reset();
+	secondB.reset();
+	if (!ctx.pResourceManagingSystem->ReleaseResource(pathA))
+	{
+		fail("E_IMPORTER_RELEASE", "ReleaseResource(第一条 C# 资源) 返回 false");
+	}
+	requireKeepAlive("第一条 C# 资源释放之后", round2HandleA, 0u);
+	if (resourceTable->ReleaseImpl(round2HandleA) != 1001)
+	{
+		fail("E_IMPORTER_RELEASE_AGAIN", "释放之后同一句柄重复释放没有返回 1001");
+	}
+	if (ctx.pResourceManagingSystem->HasResource(pathA))
+	{
+		fail("E_IMPORTER_RELEASE_HAS", "ReleaseResource 之后 HasResource 仍为真");
+	}
+	ctx.pResourceManagingSystem->ReleaseResource(pathB);
+	CA_LOG("TestCSharpImporter 通过：导入器级字节对拍（{}，与改动前逐字节相同）→ C# 导入器经 "
+	       "CreateImpl 注册 → 同一实例产两条（非 1:1、GetResource 同一实例）→ 写字节 C5 01 / C5 02 "
+	       "与落盘一致 → 源目录不存在不早退、第二次扫描重导入替换（新对象 + 旧句柄 1001）→ "
+	       "C++ 对照资源加载回读成功、C# 资源 Deserialize 抛 1013 → ReleaseResource 后保活 1→0",
+	       ctx.backendName);
+}
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
 // 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
@@ -7632,6 +8115,9 @@ int main(int argc, char* argv[])
 		// csharp-reverse-interface-binding 8.1：第 20 项（C# 工厂/资源经反向代理被 C++ 调到；
 		// 要用 C#，全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）。
 		std::cout << "  TestCSharpResourceFactory\n";
+		// resource-importer-refactor 4.2：第 21 项（导入器双反向 + 拉取式管线 + 导入器级字节对拍；
+		// 要用 C#，全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）。
+		std::cout << "  TestCSharpImporter\n";
 		return 0;
 	}
 
@@ -7950,6 +8436,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpResourceFactory", TestCSharpResourceFactory);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpImporter") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpImporter", TestCSharpImporter);
+	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{
 		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
@@ -7996,6 +8486,9 @@ int main(int argc, char* argv[])
 		// csharp-reverse-interface-binding 8.1：第 20 用例。同样要用 C#，必须排在
 		// `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
 		runTestWithDiagnostics("TestCSharpResourceFactory", TestCSharpResourceFactory);
+		// resource-importer-refactor 4.2：第 21 用例。同样要用 C#，必须排在
+		// `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
+		runTestWithDiagnostics("TestCSharpImporter", TestCSharpImporter);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}

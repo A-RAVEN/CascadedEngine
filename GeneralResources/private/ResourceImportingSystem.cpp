@@ -30,103 +30,74 @@ namespace resource_management
 			m_ResourceManagingSystem = pModuleManager->GetInstance<ResourceManagingSystem>();
 		}
 
-		virtual void AddImporter(ResourceImporterBase* importer) override
-		{
-			auto postfix = importer->GetSourceFilePostfix();
-			if(m_PostfixToImporterIndex.find(postfix) == m_PostfixToImporterIndex.end())
-			{
-				m_PostfixToImporterIndex[postfix] = m_Importers.size();
-				m_Importers.push_back(importer);
-			}
-		}
-
-		virtual void AddImporter(ResourceImporterFree* importer) override
+		virtual void AddImporter(ResourceImporter* importer) override
 		{
 			if (importer == nullptr)
 				return;
-			m_GeneralImporters.push_back(importer);
+			m_ResourceImporters.push_back(importer);
 		}
 
 		virtual void ScanSourceDirectory(const castl::string& sourceDirectory) override
 		{
-			path rootPath(sourceDirectory, cafs::path::format::generic_format);
-			castl::filesystem::path targetRootPath = m_ResourceManagingSystem->GetResourceRootPath();
+			path callerSourceRoot(sourceDirectory, cafs::path::format::generic_format);
+			path callerDestRoot(m_ResourceManagingSystem->GetResourceRootPath()
+				, cafs::path::format::generic_format);
 
-			for (ResourceImporterFree* importer : m_GeneralImporters)
+			if (!exists(callerSourceRoot))
 			{
-				importer->ImportResource(m_ResourceManagingSystem, rootPath, targetRootPath);
+				// 源目录不存在也**不早退**：导入器可以有自己的根 / 回退，产出照样要注册、照样要落盘。
+				CA_LOG_WARN("ScanSourceDirectory：源目录不存在 {}（导入器仍会尝试自己声明的根）"
+					, callerSourceRoot.generic_string());
 			}
 
-			if(!exists(rootPath))
+			for (ResourceImporter* importer : m_ResourceImporters)
 			{
-				return;
-			}
-			m_ReservedSpace.resize(m_Importers.size());
-			m_ImportingResources.resize(m_Importers.size());
-			castl::fill(m_ReservedSpace.begin(), m_ReservedSpace.end(), 0);
-			for (auto& strVec : m_ImportingResources)
-			{
-				strVec.clear();
-			}
-			for(auto& p : recursive_directory_iterator(rootPath))
-			{
-				if(p.is_regular_file())
+				// 源 / 目标根：导入器声明了就用它，否则用这次扫描传入的（声明空 = 跟随）。
+				castl::string const declaredSource = importer->GetSourceDirectory();
+				path sourceRoot = declaredSource.empty()
+					? callerSourceRoot
+					: path(declaredSource, cafs::path::format::generic_format);
+				castl::string const declaredDest = importer->GetDestDirectory();
+				path destRoot = declaredDest.empty()
+					? callerDestRoot
+					: path(declaredDest, cafs::path::format::generic_format);
+				// 原生导入器从这里读有效根（C# 反向实现读不到，必须自己声明目录）。
+				importer->SetScanDirectories(sourceRoot.generic_string(), destRoot.generic_string());
+
+				// 拉取式：先拿迭代器，再逐条 HasNext → (NextPath, NextResource)。
+				// 迭代器归管线所有（C# 反向实现的代理在析构里放掉托管保活，与 CreateResource 同构）。
+				castl::shared_ptr<ResourceImporterProductions> productions(
+					importer->Produce(),
+					[](ResourceImporterProductions* releasedProductions) { delete releasedProductions; });
+				if (!productions)
 				{
-					auto postfix = p.path().extension().generic_string();
-					auto found = m_PostfixToImporterIndex.find(postfix);
-					if(found != m_PostfixToImporterIndex.end())
+					CA_LOG_WARN("ScanSourceDirectory：导入器没有交出产出迭代器（标签 {}）", importer->GetTags());
+					continue;
+				}
+				while (productions->HasNext())
+				{
+					castl::string const relativePath = productions->NextPath();
+					IResource* produced = productions->NextResource();
+					if (produced == nullptr)
 					{
-						auto importer = m_Importers[found->second];
-
-						auto relativePath = castl::filesystem::relative(p.path(), rootPath);
-						relativePath.replace_extension(importer->GetDestFilePostfix());
-						//relativePath.replace_extension("");
-						auto destPath = targetRootPath / relativePath;
-
-						bool needImport = true;
-						if (castl::filesystem::exists(destPath))
-						{
-							bool hasFile = true;
-							auto targetTime = castl::filesystem::last_write_time(destPath);
-							if (!destPath.has_extension())
-							{
-								hasFile = false;
-								using Entry = castl::filesystem::directory_entry;
-								for (Entry const& entry : castl::filesystem::directory_iterator(destPath))
-								{
-									hasFile = true;
-									targetTime = targetTime < entry.last_write_time() ? targetTime : entry.last_write_time();
-								}
-							}
-
-							needImport = (!hasFile) || targetTime < p.last_write_time();
-						}
-						if (needImport)
-						{
-							++m_ReservedSpace[found->second];
-							m_ImportingResources[found->second].push_back(castl::make_pair(p.path(), relativePath));
-						}
+						throw resource_creation_error("导入器产出了空资源（路径 " + relativePath +
+							"，标签 " + importer->GetTags() + "）");
 					}
+					// 单一强所有者：注册表里这一份 shared_ptr（与 CreateResource 逐字同构）。
+					castl::shared_ptr<IResource> resource(produced,
+						[](IResource* releasedObj) { delete releasedObj; });
+					// 重导入替换：先放掉同路径的旧条目再注册。MUST NOT 依赖 RegisterResource 的
+					// get_or_create —— 那会把旧对象静默留下来，重扫之后消费者仍拿到旧库。
+					m_ResourceManagingSystem->ReleaseResource(relativePath);
+					m_ResourceManagingSystem->RegisterResource(relativePath, resource);
 				}
 			}
-			for (size_t i = 0; i < m_Importers.size(); ++i)
-			{
-				for(uint32_t itrResource = 0; itrResource < m_ReservedSpace[i]; ++itrResource)
-				{
-					m_Importers[i]->ImportResource(m_ResourceManagingSystem
-						, m_ImportingResources[i][itrResource].first.generic_string()
-						, m_ImportingResources[i][itrResource].second.generic_string());
-				}
-			}
+			// 无论源目录在不在、导入器有没有产出：本轮的注册内容都要落盘（旧路径的早退曾跳过这里）。
 			m_ResourceManagingSystem->SerializeAll();
 		}
 	private:
-		castl::unordered_map<castl::string, uint32_t> m_PostfixToImporterIndex;
-		castl::vector<ResourceImporterFree*> m_GeneralImporters;
-		castl::vector<ResourceImporterBase*> m_Importers;
-		castl::vector<size_t> m_ReservedSpace;
-		castl::vector<castl::vector<castl::pair<castl::filesystem::path, castl::filesystem::path>>> m_ImportingResources;
-		ResourceManagingSystem* m_ResourceManagingSystem;
+		castl::vector<ResourceImporter*> m_ResourceImporters;
+		ResourceManagingSystem* m_ResourceManagingSystem = nullptr;
 	};
 
 	class ResourceManagingSystem_Impl : public ResourceManagingSystem

@@ -1049,13 +1049,13 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 python Tools/CodeGen/check_bindable_audit.py
 ```
 ```
-扫描 8 个接口、对账 91 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+扫描 13 个接口、对账 105 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
 [exit 0]
 ```
 
 **已知限制（醒目）**：
 
-- 审计范围现在是 8 个接口（`CRenderBackend` / `IReadbackToken` / `GPUGraph` / `ShaderStruct` / `GPUTexture` / `WindowHandle` / `IWindow` / `IWindowSystem`），合计 91 条公开方法。口径是"进入绑定面的公开方法"（含非纯虚 virtual 与非虚公开方法；模板方法只在同文件有 `CA_BIND_INSTANTIATE` 声明时按一行计）。**过渡期桥五个接口的 28 条方法随 `csharp-native-direct-binding` 5.1 退役移出审计面**（行同时删除，不是放过）。汇总数字必须与头文件实算一致、重复行会让脚本非零。
+- 审计范围现在是 13 个接口（`CRenderBackend` / `IReadbackToken` / `GPUGraph` / `ShaderStruct` / `GPUTexture` / `WindowHandle` / `GPUBuffer` / `IWindow` / `IWindowSystem` / `IResource` / `IResourceFactory` / `ResourceImporter` / `ResourceImporterProductions`），合计 105 条公开方法。口径是"进入绑定面的公开方法"（含非纯虚 virtual 与非虚公开方法；模板方法只在同文件有 `CA_BIND_INSTANTIATE` 声明时按一行计）。**过渡期桥五个接口的 28 条方法随 `csharp-native-direct-binding` 5.1 退役移出审计面**（行同时删除，不是放过）。汇总数字必须与头文件实算一致、重复行会让脚本非零。
   `GPUGraph` / `IMGUIContext` / `IOBatch` / `WBatch` / `IShaderCompiler` **尚未审计** —— 每帧热路径恰恰在这几个上面，所以"需快路"清单目前是**空的**（不是规则失效）。
 - 脚本按**公开方法名**对账（含非纯虚 virtual 与非虚公开方法；模板按 `CA_BIND_INSTANTIATE` 计），**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
 - 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。
@@ -1181,6 +1181,15 @@ CodeGen.exe Tools/CodeGen/BindableShapes.Reverse.h --emit-binding --out-dir .rev
 绑定：接口 1 个 / 方法 4 条 / 产物 1 个 / 拒绝 0 条
 [exit 0]
 ```
+
+**已落地的反向接口（4 个，都在宿主登记表里）**：`resource_management::IResource`（C# 覆写
+`byte[] Serialize()`；`Deserialize` 被 `CA_BIND_SKIP` 排除）、`resource_management::IResourceFactory`
+（C# 覆写 `GetResourceType()` / `ResourceBase Create()`）、`resource_management::ResourceImporter` 与
+`resource_management::ResourceImporterProductions`（导入器，`resource-importer-refactor` 起）。后两个
+是**拉取式**：`ResourceImporter::Produce()` 返回另一个反向接口的裸指针（上面第 ④ 种形状），管线逐条
+问 `ResourceImporterProductions::HasNext()` 再取 `NextPath()` / `NextResource()`；导入器只产对象、
+不注册，注册由资源管线做。**这一批没有新增任何形状**（四种形状清单一个字没动）：反向形参仍然只支持
+标量，所以"把收集器当形参传进来"的 push 形态不在支持范围 —— 需要多产出时用返回迭代器这种拉取形态。
 
 ### 两张矩阵
 
