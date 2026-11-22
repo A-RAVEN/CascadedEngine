@@ -1,3 +1,31 @@
+// editor-window-panel 3.1：进程内最小 WebSocket 客户端（Winsock 手写 RFC6455 客户端握手 + 掩码文本帧，
+// 零新依赖）。`winsock2.h` 必须先于 `windows.h`，否则 windows.h 会先拉进 winsock1 的声明、两边冲突；
+// 链接用 `#pragma comment` 补齐（0.1⑤ 实测 CMakeLists/build.ninja 里没有 ws2_32）。
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+// editor-window-panel 3.2 ⑩：桌面验证的第二条捕获通道 —— DXGI Desktop Duplication 能抓到
+// independent-flip 交换链真实上屏内容（屏幕 DC 的 BitBlt 在 flip 呈现下可能只抓到窗口背景）。
+#include <d3d11.h>
+#include <dxgi1_2.h>
+#include <dwmapi.h>
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dwmapi.lib")
+// editor-window-panel 3.2 ⑩ 主通道：Windows.Graphics.Capture（按窗口抓内容，不依赖桌面变化，
+// 也不依赖 BitBlt 能否看到 flip 呈现）。C++/WinRT 头随 Windows SDK 提供（INCLUDE 已含 cppwinrt）。
+#include <mutex>
+#include <atomic>
+#include <memory>
+#include <winrt/base.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Graphics.h>
+#include <winrt/Windows.Graphics.Capture.h>
+#include <winrt/Windows.Graphics.DirectX.h>
+#include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
+#include <windows.graphics.capture.interop.h>
+#include <windows.graphics.directx.direct3d11.interop.h>
+#pragma comment(lib, "windowsapp.lib")
 #include<mimalloc.h>
 #include <ScriptHost/IScriptHost.h>
 #include <cstdlib>
@@ -1915,6 +1943,63 @@ namespace
 		return out->found;
 	}
 
+	// 从本次用例自己的日志里读 `[编辑器 读数] probe=editor ...` 行（editor-window-panel 1.2）：
+	// 与上面的渲染读数同一套做法，只是标记行是编辑器自己的读数行。
+	bool ReadEditorReadings(char const* logPath, HostProbeReadings* out)
+	{
+		std::fflush(stdout);
+		std::ifstream file(logPath);
+		if (!file)
+		{
+			return false;
+		}
+		const std::string marker = " probe=editor ";
+		std::string line;
+		out->found = false;
+		while (std::getline(file, line))
+		{
+			if (line.find("[编辑器 读数]") == std::string::npos || line.find(marker) == std::string::npos)
+			{
+				continue;
+			}
+			out->found = true;
+			out->values.clear();
+			out->reject.clear();
+			std::istringstream stream(line);
+			std::string token;
+			while (stream >> token)
+			{
+				const std::size_t eq = token.find('=');
+				if (eq == std::string::npos)
+				{
+					continue;
+				}
+				out->values[token.substr(0, eq)] = token.substr(eq + 1);
+			}
+		}
+		return out->found;
+	}
+
+	// 在本次用例自己的日志里找一行子串（M3：监听线程入队标记；M14/M11：服务禁用/关闭标记）。
+	bool LogContains(char const* logPath, std::string const& needle)
+	{
+		std::fflush(stdout);
+		std::ifstream file(logPath);
+		if (!file)
+		{
+			return false;
+		}
+		std::string line;
+		while (std::getline(file, line))
+		{
+			if (line.find(needle) != std::string::npos)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	// 句柄 = (代际 << 48) | 序号；测试进程里**没有**生成产物的句柄表（它在 CSharpHost 模块里），
 	// 所以对象的核对走另一个口：托管读数行给出图的原生对象地址（对象由 C# 租约与图内引用保活），
 	// 再用图里的附件 `ImageHandle` 拿到离屏纹理与窗口后台缓冲的 `shared_ptr` —— 与 C# 侧提交的
@@ -3355,6 +3440,2414 @@ void TestCSharpTextureSampling(TestContext& ctx)
 	       expectedClearColor[0], expectedClearColor[1], expectedClearColor[2], expectedClearColor[3]);
 }
 
+// ---- editor-window-panel 3.1 / 3.2：进程内最小 WebSocket 客户端与像素/屏幕捕获助手 ----
+// 全部自带，零新依赖：Winsock 手写 RFC6455（客户端握手 + 掩码文本帧）；像素读回走既有
+// `ctx.pGPUBackend->Readback`（只读离屏捕获纹理，不碰已呈现的 swapchain backbuffer —— D12）。
+namespace
+{
+	bool WsEnsureWinsock(std::string& error)
+	{
+		static bool started = false;
+		static std::string startupError;
+		if (started)
+		{
+			return true;
+		}
+		if (!startupError.empty())
+		{
+			error = startupError;
+			return false;
+		}
+		WSADATA data{};
+		const int code = ::WSAStartup(MAKEWORD(2, 2), &data);
+		if (code != 0)
+		{
+			startupError = "WSAStartup 失败：" + std::to_string(code);
+			error = startupError;
+			return false;
+		}
+		started = true;
+		return true;
+	}
+
+	class WsClient
+	{
+	public:
+		~WsClient() { Close(); }
+
+		bool Connect(int port, std::string& error)
+		{
+			Close();
+			if (!WsEnsureWinsock(error))
+			{
+				return false;
+			}
+			m_socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			if (m_socket == INVALID_SOCKET)
+			{
+				error = "socket() 失败：" + std::to_string(::WSAGetLastError());
+				return false;
+			}
+			sockaddr_in address{};
+			address.sin_family = AF_INET;
+			address.sin_port = ::htons(static_cast<u_short>(port));
+			::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+			if (::connect(m_socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR)
+			{
+				error = "connect 127.0.0.1:" + std::to_string(port) + " 失败：" +
+					std::to_string(::WSAGetLastError());
+				Close();
+				return false;
+			}
+			const char* key = "dGhlIHNhbXBsZSBub25jZQ==";
+			char request[512] = {};
+			std::snprintf(request, sizeof(request),
+				"GET /ws HTTP/1.1\r\nHost: localhost:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+				"Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n", port, key);
+			if (!SendAll(request, std::strlen(request), error))
+			{
+				Close();
+				return false;
+			}
+			std::string response;
+			char byte = 0;
+			while (response.find("\r\n\r\n") == std::string::npos)
+			{
+				if (!RecvExact(&byte, 1, 5000, error))
+				{
+					Close();
+					return false;
+				}
+				response.push_back(byte);
+				if (response.size() > 16384)
+				{
+					error = "WebSocket 握手响应头过长";
+					Close();
+					return false;
+				}
+			}
+			if (response.find(" 101 ") == std::string::npos)
+			{
+				error = "WebSocket 握手失败（响应不是 101）：" + response.substr(0, 160);
+				Close();
+				return false;
+			}
+			return true;
+		}
+
+		bool SendText(std::string const& text, std::string& error)
+		{
+			std::vector<unsigned char> frame;
+			frame.push_back(0x81); // FIN + 文本帧
+			const size_t length = text.size();
+			if (length < 126)
+			{
+				frame.push_back(static_cast<unsigned char>(0x80 | length));
+			}
+			else if (length <= 0xFFFF)
+			{
+				frame.push_back(static_cast<unsigned char>(0x80 | 126));
+				frame.push_back(static_cast<unsigned char>((length >> 8) & 0xFF));
+				frame.push_back(static_cast<unsigned char>(length & 0xFF));
+			}
+			else
+			{
+				frame.push_back(static_cast<unsigned char>(0x80 | 127));
+				for (int shift = 7; shift >= 0; --shift)
+				{
+					frame.push_back(static_cast<unsigned char>((static_cast<uint64_t>(length) >> (8 * shift)) & 0xFF));
+				}
+			}
+			const unsigned char mask[4] = { 0x37, 0xFA, 0x21, 0x3D };
+			frame.insert(frame.end(), mask, mask + 4);
+			for (size_t index = 0; index < length; ++index)
+			{
+				frame.push_back(static_cast<unsigned char>(text[index]) ^ mask[index % 4]);
+			}
+			return SendAll(reinterpret_cast<const char*>(frame.data()), frame.size(), error);
+		}
+
+		// 收一条完整文本消息；超时返回 false 且 error 里含"超时"（调用方据此推进主循环）。
+		bool ReceiveText(std::string& out, int timeoutMs, std::string& error)
+		{
+			out.clear();
+			for (;;)
+			{
+				unsigned char header[2] = {};
+				if (!RecvExact(reinterpret_cast<char*>(header), 2, timeoutMs, error))
+				{
+					return false;
+				}
+				const bool finalFrame = (header[0] & 0x80) != 0;
+				const int opcode = header[0] & 0x0F;
+				const bool masked = (header[1] & 0x80) != 0;
+				uint64_t length = header[1] & 0x7F;
+				if (length == 126)
+				{
+					unsigned char extended[2] = {};
+					if (!RecvExact(reinterpret_cast<char*>(extended), 2, timeoutMs, error))
+					{
+						return false;
+					}
+					length = (static_cast<uint64_t>(extended[0]) << 8) | extended[1];
+				}
+				else if (length == 127)
+				{
+					unsigned char extended[8] = {};
+					if (!RecvExact(reinterpret_cast<char*>(extended), 8, timeoutMs, error))
+					{
+						return false;
+					}
+					length = 0;
+					for (int index = 0; index < 8; ++index)
+					{
+						length = (length << 8) | extended[index];
+					}
+				}
+				unsigned char mask[4] = {};
+				if (masked && !RecvExact(reinterpret_cast<char*>(mask), 4, timeoutMs, error))
+				{
+					return false;
+				}
+				std::vector<unsigned char> payload(static_cast<size_t>(length));
+				if (length != 0 && !RecvExact(reinterpret_cast<char*>(payload.data()),
+					static_cast<size_t>(length), timeoutMs, error))
+				{
+					return false;
+				}
+				if (masked)
+				{
+					for (size_t index = 0; index < payload.size(); ++index)
+					{
+						payload[index] ^= mask[index % 4];
+					}
+				}
+				if (opcode == 0x8)
+				{
+					error = "服务端关闭了连接";
+					return false;
+				}
+				if (opcode == 0x9 || opcode == 0xA)
+				{
+					continue; // ping/pong：本测试的服务端不发，忽略即可
+				}
+				out.append(reinterpret_cast<const char*>(payload.data()), payload.size());
+				if (finalFrame)
+				{
+					return true;
+				}
+			}
+		}
+
+		void Close()
+		{
+			if (m_socket != INVALID_SOCKET)
+			{
+				::closesocket(m_socket);
+				m_socket = INVALID_SOCKET;
+			}
+		}
+
+	private:
+		bool SendAll(const char* data, size_t length, std::string& error)
+		{
+			size_t sent = 0;
+			while (sent < length)
+			{
+				const int written = ::send(m_socket, data + sent, static_cast<int>(length - sent), 0);
+				if (written <= 0)
+				{
+					error = "send() 失败：" + std::to_string(::WSAGetLastError());
+					return false;
+				}
+				sent += static_cast<size_t>(written);
+			}
+			return true;
+		}
+
+		bool RecvExact(char* data, size_t length, int timeoutMs, std::string& error)
+		{
+			size_t received = 0;
+			while (received < length)
+			{
+				fd_set readSet;
+				FD_ZERO(&readSet);
+				FD_SET(m_socket, &readSet);
+				timeval timeout{ timeoutMs / 1000, (timeoutMs % 1000) * 1000 };
+				const int ready = ::select(0, &readSet, nullptr, nullptr, &timeout);
+				if (ready == 0)
+				{
+					error = "接收超时（" + std::to_string(timeoutMs) + " ms）";
+					return false;
+				}
+				if (ready == SOCKET_ERROR)
+				{
+					error = "select() 失败：" + std::to_string(::WSAGetLastError());
+					return false;
+				}
+				const int got = ::recv(m_socket, data + received, static_cast<int>(length - received), 0);
+				if (got <= 0)
+				{
+					error = "连接已关闭（recv=" + std::to_string(got) + "）";
+					return false;
+				}
+				received += static_cast<size_t>(got);
+			}
+			return true;
+		}
+
+		SOCKET m_socket = INVALID_SOCKET;
+	};
+
+	// 服务端用 System.Text.Json 紧凑序列化，token 形状固定；判据只认这些 token。
+	bool JsonHas(std::string const& text, char const* token)
+	{
+		return text.find(token) != std::string::npos;
+	}
+
+	bool JsonIsResult(std::string const& text)
+	{
+		return text.find("\"type\":\"result\"") != std::string::npos;
+	}
+
+	bool JsonIsEvent(std::string const& text, char const* name)
+	{
+		return text.find("\"type\":\"event\"") != std::string::npos &&
+			text.find(std::string("\"event\":\"") + name + "\"") != std::string::npos;
+	}
+
+	int JsonRequestId(std::string const& text)
+	{
+		const std::string key = "\"requestId\":";
+		const std::size_t at = text.find(key);
+		if (at == std::string::npos)
+		{
+			return -1;
+		}
+		return std::atoi(text.c_str() + at + key.size());
+	}
+
+	std::string JsonErrorCode(std::string const& text)
+	{
+		const std::string key = "\"code\":\"";
+		const std::size_t at = text.find(key);
+		if (at == std::string::npos)
+		{
+			return std::string();
+		}
+		const std::size_t begin = at + key.size();
+		const std::size_t end = text.find('"', begin);
+		return end == std::string::npos ? std::string() : text.substr(begin, end - begin);
+	}
+
+	struct Rect4
+	{
+		int x = 0;
+		int y = 0;
+		int w = 0;
+		int h = 0;
+	};
+
+	bool ParseRect(std::string const& text, Rect4& out)
+	{
+		return std::sscanf(text.c_str(), "%d,%d,%d,%d", &out.x, &out.y, &out.w, &out.h) == 4;
+	}
+
+	bool ParseSize(std::string const& text, int& width, int& height)
+	{
+		return std::sscanf(text.c_str(), "%dx%d", &width, &height) == 2;
+	}
+
+	// 等一条指定 requestId 的 result：期间交替"短暂收包 + 推进一帧主循环"；事件收进 events。
+	bool PumpUntilResult(cs_script::IScriptHost* host, TestContext& ctx, WsClient& client, int requestId,
+		std::string& result, std::vector<std::string>& events, int timeoutMs)
+	{
+		const auto startedAt = std::chrono::steady_clock::now();
+		while (true)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > timeoutMs)
+			{
+				return false;
+			}
+			std::string message;
+			std::string receiveError;
+			if (client.ReceiveText(message, 50, receiveError))
+			{
+				if (JsonIsResult(message) && JsonRequestId(message) == requestId)
+				{
+					result = message;
+					return true;
+				}
+				events.push_back(message);
+				continue;
+			}
+			if (receiveError.find("超时") == std::string::npos)
+			{
+				return false;
+			}
+			host->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+		}
+	}
+
+	// 纯 socket 的 HTTP GET（用于"资源缺失错误页 / 正常页面"读数）。
+	bool HttpGet(int port, std::string const& path, int& status, std::string& body, std::string& error)
+	{
+		if (!WsEnsureWinsock(error))
+		{
+			return false;
+		}
+		SOCKET socketHandle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (socketHandle == INVALID_SOCKET)
+		{
+			error = "socket() 失败：" + std::to_string(::WSAGetLastError());
+			return false;
+		}
+		sockaddr_in address{};
+		address.sin_family = AF_INET;
+		address.sin_port = ::htons(static_cast<u_short>(port));
+		::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+		if (::connect(socketHandle, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR)
+		{
+			error = "connect 失败：" + std::to_string(::WSAGetLastError());
+			::closesocket(socketHandle);
+			return false;
+		}
+		char request[512] = {};
+		std::snprintf(request, sizeof(request),
+			"GET %s HTTP/1.1\r\nHost: localhost:%d\r\nConnection: close\r\n\r\n", path.c_str(), port);
+		std::string raw;
+		if (::send(socketHandle, request, static_cast<int>(std::strlen(request)), 0) <= 0)
+		{
+			error = "send 失败";
+			::closesocket(socketHandle);
+			return false;
+		}
+		char buffer[4096];
+		for (;;)
+		{
+			fd_set readSet;
+			FD_ZERO(&readSet);
+			FD_SET(socketHandle, &readSet);
+			timeval timeout{ 5, 0 };
+			const int ready = ::select(0, &readSet, nullptr, nullptr, &timeout);
+			if (ready <= 0)
+			{
+				break;
+			}
+			const int got = ::recv(socketHandle, buffer, sizeof(buffer), 0);
+			if (got <= 0)
+			{
+				break;
+			}
+			raw.append(buffer, static_cast<size_t>(got));
+		}
+		::closesocket(socketHandle);
+		const std::size_t headerEnd = raw.find("\r\n\r\n");
+		if (headerEnd == std::string::npos)
+		{
+			error = "HTTP 响应不完整";
+			return false;
+		}
+		const std::string header = raw.substr(0, headerEnd);
+		if (header.find("HTTP/1.1 ") != 0)
+		{
+			error = "HTTP 状态行格式不符：" + header.substr(0, 64);
+			return false;
+		}
+		status = std::atoi(header.c_str() + std::strlen("HTTP/1.1 "));
+		body = raw.substr(headerEnd + 4);
+		return true;
+	}
+
+	bool DesktopSessionAvailable()
+	{
+		HDESK desktop = ::OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
+		if (desktop == nullptr)
+		{
+			return false;
+		}
+		::CloseDesktop(desktop);
+		return true;
+	}
+
+	// 从屏幕 DC 的 (screenX, screenY) 抓 1 个像素（D12：OS 级屏幕捕获，不读 backbuffer）。
+	bool CaptureScreenPixel(int screenX, int screenY, unsigned char outRgba[4], std::string& error)
+	{
+		HDC screen = ::GetDC(nullptr);
+		if (screen == nullptr)
+		{
+			error = "GetDC(NULL) 失败（没有 desktop 会话？）";
+			return false;
+		}
+		HDC memory = ::CreateCompatibleDC(screen);
+		HBITMAP bitmap = ::CreateCompatibleBitmap(screen, 1, 1);
+		HGDIOBJ oldObject = ::SelectObject(memory, bitmap);
+		bool ok = ::BitBlt(memory, 0, 0, 1, 1, screen, screenX, screenY, SRCCOPY) != 0;
+		unsigned char pixel[4] = { 0, 0, 0, 0 };
+		BITMAPINFO info{};
+		info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		info.bmiHeader.biWidth = 1;
+		info.bmiHeader.biHeight = -1;
+		info.bmiHeader.biPlanes = 1;
+		info.bmiHeader.biBitCount = 32;
+		info.bmiHeader.biCompression = BI_RGB;
+		if (ok)
+		{
+			ok = ::GetDIBits(memory, bitmap, 0, 1, pixel, &info, DIB_RGB_COLORS) != 0;
+		}
+		::SelectObject(memory, oldObject);
+		::DeleteObject(bitmap);
+		::DeleteDC(memory);
+		::ReleaseDC(nullptr, screen);
+		if (!ok)
+		{
+			error = "屏幕捕获失败（BitBlt/GetDIBits）";
+			return false;
+		}
+		outRgba[0] = pixel[2]; // DIB 是 BGRA，转 RGBA
+		outRgba[1] = pixel[1];
+		outRgba[2] = pixel[0];
+		outRgba[3] = pixel[3];
+		return true;
+	}
+
+	// 屏幕捕获前把本进程其它可见顶层窗口藏起来（测试自己建的主机窗/脚本常驻窗可能压在目标窗口上，
+	// 用 SetForegroundWindow 不一定能提到前面）。只影响本进程窗口，跑完 RestoreAll 还原。
+	struct OtherWindowHider
+	{
+		std::vector<HWND> Hidden;
+
+		void HideAllExcept(HWND keep)
+		{
+			Hidden.clear();
+			Params params{ this, keep };
+			::EnumWindows(&OtherWindowHider::EnumProc, reinterpret_cast<LPARAM>(&params));
+		}
+
+		void RestoreAll()
+		{
+			for (HWND window : Hidden)
+			{
+				::ShowWindow(window, SW_SHOW);
+			}
+			Hidden.clear();
+		}
+
+	private:
+		struct Params
+		{
+			OtherWindowHider* Self;
+			HWND Keep;
+		};
+
+		static BOOL CALLBACK EnumProc(HWND window, LPARAM param)
+		{
+			Params* params = reinterpret_cast<Params*>(param);
+			DWORD processId = 0;
+			::GetWindowThreadProcessId(window, &processId);
+			if (processId != ::GetCurrentProcessId() || window == params->Keep)
+			{
+				return TRUE;
+			}
+			if (!::IsWindowVisible(window) || ::IsIconic(window))
+			{
+				return TRUE;
+			}
+			::ShowWindow(window, SW_HIDE);
+			params->Self->Hidden.push_back(window);
+			return TRUE;
+		}
+	};
+
+	UINT WindowDpi(HWND hwnd)
+	{
+		typedef UINT(WINAPI* GetDpiForWindowFn)(HWND);
+		HMODULE user32 = ::GetModuleHandleA("user32.dll");
+		auto getDpi = user32 == nullptr
+			? nullptr
+			: reinterpret_cast<GetDpiForWindowFn>(::GetProcAddress(user32, "GetDpiForWindow"));
+		return getDpi == nullptr ? 0u : getDpi(hwnd);
+	}
+
+	// 把整个窗口客户区从屏幕 DC 抓下来存 PNG（诊断用：看"屏幕捕获到底抓到了什么"）。
+	bool SaveClientAreaPng(HWND hwnd, std::string const& path, int& outWidth, int& outHeight, std::string& error)
+	{
+		RECT client{};
+		if (!::GetClientRect(hwnd, &client))
+		{
+			error = "GetClientRect 失败";
+			return false;
+		}
+		outWidth = client.right - client.left;
+		outHeight = client.bottom - client.top;
+		if (outWidth <= 0 || outHeight <= 0)
+		{
+			error = "客户区尺寸为空";
+			return false;
+		}
+		POINT origin{ 0, 0 };
+		if (!::ClientToScreen(hwnd, &origin))
+		{
+			error = "ClientToScreen 失败";
+			return false;
+		}
+		HDC screen = ::GetDC(nullptr);
+		if (screen == nullptr)
+		{
+			error = "GetDC(NULL) 失败";
+			return false;
+		}
+		HDC memory = ::CreateCompatibleDC(screen);
+		HBITMAP bitmap = ::CreateCompatibleBitmap(screen, outWidth, outHeight);
+		HGDIOBJ oldObject = ::SelectObject(memory, bitmap);
+		const BOOL copied = ::BitBlt(memory, 0, 0, outWidth, outHeight, screen, origin.x, origin.y, SRCCOPY);
+		std::vector<uint8_t> rgba(static_cast<size_t>(outWidth) * static_cast<size_t>(outHeight) * 4u, 0);
+		bool ok = copied != 0;
+		if (ok)
+		{
+			BITMAPINFO info{};
+			info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+			info.bmiHeader.biWidth = outWidth;
+			info.bmiHeader.biHeight = -outHeight; // 自上而下，stbi 按行写
+			info.bmiHeader.biPlanes = 1;
+			info.bmiHeader.biBitCount = 32;
+			info.bmiHeader.biCompression = BI_RGB;
+			ok = ::GetDIBits(memory, bitmap, 0, static_cast<UINT>(outHeight), rgba.data(), &info,
+			                 DIB_RGB_COLORS) != 0;
+			if (ok)
+			{
+				for (size_t index = 0; index + 3 < rgba.size(); index += 4)
+				{
+					const uint8_t blue = rgba[index];
+					rgba[index] = rgba[index + 2];
+					rgba[index + 2] = blue;
+					rgba[index + 3] = 255;
+				}
+			}
+		}
+		::SelectObject(memory, oldObject);
+		::DeleteObject(bitmap);
+		::DeleteDC(memory);
+		::ReleaseDC(nullptr, screen);
+		if (!ok)
+		{
+			error = "BitBlt/GetDIBits 失败";
+			return false;
+		}
+		if (stbi_write_png(path.c_str(), outWidth, outHeight, 4, rgba.data(), outWidth * 4) == 0)
+		{
+			error = "stbi_write_png 失败";
+			return false;
+		}
+		return true;
+	}
+
+	std::string HexHresult(HRESULT result)
+	{
+		char buffer[32] = {};
+		std::snprintf(buffer, sizeof(buffer), "0x%08lX", static_cast<unsigned long>(result));
+		return std::string(buffer);
+	}
+
+	LRESULT CALLBACK CaptureStimulusProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+	{
+		return ::DefWindowProcW(window, message, wParam, lParam);
+	}
+
+	// 抓屏刺激窗口：64×64 无边框弹窗，抓帧期间用 GDI 交替刷红/蓝，让 DWM 持续产出新帧
+	//（桌面复制的 AcquireNextFrame 只在桌面内容变化时返回）。
+	HWND CreateCaptureStimulusWindow(int size)
+	{
+		const wchar_t* className = L"CascadedEditorCaptureStimulus";
+		static bool registered = false;
+		HINSTANCE instance = ::GetModuleHandleW(nullptr);
+		if (!registered)
+		{
+			WNDCLASSEXW windowClass{};
+			windowClass.cbSize = sizeof(windowClass);
+			windowClass.lpfnWndProc = CaptureStimulusProc;
+			windowClass.hInstance = instance;
+			windowClass.lpszClassName = className;
+			// 刺激窗口只用来制造桌面更新，不需要光标；不写 hCursor 也避免 IDC_ARROW 的
+			// ANSI/UNICODE 宏在个别包含顺序下解析成 LPSTR（实测 C2664）。
+			windowClass.hCursor = nullptr;
+			if (::RegisterClassExW(&windowClass) == 0 && ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+			{
+				return nullptr;
+			}
+			registered = true;
+		}
+		return ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST, className,
+			L"capture-stimulus", WS_POPUP | WS_VISIBLE, 0, 0, size, size, nullptr, nullptr, instance, nullptr);
+	}
+
+	// 用 DXGI Desktop Duplication 抓真实桌面输出（含 independent-flip 交换链）上的一点。
+	// 用途（editor-window-panel 3.2 ⑩）：屏幕 DC 的 BitBlt 在 flip 呈现下可能只抓到窗口背景（白），
+	// 这条通道拿到的是 DWM 真实合成输出；判据仍是"视口中心是三角形红"，不放松。
+	bool CaptureDesktopPixelDxgi(int screenX, int screenY, HWND stimulusWindow, unsigned char outRgba[4],
+		std::string& error, int acquireAttempts = 20, int acquireTimeoutMs = 200)
+	{
+		ID3D11Device* device = nullptr;
+		ID3D11DeviceContext* context = nullptr;
+		D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+		HRESULT result = ::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+			D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &device, &featureLevel, &context);
+		if (FAILED(result) || device == nullptr)
+		{
+			error = "D3D11CreateDevice 失败：" + HexHresult(result);
+			return false;
+		}
+		IDXGIDevice* dxgiDevice = nullptr;
+		IDXGIAdapter* adapter = nullptr;
+		IDXGIOutput* output = nullptr;
+		IDXGIOutput1* output1 = nullptr;
+		IDXGIOutputDuplication* duplication = nullptr;
+		bool success = false;
+		do
+		{
+			result = device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice));
+			if (FAILED(result) || dxgiDevice == nullptr)
+			{
+				error = "IDXGIDevice 取不到：" + HexHresult(result);
+				break;
+			}
+			result = dxgiDevice->GetAdapter(&adapter);
+			if (FAILED(result) || adapter == nullptr)
+			{
+				error = "GetAdapter 失败：" + HexHresult(result);
+				break;
+			}
+			DXGI_OUTPUT_DESC outputDesc{};
+			for (UINT index = 0;; ++index)
+			{
+				IDXGIOutput* candidate = nullptr;
+				if (adapter->EnumOutputs(index, &candidate) == DXGI_ERROR_NOT_FOUND || candidate == nullptr)
+				{
+					break;
+				}
+				DXGI_OUTPUT_DESC candidateDesc{};
+				candidate->GetDesc(&candidateDesc);
+				const RECT& rect = candidateDesc.DesktopCoordinates;
+				if (screenX >= rect.left && screenX < rect.right && screenY >= rect.top && screenY < rect.bottom)
+				{
+					output = candidate;
+					outputDesc = candidateDesc;
+					break;
+				}
+				candidate->Release();
+			}
+			if (output == nullptr)
+			{
+				error = "找不到包含采样点的显示器输出";
+				break;
+			}
+			result = output->QueryInterface(__uuidof(IDXGIOutput1), reinterpret_cast<void**>(&output1));
+			if (FAILED(result) || output1 == nullptr)
+			{
+				error = "IDXGIOutput1 取不到：" + HexHresult(result);
+				break;
+			}
+			result = output1->DuplicateOutput(device, &duplication);
+			if (FAILED(result) || duplication == nullptr)
+			{
+				error = "DuplicateOutput 失败：" + HexHresult(result) +
+					"（可能有别的程序正在抓屏，或当前会话不支持桌面复制）";
+				break;
+			}
+			// 诊断读数（请求 K 要求）：DuplicateOutput 的 HRESULT 与选中 output 的桌面坐标，
+			// 用于核对"duplication 抓的是不是窗口所在那块输出"。
+			CA_LOG("[编辑器 测试] ⑩ DXGI 诊断：DuplicateOutput={} desktop=({},{},{},{}) 采样点=({},{}) "
+			       "attached={}",
+			       HexHresult(result).c_str(), outputDesc.DesktopCoordinates.left,
+			       outputDesc.DesktopCoordinates.top, outputDesc.DesktopCoordinates.right,
+			       outputDesc.DesktopCoordinates.bottom, screenX, screenY,
+			       outputDesc.AttachedToDesktop ? 1 : 0);
+			const int localX = screenX - outputDesc.DesktopCoordinates.left;
+			const int localY = screenY - outputDesc.DesktopCoordinates.top;
+			for (int attempt = 0; attempt < acquireAttempts && !success; ++attempt)
+			{
+				// 桌面复制只在桌面内容变化时递帧。同一个 duplication 会话里、每次 Acquire 之前用 GDI 在
+				// 刺激窗口上刷一块交替色，保证 DWM 有持续更新（新建 duplication 后第一次 Acquire 也常超时）。
+				if (stimulusWindow != nullptr)
+				{
+					HDC stimulusDc = ::GetDC(stimulusWindow);
+					if (stimulusDc != nullptr)
+					{
+						RECT stimulusRect{};
+						::GetClientRect(stimulusWindow, &stimulusRect);
+						HBRUSH stimulusBrush =
+							::CreateSolidBrush((attempt % 2 == 0) ? RGB(255, 0, 0) : RGB(0, 0, 255));
+						::FillRect(stimulusDc, &stimulusRect, stimulusBrush);
+						::DeleteObject(stimulusBrush);
+						::ReleaseDC(stimulusWindow, stimulusDc);
+					}
+				}
+				// 光标移动是桌面复制帧的固有部分（比 GDI 刺激更直接）：在采样点附近左右各 1px 移动。
+				::SetCursorPos(screenX + ((attempt % 2 == 0) ? 1 : -1), screenY);
+				::Sleep(30);
+				DXGI_OUTDUPL_FRAME_INFO frameInfo{};
+				IDXGIResource* resource = nullptr;
+				result = duplication->AcquireNextFrame(static_cast<UINT>(acquireTimeoutMs), &frameInfo, &resource);
+				if (result == DXGI_ERROR_WAIT_TIMEOUT)
+				{
+					continue;
+				}
+				if (FAILED(result) || resource == nullptr)
+				{
+					error = "AcquireNextFrame 失败：" + HexHresult(result);
+					break;
+				}
+				ID3D11Texture2D* texture = nullptr;
+				result = resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&texture));
+				if (SUCCEEDED(result) && texture != nullptr)
+				{
+					D3D11_TEXTURE2D_DESC textureDesc{};
+					texture->GetDesc(&textureDesc);
+					D3D11_TEXTURE2D_DESC stagingDesc = textureDesc;
+					stagingDesc.Usage = D3D11_USAGE_STAGING;
+					stagingDesc.BindFlags = 0;
+					stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+					stagingDesc.MiscFlags = 0;
+					stagingDesc.ArraySize = 1;
+					stagingDesc.MipLevels = 1;
+					stagingDesc.SampleDesc.Count = 1;
+					stagingDesc.SampleDesc.Quality = 0;
+					ID3D11Texture2D* staging = nullptr;
+					if (SUCCEEDED(device->CreateTexture2D(&stagingDesc, nullptr, &staging)) && staging != nullptr)
+					{
+						context->CopyResource(staging, texture);
+						D3D11_MAPPED_SUBRESOURCE mapped{};
+						if (SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
+						{
+							if (localX >= 0 && localY >= 0 && localX < static_cast<int>(textureDesc.Width) &&
+								localY < static_cast<int>(textureDesc.Height))
+							{
+								const unsigned char* row = static_cast<const unsigned char*>(mapped.pData) +
+									static_cast<size_t>(localY) * mapped.RowPitch +
+									static_cast<size_t>(localX) * 4u;
+								outRgba[0] = row[2];
+								outRgba[1] = row[1];
+								outRgba[2] = row[0];
+								outRgba[3] = row[3];
+								success = true;
+							}
+							else
+							{
+								error = "采样点不在桌面纹理范围内";
+							}
+							context->Unmap(staging, 0);
+						}
+						else
+						{
+							error = "Map staging 纹理失败";
+						}
+						staging->Release();
+					}
+					else
+					{
+						error = "创建 staging 纹理失败";
+					}
+					texture->Release();
+				}
+				else
+				{
+					error = "桌面资源转 ID3D11Texture2D 失败";
+				}
+				resource->Release();
+				duplication->ReleaseFrame();
+				if (!success)
+				{
+					::Sleep(100);
+				}
+			}
+			if (!success && error.empty())
+			{
+				error = "Desktop Duplication " + std::to_string(acquireAttempts) + " 次尝试内没有可用帧";
+			}
+		} while (false);
+		if (duplication != nullptr)
+		{
+			duplication->Release();
+		}
+		if (output1 != nullptr)
+		{
+			output1->Release();
+		}
+		if (output != nullptr)
+		{
+			output->Release();
+		}
+		if (adapter != nullptr)
+		{
+			adapter->Release();
+		}
+		if (dxgiDevice != nullptr)
+		{
+			dxgiDevice->Release();
+		}
+		if (context != nullptr)
+		{
+			context->Release();
+		}
+		if (device != nullptr)
+		{
+			device->Release();
+		}
+		return success;
+	}
+
+	// Windows.Graphics.Capture（按窗口抓内容）：主通道。窗口内容由 DWM 直接交付，不依赖桌面变化递帧，
+	// 也不依赖 BitBlt 能否看到 flip-model 呈现。采样点按「捕获帧尺寸 / 读数客户区尺寸」换算。
+	bool CaptureItemPixelWgc(winrt::Windows::Graphics::Capture::GraphicsCaptureItem const& item, int clientX,
+		int clientY, int referenceClientWidth, int referenceClientHeight, unsigned char outRgba[4],
+		std::string& error, int timeoutMs = 6000)
+	{
+		using namespace winrt;
+		using namespace winrt::Windows::Graphics;
+		using namespace winrt::Windows::Graphics::Capture;
+		using namespace winrt::Windows::Graphics::DirectX;
+		using namespace winrt::Windows::Graphics::DirectX::Direct3D11;
+		try
+		{
+			try
+			{
+				winrt::init_apartment(winrt::apartment_type::multi_threaded);
+			}
+			catch (winrt::hresult_error const&)
+			{
+				// 线程已初始化过（公寓模式不同）：自由线程帧池不依赖公寓模式，继续。
+			}
+			com_ptr<ID3D11Device> device;
+			com_ptr<ID3D11DeviceContext> context;
+			D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+			check_hresult(::D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+				D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, device.put(), &featureLevel,
+				context.put()));
+			com_ptr<IDXGIDevice> dxgiDevice = device.as<IDXGIDevice>();
+			com_ptr<::IInspectable> inspectableDevice;
+			check_hresult(::CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice.get(), inspectableDevice.put()));
+			IDirect3DDevice direct3DDevice = inspectableDevice.as<IDirect3DDevice>();
+
+			auto framePool = Direct3D11CaptureFramePool::CreateFreeThreaded(direct3DDevice,
+				DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, item.Size());
+			auto session = framePool.CreateCaptureSession(item);
+
+			struct WgcFrameState
+			{
+				std::mutex Mutex;
+				bool Got = false;
+				int Width = 0;
+				int Height = 0;
+				std::string Error;
+				unsigned char Pixel[4] = { 0, 0, 0, 0 };
+			};
+			// 帧回调可能在函数返回后仍有 in-flight 一次：状态放 shared_ptr 里被回调按值持有，避免悬空引用。
+			auto state = std::make_shared<WgcFrameState>();
+			auto handler = [state, device, context, clientX, clientY, referenceClientWidth, referenceClientHeight](
+				Direct3D11CaptureFramePool const& sender, winrt::Windows::Foundation::IInspectable const&) {
+				try
+				{
+					auto frame = sender.TryGetNextFrame();
+					::IUnknown* rawSurface = winrt::get_unknown(frame.Surface());
+					com_ptr<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess> access;
+					check_hresult(rawSurface->QueryInterface(
+						__uuidof(::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess),
+						access.put_void()));
+					com_ptr<ID3D11Texture2D> texture;
+					check_hresult(access->GetInterface(__uuidof(ID3D11Texture2D), texture.put_void()));
+					D3D11_TEXTURE2D_DESC description{};
+					texture->GetDesc(&description);
+					D3D11_TEXTURE2D_DESC stagingDescription = description;
+					stagingDescription.Usage = D3D11_USAGE_STAGING;
+					stagingDescription.BindFlags = 0;
+					stagingDescription.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+					stagingDescription.MiscFlags = 0;
+					stagingDescription.ArraySize = 1;
+					stagingDescription.MipLevels = 1;
+					stagingDescription.SampleDesc.Count = 1;
+					stagingDescription.SampleDesc.Quality = 0;
+					com_ptr<ID3D11Texture2D> stagingTexture;
+					check_hresult(device->CreateTexture2D(&stagingDescription, nullptr, stagingTexture.put()));
+					context->CopyResource(stagingTexture.get(), texture.get());
+					D3D11_MAPPED_SUBRESOURCE mapped{};
+					check_hresult(context->Map(stagingTexture.get(), 0, D3D11_MAP_READ, 0, &mapped));
+					const int width = static_cast<int>(description.Width);
+					const int height = static_cast<int>(description.Height);
+					int sampleX = clientX;
+					int sampleY = clientY;
+					if (referenceClientWidth > 0 && referenceClientHeight > 0)
+					{
+						sampleX = static_cast<int>(static_cast<long long>(clientX) * width / referenceClientWidth);
+						sampleY = static_cast<int>(static_cast<long long>(clientY) * height / referenceClientHeight);
+					}
+					{
+						std::lock_guard<std::mutex> guard(state->Mutex);
+						state->Width = width;
+						state->Height = height;
+						if (sampleX >= 0 && sampleY >= 0 && sampleX < width && sampleY < height)
+						{
+							const unsigned char* row = static_cast<const unsigned char*>(mapped.pData) +
+								static_cast<size_t>(sampleY) * mapped.RowPitch +
+								static_cast<size_t>(sampleX) * 4u;
+							state->Pixel[0] = row[2];
+							state->Pixel[1] = row[1];
+							state->Pixel[2] = row[0];
+							state->Pixel[3] = row[3];
+							state->Got = true;
+						}
+						else
+						{
+							state->Error = "采样点不在捕获帧内";
+						}
+					}
+					context->Unmap(stagingTexture.get(), 0);
+				}
+				catch (winrt::hresult_error const& ex)
+				{
+					std::lock_guard<std::mutex> guard(state->Mutex);
+					state->Error =
+						"帧处理失败：" + winrt::to_string(ex.message()) + "（" + HexHresult(ex.code()) + "）";
+				}
+				catch (...)
+				{
+					std::lock_guard<std::mutex> guard(state->Mutex);
+					state->Error = "帧处理失败：未知异常";
+				}
+			};
+			auto token = framePool.FrameArrived(handler);
+			session.StartCapture();
+			for (int waited = 0; waited < timeoutMs; waited += 50)
+			{
+				{
+					std::lock_guard<std::mutex> guard(state->Mutex);
+					if (state->Got)
+					{
+						break;
+					}
+				}
+				::Sleep(50);
+			}
+			session.Close();
+			framePool.FrameArrived(token);
+			framePool.Close();
+			{
+				std::lock_guard<std::mutex> guard(state->Mutex);
+				if (!state->Got)
+				{
+					error = state->Error.empty() ? "Windows.Graphics.Capture 在超时内没有帧" : state->Error;
+					return false;
+				}
+				outRgba[0] = state->Pixel[0];
+				outRgba[1] = state->Pixel[1];
+				outRgba[2] = state->Pixel[2];
+				outRgba[3] = state->Pixel[3];
+				CA_LOG("[编辑器 测试] ⑩ WGC 帧尺寸={}x{} 采样点=({},{})", state->Width, state->Height, clientX,
+				       clientY);
+			}
+			return true;
+		}
+		catch (winrt::hresult_error const& ex)
+		{
+			error = "Windows.Graphics.Capture 失败：" + winrt::to_string(ex.message()) + "（" + HexHresult(ex.code()) +
+				"）";
+			return false;
+		}
+		catch (std::exception const& ex)
+		{
+			error = std::string("Windows.Graphics.Capture 异常：") + ex.what();
+			return false;
+		}
+	}
+
+	// WGC 按窗口捕获：采样点是客户区坐标，按「帧尺寸 / 读数客户区尺寸」换算（帧可能含边框）。
+	bool CaptureWindowPixelWgc(HWND hwnd, int clientX, int clientY, int referenceClientWidth,
+		int referenceClientHeight, unsigned char outRgba[4], std::string& error, int timeoutMs = 6000)
+	{
+		using namespace winrt;
+		using namespace winrt::Windows::Graphics::Capture;
+		try
+		{
+			auto interop = winrt::get_activation_factory<GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
+			GraphicsCaptureItem item{ nullptr };
+			check_hresult(interop->CreateForWindow(hwnd, winrt::guid_of<GraphicsCaptureItem>(),
+				winrt::put_abi(item)));
+			return CaptureItemPixelWgc(item, clientX, clientY, referenceClientWidth, referenceClientHeight, outRgba,
+				error, timeoutMs);
+		}
+		catch (winrt::hresult_error const& ex)
+		{
+			error = "CreateForWindow 失败：" + winrt::to_string(ex.message()) + "（" + HexHresult(ex.code()) + "）";
+			return false;
+		}
+	}
+
+	// WGC 按显示器捕获：DWM 合成后的真实屏幕内容（independent-flip 的窗口也应包含），是展示证明最强通道。
+	bool CaptureMonitorPixelWgc(HMONITOR monitor, int screenX, int screenY, unsigned char outRgba[4],
+		std::string& error, int timeoutMs = 6000)
+	{
+		using namespace winrt;
+		using namespace winrt::Windows::Graphics::Capture;
+		try
+		{
+			MONITORINFO monitorInfo{};
+			monitorInfo.cbSize = sizeof(monitorInfo);
+			if (!::GetMonitorInfoW(monitor, &monitorInfo))
+			{
+				error = "GetMonitorInfo 失败";
+				return false;
+			}
+			auto interop = winrt::get_activation_factory<GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
+			GraphicsCaptureItem item{ nullptr };
+			check_hresult(interop->CreateForMonitor(monitor, winrt::guid_of<GraphicsCaptureItem>(),
+				winrt::put_abi(item)));
+			const int monitorWidth = monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left;
+			const int monitorHeight = monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top;
+			const int localX = screenX - monitorInfo.rcMonitor.left;
+			const int localY = screenY - monitorInfo.rcMonitor.top;
+			return CaptureItemPixelWgc(item, localX, localY, monitorWidth, monitorHeight, outRgba, error, timeoutMs);
+		}
+		catch (winrt::hresult_error const& ex)
+		{
+			error = "CreateForMonitor 失败：" + winrt::to_string(ex.message()) + "（" + HexHresult(ex.code()) + "）";
+			return false;
+		}
+	}
+
+	// 渲染证明（⑨/⑪）：按读数行的 graphSelf 解析出离屏捕获纹理，Readback 它的中心像素并判红。
+	// 容差与 D12 的屏幕捕获一致（R>200、G<60、B<60），背景是 (0,128,0) 的清除色，不会误判。
+	bool ReadCaptureCenterRed(TestContext& ctx, HostProbeReadings const& readings, std::string& detail)
+	{
+		ProbeNativeObjects objects = ResolveProbeObjects(readings);
+		if (objects.graph == nullptr || !objects.captureImage.IsValid())
+		{
+			detail = "读数行 graphSelf/capture 解析失败（graph=0x" +
+				std::to_string(reinterpret_cast<uintptr_t>(objects.graph)) + "）";
+			return false;
+		}
+		int captureWidth = 0;
+		int captureHeight = 0;
+		if (!ParseSize(readings.Get("capture"), captureWidth, captureHeight) || captureWidth <= 0 ||
+			captureHeight <= 0)
+		{
+			detail = "读数行的捕获尺寸非法：" + readings.Get("capture");
+			return false;
+		}
+		std::vector<uint8_t> pixels(static_cast<size_t>(
+			GetImageByteSize(captureWidth, captureHeight, ETextureFormat::E_R8G8B8A8_UNORM)));
+		auto token = ctx.pGPUBackend->Readback(objects.captureImage, pixels);
+		if (!token)
+		{
+			detail = "Readback 返回空 token";
+			return false;
+		}
+		token->Wait();
+		const size_t index =
+			(static_cast<size_t>(captureHeight / 2) * static_cast<size_t>(captureWidth) +
+			 static_cast<size_t>(captureWidth / 2)) * 4u;
+		const unsigned char r = pixels[index];
+		const unsigned char g = pixels[index + 1];
+		const unsigned char b = pixels[index + 2];
+		const unsigned char a = pixels[index + 3];
+		char text[256] = {};
+		std::snprintf(text, sizeof(text), "capture=%dx%d center=(%u,%u,%u,%u)", captureWidth, captureHeight,
+		              r, g, b, a);
+		detail = text;
+		// 判据（工件修订：与既有探针一致的精确像素，不放宽）：离屏捕获中心必须精确是三角形红。
+		return r == 255 && g == 0 && b == 0 && a == 255;
+	}
+
+	std::string ReadWindowTitle(cawindow::IWindow* window)
+	{
+		if (window == nullptr)
+		{
+			return std::string();
+		}
+		castl::string_view title = window->GetWindowName();
+		return std::string(title.data(), title.size());
+	}
+}
+
+// ---- TestEditorWindowPanel（editor-window-panel 第 18 用例）----
+// 覆盖（tasks 1.2/1.3/1.5/1.6/1.7 与 3.1/3.2）：服务门控与握手、对象往返（C++ 读回）、撤销、六个协议
+// 错误码、对象失效、线程边界、单窗口分栏读数、scene view 两层像素证据、改尺寸后重建。
+//
+// 读数来源：托管侧每帧写 `[编辑器 读数]`（窗口/分栏/图对象句柄/执行计数/命令原生调用计数），C++ 侧读
+// 自己的日志；像素由 C++ 侧按 `graphSelf` 解析出离屏捕获纹理后 Readback（1.7 修订：托管绑定面无
+// Readback）。本用例必须用 `--headless` 跑（日志才会落盘到 test_output/TestEditorWindowPanel.log）。
+void TestEditorWindowPanel(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_EDITOR_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_EDITOR_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	struct EditorEnvGuard
+	{
+		~EditorEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PANEL_WIDTH", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", nullptr);
+		}
+	} envGuard;
+	// D9：测试自己设门控与**专用端口**（避开默认 18390，防止干扰本机其它实例），跑后由守卫清理。
+	::SetEnvironmentVariableA("CASCADED_EDITOR", "1");
+	::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", "18391");
+
+	// 编号 1 = 一个存活窗口（默认 IWindow 表面），编号 2 = 窗口系统；编辑器另建它**唯一**的目标窗口。
+	auto newWindow = ctx.pWindowSystem->NewWindow(640, 480, "Editor Test Host Window");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_EDITOR_WINDOW", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	const std::string baselineError = pScriptHost->LastError();
+
+	// 真实帧语义：每帧 Tick（主线程 drain + 渲染）+ UpdateSystem（glfwPollEvents 泵线程消息）。
+	auto pumpFrames = [&](int frames) {
+		for (int index = 0; index < frames; ++index)
+		{
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	};
+
+	// 读数行落盘文件（托管侧每帧追加）：不依赖 --headless 的 stdout 重定向 —— 可见窗口模式
+	// （CASCADED_EDITOR_DISPLAY_PROOF=1，不带 --headless）也能读读数与服务标记行。
+	const char* readingsPath = "test_output/editor_readings.txt";
+	std::filesystem::create_directories("test_output");
+	std::error_code readingsRemoveError;
+	std::filesystem::remove(readingsPath, readingsRemoveError);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", readingsPath);
+	char displayProofEnv[16] = {};
+	::GetEnvironmentVariableA("CASCADED_EDITOR_DISPLAY_PROOF", displayProofEnv, sizeof(displayProofEnv));
+	const bool displayProofMode = std::string(displayProofEnv) == "1";
+	pumpFrames(1); // 第一次 Tick：绑定表面 + 脚本建常驻窗
+	const int baselineCount = ctx.pWindowSystem->GetWindowCount();
+
+	// M14（工件修订）：Debug 自检开关 no-runtime 变体 —— 断言编辑器明确禁用、进程不崩，然后结束用例。
+	{
+		char selfTest[64] = {};
+		::GetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", selfTest, sizeof(selfTest));
+		if (std::string(selfTest) == "no-runtime")
+		{
+			pumpFrames(6);
+			HostProbeReadings disabledReadings;
+			if (ReadEditorReadings(readingsPath, &disabledReadings) && disabledReadings.Get("state") == "running")
+			{
+				fail("E_EDITOR_NO_RUNTIME", "自检开关 no-runtime 下编辑器仍进入运行态");
+			}
+			if (!LogContains(readingsPath, "禁用：") || !LogContains(readingsPath, "运行时缺失"))
+			{
+				fail("E_EDITOR_NO_RUNTIME", "no-runtime 自检没有产生明确的运行时缺失禁用日志");
+			}
+			if (!LogContains(readingsPath, "已关闭"))
+			{
+				fail("E_EDITOR_NO_RUNTIME", "no-runtime 禁用之后服务没有走关闭路径");
+			}
+			CA_LOG("[编辑器 测试] M14 no-runtime 自检通过：编辑器明确禁用（日志含运行时缺失原因）、服务已关闭，"
+			       "进程未崩");
+			windowKeepAlive->CloseWindow();
+			windowKeepAlive.reset();
+			ctx.pWindowSystem->UpdateSystem();
+			return;
+		}
+	}
+
+	// 等编辑器进入运行态：读数行 objects=1（目标窗口已登记）+ controller=1 + nav=1 + exec>0（已渲染过）。
+	// 上限 40 秒（测试内常量，不是产品默认值）：WebView2 首启 + 渲染首帧；0.2 探针实测 22 帧内完成。
+	HostProbeReadings readings;
+	bool ready = false;
+	{
+		const auto startedAt = std::chrono::steady_clock::now();
+		int frames = 0;
+		while (true)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 40000.0)
+			{
+				break;
+			}
+			++frames;
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			if ((frames % 5) == 0 && ReadEditorReadings(readingsPath, &readings) &&
+				readings.Get("objects") == "1" && readings.I64("exec") > 0 &&
+				readings.Get("controller") == "1" && readings.Get("nav") == "1")
+			{
+				ready = true;
+				break;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	}
+	if (!ready)
+	{
+		ReadEditorReadings(readingsPath, &readings);
+		char detail[768] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "编辑器 40 秒内没有进入运行态：objects=%s controller=%s nav=%s exec=%s error=%s；LastError=%s",
+		              readings.Get("objects").c_str(), readings.Get("controller").c_str(),
+		              readings.Get("nav").c_str(), readings.Get("exec").c_str(), readings.Get("error").c_str(),
+		              pScriptHost->LastError());
+		fail("E_EDITOR_START", detail);
+	}
+	CA_LOG("[编辑器 测试] 启动读数：mode={} objects={} controller={} nav={} exec={} client={} panel={} "
+	       "viewport={} windowSelf={}",
+	       readings.Get("mode").c_str(), readings.Get("objects").c_str(), readings.Get("controller").c_str(),
+	       readings.Get("nav").c_str(), readings.Get("exec").c_str(), readings.Get("client").c_str(),
+	       readings.Get("panel").c_str(), readings.Get("viewport").c_str(), readings.Get("windowSelf").c_str());
+
+	// ⑥ 单窗口分栏：窗口计数增量 1；读数行有控制器 + 导航 + 模式 + 面板矩形/视口区域，两者铺满客户区。
+	const int countAfterStart = ctx.pWindowSystem->GetWindowCount();
+	if (countAfterStart != baselineCount + 1)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "编辑器窗口计数不符：基线 %d → 运行态 %d（期望 +1，不许出现第二个壳窗口）", baselineCount,
+		              countAfterStart);
+		fail("E_EDITOR_WINDOW_COUNT", detail);
+	}
+	if (readings.Get("mode") != "main-thread")
+	{
+		fail("E_EDITOR_MODE", "UI 线程模式不是 main-thread：" + readings.Get("mode"));
+	}
+	int clientWidth = 0;
+	int clientHeight = 0;
+	Rect4 panelRect;
+	Rect4 viewportRect;
+	if (!ParseSize(readings.Get("client"), clientWidth, clientHeight) ||
+		!ParseRect(readings.Get("panel"), panelRect) || !ParseRect(readings.Get("viewport"), viewportRect))
+	{
+		fail("E_EDITOR_LAYOUT_READINGS", "读数行缺少 client/panel/viewport：" + readings.Get("panel") + " / " +
+			readings.Get("viewport"));
+	}
+	if (panelRect.x != viewportRect.w || panelRect.w + viewportRect.w != clientWidth ||
+		viewportRect.h != clientHeight || panelRect.h != clientHeight)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "分栏没有铺满客户区：client=%dx%d viewport=(%d,%d,%d,%d) panel=(%d,%d,%d,%d)", clientWidth,
+		              clientHeight, viewportRect.x, viewportRect.y, viewportRect.w, viewportRect.h, panelRect.x,
+		              panelRect.y, panelRect.w, panelRect.h);
+		fail("E_EDITOR_LAYOUT", detail);
+	}
+	const uint64_t windowSelf = readings.U64("windowSelf");
+	if (windowSelf == 0)
+	{
+		fail("E_EDITOR_WINDOW_SELF", "读数行 windowSelf 为 0");
+	}
+	auto* targetWindow = reinterpret_cast<cawindow::IWindow*>(static_cast<uintptr_t>(windowSelf));
+	const std::string originalTitle = ReadWindowTitle(targetWindow);
+	CA_LOG("[编辑器 测试] 目标窗口：windowSelf=0x{:x} 原标题=\"{}\" 初始尺寸={}x{}", windowSelf,
+	       originalTitle.c_str(), clientWidth, clientHeight);
+
+	// ⑨ 渲染证明（首帧）：读数行 exec>0 且离屏捕获中心像素是三角形红。
+	{
+		std::string pixelDetail;
+		const bool red = ReadCaptureCenterRed(ctx, readings, pixelDetail);
+		CA_LOG("[编辑器 像素] 渲染证明（首帧）：{}（exec={} capture={}）", pixelDetail.c_str(),
+		       readings.Get("exec").c_str(), readings.Get("capture").c_str());
+		if (!red)
+		{
+			fail("E_EDITOR_CAPTURE_PIXEL", "离屏捕获中心不是三角形红：" + pixelDetail);
+		}
+	}
+
+	// M6（工件修订）视口正控：直接从原生图记录里读**批级与绘制级**的视口/剪裁矩形：
+	//   · 捕获 pass（外部纹理附件、无参 AddTrianglePass）= 整张捕获目标；
+	//   · 窗口 pass（后台缓冲附件、带视口重载）= 左侧视口区域。
+	// 现有 17 用例不读这两个字段，所以这条是独立判据（默认视口不被零矩形/错值破坏）。
+	{
+		ProbeNativeObjects objects = ResolveProbeObjects(readings);
+		if (objects.graph == nullptr)
+		{
+			fail("E_EDITOR_GRAPH", "读数行 graphSelf 解析失败（图对象为空）");
+		}
+		int captureWidth = 0;
+		int captureHeight = 0;
+		if (!ParseSize(readings.Get("capture"), captureWidth, captureHeight) || captureWidth <= 0 ||
+			captureHeight <= 0)
+		{
+			fail("E_EDITOR_GRAPH", "读数行 capture 尺寸非法：" + readings.Get("capture"));
+		}
+		Rect4 viewportNow;
+		if (!ParseRect(readings.Get("viewport"), viewportNow))
+		{
+			fail("E_EDITOR_GRAPH", "读数行 viewport 非法");
+		}
+		int checkedPasses = 0;
+		for (RenderPass const& pass : objects.graph->GetRenderPasses())
+		{
+			ImageHandle attachment;
+			for (ImageHandle const& candidate : pass.GetAttachments())
+			{
+				if (candidate.IsValid())
+				{
+					attachment = candidate;
+					break;
+				}
+			}
+			if (!attachment.IsValid())
+			{
+				fail("E_EDITOR_GRAPH", "图里的 pass 没有附件");
+			}
+			const bool backbuffer = attachment.GetType() == ImageHandle::ImageType::Backbuffer;
+			const int expectedX = 0;
+			const int expectedY = 0;
+			const int expectedW = backbuffer ? viewportNow.w : captureWidth;
+			const int expectedH = backbuffer ? viewportNow.h : captureHeight;
+			for (DrawCallBatch const& batch : pass.GetDrawCallBatches())
+			{
+				if (!batch.m_ViewPort.Valid() || !batch.m_Sissor.Valid())
+				{
+					fail("E_EDITOR_DEFAULT_VIEWPORT", "pass 的批级视口/剪裁矩形无效（默认视口正控失败）");
+				}
+				ViewRectData const& batchViewport = batch.m_ViewPort.Get();
+				ViewRectData const& batchScissor = batch.m_Sissor.Get();
+				if (batchViewport.x != expectedX || batchViewport.y != expectedY ||
+					batchViewport.width != expectedW || batchViewport.height != expectedH ||
+					batchScissor.x != expectedX || batchScissor.y != expectedY ||
+					batchScissor.width != expectedW || batchScissor.height != expectedH)
+				{
+					char detail[512] = {};
+					std::snprintf(detail, sizeof(detail),
+					              "批级矩形不符（backbuffer=%d）：viewport=(%d,%d,%d,%d) scissor=(%d,%d,%d,%d) "
+					              "期望=(%d,%d,%d,%d)",
+					              backbuffer ? 1 : 0, batchViewport.x, batchViewport.y, batchViewport.width,
+					              batchViewport.height, batchScissor.x, batchScissor.y, batchScissor.width,
+					              batchScissor.height, expectedX, expectedY, expectedW, expectedH);
+					fail("E_EDITOR_DEFAULT_VIEWPORT", detail);
+				}
+				for (DrawCall const& call : batch.m_DrawCalls)
+				{
+					if (!call.GetViewPort().Valid() || !call.GetScissor().Valid())
+					{
+						fail("E_EDITOR_DEFAULT_VIEWPORT", "绘制级视口/剪裁矩形无效");
+					}
+					ViewRectData const& callViewport = call.GetViewPort().Get();
+					ViewRectData const& callScissor = call.GetScissor().Get();
+					if (callViewport.x != expectedX || callViewport.y != expectedY ||
+						callViewport.width != expectedW || callViewport.height != expectedH ||
+						callScissor.x != expectedX || callScissor.y != expectedY ||
+						callScissor.width != expectedW || callScissor.height != expectedH)
+					{
+						fail("E_EDITOR_DEFAULT_VIEWPORT", "绘制级矩形与批级/期望不一致");
+					}
+				}
+			}
+			++checkedPasses;
+		}
+		if (checkedPasses != 2)
+		{
+			char detail[128] = {};
+			std::snprintf(detail, sizeof(detail), "图的 pass 数 %d ≠ 2（窗口 + 捕获）", checkedPasses);
+			fail("E_EDITOR_GRAPH", detail);
+		}
+		CA_LOG("[编辑器 测试] M6 视口正控通过：2 个 pass 的批级/绘制级视口与剪裁矩形分别等于窗口左侧视口"
+		       "({}x{}) 与整张捕获目标({}x{})",
+		       viewportNow.w, viewportNow.h, captureWidth, captureHeight);
+	}
+
+	// ⑩ 的诊断（初始布局，改尺寸之前）：把客户区整块抓成 PNG。这条不是断言，只是证据 ——
+	// 屏幕捕获失败时用它区分"抓错区域"与"渲染没上屏"。
+	if (DesktopSessionAvailable())
+	{
+		void* diagnosticHandle = targetWindow->GetNativeWindowHandle();
+		HWND diagnosticWindow = diagnosticHandle == nullptr ? nullptr : *static_cast<HWND*>(diagnosticHandle);
+		if (diagnosticWindow != nullptr)
+		{
+			::ShowWindow(diagnosticWindow, SW_SHOW);
+			::SetForegroundWindow(diagnosticWindow);
+			OtherWindowHider diagnosticHider;
+			diagnosticHider.HideAllExcept(diagnosticWindow);
+			::Sleep(300);
+			ctx.pWindowSystem->UpdateSystem();
+			int diagnosticWidth = 0;
+			int diagnosticHeight = 0;
+			std::string diagnosticError;
+			const std::string diagnosticPath =
+				std::string("test_output/editor_screen_capture_") + ctx.backendName + "_initial.png";
+			if (SaveClientAreaPng(diagnosticWindow, diagnosticPath, diagnosticWidth, diagnosticHeight,
+			                      diagnosticError))
+			{
+				CA_LOG("[编辑器 测试] 诊断 PNG（初始布局）：{} 客户区={}x{}", diagnosticPath.c_str(), diagnosticWidth,
+				       diagnosticHeight);
+			}
+			else
+			{
+				CA_LOG("[编辑器 测试] 诊断 PNG 写入失败：{}", diagnosticError.c_str());
+			}
+			diagnosticHider.RestoreAll();
+		}
+	}
+
+	// ⑥ 单窗口尺寸同步：C++ 侧直接 SetWindowSize → 读数行的客户区/视口/面板必须同步。
+	targetWindow->SetWindowSize(1000, 640);
+	pumpFrames(4);
+	if (!ReadEditorReadings(readingsPath, &readings))
+	{
+		fail("E_EDITOR_LAYOUT_READINGS", "尺寸同步后没有读数行");
+	}
+	if (readings.Get("client") != "1000x640")
+	{
+		fail("E_EDITOR_LAYOUT", "C++ SetWindowSize(1000,640) 之后读数行 client=" + readings.Get("client"));
+	}
+	if (!ParseRect(readings.Get("viewport"), viewportRect) || !ParseRect(readings.Get("panel"), panelRect))
+	{
+		fail("E_EDITOR_LAYOUT_READINGS", "尺寸同步后读数行缺少矩形");
+	}
+	if (viewportRect.w != 680 || panelRect.x != 680 || panelRect.w != 320 || viewportRect.h != 640)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "改尺寸后分栏不对：viewport=(%d,%d,%d,%d) panel=(%d,%d,%d,%d)",
+		              viewportRect.x, viewportRect.y, viewportRect.w, viewportRect.h, panelRect.x, panelRect.y,
+		              panelRect.w, panelRect.h);
+		fail("E_EDITOR_LAYOUT", detail);
+	}
+	CA_LOG("[编辑器 测试] ⑥ 单窗口分栏：计数 +1、控制器/导航就绪、C++ SetWindowSize 后读数同步（client=1000x640、"
+	       "viewport=680x640、panel=680,0,320,640）");
+
+	// 1.2 的静态页读数：资源没构建 ⇒ 503 + 说明"资源未构建"的错误页；构建过 ⇒ 200 + 页面本体。
+	{
+		int status = 0;
+		std::string body;
+		std::string httpError;
+		if (!HttpGet(18391, "/", status, body, httpError))
+		{
+			fail("E_EDITOR_HTTP", httpError);
+		}
+		const bool hasIndex = std::filesystem::exists("editor-web/index.html");
+		// 判据只认 ASCII 标记（"editor-web" 出现在错误页正文里）：C++ 窄字符串与 UTF-8 的编码约定不写死，
+		// 中文正文只用来看，不用来比。
+		const bool hasErrorMarker = body.find("editor-web") != std::string::npos;
+		CA_LOG("[编辑器 测试] 静态页：status={} bytes={} index存在={} editor-web标记={}", status,
+		       static_cast<long long>(body.size()), hasIndex ? 1 : 0, hasErrorMarker ? 1 : 0);
+		if (hasIndex)
+		{
+			if (status != 200)
+			{
+				fail("E_EDITOR_HTTP_PAGE", "面板资源已构建但 GET / 返回 " + std::to_string(status));
+			}
+		}
+		else if (status != 503 || !hasErrorMarker)
+		{
+			fail("E_EDITOR_HTTP_PAGE", "缺面板资源时没有返回说明原因的错误页：status=" + std::to_string(status));
+		}
+	}
+
+	// ---- WebSocket 会话（3.1 正向 + 3.2 负向）----
+	WsClient client;
+	std::string wsError;
+	if (!client.Connect(18391, wsError))
+	{
+		fail("E_EDITOR_WS", wsError);
+	}
+	std::vector<std::string> events;
+	auto sendCommand = [&](std::string const& json) {
+		std::string error;
+		if (!client.SendText(json, error))
+		{
+			fail("E_EDITOR_WS_SEND", error);
+		}
+	};
+	auto waitResult = [&](int requestId, std::string& result) {
+		if (!PumpUntilResult(pScriptHost, ctx, client, requestId, result, events, 10000))
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "requestId=%d 在 10 秒内没有收到 result", requestId);
+			fail("E_EDITOR_WS_RESULT", detail);
+		}
+	};
+
+	// 握手：welcome 带 protocolVersion=1 与对象快照。
+	{
+		sendCommand("{\"type\":\"hello\",\"protocolVersion\":1}");
+		std::string welcome;
+		const auto startedAt = std::chrono::steady_clock::now();
+		for (;;)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 5000.0)
+			{
+				fail("E_EDITOR_WS_WELCOME", "5 秒内没有收到 welcome");
+			}
+			std::string message;
+			std::string receiveError;
+			if (client.ReceiveText(message, 100, receiveError))
+			{
+				welcome = message;
+				break;
+			}
+			if (receiveError.find("超时") == std::string::npos)
+			{
+				fail("E_EDITOR_WS_CLOSED", "握手期间连接被关闭：" + receiveError);
+			}
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+		}
+		CA_LOG("[编辑器 测试] welcome：{}", welcome.c_str());
+		if (welcome.find("\"type\":\"welcome\"") == std::string::npos ||
+			welcome.find("\"protocolVersion\":1") == std::string::npos)
+		{
+			fail("E_EDITOR_WS_WELCOME", "welcome 形状不对：" + welcome);
+		}
+		if (welcome.find("\"objects\":[{\"id\":1") == std::string::npos)
+		{
+			fail("E_EDITOR_WS_OBJECTS", "welcome 的对象快照里没有编号 1：" + welcome);
+		}
+	}
+
+	// ① set-title 唯一串 → C++ 侧 GetWindowName 逐字相同。
+	const std::string uniqueTitle = std::string("editor-title-") + std::to_string(::GetCurrentProcessId()) + "-" +
+		std::to_string(static_cast<long long>(::GetTickCount64()));
+	{
+		sendCommand("{\"type\":\"command\",\"requestId\":101,\"command\":\"set-title\",\"objectId\":1,"
+		            "\"args\":{\"title\":\"" + uniqueTitle + "\"}}");
+		std::string result;
+		waitResult(101, result);
+		if (!JsonHas(result, "\"ok\":true"))
+		{
+			fail("E_EDITOR_SET_TITLE", "set-title 结果不是 ok：" + result);
+		}
+		const std::string readBack = ReadWindowTitle(targetWindow);
+		if (readBack != uniqueTitle)
+		{
+			fail("E_EDITOR_TITLE_READBACK", "C++ 读回标题与请求不一致：读回=\"" + readBack + "\" 请求=\"" +
+				uniqueTitle + "\"");
+		}
+		bool sawChanged = false;
+		for (std::string const& event : events)
+		{
+			if (JsonIsEvent(event, "object-changed") && event.find("\"title\"") != std::string::npos)
+			{
+				sawChanged = true;
+			}
+		}
+		events.clear();
+		if (!sawChanged)
+		{
+			fail("E_EDITOR_EVENT_CHANGED", "set-title 成功但没有收到 object-changed(title) 事件");
+		}
+		CA_LOG("[编辑器 测试] ① set-title 往返：唯一串 = \"{}\"（C++ 读回逐字相同）", uniqueTitle.c_str());
+	}
+
+	// M7（工件修订）计数器正控：先证明"真实命令会让 cmdCalls 增长"，③④ 的"增量 0"才有对照。
+	{
+		pumpFrames(1);
+		if (!ReadEditorReadings(readingsPath, &readings))
+		{
+			fail("E_EDITOR_COUNTER", "set-title 之后没有读数行");
+		}
+		if (readings.I64("cmdRequest") != 101 || readings.I64("cmdCalls") < 2)
+		{
+			fail("E_EDITOR_COUNTER", "计数器正控失败：cmdRequest=" + readings.Get("cmdRequest") + " cmdCalls=" +
+				readings.Get("cmdCalls") + "（set-title 至少应有 SetWindowName + 读回两次原生调用）");
+		}
+		CA_LOG("[编辑器 测试] M7 计数器正控：set-title 期间 cmdCalls={}（>0，后续零增量断言有对照）",
+		       readings.Get("cmdCalls").c_str());
+	}
+
+	// ⑦ 撤销：标题回到原值；再撤销 → E_UNDO_EMPTY。
+	{
+		sendCommand("{\"type\":\"command\",\"requestId\":102,\"command\":\"undo\",\"objectId\":1}");
+		std::string result;
+		waitResult(102, result);
+		if (!JsonHas(result, "\"ok\":true"))
+		{
+			fail("E_EDITOR_UNDO", "undo 标题结果不是 ok：" + result);
+		}
+		const std::string afterUndo = ReadWindowTitle(targetWindow);
+		if (afterUndo != originalTitle)
+		{
+			fail("E_EDITOR_UNDO", "undo 之后标题没有回到原值：读回=\"" + afterUndo + "\"");
+		}
+		sendCommand("{\"type\":\"command\",\"requestId\":103,\"command\":\"undo\",\"objectId\":1}");
+		waitResult(103, result);
+		if (!JsonHas(result, "\"ok\":false") || JsonErrorCode(result) != "E_UNDO_EMPTY")
+		{
+			fail("E_EDITOR_UNDO_EMPTY", "空槽 undo 不是 E_UNDO_EMPTY：" + result);
+		}
+		CA_LOG("[编辑器 测试] ⑦ 撤销：标题恢复原值，再撤销 → E_UNDO_EMPTY");
+	}
+
+	// ② set-size 合法宽高 → C++ 侧 GetWindowSize 相等；⑪ 改尺寸后捕获目标按新视口重建且中心仍红。
+	{
+		sendCommand("{\"type\":\"command\",\"requestId\":104,\"command\":\"set-size\",\"objectId\":1,"
+		            "\"args\":{\"width\":900,\"height\":560}}");
+		std::string result;
+		waitResult(104, result);
+		if (!JsonHas(result, "\"ok\":true"))
+		{
+			fail("E_EDITOR_SET_SIZE", "set-size 结果不是 ok：" + result);
+		}
+		int width = 0;
+		int height = 0;
+		targetWindow->GetWindowSize(width, height);
+		if (width != 900 || height != 560)
+		{
+			char detail[128] = {};
+			std::snprintf(detail, sizeof(detail), "C++ 读回尺寸 %dx%d ≠ 请求 900x560", width, height);
+			fail("E_EDITOR_SIZE_READBACK", detail);
+		}
+		pumpFrames(3);
+		if (!ReadEditorReadings(readingsPath, &readings))
+		{
+			fail("E_EDITOR_READINGS", "set-size 之后没有读数行");
+		}
+		if (readings.Get("capture") != "580x560")
+		{
+			fail("E_EDITOR_CAPTURE_SIZE", "改尺寸后捕获尺寸不是新视口 580x560：" + readings.Get("capture"));
+		}
+		std::string pixelDetail;
+		const bool red = ReadCaptureCenterRed(ctx, readings, pixelDetail);
+		CA_LOG("[编辑器 像素] 改尺寸后：{}（exec={}）", pixelDetail.c_str(), readings.Get("exec").c_str());
+		if (!red)
+		{
+			fail("E_EDITOR_RESIZE_PIXEL", "改尺寸后离屏捕获中心不是三角形红：" + pixelDetail);
+		}
+		CA_LOG("[编辑器 测试] ②⑪ set-size 往返 + 捕获重建：读回 900x560、capture={}、中心红",
+		       readings.Get("capture").c_str());
+	}
+
+	// ⑤ 线程边界：命令发出后、下一次 Tick drain 之前，C++ 侧标题必须不变（网络线程不许直接动引擎）。
+	{
+		const std::string laterTitle = uniqueTitle + "-after-tick";
+		const std::string titleBefore = ReadWindowTitle(targetWindow);
+		sendCommand("{\"type\":\"command\",\"requestId\":105,\"command\":\"set-title\",\"objectId\":1,"
+		            "\"args\":{\"title\":\"" + laterTitle + "\"}}");
+		// 只泵引擎消息、**不调 Tick**：监听线程有时间收包入队，但主线程没有 drain —— 标题必须不动。
+		bool changedTooEarly = false;
+		const auto startedAt = std::chrono::steady_clock::now();
+		while (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count() <
+			800.0)
+		{
+			ctx.pWindowSystem->UpdateSystem();
+			if (ReadWindowTitle(targetWindow) != titleBefore)
+			{
+				changedTooEarly = true;
+				break;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		}
+		if (changedTooEarly)
+		{
+			fail("E_EDITOR_THREAD_BOUNDARY",
+			     "命令在 Tick 之前就改了引擎状态：网络路径直接调用了引擎（D1 边界被破坏）");
+		}
+		std::string result;
+		waitResult(105, result);
+		if (!JsonHas(result, "\"ok\":true"))
+		{
+			fail("E_EDITOR_THREAD_BOUNDARY", "drain 之后 set-title 没有成功：" + result);
+		}
+		if (ReadWindowTitle(targetWindow) != laterTitle)
+		{
+			fail("E_EDITOR_THREAD_BOUNDARY", "drain 之后标题没有变成新值");
+		}
+		CA_LOG("[编辑器 测试] ⑤ 线程边界：800ms 不 Tick 期间标题不变；Tick 之后变为 \"{}\"", laterTitle.c_str());
+	}
+
+	// ⑧ 协议版本不符：独立连接 hello=999 → E_PROTOCOL_VERSION 且连接被关闭。
+	{
+		WsClient badVersion;
+		std::string error;
+		if (!badVersion.Connect(18391, error))
+		{
+			fail("E_EDITOR_WS_VERSION", error);
+		}
+		if (!badVersion.SendText("{\"type\":\"hello\",\"protocolVersion\":999}", error))
+		{
+			fail("E_EDITOR_WS_VERSION", error);
+		}
+		std::string message;
+		if (!badVersion.ReceiveText(message, 5000, error))
+		{
+			fail("E_EDITOR_WS_VERSION", "没有收到版本拒绝结果：" + error);
+		}
+		if (!JsonHas(message, "\"ok\":false") || JsonErrorCode(message) != "E_PROTOCOL_VERSION")
+		{
+			fail("E_EDITOR_WS_VERSION", "版本拒绝不是 E_PROTOCOL_VERSION：" + message);
+		}
+		std::string afterClose;
+		std::string closeError;
+		const bool gotMore = badVersion.ReceiveText(afterClose, 3000, closeError);
+		if (gotMore)
+		{
+			fail("E_EDITOR_WS_VERSION", "版本拒绝之后连接没有关闭，还收到：" + afterClose);
+		}
+		CA_LOG("[编辑器 测试] ⑧ 协议版本 999 → E_PROTOCOL_VERSION，连接已关闭（{}）", closeError.c_str());
+	}
+
+	// ③ 未知编号：E_UNKNOWN_OBJECT；状态不变；最近一条命令的原生调用数 0。
+	{
+		const std::string titleBefore = ReadWindowTitle(targetWindow);
+		sendCommand("{\"type\":\"command\",\"requestId\":106,\"command\":\"set-title\",\"objectId\":9999,"
+		            "\"args\":{\"title\":\"should-not-apply\"}}");
+		std::string result;
+		waitResult(106, result);
+		if (!JsonHas(result, "\"ok\":false") || JsonErrorCode(result) != "E_UNKNOWN_OBJECT")
+		{
+			fail("E_EDITOR_UNKNOWN_OBJECT", "未知编号结果不是 E_UNKNOWN_OBJECT：" + result);
+		}
+		if (ReadWindowTitle(targetWindow) != titleBefore)
+		{
+			fail("E_EDITOR_UNKNOWN_OBJECT", "未知编号的命令动了目标窗口状态");
+		}
+		pumpFrames(1);
+		ReadEditorReadings(readingsPath, &readings);
+		if (readings.I64("cmdRequest") != 106 || readings.I64("cmdCalls") != 0)
+		{
+			fail("E_EDITOR_UNKNOWN_CALLS", "未知编号命令的原生调用读数不是 0：" + readings.Get("cmdCalls"));
+		}
+		CA_LOG("[编辑器 测试] ③ 未知编号 9999 → E_UNKNOWN_OBJECT，cmdCalls={}", readings.Get("cmdCalls").c_str());
+	}
+
+	// 形状错（E_BAD_MESSAGE，两个变体）与非法参数（E_INVALID_ARG）：都不进引擎队列、原生调用 0。
+	{
+		// 缺 requestId：requestId 回填 0（PROTOCOL.md 第 3 节约定）。
+		sendCommand("{\"type\":\"command\",\"command\":\"get-object\",\"objectId\":1}");
+		std::string message;
+		bool gotBadMessage = false;
+		const auto startedAt = std::chrono::steady_clock::now();
+		while (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count() <
+			10000.0)
+		{
+			std::string receiveError;
+			if (client.ReceiveText(message, 100, receiveError))
+			{
+				if (JsonIsResult(message))
+				{
+					gotBadMessage = JsonErrorCode(message) == "E_BAD_MESSAGE";
+					break;
+				}
+				events.push_back(message);
+				continue;
+			}
+			if (receiveError.find("超时") == std::string::npos)
+			{
+				fail("E_EDITOR_BAD_MESSAGE", "连接被关闭：" + receiveError);
+			}
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+		}
+		if (!gotBadMessage)
+		{
+			fail("E_EDITOR_BAD_MESSAGE", "缺 requestId 的消息没有被 E_BAD_MESSAGE 拒绝：" + message);
+		}
+
+		sendCommand("{\"type\":\"command\",\"requestId\":107,\"command\":\"explode\",\"objectId\":1}");
+		std::string result;
+		waitResult(107, result);
+		if (JsonErrorCode(result) != "E_BAD_MESSAGE")
+		{
+			fail("E_EDITOR_BAD_MESSAGE", "未知 command 没有被 E_BAD_MESSAGE 拒绝：" + result);
+		}
+
+		sendCommand("{\"type\":\"command\",\"requestId\":108,\"command\":\"set-size\",\"objectId\":1,"
+		            "\"args\":{\"width\":0,\"height\":560}}");
+		waitResult(108, result);
+		if (JsonErrorCode(result) != "E_INVALID_ARG")
+		{
+			fail("E_EDITOR_INVALID_ARG", "width=0 没有被 E_INVALID_ARG 拒绝：" + result);
+		}
+		pumpFrames(1);
+		ReadEditorReadings(readingsPath, &readings);
+		if (readings.I64("cmdCalls") != 0)
+		{
+			fail("E_EDITOR_INVALID_ARG", "非法参数命令的原生调用读数不是 0：" + readings.Get("cmdCalls"));
+		}
+		// B2（工件修订）：宽度必须大于面板宽（默认 320）—— width=320 也必须 E_INVALID_ARG，
+		// 否则左侧视口宽会被压成 0。
+		sendCommand("{\"type\":\"command\",\"requestId\":110,\"command\":\"set-size\",\"objectId\":1,"
+		            "\"args\":{\"width\":320,\"height\":560}}");
+		waitResult(110, result);
+		if (JsonErrorCode(result) != "E_INVALID_ARG")
+		{
+			fail("E_EDITOR_INVALID_ARG", "width=面板宽(320) 没有被 E_INVALID_ARG 拒绝：" + result);
+		}
+		CA_LOG("[编辑器 测试] 形状错（E_BAD_MESSAGE×2）/ 非法参数（E_INVALID_ARG，含 width=0 与 width=面板宽）"
+		       "均零原生调用");
+	}
+
+	// 正控（工件修订 M6b 的呈现层诊断）：用**原生 C++ 路径**（与 TestSimpleTriangle 相同）直接建图、
+	// 画绿底红三角并 Present 到一个新窗口，再用 WGC（窗口 + 显示器）抓窗口中心。
+	// 若红 ⇒ 引擎呈现正常，问题在编辑器图/糖层（窗口 pass 没画窗口附件或 Present 目标不符）；
+	// 若也白 ⇒ 本环境窗口呈现层本身有问题。
+	if (DesktopSessionAvailable())
+	{
+		auto controlWindowWeak = ctx.pWindowSystem->NewWindow(320, 240, "Editor Capture Control");
+		auto controlWindow = controlWindowWeak.lock();
+		if (controlWindow)
+		{
+			auto controlHandle = ctx.pGPUBackend->GetWindowHandle(controlWindow);
+			struct ControlVertex
+			{
+				std::array<float, 3> pos;
+				std::array<float, 3> color;
+			};
+			cacore::HashObj<VertexInputsDescriptor> controlDescriptors = VertexInputsDescriptor::Create(
+				sizeof(ControlVertex),
+				{
+					VertexAttribute::Create(offsetof(ControlVertex, pos), VertexInputFormat::eR32G32B32_SFloat,
+						CANAME("POSITION")),
+					VertexAttribute::Create(offsetof(ControlVertex, color), VertexInputFormat::eR32G32B32_SFloat,
+						CANAME("COLOR")),
+				},
+				false);
+			std::vector<ControlVertex> controlVertices = {
+				{ { -0.25f, -0.25f, 0.25f }, { 1.0f, 0.0f, 0.0f } },
+				{ { 0.25f, -0.25f, 0.25f }, { 1.0f, 0.0f, 0.0f } },
+				{ { 0.0f, 0.5f, 0.5f }, { 1.0f, 0.0f, 0.0f } },
+			};
+			ImageHandle controlBackbuffer(controlHandle);
+			BufferHandle controlBuffer(CANAME("EditorControlVertices"));
+			castl::shared_ptr<GPUGraph> controlGraph = castl::make_shared<GPUGraph>();
+			controlGraph->Present(controlBackbuffer)
+				.AllocBuffer(controlBuffer,
+					GPUBufferDescriptor::Create(controlVertices.size(), sizeof(ControlVertex)))
+				.ScheduleData(controlBuffer, controlVertices.data(),
+					controlVertices.size() * sizeof(ControlVertex))
+				.Rast(RenderPass::New(controlBackbuffer,
+						AttachmentConfig::Clear(GraphicsClearValue::ClearColor(0, 0.5f, 0, 1)))
+						.SetShaderInfo({ CAPATH("Shaders/Test/TestSimpleTriangle") })
+						.Batch(DrawCallBatch::New()
+							.VertexStream(CANAME("EditorControlVertices"), controlDescriptors)
+							.DrawCall(DrawCall::New()
+								.SetVertexBuffer(CANAME("EditorControlVertices"), controlBuffer)
+								.Draw(controlVertices.size()))));
+			for (int frame = 0; frame < 20; ++frame)
+			{
+				ctx.pWindowSystem->UpdateSystem();
+				auto scheduler = ctx.pThreadManager->NewScheduler();
+				ctx.pGPUBackend->ExecuteGraph(scheduler.get(), controlGraph);
+			}
+			ctx.pGPUBackend->WaitIdle();
+			// 正控的呈现证明：登记窗口 backbuffer 呈现前捕获 → 再跑两帧（含 Present）→ 读中心精确红。
+			// 这条验证"引擎的 C++ 原生呈现路径把三角形写进了窗口交换链表面"，不依赖屏幕合成。
+			auto controlWindowHandle = ctx.pGPUBackend->GetWindowHandle(controlWindow);
+			if (!controlWindowHandle)
+			{
+				fail("E_EDITOR_CONTROL_PIXEL", "正控窗口 GetWindowHandle 返回空");
+			}
+			auto const& controlDesc = controlWindowHandle->GetBackbufferDescriptor();
+			const uint64_t controlBytes = GetImageByteSize(controlDesc.width, controlDesc.height, controlDesc.format);
+			if (controlBytes == 0)
+			{
+				fail("E_EDITOR_CONTROL_PIXEL", "正控窗口 backbuffer 格式不支持紧凑回读");
+			}
+			std::vector<uint8_t> controlPixels(static_cast<size_t>(controlBytes), 0);
+			auto controlToken = ctx.pGPUBackend->Readback(ImageHandle(controlWindowHandle), controlPixels);
+			if (!controlToken)
+			{
+				fail("E_EDITOR_CONTROL_PIXEL", "正控窗口 Readback(backbuffer) 被拒绝（能力/格式/重复请求）");
+			}
+			for (int frame = 0; frame < 2; ++frame)
+			{
+				ctx.pWindowSystem->UpdateSystem();
+				auto scheduler = ctx.pThreadManager->NewScheduler();
+				ctx.pGPUBackend->ExecuteGraph(scheduler.get(), controlGraph);
+			}
+			ctx.pGPUBackend->WaitIdle();
+			controlToken->Wait();
+			if (!controlToken->IsReady())
+			{
+				fail("E_EDITOR_CONTROL_PIXEL", "正控窗口 backbuffer 捕获未完成（token 未 ready）");
+			}
+			bool controlRed = false;
+			unsigned char controlBytes4[4] = { 0, 0, 0, 0 };
+			const bool controlBgra = controlDesc.format == ETextureFormat::E_B8G8R8A8_UNORM;
+			if (controlDesc.width > 0 && controlDesc.height > 0)
+			{
+				const size_t centerIndex =
+					(static_cast<size_t>(controlDesc.height / 2) * controlDesc.width + controlDesc.width / 2) * 4u;
+				controlBytes4[0] = controlPixels[centerIndex];
+				controlBytes4[1] = controlPixels[centerIndex + 1];
+				controlBytes4[2] = controlPixels[centerIndex + 2];
+				controlBytes4[3] = controlPixels[centerIndex + 3];
+				const unsigned char red = controlBgra ? controlBytes4[2] : controlBytes4[0];
+				const unsigned char green = controlBytes4[1];
+				const unsigned char blue = controlBgra ? controlBytes4[0] : controlBytes4[2];
+				controlRed = red == 255 && green == 0 && blue == 0 && controlBytes4[3] == 255;
+			}
+			CA_LOG("[编辑器 测试] 正控（原生 C++ 渲染窗口）：backbuffer {}x{} format={} 中心字节=({},{},{},{}) "
+			       "色序={} 红={}",
+			       controlDesc.width, controlDesc.height, static_cast<int>(controlDesc.format), controlBytes4[0],
+			       controlBytes4[1], controlBytes4[2], controlBytes4[3], controlBgra ? "BGRA" : "RGBA",
+			       controlRed ? 1 : 0);
+			if (!controlRed)
+			{
+				fail("E_EDITOR_CONTROL_PIXEL", "原生 C++ 呈现正控失败：窗口交换链中心不是精确三角形红");
+			}
+			controlWindow->CloseWindow();
+			controlWindow.reset();
+			ctx.pWindowSystem->UpdateSystem();
+		}
+	}
+
+	// ⑩ 展示证明（工件修订方向）：读回窗口**真实 swapchain backbuffer** 中心像素。捕获发生在
+	// Present 之前（PresentWindows 钩子），证明渲染后端把三角形写进了窗口交换链表面；不依赖屏幕
+	// 合成/虚拟显示，headless 也可跑。判据：精确 (255,0,0,255)（按 backbuffer 格式判色序）。
+	{
+		if (!ReadEditorReadings(readingsPath, &readings))
+		{
+			fail("E_EDITOR_READINGS", "backbuffer 读回前没有读数行");
+		}
+		// 用编辑器图里的**窗口 backbuffer 附件**（不是裸 IWindow*）：与 C# 侧同一个 WindowHandle，
+		// 也避免 GetWindowHandle 的 shared_ptr 参数要求（裸指针不能新建拥有型 shared_ptr）。
+		ProbeNativeObjects backbufferObjects = ResolveProbeObjects(readings);
+		if (backbufferObjects.graph == nullptr || !backbufferObjects.windowImage.IsValid())
+		{
+			fail("E_EDITOR_BACKBUFFER", "读数行 graphSelf 解析失败或图里没有窗口 backbuffer 附件");
+		}
+		auto windowHandle = backbufferObjects.windowImage.GetWindowHandle();
+		if (!windowHandle)
+		{
+			fail("E_EDITOR_BACKBUFFER", "窗口 backbuffer 附件里没有 WindowHandle");
+		}
+		auto const& backbufferDesc = windowHandle->GetBackbufferDescriptor();
+		const uint64_t backbufferBytes =
+			GetImageByteSize(backbufferDesc.width, backbufferDesc.height, backbufferDesc.format);
+		if (backbufferBytes == 0 || backbufferDesc.width == 0 || backbufferDesc.height == 0)
+		{
+			fail("E_EDITOR_BACKBUFFER", "窗口 backbuffer 描述非法/格式不支持紧凑回读");
+		}
+		// 采样点 = **左侧视口区域中心**（不是整张 backbuffer 中心：右侧 320px 是面板条），按
+		// backbuffer 尺寸 / 读数 client 尺寸换算（两者应相等，缩放时也不抓偏）。
+		int bbClientWidth = 0;
+		int bbClientHeight = 0;
+		Rect4 bbViewport;
+		if (!ParseSize(readings.Get("client"), bbClientWidth, bbClientHeight) ||
+			!ParseRect(readings.Get("viewport"), bbViewport) || bbClientWidth <= 0 || bbClientHeight <= 0)
+		{
+			fail("E_EDITOR_BACKBUFFER", "读数行缺少合法 client/viewport");
+		}
+		const double bbScaleX = static_cast<double>(backbufferDesc.width) / bbClientWidth;
+		const double bbScaleY = static_cast<double>(backbufferDesc.height) / bbClientHeight;
+		const uint32_t sampleX = static_cast<uint32_t>((bbViewport.x + bbViewport.w / 2) * bbScaleX);
+		const uint32_t sampleY = static_cast<uint32_t>((bbViewport.y + bbViewport.h / 2) * bbScaleY);
+		if (sampleX >= backbufferDesc.width || sampleY >= backbufferDesc.height)
+		{
+			fail("E_EDITOR_BACKBUFFER", "视口中心换算后超出 backbuffer 范围");
+		}
+		std::vector<uint8_t> backbufferPixels(static_cast<size_t>(backbufferBytes), 0);
+		auto backbufferToken = ctx.pGPUBackend->Readback(backbufferObjects.windowImage, backbufferPixels);
+		if (!backbufferToken)
+		{
+			fail("E_EDITOR_BACKBUFFER",
+			     "Readback(窗口 backbuffer) 被拒绝（surface 无 TRANSFER_SRC / 格式不支持 / 已有未完成请求）");
+		}
+		// 跑两帧：编辑器在 Tick 内 SubmitGraph（含 Present）；捕获在 Present 之前完成。
+		pumpFrames(2);
+		backbufferToken->Wait();
+		if (!backbufferToken->IsReady())
+		{
+			fail("E_EDITOR_BACKBUFFER", "窗口 backbuffer 捕获未完成（token 未 ready）");
+		}
+		const size_t centerIndex =
+			(static_cast<size_t>(sampleY) * backbufferDesc.width + sampleX) * 4u;
+		const unsigned char bytes4[4] = { backbufferPixels[centerIndex], backbufferPixels[centerIndex + 1],
+			                             backbufferPixels[centerIndex + 2], backbufferPixels[centerIndex + 3] };
+		const bool bgra = backbufferDesc.format == ETextureFormat::E_B8G8R8A8_UNORM;
+		const unsigned char red = bgra ? bytes4[2] : bytes4[0];
+		const unsigned char green = bytes4[1];
+		const unsigned char blue = bgra ? bytes4[0] : bytes4[2];
+		const bool backbufferRed = red == 255 && green == 0 && blue == 0 && bytes4[3] == 255;
+		CA_LOG("[编辑器 像素] 展示证明（窗口 backbuffer 回读）：{}x{} format={} 视口中心=({},{}) 中心字节="
+		       "({},{},{},{}) 色序={} 红={}",
+		       backbufferDesc.width, backbufferDesc.height, static_cast<int>(backbufferDesc.format), sampleX, sampleY,
+		       bytes4[0], bytes4[1], bytes4[2], bytes4[3], bgra ? "BGRA" : "RGBA", backbufferRed ? 1 : 0);
+		if (!backbufferRed)
+		{
+			fail("E_EDITOR_BACKBUFFER_PIXEL", "窗口交换链 backbuffer 中心不是精确三角形红");
+		}
+		CA_LOG("[编辑器 测试] ⑩ 展示证明通过：窗口真实交换链 backbuffer 中心精确红（Present 前捕获，"
+		       "不依赖屏幕合成）");
+	}
+
+	// 可选诊断（默认关）：屏幕捕获（WGC 窗口/显示器、BitBlt、DXGI）。本机虚拟显示适配器抓不到
+	// Vulkan 呈现内容（实测原生 C++ 正控也是白），所以默认不跑、不作断言；`CASCADED_EDITOR_DISPLAY_PROOF=1`
+	// 时才执行并只打印读数。
+	if (displayProofMode)
+	{
+		// 可见窗口模式：先保持渲染 120 帧（≈2 秒）让 DWM 真正合成上屏，再做多通道捕获。
+		for (int frame = 0; frame < 120; ++frame)
+		{
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			std::this_thread::sleep_for(std::chrono::milliseconds(16));
+		}
+		void* proofHandle = targetWindow->GetNativeWindowHandle();
+		HWND proofWindow = proofHandle == nullptr ? nullptr : *static_cast<HWND*>(proofHandle);
+		CA_LOG("[编辑器 测试] ⑩ 可见窗口模式：IsWindowVisible={} IsIconic={} 前台={} dpi={}",
+		       proofWindow != nullptr && ::IsWindowVisible(proofWindow) ? 1 : 0,
+		       proofWindow != nullptr && ::IsIconic(proofWindow) ? 1 : 0,
+		       proofWindow != nullptr && ::GetForegroundWindow() == proofWindow ? 1 : 0,
+		       proofWindow != nullptr ? WindowDpi(proofWindow) : 0u);
+		if (!ReadEditorReadings(readingsPath, &readings))
+		{
+			fail("E_EDITOR_READINGS", "屏幕捕获前没有读数行");
+		}
+		if (!ParseRect(readings.Get("viewport"), viewportRect))
+		{
+			fail("E_EDITOR_SCREEN_PIXEL", "读数行没有合法 viewport");
+		}
+		// 用**最新读数**的客户区尺寸（② set-size 之后已是 900x560，不是启动时的 1280x720）。
+		int currentClientWidth = 0;
+		int currentClientHeight = 0;
+		if (!ParseSize(readings.Get("client"), currentClientWidth, currentClientHeight) ||
+			currentClientWidth <= 0 || currentClientHeight <= 0)
+		{
+			fail("E_EDITOR_SCREEN_PIXEL", "读数行没有合法 client 尺寸");
+		}
+		if (!DesktopSessionAvailable())
+		{
+			CA_LOG("[编辑器 测试] ⑩ 展示证明：跳过 —— 当前没有可用的 desktop 会话（OpenInputDesktop 失败）；"
+			       "渲染证明（离屏捕获中心红）已通过，不静默当通过");
+		}
+		else
+		{
+			void* handlePointer = targetWindow->GetNativeWindowHandle();
+			HWND hwnd = handlePointer == nullptr ? nullptr : *static_cast<HWND*>(handlePointer);
+			if (hwnd == nullptr)
+			{
+				fail("E_EDITOR_SCREEN_PIXEL", "目标窗口 HWND 为空");
+			}
+			// 诊断读数：客户区 / 窗口矩形 / 客户区屏幕原点 / DPI / 最小化 / 前台。DPI 缩放时"读数里的
+			// 客户区尺寸"（GLFW 窗口尺寸）与 GetClientRect 可能不同，换算比例原样打出来。
+			RECT clientRect{};
+			::GetClientRect(hwnd, &clientRect);
+			RECT windowRect{};
+			::GetWindowRect(hwnd, &windowRect);
+			POINT clientOrigin{ 0, 0 };
+			::ClientToScreen(hwnd, &clientOrigin);
+			const int actualClientWidth = clientRect.right - clientRect.left;
+			const int actualClientHeight = clientRect.bottom - clientRect.top;
+			CA_LOG("[编辑器 测试] ⑩ 诊断：GetClientRect={}x{} windowRect=({},{},{},{}) clientOrigin=({},{}) "
+			       "dpi={} iconic={} foreground={} 读数client={}x{} viewport=({},{},{},{})",
+			       actualClientWidth, actualClientHeight, windowRect.left, windowRect.top, windowRect.right,
+			       windowRect.bottom, clientOrigin.x, clientOrigin.y, WindowDpi(hwnd), ::IsIconic(hwnd) ? 1 : 0,
+			       ::GetForegroundWindow() == hwnd ? 1 : 0, currentClientWidth, currentClientHeight, viewportRect.x,
+			       viewportRect.y, viewportRect.w, viewportRect.h);
+			if (::IsIconic(hwnd))
+			{
+				::ShowWindow(hwnd, SW_RESTORE);
+				::Sleep(300);
+			}
+			::ShowWindow(hwnd, SW_SHOW);
+			::SetForegroundWindow(hwnd);
+			::BringWindowToTop(hwnd);
+			::SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+			OtherWindowHider otherWindows;
+			otherWindows.HideAllExcept(hwnd);
+			const double scaleX = (currentClientWidth > 0 && actualClientWidth > 0)
+				? static_cast<double>(actualClientWidth) / currentClientWidth
+				: 1.0;
+			const double scaleY = (currentClientHeight > 0 && actualClientHeight > 0)
+				? static_cast<double>(actualClientHeight) / currentClientHeight
+				: 1.0;
+			bool captured = false;
+			unsigned char pixel[4] = { 0, 0, 0, 0 };
+			std::string captureMethod = "none";
+			std::string captureError;
+
+			// 通道 0（主）：Windows.Graphics.Capture —— 按窗口抓内容，不受 flip 呈现 / 桌面变化影响。
+			{
+				const int wgcClientX = viewportRect.x + viewportRect.w / 2;
+				const int wgcClientY = viewportRect.y + viewportRect.h / 2;
+				unsigned char wgcPixel[4] = { 0, 0, 0, 0 };
+				std::string wgcError;
+				if (CaptureWindowPixelWgc(hwnd, wgcClientX, wgcClientY, currentClientWidth, currentClientHeight,
+				                          wgcPixel, wgcError))
+				{
+					CA_LOG("[编辑器 测试] ⑩ WGC 窗口捕获：client=({},{}) 像素=({},{},{},{})", wgcClientX, wgcClientY,
+					       wgcPixel[0], wgcPixel[1], wgcPixel[2], wgcPixel[3]);
+					captured = wgcPixel[0] == 255 && wgcPixel[1] == 0 && wgcPixel[2] == 0 && wgcPixel[3] == 255;
+					if (captured)
+					{
+						captureMethod = "windows-graphics-capture";
+						CA_LOG("[编辑器 测试] ⑩ 展示证明（Windows.Graphics.Capture）：视口区域中心 = "
+						       "({},{},{},{})",
+						       wgcPixel[0], wgcPixel[1], wgcPixel[2], wgcPixel[3]);
+					}
+				}
+				else
+				{
+					CA_LOG("[编辑器 测试] ⑩ WGC 窗口捕获失败：{}", wgcError.c_str());
+				}
+			}
+			// 通道 0b：WGC **显示器**捕获 —— DWM 合成后的真实屏幕内容（independent-flip 也包含），
+			// 窗口捕获若因 flip 拿不到内容时走这条；采样点用屏幕坐标，内部换算到显示器本地坐标。
+			if (!captured)
+			{
+				HMONITOR monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+				POINT wgcOrigin{ 0, 0 };
+				if (monitor != nullptr && ::ClientToScreen(hwnd, &wgcOrigin))
+				{
+					const int monitorX =
+						wgcOrigin.x + static_cast<int>((viewportRect.x + viewportRect.w / 2) * scaleX);
+					const int monitorY =
+						wgcOrigin.y + static_cast<int>((viewportRect.y + viewportRect.h / 2) * scaleY);
+					unsigned char monitorPixel[4] = { 0, 0, 0, 0 };
+					std::string monitorError;
+					if (CaptureMonitorPixelWgc(monitor, monitorX, monitorY, monitorPixel, monitorError))
+					{
+						CA_LOG("[编辑器 测试] ⑩ WGC 显示器捕获：screen=({},{}) 像素=({},{},{},{})", monitorX,
+						       monitorY, monitorPixel[0], monitorPixel[1], monitorPixel[2], monitorPixel[3]);
+						captured = monitorPixel[0] == 255 && monitorPixel[1] == 0 && monitorPixel[2] == 0 && monitorPixel[3] == 255;
+						if (captured)
+						{
+							captureMethod = "wgc-monitor";
+							CA_LOG("[编辑器 测试] ⑩ 展示证明（WGC 显示器捕获）：视口区域中心 = ({},{},{},{})",
+							       monitorPixel[0], monitorPixel[1], monitorPixel[2], monitorPixel[3]);
+						}
+					}
+					else
+					{
+						CA_LOG("[编辑器 测试] ⑩ WGC 显示器捕获失败：{}", monitorError.c_str());
+					}
+				}
+			}
+			// 通道 1（诊断/备选）：屏幕 DC BitBlt —— flip 呈现下可能只抓到窗口背景（白）。
+			for (int attempt = 0; attempt < 15 && !captured; ++attempt)
+			{
+				::Sleep(150);
+				ctx.pWindowSystem->UpdateSystem();
+				POINT origin{ 0, 0 };
+				if (!::ClientToScreen(hwnd, &origin))
+				{
+					captureError = "ClientToScreen 失败";
+					break;
+				}
+				// 每次尝试都打一组采样点（客户区坐标 + 换算后的屏幕坐标 + 抓到的像素）：一次就能看出是
+				// "抓错区域"（采到面板白/背景绿）还是"渲染没上屏"（全白/全黑）。
+				struct SamplePoint
+				{
+					char const* name;
+					int clientX;
+					int clientY;
+				};
+				const SamplePoint samples[] = {
+					{ "viewport_center", viewportRect.x + viewportRect.w / 2, viewportRect.y + viewportRect.h / 2 },
+					{ "viewport_quarter", viewportRect.x + viewportRect.w / 4, viewportRect.y + viewportRect.h / 2 },
+					{ "viewport_3quarter", viewportRect.x + viewportRect.w * 3 / 4,
+					  viewportRect.y + viewportRect.h / 2 },
+					{ "client_center", currentClientWidth / 2, currentClientHeight / 2 },
+				};
+				for (SamplePoint const& sample : samples)
+				{
+					const int sampleX = origin.x + static_cast<int>(sample.clientX * scaleX);
+					const int sampleY = origin.y + static_cast<int>(sample.clientY * scaleY);
+					unsigned char samplePixel[4] = { 0, 0, 0, 0 };
+					std::string sampleError;
+					if (CaptureScreenPixel(sampleX, sampleY, samplePixel, sampleError))
+					{
+						CA_LOG("[编辑器 测试] ⑩ 采样 {}：client=({},{}) screen=({},{}) 像素=({},{},{},{})",
+						       sample.name, sample.clientX, sample.clientY, sampleX, sampleY, samplePixel[0],
+						       samplePixel[1], samplePixel[2], samplePixel[3]);
+					}
+					else
+					{
+						CA_LOG("[编辑器 测试] ⑩ 采样 {}：屏幕捕获失败：{}", sample.name, sampleError.c_str());
+					}
+				}
+				const int centerX = origin.x + static_cast<int>((viewportRect.x + viewportRect.w / 2) * scaleX);
+				const int centerY = origin.y + static_cast<int>((viewportRect.y + viewportRect.h / 2) * scaleY);
+				if (CaptureScreenPixel(centerX, centerY, pixel, captureError))
+				{
+					captured = pixel[0] == 255 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255;
+					if (captured)
+					{
+						captureMethod = "screen-dc-bitblt";
+						CA_LOG("[编辑器 测试] ⑩ 展示证明：视口区域中心屏幕像素 = ({},{},{},{})（第 {} 次尝试，"
+						       "screen=({},{}) scale={:.3f}x{:.3f}）",
+						       pixel[0], pixel[1], pixel[2], pixel[3], attempt + 1, centerX, centerY, scaleX,
+						       scaleY);
+						break;
+					}
+				}
+			}
+			// BitBlt 抓不到时换 DXGI Desktop Duplication（DWM 真实合成输出，含 independent-flip 交换链）。
+			// 判据仍是"视口中心是三角形红"；两条通道任一通过即成立，日志记录实际用哪条。
+			//
+			// 桌面复制只在**桌面内容变化**时递帧：静态桌面（甚至抖动窗口）下 AcquireNextFrame 会一直
+			// WAIT_TIMEOUT。这里在抓帧期间维持一个 64×64 的 GDI 刺激窗口（右下角，交替刷红/蓝），
+			// 保证同一个 duplication 会话内持续有新帧可抓；采样点坐标不变（目标窗口不动）。
+			unsigned char dxgiPixel[4] = { 0, 0, 0, 0 };
+			std::string dxgiError;
+			if (!captured)
+			{
+				RECT workArea{};
+				::SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+				HWND stimulusWindow = CreateCaptureStimulusWindow(64);
+				if (stimulusWindow != nullptr)
+				{
+					::SetWindowPos(stimulusWindow, HWND_TOPMOST, workArea.right - 80, workArea.bottom - 80, 64, 64,
+					               SWP_NOACTIVATE | SWP_SHOWWINDOW);
+				}
+				else
+				{
+					CA_LOG("[编辑器 测试] ⑩ 捕获刺激窗口创建失败（GetLastError={}）", ::GetLastError());
+				}
+				POINT origin{ 0, 0 };
+				if (::ClientToScreen(hwnd, &origin))
+				{
+					const int dxgiX = origin.x + static_cast<int>((viewportRect.x + viewportRect.w / 2) * scaleX);
+					const int dxgiY = origin.y + static_cast<int>((viewportRect.y + viewportRect.h / 2) * scaleY);
+					if (CaptureDesktopPixelDxgi(dxgiX, dxgiY, stimulusWindow, dxgiPixel, dxgiError, 15, 250))
+					{
+						CA_LOG("[编辑器 测试] ⑩ DXGI 桌面复制：screen=({},{}) 像素=({},{},{},{})", dxgiX, dxgiY,
+						       dxgiPixel[0], dxgiPixel[1], dxgiPixel[2], dxgiPixel[3]);
+						captured = dxgiPixel[0] == 255 && dxgiPixel[1] == 0 && dxgiPixel[2] == 0 && dxgiPixel[3] == 255;
+						if (captured)
+						{
+							captureMethod = "dxgi-desktop-duplication";
+							CA_LOG("[编辑器 测试] ⑩ 展示证明（DXGI 桌面复制）：视口区域中心 = ({},{},{},{}) —— "
+							       "屏幕 DC 的 BitBlt 抓不到 flip 呈现内容，改用桌面复制（判据不变）",
+							       dxgiPixel[0], dxgiPixel[1], dxgiPixel[2], dxgiPixel[3]);
+						}
+					}
+					else
+					{
+						CA_LOG("[编辑器 测试] ⑩ DXGI 桌面复制失败：{}", dxgiError.c_str());
+					}
+				}
+				if (stimulusWindow != nullptr)
+				{
+					::DestroyWindow(stimulusWindow);
+				}
+				ctx.pWindowSystem->UpdateSystem();
+			}
+			// 断言时刻的整窗客户区 PNG（诊断证据；失败时人工看这张图）。
+			{
+				int pngWidth = 0;
+				int pngHeight = 0;
+				std::string pngError;
+				const std::string pngPath =
+					std::string("test_output/editor_screen_capture_") + ctx.backendName + "_at_assert.png";
+				if (SaveClientAreaPng(hwnd, pngPath, pngWidth, pngHeight, pngError))
+				{
+					CA_LOG("[编辑器 测试] ⑩ 诊断 PNG（断言时刻）：{} 客户区={}x{}", pngPath.c_str(), pngWidth,
+					       pngHeight);
+				}
+				else
+				{
+					CA_LOG("[编辑器 测试] ⑩ 诊断 PNG 写入失败：{}", pngError.c_str());
+				}
+			}
+			if (captured)
+			{
+				CA_LOG("[编辑器 测试] ⑩ 展示证明通过：捕获通道={}", captureMethod.c_str());
+			}
+			::SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+			otherWindows.RestoreAll();
+			if (!captured)
+			{
+				char detail[512] = {};
+				std::snprintf(detail, sizeof(detail),
+				              "屏幕捕获的视口中心像素不是三角形红：BitBlt=(%u,%u,%u,%u) DXGI=(%u,%u,%u,%u) "
+				              "dxgiError=%s（desktop 会话存在；诊断 PNG 见 test_output/editor_screen_capture_%s_at_assert.png）",
+				              pixel[0], pixel[1], pixel[2], pixel[3], dxgiPixel[0], dxgiPixel[1], dxgiPixel[2],
+				              dxgiPixel[3], dxgiError.c_str(), ctx.backendName.c_str());
+				// 诊断通道：只打印，不判红（展示证明已由 backbuffer 回读承担；本机虚拟显示抓不到 flip 内容）。
+				CA_LOG("[编辑器 测试] ⑩ 屏幕捕获诊断（不作断言）：{}", detail);
+			}
+		}
+	}
+
+	// ④ 外部关窗：C++ 侧 CloseWindow → object-invalidated 事件 → 旧编号命令 E_OBJECT_INVALIDATED、零原生调用。
+	{
+		targetWindow->CloseWindow();
+		bool invalidated = false;
+		const auto startedAt = std::chrono::steady_clock::now();
+		while (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count() <
+			10000.0)
+		{
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			std::string message;
+			std::string receiveError;
+			if (client.ReceiveText(message, 100, receiveError))
+			{
+				if (JsonIsEvent(message, "object-invalidated"))
+				{
+					invalidated = true;
+					break;
+				}
+				events.push_back(message);
+				continue;
+			}
+			if (receiveError.find("超时") == std::string::npos)
+			{
+				fail("E_EDITOR_INVALIDATED", "等待失效事件时连接被关闭：" + receiveError);
+			}
+		}
+		if (!invalidated)
+		{
+			fail("E_EDITOR_INVALIDATED", "C++ 侧 CloseWindow 之后 10 秒内没有收到 object-invalidated");
+		}
+		sendCommand("{\"type\":\"command\",\"requestId\":109,\"command\":\"get-object\",\"objectId\":1}");
+		std::string result;
+		waitResult(109, result);
+		if (!JsonHas(result, "\"ok\":false") || JsonErrorCode(result) != "E_OBJECT_INVALIDATED")
+		{
+			fail("E_EDITOR_INVALIDATED", "失效编号的命令不是 E_OBJECT_INVALIDATED：" + result);
+		}
+		pumpFrames(1);
+		ReadEditorReadings(readingsPath, &readings);
+		if (readings.I64("cmdRequest") != 109 || readings.I64("cmdCalls") != 0)
+		{
+			fail("E_EDITOR_INVALIDATED", "失效编号命令的原生调用读数不是 0：" + readings.Get("cmdCalls"));
+		}
+		CA_LOG("[编辑器 测试] ④ 外部关窗：object-invalidated 已广播；旧编号 → E_OBJECT_INVALIDATED、cmdCalls=0，"
+		       "进程未崩");
+	}
+
+	// 收尾：先主动停服务（M11，隔离后续用例），再清理客户端与测试自己的窗口；
+	// 宿主 LastError 必须仍是基线（编辑器没有把错误漏到宿主通道）。
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", "1");
+	pumpFrames(1);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	if (!LogContains(readingsPath, "已关闭（测试请求停止"))
+	{
+		fail("E_EDITOR_STOP", "CASCADED_EDITOR_STOP=1 之后没有服务关闭日志");
+	}
+	CA_LOG("[编辑器 测试] M11 服务主动停止：监听已停、客户端已断、控制器已关闭（后续用例不受影响）");
+	client.Close();
+	windowKeepAlive->CloseWindow();
+	windowKeepAlive.reset();
+	ctx.pWindowSystem->UpdateSystem();
+	if (pScriptHost->LastError() != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "用例结束之后 LastError 变了：%s", pScriptHost->LastError());
+		fail("E_EDITOR_HOST_ERROR", detail);
+	}
+	CA_LOG("TestEditorWindowPanel 通过：命令往返/撤销/协议错误/对象失效/线程边界/分栏同步/两层像素证据全部满足");
+}
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
 // 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
@@ -4057,6 +6550,9 @@ int main(int argc, char* argv[])
 		// csharp-render-texture-sampling 任务 1.2：第 16 项（同样：`--list` 里排最后，
 		// 全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）
 		std::cout << "  TestCSharpTextureSampling\n";
+		// editor-window-panel 3.1：第 18 项（单窗口分栏面板 + scene view）。0.2 阶段先由它承载 WebView2
+		// 贴附探针；全量执行位置见 run-all 那段（要用 C#，必须排在 `TestCSharpWindowCallbacks` 之前）。
+		std::cout << "  TestEditorWindowPanel\n";
 		// io-error-channel 任务 4.2 / 5.1：第 17 项（批式读写的失败通道与资源加载失败透出；
 		// 不开窗口、不用 C#，所以全量里放哪都不影响别的用例，见 run-all 那段）
 		std::cout << "  TestIOErrorChannel\n";
@@ -4366,6 +6862,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpTextureSampling", TestCSharpTextureSampling);
 	}
+		else if (strcmp(testName.c_str(), "TestEditorWindowPanel") == 0)
+	{
+		runTestWithDiagnostics("TestEditorWindowPanel", TestEditorWindowPanel);
+	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{
 		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
@@ -4400,6 +6900,9 @@ int main(int argc, char* argv[])
 		// 纹理采样探针同样要用 C#：**全量执行位置必须在这里**、排在 `TestCSharpWindowCallbacks` 之前
 		//（那个用例会显式关闭托管运行时，排在它之后就再也拿不到 C#）。
 		runTestWithDiagnostics("TestCSharpTextureSampling", TestCSharpTextureSampling);
+		// editor-window-panel 3.1：第 18 用例（WebView2 面板 + scene view）。同样要用 C#，必须排在
+		// `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
+		runTestWithDiagnostics("TestEditorWindowPanel", TestEditorWindowPanel);
 		// io-error-channel 任务 4.2：批式读写的失败通道与资源加载失败透出。它不开窗口、不用 C#，
 		// 放在 `TestCSharpWindowCallbacks` 之前（那条会关掉托管运行时；这条与 C# 无关，位置只为好读）。
 		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);

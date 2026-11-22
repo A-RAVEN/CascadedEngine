@@ -1,0 +1,37 @@
+任务 1.4：协议 v1 与两侧逐字段对拍
+记录时间：2026-11-22
+
+一、唯一事实源
+`Scripting/Managed/Editor/PROTOCOL.md`：传输/会话、hello/welcome/command/result/event 形状、
+五个命令、六个错误码、对象与撤销语义、与面板 UI 的对应、示例往返。定稿补充：
+- 「`result` 只发给发起该 `requestId` 的连接；`event` 广播给所有已连接客户端」；
+- `set-size` 的宽必须 **> 面板宽**（否则 `E_INVALID_ARG`），与实现/测试（B2）一致。
+
+二、逐字段对拍（grep 计数，三份文件）
+命令：
+  foreach ($t in 字段) { 统计 PROTOCOL.md / EditorProtocol.cs / EditorWeb/src/protocol.ts 的命中数 }
+输出（字段 PROTOCOL=C# / TS）：
+  protocolVersion       5 / 6 / 2
+  requestId            17 / 18 / 4
+  objectId             10 / 12 / 2
+  object-changed        4 / 1 / 2
+  object-invalidated    3 / 1 / 3
+  E_PROTOCOL_VERSION    2 / 1 / 1
+  E_UNKNOWN_OBJECT      2 / 1 / 1
+  E_OBJECT_INVALIDATED  5 / 1 / 1
+  E_INVALID_ARG         3 / 2 / 1
+  E_UNDO_EMPTY          2 / 1 / 1
+  E_BAD_MESSAGE         4 / 3 / 1
+（`objects` 字段：PROTOCOL 3 / C# 2 / TS 2——TS 里是类型成员 `objects: EditorObject[]`，不带引号，故按带引号
+字符串统计为 0，属统计口径差异，不是缺字段。）
+判读：三份文件都覆盖同一组消息字段、事件名与六个错误码，无单侧缺项。
+
+三、版本拒绝与形状错（由 3.1/3.2 断言）
+- `[编辑器 测试] ⑧ 协议版本 999 → E_PROTOCOL_VERSION，连接已关闭（服务端关闭了连接）`
+- `[编辑器 测试] 形状错（E_BAD_MESSAGE×2）/ 非法参数（E_INVALID_ARG，含 width=0 与 width=面板宽）均零原生调用`
+- `requestId=0` 只用于握手错误/无法解析出 requestId 的错误（实现与 PROTOCOL.md §3 一致）。
+
+四、C# 记录与 TS 类型
+- C#：`Scripting/Managed/Editor/EditorProtocol.cs`（hello/welcome/command/result/event 的解析与构造、六个
+  错误码常量、`requestId=0` 规则）。
+- TS：`EditorWeb/src/protocol.ts`（同名字段、`PROTOCOL_VERSION = 1`、六个错误码联合类型、面板控件↔命令常量）。

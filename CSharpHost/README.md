@@ -53,7 +53,7 @@
 
 - **不生成任何绑定**：绑定产物由 `Tools/CodeGen`（`--emit-binding` / `--emit-registry`）生成；宿主只 `#include` 生成的 `BindingRegistry.Bindings.cpp`，由它在同一个翻译单元里再包含各接口产物。哪个引擎接口能调、用什么形状过界，属于 `openspec/specs/csharp-bindable-surface/spec.md` 的规矩。
 - **不做 AOT**：现在是 framework-dependent 的 JIT 形态（`runtimeconfig.json` 指向 `Microsoft.NETCore.App`）。
-- **不建线程、不做热重载、不支持多脚本程序集**：`Boot` / `Tick` 都在引擎主线程上被调用。
+- **不建线程、不做热重载、不支持多脚本程序集**：`Boot` / `Tick` 都在引擎主线程上被调用。**例外（编辑器门控）**：`CASCADED_EDITOR=1` 时服务额外开**一个监听线程**（HttpListener + WebSocket），网络线程只解析/入队，命令仍在引擎主线程的下一次 `Tick` 执行（见下文编辑器面板服务）。
 
 ## 脚本层：`Scripting/Managed/UserScript.cs`
 
@@ -101,6 +101,28 @@
 - **计数语义**：纹理上传的执行与等待走**后端直连**（`ExecuteGraph` + `WaitIdle`），单列糖层的 `TextureUploadExecuteCount`；`ExecuteGraphCount` / `WaitIdleCount` 只反映脚本提交。一切"本次提交执行增量 0"的判据只看后者（C++ 用例从托管读数行 `[托管 读数]` 里读这些增量）。
 - **已知限制**：本批**不提供纹理显式销毁**（`GPUTexture` 只有描述符/名称读取，销毁由引擎资源生命周期决定）；托管 `ScriptTexture.Dispose()` 只把表面标成失效（释放后使用在托管层拒绝），原生纹理对象由绑定对象表与图内参数结构保活到进程末。显式释放的语义（谁最后持引用、飞行中提交）留给后续批。
 
+## 编辑器面板服务（editor-window-panel）
+
+**门控与入口**：`CASCADED_EDITOR=1` 时 `Host.Tick` 每帧调 `Editor.EditorService.Tick`；`Host.Shutdown` 先停服务（`Stop("Host.Shutdown")`：停监听、断客户端、join 监听线程、关 WebView2 控制器与窗口）再关运行时。**脚本路径不建线程；门控开启时额外一个监听线程**（HttpListener 静态文件 + `/ws` 升级），网络线程只做协议解析与入队，命令统一在引擎主线程的下一次 `Tick` 执行，`result` 在命令执行完成之后才发出。
+
+**配置（三项，默认值与可配范围）**：
+
+| 变量 | 作用 | 默认 | 可配范围 |
+|---|---|---|---|
+| `CASCADED_EDITOR_PORT` | 监听端口（只绑本机 localhost） | `18390` | `1`-`65535`（非法值明确禁用） |
+| `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` | 任意可写目录 |
+| `CASCADED_EDITOR_PANEL_WIDTH` | 右侧面板宽（像素） | `320` | `1`..`客户区宽-1`（越界明确禁用并点名范围） |
+
+其余开关：`CASCADED_EDITOR_SELFTEST=no-runtime`（**仅 Debug**：模拟 WebView2 运行时缺失 → 明确禁用、不崩）、`CASCADED_EDITOR_STOP=1`（主动停服务，测试收尾用）、`CASCADED_EDITOR_READINGS_FILE`（读数行同时追加到该文件，测试用）、`CASCADED_EDITOR_DISPLAY_PROOF=1`（可选屏幕捕获诊断）、`CASCADED_READBACK_FORCE_NO_BB_TRANSFER`（**仅 Debug**：强制窗口 backbuffer 回读走"能力不支持"拒绝分支，供红态）。
+
+**单窗口分栏**：`NewWindow(1280, 720, "Cascaded 编辑器")` 建**一个**窗口；`GetNativeWindowHandle` 返回 `HWND*`，解引用一次拿到父 HWND 贴 WebView2 子控制器；面板矩形 `(客户区宽-面板宽, 0, 面板宽, 客户区高)`，`controller.Bounds` 与子 HWND 位置随尺寸变化同步；左侧视口由 scene view 渲染（`Shaders/Test/TestSimpleTriangle`，72 字节顶点、绿底红三角），每帧复用同一张图 `SubmitGraph` + `WaitIdle` 并 `Present`；`set-size` 成功或窗口尺寸回调后按新视口重建捕获目标与图。`set-size` 要求宽 **> 面板宽**且高 > 0，否则 `E_INVALID_ARG`（杜绝视口宽 ≤ 0）。
+
+**WebView2 依赖与缺失行为**：NuGet `Microsoft.Web.WebView2`（版本见 `Scripting/Managed/Scripting.Managed.csproj`，`build.py` 从 NuGet 缓存显式拷 `WebView2Loader.dll`）；运行期需要 WebView2 Runtime。运行时缺失/创建失败 → 日志 `[编辑器] 禁用：…运行时缺失…` 并走关闭路径（不静默、不崩）。导航判据：`NavigationCompleted.IsSuccess` 或 `HttpStatusCode >= 100`（HTTP 错误页也算导航成功，只有网络失败才禁用）。**静态资源根**是 `bin/editor-web/`：解析顺序为 `AppContext.BaseDirectory`（非空时）→ 程序集所在目录（hostfxr 下 `Assembly.Location` = `bin/Scripting.Managed.dll`）→ 进程可执行文件目录，结果必须是绝对路径；启动后第一次请求时日志打印 `[编辑器] 面板静态根：<绝对路径>`（hostfxr 下 `AppContext.BaseDirectory` 实测为空字符串，早期实现因此退化成相对 CWD 的 `editor-web`，导致面板永远 503，已由 tasks 1.11 修复）。
+
+**两层像素证据**：① 离屏捕获目标 Readback 中心精确 `(255,0,0,255)`；② 窗口**真实 swapchain backbuffer 呈现前读回**视口中心精确红：`Readback(窗口 backbuffer)` 登记"下一帧 Present 前捕获" → 跑一帧含 Present 的图 → `token->Wait()`；Vulkan 走 `TRANSFER_SRC` 能力位（不含则明确拒绝返回 null token），D3D12 走 `COPY_SOURCE` 状态转换，色序按格式（Vulkan 常为 BGRA，D3D12 常为 RGBA）。屏幕捕获（WGC/BitBlt/DXGI）在本机虚拟显示适配器环境中抓不到硬件 flip 内容（原生 C++ 正控也白），已降为 `CASCADED_EDITOR_DISPLAY_PROOF=1` 的可选诊断，不参与断言。
+
+**读数行**：`[编辑器 读数] probe=editor tick=… state=… mode=main-thread port=… objects=1 invalidated=… windowSelf=… client=… panel=… viewport=… controller=… nav=… navHttp=… exec=… capture=… graphSelf=… captureSelf=… wtarget=… passes=2 presents=1 nativeCalls=… cmdRequest=… cmdCalls=…`；C++ 用例（`TestEditorWindowPanel`）据此断言分栏、视图、渲染与命令计数。
+
 ## 构建
 
 ```powershell
@@ -135,6 +157,15 @@ python build.py --config Debug
 | `CASCADED_CSHARP_BUFFER_FALLBACK=1` | **仅 Debug 演练**：7.1 的"回退到图内 `AllocBuffer`"红样开关；设置后结构化缓冲探针走按名分配、第二张图提交必败（`E_SB_CREATEBUFFER`）。生产脚本不设 | 不设 |
 | `CASCADED_CSHARP_TEX_PROBE=1` | 启用纹理采样探针；只有 `TestCSharpTextureSampling` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_TEX_SELFTEST` | **仅 Debug**：`bad-texture-color` / `unbound-image` / `unbound-sampler` 三个负向模式；C++ 侧 `TestCSharpTextureSampling` 读同一份值来核对错误码 | 空串 |
+| `CASCADED_EDITOR` | `1` 时启用编辑器面板服务（单窗口分栏 + WebView2 + WebSocket 命令服务）；不设时零行为（不监听、不建线程） | 不设 |
+| `CASCADED_EDITOR_PORT` | 编辑器服务监听端口（只绑 localhost） | `18390`（`1`-`65535`） |
+| `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` |
+| `CASCADED_EDITOR_PANEL_WIDTH` | 右侧面板宽（像素） | `320`（`1`..`客户区宽-1`） |
+| `CASCADED_EDITOR_SELFTEST=no-runtime` | **仅 Debug**：模拟 WebView2 运行时缺失，验证"明确禁用、不崩"路径 | 不设 |
+| `CASCADED_EDITOR_STOP=1` | 主动停服务（测试收尾隔离后续用例；`EditorService.Stop` 的入口） | 不设 |
+| `CASCADED_EDITOR_READINGS_FILE` | 把 `[编辑器 读数]` 与服务标记行同时追加到该文件（测试读，不依赖 stdout 重定向） | 不设 |
+| `CASCADED_EDITOR_DISPLAY_PROOF=1` | 可选屏幕捕获诊断（WGC/BitBlt/DXGI，只打印不断言；本机虚拟显示抓不到硬件 flip 内容） | 不设 |
+| `CASCADED_READBACK_FORCE_NO_BB_TRANSFER` | **仅 Debug**：强制窗口 backbuffer 回读走"能力不支持"拒绝分支（红态构造） | 不设 |
 
 ## 失败语义（五条，全部实测过）
 

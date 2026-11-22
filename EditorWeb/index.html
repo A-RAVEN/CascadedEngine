@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cascaded 编辑器面板</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #14171c;
+        --panel: #1c2129;
+        --line: #2c3440;
+        --text: #e6e9ef;
+        --muted: #9aa4b2;
+        --accent: #5aa9ff;
+        --ok: #45c48a;
+        --warn: #e5b455;
+        --error: #f06464;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+        padding: 12px;
+      }
+      h1 { margin: 0 0 10px; font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+      .row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+      .row label { color: var(--muted); min-width: 44px; }
+      input[type="text"], input[type="number"] {
+        flex: 1 1 80px;
+        min-width: 0;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: var(--text);
+        padding: 6px 8px;
+        font: inherit;
+      }
+      input:disabled { opacity: .45; }
+      button {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: var(--text);
+        padding: 6px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button:disabled { opacity: .45; cursor: default; }
+      #connection-status { font-weight: 600; }
+      #connection-status.ok { color: var(--ok); }
+      #connection-status.pending { color: var(--warn); }
+      #connection-status.warn { color: var(--warn); }
+      #connection-status.error { color: var(--error); }
+      #object-summary { color: var(--muted); margin: 0 0 10px; }
+      #invalidated-banner {
+        background: #3a1d1d;
+        border: 1px solid var(--error);
+        color: #ffd9d9;
+        border-radius: 4px;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+      }
+      #event-log {
+        list-style: none;
+        margin: 0;
+        padding: 8px;
+        height: 220px;
+        overflow: auto;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 12px;
+      }
+      #event-log li { padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, .04); word-break: break-all; }
+      #event-log li.error { color: var(--error); }
+      #event-log li.warn { color: var(--warn); }
+      .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Cascaded 编辑器面板</h1>
+
+    <div id="invalidated-banner" hidden>对象已失效（目标窗口已关闭）；输入已禁用。</div>
+
+    <div class="row">
+      <span>连接状态：</span>
+      <span id="connection-status" class="pending">未连接</span>
+      <button id="reconnect" type="button">重新连接</button>
+    </div>
+
+    <p id="object-summary">当前没有可编辑对象</p>
+
+    <div class="row">
+      <label for="title-input">标题</label>
+      <input id="title-input" type="text" autocomplete="off" disabled />
+      <button id="apply-title" type="button" disabled>应用</button>
+    </div>
+
+    <div class="row">
+      <label for="width-input">宽</label>
+      <input id="width-input" type="number" min="1" step="1" disabled />
+      <label for="height-input">高</label>
+      <input id="height-input" type="number" min="1" step="1" disabled />
+      <button id="apply-size" type="button" disabled>应用尺寸</button>
+      <button id="undo" type="button" disabled>撤销</button>
+    </div>
+
+    <ul id="event-log" aria-label="事件日志"></ul>
+    <p class="hint">命令在引擎主线程的下一次 Tick 执行；收到 ok 才代表改动已生效。失效后输入禁用。</p>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

@@ -20,10 +20,29 @@
 #include <CASTL/CAUnorderedMap.h>
 #include <CASTL/CAVector.h>
 #include <HashKeys.h>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <span>
+#include <string>
+#include <unordered_map>
 
 
 namespace graphics_backend
 {
+	class VulkanWindowHandle;
+
+	// editor-window-panel（⑩ 展示证明）：窗口 backbuffer 呈现前捕获的共享状态。
+	// `Readback(Backbuffer)` 登记它并返回 token；真正的拷贝在 `PresentWindows` 调用
+	// `CaptureRequestedBackbuffer` 时完成（Present 之前，见 design D12 修订）。
+	struct BackbufferReadbackState
+	{
+		std::span<uint8_t> Dst;
+		std::atomic<bool> Ready{ false };
+		std::atomic<bool> Failed{ false };
+		std::string Error;
+	};
+
 	class RenderBackend_Vulkan : public CRenderBackend
 	{
 	public:
@@ -53,6 +72,12 @@ namespace graphics_backend
 		virtual void WaitIdle() override;
 		std::unique_ptr<IReadbackToken> Readback(ImageHandle const& image, std::span<uint8_t> dst) override;
 		std::unique_ptr<IReadbackToken> Readback(BufferHandle const& buffer, std::span<uint8_t> dst) override;
+
+		// editor-window-panel（⑩）：在窗口 Present 之前捕获当前交换链 image 到登记的主机内存
+		//（由 VulkanGraphExecutor::PresentWindows 调用）。`Readback(Backbuffer)` 负责登记请求。
+		void CaptureRequestedBackbuffer(VulkanWindowHandle* window);
+		// token 析构/Reset 时撤销尚未完成的登记（避免悬挂 span）。
+		void CancelBackbufferReadback(BackbufferReadbackState* state);
 
 		vk::Instance const& GetVulkanInstance() const
 		{
@@ -152,6 +177,9 @@ namespace graphics_backend
 
 	private:
 
+		// editor-window-panel（⑩）：Readback(Backbuffer) 的登记实现（返回等待 Present 前捕获的 token）。
+		std::unique_ptr<IReadbackToken> BeginBackbufferReadback(ImageHandle const& image, std::span<uint8_t> dst);
+
 		vk::Instance m_VulkanInstance;
 		vk::DebugUtilsMessengerEXT m_DebugMessenger;
 		vk::PhysicalDevice m_PhysicalDevice;
@@ -179,6 +207,10 @@ namespace graphics_backend
 
 		// Window handle tracking
 		castl::unordered_map<cawindow::IWindow*, castl::weak_ptr<WindowHandle>> m_WindowHandles;
+
+		// editor-window-panel（⑩）：窗口 backbuffer 呈现前捕获的登记表（每窗口至多一个未完成请求）。
+		std::mutex m_BackbufferReadbackMutex;
+		std::unordered_map<VulkanWindowHandle*, std::shared_ptr<BackbufferReadbackState>> m_BackbufferReadbacks;
 
 		// GPU Frame Manager (multi-frame pipelining)
 		VulkanGPUFrameManager m_GPUFrameManager;

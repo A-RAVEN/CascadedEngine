@@ -1,0 +1,64 @@
+任务 1.8：Vulkan Readback 支持 Backbuffer（呈现前捕获）
+记录时间：2026-11-22
+后端：vulkan（NVIDIA RTX 4070，本机显示经 GameViewer 虚拟显示适配器）
+
+一、实现要点
+- VulkanWindowHandle::CreateSwapchain 记录 surfaceCapabilities.supportedUsageFlags 是否含
+  vk::ImageUsageFlagBits::eTransferSrc，日志 `Swapchain created: WxH, N images, backbufferTransferSrc=0|1`。
+- RenderBackend_Vulkan::Readback(ImageHandle) 遇 ImageType::Backbuffer → BeginBackbufferReadback：
+  校验窗口有效 / 能力位 / GetImageByteSize 非零 / dst 足够 / 同窗口无重复请求，登记到
+  m_BackbufferReadbacks 并返回 VulkanBackbufferReadbackToken（持有 dst 与窗口 shared_ptr 保活；
+  Wait 轮询 ready，5 秒超时）。
+- 真正的拷贝在 VulkanGraphExecutor::PresentWindows 于 vkQueuePresentKHR **之前**调用
+  CaptureRequestedBackbuffer：waitIdle → barrier PRESENT_SRC_KHR→TRANSFER_SRC_OPTIMAL →
+  copyImageToBuffer（紧凑）→ barrier 回 PRESENT_SRC_KHR → submit + fence wait → memcpy 到 dst → ready。
+- 能力不支持：显式 CA_LOG_ERR + 返回 null token（不静默降级）。
+- 红态构造开关：CASCADED_READBACK_FORCE_NO_BB_TRANSFER（Debug 自检）强制走"surface 不支持
+  TRANSFER_SRC"拒绝分支；真机不构造假表面（限制如实登记）。
+- 接口零改动：CRenderBackend 签名不变，未新增可绑定方法。
+
+二、绿读数（构建 + 正跑，逐字）
+命令（主循环执行）：
+  python build.py --config Debug
+  .\GPUBackendTester.exe --backend vulkan --test TestEditorWindowPanel --headless 1 --report test_output\result_editor_panel.json
+结果：BUILD_EXIT=0；VULKAN_EXIT=0；status=pass。
+日志（%TEMP%\ewp\panel-vulkan-test.log 副本）逐字：
+  Swapchain created: 1280x720, 3 images, backbufferTransferSrc=1
+  Swapchain created: 1000x640, 3 images, backbufferTransferSrc=1
+  Swapchain created: 900x560, 3 images, backbufferTransferSrc=1
+  [编辑器 测试] M6 视口正控通过：2 个 pass 的批级/绘制级视口与剪裁矩形分别等于窗口左侧视口(960x720) 与整张捕获目标(960x720)
+  [编辑器 测试] M7 计数器正控：set-title 期间 cmdCalls=4（>0，后续零增量断言有对照）
+  Swapchain created: 320x240, 3 images, backbufferTransferSrc=1
+  RenderBackend_Vulkan: 已登记 backbuffer 呈现前捕获（320x240，307200 字节）
+  RenderBackend_Vulkan: backbuffer 呈现前捕获完成（320x240，307200 字节）
+  [编辑器 测试] 正控（原生 C++ 渲染窗口）：backbuffer 320x240 format=9 中心字节=(0,0,255,255) 色序=BGRA 红=1
+  [编辑器 像素] 渲染证明（首帧）：capture=960x720 center=(255,0,0,255)
+  [编辑器 像素] 改尺寸后：capture=580x560 center=(255,0,0,255)
+  RenderBackend_Vulkan: 已登记 backbuffer 呈现前捕获（900x560，2016000 字节）
+  RenderBackend_Vulkan: backbuffer 呈现前捕获完成（900x560，2016000 字节）
+  [编辑器 像素] 展示证明（窗口 backbuffer 回读）：900x560 format=9 视口中心=(290,280) 中心字节=(0,0,255,255) 色序=BGRA 红=1
+  [编辑器 测试] ⑩ 展示证明通过：窗口真实交换链 backbuffer 中心精确红（Present 前捕获，不依赖屏幕合成）
+  TestEditorWindowPanel 通过：命令往返/撤销/协议错误/对象失效/线程边界/分栏同步/两层像素证据全部满足
+说明：
+- 原生 C++ 正控与编辑器 ⑩ 都是"先登记 Readback(backbuffer) → 再跑含 Present 的帧 → Wait → 断言中心
+  精确红"，证明两条路径都把三角形渲染进了窗口交换链表面（BGRA 色序，format=9 即 E_B8G8R8A8_UNORM）。
+- 编辑器 ⑩ 采样点是左侧视口中心（900x560 下为 (290,280)），不是整张 backbuffer 中心（右侧 320px
+  是面板条），换算按 backbuffer 尺寸/读数 client 尺寸。
+
+三、红态读数（能力拒绝，逐字）
+命令（主循环执行）：
+  $env:CASCADED_READBACK_FORCE_NO_BB_TRANSFER='1'
+  .\GPUBackendTester.exe --backend vulkan --test TestEditorWindowPanel --headless 1 --report test_output\result_editor_readback_reject.json
+结果：REJECT_EXIT=1；status=fail；error=E_EDITOR_CONTROL_PIXEL。
+日志逐字（主循环回传）：
+  Readback(backbuffer) 被拒绝：自检开关 CASCADED_READBACK_FORCE_NO_BB_TRANSFER 强制报告 surface 不支持 TRANSFER_SRC
+判读：拒绝分支返回 null token，正控立即失败（不会静默拿白图当通过）；能力检查路径可失败。
+
+四、限制与说明
+- 真实"surface 不支持 TRANSFER_SRC"在本机无法构造（两块适配器都支持），红态由自检开关强制分支 +
+  显式拒绝日志承担，已按裁定登记，不编造。
+- post-present 读仍被禁止：实现只在 PresentWindows 的 present 之前拷贝；直接对已 present 的帧读没有入口。
+- 交换链重建时未完成的登记请求会因窗口句柄失效/尺寸变化而失败（token 超时/失败），调用方重发；
+  当前测试在捕获窗口期内不做 resize。
+- 屏幕捕获（WGC/BitBlt/DXGI）在本机被 GameViewer 虚拟显示阻断（原生 C++ 正控也白），已降为
+  CASCADED_EDITOR_DISPLAY_PROOF=1 的可选诊断，不参与断言。

@@ -1,0 +1,90 @@
+editor-window-panel 任务 0.2：WebView2 贴附探针实测（主循环构建 + 运行；执行者整理读数）
+================================================================
+运行时间：2026-11-22（主循环在前台跑；命令与原始日志在 %TEMP%\ewp\reqB-*）
+探针代码：Scripting/Managed/Editor/WebView2AttachProbe.cs（临时探针，1.6 落地后删）
+承载用例：Test/GPUBackendTester/Main.cpp 的 TestEditorWindowPanel（0.2 阶段只验贴附读数）
+
+----------------------------------------------------------------
+1. 构建（NuGet restore + 托管段 + C++ 段）
+----------------------------------------------------------------
+命令：python build.py --config Debug
+读数：BUILD SUCCESSFUL（退出码 0），NuGet 包 Microsoft.Web.WebView2 1.0.4370.26 已解析并编译。
+托管段关键行（逐字）：
+  [托管侧] 已拷到 E:\Projects\CascadedEngine\out\build\x64-debug\bin：Scripting.Managed.dll,
+  Scripting.Managed.runtimeconfig.json, Scripting.Managed.deps.json,
+  Microsoft.Web.WebView2.Core.dll, WebView2Loader.dll（WebView2 1.0.4370.26）
+本机核对（执行者实测）：
+  Test-Path out\build\x64-debug\bin\WebView2Loader.dll            → True
+  Test-Path out\build\x64-debug\bin\Microsoft.Web.WebView2.Core.dll → True
+构建期的既有警告（C5056/C4996/CS0162/CA2014，以及 WebView2 包自带的 WPF/WindowsBase MSB3277
+冲突警告）不判红：本工程不引用 WebView2 的 WPF 程序集，包只按 buildTransitive 自带引用。
+
+编译期修过一处真错误（记录在案）：探针首版把控制器清理写成 `Dispose()`，C# 编译器报
+CS1061（CoreWebView2Controller 未包含 Dispose 定义）；WebView2 的关闭入口是 `Close()`，
+四处清理全部改成 Close 后重新构建通过。这条同时是 1.6 的实现约束。
+
+----------------------------------------------------------------
+2. 用例注册（--list）
+----------------------------------------------------------------
+命令：out\build\x64-debug\bin\GPUBackendTester.exe --list
+读数（LIST_EXIT=0，18 行，逐字）：
+  TestSimpleTriangle
+  TestTriangleWithConstantColor
+  TestTriangleWithStructuredBufferColor
+  TestTriangleWithImageBuffer
+  TestDoublePass
+  TestComputeBuffer
+  TestReadback
+  TestIMGUI
+  TestScriptHost
+  TestCSharpWindow
+  TestCSharpTriangle
+  TestCSharpWindowCallbacks
+  TestGPUTiming
+  TestCSharpConstantColor
+  TestCSharpStructuredBuffer
+  TestCSharpTextureSampling
+  TestEditorWindowPanel
+  TestIOErrorChannel
+`TestEditorWindowPanel` 排第 17 行（--list 顺序），单测实跑成功证明 --test 分派已注册。
+
+----------------------------------------------------------------
+3. 探针读数（两个后端）
+----------------------------------------------------------------
+vulkan：
+  .\GPUBackendTester.exe --backend vulkan --test TestEditorWindowPanel --headless 1 --report test_output\result_editor_probe.json
+  退出码 0，report status=pass。托管读数行（逐字）：
+  [托管侧] [编辑器 探针] probe=webview2-attach state=ok mode=main-thread controller=1 nav=1
+           hwnd=0xC0982 bounds=0,0,800,600 winBefore=2 winAfter=3 ticks=22 mainFail=- fallback=-
+  C++ 用例尾行：frames=40 state=ok mode=main-thread controller=1 nav=1 ... winBefore=2 winAfter=3
+d3d12：
+  .\GPUBackendTester.exe --backend d3d12 --test TestEditorWindowPanel --headless 1 --report test_output\result_editor_probe.json
+  退出码 0，report status=pass。托管读数行（逐字）：
+  [托管侧] [编辑器 探针] probe=webview2-attach state=ok mode=main-thread controller=1 nav=1
+           hwnd=0xC098A bounds=0,0,800,600 winBefore=2 winAfter=3 ticks=17 mainFail=- fallback=-
+
+读数字段含义：
+  state=ok            探针走完整条链路（环境创建 → 控制器创建 → 导航 data URL 完成）
+  mode=main-thread    WebView2 控制器建在**引擎主线程**，消息由 glfwPollEvents（UpdateSystem）泵
+  controller=1 / nav=1 控制器创建成功 / NavigationCompleted 成功
+  hwnd=0x...          父窗口句柄（由 GetNativeWindowHandle 的 HWND* 解引用得到）
+  winBefore/winAfter  探针建窗前后的窗口计数（+1 = 只建了一个原生窗口）
+  ticks              探针跨了多少次 Tick（vulkan 22 / d3d12 17，说明不是靠阻塞主线程同步等出来的）
+
+----------------------------------------------------------------
+4. D2 结论（实测决定，不预设）
+----------------------------------------------------------------
+**两个后端都是 mode=main-thread**：glfwPollEvents 是线程级消息泵（PeekMessageW(&msg,NULL,...)
+全队列 DispatchMessage，0.1② 已核实），足以承载 WebView2 环境/控制器创建与导航。
+⇒ D2 采用**主线程路径**：控制器在引擎主线程创建、Bounds/Navigate/Close 都在主线程调用；
+  不需要专用 STA UI 线程。
+探针里保留的 fallback 分支（专用 STA 线程 + 自己的消息泵）本次未被触发，仅作防御性代码保留到
+1.6 后的清理点（1.6 用正式 Editor 服务替换探针时一并删除）。
+
+----------------------------------------------------------------
+5. 与 1.6 的衔接（由本读数确定）
+----------------------------------------------------------------
+- 控制器清理必须用 `Close()`（构建期实测 CS1061 的结论），不能用 Dispose。
+- 控制器创建/导航都在主线程 Tick 内推进（异步任务 + 每帧轮询 IsCompleted），不得阻塞主线程等待。
+- 子 HWND 的父句柄取法：`IWindow.GetNativeWindowHandle()` 返回的是 `&m_Win32Window`（HWND*），
+  必须 `Marshal.ReadIntPtr` 解引用一次；直接把返回的 IntPtr 当 HWND 会创建失败。

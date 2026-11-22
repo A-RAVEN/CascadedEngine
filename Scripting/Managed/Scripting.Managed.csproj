@@ -17,7 +17,19 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Deterministic>true</Deterministic>
+    <!--
+      editor-window-panel 1.1（本仓库第一个 NuGet 包）：面板用 Microsoft.Web.WebView2。
+      库工程默认**不**把 PackageReference 的托管资产拷到输出目录，而宿主只把 bin/ 当程序集目录
+      （hostfxr 组件加载，bin/ 同时是 exe 目录）——不开这一项，运行期会找不到
+      Microsoft.Web.WebView2.Core.dll。原生 WebView2Loader.dll 由 build.py 从 NuGet 缓存显式拷。
+      版本钉 0.1③ 实测稳定版（nuget.org flatcontainer API，83 个稳定版里的最新）。
+    -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4370.26" />
+  </ItemGroup>
 
   <!--
     生成的绑定（`csharp-window-creation` 任务 2.5）：把 CodeGen 产出的 `<接口>.Bindings.cs` 编进来。

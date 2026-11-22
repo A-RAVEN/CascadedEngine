@@ -1,0 +1,16 @@
+{
+  "name": "cascaded-editor-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Cascaded 编辑器面板前端（无运行时框架，只依赖 vite + typescript 构建）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  }
+}

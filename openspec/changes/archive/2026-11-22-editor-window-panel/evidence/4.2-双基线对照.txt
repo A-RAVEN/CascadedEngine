@@ -1,0 +1,21 @@
+任务 4.2：双基线对照（绑定产物 + codegen 快照）
+记录时间：2026-11-22
+
+一、绑定产物逐字节基线
+命令（主循环执行）：
+  python Tools\CodeGen\check_binding_baseline.py --baseline openspec\changes\archive\2026-11-11-csharp-bindings-namespace-alignment\evidence\基线产物哈希.txt --product-dir out\build\x64-debug\codegen\bindings
+输出逐字：
+  基线对账：缺失 0 / 不一致 0 / 多余 0
+判读：C++ 接口签名不变，绑定产物逐字节一致（新增的 `Readback(Backbuffer)` 分支只改实现，不改接口表）。
+
+二、codegen 快照逐份 fc /b
+- 0.3 快照（本 change 首次构建前，2026-11-22 01:55）：`%TEMP%\ewp-codegen-before`，保留相对目录结构，
+  共 **77** 份 `*.codegen.h`。
+- 最终构建后：对快照逐份 `fc /b`。
+输出逐字（主循环回传）：`总=77 差异=0`。
+判读：77 份生成头逐字节全同，没有头文件层面的接口改动。
+
+三、判据
+- 两判据任一差异即红；本次两者均 0 差异。
+- 说明：check_binding_baseline 的基线锚是 2026-11-11 归档的 `基线产物哈希.txt`（脚本头部注释指定的当前锚）；
+  0.3 快照是同一时间窗的 C++ 生成头副本，两者覆盖不同产物（绑定文件 / *.codegen.h），都需要对账。

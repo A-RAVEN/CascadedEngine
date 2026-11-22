@@ -1,0 +1,27 @@
+任务 1.6：单窗口分栏壳 + WebView2（两后端实测已覆盖部分）
+记录时间：2026-11-22
+
+一、读数（vulkan 正跑，逐字）
+- 监听：`[编辑器] 监听线程已启动：http://localhost:18391/（面板宽 320，仅本机；门控 CASCADED_EDITOR=1）`
+- 单窗口：`[编辑器] 窗口已创建（单窗口分栏：视口 960x720 + 面板 320x720，模式 main-thread，hwnd=0xE0C74，windowSelf=0x1D5FD990800）`
+- 窗口计数：测试日志 `IWindowSystem::GetWindowCount = 2`（基线 1 + 编辑器 1，增量 1）；C++ 断言
+  `[编辑器 测试] ⑥ 单窗口分栏：计数 +1、控制器/导航就绪、C++ SetWindowSize 后读数同步（client=1000x640、viewport=680x640、panel=680,0,320,640）`
+- 导航：`[编辑器] 面板导航完成：IsSuccess=0 HttpStatus=503（HTTP 错误页也算导航成功）`
+  （EditorWeb 未构建时静态页返回 503 错误页，仍按 HttpStatus≥100 判导航成功；构建后应为 200 正常页。）
+- 读数行含控制器/导航/模式/面板/视口：
+  `[编辑器 读数] … mode=main-thread port=18391 … client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=503 exec=…`
+- 尺寸同步：set-size 900x560 后 `viewproject/panel` 读数变为 `panel=580,0,320,560`、`viewport=0,0,580,560`
+  （②⑪ 与 ⑥ 断言覆盖）。
+
+二、运行时缺失（M14 自检）
+- 命令（主循环执行）：`$env:CASCADED_EDITOR_SELFTEST='no-runtime'` 后跑
+  `.\GPUBackendTester.exe --backend vulkan --test TestEditorWindowPanel --headless 1 --report test_output\result_editor_no_runtime.json`
+- 结果（主循环回传）：NORUNTIME_EXIT=0，status=pass，M14 自检成立。
+- 行为：按开关返回"WebView2 运行时缺失（自检开关 CASCADED_EDITOR_SELFTEST=no-runtime 模拟）"→
+  明确禁用（日志含"禁用："与"运行时缺失"）→ 走服务关闭路径（日志含"已关闭"）→ 进程不崩。
+- 限制：该次运行的托管日志副本未单独存档（只保留主循环回传的 status=pass 与退出码）；命令与开关可复现。
+
+三、配置范围
+- 面板宽默认 320；`CASCADED_EDITOR_PANEL_WIDTH` 合法范围 1..客户区宽−1，越界明确禁用并点名范围；
+  set-size 要求宽 > 面板宽（B2，3.2 断言 width=0 与 width=320 均 E_INVALID_ARG）。
+- 配置项最终写进 CSharpHost/README（5.1 文档任务）。

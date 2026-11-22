@@ -54,6 +54,11 @@ namespace graphics_backend
 		// Check if window is valid
 		bool IsValid() const { return m_Surface && m_Swapchain; }
 
+		// editor-window-panel（⑩ 展示证明）：呈现前从交换链 image 回读需要 surface 支持 TRANSFER_SRC。
+		// CreateSwapchain 时按 surfaceCapabilities.supportedUsageFlags 记录；不支持时 Readback(backbuffer)
+		// 明确拒绝（不静默降级）。
+		bool SupportsBackbufferTransferSrc() const { return m_SupportsBackbufferTransferSrc; }
+
 		// Swapchain image count (for per-image semaphore allocation)
 		uint32_t GetSwapchainImageCount() const { return static_cast<uint32_t>(m_SwapchainImages.size()); }
 
@@ -89,5 +94,6 @@ namespace graphics_backend
 		bool m_Released = false;
 
 		castl::vector<VulkanResourceState> m_BackBufferResourceStates;
+		bool m_SupportsBackbufferTransferSrc = false;
 	};
 }

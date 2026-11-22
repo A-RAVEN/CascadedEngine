@@ -1,0 +1,8 @@
+任务 0.3：codegen 快照（首次构建前的锚）
+记录时间：2026-11-22
+
+- 快照目录：`%TEMP%\ewp-codegen-before`（保留 `out/build/x64-debug/codegen/` 的相对目录结构）。
+- 份数：**77** 份 `*.codegen.h`（`Get-ChildItem -Recurse -Filter *.codegen.h | Measure-Object` = 77）。
+- 时点：2026-11-22 01:55:47（本 change 首次构建之前；主循环执行）。
+- 用途：4.2 的 C++ 生成物逐字节对照锚（绑定产物另有 2026-11-11 归档的 `基线产物哈希.txt`）。
+- 4.2 最终对账结果：`fc /b` 逐份对比 **总=77 差异=0**（见 `evidence/4.2-双基线对照.txt`）。

@@ -1,0 +1,43 @@
+任务 1.12：截图视觉验收（AGENTS §2 用户明令，编辑器类任务缺此无条件不通过）
+记录时间：2026-11-22
+执行：主循环（交互打开 + 置前 + 截图 + read_image 核对）
+
+一、启动方式（让界面真实可见）
+- 构建：python build.py --config Debug，BUILD_EXIT=0（含 1.11 静态根修复）。
+- 交互启动：从 out/build/x64-debug/bin 目录，CASCADED_EDITOR=1、CASCADED_EDITOR_PORT=18390，
+  GPUBackendTester.exe --backend vulkan --test TestCSharpTriangle --show-window-seconds 300
+  （TestCSharpTriangle 走 C# 宿主，编辑器服务随之启动；--show-window-seconds 保持窗口可见）。
+- 置前：EnumWindows 按进程 PID 枚举（GetWindowTextW 须 CharSet.Unicode，否则中文标题乱码），
+  找标题含"编辑器/视觉验收"的可见窗，ShowWindow(SW_RESTORE)+SetForegroundWindow。
+  （FindWindowW 按标题精确匹配对 GLFW 窗不可靠，原标题也匹配不到，故用 PID 枚举。）
+
+二、1.11 静态根修复验证（HTTP GET）
+- 命令：Invoke-WebRequest -UseBasicParsing http://localhost:18390/
+- 读数：StatusCode=200；body 含 <title>Cascaded 编辑器面板</title>、title-input、连接；不含"资源未构建"。
+- 日志逐字：
+  「[编辑器] 程序集位置：E:\Projects\CascadedEngine\out\build\x64-debug\bin\Scripting.Managed.dll；AppContext.BaseDirectory=""」
+  「[编辑器] 面板静态根：E:\Projects\CascadedEngine\out\build\x64-debug\bin\editor-web」
+  「[编辑器] 面板导航完成：IsSuccess=1 HttpStatus=200」
+- 判读：BaseDirectory 确为空串（bug 根因坐实），Assembly.Location=bin/Scripting.Managed.dll，
+  静态根解析到绝对路径 bin/editor-web，前端真加载（200，非 503 错误页）。
+
+三、截图视觉核对（read_image 逐张看过）
+截图 1：视觉验收-面板与sceneview.png（desktop-20261122-105602-480.png）
+  ① 右侧 WebView2 真前端面板"Cascaded 编辑器面板"：连接状态=已连接+重新连接按钮、
+     对象 1: Cascaded 编辑器 (1280x720)、标题输入框+应用、宽 1280/高 720+应用尺寸+撤销、
+     事件日志（welcome protocolVersion=1、连接 ws://localhost:18390/ws）。非 503 错误页。✓
+  ② 左侧 scene view：绿底 (0,0.5,0) + 红色三角形（Vulkan 交互模式真实上屏可见）。✓
+截图 2：视觉验收-标题改生效.png（desktop-20261122-105914-482.png）
+  ③ 协议改标题生效：主循环经 ClientWebSocket 发 hello + set-title(requestId=7, objectId=1,
+     args.title="视觉验收-标题已改")，收到 result ok=true（value.object.title="视觉验收-标题已改"）
+     + event object-changed。截图核对：窗口标题="视觉验收-标题已改"（OS 层真变）、
+     面板对象 1 标题="视觉验收-标题已改"、标题输入框同步、事件日志"对象 1 变化: {title:视觉验收-标题已改}"。
+     协议→引擎→面板回显整条链路可见。✓
+
+四、结论
+①②③ 全部通过：真前端面板（控件齐全、已连接、非错误页）+ scene view 绿底红三角 + 协议改标题真实生效。
+视觉验收通过。截图两张存本目录。编辑器进程验收后已关（PID 6956 Stop-Process）。
+
+五、与自动化测试的关系
+自动化 TestEditorWindowPanel 两后端 18/18 验协议/像素/失效等断言；本视觉验收补"用户打开真实可见"
+这一层（自动化漏检的 1.11 静态根 bug 正是视觉验收抓出）。两者互补，缺一不可（AGENTS §2）。

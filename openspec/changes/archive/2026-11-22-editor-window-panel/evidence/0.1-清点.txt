@@ -1,0 +1,160 @@
+editor-window-panel 任务 0.1：六项开工清点
+================================================================
+清点时间：2026-11-22（执行者实测；命令均在 E:\Projects\CascadedEngine 下运行）
+用途：核对 design/proposal 里的技术假设。凡与本文件不符处，以本文件实测读数为准并回报主循环修订工件。
+
+----------------------------------------------------------------
+① GetNativeWindowHandle 在 Windows 上返回什么
+----------------------------------------------------------------
+命令：
+  Select-String -Path "WindowSystem\private\Window_Impl.cpp" -Pattern "void\* WindowImpl::GetNativeWindowHandle" -Context 0,7
+真实输出（节选，> 开头的行是匹配行）：
+  Window_Impl.cpp:149:	void* WindowImpl::GetNativeWindowHandle()
+  Window_Impl.cpp:151:#if defined(_WIN32) || defined(_WIN64)
+  Window_Impl.cpp:152:		return &m_Win32Window;
+  Window_Impl.cpp:154:		return nullptr;
+
+命令：
+  Select-String -Path "WindowSystem\private\Window_Impl.h" -Pattern "HWND m_Win32Window|void\* GetNativeWindowHandle"
+真实输出：
+  Window_Impl.h:51: void* GetNativeWindowHandle() override;
+  Window_Impl.h:53: HWND m_Win32Window;
+
+结论（重要细节）：
+  原生返回的是 **HWND 成员的地址**（`&m_Win32Window`，类型 HWND*），不是 HWND 值本身。
+  历史修复记录与此一致：`openspec/changes/archive/2026-05-19-fix-win32-surface-null-hwnd/design.md`
+  原文「`IWindow` 接口已定义 `GetNativeWindowHandle()` 返回 `void*`（实际为 `HWND*`）」，用法
+  `HWND winHandle = *static_cast<HWND*>(m_Window->GetNativeWindowHandle());`。
+
+  托管表面的投影把 `void*` 当不透明令牌（`uint64` → `IntPtr`），命令：
+    Select-String -Path "out\build\x64-debug\codegen\bindings\cawindow__IWindow.Bindings.cs" -Pattern "public static IntPtr GetNativeWindowHandle|ulong value = IWindowBindings.GetNativeWindowHandle"
+  真实输出：
+    cawindow__IWindow.Bindings.cs:359: public static IntPtr GetNativeWindowHandle(IWindowLease lease)
+    cawindow__IWindow.Bindings.cs:366: ulong value = IWindowBindings.GetNativeWindowHandle(lease.Self);
+  即 C# 表面拿到的 IntPtr 是「HWND 存储位置的地址」，要取真实父窗口句柄必须再解引用一次
+  （`Marshal.ReadIntPtr(...)`）。D2 说「GetNativeWindowHandle() 取父 HWND」——实现层面多一次解引用，
+  不改变设计结论，但 1.6 必须按这个事实写，否则把「地址」当 HWND 传给 WebView2 会创建失败。
+
+----------------------------------------------------------------
+② UpdateSystem / glfwPollEvents 的消息泵事实
+----------------------------------------------------------------
+命令：
+  Select-String -Path "WindowSystem\private\WindowSystem_Impl.cpp" -Pattern "void WindowSystem::UpdateSystem" -Context 0,6
+真实输出：
+  WindowSystem_Impl.cpp:220:	void WindowSystem::UpdateSystem()
+  WindowSystem_Impl.cpp:222:		glfwPollEvents();
+  WindowSystem_Impl.cpp:223:		UpdateMonitors();
+  WindowSystem_Impl.cpp:224:		UpdateWindows();
+
+命令：
+  Select-String -Path "out\build\x64-debug\_deps\glfw-src\src\win32_window.c" -Pattern "void _glfwPollEventsWin32" -Context 0,26
+真实输出（关键 4 行）：
+  win32_window.c:2107:    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+  win32_window.c:2124:            TranslateMessage(&msg);
+  win32_window.c:2125:            DispatchMessageW(&msg);
+
+结论：
+  `UpdateSystem()` = `glfwPollEvents()` + 显示器刷新 + 窗口回收。GLFW 的 Win32 泵是**线程级**的：
+  `PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)` 取整条线程消息队列并 `DispatchMessageW`，不限于 GLFW
+  自己的窗口 —— 因此同一线程上 WebView2 的子窗口/消息窗口消息也会被它派发。这条是 D2「主线程路径」
+  能成立的必要条件（不是充分条件；控制器创建还要求创建线程本身就是 UI 线程/消息泵线程，须 0.2 探针实测）。
+  另一条相关事实：窗口回收只发生在 `UpdateSystem()` 里（`UpdateWindows()`：`use_count()==1 &&
+  WindowShouldClose()` 时从 `m_Windows` 移除）。所以「外部 CloseWindow → 对象失效」的观测点必须
+  跟着帧循环走（3.2 ④ 与 1.3 都依赖这一点）。
+
+----------------------------------------------------------------
+③ NuGet Microsoft.Web.WebView2 版本与 nuget.org 可达性
+----------------------------------------------------------------
+由主循环实测（本执行者不联网，直接引用）：
+  - nuget.org flatcontainer API 实测：Microsoft.Web.WebView2 最新稳定版 **1.0.4370.26**（共 83 个稳定版）。
+  - 本机 NuGet 全局缓存当前**没有**该包：
+      命令：Test-Path "$env:USERPROFILE\.nuget\packages\microsoft.web.webview2"
+      真实输出：False
+    即首次构建必须联网 restore（与 design D8 风险条一致）；本执行者的 1.1 只钉版本、写拷贝逻辑，
+    restore 由主循环的 `python build.py --config Debug` 触发。
+  - 本机 WebView2 运行时已装：157.0.4341.60（主循环注册表实测）。
+  - 本机 .NET SDK：命令 `dotnet --version` → **10.0.102**（满足 net8.0 目标框架编译）。
+
+----------------------------------------------------------------
+④ node 可用性
+----------------------------------------------------------------
+命令：node --version
+真实输出：v22.20.0
+
+----------------------------------------------------------------
+⑤ tester 的 Winsock 链接
+----------------------------------------------------------------
+命令（CMakeLists 全文逐行看过）：
+  Test/GPUBackendTester/CMakeLists.txt 的 target_link_libraries 清单里没有 ws2_32
+  （只有 CACore / TimerSystem / ThreadManager_Interface / Rendering / ShaderCompiler /
+   CAGeneralReourceSystem_Interface / WindowSystem_Interface / glm / IMGUI / assimp / stb /
+   TimerSystem_Impl / Jolt / IOManager / magic_enum / IMGUIContext / ScriptHost / dbghelp）。
+
+命令：Select-String -Path "out\build\x64-debug\build.ninja" -Pattern "ws2_32" | Measure-Object | Select-Object Count
+真实输出：
+  Count
+  -----
+      0
+  （同一命令查 "GPUBackendTester.exe" 也无命中 —— 该构建目录的 ninja 文件不在顶层写目标名，
+   但 ws2_32 的链接库清单为 0 这一条足以判定「当前没有链接 Winsock」。）
+
+命令：git grep 全仓（源码侧）"ws2_32|WSAStartup|winsock2" → 只命中本 change 的 tasks.md，源码 0 处。
+结论：最小 WebSocket 客户端（3.1）必须自己补链接。为把改动面限制在 tasks/Impact 点名的文件内，
+采用在 `Test/GPUBackendTester/Main.cpp` 顶部写 `#pragma comment(lib, "ws2_32.lib")`（MSVC 支持），
+不改 CMakeLists.txt；1.1/3.1 的构建读数（主循环）将证明链接生效。
+
+----------------------------------------------------------------
+⑥ 糖层三角形路径 API 面（服务要调的糖方法）
+----------------------------------------------------------------
+文件：Scripting/Managed/NativeRenderSugar.cs（行号为实测）
+  - 1183 `public ScriptRenderTarget GetWindowTarget(IWindow window)`：窗口目标（后台缓冲 + 尺寸）
+  - 1217 `public ScriptRenderTarget CreateCaptureTarget(uint width, uint height)`：离屏捕获目标（RGBA8）
+  - 1258 `public ScriptRenderGraph CreateGraph()`：新建图
+  - 677  `public int AddBuffer(string name, GPUBufferDescriptor descriptor, byte[] data)`：登记 + 上传顶点
+  - 720  `public int SetPositionColorStream(string streamName, uint stride, uint positionOffset, uint colorOffset)`
+  - 851  `public int AddTrianglePass(ScriptRenderTarget target, string shaderPath, string streamName, string bufferName, uint vertexCount, float red, float green, float blue, float alpha)`
+  - 963  `public int SetPassParam(uint passIndex, string blockName, ScriptShaderStruct parameters)`（本批三角形不需要参数块）
+  - 1008 `public int Present(ScriptRenderTarget target)`
+  - 1419 `public int SubmitGraph(ScriptRenderGraph graph)`
+  - 1530 `public void WaitIdle()`
+  - 1382 `public ScriptShaderStruct CreateShaderStruct(string structTypeName)` / 1279 `CreateTexture` / 1350 `CreateBuffer`（本批三角形不用）
+
+服务侧的调用顺序有现成先例：`UserScript.OnRenderProbe`（UserScript.cs:88）——
+建窗 → GetWindowTarget → CreateCaptureTarget → CreateGraph → AddBuffer → SetPositionColorStream →
+两次 AddTrianglePass（窗口 + 离屏）→ Present → SubmitGraph → WaitIdle；顶点 72 字节（3 × 24，
+位置偏移 0、颜色偏移 12、中心红），着色器 `Shaders/Test/TestSimpleTriangle`，清除色 (0,0.5,0,1)。
+
+**AddTrianglePass 视口重载扩展点**（1.7 要加）：现有实现把「整张目标」的视口/剪裁矩形同时写进
+**批级**（`DrawCallBatch.m_ViewPort/m_Sissor`）与**绘制级**（`DrawCall.m_ViewPort/m_Sissor`），
+注释原文（NativeRenderSugar.cs:896-898）：
+    「批级与绘制级都要给**整张目标**的视口/剪裁矩形：序列化块反序列化出来的
+      `HashObj<ViewRectData>` 恒为"有效"，写零矩形会把执行器默认的整目标视口
+      覆盖成 0×0（一个像素都画不出来）。两后端对这个矩形的原点约定一致（左上）。」
+扩展方式：新增一个带 `ViewRectData`（或 x/y/w/h）参数的重载，两级矩形同设；既有签名保持不变
+（additive），17 个既有用例的整目标绘制路径不受影响。
+
+原生支持已核实：`Interface/RenderInterface/header/GPUGraph.h`
+  - 216 `inline DrawCallBatch& SetViewPort(ViewRectData const& viewport)`
+  - 222 `inline DrawCallBatch& SetScissor(ViewRectData const& scissor)`
+  - 147 `inline DrawCall& ViewPort(int x, int y, int width, int height)` / 153 `Scissor(...)`
+因此 D2「原生渲染占左侧视口区域」在接口层可行。
+
+----------------------------------------------------------------
+与 design 假设的对照
+----------------------------------------------------------------
+- 「GetNativeWindowHandle 返回 HWND」：实际返回 HWND*（地址），C# 侧需解引用一次。设计结论不变，
+  实现细节按本文件执行（1.6）。
+- 「UpdateSystem 泵消息」：成立，且是线程级泵；但「WebView2 控制器能否直接贴引擎主线程」仍须 0.2 探针实测。
+- 「nuget 稳定版」「node 可用」「tester 未链 ws2_32」：与 design 假设一致；Winsock 用 Main.cpp 的
+  `#pragma comment(lib, "ws2_32.lib")` 补齐，不动 CMakeLists.txt。
+- 「糖层已有窗口/捕获/图/提交全套入口」「GPUGraph 支持 SetViewPort/SetScissor」：成立。
+
+----------------------------------------------------------------
+0.3 codegen 快照核对（主循环完成，执行者复核）
+----------------------------------------------------------------
+命令（源 = out/build/x64-debug/codegen 递归 *.codegen.h；快照 = %TEMP%\ewp-codegen-before 递归）：
+  源文件数：77
+  快照目录：C:\Users\76956\AppData\Local\Temp\ewp-codegen-before 存在=True
+  快照文件数：77
+  Compare-Object 相对路径差异条数：0
+结论：快照份数与源一致（77 份），目录结构逐条相同；4.2 的双基线以它为准。

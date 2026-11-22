@@ -4,6 +4,9 @@
 #include <string>
 #include <cstring>
 #include <cstdio>
+#include <chrono>
+#include <cstdlib>
+#include <thread>
 #include <VulkanObjects/VulkanBuffer.h>
 #include <VulkanObjects/VulkanTexture.h>
 #include <VulkanObjects/VulkanWindowHandle.h>
@@ -1211,8 +1214,279 @@ void RenderBackend_Vulkan::ClearFramebufferCache()
 		bool m_Filled = false;
 	};
 
+	// --- editor-window-panel（⑩ 展示证明）：窗口 backbuffer 呈现前捕获 ---
+	//
+	// 语义：`Readback(Backbuffer)` 只**登记**请求并返回 token；真正的 GPU 拷贝发生在该窗口
+	// `PresentWindows` 调 `CaptureRequestedBackbuffer`（vkQueuePresentKHR 之前）时，调用方顺序是
+	// `Readback → 跑一帧（含 Present）→ token->Wait()`。dst 得到的是**格式原生字节序**（B8G8R8A8 → BGRA）。
+	class VulkanBackbufferReadbackToken : public IReadbackToken
+	{
+	public:
+		VulkanBackbufferReadbackToken(RenderBackend_Vulkan* backend, castl::shared_ptr<WindowHandle> window,
+			std::shared_ptr<BackbufferReadbackState> state)
+			: m_Backend(backend), m_Window(std::move(window)), m_State(std::move(state))
+		{
+		}
+
+		~VulkanBackbufferReadbackToken() override { Reset(); }
+
+		void Wait() override
+		{
+			const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+			while (!m_State->Ready.load())
+			{
+				if (m_State->Failed.load())
+				{
+					CA_LOG_ERR("VulkanBackbufferReadbackToken: {}", m_State->Error);
+					return;
+				}
+				if (std::chrono::steady_clock::now() >= deadline)
+				{
+					CA_LOG_ERR("VulkanBackbufferReadbackToken: 等待 Present 前捕获超时（需要跑一帧含 Present 的图）");
+					return;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+		}
+
+		bool IsReady() const override { return m_State->Ready.load(); }
+
+		void Reset() override
+		{
+			if (m_State && !m_State->Ready.load() && m_Backend != nullptr)
+			{
+				m_Backend->CancelBackbufferReadback(m_State.get());
+			}
+		}
+
+	private:
+		RenderBackend_Vulkan* m_Backend = nullptr;
+		castl::shared_ptr<WindowHandle> m_Window; // 保活：捕获发生在后续帧的 Present 上
+		std::shared_ptr<BackbufferReadbackState> m_State;
+	};
+
+	std::unique_ptr<IReadbackToken> RenderBackend_Vulkan::BeginBackbufferReadback(ImageHandle const& image,
+		std::span<uint8_t> dst)
+	{
+		VulkanWindowHandle* window = image.GetWindowPtr<VulkanWindowHandle>();
+		if (window == nullptr || !window->IsValid())
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(backbuffer) 窗口无效或已释放");
+			return nullptr;
+		}
+		if (!window->SupportsBackbufferTransferSrc())
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(backbuffer) 被拒绝：该 surface 不支持 TRANSFER_SRC"
+			           "（无法做呈现前回读；能力位来自 surfaceCapabilities.supportedUsageFlags）");
+			return nullptr;
+		}
+		// 红态构造（工件修订认可）：真机 surface 通常都支持 TRANSFER_SRC，用自检开关强制走"不支持"
+		// 拒绝分支（显式 null token + 点名原因），不编造真实的不支持表面。
+		if (std::getenv("CASCADED_READBACK_FORCE_NO_BB_TRANSFER") != nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(backbuffer) 被拒绝：自检开关 "
+			           "CASCADED_READBACK_FORCE_NO_BB_TRANSFER 强制报告 surface 不支持 TRANSFER_SRC");
+			return nullptr;
+		}
+		auto const& desc = window->GetBackbufferDescriptor();
+		uint64_t byteSize = GetImageByteSize(desc.width, desc.height, desc.format);
+		if (byteSize == 0)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(backbuffer) 格式 {} 不支持紧凑回读", (int)desc.format);
+			return nullptr;
+		}
+		if (dst.size() < byteSize)
+		{
+			CA_LOG_ERR("RenderBackend_Vulkan: Readback(backbuffer) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+		auto state = std::make_shared<BackbufferReadbackState>();
+		state->Dst = dst;
+		{
+			std::lock_guard<std::mutex> lock(m_BackbufferReadbackMutex);
+			if (m_BackbufferReadbacks.find(window) != m_BackbufferReadbacks.end())
+			{
+				CA_LOG_ERR("RenderBackend_Vulkan: Readback(backbuffer) 该窗口已有未完成的捕获请求");
+				return nullptr;
+			}
+			m_BackbufferReadbacks[window] = state;
+		}
+		CA_LOG_INFO("RenderBackend_Vulkan: 已登记 backbuffer 呈现前捕获（{}x{}，{} 字节）", desc.width, desc.height,
+		            byteSize);
+		return std::make_unique<VulkanBackbufferReadbackToken>(this, image.GetWindowHandle(), state);
+	}
+
+	void RenderBackend_Vulkan::CancelBackbufferReadback(BackbufferReadbackState* state)
+	{
+		if (state == nullptr)
+		{
+			return;
+		}
+		std::lock_guard<std::mutex> lock(m_BackbufferReadbackMutex);
+		for (auto it = m_BackbufferReadbacks.begin(); it != m_BackbufferReadbacks.end(); ++it)
+		{
+			if (it->second.get() == state)
+			{
+				m_BackbufferReadbacks.erase(it);
+				return;
+			}
+		}
+	}
+
+	void RenderBackend_Vulkan::CaptureRequestedBackbuffer(VulkanWindowHandle* window)
+	{
+		std::shared_ptr<BackbufferReadbackState> state;
+		{
+			std::lock_guard<std::mutex> lock(m_BackbufferReadbackMutex);
+			auto it = m_BackbufferReadbacks.find(window);
+			if (it == m_BackbufferReadbacks.end())
+			{
+				return;
+			}
+			state = it->second;
+			m_BackbufferReadbacks.erase(it);
+		}
+		auto fail = [&state](std::string const& reason)
+		{
+			state->Error = reason;
+			state->Failed = true;
+			CA_LOG_ERR("RenderBackend_Vulkan: backbuffer 呈现前捕获失败：{}", reason);
+		};
+		if (!window->IsValid())
+		{
+			fail("窗口无效");
+			return;
+		}
+		if (!window->SupportsBackbufferTransferSrc())
+		{
+			fail("surface 不支持 TRANSFER_SRC");
+			return;
+		}
+		auto const& desc = window->GetBackbufferDescriptor();
+		uint64_t byteSize = GetImageByteSize(desc.width, desc.height, desc.format);
+		if (byteSize == 0 || state->Dst.size() < byteSize)
+		{
+			fail("格式或目标字节数不支持");
+			return;
+		}
+		vk::Image image = window->GetCurrentImage();
+		if (!image)
+		{
+			fail("当前交换链 image 为空（本帧未 acquire）");
+			return;
+		}
+		// 本帧渲染批次已提交但可能未完成：捕获只发生在有请求时，这里同步等完成再拷贝。
+		try
+		{
+			m_Device.waitIdle();
+		}
+		catch (vk::SystemError const& e)
+		{
+			fail(std::string("waitIdle 失败：") + e.what());
+			return;
+		}
+		vk::BufferCreateInfo stagingCI{};
+		stagingCI.size = byteSize;
+		stagingCI.usage = vk::BufferUsageFlagBits::eTransferDst;
+		stagingCI.sharingMode = vk::SharingMode::eExclusive;
+		VmaAllocationCreateInfo stagingAllocCI{};
+		stagingAllocCI.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocCI.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+		VmaAllocationInfo stagingInfo{};
+		vk::Buffer stagingBuffer{};
+		VmaAllocation stagingAlloc = m_MemoryManager.AllocateBuffer(stagingCI, stagingAllocCI, stagingBuffer,
+		                                                            &stagingInfo, nullptr);
+		if (!stagingBuffer || stagingAlloc == VK_NULL_HANDLE)
+		{
+			fail("staging buffer 分配失败");
+			return;
+		}
+		vk::Fence fence{};
+		try
+		{
+			fence = m_Device.createFence(vk::FenceCreateInfo{});
+		}
+		catch (vk::SystemError const& e)
+		{
+			m_MemoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+			fail(std::string("createFence 失败：") + e.what());
+			return;
+		}
+		vk::CommandBuffer cmd = m_CommandListManager.AllocateCommandBuffer(m_CommandListManager.GetGraphicsPool());
+		m_CommandListManager.BeginCommandBuffer(cmd);
+		vk::ImageMemoryBarrier toSrc{};
+		toSrc.oldLayout = vk::ImageLayout::ePresentSrcKHR;
+		toSrc.newLayout = vk::ImageLayout::eTransferSrcOptimal;
+		toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toSrc.image = image;
+		toSrc.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+		toSrc.subresourceRange.baseMipLevel = 0;
+		toSrc.subresourceRange.levelCount = 1;
+		toSrc.subresourceRange.baseArrayLayer = 0;
+		toSrc.subresourceRange.layerCount = 1;
+		toSrc.srcAccessMask = vk::AccessFlagBits::eMemoryRead;
+		toSrc.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer,
+		                    vk::DependencyFlags{}, {}, {}, toSrc);
+		vk::BufferImageCopy region{};
+		region.bufferOffset = 0;
+		region.bufferRowLength = 0;
+		region.bufferImageHeight = 0;
+		region.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+		region.imageSubresource.mipLevel = 0;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
+		region.imageOffset = vk::Offset3D{ 0, 0, 0 };
+		region.imageExtent = vk::Extent3D(desc.width, desc.height, 1);
+		cmd.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, stagingBuffer, region);
+		vk::ImageMemoryBarrier back{};
+		back.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
+		back.newLayout = vk::ImageLayout::ePresentSrcKHR;
+		back.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		back.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		back.image = image;
+		back.subresourceRange = toSrc.subresourceRange;
+		back.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+		back.dstAccessMask = vk::AccessFlagBits::eNone;
+		cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eBottomOfPipe,
+		                    vk::DependencyFlags{}, {}, {}, back);
+		m_CommandListManager.EndCommandBuffer(cmd);
+		try
+		{
+			m_QueueContext.SubmitCommands(m_QueueContext.GetGraphicsQueueFamily(), 0, cmd, fence);
+			m_Device.waitForFences(fence, VK_TRUE, UINT64_MAX);
+		}
+		catch (vk::SystemError const& e)
+		{
+			fail(std::string("提交/等待拷贝失败：") + e.what());
+		}
+		m_Device.destroyFence(fence);
+		m_CommandListManager.FreeCommandBuffer(m_CommandListManager.GetGraphicsPool(), cmd);
+		if (!state->Failed.load())
+		{
+			if (stagingInfo.pMappedData == nullptr)
+			{
+				fail("staging 未映射（pMappedData 为空）");
+			}
+			else
+			{
+				memcpy(state->Dst.data(), stagingInfo.pMappedData, static_cast<size_t>(byteSize));
+				state->Ready = true;
+				CA_LOG_INFO("RenderBackend_Vulkan: backbuffer 呈现前捕获完成（{}x{}，{} 字节）", desc.width, desc.height,
+				            byteSize);
+			}
+		}
+		m_MemoryManager.FreeBuffer(stagingBuffer, stagingAlloc);
+	}
+
 	std::unique_ptr<IReadbackToken> RenderBackend_Vulkan::Readback(ImageHandle const& image, std::span<uint8_t> dst)
 	{
+		// editor-window-panel（⑩ 展示证明）：窗口 backbuffer → 登记"Present 前捕获"，由 PresentWindows 执行。
+		if (image.GetType() == ImageHandle::ImageType::Backbuffer)
+		{
+			return BeginBackbufferReadback(image, dst);
+		}
 		// readback is a pure copy; only caller-owned External resources are resolvable here.
 		// Internal (graph-local) resources die with the graph executor, and backbuffer readback is
 		// explicitly out of scope (non-portable / post-present). Both error out clearly.

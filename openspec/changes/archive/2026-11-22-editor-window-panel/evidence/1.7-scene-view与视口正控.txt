@@ -1,0 +1,40 @@
+任务 1.7：Scene view 渲染（糖层视口重载 + 每帧复用图 + 捕获读回）
+记录时间：2026-11-22
+后端：vulkan + d3d12（两后端同一测试均全绿）
+
+一、实现要点
+- Scripting/Managed/NativeRenderSugar.cs：additive `AddTrianglePass(..., int viewportX, int viewportY,
+  int viewportWidth, int viewportHeight)`——批级与绘制级视口/剪裁矩形同设；无参重载保持整目标默认。
+- `SubmitGraph`：已提交的图跳过 Materialize、仍校验并重复执行（既有 17 用例只提交一次行为不变）。
+- Scripting/Managed/Editor/EditorSceneView.cs：72 字节红三角 + Shaders/Test/TestSimpleTriangle；
+  清除色 (0,0.5,0,1)；左侧视口（0,0,视口宽,高）与同区域离屏捕获目标双 pass + Present；
+  每帧复用同一张图 SubmitGraph + WaitIdle；set-size/窗口回调后按新视口重建捕获目标与图。
+- 读数行暴露 exec/graphSelf/capture/captureSelf/wtarget/passes/presents/nativeCalls；C++ 侧按
+  graphSelf 解析捕获纹理 Readback 中心像素，打印 `[编辑器 像素]`（C# 绑定面无读回入口）。
+
+二、绿读数（vulkan，逐字）
+  [编辑器] scene view 建图：窗口目标 1280x720、视口 960x720、pass=2、present=1（每帧复用同一张图提交）
+  [编辑器 读数] … exec=1 capture=960x720 graphSelf=… captureSelf=… wtarget=1280x720 passes=2 presents=1 …
+  [编辑器 测试] M6 视口正控通过：2 个 pass 的批级/绘制级视口与剪裁矩形分别等于窗口左侧视口(960x720) 与整张捕获目标(960x720)
+  [编辑器 像素] 渲染证明（首帧）：capture=960x720 center=(255,0,0,255)
+  [编辑器 像素] 改尺寸后：capture=580x560 center=(255,0,0,255)
+  [编辑器 测试] ②⑪ set-size 往返 + 捕获重建：读回 900x560、capture=580x560、中心红
+d3d12 同样的 M6 与两处像素读数（panel-d3d12-test.log）：
+  [编辑器 测试] M6 视口正控通过：2 个 pass …窗口左侧视口(960x720) 与整张捕获目标(960x720)
+  [编辑器 像素] 渲染证明（首帧）：capture=960x720 center=(255,0,0,255)
+  [编辑器 像素] 改尺寸后：capture=580x560 center=(255,0,0,255)
+
+三、M6 视口正控（默认视口不被破坏）
+- 独立判据：从原生图记录读 **批级与绘制级** m_ViewPort/m_Sissor：
+  捕获 pass（外部纹理附件、无参 AddTrianglePass）== 整张捕获目标 (960x720)；
+  窗口 pass（后台缓冲附件、带视口重载）== 左侧视口 (960x720)。
+  批级 == 绘制级，pass 数 == 2；两后端均通过（读数见上）。
+- 该断言独立于现有 17 用例（它们不读这两个字段），可失败：矩形错值/无效 → E_EDITOR_DEFAULT_VIEWPORT。
+
+四、默认视口与既有 17 用例
+- 无参 AddTrianglePass 默认仍整目标；4.1 全量回归核对既有 17 用例行为不变（本任务先登记，回归后勾 4.1）。
+
+五、窗口上屏结论（环境）
+- M6 证明编辑器图正确；屏幕捕获全白含原生 C++ 正控 ⇒ GameViewer 虚拟显示环境阻断硬件 flip 上屏；
+  展示证明改窗口 backbuffer 呈现前读回（1.8/1.9，环境无关，headless 可跑），屏幕捕获降
+  CASCADED_EDITOR_DISPLAY_PROOF=1 可选诊断。

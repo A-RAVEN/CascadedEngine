@@ -1,0 +1,33 @@
+任务 4.1：全量回归（两后端 18/18）+ 默认关零行为
+记录时间：2026-11-22
+
+一、构建与 CoreTests
+命令（主循环执行）：
+  python build.py --config Debug
+  out\build\x64-debug\bin\CoreTests.exe
+结果：BUILD_EXIT=0；CORETESTS_EXIT=0，全过（含 FileLoader 错误通道、默认视口正控等新断言）。
+
+二、两后端全量 18 用例（编辑器门控由 TestEditorWindowPanel 自设）
+命令（主循环执行）：
+  .\GPUBackendTester.exe --backend vulkan --headless 10 --report test_output\result_full_vulkan.json
+  .\GPUBackendTester.exe --backend d3d12 --headless 10 --report test_output\result_full_d3d12.json
+结果：FULL_VK_EXIT=0 / FULL_D3D_EXIT=0；result_full_vulkan pass=18/18；result_full_d3d12 pass=18/18。
+
+三、默认关零行为（17 条旧用例，清尽编辑器环境变量）
+- 清空 `CASCADED_EDITOR` / `_PORT` / `_PANEL_WIDTH` / `_WEBVIEW2_DATA` / `_SELFTEST` / `_STOP` /
+  `_READINGS_FILE` / `_DISPLAY_PROOF` / `CASCADED_READBACK_FORCE_NO_BB_TRANSFER` 后，逐个跑 17 条旧用例
+  （TestSimpleTriangle … TestIOErrorChannel，`--headless 10 --report test_output\default_off\<名>.json`）。
+- 结果：17 条全 pass。
+- 日志 grep：`Select-String -Path test_output\*.log -Pattern '\[编辑器\]'` **命中数 = 0**。
+- 端口：TcpClient 连 `localhost:18390` 失败（无监听）——默认关不建监听线程。
+- 对照基线：`openspec\changes\archive\2026-11-17-io-error-channel\evidence\4.2-全量回归-report-vulkan.json`
+  （17 条），排除 `duration_ms` 仅比 name/status：检查=17，状态差异=0，基线用例数=17。
+
+四、编辑器用例（开）读数（同一轮 reqQ/reqR）
+- vulkan：status=pass；⑩ `[编辑器 像素] 展示证明（窗口 backbuffer 回读）：900x560 format=9 视口中心=(290,280) 中心字节=(0,0,255,255) 色序=BGRA 红=1`
+- d3d12：status=pass；⑩ `… format=6 视口中心=(290,280) 中心字节=(255,0,0,255) 色序=RGBA 红=1`
+- 无运行时自检：`CASCADED_EDITOR_SELFTEST=no-runtime` → status=pass、M14 通过（见 1.6 evidence）。
+
+五、判据
+- 默认关：零日志、零监听、17 用例与改前基线逐条一致（状态差异 0）。
+- 开启：18/18 两后端全过（含展示证明 backbuffer 读回与能力拒绝红态）。

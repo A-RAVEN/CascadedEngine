@@ -1,0 +1,59 @@
+editor-window-panel 任务 1.2（服务骨架）实测记录
+================================================================
+来源：主循环请求 C/D（构建与 vulkan 首跑）的原始日志
+  %TEMP%\ewp\reqC-build.txt（4 条 C# 编译错 → 已修）
+  %TEMP%\ewp\reqD-build.txt（BUILD_EXIT=0）
+  %TEMP%\ewp\panel-vulkan-test.log（首个完整用例运行的测试日志副本）
+  %TEMP%\ewp\reqD-vulkan.txt（同次运行的 stderr/退出码）
+
+----------------------------------------------------------------
+1. 门控开启：监听线程 + 单窗口 + scene view 的启动读数（真实日志逐字）
+----------------------------------------------------------------
+  [托管侧] [编辑器] 监听线程已启动：http://localhost:18391/（面板宽 320，仅本机；门控 CASCADED_EDITOR=1）
+  [托管侧] [编辑器] 登记对象 1（kind=window）
+  [托管侧] [编辑器] 窗口已创建（单窗口分栏：视口 960x720 + 面板 320x720，模式 main-thread）
+  [托管侧] [编辑器 读数] probe=editor tick=3 state=running mode=main-thread port=18391 clients=0
+           objects=1 invalidated=0 shellClosed=0 windowSelf=2066228880688 client=1280x720
+           panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 exec=1 capture=960x720
+           graphSelf=2066182894352 captureSelf=2066075598048 nativeCalls=6 cmdRequest=0 cmdCalls=0
+           lastCmd=- error=-
+  （随后每帧 exec 递增：tick=39 时 exec=37、controller=1，说明 1.7 的 scene view 每帧提交在工作，
+   1.6 的 WebView2 环境+控制器创建成功；窗口/面板/视口读数见上。）
+
+----------------------------------------------------------------
+2. 关闭顺序（D1 硬判据：停监听/join/处置 WebView2 全部先于 hostfxr_close）
+----------------------------------------------------------------
+同一次运行收尾的 stderr（逐字，顺序即输出顺序）：
+  [托管侧·关闭期] [编辑器] 已关闭（Host.Shutdown）：监听已停、客户端已断、WebView2 控制器已关闭
+  [CSharpHost] 托管 Shutdown 返回 0
+  [CSharpHost] 运行时已关闭（hostfxr_close 已调用）
+  [CSharpHost] TryRelease 进入（写 stderr）
+判据成立：编辑器服务先关闭（监听已停、客户端已断、控制器已关闭），托管 Shutdown 返回 0，之后才
+hostfxr_close —— 不存在"运行时关闭后监听线程仍访问托管对象"的路径。该读数同时证明 `Host.Shutdown`
+的第一行 `Editor.EditorService.Shutdown("Host.Shutdown")` 被真实执行（门控开启时）。
+
+----------------------------------------------------------------
+3. 1.6 贴附判据的红态 → 修复（红绿记录）
+----------------------------------------------------------------
+红态读数（缺陷存在时判据失败，逐字）：
+  [托管侧] [编辑器] 禁用：WebView2 贴附失败：面板页面导航失败：Unknown
+  [托管侧] [编辑器] 已关闭（失败禁用）：监听已停、客户端已断、WebView2 控制器已关闭
+  [托管侧] [编辑器 读数] probe=editor tick=53 state=starting … objects=0 … error=WebView2_贴附失败：面板页面导航失败：Unknown
+  C++ 用例判红：E_EDITOR_START（"编辑器 40 秒内没有进入运行态：objects=0 controller=0 nav=0 exec=0
+  error=WebView2_贴附失败：面板页面导航失败：Unknown"）
+根因（实测）：bin/editor-web/index.html 还不存在（EditorWeb 2.x 未做），静态请求返回 503 说明错误页；
+WebView2 对 HTTP 5xx 错误页给 IsSuccess=false + WebErrorStatus=Unknown，旧判定把它当成"贴附失败"
+并禁用编辑器。0.2 探针当时导航 data URL，所以没暴露这条。
+修复：导航判定改为「收到任何 HTTP 响应即算导航成功」——
+  m_NavigationOk = args.IsSuccess || args.HttpStatusCode >= 100
+依据：nuget 包 1.0.4370.26 的 XML 文档实测 `CoreWebView2NavigationCompletedEventArgs.HttpStatusCode`
+存在，且文档写明"HttpStatusCode 只在无响应时为 0"。HTTP 404/503 说明错误页 -> 导航成功、面板显示
+服务端说明页（2.x 落地后自然变真面板）；只有 HttpStatusCode==0（无响应/连接失败）才禁用编辑器。
+新增读数 `navHttp=<状态码>` 与日志 `[编辑器] 面板导航完成：IsSuccess=… HttpStatus=…`。
+绿态读数见同目录 evidence/1.6-单窗口分栏.txt（修复后重跑）。
+
+----------------------------------------------------------------
+4. 默认关零行为
+----------------------------------------------------------------
+由 4.1 的全量回归（不设 CASCADED_EDITOR）验证：日志无 `[编辑器` 行、无监听端口、无编辑器窗口、
+现有 17 用例读数与改前一致。本条在 4.1 evidence 汇总，本文件先记录待办归属（不在此重复）。

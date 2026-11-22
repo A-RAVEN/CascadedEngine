@@ -3042,6 +3042,10 @@ uint64_t resourceId = 				m_LocalResourceManager.RegisterTemporaryTexture(
 			CA_ASSERT(!pWindow->NeedsRecreation(),
 				"PresentWindows: NeedsRecreation must have been handled by the acquire loop");
 
+			// editor-window-panel（⑩ 展示证明）：若该窗口登记了 backbuffer 呈现前捕获
+			//（Readback(Backbuffer) 登记），在 vkQueuePresentKHR 之前把已渲染的交换链 image 拷到主机内存。
+			GetApp()->CaptureRequestedBackbuffer(pWindow);
+
 			// Index by (window position, acquired image index) — consistent with
 			// SubmitBatches::addPresentSignal, which signaled this window's present
 			// semaphore for this exact image slot this frame.

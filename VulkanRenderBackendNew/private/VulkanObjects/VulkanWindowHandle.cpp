@@ -194,7 +194,11 @@ namespace graphics_backend
 			ETextureType::e2D, 1, 1, EMultiSampleCount::e1
 		);
 
-		CA_LOG_INFO("Swapchain created: {}x{}, {} images", m_Extent.width, m_Extent.height, m_SwapchainImages.size());
+		// editor-window-panel（⑩）：呈现前回读窗口交换链 image 需要 TRANSFER_SRC 能力位。
+		m_SupportsBackbufferTransferSrc =
+			(capabilities.supportedUsageFlags & vk::ImageUsageFlagBits::eTransferSrc) != vk::ImageUsageFlags{};
+		CA_LOG_INFO("Swapchain created: {}x{}, {} images, backbufferTransferSrc={}", m_Extent.width, m_Extent.height,
+		            m_SwapchainImages.size(), m_SupportsBackbufferTransferSrc ? 1 : 0);
 	}
 
 	void VulkanWindowHandle::CreateImageViews()

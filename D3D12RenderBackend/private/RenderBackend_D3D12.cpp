@@ -9,6 +9,9 @@
 #include <ShaderLibrary/D3D12ShaderStruct.h>
 #include <GPUGraph/GPUGraphExecutor.h>
 #include <GPUGraph/D3D12GPUTiming.h>
+#include <chrono>
+#include <cstdlib>
+#include <thread>
 #define CA_IMPLEMENT_MODULE 1
 #include <CACore/CAModuleImplementation.h>
 
@@ -684,8 +687,250 @@ namespace graphics_backend
 		bool m_Filled = false;
 	};
 
+	// --- editor-window-panel（⑩ 展示证明）：D3D12 窗口 backbuffer 呈现前捕获 ---
+	//
+	// 语义与 Vulkan 对齐：`Readback(Backbuffer)` 只登记请求并返回 token；真正的拷贝在
+	// `PresentWindows` 调 `CaptureRequestedBackbuffer`（`IDXGISwapChain::Present` 之前）时完成，
+	// dst 是格式原生字节序（D3D12 常见 R8G8B8A8 → RGBA）。
+	class D3D12BackbufferReadbackToken : public IReadbackToken
+	{
+	public:
+		D3D12BackbufferReadbackToken(RenderBackend_D3D12* backend, castl::shared_ptr<WindowHandle> window,
+			std::shared_ptr<D3D12BackbufferReadbackState> state)
+			: m_Backend(backend), m_Window(std::move(window)), m_State(std::move(state))
+		{
+		}
+
+		~D3D12BackbufferReadbackToken() override { Reset(); }
+
+		void Wait() override
+		{
+			const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+			while (!m_State->Ready.load())
+			{
+				if (m_State->Failed.load())
+				{
+					CA_LOG_ERR("D3D12BackbufferReadbackToken: {}", m_State->Error);
+					return;
+				}
+				if (std::chrono::steady_clock::now() >= deadline)
+				{
+					CA_LOG_ERR("D3D12BackbufferReadbackToken: 等待 Present 前捕获超时（需要跑一帧含 Present 的图）");
+					return;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+		}
+
+		bool IsReady() const override { return m_State->Ready.load(); }
+
+		void Reset() override
+		{
+			if (m_State && !m_State->Ready.load() && m_Backend != nullptr)
+			{
+				m_Backend->CancelBackbufferReadback(m_State.get());
+			}
+		}
+
+	private:
+		RenderBackend_D3D12* m_Backend = nullptr;
+		castl::shared_ptr<WindowHandle> m_Window; // 保活：捕获发生在后续帧的 Present 上
+		std::shared_ptr<D3D12BackbufferReadbackState> m_State;
+	};
+
+	std::unique_ptr<IReadbackToken> RenderBackend_D3D12::BeginBackbufferReadback(ImageHandle const& image,
+		std::span<uint8_t> dst)
+	{
+		WindowContext* window = image.GetWindowPtr<WindowContext>();
+		if (window == nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(backbuffer) 窗口无效或已释放");
+			return nullptr;
+		}
+		// 红态构造（工件修订认可）：真机交换链都支持 COPY_SOURCE，用同一自检开关强制走拒绝分支。
+		if (std::getenv("CASCADED_READBACK_FORCE_NO_BB_TRANSFER") != nullptr)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(backbuffer) 被拒绝：自检开关 "
+			           "CASCADED_READBACK_FORCE_NO_BB_TRANSFER 强制报告交换链不支持 COPY_SOURCE");
+			return nullptr;
+		}
+		auto const& desc = window->GetBackbufferDescriptor();
+		uint64_t byteSize = GetImageByteSize(desc.width, desc.height, desc.format);
+		if (byteSize == 0)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(backbuffer) 格式 {} 不支持紧凑回读", (int)desc.format);
+			return nullptr;
+		}
+		if (dst.size() < byteSize)
+		{
+			CA_LOG_ERR("RenderBackend_D3D12: Readback(backbuffer) dst too small: {} < {} bytes", dst.size(), byteSize);
+			return nullptr;
+		}
+		auto state = std::make_shared<D3D12BackbufferReadbackState>();
+		state->Dst = dst;
+		{
+			std::lock_guard<std::mutex> lock(m_BackbufferReadbackMutex);
+			if (m_BackbufferReadbacks.find(window) != m_BackbufferReadbacks.end())
+			{
+				CA_LOG_ERR("RenderBackend_D3D12: Readback(backbuffer) 该窗口已有未完成的捕获请求");
+				return nullptr;
+			}
+			m_BackbufferReadbacks[window] = state;
+		}
+		CA_LOG_INFO("RenderBackend_D3D12: 已登记 backbuffer 呈现前捕获（{}x{}，{} 字节）", desc.width, desc.height,
+		            byteSize);
+		return std::make_unique<D3D12BackbufferReadbackToken>(this, image.GetWindowHandle(), state);
+	}
+
+	void RenderBackend_D3D12::CancelBackbufferReadback(D3D12BackbufferReadbackState* state)
+	{
+		if (state == nullptr)
+		{
+			return;
+		}
+		std::lock_guard<std::mutex> lock(m_BackbufferReadbackMutex);
+		for (auto it = m_BackbufferReadbacks.begin(); it != m_BackbufferReadbacks.end(); ++it)
+		{
+			if (it->second.get() == state)
+			{
+				m_BackbufferReadbacks.erase(it);
+				return;
+			}
+		}
+	}
+
+	void RenderBackend_D3D12::CaptureRequestedBackbuffer(WindowContext* window)
+	{
+		std::shared_ptr<D3D12BackbufferReadbackState> state;
+		{
+			std::lock_guard<std::mutex> lock(m_BackbufferReadbackMutex);
+			auto it = m_BackbufferReadbacks.find(window);
+			if (it == m_BackbufferReadbacks.end())
+			{
+				return;
+			}
+			state = it->second;
+			m_BackbufferReadbacks.erase(it);
+		}
+		auto fail = [&state](std::string const& reason)
+		{
+			state->Error = reason;
+			state->Failed = true;
+			CA_LOG_ERR("RenderBackend_D3D12: backbuffer 呈现前捕获失败：{}", reason);
+		};
+		if (window == nullptr)
+		{
+			fail("窗口无效");
+			return;
+		}
+		ID3D12Resource* srcResource = window->GetCurrentBackBufferResource().Get();
+		if (srcResource == nullptr)
+		{
+			fail("当前 backbuffer 资源为空");
+			return;
+		}
+		auto const& desc = window->GetBackbufferDescriptor();
+		uint64_t byteSize = GetImageByteSize(desc.width, desc.height, desc.format);
+		if (byteSize == 0 || state->Dst.size() < byteSize)
+		{
+			fail("格式或目标字节数不支持");
+			return;
+		}
+		uint32_t bpp = GetFormatBlockSize(desc.format);
+		uint64_t compactRowPitch = (uint64_t)desc.width * bpp;
+		D3D12_RESOURCE_DESC srcDesc = srcResource->GetDesc();
+		UINT64 totalBytes = 0, rowSize = 0;
+		UINT numRows = 0;
+		D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+		m_Device->GetCopyableFootprints(&srcDesc, 0, 1, 0, &footprint, &numRows, &rowSize, &totalBytes);
+		GPUResource readback = m_MemoryManager.AllocReadbackStagingBuffer(totalBytes > 0 ? totalBytes : byteSize);
+		D3D12MA::Allocation* readbackAlloc = readback.GetAllocation();
+		ID3D12Resource* readbackResource = readback.GetResource();
+		if (readbackAlloc == nullptr || readbackResource == nullptr)
+		{
+			fail("READBACK 缓冲区分配失败");
+			return;
+		}
+		ComPtr<ID3D12CommandAllocator> allocator;
+		ComPtr<ID3D12GraphicsCommandList7> cmdList;
+		ComPtr<ID3D12Fence> fence;
+		if (FAILED(m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)))
+			|| FAILED(m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+				IID_PPV_ARGS(&cmdList)))
+			|| FAILED(m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+		{
+			readbackAlloc->Release();
+			fail("命令分配器/命令列表/围栏创建失败");
+			return;
+		}
+		uint64_t fenceValue = 1;
+		ResourceState const& srcState = window->GetCurrentBackBufferResourceState();
+		ResourceBarrierUsageStates srcUsages = DetermineResourceBarrierUsageStates(srcState);
+		D3D12_TEXTURE_BARRIER toCopy{};
+		toCopy.AccessBefore = srcUsages.accessState;
+		toCopy.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+		toCopy.SyncBefore = srcUsages.barrierSync;
+		toCopy.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+		toCopy.LayoutBefore = srcUsages.layoutState;
+		toCopy.LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+		toCopy.pResource = srcResource;
+		toCopy.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+		D3D12_TEXTURE_BARRIER rest{};
+		rest.AccessBefore = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+		rest.AccessAfter = srcUsages.accessState;
+		rest.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+		rest.SyncAfter = srcUsages.barrierSync;
+		rest.LayoutBefore = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+		rest.LayoutAfter = srcUsages.layoutState;
+		rest.pResource = srcResource;
+		rest.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(UINT_MAX);
+		CD3DX12_BARRIER_GROUP g1(1, &toCopy);
+		cmdList->Barrier(1, &g1);
+		D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
+		dstLoc.pResource = readbackResource;
+		dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+		dstLoc.PlacedFootprint = footprint;
+		dstLoc.PlacedFootprint.Offset = 0;
+		D3D12_TEXTURE_COPY_LOCATION srcLoc = {};
+		srcLoc.pResource = srcResource;
+		srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		srcLoc.SubresourceIndex = 0;
+		cmdList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+		CD3DX12_BARRIER_GROUP g2(1, &rest);
+		cmdList->Barrier(1, &g2);
+		cmdList->Close();
+		ID3D12CommandList* cmdListRaw = cmdList.Get();
+		m_CommandQueue->ExecuteCommandLists(1, &cmdListRaw);
+		m_CommandQueue->Signal(fence.Get(), fenceValue);
+		WaitD3D12Fence(fence.Get(), fenceValue);
+		UINT8* pData = nullptr;
+		if (SUCCEEDED(readbackResource->Map(0, nullptr, reinterpret_cast<void**>(&pData))) && pData)
+		{
+			uint64_t srcStride = footprint.Footprint.RowPitch;
+			for (uint32_t r = 0; r < desc.height; ++r)
+			{
+				memcpy(state->Dst.data() + r * compactRowPitch, pData + r * srcStride,
+				       static_cast<size_t>(compactRowPitch));
+			}
+			readbackResource->Unmap(0, nullptr);
+		}
+		cmdList.Reset();
+		allocator.Reset();
+		fence.Reset();
+		readbackAlloc->Release();
+		window->ApplyCurrentBackBufferResourceState(srcState);
+		state->Ready = true;
+		CA_LOG_INFO("RenderBackend_D3D12: backbuffer 呈现前捕获完成（{}x{}，{} 字节）", desc.width, desc.height,
+		            byteSize);
+	}
+
 	std::unique_ptr<IReadbackToken> RenderBackend_D3D12::Readback(ImageHandle const& image, std::span<uint8_t> dst)
 	{
+		// editor-window-panel（⑩ 展示证明）：窗口 backbuffer → 登记"Present 前捕获"，由 PresentWindows 执行。
+		if (image.GetType() == ImageHandle::ImageType::Backbuffer)
+		{
+			return BeginBackbufferReadback(image, dst);
+		}
 		if (image.GetType() != ImageHandle::ImageType::External)
 		{
 			CA_LOG_ERR("RenderBackend_D3D12: Readback(image) only supports External resources (got type {}); "

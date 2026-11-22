@@ -2195,11 +2195,14 @@ namespace graphics_backend
 
 	}
 
-	void PresentWindows(GPUGraph const& owningGraph)
+	void PresentWindows(GPUGraph const& owningGraph, RenderBackend_D3D12* backend)
 	{
 		for (auto& backBufferImage : owningGraph.GetFinalizePass().m_PresentBackBuffers)
 		{
 			WindowContext* pWindow = backBufferImage.GetWindowPtr<WindowContext>();
+			// editor-window-panel（⑩ 展示证明）：若该窗口登记了 backbuffer 呈现前捕获
+			//（Readback(Backbuffer) 登记），在 IDXGISwapChain::Present 之前把已渲染的 backbuffer 拷走。
+			backend->CaptureRequestedBackbuffer(pWindow);
 			pWindow->Present();
 		}
 	}
@@ -2342,7 +2345,7 @@ namespace graphics_backend
 
 		ApplyExternalResourceStates(owningGraph, imageLifeTimes, bufferLifeTimes);
 
-		PresentWindows(owningGraph);
+		PresentWindows(owningGraph, GetApp());
 
 		Reset();
 	}

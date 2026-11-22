@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Scripting.Generated.Bindings;
@@ -224,6 +224,10 @@ namespace Scripting.Managed
         {
             try
             {
+                // editor-window-panel 1.2（D1）：编辑器服务必须在释放任何表面对象之前关闭 ——
+                // 停监听、断客户端、join 监听线程、关 WebView2 控制器与窗口，全部先于 hostfxr_close。
+                // 门控未开时是空操作（零日志、零副作用）。
+                Editor.EditorService.Shutdown("Host.Shutdown");
                 // 关闭顺序（csharp-render-texture-sampling 任务 3.1）：参数结构 → 纹理 → 图 → 离屏目标
                 // → 后端表面。纹理排在参数结构之后：结构持纹理引用，先放持有者。
                 LogShutdownStep("1/4 参数结构表面对象");
@@ -289,6 +293,13 @@ namespace Scripting.Managed
                 s_tickCount++;
                 LogLine($"Tick #{s_tickCount}：dt = {deltaSeconds:F3} 秒");
                 EnsureBound();
+                // editor-window-panel 1.2：编辑器服务（CASCADED_EDITOR=1 门控；默认关时 Tick 直接返回、
+                // 不建线程/窗口/端口）。必须在 EnsureBound 之后：建窗与命令执行都要走已绑定的生成表面；
+                // 引擎调用只在这里（主线程）发生，监听线程只碰网络（D1）。
+                if (s_system != null)
+                {
+                    Editor.EditorService.Tick(s_system, s_renderBackend, s_renderTablesBound);
+                }
                 // 渲染探针有独立的调用标记与开关（csharp-render-backend-triangle 任务 3.2）：
                 // 它不依赖 `OnEngineReady` 那一次，也不会被更早的脚本调用消耗。
                 ProbeRender();
@@ -1259,6 +1270,15 @@ namespace Scripting.Managed
             {
                 s_api->Log(0, pointer, (ulong)utf8.Length);
             }
+        }
+
+        /// <summary>
+        /// 编辑器服务 / 探针的日志出口（editor-window-panel）：统一走宿主的托管日志桥，
+        /// 这样 `[编辑器 读数]` / `[编辑器 探针]` 行与既有探针读数落在同一份测试日志里。
+        /// </summary>
+        internal static void LogFromEditor(string text)
+        {
+            LogLine(text);
         }
 
         /// <summary>

@@ -1,0 +1,51 @@
+任务 1.9：D3D12 Readback 支持 Backbuffer（呈现前捕获）
+记录时间：2026-11-22
+后端：d3d12（NVIDIA RTX 4070，本机显示经 GameViewer 虚拟显示适配器）
+
+一、实现要点
+- RenderBackend_D3D12::Readback(ImageHandle) 遇 ImageType::Backbuffer → BeginBackbufferReadback：
+  校验窗口/格式（GetImageByteSize 非零）/dst 足够/同窗口无重复请求；CASCADED_READBACK_FORCE_NO_BB_TRANSFER
+  时强制拒绝（自检红态）→ 登记 m_BackbufferReadbacks → 返回 D3D12BackbufferReadbackToken
+  （dst + 窗口 shared_ptr 保活；Wait 轮询 ready，5 秒超时）。
+- 真正的拷贝在 GPUGraphExecutor 的 PresentWindows 于 IDXGISwapChain::Present **之前**调用
+  CaptureRequestedBackbuffer：enhanced barrier PRESENT→COPY_SOURCE（AccessBefore/SyncBefore 取
+  WindowContext::GetCurrentBackBufferResourceState()）→ CopyTextureRegion 到 READBACK heap
+  （GetCopyableFootprints 行距）→ barrier 转回原状态 → ExecuteCommandLists + Signal +
+  WaitD3D12Fence → Map 紧凑拷贝到 dst → ApplyCurrentBackBufferResourceState(原状态) → ready。
+- 接口零改动：CRenderBackend 签名不变。
+
+二、绿读数（构建 + 正跑，逐字）
+命令（主循环执行）：
+  python build.py --config Debug
+  .\GPUBackendTester.exe --backend d3d12 --test TestEditorWindowPanel --headless 1 --report test_output\result_editor_panel_d3d12.json
+结果：BUILD_EXIT=0；D3D12_EXIT=0；status=pass。
+日志（%TEMP%\ewp\panel-d3d12-test.log 副本）逐字：
+  [编辑器 像素] 渲染证明（首帧）：capture=960x720 center=(255,0,0,255)
+  [编辑器 测试] M6 视口正控通过：2 个 pass 的批级/绘制级视口与剪裁矩形分别等于窗口左侧视口(960x720) 与整张捕获目标(960x720)
+  [编辑器 像素] 改尺寸后：capture=580x560 center=(255,0,0,255)
+  RenderBackend_D3D12: 已登记 backbuffer 呈现前捕获（320x240，307200 字节）
+  RenderBackend_D3D12: backbuffer 呈现前捕获完成（320x240，307200 字节）
+  [编辑器 测试] 正控（原生 C++ 渲染窗口）：backbuffer 320x240 format=6 中心字节=(255,0,0,255) 色序=RGBA 红=1
+  RenderBackend_D3D12: 已登记 backbuffer 呈现前捕获（900x560，2016000 字节）
+  RenderBackend_D3D12: backbuffer 呈现前捕获完成（900x560，2016000 字节）
+  [编辑器 像素] 展示证明（窗口 backbuffer 回读）：900x560 format=6 视口中心=(290,280) 中心字节=(255,0,0,255) 色序=RGBA 红=1
+  [编辑器 测试] ⑩ 展示证明通过：窗口真实交换链 backbuffer 中心精确红（Present 前捕获，不依赖屏幕合成）
+  TestEditorWindowPanel 通过：命令往返/撤销/协议错误/对象失效/线程边界/分栏同步/两层像素证据全部满足
+（M7 计数器正控读数来自主循环回传：cmdCalls=4。）
+
+三、红态读数（能力拒绝，逐字）
+命令（主循环执行）：
+  $env:CASCADED_READBACK_FORCE_NO_BB_TRANSFER='1'
+  .\GPUBackendTester.exe --backend d3d12 --test TestEditorWindowPanel --headless 1 --report test_output\result_editor_readback_reject_d3d12.json
+结果：REJECT_EXIT=1；status=fail；error=E_EDITOR_CONTROL_PIXEL。
+日志逐字（主循环回传）：
+  Readback(backbuffer) 被拒绝：自检开关 CASCADED_READBACK_FORCE_NO_BB_TRANSFER 强制报告交换链不支持 COPY_SOURCE
+判读：拒绝分支返回 null token，正控立即失败，不静默通过；能力/自检拒绝路径可失败。
+
+四、两后端一致性
+- Vulkan（1.8）：format=9 即 E_B8G8R8A8_UNORM，中心字节 (0,0,255,255)，按 BGRA 判红。
+- D3D12（本任务）：format=6 即 E_R8G8B8A8_UNORM，中心字节 (255,0,0,255)，按 RGBA 判红。
+- 两条路径都用"登记 Readback(backbuffer) → 跑含 Present 的帧 → Wait → 精确红"验证，判据 (255,0,0,255)
+  不随色序放松。
+- 限制：真实"交换链不支持 COPY_SOURCE"在本机无法构造，红态由自检开关强制分支 + 显式拒绝日志承担；
+  post-present 读仍无入口（只在 Present 前拷贝）。

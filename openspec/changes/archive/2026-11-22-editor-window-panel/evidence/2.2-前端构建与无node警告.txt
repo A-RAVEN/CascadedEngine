@@ -1,0 +1,31 @@
+任务 2.2：build.py 前端步 + 无 node 警告分支
+记录时间：2026-11-22
+
+一、实现
+- build.py 新增 `build_editor_web()`：`EditorWeb/` 存在时——node/npm 缺失 → 打印警告并跳过（不让构建失败）；
+  存在时校验 `package-lock.json`（缺则报错，npm ci 必需）→ `npm ci --no-audit --no-fund` → `npm run build`
+  → 校验 `dist/index.html` → 删除旧 `bin/editor-web/` 后整目录拷贝 dist。任一步非零退出按构建失败退出。
+- `EditorWeb/.gitignore`：`node_modules/`、`dist/`（dist 是构建产物，不入库）。
+
+二、有 node 分支（绿，逐字）
+命令（主循环执行）：`python build.py --config Debug`
+结果：BUILD_EXIT=0。
+日志逐字：
+  [前端] npm ci + npm run build → …\EditorWeb\dist
+  [前端] 已拷 …\EditorWeb\dist → …\out\build\x64-debug\bin\editor-web
+  耗时行含「前端 2.3s」
+判据：`Test-Path out\build\x64-debug\bin\editor-web\index.html` = True。
+
+三、无 node 分支（警告，逐字）
+命令（主循环执行，仅本进程 PATH 过滤 nodejs 目录）：
+  $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notmatch 'nodejs' }) -join ';'
+  python build.py --config Debug --no-configure
+结果：NONODE_EXIT=0（构建不失败）。
+日志逐字：
+  [前端] 警告：PATH 里找不到 node/npm，跳过 EditorWeb 构建（bin/editor-web/ 不会生成；编辑器服务会返回资源缺失错误页）
+判据：该分支不删除已有 `bin/editor-web/`；资源缺失时服务返回错误页由 1.2/3.1 的 HTTP 503 错误页读数覆盖
+（`HTTP 静态页：status=503 bytes=408 index存在=0 editor-web标记=1`）。
+
+四、EditorWeb 自身构建（本地实测）
+`npm run build`：tsc --noEmit + vite build 通过，dist/index.html 3379B、assets/index-DmsRUtI8.js 3608B；
+package-lock.json 由 `npm install` 生成并入库（lockfileVersion 3）。

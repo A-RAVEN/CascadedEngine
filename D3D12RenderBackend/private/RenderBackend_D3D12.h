@@ -18,9 +18,26 @@
 #include <CACore/CASharedList.h>
 #include <ResourceManagment/FrameBoundResourceManager.h>
 #include <CACore/CAModuleManager.h>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <span>
+#include <string>
+#include <unordered_map>
 
 namespace graphics_backend
 {
+	// editor-window-panel（⑩ 展示证明，D3D12）：窗口 backbuffer 呈现前捕获的共享状态。
+	// `Readback(Backbuffer)` 登记它并返回 token；拷贝在 `PresentWindows` 调 `CaptureRequestedBackbuffer`
+	//（`IDXGISwapChain::Present` 之前）时完成。
+	struct D3D12BackbufferReadbackState
+	{
+		std::span<uint8_t> Dst;
+		std::atomic<bool> Ready{ false };
+		std::atomic<bool> Failed{ false };
+		std::string Error;
+	};
+
 	class RenderBackend_D3D12 : public CRenderBackend
 	{
 	public:
@@ -64,6 +81,11 @@ namespace graphics_backend
 		// add-render-readback: cross-backend GPU→host readback (implementation in RenderBackend_D3D12.cpp).
 		std::unique_ptr<IReadbackToken> Readback(ImageHandle const& image, std::span<uint8_t> dst) override;
 		std::unique_ptr<IReadbackToken> Readback(BufferHandle const& buffer, std::span<uint8_t> dst) override;
+
+		// editor-window-panel（⑩）：在窗口 Present 之前把当前 backbuffer 拷到 READBACK heap（由
+		// GPUGraphExecutor 的 PresentWindows 调用）。`Readback(Backbuffer)` 负责登记请求。
+		void CaptureRequestedBackbuffer(WindowContext* window);
+		void CancelBackbufferReadback(D3D12BackbufferReadbackState* state);
 
 		uint64_t GetCurrentFrameVersion() const
 		{
@@ -188,6 +210,11 @@ namespace graphics_backend
 		}
 	private:
 		void AfterDeviceInit();
+
+		// editor-window-panel（⑩）：Readback(Backbuffer) 的登记实现（返回等待 Present 前捕获的 token）。
+		std::unique_ptr<IReadbackToken> BeginBackbufferReadback(ImageHandle const& image, std::span<uint8_t> dst);
+		std::mutex m_BackbufferReadbackMutex;
+		std::unordered_map<WindowContext*, std::shared_ptr<D3D12BackbufferReadbackState>> m_BackbufferReadbacks;
 
 
 		castl::shared_list<D3D12SubobjectBase*> m_PendingInitializeObjects;

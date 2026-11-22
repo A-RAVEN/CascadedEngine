@@ -1018,13 +1018,79 @@ def build_managed() -> None:
     bin_dir = BUILD_DIR / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     copied = []
-    for name in ("Scripting.Managed.dll", "Scripting.Managed.runtimeconfig.json", "Scripting.Managed.deps.json"):
+    # editor-window-panel 1.1：`Microsoft.Web.WebView2.Core.dll` 是面板的运行期托管程序集。
+    # 宿主只把 bin/ 当程序集目录（bin/ 同时是 exe 目录 = hostfxr 组件目录），它必须跟
+    # Scripting.Managed.dll 一起拷；缺了就是运行期 FileNotFoundException，不是编译错误。
+    for name in ("Scripting.Managed.dll", "Scripting.Managed.runtimeconfig.json", "Scripting.Managed.deps.json",
+                 "Microsoft.Web.WebView2.Core.dll"):
         source = out_dir / name
         if not source.is_file():
             raise RuntimeError(f"托管构建没有产出 {name}（在 {out_dir} 下找不到）")
         shutil.copy2(source, bin_dir / name)
         copied.append(name)
-    print(f"  [托管侧] 已拷到 {bin_dir}：{', '.join(copied)}")
+
+    # 原生 loader 不随 dotnet build 拷进输出（EnableDynamicLoading 的库形态）：从 NuGet 全局缓存的
+    # `runtimes/win-x64/native/` 显式取。版本从 csproj 的 PackageReference 读，脚本里不再写第二份版本号
+    # （两处数字漂移会让 loader 与托管程序集版本对不上）。
+    csproj_text = csproj.read_text(encoding="utf-8")
+    webview2_match = re.search(
+        r'PackageReference\s+Include="Microsoft\.Web\.WebView2"\s+Version="([^"]+)"', csproj_text)
+    if webview2_match is None:
+        raise RuntimeError(f"csproj 里没有 Microsoft.Web.WebView2 的 PackageReference：{csproj}")
+    webview2_version = webview2_match.group(1)
+    packages_root = Path(os.environ.get("NUGET_PACKAGES", str(Path.home() / ".nuget" / "packages")))
+    loader = (packages_root / "microsoft.web.webview2" / webview2_version / "runtimes" / "win-x64" /
+              "native" / "WebView2Loader.dll")
+    if not loader.is_file():
+        raise RuntimeError(
+            f"找不到 WebView2Loader.dll：{loader} —— nuget restore 可能没完成，或包版本 {webview2_version} "
+            f"与全局缓存不符（包目录 {packages_root / 'microsoft.web.webview2'}）")
+    shutil.copy2(loader, bin_dir / "WebView2Loader.dll")
+    copied.append("WebView2Loader.dll")
+    print(f"  [托管侧] 已拷到 {bin_dir}：{', '.join(copied)}（WebView2 {webview2_version}）")
+
+
+def build_editor_web() -> None:
+    """编面板前端（EditorWeb/，editor-window-panel 2.2）并拷到 bin/editor-web/。
+
+    node/npm 缺失只**警告跳过**、不让整个构建失败：前端不是引擎运行必需，服务在资源缺失时会返回
+    错误页（1.2 判据）。node 存在时 `npm ci`（依赖 package-lock.json）→ `npm run build` → 整目录
+    拷贝 dist/；任一步失败按构建失败处理，不静默留旧产物。
+    """
+    web_dir = PROJECT_DIR / "EditorWeb"
+    if not web_dir.is_dir():
+        print("  [前端] 跳过：EditorWeb/ 不存在")
+        return
+    npm = shutil.which("npm")
+    node = shutil.which("node")
+    if npm is None or node is None:
+        print()
+        print("=" * 60)
+        print("  [前端] 警告：PATH 里找不到 node/npm，跳过 EditorWeb 构建"
+              "（bin/editor-web/ 不会生成；编辑器服务会返回资源缺失错误页）")
+        print("=" * 60)
+        return
+    lock_file = web_dir / "package-lock.json"
+    if not lock_file.is_file():
+        raise RuntimeError(f"缺少 {lock_file}（npm ci 必需；先在 EditorWeb/ 跑 npm install 并入库）")
+    print()
+    print("=" * 60)
+    print(f"[前端] npm ci + npm run build → {web_dir / 'dist'}")
+    print("=" * 60)
+    completed = subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=str(web_dir))
+    if completed.returncode != 0:
+        raise RuntimeError(f"npm ci 失败，退出码 {completed.returncode}")
+    completed = subprocess.run([npm, "run", "build"], cwd=str(web_dir))
+    if completed.returncode != 0:
+        raise RuntimeError(f"npm run build 失败，退出码 {completed.returncode}")
+    dist = web_dir / "dist"
+    if not (dist / "index.html").is_file():
+        raise RuntimeError(f"前端构建没有产出 index.html：{dist}")
+    target = BUILD_DIR / "bin" / "editor-web"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(dist, target)
+    print(f"  [前端] 已拷 {dist} → {target}")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1549,9 +1615,20 @@ def main() -> None:
             sys.exit(1)
     managed_seconds = time.perf_counter() - started
 
+    started = time.perf_counter()
+    try:
+        build_editor_web()
+    except Exception as exc:  # noqa: BLE001 — 前端构建失败同样算构建失败（不静默留旧 dist）
+        print()
+        print("=" * 60)
+        print(f"前端构建失败：{exc}")
+        print("=" * 60)
+        sys.exit(1)
+    web_seconds = time.perf_counter() - started
+
     print()
     print(f"  [耗时] configure {configure_seconds:.1f}s / codegen {codegen_seconds:.1f}s / "
-          f"编译 {build_seconds:.1f}s / 托管侧 {managed_seconds:.1f}s / "
+          f"编译 {build_seconds:.1f}s / 托管侧 {managed_seconds:.1f}s / 前端 {web_seconds:.1f}s / "
           f"合计 {time.perf_counter() - total_start:.1f}s")
 
     if codegen_failures:

@@ -1,0 +1,41 @@
+任务 1.11：面板静态资源根路径 bug 修复
+记录时间：2026-11-22
+
+一、缺陷（红态，已存档）
+- 现象：交互打开编辑器，右侧面板永远是 503 错误页，前端从未加载。
+- 根因：`ServeStatic` 用 `Path.Combine(AppContext.BaseDirectory, "editor-web")`，而 hostfxr 宿主加载下
+  `AppContext.BaseDirectory` 是**空字符串**，拼出相对路径 `"editor-web"`，相对 CWD 解析不到
+  `bin/editor-web/`。
+- 红态日志逐字（%TEMP%\ewp\editor-live2.txt）：
+  「[编辑器] 面板静态资源缺失：editor-web 下没有 index.html —— 已返回说明原因的错误页（503），不是静默 404」
+  「[编辑器] 面板导航完成：IsSuccess=0 HttpStatus=503（HTTP 错误页也算导航成功）」
+  读数行 `navHttp=503`。
+
+二、修复（Scripting/Managed/Editor/EditorService.cs）
+- 新增 `ResolveEditorWebRoot()`：解析顺序
+  ① `AppContext.BaseDirectory` 非空 → 拼 `editor-web`；
+  ② 否则程序集所在目录（`typeof(EditorService).Assembly.Location`，hostfxr 下为
+     `bin/Scripting.Managed.dll`）→ 拼 `editor-web`；
+  ③ 再兜底进程可执行文件目录；
+  每个分支都 `Path.GetFullPath`，**保证绝对路径**，不再退化成相对 CWD。
+- `ServeStatic` 改用该函数；第一次请求打日志 `[编辑器] 面板静态根：<绝对路径>`；503 分支的日志同样打印该绝对根。
+- `StartService` 增诊断行：`[编辑器] 程序集位置：<Assembly.Location>；AppContext.BaseDirectory="<...>"`，
+  供核 hostfxr 下的真实取值。
+- README 编辑器节补静态根解析顺序与日志说明。
+
+三、绿态（逐字，主循环实测）
+- 命令：`Invoke-WebRequest -UseBasicParsing http://localhost:18390/`
+  结果：`StatusCode=200`；body 含 `<title>Cascaded 编辑器面板</title>`、`title-input`、`连接`；
+  不含「资源未构建」。
+- 日志逐字：
+  「[编辑器] 程序集位置：…\out\build\x64-debug\bin\Scripting.Managed.dll；AppContext.BaseDirectory=""」
+  「[编辑器] 面板静态根：…\out\build\x64-debug\bin\editor-web」
+  「[编辑器] 面板导航完成：IsSuccess=1 HttpStatus=200」
+- 读数行 `navHttp=200`。
+判读：BaseDirectory 为空串的根因坐实；Assembly.Location 解析到 bin 目录；静态根是绝对路径；
+前端真加载（200，非 503 错误页）。
+
+四、限制与说明
+- 自动化用例此前把 503 当"导航成功"容忍（HTTP 错误页也算导航成功），只验协议往返、不验面板内容，
+  因此漏检；本轮补充的是 HTTP GET 200 + body 内容判据与 1.12 截图视觉验收（AGENTS §2），
+  自动化断言不再单独作为"界面可用"的依据。

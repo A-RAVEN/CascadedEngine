@@ -847,6 +847,9 @@ namespace Scripting.Managed
         /// 向图里追加一个三角 pass（窗口与离屏各一份同逻辑绘制的"像素验证镜像"，不是通用多 pass）。
         /// 校验：目标非空、着色器路径非空、顶点流/缓冲登记过、顶点数非零且不超过缓冲元素数。
         /// 记录里同时带清除色、着色器路径、顶点流描述与绘制调用。
+        ///
+        /// 这是 additive 默认重载（editor-window-panel 1.7）：既有调用保持"整张目标"的视口/剪裁矩形，
+        /// 17 个既有用例的绘制路径不变；编辑器 scene view 用下面的带矩形重载把绘制限制在左侧视口区域。
         /// </summary>
         public int AddTrianglePass(ScriptRenderTarget target, string shaderPath, string streamName,
             string bufferName, uint vertexCount, float red, float green, float blue, float alpha)
@@ -854,6 +857,28 @@ namespace Scripting.Managed
             if (target == null)
             {
                 return Fail("target", "渲染目标不能为空");
+            }
+            return AddTrianglePass(target, shaderPath, streamName, bufferName, vertexCount, red, green, blue, alpha,
+                0, 0, (int)target.Width, (int)target.Height);
+        }
+
+        /// <summary>
+        /// 带视口矩形的三角 pass（editor-window-panel 1.7）：批级与绘制级的视口/剪裁矩形同设为
+        /// `(x, y, width, height)`。零矩形会把执行器默认的整目标视口覆盖成 0×0（见下面的既有注释），
+        /// 所以原点必须非负、宽高必须 &gt; 0；上界不在这里判 —— 窗口改尺寸的瞬间后台缓冲尺寸可能还没更新，
+        /// 让执行器按它自己的裁剪语义处理。
+        /// </summary>
+        public int AddTrianglePass(ScriptRenderTarget target, string shaderPath, string streamName,
+            string bufferName, uint vertexCount, float red, float green, float blue, float alpha,
+            int viewportX, int viewportY, int viewportWidth, int viewportHeight)
+        {
+            if (target == null)
+            {
+                return Fail("target", "渲染目标不能为空");
+            }
+            if (viewportX < 0 || viewportY < 0 || viewportWidth <= 0 || viewportHeight <= 0)
+            {
+                return Fail("viewport", "视口矩形必须原点非负、宽高 > 0");
             }
             if (string.IsNullOrEmpty(shaderPath))
             {
@@ -893,9 +918,10 @@ namespace Scripting.Managed
                 {
                     new DrawCallBatch
                     {
-                        // 批级与绘制级都要给**整张目标**的视口/剪裁矩形：序列化块反序列化出来的
-                        // `HashObj<ViewRectData>` 恒为"有效"，写零矩形会把执行器默认的整目标视口
-                        // 覆盖成 0×0（一个像素都画不出来）。两后端对这个矩形的原点约定一致（左上）。
+                        // 批级与绘制级都要给**同一个**视口/剪裁矩形（默认重载传整张目标，编辑器传左侧
+                        // 视口区域）：序列化块反序列化出来的 `HashObj<ViewRectData>` 恒为"有效"，写零矩形
+                        // 会把执行器默认的整目标视口覆盖成 0×0（一个像素都画不出来）。两后端对这个矩形
+                        // 的原点约定一致（左上）。
                         pipelineStateDesc = ScriptPipelineDefaults.CreatePipelineDesc(shaderPath),
                         m_DrawCalls = new[]
                         {
@@ -925,11 +951,11 @@ namespace Scripting.Managed
                                 },
                                 m_ViewPort = new ViewRectData
                                 {
-                                    x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                                    x = viewportX, y = viewportY, width = viewportWidth, height = viewportHeight,
                                 },
                                 m_Sissor = new ViewRectData
                                 {
-                                    x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                                    x = viewportX, y = viewportY, width = viewportWidth, height = viewportHeight,
                                 },
                             },
                         },
@@ -940,11 +966,11 @@ namespace Scripting.Managed
                         },
                         m_ViewPort = new ViewRectData
                         {
-                            x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                            x = viewportX, y = viewportY, width = viewportWidth, height = viewportHeight,
                         },
                         m_Sissor = new ViewRectData
                         {
-                            x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                            x = viewportX, y = viewportY, width = viewportWidth, height = viewportHeight,
                         },
                     },
                 },
@@ -1415,6 +1441,10 @@ namespace Scripting.Managed
         /// 提交：先落图（AddPass/Present），再按 design D6 做完整性校验（必需参数块 → 结构化缓冲
         /// 引用 → 纹理/采样器绑定），全部通过之后才调用原生执行入口。被拒时 `ExecuteGraphCount`
         /// 不增长。校验数据源是引擎编译元数据的两段式只读副本（`FindShaderStructData` 系）。
+        ///
+        /// editor-window-panel 1.7（additive）：图**已落过盘**时跳过 `Materialize`、仍然做完整校验
+        /// 并再执行一次 —— 原生 `GPUGraph` 允许重复 `ExecuteGraph`（`TestSimpleTriangle` 就是每帧执行
+        /// 同一张图），编辑器的 scene view 靠这一点每帧复用同一张图；既有调用只提交一次，行为不变。
         /// </summary>
         public int SubmitGraph(ScriptRenderGraph graph)
         {
@@ -1426,10 +1456,13 @@ namespace Scripting.Managed
             {
                 return Fail("graph", "空图不能提交（至少需要一个 render pass）");
             }
-            int materialize = graph.Materialize();
-            if (materialize != 0)
+            if (!graph.Materialized)
             {
-                return Fail("graph", graph.GetLastError());
+                int materialize = graph.Materialize();
+                if (materialize != 0)
+                {
+                    return Fail("graph", graph.GetLastError());
+                }
             }
             // 必需参数块：按每个 pass 的着色器根结构核对，必须在进入执行之前完成
             // （两后端在空参数表下执行会触发 CA_ASSERT_BREAK）。
