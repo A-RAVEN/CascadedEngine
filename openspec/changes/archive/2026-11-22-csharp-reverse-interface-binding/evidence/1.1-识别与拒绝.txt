@@ -1,0 +1,30 @@
+反向标注的识别与拒绝（csharp-reverse-interface-binding 1.1）
+
+=== 反向夹具被识别为反向 ===
+`Tools/CodeGen/BindableShapes.Reverse.h` 里 `CA_BIND_REVERSE()` 标在 `ca_bind_fixture::IBindReverseShape` 上；
+产物第一行是类别标记 `// CODEGEN-REVERSE-BINDING: ca_bind_fixture::IBindReverseShape`
+（`out/build/x64-debug/codegen/bindings/ca_bind_fixture__IBindReverseShape.Bindings.cs` / `.cpp`），
+且产物是"公开抽象基类 + C++ 代理"两件套（不是正向的 `IDisposable` 表面类）。
+
+=== CA_BIND_SKIP 的方法不生成槽 ===
+`BindableShapes.Reverse.h` / `IResource.h` 的 `Deserialize` 写了 `CA_BIND_SKIP(Deserialize, "本批不支持反向读，另立批");`。
+产物里它**不在** glue 的参数表（`CreateImpl` 的 fnptr 列表没有 Deserialize，见 1.2 的签名读数），
+代理里保留原签名的空体改为抛 1013：
+  void Deserialize(ca_io::IOBatch * /*跳过*/) override
+  throw cascaded_reverse::ReverseBindingError(resource_management__IResource_ERROR_REVERSE_READ_UNSUPPORTED, "…不支持（本批不绑这个方法）");
+C# 基类 `ResourceBase` 只有 1 个 abstract（`Serialize`），Deserialize 没有对应抽象方法。
+
+=== 未标注的接口不受影响 ===
+反向产物只有 3 份（IResourceFactory / IResource / 夹具）；宿主登记表仍是 1..10（其它接口照旧），
+`check_bindings.py` 的 full 模式 0 处问题、正向表面/对齐/桩/值类型/错误码/覆盖率六条单检查全绿
+（evidence/2.1-检查改前改后.txt）。
+
+=== 带编号的反向标注仍拒（负例，主循环代跑）===
+把夹具头复制到 %TEMP%\rev_reject_number.h，`CA_BIND_REVERSE()` 改成 `CA_BIND_REVERSE(9)` 后跑：
+  out\build\x64-debug\bin\CodeGen.exe %TEMP%\rev_reject_number.h --emit-binding --out-dir %TEMP%\rev_reject_out
+        --audit-script Tools\CodeGen\check_bindable_audit.py -ICACore/header -ITools/CodeGen/clang_shim -xc++
+读数（逐字，日志 %TEMP%\rev-reject.txt）：
+  CodeGen: 拒绝 IBindReverseShape —— 编号由锁文件治理、标注无参数（标注里写的是 "9"；编号 9 无效）
+  [exit 1]，且 %TEMP%\rev_reject_out 里一个产物都没有（文件数 0）。
+实现位置：`scanBoundMarkers` 的 `CA_BIND_REVERSE(` 分支解析括号内文本，纯数字即按"带编号标注"走统一拒绝；
+`--list-bind-interfaces` 同样拒绝。

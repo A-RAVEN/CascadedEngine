@@ -46,6 +46,8 @@
 | 6 | `graphics_backend::GPUTexture` | **目标类型表**：同上（后端纹理对象，`CreateGPUTexture` 产出） |
 | 7 | `graphics_backend::WindowHandle` | **目标类型表**：同上（窗口后台缓冲句柄，`GetWindowHandle` 产出） |
 | 8 | `graphics_backend::GPUBuffer` | **目标类型表**：同上（后端直建缓冲，`CreateGPUBuffer` 产出；生命周期跟随后端，跨图复用） |
+| 9 | `resource_management::IResourceFactory` | **目标类型表（反向）**：C# 实现 `ResourceFactoryBase`，经 `IResourceFactoryBindings.Create` 拿强句柄交给资源系统的工厂注册表；C++ 原生工厂走同一个注册表，不进这张编号表 |
+| 10 | `resource_management::IResource` | **目标类型表（反向）**：C# 实现 `ResourceBase`，由反向工厂的 `Create` 在托管桥里包成原生 `IResourceProxy`；`Deserialize` 本批排除 |
 
 同一个接口可以登记多份实现，靠实例名区分；实例名传 `nullptr` = 该接口**默认那一份**（最先登记的）。登记与查找都走 `IScriptHost::SetInterfaceInstance` / `GetInterfaceInstance`，两边必须用同一对 (编号, 实例名)。
 
@@ -239,6 +241,66 @@ python build.py --config Debug
 
 `nethost` 由 CMake 在 `%ProgramFiles%\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\*\runtimes\win-x64\native` 里**取最新的一份**（不写死版本）。找不到时引擎照样能编出来，运行期会报错并列出找过的路径。
 
+## 反向接口：C# 实现引擎接口（`ResourceFactoryBase` / `ResourceBase`）
+
+绑定面第一次出现"实现方在托管侧"的接口（csharp-reverse-interface-binding）：`resource_management::IResourceFactory`
+与 `resource_management::IResource` 用 `CA_BIND_REVERSE()` 标注，生成器产出**公开抽象基类**
+`ResourceFactoryBase` / `ResourceBase`（在 `Scripting.Generated.Bindings.ResourceManagement` 命名空间里，
+与接口同镜像命名空间），C# 继承它们写自己的工厂与资源。原生细节（函数指针槽、`GCHandle`、句柄）全部在
+`internal` 的 `IResourceFactoryBindings` / `IResourceBindings` 里，公开签名只有托管类型。
+
+**C# 工厂（两种语言对称）**：
+
+```csharp
+using Scripting.Generated.Bindings.ResourceManagement;
+
+internal sealed class MyResource : ResourceBase
+{
+    public override byte[] Serialize() => new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
+}
+
+internal sealed class MyFactory : ResourceFactoryBase
+{
+    public override string GetResourceType() => "MyResource";
+    public override ResourceBase Create() => new MyResource();
+}
+
+// 注册（C++ 侧）：句柄 + 借用指针 + 释放回调，三样一起交给资源系统的工厂注册表
+//   RegisterFactory("MyResource", handle,
+//                   static_cast<IResourceFactory*>(factoryTable->ResolveImpl(handle)),
+//                   factoryTable->ReleaseImpl);
+ulong handle = IResourceFactoryBindings.Create(new MyFactory());
+```
+
+C++ 原生工厂**原生继承** `resource_management::IResourceFactory`（`GetResourceType()` / `Create()`），
+走同一张工厂注册表；`Create()` 不收 `ResourceManagingSystem` 参数 —— 工厂只构造对象，注册由系统负责。
+两种语言工厂的对照判据写死期望表（类型名 / 字节 / 失败都抛异常），不用"行为一致"这种散文。
+
+**所有权与寿命（单一强所有者，C# 句柄是借用令牌）**：反向工厂用 `IResourceFactoryBindings.Create` 拿到
+**强句柄**（kind 1 —— 句柄表持代理的 `shared_ptr`，这就是它唯一的强所有者）；反向资源用
+`IResourceBindings.CreateProxy` 拿到**借用句柄**（kind 4 —— 句柄表不持强引用，资源注册表里那份
+`shared_ptr` 才是唯一强所有者，代理析构时自己把借用项退役）。两种句柄上的 `Dispose`（内部调
+`ReleaseImpl`）都只释放"调用方这一份"：**之后同一句柄报 1001，但注册表仍持有对象**（`GetResource(路径)`
+仍是同一个实例、`ReverseKeepAliveCount` 仍是 1）。注册表释放/替换时：反向工厂调 `release(handle)`
+（`__ReleaseImpl` → 掉强引用 → 代理析构 → `releaseUser` → 托管桥 `GCHandle.Free`，**唯一一次 Free 在
+托管侧**）→ 保活计数归零；反向资源由注册表那份 `shared_ptr` 析构触发同一条链。重复 `Dispose` 幂等返回
+1001，不崩。C# 不要自己持有原生指针或试图释放它。
+
+**跨模块注意**：句柄表是生成在头里的 `inline` 函数 + 函数级 `static`，EXE 与 DLL 各一份 —— 句柄只能在
+**创建它的模块**（这里是 `CSharpHost.dll`）里解析。C++ 调用方 MUST 用反向函数表的 `ResolveImpl(handle)`
+拿借用指针、用 `ReleaseImpl(handle)` 释放，MUST NOT 调自己模块里那份 `<线形>__*` 函数（会查错表）。
+
+**失败契约**：C# 覆写抛的异常在托管桥里被捕获（不穿过 C ABI），长度槽返回 `UINT64_MAX` 哨兵；代理中止
+（写路径**不写、不提交**）并把错误落槽，**下一次注册线程调用**抛
+`cascaded_reverse::ReverseBindingError`（`Code()` = 1012，消息含反向标识与原始异常文本）。非注册线程调用
+被代理拒绝（1005，C# 覆写不会执行）。工厂 `Create` 失败按**异常**：C# 抛异常或返回 `null` 都让 C++
+侧的 `CreateResource` 抛 `resource_management::resource_creation_error`，系统不注册空资源
+（`HasResource(路径)` 为 false，下一次调用会重新调 `Create`）。
+
+**`Deserialize` 不支持（本批）**：`IResource::Deserialize` 用
+`CA_BIND_SKIP(Deserialize, "本批不支持反向读，另立批")` 排除，`ResourceBase` 里**只有 `Serialize` 一个
+抽象方法**。代理的 `Deserialize` 存在但抛 `ReverseBindingError(1013)`。读回路径仍走 `TResource`。
+
 ## 环境变量
 
 | 变量 | 作用 | 默认 |
@@ -262,6 +324,9 @@ python build.py --config Debug
 | `CASCADED_CSHARP_TEX_SELFTEST` | **仅 Debug**：`bad-texture-color` / `unbound-image` / `unbound-sampler` 三个负向模式；C++ 侧 `TestCSharpTextureSampling` 读同一份值来核对错误码 | 空串 |
 | `CASCADED_CSHARP_SCENE_PROBE=1` | 启用场景用例驱动（场景注册 / 切场景 / 读数行）；只有 `TestCSharpScene` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_SCENE_SELFTEST` | **仅 Debug**：`skip-onupdate` / `bad-color` 两个负向模式（场景用例的红态构造）；模式名写错时 `Tick` 明确报错 | 空串 |
+| `CASCADED_CSHARP_RESOURCE_PROBE=1` | 启用反向接口探针（C# 实现 `ResourceFactoryBase` / `ResourceBase`）；只有 `TestCSharpResourceFactory` 在自己的 Tick 之前设置、之后清理 | 不设 |
+| `CASCADED_CSHARP_RESOURCE_PHASE` | 反向接口探针阶段机（`create-factory` / `create-failing-factories` / `after-create` / `make-serialize-throw` / `after-throw` / `dispose-resource` / `dispose-factory` / `report-counters` / `report-resource-keepalive`），由测试在两次 `Tick` 之间设置 | 空串 |
+| `CASCADED_CSHARP_RESOURCE_READINGS` | 反向接口探针把读数（句柄 / 错误码 / 计数）追加到这个文件，测试读同一份；不设时探针不写任何东西 | 不设 |
 | `CASCADED_EDITOR` | `1` 时启用编辑器面板服务（单窗口分栏 + WebView2 + WebSocket 命令服务）；不设时零行为（不监听、不建线程） | 不设 |
 | `CASCADED_EDITOR_PORT` | 编辑器服务监听端口（只绑 localhost） | `18390`（`1`-`65535`） |
 | `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` |

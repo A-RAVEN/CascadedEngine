@@ -501,6 +501,33 @@ def patch_ninja() -> None:
     NINJA_FILE.write_text(text, encoding="utf-8")
 
 
+def ensure_codegen_tool() -> str | None:
+    """保证 `CodeGen.exe` 比它的源码新（幂等）。返回错误串，或 None。
+
+    抽出来给 `--update-ids` 复用：发号只需要工具 + compile_commands，不必先跑一次全量构建；
+    而 `--update-ids` 是工具**后加**的能力 —— 工具旧了会使出"每个头都 libclang: parse failed
+    (error=4)"这种误导性红态（旧 exe 不认识该参数，把 --lock/--scope/-I 当 clang 参数解析）。
+    """
+    sid_path = BUILD_DIR / "bin" / "CodeGen.exe"
+    tool_build_dir = PROJECT_DIR / "out" / "build" / "codegen-tool"
+    tool_inputs = [p for p in (PROJECT_DIR / "Tools" / "CodeGen").rglob("*")
+                   if p.is_file() and p.suffix in (".cpp", ".h", ".hpp", ".txt", ".cmake")]
+    if sid_path.exists() and all(p.stat().st_mtime <= sid_path.stat().st_mtime
+                                 for p in tool_inputs if p.exists()):
+        print("  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)",
+              flush=True)
+        return None
+    try:
+        run_msvc(f"cmake -S {PROJECT_DIR / 'Tools' / 'CodeGen'} -B {tool_build_dir} -G Ninja "
+                 f"-DCMAKE_BUILD_TYPE={config} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "
+                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={BUILD_DIR / 'bin'}",
+                 "_build_codegen_configure.log")
+        run_msvc(f"cmake --build {tool_build_dir}", "_build_codegen_tool.log")
+    except Exception as exc:  # noqa: BLE001 — 工具编不出来必须报成一句话，不是裸 traceback
+        return f"编 CodeGen 工具失败：{type(exc).__name__}: {exc}"
+    return None
+
+
 def codegen(force: bool = False) -> list[str]:
     """Build-time CodeGen step: run the libclang sidecar
     over the annotated headers, feeding each owning module's exact compile env (include dirs + defines)
@@ -525,27 +552,8 @@ def codegen(force: bool = False) -> list[str]:
     # The sidecar is a CMake build target; ensure it is built first (idempotent). It is a standalone
     # tool, not an engine DLL the tester loads — building it here is safe and does NOT cause the
     # "stale product" inconsistency the build.py single-target warning cares about.
-    #
-    # 先看要不要问 ninja：问一次（含 vcvars 环境准备）实测几秒，占了"什么都不改"那次构建的一大半。判据是
-    # 修改时间 —— 工具自己的源文件与它的 CMakeLists 都比 CodeGen.exe 旧时，ninja 只会回一句
-    # "no work to do"，那就干脆不问；任何一样更新了（比如改了 CodeGenMain.cpp）都照旧问。
-    # ⚠ 判据里**不包含任何 build.ninja**。曾经盯的是引擎的 `NINJA_FILE`，后来又改成工具那棵树的
-    # `out/build/codegen-tool/build.ninja` —— 两个都不对：它们由 configure 重写，而"ninja 说没活干"时
-    # 它们不会跟着变新，于是这条跳过**永远不再成立**（实测：连续两次构建都不打印跳过）。build.ninja 不是
-    # 工具的源输入，源输入只有那些 .cpp/.h/.txt/.cmake。
-    sid_path = BUILD_DIR / "bin" / "CodeGen.exe"
-    tool_build_dir = PROJECT_DIR / "out" / "build" / "codegen-tool"
-    tool_inputs = [p for p in (PROJECT_DIR / "Tools" / "CodeGen").rglob("*")
-                   if p.is_file() and p.suffix in (".cpp", ".h", ".hpp", ".txt", ".cmake")]
-    if sid_path.exists() and all(p.stat().st_mtime <= sid_path.stat().st_mtime for p in tool_inputs if p.exists()):
-        print("  (工具的源文件都没动 -> 跳过 `cmake --build --target CodeGen`，省一次 vcvars + ninja)",
-              flush=True)
-    else:
-        run_msvc(f"cmake -S {PROJECT_DIR / 'Tools' / 'CodeGen'} -B {tool_build_dir} -G Ninja "
-                 f"-DCMAKE_BUILD_TYPE={config} -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "
-                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={BUILD_DIR / 'bin'}",
-                 "_build_codegen_configure.log")
-        run_msvc(f"cmake --build {tool_build_dir}", "_build_codegen_tool.log")
+    if const := ensure_codegen_tool():
+        return [const]
 
     cc_file = BUILD_DIR / "compile_commands.json"
     if not cc_file.exists():
@@ -1148,6 +1156,18 @@ CODEGEN_BINDINGS = [
      ["ns1__Device", "a_b__Widget"]),
     ("Tools/CodeGen/BindableShapes.NamespaceCoexistB.h", "夹具 NamespaceCoexistB",
      ["ns2__Device", "a__b__Widget"]),
+    # csharp-reverse-interface-binding 1.1/3.1：反向投影夹具（C# 实现 C++）。产物是抽象基类 .cs +
+    # 代理 .cpp 两件套（类别标记 CODEGEN-REVERSE-BINDING）；CoreTests 的 BindingsReverseTest 直接
+    # include 它的 .Bindings.cpp。
+    ("Tools/CodeGen/BindableShapes.Reverse.h", "夹具 Reverse",
+     ["ca_bind_fixture__IBindReverseShape"]),
+    # csharp-reverse-interface-binding 7.1：两个真实反向接口。它们**必须**在这里 —— 登记分片只在
+    # CODEGEN_BINDINGS 的循环里写；缺了它，`--emit-registry` 会报"登记输入没有产出分片"，反向基类
+    # 也不生成。两个头各跑一次（IResourceFactory.h include IResource.h，但 CA_BIND_REVERSE 只认主头）。
+    ("GeneralResources/header/CAResource/IResourceFactory.h", "原生 IResourceFactory",
+     ["resource_management__IResourceFactory"]),
+    ("GeneralResources/header/CAResource/IResource.h", "原生 IResource",
+     ["resource_management__IResource"]),
 ]
 
 
@@ -1180,6 +1200,11 @@ CODEGEN_REGISTRIES = [
         ("Interface/RenderInterface/header/WindowHandle.h", "native-window-handle"),
         # 7.1：第六原生接口（后端直建缓冲）。
         ("Interface/RenderInterface/header/GPUBuffer.h", "native-gpu-buffer"),
+        # csharp-reverse-interface-binding 7.1（design D8）：反向接口进宿主登记表，C# 才经
+        # get_interface_api 取得到反向函数表（编号 9/10，由 --update-ids 发；既有序号不动）。
+        # 顺序 = 发号顺序：IResourceFactory 先发 9，IResource 后发 10。
+        ("GeneralResources/header/CAResource/IResourceFactory.h", "reverse-resource-factory"),
+        ("GeneralResources/header/CAResource/IResource.h", "reverse-resource"),
     ]),
     # 夹具登记表（只做编号 / 拒绝 / 确定性与编号对账）：夹具专用号段 8/9。
     ("fixture", "fixture", [
@@ -1187,6 +1212,8 @@ CODEGEN_REGISTRIES = [
         # csharp-bindings-namespace-alignment 1.3：两个同短名接口各自发号、登记表两行各自在案。
         ("Tools/CodeGen/BindableShapes.NamespaceCoexistA.h", "fixture-namespace-a"),
         ("Tools/CodeGen/BindableShapes.NamespaceCoexistB.h", "fixture-namespace-b"),
+        # csharp-reverse-interface-binding 3.1：反向夹具进夹具号段（**不进宿主路由**）。
+        ("Tools/CodeGen/BindableShapes.Reverse.h", "fixture-reverse"),
     ]),
 ]
 
@@ -1203,6 +1230,15 @@ CODEGEN_BINDING_MERGE_CORETESTS = {
     "Interface/RenderInterface/header/ShaderStruct.h",
     "Interface/RenderInterface/header/GPUTexture.h",
     "Interface/RenderInterface/header/WindowHandle.h",
+}
+
+# csharp-reverse-interface-binding 7.1：反向资源头在 `GeneralResources/header/CAResource/` 下，而产物
+# 按**基名** include 接口头（`#include "IResource.h"`，与所有正向产物同一规则）。所以那个目录既要进
+# libclang 的 -I，也要进三个编译产物的目标的 include 路径（CSharpHost / CoreTests / GPUBackendTester
+# 的 CMakeLists 里各加一行 `${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource`）。
+CODEGEN_BINDING_EXTRA_INCLUDE_DIRS = {
+    "GeneralResources/header/CAResource/IResource.h": ["GeneralResources/header/CAResource"],
+    "GeneralResources/header/CAResource/IResourceFactory.h": ["GeneralResources/header/CAResource"],
 }
 
 
@@ -1275,11 +1311,49 @@ def _binding_includes(entries: list[dict], header: str) -> list[str]:
     # `TextureSampler.h` → `TextureSamplerDescriptor.codegen.h`），解析就报
     # "constexpr variable 'arr' must be initialized by a constant expression"，退出码 3。
     includes += ["-ICACore/header", "-ITools/CodeGen/clang_shim"] + list(CODEGEN_EXTRA_DEFINES)
+    # 反向资源头：产物按基名 include 接口头，所以把 `CAResource` 目录也放进 -I（见常量注释）。
+    for extra in CODEGEN_BINDING_EXTRA_INCLUDE_DIRS.get(header, []):
+        includes.append(f"-I{extra}")
     if header in CODEGEN_BINDING_MERGE_CORETESTS:
         # `ShaderResourceHandle.h` 用 `std::numeric_limits<...>::max()`，Windows 的 max 宏会把它
         # 撕成函数式宏调用（实测解析报 "too few arguments provided to function-like macro invocation"）。
         includes.append("-DNOMINMAX")
     return includes
+
+
+def check_binding_product_shapes(product_dir: Path, stems: list[str]) -> list[str]:
+    """逐接口产物的形状闸门（csharp-reverse-interface-binding 2.4）。
+
+    正向产物：`public sealed class … : IDisposable` 表面类；
+    反向产物（第一行带 `CODEGEN-REVERSE-BINDING:` 类别标记）：公开抽象基类 + C++ 代理，
+    且不许混进 `IDisposable` 正向表面。两边形状互装都点名。
+
+    抽成独立函数是为了判据自身能单独跑红绿（它平时只在 `build_bindings()` 里触发，
+    而构建闸门没法在"产品齐全"的目录上构造缺失红态 —— 见 evidence 2.4 的跑法）。
+    """
+    problems: list[str] = []
+    for stem in stems:
+        cs_path = product_dir / f"{stem}.Bindings.cs"
+        cpp_path = product_dir / f"{stem}.Bindings.cpp"
+        try:
+            cs_text = cs_path.read_text(encoding="utf-8", errors="replace")
+            cpp_text = cpp_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            problems.append(f"绑定 {stem}：产物读不出来（{exc}）")
+            continue
+        if "CODEGEN-REVERSE-BINDING:" in cs_text:
+            if "public abstract class" not in cs_text:
+                problems.append(f"反向产物 {stem}：.cs 里没有公开抽象基类（反向形状不对）")
+            if "Proxy final : public" not in cpp_text:
+                problems.append(f"反向产物 {stem}：.cpp 里没有代理类（反向形状不对）")
+            if ": IDisposable" in cs_text:
+                problems.append(f"反向产物 {stem}：.cs 里出现了 IDisposable 表面类"
+                                f"（反向产物不该有正向表面）")
+        else:
+            if ": IDisposable" not in cs_text:
+                problems.append(f"绑定 {stem}：.cs 里没有 IDisposable 表面类"
+                                f"（正向形状不对；若是反向接口请写 CA_BIND_REVERSE）")
+    return problems
 
 
 def build_bindings() -> list[str]:
@@ -1412,6 +1486,10 @@ def build_bindings() -> list[str]:
             failures.append(
                 f"绑定 {name} 退出码 0，但缺少这些接口的产物：{', '.join(missing)}"
                 f"（生成器自报的接口数见上面 [接口] 行）")
+        # csharp-reverse-interface-binding 2.4：闸门认**反向两件套**（基类 .cs + 代理 .cpp）。
+        # 正向产物仍是 `public sealed class … : IDisposable` 表面类；反向产物是公开抽象基类 + C++ 代理，
+        # 用产物里的类别标记区分。两边形状互装（正向缺 IDisposable / 反向没有抽象基类或代理）都点名。
+        failures.extend(check_binding_product_shapes(out_dir, present))
 
     # ---- 登记表汇合与期望产物（render-interface-merge 任务 1.3 / 1.4）----
     # 每个登记输入在 `--emit-binding` 那一轮写一份分片；这里按登记表逐个汇合。
@@ -1457,6 +1535,11 @@ def update_interface_ids() -> int:
     编号不许人填：新接口进表时跑一次这个命令，工具在锁里追加一行（该段水位 + 1）、删掉
     标注已经消失的行，既有行一字不动；它不产任何绑定产物，构建随后照常跑。
     """
+    # 发号只需要工具 + compile_commands：不先跑全量构建也得把工具编到最新（否则旧 exe 不认识
+    # `--update-ids`，会退化成"每个头都 parse failed (error=4)"这种误导性红态）。
+    if tool_error := ensure_codegen_tool():
+        print(f"发号失败：{tool_error}")
+        return 1
     tool = BUILD_DIR / "bin" / "CodeGen.exe"
     if not tool.is_file():
         print(f"发号失败：找不到 {tool}（先跑一次 python build.py --config Debug 把工具编出来）")
@@ -1467,6 +1550,12 @@ def update_interface_ids() -> int:
         return 1
     entries = json.loads(cc_file.read_text(encoding="utf-8"))
     print(f"  [发号] 锁文件：{INTERFACE_ID_LOCK}")
+    # 工具路径与构建时刻必须打出来：`--update-ids` 是工具**后加**的能力，用错预设（例如漏了
+    # `--config Debug`，落到另一个预设目录）会拿到一个月前的旧 exe —— 它不认识这个参数，会把
+    # `--lock/--scope/-I` 当 clang 参数去解析，于是每个头都报 `libclang: parse failed (error=4)`，
+    # 看起来像"所有头都坏了"，实际是命令选错了工具。
+    print(f"  [发号] 工具：{tool}（config={config}，"
+          f"mtime={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(tool.stat().st_mtime))}）")
     failures = 0
     for _subdir, scope, inputs in CODEGEN_REGISTRIES:
         for header, _tag in inputs:
@@ -1480,6 +1569,10 @@ def update_interface_ids() -> int:
                 print(f"    {line}", flush=True)
             if proc.returncode != 0:
                 failures += 1
+    if failures > 0:
+        print("  [发号] 有失败。先确认两件事：① 用同一个 --config 跑一次 python build.py 把工具编出来"
+              "（工具比源码旧时，--update-ids 的能力可能压根不在那个 exe 里）；"
+              "② 打印出来的 [发号] 工具路径是你以为的那个预设。")
     return 1 if failures else 0
 
 

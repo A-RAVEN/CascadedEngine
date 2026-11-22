@@ -1,4 +1,4 @@
-﻿01|int32_t ca_bind_fixture__IBindRow01__LastErrorCode(void* self)
+01|int32_t ca_bind_fixture__IBindRow01__LastErrorCode(void* self)
 01|int32_t ca_bind_fixture__IBindRow01__LastErrorText(void* self, char* dst, uint64_t cap)
 01|int32_t ca_bind_fixture__IBindRow01__GetInt32(void* self, int32_t value)
 01|int32_t ca_bind_fixture__IBindRow01__GetBool(void* self, int32_t value)
@@ -99,3 +99,4 @@ BindNativeObject|uint32_t ca_bind_fixture__BindNativeObject__GetValue(void* self
 BindNativeObject|void ca_bind_fixture__BindNativeObject__SetValue(void* self, uint32_t value)
 BindNativeObject|uint32_t ca_bind_fixture__BindNativeObject__DoubleValue(void* self)
 BindNativeObject|uint64_t ca_bind_fixture__BindNativeObject__Create(void* self)
+24|uint64_t ca_bind_fixture__IBindReverseShape__CreateImpl(void* user, int32_t (*Add)(void* user, int32_t left, int32_t right), uint64_t (*DescribeLen)(void* user), uint64_t (*CopyDescribe)(void* user, char* dst, uint64_t cap), void (*Reset)(void* user), int32_t (*IsReady)(void* user), uint64_t (*TakeLastError)(void* user, char* dst, uint64_t cap), void (*releaseUser)(void* user))

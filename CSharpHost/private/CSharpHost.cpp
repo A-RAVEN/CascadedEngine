@@ -61,6 +61,11 @@ namespace cs_script
 		{ kBindingInterfaceIdgraphics_backend__WindowHandle, false },
 		// 7.1（用户 2026-11-10 裁定）：缓冲对象直绑 —— 目标类型表（`CreateGPUBuffer` 产出，允许空实例）。
 		{ kBindingInterfaceIdgraphics_backend__GPUBuffer, false },
+		// csharp-reverse-interface-binding 7.2（design D8）：两个**反向**接口（C# 实现 C++）进主登记表。
+		// 它们是目标类型表（没有"引擎侧默认实例"这种东西，实例由 C# 经 CreateImpl 造出来），允许空实例；
+		// 缺这两行时 ApplyPolicies 判 Unregistered、GetInterfaceApi(9/10) 返 0，托管侧取不到反向函数表。
+		{ kBindingInterfaceIdresource_management__IResourceFactory, false },
+		{ kBindingInterfaceIdresource_management__IResource, false },
 	};
 	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
 	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会

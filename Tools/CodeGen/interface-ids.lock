@@ -18,7 +18,9 @@
 6	GPUTexture	graphics_backend::GPUTexture	Interface/RenderInterface/header/GPUTexture.h
 7	WindowHandle	graphics_backend::WindowHandle	Interface/RenderInterface/header/WindowHandle.h
 8	GPUBuffer	graphics_backend::GPUBuffer	Interface/RenderInterface/header/GPUBuffer.h
-# high water 8
+9	IResourceFactory	resource_management::IResourceFactory	GeneralResources/header/CAResource/IResourceFactory.h
+10	IResource	resource_management::IResource	GeneralResources/header/CAResource/IResource.h
+# high water 10
 # scope fixture
 8	IBindRegistry8	ca_bind_fixture::IBindRegistry8	Tools/CodeGen/BindableShapes.RenderRegistry.h
 9	IBindRegistry9	ca_bind_fixture::IBindRegistry9	Tools/CodeGen/BindableShapes.RenderRegistry.h
@@ -26,4 +28,5 @@
 11	Widget	a_b::Widget	Tools/CodeGen/BindableShapes.NamespaceCoexistA.h
 12	Device	ns2::Device	Tools/CodeGen/BindableShapes.NamespaceCoexistB.h
 13	Widget	a::b::Widget	Tools/CodeGen/BindableShapes.NamespaceCoexistB.h
-# high water 13
+14	IBindReverseShape	ca_bind_fixture::IBindReverseShape	Tools/CodeGen/BindableShapes.Reverse.h
+# high water 14

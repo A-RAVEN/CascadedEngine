@@ -1,0 +1,15 @@
+任务 0.2 / 8.2：封存旧锚 + 全量回归（主循环实测）
+记录时间：2026-11-22
+
+== 0.2 封存旧锚 ==
+旧锚 = openspec/changes/archive/2026-11-11-csharp-bindings-namespace-alignment/evidence/基线产物哈希.txt（203 条产物哈希，本 change 前的绑定基线）。
+整份封存进 evidence/旧锚封存件.txt（换锚程序①②）。8.3 新锚对账以此为旧锚。
+
+== 8.2 全量回归 ==
+- 构建：python build.py --config Debug，BUILD SUCCESSFUL（build11，跨模块异常 what() 前缀方案修好后）。
+- CoreTests：exit 0，PASSED 25 行（含 Bindings reverse projection test PASSED + ResourceBatchTest）。
+- 两后端全量：vulkan FULLV_EXIT=0 pass=20/20；d3d12 FULLD_EXIT=0 pass=20/20（report 存 8.2-全量-vulkan.json / 8.2-全量-d3d12.json）。
+- 既有 19 对拍：新 20 去掉 TestCSharpResourceFactory 后=19，与改前基线（场景批 archive/2026-11-22-csharp-scene-foundation/evidence/4.1-全量-vulkan.json / 4.1-全量-d3d12.json 各 19）逐条 name+status 差异=0（duration_ms 不比）。默认不激活反向时既有 19 零行为成立。
+- TestCSharpResourceFactory 两后端 pass（8.1 证据另存）。
+
+结论：0.2/8.2 判据满足。8.3 换锚待正向产物差异处理（共享错误码表 1012/1013 发射进所有产物致正向哈希变，执行者定夺 scoped 反向码或回写判据）。

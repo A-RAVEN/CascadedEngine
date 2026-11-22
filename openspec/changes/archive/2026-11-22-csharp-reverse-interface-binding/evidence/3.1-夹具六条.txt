@@ -1,0 +1,31 @@
+反向 conformance 夹具的红绿（csharp-reverse-interface-binding 3.1）
+
+夹具：`Tools/CodeGen/BindableShapes.Reverse.h`（`ca_bind_fixture::IBindReverseShape`）+ 投影矩阵第 24 行 +
+`interface-ids.lock` 夹具段 14 号（不进宿主路由）。
+结构断言：`Test/CoreTests/BindingsReverseTest.cpp`（直接 include 生成产物，C 函数指针当假实现）。
+行为断言：`Test/GPUBackendTester/Main.cpp::TestCSharpResourceFactory`（C# 真实现，读数文件对拍）。
+
+=== 六条行为（两后端 pass，读数见 evidence/8.1-两后端.txt）===
+① C# 经代理被调收返回值：CoreTests 的 `Add(2,3)==5` / `Describe()=="reverse"` / `Reset` / `IsReady`；
+   tester 的 `factory_type=CSharpProbe`、`create_count=1`、写路径字节 {DE,AD,BE,EF}。
+② 替换 supersede：`factory_keepalive_after_dispose=0`（旧 C# 工厂在替换时析构）。
+③ 释放失效：`dispose_code=0` / `dispose_again_code=1001`；CoreTests 的 `ReleaseImpl` 连调两次都 1001。
+④ 非注册线程拒：`serialize_calls` 停在 2（跨线程那次没进 C#），下一次注册线程调用抛 1005。
+⑤ 异常转码：C# `Serialize` 抛 `InvalidOperationException` → 下一次调用抛 1012 且 `what()` 含原始文本
+   （tester 用 `find("反向资源 Serialize 故意抛出的异常")` 断言）。
+⑥ double-free 守卫：CoreTests 断言 `releaseUser` 只被调一次（`ReleaseCalls==1`）、保活 1→0、
+   `ReleaseImpl` 二次 1001；tester 的 `factory_dispose_again_code=1001`。
+
+=== 红态：实际跑出过的红（存档）===
+1. **代理析构没调 releaseUser**：第一版失败场景的 `failingRelease` 写成空 lambda（测试自己的 bug），
+   CoreTests 实测红 —— 逐字 `[反向夹具] 失败场景的代理析构没有调 releaseUser`，CORE_EXIT=1
+   （日志 rev-coretests2/3 之间那轮）。改成真计数后转绿 ⇒ 该断言确实会失败。
+2. **公开基类混进原生形态**：`check_reverse_base` 曾对公开基类里的 `internal ulong __BorrowHandle`
+   判红 3 处（evidence/2.2-红绿.txt 记录的修法：状态搬进 internal 桥）。
+3. **反向产物缺失**：反向产物未生成时 full 模式 `反向基类检查没有命中任何反向产物（空扫不恒真）`
+   + 第 24 行"产物里没有 …CreateImpl"判红（evidence/2.1-检查改前改后.txt）。
+
+=== 未构造的红（如实记录）===
+「代理里把某个槽写成空体」与「注销时保留保活项」这两条要**改生成产物再重编**（产物每次构建重新生成，
+源码侧改不了），本轮未构造。可构造路径已写在 CoreTests 文件头注释里：把 `retireHandle` 的 `entry.kind=0`
+删掉 → `ReleaseImpl` 二次不再 1001；把 `__TakeOwnership` 里的 `kind=4` 删掉 → 表项 kind 断言红。

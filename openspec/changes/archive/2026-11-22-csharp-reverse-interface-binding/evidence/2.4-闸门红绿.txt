@@ -1,0 +1,20 @@
+﻿产物形状闸门的红绿（csharp-reverse-interface-binding 2.4）
+
+判据抽成了独立函数 `build.py::check_binding_product_shapes(product_dir, stems)`（原来内联在
+`build_bindings()` 里，只能靠构建触发；抽出来才能单独构造红态）。下面四条读数用
+`importlib` 加载 build.py 后直接调用，不改任何构建产物：
+
+=== 绿：真实产物目录（3 个反向 + 2 个正向） ===
+[]  [problems=0]
+
+=== 红 1：反向 .cs 去掉 `public abstract class` ===
+['反向产物 resource_management__IResource：.cs 里没有公开抽象基类（反向形状不对）']
+
+=== 红 2：反向 .cs 混进 `: IDisposable` 表面 ===
+['反向产物 resource_management__IResource：.cs 里出现了 IDisposable 表面类（反向产物不该有正向表面）']
+
+=== 红 3：正向 .cs 去掉 `: IDisposable`（证明正向判据没被放松） ===
+['绑定 cawindow__IWindow：.cs 里没有 IDisposable 表面类（正向形状不对；若是反向接口请写 CA_BIND_REVERSE）']
+
+构建期读数（rev-build5）：反向三件套齐全时闸门不再报"缺少这些接口的产物"；
+构建早期（反向产物未生成时）该闸门由同一条 missing 分支点名缺哪个 stem。

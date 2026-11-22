@@ -1,0 +1,17 @@
+﻿审计表反向行判据的红绿（csharp-reverse-interface-binding 2.3）
+
+判据：python Tools/CodeGen/check_bindable_audit.py（退出码 0 通过 / 1 有对不上 / 2 判据自身失效）
+
+=== 红态构造：给 resource_management::IResource 临时加一个没补行的虚方法 TouchAuditProbe ===
+扫描 11 个接口、对账 99 条方法、命中 3 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+  ✗ 缺少审计行：resource_management::IResource::TouchAuditProbe（头文件 1 条、表里 0 条）
+  ✗ 汇总表数字不符：resource_management::IResource 写 2、头文件实算 3
+  ✗ 汇总表合计不符：写 98、头文件实算 99
+[exit 1]
+
+=== 撤掉探针方法后（同一份表） ===
+扫描 11 个接口、对账 98 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+[exit 0]
+
+结论：加被绑定虚方法不补审计行 ⇒ 脚本非零退出并点名 resource_management::IResource::TouchAuditProbe；
+      撤销后回到 0。反向接口进 INTERFACES 后，表与头文件必须逐条对齐（不是"反向可以例外"）。

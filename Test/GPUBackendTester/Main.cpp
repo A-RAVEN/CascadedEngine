@@ -79,6 +79,13 @@
 // 由托管侧走**生成的表面**（`IWindow` / `IWindowSystem`）完成，C ABI 入口只在
 // `Test/CoreTests` 的绑定用例里直接对着产物验。
 #include "FakeWindowSystem.h"
+// csharp-reverse-interface-binding 8.1：反向接口的**函数表**（跨模块唯一正确入口：表里的函数指针
+// 指向创建句柄的那个模块）。产物里的 C++ 类型只用来解释表结构 —— 绝不调用 tester 自己那份
+// `<线形>__*` 函数（句柄表是 inline+函数级 static，EXE 与 DLL 各一份，查错表就等于查不到）。
+#include "resource_management__IResourceFactory.Bindings.cpp"
+#include "resource_management__IResource.Bindings.cpp"
+// 编号常量来自登记表头（唯一来源仍是 interface-ids.lock）。
+#include "BindingRegistry.Bindings.h"
 // 脚本渲染用例的原生核对通道（csharp-native-direct-binding 4.1）：桥退役后不再 include 适配层私有头，
 // 改为读托管侧读数行（`[托管 读数]`：原生对象地址 + 计数）+ 图附件的资源引用（helper 在
 // TestCSharpTriangle 之前）。
@@ -6305,6 +6312,612 @@ void TestCSharpScene(TestContext& ctx)
 }
 
 
+// ---- TestCSharpResourceFactory（csharp-reverse-interface-binding 8.1，第 20 用例）----
+// 反向接口（C# 实现 C++）的消费方验收：C# 工厂/资源经生成的反向代理被 C++ 资源系统调到。
+// 判据全部钉死可观测读数：写死期望表（类型名 / 字节 / 失败行为）、句柄报 1001、保活计数精确值、
+// HasResource 读数、错误槽上报（不是"文件字节不变"这种空真判据）。
+namespace
+{
+	// 记录型批：把写进来的字节留下来，并数 SubmitAndWait 次数（失败时"没写、没提交"要能断言）。
+	class ReverseRecordingBatch final : public ca_io::WBatch
+	{
+	public:
+		bool Write(uint64_t size, void const* source) override
+		{
+			++Writes;
+			if (size > 0u && source != nullptr)
+			{
+				Bytes.assign(static_cast<unsigned char const*>(source),
+				             static_cast<unsigned char const*>(source) + size);
+			}
+			return true;
+		}
+		void Seek(uint64_t) override {}
+		void SubmitAndWait() override { ++Submits; }
+		uint32_t SubmitCount() const override { return Submits; }
+		castl::string const& SourcePath() const override { return Path; }
+
+		std::vector<unsigned char> Bytes;
+		int Writes = 0;
+		uint32_t Submits = 0;
+		castl::string Path = "reverse-probe";
+	};
+
+	// 读型批：反向 Deserialize 被排除，任何 Read/Submit 都算"进了实现"。
+	class ReverseRecordingReader final : public ca_io::IOBatch
+	{
+	public:
+		bool Read(uint64_t, void*) override { ++Reads; return false; }
+		void Seek(uint64_t) override {}
+		void SubmitAndWait() override { ++Submits; }
+		uint32_t SubmitCount() const override { return Submits; }
+		castl::string const& SourcePath() const override { return Path; }
+
+		int Reads = 0;
+		uint32_t Submits = 0;
+		castl::string Path = "reverse-probe-read";
+	};
+
+	// C++ 原生工厂对照（钉死期望表的一半）：资源字节 {0x11,0x22,0x33}，类型名 "CppProbe"。
+	class NativeProbeResource final : public resource_management::IResource
+	{
+	public:
+		void Serialize(ca_io::WBatch* writer) override
+		{
+			static unsigned char const kBytes[] = { 0x11, 0x22, 0x33 };
+			writer->Write(sizeof(kBytes), kBytes);
+			writer->SubmitAndWait();
+		}
+		void Deserialize(ca_io::IOBatch*) override {}
+	};
+
+	class NativeProbeFactory final : public resource_management::IResourceFactory
+	{
+	public:
+		castl::string GetResourceType() const override { return "CppProbe"; }
+		resource_management::IResource* Create() override { return new NativeProbeResource(); }
+	};
+
+	class ThrowingNativeFactory final : public resource_management::IResourceFactory
+	{
+	public:
+		castl::string GetResourceType() const override { return "CppThrowProbe"; }
+		resource_management::IResource* Create() override
+		{
+			throw resource_management::resource_creation_error("C++ 原生工厂 Create 故意抛出");
+		}
+	};
+
+	// 读数文件最后一条 `key=value`（阶段机每阶段追加；同名键以最后一次为准）。
+	std::string ReadProbeValue(std::filesystem::path const& path, char const* key)
+	{
+		std::ifstream in(path);
+		std::string line;
+		std::string value;
+		const std::string prefix = std::string(key) + "=";
+		while (std::getline(in, line))
+		{
+			if (!line.empty() && line.back() == '\r')
+			{
+				line.pop_back();
+			}
+			if (line.rfind(prefix, 0) == 0)
+			{
+				value = line.substr(prefix.size());
+			}
+		}
+		return value;
+	}
+
+	// 取一张反向函数表：先用 size=0 探长度，再按长度拷出来（表版本用登记表头里的常量）。
+	// 返回的指针指向 `storage`，只在本用例内有效。
+	template <typename Table>
+	Table* FetchReverseTable(cs_script::IScriptHost* host, uint32_t interfaceId,
+	                         std::vector<unsigned char>& storage)
+	{
+		const uint32_t size = host->GetInterfaceApiForTest(interfaceId, nullptr,
+		                                                   kBindingInterfaceTableVersion, 0u, nullptr, nullptr);
+		if (size == 0u)
+		{
+			return nullptr;
+		}
+		storage.assign(size, 0u);
+		const uint32_t written = host->GetInterfaceApiForTest(interfaceId, nullptr,
+		                                                      kBindingInterfaceTableVersion, size,
+		                                                      storage.data(), nullptr);
+		if (written != size)
+		{
+			return nullptr;
+		}
+		return reinterpret_cast<Table*>(storage.data());
+	}
+}
+
+void TestCSharpResourceFactory(TestContext& ctx)
+{
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		throw std::runtime_error("IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		throw std::runtime_error(std::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+	if (ctx.pResourceManagingSystem == nullptr)
+	{
+		throw std::runtime_error("取不到 ResourceManagingSystem（资源模块没加载成功）");
+	}
+
+	auto fail = [](char const* code, std::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s", detail.c_str());
+		CA_LOG("[TestCSharpResourceFactory 失败] {}", detail);
+		throw std::runtime_error(code);
+	};
+
+	// ---- 探针门控 + 读数文件（守卫负责清理）----
+	std::filesystem::path const readings =
+		std::filesystem::temp_directory_path() / "cascaded_reverse_resource_probe.txt";
+	std::error_code removeError;
+	std::filesystem::remove(readings, removeError);
+	struct ReverseProbeEnvGuard
+	{
+		~ReverseProbeEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_CSHARP_RESOURCE_PROBE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_RESOURCE_PHASE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_RESOURCE_READINGS", nullptr);
+		}
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_RESOURCE_PROBE", "1");
+	::SetEnvironmentVariableA("CASCADED_CSHARP_RESOURCE_READINGS", readings.string().c_str());
+	::SetEnvironmentVariableA("CASCADED_CSHARP_RESOURCE_PHASE", "");
+
+	// 全量跑时前面的用例可能留下宿主错误文本；只把本用例新增的错误算失败。
+	const std::string baselineError = pScriptHost->LastError();
+	auto tick = [&](char const* phase) {
+		::SetEnvironmentVariableA("CASCADED_CSHARP_RESOURCE_PHASE", phase);
+		pScriptHost->Tick(0.016);
+		const std::string hostError = pScriptHost->LastError();
+		if (hostError != baselineError)
+		{
+			fail("E_REVERSE_HOST", std::string("阶段 ") + phase + " 之后宿主 LastError 非空：" + hostError +
+				"（读数：" + ReadProbeValue(readings, "probe_error") + "）");
+		}
+	};
+	auto read = [&](char const* key) { return ReadProbeValue(readings, key); };
+	auto readU64 = [&](char const* key) -> uint64_t { return std::strtoull(read(key).c_str(), nullptr, 10); };
+	auto readInt = [&](char const* key) -> int64_t { return std::strtoll(read(key).c_str(), nullptr, 10); };
+
+	// ---- 反向函数表：**必须用 CSharpHost 那一份**（表里的函数指针）----
+	// 句柄表是生成在头里的 inline + 函数级 static ⇒ EXE 与 DLL 各一份。tester 自己 include 的产物
+	// 解析到的是 tester.exe 的表，用它会查不到 CSharpHost.dll 创建的句柄（实测：handle=1 但
+	// TakeOwnership 返回空）。所以 resolve / release / keepalive 全部走 `GetInterfaceApiForTest`
+	// 拿到的表里的函数指针 —— 那才是创建句柄的那个模块。
+	std::vector<unsigned char> factoryTableStorage;
+	std::vector<unsigned char> resourceTableStorage;
+	auto* factoryTable = FetchReverseTable<resource_management__IResourceFactoryApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__IResourceFactory, factoryTableStorage);
+	auto* resourceTable = FetchReverseTable<resource_management__IResourceApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__IResource, resourceTableStorage);
+	if (factoryTable == nullptr || resourceTable == nullptr)
+	{
+		fail("E_REVERSE_TABLE", std::string("取不到反向函数表（") +
+			(factoryTable == nullptr ? "IResourceFactory " : "") +
+			(resourceTable == nullptr ? "IResource" : "") + "）；登记表 / kBindingPolicies 缺行？");
+	}
+	if (factoryTable->abi_version != 2u || resourceTable->abi_version != 2u)
+	{
+		fail("E_REVERSE_TABLE_ABI", "反向函数表的 abi_version 不是 2");
+	}
+
+	auto requireKeepAlive = [&](char const* what, bool factory, uint64_t handle,
+	                            uint64_t expected) {
+		const uint64_t actual = factory ? factoryTable->ReverseKeepAliveCount(handle)
+		                                : resourceTable->ReverseKeepAliveCount(handle);
+		if (actual != expected)
+		{
+			fail("E_REVERSE_KEEPALIVE",
+			     std::string(what) + "：保活计数是 " + std::to_string(actual) + "，期望 " +
+			         std::to_string(expected));
+		}
+	};
+
+	// ---- ① C# 工厂经 CreateImpl 注册（句柄注册 + 借用指针 + 释放回调）----
+	tick("create-factory");
+	const std::string factoryType = read("factory_type");
+	if (factoryType != "CSharpProbe")
+	{
+		fail("E_REVERSE_FACTORY_TYPE", "C# 工厂的类型名是 \"" + factoryType + "\"，写死期望 \"CSharpProbe\"");
+	}
+	const uint64_t factoryHandle = readU64("factory_handle");
+	if (factoryHandle == 0u)
+	{
+		fail("E_REVERSE_FACTORY_HANDLE", "C# CreateImpl 没有返回强句柄（读数 factory_handle=0）");
+	}
+	if (readU64("factory_keepalive") != 1u)
+	{
+		fail("E_REVERSE_FACTORY_KEEPALIVE", "工厂注册后保活计数应为 1，实际读数 " + read("factory_keepalive"));
+	}
+	// 用**创建模块的表**解析句柄：拿到的借用指针就是 CSharpHost 里那个代理。
+	resource_management::IResourceFactory* factoryPtr = static_cast<resource_management::IResourceFactory*>(
+		factoryTable->ResolveImpl(factoryHandle));
+	if (factoryPtr == nullptr)
+	{
+		fail("E_REVERSE_FACTORY_RESOLVE", "ResolveImpl(句柄) 返回空（句柄查不到代理）");
+	}
+	ctx.pResourceManagingSystem->RegisterFactory("CSharpProbe", factoryHandle, factoryPtr,
+	                                             factoryTable->ReleaseImpl);
+	if (!ctx.pResourceManagingSystem->HasFactory("CSharpProbe"))
+	{
+		fail("E_REVERSE_FACTORY_REGISTER", "RegisterFactory(句柄) 之后 HasFactory 仍是 false");
+	}
+	resource_management::IResourceFactory* csharpFactory =
+		ctx.pResourceManagingSystem->GetFactory("CSharpProbe");
+	if (csharpFactory == nullptr || csharpFactory != factoryPtr)
+	{
+		fail("E_REVERSE_FACTORY_GET", "GetFactory(\"CSharpProbe\") 没有返回同一份工厂（借用指针不符）");
+	}
+	// 单一所有者不变：强引用仍在创建模块的句柄表里（注册表只持借用指针 + 释放能力），
+	// 所以句柄必须**仍可解析到同一个代理**（不是"取走强引用后降级成借用"那条同模块路径）。
+	if (factoryTable->ResolveImpl(factoryHandle) != static_cast<void*>(factoryPtr))
+	{
+		fail("E_REVERSE_FACTORY_HANDLE_KIND", "注册之后同一个句柄解析不到同一个工厂代理");
+	}
+
+	// ---- ② 按类型名运行时构造 C# 资源（Create → shared_ptr → RegisterResource，不 Deserialize）----
+	const std::string csharpResourcePath = "ReverseProbe/CSharp.res";
+	auto csharpResource = ctx.pResourceManagingSystem->CreateResource("CSharpProbe", csharpResourcePath);
+	if (!csharpResource)
+	{
+		fail("E_REVERSE_CREATE", "CreateResource 返回空");
+	}
+	if (!ctx.pResourceManagingSystem->HasResource(csharpResourcePath))
+	{
+		fail("E_REVERSE_REGISTER", "CreateResource 之后 HasResource 仍是 false");
+	}
+	if (ctx.pResourceManagingSystem->GetResource(csharpResourcePath).get() != csharpResource.get())
+	{
+		fail("E_REVERSE_SAME_INSTANCE", "按路径取回的不是同一个实例");
+	}
+	tick("after-create");
+	const uint64_t resourceHandle = readU64("resource_handle");
+	if (resourceHandle == 0u)
+	{
+		fail("E_REVERSE_RESOURCE_HANDLE", "C# 资源的借用句柄是 0（CreateProxy 没发句柄）");
+	}
+	requireKeepAlive("资源注册后", false, resourceHandle, 1u);
+
+	// ---- ③ 写路径往返：钉死 {0xDE,0xAD,0xBE,0xEF}，长度 4，copy 返 4 ----
+	{
+		ReverseRecordingBatch batch;
+		csharpResource->Serialize(&batch);
+		std::vector<unsigned char> const expected = { 0xDE, 0xAD, 0xBE, 0xEF };
+		if (batch.Bytes != expected)
+		{
+			fail("E_REVERSE_SERIALIZE_BYTES", "写进批的字节不是写死期望 {DE,AD,BE,EF}");
+		}
+		if (batch.Bytes.size() != 4u)
+		{
+			fail("E_REVERSE_SERIALIZE_LEN", "写进批的字节数是 " + std::to_string(batch.Bytes.size()) +
+				"，期望 4");
+		}
+		if (batch.Submits != 1u)
+		{
+			fail("E_REVERSE_SERIALIZE_SUBMIT", "写完之后 SubmitAndWait 次数是 " +
+				std::to_string(batch.Submits) + "，期望 1");
+		}
+	}
+	// 反向读被排除：代理抛 1013，且一个字节都不读。
+	{
+		ReverseRecordingReader reader;
+		bool threw = false;
+		try
+		{
+			csharpResource->Deserialize(&reader);
+		}
+		catch (cascaded_reverse::ReverseBindingError const& error)
+		{
+			threw = error.Code() == 1013;
+			if (!threw)
+			{
+				// 诊断：跨模块抛过来的对象若布局不一致，`Code()` 会读到错误偏移；`what()` 走虚函数不受
+				// 布局影响，所以把两者一起打出来，判"是不是同一个异常"。
+				fail("E_REVERSE_DESERIALIZE_CODE", std::string("Deserialize 抛的错误码是 ") +
+					std::to_string(error.Code()) + "，what=\"" + error.what() +
+					"\"，sizeof=" + std::to_string(sizeof(cascaded_reverse::ReverseBindingError)) +
+					"，期望 1013");
+			}
+		}
+		catch (std::exception const& other)
+		{
+			fail("E_REVERSE_DESERIALIZE_TYPE",
+			     std::string("Deserialize 抛的不是 ReverseBindingError：") + other.what());
+		}
+		if (!threw)
+		{
+			fail("E_REVERSE_DESERIALIZE", "反向 Deserialize 没有抛 ReverseBindingError");
+		}
+		if (reader.Reads != 0 || reader.Submits != 0)
+		{
+			fail("E_REVERSE_DESERIALIZE_IO", "反向 Deserialize 动了批（Reads/Submits 非 0）");
+		}
+	}
+
+	// ---- ④ Serialize 失败：C# 抛异常 → len 哨兵 → 代理中止（不写不提交）→ 下一次调用上报 1012 ----
+	tick("make-serialize-throw");
+	const int64_t serializeCallsBeforeFailure = readInt("serialize_calls");
+	{
+		ReverseRecordingBatch batch;
+		csharpResource->Serialize(&batch);   // 第一次：C# 抛异常，代理只落槽、中止
+		if (!batch.Bytes.empty() || batch.Submits != 0u)
+		{
+			fail("E_REVERSE_FAIL_WROTE", "Serialize 失败却写了批（字节数 " +
+				std::to_string(batch.Bytes.size()) + "、提交 " + std::to_string(batch.Submits) + "）");
+		}
+		bool threw = false;
+		ReverseRecordingBatch secondCall;
+		try
+		{
+			csharpResource->Serialize(&secondCall);
+		}
+		catch (cascaded_reverse::ReverseBindingError const& error)
+		{
+			const std::string text = error.what();
+			threw = error.Code() == 1012 && text.find("反向接口") != std::string::npos &&
+				text.find("反向资源 Serialize 故意抛出的异常") != std::string::npos;
+			if (!threw)
+			{
+				fail("E_REVERSE_FAIL_REPORT", "下一次调用没有按契约上报（码 " +
+					std::to_string(error.Code()) + "，文本 " + text + "）");
+			}
+		}
+		if (!threw)
+		{
+			fail("E_REVERSE_FAIL_SILENT", "Serialize 失败之后的下一次调用没有抛异常（静默继续）");
+		}
+	}
+	tick("after-throw");
+	if (readInt("serialize_calls") != serializeCallsBeforeFailure + 1)
+	{
+		fail("E_REVERSE_FAIL_CALLS", "C# 覆写调用数不符：失败前 " +
+			std::to_string(serializeCallsBeforeFailure) + "，现在是 " + read("serialize_calls") +
+			"（期望只多 1 次 —— 中止后的那次调用不许再进 C#）");
+	}
+
+	// ---- ⑤ 非注册线程：1005 落槽 + 中止 + C# 覆写 0 次；下次注册线程调用上报 1005 ----
+	{
+		ReverseRecordingBatch crossThreadBatch;
+		std::thread crossThread([&]() { csharpResource->Serialize(&crossThreadBatch); });
+		crossThread.join();
+		if (!crossThreadBatch.Bytes.empty() || crossThreadBatch.Submits != 0u)
+		{
+			fail("E_REVERSE_THREAD_WROTE", "非注册线程调用却写了批");
+		}
+		bool threw = false;
+		ReverseRecordingBatch secondCall;
+		try
+		{
+			csharpResource->Serialize(&secondCall);
+		}
+		catch (cascaded_reverse::ReverseBindingError const& error)
+		{
+			threw = error.Code() == 1005;
+			if (!threw)
+			{
+				fail("E_REVERSE_THREAD_CODE", "非注册线程之后上报的错误码是 " +
+					std::to_string(error.Code()) + "，期望 1005");
+			}
+		}
+		if (!threw)
+		{
+			fail("E_REVERSE_THREAD_SILENT", "非注册线程调用被静默吞掉（下一次调用没有抛 1005）");
+		}
+	}
+	tick("report-counters-thread");
+	if (readInt("serialize_calls") != serializeCallsBeforeFailure + 1)
+	{
+		fail("E_REVERSE_THREAD_CALLS", "非注册线程竟然进了 C# 覆写（serialize_calls 涨了）");
+	}
+
+	// ---- ⑥ Create 失败：抛异常、不注册空、第二次重新调 Create（计数 2）----
+	tick("create-failing-factories");
+	const uint64_t throwingHandle = readU64("throwing_factory_handle");
+	const uint64_t nullHandle = readU64("null_factory_handle");
+	if (throwingHandle == 0u || nullHandle == 0u)
+	{
+		fail("E_REVERSE_FAIL_FACTORY_HANDLE", "失败场景的工厂句柄是 0");
+	}
+	auto resolveFactory = [&](uint64_t handle) {
+		return static_cast<resource_management::IResourceFactory*>(factoryTable->ResolveImpl(handle));
+	};
+	if (resolveFactory(throwingHandle) == nullptr || resolveFactory(nullHandle) == nullptr)
+	{
+		fail("E_REVERSE_FAIL_FACTORY_RESOLVE", "失败场景的工厂句柄解析不到代理");
+	}
+	ctx.pResourceManagingSystem->RegisterFactory("CSharpThrowProbe", throwingHandle,
+	                                             resolveFactory(throwingHandle),
+	                                             factoryTable->ReleaseImpl);
+	ctx.pResourceManagingSystem->RegisterFactory("CSharpNullProbe", nullHandle,
+	                                             resolveFactory(nullHandle),
+	                                             factoryTable->ReleaseImpl);
+	for (int attempt = 1; attempt <= 2; ++attempt)
+	{
+		const std::string path = "ReverseProbe/Throwing_" + std::to_string(attempt) + ".res";
+		bool threw = false;
+		try
+		{
+			ctx.pResourceManagingSystem->CreateResource("CSharpThrowProbe", path);
+		}
+		catch (resource_management::resource_creation_error const& error)
+		{
+			threw = std::string(error.what()).find("反向资源 Serialize") == std::string::npos &&
+				std::string(error.what()).find("反向工厂 Create 故意抛出的异常") != std::string::npos;
+		}
+		if (!threw)
+		{
+			fail("E_REVERSE_CREATE_FAIL_THROW",
+			     "第 " + std::to_string(attempt) + " 次 Create 失败没有抛含原始文本的异常");
+		}
+		if (ctx.pResourceManagingSystem->HasResource(path))
+		{
+			fail("E_REVERSE_CREATE_FAIL_REGISTER", "Create 失败却把空资源注册进了资源表（路径 " + path + "）");
+		}
+	}
+	{
+		const std::string path = "ReverseProbe/Null.res";
+		bool threw = false;
+		try
+		{
+			ctx.pResourceManagingSystem->CreateResource("CSharpNullProbe", path);
+		}
+		catch (resource_management::resource_creation_error const&)
+		{
+			threw = true;
+		}
+		if (!threw || ctx.pResourceManagingSystem->HasResource(path))
+		{
+			fail("E_REVERSE_CREATE_NULL", "Create 返回 null 的场景没有抛异常，或注册了空资源");
+		}
+	}
+	tick("report-counters-create");
+	if (readInt("throwing_create_count") != 2)
+	{
+		fail("E_REVERSE_CREATE_COUNT", "Create 抛异常的工厂被调了 " + read("throwing_create_count") +
+			" 次，期望 2（第二次 Load 必须重新调 Create）");
+	}
+	if (readInt("null_create_count") != 1)
+	{
+		fail("E_REVERSE_CREATE_NULL_COUNT", "Create 返回 null 的工厂调用次数是 " +
+			read("null_create_count") + "，期望 1");
+	}
+	// 未注册类型：明确报错，不静默返回空。
+	{
+		bool threw = false;
+		try
+		{
+			ctx.pResourceManagingSystem->CreateResource("NoSuchFactoryType", "ReverseProbe/None.res");
+		}
+		catch (resource_management::resource_creation_error const& error)
+		{
+			threw = std::string(error.what()).find("未注册") != std::string::npos;
+		}
+		if (!threw)
+		{
+			fail("E_REVERSE_CREATE_UNREGISTERED", "未注册的类型没有明确报错");
+		}
+	}
+
+	// ---- ⑦ C++ 原生工厂对照（钉死期望表逐项核）----
+	{
+		auto nativeFactory = castl::shared_ptr<resource_management::IResourceFactory>(
+			new NativeProbeFactory(), [](resource_management::IResourceFactory* released) { delete released; });
+		ctx.pResourceManagingSystem->RegisterFactory("CppProbe", nativeFactory);
+		auto nativeResource = ctx.pResourceManagingSystem->CreateResource("CppProbe", "ReverseProbe/Cpp.res");
+		if (!nativeResource)
+		{
+			fail("E_REVERSE_CPP_CREATE", "C++ 原生工厂 Create 返回空");
+		}
+		ReverseRecordingBatch batch;
+		nativeResource->Serialize(&batch);
+		std::vector<unsigned char> const expected = { 0x11, 0x22, 0x33 };
+		if (batch.Bytes != expected)
+		{
+			fail("E_REVERSE_CPP_BYTES", "C++ 原生资源的字节与写死期望 {11,22,33} 不符");
+		}
+		if (nativeFactory->GetResourceType() != "CppProbe" ||
+			csharpFactory->GetResourceType() != "CSharpProbe")
+		{
+			fail("E_REVERSE_COMPARE_TYPE", "C++/C# 工厂的 GetResourceType 与写死期望不符");
+		}
+		// 失败行为两边都抛异常（C++ 原生直接抛；C# 经桥转码）。
+		auto throwingNative = castl::shared_ptr<resource_management::IResourceFactory>(
+			new ThrowingNativeFactory(), [](resource_management::IResourceFactory* released) { delete released; });
+		ctx.pResourceManagingSystem->RegisterFactory("CppThrowProbe", throwingNative);
+		bool cppThrew = false;
+		try
+		{
+			ctx.pResourceManagingSystem->CreateResource("CppThrowProbe", "ReverseProbe/CppThrow.res");
+		}
+		catch (resource_management::resource_creation_error const&)
+		{
+			cppThrew = true;
+		}
+		if (!cppThrew)
+		{
+			fail("E_REVERSE_CPP_THROW", "C++ 原生工厂 Create 抛异常没有被转成 resource_creation_error");
+		}
+	}
+
+	// ---- ⑧ 寿命两档：C# Dispose 只掉借用一份（句柄 1001 + 按路径同一实例 + 计数不归零）----
+	tick("dispose-resource");
+	if (readInt("dispose_code") != 0)
+	{
+		fail("E_REVERSE_DISPOSE_CODE", "C# 第一次 Dispose 返回 " + read("dispose_code") + "，期望 0");
+	}
+	if (readInt("dispose_again_code") != 1001)
+	{
+		fail("E_REVERSE_DISPOSE_AGAIN", "C# 第二次 Dispose 返回 " + read("dispose_again_code") +
+			"，期望 1001（double-free 守卫）");
+	}
+	if (readU64("resource_keepalive_after_dispose") != 1u)
+	{
+		fail("E_REVERSE_DISPOSE_KEEPALIVE", "Dispose 之后保活计数是 " +
+			read("resource_keepalive_after_dispose") + "，期望仍是 1（注册表还持有）");
+	}
+	requireKeepAlive("C# Dispose 之后（注册表仍持）", false, resourceHandle, 1u);
+	if (ctx.pResourceManagingSystem->GetResource(csharpResourcePath).get() != csharpResource.get())
+	{
+		fail("E_REVERSE_DISPOSE_INSTANCE", "C# Dispose 之后按路径取回的不是同一个实例");
+	}
+	// 注册表释放 → 代理析构 → releaseUser → 托管 GCHandle.Free → 计数归零。
+	csharpResource.reset();
+	if (!ctx.pResourceManagingSystem->ReleaseResource(csharpResourcePath))
+	{
+		fail("E_REVERSE_RELEASE_RESOURCE", "ReleaseResource 返回 false");
+	}
+	tick("report-resource-keepalive");
+	requireKeepAlive("注册表释放之后", false, resourceHandle, 0u);
+
+	// ---- ⑨ 工厂替换（supersede）：旧 C# 工厂在替换时释放 → 保活归零 ----
+	// 注册表持的是借用指针，所以"替换"就是注册表调 release(旧句柄) → CSharpHost 里代理析构 →
+	// releaseUser → GCHandle.Free。tester 自己不再持有任何拷贝（GetFactory 返回借用指针）。
+	{
+		auto replacement = castl::shared_ptr<resource_management::IResourceFactory>(
+			new NativeProbeFactory(), [](resource_management::IResourceFactory* released) { delete released; });
+		ctx.pResourceManagingSystem->RegisterFactory("CSharpProbe", replacement);
+		requireKeepAlive("工厂被替换之后（旧 C# 工厂）", true, factoryHandle, 0u);
+	}
+	tick("dispose-factory");
+	// 工厂已经被替换（注册表放掉了唯一强引用 → 代理析构 → 句柄已按代际失效）：两次 Dispose 都必须是
+	// 1001 —— 这正是"句柄失效可观测"的另一面；0 只可能出现在"注册表还持有时主动 Dispose"那条路，
+	// 而那条路之后每帧都可能再调工厂，Free 掉托管对象会变成悬空，本用例不走。
+	if (readInt("factory_dispose_code") != 1001 || readInt("factory_dispose_again_code") != 1001)
+	{
+		fail("E_REVERSE_FACTORY_DISPOSE", "工厂被替换之后 Dispose 两次的返回码是 " +
+			read("factory_dispose_code") + " / " + read("factory_dispose_again_code") +
+			"，期望 1001 / 1001（句柄已失效且幂等）");
+	}
+
+	// ---- ⑩ 计数清零与收尾：注册表里的东西都放掉，下一用例从干净状态开始 ----
+	{
+		bool erased = ctx.pResourceManagingSystem->UnregisterFactory("CSharpProbe");
+		erased = ctx.pResourceManagingSystem->UnregisterFactory("CppProbe") || erased;
+		erased = ctx.pResourceManagingSystem->UnregisterFactory("CSharpThrowProbe") || erased;
+		erased = ctx.pResourceManagingSystem->UnregisterFactory("CSharpNullProbe") || erased;
+		erased = ctx.pResourceManagingSystem->UnregisterFactory("CppThrowProbe") || erased;
+		if (!erased)
+		{
+			fail("E_REVERSE_CLEANUP", "一个工厂都没注销成功（注册表状态不对劲）");
+		}
+	}
+	ctx.pResourceManagingSystem->ReleaseResource("ReverseProbe/Cpp.res");
+	CA_LOG("TestCSharpResourceFactory 通过：C# 工厂注册（句柄）→ Create 造 C# 资源 → 写路径往返 "
+	       "{DE,AD,BE,EF}（长度 4）→ Deserialize 拒（1013）→ Serialize 失败上报（1012）→ 非注册线程拒"
+	       "（1005）→ Create 失败不注册空（HasResource=false、计数 2）→ C++ 原生工厂对照 → 寿命两档"
+	       "（Dispose 1001 + 同一实例 + 计数 1→0）");
+}
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
 // 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
@@ -7016,6 +7629,9 @@ int main(int argc, char* argv[])
 		// io-error-channel 任务 4.2 / 5.1：第 17 项（批式读写的失败通道与资源加载失败透出；
 		// 不开窗口、不用 C#，所以全量里放哪都不影响别的用例，见 run-all 那段）
 		std::cout << "  TestIOErrorChannel\n";
+		// csharp-reverse-interface-binding 8.1：第 20 项（C# 工厂/资源经反向代理被 C++ 调到；
+		// 要用 C#，全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）。
+		std::cout << "  TestCSharpResourceFactory\n";
 		return 0;
 	}
 
@@ -7330,6 +7946,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpScene", TestCSharpScene);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpResourceFactory") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpResourceFactory", TestCSharpResourceFactory);
+	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{
 		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
@@ -7373,6 +7993,9 @@ int main(int argc, char* argv[])
 		// csharp-scene-foundation 3.2：第 19 用例。同样要用 C#，必须排在
 		// `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
 		runTestWithDiagnostics("TestCSharpScene", TestCSharpScene);
+		// csharp-reverse-interface-binding 8.1：第 20 用例。同样要用 C#，必须排在
+		// `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
+		runTestWithDiagnostics("TestCSharpResourceFactory", TestCSharpResourceFactory);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}

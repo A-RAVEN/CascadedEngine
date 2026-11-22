@@ -319,6 +319,9 @@ namespace Scripting.Managed
                 ProbeMonitor();
                 ProbeTargetDispose();
                 RunCallbackProbePhase();
+                // csharp-reverse-interface-binding 3.1：反向接口探针（C# 实现 C++）。
+                // 默认关（没有 CASCADED_CSHARP_RESOURCE_PROBE=1 时 Tick 立即返回、零行为）。
+                ResourceProbe.Tick(s_api);
                 // 关窗读数每帧都要读：第 1 帧窗口还开着（0），引擎侧关窗后再 tick 一次才是 1。
                 // 放进 `s_tickCount == 1` 里就只剩一个 0 —— 实测过，那一版日志里没有第二次读数。
                 // 一旦读到"该关了"，就说明引擎侧马上要把它回收掉：此后不再碰旧窗口的 self，

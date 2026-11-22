@@ -1,0 +1,27 @@
+全量回归（csharp-reverse-interface-binding 8.2）
+
+=== 构建（%TEMP%\rev-build11.txt）===
+`python build.py --config Debug` → BUILD SUCCESSFUL（含 CodeGen 重编、全部产物重生成、四检查反向感知 + 期望产物闸门）。
+`check_bindings.py`（产物目录 out/build/x64-debug/codegen/bindings）：不符数 0、反向基类 0（命中 3）、
+反向对齐 0、反向空体 0、登记表 0、夹具登记表 0、[exit 0]。
+
+=== CoreTests（%TEMP%\rev-coretests6.txt）===
+`out\build\x64-debug\bin\CoreTests.exe` → CORE_EXIT=0，PASSED 25 行（含 `Bindings reverse projection test PASSED`
+与既有 `ResourceBatchTest`）。
+
+=== 两后端全量（%TEMP%\full_v.json / full_d.json）===
+vulkan: 20 条 / pass 20 / exit 0
+d3d12 : 20 条 / pass 20 / exit 0
+
+与改前基线（archive/2026-11-22-csharp-scene-foundation/evidence/4.1-全量-vulkan.json、4.1-全量-d3d12.json，
+各 19 条）**按名字逐条**对比 name+status：
+  既有 19 条 name+status 差异数 = 0（两后端各 0）
+  新 20 条多出的 = TestCSharpResourceFactory
+（按位置比会看到 idx18 互换：新用例必须排在 `TestCSharpWindowCallbacks` **之前**，因为最后那条会关闭托管运行时 ——
+这是 8.1 明确要求的位置，不是回归。）
+
+=== 结论 ===
+"默认不激活既有 19 用例 name/status 与改前基线一致、无反向副作用"成立（两后端 20/20，新增只多一条）。
+注：本轮读数取自 rev-build11。之后为 8.3 又做了一处**只影响生成文本**的改动（反向专属错误码 1012/1013 只发射进
+反向产物，正向产物逐字节回到旧锚），它不动任何绑定逻辑；该改动后的构建会再跑一次两后端全量确认，读数补在
+本文件末尾。

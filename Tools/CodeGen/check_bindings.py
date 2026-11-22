@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """对拍：绑定生成的 C ABI 签名，是否逐行等于 BindableShapes.expected.txt 里写的。
 
 期望文件每行前缀矩阵行号（`01|` … `14|`），随后是期望的 C ABI 签名（逐字）。
@@ -151,6 +151,206 @@ REGISTRY_PRODUCT_NAMES = {"BindingRegistry.Bindings.cpp", "BindingRegistry.Bindi
 
 def is_registry_product(path: Path) -> bool:
     return path.name in REGISTRY_PRODUCT_NAMES
+
+
+# ---- 反向产物（csharp-reverse-interface-binding / design D9）----
+# 反向产物（C# 实现 C++：公开抽象基类 + C++ 代理）与正向产物（IDisposable 表面类 + Api_v2 函数表）
+# 是**两套形状**。生成器在反向产物的第一行写类别标记；四检查据此走替代判据，正向判据一个字不动。
+REVERSE_MARKER = "CODEGEN-REVERSE-BINDING:"
+
+
+def is_reverse_product(path: Path) -> bool:
+    """产物是不是反向产物（读生成器写的类别标记）。读不出来按"不是"处理（由对应检查点名缺产物）。"""
+    try:
+        return REVERSE_MARKER in path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def reverse_base_name(short: str) -> str:
+    """接口短名 → 公开抽象基类名（去 I 前缀加 Base：IResource → ResourceBase）。"""
+    bare = short
+    if len(bare) > 1 and bare[0] == "I" and bare[1].isupper():
+        bare = bare[1:]
+    return bare + "Base"
+
+
+NAME_BEFORE_PAREN_RE = re.compile(r"([A-Za-z_]\w*)\s*\(")
+
+
+def reverse_bound_method_names(header: Path, interface: str) -> list[str]:
+    """反向接口里"被绑定虚方法"的名字（按声明顺序，跳过 CA_BIND_SKIP）。
+
+    口径与生成器一致：只算 public 段里的 virtual 方法（析构不算）；CA_BIND_SKIP 跳过。
+    """
+    text = strip_comments(header.read_text(encoding="utf-8", errors="replace"))
+    body = class_body(text, interface)
+    if body is None:
+        return []
+    skips = {match.group(1) for match in SKIP_RE.finditer(body)}
+    inner = body.strip()
+    if inner.startswith("{"):
+        inner = inner[1:]
+    if inner.endswith("}"):
+        inner = inner[:-1]
+    # 成员函数体（`{}`）先换成 `;`，否则 `virtual ~X() {} virtual void F();` 会被当成一条声明。
+    inner = re.sub(r"\{[^{}]*\}", ";", inner)
+    names: list[str] = []
+    for segment in inner.split(";"):
+        decl = segment.strip()
+        if "virtual" not in decl or "(" not in decl:
+            continue
+        # `CA_BIND_SKIP(方法, "理由")` 不是方法声明：宏没写分号时它会和后面的 virtual 声明
+        # 粘成一段，NAME_BEFORE_PAREN_RE 会把 "CA_BIND_SKIP" 当成方法名（实测过）。
+        decl = re.sub(r"CA_BIND_(?:SKIP|INJECT|INSTANTIATE)\s*\([^)]*\)", " ", decl)
+        match = NAME_BEFORE_PAREN_RE.search(decl)
+        if not match:
+            continue
+        name = match.group(1)
+        if name in skips or name == interface or name.startswith("~") or name.startswith("CA_"):
+            continue
+        names.append(name)
+    return names
+
+
+def find_abstract_base(text: str, short: str) -> dict | None:
+    """在反向 .cs 里找公开抽象基类（返回 type_blocks 的那一项）。"""
+    expected = reverse_base_name(short)
+    for block in type_blocks(text):
+        if block["visibility"] == "public" and block["kind"] == "class" \
+                and "abstract" in block["mods"].split() and block["name"] == expected:
+            return block
+    return None
+
+
+def check_reverse_base(product_dir: Path) -> tuple[int, list[str]]:
+    """反向公开抽象基类的干净形状（design D9 / csharp-bindings 的 check_reverse_base）。
+
+    递归 glob 扫产物目录下所有 `.Bindings.cs`（夹具在子目录里也要扫到），只看带反向类别标记的。
+    判据：① 公开抽象基类恰好一个、名字 = 接口短名去 I 加 Base；② 它（以及同文件其它 public 类型）的
+    签名里没有 `void*` / `delegate*` / 句柄形态的 `ulong`；③ abstract 方法数与名字顺序 = 被绑定虚方法；
+    ④ 成对的代理 `.cpp` 存在（反向两件套）。返回（命中文件数, 问题列表）—— 命中数 0 时调用方判红，
+    避免"扫了个空目录也绿"。
+    """
+    problems: list[str] = []
+    hits = 0
+    for path in sorted(product_dir.rglob("*.Bindings.cs")):
+        if not is_reverse_product(path):
+            continue
+        hits += 1
+        linear = path.name[: -len(".Bindings.cs")]
+        short = split_linear(linear)[1]
+        text = path.read_text(encoding="utf-8", errors="replace")
+        expected_base = reverse_base_name(short)
+        public_blocks = [block for block in type_blocks(text) if block["visibility"] == "public"]
+        abstracts = [block for block in public_blocks
+                     if block["kind"] == "class" and "abstract" in block["mods"].split()]
+        if len(abstracts) != 1:
+            problems.append(f"  {short}（反向基类）：public abstract class 应当正好 1 个，"
+                            f"实际 {[block['name'] for block in abstracts]}")
+            continue
+        base = abstracts[0]
+        if base["name"] != expected_base:
+            problems.append(f"  {short}（反向基类）：基类名是 `{base['name']}`，"
+                            f"期望 `{expected_base}`（接口短名去 I 前缀加 Base）")
+        for block in public_blocks:
+            for token in ("void*", "delegate*"):
+                if token in block["body"]:
+                    problems.append(f"  {short}（反向基类）：public 类型 `{block['name']}` 里出现了 `{token}`")
+            # 句柄形态判据只看**公开成员**：public 类里的 internal 字段也是实现细节，但只要它带
+            # `ulong xxxHandle` 就会被逐行扫描误判 —— 反向基类本来就不许有字段，这里按可见性过滤，
+            # 让"字段藏 internal 桥"成为唯一正确解法（不是靠改名绕过）。
+            public_body = "\n".join(
+                line for line in block["body"].splitlines()
+                if not line.strip().startswith(("internal ", "private ", "protected ")))
+            problems.extend(public_ulong_problems(short, {**block, "body": public_body}))
+        abstract_methods = re.findall(r"^\s*public abstract [^;{]*?\b(\w+)\s*\(", base["body"], re.M)
+        product = product_dir / f"{linear}.Bindings.cpp"
+        if not product.is_file():
+            problems.append(f"  {short}（反向产物）：缺成对的 {linear}.Bindings.cpp（代理没生成）")
+            continue
+        header = resolve_interface_header(product.read_text(encoding="utf-8", errors="replace"))
+        if header is None:
+            problems.append(f"  {short}（反向基类）：解析不到接口头，算不出被绑定虚方法数")
+            continue
+        expected_names = reverse_bound_method_names(header, short)
+        if abstract_methods != expected_names:
+            problems.append(f"  {short}（反向基类）：abstract 方法 {abstract_methods} 与被绑定虚方法 "
+                            f"{expected_names} 不自洽（顺序也要一致）")
+    return hits, problems
+
+
+def check_reverse_alignment(product_dir: Path) -> list[str]:
+    """反向产物两侧对齐：C++ 代理覆写的虚方法 vs C# 抽象基类的 abstract 方法（同序同名）。
+
+    正向对齐判的是"Api_v2 槽 ↔ delegate* 字段"；反向没有函数表字段，替而判"代理 override ↔
+    抽象方法"。跳过的方法（CA_BIND_SKIP）代理里也有一份抛异常的实现，但它不在 C# 抽象基类里。
+    """
+    problems: list[str] = []
+    for product in sorted(product_dir.glob("*.Bindings.cpp")):
+        if not is_reverse_product(product):
+            continue
+        linear = product.name[: -len(".Bindings.cpp")]
+        short = split_linear(linear)[1]
+        cs_path = product_dir / f"{linear}.Bindings.cs"
+        if not cs_path.is_file():
+            problems.append(f"  {short}（反向对齐）：缺 {linear}.Bindings.cs")
+            continue
+        cs_text = cs_path.read_text(encoding="utf-8", errors="replace")
+        base = find_abstract_base(cs_text, short)
+        if base is None:
+            problems.append(f"  {short}（反向对齐）：.cs 里找不到公开抽象基类")
+            continue
+        abstract_methods = re.findall(r"^\s*public abstract [^;{]*?\b(\w+)\s*\(", base["body"], re.M)
+        cpp_text = product.read_text(encoding="utf-8", errors="replace")
+        proxy_methods = []
+        for match in re.finditer(
+                r"^\s{4}[^;{]*?\b(\w+)\s*\([^;]*\)\s*(?:const\s*)?override\b", cpp_text, re.M):
+            # 析构（`~<线形>Proxy() override`）不是接口方法：正则会把 `~` 后面的标识符当方法名。
+            if "~" in match.group(0):
+                continue
+            proxy_methods.append(match.group(1))
+        header = resolve_interface_header(cpp_text)
+        skips: set[str] = set()
+        if header is not None:
+            header_text = strip_comments(header.read_text(encoding="utf-8", errors="replace"))
+            skips = set(re.findall(r"CA_BIND_SKIP\s*\(\s*(\w+)\s*,", header_text))
+        bound_proxy_methods = [name for name in proxy_methods if name not in skips]
+        if bound_proxy_methods != abstract_methods:
+            problems.append(f"  {short}（反向对齐）：C++ 代理覆写 {bound_proxy_methods} / "
+                            f"C# abstract {abstract_methods} —— 方法集合或顺序不一致")
+    return problems
+
+
+def check_reverse_stubs(product_dir: Path) -> list[str]:
+    """反向代理的非空体判据（design D9：反向用行为判据，不用 `object->` 结构判据）。
+
+    这里只判"结构不空"：代理存在、每个 override 体里真的调了函数指针槽（跳过的方法允许抛
+    ReverseBindingError）、析构里确实调了 releaseUser。**行为**（C# 覆写真的被调到、返回值收到）
+    由 GPUBackendTester 的 TestCSharpResourceFactory 与 CoreTests 的反向夹具承担 —— 空体在那里会红。
+    """
+    problems: list[str] = []
+    for product in sorted(product_dir.glob("*.Bindings.cpp")):
+        if not is_reverse_product(product):
+            continue
+        short = split_linear(product.name[: -len(".Bindings.cpp")])[1]
+        text = product.read_text(encoding="utf-8", errors="replace")
+        if "Proxy final : public" not in text:
+            problems.append(f"  {short}（反向代理）：产物里没有代理类")
+            continue
+        for match in re.finditer(
+                r"^\s{4}[^;{]*?\b(\w+)\s*\([^;]*\)\s*(?:const\s*)?override\s*\n\s*\{", text, re.M):
+            if "~" in match.group(0):
+                continue   # 析构不是接口方法（它的 releaseUser 另外单独判）
+            name = match.group(1)
+            body = text[match.end():]
+            end = body.find("\n    }")
+            body = body[: end if end >= 0 else len(body)]
+            if "m_slots." not in body and "ReverseBindingError" not in body:
+                problems.append(f"  {short}::{name}：代理方法体没有调用函数指针槽（空体/桩）")
+        if "release(m_user)" not in text:
+            problems.append(f"  {short}（反向代理）：析构里没有调 releaseUser（托管 GCHandle 不会释放）")
+    return problems
 
 
 # ---- 编号锁文件（codegen-native-binding-prereqs 任务 1.3）----
@@ -1119,6 +1319,9 @@ def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str],
     fixtures = fixture_interface_names()
     products = [path for path in sorted(product_dir.glob("*.Bindings.cpp"))
                 if not is_registry_product(path)]
+    # 反向产物（C# 实现 C++）没有 thunk / Api_v2 方法槽：它走 check_reverse_stubs 的替代判据
+    # （代理方法体非空 + 析构调 releaseUser），不进"正向 thunk 桩"这条判据（design D9）。
+    products = [path for path in products if not is_reverse_product(path)]
     real_paths = [path for path in products if interface_of(path) not in fixtures]
     real_names = {interface_of(path) for path in real_paths}
 
@@ -1277,6 +1480,10 @@ def check_alignment(product_dir: Path) -> list[str]:
     for path in sorted(product_dir.glob("*.Bindings.cpp")):
         if is_registry_product(path):
             continue
+        # 反向产物（类别标记）：函数表是反向 glue 表，没有正向 thunk/槽对齐 —— 由
+        # check_reverse_alignment 判"代理 override ↔ C# abstract"（design D9 的替代判据）。
+        if is_reverse_product(path):
+            continue
         linear = path.name[: -len(".Bindings.cpp")]
         prefix = linear + "__"
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -1294,10 +1501,10 @@ def check_alignment(product_dir: Path) -> list[str]:
                 continue
             cpp_pairs.setdefault(linear, []).append(method)
     for path in sorted(product_dir.glob("*.Bindings.cs")):
-        if is_registry_product(path):
-            continue
         interface = path.name[: -len(".Bindings.cs")]
         text = path.read_text(encoding="utf-8", errors="replace")
+        if is_reverse_product(path):
+            continue  # 反向产物的两侧对齐在 check_reverse_alignment 里判
         for method in CS_MEMBER_RE.findall(text):
             if is_generic(interface, method):
                 continue
@@ -1323,7 +1530,8 @@ def check_alignment(product_dir: Path) -> list[str]:
     fixtures = fixture_interface_names()
     interface_stems = set(cpp_pairs) | {path.name[: -len(".Bindings.cpp")]
                                         for path in product_dir.glob("*.Bindings.cpp")
-                                        if not is_registry_product(path)}
+                                        if not is_registry_product(path)
+                                        and not is_reverse_product(path)}
     for interface in sorted(interface_stems):
         short = split_linear(interface)[1]
         if short in fixtures:
@@ -1503,6 +1711,11 @@ def check_surface(product_dir: Path) -> list[str]:
         # 也不该有 `IDisposable` 表面类。内容与唯一性由 check_shared_value_types 判。
         if not (product_dir / f"{linear}.Bindings.cpp").is_file():
             continue
+        # 反向产物（C# 实现 C++）改判 check_reverse_base：公开抽象基类干净 + abstract 数 = 被绑定虚方法数
+        # （design D9）。正向判据（IDisposable 表面类 / `<I>Exception` / 表面成员数）对反向不适用，
+        # 但正向产物本身的判据一个字没动 —— 这是替代，不是放松。
+        if is_reverse_product(path):
+            continue
         text = path.read_text(encoding="utf-8", errors="replace")
         blocks = type_blocks(text)
         public_blocks = [block for block in blocks if block["visibility"] == "public"]
@@ -1652,7 +1865,10 @@ ERROR_CODE_TABLE = {1001: "STALE_HANDLE", 1002: "NULL_POINTER",
                     1007: "BAD_BLOCK_VERSION", 1008: "BAD_BLOCK_TYPE",
                     1009: "BAD_BLOCK_LAYOUT", 1010: "BAD_BLOCK_PAYLOAD",
                     # csharp-native-direct-binding 2.2：序列化块里的对象句柄查不到
-                    1011: "BAD_OBJECT_HANDLE"}
+                    1011: "BAD_OBJECT_HANDLE",
+                    # csharp-reverse-interface-binding：反向实现抛异常 / 不支持的反向读。
+                    # 三处同步：CodeGenMain.cpp 的 kBindErrorCodes / 这里 / README 的错误码表。
+                    1012: "REVERSE_EXCEPTION", 1013: "REVERSE_READ_UNSUPPORTED"}
 ERROR_CONST_RE = re.compile(r"static const int32_t (\w+?)_ERROR_(\w+) = (\d+);")
 SET_ERROR_RE = re.compile(r"\w+_setError\(\s*[^,]+,\s*([A-Za-z_]\w*|\d+)\s*,")
 
@@ -1822,6 +2038,10 @@ def main() -> int:
                         help="生成物目录（<构建目录>/codegen/bindings）；必填，判据只认这一个来源")
     parser.add_argument("--self-test-exemption", action="store_true",
                         help="只跑自返回豁免判据的自检（不读产物）")
+    parser.add_argument("--only", default=None,
+                        help="只跑一条检查（反向产物的红绿要能独立跑）："
+                             "reverse_base / reverse_alignment / reverse_stubs / surface / alignment / "
+                             "stubs / shared_value_types / error_codes / registry / coverage")
     args = parser.parse_args()
     if args.self_test_exemption:
         return self_test_self_return_exemption()
@@ -1846,6 +2066,39 @@ def main() -> int:
         print(f"产物目录不存在：{product_dir} —— 判据自身失效"
               f"（这个退出码 2 与「发现桩」的退出码 1 是分开的）", file=sys.stderr)
         return 2
+
+    # ---- `--only <检查名>`（csharp-reverse-interface-binding 2.2）：单检查入口 ----
+    # main 原来只有合并退出码，反向基类的红绿没法独立跑。单检查只打印自己那条，退出码仍按
+    # "0 通过 / 1 有发现 / 2 判据自身失效"报。
+    if args.only:
+        if args.only == "reverse_base":
+            hits, problems = check_reverse_base(product_dir)
+            print(f"扫描命中反向基类文件 {hits} 个")
+            if hits < 1:
+                print("反向基类检查：一个反向产物都没扫到（空扫不恒真，判红）", file=sys.stderr)
+                problems = list(problems) + ["反向基类检查没有命中任何反向产物"]
+            for problem in problems:
+                print(problem, file=sys.stderr)
+            print(f"{args.only} 问题 {len(problems)} 处")
+            return 1 if problems else 0
+        single = {
+            "reverse_alignment": lambda: check_reverse_alignment(product_dir),
+            "reverse_stubs": lambda: check_reverse_stubs(product_dir),
+            "surface": lambda: check_surface(product_dir),
+            "alignment": lambda: check_alignment(product_dir),
+            "stubs": lambda: check_stubs(product_dir)[3] + check_stubs(product_dir)[5],
+            "shared_value_types": lambda: check_shared_value_types(product_dir),
+            "error_codes": lambda: check_error_codes(product_dir),
+            "coverage": lambda: check_coverage(product_dir, read_expected()[0]),
+        }.get(args.only)
+        if single is None:
+            print(f"未知或需要 full 模式的单检查名：{args.only}", file=sys.stderr)
+            return 2
+        problems = single()
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        print(f"{args.only} 问题 {len(problems)} 处")
+        return 1 if problems else 0
     try:
         signatures, special, rows_seen = read_expected()
     except FileNotFoundError as exc:
@@ -1910,6 +2163,7 @@ def main() -> int:
         return 2
     real_names = sorted(p.name[: -len(".Bindings.cpp")] for p in product_dir.glob("*.Bindings.cpp")
                         if not is_registry_product(p)
+                        and not is_reverse_product(p)
                         and p.name[: -len(".Bindings.cpp")] not in fixture_interface_names())
     print(f"被判真实接口：{', '.join(real_names)}")
     for problem in structure_problems:
@@ -1977,6 +2231,24 @@ def main() -> int:
         print(problem, file=sys.stderr)
     print(f"原生形态夹具问题 {len(native_shape_problems)} 处")
 
+    # ---- 反向产物判据（csharp-reverse-interface-binding 2.1 / 2.2）：替代判据，正向判据不动 ----
+    # 命中数 0 也必须红：`check_bindings.py` 扫了一个没有反向产物的目录时，"反向基类干净"是恒真的。
+    reverse_hits, reverse_base_problems = check_reverse_base(product_dir)
+    if reverse_hits < 1:
+        reverse_base_problems = list(reverse_base_problems) + [
+            "反向基类检查没有命中任何反向产物（空扫不恒真，判红）"]
+    for problem in reverse_base_problems:
+        print(problem, file=sys.stderr)
+    print(f"反向基类问题 {len(reverse_base_problems)} 处（扫描命中反向基类文件 {reverse_hits} 个）")
+    reverse_alignment_problems = check_reverse_alignment(product_dir)
+    for problem in reverse_alignment_problems:
+        print(problem, file=sys.stderr)
+    print(f"反向两侧对齐问题 {len(reverse_alignment_problems)} 处")
+    reverse_stub_problems = check_reverse_stubs(product_dir)
+    for problem in reverse_stub_problems:
+        print(problem, file=sys.stderr)
+    print(f"反向代理空体问题 {len(reverse_stub_problems)} 处")
+
     # 5.1：桥与它的表面判据一起退役（原生五类表面的判据在 check_surface_matrix / 原生夹具里）。
 
     # ---- 登记表（本 change 任务 1.3 / 6.2）：编号对账 + EngineApi 两侧 9 字段 + v10 / 56 字节 ----
@@ -1999,7 +2271,8 @@ def main() -> int:
                   or matrix_problems or code_problems or shared_problems or foundation_problems
                   or qualified_problems or fixture_problems
                   or registry_problems or fixture_registry_problems
-                  or fixture_dropped or native_shape_problems)
+                  or fixture_dropped or native_shape_problems
+                  or reverse_base_problems or reverse_alignment_problems or reverse_stub_problems)
     return 1 if failed else 0
 
 

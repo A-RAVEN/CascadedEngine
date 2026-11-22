@@ -1,0 +1,27 @@
+﻿反向接口 / 资源的 C++/C# 形状读数（csharp-reverse-interface-binding 4.1 / 5.1）
+
+产物来自 rev-build5（生成器 = 19:16 之后那版；守卫与字段改名是之后又修的两处，不影响本页判据）。
+
+=== 4.1 IResourceFactory 的 C++ 基类与 Create 槽 ===
+GeneralResources/header/CAResource/IResourceFactory.h：
+  CA_BIND_REVERSE()
+  virtual ~IResourceFactory() {}
+  virtual castl::string GetResourceType() const = 0;
+  virtual IResource* Create() = 0;
+
+产物里的 Create 槽：`void* (*Create)(void* user)` —— 只带不透明 user，**没有 ResourceManagingSystem 参数**
+（整个 IResourceFactory 产物里 `ResourceManagingSystem` 命中数 = 0）。
+
+=== 5.1 ResourceBase 与 Deserialize 排除 ===
+IResource.h：`CA_BIND_SKIP(Deserialize, "本批不支持反向读，另立批");`（声明在前、宏在后）
+ResourceBase 的 abstract 方法（整份产物）：
+  public abstract class ResourceBase
+  public abstract byte[] Serialize();
+  → 恰好 1 个，与被绑定虚方法数（IResource 的 2 个纯虚 − 1 个 CA_BIND_SKIP = 1）一致。
+
+代理的 Deserialize（非绑定槽）：
+  void Deserialize(ca_io::IOBatch * /*跳过*/) override
+  throw cascaded_reverse::ReverseBindingError(
+      resource_management__IResource_ERROR_REVERSE_READ_UNSUPPORTED,
+      "反向接口 resource_management::IResource::Deserialize 不支持（本批不绑这个方法）");
+  → 错误码 1013，且签名按**原样类型拼写**保留 `*`（否则代理仍抽象、new 不出来）。

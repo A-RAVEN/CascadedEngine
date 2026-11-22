@@ -1,0 +1,75 @@
+反向接口的 C# 实现端到端（csharp-reverse-interface-binding 3.1 / 4.2 / 4.3 / 5.2 / 5.3 / 6.1 / 6.2 / 7.2 / 8.1）
+
+跑法（主循环代跑，2026-11-22 20:00 前后，日志 %TEMP%\rev-build11.txt / rev-tv.txt / rev-td.txt）：
+  out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestCSharpResourceFactory --headless 10 --report %TEMP%\reverse_v.json
+  out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12  --test TestCSharpResourceFactory --headless 10 --report %TEMP%\reverse_d.json
+
+=== 两后端 report（逐字）===
+vulkan: [{"name":"TestCSharpResourceFactory","status":"pass","duration_ms":100,"exit_code":0}]
+d3d12 : [{"name":"TestCSharpResourceFactory","status":"pass","duration_ms":64,"exit_code":0}]
+[exit 0] / [exit 0]
+
+=== test_output/TestCSharpResourceFactory.log 的通过行（逐字）===
+TestCSharpResourceFactory 通过：C# 工厂注册（句柄）→ Create 造 C# 资源 → 写路径往返 {DE,AD,BE,EF}（长度 4）→
+Deserialize 拒（1013）→ Serialize 失败上报（1012）→ 非注册线程拒（1005）→ Create 失败不注册空
+（HasResource=false、计数 2）→ C++ 原生工厂对照 → 寿命两档（Dispose 1001 + 同一实例 + 计数 1→0）
+
+=== 探针读数文件 %TEMP%\cascaded_reverse_resource_probe.txt（全文）===
+tables_bound=1
+factory_type=CSharpProbe
+factory_handle=1
+factory_keepalive=1
+factory_base_type=ResourceFactoryBase
+phase=create-factory
+resource_handle=2
+create_count=1
+serialize_calls=0
+phase=after-create
+serialize_calls=1
+phase=make-serialize-throw
+serialize_calls=2
+phase=after-throw
+factory_create_count=1
+throwing_create_count=0
+null_create_count=0
+serialize_calls=2
+phase=report-counters-thread
+throwing_factory_handle=3
+throwing_factory_type=CSharpThrowProbe
+null_factory_handle=4
+null_factory_type=CSharpNullProbe
+phase=create-failing-factories
+factory_create_count=1
+throwing_create_count=2
+null_create_count=1
+serialize_calls=2
+phase=report-counters-create
+dispose_code=0
+dispose_again_code=1001
+resource_keepalive_after_dispose=1
+phase=dispose-resource
+resource_keepalive=0
+resource_handle=2
+phase=report-resource-keepalive
+factory_dispose_code=1001
+factory_dispose_again_code=1001
+factory_keepalive_after_dispose=0
+phase=dispose-factory
+
+=== 逐条对应 ===
+- 3.1 / 4.2：`factory_type=CSharpProbe`、`factory_base_type=ResourceFactoryBase`、`factory_handle=1`（C# 工厂继承公开
+  抽象基类，经 CreateImpl 拿到强句柄）；`resource_handle=2`、`create_count=1`（C# 工厂 Create 被调一次、造出
+  C# 资源代理）。
+- 6.1 / 6.2 / 7.2：工厂经 `RegisterFactory(typeName, handle, 借用指针, 释放回调)` 注册进资源系统，随后
+  `CreateResource("CSharpProbe", …)` 真的按类型名造出对象、注册进资源表（同一实例断言在 tester 里），
+  说明宿主路由 #9/#10 取到的函数表与登记表路由都通了（`tables_bound=1` 即 `GetInterfaceApi` 成功）。
+- 5.2：写路径往返 `{DE,AD,BE,EF}`、长度 4、`submit` 1 次（tester 三项断言）。
+- 5.3：`Deserialize 拒（1013）`；`serialize_calls` 1→2 且失败那次之后下一次调用抛 1012（tester 断言含原始
+  文本）；非注册线程 1005 且 `serialize_calls` 不涨（1→2 停在 2）。
+- 4.3 / 6.1 失败契约：`throwing_create_count=2`、`null_create_count=1`（第二次 Load 重新调 Create，
+  两次都没缓存空对象；tester 断言 `HasResource=false`）。
+- 1.4 / 1.5 / 寿命档：`dispose_code=0` / `dispose_again_code=1001` / `resource_keepalive_after_dispose=1`
+  → C# Dispose 只掉借用一份；之后 `resource_keepalive=0`（注册表释放 → 代理析构 → releaseUser →
+  GCHandle.Free）；工厂侧 `factory_dispose_code=1001` / `factory_dispose_again_code=1001` /
+  `factory_keepalive_after_dispose=0`（替换后旧代理析构、句柄按代际失效且幂等）。
+- 8.1：`--list` 20 行、末行 `TestCSharpResourceFactory`（rev-build7 已确认），两后端 status=pass。

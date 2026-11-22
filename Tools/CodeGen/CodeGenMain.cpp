@@ -1,4 +1,3 @@
-﻿//
 // CodeGenMain.cpp — minimal libclang-driven extraction tool for the CodeGen framework.
 //
 // Takes a header file + a type name, parses it with libclang (the real C++ front end — we are
@@ -1370,7 +1369,21 @@ namespace bindemit
         { "BAD_BLOCK_PAYLOAD", 1010 },
         // D11：序列化块里的对象句柄（值类容器元素 / 接口对象引用）在绑定对象表里查不到。
         { "BAD_OBJECT_HANDLE", 1011 },
+        // 反向接口（csharp-reverse-interface-binding）：C# 覆写抛异常 / 反向实现返回失败 / 不支持的
+        // 反向读（Deserialize 本批显式排除）。三处（这里 / check_bindings.py 的 ERROR_CODE_TABLE /
+        // README 的错误码表）必须同步。
+        { "REVERSE_EXCEPTION", 1012 },
+        { "REVERSE_READ_UNSUPPORTED", 1013 },
     };
+
+    // 反向专属错误码（1012/1013）只发射进**反向**产物：正向产物（含既有 8 接口、夹具、窗口/渲染）
+    // 必须逐字节不变 —— tasks 8.3 的基线判据是"既有 8 接口正向产物逐份哈希相同"，而正向路径上
+    // 永远不会出现这两个码。错误码表的**全局**一致性由 README 与 `check_bindings.ERROR_CODE_TABLE`
+    // 保证（两处都含 1012/1013），不是靠每份产物都抄一遍。
+    bool isReverseOnlyErrorCode(BindErrorCode const& errorCode)
+    {
+        return errorCode.value == 1012 || errorCode.value == 1013;
+    }
 
     // 回调形状要认"参数是不是已绑定接口的裸指针"，所以这两个声明提前到这里。
     struct MethodSignature
@@ -1385,6 +1398,7 @@ namespace bindemit
         bool isConst = false;
         // 本批（codegen-native-binding-prereqs 2.2–2.4）新增的采集元数据。
         bool isPure = false;           // 纯虚（现行审计表的口径仍以纯虚为主）
+        bool isVirtual = false;        // virtual（含非纯虚）—— 反向投影只绑可覆写的虚方法
         bool isStatic = false;         // 静态成员函数（任务 2.3 只接"返回纯标量记录的静态工厂"）
         bool isTemplate = false;       // 成员函数模板（① 类：显式排除或生成期拒绝）
         bool returnsSelfRef = false;   // 返回本类引用（任务 2.2：C ABI 投影成 void，C# 返回 this）
@@ -2054,6 +2068,9 @@ namespace bindemit
         // 任务 2.3：带公开默认构造的非抽象类生成 `<类>_Create` 入口。
         bool hasPublicDefaultCtor = false;
         bool isAbstract = false;
+        // csharp-reverse-interface-binding：这个接口是**反向**的（`CA_BIND_REVERSE()`，C# 实现 C++）。
+        // 反向接口走独立的发射分支，不与正向产物（IDisposable 表面类 + Api_v2 函数表）混在一起。
+        bool isReverse = false;
     };
 
     struct ClassCollector
@@ -2193,6 +2210,7 @@ namespace bindemit
             return CXChildVisit_Continue;
         }
         method.isPure = clang_CXXMethod_isPureVirtual(cursor) != 0u;
+        method.isVirtual = clang_CXXMethod_isVirtual(cursor) != 0u;
         method.isStatic = clang_CXXMethod_isStatic(cursor) != 0u;
         method.isConst = clang_CXXMethod_isConst(cursor) != 0u;
 
@@ -2313,6 +2331,9 @@ namespace bindemit
     {
         std::string interfaceName;
         bool isTemplate = false;
+        // csharp-reverse-interface-binding：`CA_BIND_REVERSE()` 标的是**反向接口**（C# 实现 C++）。
+        // 正向产物（表面类 + Api_v2）不生成；改走反向代理/抽象基类/glue 三件套。
+        bool reverse = false;
         // 历史编号参数：括号里写了数字时记下 hasNumber/number，供入口统一拒绝（任务 1.4）——
         // 编号唯一来源是锁文件，无参 `CA_BIND()` 是唯一合法标注。
         bool hasNumber = false;
@@ -2364,6 +2385,7 @@ namespace bindemit
         std::vector<BoundMarker> markers;
         std::size_t position = 0;
         bool pendingBind = false;
+        bool pendingReverse = false;
         bool pendingTemplate = false;
         bool pendingHasNumber = false;
         unsigned pendingNumber = 0;
@@ -2378,6 +2400,41 @@ namespace bindemit
             if (line.find("template") != std::string::npos)
             {
                 pendingTemplate = true;
+            }
+            // `CA_BIND_REVERSE()`（csharp-reverse-interface-binding）：反向接口，标注无参数。
+            // 必须先于 `CA_BIND(` 判：两者是不同标注（文本上 `CA_BIND_REVERSE(` 不含 `CA_BIND(`）。
+            if (line.find("CA_BIND_REVERSE(") != std::string::npos)
+            {
+                pendingBind = true;
+                pendingReverse = true;
+                // 带编号标注一律拒绝（编号唯一来源是锁文件）：和 `CA_BIND(...)` 同口径把括号里的文本
+                // 记下来交给入口统一点名 —— 否则 `CA_BIND_REVERSE(9)` 会被静默当成合法标注。
+                const std::size_t open = line.find('(', line.find("CA_BIND_REVERSE("));
+                const std::size_t close = open == std::string::npos ? std::string::npos
+                                                                    : line.find(')', open);
+                pendingNumberText = (open == std::string::npos || close == std::string::npos)
+                                        ? std::string()
+                                        : trimCopy(line.substr(open + 1, close - open - 1));
+                pendingHasNumber = false;
+                pendingNumber = 0;
+                if (!pendingNumberText.empty())
+                {
+                    bool allDigits = true;
+                    for (char ch : pendingNumberText)
+                    {
+                        if (!std::isdigit(static_cast<unsigned char>(ch)))
+                        {
+                            allDigits = false;
+                            break;
+                        }
+                    }
+                    if (allDigits)
+                    {
+                        pendingHasNumber = true;
+                        pendingNumber = static_cast<unsigned>(std::strtoul(pendingNumberText.c_str(), nullptr, 10));
+                    }
+                }
+                continue;
             }
             if (line.find("CA_BIND(") != std::string::npos)
             {
@@ -2535,12 +2592,14 @@ namespace bindemit
                 BoundMarker marker;
                 marker.interfaceName = name;
                 marker.isTemplate = isTemplateLine;
+                marker.reverse = pendingReverse;
                 marker.hasNumber = pendingHasNumber;
                 marker.number = pendingNumber;
                 marker.numberText = pendingNumberText;
                 markers.push_back(std::move(marker));
             }
             pendingBind = false;
+            pendingReverse = false;
             pendingTemplate = false;
             pendingHasNumber = false;
             pendingNumber = 0;
@@ -7510,6 +7569,1224 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         return 0;
     }
 
+    // =========================================================================================
+    // 反向投影发射（csharp-reverse-interface-binding）：C# 实现 C++ 接口
+    //
+    // 三类产物（design D1/D2/D4/D6/D9）：
+    //   <线形>.Bindings.cpp —— C++ 代理 <线形>Proxy（每被绑定虚方法调一条函数指针槽）、注册 glue
+    //                          __CreateImpl / __CreateProxy / __ReleaseImpl / __ReverseKeepAliveCount、
+    //                          反向函数表 <线形>Api_v2 与 GetApi（登记表路由用）、共用句柄表的借用项。
+    //   <线形>.Bindings.cs  —— 公开抽象基类（去 I 前缀加 Base）+ internal 托管桥（GCHandle 保活、
+    //                          唯一一次 Free 在托管侧由 releaseUser 触发、公开签名里没有原生细节）。
+    //   ReverseBindingRuntime.h —— 所有反向产物共用的错误类型与保活状态（同一次生成只写一份）。
+    //
+    // 支持的反向方法形状（其余形状生成期拒绝并点名，不做静默降级）：
+    //   ① void / 标量返回 + 纯标量参数
+    //   ② `castl::string` 返回（两段式 <方法>Len + Copy<方法>）
+    //   ③ `void Serialize(ca_io::WBatch*)`（写路径：SerializeLen + SerializeCopy，C# 侧返回 byte[]）
+    //   ④ 返回另一个**反向**接口的裸指针（C# 侧返回该接口的抽象基类，C ABI 槽传 void*）
+    // 方法级 `CA_BIND_SKIP` 跳过的纯虚方法在代理里出一份抛异常的体（不改接口签名）。
+    // =========================================================================================
+    struct ReverseScalarSpec
+    {
+        char const* canonical;
+        char const* cppType;
+        char const* csType;
+        char const* csNative;
+    };
+
+    ReverseScalarSpec const kReverseScalarSpecs[] = {
+        { "int32_t", "int32_t", "int", "int" },
+        { "int64_t", "int64_t", "long", "long" },
+        { "uint32_t", "uint32_t", "uint", "uint" },
+        { "uint64_t", "uint64_t", "ulong", "ulong" },
+        { "float", "float", "float", "float" },
+        { "double", "double", "double", "double" },
+        { "bool", "int32_t", "bool", "int" },
+    };
+
+    ReverseScalarSpec const* findReverseScalar(std::string const& spelling)
+    {
+        const std::string canonical = normalizeScalarSpelling(spelling);
+        if (canonical.empty())
+        {
+            return nullptr;
+        }
+        for (ReverseScalarSpec const& spec : kReverseScalarSpecs)
+        {
+            if (canonical == spec.canonical)
+            {
+                return &spec;
+            }
+        }
+        return nullptr;
+    }
+
+    bool reverseSpecIsBool(ReverseScalarSpec const* spec)
+    {
+        return spec != nullptr && std::string(spec->canonical) == "bool";
+    }
+
+    std::string reverseBaseName(std::string const& shortName)
+    {
+        std::string bare = shortName;
+        if (bare.size() > 1 && bare[0] == 'I' && bare[1] >= 'A' && bare[1] <= 'Z')
+        {
+            bare = bare.substr(1);
+        }
+        return bare + "Base";
+    }
+
+    std::string joinWith(std::vector<std::string> const& parts, char const* separator)
+    {
+        std::string out;
+        for (std::size_t i = 0; i < parts.size(); ++i)
+        {
+            if (i != 0)
+            {
+                out += separator;
+            }
+            out += parts[i];
+        }
+        return out;
+    }
+
+    struct ReverseMethodPlan
+    {
+        MethodSignature const* method = nullptr;
+        // 0 = void / 1 = 标量 / 2 = 字符串 / 3 = 写路径（Serialize(WBatch*)）/ 4 = 反向对象指针
+        int kind = -1;
+        ReverseScalarSpec const* retScalar = nullptr;
+        std::vector<ReverseScalarSpec const*> params;
+        // 返回位置指向的另一个反向接口（只存名字：它可能不在**本次**生成输入里 ——
+        // IResourceFactory.h include 了 IResource.h，但主头里的反向标注只有 IResourceFactory）。
+        std::string objectTargetQualified;
+        std::string objectTargetShort;
+        std::vector<std::string> slotDecls;    // `uint64_t (*SerializeLen)(void* user)`
+        std::vector<std::string> slotCsTypes;  // `delegate* unmanaged<void*, ulong>`
+        std::vector<std::string> paramNames;
+    };
+
+    std::vector<std::string> allSlotNames(std::vector<ReverseMethodPlan> const& plans)
+    {
+        std::vector<std::string> names;
+        for (ReverseMethodPlan const& plan : plans)
+        {
+            for (std::string const& decl : plan.slotDecls)
+            {
+                const std::size_t star = decl.find("(*");
+                const std::size_t close = decl.find(')', star);
+                names.push_back(decl.substr(star + 2, close - star - 2));
+            }
+        }
+        return names;
+    }
+
+    // C# 托管桥的参数声明（`int p0`；bool 参数在 C ABI 上是 int）。
+    std::vector<std::string> reverseCsSlotParamDecls(ReverseMethodPlan const& plan)
+    {
+        std::vector<std::string> params;
+        for (std::size_t index = 0; index < plan.params.size(); ++index)
+        {
+            params.push_back(std::string(plan.params[index]->csNative) + " " + plan.paramNames[index]);
+        }
+        return params;
+    }
+
+    // C# 托管桥调抽象方法时的实参（bool 参数从 int 转回 bool）。
+    std::vector<std::string> reverseCsCallArgs(ReverseMethodPlan const& plan)
+    {
+        std::vector<std::string> args;
+        for (std::size_t index = 0; index < plan.params.size(); ++index)
+        {
+            args.push_back(reverseSpecIsBool(plan.params[index])
+                               ? (plan.paramNames[index] + " != 0")
+                               : plan.paramNames[index]);
+        }
+        return args;
+    }
+
+    int emitReverseRuntime(std::string const& outDir)
+    {
+        std::string text;
+        text += "// 由 CodeGen --emit-binding 生成，勿手改。\n";
+        text += "// 反向接口（C# 实现 C++）的共用运行时：错误类型与保活状态。所有反向产物都包含它。\n";
+        text += "#pragma once\n";
+        text += "#include <atomic>\n#include <cstdint>\n#include <cstdlib>\n#include <stdexcept>\n#include <string>\n\n";
+        text += "namespace cascaded_reverse\n{\n";
+        text += "    // 反向接口的失败（实现抛异常 / 非注册线程 / 返回值不可用 / 不支持的反向读）。\n";
+        text += "    // `Code()` 是统一错误表里的错误码（1001 句柄失效 / 1002 空指针 / 1005 非注册线程 /\n";
+        text += "    // 1012 反向实现异常 / 1013 不支持的反向读）；`what()` 同时含反向标识与原始文本。\n";
+        // 跨模块硬约束（实测两次）：异常对象在**抛出模块**（CSharpHost.dll 的代理）里构造、在**调用方
+        // 模块**（tester.exe）里被 catch。这时**不能**读本类自己新增的成员 / 新增的虚函数槽：
+        //   ① 非虚 inline `Code()` 读 `m_Code` —— 两侧布局只要有偏差就读到错误偏移（1013 读成 1）；
+        //   ② 把 `Code()` 改成虚函数 —— catch 侧按自己的 vtable 假设取槽，旧 vtable 上那格是空，Rip=0 崩。
+        // 唯一跨模块稳定的通道是 `what()`（`std::runtime_error` 的虚函数，槽位由 CRT 固定）。所以：
+        // 错误码**写进 what() 的固定前缀 `[码] `**，`Code()` 只解析 `what()`，不碰任何派生成员。
+        text += "    class ReverseBindingError : public std::runtime_error\n    {\n    public:\n";
+        text += "        ReverseBindingError(int32_t code, std::string const& message)\n";
+        text += "            : std::runtime_error(ComposeMessage(code, message)) {}\n";
+        text += "        // 只读 `what()` 的前缀（跨模块稳定），不读任何派生成员。格式对不上就返回 0（= 未知）。\n";
+        text += "        int32_t Code() const noexcept\n        {\n";
+        text += "            char const* text = what();\n";
+        text += "            if (text == nullptr || text[0] != '[') { return 0; }\n";
+        text += "            return static_cast<int32_t>(std::strtol(text + 1, nullptr, 10));\n";
+        text += "        }\n";
+        text += "    private:\n";
+        text += "        static std::string ComposeMessage(int32_t code, std::string const& message)\n";
+        text += "        {\n";
+        text += "            return \"[\" + std::to_string(code) + \"] \" + message;\n";
+        text += "        }\n";
+        text += "    };\n\n";
+        text += "    // 每个反向实例一个保活计数（不是全局静态：同进程里多个反向实例各数各的）。\n";
+        text += "    struct KeepAlive\n    {\n        std::atomic<uint32_t> count{1u};\n    };\n}\n";
+        const std::string path = outDir + "/ReverseBindingRuntime.h";
+        std::ofstream out(path, std::ios::binary);
+        out << text;
+        if (!out)
+        {
+            std::fprintf(stderr, "CodeGen: cannot write '%s'\n", path.c_str());
+            return 2;
+        }
+        return 0;
+    }
+
+    int emitReverseProducts(InterfaceShape const& shape, BoundMarker const& marker,
+                            std::map<std::string, InterfaceShape const*> const& reverseByShort,
+                            std::set<std::string> const& reverseKnown,
+                            char const* filePath, std::size_t handleIndexBits,
+                            std::size_t handleGenerationBits, std::string const& outDir,
+                            int* emittedMethods)
+    {
+        const std::string linear = qualifiedLinearName(shape.qualifiedName);
+        const std::string baseName = reverseBaseName(shape.name);
+        const std::string csNamespace = cSharpNamespaceOf(shape.qualifiedName);
+
+        // ---- 1. 方法分类：被绑定虚方法 / 跳过的方法（形状不支持 = 生成期拒绝）----
+        std::vector<ReverseMethodPlan> plans;
+        std::vector<MethodSignature const*> skippedPure;
+        std::set<std::string> usedSlotBases;
+        int rejected = 0;
+        for (MethodSignature const& method : shape.methods)
+        {
+            if (method.isStatic || method.isTemplate)
+            {
+                continue;
+            }
+            auto skip = marker.skipReasons.find(method.name);
+            if (skip != marker.skipReasons.end())
+            {
+                if (method.isPure)
+                {
+                    skippedPure.push_back(&method);
+                }
+                continue;
+            }
+            if (!method.isVirtual)
+            {
+                std::fprintf(stderr,
+                             "CodeGen: 反向 %s —— 跳过 %s（非 virtual，C# 无法覆写，不投影）\n",
+                             shape.qualifiedName.c_str(), method.name.c_str());
+                continue;
+            }
+            // 同名重载会让槽名 / 托管桥方法名撞车（C++ struct 成员重定义、C# 方法重复）：
+            // 反向投影不支持重载，生成期点名拒绝，不做静默改名。
+            if (!usedSlotBases.insert(method.name).second)
+            {
+                std::fprintf(stderr,
+                             "CodeGen: 拒绝反向 %s::%s —— 同名重载不在反向投影支持的范围里\n",
+                             shape.qualifiedName.c_str(), method.name.c_str());
+                ++rejected;
+                continue;
+            }
+            ReverseMethodPlan plan;
+            plan.method = &method;
+            // 写路径要**先于参数校验**分流：`ca_io::WBatch*` 不是可投影的标量参数，但它正是
+            // "反向资源写进批"唯一的那条入口（C# 侧是 `byte[] Serialize()`，两段式 Len/Copy）。
+            if (method.name == "Serialize" && bareType(method.returnSpelling) == "void" &&
+                method.params.size() == 1 &&
+                method.params[0].first.find("WBatch") != std::string::npos &&
+                method.params[0].first.find('*') != std::string::npos)
+            {
+                plan.kind = 3;
+                plan.slotDecls.push_back("uint64_t (*SerializeLen)(void* user)");
+                plan.slotCsTypes.push_back("delegate* unmanaged<void*, ulong>");
+                plan.slotDecls.push_back("uint64_t (*SerializeCopy)(void* user, void* dst, uint64_t cap)");
+                plan.slotCsTypes.push_back("delegate* unmanaged<void*, void*, ulong, ulong>");
+                plans.push_back(std::move(plan));
+                continue;
+            }
+            bool paramsOk = true;
+            for (std::size_t index = 0; index < method.params.size(); ++index)
+            {
+                ReverseScalarSpec const* scalar = findReverseScalar(method.params[index].first);
+                if (scalar == nullptr)
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝反向 %s::%s —— 参数 %zu 的形状 `%s` 不在反向投影支持的形状里"
+                                 "（只支持标量参数；其它形状要另立批并在 README 登记）\n",
+                                 shape.qualifiedName.c_str(), method.name.c_str(), index + 1,
+                                 method.params[index].first.c_str());
+                    ++rejected;
+                    paramsOk = false;
+                    break;
+                }
+                plan.params.push_back(scalar);
+                plan.paramNames.push_back(method.params[index].second.empty()
+                                              ? "p" + std::to_string(index)
+                                              : method.params[index].second);
+            }
+            if (!paramsOk)
+            {
+                continue;
+            }
+            const std::string returnBare = bareType(method.returnSpelling);
+            const bool returnsVoid = returnBare == "void";
+            const bool returnsString =
+                method.returnSpelling.find("castl::string") != std::string::npos ||
+                method.returnSpelling.find("std::string") != std::string::npos;
+            if (returnsString)
+            {
+                // 两段式字符串返回的 Len 槽只带 user（与正向 `GetWindowNameLen` 同形）：带参数的方法
+                // 没地方传参，生成期点名拒绝（不做静默丢参）。
+                if (!method.params.empty())
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝反向 %s::%s —— 返回 castl::string 的方法本批只支持无参"
+                                 "（两段式 Len 槽只带 user）\n",
+                                 shape.qualifiedName.c_str(), method.name.c_str());
+                    ++rejected;
+                    continue;
+                }
+                plan.kind = 2;
+                plan.slotDecls.push_back("uint64_t (*" + method.name + "Len)(void* user)");
+                plan.slotCsTypes.push_back("delegate* unmanaged<void*, ulong>");
+                plan.slotDecls.push_back("uint64_t (*Copy" + method.name +
+                                         ")(void* user, char* dst, uint64_t cap)");
+                plan.slotCsTypes.push_back("delegate* unmanaged<void*, byte*, ulong, ulong>");
+                plans.push_back(std::move(plan));
+                continue;
+            }
+            if (returnsVoid)
+            {
+                plan.kind = 0;
+            }
+            else if (ReverseScalarSpec const* scalar = findReverseScalar(method.returnSpelling))
+            {
+                plan.kind = 1;
+                plan.retScalar = scalar;
+            }
+            else
+            {
+                // 返回位置指向另一个反向接口：C# 侧拿到的就是那个接口的抽象基类。
+                // 目标可能不在**本次**生成输入里（IResourceFactory.h include 了 IResource.h，但主头里
+                // 只有 IResourceFactory 的标注）：这时靠"包含闭包里也出现过 CA_BIND_REVERSE"来认它，
+                // C# 命名空间与基类名都只由完整限定名决定，不需要完整形状。
+                std::string targetQualified;
+                std::string targetShort;
+                if (method.returnSpelling.find('*') != std::string::npos)
+                {
+                    const std::size_t split = returnBare.rfind("::");
+                    const std::string shortName =
+                        split == std::string::npos ? returnBare : returnBare.substr(split + 2);
+                    auto found = reverseByShort.find(shortName);
+                    if (found != reverseByShort.end() &&
+                        (split == std::string::npos || found->second->qualifiedName == returnBare))
+                    {
+                        targetQualified = found->second->qualifiedName;
+                        targetShort = found->second->name;
+                    }
+                    else if (reverseKnown.count(shortName) > 0)
+                    {
+                        // 目标不在本次输入里：按 `--known-interface` 清单认，优先同命名空间的那条
+                        // （同短名跨命名空间时不许瞎猜）。
+                        const std::string prefix = shape.qualifiedName.rfind("::") == std::string::npos
+                                                       ? std::string()
+                                                       : shape.qualifiedName.substr(
+                                                             0, shape.qualifiedName.rfind("::") + 2);
+                        std::vector<std::pair<std::string, std::string>> candidates;
+                        for (auto const& entry : g_knownInterfaces)
+                        {
+                            if (entry.first == shortName)
+                            {
+                                candidates.push_back(entry);
+                            }
+                        }
+                        if (candidates.size() == 1)
+                        {
+                            targetQualified = candidates[0].second;
+                            targetShort = shortName;
+                        }
+                        else
+                        {
+                            for (auto const& candidate : candidates)
+                            {
+                                if (!prefix.empty() && candidate.second.rfind(prefix, 0) == 0)
+                                {
+                                    targetQualified = candidate.second;
+                                    targetShort = shortName;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (targetQualified.empty())
+                {
+                    std::fprintf(stderr,
+                                 "CodeGen: 拒绝反向 %s::%s —— 返回类型 `%s` 不在反向投影支持的形状里"
+                                 "（标量 / castl::string / 另一个**反向**接口的裸指针）\n",
+                                 shape.qualifiedName.c_str(), method.name.c_str(),
+                                 method.returnSpelling.c_str());
+                    ++rejected;
+                    continue;
+                }
+                plan.kind = 4;
+                plan.objectTargetQualified = targetQualified;
+                plan.objectTargetShort = targetShort;
+            }
+            std::vector<std::string> slotParams;
+            slotParams.push_back("void* user");
+            for (std::size_t index = 0; index < plan.params.size(); ++index)
+            {
+                slotParams.push_back(std::string(plan.params[index]->cppType) + " " + plan.paramNames[index]);
+            }
+            std::string slotReturn;
+            if (plan.kind == 0)
+            {
+                slotReturn = "void";
+            }
+            else if (plan.kind == 1)
+            {
+                slotReturn = plan.retScalar->cppType;
+            }
+            else
+            {
+                slotReturn = "void*";
+            }
+            plan.slotDecls.push_back(slotReturn + " (*" + method.name + ")(" +
+                                     joinWith(slotParams, ", ") + ")");
+            std::string csSlotReturn;
+            if (plan.kind == 0)
+            {
+                csSlotReturn = "void";
+            }
+            else if (plan.kind == 1)
+            {
+                csSlotReturn = plan.retScalar->csNative;
+            }
+            else
+            {
+                csSlotReturn = "void*";
+            }
+            std::vector<std::string> csSlotParams;
+            csSlotParams.push_back("void*");
+            for (ReverseScalarSpec const* param : plan.params)
+            {
+                csSlotParams.push_back(param->csNative);
+            }
+            csSlotParams.push_back(csSlotReturn);
+            plan.slotCsTypes.push_back("delegate* unmanaged<" + joinWith(csSlotParams, ", ") + ">");
+            plans.push_back(std::move(plan));
+        }
+        if (rejected > 0)
+        {
+            return 1;
+        }
+        if (emittedMethods != nullptr)
+        {
+            *emittedMethods = static_cast<int>(plans.size());
+        }
+
+        // 错误通道槽（所有反向接口共用）：取实现侧的异常文本。
+        const std::string takeErrorDecl = "uint64_t (*TakeLastError)(void* user, char* dst, uint64_t cap)";
+        const std::string takeErrorCs = "delegate* unmanaged<void*, byte*, ulong, ulong>";
+        std::vector<std::string> allSlotDecls;
+        std::vector<std::string> allSlotCs;
+        for (ReverseMethodPlan const& plan : plans)
+        {
+            for (std::size_t index = 0; index < plan.slotDecls.size(); ++index)
+            {
+                allSlotDecls.push_back(plan.slotDecls[index]);
+                allSlotCs.push_back(plan.slotCsTypes[index]);
+            }
+        }
+        allSlotDecls.push_back(takeErrorDecl);
+        allSlotCs.push_back(takeErrorCs);
+        const std::string allSlotDeclText = joinWith(allSlotDecls, ", ");
+        const std::string allSlotCsText = joinWith(allSlotCs, ", ");
+
+        // ---- 2. C++ 产物 ----
+        std::string cpp;
+        cpp += "// 由 CodeGen --emit-binding 生成，勿手改。\n";
+        cpp += "// CODEGEN-REVERSE-BINDING: " + shape.qualifiedName + "\n";
+        cpp += "#pragma once\n";
+        cpp += "#include <stdint.h>\n#include <stddef.h>\n#include <stdio.h>\n#include <string.h>\n";
+        cpp += "#include <atomic>\n#include <exception>\n#include <memory>\n#include <mutex>\n";
+        cpp += "#include <string>\n#include <thread>\n#include <vector>\n";
+        {
+            std::string base = filePath != nullptr ? std::string(filePath) : std::string();
+            const std::size_t slash = base.find_last_of("/\\");
+            if (slash != std::string::npos)
+            {
+                base = base.substr(slash + 1);
+            }
+            cpp += "#include \"" + base + "\"\n";
+        }
+        cpp += "#include \"BindingHandleTable.h\"\n";
+        cpp += "#include \"ReverseBindingRuntime.h\"\n\n";
+        // 注册 glue 的前置声明：既是跨翻译单元可见的入口，也是期望签名对拍（expected.txt 的反向
+        // 矩阵行）读的那条 `extern "C" ...;` 声明 —— 只给定义（带函数体）脚本读不到。
+        cpp += "extern \"C\" uint64_t " + linear + "__CreateImpl(void* user, " + allSlotDeclText +
+               ", void (*releaseUser)(void* user));\n";
+        cpp += "extern \"C\" void* " + linear + "__CreateProxy(void* user, " + allSlotDeclText +
+               ", void (*releaseUser)(void* user), uint64_t* outHandle);\n";
+        cpp += "extern \"C\" int32_t " + linear + "__ReleaseImpl(uint64_t handle);\n";
+        cpp += "extern \"C\" void* " + linear + "__ResolveImpl(uint64_t handle);\n";
+        cpp += "extern \"C\" uint64_t " + linear + "__ReverseKeepAliveCount(uint64_t handle);\n\n";
+        // 错误码：与工具的 kBindErrorCodes / check_bindings.py 的 ERROR_CODE_TABLE / README 同步。
+        cpp += "static const int32_t " + linear + "_ERROR_STALE_HANDLE = 1001;\n";
+        cpp += "static const int32_t " + linear + "_ERROR_NULL_POINTER = 1002;\n";
+        cpp += "static const int32_t " + linear + "_ERROR_CALLBACK_WRONG_THREAD = 1005;\n";
+        cpp += "static const int32_t " + linear + "_ERROR_REVERSE_EXCEPTION = 1012;\n";
+        cpp += "static const int32_t " + linear + "_ERROR_REVERSE_READ_UNSUPPORTED = 1013;\n\n";
+        cpp += "static const uint32_t " + linear + "_HANDLE_INDEX_BITS = " +
+               std::to_string(handleIndexBits) + "u;\n";
+        cpp += "static const uint32_t " + linear + "_HANDLE_GEN_BITS = " +
+               std::to_string(handleGenerationBits) + "u;\n";
+        cpp += "// 本接口在共用句柄表里的标签（一个本翻译单元独有的静态对象地址）。\n";
+        cpp += "static int const " + linear + "_HANDLE_TAG = 0;\n";
+        cpp += "static std::vector<cascaded_bindings::HandleEntry>& " + linear +
+               "_handles = cascaded_bindings::HandleTable();\n";
+        cpp += "static std::mutex " + linear + "_keepAliveMutex;\n";
+        cpp += "static std::vector<std::shared_ptr<cascaded_reverse::KeepAlive>> " + linear +
+               "_keepAlives;\n\n";
+        cpp += "static uint64_t " + linear + "_claimSlotLocked()\n{\n";
+        cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
+        cpp += "    uint64_t index = 1u;\n";
+        cpp += "    while (index <= indexMask && index < " + linear + "_handles.size() + 1u)\n    {\n";
+        cpp += "        if (" + linear + "_handles[index - 1u].kind == 0u) { break; }\n        ++index;\n    }\n";
+        cpp += "    if (index > indexMask) { return 0u; }\n";
+        cpp += "    if (index > " + linear + "_handles.size()) { " + linear + "_handles.push_back({}); }\n";
+        cpp += "    return index;\n}\n";
+        cpp += "static uint64_t " + linear + "_handleFromIndex(uint64_t index)\n{\n";
+        cpp += "    const uint64_t generation = " + linear + "_handles[index - 1u].generation;\n";
+        cpp += "    return (generation << " + linear + "_HANDLE_INDEX_BITS) | index;\n}\n";
+        cpp += "static void " + linear +
+               "_noteKeepAlive(uint64_t handle, std::shared_ptr<cascaded_reverse::KeepAlive> state)\n{\n";
+        cpp += "    const uint64_t index = handle & ((1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull);\n";
+        cpp += "    if (index == 0u) { return; }\n";
+        cpp += "    std::lock_guard<std::mutex> guard(" + linear + "_keepAliveMutex);\n";
+        cpp += "    if (" + linear + "_keepAlives.size() < static_cast<std::size_t>(index)) "
+               "{ " + linear + "_keepAlives.resize(static_cast<std::size_t>(index)); }\n";
+        cpp += "    " + linear + "_keepAlives[static_cast<std::size_t>(index - 1u)] = std::move(state);\n}\n";
+        // 强句柄：表项持 shared_ptr（create 到注册之间是唯一所有者）；注册表经 TakeOwnership 接走。
+        cpp += "static uint64_t " + linear +
+               "_registerStrongHandle(void* proxy, std::shared_ptr<void> owner)\n{\n";
+        cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
+        cpp += "    const uint64_t index = " + linear + "_claimSlotLocked();\n";
+        cpp += "    if (index == 0u) { return 0u; }\n";
+        cpp += "    cascaded_bindings::HandleEntry& entry = " + linear + "_handles[index - 1u];\n";
+        cpp += "    entry.object = proxy;\n    entry.kind = 1u;\n";
+        cpp += "    entry.interfaceTag = &" + linear + "_HANDLE_TAG;\n";
+        cpp += "    entry.issuerType = \"" + shape.qualifiedName + "\";\n";
+        cpp += "    entry.targetType = nullptr;\n    entry.hasWitness = false;\n";
+        cpp += "    entry.witnessHandle = 0u;\n    entry.strong = std::move(owner);\n";
+        cpp += "    entry.weak.reset();\n";
+        cpp += "    return " + linear + "_handleFromIndex(index);\n}\n";
+        // 借用句柄：只存裸指针、不持有强引用（资源/工厂代理的唯一所有者在注册表）。
+        cpp += "static uint64_t " + linear + "_registerBorrowHandle(void* proxy)\n{\n";
+        cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
+        cpp += "    const uint64_t index = " + linear + "_claimSlotLocked();\n";
+        cpp += "    if (index == 0u) { return 0u; }\n";
+        cpp += "    cascaded_bindings::HandleEntry& entry = " + linear + "_handles[index - 1u];\n";
+        cpp += "    entry.object = proxy;\n    entry.kind = 4u;\n";
+        cpp += "    entry.interfaceTag = &" + linear + "_HANDLE_TAG;\n";
+        cpp += "    entry.issuerType = \"" + shape.qualifiedName + "\";\n";
+        cpp += "    entry.targetType = nullptr;\n    entry.hasWitness = false;\n";
+        cpp += "    entry.witnessHandle = 0u;\n    entry.strong.reset();\n    entry.weak.reset();\n";
+        cpp += "    return " + linear + "_handleFromIndex(index);\n}\n";
+        // 取走强引用（单一所有权移交给注册表）；表项降级成借用项，C# 侧句柄仍可用。
+        cpp += "static std::shared_ptr<void> " + linear + "_takeStrongHandle(uint64_t handle)\n{\n";
+        cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
+        cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
+        cpp += "    const uint64_t index = handle & indexMask;\n";
+        cpp += "    const uint64_t generation = handle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+        cpp += "    if (index == 0u || index > " + linear + "_handles.size()) { return {}; }\n";
+        cpp += "    cascaded_bindings::HandleEntry& entry = " + linear + "_handles[index - 1u];\n";
+        cpp += "    if (entry.kind != 1u || entry.generation != generation || "
+               "entry.interfaceTag != &" + linear + "_HANDLE_TAG) { return {}; }\n";
+        cpp += "    std::shared_ptr<void> taken = entry.strong;\n";
+        cpp += "    entry.strong.reset();\n    entry.kind = 4u;\n";
+        cpp += "    return taken;\n}\n";
+        cpp += "static int32_t " + linear + "_retireHandle(uint64_t handle)\n{\n";
+        cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
+        cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
+        cpp += "    const uint64_t index = handle & indexMask;\n";
+        cpp += "    const uint64_t generation = handle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+        cpp += "    if (index == 0u || index > " + linear + "_handles.size()) { return " +
+               linear + "_ERROR_STALE_HANDLE; }\n";
+        cpp += "    cascaded_bindings::HandleEntry& entry = " + linear + "_handles[index - 1u];\n";
+        cpp += "    if (entry.kind == 0u || entry.kind == 3u || entry.generation != generation || "
+               "entry.interfaceTag != &" + linear + "_HANDLE_TAG) { return " +
+               linear + "_ERROR_STALE_HANDLE; }\n";
+        cpp += "    entry.kind = 0u;\n    entry.object = nullptr;\n";
+        cpp += "    entry.strong.reset();\n    entry.weak.reset();\n";
+        cpp += "    entry.hasWitness = false;\n    entry.witnessHandle = 0u;\n";
+        cpp += "    entry.issuerType = nullptr;\n    entry.targetType = nullptr;\n";
+        cpp += "    const uint32_t nextGeneration = (entry.generation + 1u) & ((1u << " + linear +
+               "_HANDLE_GEN_BITS) - 1u);\n";
+        cpp += "    if (nextGeneration == 0u) { entry.kind = 3u; }\n";
+        cpp += "    entry.generation = nextGeneration;\n    return 0;\n}\n\n";
+        // 原生 getter：按句柄序号读该实例的保活计数（UINT64_MAX = 这个序号没有实例）。
+        cpp += "extern \"C\" uint64_t " + linear + "__ReverseKeepAliveCount(uint64_t handle)\n{\n";
+        cpp += "    const uint64_t index = handle & ((1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull);\n";
+        cpp += "    std::lock_guard<std::mutex> guard(" + linear + "_keepAliveMutex);\n";
+        cpp += "    if (index == 0u || index > " + linear + "_keepAlives.size()) { return UINT64_MAX; }\n";
+        cpp += "    std::shared_ptr<cascaded_reverse::KeepAlive> const& state = " + linear +
+               "_keepAlives[static_cast<std::size_t>(index - 1u)];\n";
+        cpp += "    if (!state) { return UINT64_MAX; }\n";
+        cpp += "    return state->count.load();\n}\n\n";
+
+        // ---- 代理类 ----
+        cpp += "// 反向代理：每个被绑定虚方法调对应函数指针槽；析构调 releaseUser（唯一一次 GCHandle.Free\n";
+        cpp += "// 发生在托管桥里），并让 C# 借用的那个句柄失效。\n";
+        cpp += "class " + linear + "Proxy final : public " + shape.qualifiedName + "\n{\npublic:\n";
+        cpp += "    struct Slots\n    {\n";
+        for (std::string const& decl : allSlotDecls)
+        {
+            cpp += "        " + decl + " = nullptr;\n";
+        }
+        cpp += "    };\n\n";
+        cpp += "    " + linear + "Proxy(void* user, " + allSlotDeclText + ", void (*releaseUser)(void* user))\n";
+        cpp += "        : m_user(user), m_releaseUser(releaseUser),\n";
+        cpp += "          m_keepAlive(std::make_shared<cascaded_reverse::KeepAlive>()),\n";
+        cpp += "          m_registrationThread(std::this_thread::get_id())\n    {\n";
+        {
+            std::size_t slotIndex = 0;
+            for (ReverseMethodPlan const& plan : plans)
+            {
+                for (std::size_t index = 0; index < plan.slotDecls.size(); ++index)
+                {
+                    // 槽名 = 声明里 `(*名字)` 那个名字
+                    const std::string& decl = plan.slotDecls[index];
+                    const std::size_t star = decl.find("(*");
+                    const std::size_t close = decl.find(')', star);
+                    const std::string name = decl.substr(star + 2, close - star - 2);
+                    cpp += "        m_slots." + name + " = " + name + ";\n";
+                    ++slotIndex;
+                }
+            }
+        }
+        cpp += "        m_slots.TakeLastError = TakeLastError;\n";
+        cpp += "    }\n\n";
+        cpp += "    ~" + linear + "Proxy() override\n    {\n";
+        cpp += "        if (m_keepAlive) { m_keepAlive->count.store(0u); }\n";
+        cpp += "        if (m_borrowHandle != 0u) { " + linear + "_retireHandle(m_borrowHandle); "
+               "m_borrowHandle = 0u; }\n";
+        cpp += "        void (*release)(void*) = m_releaseUser;\n";
+        cpp += "        m_releaseUser = nullptr;\n";
+        cpp += "        if (release != nullptr) { release(m_user); }\n    }\n\n";
+        cpp += "    void setBorrowHandle(uint64_t handle) { m_borrowHandle = handle; }\n";
+        cpp += "    std::shared_ptr<cascaded_reverse::KeepAlive> keepAlive() const { return m_keepAlive; }\n\n";
+
+        // 被绑定虚方法的代理体
+        for (ReverseMethodPlan const& plan : plans)
+        {
+            MethodSignature const& method = *plan.method;
+            std::vector<std::string> params;
+            for (std::size_t index = 0; index < plan.params.size(); ++index)
+            {
+                params.push_back(bareType(method.params[index].first) + " " + plan.paramNames[index]);
+            }
+            const std::string paramText = joinWith(params, ", ");
+            const std::string constSuffix = method.isConst ? " const" : "";
+            if (plan.kind == 0)
+            {
+                cpp += "    void " + method.name + "(" + paramText + ")" + constSuffix + " override\n    {\n";
+                cpp += "        reportPendingError(\"" + method.name + "\");\n";
+                cpp += "        if (m_slots." + method.name + " != nullptr)\n        {\n";
+                std::vector<std::string> args;
+                for (std::size_t index = 0; index < plan.params.size(); ++index)
+                {
+                    args.push_back(reverseSpecIsBool(plan.params[index])
+                                       ? ("(" + plan.paramNames[index] + " ? 1 : 0)")
+                                       : plan.paramNames[index]);
+                }
+                cpp += "            m_slots." + method.name + "(m_user" +
+                       (args.empty() ? std::string() : ", " + joinWith(args, ", ")) + ");\n";
+                cpp += "        }\n    }\n\n";
+                continue;
+            }
+            if (plan.kind == 1)
+            {
+                cpp += "    " + bareType(method.returnSpelling) + " " + method.name + "(" + paramText + ")" +
+                       constSuffix + " override\n    {\n";
+                cpp += "        reportPendingError(\"" + method.name + "\");\n";
+                // 空槽守卫必须**按返回类型给值**：非 void 方法裸 `return ;` 是 C2561（实测过：
+                // 夹具的 `int32_t Add` 守卫漏了返回值）。`return {};` 对标量 / castl::string /
+                // 指针都成立（值初始化），void 根本走不到这里（kind 0 单独处理）。
+                cpp += "        if (m_slots." + method.name + " == nullptr) { return {}; }\n";
+                std::vector<std::string> args;
+                for (std::size_t index = 0; index < plan.params.size(); ++index)
+                {
+                    args.push_back(reverseSpecIsBool(plan.params[index])
+                                       ? ("(" + plan.paramNames[index] + " ? 1 : 0)")
+                                       : plan.paramNames[index]);
+                }
+                const std::string call = "m_slots." + method.name + "(m_user" +
+                                         (args.empty() ? std::string() : ", " + joinWith(args, ", ")) + ")";
+                if (reverseSpecIsBool(plan.retScalar))
+                {
+                    cpp += "        return " + call + " != 0;\n";
+                }
+                else
+                {
+                    cpp += "        return " + call + ";\n";
+                }
+                cpp += "    }\n\n";
+                continue;
+            }
+            if (plan.kind == 2)
+            {
+                cpp += "    " + bareType(method.returnSpelling) + " " + method.name + "(" + paramText + ")" +
+                       constSuffix + " override\n    {\n";
+                cpp += "        reportPendingError(\"" + method.name + "\");\n";
+                cpp += "        const uint64_t needed = (m_slots." + method.name + "Len != nullptr) ? "
+                       "m_slots." + method.name + "Len(m_user) : UINT64_MAX;\n";
+                cpp += "        if (needed == UINT64_MAX) { setError(" + linear +
+                       "_ERROR_REVERSE_EXCEPTION, takeImplementationError()); return "
+                       + bareType(method.returnSpelling) + "(); }\n";
+                cpp += "        " + bareType(method.returnSpelling) +
+                       " text(static_cast<std::size_t>(needed), '\\0');\n";
+                cpp += "        if (needed > 0u)\n        {\n";
+                cpp += "            const uint64_t written = (m_slots.Copy" + method.name + " != nullptr) ? "
+                       "m_slots.Copy" + method.name + "(m_user, text.data(), needed) : UINT64_MAX;\n";
+                cpp += "            if (written == UINT64_MAX || written > needed) { setError(" + linear +
+                       "_ERROR_REVERSE_EXCEPTION, takeImplementationError()); return "
+                       + bareType(method.returnSpelling) + "(); }\n";
+                cpp += "            text.resize(static_cast<std::size_t>(written));\n        }\n";
+                cpp += "        return text;\n    }\n\n";
+                continue;
+            }
+            if (plan.kind == 3)
+            {
+                // 写路径：与 TResource 同构（Write + SubmitAndWait），失败中止且不写。
+                cpp += "    void " + method.name + "(ca_io::WBatch* inWriter)" + constSuffix + " override\n    {\n";
+                cpp += "        reportPendingError(\"" + method.name + "\");\n";
+                cpp += "        if (std::this_thread::get_id() != m_registrationThread)\n        {\n";
+                cpp += "            setError(" + linear + "_ERROR_CALLBACK_WRONG_THREAD, "
+                       "\"非注册线程调用反向接口 " + method.name + "（C# 覆写未执行）\");\n";
+                cpp += "            return;\n        }\n";
+                cpp += "        const uint64_t length = (m_slots.SerializeLen != nullptr) ? "
+                       "m_slots.SerializeLen(m_user) : UINT64_MAX;\n";
+                cpp += "        if (length == UINT64_MAX)\n        {\n";
+                cpp += "            const std::string detail = takeImplementationError();\n";
+                cpp += "            setError(" + linear + "_ERROR_REVERSE_EXCEPTION, detail.empty() ? "
+                       "\"反向实现返回长度失败\" : detail);\n";
+                cpp += "            return;\n        }\n";
+                cpp += "        std::vector<unsigned char> buffer(static_cast<std::size_t>(length));\n";
+                cpp += "        uint64_t written = 0u;\n";
+                cpp += "        if (length > 0u)\n        {\n";
+                cpp += "            written = (m_slots.SerializeCopy != nullptr) ? "
+                       "m_slots.SerializeCopy(m_user, buffer.data(), length) : UINT64_MAX;\n";
+                cpp += "            if (written == UINT64_MAX || written > length)\n            {\n";
+                cpp += "                const std::string detail = takeImplementationError();\n";
+                cpp += "                setError(" + linear + "_ERROR_REVERSE_EXCEPTION, detail.empty() ? "
+                       "\"反向实现拷贝失败\" : detail);\n";
+                cpp += "                return;\n            }\n";
+                cpp += "        }\n";
+                cpp += "        if (inWriter == nullptr) { setError(" + linear +
+                       "_ERROR_NULL_POINTER, \"Serialize 收到空批\"); return; }\n";
+                cpp += "        if (written > 0u) { inWriter->Write(written, buffer.data()); }\n";
+                cpp += "        inWriter->SubmitAndWait();\n    }\n\n";
+                continue;
+            }
+            // kind == 4：返回另一个反向接口的裸指针
+            cpp += "    " + plan.objectTargetQualified + "* " + method.name + "(" + paramText + ")" +
+                   constSuffix + " override\n    {\n";
+            cpp += "        reportPendingError(\"" + method.name + "\");\n";
+            cpp += "        if (m_slots." + method.name + " == nullptr) { return nullptr; }\n";
+            std::vector<std::string> args;
+            for (std::size_t index = 0; index < plan.params.size(); ++index)
+            {
+                args.push_back(reverseSpecIsBool(plan.params[index])
+                                   ? ("(" + plan.paramNames[index] + " ? 1 : 0)")
+                                   : plan.paramNames[index]);
+            }
+            cpp += "        void* created = m_slots." + method.name + "(m_user" +
+                   (args.empty() ? std::string() : ", " + joinWith(args, ", ")) + ");\n";
+            cpp += "        if (created == nullptr)\n        {\n";
+            cpp += "            const std::string detail = takeImplementationError();\n";
+            cpp += "            setError(" + linear + "_ERROR_REVERSE_EXCEPTION, detail.empty() ? "
+                   "\"反向工厂 Create 返回了空指针\" : detail);\n";
+            cpp += "            reportPendingError(\"" + method.name + "\");\n";
+            cpp += "            return nullptr;\n        }\n";
+            cpp += "        return static_cast<" + plan.objectTargetQualified + "*>(created);\n    }\n\n";
+        }
+        // CA_BIND_SKIP 跳过的纯虚方法：代理必须给出实现，语义是"本批不支持"。
+        for (MethodSignature const* skipped : skippedPure)
+        {
+            std::vector<std::string> params;
+            for (std::size_t index = 0; index < skipped->params.size(); ++index)
+            {
+                // **原样保留类型拼写**（含 `*` / `&`）：剥成 bareType 会让 override 签名与纯虚声明
+                // 不一致 —— 代理仍是抽象类，`new Proxy` 直接编不过（实测过一次）。
+                params.push_back(skipped->params[index].first + " /*跳过*/");
+            }
+            const bool returnsVoid = bareType(skipped->returnSpelling) == "void";
+            cpp += "    " + skipped->returnSpelling + " " + skipped->name + "(" +
+                   joinWith(params, ", ") + ")" + (skipped->isConst ? " const" : "") + " override\n    {\n";
+            cpp += "        throw cascaded_reverse::ReverseBindingError(" + linear +
+                   "_ERROR_REVERSE_READ_UNSUPPORTED, \"反向接口 " + shape.qualifiedName + "::" +
+                   skipped->name + " 不支持（本批不绑这个方法）\");\n";
+            if (!returnsVoid)
+            {
+                cpp += "        return " + bareType(skipped->returnSpelling) + "();\n";
+            }
+            cpp += "    }\n\n";
+        }
+        cpp += "private:\n";
+        cpp += "    void setError(int32_t code, std::string const& text) const\n    {\n";
+        cpp += "        std::lock_guard<std::mutex> guard(m_errorMutex);\n";
+        cpp += "        m_errorCode = code;\n        m_errorText = text;\n    }\n";
+        cpp += "    std::string takeImplementationError() const\n    {\n";
+        cpp += "        if (m_slots.TakeLastError == nullptr) { return std::string(); }\n";
+        cpp += "        const uint64_t needed = m_slots.TakeLastError(m_user, nullptr, 0u);\n";
+        cpp += "        if (needed == 0u || needed == UINT64_MAX) { return std::string(); }\n";
+        // 托管侧约定：cap 里留一个字节放 NUL（只拷 min(len, cap-1)）。所以这里必须申请 needed+1、
+        // 传 needed+1 —— 只传 needed 会把最后一个字节截掉（实测：失败文本少一字节，
+        // tester 里 `find(原始文本)` 会假红）。
+        cpp += "        std::string text(static_cast<std::size_t>(needed) + 1u, '\\0');\n";
+        cpp += "        const uint64_t written = m_slots.TakeLastError(m_user, text.data(), needed + 1u);\n";
+        cpp += "        if (written > needed) { return std::string(); }\n";
+        cpp += "        text.resize(static_cast<std::size_t>(written));\n        return text;\n    }\n";
+        cpp += "    // 失败的可观测契约：错误先落槽，**下一次**注册线程调用把它抛出去（不静默继续）。\n";
+        cpp += "    void reportPendingError(char const* methodName) const\n    {\n";
+        cpp += "        int32_t code = 0;\n        std::string text;\n        {\n";
+        cpp += "            std::lock_guard<std::mutex> guard(m_errorMutex);\n";
+        cpp += "            code = m_errorCode;\n            text = m_errorText;\n";
+        cpp += "            m_errorCode = 0;\n            m_errorText.clear();\n        }\n";
+        cpp += "        if (code == 0) { return; }\n";
+        cpp += "        std::string message(\"反向接口 " + shape.qualifiedName + "::\");\n";
+        cpp += "        message += methodName;\n        message += \" 失败（错误码 \";\n";
+        cpp += "        message += std::to_string(code);\n        message += \"）：\";\n";
+        cpp += "        message += text;\n";
+        cpp += "        throw cascaded_reverse::ReverseBindingError(code, message);\n    }\n";
+        cpp += "    void* m_user = nullptr;\n";
+        cpp += "    Slots m_slots{};\n";
+        cpp += "    void (*m_releaseUser)(void*) = nullptr;\n";
+        cpp += "    std::shared_ptr<cascaded_reverse::KeepAlive> m_keepAlive;\n";
+        cpp += "    std::thread::id m_registrationThread{};\n";
+        cpp += "    uint64_t m_borrowHandle = 0u;\n";
+        cpp += "    mutable std::mutex m_errorMutex;\n";
+        cpp += "    mutable int32_t m_errorCode = 0;\n";
+        cpp += "    mutable std::string m_errorText;\n};\n\n";
+
+        // ---- 反向函数表（登记表路由用；也是 C# 取 CreateImpl 的入口）----
+        cpp += "typedef struct " + linear + "Api_v2 {\n";
+        cpp += "    uint32_t abi_version;\n    uint32_t size;\n";
+        cpp += "    uint64_t (*CreateImpl)(void* user, " + allSlotDeclText + ", void (*releaseUser)(void* user));\n";
+        cpp += "    void* (*CreateProxy)(void* user, " + allSlotDeclText +
+               ", void (*releaseUser)(void* user), uint64_t* outHandle);\n";
+        cpp += "    int32_t (*ReleaseImpl)(uint64_t handle);\n";
+        cpp += "    uint64_t (*ReverseKeepAliveCount)(uint64_t handle);\n";
+        cpp += "    void* (*ResolveImpl)(uint64_t handle);\n";
+        cpp += "} " + linear + "Api_v2;\n\n";
+        cpp += "extern \"C\" uint64_t " + linear + "__CreateImpl(void* user, " + allSlotDeclText +
+               ", void (*releaseUser)(void* user))\n{\n";
+        cpp += "    " + linear + "Proxy* proxy = new " + linear + "Proxy(user, " +
+               joinWith(allSlotNames(plans), ", ") + (allSlotNames(plans).empty() ? "" : ", ") +
+               "TakeLastError, releaseUser);\n";
+        cpp += "    std::shared_ptr<void> owner(static_cast<void*>(proxy), [](void* released) { delete static_cast<" +
+               linear + "Proxy*>(released); });\n";
+        cpp += "    const uint64_t handle = " + linear + "_registerStrongHandle(proxy, owner);\n";
+        cpp += "    if (handle == 0u) { delete proxy; return 0u; }\n";
+        cpp += "    " + linear + "_noteKeepAlive(handle, proxy->keepAlive());\n";
+        cpp += "    proxy->setBorrowHandle(handle);\n";
+        cpp += "    return handle;\n}\n\n";
+        cpp += "extern \"C\" void* " + linear + "__CreateProxy(void* user, " + allSlotDeclText +
+               ", void (*releaseUser)(void* user), uint64_t* outHandle)\n{\n";
+        cpp += "    " + linear + "Proxy* proxy = new " + linear + "Proxy(user, " +
+               joinWith(allSlotNames(plans), ", ") + (allSlotNames(plans).empty() ? "" : ", ") +
+               "TakeLastError, releaseUser);\n";
+        cpp += "    const uint64_t handle = " + linear + "_registerBorrowHandle(proxy);\n";
+        cpp += "    if (handle == 0u) { delete proxy; if (outHandle != nullptr) { *outHandle = 0u; } "
+               "return nullptr; }\n";
+        cpp += "    " + linear + "_noteKeepAlive(handle, proxy->keepAlive());\n";
+        cpp += "    proxy->setBorrowHandle(handle);\n";
+        cpp += "    if (outHandle != nullptr) { *outHandle = handle; }\n";
+        cpp += "    return static_cast<void*>(static_cast<" + shape.qualifiedName + "*>(proxy));\n}\n\n";
+        cpp += "extern \"C\" int32_t " + linear + "__ReleaseImpl(uint64_t handle)\n{\n";
+        cpp += "    return " + linear + "_retireHandle(handle);\n}\n\n";
+        // 句柄 → 借用对象指针（**在创建它的模块里**解析）。句柄表是"生成在头里的 inline + 函数级
+        // static"，EXE 与 DLL 各一份：把句柄交给别的模块的解析入口会查错表（实测：tester.exe 查
+        // 自己的表拿不到 CSharpHost.dll 创建的句柄）。所以解析入口必须跟着句柄表走，并通过
+        // 反向函数表（GetApi）暴露给跨模块调用方。
+        cpp += "static void* " + linear + "_resolveHandle(uint64_t handle)\n{\n";
+        cpp += "    std::lock_guard<std::recursive_mutex> guard(cascaded_bindings::HandleMutex());\n";
+        cpp += "    const uint64_t indexMask = (1ull << " + linear + "_HANDLE_INDEX_BITS) - 1ull;\n";
+        cpp += "    const uint64_t index = handle & indexMask;\n";
+        cpp += "    const uint64_t generation = handle >> " + linear + "_HANDLE_INDEX_BITS;\n";
+        cpp += "    if (index == 0u || index > " + linear + "_handles.size()) { return nullptr; }\n";
+        cpp += "    cascaded_bindings::HandleEntry& entry = " + linear + "_handles[index - 1u];\n";
+        cpp += "    if (entry.kind == 0u || entry.kind == 3u || entry.generation != generation || "
+               "entry.interfaceTag != &" + linear + "_HANDLE_TAG) { return nullptr; }\n";
+        cpp += "    return const_cast<void*>(entry.object);\n}\n";
+        cpp += "extern \"C\" void* " + linear + "__ResolveImpl(uint64_t handle)\n{\n";
+        cpp += "    return " + linear + "_resolveHandle(handle);\n}\n\n";
+        // 单一所有权移交：C++ 调用方（注册表 / 测试）把强句柄换成 shared_ptr，表项降级为借用。
+        // ⚠ 只对**同模块**调用方成立（shared_ptr 与句柄表都不跨模块）；跨模块用 `__ResolveImpl`
+        // 拿借用指针 + `__ReleaseImpl` 释放强句柄。
+        cpp += "std::shared_ptr<" + shape.qualifiedName + "> " + linear + "__TakeOwnership(uint64_t handle)\n{\n";
+        cpp += "    return std::static_pointer_cast<" + shape.qualifiedName + ">(" + linear +
+               "_takeStrongHandle(handle));\n}\n\n";
+        cpp += "extern \"C\" uint32_t " + linear + "__GetApi(uint32_t version, uint32_t size, " +
+               linear + "Api_v2* out)\n{\n";
+        cpp += "    if (out == nullptr || version != 2u || size < static_cast<uint32_t>(sizeof(" + linear +
+               "Api_v2))) { return 0u; }\n";
+        cpp += "    " + linear + "Api_v2 table{};\n";
+        cpp += "    table.abi_version = 2u;\n";
+        cpp += "    table.size = static_cast<uint32_t>(sizeof(" + linear + "Api_v2));\n";
+        cpp += "    table.CreateImpl = &" + linear + "__CreateImpl;\n";
+        cpp += "    table.CreateProxy = &" + linear + "__CreateProxy;\n";
+        cpp += "    table.ReleaseImpl = &" + linear + "__ReleaseImpl;\n";
+        cpp += "    table.ReverseKeepAliveCount = &" + linear + "__ReverseKeepAliveCount;\n";
+        cpp += "    table.ResolveImpl = &" + linear + "__ResolveImpl;\n";
+        cpp += "    ::memcpy(out, &table, sizeof(table));\n";
+        cpp += "    return static_cast<uint32_t>(sizeof(table));\n}\n\n";
+        cpp += "extern \"C\" uint32_t " + linear + "__GetLayoutTypeCount(void)\n{\n    return 0u;\n}\n";
+        cpp += "extern \"C\" uint32_t " + linear +
+               "__GetLayoutType(uint32_t, char*, uint32_t, uint64_t*, uint32_t*)\n{\n    return 0u;\n}\n";
+        cpp += "extern \"C\" uint32_t " + linear +
+               "__GetLayoutField(uint32_t, uint32_t, char*, uint32_t, char*, uint32_t, uint64_t*)\n"
+               "{\n    return 0u;\n}\n";
+
+        // ---- 3. C# 产物 ----
+        std::string cs;
+        cs += "// 由 CodeGen --emit-binding 生成，勿手改。\n";
+        cs += "// CODEGEN-REVERSE-BINDING: " + shape.qualifiedName + "\n";
+        cs += "using System;\n";
+        cs += "using System.Runtime.CompilerServices;\n";
+        cs += "using System.Runtime.InteropServices;\n";
+        cs += "using System.Text;\n\n";
+        cs += "namespace " + csNamespace + "\n{\n";
+        cs += "    /// <summary>反向接口 " + shape.qualifiedName + " 的公开抽象基类：C# 侧实现它，\n";
+        cs += "    /// 经生成的 CreateImpl / CreateProxy 注册给原生代理。**公开类型里只有托管方法**，\n";
+        cs += "    /// 句柄 / 错误文本 / 字节缓存全部放在 internal 桥的 ConditionalWeakTable 里。</summary>\n";
+        cs += "    public abstract class " + baseName + "\n    {\n";
+        for (ReverseMethodPlan const& plan : plans)
+        {
+            MethodSignature const& method = *plan.method;
+            std::vector<std::string> params;
+            for (std::size_t index = 0; index < plan.params.size(); ++index)
+            {
+                params.push_back(std::string(plan.params[index]->csType) + " " + plan.paramNames[index]);
+            }
+            std::string csReturn;
+            if (plan.kind == 0)
+            {
+                csReturn = "void";
+            }
+            else if (plan.kind == 1)
+            {
+                csReturn = plan.retScalar->csType;
+            }
+            else if (plan.kind == 2)
+            {
+                csReturn = "string";
+            }
+            else if (plan.kind == 3)
+            {
+                csReturn = "byte[]";
+            }
+            else
+            {
+                csReturn = reverseBaseName(plan.objectTargetShort);
+            }
+            cs += "        /// <summary>对应 C++ " + shape.qualifiedName + "::" + method.name + "</summary>\n";
+            cs += "        public abstract " + csReturn + " " + method.name + "(" +
+                  joinWith(params, ", ") + ");\n\n";
+        }
+        cs += "    }\n\n";
+        cs += "    internal static unsafe class " + shape.name + "Bindings\n    {\n";
+        cs += "        internal const int ERROR_STALE_HANDLE = 1001;\n";
+        cs += "        internal const int ERROR_NULL_POINTER = 1002;\n";
+        cs += "        internal const int ERROR_CALLBACK_WRONG_THREAD = 1005;\n";
+        cs += "        internal const int ERROR_REVERSE_EXCEPTION = 1012;\n";
+        cs += "        internal const int ERROR_REVERSE_READ_UNSUPPORTED = 1013;\n\n";
+        // 每个反向实例的托管侧状态（错误文本 / 借用句柄 / 字节缓存）：**放在 internal 桥里**，
+        // 公开抽象基类一个字段都不留 —— 否则 "公开类型里没有原生细节（含 ulong 句柄）" 那条检查
+        // 会把 `internal ulong` 字段也判进去（它按类体逐行看，分不出字段的可见性）。
+        cs += "        /// <summary>每实例的托管侧状态（句柄 / 错误文本 / 字节缓存）；公开基类里不存任何原生细节。</summary>\n";
+        cs += "        private sealed class InstanceState\n        {\n";
+        cs += "            public InstanceState() { }\n";
+        cs += "            public string LastError = string.Empty;\n";
+        cs += "            public ulong BorrowHandle;\n";
+        cs += "            public byte[] Serialized;\n";
+        cs += "            public byte[] StringBuffer;\n";
+        cs += "        }\n\n";
+        cs += "        private static readonly ConditionalWeakTable<" + baseName +
+              ", InstanceState> States = new ConditionalWeakTable<" + baseName + ", InstanceState>();\n";
+        cs += "        private static InstanceState StateOf(" + baseName + " target)\n        {\n";
+        cs += "            if (target == null) { throw new ArgumentNullException(nameof(target)); }\n";
+        cs += "            return States.GetOrCreateValue(target);\n        }\n\n";
+        cs += "        /// <summary>C# 借用的那个句柄（只作归还时的令牌；注册表才是对象的强所有者）。</summary>\n";
+        cs += "        internal static ulong GetBorrowHandle(" + baseName + " target)\n        {\n";
+        cs += "            if (target == null) { return 0UL; }\n";
+        cs += "            return StateOf(target).BorrowHandle;\n        }\n";
+        cs += "        internal static void SetBorrowHandle(" + baseName + " target, ulong handle)\n        {\n";
+        cs += "            if (target != null) { StateOf(target).BorrowHandle = handle; }\n        }\n";
+        cs += "        private static void SetLastError(" + baseName + " target, string text)\n        {\n";
+        cs += "            if (target != null) { StateOf(target).LastError = text; }\n        }\n\n";
+        cs += "        // 反向函数表（第五类形状：一张函数表 + 一个不透明 user）。槽顺序就是 CreateImpl 的参数顺序。\n";
+        cs += "        public static delegate* unmanaged<void*, " + allSlotCsText +
+               ", delegate* unmanaged<void*, void>, ulong> CreateImplSlot;\n";
+        cs += "        public static delegate* unmanaged<void*, " + allSlotCsText +
+               ", delegate* unmanaged<void*, void>, ulong*, void*> CreateProxySlot;\n";
+        cs += "        public static delegate* unmanaged<ulong, int> ReleaseImplSlot;\n";
+        cs += "        public static delegate* unmanaged<ulong, ulong> KeepAliveCountSlot;\n";
+        cs += "        public static delegate* unmanaged<ulong, void*> ResolveImplSlot;\n\n";
+        cs += "        /// <summary>从 get_interface_api 取到的反向函数表里装槽（偏移就是函数表顺序）。</summary>\n";
+        cs += "        public static void Bind(byte* table)\n        {\n";
+        cs += "            if (table == null) { throw new ArgumentNullException(nameof(table)); }\n";
+        cs += "            CreateImplSlot = *(delegate* unmanaged<void*, " + allSlotCsText +
+               ", delegate* unmanaged<void*, void>, ulong>*)(table + 8);\n";
+        cs += "            CreateProxySlot = *(delegate* unmanaged<void*, " + allSlotCsText +
+               ", delegate* unmanaged<void*, void>, ulong*, void*>*)(table + 16);\n";
+        cs += "            ReleaseImplSlot = *(delegate* unmanaged<ulong, int>*)(table + 24);\n";
+        cs += "            KeepAliveCountSlot = *(delegate* unmanaged<ulong, ulong>*)(table + 32);\n";
+        cs += "            ResolveImplSlot = *(delegate* unmanaged<ulong, void*>*)(table + 40);\n";
+        cs += "        }\n\n";
+        std::string csBridgeRefsText;
+        {
+            std::vector<std::string> refs;
+            for (std::string const& slotName : allSlotNames(plans))
+            {
+                refs.push_back("&On" + slotName);
+            }
+            refs.push_back("&OnTakeLastError");
+            refs.push_back("&OnReleaseUser");
+            csBridgeRefsText = joinWith(refs, ", ");
+        }
+        cs += "        // ---- 注册入口（托管侧唯一的两条创建通道）----\n";
+        cs += "        /// <summary>建强句柄（句柄表持强引用）。失败时原生路径自己调 releaseUser，</summary>\n";
+        cs += "        /// <summary>这里 MUST NOT 再 Free 一次（唯一一次 Free 在托管桥里由原生回调触发）。</summary>\n";
+        cs += "        internal static ulong Create(" + baseName + " target)\n        {\n";
+        cs += "            if (target == null) { throw new ArgumentNullException(nameof(target)); }\n";
+        cs += "            if (CreateImplSlot == null) { throw new InvalidOperationException(\"反向接口 " +
+              shape.qualifiedName + " 的函数表还没绑定（先取表再调 Bind）\"); }\n";
+        cs += "            GCHandle keepAlive = GCHandle.Alloc(target);\n";
+        cs += "            ulong handle = CreateImplSlot((void*)GCHandle.ToIntPtr(keepAlive), " +
+              csBridgeRefsText + ");\n";
+        cs += "            if (handle == 0UL) { throw new InvalidOperationException(\"反向接口 " +
+              shape.qualifiedName + "：CreateImpl 返回 0\"); }\n";
+        cs += "            SetBorrowHandle(target, handle);\n            return handle;\n        }\n\n";
+        cs += "        /// <summary>建借用句柄（不持强引用；单一所有者在调用方 shared_ptr / 注册表）。</summary>\n";
+        cs += "        internal static IntPtr CreateProxy(" + baseName + " target, out ulong handle)\n        {\n";
+        cs += "            if (target == null) { throw new ArgumentNullException(nameof(target)); }\n";
+        cs += "            if (CreateProxySlot == null) { throw new InvalidOperationException(\"反向接口 " +
+              shape.qualifiedName + " 的函数表还没绑定（先取表再调 Bind）\"); }\n";
+        cs += "            GCHandle keepAlive = GCHandle.Alloc(target);\n";
+        cs += "            ulong borrowHandle = 0UL;\n";
+        cs += "            IntPtr native = (IntPtr)CreateProxySlot((void*)GCHandle.ToIntPtr(keepAlive), " +
+              csBridgeRefsText + ", &borrowHandle);\n";
+        cs += "            if (native == IntPtr.Zero) { throw new InvalidOperationException(\"反向接口 " +
+              shape.qualifiedName + "：CreateProxy 返回空\"); }\n";
+        cs += "            handle = borrowHandle;\n            SetBorrowHandle(target, borrowHandle);\n";
+        cs += "            return native;\n        }\n\n";
+        cs += "        /// <summary>释放 C# 借用的那份句柄（注册表仍持对象）。返回 0 成功，1001 = 已失效。</summary>\n";
+        cs += "        internal static int Release(ulong handle)\n        {\n";
+        cs += "            if (ReleaseImplSlot == null) { return ERROR_NULL_POINTER; }\n";
+        cs += "            return ReleaseImplSlot(handle);\n        }\n\n";
+        cs += "        internal static ulong KeepAliveCount(ulong handle)\n        {\n";
+        cs += "            if (KeepAliveCountSlot == null) { return ulong.MaxValue; }\n";
+        cs += "            return KeepAliveCountSlot(handle);\n        }\n\n";
+        cs += "        /// <summary>句柄 → 借用对象指针（在本模块的表里解析；跨模块调用方用它，别自己查表）。</summary>\n";
+        cs += "        internal static IntPtr Resolve(ulong handle)\n        {\n";
+        cs += "            if (ResolveImplSlot == null) { return IntPtr.Zero; }\n";
+        cs += "            return (IntPtr)ResolveImplSlot(handle);\n        }\n\n";
+        cs += "        static " + baseName + " Target(void* user)\n        {\n";
+        cs += "            return (" + baseName + ")GCHandle.FromIntPtr((IntPtr)user).Target;\n        }\n\n";
+        cs += "        [UnmanagedCallersOnly]\n";
+        cs += "        static void OnReleaseUser(void* user)\n        {\n";
+        cs += "            GCHandle handle = GCHandle.FromIntPtr((IntPtr)user);\n";
+        cs += "            if (handle.IsAllocated) { handle.Free(); }\n        }\n\n";
+        cs += "        [UnmanagedCallersOnly]\n";
+        cs += "        static ulong OnTakeLastError(void* user, byte* destination, ulong capacity)\n        {\n";
+        cs += "            try\n            {\n";
+        cs += "                " + baseName + " target = Target(user);\n";
+        cs += "                byte[] bytes = Encoding.UTF8.GetBytes(StateOf(target).LastError ?? string.Empty);\n";
+        cs += "                if (capacity == 0UL) { return (ulong)bytes.Length; }\n";
+        cs += "                ulong room = capacity - 1UL;\n";
+        cs += "                int take = (ulong)bytes.Length <= room ? bytes.Length : (int)room;\n";
+        cs += "                if (take > 0) { new ReadOnlySpan<byte>(bytes, 0, take).CopyTo(new Span<byte>(destination, take)); }\n";
+        cs += "                destination[take] = 0;\n";
+        cs += "                StateOf(target).LastError = string.Empty;\n";
+        cs += "                return (ulong)take;\n            }\n";
+        cs += "            catch { return (ulong)0; }\n        }\n\n";
+        // 每方法的托管桥
+        for (ReverseMethodPlan const& plan : plans)
+        {
+            MethodSignature const& method = *plan.method;
+            if (plan.kind == 0)
+            {
+                cs += "        [UnmanagedCallersOnly]\n";
+                {
+                    const std::vector<std::string> slotParams = reverseCsSlotParamDecls(plan);
+                    cs += "        static void On" + method.name + "(void* user" +
+                          (slotParams.empty() ? "" : ", " + joinWith(slotParams, ", ")) + ")\n        {\n";
+                }
+                cs += "            try\n            {\n";
+                cs += "                " + baseName + " target = Target(user);\n";
+                cs += "                target." + method.name + "(" +
+                      joinWith(reverseCsCallArgs(plan), ", ") + ");\n            }\n";
+                cs += "            catch (Exception ex)\n            {\n";
+                cs += "                SetLastError(TargetSafe(user), ex.GetType().Name + \": \" + ex.Message);\n            }\n";
+                cs += "        }\n\n";
+                continue;
+            }
+            if (plan.kind == 1)
+            {
+                cs += "        [UnmanagedCallersOnly]\n";
+                {
+                    const std::vector<std::string> slotParams = reverseCsSlotParamDecls(plan);
+                    cs += "        static " + std::string(plan.retScalar->csNative) + " On" + method.name +
+                          "(void* user" + (slotParams.empty() ? "" : ", " + joinWith(slotParams, ", ")) +
+                          ")\n        {\n";
+                }
+                cs += "            try\n            {\n";
+                cs += "                " + baseName + " target = Target(user);\n";
+                cs += "                " + std::string(plan.retScalar->csType) + " result = target." +
+                      method.name + "(" + joinWith(reverseCsCallArgs(plan), ", ") + ");\n";
+                if (std::string(plan.retScalar->canonical) == "bool")
+                {
+                    cs += "                return result ? 1 : 0;\n";
+                }
+                else
+                {
+                    cs += "                return result;\n";
+                }
+                cs += "            }\n            catch (Exception ex)\n            {\n";
+                cs += "                SetLastError(TargetSafe(user), ex.GetType().Name + \": \" + ex.Message);\n";
+                if (std::string(plan.retScalar->canonical) == "bool")
+                {
+                    cs += "                return 0;\n";
+                }
+                else
+                {
+                    cs += "                return default;\n";
+                }
+                cs += "            }\n        }\n\n";
+                continue;
+            }
+            if (plan.kind == 2)
+            {
+                cs += "        [UnmanagedCallersOnly]\n";
+                cs += "        static ulong On" + method.name + "Len(void* user)\n        {\n";
+                cs += "            try\n            {\n";
+                cs += "                " + baseName + " target = Target(user);\n";
+                cs += "                string result = target." + method.name + "(" +
+                      joinWith(reverseCsCallArgs(plan), ", ") + ");\n";
+                cs += "                StateOf(target).StringBuffer = Encoding.UTF8.GetBytes(result ?? string.Empty);\n";
+                cs += "                return (ulong)StateOf(target).StringBuffer.Length;\n            }\n";
+                cs += "            catch (Exception ex)\n            {\n";
+                cs += "                SetLastError(TargetSafe(user), ex.GetType().Name + \": \" + ex.Message);\n";
+                cs += "                return ulong.MaxValue;\n            }\n        }\n\n";
+                cs += "        [UnmanagedCallersOnly]\n";
+                cs += "        static ulong OnCopy" + method.name + "(void* user, byte* destination, ulong capacity)\n        {\n";
+                cs += "            try\n            {\n";
+                cs += "                " + baseName + " target = Target(user);\n";
+                cs += "                byte[] bytes = StateOf(target).StringBuffer ?? Array.Empty<byte>();\n";
+                cs += "                ulong length = (ulong)bytes.Length;\n";
+                cs += "                if (length == 0UL) { return 0UL; }\n";
+                cs += "                if (destination == null || capacity < length)\n                {\n";
+                cs += "                    StateOf(target).LastError = \"字符串返回值缓冲区不足\";\n";
+                cs += "                    return ulong.MaxValue;\n                }\n";
+                cs += "                fixed (byte* source = bytes) { Buffer.MemoryCopy(source, destination, (long)capacity, (long)length); }\n";
+                cs += "                return length;\n            }\n            catch (Exception ex)\n            {\n";
+                cs += "                SetLastError(TargetSafe(user), ex.GetType().Name + \": \" + ex.Message);\n";
+                cs += "                return ulong.MaxValue;\n            }\n        }\n\n";
+                continue;
+            }
+            if (plan.kind == 3)
+            {
+                cs += "        [UnmanagedCallersOnly]\n";
+                cs += "        static ulong OnSerializeLen(void* user)\n        {\n";
+                cs += "            try\n            {\n";
+                cs += "                " + baseName + " target = Target(user);\n";
+                cs += "                StateOf(target).Serialized = target." + method.name + "();\n";
+                cs += "                return StateOf(target).Serialized == null ? 0UL : (ulong)StateOf(target).Serialized.Length;\n";
+                cs += "            }\n            catch (Exception ex)\n            {\n";
+                cs += "                SetLastError(TargetSafe(user), ex.GetType().Name + \": \" + ex.Message);\n";
+                cs += "                return ulong.MaxValue;\n            }\n        }\n\n";
+                cs += "        [UnmanagedCallersOnly]\n";
+                cs += "        static ulong OnSerializeCopy(void* user, void* destination, ulong capacity)\n        {\n";
+                cs += "            try\n            {\n";
+                cs += "                " + baseName + " target = Target(user);\n";
+                cs += "                byte[] bytes = StateOf(target).Serialized ?? Array.Empty<byte>();\n";
+                cs += "                ulong length = (ulong)bytes.Length;\n";
+                cs += "                if (length == 0UL) { return 0UL; }\n";
+                cs += "                if (destination == null || capacity < length)\n                {\n";
+                cs += "                    StateOf(target).LastError = \"Serialize 返回的字节缓冲区不足\";\n";
+                cs += "                    return ulong.MaxValue;\n                }\n";
+                cs += "                fixed (byte* source = bytes) { Buffer.MemoryCopy(source, destination, (long)capacity, (long)length); }\n";
+                cs += "                return length;\n            }\n            catch (Exception ex)\n            {\n";
+                cs += "                SetLastError(TargetSafe(user), ex.GetType().Name + \": \" + ex.Message);\n";
+                cs += "                return ulong.MaxValue;\n            }\n        }\n\n";
+                continue;
+            }
+            // kind == 4：返回另一个反向接口的抽象基类实例
+            cs += "        [UnmanagedCallersOnly]\n";
+            {
+                const std::vector<std::string> slotParams = reverseCsSlotParamDecls(plan);
+                cs += "        static void* On" + method.name + "(void* user" +
+                      (slotParams.empty() ? "" : ", " + joinWith(slotParams, ", ")) + ")\n        {\n";
+            }
+            cs += "            try\n            {\n";
+            cs += "                " + baseName + " target = Target(user);\n";
+            cs += "                " + reverseBaseName(plan.objectTargetShort) + " result = target." +
+                  method.name + "(" + joinWith(reverseCsCallArgs(plan), ", ") + ");\n";
+            cs += "                if (result == null)\n                {\n";
+            cs += "                    StateOf(target).LastError = \"工厂 Create 返回了 null（MUST NOT 注册空资源）\";\n";
+            cs += "                    return null;\n                }\n";
+            cs += "                ulong resourceHandle = 0UL;\n";
+            cs += "                IntPtr native = global::" + cSharpFullNameOf(plan.objectTargetQualified) +
+                  "Bindings.CreateProxy(result, out resourceHandle);\n";
+            cs += "                global::" + cSharpFullNameOf(plan.objectTargetQualified) +
+                  "Bindings.SetBorrowHandle(result, resourceHandle);\n";
+            cs += "                return (void*)native;\n";
+            cs += "            }\n            catch (Exception ex)\n            {\n";
+            cs += "                SetLastError(TargetSafe(user), ex.GetType().Name + \": \" + ex.Message);\n";
+            cs += "                return null;\n            }\n        }\n\n";
+        }
+        // 失败时给"实现对象"写错误文本：user 解不出来时静默（C++ 侧会按空文本处理）。
+        cs += "        static " + baseName + " TargetSafe(void* user)\n        {\n";
+        cs += "            try { return Target(user); } catch { return null; }\n        }\n";
+        cs += "    }\n}\n";
+
+        // ---- 4. 写文件 ----
+        const std::string cppPath = outDir + "/" + linear + ".Bindings.cpp";
+        const std::string csPath = outDir + "/" + linear + ".Bindings.cs";
+        std::ofstream cppOut(cppPath, std::ios::binary);
+        cppOut << cpp;
+        if (!cppOut)
+        {
+            std::fprintf(stderr, "CodeGen: cannot write '%s'\n", cppPath.c_str());
+            return 2;
+        }
+        std::ofstream csOut(csPath, std::ios::binary);
+        csOut << cs;
+        if (!csOut)
+        {
+            std::fprintf(stderr, "CodeGen: cannot write '%s'\n", csPath.c_str());
+            return 2;
+        }
+        std::fprintf(stderr, "  [反向] %s：代理 + 抽象基类 %s + glue（被绑定虚方法 %zu 条）\n",
+                     shape.qualifiedName.c_str(), baseName.c_str(), plans.size());
+        return 0;
+    }
+
     int run(const char* filePath, const char* outDir, const std::vector<const char*>& clangArgs,
             const std::string& auditScriptPath, unsigned handleIndexBits, unsigned handleGenerationBits,
             std::string const& registryPartLabel, std::string const& registryPartDir,
@@ -7522,13 +8799,14 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         // 于是 `GPUGraph::ScheduleData(ImageHandle const&, …)` 这类方法的参数认不出值类。
         // 解析之后再补扫整个包含闭包（下面的 unit 建好以后）。
         std::set<std::string> valueTypeNames = scanValueTypeNames(sourceText);
-        std::vector<std::string> bound;
+        std::vector<std::string> bound;          // 正向接口（CA_BIND）
+        std::vector<std::string> reverseBound;   // 反向接口（CA_BIND_REVERSE）
         bound.reserve(markers.size());
         for (BoundMarker const& marker : markers)
         {
-            bound.push_back(marker.interfaceName);
+            (marker.reverse ? reverseBound : bound).push_back(marker.interfaceName);
         }
-        if (bound.empty())
+        if (bound.empty() && reverseBound.empty())
         {
             std::fprintf(stderr, "CodeGen: --emit-binding found no CA_BIND marker in '%s'.\n", filePath);
             return 1;
@@ -7646,7 +8924,71 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         collector.wanted = &bound;
         collector.sink = &shapes;
         clang_visitChildren(clang_getTranslationUnitCursor(unit), collectClasses, &collector);
-        // `CA_BIND_VALUE` 补扫包含闭包（见上面 valueTypeNames 的说明）。
+        // 反向接口（csharp-reverse-interface-binding）：单独收一份形状，**不进**正向 `shapes` ——
+        // 正向那一路的投影/拒绝/句柄/回调判据对反向产物都不适用（反向走独立发射分支）。
+        std::vector<InterfaceShape> reverseShapes;
+        if (!reverseBound.empty())
+        {
+            ClassCollector reverseCollector;
+            reverseCollector.wanted = &reverseBound;
+            reverseCollector.sink = &reverseShapes;
+            clang_visitChildren(clang_getTranslationUnitCursor(unit), collectClasses, &reverseCollector);
+            for (InterfaceShape& shape : reverseShapes)
+            {
+                shape.isReverse = true;
+            }
+            // 反向接口必须真的找到类定义（标注写了但没有类 = 生成期拒绝）。
+            int missingReverse = 0;
+            for (std::string const& wanted : reverseBound)
+            {
+                bool foundAny = false;
+                for (InterfaceShape const& shape : reverseShapes)
+                {
+                    if (shape.name == wanted)
+                    {
+                        foundAny = true;
+                        break;
+                    }
+                }
+                if (!foundAny)
+                {
+                    std::fprintf(stderr, "CodeGen: 拒绝 %s —— CA_BIND_REVERSE 标了它，但找不到类定义\n",
+                                 wanted.c_str());
+                    ++missingReverse;
+                }
+            }
+            if (missingReverse > 0)
+            {
+                clang_disposeTranslationUnit(unit);
+                clang_disposeIndex(index);
+                return 1;
+            }
+            for (InterfaceShape const& shape : reverseShapes)
+            {
+                g_bindableInterfaceNames.insert(shape.name);
+                bool alreadyKnown = false;
+                for (auto const& entry : g_knownInterfaces)
+                {
+                    if (entry.first == shape.name && entry.second == shape.qualifiedName)
+                    {
+                        alreadyKnown = true;
+                        break;
+                    }
+                }
+                if (!alreadyKnown)
+                {
+                    g_knownInterfaces.emplace_back(shape.name, shape.qualifiedName);
+                }
+            }
+        }
+        // `CA_BIND_VALUE` 补扫包含闭包（见上面 valueTypeNames 的说明），同时记下"包含闭包里出现过
+        // CA_BIND_REVERSE 的接口名"（IResourceFactory::Create() 返回 IResource*，而 IResource 的标注
+        // 在它 include 的头里 —— 反查目标接口要靠这份清单）。必须在 dispose 之前收。
+        std::set<std::string> reverseKnownNames;
+        for (InterfaceShape const& shape : reverseShapes)
+        {
+            reverseKnownNames.insert(shape.name);
+        }
         {
             std::vector<std::string> includedFiles;
             InclusionCollector inclusionCollector;
@@ -7658,8 +9000,16 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 {
                     continue;
                 }
-                const std::set<std::string> extra = scanValueTypeNames(readWholeFile(path.c_str()));
+                const std::string includedText = readWholeFile(path.c_str());
+                const std::set<std::string> extra = scanValueTypeNames(includedText);
                 valueTypeNames.insert(extra.begin(), extra.end());
+                for (BoundMarker const& included : scanBoundMarkers(includedText))
+                {
+                    if (included.reverse)
+                    {
+                        reverseKnownNames.insert(included.interfaceName);
+                    }
+                }
             }
         }
         // 接口名清单：`projectMethod` 用它判"返回的是不是另一个可绑定接口的裸指针"（借用句柄，
@@ -8912,7 +10262,10 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         {
             std::vector<std::string> unbound;
             UnboundCollector unboundCollector;
-            unboundCollector.bound = &bound;
+            // 反向接口也算"已声明绑定意图"：它们走 CA_BIND_REVERSE，不能在这里被报成"没写标注"。
+            std::vector<std::string> allBoundNames = bound;
+            allBoundNames.insert(allBoundNames.end(), reverseBound.begin(), reverseBound.end());
+            unboundCollector.bound = &allBoundNames;
             unboundCollector.sink = &unbound;
             unboundCollector.mainFile = [&] {
                 std::string name = filePath != nullptr ? std::string(filePath) : std::string();
@@ -8959,6 +10312,12 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         for (auto const& entry : markerByName)
         {
             BoundMarker const& marker = *entry.second;
+            // 反向接口走独立分支（自己的 skip 理由在反向发射里逐条打印）：正向的拒绝口径
+            // （模板 / 排除没写理由）对它不适用，别把它的排除理由混进正向日志。
+            if (marker.reverse)
+            {
+                continue;
+            }
             if (marker.isTemplate)
             {
                 std::fprintf(stderr, "CodeGen: 拒绝 %s —— ① 模板/泛型：绑定对象不能是模板类\n",
@@ -9118,6 +10477,50 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 return 2;
             }
         }
+        // ---- 反向接口发射（csharp-reverse-interface-binding）：C# 实现 C++ ----
+        // 反向产物与正向产物是**两套形状**（正向：IDisposable 表面类 + Api_v2；反向：抽象基类 +
+        // 代理 + 注册 glue），所以走独立分支；检查脚本靠产物里的 `CODEGEN-REVERSE-BINDING` 类别标记
+        // 区分两者，并对反向用替代判据（design D9）。
+        // `reverseKnownNames`：主头 + 包含闭包里出现过 `CA_BIND_REVERSE()` 的接口名 ——
+        // IResourceFactory::Create() 返回 IResource*，而 IResource 的标注在它 include 的头里。
+        // （在解析期就收好了；这里直接用于反向发射。）
+        int reverseMethodsTotal = 0;
+        if (!reverseShapes.empty())
+        {
+            if (const int runtimeResult = emitReverseRuntime(outDir); runtimeResult != 0)
+            {
+                return runtimeResult;
+            }
+            std::map<std::string, InterfaceShape const*> reverseByShort;
+            for (InterfaceShape const& shape : reverseShapes)
+            {
+                reverseByShort[shape.name] = &shape;
+            }
+            for (InterfaceShape const& shape : reverseShapes)
+            {
+                auto marker = std::find_if(markers.begin(), markers.end(),
+                                           [&shape](BoundMarker const& candidate) {
+                                               return candidate.reverse && candidate.interfaceName == shape.name;
+                                           });
+                if (marker == markers.end())
+                {
+                    std::fprintf(stderr, "CodeGen: 反向 %s 找不到对应的 CA_BIND_REVERSE 标注\n",
+                                 shape.qualifiedName.c_str());
+                    return 1;
+                }
+                int emitted = 0;
+                const int result = emitReverseProducts(shape, *marker, reverseByShort, reverseKnownNames,
+                                                       filePath, handleIndexBits, handleGenerationBits, outDir,
+                                                       &emitted);
+                if (result != 0)
+                {
+                    return result;
+                }
+                reverseMethodsTotal += emitted;
+                ++products;
+            }
+        }
+
         for (InterfaceShape const& shape : shapes)
         {
             std::string cpp;
@@ -10676,6 +12079,10 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 {
                     continue;
                 }
+                if (isReverseOnlyErrorCode(errorCode))
+                {
+                    continue;
+                }
                 cpp += "static const int32_t " + linear + "_ERROR_" + errorCode.name + " = " +
                        std::to_string(errorCode.value) + ";\n";
             }
@@ -11129,6 +12536,10 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 {
                     if (!usesSerializedBlocks &&
                         std::strncmp(errorCode.name, "BAD_BLOCK_", 10) == 0)
+                    {
+                        continue;
+                    }
+                    if (isReverseOnlyErrorCode(errorCode))
                     {
                         continue;
                     }
@@ -12504,7 +13915,7 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
         }
 
         std::fprintf(stderr, "绑定：接口 %zu 个 / 方法 %d 条 / 产物 %d 个 / 拒绝 %d 条\n",
-                     shapes.size(), methodsTotal, products, rejected);
+                     shapes.size() + reverseShapes.size(), methodsTotal + reverseMethodsTotal, products, rejected);
         if (rejected > 0)
         {
             return 1;
@@ -12521,11 +13932,29 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
             int missingShapes = 0;
             for (BoundMarker const& marker : markers)
             {
-                auto found = std::find_if(shapes.begin(), shapes.end(),
-                                          [&marker](InterfaceShape const& shape) {
-                                              return shape.name == marker.interfaceName;
-                                          });
-                if (found == shapes.end())
+                // 反向接口的形状在 `reverseShapes` 里（正向 `shapes` 故意不收它们）：登记分片
+                // 两处都找，否则反向登记输入会被判"有标记但找不到类定义"、分片写不出来。
+                InterfaceShape const* found = nullptr;
+                for (InterfaceShape const& shape : shapes)
+                {
+                    if (shape.name == marker.interfaceName)
+                    {
+                        found = &shape;
+                        break;
+                    }
+                }
+                if (found == nullptr)
+                {
+                    for (InterfaceShape const& shape : reverseShapes)
+                    {
+                        if (shape.name == marker.interfaceName)
+                        {
+                            found = &shape;
+                            break;
+                        }
+                    }
+                }
+                if (found == nullptr)
                 {
                     std::fprintf(stderr,
                                  "CodeGen: 拒绝登记 %s —— 有 CA_BIND 标注，但找不到它的类定义\n",

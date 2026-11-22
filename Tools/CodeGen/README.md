@@ -986,11 +986,14 @@ MSVC 自己会折叠那个模式，clang 不会 —— 于是生成物里的 `st
 C++ 接口保持易用（`castl::vector` / `castl::string` / `castl::shared_ptr` / `castl::function` 照写）。
 把复杂结构翻成 blittable 是生成代码的活，不是接口作者的活。
 
-### 边界上只允许四类形状
+### 边界上只允许五类形状
 
 blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不透明句柄（定宽整数 + 代际号）、
-“真实签名的原生函数指针 + 不透明 `void* user`”回调形状（注册号与注销伴生留在内部层）。
-**容器类型与模板类型永不出现在 C ABI 面**：`castl::vector` / `map` / `unordered_map` / `set` / `string` 只在 C++ 接口面存在。
+“真实签名的原生函数指针 + 不透明 `void* user`”回调形状（注册号与注销伴生留在内部层）、以及
+**反向接口的“一张函数表 + 一个不透明 `void* user`”形状**（独立第五类；第 4 类仍是单回调，
+函数表含接口每个**被绑定**虚方法投影出的函数指针，**一个虚方法可以投影成多条**，例如写路径的
+`SerializeLen` + `SerializeCopy`）。**容器类型与模板类型永不出现在 C ABI 面**：`castl::vector` /
+`map` / `unordered_map` / `set` / `string` 只在 C++ 接口面存在。
 
 ### 投影矩阵
 
@@ -1019,6 +1022,7 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 | `castl::vector<uint8_t> const&` | `uint8_t const* + count`，公开 C# `byte[]`（`fixed` 覆盖整个调用）；空数组合法、空指针配非零长度按 1002 拒绝且不进入实现 | 一次 | 调用方 |
 | `castl::shared_ptr<T>` 入参 | `uint64` 句柄 → 按目标类型反查并重建 `shared_ptr<T>`；强返回句柄复用强引用、弱返回句柄调用期间保活，借用句柄与错误类型按 1001 拒绝且实现调用次数为 0 | 无 | 生成器 |
 | 强 / 弱 / 借用返回（含跨头文件目标） | `uint64` 句柄；表项同时记录发行者与目标对象的完整限定名。公开 C# 用**目标接口**的 `ResolveTargetHandle` / `ReleaseTargetHandle`（追加在函数表末尾，ABI v2 不变）；旧发行者入口按发行者角色保持不变 | 无 | 生成器 |
+| 反向接口（`CA_BIND_REVERSE()`，C# 实现 C++） | 函数表 + `void* user`（第五类）：代理的每个被绑定虚方法调一条函数指针槽；注册 glue 收 `user` + 每被绑定虚方法投影出的 fnptr（可多条）+ `releaseUser`，返回强句柄；公开 C# 是抽象基类（去 I 前缀加 Base） | 视方法（字符串 / 写路径一次拷贝） | 生成器（代理 + 托管 GCHandle；强引用在注册表） |
 
 统一规则：**元素里含 `string` / 容器 / 指针 ⇒ 一律降到序列化块**，并在生成期日志里逐条说明。
 
@@ -1117,6 +1121,67 @@ CodeGen.exe <头文件> --list-bind-interfaces -ICACore/header -ITools/CodeGen/c
 
 
 
+### 反向投影（`CA_BIND_REVERSE()`，C# 实现 C++）
+
+**做什么**：对用 `CA_BIND_REVERSE()` 标注的接口，生成 C# 能**实现**它的三件套（与 `CA_BIND` 的正向方向相反）：
+
+| 产物 | 内容 |
+|---|---|
+| `<线形>.Bindings.cpp` | C++ 代理类 `<线形>Proxy`（`public <完整限定名>`，每个被绑定虚方法调一条函数指针槽）；注册 glue `extern "C" ... <线形>__CreateImpl(void* user, <每被绑定虚方法的 fnptr...>, void (*releaseUser)(void*))` 与 `<线形>__CreateProxy(..., uint64_t* outHandle)`（借用句柄版，资源工厂内部用）；`<线形>__ReleaseImpl(handle)`（返回 0 / 1001）；`<线形>__ReverseKeepAliveCount(handle)`（原生 getter，`UINT64_MAX` = 该序号没有实例）；`<线形>__ResolveImpl(handle)`（在**创建它的模块**里把句柄解析成借用指针，跨模块调用方用它）；反向函数表 `<线形>Api_v2` + `<线形>__GetApi`（登记表路由用）+ 两个布局查询桩 |
+| `<线形>.Bindings.cs` | 公开抽象基类（接口名去 I 前缀加 Base：`IResource` → `ResourceBase`、`IResourceFactory` → `ResourceFactoryBase`），每个被绑定虚方法一个 `public abstract`；`internal static unsafe class <短名>Bindings` 装反向函数表（`Bind` 按偏移装槽）、`Create` / `CreateProxy` / `Release` / `KeepAliveCount` / `Resolve`、`[UnmanagedCallersOnly]` 托管桥 |
+| `ReverseBindingRuntime.h` | 所有反向产物共用的 `cascaded_reverse::ReverseBindingError`（带 `Code()`）与 `cascaded_reverse::KeepAlive`（每实例一个原子计数） |
+
+**第五类形状与对齐**：C ABI 面是“一张函数表 + 一个不透明 `void* user`”（独立类别，第 4 类仍是单回调）。
+一个虚方法可以投影成多条槽（`castl::string` 返回 → `<方法>Len` + `Copy<方法>`；写路径
+`void Serialize(ca_io::WBatch*)` → `SerializeLen` + `SerializeCopy`）；对齐按“每个**被绑定**虚方法投影出的
+槽集合”逐条对，MUST NOT 用“函数指针总数 = 虚方法数”判。支持的方法形状只有四种（其余生成期拒绝并点名）：
+`void` / 标量参数与返回、`castl::string` 返回、`void Serialize(WBatch*)` 写路径、返回另一个**反向**接口的
+裸指针（`IResourceFactory::Create() → IResource*`）。同名重载不在支持范围（槽名会撞）；非 virtual 的公开
+方法会被**打印后跳过**（C# 覆写不了它）。
+
+**所有权（单一强所有者 + 借用句柄）**：代理的强引用只在注册表（工厂注册表 / 资源注册表）。注册 glue 出来
+的是**强句柄**（句柄表持有代理的 `shared_ptr`）；`<线形>__TakeOwnership(handle)` 由 C++ 调用方把强引用
+**移出**句柄表并交给注册表，表项当场降级成借用项（kind 4，不另持强引用）。C# 侧的 `<短名>Bindings.Create`
+拿到的句柄同样是借用：`Dispose` 只释放借用那一份（之后同一句柄报 1001），注册表仍持有对象。**释放回调**
+`releaseUser` 指向托管桥的 `GCHandle.Free`：代理析构时调它，**唯一一次 Free 发生在托管侧**（C++ 不直接
+调 `GCHandle.Free`）；`ReverseKeepAliveCount` 每实例一个（不是全局静态，也不复用窗口的 `LiveKeepAliveCount`）。
+
+**跨模块调用（apply 期间修正）**：`BindingHandleTable.h` 是生成在头里的 `inline` 函数 + 函数级 `static`
+⇒ **EXE 与 DLL 各有一份句柄表**，句柄只能在创建它的模块里解析。跨模块调用方 MUST 用反向函数表的
+`ResolveImpl(handle)` 拿借用指针、用 `ReleaseImpl(handle)` 释放强句柄；MUST NOT 把句柄交给别的模块自己那份
+`<线形>__*` 函数（会查错表 —— 实测 `tester.exe` 用自己的 `__TakeOwnership` 解析 `CSharpHost.dll` 创建的句柄
+返回空）。所以工厂注册表收的是 `(句柄, 借用指针, 释放回调)`，**不重建 `shared_ptr`**；单一强所有者仍是
+创建模块的句柄表那一条。
+
+**失败契约（可观测，不靠文件字节）**：托管桥检查实现侧异常并在桥内捕获（异常绝不穿过 C ABI），失败时
+非 void 槽返回哨兵（长度 `UINT64_MAX` / `Create` 空指针）并让 `TakeLastError` 槽带回原始文本；代理收到
+哨兵就**中止**（写路径不 `Write`、不 `SubmitAndWait`）并把错误落槽，**下一次注册线程调用**抛
+`cascaded_reverse::ReverseBindingError`（含错误码 1012 与原始文本）。非注册线程调用被代理拒绝（1005，
+托管覆写不会执行）。`Create` 失败按**异常契约**：C++ 原生工厂直接抛，C# 工厂的异常经桥转码，系统
+（`ResourceManagingSystem::CreateResource`）在包 `shared_ptr` / 注册前检查空指针，MUST NOT 注册空资源
+（`HasResource` 读数为 false，第二次调用会重新调 `Create`）。`CA_BIND_SKIP` 掉的方法在代理里出抛
+`ReverseBindingError(1013)` 的实现（本批只有 `IResource::Deserialize`，因为 `IOBatch` 问不到剩余长度）。
+
+**检查管线集成（替代判据，非放松）**：反向产物不符合正向形状（`IDisposable` 表面类 + `Api_v2` 方法槽），
+所以生成器在产物第一行写类别标记 `CODEGEN-REVERSE-BINDING:`。`check_bindings.py` 据此：`check_surface`
+把反向产物**改判** `check_reverse_base`（公开抽象基类干净 + abstract 数 = 被绑定虚方法数，递归 glob 扫，
+命中数必须 ≥1）；`check_alignment` 改判“代理 override ↔ C# abstract”；`check_stubs` 改判“代理体真的调了
+函数指针槽 + 析构调 releaseUser”（**行为**由 CoreTests 反向夹具与 tester 的 `TestCSharpResourceFactory`
+承担）；`check_shared_value_types` 按 `.cs`/`.cpp` 成对接口类处理。正向产物的判据一个字没动。
+单检查入口：`check_bindings.py --product-dir <目录> --only reverse_base`（红绿能独立跑）；`build.py` 的
+期望产物闸门也认反向两件套（基类 `.cs` + 代理 `.cpp`）。
+
+**示例（反向夹具，跑完退出码 0）**：
+
+```powershell
+CodeGen.exe Tools/CodeGen/BindableShapes.Reverse.h --emit-binding --out-dir .review_tmp_reverse --audit-script Tools/CodeGen/check_bindable_audit.py -ICACore/header -ITools/CodeGen/clang_shim -xc++
+```
+```text
+  [反向] ca_bind_fixture::IBindReverseShape：代理 + 抽象基类 BindReverseShapeBase + glue（被绑定虚方法 4 条）
+绑定：接口 1 个 / 方法 4 条 / 产物 1 个 / 拒绝 0 条
+[exit 0]
+```
+
 ### 两张矩阵
 
 绑定要过两道投影，各有一张矩阵。（本文第十三节那张是**第一张**：C++ 接口形状 → C ABI。）
@@ -1158,6 +1223,9 @@ conformance 夹具，判据在 `Tools/CodeGen/check_bindings.py` 的 `check_surf
 | 1008 | `<线形>_ERROR_BAD_BLOCK_TYPE` | 序列化块头的类型名哈希与生成期常量不符 |
 | 1009 | `<线形>_ERROR_BAD_BLOCK_LAYOUT` | 序列化块头的字段布局哈希不符（含"字段改名、类型序不变"的块） |
 | 1010 | `<线形>_ERROR_BAD_BLOCK_PAYLOAD` | 序列化块载荷截断/字段读取失败（块头之后的内容不够或长度越界） |
+| 1011 | `<线形>_ERROR_BAD_OBJECT_HANDLE` | 序列化块里的对象句柄（值类容器元素 / 接口对象引用）在绑定对象表里查不到 |
+| 1012 | `<线形>_ERROR_REVERSE_EXCEPTION` | 反向接口的 C# 实现抛异常 / 返回长度或拷贝失败 / `Create` 返回空：代理中止并落槽，**下一次注册线程调用**抛 `cascaded_reverse::ReverseBindingError`（含码与原始文本） |
+| 1013 | `<线形>_ERROR_REVERSE_READ_UNSUPPORTED` | 调了被 `CA_BIND_SKIP` 排除的反向方法（本批只有 `IResource::Deserialize`）：代理直接抛 `ReverseBindingError(1013)`，不进实现 |
 
 生成物里**不许出现裸字面量**；`check_bindings.py` 的 `check_error_codes()` 把产物里所有
 `<线形>_ERROR_*` 常量与所有 `_setError` 的码逐个对这张表，对不上即红。新增错误标识时，

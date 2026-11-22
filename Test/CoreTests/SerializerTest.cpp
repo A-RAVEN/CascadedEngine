@@ -81,6 +81,9 @@ bool RunNativeSurfaceTest();
 // FileLoader 三函数的失败显式化（failure-visibility-hygiene 1.2）：缺失路径读 / 缺失目录写必须抛
 // `cacore::file_error` 并点名路径；0 字节文件合法（返回空，不抛）。
 bool RunFileLoaderErrorTest();
+// 反向投影的结构判据（csharp-reverse-interface-binding 3.1）：代理继承/非抽象、句柄 kind 1→4、
+// 每条被绑定虚方法真的调到、跳过的方法抛 1013、releaseUser 只调一次、保活计数 1→0、旧句柄 1001。
+bool RunBindingsReverseTest();
 
 
 
@@ -300,6 +303,18 @@ int main(int argc, char* argv[])
 	else
 	{
 		std::puts("FileLoader error channel test PASSED");
+	}
+
+	// 反向投影（C# 实现 C++）的结构判据：代理 / 句柄 kind / releaseUser / 跳过方法 1013
+	// （csharp-reverse-interface-binding 3.1）。
+	if (!RunBindingsReverseTest())
+	{
+		std::puts("Bindings reverse projection test FAILED");
+		allOk = false;
+	}
+	else
+	{
+		std::puts("Bindings reverse projection test PASSED");
 	}
 
 	return allOk ? 0 : 1;

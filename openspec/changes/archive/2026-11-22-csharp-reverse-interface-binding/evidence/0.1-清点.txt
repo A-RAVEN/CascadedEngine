@@ -1,0 +1,148 @@
+﻿
+=== ① bindemit::run 反向分支落点（现状：只有正向分支） ===
+PS> Select-String -Path Tools/CodeGen/CodeGenMain.cpp -Pattern "int run\(const char\* filePath" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+7513:int run(const char* filePath, const char* outDir, const std::vector<const char*>& clangArgs,
+PS> Select-String -Path Tools/CodeGen/CodeGenMain.cpp -Pattern "CA_BIND_REVERSE|REVERSE" | Measure-Object | ForEach-Object { "CA_BIND_REVERSE/REVERSE 命中数 = $($_.Count)" }
+CA_BIND_REVERSE/REVERSE 命中数 = 0
+
+=== ② 回调注册表/GCHandle 机制引文（生成物 cawindow__IWindowSystem） ===
+PS> Select-String -Path out/build/x64-debug/codegen/bindings/cawindow__IWindowSystem.Bindings.cs -Pattern "GCHandle.Alloc|GCHandle.ToIntPtr|GCHandle.FromIntPtr|\.Free\(\)|UnmanagedCallersOnly" | Select-Object -First 8 | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+318:GCHandle keepAlive = GCHandle.Alloc(state);
+322:registration = IWindowSystemBindings.SetWindowFocusCallback(lease.Self, &IWindowSystemCallbacks.OnSetWindowFocusCallback, (void*)GCHandle.ToIntPtr(keepAlive));
+327:if (keepAlive.IsAllocated) { keepAlive.Free(); }
+332:if (keepAlive.IsAllocated) { keepAlive.Free(); }
+360:GCHandle keepAlive = GCHandle.Alloc(state);
+364:registration = IWindowSystemBindings.SetCursorEnterCallback(lease.Self, &IWindowSystemCallbacks.OnSetCursorEnterCallback, (void*)GCHandle.ToIntPtr(keepAlive));
+369:if (keepAlive.IsAllocated) { keepAlive.Free(); }
+374:if (keepAlive.IsAllocated) { keepAlive.Free(); }
+
+=== ③ IResource/WBatch/IOBatch 形状 ===
+PS> Select-String -Path GeneralResources/header/CAResource/IResource.h -Pattern "virtual|CA_BIND" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+15:virtual ~IResource() {}
+16:virtual void Serialize(ca_io::WBatch* inWriter) = 0;
+17:virtual void Deserialize(ca_io::IOBatch* inReader) = 0;
+29:virtual void Serialize(ca_io::WBatch* inWriter) override
+37:virtual void Deserialize(ca_io::IOBatch* inReader) override
+61:virtual ~IResourceReadOnly() {}
+62:virtual void Deserialize(ca_io::IOBatch* inReader) = 0;
+PS> Select-String -Path Interface/IOManager/header/IOManager/IOManager.h -Pattern "virtual bool Write|virtual void SubmitAndWait|class WBatch|class IOBatch|class io_error|virtual bool Read" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+13:class io_error : public std::runtime_error
+22:class IOBatch
+26:virtual bool Read(uint64_t readSize, void* destination) = 0;
+28:virtual void SubmitAndWait() = 0;
+40:class WBatch
+44:virtual bool Write(uint64_t readSize, void const* destination) = 0;
+46:virtual void SubmitAndWait() = 0;
+PS> Select-String -Path IOManager_FS/private/IOManager.cpp -Pattern "SubmitAndWait|Write\(|Submit\(" | Select-Object -First 12 | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+
+
+=== ④ 检查管线口径（四检查函数 + main 合并退出码 + 无单检查开关） ===
+PS> Select-String -Path Tools/CodeGen/check_bindings.py -Pattern "^def check_surface|^def check_alignment|^def check_stubs|^def check_shared_value_types|^def main|add_argument" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+542:def check_shared_value_types(product_dir: Path) -> list[str]:
+1117:def check_stubs(product_dir: Path) -> tuple[int, int, int, list[str], list[str], list[str], list[str]]:
+1237:def check_alignment(product_dir: Path) -> list[str]:
+1488:def check_surface(product_dir: Path) -> list[str]:
+1620:def check_surface_matrix(product_dir: Path) -> list[str]:
+1819:def main() -> int:
+1821:parser.add_argument("--product-dir", required=True,
+1823:parser.add_argument("--self-test-exemption", action="store_true",
+PS> Select-String -Path Tools/CodeGen/check_bindable_audit.py -Pattern "^INTERFACES|\"cawindow::IWindowSystem\"" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+
+PS> Get-ChildItem -Recurse -File -Filter bindable-audit.md | ForEach-Object { $_.FullName }
+E:\Projects\CascadedEngine\openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md
+
+=== ⑤ 宿主通道 ===
+PS> Select-String -Path Scripting/Managed/Host.cs -Pattern "GetInterfaceApi|EngineApiBindings.Tables|DllImport" | Select-Object -First 10 | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+73:if (api->Log == null || api->Echo == null || api->GetInterfaceApi == null)
+100:LogLine($"托管侧看到的 get_interface_api 地址 = {((long)api->GetInterfaceApi):X}");
+801:uint windowSize = s_api->GetInterfaceApi(InterfaceIdWindow, null, EngineApiBindings.TableVersion, 0, null, null);
+812:uint windowWritten = s_api->GetInterfaceApi(InterfaceIdWindow, null, EngineApiBindings.TableVersion, windowSize,
+855:uint systemSize = s_api->GetInterfaceApi(InterfaceIdSystem, null, EngineApiBindings.TableVersion, 0, null, null);
+863:uint systemWritten = s_api->GetInterfaceApi(InterfaceIdSystem, null, EngineApiBindings.TableVersion, systemSize,
+1075:uint backendSize = s_api->GetInterfaceApi(backendId, null, EngineApiBindings.TableVersion, 0, null, null);
+1084:uint backendWritten = s_api->GetInterfaceApi(backendId, null, EngineApiBindings.TableVersion, backendSize,
+1097:foreach (var table in EngineApiBindings.Tables)
+1104:uint size = s_api->GetInterfaceApi(table.Id, null, EngineApiBindings.TableVersion, 0, null, null);
+PS> Select-String -Path build.py -Pattern "CODEGEN_BINDINGS = |CODEGEN_REGISTRIES = |INTERFACE_ID_LOCK = |registry.part" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+1101:CODEGEN_BINDINGS = [
+1161:# 写一份 `<标签>.registry.part` 分片，全部输入跑完后由 `--emit-registry` 汇总成三份跨接口产物：
+1168:CODEGEN_REGISTRIES = [
+1175:# `native.registry.part`，聚合时只剩 WindowHandle，报"锁里有 CRenderBackend 但没写出"）。
+1195:INTERFACE_ID_LOCK = PROJECT_DIR / "Tools" / "CodeGen" / "interface-ids.lock"
+1364:cmd += ["--registry-part", tag, "--registry-part-dir", str(part_dir),
+1422:part_paths = [product_dir / f"{tag}.registry.part" for _header, tag in inputs]
+1432:cmd += ["--registry-part-file", str(path)]
+PS> Select-String -Path CSharpHost/private/CSharpHost.cpp -Pattern "新增进主登记表|kBindingPolicies\[\]" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+51:constexpr BindingPolicyEntry kBindingPolicies[] = {
+PS> Get-Content Tools/CodeGen/interface-ids.lock | Select-String -Pattern "high water" | ForEach-Object { $_.Line }
+# æ®µç”¨æ³¨é‡Šè¡Œåˆ’åˆ†ï¼ˆ# scope host / # scope fixtureï¼‰ï¼Œæ¯æ®µä¸€æ¡ # high water <è¯¥æ®µåŽ†å²æœ€é«˜å·>ã€‚
+# high water 8
+# high water 13
+
+=== ⑥ 基线锚 ===
+PS> Select-String -Path Tools/CodeGen/check_binding_baseline.py -Pattern "add_argument|def main|baseline|product-dir" | Select-Object -First 12 | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+53:class Baseline:
+60:def read_baseline(path: Path) -> Baseline:
+61:baseline = Baseline()
+67:baseline.allow_new.add(line[len(ALLOW_PREFIX):].strip().replace("\\", "/"))
+71:baseline.declared_count = int(count_match.group(1))
+79:if rel in baseline.entries:
+81:baseline.entries[rel] = digest
+82:return baseline
+101:def compare(baseline: Baseline, product_dir: Path) -> tuple[list[str], list[str], list[str]]:
+107:for rel, expected in sorted(baseline.entries.items()):
+116:if rel not in baseline.entries and rel not in baseline.allow_new:
+131:def load_checked(path: Path, product_dir: Path) -> tuple[Baseline, list[str], list[str], list[str]]:
+PS> Get-Content openspec/changes/csharp-reverse-interface-binding/../../..\Tools\CodeGen\binding-baseline.txt -ErrorAction SilentlyContinue | Measure-Object -Line | ForEach-Object { "binding-baseline.txt 行数 = $($_.Lines)" }
+binding-baseline.txt 行数 = 0
+PS> Get-ChildItem Tools/CodeGen -File | Where-Object { $_.Name -like "*baseline*" } | ForEach-Object { "$($_.Name) $($_.Length) 字节" }
+check_binding_baseline.py 9162 字节
+
+=== ⑦ ResourceManagingSystem 实现 ===
+PS> Get-ChildItem -Recurse -File -Filter "ResourceManagingSystem.cpp" | ForEach-Object { $_.FullName }
+
+PS> Select-String -Path GeneralResources/private/ResourceImportingSystem.cpp -Pattern "ResourceManagingSystem_Impl|m_PathToResource|GetOrLoadResource|GetOrNewResource" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+132:class ResourceManagingSystem_Impl : public ResourceManagingSystem
+147:m_PathToResource.for_each([&](cacore::PathHash const& key, castl::shared_ptr<IResource>& val)
+168:castl::shared_ptr<IResource> GetOrLoadResource(cacore::PathHash const& path
+171:auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
+181:castl::shared_ptr<IResource> GetOrNewResource(cacore::PathHash const& path
+184:auto result = m_PathToResource.get_or_create(path, [&](auto& pathObj)
+195:castl::shared_dic<cacore::PathHash, castl::shared_ptr<IResource>> m_PathToResource;
+211:return new ResourceManagingSystem_Impl();
+223:CA_MODULE_INSTANCE(resource_management::ResourceManagingSystem, resource_management::ResourceManagingSystem_Impl, ResourceManagingSystem);
+PS> Select-String -Path GeneralResources/header/CAResource/ResourceManagingSystem.h -Pattern "virtual|template" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+16:virtual void Initialize(castl::shared_ptr<ca_io::IOManager> ioManager) = 0;
+17:virtual void SerializeAll() = 0;
+18:virtual void SetResourceRootPath(castl::string const& path) = 0;
+19:virtual castl::string GetResourceRootPath() const = 0;
+20:virtual castl::string GetResourceFullPath(castl::string const& path) const = 0;
+22:virtual castl::shared_ptr<IResource> GetOrLoadResource(cacore::PathHash const& path
+24:virtual castl::shared_ptr<IResource> GetOrNewResource(cacore::PathHash const& path
+27:template<typename TRes>
+41:template<typename TRes>
+49:template<typename TRes, typename...TArgs>
+63:template<typename TRes, typename...TArgs>
+
+=== ③ 补：空批 SubmitAndWait 直接 return / Write(0) 不入队（design D4 的实测前提） ===
+PS> Select-String -Path IOManager_FS/IOManager.cpp -Pattern "if \(rwSize == 0u\)|if \(m_Batchs.IsEmpty\(\)\)|bool IsEmpty" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+137:if (rwSize == 0u)
+184:return m_Chunks.empty();
+341:if (m_Batchs.IsEmpty())
+405:if (m_Batchs.IsEmpty())
+
+（137 行在 BatchCache::AppendRange 里立刻 return ⇒ Write(0) 不入队；341/405 行在两个 SubmitAndWait
+ 开头，空批直接 return ⇒ 不打开文件、不抛。结论：失败判据 MUST NOT 用"文件字节不变"——空真。）
+
+=== ⑤ 补：登记分片只在 CODEGEN_BINDINGS 循环里写 ===
+PS> Select-String -Path build.py -Pattern "registry_membership|--registry-part" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+1360:for part_dir, scope, tag in registry_membership.get(header, []):
+1361:cmd += ["--registry-part", tag, "--registry-part-dir", str(part_dir),
+（分片是 --emit-binding 那一轮写的；header 只有出现在 CODEGEN_BINDINGS 里才会被跑，所以反向头必须
+ 同时进 CODEGEN_BINDINGS 与 CODEGEN_REGISTRIES。）
+
+=== ⑦ 补：ResourceManagingSystem 的两条 protected 纯虚（"公开面只有模板"是错的） ===
+PS> Select-String -Path GeneralResources/header/CAResource/ResourceManagingSystem.h -Pattern "protected:|GetOrLoadResource|GetOrNewResource" | ForEach-Object { "$($_.LineNumber):$($_.Line.Trim())" }
+（见上方命令输出：public 段是 5 个纯虚 + 模板；protected 段是 GetOrLoadResource / GetOrNewResource
+ 两条纯虚。实现类 ResourceManagingSystem_Impl 与 m_PathToResource 在
+ GeneralResources/private/ResourceImportingSystem.cpp，全仓无 ResourceManagingSystem.cpp。）

@@ -19,9 +19,10 @@ C ABI 面现有四类（blittable/视图/句柄/单回调函数指针+user）。
 
 **修订——单一强所有者，C# 拿借用句柄**：
 - **释放回调**：glue releaseUser(void* user) 指向托管桥释放方法（GCHandle.FromIntPtr(user).Free()）。代理析构调 releaseUser → 托管桥 Free（唯一 Free 在托管侧，C++ 不直接调 GCHandle.Free）。
-- **工厂代理**：工厂注册表持工厂代理 shared_ptr（**单一强所有者**）。RegisterFactory 收**句柄**（不是裸指针），注册表反查句柄表重建 shared_ptr 持有；C# 工厂句柄是**借用**（kind 4，不持强引用）。注销工厂 → 注册表释放 → 代理析构 → releaseUser → Free。
-- **资源代理**：ResourceManagingSystem 注册表持资源代理 shared_ptr（**单一强所有者**）。C# 资源句柄是**借用**（kind 4），由注册表发行。C# Dispose → 释放借用句柄（句柄表那项失效报 1001），**注册表仍持**（ReverseKeepAliveCount 不归零、按路径仍取回同一实例）；注册表释放资源 → 代理析构 → releaseUser → Free → 计数归零。
-- **句柄表 MUST NOT 对代理另持强引用**（避免双重所有）：代理强引用只在注册表（工厂注册表/资源注册表），句柄表对代理是借用项。
+- **跨模块约束（apply 期间发现，round3 修正）**：BindingHandleTable.h 是生成在头里的 inline 函数 + 函数级 static ⇒ **EXE 与 DLL 各有一份表**。反向代理由 CSharpHost.dll 的 __CreateImpl 创建、句柄登记在 CSharpHost 的表；tester.exe include 同一份产物解析到自己那份表，跨模块"反查重建 shared_ptr"走不通（shared_ptr 也不能跨模块传）。故注册 MUST 用**句柄 + 借用指针 + 释放回调**，不用 shared_ptr 重建。
+- **工厂代理**：**单一强所有者是创建模块（CSharpHost）的句柄表**。反向 Api_v2 追加 ResolveImpl 槽（`void* (*ResolveImpl)(uint64_t handle)`，在创建模块里按句柄解析借用指针）。RegisterFactory(typeName, **handle, IResourceFactory* borrowed, int32_t (*release)(uint64_t)**)：注册表**保留句柄**（不丢）+ 持借用指针（生命周期随注册表）；注销/替换调 release(handle)（CSharpHost __ReleaseImpl 返 int32_t：0 成功/1001 已失效，与 C# Dispose 同口径，保可观测 → 掉强引用 → 代理析构 → releaseUser → Free）。GetFactory 返回借用裸指针。C# 工厂句柄是借用（kind 4）。**工厂代理由 CreateImpl 创建为强句柄（kind 1，句柄表持强引用）**，故跨模块注册用借用+释放回调（注册表在 tester.exe 不能持 CSharpHost.dll 代理的 shared_ptr）。
+- **资源代理（与工厂不同）**：资源代理由 **CreateProxy 创建为借用句柄（kind 4，句柄表不持强引用）**，故**资源注册表是资源对象的单一强所有者**——RegisterResource(path, **shared_ptr<IResource>**)（注册表持 shared_ptr(ptr, delete)，**不用** handle+borrowed+release，那会造出第二所有者：kind 4 的 ReleaseImpl 只清表项不 delete → 泄漏）。代理析构时自己退役借用句柄。C# Dispose 释放借用句柄（报 1001），注册表仍持（ReverseKeepAliveCount 不归零、按路径仍取回同一实例）；ReleaseResource → 注册表 shared_ptr 释放 → 代理析构 → releaseUser → Free → 计数归零 + 退役借用句柄。
+- **单一所有权不破**：工厂强引用在创建模块句柄表（注册表借用+释放回调）；资源强引用在资源注册表 shared_ptr（代理借用句柄）。各自单一所有者，无双重所有。
 - **寿命判据可观测**（round2 修单向断言）：ReverseKeepAliveCount 每实例 + 原生 getter，断言精确差值；"Dispose 只掉借用一份"用**两个观测**钉死：Dispose 后同一句柄解析 MUST 报 1001（借用已释放）+ 按路径 MUST 仍取回同一实例（注册表仍持）。纯泄漏（Dispose 什么都不做）则句柄不报 1001 → 红。
 - double-free 守卫：releaseUser Free 后置空；重复释放按代际拒；C# 重复 Dispose 幂等。
 
@@ -47,7 +48,7 @@ csharp-bindable-surface「用户令牌不得解引用」主语限定**原生生�
 
 **两种语言工厂**：C++ 原生继承 IResourceFactory；C# 继承 ResourceFactoryBase（反向代理）。
 
-**工厂注册表**（新增）：RegisterFactory(typeName, **句柄**)（反查重建 shared_ptr 持有，C++ 原生或 C# 代理）/ GetFactory(typeName) / 按类型构造。注册式多态取代编译期模板。
+**工厂注册表**（新增）：RegisterFactory(typeName, **handle, borrowed 指针, release 回调**)（保留句柄 + 持借用指针，跨模块不用 shared_ptr 重建，见 D2）/ GetFactory(typeName)→借用裸指针 / 按类型构造。注册式多态取代编译期模板。tester 经 IScriptHost::GetInterfaceApiForTest(9/10) 取 **CSharpHost 的**表，resolve/release/keepalive 都走表里函数指针（不调 EXE 自己那份）。
 
 **C++/C# 工厂对照判据钉死期望**（round2 修"行为一致"无读数）：两列写死期望对照表——GetResourceType 各自 ID（写死）、Create 返回有效（非空）、Serialize 字节（各自写死期望）、失败行为（都抛异常）。MUST NOT 用散文"行为一致"。
 
@@ -61,7 +62,7 @@ C++ 基类 IResource + C# 反向基类 ResourceBase。**IResource.h 加 CA_BIND_
 
 **实现文件纠正**（round2）：ResourceManagingSystem 是抽象接口（.h），**实现类 ResourceManagingSystem_Impl 与私有 m_PathToResource（shared_dic<PathHash,shared_ptr<IResource>>）在 GeneralResources/private/ResourceImportingSystem.cpp**（无 ResourceManagingSystem.cpp）。本批改 ResourceManagingSystem.h（增 RegisterResource 声明）+ ResourceImportingSystem.cpp（ResourceManagingSystem_Impl 增 RegisterResource 实现）。
 
-- 增 RegisterResource(path, shared_ptr<IResource>)：接收工厂造的对象注册进 m_PathToResource。
+- 增 RegisterResource(path, **shared_ptr<IResource>**)：资源注册表是资源对象单一强所有者（m_PathToResource 持 shared_ptr）。资源代理由 CreateProxy 创建为借用句柄（kind 4），注册表 shared_ptr(ptr, delete) 持强引用（**不用** handle+borrowed+release——kind 4 的 ReleaseImpl 只清表项不 delete 会泄漏，见 D2）。代理析构退役借用句柄。
 - **构造路径区分新建/加载**（round2 修 Deserialize 矛盾）：工厂新建 = 查工厂→Create()→shared_ptr（虚析构 deleter，**单一所有者**）→RegisterResource（**MUST NOT Deserialize**，新建对象无盘数据）；加载 = GetOrLoad→Deserialize（现有路径）。删构造路径末尾 Deserialize。
 - GetOrNewResource<TRes> 模板保留（既有 ShaderImporter_Vulkan/ShaderImporter_D12 不动）。
 - TResource 字节逻辑不变（ResourceBatchTest 红线）；IResource.h 加反向标注 + CA_BIND_SKIP 必然变。

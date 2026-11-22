@@ -1,0 +1,25 @@
+任务 8.3：基线换锚（主循环实测，csharp-bindings 换锚程序）
+记录时间：2026-11-22
+
+== 换锚程序四步 ==
+① 换锚前全绿构建：python build.py --config Debug，BUILD SUCCESSFUL（build12，A 方案反向码 scoped 后）。
+② 旧锚封存：evidence/旧锚封存件.txt（archive 2026-11-11-csharp-bindings-namespace-alignment 锚，203 条，本 change 前基线）。
+③ 新锚：evidence/新锚.txt（当前产物全集哈希，213 条 = 203 + 10 反向新增）；check_binding_baseline.py --baseline 新锚.txt --product-dir out/build/x64-debug/codegen/bindings → 缺失 0/不一致 0/多余 0（自洽）。
+④ 差异逐文件指认（旧锚 vs 当前产物）：缺失 0 / 不一致 6 / 多余 10。
+
+== 差异指认（每条能指认到换源动作）==
+不一致 6（登记产物因新号合法变化）：
+- BindingRegistry.Bindings.cpp / BindingRegistry.Bindings.h / EngineApi.Bindings.cs（宿主登记表，新增 9=IResourceFactory / 10=IResource 路由）。
+- fixture/BindingRegistry.Bindings.cpp / fixture/BindingRegistry.Bindings.h / fixture/EngineApi.Bindings.cs（夹具登记表，新增 14=IBindReverseShape）。
+多余 10（反向投影新增产物）：
+- ReverseBindingRuntime.h（反向运行时：KeepAlive/ReverseBindingError what() 前缀方案）。
+- ca_bind_fixture__IBindReverseShape.Bindings.cpp/.cs（反向夹具）。
+- resource_management__IResource.Bindings.cpp/.cs（IResource 反向：ResourceBase + 代理）。
+- resource_management__IResourceFactory.Bindings.cpp/.cs（IResourceFactory 反向：ResourceFactoryBase + 代理）。
+- fixture/fixture-reverse.registry.part / reverse-resource-factory.registry.part / reverse-resource.registry.part（反向登记分片）。
+
+== 既有正向产物不变（判据成立）==
+既有 8 接口正向产物（graphics_backend__CRenderBackend/GPUBuffer/GPUGraph/GPUTexture/ShaderStruct/WindowHandle 各 .Bindings.cpp/.cs）+ ns1/ns2 Device 夹具 + a__b__Widget 等 **不在差异列表里 = 与旧锚逐份哈希相同**。
+关键：A 方案把反向专属错误码 1012/1013 只发射进反向产物（正向两处发射循环 isReverseOnlyErrorCode 跳过），故正向产物错误表不含反向码、逐字节回到旧锚。共享错误码表全局一致性由 README 错误码表 + check_bindings.py ERROR_CODE_TABLE 保证（check_error_codes 只校验产物出现的常量与码表一致，不要求每份抄全表）。
+
+结论：8.3 判据满足——旧锚封存件 + 新锚齐备；既有 8 接口正向产物逐份哈希相同；登记产物差异指认到新号 9/10/14；新增反向产物指认到反向投影；无指认不了的差异。

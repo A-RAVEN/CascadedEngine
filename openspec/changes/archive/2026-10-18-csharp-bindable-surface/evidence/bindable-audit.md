@@ -2,7 +2,7 @@
 
 **口径（csharp-native-direct-binding 任务 2.1 换面）**：审计面 = **进入绑定面的公开方法**——`CA_BIND` 接口里的公开成员函数（含非纯虚 virtual 与非虚公开方法；构造 / 析构 / 运算符不算），逐条取类体按访问标号切段后**只数 public 段**；模板方法只在同文件写了 `CA_BIND_INSTANTIATE(方法名, …)` 时计一次（生成器按声明展开具体槽，审计按方法名一行）。`CA_BIND_SKIP` 的方法仍要有行（结论写"不可绑 + 本轮未实现/理由"）。解析实现见 `Tools/CodeGen/check_bindable_audit.py` 的 `header_methods`。
 
-**范围（本批换面后）**：**9** 个接口 = 原生六类（`graphics_backend::CRenderBackend` / `graphics_backend::GPUGraph` / `graphics_backend::ShaderStruct` / `graphics_backend::GPUTexture` / `graphics_backend::WindowHandle` / `graphics_backend::GPUBuffer`）+ `graphics_backend::IReadbackToken` + 窗口两个（`cawindow::IWindow` / `cawindow::IWindowSystem`），合计 **94** 条公开方法。过渡期桥五个接口的 28 条方法随 5.1 退役移出审计面（行同时删除，不是"放过"）。旧表的 `IShaderCompilerManager` / `IOManager` / `IResource` 三块随换面移出（它们不是本批绑定面的接口，行同时删除；不是"放过"）。
+**范围（csharp-reverse-interface-binding 之后）**：**11** 个接口 = 原生六类（`graphics_backend::CRenderBackend` / `graphics_backend::GPUGraph` / `graphics_backend::ShaderStruct` / `graphics_backend::GPUTexture` / `graphics_backend::WindowHandle` / `graphics_backend::GPUBuffer`）+ `graphics_backend::IReadbackToken` + 窗口两个（`cawindow::IWindow` / `cawindow::IWindowSystem`）+ 两个**反向接口**（`resource_management::IResource` / `resource_management::IResourceFactory`，C# 实现 C++），合计 **98** 条公开方法。正反向的差别只在"谁实现"（见下面那张表），审计口径（进入绑定面的公开方法逐条一行）不变。过渡期桥五个接口的 28 条方法随 5.1 退役移出审计面（行同时删除，不是"放过"）。旧表的 `IShaderCompilerManager` / `IOManager` / `IResource` 三块随换面移出（它们不是本批绑定面的接口，行同时删除；不是"放过"）—— 其中 `IResource` 在 csharp-reverse-interface-binding 里作为**反向接口**重新进审计面，行按新形状重写。
 
 | 接口 | 方法条数 | 所在头文件 |
 |---|---|---|
@@ -15,7 +15,18 @@
 | `graphics_backend::GPUBuffer` | 3 | `Interface/RenderInterface/header/GPUBuffer.h` |
 | `cawindow::IWindow` | 23 | `WindowSystem/header/CAWindow/WindowSystem.h` |
 | `cawindow::IWindowSystem` | 16 | `WindowSystem/header/CAWindow/WindowSystem.h` |
-| **合计** | **94** | |
+| `resource_management::IResource` | 2 | `GeneralResources/header/CAResource/IResource.h` |
+| `resource_management::IResourceFactory` | 2 | `GeneralResources/header/CAResource/IResourceFactory.h` |
+| **合计** | **98** | |
+
+**谁实现（csharp-reverse-interface-binding 2.3）**：绑定面第一次出现"实现方在托管侧"的接口。主表 98 行**逐行加一列会让既有行的固定列号（`可绑性` / `理由或建议`）全部移位**，判据（`check_bindable_audit.py` 按固定下标读这两列）与人工核对都会更容易读错；所以"谁实现"按接口单列一张表，行级结论仍在主表。**这一列就是本批要求的"谁实现"列**，每个接口恰好一行。
+
+| 接口 | 谁实现 | 反向产物 | 说明 |
+|---|---|---|---|
+| `graphics_backend::CRenderBackend` / `GPUGraph` / `ShaderStruct` / `GPUTexture` / `WindowHandle` / `GPUBuffer` / `IReadbackToken` / `cawindow::IWindow` / `cawindow::IWindowSystem` | 引擎（C++） | 正向：`IDisposable` 表面类 + `<线形>Api_v2` 函数表 | C# 只调，不实现 |
+| `resource_management::IResource` | **托管侧（C#）** | 反向：`ResourceBase` 抽象基类 + `<线形>Proxy` 代理 + 注册 glue | C# 覆写 `byte[] Serialize()`；`Deserialize` 本批排除（见主表该行） |
+| `resource_management::IResourceFactory` | **托管侧（C#）**（C++ 原生也可继承 `IResourceFactory`） | 反向：`ResourceFactoryBase` 抽象基类 + `<线形>Proxy` 代理 + 注册 glue | C# 覆写 `GetResourceType()` / `ResourceBase Create()`；C++ 原生工厂走同一张工厂注册表 |
+
 
 **列定义**：`拷贝` = 该调用是否需要一次额外的内存拷贝（视图与按值不算）；`谁分配` = 过界内存的分配方（调用方给缓冲区 / 投影层分配 + 配对释放 / 引擎持有 + 只读视图 / `—` 表示不过界内存）；`可绑性` = `可绑` / `需快路` / `不可绑`；`不可绑` 必须在"理由或建议"列给出理由与建议。
 
@@ -115,11 +126,16 @@
 | `cawindow::IWindowSystem::SetKeyCallback` | `castl::function<void(IWindow*, int, int, int, int)>` | 函数指针 + `void* user` + 内部注册号 + 注销伴生；回调首参是回调期间借用的 `IWindow`，四个 `int32` 按值 | 无 | 投影层保活表（GCHandle）+ 原生注册表 | 可绑 | 替换先装后销、置空/释放同时清原生注册与保活；回调期间 `IWindow` 可调用、返回即失效；重入与跨线程拒绝；异常下次主线程上报 | 统一错误通道（1003 / 1004 / 1005） |
 | `cawindow::IWindowSystem::SetCharCallback` | `castl::function<void(IWindow*, uint32_t)>` | 函数指针 + `void* user` + 内部注册号 + 注销伴生；回调首参是回调期间借用的 `IWindow`，`uint32` 按值 | 无 | 投影层保活表（GCHandle）+ 原生注册表 | 可绑 | 替换先装后销、置空/释放同时清原生注册与保活；回调期间 `IWindow` 可调用、返回即失效；重入与跨线程拒绝；异常下次主线程上报 | 统一错误通道（1003 / 1004 / 1005） |
 | `cawindow::IWindowSystem::GetSystemNativeHandle` | 返回 `void*` | `uint64`（不透明令牌） | 无 | — | 可绑 | 借出的系统句柄，C# 只能当不透明数 | 不失败 |
+| `resource_management::IResource::Serialize` | `ca_io::WBatch*` 入参、`void` 返回（**反向**：C# 实现 `byte[] Serialize()`） | 函数表 + `void* user`：两段式 `SerializeLen(user)` + `SerializeCopy(user, dst, cap)`；代理分配缓冲 → `Write(实际写入数)` → `SubmitAndWait`（与 `TResource` 同构，批不跨界） | 一次（托管字节 → 原生缓冲） | 代理分配 + 批提交 | 可绑（反向） | csharp-reverse-interface-binding D6：C# 返回的 `{0xDE,0xAD,0xBE,0xEF}` 逐字节写进批；失败（C# 抛异常 / 非注册线程）→ 长度哨兵 `UINT64_MAX` → 代理中止且**不写**，错误落槽、下一次注册线程调用抛出 | 错误码（1012 反向实现异常 / 1005 非注册线程）；下一次调用抛 `cascaded_reverse::ReverseBindingError` |
+| `resource_management::IResource::Deserialize` | `ca_io::IOBatch*` 入参 | `—（不暴露）` | — | — | **不可绑** | 本轮未实现：`IOBatch` 问不到剩余长度（`IResource.h` 逐字"IOBatch 问不到剩余长度"），反向读要先加长度查询（改接口 + 两实现 + 两测试桩）。`CA_BIND_SKIP(Deserialize, "本批不支持反向读，另立批")`；代理的 `Deserialize` 抛 1013 | 不暴露（无入口）；代理抛 `ReverseBindingError(1013)` |
+| `resource_management::IResourceFactory::GetResourceType` | 返回 `castl::string`（**反向**） | 两段式 `<方法>Len(user)` + `Copy<方法>(user, dst, cap)`（UTF-8）；C# 公开方法返回 `string` | 一次（托管字符串 → 原生缓冲） | 代理分配（按长度问两次） | 可绑（反向） | 类型名由 C# 工厂给定；工厂注册表按这个字符串登记与查找 | 错误码（1012）；下一次调用抛 `ReverseBindingError` |
+| `resource_management::IResourceFactory::Create` | 返回 `IResource*` 无参（**反向**） | 函数表槽返回 `void*`（C# 桥里先把 `ResourceBase` 包成原生 `IResourceProxy`，再把裸指针交回）；C# 公开方法返回 `ResourceBase` | 无 | 资源注册表（`shared_ptr` 单一所有者） | 可绑（反向） | 反向工厂只构造对象，注册由系统负责；Create 失败 MUST 抛异常（C# 返回 null 也转成异常），系统在包 `shared_ptr` / `RegisterResource` 前检查空指针，MUST NOT 注册空资源 | Create 抛 `resource_management::resource_creation_error`（含反向标识与原始文本）；Tester 用 `HasResource` 读数验"没注册空" |
 
-## 汇总：不可绑清单（本批换面后 11 条：④ 2 条 + 本轮未实现 9 条）
+## 汇总：不可绑清单（csharp-reverse-interface-binding 之后 12 条：④ 2 条 + 本轮未实现 10 条）
 
 | 接口::方法 | 属于哪一类不可投影 | 处置建议 | 归属哪个后续 change |
 |---|---|---|---|
+| `resource_management::IResource::Deserialize` | 本轮未实现（`IOBatch` 问不到剩余长度，反向读要先加长度查询） | 代理抛 1013；读回仍走 `TResource` | 资源读路径批（加 `IOBatch` 长度查询） |
 | `graphics_backend::CRenderBackend::Release` | ④ 语义越界 | 不暴露；脚本侧释放走托管 `Dispose` | 无（规则即结论） |
 | `graphics_backend::CRenderBackend::RunTestCode` | ④ 语义越界（测试专用入口） | 不暴露 | 无（规则即结论） |
 | `graphics_backend::CRenderBackend::ExecuteGraphTimed` | 本轮未实现（返回 `unique_ptr<IGPUGraphTiming>` 要连带第五接口一起放门） | 不暴露；计时批另立时连 `IGPUGraphTiming` 一起进表 | 计时/查询批 |

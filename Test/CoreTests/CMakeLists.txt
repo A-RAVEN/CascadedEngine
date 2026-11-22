@@ -21,7 +21,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE CAGeneralReourceSystem_Interface)
 # (Tools/CodeGen/TestEmit.h) + the emitted reflection next to the fixtures' OWNER module. 归属目录决定产物
 # 落在哪：夹具的头在 Tools/CodeGen 下，但消费它的编译单元在这个模块里，所以产物跟着这个模块走 ——
 # 出仓之后它在构建目录的 `codegen/Test_CoreTests/`，源码树里没有 `generated/` 了。
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/Tools/CodeGen ${CMAKE_BINARY_DIR}/codegen/Test_CoreTests ${CMAKE_BINARY_DIR}/codegen/bindings ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/private ${CMAKE_BINARY_DIR}/codegen/Interface_RenderInterface ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/header)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/Tools/CodeGen ${CMAKE_BINARY_DIR}/codegen/Test_CoreTests ${CMAKE_BINARY_DIR}/codegen/bindings ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/private ${CMAKE_BINARY_DIR}/codegen/Interface_RenderInterface ${CMAKE_SOURCE_DIR}/Interface/RenderInterface/header ${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource)
 # 5.1：桥的独立静态库与桥测试件已退役；CoreTests 仍直接 include 真实引擎头的**生成产物**
 # （`BindingsNativeSurfaceTest.cpp` 等），所以下面这几个接口目录保留。`RenderThreadData` 提供
 # `ResourceHandleKeyData::Create` 用到的 `ThreadID::Get` / `ThreadLocalID::Get`（桥静态库删除后

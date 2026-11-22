@@ -1,0 +1,75 @@
+检查管线反向感知的改前/改后对照（csharp-reverse-interface-binding 2.1）
+
+对照方法：**同一份既有产物目录**（改动前生成的正向产物，197 个文件）上逐条跑单检查。
+正向判据 MUST 一个字不动 ⇒ 六条都必须仍然 0 处问题。
+
+=== 六条正向单检查（改后代码、改前产物） ===
+surface : exit=0 ; surface 问题 0 处
+alignment : exit=0 ; alignment 问题 0 处
+stubs : exit=0 ; stubs 问题 0 处
+shared_value_types : exit=0 ; shared_value_types 问题 0 处
+error_codes : exit=0 ; error_codes 问题 0 处
+coverage : exit=0 ; coverage 问题 0 处
+
+=== 改后 full 模式（含新增的反向判据）===
+python :   第 24 行：产物里没有 ca_bind_fixture__IBindReverseShape__CreateImpl
+At line:7 char:9
++ $full = python Tools/CodeGen/check_bindings.py --product-dir out/buil ...
++         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (  第 24 行：产物里没有 ...ape__CreateImpl:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+反向基类检查没有命中任何反向产物（空扫不恒真，判红）
+产物目录 E:\Projects\CascadedEngine\out\build\x64-debug\codegen\bindings
+矩阵行数 24 / 有夹具的行数 24 / 真实接口行 7 / 签名行 102 / 非签名行（拒绝或错误码）0
+不符数 1
+两侧对齐问题 0 处
+被判真实接口：a__b__Widget, a_b__Widget, ca_bind_fixture__BindNativeObject, ca_bind_fixture__IBindFoundation, ca_bind_fixture__IBindNativeShape, ca_bind_fixture__IBindRegistry8, ca_bind_fixture__IBindRegistry9, ca_bind_fixture__IBindRenderOwner, ca_bind_fixture__IBindRenderResource, ca_bind_fixture__IBindRenderResourceAlt, ca_bind_fixture__IBindRow01, ca_bind_fixture__IBindRow02, ca_bind_fixture__IBindRow03, ca_bind_fixture__IBindRow04, ca_bind_fixture__IBindRow05, ca_bind_fixture__IBindRow06, ca_bind_fixture__IBindRow07, ca_bind_fixture__IBindRow08, ca_bind_fixture__IBindRow09, ca_bind_fixture__IBindRow10, ca_bind_fixture__IBindRow11, ca_bind_fixture__IBindRow12, ca_bind_fixture__IBindRow13, ca_bind_fixture__IBindRow14, ca_bind_fixture__IBindRow15, ca_bind_fixture__IBindRow16, ca_bind_fixture__IBindRow17, ca_bind_fixture__IBindRow18, ca_bind_fixture__IBindRow19, ca_bind_fixture__IBindRow20, ca_bind_fixture__IBindRow21, ca_bind_fixture__IBindRow22, cawindow__IWindow, cawindow__IWindowSystem, graphics_backend__CRenderBackend, graphics_backend__GPUBuffer, graphics_backend__GPUGraph, graphics_backend__GPUTexture, graphics_backend__ShaderStruct, graphics_backend__WindowHandle, ns1__Device, ns2__Device
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+夹具接口 34 个、桩数 4 个、丢返回值 0 个（桩只打印，丢返回值参与判定）
+覆盖率问题 0 处
+托管表面问题 0 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+夹具识别问题 0 处
+渲染基础表面问题 0 处
+原生形态夹具问题 0 处
+反向基类问题 1 处（扫描命中反向基类文件 0 个）
+反向两侧对齐问题 0 处
+反向代理空体问题 0 处
+登记表问题 0 处
+夹具登记表问题 0 处
+[exit 1]
+
+说明：full 现在多出"反向基类/反向对齐/反向空体"三条**新增**判据；反向产物还没生成时
+"反向基类检查没有命中任何反向产物（空扫不恒真）"按设计判红 —— 这是新增判据的预期红态，
+不是正向判据回归（上面六条单检查全绿就是正向未改的证据）。
+构建后同一目录会出现 3 个反向产物，full 将转绿；见下面"改后 full（反向产物已生成）"。
+
+=== 改后 full（反向产物已生成，日志 rev-build5 之后复跑）===
+矩阵行数 24 / 有夹具的行数 24 / 真实接口行 7 / 签名行 102 / 非签名行（拒绝或错误码）0
+不符数 0
+两侧对齐问题 0 处
+真实接口桩数 0 / 丢返回值 0 / 结构问题 0
+覆盖率问题 0 处
+托管表面问题 0 处
+第二张矩阵问题 0 处
+错误码问题 0 处
+共享值类型问题 0 处
+共享值类型限定名问题 0 处
+夹具识别问题 0 处
+渲染基础表面问题 0 处
+原生形态夹具问题 0 处
+反向基类问题 0 处（扫描命中反向基类文件 3 个）
+反向两侧对齐问题 0 处
+反向代理空体问题 0 处
+登记表问题 0 处
+夹具登记表问题 0 处
+[exit 0]
+
+对照结论：同一批正向产物上，六条正向单检查（surface/alignment/stubs/shared_value_types/error_codes/
+coverage）改前改后都是 0 处问题；反向产物出现后 full 从"空扫红"转绿，且第 24 行（反向投影矩阵行）
+从"产物里没有 …CreateImpl"变成 `不符数 0`。这就是 design D9 要求的"替代判据、正向判据不动"的改前/改后对照。
+

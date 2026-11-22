@@ -33,7 +33,10 @@ target_include_directories(${PROJECT_NAME} PUBLIC header)
 # 模型生成步骤写出）与它们 include 的接口头：这个模块直接编译这些产物，所以自己就带着函数表与 thunk。
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/codegen/bindings
-    ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow)
+    ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow
+    # csharp-reverse-interface-binding 7.1：反向资源产物 `#include "IResource.h"` 按基名找头
+    # （与所有正向产物同一规则），所以 `CAResource` 目录要在这个目标上可见。
+    ${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ScriptHost)
 # 5.1：桥退役后宿主直持原生后端（Rendering 的 `CRenderBackend` 实例），登记为编号 3。

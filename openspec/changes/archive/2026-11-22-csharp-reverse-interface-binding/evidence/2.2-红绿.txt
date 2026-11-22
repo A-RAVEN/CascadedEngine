@@ -1,0 +1,26 @@
+检查管线反向感知的红绿（csharp-reverse-interface-binding 2.1 / 2.2）
+
+判据：python Tools/CodeGen/check_bindings.py --product-dir <目录> --only reverse_base
+（--only 是本批新增的单检查入口；此前 main 只有合并退出码，反向基类的红绿没法独立跑。）
+
+=== 绿态：三个真实反向基类（resource_management__IResource / IResourceFactory / ca_bind_fixture__IBindReverseShape） ===
+扫描命中反向基类文件 3 个
+reverse_base 问题 0 处
+[exit 0]
+
+=== 红态：把同一份产物复制到 %TEMP%，只在 ResourceBase 里塞一行 `public void* Bad;` ===
+  IResource（反向基类）：public 类型 `ResourceBase` 里出现了 `void*`
+扫描命中反向基类文件 3 个
+reverse_base 问题 1 处
+[exit 1]
+
+结论：干净态 exit 0 且"扫描命中反向基类文件 3 个"（空扫不恒真，判红）；塞一个 public void* ⇒ 非零退出并
+点名 resource_management__IResource 的公开抽象基类。临时目录跑完即删，构建产物未被改动。
+
+附：同一份产物上的另两条反向判据（正面读数）
+reverse_alignment 问题 0 处   [exit 0]
+reverse_stubs 问题 0 处       [exit 0]
+
+（历史红态：本判据第一版曾把公开基类里的 `internal ulong __BorrowHandle` 当成"句柄形态参数"判红 3 处 ——
+修法是**把状态搬进 internal 桥的 ConditionalWeakTable、公开基类零字段**，并把 ulong 判据限定在公开成员行；
+不是靠改字段名绕过。）

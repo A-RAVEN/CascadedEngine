@@ -36,7 +36,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE dbghelp)
 # 目录与 CSharpHost/CMakeLists.txt 里那条一致（同一个生成步骤写出的）。
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/codegen/bindings
-    ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow)
+    ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow
+    # csharp-reverse-interface-binding 8.1：反向资源产物按基名 include `IResource.h`（同上）。
+    ${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource)
 
 #target_link_libraries(${PROJECT_NAME} PRIVATE IOManager_FS)
 

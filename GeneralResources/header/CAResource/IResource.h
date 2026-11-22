@@ -1,6 +1,7 @@
 #pragma once
 #include <CASTL/CAString.h>
 #include <CASTL/CAVector.h>
+#include <CodeGenMeta.h>
 #include <CodeGenSerialization.h>
 #include <IOManager/IOManager.h>
 #include <cstddef>
@@ -9,12 +10,19 @@
 
 namespace resource_management
 {
+	// 资源接口也是**反向接口**（csharp-reverse-interface-binding）：C# 继承生成的 `ResourceBase`
+	// 实现 `byte[] Serialize()`，经反向代理被 C++ 资源系统与 TResource 同构地写进批。
+	// Deserialize 本批显式排除（`CA_BIND_SKIP`，理由见方法上方）：IOBatch 问不到剩余长度，
+	// 读回路径仍走 TResource；代理的 Deserialize 抛"不支持反向读"。
+	CA_BIND_REVERSE()
 	class IResource
 	{
 	public:
 		virtual ~IResource() {}
 		virtual void Serialize(ca_io::WBatch* inWriter) = 0;
+		// 反向读本批不支持（反向实现无法从 IOBatch 得到"还剩多少字节"）：排除要写理由，另立批。
 		virtual void Deserialize(ca_io::IOBatch* inReader) = 0;
+		CA_BIND_SKIP(Deserialize, "本批不支持反向读，另立批");
 	};
 
 	// 资源的读写走 CodeGen 生成的代码：

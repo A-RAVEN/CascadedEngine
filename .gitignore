@@ -23,6 +23,9 @@ imgui.ini
 pipeline_cache.bin
 # Review-round scratch: per-round evidence dumps, probe scripts, snapshots (not deliverables).
 .review_tmp/
+# `Tools/CodeGen/README.md` 的反向投影示例 `--out-dir .review_tmp_reverse`，
+# `Tools/CodeGen/verify_readme.py` 每次校验都会照文档跑一遍并在这里写产物。
+.review_tmp_reverse/
 _synth.json
 vc140.pdb
 *_rerun.log

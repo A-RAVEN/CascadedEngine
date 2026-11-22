@@ -40,6 +40,11 @@ INTERFACES = {
     "cawindow::IWindow": ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindow"),
     "cawindow::IWindowSystem": ("WindowSystem/header/CAWindow/WindowSystem.h", "IWindowSystem"),
     # 5.1：桥五类退役，审计面不再包含它们（原生五类 + 窗口 + IReadbackToken = 8 个接口）。
+    # csharp-reverse-interface-binding 2.3：反向接口（C# 实现 C++）也进审计面。它们的"谁实现"是
+    # 托管侧（C# 继承 ResourceBase / ResourceFactoryBase），行必须与头文件里的公开方法逐条对上。
+    "resource_management::IResource": ("GeneralResources/header/CAResource/IResource.h", "IResource"),
+    "resource_management::IResourceFactory": (
+        "GeneralResources/header/CAResource/IResourceFactory.h", "IResourceFactory"),
 }
 
 
