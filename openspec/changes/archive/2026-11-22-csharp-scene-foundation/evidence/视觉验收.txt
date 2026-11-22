@@ -1,0 +1,21 @@
+任务 3.3：截图视觉验收（AGENTS §2，可见界面类必做）
+记录时间：2026-11-22
+执行：主循环（交互打开 + 置前 + 截图 + read_image 核对）
+
+一、触发方式
+- 命令：GPUBackendTester.exe --backend vulkan --test TestCSharpScene --headless 10 --show-window-seconds 30
+  （--headless 10 使用例写日志并通过；--show-window-seconds 保持窗口可见；用例注销场景后场景窗口不关，留最后一帧）。
+- 场景窗口标题「C# 场景窗口」（320x240，SceneRenderer 自建 NewWindow）；另有 C++ 建的「C# Scene」空窗口与「脚本建的窗口」，已区分不混淆。
+- 置前：EnumWindows 按进程 PID 枚举（GetWindowTextW CharSet.Unicode），找标题含「场景窗口」的可见窗，ShowWindow(SW_RESTORE)+SetForegroundWindow。
+
+二、截图核对（read_image 逐字看过）
+截图：视觉验收-场景窗口.png（desktop-20261122-134237-526.png，全屏 2560x1600）
+画面：「C# 场景窗口」内 **蓝色背景 + 中央大红色三角形 + 右上角小绿色三角形**——与离屏捕获 PNG（3.2-离屏捕获-fresh/loaded.png）一致：两实体、Position/Scale 已施加、Rotation 未施加（三角形正立）。
+结论：场景真实驱动渲染并在可见窗口展示，视觉验收通过。
+
+三、环境说明（诚实登记）
+- 本机有 GameViewer Virtual Display Adapter（虚拟显示）+ NVIDIA RTX 4070。**headless 模式**窗口不上屏（屏幕捕获抓不到 Vulkan flip 内容，editor-window-panel 批已实测）；**交互模式**（--show-window-seconds）窗口真实呈现，屏幕捕获可见（本截图与 editor 批交互截图均证实）。
+- 故 3.3 用交互模式截图成功；离屏捕获 PNG（headless Readback）作为像素判据的确定性证据互补。两者一致。
+
+四、与自动化判据关系
+TestCSharpScene 像素判据（离屏 Readback 中心精确红）两后端 pass + 两档红态可失败；本视觉验收补「用户打开真实可见」一层。三者互补。

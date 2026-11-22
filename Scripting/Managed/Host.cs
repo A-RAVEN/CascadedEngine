@@ -6,6 +6,9 @@ using Scripting.Generated.Bindings.Cawindow;
 using Scripting.Generated.Bindings.GraphicsBackend;
 using Scripting.Generated.Bindings.CaBindFixture;
 using Scripting.Generated.Bindings.Shadercompilerslang;
+// csharp-scene-foundation 2.3：场景框架在子命名空间 Scripting.Managed.Scene 里；本文件命名空间是
+// Scripting.Managed，裸写 `Scene` 会解析成那个子命名空间，所以按别名引命名空间。
+using SceneNS = Scripting.Managed.Scene;
 
 namespace Scripting.Managed
 {
@@ -235,6 +238,8 @@ namespace Scripting.Managed
                 LogShutdownStep("2/4 纹理表面对象");
                 UserScript.ReleaseTextureSurfaces();
                 LogShutdownStep("3/4 图 → 离屏目标");
+                // csharp-scene-foundation 2.3：场景运行时的图 / 离屏目标 / 窗口目标也必须在后端表面之前释放。
+                SceneNS.SceneRuntime.ReleaseSurfaces();
                 UserScript.ReleaseRenderSurfaces();
                 LogShutdownStep("4/4 后端表面对象");
                 if (s_renderBackend != null)
@@ -325,6 +330,19 @@ namespace Scripting.Managed
                 else
                 {
                     ProbeWindowClose();
+                }
+                // csharp-scene-foundation 2.3 / 3.1：场景运行时的两个挂点。
+                //   ① 场景探针（只在 CASCADED_CSHARP_SCENE_PROBE=1 时做事）：注册 / 切场景，供用例逐帧驱动；
+                //   ② 场景运行时：把本帧的 deltaSeconds 传下去（此前这个值只打日志、被丢弃）。
+                //   无活动场景时 Tick 立即返回：不调钩子、不建图、不提交、不打日志（默认关零行为）。
+                //   位置在 `EditorService.Tick` 之后 —— 探针先注册、同一帧就能翻译成图。
+                RunSceneProbe();
+                SceneNS.SceneRuntime.Attach(s_renderBackend, s_system, s_window);
+                SceneNS.SceneRuntime.Tick(deltaSeconds);
+                if (SceneProbeEnabled)
+                {
+                    // 本帧完成后的状态读数（用例按最后一行核对计数 / 图 / 捕获目标 / 顶点）。
+                    SceneNS.SceneProbe.EmitState("scene-state");
                 }
                 return s_tickCount; // 回值就是本次是第几次 Tick，引擎侧据此逐字比对
             }
@@ -818,6 +836,9 @@ namespace Scripting.Managed
             // 本 change 任务 4.1：作废前先 `Dispose` 旧表面对象，由它注销仍存活的回调、释放 GCHandle。
             // 渲染侧同理：旧窗口上的离屏目标 / 图 / 窗口目标不能跨重绑继续用。
             UserScript.ReleaseRenderSurfaces();
+            // csharp-scene-foundation 2.3：场景运行时的图 / 目标绑在旧后端 / 旧窗口上，一起作废
+            // （重绑之后 `Attach` 会把新的后端与窗口交过来，下一帧按需重建）。
+            SceneNS.SceneRuntime.ReleaseSurfaces();
             s_renderTablesBound = false;
             if (s_renderBackend != null)
             {
@@ -1219,9 +1240,39 @@ namespace Scripting.Managed
             LogLine(UserScript.LastTextureReadings);
         }
 
+        /// <summary>
+        /// 场景用例开关（csharp-scene-foundation 3.2）：只在 `CASCADED_CSHARP_SCENE_PROBE=1` 时启用。
+        /// 这是**用例驱动**，不是产品路径：生产脚本自己调 `SceneRuntime.Register` 注册场景。
+        /// </summary>
+        private static bool SceneProbeEnabled =>
+            Environment.GetEnvironmentVariable("CASCADED_CSHARP_SCENE_PROBE") == "1";
+
+        /// <summary>
+        /// 场景探针（csharp-scene-foundation 3.2）：与四个渲染探针同形的**独立**开关，但每帧都进
+        /// （生命周期钩子的计数要跨帧递增，不能只跑一次）。未启用时零行为。
+        /// </summary>
+        private static void RunSceneProbe()
+        {
+            if (!SceneProbeEnabled)
+            {
+                return;
+            }
+            if (!s_renderTablesBound)
+            {
+                BindRenderInterfaces();
+            }
+            if (!s_renderTablesBound || s_renderBackend == null || s_window == null)
+            {
+                s_lastError = "场景探针：后端 + 五张目标类型表没有全部绑定（或 IWindow 未绑定），拒绝执行" +
+                              (s_renderBindError.Length == 0 ? string.Empty : "；绑定失败原因：" + s_renderBindError);
+                LogLine("[托管侧 场景] " + s_lastError);
+                return;
+            }
+            SceneNS.SceneProbe.Step();
+        }
+
         /// <summary>最近一次失败原因（供引擎侧在诊断里带上）；成功时为空串。</summary>
         public static string LastError => s_lastError;
-
         /// <summary>
         /// 把最近一次失败原因拷给引擎（`csharp-window-creation` 任务 2.7）。返回写入的字节数，
         /// 0 表示没有错误。没有这个导出，引擎侧的 LastError() 永远读到空串 ——
@@ -1277,6 +1328,15 @@ namespace Scripting.Managed
         /// 这样 `[编辑器 读数]` / `[编辑器 探针]` 行与既有探针读数落在同一份测试日志里。
         /// </summary>
         internal static void LogFromEditor(string text)
+        {
+            LogLine(text);
+        }
+
+        /// <summary>
+        /// 场景断言 / 场景运行时的日志出口（csharp-scene-foundation）：与编辑器那条同形 ——
+        /// 统一走宿主日志桥，`[场景 断言]` / `[托管 读数] probe=` 行才和既有探针读数落在同一份测试日志里。
+        /// </summary>
+        internal static void LogFromScene(string text)
         {
             LogLine(text);
         }

@@ -1,0 +1,3 @@
+[
+  {"name":"TestCSharpScene","status":"fail","duration_ms":183,"exit_code":1,"error":"E_SCENE_PIXEL: 像素不符：背景 (0,0,255,255)、中心 (0,0,255,255)"}
+]

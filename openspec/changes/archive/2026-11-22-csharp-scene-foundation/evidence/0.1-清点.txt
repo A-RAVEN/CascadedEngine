@@ -1,0 +1,103 @@
+csharp-scene-foundation 任务 0.1 —— 开工五项清点（命令 + 输出 + 结论）
+采集时间：2026-11-22（执行者只读检查：read / grep / Get-ChildItem；未跑 exe/构建）
+结论汇总：五项全部与 design.md 的假设相符，无需修订 design。
+
+======================================================================
+① float3 镜像形态：确认是 x / y / z 三个 public float 字段
+======================================================================
+命令（grep）：模式 "public struct float3|public float"
+  路径 out/build/x64-debug/codegen/bindings/graphics_backend__float3.Bindings.cs
+输出：
+  out\x64-debug\codegen\bindings\graphics_backend__float3.Bindings.cs
+  Line 11:     public struct float3
+  Line 13:         public float x;
+  Line 14:         public float y;
+  Line 15:         public float z;
+补充（同文件 1-17 行）：命名空间 Scripting.Generated.Bindings.GraphicsBackend；
+[StructLayout(LayoutKind.Sequential)]；注释「graphics_backend::float3 的公开记录：字段名与顺序与 C++ 声明一致」。
+结论：场景模型 Transform 三分量直接复用该公开值类型（struct，顺序布局，x/y/z），不另造私有 float3。
+与 design D1 一致。
+
+======================================================================
+② ImageHandle.FromName / BufferHandle.FromName 签名：只构造值对象，不查询不抛
+======================================================================
+命令（grep）：模式 "public static (ImageHandle|BufferHandle) FromName"
+  路径 out/build/x64-debug/codegen/bindings（include *Handle.Bindings.cs）
+输出：
+  out\build\x64-debug\codegen\bindings\graphics_backend__BufferHandle.Bindings.cs
+  Line 26:         public static BufferHandle FromName(string name)
+  out\build\x64-debug\codegen\bindings\graphics_backend__ImageHandle.Bindings.cs
+  Line 31:         public static ImageHandle FromName(string name)
+补充（ImageHandle.Bindings.cs 第 9-37 行原文要点）：
+  public sealed class ImageHandle；字段 internal readonly uint Kind / internal readonly ulong Handle / internal readonly string Name；
+  FromName 体 = return new ImageHandle(0u, 0UL, name ?? string.Empty);  —— 无 native 查询、无抛点。
+  FromGPUTexture / FromWindowHandle 才走 Token（kind 1/2）；Invalid 是 kind 3。
+  BufferHandle 同形（FromGPUBuffer / FromName / Invalid）。
+结论：FromName 只按名字建值对象，不能用来判定资源存在性 —— 这正是 design D4「Load 期验不了资源、
+资源存在性移到注册/渲染期（后端 FindRootStructData）」的源码依据。
+与 design D4 一致。
+
+======================================================================
+③ 糖层 SubmitGraph 重复提交能力 + EditorSceneView 每帧翻译先例
+======================================================================
+命令（grep）：模式 "AddTrianglePass|SubmitGraph|FindRootStructData"（NativeRenderSugar.cs）
+  + 模式 "每帧复用同一张图提交|SubmitGraph\(m_Graph\)|WaitIdle\(\)"（EditorSceneView.cs）
+输出（NativeRenderSugar.cs）：
+  Line 1449: public int SubmitGraph(ScriptRenderGraph graph)
+  Line 1459: if (!graph.Materialized)          → 已落盘则跳过 Materialize，仍然做完整校验并再执行
+  Line 1473: ShaderStructData rootStruct = FindRootStructData(plans[passIndex].ShaderPath);
+  Line 1578: internal ShaderStructData FindRootStructData(string shaderPath)
+  Line 854/871: AddTrianglePass 两个重载（整目标 / 带视口矩形），每 pass 记录 streamName+bufferName
+  Line 700-717: AddBuffer 校验字节数，BufferHandle.FromName 建句柄
+输出（EditorSceneView.cs）：
+  Line 153: "（每帧复用同一张图提交）"
+  Line 181: int status = m_Backend.SubmitGraph(m_Graph);
+  Line 187: m_Backend.WaitIdle();
+补充：SubmitGraph 第 1445-1448 行注释原文「图已经落过盘时跳过 Materialize、仍然做完整校验并再执行一次 ——
+原生 GPUGraph 允许重复 ExecuteGraph（TestSimpleTriangle 就是每帧执行同一张图）」。
+另：FindShaderRootStructData 两后端实现（RenderBackend_Vulkan.cpp:799 / RenderBackend_D3D12.cpp:462）
+都是 m_ShaderRootStructs.find(shaderPath)，未命中返回 nullptr、不打断；ShaderImporter 对每个含 __Root 的着色器
+插入一条（ShaderImporter_Vulkan.cpp:445-447 / ShaderImporter_D12.cpp:419）。
+结论：场景→图可复用糖层每帧 SubmitGraph + WaitIdle 的先例；坏着色器路径的存在性判据用
+FindRootStructData(...)==null（明确定义为「未命中返回空」），不需要新 C++ 接口。与 design D4/D6 一致。
+
+======================================================================
+④ Host.Tick 的 deltaSeconds 现状：只打日志，没有下传
+======================================================================
+命令（grep）：模式 "deltaSeconds"（Scripting/Managed/Host.cs）
+输出：
+  Scripting\Managed\Host.cs
+  Line 274:         public static int Tick(double deltaSeconds)
+  Line 294:                 LogLine($"Tick #{s_tickCount}：dt = {deltaSeconds:F3} 秒");
+结论：整个文件只有签名与那行日志两处引用 —— dt 被丢弃，与 design D5 / proposal「dt 目前只打日志」一致。
+
+======================================================================
+⑤ UserScript.OnEngineReady 与 csharp-script 主规范的一次性判据
+======================================================================
+命令（grep）：模式 "public static void OnEngineReady|CalledCount\+\+|internal static int CalledCount"（UserScript.cs）
+输出：
+  Scripting\Managed\UserScript.cs
+  Line 32:         internal static int CalledCount;
+  Line 64:         public static void OnEngineReady(IWindowSystem windows)
+  Line 66:             CalledCount++;
+命令（grep）：模式 "### Requirement|只调一次"（openspec/specs/csharp-script/spec.md）
+输出：
+  openspec\specs\csharp-script\spec.md
+  Line 6: ### Requirement: 脚本入口必须有固定签名，且只在一个时机被调用
+  Line 9: `public static void OnEngineReady(IWindowSystem windows)`。`Host.cs` SHALL 在**编号 1、2 两张函数表都绑定成功之后**（可核条件：`s_system != null`；每次绑定开始时必须先把它置空，绑定成功再赋值）调用它，且**整个进程生命周期内只调一次**。
+  Line 11: > 「只调一次」不是外部要求，是本轮的设计选择（理由见 `design.md` 的 D2：每次绑定后都调会让脚本越建越多窗口）。
+结论：既有一次性入口与判据存在且未变；本 change 的 csharp-script 增量把标题改成
+「脚本入口与生命周期钩子必须有固定签名和调用时机」，因此增量必须带 ## RENAMED Requirements
+（FROM 旧标题 / TO 新标题）+ MODIFIED 用新标题。增量工件已按此写（specs/csharp-script/spec.md 第 3-10 行）。
+与 design D5 一致。
+
+======================================================================
+⑥ 附带核实（本任务后续要用的两个事实，不是 0.1 五项之一）
+======================================================================
+(a) 既有 18 条用例基线文件（4.1 要对拍的「改前基线」，2026-11-22 03:41 生成、18 条、全 pass）：
+    test_output/result_full_vulkan.json、test_output/result_full_d3d12.json
+    条目数实测：Get-ChildItem + 匹配 "name" 计数 → result_full_d3d12.json entries=18、
+    result_full_vulkan.json entries=18（其余 result*.json 均为 1 条或更早的 16 条，不是本基线）。
+(b) 糖层「坏着色器路径」的既有报错口径（场景渲染复用同一判据）：
+    NativeRenderSugar.cs:1005  Fail("shaderPath", $"着色器路径没有登记的根结构：{shaderPath}");
+    —— 场景渲染期解析不到着色器时按同一措辞点名该路径（见 SceneRenderer.cs）。

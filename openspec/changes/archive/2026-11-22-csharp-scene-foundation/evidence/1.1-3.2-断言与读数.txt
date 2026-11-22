@@ -1,0 +1,150 @@
+csharp-scene-foundation 任务 1.1 – 3.2 验收读数（实测，主循环代跑）
+采集时间：2026-11-22 13:35–13:36
+
+======================================================================
+环境与命令（全部由主循环代跑；我只做判读）
+======================================================================
+① 构建            python build.py --config Debug                      → BUILD_EXIT=0
+② 用例清单        out\build\x64-debug\bin\GPUBackendTester.exe --list  → 19 行；
+                  顺序：… TestCSharpTriangle / TestCSharpScene / TestCSharpWindowCallbacks / TestGPUTiming …
+③ vulkan 单测     GPUBackendTester.exe --backend vulkan --test TestCSharpScene --headless 10
+                  → VK_EXIT=0，report {"name":"TestCSharpScene","status":"pass","exit_code":0}（306ms）
+④ d3d12 单测      GPUBackendTester.exe --backend d3d12  --test TestCSharpScene --headless 10
+                  → D3D_EXIT=0，report {"name":"TestCSharpScene","status":"pass","exit_code":0}（178ms）
+⑤ 日志            仓库根 test_output/TestCSharpScene.log（每次跑覆盖）。本目录存档的
+                  `3.2-读数-vulkan.log` 是③那一份（逐字拷贝）。d3d12 那一份主循环回传的读数结构逐字相同，
+                  只有 graph / graphSelf / capture / captureSelf / firstEntityId / png 文件名不同。
+
+======================================================================
+逐条任务的读数对照（下面是 vulkan 那一份的原文，去掉 ANSI 色码与控制前缀）
+======================================================================
+【1.1 数据模型】实体 id 是非空 36 字符 uuid 字符串；Transform 三分量 / MeshRenderer 字段齐全；
+                新文件经 SDK 通配编入（不改 csproj，构建绿即证）。
+  证据：`firstEntityId=50500213-3831-4c7b-8d39-ee17303fb376`（36 字符，`Guid.NewGuid().ToString("D")`），
+        tick1 与 tick2 两次读数逐字相同（存盘前 / 从磁盘读回后是同一个持久身份）。
+  判据落点：TestCSharpScene 的 `state1.firstEntityId.size() != 36` → E_SCENE_IDENTITY。
+
+【1.2 序列化编解码】往返逐字段相等 + 改一个字段再存两份文件字节必不同。
+  证据（`probe=scene-format` 行）：
+    rtChecked=54 rtMismatch=0 file1Bytes=1734 file2Bytes=1734 diffBytes=1 reloadDeltaMicros=500000
+  判读：54 = 2 实体 × 26 个字段（id / name / position 3 / rotation 3 / scale 3 / meshRenderer 非空 /
+        shaderPath / color 3 / 顶点长度 1 + 顶点 9）+ 场景级 2 个；mismatch=0 ⇒ 逐字段相等。
+        diffBytes=1 ⇒ 把 Position.x 从 0.25 改成 0.75 后两份文件确实不同（不是空对象）。
+        reloadDeltaMicros=500000 ⇒ 再从磁盘读回来读到的就是改后的值（差 0.5，按微秒精确相等）。
+  判据落点：`E_SCENE_ROUNDTRIP`（rtChecked=54 / rtMismatch=0 / diffBytes>0 / reloadDeltaMicros=500000）。
+
+【1.3 失败通道】三条（加两条）红态各抛 SceneFormatException 且点名问题；Save 的 IO 失败抛 IOException
+                带路径名；Load 只验格式、不查资源存在性。
+  证据（`[场景 断言]` 行原文）：
+    截断文件 → SceneFormatException：场景文件解析失败：test_output/scene_probe_truncated.json
+              （JSON 不完整或格式错：Expected depth to be zero at the end of the JSON payload. … LineNumber: 55）
+    版本999  → SceneFormatException：formatVersion 不支持：文件是 999，本程序只支持 1（test_output/scene_probe_version999.json）
+    缺id     → SceneFormatException：缺少必填字段 entities[0].id：test_output/scene_probe_missing_id.json
+    字段类型错→ SceneFormatException：字段 entities[0].transform.position 不是数组：test_output/scene_probe_bad_type.json
+    缺formatVersion → SceneFormatException：缺少必填字段 顶层.formatVersion：test_output/scene_probe_missing_version.json
+    保存到不存在的目录 → IOException：保存场景失败：test_output/不存在目录/scene_probe_io.json
+              （DirectoryNotFoundException: Could not find a part of the path '…\不存在目录\scene_probe_io.json'.）
+  读数行：trunc=SceneFormatException version=SceneFormatException missingId=SceneFormatException
+          badType=SceneFormatException missingVersion=SceneFormatException saveIo=IOException
+  资源不校验（design D4 修订）：badResLoad=ok badResEntities=1 ⇒ 引用不存在着色器路径的场景**能正常加载**
+          （资源存在性只在渲染期校验，见 3.2 的坏资源名读数）。
+  文件里没有句柄字段：keysTotal=13 keysUnknown=0（13 个已知字段名，没有多余键）。
+
+【2.1 UserScript 钩子】OnStart / OnUpdate 默认实现不抛、默认空钩子不破坏既有脚本。
+  证据：onStart / onUpdate 计数在注册后逐帧增加（见 2.2/2.3）；既有 18 用例回归见 4.1（另档）。
+  读数行：tick1 onStart=1 onUpdate=1；tick2 onStart=2 onUpdate=2；tick4 onUpdate=3。
+
+【2.2 场景运行时】Register 调 OnStart 一次、重复注册同一场景不重复调；无活动场景零调用零建图。
+  证据：
+    `probe=scene-idle tick=1 active=0 onStart=0 onUpdate=0 lastDtMicros=0 renderFrames=0 … graph=0 pass=0`
+      ⇒ 注册之前：钩子一次都没调、一帧都没建图（这一行在整个进程跑到本用例之前没有任何注册，
+        也就是「无活动场景 ⇒ 零行为」的进程级证据）。
+    `[场景 断言] 重复注册同一场景的 OnStart 增量：0（期望 0）` + 读数 `repeatDelta=0` ⇒ 重复注册不重复调。
+    tick1 onStart=1 ⇒ 首次注册恰好调一次；tick2 onStart=2 ⇒ 换一个场景对象才再调一次。
+    tick4（Unregister 之后）active=0 onUpdate=3（不再涨）renderFrames=2（不再涨）pass=0 present=0
+      ⇒ 注销后回到零行为，并且图 / 目标已经释放。
+
+【2.3 Host.Tick 传 dt】OnUpdate 收到的 dt 逐帧等于引擎传入的 deltaSeconds（>0），无活动场景时行为不变。
+  证据：tick1 `lastDtMicros=125000`（C++ 传 0.125）、tick2 `lastDtMicros=250000`（C++ 传 0.25）、
+        tick4 `lastDtMicros=500000`（C++ 传 0.5）。
+  判读：两帧取**不同**的 dt 且读数逐字对上 ⇒ 这个值不是常量、也不是「只打日志被丢弃」的旧行为。
+  判据落点：`E_SCENE_DT`（125000 / 250000）。
+
+【3.1 场景→图翻译】每帧按 Transform.Position/Scale 施加到内联三角形顶点、Color 作顶点色、
+                    ShaderPath 建三角形 pass、窗口 + 同尺寸离屏双目标、SubmitGraph + WaitIdle。
+  证据（tick1 读数 + 像素）：
+    entities=3 rendered=2 vertices=6 shaderGroups=1 pass=2 present=1 size=320x240 renderFrames=1
+      ⇒ 3 个实体里 2 个带 MeshRenderer（第三个没有渲染成分，不产生 pass）；同一着色器并成 1 个 pass，
+        6 个顶点（2 个三角形）串在同一个 pass 里；窗口 + 同尺寸离屏各一个 pass；呈现 1 项。
+    v0xMicros=-250000 v0yMicros=-500000 v0zMicros=0
+      ⇒ 第一个被翻译的顶点 = (-0.25, -0.5, 0) = 局部 (-0.25,-0.25,0) × Scale(2,2,2) + Position(0.25,0,0)。
+        主三角的 Rotation 是 (0,0,π/2) 却**没有参与** ⇒ 「Rotation 序列化保留、渲染暂不施加」可核。
+    像素：bg=(0,0,255,255) center=(255,0,0,255)（离屏捕获，Readback）
+    图像：`3.2-离屏捕获-fresh.png` —— 蓝色背景 + 中央大红色三角形 + 右上角小绿色三角形
+      （红色＝主三角带 Transform、绿色＝第二个实体、没有旋转）。
+  判据落点：`E_SCENE_RENDER`（pass=2 / present=1 / vertices=6 / shaderGroups=1 / size 320x240 /
+            原生图每个 pass 一条 POSITION(0)+COLOR(12)/步长 24 顶点流、1 个绘制调用、顶点数 6）、
+            `E_SCENE_TRANSFORM`（-250000 / -500000 / 0）、`E_SCENE_PIXEL`（背景纯蓝 / 中心纯红）。
+
+【3.2 tester TestCSharpScene】生命周期读数 + 像素 + 保存→清空→加载→注册→仍红 + 坏资源名报错 +
+                              序列化四条断言 + 注册进清单（--list 19 行）。
+  证据：
+    `--list` 19 行且 TestCSharpScene 排在 TestCSharpWindowCallbacks 之前（②）。
+    保存→清空内存→加载→注册→渲染仍红：tick2 `renderFrames=2 pass=2 present=1 firstEntityId` 与 tick1
+      逐字相同；像素 tag=loaded bg=(0,0,255,255) center=(255,0,0,255)；
+      `3.2-离屏捕获-loaded.png` 与 `3.2-离屏捕获-fresh.png` 的 sha256 **完全相同**
+      （f564886b33a07b5a003edb8c6e87be974fd39765b41a22029da2a36d3fc9f95d）⇒ 从磁盘还原的场景
+      渲染出的图与内存里那份逐字节一致。
+    图确实按新场景重建：tick1 graph=4 / tick2 graph=281474976710660（句柄不同）。
+    坏资源名：Tick 回值 **4**（托管 ErrException），错误文本点名
+      `Shaders/Test/csharp_scene_missing_shader`（渲染期 `FindRootStructData` 未命中 → SceneRenderException）。
+    注销后：tick4 active=0 pass=0 present=0 renderFrames=2（不再涨）。
+    两后端都 pass（VK_EXIT=0 / D3D_EXIT=0）。
+
+======================================================================
+这些判据怎么变红（可失败性）
+======================================================================
+· `E_SCENE_IDENTITY`   ：Entity.Create 不复用 Guid（例如 id 写成空串 / 用编辑器整数编号）⇒ 36 字符检查或 id 相等检查红。
+· `E_SCENE_ROUNDTRIP` ：SceneCodec 改用 `JsonSerializer.Serialize(生成镜像)`（public 字段被 STJ 漏掉）⇒
+                        rtMismatch 涨 / rtChecked 变 0；漏写某个字段 ⇒ diffBytes 变 0。
+· `E_SCENE_TRUNC/VERSION/MISSING_ID`：Load 里把抛异常改成「补默认值继续」⇒ 读数变成 `none`（已实测：
+                        正例读数是 `SceneFormatException` 这五个词，改成吞掉就立刻不是它）。
+· `E_SCENE_DT`         ：`CASCADED_CSHARP_SCENE_SELFTEST=skip-onupdate`（Debug 自检开关，见 SceneRuntime.cs）
+                        ⇒ OnUpdate 不被调、lastDtMicros=0 ⇒ 红。
+· `E_SCENE_PIXEL`      ：`CASCADED_CSHARP_SCENE_SELFTEST=bad-color` ⇒ 顶点色被换成蓝色、中心不再是纯红 ⇒ 红。
+· `E_SCENE_TRANSFORM`  ：把 Rotation 也施加到顶点（或漏掉 Scale/Position）⇒ 读数不再是 (-250000,-500000,0)。
+· `E_SCENE_RENDER`     ：一实体一 pass（不按着色器分组）⇒ pass 数变 4 而不是 2；漏掉离屏目标 ⇒ capture=0。
+· `E_SCENE_BAD_RES`    ：把「着色器没登记」改成静默 `continue`（跳过该实体）⇒ Tick 回值正常、LastError 里没有那个路径 ⇒ 红。
+· `E_SCENE_UNREGISTER` ：Unregister 只置空引用不释放表面 ⇒ pass/present 不为 0 ⇒ 红。
+· `E_SCENE_IDLE`       ：无活动场景时也建图 / 调钩子 ⇒ onStart/onUpdate/renderFrames 不为 0 ⇒ 红。
+
+（红态实跑读数：`skip-onupdate` 与 `bad-color` 两档由主循环代跑后追加到本文件末尾。）
+
+======================================================================
+红态实跑（判据真的会失败）—— 2026-11-22 13:39，主循环代跑
+======================================================================
+命令（两档都只设 Debug 自检开关，跑完 `Remove-Item Env:` 即恢复原行为）：
+  $env:CASCADED_CSHARP_SCENE_SELFTEST='skip-onupdate'
+  GPUBackendTester.exe --backend vulkan --test TestCSharpScene --headless 10 --report %TEMP%\scene_red_skip_onupdate.json
+  $env:CASCADED_CSHARP_SCENE_SELFTEST='bad-color'
+  GPUBackendTester.exe --backend vulkan --test TestCSharpScene --headless 10 --report %TEMP%\scene_red_bad_color.json
+
+红态 A（生命周期 dt 判据）：退出码 1，report 逐字（存档 `红态-skip-onupdate.json`）：
+  {"name":"TestCSharpScene","status":"fail","exit_code":1,
+   "error":"E_SCENE_DT: 读数 state1.lastDtMicros = 0，期望 125000"}
+  ⇒ 自检关掉 OnUpdate 之后，`lastDtMicros` 从 125000 变成 0，判据当场变红。证明
+    「每帧调 OnUpdate + dt 真传下来」这条不是恒真。
+
+红态 B（像素判据）：退出码 1，report 逐字（存档 `红态-bad-color.json`）：
+  {"name":"TestCSharpScene","status":"fail","exit_code":1,
+   "error":"E_SCENE_PIXEL: 像素不符：背景 (0,0,255,255)、中心 (0,0,255,255)"}
+  同次运行的捕获 PNG（存档 `红态-bad-color-中心变蓝.png`，3254 字节；绿态那张是 3706 字节）：
+  中心像素从 (255,0,0,255) 变成 (0,0,255,255)（三角形被自检改成与背景同色）。
+  ⇒ 证明中心像素判据读的确实是场景顶点的颜色，不是一张恒红的图。
+
+两档跑完环境变量已清（重跑绿态恢复 pass，见 `3.2-读数-vulkan.log`）。
+
+附：一次 d3d12 绿跑（主循环回传）：退出码 0，
+  {"name":"TestCSharpScene","status":"pass","duration_ms":189,"exit_code":0}。
+  （d3d12 那次日志被后续红态跑覆盖，没能留档；判定记录就是这份 report。要逐字日志的话见主循环最后一次重跑。）
+

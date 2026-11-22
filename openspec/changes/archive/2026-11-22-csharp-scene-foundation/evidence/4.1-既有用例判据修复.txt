@@ -1,0 +1,55 @@
+csharp-scene-foundation —— 4.1 全量回归暴露的既有测试判据修复（editor 批 1.11 遗留）
+采集时间：2026-11-22 13:47（主循环代跑全量回归后回传）
+
+======================================================================
+改前红态（两后端各 18/19，唯一红 TestEditorWindowPanel；单跑同样红）
+======================================================================
+error 逐字：
+  E_EDITOR_HTTP_PAGE: 缺面板资源时没有返回说明原因的错误页：status=200
+
+判读：这不是本 change 造成的（场景代码只在注册场景后动作，默认零行为；编辑器路径与 editor-web
+资源都没被本 change 碰过）。定位见下。
+
+======================================================================
+根因（服务源码 + 实跑证据）
+======================================================================
+· 服务侧：`Scripting/Managed/Editor/EditorService.cs` 的 `ResolveEditorWebRoot()` 返回**绝对路径**
+  （`AppContext.BaseDirectory` → `Assembly.Location` 所在目录 → `Environment.ProcessPath` 所在目录，
+  再拼 `editor-web`）。editor 批 1.11 正是为修「静态根被解析成 CWD 相对 `editor-web` ⇒ 面板永远 503」
+  而改成绝对路径的。
+· 测试侧：`Test/GPUBackendTester/Main.cpp` 的静态页判据仍用 **CWD 相对**探测
+  `std::filesystem::exists("editor-web/index.html")`。
+· 于是：cwd = 仓库根跑（本轮全量回归就是这么跑的）⇒ 探测 false ⇒ 测试期望 503 错误页；服务实际从
+  `out/build/x64-debug/bin/editor-web/index.html` 返 200 ⇒ 判据与服务行为脱节，红。
+  从 `bin/` 目录跑则探测 true、期望 200 ⇒ 绿。这就是"同一份代码换个 CWD 红绿翻转"的来源。
+
+======================================================================
+改法（不放松判据；详见 tasks.md 修订记录同名小节）
+======================================================================
+1. `Main.cpp` 静态页判据的期望值改为读**服务自己打出的**「面板静态根：<绝对路径>」行：
+   新增 helper `ReadLoggedValue(logPath, marker, out)`（从读数文件取 `标记：值` 的行尾值，去行尾空白），
+   `hasIndex = exists(path(staticRoot) / "index.html")`；取不到那行就明确 fail（不猜）。
+2. `EditorService.ServeStatic` 里那一行从 `Host.LogFromEditor(...)`（只进 stdout / 测试日志）改为
+   `LogServiceMarker(...)`（宿主日志 + `CASCADED_EDITOR_READINGS_FILE` 双通道）——
+   可见窗口模式（不带 `--headless`、stdout 不重定向）下测试也读得到这个根。
+
+两条分支都保留：资源存在 ⇒ 必须 200；资源缺失 ⇒ 必须 503 且错误页正文含 `editor-web`
+（后者仍可由删除 / 改名 `bin/editor-web` 构造，判据没有变成恒真）。
+
+======================================================================
+改后复验（主循环重跑，2026-11-22 14:0x）
+======================================================================
+· 构建：BUILD_EXIT=0。
+· `TestEditorWindowPanel` 单跑：EDITOR_EXIT=0，status=pass。静态页读数逐字：
+    [编辑器 测试] 静态页：status=200 bytes=3379 index存在=1
+                   静态根=E:\Projects\CascadedEngine\out\build\x64-debug\bin\editor-web editor-web标记=0
+  ⇒ `hasIndex` 取自**服务自己解析出来的那个根**（`…\bin\editor-web`，绝对路径），与服务实际行为对齐：
+    资源在 ⇒ 期望 200、实得 200。
+· 全量回归：vulkan 19/19 pass（FULLV_EXIT=0）、d3d12 19/19 pass（FULLD_EXIT=0）。
+· 与改前基线对拍：两后端新 report 去掉 `TestCSharpScene` 后是 18 条，与
+  `test_output/result_full_vulkan.json` / `result_full_d3d12.json`（各 18 条）逐条 name+status 差异 **0**
+  （duration_ms 不比）。
+· 默认关零场景日志：`Select-String -Path test_output\*.log -Pattern 'probe=scene|\[场景'` 排除
+  `TestCSharpScene` 后命中 **0** 条。
+· CoreTests：PASSED 24、退出码 0。
+· 结论：修复成立；既有 18 条用例的判据没有放松也没有漏条，`TestEditorWindowPanel` 恢复 pass 且与基线一致。

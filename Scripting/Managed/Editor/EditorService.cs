@@ -1071,7 +1071,11 @@ namespace Scripting.Managed.Editor
             if (!s_staticRootLogged)
             {
                 s_staticRootLogged = true;
-                Host.LogFromEditor("[编辑器] 面板静态根：" + root);
+                // 走双通道（宿主日志 + 读数文件）：`TestEditorWindowPanel` 的静态页判据必须拿**服务实际用的
+                // 这个绝对路径**当期望值。用测试端自己的 CWD 相对探测会和服务不一致 —— 1.11 把静态根从
+                // CWD 相对改成绝对路径之后，cwd=仓库根时探测 false、服务却 200（那正是 editor 批遗留的
+                // hasIndex bug）；读数文件在可见窗口模式（不带 --headless）下同样可读，所以放这条通道。
+                LogServiceMarker("[编辑器] 面板静态根：" + root);
             }
             string index = Path.Combine(root, "index.html");
             if (!File.Exists(index))

@@ -1,0 +1,121 @@
+Running: TestCSharpScene
+[38;2;128;128;128m[托管侧] Tick #1：dt = 0.125 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧 渲染] 后端 + 五张目标类型表已绑定（后端实例 2739341753376）
+[0m[38;2;128;128;128m[托管侧] [脚本] OnEngineReady 调用 #1
+[0m[38;2;128;128;128m[托管侧] [脚本] 建窗：脚本建的窗口 320 x 240
+[0m[38;2;128;128;128m[托管侧] [托管侧] 窗口尺寸 = 320 x 240
+[0m[38;2;128;128;128m[托管侧] [托管侧] IWindowSystem::GetWindowCount = 2
+[0m[38;2;128;128;128m[托管侧] [托管侧] 异常码读数：IWindowException 的 Code = 1001（码表里 1001 = 句柄不可用）
+[0m[38;2;128;128;128m[托管侧] [托管侧] 失败之后紧接着成功调用：320 x 240（没有抛）
+[0m[38;2;128;128;128m[托管侧] [托管侧 GetMonitor] count=0
+[0m[38;2;128;128;128m[托管侧] [托管侧 无效显示器] id=-1 code=1006
+[0m[38;2;128;128;128m[托管侧] [托管侧 无效显示器] id=0 code=1006
+[0m[38;2;128;128;128m[托管侧] [托管侧 目标释放] disposed=ObjectDisposedException borrowedCount=2 ownerCount=2
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m[托管侧] [托管 读数] probe=scene-idle tick=1 phase=0 active=0 onStart=0 onUpdate=0 lastDtMicros=0 startScene= updateScene= repeatDelta=0 renderFrames=0 entities=0 rendered=0 vertices=0 shaderGroups=0 firstEntityId= graph=0 graphSelf=0 capture=0 captureSelf=0 size=0x0 pass=0 present=0 v0xMicros=0 v0yMicros=0 v0zMicros=0
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 截断文件 → SceneFormatException：场景文件解析失败：test_output/scene_probe_truncated.json（JSON 不完整或格式错：Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 55 | BytePositionInLine: 9.）
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 版本999 → SceneFormatException：formatVersion 不支持：文件是 999，本程序只支持 1（test_output/scene_probe_version999.json）
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 缺id → SceneFormatException：缺少必填字段 entities[0].id：test_output/scene_probe_missing_id.json
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 字段类型错 → SceneFormatException：字段 entities[0].transform.position 不是数组：test_output/scene_probe_bad_type.json
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 缺formatVersion → SceneFormatException：缺少必填字段 顶层.formatVersion：test_output/scene_probe_missing_version.json
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 保存到不存在的目录 → IOException：保存场景失败：test_output/不存在目录/scene_probe_io.json（DirectoryNotFoundException: Could not find a part of the path 'E:\Projects\CascadedEngine\test_output\不存在目录\scene_probe_io.json'.）
+[0m[38;2;128;128;128m[托管侧] [托管 读数] probe=scene-format rtChecked=54 rtMismatch=0 file1Bytes=1734 file2Bytes=1734 diffBytes=1 reloadDeltaMicros=500000 trunc=SceneFormatException version=SceneFormatException missingId=SceneFormatException badType=SceneFormatException missingVersion=SceneFormatException saveIo=IOException badResLoad=ok badResEntities=1 keysTotal=13 keysUnknown=0
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 渲染场景存盘：test_output/scene_probe_render.json
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 重复注册同一场景的 OnStart 增量：0（期望 0）
+[0m[38;2;128;128;128mSwapchain created: 320x240, 3 images, backbufferTransferSrc=1
+[0m[38;2;128;128;128mVulkanWindowHandle initialized
+[0m[38;2;128;128;128mVulkanTexture created: 320x240, format=6
+[0m[38;2;128;128;128mRenderBackend_Vulkan: ExecuteGraph entry
+[0m[38;2;128;128;128mRenderBackend_Vulkan: AquireFrameContext...
+[0m[38;2;128;128;128mRenderBackend_Vulkan: AquireFrameContext done
+[0m[38;2;128;128;128mRenderBackend_Vulkan: calling CompileAndExecute
+[0m[38;2;128;128;128mVulkanGraphExecutor: CompileAndExecute entry
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 614400, unaliased would be: 614688
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 655360, unaliased would be: 614688
+[0m[38;2;128;128;128mVulkanResourceAliasing: Replanned with real alignment, total aliased size: 655360
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 2 (size=256MB, isBuffer=true)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 1 (size=256MB, isBuffer=false)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 2: 288 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 1: 327680 bytes (blockOffset=327680)
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Allocated 4 resources via VirtualBlock aliasing
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created vertex input library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created pre-rasterization library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created fragment library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created fragment output library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Linked pipeline from 4 libraries
+[0m[38;2;128;128;128mPipelineLibraryCache: Cached pipeline for key 3264553523018261808 (total: 1)
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created vertex input library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created pre-rasterization library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created fragment library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Created fragment output library
+[0m[38;2;128;128;128mVulkanPipelineLibrary: Linked pipeline from 4 libraries
+[0m[38;2;128;128;128mPipelineLibraryCache: Cached pipeline for key 16157032798297562514 (total: 2)
+[0m[38;2;128;128;128mVulkanGraphExecutor: Execute entry, batches=3
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanGraphExecutor: Prepare=248us, Execute=3724us, Batches=0
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanResourceAliasing: Destroyed all VirtualBlocks
+[0m[38;2;128;128;128mVulkanResourceAliasing released
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager released
+[0m[38;2;128;128;128mVulkanGraphExecutor released
+[0m[38;2;128;128;128m[托管侧] [托管 读数] probe=scene-state tick=1 phase=1 active=1 onStart=1 onUpdate=1 lastDtMicros=125000 startScene=场景甲 updateScene=场景甲 repeatDelta=0 renderFrames=1 entities=3 rendered=2 vertices=6 shaderGroups=1 firstEntityId=50500213-3831-4c7b-8d39-ee17303fb376 graph=4 graphSelf=2739563104544 capture=3 captureSelf=2739733888624 size=320x240 pass=2 present=1 v0xMicros=-250000 v0yMicros=-500000 v0zMicros=0
+[0m[38;2;128;128;128m托管侧 Tick #1 回值 1（引擎侧计数与之一致）
+[0m[38;2;128;128;128mTestCSharpScene 像素：tag=fresh size=320x240 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpScene_vulkan_fresh.png
+[0m[38;2;128;128;128mTestCSharpScene：新场景渲染中心纯红、背景纯蓝（pass=2 present=1）
+[0m[38;2;128;128;128m[托管侧] Tick #2：dt = 0.250 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128mVulkanWindowHandle released
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 从磁盘加载渲染场景：test_output/scene_probe_render.json（实体 3 个）
+[0m[38;2;128;128;128mSwapchain created: 320x240, 3 images, backbufferTransferSrc=1
+[0m[38;2;128;128;128mVulkanWindowHandle initialized
+[0m[38;2;128;128;128mVulkanTexture created: 320x240, format=6
+[0m[38;2;128;128;128mRenderBackend_Vulkan: ExecuteGraph entry
+[0m[38;2;128;128;128mRenderBackend_Vulkan: AquireFrameContext...
+[0m[38;2;128;128;128mRenderBackend_Vulkan: AquireFrameContext done
+[0m[38;2;128;128;128mRenderBackend_Vulkan: calling CompileAndExecute
+[0m[38;2;128;128;128mVulkanGraphExecutor: CompileAndExecute entry
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 614400, unaliased would be: 614688
+[0m[38;2;128;128;128mVulkanResourceAliasing: Analyzed 4 resources, total aliased size: 655360, unaliased would be: 614688
+[0m[38;2;128;128;128mVulkanResourceAliasing: Replanned with real alignment, total aliased size: 655360
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 2 (size=256MB, isBuffer=true)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Created VirtualBlock for memoryType 1 (size=256MB, isBuffer=false)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 2: 288 bytes (blockOffset=0)
+[0m[38;2;128;128;128mVulkanResourceAliasing: Committed physical memory for block 1: 327680 bytes (blockOffset=327680)
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Allocated 4 resources via VirtualBlock aliasing
+[0m[38;2;128;128;128mPipelineLibraryCache: Cache hit for key 3264553523018261808
+[0m[38;2;128;128;128mPipelineLibraryCache: Cache hit for key 16157032798297562514
+[0m[38;2;128;128;128mVulkanGraphExecutor: Execute entry, batches=3
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphExecutor: RecordBatchCommands entry
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanGraphExecutor: Prepare=172us, Execute=3600us, Batches=0
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager: Released all resources
+[0m[38;2;128;128;128mVulkanResourceAliasing: Destroyed all VirtualBlocks
+[0m[38;2;128;128;128mVulkanResourceAliasing released
+[0m[38;2;128;128;128mVulkanGraphLocalResourceManager released
+[0m[38;2;128;128;128mVulkanGraphExecutor released
+[0m[38;2;128;128;128m[托管侧] [托管 读数] probe=scene-state tick=2 phase=2 active=1 onStart=2 onUpdate=2 lastDtMicros=250000 startScene=场景甲 updateScene=场景甲 repeatDelta=0 renderFrames=2 entities=3 rendered=2 vertices=6 shaderGroups=1 firstEntityId=50500213-3831-4c7b-8d39-ee17303fb376 graph=281474976710660 graphSelf=2739563101184 capture=281474976710659 captureSelf=2739651924480 size=320x240 pass=2 present=1 v0xMicros=-250000 v0yMicros=-500000 v0zMicros=0
+[0m[38;2;128;128;128m托管侧 Tick #2 回值 2（引擎侧计数与之一致）
+[0m[38;2;128;128;128mTestCSharpScene 像素：tag=loaded size=320x240 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpScene_vulkan_loaded.png
+[0m[38;2;128;128;128mTestCSharpScene：保存→清空内存→加载→注册→渲染，中心像素仍是纯红、实体 id 逐字相同
+[0m[38;2;128;128;128m[托管侧] Tick #3：dt = 0.500 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128mVulkanWindowHandle released
+[0m[38;2;128;128;128m[托管侧] Tick 抛异常：SceneRenderException: 场景渲染：实体 坏资源实体（id=1980dc01-df25-4487-9040-ca5f8eb82a1b） 引用的着色器路径没有登记：Shaders/Test/csharp_scene_missing_shader
+[0m[1m[38;2;220;020;060m
+[int __cdecl cs_script::CSharpHost::Tick(double)]
+254)
+[E:\Projects\CascadedEngine\CSharpHost\private\CSharpHost.cpp]
+托管侧 Tick 回值不符：期望 3，实际 4
+[0m[38;2;128;128;128mTestCSharpScene：坏资源名在渲染期被明确拒绝（Tick 回值 4，错误文本点名 Shaders/Test/csharp_scene_missing_shader）
+[0m[38;2;128;128;128m[托管侧] Tick #4：dt = 0.500 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m[托管侧] [场景 断言] 注销活动场景：此后 Tick 回到零行为
+[0m[38;2;128;128;128m[托管侧] [托管 读数] probe=scene-state tick=4 phase=4 active=0 onStart=3 onUpdate=3 lastDtMicros=500000 startScene=坏资源场景 updateScene=坏资源场景 repeatDelta=0 renderFrames=2 entities=0 rendered=0 vertices=0 shaderGroups=0 firstEntityId= graph=0 graphSelf=0 capture=0 captureSelf=0 size=0x0 pass=0 present=0 v0xMicros=0 v0yMicros=0 v0zMicros=0
+[0m[38;2;128;128;128m托管侧 Tick #4 回值 4（引擎侧计数与之一致）
+[0m[38;2;128;128;128mTestCSharpScene 通过：vulkan 后端序列化往返 / 失败通道 / 生命周期 / 场景渲染像素 / 坏资源名报错 / 注销零行为 全部满足
+[0m

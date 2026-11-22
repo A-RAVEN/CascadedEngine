@@ -4,7 +4,7 @@
 > 它不记任务、不记欠账、不记改动细节 —— 进度事实源只有 `openspec/changes/<change>/tasks.md`，
 > 欠账只有 `docs/TODO.md`，本文件只做指针。
 
-**最后更新**：2026-11-21
+**最后更新**：2026-11-22
 **维护规则**：见 `CLAUDE.md` 的「文档维护」一节
 
 ---
@@ -108,6 +108,8 @@
 目标：网页负责编辑器界面，C# 编辑器服务负责命令、事件、选择、撤销与编辑器对象编号，C++ 保留原生视口和引擎状态。编辑器接口与游戏脚本接口分开，资源导入、场景编辑和 GPU 诊断逐步接入同一工作流。
 
 阶段结果：使用者能够通过网页界面操作真实引擎状态，完成资源与场景编辑，并保留原生 Vulkan/D3D12 渲染。架构与首个窗口属性面板切片见 `TODO/005-web-editor.md`。
+
+**首切片已落地（2026-11-22）**：change `editor-window-panel` 22/22 完成并归档到 `openspec/changes/archive/2026-11-22-editor-window-panel/`（提交 `2ead9b0`）——单窗口分栏壳（左原生 scene view 视口 + 右 WebView2 属性面板）、本机 HttpListener/WebSocket 编辑器服务（监听线程/主线程边界、对象单调编号 + 轮询失效、协议 v1、命令级撤销）、EditorWeb 纯 TS+Vite 前端、两后端 Readback 扩 Backbuffer 呈现前受控读回（resource-readback 规范 MODIFIED，零接口签名改动）。验收：两后端 18/18 + 默认关 17 用例与基线零差异 + 绑定基线 0/0/0 + codegen 77 份逐字节全同 + **截图视觉验收**（真面板 + scene view 绿底红三角 + 协议改标题生效；视觉验收抓出并修复面板静态根 bug）。新主规范 `openspec/specs/editor-window-panel/spec.md` 生效。后续切片（多对象编辑、场景编辑、资源导入、GPU 诊断、复杂视口合并）尚未立项；场景编辑依赖阶段 5 的 C# 场景模型与序列化。
 
 ### 阶段 7：独立程序与验证游戏
 

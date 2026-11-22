@@ -1,0 +1,58 @@
+csharp-scene-foundation 任务 5.1 —— 文档与对账
+采集时间：2026-11-22 13:47（主循环代跑）
+
+======================================================================
+改了什么
+======================================================================
+1. `CSharpHost/README.md` 新增「## 场景框架（csharp-scene-foundation：阶段 5 首切片）」整节：
+   · 数据模型表（Scene / Entity / Transform / MeshRenderer 各字段与约束；持久 uuid 身份、无父子层级、
+     无句柄字段）；
+   · 场景文件格式（formatVersion = 1）—— 完整 JSON 形状 + 「只有名字 / 字符串、没有句柄数值」+
+     **6 行失败码表**（每条给抛什么异常、消息点名什么、实测原文节选）；
+   · 脚本生命周期钩子表（OnEngineReady 一次 / OnStart 注册一次 / OnUpdate 每帧 + dt 下传；默认实现；
+     激活方式 Register / Unregister；默认零行为）；
+   · 场景→图翻译（自己按宿主窗口尺寸 NewWindow、顶点 = 局部×Scale+Position、Color 作顶点色、
+     按 ShaderPath 分组的理由、**Rotation 暂不施加 / 多着色器互相清屏 / 一实体一三角形 / 窗口不关**
+     四条已知限制醒目登记、资源存在性在渲染期报错并点名）；
+   · 读数行三种（scene-idle / scene-format / scene-state）字段清单；
+   · 两个环境变量（`CASCADED_CSHARP_SCENE_PROBE` / `CASCADED_CSHARP_SCENE_SELFTEST`）。
+2. `CSharpHost/README.md` 的「## 环境变量」表补两行（同上两个开关）。
+3. `CSharpHost/README.md` 的「## 可直接复制运行的检查」补场景用例的可复制命令 + 实测读数（照抄
+   `evidence/3.2-读数-vulkan.log`）+ 两档红态命令与期望错误码。
+4. `CSharpHost/README.md` 编辑器节补一句：`面板静态根：` 那条读数同时写进 `CASCADED_EDITOR_READINGS_FILE`
+   （4.1 修既有判据时加的通道；见 `evidence/4.1-既有用例判据修复.txt`）。
+5. `docs/testing.md`：
+   · 层表「② 进程内行为」的用例数 17 → **19**，并把「C# 场景的序列化往返 / 生命周期 / 场景→图像素」
+     写进该层适合测什么；
+   · 「### ② `Test/GPUBackendTester`（18 个测试）」→ 19，清单里 `TestCSharpScene` 插在
+     `TestCSharpTriangle` 与 `TestCSharpWindowCallbacks` 之间（与 `--list` 实际顺序一致）；
+   · 新增 `TestCSharpScene` 段（四段驱动、C++ 侧判什么、序列化 54 字段 / 生命周期读数、怎么弄红、
+     证据存档路径）；
+   · 「改完代码必须跑的最小集合」补 4 条（两后端绿跑 + 两档红态）；
+   · 判定行把 17 条 → 19 条，并加上场景两档红态的错误码要求；
+   · 「层 ②：TestScriptHost（…当前全量一共 17 条）」→ 19 条。
+
+======================================================================
+对账读数（主循环代跑）
+======================================================================
+`python Tools\check_csharp_host_readme.py`
+  → **问题 0 处**，退出码 0。
+     ABI 版本 README v12 / 生成 kEngineApiVersion=12；
+     函数表大小 README 56 字节 / 生成 static_assert 56 字节；
+     接口编号表 README 8 行 / 生成头 8 项 / C# 8 个常量；
+     探针开关：代码里读到的每个 `CASCADED_*` 都在 README 环境变量表里（含本批新增的
+     `CASCADED_CSHARP_SCENE_PROBE`）。
+
+`README 示例命令可复制运行`：README 里那条
+`GPUBackendTester.exe --backend vulkan --test TestCSharpScene --headless 10 --report …` +
+`Select-String -LiteralPath 'test_output\TestCSharpScene.log' -Pattern '\[托管 读数\]|\[场景 断言\]|TestCSharpScene'`
+就是本轮实跑的同一组命令，贴出的读数逐字照抄 `evidence/3.2-读数-vulkan.log`
+（rtChecked=54 / diffBytes=1 / reloadDeltaMicros=500000 / lastDtMicros=125000 / pass=2 / v0xMicros=-250000 …）。
+
+======================================================================
+没做什么（诚实登记）
+======================================================================
+· 没有为场景框架新增独立文档文件（README 的场景节 + 数据模型 / 文件格式 / 失败码 / 钩子四张表就是
+  「场景文件格式说明」；CLAUDE.md 的文档地图要求对外说明与代码同目录，`CSharpHost/README.md` 是它的位置）。
+· 没有改 `openspec/specs/csharp-scene/spec.md` 与 `openspec/specs/csharp-script/spec.md`（归档时才同步；
+  本批只写 `openspec/changes/csharp-scene-foundation/specs/` 的增量）。

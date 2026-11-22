@@ -117,11 +117,114 @@
 
 **单窗口分栏**：`NewWindow(1280, 720, "Cascaded 编辑器")` 建**一个**窗口；`GetNativeWindowHandle` 返回 `HWND*`，解引用一次拿到父 HWND 贴 WebView2 子控制器；面板矩形 `(客户区宽-面板宽, 0, 面板宽, 客户区高)`，`controller.Bounds` 与子 HWND 位置随尺寸变化同步；左侧视口由 scene view 渲染（`Shaders/Test/TestSimpleTriangle`，72 字节顶点、绿底红三角），每帧复用同一张图 `SubmitGraph` + `WaitIdle` 并 `Present`；`set-size` 成功或窗口尺寸回调后按新视口重建捕获目标与图。`set-size` 要求宽 **> 面板宽**且高 > 0，否则 `E_INVALID_ARG`（杜绝视口宽 ≤ 0）。
 
-**WebView2 依赖与缺失行为**：NuGet `Microsoft.Web.WebView2`（版本见 `Scripting/Managed/Scripting.Managed.csproj`，`build.py` 从 NuGet 缓存显式拷 `WebView2Loader.dll`）；运行期需要 WebView2 Runtime。运行时缺失/创建失败 → 日志 `[编辑器] 禁用：…运行时缺失…` 并走关闭路径（不静默、不崩）。导航判据：`NavigationCompleted.IsSuccess` 或 `HttpStatusCode >= 100`（HTTP 错误页也算导航成功，只有网络失败才禁用）。**静态资源根**是 `bin/editor-web/`：解析顺序为 `AppContext.BaseDirectory`（非空时）→ 程序集所在目录（hostfxr 下 `Assembly.Location` = `bin/Scripting.Managed.dll`）→ 进程可执行文件目录，结果必须是绝对路径；启动后第一次请求时日志打印 `[编辑器] 面板静态根：<绝对路径>`（hostfxr 下 `AppContext.BaseDirectory` 实测为空字符串，早期实现因此退化成相对 CWD 的 `editor-web`，导致面板永远 503，已由 tasks 1.11 修复）。
+**WebView2 依赖与缺失行为**：NuGet `Microsoft.Web.WebView2`（版本见 `Scripting/Managed/Scripting.Managed.csproj`，`build.py` 从 NuGet 缓存显式拷 `WebView2Loader.dll`）；运行期需要 WebView2 Runtime。运行时缺失/创建失败 → 日志 `[编辑器] 禁用：…运行时缺失…` 并走关闭路径（不静默、不崩）。导航判据：`NavigationCompleted.IsSuccess` 或 `HttpStatusCode >= 100`（HTTP 错误页也算导航成功，只有网络失败才禁用）。**静态资源根**是 `bin/editor-web/`：解析顺序为 `AppContext.BaseDirectory`（非空时）→ 程序集所在目录（hostfxr 下 `Assembly.Location` = `bin/Scripting.Managed.dll`）→ 进程可执行文件目录，结果必须是绝对路径；启动后第一次请求时日志打印 `[编辑器] 面板静态根：<绝对路径>`（同一条也写进 `CASCADED_EDITOR_READINGS_FILE` 指定的读数文件 —— `TestEditorWindowPanel` 的静态页判据按这个**服务实际用的绝对路径**判资源在不在，不再自己按 CWD 另算一遍）；hostfxr 下 `AppContext.BaseDirectory` 实测为空字符串，早期实现因此退化成相对 CWD 的 `editor-web`，导致面板永远 503，已由 tasks 1.11 修复）。
 
 **两层像素证据**：① 离屏捕获目标 Readback 中心精确 `(255,0,0,255)`；② 窗口**真实 swapchain backbuffer 呈现前读回**视口中心精确红：`Readback(窗口 backbuffer)` 登记"下一帧 Present 前捕获" → 跑一帧含 Present 的图 → `token->Wait()`；Vulkan 走 `TRANSFER_SRC` 能力位（不含则明确拒绝返回 null token），D3D12 走 `COPY_SOURCE` 状态转换，色序按格式（Vulkan 常为 BGRA，D3D12 常为 RGBA）。屏幕捕获（WGC/BitBlt/DXGI）在本机虚拟显示适配器环境中抓不到硬件 flip 内容（原生 C++ 正控也白），已降为 `CASCADED_EDITOR_DISPLAY_PROOF=1` 的可选诊断，不参与断言。
 
 **读数行**：`[编辑器 读数] probe=editor tick=… state=… mode=main-thread port=… objects=1 invalidated=… windowSelf=… client=… panel=… viewport=… controller=… nav=… navHttp=… exec=… capture=… graphSelf=… captureSelf=… wtarget=… passes=2 presents=1 nativeCalls=… cmdRequest=… cmdCalls=…`；C++ 用例（`TestEditorWindowPanel`）据此断言分栏、视图、渲染与命令计数。
+
+## 场景框架（csharp-scene-foundation：阶段 5 首切片）
+
+`Scripting/Managed/Scene/` 七个文件，全部是 C# 层：场景数据模型、带版本 JSON 编解码、脚本生命周期钩子、
+场景运行时、场景→图翻译，以及用例驱动 `SceneProbe`。**引擎 / 后端接口与绑定面零改动**（codegen 产物逐字节不变）。
+
+### 数据模型（`Scene/Scene.cs`）
+
+| 类型 | 内容 | 约束 |
+|---|---|---|
+| `Scene` | `Name` + `Entities`（`List<Entity>`） | 首切片无父子层级、无场景设置、无相机 |
+| `Entity` | `Id` + `Name` + `Transform`（必有）+ `MeshRenderer`（可选） | `Id` = `Guid.NewGuid().ToString("D")`，**持久 uuid 字符串**；创建时生成、保存再加载逐字不变。**不复用编辑器运行期整数编号**（`EditorService.s_nextObjectId` 服务重启就变） |
+| `Transform` | `Position` / `Rotation` / `Scale`，各一个 `float3`（生成的 `GraphicsBackend.float3`，字段 `x/y/z`） | `Rotation` 是欧拉角；**序列化保留、渲染暂不施加**（见下文限制） |
+| `MeshRenderer` | `ShaderPath`（字符串）+ `Color`（`float3`）+ `Vertices`（9 个 `float`） | 顶点是**一个三角形**的局部坐标（3 顶点 × 3 分量）；顶点色不逐顶点存，整三角形用 `Color`；资源只按**名字**持久化，模型里没有任何句柄字段 |
+
+无父子层级、无通用组件容器、无任意网格 / 相机 / 材质 / 灯光 / 纹理导入 —— 这些都是后续切片（design 的 Non-Goals）。
+
+### 场景文件格式（`formatVersion = 1`）
+
+`SceneCodec.Save(scene, path)` / `SceneCodec.Load(path)`，UTF-8 JSON、缩进可读：
+
+```json
+{
+  "formatVersion": 1,
+  "scene": {
+    "name": "场景甲",
+    "entities": [
+      {
+        "id": "50500213-3831-4c7b-8d39-ee17303fb376",
+        "name": "主三角",
+        "transform": {
+          "position": [0.25, 0, 0],
+          "rotation": [0, 0, 1.5707964],
+          "scale": [2, 2, 2]
+        },
+        "meshRenderer": {
+          "shaderPath": "Shaders/Test/TestSimpleTriangle",
+          "color": [1, 0, 0],
+          "vertices": [-0.25, -0.25, 0, 0.25, -0.25, 0, 0, 0.5, 0]
+        }
+      },
+      { "id": "…", "name": "没有渲染成分", "transform": { … }, "meshRenderer": null }
+    ]
+  }
+}
+```
+
+- **编解码是手写的**（`Utf8JsonWriter` 写 / `JsonDocument` 读，逐字段显式读写与校验）。**不用** CodeGen 给 C# 发射的 codec（只覆盖跨 ABI 的 C++ 记录、`internal`、块头是类型 / 布局哈希而非文件版本、反序列化单向）；**也不用** `JsonSerializer.Serialize(生成镜像)`（生成镜像是 public **字段**，STJ 默认不序列化字段，会得到空对象）。
+- **文件里只有名字 / 字符串，没有句柄数值**：句柄是进程内 `(代际<<48)|序号` 值，不可持久化。实测往返文件里出现的字段名恰好 13 个（`formatVersion` / `scene` / `name` / `entities` / `id` / `transform` / `position` / `rotation` / `scale` / `meshRenderer` / `shaderPath` / `color` / `vertices`），多一个都算红。
+- **失败通道（显式报错，不静默）**：
+
+| 情形 | 抛什么 | 消息点名 | 实测原文（节选） |
+|---|---|---|---|
+| JSON 解析失败 / 文件截断 | `SceneFormatException` | 文件路径 + 「解析失败」 | `场景文件解析失败：test_output/scene_probe_truncated.json（JSON 不完整或格式错：… LineNumber: 55）` |
+| `formatVersion` 缺失 | `SceneFormatException` | 缺哪个字段 | `缺少必填字段 顶层.formatVersion：…` |
+| `formatVersion` 不支持（如 999） | `SceneFormatException` | 文件里是几、只支持几 | `formatVersion 不支持：文件是 999，本程序只支持 1（…）` |
+| 必填字段缺失（id / transform / …） | `SceneFormatException` | `entities[N].字段` | `缺少必填字段 entities[0].id：…` |
+| 字段类型错（如 position 不是三元数组） | `SceneFormatException` | 哪个字段、期望什么形状 | `字段 entities[0].transform.position 不是数组：…` |
+| 读不到 / 写不进文件 | `IOException` | 完整路径 | `保存场景失败：…\不存在目录\scene_probe_io.json（DirectoryNotFoundException: …）` |
+
+  一律**不返回半个场景、不静默补默认值**。**`Load` 只做格式 / 结构校验，不查资源存在性** —— Load 是纯文件操作，没有后端入口；着色器路径是否登记由**渲染期**校验（见下）。
+
+### 脚本生命周期钩子（MODIFIED `csharp-script`，additive）
+
+| 钩子 | 什么时候被调 | 默认实现 |
+|---|---|---|
+| `UserScript.OnEngineReady(IWindowSystem)` | 既有入口，两张表都绑好之后**整个进程只调一次**（判据逐字不变） | 建一个保持可见的窗口（既有行为） |
+| `UserScript.OnStart(Scene)` | `SceneRuntime.Register(scene)` 时一次；**重复注册同一个场景对象不重复调** | 只累加 `StartCount` 并记下场景名（不做事） |
+| `UserScript.OnUpdate(Scene, double dt)` | 有活动场景时**每帧**一次；`dt` 就是引擎这一帧传给 `IScriptHost::Tick` 的 `deltaSeconds`（此前只打日志、被丢弃） | 只累加 `UpdateCount` 并记下 `dt`（不做事） |
+
+- 激活方式只有一条：脚本 / 测试显式 `SceneRuntime.Register(scene)`；想停掉就 `SceneRuntime.Unregister()`。
+- **默认无活动场景 = 零行为**：不调任何钩子、不建图、不提交、不打场景日志（既有 18 条 tester 用例的 name / status 与改前基线一致，见 `docs/testing.md` 的最小集合）。
+- 绑定挂在 `Host.Tick` 里、`EditorService.Tick` **之后**：`SceneProbe`（仅开关打开时）→ `SceneRuntime.Attach(后端, 窗口系统, 宿主窗口)` → `SceneRuntime.Tick(deltaSeconds)`。`Shutdown` 与窗口重绑都会先释放场景的表面与场景窗口。
+
+### 场景→图翻译（每帧）
+
+- 场景运行时按**宿主绑定窗口的尺寸**自己 `IWindowSystem.NewWindow(width, height, "C# 场景窗口", visible:true, …)` 建场景窗口（表面带真实句柄；宿主手上那个 `IWindow` 只有实例指针、句柄为 0，拿去做 `GetWindowHandle` 会被判失效），再建一张**同尺寸离屏捕获目标**；窗口 + 离屏各一个同逻辑 pass，最后一帧 `SubmitGraph` + `WaitIdle`。
+- 顶点：内联顶点先乘 `Transform.Scale`、再加 `Transform.Position`；顶点色取该实体的 `MeshRenderer.Color`。实测第一个顶点 `(-0.25,-0.5,0)` = 局部 `(-0.25,-0.25,0)` × `Scale(2,2,2)` + `Position(0.25,0,0)`（`v0xMicros=-250000 v0yMicros=-500000 v0zMicros=0`）。
+- **按 `ShaderPath` 分组**：同一份着色器的所有三角形并进**同一个 pass**（一张顶点缓冲里串多个三角形，顶点色逐顶点给）。原因：糖层的 `AddTrianglePass` 每个 pass 的附件都是 `eAttachmentLoadOp.eClear`，同一目标上第二个 pass 会把前一个 pass 的画清掉。
+- **已知限制（醒目，首切片诚实登记）**：
+  - **`Rotation` 序列化保留，但渲染暂不施加** —— 只施加 `Position` / `Scale`（用例里主三角的 `Rotation` 是 `(0,0,π/2)`，而顶点读数仍是未旋转值，这条被断言钉住）；
+  - 一个场景里出现**两种以上 `ShaderPath`** 时，后一个分组的 pass 会清掉前一个分组的绘制（要正确合成得给糖层加「不清屏」的 additive 重载，留后续切片）；
+  - 一实体一三角形；没有相机矩阵（视口固定为整张目标）；任意网格 / 材质 / 纹理导入留后续切片；
+  - 场景窗口只建一次、**不关**（与脚本建的窗口同一弱持有约定：不 `CloseWindow()` 就活到进程退出；`Host.Shutdown` / 窗口重绑时才关）。
+- **资源存在性在渲染期校验**：建图前用后端元数据查询 `FindRootStructData(shaderPath)`，未命中就抛 `SceneRenderException` 并点名该路径（宿主转成非零返回码 `4`），**不静默跳过该实体、不假成功**。实测：引用 `Shaders/Test/csharp_scene_missing_shader` 的场景 → `Tick` 回值 `4`，错误文本点名该路径；同一份文件**能正常加载**（`Load` 不查资源，`badResLoad=ok`）。
+
+### 读数行与环境变量
+
+```
+[托管 读数] probe=scene-idle   tick=… active=0 onStart=0 onUpdate=0 renderFrames=0 …     ← 注册之前的零行为
+[托管 读数] probe=scene-format rtChecked=54 rtMismatch=0 file1Bytes=… diffBytes=… reloadDeltaMicros=500000
+                               trunc=… version=… missingId=… badType=… missingVersion=… saveIo=IOException
+                               badResLoad=ok badResEntities=1 keysTotal=13 keysUnknown=0
+[托管 读数] probe=scene-state  tick=… active=… onStart=… onUpdate=… lastDtMicros=… startScene=… renderFrames=…
+                               entities=… rendered=… vertices=… shaderGroups=… firstEntityId=…
+                               graph=… graphSelf=… capture=… captureSelf=… size=WxH pass=… present=…
+                               v0xMicros=… v0yMicros=… v0zMicros=…
+```
+
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `CASCADED_CSHARP_SCENE_PROBE=1` | 启用场景用例驱动（只有 `TestCSharpScene` 在自己的 Tick 之前设置、之后清理；生产脚本不设，注册场景走 `SceneRuntime.Register`） | 不设 |
+| `CASCADED_CSHARP_SCENE_SELFTEST` | **仅 Debug**：`skip-onupdate`（Tick 故意不调 `OnUpdate` → 用例必须 `E_SCENE_DT` 判红）/ `bad-color`（顶点色换蓝 → 中心不再是纯红 → `E_SCENE_PIXEL` 判红）；写错模式名时 `Tick` 明确报错，不静默空转 | 空串 |
 
 ## 构建
 
@@ -157,6 +260,8 @@ python build.py --config Debug
 | `CASCADED_CSHARP_BUFFER_FALLBACK=1` | **仅 Debug 演练**：7.1 的"回退到图内 `AllocBuffer`"红样开关；设置后结构化缓冲探针走按名分配、第二张图提交必败（`E_SB_CREATEBUFFER`）。生产脚本不设 | 不设 |
 | `CASCADED_CSHARP_TEX_PROBE=1` | 启用纹理采样探针；只有 `TestCSharpTextureSampling` 在自己的 Tick 之前设置、之后清理 | 不设 |
 | `CASCADED_CSHARP_TEX_SELFTEST` | **仅 Debug**：`bad-texture-color` / `unbound-image` / `unbound-sampler` 三个负向模式；C++ 侧 `TestCSharpTextureSampling` 读同一份值来核对错误码 | 空串 |
+| `CASCADED_CSHARP_SCENE_PROBE=1` | 启用场景用例驱动（场景注册 / 切场景 / 读数行）；只有 `TestCSharpScene` 在自己的 Tick 之前设置、之后清理 | 不设 |
+| `CASCADED_CSHARP_SCENE_SELFTEST` | **仅 Debug**：`skip-onupdate` / `bad-color` 两个负向模式（场景用例的红态构造）；模式名写错时 `Tick` 明确报错 | 空串 |
 | `CASCADED_EDITOR` | `1` 时启用编辑器面板服务（单窗口分栏 + WebView2 + WebSocket 命令服务）；不设时零行为（不监听、不建线程） | 不设 |
 | `CASCADED_EDITOR_PORT` | 编辑器服务监听端口（只绑 localhost） | `18390`（`1`-`65535`） |
 | `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` |
@@ -199,6 +304,49 @@ Select-String -LiteralPath $env:TEMP\csharp.out -Pattern '托管侧|IScriptHost|
 [托管侧] 回调引擎 Echo(42) 得到 43
 CSharpHost：托管运行时已就绪（加载耗时 = 43 ms；函数表 56 字节，ABI v12）
 IScriptHost 已取到：IsAvailable = true
+```
+
+跑一次场景用例，看场景读数行与像素证据（两个后端各跑一次；`test_output\TestCSharpScene_<后端>_fresh.png` /
+`_loaded.png` 是离屏捕获的 PNG，可以直接打开对照）：
+
+```powershell
+& 'out\build\x64-debug\bin\GPUBackendTester.exe' --backend vulkan --test TestCSharpScene --headless 10 --report $env:TEMP\scene_vulkan.json
+Select-String -LiteralPath 'test_output\TestCSharpScene.log' -Pattern '\[托管 读数\]|\[场景 断言\]|TestCSharpScene'
+```
+
+实测输出（vulkan，节选；逐字见 `openspec/changes/csharp-scene-foundation/evidence/3.2-读数-vulkan.log`）：
+
+```
+[托管 读数] probe=scene-idle tick=1 phase=0 active=0 onStart=0 onUpdate=0 lastDtMicros=0 … renderFrames=0 entities=0 …
+[场景 断言] 截断文件 → SceneFormatException：场景文件解析失败：test_output/scene_probe_truncated.json（JSON 不完整或格式错：…）
+[场景 断言] 版本999 → SceneFormatException：formatVersion 不支持：文件是 999，本程序只支持 1（…）
+[场景 断言] 缺id → SceneFormatException：缺少必填字段 entities[0].id：…
+[场景 断言] 保存到不存在的目录 → IOException：保存场景失败：test_output/不存在目录/scene_probe_io.json（DirectoryNotFoundException: …）
+[托管 读数] probe=scene-format rtChecked=54 rtMismatch=0 file1Bytes=1734 file2Bytes=1734 diffBytes=1
+             reloadDeltaMicros=500000 trunc=SceneFormatException version=SceneFormatException
+             missingId=SceneFormatException badType=SceneFormatException missingVersion=SceneFormatException
+             saveIo=IOException badResLoad=ok badResEntities=1 keysTotal=13 keysUnknown=0
+[场景 断言] 重复注册同一场景的 OnStart 增量：0（期望 0）
+[托管 读数] probe=scene-state tick=1 phase=1 active=1 onStart=1 onUpdate=1 lastDtMicros=125000 startScene=场景甲
+             updateScene=场景甲 repeatDelta=0 renderFrames=1 entities=3 rendered=2 vertices=6 shaderGroups=1
+             firstEntityId=50500213-3831-4c7b-8d39-ee17303fb376 graph=4 graphSelf=… capture=3 captureSelf=…
+             size=320x240 pass=2 present=1 v0xMicros=-250000 v0yMicros=-500000 v0zMicros=0
+TestCSharpScene 像素：tag=fresh size=320x240 bg=(0,0,255,255) center=(255,0,0,255) png=test_output/TestCSharpScene_vulkan_fresh.png
+[托管 读数] probe=scene-state tick=2 phase=2 active=1 onStart=2 onUpdate=2 lastDtMicros=250000 …（加载回来的场景）
+TestCSharpScene 像素：tag=loaded size=320x240 bg=(0,0,255,255) center=(255,0,0,255) png=…_loaded.png
+TestCSharpScene：坏资源名在渲染期被明确拒绝（Tick 回值 4，错误文本点名 Shaders/Test/csharp_scene_missing_shader）
+[托管 读数] probe=scene-state tick=4 phase=4 active=0 onStart=3 onUpdate=3 … renderFrames=2 entities=0 … pass=0 present=0
+TestCSharpScene 通过：vulkan 后端序列化往返 / 失败通道 / 生命周期 / 场景渲染像素 / 坏资源名报错 / 注销零行为 全部满足
+```
+
+红态（Debug 自检开关，跑完不设即恢复）：
+
+```powershell
+$env:CASCADED_CSHARP_SCENE_SELFTEST='skip-onupdate'   # 期望 status=fail，error 含 E_SCENE_DT
+& 'out\build\x64-debug\bin\GPUBackendTester.exe' --backend vulkan --test TestCSharpScene --headless 10 --report $env:TEMP\scene_red_skip_onupdate.json
+$env:CASCADED_CSHARP_SCENE_SELFTEST='bad-color'       # 期望 status=fail，error 含 E_SCENE_PIXEL
+& 'out\build\x64-debug\bin\GPUBackendTester.exe' --backend vulkan --test TestCSharpScene --headless 10 --report $env:TEMP\scene_red_bad_color.json
+Remove-Item Env:\CASCADED_CSHARP_SCENE_SELFTEST
 ```
 
 **已知限制（醒目）**：

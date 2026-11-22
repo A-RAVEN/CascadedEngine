@@ -4,6 +4,10 @@ using Scripting.Generated.Bindings.Cawindow;
 using Scripting.Generated.Bindings.GraphicsBackend;
 using Scripting.Generated.Bindings.CaBindFixture;
 using Scripting.Generated.Bindings.Shadercompilerslang;
+// csharp-scene-foundation 2.1：场景类型在子命名空间 Scripting.Managed.Scene 里，
+// 而本文件的命名空间是 Scripting.Managed —— 裸写 `Scene` 会解析成那个**子命名空间**（不是类型），
+// 所以按别名引类型（签名里的类型仍是 Scripting.Managed.Scene.Scene）。
+using SceneModel = Scripting.Managed.Scene.Scene;
 
 namespace Scripting.Managed
 {
@@ -68,6 +72,41 @@ namespace Scripting.Managed
             LastCreated = created;
             var (width, height) = created.GetWindowSize();
             LastCreatedSummary = $"{width} x {height}";
+        }
+
+        // ---- 场景生命周期钩子（csharp-scene-foundation 2.1，design D5，additive）----
+        /// <summary>`OnStart` 被调用了几次（场景运行时注册活动场景时一次）。</summary>
+        internal static int StartCount;
+        /// <summary>`OnUpdate` 被调用了几次（有活动场景时每帧一次）。</summary>
+        internal static int UpdateCount;
+        /// <summary>最近一次 `OnStart` 收到的场景名（读数用）。</summary>
+        internal static string LastStartSceneName = string.Empty;
+        /// <summary>最近一次 `OnUpdate` 收到的场景名（读数用）。</summary>
+        internal static string LastUpdateSceneName = string.Empty;
+        /// <summary>最近一次 `OnUpdate` 收到的 dt（秒）—— 引擎这一帧传下来的值。</summary>
+        internal static double LastUpdateDeltaSeconds;
+
+        /// <summary>
+        /// 场景注册钩子（design D5）：`SceneRuntime.Register(scene)` 时调一次。
+        /// **默认实现不做事**，只累加计数并记下场景名（与 `OnEngineReady` 里的 `CalledCount` 同形态）——
+        /// 既有的只实现 OnEngineReady 的脚本不受影响。
+        /// </summary>
+        public static void OnStart(SceneModel scene)
+        {
+            StartCount++;
+            LastStartSceneName = scene == null ? string.Empty : (scene.Name ?? string.Empty);
+        }
+
+        /// <summary>
+        /// 每帧钩子（design D5）：有活动场景时，`SceneRuntime.Tick` 每帧调一次。
+        /// `deltaSeconds` 就是引擎这一帧传给宿主的值（此前只打日志、被丢弃）。
+        /// **默认实现不做事**，只累加计数并记下收到的 dt 与场景名。
+        /// </summary>
+        public static void OnUpdate(SceneModel scene, double deltaSeconds)
+        {
+            UpdateCount++;
+            LastUpdateSceneName = scene == null ? string.Empty : (scene.Name ?? string.Empty);
+            LastUpdateDeltaSeconds = deltaSeconds;
         }
 
         /// <summary>

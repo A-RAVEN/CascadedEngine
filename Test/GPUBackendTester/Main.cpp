@@ -2000,6 +2000,44 @@ namespace
 		return false;
 	}
 
+	// 取日志 / 读数文件里 `标记：值` 的行尾值（标记之后到行尾，去掉行尾空白）。
+	// 用途：判据的期望值必须来自**服务自己解析出来的**那个值，而不是测试端另算一遍。
+	// 背景（editor 批 1.11 遗留）：静态根从 CWD 相对改成绝对路径（程序集 / 进程目录下的 bin/editor-web）后，
+	// `TestEditorWindowPanel` 仍用 `exists("editor-web/index.html")` 探测 —— cwd=仓库根时探测 false、
+	// 服务却返 200，判据与服务实际行为脱节（全量回归里表现为 E_EDITOR_HTTP_PAGE）。改成读这条读数。
+	bool ReadLoggedValue(char const* logPath, char const* marker, std::string* out)
+	{
+		std::fflush(stdout);
+		std::ifstream file(logPath);
+		if (!file)
+		{
+			return false;
+		}
+		const std::string needle = marker;
+		std::string line;
+		while (std::getline(file, line))
+		{
+			const std::size_t at = line.find(needle);
+			if (at == std::string::npos)
+			{
+				continue;
+			}
+			std::string value = line.substr(at + needle.size());
+			while (!value.empty() &&
+			       (value.back() == '\r' || value.back() == '\n' || value.back() == ' '))
+			{
+				value.pop_back();
+			}
+			if (value.empty())
+			{
+				continue;
+			}
+			*out = value;
+			return true;
+		}
+		return false;
+	}
+
 	// 句柄 = (代际 << 48) | 序号；测试进程里**没有**生成产物的句柄表（它在 CSharpHost 模块里），
 	// 所以对象的核对走另一个口：托管读数行给出图的原生对象地址（对象由 C# 租约与图内引用保活），
 	// 再用图里的附件 `ImageHandle` 拿到离屏纹理与窗口后台缓冲的 `shared_ptr` —— 与 C# 侧提交的
@@ -4929,7 +4967,11 @@ void TestEditorWindowPanel(TestContext& ctx)
 	CA_LOG("[编辑器 测试] ⑥ 单窗口分栏：计数 +1、控制器/导航就绪、C++ SetWindowSize 后读数同步（client=1000x640、"
 	       "viewport=680x640、panel=680,0,320,640）");
 
-	// 1.2 的静态页读数：资源没构建 ⇒ 503 + 说明"资源未构建"的错误页；构建过 ⇒ 200 + 页面本体。
+	// 1.2 的静态页读数：资源存在 ⇒ 200 + 页面本体；资源缺失 ⇒ 503 + 说明"资源未构建"的错误页。
+	// **期望值来自服务自己打出的「面板静态根：<绝对路径>」行**（读数文件，两条通道都在），
+	// 不在测试端按 CWD 另算一遍 —— 1.11 把静态根从 CWD 相对改成绝对路径之后，原来的
+	// `exists("editor-web/index.html")` 探测与服务实际行为脱节（cwd=仓库根 ⇒ 探测 false、服务 200），
+	// 那是 editor 批遗留的判据 bug，本批全量回归里以 E_EDITOR_HTTP_PAGE 暴露。
 	{
 		int status = 0;
 		std::string body;
@@ -4938,12 +4980,18 @@ void TestEditorWindowPanel(TestContext& ctx)
 		{
 			fail("E_EDITOR_HTTP", httpError);
 		}
-		const bool hasIndex = std::filesystem::exists("editor-web/index.html");
+		std::string staticRoot;
+		if (!ReadLoggedValue(readingsPath, "面板静态根：", &staticRoot))
+		{
+			fail("E_EDITOR_HTTP_PAGE",
+			     "读数文件里没有「面板静态根：」行，静态页判据的期望值无法确定（服务没走 ServeStatic？）");
+		}
+		const bool hasIndex = std::filesystem::exists(std::filesystem::path(staticRoot) / "index.html");
 		// 判据只认 ASCII 标记（"editor-web" 出现在错误页正文里）：C++ 窄字符串与 UTF-8 的编码约定不写死，
 		// 中文正文只用来看，不用来比。
 		const bool hasErrorMarker = body.find("editor-web") != std::string::npos;
-		CA_LOG("[编辑器 测试] 静态页：status={} bytes={} index存在={} editor-web标记={}", status,
-		       static_cast<long long>(body.size()), hasIndex ? 1 : 0, hasErrorMarker ? 1 : 0);
+		CA_LOG("[编辑器 测试] 静态页：status={} bytes={} index存在={} 静态根={} editor-web标记={}", status,
+		       static_cast<long long>(body.size()), hasIndex ? 1 : 0, staticRoot.c_str(), hasErrorMarker ? 1 : 0);
 		if (hasIndex)
 		{
 			if (status != 200)
@@ -5848,6 +5896,415 @@ void TestEditorWindowPanel(TestContext& ctx)
 	CA_LOG("TestEditorWindowPanel 通过：命令往返/撤销/协议错误/对象失效/线程边界/分栏同步/两层像素证据全部满足");
 }
 
+// ---- TestCSharpScene（csharp-scene-foundation 3.2，第 19 用例）----
+// C# 断言只能在真跑 C# 的台子上执行：`Test/CoreTests` 是纯 C++ 可执行文件（0 个 .cs、无 hostfxr），
+// 所以序列化往返 / 失败通道 / 生命周期钩子 / 场景→图翻译全部由托管侧 `SceneProbe` 真跑，
+// 打成机器可读读数行（`[托管 读数] probe=scene-idle / scene-format / scene-state`）。
+// 本函数判决这些读数，并自己读回离屏捕获的像素（C# 绑定面没有 Readback，像素断言只能在 C++ 侧）。
+//
+// 夹具期望值在这里**另写一份**（窗口 320x240、3 个实体里 2 个带 MeshRenderer、按同一份着色器分组后
+// 2 个 pass（窗口 + 同尺寸离屏）、一个 pass 里 6 个顶点、1 次呈现、背景纯蓝 / 中心纯红、
+// 第一个翻译顶点 (-0.25,-0.5,0)、dt 0.125/0.25 秒）—— 与 C# 侧不共享常量表，一份改错不会两边一起绿。
+//
+// 红态怎么构造（每条判据都能失败）：
+//   · 用反射默认序列化生成镜像 → public 字段被 STJ 漏掉 → `rtChecked`/`rtMismatch` 读数不对；
+//   · Load 静默补默认值 → `trunc`/`version`/`missingId` 读数变成 `none`；
+//   · Host.Tick 不传 dt → `lastDtMicros` 不为 125000 / 250000、`onUpdate` 不涨；
+//   · 无活动场景时还调钩子或建图 → `scene-idle` 行里 onStart/onUpdate/renderFrames 不为 0；
+//   · 坏着色器路径被静默跳过 → Tick 回值照常递增、LastError 里没有那个路径；
+//   · Rotation 真被施加 → `v0xMicros/v0yMicros/v0zMicros` 与 (-250000,-500000,0) 不符。
+void TestCSharpScene(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail)
+	{
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+	auto requireInt = [&fail](char const* code, char const* field, int64_t actual, int64_t expected)
+	{
+		if (actual != expected)
+		{
+			char detail[384] = {};
+			std::snprintf(detail, sizeof(detail), "读数 %s = %lld，期望 %lld", field,
+			              static_cast<long long>(actual), static_cast<long long>(expected));
+			fail(code, detail);
+		}
+	};
+	auto requireText = [&fail](char const* code, char const* field, std::string const& actual,
+	                           char const* expected)
+	{
+		if (actual != expected)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "读数 %s = \"%s\"，期望 \"%s\"", field, actual.c_str(),
+			              expected);
+			fail(code, detail);
+		}
+	};
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_SCENE_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_SCENE_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	char const* const kLog = "test_output/TestCSharpScene.log";
+	// C# 侧 SceneProbe 里另写一份同样的字符串（两边不共享）。
+	char const* const kBadShaderPath = "Shaders/Test/csharp_scene_missing_shader";
+	constexpr uint32_t kWidth = 320u;
+	constexpr uint32_t kHeight = 240u;
+	// 2 个带 MeshRenderer 的实体用同一份着色器 → 按着色器分组后只有 1 组 → 每组两个 pass
+	// （窗口 + 同尺寸离屏），共 2 个 pass；顶点 = 2 个三角形 × 3 = 6。
+	constexpr int64_t kPassCount = 2;
+	constexpr int64_t kVertexCount = 6;
+
+	// 宿主绑定的窗口提供**场景窗口的尺寸**：C# 侧按这个尺寸自己 NewWindow（表面带真实句柄）并建同尺寸
+	// 离屏捕获目标 —— 所以这里登记一个 320x240 的窗口，像素断言按 320x240 判。
+	auto newWindow = ctx.pWindowSystem->NewWindow(static_cast<int>(kWidth), static_cast<int>(kHeight), "C# Scene");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_SCENE_HOST", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	struct SceneEnvGuard
+	{
+		~SceneEnvGuard() { ::SetEnvironmentVariableA("CASCADED_CSHARP_SCENE_PROBE", nullptr); }
+	} envGuard;
+	::SetEnvironmentVariableA("CASCADED_CSHARP_SCENE_PROBE", "1");
+
+	const std::string baselineError = pScriptHost->LastError();
+
+	auto readProbe = [&](char const* probe, HostProbeReadings* out, char const* what)
+	{
+		if (!ReadHostProbeReadings(kLog, probe, out))
+		{
+			fail("E_SCENE_READINGS",
+			     castl::string("托管读数行 probe=") + probe + " 没有出现在 " + kLog + "（" + what + "）");
+		}
+	};
+
+	// 读一个离屏目标的背景像素（左上角 1,1）与中心像素，并把整张图写成 PNG 供人工核对。
+	auto readPixels = [&](HostProbeReadings const& readings, char const* tag,
+	                      std::array<uint8_t, 4>* background, std::array<uint8_t, 4>* center)
+	{
+		ProbeNativeObjects objects = ResolveProbeObjects(readings);
+		if (objects.graph == nullptr)
+		{
+			fail("E_SCENE_GRAPH", "读数行里的 graphSelf 解析不出一张原生 GPUGraph（图没保留或被提前释放）");
+		}
+		if (!objects.captureImage.IsValid() || !objects.windowImage.IsValid())
+		{
+			fail("E_SCENE_TARGET", "图附件的资源引用里解析不出离屏纹理 / 窗口后台缓冲");
+		}
+		// 原生图结构：同一份着色器的两个三角形并在一个 pass 里 → 每目标一个 pass，共 2 个 pass、呈现 1 项。
+		const uint32_t passes = static_cast<uint32_t>(objects.graph->GetRenderPasses().size());
+		if (passes != static_cast<uint32_t>(kPassCount))
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "原生图 pass 数 %u，期望 %lld", passes,
+			              static_cast<long long>(kPassCount));
+			fail("E_SCENE_RENDER", detail);
+		}
+		if (objects.graph->GetFinalizePass().m_PresentBackBuffers.size() != 1u)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "原生图呈现项 %zu 项，期望 1 项（窗口后台缓冲）",
+			              objects.graph->GetFinalizePass().m_PresentBackBuffers.size());
+			fail("E_SCENE_RENDER", detail);
+		}
+		// 每个 pass 的绘制：一条 POSITION + COLOR（步长 24）顶点流、一个绘制调用、顶点数 = 2 个三角形 × 3。
+		for (auto const& pass : objects.graph->GetRenderPasses())
+		{
+			for (auto const& batch : pass.GetDrawCallBatches())
+			{
+				if (batch.m_VertexInputDescs.size() != 1u)
+				{
+					fail("E_SCENE_STREAM", "绘制批次里的顶点流不止一个");
+				}
+				auto const& streamDescriptor = batch.m_VertexInputDescs.begin()->second.Get();
+				const auto& attributes = streamDescriptor.attributes;
+				if (attributes.size() != 2u || attributes[0].semanticName != CANAME("POSITION") ||
+					attributes[0].offset != 0u || attributes[1].semanticName != CANAME("COLOR") ||
+					attributes[1].offset != 12u || streamDescriptor.stride != 24u)
+				{
+					char detail[256] = {};
+					std::snprintf(detail, sizeof(detail),
+					              "顶点流不是 POSITION(0)+COLOR(12)/步长 24：属性 %zu、步长 %u", attributes.size(),
+					              streamDescriptor.stride);
+					fail("E_SCENE_STREAM", detail);
+				}
+				if (batch.m_DrawCalls.size() != 1u)
+				{
+					char detail[256] = {};
+					std::snprintf(detail, sizeof(detail), "绘制调用 %zu 个，期望 1 个", batch.m_DrawCalls.size());
+					fail("E_SCENE_DRAW", detail);
+				}
+				const uint32_t drawn = batch.m_DrawCalls[0].GetDrawInfo().vertexCount;
+				if (drawn != static_cast<uint32_t>(kVertexCount))
+				{
+					char detail[256] = {};
+					std::snprintf(detail, sizeof(detail), "绘制顶点数 %u，期望 %lld（两个三角形串在同一个 pass 里）",
+					              drawn, static_cast<long long>(kVertexCount));
+					fail("E_SCENE_DRAW", detail);
+				}
+			}
+		}
+		const auto& captureDesc = objects.captureImage.GetExternalManagedTexture()->GetDescriptor();
+		if (captureDesc.width != kWidth || captureDesc.height != kHeight)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "离屏目标尺寸 %ux%u，期望 %ux%u", captureDesc.width,
+			              captureDesc.height, kWidth, kHeight);
+			fail("E_SCENE_TARGET", detail);
+		}
+		ctx.pGPUBackend->WaitIdle();
+		std::vector<uint8_t> pixels(static_cast<size_t>(
+			GetImageByteSize(captureDesc.width, captureDesc.height, ETextureFormat::E_R8G8B8A8_UNORM)));
+		auto token = ctx.pGPUBackend->Readback(objects.captureImage, pixels);
+		if (!token)
+		{
+			fail("E_SCENE_READBACK", "离屏目标的 Readback 返回空 token");
+		}
+		token->Wait();
+		auto pixelAt = [&pixels, &captureDesc](uint32_t x, uint32_t y)
+		{
+			const size_t index = (static_cast<size_t>(y) * captureDesc.width + x) * 4u;
+			return std::array<uint8_t, 4>{ pixels[index], pixels[index + 1], pixels[index + 2],
+				                           pixels[index + 3] };
+		};
+		*background = pixelAt(1u, 1u);
+		*center = pixelAt(captureDesc.width / 2u, captureDesc.height / 2u);
+		const castl::string pngPath = castl::string("test_output/TestCSharpScene_") + ctx.backendName + "_" +
+			tag + ".png";
+		stbi_write_png(pngPath.c_str(), static_cast<int>(captureDesc.width),
+		               static_cast<int>(captureDesc.height), 4, pixels.data(),
+		               static_cast<int>(captureDesc.width * 4u));
+		CA_LOG("TestCSharpScene 像素：tag={} size={}x{} bg=({},{},{},{}) center=({},{},{},{}) png={}", tag,
+		       captureDesc.width, captureDesc.height, (*background)[0], (*background)[1], (*background)[2],
+		       (*background)[3], (*center)[0], (*center)[1], (*center)[2], (*center)[3], pngPath.c_str());
+	};
+
+	// ================= tick 1：零行为读数 + 序列化断言 + 注册新场景 =================
+	const int32_t tick1 = pScriptHost->Tick(0.125);
+	if (tick1 <= 0)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "Tick(0.125) 回值 %d（探针没有执行）", tick1);
+		fail("E_SCENE_TICK", detail);
+	}
+	if (pScriptHost->LastError() != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "tick1 之后 LastError 非空：%s", pScriptHost->LastError());
+		fail("E_SCENE_HOST_ERROR", detail);
+	}
+
+	HostProbeReadings idle;
+	readProbe("scene-idle", &idle, "tick1 注册之前的零行为读数");
+	requireInt("E_SCENE_IDLE", "idle.tick", idle.I64("tick"), 1);
+	requireInt("E_SCENE_IDLE", "idle.active", idle.I64("active"), 0);
+	requireInt("E_SCENE_IDLE", "idle.onStart", idle.I64("onStart"), 0);
+	requireInt("E_SCENE_IDLE", "idle.onUpdate", idle.I64("onUpdate"), 0);
+	requireInt("E_SCENE_IDLE", "idle.renderFrames", idle.I64("renderFrames"), 0);
+
+	HostProbeReadings format;
+	readProbe("scene-format", &format, "序列化往返 / 失败通道读数");
+	// 2 个实体 × 26 个字段（id / name / 三个 float3 = 9 / meshRenderer 非空 / shaderPath / color 3 /
+	// 顶点 9 + 顶点长度 1）+ 场景级 2 个 = 54：C# 侧漏比一个字段，这个数就会变小。
+	requireInt("E_SCENE_ROUNDTRIP", "rtChecked", format.I64("rtChecked"), 54);
+	requireInt("E_SCENE_ROUNDTRIP", "rtMismatch", format.I64("rtMismatch"), 0);
+	if (format.I64("file1Bytes") <= 100)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "场景文件只有 %lld 字节（空对象？）",
+		              static_cast<long long>(format.I64("file1Bytes")));
+		fail("E_SCENE_ROUNDTRIP", detail);
+	}
+	if (format.I64("diffBytes") <= 0)
+	{
+		fail("E_SCENE_ROUNDTRIP", "改一个 Position 分量再保存，两份文件字节完全相同（字段没真写进文件）");
+	}
+	requireInt("E_SCENE_ROUNDTRIP", "reloadDeltaMicros", format.I64("reloadDeltaMicros"), 500000);
+	requireText("E_SCENE_TRUNC", "trunc", format.Get("trunc"), "SceneFormatException");
+	requireText("E_SCENE_VERSION", "version", format.Get("version"), "SceneFormatException");
+	requireText("E_SCENE_MISSING_ID", "missingId", format.Get("missingId"), "SceneFormatException");
+	requireText("E_SCENE_BAD_TYPE", "badType", format.Get("badType"), "SceneFormatException");
+	requireText("E_SCENE_MISSING_VERSION", "missingVersion", format.Get("missingVersion"),
+	            "SceneFormatException");
+	requireText("E_SCENE_SAVE_IO", "saveIo", format.Get("saveIo"), "IOException");
+	requireText("E_SCENE_BAD_RES_LOAD", "badResLoad", format.Get("badResLoad"), "ok");
+	requireInt("E_SCENE_BAD_RES_LOAD", "badResEntities", format.I64("badResEntities"), 1);
+	requireInt("E_SCENE_KEYS", "keysTotal", format.I64("keysTotal"), 13);
+	requireInt("E_SCENE_KEYS", "keysUnknown", format.I64("keysUnknown"), 0);
+	// 错误消息必须点名具体问题（不是一句「出错了」）。
+	if (!LogContains(kLog, "解析失败"))
+	{
+		fail("E_SCENE_TRUNC", "截断文件的错误消息没有点名「解析失败」");
+	}
+	if (!LogContains(kLog, "formatVersion 不支持"))
+	{
+		fail("E_SCENE_VERSION", "版本 999 的错误消息没有点名 formatVersion 不支持");
+	}
+	if (!LogContains(kLog, "entities[0].id"))
+	{
+		fail("E_SCENE_MISSING_ID", "缺 id 的错误消息没有点名 entities[0].id");
+	}
+	if (!LogContains(kLog, "保存场景失败"))
+	{
+		fail("E_SCENE_SAVE_IO", "Save 的 IO 失败消息没有点名保存失败与路径");
+	}
+
+	HostProbeReadings state1;
+	readProbe("scene-state", &state1, "tick1 完成后的场景状态");
+	requireInt("E_SCENE_LIFECYCLE", "state1.active", state1.I64("active"), 1);
+	requireInt("E_SCENE_LIFECYCLE", "state1.onStart", state1.I64("onStart"), 1);
+	requireInt("E_SCENE_LIFECYCLE", "state1.repeatDelta", state1.I64("repeatDelta"), 0);
+	requireText("E_SCENE_LIFECYCLE", "state1.startScene", state1.Get("startScene"), "场景甲");
+	requireInt("E_SCENE_DT", "state1.lastDtMicros", state1.I64("lastDtMicros"), 125000);
+	requireInt("E_SCENE_DT", "state1.onUpdate", state1.I64("onUpdate"), 1);
+	requireInt("E_SCENE_RENDER", "state1.renderFrames", state1.I64("renderFrames"), 1);
+	requireInt("E_SCENE_RENDER", "state1.entities", state1.I64("entities"), 3);
+	requireInt("E_SCENE_RENDER", "state1.rendered", state1.I64("rendered"), 2);
+	requireInt("E_SCENE_RENDER", "state1.shaderGroups", state1.I64("shaderGroups"), 1);
+	requireInt("E_SCENE_RENDER", "state1.vertices", state1.I64("vertices"), kVertexCount);
+	requireInt("E_SCENE_RENDER", "state1.pass", state1.I64("pass"), kPassCount);
+	requireInt("E_SCENE_RENDER", "state1.present", state1.I64("present"), 1);
+	requireText("E_SCENE_RENDER", "state1.size", state1.Get("size"), "320x240");
+	// Transform 真施加到顶点上：Position (0.25,0,0) + Scale 2 → 第一顶点 (-0.25*2+0.25, -0.25*2, 0)。
+	// Rotation 非零（Z 轴 π/2）却没有参与 → 读数必须仍是 (-0.25,-0.5,0)，即「旋转暂不施加」可核。
+	requireInt("E_SCENE_TRANSFORM", "state1.v0xMicros", state1.I64("v0xMicros"), -250000);
+	requireInt("E_SCENE_TRANSFORM", "state1.v0yMicros", state1.I64("v0yMicros"), -500000);
+	requireInt("E_SCENE_TRANSFORM", "state1.v0zMicros", state1.I64("v0zMicros"), 0);
+	const std::string freshFirstId = state1.Get("firstEntityId");
+	if (freshFirstId.size() != 36)
+	{
+		fail("E_SCENE_IDENTITY", castl::string("实体 id 不是 36 字符的 uuid 字符串：") + freshFirstId);
+	}
+
+	// 像素证据 1：新场景（未经过磁盘）驱动渲染，中心纯红、背景纯蓝。
+	{
+		std::array<uint8_t, 4> background{};
+		std::array<uint8_t, 4> center{};
+		readPixels(state1, "fresh", &background, &center);
+		const std::array<uint8_t, 4> expectedBackground{ 0, 0, 255, 255 };
+		const std::array<uint8_t, 4> expectedCenter{ 255, 0, 0, 255 };
+		if (background != expectedBackground || center != expectedCenter)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "像素不符：背景 (%u,%u,%u,%u)、中心 (%u,%u,%u,%u)",
+			              background[0], background[1], background[2], background[3], center[0], center[1],
+			              center[2], center[3]);
+			fail("E_SCENE_PIXEL", detail);
+		}
+		CA_LOG("TestCSharpScene：新场景渲染中心纯红、背景纯蓝（pass={} present={}）", state1.I64("pass"),
+		       state1.I64("present"));
+	}
+
+	// ================= tick 2：注销 → 从磁盘 Load → 注册（加载回来的场景同样渲染）=================
+	const int32_t tick2 = pScriptHost->Tick(0.25);
+	if (tick2 != tick1 + 1)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "Tick(0.25) 回值 %d，期望 %d（上一次 +1）", tick2, tick1 + 1);
+		fail("E_SCENE_TICK", detail);
+	}
+	if (pScriptHost->LastError() != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "tick2 之后 LastError 非空：%s", pScriptHost->LastError());
+		fail("E_SCENE_HOST_ERROR", detail);
+	}
+	HostProbeReadings state2;
+	readProbe("scene-state", &state2, "tick2 完成后的场景状态（加载回来的场景）");
+	requireInt("E_SCENE_RELOAD", "state2.active", state2.I64("active"), 1);
+	requireInt("E_SCENE_RELOAD", "state2.onStart", state2.I64("onStart"), 2);
+	requireInt("E_SCENE_LIFECYCLE", "state2.onUpdate", state2.I64("onUpdate"), 2);
+	requireInt("E_SCENE_DT", "state2.lastDtMicros", state2.I64("lastDtMicros"), 250000);
+	requireInt("E_SCENE_RELOAD", "state2.renderFrames", state2.I64("renderFrames"), 2);
+	requireInt("E_SCENE_RELOAD", "state2.pass", state2.I64("pass"), kPassCount);
+	requireInt("E_SCENE_RELOAD", "state2.rendered", state2.I64("rendered"), 2);
+	requireInt("E_SCENE_RELOAD", "state2.vertices", state2.I64("vertices"), kVertexCount);
+	if (state2.Get("firstEntityId") != freshFirstId)
+	{
+		fail("E_SCENE_IDENTITY",
+		     castl::string("加载回来的实体 id 与保存前不一致：") + state2.Get("firstEntityId") + " vs " +
+		         freshFirstId);
+	}
+	// 图是否「重建」不由 token 判（对象句柄可能被复用）：结构（2 pass / 1 呈现）由 readPixels 从
+	// 原生图上核，内容（顶点与像素）由下面的读数与读回核 —— 这三样任一错都会红。
+	requireInt("E_SCENE_RELOAD", "state2.graph", state2.I64("graph") != 0 ? 1 : 0, 1);
+	requireInt("E_SCENE_RELOAD", "state2.capture", state2.I64("capture") != 0 ? 1 : 0, 1);
+	{
+		std::array<uint8_t, 4> background{};
+		std::array<uint8_t, 4> center{};
+		readPixels(state2, "loaded", &background, &center);
+		const std::array<uint8_t, 4> expectedBackground{ 0, 0, 255, 255 };
+		const std::array<uint8_t, 4> expectedCenter{ 255, 0, 0, 255 };
+		if (background != expectedBackground || center != expectedCenter)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail), "加载回来的场景像素不符：背景 (%u,%u,%u,%u)、中心 (%u,%u,%u,%u)",
+			              background[0], background[1], background[2], background[3], center[0], center[1],
+			              center[2], center[3]);
+			fail("E_SCENE_PIXEL", detail);
+		}
+	}
+	CA_LOG("TestCSharpScene：保存→清空内存→加载→注册→渲染，中心像素仍是纯红、实体 id 逐字相同");
+
+	// ================= tick 3：坏资源名 → 渲染期明确报错（点名该着色器路径）=================
+	// 判据不拿 Tick 回值去比「上一次 +1」（错误码是固定整数，可能撞上巧合同值）：
+	// 这里判三件事 —— 报错文本来自 Tick 的异常路径、点名是场景渲染失败、点名了那个着色器路径；
+	// 「没有假成功」再由下面 state4 的 renderFrames 不涨兜住（那一帧确实没有提交）。
+	const int32_t tick3 = pScriptHost->Tick(0.5);
+	const std::string badResourceError = pScriptHost->LastError();
+	if (badResourceError.find("Tick 抛异常") == std::string::npos)
+	{
+		fail("E_SCENE_BAD_RES",
+		     castl::string("坏着色器路径没有让 Tick 走异常路径（LastError = ") + badResourceError + "）");
+	}
+	if (badResourceError.find("场景渲染") == std::string::npos)
+	{
+		fail("E_SCENE_BAD_RES", castl::string("坏着色器路径的报错没有点名是场景渲染失败：") + badResourceError);
+	}
+	if (badResourceError.find(kBadShaderPath) == std::string::npos)
+	{
+		fail("E_SCENE_BAD_RES", castl::string("坏着色器路径的报错没有点名该资源：") + badResourceError);
+	}
+	CA_LOG("TestCSharpScene：坏资源名在渲染期被明确拒绝（Tick 回值 {}，错误文本点名 {}）", tick3,
+	       kBadShaderPath);
+
+	// ================= tick 4：注销 → Tick 回到零行为 =================
+	const int32_t tick4 = pScriptHost->Tick(0.5);
+	if (tick4 != tick2 + 2)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail), "注销后的 Tick 回值 %d，期望 %d（恢复正常递增）", tick4,
+		              tick2 + 2);
+		fail("E_SCENE_UNREGISTER", detail);
+	}
+	HostProbeReadings state4;
+	readProbe("scene-state", &state4, "tick4（注销之后）的场景状态");
+	requireInt("E_SCENE_UNREGISTER", "state4.active", state4.I64("active"), 0);
+	requireInt("E_SCENE_UNREGISTER", "state4.onStart", state4.I64("onStart"), 3);
+	// tick3 的坏资源帧仍然调过一次 OnUpdate（design D5 的顺序：先钩子、后翻译），只是那一帧没提交成功。
+	requireInt("E_SCENE_UNREGISTER", "state4.onUpdate", state4.I64("onUpdate"), 3);
+	requireInt("E_SCENE_UNREGISTER", "state4.renderFrames", state4.I64("renderFrames"),
+	           state2.I64("renderFrames"));
+	requireInt("E_SCENE_UNREGISTER", "state4.pass", state4.I64("pass"), 0);
+	requireInt("E_SCENE_UNREGISTER", "state4.present", state4.I64("present"), 0);
+	CA_LOG("TestCSharpScene 通过：{} 后端序列化往返 / 失败通道 / 生命周期 / 场景渲染像素 / "
+	       "坏资源名报错 / 注销零行为 全部满足",
+	       ctx.backendName);
+}
+
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
 // 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
@@ -6540,6 +6997,9 @@ int main(int argc, char* argv[])
 		std::cout << "  TestScriptHost\n";
 		std::cout << "  TestCSharpWindow\n";
 		std::cout << "  TestCSharpTriangle\n";
+		// csharp-scene-foundation 3.2：第 19 项（场景模型 / 序列化 / 生命周期 / 场景→图）。
+		// 也要用 C#，所以全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前（见 run-all 那段）。
+		std::cout << "  TestCSharpScene\n";
 		std::cout << "  TestCSharpWindowCallbacks\n";
 		std::cout << "  TestGPUTiming\n";
 		// csharp-render-shader-constants 任务 1.2：第 14 项
@@ -6866,6 +7326,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestEditorWindowPanel", TestEditorWindowPanel);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpScene") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpScene", TestCSharpScene);
+	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{
 		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
@@ -6906,6 +7370,9 @@ int main(int argc, char* argv[])
 		// io-error-channel 任务 4.2：批式读写的失败通道与资源加载失败透出。它不开窗口、不用 C#，
 		// 放在 `TestCSharpWindowCallbacks` 之前（那条会关掉托管运行时；这条与 C# 无关，位置只为好读）。
 		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
+		// csharp-scene-foundation 3.2：第 19 用例。同样要用 C#，必须排在
+		// `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
+		runTestWithDiagnostics("TestCSharpScene", TestCSharpScene);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}
