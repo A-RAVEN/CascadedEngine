@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-003",
+  "face": "工件一致性",
+  "severity": "minor",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "验收：`Test-Path` 为真；`Select-String 'virtual' ` 计数 = 9（不含析构）；`CA_BIND()` 命中 1。",
+  "problem": "tasks 1.1 要求按 design D2 逐字写九个纯虚方法，同时要求 `Select-String 'virtual'` 计数为 9（不含析构）。design D2 的类体除九个 `virtual ... = 0;` 方法外，还有一行 `virtual ~IResourceRegistry() {}`；按字面执行该命令会数到 10 行，与写死的期望 9 不符，验收会假红。括号里的「不含析构」只是给读命令的人看的，命令本身没有排除析构。",
+  "evidence": "tasks 1.1 原文：「`CA_BIND()` + 九个纯虚方法（design D2 逐字）……验收：`Test-Path` 为真；`Select-String 'virtual' ` 计数 = 9（不含析构）；`CA_BIND()` 命中 1。」；design D2 类体原文：「virtual ~IResourceRegistry() {}」+ 九行「virtual ...(…) = 0;」；对 `design.md` 实际执行 `Select-String 'virtual'` 得到 10 行，逐行为：析构那一行 + 九个方法行。",
+  "suggestion": "把命令改成能排除析构的判据，例如 `Select-String 'virtual' | Where-Object { $_.Line -notmatch '~IResourceRegistry' }` 计数 = 9，或 `Select-String '=\\s*0;'` 计数 = 9（九个纯虚方法都以 `= 0;` 结尾，析构没有）；若保留原命令，则期望读数改为 10，并另加一条「九个 `= 0;`」的判据。"
+}

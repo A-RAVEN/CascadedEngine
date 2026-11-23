@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-验收-004",
+  "face": "验收可失败性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/specs/csharp-asset-layer/spec.md",
+  "anchor": "魔数不符 / 版本不是 1 / 长度越界 / 文件缺失 MUST 抛 `AssetFormatException`，消息 MUST 点名路径与原因",
+  "problem": "验收只测「抛没抛 + 文本里有没有路径」，不测异常类型：tasks 3.4 写「三条反例各自抛且文本点名」，tasks 4.2 的失败面只有四个名词。设计 D6 又写「文件不存在 → 显式异常」并直接 File.ReadAllBytes —— .NET 对不存在路径抛 FileNotFoundException（IOException 子类），消息恰好带路径。于是「漏包 AssetFormatException」的实现能让 3.4/4.2 全绿，规范被违反也抓不到；魔数/版本/截短三种同理（只要抛任何异常且文本带路径就过）。",
+  "evidence": "① 规范原文（`specs/csharp-asset-layer/spec.md:19`）：「解析 MUST 校验魔数、版本、长度边界；魔数不符 / 版本不是 1 / 长度越界 / 文件缺失 MUST 抛 `AssetFormatException`，消息 MUST 点名路径与原因」。\n② 同文件场景「缺失文件不静默」（第 31-34 行）只写「MUST 抛异常点名路径」—— 比 Requirement 弱，5.2 按场景核对时类型这一条就漏掉了。\n③ tasks 3.4 原文：「版本改 2、截短一半、缺失文件三条反例各自抛且文本点名（红态读数存 `evidence/3.4-*.txt`）」；tasks 4.2 原文：「失败面（坏句柄 / 未注册类型 / 损坏版本 / 缺失文件）」—— 两处都没有 AssetFormatException。\n④ design D6（第 93 行）：「`GetResourceFullPath(path)` → `File.ReadAllBytes` → 按魔数分派解析 → `Create` → 填数据。文件不存在 → 显式异常。」`File.ReadAllBytes` 对不存在路径抛 FileNotFoundException，消息形如 `Could not find file '<path>'`（.NET 标准行为），满足「抛 + 点名路径」。\n⑤ 结论：四条失败面没有任何一条能因「异常类型不是 AssetFormatException」而红。",
+  "suggestion": "把 3.4 与 4.2 的判据写成「类型 + 文本」：四条（魔数 / 版本 / 截短 / 缺失）都必须以 AssetFormatException 收口，C# 测试里 `catch (AssetFormatException ex)` 并断言 `ex.Message` 同时含路径与原因关键词；把 `File.ReadAllBytes` 包进 try/catch 转成 AssetFormatException（其它 IOException 一样处理）。红态：临时让缺失文件直接冒 FileNotFoundException，该断言必须红，读数存 `evidence/3.4-缺失文件-红态.txt`。"
+}

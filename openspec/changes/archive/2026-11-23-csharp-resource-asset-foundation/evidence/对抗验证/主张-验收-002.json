@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-验收-002",
+  "face": "验收可失败性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "缺行机制沿用既有「ApplyPolicies 判 Unregistered → 返 0」（引用 `Main.cpp` 既有用例 L1865 的 9999 反例，不做产品代码变异）。",
+  "problem": "引用的 9999 反例命中的是另一条分支：9999 不在路由表里，GetInterfaceApi 走 FindRoute 为空，文本是「未知接口编号 9999：当前登记 12 个接口（…）」；缺 kBindingPolicies 行时 FindRoute 能命中，但 role 是 Unregistered，文本是「接口 …（编号 13）没有在宿主角色登记表里登记（默认实例 / 目标类型表必须二选一）」。两条分支的文本不同，9999 用例只断言「未知接口编号」，不能给缺行场景当证据；而任务又明文「不做产品代码变异」，恰好把唯一能构造该红态的手段排除。结果：spec 场景「缺登记行时取表失败点名」在本批没有红态读数，5.2 的「无声称过但无读数」要么留空（等于承认没验），要么拿 9999 的读数冒充。",
+  "evidence": "① 两条分支的生成文本：生成产物 `out/build/x64-debug/codegen/bindings/BindingRegistry.Bindings.cpp:174-191` —— `if (route == nullptr)` 分支 snprintf「未知接口编号 %u：当前登记 %zu 个接口（%s）」；`if (route->role == BindingRole::Unregistered)` 分支 snprintf「接口 %s（编号 %u）没有在宿主角色登记表里登记（默认实例 / 目标类型表必须二选一）」。模板见 `Tools/CodeGen/CodeGenMain.cpp:14569-14582`。\n② 被引用的用例 `Test/GPUBackendTester/Main.cpp:1865-1876`：调 `GetInterfaceApiForTest(9999u, …)`，只断言 `hostError.find(\"未知接口编号\") != npos`；9999 不在锁里（`Tools/CodeGen/interface-ids.lock` 的 `# high water 12`），必然走 FindRoute 为空那条。\n③ 缺行分支的文本在测试里 0 命中：`Select-String -Path (Get-ChildItem 'Test' -Recurse -Include *.cpp,*.h) -Pattern '没有在宿主角色登记表里登记'` → 命中数 0；全仓排除 out/_deps 只命中 `Tools/CodeGen/CodeGenMain.cpp` 一处（生成器模板）。\n④ spec 场景 THEN 原文：「`GetInterfaceApi` MUST 返 0；C# 绑表 MUST 失败且错误文本点名编号未登记（与既有反向接口缺行同款判据）」——「同款判据」在既有测试里也不存在（9/10 号反向接口的缺行同样从未测过）。",
+  "suggestion": "把 1.3 的验收改成一次真红态：主循环临时注释掉 `kBindingPolicies` 的门面行 → 重建 → tester 调 `GetInterfaceApiForTest(13u, …)` → 期望返回 0、`LastError` 含「没有在宿主角色登记表里登记」且不含「未知接口编号」（两条分支可区分）→ 还原重建；读数存 `evidence/1.3-缺行红态.txt`。CLAUDE.md 允许主循环做变异（「跑整套、启动程序、做变异由主循环自己做」），不必受「不做产品代码变异」限制。若坚持不动产品代码，则照既有 `CASCADED_CSHARP_SELFTEST=abi-mismatch` 的做法加一个 Debug 自检开关（属产品代码改动，代价更大）。同时删掉「引用 9999 反例」这句。"
+}

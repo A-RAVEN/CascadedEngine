@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-验收-003",
+  "face": "验收可失败性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/specs/csharp-resource-registry/spec.md",
+  "anchor": "- **THEN** 错误 MUST 经既有反向错误通道（1012）上报，C# 侧 MUST 能读到原始异常文本；MUST NOT 静默跳过该资源假装成功",
+  "problem": "按现有反向代理机制，这一次调用不会上报：C# Serialize 抛异常 → 长度槽返回哨兵 → 代理把 1012 落进错误槽后直接返回（不写批、不提交）→ 资源系统 SerializeAll 对空批调 SubmitAndWait（空批首行直接返回）→ 循环继续、方法正常返回。该资源这一轮既不落盘也不报错，正是场景禁止的「静默跳过假装成功」；1012 要等下一次在同一个对象上再调方法（再一次 Serialize）才抛出。tasks 全篇没有一条断言这个场景（`1012`、`Serialize 抛` 均 0 命中），4.2 的失败面只有坏句柄/未注册类型/损坏版本/缺失文件四条，5.2 的场景对照拿不到该场景的读数。",
+  "evidence": "① 代理实现（生成产物 `out/build/x64-debug/codegen/bindings/resource_management__IResource.Bindings.cpp:180-210`）：`const uint64_t length = … SerializeLen(m_user) …; if (length == UINT64_MAX) { … setError(… ERROR_REVERSE_EXCEPTION …); return; }`，成功路径末端才 `inWriter->SubmitAndWait();`。\n② 资源系统 SerializeAll 无 try/catch：`GeneralResources/private/ResourceImportingSystem.cpp:116-126` —— `auto batch = pIOManager->WriteBatch(destPath.generic_string()); val->Serialize(batch.get()); batch->SubmitAndWait();`。\n③ 空批不落盘：`IOManager_FS/IOManager.cpp:403-406` 的 `WriteBatchImpl::SubmitAndWait` 首行 `if (m_Batchs.IsEmpty()) return;`；`WriteBatch` 只构造批（同文件 296-299），文件流在提交任务里才打开（415）⇒ 失败那一轮连空文件都不会生成。`Main.cpp:1432` 注释「必须先排队：空批在 SubmitAndWait 首行就返回」为同一机制作证。\n④ 机制是「下一次调用上报」：既有用例 `Test/GPUBackendTester/Main.cpp:6652-6684` 的注释与断言（第一次 Serialize 只中止、第二次调用抛 1012，文本含「反向资源 Serialize 故意抛出的异常」）—— 它测的是裸反向调用，不是门面 SerializeAll 路径。\n⑤ tasks.md 全篇 `Select-String '1012|Serialize 抛'` 0 命中。",
+  "suggestion": "二选一，不能留一条机制上做不到的 MUST：① 改场景为两段并在 4.2 加断言 —— 第一次 SaveAll：该资源不落盘且不抛；第二次 SaveAll（同一对象再 Serialize）：抛 1012、文本含原始异常文本；红态用「把 C# Serialize 的 throw 去掉」构造，读数存 `evidence/4.2-serialize 抛.txt`。② 若产品要求第一次就报错，就得在 design 里写明实现手段（门面 SerializeAll 直委托看不到逐资源错误，必须在反向通道或 C# 侧补检查），并重新评估 GeneralResources 零改动这个目标 —— 不能既不报错又写 MUST NOT 静默跳过。"
+}

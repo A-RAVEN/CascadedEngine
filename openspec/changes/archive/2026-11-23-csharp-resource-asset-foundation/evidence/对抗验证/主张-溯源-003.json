@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-溯源-003",
+  "face": "无中生有",
+  "severity": "minor",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "两后端既有 21 用例（**去掉新增用例**）与上批基线逐条 name+status 零差异，新用例两后端独立过；CoreTests 全绿；绑定基线**两段式**",
+  "problem": "「CoreTests 全绿」没有命令、没有份数、没有可失败的读数；同一句的验收只核对逐条 name+status 比对与绑定基线，完全不覆盖 CoreTests。现有基线是 `CoreTests exit 0 PASSED 26`（docs/testing.md 与上一批 evidence 都写了 26），工件却把份数省掉，执行者无法判断「全绿」是 26 条还是少跑了几条；这是数字缺失导致的验收不可失败，而不是编造了一个错数字。",
+  "evidence": "1) `tasks.md` 的 5.1 条原文只有「CoreTests 全绿」；`Select-String -Path 'openspec/changes/csharp-resource-asset-foundation/tasks.md' -Pattern 'CoreTests'` 只命中这一处，附近没有命令、份数或期望行。\n2) `docs/testing.md` 的判定行：「CoreTests 退出码 0 且 `PASSED` 26 行；两份全量 report 里 21 条 `status` 全为 `pass`……」。\n3) openspec/changes/archive/2026-11-23-resource-importer-refactor/evidence/0.2-5.1-5.2-封存回归换锚.txt:9：「CoreTests exit 0 PASSED 26（含 Resource importer retirement/decoupling test PASSED）」。\n4) `proposal.md` 的不动段与 `design.md` 的回归段也只写「CoreTests」，没有份数。\n5) 产物实测存在：`out/build/x64-debug/bin/CoreTests.exe`。",
+  "suggestion": "在 5.1 写死 CoreTests 的命令与期望：`out\\build\\x64-debug\\bin\\CoreTests.exe` 退出码 0，且输出 `PASSED` 行数 = 26（若本批新增 CoreTests，写新的期望数并点名新增用例）；把该读数存进 `evidence/5.1-CoreTests.txt`，并在 5.2 的场景对照表里占一行。"
+}

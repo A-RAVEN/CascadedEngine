@@ -1,0 +1,33 @@
+Running: TestCSharpAssets
+[38;2;128;128;128mTestCSharpAssets 夹具期望：纹理 2x2 格式 6、像素 16 字节；网格 3 顶点 / 3 索引
+[0m[38;2;128;128;128m[托管侧] Tick #1：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] 取 IWindow 函数表失败：探针调用返回 0（实例尚未登记，下一帧重试）
+[0m[38;2;128;128;128m[托管侧] [托管侧 渲染] 后端 + 五张目标类型表已绑定（后端实例 1817315678048）
+[0m[38;2;128;128;128m托管侧 Tick #1 回值 1（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #2：dt = 0.016 秒
+[0m[38;2;128;128;128m托管侧 Tick #2 回值 2（引擎侧计数与之一致）
+[0m[38;2;128;128;128mTestCSharpAssets 落盘对照：贴图 44 字节、网格 116 字节（魔数/版本/元数据/载荷逐字节相同）
+[0m[38;2;128;128;128m[托管侧] Tick #3：dt = 0.016 秒
+[0m[38;2;128;128;128m托管侧 Tick #3 回值 3（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #4：dt = 0.016 秒
+[0m[38;2;128;128;128m托管侧 Tick #4 回值 4（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #5：dt = 0.016 秒
+[0m[38;2;128;128;128m托管侧 Tick #5 回值 5（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #6：dt = 0.016 秒
+[0m[38;2;128;128;128m托管侧 Tick #6 回值 6（引擎侧计数与之一致）
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 texture：passes=1 bufferHandles=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 texture：attachments=1 batches=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 texture：streams=1 draws=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 texture：stream=assetTextureVertices stride=20 attrs=2
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 texture：draw indexed=0 indexCount=0 vertexCount=3 buffers=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 texture：buffer=assetTextureVertices kind=0 valid=1 descriptorFound=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 mesh：passes=1 bufferHandles=2
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 mesh：attachments=1 batches=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 mesh：streams=1 draws=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 mesh：stream=assetMeshVertices stride=24 attrs=2
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 mesh：draw indexed=1 indexCount=3 vertexCount=0 buffers=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 mesh：buffer=assetMeshVertices kind=0 valid=1 descriptorFound=1
+[0m[38;2;128;128;128mTestCSharpAssets 诊断 mesh：index kind=0 valid=1 type=1 descriptorFound=1
+[0m[38;2;128;128;128mTestCSharpAssets 渲染像素：纹理三角形 bg=(0,0,255,255) center=(0,255,0,255)；网格索引绘制 bg=(0,0,255,255) center=(255,0,0,255)
+[0m[38;2;128;128;128mTestCSharpAssets 通过：d3d12 后端；门面注册两工厂 → 新建填数据 → 落盘逐字节对照（贴图 44 / 网格 116 字节）→ 释放自读加载往返一致 → 同路径替换（旧句柄 1001）→ 失败面（坏句柄 1001 / 未注册 1014 / 同路径 1014 / 损坏版本 AssetFormatException + 旧条目在 / 截短文件 AssetFormatException + 旧条目在 / 缺失文件 AssetFormatException + 旧条目在 / Serialize 两段式 原位字节 + 二次 1014 带 1012 原文）→ 原生直检门面六条
+[0m

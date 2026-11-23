@@ -983,6 +983,126 @@ namespace Scripting.Managed
         }
 
         /// <summary>
+        /// 索引绘制 pass（csharp-resource-asset-foundation 4.3）：与 `AddTrianglePass` 同一份管线 /
+        /// 附件 / 参数结构，区别只有两处 —— `DrawInfo.drawIndexed = true` 与
+        /// `DrawCall.m_IndexBufferData` 指向本图里的索引缓冲（`e32`，偏移 0）。
+        /// 索引缓冲必须已经用 `AddBuffer` 登记（count × stride，stride 必须是 4，索引是 uint32）。
+        /// </summary>
+        public int AddIndexedTrianglePass(ScriptRenderTarget target, string shaderPath, string streamName,
+            string vertexBufferName, string indexBufferName, uint indexCount, float red, float green,
+            float blue, float alpha)
+        {
+            if (target == null)
+            {
+                return Fail("target", "渲染目标不能为空");
+            }
+            if (string.IsNullOrEmpty(shaderPath))
+            {
+                return Fail("shaderPath", "着色器路径不能为空");
+            }
+            if (streamName == null || !m_Streams.TryGetValue(streamName, out VertexInputsDescriptor vertices))
+            {
+                return Fail("streamName", "顶点流没有登记过");
+            }
+            if (vertexBufferName == null || !m_Buffers.ContainsKey(vertexBufferName))
+            {
+                return Fail("vertexBufferName", "顶点缓冲没有登记过");
+            }
+            if (indexBufferName == null || !m_Buffers.TryGetValue(indexBufferName, out GPUBufferDescriptor indexBuffer))
+            {
+                return Fail("indexBufferName", "索引缓冲没有登记过");
+            }
+            if (indexBuffer.stride != 4UL)
+            {
+                return Fail("indexBufferName",
+                    $"索引缓冲的 stride 是 {indexBuffer.stride}，期望 4（uint32 索引）");
+            }
+            if (indexCount == 0u)
+            {
+                return Fail("indexCount", "索引绘制数量必须非零");
+            }
+            if ((ulong)indexCount > indexBuffer.count)
+            {
+                return Fail("indexCount", "索引绘制数量超过索引缓冲描述的元素数");
+            }
+            RenderPass record = new RenderPass
+            {
+                m_PipelineStates = ScriptPipelineDefaults.CreatePipelineDesc(shaderPath),
+                shaderStructs = new Dictionary<string, ShaderStruct>(),
+                m_AttachmentConfigs = new[]
+                {
+                    new AttachmentConfig
+                    {
+                        loadOp = EAttachmentLoadOp.eClear,
+                        storeOp = EAttachmentStoreOp.eStore,
+                        clearValue = ScriptPipelineDefaults.ClearColorBytes(red, green, blue, alpha),
+                    },
+                },
+                m_DrawCallBatches = new[]
+                {
+                    new DrawCallBatch
+                    {
+                        pipelineStateDesc = ScriptPipelineDefaults.CreatePipelineDesc(shaderPath),
+                        m_DrawCalls = new[]
+                        {
+                            new DrawCall
+                            {
+                                m_BoundVertexBuffers = new Dictionary<string, BufferHandle>
+                                {
+                                    [streamName] = BufferHandle.FromName(vertexBufferName),
+                                },
+                                // 索引绘制必须给有效索引缓冲（e32 = 4 字节 uint32 索引）。
+                                m_IndexBufferData = new IndexBufferData
+                                {
+                                    indexBufferHandle = BufferHandle.FromName(indexBufferName),
+                                    indexBufferType = EIndexBufferType.e32,
+                                    indexBufferOffset = 0u,
+                                },
+                                m_DrawInfo = new DrawInfo
+                                {
+                                    drawIndexed = true,
+                                    indexOffset = 0u,
+                                    indexCount = indexCount,
+                                    // 索引绘制不读 vertexCount（两后端的 DrawIndexed* 都用索引数）。
+                                    vertexOffset = 0u,
+                                    vertexCount = 0u,
+                                    firstInstanceID = 0u,
+                                    instanceCount = 1u,
+                                },
+                                m_ViewPort = new ViewRectData
+                                {
+                                    x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                                },
+                                m_Sissor = new ViewRectData
+                                {
+                                    x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                                },
+                            },
+                        },
+                        shaderStructs = new Dictionary<string, ShaderStruct>(),
+                        m_VertexInputDescs = new Dictionary<string, VertexInputsDescriptor>
+                        {
+                            [streamName] = vertices,
+                        },
+                        m_ViewPort = new ViewRectData
+                        {
+                            x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                        },
+                        m_Sissor = new ViewRectData
+                        {
+                            x = 0, y = 0, width = (int)target.Width, height = (int)target.Height,
+                        },
+                    },
+                },
+                m_Attachments = new[] { target.Image },
+                m_HasDepthAttachment = false,
+                m_Name = string.Empty,
+            };
+            m_Passes.Add(new PassPlan { Record = record });
+            return ClearError();
+        }
+
+        /// <summary>
         /// 把参数结构绑定到第 passIndex 个 pass 的参数块名。校验：pass 下标、参数非空、
         /// 着色器根结构里的块名、块类型与参数结构类型名一致。真正写入在提交时随记录一起序列化。
         /// </summary>

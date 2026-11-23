@@ -1,0 +1,3 @@
+[
+  {"name":"TestCSharpAssets","status":"fail","duration_ms":0,"exit_code":1,"error":"E_ASSET_FACADE: 取不到门面函数表（编号 13）"}
+]

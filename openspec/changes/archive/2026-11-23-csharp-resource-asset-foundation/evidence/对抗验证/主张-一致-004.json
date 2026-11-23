@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-004",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "3.2 [P] `Assets/AssetFactoryBase.cs`（Create 入队跟踪）+ `Texture2DFactory` / `MeshFactory`（GetResourceType 写死类型名）",
+  "problem": "3.1 与 3.2 都标了 `[P]`（可并行），但 3.2 的 `Texture2DFactory` / `MeshFactory` 的 `Create()` 必须返回具体资产对象（`new Texture2D()` / `new Mesh()`）。现有 C# 工厂就是这个形状：`Scripting/Managed/ResourceProbe.cs` 的 `ProbeFactory.Create()` 里就是 `var resource = new ProbeResource();`；主规范也规定 `ResourceFactoryBase` 的抽象方法 `Create()` 返回 `ResourceBase`。在 3.1 的 `Texture2D.cs` 与 `Mesh.cs` 文件存在之前，3.2 的工厂代码无法编译，`[P]` 标出的并行性与真实编译依赖不符。3.2 的验收虽然推到 4.2，但 3.2 自己要求的「构建过」这一层在 3.1 完成前不可能成立；若按 `[P]` 把两条并行派发，3.2 会先红。",
+  "evidence": "tasks 3.1 原文：「[P] `Scripting/Managed/Assets/Texture2D.cs` 与 `Mesh.cs`：继承 `ResourceBase`……」；tasks 3.2 原文：「[P] `Assets/AssetFactoryBase.cs`（Create 入队跟踪）+ `Texture2DFactory` / `MeshFactory`（GetResourceType 写死类型名）」；`Scripting/Managed/ResourceProbe.cs` 的既有工厂原文：「public override ResourceBase Create() { ++CreateCount; var resource = new ProbeResource(); LastCreated = resource; return resource; }」；`openspec/specs/csharp-resource-factory/spec.md` 原文：「C# 公开抽象基类 ResourceFactoryBase（abstract GetResourceType / abstract ResourceBase Create()）」。",
+  "suggestion": "去掉 3.2 的 `[P]`，把它标成依赖 3.1；或把 3.2 拆成两半：`AssetFactoryBase.cs`（不引用具体资产类型，可 `[P]`）与 `Texture2DFactory` / `MeshFactory`（排在 3.1 之后）。若仍要并行，至少把 3.2 的验收改成「3.1 完成后两者一起构建」，不要写成独立可验收的并行任务。"
+}

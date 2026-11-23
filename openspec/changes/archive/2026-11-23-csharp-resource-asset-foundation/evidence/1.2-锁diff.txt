@@ -1,0 +1,14 @@
+﻿diff --git a/Tools/CodeGen/interface-ids.lock b/Tools/CodeGen/interface-ids.lock
+index 7d99916..78ee00a 100644
+--- a/Tools/CodeGen/interface-ids.lock
++++ b/Tools/CodeGen/interface-ids.lock
+@@ -22,7 +22,8 @@
+ 10	IResource	resource_management::IResource	GeneralResources/header/CAResource/IResource.h
+ 11	ResourceImporter	resource_management::ResourceImporter	GeneralResources/header/CAResource/ResourceImporter.h
+ 12	ResourceImporterProductions	resource_management::ResourceImporterProductions	GeneralResources/header/CAResource/ResourceImporter.h
+-# high water 12
++13	IResourceRegistry	cs_script::IResourceRegistry	Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h
++# high water 13
+ # scope fixture
+ 8	IBindRegistry8	ca_bind_fixture::IBindRegistry8	Tools/CodeGen/BindableShapes.RenderRegistry.h
+ 9	IBindRegistry9	ca_bind_fixture::IBindRegistry9	Tools/CodeGen/BindableShapes.RenderRegistry.h

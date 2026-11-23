@@ -5,6 +5,9 @@
 // 任何一步失败都必须把"找过哪些路径 / 版本号"写进 LastError，由调用方打日志 —— 不许静默降级。
 #include <CACore/CAModuleManager.h>
 #include <ScriptHost/IScriptHost.h>
+#include <ScriptHost/IResourceRegistry.h>
+// csharp-resource-asset-foundation 1.3（design D7）：门面实现委托资源注册表，需要它的抽象类型。
+#include <CAResource/ResourceManagingSystem.h>
 // 生成的绑定产物（render-interface-merge 任务 3.1）：跨接口登记表把逐接口产物一起带进来 ——
 // 编号清单、EngineApi struct 与版本/大小断言、get_interface_api 路由、布局查询路由、装配代码
 // 都在 `BindingRegistry.Bindings.h/.cpp` 里。宿主不再逐份 #include 接口产物，也不再手写
@@ -22,6 +25,7 @@
 #include <chrono>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -71,6 +75,11 @@ namespace cs_script
 		// GetInterfaceApi 返 0，托管侧取不到它们的反向函数表。
 		{ kBindingInterfaceIdresource_management__ResourceImporter, false },
 		{ kBindingInterfaceIdresource_management__ResourceImporterProductions, false },
+		// csharp-resource-asset-foundation 1.3（design D7）：宿主层门面接口（C# 调 C++ 的注册表窄面）。
+		// 由宿主在 `Init` 里 new 实现并登记为**默认实例**；缺这行时 ApplyPolicies 判 Unregistered、
+		// GetInterfaceApi 返 0（主循环变异红态）。
+		// [主循环变异已恢复] 红态读数存 evidence/1.3-红态-*。
+		{ kBindingInterfaceIdcs_script__IResourceRegistry, true },
 	};
 	// 接口实例登记表的一项：键是 **(接口编号, 实例名)**（任务 5.4 / design D10）。
 	// 以前是一张 `void* s_interfaceInstances[8]`（下标就是编号），同一个接口登记第二份实现会
@@ -104,6 +113,274 @@ namespace cs_script
 	// = 24 槽 ⇒ 8 + 8 × 24 = 200。
 	static_assert(sizeof(cawindow__IWindowSystemApi_v2) == 8u + 8u * 24u,
 	              "cawindow::IWindowSystem 函数表应当正好 16 个方法 + 2 个回调伴生（4 个表头槽 + 每个方法槽 8 字节）");
+
+
+	// 资源注册表门面的实现（csharp-resource-asset-foundation 1.3/2.1；design D1/D2/D3）。
+	//
+	// 它坐宿主层，把注册表窄面**委托**给 `ResourceManagingSystem`：注册表仍是资源对象的单一强所有者，
+	// 门面不持第二份强引用、不另建对象表。
+	//
+	// **失败通道**（design D2 的实测修正）：正向生成 thunk 没有 try/catch（实测），所以这里每个
+	// 可能失败的方法自己捕获委托抛出的异常（`resource_creation_error` / `ca_io::io_error` /
+	// `cascaded_reverse::ReverseBindingError`），把「错误码 + 文本」写进同翻译单元可见的生成错误通道
+	// `cs_script__IResourceRegistry_setError`。托管表面在每次调用后自动 `ThrowIfFailed`，抛
+	// `IResourceRegistryException(code, 原文)`；C++ 异常不会穿过 C ABI。句柄类失败用 1001（既有码），
+	// 其余操作失败用门面专属 1014（只发射进门面产物，见 tasks 1.7）。
+	class ResourceRegistryFacade final : public IResourceRegistry
+	{
+	public:
+		explicit ResourceRegistryFacade(resource_management::ResourceManagingSystem* registry)
+			: m_registry(registry)
+		{
+		}
+
+		void RegisterFactory(castl::string const& typeName, uint64_t factoryHandle) override
+		{
+			if (!EnsureRegistry("注册工厂"))
+			{
+				return;
+			}
+			resource_management__IResourceFactoryApi_v2 table{};
+			const uint32_t tableSize = static_cast<uint32_t>(sizeof(table));
+			const uint32_t written = ca_bind_registry::GetInterfaceApi(
+				kBindingInterfaceIdresource_management__IResourceFactory, nullptr,
+				kBindingInterfaceTableVersion, tableSize, &table, nullptr);
+			if (written != tableSize || table.ResolveImpl == nullptr || table.ReleaseImpl == nullptr)
+			{
+				ReportRejected("反向工厂接口未登记：取不到 IResourceFactory 函数表");
+				return;
+			}
+			void* resolved = table.ResolveImpl(factoryHandle);
+			if (resolved == nullptr)
+			{
+				ReportStaleHandle("工厂句柄无效：查不到代理（已释放 / 代际不符）");
+				return;
+			}
+			try
+			{
+				// 句柄处置权交给注册表：注册成功后由注销 / 替换路径经 release(handle) 放强引用。
+				m_registry->RegisterFactory(typeName, factoryHandle,
+					static_cast<resource_management::IResourceFactory*>(resolved), table.ReleaseImpl);
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+			}
+			catch (...)
+			{
+				ReportRejected("注册工厂时发生未知异常");
+			}
+		}
+
+		bool HasFactory(castl::string const& typeName) const override
+		{
+			if (!EnsureRegistry("查询工厂"))
+			{
+				return false;
+			}
+			try
+			{
+				return m_registry->HasFactory(typeName);
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+				return false;
+			}
+			catch (...)
+			{
+				ReportRejected("查询工厂时发生未知异常");
+				return false;
+			}
+		}
+
+		bool UnregisterFactory(castl::string const& typeName) override
+		{
+			if (!EnsureRegistry("注销工厂"))
+			{
+				return false;
+			}
+			try
+			{
+				return m_registry->UnregisterFactory(typeName);
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+				return false;
+			}
+			catch (...)
+			{
+				ReportRejected("注销工厂时发生未知异常");
+				return false;
+			}
+		}
+
+		void CreateResource(castl::string const& typeName, castl::string const& path) override
+		{
+			if (!EnsureRegistry("新建资源"))
+			{
+				return;
+			}
+			try
+			{
+				// 同路径守卫（design D2）：注册表 get_or_create 会留旧弃新；门面 void 返回若静默放行，
+				// 新对象当场析构而 C# 工厂队列拿到孤儿。替换正路是先 ReleaseResource 再新建。
+				if (m_registry->HasResource(path))
+				{
+					ReportRejected("资源路径已存在，先释放再新建：\"" + path + "\"");
+					return;
+				}
+				m_registry->CreateResource(typeName, path);
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+			}
+			catch (...)
+			{
+				ReportRejected("新建资源时发生未知异常");
+			}
+		}
+
+		bool HasResource(castl::string const& path) const override
+		{
+			if (!EnsureRegistry("查询资源"))
+			{
+				return false;
+			}
+			try
+			{
+				return m_registry->HasResource(path);
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+				return false;
+			}
+			catch (...)
+			{
+				ReportRejected("查询资源时发生未知异常");
+				return false;
+			}
+		}
+
+		bool ReleaseResource(castl::string const& path) override
+		{
+			if (!EnsureRegistry("释放资源"))
+			{
+				return false;
+			}
+			try
+			{
+				return m_registry->ReleaseResource(path);
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+				return false;
+			}
+			catch (...)
+			{
+				ReportRejected("释放资源时发生未知异常");
+				return false;
+			}
+		}
+
+		void SerializeAll() override
+		{
+			if (!EnsureRegistry("全量落盘"))
+			{
+				return;
+			}
+			try
+			{
+				m_registry->SerializeAll();
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+			}
+			catch (...)
+			{
+				ReportRejected("全量落盘时发生未知异常");
+			}
+		}
+
+		castl::string GetResourceRootPath() const override
+		{
+			if (!EnsureRegistry("查询资源根路径"))
+			{
+				return castl::string();
+			}
+			try
+			{
+				return m_registry->GetResourceRootPath();
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+				return castl::string();
+			}
+			catch (...)
+			{
+				ReportRejected("查询资源根路径时发生未知异常");
+				return castl::string();
+			}
+		}
+
+		castl::string GetResourceFullPath(castl::string const& path) const override
+		{
+			if (!EnsureRegistry("查询资源全路径"))
+			{
+				return castl::string();
+			}
+			try
+			{
+				return m_registry->GetResourceFullPath(path);
+			}
+			catch (std::exception const& error)
+			{
+				ReportRejected(error.what());
+				return castl::string();
+			}
+			catch (...)
+			{
+				ReportRejected("查询资源全路径时发生未知异常");
+				return castl::string();
+			}
+		}
+
+	private:
+		bool EnsureRegistry(char const* action) const
+		{
+			if (m_registry != nullptr)
+			{
+				return true;
+			}
+			std::string text = "资源注册表未就绪（ResourceManagingSystem 没有登记）：";
+			text += action;
+			Report(cs_script__IResourceRegistry_ERROR_RESOURCE_OPERATION_REJECTED, text.c_str());
+			return false;
+		}
+
+		void ReportRejected(std::string const& text) const
+		{
+			Report(cs_script__IResourceRegistry_ERROR_RESOURCE_OPERATION_REJECTED, text.c_str());
+		}
+
+		void ReportStaleHandle(std::string const& text) const
+		{
+			Report(cs_script__IResourceRegistry_ERROR_STALE_HANDLE, text.c_str());
+		}
+
+		void Report(int32_t code, char const* text) const
+		{
+			cs_script__IResourceRegistry_setError(this, code, text == nullptr ? "" : text);
+		}
+
+		resource_management::ResourceManagingSystem* m_registry = nullptr;
+	};
 
 
 	class CSharpHost final : public IScriptHost
@@ -176,6 +453,8 @@ namespace cs_script
 		~CSharpHost() override
 		{
 			Shutdown();
+			// 门面对象随宿主即将析构：先把实例登记表里那份非所有者指针清掉，避免留悬空读数。
+			SetInterfaceInstance(kBindingInterfaceIdcs_script__IResourceRegistry, nullptr, nullptr);
 			if (s_instance == this)
 			{
 				s_instance = nullptr;
@@ -245,7 +524,35 @@ namespace cs_script
 			// （FillEngineApi → CSharpHostBindingCreateDefaultInstances），仍发生在托管 Boot 之前；
 			// 这里只把模块管理器留下来给钩子用。
 			m_moduleManager = pModuleManager;
+			// csharp-resource-asset-foundation 1.3（design D7）：门面的实例登记 MUST 在
+			// `CreateRenderAdapter` 的渲染后端缺失 early-return **之前** —— 无渲染后端的宿主也要能
+			// 取门面。这里在 LoadRuntime（FillEngineApi → CreateRenderAdapter）之前完成。
+			RegisterResourceRegistry(pModuleManager);
 			LoadRuntime();
+		}
+
+		// 资源注册表门面：取 `ResourceManagingSystem` 实例 → new 门面实现 → 登记默认实例（design D7）。
+		void RegisterResourceRegistry(cacore::IModuleManager* pModuleManager)
+		{
+			auto* registry = pModuleManager != nullptr
+				? pModuleManager->GetInstance<resource_management::ResourceManagingSystem>()
+				: nullptr;
+			if (registry == nullptr)
+			{
+				// 不静默不登记：门面照样登记，每个方法会经错误通道 1014 点名「注册表未就绪」。
+				CA_LOG_ERR("CSharpHost：ResourceManagingSystem 没有登记；资源注册表门面仍登记"
+				           "（调用时经错误通道 1014 点名）");
+			}
+			m_resourceRegistry = std::make_unique<ResourceRegistryFacade>(registry);
+			SetInterfaceInstance(kBindingInterfaceIdcs_script__IResourceRegistry, nullptr,
+			                     m_resourceRegistry.get());
+			// 报登记表的实际读数（与 CRenderBackend 那段同一口径：不许文本说谎）。
+			void* registered = GetInterfaceInstance(kBindingInterfaceIdcs_script__IResourceRegistry, nullptr);
+			CA_LOG("CSharpHost：资源注册表门面{}（编号 {}；门面地址 {:X}；登记表读数 {:X}）",
+				registered == m_resourceRegistry.get() ? "已登记" : "未登记",
+				kBindingInterfaceIdcs_script__IResourceRegistry,
+				reinterpret_cast<uintptr_t>(m_resourceRegistry.get()),
+				reinterpret_cast<uintptr_t>(registered));
 		}
 
 		bool IsAvailable() const override { return m_bootSucceeded; }
@@ -348,6 +655,9 @@ namespace cs_script
 		// 模块管理器（render-interface-merge 任务 3.1）：生成的装配代码通过固定名工厂钩子回到
 		// 这里，钩子需要一个稳定的管理器指针。
 		cacore::IModuleManager* m_moduleManager = nullptr;
+		// 资源注册表门面（csharp-resource-asset-foundation 1.3）：对象随宿主存活，实例登记表只持
+		// 非所有者指针（与表里其它实例同口径：不悬空、不泄漏）。
+		std::unique_ptr<ResourceRegistryFacade> m_resourceRegistry;
 
 		// 用模块管理器里的真实后端与线程管理器登记**原生**渲染后端（编号 = 生成的 CRenderBackend
 		// 常量，默认实例）。5.1：桥退役后宿主直持原生对象，不再 new 适配器。

@@ -50,6 +50,7 @@
 | 10 | `resource_management::IResource` | **目标类型表（反向）**：C# 实现 `ResourceBase`，由反向工厂的 `Create` 在托管桥里包成原生 `IResourceProxy`；`Deserialize` 本批排除 |
 | 11 | `resource_management::ResourceImporter` | **目标类型表（反向）**：C# 实现 `ResourceImporterBase`（`GetTags` / `GetSourceDirectory` / `GetDestDirectory` / `Produce`），经 `ResourceImporterBindings.Create` 拿强句柄，原生侧 `ResolveImpl` 后交给 `ResourceImportingSystem::AddImporter`；C++ 原生导入器（两个着色器导入器）走同一个导入器列表、不进这张编号表 |
 | 12 | `resource_management::ResourceImporterProductions` | **目标类型表（反向）**：C# 实现 `ResourceImporterProductionsBase`（`HasNext` / `NextPath` / `NextResource`），由 `Produce` 的托管桥用 `CreateProxy` 包成原生代理；迭代器归资源管线所有（扫描结束即析构） |
+| 13 | `cs_script::IResourceRegistry` | 空（默认实例；宿主在模块 link 阶段 `new` 门面实现并登记，**无渲染后端时也要登记**；实现委托 `ResourceManagingSystem`，注册表仍是资源对象单一强所有者） |
 
 同一个接口可以登记多份实现，靠实例名区分；实例名传 `nullptr` = 该接口**默认那一份**（最先登记的）。登记与查找都走 `IScriptHost::SetInterfaceInstance` / `GetInterfaceInstance`，两边必须用同一对 (编号, 实例名)。
 

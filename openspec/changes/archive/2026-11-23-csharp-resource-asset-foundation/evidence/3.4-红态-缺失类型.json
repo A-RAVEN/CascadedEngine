@@ -1,0 +1,3 @@
+[
+  {"name":"TestCSharpAssets","status":"fail","duration_ms":226,"exit_code":1,"error":"E_ASSET_READING: missing_type = "FileNotFoundException"，期望 "AssetFormatException""}
+]

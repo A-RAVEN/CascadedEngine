@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-存在-003",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/design.md",
+  "anchor": "- `Mesh : ResourceBase`：`byte[] VertexData`（位置 float3 + 颜色 float4 交错，与场景着色器输入布局一致——`SceneRenderer` 现用布局）",
+  "problem": "「颜色 float4」与它自称对照的那份现用布局不一致：`Scripting/Managed/Scene/SceneRenderer.cs` 写死的是位置 float3（偏移 0）+ 颜色 **float3**（偏移 12）、步长 **24**，着色器输入也是 `float3 color : COLOR`。工件把它写成 float4（float3 + float4 = 28 字节，或按 16 字节对齐成 32），还盖了「与场景着色器输入布局一致」的章。tasks 3.1 要求「字段与 Serialize() 格式按 design D5」执行，照抄就会让 C# 写出的网格字节与 `SetPositionColorStream(stride=24, positionOffset=0, colorOffset=12)` 不匹配，4.3 的网格像素判据必然失败，而失败现象会指向渲染而不是布局定义，排查成本被这一句错误引文放大。同时 spec 的 `csharp-asset-layer` 第 5 行「顶点布局与场景着色器现用输入一致」本身没说错，冲突只在 design 的这条具体数字上。",
+  "evidence": "命令1（场景侧真实布局）：`Select-String -Path 'Scripting\\Managed\\Scene\\SceneRenderer.cs' -Pattern 'VertexStride|PositionOffset|ColorOffset'` → L41 `// 顶点布局与既有三角形探针一致：位置 float3（偏移 0）+ 颜色 float3（偏移 12），步长 24。`；L42 `private const uint VertexStride = 24;`；L43 `private const uint PositionOffset = 0;`；L44 `private const uint ColorOffset = 12;`。命令2（着色器输入声明）：`Get-Content 'CAResources\\Shaders\\Test\\TestSimpleTriangle.slang' -TotalCount 6` → L4 `float3 position : POSITION;`、L5 `float3 color : COLOR;`。命令3（消费方用的就是这两个常数）：`SceneRenderer.cs` L324 `m_Graph.SetPositionColorStream(bufferName, VertexStride, PositionOffset, ColorOffset)`。",
+  "suggestion": "把 D5 那句改成逐字可核的形状：「`byte[] VertexData`（位置 float3 偏移 0 + 颜色 float3 偏移 12，逐顶点 24 字节交错，与 `SceneRenderer.VertexStride/PositionOffset/ColorOffset` 一致）」，并在 tasks 3.1 的验收里补一条：C# 侧 `VertexStride` 常量 = 24、颜色偏移 = 12，与 `SceneRenderer` 同名常数逐字相同（新增文件读不了既有常量就写死 24/12 并在注释里点名出处）。这样 4.3 的网格提交才与 `SetPositionColorStream` 的自检对得上，「与现用布局一致」也才变成可核事实而不是转述。"
+}

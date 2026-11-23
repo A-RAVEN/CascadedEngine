@@ -1374,6 +1374,11 @@ namespace bindemit
         // README 的错误码表）必须同步。
         { "REVERSE_EXCEPTION", 1012 },
         { "REVERSE_READ_UNSUPPORTED", 1013 },
+        // csharp-resource-asset-foundation 1.7：宿主门面 `cs_script::IResourceRegistry` 专用 ——
+        // 门面实现自行捕获委托异常后写错误通道（正向普通方法 thunk 没有 try/catch，实测）。
+        // 照 1012/1013 的作用域先例只发射进门面产物，既有正向产物逐字节不变（5.1 硬判据）。
+        // 三处同步：这里 / check_bindings.py 的 ERROR_CODE_TABLE / README 的错误码表。
+        { "RESOURCE_OPERATION_REJECTED", 1014 },
     };
 
     // 反向专属错误码（1012/1013）只发射进**反向**产物：正向产物（含既有 8 接口、夹具、窗口/渲染）
@@ -1383,6 +1388,18 @@ namespace bindemit
     bool isReverseOnlyErrorCode(BindErrorCode const& errorCode)
     {
         return errorCode.value == 1012 || errorCode.value == 1013;
+    }
+
+    // 门面专属错误码（csharp-resource-asset-foundation 1.7）：只发射进 `cs_script::IResourceRegistry`
+    // 的产物。既有正向接口永远不会写它，发射进去只会让"各接口产物逐字节不变"的判据变红。
+    bool isFacadeOnlyErrorCode(BindErrorCode const& errorCode)
+    {
+        return errorCode.value == 1014;
+    }
+
+    bool isResourceRegistryFacade(std::string const& qualifiedName)
+    {
+        return qualifiedName == "cs_script::IResourceRegistry";
     }
 
     // 回调形状要认"参数是不是已绑定接口的裸指针"，所以这两个声明提前到这里。
@@ -10986,36 +11003,132 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                      twoStepBare == "castl::string" || twoStepBare == "std::string");
                 if (stringTwoStep)
                 {
-                    cpp += "extern \"C\" uint64_t " + linear + "__" + abiName + "Len(void* self);\n";
-                    cpp += "extern \"C\" void " + linear + "__Copy" + abiName +
-                           "(void* self, char* dst, uint64_t cap);\n";
+                    // 参数转换（csharp-resource-asset-foundation 2.1 修正）：两段式字符串返回的
+                    // `Len`/`Copy` 伴生必须把方法参数一并带上 —— 旧实现无条件 `object->Method()`，
+                    // 带参数的方法会生成编译不过的产物（实测 `GetResourceFullPath(path)` 报 C2660）。
+                    // 形状限本批见证集（注入 / 文本 / 标量 / 枚举）；其它形状生成期点名拒绝，不静默丢参。
+                    std::string prelude;
+                    std::vector<std::string> argExprs;
+                    std::size_t abiIndex = 0;
+                    bool paramsSupported = true;
+                    for (std::size_t paramIndex = 0; paramIndex < method.params.size(); ++paramIndex)
+                    {
+                        const std::string spelling = method.params[paramIndex].first;
+                        const std::string bare = bareType(spelling);
+                        const std::string name = method.params[paramIndex].second.empty()
+                                                     ? std::string("arg") + std::to_string(paramIndex)
+                                                     : method.params[paramIndex].second;
+                        if (method.injectedParams.count(method.params[paramIndex].second) > 0)
+                        {
+                            const std::string castSpelling =
+                                paramIndex < method.paramCanonicalSpellings.size() &&
+                                        !method.paramCanonicalSpellings[paramIndex].empty()
+                                    ? method.paramCanonicalSpellings[paramIndex]
+                                    : spelling;
+                            argExprs.push_back("static_cast<" + castSpelling + ">(" +
+                                               injectHookName(method.ownerQualified, method.name,
+                                                              method.params[paramIndex].second) +
+                                               "())");
+                            continue;
+                        }
+                        const std::string canonicalSpelling =
+                            paramIndex < method.paramCanonicalSpellings.size()
+                                ? method.paramCanonicalSpellings[paramIndex]
+                                : spelling;
+                        if (paramIndex < method.paramKinds.size() &&
+                            method.paramKinds[paramIndex] == static_cast<int>(CXType_Enum))
+                        {
+                            EnumInfo const* info = findEnumBySpelling(canonicalSpelling);
+                            if (info == nullptr)
+                            {
+                                paramsSupported = false;
+                                break;
+                            }
+                            argExprs.push_back("static_cast<" + info->cppName + ">(" + name + ")");
+                            ++abiIndex;
+                            continue;
+                        }
+                        if (isScalarType(bare))
+                        {
+                            argExprs.push_back(bare == "bool" ? name + " != 0" : name);
+                            ++abiIndex;
+                            continue;
+                        }
+                        // `castl::string const&` / `string_view const&` 入参：ABI 是 `char const* + uint64 len`，
+                        // thunk 里按原拼写重建（view 不能拿 string 直接代）。
+                        if (hasPrefix(bare, "castl::string") || hasPrefix(bare, "std::string"))
+                        {
+                            const bool wantsView = hasPrefix(bare, "castl::string_view") ||
+                                                   hasPrefix(bare, "std::string_view");
+                            prelude += std::string("    ") +
+                                       (wantsView ? "castl::string_view " : "castl::string ") + name +
+                                       "Text(" + name + ", " + name + "Len);\n";
+                            argExprs.push_back(name + "Text");
+                            abiIndex += 2;
+                            continue;
+                        }
+                        paramsSupported = false;
+                        break;
+                    }
+                    if (!paramsSupported || abiIndex != params.size())
+                    {
+                        std::fprintf(stderr,
+                                     "CodeGen: 拒绝 %s::%s —— 字符串两段式的参数形状不在本批支持范围内"
+                                     "（只支持注入 / 文本 / 标量 / 枚举参数）\n",
+                                     shape.name.c_str(), method.name.c_str());
+                        ++rejected;
+                        continue;
+                    }
+                    std::string paramDecls;
+                    std::string abiParamTypes;
+                    std::string csParamTypes = "void*";
+                    for (Projected const& projected : params)
+                    {
+                        paramDecls += ", " + projectedDeclaration(projected);
+                        abiParamTypes += ", " + projected.type;
+                        csParamTypes += ", " + toCSharpType(projected.type);
+                    }
+                    std::string callArgs;
+                    for (std::size_t index = 0; index < argExprs.size(); ++index)
+                    {
+                        callArgs += (index == 0 ? "" : ", ") + argExprs[index];
+                    }
+                    cpp += "extern \"C\" uint64_t " + linear + "__" + abiName + "Len(void* self" +
+                           paramDecls + ");\n";
+                    cpp += "extern \"C\" void " + linear + "__Copy" + abiName + "(void* self" +
+                           paramDecls + ", char* dst, uint64_t cap);\n";
                     // 两个伴生**各自独立**取一次实现的值：不依赖跨调用的暂存状态
                     lateDefs += "extern \"C\" uint64_t " + linear + "__" + abiName +
-                                "Len(void* self)\n{\n";
+                                "Len(void* self" + paramDecls + ")\n{\n";
                     // 两个伴生也是"入口"：不先清就会把上一次调用的失败码算到这次头上
                     lateDefs += "    " + linear + "_clearError(self);\n";
+                    lateDefs += prelude;
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
-                    lateDefs += "    return static_cast<uint64_t>(object->" + method.name + "().size());\n}\n";
+                    lateDefs += "    return static_cast<uint64_t>(object->" + method.name + "(" + callArgs +
+                                ").size());\n}\n";
                     lateDefs += "extern \"C\" void " + linear + "__Copy" + abiName +
-                                "(void* self, char* dst, uint64_t cap)\n{\n";
+                                "(void* self" + paramDecls + ", char* dst, uint64_t cap)\n{\n";
                     lateDefs += "    " + linear + "_clearError(self);\n";
                     // 容量是无符号的：`cap - 1` 在 0 时会下溢成最大值，必须先判
                     lateDefs += "    if (cap == 0u || dst == nullptr) { return; }\n";
+                    lateDefs += prelude;
                     lateDefs += "    auto* object = static_cast<" + shape.qualifiedName + "*>(self);\n";
-                    lateDefs += "    const auto value = object->" + method.name + "();\n";
+                    lateDefs += "    const auto value = object->" + method.name + "(" + callArgs + ");\n";
                     lateDefs += "    const std::size_t length = static_cast<std::size_t>(value.size());\n";
                     lateDefs += "    const std::size_t copied = (length < cap - 1u) ? length : cap - 1u;\n";
                     lateDefs += "    ::memcpy(dst, value.data(), copied);\n";
                     lateDefs += "    dst[copied] = 0;\n}\n";
                     // 两段式伴生也进表（任务 5.2）：托管表面的 `string GetXxx()` 两段都得能调到，
                     // 而它们只是导出符号、不在表里 —— 托管侧拿不到地址。
-                    tableSlots.push_back({abiName + "Len", "uint64_t (*" + abiName + "Len)(void* self)",
-                                          "&" + linear + "__" + abiName + "Len", "void*, ulong"});
+                    tableSlots.push_back({abiName + "Len",
+                                          "uint64_t (*" + abiName + "Len)(void* self" + abiParamTypes + ")",
+                                          "&" + linear + "__" + abiName + "Len",
+                                          csParamTypes + ", ulong"});
                     tableSlots.push_back({"Copy" + abiName,
-                                          "void (*Copy" + abiName +
-                                              ")(void* self, char* dst, uint64_t cap)",
+                                          "void (*Copy" + abiName + ")(void* self" + abiParamTypes +
+                                              ", char* dst, uint64_t cap)",
                                           "&" + linear + "__Copy" + abiName,
-                                          "void*, byte*, ulong, void"});
+                                          csParamTypes + ", byte*, ulong, void"});
                     continue;
                 }
                 // ---- 返回位置标量容器两段式（本批 1.6 / design D13）：`vector<标量> const&` →
@@ -12083,6 +12196,10 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                 {
                     continue;
                 }
+                if (isFacadeOnlyErrorCode(errorCode) && !isResourceRegistryFacade(shape.qualifiedName))
+                {
+                    continue;
+                }
                 cpp += "static const int32_t " + linear + "_ERROR_" + errorCode.name + " = " +
                        std::to_string(errorCode.value) + ";\n";
             }
@@ -12540,6 +12657,10 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                         continue;
                     }
                     if (isReverseOnlyErrorCode(errorCode))
+                    {
+                        continue;
+                    }
+                    if (isFacadeOnlyErrorCode(errorCode) && !isResourceRegistryFacade(shape.qualifiedName))
                     {
                         continue;
                     }
@@ -13249,13 +13370,16 @@ std::string* twoStepRecordShort = nullptr, std::string* twoStepScalarElement = n
                                                   ".ThrowIfFailed(lease.Self);\n";
                     if (stringTwoStep)
                     {
+                        // 参数随 `abiArgs` 一起传给两个伴生（csharp-resource-asset-foundation 2.1 修正）：
+                        // 带参数的方法必须把参数送到原生，否则表面会静默忽略它。
                         callBody += "            ulong length = " + bindingsName + "." + abiName +
-                                    "Len(lease.Self);\n";
+                                    "Len(" + abiArgs + ");\n";
                         callBody += throwLine;
                         callBody += "            if (length == 0UL) { return string.Empty; }\n";
                         callBody += "            byte[] buffer = new byte[(int)length + 1];\n";
                         callBody += "            fixed (byte* bufferPtr = buffer) { " + bindingsName + ".Copy" +
-                                    abiName + "(lease.Self, bufferPtr, (ulong)buffer.Length); }\n";
+                                    abiName + "(" + abiArgs +
+                                    ", bufferPtr, (ulong)buffer.Length); }\n";
                         callBody += throwLine;
                         callBody += "            return System.Text.Encoding.UTF8.GetString(buffer, 0, (int)length);\n";
                     }

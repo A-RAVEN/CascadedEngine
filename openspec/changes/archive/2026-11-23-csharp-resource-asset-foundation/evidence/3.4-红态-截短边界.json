@@ -1,0 +1,3 @@
+[
+  {"name":"TestCSharpAssets","status":"fail","duration_ms":212,"exit_code":1,"error":"E_ASSET_READING: truncated_type = "ArgumentException"，期望 "AssetFormatException""}
+]

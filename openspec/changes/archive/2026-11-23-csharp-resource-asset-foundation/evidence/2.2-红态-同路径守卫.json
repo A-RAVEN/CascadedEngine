@@ -1,0 +1,3 @@
+[
+  {"name":"TestCSharpAssets","status":"fail","duration_ms":172,"exit_code":1,"error":"E_ASSET_HOST_ERROR: 阶段 failure 之后宿主 LastError 非空：Tick 抛异常：InvalidCastException: Unable to cast object of type 'Scripting.Managed.Assets.Mesh' to type 'Scripting.Managed.Assets.Texture2D'.（读数：InvalidCastException: Unable to cast object of type 'Scripting.Managed.Assets.Mesh' to type 'Scripting.Managed.Assets.Texture2D'.）"}
+]

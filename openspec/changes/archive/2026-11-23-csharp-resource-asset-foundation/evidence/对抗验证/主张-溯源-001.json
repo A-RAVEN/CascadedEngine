@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-溯源-001",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/design.md",
+  "anchor": "- `Load(path)`：`HasResource(path)` 为真 → 先 `ReleaseResource(path)`（替换，与导入器管线 `ScanSourceDirectory` 同构——MUST NOT 依赖 get_or_create 静默留旧）；`GetResourceFullPath(path)` → `File.ReadAllBytes` → 按魔数分派解析 → `Create` → 填数据。文件缺失 / IO 错误 MUST 包装成 `AssetFormatException` 点名路径（MUST NOT 裸抛 `FileNotFoundException`——类型判据见 tasks 3.4）。",
+  "problem": "「与导入器管线 ScanSourceDirectory 同构」是假的：导入器的顺序是 Produce/NextResource 先产出新对象（产出失败先抛，旧条目不释放），成功后才 ReleaseResource 再 RegisterResource；设计给 Load 规定的顺序是先 ReleaseResource、再读文件、再解析、再 Create。读文件或解析失败时，旧条目的唯一强引用已经放掉，旧资产被静默销毁；asset-layer 规范又把「版本损坏后注册表 MUST 无该路径条目」写成期望，等于把这次丢失固化成验收。",
+  "evidence": "1) GeneralResources/private/ResourceImportingSystem.cpp:80-92：`IResource* produced = productions->NextResource();`（80）→ `produced == nullptr` 时 throw（83-84）→ 包 shared_ptr（87-88）→ `ReleaseResource(relativePath)`（91）→ `RegisterResource`（92）。\n2) openspec/specs/resource-importer/spec.md:31：「拉 NextPath/NextResource→包 shared_ptr→先 ReleaseResource(path) 再 RegisterResource(path,shared_ptr)（重导入替换，MUST NOT get_or_create 静默留旧）」。\n3) `design.md` 的 D6 `Load` 条规定的顺序是 `HasResource` → 先 `ReleaseResource` → `File.ReadAllBytes` → 解析 → `Create`。\n4) `specs/csharp-asset-layer/spec.md` 的「版本字节被改时加载点名失败」场景：`MUST 抛 AssetFormatException ... 注册表 MUST 无该路径条目`——旧条目已被释放，规范把它当成期望。\n5) GeneralResources/private/ResourceImportingSystem.cpp:258-270：`RegisterResource` 内部用 `m_PathToResource.get_or_create`，同路径已存在时静默保留旧对象——所以「先 Release 再 Create」是唯一防静默留旧的手段，而它同时造成了失败时的静默丢失。",
+  "suggestion": "改成真正的同构：先读文件、解析、造对象，全部成功后再 `ReleaseResource` + 注册（失败时旧条目仍在）；并在 asset-layer 加一条场景「损坏/缺失文件加载失败后，旧资源仍能用 HasResource/GetResource 取回」。如果确实要保留「先释放再加载」，就必须把「失败会丢弃旧资源」写进规范、点名这条丢失并给出恢复路径（例如保留上一份文件或让调用方重新加载），同时把「同构」和「旧条目不丢」的措辞删掉。"
+}

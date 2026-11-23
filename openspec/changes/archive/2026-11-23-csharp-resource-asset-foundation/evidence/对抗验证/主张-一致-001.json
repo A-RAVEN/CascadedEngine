@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-001",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "审计表追加九行（唯一一份：`openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md`，只追加不动旧行）",
+  "problem": "1.4 仍规定审计表「只追加不动旧行」，1.5 只补 `check_bindable_audit.py` 的 `INTERFACES` 一项；两条都做之后脚本仍会红：`check_bindable_audit.py` 的汇总表判据要求每个 `INTERFACES` 接口在范围汇总表有方法条数行，且合计等于头文件实算总数（105 + 9 = 114）。归档审计表当前是「**13** 个接口……合计 **105** 条公开方法」与 `| **合计** | **105** | |`；1.4/1.5 都不改这两处，脚本按「汇总表缺少接口 cs_script::IResourceRegistry」与「汇总表合计不符：写 105、头文件实算 114」非零退出。spec 的接线要求与 design D7 却承诺「同步后 MUST exit 0（接口数 13→14、方法对账数 105→114）」，tasks 没有任何一条改汇总表；design 风险行还写着「只追加九行，不动旧行」。",
+  "evidence": "tasks 1.4 原文：「审计表追加九行（唯一一份：`openspec/changes/archive/2026-10-18-csharp-bindable-surface/evidence/bindable-audit.md`，只追加不动旧行）……脚本绿须与 1.5 同步完成」；tasks 1.5 原文：「`Tools/CodeGen/check_bindable_audit.py` 的 `INTERFACES` 表加 `\"cs_script::IResourceRegistry\": (\"Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h\", \"IResourceRegistry\")` 一项。验收：`python Tools/CodeGen/check_bindable_audit.py` exit 0，输出接口数 13→14、方法对账数 105→114」；design D7 原文：「九行追加进那一份……同时给该脚本的 `INTERFACES` 表加 `cs_script::IResourceRegistry` 一项……改后脚本绿（接口数 13→14、方法数 105→114，实测基线）」；design 风险行原文：「只追加九行，不动旧行」；registry spec 原文：「审计表九行、`check_bindable_audit.py` 的 `INTERFACES` 表加门面一项」「同步后 MUST exit 0（接口数 13→14、方法对账数 105→114，实测基线）」；归档审计表原文：「**13** 个接口……合计 **105** 条公开方法」「| **合计** | **105** | |」；`Tools/CodeGen/check_bindable_audit.py` 汇总表判据原文：「范围汇总表必须与头文件实算数字一致（任务 1.1）：只加行不改合计、或漏写新接口都是失败」，并另有「汇总表缺少接口 {interface} 的方法条数」与「汇总表合计不符：写 {summary_total}、头文件实算 {sum(expected.values())}」两条；当前运行读数为「扫描 13 个接口、对账 105 条方法、命中 0 处问题」。",
+  "suggestion": "新增一条（或扩 1.5）明写汇总表改动：范围汇总表加一行 `cs_script::IResourceRegistry`、方法条数 9、头文件 `Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h`；合计 `**105**` 改 `**114**`，并把正文「13 个接口 / 105 条」改为「14 / 114」。把 1.4 的「只追加不动旧行」改成「追加九行 + 汇总表新行 + 合计行（旧行中只改合计）」；design D7/风险行、registry spec 场景与 proposal 的审计表描述同步写上汇总表两处。"
+}

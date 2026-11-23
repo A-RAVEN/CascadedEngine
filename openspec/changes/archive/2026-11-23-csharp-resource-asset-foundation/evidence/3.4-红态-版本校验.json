@@ -1,0 +1,3 @@
+[
+  {"name":"TestCSharpAssets","status":"fail","duration_ms":221,"exit_code":1,"error":"E_ASSET_READING: corrupt_type = "没有抛异常"，期望 "AssetFormatException""}
+]

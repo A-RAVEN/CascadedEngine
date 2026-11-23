@@ -60,6 +60,7 @@
 | **003** | 哈希 + 相等设计 | 做 Phase 1 哈希部分时 |
 | **006** | [渲染后端 C# binding](006-csharp-render-backend-binding.md)：已升级到 `csharp-render-backend-triangle`；原笔记保留决策背景 | 推进渲染后端 C# 方向前；优先于 005 |
 | **005** | [网页界面与 C# 编辑器服务](005-web-editor.md)：架构、通信、线程边界、首个纵向切片与未决问题 | 推进网页编辑器方向前 |
+| **007** | [统一内存分配器与分配追踪](007-memory-allocator-and-tracking.md)：探索中——旧 vector 内存池查证、分层内存策略、统一入口 + Tracy、对象内部分配归属 | 推进内存基础设施方向前 |
 
 ## 两个"顺序"别混
 

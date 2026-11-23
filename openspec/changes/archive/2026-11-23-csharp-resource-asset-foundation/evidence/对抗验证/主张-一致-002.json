@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-002",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/design.md",
+  "anchor": "既有产物逐字节不变是硬判据，红了即停。",
+  "problem": "`design.md` 的 Migration Plan 仍写「既有产物逐字节不变是硬判据，红了即停」，Goals 也还写「既有绑定产物逐字节不变」；但同一文件的 D8 已经改成两段式：既有**各接口**产物（含 codegen 产物）逐字节不变，三份**聚合**产物（`BindingRegistry.Bindings.h/.cpp`、`EngineApi.Bindings.cs`）允许变、但每处差异必须逐处指认到门面编号 13 登记行。registry spec 也明确写了三份聚合登记产物允许变化。三份聚合产物本身就是既有产物，按 Migration 的「硬判据」会在合法差异处红；asset-layer spec 的回归要求同样还是「回归 MUST 与基线零差异」。执行者若按 Migration 的字面执行，要么误停在被允许的三份聚合差异上，要么把差异藏掉去凑「逐字节不变」。",
+  "evidence": "design Migration Plan 原文：「既有产物逐字节不变是硬判据，红了即停。」；design Goals 原文：「GeneralResources 与生成器**零改动**；既有绑定产物逐字节不变；既有 21 个 tester 用例与 CoreTests 全绿。」；design D8 修订后原文：「既有**各接口**产物（含 codegen 产物）逐字节不变；三份**聚合**产物（`BindingRegistry.Bindings.h/.cpp`、`EngineApi.Bindings.cs`）允许变，但每处差异 MUST 逐处指认到门面编号 13 的登记行，指认不出即红」；registry spec 修订后原文：「既有**各接口**绑定产物 MUST 逐字节不变；三份聚合登记产物（`BindingRegistry.Bindings.h/.cpp`、`EngineApi.Bindings.cs`）允许变化，但每处差异 MUST 能指认到门面编号 13 的登记行」；asset-layer spec 原文：「回归 MUST 与基线零差异。」；上一 change 证据原文：「不一致 3 = BindingRegistry.Bindings.cpp/.h + EngineApi.Bindings.cs（宿主登记表新号 11/12，合法变化）」——本次加 13 同样会改这三份。",
+  "suggestion": "把 Migration Plan 的「既有产物逐字节不变」改成「既有各接口产物逐字节不变；三份聚合登记产物允许变但每处差异逐处指认，未指认即红」，Goals 同步；「红了即停」补限定为「未指认的差异」。asset-layer spec 的「回归 MUST 与基线零差异」改成「各接口产物零差异 + 聚合产物差异逐处指认，任何未指认差异即红」。"
+}

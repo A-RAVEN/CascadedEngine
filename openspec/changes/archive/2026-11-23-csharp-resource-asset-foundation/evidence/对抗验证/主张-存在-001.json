@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-存在-001",
+  "face": "真实存在性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "验收：`python Tools/CodeGen/check_bindable_audit.py` exit 0；`Select-String 'IResourceRegistry'` 在该文件计数 = 9。",
+  "problem": "这条验收按现态不可能通过。`Tools/CodeGen/check_bindable_audit.py` 的被审计接口集合是写死的字典 `INTERFACES`（现 13 个接口，全文 0 处 `cs_script`）；脚本把「审计表里有、`INTERFACES` 里没有」的行判成「僵尸行」计为问题，退出码 1。工件里没有任何一处要求同步改这个脚本：proposal 的「代码」影响清单只列了门面头 / CSharpHost / Scripting.Managed/Assets / Main.cpp / 探针 / build.py / interface-ids.lock / 审计表；design D7 的原文是「九行追加进那一份，逐行写投影形状 / 分配归属 / 错误通道；脚本绿」；tasks 1.4 的验收直接写 exit 0。照工件执行，追加九行之后脚本必红，「脚本绿」与「exit 0」两条判据同时失效。",
+  "evidence": "命令1（现态基线）：`python Tools\\CodeGen\\check_bindable_audit.py` → 输出 `扫描 13 个接口、对账 105 条方法、命中 0 处问题（审计表：openspec\\changes\\archive\\2026-10-18-csharp-bindable-surface\\evidence\\bindable-audit.md）`，`exit = 0`。命令2（新接口是否在审计面）：`(Select-String -Path 'Tools\\CodeGen\\check_bindable_audit.py' -Pattern 'cs_script').Count` → `0`。代码依据：该文件 L27-54 `INTERFACES = { \"graphics_backend::CRenderBackend\": ..., \"resource_management::ResourceImporterProductions\": ... }` 共 13 项，无 `cs_script::IResourceRegistry`；L274-281 `for interface in INTERFACES: methods = header_methods(repo, interface); expected[(interface, method)] += 1`（期望集只由 `INTERFACES` 生成）；L298-303 `key = (row[\"interface\"], row[\"method\"]); actual[key] += 1; if key not in expected: problems.append(f\"僵尸行：审计表里出现了接口中不存在的方法 {row['interface']}::{row['method']}\")`；L344 起按 `problems` 非空返回 1。",
+  "suggestion": "在 tasks §1 增加一条可失败任务（编号 1.5 或并入 1.4）：「`Tools/CodeGen/check_bindable_audit.py` 的 `INTERFACES` 加 `\"cs_script::IResourceRegistry\": (\"Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h\", \"IResourceRegistry\")`」，验收写成：追加九行后重跑脚本，扫描接口数从 13 变 14、对账方法数从 105 变 114、exit 0；再删掉 `INTERFACES` 那一行复跑，必须因「僵尸行」红（判据可失败）。同时把 `Tools/CodeGen/check_bindable_audit.py` 写进 proposal「代码」影响清单，并把 design D7 的「脚本绿」改成「改 `INTERFACES` 后脚本绿」。这不是放松判据——僵尸行判据原样保留，只是让审计面认这张新表。"
+}

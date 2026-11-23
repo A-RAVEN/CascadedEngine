@@ -4,7 +4,7 @@
 > 它不记任务、不记欠账、不记改动细节 —— 进度事实源只有 `openspec/changes/<change>/tasks.md`，
 > 欠账只有 `docs/TODO.md`，本文件只做指针。
 
-**最后更新**：2026-11-22
+**最后更新**：2026-11-23
 **维护规则**：见 `CLAUDE.md` 的「文档维护」一节
 
 ---
@@ -105,6 +105,8 @@
 
 排期后续方向（用户 2026-11-11 指示记入）：**I/O 与资源管理层的正确性基础**。现状三层（`Interface/IOManager` 批式读写接口 → `IOManager_FS` 实现 → `GeneralResources` 资源注册表与导入）有两类地基级缺陷：其一，读越界与文件打不开被静默吞掉（`IOBatchImpl::Read` 越界直接 `return`、读任务打不开文件无错误通道）；其二，流式反序列化无边界检查（`CodeGenSerialization.h` 读对象流式分支无条件返回成功，`TResource::Deserialize` 又忽略 `deserialize` 的返回值——截短或损坏的资产文件会静默把垃圾灌进 `ShaderLibrary`）。切法从小到大、各自独立可验：先做 I/O 错误通道与资源反序列化边界检查——**已兑现（2026-11-17）**：change `io-error-channel` 14/14 完成并归档到 `openspec/changes/archive/2026-11-17-io-error-channel/`，新主规范 `openspec/specs/io-error-channel/spec.md`（三要求八场景）生效；六条失败判据红绿闭环、两后端全量各 17/17、生成物逐字节不变。第二项 `CACore/header/FileLoader.h` 同族静默失败修复**已兑现（2026-11-21）**：随合并批 `failure-visibility-hygiene`（14/14，归档 `openspec/changes/archive/2026-11-21-failure-visibility-hygiene/`）完成——三函数失败抛 `cacore::file_error` 点名路径（零活跃调用方，语义由 CoreTests 钉死），新主规范 `openspec/specs/fileloader-error-channel/spec.md` 生效；同批另完成 tester 输出卫生（test_output 跑前清日志保留 json/png、capture 误用/越界警告，主规范 `openspec/specs/tester-output-hygiene/spec.md`）、绑定产物闸门精确文件名（`csharp-bindings` 主规范同步）、spin_check 按 change 定位与过期文档路径修复。其后依次为 `SerializeAll` 增量回写与源删除清产物、假异步清理与读侧句柄缓存（纯性能，可缓）、资源身份重设计（内容哈希/依赖记录，编辑器与热重载需要时再做）。定位：I/O 批处理与导入器属引擎核心，留在 C++；"哪些资产存在、谁引用谁"的登记策略未来可按本阶段口径澄清的同原则坐 C#；若 C# 脚本需加载贴图/网格，`ResourceManagingSystem` 是后续绑定接口的候选——这是该模块与阶段 5 的真实接口点。
 
+排期后续方向（用户 2026-11-23 裁定「按你建议的来」，已立 change `csharp-resource-asset-foundation`）：**C# 资源资产层地基**。前两批（`csharp-reverse-interface-binding`、`resource-importer-refactor`）把机制做完（对称工厂 + 拉取式导入器 + 反向绑定），但真实资产仍只有 ShaderLibrary——贴图/网格进不来、C# 脚本加载不了资产。本批方向：① 宿主层加一个 C# 可调的**注册表窄面**（工厂注册/资源新建/查询/释放/落盘/路径查询；资源注册表本体与所有权规矩不动，GeneralResources 核心零改动——窄面坐宿主层，因为跨模块句柄解析能力本来就在那里）；② C# 定义贴图/网格资源类型（继承反向基类 ResourceBase、持字节数据、自定义序列化格式）与工厂；③ **C# 自读加载**（读文件→解析→经工厂新建→填数据；替换语义与导入器管线同构），不走引擎 Deserialize 路径。渲染消费走现有正向绑定（CreateGPUTexture + 图内缓冲绑定）。明确不做：反向 Deserialize（IOBatch 问不到剩余长度，另立批）、C++ 贴图/网格类型、PNG/OBJ 等源文件导入器（机制已就绪，另立批）、内容哈希身份/异步加载/热重载。**已兑现（2026-11-23）**：change `csharp-resource-asset-foundation` 22/22 完成并归档到 `openspec/changes/archive/2026-11-23-csharp-resource-asset-foundation/`——宿主层门面 `cs_script::IResourceRegistry`（九方法、错误通道 1001/1014、同路径守卫）+ C# Texture2D/Mesh 资产（CATX/CAMH 格式）与自读加载（先解析后释放，失败不毁旧资产）+ 渲染消费两后端真实像素过；生成器两处受控扩展（1014 作用域错误码、字符串两段式返回带参，既有产物逐字节不变）；新主规范 `csharp-resource-registry`（6 要求/18 场景）+ `csharp-asset-layer`（6 要求/13 场景）；基线 218→221，各接口产物逐字节不变、聚合差异逐处指认。
+
 ### 阶段 6：网页编辑器闭环
 
 目标：网页负责编辑器界面，C# 编辑器服务负责命令、事件、选择、撤销与编辑器对象编号，C++ 保留原生视口和引擎状态。编辑器接口与游戏脚本接口分开，资源导入、场景编辑和 GPU 诊断逐步接入同一工作流。
@@ -123,7 +125,7 @@
 
 地基已实：多后端渲染图 + 8 接口 C# 直绑 + 糖层（阶段 1-4）、I/O 与 FileLoader 错误通道 + 反序列化边界检查、C# 宿主 + 基本生命周期、场景首切片、编辑器窗口面板首切片。通往"可用引擎 + 编辑器"的核心缺口按挡路程度分梯队：
 
-- **第一梯队（挡住"能承载真实内容"）**：① **资源资产层**——GPU 资源层已齐，但资产导入（从文件加载贴图/网格）、资源身份重设计（内容哈希 + 依赖记录，编辑器/热重载必需）、ResourceManagingSystem 绑到 C#（脚本加载资产的接口点）几乎空白；② **脚本框架/ECS**——生命周期已起，但无真 ECS（组件存储/查询/系统调度）、脚本不能按实体挂载（现全局静态）、单程序集无热重载；③ **场景内容能力**——父子层级/相机/任意网格/材质/多着色器合成（现仅三角形）；④ **编辑器场景编辑**——多对象编辑/资源导入 UI/选择/完整撤销栈/GPU 诊断（现仅窗口属性）。
+- **第一梯队（挡住"能承载真实内容"）**：① **资源资产层**——GPU 资源层已齐，注册表窄面 + C# 贴图/网格资产 + 自读加载已落地（`csharp-resource-asset-foundation`，2026-11-23 归档）；仍缺源文件导入（PNG/OBJ 解码，导入器机制已就绪）、资源身份重设计（内容哈希 + 依赖记录，编辑器/热重载必需）；② **脚本框架/ECS**——生命周期已起，但无真 ECS（组件存储/查询/系统调度）、脚本不能按实体挂载（现全局静态）、单程序集无热重载；③ **场景内容能力**——父子层级/相机/任意网格/材质/多着色器合成（现仅三角形）；④ **编辑器场景编辑**——多对象编辑/资源导入 UI/选择/完整撤销栈/GPU 诊断（现仅窗口属性）。
 - **第二梯队（挡住"导出独立游戏"）**：独立游戏入口（脱离 editor/tester）、资产打包、C# 运行时部署、验证游戏选定（阶段 7）。
 - **第三梯队（性能/完善，可缓）**：通用 job/任务系统（并行资产加载/场景翻译；现主线程为中心，ThreadManager 接口在但无 job 系统）、SerializeAll 增量回写 + 源删除清产物、假异步清理 + 读侧句柄缓存、统一输入系统（动作映射）+ 暴露给 C# 的时钟 API。路线图明确首版不向脚本开放原生线程调度。
 - **第四梯队（按验证游戏定）**：物理（Jolt 已拉依赖未集成）、音频、骨骼动画、运行时 UI（ImGui 现仅编辑器用）。

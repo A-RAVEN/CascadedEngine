@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-影响-004",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/design.md",
+  "anchor": "**CreateResource 返回 void 而不是 shared_ptr**：C# 侧对象经工厂跟踪拿（D4），不需要资源句柄；",
+  "problem": "门面 `CreateResource` 返回 void，把注册表返回的 shared_ptr 直接丢掉；而注册表实现里 `CreateResource` 造完对象后走 `RegisterResource(path, resource)`，后者用 `get_or_create`：同路径已有条目时保留旧对象、不装入新对象，`CreateResource` 仍返回新对象。于是「路径已存在」这条分支上：新对象被门面丢弃并析构（反向代理析构 → releaseUser → GCHandle.Free），注册表继续持旧对象；C# 工厂队列却把新对象交给 `AssetDatabase.Create` 当成功结果。`HasResource` 为 true、不抛异常，`SerializeAll` 写的是旧对象的字节，`GetResource` 也返回旧对象。spec 只写了「构造失败不注册空」，design 只在 `Load` 里定义了「先 ReleaseResource 再新建」的替换语义，直接 `Create` 碰已有路径没有任何失败或替换规定，也没有对应用例；这是一条 C# 拿到「看起来成功、实际没登记」对象的静默降级分支。",
+  "evidence": "`GeneralResources/private/ResourceImportingSystem.cpp` 的 `CreateResource` 结尾是 `castl::shared_ptr<IResource> resource(created, [](IResource* releasedObj) { delete releasedObj; }); RegisterResource(path, resource); return resource;`；`RegisterResource` 是 `m_PathToResource.get_or_create(key, [&](cacore::PathHash const&) { return resource; });`。`CACore/header/CACore/CASharedDic.h` 的 `get_or_create` 在键已存在时直接 `return found;`，连 `createFunctor()` 都不调——所以新对象根本没进表。design D6 只对 `Load` 写「`HasResource(path)` 为真 → 先 `ReleaseResource(path)`（替换，与导入器管线 `ScanSourceDirectory` 同构——MUST NOT 依赖 get_or_create 静默留旧）」；spec 的「构造失败不注册空」场景只覆盖未注册类型 / Create 抛异常 / 返回 null，不覆盖同路径二次 Create。现有探针阶段也没有「同路径二次 Create」读数，4.2 的失败面四项（坏句柄 / 未注册类型 / 损坏版本 / 缺失文件）同样不含它。",
+  "suggestion": "二选一并在 spec 写死：① 门面在委托前先 `HasResource(path)`，为真就抛 `resource_creation_error` 点名「路径已存在，Create 不替换，先 ReleaseResource」（与 Load 的替换语义分开）；或 ② 门面显式实现替换（先 `ReleaseResource` 再委托，与 Load 同构），并在文档里写明。无论选哪条，都在 4.2 失败面加一条「同路径二次 Create」的可失败断言：要么抛且 `HasResource` 仍是旧对象，要么替换后 `GetResource(path)` 必须是工厂队列刚交出的那一个、落盘字节是新数据；探针阶段末同时断言队列为空。"
+}

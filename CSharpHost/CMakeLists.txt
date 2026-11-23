@@ -36,7 +36,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow
     # csharp-reverse-interface-binding 7.1：反向资源产物 `#include "IResource.h"` 按基名找头
     # （与所有正向产物同一规则），所以 `CAResource` 目录要在这个目标上可见。
-    ${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource)
+    ${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource
+    # csharp-resource-asset-foundation 1.6：门面产物 `cs_script__IResourceRegistry.Bindings.cpp`
+    # 按基名 `#include "IResourceRegistry.h"` 找头（同上），所以 `ScriptHost` 头目录要可见。
+    ${CMAKE_SOURCE_DIR}/Interface/ScriptHost/header/ScriptHost)
 target_link_libraries(${PROJECT_NAME} PRIVATE CACore)
 target_link_libraries(${PROJECT_NAME} PRIVATE ScriptHost)
 # 5.1：桥退役后宿主直持原生后端（Rendering 的 `CRenderBackend` 实例），登记为编号 3。

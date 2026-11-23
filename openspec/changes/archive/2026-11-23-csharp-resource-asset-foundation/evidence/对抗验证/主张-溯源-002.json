@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-溯源-002",
+  "face": "无中生有",
+  "severity": "minor",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/proposal.md",
+  "anchor": "（用户 2026-11-23 裁定「按你建议的来」，方向已记 `docs/ROADMAP.md` 阶段 5）",
+  "problem": "「用户 2026-11-23 裁定」的唯一出处是 `docs/ROADMAP.md` 里本次工作区未提交的一行，而这一行是代理自己写的；`git log -S` 在历史里查不到该句，HEAD 版本也没有它。记录与 ROADMAP 文字一致，但「用户裁定」四字在仓库里没有可独立核对的用户原话，不能当作已经固定的外部授权；应把该段提交并注明记录来源，或在 proposal 降级为「代理记录」。",
+  "evidence": "1) `git status --porcelain -- docs/ROADMAP.md` → ` M docs/ROADMAP.md`（未提交）。\n2) `git log --oneline -S '按你建议的来' -- docs/ROADMAP.md` → 无输出（历史里没有引入该句的提交）。\n3) `git show HEAD:docs/ROADMAP.md | Select-String -Pattern '按你建议的来|csharp-resource-asset-foundation'` → 无输出（HEAD 版本没有该段）。\n4) `git diff -- docs/ROADMAP.md` 的新增行：`排期后续方向（用户 2026-11-23 裁定「按你建议的来」，已立 change csharp-resource-asset-foundation）...`。\n5) `proposal.md` 的 Why 段与 ROADMAP 新增行文字一致——所以不是「写错记录」，而是「记录的出处只有代理本地编辑」。",
+  "suggestion": "把 ROADMAP 这段提交（或至少在同一次交付里保留），并在 proposal 写明「用户原话由本代理记录于 ROADMAP，尚无独立存档」；如果用户原话不在仓库里，就把「用户裁定」降级为「按用户方向（代理记录）」，避免把代理自述当成用户已批准。"
+}

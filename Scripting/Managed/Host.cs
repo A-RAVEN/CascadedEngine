@@ -240,6 +240,8 @@ namespace Scripting.Managed
                 LogShutdownStep("3/4 图 → 离屏目标");
                 // csharp-scene-foundation 2.3：场景运行时的图 / 离屏目标 / 窗口目标也必须在后端表面之前释放。
                 SceneNS.SceneRuntime.ReleaseSurfaces();
+                // csharp-resource-asset-foundation 4.3：资源资产探针的图 / 目标 / 纹理也在后端表面之前释放。
+                Assets.ResourceAssetProbe.ReleaseSurfaces();
                 UserScript.ReleaseRenderSurfaces();
                 LogShutdownStep("4/4 后端表面对象");
                 if (s_renderBackend != null)
@@ -325,6 +327,13 @@ namespace Scripting.Managed
                 // resource-importer-refactor 4.1/4.2：导入器双反向探针（拉取式，C# 实现导入器）。
                 // 默认关（没有 CASCADED_CSHARP_IMPORTER_PROBE=1 时 Tick 立即返回、零行为）。
                 ResourceImporterProbe.Tick(s_api);
+                // csharp-resource-asset-foundation 4.1：资源资产探针（门面注册 / 新建 / 落盘 /
+                // 自读加载 / 替换 / 失败面 / 渲染消费）。默认关（没有 CASCADED_CSHARP_ASSET_PROBE=1 时
+                // Enabled 为假：不绑表、不读阶段、不绑渲染表、零日志、零状态改变）。
+                if (Assets.ResourceAssetProbe.Enabled)
+                {
+                    Assets.ResourceAssetProbe.Tick(s_api, EnsureRenderProbeBackend());
+                }
                 // 关窗读数每帧都要读：第 1 帧窗口还开着（0），引擎侧关窗后再 tick 一次才是 1。
                 // 放进 `s_tickCount == 1` 里就只剩一个 0 —— 实测过，那一版日志里没有第二次读数。
                 // 一旦读到"该关了"，就说明引擎侧马上要把它回收掉：此后不再碰旧窗口的 self，
@@ -1058,6 +1067,19 @@ namespace Scripting.Managed
 
         private static bool TextureProbeEnabled =>
             Environment.GetEnvironmentVariable("CASCADED_CSHARP_TEX_PROBE") == "1";
+
+        /// <summary>
+        /// 资源资产探针的渲染阶段要用已绑定的渲染后端（csharp-resource-asset-foundation 4.3）：
+        /// 门控开时按需绑一次渲染表；门控关时这条路径根本不进（既有用件读数零差异）。
+        /// </summary>
+        private static ScriptRenderBackend EnsureRenderProbeBackend()
+        {
+            if (!s_renderTablesBound)
+            {
+                BindRenderInterfaces();
+            }
+            return s_renderBackend;
+        }
 
         /// <summary>
         /// 绑定渲染表（csharp-native-direct-binding 4.1）：后端表单独取（编号 = 生成的

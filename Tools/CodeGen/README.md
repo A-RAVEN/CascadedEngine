@@ -1013,7 +1013,7 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 | `castl::weak_ptr<T>` | `uint64` **弱句柄**（句柄表存弱引用，不抬高 `use_count`；对象析构后旧句柄按 1001 判失效） | 无 | 生成器（只观察） |
 | `T const&` / `T&` 出参 | `TC const*` / `TC*` | 视 T | — |
 | `castl::function<Ret(Args...)>` 回调 | 真实签名的函数指针 + `void* user`、内部注册号、注销伴生；回调期间借用的接口对象 | 无 | 生成器（注册表 + 托管 GCHandle） |
-| 会抛异常的方法 | 生成器 try/catch → 错误码 + 文本 | — | — |
+| 会抛异常的方法 | **thunk 不自动捕获**（实测：普通正向方法的 thunk 直接调实现）；会抛异常的实现必须自行 catch 并写错误通道——本批 `cs_script::IResourceRegistry` 的 1014 就是这一形态 | — | — |
 | 公开数据记录（平坦 / 嵌套 / `bool` / 窄枚举 / 记录级 `EnumFlags`） | `<T>C` 按值返回、`<T>C const*` 入参；字段按真实 `sizeof` / `offsetof` 镜像，附标准布局、默认可构造与 CLR 布局自检 | 无 | 调用方（入参）/ 生成器（返回临时量） |
 | 方法级普通枚举 | 仍按 `int32_t` 投影；公开 C# 用生成的枚举类型 | 无 | — |
 | 方法级 `uenum::EnumFlags<T>` | 按 `MaskType` 的定宽整数（如 `uint16_t`）；公开 C# 用带 `[Flags]` 的 `T` | 无 | — |
@@ -1049,13 +1049,13 @@ blittable 标量与递归纯标量记录、`T const* + 数量`（视图）、不
 python Tools/CodeGen/check_bindable_audit.py
 ```
 ```
-扫描 13 个接口、对账 105 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
+扫描 14 个接口、对账 114 条方法、命中 0 处问题（审计表：openspec\changes\archive\2026-10-18-csharp-bindable-surface\evidence\bindable-audit.md）
 [exit 0]
 ```
 
 **已知限制（醒目）**：
 
-- 审计范围现在是 13 个接口（`CRenderBackend` / `IReadbackToken` / `GPUGraph` / `ShaderStruct` / `GPUTexture` / `WindowHandle` / `GPUBuffer` / `IWindow` / `IWindowSystem` / `IResource` / `IResourceFactory` / `ResourceImporter` / `ResourceImporterProductions`），合计 105 条公开方法。口径是"进入绑定面的公开方法"（含非纯虚 virtual 与非虚公开方法；模板方法只在同文件有 `CA_BIND_INSTANTIATE` 声明时按一行计）。**过渡期桥五个接口的 28 条方法随 `csharp-native-direct-binding` 5.1 退役移出审计面**（行同时删除，不是放过）。汇总数字必须与头文件实算一致、重复行会让脚本非零。
+- 审计范围现在是 14 个接口（`CRenderBackend` / `IReadbackToken` / `GPUGraph` / `ShaderStruct` / `GPUTexture` / `WindowHandle` / `GPUBuffer` / `IWindow` / `IWindowSystem` / `IResource` / `IResourceFactory` / `ResourceImporter` / `ResourceImporterProductions` / `cs_script::IResourceRegistry`），合计 114 条公开方法。口径是"进入绑定面的公开方法"（含非纯虚 virtual 与非虚公开方法；模板方法只在同文件有 `CA_BIND_INSTANTIATE` 声明时按一行计）。**过渡期桥五个接口的 28 条方法随 `csharp-native-direct-binding` 5.1 退役移出审计面**（行同时删除，不是放过）。汇总数字必须与头文件实算一致、重复行会让脚本非零。
   `GPUGraph` / `IMGUIContext` / `IOBatch` / `WBatch` / `IShaderCompiler` **尚未审计** —— 每帧热路径恰恰在这几个上面，所以"需快路"清单目前是**空的**（不是规则失效）。
 - 脚本按**公开方法名**对账（含非纯虚 virtual 与非虚公开方法；模板按 `CA_BIND_INSTANTIATE` 计），**不看签名**：某个方法改了参数类型、脚本不会红；签名一致性要靠绑定生成器落地时的逐方法 conformance 测试。
 - 脚本的前提是"接口头是结构化 C++"：宏展开出来的方法、`#if` 条件编译出来的方法，脚本看不见，也不会报。
@@ -1235,6 +1235,7 @@ conformance 夹具，判据在 `Tools/CodeGen/check_bindings.py` 的 `check_surf
 | 1011 | `<线形>_ERROR_BAD_OBJECT_HANDLE` | 序列化块里的对象句柄（值类容器元素 / 接口对象引用）在绑定对象表里查不到 |
 | 1012 | `<线形>_ERROR_REVERSE_EXCEPTION` | 反向接口的 C# 实现抛异常 / 返回长度或拷贝失败 / `Create` 返回空：代理中止并落槽，**下一次注册线程调用**抛 `cascaded_reverse::ReverseBindingError`（含码与原始文本） |
 | 1013 | `<线形>_ERROR_REVERSE_READ_UNSUPPORTED` | 调了被 `CA_BIND_SKIP` 排除的反向方法（本批只有 `IResource::Deserialize`）：代理直接抛 `ReverseBindingError(1013)`，不进实现 |
+| 1014 | `<线形>_ERROR_RESOURCE_OPERATION_REJECTED` | 仅 `cs_script__IResourceRegistry` 产物（csharp-resource-asset-foundation 1.7）：门面实现自行捕获委托异常（`resource_creation_error` / `io_error` / `ReverseBindingError`）后写入；句柄类失败用既有 1001，其余操作失败用 1014 |
 
 生成物里**不许出现裸字面量**；`check_bindings.py` 的 `check_error_codes()` 把产物里所有
 `<线形>_ERROR_*` 常量与所有 `_setError` 的码逐个对这张表，对不上即红。新增错误标识时，

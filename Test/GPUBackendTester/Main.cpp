@@ -28,6 +28,8 @@
 #pragma comment(lib, "windowsapp.lib")
 #include<mimalloc.h>
 #include <ScriptHost/IScriptHost.h>
+// csharp-resource-asset-foundation 4.2：门面接口的虚调用与错误通道直检。
+#include <ScriptHost/IResourceRegistry.h>
 #include <cstdlib>
 #include <cerrno>
 #include <climits>
@@ -36,6 +38,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <array>
 #include <fstream>
 #include <iterator>
 #include <chrono>
@@ -89,6 +92,9 @@
 // resource-importer-refactor 4.2：导入器双反向接口的函数表类型（同样只用它解释表结构）。
 #include "resource_management__ResourceImporter.Bindings.cpp"
 #include "resource_management__ResourceImporterProductions.Bindings.cpp"
+// csharp-resource-asset-foundation 4.2：门面接口的函数表类型（同样只用它解释表结构；错误通道
+// 的两个槽与九方法的槽位由生成物与 tester 两侧同源）。
+#include "cs_script__IResourceRegistry.Bindings.cpp"
 // 编号常量来自登记表头（唯一来源仍是 interface-ids.lock）。
 #include "BindingRegistry.Bindings.h"
 // 脚本渲染用例的原生核对通道（csharp-native-direct-binding 4.1）：桥退役后不再 include 适配层私有头，
@@ -7401,6 +7407,613 @@ void TestCSharpImporter(TestContext& ctx)
 	       ctx.backendName);
 }
 
+// ---- TestCSharpAssets（csharp-resource-asset-foundation 2.2 / 4.2）----
+// C# 经宿主门面自助完成「注册工厂 → 新建 → 填数据 → 落盘 → 自读加载 → 替换」；C++ 侧读盘做
+// 逐字节对照（期望值写死，不从被测物推导）、读读数文件断言句柄/往返/替换，并断言失败面
+// （C# 侧异常类型 + Code + 文本），最后在原生段直检门面（错误通道而不是异常）。
+void TestCSharpAssets(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_ASSET_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_ASSET_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// 门面实例 + 门面函数表（错误通道读数用）：实例从 IScriptHost 登记表取，函数表必须取 CSharpHost
+	// 那一份 —— 句柄表与错误槽的 static 在 EXE / DLL 各一份，查 tester 自己那份等于查不到。
+	auto* registry = static_cast<cs_script::IResourceRegistry*>(
+		pScriptHost->GetInterfaceInstance(kBindingInterfaceIdcs_script__IResourceRegistry, nullptr));
+	if (registry == nullptr)
+	{
+		fail("E_ASSET_FACADE", "GetInterfaceInstance 取不到资源注册表门面实例（1.3 登记点没有执行？）");
+	}
+	std::vector<unsigned char> facadeStorage;
+	auto* facadeTable = FetchReverseTable<cs_script__IResourceRegistryApi_v2>(
+		pScriptHost, kBindingInterfaceIdcs_script__IResourceRegistry, facadeStorage);
+	if (facadeTable == nullptr)
+	{
+		fail("E_ASSET_FACADE", "取不到门面函数表（编号 13）");
+	}
+
+	// 1.3 正向判据：编号 13 可问大小、可写入、实例非空且等于登记表读数。
+	{
+		const uint32_t size = pScriptHost->GetInterfaceApiForTest(
+			kBindingInterfaceIdcs_script__IResourceRegistry, nullptr, kBindingInterfaceTableVersion, 0u, nullptr,
+			nullptr);
+		if (size == 0u)
+		{
+			fail("E_ASSET_FACADE", "GetInterfaceApiForTest(13) 返 0（kBindingPolicies 缺行？）");
+		}
+		std::vector<unsigned char> storage(size, 0u);
+		void* instance = nullptr;
+		const uint32_t written = pScriptHost->GetInterfaceApiForTest(
+			kBindingInterfaceIdcs_script__IResourceRegistry, nullptr, kBindingInterfaceTableVersion, size,
+			storage.data(), &instance);
+		if (written != size || instance == nullptr || instance != registry)
+		{
+			fail("E_ASSET_FACADE", "门面函数表写入/实例读数不符（written / size / instance）");
+		}
+	}
+
+	// 资源根：临时目录（用例自建、收尾清；按后端名分开，避免两后端并行时互相清目录）。
+	std::filesystem::path root = std::filesystem::temp_directory_path() /
+		("CascadedAssetProbe_" + ctx.backendName);
+	std::error_code filesystemError;
+	std::filesystem::remove_all(root, filesystemError);
+	std::filesystem::create_directories(root, filesystemError);
+	ctx.pResourceManagingSystem->SetResourceRootPath(root.generic_string());
+	const std::filesystem::path readingsPath = root / "readings.txt";
+	std::filesystem::remove(readingsPath, filesystemError);
+
+	struct AssetEnvGuard
+	{
+		TestContext* context = nullptr;
+		std::filesystem::path rootPath;
+		~AssetEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_CSHARP_ASSET_PROBE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_ASSET_PHASE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_CSHARP_ASSET_READINGS", nullptr);
+			if (context != nullptr && context->pResourceManagingSystem != nullptr)
+			{
+				context->pResourceManagingSystem->SetResourceRootPath("");
+			}
+			std::error_code ignored;
+			std::filesystem::remove_all(rootPath, ignored);
+		}
+	} envGuard{ &ctx, root };
+	::SetEnvironmentVariableA("CASCADED_CSHARP_ASSET_PROBE", "1");
+	::SetEnvironmentVariableA("CASCADED_CSHARP_ASSET_READINGS", readingsPath.string().c_str());
+
+	const std::string baselineError = pScriptHost->LastError();
+	auto tick = [&](char const* phase) {
+		::SetEnvironmentVariableA("CASCADED_CSHARP_ASSET_PHASE", phase);
+		pScriptHost->Tick(0.016);
+		const std::string hostError = pScriptHost->LastError();
+		if (hostError != baselineError)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "阶段 %s 之后宿主 LastError 非空：%s（读数：%s）", phase,
+			              hostError.c_str(), ReadProbeValue(readingsPath, "probe_error").c_str());
+			fail("E_ASSET_HOST_ERROR", detail);
+		}
+	};
+	auto read = [&](char const* key) { return ReadProbeValue(readingsPath, key); };
+	auto parseU64 = [&](char const* key) -> uint64_t {
+		return std::strtoull(read(key).c_str(), nullptr, 10);
+	};
+	auto require = [&](char const* key, std::string const& expected) {
+		const std::string actual = read(key);
+		if (actual != expected)
+		{
+			fail("E_ASSET_READING", std::string(key) + " = \"" + actual + "\"，期望 \"" + expected + "\"");
+		}
+	};
+	auto requireContains = [&](char const* key, std::string const& needle) {
+		const std::string actual = read(key);
+		if (actual.find(needle) == std::string::npos)
+		{
+			fail("E_ASSET_READING", std::string(key) + " = \"" + actual + "\"，没有包含 \"" + needle + "\"");
+		}
+	};
+	auto hexOf = [](std::vector<uint8_t> const& bytes) {
+		static char const digits[] = "0123456789ABCDEF";
+		std::string text;
+		text.reserve(bytes.size() * 2u);
+		for (uint8_t value : bytes)
+		{
+			text.push_back(digits[value >> 4]);
+			text.push_back(digits[value & 0x0Fu]);
+		}
+		return text;
+	};
+	auto appendU32 = [](std::vector<uint8_t>& bytes, uint32_t value) {
+		bytes.push_back(static_cast<uint8_t>(value & 0xFFu));
+		bytes.push_back(static_cast<uint8_t>((value >> 8) & 0xFFu));
+		bytes.push_back(static_cast<uint8_t>((value >> 16) & 0xFFu));
+		bytes.push_back(static_cast<uint8_t>((value >> 24) & 0xFFu));
+	};
+	auto appendU64 = [&](std::vector<uint8_t>& bytes, uint64_t value) {
+		appendU32(bytes, static_cast<uint32_t>(value & 0xFFFFFFFFu));
+		appendU32(bytes, static_cast<uint32_t>(value >> 32));
+	};
+	auto appendFloat = [&](std::vector<uint8_t>& bytes, float value) {
+		uint32_t bits = 0u;
+		std::memcpy(&bits, &value, sizeof(bits));
+		appendU32(bytes, bits);
+	};
+
+	// ---- C++ 侧写死期望（与 C# 探针各写一份，不共享常量表）----
+	constexpr uint32_t kTextureWidth = 2u;
+	constexpr uint32_t kTextureHeight = 2u;
+	constexpr uint32_t kTextureFormat = 6u;
+	constexpr uint32_t kMeshVertexCount = 3u;
+	constexpr uint32_t kMeshIndexCount = 3u;
+	const std::array<float, 18> kMeshVertices = {
+		-0.25f, -0.25f, 0.25f, 1.0f, 0.0f, 0.0f,
+		 0.25f, -0.25f, 0.25f, 1.0f, 0.0f, 0.0f,
+		 0.00f,  0.50f, 0.50f, 1.0f, 0.0f, 0.0f,
+	};
+
+	std::vector<uint8_t> expectedVertexBytes;
+	for (float value : kMeshVertices)
+	{
+		appendFloat(expectedVertexBytes, value);
+	}
+	std::vector<uint8_t> expectedIndexBytes;
+	appendU32(expectedIndexBytes, 0u);
+	appendU32(expectedIndexBytes, 1u);
+	appendU32(expectedIndexBytes, 2u);
+
+	std::vector<uint8_t> expectedTextureBytes = { 'C', 'A', 'T', 'X' };
+	appendU32(expectedTextureBytes, 1u);
+	appendU32(expectedTextureBytes, kTextureWidth);
+	appendU32(expectedTextureBytes, kTextureHeight);
+	appendU32(expectedTextureBytes, kTextureFormat);
+	appendU64(expectedTextureBytes, 16u);
+	for (uint32_t texel = 0; texel < kTextureWidth * kTextureHeight; ++texel)
+	{
+		expectedTextureBytes.push_back(255u);
+		expectedTextureBytes.push_back(255u);
+		expectedTextureBytes.push_back(0u);
+		expectedTextureBytes.push_back(255u);
+	}
+	std::vector<uint8_t> expectedGreenBytes = { 'C', 'A', 'T', 'X' };
+	appendU32(expectedGreenBytes, 1u);
+	appendU32(expectedGreenBytes, kTextureWidth);
+	appendU32(expectedGreenBytes, kTextureHeight);
+	appendU32(expectedGreenBytes, kTextureFormat);
+	appendU64(expectedGreenBytes, 16u);
+	for (uint32_t texel = 0; texel < kTextureWidth * kTextureHeight; ++texel)
+	{
+		expectedGreenBytes.push_back(0u);
+		expectedGreenBytes.push_back(255u);
+		expectedGreenBytes.push_back(0u);
+		expectedGreenBytes.push_back(255u);
+	}
+	std::vector<uint8_t> expectedMeshBytes = { 'C', 'A', 'M', 'H' };
+	appendU32(expectedMeshBytes, 1u);
+	appendU32(expectedMeshBytes, kMeshVertexCount);
+	appendU32(expectedMeshBytes, kMeshIndexCount);
+	appendU64(expectedMeshBytes, expectedVertexBytes.size());
+	appendU64(expectedMeshBytes, expectedIndexBytes.size());
+	expectedMeshBytes.insert(expectedMeshBytes.end(), expectedVertexBytes.begin(), expectedVertexBytes.end());
+	expectedMeshBytes.insert(expectedMeshBytes.end(), expectedIndexBytes.begin(), expectedIndexBytes.end());
+
+	auto readFileBytes = [](std::filesystem::path const& path) {
+		std::ifstream stream(path, std::ios::binary);
+		return std::vector<uint8_t>((std::istreambuf_iterator<char>(stream)),
+		                            std::istreambuf_iterator<char>());
+	};
+
+	CA_LOG("TestCSharpAssets 夹具期望：纹理 {}x{} 格式 {}、像素 16 字节；网格 {} 顶点 / {} 索引",
+	       kTextureWidth, kTextureHeight, kTextureFormat, kMeshVertexCount, kMeshIndexCount);
+
+	// ---- 阶段 1：C# 注册工厂（门面 RegisterFactory）----
+	tick("register-factories");
+	require("facade_instance", "1");
+	require("facade_size", std::to_string(facadeStorage.size()));
+	require("has_texture_factory", "1");
+	require("has_mesh_factory", "1");
+	require("texture_factory_type", "Texture2D");
+	require("pending_count", "0");
+	if (read("facade_root") != root.generic_string())
+	{
+		fail("E_ASSET_ROOT", "门面 GetResourceRootPath = \"" + read("facade_root") + "\"，期望 \"" +
+		                         root.generic_string() + "\"");
+	}
+	const uint64_t meshFactoryHandle = parseU64("mesh_factory_handle");
+	if (meshFactoryHandle == 0u)
+	{
+		fail("E_ASSET_FACTORY", "C# 的 Mesh 工厂句柄是 0（CreateImpl 没发句柄）");
+	}
+
+	// ---- 阶段 2：新建 + 填数据 + 落盘；C++ 读盘逐字节对照 ----
+	tick("create-and-save");
+	require("saved", "1");
+	require("pending_count", "0");
+	require("texture_width", "2");
+	require("texture_height", "2");
+	require("texture_format", "6");
+	require("texture_pixel_len", "16");
+	require("mesh_vertex_count", "3");
+	require("mesh_index_count", "3");
+	require("mesh_vertex_len", "72");
+	require("mesh_index_len", "12");
+	if (parseU64("texture_handle") == 0u || parseU64("mesh_handle") == 0u)
+	{
+		fail("E_ASSET_HANDLE", "新建资源的借用句柄是 0（反向代理没有发句柄）");
+	}
+	{
+		const std::vector<uint8_t> textureBytes = readFileBytes(root / "Assets" / "Probe.tex");
+		if (textureBytes != expectedTextureBytes)
+		{
+			fail("E_ASSET_TEXTURE_BYTES", "落盘贴图字节与写死期望不符：实际 " + hexOf(textureBytes) +
+			                                  "，期望 " + hexOf(expectedTextureBytes));
+		}
+		const std::vector<uint8_t> meshBytes = readFileBytes(root / "Assets" / "Probe.mesh");
+		if (meshBytes != expectedMeshBytes)
+		{
+			fail("E_ASSET_MESH_BYTES", "落盘网格字节与写死期望不符：实际 " + hexOf(meshBytes) + "，期望 " +
+			                               hexOf(expectedMeshBytes));
+		}
+		CA_LOG("TestCSharpAssets 落盘对照：贴图 {} 字节、网格 {} 字节（魔数/版本/元数据/载荷逐字节相同）",
+		       textureBytes.size(), meshBytes.size());
+	}
+
+	// ---- 阶段 3：释放 + 自读加载（往返一致）----
+	tick("release-and-load");
+	require("release_texture", "1");
+	require("release_mesh", "1");
+	require("has_texture_after_release", "0");
+	require("has_mesh_after_release", "0");
+	require("load_width", "2");
+	require("load_height", "2");
+	require("load_format", "6");
+	require("load_vertex_count", "3");
+	require("load_index_count", "3");
+	require("load_pixels_hex", hexOf(expectedTextureBytes).substr(56));
+	require("load_vertex_hex", hexOf(expectedVertexBytes));
+	require("load_index_hex", hexOf(expectedIndexBytes));
+	require("pending_count", "0");
+	{
+		const uint64_t loadedTextureHandle = parseU64("load_texture_handle");
+		const uint64_t loadedMeshHandle = parseU64("load_mesh_handle");
+		if (loadedTextureHandle == 0u || loadedMeshHandle == 0u)
+		{
+			fail("E_ASSET_HANDLE", "加载回来的资源借用句柄是 0");
+		}
+	}
+
+	// ---- 阶段 4：同路径替换（第二次数据不同）→ 旧借用句柄按代际失效 1001 ----
+	tick("replace");
+	require("replace_has_resource", "1");
+	require("replace_loaded_pixels_hex", hexOf(expectedGreenBytes).substr(56));
+	require("pending_count", "0");
+	const uint64_t oldTextureHandle = parseU64("replace_old_handle");
+	if (oldTextureHandle == 0u)
+	{
+		fail("E_ASSET_REPLACE", "替换前的旧借用句柄是 0");
+	}
+	{
+		std::vector<unsigned char> resourceStorage;
+		auto* resourceTable = FetchReverseTable<resource_management__IResourceApi_v2>(
+			pScriptHost, kBindingInterfaceIdresource_management__IResource, resourceStorage);
+		if (resourceTable == nullptr)
+		{
+			fail("E_ASSET_REVERSE_TABLE", "取不到 IResource 反向函数表");
+		}
+		const int32_t retired = resourceTable->ReleaseImpl(oldTextureHandle);
+		if (retired != 1001)
+		{
+			fail("E_ASSET_REPLACE_RETIRE", "替换后旧借用句柄 ReleaseImpl 返回 " + std::to_string(retired) +
+			                                   "，期望 1001（旧代理应已析构）");
+		}
+	}
+
+	// ---- 阶段 5：失败面（C# 侧异常类型 + Code + 文本）----
+	tick("failure");
+	require("bad_handle_type", "IResourceRegistryException");
+	require("bad_handle_code", "1001");
+	requireContains("bad_handle_text", "句柄无效");
+	require("released_handle_type", "IResourceRegistryException");
+	require("released_handle_code", "1001");
+	requireContains("released_handle_text", "句柄无效");
+	require("unregistered_type", "IResourceRegistryException");
+	require("unregistered_code", "1014");
+	requireContains("unregistered_text", "NoSuchAssetType");
+	require("same_path_type", "IResourceRegistryException");
+	require("same_path_code", "1014");
+	requireContains("same_path_text", "路径已存在");
+	require("same_path_has_resource", "1");
+	require("same_path_old_alive", "1");
+	require("same_path_vertex_hex", hexOf(expectedVertexBytes));
+	require("corrupt_type", "AssetFormatException");
+	requireContains("corrupt_text", "ProbeBroken.tex");
+	requireContains("corrupt_text", "formatVersion");
+	require("corrupt_has_resource", "1");
+	require("corrupt_old_alive", "1");
+	{
+		const std::string corruptHex = read("corrupt_file_hex");
+		if (corruptHex.rfind("4341545802000000", 0) != 0)
+		{
+			fail("E_ASSET_CORRUPT_FILE", "损坏文件的头部不是 CATX + 版本 2：" + corruptHex.substr(0, 16));
+		}
+	}
+	require("truncated_type", "AssetFormatException");
+	requireContains("truncated_text", "ProbeTruncated.tex");
+	requireContains("truncated_text", "越界");
+	require("truncated_has_resource", "1");
+	require("truncated_old_alive", "1");
+	require("truncated_file_len", "36");
+	require("missing_type", "AssetFormatException");
+	requireContains("missing_text", "ProbeMissing.tex");
+	require("missing_has_resource", "1");
+	require("missing_old_alive", "1");
+	require("missing_file_exists", "0");
+	require("serialize_first_threw", "0");
+	require("serialize_after_hex", "5A5A5A5A");
+	require("serialize_texture_exists", "1");
+	require("serialize_second_type", "IResourceRegistryException");
+	require("serialize_second_code", "1014");
+	requireContains("serialize_second_text", "1012");
+	requireContains("serialize_second_text", "资产序列化故意抛出的异常");
+	require("pending_count", "0");
+
+	// ---- 阶段 6：渲染消费（4.3）----
+	// Texture2D 的像素字节 → 既有正向绑定 CreateGPUTexture（糖层 CreateTexture）→ 纹理三角形；
+	// Mesh 的顶点/索引字节 → 图内缓冲绑定（AllocBuffer + ScheduleData）→ 索引绘制（AddIndexedTrianglePass）。
+	// 两张图各自一个离屏捕获目标；C++ 侧按读数里的图对象地址取附件、读回中心与背景像素。
+	tick("render");
+	require("capture_width", "320");
+	require("capture_height", "240");
+	require("pending_count", "0");
+	// 诊断（只读日志，不改行为）：确认顶点/索引缓冲句柄是否登记在本图的 GraphResourceManager 里。
+	// 既有纹理/三角形探针在同样的糖层调用下能画出来，若这里 descriptorFound=0，根因就是句柄解析。
+	{
+		auto dumpGraph = [&](char const* tag, uint64_t graphSelf) {
+			auto* graph = reinterpret_cast<graphics_backend::GPUGraph*>(static_cast<uintptr_t>(graphSelf));
+			if (graph == nullptr)
+			{
+				CA_LOG("TestCSharpAssets 诊断 {}：graph=null", tag);
+				return;
+			}
+			auto const& passes = graph->GetRenderPasses();
+			CA_LOG("TestCSharpAssets 诊断 {}：passes={} bufferHandles={}", tag, passes.size(),
+			       graph->GetBufferManager().GetHandleNameToDesc().size());
+			for (auto const& pass : passes)
+			{
+				auto const& batches = pass.GetDrawCallBatches();
+				CA_LOG("TestCSharpAssets 诊断 {}：attachments={} batches={}", tag, pass.GetAttachments().size(),
+				       batches.size());
+				for (auto const& batch : batches)
+				{
+					CA_LOG("TestCSharpAssets 诊断 {}：streams={} draws={}", tag, batch.m_VertexInputDescs.size(),
+					       batch.m_DrawCalls.size());
+					for (auto const& streamPair : batch.m_VertexInputDescs)
+					{
+						auto const& slotDesc = streamPair.second.Get();
+						CA_LOG("TestCSharpAssets 诊断 {}：stream={} stride={} attrs={}", tag,
+						       streamPair.first.Get(), slotDesc.stride, slotDesc.attributes.size());
+					}
+					for (auto const& draw : batch.m_DrawCalls)
+					{
+						auto const& info = draw.GetDrawInfo();
+						CA_LOG("TestCSharpAssets 诊断 {}：draw indexed={} indexCount={} vertexCount={} buffers={}",
+						       tag, info.drawIndexed ? 1 : 0, info.indexCount, info.vertexCount,
+						       draw.GetVertexBuffers().size());
+						for (auto const& bufferPair : draw.GetVertexBuffers())
+						{
+							auto const& handle = bufferPair.second;
+							auto const* descriptor = graph->GetBufferManager().GetDescriptor(handle.GetKey());
+							CA_LOG("TestCSharpAssets 诊断 {}：buffer={} kind={} valid={} descriptorFound={}", tag,
+							       bufferPair.first.Get(), static_cast<int>(handle.GetType()),
+							       handle.IsValid() ? 1 : 0, descriptor != nullptr ? 1 : 0);
+						}
+						if (info.drawIndexed)
+						{
+							auto const& indexData = draw.GetIndexBuffer();
+							auto const* indexDescriptor =
+								graph->GetBufferManager().GetDescriptor(indexData.indexBufferHandle.GetKey());
+							CA_LOG("TestCSharpAssets 诊断 {}：index kind={} valid={} type={} descriptorFound={}", tag,
+							       static_cast<int>(indexData.indexBufferHandle.GetType()),
+							       indexData.indexBufferHandle.IsValid() ? 1 : 0,
+							       static_cast<int>(indexData.indexBufferType),
+							       indexDescriptor != nullptr ? 1 : 0);
+						}
+					}
+				}
+			}
+		};
+		dumpGraph("texture", parseU64("graph_tex_self"));
+		dumpGraph("mesh", parseU64("graph_mesh_self"));
+	}
+	{
+		constexpr uint32_t kRenderWidth = 320u;
+		constexpr uint32_t kRenderHeight = 240u;
+		const std::array<uint8_t, 4> expectedBackground{ 0u, 0u, 255u, 255u };
+		const std::array<uint8_t, 4> expectedTextureCenter{ 0u, 255u, 0u, 255u };
+		const std::array<uint8_t, 4> expectedMeshCenter{ 255u, 0u, 0u, 255u };
+		auto readPixels = [&](uint64_t graphSelf, std::array<uint8_t, 4>& background,
+		                      std::array<uint8_t, 4>& center) -> bool {
+			auto* graph = reinterpret_cast<graphics_backend::GPUGraph*>(static_cast<uintptr_t>(graphSelf));
+			if (graph == nullptr)
+			{
+				return false;
+			}
+			graphics_backend::ImageHandle capture;
+			for (auto const& pass : graph->GetRenderPasses())
+			{
+				for (auto const& attachment : pass.GetAttachments())
+				{
+					if (attachment.GetType() == graphics_backend::ImageHandle::ImageType::External &&
+					    !capture.IsValid())
+					{
+						capture = attachment;
+					}
+				}
+			}
+			if (!capture.IsValid())
+			{
+				return false;
+			}
+			std::vector<uint8_t> pixels(static_cast<size_t>(
+				GetImageByteSize(kRenderWidth, kRenderHeight, ETextureFormat::E_R8G8B8A8_UNORM)));
+			auto token = ctx.pGPUBackend->Readback(capture, pixels);
+			if (!token)
+			{
+				return false;
+			}
+			token->Wait();
+			auto pixelAt = [&pixels](uint32_t x, uint32_t y) {
+				const size_t index = (static_cast<size_t>(y) * kRenderWidth + x) * 4u;
+				return std::array<uint8_t, 4>{ pixels[index], pixels[index + 1], pixels[index + 2],
+					                          pixels[index + 3] };
+			};
+			background = pixelAt(1u, 1u);
+			center = pixelAt(kRenderWidth / 2u, kRenderHeight / 2u);
+			return true;
+		};
+		std::array<uint8_t, 4> textureBackground{};
+		std::array<uint8_t, 4> textureCenter{};
+		std::array<uint8_t, 4> meshBackground{};
+		std::array<uint8_t, 4> meshCenter{};
+		if (!readPixels(parseU64("graph_tex_self"), textureBackground, textureCenter))
+		{
+			fail("E_ASSET_RENDER_TEXTURE", "纹理三角形：图句柄解析不出离屏捕获目标，或 Readback 返回空");
+		}
+		if (!readPixels(parseU64("graph_mesh_self"), meshBackground, meshCenter))
+		{
+			fail("E_ASSET_RENDER_MESH", "网格索引绘制：图句柄解析不出离屏捕获目标，或 Readback 返回空");
+		}
+		auto pixelText = [](std::array<uint8_t, 4> const& value) {
+			return "(" + std::to_string(value[0]) + "," + std::to_string(value[1]) + "," +
+			       std::to_string(value[2]) + "," + std::to_string(value[3]) + ")";
+		};
+		if (textureBackground != expectedBackground || textureCenter != expectedTextureCenter)
+		{
+			fail("E_ASSET_RENDER_TEXTURE", "纹理三角形像素：背景 " + pixelText(textureBackground) + "、中心 " +
+			                                   pixelText(textureCenter) + "，期望背景 " +
+			                                   pixelText(expectedBackground) + "、中心 " +
+			                                   pixelText(expectedTextureCenter));
+		}
+		if (meshBackground != expectedBackground || meshCenter != expectedMeshCenter)
+		{
+			fail("E_ASSET_RENDER_MESH", "网格绘制像素：背景 " + pixelText(meshBackground) + "、中心 " +
+			                                pixelText(meshCenter) + "，期望背景 " +
+			                                pixelText(expectedBackground) + "、中心 " +
+			                                pixelText(expectedMeshCenter));
+		}
+		CA_LOG("TestCSharpAssets 渲染像素：纹理三角形 bg={} center={}；网格索引绘制 bg={} center={}",
+		       pixelText(textureBackground), pixelText(textureCenter), pixelText(meshBackground),
+		       pixelText(meshCenter));
+	}
+
+	// ---- 原生直检门面（2.2，不经 C#；断言错误通道，不向外抛）----
+	auto lastCode = [&]() -> int32_t { return facadeTable->LastErrorCode(registry); };
+	auto lastText = [&]() {
+		char buffer[512] = {};
+		facadeTable->LastErrorText(registry, buffer, sizeof(buffer));
+		return std::string(buffer);
+	};
+
+	registry->RegisterFactory("NativeBadHandle", 0u);
+	if (lastCode() != 1001 || lastText().find("句柄无效") == std::string::npos)
+	{
+		fail("E_ASSET_NATIVE_BAD_HANDLE", "原生直检坏句柄：code=" + std::to_string(lastCode()) +
+		                                      "，文本 \"" + lastText() + "\"（期望 1001 + 句柄无效）");
+	}
+
+	if (!registry->UnregisterFactory("Mesh"))
+	{
+		fail("E_ASSET_NATIVE_UNREGISTER", "UnregisterFactory(\"Mesh\") 返回 false（C# 注册的工厂没找到？）");
+	}
+	if (registry->HasFactory("Mesh"))
+	{
+		fail("E_ASSET_NATIVE_UNREGISTER", "UnregisterFactory 之后 HasFactory 仍为 true");
+	}
+	registry->RegisterFactory("Mesh", meshFactoryHandle);
+	if (lastCode() != 1001)
+	{
+		fail("E_ASSET_NATIVE_RELEASED", "已释放工厂句柄注册返回 " + std::to_string(lastCode()) +
+		                                    "，期望 1001");
+	}
+
+	registry->CreateResource("NativeNoSuchType", "Assets/native-missing.res");
+	if (lastCode() != 1014 || lastText().find("NativeNoSuchType") == std::string::npos)
+	{
+		fail("E_ASSET_NATIVE_UNREGISTERED", "原生直检未注册类型：code=" + std::to_string(lastCode()) +
+		                                        "，文本 \"" + lastText() + "\"（期望 1014 + 类型名）");
+	}
+
+	registry->CreateResource("Mesh", "Assets/Probe.mesh");
+	if (lastCode() != 1014 || lastText().find("路径已存在") == std::string::npos)
+	{
+		fail("E_ASSET_NATIVE_SAME_PATH", "原生直检同路径：code=" + std::to_string(lastCode()) + "，文本 \"" +
+		                                     lastText() + "\"（期望 1014 + 路径已存在）");
+	}
+	if (!registry->HasResource("Assets/Probe.mesh"))
+	{
+		fail("E_ASSET_NATIVE_SAME_PATH", "同路径拒绝之后旧条目不见了（注册表被 get_or_create 换掉）");
+	}
+	if (registry->HasResource("Assets/definitely-missing.asset"))
+	{
+		fail("E_ASSET_NATIVE_EMPTY", "空路径 HasResource 返回 true");
+	}
+
+	{
+		const castl::string facadePath = registry->GetResourceFullPath("a/b.tex");
+		const castl::string directPath = ctx.pResourceManagingSystem->GetResourceFullPath("a/b.tex");
+		if (facadePath != directPath)
+		{
+			fail("E_ASSET_NATIVE_FULLPATH", "门面 GetResourceFullPath = \"" + facadePath + "\" 与 C++ 直调 \"" +
+			                                    directPath + "\" 不一致");
+		}
+	}
+
+	{
+		std::vector<unsigned char> factoryStorage;
+		auto* factoryTable = FetchReverseTable<resource_management__IResourceFactoryApi_v2>(
+			pScriptHost, kBindingInterfaceIdresource_management__IResourceFactory, factoryStorage);
+		if (factoryTable == nullptr)
+		{
+			fail("E_ASSET_REVERSE_TABLE", "取不到 IResourceFactory 反向函数表");
+		}
+		const int32_t retired = factoryTable->ReleaseImpl(meshFactoryHandle);
+		if (retired != 1001)
+		{
+			fail("E_ASSET_NATIVE_RELEASED", "注销后旧工厂句柄 ReleaseImpl 返回 " + std::to_string(retired) +
+			                                    "，期望 1001");
+		}
+	}
+
+	// 收尾：释放用例造出来的资源与工厂，避免把 C# 代理跨用例留在全局注册表里。
+	for (char const* path : { "Assets/Probe.tex", "Assets/Probe.mesh", "Assets/ProbeBroken.tex",
+	                          "Assets/ProbeTruncated.tex", "Assets/ProbeMissing.tex",
+	                          "Assets/ProbeThrowing.res" })
+	{
+		ctx.pResourceManagingSystem->ReleaseResource(path);
+	}
+	ctx.pResourceManagingSystem->UnregisterFactory("Texture2D");
+	ctx.pResourceManagingSystem->UnregisterFactory("ThrowingAsset");
+
+	CA_LOG("TestCSharpAssets 通过：{} 后端；门面注册两工厂 → 新建填数据 → 落盘逐字节对照（贴图 {} / "
+	       "网格 {} 字节）→ 释放自读加载往返一致 → 同路径替换（旧句柄 1001）→ 失败面（坏句柄 1001 / "
+	       "未注册 1014 / 同路径 1014 / 损坏版本 AssetFormatException + 旧条目在 / 截短文件 "
+	       "AssetFormatException + 旧条目在 / 缺失文件 AssetFormatException + 旧条目在 / Serialize 两段式 "
+	       "原位字节 + 二次 1014 带 1012 原文）→ 原生直检门面六条",
+	       ctx.backendName, expectedTextureBytes.size(), expectedMeshBytes.size());
+}
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
 // 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
@@ -8118,6 +8731,9 @@ int main(int argc, char* argv[])
 		// resource-importer-refactor 4.2：第 21 项（导入器双反向 + 拉取式管线 + 导入器级字节对拍；
 		// 要用 C#，全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）。
 		std::cout << "  TestCSharpImporter\n";
+		// csharp-resource-asset-foundation 4.2：第 22 项（门面自助注册表 + C# 资产自读加载 + 两后端像素；
+		// 要用 C#，全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）。
+		std::cout << "  TestCSharpAssets\n";
 		return 0;
 	}
 
@@ -8440,6 +9056,10 @@ int main(int argc, char* argv[])
 	{
 		runTestWithDiagnostics("TestCSharpImporter", TestCSharpImporter);
 	}
+		else if (strcmp(testName.c_str(), "TestCSharpAssets") == 0)
+	{
+		runTestWithDiagnostics("TestCSharpAssets", TestCSharpAssets);
+	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{
 		runTestWithDiagnostics("TestIOErrorChannel", TestIOErrorChannel);
@@ -8489,6 +9109,9 @@ int main(int argc, char* argv[])
 		// resource-importer-refactor 4.2：第 21 用例。同样要用 C#，必须排在
 		// `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
 		runTestWithDiagnostics("TestCSharpImporter", TestCSharpImporter);
+		// csharp-resource-asset-foundation 4.2：第 22 用例（门面注册表 + 资产自读加载 + 索引绘制像素）。
+		// 同样要用 C#，必须排在 `TestCSharpWindowCallbacks`（它会显式关掉托管运行时）之前。
+		runTestWithDiagnostics("TestCSharpAssets", TestCSharpAssets);
 		// 关闭运行时的用例放在最后：它会显式调用 `IScriptHost::Shutdown`，之后的用例不可能再用 C#。
 		runTestWithDiagnostics("TestCSharpWindowCallbacks", TestCSharpWindowCallbacks);
 	}

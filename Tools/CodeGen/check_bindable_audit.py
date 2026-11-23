@@ -51,6 +51,10 @@ INTERFACES = {
         "GeneralResources/header/CAResource/ResourceImporter.h", "ResourceImporter"),
     "resource_management::ResourceImporterProductions": (
         "GeneralResources/header/CAResource/ResourceImporter.h", "ResourceImporterProductions"),
+    # csharp-resource-asset-foundation 1.5：宿主层门面（C# 调 C++ 的注册表窄面）。它由 C++ 宿主实现，
+    # 但审计口径不变（进入绑定面的公开方法逐条一行）；漏了这一项时审计表新增的九行会被判僵尸行。
+    "cs_script::IResourceRegistry": (
+        "Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h", "IResourceRegistry"),
 }
 
 

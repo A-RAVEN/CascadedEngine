@@ -1669,7 +1669,8 @@ HANDLE_NAME_RE = re.compile(r"(?i)(handle|token|lease|self|registration)$")
 RETURN_ULONG_RE = re.compile(r"\bpublic\b[^()]*\bulong\s+\w+\s*\(")
 
 
-def public_ulong_problems(interface: str, block: dict) -> list[str]:
+def public_ulong_problems(interface: str, block: dict,
+                          scalar_uint64_params: set[str] | None = None) -> list[str]:
     """public 类型体里的 `ulong` 判据（口径细化：只挡句柄，不挡真标量）。
 
     原口径是"public 类型体里出现 `ulong` 即失败"（句柄必须包成表面对象）。绑定面换到原生接口后，
@@ -1677,8 +1678,12 @@ def public_ulong_problems(interface: str, block: dict) -> list[str]:
     也会投影成 `ulong` —— 一刀切会把合法标量判红。句柄在生成物里有固定命名：参数叫
     `<名>Handle`（弱/强/借用解析出来的）或 `<名>Token`，租约字段叫 `<X>Lease`，
     返回值位置直接是句柄。这里按这两个位置判，句柄仍然过不去。
+    `scalar_uint64_params`：接口头里**字面拼写就是 `uint64_t` 的参数名**集合 —— 这些参数是显式标量
+    转移（本批 `IResourceRegistry::RegisterFactory` 的反向工厂强句柄就是这种），不是被投影层包成
+    `ulong` 的原生句柄；它们的 C++ 形态不是 `shared_ptr`，没有"句柄泄漏成标量"的问题。
     """
     problems: list[str] = []
+    allowed = scalar_uint64_params or set()
     for line in block["body"].splitlines():
         if "ulong" not in line:
             continue
@@ -1687,7 +1692,7 @@ def public_ulong_problems(interface: str, block: dict) -> list[str]:
             problems.append(f"  {interface}：public 类型 `{block['name']}` 的返回值里出现了 `ulong`（句柄）")
             continue
         for name in re.findall(r"\bulong\s+(\w+)", stripped):
-            if HANDLE_NAME_RE.search(name):
+            if HANDLE_NAME_RE.search(name) and name not in allowed:
                 problems.append(
                     f"  {interface}：public 类型 `{block['name']}` 的参数 `{name}` 是 `ulong`（句柄形态）")
     return problems
@@ -1717,6 +1722,18 @@ def check_surface(product_dir: Path) -> list[str]:
         if is_reverse_product(path):
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
+        # 表面 `ulong` 判据的标量豁免（csharp-resource-asset-foundation）：接口头里字面写成
+        # `uint64_t <名>` 的参数是显式标量转移，不是投影层发出来的原生句柄。只在**该接口自己的头**
+        # 里找，不跨接口放行；句柄形态（`shared_ptr` 参数）没有这个字面拼写，照旧判红。
+        scalar_uint64_params: set[str] = set()
+        product_for_header = path.with_name(f"{linear}.Bindings.cpp")
+        if product_for_header.is_file():
+            header_for_exemption = resolve_interface_header(
+                product_for_header.read_text(encoding="utf-8", errors="replace"))
+            if header_for_exemption is not None:
+                scalar_uint64_params = set(re.findall(
+                    r"\buint64_t\s+(\w+)\s*[,)]",
+                    strip_comments(header_for_exemption.read_text(encoding="utf-8", errors="replace"))))
         blocks = type_blocks(text)
         public_blocks = [block for block in blocks if block["visibility"] == "public"]
         if not public_blocks:
@@ -1734,7 +1751,7 @@ def check_surface(product_dir: Path) -> list[str]:
             for token in ("delegate*", "void*"):
                 if token in block["body"]:
                     problems.append(f"  {interface}：public 类型 `{block['name']}` 里出现了 `{token}`")
-            problems.extend(public_ulong_problems(interface, block))
+            problems.extend(public_ulong_problems(interface, block, scalar_uint64_params))
         exceptions = [block for block in public_blocks if block["name"] == f"{interface}Exception"]
         if not exceptions:
             problems.append(f"  {interface}：没有 `public sealed class {interface}Exception`")
@@ -1868,7 +1885,10 @@ ERROR_CODE_TABLE = {1001: "STALE_HANDLE", 1002: "NULL_POINTER",
                     1011: "BAD_OBJECT_HANDLE",
                     # csharp-reverse-interface-binding：反向实现抛异常 / 不支持的反向读。
                     # 三处同步：CodeGenMain.cpp 的 kBindErrorCodes / 这里 / README 的错误码表。
-                    1012: "REVERSE_EXCEPTION", 1013: "REVERSE_READ_UNSUPPORTED"}
+                    1012: "REVERSE_EXCEPTION", 1013: "REVERSE_READ_UNSUPPORTED",
+                    # csharp-resource-asset-foundation 1.7：宿主门面专用（门面实现自行 catch 后写入；
+                    # 只发射进 `cs_script__IResourceRegistry` 产物，既有正向产物不含它）。三处同步同上。
+                    1014: "RESOURCE_OPERATION_REJECTED"}
 ERROR_CONST_RE = re.compile(r"static const int32_t (\w+?)_ERROR_(\w+) = (\d+);")
 SET_ERROR_RE = re.compile(r"\w+_setError\(\s*[^,]+,\s*([A-Za-z_]\w*|\d+)\s*,")
 

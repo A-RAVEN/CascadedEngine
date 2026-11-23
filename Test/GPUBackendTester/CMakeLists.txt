@@ -38,7 +38,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/codegen/bindings
     ${CMAKE_SOURCE_DIR}/WindowSystem/header/CAWindow
     # csharp-reverse-interface-binding 8.1：反向资源产物按基名 include `IResource.h`（同上）。
-    ${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource)
+    ${CMAKE_SOURCE_DIR}/GeneralResources/header/CAResource
+    # csharp-resource-asset-foundation 4.2：门面产物按基名 include `IResourceRegistry.h`（同上）。
+    ${CMAKE_SOURCE_DIR}/Interface/ScriptHost/header/ScriptHost)
 
 #target_link_libraries(${PROJECT_NAME} PRIVATE IOManager_FS)
 

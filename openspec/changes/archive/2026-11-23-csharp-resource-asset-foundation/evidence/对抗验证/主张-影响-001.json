@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-影响-001",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "对外文档：`docs/testing.md` 清单加第 22 用例；`CSharpHost/README.md` 编号表加 13（门面）。",
+  "problem": "对外文档同步范围漏算。`docs/testing.md` 除测试清单外还有四处「21」条计数会过期：表格里「当前 **21** 个测试」、章节标题「（21 个测试）」、「当前全量一共 21 条」、最小回归集合里「两份全量 report 里 21 条 status 全为 pass」；本批后应为 22。`Tools/CodeGen/README.md` 把审计脚本的真实输出写死成「扫描 13 个接口、对账 105 条方法」并列出 13 个接口名，本批后应为 14 个接口 / 114 条并新增 `cs_script::IResourceRegistry`。tasks 4.4 只点名 testing.md 的清单与 CSharpHost README，验收也只比「清单与 `--list` 输出逐条一致」，上述计数与 CodeGen README 不在任何判据里。`Tools/CodeGen/verify_readme.py` 只执行以 `CodeGen.exe ` 开头的命令（`CMD_RE = re.compile(r\"^CodeGen\\.exe (.+)$\")`），不会执行 README 里 `python Tools/CodeGen/check_bindable_audit.py` 那段输出，所以 13/105 会静默腐烂，不会被现有脚本抓红。",
+  "evidence": "`Select-String docs/testing.md -Pattern '当前 \\*\\*21\\*\\*|（21 个测试）|当前全量一共 21 条'` 命中三处；再加最小集合段「两份全量 report 里 21 条 `status` 全为 `pass`」共四处。`Select-String Tools/CodeGen/README.md -Pattern '扫描 13 个接口、对账 105 条方法|审计范围现在是 13 个接口'` 命中两处，原文分别是「扫描 13 个接口、对账 105 条方法、命中 0 处问题」和「审计范围现在是 13 个接口（`CRenderBackend` / … / `ResourceImporterProductions`），合计 105 条公开方法」。当前实跑 `python Tools/CodeGen/check_bindable_audit.py` 的读数就是「扫描 13 个接口、对账 105 条方法」；脚本 `INTERFACES` 计数 13，加门面后为 14，方法数加九为 114。tasks 4.4 验收原文只要求「testing.md 清单与 `--list` 输出逐条一致；README 表含 13 且与锁文件一致（grep 对照）」。",
+  "suggestion": "把 tasks 4.4 的文档范围扩成三件并给可失败验收：① `docs/testing.md` 四处 21→22（验收：该文件内 `21 个测试` / `21 条` 计数为 0，`22` 出现在对应四处）；② `Tools/CodeGen/README.md` 的审计输出改 14 个接口 / 114 条方法并把 `cs_script::IResourceRegistry` 加进接口名清单（验收：该文件内 `13 个接口` / `105 条` 计数为 0）；③ 既然 `verify_readme.py` 不覆盖 `python …check_bindable_audit.py` 这类命令，就在 4.4 明确加一条人工/子串对账（README 的审计输出行与实跑输出逐字一致），否则只能靠下一次手工发现。"
+}

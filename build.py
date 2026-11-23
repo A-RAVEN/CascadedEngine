@@ -1173,6 +1173,10 @@ CODEGEN_BINDINGS = [
     # 返回另一个反向接口的裸指针），所以生成器一行没改。
     ("GeneralResources/header/CAResource/ResourceImporter.h", "原生 ResourceImporter",
      ["resource_management__ResourceImporter", "resource_management__ResourceImporterProductions"]),
+    # csharp-resource-asset-foundation 1.2（design D7）：宿主层门面接口（C# 调 C++ 的注册表窄面）。
+    # 正向两件套 + 宿主登记分片；编号由 `--update-ids` 发（host 段 13，既有序号不动）。
+    ("Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h", "C# 资源注册表门面",
+     ["cs_script__IResourceRegistry"]),
 ]
 
 
@@ -1214,6 +1218,9 @@ CODEGEN_REGISTRIES = [
         # get_interface_api 取得到它们的反向函数表（编号由 --update-ids 发；既有序号不动）。
         # 两个接口在同一个头里，一份分片写两行。
         ("GeneralResources/header/CAResource/ResourceImporter.h", "reverse-resource-importer"),
+        # csharp-resource-asset-foundation 1.2（design D7）：宿主层门面进主登记表 —— C# 侧经
+        # get_interface_api 取得到它的正向函数表（编号由 --update-ids 发；既有序号不动）。
+        ("Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h", "cs-script-resource-registry"),
     ]),
     # 夹具登记表（只做编号 / 拒绝 / 确定性与编号对账）：夹具专用号段 8/9。
     ("fixture", "fixture", [

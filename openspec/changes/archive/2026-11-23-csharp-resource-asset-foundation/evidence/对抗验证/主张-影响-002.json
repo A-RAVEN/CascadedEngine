@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-影响-002",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "artifact": "openspec/changes/csharp-resource-asset-foundation/tasks.md",
+  "anchor": "验收：`python Tools/CodeGen/check_bindable_audit.py` exit 0，输出接口数 13→14、方法对账数 105→114",
+  "problem": "tasks 1.4 + 1.5 只覆盖了审计表主表九行和脚本 `INTERFACES` 一项，漏掉了审计文件顶部「范围汇总表」的一行与合计行 105→114。`check_bindable_audit.py` 的 `summary_rows()` 对 `INTERFACES` 里每个接口都要求汇总表有一行，并校验合计等于头文件实算总数；只做 1.4+1.5 时脚本会报「汇总表缺少接口 cs_script::IResourceRegistry 的方法条数（头文件实算 9）」和「汇总表合计不符：写 105、头文件实算 114」，exit 1。也就是说 1.5 的验收「输出方法对账数 105→114」永远到不了；而一旦按脚本要求补上汇总行，1.4 的 `Select-String 'IResourceRegistry'` 计数至少变成 10（9 条主表行 + 1 条汇总行，若同时更新「谁实现」表则更多），不等于 9。design D7 只写「INTERFACES 加一项 / 接口数 13→14、方法数 105→114」，Risks 仍写「只追加九行，不动旧行」，没有一处说明汇总行与合计行要改。",
+  "evidence": "脚本 `Tools/CodeGen/check_bindable_audit.py` 的汇总检查原文：`if interface not in summary_counts: problems.append(f\"汇总表缺少接口 {interface} 的方法条数（头文件实算 {computed}）\")`、`elif summary_total != sum(expected.values()): problems.append(f\"汇总表合计不符：写 {summary_total}、头文件实算 {sum(expected.values())}\")`。当前审计表汇总段是 `| 接口 | 方法条数 | 所在头文件 |` 加 13 行接口 + `| **合计** | **105** | |`；实跑 `python Tools/CodeGen/check_bindable_audit.py` = 「扫描 13 个接口、对账 105 条方法、命中 0 处问题」，exit 0。tasks 1.4 验收写「`Select-String 'IResourceRegistry'` 在该文件计数 = 9；脚本绿须与 1.5 同步完成」；tasks 1.5 只写「`INTERFACES` 表加 … 验收：脚本 exit 0，输出接口数 13→14、方法对账数 105→114」。两处都没有「汇总表加一行」「合计 105→114」。design D7 同段也只说脚本 `INTERFACES` 加一项与 13→14/105→114。",
+  "suggestion": "在 1.4（或新增 1.5 的第二步）显式加三个动作：① 汇总表加 `| `cs_script::IResourceRegistry` | 9 | `Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h` |`；② 合计 `105`→`114`；③ 脚本 `INTERFACES` 加门面一项（已有 1.5）。验收改成四条同时成立：脚本 exit 0 且输出「扫描 14 个接口、对账 114 条方法」；主表 `cs_script::IResourceRegistry::` 行数 = 9；文件内 `IResourceRegistry` 计数至少 10（9 主表 + 汇总行）；`grep '| **合计** | **114** |'` 命中 1。并把 design D7 的审计条和 Risks 的「只追加九行，不动旧行」同步改成「九行主表 + 一行汇总 + 合计 105→114 + 脚本 INTERFACES」；1.5 的自然时序红态仍保留（1.4 先做、1.5 未做时应报僵尸行），但绿态必须包含汇总行与合计，否则 1.5 的 105→114 是假验收。"
+}
