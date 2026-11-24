@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-004",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-asset-browser/tasks.md；design.md",
+  "anchor": "tasks.md:31（5.1）「CoreTests 全绿（PASSED 行数与基线一致，evidence/5.1-CoreTests.txt）；绑定基线旧锚 221 逐字节零差异…」；tasks.md:32（5.2）「计数 22→23（各处）」",
+  "claim": "数字逐项溯源：协议版本 1、门面编号 13、门面九方法、用例 22→23、端口 18390、面板宽 320、CAAssets 两个 shLib 的 145710/293737 字节都能用命令核到精确出处；但 5.1 的「绑定基线旧锚 221」标注与归档命名相反——归档里 221 是上一批的「新锚」，同名候选文件「旧锚封存件.txt」是 218 条，按字面「旧锚」去核会落到 218；且 check_binding_baseline.py 的 --baseline 是必填参数，工件没写要传哪份文件。另「CoreTests PASSED 行数与基线一致」没给基数（归档实测 26 行），该判据不能由第三方独立复算。工件本身没有出现 CoreTests 行数这个数字，此项不是凭空发明，是缺基数。",
+  "evidence": "证据-溯源-004.md：11 项数字逐项列出处与命令输出（interface-ids.lock 第 25 行、CSharpHost/README.md 第 53 行、IResourceRegistry.h 九个纯虚、--list 实测 22 行、PROTOCOL.md 第 9/54 行、EditorService.cs 第 59/60 行、Get-Item 实测字节、归档 新锚.txt 221 行 / 旧锚封存件.txt 218 行、归档 5.1-CoreTests.txt 26 行、check_binding_baseline.py 第 145 行）。"
+}

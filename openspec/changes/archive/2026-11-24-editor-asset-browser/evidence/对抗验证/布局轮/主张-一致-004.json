@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-004",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "claim": "tasks 5.2 已勾，其验收词是「PROTOCOL §5 含资产区映射」，证据文件逐字证明 PROTOCOL.md §5 现文是「**资产区**（editor-asset-browser）：资产区标题 + 表格 → list-assets」；新加的未勾 5.5 要在同一段落补「底部资产浏览器 dock→list-assets/刷新→重拉（与右面板对象检查器分离）」。两任务对同一段落的终态互斥（同一份「唯一事实源」文档不能同时把资产浏览器写成右面板的资产区与底部通栏 dock）、内容重复；5.2 的验收在 5.5 落地后即失效，而 5.5 的「§5 含 dock 映射（grep）」又可能被 5.2 已写入的 list-assets 命中喂绿，无法证明 dock 措辞真的加上。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:34「- [x] 5.2 ……`PROTOCOL.md` §5 面板控件映射补资产区→list-assets/刷新→重拉。验收：……PROTOCOL §5 含资产区映射。」对 openspec/changes/editor-asset-browser/tasks.md:37「- [ ] 5.5 ……`PROTOCOL.md` §5 面板控件映射补底部资产浏览器 dock→list-assets/刷新→重拉（与右面板对象检查器分离）……验收：PROTOCOL §5 含 dock 映射（grep）」；Scripting/Managed/Editor/PROTOCOL.md:173「**资产区**（editor-asset-browser）：资产区标题 + 表格 → `list-assets`」；openspec/changes/editor-asset-browser/evidence/5.2-文档核对.txt:18「173: **资产区**（editor-asset-browser）：资产区标题 + 表格 → `list-assets`（`value.assets` 渲染五行：」",
+  "evidence_ref": "证据-一致-004.md",
+  "suggested_fix": "合并成一条（推荐）：把 5.2 的验收词改成「PROTOCOL §5 MUST 以『底部通栏资产浏览器 dock』称呼资产浏览器、MUST NOT 再把资产浏览器写成右面板的『资产区』」，5.5 只保留 CSharpHost/README.md 配置表与 docs/testing.md 两项（PROTOCOL §5 那半句删掉，避免同一段落两任务各写一版）；给两条能变红/变绿的 grep（`Select-String PROTOCOL.md -SimpleMatch '底部资产浏览器 dock'` 当前 0 命中、改后 ≥1；`Select-String PROTOCOL.md -SimpleMatch '**资产区**（editor-asset-browser）'` 改后 0 命中），并在 5.2 里补改前/改后原文。"
+}

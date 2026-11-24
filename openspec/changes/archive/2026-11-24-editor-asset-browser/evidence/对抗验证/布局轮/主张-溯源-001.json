@@ -1,0 +1,9 @@
+{
+  "id": "主张-溯源-001",
+  "face": "无中生有",
+  "severity": "blocking",
+  "claim": "design D9 与 tasks 3.2 把「第二控制器创建失败」这条 MUST 的验证写成「no-runtime 自检覆盖」，但该自检在 EditorWindow.Create 入口（:64-72）就 return null，一个控制器都不创建——它只能模拟 WebView2 运行时缺失，覆盖不了「运行时在、第二个 CreateCoreWebView2ControllerAsync 失败」这条 MUST。全仓编辑器自检值只有 no-runtime 一个（另有 no-facade），没有任何开关能构造第二控制器创建失败或 dock 页面加载失败；于是这条 MUST 没有任何能变红的路径，工件却声称已覆盖。",
+  "location": "openspec/changes/editor-asset-browser/design.md:78 逐字：「第二控制器创建失败 / 运行时缺失 MUST 明确报错并禁用编辑器（与既有控制器同处置，no-runtime 自检覆盖）；dock 静态资源（assets.html）缺失 MUST 明确错误页。」；tasks.md:23 逐字：「第二控制器创建失败/运行时缺失明确报错禁用（no-runtime 自检覆盖），dock 静态资源缺失明确错误页。」；Scripting/Managed/Editor/EditorWindow.cs:64-72 逐字：「#if DEBUG / // M14（工件修订）：Debug 自检开关强制走\"WebView2 运行时缺失\"路径 / if (Environment.GetEnvironmentVariable(\"CASCADED_EDITOR_SELFTEST\") == \"no-runtime\") { error = \"WebView2 运行时缺失（自检开关 CASCADED_EDITOR_SELFTEST=no-runtime 模拟）\"; return null; } #endif」",
+  "evidence_ref": "证据-溯源-001.md",
+  "suggested_fix": "两处任选并写死：① 把「no-runtime 自检覆盖」限定为「运行时缺失」，另给第二控制器失败的可构造红态（新增自检值，例如 CASCADED_EDITOR_SELFTEST=no-dock-controller 让第二个控制器创建直接失败，tasks 3.2 写死该开关、期望日志文本与「编辑器禁用、进程不崩」）；② 若不做红态，就把这条改成「无红态路径，理由=…」并在 spec 场景里标出未覆盖，不许写「no-runtime 自检覆盖」。"
+}

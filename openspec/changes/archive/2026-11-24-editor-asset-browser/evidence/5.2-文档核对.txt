@@ -1,0 +1,48 @@
+﻿# 5.2 对外文档核对（只读检查，执行时间 2026-11-23 23:49:18)
+
+## docs/testing.md：计数 23 / 清单含第 23 用例 / 独立进程说明
+32: ### ② `Test/GPUBackendTester`（23 个测试）
+10: | **② 进程内行为** | `Test/GPUBackendTester`（当前 **23** 个测试，注册在 `Main.cpp` 的 `runTestW
+34: `TestSimpleTriangle` / `TestTriangleWithConstantColor` / `TestTriangleWithStruct
+42: `TestEditorAssetBrowser` 由 `editor-asset-browser` 加入（**第 23 条，`--list` 最后一行；必须独立
+99: ### 层 ②：`TestScriptHost`（加它的时候是第 9 条；当前清单一共 23 条，其中 `TestEditorAssetBrowser` 独立进
+149: out\build\x64-debug\bin\GPUBackendTester.exe --backend vulkan --test TestEditorA
+150: out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestEditorAs
+235: 判定：CoreTests 退出码 0 且 `PASSED` 26 行；两份全量 report 里 22 条 `status` 全为 `pass`（全量同进程顺序
+
+## CSharpHost/README.md：no-facade
+121: 其余开关：`CASCADED_EDITOR_SELFTEST=no-runtime`（**仅 Debug**：模拟 WebView2 运行时缺失 → 明确禁用、不崩）、`CASCADED_EDITOR
+394: | `CASCADED_EDITOR_SELFTEST=no-facade` | 资产浏览的门面未绑红态：托管侧**跳过**资源注册表门面（编号 13）绑定，`list-assets` 必回 `E_A
+
+## PROTOCOL.md §5 资产区映射
+173: **资产区**（editor-asset-browser）：资产区标题 + 表格 → `list-assets`（`value.assets` 渲染五行：
+176: （`assets` 为空数组）→ 显示空态文案，不是报错；`E_ASSET_ROOT` → 资产区显示错误码与该消息并保留
+
+## --list 与 docs/testing.md 清单逐条对拍（2026-11-23 23:53:45）
+GPUBackendTester.exe --list 条数 = 23；docs/testing.md 清单条数 = 23
+Compare-Object 结果 = 空（逐条一致，顺序也一致）
+
+--list 原文：
+TestSimpleTriangle
+TestTriangleWithConstantColor
+TestTriangleWithStructuredBufferColor
+TestTriangleWithImageBuffer
+TestDoublePass
+TestComputeBuffer
+TestReadback
+TestIMGUI
+TestScriptHost
+TestCSharpWindow
+TestCSharpTriangle
+TestCSharpScene
+TestCSharpWindowCallbacks
+TestGPUTiming
+TestCSharpConstantColor
+TestCSharpStructuredBuffer
+TestCSharpTextureSampling
+TestEditorWindowPanel
+TestIOErrorChannel
+TestCSharpResourceFactory
+TestCSharpImporter
+TestCSharpAssets
+TestEditorAssetBrowser

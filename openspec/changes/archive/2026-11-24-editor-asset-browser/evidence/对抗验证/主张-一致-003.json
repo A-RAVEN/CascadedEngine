@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-003",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-asset-browser/tasks.md",
+  "anchor": "2.2 ……验收：构建过；默认提供者单测断言一文件一条目、nodeId=相对路径、children 空；IResource.h/门面头 grep 无改动。",
+  "problem": "spec 要求 3 的场景「默认提供者一文件一条目」规定 MUST 产出恰好一个条目、children 为空、nodeId 等于相对路径；tasks 2.2 把验证写成「默认提供者单测」，但没有点名测试文件、测试入口或命令。项目现有测试层只有 C++ 的 CoreTests、C++ 的 GPUBackendTester 与 Python 的 Tools/check_*.py（docs/testing.md），没有 C# 单测层；AssetDisplay.cs 的默认提供者只能经 list-assets 端到端触达，而 tasks 4.1 的断言清单只列「路径/大小/种类/registered」，不列 children 和 nodeId。也就是说，默认提供者返回非空 children 或 nodeId 不等于相对路径时，4.1 仍可能通过，spec 场景 3 没有可失败验收。",
+  "evidence": "见 `证据-一致-003.md`：spec 要求 3/场景 3 原文、tasks 2.2/4.1 原文、docs/testing.md 的三层测试定义与 Test/CoreTests 的 C++ 文件列表、`AssetDisplay.cs` 尚不存在的现状。",
+  "suggestion": "把默认提供者的验收落到可执行位置：① 在 4.1 增加逐条断言（每个条目 `children` 必须为空数组、`nodeId` 必须等于预置文件的相对路径），并给红态（例如默认提供者返回 children=[自身] 或 nodeId 用绝对路径）；或 ② 若确实要单测，点名新增的 C# 测试入口、文件与运行命令，并把它接进现有测试层。二选一写死，不能只写「单测」。"
+}

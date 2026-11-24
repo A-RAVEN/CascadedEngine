@@ -4748,9 +4748,12 @@ void TestEditorWindowPanel(TestContext& ctx)
 			++frames;
 			pScriptHost->Tick(0.016);
 			ctx.pWindowSystem->UpdateSystem();
+			// 三分区（D9）：**两个** WebView2 控制器都要就绪（controller/nav = 对象检查器，
+			// dockController/dockNav = 底部资产浏览器 dock）—— 第一控制器绿就整体当绿是不合格的判据。
 			if ((frames % 5) == 0 && ReadEditorReadings(readingsPath, &readings) &&
 				readings.Get("objects") == "1" && readings.I64("exec") > 0 &&
-				readings.Get("controller") == "1" && readings.Get("nav") == "1")
+				readings.Get("controller") == "1" && readings.Get("nav") == "1" &&
+				readings.Get("dockController") == "1" && readings.Get("dockNav") == "1")
 			{
 				ready = true;
 				break;
@@ -4761,21 +4764,36 @@ void TestEditorWindowPanel(TestContext& ctx)
 	if (!ready)
 	{
 		ReadEditorReadings(readingsPath, &readings);
+		// 启动阶段的禁用（dock 高越界等）发生在读数泵跑起来之前：那时没有 `[编辑器 读数]` 行可读，
+		// error 字段会空着。退回服务写进读数文件的「禁用：<原因>」标记行 —— 判据要求的是"原因点名"
+		// （CASCADED_EDITOR_DOCK_HEIGHT=0 非法 / 超出范围 1..客户区高-1），不要求从哪个通道读。
+		std::string errorText = readings.Get("error");
+		if (errorText.empty() || errorText == "-")
+		{
+			std::string disabledReason;
+			if (ReadLoggedValue(readingsPath, "禁用：", &disabledReason))
+			{
+				errorText = "禁用：" + disabledReason;
+			}
+		}
 		char detail[768] = {};
 		std::snprintf(detail, sizeof(detail),
-		              "编辑器 40 秒内没有进入运行态：objects=%s controller=%s nav=%s exec=%s error=%s；LastError=%s",
+		              "编辑器 40 秒内没有进入运行态：objects=%s controller=%s nav=%s dockController=%s "
+		              "dockNav=%s exec=%s error=%s；LastError=%s",
 		              readings.Get("objects").c_str(), readings.Get("controller").c_str(),
-		              readings.Get("nav").c_str(), readings.Get("exec").c_str(), readings.Get("error").c_str(),
-		              pScriptHost->LastError());
+		              readings.Get("nav").c_str(), readings.Get("dockController").c_str(),
+		              readings.Get("dockNav").c_str(), readings.Get("exec").c_str(),
+		              errorText.c_str(), pScriptHost->LastError());
 		fail("E_EDITOR_START", detail);
 	}
-	CA_LOG("[编辑器 测试] 启动读数：mode={} objects={} controller={} nav={} exec={} client={} panel={} "
-	       "viewport={} windowSelf={}",
+	CA_LOG("[编辑器 测试] 启动读数：mode={} objects={} controller={} nav={} dockController={} dockNav={} "
+	       "exec={} client={} panel={} viewport={} dock={} windowSelf={}",
 	       readings.Get("mode").c_str(), readings.Get("objects").c_str(), readings.Get("controller").c_str(),
-	       readings.Get("nav").c_str(), readings.Get("exec").c_str(), readings.Get("client").c_str(),
-	       readings.Get("panel").c_str(), readings.Get("viewport").c_str(), readings.Get("windowSelf").c_str());
+	       readings.Get("nav").c_str(), readings.Get("dockController").c_str(), readings.Get("dockNav").c_str(),
+	       readings.Get("exec").c_str(), readings.Get("client").c_str(), readings.Get("panel").c_str(),
+	       readings.Get("viewport").c_str(), readings.Get("dock").c_str(), readings.Get("windowSelf").c_str());
 
-	// ⑥ 单窗口分栏：窗口计数增量 1；读数行有控制器 + 导航 + 模式 + 面板矩形/视口区域，两者铺满客户区。
+	// ⑥ 单窗口三分区：窗口计数增量 1；读数行有两控制器 + 导航 + 模式 + 面板/视口/dock 三矩形铺满客户区。
 	const int countAfterStart = ctx.pWindowSystem->GetWindowCount();
 	if (countAfterStart != baselineCount + 1)
 	{
@@ -4793,14 +4811,19 @@ void TestEditorWindowPanel(TestContext& ctx)
 	int clientHeight = 0;
 	Rect4 panelRect;
 	Rect4 viewportRect;
+	Rect4 dockRect;
+	// 三分区（editor-asset-browser D9）：dock 高默认 240（EditorService.DefaultDockHeight），期望视口高 =
+	// 客户区高 − 240 在这里**写死**（不从被测读数自取；2026-11-24 用户裁定底部通栏 dock）。
+	const int expectedDockHeight = 240;
 	if (!ParseSize(readings.Get("client"), clientWidth, clientHeight) ||
-		!ParseRect(readings.Get("panel"), panelRect) || !ParseRect(readings.Get("viewport"), viewportRect))
+		!ParseRect(readings.Get("panel"), panelRect) || !ParseRect(readings.Get("viewport"), viewportRect) ||
+		!ParseRect(readings.Get("dock"), dockRect))
 	{
-		fail("E_EDITOR_LAYOUT_READINGS", "读数行缺少 client/panel/viewport：" + readings.Get("panel") + " / " +
-			readings.Get("viewport"));
+		fail("E_EDITOR_LAYOUT_READINGS", "读数行缺少 client/panel/viewport/dock：" + readings.Get("panel") + " / " +
+			readings.Get("viewport") + " / " + readings.Get("dock"));
 	}
 	if (panelRect.x != viewportRect.w || panelRect.w + viewportRect.w != clientWidth ||
-		viewportRect.h != clientHeight || panelRect.h != clientHeight)
+		viewportRect.h != clientHeight - expectedDockHeight || panelRect.h != clientHeight - expectedDockHeight)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail),
@@ -4808,6 +4831,16 @@ void TestEditorWindowPanel(TestContext& ctx)
 		              clientHeight, viewportRect.x, viewportRect.y, viewportRect.w, viewportRect.h, panelRect.x,
 		              panelRect.y, panelRect.w, panelRect.h);
 		fail("E_EDITOR_LAYOUT", detail);
+	}
+	// dock 底部通栏：y = 客户区高 − 240、宽 = 客户区宽、高 = 240（三分区铺满的另一半）。
+	if (dockRect.x != 0 || dockRect.y != clientHeight - expectedDockHeight || dockRect.w != clientWidth ||
+		dockRect.h != expectedDockHeight)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "底部 dock 矩形不对：dock=(%d,%d,%d,%d) 期望=(0,%d,%d,%d)", dockRect.x, dockRect.y,
+		              dockRect.w, dockRect.h, clientHeight - expectedDockHeight, clientWidth, expectedDockHeight);
+		fail("E_EDITOR_LAYOUT_DOCK", detail);
 	}
 	const uint64_t windowSelf = readings.U64("windowSelf");
 	if (windowSelf == 0)
@@ -4970,11 +5003,13 @@ void TestEditorWindowPanel(TestContext& ctx)
 	{
 		fail("E_EDITOR_LAYOUT", "C++ SetWindowSize(1000,640) 之后读数行 client=" + readings.Get("client"));
 	}
-	if (!ParseRect(readings.Get("viewport"), viewportRect) || !ParseRect(readings.Get("panel"), panelRect))
+	if (!ParseRect(readings.Get("viewport"), viewportRect) || !ParseRect(readings.Get("panel"), panelRect) ||
+		!ParseRect(readings.Get("dock"), dockRect))
 	{
 		fail("E_EDITOR_LAYOUT_READINGS", "尺寸同步后读数行缺少矩形");
 	}
-	if (viewportRect.w != 680 || panelRect.x != 680 || panelRect.w != 320 || viewportRect.h != 640)
+	if (viewportRect.w != 680 || panelRect.x != 680 || panelRect.w != 320 ||
+		viewportRect.h != 640 - expectedDockHeight)
 	{
 		char detail[256] = {};
 		std::snprintf(detail, sizeof(detail), "改尺寸后分栏不对：viewport=(%d,%d,%d,%d) panel=(%d,%d,%d,%d)",
@@ -4982,8 +5017,18 @@ void TestEditorWindowPanel(TestContext& ctx)
 		              panelRect.w, panelRect.h);
 		fail("E_EDITOR_LAYOUT", detail);
 	}
-	CA_LOG("[编辑器 测试] ⑥ 单窗口分栏：计数 +1、控制器/导航就绪、C++ SetWindowSize 后读数同步（client=1000x640、"
-	       "viewport=680x640、panel=680,0,320,640）");
+	// 改尺寸后 dock 仍底部通栏（1000x640 客户区 → dock=(0,400,1000,240)）。
+	if (dockRect.x != 0 || dockRect.y != 640 - expectedDockHeight || dockRect.w != 1000 ||
+		dockRect.h != expectedDockHeight)
+	{
+		char detail[256] = {};
+		std::snprintf(detail, sizeof(detail),
+		              "改尺寸后 dock 矩形不对：dock=(%d,%d,%d,%d) 期望=(0,%d,1000,%d)", dockRect.x, dockRect.y,
+		              dockRect.w, dockRect.h, 640 - expectedDockHeight, expectedDockHeight);
+		fail("E_EDITOR_LAYOUT_DOCK", detail);
+	}
+	CA_LOG("[编辑器 测试] ⑥ 单窗口三分区：计数 +1、两控制器/导航就绪、C++ SetWindowSize 后读数同步"
+	       "（client=1000x640、viewport=680x400、panel=680,0,320,400、dock=0,400,1000,240）");
 
 	// 1.2 的静态页读数：资源存在 ⇒ 200 + 页面本体；资源缺失 ⇒ 503 + 说明"资源未构建"的错误页。
 	// **期望值来自服务自己打出的「面板静态根：<绝对路径>」行**（读数文件，两条通道都在），
@@ -5183,9 +5228,11 @@ void TestEditorWindowPanel(TestContext& ctx)
 		{
 			fail("E_EDITOR_READINGS", "set-size 之后没有读数行");
 		}
-		if (readings.Get("capture") != "580x560")
+		// 三分区：set-size 到 900x560 之后视口 = (900-320) x (560-240) = 580x320，捕获目标随之重建。
+		// 期望值写死（580x320），不从被测读数自取 —— 只靠中心像素对高度不敏感，必须有这条显式断言。
+		if (readings.Get("capture") != "580x320")
 		{
-			fail("E_EDITOR_CAPTURE_SIZE", "改尺寸后捕获尺寸不是新视口 580x560：" + readings.Get("capture"));
+			fail("E_EDITOR_CAPTURE_SIZE", "改尺寸后捕获尺寸不是新视口 580x320：" + readings.Get("capture"));
 		}
 		std::string pixelDetail;
 		const bool red = ReadCaptureCenterRed(ctx, readings, pixelDetail);
@@ -5354,8 +5401,17 @@ void TestEditorWindowPanel(TestContext& ctx)
 		{
 			fail("E_EDITOR_INVALID_ARG", "width=面板宽(320) 没有被 E_INVALID_ARG 拒绝：" + result);
 		}
-		CA_LOG("[编辑器 测试] 形状错（E_BAD_MESSAGE×2）/ 非法参数（E_INVALID_ARG，含 width=0 与 width=面板宽）"
-		       "均零原生调用");
+		// D9（三分区）：高度必须大于 dock 高（默认 240）—— height=240 也必须 E_INVALID_ARG，
+		// 否则视口高 = 高 − dock 高 = 0（场景视口没有渲染区）。这条判据随三分区引入。
+		sendCommand("{\"type\":\"command\",\"requestId\":111,\"command\":\"set-size\",\"objectId\":1,"
+		            "\"args\":{\"width\":900,\"height\":240}}");
+		waitResult(111, result);
+		if (JsonErrorCode(result) != "E_INVALID_ARG")
+		{
+			fail("E_EDITOR_INVALID_ARG", "height=dock高(240) 没有被 E_INVALID_ARG 拒绝：" + result);
+		}
+		CA_LOG("[编辑器 测试] 形状错（E_BAD_MESSAGE×2）/ 非法参数（E_INVALID_ARG，含 width=0、width=面板宽、"
+		       "height=dock高）均零原生调用");
 	}
 
 	// 正控（工件修订 M6b 的呈现层诊断）：用**原生 C++ 路径**（与 TestSimpleTriangle 相同）直接建图、
@@ -5912,6 +5968,1023 @@ void TestEditorWindowPanel(TestContext& ctx)
 		fail("E_EDITOR_HOST_ERROR", detail);
 	}
 	CA_LOG("TestEditorWindowPanel 通过：命令往返/撤销/协议错误/对象失效/线程边界/分栏同步/两层像素证据全部满足");
+}
+
+// ---- TestEditorAssetBrowser（editor-asset-browser 4.1，第 23 用例）----
+//
+// **独立进程用例（design D8）**：`EditorService` 是进程级一次性状态机（`Shutdown` 把状态落 4、没有
+// 复位路径），而 `TestEditorWindowPanel` 收尾会用 `CASCADED_EDITOR_STOP=1` 停服务 —— 两个编辑器用例在
+// 同一进程里不能共存。所以本用例**不进全量同进程顺序跑**（`--list` 仍列 23 行），只按
+// `GPUBackendTester.exe --test TestEditorAssetBrowser` 独立进程跑。
+//
+// 覆盖（tasks 1.2 / 1.3 / 2.1 / 2.2 / 2.3 / 2.4 / 4.1）：
+//   ① 第一次 list-assets：三条预置文件逐条七项（path / nodeId / sizeBytes / kind / modifiedUtc /
+//      registered / children）与**写死期望**一致；registered 真值与假值都出现；未知扩展名落 kind=file。
+//   ② 刷新可见新增：写一个新文件后再枚举，条目 +1，且广播 assets-changed(fields 只有 added=1/removed=0、
+//      不带 objectId)。
+//   ③ 空根：目录存在但无文件 ⇒ ok=true 且 "assets":[]（合法空态，不是错误）。
+//   ④ 失败面：根非法 / 目录不存在 / 根空串 / 门面未绑（CASCADED_EDITOR_SELFTEST=no-facade）各回
+//      E_ASSET_ROOT，且**每个 requestId 都等到了 result**（10 秒内有结果 ⇒ 没有挂起）；清掉自检开关后
+//      恢复 ok。
+//   ⑤ 线程边界运行期归因：list-assets 执行那一帧的读数 cmdCalls 增量 = 1（GetResourceRootPath）+
+//      N（每文件一次 HasResource），lastCmd=list-assets、mode=main-thread ⇒ 门面调用都在主线程命令上下文。
+//
+// 红态怎么构造（每条判据都能失败）：
+//   · 枚举漏文件 / 大小或种类映射错 ⇒ ① 的逐项期望不符；
+//   · 不广播 assets-changed ⇒ ② 收不到事件（或字段不是 added=1/removed=0）；
+//   · 空目录当错误回 ⇒ ③ 的 ok=true 断言红；
+//   · 枚举异常穿出到 Host.Tick 外层 catch ⇒ ④ 等不到该 requestId 的 result（10 秒超时）并让宿主
+//     LastError 变脏（收尾断言）；
+//   · 门面调用不 NoteNativeCall ⇒ ⑤ 的 cmdCalls 不等于 1+N。
+namespace
+{
+	// 一个最小资源：只为让"已注册"这一列有真值 —— 注册表按相对路径登记它，文件由用例写到同一相对路径。
+	class AssetBrowserProbeResource final : public resource_management::IResource
+	{
+	public:
+		void Serialize(ca_io::WBatch* writer) override { writer->SubmitAndWait(); }
+		void Deserialize(ca_io::IOBatch*) override {}
+	};
+
+	class AssetBrowserProbeFactory final : public resource_management::IResourceFactory
+	{
+	public:
+		castl::string GetResourceType() const override { return "AssetBrowserProbe"; }
+		resource_management::IResource* Create() override { return new AssetBrowserProbeResource(); }
+	};
+
+	// 把一个码点按 UTF-8 追加（`\uXXXX` 解码后的落盘形态；与 C# 侧写出的 UTF-8 逐字节可比）。
+	void AppendUtf8CodePoint(std::string& out, unsigned int codePoint)
+	{
+		if (codePoint <= 0x7Fu)
+		{
+			out.push_back(static_cast<char>(codePoint));
+		}
+		else if (codePoint <= 0x7FFu)
+		{
+			out.push_back(static_cast<char>(0xC0u | (codePoint >> 6)));
+			out.push_back(static_cast<char>(0x80u | (codePoint & 0x3Fu)));
+		}
+		else if (codePoint <= 0xFFFFu)
+		{
+			out.push_back(static_cast<char>(0xE0u | (codePoint >> 12)));
+			out.push_back(static_cast<char>(0x80u | ((codePoint >> 6) & 0x3Fu)));
+			out.push_back(static_cast<char>(0x80u | (codePoint & 0x3Fu)));
+		}
+		else
+		{
+			out.push_back(static_cast<char>(0xF0u | (codePoint >> 18)));
+			out.push_back(static_cast<char>(0x80u | ((codePoint >> 12) & 0x3Fu)));
+			out.push_back(static_cast<char>(0x80u | ((codePoint >> 6) & 0x3Fu)));
+			out.push_back(static_cast<char>(0x80u | (codePoint & 0x3Fu)));
+		}
+	}
+
+	// 读一个 4 位十六进制码元（`\uXXXX` 里的 XXXX）。
+	bool ParseHex4(std::string const& text, std::size_t begin, unsigned int& out)
+	{
+		if (begin + 4 > text.size())
+		{
+			return false;
+		}
+		unsigned int value = 0;
+		for (std::size_t offset = 0; offset < 4; ++offset)
+		{
+			const char hex = text[begin + offset];
+			unsigned int digit;
+			if (hex >= '0' && hex <= '9')
+			{
+				digit = static_cast<unsigned int>(hex - '0');
+			}
+			else if (hex >= 'a' && hex <= 'f')
+			{
+				digit = static_cast<unsigned int>(hex - 'a' + 10);
+			}
+			else if (hex >= 'A' && hex <= 'F')
+			{
+				digit = static_cast<unsigned int>(hex - 'A' + 10);
+			}
+			else
+			{
+				return false;
+			}
+			value = value * 16u + digit;
+		}
+		out = value;
+		return true;
+	}
+
+	// 取 JSON 对象里 `"key":` 之后的值：字符串去引号并还原转义（含 `\uXXXX` —— System.Text.Json
+	// 默认把非 ASCII 转成这种转义，错误文本里的中文必须解码后才与 C++ 侧的 UTF-8 字面量可比），
+	// 数字 / 布尔原样，数组 / 对象给配平后的原始片段。
+	// 按 key 找、不假设字段顺序（服务端是紧凑序列化，字段顺序不是协议的一部分）。
+	bool JsonFieldOf(std::string const& text, char const* key, std::string& out)
+	{
+		const std::string needle = std::string("\"") + key + "\":";
+		const std::size_t at = text.find(needle);
+		if (at == std::string::npos)
+		{
+			return false;
+		}
+		std::size_t index = at + needle.size();
+		if (index >= text.size())
+		{
+			return false;
+		}
+		if (text[index] == '"')
+		{
+			++index;
+			std::string value;
+			while (index < text.size())
+			{
+				const char ch = text[index];
+				if (ch == '\\' && index + 1 < text.size())
+				{
+					const char next = text[index + 1];
+					if (next == 'u')
+					{
+						unsigned int codePoint = 0;
+						if (ParseHex4(text, index + 2, codePoint))
+						{
+							std::size_t consumed = 6;
+							// 代理对（高代理 + `\uDC00`-`\uDFFF` 低代理）合成一个码点。
+							if (codePoint >= 0xD800u && codePoint <= 0xDBFFu && index + 11 < text.size() &&
+								text[index + 6] == '\\' && text[index + 7] == 'u')
+							{
+								unsigned int low = 0;
+								if (ParseHex4(text, index + 8, low) && low >= 0xDC00u && low <= 0xDFFFu)
+								{
+									codePoint = 0x10000u + ((codePoint - 0xD800u) << 10) + (low - 0xDC00u);
+									consumed = 12;
+								}
+							}
+							AppendUtf8CodePoint(value, codePoint);
+							index += consumed;
+							continue;
+						}
+					}
+					switch (next)
+					{
+						case 'n': value.push_back('\n'); break;
+						case 'r': value.push_back('\r'); break;
+						case 't': value.push_back('\t'); break;
+						case 'b': value.push_back('\b'); break;
+						case 'f': value.push_back('\f'); break;
+						default: value.push_back(next); break; // \" \\ \/ 原样
+					}
+					index += 2;
+					continue;
+				}
+				if (ch == '"')
+				{
+					out = value;
+					return true;
+				}
+				value.push_back(ch);
+				++index;
+			}
+			return false;
+		}
+		if (text[index] == '[' || text[index] == '{')
+		{
+			const char open = text[index];
+			const char close = open == '[' ? ']' : '}';
+			const std::size_t begin = index;
+			int depth = 0;
+			bool inString = false;
+			for (; index < text.size(); ++index)
+			{
+				const char ch = text[index];
+				if (inString)
+				{
+					if (ch == '\\')
+					{
+						++index;
+						continue;
+					}
+					if (ch == '"')
+					{
+						inString = false;
+					}
+					continue;
+				}
+				if (ch == '"')
+				{
+					inString = true;
+					continue;
+				}
+				if (ch == open)
+				{
+					++depth;
+				}
+				else if (ch == close)
+				{
+					--depth;
+					if (depth == 0)
+					{
+						out = text.substr(begin, index - begin + 1);
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+		const std::size_t end = text.find_first_of(",}", index);
+		if (end == std::string::npos)
+		{
+			return false;
+		}
+		out = text.substr(index, end - index);
+		return true;
+	}
+
+	// 从 `"assets":[` 起把顶层条目对象逐个切出来（字符串感知的花括号配平）。
+	std::vector<std::string> JsonAssetObjects(std::string const& result)
+	{
+		std::vector<std::string> objects;
+		const std::string needle = "\"assets\":[";
+		const std::size_t at = result.find(needle);
+		if (at == std::string::npos)
+		{
+			return objects;
+		}
+		std::size_t index = at + needle.size();
+		std::size_t begin = std::string::npos;
+		int depth = 0;
+		bool inString = false;
+		for (; index < result.size(); ++index)
+		{
+			const char ch = result[index];
+			if (inString)
+			{
+				if (ch == '\\')
+				{
+					++index;
+					continue;
+				}
+				if (ch == '"')
+				{
+					inString = false;
+				}
+				continue;
+			}
+			if (ch == '"')
+			{
+				inString = true;
+				continue;
+			}
+			if (ch == '{')
+			{
+				if (depth == 0)
+				{
+					begin = index;
+				}
+				++depth;
+				continue;
+			}
+			if (ch == '}')
+			{
+				if (depth > 0)
+				{
+					--depth;
+					if (depth == 0 && begin != std::string::npos)
+					{
+						objects.push_back(result.substr(begin, index - begin + 1));
+						begin = std::string::npos;
+					}
+				}
+				continue;
+			}
+			if (ch == ']' && depth == 0)
+			{
+				break;
+			}
+		}
+		return objects;
+	}
+
+	// 按 path 找条目对象（v1 nodeId = path）。
+	bool FindAssetObject(std::vector<std::string> const& objects, std::string const& path, std::string& out)
+	{
+		for (std::string const& object : objects)
+		{
+			std::string value;
+			if (JsonFieldOf(object, "path", value) && value == path)
+			{
+				out = object;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// 把文件的"最后写入时间（UTC）"钉到一个已知值：期望的 modifiedUtc 才能写死成 ISO 8601 字符串，
+	// 而不是拿被测物自己的读数当期望（那样判据永真）。
+	bool SetFileUtcModified(std::filesystem::path const& path, WORD year, WORD month, WORD day, WORD hour,
+		WORD minute, WORD second, std::string& error)
+	{
+		SYSTEMTIME utc{};
+		utc.wYear = year;
+		utc.wMonth = month;
+		utc.wDay = day;
+		utc.wHour = hour;
+		utc.wMinute = minute;
+		utc.wSecond = second;
+		utc.wMilliseconds = 0;
+		FILETIME fileTime{};
+		if (::SystemTimeToFileTime(&utc, &fileTime) == FALSE)
+		{
+			error = "SystemTimeToFileTime 失败：" + std::to_string(::GetLastError());
+			return false;
+		}
+		HANDLE handle = ::CreateFileW(path.wstring().c_str(), FILE_WRITE_ATTRIBUTES,
+			FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (handle == INVALID_HANDLE_VALUE)
+		{
+			error = "CreateFileW(FILE_WRITE_ATTRIBUTES) 失败：" + std::to_string(::GetLastError());
+			return false;
+		}
+		const BOOL changed = ::SetFileTime(handle, nullptr, nullptr, &fileTime);
+		::CloseHandle(handle);
+		if (changed == FALSE)
+		{
+			error = "SetFileTime 失败：" + std::to_string(::GetLastError());
+			return false;
+		}
+		return true;
+	}
+
+	// 读数文件里"某条命令执行那一帧"的读数：按 cmdRequest=<requestId> 找。
+	// 为什么要按 requestId 找而不是读最后一行：编辑器面板前端自己也会发 list-assets（连接后自动拉取 +
+	// 收到 assets-changed 后重拉），它会把最后一行的 cmdRequest 覆盖掉；按 requestId 归因才稳定。
+	bool ReadEditorReadingsForRequest(char const* logPath, int requestId, HostProbeReadings* out)
+	{
+		std::fflush(stdout);
+		std::ifstream file(logPath);
+		if (!file)
+		{
+			return false;
+		}
+		const std::string marker = " probe=editor ";
+		const std::string wanted = " cmdRequest=" + std::to_string(requestId) + " ";
+		bool found = false;
+		std::string line;
+		while (std::getline(file, line))
+		{
+			if (line.find("[编辑器 读数]") == std::string::npos || line.find(marker) == std::string::npos)
+			{
+				continue;
+			}
+			if (line.find(wanted) == std::string::npos)
+			{
+				continue;
+			}
+			out->found = true;
+			out->values.clear();
+			std::istringstream stream(line);
+			std::string token;
+			while (stream >> token)
+			{
+				const std::size_t eq = token.find('=');
+				if (eq == std::string::npos)
+				{
+					continue;
+				}
+				out->values[token.substr(0, eq)] = token.substr(eq + 1);
+			}
+			found = true;
+		}
+		return found;
+	}
+}
+
+void TestEditorAssetBrowser(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_ASSETBROWSER_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_ASSETBROWSER_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// ---- 0. 临时资源根与写死夹具 ----
+	const std::filesystem::path root =
+		std::filesystem::temp_directory_path() / ("CascadedAssetBrowser_" + ctx.backendName);
+	const std::filesystem::path emptyRoot =
+		std::filesystem::temp_directory_path() / ("CascadedAssetBrowserEmpty_" + ctx.backendName);
+	std::error_code filesystemError;
+	std::filesystem::remove_all(root, filesystemError);
+	std::filesystem::remove_all(emptyRoot, filesystemError);
+	std::filesystem::create_directories(root / "Assets", filesystemError);
+	std::filesystem::create_directories(root / "ShaderLibraries", filesystemError);
+	std::filesystem::create_directories(root / "Docs", filesystemError);
+	std::filesystem::create_directories(emptyRoot, filesystemError);
+
+	// 期望值全部写死在这里（不从被测物推导）：相对路径 / 字节数 / 种类 / 修改时间（同时用来钉文件时间）/
+	// 是否注册。三个文件覆盖 .tex / .shLib / 未知扩展名（.txt → file），且是"已注册 + 未注册"混合。
+	struct PresetFile
+	{
+		char const* relative;
+		int sizeBytes;
+		char const* kind;
+		char const* modifiedUtc;
+		WORD year;
+		WORD month;
+		WORD day;
+		WORD hour;
+		WORD minute;
+		WORD second;
+		bool registered;
+	};
+	const PresetFile presets[] = {
+		{ "Assets/Registered.tex", 142, "texture", "2024-03-04T05:06:07.0000000Z", 2024, 3, 4, 5, 6, 7, true },
+		{ "ShaderLibraries/Browser.shLib", 377, "shader-library", "2024-02-01T12:34:56.0000000Z", 2024, 2, 1, 12,
+		  34, 56, false },
+		{ "Docs/Notes.txt", 21, "file", "2023-12-31T23:59:58.0000000Z", 2023, 12, 31, 23, 59, 58, false },
+	};
+	const int presetCount = static_cast<int>(sizeof(presets) / sizeof(presets[0]));
+
+	{
+		std::string fixtureError;
+		for (PresetFile const& preset : presets)
+		{
+			const std::filesystem::path fullPath = root / preset.relative;
+			std::ofstream out(fullPath, std::ios::binary | std::ios::trunc);
+			if (!out)
+			{
+				fail("E_ASSETBROWSER_FIXTURE", "写夹具文件失败：" + fullPath.string());
+			}
+			std::string bytes(static_cast<std::size_t>(preset.sizeBytes), 'x');
+			out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+			out.close();
+			if (!SetFileUtcModified(fullPath, preset.year, preset.month, preset.day, preset.hour, preset.minute,
+				preset.second, fixtureError))
+			{
+				fail("E_ASSETBROWSER_FIXTURE", "钉夹具修改时间失败：" + fixtureError);
+			}
+		}
+	}
+
+	// 资源根 = 临时目录；"已注册"夹具按同一相对路径登记进资源表（文件与注册各一半，registered 才有真值与假值）。
+	ctx.pResourceManagingSystem->SetResourceRootPath(root.generic_string());
+	ctx.pResourceManagingSystem->RegisterFactory("AssetBrowserProbe",
+		castl::shared_ptr<resource_management::IResourceFactory>(new AssetBrowserProbeFactory(),
+			[](resource_management::IResourceFactory* released) { delete released; }));
+	if (!ctx.pResourceManagingSystem->CreateResource("AssetBrowserProbe", "Assets/Registered.tex"))
+	{
+		fail("E_ASSETBROWSER_FIXTURE", "已注册夹具没有登记进资源表（CreateResource 返回空）");
+	}
+	if (!ctx.pResourceManagingSystem->HasResource("Assets/Registered.tex"))
+	{
+		fail("E_ASSETBROWSER_FIXTURE", "预置夹具的 HasResource 不是真（registered 列没有真值可判）");
+	}
+	if (ctx.pResourceManagingSystem->HasResource("ShaderLibraries/Browser.shLib"))
+	{
+		fail("E_ASSETBROWSER_FIXTURE", "未注册夹具的 HasResource 不是假（registered 列没有假值可判）");
+	}
+
+	struct AssetBrowserEnvGuard
+	{
+		TestContext* context = nullptr;
+		std::filesystem::path rootPath;
+		std::filesystem::path emptyRootPath;
+		~AssetBrowserEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+			if (context != nullptr && context->pResourceManagingSystem != nullptr)
+			{
+				context->pResourceManagingSystem->ReleaseResource("Assets/Registered.tex");
+				context->pResourceManagingSystem->UnregisterFactory("AssetBrowserProbe");
+				context->pResourceManagingSystem->SetResourceRootPath("");
+			}
+			std::error_code ignored;
+			std::filesystem::remove_all(rootPath, ignored);
+			std::filesystem::remove_all(emptyRootPath, ignored);
+		}
+	} envGuard{ &ctx, root, emptyRoot };
+
+	// 专用端口（避开 18390/18391：既有的窗口面板用例用 18391）。
+	const int port = 18392;
+	::SetEnvironmentVariableA("CASCADED_EDITOR", "1");
+	::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", std::to_string(port).c_str());
+	// 清掉可能从外部遗留下来的两个开关（no-runtime 会让编辑器直接禁用；STOP=1 会让服务立刻关），
+	// 免得用例的失败原因指向环境而不是被测物。
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	const char* readingsPath = "test_output/asset_browser_readings.txt";
+	std::filesystem::create_directories("test_output");
+	{
+		std::error_code removeError;
+		std::filesystem::remove(readingsPath, removeError);
+	}
+	::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", readingsPath);
+
+	// 编号 1 = 一个存活窗口（默认 IWindow 表面），编号 2 = 窗口系统；编辑器另建它唯一的目标窗口。
+	auto newWindow = ctx.pWindowSystem->NewWindow(640, 480, "Asset Browser Test Host Window");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_ASSETBROWSER_WINDOW", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	const std::string baselineError = pScriptHost->LastError();
+	auto pumpFrames = [&](int frames) {
+		for (int index = 0; index < frames; ++index)
+		{
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	};
+	pumpFrames(1);
+
+	// 等编辑器进入运行态（与 TestEditorWindowPanel 同一判据：objects=1 + 两控制器就绪 + exec>0）。
+	HostProbeReadings readings;
+	bool ready = false;
+	{
+		const auto startedAt = std::chrono::steady_clock::now();
+		int frames = 0;
+		while (true)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 40000.0)
+			{
+				break;
+			}
+			++frames;
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			// 三分区（D9）：对象检查器 controller/nav 与底部 dock 的 dockController/dockNav 都要就绪。
+			if ((frames % 5) == 0 && ReadEditorReadings(readingsPath, &readings) &&
+				readings.Get("objects") == "1" && readings.I64("exec") > 0 &&
+				readings.Get("controller") == "1" && readings.Get("nav") == "1" &&
+				readings.Get("dockController") == "1" && readings.Get("dockNav") == "1")
+			{
+				ready = true;
+				break;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	}
+	if (!ready)
+	{
+		ReadEditorReadings(readingsPath, &readings);
+		char detail[768] = {};
+		std::snprintf(detail, sizeof(detail),
+			"编辑器 40 秒内没有进入运行态：objects=%s controller=%s nav=%s dockController=%s dockNav=%s "
+			"exec=%s error=%s；LastError=%s",
+			readings.Get("objects").c_str(), readings.Get("controller").c_str(), readings.Get("nav").c_str(),
+			readings.Get("dockController").c_str(), readings.Get("dockNav").c_str(),
+			readings.Get("exec").c_str(), readings.Get("error").c_str(), pScriptHost->LastError());
+		fail("E_ASSETBROWSER_START", detail);
+	}
+	CA_LOG("[资产浏览器 测试] 启动读数：objects={} controller={} nav={} dockController={} dockNav={} exec={} "
+	       "cmdRequest={} cmdCalls={}",
+	       readings.Get("objects").c_str(), readings.Get("controller").c_str(), readings.Get("nav").c_str(),
+	       readings.Get("dockController").c_str(), readings.Get("dockNav").c_str(),
+	       readings.Get("exec").c_str(), readings.Get("cmdRequest").c_str(), readings.Get("cmdCalls").c_str());
+
+	// 底部 dock 页面（assets.html）连上后也会自己发一次 list-assets（PROTOCOL.md §5：连接后自动拉取）。
+	// 本用例要断言"某次枚举相对上一次快照的增删"，必须先把 dock 这一次消化掉，否则它可能替我们吃掉
+	// "新增一条"这个变化。等读数文件里出现 `command=list-assets` 的入队标记（最多 5 秒）；等不到（例如
+	// 静态资源缺失、页面没跑 JS）就按"快照由我们自己第一次枚举建立"继续 —— 两种情况下判据都成立。
+	{
+		const auto startedAt = std::chrono::steady_clock::now();
+		bool seen = false;
+		while (true)
+		{
+			if (LogContains(readingsPath, "command=list-assets"))
+			{
+				seen = true;
+				break;
+			}
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 5000.0)
+			{
+				break;
+			}
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+		pumpFrames(3);
+		CA_LOG("[资产浏览器 测试] 面板前端初始 list-assets：{}", seen ? "已观察到并入队" : "5 秒内没观察到（按无面板客户端继续）");
+	}
+
+	// ---- WebSocket 会话 ----
+	WsClient client;
+	std::string wsError;
+	if (!client.Connect(port, wsError))
+	{
+		fail("E_ASSETBROWSER_WS", wsError);
+	}
+	std::vector<std::string> events;
+	auto sendText = [&](std::string const& json) {
+		std::string error;
+		if (!client.SendText(json, error))
+		{
+			fail("E_ASSETBROWSER_WS_SEND", error);
+		}
+	};
+	auto waitResult = [&](int requestId, std::string& result) {
+		if (!PumpUntilResult(pScriptHost, ctx, client, requestId, result, events, 10000))
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail),
+				"requestId=%d 在 10 秒内没有收到 result（客户端会静默挂起：异常穿出了命令处理？）", requestId);
+			fail("E_ASSETBROWSER_RESULT", detail);
+		}
+	};
+
+	// 握手。
+	{
+		sendText("{\"type\":\"hello\",\"protocolVersion\":1}");
+		std::string welcome;
+		const auto startedAt = std::chrono::steady_clock::now();
+		for (;;)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 5000.0)
+			{
+				fail("E_ASSETBROWSER_WELCOME", "5 秒内没有收到 welcome");
+			}
+			std::string message;
+			std::string receiveError;
+			if (client.ReceiveText(message, 100, receiveError))
+			{
+				welcome = message;
+				break;
+			}
+			if (receiveError.find("超时") == std::string::npos)
+			{
+				fail("E_ASSETBROWSER_WS_CLOSED", "握手期间连接被关闭：" + receiveError);
+			}
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+		}
+		if (welcome.find("\"type\":\"welcome\"") == std::string::npos ||
+			welcome.find("\"protocolVersion\":1") == std::string::npos)
+		{
+			fail("E_ASSETBROWSER_WELCOME", "welcome 形状不对：" + welcome);
+		}
+	}
+	CA_LOG("[资产浏览器 测试] 握手完成：welcome 的 protocolVersion=1");
+
+	int nextRequest = 201;
+	auto requestAssets = [&](std::string& result) {
+		const int requestId = nextRequest++;
+		sendText("{\"type\":\"command\",\"requestId\":" + std::to_string(requestId) +
+			",\"command\":\"list-assets\"}");
+		waitResult(requestId, result);
+		return requestId;
+	};
+	auto requireField = [&](std::string const& entry, char const* key, std::string const& expected) {
+		std::string actual;
+		if (!JsonFieldOf(entry, key, actual))
+		{
+			fail("E_ASSETBROWSER_FIELD", std::string("条目缺少字段 ") + key + "：" + entry);
+		}
+		if (actual != expected)
+		{
+			fail("E_ASSETBROWSER_FIELD",
+				std::string("条目字段 ") + key + " = \"" + actual + "\"，期望 \"" + expected + "\"；条目：" + entry);
+		}
+	};
+
+	// ---- ① 第一次枚举：三条预置文件逐条七项断言 ----
+	int firstRequest = 0;
+	{
+		std::string result;
+		firstRequest = requestAssets(result);
+		if (result.find("\"ok\":true") == std::string::npos)
+		{
+			fail("E_ASSETBROWSER_LIST", "list-assets 不是 ok：" + result);
+		}
+		std::vector<std::string> entries = JsonAssetObjects(result);
+		if (static_cast<int>(entries.size()) != presetCount)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "条目数 %d ≠ 预置文件数 %d；结果：%s",
+				static_cast<int>(entries.size()), presetCount, result.c_str());
+			fail("E_ASSETBROWSER_LIST", detail);
+		}
+		bool sawRegisteredTrue = false;
+		bool sawRegisteredFalse = false;
+		for (PresetFile const& preset : presets)
+		{
+			std::string entry;
+			if (!FindAssetObject(entries, preset.relative, entry))
+			{
+				fail("E_ASSETBROWSER_LIST", std::string("结果里没有预置文件 ") + preset.relative + "；结果：" + result);
+			}
+			requireField(entry, "path", preset.relative);
+			requireField(entry, "nodeId", preset.relative); // v1：nodeId = path = 相对资源根的正斜杠路径
+			requireField(entry, "kind", preset.kind);
+			requireField(entry, "sizeBytes", std::to_string(preset.sizeBytes));
+			requireField(entry, "modifiedUtc", preset.modifiedUtc);
+			requireField(entry, "registered", preset.registered ? "true" : "false");
+			requireField(entry, "children", "[]"); // v1：一文件一条目，children 恒空
+			if (preset.registered)
+			{
+				sawRegisteredTrue = true;
+			}
+			else
+			{
+				sawRegisteredFalse = true;
+			}
+			CA_LOG("[资产浏览器 测试] 条目：path={} kind={} size={} modified={} registered={}", preset.relative,
+			       preset.kind, preset.sizeBytes, preset.modifiedUtc, preset.registered ? "true" : "false");
+		}
+		if (!sawRegisteredTrue || !sawRegisteredFalse)
+		{
+			fail("E_ASSETBROWSER_REGISTERED", "registered 的真值与假值没有同时出现（恒真/恒假实现也能过的判据不合格）");
+		}
+		CA_LOG("[资产浏览器 测试] ① 第一次枚举：{} 条预置文件七项全对（含 registered 真/假与未知扩展名 kind=file）",
+		       presetCount);
+	}
+
+	// ---- ⑤ 线程边界运行期归因：cmdCalls = 1（GetResourceRootPath）+ N（每文件一次 HasResource）----
+	{
+		// 同一次 Tick 里可能同时 drain 到面板前端自己发的 list-assets —— 读数行只记"最后执行的那条
+		// 命令"，那样本请求 id 那一帧就看不到。这不是产品缺陷，所以判据最多重试 3 次，直到读数文件里
+		// 出现本请求 id 的那一帧（重试的枚举都是无变化枚举：快照相同，不广播事件）。
+		bool found = false;
+		int64_t calls = 0;
+		std::string lastCmd;
+		std::string mode;
+		int requestId = firstRequest;
+		for (int attempt = 0; attempt < 3 && !found; ++attempt)
+		{
+			if (attempt > 0)
+			{
+				std::string again;
+				requestId = requestAssets(again);
+			}
+			HostProbeReadings byRequest;
+			if (ReadEditorReadingsForRequest(readingsPath, requestId, &byRequest))
+			{
+				found = true;
+				calls = byRequest.I64("cmdCalls");
+				lastCmd = byRequest.Get("lastCmd");
+				mode = byRequest.Get("mode");
+			}
+		}
+		if (!found)
+		{
+			fail("E_ASSETBROWSER_CMDCALLS",
+				"三次 list-assets 都没有在读数文件里留下可归因的那一帧（cmdRequest 一直被别的命令覆盖）");
+		}
+		const int64_t expectedCalls = 1 + presetCount;
+		if (lastCmd != "list-assets")
+		{
+			fail("E_ASSETBROWSER_CMDCALLS", "读数行 lastCmd=" + lastCmd + "，期望 list-assets");
+		}
+		if (mode != "main-thread")
+		{
+			fail("E_ASSETBROWSER_CMDCALLS", "读数行 mode=" + mode + "，期望 main-thread");
+		}
+		if (calls != expectedCalls)
+		{
+			char detail[256] = {};
+			std::snprintf(detail, sizeof(detail),
+				"list-assets 期间门面调用计数 %lld ≠ 1（GetResourceRootPath）+ %d（每文件 HasResource）",
+				static_cast<long long>(calls), presetCount);
+			fail("E_ASSETBROWSER_CMDCALLS", detail);
+		}
+		CA_LOG("[资产浏览器 测试] ⑤ 线程归因：requestId={} 那一帧 cmdCalls={}（= 1 + {}），mode=main-thread",
+		       requestId, static_cast<long long>(calls), presetCount);
+	}
+
+	// ---- ② 刷新可见新增 + assets-changed ----
+	{
+		// 先做一次**无变化**枚举：把任何残留的面板拉取消化掉（无变化不广播事件），下面那次枚举就一定是
+		// "第一个看到新增文件"的枚举。
+		std::string settleResult;
+		requestAssets(settleResult);
+		if (settleResult.find("\"ok\":true") == std::string::npos)
+		{
+			fail("E_ASSETBROWSER_REFRESH", "无变化枚举不是 ok：" + settleResult);
+		}
+		if (static_cast<int>(JsonAssetObjects(settleResult).size()) != presetCount)
+		{
+			fail("E_ASSETBROWSER_REFRESH", "无变化枚举的条目数变了：" + settleResult);
+		}
+
+		// 新增一个文件（写死：55 字节 / .mesh → mesh / 未注册 / 修改时间钉死）。
+		const std::filesystem::path addedRelative = "Added/Extra.mesh";
+		const std::string addedExpectedUtc = "2024-05-06T07:08:09.0000000Z";
+		const int addedSizeBytes = 55;
+		std::filesystem::create_directories(root / "Added", filesystemError);
+		{
+			const std::filesystem::path fullPath = root / addedRelative;
+			std::ofstream out(fullPath, std::ios::binary | std::ios::trunc);
+			if (!out)
+			{
+				fail("E_ASSETBROWSER_REFRESH", "写新增文件失败：" + fullPath.string());
+			}
+			std::string bytes(static_cast<std::size_t>(addedSizeBytes), 'y');
+			out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+			out.close();
+			std::string fixtureError;
+			if (!SetFileUtcModified(fullPath, 2024, 5, 6, 7, 8, 9, fixtureError))
+			{
+				fail("E_ASSETBROWSER_REFRESH", "钉新增文件修改时间失败：" + fixtureError);
+			}
+		}
+
+		events.clear();
+		std::string result;
+		const int secondRequest = requestAssets(result);
+		if (result.find("\"ok\":true") == std::string::npos)
+		{
+			fail("E_ASSETBROWSER_REFRESH", "新增文件后的 list-assets 不是 ok：" + result);
+		}
+		std::vector<std::string> entries = JsonAssetObjects(result);
+		if (static_cast<int>(entries.size()) != presetCount + 1)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "新增一个文件后条目数 %d ≠ %d；结果：%s",
+				static_cast<int>(entries.size()), presetCount + 1, result.c_str());
+			fail("E_ASSETBROWSER_REFRESH", detail);
+		}
+		std::string addedEntry;
+		if (!FindAssetObject(entries, addedRelative.generic_string(), addedEntry))
+		{
+			fail("E_ASSETBROWSER_REFRESH", "新增文件没有出现在第二次枚举里：" + result);
+		}
+		requireField(addedEntry, "path", addedRelative.generic_string());
+		requireField(addedEntry, "nodeId", addedRelative.generic_string());
+		requireField(addedEntry, "kind", "mesh");
+		requireField(addedEntry, "sizeBytes", std::to_string(addedSizeBytes));
+		requireField(addedEntry, "modifiedUtc", addedExpectedUtc);
+		requireField(addedEntry, "registered", "false");
+		requireField(addedEntry, "children", "[]");
+
+		// 事件：本次枚举相对上次快照只多了一个，必须收到恰好一条 assets-changed({added:1,removed:0})，
+		// 且**不带 objectId**（PROTOCOL.md 2.5）。
+		int changedCount = 0;
+		std::string addedField;
+		std::string removedField;
+		for (std::string const& event : events)
+		{
+			if (!JsonIsEvent(event, "assets-changed"))
+			{
+				continue;
+			}
+			++changedCount;
+			if (event.find("\"objectId\"") != std::string::npos)
+			{
+				fail("E_ASSETBROWSER_EVENT", "assets-changed 带了 objectId（协议要求不带）：" + event);
+			}
+			JsonFieldOf(event, "added", addedField);
+			JsonFieldOf(event, "removed", removedField);
+		}
+		if (changedCount != 1)
+		{
+			char detail[512] = {};
+			std::snprintf(detail, sizeof(detail), "第二次枚举收到 %d 条 assets-changed，期望恰好 1 条", changedCount);
+			fail("E_ASSETBROWSER_EVENT", detail);
+		}
+		if (addedField != "1" || removedField != "0")
+		{
+			fail("E_ASSETBROWSER_EVENT", "assets-changed 的 fields 不是 added=1/removed=0：added=\"" + addedField +
+				"\" removed=\"" + removedField + "\"");
+		}
+		CA_LOG("[资产浏览器 测试] ② 刷新可见新增：条目 {} → {}，assets-changed added={} removed={}（无 objectId）",
+		       presetCount, presetCount + 1, addedField.c_str(), removedField.c_str());
+		CA_LOG("[资产浏览器 测试] ② 第二次枚举的 requestId={}（事件绑定这次枚举，不是首次）", secondRequest);
+	}
+
+	// ---- ③ 空根：目录存在但无文件 ⇒ ok=true 且 "assets":[] ----
+	{
+		ctx.pResourceManagingSystem->SetResourceRootPath(emptyRoot.generic_string());
+		std::string result;
+		const int emptyRequest = requestAssets(result);
+		(void)emptyRequest;
+		if (result.find("\"ok\":true") == std::string::npos)
+		{
+			fail("E_ASSETBROWSER_EMPTY", "空根不是 ok=true：" + result);
+		}
+		if (result.find("\"assets\":[]") == std::string::npos)
+		{
+			fail("E_ASSETBROWSER_EMPTY", "空根没有回空数组 assets:[]：" + result);
+		}
+		if (!JsonAssetObjects(result).empty())
+		{
+			fail("E_ASSETBROWSER_EMPTY", "空根的条目数组不是空：" + result);
+		}
+		CA_LOG("[资产浏览器 测试] ③ 空根：ok=true 且 assets 为空数组（合法空态，不是错误）");
+	}
+
+	// ---- ④ 失败面：四种"根不可用"各回 E_ASSET_ROOT，且每个 requestId 都等到 result（不挂起）----
+	{
+		struct ErrorCase
+		{
+			char const* name;
+			std::string rootPath;
+			bool noFacade;
+		};
+		// 根非法：系统保留字符；目录不存在：真实路径的子目录；根空串；门面未绑：自检开关。
+		const std::string illegalRoot = "C:\\<>|\\CascadedAssetBrowser";
+		const std::string missingRoot = (root / "NoSuchSubdirectory").generic_string();
+		std::vector<ErrorCase> cases;
+		cases.push_back({ "根非法", illegalRoot, false });
+		cases.push_back({ "目录不存在", missingRoot, false });
+		cases.push_back({ "根空串", std::string(), false });
+		cases.push_back({ "门面未绑", root.generic_string(), true });
+
+		for (ErrorCase const& one : cases)
+		{
+			// 每个场景都先把根设成该场景的值（门面未绑那条也设回真实根：自检开关一清就要能恢复正常）。
+			ctx.pResourceManagingSystem->SetResourceRootPath(one.rootPath);
+			if (one.noFacade)
+			{
+				::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", "no-facade");
+			}
+			else
+			{
+				::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+			}
+			std::string result;
+			const int requestId = requestAssets(result); // 10 秒内拿不到 result ⇒ E_ASSETBROWSER_RESULT（挂起）
+			if (result.find("\"ok\":false") == std::string::npos)
+			{
+				fail("E_ASSETBROWSER_ERROR", std::string("场景 ") + one.name + " 没有回错误结果：" + result);
+			}
+			if (JsonErrorCode(result) != "E_ASSET_ROOT")
+			{
+				fail("E_ASSETBROWSER_ERROR", std::string("场景 ") + one.name + " 的错误码是 " +
+					JsonErrorCode(result) + "，期望 E_ASSET_ROOT：" + result);
+			}
+			std::string message;
+			if (!JsonFieldOf(result, "message", message) || message.empty())
+			{
+				fail("E_ASSETBROWSER_ERROR", std::string("场景 ") + one.name + " 的错误文本为空：" + result);
+			}
+			if (message.find("资产根") == std::string::npos)
+			{
+				fail("E_ASSETBROWSER_ERROR", std::string("场景 ") + one.name + " 的错误文本没有点名资产根原因：" + message);
+			}
+			CA_LOG("[资产浏览器 测试] ④ {}：requestId={} → E_ASSET_ROOT（{}）", one.name, requestId, message.c_str());
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+		}
+		CA_LOG("[资产浏览器 测试] ④ 失败面四条全部回 E_ASSET_ROOT 且都有 result（没有静默挂起）");
+	}
+
+	// 清掉自检开关后恢复：真实根又能正常枚举（证明"失败只由那一个原因造成"，不是门面永久坏了）。
+	{
+		std::string result;
+		requestAssets(result);
+		if (result.find("\"ok\":true") == std::string::npos)
+		{
+			fail("E_ASSETBROWSER_RECOVER", "清掉 no-facade 后 list-assets 没有恢复 ok：" + result);
+		}
+		if (static_cast<int>(JsonAssetObjects(result).size()) != presetCount + 1)
+		{
+			fail("E_ASSETBROWSER_RECOVER", "恢复后的条目数不是 " + std::to_string(presetCount + 1) + "：" + result);
+		}
+		CA_LOG("[资产浏览器 测试] 恢复：清掉 no-facade 后枚举重新 ok（{} 条）", presetCount + 1);
+	}
+
+	// 收尾：先主动停服务（隔离后续用例 / 保证进程干净退出），再清客户端与测试窗口；宿主 LastError 必须
+	// 仍是基线（没有任何枚举异常穿到 Host.Tick 外层 catch —— 那会把 LastError 写成"Tick 抛异常…"）。
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", "1");
+	pumpFrames(1);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	if (!LogContains(readingsPath, "已关闭（测试请求停止"))
+	{
+		fail("E_ASSETBROWSER_STOP", "CASCADED_EDITOR_STOP=1 之后没有服务关闭日志");
+	}
+	client.Close();
+	windowKeepAlive->CloseWindow();
+	windowKeepAlive.reset();
+	ctx.pWindowSystem->UpdateSystem();
+	if (pScriptHost->LastError() != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "用例结束之后 LastError 变了（枚举异常穿到宿主？）：%s",
+			pScriptHost->LastError());
+		fail("E_ASSETBROWSER_HOST_ERROR", detail);
+	}
+	CA_LOG("TestEditorAssetBrowser 通过：① 七项逐条一致 + ② 刷新新增与 assets-changed + ③ 空根空数组 + "
+	       "④ 四种根不可用各 E_ASSET_ROOT 不挂起 + ⑤ 门面调用主线程归因 全部满足");
 }
 
 // ---- TestCSharpScene（csharp-scene-foundation 3.2，第 19 用例）----
@@ -8734,6 +9807,10 @@ int main(int argc, char* argv[])
 		// csharp-resource-asset-foundation 4.2：第 22 项（门面自助注册表 + C# 资产自读加载 + 两后端像素；
 		// 要用 C#，全量执行位置必须排在 `TestCSharpWindowCallbacks` 之前）。
 		std::cout << "  TestCSharpAssets\n";
+		// editor-asset-browser 4.1：第 23 项（只读资产浏览器：list-assets / assets-changed / 显示提供者）。
+		// **独立进程跑**（design D8：编辑器服务是进程级一次性状态机，与 TestEditorWindowPanel 不能同进程），
+		// 所以它进了清单但**不进下面的全量顺序跑**，只按 `--test TestEditorAssetBrowser` 跑。
+		std::cout << "  TestEditorAssetBrowser\n";
 		return 0;
 	}
 
@@ -8887,6 +9964,20 @@ int main(int argc, char* argv[])
 	}
 
 	ctx.pImportingSystem->ScanSourceDirectory(ctx.resourcePath);
+
+	// editor-asset-browser 3.2⑦：交互式视觉验收的**空根构造路径** —— 资源根可用环境变量覆盖（默认仍是
+	// 仓库根/CAAssets，不设时行为与之前逐字相同）。必须放在 ScanSourceDirectory **之后**：导入器会把
+	// 着色器库写进资源根，先覆盖的话空的临时目录会被写入 shLib 就不再是空根（4.2 的空态截图要真空目录）。
+	// 也不动用户的 CAAssets 文件（AGENTS §2 截图纪律的同一诉求）。
+	{
+		const char* assetRootOverride = std::getenv("CASCADED_EDITOR_ASSET_ROOT");
+		if (assetRootOverride != nullptr && assetRootOverride[0] != '\0')
+		{
+			ctx.pResourceManagingSystem->SetResourceRootPath(assetRootOverride);
+			CA_LOG("资源根被 CASCADED_EDITOR_ASSET_ROOT 覆盖：{}（默认是 {}）", assetRootOverride,
+			       ctx.assetPath.c_str());
+		}
+	}
 
 	// ---- JSON report setup ----
 	std::ofstream jsonFile;
@@ -9059,6 +10150,11 @@ int main(int argc, char* argv[])
 		else if (strcmp(testName.c_str(), "TestCSharpAssets") == 0)
 	{
 		runTestWithDiagnostics("TestCSharpAssets", TestCSharpAssets);
+	}
+		else if (strcmp(testName.c_str(), "TestEditorAssetBrowser") == 0)
+	{
+		// 独立进程用例（design D8）：只走这条单跑分发，不排进下面的全量顺序跑。
+		runTestWithDiagnostics("TestEditorAssetBrowser", TestEditorAssetBrowser);
 	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{

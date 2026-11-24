@@ -1,0 +1,53 @@
+﻿# 4.1 第 23 用例登记核对（只读检查，执行时间 2026-11-23 23:49:18)
+
+## Main.cpp 里的用例定义 / --list 登记 / 单跑分发
+6211: void TestEditorAssetBrowser(TestContext& ctx)
+6803: CA_LOG("TestEditorAssetBrowser 通过：① 七项逐条一致 + ② 刷新新增与 assets-changed + ③ 空根空数组 + "
+9630: std::cout << "  TestEditorAssetBrowser\n";
+9960: runTestWithDiagnostics("TestEditorAssetBrowser", TestEditorAssetBrowser);
+
+## 七项断言点名的字段（用例源码内）
+"nodeId" = 2
+"path" = 3
+"kind" = 2
+"sizeBytes" = 2
+"modifiedUtc" = 2
+"registered" = 2
+"children" = 2
+
+## --list 读数（本次构建产物，构建前为旧产物）
+GPUBackendTester.exe : mimalloc-redirect: error: mimalloc-redirect.dll seems to be initialized after ucrtbase.dll
+At line:29 char:33
++ if (Test-Path $exe) { $log2 += (& $exe --list 2>&1 | Out-String) } el ...
++                                 ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (mimalloc-redire...er ucrtbase.dll:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  (hint: try to link with the mimalloc library earlier on the command line?)
+mimalloc-redirect: warning: standard malloc is _not_ redirected! -- using regular malloc/free. (v1.3.2)
+[38;2;128;128;128mRegister Module Factory: class catimer::TimerSystem - CATimer
+[0m[38;2;128;128;128mRegister Module Factory: class imgui_display::IMGUIContext - IMGUIContext
+[0mAvailable tests:
+  TestSimpleTriangle
+  TestTriangleWithConstantColor
+  TestTriangleWithStructuredBufferColor
+  TestTriangleWithImageBuffer
+  TestDoublePass
+  TestComputeBuffer
+  TestReadback
+  TestIMGUI
+  TestScriptHost
+  TestCSharpWindow
+  TestCSharpTriangle
+  TestCSharpScene
+  TestCSharpWindowCallbacks
+  TestGPUTiming
+  TestCSharpConstantColor
+  TestCSharpStructuredBuffer
+  TestCSharpTextureSampling
+  TestEditorWindowPanel
+  TestIOErrorChannel
+  TestCSharpResourceFactory
+  TestCSharpImporter
+  TestCSharpAssets
+

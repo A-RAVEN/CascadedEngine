@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-002",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-asset-browser/design.md",
+  "anchor": "事件 `assets-changed`（广播，fields 含变更摘要；客户端收到重拉 list-assets）。",
+  "problem": "四份工件没有任何一处列出 `assets-changed` 的字段名、类型：design 只写「fields 含变更摘要」，spec 只要求「字段名/错误码逐字一致」，tasks 1.2 只写「EventMessage 加 'assets-changed'」，tasks 1.3 只写「BuildAssetsChangedEvent」，tester 4.1 只断言客户端收到事件。更具体的是，`specs/editor-window-panel/spec.md` 增量写「assets-changed 无 objectId」，而现有 `EditorWeb/src/protocol.ts` 的 `EventMessage` 要求 `objectId: number`，`fields` 只允许 object-changed 的 title/width/height；tasks 1.2 只加事件名，没有说明怎么改 `EventMessage` 才能表达非对象事件。空 fields 的事件也能通过 4.1，所以 spec 的「三处镜像逐字一致」这条判据对事件根本不可核对。",
+  "evidence": "见 `证据-一致-002.md`：四份工件里 assets-changed 的全部出现位置、`protocol.ts` 的 EventMessage 定义、tester 4.1 的断言原文；全仓搜索没有 assets-changed 的负载字段清单。",
+  "suggestion": "在 design D2、spec 要求 2、tasks 1.1/1.2/1.3 里写死同一份事件 payload：至少给出 `type`、`event`、`fields` 三个键，并给出 fields 的字段名与类型（例如 `added: string[]` / `removed: string[]` / `changed: string[]`，或明确只给 `count: number`）；TS 侧为该事件单独定义联合成员（省略 objectId 或明确 objectId 不适用）；tester 4.1 增加对 payload 字段的逐字断言，不能只断言「收到事件」。"
+}

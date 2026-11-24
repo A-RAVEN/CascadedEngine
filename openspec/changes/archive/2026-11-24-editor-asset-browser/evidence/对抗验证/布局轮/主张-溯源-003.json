@@ -1,0 +1,9 @@
+{
+  "id": "主张-溯源-003",
+  "face": "无中生有",
+  "severity": "misleading",
+  "claim": "design D7 与 tasks 4.2 把「PrintWindow 按 HWND 抓窗（被挡也能抓，不动前景）」写成事实，但这是无依据的能力断言：PrintWindow 的渲染路径是把 WM_PRINT / WM_PRINTCLIENT 发给窗口自己（微软函数页 Remarks 原文），而本批要抓的 dock 是第二个 WebView2 控制器（由 WebView2 合成，内容不经父窗口的 WM_PRINT 处理）；PW_RENDERFULLCONTENT 只在本地 SDK 头里定义为 0x2，该函数页的 nFlags 表只列 PW_CLIENTONLY，语义未文档化。仓库里零个 PrintWindow 实现（4 处命中全在 change 工件），唯一截图脚本 capture.ps1 全篇只有 CopyFromScreen，且 -Mode window 走 GetForegroundWindow（要求窗口在前台，恰好违反「MUST NOT 置前」）；项目自己的 CSharpHost/README.md 还记录「屏幕捕获（WGC/BitBlt/DXGI）在本机虚拟显示适配器环境中抓不到硬件 flip 内容（原生 C++ 正控也白）」。于是「被挡也能抓」对 WebView2 dock 既无实测、也无可核依据，而 4.2 的通过条件正是从这张截图里读出资产行。（与并行 agent 的 主张-验收-004 第③点同根：那条从「不可变红」立论，本条从「把未验证能力写成事实」立论。）",
+  "location": "openspec/changes/editor-asset-browser/design.md:85 逐字：「用 PrintWindow 按 HWND 抓窗（被挡也能抓，不动前景），不置前/不最小化/不移动用户窗口」；tasks.md:29 逐字：「**用 PrintWindow 按 HWND 抓窗（被挡也能抓，MUST NOT 置前/最小化/移动用户窗口，AGENTS §2 2026-11-24 用户明令禁止前置窗口）**」；specs/editor-asset-browser/spec.md:81 逐字：「截图 MUST 用 PrintWindow 按 HWND 抓窗、MUST NOT 置前/最小化/移动用户窗口（AGENTS §2）」；CSharpHost/README.md:129 逐字：「屏幕捕获（WGC/BitBlt/DXGI）在本机虚拟显示适配器环境中抓不到硬件 flip 内容（原生 C++ 正控也白）」",
+  "evidence_ref": "证据-溯源-003.md",
+  "suggested_fix": "先做一次抓窗能力实测并把读数落 evidence（用 PrintWindow + PW_RENDERFULLCONTENT 抓编辑器窗，核对 dock 区域是像素还是空白），再决定写什么：① 抓得到 WebView2 内容 → 把实测命令/截图/读数写进 evidence，工件保留 MUST 并引该读数；② 抓不到 → 改成 WebView2 自带的 CoreWebView2.CapturePreviewAsync 截 dock 页（托管侧加一个自检入口把 PNG 写到 evidence 路径），或允许 capture.ps1 -Mode full 并要求编辑器窗未被遮挡；在拿到读数前，把「被挡也能抓」降级成待验证项，不许写成事实句或 MUST。"
+}

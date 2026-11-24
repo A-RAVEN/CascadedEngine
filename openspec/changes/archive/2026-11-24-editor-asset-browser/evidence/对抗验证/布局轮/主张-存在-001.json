@@ -1,0 +1,9 @@
+{
+  "id": "主张-存在-001",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "claim": "工件把三分区 Bounds 的修改点只指到 EditorWindow.ApplyLayout（EditorWindow.cs:240），但该文件里 m_Controller.Bounds 有两处赋值：控制器创建完成步 :202 与 ApplyLayout 内 :261。工件没有点名 :202，也没有要求第二个控制器创建完成后立即设置 Bounds；按工件字面只改 ApplyLayout，第一个控制器首次创建时仍会用 (ViewportWidth, 0, PanelWidth, ClientHeight) 铺满客户区全高、压住底部 dock，直到下一次窗口尺寸变化才纠正。",
+  "location": "工件声称：design.md:74-77、tasks.md:23（只点名 ApplyLayout :240 / SyncLayout :584 / 读数行 :1598）；实际 grep：EditorWindow.cs:202 与 :261 两处 `m_Controller.Bounds = new System.Drawing.Rectangle(ViewportWidth, 0, PanelWidth, ClientHeight);`（命中 2 行），ApplyLayout 定义在 :240（偏移 0 行）。Create 在 :127 先调 ApplyLayout，此时 m_Controller 为 null，首次真正赋值落在 :202。",
+  "evidence_ref": "证据-存在-001.md",
+  "suggested_fix": "design D9 与 tasks 3.2 明写两处 Bounds 赋值都要改（或抽出 SetBounds 助手，创建步与 ApplyLayout 共用），并要求第二控制器创建完成时立即按其 Bounds 设定；验收补一条能失败的判据：首次创建后未做任何 resize，读数行 panel= 的矩形高度 MUST = ClientHeight−DockHeight。"
+}

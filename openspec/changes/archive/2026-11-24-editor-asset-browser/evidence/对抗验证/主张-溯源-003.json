@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-003",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-asset-browser/design.md；specs/editor-asset-browser/spec.md",
+  "anchor": "design.md:51「门面未绑/根为空字符串/目录不存在 → 显式错误」；spec.md:52「门面未绑定 / 根路径非法 / 根目录不存在 MUST 显式报错…MUST NOT 静默返回空列表冒充成功」",
+  "claim": "失败面被写成三条穷举，漏掉 C# 取目录/取文件元数据会抛的 IO 类异常：EditorService 的 ExecuteCommand 只捕 ObjectDisposedException 与 IWindowException，Directory.EnumerateFiles(root, AllDirectories) 抛的 DirectoryNotFoundException / UnauthorizedAccessException / IOException 会穿出 DrainInbound，被 Host.Tick 外层 catch 吞成 s_lastError，客户端既收不到 result 也收不到 event——请求静默挂起，正好落在「失败可见」要求的反面。三条里只覆盖了根为空字符串与根目录不存在；子目录访问被拒、枚举中途目录/文件被删这类情况不在三条内，规范也没有对应的错误码或文本要求。",
+  "evidence": "证据-溯源-003.md：design.md 第 51 行与 spec.md 第 52 行原文、EditorService.cs 第 646-792 行的 catch 列表、Host.cs 第 308 与 364-368 行、本机实测 Directory.EnumerateFiles 对不存在目录抛 System.IO.DirectoryNotFoundException。"
+}

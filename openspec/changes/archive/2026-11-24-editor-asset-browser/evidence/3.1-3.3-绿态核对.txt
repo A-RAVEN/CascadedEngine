@@ -1,0 +1,41 @@
+﻿# 3.1 / 3.3 绿态与断言核对（2026-11-24 01:48:33）
+
+## 3.1 前端（主循环回传 + 只读核对）
+npm run build 退出码 0；vite 实测：9 modules transformed；dist/index.html 3.47 kB、dist/assets.html 3.63 kB、dist/assets/index-TFnG6Smo.js 3.14 kB、dist/assets/assets-DcTGLRXq.js 2.38 kB、dist/assets/modulepreload-polyfill-P2Xu9kJm.js 0.67 kB；✓ built in 117ms
+build.py 重建后 BUILD SUCCESSFUL，bin/editor-web 双页面齐（assets.html 3631 / index.html 3473）。
+index.html 里 sset 命中数（期望 0）: 0
+assets.html 的 refresh-assets / asset-table / asset-empty / asset-error 命中: 16
+vite.config.ts 多页面入口: 2 行
+build.py 校验两页面: 2 行
+
+## 3.3 布局断言（源码逐处 + 绿态）
+4752: // dockController/dockNav = 底部资产浏览器 dock）—— 第一控制器绿就整体当绿是不合格的判据。
+4756: readings.Get("dockController") == "1" && readings.Get("dockNav") == "1")
+4781: "编辑器 40 秒内没有进入运行态：objects=%s controller=%s nav=%s dockController=%s "
+4784: readings.Get("nav").c_str(), readings.Get("dockController").c_str(),
+4789: CA_LOG("[编辑器 测试] 启动读数：mode={} objects={} controller={} nav={} dockController={} dockNav={} "
+4792: readings.Get("nav").c_str(), readings.Get("dockController").c_str(), readings.Get("dockNav").c_str(),
+4817: const int expectedDockHeight = 240;
+4826: viewportRect.h != clientHeight - expectedDockHeight || panelRect.h != clientHeight - expectedDockHeight)
+4836: if (dockRect.x != 0 || dockRect.y != clientHeight - expectedDockHeight || dockRect.w != clientWidth ||
+5012: viewportRect.h != 640 - expectedDockHeight)
+5021: if (dockRect.x != 0 || dockRect.y != 640 - expectedDockHeight || dockRect.w != 1000 ||
+5233: if (readings.Get("capture") != "580x320")
+6532: // 三分区（D9）：对象检查器 controller/nav 与底部 dock 的 dockController/dockNav 都要就绪。
+6536: readings.Get("dockController") == "1" && readings.Get("dockNav") == "1")
+6549: "编辑器 40 秒内没有进入运行态：objects=%s controller=%s nav=%s dockController=%s dockNav=%s "
+6552: readings.Get("dockController").c_str(), readings.Get("dockNav").c_str(),
+6556: CA_LOG("[资产浏览器 测试] 启动读数：objects={} controller={} nav={} dockController={} dockNav={} exec={} "
+6559: readings.Get("dockController").c_str(), readings.Get("dockNav").c_str(),
+
+## 像素判据未放松（仍是中心精确匹配 (255,0,0,255)）
+2340: const std::array<uint8_t, 4> pureRed{ 255, 0, 0, 255 };
+2348: const std::array<uint8_t, 4> expectedCenter{ 255, 0, 0, 255 };
+7288: const std::array<uint8_t, 4> expectedCenter{ 255, 0, 0, 255 };
+7340: const std::array<uint8_t, 4> expectedCenter{ 255, 0, 0, 255 };
+
+## 绿态（主循环回传）
+TestEditorWindowPanel vulkan 10322ms / d3d12 5793ms，均 status=pass、exit 0。
+TestEditorAssetBrowser vulkan 2480ms / d3d12 2954ms，均 status=pass、exit 0。
+日志实测行：
+[0m[38;2;128;128;128m[托管侧] [编辑器] 窗口已创建（单窗口三分区：视口 960x480 + 检查器 320x480 + dock 1280x240，模式 main-thread，hwnd=0x2D1696，windowSelf=0x1616067FA00）

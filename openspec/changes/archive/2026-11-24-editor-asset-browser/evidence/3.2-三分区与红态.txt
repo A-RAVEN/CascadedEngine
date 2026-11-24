@@ -1,0 +1,39 @@
+﻿# 3.2 三分区 + 第二控制器：绿态与红态读数（2026-11-24 01:48:54）
+
+## 绿态（主循环回传）
+TestEditorWindowPanel vulkan 10322ms / d3d12 5793ms，均 status=pass、exit 0；
+TestEditorAssetBrowser vulkan 2480ms / d3d12 2954ms，均 status=pass、exit 0。
+日志实测行：
+[0m[38;2;128;128;128m[托管侧] [编辑器] 窗口已创建（单窗口三分区：视口 960x480 + 检查器 320x480 + dock 1280x240，模式 main-thread，hwnd=0x2D1696，windowSelf=0x1616067FA00）
+（三分区断言：视口 960x480 + 检查器 320x480 + dock 1280x240 铺满 1280x720；改尺寸后 680x400 + dock 0,400,1000,240；set-size 900x560 后 capture=580x320；height=240 被 E_INVALID_ARG 拒绝；GetWindowCount 增量 1 由既有断言覆盖。）
+
+## 红态 1：no-dock-controller（主循环回传 result.json error 原文）
+exit 1 / E_EDITOR_START，error="资产浏览器_dock_失败：资产浏览器控制器创建失败（自检开关_CASCADED_EDITOR_SELFTEST=no-dock-controller_模拟）"
+
+## 红态 2：assets.html 单独缺失（主循环回传 result.json error 原文）
+exit 1 / E_EDITOR_START，error="资产浏览器_dock_失败：资产浏览器页面导航失败：Unknown（HttpStatus=503；资产浏览器页面取得_4xx/5xx_即失败）"
+（服务端另写日志「资产浏览器页面缺失：… 下没有 assets.html —— 已返回说明原因的错误页（503），不是静默 404」）
+
+## 红态 3/4：CASCADED_EDITOR_DOCK_HEIGHT=0 / 720
+首轮：两条都 exit 1，但 error 字段为空（启动阶段 Disable 时读数泵未跑过，见下"修前/修后"）。
+- 修前：error="objects= controller= nav= dockController= dockNav= exec= error=；LastError="
+- 修因：dock 高越界发生在启动阶段（TryReadDockHeight / ApplyLayout），服务停在 s_state<2，读数泵从不发 `[编辑器 读数]` 行。
+- 修法：① `EditorService.Disable` 在 state<2 时补发一行读数（error 点名原因，state=starting）；② 用例就绪失败详情在 error 为空时退回读「禁用：<原因>」标记行。
+- 修后读数：待主循环重跑回传后追加。
+
+## 红态 3/4 修复后（主循环回传，result.json error 原文）
+DOCK_HEIGHT=0（exit 1，仍红）：E_EDITOR_START:
+  禁用相关点名 = 「配置非法：CASCADED_EDITOR_DOCK_HEIGHT="0" 非法（要求正整数像素）」
+DOCK_HEIGHT=720（exit 1，仍红）：E_EDITOR_START:
+  点名 = 「禁用：创建编辑器窗口失败：CASCADED_EDITOR_DOCK_HEIGHT=720 超出范围（1..客户区高-1=719）」
+绿态不受影响：修后复跑 TestEditorWindowPanel vulkan → pass / exit 0 / 3978ms。
+
+## 3.2 验收逐项归宿
+① 三分区 Bounds（首建 + ApplyLayout）与 ApplyLayout 上界校验：源码 EditorWindow.cs ApplyLayout/PumpPanel/PumpDock；
+② DefaultDockHeight=240 + CASCADED_EDITOR_DOCK_HEIGHT（README 两表登记）：见 5.5 文档核对；
+③ s_scene.Build/Resize 用 ViewportHeight、读数行 dock 矩形 + dockController/dockNav：绿态 TestEditorWindowPanel 断言通过；
+④ 第二控制器独立 Error/导航通道 + Close 两控制器 + no-dock-controller 红态：evidence/3.2-no-dock.txt；
+⑤ assets.html 缺失 503 错误页 + dock 4xx 判失败：evidence/3.2-assets缺失.txt；
+⑥ set-size 高 ≤ dock 高 → E_INVALID_ARG（height=240 断言在绿态用例内）；
+⑦ CASCADED_EDITOR_ASSET_ROOT 覆盖（Main.cpp 导入扫描之后应用）：源码 + 交互 4.2 使用；
+⑧ capture-dock 抓窗钩子：源码 EditorWindow.PumpDockCapture（4.2 正控用）。

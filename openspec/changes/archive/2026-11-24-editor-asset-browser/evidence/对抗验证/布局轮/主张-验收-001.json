@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-001",
+  "face": "验收可失败性",
+  "severity": "blocking",
+  "claim": "3.3 把布局断言改成「视口高=ClientHeight−DockHeight」，但 dock 高从读数行自己取、工件里从未写死默认值，任何自洽的错误 dock 高都能全绿；且「改前/改后断言原文见修订记录 17」指向的记录只有设计措辞、没有一行断言原文，无法核「不放松」。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:24 逐字：「面板矩形/视口区域断言改为三分区铺满客户区（视口高=ClientHeight−DockHeight），像素读回中心仍按新视口区域精确匹配 (255,0,0,255)；改尺寸同步断言含两控制器 Bounds。验收：两后端 TestEditorWindowPanel 过（独立或同进程按既有口径）；像素判据未放松（仍精确匹配）；改前/改后断言原文见修订记录 17。」；同文件 :77-79「修订记录 17」的改前/改后只有 design/spec/tasks 的措辞；openspec/changes/editor-asset-browser/design.md:76 只写「默认值与范围 1..客户区高−1 登记 CSharpHost/README 配置表」，五份工件无一处写数字。",
+  "evidence_ref": "证据-验收-001.md",
+  "suggested_fix": "3.3 写死期望值：测试显式设 CASCADED_EDITOR_DOCK_HEIGHT=200，断言启动读数 client=1280x720、viewport=(0,0,960,520)、panel=(960,0,320,520)、dock=(0,520,1280,200)、capture=960x520，改尺寸后 client=1000x640、viewport=(0,0,680,440)、panel=(680,0,320,440)、dock=(0,440,1000,200)、capture=680x440；把现行断言原文（Test/GPUBackendTester/Main.cpp:4802-4811、4977、5186、5503-5516）逐字抄进修订记录 17 作改前对照，改后逐条列新断言；另加一条「capture 尺寸 == viewport 尺寸」的显式相等断言，禁止把像素采样点从读数行推导后再与同一读数比较。"
+}

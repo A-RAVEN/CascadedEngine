@@ -1092,8 +1092,11 @@ def build_editor_web() -> None:
     if completed.returncode != 0:
         raise RuntimeError(f"npm run build 失败，退出码 {completed.returncode}")
     dist = web_dir / "dist"
-    if not (dist / "index.html").is_file():
-        raise RuntimeError(f"前端构建没有产出 index.html：{dist}")
+    # editor-asset-browser 3.1：两个页面都要在（index.html = 右面板对象检查器，assets.html = 底部资产
+    # 浏览器 dock，各由一个 WebView2 控制器加载）。少一个就在构建期报出来，不留"运行时才发现缺页面"。
+    for page in ("index.html", "assets.html"):
+        if not (dist / page).is_file():
+            raise RuntimeError(f"前端构建没有产出 {page}：{dist}")
     target = BUILD_DIR / "bin" / "editor-web"
     if target.exists():
         shutil.rmtree(target)

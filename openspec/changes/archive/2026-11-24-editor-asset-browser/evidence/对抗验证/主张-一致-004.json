@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-004",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-asset-browser/specs/editor-asset-browser/spec.md",
+  "anchor": "每行 MUST 含相对路径 / 种类（扩展名映射）/ 大小（字节）/ 修改时间 / 是否已注册……目录存在但无文件 = 合法空态（ok=true 空数组）。",
+  "problem": "要求 1 的「修改时间」与场景 3 的「前端空态文案」在验收里没有能失败的断言：① 空态文案——场景 3 要求「前端 MUST 显示空态文案」，但 tasks 4.1 是 C++ WebSocket 的 headless 用例，只能断言返回空数组；tasks 4.2 截图只预置非空资产，tasks 3.1 的验收也只有 npm build + 4.2；没有任何任务能在空态文案缺失时变红。② 修改时间——要求 1 的每行 MUST 含修改时间，但同一份 spec 的场景 1 在「逐条一致」的括号里只列相对路径/大小/种类/registered，漏掉 modifiedUtc；tasks 4.1 也照抄这四项。因此 modifiedUtc 的值、格式与 UTC 语义都没有可核对的期望值。规范自己把要求写宽、把场景写窄，任务再照窄的写，导致两项 MUST 落空。",
+  "evidence": "见 `证据-一致-004.md`：要求 1、场景 1、场景 3 原文；tasks 3.1/4.1/4.2 原文；`TestEditorAssetBrowser` 的 C++/WebSocket/--headless 性质；`main.ts` 空态实现与截图步骤的错位。",
+  "suggestion": "两条一起补：① 场景 1 的逐条一致清单加「修改时间」，并在 4.1 写死格式（例如 UTC ISO 8601 的固定样例）与容差（若有）；② 4.2 增加空根场景的第二张截图 + read_image 核对空态文案，或把空态写进 4.1 能观察到的前端检查。若产品上不想显示空态/修改时间，就改要求 1 并在 proposal 说明，不能只放宽验收。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "主张-存在-002",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "claim": "工件要求 CASCADED_EDITOR_DOCK_HEIGHT「默认值与范围 1..客户区高−1 登记 README」（design D9、tasks 3.2、两份 spec 都写了「默认值」），但整个 change 没有给出这个默认值的任何数字；tasks 5.5 又要求「README dock 高配置与 3.2 一致」。执行者只能自己挑一个数字，且「一致」没有可对拍的基准，写任何值都能通过字面验收，判据不能失败。",
+  "location": "工件声称：design.md:76、tasks.md:23、tasks.md:37、specs/editor-window-panel/spec.md:23、specs/editor-asset-browser/spec.md:5。实际检索：对 change 下全部 md/json（排除 evidence/）grep 'DOCK_HEIGHT|DockHeight|dock 高|dock高' 命中 16 行，逐行只出现「默认值」字样或范围 1..客户区高−1，无任何默认数字；CSharpHost/README.md 现有两张配置表（:113-119 与 :389-392）都没有该变量。",
+  "evidence_ref": "证据-存在-002.md",
+  "suggested_fix": "在 design D9 写死默认值并注明来源（用户裁定或产品先例；没有来源就写成「无默认值，未设置时不创建 dock」并同步改范围与要求），tasks 3.2/5.5 与两份 spec 引用同一个数字；5.5 验收改成「README 里的默认值数字与 design 写的逐字相同」，不要写「与 3.2 一致」。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "主张-存在-003",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "claim": "tasks 4.2 / design D7 / spec 视觉场景要求「用 PrintWindow 按 HWND 抓窗（被挡也能抓，MUST NOT 置前）」，并把 desktop-screenshot 点名成截图手段；但本机 desktop-screenshot 技能的 capture.ps1 只实现 CopyFromScreen（屏幕像素拷贝），参数只有 full/window/title/region，没有 HWND 参数、没有 PrintWindow 调用，window 模式取前台窗口、title 模式也只按矩形抓屏幕，窗口被挡时抓不到内容。工件没有点名任何已存在的 PrintWindow 抓窗脚本或命令，也没有任务去创建它，按现有工件 4.2 截图验收无法直接执行。",
+  "location": "工件声称：design.md:85、tasks.md:29、tasks.md:81、specs/editor-asset-browser/spec.md:81。实际：C:/Users/76956/.dsh/skills/desktop-screenshot/capture.ps1 第 126 行 `$g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)`，param 块第 19-27 行只有 Mode/Window/X/Y/W/H/MaxWidth/OutDir，PrintWindow 零命中。PrintWindow 本身真实：WinUser.h 10.0.26100.0 第 4617 行声明、微软文档列 User32.dll / User32.lib，PW_RENDERFULLCONTENT 在 WinUser.h:4610（0x2）。",
+  "evidence_ref": "证据-存在-003.md",
+  "suggested_fix": "在 tasks 里加一条（或并入 4.2）：先落盘一个按 HWND 抓窗的 PrintWindow 脚本（user32 PrintWindow + GetWindowDC/兼容 DC，带 PW_RENDERFULLCONTENT=0x2），并用它抓一次编辑器窗口验证 WebView2 区域非空白；验收写明脚本路径与「图中底部 dock 五列可辨」的判据。若实测抓不到 WebView2 合成内容，就改成「用户不遮挡窗口时用 capture.ps1 -Mode full」并在任务里写明前提（不置前、不移动窗口）。"
+}

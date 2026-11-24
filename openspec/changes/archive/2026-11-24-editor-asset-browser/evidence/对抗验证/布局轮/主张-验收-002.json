@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-002",
+  "face": "验收可失败性",
+  "severity": "blocking",
+  "claim": "3.2 的「CASCADED_EDITOR_DOCK_HEIGHT 超范围明确报错」没有错误码、没有逐字日志标记、没有读数行字段，也没有任何任务或用例去设这个变量构造非法值（全仓没有一条测试设过同类开关面板宽），只能靠读代码口头判定；又因为工件从未写死 dock 高默认值，5.5 的「README 与 3.2 一致」是在自己和自己比。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:23 验收段逐字：「验收：构建过；读数行含 panel/viewport/dock 三矩形且铺满客户区；GetWindowCount 增量仍 1（无第二壳窗口）；CASCADED_EDITOR_DOCK_HEIGHT 超范围明确报错；README 含 CASCADED_EDITOR_DOCK_HEIGHT（grep）。」；同文件 :37 逐字：「README dock 高配置与 3.2 一致」。",
+  "evidence_ref": "证据-验收-002.md",
+  "suggested_fix": "把默认值写死进 design D9 与 3.2（例如 DockHeight 默认 200，范围 1..客户区高−1），并把红态改成可执行步骤：独立进程启动时设 CASCADED_EDITOR_DOCK_HEIGHT=100000（无条件越界），断言读数行 state≠running、日志含「CASCADED_EDITOR_DOCK_HEIGHT=\"100000\" 超出范围」，存 evidence；5.5 改为「README 的默认值与范围逐字等于 design D9 写死的 200 与 1..客户区高−1（grep 具体数字）」，并说明 check_csharp_host_readme.py 只比变量名、不核对数字。"
+}

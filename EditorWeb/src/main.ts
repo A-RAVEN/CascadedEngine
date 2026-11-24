@@ -7,6 +7,7 @@ import type {
   CommandName,
   EditorObject,
   EventMessage,
+  ObjectChangedFields,
   ResultMessage,
   ServerMessage,
   WelcomeMessage,
@@ -112,15 +113,24 @@ function handleResult(message: ResultMessage): void {
 }
 
 function handleEvent(message: EventMessage): void {
+  if (message.event === 'assets-changed') {
+    // 资产变化由底部资产浏览器 dock 处理（独立页面 assets.ts）；对象检查器只记一行，不重拉。
+    log('资产列表已变化（由底部资产浏览器接管）');
+    return;
+  }
   if (message.event === 'object-invalidated') {
     invalidated = true;
     bannerEl.hidden = false;
     setInputsEnabled(false);
-    log(`对象 ${message.objectId} 已失效：输入已禁用`, 'error');
+    log(`对象 ${message.objectId ?? 0} 已失效：输入已禁用`, 'error');
+    return;
+  }
+  if (message.objectId === undefined) {
+    log('对象事件缺少 objectId，已忽略', 'warn');
     return;
   }
   if (current !== null && message.objectId === current.id) {
-    applyObject({ ...current, ...message.fields });
+    applyObject({ ...current, ...(message.fields as ObjectChangedFields) });
   }
   log(`对象 ${message.objectId} 变化：${JSON.stringify(message.fields)}`);
 }

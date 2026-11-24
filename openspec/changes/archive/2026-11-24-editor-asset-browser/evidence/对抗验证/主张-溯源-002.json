@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-002",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-asset-browser/design.md；tasks.md",
+  "anchor": "design.md:51「门面未绑/根为空字符串/目录不存在 → 显式错误」；tasks.md:26（4.1）「…空根空态 → 门面未绑/根非法显式错误。验收：…失败面各自能红」",
+  "claim": "「门面未绑」这个失败面在运行期不可构造：CSharpHost 在模块 link 阶段的 Init 里无条件调用 RegisterResourceRegistry（连 ResourceManagingSystem 缺失也照样登记门面实例），没有任何环境开关能跳过；编辑器服务本身只能跑在 CSharpHost 内，所以进入命令处理时门面一定已登记。任务 4.1 要求用例断言「门面未绑显式错误」并「各自能红」，但没给自检开关、也没给注入点（现有同类做法是 CASCADED_EDITOR_SELFTEST=no-runtime）；上一批要做出这个红态是靠主循环临时删 kBindingPolicies 行改产品源码的变异，不是一条可重复的用例。",
+  "evidence": "证据-溯源-002.md：CSharpHost.cpp 第 519-556 行、CSharpHost/README.md 第 53 行、EditorWindow.cs 第 66-69 行（no-runtime 先例）、归档 change 的 1.3 红态做法与 4.1 原文。"
+}

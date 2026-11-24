@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-002",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "视口高改成 ClientHeight−DockHeight 的波及面只点名 SyncLayout（EditorService.cs:584）和「读数行（:1598）加 dock 矩形」；初始建图 s_scene.Build(window.ViewportWidth, window.ClientHeight)（:391-392）、读数行 panel/viewport 的高度（:1598-1601）、set-size 的高度判据（:720-733 只判大于 0）都没点名。按 tasks 3.2 字面实现会留下三条路径：① 启动时 scene view 与离屏捕获目标仍是全高，dock 只盖住底部；② 读数行三个矩形高度重叠，不是「铺满客户区」；③ 高度 1..dock 高的 set-size 在规范里合法（规范仍写「高 MUST >0」），却让 s_scene.Resize 收到负高、重建失败后禁用编辑器。另：dock 高默认值在 design/tasks/spec 里都只写「默认值」没有数字，tasks 3.3 的固定期望写不出来。",
+  "location": "openspec/changes/editor-asset-browser/design.md:76-77；openspec/changes/editor-asset-browser/tasks.md:23-24；openspec/changes/editor-asset-browser/specs/editor-window-panel/spec.md:4、:23；Scripting/Managed/Editor/EditorService.cs:391-402、:584-601、:718-733、:1597-1601；Scripting/Managed/Editor/EditorSceneView.cs:82-89、:164-171",
+  "evidence_ref": "证据-影响-002.md",
+  "suggested_fix": "把 :391-392 初始 Build 与 :1597-1601 读数行改成 ViewportHeight（=ClientHeight−DockHeight）；:720-733 的 set-size 高度判据改成「高 MUST > dock 高」（同步 MODIFIED spec 要求 1 与场景），并对窗口外部缩到不大于 dock 高的情形写死处置（E_INVALID_ARG 或明确禁用日志）；在 design/tasks 里写死 dock 高默认数字（可追溯：用户裁定/产品先例/配置默认值），tasks 3.3 按该数字写死期望。"
+}

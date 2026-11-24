@@ -1,0 +1,24 @@
+﻿# 4.1 首次两后端运行：红态与已通过段（2026-11-23 23:53:19）
+
+## 结论
+两后端都红在 ④ 的「错误文本点名资产根原因」一条断言上；原因不是服务措辞与断言不符，而是**被测二进制早于测试助手修复**：
+首次构建（EXE 23:50:55）早于我对 JsonFieldOf 的 `\uXXXX` 解码修复（Main.cpp 23:51:43），于是 JSON 里的 `"\u8D44\u4EA7\u6839…"` 被当成字面量 "u8D44u4EA7…"，中文比较必然不中。
+修复只在测试助手里（把 `\uXXXX` 解成 UTF-8），**没有放松任何判据、没有改服务措辞**。重跑前须重新构建。
+
+## 红态读数（两后端逐字相同）
+vulkan：退出码 1 / status=fail / error=E_ASSETBROWSER_ERROR（evidence/4.1-vulkan.json）
+d3d12 ：退出码 1 / status=fail / error 同 vulkan（evidence/4.1-d3d12.json）
+error 原文：E_ASSETBROWSER_ERROR: 场景 根非法 的错误文本没有点名资产根原因：u8D44u4EA7u6839u4E0Du53EFu7528uFF1Au76EEu5F55u4E0Du5B58u5728uFF08…
+
+## 同一次运行里已经通过的段落（来自 test_output/TestEditorAssetBrowser.log）
+[0m[38;2;128;128;128m[资产浏览器 测试] 启动读数：objects=1 controller=1 nav=1 exec=39 cmdRequest=0 cmdCalls=0
+[0m[38;2;128;128;128m[资产浏览器 测试] 面板前端初始 list-assets：已观察到并入队
+[0m[38;2;128;128;128m[资产浏览器 测试] 握手完成：welcome 的 protocolVersion=1
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=Assets/Registered.tex kind=texture size=142 modified=2024-03-04T05:06:07.0000000Z registered=true
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=ShaderLibraries/Browser.shLib kind=shader-library size=377 modified=2024-02-01T12:34:56.0000000Z registered=false
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=Docs/Notes.txt kind=file size=21 modified=2023-12-31T23:59:58.0000000Z registered=false
+[0m[38;2;128;128;128m[资产浏览器 测试] ① 第一次枚举：3 条预置文件七项全对（含 registered 真/假与未知扩展名 kind=file）
+[0m[38;2;128;128;128m[资产浏览器 测试] ⑤ 线程归因：requestId=201 那一帧 cmdCalls=4（= 1 + 3），mode=main-thread
+[0m[38;2;128;128;128m[资产浏览器 测试] ② 刷新可见新增：条目 3 → 4，assets-changed added=1 removed=0（无 objectId）
+[0m[38;2;128;128;128m[资产浏览器 测试] ② 第二次枚举的 requestId=203（事件绑定这次枚举，不是首次）
+[0m[38;2;128;128;128m[资产浏览器 测试] ③ 空根：ok=true 且 assets 为空数组（合法空态，不是错误）

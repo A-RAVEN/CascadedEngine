@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-002",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "claim": "dock 高的默认值在 proposal、design.md 的 D9 节、两份 spec、tasks 3.2 与 5.5、CSharpHost/README.md 里都没有具体数字：design.md 只说「默认值与范围 1..客户区高−1 登记 CSharpHost/README 配置表」，spec 壳要求把键名当默认值写成「dock 高默认值 CASCADED_EDITOR_DOCK_HEIGHT 可配」（对照同句上文「面板宽默认 320」），README 配置表此刻没有这一行；全仓只有 7 处提到该键、全部在 change 工件内。于是 tasks 5.5 的「README dock 高配置与 3.2 一致」没有可对照的数值，3.3 也没有可写死的期望矩形，实现者只能自定一个数（凭空发明）。",
+  "location": "openspec/changes/editor-asset-browser/design.md:76「`CASCADED_EDITOR_DOCK_HEIGHT`（默认值与范围 1..客户区高−1 登记 CSharpHost/README 配置表……）」 ／ openspec/changes/editor-asset-browser/specs/editor-window-panel/spec.md:23「**dock 高默认值 CASCADED_EDITOR_DOCK_HEIGHT 可配，范围 1..客户区高−1，README 配置表登记**」对同句「**面板宽默认 320，CASCADED_EDITOR_PANEL_WIDTH 可配，范围 1..客户区宽−1，README 配置表登记**」 ／ openspec/changes/editor-asset-browser/tasks.md:23「（默认值+范围 1..客户区高−1……）」与 :37「README dock 高配置与 3.2 一致」 ／ CSharpHost/README.md:117-119（配置表三行，无该键）",
+  "evidence_ref": "证据-一致-002.md",
+  "suggested_fix": "在 design.md 的 D9 节、editor-window-panel 的 MODIFIED 壳要求、tasks 3.2 三处写死同一个默认值并注明依据（照 CASCADED_EDITOR_PANEL_WIDTH=320 先例的选型，或先向用户确认），CSharpHost/README.md 配置表按该值登记；tasks 5.5 的验收改成「README 的默认值与范围字符串和 design.md 逐字相等」并给出 grep 的期望字符串；tasks 3.3 的期望矩形用同一常量写死，禁止从读数行取 dock 矩形当期望。"
+}

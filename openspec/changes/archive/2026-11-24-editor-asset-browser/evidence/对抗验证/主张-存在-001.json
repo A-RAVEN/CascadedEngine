@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-001",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "status": "已修复（22:35 快照；tasks.md 修订记录第 12 条采纳）",
+  "artifact": "openspec/changes/editor-asset-browser/design.md；openspec/changes/editor-asset-browser/tasks.md",
+  "anchor": "design.md:52「`Directory.EnumerateFiles(root, AllDirectories)`」；tasks.md:17「Directory.EnumerateFiles(AllDirectories)」",
+  "problem": "工件把 C# 的递归枚举写成 `Directory.EnumerateFiles(root, AllDirectories)`（design D3）与 `Directory.EnumerateFiles(AllDirectories)`（tasks 2.3）。`System.IO.Directory` 没有 `(string, SearchOption)` 这个两参重载：现有重载是 `(string)`、`(string, string)`、`(string, string, SearchOption)`（.NET 8 另有 `(string, string, EnumerationOptions)`），照字面写不能编译（CS1501/CS1503 一类）。同一句里的异常名 `DirectoryNotFound` / `UnauthorizedAccess` 也不是真实类型名（真实是 `System.IO.DirectoryNotFoundException` / `System.UnauthorizedAccessException`；`System.IO.IOException` 是真的）。这不是本批新增文件不存在（`AssetDisplay.cs`、`TestEditorAssetBrowser`、`E_ASSET_ROOT` 等属预期新建），而是本批要照抄的接口形态在 .NET 里不存在；按 design D3 的意图改成 `Directory.EnumerateFiles(root, \"*\", SearchOption.AllDirectories)` 即可。",
+  "evidence": "见 `证据-存在-001.md` 的「二、本条主张展开」与「一、全量存在性核对清单」：① `[System.IO.Directory].GetMethods()` 只列出三个 `EnumerateFiles` 重载，`GetMethod('EnumerateFiles', [string],[System.IO.SearchOption])` 返回空（False）；② design.md:52 与 tasks.md:17 原文；③ 类型检查 `System.IO.DirectoryNotFoundException` / `System.UnauthorizedAccessException` / `System.IO.IOException` 存在，`DirectoryNotFound` / `UnauthorizedAccess` 作为类型不存在；④ 其余存在性核对：18 条路径全部 ✓、所列符号全部 ✓、四项读数（--list 22 / CAAssets 145710+293737 / 新锚 221 / CoreTests 26 行）全部 ✓、editor-window-panel 七条 requirement 名全部 ✓、新增符号缺席与「新增」措辞全部 ✓。",
+  "suggestion": "把 design D3 与 tasks 2.3 的调用改成 `Directory.EnumerateFiles(root, \"*\", System.IO.SearchOption.AllDirectories)`（或显式用 `EnumerationOptions`），并把异常名写成 `DirectoryNotFoundException` / `UnauthorizedAccessException` / `IOException`；`FileInfo.Length` / `LastWriteTimeUtc` 的读取也可能抛 `UnauthorizedAccessException` / `IOException`，与 design D3 已要求的 `E_ASSET_ROOT` 捕获面一起写清。只改这两处文档，不放松任何验收判据。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-004",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "tasks 3.3 只泛称「面板矩形/视口区域」「像素读回中心」「改尺寸含两控制器 Bounds」，没有点名实际会被三分区打破的硬编码断言：启动 fill 的 viewportRect.h/panelRect.h == clientHeight（Main.cpp:4802-4803）、改尺寸后的 viewportRect.h == 640 与 680/320（:4977）、set-size 后 capture == 580x560（:5186）、以及 4.1 已勾用例的就绪判据 controller=1/nav=1（:6477-6478）；3.3 也没要求解析 dock 键（启动解析只 ParseRect panel/viewport，:4796-4797），而它把「像素中心仍精确 (255,0,0,255)」当新视口高的证据——该判据按 capture 尺寸取中心，任何高度都红，对高度不敏感。按 3.3 字面改完仍会剩红色断言，或把「三分区铺满」降成只检查两个矩形。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:24；Test/GPUBackendTester/Main.cpp:4588-4615（ReadCaptureCenterRed）、:4796-4803、:4780、:4977、:5186、:6476-6478",
+  "evidence_ref": "证据-影响-004.md",
+  "suggested_fix": "tasks 3.3 逐条点名要改的断言与期望值：4802-4803 改成 panel.x==viewport.w、panel.w+viewport.w==clientWidth、viewport.y==0、dock.y==viewport.h、dock.w==clientWidth、viewport.h==clientHeight−DockHeight、panel.h 同高；4977 的 640 改 640−DockHeight；5186 的 580x560 改 580x(560−DockHeight)；启动解析加 ParseRect(readings.Get(dock)) 并把三矩形铺满写成断言；4.1 的 controller=1/nav=1 明确改成第一控制器字段或同时要求 dockController/dockNav；像素判据保留但注明它不证明高度，另加 capture 高度与 M6 批级矩形作为高度判据。"
+}

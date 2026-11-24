@@ -1,0 +1,32 @@
+﻿# 1.1 / 1.2 / 1.3 协议三处镜像核对（只读检查，执行时间 2026-11-23 23:49:12)
+
+## 错误码（PROTOCOL.md / protocol.ts / EditorProtocol.cs 各七）
+PROTOCOL.md (7): E_PROTOCOL_VERSION, E_UNKNOWN_OBJECT, E_OBJECT_INVALIDATED, E_INVALID_ARG, E_UNDO_EMPTY, E_BAD_MESSAGE, E_ASSET_ROOT
+protocol.ts (7): E_PROTOCOL_VERSION, E_UNKNOWN_OBJECT, E_OBJECT_INVALIDATED, E_INVALID_ARG, E_UNDO_EMPTY, E_BAD_MESSAGE, E_ASSET_ROOT
+EditorProtocol.cs (7): E_PROTOCOL_VERSION, E_UNKNOWN_OBJECT, E_OBJECT_INVALIDATED, E_INVALID_ARG, E_UNDO_EMPTY, E_BAD_MESSAGE, E_ASSET_ROOT
+三处集合一致: True
+
+## 命令集（六条）
+- `command`：`get-object` / `list-objects` / `set-title` / `set-size` / `undo` / `list-assets`。
+export type CommandName = 'get-object' | 'list-objects' | 'set-title' | 'set-size' | 'undo' | 'list-assets';
+"get-object", "list-objects", "set-title", "set-size", "undo", "list-assets",
+
+## AssetEntry 七字段（protocol.ts 逐行）
+nodeId: string;
+path: string;
+kind: string;
+sizeBytes: number;
+modifiedUtc: string;
+registered: boolean;
+children: AssetEntry[];
+
+## PROTOCOL.md 关键 token 计数
+list-assets = 11
+assets-changed = 4
+AssetEntry = 4
+E_ASSET_ROOT = 4
+
+## 版本保持 1
+1: # 编辑器命令协议 v1
+25: { "type": "hello", "protocolVersion": 1 }
+31: { "type": "welcome", "protocolVersion": 1,

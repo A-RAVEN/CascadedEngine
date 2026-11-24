@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-001",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-asset-browser/proposal.md；design.md；tasks.md；specs/editor-asset-browser/spec.md",
+  "anchor": "proposal.md:23「Modified Capabilities（无。…协议 v1 / 线程边界 / 单窗口分栏壳要求不变…）」；design.md:45「根非法/门面未绑用 E_INVALID_ARG 或新增 E_ASSET_ROOT」；tasks.md:9「错误码沿用 E_*」；spec.md:24「既有命令/事件形状 MUST NOT 改动」",
+  "claim": "「本批是 v1 纯加法、editor-window-panel 既有要求不变」不成立：生效规范把命令集与错误码集都写成封闭枚举（命令只有五条；错误码 MUST 限于六条），本批新增 list-assets 已经改变该枚举的语义，design 还允许新增协议错误码 E_ASSET_ROOT；但 proposal 声明 Modified Capabilities 为「无」、tasks 又写「错误码沿用 E_*」，三处互相矛盾，且 E_ASSET_ROOT 在 PROTOCOL.md、protocol.ts、EditorProtocol.cs、生效规范里都没有出处（只在本 change 的 design.md 出现，另有一处同名的是 tester 的失败标签，属另一层）。",
+  "evidence": "证据-溯源-001.md：逐字引文 + 命令与真实输出（生效规范第 36 行、PROTOCOL.md 第 46/98-105 行、protocol.ts 第 44-50 行、EditorProtocol.cs 第 62/66/70 行、E_ASSET_ROOT 全仓 grep）。"
+}

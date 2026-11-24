@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-003",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "assets.html 缺失不会得到明确错误页：ServeStatic 只把 index.html 当门（不存在则任何路径都回 503 说明页），index.html 在而 assets.html 缺时走 WriteResponse(context, 404, text/plain, 找不到资源)，且不写日志；EditorWindow 的导航判据把任何 HttpStatusCode>=100 都当成功（design 又要求第二控制器「与既有控制器同处置」），既有静态页用例只 GET /。于是 dock 页面缺失时：dock 显示纯文本「找不到资源」、编辑器照常 running、两个编辑器用例全绿；spec 场景「bin/editor-web/ 无面板或 dock 资源」在整目录缺失时被 index 门短路，测不到 assets.html 单独缺失。",
+  "location": "openspec/changes/editor-asset-browser/specs/editor-window-panel/spec.md:23、:37-39；openspec/changes/editor-asset-browser/design.md:78；openspec/changes/editor-asset-browser/tasks.md:23（验收里没有资源缺失判据）；Scripting/Managed/Editor/EditorService.cs:1264-1300；Scripting/Managed/Editor/EditorWindow.cs:289-296；Test/GPUBackendTester/Main.cpp:4993-5023",
+  "evidence_ref": "证据-影响-003.md",
+  "suggested_fix": "ServeStatic 按请求路径逐页判资源：缺 assets.html 时返回说明「资产浏览器页面未构建」的错误页（并写日志、只记一次），与 index.html 缺失同一处置；tasks 3.2 加一条可执行验收：临时移走 bin/editor-web/assets.html（保留 index.html）后 GET /assets.html 必须得到说明原因的错误页（状态码可为 503），MUST NOT 是 text/plain 404；同时把导航判据从「HttpStatus>=100 即成功」改成只有 200 才算成功，或至少在读数里单独暴露 dock 的 navHttp 并断言 200。"
+}

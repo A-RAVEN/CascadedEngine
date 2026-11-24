@@ -1,0 +1,280 @@
+Running: TestEditorAssetBrowser
+[38;2;128;128;128m[托管侧] Tick #1：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧 渲染] 后端 + 五张目标类型表已绑定（后端实例 2028293167360）
+[0m[38;2;128;128;128m[托管侧] [脚本] OnEngineReady 调用 #1
+[0m[38;2;128;128;128m[托管侧] [脚本] 建窗：脚本建的窗口 320 x 240
+[0m[38;2;128;128;128m[托管侧] [编辑器] 程序集位置：E:\Projects\CascadedEngine\out\build\x64-debug\bin\Scripting.Managed.dll；AppContext.BaseDirectory=""
+[0m[38;2;128;128;128m[托管侧] [编辑器] 监听线程已启动：http://localhost:18392/（面板宽 320，仅本机；门控 CASCADED_EDITOR=1）
+[0m[38;2;128;128;128m[托管侧] [托管侧] 窗口尺寸 = 640 x 480
+[0m[38;2;128;128;128m[托管侧] [托管侧] IWindowSystem::GetWindowCount = 2
+[0m[38;2;128;128;128m[托管侧] [托管侧] 异常码读数：IWindowException 的 Code = 1001（码表里 1001 = 句柄不可用）
+[0m[38;2;128;128;128m[托管侧] [托管侧] 失败之后紧接着成功调用：640 x 480（没有抛）
+[0m[38;2;128;128;128m[托管侧] [托管侧 GetMonitor] count=0
+[0m[38;2;128;128;128m[托管侧] [托管侧 无效显示器] id=-1 code=1006
+[0m[38;2;128;128;128m[托管侧] [托管侧 无效显示器] id=0 code=1006
+[0m[38;2;128;128;128m[托管侧] [托管侧 目标释放] disposed=ObjectDisposedException borrowedCount=2 ownerCount=2
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #1 回值 1（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #2：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 登记对象 1（kind=window）
+[0m[38;2;128;128;128m[托管侧] [编辑器] scene view 建图：窗口目标 1280x720、视口 960x720、pass=2、present=1（每帧复用同一张图提交）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 窗口已创建（单窗口分栏：视口 960x720 + 面板 320x720，模式 main-thread，hwnd=0x32C1438，windowSelf=0x1D869554A70）
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #2 回值 2（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #3：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=3 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=1 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=6 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #3 回值 3（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #4：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=4 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=2 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=7 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #4 回值 4（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #5：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=5 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=3 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=8 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #5 回值 5（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #6：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=6 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=4 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=9 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #6 回值 6（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #7：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=7 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=5 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=10 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #7 回值 7（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #8：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=8 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=6 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=11 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #8 回值 8（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #9：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=9 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=7 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=12 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #9 回值 9（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #10：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=10 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=8 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=13 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #10 回值 10（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #11：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=11 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=9 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=14 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #11 回值 11（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #12：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=12 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=10 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=15 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #12 回值 12（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #13：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=13 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=11 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=16 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #13 回值 13（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #14：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=14 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=12 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=17 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #14 回值 14（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #15：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=15 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=13 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=18 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #15 回值 15（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #16：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=16 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=14 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=19 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #16 回值 16（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #17：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=17 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=15 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=20 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #17 回值 17（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #18：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=18 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=16 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=21 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #18 回值 18（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #19：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=19 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=17 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=22 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #19 回值 19（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #20：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=20 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=18 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=23 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #20 回值 20（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #21：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=21 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=19 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=24 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #21 回值 21（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #22：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=22 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=20 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=25 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #22 回值 22（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #23：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=23 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=21 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=26 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #23 回值 23（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #24：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=24 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=22 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=27 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #24 回值 24（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #25：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=25 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=0 nav=0 navHttp=0 exec=23 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=28 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #25 回值 25（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #26：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=26 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=24 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=29 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #26 回值 26（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #27：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=27 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=25 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=30 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #27 回值 27（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #28：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=28 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=26 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=31 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #28 回值 28（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #29：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=29 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=27 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=32 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #29 回值 29（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #30：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=30 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=28 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=33 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #30 回值 30（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #31：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=31 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=29 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=34 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #31 回值 31（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 面板静态根：E:\Projects\CascadedEngine\out\build\x64-debug\bin\editor-web
+[0m[38;2;128;128;128m[托管侧] Tick #32：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=32 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=30 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=35 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #32 回值 32（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #33：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=33 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=31 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=36 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #33 回值 33（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #34：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=34 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=32 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=37 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #34 回值 34（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #35：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=35 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=33 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=38 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #35 回值 35（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #36：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=36 state=running mode=main-thread port=18392 clients=0 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=34 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=39 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #36 回值 36（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 客户端 #2 已连接（[::1]:57388）
+[0m[38;2;128;128;128m[托管侧] Tick #37：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=37 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=0 navHttp=0 exec=35 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=40 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #37 回值 37（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #38：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 面板导航完成：IsSuccess=1 HttpStatus=200（HTTP 错误页也算导航成功）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=38 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=36 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=43 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #38 回值 38（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #39：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=1 command=list-assets
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=39 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=37 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=44 cmdRequest=0 cmdCalls=0 lastCmd=- error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #39 回值 39（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #40：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧 编辑器] 资源注册表门面已绑定（编号 13，实例 2028991459472）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=40 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=38 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=49 cmdRequest=1 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #40 回值 40（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #41：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=41 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=39 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=50 cmdRequest=1 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #41 回值 41（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] 启动读数：objects=1 controller=1 nav=1 exec=39 cmdRequest=1 cmdCalls=4
+[0m[38;2;128;128;128m[托管侧] Tick #42：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=42 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=40 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=51 cmdRequest=1 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #42 回值 42（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #43：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=43 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=41 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=52 cmdRequest=1 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #43 回值 43（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #44：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=44 state=running mode=main-thread port=18392 clients=1 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=42 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=53 cmdRequest=1 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #44 回值 44（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] 面板前端初始 list-assets：已观察到并入队
+[0m[38;2;128;128;128m[托管侧] [编辑器] 客户端 #3 已连接（127.0.0.1:57389）
+[0m[38;2;128;128;128m[托管侧] Tick #45：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=45 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=43 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=56 cmdRequest=1 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #45 回值 45（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] 握手完成：welcome 的 protocolVersion=1
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=201 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #46：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=46 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=44 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=61 cmdRequest=201 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #46 回值 46（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=Assets/Registered.tex kind=texture size=142 modified=2024-03-04T05:06:07.0000000Z registered=true
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=ShaderLibraries/Browser.shLib kind=shader-library size=377 modified=2024-02-01T12:34:56.0000000Z registered=false
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=Docs/Notes.txt kind=file size=21 modified=2023-12-31T23:59:58.0000000Z registered=false
+[0m[38;2;128;128;128m[资产浏览器 测试] ① 第一次枚举：3 条预置文件七项全对（含 registered 真/假与未知扩展名 kind=file）
+[0m[38;2;128;128;128m[资产浏览器 测试] ⑤ 线程归因：requestId=201 那一帧 cmdCalls=4（= 1 + 3），mode=main-thread
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=202 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #47：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=47 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=45 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=66 cmdRequest=202 cmdCalls=4 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #47 回值 47（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=203 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #48：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 资产变化：新增 1、移除 0 条（已广播 assets-changed）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=48 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=46 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=72 cmdRequest=203 cmdCalls=5 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #48 回值 48（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=2 command=list-assets
+[0m[38;2;128;128;128m[资产浏览器 测试] ② 刷新可见新增：条目 3 → 4，assets-changed added=1 removed=0（无 objectId）
+[0m[38;2;128;128;128m[资产浏览器 测试] ② 第二次枚举的 requestId=203（事件绑定这次枚举，不是首次）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=204 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #49：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 资产变化：新增 0、移除 4 条（已广播 assets-changed）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=49 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=47 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=75 cmdRequest=204 cmdCalls=1 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #49 回值 49（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=3 command=list-assets
+[0m[38;2;128;128;128m[资产浏览器 测试] ③ 空根：ok=true 且 assets 为空数组（合法空态，不是错误）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=205 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #50：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] list-assets 失败（requestId=3）：资产根不可用：目录不存在（"C:/<>|/CascadedAssetBrowser"）
+[0m[38;2;128;128;128m[托管侧] [编辑器] list-assets 失败（requestId=205）：资产根不可用：目录不存在（"C:/<>|/CascadedAssetBrowser"）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=50 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=48 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=78 cmdRequest=205 cmdCalls=1 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #50 回值 50（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 根非法：requestId=205 → E_ASSET_ROOT（资产根不可用：目录不存在（"C:/<>|/CascadedAssetBrowser"））
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=206 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #51：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] list-assets 失败（requestId=206）：资产根不可用：目录不存在（"C:/Users/76956/AppData/Local/Temp/CascadedAssetBrowser_d3d12/NoSuchSubdirectory"）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=51 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=49 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=80 cmdRequest=206 cmdCalls=1 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #51 回值 51（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 目录不存在：requestId=206 → E_ASSET_ROOT（资产根不可用：目录不存在（"C:/Users/76956/AppData/Local/Temp/CascadedAssetBrowser_d3d12/NoSuchSubdirectory"））
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=207 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #52：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] list-assets 失败（requestId=207）：资产根不可用：资源根为空串（门面_GetResourceRootPath_返回空）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=52 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=50 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=82 cmdRequest=207 cmdCalls=1 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #52 回值 52（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 根空串：requestId=207 → E_ASSET_ROOT（资产根不可用：资源根为空串（门面 GetResourceRootPath 返回空））
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=208 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #53：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] list-assets 失败（requestId=208）：资产根不可用：自检开关_CASCADED_EDITOR_SELFTEST=no-facade：跳过资源注册表门面绑定
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=53 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=51 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=83 cmdRequest=208 cmdCalls=0 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #53 回值 53（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 门面未绑：requestId=208 → E_ASSET_ROOT（资产根不可用：自检开关 CASCADED_EDITOR_SELFTEST=no-facade：跳过资源注册表门面绑定）
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 失败面四条全部回 E_ASSET_ROOT 且都有 result（没有静默挂起）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=209 command=list-assets
+[0m[38;2;128;128;128m[托管侧] Tick #54：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 资产变化：新增 4、移除 0 条（已广播 assets-changed）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=54 state=running mode=main-thread port=18392 clients=2 objects=1 invalidated=0 shellClosed=0 windowSelf=2028991761008 client=1280x720 panel=960,0,320,720 viewport=0,0,960,720 controller=1 nav=1 navHttp=200 exec=52 capture=960x720 graphSelf=2028343229600 captureSelf=2028931250320 wtarget=1280x720 passes=2 presents=1 nativeCalls=89 cmdRequest=209 cmdCalls=5 lastCmd=list-assets error=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #54 回值 54（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 命令已入队（监听线程）：requestId=4 command=list-assets
+[0m[38;2;128;128;128m[资产浏览器 测试] 恢复：清掉 no-facade 后枚举重新 ok（4 条）
+[0m[38;2;128;128;128m[托管侧] Tick #55：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 已关闭（测试请求停止（CASCADED_EDITOR_STOP=1））：监听已停、客户端已断、WebView2 控制器已关闭
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #55 回值 55（引擎侧计数与之一致）
+[0m[38;2;128;128;128mTestEditorAssetBrowser 通过：① 七项逐条一致 + ② 刷新新增与 assets-changed + ③ 空根空数组 + ④ 四种根不可用各 E_ASSET_ROOT 不挂起 + ⑤ 门面调用主线程归因 全部满足
+[0m

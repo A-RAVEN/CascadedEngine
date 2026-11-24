@@ -1,0 +1,23 @@
+﻿# 5.5 对外文档 dock 增量核对（只读检查，2026-11-24 01:23:40）
+
+## ① PROTOCOL.md §5 红绿 grep
+全文「资产区」出现次数（红态防喂绿，期望 0）: 0
+§5 起「底部」出现次数: 2
+§5 起「dock」出现次数: 5
+
+② CSharpHost/README.md：三处旧布局事实已改 + 两张配置表
+CASCADED_EDITOR_DOCK_HEIGHT 命中: 2
+CASCADED_EDITOR_ASSET_ROOT 命中: 2
+no-dock-controller 命中: 2
+capture-dock 命中: 2
+「单窗口分栏」残留（期望 0）: 0
+「面板矩形 (客户区宽-面板宽」残留（期望 0）: 0
+
+③ EditorWeb/README.md
+assets.html 命中: 4
+assets.ts 命中: 3
+底部 命中: 2
+dock 命中: 5
+
+④ docs/testing.md 三分区说明
+49: `TestEditorWindowPanel` 由 editor-window-panel 加入（**第 18 条，全量

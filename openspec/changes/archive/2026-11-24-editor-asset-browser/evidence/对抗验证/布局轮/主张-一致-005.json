@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-005",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "claim": "tasks 3.3 要求把布局断言改成「视口高 = ClientHeight − DockHeight」，而 tasks.md 开头的验收口径是「期望值写死、不从被测物推导」；但既有 TestEditorWindowPanel 是把视口高写死成客户区高（`viewportRect.h != clientHeight || panelRect.h != clientHeight`，改尺寸后 `viewportRect.h != 640`），测试既不设也不清 `CASCADED_EDITOR_DOCK_HEIGHT`（环境守卫只清 6 个键），面板宽的期望值 320 恰好来自 README 登记的默认值——先例就是「把默认值写死」。dock 高没有登记默认值（见主张-一致-002），3.3 就写不出期望视口高，只能从读数行取 dock 矩形自比，撞上测试文件自带的既判例「不要拿被测物自己的读数当期望（那样判据永真）」。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:24「……视口高=ClientHeight−DockHeight……改尺寸同步断言含两控制器 Bounds」与同文件 :3「期望值写死、不从被测物推导」 ／ Test/GPUBackendTester/Main.cpp:4803「viewportRect.h != clientHeight || panelRect.h != clientHeight」、:4977「if (viewportRect.w != 680 || panelRect.x != 680 || panelRect.w != 320 || viewportRect.h != 640)」、:4657-4662（守卫只清 CASCADED_EDITOR / PORT / PANEL_WIDTH / WEBVIEW2_DATA / STOP / READINGS_FILE 六个键）、:6226「而不是拿被测物自己的读数当期望（那样判据永真）」",
+  "evidence_ref": "证据-一致-005.md",
+  "suggested_fix": "tasks 3.3 明确写死期望值来源：测试进程设 `CASCADED_EDITOR_DOCK_HEIGHT=<固定值>`、守卫清理该键，并给出写死的期望矩形（例如 client=1000x640、dock=(0,640−D,1000,D)、viewport=(0,0,680,640−D)、panel=(680,0,320,640−D)）；同时把「读数行含 dock 矩形」列进 3.3 的断言清单（spec 场景要求读数行 MUST 含面板矩形、视口区域与 dock 矩形），不要只由 3.2 的实现描述承担。若选择靠默认值写死，默认值必须先按主张-一致-002 钉死。"
+}

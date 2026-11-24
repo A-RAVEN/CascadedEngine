@@ -1,0 +1,9 @@
+{
+  "id": "主张-溯源-002",
+  "face": "无中生有",
+  "severity": "misleading",
+  "claim": "「照 CASCADED_EDITOR_PANEL_WIDTH 先例 EditorService.cs:61/344」只覆盖了先例的一半：:61 是默认值常量 320，:344 的 TryReadPanelWidth 只校验「< 1」；范围上界「1..客户区宽-1」与越界处置（Fail 并禁用编辑器）实际在 EditorWindow.cs:248-251，工件没有引这处。dock 高沿用「1..客户区高−1」时，上界从哪里来、越界后是禁用还是裁剪，在工件里没有出处；再叠加默认值缺口：dock 高默认值在五份工件与 CSharpHost/README.md 配置表里都没有数字（git 全历史 -S 零命中），而「照先例」补不出这个数——先例的 320 是产品既有常量（DefaultPanelWidth），dock 没有对应常量，实现在 tasks 3.2 只能自造一个数。（默认值缺失本身已由 一致-002 主张；本条只主张先例引用不含范围上界与越界处置，且先例无法为 dock 提供默认值来源。）",
+  "location": "openspec/changes/editor-asset-browser/design.md:76 逐字：「**dock 高可配**：`CASCADED_EDITOR_DOCK_HEIGHT`（默认值与范围 1..客户区高−1 登记 CSharpHost/README 配置表，照 `CASCADED_EDITOR_PANEL_WIDTH` 先例 EditorService.cs:61/344；运行期固定，无拖拽分隔条——拖拽调高留后续）。」；tasks.md:23 逐字：「新增 dock 高可配 `CASCADED_EDITOR_DOCK_HEIGHT`（默认值+范围 1..客户区高−1，照 CASCADED_EDITOR_PANEL_WIDTH 先例 EditorService.cs:61/344，**CSharpHost/README 配置表登记**）」；Scripting/Managed/Editor/EditorService.cs:61 逐字：「internal const int DefaultPanelWidth = 320;」；:353-354 逐字：「if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out s_panelWidth) || s_panelWidth < 1)」；Scripting/Managed/Editor/EditorWindow.cs:248-251 逐字：「if (m_ConfiguredPanelWidth < 1 || m_ConfiguredPanelWidth >= clientWidth) { Fail(\"CASCADED_EDITOR_PANEL_WIDTH=\" + m_ConfiguredPanelWidth + \" 超出范围（1..客户区宽-1=\" + (clientWidth - 1) + \"）\"); return; }」",
+  "evidence_ref": "证据-溯源-002.md",
+  "suggested_fix": "① 把先例引用补全成两处并写明行为：默认值+下界在 EditorService.cs:61/353-354（读取即校验），上界与越界处置在 EditorWindow.cs:248-251（Fail、禁用编辑器、不 clamp）；② dock 高默认值写成一个具名常量并注明来源（要么向用户取一个数、要么照 DefaultPanelWidth 的 320 定为 320 并写明「沿用面板宽默认值」这一依据），同时写进 CSharpHost/README 配置表与 tasks 3.3 的期望矩形；③ 明确「窗口缩小到 dock 高越界」的处置与面板先例一致（显式禁用，不静默裁剪）。"
+}

@@ -43,16 +43,18 @@
 
 - `requestId`：整数，由客户端分配，连接内不要求唯一，但客户端应保证在收到对应结果前不重复，否则
   结果无法区分。服务端原样回填。
-- `command`：`get-object` / `list-objects` / `set-title` / `set-size` / `undo`。
+- `command`：`get-object` / `list-objects` / `set-title` / `set-size` / `undo` / `list-assets`。
 - `objectId`：对象编号。对象作用域命令（`get-object` / `set-title` / `set-size` / `undo`）必填；
-  `list-objects` 不使用该字段（缺省即可，给了也被忽略）。
+  **非对象作用域命令**（`list-objects` / `list-assets`）不使用该字段（缺省即可，给了也被忽略）。
 - `args`：
   - `get-object`：无（可省略）。
   - `list-objects`：无（可省略）。
+  - `list-assets`：无（可省略）—— 资产枚举不接受参数：根路径来自资源注册表门面，没有分页/过滤参数。
   - `set-title`：`{ "title": <string> }`。
   - `set-size`：`{ "width": <int>, "height": <int> }`，两者都必须 **> 0**；宽度还必须是
-    **视口宽**（即 `宽度 > 面板宽`，面板宽默认 320、`CASCADED_EDITOR_PANEL_WIDTH` 可配），否则
-    `E_INVALID_ARG`（杜绝视口宽 ≤ 0）。
+    **视口宽**（即 `宽度 > 面板宽`，面板宽默认 320、`CASCADED_EDITOR_PANEL_WIDTH` 可配），高度必须
+    **> dock 高**（即 `高度 > 底部资产浏览器 dock 的高`，dock 高默认 240、`CASCADED_EDITOR_DOCK_HEIGHT`
+    可配），否则 `E_INVALID_ARG`（杜绝视口宽 ≤ 0 或视口高 = 高 − dock 高 ≤ 0）。
   - `undo`：无（可省略）。
 
 ### 2.4 S→C `result`
@@ -79,8 +81,10 @@
 | `set-title` | `{ "object": { id, title, width, height } }`（执行后的状态） |
 | `set-size` | `{ "object": { id, title, width, height } }`（执行后的状态） |
 | `undo` | `{ "object": { id, title, width, height } }`（撤销后的状态） |
+| `list-assets` | `{ "assets": [ AssetEntry, ... ] }`（条目形状见 2.6；目录存在但无文件时为空数组） |
 
 对象快照 `object` 的字段类型：`id`、`width`、`height` 为整数，`title` 为字符串。
+资产条目 `AssetEntry` 的字段与取值范围见 2.6。
 
 ### 2.5 S→C `event`
 
@@ -88,10 +92,46 @@
 { "type": "event", "event": "object-changed", "objectId": 1, "fields": { "title": "新标题" } }
 ```
 
+- `objectId`：`object-changed` / `object-invalidated` **必填**；`assets-changed` **不带该字段**（资产
+  变化不是某个对象的变化，客户端不得因缺 `objectId` 而拒绝这条事件）。
 - `object-changed`：`fields` 只含本次变化的字段（`title` / `width` / `height` 的子集）。来源：命令
   执行成功，或窗口尺寸回调（外部改窗口尺寸）。`undo` 重放也产生它。
 - `object-invalidated`：`fields` 为空对象 `{}`。对象已移出注册表；此后同编号命令回
   `E_OBJECT_INVALIDATED`。
+- `assets-changed`：广播给所有已连接客户端，`fields` 为 `{ "added": <int>, "removed": <int> }` ——
+  本次资产枚举相对**上一次枚举快照**的条目增删数（按 `path` 比对；首次枚举没有上一条快照，不发该
+  事件）。来源：某次 `list-assets` 枚举发现与上次快照有差异（v1 没有文件监听定时器，不主动轮询）。
+  客户端收到后应重发 `list-assets` 重拉列表；`added` / `removed` 只用于提示"有变化"，不携带条目本体。
+
+```json
+{ "type": "event", "event": "assets-changed", "fields": { "added": 1, "removed": 0 } }
+```
+
+### 2.6 资产条目 `AssetEntry`
+
+`list-assets` 的 `value.assets` 里每一项的形状（字段名区分大小写，七个字段全部必填）：
+
+```json
+{ "nodeId": "CSharpProbe/Probe.tex", "path": "CSharpProbe/Probe.tex", "kind": "texture",
+  "sizeBytes": 142, "modifiedUtc": "2024-03-04T05:06:07.0000000Z", "registered": true,
+  "children": [] }
+```
+
+| 字段 | 类型 | 取值 |
+|---|---|---|
+| `nodeId` | string | 稳定条目编号。**v1 = `path` = 相对资源根的正斜杠路径**（见下）；v2 溯源落地后仍保持稳定 |
+| `path` | string | 相对资源根的正斜杠路径（例：`CSharpProbe/Probe.tex`） |
+| `kind` | string | 种类（由扩展名映射，大小写不敏感）：`.shLib`→`shader-library`、`.tex`→`texture`、`.mesh`→`mesh`、`.res`→`resource`、其它→`file` |
+| `sizeBytes` | int | 文件字节数（`FileInfo.Length`，非负整数） |
+| `modifiedUtc` | string | 修改时间，**ISO 8601 UTC**（`FileInfo.LastWriteTimeUtc` 的 `"o"` 格式，例：`2024-03-04T05:06:07.0000000Z`） |
+| `registered` | bool | 该路径在资源注册表里**已有条目**（门面 `HasResource(path)` 读数）；未注册的文件同样列出，只是本字段为 `false` |
+| `children` | AssetEntry[] | 子条目。**v1 恒为空数组**；为 v2 的程序集展开 / 衍生物归组预留（届时父条目在 `children` 里挂子条目，`nodeId` 仍稳定） |
+
+约定：
+
+- 资产枚举只做**只读**：不导入、不改文件、不注册/释放资源条目。
+- 目录存在但无文件 = 合法空态：`ok=true` 且 `assets` 为空数组；门面未绑、根为空串、根目录不存在、
+  枚举 IO 错误 = `ok=false` 且错误码 `E_ASSET_ROOT`（**不得**用空数组冒充成功）。
 
 ## 3. 错误码
 
@@ -103,6 +143,7 @@
 | `E_INVALID_ARG` | 参数非法：`set-size` 的宽或高 ≤ 0、宽 ≤ 面板宽、类型不是整数；`set-title` 的 `title` 不是字符串 | 否（零原生调用） |
 | `E_UNDO_EMPTY` | `undo` 时该对象撤销槽为空 | 否（零原生调用） |
 | `E_BAD_MESSAGE` | 形状错误：不是 JSON 对象、缺 `type`、未知 `type`、缺 `requestId`、未知 `command`、缺必需 `objectId`、`args` 形状不符 | 否（零原生调用） |
+| `E_ASSET_ROOT` | 资产根不可用：资源注册表门面未绑定、根路径为空串、根目录不存在、枚举 IO 错误（含读文件信息失败）、门面底层抛错（错误码 1014）。`message` 必须点名是哪一种原因 | 是（`list-assets` 的枚举在引擎主线程命令执行内完成；错误在该 `requestId` 的结果里回） |
 
 约定：
 
@@ -110,6 +151,8 @@
   客户端分配的 `requestId` 应 ≥ 1）。
 - 形状错误在任何引擎调用之前判定：被 `E_BAD_MESSAGE` / `E_INVALID_ARG` / `E_UNKNOWN_OBJECT` /
   `E_OBJECT_INVALIDATED` 拒绝的命令，引擎绑定调用次数增量为 **0**（原生调用计数器读数为判据）。
+- `E_ASSET_ROOT` 的错误**必须在处理内产生并回到该 `requestId`**：不许让枚举异常穿出到引擎外侧的
+  兜底捕获（那会让客户端收不到任何 `result` 而静默挂起）。
 - 同一连接内错误不关闭连接（`E_PROTOCOL_VERSION` 与二进制帧除外）。
 
 ## 4. 对象与撤销语义
@@ -124,9 +167,17 @@
 
 ## 5. 与面板 UI 的对应
 
-面板控件与命令一一对应：连接状态 → `hello`/`welcome`；标题编辑+应用 → `set-title`；宽高编辑+应用 →
-`set-size`；撤销按钮 → `undo`；事件日志 → `event`；失效横幅 → `object-invalidated`（此后禁用输入）。
-面板启动时先发 `hello`，用 `welcome.objects` 渲染初始值。
+**右侧对象检查器**（`index.html` + `main.ts`）的控件与命令一一对应：连接状态 → `hello`/`welcome`；
+标题编辑+应用 → `set-title`；宽高编辑+应用 → `set-size`；撤销按钮 → `undo`；事件日志 → `event`；
+失效横幅 → `object-invalidated`（此后禁用输入）。面板启动时先发 `hello`，用 `welcome.objects` 渲染初值。
+
+**底部通栏资产浏览器 dock**（`assets.html` + `assets.ts`，editor-asset-browser）：这是**独立面板单元**
+——底部通栏的第二块 WebView2 由编辑器服务的第二个控制器加载，与右侧对象检查器分离（仍同一个原生壳
+窗口）。dock 内标题 + 表格 → `list-assets`（`value.assets` 渲染五行：路径 / 种类 / 大小 / 修改时间 /
+已注册）；点**刷新**按钮 → 重发 `list-assets` 重拉；收到 `assets-changed` 事件 → 重发 `list-assets`
+重拉（事件只提示有变化，条目本体靠重拉取）；空根（`assets` 为空数组）→ dock 显示空态文案，不是报错；
+`E_ASSET_ROOT` → dock 显示错误码与该消息并保留表格外的错误提示（不得显示成空列表）。dock 高由
+`CASCADED_EDITOR_DOCK_HEIGHT` 配置（默认 240，运行期固定）。
 
 ## 6. 示例往返
 

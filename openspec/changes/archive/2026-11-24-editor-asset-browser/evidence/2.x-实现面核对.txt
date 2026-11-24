@@ -1,0 +1,95 @@
+﻿# 2.1 / 2.2 / 2.3 / 2.4 实现面只读核对（执行时间 2026-11-23 23:50:23）
+
+## 核心接口与生成器零改动（git status 里不应出现这些路径）
+M CSharpHost/README.md
+ M EditorWeb/index.html
+ M EditorWeb/src/main.ts
+ M EditorWeb/src/protocol.ts
+ M Scripting/Managed/Editor/EditorProtocol.cs
+ M Scripting/Managed/Editor/EditorService.cs
+ M Scripting/Managed/Editor/PROTOCOL.md
+ M Scripting/Managed/Host.cs
+ M Test/GPUBackendTester/Main.cpp
+ M docs/ROADMAP.md
+ M docs/testing.md
+?? .dsh-acl-recovery/
+?? Scripting/Managed/Editor/AssetDisplay.cs
+?? openspec/changes/editor-asset-browser/
+
+## 禁改路径命中检查
+Interface/ScriptHost/header/ScriptHost/IResourceRegistry.h 命中=0
+GeneralResources/header/CAResource/IResource.h 命中=0
+Tools/CodeGen 命中=0
+Scripting/Managed/obj 命中=0
+
+## 2.1 Host.cs 门面绑定助手
+1167: private static string s_editorResourceFacadeError = string.Empty;
+1170: internal static string EditorResourceFacadeError =>
+1171: s_editorResourceFacadeError.Length == 0 ? "资源注册表门面未绑定" : s_editorResourceFacadeError;
+1176: /// 自检开关 `CASCADED_EDITOR_SELFTEST=no-facade` 时**每次调用都跳过绑定**并返回 null，供
+1179: /// 回归在两个配置下都要能跑这条失败面，值必须逐字等于 `no-facade` 才生效。
+1181: internal static IResourceRegistry EnsureEditorResourceFacade()
+1187: if (Environment.GetEnvironmentVariable("CASCADED_EDITOR_SELFTEST") == "no-facade")
+1189: s_editorResourceFacadeError = "自检开关 CASCADED_EDITOR_SELFTEST=no-facade：跳过资源注册表门面绑定";
+1202: s_editorResourceFacadeError = "资源注册表门面取不到：引擎函数表还没绑定（Boot 未完成）";
+1206: uint facadeId = EngineApiBindings.CsScript__ResourceRegistryInterfaceId;
+1210: s_editorResourceFacadeError =
+1213: LogLine("[托管侧 编辑器] " + s_editorResourceFacadeError);
+1222: s_editorResourceFacadeError =
+1225: LogLine("[托管侧 编辑器] " + s_editorResourceFacadeError);
+1230: s_editorResourceFacadeError = string.Empty;
+
+## 2.2 AssetDisplay.cs（IDisplayProvider / 默认提供者 / 种类映射）
+66: internal interface IDisplayProvider
+72: internal sealed class DefaultFileDisplayProvider : IDisplayProvider
+99: internal static class AssetDisplayProviders
+101: internal const string FileKind = "file";
+110: [".shlib"] = "shader-library",
+111: [".tex"] = "texture",
+112: [".mesh"] = "mesh",
+113: [".res"] = "resource",
+
+## 2.3 EditorService：list-assets 分发 + NoteNativeCall + 异常捕获面
+414: NoteNativeCall();
+416: NoteNativeCall();
+527: NoteNativeCall();
+529: catch (ObjectDisposedException)
+674: if (command.Name == "list-assets")
+787: catch (ObjectDisposedException)
+835: catch (DirectoryNotFoundException ex)
+839: catch (UnauthorizedAccessException ex)
+843: catch (IOException ex)
+847: catch (IResourceRegistryException ex)
+851: catch (ArgumentException ex)
+855: catch (NotSupportedException ex)
+860: catch (ObjectDisposedException ex)
+887: // 根空串先判空、目录不存在先 Directory.Exists 判：两条都在把路径交给 Directory.EnumerateFiles
+889: string root = registry.GetResourceRootPath();
+890: NoteNativeCall();
+902: foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+916: NoteNativeCall();
+1008: NoteNativeCall();
+1011: catch (ObjectDisposedException)
+1037: NoteNativeCall();
+1042: catch (ObjectDisposedException)
+1077: NoteNativeCall();
+1087: NoteNativeCall();
+1091: NoteNativeCall();
+1142: catch (ObjectDisposedException)
+
+## 2.4 assets-changed：快照比对面
+110: private static HashSet<string> s_lastAssetPaths;
+294: s_lastAssetPaths = null;
+832: BroadcastAssetsChangedIfNeeded(assets);
+943: private static void BroadcastAssetsChangedIfNeeded(List<AssetEntry> assets)
+950: if (s_lastAssetPaths != null)
+956: if (!s_lastAssetPaths.Contains(path))
+961: foreach (string path in s_lastAssetPaths)
+970: Broadcast(EditorProtocol.BuildAssetsChangedEvent(added, removed));
+975: s_lastAssetPaths = current;
+
+## 1.3 EditorProtocol：命令表 / 错误码常量 / 两个 Build 助手
+71: internal const string ErrorAssetRoot = "E_ASSET_ROOT";
+75: "get-object", "list-objects", "set-title", "set-size", "undo", "list-assets",
+309: internal static string BuildAssetsResult(int requestId, IEnumerable<AssetEntry> assets)
+329: internal static string BuildAssetsChangedEvent(int added, int removed)

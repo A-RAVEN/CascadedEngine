@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-004",
+  "face": "验收可失败性",
+  "severity": "blocking",
+  "claim": "4.2 除预期行外的三项观察都不能变红：「空根空态截图」在交互模式没有构造路径（资源根固定为 <项目根>/CAAssets，全仓零个覆盖开关），「点 #refresh-assets 观测列表刷新」在文件集不变时前后画面相同，PrintWindow 抓 WebView2 在仓库里零实现、截图脚本只有屏幕像素模式、上批视觉证据是置前屏抓——三项都可以「做了但什么都没证明」。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:29 逐字：「**另截空根空态**（临时空根）核对空态文案；**点 #refresh-assets 观测列表刷新**」与「**用 PrintWindow 按 HWND 抓窗（被挡也能抓，MUST NOT 置前/最小化/移动用户窗口，AGENTS §2 2026-11-24 用户明令禁止前置窗口）**」；Test/GPUBackendTester/Main.cpp:9812 逐字：「ctx.assetPath = (rootPath / \"CAAssets\").string();」，:9886 逐字：「ctx.pResourceManagingSystem->SetResourceRootPath(ctx.assetPath);」。",
+  "evidence_ref": "证据-验收-004.md",
+  "suggested_fix": "① 给交互实例一个资源根覆盖开关（例如 CASCADED_EDITOR_RESOURCE_ROOT）并在启动日志里打印实际根；或把空态步骤写成「把 CAAssets 下 5 个文件移到临时目录 → 截图空态 → 移回 → 逐文件核对大小/时间恢复」，附恢复判据；② 刷新前先放一个临时文件（如 CSharpProbe/RefreshProbe.res），点刷新后截图必须多出这一行，再删掉并核对列表恢复；③ 先实测 PrintWindow 能否抓 WebView2 dock 画面并把结果写进 evidence，抓不到就明确允许 capture.ps1 -Mode full 抓当前桌面并要求编辑器窗口未被遮挡，不许把未验证的方法写成 MUST。"
+}

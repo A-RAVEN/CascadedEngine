@@ -20,6 +20,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Scripting.Generated.Bindings.Cawindow;
+using Scripting.Generated.Bindings.CsScript;
 
 namespace Scripting.Managed.Editor
 {
@@ -58,6 +59,11 @@ namespace Scripting.Managed.Editor
     {
         internal const int DefaultPort = 18390;
         internal const int DefaultPanelWidth = 320;
+        // 底部资产浏览器 dock 的默认高（design D9 / 照 DefaultPanelWidth 先例）：配置项默认值，
+        // CASCADED_EDITOR_DOCK_HEIGHT 可配（范围 1..客户区高-1，上界在 ApplyLayout 校验并越界禁用）。
+        // 240 的依据：够显资产表头 + 5 行预置资产（VulkanShaderLibrary.shLib / D3D12ShaderLibrary.shLib /
+        // CSharpProbe/*.res 三行探针残留），且给场景视口留下 720-240=480 的高度。
+        internal const int DefaultDockHeight = 240;
         // 窗口初始尺寸：布局默认值（不是配置项、不是上下限；够放面板与视口，测试与人工目检都用它）。
         private const int InitialWindowWidth = 1280;
         private const int InitialWindowHeight = 720;
@@ -67,6 +73,7 @@ namespace Scripting.Managed.Editor
         private static bool s_started;
         private static int s_port;
         private static int s_panelWidth;
+        private static int s_dockHeight;
         private static int s_tick;
         private static string s_error = string.Empty;
         private static string s_dataFolder = string.Empty;
@@ -103,6 +110,12 @@ namespace Scripting.Managed.Editor
 
         private static bool s_staticErrorLogged;
         private static bool s_staticRootLogged;
+        // dock 页面缺失只写一行日志（与上面的面板资源缺失分开记，两类缺失的原因与处置不同）。
+        private static bool s_dockStaticErrorLogged;
+
+        // 资产浏览（editor-asset-browser）：上次成功枚举的条目路径快照（null = 还没成功枚举过）。
+        // 每次成功枚举与它比对，有增删就广播 assets-changed（design D5：v1 不轮询，差异靠枚举发现）。
+        private static HashSet<string> s_lastAssetPaths;
 
         internal static bool Enabled => Environment.GetEnvironmentVariable("CASCADED_EDITOR") == "1";
         internal static bool Running => s_state == 2;
@@ -188,6 +201,11 @@ namespace Scripting.Managed.Editor
                 Disable("配置非法：" + configError);
                 return;
             }
+            if (!TryReadDockHeight(out configError))
+            {
+                Disable("配置非法：" + configError);
+                return;
+            }
             s_dataFolder = Environment.GetEnvironmentVariable("CASCADED_EDITOR_WEBVIEW2_DATA");
             if (string.IsNullOrEmpty(s_dataFolder))
             {
@@ -221,7 +239,7 @@ namespace Scripting.Managed.Editor
             };
             s_listenerThread.Start();
             Host.LogFromEditor("[编辑器] 监听线程已启动：http://localhost:" + s_port + "/（面板宽 " +
-                               s_panelWidth + "，仅本机；门控 CASCADED_EDITOR=1）");
+                               s_panelWidth + "，dock 高 " + s_dockHeight + "，仅本机；门控 CASCADED_EDITOR=1）");
         }
 
         /// <summary>主动停服务（M11）：停监听、断客户端、join、关控制器与窗口；幂等。</summary>
@@ -286,16 +304,26 @@ namespace Scripting.Managed.Editor
             s_shellClosed = false;
             s_objects.Clear();
             s_invalidated.Clear();
+            s_lastAssetPaths = null;
             s_state = 4;
             LogServiceMarker("[编辑器] 已关闭（" + reason + "）：监听已停、客户端已断、WebView2 控制器已关闭");
         }
 
         private static void Disable(string reason)
         {
+            int stateBefore = s_state;
             s_error = reason;
             LogServiceMarker("[编辑器] 禁用：" + reason);
             Shutdown("失败禁用");
             s_state = 3;
+            // 启动阶段的禁用（配置非法 / 监听失败 / 建窗失败）发生时，读数泵（state==2 才跑）还没跑过 ——
+            // 用例与客户端只能在日志标记里看到原因，机器可读读数通道的 error 字段是空的。这里补发一行：
+            // 判据要的是"原因点名"（如 CASCADED_EDITOR_DOCK_HEIGHT=0 非法 / 超出范围），不该取决于
+            // 失败发生在哪一帧。state==2 的失败（dock 控制器/导航）那一帧本来就会发一行，不重复发。
+            if (stateBefore < 2)
+            {
+                EmitReadings();
+            }
         }
 
         /// <summary>
@@ -353,6 +381,29 @@ namespace Scripting.Managed.Editor
             return true;
         }
 
+        /// <summary>
+        /// 读 dock 高（design D9）：默认 DefaultDockHeight=240，CASCADED_EDITOR_DOCK_HEIGHT 可配。
+        /// 这里只校"是不是正整数"（与 TryReadPanelWidth 同口径）；上界 1..客户区高-1 在
+        /// EditorWindow.ApplyLayout 里按真实客户区校验并越界禁用（不 clamp）。
+        /// </summary>
+        private static bool TryReadDockHeight(out string error)
+        {
+            error = string.Empty;
+            string text = Environment.GetEnvironmentVariable("CASCADED_EDITOR_DOCK_HEIGHT");
+            if (string.IsNullOrEmpty(text))
+            {
+                s_dockHeight = DefaultDockHeight;
+                return true;
+            }
+            if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out s_dockHeight) ||
+                s_dockHeight < 1)
+            {
+                error = "CASCADED_EDITOR_DOCK_HEIGHT=\"" + text + "\" 非法（要求正整数像素）";
+                return false;
+            }
+            return true;
+        }
+
         // ------------------------------------------------------------------------------------
         // 建窗（1.6）
         // ------------------------------------------------------------------------------------
@@ -371,8 +422,10 @@ namespace Scripting.Managed.Editor
                 return;
             }
             string navigationTarget = "http://localhost:" + s_port + "/";
+            // 底部 dock 的独立页面（editor-asset-browser 3.1 / D6）：与右面板 index.html 分离。
+            string dockNavigationTarget = "http://localhost:" + s_port + "/assets.html";
             EditorWindow window = EditorWindow.Create(s_system, InitialWindowWidth, InitialWindowHeight,
-                s_panelWidth, navigationTarget, s_dataFolder, out string error);
+                s_panelWidth, s_dockHeight, navigationTarget, dockNavigationTarget, s_dataFolder, out string error);
             if (window == null)
             {
                 Disable("创建编辑器窗口失败：" + error);
@@ -383,15 +436,17 @@ namespace Scripting.Managed.Editor
             RegisterWindowCallbacks();
             RegisterObject(window.Window);
             s_scene = new EditorSceneView(backend, window.Window);
-            if (!s_scene.Build(window.ViewportWidth, window.ClientHeight))
+            // D9：初始建图就按三分区的视口高（客户区高 − dock 高），不靠尺寸回调补。
+            if (!s_scene.Build(window.ViewportWidth, window.ViewportHeight))
             {
                 Disable("scene view 建图失败：" + s_scene.LastError);
                 return;
             }
             s_lastLayoutWidth = window.ViewportWidth;
             s_lastLayoutHeight = window.ClientHeight;
-            Host.LogFromEditor("[编辑器] 窗口已创建（单窗口分栏：视口 " + window.ViewportWidth + "x" +
-                               window.ClientHeight + " + 面板 " + window.PanelWidth + "x" + window.ClientHeight +
+            Host.LogFromEditor("[编辑器] 窗口已创建（单窗口三分区：视口 " + window.ViewportWidth + "x" +
+                               window.ViewportHeight + " + 检查器 " + window.PanelWidth + "x" +
+                               window.ViewportHeight + " + dock " + window.ClientWidth + "x" + window.DockHeight +
                                "，模式 main-thread，hwnd=0x" + ((long)window.Hwnd).ToString("X") +
                                "，windowSelf=0x" + s_windowSelf.ToString("X") + "）");
         }
@@ -455,6 +510,12 @@ namespace Scripting.Managed.Editor
             if (s_window.Error.Length != 0)
             {
                 Disable("WebView2 贴附失败：" + s_window.Error);
+                return;
+            }
+            // D9：第二控制器（资产浏览器 dock）有独立的错误通道 —— 第一控制器绿不等于整体绿。
+            if (s_window.DockError.Length != 0)
+            {
+                Disable("资产浏览器 dock 失败：" + s_window.DockError);
             }
         }
 
@@ -587,8 +648,9 @@ namespace Scripting.Managed.Editor
                 Disable("布局同步失败（" + source + "）：" + s_window.Error);
                 return;
             }
+            // D9：场景视口高 = 客户区高 − dock 高（ApplyLayout 已重算两个控制器的 Bounds）。
             if (s_scene != null && !s_shellClosed &&
-                !s_scene.Resize(s_window.ViewportWidth, s_window.ClientHeight))
+                !s_scene.Resize(s_window.ViewportWidth, s_window.ViewportHeight))
             {
                 Disable("scene view 改尺寸重建失败：" + s_scene.LastError);
                 return;
@@ -665,6 +727,14 @@ namespace Scripting.Managed.Editor
                     return;
                 }
 
+                if (command.Name == "list-assets")
+                {
+                    // 非对象作用域命令（PROTOCOL.md 2.3）：不查对象表，直接在**主线程命令执行内**枚举
+                    // 资产根（design D3）。监听线程绝不碰这些门面 / 文件系统调用。
+                    ExecuteListAssets(client, command);
+                    return;
+                }
+
                 if (!TryResolve(command.ObjectId, out EditorObject target, out string errorCode,
                         out string errorMessage))
                 {
@@ -715,6 +785,15 @@ namespace Scripting.Managed.Editor
                             Enqueue(client, EditorProtocol.BuildError(command.RequestId,
                                 EditorProtocol.ErrorInvalidArg, "set-size 的宽度必须大于面板宽 " +
                                                                 s_window.PanelWidth + "（否则视口宽 ≤ 0）"));
+                            return;
+                        }
+                        // D9：高度必须**大于 dock 高**，否则场景视口高 = 高 − dock 高 ≤ 0（三分区没有渲染区）。
+                        // 这条判据在 EditorSceneView 之前拦下：视口非法会走 Disable（整窗禁用），不是参数错误。
+                        if (s_window != null && command.Height <= s_window.DockHeight)
+                        {
+                            Enqueue(client, EditorProtocol.BuildError(command.RequestId,
+                                EditorProtocol.ErrorInvalidArg, "set-size 的高度必须大于 dock 高 " +
+                                                                s_window.DockHeight + "（否则视口高 ≤ 0）"));
                             return;
                         }
                         if (!TryReadSize(target, out int oldWidth, out int oldHeight, out errorCode,
@@ -789,6 +868,176 @@ namespace Scripting.Managed.Editor
             {
                 s_inCommand = false;
             }
+        }
+
+        // ------------------------------------------------------------------------------------
+        // 资产浏览（editor-asset-browser 2.3 / 2.4）
+        // ------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// `list-assets`：门面取根 → 递归枚举 → 逐文件 FileInfo + 扩展名种类 + HasResource → 默认
+        /// 提供者成条目 → 与上次快照比对广播 → 回结果。**全部在主线程命令执行内**；每个门面调用之后
+        /// `NoteNativeCall()`（计入本命令的 s_cmdCalls，供线程边界运行期归因）。
+        ///
+        /// 异常面（design D3）：门面未绑 / 根空串 / 目录不存在 / 枚举与 FileInfo 的 IO 错误 /
+        /// IResourceRegistryException（门面已绑但底层抛，如注册表缺失 1014）/ ArgumentException（非法
+        /// 字符）一律在本方法内转 `E_ASSET_ROOT` 回该 requestId —— **绝不让它穿到 Host.Tick 的外层
+        /// catch**（那会把异常吞成 s_lastError，客户端收不到 result 而静默挂起）。
+        /// </summary>
+        private static void ExecuteListAssets(EditorClient client, EditorCommand command)
+        {
+            try
+            {
+                List<AssetEntry> assets = EnumerateAssets(out string errorMessage);
+                if (assets == null)
+                {
+                    FailListAssets(client, command, errorMessage);
+                    return;
+                }
+                BroadcastAssetsChangedIfNeeded(assets);
+                Enqueue(client, EditorProtocol.BuildAssetsResult(command.RequestId, assets));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                FailListAssets(client, command, "资产根目录不存在（枚举时）：" + ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                FailListAssets(client, command, "资产根没有访问权限：" + ex.Message);
+            }
+            catch (IOException ex)
+            {
+                FailListAssets(client, command, "枚举资产根时 IO 错误：" + ex.Message);
+            }
+            catch (IResourceRegistryException ex)
+            {
+                FailListAssets(client, command, "资源注册表门面报错（错误码 " + ex.Code + "）：" + ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                FailListAssets(client, command, "资产根路径非法：" + ex.Message);
+            }
+            catch (NotSupportedException ex)
+            {
+                // 路径格式不受支持（含冒号位置非法等）：同样是"根不可用"，不许穿出去。
+                FailListAssets(client, command, "资产根路径格式不受支持：" + ex.Message);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                // 防御：门面表面被释放（正常路径不会发生，服务关闭前不释放门面）。
+                FailListAssets(client, command, "资源注册表门面已释放：" + ex.Message);
+            }
+        }
+
+        private static void FailListAssets(EditorClient client, EditorCommand command, string message)
+        {
+            Enqueue(client, EditorProtocol.BuildError(command.RequestId, EditorProtocol.ErrorAssetRoot, message));
+            Host.LogFromEditor("[编辑器] list-assets 失败（requestId=" + command.RequestId + "）：" +
+                               Sanitize(message));
+        }
+
+        /// <summary>
+        /// 枚举资产根。成功返回条目列表（可能为空数组 = 合法空态）；失败返回 null 并给原因文本
+        ///（原因由调用方转 `E_ASSET_ROOT`，这里不抛协议错误）。
+        /// </summary>
+        private static List<AssetEntry> EnumerateAssets(out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            IResourceRegistry registry = Host.EnsureEditorResourceFacade();
+            if (registry == null)
+            {
+                errorMessage = "资产根不可用：" + Host.EditorResourceFacadeError;
+                return null;
+            }
+            // 根空串先判空、目录不存在先 Directory.Exists 判：两条都在把路径交给 Directory.EnumerateFiles
+            // 之前分流（空串 / 部分非法字符会在枚举里抛 ArgumentException）。
+            string root = registry.GetResourceRootPath();
+            NoteNativeCall();
+            if (string.IsNullOrEmpty(root))
+            {
+                errorMessage = "资产根不可用：资源根为空串（门面 GetResourceRootPath 返回空）";
+                return null;
+            }
+            if (!Directory.Exists(root))
+            {
+                errorMessage = "资产根不可用：目录不存在（\"" + root + "\"）";
+                return null;
+            }
+            var entries = new List<AssetEntry>();
+            foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+                if (relative.Length == 0 || relative == ".")
+                {
+                    continue;
+                }
+                // FileInfo 的大小 / 修改时间读取也可能抛 IO 异常（文件被删 / 被独占）：同样由调用方
+                // 转 E_ASSET_ROOT，不静默跳过（跳过会把"少了一条"藏起来）。
+                var info = new FileInfo(file);
+                long sizeBytes = info.Length;
+                string modifiedUtc = info.LastWriteTimeUtc.ToString("o", CultureInfo.InvariantCulture);
+                string kind = AssetDisplayProviders.KindOf(Path.GetExtension(relative));
+                bool registered = registry.HasResource(relative);
+                NoteNativeCall();
+                var context = new AssetContext
+                {
+                    ResourceRoot = root,
+                    RelativePath = relative,
+                    Kind = kind,
+                    SizeBytes = sizeBytes,
+                    ModifiedUtc = modifiedUtc,
+                    Registered = registered,
+                };
+                IReadOnlyList<AssetEntry> described = AssetDisplayProviders.Resolve(kind).Describe(context);
+                if (described == null)
+                {
+                    continue;
+                }
+                entries.AddRange(described);
+            }
+            // 输出顺序必须稳定（枚举顺序由文件系统决定）：按路径序数排序，前端表格与两次快照比对都不
+            // 依赖文件系统的返回顺序。
+            entries.Sort((left, right) => string.CompareOrdinal(left.Path, right.Path));
+            return entries;
+        }
+
+        /// <summary>
+        /// 与上次成功枚举的路径快照比对，有增删就广播 `assets-changed`（fields 只有 added / removed）。
+        /// 首次成功枚举只记快照、不发事件（没有"上一次"可比）；其它客户端收到事件后重发 list-assets。
+        /// </summary>
+        private static void BroadcastAssetsChangedIfNeeded(List<AssetEntry> assets)
+        {
+            var current = new HashSet<string>(StringComparer.Ordinal);
+            foreach (AssetEntry entry in assets)
+            {
+                current.Add(entry.Path);
+            }
+            if (s_lastAssetPaths != null)
+            {
+                int added = 0;
+                int removed = 0;
+                foreach (string path in current)
+                {
+                    if (!s_lastAssetPaths.Contains(path))
+                    {
+                        ++added;
+                    }
+                }
+                foreach (string path in s_lastAssetPaths)
+                {
+                    if (!current.Contains(path))
+                    {
+                        ++removed;
+                    }
+                }
+                if (added != 0 || removed != 0)
+                {
+                    Broadcast(EditorProtocol.BuildAssetsChangedEvent(added, removed));
+                    Host.LogFromEditor("[编辑器] 资产变化：新增 " + added + "、移除 " + removed +
+                                       " 条（已广播 assets-changed）");
+                }
+            }
+            s_lastAssetPaths = current;
         }
 
         private static bool TryResolve(int objectId, out EditorObject target, out string errorCode,
@@ -1097,6 +1346,24 @@ namespace Scripting.Managed.Editor
             if (path == "/")
             {
                 path = "/index.html";
+            }
+            // dock 页面（editor-asset-browser 3.1）：assets.html 单独缺失时**不能**退回 404 纯文本 ——
+            // 返回说明"资产浏览器页面未构建"的错误页并写日志。dock 控制器的导航判据把 4xx/5xx 当失败
+            //（EditorWindow.OnDockNavigationCompleted），于是编辑器明确禁用而不是显示一个空壳 dock。
+            if (path == "/assets.html" && !File.Exists(Path.Combine(root, "assets.html")))
+            {
+                const string dockMessage =
+                    "<!doctype html><meta charset=\"utf-8\"><title>资产浏览器页面未构建</title>" +
+                    "<h1>资产浏览器页面未构建</h1><p>原因：bin/editor-web/assets.html 不存在（缺 node 或构建步被跳过）。</p>" +
+                    "<p>按 EditorWeb/README.md 构建面板（npm ci &amp;&amp; npm run build，然后重新跑 python build.py）。</p>";
+                WriteResponse(context, 503, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(dockMessage));
+                if (!s_dockStaticErrorLogged)
+                {
+                    s_dockStaticErrorLogged = true;
+                    Host.LogFromEditor("[编辑器] 资产浏览器页面缺失：" + root +
+                                       " 下没有 assets.html —— 已返回说明原因的错误页（503），不是静默 404");
+                }
+                return;
             }
             string relative = path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
             string candidate;
@@ -1411,13 +1678,19 @@ namespace Scripting.Managed.Editor
                 " shellClosed=" + (s_shellClosed ? 1 : 0) +
                 " windowSelf=" + s_windowSelf +
                 " client=" + (s_window == null ? "0x0" : s_window.ClientWidth + "x" + s_window.ClientHeight) +
+                // D9：三分区 —— 检查器右上（高 = 客户区高 − dock 高）、视口左上（同高）、dock 底部通栏。
                 " panel=" + (s_window == null ? "-" : s_window.ViewportWidth + ",0," + s_window.PanelWidth +
-                                                "," + s_window.ClientHeight) +
+                                                "," + s_window.ViewportHeight) +
                 " viewport=" + (s_window == null ? "-" : "0,0," + s_window.ViewportWidth + "," +
-                                                  s_window.ClientHeight) +
+                                                  s_window.ViewportHeight) +
+                " dock=" + (s_window == null ? "-" : "0," + (s_window.ClientHeight - s_window.DockHeight) + "," +
+                                               s_window.ClientWidth + "," + s_window.DockHeight) +
                 " controller=" + (s_window != null && s_window.ControllerReady ? 1 : 0) +
                 " nav=" + (s_window != null && s_window.NavigationDone ? 1 : 0) +
                 " navHttp=" + (s_window == null ? 0 : s_window.NavigationHttpStatus) +
+                " dockController=" + (s_window != null && s_window.DockControllerReady ? 1 : 0) +
+                " dockNav=" + (s_window != null && s_window.DockNavigationDone ? 1 : 0) +
+                " dockNavHttp=" + (s_window == null ? 0 : s_window.DockNavigationHttpStatus) +
                 " exec=" + (s_scene == null ? 0 : s_scene.ExecuteFrames) +
                 " capture=" + (s_scene == null ? "0x0" : s_scene.ViewportWidth + "x" + s_scene.ViewportHeight) +
                 " graphSelf=" + (s_scene == null ? 0UL : s_scene.GraphSelf) +

@@ -110,23 +110,44 @@
 
 **门控与入口**：`CASCADED_EDITOR=1` 时 `Host.Tick` 每帧调 `Editor.EditorService.Tick`；`Host.Shutdown` 先停服务（`Stop("Host.Shutdown")`：停监听、断客户端、join 监听线程、关 WebView2 控制器与窗口）再关运行时。**脚本路径不建线程；门控开启时额外一个监听线程**（HttpListener 静态文件 + `/ws` 升级），网络线程只做协议解析与入队，命令统一在引擎主线程的下一次 `Tick` 执行，`result` 在命令执行完成之后才发出。
 
-**配置（三项，默认值与可配范围）**：
+**配置（五项，默认值与可配范围）**：
 
 | 变量 | 作用 | 默认 | 可配范围 |
 |---|---|---|---|
 | `CASCADED_EDITOR_PORT` | 监听端口（只绑本机 localhost） | `18390` | `1`-`65535`（非法值明确禁用） |
 | `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` | 任意可写目录 |
-| `CASCADED_EDITOR_PANEL_WIDTH` | 右侧面板宽（像素） | `320` | `1`..`客户区宽-1`（越界明确禁用并点名范围） |
+| `CASCADED_EDITOR_PANEL_WIDTH` | 右侧对象检查器面板宽（像素） | `320` | `1`..`客户区宽-1`（越界明确禁用并点名范围） |
+| `CASCADED_EDITOR_DOCK_HEIGHT` | 底部资产浏览器 dock 高（像素） | `240` | `1`..`客户区高-1`（越界明确禁用并点名范围；运行期固定，无拖拽） |
+| `CASCADED_EDITOR_ASSET_ROOT` | 覆盖资产浏览器的资源根（只影响资产浏览；导入器仍按默认根扫描） | 仓库根 `CAAssets` | 任意已存在目录（供视觉验收的空根构造，不动用户文件） |
 
-其余开关：`CASCADED_EDITOR_SELFTEST=no-runtime`（**仅 Debug**：模拟 WebView2 运行时缺失 → 明确禁用、不崩）、`CASCADED_EDITOR_STOP=1`（主动停服务，测试收尾用）、`CASCADED_EDITOR_READINGS_FILE`（读数行同时追加到该文件，测试用）、`CASCADED_EDITOR_DISPLAY_PROOF=1`（可选屏幕捕获诊断）、`CASCADED_READBACK_FORCE_NO_BB_TRANSFER`（**仅 Debug**：强制窗口 backbuffer 回读走"能力不支持"拒绝分支，供红态）。
+其余开关：`CASCADED_EDITOR_SELFTEST=no-runtime`（**仅 Debug**：模拟 WebView2 运行时缺失 → 明确禁用、不崩）、`CASCADED_EDITOR_SELFTEST=no-dock-controller`（运行时正常、第一控制器建成，只让**底部 dock 的第二控制器**创建失败 → 明确禁用；no-runtime 在 NewWindow 前返回，覆盖不到这条分支）、`CASCADED_EDITOR_SELFTEST=no-facade`（跳过资源注册表门面绑定 → `list-assets` 必回 `E_ASSET_ROOT`，供资产浏览失败面用；**不限 Debug**）、`CASCADED_EDITOR_SELFTEST=capture-dock=<png 路径>`（dock 控制器就绪后每约 0.5 秒把 dock 当前渲染内容用 `CapturePreviewAsync` 覆盖落盘；供视觉验收抓窗，**不置前、不最小化、不移动用户窗口**）、`CASCADED_EDITOR_STOP=1`（主动停服务，测试收尾用）、`CASCADED_EDITOR_READINGS_FILE`（读数行同时追加到该文件，测试用）、`CASCADED_EDITOR_DISPLAY_PROOF=1`（可选屏幕捕获诊断）、`CASCADED_READBACK_FORCE_NO_BB_TRANSFER`（**仅 Debug**：强制窗口 backbuffer 回读走"能力不支持"拒绝分支，供红态）。
 
-**单窗口分栏**：`NewWindow(1280, 720, "Cascaded 编辑器")` 建**一个**窗口；`GetNativeWindowHandle` 返回 `HWND*`，解引用一次拿到父 HWND 贴 WebView2 子控制器；面板矩形 `(客户区宽-面板宽, 0, 面板宽, 客户区高)`，`controller.Bounds` 与子 HWND 位置随尺寸变化同步；左侧视口由 scene view 渲染（`Shaders/Test/TestSimpleTriangle`，72 字节顶点、绿底红三角），每帧复用同一张图 `SubmitGraph` + `WaitIdle` 并 `Present`；`set-size` 成功或窗口尺寸回调后按新视口重建捕获目标与图。`set-size` 要求宽 **> 面板宽**且高 > 0，否则 `E_INVALID_ARG`（杜绝视口宽 ≤ 0）。
+**资产浏览器（editor-asset-browser）**：底部通栏**独立资产浏览器 dock**（第二个 WebView2 控制器加载
+`assets.html`，与右侧对象检查器分离），对应命令 `list-assets`（非对象作用域，无 `objectId`）：主线程
+命令执行内用门面 `IResourceRegistry::GetResourceRootPath` 取资源根、`Directory.EnumerateFiles` 递归枚举、
+`FileInfo` 取大小/修改时间、扩展名定种类（`.shLib` / `.tex` / `.mesh` / `.res` / 其它 → `file`）、
+`HasResource` 定已注册标志，条目形状与失败码见 `Scripting/Managed/Editor/PROTOCOL.md` 第 2.6 / 3 节。
+每次成功枚举与上一次快照比对，有增删就广播 `assets-changed`（`fields: { added, removed }`，无
+`objectId`），客户端收到后重发 `list-assets`。目录存在但无文件 = `ok=true` 空数组；门面未绑 / 根空串 /
+根目录不存在 / 枚举 IO 错误 / 门面底层抛错一律 `E_ASSET_ROOT`（处理内捕获，**不穿出到 `Host.Tick`
+外层 catch** —— 那会让客户端收不到 result 而静默挂起）。门面表（编号 13）在门控开时按需绑定一次，
+门控关时零行为。
 
-**WebView2 依赖与缺失行为**：NuGet `Microsoft.Web.WebView2`（版本见 `Scripting/Managed/Scripting.Managed.csproj`，`build.py` 从 NuGet 缓存显式拷 `WebView2Loader.dll`）；运行期需要 WebView2 Runtime。运行时缺失/创建失败 → 日志 `[编辑器] 禁用：…运行时缺失…` 并走关闭路径（不静默、不崩）。导航判据：`NavigationCompleted.IsSuccess` 或 `HttpStatusCode >= 100`（HTTP 错误页也算导航成功，只有网络失败才禁用）。**静态资源根**是 `bin/editor-web/`：解析顺序为 `AppContext.BaseDirectory`（非空时）→ 程序集所在目录（hostfxr 下 `Assembly.Location` = `bin/Scripting.Managed.dll`）→ 进程可执行文件目录，结果必须是绝对路径；启动后第一次请求时日志打印 `[编辑器] 面板静态根：<绝对路径>`（同一条也写进 `CASCADED_EDITOR_READINGS_FILE` 指定的读数文件 —— `TestEditorWindowPanel` 的静态页判据按这个**服务实际用的绝对路径**判资源在不在，不再自己按 CWD 另算一遍）；hostfxr 下 `AppContext.BaseDirectory` 实测为空字符串，早期实现因此退化成相对 CWD 的 `editor-web`，导致面板永远 503，已由 tasks 1.11 修复）。
+**单窗口三分区**：`NewWindow(1280, 720, "Cascaded 编辑器")` 建**一个**窗口（GetWindowCount 增量仍 1，
+MUST NOT 第二壳窗口）；`GetNativeWindowHandle` 返回 `HWND*`，解引用一次拿到父 HWND 贴两个 WebView2
+子控制器。三分区：① 场景视口（左上）宽 = 客户区宽 − 面板宽、高 = 客户区高 − dock 高；② 对象检查器
+（右上）`controller.Bounds = (ViewportWidth, 0, PanelWidth, ClientHeight − DockHeight)`；③ 资产浏览器
+dock（底部通栏）第二控制器 `Bounds = (0, ClientHeight − DockHeight, ClientWidth, DockHeight)`。窗口
+尺寸变化同步两个子 HWND 布局、两个控制器 Bounds 与视口区域，并按新视口（高 = ClientHeight −
+DockHeight）重建捕获目标与图。左侧视口由 scene view 渲染（`Shaders/Test/TestSimpleTriangle`，72 字节
+顶点、绿底红三角），每帧复用同一张图 `SubmitGraph` + `WaitIdle` 并 `Present`。`set-size` 要求宽
+**> 面板宽**且高 **> dock 高**，否则 `E_INVALID_ARG`（杜绝视口宽 ≤ 0 或视口高 ≤ 0）。
+
+**WebView2 依赖与缺失行为**：NuGet `Microsoft.Web.WebView2`（版本见 `Scripting/Managed/Scripting.Managed.csproj`，`build.py` 从 NuGet 缓存显式拷 `WebView2Loader.dll`）；运行期需要 WebView2 Runtime。运行时缺失/创建失败 → 日志 `[编辑器] 禁用：…运行时缺失…` 并走关闭路径（不静默、不崩）。**导航判据分两级**：对象检查器沿用 `NavigationCompleted.IsSuccess` 或 `HttpStatusCode >= 100`（HTTP 错误页也算导航成功，只有网络失败才禁用）；**资产浏览器 dock 的 4xx/5xx 一律当失败**（拿到"页面未构建"说明错误页说明 dock 不可用 → 明确禁用）。两个控制器各有独立的错误/导航通道（`EditorWindow.DockError`），窗口关闭处置两个控制器。**静态资源根**是 `bin/editor-web/`：解析顺序为 `AppContext.BaseDirectory`（非空时）→ 程序集所在目录（hostfxr 下 `Assembly.Location` = `bin/Scripting.Managed.dll`）→ 进程可执行文件目录，结果必须是绝对路径；启动后第一次请求时日志打印 `[编辑器] 面板静态根：<绝对路径>`（同一条也写进 `CASCADED_EDITOR_READINGS_FILE` 指定的读数文件 —— `TestEditorWindowPanel` 的静态页判据按这个**服务实际用的绝对路径**判资源在不在，不再自己按 CWD 另算一遍）。`index.html` 或 `assets.html` 缺失都返回**说明原因的错误页（503）并写日志**，`assets.html` 单独缺失也一样（不是 404 纯文本）；hostfxr 下 `AppContext.BaseDirectory` 实测为空字符串，早期实现因此退化成相对 CWD 的 `editor-web`，导致面板永远 503，已由 tasks 1.11 修复）。
 
 **两层像素证据**：① 离屏捕获目标 Readback 中心精确 `(255,0,0,255)`；② 窗口**真实 swapchain backbuffer 呈现前读回**视口中心精确红：`Readback(窗口 backbuffer)` 登记"下一帧 Present 前捕获" → 跑一帧含 Present 的图 → `token->Wait()`；Vulkan 走 `TRANSFER_SRC` 能力位（不含则明确拒绝返回 null token），D3D12 走 `COPY_SOURCE` 状态转换，色序按格式（Vulkan 常为 BGRA，D3D12 常为 RGBA）。屏幕捕获（WGC/BitBlt/DXGI）在本机虚拟显示适配器环境中抓不到硬件 flip 内容（原生 C++ 正控也白），已降为 `CASCADED_EDITOR_DISPLAY_PROOF=1` 的可选诊断，不参与断言。
 
-**读数行**：`[编辑器 读数] probe=editor tick=… state=… mode=main-thread port=… objects=1 invalidated=… windowSelf=… client=… panel=… viewport=… controller=… nav=… navHttp=… exec=… capture=… graphSelf=… captureSelf=… wtarget=… passes=2 presents=1 nativeCalls=… cmdRequest=… cmdCalls=…`；C++ 用例（`TestEditorWindowPanel`）据此断言分栏、视图、渲染与命令计数。
+**读数行**：`[编辑器 读数] probe=editor tick=… state=… mode=main-thread port=… objects=1 invalidated=… windowSelf=… client=… panel=… viewport=… dock=… controller=… nav=… navHttp=… dockController=… dockNav=… dockNavHttp=… exec=… capture=… graphSelf=… captureSelf=… wtarget=… passes=2 presents=1 nativeCalls=… cmdRequest=… cmdCalls=…`；C++ 用例（`TestEditorWindowPanel`）据此断言三分区（面板 / 视口 / dock 三矩形铺满客户区、视口高 = 客户区高 − dock 高）、两控制器就绪、视图渲染与命令计数。
 
 ## 场景框架（csharp-scene-foundation：阶段 5 首切片）
 
@@ -384,11 +405,16 @@ ulong handle = ResourceImporterBindings.Create(new MyImporter());
 | `CASCADED_CSHARP_IMPORTER_PHASE` | 导入器探针阶段机（`create-importer` / `after-first-scan` / `after-second-scan` / `report-serialize`），由测试在两次 `Tick` 之间设置 | 空串 |
 | `CASCADED_CSHARP_IMPORTER_READINGS` | 导入器探针把读数（句柄 / 保活计数 / Produce 次数 / 序列化计数）追加到这个文件，测试读同一份 | 不设 |
 | `CASCADED_CSHARP_IMPORTER_SOURCE` | 导入器探针把 `GetSourceDirectory()` 声明成这个目录（C# 反向实现读不到管线传入的扫描根，必须自己声明） | 空串 |
-| `CASCADED_EDITOR` | `1` 时启用编辑器面板服务（单窗口分栏 + WebView2 + WebSocket 命令服务）；不设时零行为（不监听、不建线程） | 不设 |
+| `CASCADED_EDITOR` | `1` 时启用编辑器面板服务（单窗口三分区 + 两个 WebView2 + WebSocket 命令服务）；不设时零行为（不监听、不建线程） | 不设 |
 | `CASCADED_EDITOR_PORT` | 编辑器服务监听端口（只绑 localhost） | `18390`（`1`-`65535`） |
 | `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` |
-| `CASCADED_EDITOR_PANEL_WIDTH` | 右侧面板宽（像素） | `320`（`1`..`客户区宽-1`） |
+| `CASCADED_EDITOR_PANEL_WIDTH` | 右侧对象检查器面板宽（像素） | `320`（`1`..`客户区宽-1`） |
+| `CASCADED_EDITOR_DOCK_HEIGHT` | 底部资产浏览器 dock 高（像素） | `240`（`1`..`客户区高-1`；运行期固定） |
+| `CASCADED_EDITOR_ASSET_ROOT` | 覆盖资产浏览器的资源根（默认仓库根 `CAAssets`；只影响资产浏览枚举，不动用户文件） | 仓库根 `CAAssets` |
 | `CASCADED_EDITOR_SELFTEST=no-runtime` | **仅 Debug**：模拟 WebView2 运行时缺失，验证"明确禁用、不崩"路径 | 不设 |
+| `CASCADED_EDITOR_SELFTEST=no-dock-controller` | 运行时正常、第一控制器建成，只让底部 dock 的第二控制器创建失败（no-runtime 覆盖不到这条分支）；编辑器明确禁用 | 不设 |
+| `CASCADED_EDITOR_SELFTEST=no-facade` | 资产浏览的门面未绑红态：托管侧**跳过**资源注册表门面（编号 13）绑定，`list-assets` 必回 `E_ASSET_ROOT`（`TestEditorAssetBrowser` 用；**不限 Debug** —— 回归在两个配置下都要能跑这条失败面） | 不设 |
+| `CASCADED_EDITOR_SELFTEST=capture-dock=<png 路径>` | dock 控制器就绪后每约 0.5 秒把 dock 当前渲染内容用 `CapturePreviewAsync` 覆盖落盘（视觉验收抓窗；不置前/不最小化/不移动用户窗口） | 不设 |
 | `CASCADED_EDITOR_STOP=1` | 主动停服务（测试收尾隔离后续用例；`EditorService.Stop` 的入口） | 不设 |
 | `CASCADED_EDITOR_READINGS_FILE` | 把 `[编辑器 读数]` 与服务标记行同时追加到该文件（测试读，不依赖 stdout 重定向） | 不设 |
 | `CASCADED_EDITOR_DISPLAY_PROOF=1` | 可选屏幕捕获诊断（WGC/BitBlt/DXGI，只打印不断言；本机虚拟显示抓不到硬件 flip 内容） | 不设 |

@@ -4,7 +4,7 @@
 > 它不记任务、不记欠账、不记改动细节 —— 进度事实源只有 `openspec/changes/<change>/tasks.md`，
 > 欠账只有 `docs/TODO.md`，本文件只做指针。
 
-**最后更新**：2026-11-23
+**最后更新**：2026-11-24
 **维护规则**：见 `CLAUDE.md` 的「文档维护」一节
 
 ---
@@ -113,7 +113,11 @@
 
 阶段结果：使用者能够通过网页界面操作真实引擎状态，完成资源与场景编辑，并保留原生 Vulkan/D3D12 渲染。架构与首个窗口属性面板切片见 `TODO/005-web-editor.md`。
 
-**首切片已落地（2026-11-22）**：change `editor-window-panel` 22/22 完成并归档到 `openspec/changes/archive/2026-11-22-editor-window-panel/`（提交 `2ead9b0`）——单窗口分栏壳（左原生 scene view 视口 + 右 WebView2 属性面板）、本机 HttpListener/WebSocket 编辑器服务（监听线程/主线程边界、对象单调编号 + 轮询失效、协议 v1、命令级撤销）、EditorWeb 纯 TS+Vite 前端、两后端 Readback 扩 Backbuffer 呈现前受控读回（resource-readback 规范 MODIFIED，零接口签名改动）。验收：两后端 18/18 + 默认关 17 用例与基线零差异 + 绑定基线 0/0/0 + codegen 77 份逐字节全同 + **截图视觉验收**（真面板 + scene view 绿底红三角 + 协议改标题生效；视觉验收抓出并修复面板静态根 bug）。新主规范 `openspec/specs/editor-window-panel/spec.md` 生效。后续切片（多对象编辑、场景编辑、资源导入、GPU 诊断、复杂视口合并）尚未立项；场景编辑依赖阶段 5 的 C# 场景模型与序列化。
+**首切片已落地（2026-11-22）**：change `editor-window-panel` 22/22 完成并归档到 `openspec/changes/archive/2026-11-22-editor-window-panel/`（提交 `2ead9b0`）——单窗口分栏壳（左原生 scene view 视口 + 右 WebView2 属性面板）、本机 HttpListener/WebSocket 编辑器服务（监听线程/主线程边界、对象单调编号 + 轮询失效、协议 v1、命令级撤销）、EditorWeb 纯 TS+Vite 前端、两后端 Readback 扩 Backbuffer 呈现前受控读回（resource-readback 规范 MODIFIED，零接口签名改动）。验收：两后端 18/18 + 默认关 17 用例与基线零差异 + 绑定基线 0/0/0 + codegen 77 份逐字节全同 + **截图视觉验收**（真面板 + scene view 绿底红三角 + 协议改标题生效；视觉验收抓出并修复面板静态根 bug）。新主规范 `openspec/specs/editor-window-panel/spec.md` 生效。后续切片（多对象编辑、场景编辑、GPU 诊断、复杂视口合并）尚未立项；资产浏览器已立项（见下段）；场景编辑依赖阶段 5 的 C# 场景模型与序列化。
+
+**资产模型方向（2026-11-23 探索收敛，约束资产/编辑器/打包各批）**：资产分三阶段——① 源文件（DCC/源码）→ ② 编辑器资产（导入/编译产物，引擎可用）→ ③ 运行时资产（按平台 cook，②+平台设置的纯函数，永不手改，阶段 7）。**编辑器浏览 ②**；② 取 **Unreal 式共享真相**（改源的人导入、其余同步），**拒绝 Unity 式每机全量重导入**（用户明言吃过亏），前提是导入确定性 + 内容哈希增量（身份重设计批）。资产分两类：**代码型**（shader/C#）= 源→程序集（shLib/dll，Slang module 与 C# assembly 同构），浏览源、存储程序集；**数据型**（贴图/网格）= 源→处理载荷。**资产 = 导入单元（身份根），物理文件是 manifestations**，映射 N↔M 双向（代码 N 源→1 程序集；模型 1 源→N 衍生物 LOD/proxy/impostor/光追加速几何体）；浏览器主节点是资产而非裸文件，经**按种类注册的显示提供者**投影（程序集展开/衍生物归组/缩略图），溯源元数据是分组 UX 的承重墙。**USD 不进**（平台级依赖 + 第二套渲染架构，对当前规模太重；将来顶多当 ① 交换格式，组合思想供场景层借鉴）。
+
+**资产浏览器已落地（2026-11-24）**：change `editor-asset-browser` 17/17 完成并归档到 `openspec/changes/archive/2026-11-24-editor-asset-browser/`——**底部通栏独立资产浏览器 dock**（用户裁定取惯例布局：单壳窗口三分区＝场景视口左上 + 对象检查器右上 + 资产浏览器底部通栏，第二个 WebView2 控制器加载独立页面 assets.html，dock 高默认 240 且 `CASCADED_EDITOR_DOCK_HEIGHT` 可配；为将来多窗自由 dock 铺垫，自由 dock/拖拽调高留后续 dock 框架批）。只读浏览资源根下 ② 文件（路径/种类/大小/修改时间/已注册 + 刷新 + 空根空态），协议 v1 加法扩展（list-assets/assets-changed/AssetEntry/E_ASSET_ROOT，MODIFIED editor-window-panel 封闭枚举 + 三分区壳，PROTOCOL.md 为先），显示提供者抽象资产中心落地（v1 默认一文件一条目，核心 IResource 不动），不新增原生接口（复用门面 13）。验收：两后端 22 同进程与基线零差异 + 独立用例两后端过 + CoreTests 26 + 绑定基线 0/0/0 + **截图视觉验收**（CapturePreviewAsync 不前置抓窗，5 行五列正控 + 空根空态 + 刷新 5→6；用户明令禁止前置窗口已记 AGENTS §2）。新能力规范 `openspec/specs/editor-asset-browser/spec.md` 生效（5 要求/14 场景），`editor-window-panel` 规范 MODIFIED（协议 + 三分区壳）。生长路径：v1 文件列表 → v2 shLib 程序集展开（需 slang 反射 + 源映射）→ v3 dll 提供者 + 缩略图；溯源/身份链是 v2 前提。
 
 ### 阶段 7：独立程序与验证游戏
 

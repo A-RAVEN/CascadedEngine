@@ -1,0 +1,37 @@
+﻿# 4.1 重建后两后端绿态读数（2026-11-23 23:57:22）
+
+## 报告
+vulkan : [
+  {"name":"TestEditorAssetBrowser","status":"pass","duration_ms":2275,"exit_code":0}
+]
+d3d12 : [
+  {"name":"TestEditorAssetBrowser","status":"pass","duration_ms":2140,"exit_code":0}
+]
+
+## 关键日志行（UTF-8，来自 evidence/4.1-日志.txt）
+[0m[38;2;128;128;128m[资产浏览器 测试] 启动读数：objects=1 controller=1 nav=1 exec=39 cmdRequest=1 cmdCalls=4
+[0m[38;2;128;128;128m[资产浏览器 测试] 面板前端初始 list-assets：已观察到并入队
+[0m[38;2;128;128;128m[资产浏览器 测试] 握手完成：welcome 的 protocolVersion=1
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=Assets/Registered.tex kind=texture size=142 modified=2024-03-04T05:06:07.0000000Z registered=true
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=ShaderLibraries/Browser.shLib kind=shader-library size=377 modified=2024-02-01T12:34:56.0000000Z registered=false
+[0m[38;2;128;128;128m[资产浏览器 测试] 条目：path=Docs/Notes.txt kind=file size=21 modified=2023-12-31T23:59:58.0000000Z registered=false
+[0m[38;2;128;128;128m[资产浏览器 测试] ① 第一次枚举：3 条预置文件七项全对（含 registered 真/假与未知扩展名 kind=file）
+[0m[38;2;128;128;128m[资产浏览器 测试] ⑤ 线程归因：requestId=201 那一帧 cmdCalls=4（= 1 + 3），mode=main-thread
+[0m[38;2;128;128;128m[资产浏览器 测试] ② 刷新可见新增：条目 3 → 4，assets-changed added=1 removed=0（无 objectId）
+[0m[38;2;128;128;128m[资产浏览器 测试] ② 第二次枚举的 requestId=203（事件绑定这次枚举，不是首次）
+[0m[38;2;128;128;128m[资产浏览器 测试] ③ 空根：ok=true 且 assets 为空数组（合法空态，不是错误）
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 根非法：requestId=205 → E_ASSET_ROOT（资产根不可用：目录不存在（"C:/<>|/CascadedAssetBrowser"））
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 目录不存在：requestId=206 → E_ASSET_ROOT（资产根不可用：目录不存在（"C:/Users/76956/AppData/Local/Temp/CascadedAssetBrowser_d3d12/NoSuchSubdirectory"））
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 根空串：requestId=207 → E_ASSET_ROOT（资产根不可用：资源根为空串（门面 GetResourceRootPath 返回空））
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 门面未绑：requestId=208 → E_ASSET_ROOT（资产根不可用：自检开关 CASCADED_EDITOR_SELFTEST=no-facade：跳过资源注册表门面绑定）
+[0m[38;2;128;128;128m[资产浏览器 测试] ④ 失败面四条全部回 E_ASSET_ROOT 且都有 result（没有静默挂起）
+[0m[38;2;128;128;128m[资产浏览器 测试] 恢复：清掉 no-facade 后枚举重新 ok（4 条）
+[0m[38;2;128;128;128mTestEditorAssetBrowser 通过：① 七项逐条一致 + ② 刷新新增与 assets-changed + ③ 空根空数组 + ④ 四种根不可用各 E_ASSET_ROOT 不挂起 + ⑤ 门面调用主线程归因 全部满足
+
+## 判据对账（写死期望 ↔ 实测）
+① 七项：3 条预置文件 path/nodeId/kind/sizeBytes(142/377/21)/modifiedUtc(2024-03-04T05:06:07.0000000Z 等写死值)/registered(true,false,false)/children=[] 全中
+② 条目 3 → 4；assets-changed added=1 removed=0；事件不带 objectId
+③ 空根 ok=true 且 assets 为空数组
+④ 根非法 205 / 目录不存在 206 / 根空串 207 / 门面未绑 208（no-facade）各回 E_ASSET_ROOT 且都有 result；清掉开关后恢复 ok（4 条）
+⑤ requestId=201 那一帧 cmdCalls=4 = 1（GetResourceRootPath）+ 3（每文件 HasResource），lastCmd=list-assets，mode=main-thread
+（注：面板前端自己那次 list-assets 的读数行是 cmdRequest=1 cmdCalls=4 —— 同样 1+3，说明计数对任何客户端一致）

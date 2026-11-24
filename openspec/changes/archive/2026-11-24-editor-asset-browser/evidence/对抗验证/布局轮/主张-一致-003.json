@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-003",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "claim": "editor-asset-browser 的 spec 要求 5 正文仍写「主循环 read_image 核对资产区渲染」，与同文件要求 1 的「底部通栏独立资产浏览器 dock」以及要求 5 自己的场景「截图 MUST 经 read_image 核对底部 dock 可见」互斥；design.md 的风险条也仍写「显式错误禁用资产区」。按字面执行，右面板资产区的截图能满足要求 5 正文的验收，而它恰恰是本轮用户裁定撤掉的形态。",
+  "location": "openspec/changes/editor-asset-browser/specs/editor-asset-browser/spec.md:71「MUST 有真实打开界面的截图 + 主循环 read_image 核对资产区渲染」对同文件 :5「编辑器 MUST 有**底部通栏独立资产浏览器 dock**……三分区铺满客户区」与 :81「**THEN** 截图 MUST 经 read_image 核对底部 dock 可见……」；openspec/changes/editor-asset-browser/design.md:95「[门面未绑（渲染/脚本关闭）] → 显式错误禁用资产区，不静默空列表（D3）」",
+  "evidence_ref": "证据-一致-003.md",
+  "suggested_fix": "spec 要求 5 正文改成「主循环 read_image 核对底部通栏资产浏览器 dock 渲染」；design.md:95 的风险条改成「显式错误禁用资产浏览器 dock」；改完在 change 目录 grep「资产区」，只允许剩下描述改前状态或迁移动作的句子（design.md:68、tasks 3.1、修订记录 17 这类），凡是把资产浏览器当作现行 UI 名称的地方一律改成「底部通栏资产浏览器 dock」。"
+}

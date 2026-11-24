@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cascaded 资产浏览器</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #14171c;
+        --panel: #1c2129;
+        --line: #2c3440;
+        --text: #e6e9ef;
+        --muted: #9aa4b2;
+        --accent: #5aa9ff;
+        --ok: #45c48a;
+        --warn: #e5b455;
+        --error: #f06464;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 12px/1.4 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+        padding: 8px 10px;
+      }
+      .row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+      h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+      button {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: var(--text);
+        padding: 3px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button:disabled { opacity: .45; cursor: default; }
+      #connection-status { font-weight: 600; }
+      #connection-status.ok { color: var(--ok); }
+      #connection-status.pending { color: var(--warn); }
+      #connection-status.warn { color: var(--warn); }
+      #connection-status.error { color: var(--error); }
+      #asset-summary { color: var(--muted); }
+      #asset-table {
+        width: 100%;
+        /* 底部通栏宽 = 客户区宽：固定列宽 + 断词，五列都留在 dock 内（长路径不撑出横向滚动）。 */
+        table-layout: fixed;
+        border-collapse: collapse;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 11px;
+        line-height: 1.3;
+      }
+      #asset-table col.col-path { width: 34%; }
+      #asset-table col.col-kind { width: 16%; }
+      #asset-table col.col-size { width: 12%; }
+      #asset-table col.col-time { width: 24%; }
+      #asset-table col.col-registered { width: 14%; }
+      #asset-table th, #asset-table td {
+        text-align: left;
+        padding: 2px 4px;
+        border-bottom: 1px solid rgba(255, 255, 255, .06);
+        vertical-align: top;
+        overflow-wrap: anywhere;
+        word-break: break-all;
+      }
+      #asset-table th { color: var(--muted); font-weight: 600; }
+      #asset-table td.registered-true { color: var(--ok); }
+      #asset-table td.registered-false { color: var(--muted); }
+      #asset-empty { color: var(--muted); margin: 2px 0; }
+      #asset-error {
+        background: #3a1d1d;
+        border: 1px solid var(--error);
+        color: #ffd9d9;
+        border-radius: 4px;
+        padding: 6px 8px;
+        margin-top: 4px;
+      }
+      .hint { color: var(--muted); font-size: 11px; margin: 4px 0 0; }
+    </style>
+  </head>
+  <body>
+    <!-- 资产浏览器（底部通栏独立 dock，editor-asset-browser 3.1）：由第二个 WebView2 控制器加载，
+         与右侧对象检查器分离。只读：列出资源根下的编辑器资产文件（未注册的也列，registered=false）。 -->
+    <div class="row">
+      <h1>资产浏览器</h1>
+      <span>连接状态：</span>
+      <span id="connection-status" class="pending">未连接</span>
+      <button id="refresh-assets" type="button">刷新资产</button>
+      <span id="asset-summary"></span>
+    </div>
+
+    <p id="asset-empty">尚未加载资产列表。</p>
+
+    <table id="asset-table" hidden>
+      <colgroup>
+        <col class="col-path" />
+        <col class="col-kind" />
+        <col class="col-size" />
+        <col class="col-time" />
+        <col class="col-registered" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col">路径</th>
+          <th scope="col">种类</th>
+          <th scope="col">大小</th>
+          <th scope="col">修改时间</th>
+          <th scope="col">已注册</th>
+        </tr>
+      </thead>
+      <tbody id="asset-rows"></tbody>
+    </table>
+
+    <div id="asset-error" hidden></div>
+    <p class="hint">只读资产列表；命令在引擎主线程的下一次 Tick 执行。刷新按钮重拉，资产变化事件也会触发重拉。</p>
+
+    <script type="module" src="./src/assets.ts"></script>
+  </body>
+</html>

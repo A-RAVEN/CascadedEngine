@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Scripting.Generated.Bindings;
 using Scripting.Generated.Bindings.Cawindow;
+using Scripting.Generated.Bindings.CsScript;
 using Scripting.Generated.Bindings.GraphicsBackend;
 using Scripting.Generated.Bindings.CaBindFixture;
 using Scripting.Generated.Bindings.Shadercompilerslang;
@@ -1154,6 +1155,81 @@ namespace Scripting.Managed
             s_renderTablesBound = true;
             s_renderBindError = string.Empty;
             LogLine($"[托管侧 渲染] 后端 + 五张目标类型表已绑定（后端实例 {(long)backendInstance}）");
+        }
+
+        // ---- 编辑器资产浏览的资源注册表门面（editor-asset-browser 2.1）----
+        // 参照 EnsureRenderProbeBackend 的**按需绑定**模式：门控（CASCADED_EDITOR=1）关时这条路径根本不
+        // 进 —— 不绑表、不打日志、零行为（既有用件读数零差异）；门控开时第一次用到才绑一次。
+        // 失败只记原因，**不写 s_lastError**：宿主的错误通道不能因为编辑器资产区而变脏（既有用例断言
+        // LastError 保持在基线）。这次绑定把 `IResourceRegistry` 表面暴露给 EditorService。
+        private static IResourceRegistry s_editorResourceFacade;
+        private static bool s_editorResourceFacadeFailed;
+        private static string s_editorResourceFacadeError = string.Empty;
+
+        /// <summary>门面未绑定 / 绑定失败的原因（资产根错误文本点名用；已绑定为空串）。</summary>
+        internal static string EditorResourceFacadeError =>
+            s_editorResourceFacadeError.Length == 0 ? "资源注册表门面未绑定" : s_editorResourceFacadeError;
+
+        /// <summary>
+        /// 取资产浏览用的资源注册表门面（编号 13，`cs_script::IResourceRegistry`）。
+        ///
+        /// 自检开关 `CASCADED_EDITOR_SELFTEST=no-facade` 时**每次调用都跳过绑定**并返回 null，供
+        /// `TestEditorAssetBrowser` 构造"门面未绑 → list-assets 回 E_ASSET_ROOT"的红态（运行期 CSharpHost
+        /// 无条件登记门面，没有这个开关那条失败面不可构造）。该开关**不放在 `#if DEBUG` 里**：
+        /// 回归在两个配置下都要能跑这条失败面，值必须逐字等于 `no-facade` 才生效。
+        /// </summary>
+        internal static IResourceRegistry EnsureEditorResourceFacade()
+        {
+            if (!Editor.EditorService.Enabled)
+            {
+                return null;
+            }
+            if (Environment.GetEnvironmentVariable("CASCADED_EDITOR_SELFTEST") == "no-facade")
+            {
+                s_editorResourceFacadeError = "自检开关 CASCADED_EDITOR_SELFTEST=no-facade：跳过资源注册表门面绑定";
+                return null;
+            }
+            if (s_editorResourceFacade != null)
+            {
+                return s_editorResourceFacade;
+            }
+            if (s_editorResourceFacadeFailed)
+            {
+                return null;
+            }
+            if (s_api == null)
+            {
+                s_editorResourceFacadeError = "资源注册表门面取不到：引擎函数表还没绑定（Boot 未完成）";
+                s_editorResourceFacadeFailed = true;
+                return null;
+            }
+            uint facadeId = EngineApiBindings.CsScript__ResourceRegistryInterfaceId;
+            uint facadeSize = s_api->GetInterfaceApi(facadeId, null, EngineApiBindings.TableVersion, 0, null, null);
+            if (facadeSize == 0)
+            {
+                s_editorResourceFacadeError =
+                    $"资源注册表门面取不到：编号 {facadeId} 没有登记函数表（kBindingPolicies 缺行？）";
+                s_editorResourceFacadeFailed = true;
+                LogLine("[托管侧 编辑器] " + s_editorResourceFacadeError);
+                return null;
+            }
+            byte* facadeTable = stackalloc byte[(int)facadeSize];
+            void* facadeInstance = null;
+            uint facadeWritten = s_api->GetInterfaceApi(facadeId, null, EngineApiBindings.TableVersion, facadeSize,
+                                                        facadeTable, &facadeInstance);
+            if (facadeWritten != facadeSize || facadeInstance == null)
+            {
+                s_editorResourceFacadeError =
+                    $"资源注册表门面取表失败：写入 {facadeWritten} / {facadeSize} 字节，实例 {(long)facadeInstance}";
+                s_editorResourceFacadeFailed = true;
+                LogLine("[托管侧 编辑器] " + s_editorResourceFacadeError);
+                return null;
+            }
+            IResourceRegistryBindings.Bind(facadeTable);
+            s_editorResourceFacade = new IResourceRegistry(new IResourceRegistryLease { Self = facadeInstance });
+            s_editorResourceFacadeError = string.Empty;
+            LogLine($"[托管侧 编辑器] 资源注册表门面已绑定（编号 {facadeId}，实例 {(long)facadeInstance}）");
+            return s_editorResourceFacade;
         }
 
         /// <summary>

@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-001",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "claim": "三分区几何在 design.md 的 D9 节、editor-window-panel 的 MODIFIED 壳要求、tasks 3.2 三处语义一致（视口宽 = 客户区宽 − 面板宽、高 = 客户区高 − dock 高；检查器 Bounds = (ViewportWidth,0,PanelWidth,ClientHeight−DockHeight)；dock Bounds = (0,ClientHeight−DockHeight,ClientWidth,DockHeight)；tasks 3.2 只在运算符两侧省了空格，坐标与公式无出入），但同一份 MODIFIED 规范保留的 set-size 合法性判据仍是「宽 MUST > 面板宽、高 MUST >0」，它与新几何互斥：高度取 1..dock 高 的 set-size 是规范允许的输入，却让「视口高 = 客户区高 − dock 高」≤ 0；工件里没有任何一条任务改这条判据或为它加断言。",
+  "location": "openspec/changes/editor-asset-browser/specs/editor-window-panel/spec.md:4「set-size 的宽 MUST > 面板宽、高 MUST >0，否则 E_INVALID_ARG」与同文件 :15「set-size 携带 width≤面板宽（含 0/负数，视口宽将≤0）或 height≤0」 ／ 同文件 :23「① **场景视口**（左上）原生渲染占位，宽 = 客户区宽 − 面板宽、高 = 客户区高 − dock 高」与「dock 高……范围 1..客户区高−1」 ／ openspec/changes/editor-asset-browser/tasks.md:23-24（3.2、3.3 全文无 set-size 判据条目）",
+  "evidence_ref": "证据-一致-001.md",
+  "suggested_fix": "把 MODIFIED 壳要求的 set-size 判据改成「宽 MUST > 面板宽、高 MUST > dock 高」，同步 set-size 场景与 E_INVALID_ARG 场景（保留原意：杜绝视口宽或视口高 ≤ 0）；在 tasks 3.2 增加一条「set-size 高度判据加 dock 高」，并给 4.1 或 3.3 一条能变红的断言（height = dock 高 时 MUST 回 E_INVALID_ARG、目标窗口尺寸不变、零原生调用）；同时写清窗口尺寸变化后客户区高 ≤ dock 高时的处置（明确报错禁用或写死的 clamp 规则），不留未定义状态。"
+}

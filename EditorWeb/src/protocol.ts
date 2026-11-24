@@ -13,7 +13,23 @@ export interface EditorObject {
   height: number;
 }
 
-export type CommandName = 'get-object' | 'list-objects' | 'set-title' | 'set-size' | 'undo';
+export type CommandName = 'get-object' | 'list-objects' | 'set-title' | 'set-size' | 'undo' | 'list-assets';
+
+/**
+ * 资产条目（PROTOCOL.md 2.6）：v1 一文件一条目，children 恒为空数组、nodeId = path =
+ * 相对资源根的正斜杠路径；v2 的程序集展开 / 衍生物归组只往 children 里挂子条目，nodeId 仍稳定。
+ */
+export interface AssetEntry {
+  nodeId: string;
+  path: string;
+  kind: string;
+  sizeBytes: number;
+  /** ISO 8601 UTC（FileInfo.LastWriteTimeUtc 的 "o" 格式）。 */
+  modifiedUtc: string;
+  /** 该路径在资源注册表里已有条目；未注册的文件同样列出，只是这里为 false。 */
+  registered: boolean;
+  children: AssetEntry[];
+}
 
 /** C→S hello：连接后第一条消息，收到 welcome 之前不能发 command。 */
 export interface HelloMessage {
@@ -47,7 +63,8 @@ export type ErrorCode =
   | 'E_OBJECT_INVALIDATED'
   | 'E_INVALID_ARG'
   | 'E_UNDO_EMPTY'
-  | 'E_BAD_MESSAGE';
+  | 'E_BAD_MESSAGE'
+  | 'E_ASSET_ROOT';
 
 export interface ResultOk {
   type: 'result';
@@ -56,6 +73,7 @@ export interface ResultOk {
   value: {
     object?: EditorObject;
     objects?: EditorObject[];
+    assets?: AssetEntry[];
   };
 }
 
@@ -68,12 +86,25 @@ export interface ResultError {
 
 export type ResultMessage = ResultOk | ResultError;
 
-/** S→C event：object-changed 的 fields 只含本次变化字段；object-invalidated 的 fields 为 {}。 */
+/** 对象事件的字段：只含本次变化的字段（title / width / height 的子集）。 */
+export type ObjectChangedFields = Partial<Pick<EditorObject, 'title' | 'width' | 'height'>>;
+
+/** assets-changed 的字段：本次枚举相对上次快照的条目增删数（不携带条目本体）。 */
+export interface AssetChangedFields {
+  added: number;
+  removed: number;
+}
+
+/**
+ * S→C event（PROTOCOL.md 2.5）：object-changed 的 fields 只含本次变化字段；object-invalidated 的
+ * fields 为 {}；assets-changed 的 fields 是 { added, removed }。**objectId 只在对象事件上存在**
+ *（assets-changed 不带，客户端不得因缺它而拒绝这条事件）。
+ */
 export interface EventMessage {
   type: 'event';
-  event: 'object-changed' | 'object-invalidated';
-  objectId: number;
-  fields: Partial<Pick<EditorObject, 'title' | 'width' | 'height'>>;
+  event: 'object-changed' | 'object-invalidated' | 'assets-changed';
+  objectId?: number;
+  fields: ObjectChangedFields | AssetChangedFields;
 }
 
 export type ServerMessage = WelcomeMessage | ResultMessage | EventMessage;
@@ -86,4 +117,5 @@ export const UI_TO_COMMAND = {
   undo: 'undo',
   log: 'event',
   invalidatedBanner: 'object-invalidated',
+  assets: 'list-assets',
 } as const;

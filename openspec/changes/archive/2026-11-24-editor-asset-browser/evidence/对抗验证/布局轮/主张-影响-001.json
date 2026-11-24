@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-001",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "第二 WebView2 控制器的失败路径与关闭处置都没有可执行任务和可失败判据：规范要求「任一控制器创建失败 MUST 明确报错并禁用编辑器」和「窗口关闭 MUST 失效对象并处置两个控制器」，但 tasks 3.2/3.3 只写「no-runtime 自检覆盖」；该自检在 EditorWindow.Create 内、创建任何控制器之前就 return null，读数行与两个编辑器用例的就绪判据又只看第一控制器的 controller=1/nav=1，EditorWindow.Close 只关 m_Controller。实现若按 tasks 3.2 的字面位置在 EditorService 里创建第二控制器（EditorService 没有对应的 Error/Pump 通道），第二控制器创建失败、导航不完成或窗口关闭漏关时，规范场景与既有/新用例仍全绿。",
+  "location": "openspec/changes/editor-asset-browser/specs/editor-window-panel/spec.md:23；openspec/changes/editor-asset-browser/tasks.md:23；Scripting/Managed/Editor/EditorWindow.cs:64-72（自检）、:176-205（唯一控制器）、:266-274（Close）；Scripting/Managed/Editor/EditorService.cs:1602-1603（读数）、:526-548（每帧关闭轮询）、:561-571（失效时只调 s_window.Close）；Test/GPUBackendTester/Main.cpp:4752-4753、6476-6478（就绪判据）",
+  "evidence_ref": "证据-影响-001.md",
+  "suggested_fix": "把第二控制器做成与第一控制器同一套状态机：同一个 Create/Pump/Error/Disable 路径、Close 成对关闭；新增可构造失败（例如 CASCADED_EDITOR_SELFTEST=no-dock-controller 只让第二控制器创建失败）与红态用例，断言日志点名 dock/第二控制器且 state 不为 running；读数行增加 dockController/dockNav，两个编辑器用例的就绪与关闭判据覆盖它们；tasks 3.2/3.3 点名这些文件与行。"
+}

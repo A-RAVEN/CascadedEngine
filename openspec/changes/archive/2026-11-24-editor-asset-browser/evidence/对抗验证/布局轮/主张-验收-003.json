@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-003",
+  "face": "验收可失败性",
+  "severity": "blocking",
+  "claim": "4.2 写死的五条预期行里 Imported_A.res / Imported_B.res 少了 CSharpProbe/ 前缀（真实相对路径是 CSharpProbe/Imported_A.res 与 CSharpProbe/Imported_B.res），同列 Contrast.res 又带前缀；按 spec 的「path=相对资源根的正斜杠路径」实现必然与写死值不符，而 read_image 只靠人眼没有比较器，这条要么把正确实现判成不通过、要么被放宽成「看到五行就过」。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:29 逐字：「渲染**预期行写死**（VulkanShaderLibrary.shLib 145710B / D3D12ShaderLibrary.shLib 293737B / CSharpProbe/Contrast.res 4B / Imported_A.res 2B / Imported_B.res 2B，五列路径/种类/大小/修改时间/已注册可见）」；Scripting/Managed/Editor/PROTOCOL.md:122 逐字：「`path` | string | 相对资源根的正斜杠路径（例：`CSharpProbe/Probe.tex`）」；Scripting/Managed/Editor/EditorService.cs:904 逐字：「string relative = Path.GetRelativePath(root, file).Replace('\\\\', '/');」。",
+  "evidence_ref": "证据-验收-003.md",
+  "suggested_fix": "把两条改成 CSharpProbe/Imported_A.res（2B）与 CSharpProbe/Imported_B.res（2B），并给每条预期行写全五列值（路径/种类/大小/修改时间/已注册，修改时间用 2026-11-23 08:27:55Z 这类实测值）；read_image 之后逐行×五列打勾并记进 evidence，不接受「列出行」这种整体判断。"
+}

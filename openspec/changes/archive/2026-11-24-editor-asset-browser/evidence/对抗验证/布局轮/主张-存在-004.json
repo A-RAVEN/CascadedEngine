@@ -1,0 +1,9 @@
+{
+  "id": "主张-存在-004",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "claim": "tasks 5.5 的对外文档清单只点名 PROTOCOL.md §5、docs/testing.md、CSharpHost/README.md 配置表，但现有 CSharpHost/README.md 有多条事实与本批三分区/资产区移出直接矛盾且未被点名：:123「面板新增只读资产区」、:125「单窗口分栏…面板矩形 (客户区宽-面板宽, 0, 面板宽, 客户区高)」、:389 环境变量表仍写「单窗口分栏」、:113「配置（三项…）」；EditorWeb/README.md:35 文件表只列 index.html、:41-48 控件映射表没有独立资产页。5.5 的三条验收只查新增内容存在、不查旧句删除，按字面执行并通过后，对外文档仍会与最终界面矛盾。",
+  "location": "工件声称：tasks.md:37。实际：CSharpHost/README.md:113、123、125、389（两张配置表 :113-119 与 :361-398）；EditorWeb/README.md:33-37、41-48。对照目标：design.md:68/70-80、specs/editor-window-panel/spec.md:23。",
+  "evidence_ref": "证据-存在-004.md",
+  "suggested_fix": "tasks 5.5 补点名：CSharpHost/README.md 的资产浏览段与单窗口分栏段改成底部通栏独立 dock/三分区，两张配置表都加 CASCADED_EDITOR_DOCK_HEIGHT 并把「三项」改「四项」，:389 的「单窗口分栏」改三分区；EditorWeb/README.md 文件表加 assets.html/assets.ts 并注明资产页独立。验收加可失败 grep：README 无「面板新增只读资产区」、含「底部通栏」/「三分区」。"
+}

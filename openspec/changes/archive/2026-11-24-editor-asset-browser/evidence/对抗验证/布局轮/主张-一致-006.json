@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-006",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "claim": "tasks 3.3 的验收项写「改前/改后断言原文见修订记录 17」，但修订记录 17 通篇只有 design/spec/tasks 的工件措辞改前改后（「改前：design D6『index.html 加资产区…右面板』」「改后：design D6 改独立页面 assets.html/assets.ts…」），没有任何 TestEditorWindowPanel 断言原文；项目规则要求的「改前/改后留对照」在这一条上无法交付，3.3 的这项验收落空。",
+  "location": "openspec/changes/editor-asset-browser/tasks.md:24「验收：……改前/改后断言原文见修订记录 17。」对同文件 :77-79「17. **用户布局裁定（2026-11-24……）**：资产浏览器从右面板并列区改为底部通栏独立 dock……改前：design D6『index.html 加资产区…右面板』；spec 要求 1「编辑器右面板 MUST 有资产区」；tasks 3.1「index.html 加资产区…main.ts」；editor-window-panel 壳要求两分区……改后：design D6 改独立页面……spec 要求 1 改「底部通栏独立 dock」……tasks 3.1 改独立页面 + 新增 3.2 原生壳三分区 + 3.3 TestEditorWindowPanel 布局断言更新（§7 不放松，像素仍精确匹配）……」",
+  "evidence_ref": "证据-一致-006.md",
+  "suggested_fix": "把旧断言逐字原文（`Test/GPUBackendTester/Main.cpp:4803` 的 `viewportRect.h != clientHeight || panelRect.h != clientHeight` 与 :4977 的 `viewportRect.h != 640`）与新断言逐字原文写进修订记录 17 或 3.3 本体；验收改成可执行的两条：改后代码里旧串 grep 0 命中、新串（含 `ClientHeight - DockHeight` 的期望矩形）≥1 命中，并附两段原文。"
+}

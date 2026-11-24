@@ -66,10 +66,13 @@ namespace Scripting.Managed.Editor
         internal const string ErrorInvalidArg = "E_INVALID_ARG";
         internal const string ErrorUndoEmpty = "E_UNDO_EMPTY";
         internal const string ErrorBadMessage = "E_BAD_MESSAGE";
+        // editor-asset-browser 1.3：资产根不可用（门面未绑 / 根空串 / 目录不存在 / 枚举 IO 错误 /
+        // 门面底层抛错）。不用 E_INVALID_ARG 兜底：那个码的触发定义是 set-* 的参数非法（PROTOCOL.md 第 3 节）。
+        internal const string ErrorAssetRoot = "E_ASSET_ROOT";
 
         private static readonly HashSet<string> s_knownCommands = new HashSet<string>
         {
-            "get-object", "list-objects", "set-title", "set-size", "undo",
+            "get-object", "list-objects", "set-title", "set-size", "undo", "list-assets",
         };
 
         private static bool IsObjectScoped(string command)
@@ -190,7 +193,7 @@ namespace Scripting.Managed.Editor
             else if (root.TryGetProperty("objectId", out JsonElement ignoredObject) &&
                      ignoredObject.ValueKind == JsonValueKind.Number)
             {
-                // list-objects 不使用 objectId；给了数字就当 0（文档写明"给了也被忽略"）。
+                // list-objects / list-assets 不使用 objectId；给了数字就当 0（文档写明"给了也被忽略"）。
                 parsed.ObjectId = 0;
             }
 
@@ -297,6 +300,39 @@ namespace Scripting.Managed.Editor
                 ["requestId"] = requestId,
                 ["ok"] = false,
                 ["error"] = new Dictionary<string, object> { ["code"] = code, ["message"] = message },
+            });
+        }
+
+        // ---- 资产浏览（editor-asset-browser 1.3；形状见 PROTOCOL.md 2.4 / 2.5 / 2.6）----
+
+        /// <summary>`list-assets` 的成功结果：`value.assets` 为条目数组（空数组 = 合法空态）。</summary>
+        internal static string BuildAssetsResult(int requestId, IEnumerable<AssetEntry> assets)
+        {
+            var list = new List<object>();
+            foreach (AssetEntry entry in assets)
+            {
+                list.Add(entry.ToJson());
+            }
+            return JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["type"] = "result",
+                ["requestId"] = requestId,
+                ["ok"] = true,
+                ["value"] = new Dictionary<string, object> { ["assets"] = list },
+            });
+        }
+
+        /// <summary>
+        /// `assets-changed` 广播事件：**不带 objectId**（资产变化不是某个对象的变化），`fields` 只有本次
+        /// 枚举相对上次快照的增删条数；客户端收到后重发 `list-assets` 重拉条目本体。
+        /// </summary>
+        internal static string BuildAssetsChangedEvent(int added, int removed)
+        {
+            return JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["type"] = "event",
+                ["event"] = "assets-changed",
+                ["fields"] = new Dictionary<string, object> { ["added"] = added, ["removed"] = removed },
             });
         }
 
