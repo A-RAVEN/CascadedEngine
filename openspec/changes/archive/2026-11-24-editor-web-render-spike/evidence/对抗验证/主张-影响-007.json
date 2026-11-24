@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-007",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "design 把路径③写成「兜底正控」「保证可行」，spec 也写「CPU 读回→canvas.putImageData MUST 作为兜底概念验证正控（保证『原生渲染能显示进网页』可证）」，但这条兜底有两处未闭合的依赖：① 输入在 design 里是「原生读回共享纹理像素」、在 spec 里是「CPU 读回共享纹理」，与主路共用同一个前置——共享纹理；共享纹理支持在本仓库不存在（见主张-影响-004 的 grep 读数：CreateSharedHandle / D3D12_HEAP_FLAG_SHARED 全 0 命中）。② C# 绑定面里 Readback 是 CA_BIND_SKIP（『本轮未实现』），托管侧拿不到像素；能读像素的是 C++ tester，而 WebView2 控制器与 host object 只能由 C# 侧持有——C++ 读回的字节到网页之间没有现成通路，工件 0 处点名这条通道（文件/套接字/绑定）。于是「零拷贝不可行 → 走兜底」不成立：共享纹理做不出来时两条路径同时失败；即使共享纹理存在，路径③也还要一条工件没有设计的 C++→C#→网页字节通道。",
+  "location": "openspec/changes/editor-web-render-spike/design.md:30-34、49；openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md:19、21-24；openspec/changes/editor-web-render-spike/tasks.md:16；Interface/RenderInterface/header/CRenderBackend.h:125-144；Scripting/Managed/Editor/EditorSceneView.cs:10；Interface/RenderInterface/header/GPUTexture.h:150-158",
+  "evidence_ref": "证据-影响-007.md",
+  "suggested_fix": "二选一写死：① 兜底改成不依赖共享纹理（后端普通纹理 + 既有 C++ 侧 Readback），并补一条任务点名 C++→C# 的字节通道（临时文件、命名管道或专用 localhost 端口，写清谁监听/谁清理）；② 承认兜底与共享纹理同阻塞，在风险表写清两条路径同时失败时的处置。无论哪条，都要在 tasks 2.3 点名通道实现文件与失败判据，而不是只写「经 host object / WebSocket」。"
+}

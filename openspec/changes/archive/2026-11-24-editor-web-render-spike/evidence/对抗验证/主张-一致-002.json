@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-002",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md",
+  "anchor": "spec.md:19「spike MUST 先核实 WebView2/Chromium 实际可用的原生 D3D12 共享纹理→网页 canvas 路径……再按核实结果实现」｜spec.md:23「- **WHEN** 零拷贝互操作不可行（或尚未核实）」｜spec.md:24「- **THEN** CPU 读回共享纹理→网页 canvas.putImageData MUST 仍能显示原生像素并通过正控」",
+  "problem": "同一条要求内部自相矛盾：正文用 MUST 规定「先核实……再按核实结果实现」，场景 1 的 WHEN 却写成「零拷贝互操作不可行（**或尚未核实**）」，THEN 只要求 CPU 读回能显示并通过正控。于是「没做核实」也有合法通过路径：只要 CPU 兜底能显示，场景 1 就绿；正文的核实 MUST 没有任何场景能让它变红（场景 2 只在「判定零拷贝不可行」时要求阻塞证据，未核实不在场景 2 的触发条件里）。本 change 的核心交付物之一就是「互操作可行性结论」，这条口子让核心结论可以缺省。tasks 1.1 的验收（evidence 含每条候选的核实命令/文档 URL/WebView2 版本）在 spec 层面因此没有对应判据。",
+  "evidence": "见 `证据-一致-002.md`：spec.md:19/23/24 与 tasks.md:9 原文逐字；grep 显示 `先核实` 只在正文出现、`尚未核实` 只在场景 1 出现；spec 的场景 2 触发词是「判定……不可行」，不含「未核实」。`openspec validate editor-web-render-spike` 为 valid，结构校验不会判红。",
+  "suggestion": "删掉「（或尚未核实）」；或把这条要求拆成两条场景：①「零拷贝互操作尚未核实」→ MUST 红（evidence 缺 1.1 结论、缺每条候选的核实命令/版本/URL）；②「判定不可行」→ 阻塞证据 + CPU 兜底正控 MUST 过。同时给 tasks 3.1 或 4.1 加一条能失败的断言：「evidence/1.1-互操作研究.md 不含候选①②③各一条核实命令与文档 URL 时判红」，让核实 MUST 有红态。"
+}

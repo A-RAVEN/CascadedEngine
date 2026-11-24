@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-006",
+  "face": "验收可失败性-②（1.1 互操作研究「不可行有具体阻塞证据」）",
+  "severity": "misleading",
+  "claim": "1.1 要求 evidence 含「WebView2 版本」，但没给获取版本的命令、没给唯一来源、也没要求判定与版本绑定。版本号因此是可任意填写的装饰：写「版本 131.0.2903.86，不支持」与写任何别的版本号，在验收上完全等价；仓库里目前也没有读过 WebView2 运行时版本（全仓 BrowserVersionString 0 命中，本证据文件自身的两行除外）。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:9；design.md:50（风险条「需特性开关/版本不足」）",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-006.md",
+  "suggested_fix": "把版本钉成一条命令加一条格式：① 用具名 API 取版本并打印到日志（CoreWebView2Environment.GetAvailableCoreWebView2BrowserVersionString()，或注册表 EdgeUpdate Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\\pv —— 二选一并写死），evidence 贴该命令原文与输出；② 每个候选的判定必须写成「在版本 X 上：结论 + 核实方式」，X 与打卡行逐字一致；③ 版本不一致即判不合格（1.1 与 4.2 各自出现的版本号必须逐字相同）。"
+}

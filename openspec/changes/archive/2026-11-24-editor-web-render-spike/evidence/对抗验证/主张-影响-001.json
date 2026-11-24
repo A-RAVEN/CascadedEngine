@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-001",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "tasks 2.2 把「起一个原生窗 + 全客户区 WebView2 控制器（CreateCoreWebView2ControllerAsync(Hwnd)，Bounds=整客户区）」写成 tester 的 C++ 用例（Main.cpp + --list 登记）要做的事，但 CreateCoreWebView2ControllerAsync 与 Bounds 只存在于 Microsoft.Web.WebView2 托管包：全仓 C++ 侧 0 命中，tester 的 CMake 不链接 WebView2，仓库里没有原生 WebView2 头。设计与 tasks 没有点名任何托管侧原型窗文件、没有写它从 Host.Tick 的哪个位置被调用、也没有规定门控；2.2 的验收只核 --list 与「独立进程起原型窗」，不核这个托管入口存在。按字面在 Main.cpp 里调 C# 方法编不过，实现者只能自行发明托管侧入口——「独立入口、不复用一次性状态机」这个核心声称没有任何任务落到可执行处。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:15；openspec/changes/editor-web-render-spike/design.md:21；Scripting/Managed/Scripting.Managed.csproj:31；Scripting/Managed/Editor/EditorWindow.cs:232；Scripting/Managed/Host.cs:309；Test/GPUBackendTester/CMakeLists.txt:15-32",
+  "evidence_ref": "证据-影响-001.md",
+  "suggested_fix": "把 tasks 2.2 拆成两条：① C++ 用例 TestWebRenderSpike（Main.cpp 里 --list 登记、独立进程、每帧调 pScriptHost->Tick(0.016) 与 pWindowSystem->UpdateSystem()）；② 托管侧新文件（点名路径，例如 Scripting/Managed/EditorWebRenderSpike/WebRenderSpikeWindow.cs）用 CoreWebView2Environment.CreateAsync + CreateCoreWebView2ControllerAsync(Hwnd) + Bounds=整客户区 + Navigate spike.html，并在 Host.Tick 里点名调用点与门控（如 CASCADED_WEBRENDER_SPIKE=1）。验收加两条：grep 该托管文件在 Host.Tick 被调用恰好 1 处；原型窗读数行 controller=1/nav=1。"
+}

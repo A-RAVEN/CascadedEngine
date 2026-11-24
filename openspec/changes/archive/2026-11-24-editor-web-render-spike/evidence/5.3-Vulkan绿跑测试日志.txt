@@ -1,0 +1,393 @@
+Running: TestWebRenderSpike
+[38;2;128;128;128m[渲染原型] Vulkan 设备：NVIDIA GeForce RTX 4070 Laptop GPU，externalMemory=1 externalMemoryWin32=1
+[0m[38;2;128;128;128m[渲染原型 测试] 原生侧正控通过：句柄非空 + OpenSharedHandle 第二消费者读回一致 + 背景绿/中心红/四角/帧序号位匹配（frame=1 hash=7df2b6c5）
+[0m[38;2;128;128;128m[渲染原型 测试] 帧序号进像素：帧 1 hash=7df2b6c5 / 帧 2 hash=2dfb06c5（不同）
+[0m[38;2;128;128;128m[托管侧] Tick #1：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧 渲染] 后端 + 五张目标类型表已绑定（后端实例 2388372690448）
+[0m[38;2;128;128;128m[托管侧] [脚本] OnEngineReady 调用 #1
+[0m[38;2;128;128;128m[托管侧] [脚本] 建窗：脚本建的窗口 320 x 240
+[0m[38;2;128;128;128m[托管侧] [编辑器] 程序集位置：E:\Projects\CascadedEngine\out\build\x64-debug\bin\Scripting.Managed.dll；AppContext.BaseDirectory=""
+[0m[38;2;128;128;128m[托管侧] [编辑器] 监听线程已启动：http://localhost:18393/（面板宽 320，dock 高 240，仅本机；门控 CASCADED_EDITOR=1）
+[0m[38;2;128;128;128m[托管侧] [托管侧] 窗口尺寸 = 640 x 480
+[0m[38;2;128;128;128m[托管侧] [托管侧] IWindowSystem::GetWindowCount = 2
+[0m[38;2;128;128;128m[托管侧] [托管侧] 异常码读数：IWindowException 的 Code = 1001（码表里 1001 = 句柄不可用）
+[0m[38;2;128;128;128m[托管侧] [托管侧] 失败之后紧接着成功调用：640 x 480（没有抛）
+[0m[38;2;128;128;128m[托管侧] [托管侧 GetMonitor] count=0
+[0m[38;2;128;128;128m[托管侧] [托管侧 无效显示器] id=-1 code=1006
+[0m[38;2;128;128;128m[托管侧] [托管侧 无效显示器] id=0 code=1006
+[0m[38;2;128;128;128m[托管侧] [托管侧 目标释放] disposed=ObjectDisposedException borrowedCount=2 ownerCount=2
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #1 回值 1（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #2：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [渲染原型] 窗口已创建（全客户区单控制器 1280x720，hwnd=0x6C1198，目标 http://localhost:18393/spike.html，自检 -）
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #2 回值 2（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #3：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=3 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #3 回值 3（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #4：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=4 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #4 回值 4（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #5：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=5 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #5 回值 5（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #6：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=6 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #6 回值 6（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #7：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=7 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #7 回值 7（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #8：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=8 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #8 回值 8（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #9：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=9 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #9 回值 9（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #10：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=10 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #10 回值 10（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #11：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=11 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #11 回值 11（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #12：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=12 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #12 回值 12（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #13：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=13 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #13 回值 13（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #14：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=14 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #14 回值 14（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #15：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=15 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #15 回值 15（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #16：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=16 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #16 回值 16（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #17：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=17 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #17 回值 17（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #18：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=18 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #18 回值 18（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #19：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=19 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #19 回值 19（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #20：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=20 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #20 回值 20（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #21：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=21 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #21 回值 21（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #22：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=22 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #22 回值 22（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #23：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=23 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #23 回值 23（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #24：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=24 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #24 回值 24（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #25：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=25 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #25 回值 25（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #26：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=26 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #26 回值 26（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #27：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=27 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #27 回值 27（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #28：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=28 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #28 回值 28（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #29：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=29 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #29 回值 29（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #30：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=30 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #30 回值 30（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #31：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=31 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #31 回值 31（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #32：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=32 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #32 回值 32（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #33：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=33 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #33 回值 33（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #34：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=34 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #34 回值 34（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #35：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=35 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #35 回值 35（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #36：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=36 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=0 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #36 回值 36（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #37：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=37 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #37 回值 37（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #38：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=38 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #38 回值 38（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #39：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=39 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #39 回值 39（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #40：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=40 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #40 回值 40（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #41：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=41 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #41 回值 41（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #42：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=42 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #42 回值 42（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #43：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=43 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #43 回值 43（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #44：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=44 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #44 回值 44（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #45：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=45 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #45 回值 45（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #46：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=46 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #46 回值 46（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 面板静态根：E:\Projects\CascadedEngine\out\build\x64-debug\bin\editor-web
+[0m[38;2;128;128;128m[托管侧] Tick #47：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=47 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #47 回值 47（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #48：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=48 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #48 回值 48（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #49：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=49 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #49 回值 49（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #50：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=50 state=running mode=main-thread port=18393 clients=0 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #50 回值 50（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #51：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=51 state=running mode=main-thread port=18393 clients=1 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #51 回值 51（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 客户端 #2 已连接（[::1]:63348）
+[0m[38;2;128;128;128m[托管侧] Tick #52：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=52 state=running mode=main-thread port=18393 clients=1 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=0 spikeNavHttp=0 path=- webview2Version=157.0.4341.60 spike=1 spikePage=0 spikeWebgpu=0 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #52 回值 52（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 渲染原型消息已入队（监听线程）：kind=SpikeHello
+[0m[38;2;128;128;128m[托管侧] Tick #53：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [渲染原型] 导航完成：IsSuccess=1 HttpStatus=200 webview2Version=157.0.4341.60 target=http://localhost:18393/spike.html
+[0m[38;2;128;128;128m[托管侧] [渲染原型 读数] spikeHello webgpu=1（原型页已握手，可以开始推帧）
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=53 state=running mode=main-thread port=18393 clients=1 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #53 回值 53（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #54：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=54 state=running mode=main-thread port=18393 clients=1 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #54 回值 54（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #55：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=55 state=running mode=main-thread port=18393 clients=1 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #55 回值 55（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #56：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=56 state=running mode=main-thread port=18393 clients=1 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #56 回值 56（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[渲染原型 测试] 原型窗启动读数：state=running spikeController=1 spikeNav=1 spikePage=1 webview2Version=157.0.4341.60 port=18393
+[0m[38;2;128;128;128m[托管侧] [编辑器] 客户端 #3 已连接（127.0.0.1:63349）
+[0m[38;2;128;128;128m[托管侧] Tick #57：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=57 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #57 回值 57（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #58：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=58 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #58 回值 58（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #59：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=59 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #59 回值 59（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #60：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=60 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #60 回值 60（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #61：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=61 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #61 回值 61（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #62：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=62 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #62 回值 62（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #63：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=63 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #63 回值 63（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #64：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=64 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #64 回值 64（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #65：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=65 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=- webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=0 spikeMatched=0 spikePath=- spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #65 回值 65（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 渲染原型消息已入队（监听线程）：kind=SpikeFrame
+[0m[38;2;128;128;128m[托管侧] Tick #66：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=66 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=0 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #66 回值 66（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #67：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=67 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=0 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #67 回值 67（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 渲染原型消息已入队（监听线程）：kind=SpikeReport
+[0m[38;2;128;128;128m[托管侧] Tick #68：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [渲染原型 读数] spikeMatch frame=1 hash=7df2b6c5 canvas=256x256 path=cpu-readback webgpu=1
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=68 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #68 回值 68（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[渲染原型 测试] 帧 1 同源对账通过：hash=7df2b6c5 canvas=256x256 path=cpu-readback
+[0m[38;2;128;128;128m[托管侧] Tick #69：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=69 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #69 回值 69（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #70：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=70 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #70 回值 70（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #71：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=71 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #71 回值 71（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #72：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=72 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #72 回值 72（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #73：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=73 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #73 回值 73（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #74：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=74 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #74 回值 74（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #75：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=75 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=1 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #75 回值 75（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 渲染原型消息已入队（监听线程）：kind=SpikeFrame
+[0m[38;2;128;128;128m[托管侧] Tick #76：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=76 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=1 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #76 回值 76（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 渲染原型消息已入队（监听线程）：kind=SpikeReport
+[0m[38;2;128;128;128m[托管侧] Tick #77：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [渲染原型 读数] spikeMatch frame=2 hash=2dfb06c5 canvas=256x256 path=cpu-readback webgpu=1
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=77 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #77 回值 77（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[渲染原型 测试] 帧 2 同源对账通过：hash=2dfb06c5 canvas=256x256 path=cpu-readback
+[0m[38;2;128;128;128m[托管侧] Tick #78：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=78 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #78 回值 78（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #79：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=79 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #79 回值 79（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #80：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=80 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #80 回值 80（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #81：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=81 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #81 回值 81（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #82：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=82 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #82 回值 82（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #83：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=83 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=2 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #83 回值 83（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 渲染原型消息已入队（监听线程）：kind=SpikeFrame
+[0m[38;2;128;128;128m[托管侧] Tick #84：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=84 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=3 spikeMatched=2 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #84 回值 84（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] [编辑器] 渲染原型消息已入队（监听线程）：kind=SpikeReport
+[0m[38;2;128;128;128m[托管侧] Tick #85：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [渲染原型 读数] spikeMatch frame=3 hash=90355dc5 canvas=256x256 path=cpu-readback webgpu=1
+[0m[38;2;128;128;128m[托管侧] [编辑器 读数] probe=editor tick=85 state=running mode=main-thread port=18393 clients=2 objects=0 invalidated=0 shellClosed=0 windowSelf=2389976139296 client=0x0 panel=- viewport=- dock=- controller=0 nav=0 navHttp=0 dockController=0 dockNav=0 dockNavHttp=0 exec=0 capture=0x0 graphSelf=0 captureSelf=0 wtarget=0x0 passes=0 presents=0 nativeCalls=3 cmdRequest=0 cmdCalls=0 lastCmd=- error=- spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60 spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=3 spikeMatched=3 spikePath=cpu-readback spikeError=-
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #85 回值 85（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[渲染原型 测试] 帧 3 同源对账通过：hash=90355dc5 canvas=256x256 path=cpu-readback
+[0m[38;2;128;128;128m[托管侧] Tick #86：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [编辑器] 已关闭（测试请求停止（CASCADED_EDITOR_STOP=1））：监听已停、客户端已断、WebView2 控制器已关闭
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #86 回值 86（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #87：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #87 回值 87（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #88：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #88 回值 88（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #89：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #89 回值 89（引擎侧计数与之一致）
+[0m[38;2;128;128;128m[托管侧] Tick #90：dt = 0.016 秒
+[0m[38;2;128;128;128m[托管侧] [托管侧] WindowShouldClose = 0
+[0m[38;2;128;128;128m托管侧 Tick #90 回值 90（引擎侧计数与之一致）
+[0m[38;2;128;128;128mTestWebRenderSpike 通过：原生侧正控（句柄/二消费者/特征图案）+ 3 帧同源对账（帧序号/整图哈希/七点采样/canvas 读数）+ path=cpu-readback + webview2Version=157.0.4341.60 全部满足
+[0m

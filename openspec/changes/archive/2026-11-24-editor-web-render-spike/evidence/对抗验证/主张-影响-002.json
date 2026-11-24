@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-002",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "原型窗一旦在托管侧新建 WebView2 控制器，就多了一份必须在 hostfxr_close 之前关闭的 COM 对象与导航事件回调；Host.Shutdown 只调 EditorService.Shutdown（关编辑器自己的两个控制器）再按固定清单释放表面对象，工件没有任何任务与验收处理原型控制器的关闭，也没有关闭读数。既有代码把「停监听/join/处置 WebView2 全部先于 hostfxr_close」写成 editor-window-panel D1 硬判据，CSharpHost 注释记录过关闭顺序不当导致的 0xC0000005。于是 spike 的三项验收可以全绿、退出码 0，同时把控制器留到运行时关闭之后；这个风险没有任何判据能变红。",
+  "location": "openspec/changes/editor-web-render-spike/design.md:20-21；openspec/changes/editor-web-render-spike/tasks.md:15；Scripting/Managed/Host.cs:227-234；Scripting/Managed/Editor/EditorService.cs:286-309；Scripting/Managed/Editor/EditorWindow.cs:518-546；CSharpHost/private/CSharpHost.cpp:449-462",
+  "evidence_ref": "证据-影响-002.md",
+  "suggested_fix": "在 design/tasks 里点名原型窗的关闭路径：原型窗关闭时 controller.Close() + window.CloseWindow()/Dispose()，并在 Host.Shutdown 里紧跟 EditorService.Shutdown 之后调用（先于 hostfxr_close）。验收：关闭日志行点名「原型控制器已关闭」；同一命令连跑两次退出码都是 0 且无 crash_*.dmp；读数行新增 prototypeController=0（关闭后）。"
+}

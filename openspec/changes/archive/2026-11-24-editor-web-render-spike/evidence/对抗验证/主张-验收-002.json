@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-002",
+  "face": "验收可失败性-①（3.1 网页 canvas 中心像素断言）",
+  "severity": "Blocking",
+  "claim": "3.1 要求「互操作断链 MUST 红」，但没有规定 C++ 收不到回传时怎么判：工件全文 0 处「超时」、0 处失败码、没有「缺回传行即失败」的判据，也没有给回传帧编号。断链下测试可以一直等（挂住不是红），或读不到像素就跳过断言（绿），于是这条 MUST 红的分支没有可执行的判红机制。1.2 的验收「像素回传通道可核」同样没有判据——「可核」既无命令也无期望值。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:20 与 :10；specs/editor-web-render-spike/spec.md:5 与 :10",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-002.md",
+  "suggested_fix": "① 回传行必须带原生侧写入的单调帧序号与网页侧读到的帧序号，C++ 断言帧序号递增且 ≥ 2（证明连续帧都到位）；② 等回传必须带写死的超时，超时判 E_WEBCANVAS_TIMEOUT 退出 1，超时值取现有探针惯例 Main.cpp:4362 的 `int timeoutMs = 6000`（或做成配置项并在 README 登记，不许凭空取数）；③ 日志里没有回传行时立即判 E_WEBCANVAS_NOLINE 失败，照 Main.cpp:2170-2172 的 E_TRIANGLE_READINGS「……没有出现在日志里」惯例；④ 1.2 的「像素回传通道可核」改成具名判据：一次 dry-run 让页面回传固定四元组 (1,2,3,4)，C++ 逐字节断言相等，红态=关掉页面的发送分支后该断言必须红。"
+}

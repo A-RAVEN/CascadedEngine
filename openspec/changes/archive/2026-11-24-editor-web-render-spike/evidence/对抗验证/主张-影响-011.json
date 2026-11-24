@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-011",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "原型网页由谁提供、用哪个端口，工件没有规定。既有编辑器在 CASCADED_EDITOR=1 时用 HttpListener 绑 18390（默认）并从 bin/editor-web/ 提供静态页；TestEditorWindowPanel 用 18391、TestEditorAssetBrowser 用 18392，两处都写了「专用端口，避开默认 18390」。spike 的 tasks 只说加载 spike.html，没有说走 file:// 还是自建 HTTP 服务，也没有分配端口；若照编辑器模式自建监听又用默认端口，会和开着编辑器（或另一个 tester 进程）撞端口。HttpListener.Start 抛异常后整条正控失败，而失败原因与互操作无关，工程上会被误诊。",
+  "location": "Scripting/Managed/Editor/EditorService.cs:60、225-234；Test/GPUBackendTester/Main.cpp:4665-4667、6478-6479；openspec/changes/editor-web-render-spike/tasks.md:10、15；openspec/changes/editor-web-render-spike/design.md:21",
+  "evidence_ref": "证据-影响-011.md",
+  "suggested_fix": "在 tasks 1.2/2.2 里写死加载方式与端口：要么 file:// 加载 spike.html 并说明 WebView2 的本地文件访问前提，要么分配一个专用端口（例如 18393）并写进验收；同时规定监听失败必须以点名端口的错误码判红，而不是落到「互操作不可行」。"
+}

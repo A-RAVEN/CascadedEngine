@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-009",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-web-render-spike/tasks.md",
+  "anchor": "tasks.md:20「验收：独立进程两后端（D3D12 主；Vulkan 不要求）正控过」｜proposal.md:34「**Vulkan 共享纹理互操作**：本 spike 只 D3D12（Vulkan↔WebGPU 更不成熟，留后续）」｜proposal.md:28「**不动**：……Vulkan 后端」｜spec.md:33「现有 tester 用例 + CoreTests MUST 全绿」",
+  "problem": "tasks 3.1 的验收在同一句里自相矛盾：前半句要求「两后端」正控过，括号里又说 Vulkan 不要求。执行者无法判断该跑一个后端还是两个。若照「两后端」字面在 Vulkan 上跑原型窗，就越过 proposal Non-goals（「本 spike 只 D3D12」）——Vulkan 后端没有共享纹理/共享句柄路径，且 spec 也没有 Vulkan 正控要求（spec 要求 3 只要求现有 tester 用例 + CoreTests 全绿）。若照「Vulkan 不要求」执行，那「两后端」三个字就是错的，验收命令与读数没有写死。",
+  "evidence": "见 `证据-一致-009.md`：tasks.md:20、proposal.md:28/34、spec.md:33 原文逐字；`Select-String -Pattern '两后端|Vulkan'` 在 tasks/proposal 的命中行；工件里没有 Vulkan 原型正控的命令、期望或 evidence 文件名。",
+  "suggestion": "改成单一口径：「独立进程 D3D12 正控过（Vulkan 不在本批范围；如为诊断顺手跑，读数只入 evidence、不作验收）」，并给出命令与期望读数（例如 `GPUBackendTester.exe --backend d3d12 --test TestWebRenderSpike` + canvas 中心像素读数）。如果确实要 Vulkan 正控，就必须从 Non-goals 移出、在 spec 增加对应要求，并说明 Vulkan 侧共享纹理路径怎么来（本批显然没有）。"
+}

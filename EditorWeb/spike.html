@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cascaded 渲染原型（原生像素进网页）</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #14171c;
+        --panel: #1c2129;
+        --line: #2c3440;
+        --text: #e6e9ef;
+        --muted: #9aa4b2;
+        --accent: #5aa9ff;
+        --ok: #45c48a;
+        --warn: #e5b455;
+        --error: #f06464;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+      .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .muted { color: var(--muted); }
+      #connection-status { font-weight: 600; }
+      #connection-status.ok { color: var(--ok); }
+      #connection-status.pending { color: var(--warn); }
+      #connection-status.error { color: var(--error); }
+      /* scene 面板：固定 256×256（与原生共享纹理同尺寸，D2 写死）。canvas 的 CSS 尺寸与
+         像素尺寸都由这里钉死，显示类红态（display:none / 0 尺寸）才可被回传读数识破。 */
+      #scene-panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px;
+        display: inline-flex;
+        flex-direction: column;
+        gap: 8px;
+        align-self: flex-start;
+      }
+      #scene-panel h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+      #scene-canvas {
+        width: 256px;
+        height: 256px;
+        display: block;
+        background: #000;
+        image-rendering: pixelated;
+      }
+      #report-log {
+        list-style: none;
+        margin: 0;
+        padding: 8px;
+        max-height: 220px;
+        min-width: 420px;
+        overflow: auto;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 12px;
+      }
+      #report-log li { padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, .04); word-break: break-all; }
+      #report-log li.error { color: var(--error); }
+      .hint { color: var(--muted); font-size: 12px; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <!-- 渲染原型页（editor-web-render-spike 1.2）：全客户区单 WebView2 控制器加载本页，
+         scene 面板里是一块 256×256 的 canvas。**本页不本地绘制**：只把收到的原生读回帧
+         putImageData 上屏，然后把 getImageData 读回的多点采样 + 整图哈希 + canvas 尺寸/位置/
+         可见性经同一条 WebSocket 回传，由服务端与原生读回同帧对账（D4）。
+         自检开关（?selftest=，只用于构造红态，正常模式不带）：
+           hide-canvas —— 隐藏画布（display:none），像素仍正确、显示类读数不合法；
+           local-red   —— 网页本地画红（禁止的行为，用来证明同源对账能识破）；
+           no-line     —— 回传通道断链（页面仍连接并握手，但不回传任何报告）。 -->
+    <h1>Cascaded 渲染原型：原生像素 → 网页 canvas</h1>
+    <div class="row">
+      <span>连接状态：</span>
+      <span id="connection-status" class="pending">未连接</span>
+      <span id="frame-status" class="muted">尚未收到帧</span>
+    </div>
+
+    <section id="scene-panel" aria-label="scene 面板">
+      <h2>scene</h2>
+      <canvas id="scene-canvas" width="256" height="256" aria-label="原生渲染显示区"></canvas>
+    </section>
+
+    <ul id="report-log" aria-label="回传记录"></ul>
+    <p class="hint">本页只展示服务端推来的帧，不本地绘制；每收到一帧回传一次帧序号 / 整图哈希 / 背景·中心·四角多点采样 / canvas 尺寸与可见性。</p>
+
+    <script type="module" src="./src/spike.ts"></script>
+  </body>
+</html>

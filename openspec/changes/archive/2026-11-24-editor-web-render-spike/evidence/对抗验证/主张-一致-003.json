@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-003",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/tasks.md",
+  "anchor": "spec.md:5「D3D12 后端 MUST 离屏渲染确定性画面到 DXGI 共享纹理」｜tasks.md:14「复用 D3D12RenderBackend 渲染确定性红三角……渲染目标带共享句柄（D3D11_RESOURCE_MISC_SHARED / D3D12 shared handle）……验收：共享句柄产出可核」｜spec.md:33「绑定产物 MUST 逐字节不变（spike 不碰生成器/原生绑定面）」｜tasks.md:25「绑定基线对账 缺失0/不一致0/多余0」",
+  "problem": "三处对「共享纹理/共享句柄从哪来」没有一致说法：spec 要求 1 把「渲染到 DXGI 共享纹理」写成 MUST，tasks 2.1 说「复用 D3D12RenderBackend」并要「共享句柄产出可核」，同时 spec 要求 3 与 tasks 4.1 又要求「绑定产物 MUST 逐字节不变（spike 不碰生成器/原生绑定面）」。但现有渲染接口没有任何共享句柄能力：GPUTextureDescriptor 只有 format/textureType/width/height/layers/mipLevels/samples 七个字段、没有共享标志；GPUTexture 与 CRenderBackend 都是 CA_BIND() 绑定面类，GPUTextureDescriptor 还按值镜像进托管面（NativeRenderSugar.cs 直接 new GPUTextureDescriptor）；全仓引擎源码 CreateSharedHandle / D3D12_HEAP_FLAG_SHARED / D3D11_RESOURCE_MISC_SHARED 0 命中。要在测试里「共享句柄产出可核」必须新增接口（例如加一个取共享句柄的方法），若按常规进绑定面就会改变生成产物，与要求 3 的「逐字节不变」冲突；若走 CA_BIND_SKIP 旁路，工件必须写明，但三份工件都没提这条决策。于是 2.1 照字面无法在「复用 + 不改绑定面」的前提下完成，而 4.1 的 0/0/0 又会在实现者不得不改接口时变红。",
+  "evidence": "见 `证据-一致-003.md`：GPUTexture.h:9-18 描述符字段、GPUTexture.h:150-152 与 CRenderBackend.h:65-67 的 CA_BIND 标记、CRenderBackend.h:108 CreateGPUTexture 签名、NativeRenderSugar.cs:1373/1453 的托管侧构造；`CreateSharedHandle|D3D12_HEAP_FLAG_SHARED|D3D11_RESOURCE_MISC_SHARED` 在引擎源码（排除 out/_deps）命中 0；spec.md:5/19/33 与 tasks.md:14/16/25 原文逐字。",
+  "suggestion": "在 design D2 与 tasks 2.1 写死共享纹理/共享句柄的落点：① 首选新增 C++ 专用、标记 CA_BIND_SKIP 的取句柄入口（不生成绑定产物），并给验收「`python Tools/CodeGen/check_binding_baseline.py` 输出基线对账：缺失 0 / 不一致 0 / 多余 0 + 共享句柄读数非空」；② 若确认必须改绑定面，就按既有换锚程序更新 spec 要求 3（封存旧锚 + 新锚 + 差异清单），不许把「逐字节不变」一句留成不可能满足的 MUST。另外要裁决：走 CPU 读回兜底时共享纹理/共享句柄是否仍是本批 MUST（若是，就在 tasks 里给它的独立验收；若不是，就从 spec 要求 1 里去掉，避免出现无消费者的强制要求）。"
+}

@@ -1,0 +1,4 @@
+{
+  "where": "tasks.md 2.2；design.md §D1",
+  "claim": "tasks 2.2 让 Main.cpp 的 TestWebRenderSpike 起一个原生窗 + 全客户区 WebView2 控制器（`CreateCoreWebView2ControllerAsync(Hwnd)`）；该方法是托管侧 `Scripting/Managed/Editor/EditorWindow.cs` 里 `CoreWebView2Environment` 的 C# 方法，全仓 C++ 对 WebView2/CoreWebView2 零调用（grep 只命中注释）。C++ 用例无法直接调用它；现有唯一触发方式是 `CASCADED_EDITOR=1` 门控进 EditorService（本 change 禁止复用），design D1 提过“或独立门控开关”但 tasks 2.2 没点名新增哪个托管入口/门控、以及 Hwnd 如何传给控制器。"
+}

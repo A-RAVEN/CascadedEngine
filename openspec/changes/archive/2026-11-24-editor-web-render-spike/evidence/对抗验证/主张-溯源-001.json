@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-001",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/design.md；openspec/changes/editor-web-render-spike/tasks.md",
+  "anchor": "design.md:25「渲染目标是一张带 `D3D11_RESOURCE_MISC_SHARED`（或 D3D12 shared handle）的纹理，产出共享句柄」；tasks.md:14「渲染目标带共享句柄（D3D11_RESOURCE_MISC_SHARED / D3D12 shared handle）」",
+  "claim": "把 `D3D11_RESOURCE_MISC_SHARED` 写成 D3D12 渲染目标的共享方式不成立：它是 d3d11.h 的 `D3D11_RESOURCE_MISC_FLAG`（写在 D3D11_TEXTURE2D_DESC.MiscFlags 上，文档限定只支持 2D 非 mip 纹理），而 `D3D12_RESOURCE_DESC` 没有 MiscFlags 字段；D3D12 的实际机制是创建堆/提交资源时带 `D3D12_HEAP_FLAG_SHARED`，再用 `ID3D12Device::CreateSharedHandle` 产出 NT 句柄。工件同时把「D3D12 shared handle」当成与标志并列的纹理属性，但句柄不是纹理字段。全仓（排除 out 与 evidence）`D3D11_RESOURCE_MISC_SHARED` 只在本工件两处命中，`D3D12_HEAP_FLAG_SHARED` 与 `CreateSharedHandle` 零命中；D3D12RenderBackend 的 `CreateGPUTexture`/`AllocGPUResource` 也没设共享堆标志。按字面执行无法在 D3D12 后端产出共享纹理。与存在面 `主张-存在-001.json` 同一处；本文补 Microsoft 文档与 API 语义，合并时只保留一条。",
+  "evidence": "证据-溯源-001.md：design.md:25/tasks.md:14 原文；Microsoft Learn 的 D3D11_RESOURCE_MISC_FLAG、D3D12_HEAP_FLAGS、ID3D12Device::CreateSharedHandle、D3D12_RESOURCE_DESC、Shared heaps 五份文档 URL 与逐字引文；git grep 三组命中（D3D11 标志仅工件两处，D3D12 两个 API 名零命中）；MemoryManager.cpp:41-54 与 RenderBackend_D3D12.cpp:418-425 的分配路径；git log -S 唯一历史命中是 vkspec.pdf。"
+}

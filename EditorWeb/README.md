@@ -1,11 +1,14 @@
 # EditorWeb：编辑器面板前端
 
-**它做什么**：两个独立页面 —— ① 右面板**对象检查器**（`index.html` + `src/main.ts`）连接编辑器服务
+**它做什么**：三个独立页面 —— ① 右面板**对象检查器**（`index.html` + `src/main.ts`）连接编辑器服务
 （`ws://localhost:<port>/ws`）后提供连接状态、标题编辑、宽高编辑、撤销、事件日志与失效横幅；
 ② 底部通栏**资产浏览器 dock**（`assets.html` + `src/assets.ts`，editor-asset-browser）只读列出资源根
-下的资产文件（路径 / 种类 / 大小 / 修改时间 / 已注册），带刷新按钮与空态/错误显示。两个页面各自由
-一个 WebView2 控制器加载，互不引用；控件与协议命令的对应见 `Scripting/Managed/Editor/PROTOCOL.md` §5。
-对象失效后对象检查器的输入全部禁用。
+下的资产文件（路径 / 种类 / 大小 / 修改时间 / 已注册），带刷新按钮与空态/错误显示；③ **渲染原型页**
+（`spike.html` + `src/spike.ts`，editor-web-render-spike）由**全客户区单 WebView2 控制器**加载，把服务端
+推来的原生读回帧 `putImageData` 到 256×256 的 scene canvas 上，再把 canvas 自读回的 帧序号/整图哈希/
+七点采样/canvas 尺寸与可见性经同一条 WebSocket 回传（`spike-hello` / `spike-frame` / `spike-report`，
+形状见 `Scripting/Managed/Editor/PROTOCOL.md` §7）。前两个页面各自由一个 WebView2 控制器加载，互不引用；
+控件与协议命令的对应见 `PROTOCOL.md` §5。对象失效后对象检查器的输入全部禁用。
 
 **它不做什么**：不带任何运行时框架（无 React/Vue）；不直接访问引擎，只通过 WebSocket 命令/事件；
 不做本地乐观更新 —— 收到 `result.ok` 或 `object-changed` 才更新显示（命令在引擎主线程的下一次
@@ -38,7 +41,10 @@ npm run build      # tsc --noEmit + vite build → dist/
 | `index.html` | 对象检查器 DOM 与样式（深色、无框架；由右上 WebView2 控制器加载） |
 | `src/assets.ts` | 资产浏览器 dock 逻辑：连接后拉 `list-assets`、渲染 `AssetEntry` 行、`assets-changed` 重拉、空态/错误 |
 | `assets.html` | 资产浏览器 dock DOM 与样式（底部通栏独立页面；由第二个 WebView2 控制器加载） |
-| `vite.config.ts` | `base: './'`（静态文件从子目录提供）、多页面入口（`index.html` + `assets.html`）、产物 `dist/` |
+| `src/spike.ts` | 渲染原型页逻辑：连 `/ws`、收 `spike-frame` → `putImageData` → `getImageData` 回传对账数据；**不本地绘制**（自检开关 `?selftest=hide-canvas/local-red/no-line` 只用来构造红态） |
+| `src/spikeChannel.ts` | 渲染原型的**纯**通道逻辑（base64 解码、FNV-1a 32 整图哈希、七点采样、回传消息组装）——不碰 DOM，可脱离浏览器做 dry-run |
+| `spike.html` | 渲染原型页 DOM 与样式（scene 面板 + 256×256 canvas；由全客户区单控制器加载） |
+| `vite.config.ts` | `base: './'`（静态文件从子目录提供）、多页面入口（`index.html` + `assets.html` + `spike.html`）、产物 `dist/` |
 | `tsconfig.json` | 严格模式、`noEmit`（类型检查由 `tsc --noEmit` 做） |
 
 ## 面板与命令的对应（走读记录）
@@ -65,7 +71,8 @@ npm run build      # tsc --noEmit + vite build → dist/
 
 ## 实测构建输出
 
-多页面（`index.html` + `assets.html`）之后的一次 `npm run build` 实测：
+多页面（`index.html` + `assets.html`）之后的一次 `npm run build` 实测（**加 `spike.html` 之前的历史读数**；
+加第三个入口后产物应另有 `dist/spike.html` 与它自己的 js，`build.py` 现在校验三个页面都在）：
 
 ```text
 > tsc --noEmit && vite build
@@ -79,4 +86,5 @@ dist/assets/index-TFnG6Smo.js                   3.14 kB │ gzip: 1.67 kB
 ✓ built in 117ms
 ```
 
-`build.py` 会把 `dist/` 整目录拷到 `bin/editor-web/`，并校验两个页面都在（缺任一页即构建失败）。
+`build.py` 会把 `dist/` 整目录拷到 `bin/editor-web/`，并校验三个页面（`index.html` / `assets.html` /
+`spike.html`）都在（缺任一页即构建失败）。

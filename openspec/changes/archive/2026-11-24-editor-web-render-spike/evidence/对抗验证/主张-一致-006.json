@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-006",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-web-render-spike/design.md",
+  "anchor": "design.md:32「经 WebView2 host object / WebSocket 传字节」｜design.md:61「路径③的字节传输通道选型（host object vs WebSocket）与帧率（spike 取最简单可行）」｜tasks.md:10「getImageData 读中心像素经 host object/WebSocket 回传。验收：……像素回传通道可核」｜tasks.md:20「网页 canvas 中心像素经 getImageData 回传 C++ 断言 == (255,0,0,255)」",
+  "problem": "像素回传通道被当成既有能力：design D3 写「经 WebView2 host object / WebSocket 传字节」，design D4 与 tasks 3.1 的核心判据都依赖它回传 getImageData 结果，但 design D6 又把「host object vs WebSocket 的选型」列为未决问题 2，tasks 1.2 的验收只写「像素回传通道可核」（不是能失败的判据）。两个候选在本仓库都缺设施：WebSocket 服务端只存在于 EditorService（HttpListener 在 EditorService.cs:225 创建、:1230 处理请求、:1247 接受 WebSocket），而 EditorService 正是 spec MUST NOT 复用的对象；host object 需要在托管 WebView2 控制器上调 AddHostObjectToScript，全仓 0 命中（现有编辑器两个控制器从未用过 host object）。所以 tasks 3.1 的正控依赖一条既没有归属任务、也没有失败表现的通道；1.2 做不出来时 3.1 只会表现为「拿不到像素」，无法归因是通道问题还是互操作问题。",
+  "evidence": "见 `证据-一致-006.md`：design.md:32/39/61 与 tasks.md:10/20 原文逐字；EditorService.cs:225/1230/1247 的 HttpListener/WebSocket 服务端原文；`AddHostObjectToScript` 全仓（排除 out/_deps）命中 0；tasks 1.2 的验收措辞无红态。",
+  "suggestion": "把通道选型从 Open Questions 提升为 design 决策并落一条独立任务：明确选 host object（在托管侧新增 `AddHostObjectToScript` + 回调）还是 spike 自带最小 WebSocket 服务（独立于 EditorService，点名端口与关闭路径），写清文件、失败表现与验收（例如「通道未建立时 3.1 MUST 红并打印 `E_SPIKE_CHANNEL`；通道建立后 getImageData 回传值 MUST 等于写入值」）。tasks 1.2 的验收从「可核」改成这条可失败断言。"
+}

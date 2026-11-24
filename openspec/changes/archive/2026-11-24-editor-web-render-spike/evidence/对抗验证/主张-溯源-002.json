@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-002",
+  "face": "无中生有",
+  "severity": "minor",
+  "artifact": "openspec/changes/editor-web-render-spike/design.md；openspec/changes/editor-web-render-spike/tasks.md",
+  "anchor": "design.md:29「标准 WebGPU web API 无直接「导入 DXGI 共享句柄」入口（`importExternalTexture` 收 VideoFrame，不收裸共享句柄）」；design.md:30「路径①（零拷贝目标）：Chromium/WebView2 实验性共享纹理互操作（若该版本暴露）」；design.md:49「这是 spike 的预期可能结论」；tasks.md:9「不可行有具体阻塞（缺失 API 名/版本）」",
+  "claim": "外部 API 断言逐项核：①「`importExternalTexture` 不收裸共享句柄」属实；MDN 原文是「takes an HTMLVideoElement or a VideoFrame object as an input」，工件只写 VideoFrame，漏了 HTMLVideoElement，属表述不完整，不改变「不收裸共享句柄」的结论。②「标准 WebGPU 无直接导入 DXGI 共享句柄入口」属实：GPUWeb 议题 #5167 正文逐字说「importExternalTexture() currently requires its source to be HTMLVideoElement or VideoFrame. There is no standard way to turn a platform-shared GPU texture handle ... into either of those objects」；该议题 state=closed、label=invalid（提案未进规范），但正文陈述的现状与工件一致。③「零拷贝可能不可行」不是凭空臆测：它有上述标准缺口作依据，且 design 把它标成「预期可能结论」而不是结论；缺陷是 design 没写这个出处，路径①也没有点名任何候选 API/版本，tasks 1.1 的「缺失 API 名」无法落成一个具体名字。不是 blocking；建议把 MDN 与 #5167 写进 1.1，并把缺失 API 写成 `importExternalTexture` 只接受 HTMLVideoElement/VideoFrame、没有 `GPUDevice.importSharedTexture` / `VideoFrame({sharedTexture})` 这类入口。",
+  "evidence": "证据-溯源-002.md：MDN GPUDevice.importExternalTexture 抓取原文与 URL；GitHub API 读取 gpuweb/gpuweb#5167 的 title/state/labels/body 原文与 URL；W3C WebGPU 规范该节 URL（web_fetch 返回被截断，未取得原文，故不引 W3C 逐字）；工件四处原文。"
+}

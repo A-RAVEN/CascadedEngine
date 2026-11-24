@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-014",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "spec 写「原生未渲染/互操作断链时 canvas 空白或黑，判据 MUST 红」，tasks 3.1 写「反例（原生未渲染/互操作断链）canvas 空白/黑 MUST 红；验收：红态构造可核（evidence/3.1-*.txt）」。但四份工件里 0 处点名任何自检开关或红态构造机制（SELFTEST、自检开关、CASCADED_ 三个词在四份工件里命中 0），而本仓库既有红态一律靠环境变量自检开关（CASCADED_EDITOR_SELFTEST=no-runtime / no-dock-controller / no-facade，CASCADED_CSHARP_*_SELFTEST 等）。没有开关，红态只能靠临时改代码构造，evidence 里的 txt 既不能在 CI 复现，也不能证明「断链时 canvas 必然是空白或黑」——路径③下 canvas 是否被写过像素由网页胶水决定，工件没有一条断言能区分「原生断链」与「网页侧还没画」。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:20；openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md:10；CSharpHost/README.md:123；Scripting/Managed/Editor/EditorWindow.cs:114-118（既有 no-runtime 红态开关）",
+  "evidence_ref": "证据-影响-014.md",
+  "suggested_fix": "在 tasks 2.3/3.1 里写死红态开关（例如 CASCADED_WEBRENDER_SPIKE_SELFTEST=skip-transfer / no-native-render），并规定：开关生效时测试必须以点名原因的失败退出（E_SPIKE_BLANK），且该失败读数与绿态同一命令产出的 evidence 一起落盘；断言 canvas 的初始状态（未收到字节时 getImageData 的实际读数）写死，不允许网页侧预填红色。"
+}

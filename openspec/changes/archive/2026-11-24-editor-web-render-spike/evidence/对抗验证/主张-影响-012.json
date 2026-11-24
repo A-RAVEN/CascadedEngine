@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-012",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "tasks 2.2 的验收只要求「--list 含 TestWebRenderSpike」，没有决定它进不进全量顺序跑。现状是 --list 23 行、全量同进程顺序跑 22 条，TestEditorAssetBrowser 因「两个编辑器用例在同一进程里不能共存」被明确排除在 run-all 之外（Main.cpp:5975-5978、9810-9813），上一批全量基线也是 22 条。spike 的新用例要用 C# 且要开窗，必须做同样的决定：进了 run-all，4.1 的「与基线零差异」就变成 23 对 22（多一条）；不进 run-all，就要补同款注释并更新 docs/testing.md——该文件第 45 行写死「这份清单必须与 --list 逐条一致」，第 10/99/235 行写死 23/22 的计数。工件没有任何一条任务覆盖这三件事，4.1 只跑既有用例，也发现不了 docs/testing.md 已经过期。",
+  "location": "Test/GPUBackendTester/Main.cpp:5975-5978、9810-9813、10172-10213；openspec/changes/archive/2026-11-24-editor-asset-browser/evidence/5.1-全量-d3d12.json:1-24；docs/testing.md:10、45、99、235；openspec/changes/editor-web-render-spike/tasks.md:15、25",
+  "evidence_ref": "证据-影响-012.md",
+  "suggested_fix": "在 tasks 2.2 写死「只按 --test TestWebRenderSpike 独立进程跑、不进全量顺序跑」，并要求在 Main.cpp 的 --list 旁边加同款注释；同时加一条文档任务：更新 docs/testing.md 的清单与 23/22 计数，验收用 `GPUBackendTester.exe --list` 输出与文档逐条比对。4.1 的基线比较显式过滤掉新用例，或在基线里登记「新增 1 条、其余零差异」。"
+}

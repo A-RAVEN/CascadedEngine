@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-005",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md",
+  "anchor": "spec.md:5「spike MUST NOT 复用 EditorService 一次性状态机（独立进程/独立入口）」｜tasks.md:15「独立进程跑，照 TestEditorAssetBrowser D8 先例，不复用 EditorService 一次性状态机」",
+  "problem": "spec 用「（独立进程/独立入口）」解释「不复用 EditorService 一次性状态机」，把两者当成等价条件；tasks 2.2 又把 TestEditorAssetBrowser 当作独立入口的先例。但该先例恰恰是「独立进程 + 设置 CASCADED_EDITOR=1 启动 EditorService」：`Main.cpp:6480` 写 `::SetEnvironmentVariableA(\"CASCADED_EDITOR\", \"1\");`，`EditorService.cs:120` 的 `Enabled` 读这个变量，`Host.cs:309` 每帧调 `EditorService.Tick` 推进状态机。它之所以独立进程，唯一理由是 EditorService 是进程级一次性状态机、不能与 TestEditorWindowPanel 同进程（docs/testing.md:42 原文写明）。所以「照先例」实际得到的是「复用 EditorService、只是换个进程」，与 spec 的 MUST NOT 正面冲突；D1/2.2 也没有写什么算「复用」（环境创建、窗口创建、消息泵、控制器创建这四项里，哪些必须自建、哪些可以借），执行者无法判断独立到什么程度才合格。",
+  "evidence": "见 `证据-一致-005.md`：spec.md:5、tasks.md:15、docs/testing.md:42 原文逐字；Main.cpp:6480 的 CASCADED_EDITOR=1 赋值、EditorService.cs:120 的 Enabled 读取、EditorService.cs:139/148/308 的状态机入口与终态、Host.cs:309 的每帧调用；`CASCADED_EDITOR` 在 Test/GPUBackendTester/Main.cpp 的命中行号清单。",
+  "suggestion": "把「不复用」写成可核事实，而不是「独立进程」：① spike 进程 MUST NOT 设置 CASCADED_EDITOR=1；② spike 日志 MUST NOT 出现 EditorService 的启动/读数行（例如 `state=running`、`[编辑器]` 前缀）；③ spike MUST NOT 调用 `EditorService.Tick` / `EditorWindow.Create`（grep 或运行日志可核）。三条任一不满足即红，并把 tasks 2.2 的验收从「独立进程起原型窗」改成这三条 + 「现有 editor-window-panel/asset-browser 两后端用例读数不受影响」。若决定允许借用 EditorService 的环境创建，就必须删掉 spec 的 MUST NOT 并改写「独立」的含义（不能一边 MUST NOT、一边照先例复用）。"
+}

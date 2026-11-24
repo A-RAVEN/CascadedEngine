@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-009",
+  "face": "验收可失败性-③（2.1 原生离屏读回与 3.1 网页 canvas 是否两套独立判据）",
+  "severity": "misleading",
+  "claim": "proposal.md:10 与 design.md:25 允许画面是「红三角或纯色」，tasks.md:14 与 spec.md:9 却写「红三角」；而所有像素判据只看一个中心点 == (255,0,0,255)。按「纯色 = 整幅清屏为红」的读法，一次清屏（不画任何几何）就能满足中心断言；按「纯色 = 常量色三角形」的读法才需要真的画。两种实现都能过同一条判据，其中一种根本没渲染任何东西。仓库既有先例用两个点区分「清屏」与「画了」：背景 (0,255,0,255) 与中心 (255,0,0,255)。",
+  "location": "openspec/changes/editor-web-render-spike/proposal.md:10；design.md:25；tasks.md:14；specs/editor-web-render-spike/spec.md:5 与 :9",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-009.md",
+  "suggested_fix": "① 三处措辞统一：proposal.md:10、design.md:25 删掉「或纯色」，与 tasks.md:14、spec.md:9 一样写死「红三角」，不留二义；② 像素判据改成两点：背景点 == (0,255,0,255)、中心点 == (255,0,0,255)（照 Main.cpp:2347-2349 的既有先例），背景点不符即红——清屏为红的实现会因背景不是绿而失败；③ 若确实要保留「纯色」这一形态，就必须另写一条判据把它和清屏分开（例如纯色画面里必须有一个不同色的标记像素），否则删掉它。"
+}

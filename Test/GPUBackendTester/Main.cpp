@@ -48,6 +48,8 @@
 #include <iostream>
 #include <library_loader.h>
 #include <CRenderBackend.h>
+// editor-web-render-spike 2.1：非绑定面 D3D12 共享纹理助手（不进 CodeGen、不改绑定面）。
+#include <WebRenderSpike/IWebRenderSpike.h>
 #include <RenderInterfaceManager.h>
 #include <CNativeRenderPassInfo.h>
 #include <CCommandList.h>
@@ -6987,6 +6989,622 @@ void TestEditorAssetBrowser(TestContext& ctx)
 	       "④ 四种根不可用各 E_ASSET_ROOT 不挂起 + ⑤ 门面调用主线程归因 全部满足");
 }
 
+// ---- TestWebRenderSpike（editor-web-render-spike 2.1 / 2.2 / 2.3 / 3.1，第 24 用例）----
+//
+// **独立进程用例**（照 TestEditorAssetBrowser 先例）：编辑器服务是进程级一次性状态机，本用例只按
+// `GPUBackendTester.exe --test TestWebRenderSpike --backend d3d12` 跑，**不进全量同进程顺序跑**
+//（`--list` 仍列 24 行）。C++ 侧建不了 WebView2 控制器（只有托管侧能建），所以它只做两件事：
+//   ① 用非绑定面原生助手（`IWebRenderSpikeProvider`）建 D3D12 共享纹理、渲染特征图案、读回核对，
+//      并用 `OpenSharedHandle` 让第二个消费者再读一遍（2.1）；
+//   ② 起编辑器服务（`CASCADED_EDITOR_SPIKE=web-render`，托管侧建全窗控制器加载 spike.html），
+//      自己当 WebSocket 客户端把读回的像素推给网页，再读服务端的同源对账读数判红绿（2.3 / 3.1）。
+//
+// 判据（design D4）：
+//   · 原生侧正控：共享句柄非空 + 第二消费者 OpenSharedHandle 读回同字节 + 背景绿/中心红/四角/帧序号位；
+//   · 同源正控：网页 canvas 回传的 帧序号 + 整图哈希 + 七点采样 与原生同帧一致，且 canvas 尺寸/布局/可见性合法；
+//   · 断链：6000ms 没有同帧回传 → 服务端判 `E_WEBCANVAS_NOLINE`（C++ 读读数判红）；
+//   · 红态开关（`CASCADED_EDITOR_SPIKE_SELFTEST`）：skip-native-render → 原生侧正控红（`E_SPIKE_PATTERN`）；
+//     hide-canvas → `E_WEBCANVAS_DISPLAY`；local-red → `E_WEBCANVAS_MISMATCH`；no-line → `E_WEBCANVAS_NOLINE`。
+namespace
+{
+	constexpr int kSpikeTextureSize = 256;
+
+	struct SpikeSamplePoint
+	{
+		char const* name;
+		int x;
+		int y;
+	};
+
+	// 采样点（与 D3D12WebRenderSpike.cpp 的图案版式、EditorWeb/src/spikeChannel.ts 的表逐点一致）。
+	constexpr SpikeSamplePoint kSpikeSamplePoints[] = {
+		{ "bg", 20, 20 },
+		{ "bg2", 236, 128 },
+		{ "center", 128, 128 },
+		{ "corner-tl", 8, 8 },
+		{ "corner-tr", 248, 8 },
+		{ "corner-bl", 8, 248 },
+		{ "corner-br", 248, 248 },
+	};
+	constexpr size_t kSpikeSamplePointCount = sizeof(kSpikeSamplePoints) / sizeof(kSpikeSamplePoints[0]);
+
+	std::string SpikeHex8(uint32_t value)
+	{
+		char text[16] = {};
+		std::snprintf(text, sizeof(text), "%08x", value);
+		return text;
+	}
+
+	// 整图哈希：FNV-1a 32 位、逐字节（与 EditorWeb/src/spikeChannel.ts 的 fnv1a32 逐位一致）。
+	uint32_t SpikeHash(std::vector<uint8_t> const& pixels)
+	{
+		uint32_t hash = 0x811c9dc5u;
+		for (uint8_t byte : pixels)
+		{
+			hash ^= byte;
+			hash *= 0x01000193u;
+		}
+		return hash;
+	}
+
+	// 标准 base64（带 `=` 填充）：262144 字节 → 349528 字符，服务端按这个定长做形状校验。
+	std::string SpikeBase64(uint8_t const* data, size_t size)
+	{
+		static char const* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		std::string out;
+		out.reserve((size + 2) / 3 * 4);
+		size_t index = 0;
+		while (index + 2 < size)
+		{
+			const uint32_t triple = (static_cast<uint32_t>(data[index]) << 16) |
+				(static_cast<uint32_t>(data[index + 1]) << 8) | static_cast<uint32_t>(data[index + 2]);
+			out.push_back(alphabet[(triple >> 18) & 0x3F]);
+			out.push_back(alphabet[(triple >> 12) & 0x3F]);
+			out.push_back(alphabet[(triple >> 6) & 0x3F]);
+			out.push_back(alphabet[triple & 0x3F]);
+			index += 3;
+		}
+		const size_t rest = size - index;
+		if (rest == 1)
+		{
+			const uint32_t value = static_cast<uint32_t>(data[index]);
+			out.push_back(alphabet[(value >> 2) & 0x3F]);
+			out.push_back(alphabet[(value & 0x03) << 4]);
+			out += "==";
+		}
+		else if (rest == 2)
+		{
+			const uint32_t value = (static_cast<uint32_t>(data[index]) << 8) | static_cast<uint32_t>(data[index + 1]);
+			out.push_back(alphabet[(value >> 10) & 0x3F]);
+			out.push_back(alphabet[(value >> 4) & 0x3F]);
+			out.push_back(alphabet[(value & 0x0F) << 2]);
+			out.push_back('=');
+		}
+		return out;
+	}
+
+	struct SpikeRgba
+	{
+		int r;
+		int g;
+		int b;
+		int a;
+	};
+
+	SpikeRgba SpikeAt(std::vector<uint8_t> const& pixels, int x, int y)
+	{
+		const size_t offset = (static_cast<size_t>(y) * static_cast<size_t>(kSpikeTextureSize) +
+			static_cast<size_t>(x)) * 4u;
+		return SpikeRgba{ pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3] };
+	}
+
+	// 帧序号位：顶边 16 位二进制，每比特 8×8，白=1 / 黑=0，从 x=32 起排（与原生渲染同一版式）。
+	uint32_t SpikeDecodeFrameIndex(std::vector<uint8_t> const& pixels)
+	{
+		uint32_t frame = 0;
+		for (int bit = 0; bit < 16; ++bit)
+		{
+			const SpikeRgba value = SpikeAt(pixels, 32 + bit * 8 + 4, 8);
+			frame = (frame << 1) | (value.r > 128 ? 1u : 0u);
+		}
+		return frame;
+	}
+
+	// 原生侧正控：背景绿 + 中心红三角 + 四角红标记 + 帧序号位 == frameIndex。失败给具体点与实测值。
+	bool SpikePatternOk(std::vector<uint8_t> const& pixels, uint32_t frameIndex, std::string& detail)
+	{
+		detail.clear();
+		if (pixels.size() != static_cast<size_t>(kSpikeTextureSize) * kSpikeTextureSize * 4u)
+		{
+			detail = "像素字节数不符：" + std::to_string(pixels.size());
+			return false;
+		}
+		struct Expectation
+		{
+			char const* name;
+			int x;
+			int y;
+			SpikeRgba expected;
+		};
+		const Expectation expectations[] = {
+			{ "bg", 20, 20, { 0, 255, 0, 255 } },
+			{ "bg2", 236, 128, { 0, 255, 0, 255 } },
+			{ "center", 128, 128, { 255, 0, 0, 255 } },
+			{ "corner-tl", 8, 8, { 255, 0, 0, 255 } },
+			{ "corner-tr", 248, 8, { 255, 0, 0, 255 } },
+			{ "corner-bl", 8, 248, { 255, 0, 0, 255 } },
+			{ "corner-br", 248, 248, { 255, 0, 0, 255 } },
+		};
+		for (Expectation const& expectation : expectations)
+		{
+			const SpikeRgba actual = SpikeAt(pixels, expectation.x, expectation.y);
+			if (actual.r != expectation.expected.r || actual.g != expectation.expected.g ||
+				actual.b != expectation.expected.b || actual.a != expectation.expected.a)
+			{
+				char text[256] = {};
+				std::snprintf(text, sizeof(text), "采样点 %s (%d,%d) 实测 (%d,%d,%d,%d)，期望 (%d,%d,%d,%d)",
+					expectation.name, expectation.x, expectation.y, actual.r, actual.g, actual.b, actual.a,
+					expectation.expected.r, expectation.expected.g, expectation.expected.b,
+					expectation.expected.a);
+				detail = text;
+				return false;
+			}
+		}
+		const uint32_t decodedFrame = SpikeDecodeFrameIndex(pixels);
+		if (decodedFrame != frameIndex)
+		{
+			detail = "纹理里的帧序号是 " + std::to_string(decodedFrame) + "，期望 " + std::to_string(frameIndex);
+			return false;
+		}
+		return true;
+	}
+
+	// 组一帧 spike-frame（PROTOCOL.md 7.2）：原生哈希 + 七点采样 + 像素 base64。
+	std::string SpikeFrameJson(uint32_t frameIndex, std::vector<uint8_t> const& pixels)
+	{
+		std::string json;
+		json.reserve(360000);
+		json += "{\"type\":\"spike-frame\",\"frame\":";
+		json += std::to_string(frameIndex);
+		json += ",\"width\":256,\"height\":256,\"path\":\"cpu-readback\",\"hash\":\"";
+		json += SpikeHex8(SpikeHash(pixels));
+		json += "\",\"pixels\":\"";
+		json += SpikeBase64(pixels.data(), pixels.size());
+		json += "\",\"samples\":[";
+		for (size_t index = 0; index < kSpikeSamplePointCount; ++index)
+		{
+			const SpikeSamplePoint& point = kSpikeSamplePoints[index];
+			const SpikeRgba value = SpikeAt(pixels, point.x, point.y);
+			if (index != 0)
+			{
+				json += ",";
+			}
+			json += "{\"name\":\"";
+			json += point.name;
+			json += "\",\"r\":";
+			json += std::to_string(value.r);
+			json += ",\"g\":";
+			json += std::to_string(value.g);
+			json += ",\"b\":";
+			json += std::to_string(value.b);
+			json += ",\"a\":";
+			json += std::to_string(value.a);
+			json += "}";
+		}
+		json += "]}";
+		return json;
+	}
+
+	std::string ReadSpikeEnv(char const* name)
+	{
+		char buffer[512] = {};
+		const DWORD length = ::GetEnvironmentVariableA(name, buffer, sizeof(buffer));
+		return length == 0 ? std::string() : std::string(buffer, length);
+	}
+
+	// 读数文件里最后一条 `spikeError=` 标记行的尾巴（带 detail，红态证据用）。
+	std::string LastSpikeErrorMarker(char const* logPath)
+	{
+		std::fflush(stdout);
+		std::ifstream file(logPath);
+		if (!file)
+		{
+			return std::string();
+		}
+		std::string line;
+		std::string found;
+		while (std::getline(file, line))
+		{
+			const std::size_t at = line.find("spikeError=");
+			if (at != std::string::npos)
+			{
+				found = line.substr(at);
+			}
+		}
+		return found;
+	}
+}
+
+void TestWebRenderSpike(TestContext& ctx)
+{
+	auto fail = [](char const* code, castl::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s: %s", code, detail.c_str());
+		throw std::runtime_error(code);
+	};
+
+	if (!(ctx.backendName == "d3d12") && !(ctx.backendName == "vulkan"))
+	{
+		fail("E_SPIKE_BACKEND", "本用例只支持 --backend d3d12 或 --backend vulkan（当前 " + ctx.backendName +
+			"）：共享纹理/共享图像助手是非绑定面原生代码，双后端各有一份（D3D12 / Vulkan）");
+	}
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_SPIKE_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_SPIKE_HOST", castl::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+
+	// 自检开关写错模式名要明确报错，不许静默跑成绿（照 CASCADED_CSHARP_*_SELFTEST 的惯例）。
+	const std::string selftest = ReadSpikeEnv("CASCADED_EDITOR_SPIKE_SELFTEST");
+	if (!selftest.empty() && selftest != "skip-native-render" && selftest != "hide-canvas" &&
+		selftest != "local-red" && selftest != "no-line")
+	{
+		fail("E_SPIKE_SELFTEST", "未知自检开关 CASCADED_EDITOR_SPIKE_SELFTEST=\"" + selftest +
+			"\"（只认 skip-native-render / hide-canvas / local-red / no-line）");
+	}
+	const bool skipNativeRender = selftest == "skip-native-render";
+
+	// ---- 1. 原生侧正控（2.1）----
+	auto* pProvider = ctx.pModuleManager->GetInstance<graphics_backend::IWebRenderSpikeProvider>(
+		CANAME("WebRenderSpike"));
+	if (pProvider == nullptr)
+	{
+		fail("E_SPIKE_PROVIDER",
+			"取不到 IWebRenderSpikeProvider 实例 \"WebRenderSpike\"（D3D12 后端没登记非绑定接口？）");
+	}
+	graphics_backend::IWebRenderSpikeSharedTexture* pTexture = pProvider->GetWebRenderSpikeTexture();
+	if (pTexture == nullptr)
+	{
+		fail("E_SPIKE_PROVIDER", "GetWebRenderSpikeTexture 返回空（后端设备未初始化？）");
+	}
+	if (!pTexture->Create(static_cast<uint32_t>(kSpikeTextureSize), static_cast<uint32_t>(kSpikeTextureSize)))
+	{
+		fail("E_SPIKE_CREATE", castl::string("创建共享纹理失败：") + pTexture->LastError());
+	}
+	if (!pTexture->HasSharedHandle())
+	{
+		fail("E_SPIKE_SHARED_HANDLE", "CreateSharedHandle 之后共享句柄仍为空（HEAP_FLAG_SHARED 没生效？）");
+	}
+
+	const size_t spikeByteCount = static_cast<size_t>(kSpikeTextureSize) * kSpikeTextureSize * 4u;
+	std::vector<uint8_t> pixels(spikeByteCount, 0);
+	std::vector<uint8_t> openedPixels(spikeByteCount, 0);
+
+	if (skipNativeRender)
+	{
+		// 红态：不启原生渲染。读回的是未渲染的纹理（D3D12 committed resource 默认清零），
+		// 原生侧正控必须红 —— 这条判据在缺陷仍在（真的没渲染）时确实会失败。
+		if (!pTexture->Readback(pixels.data(), pixels.size()))
+		{
+			fail("E_SPIKE_READBACK", castl::string("读回未渲染纹理失败：") + pTexture->LastError());
+		}
+		std::string patternDetail;
+		if (SpikePatternOk(pixels, 1, patternDetail))
+		{
+			fail("E_SPIKE_PATTERN", "自检开关 skip-native-render：原生渲染未启动，特征图案判据本应失败却通过了（红态构造失效）");
+		}
+		fail("E_SPIKE_PATTERN", "自检开关 skip-native-render（不启原生渲染）：" + patternDetail);
+	}
+
+	if (!pTexture->RenderFrame(1))
+	{
+		fail("E_SPIKE_RENDER", castl::string("渲染第 1 帧失败：") + pTexture->LastError());
+	}
+	if (!pTexture->Readback(pixels.data(), pixels.size()))
+	{
+		fail("E_SPIKE_READBACK", castl::string("本设备读回失败：") + pTexture->LastError());
+	}
+	{
+		std::string patternDetail;
+		if (!SpikePatternOk(pixels, 1, patternDetail))
+		{
+			fail("E_SPIKE_PATTERN", patternDetail);
+		}
+	}
+	if (!pTexture->ReadbackViaOpenedHandle(openedPixels.data(), openedPixels.size()))
+	{
+		fail("E_SPIKE_OPEN_SHARED_HANDLE", castl::string("第二消费者（OpenSharedHandle）读回失败：") +
+			pTexture->LastError());
+	}
+	if (pixels != openedPixels)
+	{
+		fail("E_SPIKE_SECOND_CONSUMER", "第二消费者读回的字节与本设备读回不一致（同一句柄却是两份像素？）");
+	}
+	CA_LOG("[渲染原型 测试] 原生侧正控通过：句柄非空 + OpenSharedHandle 第二消费者读回一致 + "
+	       "背景绿/中心红/四角/帧序号位匹配（frame=1 hash={}）", SpikeHex8(SpikeHash(pixels)));
+
+	{
+		// 帧序号必须真的进像素：帧 2 的整图哈希与帧 1 必须不同（否则"同帧对账"没有物理依据）。
+		std::vector<uint8_t> secondFrame(spikeByteCount, 0);
+		if (!pTexture->RenderFrame(2))
+		{
+			fail("E_SPIKE_RENDER", castl::string("渲染第 2 帧失败：") + pTexture->LastError());
+		}
+		if (!pTexture->Readback(secondFrame.data(), secondFrame.size()))
+		{
+			fail("E_SPIKE_READBACK", castl::string("第 2 帧读回失败：") + pTexture->LastError());
+		}
+		std::string patternDetail;
+		if (!SpikePatternOk(secondFrame, 2, patternDetail))
+		{
+			fail("E_SPIKE_PATTERN", patternDetail);
+		}
+		if (SpikeHash(secondFrame) == SpikeHash(pixels))
+		{
+			fail("E_SPIKE_FRAME_BITS", "帧 1 与帧 2 的整图哈希相同（帧序号没有进像素）");
+		}
+		CA_LOG("[渲染原型 测试] 帧序号进像素：帧 1 hash={} / 帧 2 hash={}（不同）",
+			SpikeHex8(SpikeHash(pixels)), SpikeHex8(SpikeHash(secondFrame)));
+	}
+
+	// ---- 2. 起编辑器服务（原型门控）+ 原型窗（2.2）----
+	struct SpikeEnvGuard
+	{
+		~SpikeEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+		}
+	} envGuard;
+	const int port = 18393; // 独立端口：避开 18390 / 18391 / 18392
+	::SetEnvironmentVariableA("CASCADED_EDITOR", "1");
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE", "web-render");
+	::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", std::to_string(port).c_str());
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	const std::filesystem::path spikeWebViewData =
+		std::filesystem::temp_directory_path() / "cascaded-editor-webview2-spike";
+	::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", spikeWebViewData.string().c_str());
+	const char* readingsPath = "test_output/web_render_spike_readings.txt";
+	std::filesystem::create_directories("test_output");
+	{
+		std::error_code removeError;
+		std::filesystem::remove(readingsPath, removeError);
+	}
+	::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", readingsPath);
+
+	// 编号 1 = 一个存活窗口（默认 IWindow 表面），编号 2 = 窗口系统；原型窗由托管侧另建。
+	auto newWindow = ctx.pWindowSystem->NewWindow(640, 480, "Web Render Spike Host Window");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_SPIKE_WINDOW", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+
+	const std::string baselineError = pScriptHost->LastError();
+	auto pumpFrames = [&](int frames) {
+		for (int index = 0; index < frames; ++index)
+		{
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	};
+	pumpFrames(1);
+
+	// 等运行态：state=running + 全窗控制器 + 导航完成 + 原型页握手（spikePage=1）。
+	// 40 秒上限与资产浏览器用例同一口径（环境+控制器+导航 + 页面 JS 加载）。
+	HostProbeReadings readings;
+	bool ready = false;
+	{
+		const auto startedAt = std::chrono::steady_clock::now();
+		int frames = 0;
+		while (true)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 40000.0)
+			{
+				break;
+			}
+			++frames;
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			if ((frames % 5) == 0 && ReadEditorReadings(readingsPath, &readings) &&
+				readings.Get("state") == "running" && readings.Get("spikeController") == "1" &&
+				readings.Get("spikeNav") == "1" && readings.Get("spikePage") == "1")
+			{
+				ready = true;
+				break;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	}
+	if (!ready)
+	{
+		ReadEditorReadings(readingsPath, &readings);
+		char detail[768] = {};
+		std::snprintf(detail, sizeof(detail),
+			"编辑器 40 秒内没有进入原型运行态：state=%s spikeController=%s spikeNav=%s spikePage=%s "
+			"spikeNavHttp=%s error=%s；LastError=%s",
+			readings.Get("state").c_str(), readings.Get("spikeController").c_str(),
+			readings.Get("spikeNav").c_str(), readings.Get("spikePage").c_str(),
+			readings.Get("spikeNavHttp").c_str(), readings.Get("error").c_str(), pScriptHost->LastError());
+		fail("E_SPIKE_START", detail);
+	}
+	CA_LOG("[渲染原型 测试] 原型窗启动读数：state={} spikeController={} spikeNav={} spikePage={} "
+	       "webview2Version={} port={}",
+	       readings.Get("state").c_str(), readings.Get("spikeController").c_str(),
+	       readings.Get("spikeNav").c_str(), readings.Get("spikePage").c_str(),
+	       readings.Get("webview2Version").c_str(), port);
+
+	// ---- 3. C++ 当 WebSocket 客户端：推帧 → 等同源对账（2.3 / 3.1）----
+	WsClient client;
+	std::string wsError;
+	if (!client.Connect(port, wsError))
+	{
+		fail("E_SPIKE_WS", wsError);
+	}
+	{
+		std::string welcome;
+		if (!client.SendText("{\"type\":\"hello\",\"protocolVersion\":1}", wsError))
+		{
+			fail("E_SPIKE_WS_SEND", wsError);
+		}
+		// 收包必须与 Tick 交替：welcome 由**引擎主线程**的 DrainInbound → SendWelcome 发出，若这里一次
+		// 阻塞 5 秒等收包，主线程就被钉在 recv 上、服务永远没机会回 welcome（实测：E_SPIKE_WS 接收超时，
+		// 读数里 clients=1、spikePage=1）。照 TestEditorAssetBrowser 的握手写法：100ms 超时 + 推一帧。
+		const auto startedAt = std::chrono::steady_clock::now();
+		for (;;)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 5000.0)
+			{
+				fail("E_SPIKE_WS", "5 秒内没有收到 welcome（收包与 Tick 已交替，服务仍未回）");
+			}
+			std::string message;
+			std::string receiveError;
+			if (client.ReceiveText(message, 100, receiveError))
+			{
+				welcome = message;
+				break;
+			}
+			if (receiveError.find("超时") == std::string::npos)
+			{
+				fail("E_SPIKE_WS", "握手期间连接被关闭：" + receiveError);
+			}
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+		}
+		if (welcome.find("\"type\":\"welcome\"") == std::string::npos)
+		{
+			fail("E_SPIKE_WS", "握手回包不是 welcome：" + welcome.substr(0, 160));
+		}
+	}
+
+	const int frameCount = 3;
+	for (int frame = 1; frame <= frameCount; ++frame)
+	{
+		std::vector<uint8_t> framePixels = pixels;
+		if (frame > 1)
+		{
+			if (!pTexture->RenderFrame(static_cast<uint32_t>(frame)))
+			{
+				fail("E_SPIKE_RENDER", castl::string("渲染第 ") + std::to_string(frame) + " 帧失败：" +
+					pTexture->LastError());
+			}
+			if (!pTexture->Readback(framePixels.data(), framePixels.size()))
+			{
+				fail("E_SPIKE_READBACK", castl::string("第 ") + std::to_string(frame) + " 帧读回失败：" +
+					pTexture->LastError());
+			}
+			std::string patternDetail;
+			if (!SpikePatternOk(framePixels, static_cast<uint32_t>(frame), patternDetail))
+			{
+				fail("E_SPIKE_PATTERN", patternDetail);
+			}
+		}
+		if (!client.SendText(SpikeFrameJson(static_cast<uint32_t>(frame), framePixels), wsError))
+		{
+			fail("E_SPIKE_WS_SEND", wsError);
+		}
+		const auto startedAt = std::chrono::steady_clock::now();
+		bool matched = false;
+		std::string serviceError;
+		while (true)
+		{
+			pumpFrames(1);
+			if (ReadEditorReadings(readingsPath, &readings))
+			{
+				const std::string code = readings.Get("spikeError");
+				if (!code.empty() && code != "-")
+				{
+					serviceError = code;
+					break;
+				}
+				if (readings.I64("spikeMatched") >= frame)
+				{
+					matched = true;
+					break;
+				}
+			}
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 15000.0)
+			{
+				break;
+			}
+		}
+		if (serviceError.empty() && !matched)
+		{
+			ReadEditorReadings(readingsPath, &readings);
+			serviceError = readings.Get("spikeError");
+		}
+		if (!matched)
+		{
+			if (!serviceError.empty() && serviceError != "-")
+			{
+				fail(serviceError.c_str(), castl::string("服务端同源对账判红（读数 spikeError）—— ") +
+					LastSpikeErrorMarker(readingsPath));
+			}
+			fail("E_WEBCANVAS_NOLINE", castl::string("帧 ") + std::to_string(frame) +
+				" 发出后 15 秒内既没有 spikeMatched 也没有失败码（缺回传/超时）");
+		}
+		CA_LOG("[渲染原型 测试] 帧 {} 同源对账通过：hash={} canvas=256x256 path=cpu-readback",
+			frame, SpikeHex8(SpikeHash(framePixels)));
+	}
+
+	// 收尾读数：匹配帧数、路径字段、WebView2 版本（1.1 的运行时版本来源）。
+	ReadEditorReadings(readingsPath, &readings);
+	if (readings.I64("spikeMatched") < frameCount)
+	{
+		fail("E_SPIKE_MATCH_COUNT", "读数 spikeMatched=" + readings.Get("spikeMatched") + "，期望 ≥ " +
+			std::to_string(frameCount));
+	}
+	if (readings.Get("spikePath") != "cpu-readback" || readings.Get("path") != "cpu-readback")
+	{
+		fail("E_SPIKE_PATH", "读数 spikePath=\"" + readings.Get("spikePath") + "\" / path=\"" +
+			readings.Get("path") + "\"，期望都是 cpu-readback");
+	}
+	if (readings.Get("webview2Version").empty() || readings.Get("webview2Version") == "-")
+	{
+		fail("E_SPIKE_WEBVIEW2_VERSION", "读数里没有 webview2Version（CoreWebView2Environment.BrowserVersionString 没取到）");
+	}
+
+	// ---- 4. 收尾：停服务（控制器关闭先于 hostfxr_close 的关闭路径由 EditorService.Shutdown 走）----
+	// 5.4 抓窗加固：三帧对账后服务会主动排一次抓窗（延迟几帧再抓）。这里先多推 10 帧，让那次
+	// CapturePreviewAsync 完成并落盘，再停服务 —— 否则停服务先关控制器，抓窗永远拿不到含帧画面。
+	pumpFrames(10);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", "1");
+	pumpFrames(5);
+	client.Close();
+	windowKeepAlive->CloseWindow();
+	windowKeepAlive.reset();
+	ctx.pWindowSystem->UpdateSystem();
+	ReadEditorReadings(readingsPath, &readings);
+	if (pScriptHost->LastError() != baselineError)
+	{
+		char detail[512] = {};
+		std::snprintf(detail, sizeof(detail), "用例结束之后 LastError 变了（异常穿到宿主？）：%s",
+			pScriptHost->LastError());
+		fail("E_SPIKE_HOST_ERROR", detail);
+	}
+	CA_LOG("TestWebRenderSpike 通过：原生侧正控（句柄/二消费者/特征图案）+ 3 帧同源对账"
+	       "（帧序号/整图哈希/七点采样/canvas 读数）+ path=cpu-readback + webview2Version={} 全部满足",
+	       readings.Get("webview2Version").c_str());
+}
+
 // ---- TestCSharpScene（csharp-scene-foundation 3.2，第 19 用例）----
 // C# 断言只能在真跑 C# 的台子上执行：`Test/CoreTests` 是纯 C++ 可执行文件（0 个 .cs、无 hostfxr），
 // 所以序列化往返 / 失败通道 / 生命周期钩子 / 场景→图翻译全部由托管侧 `SceneProbe` 真跑，
@@ -9811,6 +10429,10 @@ int main(int argc, char* argv[])
 		// **独立进程跑**（design D8：编辑器服务是进程级一次性状态机，与 TestEditorWindowPanel 不能同进程），
 		// 所以它进了清单但**不进下面的全量顺序跑**，只按 `--test TestEditorAssetBrowser` 跑。
 		std::cout << "  TestEditorAssetBrowser\n";
+		// editor-web-render-spike 2.2：第 24 项（D3D12 共享纹理 → WebView2 网页 canvas 的渲染原型）。
+		// 同样是独立进程用例（同一个一次性状态机的理由），只按
+		// `--test TestWebRenderSpike --backend d3d12` 跑；进了清单但不进全量顺序跑。
+		std::cout << "  TestWebRenderSpike\n";
 		return 0;
 	}
 
@@ -10155,6 +10777,11 @@ int main(int argc, char* argv[])
 	{
 		// 独立进程用例（design D8）：只走这条单跑分发，不排进下面的全量顺序跑。
 		runTestWithDiagnostics("TestEditorAssetBrowser", TestEditorAssetBrowser);
+	}
+		else if (strcmp(testName.c_str(), "TestWebRenderSpike") == 0)
+	{
+		// editor-web-render-spike 2.2：独立进程用例（编辑器服务一次性状态机），只支持 --backend d3d12。
+		runTestWithDiagnostics("TestWebRenderSpike", TestWebRenderSpike);
 	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{

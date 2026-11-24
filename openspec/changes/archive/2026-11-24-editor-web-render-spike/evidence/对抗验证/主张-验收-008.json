@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-008",
+  "face": "验收可失败性-③（2.1 原生离屏读回与 3.1 网页 canvas 是否两套独立判据）",
+  "severity": "Blocking",
+  "claim": "2.1 的像素判据是「离屏读回中心 == (255,0,0,255)」，但没有把读回对象钉在「产出共享句柄的那张纹理」上。仓库既有先例恰恰是读一张独立的离屏捕获纹理（Main.cpp:4575 注释「解析出离屏捕获纹理，Readback 它的中心像素」、Main.cpp:2305「既有 Readback 读取独立离屏目标」），共享纹理与读回对象可以是两张不同的资源。D3D12 后端目前 0 处共享句柄代码（CreateSharedHandle / MISC_SHARED 全 0 命中），所以「共享纹理没做出来、读回照旧红」是完全可发生的通过路径。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:14；design.md:25",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-008.md",
+  "suggested_fix": "把 2.1 的读回判据改写成三层、缺一即红：① 读数行打印共享纹理的共享句柄值、尺寸与资源描述（MiscFlags 含 SHARED），句柄为 0 或描述不含 SHARED 判 E_WEBSPIKE_NOSHARED；② 读回的 ImageHandle 必须就是第 ① 层那张（同一个句柄/同一个读数行字段，禁止另建一张「捕获纹理」）；③ 从共享句柄 OpenSharedHandle 到第二个消费者（另一设备或 D3D11）后读回中心，同样必须等于 (255,0,0,255)——这一步才真正证明「共享」可用。红态：把 MISC_SHARED 去掉后第 ① 层必须失败。"
+}

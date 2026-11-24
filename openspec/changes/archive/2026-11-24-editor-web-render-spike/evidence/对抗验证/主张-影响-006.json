@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-006",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "design D2 写「渲染目标是一张带 D3D11_RESOURCE_MISC_SHARED（或 D3D12 shared handle）的纹理」，tasks 2.1 照抄成「D3D11_RESOURCE_MISC_SHARED / D3D12 shared handle」。D3D11_RESOURCE_MISC_SHARED 是 D3D11 的创建标志，D3D12 设备创建的纹理描述里没有这一位；本仓库后端与渲染接口里 D3D11 相关代码 0 命中，也没有任何 D3D12 共享堆/共享句柄代码。两个候选分属两套 API（D3D12 堆 + CreateSharedHandle；或 D3D11 设备以 MISC_SHARED_NTHANDLE 建资源、再由 D3D12 OpenSharedHandle 打开），工件把「或」写成可互换的两种写法，没有说明由哪一侧设备/适配器创建、句柄由谁释放。实现者按字面在 D3D12 资源描述上找不到这个标志，跨 API 那条又要引入本仓库不存在的 D3D11 设备代码。",
+  "location": "openspec/changes/editor-web-render-spike/design.md:25；openspec/changes/editor-web-render-spike/tasks.md:14；D3D12RenderBackend/private/ResourceManagment/MemoryManager.cpp:41-59；D3D12RenderBackend/private/RenderBackend_D3D12.cpp:418-426",
+  "evidence_ref": "证据-影响-006.md",
+  "suggested_fix": "删掉「或」，写死一条路径：D3D12 堆（D3D12_HEAP_FLAG_SHARED）+ ID3D12Resource::CreateSharedHandle，或 D3D11 设备建资源 + D3D12 OpenSharedHandle；写明共享纹理由哪个设备/适配器创建、句柄生命周期与释放责任，并把该文件/函数点进 tasks 2.1。"
+}

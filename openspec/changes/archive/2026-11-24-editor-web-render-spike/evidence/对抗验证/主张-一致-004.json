@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-004",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/design.md",
+  "anchor": "design.md:21「原型窗 = 一个原生窗 + 一个全客户区 WebView2 控制器（`CreateCoreWebView2ControllerAsync(Hwnd)`，Bounds=整个客户区）」｜tasks.md:15「tester 用例 TestWebRenderSpike（Main.cpp + --list 登记，独立进程跑……）；起一个原生窗 + 全客户区 WebView2 控制器（CreateCoreWebView2ControllerAsync(Hwnd)，Bounds=整客户区）」",
+  "problem": "design D1 与 tasks 2.2 把「创建全客户区 WebView2 控制器」写成 C++ tester 用例（Main.cpp + --list）里的动作，但全仓只有托管侧有 WebView2：`CreateCoreWebView2ControllerAsync` 只在 `Scripting/Managed/Editor/EditorWindow.cs:232` 与 `:342`，环境创建是同文件 `:183` 的 `CoreWebView2Environment.CreateAsync(null, dataFolder)`，而 `EditorWindow.Create` 的唯一调用点是 `EditorService.cs:427`；WebView2 依赖是 `Scripting.Managed.csproj:31` 的 NuGet 包，C++ 侧没有任何 WebView2 头文件/SDK/符号（`Test/GPUBackendTester/Main.cpp` 里出现的「WebView2」全是注释）。因此在 Main.cpp 里照字面写 `CreateCoreWebView2ControllerAsync(Hwnd)` 无法编译。工件没有说清「独立」到哪一层：是新加一个托管入口（放 Host.cs 分支还是新类）、环境创建与失败上报由谁做、消息泵由谁驱动（现有主线程泵由 `Host.cs:309` 调 `EditorService.Tick` 驱动），tasks 里也没有任何托管侧任务；proposal Impact 只列「原型入口/共享纹理渲染目标/原型网页/读回正控」，没有「托管侧新增 WebView2 入口」。",
+  "evidence": "见 `证据-一致-004.md`：design.md:21、tasks.md:15 原文逐字；EditorWindow.cs:183/232/342、EditorService.cs:427、Host.cs:309、Scripting.Managed.csproj:31 原文；`CreateCoreWebView2ControllerAsync` 全仓命中只有 4 处（design/tasks/TODO 008/EditorWindow.cs），C++ 文件 0 处；C++ 头/源/CMake 里 WebView2 符号 0 处（`build.py:1056` 只把 `WebView2Loader.dll` 拷到 bin 供托管侧用，没有任何 C++ 调用）。",
+  "suggestion": "把 2.2 拆成两条并写清落点：① C++ tester 用例只做「设门控环境变量 + 泵 Host + 读原型窗就绪读数行 + 断言」；② 新增托管侧原型入口（明确文件，例如 `Scripting/Managed/Editor/WebRenderSpike.cs`，由 Host.cs 的门控分支调用，**不经 EditorService**）负责 `CoreWebView2Environment.CreateAsync` → `CreateCoreWebView2ControllerAsync(Hwnd)` → `Bounds=整客户区` → 加载 spike.html，并提供 controller/ready/error 读数行。2.2 的验收补「环境创建失败时用例 MUST 红并打印原因」和「进程环境无 CASCADED_EDITOR」。若坚持 C++ 侧建控制器，必须在 proposal Impact 里列入 WebView2 COM 头文件/接口声明与 C++ 调用改动（`build.py:1056` 已把 `WebView2Loader.dll` 拷到 bin，但 C++ 侧尚无头文件与调用）。"
+}

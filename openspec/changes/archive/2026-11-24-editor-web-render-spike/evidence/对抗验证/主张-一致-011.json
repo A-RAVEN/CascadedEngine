@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-011",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-web-render-spike/tasks.md",
+  "anchor": "tasks.md:25「现有用例同进程两后端 name+status 与上批基线（归档 2026-11-24-editor-asset-browser/evidence/5.1-全量-*.json）零差异」｜tasks.md:15「独立进程跑，照 TestEditorAssetBrowser D8 先例」｜docs/testing.md:42「不进全量同进程顺序跑，只按 `--test TestEditorAssetBrowser` 跑」",
+  "problem": "4.1 点名的基线真实存在（5.1-全量-vulkan.json / -d3d12.json 各 22 条、全 pass，且不含 TestEditorAssetBrowser），CoreTests「PASSED 26」也真实（归档 5.1-CoreTests.txt 恰 26 行 PASSED；docs/testing.md:29 记录当前计数 26），但这组比较口径没有写全：tasks 2.2 只说 TestWebRenderSpike「独立进程跑，照 TestEditorAssetBrowser D8 先例」，没抄先例的另一半——「进 --list 但不进全量顺序跑」（docs/testing.md:42 原文、Main.cpp --list 段注释）。于是 4.1 的「现有用例同进程两后端」有两种解释：① 新用例不进全量，报告仍是 22 条，与基线逐条可比；② 新用例进了全量，报告变 23 条，且 headless 全量会拉起原型窗/WebView2，「零差异」比较对象就不是同一批条目。4.1 也没有给 --list 的新计数（当前 23，本批后应为 24）。",
+  "evidence": "见 `证据-一致-011.md`：两份基线 json 的条数与状态统计（22/22 pass、无 TestEditorAssetBrowser）、归档 5.1-CoreTests.txt 的 PASSED 行数 26、docs/testing.md:29/42 原文、tasks.md 2.2/4.1 原文；`check_binding_baseline.py` 存在且打印「基线对账：缺失 0 / 不一致 0 / 多余 0」，当前锚文件存在（Test-Path 为 True）。",
+  "suggestion": "在 tasks 2.2 补一句「TestWebRenderSpike 进 --list，但不进全量同进程顺序跑（与 TestEditorAssetBrowser 同）」，并把 --list 新计数 24 写进验收；在 tasks 4.1 写死比较规则：「既有 22 条同进程顺序跑的报告与 `5.1-全量-vulkan.json`/`-d3d12.json` 的 22 条 name+status 逐条相同；新用例不进该报告，另按 `--test TestWebRenderSpike` 跑」，同时点名绑定基线命令 `python Tools/CodeGen/check_binding_baseline.py`（当前锚文件已存在）。"
+}

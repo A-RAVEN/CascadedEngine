@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-009",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "tasks 4.1 的绑定对账只写「缺失0/不一致0/多余0（evidence/4.1-基线.txt）」，没有基线文件、产物目录与命令；而 Tools/CodeGen/check_binding_baseline.py 的 --baseline 与 --product-dir 都是 required 参数，仓库里同时存在两份候选锚（2026-11-11 的『基线产物哈希.txt』与 2026-11-23 的『新锚.txt』221 条），脚本 docstring 指向较旧的那份。上一批归档的同类证据 5.1-基线.txt 里也只有一行「基线对账：缺失 0 / 不一致 0 / 多余 0」，没有命令与锚名。于是「逐字节不变」在工件里不可复现：换一份基线或产物目录也能打出一行 0/0/0，读者无法判断它比的是哪一版产物。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:25；Tools/CodeGen/check_binding_baseline.py:25-30、145-146；openspec/changes/archive/2026-11-23-csharp-resource-asset-foundation/evidence/新锚.txt:1-4；openspec/changes/archive/2026-11-24-editor-asset-browser/evidence/5.1-基线.txt",
+  "evidence_ref": "证据-影响-009.md",
+  "suggested_fix": "在 tasks 4.1 写死命令与两个路径，例如 `python Tools/CodeGen/check_binding_baseline.py --baseline <本次选定的锚文件> --product-dir out/build/x64-debug/codegen/bindings`，并先把「哪份锚是当前锚」定下来（脚本 docstring 与最新换锚文件对不上，需要一次证据说明）；验收要求把该命令与完整输出贴进 evidence/4.1-基线.txt。"
+}

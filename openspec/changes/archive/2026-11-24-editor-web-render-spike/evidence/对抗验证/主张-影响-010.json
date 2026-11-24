@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-010",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "原型窗是进程里的第二个 WebView2 宿主。既有编辑器把用户数据目录写死为 %TEMP%\\cascaded-editor-webview2（CASCADED_EDITOR_WEBVIEW2_DATA 可覆盖，TestEditorWindowPanel 在守卫里清空该变量走默认），EditorWindow.Create 只接受调用方传入的 dataFolder。spike 的 design/tasks 完全没有规定原型窗的 WebView2 用户数据目录，也没有规定同跑时如何避开编辑器占用的目录；最省事的实现会照抄默认路径。当开发者已经开着编辑器（CASCADED_EDITOR=1 的进程占用该目录）或两个 tester 进程同时跑编辑器用例与 spike 时，两个 WebView2 环境会指向同一个用户数据目录——这正是 spec「独立入口不冲突现有编辑器」场景没有覆盖的情形：该场景只断言现有用例回归零差异，是顺序跑，不是同跑。同目录并发使用的行为在工件里没有定义，失败会表现为环境创建或等待超时，容易被误读成互操作不可行，而不是目录冲突。",
+  "location": "Scripting/Managed/Editor/EditorService.cs:209-213；Scripting/Managed/Editor/EditorWindow.cs:105-107、183；Test/GPUBackendTester/Main.cpp:4655-4662；CSharpHost/README.md:118；openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md:12-15；openspec/changes/editor-web-render-spike/tasks.md:14-16",
+  "evidence_ref": "证据-影响-010.md",
+  "suggested_fix": "在 tasks 2.2 里写死原型窗的 WebView2 用户数据目录（例如 %TEMP%\\cascaded-webrender-spike-webview2）与对应环境变量，并在验收里加一条同跑检查：编辑器进程开着时启动 spike，读数据目录路径与两边的环境创建读数；目录不得与 CASCADED_EDITOR_WEBVIEW2_DATA 默认值相同。"
+}

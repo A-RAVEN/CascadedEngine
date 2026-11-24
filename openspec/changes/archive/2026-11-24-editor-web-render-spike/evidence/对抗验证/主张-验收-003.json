@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-003",
+  "face": "验收可失败性-①（3.1 网页 canvas 中心像素断言）",
+  "severity": "Blocking",
+  "claim": "3.1 的期望是恒为 (255,0,0,255) 的常量，工件又没有任何一条禁止网页侧在没收到原生帧时自己画一块红——于是「页面本地画红」与「原生渲染进网页」在判据上不可区分，写一个只画红的胶水页即可让 3.1 永远绿。这与仓库既有反恒真惯例（C++ 与 C# 各写一份夹具、不共享常量表；「恒真/恒假实现也能过的判据不合格」）相反。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:20 与 :10；design.md:40；specs/editor-web-render-spike/spec.md:10",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-003.md",
+  "suggested_fix": "① 明文写进 1.2 与 3.1：页面在未收到原生帧时 MUST NOT 绘制任何像素（画布保持初始状态），占位色/占位红一律禁止；② 红态加「不启动原生渲染」对照组：同一进程只起页面不起 D3D12 渲染，断言必须红（失败码 E_WEBCANVAS_NO_FRAME），evidence 存 result.json 原文；③ 断言除中心点外再加一个原生侧每帧变化的采样点（把帧序号对 256 取模写进左上角 1×1 采样点，或等价的可变值），C++ 逐帧断言该采样点跟随变化——本地硬编码的红过不了。"
+}

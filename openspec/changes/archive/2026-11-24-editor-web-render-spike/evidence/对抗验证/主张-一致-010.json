@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-010",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/tasks.md",
+  "anchor": "proposal.md:36「**零拷贝性能优化**：spike 先证「能显示」，性能/零拷贝是后续；CPU 读回概念验证可作为兜底正控。」｜tasks.md:16「零拷贝可行则实现共享纹理→WebGPU canvas；不可行则 CPU 读回共享纹理→字节传网页→canvas.putImageData 兜底」｜design.md:30「核实可行则实现」",
+  "problem": "从 Non-goals 边界看，tasks 2.3 是一条会越过边界的实现任务：proposal 把「零拷贝性能优化」列为后续（Non-goals），tasks 2.3 却规定「零拷贝可行则实现共享纹理→WebGPU canvas」。如果 1.1 核实为该 WebView2 版本可行，2.3 就要求本批交付零拷贝互操作——这正是 proposal 排除的工作；如果核实不可行，2.3 才走 CPU 兜底。也就是说本批范围取决于一个尚未执行的研究结论，执行者开工前无法确定 Non-goals 是否被越过。本条与 `主张-一致-001` 同源（001 从三处措辞矛盾立，本条从 Non-goals 边界立），处置应合并，不要当成两个独立问题重复计数。",
+  "evidence": "见 `证据-一致-010.md`：proposal.md:36、design.md:30/34、tasks.md:16 原文逐字；proposal.md:34 同时把「Vulkan 共享纹理互操作」列为 Non-goals，说明共享纹理互操作整体被当作后续方向；四份工件里没有「零拷贝实现属于本批」的第三条依据。",
+  "suggestion": "若保留 Non-goals：删掉 tasks 2.3 的「零拷贝可行则实现共享纹理→WebGPU canvas」，2.3 只留「按 1.1 结论实现兜底路径 + evidence 记录零拷贝可行性结论与后续入口」，并让 3.1 的正控只针对实际跑通的兜底路径。若决定本批做零拷贝：从 proposal Non-goals 移除「零拷贝性能优化」，在 What Changes 与 Impact 里写明实现范围，并给 spec 增加「可行时 MUST 实现并给运行读数」的场景。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-005",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "若把共享堆标志加在最省事的位置 MemoryManager::AllocGPUResource / CreateGPUTexture 上，所有纹理都走这条路：全量 22 条基线里的渲染用例的离屏目标、editor-window-panel 的捕获目标（EditorSceneView.CreateCaptureTarget 也是走 CreateGPUTexture）、以及其它 D3D12 用例全部共用这一个分配函数。tasks 4.1 的回归只比「用例 name+status 与上一批 22 条基线零差异」，不看像素、尺寸、堆标志与别名堆行为；把共享标志或分配器 flags 默认打开后所有用例仍可绿，而显存行为已经变了。工件没有「共享纹理只给 spike 用、不改进程内默认分配描述」的隔离要求，也没有对应的守卫任务。",
+  "location": "D3D12RenderBackend/private/ResourceManagment/MemoryManager.cpp:41-59、351-363；D3D12RenderBackend/private/RenderBackend_D3D12.cpp:418-426；Scripting/Managed/Editor/EditorSceneView.cs:100；openspec/changes/editor-web-render-spike/tasks.md:25；openspec/changes/archive/2026-11-24-editor-asset-browser/evidence/5.1-全量-d3d12.json:1-24",
+  "evidence_ref": "证据-影响-005.md",
+  "suggested_fix": "要求共享纹理走独立分配入口（例如 RenderBackend_D3D12 内部新函数，不改进程内默认分配描述），或补一条能失败的守卫：既有用例创建纹理时的 D3D12 资源描述与堆标志不变（后端测试钩子读数），并让 4.1 增加像素/尺寸回归而不只是 name+status。"
+}

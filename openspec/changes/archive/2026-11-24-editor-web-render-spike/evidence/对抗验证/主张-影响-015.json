@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-015",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "3.1 的唯一自动判据是网页 canvas 中心一个像素 == (255,0,0,255)。红色三角形正对中心：上下翻转、左右翻转、缩放错配、只传了中心附近一小块、或者只传了中心列那一行，中心都仍是红；路径③是逐字节拷贝，最容易出的正是行序、尺寸与部分传输问题。工件没有任何第二个采样点（背景色、三角形边界、角落哨兵），也没有传输字节数/画面尺寸断言；「网页 canvas MUST 显示原生渲染画面」这条只能靠 3.2 的人工截图，自动判据只证明了一个点。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:14、20；openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md:10、24；openspec/changes/editor-web-render-spike/design.md:32、39",
+  "evidence_ref": "证据-影响-015.md",
+  "suggested_fix": "把正控改成多点签名：写死背景色、中心、三角形三个顶点附近与一个角落哨兵的期望值（例如背景 (0,0,255,255)、中心 (255,0,0,255)、角落 (0,0,255,255)），并断言传输字节数 == 宽×高×4 与画面尺寸；翻转/部分传输会至少打红其中一个点。"
+}

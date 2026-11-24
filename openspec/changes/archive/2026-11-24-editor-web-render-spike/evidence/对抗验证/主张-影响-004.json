@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-004",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "工件要求「复用 D3D12RenderBackend 渲染确定性红三角…渲染目标带共享句柄」，但 D3D12 后端与渲染接口里 0 处共享句柄支持（CreateSharedHandle、D3D12_HEAP_FLAG_SHARED、MISC_SHARED 全 0 命中）；GPUTexture 只有 GetDescriptor/SetName/GetName 三个公开方法，拿不到底层 ID3D12Resource；CreateGPUTexture 走 MemoryManager::AllocGPUResource，D3D12MA 分配描述只设 HeapType，没有共享堆标志。要实现 tasks 2.1，只能改后端公共分配路径（或往可绑接口加新方法/字段），而工件没有点名改哪个文件、也没有承认这会改后端公共代码——「复用后端」与「渲染目标带共享句柄」之间缺一条可执行的桥。",
+  "location": "openspec/changes/editor-web-render-spike/design.md:25；openspec/changes/editor-web-render-spike/tasks.md:14；Interface/RenderInterface/header/GPUTexture.h:150-158；D3D12RenderBackend/private/RenderBackend_D3D12.cpp:418-426；D3D12RenderBackend/private/ResourceManagment/MemoryManager.cpp:41-59",
+  "evidence_ref": "证据-影响-004.md",
+  "suggested_fix": "在 design D2 与 tasks 2.1 里点名共享纹理的创建点：哪个文件哪个函数、加哪个堆标志、在哪调用 CreateSharedHandle、句柄由谁释放；并明确这一步属于「改动 D3D12 后端公共代码」。验收补一条能失败的守卫：共享纹理只经新入口创建，既有 CreateGPUTexture 的分配描述/堆标志逐字不变（grep 或后端测试钩子），而不是只比用例 name+status。"
+}

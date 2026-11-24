@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-013",
+  "face": "验收可失败性-④（4.2 可行性结论「可核」）",
+  "severity": "misleading",
+  "claim": "4.2 要求回写 TODO/008 未决问题 1，验收只写「TODO/008 已更新」——任何编辑都算更新，无法失败。而该条的主体是「Vulkan↔WebGPU 共享纹理互操作成熟度」（TODO/008:57），本 spike 明文排除 Vulkan（proposal.md:34「Vulkan 共享纹理互操作：本 spike 只 D3D12」），所以这条问题的一半必然答不了；「已更新」既不检查答了哪一半，也不检查有没有把「Vulkan 仍未知」写清楚，容易让后续 change 误读成该未决问题已解决。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:26；TODO/008-free-dock-editor.md:57；proposal.md:34；design.md:45",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-013.md",
+  "suggested_fix": "4.2 的回写改成两件可核的事：① 在 TODO/008 未决问题 1 下追加固定格式一段：「本 spike 回答范围：D3D12 ✅/❌（证据指针）；Vulkan：仍未知（本 spike 未测）」，且不得删除原有内容；② 验收判据改为「TODO/008 该条逐字包含『Vulkan：仍未知（本 spike 未测）』或等价明确句，且原文未被删改」——缺这句即红。同时在 4.2 里写清「本 spike 不回答 Vulkan 互操作」，避免后续 change 把「已更新」当成「已解决」。"
+}

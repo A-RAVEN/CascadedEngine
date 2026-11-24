@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-003",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-web-render-spike/design.md；openspec/changes/editor-web-render-spike/tasks.md；openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md",
+  "anchor": "design.md:25「红三角或纯色」「画面尺寸/像素期望写死」；tasks.md:14「渲染确定性红三角」「画面尺寸/中心像素期望写死」；tasks.md:20「中心像素 ... == (255,0,0,255)」；tasks.md:21「核对网页 canvas 区显示原生红三角」；spec.md:9「D3D12 渲染红三角到共享纹理」；spec.md:10「中心像素 MUST == (255,0,0,255)」",
+  "claim": "正控的形状/尺寸判据没有被写死：design 允许「红三角或纯色」，tasks 2.1、3.2 与 spec 场景却都写「红三角」；三份工件没有任何宽高数字（grep 0 命中），tasks 2.1 的验收只判中心像素 == (255,0,0,255)，一个 1×1 纯红纹理或整张纯红填充都能通过 3.1，spec 场景的 THEN 也只判中心像素。design 的「或纯色」是对 spec/tasks「红三角」的静默降级；「画面尺寸写死」也没有对应的数字，3.2 的截图视觉核对是唯一形状检查，却没写死期望尺寸/几何。执行者可以渲染 1×1 纯红让 3.1 绿；3.2 的「红三角」是唯一形状检查，但没写死尺寸/几何，且 design 明说可用纯色——同一份工件对「是否必须是三角形」自相矛盾。",
+  "evidence": "证据-溯源-003.md：三份工件原文；grep 命令与「无尺寸数字」输出；Main.cpp:2347-2349 既有探针背景 (0,255,0,255)/中心 (255,0,0,255) 的对照；ReadCaptureCenterRed（Main.cpp:4614-4615）只判中心的代码；说明为什么纯色/1×1 能过 3.1。"
+}

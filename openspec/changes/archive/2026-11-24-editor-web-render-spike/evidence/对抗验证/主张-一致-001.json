@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-001",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/proposal.md",
+  "anchor": "proposal.md:36「**零拷贝性能优化**：spike 先证「能显示」，性能/零拷贝是后续；CPU 读回概念验证可作为兜底正控。」｜design.md:30「**路径①（零拷贝目标）**：Chromium/WebView2 实验性共享纹理互操作（若该版本暴露）。核实可行则实现；不可行则记具体阻塞」｜tasks.md:16「零拷贝可行则实现共享纹理→WebGPU canvas；不可行则 CPU 读回共享纹理→字节传网页→canvas.putImageData 兜底」",
+  "problem": "三份工件对「本批做不做零拷贝实现」给出互相矛盾的答案：proposal 把零拷贝性能优化放进 Non-goals（「是后续」），design D3 把路径①列为「零拷贝目标」并写「核实可行则实现」，tasks 2.3 直接把「零拷贝可行则实现共享纹理→WebGPU canvas」写成任务。验收随之自相矛盾：tasks 2.3 的验收「evidence 注明实际跑通路径（零拷贝/CPU 读回）」两种都算过，但同一句的「可行则实现」又要求可行时必须交付；spec 要求2 只要求「不可行 MUST 给阻塞证据」，对「可行时是否必须实现」完全没有要求（spec.md:19 只写「再按核实结果实现」，没有说实现到什么程度）。执行者无法在开工前确定本批的完成定义：如果 1.1 核实零拷贝可行，2.3 就必须实现它——可 proposal 又说这件事是后续批次。",
+  "evidence": "见 `证据-一致-001.md`：proposal.md:36、design.md:30/34、tasks.md:16、spec.md 要求 2 原文逐字；grep 命中显示「零拷贝」在 proposal 4 处、design 11 处、tasks 6 处、spec 4 处，其中 proposal 唯一一处定性是「后续」、tasks 唯一一处实现指令是「可行则实现」；文档里没有第三处裁决这两者。",
+  "suggestion": "二选一并三处同步，不许留「看核实结果再定」的浮动范围：① 本批只做核实 + 兜底正控——把 design.md:30 的「核实可行则实现」与 design.md:34 的「可行则升级为正控」改成「零拷贝只核实、不实现，可行则记为后续 change 入口」，tasks.md:16 删掉「零拷贝可行则实现共享纹理→WebGPU canvas」，只在 evidence 记录核实结论；② 本批把零拷贝实现列入范围——从 proposal Non-goals 移到 What Changes/Impact，并在 spec 要求 2 增加「核实在该版本可行时 MUST 实现共享纹理→WebGPU canvas 并给运行读数」的场景。任一选择都要让 tasks 2.3 的验收只剩一条路径判据。"
+}

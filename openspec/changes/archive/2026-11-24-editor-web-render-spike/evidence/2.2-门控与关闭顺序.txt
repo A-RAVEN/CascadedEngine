@@ -1,0 +1,79 @@
+# 2.2 托管原型门控 + 独立进程入口 —— 证据
+
+## 门控与独立环境
+
+| 项 | 实现 | 核法 |
+|---|---|---|
+| 门控 | `CASCADED_EDITOR_SPIKE=web-render`（`EditorService.SpikeEnabled`，**默认关**：不设时走既有三分区编辑器） | `EditorService.cs` |
+| 控制器 | `Scripting/Managed/Editor/SpikeWindow.cs`：一个全客户区 WebView2 控制器（`Bounds=(0,0,客户区宽,高)`），加载 `/spike.html` | 源码 |
+| 独立端口 | 默认 **18393**（`SpikeDefaultPort`），避开 18390（默认）/18391（面板用例）/18392（资产浏览器用例） | `EditorService.cs` |
+| 独立数据目录 | `%TEMP%\cascaded-editor-webview2-spike`（避开默认 `%TEMP%\cascaded-editor-webview2`） | `EditorService.cs` |
+| 门控登记 | `CSharpHost/README.md` 环境变量表三行（`CASCADED_EDITOR_SPIKE` / `_SELFTEST` / `_CAPTURE`）+ 编辑器小节一段说明 | 见下 |
+| README 检查 | `python Tools\check_csharp_host_readme.py` → `问题 0 处` | 见下 |
+| 文档同步 | `docs/testing.md`：清单 24 条含 `TestWebRenderSpike`、计数 23→24、全量仍 22、独立进程说明与红态跑法 | 工件 |
+
+```text
+Select-String -Path CSharpHost\README.md -Pattern 'CASCADED_EDITOR_SPIKE'
+  README:125: **渲染原型门控（editor-web-render-spike）**：`CASCADED_EDITOR_SPIKE=web-render` 时服务起**一个全客户区单…
+  README:429: | `CASCADED_EDITOR_SPIKE` | `web-render` 时启用**渲染原型**…
+  README:430: | `CASCADED_EDITOR_SPIKE_SELFTEST` | 渲染原型的红态开关…
+  README:431: | `CASCADED_EDITOR_SPIKE_CAPTURE` | 渲染原型的抓窗钩子…
+
+python Tools\check_csharp_host_readme.py
+  → 探针开关：代码里读到 14 个，README 表里 36 个；问题 0 处
+```
+
+## 独立进程用例登记（--list 24，全量仍 22）
+
+`Test/GPUBackendTester/Main.cpp` 里 `TestWebRenderSpike` 只加进 `--list` 与单跑分发，**没有加进全量顺序跑**
+（与 `TestEditorAssetBrowser` 同一个理由：编辑器服务是进程级一次性状态机）。实测：
+
+```text
+out\build\x64-debug\bin\GPUBackendTester.exe --list
+  Available tests:
+    TestSimpleTriangle … TestCSharpAssets
+    TestEditorAssetBrowser
+    TestWebRenderSpike
+  → 24 行（最后一行 TestWebRenderSpike）
+```
+
+独立进程跑通的实测（`evidence/3.1-绿跑.json` = `status=pass`；读数行取自 `evidence/3.1-绿跑读数.txt`）：
+
+```text
+clients=2 spikeController=1 spikeNav=1 spikeNavHttp=200 path=cpu-readback webview2Version=157.0.4341.60
+spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=3 spikeMatched=3 spikePath=cpu-readback spikeError=-
+```
+
+`spikeController=1 spikeNav=1 spikeNavHttp=200` = 全窗控制器建成且 `spike.html` 导航 200；
+`spikePage=1` = 原型页完成 WebSocket 握手（`spike-hello`）；`clients=2` = 原型页 + C++ 驱动两个客户端。
+
+## 控制器关闭先于 hostfxr_close（可核的调用链 + 实测行）
+
+调用链（代码位置可查）：
+1. `Scripting/Managed/Host.cs` 的 `Shutdown()` **第一步**就是 `Editor.EditorService.Shutdown("Host.Shutdown")`
+   （`Host.cs:234`）；
+2. `EditorService.Shutdown` 里先 `s_spikeWindow.Close()`（`EditorService.cs:332`，关 WebView2 控制器），
+   再关原生窗；
+3. `CSharpHost/private/CSharpHost.cpp` 的 `Shutdown()` 先调托管入口 `m_shutdown()`（→ 上面的 Host.Shutdown），
+   **之后**才 `m_closeFn(m_runtimeContext)`（`hostfxr_close`）。
+
+实测行（`evidence/3.1-绿跑日志.txt`，UTF-16 控制台日志；`grep` 时用 `Get-Content` 自动识别编码）：
+
+```text
+[编辑器] 已关闭（测试请求停止（CASCADED_EDITOR_STOP=1））：监听已停、客户端已断、WebView2 控制器已关闭
+[CSharpHost] 托管 Shutdown 返回 0
+[CSharpHost] 运行时已关闭（hostfxr_close 已调用）
+```
+
+第一条 = 托管侧关控制器的那一步真的执行了；后两条 = 托管 Shutdown 返回之后才 `hostfxr_close`。
+
+## 现有用例零影响（机制层面）
+
+- `EditorService.TryReadPort` / 数据目录默认值 / `EmitReadings` / `EditorProtocol.TryParse` 的新分支**都只在
+  `SpikeEnabled` 为真时生效**；不设门控时既有三分区走原路径，读数行逐字不变（`spike` 字段不追加）。
+- 端到端零差异由 4.1（主循环跑现有 22 用例 + CoreTests + 绑定基线）判定。
+
+## 结论
+
+2.2 验收满足：`--list` 24 含 `TestWebRenderSpike`、全量仍 22；独立进程起原型窗（控制器 + 导航 200 + 页面握手）；
+README 登记且检查脚本 0 问题；关闭顺序有调用链与实测行；docs/testing.md 清单/计数同步。

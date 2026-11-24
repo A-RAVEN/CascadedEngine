@@ -4,6 +4,14 @@ project(${PROJECT_NAME})
 file(GLOB_RECURSE Source_List "*.cpp")
 file(GLOB_RECURSE Header_List "*.h")
 
+# editor-web-render-spike 5.2：非绑定面 Vulkan 共享图像助手。GLOB 在"跳过 configure"的增量构建里看不到
+# **新增**的 .cpp（configure 跳过 → 源列表还是上一次的），实测表现为
+# `unresolved external symbol VulkanWebRenderSpikeProvider::...`（RenderBackend_Vulkan.cpp 引用了它、它却没被编译）。
+# 这里用**绝对路径**显式列出（与 GLOB 的输出形态一致，便于去重）；configure 真跑时 GLOB 也会收到它，
+# REMOVE_DUPLICATES 保证同一源文件不会进目标两次。
+list(APPEND Source_List "${CMAKE_CURRENT_SOURCE_DIR}/private/WebRenderSpike/VulkanWebRenderSpike.cpp")
+list(REMOVE_DUPLICATES Source_List)
+
 add_library(${PROJECT_NAME} MODULE ${Header_List} ${Source_List})
 
 CPMAddPackage(

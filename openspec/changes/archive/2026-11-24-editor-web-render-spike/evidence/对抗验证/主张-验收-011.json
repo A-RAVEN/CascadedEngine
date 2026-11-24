@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-011",
+  "face": "验收可失败性-③（2.1 原生离屏读回与 3.1 网页 canvas 是否两套独立判据）",
+  "severity": "misleading",
+  "claim": "2.1 的验收里有一项「共享句柄产出可核」，但「可核」没有任何定义：读哪一行、判什么值、失败码是什么、由谁消费这个句柄，全没写。按最松的读法，句柄非空即算可核——而 D3D12/DXGI 在带 SHARED 描述的资源上返回非空句柄是 API 的默认行为，这条判据等于恒真；按最严的读法它又需要第二个消费者，工件没写。判据松紧不定，等于没有判据。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:14；design.md:25",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-011.md",
+  "suggested_fix": "把「共享句柄产出可核」拆成三个具名判据并写死读数行字段与失败码：① 句柄非空且资源描述含 SHARED（E_WEBSPIKE_NOSHARED）；② 句柄能被第二个消费者 OpenSharedHandle 成功打开（E_WEBSPIKE_OPENSHARED）；③ 第二个消费者从同一资源读回中心 == (255,0,0,255)（E_WEBSPIKE_SHARED_PIXEL）。三者缺一即不合格；红态：去掉 MISC_SHARED 后 ① 必须红。这条与主张-验收-008 是同一处缺陷的两个面（008 管「读回有没有绑在同一张纹理上」，本条管「可核」这个词本身没有判据），修一处即可同时解决。"
+}

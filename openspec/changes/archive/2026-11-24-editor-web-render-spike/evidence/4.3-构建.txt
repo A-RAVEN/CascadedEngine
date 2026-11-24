@@ -1,0 +1,5 @@
+﻿BUILD SUCCESSFUL
+============================================================
+BUILD_EXIT=0
+
+复跑 4.1（当前构建）：22 同进程两后端零差异；TestWebRenderSpike 独立 pass；CoreTests PASSED 26；绑定基线 0/0/0。

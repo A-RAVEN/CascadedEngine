@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-004",
+  "face": "验收可失败性-①（3.1 网页 canvas 中心像素断言）",
+  "severity": "misleading",
+  "claim": "3.1 对红态的要求只有一句「红态构造可核（evidence/3.1-*.txt）」：文件名是通配、内容不限、没有注入开关、没有复跑命令、没有期望失败码与退出码。这与 tasks.md 自己在开头定的口径（每条给「命令 / 产物 + 期望读数」）相矛盾，也让「红态是真红」变成只能靠写报告的人自觉。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:20 与 :3（文件开头的验收口径）",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-004.md",
+  "suggested_fix": "3.1 的红态改成三件套并逐项写死：① 注入开关（进程环境变量，形如 CASCADED_WEBSPIKE_SELFTEST=<模式>，未知模式判失败，照 Main.cpp:2396-2402 的 CASCADED_CSHARP_CONSTCOLOR_SELFTEST 惯例）；② 复跑命令（完整命令行，含 --backend d3d12 与 --test TestWebRenderSpike）；③ 期望读数（退出码 1 + status=fail + 失败码与 error 原文），evidence 里逐字贴 result.json 的 status/error，格式照 2026-11-24-editor-asset-browser/evidence/4.1-首次运行红态.txt。文件名由通配改成具名（如 3.1-红态-<模式>.txt）。"
+}

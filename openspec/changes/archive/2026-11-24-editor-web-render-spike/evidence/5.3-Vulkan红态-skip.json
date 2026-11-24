@@ -1,0 +1,3 @@
+[
+  {"name":"TestWebRenderSpike","status":"fail","duration_ms":47,"exit_code":1,"error":"E_SPIKE_PATTERN: 自检开关 skip-native-render（不启原生渲染）：采样点 bg (20,20) 实测 (0,0,0,0)，期望 (0,255,0,255)"}
+]

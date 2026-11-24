@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-010",
+  "face": "验收可失败性-③（2.1 原生离屏读回与 3.1 网页 canvas 是否两套独立判据）",
+  "severity": "Blocking",
+  "claim": "2.1 与 3.1 各自只看「中心是纯红」，工件没有一处要求两边的像素来自同一幅图（没有哈希、没有多点采样对账、没有帧序号绑定）。因此「原生读回的那张图是红的」与「网页回传的那块是红的」可以是两件互不相干的事，两条判据同时绿也不能证明『原生像素进了网页』——而后者才是本 spike 的唯一命题。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:14 与 :20；design.md:38-41；specs/editor-web-render-spike/spec.md:10",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-010.md",
+  "suggested_fix": "加一条跨判据的同源绑定，缺一即红：① 原生侧每帧在离屏图上写一个不可猜的标记（例如把帧序号与一个常量种子算出的 4 个角像素值写进 4 个角），并把该帧的整图哈希（算法与种子都写在 C++ 侧）写进读数行；② 网页回传必须带同一帧的 4 个角像素值与整图哈希（由页面从 canvas 位图算出），C++ 逐项对账；③ 三项（哈希、4 角、帧序号）任一不等判 E_WEBCANVAS_MISMATCH。这样「网页自己画红」和「原生读回另一张图」都过不了。"
+}

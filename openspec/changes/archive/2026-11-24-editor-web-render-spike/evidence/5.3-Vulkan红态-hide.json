@@ -1,0 +1,3 @@
+[
+  {"name":"TestWebRenderSpike","status":"fail","duration_ms":1267,"exit_code":1,"error":"E_WEBCANVAS_DISPLAY: 服务端同源对账判红（读数 spikeError）—— spikeError=E_WEBCANVAS_DISPLAY"}
+]

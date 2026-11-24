@@ -1,0 +1,78 @@
+# 3.1 同源正控 + 四红态 —— 证据（D3D12 独立进程）
+
+> 全部读数来自主循环在 2026-11-24 16:11–16:13 的实跑；report/读数/日志原文件就在本目录
+> （`3.1-绿跑.json` / `3.1-绿跑读数.txt` / `3.1-绿跑日志.txt` / `3.1-红态-*.json`）。
+
+## 绿跑（正控通过）
+
+命令：
+
+```powershell
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestWebRenderSpike --headless 10 --report $env:TEMP\spike_green.json
+```
+
+`3.1-绿跑.json`：
+
+```json
+[
+  {"name":"TestWebRenderSpike","status":"pass","duration_ms":3694,"exit_code":0}
+]
+```
+
+`3.1-绿跑读数.txt` 里的同源对账标记行（服务端逐帧记录；三帧各不相同，说明帧序号真的进了像素）：
+
+```text
+[渲染原型 读数] spikeMatch frame=1 hash=7df2b6c5 canvas=256x256 path=cpu-readback webgpu=1
+[渲染原型 读数] spikeMatch frame=2 hash=2dfb06c5 canvas=256x256 path=cpu-readback webgpu=1
+[渲染原型 读数] spikeMatch frame=3 hash=90355dc5 canvas=256x256 path=cpu-readback webgpu=1
+```
+
+同文件最后一条 `[编辑器 读数]` 的 spike 字段（逐字）：
+
+```text
+clients=2
+spikeController=1 spikeNav=1 spikeNavHttp=200
+path=cpu-readback webview2Version=157.0.4341.60
+spike=1 spikePage=1 spikeWebgpu=1 spikeFrames=3 spikeMatched=3 spikePath=cpu-readback spikeError=-
+```
+
+覆盖到的判据（design D4）：
+- **同帧**：帧序号 1/2/3 由原生帧携带、网页回传同一帧序号（服务端比对），对上才记 `spikeMatch`；
+- **整图哈希**：网页 `getImageData` 的 FNV-1a 32 与原生读回字节的哈希逐帧相等（7df2b6c5 / 2dfb06c5 / 90355dc5）；
+- **多点**：七点（背景 ×2、中心、四角 ×2）逐点 RGBA 相等（不等即 `E_WEBCANVAS_MISMATCH`，见下红态）；
+- **显示读数**：canvas 像素尺寸 256×256、`getBoundingClientRect` 非零、`display` 非 none、`visibility=visible`
+  （不合法即 `E_WEBCANVAS_DISPLAY`，见下红态）；
+- **路径**：`path=cpu-readback`（不是零拷贝；CPU 读回实现，见 4.2）。
+
+## 四红态（各中预期失败码，退出码都是 1）
+
+| 自检开关 `CASCADED_EDITOR_SPIKE_SELFTEST` | 构造 | 实测结果 |
+|---|---|---|
+| `skip-native-render` | 不启原生渲染（纹理保持未渲染状态） | `3.1-红态-skip.json`：`status=fail, exit_code=1, duration_ms=42`，`E_SPIKE_PATTERN: … 采样点 bg (20,20) 实测 (0,0,0,0)，期望 (0,255,0,255)` |
+| `hide-canvas` | 网页把 canvas 设成 `display:none`（像素仍对，布局/可见性不合法） | `3.1-红态-hide.json`：`status=fail, exit_code=1, duration_ms=1581`，`E_WEBCANVAS_DISPLAY: 服务端同源对账判红（读数 spikeError）—— spikeError=E_WEBCANVAS_DISPLAY` |
+| `local-red` | 网页本地画红（禁止行为的对照红态） | `3.1-红态-local.json`：`status=fail, exit_code=1, duration_ms=1582`，`E_WEBCANVAS_MISMATCH: 服务端同源对账判红（读数 spikeError）—— spikeError=E_WEBCANVAS_MISMATCH` |
+| `no-line` | 网页照收帧但从不回传（回传断链） | `3.1-红态-noline.json`：`status=fail, exit_code=1, duration_ms=7597`，`E_WEBCANVAS_NOLINE: 服务端同源对账判红（读数 spikeError）—— spikeError=E_WEBCANVAS_NOLINE` |
+
+每条的复跑命令（第四列开关不同，其余相同）：
+
+```powershell
+$env:CASCADED_EDITOR_SPIKE_SELFTEST='<上表开关>'
+out\build\x64-debug\bin\GPUBackendTester.exe --backend d3d12 --test TestWebRenderSpike --headless 10 --report $env:TEMP\spike_red_<开关>.json
+Remove-Item Env:\CASCADED_EDITOR_SPIKE_SELFTEST
+```
+
+判定口径说明（为什么四条的码不同，且各自指向不同的机制）：
+- 服务端先判**像素类**（帧序号/哈希/多点），再判**显示类**（canvas 尺寸/布局/可见性、超时）。所以：
+  `local-red` 的像素被换掉 → 先中 `E_WEBCANVAS_MISMATCH`；`hide-canvas` 的像素是对的、只有布局/可见性不合法 →
+  中 `E_WEBCANVAS_DISPLAY`；`no-line` 根本没有回传 → 6000ms 超时后中 `E_WEBCANVAS_NOLINE`（实测整条用时 7597ms，
+  含 6000ms 等待 + 启动开销）。
+- `skip-native-render` 在服务启动**之前**就红：原生侧正控（多点 + 帧序号位）当场识破未渲染纹理 —— 这条同时是 2.1
+  原生侧判据"能失败"的红态证据。
+- 三红态（hide/local/no-line）的读数细节行（`[渲染原型 读数] spikeError=<码> detail=…`）写在运行时读数文件里；
+  本轮 report 里的 `error` 已带同一条码与原因，原文件见本目录 JSON。
+
+## 结论
+
+3.1 验收满足：D3D12 独立进程绿跑 `status=pass`，三帧同源对账（帧序号 + 整图哈希 + 七点采样 + canvas 读数）
+全部一致且 `path=cpu-readback`；四条红态各自以预期失败码判红（`E_SPIKE_PATTERN` / `E_WEBCANVAS_DISPLAY` /
+`E_WEBCANVAS_MISMATCH` / `E_WEBCANVAS_NOLINE`），开关、命令与失败码都在本文件与 JSON 里。

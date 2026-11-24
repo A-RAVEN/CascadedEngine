@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-005",
+  "face": "验收可失败性-②（1.1 互操作研究「不可行有具体阻塞证据」）",
+  "severity": "Blocking",
+  "claim": "1.1 的「不可行」判据只要求写出「缺失 API 名 / 版本」，而「某个 API 不存在」是没有边界的否定命题：不指定文档快照、不指定检索词、不要求零命中输出，任何一句「WebView2 不暴露共享纹理导入，缺失 API：importSharedTexture」都满足验收。更糟的是 design.md:29 已经先把这句否定结论写进了设计，1.1 只需在它后面补链接就合格——核实变成了给既有结论配引用。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:9；design.md:29-31；specs/editor-web-render-spike/spec.md:19 与 :29",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-005.md",
+  "suggested_fix": "把「不可行」的验收改成三段必填、缺一即不合格：① 冻结的文档快照（URL + 抓取日期 + HTTP 状态码 + 引用段落逐字摘录）；② 检索词与零命中输出（在该快照里检索 DXGI shared handle / importSharedTexture / external texture import 等词，贴出零命中或未提及的原文片段）；③ WebView2 运行时版本号与其获取命令（见主张-验收-006）。同时要求在 evidence 里显式回答「design.md:29 那句否定结论是本文核实的还是本文沿用未核实的」，未核实的必须标为待核实，不许当结论用。"
+}

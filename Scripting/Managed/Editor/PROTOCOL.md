@@ -195,3 +195,63 @@ S→C  {"type":"result","requestId":3,"ok":false,"error":{"code":"E_UNDO_EMPTY",
 
 事件与结果的先后不保证固定（实现按"先执行、后回结果"的顺序发送，事件可能在结果之前到达同一连接）；
 客户端以 `requestId` 配对结果、以事件更新显示。
+
+## 7. 渲染原型通道（editor-web-render-spike，复用本协议的同一条 WebSocket）
+
+渲染原型页（`spike.html` + `spike.ts`）与 C++ 驱动共用编辑器服务的 `/ws`：**帧从 C++ 驱动进、经服务转发
+给原型页；原型页的对账数据回服务**。三类消息都带 `type`、都不占 `requestId`（不是命令，执行语义不在
+主线程命令表里；转发与对账在服务的主线程 Tick 内做）。只有 `CASCADED_EDITOR_SPIKE=web-render` 门控开启时
+才接受这三类消息；门控关闭时按 `E_BAD_MESSAGE`（未知消息类型）处理，既有面板行为不变。
+
+### 7.1 C→S `spike-hello`（原型页就绪）
+
+```json
+{ "type": "spike-hello", "webgpu": 1, "userAgent": "Mozilla/5.0 ..." }
+```
+
+原型页收到 `welcome` 后立即发一次。服务收到后把 `spikePage=1` 写进读数行 —— C++ 驱动据此判断"页面已就绪，
+可以开始推帧"，避免把最早几帧推给一个还没连上的页面。
+
+### 7.2 C→S `spike-frame`（原生帧，服务转发给原型页）
+
+```json
+{ "type": "spike-frame", "frame": 1, "width": 256, "height": 256, "path": "cpu-readback",
+  "hash": "1a2b3c4d", "pixels": "<RGBA8 紧凑字节的 base64>",
+  "samples": [ { "name": "bg", "r": 0, "g": 255, "b": 0, "a": 255 },
+               { "name": "center", "r": 255, "g": 0, "b": 0, "a": 255 } ] }
+```
+
+- `pixels` 是 C++ 从共享纹理读回的 RGBA8 紧凑字节（256×256×4 = 262144 字节 → base64 349528 字符）。
+- `hash` 是 C++ 对同一份字节算的整图哈希（FNV-1a 32 位，逐字节，8 位小写十六进制）；原型页用同一算法
+  对 `getImageData` 结果算一次，服务端比对两者。
+- `samples` 是 C++ 在同一份读回字节上取的采样点（与回传的七点同名同坐标）；服务端逐点比对网页回传值。
+- 服务收到后**转发给除发送者以外的所有已连接客户端**（即原型页），并登记"帧 N 的原生哈希 + 采样 +
+  6000ms 回传截止时间"。
+
+### 7.3 C→S `spike-report`（原型页对账数据）
+
+```json
+{ "type": "spike-report", "frame": 1, "width": 256, "height": 256,
+  "canvasWidth": 256, "canvasHeight": 256,
+  "rectX": 16, "rectY": 178, "rectWidth": 256, "rectHeight": 256,
+  "visibility": "visible", "display": "block",
+  "hash": "1a2b3c4d", "hashAlgorithm": "fnv1a32", "webgpu": 1, "devicePixelRatio": 1,
+  "samples": [ { "name": "bg", "x": 20, "y": 20, "r": 0, "g": 255, "b": 0, "a": 255 },
+               { "name": "center", "x": 128, "y": 128, "r": 255, "g": 0, "b": 0, "a": 255 } ] }
+```
+
+- `samples` 至少含 `bg` / `bg2` / `center` / `corner-tl` / `corner-tr` / `corner-bl` / `corner-br` 七点
+  （位置与 C++ 侧采样表逐点一致）。
+- `canvasWidth` / `canvasHeight` 是 canvas 的**像素**尺寸；`rect*` 来自 `getBoundingClientRect`；
+  `visibility` 是 `document.visibilityState`；`display` 是 canvas 的 computed `display`。
+  这三类读数缺一项，隐藏画布（display:none / 0 尺寸）这类显示红态就无法判红。
+
+### 7.4 失败码与超时
+
+| 码 | 触发 |
+|---|---|
+| `E_WEBCANVAS_MISMATCH` | 同帧对账不一致：帧序号 / 整图哈希 / 任一点采样 / `hashAlgorithm` 不符 |
+| `E_WEBCANVAS_DISPLAY` | 显示类读数不合法：canvas 像素尺寸不是 256×256、`rectWidth`/`rectHeight` ≤ 0、`display=none`、`visibility=hidden` |
+| `E_WEBCANVAS_NOLINE` | 收到帧后 6000ms 内没有收到同帧号的 `spike-report`（断链 / 缺回传） |
+
+超时 6000ms 取既有先例（`Test/GPUBackendTester/Main.cpp` 的 6000ms 帧等待）。

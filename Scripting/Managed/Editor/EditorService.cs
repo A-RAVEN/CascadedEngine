@@ -95,6 +95,12 @@ namespace Scripting.Managed.Editor
 
         private static EditorWindow s_window;
         private static EditorSceneView s_scene;
+        // 渲染原型窗（spike 模式专用；与三分区的 s_window 二选一）。
+        private static SpikeWindow s_spikeWindow;
+        // 抓窗钩子的进度游标（5.4 加固）：帧转发数/对账数一变化就主动补抓一张，避免只靠 0.5s 周期
+        // 而抓到"导航后、第一帧到达前"的空 canvas（实测 Vulkan 侧两次抓窗都是空帧）。
+        private static int s_spikeCaptureFrames;
+        private static int s_spikeCaptureMatched;
         private static bool s_shellClosed;
         private static long s_windowSelf;
         private static int s_lastLayoutWidth = -1;
@@ -112,6 +118,8 @@ namespace Scripting.Managed.Editor
         private static bool s_staticRootLogged;
         // dock 页面缺失只写一行日志（与上面的面板资源缺失分开记，两类缺失的原因与处置不同）。
         private static bool s_dockStaticErrorLogged;
+        // 渲染原型页面缺失同样只写一行（editor-web-render-spike 1.2）。
+        private static bool s_spikeStaticErrorLogged;
 
         // 资产浏览（editor-asset-browser）：上次成功枚举的条目路径快照（null = 还没成功枚举过）。
         // 每次成功枚举与它比对，有增删就广播 assets-changed（design D5：v1 不轮询，差异靠枚举发现）。
@@ -119,6 +127,16 @@ namespace Scripting.Managed.Editor
 
         internal static bool Enabled => Environment.GetEnvironmentVariable("CASCADED_EDITOR") == "1";
         internal static bool Running => s_state == 2;
+
+        // ---- 渲染原型（editor-web-render-spike 2.2）----
+        // 原型门控默认关：`CASCADED_EDITOR_SPIKE=web-render` 时服务起"全客户区单控制器"原型窗，
+        // 加载 spike.html；不设时走既有三分区编辑器，行为一行不变。
+        internal static bool SpikeEnabled =>
+            Environment.GetEnvironmentVariable("CASCADED_EDITOR_SPIKE") == "web-render";
+        internal static string SpikeSelftest =>
+            Environment.GetEnvironmentVariable("CASCADED_EDITOR_SPIKE_SELFTEST") ?? string.Empty;
+        // 原型独立端口 18393：避开 18390（默认）/18391（TestEditorWindowPanel）/18392（TestEditorAssetBrowser）。
+        internal const int SpikeDefaultPort = 18393;
 
         /// <summary>引擎调用计数（EditWindow / 服务内部每个绑定表面调用后都记一次）。</summary>
         internal static void NoteNativeCall()
@@ -168,6 +186,11 @@ namespace Scripting.Managed.Editor
             {
                 PumpWindow();
                 DrainInbound();
+                // 渲染原型：6000ms 没收到同帧回传 → E_WEBCANVAS_NOLINE（断链/缺回传判红）。
+                if (SpikeEnabled)
+                {
+                    SpikeChannel.TickTimeout();
+                }
                 CheckObjectHealth();
                 if (s_state == 2)
                 {
@@ -187,6 +210,12 @@ namespace Scripting.Managed.Editor
             // 读数落盘（不依赖 --headless 的 stdout 重定向）：测试给一个文件路径，每帧追加一行。
             // 可见窗口模式（不带 --headless）也能读到读数行；未设置时只走宿主日志。
             s_readingsPath = Environment.GetEnvironmentVariable("CASCADED_EDITOR_READINGS_FILE") ?? string.Empty;
+            // 渲染原型通道（PROTOCOL.md §7）：只有门控开着才识别那三类消息；关着时它们按未知类型回
+            // E_BAD_MESSAGE，既有面板行为不变。每次启动清一次通道状态。
+            EditorProtocol.SpikeMessagesEnabled = SpikeEnabled;
+            SpikeChannel.Reset();
+            s_spikeCaptureFrames = 0;
+            s_spikeCaptureMatched = 0;
             // 1.11：记录程序集位置与 BaseDirectory，供"静态根为什么解析成这个绝对路径"核对
             //（hostfxr 宿主下 BaseDirectory 实测为空字符串，静态根改由程序集目录解析）。
             Host.LogFromEditor("[编辑器] 程序集位置：" + typeof(EditorService).Assembly.Location +
@@ -209,7 +238,9 @@ namespace Scripting.Managed.Editor
             s_dataFolder = Environment.GetEnvironmentVariable("CASCADED_EDITOR_WEBVIEW2_DATA");
             if (string.IsNullOrEmpty(s_dataFolder))
             {
-                s_dataFolder = Path.Combine(Path.GetTempPath(), "cascaded-editor-webview2");
+                // 渲染原型用独立数据目录（D1：避开默认 %TEMP%\cascaded-editor-webview2，两个进程不抢锁）。
+                s_dataFolder = Path.Combine(Path.GetTempPath(),
+                    SpikeEnabled ? "cascaded-editor-webview2-spike" : "cascaded-editor-webview2");
             }
             try
             {
@@ -301,10 +332,27 @@ namespace Scripting.Managed.Editor
                 }
                 s_window = null;
             }
+            // 渲染原型窗：控制器关闭同样先于 hostfxr_close（Host.Shutdown 第一步调到这里）。
+            if (s_spikeWindow != null)
+            {
+                s_spikeWindow.Close();
+                try
+                {
+                    s_spikeWindow.Window.CloseWindow();
+                    s_spikeWindow.Window.Dispose();
+                }
+                catch (Exception)
+                {
+                }
+                s_spikeWindow = null;
+            }
             s_shellClosed = false;
             s_objects.Clear();
             s_invalidated.Clear();
             s_lastAssetPaths = null;
+            // 原型通道：服务关了就不再接受 spike 消息；读数状态清零（同一进程不会重复跑，但不留脏状态）。
+            EditorProtocol.SpikeMessagesEnabled = false;
+            SpikeChannel.Reset();
             s_state = 4;
             LogServiceMarker("[编辑器] 已关闭（" + reason + "）：监听已停、客户端已断、WebView2 控制器已关闭");
         }
@@ -330,7 +378,7 @@ namespace Scripting.Managed.Editor
         /// 服务级标记行（入队/禁用/关闭）：除宿主日志外，门控开了读数文件时也追加进去 ——
         /// 这样可见窗口模式（不带 --headless、stdout 不重定向）下 C++ 用例仍能读到这些标记。
         /// </summary>
-        private static void LogServiceMarker(string text)
+        internal static void LogServiceMarker(string text)
         {
             Host.LogFromEditor(text);
             if (s_readingsPath.Length != 0)
@@ -351,7 +399,7 @@ namespace Scripting.Managed.Editor
             string text = Environment.GetEnvironmentVariable("CASCADED_EDITOR_PORT");
             if (string.IsNullOrEmpty(text))
             {
-                s_port = DefaultPort;
+                s_port = SpikeEnabled ? SpikeDefaultPort : DefaultPort;
                 return true;
             }
             if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out s_port) ||
@@ -415,6 +463,12 @@ namespace Scripting.Managed.Editor
                 Disable("IWindowSystem 表面未绑定");
                 return;
             }
+            // 渲染原型（spike 模式）：单全窗 WebView2 控制器，不需要托管侧渲染后端（渲染在 C++ 侧）。
+            if (SpikeEnabled)
+            {
+                CreateSpikeWindow();
+                return;
+            }
             if (!renderBound || backend == null)
             {
                 // D11：渲染后端表面未绑定/不可用 ⇒ 明确报错并禁用，不静默降级、不造空壳 scene view。
@@ -449,6 +503,40 @@ namespace Scripting.Managed.Editor
                                window.ViewportHeight + " + dock " + window.ClientWidth + "x" + window.DockHeight +
                                "，模式 main-thread，hwnd=0x" + ((long)window.Hwnd).ToString("X") +
                                "，windowSelf=0x" + s_windowSelf.ToString("X") + "）");
+        }
+
+        /// <summary>
+        /// 渲染原型窗（spike 模式）：全客户区单 WebView2 控制器加载 spike.html。页面自检模式经 URL 查询串
+        /// 传给网页（hide-canvas / local-red / no-line）；skip-native-render 是 C++ 侧开关，不传给网页。
+        /// </summary>
+        private static void CreateSpikeWindow()
+        {
+            string navigationTarget = "http://localhost:" + s_port + "/spike.html" + SpikeSelftestQuery();
+            string capturePath = Environment.GetEnvironmentVariable("CASCADED_EDITOR_SPIKE_CAPTURE") ?? string.Empty;
+            SpikeWindow window = SpikeWindow.Create(s_system, InitialWindowWidth, InitialWindowHeight,
+                navigationTarget, s_dataFolder, capturePath, out string error);
+            if (window == null)
+            {
+                Disable("创建渲染原型窗口失败：" + error);
+                return;
+            }
+            s_spikeWindow = window;
+            s_windowSelf = (long)window.Window.NativeSelf;
+            Host.LogFromEditor("[渲染原型] 窗口已创建（全客户区单控制器 " + window.ClientWidth + "x" +
+                               window.ClientHeight + "，hwnd=0x" + ((long)window.Hwnd).ToString("X") +
+                               "，目标 " + navigationTarget + "，自检 " +
+                               (SpikeSelftest.Length == 0 ? "-" : SpikeSelftest) + "）");
+        }
+
+        /// <summary>网页侧自检模式 → URL 查询串（只认三个网页侧模式；空/其它值不带查询串）。</summary>
+        private static string SpikeSelftestQuery()
+        {
+            string mode = SpikeSelftest;
+            if (mode == "hide-canvas" || mode == "local-red" || mode == "no-line")
+            {
+                return "?selftest=" + mode;
+            }
+            return string.Empty;
         }
 
         private static void RegisterWindowCallbacks()
@@ -502,6 +590,36 @@ namespace Scripting.Managed.Editor
 
         private static void PumpWindow()
         {
+            // 渲染原型：单控制器全窗（没有 dock 的第二控制器，也没有 scene view）。
+            if (SpikeEnabled)
+            {
+                if (s_spikeWindow == null || s_shellClosed)
+                {
+                    return;
+                }
+                s_spikeWindow.Pump();
+                if (s_spikeWindow.Error.Length != 0)
+                {
+                    Disable("渲染原型 WebView2 失败：" + s_spikeWindow.Error);
+                }
+                // 5.4 抓窗可靠性：不靠 0.5s 周期"撞"帧到达 —— 帧转发数与同源对账数只要推进，就主动排一次
+                // 抓窗（SpikeWindow 内部延迟几帧再抓，保证合成器已经把 putImageData 的画面提上来）。
+                // 覆盖写同一个 PNG：最后一次（三帧对账之后）留下的就是含特征图案的画面。
+                if (s_spikeWindow.NavigationDone)
+                {
+                    if (SpikeChannel.FramesRelayed > s_spikeCaptureFrames)
+                    {
+                        s_spikeCaptureFrames = SpikeChannel.FramesRelayed;
+                        s_spikeWindow.RequestCapture();
+                    }
+                    if (SpikeChannel.Matched > s_spikeCaptureMatched)
+                    {
+                        s_spikeCaptureMatched = SpikeChannel.Matched;
+                        s_spikeWindow.RequestCapture();
+                    }
+                }
+                return;
+            }
             if (s_window == null || s_shellClosed)
             {
                 return;
@@ -684,6 +802,21 @@ namespace Scripting.Managed.Editor
                 if (inbound.Kind == EditorInboundKind.Hello)
                 {
                     SendWelcome(inbound.Client);
+                }
+                else if (inbound.Kind == EditorInboundKind.SpikeHello)
+                {
+                    // 原型页就绪：记录 spikePage=1，C++ 驱动据此开始推帧。
+                    SpikeChannel.AcceptHello(inbound.Webgpu);
+                }
+                else if (inbound.Kind == EditorInboundKind.SpikeFrame)
+                {
+                    // C++ → C# → 原型页：登记待对账帧（含 6000ms 截止时间），再把原始 JSON 转发给其它客户端。
+                    SpikeChannel.AcceptFrame(inbound.Frame);
+                    BroadcastExcept(inbound.Client, inbound.Frame.RawJson);
+                }
+                else if (inbound.Kind == EditorInboundKind.SpikeReport)
+                {
+                    SpikeChannel.AcceptReport(inbound.Report);
                 }
                 else if (inbound.Command != null)
                 {
@@ -1365,6 +1498,23 @@ namespace Scripting.Managed.Editor
                 }
                 return;
             }
+            // 渲染原型页（editor-web-render-spike 1.2）：spike.html 单独缺失时返回说明原因的错误页并写日志，
+            // 原型窗的导航判据把 4xx/5xx 当失败，于是明确禁用而不是显示一个空壳。
+            if (path == "/spike.html" && !File.Exists(Path.Combine(root, "spike.html")))
+            {
+                const string spikeMessage =
+                    "<!doctype html><meta charset=\"utf-8\"><title>渲染原型页面未构建</title>" +
+                    "<h1>渲染原型页面未构建</h1><p>原因：bin/editor-web/spike.html 不存在（缺 node 或构建步被跳过）。</p>" +
+                    "<p>按 EditorWeb/README.md 构建面板（npm ci &amp;&amp; npm run build，然后重新跑 python build.py）。</p>";
+                WriteResponse(context, 503, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(spikeMessage));
+                if (!s_spikeStaticErrorLogged)
+                {
+                    s_spikeStaticErrorLogged = true;
+                    Host.LogFromEditor("[编辑器] 渲染原型页面缺失：" + root +
+                                       " 下没有 spike.html —— 已返回说明原因的错误页（503），不是静默 404");
+                }
+                return;
+            }
             string relative = path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
             string candidate;
             try
@@ -1572,8 +1722,18 @@ namespace Scripting.Managed.Editor
             inbound.Client = client;
             // M3（工件修订）：入队即打一行（监听线程）。C++ 用例在"不 Tick"的窗口期先看到这行，
             // 再断言标题未变 —— 排除"命令还没到"的假阴性。
-            LogServiceMarker("[编辑器] 命令已入队（监听线程）：requestId=" + requestId + " command=" +
-                             inbound.Command.Name);
+            // 渲染原型的三类消息（PROTOCOL.md §7）没有 `command` 字段，`inbound.Command` 为 null：
+            // 这里按 kind 分别打，**不许无条件解引用 Command**（否则页面第一条 spike-hello 就让监听线程
+            // 抛 NullReferenceException，进程 0xC0000005 崩掉）。
+            if (inbound.Command != null)
+            {
+                LogServiceMarker("[编辑器] 命令已入队（监听线程）：requestId=" + requestId + " command=" +
+                                 inbound.Command.Name);
+            }
+            else
+            {
+                LogServiceMarker("[编辑器] 渲染原型消息已入队（监听线程）：kind=" + inbound.Kind);
+            }
             s_inbound.Enqueue(inbound);
         }
 
@@ -1595,6 +1755,24 @@ namespace Scripting.Managed.Editor
             }
             foreach (EditorClient client in snapshot)
             {
+                client.SendQueue.Enqueue(message);
+            }
+        }
+
+        /// <summary>发给除发送者以外的所有客户端（渲染原型的帧转发：C++ 驱动发进来、原型页收到）。</summary>
+        private static void BroadcastExcept(EditorClient sender, string message)
+        {
+            EditorClient[] snapshot;
+            lock (s_clientsLock)
+            {
+                snapshot = s_clients.ToArray();
+            }
+            foreach (EditorClient client in snapshot)
+            {
+                if (ReferenceEquals(client, sender))
+                {
+                    continue;
+                }
                 client.SendQueue.Enqueue(message);
             }
         }
@@ -1669,7 +1847,7 @@ namespace Scripting.Managed.Editor
             }
             string line = "[编辑器 读数] probe=editor" +
                 " tick=" + s_tick +
-                " state=" + (s_state == 2 && s_window != null ? "running" : "starting") +
+                " state=" + (s_state == 2 && (s_window != null || s_spikeWindow != null) ? "running" : "starting") +
                 " mode=main-thread" +
                 " port=" + s_port +
                 " clients=" + clientCount +
@@ -1703,6 +1881,23 @@ namespace Scripting.Managed.Editor
                 " cmdCalls=" + s_cmdCalls +
                 " lastCmd=" + (s_lastCommandName.Length == 0 ? "-" : s_lastCommandName) +
                 " error=" + (s_error.Length == 0 ? "-" : Sanitize(s_error));
+            if (SpikeEnabled)
+            {
+                // 渲染原型读数（editor-web-render-spike 2.2 / 2.3 / 3.1）：控制器/导航/页面就绪/帧计数/
+                // 路径（path=cpu-readback 的读数来源）/WebView2 版本/失败码。**只在门控开着时追加**，
+                // 既有编辑器用例的读数行逐字不变。
+                line += " spikeController=" + (s_spikeWindow != null && s_spikeWindow.ControllerReady ? 1 : 0) +
+                        " spikeNav=" + (s_spikeWindow != null && s_spikeWindow.NavigationDone ? 1 : 0) +
+                        " spikeNavHttp=" + (s_spikeWindow == null ? 0 : s_spikeWindow.NavigationHttpStatus) +
+                        // 运行读数里的 path= 字段（spec 要求 2）：本批固定 cpu-readback，零拷贝是 Non-goal。
+                        " path=" + Sanitize(SpikeChannel.Path) +
+                        " webview2Version=" + (s_spikeWindow == null || s_spikeWindow.WebView2Version.Length == 0
+                            ? "-"
+                            : Sanitize(s_spikeWindow.WebView2Version));
+                var spikeBuilder = new StringBuilder();
+                SpikeChannel.AppendReadings(spikeBuilder);
+                line += spikeBuilder.ToString();
+            }
             Host.LogFromEditor(line);
             if (s_readingsPath.Length != 0)
             {
@@ -1717,7 +1912,7 @@ namespace Scripting.Managed.Editor
             }
         }
 
-        private static string Sanitize(string text)
+        internal static string Sanitize(string text)
         {
             if (string.IsNullOrEmpty(text))
             {

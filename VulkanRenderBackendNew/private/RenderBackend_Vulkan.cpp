@@ -11,6 +11,8 @@
 #include <VulkanObjects/VulkanTexture.h>
 #include <VulkanObjects/VulkanWindowHandle.h>
 #include <VulkanObjects/VulkanShaderStruct.h>
+// editor-web-render-spike 5.2：非绑定面的 Vulkan 共享图像适配器（不进 CodeGen、不改后端头/绑定面）。
+#include "WebRenderSpike/VulkanWebRenderSpike.h"
 
 #include <windows.h>
 #include <filesystem>
@@ -33,6 +35,14 @@ extern "C" __declspec(dllexport) void SetValidationLogFile(FILE* file)
 
 namespace graphics_backend
 {
+	namespace
+	{
+		// editor-web-render-spike 5.2：渲染原型的非绑定面实例。Vulkan 模块每个进程只有一个 CRenderBackend
+		// 实例（`CA_MODULE_INSTANCE` 只登记一次），所以登记状态放文件作用域静态量，**不改被 CodeGen 解析的
+		// `RenderBackend_Vulkan.h`**，也不改后端渲染/分配路径。
+		std::unique_ptr<VulkanWebRenderSpikeProvider> g_WebRenderSpikeProvider;
+		cacore::IModuleManager* g_WebRenderSpikeModuleManager = nullptr;
+	}
 
 	static castl::vector<const char*> GetInstanceExtensionNames()
 	{
@@ -421,6 +431,18 @@ namespace graphics_backend
 			return;
 		}
 
+		// editor-web-render-spike 5.2：把非绑定面的 Vulkan 共享图像适配器按实例名 "WebRenderSpike" 登记一次。
+		// 适配器在 `Create` 时才建自己的 VkDevice（同一物理设备、启用 external memory 扩展）；本后端设备
+		// 的创建参数与渲染/分配路径一律不动。测试用
+		// `GetInstance<IWebRenderSpikeProvider>(CANAME("WebRenderSpike"))` 取到它。
+		g_WebRenderSpikeModuleManager = pModuleManager;
+		g_WebRenderSpikeProvider = std::make_unique<VulkanWebRenderSpikeProvider>(this);
+		if (pModuleManager != nullptr)
+		{
+			pModuleManager->AddInstance<IWebRenderSpikeProvider>(CANAME("WebRenderSpike"),
+				g_WebRenderSpikeProvider.get());
+		}
+
 		CA_LOG_INFO("VulkanRenderBackend initialized successfully");
 	}
 	void RenderBackend_Vulkan::ExecuteGraph(TaskScheduler* scheduler, castl::shared_ptr<GPUGraph> const& graph)
@@ -558,6 +580,15 @@ namespace graphics_backend
 		// path.
 		if (m_Released) return;
 		m_Released = true;
+
+		// editor-web-render-spike 5.2：先注销/销毁非绑定面 Vulkan 适配器（它持有自己的 VkDevice；
+		// 其对象早于后端设备/实例销毁，避免注册表留悬空指针）。
+		if (g_WebRenderSpikeModuleManager != nullptr)
+		{
+			g_WebRenderSpikeModuleManager->RemoveInstance<IWebRenderSpikeProvider>(CANAME("WebRenderSpike"));
+			g_WebRenderSpikeModuleManager = nullptr;
+		}
+		g_WebRenderSpikeProvider.reset();
 
 		// D1: GPU idle BEFORE any device-object destruction — in-flight present/acquire
 		// referencing swapchain imageViews (destroyed by window CleanupSwapchain) or

@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-013",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "路径选择没有任何运行时标记或断言。design D3 写路径①「可行则升级为正控，不可行则留阻塞证据」；tasks 2.3 只要求「evidence 注明实际跑通路径（零拷贝/CPU 读回）」；3.1 的正控在两条路径下都只看 canvas 中心像素 == (255,0,0,255)；4.2 的结论也只是一份 md。四份工件里没有「读数行/日志行必须写出 path=zero-copy 或 path=cpu-readback」的字段定义，也没有「path 与 evidence 声明的路径不一致就判红」的断言。于是同一次全绿运行里，路径①失败后由路径③静默接管，与路径①真正跑通，在验收读数上完全不可区分；spike 的核心交付物（零拷贝可行与否的判定）没有任何能失败的判据，只能靠 evidence 散文自述。",
+  "location": "openspec/changes/editor-web-render-spike/design.md:34、45；openspec/changes/editor-web-render-spike/tasks.md:16、21、26；openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md:24；openspec/changes/editor-web-render-spike/proposal.md:11-13",
+  "evidence_ref": "证据-影响-013.md",
+  "suggested_fix": "在 design/tasks 里定义机器可读字段：每次运行必须写一行 path=zero-copy 或 path=cpu-readback（读数文件 + 宿主日志双通道），3.1 断言该字段与证据声明的路径一致；再加一条负控：强制路径①而共享纹理/导入不可用时必须以点名原因的失败退出（如 E_SPIKE_ZEROCOPY），不得自动落到路径③。"
+}

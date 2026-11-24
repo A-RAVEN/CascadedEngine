@@ -1,0 +1,4 @@
+{
+  "where": "design.md §D2；tasks.md 2.1；design.md Context",
+  "claim": "工件把 D3D12 渲染目标写成带 `D3D11_RESOURCE_MISC_SHARED`（或 D3D12 shared handle）的纹理；但 `D3D11_RESOURCE_MISC_SHARED` 是 `d3d11.h` 的 `D3D11_RESOURCE_MISC_FLAG`，只作用于 D3D11 资源描述，D3D12 资源描述没有 MiscFlags，D3D12 共享纹理须 `D3D12_HEAP_FLAG_SHARED` + `ID3D12Device::CreateSharedHandle`。全仓原生代码对 MISC_SHARED / HEAP_FLAG_SHARED / CreateSharedHandle / SharedHandle 零命中，`GPUTextureDescriptor` 也没有共享字段，说明共享纹理创建/导出不是现有可复用件；任务 2.1 只写了“共享句柄产出可核”，没点名这部分接口/后端新代码。"
+}

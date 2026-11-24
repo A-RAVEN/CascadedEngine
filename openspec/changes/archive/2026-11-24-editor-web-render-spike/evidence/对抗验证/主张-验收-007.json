@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-007",
+  "face": "验收可失败性-②（1.1 互操作研究「不可行有具体阻塞证据」）",
+  "severity": "misleading",
+  "claim": "design.md:31 已经预先给候选②开了口子——「复杂，spike 评估不强行」。这不是判定：既不说明可行，也不构成不可行的阻塞证据，但足以让 1.1 写下「路径②：复杂，未尝试」交差；而 1.1 的验收只要求「每条候选给可行/不可行判定」，没有把「未核实」定为合法第三态，也没有规定它的后果（spec.md:23 只在兜底触发条件里提过一次「（或尚未核实）」）。",
+  "location": "openspec/changes/editor-web-render-spike/design.md:31；tasks.md:9；specs/editor-web-render-spike/spec.md:19",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-007.md",
+  "suggested_fix": "1.1 的每条候选落三态之一并写死措辞：① 实测可行（附运行读数）；② 有具体阻塞（附冻结快照 + 检索词与零命中输出 + 版本）；③ 未核实（必须写明未核实的原因与「它使 4.2 的哪一条判定悬空」）。把 design.md:31 的「复杂，spike 评估不强行」改成「预算内不实现，但仍须给出 ①或②，否则只能标 ③ 并在 4.2 里列为未决」；1.1 验收补一句：三候选中出现 ③ 时，4.2 不得据此判定该路径不可行。"
+}

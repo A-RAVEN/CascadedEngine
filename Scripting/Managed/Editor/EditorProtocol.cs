@@ -15,6 +15,53 @@ namespace Scripting.Managed.Editor
     {
         Hello = 1,
         Command = 2,
+        // editor-web-render-spike 2.2 / 2.3：渲染原型通道的三类消息（PROTOCOL.md §7）。
+        // 只有 CASCADED_EDITOR_SPIKE=web-render 门控开启时才被识别；关着时按未知类型回 E_BAD_MESSAGE。
+        SpikeHello = 3,
+        SpikeFrame = 4,
+        SpikeReport = 5,
+    }
+
+    /// <summary>一个采样点的 RGBA（原生帧与网页回传共用同一形状）。</summary>
+    internal sealed class SpikeSampleValue
+    {
+        internal string Name = string.Empty;
+        internal int R;
+        internal int G;
+        internal int B;
+        internal int A;
+    }
+
+    /// <summary>`spike-frame`：C++ 原生读回的一帧（PROTOCOL.md 7.2）。</summary>
+    internal sealed class SpikeFramePayload
+    {
+        internal int Frame;
+        internal int Width;
+        internal int Height;
+        internal string Path = string.Empty;
+        internal string Hash = string.Empty;
+        internal string Pixels = string.Empty;
+        internal List<SpikeSampleValue> Samples = new List<SpikeSampleValue>();
+        /// <summary>原始 JSON 文本（服务端原样转发给原型页，不重新序列化）。</summary>
+        internal string RawJson = string.Empty;
+    }
+
+    /// <summary>`spike-report`：原型页从 canvas 自读回的对账数据（PROTOCOL.md 7.3）。</summary>
+    internal sealed class SpikeReportPayload
+    {
+        internal int Frame;
+        internal int Width;
+        internal int Height;
+        internal int CanvasWidth;
+        internal int CanvasHeight;
+        internal double RectWidth;
+        internal double RectHeight;
+        internal string Display = string.Empty;
+        internal string Visibility = string.Empty;
+        internal string Hash = string.Empty;
+        internal string HashAlgorithm = string.Empty;
+        internal int Webgpu;
+        internal List<SpikeSampleValue> Samples = new List<SpikeSampleValue>();
     }
 
     /// <summary>一条已通过形状校验的命令（字段含义见 PROTOCOL.md 第 2.3 节）。</summary>
@@ -35,6 +82,9 @@ namespace Scripting.Managed.Editor
         internal EditorClient Client;
         internal int ProtocolVersion;
         internal EditorCommand Command;
+        internal SpikeFramePayload Frame;
+        internal SpikeReportPayload Report;
+        internal int Webgpu;
     }
 
     /// <summary>对象快照（PROTOCOL.md 2.4 的 object 记录）：值全部来自主线程对真实窗口的读回。</summary>
@@ -74,6 +124,13 @@ namespace Scripting.Managed.Editor
         {
             "get-object", "list-objects", "set-title", "set-size", "undo", "list-assets",
         };
+
+        /// <summary>
+        /// 渲染原型通道是否开启（由 EditorService 在服务启动时按 CASCADED_EDITOR_SPIKE=web-render 设置）。
+        /// 关着时 `spike-hello` / `spike-frame` / `spike-report` 都按未知消息类型处理（E_BAD_MESSAGE），
+        /// 既有面板客户端的可见行为不变。
+        /// </summary>
+        internal static bool SpikeMessagesEnabled;
 
         private static bool IsObjectScoped(string command)
         {
@@ -145,10 +202,270 @@ namespace Scripting.Managed.Editor
                 {
                     return TryParseCommand(root, out inbound, out requestId, out errorCode, out errorMessage);
                 }
+                // 渲染原型通道（PROTOCOL.md §7）：门控关着时走下面的"未知消息类型"，与既有行为一致。
+                if (SpikeMessagesEnabled && type == "spike-hello")
+                {
+                    return TryParseSpikeHello(root, out inbound, out errorCode, out errorMessage);
+                }
+                if (SpikeMessagesEnabled && type == "spike-frame")
+                {
+                    return TryParseSpikeFrame(json, root, out inbound, out errorCode, out errorMessage);
+                }
+                if (SpikeMessagesEnabled && type == "spike-report")
+                {
+                    return TryParseSpikeReport(root, out inbound, out errorCode, out errorMessage);
+                }
                 errorCode = ErrorBadMessage;
                 errorMessage = "未知消息类型：" + type;
                 return false;
             }
+        }
+
+        // ---- 渲染原型通道（editor-web-render-spike 2.3；形状见 PROTOCOL.md §7）----
+
+        private static bool TryParseSpikeHello(JsonElement root, out EditorInbound inbound, out string errorCode,
+            out string errorMessage)
+        {
+            inbound = null;
+            errorCode = ErrorBadMessage;
+            errorMessage = string.Empty;
+            int webgpu = 0;
+            if (root.TryGetProperty("webgpu", out JsonElement gpuElement) &&
+                (gpuElement.ValueKind != JsonValueKind.Number || !gpuElement.TryGetInt32(out webgpu)))
+            {
+                errorMessage = "spike-hello 的 webgpu 必须是整数";
+                return false;
+            }
+            inbound = new EditorInbound { Kind = EditorInboundKind.SpikeHello, Webgpu = webgpu };
+            errorCode = string.Empty;
+            return true;
+        }
+
+        private static bool TryParseSpikeSamples(JsonElement root, List<SpikeSampleValue> samples,
+            out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            if (!root.TryGetProperty("samples", out JsonElement samplesElement) ||
+                samplesElement.ValueKind != JsonValueKind.Array)
+            {
+                errorMessage = "缺少 samples 数组";
+                return false;
+            }
+            foreach (JsonElement item in samplesElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    errorMessage = "samples 的元素必须是对象";
+                    return false;
+                }
+                if (!item.TryGetProperty("name", out JsonElement nameElement) ||
+                    nameElement.ValueKind != JsonValueKind.String)
+                {
+                    errorMessage = "采样点缺少字符串 name";
+                    return false;
+                }
+                var sample = new SpikeSampleValue { Name = nameElement.GetString() ?? string.Empty };
+                if (!TryReadChannel(item, "r", out sample.R) || !TryReadChannel(item, "g", out sample.G) ||
+                    !TryReadChannel(item, "b", out sample.B) || !TryReadChannel(item, "a", out sample.A))
+                {
+                    errorMessage = "采样点 " + sample.Name + " 的 r/g/b/a 必须是 0..255 的整数";
+                    return false;
+                }
+                if (sample.Name.Length == 0)
+                {
+                    errorMessage = "采样点的 name 不能为空";
+                    return false;
+                }
+                samples.Add(sample);
+            }
+            if (samples.Count == 0)
+            {
+                errorMessage = "samples 不能是空数组";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool TryReadChannel(JsonElement element, string name, out int value)
+        {
+            value = 0;
+            if (!element.TryGetProperty(name, out JsonElement channel) ||
+                channel.ValueKind != JsonValueKind.Number || !channel.TryGetInt32(out value))
+            {
+                return false;
+            }
+            return value >= 0 && value <= 255;
+        }
+
+        private static bool TryParseSpikeFrame(string json, JsonElement root, out EditorInbound inbound,
+            out string errorCode, out string errorMessage)
+        {
+            inbound = null;
+            errorCode = ErrorBadMessage;
+            errorMessage = string.Empty;
+            var frame = new SpikeFramePayload { RawJson = json };
+            if (!root.TryGetProperty("frame", out JsonElement frameElement) ||
+                frameElement.ValueKind != JsonValueKind.Number || !frameElement.TryGetInt32(out frame.Frame) ||
+                frame.Frame < 1)
+            {
+                errorMessage = "spike-frame 缺少 ≥1 的整数 frame";
+                return false;
+            }
+            if (!root.TryGetProperty("width", out JsonElement widthElement) ||
+                widthElement.ValueKind != JsonValueKind.Number || !widthElement.TryGetInt32(out frame.Width) ||
+                !root.TryGetProperty("height", out JsonElement heightElement) ||
+                heightElement.ValueKind != JsonValueKind.Number || !heightElement.TryGetInt32(out frame.Height))
+            {
+                errorMessage = "spike-frame 缺少整数 width / height";
+                return false;
+            }
+            if (frame.Width != SpikeChannel.TextureSize || frame.Height != SpikeChannel.TextureSize)
+            {
+                errorMessage = "spike-frame 的尺寸必须是 " + SpikeChannel.TextureSize + "×" +
+                               SpikeChannel.TextureSize + "（本批写死）：" + frame.Width + "×" + frame.Height;
+                return false;
+            }
+            if (!root.TryGetProperty("path", out JsonElement pathElement) ||
+                pathElement.ValueKind != JsonValueKind.String)
+            {
+                errorMessage = "spike-frame 缺少字符串 path";
+                return false;
+            }
+            frame.Path = pathElement.GetString() ?? string.Empty;
+            if (!root.TryGetProperty("hash", out JsonElement hashElement) ||
+                hashElement.ValueKind != JsonValueKind.String)
+            {
+                errorMessage = "spike-frame 缺少字符串 hash";
+                return false;
+            }
+            frame.Hash = hashElement.GetString() ?? string.Empty;
+            if (!IsHex8(frame.Hash))
+            {
+                errorMessage = "spike-frame 的 hash 必须是 8 位十六进制：" + frame.Hash;
+                return false;
+            }
+            if (!root.TryGetProperty("pixels", out JsonElement pixelsElement) ||
+                pixelsElement.ValueKind != JsonValueKind.String)
+            {
+                errorMessage = "spike-frame 缺少字符串 pixels";
+                return false;
+            }
+            frame.Pixels = pixelsElement.GetString() ?? string.Empty;
+            // 256×256×4 = 262144 字节 → 标准 base64 定长 349528 字符；长度不符说明帧被截断或编码方式不对，
+            // 在形状校验就拦下（否则页面解码失败只会表现成"没回传"，红态原因会指向错误的机制）。
+            const int expectedBase64Length = 349528;
+            if (frame.Pixels.Length != expectedBase64Length)
+            {
+                errorMessage = "spike-frame 的 pixels 长度不符：期望 " + expectedBase64Length + " 字符（262144 字节的 base64），实际 " +
+                               frame.Pixels.Length;
+                return false;
+            }
+            if (!TryParseSpikeSamples(root, frame.Samples, out errorMessage))
+            {
+                return false;
+            }
+            inbound = new EditorInbound { Kind = EditorInboundKind.SpikeFrame, Frame = frame };
+            errorCode = string.Empty;
+            return true;
+        }
+
+        private static bool TryParseSpikeReport(JsonElement root, out EditorInbound inbound, out string errorCode,
+            out string errorMessage)
+        {
+            inbound = null;
+            errorCode = ErrorBadMessage;
+            errorMessage = string.Empty;
+            var report = new SpikeReportPayload();
+            if (!root.TryGetProperty("frame", out JsonElement frameElement) ||
+                frameElement.ValueKind != JsonValueKind.Number || !frameElement.TryGetInt32(out report.Frame))
+            {
+                errorMessage = "spike-report 缺少整数 frame";
+                return false;
+            }
+            if (!ReadIntField(root, "width", out report.Width) || !ReadIntField(root, "height", out report.Height))
+            {
+                errorMessage = "spike-report 缺少整数 width / height";
+                return false;
+            }
+            if (!ReadIntField(root, "canvasWidth", out report.CanvasWidth) ||
+                !ReadIntField(root, "canvasHeight", out report.CanvasHeight))
+            {
+                errorMessage = "spike-report 缺少整数 canvasWidth / canvasHeight";
+                return false;
+            }
+            if (!ReadDoubleField(root, "rectWidth", out report.RectWidth) ||
+                !ReadDoubleField(root, "rectHeight", out report.RectHeight))
+            {
+                errorMessage = "spike-report 缺少数字 rectWidth / rectHeight";
+                return false;
+            }
+            if (!ReadStringField(root, "display", out report.Display) ||
+                !ReadStringField(root, "visibility", out report.Visibility))
+            {
+                errorMessage = "spike-report 缺少字符串 display / visibility";
+                return false;
+            }
+            if (!ReadStringField(root, "hash", out report.Hash) ||
+                !ReadStringField(root, "hashAlgorithm", out report.HashAlgorithm))
+            {
+                errorMessage = "spike-report 缺少字符串 hash / hashAlgorithm";
+                return false;
+            }
+            if (root.TryGetProperty("webgpu", out JsonElement gpuElement) &&
+                gpuElement.ValueKind == JsonValueKind.Number && !gpuElement.TryGetInt32(out report.Webgpu))
+            {
+                report.Webgpu = 0;
+            }
+            if (!TryParseSpikeSamples(root, report.Samples, out errorMessage))
+            {
+                return false;
+            }
+            inbound = new EditorInbound { Kind = EditorInboundKind.SpikeReport, Report = report };
+            errorCode = string.Empty;
+            return true;
+        }
+
+        private static bool ReadIntField(JsonElement root, string name, out int value)
+        {
+            value = 0;
+            return root.TryGetProperty(name, out JsonElement element) && element.ValueKind == JsonValueKind.Number &&
+                   element.TryGetInt32(out value);
+        }
+
+        private static bool ReadDoubleField(JsonElement root, string name, out double value)
+        {
+            value = 0.0;
+            return root.TryGetProperty(name, out JsonElement element) && element.ValueKind == JsonValueKind.Number &&
+                   element.TryGetDouble(out value);
+        }
+
+        private static bool ReadStringField(JsonElement root, string name, out string value)
+        {
+            value = string.Empty;
+            if (!root.TryGetProperty(name, out JsonElement element) || element.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+            value = element.GetString() ?? string.Empty;
+            return true;
+        }
+
+        private static bool IsHex8(string text)
+        {
+            if (text.Length != 8)
+            {
+                return false;
+            }
+            foreach (char character in text)
+            {
+                bool hex = (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') ||
+                           (character >= 'A' && character <= 'F');
+                if (!hex)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private static bool TryParseCommand(JsonElement root, out EditorInbound inbound, out int requestId,

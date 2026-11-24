@@ -1,6 +1,7 @@
 #include "D3D12Includes.h"
 #include "D3D12Debug.h"
 #include "RenderBackend_D3D12.h"
+#include "WebRenderSpike/D3D12WebRenderSpike.h"
 #include <CATimer/Timer.h>
 #include <ResourceManagment/D3DImageObject.h>
 #include <ResourceManagment/D3DBufferObject.h>
@@ -17,6 +18,15 @@
 
 namespace graphics_backend
 {
+	namespace
+	{
+		// editor-web-render-spike 2.1（修订）：渲染原型的非绑定面实例。D3D12 模块每个进程只有一个
+		// CRenderBackend 实例（`CA_MODULE_INSTANCE` 只登记一次），所以登记状态放文件作用域静态量，
+		// **不去改被 CodeGen 解析的 `RenderBackend_D3D12.h`**（往那里加 include/继承会改 CodeGen 的
+		// 解析形态，实测直接让保真守卫拒绝整轮生成）。
+		std::unique_ptr<D3D12WebRenderSpikeProvider> g_WebRenderSpikeProvider;
+		cacore::IModuleManager* g_WebRenderSpikeModuleManager = nullptr;
+	}
 
 	void GetHardwareAdapter(
 		IDXGIFactory1* pFactory,
@@ -162,6 +172,18 @@ namespace graphics_backend
 
 		AfterDeviceInit();
 
+		// editor-web-render-spike 2.1：把非绑定面的共享纹理适配器按实例名 "WebRenderSpike" 登记一次。
+		// 适配器持有本后端指针（转发到同一设备/队列），测试用
+		// `GetInstance<IWebRenderSpikeProvider>(CANAME("WebRenderSpike"))` 取到它。
+		// **登记只发生在本 .cpp**：被 CodeGen 解析的 `RenderBackend_D3D12.h` 不含新接口的 include/继承。
+		g_WebRenderSpikeModuleManager = pModuleManager;
+		g_WebRenderSpikeProvider = std::make_unique<D3D12WebRenderSpikeProvider>(this);
+		if (pModuleManager != nullptr)
+		{
+			pModuleManager->AddInstance<IWebRenderSpikeProvider>(CANAME("WebRenderSpike"),
+				g_WebRenderSpikeProvider.get());
+		}
+
 	}
 
 //	void RenderBackend_D3D12::Initialize(catimer::TimerSystem* timer
@@ -220,6 +242,14 @@ namespace graphics_backend
 
 	void RenderBackend_D3D12::Release()
 	{
+		// editor-web-render-spike 2.1：先注销/销毁非绑定面适配器 —— 它持有的纹理助手持设备/队列的 COM
+		// 引用，必须早于下面把 m_Device / m_CommandQueue 置空；同时避免模块管理器的注册表里留悬空指针。
+		if (g_WebRenderSpikeModuleManager != nullptr)
+		{
+			g_WebRenderSpikeModuleManager->RemoveInstance<IWebRenderSpikeProvider>(CANAME("WebRenderSpike"));
+			g_WebRenderSpikeModuleManager = nullptr;
+		}
+		g_WebRenderSpikeProvider.reset();
 		// D7: flush both queues (signal + wait) BEFORE releasing frame contexts and
 		// swapchains. The last Present is queued AFTER the frame's Signal
 		// (GPUGraphExecutor.cpp:2241→2245), so FrameContext::GPUWaitIdle (which waits the

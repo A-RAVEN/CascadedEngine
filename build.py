@@ -236,6 +236,10 @@ COMSPEC = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
 
 
 def find_vs_path() -> Path:
+    # 工具集钉在 VS2022（17.x）/ MSVC 14.44：2026-11-24 的 VS 更新把默认工具集换成 14.52，而 14.52 对
+    # `castl::string_literal` 这种 constexpr NTTP 写法有回归（Main.cpp 多处 CANAME 报 C2975
+    # "'n' invalid template argument"，不是本 change 引入的代码）。这里按版本范围选 17.x，避免动现有 C++；
+    # 构建期 CodeGen 的 libclang 已升到 LLVM 21，能解析 14.44 的 STL。
     vswhere = (
         Path("C:/Program Files (x86)")
         / "Microsoft Visual Studio"
@@ -244,14 +248,15 @@ def find_vs_path() -> Path:
     )
     if vswhere.exists():
         r = subprocess.run(
-            [str(vswhere), "-latest", "-property", "installationPath"],
+            [str(vswhere), "-latest", "-version", "[17.0,18.0)", "-property", "installationPath"],
             capture_output=True, text=True,
         )
         if r.returncode == 0 and r.stdout.strip():
             return Path(r.stdout.strip())
     for p in (
-        r"C:\Program Files\Microsoft Visual Studio\18\Community",
+        # VS2022 在前：与上面 vswhere 的版本范围同一意图（14.52 的 NTTP 回归）。
         r"C:\Program Files\Microsoft Visual Studio\2022\Community",
+        r"C:\Program Files\Microsoft Visual Studio\18\Community",
     ):
         pp = Path(p)
         if (pp / "VC" / "Auxiliary" / "Build" / "vcvars64.bat").exists():
@@ -1094,7 +1099,8 @@ def build_editor_web() -> None:
     dist = web_dir / "dist"
     # editor-asset-browser 3.1：两个页面都要在（index.html = 右面板对象检查器，assets.html = 底部资产
     # 浏览器 dock，各由一个 WebView2 控制器加载）。少一个就在构建期报出来，不留"运行时才发现缺页面"。
-    for page in ("index.html", "assets.html"):
+    # editor-web-render-spike 1.2：spike.html = 渲染原型页（全客户区单控制器加载），同样必须在产物里。
+    for page in ("index.html", "assets.html", "spike.html"):
         if not (dist / page).is_file():
             raise RuntimeError(f"前端构建没有产出 {page}：{dist}")
     target = BUILD_DIR / "bin" / "editor-web"

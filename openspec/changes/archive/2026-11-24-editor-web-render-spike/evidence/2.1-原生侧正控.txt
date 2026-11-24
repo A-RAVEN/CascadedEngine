@@ -1,0 +1,68 @@
+# 2.1 非绑定面 D3D12 共享纹理助手 —— 原生侧正控证据
+
+## 实现位置（不碰绑定面）
+
+| 文件 | 作用 |
+|---|---|
+| `Interface/RenderInterface/header/WebRenderSpike/IWebRenderSpike.h` | 非绑定面接口（`IWebRenderSpikeSharedTexture` / `IWebRenderSpikeProvider`）。**没有 CA_BIND 标注、不在 `build.py` 的 `CODEGEN_ANNOTATED` 里**，CodeGen 看不到它 |
+| `D3D12RenderBackend/private/WebRenderSpike/D3D12WebRenderSpike.{h,cpp}` | 实现：共享堆纹理 + `CreateSharedHandle` + `OpenSharedHandle` 第二消费者 + 读回；自有 direct 队列/分配器/fence |
+| `D3D12RenderBackend/private/RenderBackend_D3D12.cpp` | 只在这个 .cpp 里登记/注销 `D3D12WebRenderSpikeProvider`（实例名 `WebRenderSpike`），复用同一 `ID3D12Device`；**被 CodeGen 解析的 `RenderBackend_D3D12.h` 与 HEAD 逐字节一致** |
+
+机制与文档依据（design D2）：
+- 共享堆纹理：`D3D12_HEAP_FLAG_SHARED` 的 committed resource + `ID3D12Device::CreateSharedHandle`
+  （[shared-heaps](https://learn.microsoft.com/en-us/windows/win32/direct3d12/shared-heaps)、
+  [CreateSharedHandle](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createsharedhandle)）。
+- 资源标志 `ALLOW_RENDER_TARGET | ALLOW_SIMULTANEOUS_ACCESS`（[D3D12_RESOURCE_FLAGS](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_flags)）。
+- 第二消费者：`ID3D12Device::OpenSharedHandle` 打开**同一个句柄**得到独立资源对象，再从它读回像素。
+- 渲染复用后端设备（`RenderBackend_D3D12::GetDevice()`），提交走本类自己的 direct 队列；**不碰**
+  `MemoryManager` 公共分配路径，也不改 `GPUTexture` 绑定面。
+
+## 判据与失败码（`Test/GPUBackendTester/Main.cpp` 的 `TestWebRenderSpike`）
+
+| 判据 | 失败码 |
+|---|---|
+| `CreateSharedHandle` 后句柄非空 | `E_SPIKE_SHARED_HANDLE` |
+| 本设备读回成功 | `E_SPIKE_READBACK` |
+| 背景绿 / 中心红 / 四角红 / 帧序号位（16 位二进制解码）全部匹配 | `E_SPIKE_PATTERN` |
+| `OpenSharedHandle` 第二消费者读回成功 | `E_SPIKE_OPEN_SHARED_HANDLE` |
+| 第二消费者读回字节与本设备读回**逐字节一致** | `E_SPIKE_SECOND_CONSUMER` |
+| 帧 1 与帧 2 的整图哈希不同（帧序号真的进了像素） | `E_SPIKE_FRAME_BITS` |
+
+## 实测读数
+
+绿跑（D3D12 独立进程，2026-11-24 16:13；命令见 `evidence/3.1-同源正控与红态.txt`）：
+`evidence/3.1-绿跑.json` = `{"name":"TestWebRenderSpike","status":"pass","duration_ms":3694,"exit_code":0}`。
+
+> 这些原生侧断言全部排在网页路径**之前**（`Main.cpp` 里顺序为：Create → 句柄非空 → RenderFrame →
+> Readback → 图案/帧序号 → OpenSharedHandle → 字节一致 → 帧 1/2 哈希不同 → 起服务），任何一条不过都会以
+> 上表的码判红、`status` 不会是 `pass`。
+
+本轮实测观察到的测试日志行（`test_output/TestWebRenderSpike.log`，随后被后续 headless 运行清理；4.1 复跑时
+可再取同一行）：
+
+```text
+[渲染原型 测试] 原生侧正控通过：句柄非空 + OpenSharedHandle 第二消费者读回一致 + 背景绿/中心红/四角/帧序号位匹配（frame=1 hash=7df2b6c5）
+[渲染原型 测试] 帧序号进像素：帧 1 hash=7df2b6c5 / 帧 2 hash=2dfb06c5（不同）
+```
+
+**红态证明这条判据能失败**：`CASCADED_EDITOR_SPIKE_SELFTEST=skip-native-render`（不启原生渲染）时
+`evidence/3.1-红态-skip.json` = `status=fail, exit_code=1`，错误 `E_SPIKE_PATTERN: … 采样点 bg (20,20) 实测
+(0,0,0,0)，期望 (0,255,0,255)` —— 未渲染的纹理被多点判据当场识破。
+
+## 绑定面与公共分配路径零改动（对**本批新产物**）
+
+```text
+python Tools\CodeGen\check_binding_baseline.py --baseline openspec/changes/archive/2026-11-23-csharp-resource-asset-foundation/evidence/新锚.txt --product-dir out/build/x64-debug/codegen/bindings
+  → 基线对账：缺失 0 / 不一致 0 / 多余 0
+
+git status --porcelain -- Interface/RenderInterface/header/GPUTexture.h Interface/RenderInterface/header/CRenderBackend.h \
+    D3D12RenderBackend/private/ResourceManagment/MemoryManager.cpp D3D12RenderBackend/private/ResourceManagment/MemoryManager.h \
+    D3D12RenderBackend/private/RenderBackend_D3D12.h
+  → （空输出 = 绑定面、公共分配路径、被 CodeGen 解析的后端头都零改动）
+```
+
+## 结论
+
+2.1 验收满足：构建过；共享句柄非空 + `OpenSharedHandle` 第二消费者读回成功且与本设备读回逐字节一致 +
+多点（背景绿/中心红/四角）与帧序号位匹配；`GPUTexture` 绑定面与 `MemoryManager` 公共分配路径零改动
+（新产物上绑定基线 0/0/0）。

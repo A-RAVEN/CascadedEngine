@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-014",
+  "face": "验收可失败性-④（4.2 可行性结论「可核」）",
+  "severity": "minor",
+  "claim": "1.1 先给出每条候选的可行/不可行判定，4.2 再给最终判定，但工件没有要求两处一致，也没有要求解释翻转。于是 1.1 判「零拷贝不可行」、2.3 实现走 CPU 读回、4.2 却判「零拷贝可行」的三段自相矛盾可以同时满足三条验收；结论的可核性因此还取决于读者自己去比对两份 evidence。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:9 与 :26；design.md:45；specs/editor-web-render-spike/spec.md:19",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-014.md",
+  "suggested_fix": "4.2 的 evidence 必须有一节「与 1.1 判定的对照」，逐候选写：1.1 判定 / 4.2 判定 / 是否一致。不一致时必须点明翻转的触发证据（哪一条运行读数或哪份文档让结论改变），没有触发证据即判不合格（E_WEBSPIKE_VERDICT_DIVERGED）。同时 4.2 引用的版本号必须与 1.1 逐字相同（见主张-验收-006）。"
+}

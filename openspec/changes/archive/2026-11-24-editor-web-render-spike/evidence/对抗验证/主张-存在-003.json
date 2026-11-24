@@ -1,0 +1,4 @@
+{
+  "where": "tasks.md 1.2；EditorWeb/vite.config.ts；build.py 的 build_editor_web()",
+  "claim": "tasks 1.2 要新增原型网页并以“构建过”验收，但 `EditorWeb/vite.config.ts` 的 `rollupOptions.input` 只登记 `index.html` 与 `assets.html`，`build.py` 的 `build_editor_web()` 也只校验这两个页面后整目录拷 `dist`。不把 `spike.html` 加进 vite 多页输入时，`npm run build` 仍然成功，但 `dist`/`bin/editor-web` 里没有 `spike.html`，任务验收抓不到；tasks 1.2 没点名改 `EditorWeb/vite.config.ts`，也没点名把 `spike.html` 加进 build.py 的页面校验。"
+}

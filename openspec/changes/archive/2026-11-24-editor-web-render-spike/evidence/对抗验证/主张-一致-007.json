@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-007",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md",
+  "anchor": "spec.md:5「网页 canvas 中心像素 MUST 等于写死期望（沿用 (255,0,0,255) 精确匹配惯例），经网页 getImageData 回传 C++ 断言或 CapturePreviewAsync 抓窗 read_image 核对」｜spec.md:10「网页 canvas 中心像素 MUST == (255,0,0,255)（getImageData 回传断言或抓窗 read_image 核对）」｜design.md:39「……回传 C++ 断言 == (255,0,0,255)（或写死纯色期望）；**或** CapturePreviewAsync 抓 WebView2 PNG……+ 主循环 read_image 核对 canvas 区显示红三角」｜tasks.md:21「read_image 核对网页 canvas 区显示原生红三角」",
+  "problem": "同一个 MUST（中心像素 == (255,0,0,255)）给了两个不等价的判据：getImageData 的精确数值断言，或 CapturePreviewAsync 截图 + read_image 目视核对。read_image 是看图判断「是不是红三角」，读不出 255/0/0/255 这类精确数值；tasks 3.2 甚至只要求「核对 canvas 区显示原生红三角」，没有任何像素标准。后果有两个方向：① 只做截图路径时，spec 场景 1 的精确数值 MUST 没有被判定；② 只做数值路径时，3.2 的截图要求（要求 3 的 MUST）又可能被当成额外装饰。执行者可以在这两条之间任选一条通过，而这正是本 spike 唯一的正控。",
+  "evidence": "见 `证据-一致-007.md`：spec.md:5/10/33/38、design.md:39/41、tasks.md:20/21 原文逐字；`read_image` 在 spec/design/tasks 的命中行清单；工件没有给出 read_image 判定精确像素的方法（read_image 的输入是图片，不是像素数组）。",
+  "suggestion": "删掉「或」，拆成两条都 MUST 的判据并分别落到任务：① 数值正控——网页 getImageData 回传中心像素四元组，C++ 断言 == (255,0,0,255)（反例：空白/黑/非中心像素，失败即红）；② 视觉验收——CapturePreviewAsync 截图 + read_image 只核对「canvas 区显示原生画面（红三角形状/位置/无空白）」，不承担精确像素判定。spec 场景 1 只保留数值判据，截图要求放要求 3（已有），两者不许互相顶替。"
+}

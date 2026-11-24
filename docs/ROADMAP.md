@@ -119,6 +119,10 @@
 
 **资产浏览器已落地（2026-11-24）**：change `editor-asset-browser` 17/17 完成并归档到 `openspec/changes/archive/2026-11-24-editor-asset-browser/`——**底部通栏独立资产浏览器 dock**（用户裁定取惯例布局：单壳窗口三分区＝场景视口左上 + 对象检查器右上 + 资产浏览器底部通栏，第二个 WebView2 控制器加载独立页面 assets.html，dock 高默认 240 且 `CASCADED_EDITOR_DOCK_HEIGHT` 可配；为将来多窗自由 dock 铺垫，自由 dock/拖拽调高留后续 dock 框架批）。只读浏览资源根下 ② 文件（路径/种类/大小/修改时间/已注册 + 刷新 + 空根空态），协议 v1 加法扩展（list-assets/assets-changed/AssetEntry/E_ASSET_ROOT，MODIFIED editor-window-panel 封闭枚举 + 三分区壳，PROTOCOL.md 为先），显示提供者抽象资产中心落地（v1 默认一文件一条目，核心 IResource 不动），不新增原生接口（复用门面 13）。验收：两后端 22 同进程与基线零差异 + 独立用例两后端过 + CoreTests 26 + 绑定基线 0/0/0 + **截图视觉验收**（CapturePreviewAsync 不前置抓窗，5 行五列正控 + 空根空态 + 刷新 5→6；用户明令禁止前置窗口已记 AGENTS §2）。新能力规范 `openspec/specs/editor-asset-browser/spec.md` 生效（5 要求/14 场景），`editor-window-panel` 规范 MODIFIED（协议 + 三分区壳）。生长路径：v1 文件列表 → v2 shLib 程序集展开（需 slang 反射 + 源映射）→ v3 dll 提供者 + 缩略图；溯源/身份链是 v2 前提。
 
+**自由 dock 编辑器方向（2026-11-24 立项探索，原生网页方案）**：当前「原生壳嵌网页子窗」三分区适合固定分区、不适合自由 dock（布局写死、每面板独立子 HWND）。下一编辑器方向取**原生网页方案**——网页全窗 + 网页侧 dock 框架（拖拽/页签/浮动/多窗/布局持久化）+ 原生渲染合成进网页（路线 A 共享纹理 / 路线 B 透明叠层）。协议/服务层不变。最大不确定项是原生渲染进网页（Vulkan↔WebGPU 互操作），故**先做最小 spike 验证渲染进网页（D3D12 优先），跑通再立完整 dock 框架 change**。设计笔记 `TODO/008-free-dock-editor.md`（种子，待 spike 后转 proposal）。
+
+**渲染进网页 spike 已落地（2026-11-24，双后端）**：change `editor-web-render-spike` 15/15 完成归档到 `openspec/changes/archive/2026-11-24-editor-web-render-spike/`——单全窗 WebView2 原型窗（复用编辑器宿主设施 + 独立进程门控）+ D3D12/Vulkan 双后端非绑定面共享纹理助手（`D3D12_HEAP_FLAG_SHARED`/`VK_KHR_external_memory` Win32 句柄，不改 GPUTexture 绑定面）+ CPU 读回→C++→C#→网页 canvas（path=cpu-readback）。**结论：原生渲染进网页用 CPU 读回可行（双后端同源对账证，帧 hash 跨后端一致）；零拷贝互操作当前 WebView2 不可行**（WebGPU 无导入平台句柄入口，GPUWeb #5167），自由 dock 后续走**路线 B 透明叠层或 CPU-GPU 桥**。验收：双后端绿跑 + 各四红态 + 截图视觉（不前置）+ 22 用例零差异 + CoreTests 26 + 绑定基线 0/0/0。新能力规范 `openspec/specs/editor-web-render-spike/spec.md` 生效。**环境修复**：VS 更新致 libclang18 解析不了 MSVC 14.52 STL，升 libclang 21（外部 CACodeGen 仓）+ build.py 工具集 pin VS2022 14.44（14.52 对 string_literal constexpr NTTP 回归 C2975）。
+
 ### 阶段 7：独立程序与验证游戏
 
 目标：补齐独立程序入口、资产打包和 C# 运行时部署，选定一款验证游戏，并按其需要补物理、音频、运行时界面等能力。性能数据用于决定哪些 C# 热路径需要下沉到 C++，不预先按概念名称划分语言边界。

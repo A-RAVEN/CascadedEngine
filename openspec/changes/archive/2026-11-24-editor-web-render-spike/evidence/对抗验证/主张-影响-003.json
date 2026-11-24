@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-003",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "claim": "独立入口需要新门控（既有 Host.Tick 只认 CASCADED_EDITOR=1 与若干 CASCADED_CSHARP_*_PROBE=1，没有可复用的「只起原型窗」开关）。既有层③检查 Tools/check_csharp_host_readme.py 的第 ④ 项要求 Host.cs / UserScript.cs 里读到的每个 CASCADED_* 都出现在 CSharpHost/README.md 的环境变量表，否则非零退出；但它只扫这两个文件，门控写在新文件里就漏检。spike 的 tasks 既没有「门控登记进 README」的条目，也没有「门控写在 Host.cs」的约束，4.1 的回归清单也不跑这个检查——新增门控要么把层③检查弄红而 spike 自己的验收看不见，要么绕开检查形成静默漏登记。",
+  "location": "Tools/check_csharp_host_readme.py:217、276-279；Scripting/Managed/Host.cs:304-309；CSharpHost/README.md:118-123；openspec/changes/editor-web-render-spike/tasks.md:15、25；docs/testing.md:235",
+  "evidence_ref": "证据-影响-003.md",
+  "suggested_fix": "在 tasks 2.2 里写死门控变量名，并要求：门控读取写在 Host.cs（与 EditorService.Tick 并列）、同步登记进 CSharpHost/README.md 环境变量表；4.1 的回归命令清单加 `python Tools/check_csharp_host_readme.py`（docs/testing.md 第 235 行已把它列入必跑）。验收：该脚本退出码 0，且 README 表里 grep 到该变量名。"
+}

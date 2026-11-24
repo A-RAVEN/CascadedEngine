@@ -122,6 +122,17 @@
 
 其余开关：`CASCADED_EDITOR_SELFTEST=no-runtime`（**仅 Debug**：模拟 WebView2 运行时缺失 → 明确禁用、不崩）、`CASCADED_EDITOR_SELFTEST=no-dock-controller`（运行时正常、第一控制器建成，只让**底部 dock 的第二控制器**创建失败 → 明确禁用；no-runtime 在 NewWindow 前返回，覆盖不到这条分支）、`CASCADED_EDITOR_SELFTEST=no-facade`（跳过资源注册表门面绑定 → `list-assets` 必回 `E_ASSET_ROOT`，供资产浏览失败面用；**不限 Debug**）、`CASCADED_EDITOR_SELFTEST=capture-dock=<png 路径>`（dock 控制器就绪后每约 0.5 秒把 dock 当前渲染内容用 `CapturePreviewAsync` 覆盖落盘；供视觉验收抓窗，**不置前、不最小化、不移动用户窗口**）、`CASCADED_EDITOR_STOP=1`（主动停服务，测试收尾用）、`CASCADED_EDITOR_READINGS_FILE`（读数行同时追加到该文件，测试用）、`CASCADED_EDITOR_DISPLAY_PROOF=1`（可选屏幕捕获诊断）、`CASCADED_READBACK_FORCE_NO_BB_TRANSFER`（**仅 Debug**：强制窗口 backbuffer 回读走"能力不支持"拒绝分支，供红态）。
 
+**渲染原型门控（editor-web-render-spike）**：`CASCADED_EDITOR_SPIKE=web-render` 时服务起**一个全客户区单
+WebView2 控制器**加载 `spike.html`（原型窗），而不是三分区的 index.html + assets.html；帧与对账数据走同一条
+`/ws`（`spike-hello` / `spike-frame` / `spike-report`，形状见 `Scripting/Managed/Editor/PROTOCOL.md` §7），
+只有该门控开启时才识别这三类消息。**双后端**：D3D12 与 Vulkan 各有一份非绑定面原生助手（同一
+`IWebRenderSpikeProvider` 接口、模块实例名都是 `WebRenderSpike`，按加载的后端模块二选一），托管侧与网页侧完全相同；
+两者都走 `path=cpu-readback`（零拷贝只研究、不实现）。控制器关闭同样先于 `hostfxr_close`（`Host.Shutdown` 第一步 →
+`EditorService.Shutdown` → `SpikeWindow.Close`）；默认端口 **18393**、默认 WebView2 数据目录
+`%TEMP%\cascaded-editor-webview2-spike`（独立，避开 18390/18391/18392 与默认目录）。**默认关**：不设时既有
+三分区编辑器与两个控制器行为不变。C++ 用例 `TestWebRenderSpike` 只起进程/读回断言，不建控制器（建控制器
+只有托管侧能做），两个后端各跑一次。
+
 **资产浏览器（editor-asset-browser）**：底部通栏**独立资产浏览器 dock**（第二个 WebView2 控制器加载
 `assets.html`，与右侧对象检查器分离），对应命令 `list-assets`（非对象作用域，无 `objectId`）：主线程
 命令执行内用门面 `IResourceRegistry::GetResourceRootPath` 取资源根、`Directory.EnumerateFiles` 递归枚举、
@@ -147,7 +158,7 @@ DockHeight）重建捕获目标与图。左侧视口由 scene view 渲染（`Sha
 
 **两层像素证据**：① 离屏捕获目标 Readback 中心精确 `(255,0,0,255)`；② 窗口**真实 swapchain backbuffer 呈现前读回**视口中心精确红：`Readback(窗口 backbuffer)` 登记"下一帧 Present 前捕获" → 跑一帧含 Present 的图 → `token->Wait()`；Vulkan 走 `TRANSFER_SRC` 能力位（不含则明确拒绝返回 null token），D3D12 走 `COPY_SOURCE` 状态转换，色序按格式（Vulkan 常为 BGRA，D3D12 常为 RGBA）。屏幕捕获（WGC/BitBlt/DXGI）在本机虚拟显示适配器环境中抓不到硬件 flip 内容（原生 C++ 正控也白），已降为 `CASCADED_EDITOR_DISPLAY_PROOF=1` 的可选诊断，不参与断言。
 
-**读数行**：`[编辑器 读数] probe=editor tick=… state=… mode=main-thread port=… objects=1 invalidated=… windowSelf=… client=… panel=… viewport=… dock=… controller=… nav=… navHttp=… dockController=… dockNav=… dockNavHttp=… exec=… capture=… graphSelf=… captureSelf=… wtarget=… passes=2 presents=1 nativeCalls=… cmdRequest=… cmdCalls=…`；C++ 用例（`TestEditorWindowPanel`）据此断言三分区（面板 / 视口 / dock 三矩形铺满客户区、视口高 = 客户区高 − dock 高）、两控制器就绪、视图渲染与命令计数。
+**读数行**：`[编辑器 读数] probe=editor tick=… state=… mode=main-thread port=… objects=1 invalidated=… windowSelf=… client=… panel=… viewport=… dock=… controller=… nav=… navHttp=… dockController=… dockNav=… dockNavHttp=… exec=… capture=… graphSelf=… captureSelf=… wtarget=… passes=2 presents=1 nativeCalls=… cmdRequest=… cmdCalls=…`；C++ 用例（`TestEditorWindowPanel`）据此断言三分区（面板 / 视口 / dock 三矩形铺满客户区、视口高 = 客户区高 − dock 高）、两控制器就绪、视图渲染与命令计数。**渲染原型门控开着时**这一行在末尾追加：`spikeController=… spikeNav=… spikeNavHttp=… path=<实际路径，本批 cpu-readback> webview2Version=<浏览器版本> spike=1 spikePage=… spikeWebgpu=… spikeFrames=… spikeMatched=… spikePath=<同上> spikeError=<失败码或 ->`——`TestWebRenderSpike` 据此断言原型页握手、逐帧同源对账数、路径与 WebView2 版本；`path=cpu-readback` 同时是"实现不是零拷贝"的运行期读数。
 
 ## 场景框架（csharp-scene-foundation：阶段 5 首切片）
 
@@ -417,6 +428,9 @@ ulong handle = ResourceImporterBindings.Create(new MyImporter());
 | `CASCADED_EDITOR_SELFTEST=capture-dock=<png 路径>` | dock 控制器就绪后每约 0.5 秒把 dock 当前渲染内容用 `CapturePreviewAsync` 覆盖落盘（视觉验收抓窗；不置前/不最小化/不移动用户窗口） | 不设 |
 | `CASCADED_EDITOR_STOP=1` | 主动停服务（测试收尾隔离后续用例；`EditorService.Stop` 的入口） | 不设 |
 | `CASCADED_EDITOR_READINGS_FILE` | 把 `[编辑器 读数]` 与服务标记行同时追加到该文件（测试读，不依赖 stdout 重定向） | 不设 |
+| `CASCADED_EDITOR_SPIKE` | `web-render` 时启用**渲染原型**（editor-web-render-spike）：全客户区单 WebView2 控制器加载 `spike.html`；不设走既有三分区编辑器（默认关，零影响）。开启时端口默认改 **18393**、WebView2 数据目录默认 `%TEMP%\cascaded-editor-webview2-spike`（避开 18390/18391/18392 与默认目录），除非显式设了 `CASCADED_EDITOR_PORT` / `CASCADED_EDITOR_WEBVIEW2_DATA` | 不设 |
+| `CASCADED_EDITOR_SPIKE_SELFTEST` | 渲染原型的红态开关（只为构造可失败证据）：`skip-native-render`（不启原生渲染 → 原生侧正控红 `E_SPIKE_PATTERN`）/ `hide-canvas`（画布 `display:none` → `E_WEBCANVAS_DISPLAY`）/ `local-red`（网页本地画红 → `E_WEBCANVAS_MISMATCH`）/ `no-line`（回传断链 → `E_WEBCANVAS_NOLINE`）；写错模式名用例明确报错 | 不设 |
+| `CASCADED_EDITOR_SPIKE_CAPTURE` | 渲染原型的抓窗钩子：导航完成后每约 0.5 秒用 `CapturePreviewAsync` 把控制器当前内容覆盖落盘到该 PNG 路径；**帧到达 / 同源对账推进时另主动补抓一张**（延迟约 3 帧，确保抓到的是含特征图案的画面而不是导航后的空 canvas）。视觉验收用；**不置前、不最小化、不移动用户窗口** | 不设 |
 | `CASCADED_EDITOR_DISPLAY_PROOF=1` | 可选屏幕捕获诊断（WGC/BitBlt/DXGI，只打印不断言；本机虚拟显示抓不到硬件 flip 内容） | 不设 |
 | `CASCADED_READBACK_FORCE_NO_BB_TRANSFER` | **仅 Debug**：强制窗口 backbuffer 回读走"能力不支持"拒绝分支（红态构造） | 不设 |
 

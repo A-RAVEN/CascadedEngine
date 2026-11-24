@@ -1,0 +1,55 @@
+# 构建工具链修复记录（2026-11-24，环境兼容，不是本 change 的功能代码）
+
+## 现象
+
+`python build.py --config Debug` 在 CodeGen 段失败：
+
+```text
+CODEGEN FAILED (108) — the generated headers are not in the state this build expects
+  - CodeGen 'NewRes' --emit-all exit 6: CodeGen: refusing to extract from 'Tools/CodeGen/TestResource.h'
+    — the compile environment fed to this tool is incomplete, so the parsed AST is truncated …
+  unresolved include (fatal): fatal error: too many errors emitted, stopping now [-ferror-limit=]
+    …\MSVC\14.52.37025\include\type_traits:2012:103: error: '_Ty1' does not refer to a value
+```
+
+## 根因（两条，都来自 2026-11-24 上午的 Visual Studio 更新）
+
+1. **libclang 太旧，解析不了新 STL**：随包 libclang 是 LLVM 18.1.8
+   （`E:\Projects\CACodeGen\ExternalLibraries\LLVM\bin\x64\libclang.dll`，100587008 字节）；它的 DLL 里
+   **没有** `__is_layout_compatible` 字符串（按字节扫过），新 STL 还用了 `__builtin_verbose_trap`（同样没有）。
+   而 `C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.52.37025` 创建于 **今天 11:17–11:24**。
+   失败是**全量 77 条**，连不依赖任何新代码的夹具 `Tools/CodeGen/TestResource.h` 都 exit 6；
+   用 `build._env_for_root(compile_commands, 'Test/CoreTests')` 原样复算环境参数、直接跑
+   `CodeGen.exe Tools/CodeGen/TestResource.h NewRes <env> --emit-all --out-dir %TEMP%\…` 可复现同一错误。
+   缓存之所以今天才暴露：CodeGen 指纹包含每个依赖文件的内容哈希，STL 头整体更新 ⇒ 77 条全部失效重跑。
+2. **工具集换成 14.52 后，现有 C++ 编译回归**：`Main.cpp` 多处 `CANAME` 的
+   `castl::string_literal<castl::string_view{str}.size()>(str)`（constexpr NTTP）在 MSVC 14.52 上报
+   `C2975 'n' invalid template argument`（不是本 change 引入的代码）。本机同时装着
+   VS2022 / `MSVC\14.44.35207`（旧可用工具集）。
+
+## 修复（用户授权修环境）
+
+- **libclang 升到 LLVM 21.1.8**（主循环执行；新 DLL 含 `__is_layout_compatible` / `__builtin_verbose_trap`）。
+  旧 DLL 备份在 `%TEMP%\libclang-old`。
+- **build.py 的 VS 选择钉到 VS2022（17.x）**（本 change 的 `build.py` 改动，只改这一处）：
+  - `vswhere -latest -version "[17.0,18.0)" -property installationPath`；
+  - fallback 列表把 `…\2022\Community` 放在 `…\18\Community` 之前；
+  - 源码里留中文注释说明原因（14.52 的 constexpr NTTP 回归；libclang 21 能解析 14.44 的 STL）。
+
+## 只读核验（改完、重建之前）
+
+```text
+python -c "import ast, pathlib; ast.parse(pathlib.Path('build.py').read_text(encoding='utf-8'))"  → exit 0
+python -c "import build; print(build.find_vs_path())"
+  → C:\Program Files\Microsoft Visual Studio\2022\Community
+vswhere -latest -version "[17.0,18.0)" -property installationPath
+  → C:\Program Files\Microsoft Visual Studio\2022\Community   （不限制版本时返回 …\18\Community）
+```
+
+## 对本 change 的意义
+
+- 本 change 没有改任何被 CodeGen 解析的头（`RenderBackend_D3D12.h` 与 HEAD 逐字节一致；非绑定面接口改为
+  `D3D12WebRenderSpikeProvider` 适配器，只出现在 `.cpp` 与新目录）。这次失败与本 change 的代码无关，
+  修的是"今天上午工具链更新"造成的构建基础设施问题。
+- 修好后的构建读数（`python build.py --config Debug`、CodeGen 74/74、`--list`、绿跑、四红态）见
+  `evidence/3.1-同源正控与红态.txt` 与 `evidence/2.2-门控与关闭顺序.txt`。

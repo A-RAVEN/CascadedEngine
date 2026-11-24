@@ -1,0 +1,9 @@
+{
+  "id": "主张-影响-008",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "claim": "「绑定产物逐字节不变」与「后端纹理带共享句柄」在工件里同时成立，只可能建立在一个未写出的前提上：共享句柄不经过 14 个可绑接口。但 GPUTexture 就在绑定面（Tools/CodeGen/interface-ids.lock 第 18 行编号 6 GPUTexture；check_native_snapshot.py 的原生头投影清单含 GPUTexture.h；check_bindings.py 要求生成的 C# 里有 public struct GPUTextureDescriptor），而要从后端纹理拿到共享句柄，最直接的做法就是给 GPUTexture 加方法（如 GetSharedHandle）或给描述符加共享标志字段——两者都改生成器输入，重生成的绑定产物必然与基线不同，tasks 4.1 的「缺失0/不一致0/多余0」不可能成立。C# 原型代码本身确实不碰生成器（编辑器 C# 0 处 CA_REFLECT/CA_CODEGEN，CODEGEN_ANNOTATED 区间 0 处 Editor/Scripting），这部分声称成立；冲突只出在原生共享句柄面，而工件把「spike 不碰生成器/绑定面」当成既定事实，没有写成对实现的约束。",
+  "location": "Tools/CodeGen/interface-ids.lock:18；Tools/CodeGen/check_native_snapshot.py:42-49；Tools/CodeGen/check_bindings.py:484；Tools/CodeGen/README.md:1058（审计范围 14 个接口）；Interface/RenderInterface/header/GPUTexture.h:150-158；openspec/changes/editor-web-render-spike/tasks.md:14、25；openspec/changes/editor-web-render-spike/specs/editor-web-render-spike/spec.md:33",
+  "evidence_ref": "证据-影响-008.md",
+  "suggested_fix": "在 design 里写死：「共享句柄不得经由 14 个可绑接口暴露」，并给出替代位置（D3D12 后端私有测试钩子或后端内部句柄，由 C++ tester 直接取）；若确实要扩 GPUTexture 面，就必须改写 4.1：换锚 + 逐文件对照 + 明确本次绑定产物的预期变化，不能同时声称逐字节不变。"
+}

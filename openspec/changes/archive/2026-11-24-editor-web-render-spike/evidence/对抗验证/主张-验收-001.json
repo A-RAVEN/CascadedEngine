@@ -1,0 +1,9 @@
+{
+  "id": "主张-验收-001",
+  "face": "验收可失败性-①（3.1 网页 canvas 中心像素断言）",
+  "severity": "Blocking",
+  "claim": "3.1 的断言只读 canvas 位图（putImageData 写进去、getImageData 读回来），覆盖不到「原生像素已经送到位、但 WebView2 里根本看不见」这一类反例；而 3.1 列出的反例只有「原生未渲染 / 互操作断链」两种（都等价于「数据没到」）。于是 spike 要证的「原生渲染进网页看得见」中的「看得见」这一半无法判红：页面被 CSS 隐藏、canvas 尺寸为 0、面板未挂载时，位图里仍是红的，断言照旧通过。",
+  "location": "openspec/changes/editor-web-render-spike/tasks.md:20；design.md:39；specs/editor-web-render-spike/spec.md:5 与 :10",
+  "evidence_ref": "openspec/changes/editor-web-render-spike/evidence/对抗验证/证据-验收-001.md",
+  "suggested_fix": "3.1 加三件事，缺一即判不合格：① 红态清单增「显示类」反例——用自检开关把 scene 面板/canvas 置为 display:none、或宽高 0、或父容器不挂载，预期失败码写死为 E_WEBCANVAS_INVISIBLE 且 evidence 存 result.json 的 error 原文；② 回传行必须同时带 canvas 的几何与可见性读数（canvas.width/height、getBoundingClientRect() 的宽高、document.visibilityState），C++ 对这三项逐项断言非零/可见，缺任一项判 E_WEBCANVAS_GEOMETRY；③ 把 design.md:39 的「或」改成「且」：getImageData 回传断言与 3.2 的 CapturePreviewAsync 抓窗两条都必须过，不许拿任一条替代另一条。"
+}
